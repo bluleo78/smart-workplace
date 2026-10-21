@@ -1,19 +1,36 @@
 // 위키 REST API client. 모든 함수는 AxiosResponse 반환 — 호출처에서 .data unwrap.
 
+import { WIKI_SHARE_TOKEN_HEADER } from '@smart-workplace/wiki-editor-schema/collab-protocol'
+
 import type {
   WikiAttachment,
   WikiBacklinksResponse,
   WikiMember,
   WikiMentionRef,
   WikiPageDetail,
+  WikiPageEntry,
+  WikiPageShare,
+  WikiPageShareRequest,
+  WikiPageShareState,
   WikiPageSummary,
   WikiPageSummaryState,
   WikiRevisionDetail,
   WikiRevisionList,
   WikiSearchResult,
+  WikiShareAccessRequestResult,
+  WikiSharedPageItem,
+  WikiShareEvent,
+  WikiShareListItem,
+  WikiShareResolved,
   WikiSpace,
 } from '../types/wiki'
 import { client } from './client'
+
+/**
+ * 공유 토큰 → 요청 헤더(WP-579, 헤더 이름은 동기화 서버와 같은 collab-protocol 상수) — 서버는 멤버가 아닐 때 이 토큰으로 접근을 판정한다.
+ * 헤더를 만드는 곳은 여기 한 곳이다(이미지 blob 처럼 이 파일 밖에서 부르는 요청도 이걸 쓴다).
+ */
+export const shareHeaders = (token?: string) => (token ? { [WIKI_SHARE_TOKEN_HEADER]: token } : undefined)
 
 export const wikiApi = {
   listSpaces: () => client.get<WikiSpace[]>('/wiki/spaces'),
@@ -38,17 +55,22 @@ export const wikiApi = {
     client.post<WikiPageDetail>(`/wiki/spaces/${spaceId}/pages`, { parentId, title }),
 
   // base=false: 새 웹은 본문을 동기화 서버로 저장하므로 AI 병합 기준본을 남길 필요가 없다(WP-289 — 기본값은 구버전 웹·MCP 용 기록).
-  getPage: (pageId: number) => client.get<WikiPageDetail>(`/wiki/pages/${pageId}`, { params: { base: false } }),
+  // shareToken: 공유 링크로 연 화면(WP-579) — 스페이스 멤버가 아니어도 이 토큰으로 읽는다.
+  getPage: (pageId: number, shareToken?: string) =>
+    client.get<WikiPageDetail>(`/wiki/pages/${pageId}`, { params: { base: false }, headers: shareHeaders(shareToken) }),
   // 제목만 저장 — 본문은 동기화 서버(Yjs)가 원본이라 웹은 본문을 REST 로 보내지 않는다(WP-287). body:null 은 서버 계약상 "본문 유지".
-  savePageTitle: (pageId: number, title: string) =>
-    client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title, body: null }),
+  // 공유 화면(편집 링크)은 제목만 고칠 수 있다 — 서버는 body 가 없을 때만 공유 토큰을 받는다.
+  savePageTitle: (pageId: number, title: string, shareToken?: string) =>
+    client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title, body: null }, { headers: shareHeaders(shareToken) }),
   movePage: (pageId: number, parentId: number | null, position: number) =>
     client.patch<void>(`/wiki/pages/${pageId}/move`, { parentId, position }),
   deletePage: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}`),
 
-  // 본문 멘션 토큰을 라벨/링크 정보로 해소 — 칩 렌더용.
-  getMentions: (pageId: number) =>
-    client.get<WikiMentionRef[]>(`/wiki/pages/${pageId}/mentions`),
+  // 본문 멘션 토큰을 라벨/링크 정보로 해소 — 칩 렌더용. 공유 화면이면 볼 수 없는 대상은 inaccessible 로 온다.
+  getMentions: (pageId: number, shareToken?: string) =>
+    client.get<WikiMentionRef[]>(`/wiki/pages/${pageId}/mentions`, { headers: shareHeaders(shareToken) }),
+  // 알림에서 노트를 열 때 갈 곳(WP-579) — 멤버면 노트 주소, 공유 대상이면 지금 토큰. 둘 다 아니면 404.
+  getPageEntry: (pageId: number) => client.get<WikiPageEntry>(`/wiki/pages/${pageId}/entry`),
   // 이 페이지를 참조하는 다른 페이지 목록(백링크).
   getBacklinks: (pageId: number) =>
     client.get<WikiBacklinksResponse>(`/wiki/pages/${pageId}/backlinks`),
@@ -79,14 +101,41 @@ export const wikiApi = {
     client.post<WikiPageDetail>(`/wiki/pages/${pageId}/revisions/${version}/restore`),
 
   // #751: 본문 이미지 업로드. 응답 url 을 그대로 마크다운에 삽입한다(클라이언트가 경로를 조립하지 않는다).
-  uploadAttachment: (pageId: number, file: File) => {
+  // shareToken: 공유 화면(편집 링크)에서 이미지를 붙여 넣을 때.
+  uploadAttachment: (pageId: number, file: File, shareToken?: string) => {
     const fd = new FormData()
     fd.append('file', file)
     return client.post<WikiAttachment>(`/wiki/pages/${pageId}/attachments`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': 'multipart/form-data', ...shareHeaders(shareToken) },
     })
   },
   // 본문 이미지 첨부 삭제.
   deleteAttachment: (pageId: number, fileId: number) =>
     client.delete<void>(`/wiki/pages/${pageId}/attachments/${fileId}`),
+
+  // WP-579 페이지 공유 — 공유 창 상태(설정·외부 허용·상위 공유·접근 요청)·만들기/바꾸기·재발급·해제·기록.
+  getShare: (pageId: number) => client.get<WikiPageShareState>(`/wiki/pages/${pageId}/share`),
+  saveShare: (pageId: number, req: WikiPageShareRequest) =>
+    client.put<WikiPageShare>(`/wiki/pages/${pageId}/share`, req),
+  regenerateShare: (pageId: number) => client.post<WikiPageShare>(`/wiki/pages/${pageId}/share/regenerate`),
+  deleteShare: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}/share`),
+  listShareEvents: (pageId: number) => client.get<WikiShareEvent[]>(`/wiki/pages/${pageId}/share/events`),
+  // 스페이스에서 공유 중인 페이지 목록.
+  listSharedPages: (spaceId: number) => client.get<WikiSharedPageItem[]>(`/wiki/spaces/${spaceId}/shares`),
+  // 공유 링크 열기 — 토큰으로 볼 수 있는 페이지 묶음을 받는다.
+  resolveShare: (token: string) => client.get<WikiShareResolved>(`/wiki/shares/${token}`),
+  // 지정한 사람이 아닌 멤버의 접근 요청과, 공유한 사람의 승인·거절.
+  requestShareAccess: (token: string) =>
+    client.post<WikiShareAccessRequestResult>(`/wiki/shares/${token}/access-requests`),
+  decideShareAccess: (pageId: number, requestId: number, approve: boolean) =>
+    client.post<void>(`/wiki/pages/${pageId}/share/access-requests/${requestId}/${approve ? 'approve' : 'deny'}`),
+
+  // 관리자 — 외부 공유 허용 정책, 워크스페이스 전체 공유 목록·일괄 해제.
+  getSharePolicy: () => client.get<{ externalShareEnabled: boolean }>('/admin/wiki/share-policy'),
+  saveSharePolicy: (externalShareEnabled: boolean) =>
+    client.put<{ externalShareEnabled: boolean }>('/admin/wiki/share-policy', { externalShareEnabled }),
+  listAllShares: () => client.get<WikiShareListItem[]>('/admin/wiki/shares'),
+  // 내가 만든 공유(모든 스페이스) — 설정 › 내 공유.
+  listMyShares: () => client.get<WikiShareListItem[]>('/wiki/shares/mine'),
+  revokeShares: (pageIds: number[]) => client.post<void>('/admin/wiki/shares/revoke', { pageIds }),
 }

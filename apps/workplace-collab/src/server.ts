@@ -14,6 +14,7 @@ import {
   COLLAB_ROLE_CHANGED_TYPE,
   COLLAB_SCHEMA_MISMATCH,
   COLLAB_SCHEMA_PARAM,
+  COLLAB_SHARE_PARAM,
   type CollabAiMarker,
   isCollabEditRole,
   parseCollabAiMessage,
@@ -92,7 +93,11 @@ export interface DocStore {
   storeState(ctx: DocCtx, state: Uint8Array, bodyVersion: number): Promise<void>
 }
 
-/** 인증된 접속자. expiresAt 은 epoch ms — null 이면 만료 없음(PAT·API 키 등 JWT 아닌 인증). */
+/**
+ * 인증된 접속자. expiresAt 은 epoch ms — null 이면 만료 없음(PAT·API 키 등 JWT 아닌 인증).
+ * shareExpiresAt(WP-579, epoch ms) — 역할을 공유 링크가 정했을 때 그 공유가 끝나는 시각. 서버가 이 시각에 그 연결을 다시 판정한다
+ * (자연 만료는 API 가 재검증을 부르지 않는다). 멤버 역할이거나 무기한 공유면 null.
+ */
 export interface Who {
   userId: number
   name: string
@@ -100,24 +105,29 @@ export interface Who {
   spaceId: number
   role: string
   expiresAt: number | null
+  shareExpiresAt: number | null
 }
 
 /**
  * 연결 인증 — 운영은 API collab-access, 테스트 모드는 스텁(testMode.ts).
  * null = 확정된 권한 없음(거부·4403, 삭제 재검증이면 4404). 토큰 자체가 거절되면 TokenRejectedError 를 던진다(만료 처리·4401).
+ * shareToken(WP-579) = 공유 링크로 연 화면이 보낸 공유 토큰 — 있으면 멤버 역할과 공유 역할 중 높은 쪽으로 판정한다.
  */
 export interface Authenticator {
-  authenticate(docName: string, pageId: number, token: string): Promise<Who | null>
+  authenticate(docName: string, pageId: number, token: string, shareToken?: string | null): Promise<Who | null>
 }
 
 /**
  * 연결 컨텍스트(onAuthenticate 반환값) — 이후 훅의 context 로 전달된다.
- * token 은 권한 재검증(revalidate)용으로 메모리에만 보관 — 로그 금지.
+ * token·shareToken 은 권한 재검증(revalidate)용으로 메모리에만 보관 — 로그 금지.
+ * shareToken(WP-579): 공유 링크로 붙은 연결의 공유 토큰(`share` 쿼리), 멤버로 붙었으면 null. 재검증이 같은 토큰으로 다시 판정해
+ * 해제·재발급된 공유 연결을 닫는다.
  * apply-markdown 의 내부 직접 연결(openDirectConnection)은 tenantId·pageId 만 넣어도 로드된다.
  */
 export interface ConnectionContext extends Who {
   pageId: number
   token: string
+  shareToken: string | null
 }
 export type CollabContext = Partial<ConnectionContext>
 
@@ -143,6 +153,15 @@ export const APPLY_STORE_MIN_MS = 3_000
 export const AI_TAG_TTL_MS = 5_000
 // setTimeout 최대 지연(약 24.8일) — 넘기면 즉시 실행되므로 나눠서 건다.
 const MAX_TIMER_MS = 2 ** 31 - 1
+/** 닫힌 공유 연결 표시(WP-579) — 공유 만료 타이머 자리에 두어 그 연결에 다시 걸지 않게 한다. */
+const SHARE_CLOSED = Symbol('share-closed')
+/**
+ * 공유 만료 재판정이 아직 열린 것으로 나왔을 때(동기화 서버 시계가 DB 보다 앞섬) 다시 묻기까지의 최소 간격(ms, WP-579) —
+ * 만료 시각이 이미 지난 값으로 다시 걸려 타이머가 곧바로 되풀이되는 고리를 막는다.
+ */
+export const SHARE_EXPIRY_RECHECK_MS = 1_000
+/** 공유 만료 재판정이 API 장애로 실패했을 때 다시 시도하기까지(ms) — 일시 장애로 연결을 끊지 않되, 만료된 공유를 오래 열어 두지 않는다. */
+export const SHARE_EXPIRY_RETRY_MS = 30_000
 /**
  * 스키마 판 불일치 로그 간격(ms) — 인증 전 거부라 누구나(미인증 클라이언트) 유발할 수 있어, 한 간격에 한 줄만 남기고
  * 나머지는 다음 줄에 건수로 합친다(로그 범람 방지). 배포 직후 옛 탭이 몰려도 간격당 한 줄.
@@ -150,6 +169,9 @@ const MAX_TIMER_MS = 2 ** 31 - 1
 export const SCHEMA_MISMATCH_LOG_MS = 10_000
 /** 로그에 싣는 클라이언트 값 상한(글자) — 위조된 긴 값·개행으로 로그 줄을 꾸미지 못하게 JSON 으로 감싸고 자른다. */
 const LOG_VALUE_MAX = 32
+
+/** 받아들이는 공유 토큰 모양(WP-579) — API 토큰은 `wsh_` + base62 라 영숫자·`_`·`-` 만, 길이는 넉넉히 128 자까지. */
+const SHARE_TOKEN_SHAPE = /^[A-Za-z0-9_-]{1,128}$/
 
 /** 클라이언트가 보낸 값을 로그용으로 — JSON 문자열(개행·따옴표 이스케이프)로 바꾸고 LOG_VALUE_MAX 에서 자른다. */
 function clipForLog(value: unknown): string {
@@ -196,8 +218,8 @@ export function apiDocStore(api: ApiClient): DocStore {
 /** API collab-access 기반 인증 — 요청한 문서와 다른 페이지 판정 응답은 거부. */
 export function apiAuthenticator(api: ApiClient): Authenticator {
   return {
-    async authenticate(_docName, pageId, token) {
-      const a = await api.access(pageId, token)
+    async authenticate(_docName, pageId, token, shareToken) {
+      const a = await api.access(pageId, token, shareToken)
       if (!a || a.pageId !== pageId) return null
       return {
         userId: a.userId,
@@ -206,6 +228,7 @@ export function apiAuthenticator(api: ApiClient): Authenticator {
         spaceId: a.spaceId,
         role: a.role,
         expiresAt: a.tokenExp == null ? null : a.tokenExp * 1000,
+        shareExpiresAt: a.shareExpiresAt ?? null,
       }
     },
   }
@@ -278,6 +301,9 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   // 앱 기한·만료를 재는 시계(CollabDeps.clock) — 이 시계로 건 타이머는 반드시 이 시계로 지운다(손잡이가 시계마다 다르다).
   const clock = deps.clock ?? realClock
   const expiryTimers = new Set<unknown>()
+  // 공유로 붙은 연결의 만료 재판정 상태(WP-579) — 연결마다 하나: 걸린 타이머 손잡이(armConnTimer 가 expiryTimers 에도 넣는다), 또는 연결이
+  // 닫혀 다시 걸지 않음(SHARE_CLOSED — 재판정이 API 를 기다리는 사이 닫히면 닫힌 연결에 타이머 고리가 남지 않게).
+  const shareTimers = new WeakMap<Connection<CollabContext>, unknown>()
   const unloadWaiters = new Map<string, Array<() => void>>()
   // 워커 스레드는 첫 병합 때 뜬다(replace 만 쓰거나 병합이 없으면 띄우지 않음).
   const merger = deps.merger ?? createMergeRunner()
@@ -704,8 +730,11 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
   }
 
   /**
-   * 권한 재판정 — 대상 연결마다 보관한 사용자 토큰으로 다시 판정한다.
-   * - 대상: 같은 테넌트 + (pageIds 있으면 그 페이지들, 없으면 spaceId, 둘 다 없으면 스페이스 무관) + (userId 있으면 그 사용자).
+   * 권한 재판정 — 대상 연결마다 보관한 사용자 토큰(공유로 붙은 연결은 공유 토큰도 함께)으로 다시 판정한다.
+   * - 대상: 같은 테넌트 + (pageIds 있으면 그 페이지들, 없으면 spaceId, 둘 다 없으면 스페이스 무관) + (userId 있으면 그 사용자)
+   *   + (sharedOnly 면 공유 토큰으로 붙은 연결만). 공유 해제·재발급(WP-579)은 pageIds + sharedOnly 로 오므로 그 페이지의 공유 연결만
+   *   대상이다 — 해제된 토큰으로 다시 판정돼 접근이 없으면 4403. 멤버 연결은 공유 변경으로 권한이 바뀌지 않아 묻지 않는다(sharedOnly 가 없는
+   *   옛 API 의 요청이면 멤버 연결도 다시 판정되지만 멤버 역할 그대로 남는다).
    * - 토큰 거절(401, JWT 만료) → 4401(만료와 같은 경로) — 권한 회수로 오판해 웹이 미전송 입력을 버리지 않게.
    * - 확정된 접근 없음(판정 null = collab-access 404·403) → 소켓을 4403 으로 닫는다(요청 사유가 deleted 면 4404 — 웹이 삭제 안내를 보인다). Connection.close() 는 provider 에 코드 1000 만 보내고 재접속도 하지 않아
    *   웹이 회수를 구분할 수 없다(4401 과 같은 이유). 소켓의 다른 문서도 함께 끊기지만 provider 가 재접속해 권한 있는 문서는 다시 붙는다.
@@ -721,16 +750,18 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
         if (c.tenantId !== req.tenantId || c.pageId == null) continue
         if (pageIds ? !pageIds.has(c.pageId) : req.spaceId != null && c.spaceId !== req.spaceId) continue
         if (req.userId != null && c.userId !== req.userId) continue
+        if (req.sharedOnly && !c.shareToken) continue
         targets.push({ doc, conn })
       }
     }
-    // 같은 문서·토큰(한 사용자의 여러 탭·재접속)은 판정을 한 번만 부르고 결과를 나눠 쓴다.
+    // 같은 문서·토큰·공유 토큰(한 사용자의 여러 탭·재접속)은 판정을 한 번만 부르고 결과를 나눠 쓴다.
+    // 공유 토큰도 키에 넣는다 — 같은 사용자의 멤버 탭과 공유 탭은 역할이 달라 판정을 섞으면 한쪽이 다른 쪽 역할을 얻는다.
     const verdicts = new Map<string, Promise<Who | null>>()
-    const authenticateOnce = (docName: string, pageId: number, token: string): Promise<Who | null> => {
-      const key = `${docName}\n${token}`
+    const authenticateOnce = (docName: string, pageId: number, token: string, shareToken: string | null): Promise<Who | null> => {
+      const key = `${docName}\n${token}\n${shareToken ?? ''}`
       let p = verdicts.get(key)
       if (!p) {
-        p = auth.authenticate(docName, pageId, token)
+        p = auth.authenticate(docName, pageId, token, shareToken)
         verdicts.set(key, p)
       }
       return p
@@ -741,7 +772,7 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
         const c = conn.context
         let who: Who | null
         try {
-          who = await authenticateOnce(doc.name, c.pageId!, c.token ?? '')
+          who = await authenticateOnce(doc.name, c.pageId!, c.token ?? '', c.shareToken ?? null)
         } catch (e) {
           // 보관한 토큰이 거절됨(JWT 만료) — 권한 회수가 아니므로 만료와 같은 4401 로 닫아 웹이 토큰을 갱신해 다시 붙게 한다.
           // 갱신한 토큰으로 재접속하면 연결 판정이 실제 권한을 다시 확인한다(권한이 없으면 그때 'forbidden').
@@ -753,21 +784,90 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
           console.error(`[collab] revalidate failed ${doc.name} user ${c.userId}:`, (e as Error).message)
           return
         }
-        if (!who || who.tenantId !== c.tenantId) {
-          // 삭제 재검증이면 "삭제되었습니다"로 알리고(4404), 그 밖(멤버 제거 등)은 권한 회수(4403).
-          const close = req.reason === REVALIDATE_REASON_DELETED ? CLOSE_DELETED : CLOSE_FORBIDDEN
-          conn.webSocket.close(close.code, close.reason)
-          return
-        }
-        const readOnly = !isCollabEditRole(who.role)
-        c.role = who.role
-        if (conn.readOnly !== readOnly) {
-          conn.readOnly = readOnly
-          conn.sendStateless(JSON.stringify({ type: COLLAB_ROLE_CHANGED_TYPE, role: who.role }))
-        }
+        applyVerdict(doc.name, conn, who, req.reason === REVALIDATE_REASON_DELETED)
       }),
     )
     if (failed > 0) throw new HttpError(503, `revalidate failed for ${failed} connection(s)`)
+  }
+
+  /**
+   * 한 연결에 새 판정을 적용한다 — 재검증·공유 만료 재판정이 함께 쓴다.
+   * - 접근 없음(또는 다른 테넌트) → 소켓 4403 종료(deleted 면 4404 — 웹이 삭제 안내를 보인다).
+   * - 역할 변경 → readOnly 전환 + stateless 로 새 역할 통지.
+   * - 공유로 붙은 연결 → 새 판정의 공유 만료로 타이머를 다시 건다(만료를 앞당기거나 늘린 변경도 여기서 반영된다).
+   */
+  function applyVerdict(docName: string, conn: Connection<CollabContext>, who: Who | null, deleted: boolean, minDelayMs = 0): void {
+    const c = conn.context
+    if (!who || who.tenantId !== c.tenantId) {
+      // 삭제 재검증이면 "삭제되었습니다"로 알리고(4404), 그 밖(멤버 제거·공유 해제·만료 등)은 권한 회수(4403).
+      const close = deleted ? CLOSE_DELETED : CLOSE_FORBIDDEN
+      conn.webSocket.close(close.code, close.reason)
+      return
+    }
+    const readOnly = !isCollabEditRole(who.role)
+    c.role = who.role
+    if (conn.readOnly !== readOnly) {
+      conn.readOnly = readOnly
+      conn.sendStateless(JSON.stringify({ type: COLLAB_ROLE_CHANGED_TYPE, role: who.role }))
+    }
+    if (c.shareToken) armShareExpiry(docName, conn, who.shareExpiresAt, minDelayMs)
+  }
+
+  /**
+   * 공유로 붙은 연결의 만료 재판정 타이머를 (다시) 건다(WP-579, 설계 「만료 = 즉시 막힘」). 자연 만료는 API 가 재검증을 부르지 않으므로
+   * 서버가 그 시각에 같은 토큰으로 다시 판정한다 — 접근이 없으면 4403, 멤버 역할로 남으면 역할만 바뀐다. at=null(멤버 역할·무기한)이면 타이머 없음.
+   * minDelayMs: 재판정 직후 다시 걸 때 최소 간격 — 동기화 서버 시계가 DB 보다 앞서 「아직 열림」이 나오면 곧바로 되풀이하지 않게.
+   */
+  function armShareExpiry(docName: string, conn: Connection<CollabContext>, at: number | null, minDelayMs = 0): void {
+    const prev = shareTimers.get(conn)
+    if (prev === SHARE_CLOSED) return
+    if (prev !== undefined) {
+      disarmConnTimer(prev)
+      shareTimers.delete(conn)
+    }
+    if (at == null) return
+    const timer = armConnTimer(Math.max(at - clock.now(), minDelayMs), () => {
+      shareTimers.delete(conn)
+      void rejudgeShare(docName, conn)
+    })
+    shareTimers.set(conn, timer)
+  }
+
+  /**
+   * 연결 타이머를 건다(토큰 만료·공유 만료 공통) — 지연을 setTimeout 상한(MAX_TIMER_MS)으로 자르고, 손잡이를 expiryTimers 에 넣어 서버 종료 때
+   * 함께 지운다. 울리면 expiryTimers 에서 빼고 fire 를 부른다. 상한에서 잘렸으면 fire 가 남은 시간을 다시 재서 건다.
+   */
+  function armConnTimer(delayMs: number, fire: () => void): unknown {
+    const timer = clock.setTimeout(() => {
+      expiryTimers.delete(timer)
+      fire()
+    }, Math.min(delayMs, MAX_TIMER_MS))
+    expiryTimers.add(timer)
+    return timer
+  }
+
+  /** armConnTimer 로 건 타이머를 지운다(연결 종료·다시 걸기). */
+  function disarmConnTimer(timer: unknown): void {
+    clock.clearTimeout(timer)
+    expiryTimers.delete(timer)
+  }
+
+  /** 공유 만료 시각에 그 연결 하나만 다시 판정한다 — 토큰 거절(JWT 만료)은 4401, API 장애는 연결을 두고 잠시 뒤 다시 시도. */
+  async function rejudgeShare(docName: string, conn: Connection<CollabContext>): Promise<void> {
+    const c = conn.context
+    let who: Who | null
+    try {
+      who = await auth.authenticate(docName, c.pageId!, c.token ?? '', c.shareToken ?? null)
+    } catch (e) {
+      if (e instanceof TokenRejectedError) {
+        conn.webSocket.close(CLOSE_TOKEN_EXPIRED.code, CLOSE_TOKEN_EXPIRED.reason)
+        return
+      }
+      console.error(`[collab] share expiry recheck failed ${docName} user ${c.userId}:`, (e as Error).message)
+      armShareExpiry(docName, conn, clock.now() + SHARE_EXPIRY_RETRY_MS)
+      return
+    }
+    applyVerdict(docName, conn, who, false, SHARE_EXPIRY_RECHECK_MS)
   }
 
   /**
@@ -875,9 +975,13 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       }
       const pageId = pageIdOf(documentName, cfg.testMode)
       if (pageId == null) throw deny('invalid-document')
+      // 공유 토큰(WP-579) — 빈 값은 공유 없음. 토큰 모양(base62 + 접두 `wsh_`)이 아니면 API 에 보내지 않고 권한 없음으로 끝낸다
+      // (헤더에 실을 수 없는 개행·지나치게 긴 값을 그대로 전달하지 않게).
+      const shareToken = requestParameters.get(COLLAB_SHARE_PARAM) || null
+      if (shareToken != null && !SHARE_TOKEN_SHAPE.test(shareToken)) throw deny('forbidden')
       let who: Who | null
       try {
-        who = await auth.authenticate(documentName, pageId, token)
+        who = await auth.authenticate(documentName, pageId, token, shareToken)
       } catch (e) {
         // 토큰 거절(만료 JWT)은 권한 없음이 아니다 — 웹이 토큰을 갱신해 다시 붙도록 만료 사유로 거부한다.
         if (e instanceof TokenRejectedError) throw deny('token-expired')
@@ -887,31 +991,36 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
       if (who.expiresAt != null && who.expiresAt <= clock.now()) throw deny('token-expired')
       // VIEWER 는 서버가 수정 메시지를 버린다(조작된 클라이언트 대비 — UI 의 editable:false 만 믿지 않음).
       connectionConfig.readOnly = !isCollabEditRole(who.role)
-      return { ...who, pageId, token }
+      return { ...who, pageId, token, shareToken }
     },
 
     // 토큰 만료 시 소켓을 4401 로 닫아 웹이 토큰을 갱신해 다시 붙게 한다(장시간 연결에서 만료 토큰 사용 방지).
     // 연결 단위가 아니라 소켓을 닫는 이유: Connection.close() 는 provider 에 코드 1000 의 문서 CLOSE 만 보내고
     // 소켓·자동 재접속을 그대로 두어 웹이 만료를 구분할 수 없다. 한 소켓의 문서들은 같은 토큰을 쓴다.
-    async connected({ connection, context }) {
+    async connected({ connection, context, documentName }) {
+      // 공유로 붙은 연결은 공유 만료에 다시 판정한다(WP-579) — 토큰 만료와 별개라 토큰이 무기한이어도 건다. 연결이 닫히면 지운다.
+      if (context.shareToken) {
+        const conn = connection as Connection<CollabContext>
+        armShareExpiry(documentName, conn, context.shareExpiresAt ?? null)
+        connection.onClose(() => {
+          // 걸린 타이머를 지우고 닫힘으로 남긴다 — 진행 중인 재판정이 끝나도 다시 걸지 않는다.
+          armShareExpiry(documentName, conn, null)
+          shareTimers.set(conn, SHARE_CLOSED)
+        })
+      }
       const expiresAt = context.expiresAt
       if (expiresAt == null) return
       let timer: unknown
       const arm = () => {
         const left = expiresAt - clock.now()
-        expiryTimers.delete(timer)
         if (left <= 0) {
           connection.webSocket.close(CLOSE_TOKEN_EXPIRED.code, CLOSE_TOKEN_EXPIRED.reason)
           return
         }
-        timer = clock.setTimeout(arm, Math.min(left, MAX_TIMER_MS))
-        expiryTimers.add(timer)
+        timer = armConnTimer(left, arm)
       }
       arm()
-      connection.onClose(() => {
-        clock.clearTimeout(timer)
-        expiryTimers.delete(timer)
-      })
+      connection.onClose(() => disarmConnTimer(timer))
     },
 
     async onLoadDocument({ document, documentName, context }) {

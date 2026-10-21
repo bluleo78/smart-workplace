@@ -8,9 +8,12 @@ import com.workplace.wiki.dto.WikiBacklink;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiReferenceRow;
+import com.workplace.wiki.dto.WikiShareGrant;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiReferenceRepository;
+import com.workplace.wiki.repository.WikiShareRepository;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -30,13 +33,28 @@ public class WikiHydrationService {
   private final WikiReferenceParser refParser;
   private final UserMentionHydrator userHydrator;
   private final IssueLookupService issueLookup;
+  // WP-579 공유 링크로 들어온 사람의 멘션 가림 — 공유 범위 판정과 범위 안 페이지 제목.
+  private final WikiShareAccess shareAccess;
+  private final WikiShareRepository shares;
 
-  /**
-   * 본문 토큰을 칩 메타로 하이드레이션한다. 유저→페이지→이슈 순으로 합치며, 각 타입 내부는 본문 등장 순서를 보존한다. 비가시/비실존 대상은 제외(드랍). 빈 본문이면 빈
-   * 리스트.
-   */
+  /** 멤버 경로 하이드레이션 — {@link #resolveMentions(long, String, WikiShareGrant)} 의 grant=null. */
   @Transactional(readOnly = true)
   public List<WikiMentionRef> resolveMentions(long callerId, String body) {
+    return resolveMentions(callerId, body, null);
+  }
+
+  /**
+   * 본문 토큰을 칩 메타로 하이드레이션한다. 유저→페이지→이슈 순으로 합치며, 각 타입 내부는 본문 등장 순서를 보존한다. 빈 본문이면 빈 리스트.
+   *
+   * <p>grant 가 없으면(멤버) 비가시/비실존 대상은 제외(드랍)한다 — 지금까지와 같다. grant 가 있으면(공유 링크로 들어온 비멤버, WP-579) 볼 수 있는
+   * 페이지는 「호출자가 멤버인 스페이스의 페이지」와 「이 공유의 지금 범위 안 페이지」이고, 그 밖의 페이지와 볼 수 없는(또는 없는) 이슈는 빼지 않고 {@link
+   * WikiMentionRef#inaccessible} 로 돌린다 — 칩이 「접근 권한 없음」으로 보이고 제목·소속은 새지 않는다. 사람은 같은 테넌트라 그대로 보인다. 노트
+   * 본문에 드라이브 멘션 토큰은 없어 해당 없음.
+   *
+   * @param grant 공유 링크 권한({@link WikiShareAccess.EffectiveAccess#maskingGrant}), 멤버면 null
+   */
+  @Transactional(readOnly = true)
+  public List<WikiMentionRef> resolveMentions(long callerId, String body, WikiShareGrant grant) {
     List<WikiMentionRef> out = new ArrayList<>();
 
     // 1) 유저 멘션: 실존 유저만 통과(MentionResponse.name 을 라벨로). USER 는 라우트/이슈 메타 없음.
@@ -53,14 +71,21 @@ public class WikiHydrationService {
       else issueIds.add(r.targetId());
     }
 
-    // 2) 페이지: 호출자가 멤버인 스페이스의 페이지만(가시성 스코핑).
+    // 2) 페이지: 호출자가 멤버인 스페이스의 페이지만(가시성 스코핑) + 공유로 들어왔으면 공유 범위 안 페이지.
     // 배치 조회는 IN(ids) 라 DB 가 입력 순서를 보장하지 않으므로 pageIds 순서로 재정렬(본문 등장 순서 보존).
     Map<Long, WikiMentionRef> pageMap =
         pages.findVisiblePageRefs(callerId, pageIds).stream()
-            .collect(Collectors.toMap(WikiMentionRef::id, r -> r));
+            .collect(Collectors.toMap(WikiMentionRef::id, r -> r, (a, b) -> a, HashMap::new));
+    if (grant != null) {
+      List<Long> hidden = pageIds.stream().filter(id -> !pageMap.containsKey(id)).toList();
+      for (WikiMentionRef r : shares.findPageRefs(shareAccess.coveredAmong(grant, hidden))) {
+        pageMap.put(r.id(), r);
+      }
+    }
     for (Long pid : pageIds) {
       WikiMentionRef ref = pageMap.get(pid);
       if (ref != null) out.add(ref);
+      else if (grant != null) out.add(WikiMentionRef.inaccessible("PAGE", pid));
     }
 
     // 3) 이슈: 호출자가 멤버인 프로젝트의 활성 이슈만(이슈 모듈 경계 서비스).
@@ -72,6 +97,8 @@ public class WikiHydrationService {
       IssueRef i = issueMap.get(iid);
       if (i != null) {
         out.add(new WikiMentionRef("ISSUE", i.id(), i.title(), null, i.projectKey(), i.number()));
+      } else if (grant != null) {
+        out.add(WikiMentionRef.inaccessible("ISSUE", iid));
       }
     }
     return out;

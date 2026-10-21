@@ -1,4 +1,4 @@
-import { type ComponentType, lazy, type ReactNode, Suspense } from 'react'
+import { type ComponentType, lazy, type ReactNode, Suspense, useState } from 'react'
 import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import { AdminRoute } from './components/AdminRoute'
@@ -7,6 +7,8 @@ import { AppLayout } from './components/layout/AppLayout'
 import { PageErrorBoundary } from './components/PageErrorBoundary'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Skeleton } from './components/ui/skeleton'
+import { WikiSharePublicViewContext } from './components/wiki/wikiSharePublicView'
+import { useAuth } from './hooks/useAuth'
 import { useIsMobile } from './hooks/useIsMobile'
 
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
@@ -59,6 +61,31 @@ const WikiModuleLayout = lazy(() =>
   import('./components/wiki/WikiModuleLayout').then((m) => ({ default: m.WikiModuleLayout })),
 )
 const WikiPage = lazy(() => import('./pages/wiki/WikiPage').then((m) => ({ default: m.WikiPage })))
+// WP-579 공유 링크 화면 — 노트 사이드바 없이 링크로 볼 수 있는 페이지만. 외부 보기는 로그인 없이.
+const WikiSharePage = lazy(() => import('./pages/wiki/WikiSharePage').then((m) => ({ default: m.WikiSharePage })))
+// WP-579 노트 알림 입구 — 멤버면 노트로, 공유 대상이면 공유 화면으로 보낸다.
+const WikiOpenPage = lazy(() => import('./pages/wiki/WikiOpenPage').then((m) => ({ default: m.WikiOpenPage })))
+const WikiPublicSharePage = lazy(() =>
+  import('./pages/wiki/WikiPublicSharePage').then((m) => ({ default: m.WikiPublicSharePage })),
+)
+
+/**
+ * 노트 공유 링크 입구(WP-579) — 로그인 상태면 앱 셸(AppLayout) 안에서 공유 화면을, 아니면 외부 보기를 그린다.
+ * 로그인했어도 링크의 워크스페이스 멤버가 아니고 외부 링크면(공유 화면이 링크 열기 응답으로 알려 옴) 앱 셸 밖 외부 보기로 바꾼다.
+ */
+function WikiShareGate() {
+  const { isLoading, isAuthenticated } = useAuth()
+  const { token = '' } = useParams()
+  // 외부 보기로 바꾼 토큰 — 같은 링크의 하위 페이지로 옮겨도 유지하고, 다른 링크(토큰)로 가면 다시 판정한다.
+  const [publicToken, setPublicToken] = useState<string | null>(null)
+  if (isLoading) return <PageLoader />
+  if (!isAuthenticated || publicToken === token) return <WikiPublicSharePage />
+  return (
+    <WikiSharePublicViewContext.Provider value={setPublicToken}>
+      <AppLayout />
+    </WikiSharePublicViewContext.Provider>
+  )
+}
 const WikiIndexRedirect = lazy(() =>
   import('./pages/wiki/WikiIndexRedirect').then((m) => ({ default: m.WikiIndexRedirect })),
 )
@@ -95,6 +122,8 @@ const MailSettingsPage = lazy(() => import('./pages/settings/MailSettingsPage'))
 const NotificationSettingsPage = lazy(() => import('./pages/settings/NotificationSettingsPage'))
 const AssistantSettingsPage = lazy(() => import('./pages/settings/AssistantSettingsPage'))
 const TokenSettingsPage = lazy(() => import('./pages/settings/TokenSettingsPage'))
+const MySharesPage = lazy(() => import('./pages/settings/MySharesPage'))
+const WikiSharingPage = lazy(() => import('./pages/admin/WikiSharingPage'))
 const SettingsModuleLayout = lazy(() =>
   import('./components/layout/SettingsModuleLayout').then((m) => ({ default: m.SettingsModuleLayout })),
 )
@@ -149,6 +178,12 @@ export default function App() {
           <Route path="/oauth/m365/callback" element={<M365CallbackPage />} />
           {/* 알림 탭 진입점 — 공개 라우트(미로그인이면 목적지를 저장하고 로그인으로) */}
           <Route path="/push-open" element={<PushOpenPage />} />
+          {/* 노트 공유 링크(WP-579) — 로그인했으면 앱 셸 안 공유 화면, 아니면 외부 보기(외부 링크) 또는 로그인으로.
+              스페이스 밖 사람이 여는 화면이라 노트 사이드바(모듈 레이아웃) 밖에 둔다. */}
+          <Route path="/wiki/share/:token" element={<WikiShareGate />}>
+            <Route index element={<WikiSharePage />} />
+            <Route path="pages/:pageId" element={<WikiSharePage />} />
+          </Route>
           {/* 인증 필요 — ProtectedRoute 가 미인증 시 /login 리다이렉트, 통과 시 AppLayout 렌더 */}
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
@@ -199,6 +234,9 @@ export default function App() {
                 <Route path="drive/attachments" element={<DriveAttachmentsView />} />
               </Route>
 
+              {/* 노트 알림 입구(WP-579) — 갈 곳을 정해 바로 넘기므로 노트 사이드바(모듈 레이아웃) 밖에 둔다. */}
+              <Route path="wiki/open/:pageId" element={<WikiOpenPage />} />
+
               {/* 위키 모듈 — 2차 사이드바(스페이스/페이지 트리) 가 감싼다 */}
               <Route element={<WikiModuleLayout />}>
                 <Route path="wiki" element={<DesktopOnly><WikiIndexRedirect /></DesktopOnly>} />
@@ -231,6 +269,7 @@ export default function App() {
                 <Route path="settings/notifications" element={<NotificationSettingsPage />} />
                 <Route path="settings/assistant" element={<AssistantSettingsPage />} />
                 <Route path="settings/tokens" element={<TokenSettingsPage />} />
+                <Route path="settings/my-shares" element={<MySharesPage />} />
 
                 {/* 워크스페이스 관리 — AdminRoute 가 ADMIN 역할 검증 후 통과 */}
                 <Route element={<AdminRoute />}>
@@ -239,6 +278,7 @@ export default function App() {
                   <Route path="settings/roles" element={<RoleListPage />} />
                   <Route path="settings/roles/:id" element={<RoleDetailPage />} />
                   <Route path="settings/sso" element={<SsoSettingsPage />} />
+                  <Route path="settings/wiki-sharing" element={<WikiSharingPage />} />
                   <Route path="settings/audit-logs" element={<AuditLogListPage />} />
                   <Route path="settings/agents" element={<AgentManagementPage />} />
                 </Route>

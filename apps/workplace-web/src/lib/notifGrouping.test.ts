@@ -162,4 +162,22 @@ describe('groupNotifications', () => {
     expect(mine[0].target).toBe('/projects/WP/issues/7?chat=1')
     expect(mine[0].hasAgent).toBe(true)
   })
+
+  it('노트 공유 알림은 노트·유형별로 묶고 접근 요청은 내 차례로, 이슈 키가 새지 않는다 (WP-579)', () => {
+    const wiki = (over: Partial<NotificationResponse>) =>
+      notif({ projectKey: '', issueNumber: 0, issueTitle: '', wikiPageId: 77, wikiPageTitle: '제품 로드맵', ...over })
+    const { mine, updates } = groupNotifications([
+      wiki({ id: 1, type: 'WIKI_SHARE_ACCESS_REQUESTED', createdAt: '2026-06-16T01:00:00Z' }),
+      wiki({ id: 2, type: 'WIKI_SHARED', createdAt: '2026-06-16T02:00:00Z' }),
+      wiki({ id: 3, type: 'WIKI_SHARED', wikiPageId: 88, wikiPageTitle: '회의록', createdAt: '2026-06-16T03:00:00Z' }),
+    ])
+    expect(mine).toHaveLength(1)
+    expect(mine[0].title).toBe('제품 로드맵')
+    expect(mine[0].target).toBe('/wiki/open/77?share=1')
+    expect(mine[0].deltaSummary).toBe('접근 요청')
+    expect(updates).toHaveLength(2)
+    expect(updates[0].title).toBe('회의록')
+    expect(updates[0].target).toBe('/wiki/open/88')
+    expect(updates[1].target).toBe('/wiki/open/77')
+  })
 })

@@ -211,17 +211,34 @@ public class CollabClient {
    * revalidate 요청 본문. spaceId·pageIds·userId·reason 은 선택 — null 이면 키를 생략한다. 의미: pageIds 가 있으면 그 페이지
    * 연결, 없으면 spaceId 의 모든 연결(둘 다 없으면 userId 필수 — 그 테넌트의 그 사용자 연결 전부, WP-420 멤버십 정지); userId 가 있으면 그
    * 사용자 연결로 한정. reason 이 {@link #REASON_DELETED} 면 접근을 잃은 연결을 권한 회수(4403)가 아닌 삭제(4404)로 닫아 웹이 "이
-   * 노트가 삭제되었습니다"를 보인다(WP-296).
+   * 노트가 삭제되었습니다"를 보인다(WP-296). sharedOnly=true 면 공유 링크로 붙은 연결만 다시 판정한다(WP-579 — 공유 변경은 멤버 연결의 권한을
+   * 바꾸지 않는다). 키가 없으면(옛 동기화 서버가 무시해도) 모든 연결이 대상이라 섞인 배포에서도 안전하다.
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public record RevalidateRequest(
-      long tenantId, Long spaceId, List<Long> pageIds, Long userId, String reason) {
+      long tenantId,
+      Long spaceId,
+      List<Long> pageIds,
+      Long userId,
+      String reason,
+      Boolean sharedOnly) {
     /** 페이지 삭제 재검증 사유 — collab-protocol 의 REVALIDATE_REASON_DELETED 와 같은 값. */
     public static final String REASON_DELETED = "deleted";
 
+    /** 사유를 실은 재검증(페이지 삭제 등) — 모든 연결이 대상. */
+    public RevalidateRequest(
+        long tenantId, Long spaceId, List<Long> pageIds, Long userId, String reason) {
+      this(tenantId, spaceId, pageIds, userId, reason, null);
+    }
+
     /** 사유 없는 재검증(멤버 변경 등) — 접근을 잃은 연결은 권한 회수(4403)로 닫힌다. */
     public RevalidateRequest(long tenantId, Long spaceId, List<Long> pageIds, Long userId) {
-      this(tenantId, spaceId, pageIds, userId, null);
+      this(tenantId, spaceId, pageIds, userId, null, null);
+    }
+
+    /** 공유 범위 축소·해제(WP-579) — 이 페이지들에 공유 링크로 붙은 연결만 다시 판정한다. */
+    public static RevalidateRequest sharedConnections(long tenantId, List<Long> pageIds) {
+      return new RevalidateRequest(tenantId, null, pageIds, null, null, true);
     }
   }
 }

@@ -73,6 +73,10 @@ import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.UserPriorityItem.UserPriorityItemPath;
 import com.workplace.jooq.tables.UserRole.UserRolePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
+import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
+import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
+import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
+import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
 import com.workplace.jooq.tables.WorkspaceAssistant.WorkspaceAssistantPath;
@@ -1202,6 +1206,88 @@ public class User extends TableImpl<UserRecord> {
             _wikiPageAttachment = new WikiPageAttachmentPath(this, null, Keys.WIKI_PAGE_ATTACHMENT__WIKI_PAGE_ATTACHMENT_ATTACHED_BY_FKEY.getInverseKey());
 
         return _wikiPageAttachment;
+    }
+
+    private transient WikiPageSharePath _wikiPageShare;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share</code> table
+     */
+    public WikiPageSharePath wikiPageShare() {
+        if (_wikiPageShare == null)
+            _wikiPageShare = new WikiPageSharePath(this, null, Keys.WIKI_PAGE_SHARE__WIKI_PAGE_SHARE_CREATED_BY_FKEY.getInverseKey());
+
+        return _wikiPageShare;
+    }
+
+    private transient WikiPageShareEventPath _wikiPageShareEvent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_event</code> table
+     */
+    public WikiPageShareEventPath wikiPageShareEvent() {
+        if (_wikiPageShareEvent == null)
+            _wikiPageShareEvent = new WikiPageShareEventPath(this, null, Keys.WIKI_PAGE_SHARE_EVENT__WIKI_PAGE_SHARE_EVENT_ACTOR_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareEvent;
+    }
+
+    private transient WikiPageShareMemberPath _wikiPageShareMemberAddedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_member</code> table, via the
+     * <code>wiki_page_share_member_added_by_fkey</code> key
+     */
+    public WikiPageShareMemberPath wikiPageShareMemberAddedByFkey() {
+        if (_wikiPageShareMemberAddedByFkey == null)
+            _wikiPageShareMemberAddedByFkey = new WikiPageShareMemberPath(this, null, Keys.WIKI_PAGE_SHARE_MEMBER__WIKI_PAGE_SHARE_MEMBER_ADDED_BY_FKEY.getInverseKey());
+
+        return _wikiPageShareMemberAddedByFkey;
+    }
+
+    private transient WikiPageShareMemberPath _wikiPageShareMemberUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_member</code> table, via the
+     * <code>wiki_page_share_member_user_id_fkey</code> key
+     */
+    public WikiPageShareMemberPath wikiPageShareMemberUserIdFkey() {
+        if (_wikiPageShareMemberUserIdFkey == null)
+            _wikiPageShareMemberUserIdFkey = new WikiPageShareMemberPath(this, null, Keys.WIKI_PAGE_SHARE_MEMBER__WIKI_PAGE_SHARE_MEMBER_USER_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareMemberUserIdFkey;
+    }
+
+    private transient WikiShareAccessRequestPath _wikiShareAccessRequestDecidedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_share_access_request</code> table, via the
+     * <code>wiki_share_access_request_decided_by_fkey</code> key
+     */
+    public WikiShareAccessRequestPath wikiShareAccessRequestDecidedByFkey() {
+        if (_wikiShareAccessRequestDecidedByFkey == null)
+            _wikiShareAccessRequestDecidedByFkey = new WikiShareAccessRequestPath(this, null, Keys.WIKI_SHARE_ACCESS_REQUEST__WIKI_SHARE_ACCESS_REQUEST_DECIDED_BY_FKEY.getInverseKey());
+
+        return _wikiShareAccessRequestDecidedByFkey;
+    }
+
+    private transient WikiShareAccessRequestPath _wikiShareAccessRequestRequesterIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_share_access_request</code> table, via the
+     * <code>wiki_share_access_request_requester_id_fkey</code> key
+     */
+    public WikiShareAccessRequestPath wikiShareAccessRequestRequesterIdFkey() {
+        if (_wikiShareAccessRequestRequesterIdFkey == null)
+            _wikiShareAccessRequestRequesterIdFkey = new WikiShareAccessRequestPath(this, null, Keys.WIKI_SHARE_ACCESS_REQUEST__WIKI_SHARE_ACCESS_REQUEST_REQUESTER_ID_FKEY.getInverseKey());
+
+        return _wikiShareAccessRequestRequesterIdFkey;
     }
 
     private transient WikiSpaceMemberPath _wikiSpaceMember;

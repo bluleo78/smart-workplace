@@ -66,6 +66,17 @@ export interface WikiSlashContext {
   onActionRef: { current: (action: GenerateActionKey) => void }
   // '이미지' 항목 선택 시 호출(#751) — WikiEditor 의 숨은 file input 을 연다. 최신값 참조용 ref.
   onImageInsertRef: { current: () => void }
+  // AI 항목(초안·이어쓰기)을 보일지 — 공유 링크로 연 편집 화면은 false(WP-579 설계 「하지 않는 것」: 공유로는 AI 를 쓰지 않는다).
+  // 생략하면 보인다. 서식·삽입 항목은 편집 가능하면 그대로 쓴다.
+  aiEnabledRef?: { current: boolean }
+}
+
+/** 슬래시 메뉴 항목 — AI 를 못 쓰면 AI 항목을 빼고, 표 안이면 '표'를 빼고, 입력한 말로 거른다(순수 함수 — 단위 테스트 대상). */
+export function filterSlashItems(query: string, opts: { inTable: boolean; aiEnabled: boolean }): WikiSlashItem[] {
+  const base = SLASH_ITEMS.filter((i) => (opts.aiEnabled || i.kind !== 'ai') && !(opts.inTable && i.key === 'table'))
+  const q = query.trim().toLowerCase()
+  if (!q) return base
+  return base.filter((i) => i.label.toLowerCase().includes(q) || i.key.includes(q))
 }
 
 /** 슬래시 AI 메뉴 확장 생성. ctx 의 ref 를 통해 게이트/액션을 동적으로 주입. */
@@ -138,14 +149,11 @@ export function createWikiSlashExtension(ctx: WikiSlashContext): Extension {
           // 눌린 경우)에서는 '표' 항목을 뺀다 — 스키마상 중첩 표는 유효하지만 tiptap-markdown 은
           // 중첩 table 을 GFM 으로 직렬화 못 해 바깥 표 전체가 raw HTML 로 새어버린다(회귀 테스트
           // 참고: e2e/pages/wiki/wiki-table-editing.spec.ts 의 "중첩 표 회귀").
-          items: ({ query, editor }) => {
-            const base = editor.isActive('table')
-              ? SLASH_ITEMS.filter((i) => i.key !== 'table')
-              : SLASH_ITEMS
-            const q = query.trim().toLowerCase()
-            if (!q) return base
-            return base.filter((i) => i.label.toLowerCase().includes(q) || i.key.includes(q))
-          },
+          items: ({ query, editor }) =>
+            filterSlashItems(query, {
+              inTable: editor.isActive('table'),
+              aiEnabled: ctx.aiEnabledRef?.current ?? true,
+            }),
           render: () => {
             let component: ReactRenderer<WikiSlashMenuHandle> | null = null
             let popup: TippyInstance | null = null

@@ -6,6 +6,7 @@ import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.wiki.dto.ClaimWikiImagesRequest;
 import com.workplace.wiki.dto.WikiAttachmentResponse;
 import com.workplace.wiki.service.WikiAttachmentService;
+import com.workplace.wiki.service.WikiShareAccess;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -23,12 +24,18 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 노트 본문 이미지 첨부 API. 인가는 서비스 레이어(WikiPermissions)가 전담한다. */
+/**
+ * 노트 본문 이미지 첨부 API. 인가는 서비스 레이어(WikiPermissions·WikiShareAccess)가 전담한다.
+ *
+ * <p>공유 링크(WP-579): 업로드·클레임·content·text·view 는 {@link WikiShareAccess#HEADER} 를 받는다(보기는 VIEWER,
+ * 붙여넣기는 편집 링크). 삭제는 받지 않는다.
+ */
 @RestController
 @RequestMapping("/api/v1/wiki/pages/{pageId}/attachments")
 @RequiredArgsConstructor
@@ -42,8 +49,10 @@ public class WikiAttachmentController {
   public ResponseEntity<WikiAttachmentResponse> upload(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long pageId,
-      @RequestParam("file") MultipartFile file) {
-    return ResponseEntity.status(HttpStatus.CREATED).body(service.upload(callerId, pageId, file));
+      @RequestParam("file") MultipartFile file,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(service.upload(callerId, pageId, file, shareToken));
   }
 
   /**
@@ -54,8 +63,9 @@ public class WikiAttachmentController {
   public ResponseEntity<List<WikiAttachmentResponse>> claim(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long pageId,
-      @Valid @RequestBody ClaimWikiImagesRequest req) {
-    return ResponseEntity.ok(service.claimStaged(callerId, pageId, req.fileIds()));
+      @Valid @RequestBody ClaimWikiImagesRequest req,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    return ResponseEntity.ok(service.claimStaged(callerId, pageId, req.fileIds(), shareToken));
   }
 
   /**
@@ -68,8 +78,9 @@ public class WikiAttachmentController {
   public ResponseEntity<Resource> content(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long pageId,
-      @PathVariable long fileId) {
-    var f = service.download(callerId, pageId, fileId);
+      @PathVariable long fileId,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    var f = service.download(callerId, pageId, fileId, shareToken);
     HttpHeaders headers = new HttpHeaders();
     headers.setContentType(MediaType.parseMediaType(f.mimeType()));
     headers.setContentDisposition(
@@ -88,8 +99,9 @@ public class WikiAttachmentController {
       @PathVariable long pageId,
       @PathVariable long fileId,
       @RequestParam(defaultValue = "0") int offset,
-      @RequestParam(defaultValue = "32000") int limit) {
-    return ResponseEntity.ok(service.readText(callerId, pageId, fileId, offset, limit));
+      @RequestParam(defaultValue = "32000") int limit,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    return ResponseEntity.ok(service.readText(callerId, pageId, fileId, offset, limit, shareToken));
   }
 
   /** 첨부를 모델 입력용 이미지로 보여 준다(WP-250) — 규칙·권한·트랜잭션(R5)은 {@link AttachmentViewService} 참조. */
@@ -98,9 +110,10 @@ public class WikiAttachmentController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable long pageId,
       @PathVariable long fileId,
-      @RequestParam(required = false) Integer page) {
+      @RequestParam(required = false) Integer page,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     return ViewImageResponses.of(
-        attachmentView.view(service.resolveViewFileId(callerId, pageId, fileId), page));
+        attachmentView.view(service.resolveViewFileId(callerId, pageId, fileId, shareToken), page));
   }
 
   @DeleteMapping("/{fileId}")

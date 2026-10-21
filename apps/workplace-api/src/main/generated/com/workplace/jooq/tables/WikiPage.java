@@ -7,13 +7,17 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
 import com.workplace.jooq.tables.WikiPageDoc.WikiPageDocPath;
+import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
+import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
 import com.workplace.jooq.tables.WikiReference.WikiReferencePath;
 import com.workplace.jooq.tables.WikiRevision.WikiRevisionPath;
+import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.records.WikiPageRecord;
 
@@ -270,6 +274,19 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
         return _tenant;
     }
 
+    private transient NotificationPath _notification;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.notification</code> table
+     */
+    public NotificationPath notification() {
+        if (_notification == null)
+            _notification = new NotificationPath(this, null, Keys.NOTIFICATION__NOTIFICATION_WIKI_PAGE_ID_FKEY.getInverseKey());
+
+        return _notification;
+    }
+
     private transient WikiPageAttachmentPath _wikiPageAttachment;
 
     /**
@@ -309,6 +326,32 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
         return _wikiPageDoc;
     }
 
+    private transient WikiPageShareEventPath _wikiPageShareEvent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_event</code> table
+     */
+    public WikiPageShareEventPath wikiPageShareEvent() {
+        if (_wikiPageShareEvent == null)
+            _wikiPageShareEvent = new WikiPageShareEventPath(this, null, Keys.WIKI_PAGE_SHARE_EVENT__WIKI_PAGE_SHARE_EVENT_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareEvent;
+    }
+
+    private transient WikiPageSharePath _wikiPageShare;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share</code> table
+     */
+    public WikiPageSharePath wikiPageShare() {
+        if (_wikiPageShare == null)
+            _wikiPageShare = new WikiPageSharePath(this, null, Keys.WIKI_PAGE_SHARE__WIKI_PAGE_SHARE_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiPageShare;
+    }
+
     private transient WikiReferencePath _wikiReference;
 
     /**
@@ -333,6 +376,19 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
             _wikiRevision = new WikiRevisionPath(this, null, Keys.WIKI_REVISION__WIKI_REVISION_PAGE_ID_FKEY.getInverseKey());
 
         return _wikiRevision;
+    }
+
+    private transient WikiShareAccessRequestPath _wikiShareAccessRequest;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_share_access_request</code> table
+     */
+    public WikiShareAccessRequestPath wikiShareAccessRequest() {
+        if (_wikiShareAccessRequest == null)
+            _wikiShareAccessRequest = new WikiShareAccessRequestPath(this, null, Keys.WIKI_SHARE_ACCESS_REQUEST__WIKI_SHARE_ACCESS_REQUEST_PAGE_ID_FKEY.getInverseKey());
+
+        return _wikiShareAccessRequest;
     }
 
     @Override

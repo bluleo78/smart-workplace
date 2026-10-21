@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiRole } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -18,6 +18,13 @@ const TABLE_MD = [
 
 const setup = (page: Page, body: string, role: WikiRole = 'OWNER') =>
   mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '표', body, role })
+
+/**
+ * 에디터를 열고 조작할 수 있을 때까지 기다린다 — 편집자는 편집 가능(우클릭 메뉴·툴바는 편집 가능일 때만 열린다), 보기 전용은 동기화 칩 readonly 까지.
+ * reload: 같은 화면을 새로고침해 저장본을 다시 받는다.
+ */
+const open = (page: Page, opts: { readOnly?: boolean; reload?: boolean } = {}) =>
+  openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, ...opts })
 
 /** 마크다운에서 파이프로 시작하는 줄(표)만 뽑는다. */
 const tableLines = (md: string) => md.split('\n').filter((l) => l.trim().startsWith('|'))
@@ -35,7 +42,7 @@ test('툴바 — 커서가 표 안에 있을 때만 뜨고, 열 추가가 마크
   authenticatedPage: page,
 }) => {
   await setup(page, TABLE_MD)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   // 표 밖(제목 입력 전 본문 끝)에서는 툴바가 없다.
@@ -68,7 +75,7 @@ test('툴바 — 헤더 행에서는 행 삭제가 비활성, 본문 행에서�
   authenticatedPage: page,
 }) => {
   await setup(page, TABLE_MD)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   await page.locator('.ProseMirror th').first().click()
@@ -80,7 +87,7 @@ test('툴바 — 헤더 행에서는 행 삭제가 비활성, 본문 행에서�
 
 test('툴바 — 행 삭제가 마크다운에서도 사라진다', async ({ authenticatedPage: page }) => {
   await setup(page, TABLE_MD)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   await page.locator('.ProseMirror td').filter({ hasText: 'API 설계' }).click()
@@ -104,7 +111,7 @@ test('넓은 표는 본문을 밀지 않고 래퍼 안에서 가로 스크롤된
     `| ${cols.map((_, i) => `${i + 1}행 내용이 제법 긴 한글 문장입니다`).join(' | ')} |`,
   ].join('\n')
   await setup(page, wide)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   // 래퍼가 실제로 렌더되고 스크롤 컨테이너가 된다.
@@ -132,7 +139,7 @@ test('넓은 표는 본문을 밀지 않고 래퍼 안에서 가로 스크롤된
 
 test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', async ({ authenticatedPage: page }) => {
   await setup(page, TABLE_MD)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   await page.locator('.ProseMirror td').filter({ hasText: '배포' }).click()
@@ -149,7 +156,7 @@ test('단축키 — Ctrl+Alt+아래로 행이 추가되고, 표 밖에서는 아
   authenticatedPage: page,
 }) => {
   await setup(page, `${TABLE_MD}\n\n표 아래 문단.`)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   await page.locator('.ProseMirror td').first().click()
@@ -170,7 +177,7 @@ test('우클릭 메뉴 — 셀에서 열리고 표 밖에서는 열리지 않는
   authenticatedPage: page,
 }) => {
   await setup(page, `${TABLE_MD}\n\n표 아래 문단.`)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   await page.locator('.ProseMirror td').filter({ hasText: '배포' }).click({ button: 'right' })
@@ -191,8 +198,7 @@ test('삽입 → 열 추가 → 저장 → 새로고침해 저장본을 다시 �
   authenticatedPage: page,
 }) => {
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 1) 그리드 피커로 4열 × 2행 삽입
   await page.locator('.ProseMirror').click()
@@ -219,7 +225,7 @@ test('삽입 → 열 추가 → 저장 → 새로고침해 저장본을 다시 �
   expect(await savedMarkdown(page, PAGE_ID)).not.toContain('<table')
 
   // 4) 새로고침 — 에디터가 동기화 서버의 저장본을 다시 받아 오므로 셀 단위로 그대로 보여야 한다.
-  await page.reload()
+  await open(page, { reload: true })
   const t = page.locator('.ProseMirror table')
   await expect(t.locator('th')).toHaveCount(5)
   await expect(t.locator('th').first()).toHaveText('항목')
@@ -231,7 +237,7 @@ test('뷰어 권한 — 툴바·우클릭 메뉴·단축키 모두 비활성 (�
   authenticatedPage: page,
 }) => {
   await setup(page, TABLE_MD, 'VIEWER')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page, { readOnly: true })
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   // 셀 클릭해도 표 툴바가 뜨지 않는다.
@@ -257,7 +263,7 @@ test('셀 안에서는 슬래시 메뉴에 표 항목이 없다 (중첩 표 직�
   // 슬래시 항목 자체를 숨긴다(wikiSlashSuggestion.ts items()). 이 테스트는 그 차단이 유지되는지
   // 지키는 회귀 테스트다.
   await setup(page, `${TABLE_MD}\n\n표 아래 문단.`)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 
   // 셀 안에 커서 → '/' — 메뉴는 뜨지만 표 항목이 없다.

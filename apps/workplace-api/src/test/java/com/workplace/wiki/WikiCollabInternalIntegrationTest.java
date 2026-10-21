@@ -192,7 +192,7 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
     long pageId = seedPage("본문");
     tenant1();
     var file = new MockMultipartFile("file", "a.png", "image/png", png());
-    WikiAttachmentResponse att = attachmentService.upload(userId, pageId, file);
+    WikiAttachmentResponse att = attachmentService.upload(userId, pageId, file, null);
     seededFileIds.add(att.fileId());
     assertThat(expiresAtOf(att.fileId())).as("셋업: 업로드 직후엔 임시(만료 예정)").isNotNull();
     String image = "![a](" + WikiAttachmentResponse.urlOf(pageId, att.fileId()) + ")";
@@ -481,7 +481,7 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
     long pageId = seedPage("old");
     tenant1();
     var file = new MockMultipartFile("file", "a.png", "image/png", png());
-    WikiAttachmentResponse att = attachmentService.upload(userId, pageId, file);
+    WikiAttachmentResponse att = attachmentService.upload(userId, pageId, file, null);
     seededFileIds.add(att.fileId());
     String body =
         "<span>raw</span> see <#page:"

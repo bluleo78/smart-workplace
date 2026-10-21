@@ -23,6 +23,17 @@ export interface FakeToken {
   member?: boolean
 }
 
+/** 공유 링크 하나(WP-579) — 그 페이지에 공유가 주는 역할. 실 API 의 X-Wiki-Share-Token 판정을 흉내 낸다. */
+export interface FakeShare {
+  pageId: number
+  role: string
+  /** 만료 시각(epoch ms, WP-579) — 지나면(self.now 기준) 없는 공유처럼 무시한다. 없으면 무기한. */
+  expiresAt?: number
+}
+
+/** 역할 순서 — 실 API 처럼 멤버 역할과 공유 역할 중 높은 쪽을 준다. */
+const ROLE_RANK: Record<string, number> = { VIEWER: 1, EDITOR: 2, OWNER: 3 }
+
 /**
  * 내부 저장 호출 기록 — 테넌트 헤더·편집자까지 그대로 남겨 테스트가 단언한다.
  * stateOnly = body 없이 상태만 저장한 호출(편집 없는 최초 이관·body 앞섬 반영) — body 는 없고 bodyVersion 이 있다.
@@ -52,6 +63,8 @@ export interface FakeApi {
   remove(id: number): void
   /** 토큰 등록, null 이면 삭제(권한 회수 시나리오). */
   token(name: string, info: FakeToken | null): void
+  /** 공유 토큰 등록, null 이면 삭제(공유 해제·재발급 시나리오 — WP-579). */
+  share(token: string, info: FakeShare | null): void
   stores: StoreCall[]
   /** true 면 GET /doc 이 503(API 장애 흉내). */
   failLoads: boolean
@@ -76,14 +89,16 @@ export interface FakeApi {
   /** 없는 페이지(삭제)로 와서 404 로 답한 PUT /doc 호출 수. */
   storeNotFound: number
   loads: Array<{ pageId: number; tenantId: number }>
-  accessCalls: Array<{ pageId: number; token: string }>
+  /** collab-access 호출 기록 — shareToken 은 X-Wiki-Share-Token 헤더가 실렸을 때만 있다. */
+  accessCalls: Array<{ pageId: number; token: string; shareToken?: string }>
   close(): Promise<void>
 }
 
 /**
  * Task 3 의 API 엔드포인트를 흉내 내는 가짜 서버(메모리) — 계약은 task-3-report 기준.
  * - GET /api/v1/wiki/pages/{id}/collab-access (Bearer) → 미등록 토큰 401, 만료 토큰 401, 없는/다른 테넌트 페이지 404.
- *   응답에 tokenExp 키는 항상 있다(null 가능).
+ *   응답에 tokenExp 키는 항상 있다(null 가능). X-Wiki-Share-Token(WP-579)이 그 페이지의 등록된 공유면 멤버 역할과 공유 역할 중
+ *   높은 쪽을 준다 — 비멤버도 공유로 들어오고, 없는·해제된 공유는 무시한다(멤버면 멤버 역할, 아니면 404).
  * - GET/PUT /internal/wiki/pages/{id}/doc (Internal 토큰 + X-Tenant-Id) → 토큰 불일치 401, 테넌트 헤더 없음 400,
  *   페이지 테넌트와 헤더가 다르면 404(RLS fail-closed 흉내 — 0행 갱신이 조용히 성공하지 않게).
  *   GET 은 state 없는 페이지에서 state·bodyVersion 키를 생략한다(NON_NULL). PUT 은 version+1, bodyVersion=새 version.
@@ -92,6 +107,7 @@ export interface FakeApi {
 export async function startFakeApi(internalToken = 'test-token'): Promise<FakeApi> {
   const pages = new Map<number, FakePage>()
   const tokens = new Map<string, FakeToken>()
+  const shares = new Map<string, FakeShare>()
   const stores: StoreCall[] = []
   const loads: FakeApi['loads'] = []
   const accessCalls: FakeApi['accessCalls'] = []
@@ -112,20 +128,36 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
     if (access && req.method === 'GET') {
       const pageId = Number(access[1])
       const token = (req.headers.authorization ?? '').replace(/^Bearer /, '')
-      accessCalls.push({ pageId, token })
+      const shareHeader = req.headers['x-wiki-share-token']
+      const shareToken = typeof shareHeader === 'string' ? shareHeader : undefined
+      accessCalls.push(shareToken === undefined ? { pageId, token } : { pageId, token, shareToken })
       const who = tokens.get(token)
       // 실 API 는 만료된 JWT 를 인증 필터에서 401 로 막는다 — 같은 동작을 흉내 내 재접속 루프를 막는다.
       if (!who || (who.tokenExp != null && who.tokenExp * 1000 <= self.now())) return send(res, 401)
       const page = pages.get(pageId)
-      if (!page || page.tenantId !== who.tenantId || who.member === false) return send(res, 404)
+      if (!page || page.tenantId !== who.tenantId) return send(res, 404)
+      // 멤버 역할과 그 페이지 공유 역할 중 높은 쪽 — 둘 다 없으면 404(실 API 의 권한 없음과 같은 응답).
+      const memberRole = who.member === false ? null : who.role
+      const share = shareToken === undefined ? undefined : shares.get(shareToken)
+      // 만료된 공유는 실 API(findActiveByToken)처럼 없는 공유다.
+      const live = share && share.pageId === pageId && (share.expiresAt == null || share.expiresAt > self.now()) ? share : undefined
+      const shareRole = live ? live.role : null
+      const role = [memberRole, shareRole].reduce<string | null>(
+        (best, r) => (r != null && (best == null || (ROLE_RANK[r] ?? 0) > (ROLE_RANK[best] ?? 0)) ? r : best),
+        null,
+      )
+      if (role == null) return send(res, 404)
+      // 공유가 역할을 정했을 때만(멤버 역할보다 높을 때) 그 공유의 만료(epoch ms) — 실 API 의 shareExpiresAt 과 같다. 키는 항상 있다.
+      const fromShare = shareRole != null && (memberRole == null || (ROLE_RANK[shareRole] ?? 0) > (ROLE_RANK[memberRole] ?? 0))
       return send(res, 200, {
         pageId,
         spaceId: page.spaceId,
         tenantId: page.tenantId,
         userId: who.userId,
         name: who.name,
-        role: who.role,
+        role,
         tokenExp: who.tokenExp ?? null,
+        shareExpiresAt: fromShare ? (live?.expiresAt ?? null) : null,
       })
     }
 
@@ -220,6 +252,10 @@ export async function startFakeApi(internalToken = 'test-token'): Promise<FakeAp
     token(name, info) {
       if (info) tokens.set(name, info)
       else tokens.delete(name)
+    },
+    share(token, info) {
+      if (info) shares.set(token, info)
+      else shares.delete(token)
     },
     stores,
     failLoads: false,

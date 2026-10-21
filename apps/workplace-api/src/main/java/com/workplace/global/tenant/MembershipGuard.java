@@ -43,6 +43,14 @@ public class MembershipGuard {
   }
 
   /**
+   * 사용자가 <b>지정한</b> 테넌트의 ACTIVE 멤버인지 — 현재 active 테넌트가 아닌 다른 워크스페이스를 가리키는 링크(노트 공유 WP-579)가 "전환할 수
+   * 있는 워크스페이스인가" 를 판정할 때 쓴다. {@link #isForeignUser} 와 달리 TenantContext 를 보지 않는다.
+   */
+  public boolean isActiveMemberOf(long userId, long tenantId) {
+    return membershipRepository.hasActiveMembership(userId, tenantId);
+  }
+
+  /**
    * WP-417: 대상의 현재 active 테넌트 멤버십 상태(ACTIVE/SUSPENDED). 멤버가 아니면 빈 값 — 컨텍스트가 없으면 fail-closed 로 빈
    * 값(비멤버 취급). 정지된 구성원을 "여기 없는 사용자(404)"가 아니라 "비활성(409)"으로 안내해야 하는 경로가 쓴다.
    */

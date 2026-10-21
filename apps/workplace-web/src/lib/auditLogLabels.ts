@@ -10,6 +10,7 @@
  *   호출부에서 최근 추가된 값 보강.
  * - WP-369: 드라이브 전송 링크(DriveTransferLinkService) 발급·사용 — 사용 기록의 actor 는 링크 발급자다.
  * - WP-567: 구성원 역할 변경·정지·정지 해제·비밀번호 변경(UserService), 역할 생성·수정·삭제·권한 변경(RoleService) 기록 추가.
+ * - WP-579: 노트 공유 생성·변경·대상 변경·링크 재발급·해제·요청 거절(리소스 wiki)과 관리자 외부 공유 설정 변경(리소스 tenant).
  *   이미 기록되던 로그인 실패·비밀번호 설정·SSO 연결·SSO 설정 변경·AGENT 실행 방식 변경도 라벨이 빠져 있어 함께 보강.
  * - WP-706: 공용 비서 지정·해제·설정 변경(WorkspaceAssistantService) 기록 추가.
  */
@@ -60,6 +61,13 @@ export const AUDIT_ACTION_TYPES = [
   { value: 'SHARE_LINK_LOCKED', label: '공유 링크 잠금' },
   { value: 'TRANSFER_LINK_CREATE', label: '전송 링크 발급' },
   { value: 'TRANSFER_LINK_USE', label: '전송 링크 사용' },
+  { value: 'WIKI_SHARE_CREATED', label: '노트 공유 생성' },
+  { value: 'WIKI_SHARE_UPDATED', label: '노트 공유 변경' },
+  { value: 'WIKI_SHARE_PEOPLE_CHANGED', label: '노트 공유 대상 변경' },
+  { value: 'WIKI_SHARE_REGENERATED', label: '노트 공유 링크 재발급' },
+  { value: 'WIKI_SHARE_REVOKED', label: '노트 공유 해제' },
+  { value: 'WIKI_SHARE_ACCESS_DENIED', label: '노트 공유 요청 거절' },
+  { value: 'WIKI_SHARE_POLICY_CHANGED', label: '노트 외부 공유 설정 변경' },
 ];
 
 /**
@@ -85,6 +93,7 @@ export const AUDIT_RESOURCES = [
   { value: 'drive', label: '드라이브' },
   { value: 'tenant', label: '워크스페이스' },
   { value: 'workspace_assistant', label: '공용 비서' },
+  { value: 'wiki', label: '노트' },
 ];
 
 /**

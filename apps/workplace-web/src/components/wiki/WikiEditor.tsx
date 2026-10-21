@@ -39,7 +39,13 @@ import { acceptResume, type ResumeGate, shouldShowAwayToast } from '../../lib/co
 import { isAccessLost, isEditRole, isTerminalStatus } from '../../lib/collab/collabStatus'
 import { type AwarenessStates, jumpAnchor, type PresencePerson } from '../../lib/collab/presence'
 import { presenceAwarenessOf } from '../../lib/collab/presenceAwareness'
-import type { WikiMentionRef, WikiMentionType, WikiPageDetail } from '../../types/wiki'
+import type {
+  WikiMentionRef,
+  WikiMentionType,
+  WikiPageDetail,
+  WikiPageSummary,
+  WikiSharePermission,
+} from '../../types/wiki'
 import { registerWikiEditorView, useWikiImageUpload } from './useWikiImageUpload'
 import { useWikiLinkUi } from './useWikiLinkUi'
 import { useWikiRevisionHistory } from './useWikiRevisionHistory'
@@ -70,6 +76,9 @@ import { WikiPresence } from './WikiPresence'
 import { announcePresence } from './wikiPresenceAnnounce'
 import { revealPresence, scrollToRelative, wikiPresenceCursorsKey } from './wikiPresenceCursors'
 import { WikiRevisionLayer } from './WikiRevisionLayer'
+import { canManageShare, countDescendants } from './wikiShare'
+import { WikiShareDialog } from './WikiShareDialog'
+import { WikiShareTokenProvider } from './WikiShareTokenContext'
 import type { WikiAiAction } from './WikiSlashMenu'
 import { createWikiSlashExtension } from './wikiSlashSuggestion'
 import { WikiSummaryCard } from './WikiSummaryCard'
@@ -79,35 +88,120 @@ import { createWikiTableShortcuts } from './wikiTableShortcuts'
 import { WikiTableToolbar } from './WikiTableToolbar'
 import { createTitleSaver, initTitleSync, needsTitleSave, type TitleSaver, titleSyncReducer } from './wikiTitleSync'
 
+/** 공유 링크로 연 화면의 정보(WP-579) — 토큰·공유 권한·링크로 볼 수 있는 페이지. */
+export interface WikiEditorShare {
+  token: string
+  permission: WikiSharePermission
+  pages: WikiPageSummary[]
+  /** 공유한 사람 이름 — 머리에 「○○님이 공유」. */
+  sharedByName: string
+  /**
+   * 공유가 해제·재발급·만료돼 동기화 서버가 연결을 닫았다(4403) — 공유 화면이 에디터를 닫고 안내로 바꾼다.
+   * 열린 화면에서 계속 보이면 안 된다(설계 안티 목표).
+   */
+  onClosed?: () => void
+}
+
+/** 알림의 「공유 창을 연 채로」 표시(WP-579) — 접근 요청 알림이 /wiki/open/:id?share=1 로 열면 노트 주소까지 이어 온다. */
+const SHARE_DIALOG_PARAM = 'share'
+
+/** 화면 종류에 따라 켜는 에디터 기능(WP-579). */
+interface EditorFeatures {
+  /** AI 작성·변형·슬래시 AI·빈 페이지 AI 안내 */
+  ai: boolean
+  /** 버전 기록 */
+  history: boolean
+  /** 백링크 패널 */
+  backlinks: boolean
+  /** AI 요약 카드 */
+  summary: boolean
+  /** 페이지 삭제 메뉴 */
+  delete: boolean
+  /** 선택 영역 「이슈로 만들기」 */
+  issueCreate: boolean
+}
+
+/** 스페이스 멤버 화면 — 모든 기능(실제 사용은 역할·동기화 상태가 다시 거른다). */
+const MEMBER_FEATURES: EditorFeatures = {
+  ai: true,
+  history: true,
+  backlinks: true,
+  summary: true,
+  delete: true,
+  issueCreate: true,
+}
+
+/** 공유 링크 화면 — 스페이스 멤버 전용 기능(AI·버전 기록·백링크·요약·삭제·이슈 만들기)은 두지 않는다(설계 「하지 않는 것」). */
+const SHARE_FEATURES: EditorFeatures = {
+  ai: false,
+  history: false,
+  backlinks: false,
+  summary: false,
+  delete: false,
+  issueCreate: false,
+}
+
 /** 제목 저장 디바운스 — 제목은 짧은 REST 저장(나중 값 우선)이라 타이핑마다 보내지 않고 잠깐 모아 보낸다. */
 const TITLE_SAVE_DEBOUNCE_MS = 400
 
 /** 접속자 없음(종단) — 렌더마다 새 배열을 만들지 않게 고정. */
 const NO_PEOPLE: PresencePerson[] = []
 
+interface WikiEditorProps {
+  page: WikiPageDetail
+  spaceId: number
+  /**
+   * 공유 링크로 연 화면(WP-579) — 스페이스 멤버가 아닌 사람이 링크로 들어왔다. 트리·경로는 링크로 볼 수 있는 페이지만,
+   * 권한은 공유 설정(보기/편집)을 따르고, 스페이스 멤버 전용 기능(삭제·공유·버전 기록·AI·요약·백링크)은 두지 않는다.
+   */
+  share?: WikiEditorShare
+}
+
 /**
  * 위키 에디터 — 본문은 동기화 서버와 실시간으로 주고받고(Yjs, WP-287), 제목은 짧은 REST 저장 + 인에디터 /ai 스트리밍.
  * 예전의 0.8초 자동저장·버전 충돌 배너·"최신 내용 불러오기"는 실시간 동기화로 대체돼 없다.
+ *
+ * 공유 화면이면 공유 토큰을 컨텍스트로 내려 준다(WP-579) — 에디터 안의 멘션 해소·이미지 NodeView 가 같은 토큰으로 묻는다.
+ * 에디터 본문(훅 포함)이 컨텍스트 아래에 있어야 하므로 감싸는 껍데기를 따로 둔다.
  */
-export function WikiEditor({
-  page,
-  spaceId,
-}: {
-  page: WikiPageDetail
-  spaceId: number
-}) {
+export function WikiEditor(props: WikiEditorProps) {
+  return (
+    <WikiShareTokenProvider token={props.share?.token}>
+      <WikiEditorBody {...props} />
+    </WikiShareTokenProvider>
+  )
+}
+
+function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   const navigate = useNavigate()
   const location = useLocation()
-  const saveTitle = useSaveTitle(spaceId)
+  // 공유 화면(WP-579)의 토큰·링크로 볼 수 있는 페이지 — 콜백 의존성으로 쓰려고 원시값·배열로 꺼내 둔다.
+  const shareToken = share?.token
+  const sharePages = share?.pages
+  // 이 화면에서 켜는 기능 — 한 번 정해 아래에서 같은 값을 쓴다(공유 여부는 화면이 떠 있는 동안 바뀌지 않는다).
+  const features = share ? SHARE_FEATURES : MEMBER_FEATURES
+  const saveTitle = useSaveTitle(spaceId, shareToken)
   const del = useDeletePage(spaceId)
-  const { data: tree } = useWikiTree(spaceId)
+  // 공유 화면은 스페이스 트리를 받을 수 없다(멤버 아님) — 링크로 볼 수 있는 페이지 묶음을 트리로 쓴다.
+  const { data: spaceTree } = useWikiTree(share ? null : spaceId)
+  const tree = share ? share.pages : spaceTree
+  // 같은 노트 안 다른 페이지 주소 — 공유 화면이면 링크 안에서 옮겨 다닌다(경로·트리·멘션 이동이 같은 규칙).
+  const pagePath = useCallback(
+    (id: number) => (shareToken != null ? `/wiki/share/${shareToken}/pages/${id}` : `/wiki/spaces/${spaceId}/pages/${id}`),
+    [shareToken, spaceId],
+  )
   // 현재 페이지의 하위 페이지 존재 여부 — 트리에서 parentId 가 일치하는 항목 유무로 판단.
   const pageHasChildren = useMemo(
     () => (tree ?? []).some((p) => p.parentId === page.id),
     [tree, page.id],
   )
+  // 지금 이 페이지 아래 페이지 수(손자까지) — 공유 창 「하위 페이지도 함께 공유」 옆에 보인다(WP-579).
+  const descendantCount = useMemo(() => countDescendants(tree ?? [], page.id), [tree, page.id])
   // 현재 페이지 삭제 확인 다이얼로그 상태.
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // 공유 창(WP-579). 접근 요청 알림(?share=1)으로 열었으면 처음부터 연다 — 단 공유를 바꿀 수 있는 사람만(canShare 일 때만 창을 그린다).
+  const [shareOpen, setShareOpen] = useState(false)
+  const shareParamOpen = !share && new URLSearchParams(location.search).get(SHARE_DIALOG_PARAM) === '1'
   // 마크다운 소스 모달(#753). 마크다운은 모달을 열 때 1회 스냅샷으로 만든다.
   const [sourceOpen, setSourceOpen] = useState(false)
   const [sourceMarkdown, setSourceMarkdown] = useState('')
@@ -136,9 +230,22 @@ export function WikiEditor({
 
   // 역할 게이트 — OWNER|EDITOR 만 /ai 슬래시 사용. VIEWER 면 메뉴 미노출.
   const { data: spaces, isPending: spacesPending } = useWikiSpaces()
-  const role = spaces?.find((s) => s.id === spaceId)?.role
+  const role = share ? (share.permission === 'EDIT' ? 'EDITOR' : 'VIEWER') : spaces?.find((s) => s.id === spaceId)?.role
   // 화면이 아는 역할로 정한 편집 가능 여부(= /ai 사용 가능) — 실제 편집 가능 여부는 아래 동기화 세션이 최종 판정한다.
   const roleCanEdit = role != null && isEditRole(role)
+  // 공유 창을 둘 수 있는 사람(WP-579) — 스페이스 EDITOR 이상만. VIEWER 는 서버가 공유 설정·기록을 403 으로 막으므로 버튼도 조회도 없다.
+  const canShare = canManageShare(spaces?.find((s) => s.id === spaceId)?.role, share != null)
+  // 주소의 ?share=1 표시를 지운다(기록을 남기지 않게 replace) — 창을 못 여는 사람이 들어왔거나 창을 닫을 때.
+  const clearShareParam = useCallback(() => {
+    const params = new URLSearchParams(location.search)
+    params.delete(SHARE_DIALOG_PARAM)
+    navigate({ search: params.toString() }, { replace: true, state: location.state })
+  }, [location.search, location.state, navigate])
+  // 공유 창을 못 여는 사람(읽기 전용 등)이 ?share=1 로 들어오면 남은 표시를 지운다 — 역할을 안 뒤(스페이스 목록이 온 뒤)에만.
+  useEffect(() => {
+    if (!shareParamOpen || spacesPending || canShare) return
+    clearShareParam()
+  }, [shareParamOpen, spacesPending, canShare, clearShareParam])
 
   // 실시간 동기화 세션(WP-287) — 페이지별 캐시라 셸 전환 재마운트에도 연결·미전송분이 유지된다.
   // readOnly 는 서버가 알려 온 역할 변경(VIEWER 강등·EDITOR 승격)과 종료 상태(forbidden)까지 반영한 값이라
@@ -150,6 +257,8 @@ export function WikiEditor({
   const { session, status: syncStatus, readOnly, body, stale, resume } = useCollabSession(page.id, {
     readOnly: !roleCanEdit,
     userId: user?.id ?? null,
+    // 공유 화면은 공유 토큰으로 붙는다(쿼리 share) — 같은 페이지의 멤버 세션과 따로 캐시된다.
+    shareToken,
   })
   const ready = body === 'ready'
   // 본문 편집 가능 — 권한(readOnly)과 첫 동기화(ready) 둘 다. 제목은 REST 라 readOnly 만 본다.
@@ -486,13 +595,15 @@ export function WikiEditor({
   // ref 들과 달리 렌더마다 갱신하는 useEffect 가 불필요하다.
   const imageInputRef = useRef<HTMLInputElement>(null)
   const onImageInsertRef = useRef<() => void>(() => imageInputRef.current?.click())
+  // 공유 링크로 연 화면은 AI 를 쓰지 않는다(WP-579 「하지 않는 것」) — 슬래시 메뉴의 AI 항목을 뺀다. 공유 여부는 화면이 떠 있는 동안 바뀌지 않는다.
+  const aiEnabledRef = useRef(features.ai)
 
   // 슬래시 확장 — 마운트 시 1회 생성. ctx ref 는 suggestion 콜백(allow/command)에서만 역참조되며
   // 사용자가 '/' 를 입력할 때 ProseMirror 가 호출하므로 렌더 시점에 동기 실행되지 않아 안전하다
   // (RichInput 의 membersRef 패턴 동일 — react-hooks/refs 의 보수적 false positive).
   const slashExtension = useMemo(
     // eslint-disable-next-line react-hooks/refs
-    () => createWikiSlashExtension({ canEditRef, onActionRef, onImageInsertRef }),
+    () => createWikiSlashExtension({ canEditRef, onActionRef, onImageInsertRef, aiEnabledRef }),
     [],
   )
   // 표 단축키 확장 — canEditRef 를 슬래시 확장과 같은 패턴으로 주입(마운트 시 1회 생성).
@@ -502,7 +613,7 @@ export function WikiEditor({
   // 본문 이미지 붙여넣기/드래그드롭 업로드(#751). 핸들러는 useCallback 으로 안정화돼 있어
   // useEditor 의 의존성 배열([page.id])에 넣지 않아도 stale closure 가 생기지 않는다.
   // canEditRef 를 넘겨 VIEWER 는 서버 403 전에 클라이언트에서 조용히 막는다(UX 전용, 서버가 최종 판정).
-  const { handlePaste, handleDrop, uploadFilesAtCursor } = useWikiImageUpload(page.id, canEditRef)
+  const { handlePaste, handleDrop, uploadFilesAtCursor } = useWikiImageUpload(page.id, canEditRef, shareToken)
 
   // 종단 상태면 원격 커서를 숨긴다(WP-292) — 확장은 마운트 시 1회 만들어지므로 ref 로 넘기고, 바뀔 때 메타로 다시 그린다.
   const presenceHiddenRef = useRef(isTerminalStatus(syncStatus))
@@ -527,6 +638,8 @@ export function WikiEditor({
         mention: mentionExtension,
         slash: slashExtension,
         tableShortcuts: tableShortcutsExtension,
+        // AI 가 꺼진 화면(공유 화면) — 슬래시 메뉴엔 서식·삽입 항목만 남으므로 AI 를 안내하지 않는다.
+        placeholder: features.ai ? undefined : "내용을 입력하거나 '/' 를 눌러 블록 추가",
       }),
       // 이미지 붙여넣기·드래그드롭 업로드. 업로드 완료 시 image 노드로 교체된다.
       // ⌘K — 링크 주소 입력. 열었을 때만 true(preventDefault)라 전역 AI 토글은 건너뛰고, 못 열면(노드 선택) AI 가 받는다.
@@ -719,7 +832,8 @@ export function WikiEditor({
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement
       const chip = target.closest('[data-mtype]') as HTMLElement | null
-      if (!chip) return
+      // 볼 수 없는 대상 칩(공유 화면, WP-579)은 링크가 아니다.
+      if (!chip || chip.hasAttribute('data-inaccessible')) return
       const mtype = chip.getAttribute('data-mtype') as WikiMentionType | null
       const id = Number(chip.getAttribute('data-id'))
       if (!mtype || !Number.isFinite(id)) return
@@ -728,6 +842,12 @@ export function WikiEditor({
         (m) => m.type === mtype && m.id === id,
       )
       if (mtype === 'PAGE') {
+        // 공유 화면에서 같은 공유 범위 안 페이지면 링크 안에서 연다(스페이스 주소는 멤버가 아니라 막힌다).
+        if (shareToken && sharePages?.some((p) => p.id === id)) {
+          e.preventDefault()
+          navigate(pagePath(id))
+          return
+        }
         // PAGE → 해소된 spaceId 가 있어야 위키 페이지 경로를 만들 수 있다.
         if (ref?.spaceId == null) return
         e.preventDefault()
@@ -740,7 +860,7 @@ export function WikiEditor({
       }
       // USER → 일반 사용자 프로필 라우트가 없어(관리자 전용 settings/users/:id 뿐) 무동작.
     },
-    [navigate, pageMentions],
+    [navigate, pageMentions, shareToken, sharePages, pagePath],
   )
 
   // 본문 클릭 위임 — 편집 모드의 Ctrl/⌘+클릭 링크 열기(WP-300)를 먼저 보고, 아니면 멘션 칩 내비게이션.
@@ -835,9 +955,16 @@ export function WikiEditor({
   }, [aiBusy, cancelAi])
 
   // 접근 불가가 되면 스페이스 목록을 다시 받는다 — 멤버에서 빠졌다면 그 스페이스가 목록에서 사라져 아래 목적지가 /wiki 로 바뀐다.
+  // 공유 화면이면 공유가 해제·재발급된 것이다 — 화면을 닫는다(WP-579). 콜백은 ref 로 읽어 effect 를 다시 걸지 않는다.
+  const onShareClosedRef = useRef(share?.onClosed)
   useEffect(() => {
-    if (syncStatus === 'forbidden') void queryClient.invalidateQueries({ queryKey: wikiKeys.spaces() })
-  }, [syncStatus, queryClient])
+    onShareClosedRef.current = share?.onClosed
+  })
+  useEffect(() => {
+    if (syncStatus !== 'forbidden') return
+    if (shareToken) onShareClosedRef.current?.()
+    else void queryClient.invalidateQueries({ queryKey: wikiKeys.spaces() })
+  }, [syncStatus, queryClient, shareToken])
   // 종료 안내의 "노트 목록으로" 목적지 — 아직 열 수 있는 스페이스면 그 목록, 아니면 /wiki.
   const listPath = wikiListPath(spaceId, spaces)
 
@@ -856,14 +983,18 @@ export function WikiEditor({
         aiState={previewing ? 'previewing' : aiState}
         aiBusy={aiBusy}
         aiAttributed={page.aiLastUsedAt != null}
-        onNavigate={(id) => navigate(`/wiki/spaces/${spaceId}/pages/${id}`)}
+        onNavigate={(id) => navigate(pagePath(id))}
         onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
         // 읽기 전용(VIEWER·서버가 강등)이면 삭제 항목을 감춘다(WP-602) — 편집 게이트와 같은 readOnly 를 따른다.
-        canDelete={!readOnly}
+        canDelete={!readOnly && features.delete}
         onViewSource={onViewSource}
-        onViewHistory={revisions.open}
+        onViewHistory={features.history ? revisions.open : undefined}
+        sharedBy={share && { name: share.sharedByName, canEdit: share.permission === 'EDIT' }}
         presence={<WikiPresence people={visiblePeople} compact={isMobile} stale={stale} onJump={jumpToPerson} />}
+        shared={page.shared === true}
+        // 공유는 이 스페이스에 쓸 수 있는 사람(EDITOR 이상)만 바꾼다 — 보기만 하는 사람이 범위를 넓히지 못하게.
+        onShare={canShare ? () => setShareOpen(true) : undefined}
       />
       {/* 본문 줄 + 버전 기록(WP-282) — 에디터 스크롤 영역은 레이어 안 고정 자리에 늘 마운트된다(WikiRevisionLayer).
           미리보기 중엔 버블 툴바·표 메뉴도 끈다 — #root 에 붙어 inert 밖이라, 원격 입력이 shouldShow 를 다시 돌리면 덮개 위로 뜬다. */}
@@ -893,7 +1024,9 @@ export function WikiEditor({
               // 링크 주소 입력이 열린 동안은 감춘다.
               suppressed={linkInputOpen}
               onAction={runTransform}
-              onCreateIssue={roleCanEdit && canEdit ? onCreateIssue : undefined}
+              // 공유 화면(WP-579)은 AI 변형·「이슈로 만들기」 없이 서식·링크만.
+              aiHidden={!features.ai}
+              onCreateIssue={roleCanEdit && canEdit && features.issueCreate ? onCreateIssue : undefined}
               onLink={() => openLinkInput()}
             />
             <WikiTableToolbar editor={editor} disabled={!editable} />
@@ -946,13 +1079,14 @@ export function WikiEditor({
               className={`mb-4 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words break-keep outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
             />
             {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
-            <WikiSummaryCard pageId={page.id} accessLost={isAccessLost(syncStatus)} />
+            {features.summary && <WikiSummaryCard pageId={page.id} accessLost={isAccessLost(syncStatus)} />}
             {/* 빈 페이지 AI CTA — 초안 작성이 가장 유효한 순간(#733). 본문이 채워지면 사라진다.
                 동기화 연결(live) 뒤에만 보인다 — 처음 열 때 서버 본문이 오기 전 빈 에디터에 잠깐 깜빡이지 않게(WP-287).
                 에디터 아래가 아니라 제목 바로 밑에 둔다: 본문 클릭영역(min-h 300px) 뒤에 두면
                 placeholder 와 300px 떨어져 시각적 연결이 끊긴다.
                 점선 테두리는 디자인시스템에 규정이 없어 일반 border + bg-muted 표면을 쓴다. */}
-            {bodyEmpty && aiState === 'ready' && !aiBusy && syncStatus === 'live' && (
+            {/* 공유 화면(WP-579)은 AI 를 쓰지 않는다 — 편집 공유의 빈 페이지에도 AI 초안 안내를 두지 않는다. */}
+            {features.ai && bodyEmpty && aiState === 'ready' && !aiBusy && syncStatus === 'live' && (
               <div
                 data-testid="wiki-ai-empty-cta"
                 className="mb-4 flex w-fit max-w-full flex-wrap items-center gap-2 rounded-lg border bg-muted px-3 py-2"
@@ -1018,7 +1152,7 @@ export function WikiEditor({
               onClose={() => setIssueDialog((s) => ({ ...s, open: false }))}
             />
             {/* 백링크 패널 — 이 페이지를 참조하는 다른 위키 페이지(빈 배열이면 자체적으로 숨김). */}
-            <WikiBacklinksPanel pageId={page.id} />
+            {features.backlinks && <WikiBacklinksPanel pageId={page.id} />}
             {/* 스크린리더용 라이브 리전 — 상시 렌더하고 내부 텍스트만 토글한다.
                 조건부로 노드째 삽입하면 라이브 리전이 등록되기 전에 내용이 들어가 공지가 누락된다. */}
             <div aria-live="polite" aria-atomic="true" className="sr-only">
@@ -1069,6 +1203,22 @@ export function WikiEditor({
           onClose={linkUi.closeSheet}
           onEdit={linkUi.editFromSheet}
           onUnlink={linkUi.unlinkFromSheet}
+        />
+      )}
+      {/* 공유 창은 이 스페이스 편집자 이상만 — 읽기 전용(VIEWER)·공유 화면(멤버 아님)엔 두지 않아 공유 상태도 조회하지 않는다. */}
+      {canShare && (
+        <WikiShareDialog
+          open={shareOpen || shareParamOpen}
+          onOpenChange={(open) => {
+            setShareOpen(open)
+            // 알림으로 연 표시(?share=1)는 닫을 때 지운다 — 남아 있으면 계속 열린 채로 그려진다.
+            if (!open && shareParamOpen) clearShareParam()
+          }}
+          pageId={page.id}
+          spaceId={spaceId}
+          pageTitle={title}
+          childCount={descendantCount}
+          onOpenPage={(id) => navigate(pagePath(id))}
         />
       )}
       <WikiMarkdownSourceDialog

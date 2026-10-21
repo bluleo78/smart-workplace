@@ -109,11 +109,22 @@ public class NotificationService {
       Long actorId,
       Long issueId,
       Long eventId) {
+    publishPush(type, category, recipients, actorId, issueId, eventId, null);
+  }
+
+  private void publishPush(
+      NotificationType type,
+      PushCategory category,
+      List<Long> recipients,
+      Long actorId,
+      Long issueId,
+      Long eventId,
+      Long wikiPageId) {
     Long tenantId = TenantContext.get();
     if (tenantId == null) return;
     publisher.publishEvent(
         new InboxPushRequestedEvent(
-            tenantId, type, category, recipients, actorId, issueId, eventId));
+            tenantId, type, category, recipients, actorId, issueId, eventId, wikiPageId));
   }
 
   /**
@@ -190,6 +201,23 @@ public class NotificationService {
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", type.name(), "eventId", eventId));
     publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, null, eventId);
+  }
+
+  /**
+   * 노트 공유 알림(WP-579) — WIKI_SHARED(새로 지정된 사람)·WIKI_SHARE_ACCESS_REQUESTED(공유한
+   * 사람)·WIKI_SHARE_ACCESS_APPROVED (요청자) 한 건. actor==recipient 면 자기 자신 알림은 만들지 않는다. insert 후 SSE
+   * fan-out 과 푸시 이벤트를 낸다.
+   *
+   * @param message 공유한 사람이 덧붙인 메시지(WIKI_SHARED 만, 없으면 null)
+   */
+  @Transactional
+  public void createWikiShareNotificationAndFanOut(
+      long recipientId, NotificationType type, long actorId, long pageId, String message) {
+    if (actorId == recipientId) return;
+    repo.insertWikiShareNotification(recipientId, type, actorId, pageId, message);
+    registry.fanOut(
+        List.of(recipientId), "notify.created", Map.of("type", type.name(), "wikiPageId", pageId));
+    publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, null, null, pageId);
   }
 
   /**

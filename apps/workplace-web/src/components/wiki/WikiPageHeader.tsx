@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FileCode, History, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileCode, History, Link2, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -65,6 +65,9 @@ export function WikiPageHeader({
   onViewSource,
   onViewHistory,
   presence,
+  shared = false,
+  onShare,
+  sharedBy,
 }: {
   crumbs: { id: number; title: string }[]
   /** 실시간 동기화 상태(WP-287) — 예전 저장 상태(저장 중/저장됨/충돌)를 대체한다. */
@@ -85,8 +88,19 @@ export function WikiPageHeader({
   onViewHistory?: () => void
   /** 접속자 아바타(WP-173) — WikiEditor 가 만든 요소. 다른 접속자가 없으면 null. 동기화 칩 앞에 둔다(시안 collab-overview). */
   presence?: ReactNode
+  /** 이 페이지를 링크로 공유 중인지(WP-579) — 버튼이 「공유 중」으로 바뀌고 모바일은 제목 옆에 표시한다. */
+  shared?: boolean
+  /** 공유 창 열기(WP-579). 공유를 바꿀 수 없는 사람(읽기 전용·공유 링크로 들어온 사람)에겐 넘기지 않아 버튼을 두지 않는다. */
+  onShare?: () => void
+  /**
+   * 공유 링크로 연 화면이면 공유한 사람·권한(WP-579) — 머리 오른쪽에 「○○님이 공유」로 보인다.
+   * 보기 전용은 동기화 칩이 이미 「읽기 전용」으로 알리므로 편집 가능일 때만 덧붙인다.
+   */
+  sharedBy?: { name: string; canEdit: boolean }
 }) {
   const isMobile = useIsMobile()
+  // 공유 링크 화면(sharedBy 있음)엔 AI 작성을 두지 않는다 — 스페이스 멤버 전용 기능이다(WP-579).
+  const aiHidden = sharedBy != null
   // 모바일 상세 분기 안이면 등록(→ 레이아웃 뒤로가기 바 숨김) 후 병합 헤더로 그린다(U2-8).
   const detail = useMobileDetailHeader(isMobile)
   // 툴팁 사유는 권한/로딩 사유만 노출(생성 중은 버튼 라벨이 "생성 중…"으로 이미 자명).
@@ -168,6 +182,32 @@ export function WikiPageHeader({
       )}
     </>
   )
+  // 공유 버튼(WP-579) — 공유 중이면 「공유 중」으로 바뀌어 지금 스페이스 밖에 열려 있다는 것을 늘 보여 준다.
+  const shareButton = onShare && !isAccessLost(syncStatus) && (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={onShare}
+      data-testid="wiki-share-button"
+      className={shared ? 'border-primary/40 text-primary hover:text-primary' : undefined}
+    >
+      <Link2 aria-hidden="true" />
+      {shared ? '공유 중' : '공유'}
+    </Button>
+  )
+  // 공유 링크 화면 표시(WP-579) — 스페이스 화면이 아니라 누군가 링크로 보여 준 페이지라는 것.
+  const sharedNote = sharedBy && (
+    <span
+      data-testid="wiki-page-shared-by"
+      className="inline-flex min-w-0 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"
+    >
+      <Link2 className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">
+        {sharedBy.name}님이 공유{sharedBy.canEdit && ' · 편집 가능'}
+      </span>
+    </span>
+  )
   // 페이지 메뉴(마크다운 소스·버전 기록·삭제).
   const pageMenu = (
     <DropdownMenu>
@@ -185,7 +225,7 @@ export function WikiPageHeader({
       <DropdownMenuContent align="end" className={isMobile ? 'w-64' : undefined}>
         {/* 모바일: 헤더의 AI ▾ 대신 이 메뉴 맨 위 "AI 작성" 묶음(U3-R1) — 헤더의 AI 아이콘은 ✦(어시스턴트) 하나로 둔다.
             터치엔 툴팁이 없으므로 비활성 사유는 묶음 머리에 글자로 보인다(흐리게 칠하지 않음). */}
-        {isMobile && (
+        {isMobile && !aiHidden && (
           <>
             <DropdownMenuLabel className="text-xs text-muted-foreground">AI 작성</DropdownMenuLabel>
             {(disabledReason ?? (aiBusy ? '생성 중…' : null)) && (
@@ -207,6 +247,12 @@ export function WikiPageHeader({
             ))}
             <DropdownMenuSeparator />
           </>
+        )}
+        {/* 모바일은 헤더 폭이 좁아 공유 버튼 대신 메뉴 항목으로(WP-579). */}
+        {isMobile && onShare && !isAccessLost(syncStatus) && (
+          <DropdownMenuItem data-testid="wiki-menu-share" onSelect={() => setTimeout(onShare, 0)}>
+            <Link2 className="mr-2 h-4 w-4" aria-hidden="true" /> {shared ? '공유 설정' : '공유'}
+          </DropdownMenuItem>
         )}
         {/* 소스 보기는 읽기 권한만으로 충분하다 — 이 드롭다운 자체가 권한 분기 밖에 있다. */}
         <DropdownMenuItem
@@ -250,14 +296,28 @@ export function WikiPageHeader({
         data-testid="wiki-page-header"
         title={current?.title ?? detail.title}
         titleAccessory={
-          aiAttributed ? (
-            <span
-              data-testid="wiki-page-ai-attribution-badge"
-              title="AI가 생성한 콘텐츠를 포함합니다"
-              className={cn(aiSignalBadgeClass('info'), 'shrink-0 whitespace-nowrap text-[11px]')}
-            >
-              AI 생성<span className="sr-only"> 콘텐츠 포함</span>
-            </span>
+          // 공유 중 표식과 AI 생성 표식은 서로 다른 신호라 함께 보인다(제목이 먼저 말줄임되고 표식은 줄어들지 않는다).
+          shared || aiAttributed ? (
+            <>
+              {shared && (
+                <span
+                  data-testid="wiki-page-shared-badge"
+                  className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-primary/10 px-1 text-[11px] text-primary"
+                >
+                  <Link2 className="size-3" aria-hidden="true" />
+                  공유 중
+                </span>
+              )}
+              {aiAttributed && (
+                <span
+                  data-testid="wiki-page-ai-attribution-badge"
+                  title="AI가 생성한 콘텐츠를 포함합니다"
+                  className={cn(aiSignalBadgeClass('info'), 'shrink-0 whitespace-nowrap text-[11px]')}
+                >
+                  AI 생성<span className="sr-only"> 콘텐츠 포함</span>
+                </span>
+              )}
+            </>
           ) : undefined
         }
         // 생성 중 표시 — AI ▾ 버튼(스피너)이 메뉴로 들어가 헤더에서 사라졌으므로 작은 스피너로 남긴다(공지는 에디터의 라이브 리전 담당).
@@ -380,9 +440,11 @@ export function WikiPageHeader({
       }
       actions={
         <>
+          {sharedNote}
           {presence}
           {syncChip}
-          {aiControl}
+          {shareButton}
+          {!aiHidden && aiControl}
           {pageMenu}
         </>
       }

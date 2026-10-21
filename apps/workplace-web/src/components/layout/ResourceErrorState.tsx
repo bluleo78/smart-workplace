@@ -9,6 +9,8 @@ interface ResourceErrorStateProps {
   description: string;
   actionLabel: string;
   onAction: () => void;
+  /** 액션을 이미 끝내 다시 누를 수 없을 때(예: 노트 공유 「요청함」, WP-579). */
+  actionDisabled?: boolean;
 }
 
 // 존재하지 않거나 접근 권한이 없는 리소스(프로젝트/이슈) 진입 시 표시하는 에러 상태.
@@ -20,6 +22,7 @@ export function ResourceErrorState({
   description,
   actionLabel,
   onAction,
+  actionDisabled = false,
 }: ResourceErrorStateProps) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center min-h-[60vh]">
@@ -28,7 +31,7 @@ export function ResourceErrorState({
         <p className="text-lg font-semibold">{title}</p>
         <p className="text-sm text-muted-foreground max-w-md">{description}</p>
       </div>
-      <Button variant="outline" onClick={onAction}>
+      <Button variant="outline" onClick={onAction} disabled={actionDisabled}>
         {actionLabel}
       </Button>
     </div>

@@ -112,12 +112,12 @@ class WikiAttachmentDeleteCommitTest extends IntegrationTestBase {
 
       byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0};
       var mf = new MockMultipartFile("file", "a.png", "image/png", png);
-      WikiAttachmentResponse res = attachmentService.upload(ownerId, pageId, mf);
+      WikiAttachmentResponse res = attachmentService.upload(ownerId, pageId, mf, null);
       seededFileId = res.fileId(); // upload~delete 사이 실패 시 @AfterEach 백스톱용
 
       // 업로드가 이미 커밋된 상태(서비스 메서드가 @Transactional 이고 테스트가 비-@Transactional)이므로
       // 디스크에 실제 파일이 있는지 여기서 먼저 확인해둔다.
-      var stored = attachmentService.download(ownerId, pageId, res.fileId());
+      var stored = attachmentService.download(ownerId, pageId, res.fileId(), null);
       assertThat(Files.exists(stored.path())).as("업로드 직후 디스크에 파일이 있어야 함").isTrue();
 
       attachmentService.delete(ownerId, pageId, res.fileId());
@@ -153,10 +153,10 @@ class WikiAttachmentDeleteCommitTest extends IntegrationTestBase {
       byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0};
       WikiAttachmentResponse res =
           attachmentService.upload(
-              ownerId, pageId, new MockMultipartFile("file", "a.png", "image/png", png));
+              ownerId, pageId, new MockMultipartFile("file", "a.png", "image/png", png), null);
       seededFileId = res.fileId();
 
-      var stored = attachmentService.download(ownerId, pageId, res.fileId());
+      var stored = attachmentService.download(ownerId, pageId, res.fileId(), null);
       String storagePath =
           dsl.select(FILE.STORAGE_PATH)
               .from(FILE)

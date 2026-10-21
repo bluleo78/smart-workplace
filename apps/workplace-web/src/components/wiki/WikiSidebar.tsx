@@ -49,8 +49,11 @@ import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiDeleteSpaceDialog } from './WikiDeleteSpaceDialog'
+import { WikiMoveShareDialog } from './WikiMoveShareDialog'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
+import { shareMoveImpact, treeShareMarks } from './wikiShare'
+import { WikiSharedPagesDialog } from './WikiSharedPagesDialog'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
 import { canEditWikiSpace, isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
 import { WikiSpaceUnavailableState } from './WikiSpaceUnavailableState'
@@ -193,6 +196,8 @@ export function WikiSidebar() {
   const [membersOpen, setMembersOpen] = useState(false)
   // 스페이스 삭제 확인 열림 상태(WP-580).
   const [spaceDeleteOpen, setSpaceDeleteOpen] = useState(false)
+  // 공유 중인 페이지 목록 열림 상태(WP-579).
+  const [sharedOpen, setSharedOpen] = useState(false)
   // 지운 뒤 /wiki 로 보내 남은 첫 스페이스(또는 빈 상태)를 연다.
   const deleteSpace = useDeleteSpace({
     onDeleted: () => {
@@ -211,6 +216,14 @@ export function WikiSidebar() {
 
   // 평면화된 트리 — DnD SortableContext 의 항목 순서.
   const flatItems = useMemo(() => flattenTree(pages ?? [], collapsed), [pages, collapsed])
+  // 링크 공유 표시(WP-579) — 자기 공유·상위 공유 포함.
+  const shareMarks = useMemo(() => treeShareMarks(pages ?? []), [pages])
+  // 하위 포함 공유 안팎으로 옮기기 전 확인(WP-579) — 확정하면 move 를 보낸다.
+  const [moveConfirm, setMoveConfirm] = useState<{
+    move: { pageId: number; parentId: number | null; position: number }
+    impact: ReturnType<typeof shareMoveImpact>
+    title: string
+  } | null>(null)
 
   // DnD 상태 — 드래그 중 active/over id 와 가로 오프셋(투영용).
   const [activeId, setActiveId] = useState<number | null>(null)
@@ -338,7 +351,14 @@ export function WikiSidebar() {
       .filter((i) => i.parentId === current.parentId).length
     if (parentId === current.parentId && position === currentSiblingsBefore) return
 
-    movePage.mutate({ pageId: aId, parentId, position })
+    const move = { pageId: aId, parentId, position }
+    // 공유 범위는 지금 위치로 정해진다 — 하위 포함 공유에서 빠지거나 새로 들어가면 링크로 보이는 것이 바뀌므로 먼저 묻는다.
+    const impact = shareMoveImpact(pages ?? [], aId, parentId)
+    if (impact.leaving.length > 0 || impact.entering.length > 0) {
+      setMoveConfirm({ move, impact, title: current.title })
+      return
+    }
+    movePage.mutate(move)
   }
 
   // 공간 0개(WP-143) — 선택 상자·페이지 트리 대신 빈 상태. 모바일은 이 목록이 화면 전체라 여기 그리고,
@@ -392,8 +412,8 @@ export function WikiSidebar() {
             </SelectItem>
           </SelectContent>
         </Select>
-        {/* TEAM 스페이스만 ⋯ — 개인 스페이스는 나 혼자라 멤버가 없다. 드라이브 공간 줄 ⋯ 와 같은 자리·같은 항목(WP-582). */}
-        {isTeamSpace && (
+        {/* 스페이스 ⋯ — 공유 중인 페이지(WP-579)는 모든 스페이스, 멤버(WP-582)·삭제(WP-580)는 팀 스페이스만. 드라이브 공간 줄 ⋯ 와 같은 자리. */}
+        {selectedSpace && !spaceUnavailable && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -406,8 +426,13 @@ export function WikiSidebar() {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem data-testid="wiki-space-members" onSelect={() => setMembersOpen(true)}>
-                멤버
+              {isTeamSpace && (
+                <DropdownMenuItem data-testid="wiki-space-members" onSelect={() => setMembersOpen(true)}>
+                  멤버
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem data-testid="wiki-space-shared-pages" onSelect={() => setSharedOpen(true)}>
+                공유 중인 페이지
               </DropdownMenuItem>
               {/* 삭제는 소유자에게만 — 되돌릴 수 없는 동작이라 구분선으로 떼어 둔다. */}
               {canDeleteSpace && (
@@ -471,6 +496,7 @@ export function WikiSidebar() {
                   id={item.id}
                   title={item.title}
                   aiAttributed={item.aiLastUsedAt != null}
+                  shareMark={shareMarks.get(item.id)}
                   depth={activeId === item.id && projected ? projected.depth : item.depth}
                   hasChildren={item.hasChildren}
                   collapsed={collapsed.has(item.id)}
@@ -495,6 +521,15 @@ export function WikiSidebar() {
           onOpenChange={setMembersOpen}
         />
       )}
+      {selectedSpace && (
+        <WikiSharedPagesDialog
+          open={sharedOpen}
+          onOpenChange={setSharedOpen}
+          spaceId={selectedSpace.id}
+          spaceName={selectedSpace.name}
+          onOpenPage={openPage}
+        />
+      )}
       {createSpaceDialog}
       <WikiDeleteSpaceDialog
         open={spaceDeleteOpen}
@@ -504,6 +539,14 @@ export function WikiSidebar() {
         pending={deleteSpace.isPending}
         // 이동·토스트는 useDeleteSpace 의 onDeleted 가 한다.
         onConfirm={() => spaceId != null && deleteSpace.mutate(spaceId)}
+      />
+      <WikiMoveShareDialog
+        state={moveConfirm}
+        onCancel={() => setMoveConfirm(null)}
+        onConfirm={() => {
+          if (moveConfirm) movePage.mutate(moveConfirm.move)
+          setMoveConfirm(null)
+        }}
       />
       {/* 페이지 삭제 확인(사이드바 행 ⋯). hasChildren 은 flatItems 에서 파생. */}
       <WikiDeletePageDialog

@@ -10,6 +10,7 @@ import com.workplace.wiki.dto.WikiAiAction;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
+import com.workplace.wiki.dto.WikiShareGrant;
 import com.workplace.wiki.exception.WikiBaseExpiredException;
 import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiInvalidMoveException;
@@ -50,8 +51,12 @@ public class WikiPageService {
   // WP-289 AI 병합 기준본 — 읽은 판·쓴 판을 기록한다.
   private final WikiBodyHistoryRepository bodies;
   private final WikiPermissions perms;
+  // WP-579 공유 링크(X-Wiki-Share-Token) 판정 — 페이지 조회·제목 저장이 멤버 역할과 공유 역할 중 높은 쪽으로 판정한다.
+  private final WikiShareAccess shareAccess;
   private final WikiBodyEffects bodyEffects;
   private final WikiAttachmentService attachments;
+  // WP-579 이동·삭제에 따른 공유 기록·감사·재검증.
+  private final WikiShareLifecycle shareLifecycle;
   private final ApplicationEventPublisher publisher;
   private final CollabClient collab;
   private final CollabProperties collabProps;
@@ -86,12 +91,44 @@ public class WikiPageService {
     return pages.listBySpace(spaceId);
   }
 
-  /** 단건 상세(본문 + version). VIEWER 이상. */
+  /** 단건 상세(본문 + version). VIEWER 이상. 공유 토큰 없이 — {@link #get(long, long, String)}. */
   @Transactional(readOnly = true)
   public WikiPageDetail get(long callerId, long pageId) {
-    requireViewer(callerId, pageId);
+    return get(callerId, pageId, null);
+  }
+
+  /**
+   * 단건 상세(본문 + version). VIEWER 이상 — 스페이스 멤버 역할 또는 공유 링크 권한(WP-579).
+   *
+   * @param shareToken 공유 화면이 보낸 {@link WikiShareAccess#HEADER}, 없으면 null(지금과 같은 멤버 판정)
+   */
+  @Transactional(readOnly = true)
+  public WikiPageDetail get(long callerId, long pageId, String shareToken) {
+    requireViewer(callerId, pageId, shareToken);
     return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
   }
+
+  /**
+   * 멘션 하이드레이션용 상세 — {@link #get(long, long, String)} 과 같은 VIEWER 판정을 <b>한 번</b> 하고, 그 판정 결과의 멘션 가림
+   * 권한을 함께 돌려준다(WP-579). 판정을 페이지 조회와 가림 권한 조회로 두 번 돌지 않게.
+   */
+  @Transactional(readOnly = true)
+  public MentionSource mentionSource(long callerId, long pageId, String shareToken) {
+    long spaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    WikiShareGrant masking =
+        shareAccess.effectiveAccess(spaceId, pageId, callerId, shareToken, "VIEWER").maskingGrant();
+    WikiPageDetail page =
+        pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    return new MentionSource(page, masking);
+  }
+
+  /**
+   * 멘션을 풀 페이지와 가림 권한.
+   *
+   * @param maskingGrant 공유 링크로 들어온 비멤버면 그 공유 권한(볼 수 없는 대상을 가린다), 멤버·토큰 없음이면 null
+   */
+  public record MentionSource(WikiPageDetail page, WikiShareGrant maskingGrant) {}
 
   /**
    * 페이지 상세 조회 + AI 병합 기준본 기록(스펙 §3.3). 기본은 기록한다 — 쿼리를 모르는 구버전 웹(캐시된 PWA)·MCP 가 이 version 으로 본문을 저장할
@@ -99,19 +136,25 @@ public class WikiPageService {
    */
   @Transactional
   public WikiPageDetail read(long callerId, long pageId, boolean recordBase) {
+    return read(callerId, pageId, recordBase, null);
+  }
+
+  /** {@link #read(long, long, boolean)} + 공유 토큰(WP-579, nullable) — 공유 링크로 들어온 사람도 같은 규칙으로 읽는다. */
+  @Transactional
+  public WikiPageDetail read(long callerId, long pageId, boolean recordBase, String shareToken) {
     if (!recordBase) {
-      return get(callerId, pageId);
+      return get(callerId, pageId, shareToken);
     }
     // 권한 검사(없는 페이지 404·권한 없음 403)를 기록보다 먼저 — 실패하면 아무것도 남기지 않는다.
-    requireViewer(callerId, pageId);
+    requireViewer(callerId, pageId, shareToken);
     return detailRecordingBase(pageId);
   }
 
-  /** 페이지 조회 권한 — 없는 페이지면 404, 공간 VIEWER 미만이면 403. */
-  private void requireViewer(long callerId, long pageId) {
+  /** 페이지 조회 권한 — 없는 페이지면 404, VIEWER 미만이면 403. 공유 토큰이 있으면 멤버·공유 중 높은 역할(WP-579). */
+  private void requireViewer(long callerId, long pageId, String shareToken) {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(spaceId, callerId, "VIEWER");
+    shareAccess.effectiveRole(spaceId, pageId, callerId, shareToken, "VIEWER");
   }
 
   /** 사람(웹) 저장 — {@link #save(long, long, SavePageRequest, boolean)} 의 ai=false. */
@@ -139,6 +182,17 @@ public class WikiPageService {
    * @param ai MCP·채팅 비서 등 AI 경로면 true — 동기화 서버가 ✦ 표시·스냅샷 귀속에 쓴다
    */
   public WikiPageDetail save(long callerId, long pageId, SavePageRequest req, boolean ai) {
+    return save(callerId, pageId, req, ai, null);
+  }
+
+  /**
+   * {@link #save(long, long, SavePageRequest, boolean)} + 공유 토큰(WP-579, nullable). 공유 링크 권한은
+   * <b>제목만</b> 저장(body null)에 쓴다 — 설계 「접근 판정」이 공유 경로로 받아들이는 저장은 제목 PUT 뿐이고, 공유 화면의 본문 편집은 동기화
+   * 서버(collab-access)로 간다. 본문을 실은 요청은 토큰을 무시하고 지금처럼 멤버 EDITOR 를 요구한다.
+   */
+  public WikiPageDetail save(
+      long callerId, long pageId, SavePageRequest req, boolean ai, String shareToken) {
+    String titleShareToken = req.body() == null ? shareToken : null;
     // WP-327: 새 웹은 본문을 PUT 하지 않으므로(동기화 서버로 저장) 사람(ai=false)의 본문 PUT 은 캐시된 구버전 PWA 뿐이다.
     // 이 로그가 끊기면 구버전이 사라진 것 — 제출 본문 기준본 후보(submitted_body)를 걷어낼 시점을 판단하는 근거. id 만 남긴다.
     if (req.body() != null && !ai) {
@@ -147,7 +201,8 @@ public class WikiPageService {
     boolean delegate = req.body() != null && collabProps.enabled();
     TransactionTemplate tx = new TransactionTemplate(txManager);
     if (!delegate) {
-      return tx.execute(s -> saveInTx(loadForEdit(callerId, pageId), callerId, req));
+      return tx.execute(
+          s -> saveInTx(loadForEdit(callerId, pageId, titleShareToken), callerId, req));
     }
 
     // 호출자가 트랜잭션을 열어 두었으면 ①이 거기에 합류해 제목 행 잠금이 위임 내내 남는다 — 교착 대신 즉시 실패시킨다.
@@ -238,7 +293,8 @@ public class WikiPageService {
           callerId,
           OffsetDateTime.now(),
           c.aiLastUsedAt(),
-          c.aiLastAction());
+          c.aiLastAction(),
+          c.shared());
     }
   }
 
@@ -292,9 +348,14 @@ public class WikiPageService {
 
   /** 페이지를 읽고 EDITOR 이상인지 확인한다. 트랜잭션 안에서 호출. */
   WikiPageDetail loadForEdit(long callerId, long pageId) {
+    return loadForEdit(callerId, pageId, null);
+  }
+
+  /** {@link #loadForEdit(long, long)} + 공유 토큰(nullable) — 멤버·공유 중 높은 역할이 EDITOR 이상인지(WP-579). */
+  private WikiPageDetail loadForEdit(long callerId, long pageId, String shareToken) {
     WikiPageDetail current =
         pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(current.spaceId(), callerId, "EDITOR");
+    shareAccess.effectiveRole(current.spaceId(), pageId, callerId, shareToken, "EDITOR");
     return current;
   }
 
@@ -395,6 +456,8 @@ public class WikiPageService {
     // 락 없이는 "X 를 Y 밑으로" 와 "Y 를 X 밑으로" 가 동시에 통과해 되돌릴 수 없는 사이클이 남는다.
     pages.lockSpaceTree(spaceId);
     requireMovable(pageId, spaceId, req.parentId());
+    // WP-579: 옮기기 전 부모 — 하위 포함 공유 범위에서 빠지는지·들어가는지를 비교한다.
+    Long oldParentId = pages.findParentId(pageId);
     // 부모 변경을 먼저 반영(같은 부모면 no-op 수준).
     pages.move(pageId, req.parentId(), req.position());
     // 새 부모의 형제들을 현재 순서로 가져와 이동 노드를 목표 인덱스에 삽입 후 0..n 재부여(타이 제거).
@@ -407,6 +470,7 @@ public class WikiPageService {
     for (int i = 0; i < ids.size(); i++) {
       pages.setPosition(ids.get(i), i);
     }
+    shareLifecycle.onMoved(spaceId, pageId, oldParentId, req.parentId(), callerId);
     // #724: 트리 이동을 스페이스 멤버에게 알려 사이드바 트리가 재조회되도록 한다.
     publisher.publishEvent(new WikiPageMovedEvent(spaceId, pageId, callerId, Instant.now()));
   }
@@ -455,6 +519,8 @@ public class WikiPageService {
     long spaceId = checkDeletable(callerId, pageId);
     // WP-285: 자식은 CASCADE 로 함께 사라지므로 삭제 "전에" 서브트리를 모아 둔다 — 열린 편집 연결 재검증 대상.
     List<Long> removedPageIds = pages.subtreeIdsInclusive(pageId);
+    // WP-579: 함께 사라질 공유마다 감사(reason PAGE_DELETED) — 공유 행도 CASCADE 로 사라지므로 지우기 전에.
+    shareLifecycle.beforePagesDeleted(removedPageIds);
     // #757: wiki_page_attachment 는 page_id ON DELETE CASCADE 라 pages.delete() 이후에는 매핑을 조회할
     // 수 없다 — 첨부 회수는 반드시 페이지 삭제 "직전"에 서브트리를 조회해야 한다(순서가 load-bearing).
     attachments.reclaimPageTree(pageId);

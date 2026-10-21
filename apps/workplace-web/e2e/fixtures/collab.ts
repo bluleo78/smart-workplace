@@ -54,8 +54,28 @@ export async function seedCollabDoc(
   body: string,
   role: CollabRole = 'OWNER',
   roles?: Record<string, CollabRole>,
+  shares?: Record<string, CollabShareRole>,
 ): Promise<void> {
-  await post('/__test/seed', { docName: collabDocName(ns, pageId), body, role, ...(roles ? { roles } : {}) })
+  await post('/__test/seed', {
+    docName: collabDocName(ns, pageId),
+    body,
+    role,
+    ...(roles ? { roles } : {}),
+    ...(shares ? { shares } : {}),
+  })
+}
+
+/** 공유 링크가 주는 역할(WP-579) — 시드 shares 의 값. 공유는 보기·편집 둘뿐이다. */
+export type CollabShareRole = 'VIEWER' | 'EDITOR'
+
+/**
+ * 공유 링크를 해제한다(WP-579) — 테스트 모드 서버에서 그 토큰의 공유를 지운 뒤 API 가 해제 직후 부르는 재검증을 그대로 부른다.
+ * 그 토큰으로 붙은 연결은 4403 으로 닫히고 다시 붙어도 거부된다. 같은 문서의 멤버 연결은 그대로다.
+ * 토큰은 서버의 모양 검사(`^[A-Za-z0-9_-]{1,128}$`)에 맞아야 한다.
+ */
+export async function revokeCollabShare(ns: string, pageId: number, token: string): Promise<void> {
+  await post('/__test/revoke-share', { docName: collabDocName(ns, pageId), token })
+  await post('/internal/docs/revalidate', { tenantId: 1, pageIds: [pageId] }, { Authorization: `Internal ${internalToken()}` })
 }
 
 /** 서버 문서의 현재 마크다운 — 열려 있으면 실시간 문서, 아니면 저장된 상태. */

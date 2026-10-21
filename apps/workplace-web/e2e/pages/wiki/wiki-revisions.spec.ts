@@ -199,7 +199,7 @@ test.describe('노트 버전 기록', () => {
     const v5 = '담당 <@11> 이 정리했다.\n\n검토 <@7> 이 확인했다.'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: live })
     await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: { ...DETAILS, 6: live, 5: v5 } })
-    await mockWikiMentions(a, PAGE_ID, [{ type: 'USER', id: 7, label: '앨리스 (제품기획)', spaceId: null, projectKey: null, number: null }])
+    await mockWikiMentions(a, PAGE_ID, [{ type: 'USER', id: 7, label: '앨리스 (제품기획)', spaceId: null, projectKey: null, number: null, inaccessible: false }])
     await a.clock.install({ time: NOW })
     await a.goto(pagePath)
     await openHistory(a)

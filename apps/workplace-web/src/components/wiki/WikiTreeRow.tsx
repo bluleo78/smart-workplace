@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronDown, ChevronRight, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Link2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
@@ -13,6 +13,8 @@ import {
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
+
+import type { TreeShareMark } from './wikiShare'
 
 // 들여쓰기 1단계 폭(px) — 사이드바와 동일 값.
 const INDENT = 16
@@ -28,6 +30,7 @@ export function WikiTreeRow({
   id,
   title,
   aiAttributed,
+  shareMark,
   depth,
   hasChildren,
   collapsed,
@@ -42,6 +45,8 @@ export function WikiTreeRow({
   title: string
   // #736: 이 페이지에 AI 생성 이력이 있는지 — true 면 제목 옆에 AiSignalBadge 노출.
   aiAttributed: boolean
+  /** 링크 공유 표시(WP-579) — own 은 이 페이지 공유(진한 아이콘), inherited 는 상위 페이지 공유에 포함(흐린 아이콘). */
+  shareMark?: TreeShareMark
   depth: number
   hasChildren: boolean
   collapsed: boolean
@@ -113,6 +118,17 @@ export function WikiTreeRow({
             >
               AI
             </AiSignalBadge>
+          )}
+          {shareMark && (
+            <Link2
+              role="img"
+              aria-label={shareMark === 'own' ? '링크로 공유 중' : '상위 페이지 공유에 포함됨'}
+              data-testid={`wiki-tree-shared-${id}`}
+              data-mark={shareMark}
+              className={cn('size-3.5 shrink-0', shareMark === 'own' ? 'text-primary' : 'text-muted-foreground/60')}
+            >
+              <title>{shareMark === 'own' ? '링크로 공유 중' : '상위 페이지 공유에 포함됨'}</title>
+            </Link2>
           )}
         </button>
         {!canEdit ? null : coarse ? (

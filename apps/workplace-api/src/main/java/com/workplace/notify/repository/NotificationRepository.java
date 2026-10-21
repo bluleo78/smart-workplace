@@ -11,6 +11,7 @@ import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
+import static com.workplace.jooq.Tables.WIKI_PAGE;
 
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
@@ -98,6 +99,21 @@ public class NotificationRepository {
         .execute();
   }
 
+  /**
+   * 노트 공유 알림 1건 insert(WP-579) — actor 있음, wiki_page_id 사용, message 는 WIKI_SHARED 의 보낸 사람 메시지(없으면
+   * null). 노트가 지워지면 FK CASCADE 로 행도 함께 사라진다.
+   */
+  public void insertWikiShareNotification(
+      long recipientId, NotificationType type, long actorId, long pageId, String message) {
+    dsl.insertInto(NOTIFICATION)
+        .set(NOTIFICATION.RECIPIENT_ID, recipientId)
+        .set(NOTIFICATION.ACTOR_ID, actorId)
+        .set(NOTIFICATION.TYPE, type.name())
+        .set(NOTIFICATION.WIKI_PAGE_ID, pageId)
+        .set(NOTIFICATION.MESSAGE, message)
+        .execute();
+  }
+
   /** REMINDER 알림 1건 insert — actor/issue 없음(event_id 만), type=REMINDER, 안읽음. */
   public void insertReminder(long recipientId, long eventId) {
     dsl.insertInto(NOTIFICATION)
@@ -108,11 +124,11 @@ public class NotificationRepository {
   }
 
   /**
-   * 최신순 알림 — issue·project(LEFT, 이슈 알림용), calendar_event(LEFT, REMINDER 용), user(actor, LEFT) 조인으로
-   * 표시 필드 합성. 이슈/리마인더가 섞여 있으므로 issue 는 INNER 가 아닌 LEFT JOIN. 이슈가 소프트삭제되면(#618) notification 행은
-   * CASCADE 없이 남지만 issue_id 가 가리키는 이슈는 죽은 링크이므로 목록에서 제외한다 (issue_id 가 null 인 리마인더/캘린더 알림은 LEFT JOIN
-   * 매치가 없어 이 조건에 영향받지 않는다). offset 은 무한스크롤 페이지네이션(#610)용 — 정렬 기준(created_at desc, id desc)이 고정이라
-   * 페이지 경계에서 안정적이다.
+   * 최신순 알림 — issue·project(LEFT, 이슈 알림용), calendar_event(LEFT, REMINDER 용), wiki_page(LEFT, 노트 공유
+   * 알림의 제목), user(actor, LEFT) 조인으로 표시 필드 합성. 이슈/리마인더가 섞여 있으므로 issue 는 INNER 가 아닌 LEFT JOIN. 이슈가
+   * 소프트삭제되면(#618) notification 행은 CASCADE 없이 남지만 issue_id 가 가리키는 이슈는 죽은 링크이므로 목록에서 제외한다 (issue_id 가
+   * null 인 리마인더/캘린더 알림은 LEFT JOIN 매치가 없어 이 조건에 영향받지 않는다). offset 은 무한스크롤 페이지네이션(#610)용 — 정렬
+   * 기준(created_at desc, id desc)이 고정이라 페이지 경계에서 안정적이다.
    */
   public List<NotificationResponse> listRecent(long recipientId, int limit, long offset) {
     return listRecent(recipientId, false, limit, offset);
@@ -138,6 +154,9 @@ public class NotificationRepository {
             NOTIFICATION.EVENT_ID,
             CALENDAR_EVENT.TITLE,
             CALENDAR_EVENT.STARTS_AT,
+            NOTIFICATION.WIKI_PAGE_ID,
+            WIKI_PAGE.TITLE,
+            NOTIFICATION.MESSAGE,
             NOTIFICATION.READ_AT,
             NOTIFICATION.CREATED_AT)
         .from(NOTIFICATION)
@@ -147,6 +166,8 @@ public class NotificationRepository {
         .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
         .leftJoin(CALENDAR_EVENT)
         .on(CALENDAR_EVENT.ID.eq(NOTIFICATION.EVENT_ID))
+        .leftJoin(WIKI_PAGE)
+        .on(WIKI_PAGE.ID.eq(NOTIFICATION.WIKI_PAGE_ID))
         .leftJoin(USER)
         .on(USER.ID.eq(NOTIFICATION.ACTOR_ID))
         .where(
@@ -176,6 +197,9 @@ public class NotificationRepository {
                   r.get(NOTIFICATION.EVENT_ID),
                   r.get(CALENDAR_EVENT.TITLE),
                   eventStart == null ? null : eventStart.toInstant(),
+                  r.get(NOTIFICATION.WIKI_PAGE_ID),
+                  r.get(WIKI_PAGE.TITLE),
+                  r.get(NOTIFICATION.MESSAGE),
                   r.get(NOTIFICATION.READ_AT) != null,
                   created == null ? null : created.toInstant());
             });
@@ -241,7 +265,51 @@ public class NotificationRepository {
                                             .where(
                                                 EVENT_ATTENDEE.EVENT_ID.eq(NOTIFICATION.EVENT_ID))
                                             .and(EVENT_ATTENDEE.USER_ID.eq(recipientId)))))));
-    return issueReadable.and(eventReadable);
+    return issueReadable.and(eventReadable).and(wikiReadableByRecipient(recipientId));
+  }
+
+  /**
+   * 노트 공유 알림이면 받는 사람이 그 노트를 지금도 열 수 있어야 한다(WP-579, WP-491·517 과 같은 방식으로 못 열면 목록·안읽음 수에서 뺀다) — 지정에서
+   * 빠지거나 공유가 해제·만료돼도 예전 알림이 노트의 현재(바뀐) 제목을 계속 보여 주지 않게 한다. 열 수 있는 경우: 노트 스페이스의 멤버이거나, 이 노트를 지금
+   * 덮는(자기 공유 또는 하위 포함 조상 공유) 만료 전 공유에 받는 사람이 지정한 사람으로 들어 있다.
+   *
+   * <p>알림을 누르면 가는 입구({@code WikiShareAccess#entry} — 멤버 또는 {@code
+   * WikiShareRepository#findListedCoveringTokens} 가 찾은 토큰)와 <b>같은 규칙</b>이어야 한다. 워크스페이스 전체 공유는 입구가
+   * 토큰을 주지 않으므로(토큰을 페이지 id 로 캐낼 수 없게) 여기서도 열 수 있음으로 보지 않는다 — 보이는데 누르면 「열 수 없음」이 되지 않게. 지정 목록은 대상이
+   * PEOPLE 이 아니게 되면 비워진다. 둘이 같은지는 WikiShareNotificationTest.notification_visibility_matches_entry 가
+   * 지킨다. 조상 체인은 자기 포함 재귀로 구해 이동도 즉시 반영한다. 쿼리는 NOTIFICATION 을 별칭 없이 써야 한다.
+   */
+  private static Condition wikiReadableByRecipient(long recipientId) {
+    return NOTIFICATION
+        .WIKI_PAGE_ID
+        .isNull()
+        .or(
+            DSL.condition(
+                """
+                exists (
+                  select 1 from wiki_page wp
+                  where wp.id = notification.wiki_page_id
+                    and (
+                      exists (select 1 from wiki_space_member m
+                              where m.space_id = wp.space_id and m.user_id = ?)
+                      or exists (
+                        with recursive chain(id, parent_id) as (
+                          select id, parent_id from wiki_page where id = notification.wiki_page_id
+                          union
+                          select p.id, p.parent_id from wiki_page p join chain c on p.id = c.parent_id
+                        )
+                        select 1 from wiki_page_share s
+                        where s.page_id in (select id from chain)
+                          and (s.page_id = notification.wiki_page_id or s.include_children)
+                          and (s.expires_at is null or s.expires_at > now())
+                          and exists (select 1 from wiki_page_share_member sm
+                                      where sm.share_id = s.id and sm.user_id = ?)
+                      )
+                    )
+                )
+                """,
+                DSL.val(recipientId),
+                DSL.val(recipientId)));
   }
 
   /**

@@ -19,6 +19,18 @@ export function isIssueChatType(n: NotificationResponse): boolean {
 }
 
 /**
+ * 노트 공유 알림 판별(WP-579) — 공유받음·접근 요청·접근 승인. issueId/eventId 없이 wikiPageId 만 채워진다.
+ * 서버 푸시 url(PushContentService.wikiUrl)과 같은 규칙으로 /wiki/open/{pageId} 로 연다.
+ */
+export function isWikiShareType(n: NotificationResponse): boolean {
+  return (
+    n.type === 'WIKI_SHARED' ||
+    n.type === 'WIKI_SHARE_ACCESS_REQUESTED' ||
+    n.type === 'WIKI_SHARE_ACCESS_APPROVED'
+  )
+}
+
+/**
  * 알림 대상 라우트 해소 — InboxPanel/알림 위젯과 동일 규칙.
  * 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 캘린더로, 그 외 이슈 타입은 이슈 상세로.
  * 이슈 챗 알림(AI_QUESTION/ISSUE_CHAT_MENTION)은 이슈 상세 + 챗 드로워(`?chat=1`)로.
@@ -27,8 +39,16 @@ export function isIssueChatType(n: NotificationResponse): boolean {
  * 캘린더 알림은 메일 알림(`/mail/:accountId?messageId=N`)과 동일 수준으로 해당 일정까지
  * 정밀 딥링크한다 — eventId 를 쿼리파라미터로 실어 CalendarPage 가 소비(#659, 사람 결정).
  * eventId 가 없으면(백엔드가 못 채운 경우) 기존대로 `/calendar` 로 폴백.
+ *
+ * 노트 공유 알림(WP-579)은 `/wiki/open/{pageId}` — 그 화면이 `GET /wiki/pages/{id}/entry` 로 멤버면 노트로, 공유 대상이면
+ * 공유 화면으로 보낸다. 접근 요청은 공유한 사람(스페이스 편집자)이 받으므로 공유 창을 연 채로(`?share=1`).
  */
 export function notifTarget(n: NotificationResponse): string {
+  if (isWikiShareType(n)) {
+    if (n.wikiPageId == null) return '/me/tasks/assigned'
+    const base = `/wiki/open/${n.wikiPageId}`
+    return n.type === 'WIKI_SHARE_ACCESS_REQUESTED' ? `${base}?share=1` : base
+  }
   if (isCalendarType(n)) return n.eventId != null ? `/calendar?eventId=${n.eventId}` : '/calendar'
   if (n.projectKey && n.issueNumber != null) {
     const base = `/projects/${n.projectKey}/issues/${n.issueNumber}`
@@ -37,8 +57,9 @@ export function notifTarget(n: NotificationResponse): string {
   return '/me/tasks/assigned'
 }
 
-/** 행에 표시할 제목 — 캘린더 알림은 일정 제목, 그 외는 이슈 제목. */
+/** 행에 표시할 제목 — 캘린더 알림은 일정 제목, 노트 공유 알림은 노트 제목, 그 외는 이슈 제목. */
 export function notifLabel(n: NotificationResponse): string {
+  if (isWikiShareType(n)) return n.wikiPageTitle ?? '노트'
   return isCalendarType(n) ? (n.eventTitle ?? '일정 알림') : n.issueTitle
 }
 

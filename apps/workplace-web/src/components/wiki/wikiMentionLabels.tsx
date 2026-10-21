@@ -1,6 +1,7 @@
 // 노트 멘션 칩 라벨 조회 — 문서엔 mtype·id 만 있으므로(WP-294) 화면이 라벨을 채운다.
 // 소스: ① 페이지 멘션 해소 API(useWikiMentions) ② 이 탭에서 방금 삽입한 멘션(제안 목록·이슈 생성에서 고른 라벨).
 // ②는 저장 → 멘션 재조회 전까지의 공백을 메운다. 둘 다 없으면 id 기반 대체 라벨.
+// 공유 링크로 들어온 사람(WP-579)이 볼 수 없는 대상은 ①이 inaccessible 로 알려 준다 — 라벨 대신 「접근 권한 없음」.
 
 import { createContext, type ReactNode, useCallback, useContext, useMemo } from 'react'
 
@@ -17,17 +18,30 @@ export function rememberMentionLabel(mtype: WikiMentionType, id: number, label: 
   localLabels.set(key(mtype, id), label)
 }
 
-const LabelsContext = createContext<Map<string, string>>(new Map())
+/** 칩 라벨 조회 재료 — 해소된 라벨과, 볼 수 없다고 온 대상(공유 화면). */
+interface MentionLabels {
+  labels: Map<string, string>
+  inaccessible: Set<string>
+}
+
+/** 볼 수 없는 대상의 칩 글자(WP-579) — 제목·이름을 싣지 않는다. */
+export const INACCESSIBLE_MENTION_TEXT = '접근 권한 없음'
+
+const LabelsContext = createContext<MentionLabels>({ labels: new Map(), inaccessible: new Set() })
 
 /** 페이지 멘션 해소 결과를 칩 NodeView 에 내려 준다. EditorContent 를 감싸야 NodeView 포털이 컨텍스트를 받는다. */
 export function WikiMentionLabelsProvider({ pageId, children }: { pageId: number; children: ReactNode }) {
   const { data } = useWikiMentions(pageId)
-  const map = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const r of data ?? []) m.set(key(r.type, r.id), r.label)
-    return m
+  const value = useMemo(() => {
+    const labels = new Map<string, string>()
+    const inaccessible = new Set<string>()
+    for (const r of data ?? []) {
+      if (r.inaccessible || r.label == null) inaccessible.add(key(r.type, r.id))
+      else labels.set(key(r.type, r.id), r.label)
+    }
+    return { labels, inaccessible }
   }, [data])
-  return <LabelsContext.Provider value={map}>{children}</LabelsContext.Provider>
+  return <LabelsContext.Provider value={value}>{children}</LabelsContext.Provider>
 }
 
 /** 라벨 해소 — 해소 결과 > 로컬 기억 > 대체 라벨. 칩과 버전 비교 위젯이 같은 규칙을 쓴다. */
@@ -47,7 +61,13 @@ export function mentionChipText(mtype: WikiMentionType, label: string): string {
 /** 칩에 보일 라벨 — 해소 결과 > 로컬 기억 > 대체 라벨. */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useMentionLabel(mtype: WikiMentionType, id: number): string {
-  return resolveMentionLabel(useContext(LabelsContext), mtype, id)
+  return resolveMentionLabel(useContext(LabelsContext).labels, mtype, id)
+}
+
+/** 이 대상을 볼 수 없는지(공유 화면, WP-579) — 칩이 링크 없는 「접근 권한 없음」으로 바뀐다. */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useMentionInaccessible(mtype: WikiMentionType, id: number): boolean {
+  return useContext(LabelsContext).inaccessible.has(key(mtype, id))
 }
 
 /**
@@ -56,6 +76,10 @@ export function useMentionLabel(mtype: WikiMentionType, id: number): string {
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useMentionChipTextOf(): (mtype: WikiMentionType, id: number) => string {
-  const map = useContext(LabelsContext)
-  return useCallback((mtype, id) => mentionChipText(mtype, resolveMentionLabel(map, mtype, id)), [map])
+  const { labels, inaccessible } = useContext(LabelsContext)
+  return useCallback(
+    (mtype, id) =>
+      inaccessible.has(key(mtype, id)) ? INACCESSIBLE_MENTION_TEXT : mentionChipText(mtype, resolveMentionLabel(labels, mtype, id)),
+    [labels, inaccessible],
+  )
 }

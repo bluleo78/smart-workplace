@@ -5,7 +5,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockWikiMentions, mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiMentions, mockWikiPageEditor, openWikiEditor } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 330
@@ -21,8 +21,7 @@ test('편집 모드에선 Ctrl/⌘+클릭으로만 링크를 새 탭에 연다 (
   // 실제 외부로 나가지 않게 새 탭 요청을 스텁한다(컨텍스트 라우트 — 새 탭에도 걸린다).
   await page.context().route(`${LINK_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>spec</p>' }))
   await setup(page, `[설계 문서](${LINK_URL}) 참고.`)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID })
   const link = page.locator('.ProseMirror a', { hasText: '설계 문서' })
 
   // 그냥 클릭은 링크 글자 편집용 커서 배치 — 새 탭이 뜨지 않는다.

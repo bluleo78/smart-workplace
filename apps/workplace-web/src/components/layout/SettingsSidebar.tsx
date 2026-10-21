@@ -1,6 +1,6 @@
 // apps/workplace-web/src/components/layout/SettingsSidebar.tsx
 // 설정 앱 2차 사이드바 — 개인 설정(전체) + 워크스페이스 관리(어드민 전용) 2그룹.
-import { Bell, Bot, FileText, KeyRound, LogIn, Mail, Settings, Shield, User, Users } from 'lucide-react'
+import { Bell, Bot, FileText, KeyRound, Link2, LogIn, Mail, Settings, Shield, User, Users } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -13,6 +13,8 @@ const PERSONAL_ITEMS = [
   { label: '알림', href: '/settings/notifications', icon: Bell },
   { label: 'AI 비서', href: '/settings/assistant', icon: Bot },
   { label: 'API 토큰', href: '/settings/tokens', icon: KeyRound },
+  // WP-579 내가 만든 노트 공유 링크.
+  { label: '내 공유', href: '/settings/my-shares', icon: Link2 },
 ]
 
 // 워크스페이스 관리 — 어드민에게만 노출.
@@ -21,6 +23,8 @@ const ADMIN_ITEMS = [
   { label: '에이전트', href: '/settings/agents', icon: Bot },
   { label: '역할', href: '/settings/roles', icon: Shield },
   { label: 'SSO', href: '/settings/sso', icon: LogIn },
+  // WP-579 외부 공유 정책·전체 공유 목록.
+  { label: '노트 공유', href: '/settings/wiki-sharing', icon: Link2 },
   { label: '감사 로그', href: '/settings/audit-logs', icon: FileText },
 ]
 

@@ -94,8 +94,12 @@ import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageBodyHistory.WikiPageBodyHistoryPath;
 import com.workplace.jooq.tables.WikiPageDoc.WikiPageDocPath;
+import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
+import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
+import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
 import com.workplace.jooq.tables.WikiReference.WikiReferencePath;
 import com.workplace.jooq.tables.WikiRevision.WikiRevisionPath;
+import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
 import com.workplace.jooq.tables.WorkerJob.WorkerJobPath;
@@ -200,6 +204,11 @@ public class Tenant extends TableImpl<TenantRecord> {
      * 시작·성공 시 NULL.
      */
     public final TableField<TenantRecord, String> PURGE_ERROR = createField(DSL.name("purge_error"), SQLDataType.CLOB, this, "마지막 영구 삭제 실패 사유. 재시도 시작·성공 시 NULL.");
+
+    /**
+     * The column <code>public.tenant.wiki_external_share_enabled</code>.
+     */
+    public final TableField<TenantRecord, Boolean> WIKI_EXTERNAL_SHARE_ENABLED = createField(DSL.name("wiki_external_share_enabled"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("true"), SQLDataType.BOOLEAN)), this, "");
 
     private Tenant(Name alias, Table<TenantRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -1409,6 +1418,45 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _wikiPageDoc;
     }
 
+    private transient WikiPageShareEventPath _wikiPageShareEvent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_event</code> table
+     */
+    public WikiPageShareEventPath wikiPageShareEvent() {
+        if (_wikiPageShareEvent == null)
+            _wikiPageShareEvent = new WikiPageShareEventPath(this, null, Keys.WIKI_PAGE_SHARE_EVENT__WIKI_PAGE_SHARE_EVENT_TENANT_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareEvent;
+    }
+
+    private transient WikiPageShareMemberPath _wikiPageShareMember;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_member</code> table
+     */
+    public WikiPageShareMemberPath wikiPageShareMember() {
+        if (_wikiPageShareMember == null)
+            _wikiPageShareMember = new WikiPageShareMemberPath(this, null, Keys.WIKI_PAGE_SHARE_MEMBER__WIKI_PAGE_SHARE_MEMBER_TENANT_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareMember;
+    }
+
+    private transient WikiPageSharePath _wikiPageShare;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share</code> table
+     */
+    public WikiPageSharePath wikiPageShare() {
+        if (_wikiPageShare == null)
+            _wikiPageShare = new WikiPageSharePath(this, null, Keys.WIKI_PAGE_SHARE__WIKI_PAGE_SHARE_TENANT_ID_FKEY.getInverseKey());
+
+        return _wikiPageShare;
+    }
+
     private transient WikiPagePath _wikiPage;
 
     /**
@@ -1446,6 +1494,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _wikiRevision = new WikiRevisionPath(this, null, Keys.WIKI_REVISION__WIKI_REVISION_TENANT_ID_FKEY.getInverseKey());
 
         return _wikiRevision;
+    }
+
+    private transient WikiShareAccessRequestPath _wikiShareAccessRequest;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_share_access_request</code> table
+     */
+    public WikiShareAccessRequestPath wikiShareAccessRequest() {
+        if (_wikiShareAccessRequest == null)
+            _wikiShareAccessRequest = new WikiShareAccessRequestPath(this, null, Keys.WIKI_SHARE_ACCESS_REQUEST__WIKI_SHARE_ACCESS_REQUEST_TENANT_ID_FKEY.getInverseKey());
+
+        return _wikiShareAccessRequest;
     }
 
     private transient WikiSpaceMemberPath _wikiSpaceMember;

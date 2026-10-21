@@ -1,7 +1,10 @@
+import { WIKI_SHARE_TOKEN_HEADER } from '@smart-workplace/wiki-editor-schema'
+
 import type { SnapshotReason } from './server'
 
 /**
  * collab-access 응답(Task 3 계약) — tokenExp 는 epoch 초. 키는 항상 있고 JWT 가 아닌 인증(PAT·API 키)이면 null.
+ * shareExpiresAt(WP-579) 은 epoch <b>밀리초</b> — 역할을 공유 링크가 정했을 때 그 공유의 만료, 아니면 null. 옛 API 는 키가 없을 수 있다.
  */
 export interface AccessInfo {
   pageId: number
@@ -11,6 +14,7 @@ export interface AccessInfo {
   name: string
   role: string
   tokenExp: number | null
+  shareExpiresAt?: number | null
 }
 
 /** 문서 상태 조회 응답 — 상태 미저장 페이지는 state·bodyVersion 키가 아예 없다(API NON_NULL). */
@@ -59,11 +63,14 @@ export class ApiClient {
     private readonly internalToken: string,
   ) {}
 
-  /** 페이지 접근 판정 — 확정된 권한 없음(403·404: 비멤버·없는 페이지)은 null, 토큰 거절(401)은 TokenRejectedError, 그 밖은 예외. */
-  async access(pageId: number, userToken: string): Promise<AccessInfo | null> {
-    const res = await fetch(`${this.baseUrl}/api/v1/wiki/pages/${pageId}/collab-access`, {
-      headers: { Authorization: `Bearer ${userToken}` },
-    })
+  /**
+   * 페이지 접근 판정 — 확정된 권한 없음(403·404: 비멤버·없는 페이지)은 null, 토큰 거절(401)은 TokenRejectedError, 그 밖은 예외.
+   * shareToken(WP-579)이 있으면 X-Wiki-Share-Token 으로 실어 API 가 멤버 역할과 공유 역할 중 높은 쪽을 주게 한다(없으면 멤버 판정 그대로).
+   */
+  async access(pageId: number, userToken: string, shareToken?: string | null): Promise<AccessInfo | null> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${userToken}` }
+    if (shareToken) headers[WIKI_SHARE_TOKEN_HEADER] = shareToken
+    const res = await fetch(`${this.baseUrl}/api/v1/wiki/pages/${pageId}/collab-access`, { headers })
     if (res.status === 401) throw new TokenRejectedError()
     if (res.status === 403 || res.status === 404) return null
     if (!res.ok) throw new Error(`collab-access failed ${res.status}`)

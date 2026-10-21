@@ -84,11 +84,11 @@ class WikiAttachmentReclaimSweepTest extends IntegrationTestBase {
       seededSpaceId = spaceId;
       long pageId = pageService.create(ownerId, spaceId, new CreatePageRequest(null, "페이지")).id();
 
-      var res = attachmentService.upload(ownerId, pageId, png("a.png"));
+      var res = attachmentService.upload(ownerId, pageId, png("a.png"), null);
       seededFileIds.add(res.fileId());
       String body = "![img](" + WikiAttachmentResponse.urlOf(pageId, res.fileId()) + ")";
       attachmentService.syncReferences(pageId, body);
-      Path path = attachmentService.download(ownerId, pageId, res.fileId()).path();
+      Path path = attachmentService.download(ownerId, pageId, res.fileId(), null).path();
       assertThat(Files.exists(path)).as("승격 후 디스크 파일 존재").isTrue();
 
       // 본문에서 참조 제거 → 강등(유예 후 만료). 이 시점엔 아직 아무것도 사라지지 않아야 한다.
@@ -118,7 +118,7 @@ class WikiAttachmentReclaimSweepTest extends IntegrationTestBase {
       long originId = pageService.create(ownerId, spaceId, new CreatePageRequest(null, "원본")).id();
       long copyId = pageService.create(ownerId, spaceId, new CreatePageRequest(null, "복사본")).id();
 
-      var res = attachmentService.upload(ownerId, originId, png("a.png"));
+      var res = attachmentService.upload(ownerId, originId, png("a.png"), null);
       seededFileIds.add(res.fileId());
       String url = WikiAttachmentResponse.urlOf(originId, res.fileId());
       pageService.save(
@@ -126,7 +126,7 @@ class WikiAttachmentReclaimSweepTest extends IntegrationTestBase {
       // 같은 URL(원본 pageId 가 박힌 채)을 다른 페이지 본문에 붙여넣는다.
       pageService.save(
           ownerId, copyId, new SavePageRequest(null, "붙여넣은 이미지 ![img](" + url + ")", 1, false));
-      Path path = attachmentService.download(ownerId, originId, res.fileId()).path();
+      Path path = attachmentService.download(ownerId, originId, res.fileId(), null).path();
 
       // 원본에서만 참조를 지운다 → 강등.
       pageService.save(ownerId, originId, new SavePageRequest(null, "원본에서는 지웠다", 2, false));
@@ -163,7 +163,7 @@ class WikiAttachmentReclaimSweepTest extends IntegrationTestBase {
       long bId = pageService.create(ownerId, spaceId, new CreatePageRequest(null, "B")).id();
 
       // A 에 업로드만 하고(임시) 본문에는 넣지 않은 채, 그 URL 을 B 본문에 붙여넣는다.
-      var res = attachmentService.upload(ownerId, aId, png("cut.png"));
+      var res = attachmentService.upload(ownerId, aId, png("cut.png"), null);
       seededFileIds.add(res.fileId());
       String url = WikiAttachmentResponse.urlOf(aId, res.fileId());
       pageService.save(ownerId, aId, new SavePageRequest(null, "잘라냈다", 1, false));

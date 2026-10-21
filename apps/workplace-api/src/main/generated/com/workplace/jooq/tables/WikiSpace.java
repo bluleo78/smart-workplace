@@ -10,6 +10,7 @@ import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
+import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
 import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
 import com.workplace.jooq.tables.records.WikiSpaceRecord;
 
@@ -207,6 +208,19 @@ public class WikiSpace extends TableImpl<WikiSpaceRecord> {
             _tenant = new TenantPath(this, Keys.WIKI_SPACE__WIKI_SPACE_TENANT_ID_FKEY, null);
 
         return _tenant;
+    }
+
+    private transient WikiPageSharePath _wikiPageShare;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share</code> table
+     */
+    public WikiPageSharePath wikiPageShare() {
+        if (_wikiPageShare == null)
+            _wikiPageShare = new WikiPageSharePath(this, null, Keys.WIKI_PAGE_SHARE__WIKI_PAGE_SHARE_SPACE_ID_FKEY.getInverseKey());
+
+        return _wikiPageShare;
     }
 
     private transient WikiPagePath _wikiPage;

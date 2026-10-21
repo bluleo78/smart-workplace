@@ -91,6 +91,9 @@ class NotificationControllerTest {
             null,
             null,
             null,
+            null,
+            null,
+            null,
             false,
             Instant.now());
     when(service.listRecent(eq(1L), eq(20), eq(0L))).thenReturn(List.of(n));

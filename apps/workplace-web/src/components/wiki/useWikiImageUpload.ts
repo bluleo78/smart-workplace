@@ -54,13 +54,16 @@ export function registerWikiEditorView(pageId: number, view: EditorView): () => 
  * @returns `handlePaste`/`handleDrop` — ProseMirror EditorProps 로 그대로 전달. `uploadFilesAtCursor`
  *   — 붙여넣기/드롭이 아닌 다른 진입점(슬래시 메뉴 파일 선택 등)이 현재 커서 위치에 업로드할 때 쓰는
  *   직접 API. 세 함수 모두 같은 유효성 검사·자리표시자·canEdit 게이트를 공유한다.
+ * @param shareToken 공유 화면(편집 링크, WP-579) — 업로드에 공유 토큰 헤더를 싣는다.
  */
-export function useWikiImageUpload(pageId: number, canEditRef: { current: boolean }) {
+export function useWikiImageUpload(pageId: number, canEditRef: { current: boolean }, shareToken?: string) {
   // 훅 반환 핸들러는 useEditor 의존성 배열([page.id])에 들어가지 않으므로 stale closure 가
-  // 생길 수 있다 — pageId 는 항상 ref 로 최신값을 읽는다.
+  // 생길 수 있다 — pageId·공유 토큰은 항상 ref 로 최신값을 읽는다.
   const pageIdRef = useRef(pageId)
+  const shareTokenRef = useRef(shareToken)
   useEffect(() => {
     pageIdRef.current = pageId
+    shareTokenRef.current = shareToken
   })
 
   // 자리표시자(로컬 데코레이션)를 띄우고, 업로드가 끝나면 문서 변화를 따라간 그 자리에 image 노드를 넣는다.
@@ -78,7 +81,7 @@ export function useWikiImageUpload(pageId: number, canEditRef: { current: boolea
 
     let res: Awaited<ReturnType<typeof wikiApi.uploadAttachment>>
     try {
-      res = await wikiApi.uploadAttachment(uploadPageId, file)
+      res = await wikiApi.uploadAttachment(uploadPageId, file, shareTokenRef.current)
     } catch (err) {
       // 서버가 보낸 구체적 사유(409 페이지당 첨부 상한, 400 매직바이트 판정 거부 등)가 있으면
       // 그대로 보여준다 — 전부 뭉뚱그리면 사용자가 왜 실패했는지 알 방법이 없다(Minor).

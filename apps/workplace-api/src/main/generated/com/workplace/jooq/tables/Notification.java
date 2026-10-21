@@ -11,6 +11,7 @@ import com.workplace.jooq.tables.CalendarEvent.CalendarEventPath;
 import com.workplace.jooq.tables.Issue.IssuePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.WikiPage.WikiPagePath;
 import com.workplace.jooq.tables.records.NotificationRecord;
 
 import java.time.OffsetDateTime;
@@ -113,6 +114,16 @@ public class Notification extends TableImpl<NotificationRecord> {
      */
     public final TableField<NotificationRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.notification.wiki_page_id</code>.
+     */
+    public final TableField<NotificationRecord, Long> WIKI_PAGE_ID = createField(DSL.name("wiki_page_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.notification.message</code>.
+     */
+    public final TableField<NotificationRecord, String> MESSAGE = createField(DSL.name("message"), SQLDataType.CLOB, this, "");
+
     private Notification(Name alias, Table<NotificationRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -182,7 +193,7 @@ public class Notification extends TableImpl<NotificationRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_NOTIFICATION_RECIPIENT_CREATED, Indexes.IDX_NOTIFICATION_TENANT, Indexes.IDX_NOTIFICATION_UNREAD);
+        return Arrays.asList(Indexes.IDX_NOTIFICATION_RECIPIENT_CREATED, Indexes.IDX_NOTIFICATION_TENANT, Indexes.IDX_NOTIFICATION_UNREAD, Indexes.IDX_NOTIFICATION_WIKI_PAGE);
     }
 
     @Override
@@ -197,7 +208,7 @@ public class Notification extends TableImpl<NotificationRecord> {
 
     @Override
     public List<ForeignKey<NotificationRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.NOTIFICATION__FK_NOTIFICATION_TENANT, Keys.NOTIFICATION__NOTIFICATION_ACTOR_ID_FKEY, Keys.NOTIFICATION__NOTIFICATION_EVENT_ID_FKEY, Keys.NOTIFICATION__NOTIFICATION_ISSUE_ID_FKEY, Keys.NOTIFICATION__NOTIFICATION_RECIPIENT_ID_FKEY);
+        return Arrays.asList(Keys.NOTIFICATION__FK_NOTIFICATION_TENANT, Keys.NOTIFICATION__NOTIFICATION_ACTOR_ID_FKEY, Keys.NOTIFICATION__NOTIFICATION_EVENT_ID_FKEY, Keys.NOTIFICATION__NOTIFICATION_ISSUE_ID_FKEY, Keys.NOTIFICATION__NOTIFICATION_RECIPIENT_ID_FKEY, Keys.NOTIFICATION__NOTIFICATION_WIKI_PAGE_ID_FKEY);
     }
 
     private transient TenantPath _tenant;
@@ -261,6 +272,18 @@ public class Notification extends TableImpl<NotificationRecord> {
             _notificationRecipientIdFkey = new UserPath(this, Keys.NOTIFICATION__NOTIFICATION_RECIPIENT_ID_FKEY, null);
 
         return _notificationRecipientIdFkey;
+    }
+
+    private transient WikiPagePath _wikiPage;
+
+    /**
+     * Get the implicit join path to the <code>public.wiki_page</code> table.
+     */
+    public WikiPagePath wikiPage() {
+        if (_wikiPage == null)
+            _wikiPage = new WikiPagePath(this, Keys.NOTIFICATION__NOTIFICATION_WIKI_PAGE_ID_FKEY, null);
+
+        return _wikiPage;
     }
 
     @Override

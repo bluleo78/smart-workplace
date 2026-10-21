@@ -10,6 +10,19 @@ export { WIKI_SCHEMA_VERSION } from './schemaVersion'
 export const COLLAB_SCHEMA_PARAM = 'schema'
 
 /**
+ * 공유 링크로 연 화면이 공유 토큰을 실어 보내는 접속 URL 쿼리 이름(WP-579) — `/collab?schema=1&share=wsh_…`.
+ * 토큰을 API 인증 토큰에 섞지 않는다. 서버는 onAuthenticate 의 requestParameters 로 읽어 연결에 보관하고,
+ * 접속 판정·재검증(collab-access)에 X-Wiki-Share-Token 헤더로 붙인다.
+ */
+export const COLLAB_SHARE_PARAM = 'share'
+
+/**
+ * 공유 토큰을 싣는 HTTP 헤더 이름(WP-579) — 웹의 노트 요청과 동기화 서버의 collab-access 판정이 함께 쓴다.
+ * API 의 WikiShareAccess.HEADER(Java)와 같은 값이어야 한다.
+ */
+export const WIKI_SHARE_TOKEN_HEADER = 'X-Wiki-Share-Token'
+
+/**
  * 스키마 판이 없거나 다를 때의 인증 거부 사유(provider onAuthenticationFailed 의 reason).
  * 웹은 이것을 인증 실패와 구분해 재연결을 멈추고 새로고침을 안내한다.
  */

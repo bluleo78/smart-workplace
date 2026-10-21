@@ -50,7 +50,7 @@ class WikiAttachmentMappingCeilingTest extends IntegrationTestBase {
     // 실링(2)까지 채운다 — 본문에 넣고 저장했다가 지워 "해소 가능한 상한" 은 계속 0 으로 유지한다.
     // 즉 #757 이 만든 해소 경로가 열려 있음에도 매핑이 쌓여 결국 막히는지를 본다.
     for (int i = 0; i < 2; i++) {
-      var res = attachmentService.upload(ownerId, pageId, png("a" + i + ".png"));
+      var res = attachmentService.upload(ownerId, pageId, png("a" + i + ".png"), null);
       attachmentService.syncReferences(
           pageId, "![img](" + WikiAttachmentResponse.urlOf(pageId, res.fileId()) + ")");
       attachmentService.syncReferences(pageId, "참조를 지운 본문");
@@ -58,7 +58,7 @@ class WikiAttachmentMappingCeilingTest extends IntegrationTestBase {
 
     // 해소 가능한 상한과 실링은 둘 다 같은 예외·409 라, 사유까지 고정하지 않으면 어느 쪽이 걸렸는지
     // 구분되지 않는다(사용자에게 통하지 않는 조치를 안내하게 되는 지점).
-    assertThatThrownBy(() -> attachmentService.upload(ownerId, pageId, png("over.png")))
+    assertThatThrownBy(() -> attachmentService.upload(ownerId, pageId, png("over.png"), null))
         .isInstanceOf(WikiAttachmentLimitException.class)
         .hasMessageContaining("누적 한도");
   }
@@ -70,7 +70,7 @@ class WikiAttachmentMappingCeilingTest extends IntegrationTestBase {
     long spaceId = spaceService.createTeamSpace(ownerId, "실링 여유 공간").id();
     long pageId = pageService.create(ownerId, spaceId, new CreatePageRequest(null, "페이지")).id();
 
-    var res = attachmentService.upload(ownerId, pageId, png("first.png"));
+    var res = attachmentService.upload(ownerId, pageId, png("first.png"), null);
 
     assertThat(res.fileId()).isPositive();
   }

@@ -32,8 +32,8 @@ describe('test mode', () => {
   const url = (p: string) => `http://127.0.0.1:${app.address.port}${p}`
   const post = (p: string, body: unknown, headers: Record<string, string> = {}) =>
     fetch(url(p), { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) })
-  const connect = (name: string, token: string) => {
-    const c = connectClient(app.address.port, name, token)
+  const connect = (name: string, token: string, share?: string) => {
+    const c = connectClient(app.address.port, name, token, { share })
     clients.push(c)
     return c
   }
@@ -196,6 +196,57 @@ describe('test mode', () => {
       // 시드 없는 문서는 404, 이름이 틀리면 400.
       expect((await post('/__test/role', { docName: 'e2e-h/wiki-page:8', role: 'VIEWER' })).status).toBe(404)
       expect((await post('/__test/role', { docName: 'bad', role: 'VIEWER' })).status).toBe(400)
+    })
+
+    // WP-579 — 시드 shares 로 공유 토큰별 역할을 심고, 웹 E2E 가 share 쿼리로 붙어 공유 화면을 재현한다.
+    it('share_edit_role_is_writable — a seeded share gives its role to a user without membership', async () => {
+      await start(true)
+      const doc = 'e2e-s/wiki-page:11'
+      await post('/__test/seed', {
+        docName: doc,
+        body: '본문',
+        roles: { '2': 'NONE' },
+        shares: { wsh_edit: 'EDITOR', wsh_view: 'VIEWER' },
+      })
+      const editor = connect(doc, 'uid=2&name=박영희', 'wsh_edit')
+      const viewer = connect(doc, 'uid=2&name=박영희', 'wsh_view')
+      const none = connect(doc, 'uid=2&name=박영희')
+      const unknown = connect(doc, 'uid=2&name=박영희', 'wsh_unknown')
+      await synced(editor)
+      await synced(viewer)
+      expect(editor.provider.authorizedScope).toBe('read-write')
+      expect(viewer.provider.authorizedScope).toBe('readonly')
+      await expect.poll(() => none.authFailures, ARRIVAL).toContain('forbidden')
+      await expect.poll(() => unknown.authFailures, ARRIVAL).toContain('forbidden')
+      // 멤버는 공유 역할이 더 낮아도 자기 역할 그대로(높은 쪽).
+      const owner = connect(doc, 'uid=1', 'wsh_view')
+      await synced(owner)
+      expect(owner.provider.authorizedScope).toBe('read-write')
+    })
+
+    it('revalidate_closes_share_connection_after_revoke — revoke-share then revalidate closes the share connection with 4403, the member stays', async () => {
+      await start(true)
+      const doc = 'e2e-t/wiki-page:12'
+      const internal = { Authorization: `Internal ${TEST_MODE_INTERNAL_TOKEN}` }
+      await post('/__test/seed', { docName: doc, body: '본문', roles: { '2': 'NONE' }, shares: { wsh_edit: 'EDITOR' } })
+      const member = connect(doc, 'uid=1&name=양동희')
+      const shared = connect(doc, 'uid=2&name=박영희', 'wsh_edit')
+      await synced(member)
+      await synced(shared)
+      // 공유 해제 — 시드와 달리 문서를 닫지 않아 열린 연결이 그대로다.
+      expect((await post('/__test/revoke-share', { docName: doc, token: 'wsh_edit' })).status).toBe(204)
+      expect(shared.disconnects).toEqual([])
+      expect(
+        (await post('/internal/docs/revalidate', { tenantId: 1, spaceId: null, pageIds: [12], userId: null }, internal)).status,
+      ).toBe(204)
+      await expect.poll(() => shared.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+      await expect.poll(() => shared.authFailures, ARRIVAL).toContain('forbidden')
+      expect(member.disconnects).toEqual([])
+      expect(member.provider.isSynced).toBe(true)
+      // 시드 없는 문서는 404, 이름·토큰이 틀리면 400.
+      expect((await post('/__test/revoke-share', { docName: 'e2e-t/wiki-page:13', token: 'wsh_edit' })).status).toBe(404)
+      expect((await post('/__test/revoke-share', { docName: 'bad', token: 'wsh_edit' })).status).toBe(400)
+      expect((await post('/__test/revoke-share', { docName: doc })).status).toBe(400)
     })
 
     it('rejects a seed with an invalid document name', async () => {

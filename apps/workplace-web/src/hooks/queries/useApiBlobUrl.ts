@@ -16,12 +16,14 @@ import { fetchBlobByPath } from '../../api/blobContent'
  * 콘텐츠 경로 → blob object URL.
  * Blob 자체를 React Query 로 캐시하고, objectURL 은 컴포넌트 수명에 맞춰 만들고 revoke 한다
  * (objectURL 을 캐시에 넣으면 언마운트 시 revoke 된 URL 이 다음 마운트에 재사용돼 깨진다).
+ * headers: 그 경로에만 더 실을 헤더(노트 공유 화면의 공유 토큰, WP-579). 헤더가 다르면 권한 판정이 달라지므로 캐시 키에 넣는다 —
+ * 공유가 해제된 뒤 같은 경로를 멤버 캐시로, 또는 그 반대로 보여 주지 않게.
  */
-export function useApiBlobUrl(path: string | null | undefined) {
+export function useApiBlobUrl(path: string | null | undefined, headers?: Record<string, string>) {
   const enabled = Boolean(path)
   const { data, isPending, isError } = useQuery({
-    queryKey: ['api-blob', path],
-    queryFn: () => fetchBlobByPath(path as string),
+    queryKey: ['api-blob', path, headers ?? null],
+    queryFn: () => fetchBlobByPath(path as string, { headers }),
     enabled,
     retry: false,
     staleTime: 5 * 60_000,

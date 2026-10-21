@@ -63,6 +63,8 @@ public class WikiAttachmentService {
   private final WikiAttachmentRepository attachments;
   private final WikiPageRepository pages;
   private final WikiPermissions perms;
+  // WP-579 공유 링크로 들어온 사람 — 이미지 보기(VIEWER)·붙여넣기(EDITOR)를 멤버·공유 중 높은 역할로 판정한다.
+  private final WikiShareAccess shareAccess;
   // #759 (B) 테넌트 쿼터 — 드라이브 모듈의 쿼터 계산·잠금을 그대로 쓴다(chat/messaging/issue 도 drive 서비스를 직접 쓰는 선례).
   private final DriveQuotaService quota;
   // WP-64: 첨부 변경 resource.changed 발행기.
@@ -94,11 +96,16 @@ public class WikiAttachmentService {
   @Value("${workplace.storage.attachment.temp-expiry-hours:24}")
   private int tempExpiryHours;
 
-  /** 업로드 — EDITOR 이상. 매직바이트로 이미지 판별하고 임시 파일로 저장한다. */
-  public WikiAttachmentResponse upload(long callerId, long pageId, MultipartFile file) {
+  /**
+   * 업로드 — EDITOR 이상(멤버 또는 편집 공유 링크, WP-579). 매직바이트로 이미지 판별하고 임시 파일로 저장한다.
+   *
+   * @param shareToken 공유 화면의 {@link WikiShareAccess#HEADER}, 없으면 null
+   */
+  public WikiAttachmentResponse upload(
+      long callerId, long pageId, MultipartFile file, String shareToken) {
     var detail = pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     long spaceId = detail.spaceId();
-    perms.requireRole(spaceId, callerId, "EDITOR");
+    shareAccess.effectiveRole(spaceId, pageId, callerId, shareToken, "EDITOR");
 
     if (file.isEmpty()) {
       throw new WikiAttachmentRejectedException("빈 파일입니다.");
@@ -190,13 +197,17 @@ public class WikiAttachmentService {
    * 판정값으로 고치고 만료를 새로 세워 정션에 묶는다. ⑤는 클레임과 같은 트랜잭션이라 동시 클레임이 정션 행을 보고 거절된다. 묶인 파일은 임시로 남고 본문 저장의
    * {@link #syncReferences} 가 참조된 것만 영구화한다 — 참조하지 않으면 만료로 지워진다.
    *
+   * <p>편집 공유 링크로 들어온 사람의 이미지 붙여넣기(WP-579)도 같은 경로다 — EDITOR 판정이 멤버·공유 중 높은 역할.
+   *
+   * @param shareToken 공유 화면의 {@link WikiShareAccess#HEADER}, 없으면 null
    * @return 입력 순서대로의 응답. url 은 본문에 쓸 정본 경로
    * @throws com.workplace.file.exception.StagedFileUnusableException 남의 파일·만료·이미 다른 곳에 묶인 파일 등(400)
    */
-  public List<WikiAttachmentResponse> claimStaged(long callerId, long pageId, List<Long> fileIds) {
+  public List<WikiAttachmentResponse> claimStaged(
+      long callerId, long pageId, List<Long> fileIds, String shareToken) {
     var detail = pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     long spaceId = detail.spaceId();
-    perms.requireRole(spaceId, callerId, "EDITOR");
+    shareAccess.effectiveRole(spaceId, pageId, callerId, shareToken, "EDITOR");
 
     Set<Long> onPage = new HashSet<>(attachments.fileIdsOfPage(pageId));
     List<Long> retried = new ArrayList<>();
@@ -272,36 +283,44 @@ public class WikiAttachmentService {
         fileId, WikiAttachmentResponse.urlOf(pageId, fileId), name, mimeType, sizeBytes);
   }
 
-  /** 본문 표시용 조회 — 페이지를 읽을 수 있으면(VIEWER) 이미지도 보여야 한다. */
+  /**
+   * 본문 표시용 조회 — 페이지를 읽을 수 있으면(VIEWER) 이미지도 보여야 한다. 공유 링크(WP-579)로 페이지를 볼 수 있으면 그 페이지의 이미지도 보인다.
+   *
+   * @param shareToken 공유 화면의 {@link WikiShareAccess#HEADER}, 없으면 null
+   */
   @Transactional(readOnly = true)
-  public WikiAttachmentStorage.StoredFile download(long callerId, long pageId, long fileId) {
-    long spaceId =
-        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(spaceId, callerId, "VIEWER");
-    requireBound(pageId, fileId);
+  public WikiAttachmentStorage.StoredFile download(
+      long callerId, long pageId, long fileId, String shareToken) {
+    resolveViewFileId(callerId, pageId, fileId, shareToken);
     return storage.load(fileId);
   }
 
   /**
    * 첨부 추출 텍스트 구간 읽기(WP-358). 권한·소속 판정은 {@link #download} 와 같다 — 공간 VIEWER 이상(비멤버는 공간 존재 은닉 404), 이
    * 페이지에 바인딩되지 않은 fileId·없는 fileId 는 404. 상태·사유·자르기는 fileai 공용 서비스가 맡는다.
+   *
+   * @param shareToken 공유 화면의 {@link WikiShareAccess#HEADER}, 없으면 null(WP-579)
    */
   @Transactional(readOnly = true)
   public ExtractedTextSlice readText(
-      long callerId, long pageId, long fileId, int offset, int limit) {
-    // 권한 규칙은 resolveViewFileId 한 곳에 — /text 와 /view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
-    return extractedText.read(resolveViewFileId(callerId, pageId, fileId), offset, limit);
+      long callerId, long pageId, long fileId, int offset, int limit, String shareToken) {
+    // 권한 규칙은 resolveViewFileId 한 곳에 — /content·/text·/view 가 같은 가드를 쓴다(같은 readOnly 트랜잭션 안에서 실행).
+    return extractedText.read(
+        resolveViewFileId(callerId, pageId, fileId, shareToken), offset, limit);
   }
 
   /**
    * 이미지 보기용 파일 id 확인(WP-250, R5) — {@link #readText} 와 같은 가드(공간 VIEWER 이상 + 이 페이지에 바인딩된 첨부)를 거쳐
    * core file.id 만 돌려준다.
+   *
+   * <p>공유 토큰(WP-579, nullable)이 있으면 VIEWER 판정이 멤버·공유 중 높은 역할. 공유 범위는 페이지의 지금 위치로 보므로, 범위 밖으로 옮긴
+   * 페이지의 이미지는 바로 404 다.
    */
   @Transactional(readOnly = true)
-  public long resolveViewFileId(long callerId, long pageId, long fileId) {
+  public long resolveViewFileId(long callerId, long pageId, long fileId, String shareToken) {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    perms.requireRole(spaceId, callerId, "VIEWER");
+    shareAccess.effectiveRole(spaceId, pageId, callerId, shareToken, "VIEWER");
     requireBound(pageId, fileId);
     return fileId;
   }

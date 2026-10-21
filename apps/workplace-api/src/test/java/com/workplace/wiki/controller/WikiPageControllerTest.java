@@ -2,6 +2,7 @@ package com.workplace.wiki.controller;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -34,6 +35,7 @@ import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiRevisionService;
+import com.workplace.wiki.service.WikiShareAccess;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
@@ -65,6 +67,8 @@ class WikiPageControllerTest {
   @MockitoBean private WikiCollabDocService collabService;
   // WP-297 버전 기록 엔드포인트가 주입받는 서비스 — 통합 테스트(WikiRevisionIntegrationTest)가 다룬다.
   @MockitoBean private WikiRevisionService revisionService;
+  // WP-579 공유 링크 판정기(알림 진입 entry 가 쓴다) — 컨트롤러가 주입받으므로 목으로 둔다.
+  @MockitoBean private WikiShareAccess shareAccess;
   @MockitoBean private JwtTokenProvider jwtTokenProvider;
   @MockitoBean private JwtProperties jwtProperties;
   @MockitoBean private PermissionService permissionService;
@@ -95,7 +99,8 @@ class WikiPageControllerTest {
             anyLong(),
             anyLong(),
             org.mockito.ArgumentMatchers.any(SavePageRequest.class),
-            org.mockito.ArgumentMatchers.anyBoolean()))
+            org.mockito.ArgumentMatchers.anyBoolean(),
+            isNull()))
         .thenThrow(new WikiConflictException(7L));
 
     mockMvc
@@ -128,7 +133,8 @@ class WikiPageControllerTest {
             anyLong(),
             anyLong(),
             org.mockito.ArgumentMatchers.any(SavePageRequest.class),
-            org.mockito.ArgumentMatchers.anyBoolean());
+            org.mockito.ArgumentMatchers.anyBoolean(),
+            isNull());
 
     String atLimit = "가".repeat(1_000_000);
     mockMvc
@@ -166,11 +172,23 @@ class WikiPageControllerTest {
   /** mentions: VIEWER 가드 통과 후 하이드레이션 결과를 200 으로 반환. */
   @Test
   void mentions_returns200WithRefs() throws Exception {
-    when(pageService.get(eq(1L), eq(7L)))
+    when(pageService.mentionSource(eq(1L), eq(7L), isNull()))
         .thenReturn(
-            new WikiPageDetail(
-                7L, 3L, null, "제목", "<#page:9>", 1, 1L, OffsetDateTime.now(), null, null));
-    when(hydrationService.resolveMentions(eq(1L), eq("<#page:9>")))
+            new WikiPageService.MentionSource(
+                new WikiPageDetail(
+                    7L,
+                    3L,
+                    null,
+                    "제목",
+                    "<#page:9>",
+                    1,
+                    1L,
+                    OffsetDateTime.now(),
+                    null,
+                    null,
+                    false),
+                null));
+    when(hydrationService.resolveMentions(eq(1L), eq("<#page:9>"), isNull()))
         .thenReturn(List.of(new WikiMentionRef("PAGE", 9L, "참조페이지", 3L, null, null)));
 
     mockMvc
@@ -187,7 +205,8 @@ class WikiPageControllerTest {
   void backlinks_returns200WithItems() throws Exception {
     when(pageService.get(eq(1L), eq(7L)))
         .thenReturn(
-            new WikiPageDetail(7L, 3L, null, "제목", "본문", 1, 1L, OffsetDateTime.now(), null, null));
+            new WikiPageDetail(
+                7L, 3L, null, "제목", "본문", 1, 1L, OffsetDateTime.now(), null, null, false));
     when(hydrationService.backlinks(eq(1L), eq(7L)))
         .thenReturn(
             new WikiBacklinksResponse(
@@ -200,10 +219,11 @@ class WikiPageControllerTest {
         .andExpect(jsonPath("$.items[0].title").value("소스"));
   }
 
-  /** 비멤버(VIEWER 가드 실패) → get() 이 NotFound → mentions 도 404(존재 은닉). */
+  /** 비멤버(VIEWER 가드 실패) → mentionSource() 가 NotFound → mentions 도 404(존재 은닉). */
   @Test
   void mentions_nonMember_returns404() throws Exception {
-    when(pageService.get(eq(1L), eq(7L))).thenThrow(new WikiPageNotFoundException(7L));
+    when(pageService.mentionSource(eq(1L), eq(7L), isNull()))
+        .thenThrow(new WikiPageNotFoundException(7L));
 
     mockMvc
         .perform(get("/api/v1/wiki/pages/7/mentions").header("Authorization", "Bearer test-token"))

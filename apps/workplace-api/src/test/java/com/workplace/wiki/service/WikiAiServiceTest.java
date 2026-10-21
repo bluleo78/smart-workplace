@@ -95,7 +95,17 @@ class WikiAiServiceTest {
 
   private WikiPageDetail page() {
     return new WikiPageDetail(
-        PAGE_ID, SPACE_ID, null, "설계 문서", "## 본문\n내용", 3, CALLER, OffsetDateTime.now(), null, null);
+        PAGE_ID,
+        SPACE_ID,
+        null,
+        "설계 문서",
+        "## 본문\n내용",
+        3,
+        CALLER,
+        OffsetDateTime.now(),
+        null,
+        null,
+        false);
   }
 
   private AssistantSpec spec() {

@@ -5,6 +5,7 @@ import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChange
 import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDueEvent;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.MentionParser;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -12,6 +13,9 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
+import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessApprovedEvent;
+import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessRequestedEvent;
+import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiSharedWithPeopleEvent;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -196,6 +200,71 @@ public class NotificationDispatcher {
           e.issueId(),
           e.messageId(),
           ex.getMessage());
+    }
+  }
+
+  /**
+   * 노트 공유(WP-579) → 새로 지정된 사람마다 WIKI_SHARED. 목록에 공유한 사람 본인이 섞여 있어도(서비스가 걸러 주지 않는다) 서비스가 actor 와 같은
+   * 수신자는 뺀다. 커밋 뒤 비동기 스레드라 이벤트에 실린 테넌트를 다시 세워 RLS 가 통하게 한다.
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onWikiSharedWithPeople(WikiSharedWithPeopleEvent e) {
+    runWikiShareNotify(
+        e.tenantId(),
+        "노트 공유 알림",
+        e.pageId(),
+        () -> {
+          for (Long recipientId : e.recipientIds().stream().distinct().toList()) {
+            service.createWikiShareNotificationAndFanOut(
+                recipientId, NotificationType.WIKI_SHARED, e.actorId(), e.pageId(), e.message());
+          }
+        });
+  }
+
+  /** 접근 요청(WP-579) → 공유를 만든 사람에게 WIKI_SHARE_ACCESS_REQUESTED. */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onWikiShareAccessRequested(WikiShareAccessRequestedEvent e) {
+    runWikiShareNotify(
+        e.tenantId(),
+        "노트 접근 요청 알림",
+        e.pageId(),
+        () ->
+            service.createWikiShareNotificationAndFanOut(
+                e.sharerId(),
+                NotificationType.WIKI_SHARE_ACCESS_REQUESTED,
+                e.requesterId(),
+                e.pageId(),
+                null));
+  }
+
+  /** 접근 승인(WP-579) → 요청자에게 WIKI_SHARE_ACCESS_APPROVED. */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onWikiShareAccessApproved(WikiShareAccessApprovedEvent e) {
+    runWikiShareNotify(
+        e.tenantId(),
+        "노트 접근 승인 알림",
+        e.pageId(),
+        () ->
+            service.createWikiShareNotificationAndFanOut(
+                e.requesterId(),
+                NotificationType.WIKI_SHARE_ACCESS_APPROVED,
+                e.approverId(),
+                e.pageId(),
+                null));
+  }
+
+  /**
+   * 노트 공유 알림 리스너 공통 뼈대(WP-579) — 커밋 뒤 비동기 스레드라 이벤트에 실린 테넌트를 다시 세워 RLS 가 통하게 하고, 실패는 로그만 남긴다(알림 실패로
+   * 이미 커밋된 공유 변경을 되돌리지 않는다).
+   */
+  private void runWikiShareNotify(long tenantId, String what, long pageId, Runnable work) {
+    try {
+      TenantContext.runAs(tenantId, work);
+    } catch (Exception ex) {
+      log.warn("[notify] {} 실패 pageId={}: {}", what, pageId, ex.getMessage());
     }
   }
 

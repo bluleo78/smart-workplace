@@ -25,6 +25,14 @@ export interface WikiPageSummary {
   position: number
   // #736: AI 생성 attribution — 값 존재 여부만으로 사이드바 트리 배지를 판단(null 이면 AI 이력 없음).
   aiLastUsedAt: string | null
+  // WP-579: 이 페이지 자신의 공유(없으면 null) — 사이드바 트리 공유 아이콘과, 하위 포함 공유 안팎으로 옮길 때 경고에 쓴다.
+  share?: WikiTreeShare | null
+}
+
+/** 트리에 실린 공유 요약(WP-579). */
+export interface WikiTreeShare {
+  audience: WikiShareAudience
+  includeChildren: boolean
 }
 
 export interface WikiPageDetail {
@@ -39,6 +47,8 @@ export interface WikiPageDetail {
   // #736: 페이지 단위 AI 생성 attribution(마지막 사용 시각/액션). 둘 다 null 이면 AI 이력 없음.
   aiLastUsedAt: string | null
   aiLastAction: string | null
+  // WP-579: 이 페이지 자신이 링크로 공유 중인지 — 헤더 「공유 중」 표시. 설정 내용은 공유 창을 열 때 따로 받는다.
+  shared?: boolean
 }
 
 // 멘션 참조 종류 — 본문 토큰(<@id>·<#page:id>·<#issue:id>) 의 대상 타입.
@@ -50,10 +60,13 @@ export type { WikiMentionType }
 export interface WikiMentionRef {
   type: WikiMentionType
   id: number
-  label: string
+  /** 공유 링크로 들어온 사람이 볼 수 없는 대상(inaccessible)이면 null — 제목·이름을 싣지 않는다(WP-579). */
+  label: string | null
   spaceId: number | null
   projectKey: string | null
   number: number | null
+  /** 공유 링크로 들어온 사람이 볼 수 없는 대상 — 칩이 링크 없는 「접근 권한 없음」으로 보인다(WP-579). */
+  inaccessible: boolean
 }
 
 // 백링크 — 이 페이지를 참조(멘션)하는 다른 위키 페이지(백엔드 1:1).
@@ -129,4 +142,176 @@ export interface WikiRevisionList {
 /** 한 판 본문(백엔드 WikiRevisionDetail) — body 는 마크다운. */
 export interface WikiRevisionDetail extends WikiRevisionItem {
   body: string
+}
+
+/**
+ * WP-579 페이지 공유 — 링크를 열 수 있는 사람. WORKSPACE = 같은 워크스페이스 멤버 누구나, PEOPLE = 지정한 사람만,
+ * PUBLIC = 링크가 있는 누구나(외부, 로그인 없이 보기만 — 관리자가 외부 공유를 허용했을 때만).
+ */
+export type WikiShareAudience = 'WORKSPACE' | 'PEOPLE' | 'PUBLIC'
+/** 공유받은 사람의 권한 — 보기만(VIEW) 또는 편집(EDIT). */
+export type WikiSharePermission = 'VIEW' | 'EDIT'
+
+/** 공유 설정에 보이는 사람(공유한 사람·지정한 사람). */
+export interface WikiSharePerson {
+  userId: number
+  name: string
+}
+
+/** 한 페이지의 공유 설정(백엔드 WikiPageShareResponse). token 은 링크 주소에 들어가는 값 — 재발급하면 바뀐다. */
+export interface WikiPageShare {
+  pageId: number
+  token: string
+  audience: WikiShareAudience
+  permission: WikiSharePermission
+  includeChildren: boolean
+  /** audience=PEOPLE 일 때 지정한 사람(WORKSPACE 면 빈 배열). */
+  people: WikiSharePerson[]
+  createdBy: WikiSharePerson
+  createdAt: string
+  updatedAt: string
+  /** 만료 시각(없으면 무기한). 외부 링크는 처음 30일. */
+  expiresAt: string | null
+  /** 링크가 마지막으로 열린 시각·연 횟수. */
+  lastAccessedAt: string | null
+  viewCount: number
+}
+
+/** 공유를 기다리는 접근 요청(지정한 사람만 링크를 연 다른 멤버). */
+export interface WikiShareAccessRequest {
+  id: number
+  requester: WikiSharePerson
+  requestedAt: string
+}
+
+/**
+ * 공유 창이 여는 상태(백엔드 WikiPageShareStateResponse) — 이 페이지 공유(없으면 null), 외부 공유 허용 여부(관리자 정책),
+ * 상위 페이지 공유(하위 포함)로 이미 보이는지, 대기 중 접근 요청.
+ */
+export interface WikiPageShareState {
+  share: WikiPageShare | null
+  externalShareEnabled: boolean
+  inheritedFrom: { pageId: number; title: string; audience: WikiShareAudience } | null
+  accessRequests: WikiShareAccessRequest[]
+}
+
+/** 공유 설정을 만들거나 바꾸는 요청 — PUT 은 없으면 만들고 있으면 덮어쓴다(토큰은 유지). */
+export interface WikiPageShareRequest {
+  audience: WikiShareAudience
+  permission: WikiSharePermission
+  includeChildren: boolean
+  userIds: number[]
+  expiresAt: string | null
+  /** 새로 추가한 사람에게 알림을 보낼지와 함께 보낼 메시지(선택, 최대 WIKI_SHARE_MESSAGE_MAX 자). */
+  notify?: { message: string | null }
+}
+
+/** 공유 알림 메시지 상한(글자) — API WikiPageShareRequest.MESSAGE_MAX(채팅 메시지와 같은 4000자)와 같아야 한다. 넘기면 저장이 400. */
+export const WIKI_SHARE_MESSAGE_MAX = 4000
+
+/** 공유 기록 한 줄의 종류 — 만듦·설정 변경·사람 추가/제외·재발급·해제. */
+export type WikiShareEventType =
+  | 'CREATED'
+  | 'UPDATED'
+  | 'PEOPLE_ADDED'
+  | 'PEOPLE_REMOVED'
+  | 'REGENERATED'
+  | 'REVOKED'
+  | 'REVOKED_BY_POLICY'
+  | 'REVOKED_BY_ADMIN'
+  | 'PAGE_MOVED_IN'
+  | 'PAGE_MOVED_OUT'
+  | 'ACCESS_REQUESTED'
+  | 'ACCESS_APPROVED'
+  | 'ACCESS_DENIED'
+
+/** 공유 기록(백엔드 WikiShareEventResponse) — detail 은 화면에 그대로 보이는 한 줄 요약. */
+export interface WikiShareEvent {
+  id: number
+  type: WikiShareEventType
+  actor: WikiSharePerson
+  detail: string
+  at: string
+}
+
+/** 스페이스에서 공유 중인 페이지 한 줄(공유 중인 페이지 목록). */
+export interface WikiSharedPageItem {
+  pageId: number
+  title: string
+  audience: WikiShareAudience
+  permission: WikiSharePermission
+  includeChildren: boolean
+  peopleCount: number
+  createdBy: WikiSharePerson
+  updatedAt: string
+  expiresAt: string | null
+  lastAccessedAt: string | null
+  viewCount: number
+  /**
+   * 링크 토큰(복사용) — 스페이스 목록은 EDITOR 미만 호출자에게 null(보기 권한만 있는 멤버가 편집 링크 토큰을 읽어 권한을 얻지 못하게).
+   * 값이 없으면 링크 복사를 두지 않는다.
+   */
+  token: string | null
+}
+
+/** 스페이스를 가로지르는 공유 목록 한 줄(설정 › 내 공유, 관리자 › 노트 공유) — 스페이스와 링크 토큰(복사용)까지. */
+export interface WikiShareListItem extends WikiSharedPageItem {
+  spaceId: number
+  spaceName: string
+  // 내 공유·관리자 목록은 항상 값이 있다.
+  token: string
+}
+
+/** 외부 보기 응답(로그인 없음) — 본문 마크다운은 서버가 내부 링크·멘션을 가린 뒤 준다. 사람 정보는 없다. */
+export interface WikiPublicShare {
+  workspaceName: string
+  rootPageId: number
+  pages: Pick<WikiPageSummary, 'id' | 'parentId' | 'title' | 'position'>[]
+  page: { id: number; title: string; markdown: string; updatedAt: string }
+}
+
+/**
+ * 공유 링크로 연 페이지 묶음(백엔드 WikiShareResolveResponse) — rootPageId 가 공유한 페이지,
+ * pages 는 링크로 볼 수 있는 페이지 트리(하위 포함이 아니면 루트 하나).
+ */
+export interface WikiShareResolved {
+  rootPageId: number
+  spaceId: number
+  permission: WikiSharePermission
+  includeChildren: boolean
+  sharedBy: WikiSharePerson
+  /** 연 사람이 이 스페이스 멤버면 true — 원래 노트 화면으로 보낸다. */
+  member: boolean
+  pages: WikiPageSummary[]
+}
+
+/**
+ * 알림에서 노트를 열 때 갈 곳(WP-579, 백엔드 WikiPageEntryResponse) — GET /wiki/pages/{id}/entry.
+ * member 면 원래 노트 주소로, 아니면 shareToken(그 페이지를 덮는 공유의 지금 토큰)으로 공유 화면을 연다.
+ */
+export interface WikiPageEntry {
+  spaceId: number
+  member: boolean
+  shareToken: string | null
+}
+
+/** 다른 워크스페이스의 공유 링크(409) 응답 본문 — 그 워크스페이스 멤버일 때만 온다. code·tenantId 는 최상위 필드다. */
+export interface WikiShareOtherTenantError {
+  code: 'WIKI_SHARE_OTHER_TENANT'
+  tenantId: number
+}
+
+/** 지정한 사람이 아닌 사람이 공유 링크를 열 때(403) 응답 본문 — 링크는 유효해 이 응답이면 언제나 접근 요청을 보낼 수 있다. */
+export interface WikiShareForbiddenError {
+  requested: boolean
+  /** 같은 공유에 24시간 안에 요청이 거절됐다 — 다시 요청해도 새 요청을 만들지 않는다. */
+  denied: boolean
+}
+
+/**
+ * 접근 요청 보내기 결과(POST /wiki/shares/{token}/access-requests) — PENDING(보냄·이미 대기 중),
+ * DENIED(같은 공유에 24시간 안에 거절됨, 새 요청·알림 없음), NOT_NEEDED(요청할 필요 없음 — 이미 지정됨·스페이스 멤버 등).
+ */
+export interface WikiShareAccessRequestResult {
+  status: 'PENDING' | 'DENIED' | 'NOT_NEEDED'
 }

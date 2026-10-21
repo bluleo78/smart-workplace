@@ -103,8 +103,12 @@ import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
+import com.workplace.jooq.tables.WikiPageShare;
+import com.workplace.jooq.tables.WikiPageShareEvent;
+import com.workplace.jooq.tables.WikiPageShareMember;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
+import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WorkerJob;
@@ -292,6 +296,7 @@ public class Indexes {
     public static final Index IDX_NOTIFICATION_RECIPIENT_CREATED = Internal.createIndex(DSL.name("idx_notification_recipient_created"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID, Notification.NOTIFICATION.CREATED_AT.desc() }, false);
     public static final Index IDX_NOTIFICATION_TENANT = Internal.createIndex(DSL.name("idx_notification_tenant"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.TENANT_ID }, false);
     public static final Index IDX_NOTIFICATION_UNREAD = Internal.createIndex(DSL.name("idx_notification_unread"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.RECIPIENT_ID }, false);
+    public static final Index IDX_NOTIFICATION_WIKI_PAGE = Internal.createIndex(DSL.name("idx_notification_wiki_page"), Notification.NOTIFICATION, new OrderField[] { Notification.NOTIFICATION.WIKI_PAGE_ID }, false);
     public static final Index IDX_PERMISSION_CATEGORY = Internal.createIndex(DSL.name("idx_permission_category"), Permission.PERMISSION, new OrderField[] { Permission.PERMISSION.CATEGORY }, false);
     public static final Index IDX_PLATFORM_USER_ROLE_ROLE = Internal.createIndex(DSL.name("idx_platform_user_role_role"), PlatformUserRole.PLATFORM_USER_ROLE, new OrderField[] { PlatformUserRole.PLATFORM_USER_ROLE.PLATFORM_ROLE_ID }, false);
     public static final Index IDX_PROJECT_ISSUE_SEQUENCE_TENANT = Internal.createIndex(DSL.name("idx_project_issue_sequence_tenant"), ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE, new OrderField[] { ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE.TENANT_ID }, false);
@@ -334,6 +339,13 @@ public class Indexes {
     public static final Index IDX_WIKI_PAGE_BODY_HISTORY_READ_AT = Internal.createIndex(DSL.name("idx_wiki_page_body_history_read_at"), WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY, new OrderField[] { WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY.READ_AT }, false);
     public static final Index IDX_WIKI_PAGE_BODY_HISTORY_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_body_history_tenant"), WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY, new OrderField[] { WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_DOC_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_doc_tenant"), WikiPageDoc.WIKI_PAGE_DOC, new OrderField[] { WikiPageDoc.WIKI_PAGE_DOC.TENANT_ID }, false);
+    public static final Index IDX_WIKI_PAGE_SHARE_CREATED_BY = Internal.createIndex(DSL.name("idx_wiki_page_share_created_by"), WikiPageShare.WIKI_PAGE_SHARE, new OrderField[] { WikiPageShare.WIKI_PAGE_SHARE.CREATED_BY }, false);
+    public static final Index IDX_WIKI_PAGE_SHARE_EVENT_PAGE = Internal.createIndex(DSL.name("idx_wiki_page_share_event_page"), WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT, new OrderField[] { WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT.PAGE_ID, WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT.CREATED_AT.desc() }, false);
+    public static final Index IDX_WIKI_PAGE_SHARE_EVENT_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_share_event_tenant"), WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT, new OrderField[] { WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT.TENANT_ID }, false);
+    public static final Index IDX_WIKI_PAGE_SHARE_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_share_member_tenant"), WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER, new OrderField[] { WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER.TENANT_ID }, false);
+    public static final Index IDX_WIKI_PAGE_SHARE_MEMBER_USER = Internal.createIndex(DSL.name("idx_wiki_page_share_member_user"), WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER, new OrderField[] { WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER.USER_ID }, false);
+    public static final Index IDX_WIKI_PAGE_SHARE_SPACE = Internal.createIndex(DSL.name("idx_wiki_page_share_space"), WikiPageShare.WIKI_PAGE_SHARE, new OrderField[] { WikiPageShare.WIKI_PAGE_SHARE.SPACE_ID }, false);
+    public static final Index IDX_WIKI_PAGE_SHARE_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_share_tenant"), WikiPageShare.WIKI_PAGE_SHARE, new OrderField[] { WikiPageShare.WIKI_PAGE_SHARE.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_TENANT = Internal.createIndex(DSL.name("idx_wiki_page_tenant"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.TENANT_ID }, false);
     public static final Index IDX_WIKI_PAGE_TREE = Internal.createIndex(DSL.name("idx_wiki_page_tree"), WikiPage.WIKI_PAGE, new OrderField[] { WikiPage.WIKI_PAGE.SPACE_ID, WikiPage.WIKI_PAGE.PARENT_ID, WikiPage.WIKI_PAGE.POSITION }, false);
     public static final Index IDX_WIKI_REFERENCE_SOURCE = Internal.createIndex(DSL.name("idx_wiki_reference_source"), WikiReference.WIKI_REFERENCE, new OrderField[] { WikiReference.WIKI_REFERENCE.SOURCE_PAGE_ID }, false);
@@ -341,6 +353,8 @@ public class Indexes {
     public static final Index IDX_WIKI_REFERENCE_TENANT = Internal.createIndex(DSL.name("idx_wiki_reference_tenant"), WikiReference.WIKI_REFERENCE, new OrderField[] { WikiReference.WIKI_REFERENCE.TENANT_ID }, false);
     public static final Index IDX_WIKI_REVISION_PAGE_CREATED = Internal.createIndex(DSL.name("idx_wiki_revision_page_created"), WikiRevision.WIKI_REVISION, new OrderField[] { WikiRevision.WIKI_REVISION.PAGE_ID, WikiRevision.WIKI_REVISION.CREATED_AT.desc() }, false);
     public static final Index IDX_WIKI_REVISION_TENANT = Internal.createIndex(DSL.name("idx_wiki_revision_tenant"), WikiRevision.WIKI_REVISION, new OrderField[] { WikiRevision.WIKI_REVISION.TENANT_ID }, false);
+    public static final Index IDX_WIKI_SHARE_ACCESS_REQUEST_DENIED = Internal.createIndex(DSL.name("idx_wiki_share_access_request_denied"), WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST, new OrderField[] { WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.PAGE_ID, WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.REQUESTER_ID }, false);
+    public static final Index IDX_WIKI_SHARE_ACCESS_REQUEST_TENANT = Internal.createIndex(DSL.name("idx_wiki_share_access_request_tenant"), WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST, new OrderField[] { WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.TENANT_ID }, false);
     public static final Index IDX_WIKI_SPACE_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_member_tenant"), WikiSpaceMember.WIKI_SPACE_MEMBER, new OrderField[] { WikiSpaceMember.WIKI_SPACE_MEMBER.TENANT_ID }, false);
     public static final Index IDX_WIKI_SPACE_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_tenant"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.TENANT_ID }, false);
     public static final Index IDX_WORKSPACE_ASSISTANT_TENANT = Internal.createIndex(DSL.name("idx_workspace_assistant_tenant"), WorkspaceAssistant.WORKSPACE_ASSISTANT, new OrderField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, false);
@@ -369,5 +383,6 @@ public class Indexes {
     public static final Index UQ_MAIL_DRAFT_ATTACHMENT_FILE = Internal.createIndex(DSL.name("uq_mail_draft_attachment_file"), MailDraftAttachment.MAIL_DRAFT_ATTACHMENT, new OrderField[] { MailDraftAttachment.MAIL_DRAFT_ATTACHMENT.FILE_ID }, true);
     public static final Index UQ_PROJECT_DEFAULT_PERSONAL = Internal.createIndex(DSL.name("uq_project_default_personal"), Project.PROJECT, new OrderField[] { Project.PROJECT.OWNER_ID }, true);
     public static final Index UQ_STAGED_UPLOAD_LINK_TOKEN = Internal.createIndex(DSL.name("uq_staged_upload_link_token"), StagedUploadLink.STAGED_UPLOAD_LINK, new OrderField[] { StagedUploadLink.STAGED_UPLOAD_LINK.TOKEN_HASH }, true);
+    public static final Index UQ_WIKI_SHARE_ACCESS_REQUEST_PENDING = Internal.createIndex(DSL.name("uq_wiki_share_access_request_pending"), WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST, new OrderField[] { WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.PAGE_ID, WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.REQUESTER_ID }, true);
     public static final Index UQ_WIKI_SPACE_PERSONAL_OWNER = Internal.createIndex(DSL.name("uq_wiki_space_personal_owner"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.TENANT_ID, WikiSpace.WIKI_SPACE.OWNER_ID }, true);
 }

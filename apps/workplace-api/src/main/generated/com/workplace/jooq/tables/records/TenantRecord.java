@@ -152,6 +152,20 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
         return (String) get(8);
     }
 
+    /**
+     * Setter for <code>public.tenant.wiki_external_share_enabled</code>.
+     */
+    public void setWikiExternalShareEnabled(Boolean value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.tenant.wiki_external_share_enabled</code>.
+     */
+    public Boolean getWikiExternalShareEnabled() {
+        return (Boolean) get(9);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -175,7 +189,7 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
     /**
      * Create a detached, initialised TenantRecord
      */
-    public TenantRecord(Long id, String slug, String name, String status, LocalDateTime createdAt, Long quotaBytes, Boolean ssoEnabled, LocalDateTime deletedAt, String purgeError) {
+    public TenantRecord(Long id, String slug, String name, String status, LocalDateTime createdAt, Long quotaBytes, Boolean ssoEnabled, LocalDateTime deletedAt, String purgeError, Boolean wikiExternalShareEnabled) {
         super(Tenant.TENANT);
 
         setId(id);
@@ -187,6 +201,7 @@ public class TenantRecord extends UpdatableRecordImpl<TenantRecord> {
         setSsoEnabled(ssoEnabled);
         setDeletedAt(deletedAt);
         setPurgeError(purgeError);
+        setWikiExternalShareEnabled(wikiExternalShareEnabled);
         resetChangedOnNotNull();
     }
 }

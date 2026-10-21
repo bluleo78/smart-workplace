@@ -43,6 +43,21 @@ describe('formatAuditAction / formatAuditResource (#109, #778, WP-335, WP-369)',
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('WP-579: 노트 공유 액션 7개와 「노트」 리소스가 한글 라벨로(raw·경고 없음)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(formatAuditAction('WIKI_SHARE_CREATED')).toBe('노트 공유 생성');
+    expect(formatAuditAction('WIKI_SHARE_UPDATED')).toBe('노트 공유 변경');
+    expect(formatAuditAction('WIKI_SHARE_PEOPLE_CHANGED')).toBe('노트 공유 대상 변경');
+    expect(formatAuditAction('WIKI_SHARE_REGENERATED')).toBe('노트 공유 링크 재발급');
+    expect(formatAuditAction('WIKI_SHARE_REVOKED')).toBe('노트 공유 해제');
+    expect(formatAuditAction('WIKI_SHARE_ACCESS_DENIED')).toBe('노트 공유 요청 거절');
+    expect(formatAuditAction('WIKI_SHARE_POLICY_CHANGED')).toBe('노트 외부 공유 설정 변경');
+    expect(formatAuditResource('wiki')).toBe('노트');
+    // 정책 변경은 resource tenant 로 남는다 — 기존 「워크스페이스」 라벨이 그대로 쓰인다.
+    expect(formatAuditResource('tenant')).toBe('워크스페이스');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it('모르는 값은 raw 를 보여 주고 경고, 빈 값은 「-」', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(formatAuditAction('FUTURE_EVENT')).toBe('FUTURE_EVENT');

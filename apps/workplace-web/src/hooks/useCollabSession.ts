@@ -27,7 +27,8 @@ import {
  */
 export function useCollabSession(
   pageId: number,
-  opts: { readOnly: boolean; userId?: number | null },
+  /** shareToken: 공유 링크 화면(WP-579) — 이 토큰으로 붙는 세션을 멤버 세션과 따로 잡는다. */
+  opts: { readOnly: boolean; userId?: number | null; shareToken?: string | null },
 ): {
   session: CollabSession
   status: SyncStatus
@@ -40,8 +41,9 @@ export function useCollabSession(
   // 렌더 중 세션 확보(보유 등록 없음) — 등록·해제는 effect 가 해서 StrictMode 이중 실행에도 수가 맞는다.
   // renewal: 쥐려던 세션이 이미 정리돼 있었을 때 다시 여는 트리거(아래 effect).
   const [renewal, setRenewal] = useState(0)
+  const shareToken = opts.shareToken ?? null
   // eslint-disable-next-line react-hooks/exhaustive-deps -- renewal 은 값이 아니라 다시 열기 트리거다
-  const session = useMemo(() => openCollabSession(pageId), [pageId, renewal])
+  const session = useMemo(() => openCollabSession(pageId, { shareToken }), [pageId, shareToken, renewal])
 
   useEffect(() => {
     // 렌더와 보유 사이에 세션이 정리됐으면(숨겨진 화면이 유예 뒤 다시 보일 때 등) 캐시가 살아 있는 세션을 대신 잡아 준다 —

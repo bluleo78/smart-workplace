@@ -46,7 +46,8 @@ public class WikiCollabDocService {
   private final WikiRevisionRepository revisions;
   private final WikiPageDocRepository docs;
   private final WikiBodyEffects bodyEffects;
-  private final WikiPermissions perms;
+  // WP-579 공유 링크로 붙는 연결 — 멤버 역할과 공유 역할 중 높은 쪽으로 판정한다.
+  private final WikiShareAccess shareAccess;
   // 표시 이름 조회 — 도메인 간 직접 의존 금지 규칙상 user 모듈 리포지토리 대신 global 공용 조회를 쓴다.
   private final UserMentionHydrator users;
 
@@ -148,17 +149,30 @@ public class WikiCollabDocService {
    */
   @Transactional(readOnly = true)
   public CollabAccessResponse access(long callerId, long pageId, Long tokenExp) {
+    return access(callerId, pageId, tokenExp, null);
+  }
+
+  /**
+   * {@link #access(long, long, Long)} + 공유 토큰(WP-579, nullable) — 역할은 멤버·공유 중 높은 쪽(VIEWER 멤버가 편집
+   * 링크면 EDITOR). 동기화 서버는 연결·재검증 때마다 같은 토큰으로 다시 묻으므로, 해제·재발급·범위 밖 이동 뒤엔 404/403 으로 연결이 거부된다.
+   */
+  @Transactional(readOnly = true)
+  public CollabAccessResponse access(long callerId, long pageId, Long tokenExp, String shareToken) {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
-    String role = perms.requireRole(spaceId, callerId, "VIEWER");
+    WikiShareAccess.EffectiveAccess access =
+        shareAccess.effectiveAccess(spaceId, pageId, callerId, shareToken, "VIEWER");
     return new CollabAccessResponse(
         pageId,
         spaceId,
         TenantContext.require(),
         callerId,
         users.summaryOf(callerId).name(),
-        role,
-        tokenExp);
+        access.role(),
+        tokenExp,
+        access.shareExpiresAt() == null
+            ? null
+            : access.shareExpiresAt().toInstant().toEpochMilli());
   }
 
   /**

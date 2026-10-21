@@ -114,8 +114,12 @@ import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
+import com.workplace.jooq.tables.WikiPageShare;
+import com.workplace.jooq.tables.WikiPageShareEvent;
+import com.workplace.jooq.tables.WikiPageShareMember;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
+import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WorkerJob;
@@ -695,6 +699,21 @@ public class Public extends SchemaImpl {
     public final WikiPageDoc WIKI_PAGE_DOC = WikiPageDoc.WIKI_PAGE_DOC;
 
     /**
+     * The table <code>public.wiki_page_share</code>.
+     */
+    public final WikiPageShare WIKI_PAGE_SHARE = WikiPageShare.WIKI_PAGE_SHARE;
+
+    /**
+     * The table <code>public.wiki_page_share_event</code>.
+     */
+    public final WikiPageShareEvent WIKI_PAGE_SHARE_EVENT = WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT;
+
+    /**
+     * The table <code>public.wiki_page_share_member</code>.
+     */
+    public final WikiPageShareMember WIKI_PAGE_SHARE_MEMBER = WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER;
+
+    /**
      * The table <code>public.wiki_reference</code>.
      */
     public final WikiReference WIKI_REFERENCE = WikiReference.WIKI_REFERENCE;
@@ -703,6 +722,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.wiki_revision</code>.
      */
     public final WikiRevision WIKI_REVISION = WikiRevision.WIKI_REVISION;
+
+    /**
+     * The table <code>public.wiki_share_access_request</code>.
+     */
+    public final WikiShareAccessRequest WIKI_SHARE_ACCESS_REQUEST = WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST;
 
     /**
      * The table <code>public.wiki_space</code>.
@@ -857,8 +881,12 @@ public class Public extends SchemaImpl {
             WikiPageAttachment.WIKI_PAGE_ATTACHMENT,
             WikiPageBodyHistory.WIKI_PAGE_BODY_HISTORY,
             WikiPageDoc.WIKI_PAGE_DOC,
+            WikiPageShare.WIKI_PAGE_SHARE,
+            WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT,
+            WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER,
             WikiReference.WIKI_REFERENCE,
             WikiRevision.WIKI_REVISION,
+            WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST,
             WikiSpace.WIKI_SPACE,
             WikiSpaceMember.WIKI_SPACE_MEMBER,
             WorkerJob.WORKER_JOB,

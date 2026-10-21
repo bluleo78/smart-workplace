@@ -1,5 +1,5 @@
 // 노트 스페이스 0개 → 생성 흐름 모킹(WP-143) — 데스크톱·모바일 빈 상태 spec 이 공유한다.
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 import type {
   WikiMentionRef,
@@ -93,6 +93,45 @@ export async function mockWikiPageEditor(
     return r.fallback()
   })
   return puts
+}
+
+/**
+ * 노트 에디터 화면을 열고(또는 새로고침하고) 본문을 조작할 수 있을 때까지 단계별로 기다린다.
+ * 「주소 이동 → 본문 표시」를 단언 하나(10초)로 기다리면 앱 부팅·노트 화면 코드 로드(dev 서버 변환 — 부하 때 가장 오래 걸린다)와
+ * 첫 동기화가 한 창을 나눠 써서, 전체 스위트 부하에서만 본문이 늦게 떠 깨졌다. 각 단계를 그 단계가 끝났다는 신호로 기다린다.
+ * 1) 페이지 상세 GET 응답 — 노트 화면 코드가 올라와 상세를 불렀다(이 대기는 단언 창이 아니라 따로 둔 20초 마감으로 기다리고,
+ *    넘기면 기다린 요청을 이름으로 밝히며 실패한다).
+ * 2) 본문(.ProseMirror) 표시 — 동기화 서버와 첫 동기화를 마쳤다(그 전엔 본문 자리에 skeleton).
+ * 3) 편집 가능 여부 확정 — 에디터는 첫 동기화 전(편집 불가)에 만들어지고 편집 가능 전환은 렌더 뒤 effect 가 하므로, 보이자마자
+ *    붙여넣기·우클릭하면 편집 불가 뷰가 이벤트를 버릴 수 있다. 편집자는 contenteditable="true", 보기 전용은 동기화 칩 readonly 까지.
+ */
+export async function openWikiEditor(
+  page: Page,
+  { spaceId, pageId, readOnly = false, reload = false }: { spaceId: number; pageId: number; readOnly?: boolean; reload?: boolean },
+) {
+  const detailPath = `/api/v1/wiki/pages/${pageId}`
+  // 응답 대기와 이동을 한 Promise.all 로 묶는다 — 대기를 이동 전에 등록하면서도, 이동이 실패하면 매달린 대기 없이 그 실패가 바로 올라온다.
+  // 마감은 액션 제한(15초)보다 길고 테스트 제한(30초)보다 짧게 따로 둔다 — 부하 때 dev 서버의 노트 화면 코드 변환이 오래 걸리는 것 자체는
+  // 결함이 아니지만, 끝없이 기다리지 않고 어느 요청을 기다리다 멈췄는지 드러나게 실패한다.
+  const timeout = 20_000
+  await Promise.all([
+    page
+      .waitForResponse(
+        (r) => new URL(r.url()).pathname === detailPath && r.request().method() === 'GET',
+        { timeout },
+      )
+      .catch((cause: unknown) => {
+        throw new Error(`openWikiEditor: 노트 페이지 상세 GET ${detailPath} 응답을 ${timeout}ms 안에 받지 못했습니다`, { cause })
+      }),
+    reload ? page.reload() : page.goto(`/wiki/spaces/${spaceId}/pages/${pageId}`),
+  ])
+  if (readOnly) {
+    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await expect(page.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'readonly')
+  } else {
+    // 편집자는 contenteditable="true" 인 에디터가 보일 때까지 한 번에 기다린다(보임 → 편집 가능 두 단계를 따로 두지 않는다).
+    await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  }
 }
 
 /** 노트 멘션 칩 라벨 해소(GET /pages/{id}/mentions) 응답을 고정한다. */

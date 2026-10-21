@@ -40,6 +40,19 @@ public class WikiSpaceRepository {
         .execute();
   }
 
+  /**
+   * 공유 변경 전에 공간 행을 KEY SHARE 로 잠근다(WP-579). 스페이스 삭제(lockForDelete 의 FOR UPDATE)와만 충돌하고 공간 행의 다른
+   * 갱신과는 충돌하지 않는다 — 삭제가 먼저면 그 커밋을 기다렸다 없는 공간으로 끝나고, 저장이 먼저면 삭제가 이 커밋을 기다린다. 첫 공유 저장이 FK 로 공간 행에 KEY
+   * SHARE 를 거는 시점이 공유 행 잠금보다 늦어 삭제(공간 → 공유 순)와 교착하던 순서를 맨 앞으로 당긴다.
+   */
+  public void lockForKeyShare(long spaceId) {
+    dsl.select(WIKI_SPACE.ID)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .forKeyShare()
+        .execute();
+  }
+
   /** 공간 행 삭제 — 멤버·페이지와 그 하위 행(판·참조·첨부 매핑·동기화 문서·본문 기록)은 FK CASCADE 로 함께 지워진다(WP-580). */
   public void delete(long spaceId) {
     dsl.deleteFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId)).execute();

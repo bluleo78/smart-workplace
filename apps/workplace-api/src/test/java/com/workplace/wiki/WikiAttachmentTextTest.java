@@ -151,8 +151,8 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
   void 업로드하면_추출_행이_생기고_이미지는_SKIPPED_IMAGE() {
     var res =
         attachmentService.upload(
-            ownerId, pageId, new MockMultipartFile("file", "a.png", "image/png", PNG));
-    var s = attachmentService.readText(viewerId, pageId, res.fileId(), 0, 100);
+            ownerId, pageId, new MockMultipartFile("file", "a.png", "image/png", PNG), null);
+    var s = attachmentService.readText(viewerId, pageId, res.fileId(), 0, 100, null);
     assertThat(s.status()).isEqualTo("SKIPPED");
     assertThat(s.reasonCode()).isEqualTo("IMAGE");
     assertThat(s.text()).isNull();
@@ -162,7 +162,7 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
   void 추출_대기_중이면_PENDING() {
     long fileId = seedBoundPdf();
     rowWriter.write(fileId, 1L, "application/pdf", ExtractionProfile.TEXT_ONLY);
-    assertThat(attachmentService.readText(viewerId, pageId, fileId, 0, 10).status())
+    assertThat(attachmentService.readText(viewerId, pageId, fileId, 0, 10, null).status())
         .isEqualTo("PENDING");
   }
 
@@ -171,7 +171,7 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
     long fileId = seedBoundPdf();
     rowWriter.write(fileId, 1L, "application/pdf", ExtractionProfile.TEXT_ONLY);
     markDone(fileId, "가나다라마");
-    var s = attachmentService.readText(viewerId, pageId, fileId, 1, 2);
+    var s = attachmentService.readText(viewerId, pageId, fileId, 1, 2, null);
     assertThat(s.status()).isEqualTo("READY");
     assertThat(s.text()).isEqualTo("나다");
     assertThat(s.totalChars()).isEqualTo(5);
@@ -181,16 +181,17 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
   @Test
   void 추출_행이_없는_기존_첨부는_NONE() {
     long fileId = seedBoundPdf();
-    assertThat(attachmentService.readText(viewerId, pageId, fileId, 0, 10).status())
+    assertThat(attachmentService.readText(viewerId, pageId, fileId, 0, 10, null).status())
         .isEqualTo("NONE");
   }
 
   @Test
   void 공간_비멤버는_존재_은닉_404_다른_페이지_파일도_404() {
     long fileId = seedBoundPdf();
-    assertThatThrownBy(() -> attachmentService.readText(outsiderId, pageId, fileId, 0, 10))
+    assertThatThrownBy(() -> attachmentService.readText(outsiderId, pageId, fileId, 0, 10, null))
         .isInstanceOf(WikiSpaceNotFoundException.class);
-    assertThatThrownBy(() -> attachmentService.readText(viewerId, pageId, 999_999_999L, 0, 10))
+    assertThatThrownBy(
+            () -> attachmentService.readText(viewerId, pageId, 999_999_999L, 0, 10, null))
         .isInstanceOf(WikiAttachmentNotFoundException.class);
   }
 

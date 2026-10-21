@@ -4,13 +4,16 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 310
 
 const setup = (page: Page, body: string) =>
   mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '붙여넣기', body })
+
+/** 에디터를 열고 붙여넣기를 받을 수 있을 때(편집 가능)까지 기다린다 — 보이기만 한 편집 불가 뷰는 paste 를 버린다. */
+const open = (page: Page) => openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID })
 
 /**
  * text/plain 만 담은 paste 이벤트를 에디터에 디스패치한다.
@@ -27,8 +30,7 @@ async function pastePlainText(page: Page, text: string) {
 
 test('스파이크 — 합성 paste 가 마크다운으로 변환된다', async ({ authenticatedPage: page }) => {
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await pastePlainText(page, '## 붙여넣은 제목')
@@ -38,8 +40,7 @@ test('스파이크 — 합성 paste 가 마크다운으로 변환된다', async 
 
 test('마크다운 블록이 서식으로 변환되고 저장본으로 왕복한다', async ({ authenticatedPage: page }) => {
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await pastePlainText(page, [
@@ -78,7 +79,7 @@ test('코드블록 예외 — 코드블록 안에서는 평문으로 남는다',
   // 코드블록이 이미 있는 본문에서 시작 — ProseMirror 가 inCode 를 clipboardTextParser 호출
   // 전에 단락시키는지 확인한다(별도 handlePaste 를 짜지 않은 근거).
   await setup(page, '```\n기존 코드\n```')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror pre code')).toBeVisible()
 
   // 코드블록 안을 클릭하면 selection 의 parent 가 codeBlock 이 되고, 그것만으로 inCode 가 성립한다.
@@ -95,8 +96,7 @@ test('평문 HTML 은 렌더된다 (수용된 동작 고정)', async ({ authenti
   // 폴백 경로)의 로드가 깨진다. 즉 버그가 아니라 감수한 트레이드오프다 — 이 테스트가 깨지면
   // 스펙 §3.4 를 먼저 읽을 것.
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await pastePlainText(page, '<b>굵게</b>')
@@ -106,8 +106,7 @@ test('평문 HTML 은 렌더된다 (수용된 동작 고정)', async ({ authenti
 
 test('마크다운 링크를 붙여넣으면 링크로 들어가고 저장본에 그대로 남는다 (WP-300)', async ({ authenticatedPage: page }) => {
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await pastePlainText(page, '참고: [설계 문서](https://example.com/spec)')
@@ -119,8 +118,7 @@ test('마크다운 링크를 붙여넣으면 링크로 들어가고 저장본에
 test('맨 URL 을 붙여넣으면 자동 링크가 되지 않고 글자로 남는다 (WP-300)', async ({ authenticatedPage: page }) => {
   // 링크 마크를 들이면서 저장 마크다운이 `<url>` 로 바뀌지 않게 자동 링크(autolink·붙여넣기 규칙)를 껐다.
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await pastePlainText(page, 'https://example.com/plain')
@@ -134,8 +132,7 @@ test('HTML 로 붙여넣은 링크의 공백 든 주소가 인코딩돼 링크�
   // 브라우저에서 복사한 링크(text/html)는 markdown-it 을 거치지 않아 주소가 정규화되지 않았다 — 공백이 그대로면
   // 저장본의 [t](a b) 가 링크 문법이 아니라 다음에 열 때 평문이 된다.
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.locator('.ProseMirror').evaluate((el) => {
@@ -153,8 +150,7 @@ test('HTML 로 붙여넣은 링크의 공백 든 주소가 인코딩돼 링크�
 // 소프트 줄바꿈을 공백으로 바꾸던 첫 수정은 '첫 줄\n둘째 줄' 을 한 줄로 접었고, 수정 전 main 은 굵게 뒤 줄이 붙었다.
 test('여러 줄과 굵게 뒤 줄바꿈이 붙여넣기 후에도 줄바꿈으로 남는다 (WP-314)', async ({ authenticatedPage: page }) => {
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await pastePlainText(page, ['첫 줄', '둘째 줄', '**담당자**', '홍길동'].join('\n'))

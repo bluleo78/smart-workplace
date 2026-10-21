@@ -6,7 +6,13 @@ import { Awareness } from 'y-protocols/awareness'
 import * as Y from 'yjs'
 
 import type { CollabConfig } from './config'
-import { CLOSE_DELETED, COLLAB_SCHEMA_MISMATCH, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
+import {
+  CLOSE_DELETED,
+  CLOSE_FORBIDDEN,
+  COLLAB_ROLE_CHANGED_TYPE,
+  COLLAB_SCHEMA_MISMATCH,
+  WIKI_SCHEMA_VERSION,
+} from '@smart-workplace/wiki-editor-schema'
 
 import { FRAGMENT, yDocToMarkdown } from './markdownCodec'
 import { apiAuthenticator, createCollabServer, SCHEMA_MISMATCH_LOG_MS, type CollabServer } from './server'
@@ -57,11 +63,12 @@ describe('collab server', () => {
 
   const connect = (
     token: string,
-    opts: { name?: string; doc?: Y.Doc; target?: CollabServer; schemaVersion?: number | string | null } = {},
+    opts: { name?: string; doc?: Y.Doc; target?: CollabServer; schemaVersion?: number | string | null; share?: string } = {},
   ): Client => {
     const c = connectClient((opts.target ?? app).address.port, opts.name ?? DOC, token, {
       doc: opts.doc,
       schemaVersion: opts.schemaVersion,
+      share: opts.share,
     })
     clients.push(c)
     return c
@@ -628,5 +635,221 @@ describe('collab server', () => {
     // 다른 페이지 id 를 요청하면(문서 이름 조작) 거부.
     api.page(2, { tenantId: 99, body: 'x', version: 1 })
     expect(await auth.authenticate('wiki-page:2', 2, 'editor-token')).toBeNull()
+  })
+  // WP-579 공유 링크 — 웹이 `share` 쿼리로 보낸 토큰을 collab-access 에 X-Wiki-Share-Token 으로 싣고, 재검증도 같은 토큰으로 다시 판정한다.
+  describe('share link connections', () => {
+    const SHARE = 'wsh_editShare1'
+    const VIEW_SHARE = 'wsh_viewShare1'
+    /** API 의 WikiCollabRevalidator 가 보내는 모양 그대로 — 공유 해제·재발급은 pageIds 만 싣고 spaceId·userId 는 null. */
+    // extra: 새 API 가 공유 변경에 싣는 sharedOnly 등 — 없으면 옛 API 모양(모든 연결 대상).
+    const revalidatePages = (pageIds: number[], extra: Record<string, unknown> = {}) =>
+      fetch(`http://127.0.0.1:${app.address.port}/internal/docs/revalidate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Internal test-token' },
+        body: JSON.stringify({ tenantId: TENANT, spaceId: null, pageIds, userId: null, ...extra }),
+      })
+
+    beforeEach(() => {
+      // 스페이스 멤버가 아닌 같은 테넌트 사용자 — 공유 없이는 collab-access 404.
+      api.token('outsider-token', { userId: 9, name: '박영희', role: 'VIEWER', tenantId: TENANT, member: false })
+      api.share(SHARE, { pageId: 1, role: 'EDITOR' })
+      api.share(VIEW_SHARE, { pageId: 1, role: 'VIEWER' })
+    })
+
+    it('share_param_reaches_access_call — the share query becomes X-Wiki-Share-Token, plain and empty ones send no header', async () => {
+      const shared = connect('outsider-token', { share: SHARE })
+      const plain = connect('editor-token')
+      const empty = connect('viewer-token', { share: '' })
+      await synced(shared)
+      await synced(plain)
+      await synced(empty)
+      expect(api.accessCalls).toContainEqual({ pageId: 1, token: 'outsider-token', shareToken: SHARE })
+      // 공유 없이 붙은 연결은 헤더를 싣지 않는다 — 멤버 판정이 지금과 똑같다.
+      // 두 연결의 판정 호출은 동시에 진행돼 도착 순서가 정해지지 않는다 — 토큰 순으로 정렬해 비교한다.
+      const others = api.accessCalls
+        .filter((c) => c.token !== 'outsider-token')
+        .sort((x, y) => x.token.localeCompare(y.token))
+      expect(others).toEqual([
+        { pageId: 1, token: 'editor-token' },
+        { pageId: 1, token: 'viewer-token' },
+      ])
+    })
+
+    it('share_edit_role_is_writable — an EDITOR share lets a non-member edit, a VIEWER share stays read-only, no share is refused', async () => {
+      const editor = connect('outsider-token', { share: SHARE })
+      const viewer = connect('outsider-token', { share: VIEW_SHARE })
+      const none = connect('outsider-token')
+      await synced(editor)
+      await synced(viewer)
+      expect(editor.provider.authorizedScope).toBe('read-write')
+      expect(viewer.provider.authorizedScope).toBe('readonly')
+      typeAt(editor.doc, 1, '공유 편집 ')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('공유 편집 본문')
+      await expect.poll(() => none.authFailures, ARRIVAL).toContain('forbidden')
+    })
+
+    it('rejects a malformed share token without asking the API', async () => {
+      // 헤더로 넘길 수 없는 값(개행)·지나치게 긴 값은 API 에 보내지 않고 권한 없음으로 끝낸다.
+      const broken = connect('outsider-token', { share: 'wsh_a\nX-Evil: 1' })
+      const huge = connect('outsider-token', { share: `wsh_${'a'.repeat(300)}` })
+      await expect.poll(() => broken.authFailures, ARRIVAL).toContain('forbidden')
+      await expect.poll(() => huge.authFailures, ARRIVAL).toContain('forbidden')
+      expect(api.accessCalls.filter((c) => c.token === 'outsider-token')).toEqual([])
+    })
+
+    it('revalidate_closes_share_connection_after_revoke — the share connection closes with 4403 and cannot reconnect, the member stays', async () => {
+      const member = connect('editor-token')
+      const shared = connect('outsider-token', { share: SHARE })
+      await synced(member)
+      await synced(shared)
+      // 공유 해제(재발급도 옛 토큰이 없어지는 것이라 같다) — 커밋 뒤 API 가 영향받는 페이지로 재검증을 부른다.
+      api.share(SHARE, null)
+      const before = api.accessCalls.length
+      expect((await revalidatePages([1])).status).toBe(204)
+      // 재검증도 연결에 보관한 같은 공유 토큰으로 판정한다.
+      expect(api.accessCalls.slice(before)).toContainEqual({ pageId: 1, token: 'outsider-token', shareToken: SHARE })
+      await expect.poll(() => shared.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+      expect(shared.disconnects.find((d) => d.code === CLOSE_FORBIDDEN.code)?.reason).toBe(CLOSE_FORBIDDEN.reason)
+      // provider 가 다시 붙어도 해제된 토큰은 거부된다(열린 편집 화면이 그대로 남지 않는다).
+      await expect.poll(() => shared.authFailures, ARRIVAL).toContain('forbidden')
+      // 같은 문서의 멤버 연결은 다시 판정해도 그대로 — 계속 편집·저장한다.
+      expect(member.disconnects).toEqual([])
+      typeAt(member.doc, 1, '계속 ')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('계속 본문')
+    })
+
+    it('shared_only_revalidate_skips_member_connections — a share-change revalidate asks the API only for share connections', async () => {
+      const member = connect('editor-token')
+      const shared = connect('outsider-token', { share: SHARE })
+      await synced(member)
+      await synced(shared)
+      api.share(SHARE, null)
+      const before = api.accessCalls.length
+      expect((await revalidatePages([1], { sharedOnly: true })).status).toBe(204)
+      // 멤버 연결은 공유 변경으로 권한이 바뀌지 않는다 — 판정은 공유 연결만 부른다(닫힌 공유 연결의 재접속 판정이 뒤에 붙을 수 있어 토큰으로 본다).
+      const calls = api.accessCalls.slice(before)
+      expect(calls).toContainEqual({ pageId: 1, token: 'outsider-token', shareToken: SHARE })
+      expect(calls.filter((c) => c.token === 'editor-token')).toEqual([])
+      await expect.poll(() => shared.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+      expect(member.disconnects).toEqual([])
+    })
+
+    it('demotes a share connection to read-only (not closed) when the share narrows from EDIT to VIEW', async () => {
+      const shared = connect('outsider-token', { share: SHARE })
+      await synced(shared)
+      expect(shared.provider.authorizedScope).toBe('read-write')
+      api.share(SHARE, { pageId: 1, role: 'VIEWER' })
+      expect((await revalidatePages([1])).status).toBe(204)
+      // 기존 재검증의 강등 경로와 같다 — 끊지 않고 readOnly + 역할 변경 알림.
+      await expect
+        .poll(() => shared.statelessMessages, ARRIVAL)
+        .toContain(JSON.stringify({ type: COLLAB_ROLE_CHANGED_TYPE, role: 'VIEWER' }))
+      expect(shared.disconnects).toEqual([])
+      typeAt(shared.doc, 1, '무시 ')
+      await expectStays(() => yDocToMarkdown(serverDoc()!).includes('무시 '), false)
+    })
+
+    // 만료 = 즉시 막힘(설계) — 해제·재발급과 달리 자연 만료는 API 가 재검증을 부르지 않으므로, 공유로 붙은 연결은 서버가 만료 시각에 스스로 다시 판정한다.
+    describe('natural share expiry', () => {
+      const START = Date.UTC(2026, 0, 1)
+      const HOUR = 3_600_000
+      const EXPIRING = 'wsh_expiring1'
+      let timed: CollabServer
+      let clock: ReturnType<typeof manualClock>
+
+      beforeEach(async () => {
+        // 서버(만료 타이머)와 가짜 API(만료된 공유 무시)가 같은 손 시계를 본다 — 실제 시간은 기다리지 않는다.
+        clock = manualClock(START)
+        api.now = clock.now
+        timed = createCollabServer(cfg(), { clock })
+        extraApps.push(timed)
+        await timed.listen()
+      })
+
+      it('share_expiry_closes_connection — a share connection closes with 4403 at the expiry, the member stays', async () => {
+        api.share(EXPIRING, { pageId: 1, role: 'EDITOR', expiresAt: START + HOUR })
+        const member = connect('editor-token', { target: timed })
+        const shared = connect('outsider-token', { target: timed, share: EXPIRING })
+        await synced(member)
+        await synced(shared)
+        // 공유 연결의 만료 타이머 하나만 — 멤버 연결과 만료 없는 토큰은 걸지 않는다.
+        await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(1)
+        clock.advance(HOUR - 1)
+        expect(clock.pendingCount()).toBe(1)
+        clock.advance(1)
+        await expect.poll(() => shared.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+        // 다시 붙어도 만료된 공유는 거부된다.
+        await expect.poll(() => shared.authFailures, ARRIVAL).toContain('forbidden')
+        expect(member.disconnects).toEqual([])
+        expect(api.accessCalls.filter((c) => c.shareToken === EXPIRING).length).toBeGreaterThan(1)
+      })
+
+      it('re-arms at the new expiry when the share was extended meanwhile (extension sends no revalidate)', async () => {
+        api.share(EXPIRING, { pageId: 1, role: 'EDITOR', expiresAt: START + HOUR })
+        const shared = connect('outsider-token', { target: timed, share: EXPIRING })
+        await synced(shared)
+        await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(1)
+        // 만료를 하루 늘렸다 — 넓히는 변경이라 API 는 재검증을 부르지 않는다.
+        api.share(EXPIRING, { pageId: 1, role: 'EDITOR', expiresAt: START + 24 * HOUR })
+        clock.advance(HOUR)
+        // 옛 만료 시각에 다시 판정했지만 아직 열려 있다 — 끊지 않고 새 만료로 다시 건다.
+        await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(1)
+        expect(shared.disconnects).toEqual([])
+        clock.advance(23 * HOUR)
+        await expect.poll(() => shared.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+      })
+
+      it('releases the share timer (and the token timer) when the connection closes', async () => {
+        // 실제 JWT 연결처럼 토큰 만료도 있다 — 연결 하나에 토큰 만료·공유 만료 타이머 둘, 연결이 닫히면 둘 다 지운다.
+        api.token('outsider-jwt', { userId: 9, name: '박영희', role: 'VIEWER', tenantId: TENANT, member: false, tokenExp: (START + 48 * HOUR) / 1000 })
+        api.share(EXPIRING, { pageId: 1, role: 'EDITOR', expiresAt: START + HOUR })
+        const shared = connect('outsider-jwt', { target: timed, share: EXPIRING })
+        await synced(shared)
+        await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(2)
+        shared.provider.destroy()
+        await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(0)
+      })
+
+      it('moves the timer to the earlier expiry when a revalidate follows a shortened expiry', async () => {
+        api.share(EXPIRING, { pageId: 1, role: 'EDITOR', expiresAt: START + 24 * HOUR })
+        const shared = connect('outsider-token', { target: timed, share: EXPIRING })
+        await synced(shared)
+        await expect.poll(() => clock.pendingCount(), ARRIVAL).toBe(1)
+        // 만료를 앞당기는 저장은 좁히는 변경이라 API 가 재검증을 부른다 — 재검증의 판정으로 타이머를 새 만료에 다시 건다.
+        api.share(EXPIRING, { pageId: 1, role: 'EDITOR', expiresAt: START + HOUR })
+        const res = await fetch(`http://127.0.0.1:${timed.address.port}/internal/docs/revalidate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Internal test-token' },
+          body: JSON.stringify({ tenantId: TENANT, spaceId: null, pageIds: [1], userId: null }),
+        })
+        expect(res.status).toBe(204)
+        expect(shared.disconnects).toEqual([])
+        clock.advance(HOUR)
+        await expect.poll(() => shared.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+      })
+
+      it('sets no expiry timer for a share without expiry', async () => {
+        const shared = connect('outsider-token', { target: timed, share: SHARE })
+        await synced(shared)
+        await expectStays(() => clock.pendingCount(), 0)
+      })
+    })
+
+    it('judges a member tab and a share tab of the same user separately on revalidate', async () => {
+      // 같은 사용자 토큰이라도 공유 토큰이 다르면 판정이 다르다 — 재검증의 판정 묶음이 둘을 섞으면 VIEWER 탭이 EDITOR 를 얻거나 그 반대가 된다.
+      const memberTab = connect('viewer-token')
+      const shareTab = connect('viewer-token', { share: SHARE })
+      await synced(memberTab)
+      await synced(shareTab)
+      expect(memberTab.provider.authorizedScope).toBe('readonly')
+      expect(shareTab.provider.authorizedScope).toBe('read-write')
+      expect((await revalidatePages([1])).status).toBe(204)
+      typeAt(shareTab.doc, 1, '공유 탭 ')
+      await expect.poll(() => yDocToMarkdown(serverDoc()!), ARRIVAL).toContain('공유 탭 본문')
+      typeAt(memberTab.doc, 0, '멤버 탭 ')
+      await expectStays(() => yDocToMarkdown(serverDoc()!).includes('멤버 탭 '), false)
+      expect(memberTab.statelessMessages).toEqual([])
+      expect(shareTab.statelessMessages).toEqual([])
+    })
   })
 })

@@ -8,6 +8,15 @@ import type { Authenticator, DocStore, TestRoutes } from './server'
 /** 테스트 모드에서 내부 토큰을 따로 주지 않았을 때 쓰는 기본값 — E2E 가 apply-markdown(✦ 유발)을 부를 때 쓴다. */
 export const TEST_MODE_INTERNAL_TOKEN = 'collab-test-internal'
 
+/** 역할 순서 — 멤버 역할과 공유 역할 중 높은 쪽을 고른다(NONE·모르는 값은 가장 낮다). */
+const ROLE_RANK: Record<string, number> = { VIEWER: 1, EDITOR: 2, OWNER: 3 }
+
+/** 두 역할 중 높은 쪽 — 공유 역할이 없으면 멤버 역할 그대로. */
+function higherRole(memberRole: string, shareRole: string | undefined): string {
+  if (shareRole == null) return memberRole
+  return (ROLE_RANK[shareRole] ?? 0) > (ROLE_RANK[memberRole] ?? 0) ? shareRole : memberRole
+}
+
 /** 메모리 문서 한 건 — 시드 본문·역할과 저장된 상태. */
 interface TestDoc {
   body: string
@@ -15,6 +24,8 @@ interface TestDoc {
   role: string
   /** userId → 역할(같은 문서에 편집자·뷰어를 함께 두는 E2E 용). */
   roles: Record<string, string>
+  /** 공유 토큰 → 공유가 주는 역할(WP-579 공유 링크 E2E 용) — /__test/revoke-share 로 지운다. */
+  shares: Record<string, string>
   state: Uint8Array | null
   version: number
 }
@@ -27,6 +38,9 @@ interface TestDoc {
  * 세션 도중 역할 변경은 /__test/role(문서를 닫지 않음) + /internal/docs/revalidate 로 재현한다.
  * 인증 토큰 = URLSearchParams 형식 `uid=2&name=김철수&role=VIEWER`(모두 선택) — 테스트가 사용자를 구분한다.
  * uid 기본 1, name 기본 `사용자 {uid}`, role 은 토큰 → 시드 roles[uid] → 시드 role → OWNER 순. role=NONE 이면 거부(권한 없음 시나리오).
+ * 공유 링크(WP-579): 시드 shares `{토큰: 역할}` 을 심으면 `share` 쿼리로 그 토큰을 보낸 연결은 멤버 역할과 공유 역할 중 높은 쪽을 받는다
+ * (운영 API 와 같은 규칙). 공유로만 들어오는 사용자는 시드 roles[uid] 를 'NONE' 으로 둔다(기본 역할이 OWNER 라서).
+ * /__test/revoke-share 로 공유를 지운 뒤 /internal/docs/revalidate 를 부르면 그 공유 연결이 4403 으로 닫히는 것을 재현한다.
  * 테넌트·스페이스는 항상 1.
  * 스키마 판(WP-313)은 /__test/schema-version 으로 문서별로 바꾼다 — '동기화 서버만 새 스키마로 배포됨'을 재현(웹의 판은 그대로).
  */
@@ -43,7 +57,7 @@ export function createTestMode(): {
   const docOf = (name: string): TestDoc => {
     let d = docs.get(name)
     if (!d) {
-      d = { body: '', role: 'OWNER', roles: {}, state: null, version: 1 }
+      d = { body: '', role: 'OWNER', roles: {}, shares: {}, state: null, version: 1 }
       docs.set(name, d)
     }
     return d
@@ -74,14 +88,17 @@ export function createTestMode(): {
   }
 
   const auth: Authenticator = {
-    async authenticate(docName, pageId, token) {
+    async authenticate(docName, pageId, token, shareToken) {
       const p = new URLSearchParams(token)
       const uid = Number(p.get('uid') ?? 1)
       if (!Number.isSafeInteger(uid) || uid <= 0) return null
       const d = docs.get(docName)
-      const role = p.get('role') ?? d?.roles[String(uid)] ?? d?.role ?? 'OWNER'
+      const memberRole = p.get('role') ?? d?.roles[String(uid)] ?? d?.role ?? 'OWNER'
+      // 모르는·지운 공유 토큰은 공유 역할 없음 — 멤버면 멤버 역할 그대로, 아니면 거부(운영 API 와 같다).
+      const shareRole = shareToken && d && Object.hasOwn(d.shares, shareToken) ? d.shares[shareToken] : undefined
+      const role = higherRole(memberRole, shareRole)
       if (role === 'NONE') return null
-      return { userId: uid, name: p.get('name') ?? `사용자 ${uid}`, tenantId: 1, spaceId: 1, role, expiresAt: null }
+      return { userId: uid, name: p.get('name') ?? `사용자 ${uid}`, tenantId: 1, spaceId: 1, role, expiresAt: null, shareExpiresAt: null }
     },
   }
 
@@ -96,7 +113,7 @@ export function createTestMode(): {
 
     // 시드 — 같은 이름이 열려 있으면 먼저 닫는다(이전 상태가 새 시드를 덮지 않게).
     if (req.method === 'POST' && path === '/__test/seed') {
-      const b = (await readJson(req)) as { docName?: unknown; body?: unknown; role?: unknown; roles?: unknown }
+      const b = (await readJson(req)) as { docName?: unknown; body?: unknown; role?: unknown; roles?: unknown; shares?: unknown }
       const docName = requireDocName(b)
       if (typeof b.body !== 'string') throw new HttpError(400, 'invalid body')
       await app.closeDocument(docName)
@@ -105,6 +122,7 @@ export function createTestMode(): {
         body: b.body,
         role: typeof b.role === 'string' ? b.role : 'OWNER',
         roles: b.roles && typeof b.roles === 'object' ? (b.roles as Record<string, string>) : {},
+        shares: b.shares && typeof b.shares === 'object' ? { ...(b.shares as Record<string, string>) } : {},
         state: markdownToYUpdate(b.body),
         version: 1,
       })
@@ -119,6 +137,18 @@ export function createTestMode(): {
       if (!d) return send(res, 404, { error: 'unknown document' })
       if (typeof b.role === 'string') d.role = b.role
       if (b.roles && typeof b.roles === 'object') d.roles = b.roles as Record<string, string>
+      return send(res, 204)
+    }
+
+    // 공유 해제(WP-579) — /__test/role 처럼 열린 문서를 닫지 않는다. 이어서 /internal/docs/revalidate 를 부르면 그 토큰으로 붙은
+    // 연결이 다시 판정돼 4403 으로 닫히고, 재접속도 거부된다(해제·재발급 직후 열린 편집 화면 시나리오).
+    if (req.method === 'POST' && path === '/__test/revoke-share') {
+      const b = (await readJson(req)) as { docName?: unknown; token?: unknown }
+      const docName = requireDocName(b)
+      if (typeof b.token !== 'string' || b.token.length === 0) throw new HttpError(400, 'invalid token')
+      const d = docs.get(docName)
+      if (!d) return send(res, 404, { error: 'unknown document' })
+      delete d.shares[b.token]
       return send(res, 204)
     }
 

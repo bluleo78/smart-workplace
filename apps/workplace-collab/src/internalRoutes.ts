@@ -63,6 +63,11 @@ export interface RevalidateRequest {
   userId?: number
   /** 'deleted' = 페이지 삭제 재검증 — 접근을 잃은 연결을 4403 대신 4404(삭제)로 닫는다. */
   reason?: typeof REVALIDATE_REASON_DELETED
+  /**
+   * true = 공유 링크로 붙은 연결만 재판정(WP-579 공유 범위 축소·해제·재발급). 멤버로 붙은 연결은 판정이 스페이스 멤버 역할만 보므로 공유 변경으로
+   * 권한이 바뀌지 않는다 — API 호출을 아낀다. 없으면 모든 연결이 대상(옛 API 와 섞인 배포에서도 안전).
+   */
+  sharedOnly?: boolean
 }
 
 /**
@@ -186,6 +191,11 @@ function parseRevalidate(raw: unknown): RevalidateRequest {
   else if (b.reason != null) {
     // 모르는 사유(새 API·옛 동기화 서버가 섞인 배포)는 사유 없음으로 본다 — 400 으로 거절하면 접근을 잃은 연결이 열린 채 남는다(fail-open).
     console.warn(`[collab] unknown revalidate reason ${JSON.stringify(b.reason)} — treating as no reason (4403)`)
+  }
+  if (b.sharedOnly === true) out.sharedOnly = true
+  else if (b.sharedOnly != null && b.sharedOnly !== false) {
+    // 모르는 값은 좁히지 않는다 — 모든 연결을 재판정하는 쪽이 안전하다(접근을 잃은 공유 연결이 남지 않게).
+    console.warn(`[collab] invalid revalidate sharedOnly ${JSON.stringify(b.sharedOnly)} — revalidating every connection`)
   }
   if (out.spaceId == null && out.pageIds == null && out.userId == null) throw bad('spaceId, pageIds or userId required')
   return out

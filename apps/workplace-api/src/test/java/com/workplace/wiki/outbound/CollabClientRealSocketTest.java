@@ -112,4 +112,18 @@ class CollabClientRealSocketTest {
     // 멤버 변경 — 사유 키 자체가 없어야 구버전 collab 도 그대로 받는다.
     assertThat(captured.get(1).body()).doesNotContain("reason").contains("\"userId\":5");
   }
+
+  /** 공유 변경 재검증(WP-579)은 sharedOnly=true 로 공유 연결만 겨누고, 그 밖의 재검증은 키를 싣지 않는다(옛 동기화 서버와 섞여도 안전). */
+  @Test
+  void revalidate는_공유_변경이면_sharedOnly_를_싣는다() {
+    client.revalidate(CollabClient.RevalidateRequest.sharedConnections(1L, List.of(7L)));
+    client.revalidate(new CollabClient.RevalidateRequest(1L, 2L, null, 5L));
+
+    assertThat(captured).hasSize(2);
+    assertThat(captured.get(0).body())
+        .contains("\"sharedOnly\":true")
+        .contains("\"pageIds\":[7]")
+        .doesNotContain("spaceId");
+    assertThat(captured.get(1).body()).doesNotContain("sharedOnly");
+  }
 }

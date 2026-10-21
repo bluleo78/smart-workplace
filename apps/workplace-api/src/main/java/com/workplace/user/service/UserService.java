@@ -31,6 +31,7 @@ import com.workplace.user.exception.CurrentPasswordMismatchException;
 import com.workplace.user.exception.PersonalAssistantDeleteForbiddenException;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
+import com.workplace.user.outbound.AgentDeleted;
 import com.workplace.user.outbound.AgentRuntimeChanged;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.user.repository.UserRepository;
@@ -374,6 +375,12 @@ public class UserService {
   public void deleteAgent(Long callerId, Long userId) {
     UserResponse user = requireRemovableAgent(userId);
     String callerUsername = resolveUsername(callerId);
+    // 행을 지우기 전에 알린다 — 지운 뒤엔 FK CASCADE 가 이 에이전트의 노트 공유 등을 조용히 지워 감사·재검증이 남지 않고, 노트 스페이스
+    // 멤버십은 NO ACTION FK 가 삭제를 막는다. 리스너는 같은 트랜잭션에서 동기로 돌아 정상 경로(공유 해제의 기록·감사·재검증, 멤버 제거의 마지막
+    // OWNER 보호·변경 알림)를 태운다. 리스너가 거부하면(마지막 OWNER 409) 예외가 그대로 올라가 삭제 전체가 롤백된다.
+    publisher.publishEvent(new AgentDeleted(TenantContext.require(), userId, callerId));
+    // 남은 참조(이슈·댓글·메시지 등 작성자 NOT NULL FK)가 막으면 DataIntegrityViolationException 이 그대로 올라간다 — AgentRemovalService 가
+    // savepoint 를 되돌려 위 리스너가 한 공유 해제·멤버 제거도 함께 되돌리고 사용 중지로 이어 간다(WP-705).
     userRepository.deleteById(userId);
     auditUserAction(
         callerId, callerUsername, "AGENT_DELETED", userId, "AGENT 유저 삭제: " + user.username(), null);

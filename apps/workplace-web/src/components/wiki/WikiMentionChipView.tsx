@@ -1,12 +1,14 @@
 import type { WikiMentionAttrs } from '@smart-workplace/wiki-editor-schema'
 import { type NodeViewProps,NodeViewWrapper } from '@tiptap/react'
 
-import { mentionChipText, useMentionLabel } from './wikiMentionLabels'
+import { INACCESSIBLE_MENTION_TEXT, mentionChipText, useMentionInaccessible, useMentionLabel } from './wikiMentionLabels'
 
 // 칩 스타일 — 디자인 시스템 시맨틱 토큰만(hex/임의색 금지). accent 토큰으로 라이트/다크 테마에 자동 대응.
 // cursor-pointer 는 내비 가능한 칩(PAGE/ISSUE)에만 — USER 칩은 클릭 무동작이라 거짓 affordance 를 피한다.
 const BASE_CHIP_CLASS = 'rounded bg-accent px-1 font-medium text-accent-foreground'
 const NAV_CHIP_CLASS = `${BASE_CHIP_CLASS} cursor-pointer`
+// 볼 수 없는 대상(공유 화면, WP-579) — 흐린 색·기울임, 링크 아님(cursor 기본).
+const INACCESSIBLE_CHIP_CLASS = 'rounded bg-muted px-1 italic text-muted-foreground'
 
 /**
  * 노트 멘션 칩 NodeView — 문서엔 mtype·id 만 있으므로 라벨은 WikiMentionLabelsProvider 에서 조회한다.
@@ -15,7 +17,22 @@ const NAV_CHIP_CLASS = `${BASE_CHIP_CLASS} cursor-pointer`
 export function WikiMentionChipView({ node }: NodeViewProps) {
   const { mtype, id } = node.attrs as WikiMentionAttrs
   const label = useMentionLabel(mtype, id)
+  const inaccessible = useMentionInaccessible(mtype, id)
   const isUser = mtype === 'USER'
+  if (inaccessible) {
+    // 공유 링크로 들어온 사람이 볼 수 없는 대상 — 제목·이름 대신 「접근 권한 없음」. data-inaccessible 로 칩 클릭 내비가 건너뛴다.
+    return (
+      <NodeViewWrapper
+        as="span"
+        data-mtype={mtype}
+        data-id={String(id)}
+        data-inaccessible="true"
+        className={INACCESSIBLE_CHIP_CLASS}
+      >
+        {INACCESSIBLE_MENTION_TEXT}
+      </NodeViewWrapper>
+    )
+  }
   return (
     // as="span" 은 DOM 에 그대로 새어 나가지만(tiptap 이 props 를 통째로 펼친다) 지울 수 없다 — 기본값이 'div' 라
     // 빼면 인라인 칩이 <p> 안의 <div> 가 된다.

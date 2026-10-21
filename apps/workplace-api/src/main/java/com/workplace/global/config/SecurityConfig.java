@@ -76,6 +76,10 @@ public class SecurityConfig {
                     // 공유 링크 공개 다운로드 — 인증 없이 토큰으로 접근(capability URL)
                     .requestMatchers("/api/v1/public/drive/share/**")
                     .permitAll()
+                    // 노트 외부 공유 보기(WP-579) — 로그인 없이 토큰으로 페이지·본문 이미지를 연다(capability URL). 판정은 서비스가 매번
+                    // DB 로.
+                    .requestMatchers("/api/v1/public/wiki/shares/**")
+                    .permitAll()
                     // 드라이브 전송 링크(WP-369) — 외부 MCP 클라이언트가 curl·브라우저로 쓰는 10분짜리 일회용 서명 링크.
                     // 토큰이 곧 권한이며 쓸 때 발급자 권한을 다시 확인한다.
                     .requestMatchers("/api/v1/public/drive/transfer/**")

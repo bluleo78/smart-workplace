@@ -10,12 +10,16 @@ import com.workplace.calendar.outbound.CalendarReminderEvents.CalendarReminderDu
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatMessageOrigin;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
+import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessApprovedEvent;
+import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessRequestedEvent;
+import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiSharedWithPeopleEvent;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -271,5 +275,32 @@ class NotificationDispatcherTest {
         chatEvent(AGENT_ACTOR, List.of(ASSIGNEE_A), ChatMessageOrigin.REPORT));
 
     Mockito.verifyNoInteractions(service);
+  }
+
+  /**
+   * 노트 공유 알림(WP-579)은 커밋 뒤 비동기 스레드에서 이벤트에 실린 테넌트로 만든다 — 호출 스레드에 테넌트가 없어도(또는 다른 테넌트여도) 서비스는 이벤트의
+   * 테넌트로 불리고, 끝나면 되돌린다. @Transactional 통합 테스트는 GUC 가 이미 고정이라 잘못된 runAs 를 못 잡으므로 서비스 호출 시점의
+   * TenantContext 를 직접 본다.
+   */
+  @Test
+  void wikiShareListeners_runUnderEventTenant() {
+    java.util.List<Long> seen = new java.util.ArrayList<>();
+    Mockito.doAnswer(
+            inv -> {
+              seen.add(TenantContext.get());
+              return null;
+            })
+        .when(service)
+        .createWikiShareNotificationAndFanOut(
+            Mockito.anyLong(), any(), Mockito.anyLong(), Mockito.anyLong(), any());
+
+    TenantContext.clear();
+    dispatcher.onWikiSharedWithPeople(
+        new WikiSharedWithPeopleEvent(7L, 10L, 1L, List.of(2L, 3L), null));
+    dispatcher.onWikiShareAccessRequested(new WikiShareAccessRequestedEvent(8L, 10L, 2L, 1L));
+    dispatcher.onWikiShareAccessApproved(new WikiShareAccessApprovedEvent(9L, 10L, 1L, 2L));
+
+    assertThat(seen).containsExactly(7L, 7L, 8L, 9L);
+    assertThat(TenantContext.get()).isNull();
   }
 }

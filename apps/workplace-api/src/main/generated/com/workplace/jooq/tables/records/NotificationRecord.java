@@ -160,6 +160,34 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         return (Long) get(9);
     }
 
+    /**
+     * Setter for <code>public.notification.wiki_page_id</code>.
+     */
+    public void setWikiPageId(Long value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.wiki_page_id</code>.
+     */
+    public Long getWikiPageId() {
+        return (Long) get(10);
+    }
+
+    /**
+     * Setter for <code>public.notification.message</code>.
+     */
+    public void setMessage(String value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.message</code>.
+     */
+    public String getMessage() {
+        return (String) get(11);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -183,7 +211,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
     /**
      * Create a detached, initialised NotificationRecord
      */
-    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId) {
+    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message) {
         super(Notification.NOTIFICATION);
 
         setId(id);
@@ -196,6 +224,8 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         setCreatedAt(createdAt);
         setEventId(eventId);
         setTenantId(tenantId);
+        setWikiPageId(wikiPageId);
+        setMessage(message);
         resetChangedOnNotNull();
     }
 }

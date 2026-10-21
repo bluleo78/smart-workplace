@@ -95,6 +95,11 @@ public final class TenantPurgePlan {
           ASSISTANT_CONFIG,
           WORKSPACE_ASSISTANT,
           // 위키
+          // 페이지 공유(WP-579) — 접근 요청·공유 기록·공유 대상이 wiki_page·wiki_page_share 를 참조하므로 페이지보다 먼저
+          WIKI_SHARE_ACCESS_REQUEST,
+          WIKI_PAGE_SHARE_EVENT,
+          WIKI_PAGE_SHARE_MEMBER,
+          WIKI_PAGE_SHARE,
           WIKI_REFERENCE,
           WIKI_PAGE_ATTACHMENT,
           WIKI_PAGE_BODY_HISTORY,

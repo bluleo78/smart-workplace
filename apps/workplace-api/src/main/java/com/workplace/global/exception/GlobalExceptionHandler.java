@@ -540,6 +540,97 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  /**
+   * 노트 공유 링크 — 지정한 사람이 아닌 로그인 사용자(WP-579). 없는 링크(404)와 달리 링크는 유효하므로 403 자체가 「접근 요청 가능」이고, 대기 요청· 최근
+   * 거절 여부를 실어 받는 화면이 버튼(접근 요청·요청함·거절됨)을 고르게 한다.
+   */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiShareForbiddenException.class)
+  public ResponseEntity<com.workplace.wiki.dto.WikiShareForbiddenResponse> handleWikiShareForbidden(
+      com.workplace.wiki.exception.WikiShareForbiddenException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(
+            new com.workplace.wiki.dto.WikiShareForbiddenResponse(
+                HttpStatus.FORBIDDEN.value(),
+                HttpStatus.FORBIDDEN.getReasonPhrase(),
+                ex.getMessage(),
+                Instant.now().toString(),
+                request.getRequestURI(),
+                ex.requested(),
+                ex.denied()));
+  }
+
+  /** 노트 공유 — 외부 공유가 꺼진 워크스페이스에서 외부 공개로 만들거나 바꿈(409, WP-579). 지금 정책과 부딪힌 것이라 400 이 아니다. */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiExternalShareDisabledException.class)
+  public ResponseEntity<ErrorResponse> handleWikiExternalShareDisabled(
+      com.workplace.wiki.exception.WikiExternalShareDisabledException ex,
+      HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 노트 공유 링크 — 다른 워크스페이스의 링크를 그 멤버가 엶(409, WP-579). 받는 화면이 tenantId 로 워크스페이스를 전환한다. */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiShareOtherTenantException.class)
+  public ResponseEntity<com.workplace.wiki.dto.WikiShareOtherTenantResponse>
+      handleWikiShareOtherTenant(
+          com.workplace.wiki.exception.WikiShareOtherTenantException ex,
+          HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(
+            new com.workplace.wiki.dto.WikiShareOtherTenantResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.getReasonPhrase(),
+                ex.getMessage(),
+                Instant.now().toString(),
+                request.getRequestURI(),
+                com.workplace.wiki.exception.WikiShareOtherTenantException.CODE,
+                ex.tenantId()));
+  }
+
+  /** 노트 공유 링크 — 다른 워크스페이스의 외부 링크를 그 비멤버가 엶(409, WP-579). 받는 화면이 외부 보기를 그린다. */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiSharePublicViewException.class)
+  public ResponseEntity<com.workplace.wiki.dto.WikiSharePublicViewResponse>
+      handleWikiSharePublicView(
+          com.workplace.wiki.exception.WikiSharePublicViewException ex,
+          HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(
+            new com.workplace.wiki.dto.WikiSharePublicViewResponse(
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.getReasonPhrase(),
+                ex.getMessage(),
+                Instant.now().toString(),
+                request.getRequestURI(),
+                com.workplace.wiki.exception.WikiSharePublicViewException.CODE));
+  }
+
+  /**
+   * 노트 외부 보기로 만료 전 내부 공유 링크를 엶(401, WP-579) — 받는 화면이 로그인 화면으로 보내고 로그인 뒤 이 링크로 돌아온다. 페이지·사람 정보는 싣지
+   * 않는다.
+   */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiShareLoginRequiredException.class)
+  public ResponseEntity<com.workplace.wiki.dto.WikiShareLoginRequiredResponse>
+      handleWikiShareLoginRequired(
+          com.workplace.wiki.exception.WikiShareLoginRequiredException ex,
+          HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+        .body(
+            new com.workplace.wiki.dto.WikiShareLoginRequiredResponse(
+                HttpStatus.UNAUTHORIZED.value(),
+                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                ex.getMessage(),
+                Instant.now().toString(),
+                request.getRequestURI(),
+                true));
+  }
+
+  /** 노트 공유 — 공유가 없는 페이지의 링크 재발급(404, WP-579). */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiShareNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleWikiShareNotFound(
+      com.workplace.wiki.exception.WikiShareNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
   @ExceptionHandler(com.workplace.wiki.exception.WikiInvalidRoleException.class)
   public ResponseEntity<ErrorResponse> handleWikiBadRequest(
       com.workplace.wiki.exception.WikiInvalidRoleException ex, HttpServletRequest request) {

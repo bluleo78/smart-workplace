@@ -25,6 +25,7 @@ public class PushContentService {
     // 카테고리는 이벤트가 정한 값(수신자 묶음별 — AI_QUESTION 의 멘션 수신자는 MENTION). 이슈/일정 분기는 카테고리가 아니라 유형으로
     // 가른다 — MENTION 카테고리의 이슈 챗 알림이 일정 분기로 빠져 푸시가 사라지지 않게(WP-452).
     PushCategory category = e.category();
+    if (isWikiShare(e.type())) return forWikiShare(e, category, actor);
     if (PushCategory.of(e.type()) != PushCategory.CALENDAR) {
       if (e.issueId() == null) return null;
       return repo.findIssue(e.issueId())
@@ -61,6 +62,45 @@ public class PushContentService {
   }
 
   /**
+   * 노트 공유 알림(WP-579) 푸시 — 제목은 노트 제목, 이동 경로는 알림 열기 경로({@link #wikiUrl}). 노트가 지워졌으면 null. 메시지 본문은 푸시에
+   * 싣지 않는다(잠금 화면 노출 최소화).
+   */
+  private PushMessage forWikiShare(InboxPushRequestedEvent e, PushCategory category, String actor) {
+    if (e.wikiPageId() == null) return null;
+    return repo.findWikiPageTitle(e.wikiPageId())
+        .map(
+            title ->
+                new PushMessage(
+                    e.tenantId(),
+                    category,
+                    Texts.truncateCodePoints(title, 120),
+                    e.type() == NotificationType.WIKI_SHARE_ACCESS_APPROVED
+                        ? label(e.type())
+                        : actor + label(e.type()),
+                    wikiUrl(e.wikiPageId(), e.type()),
+                    "wiki-" + e.wikiPageId(),
+                    "normal",
+                    INBOX_TTL))
+        .orElse(null);
+  }
+
+  /**
+   * 노트 공유 알림 이동 경로 — 웹 `/wiki/open/{pageId}` 가 멤버면 노트로, 공유 대상이면 공유 화면으로 보낸다. 접근 요청은 공유 창을 연 채로
+   * (`?share=1`, 프론트 notifTarget 과 같은 규칙).
+   */
+  static String wikiUrl(long pageId, NotificationType type) {
+    String base = "/wiki/open/" + pageId;
+    return type == NotificationType.WIKI_SHARE_ACCESS_REQUESTED ? base + "?share=1" : base;
+  }
+
+  /** 노트 공유에서 생긴 알림인지(WP-579). */
+  private static boolean isWikiShare(NotificationType t) {
+    return t == NotificationType.WIKI_SHARED
+        || t == NotificationType.WIKI_SHARE_ACCESS_REQUESTED
+        || t == NotificationType.WIKI_SHARE_ACCESS_APPROVED;
+  }
+
+  /**
    * 이슈 알림 이동 경로. 이슈 챗 알림(AI_QUESTION·ISSUE_CHAT_MENTION)은 이슈 챗 드로워를 연 채로 연다(`?chat=1` — 웹
    * useIssueChatDrawerParam 과 같은 딥링크, 프론트 notifTarget 과 같은 규칙).
    */
@@ -87,6 +127,9 @@ public class PushContentService {
       case AI_QUESTION -> "님이 이슈 챗에서 질문했습니다";
       case ISSUE_CHAT_MENTION -> "님이 이슈 챗에서 회원님을 멘션했습니다";
       case ISSUE_COMMENT_MENTION -> "님이 코멘트에서 회원님을 멘션했습니다";
+      case WIKI_SHARED -> "님이 노트를 공유했습니다";
+      case WIKI_SHARE_ACCESS_REQUESTED -> "님이 접근을 요청했습니다";
+      case WIKI_SHARE_ACCESS_APPROVED -> "접근이 승인됐습니다";
     };
   }
 }

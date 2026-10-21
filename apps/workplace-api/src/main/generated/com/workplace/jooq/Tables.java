@@ -114,8 +114,12 @@ import com.workplace.jooq.tables.WikiPage;
 import com.workplace.jooq.tables.WikiPageAttachment;
 import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
+import com.workplace.jooq.tables.WikiPageShare;
+import com.workplace.jooq.tables.WikiPageShareEvent;
+import com.workplace.jooq.tables.WikiPageShareMember;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
+import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
 import com.workplace.jooq.tables.WorkerJob;
@@ -680,6 +684,21 @@ public class Tables {
     public static final WikiPageDoc WIKI_PAGE_DOC = WikiPageDoc.WIKI_PAGE_DOC;
 
     /**
+     * The table <code>public.wiki_page_share</code>.
+     */
+    public static final WikiPageShare WIKI_PAGE_SHARE = WikiPageShare.WIKI_PAGE_SHARE;
+
+    /**
+     * The table <code>public.wiki_page_share_event</code>.
+     */
+    public static final WikiPageShareEvent WIKI_PAGE_SHARE_EVENT = WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT;
+
+    /**
+     * The table <code>public.wiki_page_share_member</code>.
+     */
+    public static final WikiPageShareMember WIKI_PAGE_SHARE_MEMBER = WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER;
+
+    /**
      * The table <code>public.wiki_reference</code>.
      */
     public static final WikiReference WIKI_REFERENCE = WikiReference.WIKI_REFERENCE;
@@ -688,6 +707,11 @@ public class Tables {
      * The table <code>public.wiki_revision</code>.
      */
     public static final WikiRevision WIKI_REVISION = WikiRevision.WIKI_REVISION;
+
+    /**
+     * The table <code>public.wiki_share_access_request</code>.
+     */
+    public static final WikiShareAccessRequest WIKI_SHARE_ACCESS_REQUEST = WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST;
 
     /**
      * The table <code>public.wiki_space</code>.

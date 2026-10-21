@@ -107,9 +107,9 @@ export const longPagePath = `/wiki/spaces/${REVISION_SPACE_ID}/pages/${LONG_PAGE
 export const LONG_IMAGE_PATH = `/api/v1/wiki/pages/${LONG_PAGE_ID}/attachments/9/content`
 /** 멘션 칩 라벨(GET /pages/{id}/mentions). */
 export const LONG_MENTIONS = [
-  { type: 'USER' as const, id: 7, label: '앨리스 (제품기획)', spaceId: null, projectKey: null, number: null },
-  { type: 'USER' as const, id: 11, label: '윤서연 (QA)', spaceId: null, projectKey: null, number: null },
-  { type: 'PAGE' as const, id: 55, label: '노트 동시 편집 설계 문서', spaceId: REVISION_SPACE_ID, projectKey: null, number: null },
+  { type: 'USER' as const, id: 7, label: '앨리스 (제품기획)', spaceId: null, projectKey: null, number: null, inaccessible: false },
+  { type: 'USER' as const, id: 11, label: '윤서연 (QA)', spaceId: null, projectKey: null, number: null, inaccessible: false },
+  { type: 'PAGE' as const, id: 55, label: '노트 동시 편집 설계 문서', spaceId: REVISION_SPACE_ID, projectKey: null, number: null, inaccessible: false },
 ]
 
 const LONG_NAME = { id: 8, name: '김철수외긴이름사용자' }

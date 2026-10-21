@@ -120,10 +120,10 @@ class WikiSpaceDeleteCommitTest extends IntegrationTestBase {
     byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0};
     WikiAttachmentResponse res =
         attachmentService.upload(
-            ownerId, pageId, new MockMultipartFile("file", name, "image/png", png));
+            ownerId, pageId, new MockMultipartFile("file", name, "image/png", png), null);
     seededFileIds.add(res.fileId());
     attachmentService.syncReferences(pageId, WikiAttachmentResponse.urlOf(pageId, res.fileId()));
-    return attachmentService.download(ownerId, pageId, res.fileId()).path();
+    return attachmentService.download(ownerId, pageId, res.fileId(), null).path();
   }
 
   private String bearer(long userId) {

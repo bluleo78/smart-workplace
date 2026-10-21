@@ -2,6 +2,7 @@ package com.workplace.wiki.repository;
 
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_BODY_HISTORY;
+import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
@@ -10,6 +11,7 @@ import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
+import com.workplace.wiki.dto.WikiTreeShare;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import java.util.List;
 import java.util.Optional;
@@ -51,15 +53,22 @@ public class WikiPageRepository {
         .getId();
   }
 
-  /** 공간의 전체 페이지(경량, 본문 제외) — 클라이언트 트리 구성용. */
+  /**
+   * 공간의 전체 페이지(경량, 본문 제외) — 클라이언트 트리 구성용. 페이지 자신의 공유(WP-579)를 LEFT JOIN 으로 함께 싣는다(페이지당 공유는 하나라 행이
+   * 늘지 않는다). 만료된 공유도 싣는다 — 공유 창이 보여 주는 상태와 트리 표시가 어긋나지 않게.
+   */
   public List<WikiPageSummary> listBySpace(long spaceId) {
     return dsl.select(
             WIKI_PAGE.ID,
             WIKI_PAGE.PARENT_ID,
             WIKI_PAGE.TITLE,
             WIKI_PAGE.POSITION,
-            WIKI_PAGE.AI_LAST_USED_AT)
+            WIKI_PAGE.AI_LAST_USED_AT,
+            WIKI_PAGE_SHARE.AUDIENCE,
+            WIKI_PAGE_SHARE.INCLUDE_CHILDREN)
         .from(WIKI_PAGE)
+        .leftJoin(WIKI_PAGE_SHARE)
+        .on(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))
         .where(WIKI_PAGE.SPACE_ID.eq(spaceId))
         .orderBy(WIKI_PAGE.PARENT_ID.asc().nullsFirst(), WIKI_PAGE.POSITION.asc())
         .fetch(
@@ -69,8 +78,25 @@ public class WikiPageRepository {
                     r.get(WIKI_PAGE.PARENT_ID),
                     r.get(WIKI_PAGE.TITLE),
                     r.get(WIKI_PAGE.POSITION),
-                    r.get(WIKI_PAGE.AI_LAST_USED_AT)));
+                    r.get(WIKI_PAGE.AI_LAST_USED_AT),
+                    r.get(WIKI_PAGE_SHARE.AUDIENCE) == null
+                        ? null
+                        : new WikiTreeShare(
+                            r.get(WIKI_PAGE_SHARE.AUDIENCE),
+                            r.get(WIKI_PAGE_SHARE.INCLUDE_CHILDREN))));
   }
+
+  /**
+   * 이 페이지 자신이 공유 중인지(WP-579) — 상세 응답의 {@code shared}. 서브쿼리라 CTE({@link
+   * #findDetailRecordingBase})·단건 조회 어디에나 같은 컬럼으로 붙는다.
+   */
+  private static final Field<Boolean> SHARED =
+      DSL.field(
+              DSL.exists(
+                  DSL.selectOne()
+                      .from(WIKI_PAGE_SHARE)
+                      .where(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))))
+          .as("shared");
 
   /** 상세 응답의 본문·version 밖 컬럼 — {@link #findDetailWithBody} 처럼 본문 TEXT 를 읽지 않는 조회가 쓴다. */
   private static final List<Field<?>> DETAIL_META_FIELDS =
@@ -82,7 +108,8 @@ public class WikiPageRepository {
           WIKI_PAGE.UPDATED_BY,
           WIKI_PAGE.UPDATED_AT,
           WIKI_PAGE.AI_LAST_USED_AT,
-          WIKI_PAGE.AI_LAST_ACTION);
+          WIKI_PAGE.AI_LAST_ACTION,
+          SHARED);
 
   /** 상세 응답 컬럼 — {@link #findDetail} 과 {@link #findDetailRecordingBase} 가 공유한다. */
   private static final List<Field<?>> DETAIL_FIELDS =
@@ -164,7 +191,8 @@ public class WikiPageRepository {
         r.get(WIKI_PAGE.UPDATED_BY),
         r.get(WIKI_PAGE.UPDATED_AT),
         r.get(WIKI_PAGE.AI_LAST_USED_AT),
-        r.get(WIKI_PAGE.AI_LAST_ACTION));
+        r.get(WIKI_PAGE.AI_LAST_ACTION),
+        Boolean.TRUE.equals(r.get(SHARED)));
   }
 
   /** 공간 id 만 빠르게(인가 해석용). */
@@ -173,6 +201,22 @@ public class WikiPageRepository {
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
         .fetchOptional(WIKI_PAGE.SPACE_ID);
+  }
+
+  /** 부모 id(최상위면 null) — 이동 전 위치를 기억해 공유 범위 변화를 계산할 때 쓴다. 페이지가 있는지는 호출자가 이미 확인했다. */
+  public Long findParentId(long pageId) {
+    return dsl.select(WIKI_PAGE.PARENT_ID)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOne(WIKI_PAGE.PARENT_ID);
+  }
+
+  /** 제목만(없으면 빈 값) — 공유 이동 기록 문구용. */
+  public Optional<String> findTitle(long pageId) {
+    return dsl.select(WIKI_PAGE.TITLE)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOptional(WIKI_PAGE.TITLE);
   }
 
   /** 낙관적 동시성 저장: version 일치할 때만 갱신하고 version+1. 영향 행수 반환(0 이면 충돌). */

@@ -40,6 +40,7 @@ export function WikiAiBubbleToolbar({
   onCreateIssue,
   onLink,
   suppressed = false,
+  aiHidden = false,
 }: {
   editor: Editor | null
   disabled: boolean
@@ -48,6 +49,8 @@ export function WikiAiBubbleToolbar({
   onLink?: () => void
   /** 링크 주소 입력이 열린 동안 표면을 감춘다(WP-312). */
   suppressed?: boolean
+  /** AI 변형 그룹을 감춘다 — 공유 링크로 연 편집 화면(WP-579 「하지 않는 것」). 서식·링크는 남는다. */
+  aiHidden?: boolean
 }) {
   if (!editor) return null
 
@@ -104,69 +107,74 @@ export function WikiAiBubbleToolbar({
           <Link aria-hidden="true" />
         </Button>
       )}
-      <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-      {/* AI 마커는 컨테이너 레벨에서 1회만 — 내부 버튼에 Sparkles 를 반복하지 않는다(마커 중첩 금지). */}
-      <AiLabel className="px-1">AI</AiLabel>
-      {TRANSFORM_ACTIONS.map((a) => {
-        if (a.param === null) {
-          return (
-            <Button
-              key={a.key}
-              type="button"
-              variant="ghost"
-              size="xs"
-              data-testid={`wiki-ai-tb-${a.key}`}
-              // mousedown 기본동작 차단 — 클릭이 에디터 선택을 잃지 않게 한다.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onAction(a.key)}
-            >
-              {a.label}
-            </Button>
-          )
-        }
-        const presets = a.param === 'tone' ? TONE_PRESETS : LANGUAGE_PRESETS
-        const testidPrefix = a.param === 'tone' ? 'wiki-ai-tone' : 'wiki-ai-lang'
-        return (
-          <DropdownMenu key={a.key}>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                data-testid={`wiki-ai-tb-${a.key}`}
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                {a.label}
-                <ChevronDown className="text-muted-foreground" aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            {/* shadcn 의 DropdownMenuContent 대신 Radix Content 를 **portal 없이** 인라인으로 쓴다.
-                tiptap BubbleMenuPlugin 의 blurHandler 는 `element.parentNode.contains(relatedTarget)`
-                일 때만 hide 를 건너뛴다. shadcn Content 는 Portal 을 하드코딩해 body 로 나가므로,
-                메뉴가 열리며 포커스를 받는 순간 editor blur 의 relatedTarget 이 툴바 밖이 되어
-                tippy 가 hide → popper 를 DOM 에서 제거 → Radix 가 앵커(트리거)를 잃고 메뉴를
-                0×0@(0,0) 기준으로 좌측 상단에 그렸다. 툴바 안에 렌더하면 blur-hide 가 아예 안 걸린다.
-                Content 는 position:fixed 라 툴바 안에 있어도 클리핑되지 않는다.
-                className 은 shadcn DropdownMenuContent(components/ui/dropdown-menu.tsx)와 동일하게 유지한다. */}
-            <DropdownMenuPrimitive.Content
-              data-slot="dropdown-menu-content"
-              align="start"
-              sideOffset={4}
-              className="bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md"
-            >
-              {presets.map((p) => (
-                <DropdownMenuItem
-                  key={p.value}
-                  data-testid={`${testidPrefix}-${p.value}`}
-                  onSelect={() => onAction(a.key, p.value)}
+      {/* AI 변형 묶음(구분선·AI 표시·변형 버튼) — 공유 링크 화면(aiHidden)엔 통째로 두지 않는다. */}
+      {!aiHidden && (
+        <>
+          <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+          {/* AI 마커는 컨테이너 레벨에서 1회만 — 내부 버튼에 Sparkles 를 반복하지 않는다(마커 중첩 금지). */}
+          <AiLabel className="px-1">AI</AiLabel>
+          {TRANSFORM_ACTIONS.map((a) => {
+            if (a.param === null) {
+              return (
+                <Button
+                  key={a.key}
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  data-testid={`wiki-ai-tb-${a.key}`}
+                  // mousedown 기본동작 차단 — 클릭이 에디터 선택을 잃지 않게 한다.
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onAction(a.key)}
                 >
-                  {p.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuPrimitive.Content>
-          </DropdownMenu>
-        )
-      })}
+                  {a.label}
+                </Button>
+              )
+            }
+            const presets = a.param === 'tone' ? TONE_PRESETS : LANGUAGE_PRESETS
+            const testidPrefix = a.param === 'tone' ? 'wiki-ai-tone' : 'wiki-ai-lang'
+            return (
+              <DropdownMenu key={a.key}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    data-testid={`wiki-ai-tb-${a.key}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
+                    {a.label}
+                    <ChevronDown className="text-muted-foreground" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                {/* shadcn 의 DropdownMenuContent 대신 Radix Content 를 **portal 없이** 인라인으로 쓴다.
+                    tiptap BubbleMenuPlugin 의 blurHandler 는 `element.parentNode.contains(relatedTarget)`
+                    일 때만 hide 를 건너뛴다. shadcn Content 는 Portal 을 하드코딩해 body 로 나가므로,
+                    메뉴가 열리며 포커스를 받는 순간 editor blur 의 relatedTarget 이 툴바 밖이 되어
+                    tippy 가 hide → popper 를 DOM 에서 제거 → Radix 가 앵커(트리거)를 잃고 메뉴를
+                    0×0@(0,0) 기준으로 좌측 상단에 그렸다. 툴바 안에 렌더하면 blur-hide 가 아예 안 걸린다.
+                    Content 는 position:fixed 라 툴바 안에 있어도 클리핑되지 않는다.
+                    className 은 shadcn DropdownMenuContent(components/ui/dropdown-menu.tsx)와 동일하게 유지한다. */}
+                <DropdownMenuPrimitive.Content
+                  data-slot="dropdown-menu-content"
+                  align="start"
+                  sideOffset={4}
+                  className="bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md"
+                >
+                  {presets.map((p) => (
+                    <DropdownMenuItem
+                      key={p.value}
+                      data-testid={`${testidPrefix}-${p.value}`}
+                      onSelect={() => onAction(a.key, p.value)}
+                    >
+                      {p.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuPrimitive.Content>
+              </DropdownMenu>
+            )
+          })}
+        </>
+      )}
       {/* "이슈로 만들기" — EDITOR(onCreateIssue 전달 시)만 노출. 변형 버튼 뒤에 위치. */}
       {onCreateIssue && (
         <>

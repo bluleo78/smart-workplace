@@ -1,5 +1,5 @@
 import { HocuspocusProvider } from '@hocuspocus/provider'
-import { COLLAB_SCHEMA_PARAM, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
+import { COLLAB_SCHEMA_PARAM, COLLAB_SHARE_PARAM, WIKI_SCHEMA_VERSION } from '@smart-workplace/wiki-editor-schema'
 import * as Y from 'yjs'
 
 import { FRAGMENT } from '../markdownCodec'
@@ -18,14 +18,22 @@ export interface TestClient {
  * doc 을 넘기면 그 Y.Doc(캐시된 문서 흉내)으로 붙는다.
  * 웹과 같이 스키마 판을 URL 쿼리로 보낸다(WP-313). schemaVersion 을 넘기면 그 값(null 이면 쿼리 없음 — 배포 전 웹 흉내,
  * 문자열이면 위조 값 그대로 — 로그 방어 검증용).
+ * share 를 넘기면 웹의 공유 화면처럼 공유 토큰을 `share` 쿼리로 함께 보낸다(WP-579).
  */
 export function connectClient(
   port: number,
   name: string,
   token: string,
-  { doc = new Y.Doc(), schemaVersion = WIKI_SCHEMA_VERSION }: { doc?: Y.Doc; schemaVersion?: number | string | null } = {},
+  {
+    doc = new Y.Doc(),
+    schemaVersion = WIKI_SCHEMA_VERSION,
+    share,
+  }: { doc?: Y.Doc; schemaVersion?: number | string | null; share?: string } = {},
 ): TestClient {
-  const query = schemaVersion === null ? '' : `?${COLLAB_SCHEMA_PARAM}=${encodeURIComponent(schemaVersion)}`
+  const params = new URLSearchParams()
+  if (schemaVersion !== null) params.set(COLLAB_SCHEMA_PARAM, String(schemaVersion))
+  if (share != null) params.set(COLLAB_SHARE_PARAM, share)
+  const query = params.size ? `?${params}` : ''
   const c: TestClient = {
     doc,
     provider: undefined as unknown as HocuspocusProvider,

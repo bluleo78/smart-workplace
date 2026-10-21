@@ -109,7 +109,7 @@ class WikiResourceChangedIntegrationTest extends IntegrationTestBase {
     byte[] data = PNG_MAGIC.clone();
     clearInvocations(registry);
     attachmentService.upload(
-        owner, pageId, new MockMultipartFile("file", "a.png", "image/png", data));
+        owner, pageId, new MockMultipartFile("file", "a.png", "image/png", data), null);
     var c = capture("wiki-attachment", "created");
     assertThat(c.recipients()).contains(owner, member);
     assertThat(c.payload().get("spaceId")).isEqualTo(spaceId);

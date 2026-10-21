@@ -1,13 +1,22 @@
-import { AtSign, Bell, Calendar, MessageCircleQuestion, MessageSquare, RefreshCw, UserPlus } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import {
+  AtSign,
+  Bell,
+  Calendar,
+  FileText,
+  MessageCircleQuestion,
+  MessageSquare,
+  RefreshCw,
+  UserPlus,
+} from "lucide-react";
+import { Link } from "react-router-dom";
 
-import { hasAiToken } from '@/lib/aiToken'
-import { formatRelativeTime } from '@/lib/formatters'
-import type { NotifGroup } from '@/lib/notifGrouping'
-import type { NotificationResponse } from '@/types/notification'
+import { hasAiToken } from "@/lib/aiToken";
+import { formatRelativeTime } from "@/lib/formatters";
+import type { NotifGroup } from "@/lib/notifGrouping";
+import type { NotificationResponse } from "@/types/notification";
 
 // 대표 알림 종류별 아이콘.
-const TYPE_ICON: Record<NotificationResponse['type'], typeof UserPlus> = {
+const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   ASSIGNED: UserPlus,
   COMMENTED: MessageSquare,
   STATUS_CHANGED: RefreshCw,
@@ -18,10 +27,13 @@ const TYPE_ICON: Record<NotificationResponse['type'], typeof UserPlus> = {
   AI_QUESTION: MessageCircleQuestion, // 이슈 챗 AI 질문(WP-452)
   ISSUE_CHAT_MENTION: AtSign, // 이슈 챗 멘션(WP-452)
   ISSUE_COMMENT_MENTION: AtSign, // 코멘트 멘션(WP-650)
-}
+  WIKI_SHARED: FileText, // 노트 공유 알림(WP-579)
+  WIKI_SHARE_ACCESS_REQUESTED: FileText,
+  WIKI_SHARE_ACCESS_APPROVED: FileText,
+};
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.
-const FALLBACK_ICON = Bell
+const FALLBACK_ICON = Bell;
 
 /**
  * 알림 그룹 한 행 — 아이콘 + 객체 제목(primary) + 행위자(AI배지)·델타·시간 메타(secondary) + ✓.
@@ -32,16 +44,19 @@ export function NotificationGroupRow({
   group,
   onAck,
 }: {
-  group: NotifGroup
-  onAck: (ids: number[]) => void
+  group: NotifGroup;
+  onAck: (ids: number[]) => void;
 }) {
-  const Icon = TYPE_ICON[group.repType] ?? FALLBACK_ICON
+  const Icon = TYPE_ICON[group.repType] ?? FALLBACK_ICON;
   return (
     <li
       className="group flex items-start gap-2 rounded px-1 py-1.5 hover:bg-muted/50"
       data-testid="dash-notif-row"
     >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+      <Icon
+        className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
       <Link
         to={group.target}
         aria-label={`알림 열기: ${group.label}`}
@@ -50,18 +65,26 @@ export function NotificationGroupRow({
         className="min-w-0 flex-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         {/* primary: 객체 제목(미읽음이면 medium). */}
-        <span className={`block truncate text-sm ${group.read ? 'text-muted-foreground' : 'font-medium'}`}>
+        <span
+          className={`block truncate text-sm ${group.read ? "text-muted-foreground" : "font-medium"}`}
+        >
           {group.title}
         </span>
         {/* secondary: 행위자 + AI배지 + 델타 + 상대시간 한 줄(muted). */}
         <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
-          {group.actorName && <span className="truncate">{group.actorName}</span>}
+          {group.actorName && (
+            <span className="truncate">{group.actorName}</span>
+          )}
           {/* AI 배지 — primary 토큰에서 ai-accent 시맨틱 토큰으로 통일.
               단, 대표 행위자명(actorName)에 이미 "AI" 토큰이 포함돼 있으면(예: "My AI") 중복 표시를 피한다 (#637). */}
           {group.hasAgent && !hasAiToken(group.actorName) && (
-            <span className="rounded bg-ai-accent-subtle px-1 text-ai-accent">AI</span>
+            <span className="rounded bg-ai-accent-subtle px-1 text-ai-accent">
+              AI
+            </span>
           )}
-          <span className="truncate">{group.deltaSummary} · {formatRelativeTime(group.latestAt)}</span>
+          <span className="truncate">
+            {group.deltaSummary} · {formatRelativeTime(group.latestAt)}
+          </span>
         </span>
       </Link>
       {group.unreadIds.length > 0 && (
@@ -79,5 +102,5 @@ export function NotificationGroupRow({
         </button>
       )}
     </li>
-  )
+  );
 }

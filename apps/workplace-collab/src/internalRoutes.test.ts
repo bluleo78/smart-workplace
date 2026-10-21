@@ -1124,6 +1124,16 @@ describe('internal routes', () => {
       expect(a.disconnects.map((d) => d.code)).not.toContain(CLOSE_DELETED.code)
     })
 
+    it('ignores a non-boolean sharedOnly and still revalidates member connections (fail-safe)', async () => {
+      // 모르는 값으로 대상을 좁히면 접근을 잃은 연결이 열린 채 남는다 — 모든 연결을 다시 판정한다(WP-579).
+      const a = connect('editor-token')
+      await synced(a)
+      api.page(1, { tenantId: 99, body: BODY, version: 9 }) // 접근 상실 흉내 — 판정 404
+      const res = await postInternal('/internal/docs/revalidate', { tenantId: TENANT, pageIds: [1], sharedOnly: 'yes' })
+      expect(res.status).toBe(204)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+    })
+
     it('closes with 4401 (not 4403) when the stored token is rejected (401), so the client refreshes and reconnects', async () => {
       const a = connect('editor-token')
       const other = connect('editor2-token')

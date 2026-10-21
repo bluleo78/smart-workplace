@@ -3,7 +3,9 @@
 // (objectURL 을 본문에 쓰면 새로고침 시 깨진다).
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 
+import { shareHeaders } from '../../api/wiki'
 import { useApiBlobUrl } from '../../hooks/queries/useApiBlobUrl'
+import { useWikiShareToken } from './WikiShareTokenContext'
 
 /** src 가 이 API 의 인증 필요 경로인지 — 그렇지 않으면 blob 변환 없이 그대로 렌더한다. */
 function isApiPath(src: string): boolean {
@@ -15,7 +17,9 @@ export function WikiImageNodeView({ node, selected }: ReactNodeViewProps) {
   const alt = node.attrs.alt ? String(node.attrs.alt) : ''
   const title = node.attrs.title ? String(node.attrs.title) : undefined
   const needsBlob = isApiPath(src)
-  const { url, isError } = useApiBlobUrl(needsBlob ? src : null)
+  // 공유 화면(WP-579)이면 공유 토큰 헤더를 실어 받는다 — 스페이스 멤버가 아니어도 그 페이지 첨부는 열린다.
+  const shareToken = useWikiShareToken()
+  const { url, isError } = useApiBlobUrl(needsBlob ? src : null, shareHeaders(shareToken))
 
   // 인라인 노드라 wrapper 도 span 이어야 한다(기본 div 는 문단 안에서 레이아웃이 깨진다).
   const wrapperClass = selected ? 'inline-block ring-2 ring-ring rounded-sm' : 'inline-block'

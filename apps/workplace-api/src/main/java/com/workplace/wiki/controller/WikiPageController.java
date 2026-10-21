@@ -8,12 +8,14 @@ import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
+import com.workplace.wiki.dto.WikiPageEntryResponse;
 import com.workplace.wiki.dto.WikiRevisionDetail;
 import com.workplace.wiki.dto.WikiRevisionListResponse;
 import com.workplace.wiki.service.WikiCollabDocService;
 import com.workplace.wiki.service.WikiHydrationService;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiRevisionService;
+import com.workplace.wiki.service.WikiShareAccess;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +34,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 위키 단건 페이지 API. */
+/**
+ * 위키 단건 페이지 API.
+ *
+ * <p>공유 링크(WP-579): 페이지 GET·mentions·collab-access·제목 PUT 은 {@link WikiShareAccess#HEADER} 를 받아 멤버가
+ * 아니어도 공유 권한으로 연다. 백링크·버전 기록·복원·이동·삭제는 헤더를 받지 않는다(설계 「접근 판정」 — 공유 화면에서 쓰지 않는 기능).
+ */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/wiki/pages")
@@ -42,25 +49,38 @@ public class WikiPageController {
   private final WikiCollabDocService collabService;
   private final WikiRevisionService revisionService;
   private final JwtTokenProvider jwtTokenProvider;
+  private final WikiShareAccess shareAccess;
 
   /** 단건 상세. base=false 면 AI 병합 기준본을 남기지 않는다(새 웹 에디터 — 본문은 동기화 서버로 저장). */
   @GetMapping("/{id}")
   public ResponseEntity<WikiPageDetail> get(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
-      @RequestParam(value = "base", defaultValue = "true") boolean base) {
-    return ResponseEntity.ok(pageService.read(callerId, pageId, base));
+      @RequestParam(value = "base", defaultValue = "true") boolean base,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    return ResponseEntity.ok(pageService.read(callerId, pageId, base, shareToken));
   }
 
   /**
    * 본문 토큰(유저/페이지/이슈)을 칩 라벨·라우트 메타로 하이드레이션. get() 으로 VIEWER 가드 후 그 페이지의 현재 본문으로 해석한다. 비가시/비실존 대상은
-   * 제외.
+   * 제외. 공유 링크로 들어온 비멤버에게는 볼 수 없는 대상을 빼지 않고 「접근 권한 없음」(inaccessible)으로 가린다(WP-579).
    */
   @GetMapping("/{id}/mentions")
   public ResponseEntity<List<WikiMentionRef>> mentions(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    // 판정은 한 번 — 같은 결과로 VIEWER 가드와 멘션 가림 권한을 함께 얻는다.
+    WikiPageService.MentionSource src = pageService.mentionSource(callerId, pageId, shareToken);
+    return ResponseEntity.ok(
+        hydrationService.resolveMentions(callerId, src.page().body(), src.maskingGrant()));
+  }
+
+  /** 알림을 누른 사람이 어디로 갈지(WP-579) — 멤버면 노트, 지정한 공유 대상이면 지금 토큰의 공유 화면. 둘 다 아니거나 없는 페이지는 404. */
+  @GetMapping("/{id}/entry")
+  public ResponseEntity<WikiPageEntryResponse> entry(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
-    WikiPageDetail page = pageService.get(callerId, pageId);
-    return ResponseEntity.ok(hydrationService.resolveMentions(callerId, page.body()));
+    return ResponseEntity.ok(shareAccess.entry(pageId, callerId));
   }
 
   /** 이 페이지를 참조하는 source 페이지(백링크). get() 으로 VIEWER 가드 후 가시 source 만 반환. */
@@ -83,8 +103,9 @@ public class WikiPageController {
   public ResponseEntity<CollabAccessResponse> collabAccess(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
-      @RequestHeader(value = "Authorization", required = false) String auth) {
-    return ResponseEntity.ok(collabService.access(callerId, pageId, jwtExpOf(auth)));
+      @RequestHeader(value = "Authorization", required = false) String auth,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
+    return ResponseEntity.ok(collabService.access(callerId, pageId, jwtExpOf(auth), shareToken));
   }
 
   /** Bearer 가 서명 검증되는 access JWT 일 때만 exp 를 돌려준다(swp_/ak_ 같은 Bearer PAT·API 키는 검증 실패 → null). */
@@ -107,9 +128,10 @@ public class WikiPageController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long pageId,
       @Valid @RequestBody SavePageRequest req,
-      Authentication authentication) {
+      Authentication authentication,
+      @RequestHeader(value = WikiShareAccess.HEADER, required = false) String shareToken) {
     boolean ai = AuthDetails.methodOf(authentication) == null;
-    return ResponseEntity.ok(pageService.save(callerId, pageId, req, ai));
+    return ResponseEntity.ok(pageService.save(callerId, pageId, req, ai, shareToken));
   }
 
   /** 버전 기록 목록(WP-297) — 현재 판 + 저장된 판 최신순(최대 200). VIEWER 이상, 비멤버·없는 페이지 404. */

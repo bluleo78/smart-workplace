@@ -6,6 +6,7 @@ import {
   COLLAB_NS_STORAGE_KEY,
   COLLAB_SCHEMA_MISMATCH,
   COLLAB_SCHEMA_PARAM,
+  COLLAB_SHARE_PARAM,
   COLLAB_USER_FIELD,
   collabDocName,
   parseCollabUser,
@@ -60,6 +61,11 @@ export interface CollabSessionState {
 export interface CollabSession {
   /** 노트 id — 정리된 세션을 다시 잡으려 할 때 같은 페이지의 새 세션을 여는 데 쓴다. */
   pageId: number
+  /**
+   * 공유 링크 토큰(WP-579) — 공유 화면이 연 세션이면 그 토큰, 아니면 null. 정리된 세션을 다시 잡을 때 같은 종류(같은 토큰)로 연다.
+   * 서버는 이 토큰으로 판정하므로 해제·재발급되면 이 세션만 4403 으로 닫히고 같은 페이지의 멤버 세션은 남는다.
+   */
+  shareToken: string | null
   doc: Y.Doc
   provider: HocuspocusProvider
   docName: string
@@ -149,8 +155,22 @@ const CLOSE_TERMINAL: readonly (readonly [{ code: number; reason: string }, Coll
   [CLOSE_FORBIDDEN, 'forbidden'],
 ]
 
-/** 페이지별 현재 세션(재사용 대상). 종단 세션은 여기서 빠진다. */
-const current = new Map<number, Entry>()
+/**
+ * 페이지별 현재 세션(재사용 대상) — 키는 sessionKey(페이지 + 공유 토큰). 종단 세션은 여기서 빠진다.
+ * 공유 링크로 연 세션은 같은 페이지의 멤버 세션과 따로 둔다(WP-579): 섞이면 멤버 화면이 해제될 공유 연결을 물려받거나,
+ * 공유 화면이 토큰 없이 붙어 거절된다.
+ */
+const current = new Map<string, Entry>()
+
+/** 세션 캐시 키 — `${pageId}:${shareToken ?? ''}`. 토큰이 없으면 멤버 세션. */
+function sessionKey(pageId: number, shareToken: string | null): string {
+  return `${pageId}:${shareToken ?? ''}`
+}
+
+/** 항목의 캐시 키 — 세션이 쥔 페이지·공유 토큰으로 그때 계산한다(따로 저장하지 않는다). */
+function entryKey(entry: Entry): string {
+  return sessionKey(entry.pageId, entry.session.shareToken)
+}
 /** 살아 있는 모든 세션 — 캐시에서 빠졌지만 아직 화면이 쥔 종단 세션 포함. */
 const entries = new Map<CollabSession, Entry>()
 
@@ -177,8 +197,10 @@ function docNameFor(pageId: number): string {
  * 이 탭이 빌드된 스키마 판을 쿼리로 싣는다(WP-313) — 서버는 판이 다르면 문서를 주기 전에 거부한다.
  * Hocuspocus 4 provider 엔 접속 파라미터 옵션이 없어 URL 쿼리로 보낸다(토큰에 섞으면 API 인증 토큰 규약이 흐려진다).
  */
-function collabUrl(): string {
-  return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab?${COLLAB_SCHEMA_PARAM}=${WIKI_SCHEMA_VERSION}`
+function collabUrl(shareToken: string | null): string {
+  const base = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/collab?${COLLAB_SCHEMA_PARAM}=${WIKI_SCHEMA_VERSION}`
+  // 공유 화면(WP-579)은 공유 토큰을 share 쿼리로 싣는다 — 서버가 이 토큰으로 판정하고 재검증한다.
+  return shareToken ? `${base}&${COLLAB_SHARE_PARAM}=${encodeURIComponent(shareToken)}` : base
 }
 
 /**
@@ -410,7 +432,7 @@ function stopTerminal(entry: Entry, terminal: CollabTerminal): void {
   entry.selfDisconnected = false
   entry.holdOffline = false
   entry.session.provider.disconnect()
-  if (current.get(entry.pageId) === entry) current.delete(entry.pageId)
+  if (current.get(entryKey(entry)) === entry) current.delete(entryKey(entry))
   patch(entry, { terminal })
 }
 
@@ -521,21 +543,21 @@ function destroyEntry(entry: Entry): void {
   entry.detachLifecycle()
   entry.listeners.clear()
   entries.delete(entry.session)
-  if (current.get(entry.pageId) === entry) current.delete(entry.pageId)
+  if (current.get(entryKey(entry)) === entry) current.delete(entryKey(entry))
   entry.session.provider.destroy()
   entry.session.doc.destroy()
   updateBeforeUnload()
 }
 
 /** 새 세션 생성 — provider 이벤트를 상태로 옮기는 배선까지 한다. */
-function createEntry(pageId: number): Entry {
+function createEntry(pageId: number, shareToken: string | null): Entry {
   const doc = new Y.Doc()
   const docName = docNameFor(pageId)
   // entry 는 아래에서 채운다 — token 콜백과 이벤트 핸들러가 같은 entry 를 참조해야 한다.
   // eslint-disable-next-line prefer-const
   let entry: Entry
   const provider = new HocuspocusProvider({
-    url: collabUrl(),
+    url: collabUrl(shareToken),
     name: docName,
     document: doc,
     // 재접속마다 호출된다. 만료(4401)로 끊겼거나 메모리에 토큰이 없으면 갱신 후 보낸다 — 만료 토큰은 여전히
@@ -553,6 +575,7 @@ function createEntry(pageId: number): Entry {
   })
   const session: CollabSession = {
     pageId,
+    shareToken,
     doc,
     provider,
     docName,
@@ -662,7 +685,7 @@ function createEntry(pageId: number): Entry {
   // 이미 숨겨진 탭에서 만들어졌으면(백그라운드 탭 복원 등) 지금부터 숨김으로 센다.
   if (isPageHidden()) onHidden(entry)
   entries.set(session, entry)
-  current.set(pageId, entry)
+  current.set(entryKey(entry), entry)
   return entry
 }
 
@@ -670,8 +693,8 @@ function createEntry(pageId: number): Entry {
  * 세션을 얻되 보유자로 등록하지는 않는다 — 렌더 중 세션이 필요할 때(에디터 생성) 쓴다.
  * 새로 만든 세션은 곧 retain 되지 않으면 유예 후 정리된다(StrictMode 이중 렌더로 생긴 세션도 새지 않는다).
  */
-export function openCollabSession(pageId: number): CollabSession {
-  return openEntry(pageId).session
+export function openCollabSession(pageId: number, opts: { shareToken?: string | null } = {}): CollabSession {
+  return openEntry(pageId, opts.shareToken ?? null).session
 }
 
 /** 이 세션의 로그인 사용자 id 를 알린다 — 자리 비운 동안 고친 사람을 셀 때 내 다른 탭을 빼는 기준(화면이 로그인 정보로 넘긴다). */
@@ -680,11 +703,11 @@ export function setCollabSelfUser(session: CollabSession, userId: number | null)
   if (entry) entry.selfUserId = userId
 }
 
-/** 페이지의 현재 세션 항목 — 없으면 만들고 아무도 잡지 않으면 유예 정리를 건다. */
-function openEntry(pageId: number): Entry {
-  const hit = current.get(pageId)
+/** 페이지(+공유 토큰)의 현재 세션 항목 — 없으면 만들고 아무도 잡지 않으면 유예 정리를 건다. */
+function openEntry(pageId: number, shareToken: string | null): Entry {
+  const hit = current.get(sessionKey(pageId, shareToken))
   if (hit) return hit
-  const entry = createEntry(pageId)
+  const entry = createEntry(pageId, shareToken)
   onStateChanged(entry)
   return entry
 }
@@ -695,7 +718,8 @@ function openEntry(pageId: number): Entry {
  * 살아 있는 세션을 대신 잡아 돌려준다 — 죽은 provider 를 쥐고 영영 동기화되지 않는 화면이 생기지 않게. 호출자는 반환값을 써야 한다.
  */
 export function retainCollabSession(session: CollabSession): CollabSession {
-  const entry = entries.get(session) ?? openEntry(session.pageId)
+  // 같은 종류(같은 공유 토큰)로 다시 연다 — 공유 화면이 토큰 없는 멤버 세션을 잡으면 거절된다.
+  const entry = entries.get(session) ?? openEntry(session.pageId, session.shareToken)
   if (entry.timer) clearTimeout(entry.timer)
   entry.timer = null
   entry.holders += 1

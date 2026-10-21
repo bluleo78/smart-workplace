@@ -32,9 +32,36 @@ public class WikiPermissions {
         members
             .findRole(spaceId, userId)
             .orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
-    if (RANK.get(role) < RANK.get(minRole)) {
+    if (!atLeast(role, minRole)) {
       throw new WikiForbiddenException(spaceId, userId);
     }
     return role;
+  }
+
+  /**
+   * {@link #requireRole} 과 같되 호출자 멤버 행을 잠가 읽는다(FOR SHARE, WP-579) — 판정 뒤 트랜잭션이 끝날 때까지 강등·제거가 끼어들지
+   * 못한다.
+   */
+  public String requireRoleLocked(long spaceId, long userId, String minRole) {
+    String role =
+        members
+            .findRoleForShare(spaceId, userId)
+            .orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
+    if (!atLeast(role, minRole)) {
+      throw new WikiForbiddenException(spaceId, userId);
+    }
+    return role;
+  }
+
+  /** role 이 minRole 이상인지(VIEWER &lt; EDITOR &lt; OWNER). */
+  static boolean atLeast(String role, String minRole) {
+    return RANK.get(role) >= RANK.get(minRole);
+  }
+
+  /** 두 역할 중 높은 쪽 — 한쪽이 null(없음)이면 다른 쪽. 공유 판정이 멤버 역할과 공유 역할을 합칠 때 쓴다(WP-579). */
+  static String higher(String a, String b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return atLeast(a, b) ? a : b;
   }
 }

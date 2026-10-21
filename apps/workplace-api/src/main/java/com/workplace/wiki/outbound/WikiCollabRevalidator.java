@@ -1,8 +1,10 @@
 package com.workplace.wiki.outbound;
 
+import com.workplace.user.outbound.AgentDeleted;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.wiki.outbound.CollabClient.RevalidateRequest;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiShareAccessChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +44,16 @@ public class WikiCollabRevalidator {
     send(new RevalidateRequest(e.tenantId(), null, null, e.userId()));
   }
 
+  /**
+   * AGENT 삭제 — 그 사용자가 지정 대상·요청자였던 공유로 열린 연결을 사용자 단위로 재검증한다(정지와 같은 요청). 삭제된 사용자의 토큰은 이제 쓸 수 없어 연결이
+   * 닫힌다. 그 에이전트가 만든 공유는 해제 경로가 낸 {@code WikiShareAccessChangedEvent} 가 페이지 단위로 재검증한다.
+   */
+  @Async("wikiCollabRevalidateExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onAgentDeleted(AgentDeleted e) {
+    send(new RevalidateRequest(e.tenantId(), null, null, e.userId()));
+  }
+
   /** 페이지 삭제(서브트리) — 그 페이지들에 열린 모든 연결을 재판정한다. 삭제 사유를 실어 웹이 "삭제됨"으로 안내하게 한다. */
   @Async("wikiCollabRevalidateExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -49,6 +61,17 @@ public class WikiCollabRevalidator {
     send(
         new RevalidateRequest(
             e.tenantId(), e.spaceId(), e.pageIds(), null, RevalidateRequest.REASON_DELETED));
+  }
+
+  /**
+   * 노트 공유 범위 축소·해제·재발급(WP-579) — 그 페이지들에 <b>공유 링크로 붙은</b> 연결만 재판정한다. 멤버로 붙은 연결(공유 토큰 없음)은 판정이 스페이스
+   * 멤버 역할만 보므로 공유 변경으로 권한이 바뀌지 않는다 — 다시 판정해도 API 호출만 늘 뿐이다. 스페이스로 좁히지 않는다: 공유로 붙은 연결도 페이지로만 찾으면 되고,
+   * 사유는 없음(접근을 잃은 연결은 권한 회수 4403).
+   */
+  @Async("wikiCollabRevalidateExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onShareAccessChanged(WikiShareAccessChangedEvent e) {
+    send(RevalidateRequest.sharedConnections(e.tenantId(), e.pageIds()));
   }
 
   private void send(RevalidateRequest r) {

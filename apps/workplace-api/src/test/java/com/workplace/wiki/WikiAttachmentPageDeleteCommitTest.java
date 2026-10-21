@@ -117,11 +117,13 @@ class WikiAttachmentPageDeleteCommitTest extends IntegrationTestBase {
       var childFile = new MockMultipartFile("file", "child.png", "image/png", png());
       var grandchildFile = new MockMultipartFile("file", "grandchild.png", "image/png", png());
       var siblingFile = new MockMultipartFile("file", "sibling.png", "image/png", png());
-      WikiAttachmentResponse parentRes = attachmentService.upload(ownerId, parentId, parentFile);
-      WikiAttachmentResponse childRes = attachmentService.upload(ownerId, childId, childFile);
+      WikiAttachmentResponse parentRes =
+          attachmentService.upload(ownerId, parentId, parentFile, null);
+      WikiAttachmentResponse childRes = attachmentService.upload(ownerId, childId, childFile, null);
       WikiAttachmentResponse grandchildRes =
-          attachmentService.upload(ownerId, grandchildId, grandchildFile);
-      WikiAttachmentResponse siblingRes = attachmentService.upload(ownerId, siblingId, siblingFile);
+          attachmentService.upload(ownerId, grandchildId, grandchildFile, null);
+      WikiAttachmentResponse siblingRes =
+          attachmentService.upload(ownerId, siblingId, siblingFile, null);
       seededFileIds.add(parentRes.fileId());
       seededFileIds.add(childRes.fileId());
       seededFileIds.add(grandchildRes.fileId());
@@ -155,11 +157,13 @@ class WikiAttachmentPageDeleteCommitTest extends IntegrationTestBase {
           .as("삭제 전 네 파일 모두 승격(expires_at IS NULL)돼 있어야 함")
           .isEqualTo(4);
 
-      Path parentPath = attachmentService.download(ownerId, parentId, parentRes.fileId()).path();
-      Path childPath = attachmentService.download(ownerId, childId, childRes.fileId()).path();
+      Path parentPath =
+          attachmentService.download(ownerId, parentId, parentRes.fileId(), null).path();
+      Path childPath = attachmentService.download(ownerId, childId, childRes.fileId(), null).path();
       Path grandchildPath =
-          attachmentService.download(ownerId, grandchildId, grandchildRes.fileId()).path();
-      Path siblingPath = attachmentService.download(ownerId, siblingId, siblingRes.fileId()).path();
+          attachmentService.download(ownerId, grandchildId, grandchildRes.fileId(), null).path();
+      Path siblingPath =
+          attachmentService.download(ownerId, siblingId, siblingRes.fileId(), null).path();
       assertThat(Files.exists(parentPath)).as("업로드 직후 부모 디스크 파일 존재").isTrue();
       assertThat(Files.exists(childPath)).as("업로드 직후 자식 디스크 파일 존재").isTrue();
       assertThat(Files.exists(grandchildPath)).as("업로드 직후 손자 디스크 파일 존재").isTrue();
@@ -218,11 +222,11 @@ class WikiAttachmentPageDeleteCommitTest extends IntegrationTestBase {
           pageService.create(ownerId, spaceId, new CreatePageRequest(null, "롤백 페이지")).id();
 
       var mf = new MockMultipartFile("file", "rollback.png", "image/png", png());
-      WikiAttachmentResponse res = attachmentService.upload(ownerId, pageId, mf);
+      WikiAttachmentResponse res = attachmentService.upload(ownerId, pageId, mf, null);
       seededFileIds.add(res.fileId());
       attachmentService.syncReferences(pageId, WikiAttachmentResponse.urlOf(pageId, res.fileId()));
 
-      Path path = attachmentService.download(ownerId, pageId, res.fileId()).path();
+      Path path = attachmentService.download(ownerId, pageId, res.fileId(), null).path();
       assertThat(Files.exists(path)).as("업로드 직후 디스크 파일 존재").isTrue();
 
       // reclaimPageTree() 자체는 @Transactional(REQUIRED) 이라 바깥 트랜잭션에 합류한다 — 바깥이

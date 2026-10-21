@@ -31,6 +31,8 @@ export function wikiEditorExtensions(o: {
   mention: Extension
   slash: Extension
   tableShortcuts: Extension
+  /** 빈 본문 안내 문구 — 기본은 AI 진입 안내. AI 를 끈 공유 화면은 AI 언급 없는 문구를 넘긴다. */
+  placeholder?: string
 }): Extensions {
   return [
     // 문서 스키마(텍스트·마크다운·멘션·이미지·표)는 동기화 서버와 공유하는 공용 묶음(WP-284).
@@ -43,7 +45,7 @@ export function wikiEditorExtensions(o: {
     o.mention,
     o.slash,
     Placeholder.configure({
-      placeholder: "내용을 입력하거나 '/' 를 눌러 AI 사용",
+      placeholder: o.placeholder ?? "내용을 입력하거나 '/' 를 눌러 AI 사용",
       showOnlyCurrent: false,
     }),
     // 행·열 삽입 단축키(Ctrl-Alt-화살표). 표 밖이거나 뷰어 권한이면 false 를 반환해 기본 동작을 유지한다.

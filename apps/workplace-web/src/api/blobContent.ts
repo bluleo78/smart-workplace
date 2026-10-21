@@ -16,10 +16,15 @@ export type BlobProgress = (p: { loaded: number; total: number | undefined }) =>
  * signal 로 받던 요청을 끊을 수 있다.
  * fetch/ReadableStream 으로 바꾸지 않는 이유: Bearer 인터셉터·401 재발급 큐를 그대로 타야 하기 때문.
  */
-export async function fetchBlobByPath(path: string, opts: { onProgress?: BlobProgress; signal?: AbortSignal } = {}): Promise<Blob> {
-  const { onProgress, signal } = opts
+export async function fetchBlobByPath(
+  path: string,
+  opts: { onProgress?: BlobProgress; signal?: AbortSignal; headers?: Record<string, string> } = {},
+): Promise<Blob> {
+  const { onProgress, signal, headers } = opts
   const { data } = await client.get<Blob>(stripApiPrefix(path), {
     responseType: 'blob',
+    // 경로별 추가 헤더 — 노트 공유 화면의 이미지는 공유 토큰 헤더를 실어야 열린다(WP-579).
+    headers,
     // 호출부가 넘김·닫기 때 끊을 수 있게(WP-281) — 끊기면 reject(CanceledError), 호출부의 alive 가드가 버린다.
     signal,
     onDownloadProgress: onProgress ? (e) => onProgress({ loaded: e.loaded, total: e.total || undefined }) : undefined,

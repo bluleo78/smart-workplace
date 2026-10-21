@@ -1,6 +1,7 @@
 package com.workplace.wiki.repository;
 
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
 import com.workplace.wiki.dto.WikiMemberResponse;
@@ -35,6 +36,19 @@ public class WikiSpaceMemberRepository {
         .fetchOptional(WIKI_SPACE_MEMBER.ROLE);
   }
 
+  /**
+   * 역할을 잠가 읽는다(FOR SHARE, WP-579) — 진행 중인 강등·제거(이 행의 UPDATE·DELETE)가 있으면 그 커밋을 기다려 바뀐 값을 보고, 읽은 뒤엔
+   * 이 트랜잭션이 끝날 때까지 강등·제거를 막는다. 공유 변경이 「강등된 사람 이름으로」 만들어지지 않게 하는 데 쓴다.
+   */
+  public Optional<String> findRoleForShare(long spaceId, long userId) {
+    return dsl.select(WIKI_SPACE_MEMBER.ROLE)
+        .from(WIKI_SPACE_MEMBER)
+        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+        .and(WIKI_SPACE_MEMBER.USER_ID.eq(userId))
+        .forShare()
+        .fetchOptional(WIKI_SPACE_MEMBER.ROLE);
+  }
+
   /** 공간의 OWNER 수 — 마지막 OWNER 를 빼거나 강등하지 못하게 하는 데 쓴다(WP-496). */
   public int countOwners(long spaceId) {
     return dsl.fetchCount(
@@ -55,6 +69,24 @@ public class WikiSpaceMemberRepository {
         .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
         .and(WIKI_SPACE_MEMBER.USER_ID.eq(userId))
         .execute();
+  }
+
+  /**
+   * 이 사람이 멤버인 팀 스페이스 id 를 그 멤버 행을 잠그고(FOR UPDATE) 읽는다(WP-579, AGENT 삭제). 멤버 제거 경로와 같은 순서(멤버 행 → 공유
+   * 행)로 잠그려고 공유 해제보다 먼저 부른다 — 동시에 그 멤버를 내보내는 요청과 서로 기다리는 교착이 생기지 않는다. 개인 스페이스는 멤버 변경 대상이 아니라 뺀다. 잠금
+   * 순서가 요청마다 같도록 스페이스 id 순.
+   */
+  public List<Long> lockTeamSpaceIdsOf(long userId) {
+    return dsl.select(WIKI_SPACE_MEMBER.SPACE_ID)
+        .from(WIKI_SPACE_MEMBER)
+        .join(WIKI_SPACE)
+        .on(WIKI_SPACE.ID.eq(WIKI_SPACE_MEMBER.SPACE_ID))
+        .where(WIKI_SPACE_MEMBER.USER_ID.eq(userId))
+        .and(WIKI_SPACE.TYPE.eq("TEAM"))
+        .orderBy(WIKI_SPACE_MEMBER.SPACE_ID)
+        .forUpdate()
+        .of(WIKI_SPACE_MEMBER)
+        .fetch(WIKI_SPACE_MEMBER.SPACE_ID);
   }
 
   /** 스페이스 멤버 user id 목록 — SSE fan-out 대상(#724). */

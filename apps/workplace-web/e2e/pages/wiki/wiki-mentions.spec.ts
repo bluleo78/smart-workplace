@@ -287,8 +287,8 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   // 본문에 유저·페이지 토큰이 텍스트로 들어있는 페이지. 로드 시 칩으로 치환돼야 한다.
   const BODY = '담당 <@7> 은 <#page:55> 문서를 본다'
   const MENTIONS: WikiMentionRef[] = [
-    { type: 'USER', id: 7, label: '앨리스', spaceId: null, projectKey: null, number: null },
-    { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null },
+    { type: 'USER', id: 7, label: '앨리스', spaceId: null, projectKey: null, number: null, inaccessible: false },
+    { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null, inaccessible: false },
   ]
   await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
   // 검색 모킹은 불필요하나 누수 방지로 깔아둔다.
@@ -385,7 +385,7 @@ test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이�
   // PAGE 토큰 본문 + 해소 결과(spaceId=1). 칩 클릭 시 /wiki/spaces/1/pages/55 로 이동해야 한다.
   const BODY = '<#page:55> 참고'
   const MENTIONS: WikiMentionRef[] = [
-    { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null },
+    { type: 'PAGE', id: 55, label: '온보딩 가이드', spaceId: SPACE_ID, projectKey: null, number: null, inaccessible: false },
   ]
   await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
   await setupSearchMocks(page)
@@ -405,7 +405,7 @@ test('위키 멘션 칩 — ISSUE 칩 클릭 시 이슈 상세 경로로 이동(
   // ISSUE 토큰 본문 + 해소 결과(projectKey=WP, number=12). /projects/WP/issues/12 로 이동.
   const BODY = '<#issue:99> 확인'
   const MENTIONS: WikiMentionRef[] = [
-    { type: 'ISSUE', id: 99, label: '로그인 버그', spaceId: null, projectKey: 'WP', number: 12 },
+    { type: 'ISSUE', id: 99, label: '로그인 버그', spaceId: null, projectKey: 'WP', number: 12, inaccessible: false },
   ]
   await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
   await setupSearchMocks(page)

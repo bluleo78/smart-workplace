@@ -2,6 +2,7 @@
 import {
   COLLAB_SCHEMA_MISMATCH,
   COLLAB_SCHEMA_PARAM,
+  COLLAB_SHARE_PARAM,
   WIKI_SCHEMA_VERSION,
 } from '@smart-workplace/wiki-editor-schema/collab-protocol'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -131,7 +132,8 @@ import {
 } from './collabSession'
 
 /** 세션을 얻고 보유자로 등록한다 — 화면이 렌더 중 열고(open) 마운트 후 잡는(retain) 순서를 한 번에. */
-const acquireCollabSession = (pageId: number): CollabSession => retainCollabSession(openCollabSession(pageId))
+const acquireCollabSession = (pageId: number, opts?: { shareToken?: string }): CollabSession =>
+  retainCollabSession(openCollabSession(pageId, opts))
 
 /** 테스트에서 가짜 provider 의 조작용 메서드에 접근한다. */
 type Fake = {
@@ -381,6 +383,49 @@ describe('collab session cache', () => {
   it('sends its schema version on connect', () => {
     const a = acquireCollabSession(13)
     expect((fake(a).configuration as unknown as { url: string }).url).toMatch(new RegExp(`/collab\\?${COLLAB_SCHEMA_PARAM}=${WIKI_SCHEMA_VERSION}$`))
+  })
+
+  // 공유 링크 화면(WP-579) — 같은 페이지라도 공유 토큰으로 붙은 세션은 멤버 세션과 따로 캐시한다(키 `${pageId}:${shareToken ?? ''}`).
+  // 섞이면 멤버 화면이 공유 연결(해제 시 4403)을 물려받거나, 공유 화면이 토큰 없이 붙어 거절된다.
+  it('keeps a share-link session apart from the member session of the same page', () => {
+    const member = acquireCollabSession(21)
+    const shared = acquireCollabSession(21, { shareToken: 'wsh_a' })
+    expect(shared).not.toBe(member)
+    // 문서는 같다 — 같은 노트를 함께 고친다
+    expect(shared.docName).toBe(member.docName)
+    const url = (s: CollabSession) => (fake(s).configuration as unknown as { url: string }).url
+    expect(url(shared)).toContain(`&${COLLAB_SHARE_PARAM}=wsh_a`)
+    expect(url(member)).not.toContain(`${COLLAB_SHARE_PARAM}=`)
+    // 같은 토큰은 재사용, 다른 토큰은 또 따로
+    expect(acquireCollabSession(21, { shareToken: 'wsh_a' })).toBe(shared)
+    expect(acquireCollabSession(21, { shareToken: 'wsh_b' })).not.toBe(shared)
+    expect(acquireCollabSession(21)).toBe(member)
+  })
+
+  // 해제(4403)로 닫힌 공유 세션은 버리되, 같은 페이지의 멤버 세션은 그대로 캐시에 남는다(Review Focus 1 — 멤버 연결은 그대로).
+  it('drops a revoked share session without touching the member session', () => {
+    const member = acquireCollabSession(22)
+    const shared = acquireCollabSession(22, { shareToken: 'wsh_a' })
+    goLive(member)
+    goLive(shared)
+    fake(shared).emit('disconnect', { event: { code: 4403, reason: 'forbidden' } })
+    expect(shared.getState().terminal).toBe('forbidden')
+    expect(member.getState().terminal).toBeNull()
+    releaseCollabSession(shared)
+    expect(destroyed).toEqual(['wiki-page:22'])
+    expect(acquireCollabSession(22)).toBe(member)
+    // 같은 토큰으로 다시 열면 새 세션(다시 판정받는다)
+    expect(acquireCollabSession(22, { shareToken: 'wsh_a' })).not.toBe(shared)
+  })
+
+  // 렌더와 보유 사이에 정리된 공유 세션을 잡으면 같은 토큰의 살아 있는 세션을 대신 준다 — 토큰 없는 멤버 세션으로 바뀌면 안 된다.
+  it('retaining a destroyed share session yields a live session with the same token', () => {
+    const opened = openCollabSession(23, { shareToken: 'wsh_a' })
+    vi.advanceTimersByTime(5001)
+    const held = retainCollabSession(opened)
+    expect(held).not.toBe(opened)
+    expect(held.shareToken).toBe('wsh_a')
+    expect((fake(held).configuration as unknown as { url: string }).url).toContain(`${COLLAB_SHARE_PARAM}=wsh_a`)
   })
 
   // 4403 으로 바뀐 뒤 옛 세션을 쥔 화면이 놓아도, 같은 페이지의 새 세션(다른 화면이 쥔)을 대신 놓지 않는다 — 세션 식별로 놓는다.

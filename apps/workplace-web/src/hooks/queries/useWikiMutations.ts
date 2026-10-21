@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 import { wikiApi } from '../../api/wiki'
 import { handleApiError } from '../../lib/api-error'
-import type { WikiPageDetail, WikiSpace } from '../../types/wiki'
-import { dropInactiveWikiPage, wikiKeys } from './wikiKeys'
+import type { WikiPageDetail, WikiShareResolved, WikiSpace } from '../../types/wiki'
+import { dropInactiveWikiPage, wikiKeys, wikiPageKey } from './wikiKeys'
 
 export function useCreatePage(spaceId: number) {
   const qc = useQueryClient()
@@ -20,14 +20,21 @@ export function useCreatePage(spaceId: number) {
  * 노트 제목 저장(WP-287) — 본문은 동기화 서버가 실시간으로 저장하므로 제목만 짧은 REST 로 보낸다(body:null = 본문 유지).
  * 제목은 버전 검사 없이 나중 값 우선이라 409 가 없다. 성공하면 열린 페이지 캐시의 제목만 바꾸고(본문은 Yjs 가 원본이라
  * 캐시 본문을 덮지 않는다) 사이드바 트리를 갱신한다.
+ * shareToken: 공유 화면(편집 링크, WP-579)이면 공유 토큰 헤더를 실어 보내고, 공유된 페이지 트리(링크 열기 캐시)의 제목도 바꾼다 —
+ * 공유 화면의 트리는 스페이스 트리가 아니라 그 캐시에서 그린다.
  */
-export function useSaveTitle(spaceId: number) {
+export function useSaveTitle(spaceId: number, shareToken?: string) {
   const qc = useQueryClient()
   return useMutation<WikiPageDetail, unknown, { pageId: number; title: string }>({
-    mutationFn: ({ pageId, title }) => wikiApi.savePageTitle(pageId, title).then((r) => r.data),
+    mutationFn: ({ pageId, title }) => wikiApi.savePageTitle(pageId, title, shareToken).then((r) => r.data),
     onSuccess: (data) => {
-      qc.setQueryData<WikiPageDetail>(wikiKeys.page(data.id), (cur) => (cur ? { ...cur, title: data.title } : cur))
+      qc.setQueryData<WikiPageDetail>(wikiPageKey(data.id, shareToken), (cur) => (cur ? { ...cur, title: data.title } : cur))
       qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
+      if (shareToken) {
+        qc.setQueryData<WikiShareResolved>(wikiKeys.shareLink(shareToken), (cur) =>
+          cur ? { ...cur, pages: cur.pages.map((p) => (p.id === data.id ? { ...p, title: data.title } : p)) } : cur,
+        )
+      }
     },
     // 실패 알림은 호출부(WikiEditor 의 제목 저장 스케줄러)가 연속 실패에 한 번만 한다 — 여기서 띄우면 재시도마다 쌓인다.
   })
