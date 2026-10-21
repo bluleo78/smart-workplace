@@ -72,7 +72,7 @@ test('검색어는 서버 q 로 보내고 일치 개수·없음 문구를 보인
   await expect(page.getByTestId('shared-memory-matched')).toHaveText('2개 일치')
   expect(mock.lists.lastUrl()?.searchParams.get('q')).toBe('배포')
   await page.getByTestId('shared-memory-search').fill('없는말')
-  await expect(page.getByTestId('shared-memory-matched')).toHaveText("'없는말'와 일치하는 공용 메모리가 없어요.")
+  await expect(page.getByTestId('shared-memory-matched')).toHaveText("'없는말'과 일치하는 공용 메모리가 없어요.")
 })
 
 test('직접 추가는 그 공간으로 보내고 새 항목이 맨 위에 「내 이름 직접 추가」로 보인다', async ({ authenticatedPage: page }) => {

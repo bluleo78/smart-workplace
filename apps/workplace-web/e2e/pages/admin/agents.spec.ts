@@ -374,6 +374,8 @@ test.describe('/admin/agents', () => {
 
     await deleteBtn.click();
     await expect(page.getByTestId('agent-confirm-dialog')).toBeVisible();
+    // 조사는 이름 받침에 맞춘다 — 「Claude 봇」은 받침 있음 → 「을」(WP-679)
+    await expect(page.getByTestId('agent-confirm-dialog')).toContainText('에이전트 "Claude 봇"을 삭제하시겠습니까?');
     await page.getByTestId('agent-confirm-confirm').click();
 
     await expect.poll(counts.deletes.count).toBe(1);

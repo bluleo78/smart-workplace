@@ -10,6 +10,7 @@ import { useCreateSharedAiMemory, useSharedAiMemories } from '@/hooks/queries/us
 import { useDebounceValue } from '@/hooks/useDebounceValue';
 import { useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
 import { refOf, spaceHint, spaceLabel } from '@/lib/sharedAiMemory';
+import { andParticle } from '@/lib/utils';
 import { AiMemoryContentEditor } from '@/pages/settings/AiMemoryContentEditor';
 import { SharedMemoryRow } from '@/pages/settings/shared/SharedMemoryRow';
 import type { SharedMemorySpace } from '@/types/sharedAiMemory';
@@ -108,7 +109,7 @@ export function SharedMemoryList({ space, headerAction }: { space: SharedMemoryS
 
       {q && list.isSuccess && (
         <p data-testid="shared-memory-matched" className="text-xs text-muted-foreground">
-          {items.length > 0 ? `${items.length}개 일치` : `'${q}'와 일치하는 공용 메모리가 없어요.`}
+          {items.length > 0 ? `${items.length}개 일치` : `'${q}'${andParticle(q.trim())} 일치하는 공용 메모리가 없어요.`}
         </p>
       )}
 

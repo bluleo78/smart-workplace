@@ -50,6 +50,7 @@ import {
   PLUGIN_COMMANDS,
   PLUGIN_SKILLS,
 } from '@/lib/pluginGuide';
+import { objectParticle } from '@/lib/utils';
 
 import { AgentBadge } from '../../components/users/AgentBadge';
 import { useRevokeAgentKey } from '../../hooks/queries/useAgentKeys';
@@ -114,7 +115,7 @@ export default function AgentManagementPage() {
   const onDelete = (id: number, name: string) => {
     setConfirmDialog({
       title: '에이전트 삭제',
-      description: `에이전트 "${name}"를 삭제하시겠습니까? 키도 모두 제거됩니다.`,
+      description: `에이전트 "${name}"${objectParticle(name)} 삭제하시겠습니까? 키도 모두 제거됩니다.`,
       actionLabel: '삭제',
       action: () =>
         deleteAgent.mutate(id, {

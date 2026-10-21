@@ -32,7 +32,7 @@ import { useAiPreferences, useUpdateAiPreferences } from '@/hooks/queries/useAiP
 import { useLoadMoreSentinel } from '@/hooks/useLoadMoreSentinel';
 import { fullScopeKeys, groupMemories, MEMORY_LIMIT, PIN_LIMIT, ROWS_PAGE, SCOPE_ORDER, SEARCH_OVER, visibleGroups } from '@/lib/aiMemory';
 import { MEMORY_TAB_PARAM, SPACE_PARAM } from '@/lib/sharedAiMemory';
-import { cn } from '@/lib/utils';
+import { andParticle, cn } from '@/lib/utils';
 import { AiMemoryAddForm } from '@/pages/settings/AiMemoryAddForm';
 import { AiMemoryCleanupNotice } from '@/pages/settings/AiMemoryCleanupLog';
 import { AiMemoryScopeGroup } from '@/pages/settings/AiMemoryScopeGroup';
@@ -187,7 +187,7 @@ export function AiMemoryCard() {
               )
             ) : searching && total === 0 ? (
               <p data-testid="ai-memory-search-empty" className="text-sm text-muted-foreground">
-                '{activeQuery.trim()}'와 일치하는 메모리가 없어요.
+                '{activeQuery.trim()}'{andParticle(activeQuery.trim())} 일치하는 메모리가 없어요.
               </p>
             ) : (
               <TooltipProvider>
