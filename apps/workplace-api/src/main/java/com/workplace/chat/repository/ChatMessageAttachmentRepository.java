@@ -27,7 +27,10 @@ public class ChatMessageAttachmentRepository {
     this.dsl = dsl;
   }
 
-  /** fileId 가 이 스레드의 어떤 메시지에 바인딩된 첨부인지(WP-242 — 구간 읽기 소속 확인). */
+  /**
+   * fileId 가 이 스레드의 어떤 메시지에 바인딩된 첨부인지(WP-242 — 구간 읽기 소속 확인). 삭제된 메시지의 첨부는 소속으로 보지 않는다 — 소프트 삭제라 첨부
+   * 행이 남아 있어 /text·/view 로 지운 파일을 계속 읽을 수 있었다(WP-681, 팀 채팅 WP-366 과 같은 기준).
+   */
   public boolean isAttachedToThread(long fileId, long threadId) {
     return dsl.fetchExists(
         dsl.selectOne()
@@ -35,7 +38,8 @@ public class ChatMessageAttachmentRepository {
             .join(CHAT_MESSAGE)
             .on(CHAT_MESSAGE.ID.eq(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID))
             .where(CHAT_MESSAGE_ATTACHMENT.FILE_ID.eq(fileId))
-            .and(CHAT_MESSAGE.THREAD_ID.eq(threadId)));
+            .and(CHAT_MESSAGE.THREAD_ID.eq(threadId))
+            .and(CHAT_MESSAGE.DELETED_AT.isNull()));
   }
 
   /** 정션 INSERT — file 을 특정 chat 메시지에 바인딩. */
@@ -84,15 +88,21 @@ public class ChatMessageAttachmentRepository {
         .collect(Collectors.groupingBy(ChatMessageAttachmentResponse::messageId));
   }
 
-  /** 다운로드용 저장 파일 정보. (file-message 정합성은 PK 로 보장, thread 멤버십은 서비스 검증) */
+  /**
+   * 다운로드용 저장 파일 정보. (file-message 정합성은 PK 로 보장, thread 멤버십은 서비스 검증) 삭제된 메시지의 첨부는 찾지 않는다 — 소프트 삭제라
+   * 첨부 행이 남아 있다(WP-681, 팀 채팅 WP-366 과 같은 기준).
+   */
   public Optional<StoredFileRow> findStoredFile(Long fileId, Long messageId) {
     var r =
         dsl.select(FILE.STORAGE_PATH, FILE.ORIGINAL_NAME, FILE.MIME_TYPE, FILE.SIZE_BYTES)
             .from(CHAT_MESSAGE_ATTACHMENT)
             .join(FILE)
             .on(FILE.ID.eq(CHAT_MESSAGE_ATTACHMENT.FILE_ID))
+            .join(CHAT_MESSAGE)
+            .on(CHAT_MESSAGE.ID.eq(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID))
             .where(CHAT_MESSAGE_ATTACHMENT.FILE_ID.eq(fileId))
             .and(CHAT_MESSAGE_ATTACHMENT.MESSAGE_ID.eq(messageId))
+            .and(CHAT_MESSAGE.DELETED_AT.isNull())
             .fetchOne();
     if (r == null) return Optional.empty();
     return Optional.of(

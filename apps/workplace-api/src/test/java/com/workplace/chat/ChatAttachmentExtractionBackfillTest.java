@@ -95,6 +95,19 @@ class ChatAttachmentExtractionBackfillTest extends IntegrationTestBase {
         .contains(new ExtractionBackfillSource.Target(fileId, "application/pdf"));
   }
 
+  /** WP-681: 삭제된 메시지의 첨부는 열 수 없으므로 추출 백필 대상에서도 뺀다(팀 채팅 백필과 같은 기준). */
+  @Test
+  void 삭제된_메시지의_첨부는_제외() throws Exception {
+    long fileId = bindLegacy("del.pdf", "application/pdf");
+    dsl.execute(
+        "UPDATE chat_message SET deleted_at = now() WHERE id = (SELECT message_id FROM"
+            + " chat_message_attachment WHERE file_id = ?)",
+        fileId);
+    assertThat(missing(100))
+        .extracting(ExtractionBackfillSource.Target::fileId)
+        .doesNotContain(fileId);
+  }
+
   @Test
   void 행이_있는_첨부는_제외() throws Exception {
     long fileId = bind("b.pdf", "application/pdf");

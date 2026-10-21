@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.tuple;
 import com.workplace.chat.dto.ChatMessageAttachmentResponse;
 import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.dto.CreateChatMessageRequest;
+import com.workplace.chat.exception.ChatAttachmentNotFoundException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.EmptyChatMessageException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
@@ -161,6 +162,29 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
       assertThat(m.deleted()).isTrue();
       assertThat(m.attachments()).isEmpty();
     }
+  }
+
+  /**
+   * WP-681: 삭제된 메시지의 첨부는 내려받기(/content)·텍스트(/text)·보기(/view) 경로로도 열리지 않는다(팀 채팅 WP-366 과 같은 기준). 예전엔
+   * 목록에서만 감추고 원본은 그대로 내려받혔다.
+   */
+  @Test
+  void 삭제된_메시지의_첨부는_내려받기_텍스트_경로로도_열리지_않는다() throws Exception {
+    ChatFixtures.Setup s = fx.setup();
+    long callerId = s.reporterId();
+    var sent = sendImage(s, "secret.png");
+    long fileId = sent.attachments().get(0).fileId();
+    // 지우기 전에는 열린다.
+    assertThat(attachmentService.resolveViewFileId(callerId, sent.threadId(), fileId))
+        .isEqualTo(fileId);
+
+    chatMessageService.delete(callerId, sent.id());
+
+    assertThatThrownBy(
+            () -> attachmentService.download(callerId, sent.threadId(), sent.id(), fileId))
+        .isInstanceOf(InvalidChatAttachmentException.class);
+    assertThatThrownBy(() -> attachmentService.resolveViewFileId(callerId, sent.threadId(), fileId))
+        .isInstanceOf(ChatAttachmentNotFoundException.class);
   }
 
   @Test
