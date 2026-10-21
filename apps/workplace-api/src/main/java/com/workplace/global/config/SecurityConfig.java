@@ -66,17 +66,10 @@ public class SecurityConfig {
                         "/api/v1/auth/sso/start",
                         "/api/v1/auth/sso/callback")
                     .permitAll()
-                    .requestMatchers("/api/v1/triggers/api/**", "/api/v1/triggers/webhook/**")
-                    .permitAll()
-                    // firehub-channel → firehub-api Internal 전용 inbound 엔드포인트
-                    .requestMatchers("/api/v1/channels/slack/inbound")
-                    .permitAll()
-                    // OAuth 콜백은 외부 서비스(Kakao/Slack)에서 리다이렉트되므로 Bearer 헤더 없음.
-                    // M365 는 프론트 콜백 라우트가 state 와 함께 POST /complete 로 중계 — JWT 없이 state 로 식별.
-                    .requestMatchers(
-                        "/api/v1/oauth/kakao/callback",
-                        "/api/v1/oauth/slack/callback",
-                        "/api/v1/mail/oauth/m365/complete")
+                    // M365 메일 연결 — 프론트 콜백 라우트가 state 와 함께 POST /complete 로 중계 — JWT 없이 state 로 식별.
+                    // (다른 앱에서 옮겨 온 triggers·slack inbound·kakao/slack 콜백 허용은 이 앱에 없는 경로라 걷어냈다 — 같은
+                    // 경로로 API 를 추가하면 인증 없이 공개될 수 있었다(WP-673). 공개 경로는 실제 있는 것만 둔다.)
+                    .requestMatchers("/api/v1/mail/oauth/m365/complete")
                     .permitAll()
                     // 공유 링크 공개 다운로드 — 인증 없이 토큰으로 접근(capability URL)
                     .requestMatchers("/api/v1/public/drive/share/**")
