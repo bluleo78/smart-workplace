@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.dto.UpdateChatMessageRequest;
+import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
@@ -58,11 +59,12 @@ class ChatRemovedProjectMemberAccessTest extends IntegrationTestBase {
     var file = new MockMultipartFile("files", "a.txt", "text/plain", "hello".getBytes());
     assertThatThrownBy(() -> attachmentService.upload(removed, threadId, List.of(file)))
         .isInstanceOf(ChatThreadNotMemberException.class);
+    // 자기 옛 글도 이제 볼 수 없는 대화라 없는 메시지와 같게 404(WP-682).
     assertThatThrownBy(
             () -> messageService.update(removed, own.id(), new UpdateChatMessageRequest("수정")))
-        .isInstanceOf(ChatThreadNotMemberException.class);
+        .isInstanceOf(ChatMessageNotFoundException.class);
     assertThatThrownBy(() -> messageService.delete(removed, own.id()))
-        .isInstanceOf(ChatThreadNotMemberException.class);
+        .isInstanceOf(ChatMessageNotFoundException.class);
     assertThatThrownBy(() -> threadService.getOrCreate(removed, s.projectKey(), s.issueNumber()))
         .isInstanceOf(ProjectAccessDeniedException.class);
   }

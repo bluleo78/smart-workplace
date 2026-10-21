@@ -137,13 +137,14 @@ public class ChatMessageService {
   /** 본인만 수정. mention 재파싱. edited_at 갱신. 삭제된 메시지는 404. */
   @Transactional
   public ChatMessageResponse update(long callerId, long messageId, UpdateChatMessageRequest req) {
+    long threadId = visibleThreadOf(callerId, messageId);
     long authorId =
         messageRepo
             .findAuthorId(messageId)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
     // 작성자여도 지금 쓰기 권한이 있어야 한다 — 프로젝트에서 빠진 뒤 옛 글을 고치지 못하게(WP-475).
-    threadAccess.ensureCanWrite(threadIdOf(messageId), callerId);
+    threadAccess.ensureCanWrite(threadId, callerId);
     List<Long> mentionUserIds =
         userMentionHydrator.filterExistingUserIds(MentionParser.parse(req.body()));
     // 삭제된 메시지는 수정 대상이 아니다 — 없는 메시지와 같게 404(WP-680, 팀 채팅 WP-509 와 같은 규칙).
@@ -165,13 +166,13 @@ public class ChatMessageService {
   /** 본인만 soft-delete. */
   @Transactional
   public void delete(long callerId, long messageId) {
+    // soft-delete 전 threadId 를 조회해 둔다 (이벤트 fan-out 에 필요).
+    long threadId = visibleThreadOf(callerId, messageId);
     long authorId =
         messageRepo
             .findAuthorId(messageId)
             .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
     if (authorId != callerId) throw new ChatMessageAuthorMismatchException(messageId, callerId);
-    // soft-delete 전 threadId 를 조회해 둔다 (이벤트 fan-out 에 필요).
-    long threadId = threadIdOf(messageId);
     // 작성자여도 지금 쓰기 권한이 있어야 한다(WP-475).
     threadAccess.ensureCanWrite(threadId, callerId);
     // 이미 삭제된 메시지면 아무것도 하지 않는다(멱등 — 삭제 시각·이벤트를 다시 만들지 않음).
@@ -278,6 +279,18 @@ public class ChatMessageService {
     return messageRepo
         .findThreadId(messageId)
         .orElseThrow(() -> new ChatMessageNotFoundException(messageId));
+  }
+
+  /**
+   * 메시지의 스레드 id — 볼 수 없는 스레드면 없는 메시지와 같게 404. 작성자 불일치 403 보다 먼저 봐야 볼 수 없는 프로젝트의 메시지 존재가 드러나지
+   * 않는다(WP-682, 팀 채팅 WP-591 의 visibleChannelOf 와 같은 규칙).
+   */
+  private long visibleThreadOf(long callerId, long messageId) {
+    long threadId = threadIdOf(messageId);
+    if (!threadAccess.canReadThread(threadId, callerId)) {
+      throw new ChatMessageNotFoundException(messageId);
+    }
+    return threadId;
   }
 
   private void ensureMember(long threadId, long userId) {

@@ -7,6 +7,7 @@ import com.workplace.chat.dto.ChatMessageResponse;
 import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.dto.UpdateChatMessageRequest;
 import com.workplace.chat.exception.ChatMessageAuthorMismatchException;
+import com.workplace.chat.exception.ChatMessageNotFoundException;
 import com.workplace.chat.exception.ChatThreadIssueDeletedException;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
@@ -80,6 +81,23 @@ class ChatMessageServiceTest extends IntegrationTestBase {
                 messageService.create(
                     s.outsiderId(), thread.threadId(), new CreateChatMessageRequest("hi")))
         .isInstanceOf(ChatThreadNotMemberException.class);
+  }
+
+  /** 볼 수 없는 프로젝트의 메시지는 없는 메시지와 같게 404 — 작성자 불일치 403 이 존재를 드러내지 않게(WP-682). */
+  @Test
+  void updateAndDelete_byOutsider_areNotFound() {
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    var msg =
+        messageService.create(
+            s.reporterId(), thread.threadId(), new CreateChatMessageRequest("first"));
+
+    assertThatThrownBy(
+            () ->
+                messageService.update(s.outsiderId(), msg.id(), new UpdateChatMessageRequest("x")))
+        .isInstanceOf(ChatMessageNotFoundException.class);
+    assertThatThrownBy(() -> messageService.delete(s.outsiderId(), msg.id()))
+        .isInstanceOf(ChatMessageNotFoundException.class);
   }
 
   @Test

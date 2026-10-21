@@ -75,11 +75,15 @@ public class ChatThreadAccess {
         ctx.projectId(), ctx.projectKey(), ctx.issueNumber(), threadId, userId, Set.of());
   }
 
-  /** 읽기 권한 확인 — {@link #canRead} 이거나 스레드 멤버인 AGENT. 없으면 ChatThreadNotMemberException(403). */
+  /** 읽기 권한 확인 — {@link #canReadThread} 가 아니면 ChatThreadNotMemberException(403). */
   public void ensureCanRead(long threadId, long userId) {
+    if (!canReadThread(threadId, userId)) throw new ChatThreadNotMemberException(threadId, userId);
+  }
+
+  /** 스레드를 볼 수 있는지 — {@link #canRead} 이거나 스레드 멤버인 AGENT. */
+  public boolean canReadThread(long threadId, long userId) {
     var ctx = contextResolver.resolve(threadId);
-    if (ctx != null && canRead(ctx.projectId(), userId)) return;
-    if (isAgentThreadMember(threadId, userId)) return;
-    throw new ChatThreadNotMemberException(threadId, userId);
+    if (ctx != null && canRead(ctx.projectId(), userId)) return true;
+    return isAgentThreadMember(threadId, userId);
   }
 }
