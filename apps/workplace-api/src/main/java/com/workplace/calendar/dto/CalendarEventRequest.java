@@ -1,5 +1,6 @@
 package com.workplace.calendar.dto;
 
+import com.workplace.global.util.SingleLineTitles;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -18,7 +19,7 @@ import java.util.List;
  * @param calendarId 소속 캘린더 id. null 이면 서버가 기본 캘린더로 resolve.
  */
 public record CalendarEventRequest(
-    @NotBlank @Size(max = 200) String title,
+    @NotBlank(message = "일정 제목을 입력해 주세요") @Size(max = 200) String title,
     // 상한이 없어 2MB 설명이 저장되고 그 달 목록 응답이 2MB 가 됐다 — 이슈 본문과 같은 10000자(WP-543).
     @Size(max = 10000, message = "설명은 10000자 이하여야 합니다") String description,
     @NotNull OffsetDateTime startsAt,
@@ -30,6 +31,10 @@ public record CalendarEventRequest(
     @Size(max = 500) String recurrenceRule,
     List<Long> attendeeUserIds,
     Long calendarId) {
+  public CalendarEventRequest {
+    // 제목은 한 줄로 다듬는다 — 제로폭 문자만 있는 제목이 그대로 저장돼 빈 일정처럼 보였다(WP-671, WP-628 후속). 다듬어 비면 위 검증이 한국어로 거절한다
+    title = SingleLineTitles.normalize(title);
+  }
 
   /** 종료가 시작보다 뒤인지 교차 검증 — 위반 시 400. */
   @AssertTrue(message = "endsAt must be after startsAt")

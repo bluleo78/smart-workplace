@@ -141,4 +141,44 @@ class AdminAgentDescriptionControllerTest extends IntegrationTestBase {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errors.name").value("이름은 50자 이하로 입력하세요"));
   }
+
+  /** WP-671: 제로폭 문자만 있는 에이전트 이름은 만들 때·바꿀 때 모두 거절하고, 앞뒤 제로폭은 걷어 저장한다(구성원 이름과 같은 규칙). */
+  @Test
+  void 에이전트_이름이_제로폭_문자뿐이면_400_앞뒤는_다듬는다() throws Exception {
+    TenantContext.set(1L);
+    Map<String, Object> body = new HashMap<>();
+    body.put("username", "bot671" + System.nanoTime() % 100000);
+    body.put("name", "\u200B\u200B");
+    body.put("email", "bot671-" + System.nanoTime() % 100000 + "@x.io");
+    mvc.perform(
+            post("/api/v1/admin/agents")
+                .with(authentication(adminAuth()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("이름을 입력해 주세요"));
+
+    TenantContext.set(1L);
+    Map<String, Object> rename = new HashMap<>();
+    rename.put("username", agentUsername);
+    rename.put("name", "\u200B\u200B");
+    mvc.perform(
+            put("/api/v1/admin/agents/" + agent)
+                .with(authentication(adminAuth()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(rename)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("이름을 입력해 주세요"));
+
+    TenantContext.set(1L);
+    rename.put("name", "\u200B 리뷰봇 \u200B");
+    mvc.perform(
+            put("/api/v1/admin/agents/" + agent)
+                .with(authentication(adminAuth()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(rename)))
+        .andExpect(status().is2xxSuccessful());
+    assertThat(dsl.select(USER.NAME).from(USER).where(USER.ID.eq(agent)).fetchOne(USER.NAME))
+        .isEqualTo("리뷰봇");
+  }
 }

@@ -249,7 +249,9 @@ public class UserService {
     if (userRepository.existsByEmail(req.email())) {
       throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
     }
-    UserResponse created = userRepository.createAgent(username, req.email(), req.name());
+    // 표시 이름은 구성원과 같은 사람 이름 규칙 — 제로폭 문자만 있는 이름이 그대로 저장됐다(WP-671).
+    UserResponse created =
+        userRepository.createAgent(username, req.email(), PersonNames.normalize(req.name()));
     // 에이전트를 현재 active 테넌트에 귀속 — 콜백 시 단일-멤버십으로 RLS 컨텍스트가 해석되도록.
     // 인증된 ADMIN 경로이므로 active 테넌트가 반드시 있어야 한다(테넌트 없는 고아 에이전트 방지).
     Long tenantId = TenantContext.get();
@@ -409,7 +411,9 @@ public class UserService {
         req.description() == null
             ? oldDescription
             : (req.description().isBlank() ? null : req.description().strip());
-    userRepository.renameAgentIdentity(userId, username, req.name(), description);
+    // 표시 이름은 만들 때와 같은 사람 이름 규칙(WP-671).
+    String name = PersonNames.normalize(req.name());
+    userRepository.renameAgentIdentity(userId, username, name, description);
     // 감사 로그 — AGENT_RENAMED (이전/이후 username·name 메타).
     // 설명 문구엔 실제로 바뀐 필드만 반영한다 — username 이 그대로인 채 name 만 바뀌면
     // "username → 동일 username" 만 찍혀 변경이 없었던 것처럼 보이는 오해를 방지(#796).
@@ -418,12 +422,12 @@ public class UserService {
     meta.put("oldUsername", user.username());
     meta.put("newUsername", username);
     meta.put("oldName", user.name());
-    meta.put("newName", req.name());
+    meta.put("newName", name);
     if (!user.username().equals(username)) {
       changes.add("아이디 " + user.username() + " → " + username);
     }
-    if (!user.name().equals(req.name())) {
-      changes.add("이름 " + user.name() + " → " + req.name());
+    if (!user.name().equals(name)) {
+      changes.add("이름 " + user.name() + " → " + name);
     }
     // 설명은 길어서 문구엔 바뀌었다는 사실만 남기고, 전후 값(없으면 빈 문자열)은 메타에 둔다.
     if (!Objects.equals(oldDescription, description)) {
