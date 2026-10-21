@@ -398,7 +398,8 @@ public class GlobalExceptionHandler {
     com.workplace.drive.exception.DriveSpaceNotFoundException.class,
     com.workplace.drive.exception.DriveFolderNotFoundException.class,
     com.workplace.drive.exception.DriveFileNotFoundException.class,
-    com.workplace.drive.exception.DriveNotInTrashException.class
+    com.workplace.drive.exception.DriveNotInTrashException.class,
+    com.workplace.drive.exception.DriveSpaceMemberNotFoundException.class
   })
   public ResponseEntity<ErrorResponse> handleDriveNotFound(
       RuntimeException ex, HttpServletRequest request) {
@@ -610,6 +611,15 @@ public class GlobalExceptionHandler {
       HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
+  /** 노트 공간 멤버가 아닌 사용자의 역할 변경 — 404(WP-667, 드라이브의 DriveSpaceMemberNotFoundException 과 같은 응답). */
+  @ExceptionHandler(com.workplace.wiki.exception.WikiSpaceMemberNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleWikiSpaceMemberNotFound(
+      com.workplace.wiki.exception.WikiSpaceMemberNotFoundException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
   /** 팀 노트 공간의 마지막 OWNER 제거·강등 — 409(WP-496, 드라이브의 DriveLastOwnerException 과 같은 응답). */

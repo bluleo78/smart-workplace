@@ -12,6 +12,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiLastOwnerException;
+import com.workplace.wiki.exception.WikiSpaceMemberNotFoundException;
 import com.workplace.wiki.exception.WikiSpaceNameDuplicatedException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.exception.WikiSpaceTypeNotEditableException;
@@ -244,5 +245,24 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
     assertThat(spaceService.listMembers(other, team.id()))
         .singleElement()
         .satisfies(m -> assertThat(m.userId()).isEqualTo(other));
+  }
+
+  /**
+   * WP-667 — 멤버가 아닌 사용자의 역할 변경은 바뀐 것이 없으므로 성공(204)이 아니라 거절한다. 예전엔 UPDATE 0행인데도 그대로 성공 처리돼 실시간 변경
+   * 알림까지 나갔다. 거절 뒤에도 그 사용자는 멤버로 생기지 않는다.
+   */
+  @Test
+  void changeRole_ofNonMember_isRejected() {
+    long owner = seedUser();
+    long outsider = seedUser();
+    var team = spaceService.createTeamSpace(owner, "비멤버역할");
+
+    assertThatThrownBy(() -> spaceService.changeRole(owner, team.id(), outsider, "EDITOR"))
+        .isInstanceOf(WikiSpaceMemberNotFoundException.class);
+    assertThatThrownBy(() -> spaceService.changeRole(owner, team.id(), 987654321L, "OWNER"))
+        .isInstanceOf(WikiSpaceMemberNotFoundException.class);
+    assertThat(spaceService.listMembers(owner, team.id()))
+        .extracting(m -> m.userId())
+        .containsExactly(owner);
   }
 }

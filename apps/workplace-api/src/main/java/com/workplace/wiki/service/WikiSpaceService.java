@@ -117,6 +117,10 @@ public class WikiSpaceService {
     perms.requireRole(spaceId, callerId, "OWNER");
     requireTeamSpace(spaceId);
     perms.validateRole(role);
+    // 멤버가 아니면 바꿀 행이 없다 — 0행 UPDATE 를 성공(204)으로 돌려주지 않고 거절한다(WP-667).
+    if (members.findRole(spaceId, userId).isEmpty()) {
+      throw new com.workplace.wiki.exception.WikiSpaceMemberNotFoundException();
+    }
     if (!"OWNER".equals(role)) requireAnotherOwner(spaceId, userId);
     members.changeRole(spaceId, userId, role);
     notifier.spaceChanged(spaceId, callerId, Set.of());
