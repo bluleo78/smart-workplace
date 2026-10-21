@@ -430,7 +430,8 @@ public class DriveFileService {
   @Transactional(readOnly = true)
   public void validateUploadTarget(long callerId, long spaceId, Long folderId) {
     perms.requireRole(spaceId, callerId, "EDITOR");
-    validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE);
+    // 읽기 전용 사전 검사라 잠그지 않는다 — 실제 업로드가 다시 잠근 채 확인한다.
+    validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE, false);
   }
 
   /**
@@ -453,7 +454,7 @@ public class DriveFileService {
       throws IOException {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더가 이 공간 소속인지(WP-369 이전에는 검사하지 않아 다른 공간 폴더 id 로 올릴 수 있었다).
-    validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE);
+    validateTargetSameSpace(spaceId, folderId, UPLOAD_OTHER_SPACE_MESSAGE, true);
     return store(callerId, spaceId, folderId, source, null, text);
   }
 
@@ -924,18 +925,20 @@ public class DriveFileService {
 
   /** 이동·복사 대상 폴더(있으면)가 같은 공간인지 검증. */
   private void validateTargetSameSpace(long spaceId, Long targetFolderId) {
-    validateTargetSameSpace(spaceId, targetFolderId, "다른 공간으로는 이동/복사할 수 없습니다.");
+    validateTargetSameSpace(spaceId, targetFolderId, "다른 공간으로는 이동/복사할 수 없습니다.", true);
   }
 
-  /** 대상 폴더(있으면)가 같은 공간의 활성 폴더인지 검증. null = 공간 루트(항상 같은 공간). 없거나 휴지통이면 404, 다른 공간이면 400. */
+  /**
+   * 대상 폴더(있으면)가 같은 공간의 활성 폴더인지 검증. null = 공간 루트(항상 같은 공간). 없거나 휴지통이면 404, 다른 공간이면 400. lock 이면 대상
+   * 폴더 행을 공유 잠금한 채 확인해, 동시에 그 폴더를 지우는 요청과 차례를 정한다(WP-764) — 쓰기 경로는 모두 lock.
+   */
   private void validateTargetSameSpace(
-      long spaceId, Long targetFolderId, String otherSpaceMessage) {
+      long spaceId, Long targetFolderId, String otherSpaceMessage, boolean lock) {
     if (targetFolderId == null) {
       return;
     }
     long targetSpace =
-        folders
-            .findSpaceId(targetFolderId)
+        (lock ? folders.lockLiveSpaceId(targetFolderId) : folders.findSpaceId(targetFolderId))
             .orElseThrow(() -> new DriveFolderNotFoundException(targetFolderId));
     if (targetSpace != spaceId) {
       throw new DriveInvalidTargetException(otherSpaceMessage);

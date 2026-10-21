@@ -68,6 +68,20 @@ public class DriveFolderRepository {
         .fetchOptional(DRIVE_FOLDER.SPACE_ID);
   }
 
+  /**
+   * 살아 있는 폴더의 공간 id 를 읽으며 그 폴더 행을 공유 잠금한다(트랜잭션 끝까지, WP-764). 폴더 안으로 넣는 쓰기(이동·생성·업로드·복사)가 대상 폴더를 이걸로
+   * 확인하면, 동시에 그 폴더를 지우는 요청과 차례가 정해진다 — 삭제가 먼저면 여기서 휴지통이라 비고(404), 쓰기가 먼저면 삭제의 휴지통 표시가 이 잠금을 기다렸다가
+   * 넣은 항목까지 함께 표시한다.
+   */
+  public Optional<Long> lockLiveSpaceId(long folderId) {
+    return dsl.select(DRIVE_FOLDER.SPACE_ID)
+        .from(DRIVE_FOLDER)
+        .where(DRIVE_FOLDER.ID.eq(folderId))
+        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
+        .forShare()
+        .fetchOptional(DRIVE_FOLDER.SPACE_ID);
+  }
+
   public Optional<DriveFolderResponse> findById(long folderId) {
     return dsl.select(
             DRIVE_FOLDER.ID,
@@ -112,16 +126,23 @@ public class DriveFolderRepository {
 
   /** 폴더 서브트리(자기 포함)를 휴지통으로 마킹. 살아있는 행만, 최상위만 trash_root=true. */
   public void markSubtreeTrashed(long rootFolderId, long opId) {
-    java.util.List<Long> subtree = findSubtreeFolderIds(rootFolderId); // 자기 포함, trashed 무관 BFS
     java.time.OffsetDateTime now = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC);
-    // 1) 서브트리 폴더 중 살아있는 것 마킹(trash_root=false)
-    dsl.update(DRIVE_FOLDER)
-        .set(DRIVE_FOLDER.TRASHED_AT, now)
-        .set(DRIVE_FOLDER.TRASH_OP_ID, opId)
-        .set(DRIVE_FOLDER.TRASH_ROOT, false)
-        .where(DRIVE_FOLDER.ID.in(subtree))
-        .and(DRIVE_FOLDER.TRASHED_AT.isNull())
-        .execute();
+    // 1) 서브트리 폴더 중 살아있는 것 마킹(trash_root=false) — 더 표시할 것이 없을 때까지 하위를 다시 모은다(WP-764).
+    // 폴더 안으로 넣는 쓰기는 대상 폴더를 공유 잠금(lockLiveSpaceId)하므로, 이 표시는 그 쓰기가 커밋될 때까지 기다린다. 기다리는 동안 들어온 하위는
+    // 처음 모은 목록에 없으니, 다시 모아 표시한다(READ COMMITTED 라 다음 문장은 커밋된 하위를 본다). 표시한 뒤의 쓰기는 휴지통 폴더라 거절된다.
+    java.util.List<Long> subtree;
+    int marked;
+    do {
+      subtree = findSubtreeFolderIds(rootFolderId); // 자기 포함, trashed 무관 BFS
+      marked =
+          dsl.update(DRIVE_FOLDER)
+              .set(DRIVE_FOLDER.TRASHED_AT, now)
+              .set(DRIVE_FOLDER.TRASH_OP_ID, opId)
+              .set(DRIVE_FOLDER.TRASH_ROOT, false)
+              .where(DRIVE_FOLDER.ID.in(subtree))
+              .and(DRIVE_FOLDER.TRASHED_AT.isNull())
+              .execute();
+    } while (marked > 0);
     // 2) 최상위만 trash_root=true (방금 마킹돼 trashed_at 존재)
     dsl.update(DRIVE_FOLDER)
         .set(DRIVE_FOLDER.TRASH_ROOT, true)

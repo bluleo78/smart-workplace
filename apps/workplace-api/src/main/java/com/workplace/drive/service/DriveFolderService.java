@@ -47,6 +47,7 @@ public class DriveFolderService {
     perms.requireRole(spaceId, callerId, "EDITOR");
     // 폴더명 정규화·검사 — NFC(중복검사·검색 일관) + 경로 문자·"."·".." 차단(ZIP 경로 안전, WP-339).
     name = SafeFileNames.validate(name, "폴더");
+    requireLiveParent(spaceId, parentId);
     if (folders.existsInSpace(spaceId, parentId, name)) {
       throw new DriveDuplicateNameException(name);
     }
@@ -66,6 +67,7 @@ public class DriveFolderService {
     // 폴더명 NFC 정규화(merge 키 일관) + 경로·제어 문자는 "_" 로(WP-339). 업로드하는 폴더 이름은 사용자가 고칠 수 없어, 거절하면 트리가
     // 반쯤 올라간 채 멈추므로 바꿔 받는다. 람다 캡처 위해 별도 final 지역변수.
     String nfcName = SafeFileNames.sanitize(name, "_");
+    requireLiveParent(spaceId, parentId);
     return folders
         .findIdInSpace(spaceId, parentId, nfcName)
         .flatMap(folders::findById)
@@ -272,15 +274,33 @@ public class DriveFolderService {
     if (targetParentId == null) {
       return;
     }
+    // 대상 폴더를 공유 잠금한 채 확인한다 — 동시에 그 폴더를 지우는 요청과 차례를 정한다(WP-764).
     long targetSpace =
         folders
-            .findSpaceId(targetParentId)
+            .lockLiveSpaceId(targetParentId)
             .orElseThrow(() -> new DriveFolderNotFoundException(targetParentId));
     if (targetSpace != spaceId) {
       throw new DriveInvalidTargetException("다른 공간으로는 이동/복사할 수 없습니다.");
     }
     if (folders.findSubtreeFolderIds(folderId).contains(targetParentId)) {
       throw new DriveInvalidTargetException("폴더 자신 또는 하위 폴더로는 이동/복사할 수 없습니다.");
+    }
+  }
+
+  /**
+   * 새 폴더의 부모(있으면)가 같은 공간의 살아 있는 폴더인지 — 부모 행을 공유 잠금한 채 확인한다(WP-764). 없거나 휴지통이면 404, 다른 공간이면 400. 전에는
+   * 부모를 보지 않아, 휴지통 폴더(또는 지우는 중인 폴더) 안에 보이지 않는 살아 있는 폴더가 생겼다.
+   */
+  private void requireLiveParent(long spaceId, Long parentId) {
+    if (parentId == null) {
+      return;
+    }
+    long parentSpace =
+        folders
+            .lockLiveSpaceId(parentId)
+            .orElseThrow(() -> new DriveFolderNotFoundException(parentId));
+    if (parentSpace != spaceId) {
+      throw new DriveInvalidTargetException("다른 공간의 폴더 안에는 만들 수 없습니다.");
     }
   }
 
