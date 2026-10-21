@@ -46,6 +46,7 @@ public class AiAgentCredentialService {
   private final EncryptionService encryptionService;
   private final AuditLogService auditLogService;
   private final ObjectMapper objectMapper;
+  private final ModelBaseUrlGuard urlGuard;
 
   /**
    * AGENT 에 새 자격증명 등록 — 기존 active 가 있으면 자동 revoke.
@@ -289,8 +290,8 @@ public class AiAgentCredentialService {
 
   /**
    * provider config JSON 검증 — providerId·options.baseURL·options.apiKey 필수. baseURL 은 등록 후 GET
-   * .../models 프로브에서 적용되는 것과 동일한 ProbeUrlValidator(https-only 또는 사설망 http) 를 등록 시점에도 통과해야 한다 — 그렇지
-   * 않으면 등록은 성공하나 모델 목록 조회가 매번 400 으로 실패하는 비일관 상태가 된다. 실패 시 400.
+   * .../models 프로브에서 적용되는 것과 동일한 ModelBaseUrlGuard(https·공인 주소, 운영자 허용 목록 예외 — WP-596) 를 등록 시점에도
+   * 통과해야 한다 — 그렇지 않으면 등록은 성공하나 모델 목록 조회가 매번 400 으로 실패하는 비일관 상태가 된다. 실패 시 400.
    *
    * @return 검증된 providerId(추천 모델 유지 판단용)
    */
@@ -309,7 +310,7 @@ public class AiAgentCredentialService {
       throw new InvalidProviderCredentialException(
           "opencode provider config 에 options.baseURL/options.apiKey 가 필요합니다");
     }
-    ProbeUrlValidator.validate(options.get("baseURL").asText());
+    urlGuard.validate(options.get("baseURL").asText());
     validateVision(node.get("vision"));
     return node.get("providerId").asText();
   }

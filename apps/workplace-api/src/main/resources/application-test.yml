@@ -61,6 +61,9 @@ workplace:
     # 스케줄러 분산 잠금 AOP 도 끈다 — 켜면 테스트가 스케줄러 메서드를 연달아 직접 호출할 때 두 번째가 잠금에 막혀 건너뛰어진다
     # (SchedulerLockConfig, WP-165). 잠금 동작은 SchedulerLockIntegrationTest 가 켜서 검증한다.
     lock-enabled: false
+  # 테스트가 쓰는 가짜 모델 서버 호스트(DNS 에 없다) — 허용 목록에 넣어 이름 풀이 없이 통과시킨다(WP-596).
+  assistant:
+    model-url-allowed-hosts: api.example.com,ep.example,provider.test
   auth:
     sso:
       m365:

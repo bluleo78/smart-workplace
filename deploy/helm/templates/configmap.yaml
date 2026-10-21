@@ -15,6 +15,8 @@ data:
   SSO_M365_CLIENT_ID: {{ .Values.config.ssoM365ClientId | quote }}
   SSO_M365_REDIRECT_URI: {{ .Values.config.ssoM365RedirectUri | quote }}
   WEB_BASE_URL: {{ .Values.config.webBaseUrl | quote }}
+  # 모델 서버 주소 내부망 차단 예외 호스트(WP-596) — api 는 envFrom, ai-agent 는 아래 키를 직접 읽는다
+  MODEL_URL_ALLOWED_HOSTS: {{ .Values.config.modelUrlAllowedHosts | default "" | quote }}
   {{- with .Values.config.pushSubject }}
   # Web Push VAPID 연락처(sub). Apple 푸시 서비스는 localhost 연락처를 거부하므로 실제 주소 필수
   WORKPLACE_PUSH_SUBJECT: {{ . | quote }}

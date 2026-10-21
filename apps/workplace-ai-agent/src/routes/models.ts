@@ -6,6 +6,8 @@ import axios from 'axios';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 
+import { assertModelHostAllowed, BlockedModelHostError, MODEL_REQUEST_GUARD } from '../clients/model-url-guard.js';
+
 const PROBE_TIMEOUT_MS = 10_000;
 
 // 드롭다운 오픈 경로 — workplace-api 가 읽기 트랜잭션(DB 커넥션)을 쥔 채 기다리므로 프로브보다 짧게 끊는다.
@@ -50,6 +52,11 @@ function extractModelIds(payload: unknown): string[] | null {
   return ids.length > 0 ? ids : null;
 }
 
+/** 내부망 차단에 걸린 실패인가 — IP 리터럴 검사는 그대로, 접속 직전 lookup 가드는 axios 오류의 cause 로 온다. */
+function isBlockedHost(e: unknown): boolean {
+  return e instanceof BlockedModelHostError || (axios.isAxiosError(e) && e.cause instanceof BlockedModelHostError);
+}
+
 export function createModelsRouter(): Router {
   const router = Router();
 
@@ -63,9 +70,12 @@ export function createModelsRouter(): Router {
     const { baseURL, apiKey } = parsed.data.options;
 
     try {
+      // WP-596: 내부망 주소(IP 리터럴은 여기서, 이름은 접속 직전 lookup 가드에서)로는 나가지 않고 리다이렉트도 따라가지 않는다.
+      assertModelHostAllowed(new URL(baseURL));
       const upstream = await axios.get(`${baseURL.replace(/\/$/, '')}/models`, {
         headers: { Authorization: `Bearer ${apiKey}` },
         timeout: PROBE_TIMEOUT_MS,
+        ...MODEL_REQUEST_GUARD,
       });
       const ids = extractModelIds(upstream.data);
       if (!ids) {
@@ -74,6 +84,15 @@ export function createModelsRouter(): Router {
       }
       res.status(200).json({ models: ids.map((id) => ({ id })) });
     } catch (e) {
+      if (isBlockedHost(e)) {
+        res.status(400).json({ message: '내부망 주소로는 모델 서버에 접속할 수 없습니다.' });
+        return;
+      }
+      if (e instanceof TypeError && !axios.isAxiosError(e)) {
+        // new URL() 형식 오류
+        res.status(400).json({ message: '올바르지 않은 baseURL 형식입니다.' });
+        return;
+      }
       const status = axios.isAxiosError(e) ? e.response?.status : undefined;
       console.error('[models-list] 프로브 실패:', status ? `upstream ${status}` : e instanceof Error ? e.message : String(e));
       res.status(502).json({ message: '모델 목록 조회에 실패했습니다.' });

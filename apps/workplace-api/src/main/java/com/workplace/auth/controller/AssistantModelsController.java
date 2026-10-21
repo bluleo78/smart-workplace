@@ -14,7 +14,7 @@ import com.workplace.auth.outbound.AiAgentModelsClient;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.auth.service.AssistantModels;
-import com.workplace.auth.service.ProbeUrlValidator;
+import com.workplace.auth.service.ModelBaseUrlGuard;
 import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.RequirePermission;
 import jakarta.validation.Valid;
@@ -44,6 +44,7 @@ public class AssistantModelsController {
   private final AiAgentCredentialService credentialService;
   private final PersonalAssistantRepository personalRepo;
   private final ObjectMapper objectMapper;
+  private final ModelBaseUrlGuard urlGuard;
 
   /**
    * 관리자 — 임의 baseURL+apiKey 로 등록 전 모델 프로브. 이 핸들러 자체는 리포지토리를 호출하지 않지만, 같은 컨트롤러가 {@link
@@ -93,7 +94,7 @@ public class AssistantModelsController {
   private ProbeModelsResponse probe(ProviderConfig config) {
     String baseUrl = requireOption(config, "baseURL");
     requireOption(config, "apiKey");
-    ProbeUrlValidator.validate(baseUrl);
+    urlGuard.validate(baseUrl);
     String prefix = config.providerId() + "/";
     List<ModelOption> prefixed =
         modelsClient.probeModels(config).stream()
@@ -118,7 +119,7 @@ public class AssistantModelsController {
     ProviderCredentialRedeemResponse redeemed = credentialService.decryptActivePayload(agentId);
     ProviderConfig config = parsePayload(redeemed.payload());
     String baseUrl = requireOption(config, "baseURL");
-    ProbeUrlValidator.validate(baseUrl);
+    urlGuard.validate(baseUrl);
 
     String prefix = config.providerId() + "/";
     List<ModelOption> prefixed =

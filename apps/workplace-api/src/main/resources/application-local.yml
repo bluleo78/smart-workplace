@@ -43,6 +43,9 @@ app:
     master-key: ${ENCRYPTION_MASTER_KEY:bG9jYWwtZGV2LWVuY3J5cHRpb24ta2V5LTMyYnkhISE=}
 
 workplace:
+  # 로컬 개발은 Ollama 등 로컬 모델 서버를 쓰므로 루프백을 허용(WP-596). 운영 기본값은 비어 있다.
+  assistant:
+    model-url-allowed-hosts: ${MODEL_URL_ALLOWED_HOSTS:localhost,127.0.0.1}
   ai-agent:
     # 로컬 ai-agent 포트(6070). base application.yml 기본값(7070) 을 로컬에서 오버라이드.
     base-url: http://localhost:6070

@@ -1,7 +1,6 @@
 package com.workplace.notify.push;
 
-import java.net.Inet4Address;
-import java.net.Inet6Address;
+import com.workplace.global.net.InternalAddresses;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
@@ -58,36 +57,8 @@ public class EndpointValidator {
     return Outcome.ALLOWED;
   }
 
-  /**
-   * 루프백·사설·링크로컬·미지정·멀티캐스트·CGNAT(100.64/10)·IPv6 ULA(fc00::/7)·NAT64 well-known prefix
-   * (64:ff9b::/96).
-   */
+  /** 내부 대역 판정 — 모델 서버 주소 검사(WP-596)와 같은 기준을 쓰도록 global 로 옮겼다. */
   static boolean isInternal(InetAddress a) {
-    if (a.isLoopbackAddress()
-        || a.isSiteLocalAddress()
-        || a.isLinkLocalAddress()
-        || a.isAnyLocalAddress()
-        || a.isMulticastAddress()) return true;
-    byte[] b = a.getAddress();
-    if (a instanceof Inet4Address) {
-      return (b[0] & 0xff) == 100 && (b[1] & 0xc0) == 64;
-    }
-    if (a instanceof Inet6Address) {
-      if ((b[0] & 0xfe) == 0xfc) return true;
-      // NAT64 well-known prefix — 뒤 32비트에 임의 IPv4(예: 루프백)를 실어 내부망을 우회할 수 있어 전체 /96 차단
-      return b[0] == 0x00
-          && b[1] == 0x64
-          && b[2] == (byte) 0xff
-          && b[3] == (byte) 0x9b
-          && b[4] == 0
-          && b[5] == 0
-          && b[6] == 0
-          && b[7] == 0
-          && b[8] == 0
-          && b[9] == 0
-          && b[10] == 0
-          && b[11] == 0;
-    }
-    return false;
+    return InternalAddresses.isInternal(a);
   }
 }

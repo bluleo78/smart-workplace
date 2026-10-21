@@ -198,3 +198,6 @@ config:
   webBaseUrl: "https://collaboria-demo.iacloud.kr"
   # Web Push VAPID 연락처 — 비우면 앱 기본값(mailto:admin@localhost)이라 iPhone(Apple) 푸시가 거부된다
   pushSubject: ""
+  # 개인 비서·AI 구성원 모델 서버 주소의 내부망 차단 예외(WP-596) — 쉼표 구분 호스트(이름·IP). 사내 LLM 전용 설치에서만 채운다.
+  # api·ai-agent 가 같은 값을 읽는다. 비우면 사설·루프백·메타데이터 주소와 http 주소는 모두 거절된다.
+  modelUrlAllowedHosts: ""

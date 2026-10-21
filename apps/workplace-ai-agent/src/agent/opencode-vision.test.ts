@@ -66,6 +66,17 @@ describe('resolveOpencodeModelVision(모델 id 만 주는 형태)', () => {
     vi.useRealTimers();
   });
 
+  // WP-596: 저장된 baseURL 이 내부 주소면 /models 조회를 보내지 않는다(알 수 없음으로 처리).
+  it('내부 IP 리터럴 baseURL 이면 조회하지 않는다', async () => {
+    fetchMock.mockImplementation(async () => okResponse(MODELS_BODY));
+    const vision = await resolveOpencodeVision(
+      { providerId: 'custom', options: { baseURL: 'http://169.254.169.254/v1', apiKey: 'k' } } as OpencodeProviderConfig,
+      'qwen3.6-35b',
+    );
+    expect(vision).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('/models 의 vision 값으로 판단하고, baseURL 끝 / 정리 + Bearer 키로 조회한다', async () => {
     fetchMock.mockImplementation(async () => okResponse(MODELS_BODY));
     expect(await resolveOpencodeVision(payload(), 'qwen3.6-35b')).toBe(true);

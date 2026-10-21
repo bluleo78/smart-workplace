@@ -40,6 +40,12 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: WORKPLACE_AI_AGENT_TOKEN
+            # 모델 서버 주소 내부망 차단 예외(WP-596) — api 와 같은 값
+            - name: MODEL_URL_ALLOWED_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: smart-workplace-config
+                  key: MODEL_URL_ALLOWED_HOSTS
           {{- include "swp.preStop" . | nindent 10 }}
           readinessProbe:
             httpGet:

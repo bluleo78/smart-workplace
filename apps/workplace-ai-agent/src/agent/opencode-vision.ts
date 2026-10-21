@@ -14,6 +14,7 @@
 // 압축되고, 그때 opencode 가 "첨부가 너무 커서 처리하지 못했다"는 안내를 모델에 넣는다(1.17.18 실측). 한도를 알면 그 전에 압축한다.
 import { createHash } from 'node:crypto';
 
+import { assertModelHostResolvesPublic } from '../clients/model-url-guard.js';
 import { log } from '../logger.js';
 import type { OpencodeProviderConfig, ProviderCredential } from './agent-runner.js';
 import { splitOpencodeModel } from './opencode-config.js';
@@ -89,9 +90,13 @@ export function parseModelsMeta(body: unknown): Map<string, ModelMeta> {
 
 async function fetchModelsMeta(baseURL: string, apiKey: string | undefined): Promise<ModelMetaMap> {
   try {
-    const res = await fetch(`${baseURL.replace(/\/+$/, '')}/models`, {
+    // WP-596: 사용자가 적은 주소라 내부망(IP 리터럴·이름이 풀린 주소)으로는 나가지 않고, 리다이렉트로 우회하지도 못하게 한다.
+    const url = new URL(`${baseURL.replace(/\/+$/, '')}/models`);
+    await assertModelHostResolvesPublic(url);
+    const res = await fetch(url.href, {
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      redirect: 'error',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return parseModelsMeta(await res.json());

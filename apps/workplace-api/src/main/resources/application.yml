@@ -85,6 +85,10 @@ workplace:
   # 자동 모델은 API 한 곳에서만 정한다(ai-agent 는 기본값 없음). 상태 응답의 suggestionModelAuto 도 이 값을 쓴다.
   ai:
     suggestion-default-model: ${WORKPLACE_AI_SUGGESTION_MODEL:}  # 비면 AiSuggestionProperties.DEFAULT_MODEL
+  # WP-596: 개인 비서·AI 구성원 모델 서버 주소(baseURL) 의 내부망 차단 예외 — 우리 운영자만 정하는 호스트 목록(쉼표 구분, 기본 비어 있음).
+  # 목록의 호스트는 사설 주소·http 여도 허용(사내 LLM 전용 설치용). ai-agent 의 같은 이름 환경 변수와 함께 맞춘다.
+  assistant:
+    model-url-allowed-hosts: ${MODEL_URL_ALLOWED_HOSTS:}
   ai-agent:
     base-url: ${WORKPLACE_AI_AGENT_URL:http://localhost:7070}
     internal-token: ${WORKPLACE_AI_AGENT_TOKEN}  # 기본값 없음 — 미설정 시 앱 기동 실패 (보안)

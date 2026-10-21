@@ -113,7 +113,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
     Long human = createHumanUserForTest("USER");
     var config =
         new ProviderConfig(
-            "openai", null, Map.of("baseURL", "http://api.example.com/v1", "apiKey", "sk-xxxx"));
+            "openai", null, Map.of("baseURL", "http://api.openai.com/v1", "apiKey", "sk-xxxx"));
     var req = new ProbeModelsRequest(config);
 
     mvc.perform(
@@ -122,6 +122,29 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(req)))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test // WP-596: https 여도 메타데이터·루프백·사설망 주소면 ai-agent 를 부르지 않고 400 (SSRF)
+  void 등록전_프로브_내부망_https는_400_ai_agent_미호출() throws Exception {
+    Long human = createHumanUserForTest("USER");
+    for (String url :
+        new String[] {
+          "https://169.254.169.254/latest/meta-data",
+          "https://127.0.0.1:6060/v1",
+          "https://10.0.0.5/v1"
+        }) {
+      var req =
+          new ProbeModelsRequest(
+              new ProviderConfig("openai", null, Map.of("baseURL", url, "apiKey", "sk-xxxx")));
+      mvc.perform(
+              post("/api/v1/users/me/assistant/models/probe")
+                  .with(authentication(authWith(human)))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(objectMapper.writeValueAsString(req)))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.message").value("내부망 주소로는 모델 서버에 접속할 수 없습니다."));
+    }
+    verifyNoInteractions(modelsClient);
   }
 
   @Test
@@ -335,7 +358,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
     Long human = createHumanUserForTest("USER");
     var config =
         new ProviderConfig(
-            "bedrock", null, Map.of("baseURL", "http://api.example.com/v1", "apiKey", "sk-xxxx"));
+            "bedrock", null, Map.of("baseURL", "http://api.openai.com/v1", "apiKey", "sk-xxxx"));
     var creReq =
         new RegisterAssistantCredentialRequest("opencode", null, config, "gpt-4.1", "opencode");
 

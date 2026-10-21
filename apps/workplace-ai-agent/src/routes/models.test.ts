@@ -165,4 +165,27 @@ describe('POST /models/anthropic/list', () => {
     const res = await request(app()).post('/models/anthropic/list').set(AUTH).send({});
     expect(res.status).toBe(400);
   });
+
+  // WP-596: 사용자가 적은 주소로 서버가 대신 접속하므로 내부망(메타데이터·루프백·사설)으로는 나가지 않는다.
+  it('내부 IP 리터럴 baseURL 은 접속하지 않고 400', async () => {
+    const scope = nock('http://169.254.169.254').get('/latest/models').reply(200, { data: [{ id: 'x' }] });
+    const res = await request(app())
+      .post('/models/list')
+      .set(AUTH)
+      .send({ options: { baseURL: 'http://169.254.169.254/latest', apiKey: 'sk-x' } });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('내부망');
+    expect(scope.isDone()).toBe(false);
+  });
+
+  it('리다이렉트는 따라가지 않는다(내부 주소로 돌려 보내도 502)', async () => {
+    nock('https://api.test').get('/models').reply(302, '', { Location: 'http://127.0.0.1:9000/models' });
+    const internal = nock('http://127.0.0.1:9000').get('/models').reply(200, { data: [{ id: 'leak' }] });
+    const res = await request(app())
+      .post('/models/list')
+      .set(AUTH)
+      .send({ options: { baseURL: 'https://api.test', apiKey: 'sk-x' } });
+    expect(res.status).toBe(502);
+    expect(internal.isDone()).toBe(false);
+  });
 });

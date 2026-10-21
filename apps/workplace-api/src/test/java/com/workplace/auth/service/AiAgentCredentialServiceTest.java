@@ -264,17 +264,25 @@ class AiAgentCredentialServiceTest extends IntegrationTestBase {
     assertThat(meta.baseUrl()).isEqualTo("https://ep.example/openai/v1");
   }
 
-  @Test // 회귀 방지: 사설망 http:// baseURL(로컬 opencode 호환 서버)도 여전히 등록 성공
-  void registerOpencodeWithPrivateNetworkHttpBaseUrl_succeeds() {
+  @Test // WP-596: 사설망 주소는 허용 목록에 없으면 http·https 모두 등록 거절(SSRF — 서버가 사내망을 대신 두드린다)
+  void registerOpencodeWithPrivateNetworkBaseUrl_throws400() {
     Long admin = createUser("admin", "HUMAN");
     Long agent = createUser("ai", "AGENT");
-    String cfg =
-        """
-        {"providerId":"bedrock","options":{"baseURL":"http://192.168.1.10:8080/v1","apiKey":"sk-test-123456789012345678901234"}}""";
-
-    var meta = service.register(admin, agent, "opencode", cfg, "bedrock", "bedrock/gpt-oss-120b");
-
-    assertThat(meta.baseUrl()).isEqualTo("http://192.168.1.10:8080/v1");
+    for (String url :
+        new String[] {
+          "http://192.168.1.10:8080/v1", "https://169.254.169.254/latest", "https://127.0.0.1/v1"
+        }) {
+      String cfg =
+          "{\"providerId\":\"bedrock\",\"options\":{\"baseURL\":\""
+              + url
+              + "\",\"apiKey\":\"sk-test-123456789012345678901234\"}}";
+      assertThatThrownBy(
+              () ->
+                  service.register(
+                      admin, agent, "opencode", cfg, "bedrock", "bedrock/gpt-oss-120b"))
+          .as(url)
+          .isInstanceOf(UnsafeProbeUrlException.class);
+    }
   }
 
   /** vision 케이스 공용 — opencode config JSON 에 vision 조각(`"vision":...`)을 붙여 등록한다. */

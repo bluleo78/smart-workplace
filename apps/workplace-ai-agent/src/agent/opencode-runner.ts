@@ -5,6 +5,7 @@
 // 실물 기준(Session/Event/Part/AssistantMessage) — 브리핑의 예시 스니펫과 필드명이 다를 수 있음.
 import { randomUUID } from 'node:crypto';
 
+import { assertModelHostResolvesPublic } from '../clients/model-url-guard.js';
 import { log } from '../logger.js';
 import type { AgentRunner, OpencodeProviderConfig, RunnerInput, RunnerStreamHandle } from './agent-runner.js';
 import { registerBridge, releaseBridge } from './bridge-registry.js';
@@ -107,6 +108,10 @@ export class OpencodeRunner implements AgentRunner {
       try {
         // WP-241·WP-250: 비전 판단과 모델 컨텍스트 한도를 provider /models 조회 한 번(credential 캐시)으로 함께 얻는다 — 한도를 알면 opencode 가
         // 한도에 닿기 전에 압축한다. 호출자가 비전을 판단해 넘겼으면 그 값. try 안에서 해야 실패해도 finally 가 브리지를 해제한다.
+        // WP-596: 저장된 모델 주소가 내부망(루프백·메타데이터·사설, 운영자 허용 목록 밖)으로 풀리면 opencode 를 띄우지 않는다 — 저장 때 API 가 막아도
+        // 이름은 실행 때 다시 풀리므로(재바인딩) 실행 직전에 한 번 더 본다.
+        const baseURL = payload.options?.baseURL;
+        if (typeof baseURL === 'string' && baseURL) await assertModelHostResolvesPublic(new URL(baseURL));
         const settings = await resolveOpencodeModelSettings(payload, i.model, i.opencodeVision);
         poolKey = poolKeyFor(i, settings);
         const stdioEntryCmd = resolveStdioEntryCmd();
