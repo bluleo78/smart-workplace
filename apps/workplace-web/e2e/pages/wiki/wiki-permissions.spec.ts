@@ -90,6 +90,10 @@ test('VIEWER 는 새 페이지·하위 페이지·삭제 버튼이 보이지 않
   await row.hover()
   await expect(row.getByRole('button', { name: '하위 페이지' })).toHaveCount(0)
   await expect(row.getByRole('button', { name: '페이지 메뉴' })).toHaveCount(0)
+  // WP-713 — 끌 수 없을 뿐 페이지는 열 수 있다: dnd-kit 의 aria-disabled 가 행·열기 버튼을 「사용 불가」로 만들지 않는다.
+  await expect(row).toHaveAttribute('role', 'group')
+  await expect(row).not.toHaveAttribute('aria-disabled', /.+/)
+  await expect(row.getByRole('button').last()).toBeEnabled()
   // 머리말 ⋯ — 버전 기록은 있고 「페이지 삭제」는 없다.
   await page.getByTestId('wiki-page-menu').click()
   await expect(page.getByTestId('wiki-menu-history')).toBeVisible()

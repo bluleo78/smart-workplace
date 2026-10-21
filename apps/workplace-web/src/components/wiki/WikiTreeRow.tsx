@@ -71,8 +71,9 @@ export function WikiTreeRow({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
+      // 편집 권한이 없으면(드래그 불가) dnd-kit 속성·리스너를 펼치지 않는다 — disabled 면 aria-disabled="true" 가 붙어 행과 그 안의
+      // 열기·접기 버튼까지 스크린리더에 「사용 불가」로 읽혔다(WP-713). 행 역할(group)만 남긴다.
+      {...(canEdit ? { ...attributes, ...listeners } : { role: 'group' })}
       aria-label={label}
       data-testid={`wiki-tree-row-${id}`}
       className={`group relative flex items-center ${isDragging ? 'opacity-50' : ''}`}

@@ -156,6 +156,30 @@ test(
   },
 );
 
+// WP-713 — 드래그가 막힌 비멤버 보드 카드에 dnd-kit 의 aria-disabled 가 붙어 카드와 「상세 보기」 링크까지 「사용 불가」로 읽혔다.
+test('OPEN 비멤버: 드래그 못 하는 보드 카드도 사용 불가로 표시되지 않고 상세로 열린다', async ({ authenticatedPage: page }) => {
+  await setupBoardMocks(page, false);
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [createIssue({ id: 7, number: 7, title: '공개 카드' })], nextCursor: null, hasMore: false }),
+      }),
+  );
+  await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+  const card = page.getByTestId('issue-card-7');
+  await expect(card).toBeVisible();
+  await expect(card).not.toHaveAttribute('aria-disabled', /.+/);
+  await expect(card).not.toHaveAttribute('aria-roledescription', /.+/);
+  const link = card.getByRole('link');
+  await expect(link).toBeEnabled();
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_KEY}/issues/7$`));
+});
+
 // WP-477 — OPEN 비멤버는 접수만 한다: 새 이슈 다이얼로그가 유형·우선순위·일정 칸 대신 안내를 보이고, 제목·본문만 보낸다
 // (서버는 기본값이 아닌 멤버 전용 값을 403 으로 거부). 판정은 projectPermissions.test.ts 의 isIntakeOnly 가 맡는다.
 test('OPEN 비멤버: 새 이슈 다이얼로그는 접수 칸만 보이고 제목·본문만 보낸다', async ({ authenticatedPage: page }) => {
