@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { isAxiosError } from 'axios';
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -12,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateProject } from '../../../hooks/queries/useProjects';
-import { handleApiError } from '../../../lib/api-error';
+import { extractApiError, handleApiError } from '../../../lib/api-error';
 import {
   type CreateProjectFormData,
   type CreateProjectFormInput,
@@ -24,7 +25,7 @@ export function ProjectCreateDialog({
   open, onOpenChange,
 }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const create = useCreateProject();
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<
+  const { register, handleSubmit, reset, watch, setValue, setError, formState: { errors } } = useForm<
     CreateProjectFormInput,
     unknown,
     CreateProjectFormData
@@ -53,6 +54,11 @@ export function ProjectCreateDialog({
       reset();
       onOpenChange(false);
     } catch (e) {
+      // key 충돌(409 — 쓰는 key·삭제된 프로젝트가 쓰던 key, WP-692)은 key 칸 아래에 보인다. 토스트는 열린 창의 배경 뒤로 가려 이유를 못 읽는다.
+      if (data.type !== 'PERSONAL' && isAxiosError(e) && e.response?.status === 409) {
+        setError('key', { message: extractApiError(e, '이미 사용 중인 key 입니다') }, { shouldFocus: true });
+        return;
+      }
       handleApiError(e, '프로젝트 생성에 실패했습니다');
     }
   };

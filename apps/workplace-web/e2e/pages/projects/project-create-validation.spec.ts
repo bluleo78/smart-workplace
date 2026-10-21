@@ -66,4 +66,34 @@ test.describe('프로젝트 생성 폼 유효성 검사 (#177)', () => {
       await expect(error).toHaveAttribute('role', 'alert')
     }
   })
+
+  // WP-692: key 충돌(409) 문구는 토스트가 아니라 key 칸 아래에 보인다 — 열린 창 배경 뒤로 토스트가 가려 이유를 못 읽었다.
+  test('삭제된 프로젝트의 key 로 만들면 서버 문구가 key 칸 오류로 보이고 창은 열려 있다(WP-692)', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject()]))
+    const message = '삭제된 프로젝트가 쓰던 key 라 다시 쓸 수 없습니다: GONE — 다른 key 를 써 주세요'
+    let body: unknown
+    await page.route('**/api/v1/projects', (route) => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      body = route.request().postDataJSON()
+      return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, message }) })
+    })
+
+    await page.goto('/projects')
+    await page.getByRole('button', { name: '+ 새 프로젝트' }).click()
+    await page.getByLabel('key (예: WP)').fill('GONE')
+    await page.getByLabel('이름').fill('새 프로젝트')
+    await page.getByRole('button', { name: '생성' }).click()
+
+    const input = page.locator('#project-key')
+    await expect(input).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.locator(`#${await input.getAttribute('aria-describedby')}`)).toHaveText(message)
+    await expect(input).toBeFocused()
+    await expect(page.getByRole('dialog', { name: '새 프로젝트' })).toBeVisible()
+    await expect(page.locator('[data-sonner-toast]').filter({ hasText: message })).toHaveCount(0)
+    expect(body).toMatchObject({ key: 'GONE', name: '새 프로젝트', type: 'TEAM' })
+
+    // key 를 고치면 서버 오류가 사라진다(다시 검증).
+    await input.fill('NEWKEY')
+    await expect(input).not.toHaveAttribute('aria-invalid', 'true')
+  })
 })
