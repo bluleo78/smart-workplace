@@ -216,6 +216,21 @@ test('에픽은 기본 접힘 — 펼침 버튼으로 하위를 펼치고 접으
   await expect(page.getByTestId('agenda-toggle-10')).toHaveCount(0);
 });
 
+// WP-688: 필터로 에픽이 빠져 하위로 묶음을 합성할 때도 서버 집계(WP-243)처럼 취소 하위를 완료로 센다 — 1/2 가 아니라 2/2.
+test('필터로 에픽이 빠진 합성 에픽도 완료·취소 하위를 완료로 센다', async ({ authenticatedPage: page }) => {
+  const parent = { number: 70, title: '필터로 빠진 에픽', type: makeEpicType() };
+  await setup(page, {
+    query: 'status=CANCELED',
+    issues: [
+      I({ id: 71, number: 71, title: '하위-완료', parent, status: 'DONE', dueDate: '2026-10-10' }),
+      I({ id: 72, number: 72, title: '하위-취소', parent, status: 'CANCELED', dueDate: '2026-10-12' }),
+    ],
+  });
+  const epic = page.getByTestId('agenda-row-70');
+  await expect(epic.getByTestId('agenda-progress').locator('[aria-hidden="true"]')).toHaveText('2/2');
+  await expect(epic.getByTestId('agenda-progress')).toContainText('하위 2개 중 2개 완료');
+});
+
 test('에픽 행 — 제목 옆 진행률 배지, 하위 실제 범위 얇은 막대와 에픽 기간 밖 초과 구간', async ({ authenticatedPage: page }) => {
   await setup(page);
   const epic = page.getByTestId('agenda-row-30');
