@@ -46,16 +46,26 @@ public class WikiSpaceRepository {
   }
 
   /**
-   * 동일 테넌트(RLS 자동 적용) 내 TEAM 공간 이름 중복 여부(대소문자 무시). excludeId 는 이름변경 시 자기 자신 제외용(현재 TEAM 공간은 이름변경
-   * API 가 없어 항상 null).
+   * callerId 가 볼 수 있는(멤버인) TEAM 공간 중 같은 이름이 있는지(대소문자 무시, #696). 볼 수 없는 공간까지 견주면 거절 여부로 남의 비공개 스페이스
+   * 존재·이름이 드러난다(WP-693 — 채널 WP-590 과 같은 범위). excludeId 는 이름변경 시 자기 자신 제외용(현재 TEAM 공간은 이름변경 API 가 없어
+   * 항상 null).
    */
-  public boolean existsTeamSpaceName(String name, Long excludeId) {
+  public boolean existsVisibleTeamSpaceName(String name, long callerId, Long excludeId) {
     // 저장값도 다듬어 비교한다 — WP-562 이전에 공백째 저장된 옛 이름도 같은 이름으로 본다.
     var cond =
         WIKI_SPACE
             .TYPE
             .eq("TEAM")
-            .and(DSL.lower(DSL.trim(WIKI_SPACE.NAME)).eq(name.strip().toLowerCase()));
+            .and(DSL.lower(DSL.trim(WIKI_SPACE.NAME)).eq(name.strip().toLowerCase()))
+            .and(
+                DSL.exists(
+                    DSL.selectOne()
+                        .from(WIKI_SPACE_MEMBER)
+                        .where(
+                            WIKI_SPACE_MEMBER
+                                .SPACE_ID
+                                .eq(WIKI_SPACE.ID)
+                                .and(WIKI_SPACE_MEMBER.USER_ID.eq(callerId)))));
     if (excludeId != null) {
       cond = cond.and(WIKI_SPACE.ID.ne(excludeId));
     }

@@ -51,12 +51,12 @@ public class DriveSpaceService {
   }
 
   /**
-   * 독립 팀 공간 생성. 생성자가 OWNER. 동일 테넌트 내 이름 중복은 하드 차단(#696 — 채팅 채널 #688/위키 스페이스/연락처 조직 그룹과 동일한 "컨테이너류
-   * 이름은 식별자" 정책).
+   * 독립 팀 공간 생성. 생성자가 OWNER. 이름은 만드는 사람이 볼 수 있는(멤버인) TEAM 공간과 겹칠 수 없다(#696 의 "컨테이너류 이름은 식별자" 정책을
+   * WP-693 에서 볼 수 있는 범위로 좁힘 — 채널 WP-590 처럼 볼 수 없는 공간 존재를 숨기려고).
    */
   @Transactional
   public DriveSpaceResponse createTeamSpace(long callerId, String name) {
-    if (spaces.existsTeamSpaceName(name, null)) {
+    if (spaces.existsVisibleTeamSpaceName(name, callerId, null)) {
       throw new DriveSpaceNameDuplicatedException(name);
     }
     long id = spaces.insert("TEAM", name, callerId);
@@ -151,12 +151,12 @@ public class DriveSpaceService {
     }
   }
 
-  /** TEAM 공간 이름 변경. OWNER 전용. 동일 테넌트 내 다른 TEAM 공간과 이름 중복 시 하드 차단(#696). */
+  /** TEAM 공간 이름 변경. OWNER 전용. 바꾸는 사람이 볼 수 있는 다른 TEAM 공간과 이름이 겹치면 차단(#696·WP-693). */
   @Transactional
   public DriveSpaceResponse renameTeamSpace(long callerId, long spaceId, String name) {
     perms.requireRole(spaceId, callerId, "OWNER");
     requireTeamSpace(spaceId);
-    if (spaces.existsTeamSpaceName(name, spaceId)) {
+    if (spaces.existsVisibleTeamSpaceName(name, callerId, spaceId)) {
       throw new DriveSpaceNameDuplicatedException(name);
     }
     spaces.rename(spaceId, name);

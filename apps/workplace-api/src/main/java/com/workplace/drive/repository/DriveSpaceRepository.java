@@ -27,9 +27,25 @@ public class DriveSpaceRepository {
         .getId();
   }
 
-  /** 동일 테넌트(RLS 자동 적용) 내 TEAM 공간 이름 중복 여부(대소문자 무시). excludeId 는 이름변경 시 자기 자신 제외용. */
-  public boolean existsTeamSpaceName(String name, Long excludeId) {
-    var cond = DRIVE_SPACE.TYPE.eq("TEAM").and(DSL.lower(DRIVE_SPACE.NAME).eq(name.toLowerCase()));
+  /**
+   * callerId 가 볼 수 있는(멤버인) TEAM 공간 중 같은 이름이 있는지(대소문자 무시, #696). 볼 수 없는 공간까지 견주면 거절 여부로 남의 비공개 공간
+   * 존재·이름이 드러난다(WP-693 — 채널 WP-590 과 같은 범위). excludeId 는 이름변경 시 자기 자신 제외용.
+   */
+  public boolean existsVisibleTeamSpaceName(String name, long callerId, Long excludeId) {
+    var cond =
+        DRIVE_SPACE
+            .TYPE
+            .eq("TEAM")
+            .and(DSL.lower(DRIVE_SPACE.NAME).eq(name.toLowerCase()))
+            .and(
+                DSL.exists(
+                    DSL.selectOne()
+                        .from(DRIVE_SPACE_MEMBER)
+                        .where(
+                            DRIVE_SPACE_MEMBER
+                                .SPACE_ID
+                                .eq(DRIVE_SPACE.ID)
+                                .and(DRIVE_SPACE_MEMBER.USER_ID.eq(callerId)))));
     if (excludeId != null) {
       cond = cond.and(DRIVE_SPACE.ID.ne(excludeId));
     }

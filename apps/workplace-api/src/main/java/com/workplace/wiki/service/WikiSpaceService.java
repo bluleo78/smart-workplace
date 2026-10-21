@@ -57,14 +57,14 @@ public class WikiSpaceService {
   }
 
   /**
-   * 독립 팀 공간 생성. 생성자가 OWNER. 동일 테넌트 내 이름 중복은 하드 차단(#696 — 채팅 채널 #688/드라이브 공간/연락처 조직 그룹과 동일한 "컨테이너류
-   * 이름은 식별자" 정책).
+   * 독립 팀 공간 생성. 생성자가 OWNER. 이름은 만드는 사람이 볼 수 있는(멤버인) TEAM 공간과 겹칠 수 없다(#696 의 "컨테이너류 이름은 식별자" 정책을
+   * WP-693 에서 볼 수 있는 범위로 좁힘 — 채널 WP-590 처럼 볼 수 없는 공간 존재를 숨기려고).
    */
   @Transactional
   public WikiSpaceResponse createTeamSpace(long callerId, String rawName) {
     // 앞뒤 공백을 다듬고 NFC 로 맞춰 저장·중복 판정한다(WP-562) — 공백만 다른 이름이 목록에 같은 이름으로 두 번 보이지 않게.
     String name = UnicodeNames.toNfc(rawName.strip());
-    if (spaces.existsTeamSpaceName(name, null)) {
+    if (spaces.existsVisibleTeamSpaceName(name, callerId, null)) {
       throw new WikiSpaceNameDuplicatedException(name);
     }
     long id = spaces.insert("TEAM", name, callerId);
