@@ -249,6 +249,28 @@ class DriveSpaceServiceTest extends IntegrationTestBase {
         .isInstanceOf(DriveSpaceNameDuplicatedException.class);
   }
 
+  /**
+   * WP-693 — 비멤버는 볼 수 없는 팀 공간과 같은 이름으로 만들거나 바꿀 수 있다. 거절하면 409 냐 201 이냐로 남의 비공개 공간 존재·이름이 드러난다(채널
+   * WP-590 과 같은 정책).
+   */
+  @Test
+  void teamSpaceName_onlyConflictsWithSpacesCallerCanSee() {
+    long owner = seedUser();
+    long stranger = seedUser();
+    spaceService.createTeamSpace(owner, "인사-구조조정");
+
+    DriveSpaceResponse mine = spaceService.createTeamSpace(stranger, "인사-구조조정");
+    assertThat(mine.name()).isEqualTo("인사-구조조정");
+
+    DriveSpaceResponse other = spaceService.createTeamSpace(stranger, "다른이름공간");
+    spaceService.createTeamSpace(owner, "임원-보상");
+    assertThat(spaceService.renameTeamSpace(stranger, other.id(), "임원-보상").name())
+        .isEqualTo("임원-보상");
+    // 자기가 볼 수 있는(멤버인) 공간과는 여전히 겹칠 수 없다.
+    assertThatThrownBy(() -> spaceService.renameTeamSpace(stranger, other.id(), "인사-구조조정"))
+        .isInstanceOf(DriveSpaceNameDuplicatedException.class);
+  }
+
   // 테넌트 간 이름 비간섭은 RLS 격리(GUC 스코프)로 구조적으로 보장되며 TenantContextGucTest 등에서 별도
   // 검증한다 — @Transactional 단일 트랜잭션 테스트에서는 GUC 가 트랜잭션 시작 시 1회만 주입되므로(TenantContext
   // 를 테스트 본문 중간에 바꿔도 세션 GUC 는 갱신되지 않음, TenantAwareTransactionManager) 이 테스트 클래스
