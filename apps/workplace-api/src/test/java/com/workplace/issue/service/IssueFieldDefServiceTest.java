@@ -270,4 +270,23 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
 
     assertThat(updated.options().size()).isEqualTo(2);
   }
+
+  /** WP-691 — 삭제된 이슈만 쓰던 옵션은 「쓰는 이슈」가 없으므로 뺄 수 있다(삭제 이슈는 되살릴 수 없고 보이지도 않는다). */
+  @Test
+  void patch_removing_option_used_only_by_deleted_issue_succeeds() {
+    Long owner = createUser("l");
+    var p = newProject(owner, "FSL");
+    var opts = om.createArrayNode().add("기획").add("개발").add("폐기");
+    var def = service.create(owner, p.key(), new CreateIssueFieldDefRequest("단계", "SELECT", opts));
+    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    valueRepo.upsert(issue.id(), def.id(), om.valueToTree("폐기"));
+    issueRepository.softDelete(issue.id(), java.time.Instant.now());
+
+    var shrunk = om.createArrayNode().add("기획").add("개발");
+    var updated =
+        service.update(
+            owner, p.key(), def.id(), new CreateIssueFieldDefRequest("단계", "SELECT", shrunk));
+
+    assertThat(updated.options().size()).isEqualTo(2);
+  }
 }
