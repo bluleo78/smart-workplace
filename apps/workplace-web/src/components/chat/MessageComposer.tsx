@@ -2,7 +2,7 @@
 // 한 줄 레이아웃 [＋] [입력] [보내기](WP-235). ＋ 메뉴(ComposerAttachMenu)·이미지 붙여넣기·파일 드롭 → 즉시 사전 업로드(pending 칩),
 // 전송 시 fileIds 동봉. 드라이브 링크: ＋ → 드라이브에서 링크(피커는 ComposerAttachMenu 소유) → pending 칩, 전송 시 driveFileIds 동봉.
 // 본문이 비어도 첨부/드라이브 링크가 있으면 전송 허용(첨부만 있는 메시지).
-// 보관 채널(archived)은 입력기 대신 "보관됨" 안내만, 단순 비활성(disabled)은 입력기를 숨긴다.
+// 보관 채널(archived)·보낼 수 없는 대화(blockedNotice, 예: 정지된 상대 — WP-723)는 입력기 대신 안내만, 단순 비활성(disabled)은 입력기를 숨긴다.
 import { messagingApi } from '@/api/messaging'
 import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips'
 import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu'
@@ -26,6 +26,7 @@ export function MessageComposer({
   uploadFn,
   disabled = false,
   archived = false,
+  blockedNotice,
 }: {
   // 첨부 사전 업로드 대상 채널.
   channelId: number
@@ -41,6 +42,8 @@ export function MessageComposer({
   disabled?: boolean
   // 보관된 채널 — "보관됨" 안내만 표시하고 입력기를 띄우지 않는다.
   archived?: boolean
+  // 보낼 수 없는 대화의 안내 문구 — 있으면 입력기 대신 이 문구만 보인다(예: 받는 사람이 모두 정지된 DM, WP-723).
+  blockedNotice?: string
 }) {
   // 첨부 초안 상태 — 파일 사전 업로드(pending) + 드라이브 링크(pendingDrive) + 개인 스페이스(드라이브 피커 시작 위치).
   // uploadFn 으로 팀 채팅 업로드 API 주입 (#358 공유 훅).
@@ -62,11 +65,14 @@ export function MessageComposer({
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235). 보관·비활성으로 입력기가 없을 땐 래퍼도 렌더되지 않는다.
   const { isDragging, dropProps } = useComposerFileDrop(onFiles)
 
-  // 보관된 채널은 입력기를 띄우지 않고 안내만 표시(전송 자체를 차단).
-  if (archived) {
+  // 보관된 채널·보낼 수 없는 대화는 입력기를 띄우지 않고 안내만 표시(전송 자체를 차단).
+  const notice = archived ? '이 채널은 보관되었습니다' : blockedNotice
+  if (notice) {
     return (
       <div className={cn('border-t py-3', composerGutterClass)}>
-        <p className="text-sm text-muted-foreground">이 채널은 보관되었습니다</p>
+        <p className="text-sm text-muted-foreground" data-testid="composer-blocked-notice">
+          {notice}
+        </p>
       </div>
     )
   }

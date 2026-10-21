@@ -1,5 +1,6 @@
 package com.workplace.messaging.repository;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,18 +42,28 @@ class MessagingSummaryRepositoryTest extends IntegrationTestBase {
     other = seedUser("other");
   }
 
-  /** 고유 사용자 시드 헬퍼. */
+  /**
+   * 고유 사용자 시드 헬퍼 — tenant#1 ACTIVE 멤버십도 함께 넣는다. 멤버십 없는 사용자는 이 워크스페이스에서 비활성이라 그 상대와의 1:1 DM 에는 보낼 수
+   * 없다(WP-723).
+   */
   private long seedUser(String prefix) {
     String s = UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8);
     String name = prefix.equals("other") ? "Other User" : "Me User";
-    return dsl.insertInto(USER)
-        .set(USER.USERNAME, prefix + "_" + s)
-        .set(USER.PASSWORD, "pw")
-        .set(USER.NAME, name)
-        .set(USER.EMAIL, prefix + "_" + s + "@example.com")
-        .returning(USER.ID)
-        .fetchOne()
-        .getId();
+    long id =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, prefix + "_" + s)
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, name)
+            .set(USER.EMAIL, prefix + "_" + s + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(MEMBERSHIP)
+        .set(MEMBERSHIP.USER_ID, id)
+        .set(MEMBERSHIP.TENANT_ID, 1L)
+        .set(MEMBERSHIP.STATUS, "ACTIVE")
+        .execute();
+    return id;
   }
 
   /**

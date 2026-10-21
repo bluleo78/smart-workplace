@@ -102,6 +102,12 @@ export function ChannelMembersPanel({
                   className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm"
                 >
                   <span className="flex-1 truncate">{m.name}</span>
+                  {/* 정지된 구성원 표시 — 로그인할 수 없는 사람을 다른 멤버와 구분한다(WP-723). */}
+                  {m.active === false && (
+                    <Badge variant="outline" className="shrink-0" data-testid={`member-inactive-${m.userId}`}>
+                      비활성
+                    </Badge>
+                  )}
                   {/* OWNER 는 타인 역할을 네이티브 select 로 변경 가능.
                       shadcn Select(Radix)는 Playwright selectOption 미동작 → 네이티브 select 사용. */}
                   {isOwner && !isSelf ? (

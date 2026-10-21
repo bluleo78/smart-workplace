@@ -318,6 +318,29 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('message-body-5')).toHaveText('안녕 밥')
   })
 
+  test('정지된 상대와의 DM — 헤더에 「비활성」, 입력창 대신 보낼 수 없다는 안내 (WP-723)', async ({
+    authenticatedPage: page,
+  }) => {
+    const dm = createDm({
+      id: 105,
+      participants: [
+        createDmParticipant({ userId: 1, name: '나', active: true }),
+        createDmParticipant({ userId: 2, name: '퇴사자', active: false }),
+      ],
+    })
+    await stubLists(page, [dm])
+    await stubMessages(page, 105, [createMessage({ id: 9, channelId: 105, authorId: 1, body: '퇴사 전 메시지' })])
+    await stubMarkRead(page, 105)
+    await page.goto('/chat/dms/105')
+
+    await expect(page.getByTestId('dm-title')).toHaveText('퇴사자')
+    await expect(page.getByTestId('dm-inactive-badge')).toHaveText('비활성')
+    await expect(page.getByTestId('composer-blocked-notice')).toHaveText('비활성화된 구성원이라 메시지를 보낼 수 없습니다')
+    // 지난 대화는 그대로 읽을 수 있고, 입력창은 없다
+    await expect(page.getByTestId('message-body-9')).toHaveText('퇴사 전 메시지')
+    await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
+  })
+
   // WP-368 — 열린 DM 행만 선택 표시(막대 + bg-selected), 다른 DM·셀프 DM 행엔 없다. 색 차이는 계산된 배경으로 확인.
   test('사이드바 — 열린 DM 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({ authenticatedPage: page }) => {
     const dms = [

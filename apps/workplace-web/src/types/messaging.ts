@@ -38,6 +38,7 @@ export interface ChannelMemberResponse {
   kind: UserKind;
   role: ChannelRole;
   joinedAt: string;
+  active?: boolean; // 이 워크스페이스에서 활성 — false 면 정지된 구성원(WP-723). 없으면 활성으로 본다
 }
 
 /** 메시지 내 멘션된 사용자 정보. */
@@ -171,6 +172,7 @@ export interface DmParticipant {
   userId: number;
   name: string;
   kind: UserKind;
+  active?: boolean; // 이 워크스페이스에서 활성 — false 면 정지된 구성원(WP-723). 없으면 활성으로 본다
 }
 
 /** DM 1건 — name 이 없으므로 참여자에서 표시명 파생. */

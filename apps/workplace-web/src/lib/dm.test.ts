@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { DmResponse } from '@/types/messaging'
 
-import { dmDisplayName, isSelfDm } from './dm'
+import { dmDisplayName, isDmRecipientInactive, isSelfDm } from './dm'
 
-function dm(participants: { userId: number; name: string }[]): DmResponse {
+function dm(participants: { userId: number; name: string; active?: boolean }[]): DmResponse {
   return {
     id: 1,
     participants: participants.map((p) => ({ ...p, kind: 'HUMAN' as const })),
@@ -37,5 +37,32 @@ describe('isSelfDm', () => {
   })
   it('참여자 없음 → false', () => {
     expect(isSelfDm(dm([]), 1)).toBe(false)
+  })
+})
+
+describe('isDmRecipientInactive (WP-723)', () => {
+  it('1:1 상대가 정지 → true', () => {
+    expect(isDmRecipientInactive(dm([{ userId: 1, name: '나' }, { userId: 2, name: '퇴사자', active: false }]), 1)).toBe(true)
+  })
+  it('1:1 상대가 활성(필드 없음 포함) → false', () => {
+    expect(isDmRecipientInactive(dm([{ userId: 1, name: '나' }, { userId: 2, name: '밥', active: true }]), 1)).toBe(false)
+    expect(isDmRecipientInactive(dm([{ userId: 1, name: '나' }, { userId: 2, name: '밥' }]), 1)).toBe(false)
+  })
+  it('그룹 DM 에 활성 상대가 남아 있으면 false, 모두 정지면 true', () => {
+    expect(
+      isDmRecipientInactive(
+        dm([{ userId: 1, name: '나' }, { userId: 2, name: '퇴사자', active: false }, { userId: 3, name: '밥', active: true }]),
+        1,
+      ),
+    ).toBe(false)
+    expect(
+      isDmRecipientInactive(
+        dm([{ userId: 1, name: '나' }, { userId: 2, name: 'A', active: false }, { userId: 3, name: 'B', active: false }]),
+        1,
+      ),
+    ).toBe(true)
+  })
+  it('셀프 DM(나만) → false', () => {
+    expect(isDmRecipientInactive(dm([{ userId: 1, name: '나' }]), 1)).toBe(false)
   })
 })

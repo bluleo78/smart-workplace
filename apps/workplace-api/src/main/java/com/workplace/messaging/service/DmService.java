@@ -1,7 +1,9 @@
 package com.workplace.messaging.service;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.messaging.dto.DmResponse;
+import com.workplace.messaging.exception.InactiveMemberException;
 import com.workplace.messaging.exception.InvalidDmRequestException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.repository.ChannelMemberRepository;
@@ -59,12 +61,21 @@ public class DmService {
     // DM 참여자 유효성 검사 — 존재 여부 + 현재 테넌트 멤버십(테넌트 경계를 넘는 DM 생성 차단, 설계 §4).
     Long tenantId = TenantContext.get();
     for (Long uid : members) {
-      if (!userRepo.existsById(uid)) {
-        throw new InvalidDmRequestException("존재하지 않는 사용자가 포함되어 있습니다");
-      }
-      if (tenantId == null || !membershipRepo.hasActiveMembership(uid, tenantId)) {
+      var user =
+          userRepo
+              .findById(uid)
+              .orElseThrow(() -> new InvalidDmRequestException("존재하지 않는 사용자가 포함되어 있습니다"));
+      var status =
+          tenantId == null
+              ? java.util.Optional.<String>empty()
+              : membershipRepo.findStatus(uid, tenantId);
+      if (status.isEmpty()) {
         // 토스트로 보이는 문구라 사용자 id 는 싣지 않는다(WP-510).
         throw new InvalidDmRequestException("현재 워크스페이스의 멤버가 아닌 사용자가 포함되어 있습니다");
+      }
+      // WP-723: 멤버지만 정지(또는 전역 비활성)된 사람은 「멤버가 아닌 사용자」가 아니라 실제 이유로 거절한다.
+      if (!WorkspaceActive.of(user.isActive(), status.get())) {
+        throw new InactiveMemberException("비활성화된 구성원과는 대화를 시작할 수 없습니다");
       }
     }
     String memberKey =

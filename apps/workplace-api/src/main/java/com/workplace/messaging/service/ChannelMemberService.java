@@ -1,16 +1,19 @@
 package com.workplace.messaging.service;
 
 import com.workplace.global.tenant.MembershipGuard;
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.exception.AgentCannotOwnChannelException;
 import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
+import com.workplace.messaging.exception.InactiveMemberException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.user.dto.UserKind;
+import com.workplace.user.repository.UserRepository;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +31,7 @@ public class ChannelMemberService {
   private final MembershipGuard membershipGuard;
   private final ChannelChangeNotifier changeNotifier;
   private final ChannelRosterPublisher rosterPublisher;
+  private final UserRepository userRepo;
 
   private static final List<String> VALID_ROLES = List.of("OWNER", "ADMIN", "MEMBER");
 
@@ -72,6 +76,14 @@ public class ChannelMemberService {
     // 보관된 채널은 읽기 전용 — 멤버를 새로 넣을 수 없다(WP-508). 내보내기·나가기는 정리용이라 허용한다.
     if (channelRepo.isArchived(channelId))
       throw new ChannelArchivedException(channelId, "보관된 채널에는 구성원을 초대할 수 없습니다");
+    // WP-723: 이 워크스페이스 구성원이지만 정지(또는 전역 비활성)된 대상은 「권한이 없습니다」가 아니라 실제 이유로 거절한다
+    // (프로젝트 멤버 추가의 「비활성화된 사용자는 멤버로 추가할 수 없습니다」와 같은 판정).
+    var status = membershipGuard.membershipStatus(targetUserId);
+    if (status.isPresent()
+        && !WorkspaceActive.of(
+            userRepo.findById(targetUserId).map(u -> u.isActive()).orElse(false), status.get())) {
+      throw new InactiveMemberException("비활성화된 구성원은 채널에 초대할 수 없습니다");
+    }
     // 추가 대상 사용자가 현재 테넌트의 활성 멤버인지 확인 — 테넌트 경계를 넘는 채널 멤버십 차단(설계 §4).
     // project/wiki/drive 공간 addMember 와 공용 헬퍼(MembershipGuard)로 정책 통일 (#713).
     if (membershipGuard.isForeignUser(targetUserId)) {
