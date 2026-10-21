@@ -622,4 +622,74 @@ class UserGroupServiceTest extends IntegrationTestBase {
     UserGroupDetail seen = service.getDetail(admin, g.id());
     assertThat(seen.id()).isEqualTo(g.id());
   }
+
+  /**
+   * WP-677: 관리자라도 남의 개인 그룹을 다른 주인(자기)의 개인 그룹 밑으로 옮길 수 없다 — 옮기면 주인·관리자 트리 어디에도 안 보였다. 같은 주인의 개인 그룹
+   * 밑으로는 옮길 수 있다.
+   */
+  @Test
+  void update_adminMovesOthersPersonalUnderOwnPersonal_throwsInvalid_sameOwnerAllowed() {
+    long owner = user();
+    long admin = user();
+    makeAdmin(admin);
+    UserGroupDetail mine = service.create(owner, req("B의 개인그룹", null, "PERSONAL"));
+    UserGroupDetail mine2 = service.create(owner, req("B의 다른 그룹", null, "PERSONAL"));
+    UserGroupDetail adminGroup = service.create(admin, req("관리자 개인그룹", null, "PERSONAL"));
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    admin,
+                    mine.id(),
+                    new UpdateUserGroupRequest(null, adminGroup.id(), null, null, null, null)))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessage("같은 사람의 개인 그룹 밑으로만 옮길 수 있습니다");
+    assertThat(service.getDetail(owner, mine.id()).parentId()).isNull();
+
+    // 같은 주인(B)의 개인 그룹 밑으로는 관리자가 옮길 수 있다.
+    service.update(
+        admin, mine.id(), new UpdateUserGroupRequest(null, mine2.id(), null, null, null, null));
+    assertThat(service.getDetail(owner, mine.id()).parentId()).isEqualTo(mine2.id());
+  }
+
+  /** WP-677: 관리자가 남의 개인 그룹을 그 그룹의 자손 밑으로 옮기는 순환도 막는다(자손은 주인의 트리로 판단). */
+  @Test
+  void update_adminMovesOthersPersonalUnderItsDescendant_throwsInvalid() {
+    long owner = user();
+    long admin = user();
+    makeAdmin(admin);
+    UserGroupDetail parent = service.create(owner, req("부모", null, "PERSONAL"));
+    UserGroupDetail child = service.create(owner, req("자식", parent.id(), "PERSONAL"));
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    admin,
+                    parent.id(),
+                    new UpdateUserGroupRequest(null, child.id(), null, null, null, null)))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessage("그룹을 자손 그룹의 하위로 옮길 수 없습니다");
+  }
+
+  /** WP-677: 없는 부모·볼 수 없는 외부 연락처 오류 문구에 내부 id 가 남지 않는다(WP-672 후속). */
+  @Test
+  void errors_doNotExposeInternalIds() {
+    long caller = user();
+    long other = user();
+    long privContact =
+        dsl.insertInto(com.workplace.jooq.Tables.CONTACT_ENTRY)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.NAME, "남의 연락처")
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.OWNER_ID, other)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.VISIBILITY, "PERSONAL")
+            .returning(com.workplace.jooq.Tables.CONTACT_ENTRY.ID)
+            .fetchOne()
+            .getId();
+    UserGroupDetail g = service.create(caller, req("내 그룹", null, "PERSONAL"));
+    assertThatThrownBy(
+            () -> service.addMember(caller, g.id(), new AddMemberRequest("EXTERNAL", privContact)))
+        .hasMessage("접근할 수 없는 외부 연락처입니다");
+    assertThatThrownBy(() -> service.create(caller, req("고아", 987_654L, "PERSONAL")))
+        .isInstanceOf(InvalidUserGroupException.class)
+        .hasMessage("부모 그룹이 없습니다");
+  }
 }

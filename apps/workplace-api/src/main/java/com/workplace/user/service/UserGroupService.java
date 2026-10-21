@@ -81,7 +81,7 @@ public class UserGroupService {
     }
     Long ownerId = shared ? null : callerId;
     if (req.parentId() != null) {
-      validateParent(callerId, req.visibility(), req.parentId());
+      validateParent(ownerId, req.visibility(), req.parentId());
     }
     if (repo.existsSiblingName(req.parentId(), req.visibility(), ownerId, req.name(), null)) {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + req.name());
@@ -118,10 +118,13 @@ public class UserGroupService {
       if (req.parentId() == id) {
         throw new InvalidUserGroupException("그룹을 자기 자신의 하위로 옮길 수 없습니다");
       }
-      if (descendants(callerId, id).contains(req.parentId())) {
+      // 자손·부모는 호출자가 아니라 이 그룹 주인 기준으로 본다(WP-677) — 관리자가 남의 개인 그룹을 옮길 때 관리자 트리에는 그 자손이 없어
+      // 순환을 놓쳤고, 「부모 주인 == 호출자」만 봐 남의 그룹을 관리자 개인 그룹 밑으로 옮겨 양쪽 트리에서 사라지게 했다.
+      long viewerId = g.ownerId() != null ? g.ownerId() : callerId;
+      if (descendants(viewerId, id).contains(req.parentId())) {
         throw new InvalidUserGroupException("그룹을 자손 그룹의 하위로 옮길 수 없습니다");
       }
-      validateParent(callerId, g.visibility(), req.parentId());
+      validateParent(g.ownerId(), g.visibility(), req.parentId());
     }
     if (repo.existsSiblingName(parentId, g.visibility(), g.ownerId(), name, id)) {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + name);
@@ -166,7 +169,8 @@ public class UserGroupService {
     } else { // EXTERNAL
       boolean admin = permissionChecker.userHasRole(callerId, "ADMIN");
       if (!repo.externalReadable(callerId, admin, req.targetId())) {
-        throw new InvalidUserGroupException("접근할 수 없는 외부 연락처입니다: " + req.targetId());
+        // 문구에 id 를 넣지 않는다 — 화면·AI 에 내부 번호가 보였다(WP-672 와 같은 부류, WP-677).
+        throw new InvalidUserGroupException("접근할 수 없는 외부 연락처입니다");
       }
     }
     repo.addMember(id, req.targetType(), req.targetId());
@@ -211,17 +215,20 @@ public class UserGroupService {
     }
   }
 
-  /** 부모 검증 — 존재·접근가능·동일 visibility, PERSONAL 은 동일 owner. */
-  private void validateParent(long callerId, String visibility, long parentId) {
+  /**
+   * 부모 검증 — 존재·동일 visibility, PERSONAL 은 부모 주인이 이 그룹 주인(ownerId)과 같아야 한다. 호출자가 아니라 그룹 주인과
+   * 비교한다(WP-677) — 관리자는 남의 개인 그룹을 고칠 수 있지만, 다른 사람의 개인 그룹 밑에 두면 주인 트리에도 그 사람 트리에도 보이지 않는다. 문구에 id 를
+   * 넣지 않는다(WP-672).
+   */
+  private void validateParent(Long ownerId, String visibility, long parentId) {
     FlatGroup parent =
-        repo.findById(parentId)
-            .orElseThrow(() -> new InvalidUserGroupException("부모 그룹이 없습니다: " + parentId));
+        repo.findById(parentId).orElseThrow(() -> new InvalidUserGroupException("부모 그룹이 없습니다"));
     if (!parent.visibility().equals(visibility)) {
       throw new InvalidUserGroupException("부모 그룹의 공개 범위가 다릅니다");
     }
     if ("PERSONAL".equals(visibility)
-        && (parent.ownerId() == null || parent.ownerId() != callerId)) {
-      throw new InvalidUserGroupException("본인 소유의 부모 그룹만 지정할 수 있습니다");
+        && (parent.ownerId() == null || !parent.ownerId().equals(ownerId))) {
+      throw new InvalidUserGroupException("같은 사람의 개인 그룹 밑으로만 옮길 수 있습니다");
     }
   }
 
