@@ -17,10 +17,29 @@ export function iGa(word: string) {
   return code >= 0 && code % 28 > 0 ? '이' : '가';
 }
 
-/** 이름 뒤 주격 조사 — 한글 음절로 끝나면 받침에 따라 이/가, 아니면(영문·숫자 등) 「이(가)」. 사용자가 정한 이름에 쓴다. */
-export function subjectParticle(name: string) {
+/**
+ * 사용자가 정한 이름·검색어 뒤 조사 — 한글 음절로 끝나면 받침에 따라 withJong/noJong 중 하나, 아니면(영문·숫자 등)
+ * 받침을 알 수 없어 「이(가)」처럼 둘 다 적는다(WP-647·679).
+ */
+function nameParticle(name: string, withJong: string, noJong: string, unknown: string) {
   const code = name.charCodeAt(name.length - 1);
-  return code >= 0xac00 && code <= 0xd7a3 ? iGa(name) : '이(가)';
+  if (code < 0xac00 || code > 0xd7a3) return unknown;
+  return (code - 0xac00) % 28 > 0 ? withJong : noJong;
+}
+
+/** 이름 뒤 주격 조사 — 이/가, 한글이 아니면 「이(가)」. */
+export function subjectParticle(name: string) {
+  return nameParticle(name, '이', '가', '이(가)');
+}
+
+/** 이름 뒤 목적격 조사 — 을/를, 한글이 아니면 「을(를)」. */
+export function objectParticle(name: string) {
+  return nameParticle(name, '을', '를', '을(를)');
+}
+
+/** 이름·검색어 뒤 접속 조사 — 과/와, 한글이 아니면 「와(과)」. */
+export function andParticle(name: string) {
+  return nameParticle(name, '과', '와', '와(과)');
 }
 
 /** 마지막 음절 받침 유무에 따라 "은"/"는" 반환 */

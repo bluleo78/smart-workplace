@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { SearchInput } from '@/components/ui/search-input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { filterSpaces, parseSpaceParam, refOf, sameSpace, SPACE_GROUPS, SPACE_SEARCH_OVER, spaceLabel, spaceParam } from '@/lib/sharedAiMemory';
-import { cn } from '@/lib/utils';
+import { andParticle, cn } from '@/lib/utils';
 import type { SharedMemorySpace, SharedSpaceRef } from '@/types/sharedAiMemory';
 
 export function SharedSpacePicker({
@@ -84,7 +84,7 @@ export function SharedSpacePicker({
             </div>
           );
         })}
-        {searchable && shown.length === 0 && <p className="px-2 text-xs text-muted-foreground">'{q.trim()}'와 맞는 공간이 없어요.</p>}
+        {searchable && shown.length === 0 && <p className="px-2 text-xs text-muted-foreground">'{q.trim()}'{andParticle(q.trim())} 맞는 공간이 없어요.</p>}
       </nav>
     </>
   );
