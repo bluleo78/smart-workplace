@@ -68,6 +68,7 @@ class CalendarReadOnlyGuardTest extends IntegrationTestBase {
                           OffsetDateTime.parse("2026-07-10T10:00:00Z"),
                           false,
                           null,
+                          null,
                           null));
               // 로컬 일정: 기본 캘린더(읽기전용 아님)에 생성 — 가드 오발동 회귀용
               long localCalId = calendarService.ensureDefault(ownerId);

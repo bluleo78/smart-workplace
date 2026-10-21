@@ -7,7 +7,7 @@ import { isSameDay } from 'date-fns'
 import { allDayLocalDate } from '@/lib/calendar'
 import { formatLocalDateWithWeekday as dateLabel, localClockParts, WEEKDAY_KO } from '@/lib/formatters'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
-import type { Attendee, CalendarEvent, RsvpStatus } from '@/types/calendar'
+import type { Attendee, CalendarEvent, OnlineMeetingProvider, RsvpStatus } from '@/types/calendar'
 
 /**
  * 일정 시간 표시 — 날짜 줄과 시각 줄.
@@ -152,17 +152,85 @@ function trimUrlEnd(url: string): string {
 /**
  * 설명 글을 텍스트·링크 조각으로 나눈다 — 보기 화면에서 URL 만 누를 수 있게 한다.
  * 줄바꿈은 텍스트 조각에 그대로 남는다(렌더 쪽 whitespace-pre-wrap). http(s) 만 링크로 만든다(javascript: 등 차단).
+ * URL 이 꺾쇠로 감싸진 `<https://…>` 꼴이면(M365 가 텍스트로 바꾼 본문은 링크를 `글자<https://…>` 로 준다) 꺾쇠는 화면에서 뺀다 —
+ * 꺾쇠가 URL 의 경계를 확정하므로 이 경우엔 문장부호 다듬기를 하지 않는다.
  */
 export function splitTextLinks(text: string): TextSegment[] {
   const out: TextSegment[] = []
   let last = 0
   for (const m of text.matchAll(URL_RE)) {
-    const url = trimUrlEnd(m[0])
     const start = m.index
-    if (start > last) out.push({ type: 'text', text: text.slice(last, start) })
+    const wrapped = start > 0 && text[start - 1] === '<' && text[start + m[0].length] === '>'
+    const url = wrapped ? m[0] : trimUrlEnd(m[0])
+    const textEnd = wrapped ? start - 1 : start
+    if (textEnd > last) out.push({ type: 'text', text: text.slice(last, textEnd) })
     out.push({ type: 'link', text: url, href: url })
-    last = start + url.length
+    last = start + url.length + (wrapped ? 1 : 0)
   }
   if (last < text.length) out.push({ type: 'text', text: text.slice(last) })
   return out
+}
+
+/** 회의 참가 버튼 문구 — 공급자별로 사람이 부르는 이름을 쓴다. 알 수 없는 공급자는 「온라인 회의 참가」. */
+export function joinButtonLabel(provider: OnlineMeetingProvider): string {
+  switch (provider) {
+    case 'TEAMS':
+      return 'Teams 회의 참가'
+    case 'MEET':
+      return 'Google Meet 참가'
+    case 'ZOOM':
+      return 'Zoom 회의 참가'
+    default:
+      return '온라인 회의 참가'
+  }
+}
+
+// 밑줄만 20자 이상인 줄 — Teams 초대 본문이 안내문 앞뒤를 가르는 구분선
+const SEPARATOR_RE = /^_{20,}$/
+
+/** Teams 초대 안내문의 밑줄 구분선 줄인가 — 화면은 이 줄을 밑줄 글자 대신 가는 선으로 그린다(좁은 화면에서 밑줄 80자가 꺾여 두 줄이 되는 것을 막는다). */
+export function isMeetingSeparatorLine(line: string): boolean {
+  return SEPARATOR_RE.test(line.trim())
+}
+
+/** Teams 초대 안내문 덩어리가 차지할 수 있는 최대 줄 수(시작 구분선 포함) — 이 창 밖의 글은 보낸 사람이 쓴 글로 본다. */
+const MEETING_BLOCK_WINDOW = 20
+
+/**
+ * 설명에서 Teams 초대 안내문 덩어리를 떼어 낸다 — 본문(사람이 쓴 글)과 접어 둘 안내문으로 나눈다.
+ * Teams 초대는 80자 밑줄 줄 사이에 「Microsoft Teams 모임 / 참가 / 모임 ID / 암호」와 도움말 링크를 넣는데,
+ * 참가 링크는 버튼이 대신하므로 설명에서는 접어 두는 편이 읽기 좋다.
+ * 규칙: 밑줄 구분선 다음 첫 비어 있지 않은 줄에 「Microsoft Teams」가 있으면 시작점. 끝은 시작 줄부터 MEETING_BLOCK_WINDOW(20)줄 창 안의
+ * 마지막 밑줄 구분선(포함). 창 안에 다른 구분선이 없으면 남은 글이 창 이하일 때만 글 끝까지, 더 길면 창 끝까지가 안내문이다.
+ * 창을 두는 이유: 실제 안내문은 구분선이 2~3줄(위·아래, 표시에 따라 중간) 들어간 짧은 덩어리인데, 글 전체의 마지막 구분선을 끝으로 잡으면
+ * 보낸 사람이 안내문 뒤에 쓴 서명선(____)·후속 글까지 접혀 버린다. 안내문 뒤에 사람이 쓴 글이 있으면 본문 뒤에 이어 붙인다(잃지 않게).
+ * 해당하지 않으면 boilerplate=null 이고 body 는 원문 그대로. 줄바꿈은 \r\n 도 \n 으로 맞춰 다룬다.
+ */
+export function splitMeetingBoilerplate(text: string): { body: string; boilerplate: string | null } {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  const start = lines.findIndex((line, i) => {
+    if (!isMeetingSeparatorLine(line)) return false
+    const next = lines.slice(i + 1).find((l) => l.trim() !== '')
+    return next !== undefined && next.includes('Microsoft Teams')
+  })
+  if (start < 0) return { body: text, boilerplate: null }
+  // 끝 — 창(시작 줄 포함 MEETING_BLOCK_WINDOW 줄) 안의 마지막 구분선. 없으면 남은 글이 창 이하일 때만 글 끝까지, 아니면 창 끝까지.
+  const windowEnd = Math.min(lines.length - 1, start + MEETING_BLOCK_WINDOW - 1)
+  let end = -1
+  for (let i = windowEnd; i > start; i--) {
+    if (isMeetingSeparatorLine(lines[i])) {
+      end = i
+      break
+    }
+  }
+  if (end < 0) end = windowEnd
+  const before = lines.slice(0, start).join('\n').trimEnd()
+  const after = lines
+    .slice(end + 1)
+    .join('\n')
+    .trim()
+  return {
+    body: [before, after].filter((part) => part !== '').join('\n\n'),
+    boilerplate: lines.slice(start, end + 1).join('\n').trim(),
+  }
 }

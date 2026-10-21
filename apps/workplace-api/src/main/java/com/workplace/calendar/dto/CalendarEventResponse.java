@@ -18,6 +18,7 @@ import java.util.List;
  * @param external 외부 동기화 일정 여부(external_id 존재). get() 에서만 채움, list() 는 false.
  * @param myRole 호출자의 역할(ORGANIZER/ATTENDEE). 참석자 아니면 null. get() 에서만 채움.
  * @param iCalUid 외부 동기화 미팅의 공급자 표준 식별자(iCalUId). 순수 로컬 이벤트는 null. 크로스소스 dedup 키.
+ * @param onlineMeeting 온라인 회의 참가 정보(WP-710). 저장된 M365 참가 주소 → 설명·장소의 첫 회의 링크 순으로 서버가 판정. 회의가 아니면 null.
  */
 public record CalendarEventResponse(
     long id,
@@ -42,4 +43,5 @@ public record CalendarEventResponse(
     List<AttendeeResponse> attendees,
     boolean external,
     String myRole,
-    String iCalUid) {}
+    String iCalUid,
+    OnlineMeeting onlineMeeting) {}

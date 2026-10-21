@@ -244,6 +244,20 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
         return (String) get(15);
     }
 
+    /**
+     * Setter for <code>public.calendar_event.online_meeting_url</code>.
+     */
+    public void setOnlineMeetingUrl(String value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_event.online_meeting_url</code>.
+     */
+    public String getOnlineMeetingUrl() {
+        return (String) get(16);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -267,7 +281,7 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
     /**
      * Create a detached, initialised CalendarEventRecord
      */
-    public CalendarEventRecord(Long id, Long ownerId, String title, String description, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String color, OffsetDateTime createdAt, OffsetDateTime updatedAt, String recurrenceRule, Long tenantId, Long calendarId, String externalId, String icalUid) {
+    public CalendarEventRecord(Long id, Long ownerId, String title, String description, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String color, OffsetDateTime createdAt, OffsetDateTime updatedAt, String recurrenceRule, Long tenantId, Long calendarId, String externalId, String icalUid, String onlineMeetingUrl) {
         super(CalendarEvent.CALENDAR_EVENT);
 
         setId(id);
@@ -286,6 +300,7 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
         setCalendarId(calendarId);
         setExternalId(externalId);
         setIcalUid(icalUid);
+        setOnlineMeetingUrl(onlineMeetingUrl);
         resetChangedOnNotNull();
     }
 }

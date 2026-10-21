@@ -98,14 +98,23 @@ public class CalendarEventRepository {
         .getId();
   }
 
-  /** 일정의 외부 동기화 참조 — 일정 external_id + 소속 캘린더의 external_account_id/is_read_only. */
+  /**
+   * 일정의 외부 동기화 참조 — 일정 external_id + 소속 캘린더의 external_account_id/is_read_only. onlineMeetingUrl 은 동기화로 저장된 온라인 회의 참가
+   * 주소(WP-710, 없으면 null) — 단건 상세의 회의 판정이 같은 행을 한 번 더 읽지 않게 함께 싣는다.
+   */
   public record ExternalEventRef(
-      String eventExternalId, Long externalAccountId, boolean calendarReadOnly) {}
+      String eventExternalId,
+      Long externalAccountId,
+      boolean calendarReadOnly,
+      String onlineMeetingUrl) {}
 
   /** 일정→캘린더 join 으로 외부 참조 조회. 일정 미존재 시 empty. */
   public Optional<ExternalEventRef> findExternalRef(long eventId) {
     return dsl.select(
-            CALENDAR_EVENT.EXTERNAL_ID, CALENDAR.EXTERNAL_ACCOUNT_ID, CALENDAR.IS_READ_ONLY)
+            CALENDAR_EVENT.EXTERNAL_ID,
+            CALENDAR.EXTERNAL_ACCOUNT_ID,
+            CALENDAR.IS_READ_ONLY,
+            CALENDAR_EVENT.ONLINE_MEETING_URL)
         .from(CALENDAR_EVENT)
         .join(CALENDAR)
         .on(CALENDAR.ID.eq(CALENDAR_EVENT.CALENDAR_ID))
@@ -116,7 +125,8 @@ public class CalendarEventRepository {
                 new ExternalEventRef(
                     r.get(CALENDAR_EVENT.EXTERNAL_ID),
                     r.get(CALENDAR.EXTERNAL_ACCOUNT_ID),
-                    Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY))));
+                    Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY)),
+                    r.get(CALENDAR_EVENT.ONLINE_MEETING_URL)));
   }
 
   /** 단일 일정의 소속 캘린더 변경(수정 시 캘린더 이동). */
@@ -282,7 +292,8 @@ public class CalendarEventRepository {
         null, // attendees — 서비스 계층 enrich 전 기본값
         false, // external — 서비스 계층 enrichForGet 에서 채워짐
         null, // myRole — 서비스 계층 enrichForGet 에서 채워짐
-        r.get(CALENDAR_EVENT.ICAL_UID)); // iCalUid — 동기화 이벤트만 non-null
+        r.get(CALENDAR_EVENT.ICAL_UID), // iCalUid — 동기화 이벤트만 non-null
+        null); // onlineMeeting — 서비스 계층 enrichForGet 에서 채워짐(목록마다 최대 1만 자 설명을 정규식으로 훑지 않게 단건 조회에서만)
   }
 
   private static String nullIfBlank(String s) {

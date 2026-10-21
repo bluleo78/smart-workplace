@@ -7,6 +7,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog'
 import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
 import { EventDetailView } from '@/components/calendar/EventDetailView'
+import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -317,6 +318,11 @@ export function EventDialog({
               <DialogTitle>{dialogTitle}</DialogTitle>
               <DialogDescription className="sr-only">{dialogTitle}</DialogDescription>
             </DialogHeader>
+
+            {/* 회의 참가 — 주최자는 보기 화면 없이 편집 폼을 열므로 여기에도 둔다. 기존 일정(상세 로드 뒤)에만 — 새 일정엔 회의 정보가 없다(WP-710) */}
+            {isEdit && eventWithDetail?.onlineMeeting && (
+              <JoinMeetingButton onlineMeeting={eventWithDetail.onlineMeeting} testId="calendar-form-join" />
+            )}
 
             <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-3">
               {/* 제목 */}

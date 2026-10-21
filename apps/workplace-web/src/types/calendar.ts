@@ -13,6 +13,9 @@ export type RsvpStatus = 'NEEDS_ACTION' | 'ACCEPTED' | 'DECLINED' | 'TENTATIVE'
 // 참석자 역할 — ORGANIZER(주최자) | ATTENDEE(참석자)
 export type AttendeeRole = 'ORGANIZER' | 'ATTENDEE'
 
+// 온라인 회의 공급자 — 서버 OnlineMeeting.provider 와 같은 값. 알 수 없는 주소는 OTHER
+export type OnlineMeetingProvider = 'TEAMS' | 'MEET' | 'ZOOM' | 'OTHER'
+
 /** 일정 참석자 (GET /events/{id} 에서만 반환) */
 export interface Attendee {
   userId: number | null // 외부 참석자는 null
@@ -57,6 +60,9 @@ export interface CalendarEvent {
   external?: boolean
   // 현재 사용자의 참석자 역할(GET 에서만). 'ORGANIZER' 면 참석자 편집 가능. (#547)
   myRole?: string | null
+  // 온라인 회의 참가 정보(WP-710). 서버가 채운다 — M365 onlineMeeting.joinUrl 이 있으면 그것, 없으면 설명·장소에서 찾은 첫 회의 링크.
+  // 회의가 아니면 null/없음. 상세 화면의 「회의 참가」 버튼이 이 값으로 그려진다.
+  onlineMeeting?: { provider: OnlineMeetingProvider; joinUrl: string } | null
 }
 
 // 캘린더에 읽기전용으로 오버레이되는 "내게 할당된 이슈 마감일" 마커.

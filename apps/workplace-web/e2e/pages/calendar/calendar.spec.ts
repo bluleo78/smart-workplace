@@ -236,6 +236,39 @@ test(
   },
 )
 
+test('주최자가 여는 편집 폼에도 회의 참가 버튼이 있고, 새 일정 폼에는 없다 (WP-710)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const joinUrl = 'https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0'
+  const meeting = calendarEvent({ id: 1, title: '팀 회의', onlineMeeting: { provider: 'TEAMS', joinUrl } })
+  // 목록 응답은 회의를 판정하지 않는다(서버) — 상세(GET /events/{id})에만 onlineMeeting 이 실린다.
+  await stubCalendarEvents(page, [calendarEvent({ id: 1, title: '팀 회의' })])
+  await page.route(
+    (url) => url.pathname === '/api/v1/calendar/events/1',
+    (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(meeting) })
+        : route.fallback(),
+  )
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-1').first().click()
+  await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+  // 읽기 전용 상세가 아니라 편집 폼이다
+  await expect(page.getByTestId('calendar-form-title')).toBeVisible()
+  const join = page.getByTestId('calendar-form-join')
+  await expect(join).toHaveText('Teams 회의 참가')
+  await expect(join).toHaveAttribute('href', joinUrl)
+  await expect(join).toHaveAttribute('target', '_blank')
+  await expect(join).toHaveAttribute('rel', /noopener/)
+
+  // 새 일정에는 회의 정보가 없어 버튼이 없다
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('calendar-event-dialog')).toBeHidden()
+  await page.getByTestId('calendar-new-event').click()
+  await expect(page.getByTestId('calendar-form-title')).toBeVisible()
+  await expect(page.getByTestId('calendar-form-join')).toHaveCount(0)
+})
+
 test(
   '일정 삭제 — confirm 다이얼로그 확인 후 삭제',
   { tag: '@smoke' },

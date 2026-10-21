@@ -199,6 +199,18 @@ export const updateEventInput = z.object({
   notify: z.boolean().default(true), // 새 참석자에게 초대 알림을 보낼지
 });
 
+/** list_events 가 돌려주는 설명 길이 상한 — M365 동기화 일정의 설명은 본문 전체(최대 1만 자)라 목록에 그대로 실으면 토큰이 낭비된다. */
+const LIST_DESCRIPTION_MAX = 300;
+
+/** 목록용 설명 줄이기 — 상한을 넘으면 잘라 "…" 를 붙인다(null 은 그대로). 서로게이트 쌍을 가르지 않는다. 전문은 get_event. */
+function shortenDescription(description: unknown): unknown {
+  if (typeof description !== 'string' || description.length <= LIST_DESCRIPTION_MAX) return description;
+  let cut = LIST_DESCRIPTION_MAX;
+  const code = description.charCodeAt(cut - 1);
+  if (code >= 0xd800 && code <= 0xdbff) cut -= 1; // 이모지 등 쌍의 앞 반쪽만 남기지 않는다
+  return description.slice(0, cut) + '…';
+}
+
 /** 캘린더 도구(list_events/get_event/rsvp_event/create_event/update_event). */
 export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
   return [
@@ -208,11 +220,12 @@ export function buildCalendarTools(client: CalendarToolsClient): SharedTool[] {
       kind: 'read',
       description:
         'Lists my calendar (캘린더) events overlapping [from, to) (ISO-8601; no offset = +09:00). Recurring events appear per occurrence, with ' +
-        'masterEventId and occurrenceDate. id = eventId of other calendar tools.',
+        'masterEventId and occurrenceDate. id = eventId of other calendar tools. description is cut to 300 chars (with …); get_event returns it in full.',
       inputSchema: listEventsInput,
       async handler(args) {
         const { from, to } = listEventsInput.parse(args);
-        return JSON.stringify(await client.listEvents(normalizeTimezone(from), normalizeTimezone(to)));
+        const events = await client.listEvents(normalizeTimezone(from), normalizeTimezone(to));
+        return JSON.stringify(events.map((e) => ('description' in e ? { ...e, description: shortenDescription(e.description) } : e)));
       },
     },
     {

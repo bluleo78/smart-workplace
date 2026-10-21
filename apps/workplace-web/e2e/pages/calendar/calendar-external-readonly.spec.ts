@@ -282,7 +282,9 @@ test('M365 Teams 초대 — 상세 보기는 설명을 펼치고 링크를 열 �
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
   // Teams 안내문 + 긴 본문 — 예전엔 3줄 설명 칸 안에서 따로 스크롤되고 링크를 누를 수 없었다.
   const teamsUrl = 'https://teams.microsoft.com/meet/46286105292202?p=Xk2'
-  const longBody = `${'회의 안건 메모\n'.repeat(30)}Microsoft Teams 모임\n참가: ${teamsUrl}\n모임 ID: 462 861 052 922 02`
+  // 실제 초대 본문처럼 Teams 안내문은 밑줄 구분선 사이에 들어 있다(WP-710 — 접힘 대상)
+  const sep = '_'.repeat(80)
+  const longBody = `${'회의 안건 메모\n'.repeat(30)}\n${sep}\nMicrosoft Teams 모임\n참가: ${teamsUrl}\n모임 ID: 462 861 052 922 02\n${sep}`
   const person = (userId: number, name: string): Attendee => ({
     userId, username: `u${userId}`, name, kind: 'HUMAN', role: 'ATTENDEE',
     rsvpStatus: 'ACCEPTED', invitedByUserId: null, externalEmail: null,
@@ -294,6 +296,7 @@ test('M365 Teams 초대 — 상세 보기는 설명을 펼치고 링크를 열 �
     calendarName: 'M365 캘린더',
     location: 'SynergiA',
     description: longBody,
+    onlineMeeting: { provider: 'TEAMS', joinUrl: teamsUrl },
     external: true,
     myRole: 'ATTENDEE',
     myRsvpStatus: 'NEEDS_ACTION',
@@ -338,8 +341,26 @@ test('M365 Teams 초대 — 상세 보기는 설명을 펼치고 링크를 열 �
   await expect(rows).toHaveCount(7)
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
 
-  // 설명 속 URL 은 새 탭으로 여는 링크
-  const link = view.getByRole('link', { name: teamsUrl })
+  // 회의 참가 버튼 — 칩 줄 아래, 새 탭으로 여는 링크 (WP-710)
+  const join = view.getByTestId('event-detail-join')
+  await expect(join).toHaveText('Teams 회의 참가')
+  await expect(join).toHaveAttribute('href', teamsUrl)
+  await expect(join).toHaveAttribute('target', '_blank')
+  await expect(join).toHaveAttribute('rel', /noopener/)
+
+  // Teams 안내문은 접혀 있고 본문(안건 메모)만 보인다. 펼치면 안내문 원문이 나온다
+  const info = view.getByTestId('event-detail-meeting-info')
+  const infoToggle = view.getByTestId('event-detail-meeting-info-toggle')
+  await expect(view.getByTestId('event-detail-description')).toContainText('회의 안건 메모')
+  await expect(info).toHaveCount(0)
+  await expect(infoToggle).toHaveText('Teams 회의 안내')
+  await expect(infoToggle).toHaveAttribute('aria-expanded', 'false')
+  await infoToggle.click()
+  await expect(infoToggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(info).toContainText('모임 ID: 462 861 052 922 02')
+
+  // 안내문 속 URL 도 새 탭으로 여는 링크
+  const link = info.getByRole('link', { name: teamsUrl })
   await expect(link).toHaveAttribute('href', teamsUrl)
   await expect(link).toHaveAttribute('target', '_blank')
   await expect(link).toHaveAttribute('rel', /noopener/)
@@ -354,6 +375,35 @@ test('M365 Teams 초대 — 상세 보기는 설명을 펼치고 링크를 열 �
   // M365 일정의 응답은 Outlook 에서 — 응답 줄·편집 입력칸이 없다
   await expect(page.getByTestId('event-detail-rsvp')).toHaveCount(0)
   await expect(page.getByTestId('calendar-event-dialog').locator('input, textarea')).toHaveCount(0)
+})
+
+test('Teams 안내문이 있어도 서버가 회의를 찾지 못했으면(onlineMeeting 없음) 접지 않고 링크를 그대로 보인다(WP-710)', async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const teamsUrl = 'https://teams.microsoft.com/meet/46286105292202?p=Xk2'
+  const sep = '_'.repeat(80)
+  const body = `안건 메모\n${sep}\nMicrosoft Teams 모임\n참가: ${teamsUrl}\n${sep}`
+  await stubForDialog(
+    page,
+    [
+      calendar({ id: 1, name: '기본', color: 'blue', isDefault: true, isReadOnly: false }),
+      calendar({ id: 10, name: 'M365 캘린더', color: 'indigo', isDefault: false, isReadOnly: true, provider: 'M365_GRAPH' }),
+    ],
+    [
+      calendarEvent({
+        id: 44, title: '회의 판정 없는 일정', calendarId: 10, calendarName: 'M365 캘린더',
+        description: body, onlineMeeting: null, external: true, myRole: 'ATTENDEE', attendees: [],
+      }),
+    ],
+  )
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-44').first().click()
+  const view = page.getByTestId('event-detail-view')
+  await expect(view).toBeVisible()
+  await expect(view.getByTestId('event-detail-join')).toHaveCount(0)
+  await expect(view.getByTestId('event-detail-meeting-info-toggle')).toHaveCount(0)
+  await expect(view.getByTestId('event-detail-description').getByRole('link', { name: teamsUrl })).toHaveAttribute('href', teamsUrl)
 })
 
 test('반복 일정 회차를 열면 상세(시리즈 마스터)가 와도 누른 회차의 날짜를 보인다(WP-708)', async ({

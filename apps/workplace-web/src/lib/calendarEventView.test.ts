@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest'
 import type { Attendee } from '../types/calendar'
 import {
   eventTimeLines,
+  joinButtonLabel,
   recurrenceLabel,
   reminderLabel,
   rsvpSummary,
   sortAttendeesForView,
+  splitMeetingBoilerplate,
   splitTextLinks,
 } from './calendarEventView'
 
@@ -188,7 +190,119 @@ describe('splitTextLinks', () => {
     ])
   })
 
+  it('꺾쇠로 감싼 URL(M365 텍스트 본문의 `글자<URL>`)은 꺾쇠를 화면에서 빼고 링크로 만든다', () => {
+    expect(splitTextLinks('Teams 모임 참가 <https://teams.microsoft.com/l/meetup-join/abc?x=1>\n다음 줄')).toEqual([
+      { type: 'text', text: 'Teams 모임 참가 ' },
+      {
+        type: 'link',
+        text: 'https://teams.microsoft.com/l/meetup-join/abc?x=1',
+        href: 'https://teams.microsoft.com/l/meetup-join/abc?x=1',
+      },
+      { type: 'text', text: '\n다음 줄' },
+    ])
+    // 맨 앞의 꺾쇠 URL, 끝 구두점은 꺾쇠 안이면 URL 의 일부로 둔다
+    expect(splitTextLinks('<https://a.b/c.>')).toEqual([{ type: 'link', text: 'https://a.b/c.', href: 'https://a.b/c.' }])
+  })
+
+  it('짝이 맞지 않는 꺾쇠는 그대로 남긴다', () => {
+    expect(splitTextLinks('a <https://a.b/c 그리고 d>')).toEqual([
+      { type: 'text', text: 'a <' },
+      { type: 'link', text: 'https://a.b/c', href: 'https://a.b/c' },
+      { type: 'text', text: ' 그리고 d>' },
+    ])
+  })
+
   it('URL 이 없으면 텍스트 하나, javascript: 같은 다른 스킴은 링크로 만들지 않는다', () => {
     expect(splitTextLinks('javascript:alert(1) 그냥 글')).toEqual([{ type: 'text', text: 'javascript:alert(1) 그냥 글' }])
+  })
+})
+
+describe('joinButtonLabel', () => {
+  it('공급자별 참가 문구를 돌려준다', () => {
+    expect(joinButtonLabel('TEAMS')).toBe('Teams 회의 참가')
+    expect(joinButtonLabel('MEET')).toBe('Google Meet 참가')
+    expect(joinButtonLabel('ZOOM')).toBe('Zoom 회의 참가')
+    expect(joinButtonLabel('OTHER')).toBe('온라인 회의 참가')
+  })
+})
+
+describe('splitMeetingBoilerplate', () => {
+  const SEP = '_'.repeat(80)
+  // Graph 가 텍스트로 돌려준 실제 Teams 초대 본문(익명화) — 줄바꿈은 \r\n
+  const TEAMS_BLOCK = [
+    SEP,
+    'Microsoft Teams 모임',
+    '참가: https://teams.microsoft.com/meet/123456789012345?p=AbCdEfGh',
+    '모임 ID: 123 456 789 012 345',
+    '암호: Ab12Cd34',
+    SEP,
+    '도움이 필요하신가요?<https://aka.ms/JoinTeamsMeeting?omkt=ko-KR> | 시스템 참조<https://teams.microsoft.com/l/meetup-join/19%3ameeting_ABC%40thread.v2/0>',
+    '이끌이: 모임 옵션<https://teams.microsoft.com/meetingOptions/?organizerId=x>',
+    SEP,
+  ].join('\r\n')
+  const FIXTURE = `@Lucy 아젠다 준비해 주세요.\r\n\r\n${TEAMS_BLOCK}`
+
+  it('실제 초대 본문 — 안내문 덩어리(첫 구분선 ~ 마지막 구분선)를 떼고 본문만 남긴다', () => {
+    const r = splitMeetingBoilerplate(FIXTURE)
+    expect(r.body).toBe('@Lucy 아젠다 준비해 주세요.')
+    expect(r.boilerplate).not.toBeNull()
+    expect(r.boilerplate!.startsWith('_'.repeat(80))).toBe(true)
+    expect(r.boilerplate!.endsWith('_'.repeat(80))).toBe(true)
+    expect(r.boilerplate).toContain('Microsoft Teams 모임')
+    expect(r.boilerplate).toContain('암호: Ab12Cd34')
+    expect(r.boilerplate).toContain('이끌이: 모임 옵션')
+    // \r\n 은 \n 으로 맞춰 돌려준다
+    expect(r.boilerplate).not.toContain('\r')
+  })
+
+  it('안내문이 없으면 원문 그대로, boilerplate 는 null', () => {
+    const text = '분기 회의\n\nMicrosoft Teams 로 진행합니다.\n____\n끝'
+    expect(splitMeetingBoilerplate(text)).toEqual({ body: text, boilerplate: null })
+    // 구분선이 있어도 다음 줄에 Microsoft Teams 가 없으면 안내문이 아니다
+    const other = `메모\n${SEP}\n다른 서명\n${SEP}`
+    expect(splitMeetingBoilerplate(other)).toEqual({ body: other, boilerplate: null })
+  })
+
+  it('안내문만 있으면 본문은 빈 문자열', () => {
+    const r = splitMeetingBoilerplate(TEAMS_BLOCK)
+    expect(r.body).toBe('')
+    expect(r.boilerplate).toBe(TEAMS_BLOCK.replace(/\r\n/g, '\n'))
+  })
+
+  it('안내문 뒤에 사람이 쓴 글이 있으면 본문 뒤에 이어 붙인다', () => {
+    const r = splitMeetingBoilerplate(`앞 글\n${TEAMS_BLOCK}\n\n추신: 자료는 공유 폴더에 있습니다.\n`)
+    expect(r.body).toBe('앞 글\n\n추신: 자료는 공유 폴더에 있습니다.')
+    expect(r.boilerplate!.endsWith('_'.repeat(80))).toBe(true)
+    expect(r.boilerplate).not.toContain('추신')
+  })
+
+  it('뒤쪽 구분선이 없으면 글 끝까지가 안내문', () => {
+    const r = splitMeetingBoilerplate(`안녕\n${SEP}\nMicrosoft Teams 모임\n참가: https://teams.microsoft.com/meet/1`)
+    expect(r.body).toBe('안녕')
+    expect(r.boilerplate).toBe(`${SEP}\nMicrosoft Teams 모임\n참가: https://teams.microsoft.com/meet/1`)
+  })
+
+  it('창(20줄) 밖의 보낸 사람 서명선·후속 글은 접지 않고 본문으로 남긴다', () => {
+    const filler = Array.from({ length: 12 }, (_, i) => `후속 ${i + 1}`).join('\n')
+    const r = splitMeetingBoilerplate(`앞 글\n${TEAMS_BLOCK}\n${filler}\n${'_'.repeat(30)}\n보낸 사람 서명`)
+    expect(r.boilerplate!.endsWith('_'.repeat(80))).toBe(true)
+    expect(r.boilerplate).not.toContain('후속')
+    expect(r.body).toContain('후속 1')
+    expect(r.body).toContain('_'.repeat(30))
+    expect(r.body).toContain('보낸 사람 서명')
+  })
+
+  it('안내문 안에 구분선이 2~3개 더 있어도(위·중간·아래) 창 안 마지막 구분선까지 접는다', () => {
+    const block = [SEP, 'Microsoft Teams 모임', '참가: https://teams.microsoft.com/meet/1', SEP, '암호: x', SEP, '도움말', SEP].join('\n')
+    const r = splitMeetingBoilerplate(`앞 글\n\n${block}\n뒷 글`)
+    expect(r.boilerplate).toBe(block)
+    expect(r.body).toBe('앞 글\n\n뒷 글')
+  })
+
+  it('뒤쪽 구분선이 없고 남은 글이 창보다 길면 창 끝까지만 접는다', () => {
+    const tail = Array.from({ length: 30 }, (_, i) => `줄 ${i + 1}`).join('\n')
+    const r = splitMeetingBoilerplate(`${SEP}\nMicrosoft Teams 모임\n${tail}`)
+    expect(r.boilerplate!.split('\n')).toHaveLength(20)
+    expect(r.body).toContain('줄 30')
   })
 })

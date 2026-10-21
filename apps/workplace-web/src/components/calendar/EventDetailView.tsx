@@ -2,10 +2,11 @@
 // 예전엔 편집 폼을 그대로 쓰고 칸만 disabled 로 막아, 칸 11개·설명 칸 안쪽 스크롤·누를 수 없는 링크가 생겼다.
 // Google·Outlook·Apple 처럼 보기와 편집을 나누고, 값이 없는 행(장소·알림·반복)은 행째 숨긴다.
 // EventDialog 의 DialogContent 안에 들어가며, 본문만 스크롤되고 응답(RSVP) 줄은 아래에 붙어 있다.
-import { AlignLeft, Bell, Clock, MapPin, Users } from 'lucide-react'
+import { AlignLeft, Bell, ChevronRight, Clock, MapPin, Users } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 
 import { RsvpIcon } from '@/components/calendar/AttendeeSection'
+import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { RsvpControls } from '@/components/calendar/RsvpControls'
 import { DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AgentBadge } from '@/components/users/AgentBadge'
@@ -15,10 +16,12 @@ import {
   attendeeDisplayName,
   attendeeKey,
   eventTimeLines,
+  isMeetingSeparatorLine,
   recurrenceLabel,
   reminderLabel,
   rsvpSummary,
   sortAttendeesForView,
+  splitMeetingBoilerplate,
   splitTextLinks,
 } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
@@ -30,6 +33,29 @@ const CHIP_CLASS = 'inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py
 
 /** 참석자를 처음에 몇 명까지 펼쳐 보일지 — 넘으면 「외 N명 더 보기」로 접는다. */
 const ATTENDEE_PREVIEW = 5
+
+/** 설명 글 — 줄바꿈 보존 + 긴 URL 줄바꿈. URL 만 링크로 바꿔 새 탭에서 연다. 본문과 접힌 안내문이 같이 쓴다. */
+function LinkedText({ text }: { text: string }) {
+  return (
+    <>
+      {splitTextLinks(text).map((seg, i) =>
+        seg.type === 'link' ? (
+          <a
+            key={i}
+            href={seg.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline underline-offset-2 break-all"
+          >
+            {seg.text}
+          </a>
+        ) : (
+          seg.text
+        ),
+      )}
+    </>
+  )
+}
 
 interface EventDetailViewProps {
   /** 상세 데이터(참석자 포함)가 있으면 그것, 없으면 목록 이벤트 */
@@ -60,6 +86,27 @@ function DetailRow({ icon, label, children, testId }: { icon: ReactNode; label: 
   )
 }
 
+/**
+ * 접힌 Teams 안내문 본문 — 밑줄 구분선 줄은 가는 선으로, 나머지는 링크가 살아 있는 글로 그린다.
+ * 구분선을 글자 그대로 두면 80자 밑줄이 좁은 화면에서 두 줄로 꺾여 지저분하다.
+ */
+function MeetingInfoText({ text }: { text: string }) {
+  const lines = text.split('\n')
+  return (
+    <>
+      {lines.map((line, i) =>
+        isMeetingSeparatorLine(line) ? (
+          <span key={i} className="my-1.5 block border-t border-border" aria-hidden="true" />
+        ) : (
+          <span key={i} className="block min-h-[1lh]">
+            <LinkedText text={line} />
+          </span>
+        ),
+      )}
+    </>
+  )
+}
+
 /** 참석자 한 줄 — 아바타·이름(외부는 이메일)·(나)·주최자·AI 배지·응답 아이콘. */
 function AttendeeRow({ attendee, isMe }: { attendee: Attendee; isMe: boolean }) {
   const name = attendeeDisplayName(attendee)
@@ -87,6 +134,8 @@ function AttendeeRow({ attendee, isMe }: { attendee: Attendee; isMe: boolean }) 
  */
 export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp, myUserId }: EventDetailViewProps) {
   const [showAllAttendees, setShowAllAttendees] = useState(false)
+  // Teams 초대 안내문(밑줄 구분선 사이 덩어리) 펼침 — 기본은 접어 둔다
+  const [showMeetingInfo, setShowMeetingInfo] = useState(false)
 
   const time = eventTimeLines(event)
   const recurrence = recurrenceLabel(event)
@@ -95,6 +144,13 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
   const hiddenCount = Math.max(0, attendees.length - ATTENDEE_PREVIEW)
   const visibleAttendees = showAllAttendees ? attendees : attendees.slice(0, ATTENDEE_PREVIEW)
   const summary = rsvpSummary(attendees)
+  // 설명에서 Teams 안내문을 떼어 접는다 — 참가 링크는 위 참가 버튼이 대신한다.
+  // 서버가 회의를 찾지 못해 버튼이 없으면(onlineMeeting 없음) 접지 않는다: 안내문 속 참가 링크가 숨겨지면 들어갈 길이 사라진다.
+  const description = event.description
+    ? event.onlineMeeting
+      ? splitMeetingBoilerplate(event.description)
+      : { body: event.description, boilerplate: null }
+    : null
 
   return (
     <>
@@ -125,6 +181,8 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
               </span>
             )}
           </div>
+          {/* 회의 참가 — 일정을 여는 이유가 대개 「들어가기」라 칩 줄 바로 아래 넓은 버튼으로 둔다 (WP-710) */}
+          {event.onlineMeeting && <JoinMeetingButton onlineMeeting={event.onlineMeeting} testId="event-detail-join" />}
         </DialogHeader>
 
         <div className="mt-5 space-y-4 text-sm">
@@ -187,26 +245,38 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
             </DetailRow>
           )}
 
-          {event.description && (
+          {description && (
             <DetailRow icon={<AlignLeft className="h-4 w-4" />} label="설명" testId="event-detail-description">
-              {/* 줄바꿈 보존 + 긴 URL 줄바꿈. URL 만 링크로 바꿔 새 탭에서 연다 */}
-              <p className="whitespace-pre-wrap break-words text-foreground/90">
-                {splitTextLinks(event.description).map((seg, i) =>
-                  seg.type === 'link' ? (
-                    <a
-                      key={i}
-                      href={seg.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary underline underline-offset-2 break-all"
+              {description.body && (
+                <p className="whitespace-pre-wrap break-words text-foreground/90">
+                  <LinkedText text={description.body} />
+                </p>
+              )}
+              {description.boilerplate && (
+                <div className={description.body ? 'mt-2' : undefined}>
+                  <button
+                    type="button"
+                    className="-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-sm text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowMeetingInfo((v) => !v)}
+                    aria-expanded={showMeetingInfo}
+                    data-testid="event-detail-meeting-info-toggle"
+                  >
+                    <ChevronRight
+                      className={`h-4 w-4 transition-transform ${showMeetingInfo ? 'rotate-90' : ''}`}
+                      aria-hidden="true"
+                    />
+                    Teams 회의 안내
+                  </button>
+                  {showMeetingInfo && (
+                    <div
+                      className="mt-1 break-words text-xs text-muted-foreground"
+                      data-testid="event-detail-meeting-info"
                     >
-                      {seg.text}
-                    </a>
-                  ) : (
-                    seg.text
-                  ),
-                )}
-              </p>
+                      <MeetingInfoText text={description.boilerplate} />
+                    </div>
+                  )}
+                </div>
+              )}
             </DetailRow>
           )}
         </div>

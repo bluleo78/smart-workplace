@@ -134,6 +134,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             "evt-allday",
             "워크숍",
             null,
+            null,
             gdt("2026-07-10T00:00:00.0000000", "UTC"),
             gdt("2026-07-11T00:00:00.0000000", "UTC"),
             true,
@@ -141,6 +142,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             false,
+            null,
             null);
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal"), any(), any()))
         .thenReturn(List.of(allDay));
@@ -186,6 +188,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             "evt-blank",
             "",
             null,
+            null,
             gdt("2026-07-15T10:00:00.0000000", "UTC"),
             gdt("2026-07-15T11:00:00.0000000", "UTC"),
             false,
@@ -193,11 +196,13 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             false,
+            null,
             null);
     // subject = null
     GraphEvent nullSubject =
         new GraphEvent(
             "evt-null",
+            null,
             null,
             null,
             gdt("2026-07-16T10:00:00.0000000", "UTC"),
@@ -207,6 +212,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             false,
+            null,
             null);
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal2"), any(), any()))
         .thenReturn(List.of(blankSubject, nullSubject));
@@ -266,6 +272,170 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     assertThat(remaining).isEqualTo(1);
   }
 
+  /** 본문(body)·미리보기를 지정한 Graph 이벤트 1건 — 7월 15일 10~11시(UTC). */
+  private static GraphEvent eventWithBody(
+      String id, String preview, GraphCalendarClient.GraphItemBody body) {
+    return new GraphEvent(
+        id,
+        "본문 회의",
+        preview,
+        body,
+        gdt("2026-07-15T10:00:00.0000000", "UTC"),
+        gdt("2026-07-15T11:00:00.0000000", "UTC"),
+        false,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null);
+  }
+
+  /** 7월 범위에서 제목이 "본문 회의" 인 일정의 설명을 읽는다. */
+  private String syncedDescription() {
+    return eventService
+        .list(
+            ownerId,
+            OffsetDateTime.parse("2026-07-01T00:00:00Z"),
+            OffsetDateTime.parse("2026-08-01T00:00:00Z"))
+        .stream()
+        .filter(x -> "본문 회의".equals(x.title()))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("본문 회의 일정을 찾을 수 없음"))
+        .description();
+  }
+
+  /**
+   * WP-709: 설명은 255자 미리보기가 아니라 본문 전체로 저장된다. 줄바꿈은 CRLF 가 LF 로 맞춰지고 앞뒤 공백은 잘린다. 이미 동기화된 일정은 다음 동기화에서 전문으로
+   * 갱신된다(upsert 갱신 경로가 description 을 덮어쓴다).
+   */
+  @Test
+  void sync_stores_full_body_and_resync_overwrites_old_preview() {
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcalB", "업무", "lightBlue", "", true, true)));
+
+    // 1차: 예전 동작처럼 미리보기만 있는 일정(본문 없음) → 미리보기가 설명이 된다(폴백)
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalB"), any(), any()))
+        .thenReturn(List.of(eventWithBody("evt-body", "미리보기만", null)));
+    syncService.sync(ownerId, accountId);
+    assertThat(syncedDescription()).isEqualTo("미리보기만");
+
+    // 2차: 같은 일정이 본문 전체와 함께 온다 — 255자를 넘는 긴 본문
+    String longText = "가나다라마바사 ".repeat(100).trim(); // 약 700자
+    String crlfBody = "\r\n" + longText + "\r\n둘째 줄\r\n";
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalB"), any(), any()))
+        .thenReturn(
+            List.of(
+                eventWithBody(
+                    "evt-body",
+                    "미리보기만",
+                    new GraphCalendarClient.GraphItemBody("text", crlfBody))));
+    syncService.sync(ownerId, accountId);
+
+    assertThat(syncedDescription()).isEqualTo(longText + "\n둘째 줄");
+    assertThat(syncedDescription().length()).isGreaterThan(255);
+  }
+
+  /** WP-709: 본문이 10,000자를 넘으면 앞 9,999자 + 「…」(= 10,000자)로 줄여 저장한다 — CalendarEventRequest 한도와 같다. */
+  @Test
+  void sync_caps_body_at_10000_chars_with_ellipsis() {
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcalC", "업무", "lightBlue", "", true, true)));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalC"), any(), any()))
+        .thenReturn(
+            List.of(
+                eventWithBody(
+                    "evt-huge",
+                    "p",
+                    new GraphCalendarClient.GraphItemBody("text", "x".repeat(25_000)))));
+
+    syncService.sync(ownerId, accountId);
+
+    String description = syncedDescription();
+    assertThat(description).hasSize(10_000);
+    assertThat(description).isEqualTo("x".repeat(9_999) + "…");
+  }
+
+  /**
+   * WP-710: 동기화가 Graph onlineMeeting.joinUrl 을 저장하고 상세 응답이 onlineMeeting 으로 돌려준다(목록은 null). joinUrl 이 없는 일정은 설명의 회의 링크로 판정하고, 회의가
+   * 아니면 null. 다음 동기화에서 회의가 해제(joinUrl 사라짐)되면 저장 주소도 지워진다.
+   */
+  @Test
+  void sync_stores_join_url_and_response_resolves_online_meeting() {
+    String join = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0";
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcalM", "업무", "lightBlue", "", true, true)));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalM"), any(), any()))
+        .thenReturn(
+            List.of(
+                meetingEvent("m-stored", "저장 주소", null, new GraphCalendarClient.GraphOnlineMeeting(join)),
+                meetingEvent(
+                    "m-desc", "설명 링크", "참가 <https://us02web.zoom.us/j/123456789>", null),
+                meetingEvent("m-none", "회의 아님", "그냥 설명 https://example.com/x", null)));
+
+    syncService.sync(ownerId, accountId);
+
+    var byTitle = listedByTitle();
+    // 목록은 회의를 판정하지 않는다(행마다 최대 1만 자 설명을 훑는 비용) — 상세(get)에서만 판정
+    assertThat(byTitle.values()).allSatisfy(e -> assertThat(e.onlineMeeting()).isNull());
+    // 저장된 주소 → 그대로, 공급자는 주소에서 추론
+    long storedId = byTitle.get("저장 주소").id();
+    assertThat(eventService.get(ownerId, storedId).onlineMeeting())
+        .isEqualTo(new com.workplace.calendar.dto.OnlineMeeting("TEAMS", join));
+    // joinUrl 없음 → 설명의 첫 회의 링크
+    assertThat(eventService.get(ownerId, byTitle.get("설명 링크").id()).onlineMeeting())
+        .isEqualTo(
+            new com.workplace.calendar.dto.OnlineMeeting(
+                "ZOOM", "https://us02web.zoom.us/j/123456789"));
+    assertThat(eventService.get(ownerId, byTitle.get("회의 아님").id()).onlineMeeting()).isNull();
+    // 컬럼에 실제 저장됨
+    assertThat(
+            dsl.select(CALENDAR_EVENT.ONLINE_MEETING_URL)
+                .from(CALENDAR_EVENT)
+                .where(CALENDAR_EVENT.EXTERNAL_ID.eq("m-stored"))
+                .fetchOne(CALENDAR_EVENT.ONLINE_MEETING_URL))
+        .isEqualTo(join);
+
+    // 2차 동기화: 회의 해제(onlineMeeting 사라짐) → 저장 주소가 지워지고 응답도 null
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalM"), any(), any()))
+        .thenReturn(List.of(meetingEvent("m-stored", "저장 주소", null, null)));
+    syncService.sync(ownerId, accountId);
+    assertThat(eventService.get(ownerId, storedId).onlineMeeting()).isNull();
+  }
+
+  private java.util.Map<String, com.workplace.calendar.dto.CalendarEventResponse> listedByTitle() {
+    var map = new java.util.HashMap<String, com.workplace.calendar.dto.CalendarEventResponse>();
+    eventService
+        .list(
+            ownerId,
+            OffsetDateTime.parse("2026-07-01T00:00:00Z"),
+            OffsetDateTime.parse("2026-08-01T00:00:00Z"))
+        .forEach(e -> map.put(e.title(), e));
+    return map;
+  }
+
+  /** 온라인 회의 정보·설명을 지정한 Graph 이벤트 — 7월 20일 10~11시(UTC). */
+  private static GraphEvent meetingEvent(
+      String id, String title, String body, GraphCalendarClient.GraphOnlineMeeting meeting) {
+    return new GraphEvent(
+        id,
+        title,
+        null,
+        body == null ? null : new GraphCalendarClient.GraphItemBody("text", body),
+        gdt("2026-07-20T10:00:00.0000000", "UTC"),
+        gdt("2026-07-20T11:00:00.0000000", "UTC"),
+        false,
+        null,
+        null,
+        null,
+        false,
+        null,
+        meeting);
+  }
+
   /** Graph 이벤트 1건(조직자+참석자) 빌더. */
   private com.workplace.mail.outbound.GraphCalendarClient.GraphEvent graphEventWith(
       String id,
@@ -282,7 +452,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         new com.workplace.mail.outbound.GraphCalendarClient.GraphRecipient(
             new com.workplace.mail.outbound.GraphCalendarClient.GraphEmail("주최", organizerEmail));
     return new com.workplace.mail.outbound.GraphCalendarClient.GraphEvent(
-        id, "동기화 회의", "본문", start, end, false, null, organizer, attendees, false, null);
+        id, "동기화 회의", "본문", null, start, end, false, null, organizer, attendees, false, null, null);
   }
 
   private com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee attendee(

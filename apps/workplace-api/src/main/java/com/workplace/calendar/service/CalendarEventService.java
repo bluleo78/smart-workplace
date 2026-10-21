@@ -5,6 +5,7 @@ import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
 import com.workplace.calendar.dto.CalendarResponse;
 import com.workplace.calendar.dto.EditScope;
+import com.workplace.calendar.dto.OnlineMeeting;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.EventNotOrganizerException;
 import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
@@ -285,10 +286,18 @@ public class CalendarEventService {
    */
   private GraphEventWrite toGraphWrite(
       CalendarEventRequest req, List<GraphAttendeeWrite> attendees) {
+    return toGraphWrite(req, attendees, req.description());
+  }
+
+  /**
+   * @param bodyText Graph 로 보낼 본문(null·공백이면 생략). 수정 때 설명이 그대로면 null 을 넘긴다 — 동기화된 M365 설명은 Graph 가 HTML 초대문을 텍스트로
+   *     바꾼 사본(길면 "…" 로 잘림)이라 되돌려 보내면 Outlook 의 서식 있는 초대문이 모두에게 사라진다. null 본문은 @JsonInclude(NON_NULL) 로 PATCH
+   *     에서 빠진다.
+   */
+  private GraphEventWrite toGraphWrite(
+      CalendarEventRequest req, List<GraphAttendeeWrite> attendees, String bodyText) {
     GraphItemBody body =
-        (req.description() == null || req.description().isBlank())
-            ? null
-            : new GraphItemBody("text", req.description());
+        (bodyText == null || bodyText.isBlank()) ? null : new GraphItemBody("text", bodyText);
     GraphLocation location =
         (req.location() == null || req.location().isBlank())
             ? null
@@ -438,7 +447,8 @@ public class CalendarEventService {
         null, // attendees — list 경량 응답이므로 null
         false, // external — list 에서는 미사용(기본 false)
         null, // myRole — list 에서는 미사용
-        m.iCalUid()); // iCalUid — 마스터에서 복사(반복 회차)
+        m.iCalUid(), // iCalUid — 마스터에서 복사(반복 회차)
+        null); // onlineMeeting — 목록 응답에서는 판정하지 않는다(단건 get 에서만)
   }
 
   /**
@@ -470,7 +480,17 @@ public class CalendarEventService {
       // 반복 전환·캘린더 이동 차단은 checkUpdatable 이 이미 수행했다(#842 — 사전검증과 공유).
       // update 는 참석자 변경 미지원 — attendees=null 로 Graph PATCH 에서 생략.
       transportFor(ctx.account().provider())
-          .updateEvent(callerId, ctx.account(), ctx.externalId(), toGraphWrite(req, null));
+          .updateEvent(
+              callerId,
+              ctx.account(),
+              ctx.externalId(),
+              // 설명을 실제로 바꾼 때만 본문을 보낸다(저장된 설명과 같으면 Outlook 본문 보존)
+              toGraphWrite(
+                  req,
+                  null,
+                  descriptionChanged(ctx.storedDescription(), req.description())
+                      ? req.description()
+                      : null));
       // ③ 로컬 반영 — 필드만 갱신(캘린더 이동 없음). 동기화 컨테이너 유지. 최종 get() 도 tx 안.
       return txTemplate.execute(
           s -> {
@@ -544,9 +564,38 @@ public class CalendarEventService {
     return updateFollowing(callerId, target, req, occurrenceDate);
   }
 
-  /** 외부 쓰기 컨텍스트 — update resolve 산출물. currentCalendarId 는 이동 차단 비교용. */
+  /**
+   * 외부 쓰기 컨텍스트 — update/delete resolve 산출물. currentCalendarId 는 이동 차단 비교용, storedDescription 은 수정 때 설명 변경 판정용(update
+   * 경로에서만 채운다).
+   */
   private record ExternalWriteCtx(
-      boolean external, EmailAccountResponse account, String externalId, Long currentCalendarId) {}
+      boolean external,
+      EmailAccountResponse account,
+      String externalId,
+      Long currentCalendarId,
+      String storedDescription) {
+
+    /** 외부 일정이 아니거나 연동이 끊긴 로컬 컨텍스트. */
+    static ExternalWriteCtx local(Long currentCalendarId) {
+      return new ExternalWriteCtx(false, null, null, currentCalendarId, null);
+    }
+
+    /** 외부 동기화 일정 컨텍스트. */
+    static ExternalWriteCtx synced(
+        EmailAccountResponse account,
+        String externalId,
+        Long currentCalendarId,
+        String storedDescription) {
+      return new ExternalWriteCtx(true, account, externalId, currentCalendarId, storedDescription);
+    }
+  }
+
+  /** 설명 변경 여부 — null 과 공백은 같은 「없음」으로 본다(웹 폼이 빈 설명을 null/빈 문자열 어느 쪽으로 보내도 변경으로 오인하지 않게). */
+  private static boolean descriptionChanged(String stored, String requested) {
+    String a = stored == null || stored.isBlank() ? null : stored;
+    String b = requested == null || requested.isBlank() ? null : requested;
+    return !java.util.Objects.equals(a, b);
+  }
 
   /**
    * THIS 수정 — 회차를 대체할 독립 일정(RRULE=null, owner=마스터 owner)을 만들고 예외 행에 오버라이드로 연결한다. 이미 오버라이드가 있으면 중복
@@ -709,13 +758,13 @@ public class CalendarEventService {
                   repo.findExternalRef(id)
                       .orElseThrow(() -> new CalendarEventNotFoundException(id));
               if (ref.externalAccountId() == null || ref.eventExternalId() == null) {
-                return new ExternalWriteCtx(false, null, null, null);
+                return ExternalWriteCtx.local(null);
               }
               EmailAccountResponse acc =
                   emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
               return acc == null
-                  ? new ExternalWriteCtx(false, null, null, null)
-                  : new ExternalWriteCtx(true, acc, ref.eventExternalId(), null);
+                  ? ExternalWriteCtx.local(null)
+                  : ExternalWriteCtx.synced(acc, ref.eventExternalId(), null, null);
             });
 
     if (ctx.external()) {
@@ -1058,7 +1107,7 @@ public class CalendarEventService {
                       .map(AttendeeRow::rsvpStatus)
                       .findFirst()
                       .orElse(null);
-              return withAttendeeInfo(e, count, mine, null, false, null);
+              return withAttendeeInfo(e, count, mine, null, false, null, null);
             })
         .toList();
   }
@@ -1102,14 +1151,20 @@ public class CalendarEventService {
                         r.externalEmail()))
             .toList();
     // external 플래그 = 일정에 external_id 가 있으면 true(외부 동기화 일정)
-    boolean external =
-        repo.findExternalRef(key).map(ref -> ref.eventExternalId() != null).orElse(false);
-    return withAttendeeInfo(e, rows.size(), mine, dtos, external, myRole);
+    var extRef = repo.findExternalRef(key);
+    boolean external = extRef.map(ref -> ref.eventExternalId() != null).orElse(false);
+    // 온라인 회의 판정(WP-710) — 저장된 참가 주소 → 설명 → 장소 순. 가상 회차 GET 은 마스터를 돌려주므로 마스터 행 기준이다.
+    OnlineMeeting onlineMeeting =
+        OnlineMeetingResolver.resolve(
+            extRef.map(CalendarEventRepository.ExternalEventRef::onlineMeetingUrl).orElse(null),
+            e.description(),
+            e.location());
+    return withAttendeeInfo(e, rows.size(), mine, dtos, external, myRole, onlineMeeting);
   }
 
   /**
-   * CalendarEventResponse 레코드를 복사하며 참석자 5필드(attendeeCount/myRsvpStatus/attendees/external/myRole)
-   * 교체. Java record 는 with-copy 미지원이므로 명시적 생성. external/myRole 은 list() 경로에서 false/null 로 전달.
+   * CalendarEventResponse 레코드를 복사하며 참석자 5필드(attendeeCount/myRsvpStatus/attendees/external/myRole)와
+   * onlineMeeting 교체. Java record 는 with-copy 미지원이므로 명시적 생성. external/myRole 은 list() 경로에서 false/null 로 전달.
    */
   private static CalendarEventResponse withAttendeeInfo(
       CalendarEventResponse e,
@@ -1117,7 +1172,8 @@ public class CalendarEventService {
       String myRsvpStatus,
       List<AttendeeResponse> attendees,
       boolean external,
-      String myRole) {
+      String myRole,
+      OnlineMeeting onlineMeeting) {
     return new CalendarEventResponse(
         e.id(),
         e.title(),
@@ -1141,7 +1197,8 @@ public class CalendarEventService {
         attendees,
         external,
         myRole,
-        e.iCalUid());
+        e.iCalUid(),
+        onlineMeeting);
   }
 
   /**
@@ -1319,13 +1376,14 @@ public class CalendarEventService {
     long id = cur.id();
     var ref = repo.findExternalRef(id).orElseThrow(() -> new CalendarEventNotFoundException(id));
     if (ref.externalAccountId() == null || ref.eventExternalId() == null) {
-      return new ExternalWriteCtx(false, null, null, cur.calendarId());
+      return ExternalWriteCtx.local(cur.calendarId());
     }
     EmailAccountResponse acc =
         emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
     return acc == null
-        ? new ExternalWriteCtx(false, null, null, cur.calendarId())
-        : new ExternalWriteCtx(true, acc, ref.eventExternalId(), cur.calendarId());
+        ? ExternalWriteCtx.local(cur.calendarId())
+        : ExternalWriteCtx.synced(
+            acc, ref.eventExternalId(), cur.calendarId(), cur.description());
   }
 
   /**

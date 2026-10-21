@@ -10,6 +10,7 @@ import com.workplace.mail.outbound.GraphCalendarClient;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEvent;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee;
+import com.workplace.global.util.Texts;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.user.repository.UserRepository;
 import java.time.LocalDateTime;
@@ -212,17 +213,61 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     }
   }
 
+  /** 설명 최대 길이 — {@code CalendarEventRequest.description} 의 {@code @Size(max = 10000)} 과 같다(앱에서 쓰는 일정과 같은 한도). */
+  static final int DESCRIPTION_MAX = 10_000;
+
+  /**
+   * 일정 설명 = 본문 전체(WP-709). 예전엔 255자짜리 bodyPreview 만 저장해 긴 초대 본문이 잘렸다.
+   *
+   * <p>동기화는 {@code Prefer: outlook.body-content-type="text"} 로 본문을 받으므로 body.content 는 텍스트다. 그래도 Graph 가
+   * HTML 로 돌려주면(헤더 무시) 태그가 그대로 화면에 나오므로 그 경우엔 미리보기로 대신한다. 본문이 비면 미리보기, 둘 다 비면 null.
+   * 줄바꿈은 {@code \n} 으로 맞추고 앞뒤 공백을 자르며, {@link #DESCRIPTION_MAX} 를 넘으면 앞 (최대-1)자 + 「…」 로 줄인다.
+   */
+  static String mapDescription(GraphEvent evt) {
+    var body = evt.body();
+    // 본문이 HTML 로 오면 태그가 그대로 보이므로 건너뛰고 미리보기로 대신한다.
+    String fromBody =
+        body == null || "html".equalsIgnoreCase(body.contentType())
+            ? ""
+            : normalizeText(body.content());
+    String text = fromBody.isEmpty() ? normalizeText(evt.bodyPreview()) : fromBody;
+    if (text.isEmpty()) return null;
+    // 서로게이트 쌍(이모지 등) 한가운데를 자르면 홀로 남은 반쪽이 UTF-8 로 저장되지 않아 동기화 트랜잭션이 깨진다 — headUtf16 이 쌍 앞에서 자른다.
+    return text.length() <= DESCRIPTION_MAX
+        ? text
+        : Texts.headUtf16(text, DESCRIPTION_MAX - 1) + "…";
+  }
+
+  /** 참가 주소 최대 길이 — {@code calendar_event.online_meeting_url VARCHAR(2000)} 과 같다. */
+  static final int JOIN_URL_MAX = 2000;
+
+  /**
+   * Graph onlineMeeting.joinUrl → 저장할 참가 주소(WP-710). http(s) 로 파싱되지 않거나 비었거나 컬럼 길이를 넘으면 null — 저장은 못 해도 설명·장소에서 찾는
+   * 응답 쪽 판정이 이어서 동작한다.
+   */
+  static String mapJoinUrl(GraphEvent evt) {
+    if (evt.onlineMeeting() == null || evt.onlineMeeting().joinUrl() == null) return null;
+    String url = evt.onlineMeeting().joinUrl().trim();
+    // 응답 쪽 판정과 같은 검사(OnlineMeetingResolver.isHttpUrl) — 저장했는데 판정에서 무시되는 주소를 만들지 않는다.
+    return OnlineMeetingResolver.isHttpUrl(url) && url.length() <= JOIN_URL_MAX ? url : null;
+  }
+
+  /** CRLF·CR → LF 로 맞추고 NUL(Postgres 텍스트에 저장 불가)을 지운 뒤 앞뒤 공백을 자른다. null 은 빈 문자열. */
+  private static String normalizeText(String raw) {
+    if (raw == null) return "";
+    return raw.replace("\r\n", "\n").replace('\r', '\n').replace("\u0000", "").trim();
+  }
+
   /**
    * GraphEvent → ExternalEventRow 매핑.
    *
    * <p>종일 이벤트: Graph end 는 배타적(다음 날 자정)이며 DB 도 동일 반개구간(half-open) 규약을 사용하므로 변환 없이 그대로 저장한다. {@code
    * calendar_event_time_check(ends_at > starts_at)} 제약상 포함 종료일로 보정하면 1일 이벤트 시 위반이 발생한다. 빈/null 제목은
-   * "(제목 없음)"로 폴백. bodyPreview 빈 문자열은 null 로 저장.
+   * "(제목 없음)"로 폴백. 설명은 {@link #mapDescription} (본문 전체, 빈 값은 null).
    */
   private static ExternalEventRow mapEvent(GraphEvent evt) {
     String title = (evt.subject() == null || evt.subject().isBlank()) ? "(제목 없음)" : evt.subject();
-    String description =
-        (evt.bodyPreview() == null || evt.bodyPreview().isBlank()) ? null : evt.bodyPreview();
+    String description = mapDescription(evt);
     String location = (evt.location() != null) ? evt.location().displayName() : null;
 
     OffsetDateTime startsAt = parseDateTime(evt.start().dateTime());
@@ -233,7 +278,14 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     // 앱 내 all_day=true 이벤트는 일관되게 half-open [start, end) 으로 표현한다(CalendarEventService 기준).
 
     return new ExternalEventRow(
-        title, description, startsAt, endsAt, evt.isAllDay(), location, evt.iCalUId());
+        title,
+        description,
+        startsAt,
+        endsAt,
+        evt.isAllDay(),
+        location,
+        evt.iCalUId(),
+        mapJoinUrl(evt));
   }
 
   /**

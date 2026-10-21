@@ -148,6 +148,11 @@ public class CalendarEvent extends TableImpl<CalendarEventRecord> {
      */
     public final TableField<CalendarEventRecord, String> ICAL_UID = createField(DSL.name("ical_uid"), SQLDataType.VARCHAR(500), this, "");
 
+    /**
+     * The column <code>public.calendar_event.online_meeting_url</code>.
+     */
+    public final TableField<CalendarEventRecord, String> ONLINE_MEETING_URL = createField(DSL.name("online_meeting_url"), SQLDataType.VARCHAR(2000), this, "");
+
     private CalendarEvent(Name alias, Table<CalendarEventRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

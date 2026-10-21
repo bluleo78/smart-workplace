@@ -63,6 +63,28 @@ describe('buildCalendarTools', () => {
     expect(JSON.parse(resultText(out))).toEqual([{ id: 1, title: '회의', startsAt: '2026-06-20T10:00:00Z', endsAt: '2026-06-20T11:00:00Z' }]);
   });
 
+  it('list_events → 300자를 넘는 설명은 잘라 …를 붙이고, null·짧은 설명은 그대로 둔다', async () => {
+    const c = mockClient();
+    const base = { startsAt: '2026-06-20T10:00:00Z', endsAt: '2026-06-20T11:00:00Z' };
+    vi.mocked(c.listEvents).mockResolvedValue([
+      { id: 1, title: '긴', ...base, description: 'x'.repeat(10_000) },
+      { id: 2, title: '짧은', ...base, description: 'y'.repeat(300) },
+      { id: 3, title: '없음', ...base, description: null },
+      { id: 4, title: '필드없음', ...base },
+      { id: 5, title: '이모지', ...base, description: 'a'.repeat(299) + '😀' + 'b'.repeat(50) },
+    ]);
+    const out = JSON.parse(resultText(await tool(c, 'list_events').handler({ from: '2026-06-19T00:00:00Z', to: '2026-06-26T00:00:00Z' })));
+    expect(out[0].description).toBe('x'.repeat(300) + '…');
+    expect(out[1].description).toBe('y'.repeat(300));
+    expect(out[2].description).toBeNull();
+    expect('description' in out[3]).toBe(false);
+    expect(out[4].description).toBe('a'.repeat(299) + '…'); // 쌍을 가르지 않고 앞에서 자른다
+  });
+
+  it('list_events 설명이 get_event 로 전문을 얻는다고 안내한다', () => {
+    expect(tool(mockClient(), 'list_events').description).toContain('get_event');
+  });
+
   it('list_events → naive datetime 은 +09:00 을 보정해 전달한다', async () => {
     const c = mockClient();
     await tool(c, 'list_events').handler({ from: '2026-06-19T00:00:00', to: '2026-06-26T00:00:00+09:00' });

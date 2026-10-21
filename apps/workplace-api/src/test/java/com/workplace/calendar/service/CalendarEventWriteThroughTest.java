@@ -307,6 +307,54 @@ class CalendarEventWriteThroughTest extends IntegrationTestBase {
     assertThat(updated.title()).isEqualTo("변경된제목");
   }
 
+  /**
+   * 설명을 건드리지 않은 수정(시간만 변경)은 Graph PATCH 에 본문을 싣지 않는다(WP-709 리뷰) — 동기화된 설명은 HTML 초대문의 텍스트 변환본이라 되돌려
+   * 보내면 Outlook 의 서식 있는 초대문이 덮인다. 설명을 실제로 바꾼 수정은 본문을 보낸다.
+   */
+  @Test
+  void update_external_event_omits_body_unless_description_changed() {
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-evt-body");
+    CalendarEventResponse created = eventService.create(ownerId, req(extCalId, null));
+
+    // ① 설명 그대로("본문"), 시간만 변경
+    eventService.update(
+        ownerId,
+        created.id(),
+        editWith("본문", "2026-07-10T10:00:00Z", "2026-07-10T11:00:00Z"),
+        com.workplace.calendar.dto.EditScope.ALL,
+        null);
+    // ② 설명 변경
+    eventService.update(
+        ownerId,
+        created.id(),
+        editWith("새 본문", "2026-07-10T10:00:00Z", "2026-07-10T11:00:00Z"),
+        com.workplace.calendar.dto.EditScope.ALL,
+        null);
+
+    ArgumentCaptor<GraphEventWrite> captor = ArgumentCaptor.forClass(GraphEventWrite.class);
+    verify(calendarTransport, org.mockito.Mockito.times(2))
+        .updateEvent(eq(ownerId), any(), eq("graph-evt-body"), captor.capture());
+    assertThat(captor.getAllValues().get(0).body()).isNull();
+    assertThat(captor.getAllValues().get(1).body()).isNotNull();
+    assertThat(captor.getAllValues().get(1).body().content()).isEqualTo("새 본문");
+  }
+
+  private CalendarEventRequest editWith(String description, String startUtc, String endUtc) {
+    return new CalendarEventRequest(
+        "회의",
+        description,
+        OffsetDateTime.parse(startUtc),
+        OffsetDateTime.parse(endUtc),
+        false,
+        "회의실",
+        null,
+        null,
+        null,
+        null,
+        extCalId);
+  }
+
   /** 외부 동기화 일정을 다른(로컬) 캘린더로 이동 시도 → 422, Graph PATCH 미호출, 로컬 소속 캘린더 불변. */
   @Test
   void update_external_event_move_to_other_calendar_is_rejected_422() {

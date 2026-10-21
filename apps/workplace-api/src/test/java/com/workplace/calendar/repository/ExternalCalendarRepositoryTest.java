@@ -75,6 +75,7 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
         OffsetDateTime.parse("2026-07-01T02:00:00Z"),
         false,
         null,
+        null,
         null);
   }
 
@@ -119,12 +120,13 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       OffsetDateTime.parse("2026-07-01T02:00:00Z"),
                       false,
                       "회의실",
+                      null,
                       null);
               long first = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
 
               var row2 =
                   new ExternalCalendarRepository.ExternalEventRow(
-                      "회의(수정)", null, row.startsAt(), row.endsAt(), false, "회의실B", null);
+                      "회의(수정)", null, row.startsAt(), row.endsAt(), false, "회의실B", null, null);
               long second = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row2);
 
               // 같은 행 갱신 — id 는 동일
@@ -186,7 +188,8 @@ class ExternalCalendarRepositoryTest extends IntegrationTestBase {
                       OffsetDateTime.parse("2026-07-01T02:00:00Z"),
                       false,
                       "회의실",
-                      "ICAL-UID-1");
+                      "ICAL-UID-1",
+                      null);
               long id = repo.upsertExternalEvent(ownerId, calId, "graphEvt1", row);
 
               String stored =
