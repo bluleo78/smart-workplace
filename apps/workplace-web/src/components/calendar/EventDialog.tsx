@@ -41,6 +41,7 @@ import {
   eventFormSchema,
   type EventFormValues as FormValues,
   normalizeAllDayRange,
+  restoreTimedRange,
   shouldShowRsvp,
   toEventRequest,
 } from '@/lib/calendarEventForm'
@@ -127,6 +128,8 @@ export function EventDialog({
   // 이벤트 루프 틱 내에 두 번 클릭해도(isPending prop 이 아직 갱신되기 전) 두 번째
   // form submit 을 차단한다. isPending(state)만으로는 dblclick 을 막지 못함 (이슈 #584).
   const submittingRef = useRef(false)
+  // 「종일」을 체크하기 직전의 시작·종료 — 체크가 시각을 자정으로 덮어쓰므로, 풀 때 되살릴 원래 시각을 여기 둔다(WP-711).
+  const timedRangeRef = useRef<{ start: string; end: string } | null>(null)
 
   // 편집 모드에서 상세 데이터(attendees 포함) 로드 — 목록 이벤트에는 attendees 가 없음 (이슈 #489)
   const { data: detailEvent } = useCalendarEvent(isEdit && open ? event?.id : undefined)
@@ -178,6 +181,7 @@ export function EventDialog({
     if (!open) return
     // 다이얼로그를 새로 열 때마다 in-flight 가드 초기화 — 재오픈 시 이전 제출 잔재 방지.
     submittingRef.current = false
+    timedRangeRef.current = null
     // 생성 모드 진입 시 참석자 선택 초기화
     if (!event) setSelectedAttendees([])
 
@@ -308,14 +312,20 @@ export function EventDialog({
                   checked={field.value}
                   onCheckedChange={(checked) => {
                     field.onChange(checked)
-                    // 체크 시에만 자정 경계로 정규화 — 체크 해제는 사용자가 입력한 시각 보존
+                    const current = { start: form.getValues('start'), end: form.getValues('end') }
+                    // 체크하면 지금 시각을 기억해 두고 자정 경계로 정규화, 풀면 기억한 시각으로 되돌린다(WP-711).
+                    // 처음부터 종일이던 일정은 되살릴 시각이 없어 자정 값을 그대로 둔다.
+                    let next: { start: string; end: string } | null = null
                     if (checked) {
-                      const { start, end } = normalizeAllDayRange(
-                        form.getValues('start'),
-                        form.getValues('end'),
-                      )
-                      form.setValue('start', start, { shouldValidate: true })
-                      form.setValue('end', end, { shouldValidate: true })
+                      timedRangeRef.current = current
+                      next = normalizeAllDayRange(current.start, current.end)
+                    } else if (timedRangeRef.current) {
+                      next = restoreTimedRange(current, timedRangeRef.current)
+                      timedRangeRef.current = null
+                    }
+                    if (next) {
+                      form.setValue('start', next.start, { shouldValidate: true })
+                      form.setValue('end', next.end, { shouldValidate: true })
                     }
                   }}
                   disabled={isReadOnly}
