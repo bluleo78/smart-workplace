@@ -17,7 +17,7 @@ import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../../hooks/queries/useUpdateIssueAssignees';
 import { useUpdateIssueLabels } from '../../../../hooks/queries/useUpdateIssueLabels';
 import { useUpdateIssueParent } from '../../../../hooks/queries/useUpdateIssueParent';
-import { formatDateMonthDay } from '../../../../lib/formatters';
+import { formatDateMonthDay, parseValidDateKey } from '../../../../lib/formatters';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../../lib/issueGrouping';
 import { isOverdue } from '../../../../lib/issueOverdue';
 import type { IssuePriority, IssueResponse, IssueStatus, UpdateIssueRequest } from '../../../../types/issue';
@@ -120,7 +120,8 @@ export function IssueMobilePropertyChips({
           isOverdue(issue) ? '마감일, 마감 지남' : '마감일',
           <>
             <CalendarDays className="size-4" aria-hidden />
-            {issue.dueDate ? formatDateMonthDay(issue.dueDate) : '마감 없음'}
+            {/* 해석할 수 없는 마감일(API 로 들어간 +10000-01-01 등)은 엉뚱한 월·일 대신 「잘못된 날짜」(WP-725) */}
+            {issue.dueDate ? (parseValidDateKey(issue.dueDate) ? formatDateMonthDay(issue.dueDate) : '잘못된 날짜') : '마감 없음'}
             {isOverdue(issue) && <span data-testid="issue-overdue-badge">· 지남</span>}
           </>,
           !issue.dueDate,

@@ -155,6 +155,17 @@ test.describe('속성 칩', () => {
     await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ status: 'DONE' });
   });
 
+  // WP-725: 해석할 수 없는 마감일(API 로 들어간 +10000-01-01)은 엉뚱한 「1월 1일」 대신 「잘못된 날짜」 — 시트에서 지워 고칠 수 있다.
+  test('해석할 수 없는 마감일은 「잘못된 날짜」로 보이고 시트에서 지울 수 있다', async ({ authenticatedPage: page }) => {
+    const calls = await mockDetail(page, { dueDate: '+10000-01-01' });
+    await openDetail(page);
+    const due = page.getByTestId('mobile-prop-due');
+    await expect(due).toContainText('잘못된 날짜');
+    await due.click();
+    await page.getByTestId('issue-due-sheet-clear').click();
+    await expect.poll(() => calls().some((c) => (c.body as { clearDueDate?: boolean })?.clearDueDate === true)).toBe(true);
+  });
+
   test('우선순위·마감 칩 — 선택/빠른 선택/지우기가 PATCH 로 반영', async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page, { dueDate: '2026-10-20' });
     await openDetail(page);

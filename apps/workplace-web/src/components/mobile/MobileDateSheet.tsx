@@ -5,7 +5,7 @@
 import { addDays } from 'date-fns';
 
 import { Calendar } from '@/components/ui/calendar';
-import { formatDateKey, parseDateKey } from '@/lib/formatters';
+import { formatDateKey, parseValidDateKey } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
 
 import { MobileSheetShell } from './MobileSheetShell';
@@ -33,7 +33,8 @@ export function MobileDateSheet({
   /** false 면 지우기 버튼을 두지 않는다(만료 행 "기한 연장"). */
   canClear?: boolean;
 }) {
-  const selected = value ? parseDateKey(value) : undefined;
+  // 해석할 수 없는 값(WP-725)은 선택 없음으로 — Invalid Date 를 달력에 넘기지 않는다.
+  const selected = parseValidDateKey(value);
   // 선택 공통 경로 — 시트를 먼저 닫고 값을 알린다(MobilePickerSheet 와 같은 순서: 호출부가 포커스 복귀를 이어서 처리).
   const pick = (v: string | null) => {
     onClose();
