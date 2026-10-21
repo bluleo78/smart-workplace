@@ -279,6 +279,7 @@ public class IssueService {
       } else if (!parentIsEpic) {
         throw new ParentNotAllowedException();
       }
+      requireOpenChildAllowed(parent, parentIsEpic, req.status() != null ? req.status() : "TODO");
       parentIssueId = parent.id();
     } else if (isSubtask) {
       throw new SubtaskParentRequiredException();
@@ -733,6 +734,15 @@ public class IssueService {
     } else {
       changeNotifier.updated(project, number, before.id(), callerId, req.status() != null);
     }
+    // WP-689 완료(DONE) 에픽의 하위가 다시 열리면 에픽도 진행 중으로 되돌린다 — 완료 에픽 아래 미완료 하위가 남지 않게.
+    // 같은 update 경로로 바꿔 상태 이력·이벤트·실시간 무효화를 그대로 남긴다(에픽은 부모가 없어 더 올라가지 않는다).
+    if (wasClosed && !nowClosed && before.parentIssueId() != null) {
+      var parent = issueRepository.findById(before.parentIssueId()).orElseThrow();
+      if ("DONE".equals(parent.status())
+          && "EPIC".equals(typeRepository.findById(parent.typeId()).orElseThrow().name())) {
+        updateStatus(callerId, projectKey, parent.number(), "IN_PROGRESS");
+      }
+    }
 
     return get(callerId, projectKey, number);
   }
@@ -972,6 +982,7 @@ public class IssueService {
       } else if (!newParentIsEpic) {
         throw new ParentNotAllowedException();
       }
+      requireOpenChildAllowed(newParent, newParentIsEpic, row.status());
       newParentId = newParent.id();
       newRef = toParentRef(newParent, newParentType);
     }
@@ -993,6 +1004,19 @@ public class IssueService {
     // 부모 변경은 정리성 쓰기 — AI 작업을 시작·터치하지 않는다(WP-425).
     changeNotifier.updatedWithoutTouch(project, number, row.id(), callerId);
     return get(callerId, projectKey, number);
+  }
+
+  /**
+   * WP-689 완료(DONE) 에픽에는 미완료 하위를 넣지 않는다 — 생성·부모 변경 모두. 넣으면 완료 에픽 아래 미완료 하위가 남아 #710 의 「미완료 하위가 있으면
+   * 완료 불가」와 어긋난다. 취소(CANCELED) 에픽과 이미 끝난 하위는 막지 않는다.
+   */
+  private static void requireOpenChildAllowed(
+      IssueRow parent, boolean parentIsEpic, String childStatus) {
+    if (parentIsEpic
+        && "DONE".equals(parent.status())
+        && !IssueStatuses.CLOSED.contains(childStatus)) {
+      throw new InvalidParentException("완료된 에픽에는 미완료 하위 이슈를 넣을 수 없습니다. 에픽을 먼저 다시 열어 주세요");
+    }
   }
 
   /** 부모 이슈 행·유형 행 → 응답·이력용 부모 요약(번호·제목·유형·상태, WP-247). 상위 변경 경로 세 곳이 같은 모양으로 만든다. */

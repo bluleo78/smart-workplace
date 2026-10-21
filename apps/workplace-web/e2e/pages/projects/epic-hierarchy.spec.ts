@@ -179,6 +179,68 @@ test.describe('EPIC 계층', () => {
     },
   );
 
+  // WP-689 완료(DONE) 에픽에는 미완료 하위를 넣을 수 없다(서버 400) — 추가 입력 대신 다시 열라는 안내가 보인다.
+  test('완료 에픽 상세 → 하위 이슈 추가 입력 대신 안내', async ({ authenticatedPage: page }) => {
+    const epicSummary = makeEpicType();
+    await setupCommonStubs(page);
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            summary: {
+              ...createIssue({ id: 1, number: 1, title: '끝난 에픽', status: 'DONE' }),
+              type: epicSummary,
+              childCount: 1,
+              childDoneCount: 1,
+              parent: null,
+              labels: [],
+              attachmentCount: 0,
+              assignees: [],
+            },
+            body: '',
+            comments: [],
+            history: [],
+            attachments: [],
+          }),
+        }),
+    );
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1/watchers` || url.pathname === `${ISSUES_BASE}/1/attachments`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(
+      (url) => url.pathname === ISSUES_BASE,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(
+            createIssueSearchResponse(
+              [
+                {
+                  ...createIssue({ id: 2, number: 2, title: '끝난 하위', status: 'DONE' }),
+                  parent: { number: 1, title: '끝난 에픽', type: epicSummary },
+                },
+              ],
+              null,
+            ),
+          ),
+        }),
+    );
+
+    await page.goto(`/projects/${KEY}/issues/1`);
+
+    await expect(page.getByTestId('child-row-2')).toBeVisible();
+    await expect(page.getByTestId('child-add-done-epic-hint')).toHaveText(
+      '완료된 에픽에는 하위 이슈를 추가할 수 없습니다. 에픽을 다시 열면 추가할 수 있습니다.',
+    );
+    await expect(page.getByTestId('child-add-form')).toHaveCount(0);
+    await expect(page.getByTestId('child-add-input')).toHaveCount(0);
+  });
+
   test('일반 이슈 상세 → 상위 에픽 슬롯으로 EPIC 연결 → PATCH payload 검증', async ({
     authenticatedPage: page,
   }) => {

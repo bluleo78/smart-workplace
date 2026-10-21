@@ -10,6 +10,7 @@ import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
+import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.IssueConflictException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.project.dto.AddMemberRequest;
@@ -574,5 +575,146 @@ class IssueServiceTest extends IntegrationTestBase {
     IssueResponse created = newIssue("v");
     issueRepository.updateSource(created.id(), "MAIL", 999L);
     assertThat(issueRepository.findById(created.id()).orElseThrow().version()).isEqualTo(1);
+  }
+
+  // ── WP-689 완료 에픽에 미완료 하위 막기 ──
+
+  /** 하위가 모두 끝난 에픽을 완료(DONE)로 만든다 — 아래 WP-689 테스트의 공통 준비. 반환값은 [에픽, 끝난 하위]. */
+  private IssueResponse[] doneEpicWithDoneChild() {
+    var epicType = typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow();
+    IssueResponse epic =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("epic", "b", null, null, null, epicType.id(), null, null));
+    IssueResponse child =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("child", "b", null, null, null, null, epic.number(), null));
+    issueService.updateStatus(ownerId, projectKey, child.number(), "DONE");
+    issueService.updateStatus(ownerId, projectKey, epic.number(), "DONE");
+    return new IssueResponse[] {epic, child};
+  }
+
+  private String statusOf(Long issueId) {
+    return dsl.select(ISSUE.STATUS).from(ISSUE).where(ISSUE.ID.eq(issueId)).fetchOne(ISSUE.STATUS);
+  }
+
+  /** 완료 에픽 아래에 미완료 하위를 새로 만들 수 없다 — 400 상당(InvalidParentException), 이슈도 생기지 않는다. */
+  @Test
+  void create_openChildUnderDoneEpic_rejected() {
+    IssueResponse epic = doneEpicWithDoneChild()[0];
+    int countBefore = dsl.fetchCount(ISSUE, ISSUE.PROJECT_ID.eq(projectId));
+
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    ownerId,
+                    projectKey,
+                    new CreateIssueRequest(
+                        "late child", "b", null, null, null, null, epic.number(), null)))
+        .isInstanceOf(InvalidParentException.class)
+        .hasMessageContaining("완료된 에픽에는 미완료 하위 이슈를 넣을 수 없습니다");
+    assertThat(dsl.fetchCount(ISSUE, ISSUE.PROJECT_ID.eq(projectId))).isEqualTo(countBefore);
+  }
+
+  /** 이미 끝난(DONE) 상태로 만드는 하위는 완료 에픽에도 넣을 수 있다 — 불일치를 만들지 않으므로. */
+  @Test
+  void create_doneChildUnderDoneEpic_allowed() {
+    IssueResponse epic = doneEpicWithDoneChild()[0];
+    IssueResponse child =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest(
+                "done child",
+                "b",
+                null,
+                null,
+                null,
+                null,
+                epic.number(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "DONE"));
+    assertThat(child.status()).isEqualTo("DONE");
+    assertThat(statusOf(epic.id())).isEqualTo("DONE");
+  }
+
+  /** 미완료 이슈를 완료 에픽 아래로 옮길 수 없다 — 부모가 바뀌지 않는다. */
+  @Test
+  void setParent_openIssueToDoneEpic_rejected() {
+    IssueResponse epic = doneEpicWithDoneChild()[0];
+    IssueResponse task = newIssue("떠도는 작업");
+
+    assertThatThrownBy(
+            () -> issueService.setParent(ownerId, projectKey, task.number(), epic.number()))
+        .isInstanceOf(InvalidParentException.class)
+        .hasMessageContaining("에픽을 먼저 다시 열어 주세요");
+    assertThat(issueRepository.findById(task.id()).orElseThrow().parentIssueId()).isNull();
+  }
+
+  /** 취소(CANCELED) 에픽은 막지 않는다 — 결정 범위는 완료(DONE) 에픽뿐. */
+  @Test
+  void setParent_openIssueToCanceledEpic_allowed() {
+    var epicType = typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow();
+    IssueResponse epic =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("epic", "b", null, null, null, epicType.id(), null, null));
+    issueService.updateStatus(ownerId, projectKey, epic.number(), "CANCELED");
+    IssueResponse task = newIssue("작업");
+
+    issueService.setParent(ownerId, projectKey, task.number(), epic.number());
+    assertThat(issueRepository.findById(task.id()).orElseThrow().parentIssueId())
+        .isEqualTo(epic.id());
+  }
+
+  /** 완료 에픽의 하위를 다시 열면 에픽도 진행 중으로 돌아가고, 에픽 이력에 상태 변경이 남는다. */
+  @Test
+  void reopenChildOfDoneEpic_reopensEpic() {
+    IssueResponse[] pair = doneEpicWithDoneChild();
+    IssueResponse epic = pair[0];
+    IssueResponse child = pair[1];
+
+    issueService.updateStatus(ownerId, projectKey, child.number(), "TODO");
+
+    assertThat(statusOf(child.id())).isEqualTo("TODO");
+    assertThat(statusOf(epic.id())).isEqualTo("IN_PROGRESS");
+    assertThat(issueRepository.findById(epic.id()).orElseThrow().closedAt()).isNull();
+    var epicHistory = issueService.get(ownerId, projectKey, epic.number()).history();
+    assertThat(epicHistory)
+        .anySatisfy(
+            h -> {
+              assertThat(h.fromValue()).isEqualTo("DONE");
+              assertThat(h.toValue()).isEqualTo("IN_PROGRESS");
+            });
+  }
+
+  /** 취소 에픽의 하위를 다시 열어도 에픽은 그대로 — 자동 재오픈은 완료(DONE) 에픽만. */
+  @Test
+  void reopenChildOfCanceledEpic_keepsEpic() {
+    var epicType = typeRepository.findByProjectAndName(projectId, "EPIC").orElseThrow();
+    IssueResponse epic =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("epic", "b", null, null, null, epicType.id(), null, null));
+    IssueResponse child =
+        issueService.create(
+            ownerId,
+            projectKey,
+            new CreateIssueRequest("child", "b", null, null, null, null, epic.number(), null));
+    issueService.updateStatus(ownerId, projectKey, child.number(), "DONE");
+    issueService.updateStatus(ownerId, projectKey, epic.number(), "CANCELED");
+
+    issueService.updateStatus(ownerId, projectKey, child.number(), "IN_PROGRESS");
+    assertThat(statusOf(epic.id())).isEqualTo("CANCELED");
   }
 }
