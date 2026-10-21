@@ -23,6 +23,7 @@ import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.file.service.FileUploadService;
 import com.workplace.global.util.SafeFileNames;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -227,7 +228,7 @@ public class DriveLinkService {
       long callerId, String source, String q, String cursor, int limit) {
     // limit 방어: 0 이하는 1 로, 100 초과는 100 으로 클램프
     int safeLimit = Math.max(1, Math.min(limit, 100));
-    Instant beforeAt = cursor != null ? Instant.parse(cursor) : null;
+    Instant beforeAt = parseCursor(cursor);
 
     // 선택된 provider 목록
     List<AttachmentSourceProvider> selected;
@@ -311,5 +312,18 @@ public class DriveLinkService {
     return fileRepo
         .findResponse(driveFileId)
         .orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
+  }
+
+  /**
+   * 가상 첨부 커서(ISO-8601 Instant) 해석. 형식이 틀리면 400(IllegalArgumentException) — 예전엔
+   * DateTimeParseException 이 그대로 새어 500 과 ERROR 스택 로그가 남았다(WP-668). 문구는 채널 메시지 목록의 잘못된 커서 응답과 같다.
+   */
+  private static Instant parseCursor(String cursor) {
+    if (cursor == null) return null;
+    try {
+      return Instant.parse(cursor);
+    } catch (DateTimeParseException e) {
+      throw new IllegalArgumentException("목록 위치(cursor)가 올바르지 않습니다", e);
+    }
   }
 }

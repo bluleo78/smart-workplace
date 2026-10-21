@@ -145,6 +145,24 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
   // ─── virtualAttachments 테스트 ───────────────────────────────────────
 
   /** ALL 모드: ISSUE + MESSAGE 첨부를 attachedAt DESC 로 병합. */
+  /**
+   * WP-668: 형식이 틀린 cursor(임의 문자열·날짜만·base64)는 500 이 아니라 IllegalArgumentException(전역 핸들러 400)으로
+   * 거절한다. 예전엔 Instant.parse 의 DateTimeParseException 이 그대로 새어 500 과 ERROR 스택 로그가 남았다.
+   */
+  @Test
+  void virtualAttachments_malformedCursor_isRejectedAs400() {
+    long caller = seedUser("caller");
+    for (String cursor : new String[] {"abc", "2026-10-21", "eyJ4IjoxfQ=="}) {
+      assertThatThrownBy(() -> service.virtualAttachments(caller, "ALL", null, cursor, 50))
+          .as(cursor)
+          .isExactlyInstanceOf(IllegalArgumentException.class)
+          .hasMessage("목록 위치(cursor)가 올바르지 않습니다");
+    }
+    // 올바른 커서(Instant)는 그대로 된다.
+    assertThat(service.virtualAttachments(caller, "ALL", null, "2026-10-21T02:53:32.039798Z", 50))
+        .isNotNull();
+  }
+
   @Test
   void virtualAttachments_all_mergesIssueAndMessage_descOrder() {
     long caller = seedUser("caller");
