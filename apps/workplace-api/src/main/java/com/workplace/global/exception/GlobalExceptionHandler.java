@@ -291,14 +291,15 @@ public class GlobalExceptionHandler {
       return ResponseEntity.badRequest().body(response);
     }
 
-    String message = "Data integrity violation";
+    // 화면 토스트로 그대로 나가는 문구라 한국어로 둔다(WP-705 — 영어 「Data integrity violation …」이 그대로 떴다).
+    String message = "저장할 수 없는 값이 있어 요청을 처리하지 못했습니다";
     if (causeMsg != null) {
       if (causeMsg.contains("duplicate key")) {
-        message = "Data integrity violation: duplicate entry";
+        message = "이미 있는 항목과 겹쳐 처리하지 못했습니다";
       } else if (causeMsg.contains("foreign key")) {
-        message = "Data integrity violation: referenced record not found";
+        message = "연결된 다른 데이터가 있어 처리하지 못했습니다";
       } else if (causeMsg.contains("check constraint")) {
-        message = "Data integrity violation: constraint check failed";
+        message = "허용되지 않는 값이라 처리하지 못했습니다";
       }
       // 그 외 알 수 없는 케이스는 raw DB 메시지를 노출하지 않고 제네릭 메시지로 처리
     }
@@ -324,6 +325,15 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(com.workplace.user.exception.PersonalAssistantRenameForbiddenException.class)
   public ResponseEntity<ErrorResponse> handlePersonalAssistantRenameForbidden(
       com.workplace.user.exception.PersonalAssistantRenameForbiddenException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
+  // 관리자의 개인 비서 삭제 차단 — 403 (WP-705).
+  @ExceptionHandler(com.workplace.user.exception.PersonalAssistantDeleteForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handlePersonalAssistantDeleteForbidden(
+      com.workplace.user.exception.PersonalAssistantDeleteForbiddenException ex,
       HttpServletRequest request) {
     ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);

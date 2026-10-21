@@ -1,5 +1,6 @@
 package com.workplace.auth.controller;
 
+import com.workplace.auth.service.AgentRemovalService;
 import com.workplace.global.security.RequirePermission;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.CreateAgentRequest;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminAgentController {
 
   private final UserService userService;
+  private final AgentRemovalService agentRemoval;
 
   /** AGENT 목록. includePersonal=false(기본)면 개인 비서(자동 생성 AGENT)를 제외한다. */
   @GetMapping
@@ -57,14 +59,20 @@ public class AdminAgentController {
     return ResponseEntity.noContent().build();
   }
 
-  /** AGENT 삭제 (CASCADE 로 키도 함께 제거). */
+  /**
+   * AGENT 삭제(WP-705). 기록이 없으면 완전히 지우고(키도 CASCADE), 기록이 남았거나 다른 워크스페이스에도 속해 있으면 이 워크스페이스에서 사용을 중지한다.
+   * 결과({@code DELETED}·{@code DEACTIVATED})를 돌려줘 화면이 알맞은 안내를 띄운다.
+   */
   @DeleteMapping("/{userId}")
   @RequirePermission("user:write")
-  public ResponseEntity<Void> delete(Authentication auth, @PathVariable Long userId) {
+  public ResponseEntity<AgentRemovalResponse> delete(
+      Authentication auth, @PathVariable Long userId) {
     Long callerId = (Long) auth.getPrincipal();
-    userService.deleteAgent(callerId, userId);
-    return ResponseEntity.noContent().build();
+    return ResponseEntity.ok(new AgentRemovalResponse(agentRemoval.remove(callerId, userId)));
   }
+
+  /** AGENT 삭제 결과. */
+  public record AgentRemovalResponse(AgentRemovalService.Result result) {}
 
   /**
    * AGENT 실행 방식 변경 (WP-371). INTERNAL=서버 ai-agent 가 실행, EXTERNAL=외부 에이전트가 API 키로 직접 일함. 공통/개인 비서를

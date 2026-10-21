@@ -100,6 +100,12 @@ public class MembershipRepository {
             .and(MEMBERSHIP.STATUS.eq(STATUS_ACTIVE)));
   }
 
+  /** tenantId 가 아닌 다른 워크스페이스에도 멤버십(상태 무관)이 있는지(WP-705 — 전역 user 행을 지워도 되는지 판단). */
+  public boolean hasMembershipElsewhere(long userId, long tenantId) {
+    return dsl.fetchExists(
+        MEMBERSHIP, MEMBERSHIP.USER_ID.eq(userId).and(MEMBERSHIP.TENANT_ID.ne(tenantId)));
+  }
+
   /**
    * WP-417: (user, tenant) 멤버십 상태(ACTIVE/SUSPENDED). 멤버가 아니면 빈 값. {@link #hasActiveMembership} 와 달리
    * 정지된 멤버도 "멤버"로 본다 — 관리자가 정지한 구성원을 계속 조회·재활성화하고, 재추가를 명확히 거절하는 데 쓴다.

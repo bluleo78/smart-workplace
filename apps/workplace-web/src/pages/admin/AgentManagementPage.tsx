@@ -115,7 +115,8 @@ export default function AgentManagementPage() {
   const onDelete = (id: number, name: string) => {
     setConfirmDialog({
       title: '에이전트 삭제',
-      description: `에이전트 "${name}"${objectParticle(name)} 삭제하시겠습니까? 키도 모두 제거됩니다.`,
+      // 남은 기록이 있으면 서버가 삭제 대신 사용을 중지한다(WP-705) — 확인 단계에서 미리 알린다.
+      description: `에이전트 "${name}"${objectParticle(name)} 삭제하시겠습니까? 키도 모두 제거됩니다. 이 AI 가 남긴 기록이 있으면 기록은 두고 사용을 중지합니다.`,
       actionLabel: '삭제',
       action: () =>
         deleteAgent.mutate(id, {

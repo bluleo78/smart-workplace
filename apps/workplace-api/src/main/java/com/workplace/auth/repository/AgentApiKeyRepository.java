@@ -85,6 +85,14 @@ public class AgentApiKeyRepository {
         .execute();
   }
 
+  /** 이 AGENT 의 활성 키를 모두 회수한다(WP-705 — 삭제 대신 사용 중지). 영향 받은 row 수 반환. */
+  public int revokeAllActive(long userId) {
+    return dsl.update(AGENT_API_KEY)
+        .set(AGENT_API_KEY.REVOKED_AT, OffsetDateTime.now())
+        .where(AGENT_API_KEY.USER_ID.eq(userId).and(AGENT_API_KEY.REVOKED_AT.isNull()))
+        .execute();
+  }
+
   /** 단건 조회 (관리 화면용). */
   public Optional<AgentApiKeyResponse> findById(Long id) {
     return dsl.selectFrom(AGENT_API_KEY)

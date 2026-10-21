@@ -42,9 +42,13 @@ export async function setAgentRuntime(userId: number, runtime: AgentRuntime): Pr
   await client.put<void>(`/admin/agents/${userId}/runtime`, { runtime });
 }
 
-// AGENT 유저 삭제 — cascade 로 키도 함께 제거.
-export async function deleteAgent(userId: number): Promise<void> {
-  await client.delete<void>(`/admin/agents/${userId}`);
+// AGENT 삭제 결과 — DELETED=완전히 지움(키도 함께), DEACTIVATED=남은 기록이 있어 삭제 대신 사용 중지(WP-705).
+export type AgentRemovalResult = 'DELETED' | 'DEACTIVATED';
+
+// AGENT 유저 삭제 — 기록이 남은 AI 는 서버가 삭제 대신 사용을 중지하고 그 결과를 돌려준다(WP-705).
+export async function deleteAgent(userId: number): Promise<AgentRemovalResult> {
+  const { data } = await client.delete<{ result: AgentRemovalResult }>(`/admin/agents/${userId}`);
+  return data.result;
 }
 
 // 특정 AGENT 의 API 키 목록 (활성/회수 모두 포함).

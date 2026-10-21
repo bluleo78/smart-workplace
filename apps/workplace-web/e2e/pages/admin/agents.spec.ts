@@ -65,7 +65,11 @@ async function setupStatic(page: import('@playwright/test').Page) {
   });
   await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
     if (route.request().method() === 'DELETE') {
-      return route.fulfill({ status: 204, body: '' });
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ result: 'DELETED' }),
+      });
     }
     return route.fallback();
   });
@@ -379,6 +383,34 @@ test.describe('/admin/agents', () => {
     await page.getByTestId('agent-confirm-confirm').click();
 
     await expect.poll(counts.deletes.count).toBe(1);
+    await expect(page.getByText('에이전트를 삭제했습니다')).toBeVisible();
+  });
+
+  // WP-705: 남은 기록이 있어 서버가 삭제 대신 사용을 중지하면(DEACTIVATED) 그대로 알린다 — 예전엔 영어 409 만 떴다.
+  test('기록이 남은 AGENT 삭제 → 사용 중지 안내 토스트', async ({ adminPage: page }) => {
+    const counts = await setupStatic(page);
+    // setupStatic 의 DELETE 핸들러보다 나중에 등록해 이 응답이 이긴다.
+    await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
+      if (route.request().method() === 'DELETE') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ result: 'DEACTIVATED' }),
+        });
+      }
+      return route.fallback();
+    });
+    await page.goto('/settings/agents');
+    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
+    await page.getByTestId(`agent-delete-${AGENT_ID}`).click();
+    await expect(page.getByTestId('agent-confirm-dialog')).toContainText(
+      '이 AI 가 남긴 기록이 있으면 기록은 두고 사용을 중지합니다.',
+    );
+    await page.getByTestId('agent-confirm-confirm').click();
+
+    await expect.poll(counts.deletes.count).toBe(1);
+    await expect(page.getByText('남은 기록이 있어 삭제 대신 사용을 중지했습니다')).toBeVisible();
+    await expect(page.getByText('에이전트를 삭제했습니다')).toHaveCount(0);
   });
 
   // AGENT 삭제의 취소 경로는 키 회수와 같은 확인 다이얼로그(confirmDialog 상태 하나)를 쓰므로 위 「API 키 회수 … 취소」가 맡는다.

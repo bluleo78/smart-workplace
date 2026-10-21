@@ -27,6 +27,7 @@ import com.workplace.user.dto.UserDetailResponse;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.CurrentPasswordMismatchException;
+import com.workplace.user.exception.PersonalAssistantDeleteForbiddenException;
 import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.outbound.AgentRuntimeChanged;
@@ -344,11 +345,11 @@ public class UserService {
   }
 
   /**
-   * Phase 5a — AGENT 유저 삭제. agent_api_key 는 ON DELETE CASCADE 로 함께 제거된다. ADMIN 가드는 컨트롤러에서 처리. 안전상
-   * AGENT 만 삭제 허용.
+   * 관리자가 지울 수 있는 AGENT 인지 확인한다(WP-705) — 현재 워크스페이스 멤버(아니면 404), AGENT 종류(아니면 400), 개인 비서가 아님(403 —
+   * 사용자별 비공개라 소유자 것이고, 사용자 행이 개인 비서로 가리키고 있다).
    */
-  @Transactional
-  public void deleteAgent(Long callerId, Long userId) {
+  @Transactional(readOnly = true)
+  public UserResponse requireRemovableAgent(Long userId) {
     // user 는 전역 테이블 — 다른 테넌트 에이전트를 건드리지 못하도록 현재 테넌트 멤버만 허용(비멤버는 404).
     requireMember(userId);
     UserResponse user =
@@ -356,6 +357,20 @@ public class UserService {
     if (!UserKind.isAgent(user.kind())) {
       throw new IllegalArgumentException("AGENT 유저만 삭제할 수 있습니다");
     }
+    if (AgentUsernames.isPersonalAssistant(user.username())) {
+      throw new PersonalAssistantDeleteForbiddenException("개인 비서는 관리자가 삭제할 수 없습니다");
+    }
+    return user;
+  }
+
+  /**
+   * Phase 5a — AGENT 유저 완전 삭제. agent_api_key 는 ON DELETE CASCADE 로 함께 제거된다. ADMIN 가드는 컨트롤러에서 처리.
+   * 안전상 AGENT 만 삭제 허용. 기록이 남아 FK 에 막히면 DataIntegrityViolationException — 관리자 삭제는 {@code
+   * AgentRemovalService} 가 사용 중지로 대신한다(WP-705).
+   */
+  @Transactional
+  public void deleteAgent(Long callerId, Long userId) {
+    UserResponse user = requireRemovableAgent(userId);
     String callerUsername = resolveUsername(callerId);
     userRepository.deleteById(userId);
     auditUserAction(
