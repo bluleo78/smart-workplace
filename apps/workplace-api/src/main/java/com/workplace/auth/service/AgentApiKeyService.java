@@ -22,6 +22,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +61,7 @@ public class AgentApiKeyService {
    * AGENT_KEY_ISSUED.
    */
   public AgentApiKeyIssueResponse issue(Long callerId, Long userId, IssueAgentKeyRequest req) {
+    requireNotSelf(callerId, userId);
     memberGuard.require(userId);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
@@ -92,6 +94,7 @@ public class AgentApiKeyService {
 
   /** 키 회수. 키 id 가 없거나 user 와 불일치하거나 이미 회수된 경우 모두 404 로 통일한다. 감사 로그 AGENT_KEY_REVOKED. */
   public void revoke(Long callerId, Long userId, Long keyId) {
+    requireNotSelf(callerId, userId);
     memberGuard.require(userId);
     AgentApiKeyResponse key =
         repo.findById(keyId).orElseThrow(() -> new KeyNotFoundException(keyId));
@@ -145,5 +148,15 @@ public class AgentApiKeyService {
   private String resolveUsername(Long callerId) {
     if (callerId == null) return "system";
     return userRepository.findById(callerId).map(UserResponse::username).orElse("system");
+  }
+
+  /**
+   * AI 가 자기 키를 발급·회수하지 못하게 한다(WP-728) — 자기 키를 새로 발급할 수 있으면 사람이 기존 키를 회수해도 AI 가 다시 살아난다. 키 관리는 사람
+   * 관리자의 일이다.
+   */
+  private static void requireNotSelf(Long callerId, Long userId) {
+    if (callerId != null && callerId.equals(userId)) {
+      throw new AccessDeniedException("AI 는 자기 API 키를 발급하거나 회수할 수 없습니다");
+    }
   }
 }

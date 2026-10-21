@@ -2,13 +2,17 @@ package com.workplace.role.repository;
 
 import static com.workplace.jooq.Tables.*;
 
+import com.workplace.role.dto.AdminPermissionCodes;
 import com.workplace.role.dto.RoleResponse;
+import com.workplace.user.dto.UserKind;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -22,11 +26,32 @@ public class RoleRepository {
         r.get(ROLE.ID), r.get(ROLE.NAME), r.get(ROLE.DESCRIPTION), r.get(ROLE.IS_SYSTEM));
   }
 
+  /**
+   * 역할 목록 — 각 역할이 관리 권한을 주는지(grantsAdmin, WP-728)를 함께 싣는다. ADMIN 시스템 역할은 권한 행과 상관없이 관리 역할로 본다(ADMIN
+   * 은 권한 판정을 우회한다).
+   */
   public List<RoleResponse> findAll() {
-    return dsl.select(ROLE.ID, ROLE.NAME, ROLE.DESCRIPTION, ROLE.IS_SYSTEM)
+    Field<Boolean> grantsAdmin =
+        DSL.field(
+            DSL.exists(
+                    DSL.selectOne()
+                        .from(ROLE_PERMISSION)
+                        .join(PERMISSION)
+                        .on(PERMISSION.ID.eq(ROLE_PERMISSION.PERMISSION_ID))
+                        .where(ROLE_PERMISSION.ROLE_ID.eq(ROLE.ID))
+                        .and(PERMISSION.CODE.in(AdminPermissionCodes.CODES)))
+                .or(ROLE.IS_SYSTEM.isTrue().and(ROLE.NAME.eq("ADMIN"))));
+    return dsl.select(ROLE.ID, ROLE.NAME, ROLE.DESCRIPTION, ROLE.IS_SYSTEM, grantsAdmin)
         .from(ROLE)
         .orderBy(ROLE.ID.asc())
-        .fetch(this::mapToRoleResponse);
+        .fetch(
+            r ->
+                new RoleResponse(
+                    r.get(ROLE.ID),
+                    r.get(ROLE.NAME),
+                    r.get(ROLE.DESCRIPTION),
+                    r.get(ROLE.IS_SYSTEM),
+                    Boolean.TRUE.equals(r.get(grantsAdmin))));
   }
 
   public Optional<RoleResponse> findById(Long id) {
@@ -98,6 +123,17 @@ public class RoleRepository {
   /** 해당 역할이 현재 할당되어 있는 사용자 수 — 삭제 전 영향 범위 확인용 (#678). */
   public int countAssignedUsers(Long roleId) {
     return dsl.fetchCount(dsl.selectOne().from(USER_ROLE).where(USER_ROLE.ROLE_ID.eq(roleId)));
+  }
+
+  /** 해당 역할을 가진 AI 에이전트 수 — AI 가 가진 역할에 관리 권한을 더하지 못하게 할 때 쓴다(WP-728). */
+  public int countAgentHolders(Long roleId) {
+    return dsl.fetchCount(
+        dsl.selectOne()
+            .from(USER_ROLE)
+            .join(USER)
+            .on(USER.ID.eq(USER_ROLE.USER_ID))
+            .where(USER_ROLE.ROLE_ID.eq(roleId))
+            .and(USER.KIND.eq(UserKind.AGENT)));
   }
 
   public List<RoleResponse> findByUserId(Long userId) {

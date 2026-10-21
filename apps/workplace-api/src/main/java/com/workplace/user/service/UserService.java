@@ -15,6 +15,7 @@ import com.workplace.global.util.PersonNames;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.role.service.RoleGrantGuard;
+import com.workplace.role.service.RoleKindGuard;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.tenant.repository.TenantRepository;
 import com.workplace.user.dto.AgentRuntime;
@@ -57,6 +58,7 @@ public class UserService {
   private final AgentRuntimePolicy agentRuntimePolicy;
   private final RoleRepository roleRepository;
   private final RoleGrantGuard roleGrantGuard;
+  private final RoleKindGuard roleKindGuard;
   private final PasswordEncoder passwordEncoder;
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
@@ -617,10 +619,15 @@ public class UserService {
       }
     }
     // WP-599: ADMIN 이 아니면 자기 권한 안의 역할만 주고뺄 수 있다(role:assign 만으로 자기에게 ADMIN 을 주던 권한 상승 차단).
-    roleGrantGuard.requireCanChangeRoles(
-        callerId,
-        roleRepository.findByUserId(userId).stream().map(RoleResponse::id).toList(),
-        roleIds == null ? List.of() : roleIds);
+    List<Long> currentRoleIds =
+        roleRepository.findByUserId(userId).stream().map(RoleResponse::id).toList();
+    List<Long> newRoleIds = roleIds == null ? List.of() : roleIds;
+    roleGrantGuard.requireCanChangeRoles(callerId, currentRoleIds, newRoleIds);
+    // WP-728: AI 에게 ADMIN·관리 권한 역할, 사람에게 AGENT 역할을 새로 주지 못한다(이미 가진 것은 그대로 둔다).
+    roleKindGuard.requireAssignable(
+        userRepository.findById(userId).map(UserResponse::kind).orElse(null),
+        currentRoleIds,
+        newRoleIds);
     Optional<RoleResponse> adminRole = roleRepository.findByName("ADMIN");
     if (adminRole.isEmpty()) return;
     boolean wouldRemoveAdmin = roleIds == null || !roleIds.contains(adminRole.get().id());
