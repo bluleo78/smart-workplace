@@ -111,6 +111,30 @@ public class CalendarEventExceptionRepository {
                     r.get(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE)));
   }
 
+  /**
+   * 여러 일정 id 중 오버라이드(「이 일정만」 고친 회차) 인 것의 마스터·회차를 한 번에 역조회한다(WP-714·715). 고친 회차는 마스터의 태그를 따르고, 구독
+   * 주소는 원래 회차와 같은 UID 를 써야 해서 목록 응답·피드가 배치로 쓴다. 오버라이드가 아닌 id 는 결과에 없다.
+   */
+  public Map<Long, MasterOccurrence> mastersByOverrides(Collection<Long> eventIds) {
+    Map<Long, MasterOccurrence> out = new HashMap<>();
+    if (eventIds.isEmpty()) return out;
+    dsl.select(
+            CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID,
+            CALENDAR_EVENT_EXCEPTION.EVENT_ID,
+            CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE)
+        .from(CALENDAR_EVENT_EXCEPTION)
+        .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.in(eventIds))
+        .fetch()
+        .forEach(
+            r ->
+                out.put(
+                    r.get(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID),
+                    new MasterOccurrence(
+                        r.get(CALENDAR_EVENT_EXCEPTION.EVENT_ID),
+                        r.get(CALENDAR_EVENT_EXCEPTION.OCCURRENCE_DATE))));
+    return out;
+  }
+
   /** 마스터의 오버라이드 일정 id 목록(ALL 삭제 시 고아 정리용). 마스터 삭제는 override 별도 일정을 cascade 하지 않으므로 서비스가 직접 지운다. */
   public List<Long> overrideEventIds(long eventId) {
     return overrideEventIdsFrom(eventId, null);

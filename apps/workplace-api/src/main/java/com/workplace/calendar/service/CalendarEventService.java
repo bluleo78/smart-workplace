@@ -80,6 +80,8 @@ public class CalendarEventService {
   private final TransactionTemplate txTemplate;
   // 일정 변경 → resource.changed 발행(WP-61). 반드시 txTemplate 쓰기 람다/@Transactional 안에서 호출.
   private final CalendarChangeNotifier changeNotifier;
+  // 일정 응답에 호출자 태그 채우기·반복 분할 시 태그 잇기(WP-714).
+  private final CalendarTagService tagService;
 
   /**
    * 명시적 생성자 — TransactionTemplate 을 PlatformTransactionManager 로 구성해야 하므로 @RequiredArgsConstructor
@@ -99,7 +101,8 @@ public class CalendarEventService {
       EmailAccountRepository emailAccountRepo,
       List<CalendarTransport> transports,
       PlatformTransactionManager txManager,
-      CalendarChangeNotifier changeNotifier) {
+      CalendarChangeNotifier changeNotifier,
+      CalendarTagService tagService) {
     this.repo = repo;
     this.reminderRepo = reminderRepo;
     this.exceptionRepo = exceptionRepo;
@@ -114,6 +117,7 @@ public class CalendarEventService {
     this.transports = transports;
     this.txTemplate = new TransactionTemplate(txManager);
     this.changeNotifier = changeNotifier;
+    this.tagService = tagService;
   }
 
   /**
@@ -290,9 +294,9 @@ public class CalendarEventService {
   }
 
   /**
-   * @param bodyText Graph 로 보낼 본문(null·공백이면 생략). 수정 때 설명이 그대로면 null 을 넘긴다 — 동기화된 M365 설명은 Graph 가 HTML 초대문을 텍스트로
-   *     바꾼 사본(길면 "…" 로 잘림)이라 되돌려 보내면 Outlook 의 서식 있는 초대문이 모두에게 사라진다. null 본문은 @JsonInclude(NON_NULL) 로 PATCH
-   *     에서 빠진다.
+   * @param bodyText Graph 로 보낼 본문(null·공백이면 생략). 수정 때 설명이 그대로면 null 을 넘긴다 — 동기화된 M365 설명은 Graph 가
+   *     HTML 초대문을 텍스트로 바꾼 사본(길면 "…" 로 잘림)이라 되돌려 보내면 Outlook 의 서식 있는 초대문이 모두에게 사라진다. null
+   *     본문은 @JsonInclude(NON_NULL) 로 PATCH 에서 빠진다.
    */
   private GraphEventWrite toGraphWrite(
       CalendarEventRequest req, List<GraphAttendeeWrite> attendees, String bodyText) {
@@ -350,7 +354,7 @@ public class CalendarEventService {
   public CalendarEventResponse get(long callerId, long id) {
     CalendarEventResponse e =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
-    return enrichForGet(callerId, e);
+    return tagService.withCallerTags(callerId, List.of(enrichForGet(callerId, e))).get(0);
   }
 
   /**
@@ -359,9 +363,29 @@ public class CalendarEventService {
    */
   @Transactional(readOnly = true)
   public List<CalendarEventResponse> list(long callerId, OffsetDateTime from, OffsetDateTime to) {
-    List<CalendarEventResponse> result = new ArrayList<>(repo.listByRange(callerId, from, to));
+    List<CalendarEventResponse> result = collect(callerId, from, to, null);
+    // 배치로 참석자 count/myRsvpStatus 채움 — attendees 는 null(경량). 이어서 호출자 태그를 배치로 채운다(WP-714).
+    return tagService.withCallerTags(callerId, enrichForList(callerId, result));
+  }
 
-    List<CalendarEventResponse> masters = repo.listRecurringMasters(callerId, to);
+  /**
+   * {@link #list} 와 같은 규칙(접근·끊긴 계정 숨김·반복 전개·취소/고친 회차·중복 제거)으로 모으되 tagId 태그가 붙은 일정만 SQL 에서 골라 읽는다 —
+   * 태그 구독 주소(WP-715)가 그 태그의 일정만 펼치게 해, 주인의 모든 일정을 읽어 전개하고 거르는 비용을 없앤다. 「고친 회차는 마스터의 태그를 따른다」는 규칙은
+   * 저장소 조건이 맡는다. 참석자·태그는 채우지 않는다(호출부가 필요한 것만 읽는다).
+   */
+  @Transactional(readOnly = true)
+  public List<CalendarEventResponse> listTagged(
+      long callerId, OffsetDateTime from, OffsetDateTime to, long tagId) {
+    return collect(callerId, from, to, tagId);
+  }
+
+  /** 목록 수집 본체 — tagId 가 null 이면 전체, 아니면 그 태그가 붙은 구체 행·반복 마스터만. 시작 시각순 정렬 + 크로스소스 중복 제거까지. */
+  private List<CalendarEventResponse> collect(
+      long callerId, OffsetDateTime from, OffsetDateTime to, Long tagId) {
+    List<CalendarEventResponse> result =
+        new ArrayList<>(repo.listByRange(callerId, from, to, tagId));
+
+    List<CalendarEventResponse> masters = repo.listRecurringMasters(callerId, to, tagId);
     if (!masters.isEmpty()) {
       // 마스터별 예외 회차 시각(Instant) 집합 — 문자열이 아닌 epoch-millis 로 비교.
       Map<Long, Set<Instant>> exceptions =
@@ -386,8 +410,7 @@ public class CalendarEventService {
 
     result.sort(Comparator.comparing(CalendarEventResponse::startsAt));
     dedupeCrossSource(callerId, result);
-    // 배치로 참석자 count/myRsvpStatus 채움 — attendees 는 null(경량)
-    return enrichForList(callerId, result);
+    return result;
   }
 
   /**
@@ -448,7 +471,9 @@ public class CalendarEventService {
         false, // external — list 에서는 미사용(기본 false)
         null, // myRole — list 에서는 미사용
         m.iCalUid(), // iCalUid — 마스터에서 복사(반복 회차)
-        null); // onlineMeeting — 목록 응답에서는 판정하지 않는다(단건 get 에서만)
+        null, // onlineMeeting — 목록 응답에서는 판정하지 않는다(단건 get 에서만)
+        m.tags(), // tags — 마스터 것을 따른다(applyTags 가 마스터 키로 다시 채움)
+        m.tagsEditable());
   }
 
   /**
@@ -565,8 +590,8 @@ public class CalendarEventService {
   }
 
   /**
-   * 외부 쓰기 컨텍스트 — update/delete resolve 산출물. currentCalendarId 는 이동 차단 비교용, storedDescription 은 수정 때 설명 변경 판정용(update
-   * 경로에서만 채운다).
+   * 외부 쓰기 컨텍스트 — update/delete resolve 산출물. currentCalendarId 는 이동 차단 비교용, storedDescription 은 수정 때
+   * 설명 변경 판정용(update 경로에서만 채운다).
    */
   private record ExternalWriteCtx(
       boolean external,
@@ -672,6 +697,8 @@ public class CalendarEventService {
     truncateExceptionsFrom(master.id(), occurrenceDate);
     // 기존 마스터의 참석자(ORGANIZER 포함)를 새 마스터에 복제. role/rsvp_status/invited_by 보존.
     copyAttendees(master.id(), newMasterId);
+    // 태그도 새 시리즈로 잇는다(WP-714) — 안 그러면 이 회차부터 모든 사람의 태그가 빠진다. 옛 시리즈가 지워져도 복사본은 남는다.
+    tagService.copyTags(master.id(), newMasterId);
     // 첫 회차부터 고쳤으면 옛 시리즈는 회차가 0개 — 빈 원본이 남지 않게 지운다(WP-663). 참석자는 위에서 이미 복제했다.
     if (noOccurrenceBefore(master, occurrenceDate)) deleteSeries(master.id());
     return get(callerId, newMasterId);
@@ -1164,7 +1191,8 @@ public class CalendarEventService {
 
   /**
    * CalendarEventResponse 레코드를 복사하며 참석자 5필드(attendeeCount/myRsvpStatus/attendees/external/myRole)와
-   * onlineMeeting 교체. Java record 는 with-copy 미지원이므로 명시적 생성. external/myRole 은 list() 경로에서 false/null 로 전달.
+   * onlineMeeting 교체. Java record 는 with-copy 미지원이므로 명시적 생성. external/myRole 은 list() 경로에서
+   * false/null 로 전달.
    */
   private static CalendarEventResponse withAttendeeInfo(
       CalendarEventResponse e,
@@ -1198,7 +1226,9 @@ public class CalendarEventService {
         external,
         myRole,
         e.iCalUid(),
-        onlineMeeting);
+        onlineMeeting,
+        e.tags(),
+        e.tagsEditable());
   }
 
   /**
@@ -1382,8 +1412,7 @@ public class CalendarEventService {
         emailAccountRepo.findByIdAndUser(callerId, ref.externalAccountId()).orElse(null);
     return acc == null
         ? ExternalWriteCtx.local(cur.calendarId())
-        : ExternalWriteCtx.synced(
-            acc, ref.eventExternalId(), cur.calendarId(), cur.description());
+        : ExternalWriteCtx.synced(acc, ref.eventExternalId(), cur.calendarId(), cur.description());
   }
 
   /**

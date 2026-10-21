@@ -4,7 +4,6 @@
 // - 하단에 기존 링크 목록: 가시성·만료·비번여부·폐기 여부 + [폐기] 버튼
 
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
 
 import {
   type CreatedShareLink,
@@ -28,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { handleApiError } from '@/lib/api-error';
+import { copyToClipboard } from '@/lib/copyToClipboard';
 import { formatDateOnly } from '@/lib/formatters';
 import { isPasswordWithinBytes, PASSWORD_BYTES_MESSAGE } from '@/lib/validations/user';
 import type { DriveFile } from '@/types/drive';
@@ -134,16 +134,6 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
       handleApiError(e, '공유 링크 폐기에 실패했습니다.');
     } finally {
       setRevokingId(null);
-    }
-  }
-
-  /** 클립보드 복사 */
-  async function onCopy(url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success('링크를 복사했습니다');
-    } catch {
-      toast.error('복사에 실패했습니다. 직접 선택해 복사하세요.');
     }
   }
 
@@ -268,7 +258,12 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onCopy(shareLandingUrl(created.token))}
+                onClick={() =>
+                  copyToClipboard(shareLandingUrl(created.token), {
+                    success: '링크를 복사했습니다',
+                    failure: '복사에 실패했습니다. 직접 선택해 복사하세요.',
+                  })
+                }
                 aria-label="공유 링크 복사"
               >
                 복사

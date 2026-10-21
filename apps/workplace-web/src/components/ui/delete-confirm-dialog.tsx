@@ -24,6 +24,10 @@ interface BaseProps {
    * (스스로 수를 받아 0건이면 아무것도 그리지 않는 컴포넌트용 — {@link DeleteImpactNote}).
    */
   impact?: ReactNode;
+  /** 확인창 본문(AlertDialogContent)의 data-testid — E2E 가 특정 확인창을 집을 때 */
+  contentTestId?: string;
+  /** 확인(삭제) 버튼의 data-testid */
+  confirmTestId?: string;
 }
 
 /** 트리거 모드(트리거 버튼이 연다) 또는 controlled 모드(모바일 액션 시트처럼 트리거 밖에서 연다, WP-223) — 둘 중 하나만. */
@@ -41,6 +45,8 @@ export function DeleteConfirmDialog({
   onOpenChange,
   description,
   impact,
+  contentTestId,
+  confirmTestId,
 }: DeleteConfirmDialogProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -49,7 +55,7 @@ export function DeleteConfirmDialog({
           {trigger}
         </AlertDialogTrigger>
       )}
-      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+      <AlertDialogContent onClick={(e) => e.stopPropagation()} data-testid={contentTestId}>
         <AlertDialogHeader>
           <AlertDialogTitle>{entityName} 삭제</AlertDialogTitle>
           <AlertDialogDescription>
@@ -62,7 +68,7 @@ export function DeleteConfirmDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
           {/* 파괴적 작업임을 시각적으로 표시 — 실수 클릭 방지 */}
-          <AlertDialogAction variant="destructive" onClick={onConfirm}>삭제</AlertDialogAction>
+          <AlertDialogAction variant="destructive" onClick={onConfirm} data-testid={confirmTestId}>삭제</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

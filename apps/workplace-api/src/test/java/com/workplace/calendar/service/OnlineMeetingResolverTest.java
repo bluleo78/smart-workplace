@@ -5,9 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.calendar.dto.OnlineMeeting;
 import org.junit.jupiter.api.Test;
 
-/**
- * {@link OnlineMeetingResolver} 단위 테스트(WP-710) — 순수 함수라 DB·Spring 없이 판정 규칙만 검증한다.
- */
+/** {@link OnlineMeetingResolver} 단위 테스트(WP-710) — 순수 함수라 DB·Spring 없이 판정 규칙만 검증한다. */
 class OnlineMeetingResolverTest {
 
   private static final String TEAMS_JOIN =
@@ -27,7 +25,8 @@ class OnlineMeetingResolverTest {
 
   @Test
   void stored_url_with_unknown_host_is_OTHER() {
-    OnlineMeeting m = OnlineMeetingResolver.resolve("https://meetings.example.com/room/42", null, null);
+    OnlineMeeting m =
+        OnlineMeetingResolver.resolve("https://meetings.example.com/room/42", null, null);
     assertThat(m).isEqualTo(new OnlineMeeting("OTHER", "https://meetings.example.com/room/42"));
   }
 
@@ -62,14 +61,16 @@ class OnlineMeetingResolverTest {
 
   @Test
   void ignores_non_meeting_links_and_lookalike_hosts() {
-    assertThat(fromDescription("자료 https://teams.microsoft.com/l/channel/x https://example.com/j/1"))
+    assertThat(
+            fromDescription("자료 https://teams.microsoft.com/l/channel/x https://example.com/j/1"))
         .isNull();
     assertThat(fromDescription("https://meet.google.com/landing")).isNull();
     assertThat(fromDescription("https://evil-zoom.us.example.com/j/123")).isNull();
     assertThat(fromDescription("https://notzoom.us/j/123")).isNull();
     assertThat(fromDescription("https://teams.microsoft.com.evil.example/meet/1")).isNull();
     assertThat(fromDescription("ftp://teams.microsoft.com/meet/1")).isNull();
-    assertThat(fromDescription("javascript:alert('https://zoom.us/j/1')")).isNotNull(); // 안의 http 링크는 별개의 링크
+    assertThat(fromDescription("javascript:alert('https://zoom.us/j/1')"))
+        .isNotNull(); // 안의 http 링크는 별개의 링크
     assertThat(fromDescription(null)).isNull();
     assertThat(fromDescription("")).isNull();
   }
@@ -86,9 +87,7 @@ class OnlineMeetingResolverTest {
   /** 설명에 없으면 장소에서 찾는다 — 설명이 우선. */
   @Test
   void falls_back_to_location_after_description() {
-    assertThat(
-            OnlineMeetingResolver.resolve(
-                null, "링크 없음", "https://meet.google.com/abc-defg-hij"))
+    assertThat(OnlineMeetingResolver.resolve(null, "링크 없음", "https://meet.google.com/abc-defg-hij"))
         .isEqualTo(new OnlineMeeting("MEET", "https://meet.google.com/abc-defg-hij"));
     assertThat(
             OnlineMeetingResolver.resolve(

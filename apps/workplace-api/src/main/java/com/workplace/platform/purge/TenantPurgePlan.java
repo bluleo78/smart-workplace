@@ -109,6 +109,9 @@ public final class TenantPurgePlan {
           WIKI_SPACE_MEMBER,
           WIKI_SPACE,
           // 캘린더 (외부 캘린더는 email_account 를 참조하므로 메일보다 먼저)
+          // 태그 연결은 태그·일정을 참조하므로 둘보다 먼저(WP-714)
+          CALENDAR_EVENT_TAG,
+          CALENDAR_TAG,
           EVENT_ATTENDEE,
           EVENT_REMINDER,
           CALENDAR_EVENT_EXCEPTION,

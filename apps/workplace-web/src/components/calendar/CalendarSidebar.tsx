@@ -1,6 +1,7 @@
 // 캘린더 2차 사이드바 — 미니 캘린더 + 개인 캘린더별 토글 + 기타(이슈 마감/초대 일정) 토글.
 import { CalendarDays, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 
+import { CalendarTagSection } from '@/components/calendar/CalendarTagSection'
 import { miniCalendarDotClass } from '@/components/calendar/miniCalendarClass'
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { useCloseSheetAfterMenu } from '@/components/mobile/MobileSidebarSheetContext'
@@ -21,7 +22,7 @@ import {
   providerLabel,
 } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
-import type { Calendar as CalendarType } from '@/types/calendar'
+import type { Calendar as CalendarType, CalendarTag } from '@/types/calendar'
 
 interface CalendarSidebarProps {
   onNew: () => void
@@ -43,6 +44,14 @@ interface CalendarSidebarProps {
   onEditCalendar: (c: CalendarType) => void
   /** 캘린더 모든 일정 삭제(강제 리셋) 확인 흐름 시작. */
   onResetCalendar: (c: CalendarType) => void
+  /** 새 태그 만들기 다이얼로그 열기. */
+  onAddTag: () => void
+  /** 태그 이름·색 바꾸기 다이얼로그 열기. */
+  onEditTag: (tag: CalendarTag) => void
+  /** 태그 지우기 확인 흐름 시작. */
+  onDeleteTag: (tag: CalendarTag) => void
+  /** 태그 구독 주소 창 열기. */
+  onOpenTagFeed: (tag: CalendarTag) => void
   /** 일정/마감이 있어 점(dot)을 찍을 날짜들. */
   markedDates: Date[]
   /**
@@ -64,6 +73,10 @@ export function CalendarSidebar({
   onAddCalendar,
   onEditCalendar,
   onResetCalendar,
+  onAddTag,
+  onEditTag,
+  onDeleteTag,
+  onOpenTagFeed,
   markedDates,
   hideMiniCalendar = false,
 }: CalendarSidebarProps) {
@@ -230,6 +243,15 @@ export function CalendarSidebar({
           </>
         )
       })()}
+
+      {/* 태그 — 일정에 붙인 내 분류(Outlook 범주 포함). 걸러 보기는 없고 관리만(WP-714) */}
+      <CalendarTagSection
+        onAddTag={onAddTag}
+        onEditTag={onEditTag}
+        onDeleteTag={onDeleteTag}
+        onOpenTagFeed={onOpenTagFeed}
+        hasLinkedAccount={calendars.some((c) => !!c.accountEmail)}
+      />
 
       {/* 기타 그룹 — 이슈 마감일 + 초대받은 일정 */}
       <div className="px-3 pb-4">

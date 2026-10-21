@@ -18,7 +18,12 @@ import java.util.List;
  * @param external 외부 동기화 일정 여부(external_id 존재). get() 에서만 채움, list() 는 false.
  * @param myRole 호출자의 역할(ORGANIZER/ATTENDEE). 참석자 아니면 null. get() 에서만 채움.
  * @param iCalUid 외부 동기화 미팅의 공급자 표준 식별자(iCalUId). 순수 로컬 이벤트는 null. 크로스소스 dedup 키.
- * @param onlineMeeting 온라인 회의 참가 정보(WP-710). 저장된 M365 참가 주소 → 설명·장소의 첫 회의 링크 순으로 서버가 판정. 회의가 아니면 null.
+ * @param onlineMeeting 온라인 회의 참가 정보(WP-710). 저장된 M365 참가 주소 → 설명·장소의 첫 회의 링크 순으로 서버가 판정. 회의가 아니면
+ *     null.
+ * @param tags 이 일정에 붙은 호출자 본인의 태그(WP-714) — 태그는 사람마다 따로라 남의 태그는 싣지 않는다. 반복 회차·고친 회차는 마스터의 태그를 따른다.
+ *     서비스가 채우기 전(저장소 행 변환 직후)에는 빈 목록.
+ * @param tagsEditable 앱에서 태그를 붙이고 뗄 수 있는지 — 외부(M365) 동기화 일정은 Outlook 범주에서 오므로 범주 써 넣기(WP-716) 전까지
+ *     false.
  */
 public record CalendarEventResponse(
     long id,
@@ -44,4 +49,38 @@ public record CalendarEventResponse(
     boolean external,
     String myRole,
     String iCalUid,
-    OnlineMeeting onlineMeeting) {}
+    OnlineMeeting onlineMeeting,
+    List<CalendarTagRef> tags,
+    boolean tagsEditable) {
+
+  /** 태그만 바꾼 복사본 — 서비스가 목록·상세 응답에 호출자 태그를 한 번에 채울 때 쓴다(WP-714). */
+  public CalendarEventResponse withTags(List<CalendarTagRef> newTags) {
+    return new CalendarEventResponse(
+        id,
+        title,
+        description,
+        startsAt,
+        endsAt,
+        allDay,
+        location,
+        color,
+        calendarId,
+        calendarName,
+        effectiveColor,
+        reminderMinutes,
+        recurrenceRule,
+        masterEventId,
+        occurrenceDate,
+        createdAt,
+        updatedAt,
+        attendeeCount,
+        myRsvpStatus,
+        attendees,
+        external,
+        myRole,
+        iCalUid,
+        onlineMeeting,
+        newTags,
+        tagsEditable);
+  }
+}

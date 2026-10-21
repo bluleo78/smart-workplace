@@ -15,23 +15,24 @@ class GraphCalendarFetcherDescriptionTest {
 
   private static GraphEvent event(String preview, GraphItemBody body) {
     return new GraphEvent(
-        "e", "s", preview, body, null, null, false, null, null, null, false, null, null);
+        "e", "s", preview, body, null, null, false, null, null, null, false, null, null, null);
   }
 
   @Test
   void body_wins_over_preview() {
     assertThat(
-            GraphCalendarFetcher.mapDescription(
-                event("미리보기", new GraphItemBody("text", "전체 본문"))))
+            GraphCalendarFetcher.mapDescription(event("미리보기", new GraphItemBody("text", "전체 본문"))))
         .isEqualTo("전체 본문");
   }
 
   @Test
   void empty_body_falls_back_to_preview_and_both_empty_is_null() {
-    assertThat(GraphCalendarFetcher.mapDescription(event("미리보기", new GraphItemBody("text", " \r\n "))))
+    assertThat(
+            GraphCalendarFetcher.mapDescription(event("미리보기", new GraphItemBody("text", " \r\n "))))
         .isEqualTo("미리보기");
     assertThat(GraphCalendarFetcher.mapDescription(event("미리보기", null))).isEqualTo("미리보기");
-    assertThat(GraphCalendarFetcher.mapDescription(event("  ", new GraphItemBody("text", "")))).isNull();
+    assertThat(GraphCalendarFetcher.mapDescription(event("  ", new GraphItemBody("text", ""))))
+        .isNull();
     assertThat(GraphCalendarFetcher.mapDescription(event(null, null))).isNull();
   }
 
@@ -67,7 +68,8 @@ class GraphCalendarFetcherDescriptionTest {
   @Test
   void does_not_split_surrogate_pair_at_cap() {
     String text = "a".repeat(9_998) + "😀" + "b".repeat(50); // 😀 = 2 chars, 인덱스 9998~9999
-    String capped = GraphCalendarFetcher.mapDescription(event(null, new GraphItemBody("text", text)));
+    String capped =
+        GraphCalendarFetcher.mapDescription(event(null, new GraphItemBody("text", text)));
     assertThat(capped).isEqualTo("a".repeat(9_998) + "…");
     assertThat(Character.isHighSurrogate(capped.charAt(capped.length() - 2))).isFalse();
   }

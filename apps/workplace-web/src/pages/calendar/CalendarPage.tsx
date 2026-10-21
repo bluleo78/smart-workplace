@@ -7,9 +7,12 @@ import { toast } from 'sonner'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { CalendarEditDialog } from '@/components/calendar/CalendarEditDialog'
 import { CalendarSidebar } from '@/components/calendar/CalendarSidebar'
+import { CalendarTagDeleteDialog } from '@/components/calendar/CalendarTagDeleteDialog'
+import { CalendarTagEditDialog } from '@/components/calendar/CalendarTagEditDialog'
 import { EventDialog } from '@/components/calendar/EventDialog'
 import { MobileMiniCalendarPanel } from '@/components/calendar/MobileMiniCalendarPanel'
 import { RecurrenceScopeDialog } from '@/components/calendar/RecurrenceScopeDialog'
+import { TagFeedDialog } from '@/components/calendar/TagFeedDialog'
 import { AgendaView } from '@/components/calendar/views/AgendaView'
 import { MobileAgendaView } from '@/components/calendar/views/MobileAgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
@@ -35,6 +38,12 @@ import {
   useUpdateEvent,
 } from '@/hooks/queries/useCalendarMutations'
 import { useCalendars, useCreateCalendar, useDeleteCalendar, useResetCalendarEvents, useUpdateCalendar } from '@/hooks/queries/useCalendars'
+import {
+  useCalendarTags,
+  useCreateCalendarTag,
+  useDeleteCalendarTag,
+  useUpdateCalendarTag,
+} from '@/hooks/queries/useCalendarTags'
 import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { useAuth } from '@/hooks/useAuth'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
@@ -61,6 +70,8 @@ import type {
   CalendarEvent,
   CalendarEventRequest,
   CalendarRequest,
+  CalendarTag,
+  CalendarTagRequest,
   CalendarViewType,
   EditScope,
   IssueDueMarker,
@@ -146,6 +157,19 @@ export function CalendarPage() {
   const resetCal = useResetCalendarEvents()
   // 리셋 확인 다이얼로그에 표시할 캘린더(null=닫힘).
   const [resettingCal, setResettingCal] = useState<Calendar | null>(null)
+
+  // 태그 관리 다이얼로그 — 모바일 ☰ 시트 밖(이 페이지)에서 열어야 시트가 닫혀도 남는다(WP-578·714).
+  const createTag = useCreateCalendarTag()
+  const updateTag = useUpdateCalendarTag()
+  const deleteTag = useDeleteCalendarTag()
+  const { data: allTags = [] } = useCalendarTags()
+  // 만들기/수정 다이얼로그: open + 수정 대상(null=만들기)
+  const [tagEdit, setTagEdit] = useState<{ open: boolean; tag: CalendarTag | null }>({ open: false, tag: null })
+  // 지우기 확인 대상(null=닫힘)
+  const [deletingTag, setDeletingTag] = useState<CalendarTag | null>(null)
+  // 구독 주소 창 대상 id — 태그 객체가 아니라 id 를 들고 목록의 최신 태그를 읽어, 발급·폐기로 hasFeed 가 바뀌면 창이 따라가게 한다
+  const [feedTagId, setFeedTagId] = useState<number | null>(null)
+  const feedTag = allTags.find((t) => t.id === feedTagId) ?? null
 
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
@@ -474,6 +498,17 @@ export function CalendarPage() {
     resetCal.mutate(resettingCal.id, { onSuccess: () => setResettingCal(null) })
   }
 
+  // 태그 만들기/수정 저장 — 수정은 이름·색을 PATCH, 만들기는 POST(같은 이름이면 서버 409 → 토스트)
+  const submitTag = (body: CalendarTagRequest) => {
+    const done = { onSuccess: () => setTagEdit({ open: false, tag: null }) }
+    if (tagEdit.tag) updateTag.mutate({ id: tagEdit.tag.id, body }, done)
+    else createTag.mutate(body, done)
+  }
+  const confirmDeleteTag = () => {
+    if (!deletingTag) return
+    deleteTag.mutate(deletingTag.id, { onSuccess: () => setDeletingTag(null) })
+  }
+
   const viewProps = {
     events: visibleEvents,
     issueDues: layers.issueDues ? issueDues : [],
@@ -562,6 +597,10 @@ export function CalendarPage() {
             onAddCalendar={openAddCalendar}
             onEditCalendar={openEditCalendar}
             onResetCalendar={openResetCalendar}
+            onAddTag={() => setTagEdit({ open: true, tag: null })}
+            onEditTag={(tag) => setTagEdit({ open: true, tag })}
+            onDeleteTag={setDeletingTag}
+            onOpenTagFeed={(tag) => setFeedTagId(tag.id)}
             markedDates={markedDates}
             hideMiniCalendar={isMobile}
           />
@@ -664,6 +703,22 @@ export function CalendarPage() {
         onDelete={deleteCalendar}
         isPending={createCal.isPending || updateCal.isPending}
       />
+
+      {/* 태그 만들기/이름·색 바꾸기 · 지우기 확인 · 구독 주소 창 (WP-714·715) */}
+      <CalendarTagEditDialog
+        open={tagEdit.open}
+        onOpenChange={(o) => !o && setTagEdit({ open: false, tag: null })}
+        tag={tagEdit.tag}
+        onSubmit={submitTag}
+        isPending={createTag.isPending || updateTag.isPending}
+      />
+      <CalendarTagDeleteDialog
+        tag={deletingTag}
+        onCancel={() => setDeletingTag(null)}
+        onConfirm={confirmDeleteTag}
+        hasLinkedAccount={calendars.some((c) => !!c.accountEmail)}
+      />
+      <TagFeedDialog tag={feedTag} onOpenChange={(o) => !o && setFeedTagId(null)} />
 
       {/* 반복 회차 수정/삭제 시 적용 범위 선택 */}
       {scopeMode && (

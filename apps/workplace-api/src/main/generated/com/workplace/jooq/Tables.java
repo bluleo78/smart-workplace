@@ -16,6 +16,8 @@ import com.workplace.jooq.tables.AuditLog;
 import com.workplace.jooq.tables.Calendar;
 import com.workplace.jooq.tables.CalendarEvent;
 import com.workplace.jooq.tables.CalendarEventException;
+import com.workplace.jooq.tables.CalendarEventTag;
+import com.workplace.jooq.tables.CalendarTag;
 import com.workplace.jooq.tables.Channel;
 import com.workplace.jooq.tables.ChannelMember;
 import com.workplace.jooq.tables.ChatMessage;
@@ -191,6 +193,16 @@ public class Tables {
      * The table <code>public.calendar_event_exception</code>.
      */
     public static final CalendarEventException CALENDAR_EVENT_EXCEPTION = CalendarEventException.CALENDAR_EVENT_EXCEPTION;
+
+    /**
+     * The table <code>public.calendar_event_tag</code>.
+     */
+    public static final CalendarEventTag CALENDAR_EVENT_TAG = CalendarEventTag.CALENDAR_EVENT_TAG;
+
+    /**
+     * The table <code>public.calendar_tag</code>.
+     */
+    public static final CalendarTag CALENDAR_TAG = CalendarTag.CALENDAR_TAG;
 
     /**
      * The table <code>public.channel</code>.

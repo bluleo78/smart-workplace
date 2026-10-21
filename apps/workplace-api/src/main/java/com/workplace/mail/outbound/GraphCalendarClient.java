@@ -23,8 +23,8 @@ import lombok.RequiredArgsConstructor;
 public class GraphCalendarClient {
 
   /**
-   * 일정 본문을 HTML 대신 텍스트로 받는 Prefer 헤더(WP-709). HTML→텍스트 변환을 Graph 가 해 주므로 변환기를 직접 만들지 않는다.
-   * nextLink 로 이어지는 페이지에도 매번 붙여야 같은 형식으로 온다.
+   * 일정 본문을 HTML 대신 텍스트로 받는 Prefer 헤더(WP-709). HTML→텍스트 변환을 Graph 가 해 주므로 변환기를 직접 만들지 않는다. nextLink
+   * 로 이어지는 페이지에도 매번 붙여야 같은 형식으로 온다.
    */
   static final Map<String, String> BODY_AS_TEXT =
       Map.of("Prefer", "outlook.body-content-type=\"text\"");
@@ -80,7 +80,8 @@ public class GraphCalendarClient {
    * @param id 일정 고유 ID
    * @param subject 제목
    * @param bodyPreview 본문 미리보기(255자까지)
-   * @param body 본문 전체 — listCalendarView 가 {@code Prefer: outlook.body-content-type="text"} 로 요청해 텍스트로 온다
+   * @param body 본문 전체 — listCalendarView 가 {@code Prefer: outlook.body-content-type="text"} 로 요청해
+   *     텍스트로 온다
    * @param start 시작 시각
    * @param end 종료 시각
    * @param isAllDay 종일 일정 여부
@@ -90,6 +91,7 @@ public class GraphCalendarClient {
    * @param isCancelled 취소 여부
    * @param iCalUId 공급자 표준 미팅 식별자 — 크로스소스 dedup 키
    * @param onlineMeeting 온라인 회의 정보 — joinUrl 만 사용(WP-710)
+   * @param categories Outlook 범주 이름 목록(WP-714) — 캘린더 주인의 태그로 동기화한다. 응답에 없으면 null(태그를 건드리지 않음)
    */
   public record GraphEvent(
       String id,
@@ -104,7 +106,8 @@ public class GraphCalendarClient {
       List<GraphEventAttendee> attendees,
       boolean isCancelled,
       String iCalUId,
-      GraphOnlineMeeting onlineMeeting) {}
+      GraphOnlineMeeting onlineMeeting,
+      List<String> categories) {}
 
   /** Graph onlineMeetingInfo 구조 — 참가 주소만 사용(WP-710). */
   public record GraphOnlineMeeting(String joinUrl) {}
@@ -209,7 +212,7 @@ public class GraphCalendarClient {
             + start
             + "&endDateTime="
             + end
-            + "&$select=id,subject,bodyPreview,body,start,end,isAllDay,location,organizer,attendees,isCancelled,iCalUId,onlineMeeting"
+            + "&$select=id,subject,bodyPreview,body,start,end,isAllDay,location,organizer,attendees,isCancelled,iCalUId,onlineMeeting,categories"
             + "&$top=50";
     while (url != null) {
       GraphEventPage page = api.get(accessToken, url, GraphEventPage.class, BODY_AS_TEXT);

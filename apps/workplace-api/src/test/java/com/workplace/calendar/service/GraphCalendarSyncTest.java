@@ -8,6 +8,10 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import com.workplace.calendar.CalendarPalette;
+import com.workplace.calendar.dto.CalendarTagRef;
+import com.workplace.calendar.dto.CalendarTagRequest;
+import com.workplace.calendar.dto.CalendarTagResponse;
 import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository;
@@ -22,7 +26,11 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +53,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   @Autowired ExternalCalendarRepository extRepo;
   @Autowired CalendarRepository calendarRepo;
   @Autowired CalendarEventService eventService;
+  @Autowired CalendarTagService tagService;
   @Autowired EventAttendeeRepository attendeeRepo;
   @Autowired DSLContext dsl;
   @Autowired EncryptionService encryption;
@@ -143,6 +152,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             false,
             null,
+            null,
             null);
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal"), any(), any()))
         .thenReturn(List.of(allDay));
@@ -197,6 +207,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             false,
             null,
+            null,
             null);
     // subject = null
     GraphEvent nullSubject =
@@ -212,6 +223,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             null,
             null,
             false,
+            null,
             null,
             null);
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcal2"), any(), any()))
@@ -288,6 +300,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         null,
         false,
         null,
+        null,
         null);
   }
 
@@ -306,8 +319,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   }
 
   /**
-   * WP-709: 설명은 255자 미리보기가 아니라 본문 전체로 저장된다. 줄바꿈은 CRLF 가 LF 로 맞춰지고 앞뒤 공백은 잘린다. 이미 동기화된 일정은 다음 동기화에서 전문으로
-   * 갱신된다(upsert 갱신 경로가 description 을 덮어쓴다).
+   * WP-709: 설명은 255자 미리보기가 아니라 본문 전체로 저장된다. 줄바꿈은 CRLF 가 LF 로 맞춰지고 앞뒤 공백은 잘린다. 이미 동기화된 일정은 다음 동기화에서
+   * 전문으로 갱신된다(upsert 갱신 경로가 description 을 덮어쓴다).
    */
   @Test
   void sync_stores_full_body_and_resync_overwrites_old_preview() {
@@ -328,9 +341,7 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         .thenReturn(
             List.of(
                 eventWithBody(
-                    "evt-body",
-                    "미리보기만",
-                    new GraphCalendarClient.GraphItemBody("text", crlfBody))));
+                    "evt-body", "미리보기만", new GraphCalendarClient.GraphItemBody("text", crlfBody))));
     syncService.sync(ownerId, accountId);
 
     assertThat(syncedDescription()).isEqualTo(longText + "\n둘째 줄");
@@ -359,8 +370,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
   }
 
   /**
-   * WP-710: 동기화가 Graph onlineMeeting.joinUrl 을 저장하고 상세 응답이 onlineMeeting 으로 돌려준다(목록은 null). joinUrl 이 없는 일정은 설명의 회의 링크로 판정하고, 회의가
-   * 아니면 null. 다음 동기화에서 회의가 해제(joinUrl 사라짐)되면 저장 주소도 지워진다.
+   * WP-710: 동기화가 Graph onlineMeeting.joinUrl 을 저장하고 상세 응답이 onlineMeeting 으로 돌려준다(목록은 null). joinUrl
+   * 이 없는 일정은 설명의 회의 링크로 판정하고, 회의가 아니면 null. 다음 동기화에서 회의가 해제(joinUrl 사라짐)되면 저장 주소도 지워진다.
    */
   @Test
   void sync_stores_join_url_and_response_resolves_online_meeting() {
@@ -371,9 +382,9 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
     when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcalM"), any(), any()))
         .thenReturn(
             List.of(
-                meetingEvent("m-stored", "저장 주소", null, new GraphCalendarClient.GraphOnlineMeeting(join)),
                 meetingEvent(
-                    "m-desc", "설명 링크", "참가 <https://us02web.zoom.us/j/123456789>", null),
+                    "m-stored", "저장 주소", null, new GraphCalendarClient.GraphOnlineMeeting(join)),
+                meetingEvent("m-desc", "설명 링크", "참가 <https://us02web.zoom.us/j/123456789>", null),
                 meetingEvent("m-none", "회의 아님", "그냥 설명 https://example.com/x", null)));
 
     syncService.sync(ownerId, accountId);
@@ -433,7 +444,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         null,
         false,
         null,
-        meeting);
+        meeting,
+        null);
   }
 
   /** Graph 이벤트 1건(조직자+참석자) 빌더. */
@@ -452,7 +464,8 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
         new com.workplace.mail.outbound.GraphCalendarClient.GraphRecipient(
             new com.workplace.mail.outbound.GraphCalendarClient.GraphEmail("주최", organizerEmail));
     return new com.workplace.mail.outbound.GraphCalendarClient.GraphEvent(
-        id, "동기화 회의", "본문", null, start, end, false, null, organizer, attendees, false, null, null);
+        id, "동기화 회의", "본문", null, start, end, false, null, organizer, attendees, false, null, null,
+        null);
   }
 
   private com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee attendee(
@@ -678,5 +691,141 @@ class GraphCalendarSyncTest extends IntegrationTestBase {
             .toList();
     // 세 캘린더가 전부 다른 색을 배정받아야 한다(전부 blue 로 수렴하던 #825 재현 방지).
     assertThat(colors).doesNotHaveDuplicates();
+  }
+
+  /** Outlook 범주 → 태그 테스트용 Graph 일정(시각 고정, 범주만 바꾼다). */
+  private static GraphEvent categorized(
+      String id, String subject, int day, List<String> categories) {
+    String d = String.format("2026-07-%02dT09:00:00.0000000", day);
+    String e = String.format("2026-07-%02dT10:00:00.0000000", day);
+    return new GraphEvent(
+        id,
+        subject,
+        null,
+        null,
+        gdt(d, "UTC"),
+        gdt(e, "UTC"),
+        false,
+        null,
+        null,
+        null,
+        false,
+        null,
+        null,
+        categories);
+  }
+
+  /**
+   * WP-714 — Outlook 범주가 캘린더 주인의 태그가 된다: 없는 이름은 만들고(이름 해시 색), 있는 이름은 대소문자 무시로 재사용한다. 다음 동기화에서 범주가
+   * 바뀌면 그 일정의 OUTLOOK 연결이 범주와 똑같이 바뀌고(태그 자체는 남음), categories 가 응답에 없으면(null) 연결을 건드리지 않는다. 외부 일정은
+   * tagsEditable=false.
+   */
+  @Test
+  void sync_mapsOutlookCategoriesToOwnerTags() {
+    // 사용자가 앱에서 먼저 만든 태그 — 범주 「ops」와 대소문자만 달라 재사용돼야 한다.
+    long opsTag = tagService.create(ownerId, new CalendarTagRequest("OPS", "teal")).id();
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcatT", "업무", "lightBlue", "", true, true)));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcatT"), any(), any()))
+        .thenReturn(
+            List.of(
+                categorized("c1", "공유 회의", 10, List.of("사내 공유", "ops")),
+                categorized("c2", "범주 없음", 11, List.of()),
+                categorized("c3", "보존", 12, List.of("보존 태그"))));
+    syncService.sync(ownerId, accountId);
+
+    Map<String, CalendarTagResponse> byName =
+        tagService.list(ownerId).stream()
+            .collect(Collectors.toMap(CalendarTagResponse::name, t -> t));
+    assertThat(byName).containsOnlyKeys("OPS", "사내 공유", "보존 태그");
+    assertThat(byName.get("사내 공유").color()).isEqualTo(CalendarPalette.forName("사내 공유"));
+    assertThat(byName.get("OPS").id()).isEqualTo(opsTag);
+    assertThat(tagNamesOf("공유 회의")).containsExactly("OPS", "사내 공유");
+    assertThat(tagNamesOf("범주 없음")).isEmpty();
+    assertThat(eventTitled("공유 회의").tagsEditable()).isFalse();
+
+    // 다음 동기화: c1 은 「사내 공유」가 빠지고, c3 는 categories 가 응답에 없다(null → 그대로).
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcatT"), any(), any()))
+        .thenReturn(
+            List.of(
+                categorized("c1", "공유 회의", 10, List.of("Ops")),
+                categorized("c2", "범주 없음", 11, List.of()),
+                categorized("c3", "보존", 12, null)));
+    syncService.sync(ownerId, accountId);
+
+    assertThat(tagNamesOf("공유 회의")).containsExactly("OPS");
+    assertThat(tagNamesOf("보존")).containsExactly("보존 태그");
+    // 태그는 남고 붙은 일정 수만 줄어든다
+    assertThat(tagService.list(ownerId))
+        .filteredOn(t -> t.name().equals("사내 공유"))
+        .singleElement()
+        .extracting(CalendarTagResponse::eventCount)
+        .isEqualTo(0);
+  }
+
+  /**
+   * WP-714 리뷰 — 대소문자 접기는 DB lower() 한 곳에서만 한다. 그리스어 끝 시그마(「ΟΔΟΣ」 — Java 는 ς, PG 는 σ)·터키어 「İ」처럼 Java
+   * toLowerCase 와 PG lower() 가 어긋나는 이름도 일정에 연결되고, 다음 동기화가 태그를 다시 만들지 않는다.
+   */
+  @Test
+  void sync_linksCategoriesWhoseLowercaseDiffersBetweenJavaAndPostgres() {
+    // 이 DB 에서 실제로 Java 와 PG 의 소문자가 어긋나는지 먼저 확인한다 — 같다면 이 테스트는 아무것도 증명하지 못한다.
+    List<String> names = List.of("ΟΔΟΣ", "İstanbul");
+    assertThat(names.stream().map(n -> dsl.select(DSL.lower(DSL.val(n))).fetchOne(0, String.class)))
+        .isNotEqualTo(names.stream().map(n -> n.toLowerCase(Locale.ROOT)).toList());
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gcatU", "업무", "lightBlue", "", true, true)));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gcatU"), any(), any()))
+        .thenReturn(List.of(categorized("u1", "해외 회의", 14, List.of("ΟΔΟΣ", "İstanbul"))));
+
+    syncService.sync(ownerId, accountId);
+    assertThat(tagNamesOf("해외 회의")).containsExactlyInAnyOrder("ΟΔΟΣ", "İstanbul");
+    Map<String, Long> firstIds =
+        tagService.list(ownerId).stream()
+            .collect(Collectors.toMap(CalendarTagResponse::name, CalendarTagResponse::id));
+
+    syncService.sync(ownerId, accountId);
+    assertThat(tagNamesOf("해외 회의")).containsExactlyInAnyOrder("ΟΔΟΣ", "İstanbul");
+    assertThat(
+            tagService.list(ownerId).stream()
+                .collect(Collectors.toMap(CalendarTagResponse::name, CalendarTagResponse::id)))
+        .isEqualTo(firstIds)
+        .hasSize(2);
+  }
+
+  /**
+   * WP-714 리뷰 — 읽기 전용 달력(동료가 공유한 달력·공휴일 등, canEdit=false)의 범주는 태그로 만들지 않는다. 남의 사서함 범주라 내 태그 목록에 지울
+   * 수 없는 태그만 쌓이기 때문이다. 일정 자체는 그대로 동기화된다.
+   */
+  @Test
+  void sync_skipsCategoriesOfReadOnlyCalendars() {
+    when(graphTokenService.getAccessToken(ownerId, accountId)).thenReturn("tok");
+    when(graphCalendarClient.listCalendars("tok"))
+        .thenReturn(List.of(new GraphCalendar("gshared", "동료 일정", "lightBlue", "", false, false)));
+    when(graphCalendarClient.listCalendarView(eq("tok"), eq("gshared"), any(), any()))
+        .thenReturn(List.of(categorized("s1", "동료 회의", 15, List.of("동료 범주"))));
+
+    syncService.sync(ownerId, accountId);
+
+    assertThat(tagNamesOf("동료 회의")).isEmpty();
+    assertThat(tagService.list(ownerId)).isEmpty();
+  }
+
+  private com.workplace.calendar.dto.CalendarEventResponse eventTitled(String title) {
+    return eventService
+        .list(
+            ownerId,
+            OffsetDateTime.parse("2026-07-01T00:00:00Z"),
+            OffsetDateTime.parse("2026-08-01T00:00:00Z"))
+        .stream()
+        .filter(x -> title.equals(x.title()))
+        .findFirst()
+        .orElseThrow();
+  }
+
+  private List<String> tagNamesOf(String title) {
+    return eventTitled(title).tags().stream().map(CalendarTagRef::name).toList();
   }
 }

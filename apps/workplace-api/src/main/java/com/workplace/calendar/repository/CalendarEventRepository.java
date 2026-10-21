@@ -2,6 +2,8 @@ package com.workplace.calendar.repository;
 
 import static com.workplace.jooq.Tables.CALENDAR;
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.CALENDAR_EVENT_EXCEPTION;
+import static com.workplace.jooq.Tables.CALENDAR_EVENT_TAG;
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.EVENT_REMINDER;
@@ -99,8 +101,8 @@ public class CalendarEventRepository {
   }
 
   /**
-   * 일정의 외부 동기화 참조 — 일정 external_id + 소속 캘린더의 external_account_id/is_read_only. onlineMeetingUrl 은 동기화로 저장된 온라인 회의 참가
-   * 주소(WP-710, 없으면 null) — 단건 상세의 회의 판정이 같은 행을 한 번 더 읽지 않게 함께 싣는다.
+   * 일정의 외부 동기화 참조 — 일정 external_id + 소속 캘린더의 external_account_id/is_read_only. onlineMeetingUrl 은
+   * 동기화로 저장된 온라인 회의 참가 주소(WP-710, 없으면 null) — 단건 상세의 회의 판정이 같은 행을 한 번 더 읽지 않게 함께 싣는다.
    */
   public record ExternalEventRef(
       String eventExternalId,
@@ -184,6 +186,15 @@ public class CalendarEventRepository {
    */
   public List<CalendarEventResponse> listByRange(
       long callerId, OffsetDateTime from, OffsetDateTime to) {
+    return listByRange(callerId, from, to, null);
+  }
+
+  /**
+   * {@link #listByRange(long, OffsetDateTime, OffsetDateTime)} 를 tagId 태그가 붙은 일정으로 좁힌다(null 이면 전체)
+   * — 태그 구독 주소용(WP-715). 조건은 {@link #taggedWith}.
+   */
+  public List<CalendarEventResponse> listByRange(
+      long callerId, OffsetDateTime from, OffsetDateTime to, Long tagId) {
     return dsl.select(
             CALENDAR_EVENT.asterisk(),
             EVENT_REMINDER.LEAD_MINUTES,
@@ -199,6 +210,7 @@ public class CalendarEventRepository {
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
         .and(CALENDAR_EVENT.ENDS_AT.gt(from))
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNull())
+        .and(tagId == null ? DSL.noCondition() : taggedWith(tagId))
         .orderBy(CALENDAR_EVENT.STARTS_AT.asc())
         .fetch(CalendarEventRepository::toResponse);
   }
@@ -208,6 +220,15 @@ public class CalendarEventRepository {
    * 처리하므로 두지 않는다(과거에 시작한 마스터의 미래 회차도 잡아야 함).
    */
   public List<CalendarEventResponse> listRecurringMasters(long callerId, OffsetDateTime to) {
+    return listRecurringMasters(callerId, to, null);
+  }
+
+  /**
+   * {@link #listRecurringMasters(long, OffsetDateTime)} 를 tagId 태그가 붙은 마스터로 좁힌다(null 이면 전체) — 태그 구독
+   * 주소용(WP-715). 조건은 {@link #taggedWith}.
+   */
+  public List<CalendarEventResponse> listRecurringMasters(
+      long callerId, OffsetDateTime to, Long tagId) {
     return dsl.select(
             CALENDAR_EVENT.asterisk(),
             EVENT_REMINDER.LEAD_MINUTES,
@@ -222,7 +243,36 @@ public class CalendarEventRepository {
         .and(visibleExternalCondition())
         .and(CALENDAR_EVENT.RECURRENCE_RULE.isNotNull())
         .and(CALENDAR_EVENT.STARTS_AT.lt(to))
+        .and(tagId == null ? DSL.noCondition() : taggedWith(tagId))
         .fetch(CalendarEventRepository::toResponse);
+  }
+
+  /**
+   * 이 일정 행에 tagId 태그가 붙었는가 — 태그 구독 주소(WP-715)가 「태그 키」 규칙을 SQL 로 거는 한 곳. 목록 응답의 태그 채우기({@code
+   * CalendarTagService.tagKey})와 같은 규칙이다: 고친 회차(「이 일정만」 오버라이드 행)는 자기 연결이 아니라 마스터의 태그를 따르고, 그 밖의
+   * 행(단일 일정·M365 회차 행·반복 마스터)은 자기 연결을 본다. 가상 회차는 마스터를 펼쳐 만들므로 마스터가 이 조건을 통과하면 따라 나온다.
+   */
+  private static Condition taggedWith(long tagId) {
+    Condition isOverride =
+        DSL.exists(
+            DSL.selectOne()
+                .from(CALENDAR_EVENT_EXCEPTION)
+                .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.eq(CALENDAR_EVENT.ID)));
+    Condition ownLinked =
+        DSL.exists(
+            DSL.selectOne()
+                .from(CALENDAR_EVENT_TAG)
+                .where(CALENDAR_EVENT_TAG.TAG_ID.eq(tagId))
+                .and(CALENDAR_EVENT_TAG.EVENT_ID.eq(CALENDAR_EVENT.ID)));
+    Condition masterLinked =
+        DSL.exists(
+            DSL.selectOne()
+                .from(CALENDAR_EVENT_EXCEPTION)
+                .join(CALENDAR_EVENT_TAG)
+                .on(CALENDAR_EVENT_TAG.EVENT_ID.eq(CALENDAR_EVENT_EXCEPTION.EVENT_ID))
+                .where(CALENDAR_EVENT_EXCEPTION.OVERRIDE_EVENT_ID.eq(CALENDAR_EVENT.ID))
+                .and(CALENDAR_EVENT_TAG.TAG_ID.eq(tagId)));
+    return isOverride.not().and(ownLinked).or(masterLinked);
   }
 
   /** 전체 교체 + updated_at 갱신. */
@@ -293,7 +343,10 @@ public class CalendarEventRepository {
         false, // external — 서비스 계층 enrichForGet 에서 채워짐
         null, // myRole — 서비스 계층 enrichForGet 에서 채워짐
         r.get(CALENDAR_EVENT.ICAL_UID), // iCalUid — 동기화 이벤트만 non-null
-        null); // onlineMeeting — 서비스 계층 enrichForGet 에서 채워짐(목록마다 최대 1만 자 설명을 정규식으로 훑지 않게 단건 조회에서만)
+        null, // onlineMeeting — 서비스 계층 enrichForGet 에서 채워짐(목록마다 최대 1만 자 설명을 정규식으로 훑지 않게 단건 조회에서만)
+        List.of(), // tags — 서비스 계층(호출자 기준)에서 채워짐(WP-714)
+        // tagsEditable — 외부(M365) 동기화 일정은 Outlook 범주가 태그라 앱에서 못 바꾼다(WP-716 전까지)
+        r.get(CALENDAR_EVENT.EXTERNAL_ID) == null);
   }
 
   private static String nullIfBlank(String s) {

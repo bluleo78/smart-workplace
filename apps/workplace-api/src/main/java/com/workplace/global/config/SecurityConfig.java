@@ -88,6 +88,16 @@ public class SecurityConfig {
                     // 토큰이 곧 권한이며 쓸 때 발급자 멤버십을 다시 확인한다.
                     .requestMatchers("/api/v1/public/staged-files/**")
                     .permitAll()
+                    // 캘린더 태그 구독 주소(WP-715) — 사내 시스템이 로그인 없이 주 단위로 가져가는 .ics. 토큰이 곧 권한이고
+                    // 재발급·폐기로 막는다. 읽기 전용이라 GET 과 HEAD 만 연다 — 구독 클라이언트·프록시가 HEAD 로 먼저 확인하기도 하고,
+                    // Spring 은 HEAD 를 같은 GET 핸들러로 보내 본문 없이 응답한다.
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.GET, "/api/v1/public/calendar/feeds/**")
+                    .permitAll()
+                    .requestMatchers(
+                        org.springframework.http.HttpMethod.HEAD,
+                        "/api/v1/public/calendar/feeds/**")
+                    .permitAll()
                     // 운영자 콘솔(workplace-admin) 전용 평면. 로그인/리프레시만 공개, 그 외는 플랫폼 토큰(ROLE_PLATFORM) 필수.
                     // 일반 테넌트/에이전트 토큰으로는 접근 불가(권한상승 차단). 매칭 안 된 /api/platform 경로가
                     // anyRequest().permitAll() 로 새지 않도록 와일드카드로 전부 덮는다.

@@ -7,6 +7,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog'
 import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
 import { EventDetailView } from '@/components/calendar/EventDetailView'
+import { EventTagsField } from '@/components/calendar/EventTagsField'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -339,6 +340,9 @@ export function EventDialog({
                   {...form.register('title')}
                 />
               </FormField>
+
+              {/* 태그 — 이미 있는 일정만(새 일정은 붙일 id 가 없다). 저장 버튼과 별개로 체크하면 바로 저장된다(WP-714) */}
+              {isEdit && detailEvent && <EventTagsField event={detailEvent} />}
 
               {/* 종일 여부 — Radix Checkbox는 Controller 로 연결 */}
               <div className="flex items-center gap-2">

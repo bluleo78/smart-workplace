@@ -59,8 +59,8 @@ class GraphCalendarClientTest {
   }
 
   /**
-   * WP-709: calendarView 는 본문 전체(body)를 $select 하고 {@code Prefer: outlook.body-content-type="text"} 로 요청하며, 응답의
-   * body.content 를 GraphEvent.body 로 매핑한다(미리보기 255자에 갇히지 않는다).
+   * WP-709: calendarView 는 본문 전체(body)를 $select 하고 {@code Prefer: outlook.body-content-type="text"}
+   * 로 요청하며, 응답의 body.content 를 GraphEvent.body 로 매핑한다(미리보기 255자에 갇히지 않는다).
    */
   @Test
   void listCalendarView_requests_text_body_and_maps_it() throws Exception {

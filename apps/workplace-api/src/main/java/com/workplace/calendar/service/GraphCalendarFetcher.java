@@ -1,16 +1,18 @@
 package com.workplace.calendar.service;
 
 import com.workplace.calendar.CalendarPalette;
+import com.workplace.calendar.repository.CalendarTagRepository;
+import com.workplace.calendar.repository.CalendarTagRepository.EventTagLink;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository;
 import com.workplace.calendar.repository.ExternalCalendarRepository.ExternalEventRow;
+import com.workplace.global.util.Texts;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.outbound.GraphCalendarClient;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEvent;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEventAttendee;
-import com.workplace.global.util.Texts;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.user.repository.UserRepository;
 import java.time.LocalDateTime;
@@ -18,10 +20,13 @@ import java.time.OffsetDateTime;
 import java.time.Period;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -76,6 +81,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
   private final ExternalCalendarRepository extRepo;
   private final EventAttendeeRepository attendeeRepo;
   private final UserRepository userRepo;
+  // Outlook 범주 → 캘린더 주인의 태그 연결(WP-714).
+  private final CalendarTagRepository tagRepo;
 
   /**
    * 짧은-트랜잭션용 TransactionTemplate — @Primary TenantAwareTransactionManager 로 구성해 트랜잭션 진입 시 RLS
@@ -89,12 +96,14 @@ public class GraphCalendarFetcher implements CalendarFetcher {
       ExternalCalendarRepository extRepo,
       EventAttendeeRepository attendeeRepo,
       UserRepository userRepo,
+      CalendarTagRepository tagRepo,
       PlatformTransactionManager txManager) {
     this.tokenService = tokenService;
     this.graphClient = graphClient;
     this.extRepo = extRepo;
     this.attendeeRepo = attendeeRepo;
     this.userRepo = userRepo;
+    this.tagRepo = tagRepo;
     this.txTemplate = new TransactionTemplate(txManager);
   }
 
@@ -152,6 +161,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
             calIdHolder[0] = calId;
 
             Set<String> keep = new HashSet<>();
+            // 로컬 일정 id → Outlook 범주 이름(응답에 categories 가 있던 일정만) — 달력 단위로 모아 태그를 한 번에 맞춘다(WP-714).
+            Map<Long, List<String>> categoriesByEvent = new HashMap<>();
             for (GraphEvent evt : events) {
               if (evt.isCancelled()) {
                 // 취소된 이벤트는 upsert 생략 — keep 에도 미추가하여 prune 대상으로 처리
@@ -163,9 +174,15 @@ public class GraphCalendarFetcher implements CalendarFetcher {
               if (cal.canEdit()) {
                 syncAttendees(localEventId, evt, userId, account.emailAddress());
               }
+              // 범주 → 태그도 쓸 수 있는 달력만(WP-714 리뷰) — 동료가 공유한 달력·공휴일·생일 같은 읽기 전용 달력의 범주는 남의 사서함 것이라,
+              // 내 태그로 만들면 지울 수도 없는 태그가 쌓인다. 참석자 동기화와 같은 기준(cal.canEdit())이다.
+              if (cal.canEdit() && evt.categories() != null) {
+                categoriesByEvent.put(localEventId, evt.categories());
+              }
               keep.add(evt.id());
               count[0]++;
             }
+            syncCategoryTags(userId, categoriesByEvent);
             extRepo.pruneEventsNotIn(calId, keep, from, to);
             return null;
           });
@@ -213,15 +230,18 @@ public class GraphCalendarFetcher implements CalendarFetcher {
     }
   }
 
-  /** 설명 최대 길이 — {@code CalendarEventRequest.description} 의 {@code @Size(max = 10000)} 과 같다(앱에서 쓰는 일정과 같은 한도). */
+  /**
+   * 설명 최대 길이 — {@code CalendarEventRequest.description} 의 {@code @Size(max = 10000)} 과 같다(앱에서 쓰는
+   * 일정과 같은 한도).
+   */
   static final int DESCRIPTION_MAX = 10_000;
 
   /**
    * 일정 설명 = 본문 전체(WP-709). 예전엔 255자짜리 bodyPreview 만 저장해 긴 초대 본문이 잘렸다.
    *
-   * <p>동기화는 {@code Prefer: outlook.body-content-type="text"} 로 본문을 받으므로 body.content 는 텍스트다. 그래도 Graph 가
-   * HTML 로 돌려주면(헤더 무시) 태그가 그대로 화면에 나오므로 그 경우엔 미리보기로 대신한다. 본문이 비면 미리보기, 둘 다 비면 null.
-   * 줄바꿈은 {@code \n} 으로 맞추고 앞뒤 공백을 자르며, {@link #DESCRIPTION_MAX} 를 넘으면 앞 (최대-1)자 + 「…」 로 줄인다.
+   * <p>동기화는 {@code Prefer: outlook.body-content-type="text"} 로 본문을 받으므로 body.content 는 텍스트다. 그래도
+   * Graph 가 HTML 로 돌려주면(헤더 무시) 태그가 그대로 화면에 나오므로 그 경우엔 미리보기로 대신한다. 본문이 비면 미리보기, 둘 다 비면 null. 줄바꿈은
+   * {@code \n} 으로 맞추고 앞뒤 공백을 자르며, {@link #DESCRIPTION_MAX} 를 넘으면 앞 (최대-1)자 + 「…」 로 줄인다.
    */
   static String mapDescription(GraphEvent evt) {
     var body = evt.body();
@@ -242,8 +262,8 @@ public class GraphCalendarFetcher implements CalendarFetcher {
   static final int JOIN_URL_MAX = 2000;
 
   /**
-   * Graph onlineMeeting.joinUrl → 저장할 참가 주소(WP-710). http(s) 로 파싱되지 않거나 비었거나 컬럼 길이를 넘으면 null — 저장은 못 해도 설명·장소에서 찾는
-   * 응답 쪽 판정이 이어서 동작한다.
+   * Graph onlineMeeting.joinUrl → 저장할 참가 주소(WP-710). http(s) 로 파싱되지 않거나 비었거나 컬럼 길이를 넘으면 null — 저장은
+   * 못 해도 설명·장소에서 찾는 응답 쪽 판정이 이어서 동작한다.
    */
   static String mapJoinUrl(GraphEvent evt) {
     if (evt.onlineMeeting() == null || evt.onlineMeeting().joinUrl() == null) return null;
@@ -368,6 +388,58 @@ public class GraphCalendarFetcher implements CalendarFetcher {
         else attendeeRepo.updateRsvpByExternalEmail(eventId, s.externalEmail(), s.rsvp());
       }
     }
+  }
+
+  /**
+   * Outlook 범주 → 캘린더 주인의 태그(WP-714). 범주 이름으로 주인의 태그를 찾고(대소문자 무시, 없으면 이름 해시 색으로 만든다) 일정마다 OUTLOOK 출처
+   * 연결을 범주 목록과 똑같이 맞춘다. 앱에서 붙인 연결(APP)·다른 사람의 태그는 건드리지 않는다.
+   *
+   * <p>달력 하나의 일정을 모아 배치로 처리한다: 이름 → 태그 id 한 번, 기존 OUTLOOK 연결 한 번 읽고 바뀐 연결만 DELETE 한 문장·INSERT 한
+   * 문장으로 지우고 넣는다(10분마다 도는 동기화가 매번 모든 연결을 다시 쓰지 않게). 범주 이름은 API 의 50자 제한을 받지 않는다 — Outlook 이 허용한 이름을
+   * 그대로 쓴다(최대 255).
+   */
+  private void syncCategoryTags(long userId, Map<Long, List<String>> categoriesByEvent) {
+    if (categoriesByEvent.isEmpty()) return;
+    Set<String> names = new LinkedHashSet<>();
+    for (List<String> cats : categoriesByEvent.values()) {
+      for (String c : cats) {
+        String n = cleanCategory(c);
+        if (n != null) names.add(n);
+      }
+    }
+    // 키는 정리한 범주 이름 그대로 — 대소문자 접기는 DB(lower)만 한다(Java 와 PG 의 소문자 규칙이 어긋나는 이름에서 연결이 빠지지 않게).
+    Map<String, Long> tagIdByName =
+        tagRepo.findOrCreateByNames(userId, names, CalendarPalette::forName);
+    Map<Long, Set<Long>> existing = tagRepo.outlookLinks(userId, categoriesByEvent.keySet());
+    // 바뀐 연결만 모아 DELETE 하나·INSERT 하나로 보낸다(일정마다 두 문장씩 보내지 않게).
+    List<EventTagLink> removes = new ArrayList<>();
+    List<EventTagLink> adds = new ArrayList<>();
+    for (var entry : categoriesByEvent.entrySet()) {
+      long eventId = entry.getKey();
+      Set<Long> want = new HashSet<>();
+      for (String c : entry.getValue()) {
+        String n = cleanCategory(c);
+        if (n != null) want.add(tagIdByName.get(n));
+      }
+      want.removeIf(Objects::isNull);
+      Set<Long> have = existing.getOrDefault(eventId, Set.of());
+      for (Long tagId : have) {
+        if (!want.contains(tagId)) removes.add(new EventTagLink(eventId, tagId));
+      }
+      for (Long tagId : want) {
+        if (!have.contains(tagId)) adds.add(new EventTagLink(eventId, tagId));
+      }
+    }
+    tagRepo.deleteOutlookLinks(removes);
+    tagRepo.insertOutlookLinks(adds);
+  }
+
+  /** 범주 이름 정리 — 앞뒤 공백 제거, 빈 이름은 버리고 컬럼 상한(255)을 넘으면 자른다. */
+  private static String cleanCategory(String raw) {
+    if (raw == null) return null;
+    String n = raw.strip();
+    if (n.isEmpty()) return null;
+    return n.length() > 255 ? n.substring(0, 255) : n;
   }
 
   /** 이메일 → 내부 user(매칭) 또는 외부 스펙 결정. */

@@ -120,6 +120,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 정렬을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/me/priority-items', { items: [] })
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
+  // 캘린더 사이드바 「태그」 묶음·태그 피커가 조회한다(WP-714) — 빈 기본 스텁으로 프록시 누수를 막는다
+  await mockApi(page, 'GET', '/api/v1/calendar/tags', [])
   await mockApi(page, 'GET', '/api/v1/messaging/channels', [])
   await mockApi(page, 'GET', '/api/v1/messaging/dms', [])
   // 이슈 레이아웃의 IssueSidebar 가 마운트 시 /me/pinned-views(고정뷰)를 페치하므로

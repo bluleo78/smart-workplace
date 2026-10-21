@@ -11,7 +11,7 @@ class GraphCalendarFetcherJoinUrlTest {
 
   private static GraphEvent event(GraphOnlineMeeting meeting) {
     return new GraphEvent(
-        "e", "s", null, null, null, null, false, null, null, null, false, null, meeting);
+        "e", "s", null, null, null, null, false, null, null, null, false, null, meeting, null);
   }
 
   @Test
@@ -27,7 +27,8 @@ class GraphCalendarFetcherJoinUrlTest {
     assertThat(GraphCalendarFetcher.mapJoinUrl(event(null))).isNull();
     assertThat(GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting(null)))).isNull();
     assertThat(GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("  ")))).isNull();
-    assertThat(GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("javascript:alert(1)"))))
+    assertThat(
+            GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("javascript:alert(1)"))))
         .isNull();
     assertThat(
             GraphCalendarFetcher.mapJoinUrl(
@@ -39,8 +40,10 @@ class GraphCalendarFetcherJoinUrlTest {
   @Test
   void drops_urls_the_resolver_would_ignore() {
     assertThat(GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("https://")))).isNull();
-    assertThat(GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("https:///x")))).isNull();
-    assertThat(GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("https://a b.example/x"))))
+    assertThat(GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("https:///x"))))
+        .isNull();
+    assertThat(
+            GraphCalendarFetcher.mapJoinUrl(event(new GraphOnlineMeeting("https://a b.example/x"))))
         .isNull();
   }
 }

@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.HexFormat;
 
 /**
@@ -12,6 +13,9 @@ import java.util.HexFormat;
  *
  * <p>드라이브 공유 링크(sl_)·전송 링크(dl_·ul_)와 스테이징 업로드 링크(WP-421)가 같은 방식을 쓰도록 drive 에서 뽑아 왔다: 토큰은 접두사 +
  * base62(32 랜덤 바이트), DB 에는 평문 대신 SHA-256 hex 만 둔다. 상태가 없어 정적 메서드로 둔다.
+ *
+ * <p>캘린더 태그 구독 주소(WP-715)처럼 길이가 고정돼야 하는 토큰은 {@link #generateUrlSafe(int)} (base64url) 를 쓰고, 형식 검사는
+ * {@link #urlSafeLength(int)} 로 같은 바이트 수에서 길이를 끌어내 둘이 어긋나지 않게 한다.
  */
 public final class CapabilityTokens {
 
@@ -40,6 +44,23 @@ public final class CapabilityTokens {
       n = qr[0];
     }
     return prefix + (sb.length() > 0 ? sb.toString() : "0");
+  }
+
+  /**
+   * base64url(패딩 없음) 난수 토큰 — 접두사 없이 길이가 늘 {@link #urlSafeLength(int) urlSafeLength(bytes)} 로
+   * 고정된다(base62 와 달리 앞자리가 빠지지 않는다). URL 경로에 그대로 넣을 수 있는 문자({@code A-Z a-z 0-9 - _})만 쓴다.
+   *
+   * @param bytes 난수 바이트 수(예: 32 = 256비트 → 43자)
+   */
+  public static String generateUrlSafe(int bytes) {
+    byte[] b = new byte[bytes];
+    SECURE_RANDOM.nextBytes(b);
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+  }
+
+  /** {@link #generateUrlSafe(int)} 가 만드는 토큰 길이 — 패딩 없는 base64 는 6비트당 한 글자라 ceil(bytes×8/6). */
+  public static int urlSafeLength(int bytes) {
+    return (bytes * 8 + 5) / 6;
   }
 
   /** UTF-8 바이트의 SHA-256 소문자 hex(64자) — 토큰 저장·조회 키. 평문 토큰은 DB 에 남기지 않는다. */

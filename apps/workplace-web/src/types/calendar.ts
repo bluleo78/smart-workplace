@@ -63,6 +63,38 @@ export interface CalendarEvent {
   // 온라인 회의 참가 정보(WP-710). 서버가 채운다 — M365 onlineMeeting.joinUrl 이 있으면 그것, 없으면 설명·장소에서 찾은 첫 회의 링크.
   // 회의가 아니면 null/없음. 상세 화면의 「회의 참가」 버튼이 이 값으로 그려진다.
   onlineMeeting?: { provider: OnlineMeetingProvider; joinUrl: string } | null
+  // 이 일정에 붙은 태그 — 현재 사용자 것만(태그는 사람마다). 없으면 빈 배열로 본다. (WP-714)
+  tags?: CalendarTagRef[]
+  // 태그를 붙이고 뗄 수 있는지. M365 동기화 일정은 Outlook 범주 써 넣기(WP-716) 전까지 false. 없으면 false 로 본다. (WP-714)
+  tagsEditable?: boolean
+}
+
+/** 일정에 달려 오는 태그 요약 — 칩을 그리는 데 필요한 값만. color 는 팔레트 키(blue … gray). (WP-714) */
+export interface CalendarTagRef {
+  id: number
+  name: string
+  color: string
+}
+
+/** 사용자 태그 — 사이드바 「태그」 묶음 한 줄. eventCount = 붙은 일정 수, hasFeed = 구독 주소 발급 여부. (WP-714·715) */
+export interface CalendarTag extends CalendarTagRef {
+  eventCount: number
+  hasFeed: boolean
+  // Outlook 범주 동기화로 붙은 일정이 있는 태그 — 이름은 Outlook 에서만 바꾼다(앱에서 바꾸면 서버가 409). 색은 바꿀 수 있다.
+  fromOutlook: boolean
+}
+
+/** 태그 생성/수정 요청 — 수정은 바꿀 필드만, 생성의 color 는 생략하면 서버가 정한다. */
+export interface CalendarTagRequest {
+  name?: string
+  color?: string
+}
+
+/** 태그 구독 주소(iCal 피드) — url 은 전체 주소, createdAt 은 마지막 발급(재발급 포함) 시각. (WP-715) */
+export interface TagFeed {
+  url: string
+  createdAt: string
+  eventCount: number
 }
 
 // 캘린더에 읽기전용으로 오버레이되는 "내게 할당된 이슈 마감일" 마커.

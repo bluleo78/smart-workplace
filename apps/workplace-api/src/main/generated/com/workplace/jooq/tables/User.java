@@ -17,6 +17,7 @@ import com.workplace.jooq.tables.AssistantConfig.AssistantConfigPath;
 import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
 import com.workplace.jooq.tables.CalendarEvent.CalendarEventPath;
+import com.workplace.jooq.tables.CalendarTag.CalendarTagPath;
 import com.workplace.jooq.tables.Channel.ChannelPath;
 import com.workplace.jooq.tables.ChannelMember.ChannelMemberPath;
 import com.workplace.jooq.tables.ChatMessage.ChatMessagePath;
@@ -471,6 +472,19 @@ public class User extends TableImpl<UserRecord> {
             _calendar = new CalendarPath(this, null, Keys.CALENDAR__CALENDAR_OWNER_ID_FKEY.getInverseKey());
 
         return _calendar;
+    }
+
+    private transient CalendarTagPath _calendarTag;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_tag</code> table
+     */
+    public CalendarTagPath calendarTag() {
+        if (_calendarTag == null)
+            _calendarTag = new CalendarTagPath(this, null, Keys.CALENDAR_TAG__CALENDAR_TAG_USER_ID_FKEY.getInverseKey());
+
+        return _calendarTag;
     }
 
     private transient ChannelPath _channel;

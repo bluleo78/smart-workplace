@@ -10,9 +10,10 @@ import java.util.regex.Pattern;
  * 일정의 온라인 회의 참가 정보 판정(WP-710) — 목록·상세·MCP 가 같은 답을 내도록 서버의 한 곳에서만 판정하는 순수 함수 모음.
  *
  * <p>우선순위: ① 동기화 때 저장한 참가 주소(M365 {@code onlineMeeting.joinUrl}) ② 설명에서 처음 나온 회의 링크 ③ 장소에서 처음 나온 회의
- * 링크. 회의 링크 판정은 주소 모양만 본다 — Teams({@code teams.microsoft.com/l/meetup-join/…}, {@code teams.microsoft.com/meet/…},
- * {@code teams.live.com/meet/…}), Google Meet({@code meet.google.com/xxx-xxxx-xxx}), Zoom({@code *.zoom.us/j/…}, {@code
- * *.zoom.us/my/…}). 일반 웹 링크는 회의로 취급하지 않는다. 링크는 http(s) 만 허용해 {@code javascript:} 같은 스킴이 버튼으로 새지 않는다.
+ * 링크. 회의 링크 판정은 주소 모양만 본다 — Teams({@code teams.microsoft.com/l/meetup-join/…}, {@code
+ * teams.microsoft.com/meet/…}, {@code teams.live.com/meet/…}), Google Meet({@code
+ * meet.google.com/xxx-xxxx-xxx}), Zoom({@code *.zoom.us/j/…}, {@code *.zoom.us/my/…}). 일반 웹 링크는 회의로
+ * 취급하지 않는다. 링크는 http(s) 만 허용해 {@code javascript:} 같은 스킴이 버튼으로 새지 않는다.
  */
 public final class OnlineMeetingResolver {
 
@@ -75,8 +76,8 @@ public final class OnlineMeetingResolver {
   }
 
   /**
-   * 저장·판정 공통의 http(s) 주소 검사 — 파싱 가능한 {@link URI} 이고 호스트가 있으며 스킴이 http/https 일 때만 true. 동기화가 저장할 주소({@code
-   * GraphCalendarFetcher.mapJoinUrl})와 응답 쪽 판정이 같은 기준을 써서, 저장은 됐는데 응답에서 무시되는 주소가 생기지 않는다.
+   * 저장·판정 공통의 http(s) 주소 검사 — 파싱 가능한 {@link URI} 이고 호스트가 있으며 스킴이 http/https 일 때만 true. 동기화가 저장할
+   * 주소({@code GraphCalendarFetcher.mapJoinUrl})와 응답 쪽 판정이 같은 기준을 써서, 저장은 됐는데 응답에서 무시되는 주소가 생기지 않는다.
    */
   public static boolean isHttpUrl(String s) {
     if (s == null || s.isBlank()) return false;
@@ -95,8 +96,8 @@ public final class OnlineMeetingResolver {
   }
 
   /**
-   * URL 끝의 문장 부호와 짝 없는 닫는 괄호(소·대·중괄호)를 뗀다 — 「(https://…).」·「[https://…]」. 프론트 {@code
-   * trimUrlEnd} 와 같은 규칙.
+   * URL 끝의 문장 부호와 짝 없는 닫는 괄호(소·대·중괄호)를 뗀다 — 「(https://…).」·「[https://…]」. 프론트 {@code trimUrlEnd} 와
+   * 같은 규칙.
    */
   private static String trimEnd(String url) {
     String u = url;

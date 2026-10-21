@@ -16,6 +16,8 @@ import com.workplace.jooq.tables.AuditLog.AuditLogPath;
 import com.workplace.jooq.tables.Calendar.CalendarPath;
 import com.workplace.jooq.tables.CalendarEvent.CalendarEventPath;
 import com.workplace.jooq.tables.CalendarEventException.CalendarEventExceptionPath;
+import com.workplace.jooq.tables.CalendarEventTag.CalendarEventTagPath;
+import com.workplace.jooq.tables.CalendarTag.CalendarTagPath;
 import com.workplace.jooq.tables.Channel.ChannelPath;
 import com.workplace.jooq.tables.ChannelMember.ChannelMemberPath;
 import com.workplace.jooq.tables.ChatMessage.ChatMessagePath;
@@ -355,6 +357,32 @@ public class Tenant extends TableImpl<TenantRecord> {
             _aiMemory = new AiMemoryPath(this, null, Keys.AI_MEMORY__AI_MEMORY_TENANT_ID_FKEY.getInverseKey());
 
         return _aiMemory;
+    }
+
+    private transient CalendarEventTagPath _calendarEventTag;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_event_tag</code> table
+     */
+    public CalendarEventTagPath calendarEventTag() {
+        if (_calendarEventTag == null)
+            _calendarEventTag = new CalendarEventTagPath(this, null, Keys.CALENDAR_EVENT_TAG__CALENDAR_EVENT_TAG_TENANT_ID_FKEY.getInverseKey());
+
+        return _calendarEventTag;
+    }
+
+    private transient CalendarTagPath _calendarTag;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.calendar_tag</code> table
+     */
+    public CalendarTagPath calendarTag() {
+        if (_calendarTag == null)
+            _calendarTag = new CalendarTagPath(this, null, Keys.CALENDAR_TAG__CALENDAR_TAG_TENANT_ID_FKEY.getInverseKey());
+
+        return _calendarTag;
     }
 
     private transient ChatMessageAttachmentPath _chatMessageAttachment;

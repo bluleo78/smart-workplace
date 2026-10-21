@@ -6,6 +6,8 @@ import { AlignLeft, Bell, ChevronRight, Clock, MapPin, Users } from 'lucide-reac
 import { type ReactNode, useState } from 'react'
 
 import { RsvpIcon } from '@/components/calendar/AttendeeSection'
+import { CalendarTagAddButton, CalendarTagChip } from '@/components/calendar/CalendarTagChip'
+import { CalendarTagPicker } from '@/components/calendar/CalendarTagPicker'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { RsvpControls } from '@/components/calendar/RsvpControls'
 import { DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -151,6 +153,9 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
       ? splitMeetingBoilerplate(event.description)
       : { body: event.description, boilerplate: null }
     : null
+  // 태그 — 응답에 없으면(구버전·모킹) 태그 없음·수정 불가로 본다(WP-714)
+  const tags = event.tags ?? []
+  const tagsEditable = event.tagsEditable ?? false
 
   return (
     <>
@@ -180,7 +185,22 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
                 {readOnlyLabel.text}
               </span>
             )}
+            {/* 태그 칩은 같은 칩 줄에 이어 붙인다(넘치면 다음 줄). 앱 일정이면 끝에 「＋ 태그」 (WP-714, 시안 ②-A) */}
+            {tags.map((t) => (
+              <CalendarTagChip key={t.id} tag={t} />
+            ))}
+            {tagsEditable && (
+              <CalendarTagPicker eventId={event.id} current={tags}>
+                <CalendarTagAddButton data-testid="event-detail-tag-add" />
+              </CalendarTagPicker>
+            )}
           </div>
+          {/* M365 일정의 태그는 Outlook 범주에서 온 것 — 앱에서는 보기만 된다(쓰기는 WP-716). 태그가 없으면 안내할 게 없다 */}
+          {!tagsEditable && tags.length > 0 && (
+            <p className="text-xs text-muted-foreground" data-testid="event-detail-tags-hint">
+              Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요
+            </p>
+          )}
           {/* 회의 참가 — 일정을 여는 이유가 대개 「들어가기」라 칩 줄 바로 아래 넓은 버튼으로 둔다 (WP-710) */}
           {event.onlineMeeting && <JoinMeetingButton onlineMeeting={event.onlineMeeting} testId="event-detail-join" />}
         </DialogHeader>

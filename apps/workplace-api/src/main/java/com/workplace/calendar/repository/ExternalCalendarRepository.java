@@ -171,7 +171,8 @@ public class ExternalCalendarRepository {
    *
    * <p>iCalUid: 공급자 표준 미팅 식별자(모든 참석자 사서함 동일값). 순수 로컬 이벤트엔 없어 nullable. 조회 시점 크로스소스 중복 제거 키로 쓰인다.
    *
-   * <p>onlineMeetingUrl: Graph onlineMeeting.joinUrl(WP-710). 회의가 아니거나 주소가 없으면 null — 갱신 때도 덮어써 회의가 해제된 일정의 옛 주소가 남지 않게 한다.
+   * <p>onlineMeetingUrl: Graph onlineMeeting.joinUrl(WP-710). 회의가 아니거나 주소가 없으면 null — 갱신 때도 덮어써 회의가
+   * 해제된 일정의 옛 주소가 남지 않게 한다.
    */
   public record ExternalEventRow(
       String title,

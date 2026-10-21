@@ -144,12 +144,13 @@ public class GraphApiClient {
   }
 
   /**
-   * {@link #get(String, String, Class)} 에 요청 헤더를 더한 형태 — Graph 의 {@code Prefer} 같은 선택 헤더용(WP-709: 일정 본문을
-   * {@code outlook.body-content-type="text"} 로 받기).
+   * {@link #get(String, String, Class)} 에 요청 헤더를 더한 형태 — Graph 의 {@code Prefer} 같은 선택 헤더용(WP-709:
+   * 일정 본문을 {@code outlook.body-content-type="text"} 로 받기).
    *
    * @param extraHeaders 추가 요청 헤더(이름 → 값). Authorization·Accept 는 항상 기본값이 먼저 붙는다.
    */
-  public <T> T get(String accessToken, String url, Class<T> type, Map<String, String> extraHeaders) {
+  public <T> T get(
+      String accessToken, String url, Class<T> type, Map<String, String> extraHeaders) {
     String absoluteUrl = url.startsWith("http") ? url : GRAPH_BASE_URL + url;
     HttpRequest.Builder builder =
         HttpRequest.newBuilder()
