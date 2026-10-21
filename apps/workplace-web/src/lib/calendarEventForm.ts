@@ -1,6 +1,6 @@
 // 일정 생성/편집 다이얼로그(EventDialog)의 화면 독립 로직 — 폼 스키마·종일 정규화·요청 조립·편집 가능 판정.
 // 컴포넌트에서 분리해 vitest 로 입력→출력을 직접 검증한다(WP-412). 화면 반영(비활성·숨김)은 E2E 가 담당.
-import { addDays, format, parse } from 'date-fns'
+import { addDays, addMilliseconds, format, parse } from 'date-fns'
 import { z } from 'zod'
 
 import { isNotEventOrganizer } from '@/lib/calendar'
@@ -112,6 +112,24 @@ export function normalizeAllDayRange(start: string, end: string): { start: strin
   const endDate = end ? localDateOnly(end) : startDate
   const normalizedEndDate = endDate <= startDate ? addDaysToDateOnly(startDate, 1) : endDate
   return { start: `${startDate}T00:00`, end: `${normalizedEndDate}T00:00` }
+}
+
+const LOCAL_INPUT_FORMAT = "yyyy-MM-dd'T'HH:mm"
+
+/**
+ * "종일" 을 풀 때 체크하기 전 시각을 되살린다(WP-711). 체크할 때 시작·종료를 자정으로 덮어써 두었기 때문에, 그때의 시각(remembered)을
+ * 지금 시작 날짜에 다시 얹는다 — 종일인 동안 날짜를 옮겼으면 옮긴 날짜에 원래 시각·길이(예: 10:00~11:00)로 돌아온다.
+ */
+export function restoreTimedRange(
+  current: { start: string; end: string },
+  remembered: { start: string; end: string },
+): { start: string; end: string } {
+  const durationMs =
+    parse(remembered.end, LOCAL_INPUT_FORMAT, new Date()).getTime() -
+    parse(remembered.start, LOCAL_INPUT_FORMAT, new Date()).getTime()
+  const start = `${localDateOnly(current.start)}T${remembered.start.slice(11, 16)}`
+  const end = format(addMilliseconds(parse(start, LOCAL_INPUT_FORMAT, new Date()), durationMs), LOCAL_INPUT_FORMAT)
+  return { start, end }
 }
 
 // ────────────────────────────────────────────────────────────
