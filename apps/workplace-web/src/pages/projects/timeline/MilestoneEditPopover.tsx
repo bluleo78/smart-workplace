@@ -1,11 +1,12 @@
 // 마일스톤 다이아몬드 클릭 시 앵커 위치에 뜨는 편집 팝오버 — 이름/날짜 인라인 수정 + 연결 이슈 보기 + 삭제.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { isEscapeForInnerOverlay } from '@/lib/escapeOverlay';
 
 import { useDeleteMilestone, useUpdateMilestone } from '../../../hooks/queries/useMilestones';
 import type { MilestoneResponse } from '../../../types/milestone';
@@ -29,9 +30,11 @@ export function MilestoneEditPopover({
   const remove = useDeleteMilestone(projectKey);
 
   // 바깥 클릭(backdrop)만 닫기를 처리하고 있어 Esc 로는 닫히지 않던 문제 — shadcn Popover/Dialog 관례에 맞춘다.
+  // 삭제 확인 창 등 안쪽 오버레이가 열려 있으면 그 Esc 는 그것만 닫는다(WP-698 — 팝오버까지 함께 닫히던 문제).
+  const popoverRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !isEscapeForInnerOverlay(e, popoverRef.current)) onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -65,6 +68,7 @@ export function MilestoneEditPopover({
       {/* 팝오버 바깥 클릭 시 닫기 — 앵커가 실제 DOM 트리거가 아니라(anchorRect 좌표) 별도 backdrop 으로 처리 */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
+        ref={popoverRef}
         role="dialog"
         aria-label="마일스톤 편집"
         data-testid="milestone-edit-popover"

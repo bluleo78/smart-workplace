@@ -138,6 +138,23 @@ test('행 클릭 → 우측 패널 오픈 + URL ?task 반영 + 새로고침 유�
   await expectPanelBelowHeader(page);
 });
 
+// WP-698 — 패널 안 선택 목록을 Esc 로 닫으면 목록만 닫히고 패널은 남는다. 다음 Esc 에서 패널이 닫힌다.
+test('패널 안 상태 목록을 Esc 로 닫으면 패널은 남고, 다음 Esc 에 패널이 닫힌다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+
+  const panel = page.getByTestId('personal-task-panel');
+  await panel.getByTestId('issue-status-select').click();
+  await expect(page.getByRole('listbox')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await expect(panel).toBeVisible();
+
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+});
+
 // 작업 패널은 페이지 헤더 옆(화면 맨 위)이 아니라 헤더 아래 본문 안 보조 칸이다 — 앱 사이드 패널처럼 보이지 않게.
 async function expectPanelBelowHeader(page: import('@playwright/test').Page) {
   await expectHeaderBottomAt56(page.getByTestId('page-header'));

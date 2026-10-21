@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { isEscapeForInnerOverlay } from '@/lib/escapeOverlay';
 import { parseId } from '@/lib/historyParam';
 import { cn } from '@/lib/utils';
 
@@ -63,10 +64,11 @@ function PersonalTaskPanelDesktop({
 }) {
   const open = number != null;
 
-  // ESC 로 닫기 — panel 모드 한정(modal 은 Radix Dialog 가 ESC 처리 — 이중 닫기 방지).
+  // ESC 로 닫기 — panel 모드 한정(modal 은 Radix Dialog 가 ESC 처리 — 이중 닫기 방지). 패널 안 선택 목록·확인 창이
+  // 열려 있으면 그 Esc 는 그것을 닫는 데만 쓴다(WP-698 — 한 번에 패널까지 닫히던 문제).
   useEffect(() => {
     if (!open || mode === 'modal') return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !isEscapeForInnerOverlay(e)) close(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, mode, close]);
