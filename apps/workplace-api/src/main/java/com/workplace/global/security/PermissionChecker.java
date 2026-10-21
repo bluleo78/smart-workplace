@@ -4,6 +4,7 @@ import com.workplace.permission.service.PermissionService;
 import com.workplace.role.repository.RoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 사용자 권한(permission) 및 역할(role) 보유 여부를 확인하는 서비스. */
 @Service
@@ -25,6 +26,9 @@ public class PermissionChecker {
    * @param roleName 역할명 (예: "ADMIN")
    * @return 해당 역할 보유 시 true
    */
+  // WP-729: user_role 은 테넌트 RLS — 요청 트랜잭션 밖(PermissionInterceptor)에서 불려도 테넌트 GUC 가 들어가도록 자기 트랜잭션을
+  // 연다.
+  @Transactional(readOnly = true)
   public boolean userHasRole(Long userId, String roleName) {
     return roleRepository.findByUserId(userId).stream().anyMatch(r -> r.name().equals(roleName));
   }
