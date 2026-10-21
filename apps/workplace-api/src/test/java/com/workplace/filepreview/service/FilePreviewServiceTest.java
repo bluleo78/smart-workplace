@@ -270,7 +270,9 @@ class FilePreviewServiceTest extends IntegrationTestBase {
     // 큐 대기로 리스가 만료됐지만 아무도 다시 선점하지 않음 — 행의 토큰은 만료된 그 값이다.
     expireLease(id);
     OffsetDateTime expired = row(id).leasedUntil();
-    assertThat(expired).isBefore(OffsetDateTime.now());
+    // 만료 시각은 DB 시계로 심었으니 DB 시계와 비교한다 — JVM 시계와 비교하면 컨테이너 VM 시계가 어긋날 때 깨진다.
+    assertThat(expired)
+        .isBefore(dsl.select(DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class));
 
     service.convertClaimed(tid2, id, expired, null);
 
