@@ -37,6 +37,25 @@ test('헤더 메뉴에서 로그아웃하면 로그인 페이지로 이동한다
   await expect(page).toHaveURL(/\/login$/)
 })
 
+// WP-699 — 저장하지 않은 이슈 본문 초안은 로그아웃하면 지워져 같은 기기의 다음 사용자에게 남지 않는다(다른 저장값은 둔다).
+test('로그아웃하면 이슈 본문 초안이 지워진다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'POST', '/api/v1/auth/logout', {})
+  await page.goto('/')
+  await expect(page.getByTestId('app-rail')).toBeVisible()
+  await page.evaluate(() => {
+    localStorage.setItem('issue-body-draft:1:-:WP:1', '저장 안 한 글')
+    localStorage.setItem('issue-body-draft:WP:2', '예전 키 초안')
+  })
+
+  await page.getByRole('button', { name: '사용자 메뉴' }).click()
+  await page.getByRole('menuitem', { name: '로그아웃' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+
+  await expect
+    .poll(() => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('issue-body-draft:'))))
+    .toEqual([])
+})
+
 // ADMIN 권한이면 사용자 관리 페이지 진입 가능
 test('관리자 권한으로 사용자 관리 페이지에 진입한다', { tag: '@smoke' }, async ({ adminPage: page }) => {
   // 페이지가 호출하는 사용자 목록 API 를 빈 배열로 모킹

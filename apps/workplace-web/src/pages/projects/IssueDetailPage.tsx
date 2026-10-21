@@ -54,6 +54,12 @@ import { questionWork } from '../../lib/agentWork';
 import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
+import {
+  clearIssueBodyDraft,
+  issueBodyDraftKey,
+  readIssueBodyDraft,
+  writeIssueBodyDraft,
+} from '../../lib/issueBodyDraft';
 import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../lib/issueDeleteText';
 import { isBodyDraftDirty } from '../../lib/issueDraft';
 import { isProjectOwner, workflowLockedNotice } from '../../lib/projectPermissions';
@@ -74,35 +80,6 @@ import { IssueMobilePropertyChips } from './components/mobile/IssueMobilePropert
 import { type EditBarControls, MobileEditBar } from './components/mobile/MobileEditBar';
 import { useEditBarControls } from './components/mobile/useEditBarControls';
 import { WorkflowLockedHint } from './components/WorkflowLockedHint';
-
-// 본문 편집 draft localStorage 키 — 프로젝트+이슈 단위로 특정(#824).
-function bodyDraftKey(projectKey: string, issueNumber: number): string {
-  return `issue-body-draft:${projectKey}:${issueNumber}`;
-}
-
-// localStorage 접근은 프라이빗 모드·사이트 데이터 차단 환경에서 throw 할 수 있으므로
-// 전부 try/catch — 실패해도 편집 자체는 정상 동작해야 한다(#824).
-function readBodyDraft(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-function writeBodyDraft(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // 무시 — 초안 저장은 보완책일 뿐 필수 기능이 아니다.
-  }
-}
-function clearBodyDraft(key: string): void {
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // 무시.
-  }
-}
 
 /**
  * 보기 모드 본문("클릭=편집 진입" 래퍼)에서 받은 이벤트가 본문 안 상호작용 요소에서 온 것인지(WP-199).
@@ -152,7 +129,13 @@ function InlineEditableBody({
   const [draft, setDraft] = useState(body ?? '');
   // 편집 진입 시 발견된 로컬 초안이 서버 본문과 달라 복구 배너를 보여줄지 여부.
   const [showDraftBanner, setShowDraftBanner] = useState(false);
-  const draftKey = bodyDraftKey(projectKey, issueNumber);
+  // 초안은 쓴 사람(사용자·워크스페이스) 몫 — 같은 기기의 다른 사용자에게 보이지 않게(WP-699).
+  const { user, activeTenant } = useAuth();
+  const draftKey = issueBodyDraftKey(
+    { userId: user?.id ?? 0, tenantId: activeTenant?.tenantId ?? null },
+    projectKey,
+    issueNumber,
+  );
 
   // 이미지 붙여넣기·드롭·버튼 업로드(WP-199) — 업로드 중엔 본문에 자리표시 토큰이 들어가 있다.
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -189,7 +172,7 @@ function InlineEditableBody({
   useEffect(() => {
     if (!editing) return;
     if (draft === (body ?? '')) return;
-    const timer = window.setTimeout(() => writeBodyDraft(draftKey, draft), 600);
+    const timer = window.setTimeout(() => writeIssueBodyDraft(draftKey, draft), 600);
     return () => window.clearTimeout(timer);
   }, [editing, draft, body, draftKey]);
 
@@ -197,7 +180,7 @@ function InlineEditableBody({
   // 다르면 조용히 덮어쓰지 않고 배너로 안내(다른 사람이 서버 본문을 바꿨을 수 있음).
   const enter = () => {
     setDraft(body ?? '');
-    const stored = readBodyDraft(draftKey);
+    const stored = readIssueBodyDraft(draftKey);
     setShowDraftBanner(stored != null && stored !== (body ?? ''));
     caretInit.current = false;
     setEditing(true);
@@ -205,13 +188,13 @@ function InlineEditableBody({
   };
   // 배너 [불러오기] — 저장된 초안을 draft 로 복원.
   const restoreDraft = () => {
-    const stored = readBodyDraft(draftKey);
+    const stored = readIssueBodyDraft(draftKey);
     if (stored != null) setDraft(stored);
     setShowDraftBanner(false);
   };
   // 배너 [버리기] — 초안 폐기, 현재(서버) draft 유지.
   const discardDraft = () => {
-    clearBodyDraft(draftKey);
+    clearIssueBodyDraft(draftKey);
     setShowDraftBanner(false);
   };
   // 저장 — 빈 값 허용, 변화 없으면 무의미 요청 차단. 저장 후 초안은 정리해 남기지 않는다.
@@ -227,12 +210,12 @@ function InlineEditableBody({
     setEditing(false);
     setShowDraftBanner(false);
     if (draft === (body ?? '')) {
-      clearBodyDraft(draftKey);
+      clearIssueBodyDraft(draftKey);
       return;
     }
     // #611 초안은 저장이 성공한 뒤에만 지운다 — 충돌(409)·오류로 실패하면 입력한 본문을 그대로 두고 편집을 다시 연다.
-    writeBodyDraft(draftKey, draft);
-    if (await onSave(draft)) clearBodyDraft(draftKey);
+    writeIssueBodyDraft(draftKey, draft);
+    if (await onSave(draft)) clearIssueBodyDraft(draftKey);
     else {
       caretInit.current = false;
       setEditing(true);
@@ -242,7 +225,7 @@ function InlineEditableBody({
   const cancel = () => {
     setEditing(false);
     setShowDraftBanner(false);
-    clearBodyDraft(draftKey);
+    clearIssueBodyDraft(draftKey);
   };
 
   // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).

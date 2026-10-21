@@ -1,5 +1,6 @@
 // 이슈 본문 이미지(WP-199) E2E — 붙여넣기·드롭·버튼 업로드와 본문 렌더.
 import type { Page } from '@playwright/test'
+import { issueBodyDraftKey } from '../../../src/lib/issueBodyDraft'
 
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -236,7 +237,7 @@ test.describe('이슈 본문 이미지 — 표시', () => {
   test('복원된 초안에 업로드 중 토큰이 남아 있으면 저장 시 안내 토스트를 띄운다', async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, '기존 본문')
     await page.addInitScript(([k, v]) => window.localStorage.setItem(k, v), [
-      `issue-body-draft:${KEY}:1`,
+      issueBodyDraftKey({ userId: 1, tenantId: null }, KEY, 1),
       '남은 글\n![업로드 중… #1]()',
     ])
     await page.goto(`/projects/${KEY}/issues/1`)

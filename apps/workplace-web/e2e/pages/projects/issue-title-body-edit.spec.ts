@@ -9,11 +9,12 @@ import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
+import { issueBodyDraftKey } from '../../../src/lib/issueBodyDraft';
 
 const PROJECT_KEY = 'WP';
 const ISSUE_NUMBER = 1;
-// 본문 초안 localStorage 키 — IssueDetailPage 의 bodyDraftKey 와 같은 형식(#824).
-const DRAFT_KEY = `issue-body-draft:${PROJECT_KEY}:${ISSUE_NUMBER}`;
+// 본문 초안 localStorage 키 — 로그인한 사용자(id 1) 몫. 픽스처 토큰은 테넌트 클레임이 없어 활성 워크스페이스가 없다(#824, WP-699).
+const DRAFT_KEY = issueBodyDraftKey({ userId: 1, tenantId: null }, PROJECT_KEY, ISSUE_NUMBER);
 const ISSUES_PATH = `/api/v1/projects/${PROJECT_KEY}/issues`;
 const ISSUE_DETAIL_PATH = `${ISSUES_PATH}/${ISSUE_NUMBER}`;
 
@@ -394,6 +395,25 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
 
     // 재진입 시 초안이 정리되어 있어야 하므로 배너가 뜨지 않는다.
     await page.getByRole('button', { name: '본문 편집' }).click();
+    await expect(page.getByTestId('issue-body-draft-banner')).toBeHidden();
+  });
+
+  // WP-699 — 같은 기기의 다른 사용자(또는 예전 형식 키)가 남긴 초안은 이 사용자에게 복구 배너로 뜨지 않는다.
+  test('다른 사용자가 남긴 같은 이슈의 초안은 복구 배너로 뜨지 않는다 (WP-699)', async ({ authenticatedPage: page }) => {
+    await setupStubs(page);
+    await page.addInitScript(
+      ([other, legacy]) => {
+        window.localStorage.setItem(other, '다른 사람의 저장 안 한 글');
+        window.localStorage.setItem(legacy, '예전 키에 남은 글');
+      },
+      [
+        issueBodyDraftKey({ userId: 2, tenantId: null }, PROJECT_KEY, ISSUE_NUMBER),
+        `issue-body-draft:${PROJECT_KEY}:${ISSUE_NUMBER}`,
+      ],
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    await expect(page.getByTestId('issue-body-textarea')).toHaveValue('원본 본문');
     await expect(page.getByTestId('issue-body-draft-banner')).toBeHidden();
   });
 });
