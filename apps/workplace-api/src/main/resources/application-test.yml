@@ -64,6 +64,9 @@ workplace:
   # 테스트가 쓰는 가짜 모델 서버 호스트(DNS 에 없다) — 허용 목록에 넣어 이름 풀이 없이 통과시킨다(WP-596).
   assistant:
     model-url-allowed-hosts: api.example.com,ep.example,provider.test
+  # 메일 테스트는 루프백의 GreenMail 에 붙는다 — 그 주소만 내부망 차단 예외로 둔다(WP-740). ::1 등 다른 루프백 표기는 막힌 채로 남겨 차단을 검증한다.
+  mail:
+    allowed-internal-hosts: 127.0.0.1,localhost
   auth:
     sso:
       m365:

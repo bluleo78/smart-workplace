@@ -11,14 +11,20 @@ import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.util.Properties;
 import javax.net.ssl.SSLException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
  * IMAP/SMTP 에 실제 접속해 호스트·포트·보안·자격증명을 검증한다. 메일 페치/발송은 하지 않고 connect/close 만 수행한다. 행(hang) 방지를 위해
- * 연결·읽기 타임아웃을 10초로 제한한다. Spring 빈이지만 외부 의존이 없어 단위 테스트에서 직접 new 로 생성 가능하다.
+ * 연결·읽기 타임아웃을 10초로 제한한다. 접속 전에 {@link MailHostGuard} 로 내부망 호스트를 거른다(WP-740). 단위 테스트는 허용 목록을 준
+ * MailHostGuard 와 함께 직접 new 로 생성한다.
  */
 @Component
+@RequiredArgsConstructor
 public class MailConnectionTester {
+
+  /** 내부망 호스트 차단 — 막히면 접속하지 않고 그 문구를 해당 프로토콜 오류로 돌려준다. */
+  private final MailHostGuard hostGuard;
 
   /** 연결·읽기 타임아웃(ms). */
   private static final int TIMEOUT_MS = 10_000;
@@ -42,6 +48,8 @@ public class MailConnectionTester {
   /** IMAP 접속 시도. 성공이면 null, 실패면 사용자 친화 에러 메시지 반환. */
   private String testImap(
       String host, int port, MailSecurity security, String username, String password) {
+    String blocked = hostGuard.check(host);
+    if (blocked != null) return blocked;
     String protocol = security == MailSecurity.SSL_TLS ? "imaps" : "imap";
     Properties props = new Properties();
     props.put("mail.store.protocol", protocol);
@@ -75,6 +83,8 @@ public class MailConnectionTester {
   /** SMTP 접속 시도. 성공이면 null, 실패면 사용자 친화 에러 메시지 반환. */
   private String testSmtp(
       String host, int port, MailSecurity security, String username, String password) {
+    String blocked = hostGuard.check(host);
+    if (blocked != null) return blocked;
     Properties props = new Properties();
     props.put("mail.transport.protocol", "smtp");
     props.put("mail.smtp.auth", "true");

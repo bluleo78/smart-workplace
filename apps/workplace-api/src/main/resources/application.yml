@@ -63,6 +63,9 @@ workplace:
         redirect-uri: ${SSO_M365_REDIRECT_URI:http://localhost:6173/api/v1/auth/sso/callback}
         authority-base-url: ${SSO_M365_AUTHORITY:https://login.microsoftonline.com}
   mail:
+    # WP-740: 메일 계정 IMAP/SMTP 호스트의 내부망 차단 예외 — 우리 운영자만 정하는 호스트 목록(쉼표 구분, 기본 비어 있음).
+    # 사내 메일 서버를 사설망에 둔 설치에서만 채운다. 비우면 루프백·사설·메타데이터 주소로는 연결 테스트·저장을 거절한다.
+    allowed-internal-hosts: ${MAIL_ALLOWED_INTERNAL_HOSTS:}
     m365:
       # M365 Graph OAuth2 설정 — client-secret 은 반드시 환경변수로만 주입(평문 커밋 금지)
       client-id: ${M365_CLIENT_ID:}
