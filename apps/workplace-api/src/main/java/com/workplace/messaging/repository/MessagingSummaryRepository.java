@@ -3,9 +3,11 @@ package com.workplace.messaging.repository;
 import static com.workplace.jooq.Tables.CHANNEL;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
 import static com.workplace.jooq.Tables.CONVERSATION_ATTENTION;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.MESSAGE;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.messaging.dto.ConversationRow;
 import com.workplace.messaging.dto.DmParticipant;
 import java.util.List;
@@ -142,14 +144,19 @@ public class MessagingSummaryRepository {
   /** DM 참가자 배치 조회(채널 id → 참가자 목록). dmDisplayName 용. */
   public Map<Long, List<DmParticipant>> participantsByChannel(List<Long> channelIds) {
     if (channelIds.isEmpty()) return Map.of();
-    return dsl.select(CHANNEL_MEMBER.CHANNEL_ID, USER.ID, USER.NAME, USER.KIND)
+    return dsl.select(
+            CHANNEL_MEMBER.CHANNEL_ID,
+            USER.ID,
+            USER.NAME,
+            USER.KIND,
+            ChannelRepository.PARTICIPANT_ACTIVE)
         .from(CHANNEL_MEMBER)
         .join(USER)
         .on(USER.ID.eq(CHANNEL_MEMBER.USER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(CHANNEL_MEMBER.USER_ID, CHANNEL_MEMBER.TENANT_ID))
         .where(CHANNEL_MEMBER.CHANNEL_ID.in(channelIds))
-        .fetchGroups(
-            r -> r.get(CHANNEL_MEMBER.CHANNEL_ID),
-            r -> new DmParticipant(r.get(USER.ID), r.get(USER.NAME), r.get(USER.KIND)));
+        .fetchGroups(r -> r.get(CHANNEL_MEMBER.CHANNEL_ID), ChannelRepository::toParticipant);
   }
 
   /** 안읽음(>0) 대화 수(헤더 "안읽음 N"). */

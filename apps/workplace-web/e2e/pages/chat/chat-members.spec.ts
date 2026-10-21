@@ -63,6 +63,42 @@ test.describe('messaging 멤버 패널', () => {
     await expect(page.getByTestId('member-role-1')).toContainText('OWNER')
   })
 
+  test('정지된 멤버 — 멤버 목록에 「비활성」, @멘션 후보에서는 빠진다 (WP-723)', async ({ authenticatedPage: page }) => {
+    const ch = createChannel({ id: CID, role: 'OWNER', member: true, memberCount: 3 })
+    await stubBase(page, ch)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/channels/${CID}/members`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify([
+                createChannelMember({ userId: 1, name: '나', role: 'OWNER', active: true }),
+                createChannelMember({ userId: 2, name: '동료', role: 'MEMBER', active: true }),
+                createChannelMember({ userId: 3, name: '퇴사자', role: 'MEMBER', active: false }),
+              ]),
+            })
+          : route.fallback(),
+    )
+    // 멘션 후보에 섞이는 워크스페이스 AGENT 목록 — 이 테스트에선 없음
+    await page.route(
+      (url) => url.pathname === '/api/v1/members',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createPageResponse([])) }),
+    )
+    await page.goto(`/chat/channels/${CID}`)
+    await page.getByTestId('channel-members-btn').click()
+    await expect(page.getByTestId('member-inactive-3')).toHaveText('비활성')
+    await expect(page.getByTestId('member-inactive-2')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+
+    await page.getByTestId('message-composer-input').click()
+    await page.keyboard.type('@')
+    const list = page.getByRole('listbox', { name: '멘션 후보' })
+    await expect(list.getByRole('option', { name: /동료/ })).toBeVisible()
+    await expect(list.getByRole('option', { name: /퇴사자/ })).toHaveCount(0)
+  })
+
   test('OWNER → 멤버 제거 (AlertDialog 확인 후 제거)', async ({ authenticatedPage: page }) => {
     const ch = createChannel({ id: CID, role: 'OWNER', member: true })
     await stubBase(page, ch)

@@ -7,12 +7,16 @@ import type { MentionCandidate, UserKind } from '@/components/mentions/types'
  * 비서 비가용(aiAvailable=false)이면 AGENT(=AI) 후보를 뺀다 — 멤버십·DM 자체는 두고 멘션으로 AI 를 트리거하지 않게 하는 게이트.
  */
 export function channelMentionCandidates(
-  members: { userId: number; name: string; kind: UserKind }[] | undefined,
+  members: { userId: number; name: string; kind: UserKind; active?: boolean }[] | undefined,
   agents: MentionCandidate[] | undefined,
   aiAvailable: boolean,
 ): MentionCandidate[] {
   const byId = new Map<number, MentionCandidate>()
-  for (const m of members ?? []) byId.set(m.userId, { userId: m.userId, username: m.name, name: m.name, kind: m.kind })
+  // 정지된 구성원(active=false)은 후보에서 뺀다 — 로그인할 수 없어 알려도 받지 못한다(WP-723). 이슈 담당 후보와 같은 규칙.
+  for (const m of members ?? []) {
+    if (m.active === false) continue
+    byId.set(m.userId, { userId: m.userId, username: m.name, name: m.name, kind: m.kind })
+  }
   for (const a of agents ?? []) if (!byId.has(a.userId)) byId.set(a.userId, a)
   const candidates = [...byId.values()]
   return aiAvailable ? candidates : candidates.filter((m) => m.kind !== 'AGENT')

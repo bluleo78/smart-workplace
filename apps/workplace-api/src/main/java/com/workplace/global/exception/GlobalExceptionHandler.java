@@ -888,7 +888,8 @@ public class GlobalExceptionHandler {
     ChannelArchivedException.class,
     OwnershipTransferRequiredException.class,
     AgentCannotOwnChannelException.class,
-    com.workplace.messaging.exception.ChannelNameDuplicatedException.class
+    com.workplace.messaging.exception.ChannelNameDuplicatedException.class,
+    com.workplace.messaging.exception.InactiveMemberException.class
   })
   public ResponseEntity<ErrorResponse> handleChannelConflict(
       RuntimeException ex, HttpServletRequest request) {

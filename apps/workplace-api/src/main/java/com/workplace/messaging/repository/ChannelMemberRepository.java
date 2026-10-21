@@ -1,16 +1,19 @@
 package com.workplace.messaging.repository;
 
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static org.jooq.impl.DSL.greatest;
 import static org.jooq.impl.DSL.val;
 
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.springframework.stereotype.Repository;
 
 /** channel_member 리포지토리. */
@@ -116,18 +119,22 @@ public class ChannelMemberRepository {
         dsl.selectOne().from(CHANNEL_MEMBER).where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId)));
   }
 
-  /** 멤버 목록 — user 조인(username, name, kind). joined_at 오름차순. */
+  /** 멤버 목록 — user 조인(username, name, kind) + 이 워크스페이스 활성 여부(WP-723). joined_at 오름차순. */
   public List<ChannelMemberResponse> listMembers(long channelId) {
+    Field<Boolean> active = WorkspaceActive.field();
     return dsl.select(
             CHANNEL_MEMBER.USER_ID,
             USER.USERNAME,
             USER.NAME,
             USER.KIND,
             CHANNEL_MEMBER.ROLE,
-            CHANNEL_MEMBER.JOINED_AT)
+            CHANNEL_MEMBER.JOINED_AT,
+            active)
         .from(CHANNEL_MEMBER)
         .join(USER)
         .on(USER.ID.eq(CHANNEL_MEMBER.USER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(CHANNEL_MEMBER.USER_ID, CHANNEL_MEMBER.TENANT_ID))
         .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId))
         .orderBy(CHANNEL_MEMBER.JOINED_AT.asc(), CHANNEL_MEMBER.USER_ID.asc())
         .fetch(
@@ -139,7 +146,8 @@ public class ChannelMemberRepository {
                   r.get(USER.NAME),
                   r.get(USER.KIND),
                   r.get(CHANNEL_MEMBER.ROLE),
-                  joined == null ? null : joined.toInstant());
+                  joined == null ? null : joined.toInstant(),
+                  Boolean.TRUE.equals(r.get(active)));
             });
   }
 }
