@@ -41,6 +41,25 @@ public class DriveQuotaRepository {
   }
 
   /**
+   * 휴지통 op 하나를 복원하면 사용량에 다시 더해질 바이트 — 그 op 로 휴지통에 들어간 drive_file 의 모든 버전 blob 합(WP-696).
+   *
+   * <p>복원은 {@code trash_op_id} 단위로 파일을 되살리므로({@code DriveFileRepository.restoreByOp}) 같은 기준으로 센다.
+   * 폴더보다 먼저 따로 휴지통에 넣은 하위 파일은 다른 op 라 함께 되살아나지 않고, 여기서도 세지 않는다.
+   */
+  public long sumTrashedBytesByOp(long opId) {
+    Long result =
+        dsl.select(DSL.coalesce(DSL.sum(FILE.SIZE_BYTES), DSL.inline(0L)))
+            .from(DRIVE_FILE_VERSION)
+            .join(DRIVE_FILE)
+            .on(DRIVE_FILE.ID.eq(DRIVE_FILE_VERSION.DRIVE_FILE_ID))
+            .join(FILE)
+            .on(FILE.ID.eq(DRIVE_FILE_VERSION.FILE_ID))
+            .where(DRIVE_FILE.TRASH_OP_ID.eq(opId))
+            .fetchOne(0, Long.class);
+    return result == null ? 0L : result;
+  }
+
+  /**
    * #759 위키 첨부가 소비하는 바이트 — 임시·강등 여부와 무관하게 전부 센다.
    *
    * <p>강등(만료 재무장)된 파일도 스윕이 돌기 전까지는 실제 디스크를 먹는다. 이걸 빼면 유예 창 안에서 "지우고 다시 올리기" 를 반복하는 남용이 쿼터를 우회한다 — 그

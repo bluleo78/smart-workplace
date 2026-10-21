@@ -21,7 +21,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 휴지통 조회·복원·영구삭제·비우기. trash_op_id 단위로 복원하고, 영구삭제 시 file core 에 blob 정리를 위임한다. */
+/**
+ * 휴지통 조회·복원·영구삭제·비우기. trash_op_id 단위로 복원하고(복원 전 용량 검사, WP-696), 영구삭제 시 file core 에 blob 정리를 위임한다.
+ */
 @Service
 @RequiredArgsConstructor
 public class DriveTrashService {
@@ -29,6 +31,9 @@ public class DriveTrashService {
   private final DriveFileRepository files;
   private final DriveFileVersionRepository versions; // 전 버전 blob file_id 조회 (#79)
   private final DrivePermissions perms;
+
+  /** 복원 시 한도 검사(WP-696) — 휴지통 파일은 사용량에서 빠지므로 되살릴 때 다시 센다. */
+  private final DriveQuotaService quota;
 
   /** 드라이브 변경 resource.changed 발행(WP-63). purgeExpired(스케줄 잡)는 발행하지 않는다 — 결정 6. */
   private final DriveChangeNotifier notifier;
@@ -86,6 +91,8 @@ public class DriveTrashService {
                 () ->
                     new com.workplace.drive.exception.DriveNotInTrashException("folder", folderId));
     perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    // 0) 되살아날 파일 합계가 한도를 넘기면 아무것도 바꾸기 전에 거절
+    quota.assertRestoreWithinQuota(meta.opId());
     // 1) 부모 보정 — 원래 부모가 없거나(영구삭제) 아직 휴지통이면 루트로
     Long parent = meta.parentId();
     if (parent != null && !folders.liveFolderExists(parent)) {
@@ -117,6 +124,8 @@ public class DriveTrashService {
                     new com.workplace.drive.exception.DriveNotInTrashException(
                         "file", driveFileId));
     perms.requireRole(meta.spaceId(), callerId, "EDITOR");
+    // 0) 되살아날 파일(전 버전)이 한도를 넘기면 아무것도 바꾸기 전에 거절
+    quota.assertRestoreWithinQuota(meta.opId());
     // 1) 복원 대상 폴더 확정 — 원래 부모가 없거나 아직 휴지통이면 루트
     Long targetFolderId = meta.folderId();
     if (targetFolderId != null && !folders.liveFolderExists(targetFolderId)) {

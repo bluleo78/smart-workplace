@@ -72,6 +72,23 @@ public class DriveQuotaService {
   }
 
   /**
+   * 휴지통 op 복원이 한도를 넘기는지 검사 — 락을 잡고 되살아날 바이트로 판정한다(WP-696).
+   *
+   * <p>휴지통 파일은 사용량에서 빠지므로 「휴지통에 넣기 → 빈 자리에 업로드 → 복원」으로 한도를 넘길 수 있었다. 되살아날 바이트가 0(빈 폴더)이면 사용량이 늘지
+   * 않으므로 이미 한도를 넘긴 상태여도 막지 않는다.
+   */
+  public void assertRestoreWithinQuota(long trashOpId) {
+    Long tenantId = TenantContext.get();
+    if (tenantId != null) {
+      repo.advisoryLockTenant(tenantId);
+    }
+    long restoring = repo.sumTrashedBytesByOp(trashOpId);
+    if (restoring > 0) {
+      assertWithinQuota(restoring);
+    }
+  }
+
+  /**
    * 업로드 가능 여부 검사. 초과 시 {@link DriveQuotaExceededException}.
    *
    * <p>동시성: 호출자(업로드 트랜잭션)가 먼저 advisory lock 을 잡은 상태여야 정확하다 — 락까지 함께 원하는 호출자는 {@link
