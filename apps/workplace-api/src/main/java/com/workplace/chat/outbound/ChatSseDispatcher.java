@@ -9,12 +9,13 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatThreadTypingEvent;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.util.AfterCommit;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -26,15 +27,14 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * 메시지/이벤트를 thread 전 멤버에게 보낸다. self-echo 는 허용(발신자 본인 포함) — 멀티기기 동기화 + 프론트가 messageId 로 optimistic
  * dedup, read/typing 은 본인 userId 로 무시.
  *
- * <p>DB 를 바꾸는 이벤트(created/updated/deleted/read)는 AFTER_COMMIT 으로 커밋된 데이터만 push 하고, transient 한
- * typing 은 일반 @EventListener 로 받는다(commit 이후가 아닌 발행 시점 동기 실행).
+ * <p>DB 를 바꾸는 이벤트(created/updated/deleted/read)는 커밋 직전(BEFORE_COMMIT)에 요청 트랜잭션 안에서 수신자를
+ * 조회하고(커넥션·GUC 를 그대로 써 RLS 가 맞게 걸린다), 전송만 {@link AfterCommit} 로 커밋 뒤로 미뤄 커밋된 변경만 알린다(롤백되면 보내지 않는다).
+ * 예전처럼 커밋 뒤 REQUIRES_NEW 로 다시 조회하면 요청 커넥션을 쥔 채 두 번째 커넥션을 빌려, 동시 쓰기가 풀 크기를 넘으면 모두가 서로를 기다리며
+ * 멈췄다(WP-751).
  *
- * <p>모든 핸들러에 {@code @Transactional(REQUIRES_NEW)} 를 부여한다. AFTER_COMMIT 핸들러는 원래 트랜잭션이 이미 커밋된 후 동기
- * 실행되어 활성 트랜잭션이 없다(트랜잭션-로컬 GUC 도 이미 해제). onTyping 은 {@code notifyTyping} 의 readOnly 트랜잭션 안에서 동기
- * 발행되어 호출되지만, REQUIRES_NEW 가 그 트랜잭션을 잠시 보류하고 새 트랜잭션을 연다. 어느 경우든 새 트랜잭션 진입 시
- * TenantAwareTransactionManager.doBegin 이 여전히 요청 스레드에 설정된 TenantContext 를 읽어 트랜잭션-로컬 GUC 를
- * 재주입하므로(REQUIRES_NEW 가 없으면 보류·커밋 후 컨텍스트에서 GUC 가 비어 RLS 가 chat_thread_member 를 전부 차단 → fail-closed
- * 빈 fan-out), findMemberIds 가 올바른 테넌트 멤버를 반환한다. (#214 MessageSseDispatcher 패턴)
+ * <p>transient 한 typing·progress 는 일반 @EventListener 로 받는다 — readOnly
+ * 트랜잭션(notifyTyping·notifyProgress) 안에서 동기 발행되므로 그 트랜잭션에 합류해 같은 커넥션·GUC 로 수신자를 읽는다(REQUIRES_NEW 로
+ * 보류하면 두 번째 커넥션이 필요해진다).
  */
 @Component
 @RequiredArgsConstructor
@@ -43,9 +43,7 @@ public class ChatSseDispatcher {
   private final SseRegistry registry;
   private final ChatThreadMemberRepository memberRepo;
 
-  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onCreated(ChatMessageCreatedEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("threadId", e.threadId());
@@ -63,12 +61,11 @@ public class ChatSseDispatcher {
     p.put("attachments", e.attachments());
     p.put("driveLinks", e.driveLinks());
     p.put("question", e.question());
-    registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.message.created", p);
+    Collection<Long> to = memberRepo.findMemberIds(e.threadId());
+    AfterCommit.run(() -> registry.fanOut(to, "chat.message.created", p));
   }
 
-  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onUpdated(ChatMessageUpdatedEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("threadId", e.threadId());
@@ -76,34 +73,31 @@ public class ChatSseDispatcher {
     p.put("body", e.body());
     p.put("mentions", e.mentions().stream().map(this::mention).toList());
     p.put("editedAt", e.editedAt() == null ? null : e.editedAt().toString());
-    registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.message.updated", p);
+    Collection<Long> to = memberRepo.findMemberIds(e.threadId());
+    AfterCommit.run(() -> registry.fanOut(to, "chat.message.updated", p));
   }
 
-  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onDeleted(ChatMessageDeletedEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("threadId", e.threadId());
     p.put("id", e.messageId());
-    registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.message.deleted", p);
+    Collection<Long> to = memberRepo.findMemberIds(e.threadId());
+    AfterCommit.run(() -> registry.fanOut(to, "chat.message.deleted", p));
   }
 
-  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onRead(ChatThreadReadEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("threadId", e.threadId());
     p.put("userId", e.userId());
     p.put("lastReadMessageId", e.lastReadMessageId());
-    registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.thread.read", p);
+    Collection<Long> to = memberRepo.findMemberIds(e.threadId());
+    AfterCommit.run(() -> registry.fanOut(to, "chat.thread.read", p));
   }
 
-  // onTyping 은 notifyTyping 의 readOnly 트랜잭션 안에서 동기 발행되어 실행된다. REQUIRES_NEW 가 그 트랜잭션을 보류하고
-  // 새 트랜잭션을 열면 doBegin 이 TenantContext 에서 GUC 를 재주입 — 나머지 4개 AFTER_COMMIT 핸들러와 동일하게
-  // findMemberIds 가 RLS fail-closed(빈 fan-out) 되지 않는다.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  // notifyTyping 의 readOnly 트랜잭션에 합류해 같은 커넥션·GUC 로 수신자를 읽는다(트랜잭션 밖 발행이면 새로 연다).
+  @Transactional
   @EventListener
   public void onTyping(ChatThreadTypingEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
@@ -113,9 +107,8 @@ public class ChatSseDispatcher {
     registry.fanOut(memberRepo.findMemberIds(e.threadId()), "chat.thread.typing", p);
   }
 
-  // 진행 이벤트도 typing 과 동일하게 REQUIRES_NEW 로 GUC 재주입 후 thread 전 멤버에게 fan-out.
-  // (notifyProgress 의 readOnly 트랜잭션 안에서 동기 발행 → REQUIRES_NEW 가 보류·새 트랜잭션으로 GUC 재주입)
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  // 진행 이벤트도 typing 과 같이 발행한 트랜잭션에 합류한다.
+  @Transactional
   @EventListener
   public void onProgress(ChatThreadProgressEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();

@@ -2,6 +2,7 @@ package com.workplace.global.config;
 
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.BcryptLimitPasswordEncoder;
+import com.workplace.global.security.DbBusyResponseFilter;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
@@ -22,6 +23,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -109,6 +111,8 @@ public class SecurityConfig {
                                   + authException.getMessage()
                                   + "\"}");
                     }))
+        // 인증 필터의 DB 조회가 커넥션을 못 얻으면 기본 500 대신 503 재시도 안내(WP-751). CORS 헤더가 붙은 뒤에 둔다.
+        .addFilterAfter(new DbBusyResponseFilter(), CorsFilter.class)
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
         // ak_ 토큰을 JWT 보다 먼저 시도 (둘 다 Bearer 헤더 — prefix 로 분기)
         .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class)

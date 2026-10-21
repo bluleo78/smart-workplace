@@ -119,13 +119,16 @@ public class ProjectService {
   }
 
   /**
-   * 사용자에게 보이는 프로젝트 목록 페이지 조회. 조회 전에 기본 개인 프로젝트를 지연 프로비저닝(HUMAN 한정)한다 — provisioner 의 REQUIRES_NEW
-   * 서브 트랜잭션이 먼저 커밋되므로 본 readOnly 조회가 깨끗한 커넥션에서 기본 프로젝트를 볼 수 있다. ADMIN 은 전체, 일반 사용자는 본인 멤버 프로젝트만. 배치
-   * 집계(N+1 회피): 상태별 이슈 수·멤버 이름·(멤버 없는 경우용) 소유자 이름을 한 쿼리씩 조회.
+   * 사용자에게 보이는 프로젝트 목록 페이지 조회. 조회 전에 기본 개인 프로젝트가 없으면 지연 프로비저닝(HUMAN 한정)한다 — provisioner 의
+   * REQUIRES_NEW 서브 트랜잭션이 먼저 커밋되므로 본 readOnly 조회가 깨끗한 커넥션에서 기본 프로젝트를 볼 수 있다. ADMIN 은 전체, 일반 사용자는 본인
+   * 멤버 프로젝트만. 배치 집계(N+1 회피): 상태별 이슈 수·멤버 이름·(멤버 없는 경우용) 소유자 이름을 한 쿼리씩 조회.
    */
   @Transactional(readOnly = true)
   public PageResponse<ProjectResponse> list(Long callerId, int page, int size) {
-    provisioner.ensureDefaultPersonalInNewTx(callerId);
+    // 이미 있으면(대부분) 이 readOnly 트랜잭션의 커넥션으로 확인만 하고 끝낸다 — 매번 REQUIRES_NEW 로 두 번째 커넥션을 빌리면 동시 목록 조회가 풀
+    // 크기를 넘을 때 서로를 기다리며 멈춘다(WP-751). 없을 때(첫 방문)만 별도 트랜잭션으로 만든다.
+    if (provisioner.needsDefaultPersonal(callerId))
+      provisioner.ensureDefaultPersonalInNewTx(callerId);
     return queryProjects(callerId, page, size);
   }
 

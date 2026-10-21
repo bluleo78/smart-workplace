@@ -5,9 +5,8 @@ import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -43,11 +42,12 @@ public class FileExtractionListener {
   }
 
   /**
-   * 커밋 후 추출 nudge. AFTER_COMMIT 시점엔 원 트랜잭션이 끝나 GUC 가 없으므로 REQUIRES_NEW 로 새 트랜잭션을 열어
-   * TenantAwareTransactionManager 가 TenantContext 로 GUC 를 재주입하게 한다. dispatchPending 의
-   * afterCommit(HTTP push)은 이 새 트랜잭션 커밋 후 발화한다.
+   * 커밋 후 추출 nudge. 커밋한 스레드에는 원 커넥션이 아직 묶여 있으므로 별도 실행기({@link FileAiNudgeExecutorConfig})로 넘겨 그
+   * 스레드에서 dispatchPending 의 트랜잭션으로 선점·디스패치한다(WP-751 — 커밋 스레드에서 REQUIRES_NEW 로 두 번째 커넥션을 빌리던 교착 제거).
+   * TenantContext 는 실행기 데코레이터가 옮겨 GUC 가 주입된다. dispatchPending 의 afterCommit(HTTP push)은 그 새 트랜잭션 커밋
+   * 후 발화한다.
    */
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  @Async(FileAiNudgeExecutorConfig.EXECUTOR)
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void dispatchAfterCommit(FileExtractionRequestedEvent e) {
     if (!ExtractableTypes.supports(e.mime())) return;
