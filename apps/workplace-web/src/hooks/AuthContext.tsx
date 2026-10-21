@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -45,6 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const isAuthenticated = user !== null;
+
+  // 화면 데이터 캐시(TanStack Query) — 쿼리 키에 사용자가 없어, 로그아웃 뒤 같은 탭에서 다른 사람이 로그인하면 앞 사용자의 목록·수치가
+  // 유지 시간 동안 그대로 그려졌다(WP-700). 세션이 끝나거나 새 세션을 시작할 때 비운다. 워크스페이스 전환은 전체 리로드라 따로 비우지 않는다.
+  const queryClient = useQueryClient();
 
   const fetchUserWithRoles = useCallback(async () => {
     const { data: userDetail } = await usersApi.getMe();
@@ -145,6 +150,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // 재로그인 시 이전 다중소속 선택지·세션 안내가 잔류하지 않도록 초기화
     setTenantOptions(null);
     setAuthNotice(null);
+    // 로그아웃 없이 세션이 끝난 뒤(만료 등) 다른 사람이 로그인해도 앞 사용자의 화면 데이터가 남지 않게(WP-700).
+    queryClient.clear();
     const { data: res } = await authApi.login(data);
     const memberships = res.memberships ?? [];
 
@@ -176,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(AUTH_FLAG_KEY);
       throw e;
     }
-  }, [fetchUserWithRoles]);
+  }, [fetchUserWithRoles, queryClient]);
 
   const selectTenant = useCallback(async (membership: Membership, redirectTo = '/') => {
     // tenant-scoped 토큰 재발급(refresh 쿠키도 tenant-scoped 로 세팅됨).
@@ -192,6 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 멤버십 수로 분기: 1개 → 바로 진입, 여러 개 → 선택 카드, 0개 → 세션 정리.
   const completeSsoLogin = useCallback(async (): Promise<'entered' | 'select' | 'none'> => {
     setTenantOptions(null);
+    queryClient.clear();
     const { data: tokens } = await deduplicatedRefresh();
     setAccessToken(tokens.accessToken);
     const { data: memberships } = await authApi.memberships();
@@ -209,7 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(AUTH_FLAG_KEY, 'true');
     await fetchUserWithRoles();
     return 'entered';
-  }, [fetchUserWithRoles]);
+  }, [fetchUserWithRoles, queryClient]);
 
   const signup = useCallback(async (data: SignupFormData) => {
     // confirmPassword는 클라이언트 검증 전용이므로 서버 페이로드에서 제외
@@ -243,8 +251,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthNotice(null);
       setUser(null);
       setRoles([]);
+      // WP-700: 앞 사용자의 화면 데이터 캐시를 비운다 — 같은 탭에서 다음에 로그인한 사람에게 보이지 않게.
+      queryClient.clear();
     }
-  }, []);
+  }, [queryClient]);
 
   const hasRole = useCallback((roleName: string) => {
     return roles.some(r => r.name === roleName);
