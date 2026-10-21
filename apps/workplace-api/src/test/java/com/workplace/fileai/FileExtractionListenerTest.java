@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.doNothing;
@@ -14,6 +15,7 @@ import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -80,9 +82,10 @@ class FileExtractionListenerTest extends IntegrationTestBase {
     long fileId = createFileInTenant(1L, "text/plain");
     publishInTenant(
         1L, new FileExtractionRequestedEvent(fileId, 1L, "text/plain", ExtractionProfile.FULL));
-    String status = readStatusInTenant(1L, fileId);
-    // nudge 로 EXTRACTING 까지 전이 (PENDING 은 nudge 성공 시 즉시 소비됨)
-    assertThat(status).isEqualTo("EXTRACTING");
+    // nudge 로 EXTRACTING 까지 전이 (PENDING 은 nudge 성공 시 곧 소비됨). nudge 는 커밋 뒤 별도 실행기에서 돈다(WP-751).
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(() -> assertThat(readStatusInTenant(1L, fileId)).isEqualTo("EXTRACTING"));
   }
 
   @Test

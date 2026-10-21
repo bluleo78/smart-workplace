@@ -62,17 +62,25 @@ public class PersonalProjectProvisioner {
    * 필요하면(예: readOnly 인 list()) {@link #ensureDefaultPersonalInNewTx(Long)} 를 호출한다.
    */
   public void ensureDefaultPersonal(Long callerId) {
-    var user =
-        userRepository
-            .findById(callerId)
-            .orElseThrow(() -> new IllegalStateException("caller user 없음: " + callerId));
-    if (!UserKind.HUMAN.equals(user.kind())) return;
-    if (projectRepository.findDefaultPersonal(callerId).isPresent()) return;
+    if (!needsDefaultPersonal(callerId)) return;
     try {
       createPersonal(callerId, "개인 작업", null, true);
     } catch (org.springframework.dao.DuplicateKeyException e) {
       // 동시 생성 레이스 — 이미 존재로 간주하고 무시
     }
+  }
+
+  /**
+   * 기본 개인 프로젝트를 만들어야 하는지 — HUMAN 이고 아직 없을 때만 true(AGENT 는 만들지 않음). 호출자 트랜잭션에서 읽으므로, 이미 있는 대부분의 호출은
+   * {@link #ensureDefaultPersonalInNewTx(Long)} 의 REQUIRES_NEW(두 번째 커넥션)까지 가지 않고 끝난다(WP-751).
+   */
+  public boolean needsDefaultPersonal(Long callerId) {
+    var user =
+        userRepository
+            .findById(callerId)
+            .orElseThrow(() -> new IllegalStateException("caller user 없음: " + callerId));
+    return UserKind.HUMAN.equals(user.kind())
+        && projectRepository.findDefaultPersonal(callerId).isEmpty();
   }
 
   /**

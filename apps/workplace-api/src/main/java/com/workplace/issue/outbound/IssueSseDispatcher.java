@@ -1,16 +1,16 @@
 package com.workplace.issue.outbound;
 
 import com.workplace.global.realtime.SseRegistry;
+import com.workplace.global.util.AfterCommit;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
@@ -22,10 +22,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * enroll 됨 — {@code WatcherAutoEnroller})다. self-echo 도 허용(발신자 포함) — 멀티기기 동기화 + 프론트가 자기 캐시는 이미
  * 낙관적으로 갱신했으므로 재조회(invalidate)만 유발해도 무해하다.
  *
- * <p>{@code @Transactional(REQUIRES_NEW)} 필수 — AFTER_COMMIT 리스너는 원래 트랜잭션이 이미 커밋된 후 동기 실행되어 활성
- * 트랜잭션(및 트랜잭션-로컬 GUC)이 없다. REQUIRES_NEW 로 새 트랜잭션을 열면 TenantAwareTransactionManager.doBegin 이 요청
- * 스레드에 남아있는 TenantContext 를 읽어 GUC 를 재주입하므로 findUserIdsByIssue 가 RLS fail-closed 로 빈 목록을 반환하지 않는다
- * (MessageSseDispatcher/ChatSseDispatcher 와 동일 패턴).
+ * <p>수신자는 커밋 직전(BEFORE_COMMIT)에 요청 트랜잭션 안에서 조회하고(커넥션·GUC 를 그대로 써 RLS 가 맞게 걸린다), 전송만 {@link
+ * AfterCommit} 로 커밋 뒤로 미뤄 커밋된 변경만 알린다(롤백되면 보내지 않는다). 예전처럼 커밋 뒤 REQUIRES_NEW 로 다시 조회하면 요청 커넥션을 쥔 채 두
+ * 번째 커넥션을 빌려, 동시 쓰기가 풀 크기를 넘으면 모두가 서로를 기다리며 멈췄다(WP-751).
  */
 @Component
 @RequiredArgsConstructor
@@ -34,9 +33,7 @@ public class IssueSseDispatcher {
   private final SseRegistry registry;
   private final IssueWatcherRepository watcherRepository;
 
-  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onCommented(IssueCommentedEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("projectKey", e.projectKey());
@@ -45,13 +42,12 @@ public class IssueSseDispatcher {
     p.put("issueKey", e.issueKey());
     p.put("commentId", e.commentId());
     p.put("actorId", e.actor() == null ? null : e.actor().id());
-    registry.fanOut(watcherRepository.findUserIdsByIssue(e.issueId()), "issue.commented", p);
+    Collection<Long> to = watcherRepository.findUserIdsByIssue(e.issueId());
+    AfterCommit.run(() -> registry.fanOut(to, "issue.commented", p));
   }
 
   /** 코멘트 수정 (#717) — watcher 전원에게 issue.comment_updated 로 fan-out. */
-  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onCommentUpdated(IssueCommentUpdatedEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("projectKey", e.projectKey());
@@ -60,13 +56,12 @@ public class IssueSseDispatcher {
     p.put("issueKey", e.issueKey());
     p.put("commentId", e.commentId());
     p.put("actorId", e.actor() == null ? null : e.actor().id());
-    registry.fanOut(watcherRepository.findUserIdsByIssue(e.issueId()), "issue.comment_updated", p);
+    Collection<Long> to = watcherRepository.findUserIdsByIssue(e.issueId());
+    AfterCommit.run(() -> registry.fanOut(to, "issue.comment_updated", p));
   }
 
   /** 코멘트 삭제 (#717) — watcher 전원에게 issue.comment_deleted 로 fan-out. */
-  // AFTER_COMMIT 후 트랜잭션-로컬 GUC 소멸 → REQUIRES_NEW 로 새 트랜잭션 열어 GUC 재주입.
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
-  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onCommentDeleted(IssueCommentDeletedEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("projectKey", e.projectKey());
@@ -75,6 +70,7 @@ public class IssueSseDispatcher {
     p.put("issueKey", e.issueKey());
     p.put("commentId", e.commentId());
     p.put("actorId", e.actor() == null ? null : e.actor().id());
-    registry.fanOut(watcherRepository.findUserIdsByIssue(e.issueId()), "issue.comment_deleted", p);
+    Collection<Long> to = watcherRepository.findUserIdsByIssue(e.issueId());
+    AfterCommit.run(() -> registry.fanOut(to, "issue.comment_deleted", p));
   }
 }
