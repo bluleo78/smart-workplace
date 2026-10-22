@@ -1,6 +1,7 @@
 package com.workplace.role.service;
 
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.permission.dto.PermissionResponse;
 import com.workplace.permission.repository.PermissionRepository;
 import com.workplace.role.dto.RoleDetailResponse;
@@ -106,6 +107,9 @@ public class RoleService {
 
   @Transactional
   public void setRolePermissions(Long roleId, List<Long> permissionIds, Long callerId) {
+    // WP-770: 역할 부여(setUserRoles)와 같은 테넌트 관리자 잠금으로 차례를 세운다. 「AI 가 가진 역할에 관리 권한을 더하지 못한다」와
+    // 「AI 에게 관리 권한 역할을 주지 못한다」가 각자 상대의 커밋 전 상태를 보고 둘 다 통과해, AI 가 관리 권한 역할을 갖게 됐다.
+    userRepository.acquireTenantAdminLock(TenantContext.require());
     RoleResponse role =
         roleRepository
             .findById(roleId)
