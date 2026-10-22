@@ -22,12 +22,14 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useAssistant } from '@/components/ai/AIAssistantContext'
+import { CountBadge } from '@/components/CountBadge'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { type UnreadKind, unreadLabel, useAppUnreadCounts } from '@/hooks/useAppUnreadCounts'
 import { cn } from '@/lib/utils'
 
 import { AppRailUserMenu } from './AppRailUserMenu'
@@ -45,14 +47,16 @@ interface RailItem {
   // (예: 관리 모듈은 href='/admin/users'(실제 라우트)지만 '/admin/*' 전체에서 활성,
   //  이슈 모듈은 '/projects' 와 '/me'(내 태스크) 양쪽에서 활성)
   match?: string | string[]
+  // 안 읽은 수 배지 출처 — 모바일 탭바와 같은 집계(useAppUnreadCounts)를 쓴다(WP-796).
+  badge?: UnreadKind
 }
 
 // 활성화된 모듈 런처 항목 — 일일 사용 빈도 우선 순서.
 // 소통 묶음(대화·메일)을 앞에 인접 배치, 작업관리는 그 다음, 파일/노트, 연락처는 설정 직전.
 const MODULES: RailItem[] = [
   { label: '홈', href: '/', icon: Home },
-  { label: '대화', href: '/chat', icon: MessageSquare },
-  { label: '메일', href: '/mail', icon: Mail },
+  { label: '대화', href: '/chat', icon: MessageSquare, badge: 'chat' },
+  { label: '메일', href: '/mail', icon: Mail, badge: 'mail' },
   { label: '캘린더', href: '/calendar', icon: CalendarDays },
   { label: '작업 관리', href: '/projects', icon: LayoutList, match: ['/projects', '/me'] },
   { label: '드라이브', href: '/drive', icon: HardDrive },
@@ -80,14 +84,18 @@ function RailLink({
   item,
   active,
   expanded,
+  count,
   onNavigate,
 }: {
   item: RailItem
   active: boolean
   expanded: boolean
+  count: number
   onNavigate: () => void
 }) {
   const Icon = item.icon
+  // 배지가 있으면 접근성 이름·툴팁에 수를 담는다(99+ 로 캡된 배지의 정확한 수도 툴팁에서 보인다).
+  const label = unreadLabel(item.label, item.badge, count)
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -97,7 +105,7 @@ function RailLink({
           data-testid={`rail-link-${item.href}`}
           // 데스크톱(lg)에선 라벨 span 이 lg:hidden 이라 accessible name 이 사라진다.
           // 모든 뷰포트에서 SR/음성제어용 이름을 보장하기 위해 항상 aria-label 부여(Tooltip 은 시각 보조).
-          aria-label={item.label}
+          aria-label={label}
           aria-current={active ? 'page' : undefined}
           className={cn(
             // 모바일: px-3 기본. 데스크톱: pl-[10px] 고정으로 아이콘 위치 불변
@@ -110,7 +118,15 @@ function RailLink({
               : 'text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground',
           )}
         >
-          <Icon className="h-5 w-5 shrink-0" />
+          {/* 배지는 인박스 벨과 같이 아이콘 우상단에 겹친다 — 축소·확장 어디서나 같은 자리라 라벨 전환에 흔들리지 않는다. */}
+          <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+            <Icon className="h-5 w-5" />
+            <CountBadge
+              count={count}
+              data-testid={`rail-badge-${item.href}`}
+              className="absolute -right-1.5 -top-1.5"
+            />
+          </span>
           {/* 모바일: 항상 표시. 데스크톱: max-width+opacity 전환으로 아이콘 위치 유지하며 라벨만 확장. */}
           <span
             className={cn(
@@ -125,7 +141,7 @@ function RailLink({
       {/* 축소 상태에서만 hover 라벨 Tooltip. 확장 시엔 라벨이 직접 보인다. */}
       {!expanded && (
         <TooltipContent side="right" sideOffset={8} className="hidden lg:block">
-          {item.label}
+          {label}
         </TooltipContent>
       )}
     </Tooltip>
@@ -140,6 +156,7 @@ export function AppRail() {
   const { mode, dismiss: dismissAssistant } = useAssistant()
   // 앱 레일 확장(아이콘+라벨) 토글 — localStorage 영속(#471).
   const { expanded, toggle } = useRailExpanded()
+  const unread = useAppUnreadCounts()
 
   // 모바일 드로어 닫기(백드롭/Escape 용) — AI 모드는 건드리지 않는다.
   const closeMobile = () => setMobileOpen(false)
@@ -257,6 +274,7 @@ export function AppRail() {
               item={item}
               active={isActive(location.pathname, item)}
               expanded={expanded}
+              count={item.badge ? unread[item.badge] : 0}
               onNavigate={onNavigate}
             />
           ))}

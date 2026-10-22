@@ -1,6 +1,9 @@
 import { createMembership } from '../factories/auth.factory'
+import { createChannel, createDm } from '../factories/messaging.factory'
+import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 import { expectTheme, tokenColor, withTheme } from '../fixtures/contrast'
+import { stubChat } from '../fixtures/mobile.fixture'
 import { selectionBarStyle } from '../fixtures/selection'
 
 test('홈에 앱 레일이 보이고 상단 GNB는 없다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -229,4 +232,46 @@ test('앱 레일 — 확장 시 긴 조직명은 최대 2줄로 감싸고 가로
   // 확장 상태에서도 hover 시 전체 이름 툴팁.
   await chip.hover()
   await expect(page.getByRole('tooltip', { name: longName })).toBeVisible()
+})
+
+// WP-796 — 데스크톱 레일의 대화·메일 아이콘에 안 읽은 수 배지(모바일 탭바와 같은 집계). 0 이면 숨는다.
+test('앱 레일 — 대화(채널+DM 합)·메일(업무 안 읽음) 배지가 축소·확장 모두 아이콘 위에 보인다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubChat(page, { channels: [createChannel({ id: 1, unreadCount: 2 })], dms: [createDm({ id: 2, unreadCount: 3 })] })
+  await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 4 })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+
+  const chatBadge = page.getByTestId('rail-badge-/chat')
+  await expect(chatBadge).toHaveText('5')
+  await expect(page.getByTestId('rail-badge-/mail')).toHaveText('4')
+  // 배지 없는 앱엔 그리지 않는다.
+  await expect(page.getByTestId('rail-badge-/calendar')).toHaveCount(0)
+  // 축소 레일에서도 라벨 대신 이름에 수가 담긴다.
+  await expect(page.getByTestId('rail-link-/chat')).toHaveAttribute('aria-label', '대화, 읽지 않음 5')
+  await expect(page.getByTestId('rail-link-/mail')).toHaveAttribute('aria-label', '메일, 업무 메일 안 읽음 4')
+
+  // 확장해도 배지는 아이콘 위 그대로 보이고 레일 밖으로 넘치지 않는다.
+  await page.getByTestId('rail-toggle').click()
+  await expect(page.getByTestId('rail-link-/chat')).toContainText('대화')
+  await expect(chatBadge).toBeVisible()
+  expect(
+    await page.getByTestId('app-rail').evaluate((el) => el.scrollWidth <= el.clientWidth),
+  ).toBe(true)
+})
+
+test('앱 레일 — 안 읽은 것이 없으면 대화·메일 배지가 없다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  // 조회가 끝나기 전의 기본값 0 으로 통과하지 않도록 응답을 받은 뒤 단언한다.
+  const loaded = Promise.all([
+    page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/messaging/channels'),
+    page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/mail/unread-summary'),
+  ])
+  await page.goto('/')
+  await loaded
+  await expect(page.getByTestId('rail-link-/chat')).toBeVisible()
+  await expect(page.getByTestId('rail-badge-/chat')).toHaveCount(0)
+  await expect(page.getByTestId('rail-badge-/mail')).toHaveCount(0)
+  await expect(page.getByTestId('rail-link-/chat')).toHaveAttribute('aria-label', '대화')
 })
