@@ -129,6 +129,11 @@ public class IssueService {
     List<Long> assigneeIds = plan.assigneeIds();
     Long typeId = plan.typeId();
     Long parentIssueId = plan.parentIssueId();
+    // 부모가 지금도 살아 있는지 잠가서 다시 본다(WP-759) — 사전검증과 공유하는 planCreate 는 읽기 전용이라 잠글 수 없다. 에픽 삭제와 겹치면
+    // 삭제 커밋을 기다렸다가 거절해, 지워진 에픽 아래에 새 이슈가 남지 않게 한다.
+    if (parentIssueId != null && !issueRepository.lockActiveForShare(parentIssueId)) {
+      throw new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다");
+    }
 
     int number = sequenceRepository.allocateNext(project.id());
     IssueRow row =
@@ -903,7 +908,12 @@ public class IssueService {
    */
   public void softDelete(Long callerId, String projectKey, int number) {
     var target = checkDeletable(callerId, projectKey, number);
-    var row = target.row();
+    // 지울 행을 잠근다(WP-759) — 이 이슈 아래로 부모를 지정하거나 하위를 만드는 요청은 새 부모를 공유 잠금으로 읽으므로, 삭제가 커밋될 때까지
+    // 기다렸다가 거절되고, 먼저 잠근 쪽이 있으면 삭제가 기다렸다가 새로 붙은 하위까지 함께 지운다.
+    var row =
+        issueRepository
+            .findByProjectAndNumberForUpdate(target.project().id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
     // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.
     // 자식 id 는 softDeleteChildren 호출 전에 수집해야 한다 (삭제 후엔 DELETED_AT 필터로 목록이 비어버림).
     var childIds = issueRepository.findActiveChildIds(row.id());
@@ -1045,9 +1055,18 @@ public class IssueService {
   private ResolvedParent resolveNewParent(
       ProjectRow project, IssueRow row, boolean isSubtask, int newParentNumber) {
     if (newParentNumber == row.number()) throw new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다");
+    // 새 부모는 공유 잠금으로 읽는다(WP-759) — 그 부모를 지우는 중이면 삭제 커밋을 기다렸다 「찾을 수 없습니다」. 이미 지금 부모면 잠그지 않는다:
+    // 그 부모의 삭제는 이 행(이미 잠금)을 하위로 함께 지우려 기다리므로, 여기서 부모를 또 기다리면 서로 기다리게 된다.
+    boolean alreadyParent =
+        row.parentIssueId() != null
+            && issueRepository
+                .findById(row.parentIssueId())
+                .map(p -> p.number() == newParentNumber)
+                .orElse(false);
     var newParent =
-        issueRepository
-            .findByProjectAndNumber(project.id(), newParentNumber)
+        (alreadyParent
+                ? issueRepository.findByProjectAndNumber(project.id(), newParentNumber)
+                : issueRepository.findByProjectAndNumberForShare(project.id(), newParentNumber))
             .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
     var newParentType =
         typeRepository

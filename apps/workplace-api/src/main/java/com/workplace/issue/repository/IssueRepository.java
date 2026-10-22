@@ -140,6 +140,36 @@ public class IssueRepository {
         .fetchOptional(this::mapToRow);
   }
 
+  /**
+   * 새 부모로 지정할 활성 이슈 조회 + 공유 잠금(SELECT ... FOR SHARE, WP-759). 에픽 삭제는 그 행을 FOR NO KEY UPDATE 로 잠그므로,
+   * 삭제가 진행 중이면 커밋까지 기다렸다가 deleted_at 을 다시 보고 빈 결과가 된다 — 잠그지 않으면 삭제 직후 지워진 에픽을 부모로 가리킨 채 남았다(외래 키는
+   * soft-delete 라 통과). 반대로 이 잠금을 쥔 동안에는 삭제가 기다렸다가 새로 붙은 하위까지 함께 지운다. 트랜잭션 끝까지 유지된다.
+   */
+  public Optional<IssueRow> findByProjectAndNumberForShare(Long projectId, int number) {
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE)
+        .where(
+            ISSUE
+                .PROJECT_ID
+                .eq(projectId)
+                .and(ISSUE.NUMBER.eq(number))
+                .and(ISSUE.DELETED_AT.isNull()))
+        .forShare()
+        .fetchOptional(this::mapToRow);
+  }
+
+  /**
+   * id 의 활성 이슈를 공유 잠금으로 확인한다(WP-759, {@link #findByProjectAndNumberForShare} 와 같은 이유). 지워졌으면 false.
+   */
+  public boolean lockActiveForShare(Long id) {
+    return dsl.select(ISSUE.ID)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
+        .forShare()
+        .fetchOptional()
+        .isPresent();
+  }
+
   /** id 로 활성 이슈 조회. */
   public Optional<IssueRow> findById(Long id) {
     return dsl.select(ROW_FIELDS)
