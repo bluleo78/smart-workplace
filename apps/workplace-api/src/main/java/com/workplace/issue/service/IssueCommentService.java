@@ -43,6 +43,8 @@ public class IssueCommentService {
   private final ApplicationEventPublisher publisher;
   // 코멘트에 넣은 이미지(WP-362)를 본문 이미지와 같은 이슈 단위로 연결·강등한다.
   private final IssueBodyImageService bodyImageService;
+  // 코멘트 응답에 보는 사람별 반응 집계를 싣는다(WP-504).
+  private final IssueCommentReactionService reactionService;
 
   /**
    * 이슈 → 프로젝트 → 조회 가드(readable). OPEN 은 테넌트 전원 조회 허용(RLS 가 테넌트 경계 보장). 프로젝트 row 반환.
@@ -124,11 +126,11 @@ public class IssueCommentService {
     checkCommentMutable(callerId, issueId, commentId, true, DELETE_DENIED);
   }
 
-  /** 이슈 코멘트 목록 조회. OPEN 은 테넌트 전원 조회 가능(readable). */
+  /** 이슈 코멘트 목록 조회(반응 집계 포함, WP-504). OPEN 은 테넌트 전원 조회 가능(readable). */
   @Transactional(readOnly = true)
   public List<IssueCommentResponse> list(Long callerId, Long issueId) {
     assertIssueReadable(issueId, callerId);
-    return commentRepository.findByIssue(issueId);
+    return reactionService.enrich(commentRepository.findByIssue(issueId), callerId);
   }
 
   /**
@@ -217,7 +219,8 @@ public class IssueCommentService {
             req.body(),
             Instant.now()));
 
-    return updated;
+    // 수정 응답으로 캐시를 덮어써도 반응이 사라져 보이지 않게 집계를 싣는다(WP-504).
+    return reactionService.enrich(List.of(updated), callerId).getFirst();
   }
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */

@@ -53,6 +53,7 @@ public final class TenantPurgePlan {
           ISSUE_CYCLE,
           ISSUE_FIELD_VALUE,
           ISSUE_HISTORY,
+          ISSUE_COMMENT_REACTION,
           ISSUE_COMMENT,
           ISSUE_ATTACHMENT,
           ISSUE_BODY_IMAGE,

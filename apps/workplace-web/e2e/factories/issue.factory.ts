@@ -54,6 +54,8 @@ export function createComment(overrides: Partial<IssueCommentResponse> = {}): Is
     body: '확인했습니다',
     createdAt: now,
     updatedAt: now,
+    // 이모지 반응 집계(WP-504) — 기본은 반응 없음.
+    reactions: [],
     ...overrides,
   };
 }

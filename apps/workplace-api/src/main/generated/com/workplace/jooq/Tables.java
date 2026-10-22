@@ -58,6 +58,7 @@ import com.workplace.jooq.tables.IssueAssignee;
 import com.workplace.jooq.tables.IssueAttachment;
 import com.workplace.jooq.tables.IssueBodyImage;
 import com.workplace.jooq.tables.IssueComment;
+import com.workplace.jooq.tables.IssueCommentReaction;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
 import com.workplace.jooq.tables.IssueFieldDef;
@@ -403,6 +404,11 @@ public class Tables {
      * The table <code>public.issue_comment</code>.
      */
     public static final IssueComment ISSUE_COMMENT = IssueComment.ISSUE_COMMENT;
+
+    /**
+     * The table <code>public.issue_comment_reaction</code>.
+     */
+    public static final IssueCommentReaction ISSUE_COMMENT_REACTION = IssueCommentReaction.ISSUE_COMMENT_REACTION;
 
     /**
      * The table <code>public.issue_cycle</code>.

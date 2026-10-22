@@ -4,6 +4,7 @@ import type { IssueAttachment } from './attachment';
 import type { IssueFieldEntry } from './customField';
 import type { IssueTypeSummary } from './issueType';
 import type { LabelSummary } from './label';
+import type { ReactionResponse } from './messaging';
 import type { UserSummary } from './user';
 
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELED';
@@ -145,6 +146,8 @@ export interface IssueCommentResponse {
   body: string;
   createdAt: string;
   updatedAt: string;
+  // 이모지별 반응 집계(WP-504) — 채팅 메시지와 같은 모양. 구버전 서버(롤링 배포 중)는 빠뜨릴 수 있어 읽을 때 `?? []`.
+  reactions: ReactionResponse[];
 }
 
 export type IssueHistoryEventType =

@@ -58,6 +58,7 @@ import com.workplace.jooq.tables.IssueAssignee;
 import com.workplace.jooq.tables.IssueAttachment;
 import com.workplace.jooq.tables.IssueBodyImage;
 import com.workplace.jooq.tables.IssueComment;
+import com.workplace.jooq.tables.IssueCommentReaction;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
 import com.workplace.jooq.tables.IssueFieldDef;
@@ -418,6 +419,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.issue_comment</code>.
      */
     public final IssueComment ISSUE_COMMENT = IssueComment.ISSUE_COMMENT;
+
+    /**
+     * The table <code>public.issue_comment_reaction</code>.
+     */
+    public final IssueCommentReaction ISSUE_COMMENT_REACTION = IssueCommentReaction.ISSUE_COMMENT_REACTION;
 
     /**
      * The table <code>public.issue_cycle</code>.
@@ -837,6 +843,7 @@ public class Public extends SchemaImpl {
             IssueAttachment.ISSUE_ATTACHMENT,
             IssueBodyImage.ISSUE_BODY_IMAGE,
             IssueComment.ISSUE_COMMENT,
+            IssueCommentReaction.ISSUE_COMMENT_REACTION,
             IssueCycle.ISSUE_CYCLE,
             IssueDependency.ISSUE_DEPENDENCY,
             IssueFieldDef.ISSUE_FIELD_DEF,
