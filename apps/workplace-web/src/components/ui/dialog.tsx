@@ -5,7 +5,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
-import { useDialogFocusRestore } from "@/hooks/useDialogFocusRestore"
+import { DialogOpenerProbe, useDialogFocusRestore } from "@/hooks/useDialogFocusRestore"
 import { preventDismissOnExtensionUi } from "@/lib/browserExtensionUi"
 import { cn } from "@/lib/utils"
 
@@ -87,6 +87,7 @@ function DialogContent({
         )}
         {...props}
       >
+        <DialogOpenerProbe onMount={focusRestore.captureOpener} />
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close

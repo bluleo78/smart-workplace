@@ -5,7 +5,7 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { useDialogFocusRestore } from "@/hooks/useDialogFocusRestore"
+import { DialogOpenerProbe, useDialogFocusRestore } from "@/hooks/useDialogFocusRestore"
 
 function AlertDialog({
   ...props
@@ -50,6 +50,7 @@ function AlertDialogContent({
   size = "default",
   onOpenAutoFocus,
   onCloseAutoFocus,
+  children,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
@@ -71,7 +72,10 @@ function AlertDialogContent({
           className
         )}
         {...props}
-      />
+      >
+        <DialogOpenerProbe onMount={focusRestore.captureOpener} />
+        {children}
+      </AlertDialogPrimitive.Content>
     </AlertDialogPortal>
   )
 }
