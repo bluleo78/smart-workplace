@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { copiedViaFallback, withoutClipboardApi } from '../../fixtures/clipboard'
 import { seedCollabFor } from '../../fixtures/collab'
 import { wikiEditorOpener } from '../../fixtures/wiki-mock'
 
@@ -90,6 +91,23 @@ test('복사 버튼이 마크다운을 클립보드에 넣는다', async ({ auth
   await expect(page.getByText('마크다운을 복사했습니다')).toBeVisible()
   const clip = await page.evaluate(() => navigator.clipboard.readText())
   expect(clip).toContain('# 문서 제목')
+})
+
+// WP-836: 다른 복사 버튼처럼 Clipboard API 가 없으면(비보안 컨텍스트) execCommand 대체 경로로 복사한다 — 예전엔 곧바로 실패했다.
+test('Clipboard API 가 없으면 대체 경로로 마크다운을 복사한다', async ({ authenticatedPage: page }) => {
+  await withoutClipboardApi(page, true)
+  await setup(page)
+  await open(page)
+
+  await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
+  await page.getByTestId('wiki-menu-source').click()
+  await page.getByTestId('wiki-source-copy').click()
+
+  await expect(page.getByText('마크다운을 복사했습니다')).toBeVisible()
+  expect(await copiedViaFallback(page)).toContain('# 문서 제목')
+  // 대체 경로가 쓴 임시 입력칸은 남지 않고, 포커스는 원래 버튼으로 돌아온다.
+  await expect(page.getByRole('dialog').locator('textarea')).toHaveCount(0)
+  await expect(page.getByTestId('wiki-source-copy')).toBeFocused()
 })
 
 test('.md 다운로드가 새니타이즈된 파일명으로 저장된다', async ({ authenticatedPage: page }) => {

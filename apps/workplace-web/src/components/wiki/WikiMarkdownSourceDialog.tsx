@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { copyToClipboard } from '@/lib/copyToClipboard'
 import { downloadBlob } from '@/lib/download'
 
 import { wikiMarkdownFilename } from './wikiMarkdownFilename'
@@ -32,14 +33,13 @@ export function WikiMarkdownSourceDialog({
   title,
   markdown,
 }: WikiMarkdownSourceDialogProps) {
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(markdown)
-      toast.success('마크다운을 복사했습니다')
-    } catch {
-      // 클립보드 권한 거부·비보안 컨텍스트 등. 사용자가 직접 선택 복사할 수 있으므로 안내만 한다.
-      toast.error('복사에 실패했습니다. 직접 선택해 복사해 주세요')
-    }
+  // 공용 복사(WP-836) — 다른 복사 버튼처럼 Clipboard API 가 없거나 거부돼도(비보안 컨텍스트 등) execCommand 로 한 번 더 시도한다.
+  // 둘 다 실패하면 본문을 직접 선택해 복사할 수 있으므로 안내만 한다.
+  const onCopy = () => {
+    void copyToClipboard(markdown, {
+      success: '마크다운을 복사했습니다',
+      failure: '복사에 실패했습니다. 직접 선택해 복사해 주세요',
+    })
   }
 
   const onDownload = () => {
