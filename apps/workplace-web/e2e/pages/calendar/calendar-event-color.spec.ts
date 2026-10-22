@@ -69,11 +69,14 @@ test(
     await page.getByTestId('calendar-form-calendar').click()
     await page.getByRole('option', { name: '업무' }).click()
 
-    // 색 행 — '상속' 칩이 기본으로 활성 상태여야 한다.
-    await expect(page.getByTestId('calendar-color-inherit')).toBeVisible()
+    // 색 — 캘린더 칸의 점을 누르면 팔레트 팝오버가 열리고, '상속' 칩이 기본으로 활성 상태여야 한다.
+    await page.getByTestId('calendar-form-color').click()
+    await expect(page.getByTestId('calendar-color-inherit')).toHaveAttribute('aria-pressed', 'true')
 
-    // 색 'red' override 선택.
+    // 색 'red' override 선택 → 팝오버가 닫히고 점이 빨강이 된다.
     await page.getByTestId('calendar-color-red').click()
+    await expect(page.getByTestId('calendar-color-popover')).toHaveCount(0)
+    await expect(page.getByTestId('calendar-form-color').locator('span')).toHaveClass(/bg-red-500/)
 
     // POST 요청 캡처.
     const postCapture = page.waitForRequest(
@@ -178,10 +181,12 @@ test('편집 모드 — color=null 시 상속 칩 활성', async ({ authenticate
   await page.getByTestId('calendar-event-10').click()
   await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 
-  // color=null 이므로 상속 칩이 활성(border-foreground) 상태.
+  // color=null 이므로 점은 캘린더(기본=blue) 색이고, 팝오버의 상속 칩이 활성(aria-pressed) 상태.
+  await expect(page.getByTestId('calendar-form-color').locator('span')).toHaveClass(/bg-blue-500/)
+  await page.getByTestId('calendar-form-color').click()
   const inheritChip = page.getByTestId('calendar-color-inherit')
   await expect(inheritChip).toBeVisible()
-  await expect(inheritChip).toHaveClass(/border-foreground/)
+  await expect(inheritChip).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('편집 모드 — color=red 시 red 스와치 활성', async ({ authenticatedPage: page }) => {
@@ -206,10 +211,38 @@ test('편집 모드 — color=red 시 red 스와치 활성', async ({ authentica
   await page.getByTestId('calendar-event-11').click()
   await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 
-  // color='red' 이므로 red 스와치가 활성(border-foreground).
+  // color='red' 이므로 팝오버의 red 스와치가 활성(aria-pressed).
+  await page.getByTestId('calendar-form-color').click()
   const redSwatch = page.getByTestId('calendar-color-red')
   await expect(redSwatch).toBeVisible()
-  await expect(redSwatch).toHaveClass(/border-foreground/)
+  await expect(redSwatch).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('편집 모드 — 색 팝오버에서 「상속」을 고르면 PATCH payload 의 color 가 null 이다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const eventRed = calendarEvent({
+    id: 12,
+    title: '빨간 일정',
+    calendarId: 1,
+    color: 'red',
+    effectiveColor: 'red',
+    myRole: 'ORGANIZER',
+    startsAt: '2026-06-10T01:00:00Z',
+    endsAt: '2026-06-10T02:00:00Z',
+  })
+  await stubAll(page, [eventRed])
+  await mockApi(page, 'GET', '/api/v1/calendar/events/12', { ...eventRed, attendees: [] })
+  const patch = await mockApi(page, 'PATCH', '/api/v1/calendar/events/12', eventRed, { capture: true })
+  await page.goto('/calendar')
+
+  await page.getByTestId('calendar-event-12').click()
+  await expect(page.getByTestId('calendar-form-title')).toHaveValue('빨간 일정')
+  await page.getByTestId('calendar-form-color').click()
+  await page.getByTestId('calendar-color-inherit').click()
+  // 상속이면 점은 고른 캘린더(기본=blue) 색으로 돌아간다
+  await expect(page.getByTestId('calendar-form-color').locator('span')).toHaveClass(/bg-blue-500/)
+  await page.getByTestId('calendar-form-submit').click()
+  expect((await patch.waitForRequest()).payload).toMatchObject({ color: null, calendarId: 1 })
 })
 
 test(

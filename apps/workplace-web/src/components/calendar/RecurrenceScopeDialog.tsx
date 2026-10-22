@@ -17,10 +17,12 @@ interface RecurrenceScopeDialogProps {
   mode: 'edit' | 'delete'
   onPick: (scope: EditScope) => void
   onCancel: () => void
+  /** 범위 버튼 위 짧은 안내(없으면 숨김) — 태그를 바꾼 수정이면 RECURRING_TAGS_NOTE */
+  note?: string | null
 }
 
 /** 반복 일정에 변경을 적용할 범위(이 회차/이후/전체)를 선택하는 확인 다이얼로그. */
-export function RecurrenceScopeDialog({ open, mode, onPick, onCancel }: RecurrenceScopeDialogProps) {
+export function RecurrenceScopeDialog({ open, mode, onPick, onCancel, note }: RecurrenceScopeDialogProps) {
   const title = mode === 'edit' ? '반복 일정 수정' : '반복 일정 삭제'
   const desc =
     mode === 'edit'
@@ -34,6 +36,11 @@ export function RecurrenceScopeDialog({ open, mode, onPick, onCancel }: Recurren
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{desc}</AlertDialogDescription>
         </AlertDialogHeader>
+        {note && (
+          <p className="text-sm text-muted-foreground" data-testid="calendar-recurrence-scope-note">
+            {note}
+          </p>
+        )}
         {/* 세 가지 범위 — THIS / THIS_AND_FOLLOWING / ALL */}
         <div className="flex flex-col gap-2">
           <Button

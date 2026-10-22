@@ -153,8 +153,7 @@ public class CalendarTagService {
    * 저장(tx). Graph 가 실패하면(502) 로컬은 그대로다. 앱 일정은 첫 트랜잭션에서 저장까지 끝난다.
    */
   public void setEventTags(long callerId, long eventId, List<Long> tagIds) {
-    Set<Long> wanted = new LinkedHashSet<>();
-    for (Long id : tagIds) if (id != null) wanted.add(id);
+    Set<Long> wanted = normalize(tagIds);
 
     // 호출자(AI·채팅 등)의 바깥 tx 가 열려 있는지는 txTemplate 에 들어가기 전에 본다 — 안에서는 늘 열려 있다. M365 일정이면 확인 단계에서
     // 다른 판정보다 먼저 막는다(Graph 를 읽기 전에, #232·#548).
@@ -205,23 +204,10 @@ public class CalendarTagService {
             .findTagWriteTarget(callerId, eventId)
             .orElseThrow(() -> new CalendarEventNotFoundException(eventId));
     if (target.externalId() == null) {
-      requireOwnedTags(callerId, wanted);
-      long masterId =
-          exceptionRepo
-              .findMasterOccurrenceByOverride(eventId)
-              .map(MasterOccurrence::eventId)
-              .orElse(eventId);
-      tagRepo.replaceAppLinks(callerId, masterId, wanted);
+      replaceAppTags(callerId, eventId, wanted);
       return null;
     }
-    // 허용 판정은 두 단계다 — 일정 사본의 규칙(내 사본·쓸 수 있는 내 사서함 달력)과 이어진 내 활성 계정. 응답 tagsEditable 도 같은 두 조건이다.
-    if (!target.ownWritableCopy() || target.externalAccountId() == null) {
-      throw new ExternalEventTagNotSupportedException();
-    }
-    EmailAccountResponse account =
-        emailAccountRepo
-            .findByIdAndUser(callerId, target.externalAccountId())
-            .orElseThrow(ExternalEventTagNotSupportedException::new);
+    EmailAccountResponse account = requireOutlookWritable(callerId, target);
     if (ambientTx) throw new ExternalCalendarWriteInTransactionException();
     requireOwnedTags(callerId, wanted);
     Set<Long> linked =
@@ -240,6 +226,61 @@ public class CalendarTagService {
         added,
         removed,
         tagRepo.namesOf(callerId, changed));
+  }
+
+  /**
+   * M365 일정에 범주를 써 넣을 수 있는지 — 허용 판정은 두 단계다: 일정 사본의 규칙(내 사본·쓸 수 있는 내 사서함 달력)과 이어진 내 활성 계정. 응답
+   * tagsEditable 도 같은 두 조건이다. 안 되면 409, 되면 써 넣을 계정.
+   */
+  private EmailAccountResponse requireOutlookWritable(long callerId, TagWriteTarget target) {
+    if (!target.ownWritableCopy() || target.externalAccountId() == null) {
+      throw new ExternalEventTagNotSupportedException();
+    }
+    return emailAccountRepo
+        .findByIdAndUser(callerId, target.externalAccountId())
+        .orElseThrow(ExternalEventTagNotSupportedException::new);
+  }
+
+  /**
+   * 앱 일정의 내 태그를 tagIds 로 바꾼다(APP 연결) — 호출자의 쓰기 트랜잭션 안에서 부른다. 태그는 시리즈 단위라 고친 회차(오버라이드) id 면 그 마스터에
+   * 붙인다(가상 회차 id 는 이미 마스터 id). 태그가 모두 내 것이 아니면 404. 일정 저장 요청에 실린 태그(WP-801)와 {@code PUT
+   * /events/{id}/tags} 의 앱 일정 경로가 같이 쓴다 — M365 일정은 여기로 오면 안 된다(Graph 를 거치는 setEventTags).
+   */
+  public void replaceAppTags(long callerId, long eventId, Collection<Long> tagIds) {
+    Set<Long> wanted = normalize(tagIds);
+    requireOwnedTags(callerId, wanted);
+    long masterId =
+        exceptionRepo
+            .findMasterOccurrenceByOverride(eventId)
+            .map(MasterOccurrence::eventId)
+            .orElse(eventId);
+    tagRepo.replaceAppLinks(callerId, masterId, wanted);
+  }
+
+  /**
+   * 일정 저장(수정) 요청에 실린 태그 사전 확인(WP-801) — 일정을 쓰기 전에, 읽기 트랜잭션 안에서 setEventTags 와 같은 판정을 한다: 볼 수 없는 일정
+   * 404, 범주를 써 넣을 수 없는 M365 일정 409(태그 주인 확인보다 먼저 — 무엇을 보내든 바꿀 수 없다), 남의 태그·없는 태그 404. 일정 본문(또는
+   * Graph PATCH)이 저장된 뒤에야 태그가 거절돼 「일정은 바뀌었는데 오류」가 되지 않게 한다.
+   */
+  public void validateEventTags(long callerId, long eventId, Collection<Long> tagIds) {
+    TagWriteTarget target =
+        eventRepo
+            .findTagWriteTarget(callerId, eventId)
+            .orElseThrow(() -> new CalendarEventNotFoundException(eventId));
+    if (target.externalId() != null) requireOutlookWritable(callerId, target);
+    requireOwnedTags(callerId, normalize(tagIds));
+  }
+
+  /** 새 일정 요청에 실린 태그 사전 확인(WP-801) — 아직 일정이 없어 태그 주인만 본다(남의 태그·없는 태그 404). */
+  public void validateNewEventTags(long callerId, Collection<Long> tagIds) {
+    requireOwnedTags(callerId, normalize(tagIds));
+  }
+
+  /** 요청 태그 id 정리 — null 은 버리고 순서를 지킨 채 중복을 없앤다. */
+  private static Set<Long> normalize(Collection<Long> tagIds) {
+    Set<Long> wanted = new LinkedHashSet<>();
+    for (Long id : tagIds) if (id != null) wanted.add(id);
+    return wanted;
   }
 
   /**

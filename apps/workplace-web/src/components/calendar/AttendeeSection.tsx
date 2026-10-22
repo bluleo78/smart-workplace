@@ -2,11 +2,12 @@
 // - 생성 다이얼로그: 로컬 state 관리(onChange 콜백으로 부모에 전달).
 // - 편집/상세: attendees prop 으로 현재 참석자 칩 표시(실시간 invite/remove 는 부모 처리).
 // AGENT 참석자는 AgentBadge 표시, RSVP 상태는 아이콘으로 구분. (이슈 #489)
+// 일정 폼의 참석자 아이콘 줄(배치 B) 안에 들어가 이름표 없이 칩과 「＋ 참석자」를 한 줄에 잇는다(넘치면 다음 줄).
 import { Check, Clock, HelpCircle, X } from 'lucide-react'
 import { useState } from 'react'
 
-import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
+import { DashedAddChip } from '@/components/calendar/CalendarTagChip'
+import { FORM_CHIP_LINE_CLASS } from '@/components/calendar/EventFormRow'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import type { MemberPickerCandidate } from '@/hooks/queries/useUserSearch'
 import { attendeeDisplayName, attendeeKey } from '@/lib/calendarEventView'
@@ -94,12 +95,12 @@ export function AttendeeSection({
     : null
 
   return (
-    <div className="space-y-2" data-testid="attendee-section">
-      <Label>참석자</Label>
-
+    // 이름표 대신 그룹 이름 — 아이콘 줄이라 「참석자」가 화면에 쓰여 있지 않다
+    <div className={FORM_CHIP_LINE_CLASS} role="group" aria-label="참석자" data-testid="attendee-section">
       {/* 참석자 칩 목록 */}
       {sortedAttendees && sortedAttendees.length > 0 && (
-        <div className="flex flex-wrap gap-1.5" data-testid="attendee-chips">
+        // contents — 칩이 「＋ 참석자」와 같은 줄에 이어지도록 감싸는 상자를 레이아웃에서 뺀다(testid 는 유지)
+        <div className="contents" data-testid="attendee-chips">
           {sortedAttendees.map((a, i) => {
               const chipKey = attendeeKey(a, i)
               const removeId = a.userId // 외부 참석자는 제거 대상 아님(null)
@@ -132,7 +133,7 @@ export function AttendeeSection({
 
       {/* 생성 모드에서 로컬 선택 칩(서버 데이터 없을 때) — 이름과 AGENT 뱃지 표시 */}
       {!sortedAttendees && selectedMembers.length > 0 && (
-        <div className="flex flex-wrap gap-1.5" data-testid="attendee-selected-chips">
+        <div className="contents" data-testid="attendee-selected-chips">
           {selectedMembers.map((member) => (
             <span
               key={member.id}
@@ -162,14 +163,9 @@ export function AttendeeSection({
           existingMemberIds={existingSet}
           onSelect={handleSelect}
           trigger={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="attendee-add-btn"
-            >
-              참석자 추가
-            </Button>
+            <DashedAddChip aria-label="참석자 추가" data-testid="attendee-add-btn">
+              참석자
+            </DashedAddChip>
           }
         />
       )}

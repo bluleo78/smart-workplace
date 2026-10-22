@@ -1,7 +1,7 @@
 // 캘린더 추가/수정 다이얼로그 — 이름 입력 + 팔레트 스와치 색 선택.
 import { useEffect, useState } from 'react'
 
-import { PALETTE_KEYS, resolvePalette } from '@/lib/calendarPalette'
+import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
 import type { Calendar, CalendarRequest } from '@/types/calendar'
 
 import { Button } from '../ui/button'
@@ -86,22 +86,13 @@ export function CalendarEditDialog({
           {/* 팔레트 색 선택 */}
           <div className="space-y-1.5">
             <Label>색상</Label>
-            <div className="flex flex-wrap gap-2">
-              {PALETTE_KEYS.map((k) => {
-                const entry = resolvePalette(k)
-                const selected = color === k
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    data-testid={`calendar-color-${k}`}
-                    aria-label={entry.label}
-                    onClick={() => setColor(k)}
-                    className={`size-7 rounded-full ${entry.dotClass} ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${selected ? 'ring-2 ring-ring ring-offset-2' : ''}`}
-                  />
-                )
-              })}
-            </div>
+            <PaletteSwatches
+              value={color}
+              onChange={(k) => {
+                if (k) setColor(k)
+              }}
+              testIdPrefix="calendar-color-"
+            />
           </div>
         </div>
 

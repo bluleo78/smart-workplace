@@ -1,78 +1,71 @@
-// 편집 폼 태그 줄(WP-714) — 붙일 수 있는 일정·Outlook 범주 일정·태그 없는 외부 일정에서 무엇이 보이는지.
-// 피커의 데이터 훅은 끊는다(팝오버를 열지 않으니 목록이 필요 없다). 실제 PUT 배선은 E2E(calendar-tags.spec.ts)가 본다.
-import { screen } from '@testing-library/react'
+// 일정 폼 태그 줄(WP-714, 일정 편집 폼 배치 B) — 붙일 수 있는 일정·Outlook 범주 일정·태그 없는 외부 일정에서 무엇이 보이는지,
+// 그리고 폼 상태라 체크가 저장(PUT)이 아니라 onChange 로만 가는지. 실제 PATCH 뒤 PUT 배선은 E2E(calendar-tags.spec.ts)가 본다.
+import { fireEvent, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { TAG_HINT_OUTLOOK_EVENT, TAG_HINT_OUTLOOK_READ_ONLY } from '@/lib/calendarTag'
+
 import { renderWithProviders } from '../../test/renderWithProviders'
-import type { CalendarEvent } from '../../types/calendar'
 import { EventTagsField } from './EventTagsField'
 
+const mutateAsync = vi.fn()
+
 vi.mock('@/hooks/queries/useCalendarTags', () => ({
-  useCalendarTags: () => ({ data: [], isSuccess: true }),
+  useCalendarTags: () => ({
+    data: [
+      { id: 1, name: '운영', color: 'amber', eventCount: 0, hasFeed: false, fromOutlook: false },
+      { id: 2, name: '사내 공유', color: 'violet', eventCount: 0, hasFeed: false, fromOutlook: true },
+    ],
+    isSuccess: true,
+  }),
   useCreateCalendarTag: () => ({ mutate: vi.fn(), isPending: false }),
-  useSetEventTags: () => ({ mutateAsync: vi.fn() }),
+  useSetEventTags: () => ({ mutateAsync }),
 }))
 
-const base: CalendarEvent = {
-  id: 5,
-  title: '회의',
-  description: null,
-  startsAt: '2026-06-10T01:00:00Z',
-  endsAt: '2026-06-10T02:00:00Z',
-  allDay: false,
-  location: null,
-  color: null,
-  calendarId: 1,
-  calendarName: '기본',
-  effectiveColor: 'blue',
-  reminderMinutes: null,
-  recurrenceRule: null,
-  createdAt: '2026-06-10T01:00:00Z',
-  updatedAt: '2026-06-10T01:00:00Z',
-}
+const ops = { id: 1, name: '운영', color: 'amber' }
+const shared = { id: 2, name: '사내 공유', color: 'violet' }
 
 describe('EventTagsField', () => {
-  it('앱 일정이면 태그 칩과 「＋ 태그」가 보이고 Outlook 안내는 없다', () => {
-    renderWithProviders(
-      <EventTagsField event={{ ...base, tags: [{ id: 1, name: '운영', color: 'amber' }], tagsEditable: true }} />,
-    )
+  it('붙일 수 있으면 태그 칩과 「＋ 태그」가 보이고, 안내가 없으면 안내 줄도 없다', () => {
+    renderWithProviders(<EventTagsField value={[ops]} onChange={vi.fn()} editable hint={null} />)
     expect(screen.getByTestId('event-detail-tag')).toHaveTextContent('운영')
     expect(screen.getByTestId('calendar-form-tag-add')).toBeInTheDocument()
-    expect(screen.queryByText(/Outlook 범주에서 가져온 태그예요/)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('calendar-form-tags-hint')).not.toBeInTheDocument()
   })
 
-  it('태그가 아직 없는 앱 일정도 「＋ 태그」로 붙일 수 있다', () => {
-    renderWithProviders(<EventTagsField event={{ ...base, tags: [], tagsEditable: true }} />)
+  it('태그가 아직 없어도(새 일정 포함) 「＋ 태그」로 고를 수 있다', () => {
+    renderWithProviders(<EventTagsField value={[]} onChange={vi.fn()} editable hint={null} />)
     expect(screen.getByTestId('calendar-form-tag-add')).toBeInTheDocument()
   })
 
-  it('내 Outlook 달력의 M365 일정은 「＋ 태그」와 「Outlook 범주에도 반영」 안내가 보인다 (WP-716)', () => {
-    renderWithProviders(
-      <EventTagsField
-        event={{
-          ...base,
-          tags: [{ id: 2, name: '사내 공유', color: 'violet' }],
-          tagsEditable: true,
-          outlookTagScope: 'EVENT',
-        }}
-      />,
-    )
+  it('붙일 수 있는 M365 일정은 「Outlook 범주에도 반영」 안내가 함께 보인다 (WP-716)', () => {
+    renderWithProviders(<EventTagsField value={[shared]} onChange={vi.fn()} editable hint={TAG_HINT_OUTLOOK_EVENT} />)
     expect(screen.getByTestId('calendar-form-tag-add')).toBeInTheDocument()
     expect(screen.getByTestId('calendar-form-tags-hint')).toHaveTextContent('Outlook 범주에도 함께 반영돼요')
-    expect(screen.queryByText(/Outlook에서 바꿀 수 있어요/)).not.toBeInTheDocument()
   })
 
-  it('붙일 수 없는 M365 일정(공유받은 읽기 전용 달력)은 칩과 Outlook 범주 안내만 보이고 붙이기 버튼이 없다', () => {
+  it('붙일 수 없는 M365 일정(공유받은 읽기 전용 달력)은 칩과 안내만 보이고 붙이기 버튼이 없다', () => {
     renderWithProviders(
-      <EventTagsField event={{ ...base, tags: [{ id: 2, name: '사내 공유', color: 'violet' }], tagsEditable: false }} />,
+      <EventTagsField value={[shared]} onChange={vi.fn()} editable={false} hint={TAG_HINT_OUTLOOK_READ_ONLY} />,
     )
     expect(screen.getByTestId('event-detail-tag')).toHaveTextContent('사내 공유')
     expect(screen.queryByTestId('calendar-form-tag-add')).not.toBeInTheDocument()
-    expect(screen.getByText('Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요')).toBeInTheDocument()
+    expect(screen.getByText(TAG_HINT_OUTLOOK_READ_ONLY)).toBeInTheDocument()
   })
 
-  it('붙일 수 없고 태그도 없으면(응답에 태그 필드가 없는 경우 포함) 줄째 숨긴다', () => {
-    renderWithProviders(<EventTagsField event={base} />)
+  it('붙일 수 없고 태그도 없으면 줄째 숨긴다', () => {
+    renderWithProviders(<EventTagsField value={[]} onChange={vi.fn()} editable={false} hint={null} />)
     expect(screen.queryByTestId('calendar-form-tags')).not.toBeInTheDocument()
+  })
+
+  it('폼 상태라 체크하면 저장하지 않고 이름·색이 담긴 새 선택을 onChange 로만 넘긴다', () => {
+    const onChange = vi.fn()
+    renderWithProviders(<EventTagsField value={[ops]} onChange={onChange} editable hint={null} />)
+    fireEvent.click(screen.getByTestId('calendar-form-tag-add'))
+    fireEvent.click(screen.getByRole('checkbox', { name: '사내 공유' }))
+    expect(onChange).toHaveBeenLastCalledWith([ops, shared])
+    fireEvent.click(screen.getByRole('checkbox', { name: '운영' }))
+    expect(onChange).toHaveBeenLastCalledWith([shared])
+    expect(mutateAsync).not.toHaveBeenCalled()
   })
 })

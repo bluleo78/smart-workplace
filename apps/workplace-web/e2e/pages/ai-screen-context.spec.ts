@@ -502,6 +502,25 @@ test.describe('AI 채팅 화면 컨텍스트 — 캘린더', () => {
     await expect(page.getByTestId('ai-side-panel')).toBeVisible()
   })
 
+  // WP-801 사이드 패널 배치가 폼을 기본 폭(32rem)으로 줄여 시작·종료가 두 줄로 꺾이고 줄표가 앞 줄 끝에 남았다 — 폼은 넓은 폭(36rem)을 지킨다.
+  test('패널을 연 채 연 일정 편집 폼은 넓은 폭을 지켜 시작·종료가 한 줄에 놓이고 패널을 가리지 않는다', async ({ authenticatedPage: page }) => {
+    await captureChat(page)
+    await mockCalendar(page)
+    await page.goto('/calendar')
+    await page.getByTestId('chat-launcher').click()
+    await page.getByTestId('calendar-event-42').click()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(page.getByTestId('calendar-form-start')).toBeVisible()
+
+    const dlg = (await dialog.boundingBox())!
+    const panel = (await page.getByTestId('ai-side-panel').boundingBox())!
+    const start = (await page.getByTestId('calendar-form-start').boundingBox())!
+    const end = (await page.getByTestId('calendar-form-end').boundingBox())!
+    expect(dlg.width).toBeGreaterThan(32 * 16)
+    expect(dlg.x + dlg.width).toBeLessThanOrEqual(panel.x + 1)
+    expect(Math.abs(start.y - end.y)).toBeLessThan(1)
+  })
+
   test('패널 입력창의 Esc 는 패널만 닫고 다이얼로그는 유지된다(이후 모달 복귀)', async ({ authenticatedPage: page }) => {
     await captureChat(page)
     await mockCalendar(page)

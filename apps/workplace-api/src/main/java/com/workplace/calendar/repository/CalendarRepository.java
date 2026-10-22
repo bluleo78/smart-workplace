@@ -155,6 +155,18 @@ public class CalendarRepository {
                     Boolean.TRUE.equals(r.get(CALENDAR.IS_READ_ONLY))));
   }
 
+  /**
+   * 연결 계정 자신의 사서함 달력인가(WP-801) — 여기 만든 M365 일정만 태그를 Outlook 범주로 써 넣을 수 있다(CalendarEventRepository 의
+   * ownWritableCopy 와 같은 조건). 새 일정에 태그를 실었을 때 Graph 에 일정을 만들기 전에 확인한다.
+   */
+  public boolean isOwnMailbox(long calendarId) {
+    return Boolean.TRUE.equals(
+        dsl.select(CALENDAR.IS_OWN_MAILBOX)
+            .from(CALENDAR)
+            .where(CALENDAR.ID.eq(calendarId))
+            .fetchOne(CALENDAR.IS_OWN_MAILBOX));
+  }
+
   /** 삭제. */
   public void delete(long id) {
     dsl.deleteFrom(CALENDAR).where(CALENDAR.ID.eq(id)).execute();

@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import type { ComponentProps } from 'react'
 
 import { resolvePalette } from '@/lib/calendarPalette'
+import { HIT_AREA_CHIP_COARSE } from '@/lib/hitArea'
 import { cn } from '@/lib/utils'
 import type { CalendarTagRef } from '@/types/calendar'
 
@@ -27,21 +28,31 @@ export function CalendarTagChip({ tag, className }: { tag: CalendarTagRef; class
 }
 
 /**
- * 「＋ 태그」 칩 — 태그 피커(CalendarTagPicker)를 여는 트리거. 점선 테두리로 「붙이는 자리」임을 보이고, 태그 칩과 같은 둥근 모양이다.
- * 상세 보기 머리 칩 줄과 편집 폼 태그 줄이 같이 쓴다. PopoverTrigger asChild 가 넘기는 ref·이벤트를 그대로 받도록 props 를 펼친다.
+ * 「＋ 이름」 점선 칩 — 붙이는 자리를 보이는 트리거. 태그 칩과 같은 둥근 모양이고, 일정 폼의 참석자·태그 줄이 같이 쓴다.
+ * PopoverTrigger asChild 가 넘기는 ref·이벤트를 그대로 받도록 props 를 펼친다.
+ * 터치에선 칩(22px)은 그대로 두고 보이지 않는 ::after 로 위아래 12px 씩 넓혀 44px 이상 누를 수 있게 한다(HIT_AREA_CHIP_COARSE).
  */
-export function CalendarTagAddButton({ className, ...props }: ComponentProps<'button'>) {
+export function DashedAddChip({ className, children, ...props }: ComponentProps<'button'>) {
   return (
     <button
       type="button"
       className={cn(
         'inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        HIT_AREA_CHIP_COARSE,
         className,
       )}
       {...props}
     >
       <Plus className="size-3" aria-hidden="true" />
-      태그
+      {children}
     </button>
   )
+}
+
+/**
+ * 「＋ 태그」 칩 — 태그 피커(CalendarTagPicker)를 여는 트리거. 점선 테두리로 「붙이는 자리」임을 보인다.
+ * 상세 보기 머리 칩 줄과 편집 폼 태그 줄이 같이 쓴다.
+ */
+export function CalendarTagAddButton(props: ComponentProps<'button'>) {
+  return <DashedAddChip {...props}>태그</DashedAddChip>
 }

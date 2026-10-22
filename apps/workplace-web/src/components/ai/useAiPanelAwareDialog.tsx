@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 // side 모드 데스크톱 배치 — 페이지 영역(뷰포트 - 패널 폭) 중앙 + 폭 클램프.
 // Tailwind 는 정적 클래스만 수집하므로 크기별 리터럴로 둔다.
 //  - default: 기본 DialogContent(sm:max-w-lg=32rem) 폭을 유지하되 페이지 영역을 넘지 않게 min().
+//  - form: 한 단계 넓은 폼(sm:max-w-xl=36rem)의 폭을 유지하되 페이지 영역을 넘지 않게 min() — default 로 덮으면 폼이 좁아진다.
 //  - wide: 넓은 미리보기(w-[64rem]·CSS resize)도 드래그로 패널을 덮지 못하게 페이지 영역 폭으로 제한.
 /** 페이지 영역(뷰포트 - 옆 패널 폭) 가운데 — 패널을 가리지 않는 다른 대화상자(메일 작성 크게 보기)도 같은 축을 쓴다. */
 export const AI_SIDE_CENTER_CLASS = 'lg:left-[calc((100%-var(--ai-side-width,0px))/2)]';
@@ -28,6 +29,8 @@ export const AI_SIDE_CENTER_CLASS = 'lg:left-[calc((100%-var(--ai-side-width,0px
 export const AI_SIDE_OVERLAY_CLASS = 'fixed inset-0 z-50 bg-black/50 lg:right-[var(--ai-side-width,0px)]';
 const SIDE_CONTENT_CLASS = {
   default: `${AI_SIDE_CENTER_CLASS} lg:max-w-[min(32rem,calc(100%-var(--ai-side-width,0px)-2rem))]`,
+  // form: 한 단계 넓은 폼(sm:max-w-xl=36rem, 일정 편집 폼 WP-801) — 기본(32rem)으로 줄이면 시작·종료 두 칸이 한 줄에 안 들어가 꺾였다.
+  form: `${AI_SIDE_CENTER_CLASS} lg:max-w-[min(36rem,calc(100%-var(--ai-side-width,0px)-2rem))]`,
   wide: `${AI_SIDE_CENTER_CLASS} lg:max-w-[calc(100%-var(--ai-side-width,0px)-2rem)]`,
   // lightbox: 화면 전체를 덮는 뷰어(WP-277) — side 모드면 패널 폭만큼 오른쪽을 비운다.
   lightbox: 'lg:right-[var(--ai-side-width,0px)]',
@@ -36,7 +39,7 @@ const SIDE_CONTENT_CLASS = {
 interface Options {
   /** 다이얼로그 열림 여부 — side 모드에서 열린 동안만 페이지 영역을 inert 로 만든다. */
   open: boolean;
-  /** 콘텐츠 폭 프리셋 — 기본 다이얼로그(default) / 넓은 미리보기(wide) / 전체 화면 뷰어(lightbox). */
+  /** 콘텐츠 폭 프리셋 — 기본 다이얼로그(default) / 한 단계 넓은 폼(form) / 넓은 미리보기(wide) / 전체 화면 뷰어(lightbox). */
   size?: keyof typeof SIDE_CONTENT_CLASS;
 }
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { PALETTE_KEYS } from '@/lib/calendarPalette'
 
 import {
+  changedTagIds,
   eventTagHint,
   filterTagsByName,
   pickTagColor,
@@ -11,6 +12,7 @@ import {
   TAG_HINT_OUTLOOK_READ_ONLY,
   TAG_HINT_OUTLOOK_SERIES,
   tagNameToCreate,
+  tagRefsForIds,
   toggleTagId,
 } from './calendarTag'
 
@@ -107,5 +109,33 @@ describe('eventTagHint', () => {
     expect(eventTagHint({ tags: [tag], tagsEditable: false })).toBe(TAG_HINT_OUTLOOK_READ_ONLY)
     expect(eventTagHint({ tags: [], tagsEditable: false, outlookTagScope: 'EVENT' })).toBeNull()
     expect(eventTagHint({})).toBeNull()
+  })
+})
+
+describe('changedTagIds', () => {
+  it('처음과 같은 집합이면(순서만 달라도) null — 보낼 것이 없다', () => {
+    expect(changedTagIds([1, 2], [2, 1])).toBeNull()
+    expect(changedTagIds([], [])).toBeNull()
+  })
+  it('달라졌으면 고른 목록 그대로 — 모두 뺀 빈 목록도 보낸다', () => {
+    expect(changedTagIds([1], [1, 2])).toEqual([1, 2])
+    expect(changedTagIds([1, 2], [])).toEqual([])
+    expect(changedTagIds([], [3])).toEqual([3])
+  })
+})
+
+describe('tagRefsForIds', () => {
+  const a = { id: 1, name: '사내 공유', color: 'violet' }
+  const b = { id: 2, name: '운영', color: 'amber' }
+  it('ids 순서로 이름·색을 찾고, 어디에도 없는 id 는 뺀다', () => {
+    expect(tagRefsForIds([2, 9, 1], [a, b])).toEqual([b, a])
+  })
+  it('앞 출처가 이기고, 뒤 출처(막 만든 태그)로 빈 곳을 채운다', () => {
+    const renamed = { id: 1, name: '사내', color: 'blue' }
+    const created = { id: 3, name: '출장', color: 'pink' }
+    expect(tagRefsForIds([1, 3], [renamed], [a, created])).toEqual([renamed, created])
+  })
+  it('목록 응답의 여분 필드(일정 수 등)는 칩용 모양으로 걸러 낸다', () => {
+    expect(tagRefsForIds([2], [{ ...b, eventCount: 5, hasFeed: false } as typeof b])).toEqual([b])
   })
 })
