@@ -133,7 +133,8 @@ public class DashboardService {
     Set<String> seenSystemTypes = new LinkedHashSet<>();
     Set<String> seenIds = new LinkedHashSet<>();
     for (DashboardWidgetConfig w : stored) {
-      if (w.type() == null || !KNOWN_WIDGETS.contains(w.type())) {
+      // 저장된 JSON 의 null 원소도 알 수 없는 위젯처럼 건너뛴다(WP-742) — 조회가 500 으로 깨지지 않게.
+      if (w == null || w.type() == null || !KNOWN_WIDGETS.contains(w.type())) {
         continue;
       }
       if (SYSTEM_WIDGETS.contains(w.type()) && !seenSystemTypes.add(w.type())) {
