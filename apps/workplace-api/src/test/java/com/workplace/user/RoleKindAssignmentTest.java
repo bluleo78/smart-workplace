@@ -137,6 +137,8 @@ class RoleKindAssignmentTest extends IntegrationTestBase {
   @Test
   void AI_에게_공유_그룹_관리나_플랫폼_권한이_든_역할도_주지_못한다() throws Exception {
     for (String code : List.of("user-group:manage", "platform:tenant:create")) {
+      // 앞 회차의 MockMvc 요청이 끝나며 테넌트 컨텍스트를 지운다 — 서비스를 직접 부르기 전에 다시 세운다.
+      TenantContext.set(TENANT_ID);
       Long role = roleService.createRole("R769_" + code.replace(':', '_'), null, admin).id();
       roleService.setRolePermissions(role, permissionIds(code), admin);
       setRoles(agent, roleId("AGENT"), role).andExpect(status().isBadRequest());
