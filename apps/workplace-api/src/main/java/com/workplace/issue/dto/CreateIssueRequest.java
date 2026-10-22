@@ -1,6 +1,7 @@
 package com.workplace.issue.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
@@ -31,9 +32,10 @@ public record CreateIssueRequest(
     Long typeId,
     Integer parentNumber,
     LocalDate startDate,
-    List<Long> labelIds,
+    // labelIds·cycleIds 원소 null 은 400 — 500 이 났다(WP-743).
+    List<@NotNull Long> labelIds,
     Long milestoneId,
-    List<Long> cycleIds,
+    List<@NotNull Long> cycleIds,
     List<String> labelNames,
     @Size(max = 10) List<Long> fileIds,
     @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status) {

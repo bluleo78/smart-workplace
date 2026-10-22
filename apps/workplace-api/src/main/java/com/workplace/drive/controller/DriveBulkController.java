@@ -7,6 +7,7 @@ import com.workplace.drive.service.DriveBulkService;
 import com.workplace.drive.service.DriveZipService;
 import com.workplace.drive.service.DriveZipService.ZipEntrySource;
 import com.workplace.global.tenant.TenantContext;
+import jakarta.validation.Valid;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -42,7 +43,7 @@ public class DriveBulkController {
   public ResponseEntity<Void> bulkDelete(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long spaceId,
-      @RequestBody BulkDeleteRequest req) {
+      @Valid @RequestBody BulkDeleteRequest req) {
     bulkService.bulkDelete(callerId, spaceId, req.fileIds(), req.folderIds());
     return ResponseEntity.noContent().build();
   }
@@ -51,7 +52,7 @@ public class DriveBulkController {
   public ResponseEntity<Void> bulkMove(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long spaceId,
-      @RequestBody BulkMoveRequest req) {
+      @Valid @RequestBody BulkMoveRequest req) {
     bulkService.bulkMove(callerId, spaceId, req.fileIds(), req.folderIds(), req.targetFolderId());
     return ResponseEntity.noContent().build();
   }
@@ -65,7 +66,7 @@ public class DriveBulkController {
   public ResponseEntity<StreamingResponseBody> downloadZip(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long spaceId,
-      @RequestBody BulkDownloadRequest req) {
+      @Valid @RequestBody BulkDownloadRequest req) {
     List<ZipEntrySource> entries =
         zipService.collectEntries(callerId, spaceId, req.fileIds(), req.folderIds());
     Long tenantId = TenantContext.get();

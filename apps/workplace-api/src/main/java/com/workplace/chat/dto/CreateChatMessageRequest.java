@@ -1,5 +1,6 @@
 package com.workplace.chat.dto;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
@@ -8,7 +9,10 @@ import java.util.List;
  * 수행(EmptyChatMessageException).
  */
 public record CreateChatMessageRequest(
-    @Size(max = 4000) String body, List<Long> fileIds, List<Long> driveFileIds) {
+    @Size(max = 4000) String body,
+    List<Long> fileIds,
+    // 원소 null 은 400 — 드라이브 링크 조회에서 500 이 났다(WP-743). fileIds 는 첨부 claim 이 한국어 400 으로 따로 막는다.
+    List<@NotNull Long> driveFileIds) {
 
   /** 본문만 있는 편의 생성자 — 기존 테스트 및 단순 호출부 호환용. */
   public CreateChatMessageRequest(String body) {
