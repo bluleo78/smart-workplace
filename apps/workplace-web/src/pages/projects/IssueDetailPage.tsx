@@ -544,11 +544,11 @@ export default function IssueDetailPage() {
           // 우선순위 패치 적용.
           tasks.push(patch({ priority: result.priority as 'LOW' | 'MID' | 'HIGH' }, { silent: true }));
           // 유형 제안 — 이름→ID 매핑 후 별도 엔드포인트로 적용.
-          // 왜: IssueTypeSelectPopover 에서 유형 변경 시 updateType.mutate(typeId) 패턴과 동일.
+          // 왜: IssueTypeSelectPopover 에서 유형 변경 시 updateType.mutate({ typeId }) 패턴과 동일.
           if (result.type && allIssueTypes.data) {
             const suggestedType = allIssueTypes.data.find((t) => t.name === result.type);
             if (suggestedType) {
-              tasks.push(updateType.mutateAsync(suggestedType.id));
+              tasks.push(updateType.mutateAsync({ typeId: suggestedType.id }));
             }
           }
           // 라벨 제안 — 이름→ID 매핑 후 현재 라벨에 병합하여 교체.

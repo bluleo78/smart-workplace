@@ -761,6 +761,16 @@ public class IssueService {
    * history 한 건 기록.
    */
   public IssueDetailResponse setType(Long callerId, String projectKey, int number, Long newTypeId) {
+    return setType(callerId, projectKey, number, newTypeId, null);
+  }
+
+  /**
+   * 유형 변경과 부모 지정을 한 번에(WP-745). parentNumber 를 주면 새 유형 규칙으로 그 부모를 검증해 유형과 부모를 한 트랜잭션에서 바꾼다 — 일반 이슈는
+   * 에픽만 부모로 둘 수 있어 「부모부터 지정하고 유형을 바꾸는」 순서가 불가능했고, 유형만 먼저 바꾸면 부모 없는 하위 태스크가 생겼다. parentNumber 없이
+   * SUBTASK 로 바꾸려면 이미 하위 태스크의 부모가 될 수 있는 부모가 있어야 한다.
+   */
+  public IssueDetailResponse setType(
+      Long callerId, String projectKey, int number, Long newTypeId, Integer parentNumber) {
     var project = accessGuard.assertMember(projectKey, callerId);
     // 행을 잠근 채 읽는다(setParent 와 같은 이유).
     var issue =
@@ -777,21 +787,37 @@ public class IssueService {
       throw new com.workplace.issue.exception.PersonalProjectTypeFixedException();
     }
     if (newType.id().equals(issue.typeId())) {
-      return get(callerId, projectKey, number);
+      return parentNumber == null
+          ? get(callerId, projectKey, number)
+          : setParent(callerId, projectKey, number, parentNumber);
     }
     var oldType = typeRepository.findById(issue.typeId()).orElseThrow();
+    boolean newIsSubtask = "SUBTASK".equals(newType.name());
+
+    // 함께 온 부모는 새 유형 규칙으로 검증한다(EPIC 은 부모를 가질 수 없다). 그러면 기존 부모의 해제·유지 판정은 필요 없다.
+    ResolvedParent newParent = null;
+    if (parentNumber != null) {
+      if ("EPIC".equals(newType.name())) {
+        throw new EpicCannotHaveParentException();
+      }
+      newParent = resolveNewParent(project, issue, newIsSubtask, parentNumber);
+    } else if (newIsSubtask && issue.parentIssueId() == null) {
+      // 부모 없는 하위 태스크를 만들지 않는다 — 생성과 같은 규칙(WP-745).
+      throw new SubtaskParentRequiredException();
+    }
 
     // Phase 4a — SUBTASK → 비SUBTASK 전환, 또는 (SUBTASK 여부 무관) EPIC 으로 전환 시
     // 부모 자동 해제 + PARENT_CHANGED 기록 (parent 있을 때만). EPIC 은 부모를 가질 수 없으므로
     // 예: TASK(부모=EPIC#5) → EPIC 전환 시에도 반드시 해제해야 불변식이 깨지지 않는다.
     boolean releasesParent =
-        issue.parentIssueId() != null
+        newParent == null
+            && issue.parentIssueId() != null
             && (("SUBTASK".equals(oldType.name()) && !"SUBTASK".equals(newType.name()))
                 || "EPIC".equals(newType.name()));
 
     // 최종 리뷰 발견사항 1 — releasesParent 가 발동하지 않는데 부모가 유지되는 경우, 그 부모가 새 유형
     // 규칙에서도 여전히 유효한지 create()/setParent() 와 동일한 3-way 로직으로 검증한다(Case B).
-    if (!releasesParent && issue.parentIssueId() != null) {
+    if (newParent == null && !releasesParent && issue.parentIssueId() != null) {
       var retainedParent = issueRepository.findById(issue.parentIssueId()).orElseThrow();
       var retainedParentType = typeRepository.findById(retainedParent.typeId()).orElseThrow();
       boolean parentIsSubtask = "SUBTASK".equals(retainedParentType.name());
@@ -826,11 +852,15 @@ public class IssueService {
     }
 
     if (releasesParent) {
-      var oldParent = issueRepository.findById(issue.parentIssueId()).orElseThrow();
-      var oldParentType = typeRepository.findById(oldParent.typeId()).orElseThrow();
-      var oldParentRef = toParentRef(oldParent, oldParentType);
       issueRepository.updateParent(issue.id(), null);
-      historyRecorder.recordParentChanged(callerId, issue.id(), oldParentRef, null);
+      historyRecorder.recordParentChanged(callerId, issue.id(), currentParentRef(issue), null);
+    } else if (newParent != null && !newParent.row().id().equals(issue.parentIssueId())) {
+      issueRepository.updateParent(issue.id(), newParent.row().id());
+      historyRecorder.recordParentChanged(
+          callerId,
+          issue.id(),
+          currentParentRef(issue),
+          toParentRef(newParent.row(), newParent.type()));
     }
 
     issueRepository.updateType(issue.id(), newType.id());
@@ -961,30 +991,16 @@ public class IssueService {
       throw new EpicCannotHaveParentException();
     }
 
+    // 하위 태스크의 부모는 뗄 수 없다 — 다른 부모로 바꾸는 것만 된다(WP-745).
+    if (isSubtask && newParentNumber == null) {
+      throw new SubtaskParentRequiredException();
+    }
     Long newParentId = null;
     ParentRef newRef = null;
     if (newParentNumber != null) {
-      if (newParentNumber == row.number())
-        throw new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다");
-      var newParent =
-          issueRepository
-              .findByProjectAndNumber(project.id(), newParentNumber)
-              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
-      var newParentType =
-          typeRepository
-              .findById(newParent.typeId())
-              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
-      boolean newParentIsSubtask = "SUBTASK".equals(newParentType.name());
-      boolean newParentIsEpic = "EPIC".equals(newParentType.name());
-      if (isSubtask) {
-        if (newParentIsSubtask) throw new ParentCannotBeSubtaskException();
-        if (newParentIsEpic) throw new SubtaskParentCannotBeEpicException();
-      } else if (!newParentIsEpic) {
-        throw new ParentNotAllowedException();
-      }
-      requireOpenChildAllowed(newParent, newParentIsEpic, row.status());
-      newParentId = newParent.id();
-      newRef = toParentRef(newParent, newParentType);
+      var resolved = resolveNewParent(project, row, isSubtask, newParentNumber);
+      newParentId = resolved.row().id();
+      newRef = toParentRef(resolved.row(), resolved.type());
     }
 
     Long currentParentId = row.parentIssueId();
@@ -1017,6 +1033,43 @@ public class IssueService {
         && !IssueStatuses.CLOSED.contains(childStatus)) {
       throw new InvalidParentException("완료된 에픽에는 미완료 하위 이슈를 넣을 수 없습니다. 에픽을 먼저 다시 열어 주세요");
     }
+  }
+
+  /** 검증을 마친 새 부모 — 행과 유형. */
+  private record ResolvedParent(IssueRow row, com.workplace.issue.dto.IssueTypeRow type) {}
+
+  /**
+   * newParentNumber 의 이슈를 row 의 부모로 둘 수 있는지 검증한다(setParent·setType 공통). SUBTASK 는 비-EPIC 비-SUBTASK
+   * 부모만, 일반 이슈는 EPIC 부모만. 완료 에픽에는 미완료 하위를 넣지 않는다(WP-689).
+   */
+  private ResolvedParent resolveNewParent(
+      ProjectRow project, IssueRow row, boolean isSubtask, int newParentNumber) {
+    if (newParentNumber == row.number()) throw new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다");
+    var newParent =
+        issueRepository
+            .findByProjectAndNumber(project.id(), newParentNumber)
+            .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+    var newParentType =
+        typeRepository
+            .findById(newParent.typeId())
+            .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
+    boolean newParentIsSubtask = "SUBTASK".equals(newParentType.name());
+    boolean newParentIsEpic = "EPIC".equals(newParentType.name());
+    if (isSubtask) {
+      if (newParentIsSubtask) throw new ParentCannotBeSubtaskException();
+      if (newParentIsEpic) throw new SubtaskParentCannotBeEpicException();
+    } else if (!newParentIsEpic) {
+      throw new ParentNotAllowedException();
+    }
+    requireOpenChildAllowed(newParent, newParentIsEpic, row.status());
+    return new ResolvedParent(newParent, newParentType);
+  }
+
+  /** row 의 지금 부모 참조(이력의 from) — 부모가 없으면 null. */
+  private ParentRef currentParentRef(IssueRow row) {
+    if (row.parentIssueId() == null) return null;
+    var parent = issueRepository.findById(row.parentIssueId()).orElseThrow();
+    return toParentRef(parent, typeRepository.findById(parent.typeId()).orElseThrow());
   }
 
   /** 부모 이슈 행·유형 행 → 응답·이력용 부모 요약(번호·제목·유형·상태, WP-247). 상위 변경 경로 세 곳이 같은 모양으로 만든다. */

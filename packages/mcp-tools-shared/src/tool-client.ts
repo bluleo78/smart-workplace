@@ -163,7 +163,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   createIssue(projectKey: string, body: Record<string, unknown>): Promise<unknown>;
   /** 내용/상태/우선순위/날짜 PATCH. */
   updateIssueContent(issueKey: string, body: Record<string, unknown>): Promise<unknown>;
-  setIssueType(issueKey: string, typeId: number): Promise<void>;
+  /** 유형 변경 — parentNumber 를 주면 같은 요청에서 부모도 바꾼다(WP-745: SUBTASK 로 바꿀 때 부모가 필수). */
+  setIssueType(issueKey: string, typeId: number, parentNumber?: number): Promise<void>;
   setIssueParent(issueKey: string, parentNumber: number | null): Promise<void>;
   replaceIssueAssignees(issueKey: string, assigneeIds: number[]): Promise<unknown>;
   /** PUT .../labels — 집합 교체. labelNames(WP-394)는 이름으로 붙일 라벨로, 없으면 서버가 같은 트랜잭션에서 만든다. */

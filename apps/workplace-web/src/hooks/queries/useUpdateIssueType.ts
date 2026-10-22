@@ -16,7 +16,9 @@ export function useUpdateIssueType(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (typeId: number) => updateIssueTypeOf(projectKey, issueNumber, typeId),
+    // parentNumber 는 SUBTASK 로 바꿀 때만 함께 보낸다(WP-745).
+    mutationFn: ({ typeId, parentNumber }: { typeId: number; parentNumber?: number }) =>
+      updateIssueTypeOf(projectKey, issueNumber, typeId, parentNumber),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });

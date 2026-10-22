@@ -217,8 +217,8 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async updateIssueContent(issueKey, body) {
       return (await http.patch(issue(issueKey), body)).data;
     },
-    async setIssueType(issueKey, typeId) {
-      await http.patch(`${issue(issueKey)}/type`, { typeId });
+    async setIssueType(issueKey, typeId, parentNumber) {
+      await http.patch(`${issue(issueKey)}/type`, parentNumber === undefined ? { typeId } : { typeId, parentNumber });
     },
     async setIssueParent(issueKey, parentNumber) {
       await http.patch(`${issue(issueKey)}/parent`, { parentNumber });
