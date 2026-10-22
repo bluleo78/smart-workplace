@@ -68,6 +68,13 @@ public class SecurityConfig {
                         "/api/v1/auth/sso/start",
                         "/api/v1/auth/sso/callback")
                     .permitAll()
+                    // 헬스(WP-749) — 외부 LB·모니터가 로그인 없이 가볍게 부르는 경로. 응답은 {"status":"ok"} 뿐이라 읽기만 연다 —
+                    // 헬스
+                    // 체크가 HEAD 로 부르기도 해 GET 과 HEAD 를 연다(Spring 은 HEAD 를 같은 GET 핸들러로 보내 본문 없이 응답).
+                    .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/health")
+                    .permitAll()
+                    .requestMatchers(org.springframework.http.HttpMethod.HEAD, "/api/v1/health")
+                    .permitAll()
                     // M365 메일 연결 — 프론트 콜백 라우트가 state 와 함께 POST /complete 로 중계 — JWT 없이 state 로 식별.
                     // (다른 앱에서 옮겨 온 triggers·slack inbound·kakao/slack 콜백 허용은 이 앱에 없는 경로라 걷어냈다 — 같은
                     // 경로로 API 를 추가하면 인증 없이 공개될 수 있었다(WP-673). 공개 경로는 실제 있는 것만 둔다.)
