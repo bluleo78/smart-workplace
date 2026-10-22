@@ -35,10 +35,10 @@ function focusLost(list: HTMLElement): boolean {
 }
 
 /**
- * 탭 순서에 없는 행에 포커스를 준다 — 그동안만 tabindex=-1 을 달고 떠나면 뗀다(늘 달아 두면 행 빈 곳 클릭이 행을 포커스해
- * 키보드 단축키 판정 등 body 포커스를 전제로 한 동작이 달라진다).
+ * 탭 순서에 없는 행(·보드 열 같은 컨테이너)에 포커스를 준다 — 그동안만 tabindex=-1 을 달고 떠나면 뗀다(늘 달아 두면 빈 곳 클릭이
+ * 그 요소를 포커스해 키보드 단축키 판정 등 body 포커스를 전제로 한 동작이 달라진다).
  */
-function focusRow(row: HTMLElement) {
+export function focusRow(row: HTMLElement) {
   if (!row.hasAttribute('tabindex')) {
     row.setAttribute('tabindex', '-1');
     row.addEventListener('blur', () => row.removeAttribute('tabindex'), { once: true });

@@ -28,6 +28,7 @@ import type {
 } from '../../../types/issue';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
+import { useKeyboardDropFocus } from '../hooks/useKeyboardDropFocus';
 import { IssueCard } from './IssueCard';
 import { IssueCardMenuContext } from './issueCardMenuContext';
 import { IssueDndProvider, useIssueDnd } from './IssueDndProvider';
@@ -84,6 +85,8 @@ function IssueBoardViewInner({
   const showAllClosedFor = (status: string) =>
     closedHiding && CLOSED_ISSUE_STATUSES.has(status) ? closedHiding.onShowAll : undefined;
   const updateStatus = useUpdateIssueStatus(projectKey, closedHiding);
+  // 키보드로 다른 열에 놓은 카드는 새 열에 다시 그려져 포커스가 빠진다 — 옮긴 카드(숨겨지면 놓은 열)로 잇는다(WP-837).
+  const focusKeyboardDrop = useKeyboardDropFocus();
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
   const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[], linkFor: cardTo, closedHiding });
   // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
@@ -143,6 +146,7 @@ function IssueBoardViewInner({
     if (!sourceStatus || !targetStatus || !issueNumber) return;
     if (sourceStatus === targetStatus) return;
     updateStatus.mutate({ number: issueNumber, status: targetStatus });
+    if (e.activatorEvent instanceof KeyboardEvent) focusKeyboardDrop({ number: issueNumber, status: targetStatus });
   }
 
   // 순차 로드 상태 문구(그룹 보드) — 데스크톱 BoardScroll footer(mt-3)와 모바일 탭 컬럼(gap 이 간격을 맡아 여백 없음)이 같은 마크업을 쓴다.
