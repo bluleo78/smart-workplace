@@ -1382,3 +1382,46 @@ test.describe('이슈 chat panel', () => {
     await expect(page.getByTestId('chat-composer')).toHaveCount(0);
   });
 });
+
+// WP-833: 한국 밖 시간대 브라우저에서 날짜 구분선(KST)과 메시지 시각(브라우저 로컬)이 서로 다른 날을 가리켰다 — 시각도 KST 로 맞춘다.
+test.describe('이슈 chat panel — 한국 밖 시간대 브라우저', () => {
+  test.use({ timezoneId: 'UTC' });
+
+  test('날짜 구분선과 메시지 시각이 같은 KST 날·시각을 가리킨다', async ({ authenticatedPage: page }) => {
+    // KST 2026-10-23 01:30 = UTC 2026-10-22 16:30 — UTC 날짜와 KST 날짜가 다른 순간.
+    await page.clock.setFixedTime(new Date('2026-10-22T16:30:00Z'));
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '시간대' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 620,
+          threadId: THREAD_ID,
+          authorId: 20,
+          authorName: '동료',
+          authorKind: 'HUMAN',
+          body: '자정 넘어 보낸 메시지',
+          // KST 2026-10-23 01:28 = UTC 2026-10-22 16:28.
+          createdAt: '2026-10-22T16:28:00Z',
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+
+    await expect(page.getByTestId('date-divider')).toContainText('2026년 10월 23일');
+    const row = page.getByTestId('chat-message-620');
+    // 오늘(KST) 보낸 메시지라 시각만 — 브라우저(UTC) 시각 16:28 이 아니라 KST 01:28.
+    await expect(row.getByText('01:28', { exact: true })).toBeVisible();
+    await expect(row.getByText('16:28')).toHaveCount(0);
+  });
+});
