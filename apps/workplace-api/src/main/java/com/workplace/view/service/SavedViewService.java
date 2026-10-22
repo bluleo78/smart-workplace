@@ -79,7 +79,8 @@ public class SavedViewService {
     } catch (DuplicateKeyException e) {
       throw new SavedViewNameDuplicatedException(name);
     }
-    return toResponse(repository.findById(viewId).orElseThrow(), callerId);
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    return toResponse(reload(viewId), callerId);
   }
 
   /** 삭제 — owner 본인, 또는 SHARED 뷰면 프로젝트 OWNER 도 가능(모더레이션). 타인의 PRIVATE 뷰는 존재 은닉(404). */
@@ -109,7 +110,13 @@ public class SavedViewService {
     repository.setPinned(viewId, pinned);
     changeNotifier.savedView(
         OP_UPDATED, project, viewId, callerId, row.ownerId(), "SHARED".equals(row.visibility()));
-    return toResponse(repository.findById(viewId).orElseThrow(), callerId);
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    return toResponse(reload(viewId), callerId);
+  }
+
+  /** 수정·고정 뒤 응답용 다시 읽기 — 그 사이 지워졌으면 404(WP-755). */
+  private SavedViewRow reload(Long viewId) {
+    return repository.findById(viewId).orElseThrow(() -> new SavedViewNotFoundException(viewId));
   }
 
   /** 호출자가 프로젝트 OWNER 역할인지 — assertWithRole 통과 여부로 판정. */

@@ -112,7 +112,8 @@ public class IssueTypeService {
     }
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_ISSUE_TYPE, OP_UPDATED, project, typeId, callerId);
-    return toResponse(repo.findById(typeId).orElseThrow());
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    return toResponse(repo.findById(typeId).orElseThrow(() -> new TypeNotFoundException(typeId)));
   }
 
   /** CUSTOM 유형 삭제 — OWNER 권한. 시스템 유형 또는 사용 중 유형은 차단. */

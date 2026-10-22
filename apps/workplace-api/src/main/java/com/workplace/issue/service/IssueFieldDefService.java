@@ -94,7 +94,9 @@ public class IssueFieldDefService {
     }
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_FIELD_DEF, OP_UPDATED, project, fieldId, callerId);
-    return toResponse(repo.findById(fieldId).orElseThrow());
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    return toResponse(
+        repo.findById(fieldId).orElseThrow(() -> new FieldNotFoundException(fieldId)));
   }
 
   /** 이전 options 에는 있었지만 새 options 에는 없는 옵션 집합 (삭제 대상). */

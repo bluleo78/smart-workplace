@@ -73,7 +73,9 @@ public class CycleService {
     }
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_CYCLE, OP_UPDATED, project, cycleId, callerId);
-    return toResponse(cycleRepository.findById(cycleId).orElseThrow());
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    return toResponse(
+        cycleRepository.findById(cycleId).orElseThrow(() -> new CycleNotFoundException(cycleId)));
   }
 
   /** OWNER — 사이클 삭제(issue_cycle cascade). */
