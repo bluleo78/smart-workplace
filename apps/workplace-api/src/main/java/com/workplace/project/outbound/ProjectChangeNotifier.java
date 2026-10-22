@@ -29,6 +29,9 @@ public class ProjectChangeNotifier {
   public static final String RESOURCE_ISSUE_TYPE = "issue-type";
   public static final String RESOURCE_SAVED_VIEW = "saved-view";
 
+  /** 프로젝트별 이슈 상태(WP-807) — 추가·이름 변경 시 보드 컬럼·상태 고르기를 다시 받게 한다. */
+  public static final String RESOURCE_PROJECT_STATUS = "PROJECT_STATUS";
+
   private final ApplicationEventPublisher publisher;
 
   /**
