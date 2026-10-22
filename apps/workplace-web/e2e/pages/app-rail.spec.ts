@@ -24,6 +24,24 @@ test('데스크톱에서 앱 레일은 축소 시 아이콘 전용이다(워드�
   await expect(page.getByTestId('app-rail').getByText('Works', { exact: true })).toBeHidden()
 })
 
+// WP-815: 「본문 바로가기」 — 첫 Tab 에 보이고, 누르면 레일을 건너뛰어 본문(<main>)으로 포커스가 간다. 평소엔 보이지 않는다.
+test('첫 Tab 은 「본문 바로가기」이고 Enter 로 본문으로 건너뛴다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await expect(page.getByTestId('app-rail')).toBeVisible()
+  const skip = page.getByTestId('skip-to-main')
+  await expect(skip).not.toBeInViewport()
+
+  await page.keyboard.press('Tab')
+  await expect(skip).toBeFocused()
+  await expect(skip).toBeInViewport()
+  await expect(skip).toHaveText('본문 바로가기')
+
+  await page.keyboard.press('Enter')
+  await expect(page.locator('main#main-content')).toBeFocused()
+  await expect(page).toHaveURL(/\/$/) // 주소에 #main-content 가 붙지 않는다
+})
+
 // 브랜드 케이싱 회귀 가드 — 워드마크 첫 줄은 "Gen:iA" 그대로여야 한다.
 // uppercase 계열 클래스가 다시 붙으면 DOM 텍스트는 그대로라 렌더만 "GEN:IA"로 깨지므로,
 // 실제 계산된 text-transform 까지 함께 단언한다.
