@@ -1,6 +1,7 @@
 package com.workplace.cycle.repository;
 
 import static com.workplace.jooq.Tables.CYCLE;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
 import com.workplace.cycle.dto.CycleRow;
 import java.time.OffsetDateTime;
@@ -44,6 +45,18 @@ public class CycleRepository {
   public List<CycleRow> findByProject(Long projectId) {
     return dsl.selectFrom(CYCLE)
         .where(CYCLE.PROJECT_ID.eq(projectId))
+        .orderBy(CYCLE.START_DATE.desc().nullsLast(), CYCLE.NAME.asc())
+        .fetch(this::mapToRow);
+  }
+
+  /** 사용자가 멤버인 프로젝트들의 사이클 — 횡단 이슈 검색의 사이클 이름 해석 후보(WP-735). */
+  public List<CycleRow> findByMemberProjects(Long userId) {
+    return dsl.selectFrom(CYCLE)
+        .where(
+            CYCLE.PROJECT_ID.in(
+                dsl.select(PROJECT_MEMBER.PROJECT_ID)
+                    .from(PROJECT_MEMBER)
+                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
         .orderBy(CYCLE.START_DATE.desc().nullsLast(), CYCLE.NAME.asc())
         .fetch(this::mapToRow);
   }

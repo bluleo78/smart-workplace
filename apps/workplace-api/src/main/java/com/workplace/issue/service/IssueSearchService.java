@@ -23,7 +23,6 @@ import com.workplace.label.dto.LabelSummary;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -230,30 +229,23 @@ public class IssueSearchService {
     List<List<Long>> labelIdGroups =
         filterResolver.resolveLabelGroups(csv(p.get("label")), projectId, callerId);
 
-    // 사이클 ID CSV — OR 결합 필터. 'null' 은 백로그 = 진행 중·예정 사이클에 연결되지 않은 이슈 포함(완료 사이클에만 남은
-    // 이슈 포함, assignee=null 과 같은 토큰 규약, #878). 'none' 은 사이클 연결이 하나도 없는 이슈(WP-176). 잘못된 토큰은 무시.
+    // 사이클 CSV — 숫자 id 또는 사이클 이름, OR 결합 필터. 'null' 은 백로그 = 진행 중·예정 사이클에 연결되지 않은 이슈 포함(완료
+    // 사이클에만 남은 이슈 포함, assignee=null 과 같은 토큰 규약, #878). 'none' 은 사이클 연결이 하나도 없는 이슈(WP-176).
+    // 못 찾는 이름은 400 — 예전엔 버려서 필터 없는 전체 목록을 돌려줬다(WP-735).
     var cycleTokens = csv(p.get("cycle"));
     boolean includeNoOpenCycle = cycleTokens.stream().anyMatch("null"::equalsIgnoreCase);
     boolean includeNoCycle = cycleTokens.stream().anyMatch("none"::equalsIgnoreCase);
-    List<Long> cycleIds = new ArrayList<>();
-    for (String tok : cycleTokens) {
-      if ("null".equalsIgnoreCase(tok) || "none".equalsIgnoreCase(tok)) continue;
-      try {
-        cycleIds.add(Long.parseLong(tok));
-      } catch (NumberFormatException ignored) {
-        // 잘못된 사이클 토큰은 필터 미적용
-      }
-    }
+    List<Long> cycleIds =
+        filterResolver.resolveCycleIds(
+            cycleTokens.stream()
+                .filter(t -> !"null".equalsIgnoreCase(t) && !"none".equalsIgnoreCase(t))
+                .toList(),
+            projectId,
+            callerId);
 
-    // 마일스톤 ID CSV — OR 결합 필터. 잘못된 토큰은 무시.
-    List<Long> milestoneIds = new ArrayList<>();
-    for (String tok : csv(p.get("milestone"))) {
-      try {
-        milestoneIds.add(Long.parseLong(tok));
-      } catch (NumberFormatException ignored) {
-        // 잘못된 마일스톤 토큰은 필터 미적용
-      }
-    }
+    // 마일스톤 CSV — 숫자 id 또는 마일스톤 이름, OR 결합 필터. 못 찾는 이름은 400(WP-735).
+    List<Long> milestoneIds =
+        filterResolver.resolveMilestoneIds(csv(p.get("milestone")), projectId, callerId);
 
     // 유형 CSV — 숫자 id 또는 유형 이름(#841). OR 결합 필터.
     List<Long> typeIds = filterResolver.resolveTypeIds(csv(p.get("type")), projectId, callerId);
