@@ -6,6 +6,7 @@ import com.workplace.role.dto.AdminPermissionCodes;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.user.dto.UserKind;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -113,7 +114,8 @@ public class RoleRepository {
     if (!permissionIds.isEmpty()) {
       var insert =
           dsl.insertInto(ROLE_PERMISSION, ROLE_PERMISSION.ROLE_ID, ROLE_PERMISSION.PERMISSION_ID);
-      for (Long permissionId : permissionIds) {
+      // WP-821: 같은 id 가 두 번 오면 기본 키 충돌(409)이 났다 — 집합 교체이므로 순서를 지켜 한 번씩만 넣는다.
+      for (Long permissionId : new LinkedHashSet<>(permissionIds)) {
         insert = insert.values(roleId, permissionId);
       }
       insert.execute();

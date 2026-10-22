@@ -18,6 +18,7 @@ import com.workplace.user.dto.UserResponse;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -737,7 +738,8 @@ public class UserRepository {
 
     if (!roleIds.isEmpty()) {
       var insert = dsl.insertInto(USER_ROLE, USER_ROLE.USER_ID, USER_ROLE.ROLE_ID);
-      for (Long roleId : roleIds) {
+      // WP-821: 같은 id 가 두 번 오면 기본 키 충돌(409)이 났다 — 집합 교체이므로 순서를 지켜 한 번씩만 넣는다.
+      for (Long roleId : new LinkedHashSet<>(roleIds)) {
         insert = insert.values(userId, roleId);
       }
       insert.execute();
