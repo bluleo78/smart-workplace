@@ -229,8 +229,10 @@ public class WikiSpaceService {
    * OWNER 가 아니면(또는 다른 OWNER 가 있으면) 그대로 진행한다.
    */
   private void requireAnotherOwner(long spaceId, long userId) {
-    boolean targetIsOwner = members.findRole(spaceId, userId).map("OWNER"::equals).orElse(false);
-    if (targetIsOwner && members.countOwners(spaceId) <= 1) {
+    // 소유자 행을 잠근 뒤 그 집합으로 판정한다(WP-788) — 두 소유자가 서로를 동시에 강등·제거해도 나중 요청은 앞 요청의 커밋을 기다렸다 판정해 소유자
+    // 0명이 되지 않는다.
+    List<Long> owners = members.lockOwnerIds(spaceId);
+    if (owners.contains(userId) && owners.size() <= 1) {
       throw new WikiLastOwnerException(spaceId);
     }
   }

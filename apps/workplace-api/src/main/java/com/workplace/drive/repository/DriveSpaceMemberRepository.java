@@ -44,11 +44,19 @@ public class DriveSpaceMemberRepository {
         .fetchOptional(DRIVE_SPACE_MEMBER.ROLE);
   }
 
-  /** 공간의 OWNER 수 — 마지막 OWNER 를 빼거나 강등하지 못하게 하는 데 쓴다(WP-496). */
-  public int countOwners(long spaceId) {
-    return dsl.fetchCount(
-        DRIVE_SPACE_MEMBER,
-        DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId).and(DRIVE_SPACE_MEMBER.ROLE.eq("OWNER")));
+  /**
+   * 공간의 OWNER 멤버 행을 잠그고 그 사용자 id 를 돌려준다(WP-788). 「마지막 소유자」 판정을 이 잠근 집합으로 해야, 두 소유자가 서로를 동시에 강등·제거할
+   * 때 나중 요청이 앞 요청의 커밋을 기다렸다가 줄어든 소유자로 판정한다 — 단순 COUNT 는 둘 다 커밋 전의 소유자 2명을 보고 통과해 소유자 0명이 됐다. 같은 행을
+   * 잡는 순서가 엇갈려 교착하지 않게 user_id 순으로 잠근다.
+   */
+  public List<Long> lockOwnerIds(long spaceId) {
+    return dsl.select(DRIVE_SPACE_MEMBER.USER_ID)
+        .from(DRIVE_SPACE_MEMBER)
+        .where(DRIVE_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+        .and(DRIVE_SPACE_MEMBER.ROLE.eq("OWNER"))
+        .orderBy(DRIVE_SPACE_MEMBER.USER_ID)
+        .forUpdate()
+        .fetch(DRIVE_SPACE_MEMBER.USER_ID);
   }
 
   public void changeRole(long spaceId, long userId, String role) {
