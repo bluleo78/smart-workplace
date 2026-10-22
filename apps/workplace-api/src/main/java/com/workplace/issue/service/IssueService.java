@@ -131,8 +131,17 @@ public class IssueService {
     Long parentIssueId = plan.parentIssueId();
     // 부모가 지금도 살아 있는지 잠가서 다시 본다(WP-759) — 사전검증과 공유하는 planCreate 는 읽기 전용이라 잠글 수 없다. 에픽 삭제와 겹치면
     // 삭제 커밋을 기다렸다가 거절해, 지워진 에픽 아래에 새 이슈가 남지 않게 한다.
-    if (parentIssueId != null && !issueRepository.lockActiveForShare(parentIssueId)) {
-      throw new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다");
+    if (parentIssueId != null) {
+      IssueRow parent =
+          issueRepository
+              .findActiveByIdForShare(parentIssueId)
+              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+      // 잠근 뒤의 최신 부모로 「완료 에픽에는 미완료 하위 불가」를 다시 본다(WP-771) — 에픽 완료가 먼저 잠금을 쥐고 있었으면 planCreate 는 완료 전
+      // 상태를 보고 통과해, 완료 에픽 아래 미완료 하위가 남았다.
+      requireOpenChildAllowed(
+          parent,
+          "EPIC".equals(typeRepository.findById(parent.typeId()).orElseThrow().name()),
+          req.status() != null ? req.status() : "TODO");
     }
 
     int number = sequenceRepository.allocateNext(project.id());
@@ -576,6 +585,7 @@ public class IssueService {
   public IssueDetailResponse update(
       Long callerId, String projectKey, int number, UpdateIssueRequest req) {
     var project = accessGuard.resolve(projectKey);
+    lockParentIfReopening(project, number, req);
     // #611 읽은 값에 요청 필드를 병합해 전 컬럼을 다시 쓰므로 행을 잠가 동시 수정이 서로를 되돌리지 않게 한다.
     var before =
         issueRepository
@@ -750,6 +760,20 @@ public class IssueService {
     }
 
     return get(callerId, projectKey, number);
+  }
+
+  /**
+   * 끝난 하위를 다시 여는 요청이면 그 부모를 하위보다 먼저 쓰기 잠금한다(WP-771). 다시 연 하위는 완료 에픽도 다시 열어야 하는데(WP-689), 에픽 완료가 동시에
+   * 오면 완료 쪽은 하위가 아직 끝난 것으로, 다시 여는 쪽은 에픽이 아직 열린 것으로 보고 둘 다 통과해 완료 에픽 아래 미완료 하위가 남았다. 부모를 먼저 잠그면 늦은
+   * 쪽이 앞선 결과를 본다. 순서를 에픽 완료·삭제와 같은 「부모→하위」로 맞춰 서로 기다리지 않게 한다 — 그래서 하위 행을 잠그기 전에, 잠그지 않은 읽기로 대상을
+   * 고른다(그 사이 상태·부모가 바뀌면 아래 다시 열기 판정이 잠근 행으로 다시 본다).
+   */
+  private void lockParentIfReopening(ProjectRow project, int number, UpdateIssueRequest req) {
+    if (req.status() == null || IssueStatuses.CLOSED.contains(req.status())) return;
+    issueRepository
+        .findByProjectAndNumber(project.id(), number)
+        .filter(row -> row.parentIssueId() != null && IssueStatuses.CLOSED.contains(row.status()))
+        .ifPresent(row -> issueRepository.lockActiveByIdForUpdate(row.parentIssueId()));
   }
 
   /** DnD 등에서 status 만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. */
