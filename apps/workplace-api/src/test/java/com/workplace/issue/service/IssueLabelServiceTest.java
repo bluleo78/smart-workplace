@@ -151,4 +151,21 @@ class IssueLabelServiceTest extends IntegrationTestBase {
         .isInstanceOf(ProjectNotFoundException.class);
     assertThat(labelService.list(owner, p.key())).isEmpty();
   }
+
+  /** WP-750 — 라벨 교체의 이름 라벨도 한 줄로 다듬고(제로폭뿐이면 400) 한 요청 20개까지만 받는다. 거절되면 라벨이 생기지 않는다. */
+  @Test
+  void replace_with_label_names_rejects_invisible_and_too_many() {
+    Long owner = createUser("z");
+    ProjectResponse p = newProject(owner, "IZ");
+    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+
+    assertThatThrownBy(
+            () -> issueLabelService.replace(owner, p.key(), 1, List.of(), List.of("\u200B")))
+        .isInstanceOf(com.workplace.label.exception.InvalidLabelNameException.class);
+    var many = java.util.stream.IntStream.range(0, 200).mapToObj(i -> "n" + i).toList();
+    assertThatThrownBy(() -> issueLabelService.replace(owner, p.key(), 1, List.of(), many))
+        .isInstanceOf(com.workplace.label.exception.InvalidLabelNameException.class)
+        .hasMessageContaining("20개");
+    assertThat(labelService.list(owner, p.key())).isEmpty();
+  }
 }

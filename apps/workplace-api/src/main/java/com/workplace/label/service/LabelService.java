@@ -5,6 +5,7 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.service.IssueHistoryRecorder;
 import com.workplace.label.dto.ColorToken;
@@ -78,15 +79,22 @@ public class LabelService {
   /** 라벨 이름 상한(label.name VARCHAR(40), CreateLabelRequest @Size 와 같다). */
   private static final int NAME_MAX = 40;
 
+  /** 한 요청에서 이름으로 붙일 수 있는 라벨 수 상한 — 없는 이름은 새로 만들어지므로 한 요청이 라벨을 수백 개 만들지 않게 한다(WP-750). */
+  private static final int NAMES_MAX = 20;
+
   /**
-   * 이름으로 붙일 라벨 목록 정규화(WP-394) — 앞뒤 공백을 빼고 같은 이름은 하나로(순서 유지). 비었거나 40자를 넘으면 400. 쓰기 없이 검증만 하므로 이슈 생성
-   * 사전검증(dry-run)에서도 쓴다.
+   * 이름으로 붙일 라벨 목록 정규화(WP-394) — 라벨 생성 API 와 같이 한 줄로 다듬고(줄바꿈은 공백, 앞뒤 공백·제로폭 문자 제거, WP-750) 같은 이름은
+   * 하나로(순서 유지). 비었거나 40자를 넘거나 {@value #NAMES_MAX}개를 넘으면 400. 쓰기 없이 검증만 하므로 이슈 생성 사전검증(dry-run)에서도
+   * 쓴다.
    */
   public static List<String> normalizeNames(List<String> names) {
     if (names == null || names.isEmpty()) return List.of();
+    if (names.size() > NAMES_MAX) {
+      throw new InvalidLabelNameException("라벨 이름은 한 번에 " + NAMES_MAX + "개까지 보낼 수 있습니다");
+    }
     var out = new LinkedHashSet<String>();
     for (String raw : names) {
-      String name = raw == null ? "" : raw.trim();
+      String name = raw == null ? "" : SingleLineTitles.normalize(raw);
       if (name.isEmpty()) throw new InvalidLabelNameException("라벨 이름이 비어 있습니다");
       if (name.length() > NAME_MAX) {
         throw new InvalidLabelNameException("라벨 이름은 " + NAME_MAX + "자 이하여야 합니다: '" + name + "'");
