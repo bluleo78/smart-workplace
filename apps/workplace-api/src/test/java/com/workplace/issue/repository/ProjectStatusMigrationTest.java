@@ -112,6 +112,17 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
     return dsl.select(ISSUE.STATUS).from(ISSUE).where(ISSUE.ID.eq(issueId)).fetchOne(ISSUE.STATUS);
   }
 
+  /**
+   * project_status 에 FORCE RLS 가 걸린다(V182·V197 패턴) — 시드 트리거는 GUC 아래 NEW.tenant_id 로 써서 그대로 통과한다.
+   */
+  @Test
+  void project_status_는_RLS_가_강제된다() {
+    assertThat(
+            dsl.fetchOne("select relforcerowsecurity from pg_class where relname='project_status'")
+                .get(0, Boolean.class))
+        .isTrue();
+  }
+
   @Test
   void 새_팀프로젝트는_4상태가_범주순으로_시드된다() {
     Long owner = createUser("ps-a");

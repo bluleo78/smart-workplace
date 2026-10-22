@@ -4,11 +4,13 @@
 -- 복합 FK (status_id, project_id, status) → project_status(id, project_id, category) 가 "같은 프로젝트의 상태" 와
 -- "범주 일치" 를 DB 수준에서 함께 보장한다.
 --
--- 구 파드 호환용 트리거 — 후속 이슈에서 (b)(c) 제거:
---   (a) project_status_default_id() : 범주 기본 상태(가장 앞 position) id 조회.
---   (b) trg_project_seed_statuses    : 구 코드가 만든 프로젝트에도 4상태를 시드한다.
+-- 함수·트리거:
+--   (a) project_status_default_id() : 범주 기본 상태(가장 앞 position) id 조회 — (c) 가 쓴다.
+--   (b) trg_project_seed_statuses    : 새 프로젝트에 기본 4상태를 시드한다. 영구 — 애플리케이션은 상태를 따로 시드하지 않으므로
+--                                      이 트리거가 유일한 시드 경로다(구 파드·직접 INSERT 포함). 지우지 않는다.
 --   (c) trg_issue_status_id_sync     : 구 코드가 status 만 쓰고 status_id 를 모를 때 범주 기본 상태로 맞춘다.
--- 롤링 배포 중에는 status_id 를 모르는 구 파드와 새 파드가 함께 쓰므로 (b)(c) 가 필요하다.
+--                                      롤링 배포 중 status_id 를 모르는 구 파드와 새 파드가 함께 쓰기 때문에 둔 임시 호환 장치로,
+--                                      후속 이슈에서 지울 것은 (c) 뿐이다.
 
 -- ============================================================
 -- 1) project_status 테이블·인덱스·RLS
@@ -33,7 +35,7 @@ CREATE UNIQUE INDEX uq_project_status_name ON project_status (project_id, lower(
 CREATE INDEX idx_project_status_project ON project_status (project_id, category, position);
 CREATE INDEX idx_project_status_tenant ON project_status (tenant_id);
 
--- V48 과 같은 NULLIF fail-closed 테넌트 격리.
+-- V48 과 같은 NULLIF fail-closed 테넌트 격리. FORCE 는 아래 시드·백필 뒤(3 끝)에 건다.
 ALTER TABLE project_status ENABLE ROW LEVEL SECURITY;
 CREATE POLICY project_status_tenant_isolation ON project_status
   USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::bigint)
@@ -75,6 +77,11 @@ ALTER TABLE issue
 
 CREATE INDEX idx_issue_status_id ON issue (status_id);
 
+-- V182·V183·V185·V197 처럼 소유자에게도 RLS 를 강제한다. GUC 없이 쓰는 위 시드·백필 뒤에 둔다
+-- (Flyway 소유자 롤은 BYPASSRLS 라 순서와 상관없이 통과하지만, 데이터 쓰기 뒤에 두어 그 전제에 기대지 않는다).
+-- 런타임 쓰기(트리거 시드 포함)는 app.tenant_id GUC 아래에서 NEW.tenant_id 로 쓰므로 정책을 통과한다.
+ALTER TABLE project_status FORCE ROW LEVEL SECURITY;
+
 -- ============================================================
 -- 4) 함수·트리거
 -- ============================================================
@@ -90,7 +97,7 @@ LANGUAGE sql STABLE AS $$
    LIMIT 1
 $$;
 
--- (b) 새 프로젝트에 기본 4상태 시드. 구 파드·직접 INSERT 경로 모두에서 상태 없는 프로젝트가 생기지 않게 한다.
+-- (b) 새 프로젝트에 기본 4상태 시드(영구 — 유일한 시드 경로). 구 파드·직접 INSERT 경로 모두에서 상태 없는 프로젝트가 생기지 않게 한다.
 --     tenant_id 는 GUC 기본값이 아닌 프로젝트의 값을 그대로 쓴다.
 CREATE FUNCTION project_seed_statuses()
 RETURNS TRIGGER
@@ -109,7 +116,7 @@ CREATE TRIGGER trg_project_seed_statuses
   AFTER INSERT ON project
   FOR EACH ROW EXECUTE FUNCTION project_seed_statuses();
 
--- (c) status ↔ status_id 동기화.
+-- (c) status ↔ status_id 동기화(구 파드 호환 — 후속 이슈에서 제거).
 --     - status_id 없이 INSERT/UPDATE: 범주 기본 상태로 채운다(구 코드의 INSERT).
 --     - UPDATE 에서 status_id 는 그대로인데 참조 상태의 "현재" 범주·프로젝트가 NEW 와 다를 때만 범주 기본 상태로 바꾼다
 --       (구 코드가 status 나 project_id 만 바꾼 경우).

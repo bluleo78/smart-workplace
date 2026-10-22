@@ -21,7 +21,12 @@ import {
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import { useCreateProjectStatus, useProjectStatuses, useRenameProjectStatus } from '../../../hooks/queries/useProjectStatuses';
+import {
+  useCreateProjectStatus,
+  useProjectStatuses,
+  useRefreshStatusesOnUnknown,
+  useRenameProjectStatus,
+} from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
@@ -151,6 +156,9 @@ function IssueBoardViewInner({
       allIssues.push(it);
     }
   }
+
+  // 상태 목록에 없는 상태의 카드는 어느 컬럼에도 들어가지 못한다 — 그 상태를 만난 때 한 번 상태 목록을 다시 받아 컬럼을 만든다(WP-808).
+  useRefreshStatusesOnUnknown(projectKey, allIssues);
 
   // byStatusId 는 컬럼(상태) 기준으로 동적 생성 — 컬럼에 없는 상태(개인 보드의 취소 범주)는 자연 제외.
   const byStatusId: Record<number, IssueResponse[]> = {};
