@@ -105,6 +105,7 @@ class WikiAiServiceTest {
         OffsetDateTime.now(),
         null,
         null,
+        false,
         false);
   }
 

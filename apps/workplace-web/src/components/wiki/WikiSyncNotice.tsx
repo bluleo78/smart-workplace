@@ -2,10 +2,11 @@ import { Ban, CloudOff, CloudUpload, LogIn, RotateCw, Trash2 } from 'lucide-reac
 import { type RefObject, useEffect, useLayoutEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 
-import { pageGutterClass, pageReadingWidthClass } from '@/components/layout/Page'
+import { pageGutterClass } from '@/components/layout/Page'
 import { cn } from '@/lib/utils'
 
 import { isAccessLost, reloadPage, type SyncStatus } from '../../lib/collab/collabStatus'
+import { wikiBodyColumnClass } from './wikiBodyWidth'
 
 /**
  * 동기화 안내 띠(WP-287 디자이너 리뷰) — 미전송(unsent)·접근 불가(forbidden)·삭제됨(deleted)·로그인 필요(signed-out)·새 버전(outdated)일 때 본문 스크롤 영역 맨 위에 붙는다.
@@ -22,19 +23,23 @@ export function WikiSyncNotice({
   status,
   listPath,
   scrollRef,
+  fullWidth = false,
 }: {
   status: SyncStatus
   /** 종료 안내(삭제됨·접근 불가)의 "노트 목록으로" 목적지 — wikiListPath 가 정한다. */
   listPath: string
   scrollRef: RefObject<HTMLDivElement | null>
+  /** 「전체 폭」 페이지(WP-793) — 띠 안 박스도 본문 칼럼처럼 끝까지 편다. */
+  fullWidth?: boolean
 }) {
+  const column = wikiBodyColumnClass(fullWidth)
   const stripRef = useRef<HTMLDivElement>(null)
   useKeepContentOnStripResize(scrollRef, stripRef, isAccessLost(status))
 
   return (
     <div ref={stripRef} className="sticky top-0 z-10">
       {status === 'forbidden' && (
-        <NoticeBox>
+        <NoticeBox column={column}>
           <Ban className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
           {/* 종료 상태 — 접근 권한을 잃었거나, 삭제 여부를 모르는 거절(접속 시점에 이미 지워진 노트 등)이다.
               편집 중 삭제는 서버가 삭제 코드로 따로 알려 아래 deleted 로 간다. 재연결하지 않으므로 스피너 없이 알리고,
@@ -48,7 +53,7 @@ export function WikiSyncNotice({
         </NoticeBox>
       )}
       {status === 'deleted' && (
-        <NoticeBox>
+        <NoticeBox column={column}>
           <Trash2 className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
           {/* 종료 상태(WP-296) — 다른 사람이 이 노트를 지웠다. 화면의 내용은 그대로 둬 아직 옮기지 못한 글을 복사할 수 있게 하고,
               나갈 길(노트 목록)을 준다. 재연결하지 않으므로 스피너 없이 알린다.
@@ -63,7 +68,7 @@ export function WikiSyncNotice({
         </NoticeBox>
       )}
       {status === 'signed-out' && (
-        <NoticeBox>
+        <NoticeBox column={column}>
           <LogIn className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
           {/* 종료 상태 — 로그인이 풀려(refresh 거절) 재연결하지 않는다. 앱의 다른 곳처럼 다시 로그인하도록 안내한다. */}
           <span role="alert" data-testid="wiki-signed-out-notice">
@@ -75,7 +80,7 @@ export function WikiSyncNotice({
         </NoticeBox>
       )}
       {status === 'outdated' && (
-        <NoticeBox>
+        <NoticeBox column={column}>
           <RotateCw className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
           {/* 종료 상태(WP-313) — 동기화 서버가 새 스키마로 배포돼 이 탭으론 붙지 않는다. 칩 title 은 모바일에서 안 보이므로
               미전송 입력이 저장되지 않는다는 사실을 여기서도 알린다. */}
@@ -93,7 +98,7 @@ export function WikiSyncNotice({
         </NoticeBox>
       )}
       {status === 'unsent' && (
-        <NoticeBox>
+        <NoticeBox column={column}>
           <CloudUpload className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
           {/* 오프라인 중 입력이 있다 — 탭을 닫으면 잃으므로(기기 저장 없음, Q8) 알린다. 강조 문구는 시안 ④ 그대로. */}
           <span role="status" data-testid="wiki-unsent-notice">
@@ -111,11 +116,11 @@ const NOTICE_CLASS =
   'flex items-start gap-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-foreground'
 
 /** 띠 한 줄 — 불투명 배경(bg-background) 위에 옅은 빨강 박스를 얹어, 겹쳐 뜬 본문이 비치지 않게 한다. 본문 칼럼과 가로 정렬. */
-function NoticeBox({ children }: { children: React.ReactNode }) {
+function NoticeBox({ column, children }: { column: string | undefined; children: React.ReactNode }) {
   return (
     <div className="border-b bg-background">
-      {/* 본문 칼럼(Page reading 폭 — 왼쪽 정렬·같은 페이지 여백)과 같은 축. */}
-      <div className={cn(pageGutterClass, pageReadingWidthClass, 'py-2')}>
+      {/* 본문 칼럼(가운데 읽기 폭 또는 전체 폭 — wikiBodyColumnClass, 같은 페이지 여백)과 같은 축. */}
+      <div className={cn(pageGutterClass, column, 'py-2')}>
         <div className={NOTICE_CLASS}>{children}</div>
       </div>
     </div>

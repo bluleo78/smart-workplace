@@ -257,6 +257,8 @@ export function IssueModuleLayout() {
 앱 셸 안 페이지의 본문 폭은 `Page` 의 `width` 로 **3종만** 쓴다 — 개별 화면이 `max-w-*`/`mx-auto` 를 직접 두지 않는다.
 읽기 폭(reading)은 **왼쪽 정렬** `max-w-3xl`, 설정 폭(settings)은 **왼쪽 정렬** `max-w-5xl`(+`@container`) 이다 — 가운데 정렬(`mx-auto`)은 헤더 시작선과 본문 시작선을 어긋나게 하므로 쓰지 않는다.
 
+> **예외 — 노트 본문(WP-793)**: 노트는 읽기 폭(768px) 칼럼을 본문 영역 **가운데**에 두고, 페이지별 「전체 폭」(⋯ 메뉴 스위치, 페이지에 저장)을 켜면 제한 없이 끝까지 편다. 노트는 넓은 화면에서 오래 읽고 쓰는 문서라 왼쪽 정렬이면 오른쪽만 크게 비어 보였다 — Notion·Confluence 와 같은 배치를 택하고 경로(헤더)와 본문 시작선 어긋남은 감수한다. 칼럼 클래스는 `wikiBodyColumnClass(fullWidth)`(`components/wiki/wikiBodyWidth.ts`) 하나로 에디터·버전 미리보기·동기화 안내 띠·skeleton·공개 공유 화면이 함께 쓴다. 다른 화면은 이 예외를 따르지 않는다.
+
 | 페이지 유형 | 지정 | 최대 너비 |
 |------------|------|-----------|
 | Tables / Boards / Lists / 분할형 | `<Page>`(기본 `width="full"`) | 제한 없음 |

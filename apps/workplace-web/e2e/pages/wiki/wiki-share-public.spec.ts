@@ -77,6 +77,27 @@ test.describe('노트 외부 보기(로그인 없음)', () => {
     await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
   })
 
+  test('「전체 폭」 페이지는 외부 보기도 읽기 폭 제한 없이 편다 (WP-793)', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await mockPublic(page)
+    // 공유 루트만 「전체 폭」으로 — 나중에 등록한 라우트가 먼저 받는다.
+    await page.route((u) => u.pathname === API, (r) => {
+      const pageId = Number(new URL(r.request().url()).searchParams.get('pageId') ?? ROOT)
+      const s = share(pageId)
+      return r.fulfill({ json: { ...s, page: { ...s.page, fullWidth: pageId === ROOT } } })
+    })
+    await page.goto(`/wiki/share/${TOKEN}`)
+
+    const article = page.getByTestId('wiki-public-share-page').locator('article')
+    await expect(article.getByRole('heading', { name: '제품 로드맵' })).toBeVisible()
+    expect((await article.boundingBox())!.width).toBeGreaterThan(1000)
+
+    // 기본 폭 페이지(하위)는 그대로 읽기 폭.
+    await page.goto(`/wiki/share/${TOKEN}/pages/${CHILD}`)
+    await expect(article.getByRole('heading', { name: '하반기 계획' })).toBeVisible()
+    expect((await article.boundingBox())!.width).toBeLessThanOrEqual(768)
+  })
+
   test('내부 링크를 로그인 없이 열면 로그인으로 가고 로그인 뒤 돌아온다', async ({ page }) => {
     await mockApi(page, 'GET', '/api/v1/auth/signup-available', { available: true })
     await mockApi(page, 'GET', '/api/v1/auth/sso/status', { m365: false })

@@ -40,6 +40,34 @@ export function useSaveTitle(spaceId: number, shareToken?: string) {
   })
 }
 
+/**
+ * 노트 「전체 폭」 저장(WP-793). 누르는 즉시 열린 페이지 캐시를 바꿔 본문 폭이 바로 바뀌고(낙관적), 실패하면 되돌린 뒤 알린다.
+ * 응답이 오면 서버 값으로 맞춘다 — 같은 페이지를 다른 사람이 동시에 바꿨다면 나중 값이 남는다.
+ */
+export function useSavePageFullWidth(shareToken?: string) {
+  const qc = useQueryClient()
+  const setFullWidth = (pageId: number, fullWidth?: boolean) =>
+    qc.setQueryData<WikiPageDetail>(wikiPageKey(pageId, shareToken), (cur) => (cur ? { ...cur, fullWidth } : cur))
+  return useMutation<WikiPageDetail, unknown, { pageId: number; fullWidth: boolean }, { prev?: boolean }>({
+    mutationFn: ({ pageId, fullWidth }) => wikiApi.savePageFullWidth(pageId, fullWidth, shareToken).then((r) => r.data),
+    onMutate: async ({ pageId, fullWidth }) => {
+      const key = wikiPageKey(pageId, shareToken)
+      // 진행 중인 상세 재조회가 낙관적 값을 옛 값으로 덮지 않게 먼저 멈춘다.
+      await qc.cancelQueries({ queryKey: key, exact: true })
+      const prev = qc.getQueryData<WikiPageDetail>(key)?.fullWidth
+      setFullWidth(pageId, fullWidth)
+      return { prev }
+    },
+    onSuccess: (data) => setFullWidth(data.id, data.fullWidth),
+    onError: (e, { pageId }, ctx) => {
+      setFullWidth(pageId, ctx?.prev)
+      handleApiError(e, '페이지 폭을 바꿀 수 없습니다')
+    },
+    // 저장 중 공동 편집자의 본문 저장 알림으로 시작된 재조회가 옛 값으로 낙관적 값을 덮을 수 있다 — 끝나면 서버 값으로 다시 맞춘다.
+    onSettled: (_d, _e, { pageId }) => qc.invalidateQueries({ queryKey: wikiPageKey(pageId, shareToken), exact: true }),
+  })
+}
+
 export function useDeletePage(spaceId: number) {
   const qc = useQueryClient()
   return useMutation({

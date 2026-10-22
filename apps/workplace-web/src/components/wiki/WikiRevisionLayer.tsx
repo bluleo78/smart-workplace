@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react'
 
-import { pageReadingWidthClass } from '@/components/layout/Page'
-
 import type { WikiRevisionHistory } from './useWikiRevisionHistory'
+import { wikiBodyColumnClass } from './wikiBodyWidth'
 import { WikiRevisionBar } from './WikiRevisionBar'
 import { revisionBarLabel } from './wikiRevisionFormat'
 import { WikiRevisionMobile } from './WikiRevisionMobile'
@@ -23,6 +22,7 @@ export function WikiRevisionLayer({
   pageId,
   isMobile,
   canRestore,
+  fullWidth = false,
   children,
 }: {
   revisions: WikiRevisionHistory
@@ -31,6 +31,8 @@ export function WikiRevisionLayer({
   isMobile: boolean
   /** 편집 권한(동기화 세션 판정) — 없으면 복원 버튼을 두지 않는다. */
   canRestore: boolean
+  /** 「전체 폭」 페이지(WP-793) — 미리보기 본문도 에디터 본문처럼 읽기 폭 제한 없이 펼친다. */
+  fullWidth?: boolean
   children: ReactNode
 }) {
   const { selectedItem } = revisions
@@ -57,7 +59,7 @@ export function WikiRevisionLayer({
           {/* 미리보기 덮개 — 에디터 스크롤 영역을 그대로 덮는 자체 스크롤 칸. 노트와 같은 여백·reading 폭. */}
           {previewing && (
             <div data-testid="wiki-revision-preview-scroll" className="absolute inset-0 overflow-y-auto bg-background">
-              <WikiRevisionPreviewBody revisions={revisions} pageId={pageId} className={pageReadingWidthClass} />
+              <WikiRevisionPreviewBody revisions={revisions} pageId={pageId} className={wikiBodyColumnClass(fullWidth)} />
             </div>
           )}
         </div>

@@ -110,7 +110,8 @@ public class WikiPublicShareService {
                 detail.id(),
                 detail.title(),
                 masker.mask(detail.body(), titles, token),
-                detail.updatedAt()));
+                detail.updatedAt(),
+                detail.fullWidth()));
     shares.recordView(share.id());
     return res;
   }

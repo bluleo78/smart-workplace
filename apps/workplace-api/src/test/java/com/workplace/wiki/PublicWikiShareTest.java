@@ -21,6 +21,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.dto.CreatePageRequest;
+import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.nio.charset.StandardCharsets;
@@ -91,6 +92,20 @@ class PublicWikiShareTest extends IntegrationTestBase {
 
   // ── 범위·응답 모양 ─────────────────────────────────────────────────────────
 
+  /** 페이지의 「전체 폭」 설정(WP-793)이 외부 공유 응답의 page.fullWidth 로 내려간다 — 바꾸면 따라간다. */
+  @Test
+  void public_reflects_full_width() throws Exception {
+    String token = saveShare(rootId, "PUBLIC", "VIEW", true, List.of());
+    pageService.save(ownerId, rootId, new SavePageRequest(null, null, null, false, true));
+
+    JsonNode res = json(anon(publicPath(token)).andExpect(status().isOk()));
+    assertThat(res.get("page").get("fullWidth").asBoolean()).isTrue();
+    // 설정은 페이지마다 — 하위 페이지는 그대로 읽기 폭.
+    JsonNode child =
+        json(anon(publicPath(token) + "?pageId=" + childId).andExpect(status().isOk()));
+    assertThat(child.get("page").get("fullWidth").asBoolean()).isFalse();
+  }
+
   /**
    * 하위 포함이면 공유 루트의 지금 서브트리만, 아니면 루트 하나만 보인다. 루트의 parentId 는 범위 밖이라 null. pageId 는 범위 안이어야 하고(밖이면
    * 404), 성공한 보기마다 조회 수가 오른다(실패는 세지 않는다). 응답 필드는 웹 계약({@code WikiPublicShare}) 그대로다.
@@ -111,7 +126,9 @@ class PublicWikiShareTest extends IntegrationTestBase {
     assertThat(byId(res.get("pages"), rootId).get("parentId").isNull()).isTrue();
     assertThat(byId(res.get("pages"), childId).get("parentId").asLong()).isEqualTo(rootId);
     JsonNode page = res.get("page");
-    assertThat(fieldNames(page)).containsExactlyInAnyOrder("id", "title", "markdown", "updatedAt");
+    assertThat(fieldNames(page))
+        .containsExactlyInAnyOrder("id", "title", "markdown", "updatedAt", "fullWidth");
+    assertThat(page.get("fullWidth").asBoolean()).isFalse();
     assertThat(page.get("id").asLong()).isEqualTo(rootId);
     assertThat(page.get("title").asText()).isEqualTo("제품 로드맵");
 

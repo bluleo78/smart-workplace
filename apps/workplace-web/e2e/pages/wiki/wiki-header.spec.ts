@@ -4,7 +4,7 @@ import type { Locator, Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { DESKTOP_WIDTHS, boxOf, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
+import { DESKTOP_WIDTHS, columnGaps, expectHeaderBottomAt56 } from '../../fixtures/layout'
 import { measureBox } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -188,23 +188,21 @@ test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴�
   }).toPass()
 })
 
-// 페이지 틀(Page) 통합: 경로 nav 첫 크럼과 본문 제목이 같은 16px 축(왼쪽 정렬 reading 폭, 넓은 화면에서도 가운데로 몰리지 않음).
+// 페이지 틀(Page) 통합: 헤더 하단선은 사이드바와 한 선, 본문은 읽기 폭(≤768)을 본문 스크롤 영역 가운데에 둔다(WP-793 — 노트만
+// 가운데 정렬 예외. 넓은 화면에서 오른쪽만 크게 비지 않게). 「전체 폭」 페이지의 시작선 정렬은 wiki-full-width.spec 이 본다.
 for (const width of DESKTOP_WIDTHS) {
-  test(`노트 헤더 — 경로 첫 크럼과 본문 제목이 같은 x, 본문 폭 ≤ 768 @${width}px`, async ({
+  test(`노트 헤더 — 본문 폭 ≤ 768 이고 본문 영역 가운데 @${width}px`, async ({
     authenticatedPage: page,
   }) => {
     await page.setViewportSize({ width, height: 900 })
     await setupRoutes(page)
 
     await page.goto(`/wiki/spaces/${SPACE_ID}/pages/2`)
-    const header = page.getByTestId('wiki-page-header')
-    await expectHeaderBottomAt56(header)
-    // 첫 크럼(조상 버튼) ↔ 본문 제목 입력. page-body-content 자신은 여백 포함이라 내용 요소로 비교한다.
-    await expectStartAligned(
-      header.getByRole('navigation', { name: '페이지 경로' }).getByRole('button', { name: '제품 문서' }),
-      page.getByPlaceholder('제목 없음'),
-    )
-    expect((await boxOf(page.getByTestId('page-body-content'))).width).toBeLessThanOrEqual(768)
+    await expectHeaderBottomAt56(page.getByTestId('wiki-page-header'))
+    const { width: colWidth, left, right } = await columnGaps(page.getByTestId('page-body-content'), page.getByTestId('wiki-editor-scroll'))
+    expect(colWidth).toBeLessThanOrEqual(768)
+    // 좌우 여백 차이 — 세로 스크롤바 폭(≤ 16px) 이내.
+    expect(Math.abs(left - right), `좌 ${left} · 우 ${right}`).toBeLessThanOrEqual(16)
   })
 }
 

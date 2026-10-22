@@ -15,6 +15,7 @@ import { savePendingPushTarget } from '@/lib/push/openTarget'
 import { cn } from '@/lib/utils'
 
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
+import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
 import { WikiPageSkeleton } from '../../components/wiki/WikiPageSkeleton'
 import { WikiSharePageSelect } from '../../components/wiki/WikiSharePageSelect'
 import { WikiShareLoadError, WikiShareTreeNav } from '../../components/wiki/WikiShareViewParts'
@@ -169,7 +170,8 @@ export function WikiPublicSharePage() {
           ) : !data ? (
             <WikiPageSkeleton testId="wiki-public-share-skeleton" />
           ) : (
-            <article className="mx-auto max-w-3xl px-4 py-8 md:px-8">
+            // 본문 칼럼은 로그인 화면과 같은 규칙(가운데 읽기 폭 / 「전체 폭」 페이지는 제한 없음, WP-793).
+            <article className={cn('px-4 py-8 md:px-8', wikiBodyColumnClass(data.page.fullWidth))}>
               <h1 className={cn('mb-4 break-keep', pageTitleClass)}>{data.page.title || '제목 없음'}</h1>
               <PublicBody markdown={data.page.markdown} />
             </article>

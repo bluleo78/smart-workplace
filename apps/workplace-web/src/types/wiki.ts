@@ -49,6 +49,8 @@ export interface WikiPageDetail {
   aiLastAction: string | null
   // WP-579: 이 페이지 자신이 링크로 공유 중인지 — 헤더 「공유 중」 표시. 설정 내용은 공유 창을 열 때 따로 받는다.
   shared?: boolean
+  // WP-793: 본문을 읽기 폭(768px) 대신 화면 폭 전체로 펼친다 — 페이지에 저장돼 여는 모든 사람에게 같다. 구버전 서버엔 없어 기본 false.
+  fullWidth?: boolean
 }
 
 // 멘션 참조 종류 — 본문 토큰(<@id>·<#page:id>·<#issue:id>) 의 대상 타입.
@@ -267,7 +269,8 @@ export interface WikiPublicShare {
   workspaceName: string
   rootPageId: number
   pages: Pick<WikiPageSummary, 'id' | 'parentId' | 'title' | 'position'>[]
-  page: { id: number; title: string; markdown: string; updatedAt: string }
+  // fullWidth(WP-793): 페이지 「전체 폭」 설정 — 외부 보기도 같은 폭으로 그린다.
+  page: { id: number; title: string; markdown: string; updatedAt: string; fullWidth?: boolean }
 }
 
 /**

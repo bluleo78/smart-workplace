@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FileCode, History, Link2, Loader2, MoreHorizontal, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileCode, History, Link2, Loader2, MoreHorizontal, MoveHorizontal, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -16,11 +16,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { cn } from '@/lib/utils'
 
-import { isAccessLost, type SyncStatus } from '../../lib/collab/collabStatus'
+import { isAccessLost, isTerminalStatus, type SyncStatus } from '../../lib/collab/collabStatus'
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
 import { WikiSyncStatusChip } from './WikiSyncStatusChip'
 
@@ -68,6 +69,9 @@ export function WikiPageHeader({
   shared = false,
   onShare,
   sharedBy,
+  fullWidth = false,
+  onFullWidthChange,
+  fullWidthSaving = false,
 }: {
   crumbs: { id: number; title: string }[]
   /** 실시간 동기화 상태(WP-287) — 예전 저장 상태(저장 중/저장됨/충돌)를 대체한다. */
@@ -97,6 +101,12 @@ export function WikiPageHeader({
    * 보기 전용은 동기화 칩이 이미 「읽기 전용」으로 알리므로 편집 가능일 때만 덧붙인다.
    */
   sharedBy?: { name: string; canEdit: boolean }
+  /** 본문을 화면 폭 전체로 펼친 페이지인지(WP-793) — ⋯ 메뉴 스위치의 현재 상태. */
+  fullWidth?: boolean
+  /** 「전체 폭」 바꾸기(WP-793). 편집할 수 없는 사람에겐 넘기지 않아 항목을 두지 않는다. 휴대폰은 이미 화면 폭을 다 써서 감춘다. */
+  onFullWidthChange?: (next: boolean) => void
+  /** 「전체 폭」 저장 중 — 항목을 잠가 연타로 요청이 겹치지 않게 한다. */
+  fullWidthSaving?: boolean
 }) {
   const isMobile = useIsMobile()
   // 공유 링크 화면(sharedBy 있음)엔 AI 작성을 두지 않는다 — 스페이스 멤버 전용 기능이다(WP-579).
@@ -223,6 +233,29 @@ export function WikiPageHeader({
         <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className={isMobile ? 'w-64' : undefined}>
+        {/* 「전체 폭」(WP-793) — 페이지마다 한 번 정해 두는 보기 설정이라 헤더 버튼이 아니라 메뉴 맨 위에 둔다.
+            스위치 모양으로 지금 상태를 바로 보이고, 눌러도 메뉴를 닫지 않아(preventDefault) 뒤에서 넓어지는 본문을 보고 되돌릴 수 있다.
+            스위치는 보이기만 하는 장식이다 — 상태는 항목의 menuitemcheckbox·aria-checked 가 알린다(메뉴 항목 안에 버튼을 두지 않으려고).
+            DropdownMenuCheckboxItem 은 왼쪽에 체크 표시 자리를 고정으로 둬 스위치 모양과 맞지 않아 일반 항목에 역할만 붙인다. */}
+        {/* 종단 상태(삭제·접근 상실·로그인 필요·새 버전)엔 저장이 실패할 뿐이라 두지 않는다. */}
+        {!isMobile && onFullWidthChange && !isTerminalStatus(syncStatus) && (
+          <>
+            <DropdownMenuItem
+              role="menuitemcheckbox"
+              aria-checked={fullWidth}
+              data-testid="wiki-menu-full-width"
+              disabled={fullWidthSaving}
+              onSelect={(e) => {
+                e.preventDefault()
+                onFullWidthChange(!fullWidth)
+              }}
+            >
+              <MoveHorizontal className="mr-2 h-4 w-4" aria-hidden="true" /> 전체 폭
+              <Switch size="sm" checked={fullWidth} tabIndex={-1} aria-hidden="true" className="pointer-events-none ml-auto" />
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         {/* 모바일: 헤더의 AI ▾ 대신 이 메뉴 맨 위 "AI 작성" 묶음(U3-R1) — 헤더의 AI 아이콘은 ✦(어시스턴트) 하나로 둔다.
             터치엔 툴팁이 없으므로 비활성 사유는 묶음 머리에 글자로 보인다(흐리게 칠하지 않음). */}
         {isMobile && !aiHidden && (

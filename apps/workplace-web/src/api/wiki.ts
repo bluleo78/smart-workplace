@@ -62,6 +62,9 @@ export const wikiApi = {
   // 공유 화면(편집 링크)은 제목만 고칠 수 있다 — 서버는 body 가 없을 때만 공유 토큰을 받는다.
   savePageTitle: (pageId: number, title: string, shareToken?: string) =>
     client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title, body: null }, { headers: shareHeaders(shareToken) }),
+  // 「전체 폭」만 저장(WP-793) — title·body:null 은 서버 계약상 "유지". 공유 화면(편집 링크)도 제목처럼 바꿀 수 있다.
+  savePageFullWidth: (pageId: number, fullWidth: boolean, shareToken?: string) =>
+    client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title: null, body: null, fullWidth }, { headers: shareHeaders(shareToken) }),
   movePage: (pageId: number, parentId: number | null, position: number) =>
     client.patch<void>(`/wiki/pages/${pageId}/move`, { parentId, position }),
   deletePage: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}`),

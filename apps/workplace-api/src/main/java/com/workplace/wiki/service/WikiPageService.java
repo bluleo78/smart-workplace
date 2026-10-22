@@ -294,7 +294,8 @@ public class WikiPageService {
           OffsetDateTime.now(),
           c.aiLastUsedAt(),
           c.aiLastAction(),
-          c.shared());
+          c.shared(),
+          c.fullWidth());
     }
   }
 
@@ -346,6 +347,22 @@ public class WikiPageService {
     }
   }
 
+  /**
+   * 「전체 폭」이 요청에 있고 지금 값과 다르면 저장하고 SSE 로 알린다(WP-793). 트랜잭션 안에서 호출. 제목과 같은 자리·같은 권한이지만 보기 설정이라
+   * version·수정자·수정 시각·버전 기록은 건드리지 않는다. SSE 는 제목 저장과 같은 {@code wiki.page.updated} — 다른 접속자의 웹이 페이지를
+   * 다시 읽어 폭이 바로 따라온다(제목도 바꿨다면 saveTitleIfPresent 가 이미 보냈으므로 중복 발행하지 않는다). 본문 없는 요청에서만 부른다 — 폭은 웹 ⋯
+   * 메뉴만 보내고 늘 본문 없이 오며, 본문과 함께 온 fullWidth 는 무시한다({@link SavePageRequest}).
+   */
+  private void saveFullWidthIfPresent(WikiPageDetail current, SavePageRequest req, long callerId) {
+    if (req.fullWidth() == null || req.fullWidth() == current.fullWidth()) {
+      return;
+    }
+    pages.saveFullWidth(current.id(), req.fullWidth());
+    if (req.title() == null) {
+      publishUpdated(current.spaceId(), current.id(), current.title(), callerId);
+    }
+  }
+
   /** 페이지를 읽고 EDITOR 이상인지 확인한다. 트랜잭션 안에서 호출. */
   WikiPageDetail loadForEdit(long callerId, long pageId) {
     return loadForEdit(callerId, pageId, null);
@@ -380,6 +397,7 @@ public class WikiPageService {
     if (req.body() == null) {
       // 제목만 — 기준본을 남기지 않는다(제목 저장마다 본문 전체 사본을 쓰지 않게). 응답 version 이 현재인 동안은 현재 본문이 곧 기준이다.
       saveTitleIfPresent(current, req, callerId);
+      saveFullWidthIfPresent(current, req, callerId);
       return pages.findDetail(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     }
     requireVersionPresent(req, pageId);
