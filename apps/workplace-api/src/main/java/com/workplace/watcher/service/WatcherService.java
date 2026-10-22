@@ -9,6 +9,7 @@ import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.label.dto.LabelSummary;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
@@ -49,8 +50,12 @@ public class WatcherService {
         issueRepository
             .findByProjectAndNumber(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    // 멤버 제거가 먼저 커밋됐으면 볼 수 없는 프로젝트와 같은 404(WP-776) — 아래 등록도 같은 잠금으로 거른다.
+    if (!accessGuard.lockReadable(project, callerId)) {
+      throw ProjectNotFoundException.hidden();
+    }
     // 등록 + WatcherAddedEvent 발행은 자동 등록과 같은 진입점을 쓴다(신규 insert 때만 발행).
-    if (watcherAutoEnroller.enroll(issue.id(), callerId, callerId)) {
+    if (watcherAutoEnroller.enroll(project, issue.id(), callerId, callerId)) {
       // 실시간 무효화 — 실제 insert 가 일어났을 때만. 워치는 이슈 작업이 아니므로 AI 작업을 시작·재개하지 않는 알림을 쓴다(WP-377).
       changeNotifier.updatedWithoutTouch(project, number, issue.id(), callerId);
     }

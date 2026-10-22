@@ -94,6 +94,18 @@ public class ProjectAccessGuard {
     return projectRepository.findById(projectId).map(p -> isReadable(p, userId)).orElse(false);
   }
 
+  /**
+   * {@link #canRead} 와 같은 규칙이되, 멤버라서 볼 수 있는 경우 그 멤버 행을 커밋까지 공유 잠금한다(WP-776). 볼 수 있음을 근거로 워처 같은 행을
+   * 남기는 쓰기가 쓴다 — 잠그지 않으면 같은 순간의 멤버 제거와 둘 다 성공해, 제거 뒤 정리(WP-476)를 피한 행이 남는다. 제거가 먼저면 false, 이쪽이 먼저면
+   * 제거가 커밋을 기다렸다가 남긴 행까지 정리한다. 쓰기 트랜잭션 안에서만 부른다.
+   */
+  public boolean lockReadable(ProjectRow project, Long userId) {
+    if ("OPEN".equals(project.type()) || adminBypass(project, userId)) {
+      return true;
+    }
+    return memberRepository.lockMember(project.id(), userId);
+  }
+
   /** 조회 규칙 한 곳 — OPEN 은 테넌트 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. */
   private boolean isReadable(ProjectRow project, Long userId) {
     if ("OPEN".equals(project.type())) {

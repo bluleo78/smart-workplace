@@ -66,7 +66,7 @@ class WatcherEventPublishTest {
             userRepository,
             accessGuard,
             // 등록·이벤트 발행은 실제 enroller 를 통해 — publisher mock 으로 발행 여부를 검증한다.
-            new WatcherAutoEnroller(watcherRepository, publisher),
+            new WatcherAutoEnroller(watcherRepository, publisher, accessGuard),
             mock(IssueChangeNotifier.class));
 
     ProjectRow project =
@@ -93,6 +93,7 @@ class WatcherEventPublishTest {
             1,
             null);
     when(accessGuard.assertReadable(PROJECT_KEY, CALLER_ID)).thenReturn(project);
+    when(accessGuard.lockReadable(project, CALLER_ID)).thenReturn(true);
     when(issueRepository.findByProjectAndNumber(PROJECT_ID, ISSUE_NUMBER))
         .thenReturn(Optional.of(issue));
   }

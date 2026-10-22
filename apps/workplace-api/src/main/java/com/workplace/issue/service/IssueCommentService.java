@@ -148,7 +148,7 @@ public class IssueCommentService {
     var resp = commentRepository.insert(issueId, callerId, req.body());
     // 코멘트 이미지 연결(WP-362) — 이미지 참조가 없는 코멘트(대부분)는 syncIssueImages 가 쿼리 없이 돌아간다.
     bodyImageService.syncIssueImages(project, issueId, callerId, null, req.body());
-    watcherAutoEnroller.enroll(issueId, callerId, callerId);
+    watcherAutoEnroller.enroll(project, issueId, callerId, callerId);
 
     // 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보) — issue 는 위에서 이미 로드해 재사용.
     var assignees = assigneeRepository.findByIssue(issueId);
