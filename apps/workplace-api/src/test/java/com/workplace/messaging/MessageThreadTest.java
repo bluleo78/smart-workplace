@@ -84,6 +84,22 @@ class MessageThreadTest extends IntegrationTestBase {
         .isInstanceOf(InvalidThreadParentException.class);
   }
 
+  /** WP-792: 삭제된 메시지에는 새 답글을 달 수 없다(400). 삭제 전에 달린 답글은 그대로 읽힌다. */
+  @Test
+  void replyToDeletedParent_rejected_existingRepliesStillListed() {
+    long parent = messageService.create(author, channelId, new CreateMessageRequest("부모")).id();
+    messageService.create(author, channelId, new CreateMessageRequest("먼저 단 답글", parent));
+    messageService.delete(author, parent);
+
+    assertThatThrownBy(
+            () ->
+                messageService.create(author, channelId, new CreateMessageRequest("늦은 답글", parent)))
+        .isInstanceOf(InvalidThreadParentException.class);
+    assertThat(messageService.listThread(author, parent, null, 50).items())
+        .extracting(MessageResponse::body)
+        .containsExactly("먼저 단 답글");
+  }
+
   /** 타 채널 메시지를 부모로 지정하면 400. */
   @Test
   void parentInOtherChannel_rejected() {
