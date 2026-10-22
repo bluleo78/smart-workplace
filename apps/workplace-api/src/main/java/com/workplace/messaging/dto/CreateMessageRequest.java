@@ -1,5 +1,6 @@
 package com.workplace.messaging.dto;
 
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 
@@ -11,7 +12,8 @@ public record CreateMessageRequest(
     @Size(max = 4000) String body,
     Long parentMessageId,
     List<Long> fileIds,
-    List<Long> driveFileIds) {
+    // 원소 null 은 400 — 드라이브 링크 조회에서 500 이 났다(WP-743). fileIds 는 첨부 claim 이 한국어 400 으로 따로 막는다.
+    List<@NotNull Long> driveFileIds) {
 
   /** 스레드가 아닌 일반 메시지용 보조 생성자 — parentMessageId = null, 첨부 없음, 드라이브 링크 없음. */
   public CreateMessageRequest(String body) {

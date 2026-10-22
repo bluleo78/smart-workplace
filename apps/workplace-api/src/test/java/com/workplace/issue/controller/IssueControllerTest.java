@@ -1,8 +1,10 @@
 package com.workplace.issue.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -397,5 +399,22 @@ class IssueControllerTest {
             post("/api/v1/projects/WP/issues/1/ai-summary")
                 .header("Authorization", "Bearer valid-token"))
         .andExpect(status().isForbidden());
+  }
+
+  /** 이슈 생성의 labelIds·cycleIds null 원소는 400(WP-743 — 500 이 났다). */
+  @Test
+  void create_목록에_null_원소가_있으면_400() throws Exception {
+    mockAuthentication("issue:write");
+    for (String field : List.of("labelIds", "cycleIds")) {
+      mockMvc
+          .perform(
+              post("/api/v1/projects/WP/issues")
+                  .header("Authorization", "Bearer valid-token")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"title\":\"n\",\"typeId\":1,\"" + field + "\":[null]}"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors['" + field + "[0]']").value("값이 필요합니다"));
+    }
+    verify(issueService, never()).create(anyLong(), any(), any());
   }
 }
