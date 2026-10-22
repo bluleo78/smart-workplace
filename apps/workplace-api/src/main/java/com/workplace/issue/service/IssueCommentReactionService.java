@@ -50,12 +50,19 @@ public class IssueCommentReactionService {
 
   /**
    * 반응 추가(멱등 — 이미 단 반응이면 아무것도 하지 않는다). 순서는 채팅과 같다: 볼 수 있는 이슈의 살아 있는 코멘트인지(아니면 404) → 쓸 수 있는지(403) →
-   * 이모지 하나인지(400) → 이미 있으면 끝 → 상한(400). 권한을 먼저 보는 것은 볼 수 없는 코멘트에 400 을 먼저 주면 존재가 드러나기 때문이다.
+   * 이모지 하나인지(400) → 코멘트 잠금 → 이미 있으면 끝 → 상한(400). 권한을 먼저 보는 것은 볼 수 없는 코멘트에 400 을 먼저 주면 존재가 드러나기
+   * 때문이다.
    */
   public void add(long callerId, long issueId, long commentId, String emoji) {
     var target = requireWritableComment(callerId, issueId, commentId);
     if (!ReactionEmojis.isSingleEmoji(emoji)) {
       throw new IllegalArgumentException("반응에는 이모지 하나만 쓸 수 있습니다");
+    }
+    // 코멘트 행을 잠가 같은 코멘트의 반응 추가를 한 줄로 세운다 — 잠금 없이는 동시 요청이 모두 상한 미만으로 읽고 함께 넣어 1인 20개·50종을
+    // 넘겼다(WP-829).
+    // 그 사이 코멘트가 지워졌으면 없는 코멘트와 같은 404.
+    if (!commentRepository.lockForReaction(commentId)) {
+      throw new IssueCommentNotFoundException(commentId);
     }
     // 이미 단 반응을 다시 누르는 요청은 상한과 무관하게 통과(아무것도 늘지 않는다).
     if (reactionRepository.exists(commentId, callerId, emoji)) return;

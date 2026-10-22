@@ -109,6 +109,20 @@ public class IssueCommentRepository {
         .execute();
   }
 
+  /**
+   * 반응을 달기 전에 살아 있는 코멘트 행을 잠근다(FOR NO KEY UPDATE) — 같은 코멘트에 대한 반응 추가가 상한 확인부터 삽입까지 한 줄로 서서, 동시 요청이
+   * 모두 「상한 미만」으로 읽고 함께 넣는 일을 막는다(WP-829, 채팅 MessageRepository.lockForReaction 과 같다). 반응 행 FK 의 KEY
+   * SHARE 와는 충돌하지 않는다. 지워졌거나 없는 코멘트면 false.
+   */
+  public boolean lockForReaction(long id) {
+    return dsl.select(ISSUE_COMMENT.ID)
+        .from(ISSUE_COMMENT)
+        .where(ISSUE_COMMENT.ID.eq(id).and(ISSUE_COMMENT.DELETED_AT.isNull()))
+        .forNoKeyUpdate()
+        .fetchOptional()
+        .isPresent();
+  }
+
   /** soft-delete: deleted_at = now(). */
   public void softDelete(Long id) {
     dsl.update(ISSUE_COMMENT)
