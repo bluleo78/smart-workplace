@@ -14,6 +14,7 @@ import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.contacts.service.ContactService;
 import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveFolderService;
+import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.service.IssueCommentService;
@@ -43,6 +44,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 /**
@@ -124,6 +126,9 @@ public class ConfirmActionDispatcher {
           // 경계는 서비스가 강제.
           Map.entry("contacts.delete_user_group", "contact:read"));
 
+  /** 웹 로그인 세션에서만 승인할 수 있는 작업(WP-845) — 권한을 새로 주는 작업. */
+  private static final Set<String> WEB_SESSION_ONLY_ACTIONS = Set.of("user.set_roles");
+
   /**
    * 확인 카드 승인 실행 — 준비(prepare) 후 실행(execute).
    *
@@ -131,6 +136,11 @@ public class ConfirmActionDispatcher {
    * 술어를 쓴다는 보장은 도메인 서비스가 validate* 와 실행 메서드에서 한 벌의 check 를 공유하는 데서 나온다.
    */
   public Object confirm(long callerId, String actionType, JsonNode params) {
+    // WP-845: 역할 부여는 REST(PUT /users/{id}/roles)처럼 웹 로그인 세션에서만 실행한다 — PAT 로 확인 카드를 승인해 우회하지 못하게.
+    // 사전검증(validate)은 AI 가 카드를 만들 때 부르므로 막지 않는다.
+    if (WEB_SESSION_ONLY_ACTIONS.contains(actionType)) {
+      AuthDetails.requireWebSession(SecurityContextHolder.getContext().getAuthentication());
+    }
     return prepare(callerId, actionType, params).execute().get();
   }
 

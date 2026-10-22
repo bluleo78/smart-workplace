@@ -1,6 +1,7 @@
 package com.workplace.role.controller;
 
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.security.RequireWebSession;
 import com.workplace.role.dto.*;
 import com.workplace.role.service.RoleService;
 import jakarta.validation.Valid;
@@ -33,6 +34,7 @@ public class RoleController {
   }
 
   @PostMapping
+  @RequireWebSession
   @RequirePermission("role:write")
   public ResponseEntity<RoleResponse> createRole(
       Authentication authentication, @Valid @RequestBody CreateRoleRequest request) {
@@ -61,6 +63,7 @@ public class RoleController {
   }
 
   @PutMapping("/{id}/permissions")
+  @RequireWebSession
   @RequirePermission("role:write")
   public ResponseEntity<Void> setRolePermissions(
       Authentication authentication,

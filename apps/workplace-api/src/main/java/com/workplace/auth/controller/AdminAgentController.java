@@ -3,6 +3,7 @@ package com.workplace.auth.controller;
 import com.workplace.auth.service.AgentRemovalService;
 import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.security.RequireWebSession;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.CreateAgentRequest;
 import com.workplace.user.dto.RenameAgentRequest;
@@ -45,6 +46,7 @@ public class AdminAgentController {
 
   /** AGENT 생성. */
   @PostMapping
+  @RequireWebSession
   @RequirePermission("user:write")
   public ResponseEntity<UserResponse> create(
       Authentication auth, @Valid @RequestBody CreateAgentRequest req) {

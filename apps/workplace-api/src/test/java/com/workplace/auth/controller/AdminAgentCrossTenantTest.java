@@ -14,6 +14,7 @@ import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.support.WebSessionAuth;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -72,8 +73,7 @@ class AdminAgentCrossTenantTest extends IntegrationTestBase {
   }
 
   private UsernamePasswordAuthenticationToken adminAuth() {
-    return new UsernamePasswordAuthenticationToken(
-        admin, "n/a", List.of(new SimpleGrantedAuthority("user:write")));
+    return WebSessionAuth.of(admin, List.of(new SimpleGrantedAuthority("user:write")));
   }
 
   @Test
