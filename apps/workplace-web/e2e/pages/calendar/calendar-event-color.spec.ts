@@ -213,12 +213,12 @@ test('편집 모드 — color=red 시 red 스와치 활성', async ({ authentica
 })
 
 test(
-  '월간 뷰 — red override 이벤트 칩이 bg-red-500 클래스를 갖는다',
+  '월간 뷰 — red override 이벤트 칩이 bg-red-600 클래스를 갖는다',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
 
-    // effectiveColor='red' → 칩이 bg-red-500 이어야 한다.
+    // effectiveColor='red' → 칩이 bg-red-600 이어야 한다(흰 글자 4.5:1, WP-736).
     const eventRed = calendarEvent({
       id: 20,
       title: '빨간 override',
@@ -235,17 +235,17 @@ test(
     // 월간 뷰 칩
     const chip = page.getByTestId('calendar-event-20')
     await expect(chip).toBeVisible()
-    await expect(chip).toHaveClass(/bg-red-500/)
+    await expect(chip).toHaveClass(/bg-red-600/)
   },
 )
 
 test(
-  '월간 뷰 — green 캘린더 상속 이벤트 칩이 bg-emerald-500 클래스를 갖는다',
+  '월간 뷰 — green 캘린더 상속 이벤트 칩이 bg-emerald-700 클래스를 갖는다',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
 
-    // effectiveColor='green' (캘린더 color 상속) → 칩이 bg-emerald-500 이어야 한다.
+    // effectiveColor='green' (캘린더 color 상속) → 칩이 bg-emerald-700 이어야 한다(흰 글자 4.5:1, WP-736).
     const eventGreen = calendarEvent({
       id: 21,
       title: '초록 상속',
@@ -262,6 +262,6 @@ test(
     // 월간 뷰 칩
     const chip = page.getByTestId('calendar-event-21')
     await expect(chip).toBeVisible()
-    await expect(chip).toHaveClass(/bg-emerald-500/)
+    await expect(chip).toHaveClass(/bg-emerald-700/)
   },
 )

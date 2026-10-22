@@ -184,7 +184,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
       {/* 공유 조직도 — 읽기 전용 */}
       <div>
         <div className="flex items-center justify-between px-3 pb-1">
-          <span className="text-xs font-semibold text-muted-foreground/70">조직도</span>
+          <span className="text-xs font-semibold text-muted-foreground">조직도</span>
           {isAdmin && (
             <button
               type="button"
@@ -198,9 +198,9 @@ export function GroupTree({ selectedId, onSelect }: Props) {
           )}
         </div>
         {isLoading ? (
-          <div className="px-3 py-1 text-xs text-muted-foreground/60">불러오는 중…</div>
+          <div className="px-3 py-1 text-xs text-muted-foreground">불러오는 중…</div>
         ) : (data?.shared.length ?? 0) === 0 ? (
-          <div className="px-3 py-1 text-xs text-muted-foreground/60">조직도가 없습니다</div>
+          <div className="px-3 py-1 text-xs text-muted-foreground">조직도가 없습니다</div>
         ) : (
           data?.shared.map((n) => (
             <TreeNode
@@ -218,7 +218,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
       {/* 내 그룹 — 개인, 편집 가능 */}
       <div>
         <div className="flex items-center justify-between px-3 pb-1">
-          <span className="text-xs font-semibold text-muted-foreground/70">내 그룹</span>
+          <span className="text-xs font-semibold text-muted-foreground">내 그룹</span>
           <button
             type="button"
             data-testid="group-create"
@@ -230,7 +230,7 @@ export function GroupTree({ selectedId, onSelect }: Props) {
           </button>
         </div>
         {(data?.personal.length ?? 0) === 0 ? (
-          <div className="px-3 py-1 text-xs text-muted-foreground/60">그룹이 없습니다</div>
+          <div className="px-3 py-1 text-xs text-muted-foreground">그룹이 없습니다</div>
         ) : (
           data?.personal.map((n) => (
             <TreeNode

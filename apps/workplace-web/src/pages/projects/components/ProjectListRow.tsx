@@ -77,7 +77,8 @@ export function ProjectListRow(props: RowProps) {
             style={{ width: `${pct}%`, backgroundColor: p.issueTotal === 0 ? 'transparent' : c.bg }}
           />
         </div>
-        <span className={cn('text-xs', p.issueTotal === 0 ? 'text-muted-foreground/60' : 'text-muted-foreground')}>
+        {/* 「이슈 없음」도 같은 보조 글자색 — 더 흐리게 하면 대비가 4.5:1 밑으로 떨어진다(WP-736). */}
+        <span className="text-xs text-muted-foreground">
           {progressLabel(p, pct)}
         </span>
       </div>

@@ -31,7 +31,7 @@ const ADMIN_ITEMS = [
 // 사이드바 그룹 헤더 — 섹션 구분용 소형 라벨.
 function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground/70">{children}</p>
+    <p className="px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground">{children}</p>
   )
 }
 

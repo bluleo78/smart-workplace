@@ -36,7 +36,7 @@ export function ToolStepList({ steps, inDelegation = false }: { steps: ToolStep[
           <li key={i} className={cn('flex items-center gap-1.5', nested && 'pl-4')} data-testid="tool-step-tool">
             <span>{icon}</span>
             <span>{label}</span>
-            {detail && <span className="truncate text-muted-foreground/70">{detail}</span>}
+            {detail && <span className="truncate text-muted-foreground">{detail}</span>}
             <StatusMark status={s.status} />
           </li>
         );

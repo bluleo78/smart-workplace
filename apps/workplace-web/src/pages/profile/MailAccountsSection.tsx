@@ -59,7 +59,7 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
             <p className="text-xs text-muted-foreground">
               켜면 개인 비서가 모든 메일 계정을 개인 맞춤 요약하고, 회신 필요 여부·답장 초안을 돕습니다.
               <br />
-              <span className="text-muted-foreground/70">(본문이 개인 비서 AI로 전송됩니다)</span>
+              <span className="text-muted-foreground">(본문이 개인 비서 AI로 전송됩니다)</span>
             </p>
           </div>
           <Switch

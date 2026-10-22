@@ -247,6 +247,7 @@ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
 
 - **최소 폰트 크기**: 본문 텍스트는 12px(`text-xs`) 이상. `text-[10px]`/`text-[11px]` 사용 금지(현재 23곳 → To-Be 에서 제거).
 - **색상 대비**: `text-muted-foreground`는 배경 대비 WCAG AA(4.5:1) 이상을 유지해야 한다. 12px 이하 텍스트는 AAA(7:1) 권장.
+- **보조 글자를 더 흐리게 하지 않는다**: 읽는 글자(빈 상태 안내·묶음 제목·개수 등)에 `text-muted-foreground/60`·`/70` 같은 투명도 변형을 쓰지 않는다 — 대비가 2.5~3.5:1 로 떨어진다(WP-736). 위계가 더 필요하면 크기·굵기·기울임으로 나눈다. 투명도 변형은 아이콘·구분선·비활성 상태에만 쓴다.
 - **line-height**: 본문(`body-primary`, `body-secondary`)은 font-size 대비 1.5배 이상(`leading-6` 이상) 유지.
 - **HTML 의미론**: 시각적 스타일이 아닌 문서 구조에 따라 `h1`–`h6` 계층을 결정한다. 스타일은 CSS로 분리.
 

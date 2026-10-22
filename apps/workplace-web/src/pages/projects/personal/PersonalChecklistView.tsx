@@ -53,7 +53,7 @@ export function PersonalChecklistView({
       {sections.map((g) => (
         <section key={g.key} data-testid={`personal-section-${g.key}`}>
           <h3 className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {g.label} <span className="ml-1 text-muted-foreground/60">{g.items.length}</span>
+            {g.label} <span className="ml-1 text-muted-foreground">{g.items.length}</span>
           </h3>
           <div className="space-y-0.5">
             {g.items.map((it) => <PersonalChecklistRow key={it.id} projectKey={projectKey} issue={it} />)}
@@ -69,7 +69,7 @@ export function PersonalChecklistView({
             className="flex items-center gap-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground"
           >
             <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showDone && 'rotate-90')} />
-            완료 <span className="text-muted-foreground/60">{collapsedDone.length}</span>
+            완료 <span className="text-muted-foreground">{collapsedDone.length}</span>
           </button>
           {showDone && (
             <div className="mt-1 space-y-0.5">

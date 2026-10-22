@@ -82,7 +82,7 @@ function RevisionPreviewContent({ body, title, compareTo, showDiff, className }:
   return (
     <div data-testid="wiki-revision-preview" className={cn('flex flex-col', className)}>
       {/* 빈 제목은 에디터 제목 입력의 자리표시와 같은 문구를 흐리게 보인다. */}
-      <h1 className={cn('mb-4 break-words', pageTitleClass, !title && 'text-muted-foreground/40')}>{title || '제목 없음'}</h1>
+      <h1 className={cn('mb-4 break-words', pageTitleClass, !title && 'text-muted-foreground')}>{title || '제목 없음'}</h1>
       {/* 칩 NodeView 는 EditorContent 가 렌더하는 포털이라 라벨 Provider(WikiRevisionPreview) 안에 있어야 라벨이 채워진다. */}
       <EditorContent editor={editor} className="wiki-editor [&_.ProseMirror]:outline-none" />
     </div>

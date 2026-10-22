@@ -1076,7 +1076,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
                 })
               }}
               placeholder="제목 없음"
-              className={`mb-4 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words break-keep outline-none placeholder:text-muted-foreground/40 ${pageTitleClass}`}
+              className={`mb-4 block w-full resize-none overflow-hidden border-0 bg-transparent p-0 break-words break-keep outline-none placeholder:text-muted-foreground ${pageTitleClass}`}
             />
             {/* WP-301 노트 상단 AI 요약 — 제목 아래·본문 위(시안 A). 본문을 바꾸지 않는 읽기 보조라 뷰어에게도 보인다. */}
             {features.summary && <WikiSummaryCard pageId={page.id} accessLost={isAccessLost(syncStatus)} />}
