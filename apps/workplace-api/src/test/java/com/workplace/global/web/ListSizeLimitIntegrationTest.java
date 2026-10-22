@@ -52,6 +52,25 @@ class ListSizeLimitIntegrationTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.size").value(100));
   }
 
+  /**
+   * 아주 큰 page 는 마지막 페이지 너머라 빈 목록이다(WP-774) — page×size 를 int 로 곱해 오프셋이 넘쳐, 첫 페이지가 다시 오거나(2^30) 음수
+   * 오프셋 영어 400(2^31-1)이 났다. 프로젝트·구성원 목록처럼 long 으로 곱한다.
+   */
+  @ParameterizedTest
+  @ValueSource(strings = {"/api/v1/admin/audit-logs", "/api/v1/users"})
+  void 아주_큰_page_는_빈_목록(String path) throws Exception {
+    String token = tokenForNewAdmin();
+    for (String page : new String[] {"1073741824", "2147483647"}) {
+      mvc.perform(
+              get(path)
+                  .header("Authorization", "Bearer " + token)
+                  .param("page", page)
+                  .param("size", "20"))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.content").isEmpty());
+    }
+  }
+
   /** 테넌트#1 ACTIVE 멤버인 ADMIN 을 만들고 그 사람의 access token 을 돌려준다(감사 로그·사용자 목록 권한). */
   private String tokenForNewAdmin() {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
