@@ -15,6 +15,7 @@ import com.workplace.home.dto.DashboardUpdateRequest;
 import com.workplace.home.dto.DashboardWidgetConfig;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.jooq.JSONB;
@@ -598,5 +599,40 @@ class DashboardEndpointTest extends IntegrationTestBase {
     putCatalog(userId, "w1", "", null, null)
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("알 수 없는 위젯 타입입니다: "));
+  }
+
+  /** widgets 배열의 null 원소는 500(NPE) 이 아니라 한국어 400 으로 거절한다(WP-742). 정상 위젯이 섞여 있어도 같다. */
+  @Test
+  void put_rejects_null_widget_element_with_400() throws Exception {
+    long userId = createUser("nw");
+    // 본문 → null 원소 자리
+    Map<String, String> cases =
+        Map.of(
+            "{\"widgets\":[null]}", "widgets[0]",
+            "{\"widgets\":[{\"type\":\"synthesis\"},null]}", "widgets[1]");
+    for (Map.Entry<String, String> c : cases.entrySet()) {
+      mvc.perform(
+              put("/api/v1/me/dashboard")
+                  .header("Authorization", "Bearer " + tokenFor(userId))
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(c.getKey()))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors['" + c.getValue() + "']").value("값이 필요합니다"));
+    }
+  }
+
+  /** 저장된 JSON 에 null 원소가 섞여 있어도 GET 이 500 없이 그 원소만 건너뛴다(WP-742). */
+  @Test
+  void get_skips_null_element_in_stored_row() throws Exception {
+    long userId = createUser("ns");
+    dsl.insertInto(USER_DASHBOARD)
+        .set(USER_DASHBOARD.USER_ID, userId)
+        .set(USER_DASHBOARD.WIDGETS, JSONB.valueOf("[null,{\"type\":\"my_tasks\",\"count\":5}]"))
+        .execute();
+
+    mvc.perform(get("/api/v1/me/dashboard").header("Authorization", "Bearer " + tokenFor(userId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.widgets.length()").value(1))
+        .andExpect(jsonPath("$.widgets[0].type").value("my_tasks"));
   }
 }
