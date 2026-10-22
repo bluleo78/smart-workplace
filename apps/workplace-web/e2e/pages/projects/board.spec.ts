@@ -6,7 +6,7 @@ import type { Route } from '@playwright/test';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { dropDnd, expectStays } from '../../fixtures/wait';
+import { dropDnd, expectStays, startKeyboardDrag } from '../../fixtures/wait';
 import {
   createIssue,
   createIssueDetail,
@@ -1245,41 +1245,35 @@ test.describe('보드 키보드 놓기 뒤 포커스 (WP-837)', () => {
     return patches;
   }
 
-  // 지금 포커스된 카드를 Space(집기) → →(오른쪽 열) → Space(놓기). 각 단계는 스크린리더 안내(dnd-kit 라이브 영역)로 기다린다 —
-  // 집기 전에 방향키를 누르면 아무것도 옮기지 않는다.
-  // 집으면 곧바로 「제 자리 위에 있습니다」로 바뀌므로 집기는 「이슈가 … 위에」로, 이동은 대상 열 이름으로 확인한다.
-  async function moveFocusedRight(page: import('@playwright/test').Page, toLabel: string) {
-    const live = page.locator('[id^="DndLiveRegion"]');
-    await page.keyboard.press('Space');
-    await expect(live).toContainText(/이슈(를 집었습니다|가 .+ 위에 있습니다)/);
-    await page.keyboard.press('ArrowRight');
+  // 카드를 Space(집기) → →(오른쪽 열) → Space(놓기). 집은 뒤 센서가 방향키 리스너를 붙일 때까지 기다리고(startKeyboardDrag —
+  // 부하에서 바로 누른 방향키는 버려진다), 이동·놓기는 스크린리더 안내(dnd-kit 라이브 영역)로 기다린다.
+  async function keyboardMoveRight(card: import('@playwright/test').Locator, toLabel: string) {
+    const live = card.page().locator('[id^="DndLiveRegion"]');
+    await startKeyboardDrag(card, () => expect(live).toContainText('이슈'));
+    await card.page().keyboard.press('ArrowRight');
     await expect(live).toContainText(toLabel);
-    await page.keyboard.press('Space');
+    await card.page().keyboard.press('Space');
     await expect(live).toContainText('놓았습니다');
-  }
-  async function keyboardMoveRight(page: import('@playwright/test').Page, cardTestId: string, toLabel: string) {
-    await page.getByTestId(cardTestId).focus();
-    await moveFocusedRight(page, toLabel);
   }
 
   test('다른 열에 놓으면 새 열의 그 카드에 포커스가 남아 이어서 다시 옮길 수 있다', async ({ authenticatedPage: page }) => {
     const patches = await setupKeyboardBoard(page);
-    await keyboardMoveRight(page, 'issue-card-1', '진행 중');
+    await keyboardMoveRight(page.getByTestId('issue-card-1'), '진행 중');
     await expect.poll(() => patches.lastBody()).toEqual({ status: 'IN_PROGRESS' });
     const moved = page.getByTestId('board-col-IN_PROGRESS').getByTestId('issue-card-1');
     await expect(moved).toBeFocused();
     // 서버 응답 뒤 다시 조회해도 포커스가 유지된다.
     await expect(page.getByText('상태를 변경했습니다', { exact: true })).toBeVisible();
     await expect(moved).toBeFocused();
-    // 이어서 같은 카드를 한 번 더 옮길 수 있다(포커스가 body 면 Space 가 아무것도 집지 못한다).
-    await moveFocusedRight(page, '완료');
+    // 이어서 같은 카드를 한 번 더 옮길 수 있다.
+    await keyboardMoveRight(moved, '완료');
     await expect.poll(() => patches.lastBody()).toEqual({ status: 'DONE' });
     await expect(page.getByTestId('board-col-DONE').getByTestId('issue-card-1')).toBeFocused();
   });
 
   test('놓은 이슈가 종료 숨김으로 사라지면 놓은 열에 포커스가 간다', async ({ authenticatedPage: page }) => {
     const patches = await setupKeyboardBoard(page, { hideDone: true });
-    await keyboardMoveRight(page, 'issue-card-2', '완료');
+    await keyboardMoveRight(page.getByTestId('issue-card-2'), '완료');
     await expect.poll(() => patches.lastBody()).toEqual({ status: 'DONE' });
     await expect(page.getByTestId('board-col-empty-DONE')).toBeVisible();
     await expect(page.getByTestId('board-col-DONE')).toBeFocused();
@@ -1287,7 +1281,7 @@ test.describe('보드 키보드 놓기 뒤 포커스 (WP-837)', () => {
 
   test('상태 변경이 실패해 원래 열로 되돌아가도 그 카드에 포커스가 남는다', async ({ authenticatedPage: page }) => {
     const patches = await setupKeyboardBoard(page, { fail: true });
-    await keyboardMoveRight(page, 'issue-card-1', '진행 중');
+    await keyboardMoveRight(page.getByTestId('issue-card-1'), '진행 중');
     await expect.poll(patches.count).toBe(1);
     await expect(page.getByText('상태를 바꾸지 못했습니다(테스트)')).toBeVisible();
     await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-1')).toBeFocused();

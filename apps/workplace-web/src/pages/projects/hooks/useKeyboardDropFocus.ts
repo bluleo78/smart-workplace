@@ -12,12 +12,14 @@ interface KeyboardDrop {
 }
 
 const cardSelector = (number: number) => `[data-testid="issue-card-${number}"]`;
+const columnSelector = (status: string) => `[data-testid="board-col-${status}"]`;
 
 /**
- * 돌려준 함수를 키보드 상태 드롭 때 부른다. 그 뒤 다시 그려질 때마다, 포커스가 body 로 빠져 있으면:
+ * 돌려준 함수를 키보드 상태 드롭 때 부른다. 그 뒤 다시 그려질 때마다, 포커스가 빠져 있거나 놓은 열에 맡겨 둔 상태면:
  * - 카드가 보이면(새 열, 또는 실패로 되돌아간 원래 열) 그 카드로,
- * - 카드가 없으면(종료 이슈 숨김 WP-606 으로 사라짐) 놓은 열로 옮긴다.
- * 사용자가 카드 밖으로 포커스를 옮기면 잊는다 — 그 뒤 카드가 사라져도 포커스를 빼앗지 않는다.
+ * - 카드가 없으면 놓은 열로 옮긴다 — 종료 이슈 숨김(WP-606)으로 사라졌거나, 드롭 뒤 재조회에서 원래 열 응답이 새 열 응답보다
+ *   먼저 와 잠깐 어느 열에도 없는 때다. 뒤의 경우 카드가 다시 나타나면 열에서 카드로 옮긴다.
+ * 사용자가 카드·열 밖으로 포커스를 옮기면 잊는다 — 그 뒤 카드가 사라져도 포커스를 빼앗지 않는다.
  */
 export function useKeyboardDropFocus() {
   const [drop, setDrop] = useState<KeyboardDrop | null>(null);
@@ -25,7 +27,9 @@ export function useKeyboardDropFocus() {
   useEffect(() => {
     if (!drop) return;
     const onFocusIn = (e: FocusEvent) => {
-      if (!(e.target instanceof Element) || !e.target.matches(cardSelector(drop.number))) setDrop(null);
+      const t = e.target;
+      if (t instanceof Element && (t.matches(cardSelector(drop.number)) || t.matches(columnSelector(drop.status)))) return;
+      setDrop(null);
     };
     document.addEventListener('focusin', onFocusIn);
     return () => document.removeEventListener('focusin', onFocusIn);
@@ -33,17 +37,17 @@ export function useKeyboardDropFocus() {
 
   // 의존성 없이 매 렌더 뒤 확인한다 — 낙관적 이동·서버 재조회·실패 되돌림이 각각 따로 다시 그린다.
   // 드롭 직후(낙관적 이동 전)에는 원래 카드가 아직 포커스를 쥐고 있어 손대지 않는다.
+  // 지워진 요소가 아직 activeElement 로 남아 있어도 잃은 것으로 본다 — 브라우저는 포커스를 body 로 돌리는 처리를 다음 렌더링
+  // 단계로 미루기도 해, 커밋 직후 효과에서는 지워진 원래 카드가 보인다.
   useEffect(() => {
     if (!drop) return;
     const active = document.activeElement;
-    if (active !== null && active !== document.body) return;
+    const column = document.querySelector<HTMLElement>(columnSelector(drop.status));
+    const lost = active === null || active === document.body || !active.isConnected;
+    if (!lost && active !== column) return;
     const card = document.querySelector<HTMLElement>(cardSelector(drop.number));
-    if (card) {
-      card.focus();
-      return;
-    }
-    const column = document.querySelector<HTMLElement>(`[data-testid="board-col-${drop.status}"]`);
-    if (column) focusRow(column);
+    if (card) card.focus();
+    else if (column && active !== column) focusRow(column);
   });
 
   return setDrop;

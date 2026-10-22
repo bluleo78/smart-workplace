@@ -5,7 +5,7 @@
 import type { WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { bodyOf, trackRequests } from '../../fixtures/requests'
-import { dropDnd } from '../../fixtures/wait'
+import { dropDnd, startKeyboardDrag } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 
@@ -272,9 +272,8 @@ test.describe('위키 사이드바 — 키보드 정렬 스크린리더 안내 (
     await expect(page.locator(`[id="${describedBy}"]`)).toHaveText(
       'Space 키로 페이지를 집고, 위·아래 방향키로 옮길 자리를 고른 뒤 Space 키로 놓으세요. Esc 키를 누르면 취소됩니다.',
     )
-    await row.focus()
-    await page.keyboard.press('Space')
-    await expect(live).toHaveText('「C」 페이지를 집었습니다.')
+    // 집은 뒤 센서가 방향키 리스너를 붙일 때까지 기다린다(부하에서 바로 누른 방향키는 버려진다).
+    await startKeyboardDrag(row, () => expect(live).toHaveText('「C」 페이지를 집었습니다.'))
     await page.keyboard.press('ArrowUp')
     await expect(live).toHaveText('「C」 페이지가 「B」 자리 위에 있습니다. 놓으면 최상위에 들어갑니다.')
     await page.keyboard.press('Space')
@@ -290,9 +289,7 @@ test.describe('위키 사이드바 — 키보드 정렬 스크린리더 안내 (
     ]
     const moves = await setup(page, pages, 11)
     const live = page.locator('[id^="DndLiveRegion"]')
-    await page.getByTestId('wiki-tree-row-11').focus()
-    await page.keyboard.press('Space')
-    await expect(live).toHaveText('「옮길 페이지」 페이지를 집었습니다.')
+    await startKeyboardDrag(page.getByTestId('wiki-tree-row-11'), () => expect(live).toHaveText('「옮길 페이지」 페이지를 집었습니다.'))
     await page.keyboard.press('ArrowUp')
     await expect(live).toHaveText('「옮길 페이지」 페이지가 「자식」 자리 위에 있습니다. 놓으면 「부모」 하위에 들어갑니다.')
     await page.keyboard.press('Escape')

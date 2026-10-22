@@ -26,12 +26,13 @@ function rowsOf(list: HTMLElement): HTMLElement[] {
 }
 
 /**
- * 포커스가 갈 곳을 잃었는지 — body, 또는 목록을 담은 바깥 컨테이너(이슈 채팅 드로어: Radix 대화상자는 안의 포커스된 요소가 지워지면
- * 대화상자 자체로 포커스를 옮긴다). 사용자가 다른 곳으로 옮겼으면 빼앗지 않는다.
+ * 포커스가 갈 곳을 잃었는지 — body, 지워진 요소(브라우저가 body 로 돌리는 처리를 다음 렌더링 단계로 미루면 커밋 직후에는
+ * 지워진 요소가 activeElement 로 남는다), 또는 목록을 담은 바깥 컨테이너(이슈 채팅 드로어: Radix 대화상자는 안의 포커스된 요소가
+ * 지워지면 대화상자 자체로 포커스를 옮긴다). 사용자가 다른 곳으로 옮겼으면 빼앗지 않는다.
  */
 function focusLost(list: HTMLElement): boolean {
   const el = document.activeElement;
-  return el === null || el === document.body || (el !== list && el.contains(list));
+  return el === null || el === document.body || !el.isConnected || (el !== list && el.contains(list));
 }
 
 /**
