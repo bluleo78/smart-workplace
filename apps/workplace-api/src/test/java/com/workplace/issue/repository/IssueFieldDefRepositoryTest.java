@@ -107,7 +107,7 @@ class IssueFieldDefRepositoryTest extends IntegrationTestBase {
     var r1 = defRepo.insert(p.id(), "x", "TEXT", null, 0);
     var r2 = defRepo.insert(p.id(), "y", "NUMBER", null, 1);
 
-    var map = defRepo.findByIds(List.of(r1.id(), r2.id()));
+    var map = defRepo.findByIdsForShare(List.of(r1.id(), r2.id()));
 
     assertThat(map).containsOnlyKeys(r1.id(), r2.id());
   }
