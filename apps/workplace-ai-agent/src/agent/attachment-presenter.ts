@@ -92,7 +92,7 @@ function extractionLine(a: AgentAttachment, pdfPages = false): string {
   }
   // WP-250 코드 리뷰: Claude 도 PDF 를 로컬 Read 하지 않으므로, 추출 행이 없거나(NONE — 추출 기능 전 업로드) 실패했거나 스캔이 아닌 사유로
   // 건너뛴 PDF 도 이미지를 볼 수 있는 모델이면 페이지 이미지로 읽게 한다 — 그렇지 않으면 읽을 길이 없다. 쪽수를 모르면 1쪽부터 보게 하고,
-  // 범위를 넘으면 서버가 실제 쪽수를 알려 준다(400). 25MB 를 넘는 PDF 는 서버가 그리지 않으므로(413) 약속하지 않는다.
+  // 범위를 넘으면 서버가 실제 쪽수를 알려 준다(400). 100MB 를 넘는 PDF 는 서버가 그리지 않으므로(413) 약속하지 않는다.
   if (canViewPages(a, pdfPages) && x.status !== 'READY' && x.status !== 'PENDING') {
     const why = x.status === 'NONE' ? '텍스트 추출 기록 없음' : `텍스트로 읽을 수 없음: ${x.reason ?? '사유 미상'}`;
     const pages = x.pageCount ? `(총 ${x.pageCount}쪽)` : '(쪽수를 모르면 pages:[1] 부터)';

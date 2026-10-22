@@ -112,8 +112,8 @@ describe('presentAttachments', () => {
     }
   });
 
-  it('25MB 를 넘는 PDF 는 서버가 페이지를 그리지 않으므로 pages 를 약속하지 않는다', async () => {
-    const big = a(2, 'big.pdf', 'application/pdf', status('SKIPPED', '파일이 커서(25MB 초과) 텍스트를 추출하지 않았습니다.'), ISSUE, 26 * 1024 * 1024);
+  it('100MB 를 넘는 PDF 는 서버가 페이지를 그리지 않으므로 pages 를 약속하지 않는다', async () => {
+    const big = a(2, 'big.pdf', 'application/pdf', status('SKIPPED', '파일이 커서(PDF·문서 100MB, 그 밖 25MB 초과) 텍스트를 추출하지 않았습니다.'), ISSUE, 100 * 1024 * 1024 + 1);
     const p = await presentAttachments(CLAUDE, ok([big]), deps);
     expect(p.section).toContain('텍스트로 읽을 수 없음: 파일이 커서');
     expect(p.section).not.toContain('pages:[n]');

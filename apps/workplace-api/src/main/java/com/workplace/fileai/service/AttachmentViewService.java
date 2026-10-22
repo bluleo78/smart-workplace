@@ -3,6 +3,7 @@ package com.workplace.fileai.service;
 import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 
+import com.workplace.file.service.FileUploadService;
 import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.dto.ViewImage;
@@ -45,8 +46,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class AttachmentViewService {
 
-  /** 워커 원본 상한(config.MAX_BYTES)과 같은 25MB — 넘으면 워커까지 가지 않고 413. */
-  static final long MAX_SOURCE_BYTES = 25L * 1024 * 1024;
+  /** PDF 원본 상한 — PDF 업로드 상한과 같다(워커 config.DOC_MAX_BYTES 와도 맞춘다, WP-803). 넘으면 워커까지 가지 않고 413. */
+  static final long PDF_MAX_SOURCE_BYTES = FileUploadService.sizeLimitOf("PDF");
+
+  /** 이미지 원본 상한 — 워커 일반 상한(config.MAX_BYTES)과 같은 25MB. 넘으면 워커까지 가지 않고 413. */
+  static final long IMAGE_MAX_SOURCE_BYTES = 25L * 1024 * 1024;
 
   private final DSLContext dsl;
   private final FileStore fileStore;
@@ -145,7 +149,8 @@ public class AttachmentViewService {
    *
    * @param mime 파라미터를 뗀 소문자 mime
    * @param page PDF 면 1부터 센 쪽 번호(필수), 이미지면 null(필수)
-   * @param sizeBytes 원본 바이트 수 — 25MB 를 넘으면 TOO_LARGE
+   * @param sizeBytes 원본 바이트 수 — PDF 는 PDF_MAX_SOURCE_BYTES, 이미지는 IMAGE_MAX_SOURCE_BYTES 를 넘으면
+   *     TOO_LARGE
    * @param knownPageCount 이미 아는 PDF 쪽수(모르면 null — 그때 상한 검사는 워커가 한다). PDF 가 아니면 무시한다
    * @return PDF 인지(아니면 이미지) — 호출자가 mime 을 다시 판정하지 않게
    * @throws AttachmentViewException 형식·page·크기가 맞지 않을 때
@@ -158,7 +163,8 @@ public class AttachmentViewService {
     }
     if (pdf && page == null) throw new AttachmentViewException("PAGE_REQUIRED");
     if (!pdf && page != null) throw new AttachmentViewException("PAGE_NOT_ALLOWED");
-    if (sizeBytes > MAX_SOURCE_BYTES) throw new AttachmentViewException("TOO_LARGE");
+    if (sizeBytes > (pdf ? PDF_MAX_SOURCE_BYTES : IMAGE_MAX_SOURCE_BYTES))
+      throw new AttachmentViewException("TOO_LARGE");
     if (pdf && (page < 1 || (knownPageCount != null && page > knownPageCount))) {
       throw new AttachmentViewException("PAGE_OUT_OF_RANGE", knownPageCount);
     }

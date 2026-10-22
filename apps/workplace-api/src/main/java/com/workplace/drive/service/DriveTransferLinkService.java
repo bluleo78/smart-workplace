@@ -104,7 +104,7 @@ public class DriveTransferLinkService {
    */
   private final Path tempDir;
 
-  /** 멀티파트 파일 상한(spring.servlet.multipart.max-file-size, 25MB) — 업로드 링크도 같은 상한을 넘지 않는다. */
+  /** 멀티파트 파일 상한(spring.servlet.multipart.max-file-size, 100MB) — 업로드 링크도 같은 상한을 넘지 않는다. */
   private final long multipartMaxBytes;
 
   /** 외부에서 닿는 웹 기준 주소(끝 슬래시 제거). 운영은 WEB_BASE_URL, 비면 기동 실패({@code PublicBaseUrlCheck}). */
@@ -120,7 +120,7 @@ public class DriveTransferLinkService {
       DriveFileService fileService,
       AuditLogService auditLogService,
       @Value("${workplace.public-base-url}") String publicBaseUrl,
-      @Value("${spring.servlet.multipart.max-file-size:25MB}") String multipartMaxFileSize,
+      @Value("${spring.servlet.multipart.max-file-size:100MB}") String multipartMaxFileSize,
       @Value("${workplace.drive.transfer-temp-dir:${java.io.tmpdir}}") String tempDir) {
     this.links = links;
     this.files = files;
@@ -448,8 +448,8 @@ public class DriveTransferLinkService {
 
   /**
    * 공개 업로드 4단계(R2) — 본문을 세는 스트림으로 임시 파일에 받는다. 트랜잭션·DB 연결·테넌트 lock 없이 돈다. 상한은 이름·Content-Type 으로 정한
-   * 범주 상한(멀티파트 25MB 이하)이며, 원시 PUT 본문에는 멀티파트 상한이 걸리지 않고 Content-Length 가 없을 수도 있어(chunked) 이 세기가 유일한
-   * 제한이다. 넘으면 그 자리에서 끊는다.
+   * 범주 상한(멀티파트 100MB 이하)이며, 원시 PUT 본문에는 멀티파트 상한이 걸리지 않고 Content-Length 가 없을 수도 있어(chunked) 이 세기가
+   * 유일한 제한이다. 넘으면 그 자리에서 끊는다.
    *
    * @return 받은 본문(닫으면 임시 파일을 지운다)
    * @throws DriveTransferUploadRejectedException 크기 초과·본문 중단(400), 임시 파일 생성·쓰기 실패(500). 링크는 이미 소비됐다
@@ -547,9 +547,9 @@ public class DriveTransferLinkService {
 
   /**
    * 저장 MIME(WP-523) — Content-Type 없이 올린({@code curl -T}) 실제 이미지는 바이트로 이미지 MIME 을 정해 미리보기·썸네일이 나오게
-   * 한다 ({@link MimeNormalizer#normalizeSniffing}). 다만 링크는 발급 때 이름으로 정한 상한(일반 파일이면 25MB)으로 받았으므로,
-   * 이미지 상한(10MB)을 넘으면 이미지로 바꾸지 않고 정규화 결과 그대로 둔다 — 이미 쓴 일회용 링크가 이미지 상한에 걸려 실패하지 않게. 파일 지정 링크(새 버전)도
-   * 같다 — 실제 바이트가 이미지면 그 버전은 이미지다.
+   * 한다 ({@link MimeNormalizer#normalizeSniffing}). 다만 링크는 발급 때 이름으로 정한 상한(미분류 25MB·PDF·문서·데이터
+   * 100MB)으로 받았으므로, 이미지 상한(10MB)을 넘으면 이미지로 바꾸지 않고 정규화 결과 그대로 둔다 — 이미 쓴 일회용 링크가 이미지 상한에 걸려 실패하지 않게.
+   * 파일 지정 링크(새 버전)도 같다 — 실제 바이트가 이미지면 그 버전은 이미지다.
    */
   private static String storedMime(TransferLinkRow link, BoundedBody.Received body) {
     String normalized = MimeNormalizer.normalize(link.fileName(), body.mimeType());

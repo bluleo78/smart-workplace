@@ -87,8 +87,10 @@ import type { DriveFile, DriveFolder, DriveFolderPathSegment, DriveItemList, Dri
 import { type DroppedFile,readDroppedTree } from './folderUpload'
 import { useFolderNavigation } from './useFolderNavigation'
 
-// 서버 multipart 업로드 한도(application.yml: max-file-size 25MB)와 동일. 초과 시 업로드 전 안내.
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+// 서버 multipart 업로드 한도(application.yml: max-file-size 100MB, WP-803)와 동일. 초과 시 업로드 전 안내.
+// 형식별 상한(미분류 25MB 등)은 서버가 한국어 문구로 거절한다.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+const MAX_UPLOAD_LABEL = `${MAX_UPLOAD_BYTES / (1024 * 1024)}MB`
 
 // #658: AbortController.abort() 로 취소된 axios 요청인지 판별 — 실패 토스트 대신 취소 안내로 분기.
 function isUploadAborted(err: unknown): boolean {
@@ -579,7 +581,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       }
       try {
         if (d.file.size > MAX_UPLOAD_BYTES) {
-          failures.push(`${d.file.name} (25MB 초과)`)
+          failures.push(`${d.file.name} (${MAX_UPLOAD_LABEL} 초과)`)
         } else {
           const target = await ensureFolder(d.relativePath)
           await driveApi.uploadFile(sid, target, d.file, controller.signal)
@@ -636,7 +638,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       const file = files[0]
       // 한도 초과는 업로드 전 클라이언트에서 안내 — 불필요한 400 왕복·데이터 유실 오인 방지.
       if (file.size > MAX_UPLOAD_BYTES) {
-        toast.error('파일 크기가 25MB를 초과합니다.')
+        toast.error(`파일 크기가 ${MAX_UPLOAD_LABEL}를 초과합니다.`)
         return
       }
       const controller = new AbortController()
@@ -678,7 +680,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         }
         try {
           if (file.size > MAX_UPLOAD_BYTES) {
-            failures.push(`${file.name} (25MB 초과)`)
+            failures.push(`${file.name} (${MAX_UPLOAD_LABEL} 초과)`)
           } else {
             await driveApi.uploadFile(sid, folderId, file, controller.signal)
           }
