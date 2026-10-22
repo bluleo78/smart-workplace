@@ -4,7 +4,7 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
 import { BOARD_TAB_PARAM, type BoardTabInfo, resolveBoardTab } from '@/lib/boardTabs';
 import { withBoardTab } from '@/lib/issueFilters';
@@ -47,14 +47,15 @@ export function MobileBoard({
     scrollEl?.scrollTo({ top: 0 });
   }, [active, scrollEl]);
 
+  // 탭 루트가 탭 줄과 목록을 함께 감싼다 — 목록 영역이 선택 탭의 TabsContent(role=tabpanel)라 탭의 aria-controls 가 그 패널을
+  // 가리킨다(WP-841, 예전엔 패널이 없어 없는 id 를 가리켰다). 패널 value 를 늘 선택 탭으로 두어 탭이 바뀌어도 같은 요소를 다시 쓴다.
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Tabs value={active} onValueChange={select} className="shrink-0 gap-0">
+    <Tabs value={active} onValueChange={select} className="h-full min-h-0 gap-0">
         {/* 탭 4개(개인 3개)는 390px 에 들어가지만, 상태가 늘면 가로 스크롤 — 문서 가로 스크롤은 막는다.
             기본 TabsList 의 h-9·p-[3px] 은 group-data 변형이라 같은 변형으로 덮어야 이긴다 — 안 덮으면 44px 탭이 36px 줄 안에서 세로 스크롤된다.
             활성 밑줄(after, 기본 bottom -5px)도 overflow 에 잘리므로 탭 안쪽 바닥(border-b 바로 위)으로 올린다. */}
         <TabsList
-          className="w-full justify-start overflow-x-auto border-b p-0 group-data-[orientation=horizontal]/tabs:h-auto"
+          className="w-full shrink-0 justify-start overflow-x-auto border-b p-0 group-data-[orientation=horizontal]/tabs:h-auto"
           data-testid="board-tabs"
         >
           {tabs.map((t) => (
@@ -72,17 +73,19 @@ export function MobileBoard({
             </TabsTrigger>
           ))}
         </TabsList>
-      </Tabs>
       {/* 목록 영역 — 세로 스크롤 + 좌우 스와이프. pan-y: 수평 제스처를 브라우저가 가로채지 않게. sentinel 의 IO root. */}
-      <div
-        ref={setScrollEl}
-        className="min-h-0 flex-1 touch-pan-y overflow-y-auto pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]"
-        data-testid="board-scroll"
-        {...swipe}
-      >
-        {/* 스크롤 루트가 잡힌 뒤에만 렌더 — 첫 렌더에 sentinel 관찰자가 viewport 를 root 로 잡지 않게. */}
-        {active && scrollEl && children(active, scrollEl)}
-      </div>
-    </div>
+      {active && (
+        <TabsContent
+          value={active}
+          ref={setScrollEl}
+          className="min-h-0 touch-pan-y overflow-y-auto pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]"
+          data-testid="board-scroll"
+          {...swipe}
+        >
+          {/* 스크롤 루트가 잡힌 뒤에만 렌더 — 첫 렌더에 sentinel 관찰자가 viewport 를 root 로 잡지 않게. */}
+          {scrollEl && children(active, scrollEl)}
+        </TabsContent>
+      )}
+    </Tabs>
   );
 }

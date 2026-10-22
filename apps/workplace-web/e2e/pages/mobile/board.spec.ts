@@ -102,6 +102,21 @@ test.describe('모바일 보드 상태 탭', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  // WP-841 — 탭이 가리키는 패널(aria-controls)이 실제로 있어야 스크린리더가 탭과 카드 목록을 잇는다.
+  test('선택 탭의 aria-controls 가 그 탭으로 이름 붙은 tabpanel(카드 목록)을 가리키고, 탭을 바꾸면 따라간다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=TODO`);
+    for (const [status, card] of [['TODO', 'issue-card-21'], ['DONE', 'issue-card-31']] as const) {
+      if (status === 'DONE') await page.getByTestId('board-tab-DONE').click();
+      const tab = page.getByTestId(`board-tab-${status}`);
+      await expect(tab).toHaveAttribute('aria-selected', 'true');
+      const panel = page.locator(`[id="${await tab.getAttribute('aria-controls')}"]`);
+      await expect(panel).toHaveAttribute('role', 'tabpanel');
+      await expect(panel).toHaveAttribute('aria-labelledby', (await tab.getAttribute('id'))!);
+      await expect(panel.getByTestId(card)).toBeVisible();
+    }
+  });
+
   test('탭을 누르면 전환되고 URL boardTab 으로 유지(새로고침 복귀)', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&group=none`);

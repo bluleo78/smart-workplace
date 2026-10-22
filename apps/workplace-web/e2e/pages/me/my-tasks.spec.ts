@@ -171,3 +171,21 @@ test('내 작업 — 긴 제목이어도 유형 배지는 한 줄로 유지된�
   expect((await badge.boundingBox())!.height).toBeLessThanOrEqual(20)
   expect(await badge.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
 })
+
+// WP-841 — 탭이 가리키는 패널(aria-controls)이 실제로 있어야 스크린리더가 탭과 내용을 잇는다.
+test('내 작업 — 선택 탭의 aria-controls 가 그 탭으로 이름 붙은 tabpanel(목록 포함)을 가리킨다', async ({
+  authenticatedPage: page,
+}) => {
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue({ id: 31, title: '패널 안 이슈' })]))
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', createIssueSearchResponse([createIssue({ id: 32, title: '구독 이슈' })]))
+  await page.goto('/me/tasks/assigned')
+  for (const [tab, row] of [['assigned', 'assigned-row-31'], ['watched', 'watched-row-32']] as const) {
+    if (tab === 'watched') await page.getByTestId('tab-watched').click()
+    const trigger = page.getByTestId(`tab-${tab}`)
+    await expect(trigger).toHaveAttribute('aria-selected', 'true')
+    const panel = page.locator(`[id="${await trigger.getAttribute('aria-controls')}"]`)
+    await expect(panel).toHaveAttribute('role', 'tabpanel')
+    await expect(panel).toHaveAttribute('aria-labelledby', (await trigger.getAttribute('id'))!)
+    await expect(panel.getByTestId(row)).toBeVisible()
+  }
+})
