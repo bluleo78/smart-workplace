@@ -49,6 +49,7 @@ import { useCreateWikiPageAndOpen } from './useCreateWikiPageAndOpen'
 import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiDeleteSpaceDialog } from './WikiDeleteSpaceDialog'
+import { WIKI_DND_SCREEN_READER_INSTRUCTIONS, wikiDndAnnouncements } from './wikiDndAnnouncements'
 import { WikiMoveShareDialog } from './WikiMoveShareDialog'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
@@ -244,6 +245,22 @@ export function WikiSidebar() {
     }
     return null
   }, [dndItems, activeId, overId, offsetLeft])
+
+  // 스크린리더 안내(WP-838) — 제목·놓을 자리·들어갈 부모를 한국어로. 자리는 드롭과 같은 투영(현재 가로 오프셋)으로 구한다.
+  const accessibility = useMemo(() => {
+    const titleOf = (id: number) => flatItems.find((i) => i.id === id)?.title || '제목 없음'
+    return {
+      announcements: wikiDndAnnouncements(
+        (id) => titleOf(Number(id)),
+        (activeId, overId) => {
+          const projection = getProjection(dndItems, Number(activeId), Number(overId), offsetLeft, INDENT)
+          if (!projection) return null
+          return { overTitle: titleOf(Number(overId)), parentTitle: projection.parentId != null ? titleOf(projection.parentId) : null }
+        },
+      ),
+      screenReaderInstructions: WIKI_DND_SCREEN_READER_INSTRUCTIONS,
+    }
+  }, [flatItems, dndItems, offsetLeft])
 
   // PointerSensor distance:5 — 짧은 클릭(제목 이동)과 드래그를 구분.
   const sensors = useSensors(
@@ -480,6 +497,7 @@ export function WikiSidebar() {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            accessibility={accessibility}
             onDragStart={handleDragStart}
             onDragMove={handleDragMove}
             onDragOver={handleDragOver}
