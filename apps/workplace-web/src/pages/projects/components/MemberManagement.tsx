@@ -36,12 +36,14 @@ interface MemberManagementProps {
   projectKey: string;
   // true 면 AI 어시스턴트(AGENT) 만 추가 가능 — 개인 프로젝트 전용 모드.
   agentOnly?: boolean;
+  // 개인 프로젝트 주인 id — 주인 행은 제거 버튼을 두지 않는다(WP-856). agentOnly 일 때만 쓴다.
+  ownerId?: number;
   // 멤버 추가·역할 변경·제거를 할 수 있는가(OWNER 또는 비개인 ADMIN, WP-479). false 면 명단만 읽기 전용으로 보인다.
   canManage?: boolean;
 }
 
 // 프로젝트 멤버 관리 — 검색 picker 로 추가, 역할 변경/제거.
-export function MemberManagement({ projectKey, agentOnly = false, canManage = true }: MemberManagementProps) {
+export function MemberManagement({ projectKey, agentOnly = false, ownerId, canManage = true }: MemberManagementProps) {
   const members = useProjectMembers(projectKey);
   const addMember = useAddMember(projectKey);
   const updateRole = useUpdateMemberRole(projectKey);
@@ -173,8 +175,9 @@ export function MemberManagement({ projectKey, agentOnly = false, canManage = tr
                 </td>
                 <td className="hidden pr-3 text-muted-foreground @min-[640px]:table-cell">{m.username}</td>
                 <td>
-                  {/* 관리 권한이 없으면 역할은 글자로만(WP-479). shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
-                  {!canManage ? (
+                  {/* 관리 권한이 없거나 개인 프로젝트(역할 고정 — 주인 = 소유자, AI = 멤버, WP-856)면 역할은 글자로만(WP-479).
+                      shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
+                  {!canManage || agentOnly ? (
                     <span data-testid={`member-role-${m.userId}`}>{m.role === 'OWNER' ? '소유자' : '멤버'}</span>
                   ) : (
                   <Select
@@ -192,7 +195,8 @@ export function MemberManagement({ projectKey, agentOnly = false, canManage = tr
                   )}
                 </td>
                 <td>
-                  {canManage && (
+                  {/* 개인 프로젝트 주인은 제거할 수 없다(WP-856) — 버튼을 두지 않는다. */}
+                  {canManage && !(agentOnly && m.userId === ownerId) && (
                   <Button
                     variant="ghost"
                     size="sm"

@@ -392,6 +392,9 @@ test('다른 행 클릭 시 drawer가 해당 이슈로 전환된다', async ({ a
   // 행1 클릭 → task=1.
   await page.getByTestId('personal-task-row-1').click();
   await expect(page).toHaveURL(/task=1/);
+  // URL 은 history push 즉시 바뀌지만 행들은 React 가 다시 그린 뒤에야 새 위치(location.key)를 쥔다. 그 전에 행2 를 누르면
+  // useHistoryParam 이 낡은 스냅숏이라 무동작한다 — 행1 이 눌림으로 그려질 때(커밋 뒤)까지 기다린다.
+  await expect(page.getByTestId('personal-task-row-1')).toHaveAttribute('aria-pressed', 'true');
   // 행2 클릭 → task=2 로 전환(drawer 유지, 이슈만 교체).
   await page.getByTestId('personal-task-row-2').click();
   await expect(page).toHaveURL(/task=2/);

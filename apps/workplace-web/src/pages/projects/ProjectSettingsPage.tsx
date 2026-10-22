@@ -179,7 +179,7 @@ export default function ProjectSettingsPage() {
 
           {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
           {isPersonal
-            ? <MemberManagement projectKey={key} agentOnly canManage={canManage} />
+            ? <MemberManagement projectKey={key} agentOnly ownerId={project.data?.ownerId} canManage={canManage} />
             : <MemberManagement projectKey={key} canManage={canManage} />}
 
           <LabelManagement
