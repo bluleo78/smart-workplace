@@ -152,6 +152,56 @@ class ContactServiceTest extends IntegrationTestBase {
     assertThat(detail.editable()).isTrue();
   }
 
+  /**
+   * WP-791: 전화·소속·직함도 이름처럼 한 줄로 다듬는다 — 보이지 않는 글자만 있으면 비우고(null), 줄바꿈은 공백 하나로. 다듬지 않으면 조직 필터 목록에 빈
+   * 항목·두 줄 항목이 생겼다.
+   */
+  @Test
+  void create_optionalFields_invisibleOnlyBecomeNull_andLineBreaksBecomeSpaces() {
+    long c = caller();
+    var blank =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "보이지않음", null, "​", "⠀", "​ ㅤ", null, "PERSONAL"),
+            false);
+    assertThat(blank.phone()).isNull();
+    assertThat(blank.organization()).isNull();
+    assertThat(blank.title()).isNull();
+
+    var multi =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "여러줄", null, "1\n2", "org\nline", "t\r\nt", null, "PERSONAL"),
+            false);
+    assertThat(multi.phone()).isEqualTo("1 2");
+    assertThat(multi.organization()).isEqualTo("org line");
+    assertThat(multi.title()).isEqualTo("t t");
+  }
+
+  /** WP-791: 부분 수정에서도 같은 다듬기 — 보이지 않는 글자만 보낸 칸은 비우고, 생략(null)한 칸은 유지한다. */
+  @Test
+  void update_optionalFields_invisibleOnlyClears_andOmittedKeeps() {
+    long c = caller();
+    var created =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "다듬기", null, "010", "Acme", "대표", null, "PERSONAL"),
+            false);
+    var d =
+        service.update(
+            c,
+            created.id(),
+            new com.workplace.contacts.dto.UpdateExternalContactRequest(
+                null, null, null, "​", " 팀장\n", null, null),
+            false);
+    assertThat(d.phone()).isEqualTo("010"); // 유지
+    assertThat(d.organization()).isNull(); // 보이지 않는 글자만 → 비움
+    assertThat(d.title()).isEqualTo("팀장");
+  }
+
   @Test
   void create_duplicateNameAndEmail_throwsDuplicateWarning() {
     long c = caller();
