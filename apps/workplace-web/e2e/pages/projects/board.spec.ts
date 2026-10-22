@@ -6,7 +6,7 @@ import type { Route } from '@playwright/test';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { dropDnd, expectStays, startKeyboardDrag } from '../../fixtures/wait';
+import { dropDnd, expectStays, gate, startKeyboardDrag } from '../../fixtures/wait';
 import {
   createIssue,
   createIssueDetail,
@@ -1285,5 +1285,45 @@ test.describe('보드 키보드 놓기 뒤 포커스 (WP-837)', () => {
     await expect.poll(patches.count).toBe(1);
     await expect(page.getByText('상태를 바꾸지 못했습니다(테스트)')).toBeVisible();
     await expect(page.getByTestId('board-col-TODO').getByTestId('issue-card-1')).toBeFocused();
+  });
+
+  // 열마다 따로 재조회한다 — 원래 열 응답(카드 없음)이 새 열 응답보다 먼저 와도 카드가 어느 열에서도 사라지지 않아야 한다(WP-860).
+  test('놓은 뒤 원래 열 재조회가 새 열보다 먼저 끝나도 카드가 새 열에 계속 보인다', async ({ authenticatedPage: page }) => {
+    await stubProjectMeta(page);
+    let issues: IssueResponse[] = [createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' })];
+    let patched = false;
+    let todoAfterPatch = 0;
+    const holdInProgress = gate();
+    await routeIssueSearch(page, async (route, url) => {
+      const status = url.searchParams.get('status');
+      // 놓은 뒤의 새 열(진행 중) 재조회만 붙잡아, 원래 열(할 일) 응답이 먼저 도착하게 한다.
+      if (patched && status === 'IN_PROGRESS') await holdInProgress.p;
+      const items = issues.filter((i) => !status || i.status === status);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(items)) });
+      if (patched && status === 'TODO') todoAfterPatch++;
+    });
+    await page.route(/\/api\/v1\/projects\/WP\/issues\/\d+\/cycles$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(/\/issues\/\d+\/status$/, (route) => {
+      issues = issues.map((i) => ({ ...i, status: 'IN_PROGRESS' }));
+      patched = true;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueDetail({ summary: issues[0], body: null, comments: [], history: [] })),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    await keyboardMoveRight(page.getByTestId('issue-card-1'), '진행 중');
+    // 원래 열 재조회(카드 없음)가 끝난 뒤에도, 새 열 응답을 기다리는 동안 카드는 새 열에 그대로 있다.
+    await expect.poll(() => todoAfterPatch).toBeGreaterThan(0);
+    const moved = page.getByTestId('board-col-IN_PROGRESS').getByTestId('issue-card-1');
+    await expectStays(page, () => moved.count(), 1);
+    holdInProgress.release();
+    await expect(page.getByText('상태를 변경했습니다', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('issue-card-1')).toHaveCount(1);
+    await expect(moved).toBeVisible();
   });
 });
