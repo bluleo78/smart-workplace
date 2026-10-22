@@ -66,7 +66,7 @@ public class UserApiTokenService {
     repo.lockIssue(callerId);
     if (repo.countActive(callerId) >= MAX_ACTIVE) {
       throw new IllegalArgumentException(
-          "개인 API 토큰은 " + MAX_ACTIVE + "개까지 쓸 수 있습니다. 쓰지 않는 토큰을 회수한 뒤 다시 발급하세요");
+          "개인 API 토큰은 " + MAX_ACTIVE + "개까지 쓸 수 있습니다. 쓰지 않는 토큰을 폐기한 뒤 다시 발급하세요");
     }
 
     String plaintext = generatePlaintext();

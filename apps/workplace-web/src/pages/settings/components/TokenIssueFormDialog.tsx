@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { extractApiError } from '@/lib/api-error';
 
 // GitHub PAT 등 통상적인 프리셋 — 30일을 기본값(권장)으로 안내.
 const EXPIRY_PRESETS = {
@@ -91,8 +92,9 @@ export function TokenIssueFormDialog({
     try {
       await onSubmit({ name: data.name, expiresAt: presetToExpiresAt(data.expiryPreset) });
       reset();
-    } catch {
-      setServerError('토큰 발급에 실패했습니다.');
+    } catch (e) {
+      // 서버 사유(예: 활성 토큰 20개 상한, WP-818)를 창 안에 그대로 보인다 — 사유 없는 고정 문구만 보이고 사유는 토스트로만 나갔다(WP-835).
+      setServerError(extractApiError(e, '토큰 발급에 실패했습니다.'));
     }
   };
 
@@ -144,7 +146,11 @@ export function TokenIssueFormDialog({
             />
           </div>
 
-          {serverError && <p className="text-sm text-destructive">{serverError}</p>}
+          {serverError && (
+            <p role="alert" className="text-sm text-destructive" data-testid="token-issue-error">
+              {serverError}
+            </p>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => handleOpenChange(false)}>

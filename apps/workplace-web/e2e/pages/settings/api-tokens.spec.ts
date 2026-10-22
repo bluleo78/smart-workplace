@@ -177,6 +177,32 @@ test.describe('/settings/tokens', () => {
     await expect(row).toContainText('무기한');
   });
 
+  // WP-835 — 활성 토큰 20개 상한(WP-818)에 걸리면 서버 사유를 발급 창 안에 보이고, 같은 내용을 토스트로 한 번 더 띄우지 않는다.
+  test('발급이 상한에 걸리면 서버 사유를 발급 창 안에 보이고 토스트는 띄우지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    const reason = '개인 API 토큰은 20개까지 쓸 수 있습니다. 쓰지 않는 토큰을 폐기한 뒤 다시 발급하세요';
+    await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ message: reason }) })
+        : route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.goto('/settings/tokens');
+    await page.getByTestId('token-issue-open').click();
+
+    const formDialog = page.getByTestId('token-issue-form-dialog');
+    await formDialog.getByLabel('토큰 이름').fill('one-too-many');
+    await formDialog.getByTestId('token-issue-submit').click();
+
+    // 창 안에 사유 그대로(스크린리더가 읽게 role=alert) — 사유 없는 「토큰 발급에 실패했습니다.」가 아니다.
+    const error = formDialog.getByTestId('token-issue-error');
+    await expect(error).toHaveText(reason);
+    await expect(error).toHaveAttribute('role', 'alert');
+    // 창은 열린 채 — 이름을 고치거나 목록에서 폐기하러 갈 수 있다. 같은 사유의 토스트는 없다.
+    await expect(formDialog).toBeVisible();
+    await expect(page.locator('[data-sonner-toast]')).toHaveCount(0);
+  });
+
   // WP-702 — 만료일이 지난 토큰은 서버가 거절하므로 「활성」이 아니라 「만료됨」으로 보이고, 폐기 버튼은 남는다.
   test('만료일이 지난 토큰은 「만료됨」으로 표시된다', async ({ authenticatedPage: page }) => {
     const base = { tenantId: 1, createdAt: '2026-09-01T00:00:00Z', lastUsedAt: null, revokedAt: null };

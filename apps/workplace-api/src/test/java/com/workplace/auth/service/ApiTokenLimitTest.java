@@ -99,7 +99,8 @@ class ApiTokenLimitTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> issue("t20"))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("개인 API 토큰은 20개까지 쓸 수 있습니다. 쓰지 않는 토큰을 회수한 뒤 다시 발급하세요");
+        // WP-835: 개인 토큰 화면의 버튼·확인창은 「폐기」다 — 안내도 같은 말을 쓴다(AI 키 화면은 「회수」라 그대로).
+        .hasMessage("개인 API 토큰은 20개까지 쓸 수 있습니다. 쓰지 않는 토큰을 폐기한 뒤 다시 발급하세요");
 
     tokenService.revoke(human, ids.get(0));
     assertThat(issue("again")).isPositive();

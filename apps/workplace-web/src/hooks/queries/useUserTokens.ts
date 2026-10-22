@@ -25,7 +25,7 @@ export function useIssueMyToken() {
       qc.invalidateQueries({ queryKey: userTokenKeys.mine });
       toast.success('토큰을 발급했습니다');
     },
-    onError: (e) => handleApiError(e, '토큰 발급에 실패했습니다'),
+    // 실패 사유는 발급 창(TokenIssueFormDialog)이 창 안에 보인다 — 토스트로 같은 내용을 한 번 더 띄우지 않는다(WP-835).
   });
 }
 
