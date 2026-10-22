@@ -1430,7 +1430,7 @@ public class CalendarEventService {
    */
   @Transactional(readOnly = true)
   public void validateCreatable(long callerId, CalendarEventRequest req) {
-    validateRecurrence(req.recurrenceRule());
+    validateRecurrence(req.recurrenceRule(), req.startsAt());
     validateColorOverride(req.color());
     if (req.calendarId() != null) {
       calendarService.requireWritableCalendar(callerId, req.calendarId());
@@ -1546,7 +1546,7 @@ public class CalendarEventService {
     if (!req.attendeeUserIdsOrEmpty().isEmpty()) {
       throw new IllegalArgumentException("일정 수정으로는 참석자를 바꿀 수 없습니다. 참석자 추가·제거 API 를 사용하세요.");
     }
-    validateRecurrence(req.recurrenceRule());
+    validateRecurrence(req.recurrenceRule(), req.startsAt());
     validateColorOverride(req.color());
     requireOwner(callerId, id);
     requireOrganizer(callerId, id);
@@ -1678,10 +1678,13 @@ public class CalendarEventService {
         req.calendarId()); // calendarId 보존 — resolve 는 호출측에서 수행
   }
 
-  /** RRULE 쓰기 검증 — 비어있지 않으면 파싱 시도(잘못된 규칙→IllegalArgumentException→400). null/공백은 단일 일정이라 통과. */
-  private void validateRecurrence(String recurrenceRule) {
+  /**
+   * RRULE 쓰기 검증 — 비어있지 않으면 파싱 시도(잘못된 규칙→IllegalArgumentException→400). null/공백은 단일 일정이라 통과. 시작과 함께
+   * 넘겨 시작보다 이른 UNTIL 도 거절한다(WP-746).
+   */
+  private void validateRecurrence(String recurrenceRule, OffsetDateTime startsAt) {
     if (recurrenceRule != null && !recurrenceRule.isBlank()) {
-      expander.validate(recurrenceRule);
+      expander.validate(recurrenceRule, startsAt);
     }
   }
 
