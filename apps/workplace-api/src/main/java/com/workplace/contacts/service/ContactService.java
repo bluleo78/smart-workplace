@@ -19,8 +19,10 @@ import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.UnicodeNames;
+import com.workplace.user.outbound.AgentDeleted;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -187,9 +189,22 @@ public class ContactService {
   /** 즐겨찾기 추가 — 타깃 존재·가시성 검증 후 멱등 add. 비가시/미존재 타깃은 404(임의 ID 즐겨찾기 차단). */
   @Transactional
   public void addFavorite(long callerId, FavoriteRequest req) {
+    // 외부 연락처는 먼저 행을 공유 잠금한다 — 동시에 지워지면 이 즐겨찾기가 가리킬 데 없이 남는다(WP-820). 지운 쪽이 먼저 커밋했으면 아래 가시성
+    // 확인이 404 로 끝난다.
+    if ("EXTERNAL".equals(req.targetType())) repo.lockExternal(req.targetId());
     requireVisibleTarget(callerId, req.targetType(), req.targetId());
     favoriteRepo.add(callerId, req.targetType(), req.targetId());
     notifier.favoriteChanged(ResourceChangedEvent.OP_UPDATED, callerId);
+  }
+
+  /**
+   * 에이전트 삭제 직전(같은 트랜잭션, 동기) — 그 에이전트가 만든 외부 연락처는 사용자 행 삭제의 owner_id CASCADE 로 사라지므로 {@link #delete}
+   * 의 참조 정리를 거치지 않는다. 그 연락처를 가리키는 즐겨찾기·그룹 멤버 행을 먼저 지운다(WP-820). 삭제가 막혀 사용 중지로 바뀌면(WP-705) 이 정리도 함께
+   * 되돌려진다.
+   */
+  @EventListener
+  public void onAgentDeleted(AgentDeleted e) {
+    TenantContext.runAs(e.tenantId(), () -> repo.deleteExternalRefsOwnedBy(e.userId()));
   }
 
   /** 즐겨찾기 해제 — 멱등(부재여도 정상). */

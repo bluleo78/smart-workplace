@@ -288,11 +288,15 @@ public class UserGroupRepository {
 
   /** EXTERNAL 대상 검증 — 호출자가 읽을 수 있는 contact_entry 존재 여부(SHARED|owner|admin). */
   public boolean externalReadable(long callerId, boolean admin, long contactId) {
-    return dsl.fetchExists(
-        dsl.selectOne()
-            .from(CONTACT_ENTRY)
-            .where(CONTACT_ENTRY.ID.eq(contactId))
-            .and(externalReadableBy(callerId, admin)));
+    // 공유 잠금(FOR SHARE) — 편입하는 동안 그 연락처가 지워지면 멤버 행이 가리킬 데 없이 남는다(WP-820). 삭제가 먼저면 커밋을 기다린 뒤 행이 없어
+    // false, 편입이 먼저면 삭제가 이 트랜잭션의 커밋을 기다렸다가 편입한 행까지 정리한다.
+    return dsl.selectOne()
+        .from(CONTACT_ENTRY)
+        .where(CONTACT_ENTRY.ID.eq(contactId))
+        .and(externalReadableBy(callerId, admin))
+        .forShare()
+        .fetchOptional()
+        .isPresent();
   }
 
   /** 호출자가 읽을 수 있는 contact_entry 술어(SHARED|owner|admin) — 편입 검증과 멤버 목록이 같이 쓴다. */
