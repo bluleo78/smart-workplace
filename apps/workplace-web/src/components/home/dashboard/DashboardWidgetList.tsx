@@ -87,6 +87,26 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
     }
   }, [moveFocus])
 
+  // 삭제 뒤 포커스 잇기(WP-842) — 지운 카드는 통째로 빠져 「삭제」 버튼에 있던 포커스가 body 로 사라졌다. 같은 자리에 온 위젯
+  // (마지막이었으면 바로 앞 위젯)의 「삭제」 버튼으로, 남은 위젯이 없으면 빈 상태의 행동 버튼(위젯 추가)으로 옮겨
+  // 키보드·스크린리더 사용자가 이어서 조작하게 한다.
+  const removedAt = useRef<number | null>(null)
+  useEffect(() => {
+    const index = removedAt.current
+    if (index == null) return
+    removedAt.current = null
+    const next = draftEntries[Math.min(index, draftEntries.length - 1)]
+    const card = next ? cardRefs.current.get(next.cfg.id) : undefined
+    const target = card
+      ? (card.querySelector<HTMLElement>('[data-testid="widget-remove"]') ?? card)
+      : document.querySelector<HTMLElement>('[data-testid="dashboard-empty-action"]')
+    target?.focus()
+  }, [draftEntries])
+  function removeWidget(id: string) {
+    removedAt.current = draftEntries.findIndex((e) => e.cfg.id === id)
+    edit.removeWidget(id)
+  }
+
   // 위젯 추가 직후 해당 카드로 스크롤 이동(강조 해제 타이머는 useDashboardEditDraft 가 관리).
   useEffect(() => {
     if (!recentlyAddedId) return
@@ -172,7 +192,7 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
                   onToggleHidden={() => edit.toggleHidden(entry.cfg.id)}
                   onCount={(n) => edit.setCount(entry.cfg.id, n)}
                   onApplyCatalogConfig={(patch) => edit.applyCatalogConfig(entry.cfg.id, patch)}
-                  onRemove={() => edit.removeWidget(entry.cfg.id)}
+                  onRemove={() => removeWidget(entry.cfg.id)}
                   highlighted={entry.cfg.id === recentlyAddedId}
                   cardRef={(el) => {
                     if (el) cardRefs.current.set(entry.cfg.id, el)
@@ -222,7 +242,7 @@ export function DashboardWidgetList({ isMobile, savedEntries, edit }: Props) {
                 onToggleChromeless={() => edit.toggleChromeless(entry.cfg.id)}
                 onCount={(n) => edit.setCount(entry.cfg.id, n)}
                 onApplyCatalogConfig={(patch) => edit.applyCatalogConfig(entry.cfg.id, patch)}
-                onRemove={() => edit.removeWidget(entry.cfg.id)}
+                onRemove={() => removeWidget(entry.cfg.id)}
                 highlighted={entry.cfg.id === recentlyAddedId}
                 cardRef={(el) => {
                   if (el) cardRefs.current.set(entry.cfg.id, el)
