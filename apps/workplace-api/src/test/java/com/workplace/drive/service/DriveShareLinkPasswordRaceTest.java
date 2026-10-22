@@ -29,6 +29,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 공유 링크 비밀번호 잠금(5회 실패 → 15분, #700)이 동시 요청에도 걸린다(WP-783).
@@ -106,11 +107,15 @@ class DriveShareLinkPasswordRaceTest extends IntegrationTestBase {
         .deleteFrom(DRIVE_SHARE_LINK_ATTEMPTS)
         .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(tokenHash))
         .execute();
-    baseDsl
-        .deleteFrom(AUDIT_LOG)
-        .where(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(driveFileId)))
-        .and(AUDIT_LOG.RESOURCE.eq("drive"))
-        .execute();
+    cleanupInTenant(
+        1L,
+        () ->
+            baseDsl
+                .deleteFrom(AUDIT_LOG)
+                .where(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(driveFileId)))
+                .and(AUDIT_LOG.RESOURCE.eq("drive"))
+                .execute());
+    TenantContext.set(1L);
     baseDsl
         .deleteFrom(DRIVE_SHARE_LINK)
         .where(DRIVE_SHARE_LINK.DRIVE_FILE_ID.eq(driveFileId))
@@ -150,6 +155,41 @@ class DriveShareLinkPasswordRaceTest extends IntegrationTestBase {
             baseDsl.fetchCount(
                 DRIVE_SHARE_LINK_ATTEMPTS, DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(tokenHash)))
         .isZero();
+  }
+
+  /**
+   * WP-789: 잠금 감사(SHARE_LINK_LOCKED)는 링크를 만든 워크스페이스의 감사로 남는다. 익명 공개 경로라 테넌트 컨텍스트가 없어, 전에는 tenant_id
+   * 가 비어 그 워크스페이스 관리자의 감사 로그에 보이지 않았다.
+   */
+  @Test
+  void 잠금_감사는_링크의_워크스페이스로_남는다() {
+    // 운영의 익명 요청처럼 커넥션에 워크스페이스(GUC)가 없는 상태 — 테스트 기본값(세션 GUC 1)이면 우연히 맞게 남는다.
+    baseDsl.execute("SELECT set_config('app.tenant_id', '', false)");
+    try {
+      for (int i = 0; i < 5; i++) {
+        assertThatThrownBy(() -> service.resolveForDownload(token, "wrong", null, false))
+            .isInstanceOf(DriveShareLinkUnauthorizedException.class);
+      }
+    } finally {
+      baseDsl.execute("SELECT set_config('app.tenant_id', '1', false)");
+    }
+    TenantContext.set(1L);
+    try {
+      Integer inTenant =
+          new TransactionTemplate(txManager)
+              .execute(
+                  st ->
+                      baseDsl.fetchCount(
+                          AUDIT_LOG,
+                          AUDIT_LOG
+                              .ACTION_TYPE
+                              .eq("SHARE_LINK_LOCKED")
+                              .and(AUDIT_LOG.RESOURCE_ID.eq(String.valueOf(driveFileId)))
+                              .and(AUDIT_LOG.TENANT_ID.eq(1L))));
+      assertThat(inTenant).isEqualTo(1);
+    } finally {
+      TenantContext.clear();
+    }
   }
 
   /** 틀린 비밀번호 요청 CONCURRENT 개를 한꺼번에 출발시켜 각 결과(값 또는 예외)를 돌려준다. */

@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** 공유 링크 관리(생성/목록/폐기). 생성 권한 EDITOR. 평문 토큰은 생성 응답 1회만. */
 @Service
@@ -44,6 +45,9 @@ public class DriveShareLinkService {
 
   // WP-341: 정지·삭제된 테넌트의 공유 링크를 "없음"으로 처리하기 위한 테넌트 상태 확인.
   private final TenantStatusChecker tenantStatusChecker;
+
+  /** 익명 공개 경로에서 링크의 워크스페이스로 감사를 남길 때 쓰는 트랜잭션(WP-789 — logInTenant 는 트랜잭션 안에서만). */
+  private final TransactionTemplate tx;
 
   /** 링크 생성. 파일의 공간 EDITOR 검증 → 토큰 생성 → 해시 저장 → 평문 1회 반환. */
   @Transactional
@@ -153,19 +157,23 @@ public class DriveShareLinkService {
       if (password == null || !passwordEncoder.matches(password, link.passwordHash())) {
         // 잡은 칸이 곧 실패 기록이다.
         if (attemptService.reachedLimit(attempt)) {
-          // 잠금이 이번 실패로 발동됨 — 이상 시도 추적을 위해 감사 로그 기록(#700)
-          auditLogService.log(
-              null,
-              "anonymous",
-              "SHARE_LINK_LOCKED",
-              "drive",
-              String.valueOf(link.driveFileId()),
-              "공유 링크 비밀번호 잠금(브루트포스 방어)",
-              null,
-              null,
-              "BLOCKED",
-              null,
-              Map.of("tenantId", link.tenantId()));
+          // 잠금이 이번 실패로 발동됨 — 이상 시도 추적을 위해 감사 로그 기록(#700). 익명 공개 경로라 워크스페이스 컨텍스트가 없어 그대로
+          // 남기면 tenant_id 가 비어 링크 주인 워크스페이스 관리자에게 보이지 않았다 — 링크의 워크스페이스로 남긴다(WP-789).
+          tx.executeWithoutResult(
+              st ->
+                  auditLogService.logInTenant(
+                      link.tenantId(),
+                      null,
+                      "anonymous",
+                      "SHARE_LINK_LOCKED",
+                      "drive",
+                      String.valueOf(link.driveFileId()),
+                      "공유 링크 비밀번호 잠금(브루트포스 방어)",
+                      null,
+                      null,
+                      "BLOCKED",
+                      null,
+                      Map.of("tenantId", link.tenantId())));
         }
         throw new com.workplace.drive.exception.DriveShareLinkUnauthorizedException(
             "비밀번호가 필요하거나 올바르지 않습니다");
