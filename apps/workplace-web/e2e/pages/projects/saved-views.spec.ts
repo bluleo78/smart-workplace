@@ -378,3 +378,21 @@ test('저장된 뷰 — 긴 이름 칩은 말줄임되고 전체 이름은 title
   const top = (await chip.boundingBox())!.y
   expect((await page.getByTestId('view-chip-2').boundingBox())!.y).toBe(top)
 })
+
+// WP-808 — 예전 저장 뷰의 status 조건은 「상태 범주」 필터로 복원된다(개별 「상태」 필터는 statusId 로 따로 남는다).
+test('saved view 의 status 조건은 상태 범주로 복원된다', async ({ authenticatedPage: page }) => {
+  await setupCommonRoutes(page, [
+    { id: 1, name: '진행 중 보기', query: 'status=IN_PROGRESS', visibility: 'PRIVATE', ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '' },
+  ])
+  const searches = trackRequests(page, 'GET', `/api/v1/projects/${KEY}/issues`)
+  await page.goto(`/projects/${KEY}`)
+
+  await page.getByTestId('view-chip-1').click()
+  await expect(page).toHaveURL(/status=IN_PROGRESS/)
+  const chip = page.getByTestId('filter-chip-status')
+  await expect(chip).toContainText('상태 범주:')
+  await expect(chip).toContainText('진행 중')
+  await expect(page.getByTestId('filter-chip-statusId')).toHaveCount(0)
+  await expect.poll(() => searches.lastUrl()?.searchParams.get('status')).toBe('IN_PROGRESS')
+  expect(searches.lastUrl()?.searchParams.get('statusId')).toBeNull()
+})

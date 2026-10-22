@@ -275,7 +275,10 @@ export interface IssueSearchResponse {
 // 필터 상태 — URL 의 SearchParams 와 1:1 매핑되는 정규화된 형태.
 export interface IssueFilters {
   q: string;
+  // 「상태 범주」 필터 — 범주 값(TODO·IN_PROGRESS·DONE·CANCELED) OR. URL·서버 키는 예전 그대로 status.
   statuses: string[];
+  // 「상태」 필터 — 프로젝트 상태 id OR(WP-808). URL·서버 키 statusId. 범주 필터와는 AND 로 묶인다.
+  statusIds: number[];
   priorities: string[];
   assigneeIds: number[];
   includeUnassigned: boolean;

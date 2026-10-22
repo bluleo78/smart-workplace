@@ -18,7 +18,7 @@ const issue = {
 } as unknown as IssueResponse;
 
 const emptyFilters: IssueFilters = {
-  q: '', statuses: [], priorities: [], assigneeIds: [], includeUnassigned: false, dueFrom: null, dueTo: null,
+  q: '', statuses: [], statusIds: [], priorities: [], assigneeIds: [], includeUnassigned: false, dueFrom: null, dueTo: null,
   labelIds: [], cycleIds: [], milestoneIds: [], typeIds: [], parentNumber: null, topLevel: false, blocked: false,
   excludeSubtasks: false, showAllClosed: false,
 };

@@ -277,7 +277,8 @@ test.describe('태스크 보드/검색', () => {
     await page.keyboard.press('Escape');
 
     const chip = page.getByTestId('filter-chip-status').getByRole('button').first();
-    await expect(chip).toHaveAccessibleName('상태: 할 일 +1');
+    // 범주 facet 의 칩 prefix 는 「상태 범주」다(WP-808 — 개별 「상태」 facet 과 분리).
+    await expect(chip).toHaveAccessibleName('상태 범주: 할 일 +1');
   });
 
   test('FilterChip × 버튼 터치 타겟 24px 이상 (WCAG 2.5.8 회귀)', async ({

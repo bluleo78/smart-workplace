@@ -39,6 +39,11 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const milestoneIds = csv(params.get('milestone'))
     .map((s) => Number(s))
     .filter((n) => Number.isFinite(n) && n > 0);
+  // statusId(「상태」 — 프로젝트 상태 id, WP-808) 토큰도 동일 규칙 — 양의 정수만 통과.
+  // 기존 status 키는 「상태 범주」로 그대로 남아 예전 링크·저장 뷰가 범주 필터로 열린다.
+  const statusIds = csv(params.get('statusId'))
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0);
   // type 토큰도 동일 규칙 — 양의 정수만 통과.
   const typeIds = csv(params.get('type'))
     .map((s) => Number(s))
@@ -61,6 +66,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     statuses: csv(params.get('status')).filter((s) =>
       (STATUSES as readonly string[]).includes(s),
     ),
+    statusIds,
     priorities: csv(params.get('priority')).filter((p) =>
       (PRIORITIES as readonly string[]).includes(p),
     ),
@@ -97,7 +103,7 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
   };
 }
 
-// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 완료 상태 선택, 지난 사이클·마일스톤 선택은
+// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 상태 범주·개별 상태(WP-808) 선택, 지난 사이클·마일스톤 선택은
 // 그 묶음 전체가 대상이라 숨기지 않는다. 묶음을 고르는 필터 필드를 새로 추가하면 여기 포함 여부를 결정할 것.
 // (검색어 q 는 의도적으로 제외 — 검색도 기본 범위 안에서 동작하고, 지난 이슈는 「완료 모두 보기」로 찾는다.)
 // (에픽 선택 parent 도 제외 — 진행 중 에픽의 백로그에 지난 사이클 완료분이 쌓이지 않게 사용자 토글을 따른다.
@@ -105,6 +111,7 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
 export function overridesClosedHiding(f: IssueFilters): boolean {
   return (
     f.statuses.length > 0 ||
+    f.statusIds.length > 0 ||
     f.cycleIds.length > 0 ||
     !!f.cycleUnassigned ||
     f.milestoneIds.length > 0
@@ -164,6 +171,7 @@ export function filtersToParams(
   if (groupBy) p.set('group', groupBy);
   if (f.q) p.set('q', f.q);
   if (f.statuses.length) p.set('status', f.statuses.join(','));
+  if (f.statusIds.length) p.set('statusId', f.statusIds.join(','));
   if (f.priorities.length) p.set('priority', f.priorities.join(','));
   const assigneeTokens: string[] = [...f.assigneeIds.map(String)];
   if (f.includeUnassigned) assigneeTokens.push('null');

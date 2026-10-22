@@ -198,3 +198,25 @@ describe('carryBoardTab', () => {
     expect(carryBoardTab(new URLSearchParams('view=board'), new URLSearchParams('view=board')).has('boardTab')).toBe(false);
   });
 });
+
+// WP-808 — 「상태」(프로젝트 상태 id, statusId)와 「상태 범주」(기존 status)를 따로 둔다.
+describe('statusIds(상태) 와 statuses(상태 범주) 분리 (WP-808)', () => {
+  it('parseFilters: statusId=12,abc,13 → statusIds [12,13]', () => {
+    expect(parseFilters(new URLSearchParams('statusId=12,abc,13')).statusIds).toEqual([12, 13]);
+  });
+  it('parseFilters: status=IN_PROGRESS 는 statuses 로 그대로(상태 범주)', () => {
+    const f = parseFilters(new URLSearchParams('status=IN_PROGRESS'));
+    expect(f.statuses).toEqual(['IN_PROGRESS']);
+    expect(f.statusIds).toEqual([]);
+  });
+  it('filtersToParams: statusIds 를 statusId CSV 로 쓴다', () => {
+    const p = filtersToParams({ ...EMPTY, statusIds: [12, 13], statuses: ['DONE'] }, 'list', null);
+    expect(p.get('statusId')).toBe('12,13');
+    expect(p.get('status')).toBe('DONE');
+    expect(parseFilters(p).statusIds).toEqual([12, 13]);
+  });
+  it('overridesClosedHiding: statusIds 만 있어도 true', () => {
+    expect(overridesClosedHiding({ ...EMPTY, statusIds: [12] })).toBe(true);
+    expect(overridesClosedHiding(EMPTY)).toBe(false);
+  });
+});

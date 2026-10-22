@@ -38,6 +38,8 @@ function issueFilterParams(filters: IssueFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.q) params.set('q', filters.q);
   if (filters.statuses.length) params.set('status', filters.statuses.join(','));
+  // 개별 상태(WP-808) — 서버가 범주(status)와 AND 로 묶는다.
+  if (filters.statusIds.length) params.set('statusId', filters.statusIds.join(','));
   if (filters.priorities.length) params.set('priority', filters.priorities.join(','));
   const assigneeTokens: string[] = [
     ...filters.assigneeIds.map(String),

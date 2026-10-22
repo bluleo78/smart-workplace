@@ -82,6 +82,7 @@ export function IssueChildrenSection({
         {
           q: '',
           statuses: [],
+          statusIds: [],
           priorities: [],
           assigneeIds: [],
           includeUnassigned: false,

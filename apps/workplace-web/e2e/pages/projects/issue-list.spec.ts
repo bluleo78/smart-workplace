@@ -408,6 +408,55 @@ test.describe('팀 리스트 뷰', () => {
         : route.fallback(),
     );
 
+  // WP-808 — 필터 바에 「상태」(프로젝트 상태 id, statusId)와 「상태 범주」(범주, 기존 status)가 따로 있다.
+  test('상태 필터에서 「검토 중」을 고르면 검색 요청에 statusId=12 가 붙는다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}`);
+
+    await page.getByTestId('add-filter-trigger').click();
+    await expect(page.getByTestId('add-filter-facet-statusId')).toHaveText('상태');
+    await page.getByTestId('add-filter-facet-statusId').click();
+    // 옵션은 프로젝트 상태 이름(표시 순서) + 범주 아이콘.
+    await expect(page.locator('[data-testid^="facet-value-statusId-"]')).toHaveText(['할 일', '진행 중', '대기', '검토 중', '완료', '취소']);
+    await expect(page.getByTestId('facet-value-statusId-12').locator('svg').first()).toHaveAttribute('aria-hidden', 'true');
+    await page.getByTestId('facet-value-statusId-12').click();
+
+    await expect(page).toHaveURL(/statusId=12/);
+    await expect.poll(() => lastSearch()?.searchParams.get('statusId')).toBe('12');
+    expect(lastSearch()?.searchParams.get('status')).toBeNull();
+    await expect(page.getByTestId('filter-chip-statusId')).toContainText('상태:');
+    await expect(page.getByTestId('filter-chip-statusId')).toContainText('검토 중');
+  });
+
+  test('상태 범주 필터는 status 파라미터를 쓴다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}`);
+
+    await page.getByTestId('add-filter-trigger').click();
+    await expect(page.getByTestId('add-filter-facet-status')).toHaveText('상태 범주');
+    await page.getByTestId('add-filter-facet-status').click();
+    await page.getByTestId('facet-value-status-IN_PROGRESS').click();
+
+    await expect.poll(() => lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS');
+    expect(lastSearch()?.searchParams.get('statusId')).toBeNull();
+  });
+
+  test('예전 ?status=IN_PROGRESS 링크는 상태 범주 칩으로 열린다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}?status=IN_PROGRESS&statusId=12`);
+
+    // 두 필터는 따로 칩이 되고, 검색 요청에 함께 실린다(서버가 AND 로 묶는다).
+    const categoryChip = page.getByTestId('filter-chip-status');
+    await expect(categoryChip).toContainText('상태 범주:');
+    await expect(categoryChip).toContainText('진행 중');
+    await expect(page.getByTestId('filter-chip-statusId')).toContainText('검토 중');
+    await expect.poll(() => lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS');
+    expect(lastSearch()?.searchParams.get('statusId')).toBe('12');
+  });
+
   test('사용자 정의 상태 이름이 목록 행·상태 그룹 헤더에 보인다 (WP-808)', async ({ authenticatedPage: page }) => {
     await routeStatuses(page);
     await mock(page, [
