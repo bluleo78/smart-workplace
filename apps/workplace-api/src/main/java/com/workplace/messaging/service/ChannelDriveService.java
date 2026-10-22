@@ -35,7 +35,10 @@ public class ChannelDriveService {
         memberRepo.listMembers(channelId).stream()
             .map(m -> new ChannelMemberSnapshot(m.userId(), m.role()))
             .toList();
-    DriveSpaceResponse space = drivePort.ensureChannelSpace(callerId, channelId, name, roster);
+    // 채널 보관 상태를 함께 넘겨, 보관된 채널에서 처음 만들어지는 공간도 읽기 전용이 되게 한다(WP-787).
+    DriveSpaceResponse space =
+        drivePort.ensureChannelSpace(
+            callerId, channelId, name, roster, channelRepo.isArchived(channelId));
     return new ChannelDriveSpaceResponse(space.id(), space.archived());
   }
 }

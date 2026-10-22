@@ -37,7 +37,11 @@ public class DriveChannelSpaceService implements DriveChannelSpacePort {
   @Override
   @Transactional
   public DriveSpaceResponse ensureChannelSpace(
-      long callerId, long channelId, String channelName, List<ChannelMemberSnapshot> roster) {
+      long callerId,
+      long channelId,
+      String channelName,
+      List<ChannelMemberSnapshot> roster,
+      Boolean channelArchived) {
     long spaceId =
         spaces
             .findIdByLinkedChannel(channelId)
@@ -48,6 +52,14 @@ public class DriveChannelSpaceService implements DriveChannelSpacePort {
         spaces
             .findForUser(spaceId, callerId)
             .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+    // 보관 상태도 채널을 따른다(WP-787) — 보관된 채널에서 처음 만든 공간, 이미 어긋난 공간 모두 여기서 맞춰진다.
+    if (channelArchived != null && channelArchived != space.archived()) {
+      spaces.setArchived(spaceId, channelArchived);
+      space =
+          spaces
+              .findForUser(spaceId, callerId)
+              .orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+    }
     // 이름도 self-heal — 이름 동기화가 없던 때 바뀐 채널은 옛 이름으로 남아 있다(WP-532).
     if (channelName != null && !channelName.isBlank() && !channelName.equals(space.name())) {
       spaces.rename(spaceId, channelName);
