@@ -1047,6 +1047,8 @@ function MailInbox() {
     }
     return (
       <div data-testid="mail-empty-accounts" className="p-8 text-sm text-muted-foreground">
+        {/* 계정이 없으면 헤더가 없어 화면 이름을 숨은 h1 로 둔다 — 스크린리더 제목 이동용(WP-816). */}
+        <h1 className="sr-only">메일</h1>
         연결된 메일 계정이 없습니다.{' '}
         <Link to="/settings/mail" className="text-primary underline">
           설정에서 메일 계정을 추가

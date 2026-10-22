@@ -126,6 +126,8 @@ test('위키 — 빈 상태: 4요소 표시 + CTA로 새 페이지 생성 후 �
   await page.goto(`/wiki/spaces/${SPACE_ID}`)
   const emptyState = page.getByTestId('wiki-empty-state')
   await expect(emptyState).toBeVisible()
+  // WP-816: 헤더 없는 공간 첫 화면에도 스크린리더 제목 이동용 h1(숨김)이 있다.
+  await expect(page.getByRole('heading', { level: 1, name: '노트 — 내 위키' })).toBeAttached()
   // 아이콘(svg), 제목, 설명, CTA 버튼 4요소 모두 존재.
   // #733 에서 보조 CTA("AI 초안으로 시작", Sparkles 아이콘)가 추가돼 svg 가 2개이므로
   // 4요소의 아이콘은 BookOpen 으로 특정한다.

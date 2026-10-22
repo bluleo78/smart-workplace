@@ -65,6 +65,11 @@ function PageRoot({
 interface PageHeaderProps {
   /** 좌측 제목 — 사이드바 타이틀과 동일한 무게(appTitleTextClass). 생략 시 제목 영역 미렌더(다른 위치 표시자로 대체 가능 — 예: 드라이브의 브레드크럼). */
   title?: ReactNode
+  /**
+   * 선택: 보이는 제목(title)이 없는 데스크톱 화면의 화면 이름 — 눈에 보이지 않는 h1 로만 둔다(WP-816).
+   * 브레드크럼·검색만 있는 헤더(드라이브 등)도 스크린리더의 제목 이동으로 지금 화면을 알 수 있게 한다. title 이 있으면 쓰지 않는다.
+   */
+  srTitle?: string
   /** 선택: 제목 앞 아이콘/컨트롤(사이드바 타이틀 아이콘과 대칭). 데스크톱 전용 — 모바일 헤더는 제목 폭을 위해 그리지 않는다. */
   icon?: ReactNode
   /** 선택: 제목 옆 보조 메타(키·멤버수·뱃지 등). */
@@ -179,6 +184,7 @@ function MobilePageHeader({
  */
 function DesktopPageHeader({
   title,
+  srTitle,
   icon,
   leading,
   meta,
@@ -206,6 +212,7 @@ function DesktopPageHeader({
           {icon != null && <div className="flex shrink-0 items-center">{icon}</div>}
           {leading}
           {title != null && <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>}
+          {title == null && srTitle && <h1 className="sr-only">{srTitle}</h1>}
           {meta}
         </div>
         {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}

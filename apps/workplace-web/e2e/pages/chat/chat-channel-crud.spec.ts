@@ -76,6 +76,8 @@ test.describe('messaging 채널 생성', () => {
     );
 
     await page.goto('/chat');
+    // WP-816: 채널 미선택 빈 화면에도 스크린리더 제목 이동용 h1(숨김)이 있다.
+    await expect(page.getByRole('heading', { level: 1, name: '대화' })).toBeAttached();
     await page.getByTestId('channel-create-btn').click();
     await page.getByTestId('create-channel-name').fill('신규채널');
     await page.getByTestId('create-channel-submit').click();

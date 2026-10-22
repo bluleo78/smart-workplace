@@ -373,6 +373,8 @@ export function WikiPageHeader({
   return (
     <Page.Header
       data-testid="wiki-page-header"
+      // 본문 제목은 편집 칸(textarea)이라 제목 요소가 아니다 — 스크린리더 제목 이동용으로 노트 제목을 숨은 h1 로 둔다(WP-816).
+      srTitle={current ? current.title || '제목 없음' : '노트'}
       leading={
         /*
           WP-304: 클램프 때문에 1024px 부근에선 nav 가 ~150px 뿐인데, 예전엔 모든 경로 항목이 같은 비율로 줄어

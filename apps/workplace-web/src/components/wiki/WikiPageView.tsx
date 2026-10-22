@@ -76,6 +76,8 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 + CTA 버튼 4요소(데스크톱 본문. 모바일 목록은 WikiNoPages, WP-179) */
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center" data-testid="wiki-empty-state">
+        {/* 공간 첫 화면에는 헤더가 없어 화면 이름을 숨은 h1 로 둔다 — 스크린리더 제목 이동용(WP-816). */}
+        <h1 className="sr-only">{spaceName ? `노트 — ${spaceName}` : '노트'}</h1>
         <BookOpen className="h-10 w-10 text-muted-foreground/50" aria-hidden="true" />
         <div>
           <p className="text-sm font-medium">표시할 페이지가 없습니다</p>

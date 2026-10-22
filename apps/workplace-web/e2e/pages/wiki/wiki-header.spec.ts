@@ -118,6 +118,8 @@ test(
     const header = page.getByTestId('wiki-page-header')
     await expect(header.getByRole('button', { name: '제품 문서' })).toBeVisible()
     await expect(header).toContainText('기획')
+    // WP-816: 본문 제목은 편집 칸이라 헤더에 노트 제목을 숨은 h1 로 둔다(스크린리더 제목 이동용).
+    await expect(page.getByRole('heading', { level: 1, name: '기획' })).toBeAttached()
 
     await header.getByRole('button', { name: '제품 문서' }).click()
     await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/1$`))

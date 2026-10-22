@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 export default function ChannelListPage() {
   return (
     <div className="flex h-full items-center justify-center" data-testid="channel-empty">
+      {/* 채널을 고르기 전 빈 화면에도 화면 이름을 숨은 h1 로 둔다 — 스크린리더 제목 이동용(WP-816). */}
+      <h1 className="sr-only">대화</h1>
       <ChatEmptyState
         icon={<MessagesSquare className="h-10 w-10" />}
         title="대화를 시작해 보세요"

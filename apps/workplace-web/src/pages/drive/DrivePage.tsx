@@ -1219,7 +1219,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   return (
     // 페이지 틀 — 헤더는 Page.Header, 본문(브레드크럼·드롭존 스크롤)은 화면이 소유하는 자체 레이아웃(padded=false).
     <Page data-testid="drive-page">
+      {/* 보이는 제목 대신 브레드크럼이라, 스크린리더 제목 이동용 화면 이름을 숨은 h1 로 둔다(WP-816). */}
       <Page.Header
+        srTitle={space?.name ? `드라이브 — ${space.name}` : '드라이브'}
         actions={
           <>
             <SearchInput

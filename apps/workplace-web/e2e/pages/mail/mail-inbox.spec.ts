@@ -211,6 +211,8 @@ test.describe('받은편지함', () => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
     await page.goto('/mail')
     await expect(page.getByTestId('mail-empty-accounts')).toBeVisible()
+    // WP-816: 헤더가 없는 안내 화면에도 스크린리더 제목 이동용 h1(숨김)이 있다.
+    await expect(page.getByRole('heading', { level: 1, name: '메일' })).toBeAttached()
   })
 
   // #113 전폭 PageHeader(폴더명) + 좁은 화면 뒤로가기 — 800px 뷰포트에서 마스터-디테일 토글 검증.
