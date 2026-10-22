@@ -172,19 +172,22 @@ class IssueSetParentTest extends IntegrationTestBase {
         .hasMessage("하위 태스크는 에픽 바로 아래에 둘 수 없습니다. 에픽 안의 태스크·버그 아래에 만들어 주세요");
   }
 
+  /** 부모 해제는 에픽 아래 일반 이슈에서 된다 — 하위 태스크는 부모를 뗄 수 없다(WP-745, IssueSetTypeWithParentTest). */
   @Test
   void set_parent_null_releases_parent_with_history() {
     Long owner = createUser("c");
     var p = newProject(owner, "SP3");
-    Long subId = subtaskTypeId(p.id());
+    Long epicId = epicTypeId(p.id());
     var parent =
         issueService.create(
-            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
+            owner,
+            p.key(),
+            new CreateIssueRequest("p", null, null, null, null, epicId, null, null));
     var sub =
         issueService.create(
             owner,
             p.key(),
-            new CreateIssueRequest("s", null, null, null, null, subId, parent.number(), null));
+            new CreateIssueRequest("s", null, null, null, null, null, parent.number(), null));
 
     issueService.setParent(owner, p.key(), sub.number(), null);
 

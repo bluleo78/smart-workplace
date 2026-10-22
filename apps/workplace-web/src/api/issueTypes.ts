@@ -44,14 +44,16 @@ export async function deleteIssueType(projectKey: string, id: number): Promise<v
 }
 
 // 이슈 단건의 유형 변경 — PATCH 응답은 IssueDetailResponse.
+// parentNumber 를 주면 같은 요청에서 부모도 바꾼다 — SUBTASK 로 바꿀 때는 부모가 필수다(WP-745).
 export async function updateIssueTypeOf(
   projectKey: string,
   number: number,
   typeId: number,
+  parentNumber?: number,
 ): Promise<IssueDetailResponse> {
   const { data } = await client.patch<IssueDetailResponse>(
     `/projects/${projectKey}/issues/${number}/type`,
-    { typeId },
+    parentNumber === undefined ? { typeId } : { typeId, parentNumber },
   );
   return data;
 }

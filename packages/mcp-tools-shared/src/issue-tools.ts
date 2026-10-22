@@ -223,8 +223,15 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (Object.keys(content).length > 0) {
           await run('content', () => client.updateIssueContent(issueKey, content));
         }
-        if (typeId !== undefined) await run('type', () => client.setIssueType(issueKey, typeId));
-        if (parentNumber !== undefined) await run('parent', () => client.setIssueParent(issueKey, parentNumber));
+        // WP-745: 유형과 부모를 함께 바꾸면 한 요청으로 보낸다 — SUBTASK 로 바꾸는 순간 부모가 있어야 해서,
+        // 유형·부모를 따로 보내면 순서와 상관없이 한쪽이 거절된다. 결과는 type·parent 둘 다에 같은 값으로 싣는다.
+        if (typeId !== undefined && typeof parentNumber === 'number') {
+          await run('type', () => client.setIssueType(issueKey, typeId, parentNumber));
+          results.parent = results.type;
+        } else {
+          if (typeId !== undefined) await run('type', () => client.setIssueType(issueKey, typeId));
+          if (parentNumber !== undefined) await run('parent', () => client.setIssueParent(issueKey, parentNumber));
+        }
         if (assigneeIds !== undefined) {
           await run('assignees', () => client.replaceIssueAssignees(issueKey, assigneeIds));
         }

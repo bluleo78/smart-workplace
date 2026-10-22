@@ -307,6 +307,21 @@ describe('buildSharedIssueTools', () => {
     expect(failed).toEqual({ ok: false, results: { labels: 'failed: 이슈를 찾을 수 없습니다' } });
   });
 
+  it('WP-745: update_issue 는 유형과 부모를 함께 바꾸면 유형 요청 하나에 부모를 실어 보낸다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', type: 'BUG', parent: 'WP-3' })));
+    expect(c.setIssueType).toHaveBeenCalledWith('WP-12', 2, 3);
+    expect(c.setIssueParent).not.toHaveBeenCalled();
+    expect(out).toEqual({ ok: true, results: { type: 'ok', parent: 'ok' } });
+
+    // 부모만 바꾸거나 부모를 떼는 것(null)은 지금처럼 부모 요청으로 따로 보낸다.
+    vi.mocked(c.setIssueType).mockClear();
+    await t.handler({ issueKey: 'WP-12', type: 'BUG', parent: null });
+    expect(c.setIssueType).toHaveBeenCalledWith('WP-12', 2);
+    expect(c.setIssueParent).toHaveBeenCalledWith('WP-12', null);
+  });
+
   it('WP-394: update_issue 는 담당자 이름이 틀리면 라벨을 포함해 아무것도 쓰지 않는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

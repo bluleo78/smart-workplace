@@ -51,6 +51,7 @@ export function IssueParentSlot({
           projectKey={projectKey}
           issueNumber={issueNumber}
           currentParentNumber={parent?.number ?? null}
+          isSubtask={isSubtask}
           onClose={() => setEditing(false)}
         />
       ) : parent ? (

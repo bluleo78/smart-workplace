@@ -96,8 +96,11 @@ public class IssueController {
         issueService.updateStatus((Long) auth.getPrincipal(), key, number, req.status()));
   }
 
-  /** 유형 변경 본문. typeId 필수. */
-  public record UpdateTypeRequest(@jakarta.validation.constraints.NotNull Long typeId) {}
+  /**
+   * 유형 변경 본문. typeId 필수. parentNumber 를 주면 유형과 부모를 한 번에 바꾼다 — 하위 태스크로 바꿀 때 부모를 함께 고르는 데 쓴다(WP-745).
+   */
+  public record UpdateTypeRequest(
+      @jakarta.validation.constraints.NotNull Long typeId, Integer parentNumber) {}
 
   /** 이슈 유형 변경 — 같은 프로젝트의 유형만 허용. */
   @PatchMapping("/{number}/type")
@@ -108,7 +111,8 @@ public class IssueController {
       @PathVariable int number,
       @Valid @RequestBody UpdateTypeRequest req) {
     return ResponseEntity.ok(
-        issueService.setType((Long) auth.getPrincipal(), key, number, req.typeId()));
+        issueService.setType(
+            (Long) auth.getPrincipal(), key, number, req.typeId(), req.parentNumber()));
   }
 
   /** 이슈 soft-delete. reporter 또는 OWNER 만 가능. */
