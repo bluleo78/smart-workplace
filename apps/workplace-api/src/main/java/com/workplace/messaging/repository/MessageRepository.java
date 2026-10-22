@@ -92,6 +92,14 @@ public class MessageRepository {
         .fetchOptional(MESSAGE.CHANNEL_ID);
   }
 
+  /**
+   * 메시지 행 잠금(SELECT … FOR NO KEY UPDATE, WP-778) — 같은 메시지에 대한 리액션 추가의 「개수 확인 → 삽입」을 트랜잭션 끝까지 직렬화한다.
+   * 잠그지 않으면 동시 요청이 모두 상한 미만으로 읽고 함께 삽입해 1인 20개·이모지 50종 상한을 넘었다. 리액션 행 삽입이 거는 FK 공유 잠금과는 충돌하지 않는다.
+   */
+  public void lockForReaction(long id) {
+    dsl.select(MESSAGE.ID).from(MESSAGE).where(MESSAGE.ID.eq(id)).forNoKeyUpdate().fetch();
+  }
+
   /** soft-delete 된 메시지인가(없는 메시지는 false). */
   public boolean isDeleted(long id) {
     return dsl.fetchExists(MESSAGE, MESSAGE.ID.eq(id).and(MESSAGE.DELETED_AT.isNotNull()));

@@ -49,6 +49,8 @@ public class ReactionService {
     if (!ReactionEmojis.isSingleEmoji(emoji)) {
       throw new IllegalArgumentException("리액션에는 이모지 하나만 쓸 수 있습니다");
     }
+    // 상한 검사가 동시 요청에 뚫리지 않게 메시지 행을 먼저 잠근다 — 이후의 확인·삽입이 메시지별로 한 줄로 선다(WP-778).
+    messageRepo.lockForReaction(messageId);
     if (messageRepo.isDeleted(messageId)) {
       throw new IllegalArgumentException("삭제된 메시지에는 리액션을 달 수 없습니다");
     }
