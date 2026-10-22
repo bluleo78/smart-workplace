@@ -8,4 +8,9 @@ public class WikiForbiddenException extends RuntimeException {
   public WikiForbiddenException(long spaceId, long userId) {
     super("이 노트 공간에서 이 작업을 할 권한이 없습니다");
   }
+
+  /** 공간 밖 금지 상황(워크스페이스 미선택 등)에서 메시지로 직접 생성(WP-804). */
+  public WikiForbiddenException(String message) {
+    super(message);
+  }
 }

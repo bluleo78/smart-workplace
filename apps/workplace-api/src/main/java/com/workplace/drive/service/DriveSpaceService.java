@@ -13,6 +13,7 @@ import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
 import com.workplace.global.tenant.MembershipGuard;
+import com.workplace.global.tenant.TenantContext;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -56,6 +57,10 @@ public class DriveSpaceService {
    */
   @Transactional
   public DriveSpaceResponse createTeamSpace(long callerId, String name) {
+    // 워크스페이스가 정해지지 않은 세션은 공간을 둘 곳이 없다(WP-804) — tenant_id 없이 insert 해 500 이 나던 것을 한국어 403 으로 답한다.
+    if (TenantContext.get() == null) {
+      throw new DriveForbiddenException("워크스페이스를 고른 뒤에 드라이브 공간을 만들 수 있습니다");
+    }
     // 같은 이름의 동시 생성·이름 변경과 차례를 세운 뒤 검사한다(WP-772 — 유니크 인덱스가 없어 검사만으로는 동시 요청이 모두 통과했다).
     spaces.lockTeamSpaceName(name);
     if (spaces.existsVisibleTeamSpaceName(name, callerId, null)) {
@@ -70,6 +75,11 @@ public class DriveSpaceService {
   /** 내 공간 목록(개인 자동생성 보장 + 멤버 팀). */
   @Transactional
   public List<DriveSpaceResponse> listMySpaces(long userId) {
+    // 워크스페이스가 정해지지 않은 세션(정지된 구성원 로그인·SSO 선택 전 등)에는 개인 공간을 만들 곳이 없다(WP-804) — 만들려 하면 tenant_id
+    // 없이 insert 해 500 이 났다. 같은 세션의 메시징·알림 목록처럼 빈 목록으로 답한다.
+    if (TenantContext.get() == null) {
+      return List.of();
+    }
     ensurePersonalSpace(userId);
     return spaces.findMySpaces(userId);
   }
