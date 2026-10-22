@@ -59,23 +59,39 @@ public class IssueFieldDefRepository {
         .fetchOptional(this::mapToRow);
   }
 
+  /**
+   * 필드 정의를 쓰기 잠금(FOR UPDATE)으로 읽는다(WP-773) — 옵션을 줄이는 수정이 「그 옵션을 쓰는 이슈」를 세는 동안 같은 옵션 값 지정이 끼어들지 못하게.
+   * 값 지정은 {@link #findByIdsForShare} 로 같은 행을 공유 잠금하므로 둘이 차례로 선다.
+   */
+  public Optional<IssueFieldDefRow> findByIdForUpdate(Long id) {
+    return dsl.selectFrom(ISSUE_FIELD_DEF)
+        .where(ISSUE_FIELD_DEF.ID.eq(id))
+        .forUpdate()
+        .fetchOptional(this::mapToRow);
+  }
+
+  /**
+   * 필드 정의 여러 개를 공유 잠금(FOR SHARE)으로 읽는다(WP-773) — 값 검증에 쓴 옵션이 저장 전에 바뀌지 않게. 옵션 수정이 진행 중이면 그 커밋을
+   * 기다렸다가 바뀐 옵션으로 검증한다. id 순으로 잠가 여러 필드를 함께 바꾸는 요청끼리 서로 기다리지 않게 한다.
+   */
+  public Map<Long, IssueFieldDefRow> findByIdsForShare(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) return Map.of();
+    Map<Long, IssueFieldDefRow> m = new HashMap<>();
+    dsl.selectFrom(ISSUE_FIELD_DEF)
+        .where(ISSUE_FIELD_DEF.ID.in(ids))
+        .orderBy(ISSUE_FIELD_DEF.ID.asc())
+        .forShare()
+        .fetch(this::mapToRow)
+        .forEach(r -> m.put(r.id(), r));
+    return m;
+  }
+
   /** 프로젝트 내 필드 정의 목록 — position asc, id asc. */
   public List<IssueFieldDefRow> findByProject(Long projectId) {
     return dsl.selectFrom(ISSUE_FIELD_DEF)
         .where(ISSUE_FIELD_DEF.PROJECT_ID.eq(projectId))
         .orderBy(ISSUE_FIELD_DEF.POSITION.asc(), ISSUE_FIELD_DEF.ID.asc())
         .fetch(this::mapToRow);
-  }
-
-  /** id 집합 → 정의 맵. N+1 회피용 batch 조회. */
-  public Map<Long, IssueFieldDefRow> findByIds(List<Long> ids) {
-    if (ids == null || ids.isEmpty()) return Map.of();
-    Map<Long, IssueFieldDefRow> m = new HashMap<>();
-    dsl.selectFrom(ISSUE_FIELD_DEF)
-        .where(ISSUE_FIELD_DEF.ID.in(ids))
-        .fetch(this::mapToRow)
-        .forEach(r -> m.put(r.id(), r));
-    return m;
   }
 
   /** INSERT — 이름 중복은 DuplicateKeyException 으로 정규화. */

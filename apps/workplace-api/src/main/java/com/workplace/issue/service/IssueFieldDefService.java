@@ -69,7 +69,9 @@ public class IssueFieldDefService {
   public IssueFieldDefResponse update(
       Long callerId, String projectKey, Long fieldId, CreateIssueFieldDefRequest req) {
     var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
-    var row = repo.findById(fieldId).orElseThrow(() -> new FieldNotFoundException(fieldId));
+    // 정의 행을 잠그고 읽는다(WP-773) — 아래 「지울 옵션을 쓰는 이슈」 확인과 같은 옵션 값 지정이 서로 커밋 전 상태를 보고 둘 다 통과하지 않게.
+    var row =
+        repo.findByIdForUpdate(fieldId).orElseThrow(() -> new FieldNotFoundException(fieldId));
     if (!row.projectId().equals(project.id())) {
       throw new FieldNotFoundException(fieldId);
     }
