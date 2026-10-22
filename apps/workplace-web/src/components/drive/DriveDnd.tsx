@@ -16,7 +16,7 @@ import {
   useSensors,
 } from '@dnd-kit/core'
 import { FileText, Folder } from 'lucide-react'
-import { type ComponentProps, createContext, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
+import { type ComponentProps, createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { DROP_TARGET_CLASS } from '@/lib/dndDropClass'
 import { chipBesidePointer } from '@/lib/dndRowChip'
@@ -56,6 +56,11 @@ type DriveDndState = {
   currentFolderId: number | null
 }
 
+// 놓은 대상 요소(data-drop-id)에 포커스.
+function focusDropTarget(id: string) {
+  document.querySelector<HTMLElement>(`[data-drop-id="${id}"]`)?.focus()
+}
+
 const DriveDndCtx = createContext<DriveDndState>({ enabled: false, active: null, currentFolderId: null })
 
 export function DriveDndProvider({
@@ -76,12 +81,30 @@ export function DriveDndProvider({
   const [active, setActive] = useState<DriveActiveDrag | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, POINTER_OPTIONS), useSensor(KeyboardSensor, KEYBOARD_OPTIONS))
   // 스크린리더 안내 — 항목·폴더 이름(한국어), 원시 id 는 읽지 않는다.
+  // dnd-kit 포커스 복원은 끈다 — 끈 행에 포커스를 되돌리는데, 옮긴 행은 곧 목록에서 빠져 포커스가 body 로 사라졌다(WP-840).
+  // 키보드로 끄는 동안 포커스는 행을 떠나지 않으므로 취소·제자리 놓기는 그대로 행에 남고, 옮겼을 때는 handleDragEnd 가 대상으로 옮긴다.
   const accessibility = useMemo(
-    () => ({ announcements: driveDndAnnouncements(active), screenReaderInstructions: DRIVE_DND_SCREEN_READER_INSTRUCTIONS }),
+    () => ({
+      announcements: driveDndAnnouncements(active),
+      screenReaderInstructions: DRIVE_DND_SCREEN_READER_INSTRUCTIONS,
+      restoreFocus: false,
+    }),
     [active],
   )
 
+  // 키보드로 놓은 대상 — 이동 처리 중에는 페이지가 끌기를 꺼(enabled=false) 행의 tabindex 가 빠지며 포커스가 body 로 떨어지므로,
+  // 다시 켜졌을 때 포커스를 잃은 채면 한 번 더 옮긴다. 다음 끌기를 시작하면 잊는다.
+  const pendingFocus = useRef<string | null>(null)
+  useEffect(() => {
+    const id = pendingFocus.current
+    if (!enabled || id == null) return
+    pendingFocus.current = null
+    const el = document.activeElement
+    if (el === null || el === document.body || !el.isConnected) focusDropTarget(id)
+  }, [enabled])
+
   function handleDragStart(e: DragStartEvent) {
+    pendingFocus.current = null
     const lead = e.active.data.current as DriveDragItem | undefined
     if (lead) setActive(resolveItems(lead))
   }
@@ -94,6 +117,13 @@ export function DriveDndProvider({
     // 비허용 대상은 droppable 이 disabled 라 over 가 되지 않지만, 규칙을 한 번 더 확인해 방어한다.
     if (driveDropState(drag, dst.folderId, currentFolderId) !== 'allowed') return
     onMove(drag, dst)
+    // 키보드로 옮겼으면 놓은 대상(폴더 행·경로 버튼)으로 포커스를 옮긴다 — 옮긴 행은 목록에서 빠지므로, 키보드 사용자가 화면
+    // 처음부터 다시 Tab 하지 않고 옮긴 곳에서 이어서 조작할 수 있게.
+    if (e.over && e.activatorEvent instanceof KeyboardEvent) {
+      const id = String(e.over.id)
+      pendingFocus.current = id
+      focusDropTarget(id)
+    }
   }
 
   const value = useMemo(() => ({ enabled, active, currentFolderId }), [enabled, active, currentFolderId])
@@ -149,7 +179,8 @@ function useFolderDroppable(id: string, target: DriveDropData) {
   const state: DriveDropState = enabled ? driveDropState(active, target.folderId, currentFolderId) : 'idle'
   const { setNodeRef, isOver } = useDroppable({ id, data: target, disabled: state !== 'allowed' })
   const dropState: DriveDropState | 'over' = state === 'allowed' && isOver ? 'over' : state
-  return { setNodeRef, dropState, dropClass: DROP_STATE_CLASS[dropState] }
+  // dropId: 요소에 data-drop-id 로 달아 키보드로 놓은 뒤 포커스를 옮길 대상을 찾는다.
+  return { setNodeRef, dropState, dropClass: DROP_STATE_CLASS[dropState], dropId: id }
 }
 
 // data-drop-state 속성값 — 드래그가 없으면 생략.
@@ -163,12 +194,13 @@ export function DriveCrumbDropButton({
   className,
   ...props
 }: ComponentProps<'button'> & { folderId: number | null; name: string }) {
-  const { setNodeRef, dropState, dropClass } = useFolderDroppable(driveDropId('crumb', folderId), { folderId, name })
+  const { setNodeRef, dropState, dropClass, dropId } = useFolderDroppable(driveDropId('crumb', folderId), { folderId, name })
   return (
     <button
       ref={setNodeRef}
       type="button"
       {...props}
+      data-drop-id={dropId}
       data-drop-state={dropStateAttr(dropState)}
       // 드롭 표시 외곽선이 글자에 붙지 않게 좌우 여유를 두되, 음수 여백으로 상쇄해 경로 배치는 그대로 둔다.
       className={cn('-mx-1 rounded-sm px-1', className, dropClass)}
@@ -227,7 +259,7 @@ export function DriveFileDragRow({ item, className, ...props }: DragRowProps) {
 // 폴더 행 — 드래그 소스이자 드롭 대상. 끌리는 폴더는 대상이 아니므로 흐림만 보인다.
 export function DriveFolderDragRow({ item, className, ...props }: DragRowProps) {
   const { setRowRef, dragProps, dragged, dragClass } = useRowDrag(item)
-  const { setNodeRef: setDropRef, dropState, dropClass } = useFolderDroppable(driveDropId('row', item.id), {
+  const { setNodeRef: setDropRef, dropState, dropClass, dropId } = useFolderDroppable(driveDropId('row', item.id), {
     folderId: item.id,
     name: item.name,
   })
@@ -243,6 +275,7 @@ export function DriveFolderDragRow({ item, className, ...props }: DragRowProps) 
       ref={setRef}
       {...props}
       {...dragProps}
+      data-drop-id={dropId}
       data-drop-state={dropStateAttr(dropState)}
       className={cn(className, dragClass, !dragged && dropClass)}
     />
