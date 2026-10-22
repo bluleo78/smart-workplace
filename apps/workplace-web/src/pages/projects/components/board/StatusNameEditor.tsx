@@ -1,4 +1,5 @@
-// 상태 이름 입력기(WP-808) — 보드 범주 띠 ＋·헤더 ⋯ 「이 뒤에 상태 추가」(팝오버)와 헤더 인라인 이름 변경이 같이 쓴다.
+// 상태 이름 입력기(WP-808) — 보드 범주 띠 ＋·헤더 ⋯ 「이 뒤에 상태 추가」(팝오버)와 헤더 인라인 이름 변경,
+// 모바일 탭 ⋯ 바텀시트(MobileStatusSheet)가 같이 쓴다.
 // 오류는 토스트가 아니라 입력 바로 아래에 보인다 — 클라이언트 검증(빈 이름·30자·중복) 뒤 서버 오류(409 동시 중복 등)도 같은 자리.
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 
@@ -17,6 +18,7 @@ export function StatusNameEditor({
   onCancel,
   submitLabel,
   inline = false,
+  touch = false,
   className,
 }: {
   initial?: string;
@@ -31,6 +33,8 @@ export function StatusNameEditor({
   submitLabel?: string;
   // 헤더 인라인 편집 — 입력 높이를 헤더 줄에 맞추고 오류는 아래로 띄워(겹쳐) 카드가 밀리지 않게 하며, 바깥을 누르면 취소(Esc 와 같다).
   inline?: boolean;
+  // 모바일 바텀시트 — 입력 16px(iOS 포커스 자동 확대 방지)·높이 44px, 저장 버튼은 입력 아래 전체 폭 44px.
+  touch?: boolean;
   className?: string;
 }) {
   const [value, setValue] = useState(initial);
@@ -74,7 +78,8 @@ export function StatusNameEditor({
 
   return (
     <form ref={formRef} onSubmit={submit} className={cn('relative flex min-w-0 flex-col gap-1', className)}>
-      <div className="flex min-w-0 items-center gap-2">
+      {/* 바텀시트(touch)는 입력 → 오류 → 전체 폭 저장 버튼 순 — 줄(div)을 contents 로 풀고 버튼을 맨 뒤(order-last)로 보낸다. */}
+      <div className={touch ? 'contents' : 'flex min-w-0 items-center gap-2'}>
         {/* maxLength 를 두지 않는다 — 30자에서 입력이 조용히 잘리면 왜 막혔는지 모른다. 길이 오류는 아래 문구로 알린다.
             저장 중엔 disabled 대신 readOnly — disabled 는 포커스를 잃어 실패 뒤 바로 고칠 수 없다. */}
         <Input
@@ -98,11 +103,11 @@ export function StatusNameEditor({
           aria-label="상태 이름"
           aria-invalid={error != null}
           aria-describedby={error ? errorId : undefined}
-          className={cn('min-w-0 text-sm font-normal', inline ? 'h-6 px-2 py-0' : 'h-8')}
+          className={cn('min-w-0 font-normal', touch ? 'h-11 text-base' : inline ? 'h-6 px-2 py-0 text-sm' : 'h-8 text-sm')}
           data-testid="status-name-input"
         />
         {submitLabel && (
-          <Button type="submit" size="sm" className="h-8 shrink-0" disabled={saving}>
+          <Button type="submit" size="sm" className={cn('shrink-0', touch ? 'order-last mt-2 h-11 w-full text-base' : 'h-8')} disabled={saving} data-testid="status-name-submit">
             {submitLabel}
           </Button>
         )}
@@ -112,7 +117,8 @@ export function StatusNameEditor({
           id={errorId}
           role="alert"
           className={cn(
-            'break-keep text-xs font-normal text-destructive',
+            'break-keep font-normal text-destructive',
+            touch ? 'text-sm' : 'text-xs',
             // 인라인은 헤더 아래로 띄운다 — 헤더 높이가 변하지 않아 카드가 밀리지 않는다.
             inline && 'absolute inset-x-0 top-full z-20 mt-1 rounded-md border bg-background px-2 py-1 shadow-sm',
           )}

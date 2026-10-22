@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import {
   type BoardColumnQuery,
+  columnFilters,
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
@@ -23,8 +24,8 @@ import { useCreateProjectStatus, useProjectStatuses, useRenameProjectStatus } fr
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
-import { groupIssues, ISSUE_STATUS_LABEL, ISSUE_STATUSES, type IssueGroup } from '../../../lib/issueGrouping';
-import { categorySpans, defaultStatusOf } from '../../../lib/projectStatuses';
+import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
+import { categorySpans } from '../../../lib/projectStatuses';
 import type {
   IssueClientGroupBy,
   IssueFilters,
@@ -36,6 +37,7 @@ import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BoardCategoryBand } from './board/BoardCategoryBand';
 import { BoardColumnHeaderMenu } from './board/BoardColumnHeaderMenu';
+import { MobileStatusSheet } from './board/MobileStatusSheet';
 import { StatusNameEditor } from './board/StatusNameEditor';
 import { IssueCard } from './IssueCard';
 import { IssueCardMenuContext } from './issueCardMenuContext';
@@ -192,8 +194,9 @@ function IssueBoardViewInner({
 
   // 모바일 보드(WP-195) — 컬럼을 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
   // 그룹 보드는 선택 탭 안에 그룹 섹션을 쌓는다.
-  // 상태 보드는 컬럼(상태) 없이는 그릴 수 없다 — 그룹 보드는 상태 목록 없이도 그린다.
-  if (!grouped && statusesFailed) {
+  // 상태 보드는 컬럼(상태) 없이는 그릴 수 없다 — 데스크톱 그룹 보드는 상태 목록 없이도 그린다.
+  // 모바일은 그룹 보드도 상태 탭이라 상태 목록이 있어야 한다.
+  if ((!grouped || isMobile) && statusesFailed) {
     return (
       <div data-testid="board-statuses-error">
         <ResourceErrorState
@@ -208,40 +211,53 @@ function IssueBoardViewInner({
   }
 
   if (isMobile) {
+    // 탭 = 프로젝트 상태(WP-808, 제외 범주 빼고). 사용자 「상태 범주」·「상태」 필터로 제외된 상태는 탭을 숨긴다 —
+    // 컬럼 쿼리와 같은 판정(columnFilters)이라 그룹 보드(컬럼 쿼리 비활성)에도 같게 적용된다.
+    // 상태 목록 로딩 중이면 탭이 없다 → MobileBoard 가 기본 탭을 미리 고르지 않는다.
+    const visible = columns.filter((s) => columnFilters(filters, s) !== null);
     // 그룹 보드는 전체 페이지 순차 로드 — 개수는 로드 건수 그대로(「+」 없음), 로드 중엔 pending 으로 기본 탭이 튀지 않게.
-    // 모바일은 아직 범주 탭이다(상태 탭은 WP-808 후속) — 범주 안 상태 컬럼 쿼리들을 모아 한 탭으로 보인다.
-    // 이슈는 범주(it.status)로 나누고, 개수·「+」·로딩은 그 범주 컬럼 쿼리들을 합쳐 본다.
-    const categories = ISSUE_STATUSES.filter((c) => !excludeCategories?.includes(c));
-    const byCategory = Object.fromEntries(categories.map((c) => [c, [] as IssueResponse[]])) as Record<IssueStatus, IssueResponse[]>;
-    for (const it of allIssues) byCategory[it.status]?.push(it);
-    const queriesOf = (c: IssueStatus) =>
-      grouped
-        ? []
-        : columns.flatMap((s) => (s.category === c && columnQueries[s.id] ? [columnQueries[s.id]!] : []));
-    // 상태 목록 로딩 중(컬럼 없음)도 pending — 기본 탭이 빈 개수로 먼저 고정되지 않게.
-    const pendingOf = (c: IssueStatus) =>
-      grouped ? groupQuery.isPending : columns.length === 0 || queriesOf(c).some((q) => q.isPending);
-    // 범주의 「이슈 추가」는 그 범주의 기본 상태로 만든다.
-    const createIn = (c: IssueStatus) => (onOpenCreate ? () => onOpenCreate(defaultStatusOf(columns, c)?.id) : undefined);
-    const tabs: MobileBoardTab[] = categories
-      // 탭 — 사용자 범주 필터로 제외된 범주는 숨긴다(그 컬럼은 쿼리가 비활성이라 비어 보이기만 한다).
-      .filter((c) => filters.statuses.length === 0 || filters.statuses.includes(c))
-      .map((c) => ({
-        status: c,
-        label: ISSUE_STATUS_LABEL[c],
-        count: byCategory[c].length,
-        hasMore: queriesOf(c).some((q) => q.hasNextPage),
-        pending: pendingOf(c),
-      }));
+    const pendingOf = (s: ProjectStatus) => (grouped ? groupQuery.isPending : (columnQueries[s.id]?.isPending ?? true));
+    const tabs: MobileBoardTab[] = visible.map((s) => ({
+      statusId: s.id,
+      category: s.category,
+      label: s.name,
+      count: byStatusId[s.id]?.length ?? 0,
+      hasMore: !grouped && !!columnQueries[s.id]?.hasNextPage,
+      pending: pendingOf(s),
+    }));
+    // 탭의 「이슈 추가」는 그 탭 상태로 만든다.
+    const createIn = (s: ProjectStatus) => (onOpenCreate ? () => onOpenCreate(s.id) : undefined);
+    // 현재 탭 헤더 ⋯ 편집(OWNER, 상태 보드만 — 데스크톱도 그룹 보드엔 상태 편집이 없다).
+    const menu =
+      canEditStatuses && !grouped
+        ? (statusId: number) => {
+            const s = visible.find((x) => x.id === statusId);
+            if (!s) return null;
+            return (
+              <MobileStatusSheet
+                status={s}
+                canEdit
+                statuses={statuses}
+                onRename={async (name) => {
+                  await renameStatus.mutateAsync({ id: s.id, body: { name } });
+                }}
+                onAddAfter={async (name) => {
+                  await createStatus.mutateAsync({ name, category: s.category, afterStatusId: s.id });
+                }}
+              />
+            );
+          }
+        : undefined;
     return (
       <IssueCardMenuContext.Provider value={cardMenu}>
-        <MobileBoard tabs={tabs}>
-          {(tab, root) => {
-            const status = tab as IssueStatus;
+        <MobileBoard tabs={tabs} band={showCategoryBand} menu={menu}>
+          {(statusId, root) => {
+            const status = visible.find((s) => s.id === statusId);
+            if (!status) return null;
             return grouped ? (
               <MobileGroupedColumn
                 status={status}
-                issues={byCategory[status] ?? []}
+                issues={byStatusId[status.id] ?? []}
                 groupBy={groupBy}
                 pending={groupQuery.isPending}
                 footer={groupFooter('')}
@@ -249,21 +265,21 @@ function IssueBoardViewInner({
                 cardTo={cardTo}
                 showType={showType}
                 onOpenCreate={createIn(status)}
-                onShowAllClosed={showAllClosedFor(status)}
+                onShowAllClosed={showAllClosedFor(status.category)}
                 onLongPress={onCardLongPress}
               />
             ) : (
               <BoardScrollRootContext.Provider value={root}>
                 <MobileStatusColumn
                   status={status}
-                  issues={byCategory[status] ?? []}
-                  queries={queriesOf(status)}
+                  issues={byStatusId[status.id] ?? []}
+                  query={columnQueries[status.id]}
                   pending={pendingOf(status)}
                   projectKey={projectKey}
                   cardTo={cardTo}
                   showType={showType}
                   onOpenCreate={createIn(status)}
-                  onShowAllClosed={showAllClosedFor(status)}
+                  onShowAllClosed={showAllClosedFor(status.category)}
                   onLongPress={onCardLongPress}
                 />
               </BoardScrollRootContext.Provider>
@@ -564,8 +580,8 @@ function BoardColumn({
 
 // 컬럼 끝 sentinel — 화면에 들어오면 이 컬럼의 다음 페이지를 받는다(짧은 컬럼은 끝까지 연속 로드).
 // 다음 페이지 요청이 실패하면 자동 로드를 멈추고 "다시 시도" 버튼을 보인다(공용 LoadMoreFooter).
-// testKey — 데스크톱은 statusId, 모바일 범주 탭은 범주 값.
-function ColumnLoadMore({ testKey, query }: { testKey: string | number; query: BoardColumnQuery }) {
+// testKey — 컬럼·탭의 statusId(데스크톱·모바일 공통).
+function ColumnLoadMore({ testKey, query }: { testKey: number; query: BoardColumnQuery }) {
   return (
     <LoadMoreFooter
       query={query}
@@ -577,8 +593,8 @@ function ColumnLoadMore({ testKey, query }: { testKey: string | number; query: B
 }
 
 // 빈 완료·취소 열의 「완료 모두 보기」(WP-606) — 필터 바 토글과 같은 상태(closed=all)를 켠다. 데스크톱·모바일 공용.
-// testKey — 데스크톱은 statusId, 모바일 범주 탭은 범주 값.
-function ShowAllClosedButton({ testKey, onClick, className }: { testKey: string | number; onClick: () => void; className?: string }) {
+// testKey — 컬럼·탭의 statusId(데스크톱·모바일 공통).
+function ShowAllClosedButton({ testKey, onClick, className }: { testKey: number; onClick: () => void; className?: string }) {
   return (
     <Button size="sm" variant="outline" className={className} onClick={onClick} data-testid={`board-col-show-closed-${testKey}`}>
       <CircleCheckBig className="h-4 w-4" />
@@ -594,8 +610,9 @@ function MobileBoardEmpty({
   onOpenCreate,
   onShowAllClosed,
 }: {
-  status: string;
-  // 이 탭 범주의 기본 상태로 만드는 콜백(호출부가 묶어 넘긴다).
+  // 탭 상태 id — testid 접미사.
+  status: number;
+  // 이 탭 상태로 만드는 콜백(호출부가 묶어 넘긴다).
   onOpenCreate?: () => void;
   onShowAllClosed?: () => void;
 }) {
@@ -623,7 +640,7 @@ function MobileBoardEmpty({
 function MobileStatusColumn({
   status,
   issues,
-  queries,
+  query,
   pending,
   projectKey,
   cardTo,
@@ -632,11 +649,12 @@ function MobileStatusColumn({
   onShowAllClosed,
   onLongPress,
 }: {
-  status: string;
+  // 이 탭의 프로젝트 상태(WP-808).
+  status: ProjectStatus;
   issues: IssueResponse[];
-  // 이 범주 탭에 모인 상태 컬럼 쿼리들 — 각자 끝 sentinel 로 다음 페이지를 받는다.
-  queries: BoardColumnQuery[];
-  // 첫 페이지(또는 상태 목록) 로딩 중.
+  // 이 상태 컬럼 쿼리 — 끝 sentinel 로 다음 페이지를 받는다.
+  query?: BoardColumnQuery;
+  // 첫 페이지 로딩 중.
   pending: boolean;
   projectKey: string;
   cardTo?: (issue: IssueResponse) => string;
@@ -648,17 +666,15 @@ function MobileStatusColumn({
   // 첫 페이지 응답 전에는 빈 상태를 띄우지 않는다(「이슈 없음」 깜빡임 방지).
   if (issues.length === 0 && pending) return null;
   return (
-    <section data-testid={`board-col-${status}`} className="flex flex-col gap-2">
+    <section data-testid={`board-col-${status.id}`} className="flex flex-col gap-2">
       {issues.length === 0 ? (
-        <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} onShowAllClosed={onShowAllClosed} />
+        <MobileBoardEmpty status={status.id} onOpenCreate={onOpenCreate} onShowAllClosed={onShowAllClosed} />
       ) : (
         issues.map((it) => (
           <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled onLongPress={onLongPress} />
         ))
       )}
-      {queries.map((q, i) => (
-        <ColumnLoadMore key={i} testKey={status} query={q} />
-      ))}
+      {query && <ColumnLoadMore testKey={status.id} query={query} />}
     </section>
   );
 }
@@ -677,7 +693,8 @@ function MobileGroupedColumn({
   onShowAllClosed,
   onLongPress,
 }: {
-  status: string;
+  // 이 탭의 프로젝트 상태(WP-808).
+  status: ProjectStatus;
   issues: IssueResponse[];
   groupBy: IssueClientGroupBy;
   pending: boolean;
@@ -695,17 +712,17 @@ function MobileGroupedColumn({
         .filter((g) => g.issues.length > 0)
         .map((g) => (
           // 탭이 상태를 드러내므로 카드 showStatus 는 기본(끔) 그대로 둔다.
-          <section key={g.key} aria-label={g.label} data-testid={`board-group-${status}-${g.key}`} className="flex flex-col gap-2">
+          <section key={g.key} aria-label={g.label} data-testid={`board-group-${status.id}-${g.key}`} className="flex flex-col gap-2">
             <h3 className="flex items-center gap-1.5 px-3 text-xs font-semibold text-muted-foreground">
               <span>{g.label}</span>
               <span>{g.issues.length}</span>
             </h3>
             {g.issues.map((it) => (
-              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled dragScope={`${status}-${g.key}`} onLongPress={onLongPress} />
+              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled dragScope={`${status.id}-${g.key}`} onLongPress={onLongPress} />
             ))}
           </section>
         ))}
-      {issues.length === 0 && !pending && <MobileBoardEmpty status={status} onOpenCreate={onOpenCreate} onShowAllClosed={onShowAllClosed} />}
+      {issues.length === 0 && !pending && <MobileBoardEmpty status={status.id} onOpenCreate={onOpenCreate} onShowAllClosed={onShowAllClosed} />}
       {footer}
     </div>
   );

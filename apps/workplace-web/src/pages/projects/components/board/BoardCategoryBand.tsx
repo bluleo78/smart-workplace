@@ -12,15 +12,8 @@ import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
 import type { ProjectStatus } from '@/types/projectStatus';
 
+import { CATEGORY_TONE } from './categoryTone';
 import { NewStatusPopoverBody } from './StatusNameEditor';
-
-// 범주 색 — IssueStatusIcon 과 같은 시맨틱 토큰(할 일 흐림 · 진행 중 primary · 완료 success · 취소 muted).
-const BAND_TONE: Record<IssueStatus, string> = {
-  TODO: 'border-muted-foreground/60 text-muted-foreground',
-  IN_PROGRESS: 'border-primary text-primary',
-  DONE: 'border-success text-success',
-  CANCELED: 'border-muted-foreground text-muted-foreground',
-};
 
 export function BoardCategoryBand({
   spans,
@@ -46,7 +39,7 @@ export function BoardCategoryBand({
           className="sticky top-0 z-20 h-9 min-w-0 bg-background pb-2"
         >
           <div
-            className={cn('flex h-full min-w-0 items-center justify-between gap-2 border-b-2 px-1 text-xs font-semibold', BAND_TONE[s.category])}
+            className={cn('flex h-full min-w-0 items-center justify-between gap-2 border-b-2 px-1 text-xs font-semibold', CATEGORY_TONE[s.category])}
             data-testid={`board-band-${s.category}`}
           >
             <span className="truncate">{s.label}</span>
