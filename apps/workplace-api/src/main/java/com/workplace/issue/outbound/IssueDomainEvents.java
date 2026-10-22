@@ -88,7 +88,10 @@ public final class IssueDomainEvents {
       Long commentId,
       Long actorId) {}
 
-  /** 상태 전이 (예: TODO → IN_PROGRESS). */
+  /**
+   * 상태 전이 (예: TODO → IN_PROGRESS). previousStatus·newStatus 는 범주, previousStatusName·newStatusName
+   * 은 사람이 읽는 프로젝트 상태 이름(WP-807). 같은 범주 안 이동(진행 중 → 검토 중)도 발행되며 그때는 범주가 같다.
+   */
   public record IssueStatusChangedEvent(
       long issueId,
       String projectKey,
@@ -98,6 +101,8 @@ public final class IssueDomainEvents {
       List<UserSummary> assignees,
       String previousStatus,
       String newStatus,
+      String previousStatusName,
+      String newStatusName,
       Instant occurredAt) {}
 
   /** 우선순위 변경 (예: MEDIUM → HIGH). 상태 변경과 대칭적으로 모든 변경에 발행(임계치 조건 없음, #613). */

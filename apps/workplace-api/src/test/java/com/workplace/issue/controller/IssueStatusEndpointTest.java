@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +14,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.UpdateStatusRequest;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.repository.ProjectStatusRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -40,6 +42,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired IssueRepository issueRepository;
   @Autowired IssueHistoryRepository historyRepository;
+  @Autowired ProjectStatusRepository projectStatusRepository;
 
   /** USER 역할이 부여된 사용자 시드. */
   private long createUser(String prefix) {
@@ -155,5 +158,39 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body))
         .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void PATCH_status에_statusId만_보내도_200() throws Exception {
+    long userId = createUser("sid");
+    String key = uniqueKey("PS");
+    ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    long done = projectStatusRepository.findDefault(proj.id(), "DONE").orElseThrow().id();
+
+    mvc.perform(
+            patch("/api/v1/projects/" + key + "/issues/1/status")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"statusId\":" + done + "}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary.status").value("DONE"))
+        .andExpect(jsonPath("$.summary.statusId").value(done))
+        .andExpect(jsonPath("$.summary.statusName").value("완료"));
+  }
+
+  @Test
+  void PATCH_status에_둘다_없으면_400() throws Exception {
+    long userId = createUser("none");
+    String key = uniqueKey("PE");
+    ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+
+    mvc.perform(
+            patch("/api/v1/projects/" + key + "/issues/1/status")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest());
   }
 }

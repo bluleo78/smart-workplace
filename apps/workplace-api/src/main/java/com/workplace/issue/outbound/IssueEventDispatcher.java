@@ -86,6 +86,9 @@ public class IssueEventDispatcher {
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueStatusChanged(IssueStatusChangedEvent e) {
+    // 같은 범주 안 이동(진행 중 → 검토 중)은 발사하지 않는다(WP-807) — ai-agent 는 issue.status_changed 마다 실행을 새로 시작하므로,
+    // 범주가 그대로인 이름 이동이 AI 실행을 일으키지 않게 한다. 알림(NotificationDispatcher)은 그대로 발행된다.
+    if (java.util.Objects.equals(e.previousStatus(), e.newStatus())) return;
     Long actingAgentId = actingAgentOrSkip(e.actor(), e.assignees());
     if (actingAgentId == null) return;
     Map<String, Object> p =
@@ -100,6 +103,8 @@ public class IssueEventDispatcher {
             actingAgentId);
     p.put("previousStatus", e.previousStatus());
     p.put("newStatus", e.newStatus());
+    p.put("previousStatusName", e.previousStatusName());
+    p.put("newStatusName", e.newStatusName());
     dispatch("issue.status_changed", p, e.issueKey());
   }
 

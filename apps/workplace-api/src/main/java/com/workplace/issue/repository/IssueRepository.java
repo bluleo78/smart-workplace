@@ -10,6 +10,7 @@ import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static org.jooq.impl.DSL.count;
 import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.noCondition;
@@ -68,6 +69,38 @@ public class IssueRepository {
           .as("milestone_name");
 
   /**
+   * 프로젝트 상태 이름(스칼라 서브쿼리, WP-807) — 범주(status)가 아니라 사람이 정한 상태 이름을 응답·이력에 싣는다. 별칭 없는 {@code ISSUE} 를
+   * 참조하므로 ROW_FIELDS 는 별칭 없는 issue 테이블에서 읽을 때만 쓴다(별칭 테이블로 행을 읽는 경로가 생기면
+   * ProjectStatusRepository.findByIds 로 이름을 따로 붙인다).
+   */
+  private static final Field<String> STATUS_NAME =
+      org.jooq
+          .impl
+          .DSL
+          .field(
+              org.jooq
+                  .impl
+                  .DSL
+                  .select(PROJECT_STATUS.NAME)
+                  .from(PROJECT_STATUS)
+                  .where(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID)))
+          .as("status_name");
+
+  /** 프로젝트 상태의 표시 순서(스칼라 서브쿼리, WP-807) — 보드 컬럼·정렬용. */
+  private static final Field<Integer> STATUS_POSITION =
+      org.jooq
+          .impl
+          .DSL
+          .field(
+              org.jooq
+                  .impl
+                  .DSL
+                  .select(PROJECT_STATUS.POSITION)
+                  .from(PROJECT_STATUS)
+                  .where(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID)))
+          .as("status_position");
+
+  /**
    * {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. 같은 패키지의
    * {@link AiTaskRepository} 도 같은 행 모양을 쓰도록 package-private.
    */
@@ -89,7 +122,10 @@ public class IssueRepository {
     ISSUE.START_DATE,
     ISSUE.MILESTONE_ID,
     ISSUE.VERSION,
-    MILESTONE_NAME
+    MILESTONE_NAME,
+    ISSUE.STATUS_ID,
+    STATUS_NAME,
+    STATUS_POSITION
   };
 
   /**
@@ -118,8 +154,11 @@ public class IssueRepository {
         r.get(ISSUE.START_DATE),
         r.get(ISSUE.MILESTONE_ID),
         r.get(ISSUE.VERSION),
-        // INSERT RETURNING 은 테이블 컬럼만 돌려줘 이름이 없다 — 새 이슈는 마일스톤이 없으므로 null 로 둔다.
-        r.indexOf(MILESTONE_NAME) >= 0 ? r.get(MILESTONE_NAME) : null);
+        // 서브쿼리 컬럼(마일스톤·상태 이름)은 ROW_FIELDS 로 SELECT 할 때만 있다(INSERT RETURNING 은 테이블 컬럼만) — 없으면 null.
+        r.indexOf(MILESTONE_NAME) >= 0 ? r.get(MILESTONE_NAME) : null,
+        r.get(ISSUE.STATUS_ID),
+        r.indexOf(STATUS_NAME) >= 0 ? r.get(STATUS_NAME) : null,
+        r.indexOf(STATUS_POSITION) >= 0 ? r.get(STATUS_POSITION) : null);
   }
 
   /**
@@ -265,8 +304,9 @@ public class IssueRepository {
   }
 
   /**
-   * 처음 상태를 지정해 INSERT(WP-464 — 보드 컬럼의 「이슈 추가」). status 가 null 이면 DB default('TODO'). 종료
-   * 상태(DONE·CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
+   * 처음 상태(범주)만 지정해 INSERT(WP-464). status_id 는 DB 동기화 트리거(V201)가 범주 기본 상태로 채운다 — 테스트 시드용 호환 경로.
+   * 서비스는 상태 id 를 명시하는 {@link #insert(Long, int, String, String, String, LocalDate, Long, Long,
+   * Long, LocalDate, Long, String, long)} 를 쓴다(트리거는 후속 이슈에서 제거 예정).
    */
   public IssueRow insert(
       Long projectId,
@@ -281,6 +321,76 @@ public class IssueRepository {
       LocalDate startDate,
       Long milestoneId,
       String status) {
+    return insertRow(
+        projectId,
+        number,
+        title,
+        body,
+        priority,
+        dueDate,
+        reporterId,
+        typeId,
+        parentIssueId,
+        startDate,
+        milestoneId,
+        status,
+        null);
+  }
+
+  /**
+   * 처음 상태를 범주·프로젝트 상태 id 로 지정해 INSERT(WP-807). 둘은 같은 상태를 가리켜야 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE·
+   * CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
+   */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId,
+      Long parentIssueId,
+      LocalDate startDate,
+      Long milestoneId,
+      String status,
+      long statusId) {
+    return insertRow(
+        projectId,
+        number,
+        title,
+        body,
+        priority,
+        dueDate,
+        reporterId,
+        typeId,
+        parentIssueId,
+        startDate,
+        milestoneId,
+        status,
+        statusId);
+  }
+
+  /**
+   * INSERT 본체. status 가 null 이면 DB default('TODO'), statusId 가 null 이면 동기화 트리거가 범주 기본 상태로 채운다.
+   *
+   * <p>INSERT RETURNING 은 테이블 컬럼만 돌려줘 서브쿼리 컬럼(마일스톤·상태 이름)이 빠진다 — 그래서 새 id 만 받아 {@link #findById} 로
+   * 다시 읽어, 조회와 같은 매핑으로 응답에 이름을 싣는다(WP-807).
+   */
+  private IssueRow insertRow(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId,
+      Long parentIssueId,
+      LocalDate startDate,
+      Long milestoneId,
+      String status,
+      Long statusId) {
     var insert =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, projectId)
@@ -296,15 +406,19 @@ public class IssueRepository {
             .set(ISSUE.MILESTONE_ID, milestoneId);
     if (status != null) {
       insert = insert.set(ISSUE.STATUS, status);
-      if (com.workplace.issue.dto.IssueStatuses.CLOSED.contains(status)) {
+      if (IssueStatuses.isClosed(status)) {
         insert = insert.set(ISSUE.CLOSED_AT, OffsetDateTime.now());
       }
     }
-    return insert
-        .returning(ROW_FIELDS)
-        .fetchOptional()
-        .map(this::mapToRow)
-        .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
+    if (statusId != null) {
+      insert = insert.set(ISSUE.STATUS_ID, statusId);
+    }
+    Long id =
+        insert
+            .returning(ISSUE.ID)
+            .fetchOptional(ISSUE.ID)
+            .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
+    return findById(id).orElseThrow();
   }
 
   /** 10-인자 호환 오버로드 — 마일스톤 없이 생성(WP-356 이전 호출부). */
@@ -388,8 +502,8 @@ public class IssueRepository {
   }
 
   /**
-   * 모든 변경 가능 필드 일괄 갱신. updated_at = now(), version + 1(#611). closedAt 은 호출자가 계산하여 전달. type 변경은 별도
-   * {@link #updateType}.
+   * 모든 변경 가능 필드 일괄 갱신 — 상태 id 없이 범주만 쓰는 테스트 시드용 호환 경로. 범주가 바뀌면 동기화 트리거(V201)가 status_id 를 범주 기본 상태로
+   * 맞춘다.
    */
   public void updateAll(
       Long id,
@@ -401,19 +515,59 @@ public class IssueRepository {
       LocalDate startDate,
       Long milestoneId,
       java.time.Instant closedAt) {
-    dsl.update(ISSUE)
-        .set(ISSUE.TITLE, title)
-        .set(ISSUE.BODY, body)
-        .set(ISSUE.STATUS, status)
-        .set(ISSUE.PRIORITY, priority)
-        .set(ISSUE.DUE_DATE, dueDate)
-        .set(ISSUE.START_DATE, startDate)
-        .set(ISSUE.MILESTONE_ID, milestoneId)
-        .set(ISSUE.CLOSED_AT, closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
-        .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
-        .set(ISSUE.VERSION, ISSUE.VERSION.plus(1))
-        .where(ISSUE.ID.eq(id))
-        .execute();
+    updateAllRow(
+        id, title, body, status, null, priority, dueDate, startDate, milestoneId, closedAt);
+  }
+
+  /**
+   * 모든 변경 가능 필드 일괄 갱신. updated_at = now(), version + 1(#611). closedAt 은 호출자가 계산하여 전달. type 변경은 별도
+   * {@link #updateType}. status(범주)와 statusId(프로젝트 상태)는 같은 상태를 가리켜야 한다(WP-807, 복합 FK).
+   */
+  public void updateAll(
+      Long id,
+      String title,
+      String body,
+      String status,
+      long statusId,
+      String priority,
+      LocalDate dueDate,
+      LocalDate startDate,
+      Long milestoneId,
+      java.time.Instant closedAt) {
+    updateAllRow(
+        id, title, body, status, statusId, priority, dueDate, startDate, milestoneId, closedAt);
+  }
+
+  /** updateAll 본체 — statusId 가 null 이면 status_id 는 쓰지 않는다(트리거가 맞춘다). */
+  private void updateAllRow(
+      Long id,
+      String title,
+      String body,
+      String status,
+      Long statusId,
+      String priority,
+      LocalDate dueDate,
+      LocalDate startDate,
+      Long milestoneId,
+      java.time.Instant closedAt) {
+    var update =
+        dsl.update(ISSUE)
+            .set(ISSUE.TITLE, title)
+            .set(ISSUE.BODY, body)
+            .set(ISSUE.STATUS, status)
+            .set(ISSUE.PRIORITY, priority)
+            .set(ISSUE.DUE_DATE, dueDate)
+            .set(ISSUE.START_DATE, startDate)
+            .set(ISSUE.MILESTONE_ID, milestoneId)
+            .set(
+                ISSUE.CLOSED_AT,
+                closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
+            .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+            .set(ISSUE.VERSION, ISSUE.VERSION.plus(1));
+    if (statusId != null) {
+      update = update.set(ISSUE.STATUS_ID, statusId);
+    }
+    update.where(ISSUE.ID.eq(id)).execute();
   }
 
   /**

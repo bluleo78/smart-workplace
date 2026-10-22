@@ -20,4 +20,35 @@ public record UpdateIssueRequest(
     Long milestoneId,
     Boolean clearMilestone,
     // #611 낙관적 동시성 — 클라이언트가 마지막으로 읽은 이슈 version. null 이면 검사하지 않는다(보드 드래그·일괄 변경·AI 도구 등).
-    Integer version) {}
+    Integer version,
+    // WP-807 프로젝트 상태 id — status(범주)보다 우선한다. 범주만 오면 이미 그 범주인 이슈는 상태를 유지하고 아니면 범주 기본 상태로 간다.
+    Long statusId) {
+
+  /** WP-807 이전의 11-인자 호환 생성자 — 상태 id 없이(범주만) 수정한다. */
+  public UpdateIssueRequest(
+      String title,
+      String body,
+      String status,
+      String priority,
+      LocalDate dueDate,
+      Boolean clearDueDate,
+      LocalDate startDate,
+      Boolean clearStartDate,
+      Long milestoneId,
+      Boolean clearMilestone,
+      Integer version) {
+    this(
+        title,
+        body,
+        status,
+        priority,
+        dueDate,
+        clearDueDate,
+        startDate,
+        clearStartDate,
+        milestoneId,
+        clearMilestone,
+        version,
+        null);
+  }
+}

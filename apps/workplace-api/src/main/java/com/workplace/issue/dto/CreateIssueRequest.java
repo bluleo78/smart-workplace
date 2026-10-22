@@ -22,6 +22,8 @@ import java.util.List;
  * 일이 아닌 상태 지정은 멤버 전용(WP-477 — 상태 변경이 멤버 전용이라 생성이 우회로가 되면 안 된다).
  *
  * <p>WP-394: labelNames 는 이름으로 붙일 라벨 — 프로젝트에 없는 이름은 같은 트랜잭션에서 기본 색으로 만들어 붙인다(labelIds 와 합친다).
+ *
+ * <p>WP-807: statusId 는 처음 프로젝트 상태 — status(범주)보다 우선한다. 범주만 오면 그 범주의 기본 상태로 만든다.
  */
 public record CreateIssueRequest(
     @NotBlank(message = "이슈 제목을 입력해 주세요") @Size(max = 200) String title,
@@ -38,7 +40,42 @@ public record CreateIssueRequest(
     List<@NotNull Long> cycleIds,
     List<String> labelNames,
     @Size(max = 10) List<Long> fileIds,
-    @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status) {
+    @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status,
+    Long statusId) {
+
+  /** WP-807 이전의 14-인자 호환 생성자 — 상태 id 없이(범주만) 만든다. */
+  public CreateIssueRequest(
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      List<Long> assigneeIds,
+      Long typeId,
+      Integer parentNumber,
+      LocalDate startDate,
+      List<Long> labelIds,
+      Long milestoneId,
+      List<Long> cycleIds,
+      List<String> labelNames,
+      List<Long> fileIds,
+      String status) {
+    this(
+        title,
+        body,
+        priority,
+        dueDate,
+        assigneeIds,
+        typeId,
+        parentNumber,
+        startDate,
+        labelIds,
+        milestoneId,
+        cycleIds,
+        labelNames,
+        fileIds,
+        status,
+        null);
+  }
 
   /** WP-464 이전의 13-인자 호환 생성자 — 상태 없이(할 일) 만든다. */
   public CreateIssueRequest(

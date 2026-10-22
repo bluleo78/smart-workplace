@@ -46,6 +46,9 @@ class IssueHistoryRecorderTest {
         null,
         null,
         1,
+        null,
+        null,
+        null,
         null);
   }
 
@@ -81,6 +84,9 @@ class IssueHistoryRecorderTest {
             null,
             null,
             1,
+            null,
+            null,
+            null,
             null);
     var after =
         new IssueRow(
@@ -101,6 +107,9 @@ class IssueHistoryRecorderTest {
             null,
             null,
             1,
+            null,
+            null,
+            null,
             null);
 
     recorder().recordChanges(1L, before, after);

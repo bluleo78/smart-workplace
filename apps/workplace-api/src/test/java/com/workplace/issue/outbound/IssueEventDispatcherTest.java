@@ -219,7 +219,7 @@ class IssueEventDispatcherTest {
         new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, common, 9L, "hi", now));
     dispatcher.onIssueStatusChanged(
         new IssueStatusChangedEvent(
-            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", now));
+            1L, "WP", "WP-1", "t", HUMAN_ACTOR, common, "TODO", "IN_PROGRESS", "할 일", "진행 중", now));
 
     var captor = ArgumentCaptor.forClass(EventEnvelope.class);
     verify(client, times(3)).publish(captor.capture());
@@ -263,7 +263,8 @@ class IssueEventDispatcherTest {
     dispatcher.onIssueCommented(
         new IssueCommentedEvent(1L, "WP", "WP-1", 1, "t", HUMAN_ACTOR, as, 9L, "hi", now));
     dispatcher.onIssueStatusChanged(
-        new IssueStatusChangedEvent(1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, "TODO", "DONE", now));
+        new IssueStatusChangedEvent(
+            1L, "WP", "WP-1", "t", HUMAN_ACTOR, as, "TODO", "DONE", "할 일", "완료", now));
 
     verify(client, never()).publish(Mockito.any());
   }
@@ -283,5 +284,58 @@ class IssueEventDispatcherTest {
     var payload = captor.getValue().payload();
     assertThat(payload).containsEntry("actingAgentId", AGENT_ASSIGNEE.id());
     assertThat((List<?>) payload.get("assignees")).hasSize(3);
+  }
+
+  /** WP-807: 같은 범주 안 이동(진행 중 → 검토 중)은 ai-agent 실행을 새로 시작하지 않도록 발사하지 않는다. */
+  @Test
+  void 같은범주_안_이동은_ai_agent로_발사하지_않는다() {
+    dispatcher = build(true);
+    var as = List.of(AGENT_ASSIGNEE, HUMAN_ASSIGNEE);
+
+    dispatcher.onIssueStatusChanged(
+        new IssueStatusChangedEvent(
+            1L,
+            "WP",
+            "WP-1",
+            "t",
+            HUMAN_ACTOR,
+            as,
+            "IN_PROGRESS",
+            "IN_PROGRESS",
+            "진행 중",
+            "검토 중",
+            Instant.now()));
+
+    verify(client, never()).publish(Mockito.any());
+  }
+
+  /** WP-807: 범주가 바뀌면 범주와 함께 사람이 읽는 상태 이름을 payload 에 싣는다. */
+  @Test
+  void 범주가_바뀌면_statusName을_담아_발사한다() {
+    dispatcher = build(true);
+    var as = List.of(AGENT_ASSIGNEE, HUMAN_ASSIGNEE);
+
+    dispatcher.onIssueStatusChanged(
+        new IssueStatusChangedEvent(
+            1L,
+            "WP",
+            "WP-1",
+            "t",
+            HUMAN_ACTOR,
+            as,
+            "IN_PROGRESS",
+            "DONE",
+            "검토 중",
+            "배포됨",
+            Instant.now()));
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    var payload = captor.getValue().payload();
+    assertThat(payload)
+        .containsEntry("previousStatus", "IN_PROGRESS")
+        .containsEntry("newStatus", "DONE")
+        .containsEntry("previousStatusName", "검토 중")
+        .containsEntry("newStatusName", "배포됨");
   }
 }

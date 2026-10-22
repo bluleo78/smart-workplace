@@ -2,11 +2,15 @@ package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.issue.dto.CreateProjectStatusRequest;
+import com.workplace.issue.service.ProjectStatusService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 
 /**
@@ -15,11 +19,13 @@ import org.springframework.http.HttpMethod;
  */
 class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
 
+  @Autowired ProjectStatusService projectStatusService;
+
   @Test
   void 도구_헤더_쓰기로_작업이_시작되면_TODO_이슈는_진행_중_이력_하나_작업_이벤트도_하나() {
     assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
-    assertThat(statusHistory(issueId)).containsExactly("TODO→IN_PROGRESS");
+    assertThat(statusHistory(issueId)).containsExactly("할 일→진행 중");
     // 상태 변경 알림이 다시 터치를 일으켜 작업 이벤트를 한 번 더 남기지 않는다.
     assertThat(eventStates(issueId, humanId)).containsExactly("WORKING");
   }
@@ -77,7 +83,7 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
   void 이미_진행_중이면_이력을_더_남기지_않음() {
     assertOk(patch(jwtToken, Map.of("status", "IN_PROGRESS"), null));
     assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
-    assertThat(statusHistory(issueId)).containsExactly("TODO→IN_PROGRESS");
+    assertThat(statusHistory(issueId)).containsExactly("할 일→진행 중");
   }
 
   @Test
@@ -87,7 +93,7 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
     assertOk(patch(patToken, Map.of("status", "TODO"), TOOL));
     assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
     assertThat(issueStatus()).isEqualTo("TODO");
-    assertThat(statusHistory(issueId)).containsExactly("TODO→IN_PROGRESS", "IN_PROGRESS→TODO");
+    assertThat(statusHistory(issueId)).containsExactly("할 일→진행 중", "진행 중→할 일");
   }
 
   @Test
@@ -102,7 +108,46 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
     assertThat(issueStatus()).isEqualTo("TODO");
   }
 
-  /** 이슈의 상태 변경 이력을 "이전→이후" 로 시간순. */
+  @Test
+  void AI작업_시작은_검토중_이슈를_되돌리지_않는다() {
+    long review = addInProgressStatus("검토 중");
+    assertOk(patch(jwtToken, Map.of("statusId", review), null));
+    // 진행 중 범주의 사용자 정의 상태에서 작업 보고가 시작돼도 「진행 중」 기본 상태로 되돌리지 않는다(WP-807).
+    assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING", "message", "착수")));
+    assertThat(issueStatusName()).isEqualTo("검토 중");
+  }
+
+  @Test
+  void AI작업_자동시작은_TODO이슈를_진행중_기본상태로() {
+    addInProgressStatus("검토 중");
+    assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
+    assertThat(issueStatus()).isEqualTo("IN_PROGRESS");
+    assertThat(issueStatusName()).isEqualTo("진행 중");
+  }
+
+  /** 진행 중 범주 끝에 사용자 정의 상태를 하나 더한다(기본 상태 「진행 중」은 그대로 맨 앞). */
+  private long addInProgressStatus(String name) {
+    return inTenant(
+        () ->
+            projectStatusService
+                .create(
+                    humanId, projectKey, new CreateProjectStatusRequest(name, "IN_PROGRESS", null))
+                .id());
+  }
+
+  /** 이슈의 지금 상태 이름. */
+  private String issueStatusName() {
+    return inTenant(
+        () ->
+            dsl.select(PROJECT_STATUS.NAME)
+                .from(ISSUE)
+                .join(PROJECT_STATUS)
+                .on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID))
+                .where(ISSUE.ID.eq(issueId))
+                .fetchOne(PROJECT_STATUS.NAME));
+  }
+
+  /** 이슈의 상태 변경 이력을 "이전→이후"(그 시점 상태 이름, WP-807) 로 시간순. */
   private List<String> statusHistory(long id) {
     return inTenant(
         () ->

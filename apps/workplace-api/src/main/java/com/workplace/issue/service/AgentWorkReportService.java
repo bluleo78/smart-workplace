@@ -91,8 +91,8 @@ public class AgentWorkReportService {
     // 작업을 시작했으면 TODO 이슈는 진행 중으로 — 상태 변경이 자동 터치로 보고를 덮지 않게 이미 억제 구간 안이다.
     // 단, 다음 회차 대기(SCHEDULED) 보고는 아직 착수 전(「월요일 9시에 시작」)이라 이슈 상태를 바꾸지 않는다(WP-450).
     boolean scheduled = AgentWorkState.SCHEDULED.equals(req.state());
-    if ("TODO".equals(issue.status()) && !scheduled) {
-      issueService.updateStatus(callerId, projectKey, number, "IN_PROGRESS");
+    if (IssueStatuses.TODO.equals(issue.status()) && !scheduled) {
+      issueService.updateStatus(callerId, projectKey, number, IssueStatuses.IN_PROGRESS);
     }
 
     boolean clearNote = "".equals(req.note());
@@ -138,7 +138,10 @@ public class AgentWorkReportService {
                 AgentToolContext.suppressTouch(
                     () ->
                         issueService.updateStatus(
-                            e.actorId(), project.key(), e.issueNumber(), "IN_PROGRESS")));
+                            e.actorId(),
+                            project.key(),
+                            e.issueNumber(),
+                            IssueStatuses.IN_PROGRESS)));
   }
 
   /** 보고의 note: 빈 문자열은 지우기(null + clearNote), 미지정이면 message 첫 줄(최대 120자)로 대체, 둘 다 없으면 null(유지). */
