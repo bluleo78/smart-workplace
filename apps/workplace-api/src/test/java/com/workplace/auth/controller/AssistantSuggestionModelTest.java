@@ -180,6 +180,39 @@ class AssistantSuggestionModelTest extends IntegrationTestBase {
         .andExpect(status().isBadRequest());
   }
 
+  /**
+   * WP-823: 비서 모델도 assistant_config.model 폭(64)을 넘으면 원인 모를 409(저장 실패) 대신 400 으로 어느 칸인지 알린다 — 추천 모델과
+   * 같은 규칙. 64자는 그대로 저장된다.
+   */
+  @Test
+  void 비서_모델도_64자를_넘으면_400_이고_64자는_저장된다() throws Exception {
+    long human = humanWithAssistant();
+    putSettings(human, "{\"model\":\"" + "m".repeat(65) + "\"}")
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.model").value("최대 64까지 입력할 수 있습니다"));
+    putSettings(human, "{\"model\":\"" + "m".repeat(64) + "\"}").andExpect(status().isNoContent());
+    statusOf(human).andExpect(jsonPath("$.model").value("m".repeat(64)));
+  }
+
+  /** WP-823: 자격증명 등록의 model 도 같은 칸(assistant_config.model)에 저장되므로 64자를 넘으면 400 이다. */
+  @Test
+  void 자격증명_등록의_모델도_64자를_넘으면_400() throws Exception {
+    long human = humanWithAssistant();
+    var config =
+        new ProviderConfig(
+            "openai", null, Map.of("baseURL", "https://api.example.com/v1", "apiKey", "sk-xxxx"));
+    mvc.perform(
+            put("/api/v1/users/me/assistant/credential")
+                .with(authentication(auth(human)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    om.writeValueAsString(
+                        new RegisterAssistantCredentialRequest(
+                            "opencode", null, config, "openai/" + "m".repeat(60), "opencode"))))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.model").value("최대 64까지 입력할 수 있습니다"));
+  }
+
   @Test
   void 공용_비서_모델만_바꿔도_생각의_깊이와_추천_모델은_그대로다() throws Exception {
     long admin = TestFixtures.createHuman(dsl);
