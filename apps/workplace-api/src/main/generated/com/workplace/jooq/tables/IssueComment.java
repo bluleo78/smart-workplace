@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Issue.IssuePath;
+import com.workplace.jooq.tables.IssueCommentReaction.IssueCommentReactionPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.IssueCommentRecord;
@@ -223,6 +224,19 @@ public class IssueComment extends TableImpl<IssueCommentRecord> {
             _issue = new IssuePath(this, Keys.ISSUE_COMMENT__ISSUE_COMMENT_ISSUE_ID_FKEY, null);
 
         return _issue;
+    }
+
+    private transient IssueCommentReactionPath _issueCommentReaction;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_comment_reaction</code> table
+     */
+    public IssueCommentReactionPath issueCommentReaction() {
+        if (_issueCommentReaction == null)
+            _issueCommentReaction = new IssueCommentReactionPath(this, null, Keys.ISSUE_COMMENT_REACTION__ISSUE_COMMENT_REACTION_COMMENT_ID_FKEY.getInverseKey());
+
+        return _issueCommentReaction;
     }
 
     @Override

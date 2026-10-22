@@ -1,45 +1,49 @@
 // 반응자 전체 목록(WP-106) — 이모지별 탭 + 탭마다 무한 스크롤 목록. 데스크톱 다이얼로그·모바일 시트가 함께 쓴다.
-// 탭 목록·개수는 열린 메시지의 최신 reactions 에서 매 렌더 계산한다 — 열린 동안 SSE 로 개수가 바뀌면 그대로 반영되고,
+// WP-504: 대상(ReactionTarget)·반응자 소스(ReactorSource) 주입형 — 채팅 메시지·이슈 코멘트가 함께 쓴다.
+// 탭 목록·개수는 열린 대상의 최신 reactions 에서 매 렌더 계산한다 — 열린 동안 SSE 로 개수가 바뀌면 그대로 반영되고,
 // 보고 있던 이모지가 0 이 되어 사라지면 첫 탭으로 옮겨간다. 내 행은 1페이지 맨 앞에 "나" 태그로 두고 서버 목록에선 뺀다.
 import { useState } from 'react'
 
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
+import type { ReactionResponse, ReactionTarget, ReactorSource } from '@/components/reactions/types'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useReactors } from '@/hooks/queries/useReactors'
 import { othersOf } from '@/lib/reactorSummary'
-import type { MessageResponse, ReactionResponse } from '@/types/messaging'
+import type { ReactorResponse } from '@/types/messaging'
 
 export function ReactorsPanel({
-  message,
+  target,
+  source,
   initialEmoji,
   currentUserId,
   meName,
 }: {
-  message: MessageResponse
+  target: ReactionTarget
+  source: ReactorSource
   initialEmoji: string
   currentUserId: number
   meName: string
 }) {
   const [picked, setPicked] = useState(initialEmoji)
   // 고른 이모지가 사라졌으면 첫 탭으로.
-  const active = message.reactions.some((r) => r.emoji === picked) ? picked : message.reactions[0]?.emoji
+  const active = target.reactions.some((r) => r.emoji === picked) ? picked : target.reactions[0]?.emoji
   if (!active) return null
   return (
     <Tabs value={active} onValueChange={setPicked} className="min-h-0 flex-1">
       <TabsList className="w-full justify-start overflow-x-auto">
-        {message.reactions.map((r) => (
+        {target.reactions.map((r) => (
           <TabsTrigger key={r.emoji} value={r.emoji} data-testid={`reactors-tab-${r.emoji}`}>
             <span>{r.emoji}</span>
             <span className="text-xs tabular-nums">{r.count}</span>
           </TabsTrigger>
         ))}
       </TabsList>
-      {message.reactions.map((r) => (
+      {target.reactions.map((r) => (
         <TabsContent key={r.emoji} value={r.emoji} className="flex min-h-0 flex-col">
           {/* 목록은 시트(flex 열)에선 남는 높이를 받아 스크롤(min-h-0 flex-1), 다이얼로그에선 max-h-80 상한을 유지한다. */}
           {/* 활성 탭만 마운트(Radix 기본) → 그 이모지만 조회. */}
-          <ReactorList messageId={message.id} reaction={r} currentUserId={currentUserId} meName={meName} />
+          <ReactorList source={source} reaction={r} currentUserId={currentUserId} meName={meName} />
         </TabsContent>
       ))}
     </Tabs>
@@ -48,17 +52,17 @@ export function ReactorsPanel({
 
 /** 한 이모지의 반응자 목록 — 나(reacted) 먼저, 이후 받은 순서. 끝에 닿으면 다음 페이지. */
 function ReactorList({
-  messageId,
+  source,
   reaction,
   currentUserId,
   meName,
 }: {
-  messageId: number
+  source: ReactorSource
   reaction: ReactionResponse
   currentUserId: number
   meName: string
 }) {
-  const q = useReactors(messageId, reaction.emoji)
+  const q = useReactors(source, reaction.emoji)
   // 스크롤 컨테이너는 state 로 보관한다(ref 는 첫 렌더에 null) — 다른 무한 스크롤 목록과 같은 방식.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const allItems = q.data?.pages.flatMap((p) => p.items) ?? []
@@ -102,7 +106,7 @@ function ReactorRow({
   testId: string
   userId: number
   name: string
-  kind: MessageResponse['authorKind']
+  kind: ReactorResponse['kind']
   me?: boolean
 }) {
   return (

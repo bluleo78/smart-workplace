@@ -1,4 +1,4 @@
-package com.workplace.messaging.service;
+package com.workplace.global.util;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

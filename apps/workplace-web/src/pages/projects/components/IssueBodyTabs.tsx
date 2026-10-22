@@ -14,6 +14,7 @@ export function IssueBodyTabs({
   issueId,
   comments,
   history,
+  canReact,
   hideComposer = false,
 }: {
   projectKey: string;
@@ -21,6 +22,8 @@ export function IssueBodyTabs({
   issueId: number;
   comments: IssueCommentResponse[];
   history: IssueHistoryEntry[];
+  /** 코멘트 이모지 반응 추가·취소 가능 여부(viewerCanEditContent, WP-504). */
+  canReact: boolean;
   /** 모바일(WP-196) — 코멘트 작성창은 화면 하단 줄에 있으므로 탭 안 작성창을 뺀다. */
   hideComposer?: boolean;
 }) {
@@ -41,6 +44,7 @@ export function IssueBodyTabs({
             issueNumber={issueNumber}
             issueId={issueId}
             comments={comments}
+            canReact={canReact}
             hideComposer={hideComposer}
           />
         </TabsContent>

@@ -805,6 +805,7 @@ export default function IssueDetailPage() {
                 issueId={summary.id}
                 comments={comments}
                 history={history}
+                canReact={canEditContent}
                 hideComposer={isMobile}
               />
             </div>

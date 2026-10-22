@@ -3,6 +3,7 @@ package com.workplace.issue.outbound;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.util.AfterCommit;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentDeletedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentReactionsChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentUpdatedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.watcher.repository.IssueWatcherRepository;
@@ -72,5 +73,22 @@ public class IssueSseDispatcher {
     p.put("actorId", e.actor() == null ? null : e.actor().id());
     Collection<Long> to = watcherRepository.findUserIdsByIssue(e.issueId());
     AfterCommit.run(() -> registry.fanOut(to, "issue.comment_deleted", p));
+  }
+
+  /**
+   * 코멘트 반응 추가·취소(WP-504) — watcher 전원에게 issue.comment_reactions_changed 로 fan-out. 반응한 사람은 watcher
+   * 로 등록하지 않으므로(반응은 참여 신호가 아니다) 기존 코멘트 이벤트와 같은 대상이다.
+   */
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+  public void onCommentReactionsChanged(IssueCommentReactionsChangedEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("projectKey", e.projectKey());
+    p.put("issueNumber", e.issueNumber());
+    p.put("issueId", e.issueId());
+    p.put("issueKey", e.issueKey());
+    p.put("commentId", e.commentId());
+    p.put("actorId", e.actorId());
+    Collection<Long> to = watcherRepository.findUserIdsByIssue(e.issueId());
+    AfterCommit.run(() -> registry.fanOut(to, "issue.comment_reactions_changed", p));
   }
 }

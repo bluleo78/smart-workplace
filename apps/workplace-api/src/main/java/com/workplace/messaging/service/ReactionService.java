@@ -1,5 +1,6 @@
 package com.workplace.messaging.service;
 
+import com.workplace.global.util.ReactionEmojis;
 import com.workplace.messaging.dto.ReactorPage;
 import com.workplace.messaging.dto.ReactorResponse;
 import com.workplace.messaging.exception.ChannelArchivedException;

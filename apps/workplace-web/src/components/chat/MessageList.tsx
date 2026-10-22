@@ -12,10 +12,11 @@ import { DateDivider } from '@/components/chat/DateDivider'
 import { MessageActionSheet } from '@/components/chat/MessageActionSheet'
 import { MessageRow } from '@/components/chat/MessageRow'
 import { buildMessageSheetActions, messagePreview,type MessageSheetHandlers } from '@/components/chat/messageSheetActions'
-import { ReactorsOverlay } from '@/components/chat/ReactorsOverlay'
 import { UnreadDivider } from '@/components/chat/UnreadDivider'
 import type { MentionCandidate } from '@/components/mentions/types'
+import { ReactorsOverlay } from '@/components/reactions/ReactorsOverlay'
 import { findChatBundle, teamChatBundle } from '@/components/viewer/viewerItems'
+import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
 import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useProposalActions } from '@/hooks/queries/useProposalActions'
@@ -208,7 +209,9 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
           />
         )}
         <ReactorsOverlay
-          message={reactorsMessage}
+          target={reactorsMessage}
+          // 대상 메시지가 없으면 패널을 그리지 않아 조회도 없다 — id 0 은 자리 채움.
+          source={messageReactorSource(reactorsTarget?.id ?? 0)}
           initialEmoji={reactorsTarget?.emoji ?? ''}
           open={!!reactorsTarget?.open}
           onClose={() => setReactorsTarget((t) => (t ? { ...t, open: false } : t))}
