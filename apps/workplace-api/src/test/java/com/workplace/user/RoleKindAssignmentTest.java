@@ -124,6 +124,49 @@ class RoleKindAssignmentTest extends IntegrationTestBase {
         .hasMessageContaining("AI 에이전트에게는");
   }
 
+  /** WP-769: 외부 공유 정책(wiki_share:manage)만 든 역할도 관리 역할이다 — 받은 AI 가 정책을 끄면 모든 공개 링크가 풀린다. */
+  @Test
+  void AI_에게_외부_공유_정책_권한만_든_역할도_주지_못한다() throws Exception {
+    Long shareRole = roleService.createRole("SHARE_769", null, admin).id();
+    roleService.setRolePermissions(shareRole, permissionIds("wiki_share:manage"), admin);
+    setRoles(agent, roleId("AGENT"), shareRole).andExpect(status().isBadRequest());
+    assertThat(roleNames(agent)).containsExactly("AGENT");
+  }
+
+  /** WP-769: 공유 그룹 관리(user-group:manage)·플랫폼 권한만 든 역할도 AI 에게 주지 못하고, AI 가 가진 역할에 더하지도 못한다. */
+  @Test
+  void AI_에게_공유_그룹_관리나_플랫폼_권한이_든_역할도_주지_못한다() throws Exception {
+    for (String code : List.of("user-group:manage", "platform:tenant:create")) {
+      Long role = roleService.createRole("R769_" + code.replace(':', '_'), null, admin).id();
+      roleService.setRolePermissions(role, permissionIds(code), admin);
+      setRoles(agent, roleId("AGENT"), role).andExpect(status().isBadRequest());
+    }
+    grant(agent, viewerRole);
+    as(
+            admin,
+            put("/api/v1/roles/" + viewerRole + "/permissions")
+                .content(perms("project:read", "wiki_share:manage")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message", Matchers.containsString("wiki_share:manage")));
+  }
+
+  /**
+   * WP-769: 관리 권한 목록은 「ADMIN 시스템 역할에만 있는 권한(일반 구성원 USER 에 없는 것) + 플랫폼 권한」과 같아야 한다. 마이그레이션으로 관리자 전용
+   * 권한을 새로 더하고 목록을 빠뜨리면 여기서 걸린다(이번 빈틈이 그렇게 생겼다).
+   */
+  @Test
+  void 관리_권한_목록은_ADMIN_에만_있는_권한과_플랫폼_권한이다() {
+    java.util.Set<String> expected = new java.util.TreeSet<>(roleCodes("ADMIN"));
+    expected.removeAll(roleCodes("USER"));
+    expected.addAll(
+        dsl.select(PERMISSION.CODE)
+            .from(PERMISSION)
+            .where(PERMISSION.CATEGORY.eq("platform"))
+            .fetch(PERMISSION.CODE));
+    assertThat(new java.util.TreeSet<>(com.workplace.role.dto.AdminPermissionCodes.CODES))
+        .isEqualTo(expected);
+  }
+
   @Test
   void AI_가_가진_역할에_관리_권한을_더하지_못한다() throws Exception {
     grant(agent, viewerRole);
@@ -226,6 +269,17 @@ class RoleKindAssignmentTest extends IntegrationTestBase {
         .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
         .where(USER_ROLE.USER_ID.eq(userId))
         .fetch(ROLE.NAME);
+  }
+
+  private List<String> roleCodes(String roleName) {
+    return dsl.select(PERMISSION.CODE)
+        .from(com.workplace.jooq.Tables.ROLE_PERMISSION)
+        .join(PERMISSION)
+        .on(PERMISSION.ID.eq(com.workplace.jooq.Tables.ROLE_PERMISSION.PERMISSION_ID))
+        .join(ROLE)
+        .on(ROLE.ID.eq(com.workplace.jooq.Tables.ROLE_PERMISSION.ROLE_ID))
+        .where(ROLE.NAME.eq(roleName).and(ROLE.IS_SYSTEM.isTrue()))
+        .fetch(PERMISSION.CODE);
   }
 
   private List<Long> permissionIds(String... codes) {
