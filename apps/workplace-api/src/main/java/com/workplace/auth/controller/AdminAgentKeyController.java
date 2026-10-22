@@ -6,6 +6,7 @@ import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.security.RequireWebSession;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,7 @@ public class AdminAgentKeyController {
 
   /** 키 발급 — 응답의 plaintextKey 는 1회만 표시된다. */
   @PostMapping
+  @RequireWebSession
   @RequirePermission("user:write")
   public ResponseEntity<AgentApiKeyIssueResponse> issue(
       Authentication auth,

@@ -16,6 +16,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.role.service.RoleService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.support.WebSessionAuth;
 import com.workplace.user.service.UserService;
 import java.util.Arrays;
 import java.util.List;
@@ -26,7 +27,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -242,8 +242,7 @@ class RoleKindAssignmentTest extends IntegrationTestBase {
             .map(SimpleGrantedAuthority::new)
             .toList();
     return mvc.perform(
-        req.with(
-                authentication(new UsernamePasswordAuthenticationToken(caller, "n/a", authorities)))
+        req.with(authentication(WebSessionAuth.of(caller, authorities)))
             .contentType(MediaType.APPLICATION_JSON));
   }
 

@@ -6,6 +6,7 @@ import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.auth.service.AiAgentCredentialService;
 import com.workplace.global.security.RequireAdmin;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.security.RequireWebSession;
 import com.workplace.user.service.WorkspaceMemberGuard;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,7 @@ public class AdminProviderCredentialController {
    * providerConfig(+model 필수)를 사용하며 형태 검증은 서비스 계층에서 수행한다.
    */
   @PostMapping
+  @RequireWebSession
   @RequirePermission("user:write")
   public ResponseEntity<OAuthTokenMetaResponse> register(
       Authentication auth,
