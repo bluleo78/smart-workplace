@@ -3,11 +3,11 @@ package com.workplace.global.config;
 import com.workplace.global.security.ApiKeyAuthenticationFilter;
 import com.workplace.global.security.BcryptLimitPasswordEncoder;
 import com.workplace.global.security.DbBusyResponseFilter;
+import com.workplace.global.security.JsonAuthenticationEntryPoint;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
-import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -118,20 +118,8 @@ public class SecurityConfig {
                     .permitAll())
         // 인증 실패 시 403 대신 401을 반환하여 프론트엔드의 토큰 갱신 인터셉터가 동작하도록 한다.
         // Spring Security 기본 EntryPoint는 403을 반환하여, 만료된 JWT로 접근 시
-        // 프론트엔드가 refresh를 시도하지 못하는 문제가 있었다.
-        .exceptionHandling(
-            ex ->
-                ex.authenticationEntryPoint(
-                    (request, response, authException) -> {
-                      response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                      response.setContentType("application/json");
-                      response
-                          .getWriter()
-                          .write(
-                              "{\"error\":\"Unauthorized\",\"message\":\""
-                                  + authException.getMessage()
-                                  + "\"}");
-                    }))
+        // 프론트엔드가 refresh를 시도하지 못하는 문제가 있었다. 본문은 다른 오류와 같은 모양·한국어(WP-824).
+        .exceptionHandling(ex -> ex.authenticationEntryPoint(new JsonAuthenticationEntryPoint()))
         // 인증 필터의 DB 조회가 커넥션을 못 얻으면 기본 500 대신 503 재시도 안내(WP-751). CORS 헤더가 붙은 뒤에 둔다.
         .addFilterAfter(new DbBusyResponseFilter(), CorsFilter.class)
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
