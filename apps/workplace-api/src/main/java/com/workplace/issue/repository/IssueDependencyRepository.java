@@ -28,6 +28,21 @@ public class IssueDependencyRepository {
 
   private final DSLContext dsl;
 
+  /**
+   * 의존성 추가 직렬화 잠금 classId — 2-인자 pg_advisory_xact_lock(classId, projectId)(WP-758). 이슈 번호를 쓰는 관례지만
+   * 758 은 노트 트리 잠금이 이미 써서 7580 을 쓴다.
+   */
+  private static final int DEPENDENCY_LOCK_CLASS = 7580;
+
+  /**
+   * 이 프로젝트의 의존성 추가를 트랜잭션 끝까지 직렬화한다(자동 해제, WP-758). 순환 검사(DFS)와 관계 저장 사이에 다른 추가가 끼면, 두 요청이 서로 커밋 전의
+   * 그래프를 보고 둘 다 통과해 순환이 저장됐다. 의존성은 같은 프로젝트 안에서만 맺으므로 프로젝트 단위로 잠근다.
+   */
+  public void lockProjectDependencies(long projectId) {
+    // 2-int 잠금 키라 project id 를 int 로 접는다 — 21억을 넘는 id 가 다른 프로젝트와 겹쳐도 직렬화가 넓어질 뿐 정합성은 같다.
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", DEPENDENCY_LOCK_CLASS, (int) projectId);
+  }
+
   /** 타임라인 화살표용 — 프로젝트 전체의 이슈 의존 엣지(이슈번호 쌍)를 전부 반환. 삭제된 이슈가 낀 엣지는 제외. */
   public record DependencyEdge(int fromIssueNumber, int toIssueNumber) {}
 
