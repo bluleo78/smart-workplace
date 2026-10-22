@@ -49,4 +49,12 @@ class SafeFileNamesTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("255자");
   }
+
+  /** WP-781: 보이지 않는 글자(제로폭·점자 빈칸·한글 채움)뿐인 업로드 이름은 fallback, 보이는 글자가 있으면 그대로. */
+  @Test
+  void sanitize_invisibleOnlyName_fallsBack() {
+    assertThat(SafeFileNames.sanitize("\u200B\u2800", "file")).isEqualTo("file");
+    assertThat(SafeFileNames.sanitize("\u3164", "file")).isEqualTo("file");
+    assertThat(SafeFileNames.sanitize("\u200B보고서.pdf", "file")).isEqualTo("\u200B보고서.pdf");
+  }
 }
