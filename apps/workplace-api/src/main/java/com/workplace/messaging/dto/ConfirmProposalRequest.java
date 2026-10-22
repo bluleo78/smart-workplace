@@ -1,5 +1,6 @@
 package com.workplace.messaging.dto;
 
+import com.workplace.global.time.SupportedDateTime;
 import java.time.OffsetDateTime;
 
 /**
@@ -9,6 +10,6 @@ import java.time.OffsetDateTime;
 public record ConfirmProposalRequest(
     String projectKey,
     String title,
-    OffsetDateTime startsAt,
-    OffsetDateTime endsAt,
+    @SupportedDateTime OffsetDateTime startsAt,
+    @SupportedDateTime OffsetDateTime endsAt,
     String location) {}

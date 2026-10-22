@@ -1,6 +1,8 @@
 package com.workplace.global.time;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 
 /**
  * 앱이 받는 날짜(LocalDate)의 공통 범위 — 1900-01-01 ~ 9999-12-31 (WP-725).
@@ -14,6 +16,12 @@ public final class SupportedDates {
   public static final LocalDate MIN = LocalDate.of(1900, 1, 1);
   public static final LocalDate MAX = LocalDate.of(9999, 12, 31);
 
+  /** 시각(Instant·OffsetDateTime)의 같은 범위 — UTC 기준 1900-01-01T00:00Z 부터 9999-12-31 끝까지(WP-744). */
+  public static final Instant MIN_INSTANT = MIN.atStartOfDay(ZoneOffset.UTC).toInstant();
+
+  public static final Instant MAX_INSTANT =
+      MAX.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().minusNanos(1);
+
   /** 범위를 벗어난 날짜를 거절할 때의 문구 — 화면 토스트로 그대로 나간다. */
   public static final String MESSAGE = "날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다";
 
@@ -22,5 +30,10 @@ public final class SupportedDates {
   /** 범위 안의 날짜인가(null 은 판정하지 않는다 — 호출부가 비움을 따로 다룬다). */
   public static boolean isSupported(LocalDate date) {
     return !date.isBefore(MIN) && !date.isAfter(MAX);
+  }
+
+  /** 범위 안의 시각인가(null 은 판정하지 않는다). */
+  public static boolean isSupported(Instant instant) {
+    return !instant.isBefore(MIN_INSTANT) && !instant.isAfter(MAX_INSTANT);
   }
 }

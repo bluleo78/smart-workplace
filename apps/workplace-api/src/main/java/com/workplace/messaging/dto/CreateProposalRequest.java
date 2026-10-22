@@ -1,5 +1,6 @@
 package com.workplace.messaging.dto;
 
+import com.workplace.global.time.SupportedDateTime;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -32,8 +33,8 @@ public record CreateProposalRequest(
     @NotNull Long proposedByUserId,
     Long parentMessageId,
     // --- 일정 전용(calendar.create_event) ---
-    OffsetDateTime startsAt,
-    OffsetDateTime endsAt,
+    @SupportedDateTime OffsetDateTime startsAt,
+    @SupportedDateTime OffsetDateTime endsAt,
     Boolean allDay,
     @Size(max = 200) String location,
     @Min(0) Integer reminderMinutes,

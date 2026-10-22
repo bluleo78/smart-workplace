@@ -4,6 +4,7 @@ import com.workplace.drive.dto.CreateShareLinkRequest;
 import com.workplace.drive.dto.CreatedShareLinkResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.service.DriveShareLinkService;
+import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,7 +24,7 @@ public class DriveShareLinkController {
   public ResponseEntity<CreatedShareLinkResponse> create(
       @AuthenticationPrincipal Long callerId,
       @PathVariable("id") long driveFileId,
-      @RequestBody CreateShareLinkRequest req) {
+      @Valid @RequestBody CreateShareLinkRequest req) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(service.create(callerId, driveFileId, req));
   }

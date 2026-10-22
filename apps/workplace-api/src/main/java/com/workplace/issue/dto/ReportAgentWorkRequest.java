@@ -1,5 +1,6 @@
 package com.workplace.issue.dto;
 
+import com.workplace.global.time.SupportedDateTime;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -20,7 +21,7 @@ public record ReportAgentWorkRequest(
     @Min(0) Integer stepsDone,
     @Min(1) Integer stepsTotal,
     @Size(max = 4000) String message,
-    Instant nextRunAt,
+    @SupportedDateTime Instant nextRunAt,
     @Size(max = 10) List<Long> fileIds) {
 
   /** 상태는 보고 가능한 값(진행 중 7종 + 종료 4종)만 — 없으면 통과. 값 목록은 {@link AgentWorkState} 한 곳에서 나온다. */

@@ -1226,9 +1226,32 @@ public class GlobalExceptionHandler {
             .body(buildError(HttpStatus.BAD_REQUEST, t.getMessage(), null, request));
       }
     }
+    // 값의 형식이 틀린 칸(예: 2026-02-30 날짜)이 짚이면 그 칸을 errors 에 싣는다(WP-744 — 어느 칸이 왜 틀렸는지 알 수 없었다).
+    Map<String, String> fieldErrors = null;
+    if (ex.getCause() instanceof com.fasterxml.jackson.databind.exc.MismatchedInputException mie) {
+      String field = jsonPath(mie.getPath());
+      if (!field.isEmpty()) {
+        fieldErrors = Map.of(field, "형식이 올바르지 않습니다");
+      }
+    }
     ErrorResponse response =
-        buildError(HttpStatus.BAD_REQUEST, "요청 본문을 해석할 수 없습니다.", null, request);
+        buildError(HttpStatus.BAD_REQUEST, "요청 본문을 해석할 수 없습니다.", fieldErrors, request);
     return ResponseEntity.badRequest().body(response);
+  }
+
+  /** Jackson 참조 경로를 검증 오류와 같은 꼴(「widgets[0].label」)로 만든다. */
+  private static String jsonPath(
+      java.util.List<com.fasterxml.jackson.databind.JsonMappingException.Reference> path) {
+    StringBuilder sb = new StringBuilder();
+    for (var ref : path) {
+      if (ref.getFieldName() != null) {
+        if (!sb.isEmpty()) sb.append('.');
+        sb.append(ref.getFieldName());
+      } else if (ref.getIndex() >= 0) {
+        sb.append('[').append(ref.getIndex()).append(']');
+      }
+    }
+    return sb.toString();
   }
 
   /** 존재하지 않는 API 경로 요청 시 500 대신 404 반환 */
