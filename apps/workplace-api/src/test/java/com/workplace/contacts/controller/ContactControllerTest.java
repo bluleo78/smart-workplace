@@ -191,6 +191,45 @@ class ContactControllerTest {
         .andExpect(jsonPath("$.errors.notes").value("메모는 2000자 이하여야 합니다"));
   }
 
+  /**
+   * WP-779: 이메일에 제로폭 공백·점자 빈칸·결합 문자·BOM 같은 보이지 않는 글자가 끼면 생성·수정 모두 400 — @Email 은 이런 글자를 통과시켜 눈에 같은
+   * 주소가 따로 쌓였다. 수정의 빈 문자열(값 비우기)은 그대로 허용한다.
+   */
+  @Test
+  void externalEmailWithInvisibleChar_createAndPatch_return400() throws Exception {
+    when(permissionService.getUserPermissions(1L))
+        .thenReturn(Set.of("contact:read", "contact:write"));
+    String message = "이메일은 영문·숫자·기호로만 쓸 수 있습니다(보이지 않는 글자나 다른 문자 체계의 글자는 쓸 수 없습니다)";
+    for (String c : List.of("​", "⠀", "͏", "﻿")) {
+      String email = "a" + c + "1@dup.com";
+      mockMvc
+          .perform(
+              post("/api/v1/contacts/external")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      "{\"name\":\"박외부\",\"email\":\"" + email + "\",\"visibility\":\"PERSONAL\"}"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors.email").value(message));
+      mockMvc
+          .perform(
+              patch("/api/v1/contacts/external/100")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"email\":\"" + email + "\"}"))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors.email").value(message));
+    }
+    when(service.update(eq(1L), eq(100L), any(), anyBoolean())).thenReturn(sampleDetail());
+    mockMvc
+        .perform(
+            patch("/api/v1/contacts/external/100")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"\"}"))
+        .andExpect(status().isOk());
+  }
+
   @Test
   void createExternal_invalidVisibility_returns400() throws Exception {
     // visibility 의 @Pattern(SHARED|PERSONAL) 위반 → 400

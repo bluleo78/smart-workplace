@@ -1,5 +1,6 @@
 package com.workplace.contacts.dto;
 
+import com.workplace.global.util.AccountIdentifierRules;
 import com.workplace.global.util.SingleLineTitles;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Pattern;
@@ -15,7 +16,14 @@ import jakarta.validation.constraints.Size;
  */
 public record UpdateExternalContactRequest(
     @Pattern(regexp = "(?s).*\\S.*", message = "이름은 비울 수 없습니다") @Size(max = 120) String name,
-    @Email @Size(max = 255) String email,
+    // 보이지 않는 글자·다른 문자 체계 글자가 낀 이메일은 거절한다(WP-779) — @Email 은 이를 통과시켜 눈에 같은 주소가 따로 쌓이고 메일도 못 보냈다.
+    // 계정 이메일과 같은 규칙(AccountIdentifierRules, WP-780). 빈 문자열(값 비우기)은 허용한다.
+    @Email
+        @Size(max = 255)
+        @Pattern(
+            regexp = AccountIdentifierRules.ASCII_ONLY,
+            message = AccountIdentifierRules.EMAIL_ASCII_ONLY_MESSAGE)
+        String email,
     @Size(max = 40) String phone,
     @Size(max = 120) String organization,
     @Size(max = 100) String title,
