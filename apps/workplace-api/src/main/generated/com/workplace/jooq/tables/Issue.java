@@ -28,6 +28,7 @@ import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.Project.ProjectPath;
+import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.records.IssueRecord;
@@ -190,6 +191,11 @@ public class Issue extends TableImpl<IssueRecord> {
      */
     public final TableField<IssueRecord, Integer> VERSION = createField(DSL.name("version"), SQLDataType.INTEGER.nullable(false).defaultValue(DSL.field(DSL.raw("1"), SQLDataType.INTEGER)), this, "");
 
+    /**
+     * The column <code>public.issue.status_id</code>.
+     */
+    public final TableField<IssueRecord, Long> STATUS_ID = createField(DSL.name("status_id"), SQLDataType.BIGINT.nullable(false), this, "");
+
     private Issue(Name alias, Table<IssueRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -259,7 +265,7 @@ public class Issue extends TableImpl<IssueRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_ISSUE_ACTIVE, Indexes.IDX_ISSUE_MILESTONE, Indexes.IDX_ISSUE_PARENT, Indexes.IDX_ISSUE_PROJECT_STATUS_UPDATED, Indexes.IDX_ISSUE_SOURCE, Indexes.IDX_ISSUE_TENANT, Indexes.IDX_ISSUE_TYPE);
+        return Arrays.asList(Indexes.IDX_ISSUE_ACTIVE, Indexes.IDX_ISSUE_MILESTONE, Indexes.IDX_ISSUE_PARENT, Indexes.IDX_ISSUE_PROJECT_STATUS_UPDATED, Indexes.IDX_ISSUE_SOURCE, Indexes.IDX_ISSUE_STATUS_ID, Indexes.IDX_ISSUE_TENANT, Indexes.IDX_ISSUE_TYPE);
     }
 
     @Override
@@ -279,7 +285,20 @@ public class Issue extends TableImpl<IssueRecord> {
 
     @Override
     public List<ForeignKey<IssueRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.ISSUE__FK_ISSUE_TENANT, Keys.ISSUE__ISSUE_MILESTONE_ID_FKEY, Keys.ISSUE__ISSUE_PARENT_ISSUE_ID_FKEY, Keys.ISSUE__ISSUE_PROJECT_ID_FKEY, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY, Keys.ISSUE__ISSUE_TYPE_ID_FKEY);
+        return Arrays.asList(Keys.ISSUE__FK_ISSUE_STATUS_CATEGORY, Keys.ISSUE__FK_ISSUE_TENANT, Keys.ISSUE__ISSUE_MILESTONE_ID_FKEY, Keys.ISSUE__ISSUE_PARENT_ISSUE_ID_FKEY, Keys.ISSUE__ISSUE_PROJECT_ID_FKEY, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY, Keys.ISSUE__ISSUE_TYPE_ID_FKEY);
+    }
+
+    private transient ProjectStatusPath _projectStatus;
+
+    /**
+     * Get the implicit join path to the <code>public.project_status</code>
+     * table.
+     */
+    public ProjectStatusPath projectStatus() {
+        if (_projectStatus == null)
+            _projectStatus = new ProjectStatusPath(this, Keys.ISSUE__FK_ISSUE_STATUS_CATEGORY, null);
+
+        return _projectStatus;
     }
 
     private transient TenantPath _tenant;
