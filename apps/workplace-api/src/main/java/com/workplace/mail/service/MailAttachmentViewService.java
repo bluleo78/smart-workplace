@@ -36,8 +36,8 @@ public class MailAttachmentViewService {
   private final TransactionTemplate readOnlyTx;
 
   /**
-   * 원본을 받기 전 크기 상한 — 메일 첨부 추출(/text)과 같은 첨부 상한(기본 25MiB, 워커 상한과 같다). 받은 뒤의 정확한 판정은 viewTransient 가
-   * 워커 상한으로 한다.
+   * 메일 첨부 크기 상한 — 메일 첨부 추출(/text)과 같은 첨부 상한(기본 25MiB). 받기 전(목록 크기)과 받은 뒤(실제 바이트) 모두 이 값으로 거른다 —
+   * 드라이브 PDF 상한(100MB, WP-803)은 메일 첨부에 적용하지 않는다.
    */
   @Value("${workplace.storage.attachment.max-file-size-bytes:26214400}")
   private long maxFileSize;
@@ -78,6 +78,8 @@ public class MailAttachmentViewService {
 
     // ② 바이트 확보 — /content 와 같은 경로. ① 에서 소유를 확인한 컨텍스트를 넘겨 다시 조회하지 않는다. download 는 자기 트랜잭션을 열고 닫는다.
     byte[] content = attachmentService.download(userId, r.ctx()).content();
+    // 목록 크기가 작게 기록된 첨부도 받은 바이트로 다시 판정한다 — 받기 전 검사와 같은 메일 첨부 상한.
+    if (content.length > maxFileSize) throw new AttachmentViewException("TOO_LARGE");
 
     // ③ 렌더 — 트랜잭션 밖, 워커에 본문으로 보낸다(디스크에 쓰지 않는다).
     return attachmentView.viewTransient(content, r.mime(), page);
