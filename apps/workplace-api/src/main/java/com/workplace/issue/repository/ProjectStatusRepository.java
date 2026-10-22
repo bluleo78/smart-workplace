@@ -105,14 +105,15 @@ public class ProjectStatusRepository {
   }
 
   /**
-   * 프로젝트의 상태 행을 모두 잠근다(FOR UPDATE) — 상태 추가가 position 을 정하고 뒤 행을 밀어내는 동안 같은 프로젝트의 다른 추가가 끼어들지 못하게.
-   * 잠금을 기다렸던 쪽은 상대가 커밋한 새 행을 이 결과에서 보지 못하므로(READ COMMITTED), position 계산은 잠근 뒤 다시 조회해서 한다.
+   * 프로젝트의 상태 행을 모두 잠근다(FOR NO KEY UPDATE) — 상태 추가가 position 을 정하고 뒤 행을 밀어내는 동안 같은 프로젝트의 다른 추가가 끼어들지
+   * 못하게. NO KEY UPDATE 끼리는 서로 막아 동시 추가는 직렬화되지만, 이슈 INSERT·status_id 변경의 FK 검사(FOR KEY SHARE)는 막지
+   * 않는다. 잠금을 기다렸던 쪽은 상대가 커밋한 새 행을 이 결과에서 보지 못하므로(READ COMMITTED), position 계산은 잠근 뒤 다시 조회해서 한다.
    */
   public List<ProjectStatusRow> lockByProject(Long projectId) {
     return dsl.selectFrom(PROJECT_STATUS)
         .where(PROJECT_STATUS.PROJECT_ID.eq(projectId))
         .orderBy(PROJECT_STATUS.ID.asc())
-        .forUpdate()
+        .forNoKeyUpdate()
         .fetch(this::mapToRow);
   }
 

@@ -363,6 +363,5 @@ class IssueCustomStatusTest extends IntegrationTestBase {
 
     assertThat(issue.statusId()).isEqualTo(done);
     assertThat(issue.statusName()).isEqualTo("완료");
-    assertThat(issue.statusPosition()).isNotNull();
   }
 }

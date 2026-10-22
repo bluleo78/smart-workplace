@@ -75,13 +75,20 @@ export function splitStatusTokens(csv: string): { categories: string[]; names: s
   return { categories, names };
 }
 
-/** 상태 이름 → 프로젝트 상태 id(WP-807). 정확일치, 없으면 사용 가능한 상태 이름을 담아 throw. */
+/**
+ * 상태 이름 → 프로젝트 상태 id(WP-807). 대소문자·앞뒤 공백 무시 — 서버의 statusName 필터·이름 유일 규칙(lower(btrim))과 같아
+ * list_issues 로 찾은 이름을 update_issue 에도 그대로 쓸 수 있다. 그 규칙으로 이름이 유일하니 첫 매치가 곧 유일 매치다.
+ * 없으면 사용 가능한 상태 이름을 담아 throw.
+ */
 export async function resolveStatusId(
   client: Pick<ProjectMetaClient, 'getProjectStatuses'>,
   projectKey: string,
   name: string,
 ): Promise<number> {
-  return idByName(await client.getProjectStatuses(projectKey), name, '상태');
+  const rows = await client.getProjectStatuses(projectKey);
+  const key = name.trim().toLowerCase();
+  const match = rows.find((r) => r.name.trim().toLowerCase() === key);
+  return match ? match.id : idByName(rows, name, '상태');
 }
 
 /**

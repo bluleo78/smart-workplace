@@ -416,10 +416,10 @@ describe('list_issues', () => {
   it('list_issues 항목에 statusName 이 있다', async () => {
     const c = mockClient();
     vi.mocked(c.listIssues).mockResolvedValue({ items: [
-      { projectKey: 'WP', number: 4, title: '리뷰', status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중', statusPosition: 2, priority: 'MID' },
+      { projectKey: 'WP', number: 4, title: '리뷰', status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중', priority: 'MID' },
     ] });
     const out = JSON.parse(resultText(await tool(c, 'list_issues').handler({})));
-    // status 는 범주 그대로, statusName 은 프로젝트 상태 이름(WP-807). 숫자 statusId·statusPosition 은 싣지 않는다.
+    // status 는 범주 그대로, statusName 은 프로젝트 상태 이름(WP-807). 숫자 statusId 는 싣지 않는다.
     expect(out.items[0]).toEqual({ issueKey: 'WP-4', title: '리뷰', status: 'IN_PROGRESS', statusName: '검토 중', priority: 'MID', blocked: false });
   });
 

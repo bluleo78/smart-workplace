@@ -17,6 +17,7 @@ import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.List;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -137,8 +138,11 @@ public class ProjectStatusService {
   }
 
   /**
-   * 이름 검증 — 요청 record 가 이미 한 줄로 다듬었으므로 비었는지·길이만 본다. 서비스를 직접 부르는 경로도 같은 한국어 400 을 받도록
+   * 이름 검증 — 요청 record 가 이미 한 줄로 다듬었으므로 비었는지·길이·범주 코드인지만 본다. 서비스를 직접 부르는 경로도 같은 한국어 400 을 받도록
    * IllegalArgumentException(→ 400, 메시지 그대로)으로 던진다.
+   *
+   * <p>범주 코드(TODO 등)와 같은 이름은 거절한다 — 이력은 예전 행의 범주 코드와 새 행의 상태 이름을 한 칸에 담아, 「DONE」이라는 이름이 「완료」 범주 라벨로
+   * 잘못 보이기 때문이다. 중복 판정(lower(btrim))과 같이 대소문자·앞뒤 공백은 무시한다.
    */
   private static String requireName(String name) {
     if (name == null || name.isEmpty()) {
@@ -146,6 +150,9 @@ public class ProjectStatusService {
     }
     if (name.codePointCount(0, name.length()) > NAME_MAX) {
       throw new IllegalArgumentException("상태 이름은 " + NAME_MAX + "자 이하로 입력해 주세요");
+    }
+    if (IssueStatuses.isCategory(name.strip().toUpperCase(Locale.ROOT))) {
+      throw new IllegalArgumentException("범주 코드(TODO·IN_PROGRESS·DONE·CANCELED)는 상태 이름으로 쓸 수 없습니다");
     }
     return name;
   }

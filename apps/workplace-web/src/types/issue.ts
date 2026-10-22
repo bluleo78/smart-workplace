@@ -94,8 +94,6 @@ export interface IssueResponse {
   // 프로젝트 상태 id·이름(WP-808) — 화면에 보이는 상태는 이름이고, 보드 컬럼·필터는 id 로 나눈다.
   statusId: number;
   statusName: string;
-  // 같은 범주 안 상태 순서 — 목록 정렬용. 일부 응답(생성 직후 등)엔 없을 수 있어 선택.
-  statusPosition?: number;
   priority: IssuePriority;
   dueDate: string | null;
   // 타임라인 간트 뷰 시작일 (#620).

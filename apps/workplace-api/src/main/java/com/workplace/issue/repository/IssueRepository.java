@@ -86,20 +86,6 @@ public class IssueRepository {
                   .where(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID)))
           .as("status_name");
 
-  /** 프로젝트 상태의 표시 순서(스칼라 서브쿼리, WP-807) — 보드 컬럼·정렬용. */
-  private static final Field<Integer> STATUS_POSITION =
-      org.jooq
-          .impl
-          .DSL
-          .field(
-              org.jooq
-                  .impl
-                  .DSL
-                  .select(PROJECT_STATUS.POSITION)
-                  .from(PROJECT_STATUS)
-                  .where(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID)))
-          .as("status_position");
-
   /**
    * {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. 같은 패키지의
    * {@link AiTaskRepository} 도 같은 행 모양을 쓰도록 package-private.
@@ -124,8 +110,7 @@ public class IssueRepository {
     ISSUE.VERSION,
     MILESTONE_NAME,
     ISSUE.STATUS_ID,
-    STATUS_NAME,
-    STATUS_POSITION
+    STATUS_NAME
   };
 
   /**
@@ -157,8 +142,7 @@ public class IssueRepository {
         // 서브쿼리 컬럼(마일스톤·상태 이름)은 ROW_FIELDS 로 SELECT 할 때만 있다(INSERT RETURNING 은 테이블 컬럼만) — 없으면 null.
         r.indexOf(MILESTONE_NAME) >= 0 ? r.get(MILESTONE_NAME) : null,
         r.get(ISSUE.STATUS_ID),
-        r.indexOf(STATUS_NAME) >= 0 ? r.get(STATUS_NAME) : null,
-        r.indexOf(STATUS_POSITION) >= 0 ? r.get(STATUS_POSITION) : null);
+        r.indexOf(STATUS_NAME) >= 0 ? r.get(STATUS_NAME) : null);
   }
 
   /**

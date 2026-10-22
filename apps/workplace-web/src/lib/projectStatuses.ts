@@ -7,6 +7,12 @@ import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from './issueGrouping';
 /** 이름 중복 문구 — 클라이언트 검증과 서버 409(동시 중복)를 입력기가 같은 문구로 보인다. */
 export const STATUS_NAME_DUPLICATED = '이미 존재하는 상태 이름입니다';
 
+/**
+ * 범주 코드 이름 거절 문구 — 서버 ProjectStatusService 와 같은 문구. 이력은 예전 행의 범주 코드와 새 행의 상태 이름을 한 칸에 담아,
+ * 「DONE」이라는 이름이 「완료」 범주 라벨로 잘못 보이므로 범주 코드는 상태 이름으로 쓰지 못한다.
+ */
+export const STATUS_NAME_IS_CATEGORY = '범주 코드(TODO·IN_PROGRESS·DONE·CANCELED)는 상태 이름으로 쓸 수 없습니다';
+
 /** 상태 이름 최대 길이 — 서버 ProjectStatusService.NAME_MAX 와 같다(코드 포인트 기준). */
 export const STATUS_NAME_MAX = 30;
 
@@ -64,7 +70,8 @@ export function canEditStatuses(isOwner: boolean, projectType?: ProjectType): bo
 
 /**
  * 상태 이름 검증 — 오류 문구(인라인 편집기가 입력 아래 보인다) 또는 null.
- * 앞뒤 공백을 빼고 본다: 비었으면 입력 요청, 30자 초과면 길이 오류, 같은 프로젝트에 대소문자만 다른 이름까지 중복으로 본다.
+ * 앞뒤 공백을 빼고 본다: 비었으면 입력 요청, 30자 초과면 길이 오류, 범주 코드(대소문자 무시)면 거절,
+ * 같은 프로젝트에 대소문자만 다른 이름까지 중복으로 본다.
  * excludeId — 이름을 바꾸는 상태 자신은 중복 비교에서 뺀다(그대로 저장해도 오류가 나지 않게).
  */
 export function validateStatusName(
@@ -76,6 +83,7 @@ export function validateStatusName(
   if (!trimmed) return '상태 이름을 입력해 주세요';
   // 서버가 코드 포인트로 세므로 이모지 등 서로게이트 쌍을 한 글자로 센다.
   if ([...trimmed].length > STATUS_NAME_MAX) return `상태 이름은 ${STATUS_NAME_MAX}자 이하로 입력해 주세요`;
+  if ((ISSUE_STATUSES as readonly string[]).includes(trimmed.toUpperCase())) return STATUS_NAME_IS_CATEGORY;
   const key = trimmed.toLowerCase();
   if (list.some((s) => s.id !== excludeId && s.name.trim().toLowerCase() === key)) return STATUS_NAME_DUPLICATED;
   return null;

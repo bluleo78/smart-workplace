@@ -94,7 +94,12 @@ const notificationsOnDelete = (p: ResourceChangedPayload): InvalidationTarget[] 
 
 // 리소스 → 무효화 대상. 새 리소스는 resource-contract.json 과 함께 여기에 규칙을 추가한다.
 const RULES: Record<string, Rule> = {
-  issue: (p) => (p.projectKey ? [...issueTargets(p.projectKey), ...notificationsOnDelete(p)] : []),
+  // 상태 목록도 다시 받는다(WP-808) — 다른 사용자가 방금 만든 상태로 카드를 옮겼는데 project-status 이벤트를 놓치면, 보드에 그 컬럼이 없어
+  // 카드가 사라진 채 남는다. 이슈 이벤트마다 작은 GET 한 번으로 다음 이슈 변경 때 스스로 회복한다.
+  issue: (p) =>
+    p.projectKey
+      ? [...issueTargets(p.projectKey), { queryKey: ['projectStatuses', p.projectKey] }, ...notificationsOnDelete(p)]
+      : [],
   project: (p) => [
     { queryKey: ['projects'] }, // 목록·상세·멤버(['projects','detail',pk,'members'])
     { queryKey: ['pinnedViews'] },

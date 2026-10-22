@@ -34,6 +34,8 @@ describe('invalidationTargets', () => {
         ['issue-drive-links', 'EX'],
         ['issueCycles', 'EX'],
         ['cycleProgress', 'EX'],
+        // 방금 만든 상태로 옮긴 카드가 project-status 이벤트를 놓쳐도 보드 컬럼이 생기도록(WP-808)
+        ['projectStatuses', 'EX'],
       ]),
     );
   });

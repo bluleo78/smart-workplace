@@ -80,6 +80,14 @@ describe('projectStatuses', () => {
     expect(validateStatusName('QA 대기', MIXED)).toBeNull();
   });
 
+  it('validateStatusName: 범주 코드와 같은 이름(대소문자·앞뒤 공백 무시)은 거절, 코드를 품은 이름은 허용', () => {
+    const msg = '범주 코드(TODO·IN_PROGRESS·DONE·CANCELED)는 상태 이름으로 쓸 수 없습니다';
+    for (const code of ['TODO', ' done ', 'In_Progress', 'canceled']) {
+      expect(validateStatusName(code, MIXED)).toBe(msg);
+    }
+    expect(validateStatusName('TODO 검토', MIXED)).toBeNull();
+  });
+
   it('categorySpans: 진행 중 범주 컬럼 3개면 span count 3, 범주 순서 고정', () => {
     // 입력 순서를 섞어도 띠는 범주 순서(할 일 → 진행 중 → 완료 → 취소)이고, 라벨은 고정 범주 라벨이다.
     const spans = categorySpans([

@@ -63,6 +63,16 @@ describe('resolveStatusId (WP-807)', () => {
   it('모르는 이름은 사용 가능 목록을 담아 throw', async () => {
     await expect(resolveStatusId(client(), 'WP', '배포')).rejects.toThrow("상태 '배포' 을(를) 찾을 수 없습니다. 사용 가능: 할 일, 진행 중, 검토 중");
   });
+  it('대소문자·앞뒤 공백만 다른 이름도 찾는다 — 서버 lower(btrim) 과 같은 규칙', async () => {
+    const c = client();
+    vi.mocked(c.getProjectStatuses).mockResolvedValue([
+      { id: 31, name: 'Review', category: 'IN_PROGRESS', position: 1 },
+      { id: 32, name: ' QA Wait ', category: 'IN_PROGRESS', position: 2 },
+    ]);
+    await expect(resolveStatusId(c, 'WP', 'review')).resolves.toBe(31);
+    await expect(resolveStatusId(c, 'WP', '  REVIEW ')).resolves.toBe(31);
+    await expect(resolveStatusId(c, 'WP', 'qa wait')).resolves.toBe(32);
+  });
 });
 
 describe('resolveTypeId', () => {

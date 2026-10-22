@@ -220,6 +220,27 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     assertThat(create(owner, p.key(), "가".repeat(30), "TODO").name()).hasSize(30);
   }
 
+  /** 범주 코드와 같은 이름은 이력에서 범주 라벨로 잘못 읽히므로 만들기·이름 변경 모두 거절한다(대소문자·앞뒤 공백 무시). */
+  @Test
+  void 범주코드와_같은_이름은_생성_이름변경_모두_400() {
+    Long owner = createUser("cc");
+    ProjectResponse p = newProject(owner, "PSC");
+    Long todo = byName(owner, p.key(), "할 일").id();
+    String msg = "범주 코드(TODO·IN_PROGRESS·DONE·CANCELED)는 상태 이름으로 쓸 수 없습니다";
+
+    for (String code : List.of("TODO", " done ", "In_Progress", "canceled")) {
+      assertThatThrownBy(() -> create(owner, p.key(), code, "IN_PROGRESS"))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage(msg);
+      assertThatThrownBy(
+              () -> service.rename(owner, p.key(), todo, new RenameProjectStatusRequest(code)))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage(msg);
+    }
+    // 코드를 품은 다른 이름은 막지 않는다
+    assertThat(create(owner, p.key(), "TODO 검토", "TODO").name()).isEqualTo("TODO 검토");
+  }
+
   @Test
   void 기본상태도_이름을_바꿀수있고_범주는_그대로다() {
     Long owner = createUser("rn");
