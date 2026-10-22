@@ -2,6 +2,7 @@ package com.workplace.platform.service;
 
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.InvalidTokenException;
+import com.workplace.auth.exception.RefreshTokenReuseException;
 import com.workplace.auth.repository.RefreshTokenRepository;
 import com.workplace.auth.service.LoginAttemptService;
 import com.workplace.auth.service.PasswordLoginVerifier;
@@ -115,8 +116,11 @@ public class PlatformAuthService {
         accessToken, refreshToken, jwtProperties.accessExpiration() / 1000, user);
   }
 
-  /** 운영자 토큰 갱신 — platform refresh 토큰만 허용(평면 교차 차단), reuse-detection/family 회전. */
-  @Transactional
+  /**
+   * 운영자 토큰 갱신 — platform refresh 토큰만 허용(평면 교차 차단), reuse-detection/family 회전. 재사용으로 family 를 폐기한 뒤
+   * 던지는 401 은 롤백하지 않는다(WP-819, AuthService.refresh 와 같은 이유).
+   */
+  @Transactional(noRollbackFor = RefreshTokenReuseException.class)
   public PlatformLoginResult refresh(String rawRefreshToken) {
     // 평면 교차 차단: 일반(테넌트) refresh 토큰으로 운영자 토큰을 발급받는 것을 가장 먼저 거부한다.
     if (!jwtTokenProvider.isPlatformToken(rawRefreshToken)) {
@@ -145,7 +149,7 @@ public class PlatformAuthService {
 
       if (!withinGrace || !familyAlive) {
         refreshTokenRepository.revokeByFamilyId(familyId);
-        throw new InvalidTokenException("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
+        throw new RefreshTokenReuseException();
       }
       // grace 적용 — 재revoke 없이 아래에서 같은 family로 새 토큰만 발급.
     } else {

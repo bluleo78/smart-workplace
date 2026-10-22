@@ -6,6 +6,7 @@ import com.workplace.auth.dto.SignupRequest;
 import com.workplace.auth.dto.TokenResponse;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.InvalidTokenException;
+import com.workplace.auth.exception.RefreshTokenReuseException;
 import com.workplace.auth.exception.TenantAccessDeniedException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
 import com.workplace.auth.repository.RefreshTokenRepository;
@@ -224,7 +225,8 @@ public class AuthService {
         : membershipRepository.findActiveByUser(userId);
   }
 
-  @Transactional
+  /** 재사용(탈취 의심)으로 family 를 폐기한 뒤 던지는 401 은 롤백하지 않는다(WP-819) — 폐기가 남아야 훔친 토큰으로 받은 새 토큰도 끊긴다. */
+  @Transactional(noRollbackFor = RefreshTokenReuseException.class)
   public TokenResponse refresh(String rawRefreshToken) {
     if (!jwtTokenProvider.validateRefreshToken(rawRefreshToken)) {
       // 만료되었거나 유효하지 않은 리프레시 토큰 — 한국어 메시지 반환
@@ -251,7 +253,7 @@ public class AuthService {
       if (!withinGrace || !familyAlive) {
         refreshTokenRepository.revokeByFamilyId(familyId);
         // 이미 사용된 토큰 재사용 시도 — 보안 이슈, 한국어 메시지 반환
-        throw new InvalidTokenException("이미 사용된 토큰입니다. 다시 로그인해 주세요.");
+        throw new RefreshTokenReuseException();
       }
       // grace 적용: 이 토큰(tokenHash)은 이미 폐기 상태이므로 다시 revoke하지 않고, 같은 family로 새 토큰만 추가 발급한다.
     } else {
