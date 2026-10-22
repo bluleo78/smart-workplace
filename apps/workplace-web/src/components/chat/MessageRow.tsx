@@ -3,7 +3,7 @@
 //   본인: 우측 말풍선(최대 75%, 아바타·이름 없음). 수정 중에는 전폭 에디터.
 // 뮤테이션·편집 상태는 목록(MessageList)이 갖고, 이 컴포넌트는 콜백만 받아 그린다.
 import { Bot, MessageSquare, Pencil, Trash2, Users } from 'lucide-react'
-import type { ComponentProps, Ref } from 'react'
+import { type ComponentProps, type Ref, useRef } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { teamChatBundle } from '@/components/viewer/viewerItems'
 import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
+import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
 import type { MessageResponse } from '@/types/messaging'
@@ -110,6 +111,10 @@ export function MessageRow({
       ? TOOLBAR_POSITION.ownHeader
       : TOOLBAR_POSITION.ownBubble
 
+  // 수정을 끝내면(Esc 취소·저장) 편집기와 함께 툴바가 사라져 있어 포커스가 body 로 빠졌다 — 「수정」 버튼으로 돌린다(WP-813).
+  const editButtonRef = useRef<HTMLButtonElement | null>(null)
+  useRestoreFocusOnExit(isEditing, editButtonRef)
+
   // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
   const touchShell = useIsTouchShell()
 
@@ -157,6 +162,7 @@ export function MessageRow({
       {canEdit && (
         <>
           <Button
+            ref={editButtonRef}
             size="icon"
             variant="ghost"
             className="h-6 w-6"

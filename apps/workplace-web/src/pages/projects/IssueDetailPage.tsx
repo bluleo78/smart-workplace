@@ -49,6 +49,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIssueImageUpload } from '../../hooks/useIssueImageUpload';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
+import { useRestoreFocusOnExit } from '../../hooks/useRestoreFocusOnExit';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { questionWork } from '../../lib/agentWork';
 import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
@@ -228,6 +229,10 @@ function InlineEditableBody({
     clearIssueBodyDraft(draftKey);
   };
 
+  // 편집이 끝나면(Esc 취소·저장) textarea 가 사라져 포커스가 body 로 빠졌다 — 「본문 편집」 영역으로 돌린다(WP-813).
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  useRestoreFocusOnExit(editing, viewRef);
+
   // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
   useEditBarControls(editing, { save, cancel, disabled: disabled || uploading }, onEditingChange);
 
@@ -236,6 +241,7 @@ function InlineEditableBody({
       // Jira 식 — 본문 영역 전체가 클릭 가능. 호버 시 배경 변화로 편집 가능 신호.
       // role/aria-label/키보드(Enter·Space) 로 접근성 확보(article 은 button 자식 불가라 div+role).
       <div
+        ref={viewRef}
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-label="본문 편집"

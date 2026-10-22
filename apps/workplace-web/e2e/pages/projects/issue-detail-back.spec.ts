@@ -121,6 +121,45 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(DETAIL_URL(8));
   });
 
+  // WP-813: 인라인 편집을 끝내면 포커스가 body 로 빠지지 않고 편집을 시작한 컨트롤로 돌아온다 — 다음 Tab 이 화면 처음부터 시작하지 않게.
+  test('제목 편집을 Esc 로 취소하면 포커스가 「제목 편집」 버튼으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await openDetailFromFilteredList(page);
+    await page.getByTestId('issue-title-edit').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-title-input')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-title-input')).toHaveCount(0);
+    await expect(page.getByTestId('issue-title-edit')).toBeFocused();
+  });
+
+  test('제목을 Enter 로 저장해도 포커스가 「제목 편집」 버튼으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await openDetailFromFilteredList(page);
+    await page.route(`**/api/v1/projects/${KEY}/issues/8`, (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssue({ id: 2, number: 8, projectKey: KEY, title: '새 제목' })) })
+        : route.fallback(),
+    );
+    await page.getByTestId('issue-title-edit').focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(' 수정');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-title-input')).toHaveCount(0);
+    await expect(page.getByTestId('issue-title-edit')).toBeFocused();
+  });
+
+  test('본문 편집을 Esc 로 취소하면 포커스가 본문 영역으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await openDetailFromFilteredList(page);
+    const view = page.getByRole('button', { name: '본문 편집' });
+    await view.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('button', { name: '본문 편집' })).toHaveCount(0);
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: '본문 편집' })).toBeFocused();
+    await expect(page).toHaveURL(DETAIL_URL(8));
+  });
+
   test('쓰다 만 코멘트가 있으면 포커스가 밖에 있어도 ESC 로 이탈하지 않는다', async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.getByTestId('issue-comment-input').fill('작성 중인 코멘트');

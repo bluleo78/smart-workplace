@@ -7,7 +7,7 @@
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
@@ -25,6 +25,7 @@ import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
+import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 
 import { uploadIssueImage } from '../../../api/issueImages';
 import { commentReactorSource } from '../../../hooks/queries/commentReactorSource';
@@ -84,6 +85,9 @@ function CommentItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 수정을 끝내면(Esc 취소·저장) 편집기가 사라져 포커스가 body 로 빠졌다 — 「코멘트 수정」 버튼으로 돌린다(WP-813).
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
+  useRestoreFocusOnExit(editing, editButtonRef);
   const commentActions: MobileSheetAction[] = [
     { key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => setEditing(true) },
     { key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => setConfirmOpen(true) },
@@ -186,8 +190,10 @@ function CommentItem({
               actions={commentActions}
             />
           ) : (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            // 키보드 포커스가 들어와도 보이게(focus-within) — 수정 뒤 포커스가 이 버튼으로 돌아온다(WP-813).
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
               <Button
+                ref={editButtonRef}
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"

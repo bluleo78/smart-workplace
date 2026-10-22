@@ -2,7 +2,7 @@
 // 미완료 선행(blockedBy) 이슈가 있는 상태에서 '완료'로 전환하면 AlertDialog 로 한 번 확인한다(#827).
 // 의존성은 일정(scheduling) 관계라 서버는 전환을 막지 않는다 — soft 경고 정책(#669 와 동일 원칙).
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';
 import {
@@ -15,6 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useRestoreFocusAfterPick } from '@/hooks/useRestoreFocusOnExit';
 
 import type { IssueLinkSummary, IssueStatus } from '../../../types/issue';
 import { incompleteBlockers } from './incompleteBlockers';
@@ -93,8 +94,12 @@ export function IssueStatusSelect({
   // 확인 대기 중인 목표 상태 — null 이면 다이얼로그 닫힘.
   const [pending, setPending] = useState<IssueStatus | null>(null);
   const blockers = incompleteBlockers(blockedBy);
+  // 값을 고르면 저장 중 잠금(disabled)으로 트리거가 포커스를 잃어 body 로 빠졌다 — 풀리면 트리거로 돌린다(WP-813).
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const markPicked = useRestoreFocusAfterPick(disabled ?? false, triggerRef);
 
   const handleChange = (v: IssueStatus) => {
+    markPicked();
     // 완료 전환 + 미완료 선행 존재 → 즉시 PATCH 하지 않고 확인 다이얼로그.
     if (v === 'DONE' && v !== value && blockers.length > 0) {
       setPending(v);
@@ -106,7 +111,7 @@ export function IssueStatusSelect({
   return (
     <>
       <Select value={value} onValueChange={(v) => handleChange(v as IssueStatus)} disabled={disabled}>
-        <SelectTrigger className="w-full" aria-label="상태" data-testid="issue-status-select">
+        <SelectTrigger ref={triggerRef} className="w-full" aria-label="상태" data-testid="issue-status-select">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
