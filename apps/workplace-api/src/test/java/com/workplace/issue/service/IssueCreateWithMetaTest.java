@@ -385,6 +385,45 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isZero();
   }
 
+  /** WP-750 — 이름 라벨도 라벨 생성 API 처럼 한 줄로 다듬는다: 제로폭 문자뿐인 이름은 빈 이름으로 거절, 줄바꿈은 공백 하나로. */
+  @Test
+  void create_withLabelNames_normalizesLikeLabelCreate() {
+    assertThatThrownBy(
+            () ->
+                issueService.create(
+                    ownerId, projectKey, withLabelNames("zw", null, List.of("\u200B"), null)))
+        .isInstanceOf(InvalidLabelNameException.class)
+        .hasMessageContaining("비어 있습니다");
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isZero();
+
+    var created =
+        issueService.create(
+            ownerId,
+            projectKey,
+            withLabelNames("nl", null, List.of("\u200Bai\nfix\uFEFF", "ai fix"), null));
+    // 다듬으면 같은 이름이 되므로 라벨은 하나만 생긴다.
+    assertThat(created.labels()).extracting(l -> l.name()).containsExactly("ai fix");
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isEqualTo(1);
+  }
+
+  /** WP-750 — 한 요청의 이름 라벨은 20개까지. 넘으면 라벨을 하나도 만들지 않고 400. */
+  @Test
+  void create_withTooManyLabelNames_isRejectedWithoutCreatingLabels() {
+    var names = java.util.stream.IntStream.range(0, 21).mapToObj(i -> "n" + i).toList();
+    assertThatThrownBy(
+            () ->
+                issueService.create(ownerId, projectKey, withLabelNames("many", null, names, null)))
+        .isInstanceOf(InvalidLabelNameException.class)
+        .hasMessageContaining("20개");
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isZero();
+    assertThat(issueRepository.countByProject(projectId)).isZero();
+
+    var ok =
+        issueService.create(
+            ownerId, projectKey, withLabelNames("twenty", null, names.subList(0, 20), null));
+    assertThat(ok.labels()).hasSize(20);
+  }
+
   /** WP-394 — OPEN 프로젝트 비멤버는 이름 라벨로도 라벨을 만들거나 붙일 수 없다. */
   @Test
   void create_openProjectNonMember_withLabelNames_isDenied() {
