@@ -159,15 +159,27 @@ public class IssueRepository {
   }
 
   /**
-   * id 의 활성 이슈를 공유 잠금으로 확인한다(WP-759, {@link #findByProjectAndNumberForShare} 와 같은 이유). 지워졌으면 false.
+   * id 의 활성 이슈를 공유 잠금으로 다시 읽는다(WP-759, {@link #findByProjectAndNumberForShare} 와 같은 이유). 지워졌으면 빈
+   * 결과. 잠금을 기다린 뒤의 최신 행이라, 그 사이 완료로 바뀐 에픽도 알 수 있다(WP-771).
    */
-  public boolean lockActiveForShare(Long id) {
-    return dsl.select(ISSUE.ID)
+  public Optional<IssueRow> findActiveByIdForShare(Long id) {
+    return dsl.select(ROW_FIELDS)
         .from(ISSUE)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .forShare()
-        .fetchOptional()
-        .isPresent();
+        .fetchOptional(this::mapToRow);
+  }
+
+  /**
+   * id 의 활성 이슈를 쓰기 잠금(FOR UPDATE)으로 잡는다(WP-771) — 하위를 다시 열 때 그 부모 에픽을 하위보다 먼저 잠가, 에픽 완료·삭제와 같은
+   * 순서(부모→하위)로 차례를 세운다. 지워졌으면 빈 결과.
+   */
+  public Optional<Long> lockActiveByIdForUpdate(Long id) {
+    return dsl.select(ISSUE.ID)
+        .from(ISSUE)
+        .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
+        .forUpdate()
+        .fetchOptional(ISSUE.ID);
   }
 
   /** id 로 활성 이슈 조회. */
