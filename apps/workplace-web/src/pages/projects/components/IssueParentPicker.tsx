@@ -1,5 +1,5 @@
 // SUBTASK 부모 number 인라인 편집기 (Phase 4a).
-// 양의 정수만 허용. 빈 문자열로 저장하면 부모 해제 (null).
+// 양의 정수만 허용. 빈 문자열로 저장하면 부모 해제 (null) — 단 SUBTASK 는 부모가 필수라 비워 저장할 수 없다(WP-745).
 // 향후 검색 UI 로 확장할 여지 — 현재는 직접 입력.
 
 import { useState } from 'react';
@@ -13,11 +13,14 @@ export function IssueParentPicker({
   projectKey,
   issueNumber,
   currentParentNumber,
+  isSubtask = false,
   onClose,
 }: {
   projectKey: string;
   issueNumber: number;
   currentParentNumber: number | null;
+  /** SUBTASK 면 부모 해제(빈 값 저장)를 막는다 — 서버도 400 으로 거절한다. */
+  isSubtask?: boolean;
   onClose: () => void;
 }) {
   const update = useUpdateIssueParent(projectKey, issueNumber);
@@ -30,6 +33,7 @@ export function IssueParentPicker({
   async function onSave() {
     const trimmed = value.trim();
     if (trimmed === '') {
+      if (isSubtask) return;
       try {
         await update.mutateAsync(null);
         onClose();
@@ -57,7 +61,7 @@ export function IssueParentPicker({
         id="parent-number-input"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="예: 12 (비우면 해제)"
+        placeholder={isSubtask ? '예: 12' : '예: 12 (비우면 해제)'}
         type="number"
         min={1}
         data-testid="parent-number-input"
@@ -69,7 +73,7 @@ export function IssueParentPicker({
         <Button
           size="sm"
           onClick={onSave}
-          disabled={update.isPending}
+          disabled={update.isPending || (isSubtask && value.trim() === '')}
           type="button"
           data-testid="parent-save"
         >

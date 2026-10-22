@@ -10,7 +10,7 @@ import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { agentWorker, createAgentWork } from '../../factories/agentWork.factory';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
-import { makeSubtaskType, systemTypes } from '../../factories/issueType.factory';
+import { makeSubtaskType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 
 const KEY = 'WP';
 const ISSUES_BASE = `/api/v1/projects/${KEY}/issues`;
@@ -389,6 +389,9 @@ test.describe('SUBTASK', () => {
     // 편집 진입 → number 15 입력 → 저장.
     await page.getByTestId('issue-parent-edit').click();
     await expect(page.getByTestId('issue-parent-picker')).toBeVisible();
+    // WP-745: SUBTASK 는 부모를 뗄 수 없다 — 비우면 저장이 막힌다.
+    await page.getByTestId('parent-number-input').fill('');
+    await expect(page.getByTestId('parent-save')).toBeDisabled();
     await page.getByTestId('parent-number-input').fill('15');
     await page.getByTestId('parent-save').click();
 
@@ -398,6 +401,80 @@ test.describe('SUBTASK', () => {
     // 슬롯 갱신 — picker 닫히고 새 ParentBadge 노출.
     await expect(page.getByTestId('issue-parent-picker')).toHaveCount(0);
     await expect(page.getByTestId('parent-badge-15')).toBeVisible();
+  });
+
+  // WP-745: 유형을 SUBTASK 로 바꾸면 바로 저장하지 않고 부모 번호를 받아 유형·부모를 한 요청으로 보낸다.
+  test('TASK → SUBTASK 유형 변경은 부모 번호를 받아 PATCH /type 에 함께 보낸다', async ({
+    authenticatedPage: page,
+  }) => {
+    const typePatches = trackRequests(page, 'ANY', `${ISSUES_BASE}/7/type`);
+    const parentPatches = trackRequests(page, 'ANY', `${ISSUES_BASE}/7/parent`);
+    // PATCH /type 이 성공하면 상세가 SUBTASK + 부모 3 으로 바뀐다.
+    let converted = false;
+    const detail = () => ({
+      summary: {
+        ...createIssue({ id: 7, number: 7, title: '바꿀 TASK' }),
+        type: converted ? makeSubtaskType() : makeTaskType(),
+        parent: converted ? { number: 3, title: '부모 3', type: makeTaskType() } : null,
+        childCount: 0,
+        childDoneCount: 0,
+        labels: [],
+        attachmentCount: 0,
+        assignees: [],
+      },
+      viewerCanEditContent: true,
+      viewerCanEditWorkflow: true,
+      body: '',
+      comments: [],
+      history: [],
+      attachments: [],
+    });
+
+    await setupCommonStubs(page);
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/7`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail()) }),
+    );
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/7/type`,
+      (route) => {
+        converted = true;
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail()) });
+      },
+    );
+    for (const sub of ['watchers', 'attachments']) {
+      await page.route(
+        (url) => url.pathname === `${ISSUES_BASE}/7/${sub}`,
+        (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+    }
+    await page.route(
+      (url) => url.pathname === ISSUES_BASE,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueSearchResponse([], null)),
+        }),
+    );
+
+    await page.goto(`/projects/${KEY}/issues/7`);
+    await page.getByTestId('issue-type-trigger').click();
+    await page.getByTestId('issue-type-option-5').click();
+
+    // SUBTASK 를 골라도 바로 저장하지 않는다 — 부모 번호 단계, 비어 있으면 저장 불가.
+    await expect(page.getByTestId('issue-type-subtask-parent')).toBeVisible();
+    await expect(page.getByTestId('issue-type-parent-save')).toBeDisabled();
+    expect(typePatches.count()).toBe(0);
+
+    await page.getByTestId('issue-type-parent-input').fill('3');
+    await page.getByTestId('issue-type-parent-save').click();
+
+    await expect.poll(() => typePatches.lastBody()).toEqual({ typeId: 5, parentNumber: 3 });
+    expect(parentPatches.count()).toBe(0);
+    // 팝오버가 닫히고 부모 슬롯에 새 부모가 보인다.
+    await expect(page.getByTestId('issue-type-picker')).toHaveCount(0);
+    await expect(page.getByTestId('parent-badge-3')).toBeVisible();
   });
 
   // 하위 태스크 행 AI 진행 배지(WP-374) — 행당 배지는 최대 1개: 열린 행에 AI 배지가 있으면 상태배지 대신 그것,

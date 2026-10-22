@@ -7,8 +7,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.exception.InvalidParentException;
+import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
+import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
@@ -84,20 +87,135 @@ class IssueSetTypeWithParentTest extends IntegrationTestBase {
     assertThat(events).anyMatch(h -> "TYPE_CHANGED".equals(h.eventType()));
   }
 
+  /** WP-745: 부모 없는 이슈를 부모 없이 SUBTASK 로 바꾸면 거절한다 — 부모 없는 하위 태스크가 생겼다(생성은 이미 막혔다). */
   @Test
-  void task_to_subtask_keeps_parent_null() {
+  void task_to_subtask_without_parent_is_rejected() {
     Long owner = createUser("b");
     var p = newProject(owner, "STP2");
     Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    Long taskId = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow().id();
     var task =
         issueService.create(
             owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
 
-    issueService.setType(owner, p.key(), task.number(), subId);
+    assertThatThrownBy(() -> issueService.setType(owner, p.key(), task.number(), subId))
+        .isInstanceOf(SubtaskParentRequiredException.class);
+    assertThat(issueRepository.findById(task.id()).orElseThrow().typeId()).isEqualTo(taskId);
+  }
 
+  /** WP-745: 부모를 함께 주면 유형과 부모를 한 번에 바꾼다 — 이력도 둘 다 남는다. */
+  @Test
+  void task_to_subtask_with_parent_sets_type_and_parent_together() {
+    Long owner = createUser("b2");
+    var p = newProject(owner, "STP7");
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    var parent =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
+    var task =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
+
+    issueService.setType(owner, p.key(), task.number(), subId, parent.number());
+
+    var detail = issueService.get(owner, p.key(), task.number());
+    assertThat(detail.summary().type().name()).isEqualTo("SUBTASK");
+    assertThat(detail.summary().parent().number()).isEqualTo(parent.number());
     var events = historyRepository.findByIssue(task.id());
+    assertThat(events).anyMatch(h -> "PARENT_CHANGED".equals(h.eventType()));
     assertThat(events).anyMatch(h -> "TYPE_CHANGED".equals(h.eventType()));
-    assertThat(events).noneMatch(h -> "PARENT_CHANGED".equals(h.eventType()));
+  }
+
+  /** WP-745: 에픽 아래 일반 이슈도 새 부모(일반 이슈)를 함께 주면 SUBTASK 로 바꿀 수 있다 — 에픽 부모는 새 부모로 바뀐다. */
+  @Test
+  void task_under_epic_to_subtask_with_new_parent() {
+    Long owner = createUser("b3");
+    var p = newProject(owner, "STP8");
+    Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicId, null, null));
+    var parent =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
+    var task =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("t", null, null, null, null, null, epic.number(), null));
+
+    issueService.setType(owner, p.key(), task.number(), subId, parent.number());
+
+    var row = issueRepository.findById(task.id()).orElseThrow();
+    assertThat(row.typeId()).isEqualTo(subId);
+    assertThat(row.parentIssueId()).isEqualTo(parent.id());
+  }
+
+  /** WP-745: 함께 준 부모가 하위 태스크 규칙에 맞지 않으면(다른 하위 태스크·에픽·자기 자신) 아무것도 바꾸지 않고 거절한다. */
+  @Test
+  void subtask_conversion_with_invalid_parent_is_rejected() {
+    Long owner = createUser("b4");
+    var p = newProject(owner, "STP9");
+    Long epicId = typeRepository.findByProjectAndName(p.id(), "EPIC").orElseThrow().id();
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    Long taskId = typeRepository.findByProjectAndName(p.id(), "TASK").orElseThrow().id();
+    var epic =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("e", null, null, null, null, epicId, null, null));
+    var host =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("h", null, null, null, null, null, null, null));
+    var otherSub =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("os", null, null, null, null, subId, host.number(), null));
+    var task =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("t", null, null, null, null, null, null, null));
+
+    assertThatThrownBy(
+            () -> issueService.setType(owner, p.key(), task.number(), subId, otherSub.number()))
+        .isInstanceOf(ParentCannotBeSubtaskException.class);
+    assertThatThrownBy(
+            () -> issueService.setType(owner, p.key(), task.number(), subId, epic.number()))
+        .isInstanceOf(SubtaskParentCannotBeEpicException.class);
+    assertThatThrownBy(
+            () -> issueService.setType(owner, p.key(), task.number(), subId, task.number()))
+        .isInstanceOf(InvalidParentException.class);
+    var unchanged = issueRepository.findById(task.id()).orElseThrow();
+    assertThat(unchanged.typeId()).isEqualTo(taskId);
+    assertThat(unchanged.parentIssueId()).isNull();
+  }
+
+  /** WP-745: 하위 태스크의 부모를 떼면(부모 없음) 거절한다 — 다른 부모로 바꾸는 것은 된다. */
+  @Test
+  void subtask_parent_cannot_be_removed() {
+    Long owner = createUser("b5");
+    var p = newProject(owner, "STPA");
+    Long subId = typeRepository.findByProjectAndName(p.id(), "SUBTASK").orElseThrow().id();
+    var parent =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("p", null, null, null, null, null, null, null));
+    var parent2 =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("p2", null, null, null, null, null, null, null));
+    var sub =
+        issueService.create(
+            owner,
+            p.key(),
+            new CreateIssueRequest("s", null, null, null, null, subId, parent.number(), null));
+
+    assertThatThrownBy(() -> issueService.setParent(owner, p.key(), sub.number(), null))
+        .isInstanceOf(SubtaskParentRequiredException.class);
+    issueService.setParent(owner, p.key(), sub.number(), parent2.number());
+    assertThat(issueRepository.findById(sub.id()).orElseThrow().parentIssueId())
+        .isEqualTo(parent2.id());
   }
 
   @Test
