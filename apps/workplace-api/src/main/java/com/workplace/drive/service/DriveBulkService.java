@@ -45,6 +45,10 @@ public class DriveBulkService {
   @Transactional
   public void bulkDelete(long callerId, long spaceId, List<Long> fileIds, List<Long> folderIds) {
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // 같은 id 를 두 번 넣으면 두 번째가 이미 휴지통이라 404 로 전부 실패했다 — 한 번만, 개수는 상한까지(WP-795).
+    DriveBulkSelection selection = DriveBulkSelection.of(fileIds, folderIds);
+    fileIds = selection.fileIds();
+    folderIds = selection.folderIds();
     long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
     String username = usernameOf(callerId);
 
@@ -94,6 +98,10 @@ public class DriveBulkService {
   public void bulkMove(
       long callerId, long spaceId, List<Long> fileIds, List<Long> folderIds, Long targetFolderId) {
     perms.requireRole(spaceId, callerId, "EDITOR");
+    // 같은 id 반복은 한 번만, 개수는 상한까지(WP-795) — 같은 id 2만 개로 요청 하나가 16초 걸렸다.
+    DriveBulkSelection selection = DriveBulkSelection.of(fileIds, folderIds);
+    fileIds = selection.fileIds();
+    folderIds = selection.folderIds();
     // 항목별 단건 move 는 각자의 공간에서 검증되므로, 통지는 실제 이동된 항목의 공간별로 묶는다.
     // 단건 move 가 해결한 공간 id 를 반환하므로 항목마다 공간을 사전 조회하지 않는다(없는 항목은 move 가 404 를 던진다).
     Map<Long, List<Long>> idsBySpace = new LinkedHashMap<>();

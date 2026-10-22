@@ -41,6 +41,10 @@ public class DriveZipService {
   public List<ZipEntrySource> collectEntries(
       long callerId, long spaceId, List<Long> fileIds, List<Long> folderIds) {
     perms.requireRole(spaceId, callerId, "VIEWER");
+    // 같은 id 반복은 한 번만, 개수는 상한까지(WP-795) — 반복한 만큼 ZIP 이 불어나던 문제.
+    DriveBulkSelection selection = DriveBulkSelection.of(fileIds, folderIds);
+    fileIds = selection.fileIds();
+    folderIds = selection.folderIds();
     List<ZipEntrySource> entries = new ArrayList<>();
     // ZIP 최상위에서 이미 쓴 이름 — 고른 파일과 고른 폴더가 같은 이름 공간을 나눠 쓴다.
     Set<String> rootTaken = new HashSet<>();
