@@ -130,6 +130,28 @@ class CalendarTagServiceTest extends IntegrationTestBase {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
+  /**
+   * 보이지 않는 글자만 있는 이름은 빈 이름으로 거절하고, 줄바꿈은 공백 하나로·앞뒤 보이지 않는 글자는 지워 저장한다 — 다른 이름 칸과 같은 한 줄 정리 (WP-768,
+   * WP-724 빈틈). 바꾸기도 같다.
+   */
+  @Test
+  void invisibleOnlyName_isRejected_andNameIsKeptOnOneLine() {
+    long me = seedUser("me");
+    for (String blank : List.of("​​", "⠀", " ​")) {
+      assertThatThrownBy(() -> tags.create(me, new CalendarTagRequest(blank, null)))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("태그 이름은");
+    }
+    CalendarTagResponse created = tags.create(me, new CalendarTagRequest("​ 운영\n회의 ⠀", null));
+    assertThat(created.name()).isEqualTo("운영 회의");
+
+    assertThatThrownBy(() -> tags.update(me, created.id(), new CalendarTagRequest("⠀", null)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(
+            tags.update(me, created.id(), new CalendarTagRequest("x\r\nX-INJECT:1", null)).name())
+        .isEqualTo("x X-INJECT:1");
+  }
+
   /** 남의 태그는 바꾸거나 지울 수 없다 — 존재 은닉 404. 내 태그는 보낸 필드만 바뀐다. */
   @Test
   void otherUsersTag_isNotFound_andPatchChangesOnlyGivenFields() {
