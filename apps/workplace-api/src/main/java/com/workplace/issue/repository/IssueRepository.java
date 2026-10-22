@@ -661,6 +661,10 @@ public class IssueRepository {
     if (query.statuses() != null && !query.statuses().isEmpty()) {
       where = where.and(ISSUE.STATUS.in(query.statuses()));
     }
+    // WP-807 개별 상태 — 범주(statuses)와 AND, 상태 id 끼리는 OR.
+    if (query.statusIds() != null && !query.statusIds().isEmpty()) {
+      where = where.and(ISSUE.STATUS_ID.in(query.statusIds()));
+    }
     if (Boolean.TRUE.equals(query.hideInactiveClosed())) {
       // #876 — 종료(DONE·CANCELED) 이슈는 ACTIVE 사이클에 연결된 경우에만 남긴다. 미종료 이슈는 그대로 통과.
       // 사이클은 프로젝트 스코프라 이슈에 연결된 사이클은 모두 같은 프로젝트 소속 — 프로젝트 조건 불필요.
@@ -813,8 +817,9 @@ public class IssueRepository {
   }
 
   /**
-   * 검색 필터에 걸리는 이슈를 그룹별로 센다(WP-472) — 목록 그룹 헤더의 정확한 수. 키는 status·priority 값, assignee 는 담당자 user id
-   * 문자열(담당자가 여럿이면 각자에 한 번씩 — 목록 그룹과 같다)이고 담당자 없는 이슈는 null 키로 센다. 0건인 그룹은 돌려주지 않는다.
+   * 검색 필터에 걸리는 이슈를 그룹별로 센다(WP-472) — 목록 그룹 헤더의 정확한 수. 키는 status·priority 값, statusId 는 상태 id
+   * 문자열(WP-807), assignee 는 담당자 user id 문자열(담당자가 여럿이면 각자에 한 번씩 — 목록 그룹과 같다)이고 담당자 없는 이슈는 null 키로
+   * 센다. 0건인 그룹은 돌려주지 않는다.
    */
   public java.util.Map<String, Integer> countGrouped(
       Long projectId, com.workplace.issue.dto.IssueSearchQuery query, String groupBy) {
@@ -828,6 +833,14 @@ public class IssueRepository {
             .where(where)
             .groupBy(field)
             .forEach(r -> out.put(r.value1(), r.value2()));
+      }
+      case "statusId" -> {
+        // WP-807 개별 상태별 — 키는 상태 id 문자열.
+        dsl.select(ISSUE.STATUS_ID, org.jooq.impl.DSL.count())
+            .from(ISSUE)
+            .where(where)
+            .groupBy(ISSUE.STATUS_ID)
+            .forEach(r -> out.put(String.valueOf(r.value1()), r.value2()));
       }
       case "assignee" -> {
         dsl.select(ISSUE_ASSIGNEE.USER_ID, org.jooq.impl.DSL.count())
@@ -1054,6 +1067,10 @@ public class IssueRepository {
     }
     if (query.statuses() != null && !query.statuses().isEmpty()) {
       where = where.and(ISSUE.STATUS.in(query.statuses()));
+    }
+    // WP-807 개별 상태 — 범주(statuses)와 AND, 상태 id 끼리는 OR.
+    if (query.statusIds() != null && !query.statusIds().isEmpty()) {
+      where = where.and(ISSUE.STATUS_ID.in(query.statusIds()));
     }
     if (query.priorities() != null && !query.priorities().isEmpty()) {
       where = where.and(ISSUE.PRIORITY.in(query.priorities()));

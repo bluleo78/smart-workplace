@@ -13,7 +13,8 @@ import java.util.List;
  * 하나라도 연결된 이슈만 매칭하며, includeNoOpenCycle·includeNoCycle 과 OR 결합되어 "지정 사이클 또는 백로그(진행 중·예정 사이클 밖) 또는
  * 사이클 미할당" 을 표현한다. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
  * watcherId 가 있으면 그 사용자가 워치 중인 이슈만(WP-356). pendingForUserId 가 있으면 그 사용자의 마지막 이슈 챗 글 이후 다른 사람 글이 있는
- * 이슈만(WP-373).
+ * 이슈만(WP-373). statusIds 는 OR 결합 — 프로젝트 상태(project_status) id 중 하나와 일치하는 이슈만(WP-807).
+ * statuses(범주)와는 AND.
  */
 public record IssueSearchQuery(
     String q,
@@ -64,7 +65,9 @@ public record IssueSearchQuery(
     Long watcherId,
     // 새 글 필터(WP-373) — 이 사용자의 마지막 이슈 챗 글 이후 다른 사람이 글을 남긴 이슈만. pendingForMe=true 면 호출자 id. null 이면
     // 미적용.
-    Long pendingForUserId) {
+    Long pendingForUserId,
+    // 개별 상태 필터(WP-807) — statusId·statusName 을 해석한 프로젝트 상태 id 합집합, OR 결합. 비어 있으면 미적용.
+    List<Long> statusIds) {
 
   /** 워치 필터 없는 기존 28-인자 호환 생성자 — 리포지토리 테스트 시드가 그대로 쓴다. */
   public IssueSearchQuery(
@@ -125,6 +128,7 @@ public record IssueSearchQuery(
         closedTo,
         createdFrom,
         createdTo,
+        null,
         null,
         null);
   }

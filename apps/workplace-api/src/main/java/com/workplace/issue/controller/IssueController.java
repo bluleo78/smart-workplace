@@ -48,7 +48,7 @@ public class IssueController {
     return ResponseEntity.ok(issueSearchService.search((Long) auth.getPrincipal(), key, params));
   }
 
-  /** 목록 그룹별 총계(WP-472) — 검색과 같은 필터 params + groupBy(status·priority·assignee). */
+  /** 목록 그룹별 총계(WP-472) — 검색과 같은 필터 params + groupBy(status·statusId·priority·assignee). */
   @GetMapping("/group-counts")
   @RequirePermission("project:read")
   public ResponseEntity<IssueGroupCountsResponse> groupCounts(

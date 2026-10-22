@@ -12,6 +12,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.issue.repository.ProjectStatusRepository;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -47,6 +49,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
   @Autowired private ProjectRepository projectRepository;
   @Autowired private ProjectIssueSequenceRepository sequenceRepository;
   @Autowired private DSLContext dsl;
+  @Autowired private ProjectStatusRepository statusRepository;
 
   @BeforeEach
   void setTenant() {
@@ -244,8 +247,35 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     assertThat(emp.issueDone()).isZero();
   }
 
+  /** WP-807: 진행률은 개별 상태가 아니라 범주로 센다 — 「배포됨」(완료 범주)은 완료, 「검토 중」(진행 중 범주)은 미완료, 「취소」는 분모에서 제외. */
+  @Test
+  void list_진행률은_사용자정의_상태도_범주로_센다() {
+    Long ownerId = createUser("csowner");
+    String key = uniqueKey("CST");
+    ProjectResponse proj =
+        projectService.create(ownerId, new CreateProjectRequest(key, key + " 프로젝트", null, "TEAM"));
+    long deployed = statusRepository.insert(proj.id(), "배포됨", "DONE", 10).id();
+    long review = statusRepository.insert(proj.id(), "검토 중", "IN_PROGRESS", 11).id();
+    long canceled =
+        statusRepository.findDefault(proj.id(), IssueStatuses.CANCELED).orElseThrow().id();
+
+    insertIssue(proj.id(), "DONE", deployed, ownerId);
+    insertIssue(proj.id(), "IN_PROGRESS", review, ownerId);
+    insertIssue(proj.id(), "CANCELED", canceled, ownerId);
+
+    var page = projectService.queryProjects(ownerId, 0, 20);
+    var row = page.content().stream().filter(p -> p.key().equals(key)).findFirst().orElseThrow();
+    assertThat(row.issueTotal()).isEqualTo(2);
+    assertThat(row.issueDone()).isEqualTo(1);
+  }
+
   /** 이슈 직접 삽입 헬퍼. type_id 는 프로젝트 시스템 유형 중 하나를 자동 조회. */
   private void insertIssue(Long pid, String status, Long reporterId) {
+    insertIssue(pid, status, null, reporterId);
+  }
+
+  /** 상태 id 까지 지정하는 삽입 헬퍼(WP-807) — statusId 가 null 이면 트리거가 범주 기본 상태로 채운다. */
+  private void insertIssue(Long pid, String status, Long statusId, Long reporterId) {
     Long typeId =
         dsl.select(ISSUE_TYPE_DEF.ID)
             .from(ISSUE_TYPE_DEF)
@@ -258,6 +288,7 @@ class ProjectProvisioningTest extends IntegrationTestBase {
         .set(ISSUE.NUMBER, num)
         .set(ISSUE.TITLE, "t")
         .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, statusId)
         .set(ISSUE.REPORTER_ID, reporterId)
         .set(ISSUE.TYPE_ID, typeId)
         .execute();

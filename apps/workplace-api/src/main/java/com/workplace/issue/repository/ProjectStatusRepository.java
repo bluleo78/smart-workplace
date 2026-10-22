@@ -86,6 +86,15 @@ public class ProjectStatusRepository {
         .fetchOptional(this::mapToRow);
   }
 
+  /** 여러 프로젝트의 상태 전부 — 프로젝트 횡단 상태 이름 필터가 못 찾았을 때 사용 가능한 이름을 알려 주는 데 쓴다. 빈 입력은 빈 목록. */
+  public List<ProjectStatusRow> findByProjects(Collection<Long> projectIds) {
+    if (projectIds == null || projectIds.isEmpty()) return List.of();
+    return dsl.selectFrom(PROJECT_STATUS)
+        .where(PROJECT_STATUS.PROJECT_ID.in(projectIds))
+        .orderBy(DISPLAY_ORDER)
+        .fetch(this::mapToRow);
+  }
+
   /** id 묶음 조회(N+1 회피). 빈 입력은 빈 목록. */
   public List<ProjectStatusRow> findByIds(Collection<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();

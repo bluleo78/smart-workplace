@@ -1,11 +1,13 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -67,5 +69,36 @@ class OpenIssueCreateTest extends IntegrationTestBase {
     var s = teamScenario();
     assertThatThrownBy(() -> issueService.create(s.strangerId(), s.projectKey(), suggestion("x")))
         .isInstanceOf(ProjectNotFoundException.class);
+  }
+
+  /** WP-807: 비멤버가 할 일 기본 상태가 아닌 상태 id 로 OPEN 이슈를 만들면 403 — 처음 상태 지정도 멤버 전용(WP-477). */
+  @Test
+  void non_member_cannot_create_with_non_default_status_id() {
+    var s = openScenario();
+    Long inProgress =
+        dsl.select(PROJECT_STATUS.ID)
+            .from(PROJECT_STATUS)
+            .where(PROJECT_STATUS.PROJECT_ID.eq(s.project().id()))
+            .and(PROJECT_STATUS.CATEGORY.eq("IN_PROGRESS"))
+            .fetchOne(PROJECT_STATUS.ID);
+    var req =
+        new CreateIssueRequest(
+            "x",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            inProgress);
+    assertThatThrownBy(() -> issueService.create(s.strangerId(), s.projectKey(), req))
+        .isInstanceOf(ProjectAccessDeniedException.class);
   }
 }

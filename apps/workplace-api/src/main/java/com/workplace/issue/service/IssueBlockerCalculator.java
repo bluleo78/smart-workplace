@@ -50,7 +50,7 @@ public class IssueBlockerCalculator {
     }
 
     // STALE: IN_PROGRESS 상태에서 STALE_DAYS 일 이상 갱신 없음
-    if ("IN_PROGRESS".equals(issue.status())
+    if (IssueStatuses.IN_PROGRESS.equals(issue.status())
         && issue.updatedAt() != null
         && issue.updatedAt().isBefore(now.minus(STALE_DAYS, ChronoUnit.DAYS))) {
       badges.add(new IssueBlockerBadge(BlockerType.STALE, STALE_DAYS + "일 정체"));

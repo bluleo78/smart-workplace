@@ -55,7 +55,7 @@ public class IssueSearchService {
 
   /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
   private static final java.util.Set<String> COUNTABLE_GROUPS =
-      java.util.Set.of("status", "priority", "assignee");
+      java.util.Set.of("status", "statusId", "priority", "assignee");
 
   /**
    * 목록 그룹별 총계(WP-472) — 검색과 같은 params(cursor·size 무시)로 거른 이슈를 groupBy 기준으로 센다. 권한도 검색과
@@ -65,7 +65,7 @@ public class IssueSearchService {
       Long callerId, String projectKey, Map<String, String> params) {
     String groupBy = params.get("groupBy");
     if (groupBy == null || !COUNTABLE_GROUPS.contains(groupBy)) {
-      throw new InvalidCursorException("groupBy 는 status·priority·assignee 중 하나여야 합니다");
+      throw new InvalidCursorException("groupBy 는 status·statusId·priority·assignee 중 하나여야 합니다");
     }
     var project = accessGuard.assertReadable(projectKey, callerId);
     IssueSearchQuery query = parse(callerId, project.id(), params);
@@ -77,9 +77,9 @@ public class IssueSearchService {
   }
 
   /**
-   * 검색. params 키: q, status, assignee, priority, dueFrom, dueTo, label, type, cursor, size,
-   * watching(WP-356, true 만). assignee·reporter 는 me/숫자 id/username, label·type 은 숫자 id/이름을
-   * 받는다(#841).
+   * 검색. params 키: q, status, statusId·statusName(WP-807), assignee, priority, dueFrom, dueTo,
+   * label, type, cursor, size, watching(WP-356, true 만). assignee·reporter 는 me/숫자 id/username,
+   * label·type 은 숫자 id/이름을 받는다(#841).
    */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
@@ -194,6 +194,10 @@ public class IssueSearchService {
     // WP-661: 없는 상태·우선순위는 빈 목록 대신 400, 소문자는 정식 값으로.
     List<String> statuses = SearchParams.statuses(p.get("status"));
     List<String> priorities = SearchParams.priorities(p.get("priority"));
+    // WP-807 개별 상태 — statusId(숫자 CSV)·statusName(이름 CSV, AI 도구용)을 상태 id 합집합으로. 범주(status)와는 AND.
+    List<Long> statusIds =
+        filterResolver.resolveStatusIds(
+            csv(p.get("statusId")), csv(p.get("statusName")), projectId, callerId);
 
     // 7a: assignee — 'me' 는 호출자 본인(홈 컴포저가 사용자 ID 를 몰라도 "내 담당" 조회), 'null' 은 미지정 포함.
     // #841: 숫자 외 토큰은 username 으로 해석하고 없으면 400(예전엔 조용히 버려 필터가 빠진 결과를 반환했다).
@@ -319,7 +323,8 @@ public class IssueSearchService {
         createdFrom,
         createdTo,
         watcherId,
-        pendingForUserId);
+        pendingForUserId,
+        statusIds);
   }
 
   private static LocalDate parseDate(String s) {

@@ -10,6 +10,7 @@ import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.issue.dto.AgentWorkState;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -155,8 +156,8 @@ public class ProjectService {
                 row -> {
                   var byStatus = statusCounts.getOrDefault(row.id(), Map.of());
                   int all = byStatus.values().stream().mapToInt(Integer::intValue).sum();
-                  int canceled = byStatus.getOrDefault("CANCELED", 0);
-                  int done = byStatus.getOrDefault("DONE", 0);
+                  int canceled = byStatus.getOrDefault(IssueStatuses.CANCELED, 0);
+                  int done = byStatus.getOrDefault(IssueStatuses.DONE, 0);
                   int issueTotal = all - canceled; // 취소는 진행률 분모에서 제외
 
                   List<String> members = memberNamesMap.getOrDefault(row.id(), List.of());

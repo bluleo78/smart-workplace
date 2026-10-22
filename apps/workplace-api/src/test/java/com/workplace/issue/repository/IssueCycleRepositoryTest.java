@@ -32,6 +32,7 @@ class IssueCycleRepositoryTest extends IntegrationTestBase {
   @Autowired CycleService cycleService;
   @Autowired IssueService issueService;
   @Autowired ProjectService projectService;
+  @Autowired ProjectStatusRepository statusRepository;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -125,5 +126,36 @@ class IssueCycleRepositoryTest extends IntegrationTestBase {
             .orElseThrow();
     assertThat(progress.total()).isEqualTo(3);
     assertThat(progress.done()).isEqualTo(2);
+  }
+
+  /** WP-807: 사이클 진행은 범주로 센다 — 사용자 정의 「배포됨」(완료 범주)은 완료, 「검토 중」(진행 중 범주)은 미완료. */
+  @Test
+  void progressByProject_사용자정의_DONE범주를_완료로_센다() {
+    Long owner = createUser("cd");
+    ProjectResponse p =
+        projectService.create(owner, new CreateProjectRequest(uniqueKey("PD"), "P", "x"));
+    var c1 =
+        cycleService.create(owner, p.key(), new CreateCycleRequest("S1", null, null, null, null));
+    long deployed = statusRepository.insert(p.id(), "배포됨", "DONE", 10).id();
+    long review = statusRepository.insert(p.id(), "검토 중", "IN_PROGRESS", 11).id();
+    var shipped =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("S", null, null, null, null, null, null, null));
+    var reviewing =
+        issueService.create(
+            owner, p.key(), new CreateIssueRequest("R", null, null, null, null, null, null, null));
+    issueService.updateStatusById(owner, p.key(), shipped.number(), deployed);
+    issueService.updateStatusById(owner, p.key(), reviewing.number(), review);
+    for (var it : List.of(shipped, reviewing)) {
+      issueCycleService.replace(owner, p.key(), it.number(), List.of(c1.id()));
+    }
+
+    var progress =
+        issueCycleRepository.progressByProject(p.id()).stream()
+            .filter(x -> x.cycleId().equals(c1.id()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(progress.total()).isEqualTo(2);
+    assertThat(progress.done()).isEqualTo(1);
   }
 }

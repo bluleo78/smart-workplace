@@ -4,13 +4,16 @@ import com.workplace.cycle.dto.CycleRow;
 import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueTypeRow;
+import com.workplace.issue.dto.ProjectStatusRow;
 import com.workplace.issue.exception.InvalidIssueFilterException;
 import com.workplace.issue.repository.IssueTypeRepository;
+import com.workplace.issue.repository.ProjectStatusRepository;
 import com.workplace.label.dto.LabelRow;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.member.repository.MemberDirectoryRepository;
 import com.workplace.milestone.dto.MilestoneRow;
 import com.workplace.milestone.repository.MilestoneRepository;
+import com.workplace.project.repository.ProjectMemberRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +44,8 @@ class IssueFilterResolver {
   private final IssueTypeRepository typeRepository;
   private final MilestoneRepository milestoneRepository;
   private final CycleRepository cycleRepository;
+  private final ProjectStatusRepository projectStatusRepository;
+  private final ProjectMemberRepository projectMemberRepository;
 
   /**
    * 담당자·작성자 토큰 → userId. "me" 는 호출자, 숫자는 그대로, 그 외는 현재 테넌트 구성원 username(대소문자 무시). "null"(미지정) 리터럴은
@@ -131,6 +136,54 @@ class IssueFilterResolver {
                 ? cycleRepository.findByProject(projectId)
                 : cycleRepository.findByMemberProjects(callerId);
     return flatten(resolveByName("cycle", "사이클", tokens, candidates, CycleRow::name, CycleRow::id));
+  }
+
+  /**
+   * 개별 상태 필터(WP-807) → 프로젝트 상태 id 합집합. statusId 토큰은 숫자만 받고(아니면 400, 없는 id 는 빈 결과), statusName 토큰은
+   * 범위 안 상태 중 이름이 대소문자·앞뒤 공백 무시로 같은 것을 모두 고른다 — 횡단 검색이면 여러 프로젝트의 같은 이름 상태가 함께 풀린다. 이름 하나라도 못 찾으면 범위
+   * 안 상태 이름을 담아 400.
+   *
+   * <p>이름 비교는 DB 유일 인덱스와 같은 식(lower(btrim))으로 하도록 {@link
+   * ProjectStatusRepository#findByNamesInProjects} 에 맡긴다 — 자바 쪽 소문자·공백 규칙과 어긋나지 않게. 범위는 단일 프로젝트
+   * 검색이면 그 프로젝트, 횡단 검색이면 호출자가 멤버인 프로젝트 전체.
+   */
+  List<Long> resolveStatusIds(
+      List<String> idTokens, List<String> nameTokens, Long projectId, Long callerId) {
+    List<Long> ids = new ArrayList<>();
+    for (String tok : idTokens) {
+      Long numeric = parseLongOrNull(tok);
+      if (numeric == null) {
+        throw new InvalidIssueFilterException(
+            "statusId", "statusId '" + tok + "' 은(는) 숫자 상태 id 여야 합니다.");
+      }
+      ids.add(numeric);
+    }
+    if (nameTokens.isEmpty()) return ids;
+    List<Long> scope =
+        projectId != null
+            ? List.of(projectId)
+            : projectMemberRepository.findProjectIdsByUser(callerId);
+    for (String name : nameTokens) {
+      // 이름마다 따로 찾는다 — 어느 이름이 못 찾은 것인지 알려 주려면 이름별 결과가 필요하다(CSV 는 보통 한두 개).
+      List<ProjectStatusRow> found =
+          projectStatusRepository.findByNamesInProjects(scope, List.of(name));
+      if (found.isEmpty()) {
+        List<String> available =
+            projectStatusRepository.findByProjects(scope).stream()
+                .map(ProjectStatusRow::name)
+                .distinct()
+                .limit(MAX_LISTED)
+                .toList();
+        throw new InvalidIssueFilterException(
+            "statusName",
+            "상태 '"
+                + name
+                + "' 을(를) 찾을 수 없습니다. 사용 가능: "
+                + (available.isEmpty() ? "(없음)" : String.join(", ", available)));
+      }
+      found.forEach(r -> ids.add(r.id()));
+    }
+    return ids;
   }
 
   private static List<Long> flatten(List<List<Long>> groups) {
