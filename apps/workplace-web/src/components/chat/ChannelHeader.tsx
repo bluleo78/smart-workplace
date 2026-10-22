@@ -10,6 +10,13 @@ import { messagingApi } from '@/api/messaging'
 import { DriveSpaceDrawer } from '@/components/drive/DriveSpaceDrawer'
 import { Page } from '@/components/layout/Page'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/overlay/dropdown-menu'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -21,13 +28,6 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   useArchiveChannel,
   useDeleteChannel,

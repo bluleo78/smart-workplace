@@ -58,6 +58,22 @@ public class AgentApiKeyRepository {
         .fetch(this::mapToResponse);
   }
 
+  /** 쓸 수 있는(회수되지 않은) 키 수 — 발급 상한 판정용(WP-818). 에이전트 키에는 만료가 없다. */
+  public int countActive(Long userId) {
+    return dsl.fetchCount(
+        AGENT_API_KEY, AGENT_API_KEY.USER_ID.eq(userId).and(AGENT_API_KEY.REVOKED_AT.isNull()));
+  }
+
+  /**
+   * 에이전트 단위 발급 잠금(트랜잭션 끝까지) — 동시 발급이 함께 상한을 넘지 않게 센 뒤 넣기까지를 차례로 세운다(WP-818). 개인 PAT 발급과 같은 잠금 클래스다.
+   */
+  public void lockIssue(Long userId) {
+    dsl.execute(
+        "SELECT pg_advisory_xact_lock(?, ?)",
+        UserApiTokenRepository.ISSUE_LOCK_CLASS,
+        userId.intValue());
+  }
+
   /** 인증 hot path — hash 단일 매칭 + revoked_at IS NULL. */
   public Optional<ActiveKey> findActiveByHash(String hash) {
     return dsl.select(AGENT_API_KEY.ID, AGENT_API_KEY.USER_ID)

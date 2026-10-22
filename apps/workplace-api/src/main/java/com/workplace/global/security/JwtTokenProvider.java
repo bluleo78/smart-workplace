@@ -3,6 +3,7 @@ package com.workplace.global.security;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
 import java.util.Base64;
 import java.util.Date;
@@ -16,6 +17,9 @@ public class JwtTokenProvider {
   private final SecretKey key;
   private final long accessExpiration;
   private final long refreshExpiration;
+
+  private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
+  private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
 
   public JwtTokenProvider(JwtProperties jwtProperties) {
     byte[] keyBytes = Base64.getDecoder().decode(jwtProperties.secret());
@@ -186,6 +190,28 @@ public class JwtTokenProvider {
   }
 
   private Claims parseClaims(String token) {
+    requireCanonicalBase64Url(token);
     return Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
+  }
+
+  /**
+   * 세 조각(헤더·본문·서명)이 모두 정규 base64url(패딩 없음)인지 확인한다(WP-825). jjwt 디코더는 끝에 남는 한 글자를 버려, HS384 서명(64자)에
+   * 글자 1개를 더 붙인 65자도 같은 48바이트로 읽고 서명 검증을 통과시켰다 — 같은 토큰이 서로 다른 문자열 여러 개로 인증됐다(RFC 7515 위반, 위조는 아님).
+   * 디코딩한 바이트를 다시 인코딩해 원래 문자열과 같을 때만 받는다 — 남는 글자·패딩·쓰지 않는 비트가 있는 표기는 모두 걸러진다.
+   */
+  private static void requireCanonicalBase64Url(String token) {
+    String[] parts = token == null ? new String[0] : token.split("\\.", -1);
+    if (parts.length != 3) throw new MalformedJwtException("JWT 는 세 조각이어야 합니다");
+    for (String part : parts) {
+      byte[] bytes;
+      try {
+        bytes = URL_DECODER.decode(part);
+      } catch (IllegalArgumentException e) {
+        throw new MalformedJwtException("JWT 조각이 base64url 이 아닙니다", e);
+      }
+      if (!URL_ENCODER.encodeToString(bytes).equals(part)) {
+        throw new MalformedJwtException("JWT 조각이 정규 base64url 이 아닙니다");
+      }
+    }
   }
 }

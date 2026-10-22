@@ -1,7 +1,7 @@
 // 캘린더 태그 순수 함수(WP-714) — 태그 피커·사이드바가 공유한다. 화면 없이 단위 테스트로 고정한다(calendarTag.test.ts).
 import { PALETTE_KEYS } from '@/lib/calendarPalette'
 import { hashString } from '@/lib/project-color'
-import type { CalendarEvent } from '@/types/calendar'
+import type { CalendarEvent, CalendarTagRef } from '@/types/calendar'
 
 /**
  * 새 태그의 색을 이름에서 정한다 — 같은 이름은 항상 같은 팔레트 키.
@@ -45,6 +45,30 @@ export function sameTagIds(a: number[], b: number[]): boolean {
   const set = new Set(a)
   return b.every((id) => set.has(id))
 }
+
+/**
+ * 편집 폼에서 고른 태그가 처음과 달라졌으면 보낼 id 목록, 같으면 null.
+ * 폼의 태그는 「수정」·「저장」을 눌러야 저장되므로(일정 편집 폼 배치 B), 바뀌지 않은 일정에 쓸데없는 PUT(=Outlook 범주 재기록)을 보내지 않는다.
+ */
+export function changedTagIds(initial: number[], selected: number[]): number[] | null {
+  return sameTagIds(initial, selected) ? null : selected
+}
+
+/**
+ * id 목록 → 칩에 그릴 태그(이름·색) 목록. 순서는 ids 를 따르고, 어느 출처에도 없는 id 는 뺀다.
+ * 출처는 앞쪽이 이긴다 — 피커가 막 만든 태그는 목록 재조회 전이라 태그 목록에 없어 따로 넘긴다.
+ */
+export function tagRefsForIds(ids: number[], ...sources: CalendarTagRef[][]): CalendarTagRef[] {
+  const byId = new Map<number, CalendarTagRef>()
+  for (const src of sources) for (const t of src) if (!byId.has(t.id)) byId.set(t.id, { id: t.id, name: t.name, color: t.color })
+  return ids.flatMap((id) => {
+    const t = byId.get(id)
+    return t ? [t] : []
+  })
+}
+
+/** 태그를 바꾼 반복 일정 수정의 범위 선택 안내(WP-801) — 태그는 시리즈 단위라 「이 일정만」을 골라도 시리즈에 붙는다. */
+export const RECURRING_TAGS_NOTE = '태그는 회차마다 따로 붙지 않고 반복 일정에 함께 붙어요'
 
 /** 태그 줄 아래 안내 문구 (WP-716) — 상세 보기 머리·편집 폼 태그 줄이 같은 문구를 쓴다 */
 export const TAG_HINT_OUTLOOK_READ_ONLY = 'Outlook 범주에서 가져온 태그예요 · Outlook에서 바꿀 수 있어요'

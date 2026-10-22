@@ -164,6 +164,26 @@ class MyApiTokenControllerTest extends IntegrationTestBase {
             e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
   }
 
+  /**
+   * WP-818: 아주 먼 만료일(+999999999년)은 저장에서 원인 모를 409 가 났다 — 시각 범위(WP-744, 1900~9999년)로 400 이고 어느 칸인지
+   * 싣는다.
+   */
+  @Test
+  void issue_withFarFutureExpiry_isBadRequestNamingField() {
+    assertThatThrownBy(
+            () ->
+                issueViaHttp(
+                    sessionBearer(humanUserId),
+                    "아주먼만료",
+                    java.time.Instant.parse("+999999999-12-31T23:59:59Z")))
+        .isInstanceOfSatisfying(
+            org.springframework.web.client.HttpClientErrorException.class,
+            e -> {
+              assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+              assertThat(e.getResponseBodyAsString()).contains("expiresAt");
+            });
+  }
+
   /** WP-767: 제로폭 공백·점자 빈칸만 있는 이름은 목록에서 빈 칸으로 보인다 — 채널·라벨 이름처럼 한국어 400 으로 거절. */
   @Test
   void issue_withInvisibleOnlyName_isBadRequest() {

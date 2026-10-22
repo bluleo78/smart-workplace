@@ -11,15 +11,15 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { AiDelegationBadge, delegationState } from '@/components/ai/agentWork/AiDelegationBadge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@/components/overlay/select';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { keepFocusProps } from '@/lib/keepFocus';
 
 import { issuesApi, searchIssues } from '../../../api/issues';

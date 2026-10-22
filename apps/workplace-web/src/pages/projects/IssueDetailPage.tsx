@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { cn } from '@/lib/utils';
 
 import { AgentQuestionCard } from '../../components/issue/agentWork/AgentQuestionCard';
@@ -49,6 +50,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { useIssueImageUpload } from '../../hooks/useIssueImageUpload';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
+import { useRestoreFocusOnExit } from '../../hooks/useRestoreFocusOnExit';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { questionWork } from '../../lib/agentWork';
 import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
@@ -228,6 +230,10 @@ function InlineEditableBody({
     clearIssueBodyDraft(draftKey);
   };
 
+  // 편집이 끝나면(Esc 취소·저장) textarea 가 사라져 포커스가 body 로 빠졌다 — 「본문 편집」 영역으로 돌린다(WP-813).
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  useRestoreFocusOnExit(editing, viewRef);
+
   // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
   useEditBarControls(editing, { save, cancel, disabled: disabled || uploading }, onEditingChange);
 
@@ -236,6 +242,7 @@ function InlineEditableBody({
       // Jira 식 — 본문 영역 전체가 클릭 가능. 호버 시 배경 변화로 편집 가능 신호.
       // role/aria-label/키보드(Enter·Space) 로 접근성 확보(article 은 button 자식 불가라 div+role).
       <div
+        ref={viewRef}
         role="button"
         tabIndex={disabled ? -1 : 0}
         aria-label="본문 편집"
@@ -365,6 +372,8 @@ export default function IssueDetailPage() {
   // 개인 프로젝트 여부 판별 — 개인 프로젝트의 이슈는 풀페이지 대신 패널로 귀결시킨다.
   const project = useProject(key);
   const { data, isLoading, error, refetch } = useIssue(key, issueNumber);
+  // 탭 제목 — 「{키-번호} {제목}」(WP-814). 불러오기 전에는 주소 기본값(작업 관리).
+  useDocumentTitle([data && `${data.summary.projectKey}-${data.summary.number} ${data.summary.title}`]);
   const update = useUpdateIssue(key, issueNumber);
   // #611 제목·본문은 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 편집하는 사이 코멘트 SSE·창 포커스 리페치로 캐시 version 이
   // 올라가도, 그 사이 다른 사람이 바꾼 내용을 모른 채 덮어쓰지 않고 409 로 알 수 있게.

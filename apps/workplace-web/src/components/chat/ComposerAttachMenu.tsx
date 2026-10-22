@@ -7,13 +7,13 @@ import { type ChangeEvent, useRef, useState } from 'react';
 
 import { FolderPickerModal } from '@/components/drive/FolderPickerModal';
 import { MobileActionSheet } from '@/components/mobile/MobileActionSheet';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@/components/overlay/dropdown-menu';
+import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 export function ComposerAttachMenu({

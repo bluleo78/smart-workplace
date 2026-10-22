@@ -10,11 +10,13 @@ import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { BrandMark } from '@/components/layout/BrandMark'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { parseId } from '@/lib/historyParam'
 import { savePendingPushTarget } from '@/lib/push/openTarget'
 import { cn } from '@/lib/utils'
 
 import { fetchPublicWikiShare, WikiPublicShareError } from '../../api/wikiPublic'
+import { wikiBodyColumnClass } from '../../components/wiki/wikiBodyWidth'
 import { WikiPageSkeleton } from '../../components/wiki/WikiPageSkeleton'
 import { WikiSharePageSelect } from '../../components/wiki/WikiSharePageSelect'
 import { WikiShareLoadError, WikiShareTreeNav } from '../../components/wiki/WikiShareViewParts'
@@ -30,18 +32,6 @@ function useNoIndex() {
     document.head.appendChild(meta)
     return () => meta.remove()
   }, [])
-}
-
-/** 탭 제목을 문서 제목으로 — 떠날 때 원래 제목으로 되돌린다. */
-function useDocumentTitle(title: string | undefined) {
-  useEffect(() => {
-    if (!title) return
-    const prev = document.title
-    document.title = `${title} · Gen:iA Works`
-    return () => {
-      document.title = prev
-    }
-  }, [title])
 }
 
 /** 외부 보기 요청 실패의 HTTP 상태 — 서버 응답이 아니면(네트워크 등) null. */
@@ -92,7 +82,8 @@ export function WikiPublicSharePage() {
   // 링크는 열리는데 이 페이지만 닫힘 — 확인된 루트 응답으로만 트리를 그린다.
   const pageGone = childMissing && !revalidating && !linkGone && rootQ.data != null && !rootQ.isError
   // 훅 순서를 지키려고 401 early return 보다 앞에 둔다.
-  useDocumentTitle(is404 ? undefined : q.data?.page.title)
+  // 탭 제목 — 「{노트 제목} · Gen:iA Works」(공용 규칙, WP-814).
+  useDocumentTitle([is404 ? undefined : q.data?.page.title])
   const loginRequired = status === 401
   const returnTo = location.pathname
   useEffect(() => {
@@ -169,7 +160,8 @@ export function WikiPublicSharePage() {
           ) : !data ? (
             <WikiPageSkeleton testId="wiki-public-share-skeleton" />
           ) : (
-            <article className="mx-auto max-w-3xl px-4 py-8 md:px-8">
+            // 본문 칼럼은 로그인 화면과 같은 규칙(가운데 읽기 폭 / 「전체 폭」 페이지는 제한 없음, WP-793).
+            <article className={cn('px-4 py-8 md:px-8', wikiBodyColumnClass(data.page.fullWidth))}>
               <h1 className={cn('mb-4 break-keep', pageTitleClass)}>{data.page.title || '제목 없음'}</h1>
               <PublicBody markdown={data.page.markdown} />
             </article>

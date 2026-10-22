@@ -9,6 +9,13 @@ import { useEffect, useRef, useState } from 'react';
 import { type SubmitHandler, useForm } from 'react-hook-form';
 
 import { getM365AuthorizeUrl } from '@/api/mailAccounts';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -19,13 +26,6 @@ import {
 } from '@/components/ui/dialog';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   useCreateMailAccount,
   useTestMailConnection,

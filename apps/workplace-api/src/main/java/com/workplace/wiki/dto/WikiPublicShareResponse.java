@@ -18,6 +18,10 @@ public record WikiPublicShareResponse(
   /** 트리 한 줄 — 범위 안 페이지만. */
   public record PublicPage(long id, Long parentId, String title, int position) {}
 
-  /** 보는 페이지 — markdown 은 멘션·내부 링크를 가리고 이미지를 공개 첨부 주소로 바꾼 본문. */
-  public record PublicPageBody(long id, String title, String markdown, OffsetDateTime updatedAt) {}
+  /**
+   * 보는 페이지 — markdown 은 멘션·내부 링크를 가리고 이미지를 공개 첨부 주소로 바꾼 본문. fullWidth 는 페이지의 「전체 폭」 설정(WP-793) —
+   * 본문을 읽기 폭 대신 화면 폭 전체로 보일지.
+   */
+  public record PublicPageBody(
+      long id, String title, String markdown, OffsetDateTime updatedAt, boolean fullWidth) {}
 }

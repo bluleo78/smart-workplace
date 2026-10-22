@@ -10,7 +10,7 @@ import { handleApiError } from '../../lib/api-error';
 import type { ClosedHidingNotice } from '../../lib/closedHiding';
 import type { IssueResponse, IssueStatus } from '../../types/issue';
 import { toastStatusChange } from './closedHidingToast';
-import { patchIssueInSearchCache } from './issueSearchCache';
+import { copyIssueIntoStatusColumn, patchIssueInSearchCache } from './issueSearchCache';
 
 /**
  * 상태 변경 변수 — status 는 대상 범주(종료 안내 토스트·낙관적 범주 아이콘용), statusId·statusName 은 프로젝트 상태(WP-808).
@@ -45,7 +45,12 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
   return useMutation({
     mutationFn: (vars: UpdateIssueStatusVars) => updateIssueStatus(projectKey, vars.number, statusRequestBody(vars)),
     // 진행 중인 검색 쿼리 취소 + 스냅샷 + 패치를 공용 헬퍼로 — 실패 시 restore() 로 되돌린다.
-    onMutate: (vars) => patchIssueInSearchCache(qc, projectKey, vars.number, statusCachePatch(vars)),
+    // 보드 새 열 캐시에도 카드를 넣는다 — 이유는 copyIssueIntoStatusColumn(WP-860).
+    onMutate: async (vars) => {
+      const ctx = await patchIssueInSearchCache(qc, projectKey, vars.number, statusCachePatch(vars));
+      copyIssueIntoStatusColumn(qc, projectKey, vars.number, vars);
+      return ctx;
+    },
     onError: (err, _vars, ctx) => {
       ctx?.restore();
       handleApiError(err, '태스크 상태 변경에 실패했습니다');

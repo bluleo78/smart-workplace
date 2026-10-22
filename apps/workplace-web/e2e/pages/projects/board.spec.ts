@@ -6,7 +6,7 @@ import type { Route } from '@playwright/test';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { dropDnd, expectStays } from '../../fixtures/wait';
+import { dropDnd, expectStays, gate, startKeyboardDrag } from '../../fixtures/wait';
 import {
   createIssue,
   createIssueDetail,
@@ -1222,4 +1222,124 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
   await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
   await dropDnd(page);
   await expectStays(page, statusPatches.count, 0);
+});
+
+// 키보드로 다른 열에 놓은 카드의 포커스(WP-837) — 상태가 바뀐 카드는 새 열에 새로 그려져 원래 요소가 지워지므로,
+// 포커스가 body 로 빠지지 않고 옮긴 카드(숨겨지면 놓은 열, 실패로 되돌아가면 원래 열의 그 카드)에 남아야 한다.
+test.describe('보드 키보드 놓기 뒤 포커스 (WP-837)', () => {
+  // 상태별 검색 — PATCH 가 바꾼 상태를 다음 조회에 반영한다. 숨김(hideInactiveClosed)이면 완료 이슈를 빼서 「숨겨짐」을 흉내 낸다.
+  // 열 쿼리는 시드 상태 id(statusId)로 좁혀 온다(WP-808) — 범주로 되돌려 범주 기준 목을 쓴다. 열은 할 일 1·진행 중 2·완료 3.
+  async function setupKeyboardBoard(page: import('@playwright/test').Page, opts: { fail?: boolean; hideDone?: boolean } = {}) {
+    await stubProjectMeta(page);
+    let issues: IssueResponse[] = [
+      createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' }),
+      createIssue({ id: 2, number: 2, title: 'B', status: 'IN_PROGRESS' }),
+    ];
+    await routeIssueSearch(page, (route, url) => {
+      const status = columnStatusOf(url);
+      const hidden = opts.hideDone && url.searchParams.get('hideInactiveClosed') != null;
+      const items = issues.filter((i) => (!status || i.status === status) && !(hidden && i.status === 'DONE'));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(items)) });
+    });
+    await page.route(/\/api\/v1\/projects\/WP\/issues\/\d+\/cycles$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    const patches = trackRequests(page, 'PATCH', /\/issues\/\d+\/status$/);
+    await page.route(/\/issues\/\d+\/status$/, async (route) => {
+      if (opts.fail) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"상태를 바꾸지 못했습니다(테스트)"}' });
+      const n = Number(new URL(route.request().url()).pathname.split('/').at(-2));
+      // 서버처럼 본문 statusId 를 범주·이름까지 반영한다.
+      const { statusId } = route.request().postDataJSON() as { statusId: number };
+      issues = issues.map((i) => (i.number === n ? { ...i, ...statusFieldsOf(statusId) } : i));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueDetail({ summary: issues.find((i) => i.number === n)!, body: null, comments: [], history: [] })),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+    return patches;
+  }
+
+  // 카드를 Space(집기) → →(오른쪽 열) → Space(놓기). 집은 뒤 센서가 방향키 리스너를 붙일 때까지 기다리고(startKeyboardDrag —
+  // 부하에서 바로 누른 방향키는 버려진다), 이동·놓기는 스크린리더 안내(dnd-kit 라이브 영역)로 기다린다.
+  async function keyboardMoveRight(card: import('@playwright/test').Locator, toLabel: string) {
+    const live = card.page().locator('[id^="DndLiveRegion"]');
+    await startKeyboardDrag(card, () => expect(live).toContainText('이슈'));
+    await card.page().keyboard.press('ArrowRight');
+    await expect(live).toContainText(toLabel);
+    await card.page().keyboard.press('Space');
+    await expect(live).toContainText('놓았습니다');
+  }
+
+  test('다른 열에 놓으면 새 열의 그 카드에 포커스가 남아 이어서 다시 옮길 수 있다', async ({ authenticatedPage: page }) => {
+    const patches = await setupKeyboardBoard(page);
+    await keyboardMoveRight(page.getByTestId('issue-card-1'), '진행 중');
+    await expect.poll(() => patches.lastBody()).toEqual({ statusId: 2 });
+    const moved = page.getByTestId('board-col-2').getByTestId('issue-card-1');
+    await expect(moved).toBeFocused();
+    // 서버 응답 뒤 다시 조회해도 포커스가 유지된다.
+    await expect(page.getByText('상태를 변경했습니다', { exact: true })).toBeVisible();
+    await expect(moved).toBeFocused();
+    // 이어서 같은 카드를 한 번 더 옮길 수 있다.
+    await keyboardMoveRight(moved, '완료');
+    await expect.poll(() => patches.lastBody()).toEqual({ statusId: 3 });
+    await expect(page.getByTestId('board-col-3').getByTestId('issue-card-1')).toBeFocused();
+  });
+
+  test('놓은 이슈가 종료 숨김으로 사라지면 놓은 열에 포커스가 간다', async ({ authenticatedPage: page }) => {
+    const patches = await setupKeyboardBoard(page, { hideDone: true });
+    await keyboardMoveRight(page.getByTestId('issue-card-2'), '완료');
+    await expect.poll(() => patches.lastBody()).toEqual({ statusId: 3 });
+    await expect(page.getByTestId('board-col-empty-3')).toBeVisible();
+    await expect(page.getByTestId('board-col-3')).toBeFocused();
+  });
+
+  test('상태 변경이 실패해 원래 열로 되돌아가도 그 카드에 포커스가 남는다', async ({ authenticatedPage: page }) => {
+    const patches = await setupKeyboardBoard(page, { fail: true });
+    await keyboardMoveRight(page.getByTestId('issue-card-1'), '진행 중');
+    await expect.poll(patches.count).toBe(1);
+    await expect(page.getByText('상태를 바꾸지 못했습니다(테스트)')).toBeVisible();
+    await expect(page.getByTestId('board-col-1').getByTestId('issue-card-1')).toBeFocused();
+  });
+
+  // 열마다 따로 재조회한다 — 원래 열 응답(카드 없음)이 새 열 응답보다 먼저 와도 카드가 어느 열에서도 사라지지 않아야 한다(WP-860).
+  test('놓은 뒤 원래 열 재조회가 새 열보다 먼저 끝나도 카드가 새 열에 계속 보인다', async ({ authenticatedPage: page }) => {
+    await stubProjectMeta(page);
+    let issues: IssueResponse[] = [createIssue({ id: 1, number: 1, title: 'A', status: 'TODO' })];
+    let patched = false;
+    let todoAfterPatch = 0;
+    const holdInProgress = gate();
+    await routeIssueSearch(page, async (route, url) => {
+      const status = columnStatusOf(url);
+      // 놓은 뒤의 새 열(진행 중) 재조회만 붙잡아, 원래 열(할 일) 응답이 먼저 도착하게 한다.
+      if (patched && status === 'IN_PROGRESS') await holdInProgress.p;
+      const items = issues.filter((i) => !status || i.status === status);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(items)) });
+      if (patched && status === 'TODO') todoAfterPatch++;
+    });
+    await page.route(/\/api\/v1\/projects\/WP\/issues\/\d+\/cycles$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(/\/issues\/\d+\/status$/, (route) => {
+      issues = issues.map((i) => ({ ...i, ...statusFieldsOf(2) }));
+      patched = true;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueDetail({ summary: issues[0], body: null, comments: [], history: [] })),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board`);
+
+    await keyboardMoveRight(page.getByTestId('issue-card-1'), '진행 중');
+    // 원래 열 재조회(카드 없음)가 끝난 뒤에도, 새 열 응답을 기다리는 동안 카드는 새 열에 그대로 있다.
+    await expect.poll(() => todoAfterPatch).toBeGreaterThan(0);
+    const moved = page.getByTestId('board-col-2').getByTestId('issue-card-1');
+    await expectStays(page, () => moved.count(), 1);
+    holdInProgress.release();
+    await expect(page.getByText('상태를 변경했습니다', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('issue-card-1')).toHaveCount(1);
+    await expect(moved).toBeVisible();
+  });
 });

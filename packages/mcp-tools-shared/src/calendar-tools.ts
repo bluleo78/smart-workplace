@@ -171,7 +171,7 @@ export const createEventInput = z.object({
   endsAt: z.string().min(1),
   allDay: z.boolean().default(false),
   location: z.string().max(200).optional(),
-  reminderMinutes: z.number().int().min(0).optional(),
+  reminderMinutes: z.number().int().min(0).max(40320).optional(), // 상한 4주 — 서버와 같은 한도(WP-799)
   recurrenceRule: z.string().max(500).optional(),
   attendees: z.array(z.string().min(1)).optional(), // 초대할 구성원 username(주최자 본인은 넣지 않는다)
   notify: z.boolean().default(true), // 노출 기준 N — 초대 알림을 보낼지
@@ -192,7 +192,7 @@ export const updateEventInput = z.object({
   allDay: nullAsOmitted(z.boolean()),
   location: nullableToClear(z.string().max(200)),
   color: nullableToClear(z.string().max(32)),
-  reminderMinutes: nullableToClear(z.number().int().min(0)),
+  reminderMinutes: nullableToClear(z.number().int().min(0).max(40320)), // 상한 4주(WP-799)
   recurrenceRule: nullableToClear(z.string().max(500)),
   addAttendees: nullAsOmitted(z.array(z.string().min(1))), // 초대할 구성원 username
   removeAttendees: nullAsOmitted(z.array(z.string().min(1))), // 뺄 참석자 username

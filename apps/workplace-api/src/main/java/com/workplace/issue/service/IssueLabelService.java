@@ -45,9 +45,11 @@ public class IssueLabelService {
   public List<LabelSummary> replace(
       Long callerId, String projectKey, int number, List<Long> labelIds, List<String> labelNames) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    // 이슈 행 잠금 — 현재 라벨 읽기→diff→반영이 한 덩어리가 되게 해, 동시 라벨 수정(예: 대기열 가져가기)이 서로의 변경을
+    // 조용히 되돌리지 못하게 한다(IssueAssigneeService.replace 와 같은 방식).
     var issue =
         issueRepository
-            .findByProjectAndNumber(project.id(), number)
+            .findByProjectAndNumberForUpdate(project.id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     // 1) 요청으로 받은 labelIds 가 모두 같은 프로젝트 소속인지 검증(중복 id 는 하나로)

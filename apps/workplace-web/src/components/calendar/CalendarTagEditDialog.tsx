@@ -3,11 +3,11 @@
 // 만들 때 색을 따로 고르지 않으면 이름에서 정한 색(pickTagColor)을 따라가 — 피커의 인라인 만들기와 같은 색이 나온다.
 import { useState } from 'react'
 
+import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { PALETTE_KEYS, resolvePalette } from '@/lib/calendarPalette'
 import { pickTagColor } from '@/lib/calendarTag'
 import type { CalendarTag, CalendarTagRequest } from '@/types/calendar'
 
@@ -100,22 +100,13 @@ function TagEditForm({
         </div>
         <div className="space-y-1.5">
           <Label>색상</Label>
-          <div className="flex flex-wrap gap-2">
-            {PALETTE_KEYS.map((k) => {
-              const entry = resolvePalette(k)
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  data-testid={`calendar-tag-color-${k}`}
-                  aria-label={entry.label}
-                  aria-pressed={color === k}
-                  onClick={() => setPickedColor(k)}
-                  className={`size-7 rounded-full ${entry.dotClass} ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${color === k ? 'ring-2 ring-ring ring-offset-2' : ''}`}
-                />
-              )
-            })}
-          </div>
+          <PaletteSwatches
+            value={color}
+            onChange={(k) => {
+              if (k) setPickedColor(k)
+            }}
+            testIdPrefix="calendar-tag-color-"
+          />
         </div>
         {/* Enter 제출용 — 보이지 않는 submit. 실제 버튼은 푸터에 있다 */}
         <button type="submit" className="hidden" tabIndex={-1} aria-hidden="true" />

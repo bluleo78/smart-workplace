@@ -25,7 +25,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * V201 project_status 마이그레이션 통합 테스트(WP-807).
+ * V203 project_status 마이그레이션 통합 테스트(WP-807).
  *
  * <p>새 프로젝트 4상태 시드 트리거, 이슈 status ↔ status_id 동기화 트리거(구 파드 호환), 복합 FK(id, project_id, category) 의
  * 범주·프로젝트 정합, 이름 유일·길이 제약, 백필 SQL 을 DB 수준에서 고정한다. 기존 코드는 status_id 를 모르므로 트리거만으로 동작해야 한다.
@@ -280,7 +280,7 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "PSK");
     Long todoIssue = insertIssue(p.id(), owner, 1, "TODO");
     Long canceledIssue = insertIssue(p.id(), owner, 2, "CANCELED");
-    // 마이그레이션 시점엔 기존 데이터가 없어 백필을 직접 볼 수 없다 — V201 의 백필 UPDATE 를 이 프로젝트로 좁혀 그대로 돌려
+    // 마이그레이션 시점엔 기존 데이터가 없어 백필을 직접 볼 수 없다 — V203 의 백필 UPDATE 를 이 프로젝트로 좁혀 그대로 돌려
     // (project_id, status) 로 대응 범주의 시드 상태를 고르는지 확인한다.
     int updated =
         dsl.execute(

@@ -22,6 +22,7 @@ export function ChatMessageEditor({
   return (
     <div className="px-3 py-2" data-testid="chat-message-editor">
       <RichInput
+        ariaLabel="메시지 수정"
         members={members}
         initialBody={initialBody}
         initialMentions={initialMentions}

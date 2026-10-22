@@ -502,8 +502,8 @@ export function kstParts(date: Date): Ymdhm {
 
 export const sameDay = (a: Ymdhm, b: Ymdhm) => a.y === b.y && a.m === b.m && a.d === b.d
 
-/** KST 날짜 t 가 now 기준 오늘·어제인가(아니면 null) — 목록 시간·날짜 묶음 이름이 같은 판정을 쓴다. */
-function kstDayRelative(t: Ymdhm, now: Date): 'today' | 'yesterday' | null {
+/** KST 날짜 t 가 now 기준 오늘·어제인가(아니면 null) — 목록 시간·날짜 묶음 이름·이슈 채팅 시각이 같은 판정을 쓴다. */
+export function kstDayRelative(t: Ymdhm, now: Date): 'today' | 'yesterday' | null {
   if (sameDay(t, kstParts(now))) return 'today'
   // Asia/Seoul 은 DST 가 없으므로 24시간 전의 날짜 = 어제.
   if (sameDay(t, kstParts(new Date(now.getTime() - 86_400_000)))) return 'yesterday'

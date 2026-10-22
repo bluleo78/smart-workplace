@@ -109,6 +109,7 @@ public class WikiPageRepository {
           WIKI_PAGE.UPDATED_AT,
           WIKI_PAGE.AI_LAST_USED_AT,
           WIKI_PAGE.AI_LAST_ACTION,
+          WIKI_PAGE.FULL_WIDTH,
           SHARED);
 
   /** 상세 응답 컬럼 — {@link #findDetail} 과 {@link #findDetailRecordingBase} 가 공유한다. */
@@ -131,7 +132,7 @@ public class WikiPageRepository {
    * 않고 빈 값.
    *
    * <pre>
-   * WITH p AS (SELECT 상세 10컬럼 FROM wiki_page WHERE id = :pageId),
+   * WITH p AS (SELECT 상세 컬럼(DETAIL_COLUMNS) FROM wiki_page WHERE id = :pageId),
    *      rec AS (INSERT INTO wiki_page_body_history (page_id, version, body) SELECT id, version, body FROM p
    *              ON CONFLICT (page_id, version) DO UPDATE SET read_at = now() WHERE read_at < :cutoff RETURNING page_id)
    * SELECT * FROM p
@@ -192,7 +193,8 @@ public class WikiPageRepository {
         r.get(WIKI_PAGE.UPDATED_AT),
         r.get(WIKI_PAGE.AI_LAST_USED_AT),
         r.get(WIKI_PAGE.AI_LAST_ACTION),
-        Boolean.TRUE.equals(r.get(SHARED)));
+        Boolean.TRUE.equals(r.get(SHARED)),
+        r.get(WIKI_PAGE.FULL_WIDTH));
   }
 
   /** 공간 id 만 빠르게(인가 해석용). */
@@ -245,6 +247,23 @@ public class WikiPageRepository {
             .set(WIKI_PAGE.TITLE, title)
             .set(WIKI_PAGE.UPDATED_BY, editorId)
             .set(WIKI_PAGE.UPDATED_AT, org.jooq.impl.DSL.currentOffsetDateTime())
+            .where(WIKI_PAGE.ID.eq(pageId))
+            .execute();
+    if (n == 0) {
+      throw new WikiPageNotFoundException(pageId);
+    }
+  }
+
+  /**
+   * 「전체 폭」 설정만 저장(WP-793) — 보기 설정이라 version·수정자·수정 시각을 건드리지 않는다(바꿔도 「누가 언제 고쳤나」·버전 기록의 정적 간격 기준이
+   * 움직이지 않게). 제목처럼 나중 값 우선.
+   *
+   * @throws WikiPageNotFoundException 페이지가 없거나 RLS 로 보이지 않을 때
+   */
+  public void saveFullWidth(long pageId, boolean fullWidth) {
+    int n =
+        dsl.update(WIKI_PAGE)
+            .set(WIKI_PAGE.FULL_WIDTH, fullWidth)
             .where(WIKI_PAGE.ID.eq(pageId))
             .execute();
     if (n == 0) {

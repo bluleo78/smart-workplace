@@ -69,15 +69,17 @@ describeSkillTools('work-done', {
 // WP-451: 본문 지시 회차 — 다음 회차 대기(nextRunAt), 만들기 전 찾기(reporter·createdFrom·createdTo·q), 하위·결함 만들기, 닫기(status).
 // WP-453: 담당을 바꾼 이유를 남기는 댓글(add_comment). WP-455: 맡길 AI 를 설명으로 고르는 구성원 찾기(search_members).
 // WP-516: 근거 이미지·파일을 올려(upload_file) 결함 이슈(create_issue)나 질문·보고 글(report_agent_work)에 fileIds 로 붙인다.
+// WP-800: 할 일이 없으면 대기열 라벨 이슈(list_issues label)를 가져가고(claim_issue), 넘길 때는 AI 대신 라벨(labels)을 붙인다.
 describeSkillTools('work-loop', {
   get_member: ['username'],
-  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'reporter', 'createdFrom', 'createdTo', 'q'],
+  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'reporter', 'createdFrom', 'createdTo', 'q', 'label'],
   report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt', 'fileIds'],
   get_issue_chat: ['issueKey', 'after'],
-  update_issue: ['issueKey', 'assignees', 'status'],
+  update_issue: ['issueKey', 'assignees', 'status', 'labels'],
   get_issue_detail: ['issueKey'],
-  create_issue: ['projectKey', 'title', 'body', 'priority', 'dueDate', 'assignees', 'parent', 'fileIds'],
+  create_issue: ['projectKey', 'title', 'body', 'priority', 'dueDate', 'assignees', 'parent', 'fileIds', 'labels'],
   upload_file: ['name'],
   add_comment: ['issueKey', 'body'],
   search_members: ['kind'],
+  claim_issue: ['issueKey', 'queueLabel'],
 });

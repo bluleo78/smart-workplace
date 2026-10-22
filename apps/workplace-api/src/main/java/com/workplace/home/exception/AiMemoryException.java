@@ -1,5 +1,6 @@
 package com.workplace.home.exception;
 
+import com.workplace.global.exception.CodedException;
 import com.workplace.home.service.AiMemoryScope;
 import com.workplace.home.service.AiMemoryService;
 import java.util.LinkedHashMap;
@@ -10,7 +11,7 @@ import org.springframework.http.HttpStatus;
  * AI 메모리(WP-55) 요청 거절 — HTTP 상태와 사유 코드를 함께 싣는다. 웹·ai-agent 는 {@code errors.code} 로 사유를 가른다(상태만으로는
  * "가득 참"과 "꺼짐"이 같은 409 라 구분되지 않는다). WP-379: 가득 참은 어느 범위인지 {@code errors.scope} 로도 싣는다.
  */
-public class AiMemoryException extends RuntimeException {
+public class AiMemoryException extends RuntimeException implements CodedException {
 
   public static final String INVALID = "AI_MEMORY_INVALID";
   public static final String NOT_FOUND = "AI_MEMORY_NOT_FOUND";
@@ -107,6 +108,7 @@ public class AiMemoryException extends RuntimeException {
   }
 
   /** 응답에 쓸 HTTP 상태. */
+  @Override
   public HttpStatus status() {
     return status;
   }
@@ -120,6 +122,7 @@ public class AiMemoryException extends RuntimeException {
    * 응답 errors — code 가 첫 값이다(웹 handleApiError 는 errors 의 첫 값을 토스트로 쓴다). FULL 이면 scope 를 더한다(Map.of
    * 는 null 을 못 받으므로 순서 있는 맵으로 만든다).
    */
+  @Override
   public Map<String, String> errors() {
     Map<String, String> m = new LinkedHashMap<>();
     m.put("code", code);

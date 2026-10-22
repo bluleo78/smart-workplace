@@ -209,7 +209,8 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     long closed = createIssue(jwtToken, null, List.of(agentId));
     long notAssigned = createIssue(jwtToken, null, List.of(humanId));
     long working = createIssue(jwtToken, null, List.of(agentId));
-    dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(closed)).execute();
+    inTenant(
+        () -> dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(closed)).execute());
     seedActive(working, agentId, "WORKING");
     assertThat(activeCount(issueId)).isZero();
 

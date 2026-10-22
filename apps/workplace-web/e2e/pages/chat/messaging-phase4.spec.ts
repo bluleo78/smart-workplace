@@ -109,12 +109,18 @@ async function setupUndoChannel(page: Page, channelId: number, msgId: number) {
   await stubStream(page)
   await stubChannelDetail(page, channel)
   await stubMembers(page, channelId, [createChannelMember({ userId: ME_ID, name: '나' })])
-  await stubMessages(page, channelId, [
+  // 목록 스텁은 요청 시점에 이 배열을 직렬화한다 — DELETE 가 배열도 삭제됨으로 바꿔, 삭제 뒤 목록 재조회가 원본을 되살리지 않게 한다(WP-85 와 같은 이유).
+  const messages = [
     createMessage({ id: msgId, channelId, authorId: ME_ID, authorName: '나', body: '살아남을 메시지' }),
-  ])
+  ]
+  await stubMessages(page, channelId, messages)
   await page.route(
     (url) => url.pathname === `/api/v1/messaging/messages/${msgId}`,
-    (route) => (route.request().method() === 'DELETE' ? route.fulfill({ status: 204 }) : route.fallback()),
+    (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback()
+      messages[0] = { ...messages[0], deleted: true }
+      return route.fulfill({ status: 204 })
+    },
   )
   await page.clock.install()
   await page.goto(`/chat/channels/${channelId}`)
@@ -277,6 +283,18 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('(삭제됨)')
   })
 
+  // WP-832: 키보드로 지운 메시지가 「(삭제됨)」으로 다시 그려지며 삭제 버튼이 사라져 포커스가 body 로 빠졌다 — 그 메시지 행으로 잇는다.
+  test('키보드로 메시지를 지우면 (삭제됨) 이 된 그 메시지 행이 포커스를 받는다', async ({ authenticatedPage: page }) => {
+    const MSG_ID = await setupUndoChannel(page, 214, 830)
+    // 툴바는 opacity 토글이라 키보드 포커스로도 닿는다 — 삭제 버튼에 포커스를 두고 Enter.
+    await page.getByTestId(`message-delete-${MSG_ID}`).focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible()
+    await page.clock.runFor(UNDO_DELETE_DELAY_MS)
+    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('(삭제됨)')
+    await expect(page.getByTestId(`message-${MSG_ID}`)).toBeFocused()
+  })
+
   // 2-0) #125 — 삭제 클릭 후 '실행 취소' 를 누르면 DELETE 가 호출되지 않고 메시지가 보존된다.
   test('삭제 후 실행 취소를 누르면 메시지가 삭제되지 않는다', async ({ authenticatedPage: page }) => {
     const MSG_ID = await setupUndoChannel(page, 209, 850)
@@ -399,6 +417,9 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await page.getByTestId(`message-${MSG_ID}`).hover()
     await page.getByTestId(`message-edit-${MSG_ID}`).click()
     const editor = page.getByTestId(`message-editor-input-${MSG_ID}`)
+    // 수정칸은 작성칸(「채팅 메시지 작성」)과 다른 이름으로 읽힌다(WP-831).
+    await expect(editor).toHaveAccessibleName('메시지 수정')
+    await expect(page.getByTestId('message-composer-input')).toHaveAccessibleName('채팅 메시지 작성')
     await editor.click()
     await page.keyboard.press('End')
     await page.keyboard.type('_수정중인내용')

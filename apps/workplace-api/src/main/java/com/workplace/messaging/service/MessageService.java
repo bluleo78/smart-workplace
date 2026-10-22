@@ -9,6 +9,7 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.MentionParser;
+import com.workplace.global.util.PersonNames;
 import com.workplace.messaging.dto.ChannelMemberResponse;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.dto.MessagePage;
@@ -84,7 +85,8 @@ public class MessageService {
     if (channelRepo.isArchived(channelId)) throw new ChannelArchivedException(channelId);
     requireActiveDmRecipient(callerId, channelId);
     // 빈 메시지 거부: 본문도 첨부도 드라이브 링크도 없으면 작성 불가 (400).
-    boolean bodyEmpty = req.body() == null || req.body().isBlank();
+    // 제로폭 문자·점자 빈칸 등 보이지 않는 글자만 있는 본문도 비어 있는 것으로 본다(WP-777)
+    boolean bodyEmpty = !PersonNames.hasVisibleChar(req.body());
     if (bodyEmpty && req.fileIds().isEmpty() && req.driveFileIds().isEmpty()) {
       throw new EmptyMessageException();
     }
@@ -329,14 +331,16 @@ public class MessageService {
   }
 
   /**
-   * 스레드 부모 검증 — 존재 + 같은 채널 + 최상위(대댓글 금지). 아니면 InvalidThreadParentException(400). 일반 메시지와 AI
-   * 제안(WP-726)이 같은 규칙을 쓴다 — 제안이 다른 채널 메시지의 답글로 붙으면 그 채널 멤버에게 비공개 채널의 제안 카드가 보였다.
+   * 스레드 부모 검증 — 존재 + 같은 채널 + 최상위(대댓글 금지) + 삭제되지 않음. 아니면 InvalidThreadParentException(400). 일반 메시지와
+   * AI 제안(WP-726)이 같은 규칙을 쓴다 — 제안이 다른 채널 메시지의 답글로 붙으면 그 채널 멤버에게 비공개 채널의 제안 카드가 보였다.
    */
   public MessageRef requireThreadParent(long channelId, long parentId) {
     MessageRef ref =
         messageRepo.findRef(parentId).orElseThrow(() -> new InvalidThreadParentException(parentId));
     if (ref.channelId() != channelId || ref.parentMessageId() != null)
       throw new InvalidThreadParentException(parentId);
+    // 삭제된 메시지에는 새 답글을 달 수 없다(WP-792) — 수정(404)·리액션(400)처럼 막는다. 삭제 전에 달린 답글은 스레드에서 그대로 읽힌다.
+    if (messageRepo.isDeleted(parentId)) throw new InvalidThreadParentException(parentId);
     return ref;
   }
 

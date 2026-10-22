@@ -5,7 +5,7 @@
 import type { WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { bodyOf, trackRequests } from '../../fixtures/requests'
-import { dropDnd } from '../../fixtures/wait'
+import { dropDnd, startKeyboardDrag } from '../../fixtures/wait'
 
 const SPACE_ID = 1
 
@@ -234,4 +234,66 @@ test('위키 사이드바 — move 400 이면 서버 메시지를 토스트로 �
   await expect(
     page.getByText('자기 자신이나 자기 하위 페이지를 부모로 지정할 수 없습니다: page=12'),
   ).toBeVisible()
+})
+
+// 키보드로 순서를 바꿀 때 스크린리더 안내(WP-838) — dnd-kit 영어 기본 문구(「Draggable item 1 was dropped over droppable area 2」)
+// 대신 페이지 제목·놓을 자리·들어갈 부모를 한국어로 읽고, 사용법(aria-describedby)도 한국어여야 한다.
+test.describe('위키 사이드바 — 키보드 정렬 스크린리더 안내 (WP-838)', () => {
+  async function setup(page: import('@playwright/test').Page, pages: WikiPageSummary[], movedId: number) {
+    await page.route(
+      (url) => url.pathname === '/api/v1/wiki/spaces',
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([personalSpace()]) })
+          : route.fallback(),
+    )
+    await page.route(
+      (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pages) })
+          : route.fallback(),
+    )
+    const moves = trackRequests(page, 'PATCH', `/api/v1/wiki/pages/${movedId}/move`)
+    await page.route(
+      (url) => url.pathname === `/api/v1/wiki/pages/${movedId}/move`,
+      (route) => (route.request().method() === 'PATCH' ? route.fulfill({ status: 204, body: '' }) : route.fallback()),
+    )
+    await page.goto(`/wiki/spaces/${SPACE_ID}`)
+    return moves
+  }
+
+  test('↑ 로 위 페이지 자리에 놓으면 제목·자리·최상위를 한국어로 안내하고 사용법도 한국어다', async ({ authenticatedPage: page }) => {
+    const moves = await setup(page, rootPages(), 12)
+    const row = page.getByTestId('wiki-tree-row-12')
+    const live = page.locator('[id^="DndLiveRegion"]')
+    // 사용법(aria-describedby) — 영어 기본 지시문이 아니다.
+    const describedBy = await row.getAttribute('aria-describedby')
+    await expect(page.locator(`[id="${describedBy}"]`)).toHaveText(
+      'Space 키로 페이지를 집고, 위·아래 방향키로 옮길 자리를 고른 뒤 Space 키로 놓으세요. Esc 키를 누르면 취소됩니다.',
+    )
+    // 집은 뒤 센서가 방향키 리스너를 붙일 때까지 기다린다(부하에서 바로 누른 방향키는 버려진다).
+    await startKeyboardDrag(row, () => expect(live).toHaveText('「C」 페이지를 집었습니다.'))
+    await page.keyboard.press('ArrowUp')
+    await expect(live).toHaveText('「C」 페이지가 「B」 자리 위에 있습니다. 놓으면 최상위에 들어갑니다.')
+    await page.keyboard.press('Space')
+    await expect(live).toHaveText('「C」 페이지를 「B」 자리에 놓았습니다(최상위).')
+    await expect.poll(() => moves.lastBody()).toEqual({ parentId: null, position: 1 })
+  })
+
+  test('하위 페이지 사이에 놓으면 들어갈 부모 페이지를 안내하고, Esc 는 취소를 안내한다', async ({ authenticatedPage: page }) => {
+    const pages: WikiPageSummary[] = [
+      { id: 10, parentId: null, title: '부모', position: 0, aiLastUsedAt: null },
+      { id: 20, parentId: 10, title: '자식', position: 0, aiLastUsedAt: null },
+      { id: 11, parentId: null, title: '옮길 페이지', position: 1, aiLastUsedAt: null },
+    ]
+    const moves = await setup(page, pages, 11)
+    const live = page.locator('[id^="DndLiveRegion"]')
+    await startKeyboardDrag(page.getByTestId('wiki-tree-row-11'), () => expect(live).toHaveText('「옮길 페이지」 페이지를 집었습니다.'))
+    await page.keyboard.press('ArrowUp')
+    await expect(live).toHaveText('「옮길 페이지」 페이지가 「자식」 자리 위에 있습니다. 놓으면 「부모」 하위에 들어갑니다.')
+    await page.keyboard.press('Escape')
+    await expect(live).toHaveText('「옮길 페이지」 페이지 이동을 취소했습니다.')
+    expect(moves.count()).toBe(0)
+  })
 })

@@ -11,5 +11,6 @@ public record RegisterAssistantCredentialRequest(
     String provider,
     @Size(min = 32, max = 2048) String token,
     @Valid ProviderConfig providerConfig,
-    String model,
+    // assistant_config.model 에 저장된다 — 폭(64)을 넘으면 409 대신 400(WP-823).
+    @Size(max = 64) String model,
     @Size(max = 80) String label) {}

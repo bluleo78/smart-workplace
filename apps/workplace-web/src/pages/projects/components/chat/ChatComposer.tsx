@@ -75,6 +75,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus,
         onRemoveDrive={removeDrive}
       />
       <RichInput
+        ariaLabel="채팅 메시지 작성"
         members={members}
         onSubmit={handleSubmit}
         onChange={onTyping}

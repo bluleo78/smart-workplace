@@ -291,7 +291,9 @@ class WikiAttachmentIntegrationTest extends IntegrationTestBase {
             multipart("/api/v1/wiki/pages/" + pageId + "/attachments")
                 .file(pngFile("big.png", 300))
                 .header("Authorization", "Bearer " + tokenFor(editorId)))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isBadRequest())
+        // WP-834: 바이트 비교식 대신 읽을 수 있는 한도(1MB 미만이라 B)와 파일 이름.
+        .andExpect(jsonPath("$.message").value("이미지 파일은 최대 200B까지 업로드할 수 있습니다: big.png"));
   }
 
   @Test

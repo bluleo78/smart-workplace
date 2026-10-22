@@ -417,22 +417,19 @@ public class GlobalExceptionHandler {
   }
 
   /**
-   * WP-55: AI 메모리 거절 — 상태는 예외가 정하고 사유 코드를 errors.code 로 싣는다(웹 토스트·ai-agent 도구 오류 문구가 코드로 가른다).
-   * WP-379: 가득 참이면 errors.scope 도 싣는다.
+   * 코드 있는 도메인 예외 — 예외가 정한 상태와 errors(사유 코드)를 그대로 싣는다. WP-55 AI 메모리(웹 토스트·ai-agent 도구 오류 문구가 코드로
+   * 가른다, 가득 참이면 errors.scope 도 WP-379), WP-386 공용 AI 메모리, WP-800 대기열 가져가기 거절(409).
    */
-  @ExceptionHandler(AiMemoryException.class)
-  public ResponseEntity<ErrorResponse> handleAiMemory(
-      AiMemoryException ex, HttpServletRequest request) {
-    return ResponseEntity.status(ex.status())
-        .body(buildError(ex.status(), ex.getMessage(), ex.errors(), request));
-  }
-
-  /** WP-386 공용 AI 메모리 — 예외가 정한 상태와 errors.code 를 그대로. */
-  @ExceptionHandler(com.workplace.home.exception.SharedAiMemoryException.class)
-  public ResponseEntity<ErrorResponse> handleSharedAiMemory(
-      com.workplace.home.exception.SharedAiMemoryException ex, HttpServletRequest request) {
-    return ResponseEntity.status(ex.status())
-        .body(buildError(ex.status(), ex.getMessage(), ex.errors(), request));
+  @ExceptionHandler({
+    AiMemoryException.class,
+    com.workplace.home.exception.SharedAiMemoryException.class,
+    com.workplace.issue.exception.IssueClaimRejectedException.class
+  })
+  public ResponseEntity<ErrorResponse> handleCoded(
+      RuntimeException ex, HttpServletRequest request) {
+    CodedException coded = (CodedException) ex;
+    return ResponseEntity.status(coded.status())
+        .body(buildError(coded.status(), ex.getMessage(), coded.errors(), request));
   }
 
   // 드라이브 도메인 — 미존재(404) / 권한미달(403) / 잘못된 입력(400)

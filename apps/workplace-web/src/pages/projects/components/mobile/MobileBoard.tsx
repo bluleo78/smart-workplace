@@ -6,7 +6,7 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
 import { BOARD_TAB_PARAM, type BoardTabInfo, resolveBoardTab } from '@/lib/boardTabs';
 import { withBoardTab } from '@/lib/issueFilters';
@@ -77,15 +77,16 @@ export function MobileBoard({
   }, [active, tabs.length, settled]);
 
   const current = tabs.find((t) => t.statusId === active);
+  // 탭 루트가 탭 줄·현재 탭 헤더·목록을 함께 감싼다 — 목록 영역이 선택 탭의 TabsContent(role=tabpanel)라 탭의 aria-controls 가 그 패널을
+  // 가리킨다(WP-841, 예전엔 패널이 없어 없는 id 를 가리켰다). 패널 value 를 늘 선택 탭으로 두어 탭이 바뀌어도 같은 요소를 다시 쓴다.
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Tabs value={active == null ? '' : String(active)} onValueChange={(v) => select(Number(v))} className="shrink-0 gap-0">
+    <Tabs value={active == null ? '' : String(active)} onValueChange={(v) => select(Number(v))} className="h-full min-h-0 gap-0">
         {/* 상태가 많으면(30자 이름 포함) 가로 스크롤 — 문서 가로 스크롤은 막는다. 이름은 탭마다 말줄임(전체 이름은 title).
             기본 TabsList 의 h-9·p-[3px] 은 group-data 변형이라 같은 변형으로 덮어야 이긴다 — 안 덮으면 44px 탭이 36px 줄 안에서 세로 스크롤된다.
             활성 밑줄(after, 기본 bottom -5px)도 overflow 에 잘리므로 탭 안쪽 바닥(border-b 바로 위)으로 올린다. */}
         <TabsList
           ref={listRef}
-          className="relative w-full justify-start overflow-x-auto border-b p-0 group-data-[orientation=horizontal]/tabs:h-auto"
+          className="relative w-full shrink-0 justify-start overflow-x-auto border-b p-0 group-data-[orientation=horizontal]/tabs:h-auto"
           data-testid="board-tabs"
         >
           {tabs.map((t) => (
@@ -115,7 +116,6 @@ export function MobileBoard({
             </TabsTrigger>
           ))}
         </TabsList>
-      </Tabs>
       {/* 현재 탭 헤더(모든 역할·개인 보드, 모바일 A안) — 탭은 긴 이름을 말줄임하므로 여기서 전체 이름을 두 줄까지 보인다.
           ⋯(편집)는 OWNER 상태 보드(menu)에만, 늘 오른쪽 끝 44px. ⋯ 가 없어도 줄 높이(min-h-11)는 같다. */}
       {current && (
@@ -133,15 +133,18 @@ export function MobileBoard({
         </div>
       )}
       {/* 목록 영역 — 세로 스크롤 + 좌우 스와이프. pan-y: 수평 제스처를 브라우저가 가로채지 않게. sentinel 의 IO root. */}
-      <div
-        ref={setScrollEl}
-        className="min-h-0 flex-1 touch-pan-y overflow-y-auto pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]"
-        data-testid="board-scroll"
-        {...swipe}
-      >
-        {/* 스크롤 루트가 잡힌 뒤에만 렌더 — 첫 렌더에 sentinel 관찰자가 viewport 를 root 로 잡지 않게. */}
-        {active != null && scrollEl && children(active, scrollEl)}
-      </div>
-    </div>
+      {active != null && (
+        <TabsContent
+          value={String(active)}
+          ref={setScrollEl}
+          className="min-h-0 touch-pan-y overflow-y-auto pt-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]"
+          data-testid="board-scroll"
+          {...swipe}
+        >
+          {/* 스크롤 루트가 잡힌 뒤에만 렌더 — 첫 렌더에 sentinel 관찰자가 viewport 를 root 로 잡지 않게. */}
+          {scrollEl && children(active, scrollEl)}
+        </TabsContent>
+      )}
+    </Tabs>
   );
 }

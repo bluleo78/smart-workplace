@@ -13,6 +13,7 @@ import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreen
 import { DashboardEditDraftProvider } from '@/components/home/dashboard/DashboardEditDraftContext'
 import { AppRail } from '@/components/layout/AppRail'
 import { InboxProvider } from '@/components/layout/InboxContext'
+import { MAIN_CONTENT_ID, SkipToMainLink } from '@/components/layout/SkipToMainLink'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MailComposeDock } from '@/components/mail/MailComposeDock'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
@@ -96,8 +97,15 @@ export function AppLayout() {
                 ) : (
                   /* WP-54: 페이지 영역 컨테이너 표식 — side 모드 엔티티 다이얼로그가 열리면 AI 패널 외 자식(AppRail·main)을 inert. */
                   <div data-ai-page-root className="flex h-screen overflow-hidden bg-background text-foreground">
+                    {/* WP-815: 첫 Tab 위치 — 레일을 건너뛰고 본문으로. */}
+                    <SkipToMainLink />
                     <AppRail />
-                    <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 lg:pt-0">
+                    {/* tabIndex=-1 — 「본문 바로가기」가 포커스를 줄 수 있게(Tab 순서에는 들지 않음). 포커스 링은 그리지 않는다. */}
+                    <main
+                      id={MAIN_CONTENT_ID}
+                      tabIndex={-1}
+                      className="relative flex min-w-0 flex-1 flex-col overflow-hidden pt-12 outline-none lg:pt-0"
+                    >
                       <Outlet />
                       {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). 비서 있을 때만. */}
                       {aiAvailable && <AIFullscreen />}

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { useAutoGrowTextarea } from '@/hooks/useAutoGrowTextarea';
+import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { isImeComposing } from '@/lib/imeKey';
 import { toSingleLine } from '@/lib/singleLine';
@@ -86,6 +87,10 @@ export function InlineEditableTitle({
     if (editing && !disabled) (inputRef.current ?? textareaRef.current)?.focus();
   }, [editing, disabled]);
 
+  // 편집이 끝나면(Esc 취소·Enter 저장) 입력칸이 사라져 포커스가 body 로 빠졌다 — 「제목 편집」 버튼으로 돌린다(WP-813).
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
+  useRestoreFocusOnExit(editing, editButtonRef);
+
   // Enter 저장 — 한글 조합 Enter·macOS Chrome 확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331).
   const enterKey = useSingleLineEnter();
 
@@ -99,14 +104,18 @@ export function InlineEditableTitle({
       <span className={cn('flex min-w-0 gap-1', commitOnBlur && !wrap ? 'items-center' : 'items-start')}>
         <span className={cn(!commitOnBlur ? 'line-clamp-3 break-words' : wrap ? 'min-w-0 break-words' : 'truncate')}>{title}</span>
         <button
+          ref={editButtonRef}
           type="button"
-          onClick={enter}
-          disabled={disabled}
+          // 저장 중 잠금은 disabled 대신 aria-disabled — disabled 가 되면 막 돌아온 포커스가 다시 body 로 빠진다(WP-813).
+          onClick={() => {
+            if (!disabled) enter();
+          }}
+          aria-disabled={disabled}
           aria-label="제목 편집"
           data-testid="issue-title-edit"
           // 모바일(commitOnBlur=false)은 터치 영역 44px 확보 — HIT_EXPAND 는 세로만 넓히므로 가로는 px-4 -mx-3(아이콘 14px+32px=46px, 음수 마진으로 보이는 위치 유지). 데스크톱 클래스 불변.
           className={cn(
-            'shrink-0 rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-50',
+            'shrink-0 rounded p-1 text-muted-foreground hover:text-foreground aria-disabled:opacity-50 aria-disabled:cursor-not-allowed',
             !commitOnBlur && [HIT_EXPAND, 'px-4 -mx-3'],
             commitOnBlur && wrap && 'mt-1.5',
           )}

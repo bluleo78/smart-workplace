@@ -1,6 +1,7 @@
 package com.workplace.messaging.dto;
 
 import com.workplace.global.time.SupportedDateTime;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -37,7 +38,8 @@ public record CreateProposalRequest(
     @SupportedDateTime OffsetDateTime endsAt,
     Boolean allDay,
     @Size(max = 200) String location,
-    @Min(0) Integer reminderMinutes,
+    // 일정 만들기와 같은 4주 상한 — 승인하면 이 값으로 일정이 만들어진다(WP-799).
+    @Min(0) @Max(value = 40320, message = "리마인더는 일정 4주 전까지만 설정할 수 있습니다") Integer reminderMinutes,
     @Size(max = 500) String recurrenceRule,
     List<EventConflictDto> conflicts,
     List<Long> attendeeUserIds) {}

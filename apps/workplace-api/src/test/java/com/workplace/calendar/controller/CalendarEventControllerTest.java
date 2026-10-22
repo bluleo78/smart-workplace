@@ -114,6 +114,56 @@ class CalendarEventControllerTest {
         .andExpect(jsonPath("$.title").value("회의"));
   }
 
+  /**
+   * 일정 저장 요청의 tagIds(WP-801) — JSON 이 레코드 표준 생성자로 묶여 서비스에 그대로 간다(태그 없는 보조 생성자가 있어도). 보내지 않으면 null
+   * 이라 태그를 건드리지 않는다(MCP·AI 호출자), 빈 목록은 빈 목록(모두 떼기)이다.
+   */
+  @Test
+  void create_bindsTagIds_nullWhenOmitted_emptyWhenEmpty() throws Exception {
+    when(service.create(eq(1L), any(), eq(true))).thenReturn(sample());
+    String base =
+        "\"title\":\"회의\",\"startsAt\":\"2026-06-10T09:00:00Z\",\"endsAt\":\"2026-06-10T10:00:00Z\"";
+
+    for (String body :
+        List.of(
+            "{" + base + ",\"tagIds\":[3,4]}", "{" + base + "}", "{" + base + ",\"tagIds\":[]}")) {
+      mockMvc
+          .perform(
+              post("/api/v1/calendar/events")
+                  .header("Authorization", "Bearer v")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isCreated());
+    }
+
+    ArgumentCaptor<CalendarEventRequest> captor =
+        ArgumentCaptor.forClass(CalendarEventRequest.class);
+    org.mockito.Mockito.verify(service, org.mockito.Mockito.times(3))
+        .create(eq(1L), captor.capture(), eq(true));
+    assertThat(captor.getAllValues())
+        .extracting(CalendarEventRequest::tagIds)
+        .containsExactly(List.of(3L, 4L), null, List.of());
+  }
+
+  /** tagIds 는 51개부터 400 — PUT /events/{id}/tags 와 같은 상한(WP-801). */
+  @Test
+  void update_tooManyTagIds_returns400() throws Exception {
+    String ids =
+        java.util.stream.IntStream.rangeClosed(1, 51)
+            .mapToObj(Integer::toString)
+            .collect(java.util.stream.Collectors.joining(","));
+    mockMvc
+        .perform(
+            patch("/api/v1/calendar/events/1")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"title\":\"회의\",\"startsAt\":\"2026-06-10T09:00:00Z\",\"endsAt\":\"2026-06-10T10:00:00Z\",\"tagIds\":["
+                        + ids
+                        + "]}"))
+        .andExpect(status().isBadRequest());
+  }
+
   @Test
   void create_endsBeforeStarts_returns400() throws Exception {
     // endsAt 이 startsAt 보다 앞 → @AssertTrue isValidRange 위반 → 400

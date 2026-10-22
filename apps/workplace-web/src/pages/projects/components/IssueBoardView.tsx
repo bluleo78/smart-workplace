@@ -37,6 +37,7 @@ import type {
 import type { ProjectStatus } from '../../../types/projectStatus';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
+import { useKeyboardDropFocus } from '../hooks/useKeyboardDropFocus';
 import { BoardCategoryBand } from './board/BoardCategoryBand';
 import { BoardColumnHeaderMenu } from './board/BoardColumnHeaderMenu';
 import { MobileStatusSheet } from './board/MobileStatusSheet';
@@ -103,6 +104,8 @@ function IssueBoardViewInner({
   const showAllClosedFor = (category: IssueStatus) =>
     closedHiding && CLOSED_ISSUE_STATUSES.has(category) ? closedHiding.onShowAll : undefined;
   const updateStatus = useUpdateIssueStatus(projectKey, closedHiding);
+  // 키보드로 다른 열에 놓은 카드는 새 열에 다시 그려져 포커스가 빠진다 — 옮긴 카드(숨겨지면 놓은 열)로 잇는다(WP-837).
+  const focusKeyboardDrop = useKeyboardDropFocus();
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
   // 카드 메뉴 상태 선택지 — 보드 컬럼과 같은 상태들(개인 보드는 취소 범주 제외, WP-808).
   const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: columns, linkFor: cardTo, closedHiding });
@@ -175,6 +178,7 @@ function IssueBoardViewInner({
     if (!src || !target || !issueNumber || src.statusId === target.id) return;
     // 범주(종료 안내 토스트·아이콘)와 상태 id·이름(카드 이름 즉시 갱신)을 함께 넘긴다.
     updateStatus.mutate({ number: issueNumber, status: target.category, statusId: target.id, statusName: target.name });
+    if (e.activatorEvent instanceof KeyboardEvent) focusKeyboardDrop({ number: issueNumber, column: target.id });
   }
 
   // 순차 로드 상태 문구(그룹 보드) — 데스크톱 BoardScroll footer(mt-3)와 모바일 탭 컬럼(gap 이 간격을 맡아 여백 없음)이 같은 마크업을 쓴다.

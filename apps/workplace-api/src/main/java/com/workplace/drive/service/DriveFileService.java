@@ -136,7 +136,8 @@ public class DriveFileService {
     String mime = textMimeOf(name, mimeType);
     byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
     if (bytes.length > TEXT_FILE_MAX_BYTES) {
-      throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES);
+      throw new FileSizeLimitExceededException(
+          "TEXT", TEXT_FILE_MAX_BYTES, SafeFileNames.sanitize(name, "file"));
     }
     return uploadInto(
         callerId,
@@ -192,7 +193,7 @@ public class DriveFileService {
     String mime = updatedTextMimeOf(row.name(), currentMime, mimeType);
     byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
     if (bytes.length > TEXT_FILE_MAX_BYTES) {
-      throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES);
+      throw new FileSizeLimitExceededException("TEXT", TEXT_FILE_MAX_BYTES, row.name());
     }
     // 위 판정은 빠른 거절용이다 — 저장 핵심이 행을 잠근 뒤 그 행의 현재 버전으로 텍스트 계열·원문 판정·MIME 을 다시 정한다.
     return store(

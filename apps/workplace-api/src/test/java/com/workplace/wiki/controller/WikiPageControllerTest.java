@@ -186,6 +186,7 @@ class WikiPageControllerTest {
                     OffsetDateTime.now(),
                     null,
                     null,
+                    false,
                     false),
                 null));
     when(hydrationService.resolveMentions(eq(1L), eq("<#page:9>"), isNull()))
@@ -206,7 +207,7 @@ class WikiPageControllerTest {
     when(pageService.get(eq(1L), eq(7L)))
         .thenReturn(
             new WikiPageDetail(
-                7L, 3L, null, "제목", "본문", 1, 1L, OffsetDateTime.now(), null, null, false));
+                7L, 3L, null, "제목", "본문", 1, 1L, OffsetDateTime.now(), null, null, false, false));
     when(hydrationService.backlinks(eq(1L), eq(7L)))
         .thenReturn(
             new WikiBacklinksResponse(

@@ -2,9 +2,9 @@
 // 비서 모델 항목처럼 현재 값 표시 + 직접 입력으로 대체한다. 저장은 호출측(onChange: null=자동).
 import { useState } from 'react';
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AUTO_SELECT_VALUE, suggestionModelChoices, withProviderPrefix } from '@/lib/ai/suggestionModel';
 import type { ModelOption } from '@/types/providerCredential';

@@ -3,7 +3,7 @@
 import { Fragment } from 'react'
 
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
-import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/overlay/dropdown-menu'
 import { startsDestructiveGroup } from '@/lib/startsDestructiveGroup'
 
 /** DropdownMenuContent 안에 넣는 항목 묶음. 파괴적 항목은 구분선 아래 빨간 글자로 둔다. */

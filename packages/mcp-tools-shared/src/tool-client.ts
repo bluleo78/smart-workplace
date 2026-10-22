@@ -196,6 +196,11 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   addIssueDriveLink(issueKey: string, driveFileId: number): Promise<void>;
   /** POST .../attachments/claim — upload_file 로 스테이징한 파일을 이슈 첨부로 붙인다(WP-422). 만료·남의 파일이면 서버가 거절한다. */
   claimIssueAttachments(issueKey: string, fileIds: number[]): Promise<unknown>;
+  /**
+   * POST .../claim — 대기열 라벨이 붙은 이슈를 호출 AI 가 가져간다(WP-800). 한 트랜잭션에서 호출자를 담당자에 추가하고 그 라벨을 뗀다.
+   * 응답은 ClaimIssueResponse(UserSummary·LabelSummary raw) — 도구가 username·라벨 이름으로 줄인다. 거절은 409 + errors.code.
+   */
+  claimIssue(issueKey: string, queueLabel: string): Promise<{ assignees: unknown[]; labels: unknown[] }>;
 }
 
 /** 노트 페이지 요약 행(GET /wiki/spaces/{id}/pages) — 트리 조립에 쓰는 필드만 고정한다. */

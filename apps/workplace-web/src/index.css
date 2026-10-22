@@ -310,6 +310,33 @@
   }
 }
 
+/* 하단 탭바 위 대화상자(WP-801→WP-806) — 휴대폰 탭 루트 화면에서 여는 가운데 정렬 대화상자를 탭바 위 영역 가운데에 두고,
+   높이도 그 안(위아래 1rem)으로 줄여 넘치면 안에서 스크롤한다. 화면 전체 기준이면 긴 창의 아래끝·푸터 버튼이 탭바 자리에 겹쳤다.
+   - 탭바가 있을 때만(:root[data-mobile-tabbar], MobileTabBar 가 --mobile-tabbar-h 와 함께 단다) — 데스크톱·상세 화면은 그대로.
+     표식이 있으면 변수도 늘 있으므로 var() 폴백을 두지 않는다.
+   - 전체 화면 뷰어(data-viewer-root)는 가운데 정렬 창이 아니라 제외한다.
+   - 높이 상한은 창마다 준 값(85vh·90vh 등) 대신 이 값 하나 — 레이어 밖 규칙이라 유틸리티보다 우선한다(아래 키보드 규칙과 같은 방식).
+   팝오버·선택 창·메뉴는 숫자 충돌 여백이 필요해 CSS 가 아니라 앱 공용 래퍼(src/components/overlay)가 맡는다. */
+:root[data-mobile-tabbar]:not([data-keyboard-open])
+  :is([data-slot="dialog-content"]:not([data-viewer-root]), [data-slot="alert-dialog-content"]) {
+  top: calc((100dvh - var(--mobile-tabbar-h)) / 2);
+  max-height: min(85vh, calc(100dvh - var(--mobile-tabbar-h) - 2rem));
+}
+/* 키보드가 열려도 탭바는 사라지지 않는다 — 셸(MobileShell)이 보이는 영역(--vv-top·--vvh)에 고정되고 탭바는 그 아래끝,
+   곧 키보드 바로 위에 붙는다. 그래서 아래 키보드 규칙(보이는 영역 가운데)에서 탭바 높이만큼 더 뺀 영역 가운데에 둔다.
+   (선택자 구체성이 아래 키보드 규칙보다 높아 순서와 무관하게 이긴다. 뷰어는 아래 뷰어 전용 키보드 규칙에 맡긴다.) */
+:root[data-mobile-tabbar][data-keyboard-open]
+  :is([data-slot="dialog-content"]:not([data-viewer-root]), [data-slot="alert-dialog-content"]) {
+  top: calc(var(--vv-top) + (var(--vvh) - var(--mobile-tabbar-h)) / 2);
+  max-height: calc(var(--vvh) - var(--mobile-tabbar-h) - 2rem);
+}
+/* 줄인 높이를 넘치면 창 안에서 스크롤 — 단 overflow-hidden 으로 자체 스크롤 영역을 둔 창(머리·닫기 X 고정, 안쪽 목록만 스크롤)은
+   건드리지 않는다. 바깥까지 스크롤되면 스크롤이 두 겹이 되고 머리·닫기 X 가 함께 밀려 올라간다. */
+:root[data-mobile-tabbar]
+  :is([data-slot="dialog-content"]:not([data-viewer-root]), [data-slot="alert-dialog-content"]):not(.overflow-hidden) {
+  overflow-y: auto;
+}
+
 /* 가상 키보드가 열렸을 때 셸 밖(portal) fixed 요소를 보이는 영역 안으로 — WP-154.
    iOS 는 키보드가 올라와도 레이아웃 뷰포트를 줄이지 않아, 화면 중앙·하단 기준 fixed 요소가 키보드 뒤로 숨는다.
    useVisualViewport 가 :root 에 공개하는 값(--vvh·--vv-top·--kb-inset)으로 컴포넌트마다가 아니라 여기서 한 번에 맞춘다.

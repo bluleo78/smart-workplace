@@ -23,12 +23,12 @@ import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu';
 import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay';
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
 import { getChatWidget } from '@/components/home/widgets/chatWidgetRegistry';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@/components/overlay/dropdown-menu';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { findHomeChatBundle, homeChatBundle } from '@/components/viewer/viewerItems';

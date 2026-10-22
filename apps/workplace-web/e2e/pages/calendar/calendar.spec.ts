@@ -2,7 +2,7 @@
 import type { Page } from '@playwright/test'
 
 import type { CalendarEvent } from '../../../src/types/calendar'
-import { calendarEvent, recurringCalendarEvent } from '../../factories/calendar.factory'
+import { attendee, calendarEvent, recurringCalendarEvent } from '../../factories/calendar.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
 
@@ -206,6 +206,36 @@ test('종일을 켰다 끄면 원래 시각으로 돌아오고 그 시각으로 
   expect(body.allDay).toBe(false)
   expect(new Date(body.startsAt).toISOString()).toBe(new Date('2026-06-10T01:00:00Z').toISOString())
   expect(new Date(body.endsAt).toISOString()).toBe(new Date('2026-06-10T02:00:00Z').toISOString())
+})
+
+// WP-801 편집 폼은 상세(주최자 여부·참석자)가 오기 전엔 참석자 줄을 판정할 수 없다 — 숨겼다가 뒤늦게 끼워 넣으면 아래 칸이 밀렸다.
+// 상세가 오기 전에도 같은 높이의 자리표시를 두어, 상세가 와 참석자 줄로 바뀌어도 아래 알림 칸이 제자리인지 본다.
+test('편집 폼은 상세가 오기 전에도 참석자 줄 자리를 잡아 아래 칸이 밀리지 않는다 (WP-801)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const ev = calendarEvent({ id: 1, title: '주간 회의', myRole: 'ORGANIZER', attendees: [attendee('ORGANIZER', 1)] })
+  await stubCalendarEvents(page, [ev])
+  // 상세 응답은 테스트가 풀어 줄 때까지 붙잡아 둔다(나중 등록 라우트가 먼저 잡는다)
+  let release!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  await page.route(
+    (url) => url.pathname === '/api/v1/calendar/events/1',
+    async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      await gate
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ev) })
+    },
+  )
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-1').first().click()
+  await expect(page.getByTestId('calendar-form-attendees-loading')).toBeVisible()
+  const before = await page.getByTestId('calendar-form-reminder').boundingBox()
+
+  release()
+  await expect(page.getByTestId('attendee-add-btn')).toBeVisible()
+  await expect(page.getByTestId('calendar-form-attendees-loading')).toHaveCount(0)
+  const after = await page.getByTestId('calendar-form-reminder').boundingBox()
+  expect(Math.abs(after!.y - before!.y)).toBeLessThan(1)
 })
 
 // 리마인더/반복/참석자 → 요청 바디 변환·반복 종료일 같은 날 허용(#114)은
@@ -513,7 +543,7 @@ test(
     await expect(page.getByTestId('calendar-form-recurrence-locked')).toHaveCount(0)
     await expect(page.getByTestId('calendar-form-recurrence-freq')).toContainText('매주')
     await page.getByTestId('calendar-form-recurrence-freq').click()
-    await page.getByRole('option', { name: '없음' }).click()
+    await page.getByRole('option', { name: '반복 안 함' }).click()
     await page.getByTestId('calendar-form-submit').click()
     const patchPromise = page.waitForRequest(
       (req) => req.method() === 'PATCH' && req.url().includes('/api/v1/calendar/events'),

@@ -104,7 +104,13 @@ async function stubReactors(page: Page, byEmoji: Record<string, { userId: number
   )
 }
 
-async function setup(page: Page) {
+async function setup(
+  page: Page,
+  reactions = [
+    createReaction({ emoji: '👍', count: 5, reacted: true }),
+    createReaction({ emoji: '🎉', count: 2, reacted: false }),
+  ],
+) {
   const channel = createChannel({ id: CHANNEL_ID, name: '반응자채널' })
   const msg = createMessage({
     id: MSG_ID,
@@ -112,10 +118,7 @@ async function setup(page: Page) {
     authorId: 2,
     authorName: '김민수',
     body: '배포 끝났습니다',
-    reactions: [
-      createReaction({ emoji: '👍', count: 5, reacted: true }),
-      createReaction({ emoji: '🎉', count: 2, reacted: false }),
-    ],
+    reactions,
   })
   await stubChannelsList(page, [channel])
   await stubDmsList(page)
@@ -236,6 +239,36 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     await expect(page.getByTestId(`message-toolbar-${MSG_ID}`)).toHaveCount(1)
     await expect(page.getByTestId(`message-reactors-${MSG_ID}`)).toHaveCount(0)
+  })
+
+  test('내 반응만 있던 칩을 키보드로 취소하면 포커스가 다음 칩, 칩이 없으면 「이모지 추가」로 간다 (WP-830)', async ({
+    authenticatedPage: page,
+  }) => {
+    // 내 반응만 있는 칩 둘 — 하나씩 취소하면 칩이 차례로 사라진다.
+    await setup(page, [
+      createReaction({ emoji: '👍', count: 1, reacted: true }),
+      createReaction({ emoji: '🎉', count: 1, reacted: true }),
+    ])
+    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
+    await page.route(
+      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
+      (route) => (route.request().method() === 'DELETE' ? route.fulfill({ status: 204, body: '' }) : route.fallback()),
+    )
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    const thumbs = page.getByTestId(`reaction-pill-${MSG_ID}-👍`)
+    await thumbs.focus()
+    await page.keyboard.press('Enter')
+    await expect(thumbs).toHaveCount(0)
+    // 사라진 칩 자리를 다음 칩이 이어받는다 — 포커스가 body 로 빠지지 않는다.
+    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toBeFocused()
+
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toHaveCount(0)
+    // 칩이 모두 사라지면 같은 메시지의 「이모지 추가」(툴바는 포커스가 들어와 드러난다).
+    const add = page.getByTestId(`message-${MSG_ID}-react`)
+    await expect(add).toBeFocused()
+    await expect(page.getByTestId(`message-toolbar-${MSG_ID}`)).toHaveCSS('opacity', '1')
+    await deletes.waitFor(2)
   })
 
   test('칩 클릭은 여전히 토글이다(호버 카드가 있어도)', async ({ authenticatedPage: page }) => {

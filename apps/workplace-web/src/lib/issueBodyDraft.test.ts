@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { memoryStorage, storageKeys } from '@/test/memoryStorage';
 
 import { clearIssueBodyDrafts, issueBodyDraftKey } from './issueBodyDraft';
 
@@ -14,13 +16,14 @@ describe('issueBodyDraftKey', () => {
 });
 
 describe('clearIssueBodyDrafts', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()));
+  afterEach(() => vi.unstubAllGlobals());
 
   it('로그아웃 정리 — 본문 초안(예전 형식 키 포함)만 지우고 다른 저장값은 둔다', () => {
     localStorage.setItem(issueBodyDraftKey({ userId: 1, tenantId: 10 }, 'DR', 1), '내 초안');
     localStorage.setItem('issue-body-draft:DR:1', '예전 키 초안');
     localStorage.setItem('theme', 'dark');
     clearIssueBodyDrafts();
-    expect(Object.keys(localStorage)).toEqual(['theme']);
+    expect(storageKeys(localStorage)).toEqual(['theme']);
   });
 });

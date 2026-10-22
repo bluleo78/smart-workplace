@@ -10,6 +10,13 @@ import { toast } from 'sonner';
 
 import { probeAgentModels } from '@/api/models';
 import { VisionInputSelect } from '@/components/ai/VisionInputSelect';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -23,13 +30,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useRegisterAgentProviderCredential } from '@/hooks/queries/useAgentProviderCredential';
 import { useModelVisionChoice } from '@/hooks/useModelVisionChoice';

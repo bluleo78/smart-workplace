@@ -222,6 +222,8 @@ test('공유 링크 모달 — 하단 버튼은 "취소", 코너 X 는 "닫기" 
 
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('drive-page')).toBeVisible()
+  // WP-816: 보이는 제목 대신 브레드크럼인 헤더에도 스크린리더 제목 이동용 h1(숨김)이 있다.
+  await expect(page.getByRole('heading', { level: 1, name: /^드라이브 — / })).toBeAttached()
 
   const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
   await fileRow.hover()

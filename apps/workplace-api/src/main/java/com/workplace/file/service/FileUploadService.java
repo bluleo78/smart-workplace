@@ -148,7 +148,8 @@ public class FileUploadService {
     String category = categoryOf(mimeType);
     long sizeLimit = sizeLimitOf(category);
     if (file.size() > sizeLimit) {
-      throw new FileSizeLimitExceededException(category, sizeLimit);
+      throw new FileSizeLimitExceededException(
+          category, sizeLimit, SafeFileNames.sanitize(file.originalName(), "file"));
     }
 
     // 파일명은 NFC 로 정규화해 저장한다. macOS 업로드는 NFD(분해형)로 들어와, NFC 검색어와 ILIKE 미스를 유발하기 때문(UnicodeNames 참조).

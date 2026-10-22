@@ -8,7 +8,14 @@ import type { CalendarEvent } from '../../../src/types/calendar'
 import type { IssueResponse } from '../../../src/types/issue'
 import { calendar, calendarEvent } from '../../factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
-import { expect, expectNoHorizontalOverflow, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
+import {
+  expect,
+  expectAboveTabBar,
+  expectCenteredAboveTabBar,
+  expectNoHorizontalOverflow,
+  test,
+  toCalendarMonthView,
+} from '../../fixtures/mobile.fixture'
 import { touchDrag } from '../../fixtures/touch'
 
 // 화면 날짜·시간은 로컬 타임존 기준 — 실행 머신과 무관하게 KST 로 고정한다.
@@ -535,11 +542,100 @@ test('⑧-1 일정 다이얼로그 — 시작·종료 칸은 한 줄씩 전체 �
   await expect(start).toHaveValue('2026-10-13T09:30')
   const s = (await start.boundingBox())!
   const e = (await end.boundingBox())!
-  // 반 폭(150px)이면 「10/13/2026,」 뒤 시각이 잘린다 — 전체 폭으로 세로로 쌓인다.
-  expect(s.width).toBeGreaterThan(300)
+  // 반 폭(150px)이면 「10/13/2026,」 뒤 시각이 잘린다 — 아이콘 줄의 전체 폭(390 - 다이얼로그 여백·아이콘 ≈ 280)으로 세로로 쌓인다.
+  expect(s.width).toBeGreaterThan(250)
+  expect(Math.abs(e.width - s.width)).toBeLessThan(1)
   expect(Math.abs(e.x - s.x)).toBeLessThan(1)
   expect(e.y).toBeGreaterThan(s.y + s.height)
   await expectNoHorizontalOverflow(page)
+})
+
+test('⑧-3 일정 다이얼로그 — 아이콘 줄 폼은 390px 에서 반복 세부 칸·색 팝오버까지 펼쳐도 가로로 넘치지 않는다', async ({
+  authenticatedPage: page,
+}) => {
+  await stubCalendar(page)
+  await page.route((u) => u.pathname === '/api/v1/calendar/tags', (r) => r.fulfill({ json: [] }))
+  await page.goto('/calendar')
+  await agendaList(page).getByTestId('calendar-event-2').tap()
+  const dialog = page.getByTestId('calendar-event-dialog')
+  await expect(page.getByTestId('calendar-form-title')).toHaveValue('주간 스프린트 회의')
+
+  // 반복 매주 → 종료 날짜까지(세부 칸이 가장 넓은 조합)
+  await page.getByTestId('calendar-form-recurrence-freq').click()
+  await page.getByRole('option', { name: '매주' }).click()
+  await page.getByTestId('calendar-form-recurrence-end').click()
+  await page.getByRole('option', { name: '날짜까지' }).click()
+  await expect(page.getByTestId('calendar-form-recurrence-until')).toBeVisible()
+
+  // 다이얼로그 안(overflow-y-auto 스크롤러)에서도 가로로 넘치지 않는다 — 문서 폭 검사만으로는 안쪽 가로 스크롤을 놓친다
+  const { scrollWidth, clientWidth } = await dialog.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }))
+  expect(scrollWidth).toBeLessThanOrEqual(clientWidth)
+  // 줄마다 오른쪽 끝이 다이얼로그 안에 있다
+  const box = (await dialog.boundingBox())!
+  for (const id of ['calendar-form-recurrence-until', 'calendar-form-calendar', 'calendar-form-location', 'calendar-form-description']) {
+    const b = (await page.getByTestId(id).boundingBox())!
+    expect(b.x + b.width, id).toBeLessThanOrEqual(box.x + box.width)
+  }
+
+  // 터치(거친 포인터)에선 종일·반복·알림·캘린더·색 점이 44px 이상(WCAG 2.5.5)
+  const allDayLabel = page.locator('label', { has: page.getByTestId('calendar-form-allday') })
+  for (const target of [
+    allDayLabel,
+    page.getByTestId('calendar-form-recurrence-freq'),
+    page.getByTestId('calendar-form-reminder'),
+    page.getByTestId('calendar-form-calendar'),
+    page.getByTestId('calendar-form-color'),
+  ]) {
+    expect((await target.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  }
+
+  // 다이얼로그는 하단 탭바 위에서 끝나고(탭바 밑으로 이어지지 않게), 바닥까지 내리면 삭제·취소·수정이 한 줄로 보인다
+  const navTop = (await page.getByTestId('mobile-tabbar').boundingBox())!.y
+  expect(box.y + box.height).toBeLessThanOrEqual(navTop)
+  await dialog.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+  const submit = page.getByTestId('calendar-form-submit')
+  await expect(submit).toBeInViewport()
+  const sb = (await submit.boundingBox())!
+  const cb = (await dialog.getByRole('button', { name: '취소' }).boundingBox())!
+  expect(Math.abs(cb.y - sb.y)).toBeLessThan(2)
+  expect(sb.y + sb.height).toBeLessThanOrEqual(navTop)
+
+  // 색 팝오버도 화면 가장자리·탭바에서 떨어져 열린다(아래 자리가 없으면 위로 뒤집힌다)
+  await page.getByTestId('calendar-form-color').tap()
+  const pop = (await page.getByTestId('calendar-color-popover').boundingBox())!
+  expect(pop.x).toBeGreaterThanOrEqual(16)
+  expect(pop.x + pop.width).toBeLessThanOrEqual(390 - 16)
+  expect(pop.y + pop.height).toBeLessThanOrEqual(navTop)
+  await expectNoHorizontalOverflow(page)
+})
+
+test.describe('390×664 — 낮은 화면', () => {
+  test.use({ viewport: { width: 390, height: 664 } })
+
+  test('⑧-4 일정 다이얼로그 — 탭바 위 가운데, 끝까지 내리면 수정이 탭바 위, 아래쪽 알림·캘린더 선택 창도 탭바 위(WP-806)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubCalendar(page)
+    await page.route((u) => u.pathname === '/api/v1/calendar/tags', (r) => r.fulfill({ json: [] }))
+    await page.goto('/calendar')
+    await agendaList(page).getByTestId('calendar-event-2').tap()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(page.getByTestId('calendar-form-title')).toHaveValue('주간 스프린트 회의')
+    await expectCenteredAboveTabBar(page, dialog)
+
+    await dialog.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+    await expect(page.getByTestId('calendar-form-submit')).toBeInViewport({ ratio: 1 })
+    await expectAboveTabBar(page, page.getByTestId('calendar-form-submit'))
+
+    for (const id of ['calendar-form-reminder', 'calendar-form-calendar']) {
+      await page.getByTestId(id).tap()
+      const listbox = page.getByRole('listbox')
+      await expect(listbox).toBeVisible()
+      await expectAboveTabBar(page, listbox)
+      await page.keyboard.press('Escape')
+      await expect(listbox).toBeHidden()
+    }
+  })
 })
 
 test('⑧-2 초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력칸 없는 상세 보기·캘린더 칩 「초대받은 일정」·반복은 문장으로(WP-604·WP-708)', async ({

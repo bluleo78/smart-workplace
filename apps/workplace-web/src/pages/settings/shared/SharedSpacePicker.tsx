@@ -3,8 +3,8 @@
 // 접근성 트리에도 없다). 고른 값은 부르는 쪽이 쿼리(?space=)로 들고 있다.
 import { useState } from 'react';
 
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/overlay/select';
 import { SearchInput } from '@/components/ui/search-input';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { filterSpaces, parseSpaceParam, refOf, sameSpace, SPACE_GROUPS, SPACE_SEARCH_OVER, spaceLabel, spaceParam } from '@/lib/sharedAiMemory';
 import { andParticle, cn } from '@/lib/utils';
 import type { SharedMemorySpace, SharedSpaceRef } from '@/types/sharedAiMemory';

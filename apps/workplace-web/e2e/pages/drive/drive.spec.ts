@@ -522,8 +522,10 @@ test('드라이브 헤더와 폴더명 breadcrumb', { tag: '@smoke' }, async ({ 
   )
   await page.goto(`/drive/spaces/${SPACE_ID}?folderId=10`)
 
-  // 페이지 타이틀 제거 확인 — page-header 에는 검색/버튼만 있고 "드라이브" 텍스트가 없다.
-  await expect(page.getByTestId('page-header')).not.toContainText('드라이브')
+  // 페이지 타이틀 제거 확인 — page-header 에 보이는 제목은 없다. 스크린리더용 화면 이름만 숨은 h1 로 있다(WP-816).
+  const headerTitle = page.getByTestId('page-header').getByRole('heading', { level: 1 })
+  await expect(headerTitle).toHaveClass(/\bsr-only\b/)
+  await expect(headerTitle).toHaveText(/^드라이브/)
   // 브레드크럼이 유일한 위치 표시자 — 루트 버튼에 "드라이브" 노출.
   await expect(page.getByTestId('drive-root')).toBeVisible()
   await expect(page.getByTestId('drive-root')).toHaveText('드라이브')

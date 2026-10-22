@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { useSetSsoEnabled, useSsoSettings } from '@/hooks/queries/useSsoSettings'
 import { extractApiError } from '@/lib/api-error'
+import { copyToClipboard } from '@/lib/copyToClipboard'
 
 export default function SsoSettingsPage() {
   const { data } = useSsoSettings()
@@ -35,10 +36,14 @@ export default function SsoSettingsPage() {
     apply(next)
   }
 
-  const copyConsent = async () => {
+  // 공용 복사(WP-836) — Clipboard API 가 없는 http 배포에서도 execCommand 로 한 번 더 시도하고, 그래도 안 되면 직접 복사하라고 알린다.
+  // 예전엔 navigator.clipboard 만 불러 비보안 컨텍스트에서 아무 안내 없이 끝났다.
+  const copyConsent = () => {
     if (!data?.adminConsentUrl) return
-    await navigator.clipboard.writeText(data.adminConsentUrl)
-    toast.success('링크를 복사했습니다.')
+    void copyToClipboard(data.adminConsentUrl, {
+      success: '링크를 복사했습니다.',
+      failure: '복사에 실패했습니다. 링크를 직접 선택해 복사하세요.',
+    })
   }
 
   return (

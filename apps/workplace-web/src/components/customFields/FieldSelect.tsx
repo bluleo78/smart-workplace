@@ -7,7 +7,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@/components/overlay/select';
 
 import type { IssueFieldDef } from '../../types/customField';
 

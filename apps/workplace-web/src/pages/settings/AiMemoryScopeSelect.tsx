@@ -1,5 +1,5 @@
 // 메모리 범위 고르기(WP-379) — 직접 추가·제자리 고치기가 같이 쓴다. 가득 찬 범위는 "가득 참" 으로 비활성(지금 범위는 같은 범위 고치기라 예외).
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';
 import { type AiMemoryScopeKey, SCOPE_LABEL, SCOPE_ORDER } from '@/lib/aiMemory';
 
 interface Props {

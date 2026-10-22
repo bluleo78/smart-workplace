@@ -242,3 +242,33 @@ test('⋯ 메뉴는 연 동안 트리거가 보이고 그 옆에 뜬다(왼쪽 �
     return Math.abs(m.x + m.width - (t.x + t.width)) < 2 && m.y >= t.y + t.height - 1
   }).toBe(true)
 })
+
+// WP-817: 드라이브 대화상자를 Esc 로 닫으면 포커스가 연 컨트롤로 돌아간다 — body 로 빠지면 키보드 사용자가 처음부터 다시 Tab 해야 한다.
+test('새 폴더 대화상자 — 키보드로 열고 Esc 로 닫으면 「새 폴더」 버튼으로 포커스가 돌아온다 (WP-817)', async ({ authenticatedPage: page }) => {
+  await stubDrive(page, { files: [] })
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  const trigger = page.getByTestId('drive-new-folder')
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('folder-name-input')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('folder-name-input')).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  // 다시 열어도 같다 — 앞선 닫힘의 기억이 남아 엉뚱한 곳으로 가지 않는다.
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('folder-name-input')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(trigger).toBeFocused()
+})
+
+test('⋯ → 이름 변경 대화상자 — Esc 로 닫으면 포커스가 body 로 빠지지 않고 그 행에 남는다 (WP-817)', async ({ authenticatedPage: page }) => {
+  await stubDrive(page, { files: [createFile({ id: 71, name: '회의록.txt' })] })
+  await page.goto(`/drive/spaces/${SPACE_ID}`)
+  await openRename(page, '회의록.txt')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('rename-dialog-input')).toBeHidden()
+  // ⋯ 는 hover·키보드 포커스 때만 보여 닫힐 무렵 숨어 있다 — 같은 행에서 포커스를 받는 첫 대상(선택 체크박스)으로 간다.
+  const row = page.getByRole('listitem').filter({ hasText: '회의록.txt' })
+  await expect(row.getByRole('checkbox')).toBeFocused()
+})

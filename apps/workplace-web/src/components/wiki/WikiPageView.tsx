@@ -10,6 +10,7 @@ import { buildWikiContext } from '@/lib/aiScreenContext/builders/wiki'
 
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
+import { useDocumentTitle } from '../../hooks/useDocumentTitle'
 import { useWikiLastVisitedKey } from '../../hooks/useWikiLastVisitedKey'
 import {
   clearWikiLastVisited,
@@ -51,6 +52,11 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     [spaceId, spaceName, pageId, isError, page],
   )
   useRegisterAiScreenContext(screenContext)
+  // 탭 제목 — 노트를 열었으면 「{노트 제목} · 노트」, 공간 첫 화면이면 「{공간} · 노트」(WP-814).
+  useDocumentTitle([
+    pageId != null ? (page?.id === pageId && !isError ? page.title || '제목 없음' : null) : spaceName,
+    '노트',
+  ])
 
   // 로드에 성공한 페이지를 "마지막으로 본 노트"로 기록 — /wiki 재진입 시 WikiIndexRedirect 가 복원한다.
   // 보던 중 삭제·권한 상실(404/403)된 페이지가 기록돼 있으면 지워, 에러 화면의 「노트 목록으로」가
@@ -76,6 +82,8 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     /** 빈 상태 — DS §2.5: 아이콘 + 제목 + 설명 + CTA 버튼 4요소(데스크톱 본문. 모바일 목록은 WikiNoPages, WP-179) */
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center" data-testid="wiki-empty-state">
+        {/* 공간 첫 화면에는 헤더가 없어 화면 이름을 숨은 h1 로 둔다 — 스크린리더 제목 이동용(WP-816). */}
+        <h1 className="sr-only">{spaceName ? `노트 — ${spaceName}` : '노트'}</h1>
         <BookOpen className="h-10 w-10 text-muted-foreground/50" aria-hidden="true" />
         <div>
           <p className="text-sm font-medium">표시할 페이지가 없습니다</p>

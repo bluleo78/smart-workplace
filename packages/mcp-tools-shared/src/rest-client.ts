@@ -274,6 +274,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async claimIssueAttachments(issueKey, fileIds) {
       return (await http.post(`${issue(issueKey)}/attachments/claim`, { fileIds })).data;
     },
+    async claimIssue(issueKey, queueLabel) {
+      return (await http.post(`${issue(issueKey)}/claim`, { queueLabel })).data;
+    },
 
     // ── 노트 ──
     async listWikiSpaces() {

@@ -429,6 +429,41 @@ test('대시보드 — 위젯이 12개(숨김 포함)면 「위젯 추가」가 
   await expect(page.getByTestId('dashboard-add-widget-open')).toBeEnabled()
 })
 
+// WP-842 — 키보드로 위젯을 삭제하면 카드가 통째로 빠져 포커스가 body 로 사라졌다. 그 자리에 온 위젯(마지막이었으면 앞 위젯)의
+// 삭제 버튼으로, 마지막 위젯을 지우면 빈 상태의 「위젯 추가」로 옮겨 이어서 조작할 수 있어야 한다.
+test('대시보드 편집 — 키보드로 위젯을 삭제하면 그 자리에 온 위젯의 버튼으로 포커스가 간다 (WP-842)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  const catalog = (id: string, label: string) => ({ id, type: 'issue_list', count: 0, hidden: false, params: { assignee: 'me' }, label })
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([catalog('w-a', '첫째 목록'), catalog('w-b', '둘째 목록'), 'my_tasks']))
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+
+  const widget = (id: string) => page.locator(`[data-testid="dashboard-widget"][data-widget-id="${id}"]`)
+  await widget('w-a').getByTestId('widget-remove').focus()
+  await page.keyboard.press('Enter')
+  await expect(widget('w-a')).toHaveCount(0)
+  await expect(widget('w-b').getByTestId('widget-remove')).toBeFocused()
+  // 마지막 자리를 지우면 바로 앞 위젯으로.
+  await widget('my_tasks').getByTestId('widget-remove').focus()
+  await page.keyboard.press('Enter')
+  await expect(widget('my_tasks')).toHaveCount(0)
+  await expect(widget('w-b').getByTestId('widget-remove')).toBeFocused()
+})
+
+test('대시보드 편집 — 마지막 위젯을 키보드로 삭제하면 빈 상태의 「위젯 추가」로 포커스가 간다 (WP-842)', async ({
+  authenticatedPage: page,
+}) => {
+  await mockWidgets(page)
+  await mockApi(page, 'GET', '/api/v1/me/dashboard', layout([{ id: 'w-only', type: 'issue_list', count: 0, hidden: false, params: { assignee: 'me' }, label: '하나뿐' }]))
+  await page.goto('/')
+  await page.getByTestId('dashboard-edit-toggle').click()
+  await page.getByTestId('widget-remove').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('dashboard-empty-action')).toBeFocused()
+})
+
 test('대시보드 — 알림 위젯 헤더 클릭 시 라우팅 대신 인박스 패널이 열린다 (refs #274)', async ({
   authenticatedPage: page,
 }) => {

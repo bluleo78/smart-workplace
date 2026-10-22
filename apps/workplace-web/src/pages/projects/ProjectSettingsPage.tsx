@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { cn, subjectParticle } from '@/lib/utils';
 
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
@@ -46,6 +47,8 @@ export default function ProjectSettingsPage() {
   const navigate = useNavigate();
   const project = useProject(key);
   const update = useUpdateProject(key);
+  // 탭 제목 — 「설정 · {프로젝트}」(WP-814).
+  useDocumentTitle(['설정', project.data?.name]);
   const remove = useDeleteProject();
   // 멤버 목록 기반으로 현재 사용자의 프로젝트 권한을 도출 — 라벨 편집 UI 게이팅에 사용.
   const members = useProjectMembers(key);

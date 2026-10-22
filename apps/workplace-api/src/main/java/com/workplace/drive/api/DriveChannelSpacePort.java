@@ -12,9 +12,22 @@ public interface DriveChannelSpacePort {
   /** 채널 멤버 스냅샷 1건(채널 역할 OWNER/ADMIN/MEMBER). */
   record ChannelMemberSnapshot(long userId, String channelRole) {}
 
-  /** 채널 연동 공간 보장(없으면 생성 + 멤버 투영). 멱등. callerId 기준 응답 반환. */
+  /** 채널 연동 공간 보장(없으면 생성 + 멤버 투영). 멱등. callerId 기준 응답 반환. 보관 상태는 건드리지 않는다. */
+  default DriveSpaceResponse ensureChannelSpace(
+      long callerId, long channelId, String channelName, List<ChannelMemberSnapshot> members) {
+    return ensureChannelSpace(callerId, channelId, channelName, members, null);
+  }
+
+  /**
+   * 채널 연동 공간 보장 + 보관 상태 맞춤(WP-787). channelArchived 가 null 이 아니면 공간의 보관 상태를 채널과 같게 맞춘다 — 이미 보관된
+   * 채널에서 공간이 처음 만들어지면 보관 표시 없이 생겨 업로드·폴더 생성이 그대로 됐다(보관 이벤트는 공간이 있을 때만 반영된다).
+   */
   DriveSpaceResponse ensureChannelSpace(
-      long callerId, long channelId, String channelName, List<ChannelMemberSnapshot> members);
+      long callerId,
+      long channelId,
+      String channelName,
+      List<ChannelMemberSnapshot> members,
+      Boolean channelArchived);
 
   /** 멤버 동기화 — 연동 공간이 있으면 roster 로 reconcile, 없으면 no-op(이벤트 투영용). */
   void syncChannelMembers(long channelId, List<ChannelMemberSnapshot> members);

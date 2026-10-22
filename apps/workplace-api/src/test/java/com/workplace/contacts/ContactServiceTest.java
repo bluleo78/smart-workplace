@@ -1,7 +1,10 @@
 package com.workplace.contacts;
 
 import static com.workplace.jooq.Tables.CONTACT_ENTRY;
+import static com.workplace.jooq.Tables.CONTACT_FAVORITE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_GROUP;
+import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -11,10 +14,12 @@ import com.workplace.contacts.exception.ContactNotFoundException;
 import com.workplace.contacts.repository.FavoriteRepository;
 import com.workplace.contacts.service.ContactService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.user.outbound.AgentDeleted;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 커서 페이지 조립 및 상세 격리. 메서드 롤백 격리. */
@@ -23,6 +28,7 @@ class ContactServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired ContactService service;
   @Autowired FavoriteRepository favoriteRepo;
+  @Autowired ApplicationEventPublisher publisher;
 
   private long seedExternal(String name, long owner) {
     return dsl.insertInto(CONTACT_ENTRY)
@@ -150,6 +156,56 @@ class ContactServiceTest extends IntegrationTestBase {
     assertThat(detail.email()).isNull(); // 빈문자열→null
     assertThat(detail.phone()).isEqualTo("010");
     assertThat(detail.editable()).isTrue();
+  }
+
+  /**
+   * WP-791: 전화·소속·직함도 이름처럼 한 줄로 다듬는다 — 보이지 않는 글자만 있으면 비우고(null), 줄바꿈은 공백 하나로. 다듬지 않으면 조직 필터 목록에 빈
+   * 항목·두 줄 항목이 생겼다.
+   */
+  @Test
+  void create_optionalFields_invisibleOnlyBecomeNull_andLineBreaksBecomeSpaces() {
+    long c = caller();
+    var blank =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "보이지않음", null, "​", "⠀", "​ ㅤ", null, "PERSONAL"),
+            false);
+    assertThat(blank.phone()).isNull();
+    assertThat(blank.organization()).isNull();
+    assertThat(blank.title()).isNull();
+
+    var multi =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "여러줄", null, "1\n2", "org\nline", "t\r\nt", null, "PERSONAL"),
+            false);
+    assertThat(multi.phone()).isEqualTo("1 2");
+    assertThat(multi.organization()).isEqualTo("org line");
+    assertThat(multi.title()).isEqualTo("t t");
+  }
+
+  /** WP-791: 부분 수정에서도 같은 다듬기 — 보이지 않는 글자만 보낸 칸은 비우고, 생략(null)한 칸은 유지한다. */
+  @Test
+  void update_optionalFields_invisibleOnlyClears_andOmittedKeeps() {
+    long c = caller();
+    var created =
+        service.create(
+            c,
+            new com.workplace.contacts.dto.ExternalContactRequest(
+                "다듬기", null, "010", "Acme", "대표", null, "PERSONAL"),
+            false);
+    var d =
+        service.update(
+            c,
+            created.id(),
+            new com.workplace.contacts.dto.UpdateExternalContactRequest(
+                null, null, null, "​", " 팀장\n", null, null),
+            false);
+    assertThat(d.phone()).isEqualTo("010"); // 유지
+    assertThat(d.organization()).isNull(); // 보이지 않는 글자만 → 비움
+    assertThat(d.title()).isEqualTo("팀장");
   }
 
   @Test
@@ -530,5 +586,84 @@ class ContactServiceTest extends IntegrationTestBase {
         .isEqualTo(1L); // distinct
     assertThat(f.titles()).contains(tag + "_대표", tag + "_엔지니어");
     assertThat(f.titles()).doesNotContain(tag + "_비밀"); // 누출 방지
+  }
+
+  /** 그룹 하나를 만들고 외부 연락처를 멤버로 넣는다(그룹 id 반환). */
+  private long seedGroupWithExternal(long owner, long contactId) {
+    long groupId =
+        dsl.insertInto(USER_GROUP)
+            .set(USER_GROUP.NAME, "g" + UUID.randomUUID().toString().substring(0, 6))
+            .set(USER_GROUP.OWNER_ID, owner)
+            .set(USER_GROUP.VISIBILITY, "PERSONAL")
+            .returning(USER_GROUP.ID)
+            .fetchOne()
+            .getId();
+    dsl.insertInto(USER_GROUP_MEMBER)
+        .set(USER_GROUP_MEMBER.GROUP_ID, groupId)
+        .set(USER_GROUP_MEMBER.TARGET_TYPE, "EXTERNAL")
+        .set(USER_GROUP_MEMBER.TARGET_ID, contactId)
+        .execute();
+    return groupId;
+  }
+
+  private int favoriteRows(long contactId) {
+    return dsl.fetchCount(
+        CONTACT_FAVORITE,
+        CONTACT_FAVORITE.TARGET_TYPE.eq("EXTERNAL").and(CONTACT_FAVORITE.TARGET_ID.eq(contactId)));
+  }
+
+  private int groupMemberRows(long contactId) {
+    return dsl.fetchCount(
+        USER_GROUP_MEMBER,
+        USER_GROUP_MEMBER
+            .TARGET_TYPE
+            .eq("EXTERNAL")
+            .and(USER_GROUP_MEMBER.TARGET_ID.eq(contactId)));
+  }
+
+  /** WP-820: 외부 연락처를 지우면 그 연락처를 가리키던 즐겨찾기(누구의 것이든)·그룹 멤버 행도 함께 지워진다. 다른 연락처의 행은 그대로다. */
+  @Test
+  void 외부_연락처를_지우면_즐겨찾기와_그룹_멤버_행도_함께_지워진다() {
+    long owner = caller();
+    long other = caller();
+    long gone =
+        seedExternalFull(
+            "del" + UUID.randomUUID().toString().substring(0, 4), owner, "SHARED", null, null);
+    long kept = seedExternal("keep" + UUID.randomUUID().toString().substring(0, 4), owner);
+    favoriteRepo.add(owner, "EXTERNAL", gone);
+    favoriteRepo.add(other, "EXTERNAL", gone);
+    favoriteRepo.add(owner, "EXTERNAL", kept);
+    seedGroupWithExternal(owner, gone);
+    seedGroupWithExternal(owner, kept);
+
+    service.delete(owner, gone);
+
+    assertThat(favoriteRows(gone)).isZero();
+    assertThat(groupMemberRows(gone)).isZero();
+    assertThat(favoriteRows(kept)).isEqualTo(1);
+    assertThat(groupMemberRows(kept)).isEqualTo(1);
+  }
+
+  /**
+   * WP-820: 에이전트를 지우면 그 에이전트가 만든 외부 연락처는 owner_id CASCADE 로 사라진다 — 그 연락처를 가리키던 다른 사람의 즐겨찾기·그룹 멤버 행도
+   * 같은 트랜잭션에서 지워진다.
+   */
+  @Test
+  void 에이전트를_지우면_그가_만든_연락처의_즐겨찾기와_그룹_멤버_행도_지워진다() {
+    long agent = caller();
+    long other = caller();
+    long contact =
+        seedExternalFull(
+            "ag" + UUID.randomUUID().toString().substring(0, 4), agent, "SHARED", null, null);
+    long kept = seedExternal("keep" + UUID.randomUUID().toString().substring(0, 4), other);
+    favoriteRepo.add(other, "EXTERNAL", contact);
+    favoriteRepo.add(other, "EXTERNAL", kept);
+    seedGroupWithExternal(other, contact);
+
+    publisher.publishEvent(new AgentDeleted(1L, agent, other));
+
+    assertThat(favoriteRows(contact)).isZero();
+    assertThat(groupMemberRows(contact)).isZero();
+    assertThat(favoriteRows(kept)).isEqualTo(1);
   }
 }

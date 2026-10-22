@@ -4,6 +4,9 @@ import { toast } from 'sonner';
 
 import { SettingsSection } from '@/components/layout/SettingsSection';
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/overlay/select';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -14,9 +17,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 
 import { projectsApi } from '../../../api/projects';
 import { DeleteImpactNote } from '../../../components/ui/delete-confirm-dialog';

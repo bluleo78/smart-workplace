@@ -105,6 +105,8 @@ function ReactionPill({
       onClick={() => onToggle(r.emoji)}
       data-testid={`${testIdPrefix}reaction-pill-${targetId}-${r.emoji}`}
       data-reaction-emoji={r.emoji}
+      // 반응 컨트롤 표식 — 취소로 칩이 사라지면 행이 같은 자리의 칩·반응 추가로 포커스를 잇는다(useReactionFocusRestore, WP-830).
+      data-reaction-control="pill"
       aria-pressed={r.reacted}
       // 터치(coarse)에선 손가락으로 누르기 쉽게 높이 32px·좌우 여백을 키운다(L1). 마우스 환경은 그대로.
       className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs pointer-coarse:min-h-8 pointer-coarse:px-2.5 disabled:cursor-default ${

@@ -104,6 +104,19 @@ class MessageServiceAttachmentTest extends IntegrationTestBase {
         .isInstanceOf(EmptyMessageException.class);
   }
 
+  /** WP-777: 제로폭 문자·점자 빈칸만 있는 본문은 공백만 있는 본문처럼 비어 있는 것으로 보고 거절한다. */
+  @Test
+  void create_invisibleOnlyBodyNoAttachments_rejected() {
+    long userId = seedUser();
+    long channelId = seedChannel(userId, "invisible-" + UUID.randomUUID());
+
+    assertThatThrownBy(
+            () ->
+                messageService.create(
+                    userId, channelId, new CreateMessageRequest("\u200B\u2800", null, List.of())))
+        .isInstanceOf(EmptyMessageException.class);
+  }
+
   /**
    * create_withBodyAndAttachment_hydratesInList: 본문+첨부 메시지를 만든 뒤 채널 리스트 조회 시 해당 메시지의 attachments 가
    * 채워져 있다(리스트 경로의 batch enrich 검증).

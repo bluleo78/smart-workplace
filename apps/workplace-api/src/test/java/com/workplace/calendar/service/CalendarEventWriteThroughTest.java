@@ -7,16 +7,20 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.calendar.dto.CalendarTagRequest;
 import com.workplace.calendar.exception.ExternalCalendarWriteException;
 import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
+import com.workplace.calendar.exception.ExternalEventTagNotSupportedException;
 import com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException;
 import com.workplace.calendar.repository.CalendarRepository;
 import com.workplace.global.security.EncryptionService;
@@ -34,6 +38,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -715,5 +720,157 @@ class CalendarEventWriteThroughTest extends IntegrationTestBase {
             localCal);
     eventService.create(ownerId, reqWithAttendee);
     verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  // ── 일정 저장 요청에 실린 태그 → Outlook 범주(WP-801) ─────────────────────────
+
+  @Autowired CalendarTagService tagService;
+
+  /** 이 테스트의 외부 쓰기 캘린더를 내 사서함 달력으로 — 그래야 태그를 Outlook 범주로 써 넣을 수 있다(tagsEditable). */
+  private void markOwnMailbox() {
+    new TransactionTemplate(txManager)
+        .execute(
+            s ->
+                dsl.update(CALENDAR)
+                    .set(CALENDAR.IS_OWN_MAILBOX, true)
+                    .where(CALENDAR.ID.eq(extCalId))
+                    .execute());
+  }
+
+  /** 같은 요청에 tagIds 만 바꿔 싣는다. */
+  private static CalendarEventRequest withTags(CalendarEventRequest r, List<Long> tagIds) {
+    return new CalendarEventRequest(
+        r.title(),
+        r.description(),
+        r.startsAt(),
+        r.endsAt(),
+        r.allDay(),
+        r.location(),
+        r.color(),
+        r.reminderMinutes(),
+        r.recurrenceRule(),
+        r.attendeeUserIds(),
+        r.calendarId(),
+        tagIds);
+  }
+
+  private static List<String> tagNames(CalendarEventResponse e) {
+    return e.tags().stream().map(com.workplace.calendar.dto.CalendarTagRef::name).toList();
+  }
+
+  /** 단일 일정의 지금 범주 — 써 넣기 직전 읽기. */
+  private void liveCategories(String externalId, List<String> categories) {
+    when(calendarTransport.readCategories(eq(ownerId), any(), eq(externalId)))
+        .thenReturn(new CalendarTransport.LiveCategories("singleInstance", null, categories));
+  }
+
+  /** M365 캘린더에 태그를 실어 만들면 Graph 에 일정을 만든 뒤(트랜잭션 밖) Outlook 범주를 써 넣고, 응답에 그 태그가 실린다. */
+  @Test
+  void create_external_withTagIds_writesOutlookCategories_afterCreate() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("고객사", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-evt-t1");
+    liveCategories("graph-evt-t1", List.of());
+
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(extCalId, null), List.of(tagId)));
+
+    InOrder order = inOrder(calendarTransport);
+    order.verify(calendarTransport).createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+    order
+        .verify(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-evt-t1"), eq(List.of("고객사")));
+    assertThat(tagNames(created)).containsExactly("고객사");
+  }
+
+  /**
+   * M365 일정 수정에 태그를 실으면 Graph PATCH(일정) 뒤 범주를 써 넣고 응답에 태그가 실린다. tagIds 를 보내지 않으면(MCP·AI) 범주를 읽지도
+   * 않는다.
+   */
+  @Test
+  void update_external_withTagIds_writesCategories_nullTagIdsSkips() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-evt-t2");
+    CalendarEventResponse created = eventService.create(ownerId, req(extCalId, null));
+
+    eventService.update(
+        ownerId, created.id(), req(extCalId, null), com.workplace.calendar.dto.EditScope.ALL, null);
+    verify(calendarTransport, never()).readCategories(anyLong(), any(), any());
+
+    liveCategories("graph-evt-t2", List.of("Outlook만"));
+    CalendarEventResponse updated =
+        eventService.update(
+            ownerId,
+            created.id(),
+            withTags(req(extCalId, null), List.of(tagId)),
+            com.workplace.calendar.dto.EditScope.ALL,
+            null);
+
+    InOrder order = inOrder(calendarTransport);
+    order.verify(calendarTransport).updateEvent(eq(ownerId), any(), eq("graph-evt-t2"), any());
+    order
+        .verify(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-evt-t2"), eq(List.of("Outlook만", "운영")));
+    assertThat(tagNames(updated)).containsExactly("운영");
+  }
+
+  /** 범주를 써 넣을 수 없는 M365 일정(내 사서함 달력 아님)에 태그를 실으면 409 — Graph 에 일정 PATCH 도 보내지 않는다(사전검증). */
+  @Test
+  void update_external_withTagIds_notTaggable_conflictBeforeGraph() {
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-evt-t3");
+    CalendarEventResponse created = eventService.create(ownerId, req(extCalId, null));
+
+    assertThatThrownBy(
+            () ->
+                eventService.update(
+                    ownerId,
+                    created.id(),
+                    withTags(req(extCalId, null), List.of(tagId)),
+                    com.workplace.calendar.dto.EditScope.ALL,
+                    null))
+        .isInstanceOf(ExternalEventTagNotSupportedException.class);
+    verify(calendarTransport, never()).updateEvent(anyLong(), any(), any(), any());
+    verify(calendarTransport, never()).updateCategories(anyLong(), any(), any(), any());
+  }
+
+  /** 범주를 써 넣을 수 없는 M365 달력(내 사서함 아님)에 태그를 실어 만들면 409 — Graph 에 일정을 만들지도 않는다(사전검증). */
+  @Test
+  void create_external_withTagIds_notOwnMailbox_conflictBeforeGraph() {
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("운영", null)).id();
+
+    assertThatThrownBy(
+            () -> eventService.create(ownerId, withTags(req(extCalId, null), List.of(tagId))))
+        .isInstanceOf(ExternalEventTagNotSupportedException.class);
+    verify(calendarTransport, never()).createEvent(anyLong(), any(), any(), any());
+  }
+
+  /**
+   * 새 M365 일정의 범주 써 넣기가 Graph 오류로 실패해도 생성은 성공으로 돌려준다 — 일정은 이미 Outlook 에 있어, 실패로 돌려주면 폼에서 다시 「저장」할 때
+   * 같은 일정(과 초대 메일)이 하나 더 생긴다. 태그만 빠진 채 로컬 행이 남고 Graph 생성은 한 번이다.
+   */
+  @Test
+  void create_external_withTagIds_categoriesFailure_stillReturnsCreatedEvent() {
+    markOwnMailbox();
+    long tagId = tagService.create(ownerId, new CalendarTagRequest("고객사", null)).id();
+    when(calendarTransport.createEvent(eq(ownerId), any(), eq("gcal-write"), any()))
+        .thenReturn("graph-evt-t4");
+    liveCategories("graph-evt-t4", List.of());
+    org.mockito.Mockito.doThrow(
+            new ExternalCalendarWriteException("Graph 범주 쓰기 실패", new RuntimeException("503")))
+        .when(calendarTransport)
+        .updateCategories(eq(ownerId), any(), eq("graph-evt-t4"), anyList());
+
+    CalendarEventResponse created =
+        eventService.create(ownerId, withTags(req(extCalId, null), List.of(tagId)));
+
+    verify(calendarTransport, org.mockito.Mockito.times(1))
+        .createEvent(eq(ownerId), any(), eq("gcal-write"), any());
+    assertThat(created.tags()).isEmpty();
+    assertThat(eventService.get(ownerId, created.id()).title()).isEqualTo("회의");
   }
 }

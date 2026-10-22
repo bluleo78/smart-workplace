@@ -4,6 +4,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WHATS_NEW_STORAGE_KEY } from '@/lib/releaseNotes'
+import { memoryStorage } from '@/test/memoryStorage'
 
 vi.mock('@/lib/releaseNotesBundle', () => ({
   loadBundledNotes: () => [{ version: '0.9.0', date: '2026-10-20', body: '본문', hidden: false }],
@@ -16,21 +17,6 @@ function fireStorage(key: string | null) {
   act(() => {
     window.dispatchEvent(new StorageEvent('storage', { key }))
   })
-}
-
-/** 인메모리 localStorage — Node 의 실험적 전역 localStorage 가 jsdom 것을 가려 테스트 환경에서 비어 있어, 직접 세운다. */
-function memoryStorage(): Storage {
-  const data = new Map<string, string>()
-  return {
-    get length() {
-      return data.size
-    },
-    clear: () => data.clear(),
-    getItem: (k) => data.get(k) ?? null,
-    key: (i) => [...data.keys()][i] ?? null,
-    removeItem: (k) => void data.delete(k),
-    setItem: (k, v) => void data.set(k, String(v)),
-  }
 }
 
 describe('useWhatsNew storage 동기화', () => {

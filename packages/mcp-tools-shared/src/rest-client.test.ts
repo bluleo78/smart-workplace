@@ -377,6 +377,10 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/projects/WP/issues/3/drive-links', { driveFileId: 77 });
     await client.claimIssueAttachments('WP-3', [5, 6]);
     expect(http.post).toHaveBeenCalledWith('/projects/WP/issues/3/attachments/claim', { fileIds: [5, 6] });
+    // WP-800: 대기열 이슈 가져가기 — POST .../claim 에 queueLabel 만 보내고 응답 본문을 그대로 돌려준다.
+    http.post.mockResolvedValueOnce({ data: { assignees: [{ username: 'ai' }], labels: [] } });
+    expect(await client.claimIssue('WP-9', 'AI 개발팀')).toEqual({ assignees: [{ username: 'ai' }], labels: [] });
+    expect(http.post).toHaveBeenLastCalledWith('/projects/WP/issues/9/claim', { queueLabel: 'AI 개발팀' });
     await client.createProjectMeta('WP', 'label', { name: 'bug', colorToken: 'RED' });
     expect(http.post).toHaveBeenCalledWith('/projects/WP/labels', { name: 'bug', colorToken: 'RED' });
     await client.createProjectMeta('WP', 'milestone', { name: 'M', dueDate: '2026-12-01' });

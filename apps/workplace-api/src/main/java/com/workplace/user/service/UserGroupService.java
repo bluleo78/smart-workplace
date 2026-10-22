@@ -107,6 +107,10 @@ public class UserGroupService {
     if (clearCode && req.code() != null) {
       throw new InvalidUserGroupException("code 와 clearCode 는 함께 지정할 수 없습니다");
     }
+    // 부모를 새로 지정하면 같은 테넌트의 다른 이동과 한 줄로 세운다(WP-790) — 순환 검사를 다른 이동이 커밋한 뒤의 트리로 하게, 그룹 행을 읽기 전에 잠근다.
+    if (req.parentId() != null) {
+      repo.lockMoves(TenantContext.require());
+    }
     FlatGroup g = requireWritable(callerId, id);
     String name = req.name() != null ? req.name() : g.name();
     Long parentId = moveToRoot ? null : (req.parentId() != null ? req.parentId() : g.parentId());

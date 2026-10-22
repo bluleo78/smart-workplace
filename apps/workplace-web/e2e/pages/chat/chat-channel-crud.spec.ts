@@ -76,12 +76,18 @@ test.describe('messaging 채널 생성', () => {
     );
 
     await page.goto('/chat');
+    // WP-816: 채널 미선택 빈 화면에도 스크린리더 제목 이동용 h1(숨김)이 있다.
+    await expect(page.getByRole('heading', { level: 1, name: '대화' })).toBeAttached();
+    // WP-814: 탭 제목은 화면 이름.
+    await expect(page).toHaveTitle('대화 · Gen:iA Works');
     await page.getByTestId('channel-create-btn').click();
     await page.getByTestId('create-channel-name').fill('신규채널');
     await page.getByTestId('create-channel-submit').click();
 
     // 새 채널로 라우팅됨 → 헤더에 채널명.
     await expect(page).toHaveURL(/\/chat\/channels\/7$/);
+    // WP-814: 채널을 열면 탭 제목이 채널 이름으로 바뀐다.
+    await expect(page).toHaveTitle('# 신규채널 · 대화 · Gen:iA Works');
   });
 
   test('비공개 토글 → visibility=PRIVATE 페이로드', async ({ authenticatedPage: page }) => {

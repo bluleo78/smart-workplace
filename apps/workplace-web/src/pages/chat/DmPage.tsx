@@ -25,6 +25,7 @@ import { useMyDms } from '@/hooks/queries/useMyDms'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAiWorkingBubbles } from '@/hooks/useAiWorkingBubbles'
 import { useAuth } from '@/hooks/useAuth'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { onChannelProgress } from '@/hooks/useMessageStream'
 import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
@@ -44,6 +45,12 @@ function dmEmptyDescription(dm: DmResponse, myId: number): string {
   if (others.length === 1) return `${others[0].name} 님과의 메시지 시작입니다.`
   // 그룹은 쉼표로 묶인 이름 리스트라 "님" 경어 대신 자연스러운 그룹 문구로.
   return `${others.map((p) => p.name).join(', ')} 님과 함께하는 그룹 대화의 시작입니다.`
+}
+
+// DM 탭 제목 이름 — 상대 이름(본인 제외, self-DM 이면 본인). 헤더·AI 컨텍스트와 같은 기준.
+function dmTitleOf(dm: DmResponse, myId: number | undefined): string {
+  const others = dm.participants.filter((p) => p.userId !== myId)
+  return (others.length > 0 ? others : dm.participants).map((p) => p.name).join(', ')
 }
 
 export default function DmPage() {
@@ -127,6 +134,8 @@ export default function DmPage() {
     return buildDmContext({ channelId: dmId, participantNames: names })
   }, [dm, dmId, user?.id])
   useRegisterAiScreenContext(screenContext)
+  // 탭 제목 — 「{상대 이름} · 대화」(WP-814).
+  useDocumentTitle([dm && dmTitleOf(dm, user?.id), '대화'])
   const aiAvailable = useAiAvailable()
   // @멘션 후보 = DM 참여자(채널과 같은 조립 규칙 — 비멤버 AGENT 추가는 없음).
   // 비서 비가용(aiAvailable=false)이면 AGENT 후보 제외 — AI 와의 DM 자체는 유지, 멘션만 게이트.

@@ -4,7 +4,6 @@ import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.AgentWorkTestSupport;
 import com.workplace.issue.dto.CreateIssueRequest;
 import java.util.ArrayList;
@@ -36,19 +35,19 @@ class PendingForMeTest extends AgentWorkTestSupport {
 
   /** 같은 프로젝트에 AI 담당 이슈를 만들고 AI 가 보고 글을 남기게 한 뒤 이슈 번호를 돌려준다(시드 패턴은 seedAgentWorkFixture 와 같다). */
   private int createIssueWithAgentMessage(String title) {
-    int number;
-    TenantContext.set(TENANT_ID);
-    try {
-      var issue =
-          issueService.create(
-              humanId,
-              projectKey,
-              new CreateIssueRequest(title, "본문", "MID", null, List.of(), null, null, null));
-      issueAssigneeRepository.add(issue.id(), agentId, humanId);
-      number = issue.number();
-    } finally {
-      TenantContext.clear();
-    }
+    // 담당자 행이 커넥션의 세션 GUC 가 아닌 테넌트#1 로 들어가게 트랜잭션 안에서 넣는다(WP-827).
+    int number =
+        inTenant(
+            () -> {
+              var issue =
+                  issueService.create(
+                      humanId,
+                      projectKey,
+                      new CreateIssueRequest(
+                          title, "본문", "MID", null, List.of(), null, null, null));
+              issueAssigneeRepository.add(issue.id(), agentId, humanId);
+              return issue.number();
+            });
     assertOk(
         call(
             HttpMethod.PUT,

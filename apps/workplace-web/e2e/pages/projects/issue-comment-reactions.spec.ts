@@ -231,6 +231,46 @@ test.describe('WP-504 이슈 코멘트 반응 — 데스크톱', () => {
     expect(deletes.lastUrl()?.searchParams.get('emoji')).toBe('👍');
   });
 
+  test('keyboard first reaction from header keeps focus on chip plus (WP-830)', async ({ authenticatedPage: page }) => {
+    await openWith(page, [createComment({ id: 51, issueId: ISSUE_ID, authorId: 2, body: '키보드 첫 반응' })]);
+    // 헤더 「반응 추가」에 키보드로 닿아 Enter → 피커에서 Enter(👍).
+    const header = page.getByTestId('comment-reaction-add-51');
+    await header.focus();
+    await page.keyboard.press('Enter');
+    const quick = page.getByTestId('comment-reaction-quick-51-👍');
+    await expect(quick).toBeVisible();
+    await quick.focus();
+    await page.keyboard.press('Enter');
+    // 반응이 달리며 헤더 버튼이 칩 줄 끝 ＋ 로 바뀐다 — 포커스가 body 로 빠지지 않고 새 ＋ 로 온다.
+    const pill = page.getByTestId('comment-reaction-pill-51-👍');
+    await expect(pill).toHaveAttribute('aria-pressed', 'true');
+    const add = page.getByTestId('comment-reaction-bar-51').getByTestId('comment-reaction-add-51');
+    await expect(add).toBeFocused();
+    // 팝오버가 닫히며 다른 곳으로 포커스를 다시 빼앗지 않는다.
+    await expectStays(page, () => add.evaluate((el) => el === document.activeElement), true);
+  });
+
+  test('keyboard cancel of own-only chip moves focus to header add (WP-830)', async ({ authenticatedPage: page }) => {
+    await openWith(page, [
+      createComment({
+        id: 52,
+        issueId: ISSUE_ID,
+        authorId: 2,
+        body: '키보드 반응 취소',
+        reactions: [{ emoji: '👍', count: 1, reacted: true }],
+      }),
+    ]);
+    const pill = page.getByTestId('comment-reaction-pill-52-👍');
+    await pill.focus();
+    await page.keyboard.press('Enter');
+    await expect(pill).toHaveCount(0);
+    // 칩 줄이 사라지고 헤더 「반응 추가」가 다시 그려진다 — 포커스가 그리로 와 드러난다.
+    const header = page.getByTestId('comment-reaction-add-52');
+    await expect(header).toBeFocused();
+    await expect(header).toHaveCSS('opacity', '1');
+    await expect(page.getByTestId('comment-reaction-bar-52')).toHaveCount(0);
+  });
+
   test('rapid double toggle', async ({ authenticatedPage: page }) => {
     // 남의 반응 1개가 있는 칩 — 두 번 눌러도 칩이 남아 두 번째 클릭이 닿는다.
     // 응답을 늦춰 두 번째 클릭이 첫 요청 진행 중에 일어나게 한다(렌더 클로저로 판정하면 add 가 두 번 나간다, #702).

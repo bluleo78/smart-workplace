@@ -11,14 +11,14 @@ import { useState } from 'react'
 import { AiContent } from '@/components/ai/AiContent'
 import { EventProposalCard } from '@/components/chat/EventProposalCard'
 import { IssueDraftFields } from '@/components/issue/IssueDraftFields'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/overlay/select'
+import { Button } from '@/components/ui/button'
 import type { MessageProposal } from '@/types/messaging'
 
 interface ProposalCardProps {

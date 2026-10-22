@@ -259,6 +259,7 @@ test.describe('이슈 chat panel', () => {
     const input = page.getByTestId('chat-composer-input');
     const submit = page.getByTestId('chat-composer-submit');
     await expect(input).toBeVisible();
+    await expect(input).toHaveAccessibleName('채팅 메시지 작성');
 
     // 1) 초기 빈 상태 → 버튼 비활성.
     await expect(submit).toBeDisabled();
@@ -716,6 +717,8 @@ test.describe('이슈 chat panel', () => {
     await row600.hover();
     await page.getByTestId('chat-message-edit-600').click();
     const editor = page.getByTestId('chat-message-editor-input');
+    // 수정칸은 작성칸과 다른 이름으로 읽힌다(WP-831).
+    await expect(editor).toHaveAccessibleName('메시지 수정');
     await editor.click();
     await page.keyboard.press('ControlOrMeta+A');
     await page.keyboard.type('수정본');
@@ -734,6 +737,33 @@ test.describe('이슈 chat panel', () => {
     // 실행 취소가 없으면 지연(5s) 후 실제 DELETE 호출 + 마스킹.
     await expect.poll(() => sent.deleteIds(), { timeout: 8000 }).toEqual([601]);
     await expect(page.getByTestId('chat-message-body-601')).toContainText('(삭제됨)');
+  });
+
+  // WP-832: 키보드로 지운 메시지가 「(삭제됨)」으로 다시 그려지며 삭제 버튼이 사라져 포커스가 body 로 빠졌다 — 그 메시지 행으로 잇는다.
+  // 빈 채팅에서 시작한다 — 메시지가 없으면 목록 대신 빈 안내를 그려, 목록이 나중에 생겨도 포커스를 추적해야 한다.
+  test('키보드로 본인 메시지를 지우면 (삭제됨) 이 된 그 메시지 행이 포커스를 받는다', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '키보드 삭제' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const sent = await setupChatStubs(page, freshStubs());
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+    // 첫 메시지를 보내 목록이 생기게 한다(스텁이 id 1001 로 저장).
+    await page.getByTestId('chat-composer-input').click();
+    await page.keyboard.type('지울 것');
+    await page.getByTestId('chat-composer-submit').click();
+    // 툴바는 opacity 토글이라 키보드 포커스로도 닿는다 — 확정된 행의 삭제 버튼에 포커스를 두고 Enter.
+    await page.getByTestId('chat-message-delete-1001').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible();
+    // 실행 취소가 없으면 지연(5s) 후 실제 DELETE + 마스킹.
+    await expect.poll(() => sent.deleteIds(), { timeout: 8000 }).toEqual([1001]);
+    await expect(page.getByTestId('chat-message-body-1001')).toContainText('(삭제됨)');
+    await expect(page.getByTestId('chat-message-1001')).toBeFocused();
   });
 
   test('mark-as-read — 마지막 메시지 viewport 진입 시 POST /read', async ({
@@ -1350,5 +1380,48 @@ test.describe('이슈 chat panel', () => {
       '이 대화는 프로젝트 멤버와 이슈를 등록한 사람만 쓸 수 있습니다.',
     );
     await expect(page.getByTestId('chat-composer')).toHaveCount(0);
+  });
+});
+
+// WP-833: 한국 밖 시간대 브라우저에서 날짜 구분선(KST)과 메시지 시각(브라우저 로컬)이 서로 다른 날을 가리켰다 — 시각도 KST 로 맞춘다.
+test.describe('이슈 chat panel — 한국 밖 시간대 브라우저', () => {
+  test.use({ timezoneId: 'UTC' });
+
+  test('날짜 구분선과 메시지 시각이 같은 KST 날·시각을 가리킨다', async ({ authenticatedPage: page }) => {
+    // KST 2026-10-23 01:30 = UTC 2026-10-22 16:30 — UTC 날짜와 KST 날짜가 다른 순간.
+    await page.clock.setFixedTime(new Date('2026-10-22T16:30:00Z'));
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '시간대' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const stubs = freshStubs();
+    stubs.thread = {
+      ...stubs.thread,
+      recentMessages: [
+        createChatMessage({
+          id: 620,
+          threadId: THREAD_ID,
+          authorId: 20,
+          authorName: '동료',
+          authorKind: 'HUMAN',
+          body: '자정 넘어 보낸 메시지',
+          // KST 2026-10-23 01:28 = UTC 2026-10-22 16:28.
+          createdAt: '2026-10-22T16:28:00Z',
+        }),
+      ],
+    };
+    stubs.messages = stubs.thread.recentMessages;
+    await setupChatStubs(page, stubs);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+
+    await expect(page.getByTestId('date-divider')).toContainText('2026년 10월 23일');
+    const row = page.getByTestId('chat-message-620');
+    // 오늘(KST) 보낸 메시지라 시각만 — 브라우저(UTC) 시각 16:28 이 아니라 KST 01:28.
+    await expect(row.getByText('01:28', { exact: true })).toBeVisible();
+    await expect(row.getByText('16:28')).toHaveCount(0);
   });
 });

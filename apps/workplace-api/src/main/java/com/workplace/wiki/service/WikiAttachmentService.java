@@ -4,6 +4,7 @@ import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.fileai.ExtractionProfile;
 import com.workplace.fileai.dto.ExtractedTextSlice;
@@ -111,8 +112,12 @@ public class WikiAttachmentService {
       throw new WikiAttachmentRejectedException("빈 파일입니다.");
     }
     if (file.getSize() > maxImageSizeBytes) {
+      // 바이트 수 대신 MB 한도와 파일 이름으로 알린다(WP-834) — 드라이브 크기 초과와 같은 문구.
       throw new WikiAttachmentRejectedException(
-          "파일 크기가 한도를 초과했습니다: " + file.getSize() + " > " + maxImageSizeBytes);
+          FileSizeLimitExceededException.message(
+              "IMAGE",
+              maxImageSizeBytes,
+              SafeFileNames.sanitize(file.getOriginalFilename(), "file")));
     }
 
     // 브라우저 Content-Type 은 위조 가능하므로 신뢰하지 않고 앞부분 매직바이트로 판정한다(별도 스트림이라 본 저장 스트림을 소비하지 않음).
@@ -240,7 +245,7 @@ public class WikiAttachmentService {
       for (StagedFile f : staged) {
         if (f.sizeBytes() > maxImageSizeBytes) {
           throw new WikiAttachmentRejectedException(
-              "파일 크기가 한도를 초과했습니다: " + f.sizeBytes() + " > " + maxImageSizeBytes);
+              FileSizeLimitExceededException.message("IMAGE", maxImageSizeBytes, f.originalName()));
         }
         byte[] head = storage.readHead(f.fileId(), f.storagePath(), ImageSniffer.HEAD_BYTES);
         sniffed.put(

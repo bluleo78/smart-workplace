@@ -246,6 +246,9 @@ test.describe('드라이브 끌어 옮기기', () => {
     await page.keyboard.press('Space')
     await moves.waitFor(1)
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [SPEC], folderIds: [], targetFolderId: REFS })
+    // 옮긴 행이 목록에서 빠져도 포커스는 body 로 빠지지 않고 놓은 폴더 행에 남는다(WP-840).
+    await expect(row).toHaveCount(0)
+    await expect(page.getByTestId(`drive-row-folder-${REFS}`)).toBeFocused()
   })
 
   test('키보드로 위 경로로 꺼낼 수 있다', async ({ authenticatedPage: page }) => {
@@ -262,6 +265,9 @@ test.describe('드라이브 끌어 옮기기', () => {
     await page.keyboard.press('Enter')
     await moves.waitFor(1)
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [DESIGN], folderIds: [], targetFolderId: null })
+    // 경로에 놓으면 그 경로 버튼에 포커스가 남는다(WP-840).
+    await expect(page.getByTestId(`drive-row-file-${DESIGN}`)).toHaveCount(0)
+    await expect(page.getByTestId('drive-root')).toBeFocused()
   })
 
   test('보관된 채널의 공간(읽기 전용)에서는 끌어 옮기기를 켜지 않는다', async ({ authenticatedPage: page }) => {

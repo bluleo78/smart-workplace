@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
 
 import {
   DESTRUCTIVE_TABLE_COMMANDS,

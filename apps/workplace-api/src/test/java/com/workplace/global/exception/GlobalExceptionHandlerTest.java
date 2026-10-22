@@ -97,10 +97,10 @@ class GlobalExceptionHandlerTest {
     // #587: 같은 이유로 500 폴백에 떨어지던 회귀 방지.
     ResponseEntity<ErrorResponse> res =
         handler.handleFileSizeLimitExceeded(
-            new FileSizeLimitExceededException("IMAGE", 10L * 1024 * 1024), request);
+            new FileSizeLimitExceededException("IMAGE", 10L * 1024 * 1024, "a.png"), request);
     assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(res.getBody()).isNotNull();
-    assertThat(res.getBody().message()).contains("IMAGE");
+    assertThat(res.getBody().message()).isEqualTo("이미지 파일은 최대 10MB까지 업로드할 수 있습니다: a.png");
   }
 
   @Test

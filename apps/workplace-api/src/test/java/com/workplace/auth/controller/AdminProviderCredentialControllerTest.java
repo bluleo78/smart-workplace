@@ -16,13 +16,13 @@ import com.workplace.auth.dto.ProviderConfig;
 import com.workplace.auth.dto.ProviderCredentialRegisterRequest;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.support.WebSessionAuth;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
@@ -44,7 +44,7 @@ class AdminProviderCredentialControllerTest extends IntegrationTestBase {
   private Authentication authWith(Long userId, String... permissions) {
     var authorities =
         java.util.Arrays.stream(permissions).map(SimpleGrantedAuthority::new).toList();
-    return new UsernamePasswordAuthenticationToken(userId, "n/a", authorities);
+    return WebSessionAuth.of(userId, authorities);
   }
 
   @Test

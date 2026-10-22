@@ -130,6 +130,9 @@ export interface CalendarEventRequest {
   // 생성 시 초대할 참석자 userId 목록 (주최자 제외). 미전달 시 빈 배열. (이슈 #489)
   attendeeUserIds?: number[]
   calendarId?: number | null
+  // 이 일정에 붙일 내 태그 id(WP-801) — 일정 저장과 한 요청으로 보낸다. 생략하면 서버가 태그를 건드리지 않는다(폼은 바꿨을 때만 싣는다).
+  // 반복 일정은 범위와 상관없이 그 시리즈 마스터에 붙는다(「이후 모든 일정」이면 새로 나뉜 시리즈).
+  tagIds?: number[]
 }
 
 // 개인 캘린더(컨테이너).

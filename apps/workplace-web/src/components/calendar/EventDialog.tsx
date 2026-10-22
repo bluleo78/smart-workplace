@@ -1,14 +1,27 @@
 // 일정 생성/편집 다이얼로그.
 // event prop 이 있으면 편집 모드, 없으면 생성 모드.
+// 폼은 이름표 대신 아이콘 줄(배치 B — Google·Outlook·Notion 방식)이고, 상세 보기(EventDetailView)와 같은 아이콘·순서다:
+// 제목 → 시간(종일·반복) → 장소 → 참석자 → 알림 → 캘린더(점을 눌러 색) → 태그 → 설명.
 import { zodResolver } from '@hookform/resolvers/zod'
+import { AlignLeft, Bell, Calendar as CalendarIcon, Clock, MapPin, Repeat, Users } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 
 import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog'
 import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
 import { EventDetailView } from '@/components/calendar/EventDetailView'
+import { EventFormRow, FORM_CHIP_LINE_CLASS } from '@/components/calendar/EventFormRow'
 import { EventTagsField } from '@/components/calendar/EventTagsField'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
+import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -19,15 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent'
 import {
@@ -49,29 +54,25 @@ import {
   toEventRequest,
 } from '@/lib/calendarEventForm'
 import { reminderLabel } from '@/lib/calendarEventView'
-import { PALETTE_KEYS, resolvePalette } from '@/lib/calendarPalette'
+import { resolvePalette } from '@/lib/calendarPalette'
+import { changedTagIds, eventTagHint } from '@/lib/calendarTag'
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
 import { cn } from '@/lib/utils'
-import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
+import type { CalendarEvent, CalendarEventRequest, CalendarTagRef } from '@/types/calendar'
 
 // ────────────────────────────────────────────────────────────
 // ISO(UTC) ↔ datetime-local 변환 헬퍼
 // ────────────────────────────────────────────────────────────
 
-/** ISO(UTC) → datetime-local 문자열 (YYYY-MM-DDTHH:mm) */
-function toLocalInput(iso: string): string {
-  const d = new Date(iso)
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16)
+/** Date → datetime-local 문자열 (YYYY-MM-DDTHH:mm, 로컬 시각) */
+function dateToLocalInput(d: Date): string {
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
 
-/** Date → datetime-local 문자열 */
-function dateToLocalInput(d: Date): string {
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16)
+/** ISO(UTC) → datetime-local 문자열 */
+function toLocalInput(iso: string): string {
+  return dateToLocalInput(new Date(iso))
 }
 
 // ────────────────────────────────────────────────────────────
@@ -84,6 +85,10 @@ interface EventDialogProps {
   event?: CalendarEvent | null
   /** 생성 모드: 기본 시작 시각 (미제공 시 현재 시각) */
   defaultStart?: Date
+  /**
+   * 저장 — 폼에서 고른 태그가 처음과 달라졌을 때만 body.tagIds 가 실린다(아니면 빠져 서버가 태그를 건드리지 않는다).
+   * 태그는 일정 저장과 한 요청이라 반복 범위(「이후 모든 일정」의 새 시리즈 등)를 서버가 맞춘다(WP-801).
+   */
   onSubmit: (body: CalendarEventRequest) => void
   /** 편집 모드에서만 제공 — 삭제 버튼 표시 */
   onDelete?: () => void
@@ -114,6 +119,13 @@ export function EventDialog({
 
   // 생성 모드에서 선택된 참석자 목록 — id+이름+종류 저장으로 칩에 실명 표시 (이슈 #489)
   const [selectedAttendees, setSelectedAttendees] = useState<SelectedMember[]>([])
+
+  // 폼에서 바꾼 태그 — 손대기 전엔 null 이고 화면은 상세 응답의 태그를 그대로 보인다(열 때마다 null 로).
+  // 상세가 늦게 오거나 다시 조회돼도 effect 로 옮겨 담지 않아, 사용자가 바꾼 선택을 덮지 않는다.
+  const [touchedTags, setTouchedTags] = useState<CalendarTagRef[] | null>(null)
+
+  // 색 팝오버(캘린더 칸의 점) 열림
+  const [colorOpen, setColorOpen] = useState(false)
 
   // 잠긴 반복 규칙(isFormEditableRRule=false)을 사용자가 풀었는지 — 열 때마다 다시 잠긴다(WP-708)
   const [recurrenceUnlocked, setRecurrenceUnlocked] = useState(false)
@@ -155,8 +167,13 @@ export function EventDialog({
   // 현재 사용자가 참석자이고 주최자·AGENT·외부 일정이 아닌 경우 RSVP 컨트롤 표시 (이슈 #489, #547)
   const showRsvp = shouldShowRsvp(isEdit, user?.id, eventWithDetail)
 
+  // 읽기 전용이면 편집 폼 대신 상세 보기(WP-708) — 입력칸 없이 아이콘 행으로 보여 주고 본문만 스크롤한다.
+  // isReadOnly 는 편집 모드에서만 참이라 eventWithDetail 은 늘 있다 — != null 은 아래 JSX 의 타입 좁히기용.
+  const showDetail = isReadOnly && eventWithDetail != null
+
   // WP-54: AI 사이드 패널과 공존하는 다이얼로그 props(side 모드면 non-modal + 페이지 영역 dim).
-  const aiAware = useAiPanelAwareDialog({ open })
+  // 폼은 한 단계 넓은 폭(form) — 기본 폭으로 덮이면 사이드 패널을 연 데스크톱에서 시작·종료가 한 줄에 안 들어갔다(WP-801).
+  const aiAware = useAiPanelAwareDialog({ open, size: showDetail ? 'default' : 'form' })
   const form = useForm<FormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
@@ -177,6 +194,15 @@ export function EventDialog({
     },
   })
 
+  // 화면이 따라 그리는 칸만 구독한다 — form.watch 는 어느 칸이 바뀌어도(제목 한 글자마다) 다이얼로그 전체를 다시 그렸다(WP-801).
+  const [watchedCalendarId, color, recurrenceFreq, recurrenceEnd, reminderMinutes] = useWatch({
+    control: form.control,
+    name: ['calendarId', 'color', 'recurrenceFreq', 'recurrenceEnd', 'reminderMinutes'],
+  })
+
+  // 색 점의 「상속」 색 — 고른 캘린더의 색(목록 로드 전·내 목록에 없으면 일정의 실제 색)
+  const calendarColor = calendars.find((c) => c.id === watchedCalendarId)?.color ?? event?.effectiveColor ?? null
+
   // 다이얼로그가 열릴 때마다 폼 초기화 + 참석자 선택 초기화
   useEffect(() => {
     if (!open) return
@@ -185,6 +211,9 @@ export function EventDialog({
     timedRangeRef.current = null
     // 생성 모드 진입 시 참석자 선택 초기화
     if (!event) setSelectedAttendees([])
+    // 태그·색 팝오버도 열 때마다 처음부터 — 「취소」로 닫은 선택이 다음에 남지 않게
+    setTouchedTags(null)
+    setColorOpen(false)
 
     // 반복 규칙(RRULE) → 평탄한 폼 필드로 변환. 생성 모드(이벤트 없음)면 NONE 기본값.
     // 폼이 담을 수 없는 규칙이면 반복 칸이 잠겨 보이지 않으므로 NONE 으로 둔다 — 숨은 칸(종료일 등) 검증에 걸려 저장이 조용히 막히지 않게(WP-708).
@@ -259,6 +288,19 @@ export function EventDialog({
     setRecurrenceUnlocked(true)
   }
 
+  // 태그 — 폼 상태다(체크해도 바로 저장하지 않고 「수정」·「저장」 때 보낸다). 새 일정도 고를 수 있다(만든 뒤 그 id 로 붙인다).
+  // 기존 일정은 상세 응답(마스터 태그·tagsEditable)이 출발점 — 상세 전엔 저장 버튼이 막혀 있어 비교 기준이 늘 상세다.
+  const initialTags = isEdit ? (detailEvent?.tags ?? []) : []
+  const formTags = touchedTags ?? initialTags
+  const tagsEditable = isEdit ? (detailEvent?.tagsEditable ?? false) : true
+  // 편집 모드는 상세가 와야 태그 줄을 그린다(목록 이벤트엔 태그 수정 가능 여부가 없다)
+  const showTags = !isEdit || detailEvent != null
+
+  // 참석자 줄 — 기존 일정은 상세(주최자 여부·참석자)가 와야 판정된다. 그 전엔 자리표시(attendeesLoading),
+  // 그 뒤엔 관리할 수 있거나(주최자) 참석자가 있을 때만 보인다(showAttendees)
+  const attendeesLoading = isEdit && !detailEvent
+  const showAttendees = !isEdit || canManageAttendees || (eventWithDetail?.attendees?.length ?? 0) > 0
+
   // 폼 제출 핸들러
   function handleSubmit(values: FormValues) {
     // 동기적 중복 제출 가드 — 이미 제출 중이면 no-op (dblclick 등으로 인한 중복 생성 방지, 이슈 #584)
@@ -272,12 +314,17 @@ export function EventDialog({
       attendeeUserIds: selectedAttendees.map((m) => m.id),
       lockedRecurrenceRule,
     })
-    onSubmit(body)
+    // 태그는 바뀌었을 때만 싣는다(빈 목록 = 모두 떼기도 바뀐 것) — 안 바뀐 저장이 Outlook 범주를 다시 쓰지 않게.
+    // 붙일 수 없는 일정(공유받은 읽기 전용 M365 달력)은 싣지 않는다 — 칩이 읽기 전용이라 바뀔 일도 없다
+    const tagIds = tagsEditable
+      ? changedTagIds(
+          initialTags.map((t) => t.id),
+          formTags.map((t) => t.id),
+        )
+      : null
+    onSubmit(tagIds ? { ...body, tagIds } : body)
   }
 
-  // 읽기 전용이면 편집 폼 대신 상세 보기(WP-708) — 입력칸 없이 아이콘 행으로 보여 주고 본문만 스크롤한다.
-  // isReadOnly 는 편집 모드에서만 참이라 eventWithDetail 은 늘 있다 — != null 은 아래 JSX 의 타입 좁히기용.
-  const showDetail = isReadOnly && eventWithDetail != null
   // 편집 모드에서 상세(주최자 여부)·캘린더 목록(초대 여부)이 오기 전엔 읽기 전용인지 아직 모른다 — 이때 폼 칸에 자동 포커스를 주면
   // 휴대폰 키보드가 떴다가 상세 보기로 바뀌며 내려가고, 포커스가 사라진 칸을 따라 body 로 떨어진다(WP-604).
   // 상세 보기·판정 전에는 다이얼로그 자체(폼↔상세가 바뀌어도 그대로 남는 요소)에 포커스를 둔다.
@@ -290,8 +337,12 @@ export function EventDialog({
       <DialogContent
         data-testid="calendar-event-dialog"
         // 상세 보기는 본문 스크롤·응답 줄 고정을 위해 세로 flex — 여백은 EventDetailView 안쪽이 맡는다.
+        // 폼은 한 단계 넓게(sm:max-w-xl) — 아이콘 줄에서 시작·종료 datetime-local 두 칸이 한 줄에 들어가게(한국어 표기 「2026. 10. 19. 오전 10:00」 기준).
+        // 높이는 화면 안(85vh·위아래 1rem)으로 — 휴대폰 하단 탭바가 보이면 index.css 「하단 탭바 위 대화상자」가 탭바 위 영역 가운데로 옮기고
+        // 높이도 그 안으로 줄인다(WP-801→WP-806 공용화). 휴대폰 폼은 여백·줄 간격을 줄인다.
         className={cn(
-          showDetail ? 'flex max-h-[85vh] flex-col gap-0 p-0' : 'max-h-[85vh] overflow-y-auto',
+          'max-h-[min(85vh,calc(100dvh-2rem))]',
+          showDetail ? 'flex flex-col gap-0 p-0' : 'overflow-y-auto max-sm:gap-3 max-sm:p-4 sm:max-w-xl',
           aiAware.contentClassName,
         )}
         {...aiAware.contentProps}
@@ -316,204 +367,140 @@ export function EventDialog({
           />
         ) : (
           <>
-            <DialogHeader>
-              <DialogTitle>{dialogTitle}</DialogTitle>
+            {/* 머리 — 다이얼로그 이름은 작게(제목 칸이 주인공). 닫기(✕)가 오른쪽 위 절대 배치라 오른쪽 여백 */}
+            <DialogHeader className="pr-8 text-left">
+              <DialogTitle className="text-sm font-medium text-muted-foreground">{dialogTitle}</DialogTitle>
               <DialogDescription className="sr-only">{dialogTitle}</DialogDescription>
             </DialogHeader>
 
-            {/* 회의 참가 — 주최자는 보기 화면 없이 편집 폼을 열므로 여기에도 둔다. 기존 일정(상세 로드 뒤)에만 — 새 일정엔 회의 정보가 없다(WP-710) */}
-            {isEdit && eventWithDetail?.onlineMeeting && (
-              <JoinMeetingButton onlineMeeting={eventWithDetail.onlineMeeting} testId="calendar-form-join" />
-            )}
-
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-3">
-              {/* 제목 */}
-              <FormField
-                label="제목"
-                htmlFor="ev-title"
-                required
-                error={form.formState.errors.title?.message}
-              >
+            {/* 줄 간격 — 터치에선 컨트롤이 44px 로 커져 같은 간격이면 듬성해 보여 줄 사이를 줄인다(누르는 영역은 컨트롤 높이가 지킨다) */}
+            {/* 제출 핸들러는 제출 때 만든다 — 렌더 중에 handleSubmit(중복 제출 가드 ref 를 읽음)을 넘겨 묶지 않게 */}
+            <form
+              onSubmit={(e) => void form.handleSubmit(handleSubmit)(e)}
+              className="space-y-3 pointer-coarse:space-y-1.5"
+            >
+              {/* 제목 — 테두리 없이 아래 줄만 있는 큰 칸. 이름표가 없어 aria-label 로 「제목」을 읽힌다 */}
+              <div className="space-y-1.5">
                 <Input
                   id="ev-title"
                   data-testid="calendar-form-title"
-                  placeholder="일정 제목"
+                  aria-label="제목"
+                  aria-invalid={!!form.formState.errors.title}
+                  placeholder="제목 추가"
+                  autoComplete="off"
+                  className="h-auto rounded-none border-0 border-b border-border bg-transparent px-0 pt-0.5 pb-2 text-lg font-semibold shadow-none focus-visible:border-ring focus-visible:ring-0 md:text-lg dark:bg-transparent"
                   {...form.register('title')}
                 />
-              </FormField>
-
-              {/* 태그 — 이미 있는 일정만(새 일정은 붙일 id 가 없다). 저장 버튼과 별개로 체크하면 바로 저장된다(WP-714) */}
-              {isEdit && detailEvent && <EventTagsField event={detailEvent} />}
-
-              {/* 종일 여부 — Radix Checkbox는 Controller 로 연결 */}
-              <div className="flex items-center gap-2">
-                <Controller
-                  control={form.control}
-                  name="allDay"
-                  render={({ field }) => (
-                    <Checkbox
-                      id="ev-allday"
-                      // 16px 체크박스 — 터치에서는 눌림 영역을 24px 로 넓힌다(WP-734).
-                      className={HIT_AREA_COARSE_TIGHT}
-                      data-testid="calendar-form-allday"
-                      checked={field.value}
-                      onCheckedChange={(checked) => {
-                        field.onChange(checked)
-                        const current = { start: form.getValues('start'), end: form.getValues('end') }
-                        // 체크하면 지금 시각을 기억해 두고 자정 경계로 정규화, 풀면 기억한 시각으로 되돌린다(WP-711).
-                        // 처음부터 종일이던 일정은 되살릴 시각이 없어 자정 값을 그대로 둔다.
-                        let next: { start: string; end: string } | null = null
-                        if (checked) {
-                          timedRangeRef.current = current
-                          next = normalizeAllDayRange(current.start, current.end)
-                        } else if (timedRangeRef.current) {
-                          next = restoreTimedRange(current, timedRangeRef.current)
-                          timedRangeRef.current = null
-                        }
-                        if (next) {
-                          form.setValue('start', next.start, { shouldValidate: true })
-                          form.setValue('end', next.end, { shouldValidate: true })
-                        }
-                      }}
-                    />
-                  )}
-                />
-                <label htmlFor="ev-allday" className="text-sm cursor-pointer select-none">
-                  종일
-                </label>
+                {form.formState.errors.title && (
+                  <p className="text-sm text-destructive">{form.formState.errors.title.message}</p>
+                )}
               </div>
 
-              {/* 시작 / 종료 — 좁은 화면(<640px)에선 한 줄씩 전체 폭. 반 폭(150px)이면 datetime-local 값이 날짜에서 잘려
-                  시각이 안 보였다(WP-635, 일정 제안 카드 WP-593 과 같은 처리). */}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <FormField
-                  label="시작"
-                  htmlFor="ev-start"
-                  error={form.formState.errors.start?.message}
-                >
+              {/* 회의 참가 — 주최자는 보기 화면 없이 편집 폼을 열므로 여기에도 둔다. 기존 일정(상세 로드 뒤)에만 — 새 일정엔 회의 정보가 없다(WP-710) */}
+              {isEdit && eventWithDetail?.onlineMeeting && (
+                <JoinMeetingButton onlineMeeting={eventWithDetail.onlineMeeting} testId="calendar-form-join" />
+              )}
+
+              {/* 시간 — 시작·종료 한 줄(휴대폰은 한 줄씩 전체 폭: 반 폭이면 datetime-local 값이 날짜에서 잘려 시각이 안 보였다 WP-635),
+                  그 아래 종일·반복. 반복을 시간 옆에 두는 건 상세 보기(시간 아래 반복 문구)와 같은 자리다. */}
+              <EventFormRow icon={Clock}>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                   <Input
                     id="ev-start"
                     type="datetime-local"
                     data-testid="calendar-form-start"
+                    aria-label="시작"
+                    aria-invalid={!!form.formState.errors.start}
+                    className="h-8 w-full px-2 sm:w-auto pointer-coarse:h-11"
                     {...form.register('start')}
                   />
-                </FormField>
-                <FormField
-                  label="종료"
-                  htmlFor="ev-end"
-                  error={form.formState.errors.end?.message}
-                >
-                  <Input
-                    id="ev-end"
-                    type="datetime-local"
-                    data-testid="calendar-form-end"
-                    {...form.register('end')}
-                  />
-                </FormField>
-              </div>
+                  {/* 줄표는 종료 칸과 한 덩어리 — 좁아 꺾이면 줄표가 앞 줄 끝에 홀로 남지 않고 종료 칸과 함께 다음 줄로 간다 */}
+                  <span className="flex w-full items-center gap-2 sm:w-auto">
+                    <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">
+                      –
+                    </span>
+                    <Input
+                      id="ev-end"
+                      type="datetime-local"
+                      data-testid="calendar-form-end"
+                      aria-label="종료"
+                      aria-invalid={!!form.formState.errors.end}
+                      className="h-8 w-full px-2 sm:w-auto pointer-coarse:h-11"
+                      {...form.register('end')}
+                    />
+                  </span>
+                </div>
+                {(form.formState.errors.start || form.formState.errors.end) && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.start?.message ?? form.formState.errors.end?.message}
+                  </p>
+                )}
 
-              {/* 장소 */}
-              <FormField
-                label="장소"
-                htmlFor="ev-location"
-                error={form.formState.errors.location?.message}
-              >
-                <Input
-                  id="ev-location"
-                  data-testid="calendar-form-location"
-                  placeholder="장소 (선택)"
-                  {...form.register('location')}
-                />
-              </FormField>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                  {/* 종일 여부 — Radix Checkbox는 Controller 로 연결. 이름표가 곧 체크박스 글자라 그대로 보인다 */}
+                  {/* 체크박스와 글자를 label 로 감싸 둘 다 누를 수 있게 — 터치에선 줄 높이 44px(h-11)까지 눌린다 */}
+                  <label className="flex h-8 cursor-pointer items-center gap-2 pr-1 text-sm select-none pointer-coarse:h-11">
+                    <Controller
+                      control={form.control}
+                      name="allDay"
+                      render={({ field }) => (
+                        <Checkbox
+                          id="ev-allday"
+                          // 16px 체크박스 — 터치에서는 눌림 영역을 넓힌다(WP-734).
+                          className={HIT_AREA_COARSE_TIGHT}
+                          data-testid="calendar-form-allday"
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            field.onChange(checked)
+                            const current = { start: form.getValues('start'), end: form.getValues('end') }
+                            // 체크하면 지금 시각을 기억해 두고 자정 경계로 정규화, 풀면 기억한 시각으로 되돌린다(WP-711).
+                            // 처음부터 종일이던 일정은 되살릴 시각이 없어 자정 값을 그대로 둔다.
+                            let next: { start: string; end: string } | null = null
+                            if (checked) {
+                              timedRangeRef.current = current
+                              next = normalizeAllDayRange(current.start, current.end)
+                            } else if (timedRangeRef.current) {
+                              next = restoreTimedRange(current, timedRangeRef.current)
+                              timedRangeRef.current = null
+                            }
+                            if (next) {
+                              form.setValue('start', next.start, { shouldValidate: true })
+                              form.setValue('end', next.end, { shouldValidate: true })
+                            }
+                          }}
+                        />
+                      )}
+                    />
+                    종일
+                  </label>
 
-              {/* 캘린더 — 드롭다운으로 컨테이너 선택. 기본값=isDefault 캘린더.
-                  초대받은 일정(내 목록에 없는 주최자 캘린더)은 읽기 전용이라 상세 보기에서 「초대받은 일정」 칩으로 보인다(WP-604·WP-708). */}
-              <FormField label="캘린더" htmlFor="ev-calendar">
-                <Controller
-                  control={form.control}
-                  name="calendarId"
-                  render={({ field }) => (
+                  {/* 반복 — 빈도 (이슈 #111). 폼이 담을 수 없는 규칙이면 아래 잠김 안내가 대신한다(WP-708) */}
+                  {!lockedRecurrenceRule && (
                     <Select
-                      value={field.value?.toString() ?? ''}
-                      onValueChange={(v) => field.onChange(Number(v))}
+                      value={recurrenceFreq}
+                      onValueChange={(v) => form.setValue('recurrenceFreq', v as FormValues['recurrenceFreq'])}
                     >
                       <SelectTrigger
-                        id="ev-calendar"
-                        data-testid="calendar-form-calendar"
-                        className="w-full"
+                        id="ev-recurrence-freq"
+                        data-testid="calendar-form-recurrence-freq"
+                        aria-label="반복"
+                        size="sm"
+                        className="pointer-coarse:min-h-11"
                       >
-                        <SelectValue placeholder="캘린더 선택" />
+                        <Repeat aria-hidden="true" />
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {/* 읽기전용(외부 동기화) 컨테이너는 생성/이동 대상에서 제외 — 백엔드 resolveCalendarId 가드와 일치 */}
-                        {calendars
-                          .filter((c) => !c.isReadOnly)
-                          .map((c) => (
-                            <SelectItem key={c.id} value={c.id.toString()}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
+                        <SelectItem value="NONE">반복 안 함</SelectItem>
+                        <SelectItem value="DAILY">매일</SelectItem>
+                        <SelectItem value="WEEKLY">매주</SelectItem>
+                        <SelectItem value="MONTHLY">매월</SelectItem>
                       </SelectContent>
                     </Select>
                   )}
-                />
-              </FormField>
-
-              {/* 색 — '상속' 칩(점선, color=null) + 8색 override 칩 */}
-              <FormField label="색" htmlFor="ev-color">
-                <div className="flex flex-wrap items-center gap-2" data-testid="calendar-form-color">
-                  <button
-                    type="button"
-                    data-testid="calendar-color-inherit"
-                    onClick={() => form.setValue('color', null)}
-                    className={`flex size-7 items-center justify-center rounded-full border-2 border-dashed text-[10px] ${
-                      form.watch('color') === null ? 'border-foreground' : 'border-muted-foreground/40'
-                    }`}
-                  >
-                    상속
-                  </button>
-                  {PALETTE_KEYS.map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      data-testid={`calendar-color-${k}`}
-                      onClick={() => form.setValue('color', k)}
-                      className={`size-7 rounded-full border-2 ${resolvePalette(k).dotClass} ${
-                        form.watch('color') === k ? 'border-foreground' : 'border-transparent'
-                      }`}
-                      aria-label={resolvePalette(k).label}
-                    />
-                  ))}
                 </div>
-              </FormField>
 
-              {/* 알림(리마인더) — 시작 N분 전 알림 */}
-              <FormField label="알림(리마인더)" htmlFor="ev-reminder">
-                <Select
-                  value={form.watch('reminderMinutes')}
-                  onValueChange={(v) =>
-                    form.setValue('reminderMinutes', v as FormValues['reminderMinutes'])
-                  }
-                >
-                  <SelectTrigger
-                    id="ev-reminder"
-                    data-testid="calendar-form-reminder"
-                    className="w-full"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">없음</SelectItem>
-                    <SelectItem value="10">{reminderLabel(10)}</SelectItem>
-                    <SelectItem value="60">{reminderLabel(60)}</SelectItem>
-                    <SelectItem value="1440">{reminderLabel(1440)}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormField>
-
-              {/* 반복 설정 — 빈도/간격/종료 (이슈 #111). 폼이 담을 수 없는 규칙이면 잠그고 안내만 */}
-              <FormField label="반복" htmlFor={lockedRecurrenceRule ? undefined : 'ev-recurrence-freq'}>
-                {lockedRecurrenceRule ? (
+                {lockedRecurrenceRule && (
                   <div className="space-y-2" data-testid="calendar-form-recurrence-locked">
                     <p className="text-sm text-muted-foreground">
                       이 일정의 반복 규칙은 여기서 그대로 고칠 수 없어요. 저장해도 원래 규칙이 유지돼요.
@@ -528,133 +515,254 @@ export function EventDialog({
                       새 규칙으로 바꾸기
                     </Button>
                   </div>
-                ) : (
-                  <Select
-                    value={form.watch('recurrenceFreq')}
-                    onValueChange={(v) =>
-                      form.setValue('recurrenceFreq', v as FormValues['recurrenceFreq'])
-                    }
-                  >
-                    <SelectTrigger
-                      id="ev-recurrence-freq"
-                      data-testid="calendar-form-recurrence-freq"
-                      className="w-full"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="NONE">없음</SelectItem>
-                      <SelectItem value="DAILY">매일</SelectItem>
-                      <SelectItem value="WEEKLY">매주</SelectItem>
-                      <SelectItem value="MONTHLY">매월</SelectItem>
-                    </SelectContent>
-                  </Select>
                 )}
-              </FormField>
 
-              {/* freq ≠ NONE 일 때만 간격/종료 조건 표시(잠긴 규칙은 제외) */}
-              {!lockedRecurrenceRule && form.watch('recurrenceFreq') !== 'NONE' && (
-                <>
-                  <FormField
-                    label={`${recurrenceUnitLabel(form.watch('recurrenceFreq'))}마다`}
-                    htmlFor="ev-recurrence-interval"
-                    error={form.formState.errors.recurrenceInterval?.message}
-                  >
-                    <Input
-                      id="ev-recurrence-interval"
-                      type="number"
-                      min={1}
-                      data-testid="calendar-form-recurrence-interval"
-                      {...form.register('recurrenceInterval', { valueAsNumber: true })}
-                    />
-                  </FormField>
-
-                  <FormField label="종료" htmlFor="ev-recurrence-end">
-                    <Select
-                      value={form.watch('recurrenceEnd')}
-                      onValueChange={(v) =>
-                        form.setValue('recurrenceEnd', v as FormValues['recurrenceEnd'])
-                      }
-                    >
-                      <SelectTrigger
-                        id="ev-recurrence-end"
-                        data-testid="calendar-form-recurrence-end"
-                        className="w-full"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">없음</SelectItem>
-                        <SelectItem value="until">날짜까지</SelectItem>
-                        <SelectItem value="count">횟수</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-
-                  {/* 종료=날짜까지 → 날짜 입력 */}
-                  {form.watch('recurrenceEnd') === 'until' && (
-                    <FormField
-                      label="종료 날짜"
-                      htmlFor="ev-recurrence-until"
-                      error={form.formState.errors.recurrenceUntil?.message}
-                    >
+                {/* freq ≠ NONE 일 때만 간격/종료 조건 — 「[2] 주마다 · [횟수 ▾] [3] 회」 한 줄(좁으면 다음 줄). 잠긴 규칙은 제외 */}
+                {!lockedRecurrenceRule && recurrenceFreq !== 'NONE' && (
+                  <>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
                       <Input
-                        id="ev-recurrence-until"
-                        type="date"
-                        data-testid="calendar-form-recurrence-until"
-                        {...form.register('recurrenceUntil')}
-                      />
-                    </FormField>
-                  )}
-
-                  {/* 종료=횟수 → 횟수 입력 */}
-                  {form.watch('recurrenceEnd') === 'count' && (
-                    <FormField
-                      label="반복 횟수"
-                      htmlFor="ev-recurrence-count"
-                      error={form.formState.errors.recurrenceCount?.message}
-                    >
-                      <Input
-                        id="ev-recurrence-count"
+                        id="ev-recurrence-interval"
                         type="number"
                         min={1}
-                        data-testid="calendar-form-recurrence-count"
-                        {...form.register('recurrenceCount', { valueAsNumber: true })}
+                        data-testid="calendar-form-recurrence-interval"
+                        aria-label={`${recurrenceUnitLabel(recurrenceFreq)}마다`}
+                        aria-invalid={!!form.formState.errors.recurrenceInterval}
+                        className="h-8 w-16 px-2 pointer-coarse:h-11"
+                        {...form.register('recurrenceInterval', { valueAsNumber: true })}
                       />
-                    </FormField>
-                  )}
-                </>
+                      <span className="mr-2 text-muted-foreground">
+                        {recurrenceUnitLabel(recurrenceFreq)}마다
+                      </span>
+                      <Select
+                        value={recurrenceEnd}
+                        onValueChange={(v) => form.setValue('recurrenceEnd', v as FormValues['recurrenceEnd'])}
+                      >
+                        <SelectTrigger
+                          id="ev-recurrence-end"
+                          data-testid="calendar-form-recurrence-end"
+                          aria-label="반복 종료"
+                          size="sm"
+                          className="pointer-coarse:min-h-11"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">종료 없음</SelectItem>
+                          <SelectItem value="until">날짜까지</SelectItem>
+                          <SelectItem value="count">횟수</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {/* 종료=날짜까지 → 날짜 입력 */}
+                      {recurrenceEnd === 'until' && (
+                        <Input
+                          id="ev-recurrence-until"
+                          type="date"
+                          data-testid="calendar-form-recurrence-until"
+                          aria-label="종료 날짜"
+                          aria-invalid={!!form.formState.errors.recurrenceUntil}
+                          className="h-8 w-auto px-2 pointer-coarse:h-11"
+                          {...form.register('recurrenceUntil')}
+                        />
+                      )}
+                      {/* 종료=횟수 → 횟수 입력 */}
+                      {recurrenceEnd === 'count' && (
+                        <span className="inline-flex items-center gap-2">
+                          <Input
+                            id="ev-recurrence-count"
+                            type="number"
+                            min={1}
+                            data-testid="calendar-form-recurrence-count"
+                            aria-label="반복 횟수"
+                            aria-invalid={!!form.formState.errors.recurrenceCount}
+                            className="h-8 w-16 px-2 pointer-coarse:h-11"
+                            {...form.register('recurrenceCount', { valueAsNumber: true })}
+                          />
+                          <span className="text-muted-foreground">회</span>
+                        </span>
+                      )}
+                    </div>
+                    {(form.formState.errors.recurrenceInterval ||
+                      form.formState.errors.recurrenceUntil ||
+                      form.formState.errors.recurrenceCount) && (
+                      <p className="text-sm text-destructive">
+                        {form.formState.errors.recurrenceInterval?.message ??
+                          form.formState.errors.recurrenceUntil?.message ??
+                          form.formState.errors.recurrenceCount?.message}
+                      </p>
+                    )}
+                  </>
+                )}
+              </EventFormRow>
+
+              {/* 장소 */}
+              <EventFormRow icon={MapPin}>
+                <Input
+                  id="ev-location"
+                  data-testid="calendar-form-location"
+                  aria-label="장소"
+                  aria-invalid={!!form.formState.errors.location}
+                  placeholder="장소 추가"
+                  className="h-8 px-2.5 pointer-coarse:h-11"
+                  {...form.register('location')}
+                />
+                {form.formState.errors.location && (
+                  <p className="text-sm text-destructive">{form.formState.errors.location.message}</p>
+                )}
+              </EventFormRow>
+
+              {/* 참석자 — 생성 모드: 로컬 선택, 편집 모드: 상세 attendees + 즉시 invite/remove (이슈 #489) */}
+              {/* onInvite/onRemove 는 내가 ORGANIZER 이고 읽기전용이 아닐 때만 노출 (#547). 그 외 편집 모드는 추가 버튼도 숨김(WP-200) */}
+              {/* 참석자를 관리할 수 없고(주최자 아님) 참석자도 없으면 줄째 숨긴다 — 아이콘만 덩그러니 남지 않게 */}
+              {/* 기존 일정의 상세(주최자 여부·참석자)가 오기 전엔 같은 높이의 자리표시를 둔다 — 뒤늦게 줄이 끼어들어 아래 칸이 밀리지 않게(WP-801) */}
+              {attendeesLoading ? (
+                <EventFormRow icon={Users} testId="calendar-form-attendees-loading">
+                  <div className={FORM_CHIP_LINE_CLASS} aria-hidden="true">
+                    <span className="h-[22px] w-20 animate-pulse rounded-full bg-muted" />
+                  </div>
+                </EventFormRow>
+              ) : showAttendees ? (
+                <EventFormRow icon={Users}>
+                  <AttendeeSection
+                    selectedMembers={selectedAttendees}
+                    onChange={setSelectedAttendees}
+                    attendees={eventWithDetail?.attendees}
+                    onInvite={canManageAttendees ? (userId) => inviteAttendees.mutate([userId]) : undefined}
+                    onRemove={canManageAttendees ? (userId) => removeAttendee.mutate(userId) : undefined}
+                    hideAdd={isEdit && !canManageAttendees}
+                  />
+                </EventFormRow>
+              ) : null}
+
+              {/* 알림(리마인더) — 시작 N분 전 알림 */}
+              <EventFormRow icon={Bell}>
+                <Select
+                  value={reminderMinutes}
+                  onValueChange={(v) => form.setValue('reminderMinutes', v as FormValues['reminderMinutes'])}
+                >
+                  <SelectTrigger
+                    id="ev-reminder"
+                    data-testid="calendar-form-reminder"
+                    aria-label="알림(리마인더)"
+                    size="sm"
+                    className="pointer-coarse:min-h-11"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">알림 없음</SelectItem>
+                    <SelectItem value="10">{reminderLabel(10)}</SelectItem>
+                    <SelectItem value="60">{reminderLabel(60)}</SelectItem>
+                    <SelectItem value="1440">{reminderLabel(1440)}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </EventFormRow>
+
+              {/* 캘린더 + 색 — 한 알약 안에 [색 점 | 캘린더 이름 ▾]. 점을 누르면 색 팝오버(상속 + 8색), 이름을 누르면 캘린더 목록.
+                  색이 따로 한 줄을 차지하지 않는다. 점 색은 고른 색, 상속이면 고른 캘린더의 색.
+                  초대받은 일정(내 목록에 없는 주최자 캘린더)은 읽기 전용이라 상세 보기에서 「초대받은 일정」 칩으로 보인다(WP-604·WP-708). */}
+              <EventFormRow icon={CalendarIcon}>
+                <div className="inline-flex h-8 max-w-full items-center rounded-md border border-input shadow-xs pointer-coarse:h-11 dark:bg-input/30">
+                  <Popover open={colorOpen} onOpenChange={setColorOpen}>
+                    <PopoverTrigger asChild>
+                      {/* 터치에선 44px 칸이지만 점은 오른쪽 끝(이름 쪽)에 붙여 「● 기본」이 떨어져 보이지 않게 한다 */}
+                      <button
+                        type="button"
+                        aria-label="색"
+                        title="일정 색"
+                        data-testid="calendar-form-color"
+                        className="-my-px flex h-[calc(100%+2px)] shrink-0 items-center justify-center rounded-l-md pr-1 pl-2.5 outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 pointer-coarse:min-w-11 pointer-coarse:justify-end pointer-coarse:pr-1.5 pointer-coarse:pl-0"
+                      >
+                        <span
+                          className={cn(
+                            'size-3 rounded-full ring-offset-background',
+                            resolvePalette(color ?? calendarColor).dotClass,
+                          )}
+                        />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      // 휴대폰에서 화면 가장자리에 붙지 않게 16px 띄우고, 좁으면 팔레트가 다음 줄로 꺾인다.
+                      // 아래쪽 하단 탭바 높이는 앱 공용 PopoverContent(overlay/popover)가 더해 자리가 없으면 위로 뒤집힌다(WP-806)
+                      collisionPadding={16}
+                      className="w-auto max-w-[calc(100vw-2rem)] p-3"
+                      data-testid="calendar-color-popover"
+                    >
+                      <p className="mb-2 text-xs text-muted-foreground">일정 색</p>
+                      {/* 상속(점선) = color null, 캘린더 색을 따른다. 고르면 팝오버를 닫는다 */}
+                      <PaletteSwatches
+                        value={color}
+                        onChange={(next) => {
+                          form.setValue('color', next)
+                          setColorOpen(false)
+                        }}
+                        testIdPrefix="calendar-color-"
+                        inherit={{ label: '캘린더 색 따르기' }}
+                        withTitle
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <Controller
+                    control={form.control}
+                    name="calendarId"
+                    render={({ field }) => (
+                      <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(Number(v))}>
+                        <SelectTrigger
+                          id="ev-calendar"
+                          data-testid="calendar-form-calendar"
+                          aria-label="캘린더"
+                          size="sm"
+                          // 바깥 알약이 테두리를 맡는다 — 트리거 자체 테두리·그림자·배경은 끈다
+                          // 높이는 알약 테두리까지 덮게(-my-px) — 터치에서 알약 44px 전체가 눌리는 자리가 된다
+                          className="-my-px h-[calc(100%+2px)] min-w-0 rounded-l-none border-0 bg-transparent pl-1.5 shadow-none pointer-coarse:pl-1 data-[size=sm]:h-[calc(100%+2px)] dark:bg-transparent dark:hover:bg-accent"
+                        >
+                          <SelectValue placeholder="캘린더 선택" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* 읽기전용(외부 동기화) 컨테이너는 생성/이동 대상에서 제외 — 백엔드 resolveCalendarId 가드와 일치 */}
+                          {calendars
+                            .filter((c) => !c.isReadOnly)
+                            .map((c) => (
+                              <SelectItem key={c.id} value={c.id.toString()}>
+                                {c.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              </EventFormRow>
+
+              {/* 태그 — 폼 상태라 「수정」·「저장」 때 함께 저장되고 「취소」면 버린다. 새 일정에도 보인다(WP-714) */}
+              {showTags && (
+                <EventTagsField
+                  value={formTags}
+                  onChange={setTouchedTags}
+                  editable={tagsEditable}
+                  hint={isEdit && detailEvent ? eventTagHint(detailEvent) : null}
+                />
               )}
 
-              {/* 참석자 섹션 — 생성 모드: 로컬 선택, 편집 모드: 상세 attendees + 즉시 invite/remove (이슈 #489) */}
-              {/* onInvite/onRemove 는 내가 ORGANIZER 이고 읽기전용이 아닐 때만 노출 (#547). 그 외 편집 모드는 추가 버튼도 숨김(WP-200) */}
-              <AttendeeSection
-                selectedMembers={selectedAttendees}
-                onChange={setSelectedAttendees}
-                attendees={eventWithDetail?.attendees}
-                onInvite={canManageAttendees ? (userId) => inviteAttendees.mutate([userId]) : undefined}
-                onRemove={canManageAttendees ? (userId) => removeAttendee.mutate(userId) : undefined}
-                hideAdd={isEdit && !canManageAttendees}
-              />
-
-              {/* 설명 */}
-              <FormField
-                label="설명"
-                htmlFor="ev-description"
-                error={form.formState.errors.description?.message}
-              >
+              {/* 설명 — 내용에 맞춰 늘어난다. 고정 줄 수면 다이얼로그 스크롤 안에서 설명 칸이 또 스크롤됐다(WP-708) */}
+              <EventFormRow icon={AlignLeft}>
                 <Textarea
                   id="ev-description"
                   data-testid="calendar-form-description"
-                  placeholder="설명 (선택)"
-                  rows={3}
-                  // 내용에 맞춰 늘어난다 — 고정 3줄이면 다이얼로그 스크롤 안에서 설명 칸이 또 스크롤됐다(WP-708)
-                  className="field-sizing-content"
+                  aria-label="설명"
+                  aria-invalid={!!form.formState.errors.description}
+                  placeholder="설명 추가"
+                  className="field-sizing-content min-h-16 resize-none px-2.5 py-1.5 pointer-coarse:py-2.5"
                   {...form.register('description')}
                 />
-              </FormField>
+                {form.formState.errors.description && (
+                  <p className="text-sm text-destructive">{form.formState.errors.description.message}</p>
+                )}
+              </EventFormRow>
 
-              <DialogFooter className="pt-2">
+              {/* 휴대폰에서도 한 줄 — 삭제는 왼쪽, 취소·저장은 오른쪽(공용 DialogFooter 의 세로 쌓기·전체 폭 삭제 대신, 이 폼에만) */}
+              <DialogFooter className="flex-row items-center pt-2">
                 {/* 편집 모드에서 onDelete 제공 시 삭제 버튼 표시 — 읽기전용은 상세 보기라 여기 오지 않는다 (이슈 #501) */}
                 {isEdit && onDelete && (
                   <Button
@@ -668,7 +776,7 @@ export function EventDialog({
                     삭제
                   </Button>
                 )}
-                <div className="flex gap-2 sm:ml-auto">
+                <div className="ml-auto flex gap-2">
                   <Button
                     type="button"
                     variant="ghost"

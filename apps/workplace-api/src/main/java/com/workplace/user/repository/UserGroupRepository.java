@@ -27,6 +27,17 @@ import org.springframework.stereotype.Repository;
 public class UserGroupRepository {
   private final DSLContext dsl;
 
+  /** 그룹 이동 직렬화 잠금 classId — 2-인자 pg_advisory_xact_lock(classId, tenantId)(WP-790). */
+  private static final int MOVE_LOCK_CLASS = 790;
+
+  /**
+   * 이 테넌트의 그룹 이동(부모 변경)을 트랜잭션 끝까지 직렬화한다(자동 해제, WP-790). 순환 검사(자손 집합)와 부모 변경 사이에 다른 이동이 끼면, 두 요청이 서로
+   * 커밋 전의 트리를 보고 둘 다 통과해 X→Y·Y→X 순환이 저장됐다. 그룹은 테넌트 안에서만 이어지므로 테넌트 단위로 잠근다 — 이동은 드물어 넓은 범위로도 충분하다.
+   */
+  public void lockMoves(long tenantId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", MOVE_LOCK_CLASS, (int) tenantId);
+  }
+
   /** 평면 그룹 레코드(트리 조립 전). */
   public record FlatGroup(
       long id,
@@ -277,11 +288,15 @@ public class UserGroupRepository {
 
   /** EXTERNAL 대상 검증 — 호출자가 읽을 수 있는 contact_entry 존재 여부(SHARED|owner|admin). */
   public boolean externalReadable(long callerId, boolean admin, long contactId) {
-    return dsl.fetchExists(
-        dsl.selectOne()
-            .from(CONTACT_ENTRY)
-            .where(CONTACT_ENTRY.ID.eq(contactId))
-            .and(externalReadableBy(callerId, admin)));
+    // 공유 잠금(FOR SHARE) — 편입하는 동안 그 연락처가 지워지면 멤버 행이 가리킬 데 없이 남는다(WP-820). 삭제가 먼저면 커밋을 기다린 뒤 행이 없어
+    // false, 편입이 먼저면 삭제가 이 트랜잭션의 커밋을 기다렸다가 편입한 행까지 정리한다.
+    return dsl.selectOne()
+        .from(CONTACT_ENTRY)
+        .where(CONTACT_ENTRY.ID.eq(contactId))
+        .and(externalReadableBy(callerId, admin))
+        .forShare()
+        .fetchOptional()
+        .isPresent();
   }
 
   /** 호출자가 읽을 수 있는 contact_entry 술어(SHARED|owner|admin) — 편입 검증과 멤버 목록이 같이 쓴다. */

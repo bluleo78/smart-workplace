@@ -151,6 +151,11 @@ public class WikiPage extends TableImpl<WikiPageRecord> {
      */
     public final TableField<WikiPageRecord, OffsetDateTime> AI_SUMMARIZED_AT = createField(DSL.name("ai_summarized_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.wiki_page.full_width</code>.
+     */
+    public final TableField<WikiPageRecord, Boolean> FULL_WIDTH = createField(DSL.name("full_width"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private WikiPage(Name alias, Table<WikiPageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -16,6 +16,7 @@ import com.workplace.global.util.LikePatternUtils;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -349,9 +350,52 @@ public class ContactRepository {
         .execute();
   }
 
-  /** 외부 연락처 삭제. 권한은 service 에서 검증한 뒤 호출. */
+  /**
+   * 외부 연락처 삭제. 권한은 service 에서 검증한 뒤 호출. 즐겨찾기·그룹 멤버는 target_id 로 이 행을 가리키는 다형 참조라 외래 키가 없다 — 같은
+   * 트랜잭션에서 함께 지운다(WP-820). 연락처 행을 먼저 지운다: 그 사이 즐겨찾기·그룹 편입이 행을 공유 잠금({@link #lockExternal})해 두었으면
+   * 여기서 기다렸다가, 그쪽이 커밋한 행까지 아래 정리가 본다(READ COMMITTED — 문장마다 새 스냅샷).
+   */
   public void delete(long id) {
     dsl.deleteFrom(CONTACT_ENTRY).where(CONTACT_ENTRY.ID.eq(id)).execute();
+    deleteExternalRefs(target -> target.eq(id));
+  }
+
+  /**
+   * 이 사람이 만든 외부 연락처를 가리키는 즐겨찾기·그룹 멤버 행을 지운다(WP-820) — 사용자 행 삭제가 owner_id CASCADE 로 연락처를 지울 때는
+   * {@link #delete} 를 거치지 않으므로, 사용자 행을 지우기 전에 부른다.
+   */
+  public void deleteExternalRefsOwnedBy(long ownerId) {
+    deleteExternalRefs(
+        target ->
+            target.in(
+                DSL.select(CONTACT_ENTRY.ID)
+                    .from(CONTACT_ENTRY)
+                    .where(CONTACT_ENTRY.OWNER_ID.eq(ownerId))));
+  }
+
+  /** target_type=EXTERNAL 이고 target_id 가 조건(한 id 또는 서브쿼리)에 맞는 즐겨찾기·그룹 멤버 행 삭제. */
+  private void deleteExternalRefs(Function<Field<Long>, Condition> targetMatches) {
+    dsl.deleteFrom(CONTACT_FAVORITE)
+        .where(CONTACT_FAVORITE.TARGET_TYPE.eq("EXTERNAL"))
+        .and(targetMatches.apply(CONTACT_FAVORITE.TARGET_ID))
+        .execute();
+    dsl.deleteFrom(USER_GROUP_MEMBER)
+        .where(USER_GROUP_MEMBER.TARGET_TYPE.eq("EXTERNAL"))
+        .and(targetMatches.apply(USER_GROUP_MEMBER.TARGET_ID))
+        .execute();
+  }
+
+  /**
+   * 외부 연락처 행을 공유 잠금(FOR SHARE)한다 — 즐겨찾기를 더하는 동안 그 연락처가 지워지지 않게(WP-820). 지우는 쪽이 먼저면 커밋을 기다린 뒤 행이 없어
+   * false, 더하는 쪽이 먼저면 삭제가 이 트랜잭션의 커밋을 기다렸다가 더한 행까지 정리한다.
+   */
+  public boolean lockExternal(long id) {
+    return dsl.selectOne()
+        .from(CONTACT_ENTRY)
+        .where(CONTACT_ENTRY.ID.eq(id))
+        .forShare()
+        .fetchOptional()
+        .isPresent();
   }
 
   private static String nullIfBlank(String s) {

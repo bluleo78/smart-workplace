@@ -5,6 +5,13 @@ import { useState } from 'react';
 
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -17,13 +24,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { parseFieldOptions } from '@/lib/customFieldOptions';
 import { cn } from '@/lib/utils';
 

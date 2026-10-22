@@ -4,15 +4,15 @@
 import { CircleCheckBig, LayoutGrid, List } from 'lucide-react';
 
 import { FacetFilter } from '@/components/filter';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@/components/overlay/select';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Tooltip,
   TooltipContent,

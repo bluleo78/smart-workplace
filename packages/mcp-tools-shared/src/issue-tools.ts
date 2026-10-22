@@ -1,11 +1,11 @@
-// src/issue-tools.ts — 두 앱 공유 이슈 도구 10종(WP-421: watch_issue·unwatch_issue 를 watch_issue 하나로 합침). 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+// src/issue-tools.ts — 두 앱 공유 이슈 도구 11종(WP-800: claim_issue 추가, WP-421: watch_issue·unwatch_issue 를 watch_issue 하나로 합침). 핸들러는 IssueToolClient(issueKey 기준)만 호출.
 import { normalizeTimezone } from './calendar-tools.js';
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
 import type { SharedTool } from './mcp-tool.js';
 import { ISSUE_DETAIL_COMMENT_HARD_LIMIT, ISSUE_DETAIL_COMMENT_LIMIT, ISSUE_DETAIL_HISTORY_LIMIT, normalizeIssueDetail } from './issue-detail.js';
 import { toAgentWorkView } from './agent-work-view.js';
-import { toAuthorView, toSeoulIso } from './issue-view.js';
+import { labelNames, toAuthorView, toPeopleView, toSeoulIso } from './issue-view.js';
 import { toIssueListItem } from './project-tools.js';
 import {
   createdLabelsField,
@@ -20,6 +20,7 @@ import {
 } from './resolve.js';
 import {
   addCommentInput,
+  claimIssueInput,
   createIssueInput,
   dependencyInput,
   editCommentInput,
@@ -86,7 +87,7 @@ function toDriveLinkView(link: Record<string, unknown>) {
   });
 }
 
-/** 공유 이슈 도구 10종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
+/** 공유 이슈 도구 11종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
     {
@@ -378,6 +379,26 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (watching) await client.watchIssue(issueKey);
         else await client.unwatchIssue(issueKey);
         return 'ok';
+      },
+    },
+    {
+      name: 'claim_issue',
+      app: 'issue',
+      kind: 'write',
+      // 같은 호출을 되풀이하면 대기열 라벨이 이미 없어 NOT_IN_QUEUE 로 거절된다 — 멱등이 아니다. 라벨을 떼지만 되돌릴 수 있어 destructive 도 아니다.
+      hints: { destructive: false, idempotent: false },
+      description:
+        'Takes a queued issue for you: if it carries queueLabel and has no AI assignee, adds you as assignee (people stay) and removes that label, ' +
+        'atomically. Refused (code NOT_IN_QUEUE / AI_ALREADY_ASSIGNED) if another AI got it first.',
+      inputSchema: claimIssueInput,
+      async handler(args) {
+        const { issueKey, queueLabel } = claimIssueInput.parse(args);
+        const { assignees, labels } = await client.claimIssue(issueKey, queueLabel);
+        // 숫자 userId·라벨 id·색은 빼고 사람을 username 으로, 라벨을 이름으로만 가리킨다(#833).
+        return JSON.stringify({
+          assignees: toPeopleView(assignees).map((p) => p.username),
+          labels: labelNames(labels),
+        });
       },
     },
   ];

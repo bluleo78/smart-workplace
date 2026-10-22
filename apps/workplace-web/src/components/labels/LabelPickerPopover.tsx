@@ -5,9 +5,9 @@
 import { Plus, Tag } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import { useCreateLabel, useLabels } from '../../hooks/queries/useLabels';
 import { useUpdateIssueLabels } from '../../hooks/queries/useUpdateIssueLabels';

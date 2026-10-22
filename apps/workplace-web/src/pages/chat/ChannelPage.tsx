@@ -30,6 +30,7 @@ import { useMentionAgents } from '@/hooks/queries/useMentionAgents'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAiWorkingBubbles } from '@/hooks/useAiWorkingBubbles'
 import { useAuth } from '@/hooks/useAuth'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -83,6 +84,8 @@ export default function ChannelPage() {
   const channelId = id ? Number(id) : undefined
   const { user } = useAuth()
   const detail = useChannelDetail(channelId)
+  // 탭 제목 — 「# {채널} · 대화」(WP-814).
+  useDocumentTitle([detail.data && `# ${detail.data.name}`, '대화'])
   const { data } = useChannelMessages(channelId)
   const messages = data?.pages.flatMap((p) => p.items) ?? []
   const { data: channelMembers } = useChannelMembers(channelId)

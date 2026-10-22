@@ -69,7 +69,7 @@ Smart Workplace 프론트엔드(`apps/workplace-web`)에서 실제로 반복되�
 ```
 
 - **여백은 16px 단일 값**: 헤더·본문·자체 레이아웃 행 모두 `pageGutterClass`(`px-4`). 본문 시작 x 는 콘텐츠 기준으로 헤더와 맞고, `Page.Body` 안쪽 `page-body-content` 래퍼가 `px-4 py-4` 를 갖는다.
-- **폭은 full / reading / settings 3종**: reading 은 왼쪽 정렬 `max-w-3xl`(768px), settings 는 왼쪽 정렬 `max-w-5xl`(1024px)+`@container` — 가운데 정렬(`mx-auto`)은 쓰지 않는다(헤더 시작선과 맞추기 위해). 설정 폼 규칙은 [03-spacing-layout.md](./03-spacing-layout.md#설정-폼--주석-섹션-wp-397).
+- **폭은 full / reading / settings 3종**: reading 은 왼쪽 정렬 `max-w-3xl`(768px), settings 는 왼쪽 정렬 `max-w-5xl`(1024px)+`@container` — 가운데 정렬(`mx-auto`)은 쓰지 않는다(헤더 시작선과 맞추기 위해 — 노트 본문만 예외, [03 Content Area 최대 너비](./03-spacing-layout.md#content-area-최대-너비)). 설정 폼 규칙은 [03-spacing-layout.md](./03-spacing-layout.md#설정-폼--주석-섹션-wp-397).
 - **헤더 바는 직접 만들지 않는다**: `h-14` + `border-b` 조합은 ESLint `headerBarRule` 이 막는다(예외는 layout·mobile 구현부). 사이드바 헤더(`sidebarTitleClass`)와 같은 `h-14` 로 한 선 정렬된다.
 - **본문 안 보조 칸**(채널 스레드 칼럼·개인 작업 패널 등)은 페이지 헤더 **아래**에 놓이므로 56px 헤더를 또 두지 않고 `subPaneHeaderClass`(`h-[34px]`·옅은 `border-border/60`·`text-xs font-semibold`) 소제목 줄을 쓴다. **앱 공통 패널(AI 옆 패널)만** `PanelHeader`(`h-14`)를 쓴다.
 - **AI 칩 클램프는 헤더가 처리**한다: AI 칩(fixed)은 레일 폭·AI 옆 패널 폭에 따라 움직이므로 `Page.Header` 가 칩의 실제 좌측 경계를 재서(`useAiChipClamp`) 좌측 그룹 max-width 를 `칩 좌측 − 그룹 좌측 − 16px`(최소 120px)로 둔다. 제목·위치 표시가 먼저 잘리고 icon 슬롯은 줄지 않는다 — 화면별 우회 코드를 두지 않는다.

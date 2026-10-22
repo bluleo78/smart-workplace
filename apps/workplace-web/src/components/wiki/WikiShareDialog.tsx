@@ -2,6 +2,7 @@ import { ChevronDown, Info, Link2, RefreshCw, UserPlus, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,7 +26,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatMonthDayClock } from '@/lib/formatters'

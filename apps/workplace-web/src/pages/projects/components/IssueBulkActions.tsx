@@ -6,6 +6,12 @@ import { useQueryClient } from '@tanstack/react-query';
 import { UserPlus, X } from 'lucide-react';
 import { useState } from 'react';
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/overlay/dropdown-menu';
 import { assigneeCandidates } from '@/lib/assigneeCandidates';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
@@ -20,12 +26,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../../../components/ui/alert-dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../../../components/ui/dropdown-menu';
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { findIssueInSearchCache } from '../../../hooks/queries/issueSearchCache';

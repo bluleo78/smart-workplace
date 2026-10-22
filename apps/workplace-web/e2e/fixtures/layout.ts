@@ -22,6 +22,12 @@ export async function expectStartAligned(a: Locator, b: Locator, tol = 1) {
   expect(Math.abs(ba.x - bb.x), `x 차이: ${ba.x} vs ${bb.x}`).toBeLessThanOrEqual(tol)
 }
 
+/** 칼럼과 그것을 담은 영역의 좌우 여백·칼럼 폭 — 가운데 정렬(좌≈우)·폭 상한 단언용(노트 본문, WP-793). */
+export async function columnGaps(column: Locator, container: Locator) {
+  const [c, o] = await Promise.all([boxOf(column), boxOf(container)])
+  return { width: c.width, left: c.x - o.x, right: o.x + o.width - (c.x + c.width) }
+}
+
 /** 헤더 하단선이 56px — 사이드바 헤더 하단선과 이어진다. */
 export async function expectHeaderBottomAt56(header: Locator) {
   const b = await boxOf(header)

@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import * as Y from 'yjs'
 
 import { AiLabel } from '@/components/ai/AiLabel'
-import { Page, pageBodyInsetClass, pageReadingWidthClass } from '@/components/layout/Page'
+import { Page, pageBodyInsetClass } from '@/components/layout/Page'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
 import { Button } from '@/components/ui/button'
 import { RenameDialog } from '@/components/ui/rename-dialog'
@@ -24,7 +24,7 @@ import {
   type WikiEntityCandidate,
 } from '../../hooks/queries/useWikiEntitySearch'
 import { useWikiMentions } from '../../hooks/queries/useWikiMentions'
-import { useDeletePage, useSaveTitle } from '../../hooks/queries/useWikiMutations'
+import { useDeletePage, useSavePageFullWidth, useSaveTitle } from '../../hooks/queries/useWikiMutations'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
 import { syncWikiSummaryVersion } from '../../hooks/queries/useWikiSummary'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
@@ -56,6 +56,7 @@ import { announceAiWriting } from './wikiAiPresence'
 import { stripLeadingTitleHeading } from './wikiAiTitleHeading'
 import { showAwayToast } from './wikiAwayToast'
 import { WikiBacklinksPanel } from './WikiBacklinksPanel'
+import { wikiBodyColumnClass } from './wikiBodyWidth'
 import { breadcrumbOrSelf, buildBreadcrumb } from './wikiBreadcrumb'
 import { highlightCatchUp, watchHiddenDoc } from './wikiCatchUpHighlight'
 import { anchorPosition, toRelative } from './wikiCollabPosition'
@@ -181,6 +182,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // 이 화면에서 켜는 기능 — 한 번 정해 아래에서 같은 값을 쓴다(공유 여부는 화면이 떠 있는 동안 바뀌지 않는다).
   const features = share ? SHARE_FEATURES : MEMBER_FEATURES
   const saveTitle = useSaveTitle(spaceId, shareToken)
+  const saveFullWidth = useSavePageFullWidth(shareToken)
   const del = useDeletePage(spaceId)
   // 공유 화면은 스페이스 트리를 받을 수 없다(멤버 아님) — 링크로 볼 수 있는 페이지 묶음을 트리로 쓴다.
   const { data: spaceTree } = useWikiTree(share ? null : spaceId)
@@ -971,11 +973,13 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // 본문 스크롤 영역 — 동기화 안내 띠가 sticky 로 붙고, 띠 높이만큼 scrollTop 을 보정하는 기준(WikiSyncNotice).
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // 페이지 틀(Page) reading 폭 — 본문은 헤더 경로 nav 와 같은 16px 축에서 왼쪽 정렬로 시작해 768px 로 제한된다
-  // (예전 mx-auto 가운데 정렬은 넓은 화면에서 헤더와 본문 시작선이 수백 px 어긋났다).
+  // 본문 칼럼 폭(WP-793) — 기본은 읽기 폭을 가운데에, 「전체 폭」 페이지는 제한 없이 스크롤 영역 끝까지 쓴다.
+  const fullWidth = page.fullWidth === true
+
+  // 페이지 틀(Page) — 헤더 여백·높이만 쓰고 본문 칼럼은 wikiBodyColumnClass 가 정한다(노트만 가운데 읽기 폭 / 전체 폭, WP-793).
   // 스크롤 영역은 Page.Body 대신 직접 둔다 — 동기화 안내 띠가 칼럼 밖(스크롤 영역 맨 위)에 붙어야 해서.
   return (
-    <Page width="reading">
+    <Page>
       <WikiPageHeader
         crumbs={crumbs}
         syncStatus={syncStatus}
@@ -995,10 +999,15 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         shared={page.shared === true}
         // 공유는 이 스페이스에 쓸 수 있는 사람(EDITOR 이상)만 바꾼다 — 보기만 하는 사람이 범위를 넓히지 못하게.
         onShare={canShare ? () => setShareOpen(true) : undefined}
+        fullWidth={fullWidth}
+        // 「전체 폭」은 제목처럼 편집할 수 있는 사람(EDITOR 이상·편집 공유 링크)만 바꾼다 — 읽기 전용이면 항목을 두지 않는다.
+        onFullWidthChange={readOnly ? undefined : (next) => saveFullWidth.mutate({ pageId: page.id, fullWidth: next })}
+        // 저장 중엔 잠근다 — 메뉴가 열린 채라 연타하면 응답 순서가 엇갈려 마지막 누름과 다른 폭이 남을 수 있다.
+        fullWidthSaving={saveFullWidth.isPending}
       />
       {/* 본문 줄 + 버전 기록(WP-282) — 에디터 스크롤 영역은 레이어 안 고정 자리에 늘 마운트된다(WikiRevisionLayer).
           미리보기 중엔 버블 툴바·표 메뉴도 끈다 — #root 에 붙어 inert 밖이라, 원격 입력이 shouldShow 를 다시 돌리면 덮개 위로 뜬다. */}
-      <WikiRevisionLayer revisions={revisions} pageId={page.id} isMobile={isMobile} canRestore={canEdit}>
+      <WikiRevisionLayer revisions={revisions} pageId={page.id} isMobile={isMobile} canRestore={canEdit} fullWidth={fullWidth}>
         {/* 본문 스크롤 영역 — 원격 삽입 화면 고정은 WikiRemoteScrollAnchor 가 직접 보정하므로 브라우저 스크롤 앵커링은 끈다(이중 보정 방지, WP-293).
             미리보기 중엔 inert 로 가린다(덮개 아래에 그대로 두어 스크롤 위치·동기화·미전송 입력이 남는다). */}
         <div
@@ -1009,8 +1018,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
           className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
         >
           {/* 미전송·접근 불가·삭제됨 등 동기화 안내 — 스크롤 영역 맨 위 sticky 띠(칼럼 밖·BubbleMenu 형제 목록 밖에 둔다). */}
-          <WikiSyncNotice status={syncStatus} listPath={listPath} scrollRef={scrollRef} />
-          <div data-testid="page-body-content" className={cn('flex flex-col', pageBodyInsetClass, pageReadingWidthClass)}>
+          <WikiSyncNotice status={syncStatus} listPath={listPath} scrollRef={scrollRef} fullWidth={fullWidth} />
+          <div data-testid="page-body-content" className={cn('flex flex-col', pageBodyInsetClass, wikiBodyColumnClass(fullWidth))}>
             {/* 선택 텍스트 변형 툴바(톤/번역/확장/축약/다듬기) — 뷰어·생성 중엔 비노출.
                 roleCanEdit(EDITOR/OWNER)일 때만 onCreateIssue 를 전달해 "이슈로 만들기" 버튼을 노출한다.
 

@@ -35,6 +35,12 @@ describe('describeApiError', () => {
       'API 오류 400: 위임 후보가 아닙니다 — projectKey: 후보 밖',
     );
   });
+  // WP-800: claim_issue 409 의 errors.code(NOT_IN_QUEUE 등)가 문구에 실려 AI 가 거절 사유를 구분할 수 있다.
+  it('409 의 errors.code 를 문구에 싣는다', () => {
+    expect(describeApiError(409, { message: '대기열에 없습니다', errors: { code: 'NOT_IN_QUEUE' } })).toBe(
+      'API 오류 409: 대기열에 없습니다 — code: NOT_IN_QUEUE',
+    );
+  });
   it('HTML 등 문자열 본문은 300자로 자른다', () => {
     expect(describeApiError(502, '<html>' + 'x'.repeat(400))).toHaveLength('API 오류 502: '.length + 300);
   });

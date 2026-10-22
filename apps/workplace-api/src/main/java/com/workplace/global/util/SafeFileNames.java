@@ -46,14 +46,14 @@ public final class SafeFileNames {
 
   /**
    * 고칠 수 없는 이름 정리 — NFC 로 맞추고 금지 문자를 "_" 로 바꾼 뒤 앞뒤 공백을 지우고 저장 칸 길이에 맞춘다({@link #fitLength}). null·빈
-   * 값·"."·".." 이면 fallback.
+   * 값·"."·".."·보이지 않는 글자(제로폭·점자 빈칸 등)뿐이면 fallback — 이름이 빈 칸인 파일이 생기지 않게(WP-781).
    */
   public static String sanitize(String raw, String fallback) {
     if (raw == null) {
       return fallback;
     }
     String s = FORBIDDEN_CHARS.matcher(UnicodeNames.toNfc(raw)).replaceAll("_").strip();
-    return isReserved(s) ? fallback : fitLength(s);
+    return isReserved(s) || !PersonNames.hasVisibleChar(s) ? fallback : fitLength(s);
   }
 
   /**

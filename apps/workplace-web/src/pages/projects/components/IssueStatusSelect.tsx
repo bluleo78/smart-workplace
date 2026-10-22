@@ -3,8 +3,9 @@
 // 미완료 선행(blockedBy) 이슈가 있는 상태에서 완료 범주로 전환하면 AlertDialog 로 한 번 확인한다(#827).
 // 의존성은 일정(scheduling) 관계라 서버는 전환을 막지 않는다 — soft 경고 정책(#669 와 동일 원칙).
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useRestoreFocusAfterPick } from '@/hooks/useRestoreFocusOnExit';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { sortStatuses } from '../../../lib/projectStatuses';
@@ -101,10 +102,14 @@ export function IssueStatusSelect({
   const current = options.find((s) => s.id === value);
   // 트리거 툴팁 — 긴 이름은 말줄임되므로 전체 이름을 title 로 남긴다.
   const triggerName = current?.name ?? currentName;
+  // 값을 고르면 저장 중 잠금(disabled)으로 트리거가 포커스를 잃어 body 로 빠졌다 — 풀리면 트리거로 돌린다(WP-813).
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const markPicked = useRestoreFocusAfterPick(disabled ?? false, triggerRef);
 
   const handleChange = (id: string) => {
     const next = options.find((s) => String(s.id) === id);
     if (!next || next.id === value) return;
+    markPicked();
     // 완료 범주로 처음 들어가고 미완료 선행이 있으면 → 즉시 PATCH 하지 않고 확인 다이얼로그.
     // 같은 완료 범주 안 이동(배포됨 → 완료)은 이미 완료라 다시 묻지 않는다.
     if (next.category === 'DONE' && current?.category !== 'DONE' && blockers.length > 0) {
@@ -117,7 +122,7 @@ export function IssueStatusSelect({
   return (
     <>
       <Select value={String(value)} onValueChange={handleChange} disabled={disabled}>
-        <SelectTrigger className="w-full" aria-label="상태" title={triggerName} data-testid="issue-status-select">
+        <SelectTrigger ref={triggerRef} className="w-full" aria-label="상태" title={triggerName} data-testid="issue-status-select">
           {/* 목록에서 현재 상태를 찾으면 Radix 가 그 항목을 그리고, 못 찾으면(로딩 중 등) 응답의 이름을 그대로 보인다.
               이름은 min-w-0 truncate span 으로 감싼다 — 값 영역이 flex + line-clamp 라 텍스트 노드만으론 말줄임표가 생기지 않는다. */}
           <SelectValue>{current ? undefined : currentName && <span className="min-w-0 truncate">{currentName}</span>}</SelectValue>

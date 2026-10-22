@@ -75,4 +75,23 @@ class DrivePermissionsArchivedTest extends IntegrationTestBase {
     assertThatThrownBy(() -> perms.requireRole(sp.id(), owner, "EDITOR"))
         .isInstanceOf(DriveForbiddenException.class);
   }
+
+  /** WP-787: 이미 보관된 채널에서 공간이 처음 만들어지면 보관된 채로 만들어져 쓰기는 403, 읽기는 된다. 보관 해제를 넘기면 다시 풀린다. */
+  @Test
+  void spaceFirstCreatedForArchivedChannel_isArchived() {
+    long owner = seedUser();
+    long channelId = seedChannel(owner);
+    List<ChannelMemberSnapshot> roster = List.of(new ChannelMemberSnapshot(owner, "OWNER"));
+
+    DriveSpaceResponse sp = channelSpaces.ensureChannelSpace(owner, channelId, "채널", roster, true);
+
+    assertThat(sp.archived()).isTrue();
+    assertThat(perms.requireRole(sp.id(), owner, "VIEWER")).isEqualTo("OWNER");
+    assertThatThrownBy(() -> perms.requireRole(sp.id(), owner, "EDITOR"))
+        .isInstanceOf(DriveForbiddenException.class);
+
+    assertThat(channelSpaces.ensureChannelSpace(owner, channelId, "채널", roster, false).archived())
+        .isFalse();
+    perms.requireRole(sp.id(), owner, "EDITOR");
+  }
 }

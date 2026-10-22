@@ -15,6 +15,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   add_contact_favorite: ['write', false, true, false],
   add_issue_dependency: ['write', false, true, false],
   add_user_group_member: ['write', false, true, false],
+  claim_issue: ['write', false, false, false],
   create_channel: ['write', false, false, false],
   create_drive_folder: ['write', false, false, false],
   create_external_contact: ['write', false, false, false],

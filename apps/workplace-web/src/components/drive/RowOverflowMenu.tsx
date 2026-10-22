@@ -3,8 +3,8 @@ import { MoreHorizontal } from 'lucide-react'
 
 import { ActionMenuItems } from '@/components/ActionMenuItems'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 
 /** 데스크톱 드라이브 행 hover 묶음 끝의 ⋯ 더보기 메뉴 — 인라인으로 꺼내지 않은 행 작업을 담는다. */
 export function RowOverflowMenu({

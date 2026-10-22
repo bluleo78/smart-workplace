@@ -6,7 +6,7 @@ import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAi
 import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
 import { Page } from '@/components/layout/Page'
 import { pageTitleClass } from '@/components/layout/sidebar-link'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useMeIssues } from '@/hooks/queries/useMeIssues'
 import { useWatchedIssues } from '@/hooks/queries/useWatchedIssues'
 import { buildMyTasksContext } from '@/lib/aiScreenContext/builders/issue'
@@ -62,18 +62,27 @@ export default function MyTasksPage() {
       <Page.Body className="space-y-4">
         {/* 모바일은 기존처럼 본문 첫 줄 큰 제목으로 화면 이름을 보인다(데스크톱은 헤더 제목이 대신). */}
         <h1 className={cn(pageTitleClass, 'lg:hidden')}>내 작업</h1>
-        <Tabs value={active} onValueChange={(v) => navigate(`/me/tasks/${v}`)}>
+        {/* 탭 내용은 TabsContent(role=tabpanel) 안에 둔다 — 없으면 탭의 aria-controls 가 없는 id 를 가리켜 스크린리더가 탭과
+            내용을 잇지 못한다(WP-841). 선택 탭의 패널만 그려진다(Radix 기본). */}
+        <Tabs value={active} onValueChange={(v) => navigate(`/me/tasks/${v}`)} className="gap-4">
           <TabsList>
             <TabsTrigger value="assigned" data-testid="tab-assigned">{MY_TASKS_TAB_LABEL.assigned}</TabsTrigger>
             <TabsTrigger value="reported" data-testid="tab-reported">{MY_TASKS_TAB_LABEL.reported}</TabsTrigger>
             <TabsTrigger value="watched" data-testid="tab-watched">{MY_TASKS_TAB_LABEL.watched}</TabsTrigger>
           </TabsList>
+          {/* facet 바는 /me/issues 기반 탭(할당·내가 만든)에서만 노출 — 구독은 다른 엔드포인트라 제외. */}
+          <TabsContent value="assigned" className="space-y-4">
+            <MeTaskFilterBar />
+            <AssignedTab />
+          </TabsContent>
+          <TabsContent value="reported" className="space-y-4">
+            <MeTaskFilterBar />
+            <ReportedTab />
+          </TabsContent>
+          <TabsContent value="watched">
+            <WatchedTab />
+          </TabsContent>
         </Tabs>
-        {/* facet 바는 /me/issues 기반 탭(할당·내가 만든)에서만 노출 — 구독은 다른 엔드포인트라 제외. */}
-        {active !== 'watched' && <MeTaskFilterBar />}
-        {active === 'assigned' && <AssignedTab />}
-        {active === 'reported' && <ReportedTab />}
-        {active === 'watched' && <WatchedTab />}
       </Page.Body>
     </Page>
   )

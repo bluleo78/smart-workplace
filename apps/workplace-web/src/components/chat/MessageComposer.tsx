@@ -105,6 +105,7 @@ export function MessageComposer({
       />
       {/* 첨부/드라이브 링크가 있으면 본문이 비어도 전송 허용(allowEmptySubmit). */}
       <RichInput
+        ariaLabel="채팅 메시지 작성"
         members={members}
         onSubmit={handleSubmit}
         clearOnSubmit

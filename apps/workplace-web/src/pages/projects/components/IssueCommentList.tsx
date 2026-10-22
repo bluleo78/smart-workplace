@@ -7,7 +7,7 @@
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
@@ -19,12 +19,15 @@ import type { MentionCandidate, MentionUser } from '@/components/mentions/types'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu';
 import { ReactorsOverlay } from '@/components/reactions/ReactorsOverlay';
+import { useReactionFocusRestore } from '@/components/reactions/useReactionFocusRestore';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useListFocusRescue } from '@/hooks/useListFocusRescue';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
+import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 
 import { uploadIssueImage } from '../../../api/issueImages';
 import { commentReactorSource } from '../../../hooks/queries/commentReactorSource';
@@ -84,6 +87,9 @@ function CommentItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 수정을 끝내면(Esc 취소·저장) 편집기가 사라져 포커스가 body 로 빠졌다 — 「코멘트 수정」 버튼으로 돌린다(WP-813).
+  const editButtonRef = useRef<HTMLButtonElement | null>(null);
+  useRestoreFocusOnExit(editing, editButtonRef);
   const commentActions: MobileSheetAction[] = [
     { key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => setEditing(true) },
     { key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => setConfirmOpen(true) },
@@ -97,6 +103,9 @@ function CommentItem({
   const toggleReaction = (emoji: string) => toggle(comment.id, emoji);
   // 반응 없는 코멘트(마우스)의 😊+ 는 본문 아래가 아니라 헤더 hover 액션 자리에 둔다 — 빈 칩 줄이 공간을 차지하지 않게(WP-504).
   const headerReactionAdd = canReact && !touch && !editing && (comment.reactions ?? []).length === 0;
+  // 반응 칩·헤더 「반응 추가」가 눌린 뒤 사라지면(첫 반응 → 칩 줄 ＋, 내 반응만 있던 칩 취소) 같은 코멘트의 반응 컨트롤로 포커스를 잇는다(WP-830).
+  const itemRef = useRef<HTMLLIElement>(null);
+  useReactionFocusRestore(itemRef, comment.reactions);
 
   // 수정 저장 — PATCH 호출 후 편집 모드 종료. 실패 시 편집 모드 유지 + 입력 보존(RichInput reject 처리).
   const handleSave = async (body: string) => {
@@ -138,6 +147,7 @@ function CommentItem({
 
   return (
     <li
+      ref={itemRef}
       className={[
         // min-w-0 — 카드가 flex/grid 자식일 때 긴 내용이 카드 폭을 밀어내지 않게(WP-228).
         'relative group min-w-0 border rounded p-3',
@@ -186,8 +196,10 @@ function CommentItem({
               actions={commentActions}
             />
           ) : (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            // 키보드 포커스가 들어와도 보이게(focus-within) — 수정 뒤 포커스가 이 버튼으로 돌아온다(WP-813).
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
               <Button
+                ref={editButtonRef}
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
@@ -232,6 +244,7 @@ function CommentItem({
       {editing ? (
         <div className="mt-2">
           <RichInput
+            ariaLabel="코멘트 수정"
             members={mentionCandidates}
             initialBody={comment.body}
             initialMentions={mentionUsers}
@@ -306,6 +319,11 @@ function CommentItem({
 }
 
 // 코멘트 목록을 시간순으로 표시하고, 하단 폼에서 신규 코멘트를 추가.
+/** 코멘트를 모두 지웠을 때 포커스를 받을 작성칸 — 데스크톱은 목록 아래, 모바일(WP-196)은 화면 하단 줄에 하나만 그려진다. */
+function commentComposerInput(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-testid="issue-comment-input"]');
+}
+
 export function IssueCommentList({
   projectKey,
   issueNumber,
@@ -344,6 +362,8 @@ export function IssueCommentList({
   if (reactors?.open && !reactorsComment?.reactions?.length) setReactors({ ...reactors, open: false });
   // 터치에서 칩을 길게 누르면 반응자 시트 — 코멘트 행 자체의 길게 누르기 작업 시트는 없다(canOpen=false, 네이티브 메뉴 유지).
   const longPress = useMessageListLongPress(touch, () => false, () => {}, openReactors);
+  // 코멘트를 키보드로 지우면 행이 빠지며 포커스가 body 로 빠졌다 — 같은 자리에 온 코멘트로, 다 지웠으면 작성칸으로 잇는다(WP-832).
+  const listRef = useListFocusRescue(comments, commentComposerInput);
 
   // 프로젝트 멤버 = RichInput @ 자동완성 후보이자, 본문 <@id> 토큰의 이름/종류 역매핑 소스.
   const membersQuery = useProjectMembers(projectKey);
@@ -357,7 +377,7 @@ export function IssueCommentList({
   return (
     <section aria-label="코멘트" className="space-y-3">
       {/* "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거). */}
-      <ul className="space-y-2" role="list" {...longPress}>
+      <ul ref={listRef} className="space-y-2" role="list" {...longPress}>
         {comments.map((c) => (
           <CommentItem
             key={c.id}

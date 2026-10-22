@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react'
 import { type SubmitHandler,useForm } from 'react-hook-form'
 
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -17,13 +24,6 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
   isDuplicateWarning,

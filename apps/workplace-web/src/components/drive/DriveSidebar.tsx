@@ -5,6 +5,12 @@ import { NavLink, useNavigate } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/overlay/dropdown-menu'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -23,12 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'

@@ -3,7 +3,7 @@
 // 한 줄 더 차지하므로 짧은 표시 + 탭/클릭으로 연다(비활성 버튼엔 툴팁이 뜨지 않고 모바일엔 호버가 없어 팝오버를 쓴다).
 import { Lock } from 'lucide-react';
 
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { cn } from '@/lib/utils';
 
 import { MOBILE_CHIP } from './mobile/chipStyles';

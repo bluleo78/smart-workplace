@@ -33,6 +33,10 @@ import type { MentionCandidate, MentionUser } from './types';
 
 interface RichInputProps {
   members: MentionCandidate[];
+  /** 입력칸의 접근성 이름 — 스크린리더가 읽는 이름이라 쓰는 곳에 맞게 넘긴다(예: 「코멘트 작성」·「메시지 수정」).
+   *  채팅·코멘트가 함께 쓰는 공용 입력창이라 고정 이름(「채팅 메시지 작성」)을 두면 코멘트·수정칸도 채팅 작성칸으로 읽혔다(WP-831).
+   *  에디터 속성은 생성 시 1회 적용되므로 마운트 후 바꿔도 반영되지 않는다. */
+  ariaLabel: string;
   initialBody?: string;
   initialMentions?: MentionUser[];
   placeholder?: string;
@@ -79,6 +83,7 @@ interface RichInputProps {
 
 export function RichInput({
   members,
+  ariaLabel,
   initialBody = '',
   initialMentions = [],
   placeholder = '메시지 입력 (Shift+Enter 로 줄바꿈)',
@@ -288,7 +293,7 @@ export function RichInput({
     editorProps: {
       attributes: {
         'data-testid': inputTestId,
-        'aria-label': '채팅 메시지 작성',
+        'aria-label': ariaLabel,
         // 한 줄 레이아웃 데스크톱은 36px(＋·보내기 버튼과 같은 높이), 그 밖은 44px 터치 타깃.
         // 모바일 한 줄은 원형 ＋·보내기와 어울리게 둥근 모서리(메인 AI 채팅 모바일 입력과 같은 rounded-2xl).
         class: `${inlineSubmit ? 'min-h-11 max-lg:rounded-2xl lg:min-h-9 lg:py-1.5' : 'min-h-[44px]'} ${editorMaxHeightClass} overflow-auto rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`,

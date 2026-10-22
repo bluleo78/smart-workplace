@@ -65,9 +65,12 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
 
   test('← 버튼 → 필터가 유지된 목록으로 복귀하고 히스토리를 쌓지 않는다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
+    // WP-814: 탭 제목은 열린 이슈(키-번호 제목), 목록으로 돌아가면 「이슈 · {프로젝트}」.
+    await expect(page).toHaveTitle('WP-8 비밀번호 재설정 메일 · Gen:iA Works');
 
     await page.getByRole('button', { name: '이전 화면으로 돌아가기' }).click();
     await expect(page).toHaveURL(FILTERED_LIST_URL);
+    await expect(page).toHaveTitle(/^이슈 · .+ · Gen:iA Works$/);
 
     // 되감기이므로 앞으로가기로 다시 상세에 갈 수 있다(새 항목을 push 했다면 앞으로가기가 없다).
     await page.goForward();
@@ -118,6 +121,45 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
 
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('issue-title-input')).toHaveCount(0);
+    await expect(page).toHaveURL(DETAIL_URL(8));
+  });
+
+  // WP-813: 인라인 편집을 끝내면 포커스가 body 로 빠지지 않고 편집을 시작한 컨트롤로 돌아온다 — 다음 Tab 이 화면 처음부터 시작하지 않게.
+  test('제목 편집을 Esc 로 취소하면 포커스가 「제목 편집」 버튼으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await openDetailFromFilteredList(page);
+    await page.getByTestId('issue-title-edit').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-title-input')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-title-input')).toHaveCount(0);
+    await expect(page.getByTestId('issue-title-edit')).toBeFocused();
+  });
+
+  test('제목을 Enter 로 저장해도 포커스가 「제목 편집」 버튼으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await openDetailFromFilteredList(page);
+    await page.route(`**/api/v1/projects/${KEY}/issues/8`, (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssue({ id: 2, number: 8, projectKey: KEY, title: '새 제목' })) })
+        : route.fallback(),
+    );
+    await page.getByTestId('issue-title-edit').focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(' 수정');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('issue-title-input')).toHaveCount(0);
+    await expect(page.getByTestId('issue-title-edit')).toBeFocused();
+  });
+
+  test('본문 편집을 Esc 로 취소하면 포커스가 본문 영역으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await openDetailFromFilteredList(page);
+    const view = page.getByRole('button', { name: '본문 편집' });
+    await view.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('button', { name: '본문 편집' })).toHaveCount(0);
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: '본문 편집' })).toBeFocused();
     await expect(page).toHaveURL(DETAIL_URL(8));
   });
 

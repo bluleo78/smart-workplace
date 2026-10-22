@@ -16,6 +16,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserApiTokenService {
 
   private static final String PREFIX = "swp_";
+
+  /** 사람당 쓸 수 있는(회수·만료되지 않은) PAT 상한(WP-818). */
+  static final int MAX_ACTIVE = 20;
+
+  /** 목록에 회수·만료된 PAT 를 남겨 보여 주는 기간(일, WP-818). */
+  static final int ENDED_VISIBLE_DAYS = 30;
 
   /** base62(32 bytes random) 형식. base62 알파벳 — AgentApiKeyService 와 동일. */
   private static final String BASE62 =
@@ -54,6 +61,13 @@ public class UserApiTokenService {
     }
     Long tenantId = TenantContext.get();
     if (tenantId == null) throw new ActiveTenantRequiredException();
+    // WP-818: 쓸 수 있는 토큰은 사람당 MAX_ACTIVE 개까지 — 개수 제한 없이 발급돼 목록이 끝없이 커졌다. 오래된 토큰을 자동 회수하지 않는다
+    // (외부 도구가 쓰는 자격 증명이라 조용히 끊기면 안 된다). 사용자 단위로 잠근 뒤 세어 동시 발급이 함께 상한을 넘지 않게 한다.
+    repo.lockIssue(callerId);
+    if (repo.countActive(callerId) >= MAX_ACTIVE) {
+      throw new IllegalArgumentException(
+          "개인 API 토큰은 " + MAX_ACTIVE + "개까지 쓸 수 있습니다. 쓰지 않는 토큰을 폐기한 뒤 다시 발급하세요");
+    }
 
     String plaintext = generatePlaintext();
     String hash = sha256Hex(plaintext);
@@ -77,10 +91,13 @@ public class UserApiTokenService {
         id, req.name(), plaintext, prefix, tenantId, req.expiresAt(), Instant.now());
   }
 
-  /** 호출자 본인의 PAT 목록 (회수된 것 포함). 평문/해시는 응답에 포함되지 않는다. */
+  /**
+   * 호출자 본인의 PAT 목록 — 쓸 수 있는 것 전부와, 회수·만료된 것은 최근 {@value #ENDED_VISIBLE_DAYS}일 것만(WP-818). 평문/해시는
+   * 응답에 포함되지 않는다.
+   */
   @Transactional(readOnly = true)
   public List<UserApiTokenResponse> list(Long callerId) {
-    return repo.findByUser(callerId);
+    return repo.findByUser(callerId, OffsetDateTime.now().minusDays(ENDED_VISIBLE_DAYS));
   }
 
   /** PAT 회수. PAT id 가 없거나 caller 와 불일치하거나 이미 회수된 경우 모두 404 로 통일한다. 감사 로그 USER_TOKEN_REVOKED. */

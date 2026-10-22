@@ -1,5 +1,5 @@
 // 다이얼로그 닫힘 시 포커스 복원 — Dialog·AlertDialog 콘텐츠 래퍼가 함께 쓴다.
-import { useCallback, useRef } from 'react';
+import { useCallback, useInsertionEffect, useRef } from 'react';
 
 const FOCUSABLE =
   'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -22,6 +22,12 @@ function restoreTargetOf(el: HTMLElement): HTMLElement {
     menu = target.closest('[role="menu"]');
   }
   return target;
+}
+
+/** 지금 포커스를 가진 요소의 복원 대상 — body(포커스 없음)는 대상이 아니다. */
+function currentRestoreTarget(): HTMLElement | null {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && active !== document.body ? restoreTargetOf(active) : null;
 }
 
 /**
@@ -54,18 +60,25 @@ export function useDialogFocusRestore(
   onCloseAutoFocus?: (event: Event) => void,
 ) {
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  // 이번 열림의 복원 대상을 이미 잡았는지 — 닫힐 때 비운다.
+  const capturedRef = useRef(false);
+
+  const capture = useCallback(() => {
+    if (capturedRef.current) return;
+    capturedRef.current = true;
+    // document.body 는 유효한 복원 대상이 아니다(포커스가 이미 없던 상태).
+    previouslyFocusedElementRef.current = currentRestoreTarget();
+  }, []);
 
   const handleOpenAutoFocus = useCallback(
     (event: Event) => {
       // 사용처 콜백보다 먼저 캡처한다 — 콜백이 포커스를 다이얼로그 안으로 직접 옮기면(preventDefault + focus()) 뒤에 읽은
       // activeElement 가 다이얼로그 자신이 되어 닫을 때 트리거로 돌아가지 못한다.
-      const active = document.activeElement;
-      // document.body 는 유효한 복원 대상이 아니다(포커스가 이미 없던 상태). 순수 관찰이라 defaultPrevented 와 무관하게 캡처.
-      previouslyFocusedElementRef.current =
-        active instanceof HTMLElement && active !== document.body ? restoreTargetOf(active) : null;
+      // 대개는 DialogOpenerProbe 가 이미 잡아 두었다 — 여기서는 그러지 못한 경우만 잡는다. 순수 관찰이라 defaultPrevented 와 무관.
+      capture();
       onOpenAutoFocus?.(event);
     },
-    [onOpenAutoFocus],
+    [capture, onOpenAutoFocus],
   );
 
   const handleCloseAutoFocus = useCallback(
@@ -74,6 +87,7 @@ export function useDialogFocusRestore(
       const target = previouslyFocusedElementRef.current;
       // 래퍼가 open 사이클을 넘어 유지되므로, 다음 open 에서 stale 복원을 막기 위해 이번 close 에서 소비한 뒤 비운다.
       previouslyFocusedElementRef.current = null;
+      capturedRef.current = false;
       if (event.defaultPrevented) return;
       // 복원 대상이 이미 DOM 에서 제거됐을 수 있으므로 isConnected 확인 후 focus.
       if (target && target.isConnected) {
@@ -84,5 +98,18 @@ export function useDialogFocusRestore(
     [onCloseAutoFocus],
   );
 
-  return { onOpenAutoFocus: handleOpenAutoFocus, onCloseAutoFocus: handleCloseAutoFocus };
+  return { onOpenAutoFocus: handleOpenAutoFocus, onCloseAutoFocus: handleCloseAutoFocus, captureOpener: capture };
+}
+
+/**
+ * 다이얼로그 콘텐츠의 첫 자식으로 둔다 — 콘텐츠가 마운트될 때 insertion 효과(DOM 변경 단계)에서 연 요소를 잡아 둔다(WP-817).
+ * 콘텐츠 안 입력 칸의 autoFocus 는 그 뒤 레이아웃 단계에서 포커스를 옮기고, 그러면 Radix 는 onOpenAutoFocus 를 부르지 않는다
+ * (이미 안에 포커스가 있다) — onOpenAutoFocus 에서만 잡으면 복원 대상이 없어 닫을 때 body 로 빠졌다(드라이브 새 폴더).
+ * 아무것도 그리지 않는다.
+ */
+export function DialogOpenerProbe({ onMount }: { onMount: () => void }) {
+  useInsertionEffect(() => {
+    onMount();
+  }, [onMount]);
+  return null;
 }

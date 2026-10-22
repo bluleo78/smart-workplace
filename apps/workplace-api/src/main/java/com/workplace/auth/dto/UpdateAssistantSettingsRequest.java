@@ -12,6 +12,8 @@ import jakarta.validation.constraints.Size;
  */
 public class UpdateAssistantSettingsRequest {
 
+  /** 비서 모델. assistant_config.model 폭(64)과 같다 — 넘으면 저장에서 원인 모를 409 가 났다(WP-823). */
+  @Size(max = 64)
   private String model;
 
   @Pattern(regexp = "NONE|NORMAL|DEEP")

@@ -2,14 +2,15 @@ import { MoreHorizontal } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { copyText } from '../../lib/copyText'
-import { Button } from '../ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '../ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
+
+import { copyText } from '../../lib/copyText'
+import { Button } from '../ui/button'
 import { resolveDriveOpenPath } from './driveOpen'
 import type { ViewerItem } from './types'
 

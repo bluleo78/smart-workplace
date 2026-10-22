@@ -23,6 +23,7 @@ import { useProposalActions } from '@/hooks/queries/useProposalActions'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
 import { useUpdateMessage } from '@/hooks/queries/useUpdateMessage'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
+import { useListFocusRescue } from '@/hooks/useListFocusRescue'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
 import { useToolbarReveal } from '@/hooks/useToolbarReveal'
@@ -119,6 +120,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   }, [lastId, markRead, disableMarkRead])
 
   const startDelete = (m: MessageResponse) => deleteMessageWithUndo(() => remove.mutate(m.id))
+  // 키보드로 지운 메시지가 「(삭제됨)」으로 다시 그려지며 삭제 버튼이 사라져 포커스가 body 로 빠졌다 — 그 메시지 행으로 잇는다(WP-832).
+  const listRef = useListFocusRescue(ordered)
   const toggle = (m: MessageResponse, emoji: string) => toggleReaction.mutate({ message: m, emoji })
 
   // 시트 작업 — 권한·순서는 messageSheetActions 가 정한다(툴바와 같은 규칙 + 복사).
@@ -146,7 +149,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     <ChatAttachmentViewerHost historyKey={TEAM_CHAT_PREVIEW_KEY} resolve={resolveAttachment} ready={ready}>
       {/* 모바일(lg 미만)은 좌우 여백을 줄여 말풍선·본문 폭을 확보한다(L1).
           터치 셸이면 길게 누르기를 목록 하나가 위임으로 받는다(행은 data-message-id 만 단다). 아니면 핸들러 없음. */}
-      <div className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list" {...longPress}>
+      <div ref={listRef} className="flex flex-col gap-2 p-4 max-lg:px-3" data-testid="message-list" {...longPress}>
         {ordered.length === 0 && emptyState}
         {/* 구분선이 로드된 메시지 범위 밖(전부 미읽음)일 땐 카드를 목록 상단에 렌더.
             래퍼 id 는 진입 스크롤 앵커(start 정렬) — 바닥에서 시작하면 카드가 화면 밖이 된다(WP-256). */}

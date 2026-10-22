@@ -7,6 +7,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.workplace.global.security.AuthDetails;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,7 @@ class CreateMemberSsoOnlyTest extends SsoIntegrationTestBase {
   }
 
   private UsernamePasswordAuthenticationToken admin() {
-    return SsoTestData.auth(adminId, null, "user:write", "role:assign");
+    return SsoTestData.auth(adminId, AuthDetails.PASSWORD, "user:write", "role:assign");
   }
 
   private ResultActions create(String username, String passwordJson) throws Exception {

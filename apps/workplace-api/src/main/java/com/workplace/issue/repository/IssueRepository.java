@@ -288,7 +288,7 @@ public class IssueRepository {
   }
 
   /**
-   * 처음 상태(범주)만 지정해 INSERT(WP-464). status_id 는 DB 동기화 트리거(V201)가 범주 기본 상태로 채운다 — 테스트 시드용 호환 경로.
+   * 처음 상태(범주)만 지정해 INSERT(WP-464). status_id 는 DB 동기화 트리거(V203)가 범주 기본 상태로 채운다 — 테스트 시드용 호환 경로.
    * 서비스는 상태 id 를 명시하는 {@link #insert(Long, int, String, String, String, LocalDate, Long, Long,
    * Long, LocalDate, Long, String, long)} 를 쓴다(트리거는 후속 이슈에서 제거 예정).
    */
@@ -486,7 +486,7 @@ public class IssueRepository {
   }
 
   /**
-   * 모든 변경 가능 필드 일괄 갱신 — 상태 id 없이 범주만 쓰는 테스트 시드용 호환 경로. 범주가 바뀌면 동기화 트리거(V201)가 status_id 를 범주 기본 상태로
+   * 모든 변경 가능 필드 일괄 갱신 — 상태 id 없이 범주만 쓰는 테스트 시드용 호환 경로. 범주가 바뀌면 동기화 트리거(V203)가 status_id 를 범주 기본 상태로
    * 맞춘다.
    */
   public void updateAll(
@@ -1327,7 +1327,7 @@ public class IssueRepository {
 
   /**
    * 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 배치 조회한다. wiki 멘션 하이드레이션용 — 가시성은 PROJECT_MEMBER
-   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #findByIdsReadableWatchedBy}). PROJECT 조인으로
+   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #findByIdsReadableWatchedBy}), 삭제된 프로젝트의 이슈 제외. PROJECT 조인으로
    * projectKey/number/title 을 함께 반환한다. 빈 ids 면 빈 리스트.
    */
   public List<com.workplace.issue.dto.IssueRef> findVisibleRefsByIds(
@@ -1339,6 +1339,8 @@ public class IssueRepository {
         .on(com.workplace.jooq.Tables.PROJECT.ID.eq(ISSUE.PROJECT_ID))
         .where(ISSUE.ID.in(issueIds))
         .and(ISSUE.DELETED_AT.isNull())
+        // 프로젝트 soft-delete 는 소속 이슈를 정리하지 않는다 — 삭제된 프로젝트의 이슈는 삭제된 이슈처럼 숨긴다(WP-786).
+        .and(com.workplace.jooq.Tables.PROJECT.DELETED_AT.isNull())
         .and(
             org.jooq.impl.DSL.exists(
                 dsl.selectOne()
@@ -1400,6 +1402,7 @@ public class IssueRepository {
         .where(ISSUE.SOURCE_TYPE.eq(sourceType))
         .and(ISSUE.SOURCE_ID.eq(sourceId))
         .and(ISSUE.DELETED_AT.isNull())
+        .and(PROJECT.DELETED_AT.isNull()) // 삭제된 프로젝트의 이슈는 숨긴다(WP-786)
         .and(
             org.jooq.impl.DSL.exists(
                 dsl.selectOne()
@@ -1426,6 +1429,7 @@ public class IssueRepository {
         .where(ISSUE.SOURCE_TYPE.eq(sourceType))
         .and(ISSUE.SOURCE_ID.eq(sourceId))
         .and(ISSUE.DELETED_AT.isNull())
+        .and(PROJECT.DELETED_AT.isNull()) // 삭제된 프로젝트의 이슈는 숨긴다(WP-786)
         .orderBy(ISSUE.ID.desc())
         .limit(1)
         .fetchOptional()

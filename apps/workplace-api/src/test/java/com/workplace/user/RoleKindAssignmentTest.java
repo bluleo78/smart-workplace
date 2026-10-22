@@ -16,6 +16,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.role.service.RoleService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.support.WebSessionAuth;
 import com.workplace.user.service.UserService;
 import java.util.Arrays;
 import java.util.List;
@@ -26,7 +27,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -242,8 +242,7 @@ class RoleKindAssignmentTest extends IntegrationTestBase {
             .map(SimpleGrantedAuthority::new)
             .toList();
     return mvc.perform(
-        req.with(
-                authentication(new UsernamePasswordAuthenticationToken(caller, "n/a", authorities)))
+        req.with(authentication(WebSessionAuth.of(caller, authorities)))
             .contentType(MediaType.APPLICATION_JSON));
   }
 
@@ -289,5 +288,21 @@ class RoleKindAssignmentTest extends IntegrationTestBase {
         .from(PERMISSION)
         .where(PERMISSION.CODE.in(Arrays.asList(codes)))
         .fetch(PERMISSION.ID);
+  }
+
+  /** WP-821: 역할 지정에 같은 id 를 두 번 넣어도 기본 키 충돌 409 가 아니라 한 번만 지정된다(집합 교체 — 이슈 라벨 교체와 같은 규칙). */
+  @Test
+  void 같은_역할_id_를_두_번_넣어도_한_번만_지정된다() throws Exception {
+    setRoles(human, roleId("USER"), roleId("USER"), viewerRole, viewerRole)
+        .andExpect(status().isNoContent());
+    assertThat(roleNames(human)).containsExactlyInAnyOrder("USER", "VIEWER_728");
+  }
+
+  /** WP-821: 역할 권한 목록에 같은 id 를 두 번 넣어도 409 가 아니라 한 번만 들어간다. */
+  @Test
+  void 같은_권한_id_를_두_번_넣어도_한_번만_들어간다() {
+    Long read = permissionIds("project:read").get(0);
+    roleService.setRolePermissions(viewerRole, List.of(read, read, read), admin);
+    assertThat(roleService.getRoleById(viewerRole).permissions()).hasSize(1);
   }
 }

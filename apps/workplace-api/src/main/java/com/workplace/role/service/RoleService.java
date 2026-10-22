@@ -85,6 +85,9 @@ public class RoleService {
 
   @Transactional
   public void deleteRole(Long id, Long callerId) {
+    // WP-822: 권한 변경(setRolePermissions)·역할 지정(setUserRoles)과 같은 테넌트 관리자 잠금으로 차례를 세운다. 삭제만 잠금 없이 돌아,
+    // 뒤 요청이 존재 확인을 지난 뒤 외래 키 위반(409)으로 끝나거나, 방금 지정된 역할을 「할당 사용자 0명」으로 보고 CASCADE 로 조용히 지웠다.
+    userRepository.acquireTenantAdminLock(TenantContext.require());
     RoleResponse role =
         roleRepository.findById(id).orElseThrow(() -> new RoleNotFoundException(ROLE_NOT_FOUND));
 

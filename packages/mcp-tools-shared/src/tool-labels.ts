@@ -21,6 +21,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   update_comment: { label: '코멘트 수정', icon: '✏️' },
   add_issue_dependency: { label: '이슈 의존관계 추가', icon: '🔗' },
   remove_issue_dependency: { label: '이슈 의존관계 제거', icon: '🔗' },
+  claim_issue: { label: '이슈 가져가기', icon: '🙋' }, // WP-800: 대기열 라벨 이슈를 AI 가 한 동작으로 담당
   watch_issue: { label: '이슈 구독 변경', icon: '👀' }, // WP-421: watch_issue·unwatch_issue 통합(watching)
   // 프로젝트
   list_projects: { label: '프로젝트 목록', icon: '🗂️' },

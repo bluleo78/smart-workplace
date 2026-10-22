@@ -13,3 +13,6 @@ export const HIT_AREA_COARSE =
 // ::after 는 테두리 안쪽(padding box) 기준이라 1px 테두리를 빼고 5px 를 넓혀야 테두리 있는 16px 체크박스가 24px 가 된다(4px 면 22px).
 export const HIT_AREA_COARSE_TIGHT =
   "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-[5px] pointer-coarse:after:content-['']";
+// 줄지어 놓인 칩(일정 폼 참석자·태그의 「＋」 점선 칩, WP-801)용 — 터치에서만 위아래 12px 넓혀 22px 칩이 44px 넘게 눌리고, 좌우는 2px 만 넓혀 옆 칩을 덮지 않는다.
+export const HIT_AREA_CHIP_COARSE =
+  "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-x-0.5 pointer-coarse:after:-inset-y-3 pointer-coarse:after:content-['']";

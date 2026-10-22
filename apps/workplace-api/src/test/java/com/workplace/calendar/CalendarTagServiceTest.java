@@ -368,4 +368,173 @@ class CalendarTagServiceTest extends IntegrationTestBase {
     assertThat(names(events.get(me, split.id()))).containsExactly("A", "B");
     assertThat(names(events.get(guest, split.id()))).containsExactly("G");
   }
+
+  // ── 일정 저장 요청에 실린 태그(WP-801) ──────────────────────────────────────
+
+  /** 저장 요청 — start 부터 1시간, rrule·tagIds 지정(tagIds=null 이면 태그를 건드리지 않음). */
+  private static CalendarEventRequest saveReq(
+      String title, OffsetDateTime start, String rrule, List<Long> tagIds) {
+    return new CalendarEventRequest(
+        title, null, start, start.plusHours(1), false, null, null, null, rrule, null, null, tagIds);
+  }
+
+  /** [from,to) 회차들의 내 태그 이름 목록 — 회차마다 하나씩. */
+  private List<List<String>> occurrenceTags(long viewer, OffsetDateTime from, OffsetDateTime to) {
+    return events.list(viewer, from, to).stream().map(CalendarTagServiceTest::names).toList();
+  }
+
+  /** 새 일정 요청에 태그를 실으면 만들면서 붙고, 응답에도 실린다. */
+  @Test
+  void createWithTagIds_attachesTags_inResponse() {
+    long me = seedUser("me");
+    long a = tag(me, "A");
+
+    CalendarEventResponse created = events.create(me, saveReq("회의", T0, null, List.of(a)));
+
+    assertThat(names(created)).containsExactly("A");
+    assertThat(names(events.get(me, created.id()))).containsExactly("A");
+  }
+
+  /** 전체(ALL) 수정에 실은 태그는 교체이고, tagIds=null(MCP·AI 처럼 보내지 않음)이면 태그를 그대로 둔다. 다른 사람 태그도 그대로. */
+  @Test
+  void updateAll_replacesTags_andNullTagIdsLeavesThem() {
+    long me = seedUser("me");
+    long guest = seedUser("guest");
+    long master = newEvent(me, "데일리", "FREQ=DAILY;COUNT=3", List.of(guest));
+    long a = tag(me, "A");
+    long b = tag(me, "B");
+    tags.setEventTags(me, master, List.of(a));
+    tags.setEventTags(guest, master, List.of(tag(guest, "G")));
+
+    CalendarEventResponse updated =
+        events.update(
+            me, master, saveReq("데일리", T0, "FREQ=DAILY;COUNT=3", List.of(b)), EditScope.ALL, null);
+    assertThat(names(updated)).containsExactly("B");
+    assertThat(occurrenceTags(me, T0.minusDays(1), T0.plusDays(5)))
+        .containsExactly(List.of("B"), List.of("B"), List.of("B"));
+    assertThat(names(events.get(guest, master))).containsExactly("G");
+
+    events.update(
+        me, master, saveReq("데일리(제목만)", T0, "FREQ=DAILY;COUNT=3", null), EditScope.ALL, null);
+    assertThat(names(events.get(me, master))).containsExactly("B");
+  }
+
+  /** 「이후 모든 일정」에 실은 태그는 나뉜 새 시리즈에 붙는다 — 옛 마스터가 아니라. 잘린 앞 회차는 옛 태그를 지키고, 새 시리즈도 다른 사람의 태그는 이어받는다. */
+  @Test
+  void updateFollowing_tagsLandOnNewSeries_earlierOccurrencesKeepOldTags() {
+    long me = seedUser("me");
+    long guest = seedUser("guest");
+    long master = newEvent(me, "데일리", "FREQ=DAILY;COUNT=6", List.of(guest));
+    long a = tag(me, "A");
+    long b = tag(me, "B");
+    tags.setEventTags(me, master, List.of(a));
+    tags.setEventTags(guest, master, List.of(tag(guest, "G")));
+
+    OffsetDateTime occ4 = T0.plusDays(3);
+    CalendarEventResponse split =
+        events.update(
+            me,
+            master,
+            saveReq("데일리(후반)", occ4, "FREQ=DAILY;COUNT=6", List.of(b)),
+            EditScope.THIS_AND_FOLLOWING,
+            occ4);
+
+    assertThat(split.id()).isNotEqualTo(master);
+    assertThat(names(split)).containsExactly("B");
+    assertThat(names(events.get(me, master))).containsExactly("A");
+    assertThat(occurrenceTags(me, T0.minusDays(1), occ4))
+        .containsExactly(List.of("A"), List.of("A"), List.of("A"));
+    assertThat(occurrenceTags(me, occ4, T0.plusDays(7)))
+        .containsExactly(List.of("B"), List.of("B"), List.of("B"));
+    assertThat(names(events.get(guest, split.id()))).containsExactly("G");
+  }
+
+  /** 첫 회차에서 「이후 모든 일정」으로 고치면 옛 시리즈는 지워진다 — 태그는 새 시리즈에 붙어 404 가 나지 않는다(옛 마스터를 노리던 버그). */
+  @Test
+  void updateFollowing_fromFirstOccurrence_tagsNewSeries_withoutNotFound() {
+    long me = seedUser("me");
+    long master = newEvent(me, "데일리", "FREQ=DAILY;COUNT=3", List.of());
+    long a = tag(me, "A");
+    tags.setEventTags(me, master, List.of(a));
+    long b = tag(me, "B");
+
+    CalendarEventResponse split =
+        events.update(
+            me,
+            master,
+            saveReq("데일리(새)", T0, "FREQ=DAILY;COUNT=3", List.of(a, b)),
+            EditScope.THIS_AND_FOLLOWING,
+            T0);
+
+    assertThat(names(split)).containsExactly("A", "B");
+    assertThatThrownBy(() -> events.get(me, master))
+        .isInstanceOf(CalendarEventNotFoundException.class);
+    assertThat(occurrenceTags(me, T0.minusDays(1), T0.plusDays(5)))
+        .containsExactly(List.of("A", "B"), List.of("A", "B"), List.of("A", "B"));
+  }
+
+  /** 「이 일정만」이어도 태그는 시리즈 단위라 마스터에 붙는다 — 고친 회차와 다른 회차 모두 새 태그를 보인다. */
+  @Test
+  void updateThis_appliesTagsToSeries() {
+    long me = seedUser("me");
+    long master = newEvent(me, "데일리", "FREQ=DAILY;COUNT=3", List.of());
+    long a = tag(me, "A");
+    tags.setEventTags(me, master, List.of(a));
+    long b = tag(me, "B");
+
+    OffsetDateTime occ2 = T0.plusDays(1);
+    CalendarEventResponse override =
+        events.update(me, master, saveReq("데일리(변경)", occ2, null, List.of(b)), EditScope.THIS, occ2);
+
+    assertThat(override.id()).isNotEqualTo(master);
+    assertThat(names(override)).containsExactly("B");
+    assertThat(names(events.get(me, master))).containsExactly("B");
+    assertThat(occurrenceTags(me, T0.minusDays(1), T0.plusDays(5)))
+        .containsExactly(List.of("B"), List.of("B"), List.of("B"));
+  }
+
+  /** 남의 태그를 실은 저장은 404 이고 일정은 만들어지지도·바뀌지도 않는다 — 태그를 쓰기 전에 확인한다. */
+  @Test
+  void saveWithOthersTag_isRejectedBeforeWriting() {
+    long me = seedUser("me");
+    long other = seedUser("other");
+    long othersTag = tag(other, "남의 태그");
+    long eventId = newEvent(me, "회의", null, List.of());
+
+    assertThatThrownBy(() -> events.create(me, saveReq("새 회의", T0, null, List.of(othersTag))))
+        .isInstanceOf(CalendarTagNotFoundException.class);
+    assertThat(events.list(me, T0.minusDays(1), T0.plusDays(1)))
+        .extracting(CalendarEventResponse::title)
+        .containsExactly("회의");
+
+    assertThatThrownBy(
+            () ->
+                events.update(
+                    me,
+                    eventId,
+                    saveReq("바뀐 제목", T0, null, List.of(othersTag)),
+                    EditScope.ALL,
+                    null))
+        .isInstanceOf(CalendarTagNotFoundException.class);
+    assertThat(events.get(me, eventId).title()).isEqualTo("회의");
+  }
+
+  /** 범주를 써 넣을 수 없는 외부 일정에 태그를 실으면 PUT 과 같은 409 — 일정 본문도 바뀌지 않는다. */
+  @Test
+  void saveWithTags_onUntaggableExternalEvent_isConflict_andEventUnchanged() {
+    long me = seedUser("me");
+    long eventId = newEvent(me, "M365 회의", null, List.of());
+    dsl.update(CALENDAR_EVENT)
+        .set(CALENDAR_EVENT.EXTERNAL_ID, "graph-1")
+        .where(CALENDAR_EVENT.ID.eq(eventId))
+        .execute();
+    long mine = tag(me, "내 태그");
+
+    assertThatThrownBy(
+            () ->
+                events.update(
+                    me, eventId, saveReq("바뀐 제목", T0, null, List.of(mine)), EditScope.ALL, null))
+        .isInstanceOf(ExternalEventTagNotSupportedException.class);
+    assertThat(events.get(me, eventId).title()).isEqualTo("M365 회의");
+  }
 }

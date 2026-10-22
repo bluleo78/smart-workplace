@@ -7,6 +7,7 @@ import { Page, pageGutterClass } from '@/components/layout/Page';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction';
 import { Button } from '@/components/ui/button';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
@@ -51,6 +52,8 @@ export default function ProjectDetailPage() {
   };
   const project = useProject(key);
   const isMobile = useIsMobile();
+  // 탭 제목 — 「이슈 · {프로젝트}」(WP-814).
+  useDocumentTitle(['이슈', project.data?.name]);
 
   if (project.isLoading)
     return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;

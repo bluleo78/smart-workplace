@@ -3,6 +3,12 @@ import { PanelLeft, Pencil, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-
 import { useState } from 'react'
 
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/overlay/dropdown-menu'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -13,12 +19,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 

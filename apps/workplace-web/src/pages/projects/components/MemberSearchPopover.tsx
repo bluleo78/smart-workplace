@@ -10,6 +10,11 @@
 
 import { useState } from 'react';
 
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import {
   Command,
@@ -19,11 +24,6 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import type { MemberPickerCandidate } from '../../../hooks/queries/useUserSearch';

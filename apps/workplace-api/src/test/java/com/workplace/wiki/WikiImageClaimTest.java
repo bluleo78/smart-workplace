@@ -128,7 +128,8 @@ class WikiImageClaimTest extends IntegrationTestBase {
 
     claim(ownerId, List.of(big))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.message").value("파일 크기가 한도를 초과했습니다: 10485761 > 10485760"));
+        // WP-834: 바이트 수(10485761 > 10485760) 대신 MB 한도와 파일 이름.
+        .andExpect(jsonPath("$.message").value("이미지 파일은 최대 10MB까지 업로드할 수 있습니다: big.png"));
 
     assertThat(boundCount(big)).isZero();
   }

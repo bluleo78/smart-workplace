@@ -1,6 +1,7 @@
 // WP-48 설정 › SSO — 토글, 운영자 미설정 비활성, 동의 링크 복사, 끌 때 SSO 전용 구성원 확인.
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { copiedViaFallback, withoutClipboardApi } from '../../fixtures/clipboard'
 
 const settings = (over: Record<string, unknown> = {}) => ({
   available: true,
@@ -43,6 +44,24 @@ test('동의 링크를 복사한다', async ({ adminPage: page, context }) => {
   await page.goto('/settings/sso')
   await page.getByRole('button', { name: '복사' }).click()
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('adminconsent')
+})
+
+// WP-836: Clipboard API 가 없는 http 배포에서도 대체 경로로 복사하고, 둘 다 안 되면 안내한다(예전엔 아무 안내 없이 끝났다).
+test('Clipboard API 가 없으면 대체 경로로 동의 링크를 복사한다', async ({ adminPage: page }) => {
+  await withoutClipboardApi(page, true)
+  await mockApi(page, 'GET', '/api/v1/admin/sso', settings())
+  await page.goto('/settings/sso')
+  await page.getByRole('button', { name: '복사' }).click()
+  await expect(page.getByText('링크를 복사했습니다.')).toBeVisible()
+  expect(await copiedViaFallback(page)).toContain('adminconsent')
+})
+
+test('복사할 수 없으면 직접 선택해 복사하라고 안내한다', async ({ adminPage: page }) => {
+  await withoutClipboardApi(page, false)
+  await mockApi(page, 'GET', '/api/v1/admin/sso', settings())
+  await page.goto('/settings/sso')
+  await page.getByRole('button', { name: '복사' }).click()
+  await expect(page.getByText('복사에 실패했습니다. 링크를 직접 선택해 복사하세요.')).toBeVisible()
 })
 
 test('끌 때 SSO 전용 구성원이 있으면 확인한다', async ({ adminPage: page }) => {

@@ -2,13 +2,13 @@
 // 삭제는 행 hover·모바일 스와이프 대신 ⋯ 메뉴에 둔다(데스크톱·터치 같은 방법). 지운 뒤 토스트 「되돌리기」로 다시 만든다.
 import { FilePen, MoreHorizontal, Paperclip, PenLine, Trash2 } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
+import { Button } from '@/components/ui/button'
 import { draftRecipientsLabel } from '@/lib/mailDraftCompose'
 import { formatReceivedAt } from '@/lib/mailListTime'
 import { cn } from '@/lib/utils'

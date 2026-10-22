@@ -46,16 +46,18 @@ function mockClient(): IssueToolClient {
     ]),
     addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
     claimIssueAttachments: vi.fn().mockResolvedValue([]),
+    claimIssue: vi.fn().mockResolvedValue({ assignees: [], labels: [] }),
   };
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 10종을 반환한다', () => {
+  it('정확히 11종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [
         'add_comment',
         'add_issue_dependency',
+        'claim_issue',
         'create_issue',
         'update_comment',
         'get_issue_chat',
@@ -640,6 +642,43 @@ describe('buildSharedIssueTools', () => {
     await expect(t.handler({ issueKey: 'WP-3', watching: null })).rejects.toThrow();
     expect(c.watchIssue).not.toHaveBeenCalled();
     expect(c.unwatchIssue).not.toHaveBeenCalled();
+  });
+
+  // WP-800: AI 가 대기열 라벨 이슈를 한 동작으로 가져간다 — 결과는 사람을 username 으로만(#833) 가리키는 {assignees, labels} 로 줄인다.
+  it('claim_issue: claimIssue(issueKey, queueLabel) 를 부르고 username·라벨 이름만 돌려준다', async () => {
+    const c = mockClient();
+    vi.mocked(c.claimIssue).mockResolvedValue({
+      assignees: [
+        { id: 3, username: 'dhyang', name: '양동희', kind: 'HUMAN' },
+        { id: 9, username: 'dev-ai', name: 'AI 개발자', kind: 'AGENT' },
+      ],
+      labels: [{ id: 5, name: 'urgent', colorToken: 'RED' }],
+    });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'claim_issue')!;
+    expect(t.kind).toBe('write');
+    expect(t.hints).toEqual({ destructive: false, idempotent: false });
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-9', queueLabel: 'AI 개발팀' })));
+    expect(c.claimIssue).toHaveBeenCalledWith('WP-9', 'AI 개발팀');
+    expect(out).toEqual({ assignees: ['dhyang', 'dev-ai'], labels: ['urgent'] });
+  });
+
+  it('claim_issue: 빈 queueLabel·40자 초과·빠진 issueKey 는 서버 호출 없이 거절', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'claim_issue')!;
+    await expect(t.handler({ issueKey: 'WP-9', queueLabel: '' })).rejects.toThrow();
+    await expect(t.handler({ issueKey: 'WP-9', queueLabel: 'x'.repeat(41) })).rejects.toThrow();
+    await expect(t.handler({ queueLabel: 'AI 개발팀' })).rejects.toThrow();
+    expect(c.claimIssue).not.toHaveBeenCalled();
+    // 경계: 40자는 통과
+    await t.handler({ issueKey: 'WP-9', queueLabel: 'x'.repeat(40) });
+    expect(c.claimIssue).toHaveBeenCalledTimes(1);
+  });
+
+  it('claim_issue: 서버 거절(409)은 그대로 던진다', async () => {
+    const c = mockClient();
+    vi.mocked(c.claimIssue).mockRejectedValue(new Error('API 오류 409: 대기열에 없습니다 — code: NOT_IN_QUEUE'));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'claim_issue')!;
+    await expect(t.handler({ issueKey: 'WP-9', queueLabel: 'AI 개발팀' })).rejects.toThrow('NOT_IN_QUEUE');
   });
 
   it('add_issue_dependency 는 다른 프로젝트면 클라이언트측 거부', async () => {

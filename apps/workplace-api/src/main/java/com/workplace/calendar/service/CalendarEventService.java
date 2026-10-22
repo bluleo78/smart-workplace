@@ -8,10 +8,12 @@ import com.workplace.calendar.dto.EditScope;
 import com.workplace.calendar.dto.OnlineMeeting;
 import com.workplace.calendar.exception.CalendarEventNotFoundException;
 import com.workplace.calendar.exception.EventNotOrganizerException;
+import com.workplace.calendar.exception.ExternalCalendarWriteException;
 import com.workplace.calendar.exception.ExternalCalendarWriteInTransactionException;
 import com.workplace.calendar.exception.ExternalEventAttendeeNotOrganizerException;
 import com.workplace.calendar.exception.ExternalEventMoveNotSupportedException;
 import com.workplace.calendar.exception.ExternalEventRsvpNotSupportedException;
+import com.workplace.calendar.exception.ExternalEventTagNotSupportedException;
 import com.workplace.calendar.exception.ReadOnlyCalendarException;
 import com.workplace.calendar.exception.RecurringNotSupportedOnExternalCalendarException;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
@@ -148,7 +150,15 @@ public class CalendarEventService {
         txTemplate.execute(
             s -> {
               validateCreatable(callerId, req);
-              return resolveWriteTarget(callerId, req);
+              WriteTarget t = resolveWriteTarget(callerId, req);
+              // 태그를 실은 M365 일정(WP-801) — 범주를 써 넣을 수 없는 달력(내 사서함이 아님)이면 Graph 에 만들기 전에 409(PUT 과 같은
+              // 판정)
+              if (t.externalWritable()
+                  && hasNewTags(req)
+                  && !calendarRepo.isOwnMailbox(t.calendarId())) {
+                throw new ExternalEventTagNotSupportedException();
+              }
+              return t;
             });
 
     // ② 외부 쓰기 → Graph HTTP (tx 밖)
@@ -174,10 +184,46 @@ public class CalendarEventService {
                   toGraphWrite(req, target.attendees()));
     }
 
-    // ③ persist — 로컬 저장(+최종 조회). external_id 동반이면 prune 안전.
+    // ③ persist — 로컬 저장(+최종 조회). external_id 동반이면 prune 안전. 앱 일정의 태그는 이 tx 안에서 함께 붙는다.
     final String extId = externalId;
-    return txTemplate.execute(
-        s -> doCreateLocal(callerId, target.calendarId(), req, extId, notifyAttendees));
+    CalendarEventResponse created =
+        txTemplate.execute(
+            s -> doCreateLocal(callerId, target.calendarId(), req, extId, notifyAttendees));
+    // ④ M365 일정의 태그(WP-801) — Outlook 범주 써 넣기는 Graph 를 거쳐 tx 밖에서 한다.
+    if (extId == null || !hasNewTags(req)) return created;
+    try {
+      return applyOutlookTags(callerId, created.id(), req.tagIds());
+    } catch (ExternalCalendarWriteException e) {
+      // 일정은 이미 Outlook·앱에 만들어졌다 — 여기서 실패로 돌려주면 폼이 남아 다시 「저장」할 때 같은 일정(과 초대 메일)이 또 만들어진다.
+      // 일정은 성공으로 돌려주고 태그만 빠뜨린다(상세 보기 피커로 다시 붙일 수 있다). 404·409 는 사전검증이 이미 걸렀다.
+      log.warn("새 M365 일정의 Outlook 범주 써 넣기 실패 — 태그 없이 둔다. eventId={}", created.id(), e);
+      return txTemplate.execute(s -> get(callerId, created.id()));
+    }
+  }
+
+  /** 새 일정 요청에 붙일 태그가 있는가 — 빈 목록은 뗄 것도 없는 새 일정이라 아무것도 하지 않는다. */
+  private static boolean hasNewTags(CalendarEventRequest req) {
+    return req.tagIds() != null && !req.tagIds().isEmpty();
+  }
+
+  /**
+   * 일정 저장 요청에 실린 태그를 M365 일정에 써 넣고(Outlook 범주, WP-716 경로) 최신 응답을 돌려준다(WP-801). 반드시 오케스트레이터의 tx 밖에서
+   * 부른다 — setEventTags 가 Graph 를 부른다. 사전검증(validateEventTags·validateNewEventTags)을 이미 통과했으므로 여기서
+   * 실패하는 건 Graph 오류(502)뿐이고, 그때 일정 변경은 이미 저장돼 있다. 수정은 같은 요청을 다시 보내도 안전해 502 를 그대로 돌려주고, 생성은 다시 보내면
+   * 일정이 하나 더 생기므로 create 가 실패를 삼키고 태그 없이 만든 일정을 돌려준다.
+   */
+  private CalendarEventResponse applyOutlookTags(long callerId, long eventId, List<Long> tagIds) {
+    tagService.setEventTags(callerId, eventId, tagIds);
+    // 읽기도 tx 안에서 — tx 밖 RLS 읽기는 GUC 가 없어 거짓 404 가 난다(#492).
+    return txTemplate.execute(s -> get(callerId, eventId));
+  }
+
+  /**
+   * 일정 저장 요청에 실린 태그를 앱 일정 eventId(의 시리즈 마스터)에 붙인다(WP-801). tagIds=null 이면 태그를 건드리지 않는다. 쓰기 tx 안에서
+   * 최종 get() 전에 불러 응답이 새 태그를 싣게 한다.
+   */
+  private void applyAppTags(long callerId, long eventId, CalendarEventRequest req) {
+    if (req.tagIds() != null) tagService.replaceAppTags(callerId, eventId, req.tagIds());
   }
 
   /** create 의 로컬 저장 단계 — 기존 create 본문 + external_id 동반 insert 분기. txTemplate 안에서만 호출. */
@@ -214,6 +260,8 @@ public class CalendarEventService {
     // 생성 → 소유자 + 내부 참석자에게 resource.changed (외부 쓰기 분기의 로컬 저장도 이 메서드를 거친다).
     changeNotifier.eventChanged(
         ResourceChangedEvent.OP_CREATED, id, callerId, attendeeUserIds, callerId);
+    // 태그(WP-801) — 앱 일정은 같은 tx 에서 붙인다. M365 일정은 create 가 tx 밖에서 Outlook 범주로 써 넣는다.
+    if (externalId == null) applyAppTags(callerId, id, req);
     return get(callerId, id);
   }
 
@@ -638,32 +686,39 @@ public class CalendarEventService {
                       ? req.description()
                       : null));
       // ③ 로컬 반영 — 필드만 갱신(캘린더 이동 없음). 동기화 컨테이너 유지. 최종 get() 도 tx 안.
-      return txTemplate.execute(
-          s -> {
-            List<Long> beforeAttendees = internalAttendeeIds(id);
-            CalendarEventResponse before =
-                repo.findById(callerId, id)
-                    .orElseThrow(() -> new CalendarEventNotFoundException(id));
-            repo.update(id, req);
-            // 외부 동기화 일정은 항상 단일(반복 미지원, 위에서 차단) — 시작시각 변경 여부만 보면 됨.
-            boolean scheduleChanged = !before.startsAt().equals(req.startsAt());
-            applyReminder(
-                id, req.reminderMinutes(), req.startsAt(), req.recurrenceRule(), scheduleChanged);
-            // 내부 참석자에게 변경 알림(WP-712). 응답은 되돌리지 않는다 — 외부 일정의 응답은 동기화가 원본(Graph)에서 다시 덮어쓴다.
-            noticeIfRescheduled(
-                callerId,
-                id,
-                timeChanged(before.startsAt(), before.endsAt(), before.allDay(), null, req),
-                locationChanged(before.location(), req.location()),
-                false);
-            publishEventChanged(
-                ResourceChangedEvent.OP_UPDATED,
-                id,
-                repo.findOwnerId(id).orElse(callerId),
-                beforeAttendees,
-                callerId);
-            return get(callerId, id);
-          });
+      CalendarEventResponse updatedExternal =
+          txTemplate.execute(
+              s -> {
+                List<Long> beforeAttendees = internalAttendeeIds(id);
+                CalendarEventResponse before =
+                    repo.findById(callerId, id)
+                        .orElseThrow(() -> new CalendarEventNotFoundException(id));
+                repo.update(id, req);
+                // 외부 동기화 일정은 항상 단일(반복 미지원, 위에서 차단) — 시작시각 변경 여부만 보면 됨.
+                boolean scheduleChanged = !before.startsAt().equals(req.startsAt());
+                applyReminder(
+                    id,
+                    req.reminderMinutes(),
+                    req.startsAt(),
+                    req.recurrenceRule(),
+                    scheduleChanged);
+                // 내부 참석자에게 변경 알림(WP-712). 응답은 되돌리지 않는다 — 외부 일정의 응답은 동기화가 원본(Graph)에서 다시 덮어쓴다.
+                noticeIfRescheduled(
+                    callerId,
+                    id,
+                    timeChanged(before.startsAt(), before.endsAt(), before.allDay(), null, req),
+                    locationChanged(before.location(), req.location()),
+                    false);
+                publishEventChanged(
+                    ResourceChangedEvent.OP_UPDATED,
+                    id,
+                    repo.findOwnerId(id).orElse(callerId),
+                    beforeAttendees,
+                    callerId);
+                return get(callerId, id);
+              });
+      // ④ 태그(WP-801) — 일정을 고친 뒤 Outlook 범주로 써 넣는다(tx 밖). 외부 일정은 단일이라 범위와 상관없이 이 일정이다.
+      return req.tagIds() == null ? updatedExternal : applyOutlookTags(callerId, id, req.tagIds());
     }
 
     return txTemplate.execute(
@@ -714,6 +769,8 @@ public class CalendarEventService {
               target.startsAt(), target.endsAt(), target.allDay(), target.recurrenceRule(), req),
           locationChanged(target.location(), req.location()),
           true);
+      // 태그(WP-801) — 이 일정(고친 회차면 그 시리즈 마스터)에
+      applyAppTags(callerId, id, req);
       return get(callerId, id);
     }
 
@@ -821,6 +878,8 @@ public class CalendarEventService {
     boolean locationChanged =
         locationChanged(prev != null ? prev.location() : master.location(), overrideReq.location());
     noticeIfRescheduled(callerId, overrideId, timeChanged, locationChanged, true);
+    // 태그(WP-801) — 태그는 시리즈 단위라 「이 일정만」이어도 시리즈 마스터에 붙는다(회차는 마스터 태그를 따른다).
+    applyAppTags(callerId, masterId, req);
     return get(callerId, overrideId);
   }
 
@@ -858,6 +917,8 @@ public class CalendarEventService {
     copyAttendees(master.id(), newMasterId);
     // 태그도 새 시리즈로 잇는다(WP-714) — 안 그러면 이 회차부터 모든 사람의 태그가 빠진다. 옛 시리즈가 지워져도 복사본은 남는다.
     tagService.copyTags(master.id(), newMasterId);
+    // 요청에 실린 내 태그(WP-801)는 새 시리즈에만 — 잘린 앞 회차(옛 시리즈)는 옛 태그를 지킨다. 복사한 다른 사람 태그는 그대로다.
+    applyAppTags(callerId, newMasterId, req);
     // 첫 회차부터 고쳤으면 옛 시리즈는 회차가 0개 — 빈 원본이 남지 않게 지운다(WP-663). 참석자는 위에서 이미 복제했다.
     if (noOccurrenceBefore(master, occurrenceDate)) deleteSeries(master.id());
     // 이후 회차(새 시리즈)에만 변경 알림·응답 초기화(WP-712) — 잘린 앞 회차의 응답은 그대로 둔다.
@@ -914,7 +975,8 @@ public class CalendarEventService {
         req.reminderMinutes(),
         RecurrenceExpander.withCount(req.recurrenceRule(), remaining),
         req.attendeeUserIds(),
-        req.calendarId());
+        req.calendarId(),
+        req.tagIds());
   }
 
   /**
@@ -1435,6 +1497,8 @@ public class CalendarEventService {
       calendarService.requireWritableCalendar(callerId, req.calendarId());
     }
     requireTenantAttendees(req.attendeeUserIdsOrEmpty());
+    // 태그(WP-801) — 일정을 만들기(·Graph 쓰기) 전에 남의 태그를 거절한다
+    if (req.tagIds() != null) tagService.validateNewEventTags(callerId, req.tagIds());
   }
 
   /**
@@ -1554,6 +1618,8 @@ public class CalendarEventService {
     CalendarEventResponse cur =
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
     requireOccurrenceDateIfRecurring(cur, scope, occurrenceDate);
+    // 태그(WP-801) — 일정(·Graph)을 쓰기 전에 PUT /events/{id}/tags 와 같은 판정(쓸 수 없는 M365 일정 409, 남의 태그 404)
+    if (req.tagIds() != null) tagService.validateEventTags(callerId, id, req.tagIds());
     ExternalWriteCtx ctx = resolveExternalCtx(callerId, cur);
     if (ctx.external()) {
       // 외부 일정은 단일 — 반복 전환 차단(#546).
@@ -1689,7 +1755,8 @@ public class CalendarEventService {
         req.reminderMinutes(),
         null,
         null, // 오버라이드 일정은 단일이므로 참석자 인수 제거
-        req.calendarId()); // calendarId 보존 — resolve 는 호출측에서 수행
+        req.calendarId(), // calendarId 보존 — resolve 는 호출측에서 수행
+        req.tagIds());
   }
 
   /**

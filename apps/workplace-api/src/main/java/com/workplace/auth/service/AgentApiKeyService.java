@@ -39,6 +39,9 @@ public class AgentApiKeyService {
   private static final String BASE62 =
       "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
+  /** 에이전트당 쓸 수 있는(회수되지 않은) 키 상한(WP-818). */
+  static final int MAX_ACTIVE = 20;
+
   private final AgentApiKeyRepository repo;
   private final UserRepository userRepository;
   private final WorkspaceMemberGuard memberGuard;
@@ -66,6 +69,12 @@ public class AgentApiKeyService {
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) throw new KeyTargetMustBeAgentException();
+    // WP-818: 쓸 수 있는 키는 에이전트당 MAX_ACTIVE 개까지(개인 PAT 와 같은 규칙) — 잠근 뒤 세어 동시 발급이 함께 넘지 않게 한다.
+    repo.lockIssue(userId);
+    if (repo.countActive(userId) >= MAX_ACTIVE) {
+      throw new IllegalArgumentException(
+          "AI 에이전트 API 키는 " + MAX_ACTIVE + "개까지 쓸 수 있습니다. 쓰지 않는 키를 회수한 뒤 다시 발급하세요");
+    }
 
     String plaintext = generatePlaintext();
     String hash = sha256Hex(plaintext);

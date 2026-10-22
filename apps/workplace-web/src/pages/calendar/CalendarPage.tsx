@@ -63,6 +63,7 @@ import {
   visibleRange,
 } from '@/lib/calendar'
 import { headerMonthLabel } from '@/lib/calendarAgenda'
+import { RECURRING_TAGS_NOTE } from '@/lib/calendarTag'
 import { parseId } from '@/lib/historyParam'
 import { cn } from '@/lib/utils'
 import type {
@@ -131,7 +132,7 @@ export function CalendarPage() {
   const [defaultStart, setDefaultStart] = useState<Date | undefined>()
   // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘)
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
-  // scope 선택 전까지 보류하는 수정 body
+  // scope 선택 전까지 보류하는 수정 body — 폼에서 태그를 바꿨으면 tagIds 도 여기 함께 실려 있다(WP-801)
   const [pendingBody, setPendingBody] = useState<CalendarEventRequest | null>(null)
   // 단일 일정 삭제 확인 다이얼로그 표시 여부
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
@@ -397,7 +398,8 @@ export function CalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needFetch, deepLinkEvent, deepLinkFailed, eventIdParam])
 
-  // 생성·수정 공용 submit 핸들러
+  // 생성·수정 공용 submit 핸들러 — 폼에서 바꾼 태그는 body.tagIds 로 일정 저장과 한 요청에 실린다(WP-801).
+  // 한 요청이라 서버가 반복 범위에 맞는 시리즈(「이후 모든 일정」이면 새로 나뉜 시리즈)에 붙이고, 실패하면 일정과 함께 실패해 폼이 남는다.
   const submit = (body: CalendarEventRequest) => {
     // 새 일정 저장 중에 이전 스냅숏(editing)이 수정 대상으로 잡히지 않게 creating 을 먼저 본다.
     if (!creating && editing) {
@@ -727,6 +729,8 @@ export function CalendarPage() {
           mode={scopeMode}
           onPick={onPickScope}
           onCancel={cancelScope}
+          // 태그를 바꾼 수정이면 범위와 상관없이 시리즈에 붙는다는 걸 미리 알린다(WP-801 — 태그는 시리즈 단위)
+          note={scopeMode === 'edit' && pendingBody?.tagIds !== undefined ? RECURRING_TAGS_NOTE : null}
         />
       )}
 

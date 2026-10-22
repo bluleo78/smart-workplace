@@ -31,5 +31,10 @@ public record ExternalContactRequest(
   public ExternalContactRequest {
     // 이름은 한 줄로 다듬는다 — 앞뒤 공백·제로폭 문자만 남은 이름이 목록에 빈 줄로 보였다(WP-628). 다듬어 비면 아래 검증이 한국어로 거절한다
     name = SingleLineTitles.normalize(name);
+    // 전화·소속·직함도 한 줄로 다듬는다(WP-791) — 보이지 않는 글자만 남으면 빈 값(저장 시 null)이 되고 줄바꿈은 공백 하나가 된다. 다듬지 않으면
+    // 조직 필터 목록에 보이지 않는 빈 항목·두 줄 항목이 생겼다. 메모는 여러 줄이 의도라 그대로 둔다
+    phone = SingleLineTitles.normalize(phone);
+    organization = SingleLineTitles.normalize(organization);
+    title = SingleLineTitles.normalize(title);
   }
 }

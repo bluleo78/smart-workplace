@@ -1,9 +1,9 @@
 import { type FormEvent, useRef, useState } from 'react'
 
 import { MobileSheetShell } from '@/components/mobile/MobileSheetShell'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/overlay/popover'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 
 import type { WikiLinkUi } from './useWikiLinkUi'
