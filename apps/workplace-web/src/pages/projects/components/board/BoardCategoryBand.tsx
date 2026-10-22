@@ -42,7 +42,8 @@ export function BoardCategoryBand({
             className={cn('flex h-full min-w-0 items-center justify-between gap-2 border-b-2 px-1 text-xs font-semibold', CATEGORY_TONE[s.category])}
             data-testid={`board-band-${s.category}`}
           >
-            <span className="truncate">{s.label}</span>
+            {/* 라벨은 왼쪽에 붙는다(sticky left) — 가로로 스크롤해 띠 앞부분이 지나가도 범주 이름이 남는다(＋ 의 sticky right 와 짝). */}
+            <span className="sticky left-0 truncate bg-background pr-1">{s.label}</span>
             {canEdit && <BandAddButton span={s} statuses={statuses} onAdd={onAdd} />}
           </div>
         </div>

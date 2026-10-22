@@ -1,7 +1,8 @@
 // 보드 컬럼 헤더 ⋯ 메뉴(WP-808) — OWNER 에게만: 「이름 변경」(헤더 인라인 편집으로 전환)·「이 뒤에 상태 추가」(⋯ 에 붙은 팝오버).
-// 메뉴가 닫히며 ⋯ 로 포커스를 되돌리면 막 연 입력기가 포커스를 잃으므로 onCloseAutoFocus 를 막는다.
+// 메뉴가 닫히며 ⋯ 로 포커스를 되돌리면 막 연 입력기가 포커스를 잃으므로 메뉴의 onCloseAutoFocus 를 막는다.
+// 「이 뒤에 상태 추가」 팝오버는 Trigger 없이 ⋯ 에 붙어(Anchor) 있어 Radix 가 돌아갈 곳을 모른다 — 닫힐 때 ⋯ 로 직접 돌린다.
 import { MoreHorizontal, Pencil, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +33,7 @@ export function BoardColumnHeaderMenu({
   onAddAfter: (name: string) => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   if (!canEdit) return null;
   return (
     <Popover open={adding} onOpenChange={setAdding}>
@@ -39,6 +41,7 @@ export function BoardColumnHeaderMenu({
         <PopoverAnchor asChild>
           <DropdownMenuTrigger asChild>
             <Button
+              ref={triggerRef}
               variant="ghost"
               size="icon"
               className="h-6 w-6 shrink-0 text-muted-foreground"
@@ -60,7 +63,14 @@ export function BoardColumnHeaderMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <PopoverContent align="end" className="w-72 space-y-2 p-3">
+      <PopoverContent
+        align="end"
+        className="w-72 space-y-2 p-3"
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          triggerRef.current?.focus();
+        }}
+      >
         <NewStatusPopoverBody
           subtitle={`${status.name} 뒤`}
           statuses={statuses}

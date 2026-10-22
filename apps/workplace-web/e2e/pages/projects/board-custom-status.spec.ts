@@ -197,6 +197,38 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await expect.poll(() => patches.lastBody()).toEqual({ name: '작업 중' });
     await expect(page.getByTestId('board-col-2').locator('header')).toContainText('작업 중');
     await expect(page.getByTestId('status-name-input')).toHaveCount(0);
+    // Enter 로 끝내면 포커스는 그 컬럼의 ⋯ 로 돌아온다(body 로 떨어지지 않는다).
+    await expect(page.getByTestId('board-col-menu-2')).toBeFocused();
+  });
+
+  test('키보드로 연 편집기를 Esc 로 닫으면 포커스가 연 버튼(⋯·＋)으로 돌아온다', async ({ authenticatedPage: page }) => {
+    await stubBoard(page);
+    await page.goto(`/projects/${KEY}?view=board`);
+    const menu = page.getByTestId('board-col-menu-2');
+
+    // 인라인 이름 변경 → Esc.
+    await menu.click();
+    await page.getByRole('menuitem', { name: '이름 변경' }).click();
+    await expect(page.getByTestId('status-name-input')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('status-name-input')).toHaveCount(0);
+    await expect(menu).toBeFocused();
+
+    // 「이 뒤에 상태 추가」 팝오버 → Esc.
+    await menu.click();
+    await page.getByRole('menuitem', { name: '이 뒤에 상태 추가' }).click();
+    await expect(page.getByTestId('status-name-input')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('status-name-input')).toHaveCount(0);
+    await expect(menu).toBeFocused();
+
+    // 범주 띠 ＋ 팝오버 → Esc.
+    const plus = page.getByTestId('board-band-add-IN_PROGRESS');
+    await plus.click();
+    await expect(page.getByTestId('status-name-input')).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('status-name-input')).toHaveCount(0);
+    await expect(plus).toBeFocused();
   });
 
   test('헤더 이름 편집은 헤더 높이를 바꾸지 않고, 바깥을 누르면 저장 없이 닫힌다', async ({ authenticatedPage: page }) => {
@@ -234,7 +266,8 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await page.getByTestId('status-name-input').fill('검토 중');
     await page.getByTestId('status-name-input').press('Enter');
 
-    await expect(page.getByTestId('status-name-error')).toHaveText('이미 존재하는 상태 이름입니다: 검토 중');
+    // 서버 409 는 클라이언트 중복 검사와 같은 문구로 보인다(이름은 바로 위 입력에 있다).
+    await expect(page.getByTestId('status-name-error')).toHaveText('이미 존재하는 상태 이름입니다');
     // 입력은 그대로 남고 포커스가 돌아와 바로 고칠 수 있다.
     await expect(page.getByTestId('status-name-input')).toHaveValue('검토 중');
     await expect(page.getByTestId('status-name-input')).toBeFocused();

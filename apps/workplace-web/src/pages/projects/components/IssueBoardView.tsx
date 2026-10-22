@@ -5,7 +5,7 @@
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CircleCheckBig, Inbox, Plus, TriangleAlert } from 'lucide-react';
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
@@ -500,6 +500,20 @@ function BoardColumn({
     // label: 스크린리더 드래그 안내가 컬럼 이름을 읽는 데 쓴다(epicDnd.describeDropTarget).
     data: { statusId: status.id, label: status.name },
   });
+  // 인라인 이름 변경이 끝나면(Enter 저장·Esc·바깥 클릭) 이 컬럼의 ⋯ 로 포커스를 돌린다 — 입력이 사라져 포커스가 body 로 떨어지지 않게.
+  // 바깥 클릭으로 다른 요소에 포커스가 갔으면 그대로 둔다(빼앗지 않는다).
+  const headerRef = useRef<HTMLElement>(null);
+  const wasRenaming = useRef(false);
+  const renaming = !!edit?.renaming;
+  useEffect(() => {
+    if (wasRenaming.current && !renaming) {
+      const active = document.activeElement;
+      if (!active || active === document.body) {
+        headerRef.current?.querySelector<HTMLElement>(`[data-testid="board-col-menu-${status.id}"]`)?.focus();
+      }
+    }
+    wasRenaming.current = renaming;
+  }, [renaming, status.id]);
   return (
     <section
       ref={setNodeRef}
@@ -509,7 +523,7 @@ function BoardColumn({
       className={`min-h-[200px] min-w-0 rounded-md border p-2 ${isOver ? 'bg-accent/30' : ''}`}
     >
       {/* 범주 띠가 있으면 sticky 띠(h-9) 바로 아래에 붙는다 — 세로 스크롤해도 띠와 헤더가 함께 보인다. */}
-      <header className={cn(COLUMN_HEADER_CLASS, belowBand && 'top-9')}>
+      <header ref={headerRef} className={cn(COLUMN_HEADER_CLASS, belowBand && 'top-9')}>
         {edit?.renaming ? (
           // 헤더 자리 인라인 이름 변경 — Enter 저장, Esc 취소. 오류는 입력 아래.
           <StatusNameEditor

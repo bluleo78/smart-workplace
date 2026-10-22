@@ -4,6 +4,9 @@ import type { ProjectType } from '../types/project';
 import type { ProjectStatus } from '../types/projectStatus';
 import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from './issueGrouping';
 
+/** 이름 중복 문구 — 클라이언트 검증과 서버 409(동시 중복)를 입력기가 같은 문구로 보인다. */
+export const STATUS_NAME_DUPLICATED = '이미 존재하는 상태 이름입니다';
+
 /** 상태 이름 최대 길이 — 서버 ProjectStatusService.NAME_MAX 와 같다(코드 포인트 기준). */
 export const STATUS_NAME_MAX = 30;
 
@@ -74,6 +77,6 @@ export function validateStatusName(
   // 서버가 코드 포인트로 세므로 이모지 등 서로게이트 쌍을 한 글자로 센다.
   if ([...trimmed].length > STATUS_NAME_MAX) return `상태 이름은 ${STATUS_NAME_MAX}자 이하로 입력해 주세요`;
   const key = trimmed.toLowerCase();
-  if (list.some((s) => s.id !== excludeId && s.name.trim().toLowerCase() === key)) return '이미 존재하는 상태 이름입니다';
+  if (list.some((s) => s.id !== excludeId && s.name.trim().toLowerCase() === key)) return STATUS_NAME_DUPLICATED;
   return null;
 }

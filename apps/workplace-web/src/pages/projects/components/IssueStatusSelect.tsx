@@ -122,7 +122,9 @@ export function IssueStatusSelect({
               이름은 min-w-0 truncate span 으로 감싼다 — 값 영역이 flex + line-clamp 라 텍스트 노드만으론 말줄임표가 생기지 않는다. */}
           <SelectValue>{current ? undefined : currentName && <span className="min-w-0 truncate">{currentName}</span>}</SelectValue>
         </SelectTrigger>
-        <SelectContent>
+        {/* popper + collisionPadding — 내용 폭만큼 커지는 item-aligned 는 화면 경계를 무시해 30자 이름이면 오른쪽으로 넘쳤다.
+            popper 는 Radix 가 화면 안(여백 8px)으로 밀어 넣는다. 트리거 오른쪽 끝에 맞춰 연다. */}
+        <SelectContent position="popper" align="end" collisionPadding={8}>
           {options.map((s) => (
             <SelectItem key={s.id} value={String(s.id)} data-testid={`issue-status-option-${s.id}`}>
               <IssueStatusIcon status={s.category} decorative className="size-4" />

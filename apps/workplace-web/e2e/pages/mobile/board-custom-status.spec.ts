@@ -190,7 +190,8 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     await stubBoard(page);
     await page.route(`**${STATUSES_PATH}`, (route) =>
       route.request().method() === 'POST'
-        ? route.fulfill({ status: 409, json: { message: '이미 존재하는 상태 이름입니다' } })
+        // 서버 문구는 「…: 이름」 꼴 — 입력기는 409 를 클라이언트 중복 문구로 보인다.
+        ? route.fulfill({ status: 409, json: { status: 409, message: '이미 존재하는 상태 이름입니다: 동시 추가' } })
         : route.fallback(),
     );
     await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=2`);
@@ -199,7 +200,7 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     const nameSheet = page.getByTestId('mobile-status-name-sheet');
     await nameSheet.getByTestId('status-name-input').fill('동시 추가');
     await nameSheet.getByTestId('status-name-submit').click();
-    await expect(nameSheet.getByTestId('status-name-error')).toContainText('이미 존재하는 상태 이름입니다');
+    await expect(nameSheet.getByTestId('status-name-error')).toHaveText('이미 존재하는 상태 이름입니다');
     await expect(nameSheet.getByTestId('status-name-input')).toHaveValue('동시 추가');
   });
 
