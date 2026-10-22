@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildUserMessage } from './user-message.js';
-import type { IssueEventEnvelope } from '../types/issue-events.js';
+import { issueEventEnvelope, type IssueEventEnvelope } from '../types/issue-events.js';
 
 const common = {
   projectKey: 'WP',
@@ -51,5 +51,31 @@ describe('buildUserMessage', () => {
       payload: { ...common, previousStatus: 'TODO', newStatus: 'IN_PROGRESS' },
     } as IssueEventEnvelope);
     expect(m).toContain('TODO → IN_PROGRESS');
+  });
+
+  // WP-807: 같은 범주 안의 상태 이름도 알 수 있게 이름이 오면 범주와 함께 보여 준다.
+  it('issue.status_changed — 상태 이름이 오면 범주와 함께 보여 준다', () => {
+    const m = buildUserMessage({
+      type: 'issue.status_changed',
+      payload: {
+        ...common,
+        previousStatus: 'TODO',
+        newStatus: 'IN_PROGRESS',
+        previousStatusName: '할 일',
+        newStatusName: '검토 중',
+      },
+    } as IssueEventEnvelope);
+    expect(m).toContain('할 일(TODO) → 검토 중(IN_PROGRESS)');
+  });
+
+  // 이름 필드는 선택이다 — 구 API 페이로드(이름 없음)도, 이름이 있는 새 페이로드도 스키마를 통과해야 한다.
+  it('issue.status_changed 스키마는 상태 이름을 선택 필드로 받는다', () => {
+    const base = { ...common, previousStatus: 'TODO', newStatus: 'DONE' };
+    expect(issueEventEnvelope.safeParse({ type: 'issue.status_changed', payload: base }).success).toBe(true);
+    const parsed = issueEventEnvelope.parse({
+      type: 'issue.status_changed',
+      payload: { ...base, previousStatusName: '할 일', newStatusName: '배포 완료' },
+    });
+    expect(parsed.type === 'issue.status_changed' && parsed.payload.newStatusName).toBe('배포 완료');
   });
 });

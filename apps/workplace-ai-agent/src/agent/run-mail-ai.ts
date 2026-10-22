@@ -220,11 +220,12 @@ export interface PriorMailInfo {
   body: string;
 }
 
-/** [연결 이슈] — 이 메일로 만든 이슈. status 는 TODO|IN_PROGRESS|DONE|CANCELED. */
+/** [연결 이슈] — 이 메일로 만든 이슈. status 는 범주 TODO|IN_PROGRESS|DONE|CANCELED, statusName 은 프로젝트가 정한 상태 이름(WP-807, 구버전 api 는 안 보냄). */
 export interface LinkedIssueInfo {
   key: string;
   title: string;
   status: string;
+  statusName?: string | null;
 }
 
 /**
@@ -360,13 +361,13 @@ function threadLines(thread: PriorMailInfo[] | null | undefined): string[] {
   return lines;
 }
 
-/** [연결 이슈] 줄 — "키 제목 (상태)". 키가 없으면 생략, 모르는 상태 코드는 그대로. */
+/** [연결 이슈] 줄 — "키 제목 (상태)". 키가 없으면 생략. 상태는 프로젝트 상태 이름 → 범주 라벨 → 모르는 코드 그대로 순으로 쓴다. */
 function linkedIssueLine(issue: LinkedIssueInfo | null | undefined): string | null {
   if (!issue) return null;
   const key = oneLine(issue.key);
   if (!key) return null;
   const title = oneLine(issue.title);
-  const status = ISSUE_STATUS_LABEL[issue.status] ?? oneLine(issue.status);
+  const status = oneLine(issue.statusName ?? '') || ISSUE_STATUS_LABEL[issue.status] || oneLine(issue.status);
   return `[연결 이슈] ${key}${title ? ` ${title}` : ''}${status ? ` (${status})` : ''}`;
 }
 

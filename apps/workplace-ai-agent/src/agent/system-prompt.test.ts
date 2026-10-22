@@ -24,7 +24,8 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).not.toContain('update_status');
     expect(SYSTEM_PROMPT).toContain("update_issue({issueKey, status: 'IN_PROGRESS'})");
     expect(SYSTEM_PROMPT).toContain("update_issue({issueKey, status: 'DONE'}) + unassign_self");
-    expect(SYSTEM_PROMPT).toContain('TODO / IN_PROGRESS / DONE / CANCELED');
+    // WP-807: 상태는 범주 4개 또는 프로젝트가 정한 상태 이름으로 바꿀 수 있다.
+    expect(SYSTEM_PROMPT).toContain('범주(TODO / IN_PROGRESS / DONE / CANCELED) 또는 프로젝트 상태 이름');
   });
 
   // update_issue 는 실패해도 throw 하지 않고 {ok, results} 로 돌려준다 — 실패를 성공으로 보고하지 않도록 확인을 지시한다.

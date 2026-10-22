@@ -148,7 +148,7 @@ describe('POST /mail/analyze-personal', () => {
         me: { addresses: ['me@x.com'], name: '홍길동', otherNames: [], title: '팀장', groups: ['개발팀'] },
         sender: { relation: 'MEMBER', name: '김민수', title: null, organization: null, sameGroups: ['개발팀'], favorite: true },
         thread: [{ fromMe: true, from: 'me@x.com', date: '2026-09-30T00:00Z', body: '이전' }],
-        linkedIssue: { key: 'WP-1', title: 't', status: 'TODO' },
+        linkedIssue: { key: 'WP-1', title: 't', status: 'TODO', statusName: '접수' },
         attachments: ['a.pdf'],
       });
     expect(res.status).toBe(200);
@@ -157,6 +157,8 @@ describe('POST /mail/analyze-personal', () => {
     expect(input.sender?.relation).toBe('MEMBER');
     expect(input.thread).toHaveLength(1);
     expect(input.linkedIssue?.key).toBe('WP-1');
+    // WP-807: 프로젝트 상태 이름(선택)도 러너까지 전달된다.
+    expect(input.linkedIssue?.statusName).toBe('접수');
     expect(input.attachments).toEqual(['a.pdf']);
   });
   it('보강 블록이 null 이어도 200(api 가 조회 실패 블록을 비워 보냄)', async () => {
