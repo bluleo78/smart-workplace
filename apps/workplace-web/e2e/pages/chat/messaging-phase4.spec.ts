@@ -399,6 +399,9 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await page.getByTestId(`message-${MSG_ID}`).hover()
     await page.getByTestId(`message-edit-${MSG_ID}`).click()
     const editor = page.getByTestId(`message-editor-input-${MSG_ID}`)
+    // 수정칸은 작성칸(「채팅 메시지 작성」)과 다른 이름으로 읽힌다(WP-831).
+    await expect(editor).toHaveAccessibleName('메시지 수정')
+    await expect(page.getByTestId('message-composer-input')).toHaveAccessibleName('채팅 메시지 작성')
     await editor.click()
     await page.keyboard.press('End')
     await page.keyboard.type('_수정중인내용')

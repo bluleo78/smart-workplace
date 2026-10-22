@@ -243,6 +243,7 @@ function CommentItem({
       {editing ? (
         <div className="mt-2">
           <RichInput
+            ariaLabel="코멘트 수정"
             members={mentionCandidates}
             initialBody={comment.body}
             initialMentions={mentionUsers}

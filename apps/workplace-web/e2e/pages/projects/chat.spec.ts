@@ -259,6 +259,7 @@ test.describe('이슈 chat panel', () => {
     const input = page.getByTestId('chat-composer-input');
     const submit = page.getByTestId('chat-composer-submit');
     await expect(input).toBeVisible();
+    await expect(input).toHaveAccessibleName('채팅 메시지 작성');
 
     // 1) 초기 빈 상태 → 버튼 비활성.
     await expect(submit).toBeDisabled();
@@ -716,6 +717,8 @@ test.describe('이슈 chat panel', () => {
     await row600.hover();
     await page.getByTestId('chat-message-edit-600').click();
     const editor = page.getByTestId('chat-message-editor-input');
+    // 수정칸은 작성칸과 다른 이름으로 읽힌다(WP-831).
+    await expect(editor).toHaveAccessibleName('메시지 수정');
     await editor.click();
     await page.keyboard.press('ControlOrMeta+A');
     await page.keyboard.type('수정본');

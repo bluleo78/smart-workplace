@@ -69,6 +69,7 @@ export function IssueCommentComposer({
   return (
     // RichInput — 이슈 채팅(ChatComposer)과 동일한 컴포넌트로 시각 일관성(#310) + 멘션 자동완성(#785) 확보
     <RichInput
+      ariaLabel="코멘트 작성"
       members={mentionCandidates}
       onSubmit={handleSubmit}
       onChange={handleDraftChange}

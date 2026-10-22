@@ -68,6 +68,8 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310, #785)', ()
     const input = page.getByTestId('issue-comment-input');
     await expect(input).toBeVisible();
     await expect(page.locator('textarea[placeholder="코멘트를 작성하세요"]')).toHaveCount(0);
+    // 스크린리더 이름은 코멘트 작성칸 — 공용 RichInput 의 채팅 이름(「채팅 메시지 작성」)이 아니다(WP-831).
+    await expect(input).toHaveAccessibleName('코멘트 작성');
   });
 
   test('코멘트 작성 — 입력 → POST API 호출 → 목록 갱신', async ({ authenticatedPage: page }) => {
@@ -350,6 +352,8 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     const editInput = page.getByTestId('issue-comment-edit-input');
     await expect(editInput).toBeVisible();
     await expect(editInput).toContainText('원본 코멘트');
+    // 수정칸은 「코멘트 수정」으로 읽힌다(WP-831).
+    await expect(editInput).toHaveAccessibleName('코멘트 수정');
 
     // 내용 수정 후 저장 — 기존 텍스트 전체 선택 후 교체.
     await editInput.click();

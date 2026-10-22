@@ -204,6 +204,7 @@ export function MessageRow({
     // 인라인 수정 — RichInput 재사용. 저장 시 useUpdateMessage, 닫으면 편집 종료.
     <div data-testid={`message-editor-${m.id}`}>
       <RichInput
+        ariaLabel="메시지 수정"
         members={members}
         initialBody={m.body}
         initialMentions={m.mentions}
