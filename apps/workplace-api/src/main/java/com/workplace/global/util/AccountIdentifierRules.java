@@ -17,5 +17,9 @@ public final class AccountIdentifierRules {
   public static final String ASCII_ONLY_MESSAGE =
       "아이디·이메일은 영문·숫자·기호로만 쓸 수 있습니다(보이지 않는 글자나 다른 문자 체계의 글자는 쓸 수 없습니다)";
 
+  /** 이메일만 받는 칸의 {@link #ASCII_ONLY} 위반 메시지 — 외부 연락처 이메일(WP-779)처럼 아이디가 없는 곳에서 쓴다. */
+  public static final String EMAIL_ASCII_ONLY_MESSAGE =
+      "이메일은 영문·숫자·기호로만 쓸 수 있습니다(보이지 않는 글자나 다른 문자 체계의 글자는 쓸 수 없습니다)";
+
   private AccountIdentifierRules() {}
 }
