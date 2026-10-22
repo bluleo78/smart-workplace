@@ -126,12 +126,27 @@ export async function openWikiEditor(
     reload ? page.reload() : page.goto(`/wiki/spaces/${spaceId}/pages/${pageId}`),
   ])
   if (readOnly) {
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    // 보기 전용은 편집 불가(contenteditable="false")까지 확인한다 — 읽기 전용 상태 자체를 단언으로 남긴다.
+    await expect(page.locator('.ProseMirror[contenteditable="false"]')).toBeVisible()
     await expect(page.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'readonly')
   } else {
     // 편집자는 contenteditable="true" 인 에디터가 보일 때까지 한 번에 기다린다(보임 → 편집 가능 두 단계를 따로 두지 않는다).
     await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
   }
+}
+
+/**
+ * 같은 노트를 여러 피어(탭·컨텍스트)로 동시에 연다 — 하나씩 열면 첫 피어의 상세 GET 대기(최대 20초)가 테스트 제한(30초)을 나눠 먹는다.
+ * 보기 전용 피어는 { page, readOnly: true } 로 넘긴다. 접속 칩 live 같은 그 테스트만의 기대는 호출한 쪽이 이어서 건다.
+ */
+export async function openWikiEditors(spaceId: number, pageId: number, peers: Array<Page | { page: Page; readOnly?: boolean }>) {
+  await Promise.all(peers.map((p) => openWikiEditor('page' in p ? p.page : p, { spaceId, pageId, readOnly: 'page' in p && p.readOnly })))
+}
+
+/** 한 spec 이 늘 같은 노트를 여는 경우를 위해 스페이스·페이지를 고정한 openWikiEditor 를 만든다. */
+export function wikiEditorOpener(spaceId: number, pageId: number) {
+  return (page: Page, opts: Omit<Parameters<typeof openWikiEditor>[1], 'spaceId' | 'pageId'> = {}) =>
+    openWikiEditor(page, { spaceId, pageId, ...opts })
 }
 
 /** 노트 멘션 칩 라벨 해소(GET /pages/{id}/mentions) 응답을 고정한다. */

@@ -1,12 +1,16 @@
 // 위키 노트→이슈 cross-app E2E — 선택 블록 → "이슈로 만들기" → 다이얼로그 → /api/v1/actions/confirm → 이슈 칩 삽입.
+import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
+import { wikiEditorOpener } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
 
 function space(role: WikiRole): WikiSpace {
   return { id: SPACE_ID, type: 'TEAM', name: '팀 위키', ownerId: 1, role, createdAt: '2026-06-01T00:00:00Z' }
@@ -15,7 +19,7 @@ function pageDetail(): WikiPageDetail {
   return { id: PAGE_ID, spaceId: SPACE_ID, parentId: null, title: '노트', body: '', version: 1, updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z', aiLastUsedAt: null, aiLastAction: null }
 }
 
-async function setup(page: import('@playwright/test').Page) {
+async function setup(page: Page) {
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space('EDITOR')]) })
@@ -50,8 +54,7 @@ test('위키 노트→이슈 — 선택 후 "이슈로 만들기" → confirm pa
     return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 77, projectKey: 'ME', number: 12, title: '회의 준비' }) })
   })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('회의 준비')
   await page.keyboard.press('ControlOrMeta+a')
@@ -92,8 +95,7 @@ test('위키 노트→이슈 — VIEWER 는 "이슈로 만들기" 미노출', as
     r.request().method() === 'GET' ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageDetail()) }) : r.fallback())
   await page.route((u) => u.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/members`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('내용')
   await page.keyboard.press('ControlOrMeta+a')

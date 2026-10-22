@@ -13,14 +13,13 @@ import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 import { expectStays, measureBox, nextFrame, stableBox } from '../../fixtures/wait'
 import { cursorOf, KIM, LONG_BODY } from '../../fixtures/presence'
-import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, openWikiEditor, openWikiEditors } from '../../fixtures/wiki-mock'
 import { LABEL_SHOW_MS } from '../../../src/components/wiki/presenceLabels'
 import { BACKGROUND_DISCONNECT_MS, CATCHUP_HIGHLIGHT_MS } from '../../../src/lib/collab/collabResume'
 
 // 모바일(390px) 노트 접속자·원격 커서·복귀(WP-173) — 데스크톱은 pages/wiki/wiki-presence.spec.ts.
 
 const SPACE_ID = 1
-const pagePath = (pageId: number) => `/wiki/spaces/${SPACE_ID}/pages/${pageId}`
 const syncStatus = (p: Page) => p.getByTestId('wiki-sync-status')
 const presence = (p: Page) => p.getByTestId('wiki-presence')
 
@@ -34,7 +33,7 @@ test.describe('모바일 노트 접속자', () => {
       title: '10월 1주차 스프린트 리뷰 및 다음 사이클 우선순위 논의',
       body: '첫 문단',
     })
-    await a.goto(pagePath(36))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 36 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     for (const u of [
       { id: 3, name: '박민수' },
@@ -69,7 +68,7 @@ test.describe('모바일 노트 접속자', () => {
     collabNs,
   }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 37, title: '회의록', body: '첫 문단' })
-    await a.goto(pagePath(37))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 37 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const park = await connectCollabPeer(collabNs, 37, { id: 3, name: '박민수' })
     await presence(a).tap()
@@ -92,8 +91,7 @@ test.describe('모바일 원격 커서', () => {
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
     await a.clock.install()
-    await a.goto(pagePath(47))
-    await b.goto(pagePath(47))
+    await openWikiEditors(SPACE_ID, 47, [a, b])
     await typeAtEnd(b, '둘째 문단', ' 모바일')
     const cur = cursorOf(a, KIM.id)
     await expect(cur).toHaveAttribute('data-label-visible', '')
@@ -114,8 +112,7 @@ test.describe('모바일 원격 커서', () => {
     await mockWikiPageEditor(a, opts)
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(48))
-    await b.goto(pagePath(48))
+    await openWikiEditors(SPACE_ID, 48, [a, b])
     await typeAtEnd(b, '문단 40', ' 끝')
     const cur = cursorOf(a, KIM.id)
     await expect(cur).toHaveCount(1)
@@ -138,7 +135,7 @@ test.describe('모바일 위쪽 삽입 스크롤 고정', () => {
     const body = paras.join('\n\n')
     await installFakeViewport(a)
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 51, title: '긴 노트', body })
-    await a.goto(pagePath(51))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 51 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '문단 25', ' 가')
     await setKeyboard(a, true)
@@ -167,7 +164,7 @@ test.describe('모바일 화면 회전 읽던 줄 고정', () => {
     const long = Array.from({ length: 300 }, (_, i) => `단어${i + 1}`).join(' ')
     const body = [...Array.from({ length: 10 }, (_, i) => `문단 ${i + 1}`), long, ...Array.from({ length: 20 }, (_, i) => `뒤 문단 ${i + 1}`)].join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 63, title: '긴 문단', body })
-    await a.goto(pagePath(63))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 63 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const scroller = a.getByTestId('wiki-editor-scroll')
     // 긴 문단의 가운데가 화면 맨 위에 오게 내린다(포커스 없음 — 읽는 중). scroll 이벤트가 앱에 닿을 때까지 기다린다.
@@ -215,8 +212,7 @@ test.describe('모바일 복귀', () => {
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
     await a.clock.install()
-    await a.goto(pagePath(71))
-    await b.goto(pagePath(71))
+    await openWikiEditors(SPACE_ID, 71, [a, b])
     // A 가 B 를 안다(누가 고쳤는지 셀 수 있다).
     await expect(presence(a)).toBeVisible()
 
@@ -257,8 +253,7 @@ test.describe('모바일 복귀', () => {
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
     await a.clock.install()
-    await a.goto(pagePath(72))
-    await b.goto(pagePath(72))
+    await openWikiEditors(SPACE_ID, 72, [a, b])
     await expect(presence(a)).toBeVisible()
 
     await setPageVisibility(a, 'hidden')

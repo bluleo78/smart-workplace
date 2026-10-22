@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiRole } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
+import { openWikiEditor } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 310
@@ -56,7 +57,7 @@ async function setup(page: Page, role: WikiRole) {
       ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(d) })
       : r.fallback()
   })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, readOnly: role === 'VIEWER' })
   await expect(page.locator('.ProseMirror')).toContainText(BODY)
 }
 

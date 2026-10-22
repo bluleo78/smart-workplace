@@ -8,10 +8,13 @@ import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
-import { pasteImageFile, savedMarkdown } from '../../fixtures/wiki-mock'
+import { wikiEditorOpener, pasteImageFile, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 12
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
+
 const FILE_ID = 34
 const CONTENT_PATH = `/api/v1/wiki/pages/${PAGE_ID}/attachments/${FILE_ID}/content`
 
@@ -129,8 +132,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   test('붙여넣기 업로드 성공 시 이미지가 blob 으로 렌더된다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await page.locator('.ProseMirror').click()
     await pasteImageFile(page, 'image/png', 'pasted.png')
@@ -145,8 +147,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   test('저장본 마크다운에 원본 API 경로가 담긴다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await page.locator('.ProseMirror').click()
     await pasteImageFile(page, 'image/png', 'pasted.png')
@@ -161,8 +162,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   test('업로드 실패 시 자리표시자가 사라지고 에러 토스트가 뜬다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 500)
     await setup(page, '')
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await page.locator('.ProseMirror').click()
     await pasteImageFile(page, 'image/png', 'pasted.png')
@@ -179,8 +179,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     const uploads = trackRequests(page, 'POST', `/api/v1/wiki/pages/${PAGE_ID}/attachments`)
     await stubUpload(page, 201)
     await setup(page, '')
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await page.locator('.ProseMirror').click()
     await pasteImageFile(page, 'image/svg+xml', 'x.svg')
@@ -193,8 +192,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   test('혼합 붙여넣기(텍스트+이미지)는 텍스트를 보존하면서 이미지도 업로드한다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await page.locator('.ProseMirror').click()
     await pasteMixedContent(page, '엑셀표 텍스트')
@@ -212,8 +210,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   test('드래그드롭 업로드 성공 시 이미지가 blob 으로 렌더된다', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await dropImageFile(page)
 
@@ -225,8 +222,7 @@ test.describe('노트 본문 이미지 업로드', () => {
   test('슬래시 메뉴 이미지 항목 → 파일 선택 → 삽입', async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await page.locator('.ProseMirror').click()
     await page.keyboard.type('/')

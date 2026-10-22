@@ -22,7 +22,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
-import { savedMarkdown } from '../../fixtures/wiki-mock'
+import { savedMarkdown, wikiEditorOpener } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
@@ -94,6 +94,8 @@ const ISSUE: IssueResponse = {
   blocked: false,
   customFields: [],
 }
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
 
 // 공통 모킹: 스페이스 + 트리 + 멤버 빈 스텁 + 페이지 GET/PUT(제목 저장). 본문 저장 결과는 동기화 서버에서 읽는다.
 async function setupWikiMocks(
@@ -242,8 +244,7 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   await setupWikiMocks(page, { role: 'EDITOR', body: '' })
   const search = await setupSearchMocks(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // (a) '@온보' 입력 → 통합 검색 트리거.
   await page.locator('.ProseMirror').click()
@@ -294,8 +295,7 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   // 검색 모킹은 불필요하나 누수 방지로 깔아둔다.
   await setupSearchMocks(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // (c) 두 토큰이 칩(노드)으로 치환되고 라벨이 mentions 해소 결과로 채워진다.
   // USER 는 채팅 칩과 동일하게 "@" 프리픽스, PAGE는 참조 링크라 프리픽스 없음(#703).
@@ -346,8 +346,7 @@ test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표�
     },
   )
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 존재하지 않는 이름 입력 → 결과 없음 팝업이 떠야 한다(null 반환으로 사라지면 회귀).
   await page.locator('.ProseMirror').click()
@@ -365,8 +364,7 @@ test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(�
   await setupWikiMocks(page, { role: 'VIEWER', body: '' })
   const search = await setupSearchMocks(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
 
   // '@' 입력해도 allow 게이트(canEditRef=false)로 팝업이 뜨지 않고, 검색 API 도 호출되지 않는다.
   await page.locator('.ProseMirror').click()
@@ -390,7 +388,7 @@ test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이�
   await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
   await setupSearchMocks(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror span[data-mtype="PAGE"]')).toHaveText('온보딩 가이드')
 
   // 칩 클릭 → 라우트 이동(URL 검증).
@@ -410,7 +408,7 @@ test('위키 멘션 칩 — ISSUE 칩 클릭 시 이슈 상세 경로로 이동(
   await setupWikiMocks(page, { role: 'EDITOR', body: BODY, mentions: MENTIONS })
   await setupSearchMocks(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await expect(page.locator('.ProseMirror span[data-mtype="ISSUE"]')).toHaveText('로그인 버그')
 
   await page.locator('.ProseMirror span[data-mtype="ISSUE"]').click()
@@ -433,8 +431,7 @@ test('위키 백링크 패널 — 참조 페이지 칩 렌더 + 클릭 시 출�
   await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: BACKLINKS })
   await setupSearchMocks(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 패널 + 두 백링크가 셀 단위로 렌더되는지(제목·스페이스명).
   const panel = page.getByTestId('wiki-backlinks-panel')
@@ -536,8 +533,7 @@ test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으�
     },
   )
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('@문')
@@ -561,8 +557,7 @@ test('위키 백링크 패널 — 백링크가 없으면 패널이 숨겨진다'
   await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: [] })
   await setupSearchMocks(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await expect(page.getByTestId('wiki-backlinks-panel')).toHaveCount(0)
 })

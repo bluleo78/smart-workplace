@@ -11,7 +11,7 @@ import {
 } from '../../fixtures/collab'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
-import { mockNoteInTeamSpace, mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockNoteInTeamSpace, mockWikiPageEditor, openWikiEditor, openWikiEditors } from '../../fixtures/wiki-mock'
 
 // 모바일 셸(390px)의 노트 동시 편집(WP-172) — 테스트 모드 동기화 서버에 실제로 붙는다.
 // 정상(live)은 헤더 폭을 지키려 점 하나만, 문제 상태는 짧은 글자 칩. 데스크톱 시나리오는 pages/wiki/wiki-collab.spec.ts.
@@ -41,8 +41,7 @@ test.describe('모바일 노트 동시 편집', () => {
     await mockWikiPageEditor(a, opts)
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(21))
-    await b.goto(pagePath(21))
+    await openWikiEditors(SPACE_ID, 21, [a, b])
 
     const chip = a.getByTestId('wiki-sync-status')
     await expect(chip).toHaveAttribute('data-status', 'live')
@@ -77,10 +76,8 @@ test.describe('모바일 노트 동시 편집', () => {
 
   test('보기 권한은 읽기 전용 칩이고 본문을 고칠 수 없다', async ({ authenticatedPage: a }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 22, title: '노트', body: '본문', role: 'VIEWER' })
-    await a.goto(pagePath(22))
-    await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'readonly')
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 22, readOnly: true })
     await expect(a.getByTestId('wiki-sync-status')).toHaveText('읽기 전용')
-    await expect(a.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'false')
     await expectNoHorizontalOverflow(a)
   })
 
@@ -90,7 +87,7 @@ test.describe('모바일 노트 동시 편집', () => {
   }) => {
     await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 23, title: '노트', body: '본문' })
     await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
-    await a.goto(pagePath(23, TEAM_SPACE_ID))
+    await openWikiEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 23 })
     const chip = a.getByTestId('wiki-sync-status')
     const editor = a.locator('.ProseMirror')
     await expect(chip).toHaveAttribute('data-status', 'live')
@@ -125,7 +122,7 @@ test.describe('모바일 노트 동시 편집', () => {
     await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 28, title: '지울 회의록', body: DELETED_BODY })
     await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
     const events = await mockGatedEvents(a)
-    await a.goto(pagePath(28, TEAM_SPACE_ID))
+    await openWikiEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 28 })
     const chip = a.getByTestId('wiki-sync-status')
     await expect(chip).toHaveAttribute('data-status', 'live')
 
@@ -197,7 +194,7 @@ test.describe('모바일 노트 동시 편집', () => {
   }) => {
     const body = '첫 문단\n\n둘째 문단'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 25, title: '회의록', body })
-    await a.goto(pagePath(25))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 25 })
     await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '둘째 문단', ' 내입력')
     await expect.poll(() => readCollabMarkdown(collabNs, 25)).toBe('첫 문단\n\n둘째 문단 내입력')
@@ -215,7 +212,7 @@ test.describe('모바일 노트 동시 편집', () => {
   test('AI 가 고친 자리의 ✦ 이름표는 긴 이름도 말줄임으로 화면 폭을 넘지 않는다', async ({ authenticatedPage: a, collabNs }) => {
     const body = '첫 문단\n\n둘째 문단'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 26, title: '회의록', body })
-    await a.goto(pagePath(26))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 26 })
     await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'live')
     const longName = '아주아주긴이름을가진에이아이비서요청자홍길동입니다'
     await applyCollabMarkdown(collabNs, 26, {
@@ -246,7 +243,7 @@ test.describe('모바일 노트 동시 편집', () => {
   test('표 첫 행에 붙은 AI 표식의 이름표는 표 감싸개·화면 폭 안에 보인다', async ({ authenticatedPage: a, collabNs }) => {
     const body = '표 위 문단\n\n| 이름 | 역할 |\n| --- | --- |\n| 홍길동 | 개발 |'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 27, title: '회의록', body })
-    await a.goto(pagePath(27))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 27 })
     await expect(a.getByTestId('wiki-sync-status')).toHaveAttribute('data-status', 'live')
     await applyCollabMarkdown(collabNs, 27, { baseBody: body, body: body.replace('| 이름 |', '| 성명 |') })
     const marker = a.locator('.tableWrapper th').first().getByTestId('wiki-ai-marker')

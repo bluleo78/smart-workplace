@@ -9,7 +9,7 @@ import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/ty
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
 import { resizeAndSettle } from '../../fixtures/wait'
-import { savedMarkdown } from '../../fixtures/wiki-mock'
+import { openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const NEW_PAGE_ID = 100
@@ -352,11 +352,9 @@ test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이�
     (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   )
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${TITLE_ENTER_PAGE_ID}`)
-
   // Enter 핸들러는 editor 인스턴스로 포커스를 옮긴다 — 부하가 큰 전체 실행에서 에디터 생성 전에 Enter 를 치면
   // 이동할 대상이 없어 이후 타이핑이 제목에 붙는다(플래키). 본문 에디터가 편집 가능해진 뒤 시작한다.
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: TITLE_ENTER_PAGE_ID })
 
   // 1) 제목 입력 후 Enter — 줄바꿈도, submit 도 일어나지 않고 포커스만 본문으로 이동해야 한다.
   const titleInput = page.getByPlaceholder('제목 없음')
@@ -608,7 +606,7 @@ test('위키 — lg 경계 전환(데스크톱→모바일→데스크톱) 리�
     (route) => route.fulfill({ json: pageDetail(NEW_TITLE, 1) }),
   )
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${NEW_PAGE_ID}`)
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: NEW_PAGE_ID })
   const editor = page.locator('.ProseMirror[contenteditable="true"]')
   await editor.click()
   await page.keyboard.type('리마운트')

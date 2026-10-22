@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { applyCollabMarkdown, changeCollabRole, typeAtEnd } from '../../fixtures/collab'
-import { mockWikiMentions, mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiMentions, mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 import { expectToggle } from '../../fixtures/selection'
 
 const SPACE_ID = 1
@@ -15,8 +15,7 @@ const LINK_URL = 'https://example.com/spec'
 async function open(page: Page, body: string, role: 'OWNER' | 'VIEWER' = 'OWNER') {
   await mockWikiMentions(page, PAGE_ID, [])
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '링크 확인', body, role })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, readOnly: role === 'VIEWER' })
 }
 
 /** 본문에서 글자 text 를 DOM 선택으로 고른다 — ProseMirror 는 selectionchange 로 선택을 따라간다. */
@@ -265,10 +264,7 @@ test('긴 주소는 버블에서 한 줄로 잘리고 화면을 넘지 않는다
 
 test('보기 전용은 바뀌지 않는다 — 버블·⌘K 입력 없이 클릭으로 링크가 열린다', async ({ authenticatedPage: page }) => {
   await page.context().route(`${LINK_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>spec</p>' }))
-  await mockWikiMentions(page, PAGE_ID, [])
-  await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '링크 확인', body: `[설계 문서](${LINK_URL})`, role: 'VIEWER' })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror[contenteditable="false"]')).toBeVisible()
+  await open(page, `[설계 문서](${LINK_URL})`, 'VIEWER')
 
   const popupPromise = page.context().waitForEvent('page')
   await page.locator('.ProseMirror a', { hasText: '설계 문서' }).click()
@@ -416,7 +412,7 @@ test('주소를 치는 동안 다른 사람이 선택 바로 뒤에 친 글자�
   const b = await newAuthedPage()
   await mockWikiMentions(b, PAGE_ID, [])
   await mockWikiPageEditor(b, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '링크 확인', body: '', seed: false })
-  await b.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await openWikiEditor(b, { spaceId: SPACE_ID, pageId: PAGE_ID })
   await expect(b.locator('.ProseMirror')).toContainText('링크대상')
 
   await selectText(a, '링크대상')
@@ -453,7 +449,7 @@ test('문단 끝에서 다음 문단 맨 앞까지 고른 선택은 앞 문단 �
   const b = await newAuthedPage()
   await mockWikiMentions(b, PAGE_ID, [])
   await mockWikiPageEditor(b, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '링크 확인', body: '', seed: false })
-  await b.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await openWikiEditor(b, { spaceId: SPACE_ID, pageId: PAGE_ID })
   await expect(b.locator('.ProseMirror')).toContainText('둘째 문단')
 
   // "대상" 부터 둘째 문단 맨 앞(오프셋 0)까지 DOM 선택.

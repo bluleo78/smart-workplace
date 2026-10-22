@@ -9,10 +9,13 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
-import { buildWikiAiSse, mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { buildWikiAiSse, mockWikiPageEditor, wikiEditorOpener, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 310
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
+
 const TITLE = 'AI 대상 페이지'
 
 // 모델이 실제로 내놓는 모양의 초안 — 제목 H1 반복 + 굵게 + 표 + 2단 목록 + 여러 섹션.
@@ -89,8 +92,7 @@ async function mockAiStream(page: Page, deltas: string[], done = true) {
 
 /** 빈 페이지 CTA → 토픽 입력 → 초안 생성 시작. */
 async function startDraft(page: Page) {
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await page.getByTestId('wiki-ai-empty-draft').click()
   await page.getByRole('dialog').getByRole('textbox').fill('4분기 출시 계획')
   await page.getByTestId('rename-dialog-confirm').click()

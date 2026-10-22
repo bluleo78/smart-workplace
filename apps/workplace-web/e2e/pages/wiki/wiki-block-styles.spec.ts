@@ -7,9 +7,12 @@ import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
+import { wikiEditorOpener } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
 
 function space(role: WikiRole): WikiSpace {
   return {
@@ -106,7 +109,7 @@ const BLOCK_BODY = [
 
 test('노트 에디터 — 불릿/번호 목록 마커와 들여쓰기가 렌더된다 (#738)', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, BLOCK_BODY)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   const ul = page.locator('.ProseMirror ul').first()
   const ol = page.locator('.ProseMirror ol').first()
   await expect(ul).toBeVisible()
@@ -135,7 +138,7 @@ test('노트 에디터 — 불릿/번호 목록 마커와 들여쓰기가 렌더
 
 test('노트 에디터 — 코드블록에 배경/보더가 렌더된다 (#738)', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, BLOCK_BODY)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   const pre = page.locator('.ProseMirror pre').first()
   await expect(pre).toBeVisible()
 

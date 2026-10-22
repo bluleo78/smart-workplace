@@ -11,6 +11,7 @@ import { seedCollabFor } from '../../fixtures/collab'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
+import { openWikiEditor } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 100
@@ -68,7 +69,7 @@ test('위키 — 제목 입력 중이 아닐 때 다른 곳에서 제목을 바�
   const events = await mockGatedEvents(page)
   const gets = trackRequests(page, 'GET', `/api/v1/wiki/pages/${PAGE_ID}`)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID })
   const editor = page.locator('.ProseMirror')
   const title = page.getByPlaceholder('제목 없음')
   await expect(editor).toHaveText('원래 본문')
@@ -96,7 +97,7 @@ test('위키 — 제목 입력란에 포커스가 있는 동안엔 원격 제목
   await mockWiki(page, server)
   const events = await mockGatedEvents(page)
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID })
   const title = page.getByPlaceholder('제목 없음')
   await expect(page.locator('.ProseMirror')).toHaveText('원래 본문')
   await expect(title).toHaveValue('원래 제목')

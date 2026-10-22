@@ -9,10 +9,9 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { caretAtEnd, readCollabMarkdown, typeAtEnd } from '../../fixtures/collab'
 import { expectStays } from '../../fixtures/wait'
-import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, openWikiEditors } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
-const pagePath = (pageId: number) => `/wiki/spaces/${SPACE_ID}/pages/${pageId}`
 const syncStatus = (page: Page) => page.getByTestId('wiki-sync-status')
 
 /** 같은 노트를 A·B 두 컨텍스트로 연다 — 시드는 A 만(다시 시드하면 서버가 문서를 닫아 A 가 끊긴다). */
@@ -26,11 +25,9 @@ async function openBoth(
   await mockWikiPageEditor(a, opts)
   const b = await newAuthedPage()
   await mockWikiPageEditor(b, { ...opts, seed: false })
-  await a.goto(pagePath(pageId))
-  await b.goto(pagePath(pageId))
+  await openWikiEditors(SPACE_ID, pageId, [a, b])
   for (const p of [a, b]) {
     await expect(syncStatus(p)).toHaveAttribute('data-status', 'live')
-    await expect(p.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
   }
   return b
 }

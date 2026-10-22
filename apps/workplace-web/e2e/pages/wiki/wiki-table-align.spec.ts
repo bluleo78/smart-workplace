@@ -3,7 +3,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 584
@@ -11,7 +11,7 @@ const TABLE_MD = ['| 서비스 | 상태 | 응답 |', '| --- | --- | --- |', '| A
 
 const open = async (page: Page, body: string) => {
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '표 정렬', body })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID })
   await expect(page.locator('.ProseMirror table')).toBeVisible()
 }
 

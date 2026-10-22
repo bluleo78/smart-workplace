@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test'
 
 import type { WikiRole } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, wikiEditorOpener, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
@@ -19,12 +19,7 @@ const TABLE_MD = [
 const setup = (page: Page, body: string, role: WikiRole = 'OWNER') =>
   mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '표', body, role })
 
-/**
- * 에디터를 열고 조작할 수 있을 때까지 기다린다 — 편집자는 편집 가능(우클릭 메뉴·툴바는 편집 가능일 때만 열린다), 보기 전용은 동기화 칩 readonly 까지.
- * reload: 같은 화면을 새로고침해 저장본을 다시 받는다.
- */
-const open = (page: Page, opts: { readOnly?: boolean; reload?: boolean } = {}) =>
-  openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, ...opts })
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
 
 /** 마크다운에서 파이프로 시작하는 줄(표)만 뽑는다. */
 const tableLines = (md: string) => md.split('\n').filter((l) => l.trim().startsWith('|'))

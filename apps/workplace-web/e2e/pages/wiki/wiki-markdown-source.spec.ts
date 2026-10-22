@@ -4,9 +4,13 @@ import type { Page } from '@playwright/test'
 import type { WikiPageDetail } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { seedCollabFor } from '../../fixtures/collab'
+import { wikiEditorOpener } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 320
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
+
 const BODY = ['# 문서 제목', '', '본문 한 줄.', '', '| 항목 | 값 |', '| --- | --- |', '| 활성 | 1,850 |'].join('\n')
 
 async function setup(page: Page, opts: { role?: 'OWNER' | 'VIEWER'; title?: string } = {}) {
@@ -35,8 +39,7 @@ async function setup(page: Page, opts: { role?: 'OWNER' | 'VIEWER'; title?: stri
 
 test('메뉴에서 마크다운 소스를 열면 현재 본문 원문이 보인다', async ({ authenticatedPage: page }) => {
   await setup(page)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 모달을 열기 전에 에디터를 직접 편집해 "저장된 page.body" 와 "현재 에디터 상태" 를
   // 구분할 수 있는 고유 텍스트를 만든다. 이게 없으면 목이 준 BODY 의 부분 문자열만
@@ -78,8 +81,7 @@ test('복사 버튼이 마크다운을 클립보드에 넣는다', async ({ auth
   // (auth.fixture 는 현재 기본 page 픽스처를 그대로 쓰지만, 나중에 newContext 로 바뀌어도 안전하다.)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await setup(page)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
   await page.getByTestId('wiki-menu-source').click()
@@ -92,8 +94,7 @@ test('복사 버튼이 마크다운을 클립보드에 넣는다', async ({ auth
 
 test('.md 다운로드가 새니타이즈된 파일명으로 저장된다', async ({ authenticatedPage: page }) => {
   await setup(page, { title: '2026/1분기 지표' })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
   await page.getByTestId('wiki-menu-source').click()
@@ -108,8 +109,7 @@ test('.md 다운로드가 새니타이즈된 파일명으로 저장된다', asyn
 
 test('편집 권한이 없어도 소스 보기가 노출된다', async ({ authenticatedPage: page }) => {
   await setup(page, { role: 'VIEWER' })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
 
   // 대조군 — VIEWER 목킹이 실제로 WikiEditor 의 role 판정까지 도달했는지 먼저 증명한다.
   // 이게 없으면 오버플로 메뉴가 원래 무조건 렌더되기 때문에 아래 단언이 항상 통과하는

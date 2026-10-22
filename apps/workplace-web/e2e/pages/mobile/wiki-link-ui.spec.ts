@@ -3,7 +3,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
-import { mockWikiMentions, mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiMentions, mockWikiPageEditor, openWikiEditor, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 413
@@ -12,8 +12,7 @@ const LINK_URL = 'https://example.com/spec'
 async function open(page: Page, body: string, role: 'OWNER' | 'VIEWER' = 'OWNER') {
   await mockWikiMentions(page, PAGE_ID, [])
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '링크 확인', body, role })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator(`.ProseMirror[contenteditable="${role === 'VIEWER' ? 'false' : 'true'}"]`)).toBeVisible()
+  await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, readOnly: role === 'VIEWER' })
 }
 
 test.describe('모바일 노트 링크 시트', () => {

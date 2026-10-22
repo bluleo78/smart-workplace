@@ -6,10 +6,13 @@
 // 실제로 추가될 예정인 첨부 콘텐츠 엔드포인트로, 아직 백엔드에는 없다.
 import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, wikiEditorOpener, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 400
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
+
 const CONTENT_PATH = '/api/v1/wiki/attachments/7/content'
 const EXTERNAL_URL = 'https://example.com/x.png'
 
@@ -27,8 +30,7 @@ test.describe('노트 본문 이미지', () => {
     await page.route(CONTENT_PATH, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
 
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     const img = page.getByTestId('wiki-image')
     await expect(img).toBeVisible()
@@ -41,8 +43,7 @@ test.describe('노트 본문 이미지', () => {
     await page.route(CONTENT_PATH, (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
     await setup(page, `![대체텍스트](${CONTENT_PATH})`)
 
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     await expect(page.getByTestId('wiki-image-error')).toBeVisible()
     await expect(page.getByTestId('wiki-image')).toHaveCount(0)
@@ -52,7 +53,7 @@ test.describe('노트 본문 이미지', () => {
     await page.route(CONTENT_PATH, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
 
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+    await open(page)
     await expect(page.getByTestId('wiki-image')).toBeVisible()
 
     // 본문 끝 문단을 클릭해 타이핑 → 실시간 동기화로 저장(WP-172).
@@ -71,8 +72,7 @@ test.describe('노트 본문 이미지', () => {
     await page.route(EXTERNAL_URL, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await setup(page, `# 제목\n\n![외부이미지](${EXTERNAL_URL})\n\n본문`)
 
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-    await expect(page.locator('.ProseMirror')).toBeVisible()
+    await open(page)
 
     const img = page.getByTestId('wiki-image')
     await expect(img).toBeVisible()

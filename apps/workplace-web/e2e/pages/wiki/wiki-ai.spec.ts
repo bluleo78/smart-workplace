@@ -20,10 +20,12 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { collabNsOf, readCollabMarkdown, seedCollabFor, watchCollabAiApply } from '../../fixtures/collab'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, measureBox, stableBox } from '../../fixtures/wait'
-import { buildWikiAiSse, savedMarkdown } from '../../fixtures/wiki-mock'
+import { buildWikiAiSse, wikiEditorOpener, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
 
 function space(role: WikiRole): WikiSpace {
   return {
@@ -164,8 +166,7 @@ test('위키 /ai — 슬래시 메뉴 → AI 이어쓰기 → /events 스트림�
 
   const aiStarts = await mockWikiAiGeneration(page, { deltas: ['이어서: ', '핵심 내용'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
@@ -181,8 +182,7 @@ test('위키 /ai 슬래시 메뉴 — 매칭 없는 검색어 입력 시 팝오�
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/제목없음')
@@ -201,8 +201,7 @@ test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(
 
   const aiStarts = await mockWikiAiGeneration(page, { deltas: ['초안: ', '핵심 내용'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
@@ -261,8 +260,7 @@ test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성�
     })
   })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 1) 첫 액션(AI 이어쓰기) 트리거.
   await page.locator('.ProseMirror').click()
@@ -289,8 +287,7 @@ test('위키 /ai 슬래시 메뉴 — max-height(240px) 클래스 적용으로 �
   await setupWikiMocks(page, 'EDITOR')
   await mockWikiAiGeneration(page, { deltas: [] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
@@ -314,8 +311,7 @@ test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교�
   await setupWikiMocks(page, 'EDITOR')
   const aiStarts = await mockWikiAiGeneration(page, { deltas: ['다듬어진 ', '문장'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await typeAndSelectAll(page, '원본 문장')
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
@@ -334,8 +330,7 @@ test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)
   await setupWikiMocks(page, 'EDITOR')
   const aiStarts = await mockWikiAiGeneration(page, { deltas: ['다듬어진 ', '문장'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await typeAndSelectAll(page, '원본 문장')
 
   await page.getByTestId('wiki-ai-tb-rewrite_tone').click()
@@ -356,8 +351,7 @@ test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', asy
     })
   })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
   await typeAndSelectAll(page, '원본 문장')
 
   await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
@@ -370,8 +364,7 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', a
 
   // undo 그룹 경계(newGroupDelay 500ms, Date.now 기준)를 가상 시계로 넘긴다
   await page.clock.install()
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await typeAndSelectAll(page, '원본 문장')
   // newGroupDelay(500ms) 안의 변경은 한 undo 그룹으로 묶인다. 입력과 AI 변형이 같은 그룹이 되면 undo 가
   // 입력까지 지워 "원본으로 복원"을 검증할 수 없다(WP-82) — 시계를 600ms 넘겨 다른 그룹이 되게 한다.
@@ -400,8 +393,7 @@ test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', 
     })
   })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
@@ -446,8 +438,7 @@ test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 이어쓰기 액
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
   const aiStarts = await mockWikiAiGeneration(page, { deltas: ['이어서: ', '집밥 3가지 레시피'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 사용자 액션 없이(타이핑·선택 없이) 즉시 보여야 한다 — 이게 이 이슈의 핵심.
   const aiButton = page.getByTestId('wiki-ai-header-button')
@@ -467,8 +458,7 @@ test('위키 AI 노출 — 헤더 AI 초안: 토픽 다이얼로그를 열고 dr
   await setupWikiMocks(page, 'OWNER')
   const aiStarts = await mockWikiAiGeneration(page, { deltas: ['초안 '] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.getByTestId('wiki-ai-header-button').click()
   await page.getByTestId('wiki-ai-header-draft').click()
@@ -495,8 +485,7 @@ test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유
     })
   })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
 
   // "기능 없음"이 아니라 "권한 없음"임을 알 수 있어야 한다 — 버튼은 보이고 사유가 텍스트로 뜬다.
   const aiButton = page.getByTestId('wiki-ai-header-button')
@@ -516,8 +505,7 @@ test('위키 AI 노출 — 빈 본문에 placeholder 힌트와 초안 CTA 가 �
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // placeholder — 빈 본문에서 '/' 진입점을 알리는 유일한 상시 힌트.
   await expect(page.locator('.ProseMirror p').first()).toHaveAttribute(
@@ -542,8 +530,7 @@ test('위키 AI 노출 — VIEWER 는 빈 본문 CTA 가 노출되지 않는다 
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'VIEWER')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
   await expect(page.getByTestId('wiki-ai-empty-cta')).toHaveCount(0)
 })
 
@@ -553,8 +540,7 @@ test('위키 변형 툴바 — 좌측 상단이 아니라 선택영역 바로 �
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
   await mockWikiAiGeneration(page, { deltas: [] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 본문 중간의 한 문단을 선택한다(문서 시작이 아닌 위치라 위치 버그가 드러난다).
   const target = page.locator('.ProseMirror p').filter({ hasText: '팬을 중불로 달군' }).first()
@@ -644,8 +630,7 @@ test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 �
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
   await mockWikiAiGeneration(page, { deltas: [] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   const target = page.locator('.ProseMirror p').filter({ hasText: '팬을 중불로 달군' }).first()
   await expect(target).toBeVisible()
@@ -691,8 +676,7 @@ test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
   await mockWikiAiGeneration(page, { deltas: [] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 선택을 뷰포트 하단에 붙인다 — Portal 을 없애면서 Radix Content 의 컨테이닝 블록이
   // transform 이 걸린 [data-tippy-root] 로 바뀌었으므로, flip/shift 충돌 처리가 여전히
@@ -777,8 +761,7 @@ test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바�
     })
   })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   const img = page.getByTestId('wiki-image')
   await expect(img).toBeVisible()
@@ -802,8 +785,7 @@ test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지
   )
   await mockWikiAiGeneration(page, { deltas: [] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await expect(page.getByTestId('wiki-image')).toBeVisible()
 
   const target = page.locator('.ProseMirror p').filter({ hasText: '본문 텍스트' }).first()
@@ -822,8 +804,7 @@ test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/새로고�
 }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await typeAndSelectAll(page, '굵게 만들 문장')
 
   const toolbar = page.getByTestId('wiki-ai-toolbar')
@@ -844,8 +825,7 @@ test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/새로고�
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('**굵게 만들 문장**')
 
   // 새로고침하면 에디터가 동기화 서버 문서를 다시 받아 오는데, 그래도 굵게 서식이 유지된다.
-  await page.reload()
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { reload: true })
   await expect(page.locator('.ProseMirror strong')).toContainText('굵게 만들 문장')
 })
 
@@ -854,8 +834,7 @@ test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바
 }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await typeAndSelectAll(page, '제목이 될 문장')
 
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
@@ -867,8 +846,7 @@ test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바
 test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687)', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'VIEWER')
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page, { readOnly: true })
   await typeAndSelectAll(page, '원본 문장')
 
   await expectStays(page, () => page.getByTestId('wiki-ai-toolbar').count(), 0)
@@ -893,11 +871,10 @@ test('위키 서식 — 스페이스 권한이 에디터보다 늦게 와도 선
     },
   )
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  const editor = page.locator('.ProseMirror')
+  await open(page)
   // 본문 편집 가능 여부는 동기화 서버가 알려 준 역할이 최종이다(WP-172) — 스페이스 권한이 아직 없어도 첫 동기화 뒤엔
   // 편집 가능으로 마운트된다. 툴바(서식·AI)는 스페이스 권한을 보므로, 권한을 늦게 내려보내도 선택하면 뜨는지 본다.
-  await expect(editor).toHaveAttribute('contenteditable', 'true')
+  await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'true')
   releaseSpaces()
   await typeAndSelectAll(page, '늦게 온 권한')
 
@@ -911,8 +888,7 @@ test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼�
   // 좁은 뷰포트(모바일 급)에서도 검증 — 서식 6개 + AI 6개 + 이슈로 만들기 1개 = 13개 컨트롤.
   await page.setViewportSize({ width: 375, height: 700 })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await typeAndSelectAll(page, '좁은 화면 테스트 문장')
 
   const toolbar = page.getByTestId('wiki-ai-toolbar')
@@ -965,8 +941,7 @@ test('위키 /ai 슬래시 메뉴 — 블록 타입 6종이 서식 섹션에 노
 }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
@@ -993,8 +968,7 @@ test('위키 /ai 슬래시 메뉴 — 제목1 삽입 시 블록 타입이 headin
 }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/제목1')
@@ -1010,8 +984,7 @@ test('위키 /ai 슬래시 메뉴 — 화살표 키로 블록 그룹까지 내�
 }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
@@ -1040,8 +1013,7 @@ test('위키 /ai 슬래시 메뉴 — 화살표 키로 블록 그룹까지 내�
 test('위키 /ai 슬래시 메뉴 — 구분선 삽입 시 hr 이 생성된다 (#687)', async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'EDITOR')
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/구분선')
@@ -1076,7 +1048,7 @@ test('위키 AI 적용 — 슬래시 이어쓰기는 ai-apply 의 ack 를 받은
   const watch = await watchCollabAiApply(page, { ack: 'hold' })
   await mockWikiAiGeneration(page, { deltas: ['확인 후 ', '삽입된 결과'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   const editor = page.locator('.ProseMirror')
   await openSlashContinue(page)
 
@@ -1103,8 +1075,7 @@ test('위키 AI 적용 — 버블 다듬기도 ai-apply 의 ack 를 받고 선�
   const watch = await watchCollabAiApply(page)
   await mockWikiAiGeneration(page, { deltas: ['다듬은 ', '결과 문장'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
   await typeAndSelectAll(page, '다듬을 문장')
   await page.getByTestId('wiki-ai-tb-polish').click()
 
@@ -1122,7 +1093,7 @@ test('위키 AI 적용 — 서버 ack 가 오지 않아도 3초 상한 뒤 넣�
   const watch = await watchCollabAiApply(page, { ack: 'drop' })
   await mockWikiAiGeneration(page, { deltas: ['응답 없어도 ', '들어간 결과'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   const editor = page.locator('.ProseMirror')
   await openSlashContinue(page)
 
@@ -1148,7 +1119,7 @@ test('위키 AI 적용 — ack 를 기다리는 중 ESC 로 취소하면 넣지 
   const watch = await watchCollabAiApply(page, { ack: 'hold' })
   await mockWikiAiGeneration(page, { deltas: ['취소될 ', '결과'] })
 
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
   await openSlashContinue(page)
 
   await expect.poll(() => watch.acks().length).toBe(1)

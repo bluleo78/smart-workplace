@@ -14,7 +14,7 @@ import {
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
 import { solidPng } from '../../fixtures/png'
-import { buildWikiAiSse, mockNoteInTeamSpace, mockWikiPageEditor, pasteImageFile } from '../../fixtures/wiki-mock'
+import { buildWikiAiSse, mockNoteInTeamSpace, mockWikiPageEditor, openWikiEditor, openWikiEditors, pasteImageFile } from '../../fixtures/wiki-mock'
 
 // 노트 실시간 동시 편집(WP-172) — 테스트 모드 동기화 서버(playwright.config webServer)에 실제로 붙는다.
 // 문서는 테스트마다 네임스페이스(collabNs)로 격리되고, 서버 문서 결과는 /__test/markdown 으로 읽는다.
@@ -137,8 +137,7 @@ test.describe('노트 동시 편집', () => {
     const b = await newAuthedPage()
     // 두 번째 컨텍스트는 같은 문서에 붙기만 한다 — 다시 시드하면 서버가 문서를 닫아 a 가 끊긴다.
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(11))
-    await b.goto(pagePath(11))
+    await openWikiEditors(SPACE_ID, 11, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -162,8 +161,7 @@ test.describe('노트 동시 편집', () => {
     const socket = await controlCollabSocket(a)
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(12))
-    await b.goto(pagePath(12))
+    await openWikiEditors(SPACE_ID, 12, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -216,11 +214,9 @@ test.describe('노트 동시 편집', () => {
 
   test('보기 권한은 읽기 전용 칩이고 입력이 반영되지 않는다', async ({ authenticatedPage: a, collabNs }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 13, title: '노트', body: '본문', role: 'VIEWER' })
-    await a.goto(pagePath(13))
-    await expect(syncStatus(a)).toHaveAttribute('data-status', 'readonly')
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 13, readOnly: true })
     await expect(syncStatus(a)).toHaveText('읽기 전용')
     const editor = a.locator('.ProseMirror')
-    await expect(editor).toHaveAttribute('contenteditable', 'false')
     await editor.getByText('본문').click()
     await a.keyboard.type('입력 시도')
     await expectContentStays(a, collabNs, 13, '본문')
@@ -228,7 +224,7 @@ test.describe('노트 동시 편집', () => {
 
   test('편집 중 서버가 보기 권한으로 낮추면 그 자리에서 에디터가 잠긴다', async ({ authenticatedPage: a, collabNs }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 14, title: '노트', body: '본문' })
-    await a.goto(pagePath(14))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 14 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '본문', ' 강등 전')
     await expect.poll(() => readCollabMarkdown(collabNs, 14)).toBe('본문 강등 전')
@@ -254,7 +250,7 @@ test.describe('노트 동시 편집', () => {
   }) => {
     await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 15, title: '노트', body: '본문' })
     await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
-    await a.goto(pagePath(15, TEAM_SPACE_ID))
+    await openWikiEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 15 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
 
     await changeCollabRole(collabNs, 15, 'NONE')
@@ -279,7 +275,7 @@ test.describe('노트 동시 편집', () => {
   }) => {
     await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 16, title: '노트', body: '본문' })
     await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
-    await a.goto(pagePath(16, TEAM_SPACE_ID))
+    await openWikiEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 16 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
 
     // 멤버에서 제거됐다 — 이후 스페이스 목록엔 개인 스페이스만 남는다(나중에 등록한 라우트가 이긴다).
@@ -317,7 +313,7 @@ test.describe('노트 동시 편집', () => {
     await mockWikiPageEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 19, title: '지울 회의록', body: DELETED_BODY })
     await mockNoteInTeamSpace(a, { spaceId: TEAM_SPACE_ID, name: '제품팀' })
     const events = await mockGatedEvents(a)
-    await a.goto(pagePath(19, TEAM_SPACE_ID))
+    await openWikiEditor(a, { spaceId: TEAM_SPACE_ID, pageId: 19 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(a.locator('.ProseMirror')).toContainText('지울 본문')
 
@@ -359,7 +355,7 @@ test.describe('노트 동시 편집', () => {
   }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 22, title: '지울 회의록', body: '지울 본문' })
     const events = await mockGatedEvents(a)
-    await a.goto(pagePath(22))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 22 })
     await expect(a.locator('.ProseMirror')).toHaveText('지울 본문')
 
     await mockDeletedPage(a, 22)
@@ -392,7 +388,7 @@ test.describe('노트 동시 편집', () => {
       { id: 20, title: '먼저 본 노트' },
       { id: 21, title: '다음 노트' },
     ])
-    await a.goto(pagePath(20))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 20 })
     await expect(a.locator('.ProseMirror')).toHaveText('먼저 본 본문')
 
     // 앱 안에서 이동해 노트 20 의 조회 캐시를 남긴다.
@@ -441,7 +437,7 @@ test.describe('노트 동시 편집', () => {
   }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 41, title: '노트', body: '본문' })
     const socket = await controlCollabSocket(a)
-    await a.goto(pagePath(41))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 41 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '본문', ' 배포 전')
     await expect.poll(() => readCollabMarkdown(collabNs, 41)).toBe('본문 배포 전')
@@ -472,7 +468,7 @@ test.describe('노트 동시 편집', () => {
     await seedCollabDoc('', 16, '네임스페이스 없는 문서')
     await seedCollabDoc(`${collabNs}-other`, 16, '다른 네임스페이스 문서')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 16, title: '노트', body: '내 문서' })
-    await a.goto(pagePath(16))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 16 })
     const editor = a.locator('.ProseMirror')
     await expect(editor).toHaveText('내 문서')
     await typeAtEnd(a, '내 문서', ' 수정')
@@ -487,7 +483,7 @@ test.describe('노트 동시 편집', () => {
   }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 17, title: '노트', body: '본문' })
     const socket = await controlCollabSocket(a)
-    await a.goto(pagePath(17))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 17 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
 
     await socket.drop()
@@ -529,8 +525,7 @@ test.describe('노트 동시 편집', () => {
     })
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(17))
-    await b.goto(pagePath(17))
+    await openWikiEditors(SPACE_ID, 17, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -568,8 +563,7 @@ test.describe('노트 동시 편집', () => {
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
     const releaseB = await holdUpload(b, 18, 2)
-    await a.goto(pagePath(18))
-    await b.goto(pagePath(18))
+    await openWikiEditors(SPACE_ID, 18, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -614,8 +608,7 @@ test.describe('노트 동시 편집', () => {
       (u) => u.pathname === '/api/v1/wiki/pages/61/attachments/7/content',
       (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
     )
-    await a.goto(pagePath(61))
-    await b.goto(pagePath(61))
+    await openWikiEditors(SPACE_ID, 61, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -655,8 +648,7 @@ test.describe('노트 동시 편집', () => {
     const u = await newAuthedPage()
     await mockWikiPageEditor(u, { ...opts, seed: false })
     await holdUpload(u, 62, 8) // 끝내 풀지 않는다 — 업로드 중에 나간다.
-    await a.goto(pagePath(62))
-    await u.goto(pagePath(62))
+    await openWikiEditors(SPACE_ID, 62, [a, u])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(u)).toHaveAttribute('data-status', 'live')
 
@@ -698,8 +690,7 @@ test.describe('노트 동시 편집', () => {
     )
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(63))
-    await b.goto(pagePath(63))
+    await openWikiEditors(SPACE_ID, 63, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -732,7 +723,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
   }) => {
     const body = '첫 문단\n\n둘째 문단'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 31, title: '회의록', body })
-    await a.goto(pagePath(31))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 31 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     // 내가 둘째 문단을 고치는 중 — AI 는 그 전에 읽은 판(body)을 기준으로 첫 문단을 고쳐 전체 본문을 보낸다.
     await typeAtEnd(a, '둘째 문단', ' 내입력')
@@ -757,7 +748,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
   test('AI 가 내가 쓰던 문단의 다른 곳을 고치면 글자 단위로 합쳐진다', async ({ authenticatedPage: a, collabNs }) => {
     const body = '회의 안건을 정리합니다'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 32, title: '회의록', body })
-    await a.goto(pagePath(32))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 32 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '회의 안건을 정리합니다', ' — 내 메모')
     await expect.poll(() => readCollabMarkdown(collabNs, 32)).toBe('회의 안건을 정리합니다 — 내 메모')
@@ -796,7 +787,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
     }) => {
       await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: c.pageId, title: '회의록', body: c.body })
       const socket = await controlCollabSocket(a)
-      await a.goto(pagePath(c.pageId))
+      await openWikiEditor(a, { spaceId: SPACE_ID, pageId: c.pageId })
       await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
       await typeAtEnd(a, c.at, ' 내입력 ')
       await expect.poll(() => readCollabMarkdown(collabNs, c.pageId)).toMatch(/ 내입력 $/)
@@ -821,7 +812,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
   test('두 사람의 AI 표식이 같은 자리에 붙어도 이름표가 겹치지 않고 둘 다 온전히 보인다', async ({ authenticatedPage: a, collabNs }) => {
     const body = '첫 문단\n\n둘째 문단'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 37, title: '회의록', body })
-    await a.goto(pagePath(37))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 37 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const first = '첫 문단 이영희AI'
     await applyCollabMarkdown(collabNs, 37, { baseBody: body, body: `${first}\n\n둘째 문단`, actor: { userId: 7, name: '이영희' } })
@@ -842,7 +833,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
   test('표 첫 행에 붙은 AI 표식의 이름표는 표 감싸개에 잘리지 않게 캐럿 아래로 펼친다', async ({ authenticatedPage: a, collabNs }) => {
     const body = '표 위 문단\n\n| 이름 | 역할 |\n| --- | --- |\n| 홍길동 | 개발 |\n| 김영희 | 기획 |'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 38, title: '회의록', body })
-    await a.goto(pagePath(38))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 38 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await applyCollabMarkdown(collabNs, 38, { baseBody: body, body: body.replace('| 이름 |', '| 성명 |') })
     const marker = a.locator('.tableWrapper th').first().getByTestId('wiki-ai-marker')
@@ -860,7 +851,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
   test('구버전 웹(사람)의 본문 저장이 합쳐질 때는 ✦ 표식이 없다', async ({ authenticatedPage: a, collabNs }) => {
     const body = '첫 문단\n\n둘째 문단'
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 35, title: '회의록', body })
-    await a.goto(pagePath(35))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 35 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await applyCollabMarkdown(collabNs, 35, { baseBody: body, body: '첫 문단 웹\n\n둘째 문단', ai: false })
     await expect(a.locator('.ProseMirror')).toContainText('첫 문단 웹')
@@ -886,8 +877,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
     const socket = await controlCollabSocket(a)
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(36))
-    await b.goto(pagePath(36))
+    await openWikiEditors(SPACE_ID, 36, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -945,8 +935,7 @@ test.describe('노트 /ai 생성 중 ✦ 표식 정리', () => {
     )
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(pageId))
-    await b.goto(pagePath(pageId))
+    await openWikiEditors(SPACE_ID, pageId, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 
@@ -1031,8 +1020,7 @@ test.describe('노트 /ai 생성 중 ✦ 표식 정리', () => {
     })
     const b = await newAuthedPage()
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(45))
-    await b.goto(pagePath(45))
+    await openWikiEditors(SPACE_ID, 45, [a, b])
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(syncStatus(b)).toHaveAttribute('data-status', 'live')
 

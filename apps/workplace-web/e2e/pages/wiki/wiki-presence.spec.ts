@@ -15,13 +15,12 @@ import {
 } from '../../fixtures/collab'
 import { cursorOf, KIM, LONG_BODY } from '../../fixtures/presence'
 import { expectStays, nextFrame, stableBox } from '../../fixtures/wait'
-import { mockWikiPageEditor, pasteImageFile } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, openWikiEditor, openWikiEditors, pasteImageFile } from '../../fixtures/wiki-mock'
 import { LABEL_SHOW_MS } from '../../../src/components/wiki/presenceLabels'
 
 // 노트 접속자·원격 커서(WP-173 · WP-292) — 테스트 모드 동기화 서버에 실제로 붙는다. 모바일은 pages/mobile/wiki-presence.spec.ts.
 
 const SPACE_ID = 1
-const pagePath = (pageId: number) => `/wiki/spaces/${SPACE_ID}/pages/${pageId}`
 /** 기본 로그인 사용자(authenticatedPage) — auth.factory createUser. */
 const ME = { id: 1, name: '테스트 사용자' }
 const syncStatus = (p: Page) => p.getByTestId('wiki-sync-status')
@@ -41,7 +40,7 @@ test.describe('노트 접속 알리기', () => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 39, title: '다른 노트', body: '다른 본문' })
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 30, title: '회의록', body: '첫 문단' })
     const peer = await connectCollabPeer(collabNs, 30, { id: 3, name: '박민수' })
-    await a.goto(pagePath(30))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 30 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect.poll(() => peer.userIds()).toEqual([ME.id])
 
@@ -73,12 +72,12 @@ test.describe('노트 헤더 접속자', () => {
     await mockWikiPageEditor(a, opts)
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(31))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 31 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     // 혼자일 땐 아무것도 없다 — 나는 표시하지 않는다.
     await expect(presence(a)).toHaveCount(0)
 
-    await b.goto(pagePath(31))
+    await openWikiEditor(b, { spaceId: SPACE_ID, pageId: 31 })
     await expect(avatar(a, KIM.id)).toHaveText('김')
     await avatar(a, KIM.id).hover()
     await expect(a.getByRole('tooltip')).toContainText('김철수')
@@ -95,8 +94,7 @@ test.describe('노트 헤더 접속자', () => {
     const sameMe = await newAuthedPage()
     await mockWikiPageEditor(sameMe, { ...opts, seed: false })
     const peer = await connectCollabPeer(collabNs, 32, { id: 3, name: '박민수' })
-    await a.goto(pagePath(32))
-    await sameMe.goto(pagePath(32))
+    await openWikiEditors(SPACE_ID, 32, [a, sameMe])
     // 내 두 탭이 모두 알렸다(다른 접속자가 둘 다 본다).
     await expect.poll(() => peer.userIds().filter((id) => id === ME.id).length).toBe(2)
     await expect(avatarIn(a)).toHaveCount(1)
@@ -108,7 +106,7 @@ test.describe('노트 헤더 접속자', () => {
     collabNs,
   }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 33, title: '회의록', body: '첫 문단' })
-    await a.goto(pagePath(33))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 33 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const ps = []
     for (const u of [
@@ -135,7 +133,7 @@ test.describe('노트 헤더 접속자', () => {
 
   test('서버가 AI 수정을 적용하면 그 사람이 ✦ AI 작성 중으로 잠깐 보였다가 사라진다', async ({ authenticatedPage: a, collabNs }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 34, title: '회의록', body: '첫 문단' })
-    await a.goto(pagePath(34))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 34 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await applyCollabMarkdown(collabNs, 34, {
       baseBody: '첫 문단',
@@ -157,8 +155,7 @@ test.describe('노트 헤더 접속자', () => {
     await mockWikiPageEditor(a, opts)
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(35))
-    await b.goto(pagePath(35))
+    await openWikiEditors(SPACE_ID, 35, [a, b])
     await expect(avatar(a, KIM.id)).toBeVisible()
 
     // 소켓이 닫히면 provider(onClose)가 원격 상태를 그 자리에서 지운다. 덮개(presenceAwarenessOf)가 마지막 값을 붙잡지 않으면
@@ -182,7 +179,7 @@ test.describe('노트 헤더 접속자', () => {
     collabNs,
   }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 37, title: '회의록', body: '첫 문단' })
-    await a.goto(pagePath(37))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 37 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const park = await connectCollabPeer(collabNs, 37, { id: 3, name: '박민수' })
     await presence(a).click()
@@ -199,7 +196,7 @@ test.describe('노트 헤더 접속자', () => {
 
   test('✦ AI 이름표는 사람 색이 아니라 AI 마커 색(ai-accent)이다 — 캐럿·테두리·다크 배경까지', async ({ authenticatedPage: a, collabNs }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 37, title: '회의록', body: '첫 문단' })
-    await a.goto(pagePath(37))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 37 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const peer = await connectCollabPeer(collabNs, 37, { id: 5, name: '이영희' })
     peer.setAiMarker(0, 1)
@@ -259,8 +256,7 @@ test.describe('노트 원격 커서', () => {
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
     await a.clock.install()
-    await a.goto(pagePath(41))
-    await b.goto(pagePath(41))
+    await openWikiEditors(SPACE_ID, 41, [a, b])
     await typeAtEnd(b, '둘째 문단', ' 추가')
 
     const cur = cursorOf(a, KIM.id)
@@ -293,8 +289,7 @@ test.describe('노트 원격 커서', () => {
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
     await a.clock.install()
-    await a.goto(pagePath(50))
-    await b.goto(pagePath(50))
+    await openWikiEditors(SPACE_ID, 50, [a, b])
     // 낱말 가운데("가|운데")에 캐럿을 둔다 — 오른쪽 글자가 남아 타이핑해도 캐럿의 상대 위치 JSON 이 그대로인 자리.
     // (공백 옆은 피한다 — 텍스트 차이 계산이 공백을 삽입의 앞·뒤 어느 쪽으로 붙일지 모호해 상대 위치가 바뀔 수 있다.)
     // 끝을 누르고 방향키로 옮기면 부하에서 방향키 하나가 사라져 한 칸 오른쪽에 쳤다 — "운" 앞에 캐럿을 바로 둔다(caretBeforeChar).
@@ -318,7 +313,7 @@ test.describe('노트 원격 커서', () => {
     collabNs,
   }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 42, title: '회의록', body: '첫 문단' })
-    await a.goto(pagePath(42))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 42 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const peer = await connectCollabPeer(collabNs, 42, { id: 5, name: '이영희' })
     peer.setCursor(0, 2)
@@ -347,8 +342,7 @@ test.describe('노트 원격 커서', () => {
     await mockWikiPageEditor(a, opts)
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(43))
-    await b.goto(pagePath(43))
+    await openWikiEditors(SPACE_ID, 43, [a, b])
     await typeAtEnd(b, '둘째 문단', '!')
     // 커서 위젯 자체는 폭 0 이라 Playwright 가 보이지 않음으로 본다 — 2px 캐럿으로 확인한다.
     await expect(cursorOf(a, KIM.id).locator('.wiki-presence-cursor__caret')).toBeVisible()
@@ -369,8 +363,7 @@ test.describe('노트 원격 커서', () => {
     await mockWikiPageEditor(a, opts)
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(49))
-    await b.goto(pagePath(49))
+    await openWikiEditors(SPACE_ID, 49, [a, b])
     await typeAtEnd(b, '첫 문단', '!')
     await expect(cursorOf(a, KIM.id).locator('.wiki-presence-cursor__caret')).toBeVisible()
     // focusout 시점에 이미 포커스가 빠져 있어야(view.hasFocus() false) 커서를 내린다 — 남아 있으면 떠난 자리에 커서가 계속 보인다.
@@ -383,9 +376,7 @@ test.describe('노트 원격 커서', () => {
     await mockWikiPageEditor(a, { ...opts, collabRoles: { '2': 'VIEWER' } })
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, role: 'VIEWER', seed: false })
-    await a.goto(pagePath(44))
-    await b.goto(pagePath(44))
-    await expect(syncStatus(b)).toHaveAttribute('data-status', 'readonly')
+    await openWikiEditors(SPACE_ID, 44, [a, { page: b, readOnly: true }])
     await b.locator('.ProseMirror p').first().click()
     await expect(avatar(a, KIM.id)).toBeVisible()
     await expectStays(a, () => cursorOf(a, KIM.id).count(), 0, { ms: 1000 })
@@ -401,8 +392,7 @@ test.describe('노트 원격 커서', () => {
     await mockWikiPageEditor(a, opts)
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
-    await a.goto(pagePath(45))
-    await b.goto(pagePath(45))
+    await openWikiEditors(SPACE_ID, 45, [a, b])
     await typeAtEnd(b, '첫 문단', '!')
     await expect(cursorOf(a, KIM.id).locator('.wiki-presence-cursor__caret')).toBeVisible()
 
@@ -429,8 +419,7 @@ test.describe('노트 원격 커서', () => {
     const b = await newAuthedPage({ user: KIM })
     await mockWikiPageEditor(b, { ...opts, seed: false })
     await a.clock.install()
-    await a.goto(pagePath(46))
-    await b.goto(pagePath(46))
+    await openWikiEditors(SPACE_ID, 46, [a, b])
     await typeAtEnd(b, '문단 40', ' 끝')
     const cur = cursorOf(a, KIM.id)
     await expect(cur).toHaveCount(1)
@@ -482,7 +471,7 @@ test.describe('위쪽 삽입 화면 고정', () => {
     const paras = Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)
     const body = paras.join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 52, title: '긴 노트', body })
-    await a.goto(pagePath(52))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 52 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const target = a.locator('.ProseMirror p', { hasText: /^문단 20$/ })
     // 맨 위가 아니라 내려서 읽는 중이어야 한다 — 맨 위에서 읽으면 위에 들어온 문단을 보여 준다(아래 테스트).
@@ -502,7 +491,7 @@ test.describe('위쪽 삽입 화면 고정', () => {
     const paras = Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)
     const body = paras.join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 60, title: '긴 노트', body })
-    await a.goto(pagePath(60))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 60 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(a.getByTestId('wiki-editor-scroll')).toHaveJSProperty('scrollTop', 0)
 
@@ -517,7 +506,7 @@ test.describe('위쪽 삽입 화면 고정', () => {
     const paras = Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)
     const body = paras.join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 64, title: '긴 노트', body })
-    await a.goto(pagePath(64))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 64 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '문단 3', ' 가')
     await expect.poll(() => readCollabMarkdown(collabNs, 64)).toContain('문단 3 가')
@@ -566,7 +555,7 @@ test.describe('위쪽 삽입 화면 고정', () => {
     const paras = Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)
     const body = paras.join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 61, title: '긴 노트', body })
-    await a.goto(pagePath(61))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 61 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     // 보정 플러그인이 에디터 DOM 에 직접 넣는 값 — 이것이 ProseMirror 의 보존 경로를 끈다.
     await expect.poll(() => a.locator('.ProseMirror').evaluate((el) => (el.style as unknown as Record<string, unknown>).overflowAnchor)).toBe('none')
@@ -584,7 +573,7 @@ test.describe('위쪽 삽입 화면 고정', () => {
     const paras = Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)
     const body = paras.join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 53, title: '긴 노트', body })
-    await a.goto(pagePath(53))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 53 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '문단 30', ' 가')
     await expect.poll(() => readCollabMarkdown(collabNs, 53)).toContain('문단 30 가')
@@ -607,7 +596,7 @@ test.describe('위쪽 삽입 화면 고정', () => {
     const paras = Array.from({ length: 60 }, (_, i) => `문단 ${i + 1}`)
     const body = paras.join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 58, title: '긴 노트', body })
-    await a.goto(pagePath(58))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 58 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '문단 50', ' 가')
     await expect.poll(() => readCollabMarkdown(collabNs, 58)).toContain('문단 50 가')
@@ -641,7 +630,7 @@ test.describe('위쪽 레이아웃 변화 화면 고정', () => {
       await r.fulfill({ status: 200, contentType: 'image/svg+xml', body: TALL_SVG })
     })
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 54, title: '그림 노트', body: [`![큰 그림](${IMG})`, ...paras].join('\n\n') })
-    await a.goto(pagePath(54))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 54 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await expect(a.getByTestId('wiki-image-loading')).toBeAttached()
     const target = a.locator('.ProseMirror p', { hasText: /^문단 40$/ })
@@ -671,7 +660,7 @@ test.describe('위쪽 레이아웃 변화 화면 고정', () => {
     )
     await a.route(content, (r) => r.fulfill({ status: 200, contentType: 'image/svg+xml', body: TALL_SVG }))
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 62, title: '붙여넣기', body: paras.join('\n\n') })
-    await a.goto(pagePath(62))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 62 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     await typeAtEnd(a, '문단 40', ' 여기')
     await a.keyboard.press('Enter')
@@ -708,7 +697,7 @@ test.describe('위쪽 레이아웃 변화 화면 고정', () => {
   test('스크롤한 뒤 AI 요약 카드가 늦게 나타나도 보던 문단이 제자리에 있다', async ({ authenticatedPage: a }) => {
     const g = await holdSummary(a)
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 55, title: '요약 노트', body: paras.join('\n\n') })
-    await a.goto(pagePath(55))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 55 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const target = a.locator('.ProseMirror p', { hasText: /^문단 40$/ })
     await target.scrollIntoViewIfNeeded()
@@ -728,7 +717,7 @@ test.describe('위쪽 레이아웃 변화 화면 고정', () => {
         : r.fallback(),
     )
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 59, title: '요약 노트', body: paras.join('\n\n') })
-    await a.goto(pagePath(59))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 59 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     const header = a.getByTestId('wiki-ai-summary').locator('summary')
     await expect(header).toBeVisible()
@@ -750,7 +739,7 @@ test.describe('위쪽 레이아웃 변화 화면 고정', () => {
   test('맨 위에서 AI 요약 카드가 늦게 나타나면 카드가 화면에 보인다(밀어 올려 숨기지 않는다)', async ({ authenticatedPage: a }) => {
     const g = await holdSummary(a)
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 56, title: '요약 노트', body: paras.join('\n\n') })
-    await a.goto(pagePath(56))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 56 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
 
     g.open()
@@ -766,7 +755,7 @@ test.describe('노트 재연결', () => {
     const sock = await controlCollabSocket(a)
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 70, title: '회의록', body: '첫 문단' })
     await a.clock.install()
-    await a.goto(pagePath(70))
+    await openWikiEditor(a, { spaceId: SPACE_ID, pageId: 70 })
     await expect(syncStatus(a)).toHaveAttribute('data-status', 'live')
     // 이후 페이지 타이머는 하나도 돌지 않는다 — provider 자동 재시도도 멈춘다.
     await a.clock.pauseAt((await a.evaluate(() => Date.now())) + 50)

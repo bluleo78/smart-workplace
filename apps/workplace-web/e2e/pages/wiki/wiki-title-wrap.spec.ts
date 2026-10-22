@@ -11,11 +11,10 @@ import { envShot, leaveAllCollabPeers } from '../../fixtures/collab'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { pressMacChromeImeEnter } from '../../fixtures/ime'
 import { expectStays, resizeAndSettle } from '../../fixtures/wait'
-import { mockWikiPageEditor } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, wikiEditorOpener } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 315
-const pagePath = `/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`
 // 실데이터 길이 — 47자 넘는 한글 제목 + 띄어쓰기 없는 긴 영문 토큰(어디서든 끊겨야 하는 경우).
 const LONG_KO = '2026년 하반기 제품 로드맵 검토 회의록 및 분기별 실행 계획과 담당자별 후속 조치 정리'
 const LONG_EN = 'SmartWorkplaceRealtimeCollaborativeEditingSynchronizationArchitectureDecisionRecord'
@@ -49,10 +48,11 @@ async function expectWrappedWhole(page: Page) {
   expect(titleBox && bodyBox && titleBox.y + titleBox.height <= bodyBox.y).toBe(true)
 }
 
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
+
 async function openNote(page: Page, title: string) {
   const puts = await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title, body: '본문 첫 문단' })
-  await page.goto(pagePath)
-  await expect(page.locator('.ProseMirror[contenteditable="true"]')).toBeVisible()
+  await open(page)
   return puts
 }
 

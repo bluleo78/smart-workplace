@@ -2,10 +2,13 @@
 // 문단으로 합쳐져 깨지던 회귀를 막는다. AI 생성물(/ai 초안·이어쓰기)이 표를 자주 만들어 체감 결함이 컸다.
 import type { Page } from '@playwright/test'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { mockWikiPageEditor, savedMarkdown } from '../../fixtures/wiki-mock'
+import { mockWikiPageEditor, wikiEditorOpener, savedMarkdown } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 300
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
+
 const TABLE_MD = [
   '# 분기 지표',
   '',
@@ -22,8 +25,7 @@ const setup = (page: Page, body: string) =>
 
 test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: page }) => {
   await setup(page, TABLE_MD)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   // 1) 실제 table 로 렌더되는가
   const t = page.locator('.ProseMirror table')
@@ -59,8 +61,7 @@ test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드�
 }) => {
   // 빈 본문에서 시작 — 삽입 결과만 검증하도록 기존 표와 섞이지 않게 한다.
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')
@@ -107,8 +108,7 @@ test('그리드 피커 — 방향키로 크기를 바꾸고 Enter 로 삽입, Es
   authenticatedPage: page,
 }) => {
   await setup(page, '')
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
+  await open(page)
 
   await page.locator('.ProseMirror').click()
   await page.keyboard.type('/')

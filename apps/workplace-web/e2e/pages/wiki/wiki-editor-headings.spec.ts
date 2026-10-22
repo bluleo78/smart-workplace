@@ -2,11 +2,15 @@
 // Tailwind v4 preflight 가 h1~h3 기본 스타일을 리셋하므로,
 // .ProseMirror 내 h1/h2/h3 에 명시적 font-size / font-weight 가 적용되는지 검증한다.
 // 입력 → 마크다운 변환 → getComputedStyle 검증 파이프라인 전체를 커버한다.
+import type { Page } from '@playwright/test'
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { wikiEditorOpener } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
 const PAGE_ID = 1
+
+const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
 
 const space: WikiSpace = {
   id: SPACE_ID,
@@ -34,7 +38,7 @@ const tree: WikiPageSummary[] = [
   { id: PAGE_ID, parentId: null, title: '헤딩 테스트 페이지', position: 0, aiLastUsedAt: null },
 ]
 
-async function setupRoutes(page: import('@playwright/test').Page) {
+async function setupRoutes(page: Page) {
   await page.route('**/api/v1/wiki/spaces', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([space]) }),
   )
@@ -65,10 +69,9 @@ test(
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {
     await setupRoutes(page)
-    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+    await open(page)
 
     const editor = page.locator('.ProseMirror')
-    await editor.waitFor({ state: 'visible' })
     await editor.click()
 
     // 마크다운 헤딩 입력: '# ' → Tiptap 이 h1 으로 변환
@@ -90,10 +93,9 @@ test(
 
 test('WikiEditor — h2 마크다운 입력 후 24px/600 스타일 적용', async ({ authenticatedPage: page }) => {
   await setupRoutes(page)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
 
   const editor = page.locator('.ProseMirror')
-  await editor.waitFor({ state: 'visible' })
   await editor.click()
 
   await page.keyboard.press('Control+End')
@@ -112,10 +114,9 @@ test('WikiEditor — h2 마크다운 입력 후 24px/600 스타일 적용', asyn
 
 test('WikiEditor — h3 마크다운 입력 후 18px/600 스타일 적용', async ({ authenticatedPage: page }) => {
   await setupRoutes(page)
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE_ID}`)
+  await open(page)
 
   const editor = page.locator('.ProseMirror')
-  await editor.waitFor({ state: 'visible' })
   await editor.click()
 
   await page.keyboard.press('Control+End')
