@@ -50,6 +50,7 @@ import {
 } from '@/lib/calendarEventForm'
 import { reminderLabel } from '@/lib/calendarEventView'
 import { PALETTE_KEYS, resolvePalette } from '@/lib/calendarPalette'
+import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent, CalendarEventRequest } from '@/types/calendar'
@@ -352,6 +353,8 @@ export function EventDialog({
                   render={({ field }) => (
                     <Checkbox
                       id="ev-allday"
+                      // 16px 체크박스 — 터치에서는 눌림 영역을 24px 로 넓힌다(WP-734).
+                      className={HIT_AREA_COARSE_TIGHT}
                       data-testid="calendar-form-allday"
                       checked={field.value}
                       onCheckedChange={(checked) => {

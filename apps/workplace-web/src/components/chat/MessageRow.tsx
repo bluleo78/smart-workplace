@@ -292,7 +292,9 @@ export function MessageRow({
   const threadLink = onOpenThread && m.replyCount > 0 && (
     <button
       type="button"
-      className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+      // 「답글 N개」는 16px 높이라 터치에서는 버튼 자체를 24px 로 키운다(WP-734). 보이지 않는 ::after 로 위로 넓히면 바로 위 본문의
+      // 멘션 칩을 탭해도 브라우저 터치 보정이 이 링크로 옮겨 스레드가 열린다 — 아래로만 자리를 더 쓴다.
+      className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline pointer-coarse:min-h-6"
       data-testid={`message-thread-link-${m.id}`}
       onClick={() => onOpenThread(m.id)}
     >

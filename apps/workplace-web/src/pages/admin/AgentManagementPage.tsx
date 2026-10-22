@@ -40,6 +40,7 @@ import {
 import { copyText } from '@/lib/copyText';
 import { formatDateOnly } from '@/lib/formatters';
 import { parseId } from '@/lib/historyParam';
+import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import {
   buildLaunchAsCommand,
   buildPluginInstallCommands,
@@ -180,6 +181,8 @@ export default function AgentManagementPage() {
           id="include-personal"
           checked={includePersonal}
           onCheckedChange={setIncludePersonal}
+          // 32×18 스위치 — 터치에서는 눌림 영역을 넓힌다(WP-734).
+          className={HIT_AREA_COARSE_TIGHT}
           data-testid="include-personal-toggle"
         />
         <Label htmlFor="include-personal" className="text-sm text-muted-foreground">

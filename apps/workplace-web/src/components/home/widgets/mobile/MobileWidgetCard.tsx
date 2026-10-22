@@ -8,6 +8,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
+import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 import { cn } from '@/lib/utils'
 import type { DashboardWidgetConfig } from '@/types/dashboard'
 
@@ -114,7 +115,8 @@ export function MobileWidgetCard({
       <span className="truncate">{title}</span>
     </>
   )
-  const labelClass = cn('flex min-w-0 items-center gap-2 rounded-sm hover:text-ai-accent', FOCUS)
+  // 머리말 링크는 글자 높이(20px)만큼만 눌려 위아래로 눌림 영역을 넓힌다(WP-734).
+  const labelClass = cn('flex min-w-0 items-center gap-2 rounded-sm hover:text-ai-accent', FOCUS, HIT_AREA_Y_COARSE)
   const interactiveHead = !edit && !isTile
   const headLabel =
     interactiveHead && headerLink ? (

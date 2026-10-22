@@ -80,3 +80,40 @@ export async function expectOnTop(page: Page, target: Locator, containerSelector
 export function historyMarks(page: Page) {
   return page.evaluate(() => JSON.stringify(history.state?.usr ?? null))
 }
+
+/**
+ * 터치로 누를 수 있는 영역이 min×min(px) 이상인지(WP-734 — WCAG 2.2 「대상 크기(최소)」 24px).
+ * 보이는 크기(boundingBox)가 아니라 실제로 탭이 닿는 영역을 잰다 — 요소 중심에서 상하좌우로 min/2 직전 지점을 elementFromPoint 로 찍어,
+ * 그 점이 대상(또는 그 안, 대상에 이어진 label)에 떨어지는지 본다. 보이지 않는 ::after 로 넓힌 영역도 대상 요소로 잡힌다.
+ * Radix 모달은 body 에 pointer-events:none 을 걸어 시트 안 히트 테스트가 빠지므로 판정하는 순간만 되돌린다(expectOnTop 과 같다).
+ */
+export async function expectTouchTarget(target: Locator, min = 24) {
+  await expect(target).toBeVisible()
+  const misses = await target.evaluate((el, size) => {
+    const r = el.getBoundingClientRect()
+    const cx = r.left + r.width / 2
+    const cy = r.top + r.height / 2
+    const d = size / 2 - 0.5
+    const probes: [string, number, number][] = [
+      ['left', cx - d, cy],
+      ['right', cx + d, cy],
+      ['top', cx, cy - d],
+      ['bottom', cx, cy + d],
+    ]
+    const prev = document.body.style.pointerEvents
+    document.body.style.pointerEvents = 'auto'
+    try {
+      return probes
+        .filter(([, x, y]) => {
+          const hit = document.elementFromPoint(x, y)
+          // 체크박스·스위치는 감싸거나 for 로 이어진 label 을 눌러도 켜진다 — 그 label 도 터치 대상이다.
+          const labels = 'labels' in el ? Array.from((el as HTMLButtonElement).labels ?? []) : []
+          return !(hit && (el.contains(hit) || labels.some((l) => l.contains(hit))))
+        })
+        .map(([side]) => side)
+    } finally {
+      document.body.style.pointerEvents = prev
+    }
+  }, min)
+  expect(misses, `터치 영역 ${min}px 미달 방향`).toEqual([])
+}

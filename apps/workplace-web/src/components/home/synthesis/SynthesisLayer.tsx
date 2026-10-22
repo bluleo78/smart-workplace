@@ -20,6 +20,7 @@ import { useMyIssueDues } from '@/hooks/queries/useMyIssueDues'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { todayRange } from '@/lib/calendarRange'
+import { HIT_AREA_COARSE, HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
@@ -305,14 +306,15 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-ai-accent" />
             {/* 좁은 폭에선 문구가 어절 단위로 줄어들고 「켜기」·닫기는 줄지 않는다 — 링크가 「켜 / 기」로 꺾이던 문제(WP-603). */}
             <span className="min-w-0 break-keep">AI로 회신이 필요한 메일을 가려낼 수 있어요</span>
-            <Link to="/settings/mail" className="shrink-0 whitespace-nowrap font-medium text-ai-accent hover:underline">
+            <Link to="/settings/mail" className={`shrink-0 whitespace-nowrap font-medium text-ai-accent hover:underline ${HIT_AREA_COARSE_TIGHT}`}>
               켜기
             </Link>
             <button
               type="button"
               aria-label="닫기"
               onClick={dismissCta}
-              className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+              // 14px 아이콘만 있는 버튼 — 터치에서는 눌림 영역만 넓힌다(WP-734).
+              className={`ml-auto shrink-0 text-muted-foreground hover:text-foreground ${HIT_AREA_COARSE}`}
             >
               <X className="h-3.5 w-3.5" />
             </button>

@@ -34,6 +34,7 @@ import { RenameDialog } from '@/components/ui/rename-dialog'
 import { extractApiError } from '@/lib/api-error'
 import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
+import { HIT_AREA_COARSE } from '@/lib/hitArea'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -184,7 +185,8 @@ export function DriveSidebar() {
             type="button"
             aria-label="팀 공간 만들기"
             onClick={() => setSpaceDialogOpen(true)}
-            className="text-muted-foreground hover:text-foreground"
+            // 16px 아이콘만 있는 버튼 — 터치에서는 눌림 영역만 넓힌다(WP-734).
+            className={`text-muted-foreground hover:text-foreground ${HIT_AREA_COARSE}`}
           >
             <Plus className="h-4 w-4" />
           </button>

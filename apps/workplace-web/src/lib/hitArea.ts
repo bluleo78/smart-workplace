@@ -6,3 +6,10 @@ export const HIT_AREA = "relative after:absolute after:-inset-2 after:content-['
 // Tailwind 는 소스의 문자열 그대로를 스캔하므로 변형 접두를 런타임에 붙이지 않고 클래스마다 적어 둔다.
 export const HIT_AREA_Y_COARSE =
   "relative pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-2 pointer-coarse:after:content-['']";
+// 홀로 놓인 작은 아이콘 버튼(✕·＋ 등)의 터치 영역(WP-734) — 터치에서만 사방 10px 넓혀 14~20px 아이콘도 34~40px 로 눌린다. 보이는 크기·데스크톱은 그대로.
+export const HIT_AREA_COARSE =
+  "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 pointer-coarse:after:content-['']";
+// 촘촘히 놓인 체크박스·스위치·옆 버튼용(WP-734) — 사방 5px 만 넓혀 16px 체크박스가 24px(WCAG 2.2 최소) 로 눌리되, 이웃 대상의 영역을 덮지 않는다.
+// ::after 는 테두리 안쪽(padding box) 기준이라 1px 테두리를 빼고 5px 를 넓혀야 테두리 있는 16px 체크박스가 24px 가 된다(4px 면 22px).
+export const HIT_AREA_COARSE_TIGHT =
+  "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-[5px] pointer-coarse:after:content-['']";

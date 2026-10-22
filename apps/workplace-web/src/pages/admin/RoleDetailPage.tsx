@@ -6,6 +6,8 @@ import { useForm } from 'react-hook-form';
 import { useNavigate,useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
+import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
+
 import { permissionsApi } from '../../api/permissions';
 import { rolesApi } from '../../api/roles';
 import { SettingsPage } from '../../components/layout/SettingsPage';
@@ -244,7 +246,8 @@ export default function RoleDetailPage() {
                     checked={selectedPermissionIds.includes(perm.id)}
                     onCheckedChange={(checked) => handlePermissionToggle(perm.id, checked === true)}
                     disabled={role.isSystem}
-                    className="disabled:bg-muted"
+                    // 16px 체크박스·14px 라벨 — 터치에서는 체크박스 눌림 영역을 24px 로 넓힌다(WP-734).
+                    className={`disabled:bg-muted ${HIT_AREA_COARSE_TIGHT}`}
                   />
                   <Label
                     htmlFor={`perm-${perm.id}`}

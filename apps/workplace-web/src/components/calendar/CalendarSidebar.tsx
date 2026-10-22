@@ -22,6 +22,7 @@ import {
   providerLabel,
 } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
+import { HIT_AREA_COARSE, HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
 import type { Calendar as CalendarType, CalendarTag } from '@/types/calendar'
 
 interface CalendarSidebarProps {
@@ -128,6 +129,8 @@ export function CalendarSidebar({
                   세로로 행을 채워(self-stretch) 모바일 ☰ 시트의 44px 행 전체가 탭 영역이 된다. 케밥·배지는 label 밖(중첩 상호작용 방지). */}
               <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch">
                 <Checkbox
+                  // label 왼쪽 끝에 붙은 16px 체크박스 — 터치에서 왼쪽으로도 눌리게 넓힌다(WP-734).
+                  className={HIT_AREA_COARSE_TIGHT}
                   data-testid={`calendar-toggle-${c.id}`}
                   checked={visible}
                   onCheckedChange={() => onToggleCalendar(c.id)}
@@ -209,7 +212,8 @@ export function CalendarSidebar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-5 w-5"
+                  // 20px 버튼 — 터치에서는 눌림 영역만 넓힌다(WP-734).
+                  className={`h-5 w-5 ${HIT_AREA_COARSE}`}
                   data-testid="calendar-add"
                   aria-label="캘린더 추가"
                   data-sheet-dismiss
@@ -259,7 +263,9 @@ export function CalendarSidebar({
           기타
         </div>
         <label className="mb-1.5 flex cursor-pointer items-center gap-2 text-sm">
+          {/* 줄 높이 20px 라 체크박스 눌림 영역을 터치에서 24px 로 넓힌다(WP-734). */}
           <Checkbox
+            className={HIT_AREA_COARSE_TIGHT}
             data-testid="calendar-layer-issue-dues"
             checked={layers.issueDues}
             onCheckedChange={(v) => onToggleLayer('issueDues', v === true)}
@@ -271,6 +277,7 @@ export function CalendarSidebar({
         </label>
         <label className="flex cursor-pointer items-center gap-2 text-sm">
           <Checkbox
+            className={HIT_AREA_COARSE_TIGHT}
             data-testid="calendar-layer-invited"
             checked={layers.invited}
             onCheckedChange={(v) => onToggleLayer('invited', v === true)}

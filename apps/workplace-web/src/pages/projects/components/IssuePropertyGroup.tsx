@@ -2,6 +2,7 @@ import { ChevronRight } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 
 import { usePersistentToggle } from '../../../hooks/usePersistentToggle';
 
@@ -35,7 +36,8 @@ export function IssuePropertyGroup({
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="flex w-full items-center justify-between text-sm font-semibold text-foreground"
+          // 머리말 줄 높이(20px)만큼만 눌려 터치에서는 위아래로 넓힌다 — 카드 안쪽 여백(12px) 안에 들어간다(WP-734).
+          className={`flex w-full items-center justify-between text-sm font-semibold text-foreground ${HIT_AREA_Y_COARSE}`}
         >
           <span>{title}</span>
           <span className="flex items-center gap-1.5">

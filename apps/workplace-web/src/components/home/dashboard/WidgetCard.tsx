@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { useInboxPanel } from '@/components/layout/InboxContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 
 import { EntryBody } from './EntryBody'
 import { entryDeepLink, entryTitle, isWideEntry, type ResolvedEntry } from './resolvedEntry'
@@ -19,8 +20,8 @@ export function WidgetCard({ entry }: { entry: ResolvedEntry }) {
   const wide = isWideEntry(entry)
   // 알림처럼 deepLink 가 없는 위젯은 헤더 클릭 시 AppRail 의 인박스 패널을 연다(#274).
   const { openInbox } = useInboxPanel()
-  const headerClassName =
-    'flex items-center gap-2 text-muted-foreground hover:text-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm'
+  // 머리말 링크는 글자 높이(20px)만큼만 눌려 터치에서는 위아래로 눌림 영역을 넓힌다(WP-734).
+  const headerClassName = `flex items-center gap-2 text-muted-foreground hover:text-ai-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm ${HIT_AREA_Y_COARSE}`
   const headerInner = (
     <>
       {/* shrink-0: 표시 이름이 길어 두 줄이 돼도 아이콘이 flex 축소로 찌그러지지 않게(WP-519). */}

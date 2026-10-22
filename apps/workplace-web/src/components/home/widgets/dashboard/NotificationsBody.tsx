@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useMarkAllNotificationsRead } from '@/hooks/queries/useMarkAllNotificationsRead'
 import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
+import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 import { groupNotifications } from '@/lib/notifGrouping'
 import type { NotificationResponse } from '@/types/notification'
 
@@ -77,7 +78,8 @@ export default function NotificationsBody({
           data-testid="dash-notif-ack-all"
           onClick={() => markAll.mutate()}
           disabled={!hasUnread || markAll.isPending}
-          className="text-sm text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          // 글자 높이(20px)만큼만 눌려 터치에서는 위아래로 넓힌다(WP-734).
+          className={`text-sm text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${HIT_AREA_Y_COARSE}`}
         >
           모두 읽음
         </button>
