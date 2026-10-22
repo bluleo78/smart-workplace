@@ -145,7 +145,7 @@ public class ProjectStatusService {
       throw new IllegalArgumentException("상태 이름을 입력해 주세요");
     }
     if (name.codePointCount(0, name.length()) > NAME_MAX) {
-      throw new IllegalArgumentException("상태 이름은 30자 이하로 입력해 주세요");
+      throw new IllegalArgumentException("상태 이름은 " + NAME_MAX + "자 이하로 입력해 주세요");
     }
     return name;
   }

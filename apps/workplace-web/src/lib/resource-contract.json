@@ -1,5 +1,4 @@
 [
-  "PROJECT_STATUS",
   "calendar",
   "calendar-event",
   "channel",
@@ -19,6 +18,7 @@
   "notification",
   "project",
   "project-member",
+  "project-status",
   "saved-view",
   "wiki-attachment",
   "wiki-space"

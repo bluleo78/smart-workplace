@@ -129,6 +129,22 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
   }
 
   @Test
+  void POST_보이지않는_글자만_있는_이름은_400() throws Exception {
+    long owner = createUser("pi");
+    ProjectResponse p = newProject(owner, "PEH");
+
+    // 요청 record 가 한 줄로 다듬어 빈 문자열이 되고 @NotBlank 가 거절한다(유형 API 와 같은 동작)
+    String body =
+        om.writeValueAsString(new CreateProjectStatusRequest("\u200B\u3164", "TODO", null));
+    mvc.perform(
+            post("/api/v1/projects/" + p.key() + "/statuses")
+                .header("Authorization", "Bearer " + tokenFor(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void PATCH_중복이름은_409와_메시지() throws Exception {
     long owner = createUser("pd");
     ProjectResponse p = newProject(owner, "PED");
