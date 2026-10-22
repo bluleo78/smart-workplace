@@ -50,7 +50,11 @@ public class CalendarService {
   @Transactional
   public CalendarResponse create(long callerId, CalendarRequest req) {
     validateColor(req.color());
-    int pos = req.position() != null ? req.position() : repo.maxPosition(callerId) + 1;
+    // 말미 배치는 int 끝에서 멈춘다 — 상한 전에 저장된 최댓값 뒤에서 +1 이 음수로 넘어가 맨 앞에 정렬됐다(WP-747). 같은 값이면 id 순이라 뒤에 온다.
+    int pos =
+        req.position() != null
+            ? req.position()
+            : (int) Math.min((long) repo.maxPosition(callerId) + 1, Integer.MAX_VALUE);
     long id = repo.insert(callerId, req.name(), req.color(), false, pos);
     changeNotifier.calendarChanged(ResourceChangedEvent.OP_CREATED, id, callerId, callerId);
     return repo.findByIdForOwner(callerId, id).orElseThrow(() -> new CalendarNotFoundException(id));

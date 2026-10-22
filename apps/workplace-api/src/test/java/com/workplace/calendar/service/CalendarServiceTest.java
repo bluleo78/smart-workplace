@@ -97,4 +97,27 @@ class CalendarServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.update(u2, c.id(), new CalendarRequest("B", "red", null)))
         .isInstanceOf(CalendarNotFoundException.class);
   }
+
+  /** 이미 큰 position 이 저장돼 있어도 말미 배치가 정수 오버플로로 음수가 돼 맨 앞에 오지 않는다(WP-747). */
+  @Test
+  void create_appends_without_overflow_after_max_position() {
+    long u = user();
+    service.ensureDefault(u);
+    long big = repo.insert(u, "끝", "blue", false, Integer.MAX_VALUE);
+    var created = service.create(u, new CalendarRequest("다음", "blue", null));
+    assertThat(created.position()).isGreaterThanOrEqualTo(0);
+    var ids = service.list(u).stream().map(c -> c.id()).toList();
+    assertThat(ids.indexOf(created.id())).isGreaterThan(ids.indexOf(big));
+  }
+
+  /** position 은 0~10000 만 받는다 — 음수·최댓값이 그대로 저장되던 것을 400 으로 거절한다(WP-747). */
+  @Test
+  void request_position_out_of_range_is_invalid() {
+    var validator = jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator();
+    assertThat(validator.validate(new CalendarRequest("a", "blue", -5))).isNotEmpty();
+    assertThat(validator.validate(new CalendarRequest("a", "blue", Integer.MAX_VALUE)))
+        .isNotEmpty();
+    assertThat(validator.validate(new CalendarRequest("a", "blue", 0))).isEmpty();
+    assertThat(validator.validate(new CalendarRequest("a", "blue", 10000))).isEmpty();
+  }
 }
