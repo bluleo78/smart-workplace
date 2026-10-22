@@ -723,7 +723,10 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
-  /** 팀 노트 공간의 마지막 OWNER 제거·강등 — 409(WP-496, 드라이브의 DriveLastOwnerException 과 같은 응답). */
+  /**
+   * 팀 노트 공간의 마지막 OWNER 제거·강등 — 409(WP-496, 드라이브의 DriveLastOwnerException 과 같은 상태 코드. 문구에는 공간 이름이
+   * 들어간다 — WP-785).
+   */
   @ExceptionHandler(com.workplace.wiki.exception.WikiLastOwnerException.class)
   public ResponseEntity<ErrorResponse> handleWikiLastOwner(
       com.workplace.wiki.exception.WikiLastOwnerException ex, HttpServletRequest request) {

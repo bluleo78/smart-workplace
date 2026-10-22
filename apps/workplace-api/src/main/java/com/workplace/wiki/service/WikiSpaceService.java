@@ -150,8 +150,8 @@ public class WikiSpaceService {
    *
    * <p>순서: 멤버 행 잠금 → 공유 해제 → 멤버십 제거. 해제를 먼저 해야 공유 기록이 「에이전트가 삭제되어」로 남는다(멤버 제거가 먼저면 「편집 권한을 잃어」로
    * 남는다). 잠금은 멤버 제거 경로와 같은 순서(멤버 행 → 공유 행)라 동시에 그 에이전트를 내보내는 요청과 교착하지 않는다. 그 에이전트가 어느 팀 스페이스의 마지막
-   * OWNER 면 {@link WikiLastOwnerException}(409)이 올라가 삭제 전체(공유 해제 포함)가 롤백된다. 개인 스페이스는 건드리지 않는다 — 그
-   * 소유(wiki_space.owner_id)가 남아 삭제가 FK 에 막히면 관리자 삭제는 사용 중지로 대신한다(WP-705).
+   * OWNER 면 그런 공간 이름을 모두 담은 {@link WikiLastOwnerException}(409, WP-785)이 공유 해제 전에 올라가 삭제 전체가 롤백된다.
+   * 개인 스페이스는 건드리지 않는다 — 그 소유(wiki_space.owner_id)가 남아 삭제가 FK 에 막히면 관리자 삭제는 사용 중지로 대신한다(WP-705).
    */
   @EventListener
   public void onAgentDeleted(AgentDeleted e) {
@@ -159,6 +159,15 @@ public class WikiSpaceService {
         e.tenantId(),
         () -> {
           List<Long> teamSpaceIds = members.lockTeamSpaceIdsOf(e.userId());
+          // 유일한 소유자인 공간을 먼저 모두 모아 한 번에 거부한다(WP-785) — 아래 멤버 제거가 첫 공간에서 막히면 관리자가 공간마다 다시 시도해야 했다.
+          List<String> soleOwned =
+              teamSpaceIds.stream()
+                  .filter(spaceId -> isLastOwner(spaceId, e.userId()))
+                  .map(this::spaceName)
+                  .toList();
+          if (!soleOwned.isEmpty()) {
+            throw WikiLastOwnerException.ofAgent(soleOwned);
+          }
           shareLifecycle.revokeAgentShares(e.userId());
           // 공유는 위에서 모든 스페이스 몫을 이미 해제했다 — 스페이스마다 같은 작성자 공유를 다시 찾지 않는다.
           teamSpaceIds.forEach(
@@ -229,12 +238,23 @@ public class WikiSpaceService {
    * OWNER 가 아니면(또는 다른 OWNER 가 있으면) 그대로 진행한다.
    */
   private void requireAnotherOwner(long spaceId, long userId) {
-    // 소유자 행을 잠근 뒤 그 집합으로 판정한다(WP-788) — 두 소유자가 서로를 동시에 강등·제거해도 나중 요청은 앞 요청의 커밋을 기다렸다 판정해 소유자
-    // 0명이 되지 않는다.
-    List<Long> owners = members.lockOwnerIds(spaceId);
-    if (owners.contains(userId) && owners.size() <= 1) {
-      throw new WikiLastOwnerException(spaceId);
+    if (isLastOwner(spaceId, userId)) {
+      throw WikiLastOwnerException.ofSpace(spaceName(spaceId));
     }
+  }
+
+  /**
+   * 대상이 이 공간의 OWNER 이고 다른 OWNER 가 없는지. 소유자 행을 잠근 뒤 그 집합으로 판정한다(WP-788) — 두 소유자가 서로를 동시에 강등·제거해도 나중
+   * 요청은 앞 요청의 커밋을 기다렸다 판정해 소유자 0명이 되지 않는다.
+   */
+  private boolean isLastOwner(long spaceId, long userId) {
+    List<Long> owners = members.lockOwnerIds(spaceId);
+    return owners.contains(userId) && owners.size() <= 1;
+  }
+
+  /** 마지막 OWNER 오류 문구용 공간 이름 — 멤버 행이 남아 있는 공간이라 FK 로 행이 있다. */
+  private String spaceName(long spaceId) {
+    return spaces.findName(spaceId).orElseThrow(() -> new WikiSpaceNotFoundException(spaceId));
   }
 
   /**

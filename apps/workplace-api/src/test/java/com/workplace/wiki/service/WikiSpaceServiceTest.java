@@ -226,8 +226,10 @@ class WikiSpaceServiceTest extends IntegrationTestBase {
     var team = spaceService.createTeamSpace(owner, "업서트강등");
     spaceService.addMember(owner, team.id(), other, "EDITOR");
 
+    // 문구에 공간 이름이 들어가 어느 공간의 소유자를 바꿔야 하는지 알린다(WP-785).
     assertThatThrownBy(() -> spaceService.addMember(owner, team.id(), owner, "VIEWER"))
-        .isInstanceOf(WikiLastOwnerException.class);
+        .isInstanceOf(WikiLastOwnerException.class)
+        .hasMessageStartingWith("「업서트강등」 노트 공간에는 소유자가 한 명 이상");
     assertThat(spaceService.listMembers(owner, team.id()))
         .anySatisfy(
             m -> {

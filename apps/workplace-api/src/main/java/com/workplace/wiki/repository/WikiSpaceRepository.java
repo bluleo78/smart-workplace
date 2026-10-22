@@ -93,6 +93,14 @@ public class WikiSpaceRepository {
         .fetchOptional(WIKI_SPACE.TYPE);
   }
 
+  /** 공간 이름. 없으면 empty — 마지막 OWNER 오류 문구(WP-785)용. */
+  public Optional<String> findName(long spaceId) {
+    return dsl.select(WIKI_SPACE.NAME)
+        .from(WIKI_SPACE)
+        .where(WIKI_SPACE.ID.eq(spaceId))
+        .fetchOptional(WIKI_SPACE.NAME);
+  }
+
   public Optional<Long> findPersonalSpaceId(long ownerId) {
     return dsl.select(WIKI_SPACE.ID)
         .from(WIKI_SPACE)

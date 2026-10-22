@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -351,17 +352,24 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     committed = true;
     long admin = admin();
     long agentId = withMembership(TestFixtures.createAgentNoToken(dsl));
-    spaceService.addMember(ownerId, spaceId, agentId, "OWNER");
-    spaceService.changeRole(agentId, spaceId, ownerId, "EDITOR");
+    for (long space : List.of(spaceId, otherSpaceId)) {
+      spaceService.addMember(ownerId, space, agentId, "OWNER");
+      spaceService.changeRole(agentId, space, ownerId, "EDITOR");
+    }
     saveShare(agentId, rootId, "WORKSPACE", "VIEW", false);
 
+    // 관리자는 에이전트 화면에 있으므로, 유일한 소유자인 노트 공간을 이름으로 한 번에 모두 알린다(WP-785).
     deleteAgentAsAdmin(admin, agentId)
         .andExpect(status().isConflict())
-        .andExpect(jsonPath("$.message").value(containsString("소유자가 한 명 이상")));
+        .andExpect(jsonPath("$.message").value(startsWith("이 AI 에이전트가 「공유생애")))
+        .andExpect(jsonPath("$.message").value(containsString("「공유생애-")))
+        .andExpect(jsonPath("$.message").value(containsString("「공유생애2-")))
+        .andExpect(jsonPath("$.message").value(containsString("노트 공간의 유일한 소유자라 삭제할 수 없습니다")));
 
     assertThat(inTenant(() -> shareCount(rootId))).isEqualTo(1);
     assertThat(inTenant(() -> events(rootId, "REVOKED_BY_MEMBERSHIP"))).isEmpty();
-    assertThat(inTenant(() -> memberCount(agentId))).isEqualTo(1);
+    // 두 공간의 멤버십이 모두 그대로다.
+    assertThat(inTenant(() -> memberCount(agentId))).isEqualTo(2);
     assertThat(inTenant(() -> dsl.fetchExists(USER, USER.ID.eq(agentId)))).isTrue();
   }
 
