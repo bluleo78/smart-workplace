@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { statusFieldsOf } from '../../factories/projectStatus.factory';
 import { longPressWithMouse } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
@@ -26,7 +27,9 @@ async function mock(page: Page, { issues: seed = [LONG, TODO2, PROG, DONE1], mor
   await page.route((u) => /\/issues\/\d+\/status$/.test(u.pathname), (r) => {
     const id = Number(new URL(r.request().url()).pathname.split('/').at(-2));
     const target = issues.find((i) => i.id === id);
-    if (target) target.status = (r.request().postDataJSON() as { status: typeof target.status }).status;
+    // 본문은 범주(status, 드래그) 또는 프로젝트 상태 id(statusId, 카드 메뉴 — WP-808). statusId 면 시드 상태로 범주·이름을 맞춘다.
+    const body = r.request().postDataJSON() as { status?: typeof LONG.status; statusId?: number };
+    if (target) Object.assign(target, body.statusId != null ? statusFieldsOf(body.statusId) : { status: body.status });
     return r.fulfill(json(target ?? {}));
   });
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))));
@@ -119,7 +122,8 @@ test.describe('모바일 보드 상태 탭', () => {
     await expect(page).toHaveURL(/boardTab=IN_PROGRESS/);
     await longPressWithMouse(page, page.getByTestId('issue-card-1047'));
     await page.getByTestId('mobile-action-status').click();
-    await page.getByTestId('picker-option-DONE').click();
+    // 상태 시트 선택지는 프로젝트 상태(시드 「완료」 id 3, WP-808).
+    await page.getByTestId('picker-option-3').click();
     await expect(page.getByTestId('board-tab-count-DONE')).toHaveText('2');
     await expect(page.getByTestId('board-tab-IN_PROGRESS')).toHaveAttribute('aria-selected', 'true');
   });

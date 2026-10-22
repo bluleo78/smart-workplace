@@ -49,7 +49,7 @@ export function UnscheduledSection({ issues, readOnly, onSchedule }: Unscheduled
             {/* 미정 에픽 자식은 이제 에픽 아래 행으로 노출되므로(중복 제거) 여기(일정 미정)엔
                 에픽 소속 이슈가 오지 않는다 — 소속 에픽 배지(#649)는 제거. 이 섹션은 에픽 없는
                 loose 미정 이슈만 표시한다. */}
-            <IssueStatusBadge status={issue.status} />
+            <IssueStatusBadge status={issue.status} name={issue.statusName} />
             {!readOnly && (
               <Button
                 variant="outline"

@@ -8,9 +8,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { useCycleProgress, useCycles } from '../../../hooks/queries/useCycles';
+import { useProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { buildCycleSections } from '../../../lib/issueCycleSections';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
+import { sortStatuses } from '../../../lib/projectStatuses';
 import type { CycleProgress, CycleStatus } from '../../../types/cycle';
 import type { IssueFilters } from '../../../types/issue';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
@@ -69,8 +71,11 @@ export function IssueCycleGroupedList({
   // 종료 이슈 숨김 안내(WP-606) — 종료 이슈를 숨기는 구간은 백로그뿐이라(진행 중·예정 구간은 소속 전체를 보인다)
   // 진행 중·예정 사이클 어디에도 없는 이슈를 종료했을 때만 숨겨진다.
   const closedHiding = useClosedHidingNotice(!!withDefaultIssueScope(filters).hideInactiveClosed, SECTION_VISIBLE_CYCLES);
+  // 행 메뉴 상태 선택지 — 프로젝트 상태 목록(WP-808).
+  const statusList = useProjectStatuses(projectKey).data;
+  const statuses = useMemo(() => sortStatuses(statusList ?? []), [statusList]);
   const rowActions = useIssueRowActions({
-    projectKey, canEdit, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
+    projectKey, canEdit, statuses, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
     selected, onClearSelection: clearSelected, closedHiding,
   });
 

@@ -17,9 +17,11 @@ import {
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
+import { useProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
+import { sortStatuses } from '../../../lib/projectStatuses';
 import type {
   IssueClientGroupBy,
   IssueFilters,
@@ -85,7 +87,13 @@ function IssueBoardViewInner({
     closedHiding && CLOSED_ISSUE_STATUSES.has(status) ? closedHiding.onShowAll : undefined;
   const updateStatus = useUpdateIssueStatus(projectKey, closedHiding);
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
-  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: statuses as IssueStatus[], linkFor: cardTo, closedHiding });
+  // 카드 메뉴 상태 선택지 — 프로젝트 상태 중 보드 컬럼 범주에 있는 것만(개인 보드는 취소 범주 제외, WP-808).
+  const statusList = useProjectStatuses(projectKey).data;
+  const menuStatuses = useMemo(
+    () => sortStatuses(statusList ?? []).filter((s) => columns.some((c) => c.status === s.category)),
+    [statusList, columns],
+  );
+  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: menuStatuses, linkFor: cardTo, closedHiding });
   // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
   const { openMenu, menuIssueNumber } = cardActions;
   const cardMenu = useMemo(() => ({ openMenu, menuIssueNumber }), [openMenu, menuIssueNumber]);

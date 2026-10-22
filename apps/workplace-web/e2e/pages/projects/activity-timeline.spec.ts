@@ -156,6 +156,30 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
   );
 
   test(
+    '예전 이력 코드는 범주 라벨, 새 이력은 상태 이름으로 보인다 (WP-808)',
+    async ({ authenticatedPage: page }) => {
+      // 새 STATUS_CHANGED 이력은 상태 이름(「검토 중」)을, 예전 행은 범주 코드(TODO)를 담는다 — 둘이 섞여 와도 각자 읽힌다.
+      await setupCommonStubs(page);
+      const detail = createIssueDetail({
+        history: [createHistoryEntry({ id: 1, eventType: 'STATUS_CHANGED', fromValue: 'TODO', toValue: '검토 중' })],
+      });
+      await page.route(
+        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+        (route) =>
+          route.request().method() === 'GET'
+            ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail) })
+            : route.fallback(),
+      );
+
+      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+      await page.getByRole('tab', { name: /이력/ }).click();
+      const timeline = page.getByRole('list', { name: '활동 타임라인' });
+      await expect(timeline).toContainText('할 일 → 검토 중');
+      await expect(timeline).not.toContainText('TODO');
+    },
+  );
+
+  test(
     '이벤트 유형별 아이콘이 각 타임라인 항목에 렌더됨 (회귀 #313)',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {

@@ -4,9 +4,9 @@ import type {
   CreateIssueRequest,
   IssueAiClassifyResponse,
   IssueAiContext,
-  IssueCountableGroupBy,
   IssueDetailResponse,
   IssueFilters,
+  IssueGroupCountsBy,
   IssueGroupCountsResponse,
   IssueResponse,
   IssueSearchResponse,
@@ -92,7 +92,7 @@ export async function searchIssues(
 export async function getIssueGroupCounts(
   projectKey: string,
   filters: IssueFilters,
-  groupBy: IssueCountableGroupBy,
+  groupBy: IssueGroupCountsBy,
 ): Promise<IssueGroupCountsResponse> {
   const params = issueFilterParams(filters);
   params.set('groupBy', groupBy);

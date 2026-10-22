@@ -34,8 +34,12 @@ export function invalidateIssueCaches(qc: ReturnType<typeof useQueryClient>, pro
 export function useBulkUpdateStatus(projectKey: string, closedHiding?: ClosedHidingNotice) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ numbers, status }: { numbers: number[]; status: IssueStatus }) =>
-      Promise.allSettled(numbers.map((n) => updateIssueStatus(projectKey, n, { status }))),
+    // statusId(WP-808) — 행 메뉴에서 프로젝트 상태를 골랐으면 그 상태로, 없으면(일괄 바) 범주의 기본 상태로 보낸다.
+    // status(범주)는 statusId 가 있어도 함께 받는다 — 종료 숨김 토스트가 범주로 판정한다.
+    mutationFn: async ({ numbers, status, statusId }: { numbers: number[]; status: IssueStatus; statusId?: number }) =>
+      Promise.allSettled(
+        numbers.map((n) => updateIssueStatus(projectKey, n, statusId != null ? { statusId } : { status })),
+      ),
     onSuccess: (results, { numbers, status }) => {
       const { level, message } = bulkResultToast(results, { done: '상태를 변경했습니다', fail: '상태를 변경하지 못했습니다' });
       const changed = numbers.filter((_, i) => results[i]?.status === 'fulfilled');

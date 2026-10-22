@@ -334,9 +334,12 @@ export type IssueClientGroupBy = Exclude<IssueGroupBy, 'cycle'>;
 // 서버가 그룹별 총계를 내는 기준(WP-472) — 에픽 그룹은 「에픽 없음」 필터가 없어 대상이 아니다.
 export type IssueCountableGroupBy = Exclude<IssueClientGroupBy, 'epic'>;
 
-// 목록 그룹별 총계 응답(WP-472). key 는 상태·우선순위 값, assignee 면 담당자 user id 문자열(담당자 없음은 null). 0건 그룹은 없다.
+// 서버 group-counts 의 groupBy 값 — 프로젝트 목록의 상태 그룹은 statusId 별로 센다(WP-808, 키 = statusId 문자열).
+export type IssueGroupCountsBy = IssueCountableGroupBy | 'statusId';
+
+// 목록 그룹별 총계 응답(WP-472). key 는 상태(범주)·statusId·우선순위 값, assignee 면 담당자 user id 문자열(담당자 없음은 null). 0건 그룹은 없다.
 export interface IssueGroupCountsResponse {
-  groupBy: IssueCountableGroupBy;
+  groupBy: IssueGroupCountsBy;
   groups: { key: string | null; count: number }[];
 }
 

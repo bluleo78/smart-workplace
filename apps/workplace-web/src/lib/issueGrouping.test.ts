@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { IssueResponse } from '../types/issue';
+import type { ProjectStatus } from '../types/projectStatus';
 import { groupCountsByKey, groupIssues, priorityLabel, statusLabel } from './issueGrouping';
 
 // 필수 필드가 많은 IssueResponse 를 최소 오버라이드로 생성하는 테스트 팩토리.
@@ -57,6 +58,44 @@ describe('groupIssues - status', () => {
     expect(groups[0].issues.map((i) => i.id)).toEqual([2, 3]);
     expect(groups[1].issues).toHaveLength(0); // IN_PROGRESS 빈 버킷 유지
     expect(groups[2].issues.map((i) => i.id)).toEqual([1]);
+  });
+});
+
+describe('groupIssues - status (프로젝트 상태, WP-808)', () => {
+  // 시드 4상태 + 진행 중 범주의 「검토 중」(id 12). position 은 프로젝트 안 순번이라 섞어 넣어도 범주 → position 순으로 묶인다.
+  const statuses: ProjectStatus[] = [
+    { id: 4, name: '취소', category: 'CANCELED', position: 4 },
+    { id: 1, name: '할 일', category: 'TODO', position: 0 },
+    { id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 },
+    { id: 2, name: '진행 중', category: 'IN_PROGRESS', position: 1 },
+    { id: 3, name: '완료', category: 'DONE', position: 3 },
+  ];
+
+  it('statuses 를 주면 statusId 별로 묶고 빈 상태도 버킷을 만든다', () => {
+    const issues = [
+      mk({ id: 1, status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중' }),
+      mk({ id: 2, status: 'IN_PROGRESS', statusId: 2, statusName: '진행 중' }),
+      mk({ id: 3, status: 'TODO', statusId: 1, statusName: '할 일' }),
+    ];
+    const groups = groupIssues(issues, 'status', statuses);
+    expect(groups.map((g) => g.label)).toEqual(['할 일', '진행 중', '검토 중', '완료', '취소']);
+    // 키는 statusId 문자열 — 서버 그룹 총계(groupBy=statusId)의 key 와 같다.
+    expect(groups.map((g) => g.key)).toEqual(['1', '2', '12', '3', '4']);
+    expect(groups[2].issues.map((i) => i.id)).toEqual([1]);
+    expect(groups[1].issues.map((i) => i.id)).toEqual([2]);
+    expect(groups[3].issues).toHaveLength(0); // 완료 빈 버킷 유지
+  });
+
+  it('목록에 없는 statusId(방금 추가된 상태 등)는 이슈의 statusName 으로 버킷을 덧붙여 행을 잃지 않는다', () => {
+    const issues = [mk({ id: 9, status: 'IN_PROGRESS', statusId: 77, statusName: '새 상태' })];
+    const groups = groupIssues(issues, 'status', statuses);
+    expect(groups.at(-1)).toMatchObject({ key: '77', label: '새 상태' });
+    expect(groups.at(-1)!.issues.map((i) => i.id)).toEqual([9]);
+  });
+
+  it('statuses 가 없으면(프로젝트 횡단·로딩 중) 범주 버킷으로 묶는다', () => {
+    const groups = groupIssues([mk({ id: 1, status: 'IN_PROGRESS', statusId: 12 })], 'status', undefined);
+    expect(groups.map((g) => g.key)).toEqual(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']);
   });
 });
 

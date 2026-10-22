@@ -196,7 +196,7 @@ export function IssueChildrenSection({
                 >
                   {it.title}
                 </Link>
-                {showAi ? <AiDelegationBadge issue={it} /> : <IssueStatusBadge status={it.status} />}
+                {showAi ? <AiDelegationBadge issue={it} /> : <IssueStatusBadge status={it.status} name={it.statusName} />}
               </li>
             );
           })}

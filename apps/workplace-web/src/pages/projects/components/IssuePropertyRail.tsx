@@ -8,6 +8,7 @@ import { AgentWorkRailSection } from '../../../components/issue/agentWork/AgentW
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
+import { useProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
 import { isOverdue } from '../../../lib/issueOverdue';
 import type { IssueFieldEntry } from '../../../types/customField';
 import type {
@@ -39,7 +40,8 @@ interface IssuePropertyRailProps {
   isSubtask: boolean;
   isEpic: boolean;
   parent: ParentRef | null;   // summary.parent
-  status: IssueStatus;        // summary.status
+  status: IssueStatus;        // summary.status — 범주(마감 지남 판정)
+  statusId: number;           // summary.statusId — 상태 선택 값(WP-808)
   priority: IssuePriority;    // summary.priority
   dueDate: string | null;     // summary.dueDate
   startDate: string | null;   // summary.startDate — 타임라인 간트 뷰 시작일 (#620)
@@ -72,6 +74,7 @@ export function IssuePropertyRail({
   isEpic,
   parent,
   status,
+  statusId,
   priority,
   dueDate,
   startDate,
@@ -92,6 +95,8 @@ export function IssuePropertyRail({
   agentWork,
   variant = 'rail',
 }: IssuePropertyRailProps) {
+  // 상태 선택지 — 프로젝트 상태 목록(WP-808). 시트(variant=sheet)는 상태 칩이 맡지만 같은 캐시라 추가 요청은 없다.
+  const statuses = useProjectStatuses(projectKey).data ?? [];
   // AI 분류 제안 버튼 — 레일(상태·담당 그룹 맨 아래, 구분선 뒤)과 시트(단독) 두 위치가 같은 버튼을 쓴다. 핸들러가 없으면 렌더하지 않는다.
   // 제안은 우선순위·유형·라벨을 바꾸므로 워크플로 권한이 없으면 숨긴다 — 비멤버가 누르면 셋 다 403 인데 성공 토스트가 떴다(WP-503).
   const aiButton = onAiClassify !== undefined && canEditWorkflow && (
@@ -148,8 +153,9 @@ export function IssuePropertyRail({
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">상태</label>
             <IssueStatusSelect
-              value={status}
-              onChange={(v) => onPatch({ status: v })}
+              value={statusId}
+              statuses={statuses}
+              onChange={(s) => onPatch({ statusId: s.id })}
               disabled={updatePending || !canEditWorkflow}
               blockedBy={blockedBy}
               projectKey={projectKey}

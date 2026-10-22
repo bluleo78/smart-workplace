@@ -439,7 +439,8 @@ test.describe('의존성', () => {
       (route) => {
         if (route.request().method() === 'PATCH') {
           const payload = route.request().postDataJSON() as Record<string, unknown>;
-          if (payload.status === 'DONE') currentStatus = 'DONE';
+          // 상태 선택은 프로젝트 상태 id 를 보낸다(WP-808) — 시드 「완료」 id 3.
+          if (payload.statusId === 3) currentStatus = 'DONE';
           return route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -492,20 +493,20 @@ test.describe('의존성', () => {
     await expect(statusSelect).toContainText('할 일');
     expect(patches.count()).toBe(0);
 
-    // 3) 다시 완료 선택 → 확인 → PATCH status=DONE 전송 + UI 반영.
+    // 3) 다시 완료 선택 → 확인 → PATCH statusId=3(완료) 전송 + UI 반영.
     await statusSelect.click();
     await page.getByRole('option', { name: '완료' }).click();
     await expect(dialog).toBeVisible();
     await page.getByTestId('status-done-blocked-confirm').click();
     await expect.poll(patches.count).toBe(1);
-    expect(patches.bodies<{ status?: string }>()[0].status).toBe('DONE');
+    expect(patches.bodies<{ statusId?: number }>()[0].statusId).toBe(3);
     await expect(statusSelect).toContainText('완료');
 
     // 4) 진행 중 → 완료가 아닌 전환(예: 취소)은 다이얼로그 없이 즉시 PATCH.
     await statusSelect.click();
     await page.getByRole('option', { name: '취소' }).click();
     await expect.poll(patches.count).toBe(2);
-    expect(patches.bodies<{ status?: string }>()[1].status).toBe('CANCELED');
+    expect(patches.bodies<{ statusId?: number }>()[1].statusId).toBe(4);
     await expect(page.getByTestId('status-done-blocked-dialog')).toHaveCount(0);
   });
 });

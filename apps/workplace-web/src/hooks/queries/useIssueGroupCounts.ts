@@ -2,7 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { getIssueGroupCounts } from '../../api/issues';
-import type { IssueClientGroupBy, IssueCountableGroupBy, IssueFilters } from '../../types/issue';
+import type { IssueClientGroupBy, IssueCountableGroupBy, IssueFilters, IssueGroupCountsBy } from '../../types/issue';
 
 const COUNTABLE: ReadonlySet<IssueClientGroupBy> = new Set<IssueCountableGroupBy>(['status', 'priority', 'assignee']);
 
@@ -12,9 +12,11 @@ const COUNTABLE: ReadonlySet<IssueClientGroupBy> = new Set<IssueCountableGroupBy
  */
 export function useIssueGroupCounts(projectKey: string, filters: IssueFilters, groupBy: IssueClientGroupBy | null) {
   const countable = groupBy != null && COUNTABLE.has(groupBy) ? (groupBy as IssueCountableGroupBy) : null;
+  // 상태 그룹은 프로젝트 상태(statusId)별 버킷이라 총계도 statusId 로 센다(WP-808) — 키가 버킷 key(statusId 문자열)와 같다.
+  const serverGroupBy: IssueGroupCountsBy | null = countable === 'status' ? 'statusId' : countable;
   return useQuery({
-    queryKey: ['issues', 'search', projectKey, 'group-counts', countable, filters] as const,
-    queryFn: () => getIssueGroupCounts(projectKey, filters, countable!),
-    enabled: !!projectKey && countable != null,
+    queryKey: ['issues', 'search', projectKey, 'group-counts', serverGroupBy, filters] as const,
+    queryFn: () => getIssueGroupCounts(projectKey, filters, serverGroupBy!),
+    enabled: !!projectKey && serverGroupBy != null,
   });
 }

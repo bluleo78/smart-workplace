@@ -1,5 +1,6 @@
 // 이슈 상태 인라인 변경 select. shadcn/Radix Select 사용.
-// 미완료 선행(blockedBy) 이슈가 있는 상태에서 '완료'로 전환하면 AlertDialog 로 한 번 확인한다(#827).
+// 선택지는 프로젝트 상태 목록(이름, WP-808)이고 값은 statusId 다 — 아이콘·종료 판정은 상태의 범주로 한다.
+// 미완료 선행(blockedBy) 이슈가 있는 상태에서 완료 범주로 전환하면 AlertDialog 로 한 번 확인한다(#827).
 // 의존성은 일정(scheduling) 관계라 서버는 전환을 막지 않는다 — soft 경고 정책(#669 와 동일 원칙).
 
 import { useState } from 'react';
@@ -16,15 +17,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-import type { IssueLinkSummary, IssueStatus } from '../../../types/issue';
+import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
+import { sortStatuses } from '../../../lib/projectStatuses';
+import type { IssueLinkSummary } from '../../../types/issue';
+import type { ProjectStatus } from '../../../types/projectStatus';
 import { incompleteBlockers } from './incompleteBlockers';
-
-const OPTIONS: { value: IssueStatus; label: string }[] = [
-  { value: 'TODO', label: '할 일' },
-  { value: 'IN_PROGRESS', label: '진행 중' },
-  { value: 'DONE', label: '완료' },
-  { value: 'CANCELED', label: '취소' },
-];
 
 // 완료 전환 확인 다이얼로그(#827) — 데스크톱 Select 와 모바일 상태 칩(WP-196)이 같은 확인을 쓴다.
 // 취소하면 상태 유지, 확인하면 호출부가 그대로 PATCH 한다.
@@ -74,44 +71,56 @@ export function StatusDoneBlockedDialog({
   );
 }
 
-// 상태 변경 시 onChange 콜백으로 상위에 위임 — 인라인 patch 호출에 사용.
-// blockedBy 를 넘기면 DONE 전환 직전 미완료 선행 이슈 확인 다이얼로그를 끼워 넣는다(취소 시 전환 중단).
+// 상태 변경 시 onChange 콜백으로 상위에 위임 — 인라인 patch 호출에 사용(호출부가 statusId·이름·범주를 함께 쓴다).
+// blockedBy 를 넘기면 완료 범주 전환 직전 미완료 선행 이슈 확인 다이얼로그를 끼워 넣는다(취소 시 전환 중단).
 export function IssueStatusSelect({
   value,
+  statuses,
   onChange,
   disabled,
   blockedBy = [],
   projectKey,
 }: {
-  value: IssueStatus;
-  onChange: (v: IssueStatus) => void;
+  /** 현재 statusId. */
+  value: number;
+  /** 프로젝트 상태 목록 — 표시 순서로 정렬해 옵션으로 쓴다. 로딩 중(빈 목록)이면 트리거가 비어 보인다. */
+  statuses: readonly ProjectStatus[];
+  onChange: (s: ProjectStatus) => void;
   disabled?: boolean;
   blockedBy?: IssueLinkSummary[];
   // 다이얼로그에 선행 이슈 키(KEY-번호)를 표시하기 위한 프로젝트 키 — 없으면 #번호 로 표시.
   projectKey?: string;
 }) {
   // 확인 대기 중인 목표 상태 — null 이면 다이얼로그 닫힘.
-  const [pending, setPending] = useState<IssueStatus | null>(null);
+  const [pending, setPending] = useState<ProjectStatus | null>(null);
   const blockers = incompleteBlockers(blockedBy);
+  const options = sortStatuses(statuses);
+  const current = options.find((s) => s.id === value);
 
-  const handleChange = (v: IssueStatus) => {
-    // 완료 전환 + 미완료 선행 존재 → 즉시 PATCH 하지 않고 확인 다이얼로그.
-    if (v === 'DONE' && v !== value && blockers.length > 0) {
-      setPending(v);
+  const handleChange = (id: string) => {
+    const next = options.find((s) => String(s.id) === id);
+    if (!next || next.id === value) return;
+    // 완료 범주로 처음 들어가고 미완료 선행이 있으면 → 즉시 PATCH 하지 않고 확인 다이얼로그.
+    // 같은 완료 범주 안 이동(배포됨 → 완료)은 이미 완료라 다시 묻지 않는다.
+    if (next.category === 'DONE' && current?.category !== 'DONE' && blockers.length > 0) {
+      setPending(next);
       return;
     }
-    onChange(v);
+    onChange(next);
   };
 
   return (
     <>
-      <Select value={value} onValueChange={(v) => handleChange(v as IssueStatus)} disabled={disabled}>
+      <Select value={String(value)} onValueChange={handleChange} disabled={disabled}>
         <SelectTrigger className="w-full" aria-label="상태" data-testid="issue-status-select">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+          {options.map((s) => (
+            <SelectItem key={s.id} value={String(s.id)} data-testid={`issue-status-option-${s.id}`}>
+              <IssueStatusIcon status={s.category} decorative className="size-4" />
+              {s.name}
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>

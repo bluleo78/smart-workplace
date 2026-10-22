@@ -32,7 +32,7 @@ function MobileRow({ it }: { it: IssueResponse }) {
   return (
     <li className="border-b px-1 py-2.5" data-testid={tid}>
       <div className="flex min-w-0 items-start gap-2">
-        <span className="mt-0.5 shrink-0"><IssueStatusIcon status={it.status} /></span>
+        <span className="mt-0.5 shrink-0"><IssueStatusIcon status={it.status} name={it.statusName} /></span>
         <div className="min-w-0 flex-1">
           <Link
             to={`/projects/${it.projectKey}/issues/${it.number}`}

@@ -7,6 +7,7 @@ import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useProject } from '../../../hooks/queries/useProjects';
+import { useProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
@@ -14,6 +15,7 @@ import { resolveParentNumber } from '../../../lib/issueCreateParent';
 import { hasIssueDraftContent } from '../../../lib/issueDraft';
 import { statusLabel } from '../../../lib/issueGrouping';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
+import { defaultStatusOf } from '../../../lib/projectStatuses';
 import { type CreateIssueFormData, createIssueSchema } from '../../../lib/validations/issue';
 import type { IssueStatus } from '../../../types/issue';
 
@@ -32,6 +34,8 @@ export function useIssueCreateForm({
   // AI 제안 이유 — 제안 후 버튼 아래 표시.
   const [classifyReason, setClassifyReason] = useState<string | null>(null);
   const types = useIssueTypes(projectKey);
+  // 처음 상태 안내 문구 — 범주로 만들면 서버가 그 범주의 기본 상태로 넣으므로 그 상태의 이름을 보인다(WP-808).
+  const statuses = useProjectStatuses(projectKey).data ?? [];
   // OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 화면은 유형·우선순위·일정·담당자·부모 칸을 숨기고 송신도 제목·본문만 한다.
   const intakeOnly = isIntakeOnly(useProject(projectKey).data);
   // 모바일 에픽 칩 값(R8) — 폼 스키마 밖 별도 상태. 일반 이슈의 parentNumber 로 송신되고, EPIC·SUBTASK 유형이면 해제된다.
@@ -152,7 +156,7 @@ export function useIssueCreateForm({
 
   return {
     // 할 일이 아닌 처음 상태면 다이얼로그에 「상태: 진행 중」처럼 보인다(접수 전용은 상태를 보내지 않으므로 없음).
-    statusNote: !intakeOnly && initialStatus && initialStatus !== 'TODO' ? statusLabel(initialStatus) : null,
+    statusNote: !intakeOnly && initialStatus && initialStatus !== 'TODO' ? (defaultStatusOf(statuses, initialStatus)?.name ?? statusLabel(initialStatus)) : null,
     form, types, intakeOnly, selectedType, isSubtaskSelected, isEpicSelected,
     classify, classifyReason, handleClassify, images, bodyRef, bodyField,
     onSubmit: handleSubmit(submit),

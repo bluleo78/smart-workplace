@@ -161,7 +161,7 @@ export function IssueCard({
           예전엔 키·제목이 한 줄을 나눠 써서 좁은 컬럼에서 키가 「PLAT-/9」 로 꺾이고 제목은 앞 몇 글자만 남았다. */}
       <div className="flex min-w-0 items-start justify-between gap-2">
         <span className="flex min-w-0 items-start gap-1 font-medium">
-          {showStatus && <IssueStatusIcon status={issue.status} className="mt-0.5 h-4 w-4 shrink-0" />}
+          {showStatus && <IssueStatusIcon status={issue.status} name={issue.statusName} className="mt-0.5 h-4 w-4 shrink-0" />}
           {showType && issue.type && (
             <span className="mt-0.5 shrink-0">
               <IssueTypeBadge type={issue.type} size="sm" iconOnly />
@@ -299,7 +299,7 @@ function MobileCardBody({
   return (
     <>
       <div className={`flex min-w-0 items-start gap-1.5${issue.blocked ? ' pr-5' : ''}`}>
-        {showStatus && <IssueStatusIcon status={issue.status} className="mt-0.5 h-4 w-4 shrink-0" />}
+        {showStatus && <IssueStatusIcon status={issue.status} name={issue.statusName} className="mt-0.5 h-4 w-4 shrink-0" />}
         {showType && issue.type && (
           <span className="mt-0.5 shrink-0">
             <IssueTypeBadge type={issue.type} size="sm" iconOnly />

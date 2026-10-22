@@ -64,7 +64,7 @@ export default function IssueListWidget({
                     </span>{' '}
                     {it.title}
                   </span>
-                  <IssueStatusBadge status={it.status} />
+                  <IssueStatusBadge status={it.status} name={it.statusName} />
                 </Link>
               </li>
             ))}

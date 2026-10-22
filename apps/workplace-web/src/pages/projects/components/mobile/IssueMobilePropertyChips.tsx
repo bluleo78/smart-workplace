@@ -14,14 +14,17 @@ import { IssueStatusIcon } from '../../../../components/issues/IssueStatusIcon';
 import { useCreateLabel, useLabels } from '../../../../hooks/queries/useLabels';
 import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
+import { useProjectStatuses } from '../../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueAssignees } from '../../../../hooks/queries/useUpdateIssueAssignees';
 import { useUpdateIssueLabels } from '../../../../hooks/queries/useUpdateIssueLabels';
 import { useUpdateIssueParent } from '../../../../hooks/queries/useUpdateIssueParent';
 import { formatDateMonthDay, parseValidDateKey } from '../../../../lib/formatters';
-import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../../lib/issueGrouping';
+import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/issueGrouping';
 import { isOverdue } from '../../../../lib/issueOverdue';
-import type { IssuePriority, IssueResponse, IssueStatus, UpdateIssueRequest } from '../../../../types/issue';
+import { sortStatuses } from '../../../../lib/projectStatuses';
+import type { IssuePriority, IssueResponse, UpdateIssueRequest } from '../../../../types/issue';
 import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
+import type { ProjectStatus } from '../../../../types/projectStatus';
 import { incompleteBlockers } from '../incompleteBlockers';
 import { StatusDoneBlockedDialog } from '../IssueStatusSelect';
 import { MOBILE_CHIP } from './chipStyles';
@@ -51,7 +54,10 @@ export function IssueMobilePropertyChips({
 }) {
   const [sheet, setSheet] = useState<Sheet>(null);
   // 완료 전환 확인 대기 — 미완료 선행 이슈가 있을 때만(#827, 데스크톱 Select 와 같은 다이얼로그).
-  const [confirmDone, setConfirmDone] = useState(false);
+  // 값은 확인 뒤 보낼 목표 상태(완료 범주의 어느 상태든).
+  const [confirmDone, setConfirmDone] = useState<ProjectStatus | null>(null);
+  // 상태 시트 선택지 — 프로젝트 상태 목록(이름, WP-808). 칩 글자는 응답의 statusName 이라 목록이 없어도 보인다.
+  const statuses = sortStatuses(useProjectStatuses(projectKey).data ?? []);
   const typeName = issue.type?.name;
   // 에픽 칩이 구성에 없으면(개인 작업) 에픽 목록도 조회하지 않는다.
   const showEpic = fields.includes('epic') && typeName !== 'EPIC' && typeName !== 'SUBTASK';
@@ -90,10 +96,10 @@ export function IssueMobilePropertyChips({
       case 'status':
         return chip(
           'status',
-          issue.blocked ? `상태: ${ISSUE_STATUS_LABEL[issue.status]}, 차단됨` : '상태',
+          issue.blocked ? `상태: ${issue.statusName}, 차단됨` : '상태',
           <>
             <IssueStatusIcon status={issue.status} decorative className="size-4" />
-            {ISSUE_STATUS_LABEL[issue.status]}
+            {issue.statusName}
             {issue.blocked && <span data-testid="issue-blocked-badge">· 차단됨</span>}
           </>,
           false,
@@ -167,23 +173,24 @@ export function IssueMobilePropertyChips({
         open={sheet === 'status'}
         onClose={close}
         title="상태"
-        value={issue.status}
-        options={ISSUE_STATUSES.map((s) => ({ value: s, label: ISSUE_STATUS_LABEL[s], icon: <IssueStatusIcon status={s} decorative /> }))}
+        value={String(issue.statusId)}
+        options={statuses.map((s) => ({ value: String(s.id), label: s.name, icon: <IssueStatusIcon status={s.category} decorative /> }))}
         onSelect={(v) => {
-          const next = v as IssueStatus;
-          if (next === issue.status) return;
-          if (next === 'DONE' && blockers.length > 0) setConfirmDone(true);
-          else onPatch({ status: next });
+          const next = statuses.find((s) => String(s.id) === v);
+          if (!next || next.id === issue.statusId) return;
+          // 완료 범주로 처음 들어갈 때만 미완료 선행을 확인한다 — 완료 범주 안 이동은 이미 완료라 묻지 않는다(데스크톱 Select 와 같은 규칙).
+          if (next.category === 'DONE' && issue.status !== 'DONE' && blockers.length > 0) setConfirmDone(next);
+          else onPatch({ statusId: next.id });
         }}
       />
       <StatusDoneBlockedDialog
-        open={confirmDone}
+        open={confirmDone != null}
         blockers={blockers}
         projectKey={projectKey}
-        onCancel={() => setConfirmDone(false)}
+        onCancel={() => setConfirmDone(null)}
         onConfirm={() => {
-          setConfirmDone(false);
-          onPatch({ status: 'DONE' });
+          if (confirmDone) onPatch({ statusId: confirmDone.id });
+          setConfirmDone(null);
         }}
       />
       <MobilePickerSheet

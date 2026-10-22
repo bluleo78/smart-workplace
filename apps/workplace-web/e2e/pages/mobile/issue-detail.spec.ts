@@ -6,6 +6,7 @@ import { createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeSubtaskType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { statusFieldsOf } from '../../factories/projectStatus.factory';
 import { pressMacChromeImeEnter } from '../../fixtures/ime';
 import { installFakeViewport, setKeyboard } from '../../fixtures/keyboard';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
@@ -62,7 +63,9 @@ async function mockDetail(
   });
   await page.route((u) => u.pathname === BASE, (r) => {
     if (r.request().method() === 'PATCH') {
-      issue = { ...issue, ...(r.request().postDataJSON() as Partial<IssueResponse>) };
+      const patch = r.request().postDataJSON() as Partial<IssueResponse>;
+      // 상태는 statusId 로 온다(WP-808) — 서버처럼 범주·이름까지 맞춘다.
+      issue = { ...issue, ...patch, ...(patch.statusId != null ? statusFieldsOf(patch.statusId) : {}) };
     }
     return r.fulfill(json(createIssueDetail({ summary: issue, body, ...detailOver })));
   });
@@ -135,12 +138,13 @@ test.describe('속성 칩', () => {
     expect(await plus.evaluate((el) => el.scrollWidth <= el.clientWidth && el.getBoundingClientRect().right <= el.parentElement!.getBoundingClientRect().right)).toBe(true);
   });
 
-  test('상태 칩 → 시트에서 완료 → PATCH status', async ({ authenticatedPage: page }) => {
+  // 상태 시트 선택지는 프로젝트 상태(시드 「완료」 id 3, WP-808) — statusId 로 보낸다.
+  test('상태 칩 → 시트에서 완료 → PATCH statusId', async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page);
     await openDetail(page);
     await page.getByTestId('mobile-prop-status').click();
-    await page.getByTestId('issue-status-sheet').getByTestId('picker-option-DONE').click();
-    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ status: 'DONE' });
+    await page.getByTestId('issue-status-sheet').getByTestId('picker-option-3').click();
+    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ statusId: 3 });
     await expect(page.getByTestId('mobile-prop-status')).toContainText('완료');
   });
 
@@ -148,11 +152,11 @@ test.describe('속성 칩', () => {
     const calls = await mockDetail(page, { blocked: true, blockedBy: [{ number: 3, title: '선행 작업', status: 'IN_PROGRESS', dueDate: null }] as IssueResponse['blockedBy'] });
     await openDetail(page);
     await page.getByTestId('mobile-prop-status').click();
-    await page.getByTestId('picker-option-DONE').click();
+    await page.getByTestId('picker-option-3').click();
     await expect(page.getByTestId('status-done-blocked-dialog')).toBeVisible();
     expect(calls().filter((c) => c.method === 'PATCH')).toHaveLength(0);
     await page.getByTestId('status-done-blocked-confirm').click();
-    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ status: 'DONE' });
+    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ statusId: 3 });
   });
 
   // WP-725: 해석할 수 없는 마감일(API 로 들어간 +10000-01-01)은 엉뚱한 「1월 1일」 대신 「잘못된 날짜」 — 시트에서 지워 고칠 수 있다.

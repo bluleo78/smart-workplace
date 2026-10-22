@@ -29,6 +29,13 @@ export function seedStatusOf(category: IssueStatus): ProjectStatus {
   return { ...SEED.find((s) => s.category === category)! };
 }
 
+// PATCH 본문의 statusId 를 서버처럼 이슈 요약에 반영할 필드 — 목이 statusId 만 병합하면 범주·이름이 옛 값으로 남는다.
+// 시드 상태(id 1~4)만 안다. 모르는 id 는 statusId 만 돌려준다.
+export function statusFieldsOf(statusId: number): { statusId: number; status?: IssueStatus; statusName?: string } {
+  const s = SEED.find((x) => x.id === statusId);
+  return s ? { statusId, status: s.category, statusName: s.name } : { statusId };
+}
+
 // 기본 4상태 + 「진행 중」 범주에 이름 붙인 상태들을 덧붙인다.
 // id 는 11, 12, … 순서로 고정 — 스펙이 id 를 하드코딩해 단언할 수 있게 결정적으로 둔다.
 // position 은 서버처럼 프로젝트 전체 순번: 기본 「진행 중」(1) 바로 뒤에 2, 3, … 을 넣고 완료·취소는 그만큼 뒤로 민다.
