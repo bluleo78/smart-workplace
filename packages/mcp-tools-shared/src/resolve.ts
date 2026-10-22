@@ -140,7 +140,7 @@ export async function resolveCycleIds(client: ProjectMetaClient, projectKey: str
   return names.map((n) => idByName(cycles, n, '사이클'));
 }
 
-/** 마일스톤 이름 CSV → 서버 milestone 쿼리(id CSV, WP-356). 서버는 숫자가 아닌 토큰을 조용히 버리므로 이름은 여기서 해석·검증한다. */
+/** 마일스톤 이름 CSV → 서버 milestone 쿼리(id CSV, WP-356). 서버도 이름을 해석하지만(WP-735) 여기서 먼저 해석해 프로젝트별 안내 문구로 되묻는다. */
 export async function resolveMilestoneFilter(
   client: Pick<ProjectMetaClient, 'getProjectMilestones'>,
   projectKey: string | undefined,

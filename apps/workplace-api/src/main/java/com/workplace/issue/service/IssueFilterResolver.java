@@ -1,5 +1,7 @@
 package com.workplace.issue.service;
 
+import com.workplace.cycle.dto.CycleRow;
+import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueTypeRow;
 import com.workplace.issue.exception.InvalidIssueFilterException;
@@ -7,6 +9,8 @@ import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.label.dto.LabelRow;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.member.repository.MemberDirectoryRepository;
+import com.workplace.milestone.dto.MilestoneRow;
+import com.workplace.milestone.repository.MilestoneRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +20,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * 이슈 검색 필터의 사람 친화 토큰(라벨·유형 이름, username)을 숫자 id 로 해석한다(#841).
+ * 이슈 검색 필터의 사람 친화 토큰(라벨·유형·마일스톤·사이클 이름, username)을 숫자 id 로 해석한다(#841).
  *
  * <p>웹 UI 는 숫자 id 를 보내지만 AI 도구는 쓰기 도구와 같은 어휘(이름·username)로 필터를 건다. 예전에는 숫자가 아닌 토큰을 조용히 버려 "필터가 빠진
  * 결과"를 정답처럼 돌려줬으므로, 여기서 이름을 해석하고 해석 불가 값은 {@link InvalidIssueFilterException}(400)으로 거부한다. 숫자 토큰은
@@ -35,6 +39,8 @@ class IssueFilterResolver {
   private final MemberDirectoryRepository memberDirectoryRepository;
   private final LabelRepository labelRepository;
   private final IssueTypeRepository typeRepository;
+  private final MilestoneRepository milestoneRepository;
+  private final CycleRepository cycleRepository;
 
   /**
    * 담당자·작성자 토큰 → userId. "me" 는 호출자, 숫자는 그대로, 그 외는 현재 테넌트 구성원 username(대소문자 무시). "null"(미지정) 리터럴은
@@ -101,10 +107,34 @@ class IssueFilterResolver {
             projectId != null
                 ? typeRepository.findByProject(projectId)
                 : typeRepository.findByMemberProjects(callerId);
-    return resolveByName("type", "유형", tokens, candidates, IssueTypeRow::name, IssueTypeRow::id)
-        .stream()
-        .flatMap(List::stream)
-        .toList();
+    return flatten(
+        resolveByName("type", "유형", tokens, candidates, IssueTypeRow::name, IssueTypeRow::id));
+  }
+
+  /** 마일스톤 토큰 → id 목록(OR). 예전엔 숫자가 아닌 토큰을 버려 필터 없는 전체 목록을 돌려줬다(WP-735). */
+  List<Long> resolveMilestoneIds(List<String> tokens, Long projectId, Long callerId) {
+    Supplier<List<MilestoneRow>> candidates =
+        () ->
+            projectId != null
+                ? milestoneRepository.findByProject(projectId)
+                : milestoneRepository.findByMemberProjects(callerId);
+    return flatten(
+        resolveByName(
+            "milestone", "마일스톤", tokens, candidates, MilestoneRow::name, MilestoneRow::id));
+  }
+
+  /** 사이클 토큰 → id 목록(OR). 약속된 토큰(null·none)은 호출측이 먼저 걸러낸다(WP-735). */
+  List<Long> resolveCycleIds(List<String> tokens, Long projectId, Long callerId) {
+    Supplier<List<CycleRow>> candidates =
+        () ->
+            projectId != null
+                ? cycleRepository.findByProject(projectId)
+                : cycleRepository.findByMemberProjects(callerId);
+    return flatten(resolveByName("cycle", "사이클", tokens, candidates, CycleRow::name, CycleRow::id));
+  }
+
+  private static List<Long> flatten(List<List<Long>> groups) {
+    return groups.stream().flatMap(List::stream).toList();
   }
 
   /** 숫자 토큰은 단일 그룹, 이름 토큰은 대소문자 무시 동명 후보 전체를 그룹으로. 후보는 이름 토큰을 처음 만날 때 한 번만 조회한다. */

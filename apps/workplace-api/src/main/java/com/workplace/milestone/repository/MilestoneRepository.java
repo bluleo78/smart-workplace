@@ -1,6 +1,7 @@
 package com.workplace.milestone.repository;
 
 import static com.workplace.jooq.Tables.MILESTONE;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
 import com.workplace.milestone.dto.MilestoneRow;
 import java.time.LocalDate;
@@ -46,6 +47,18 @@ public class MilestoneRepository {
   public List<MilestoneRow> findByProject(Long projectId) {
     return dsl.selectFrom(MILESTONE)
         .where(MILESTONE.PROJECT_ID.eq(projectId))
+        .orderBy(MILESTONE.DUE_DATE.asc(), MILESTONE.NAME.asc())
+        .fetch(this::mapToRow);
+  }
+
+  /** 사용자가 멤버인 프로젝트들의 마일스톤 — 횡단 이슈 검색의 마일스톤 이름 해석 후보(WP-735). */
+  public List<MilestoneRow> findByMemberProjects(Long userId) {
+    return dsl.selectFrom(MILESTONE)
+        .where(
+            MILESTONE.PROJECT_ID.in(
+                dsl.select(PROJECT_MEMBER.PROJECT_ID)
+                    .from(PROJECT_MEMBER)
+                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
         .orderBy(MILESTONE.DUE_DATE.asc(), MILESTONE.NAME.asc())
         .fetch(this::mapToRow);
   }
