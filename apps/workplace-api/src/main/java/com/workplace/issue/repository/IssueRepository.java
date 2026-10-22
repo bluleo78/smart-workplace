@@ -1172,7 +1172,7 @@ public class IssueRepository {
 
   /**
    * 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 배치 조회한다. wiki 멘션 하이드레이션용 — 가시성은 PROJECT_MEMBER
-   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #findByIdsReadableWatchedBy}). PROJECT 조인으로
+   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #findByIdsReadableWatchedBy}), 삭제된 프로젝트의 이슈 제외. PROJECT 조인으로
    * projectKey/number/title 을 함께 반환한다. 빈 ids 면 빈 리스트.
    */
   public List<com.workplace.issue.dto.IssueRef> findVisibleRefsByIds(
@@ -1184,6 +1184,8 @@ public class IssueRepository {
         .on(com.workplace.jooq.Tables.PROJECT.ID.eq(ISSUE.PROJECT_ID))
         .where(ISSUE.ID.in(issueIds))
         .and(ISSUE.DELETED_AT.isNull())
+        // 프로젝트 soft-delete 는 소속 이슈를 정리하지 않는다 — 삭제된 프로젝트의 이슈는 삭제된 이슈처럼 숨긴다(WP-786).
+        .and(com.workplace.jooq.Tables.PROJECT.DELETED_AT.isNull())
         .and(
             org.jooq.impl.DSL.exists(
                 dsl.selectOne()
@@ -1245,6 +1247,7 @@ public class IssueRepository {
         .where(ISSUE.SOURCE_TYPE.eq(sourceType))
         .and(ISSUE.SOURCE_ID.eq(sourceId))
         .and(ISSUE.DELETED_AT.isNull())
+        .and(PROJECT.DELETED_AT.isNull()) // 삭제된 프로젝트의 이슈는 숨긴다(WP-786)
         .and(
             org.jooq.impl.DSL.exists(
                 dsl.selectOne()
@@ -1271,6 +1274,7 @@ public class IssueRepository {
         .where(ISSUE.SOURCE_TYPE.eq(sourceType))
         .and(ISSUE.SOURCE_ID.eq(sourceId))
         .and(ISSUE.DELETED_AT.isNull())
+        .and(PROJECT.DELETED_AT.isNull()) // 삭제된 프로젝트의 이슈는 숨긴다(WP-786)
         .orderBy(ISSUE.ID.desc())
         .limit(1)
         .fetchOptional()

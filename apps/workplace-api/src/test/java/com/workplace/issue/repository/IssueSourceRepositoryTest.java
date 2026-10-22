@@ -9,6 +9,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,41 @@ class IssueSourceRepositoryTest extends IntegrationTestBase {
                 .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
                 .execute();
           });
+      TenantContext.clear();
+    }
+  }
+
+  /** WP-786: 프로젝트가 삭제되면 그 이슈는 노트 멘션·메일 출처 연결에서 삭제된 이슈처럼 숨는다. */
+  @Test
+  void deletedProject_issueHiddenFromMentionAndSourceLookups() {
+    long userId = createUser("dpj");
+    TenantContext.set(1L);
+    long projectId =
+        projectService
+            .create(userId, new CreateProjectRequest(uniqueKey("DPJ"), "삭제될 프로젝트", "x"))
+            .id();
+    long issueId = issueRepository.insert(projectId, 1, "비밀 제목", null, "MID", null, userId).id();
+    long mailMessageId = 7788L;
+    try {
+      issueRepository.updateSource(issueId, "MAIL", mailMessageId);
+      assertThat(issueRepository.findVisibleRefsByIds(userId, List.of(issueId))).hasSize(1);
+      assertThat(issueRepository.findVisibleSourceIssue(userId, "MAIL", mailMessageId)).isPresent();
+
+      dsl.update(com.workplace.jooq.Tables.PROJECT)
+          .set(com.workplace.jooq.Tables.PROJECT.DELETED_AT, java.time.OffsetDateTime.now())
+          .where(com.workplace.jooq.Tables.PROJECT.ID.eq(projectId))
+          .execute();
+
+      assertThat(issueRepository.findVisibleRefsByIds(userId, List.of(issueId))).isEmpty();
+      assertThat(issueRepository.findVisibleSourceIssue(userId, "MAIL", mailMessageId)).isEmpty();
+      assertThat(issueRepository.findSourceIssueKey("MAIL", mailMessageId)).isEmpty();
+    } finally {
+      cleanupInTenant(
+          1L,
+          () ->
+              dsl.deleteFrom(com.workplace.jooq.Tables.ISSUE)
+                  .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
+                  .execute());
       TenantContext.clear();
     }
   }
