@@ -9,8 +9,11 @@ import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.project.dto.MemberResponse;
 import com.workplace.project.dto.MemberRow;
 import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Field;
@@ -151,7 +154,7 @@ public class ProjectMemberRepository {
         .fetchOne(0, Long.class);
   }
 
-  /** 프로젝트 멤버의 user_id 목록. 담당자 멤버십 검증 등에서 IN 셋 비교에 사용. */
+  /** 프로젝트 멤버의 user_id 목록 — 프로젝트 알림 대상 계산 등. */
   public List<Long> findUserIdsByProject(Long projectId) {
     return dsl.select(PROJECT_MEMBER.USER_ID)
         .from(PROJECT_MEMBER)
@@ -170,6 +173,20 @@ public class ProjectMemberRepository {
             .forShare()
             .fetchOne()
         != null;
+  }
+
+  /**
+   * 주어진 사용자 중 이 프로젝트 멤버인 user_id 를, 그 멤버 행을 공유 잠금한 채 돌려준다(WP-775) — 담당자 지정이 커밋할 때까지 그 멤버 제거(행 삭제)를
+   * 기다리게 하고, 제거가 먼저 커밋됐으면 행이 없어 빠진다. 읽기 전용 트랜잭션에서는 쓰지 않는다(PG 가 FOR SHARE 를 거절).
+   */
+  public Set<Long> lockMemberUserIds(Long projectId, Collection<Long> userIds) {
+    return new HashSet<>(
+        dsl.select(PROJECT_MEMBER.USER_ID)
+            .from(PROJECT_MEMBER)
+            .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId).and(PROJECT_MEMBER.USER_ID.in(userIds)))
+            .orderBy(PROJECT_MEMBER.USER_ID)
+            .forShare()
+            .fetch(PROJECT_MEMBER.USER_ID));
   }
 
   /** 사용자의 프로젝트 멤버 여부. */

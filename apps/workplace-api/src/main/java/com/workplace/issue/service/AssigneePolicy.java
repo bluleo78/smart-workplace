@@ -1,12 +1,11 @@
 package com.workplace.issue.service;
 
 import com.workplace.issue.exception.InactiveAssigneeException;
+import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.user.dto.AssigneeInfo;
 import java.util.Collection;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * 이슈 담당자로 허용되는 사용자 id 집합 계산. 개인(PERSONAL)·팀(TEAM) 공통으로 프로젝트 멤버만 담당자로 허용한다. 개인 프로젝트에 AGENT 를 담당자로
@@ -15,9 +14,18 @@ import java.util.Set;
 final class AssigneePolicy {
   private AssigneePolicy() {}
 
-  /** 허용 담당자 = 프로젝트 멤버 집합. 개인·팀 구분 없이 동일 규칙 적용. */
-  static Set<Long> allowedAssigneeIds(ProjectRow project, ProjectMemberRepository memberRepo) {
-    return new HashSet<>(memberRepo.findUserIdsByProject(project.id()));
+  /**
+   * 담당자로 지정할 사용자는 모두 프로젝트 멤버여야 한다. 개인·팀 구분 없이 동일 규칙 적용. 멤버 행을 공유 잠금한 채 확인한다(WP-775) — 동시에 들어온 멤버
+   * 제거가 먼저 커밋되면 그 사람은 멤버가 아니라 거절되고, 지정이 먼저면 제거가 이 지정의 커밋을 기다렸다 담당자 정리(#714)로 함께 지운다. 잠그지 않고 읽으면 둘 다
+   * 성공해 비멤버 담당자가 남았다.
+   *
+   * @throws InvalidAssigneeForProjectException 프로젝트 멤버가 아닌 사용자가 있을 때
+   */
+  static void requireMembers(
+      ProjectRow project, Collection<Long> userIds, ProjectMemberRepository memberRepo) {
+    if (!memberRepo.lockMemberUserIds(project.id(), userIds).containsAll(userIds)) {
+      throw new InvalidAssigneeForProjectException();
+    }
   }
 
   /**

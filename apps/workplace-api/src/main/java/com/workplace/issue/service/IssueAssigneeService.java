@@ -2,7 +2,6 @@ package com.workplace.issue.service;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
@@ -70,10 +69,7 @@ public class IssueAssigneeService {
 
     // 1) 담당자 검증 — 개인·팀 공통으로 프로젝트 멤버만 담당 가능 (정책 통일 #418)
     if (!normalized.isEmpty()) {
-      Set<Long> allowed = AssigneePolicy.allowedAssigneeIds(project, memberRepository);
-      if (!allowed.containsAll(normalized)) {
-        throw new InvalidAssigneeForProjectException();
-      }
+      AssigneePolicy.requireMembers(project, normalized, memberRepository);
     }
 
     // 2) diff 계산

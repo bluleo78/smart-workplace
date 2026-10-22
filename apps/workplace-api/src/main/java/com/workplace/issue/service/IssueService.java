@@ -238,10 +238,7 @@ public class IssueService {
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
     List<AssigneeInfo> assignees = List.of();
     if (!assigneeIds.isEmpty()) {
-      var allowed = AssigneePolicy.allowedAssigneeIds(project, memberRepository);
-      if (!allowed.containsAll(assigneeIds)) {
-        throw new InvalidAssigneeForProjectException();
-      }
+      AssigneePolicy.requireMembers(project, assigneeIds, memberRepository);
       // 담당자는 이 워크스페이스에서 활성이어야 한다(전역 비활성·WP-417 정지 거부) — 담당자 교체와 같은 규칙(AssigneePolicy). 읽은 정보는
       // 실행 후속부(작업 생성·이벤트 요약)가 그대로 재사용한다.
       assignees = userRepository.findAssigneeInfos(assigneeIds, TenantContext.get());
