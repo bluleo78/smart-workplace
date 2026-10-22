@@ -3,6 +3,7 @@ package com.workplace.calendar.dto;
 import com.workplace.global.time.SupportedDateTime;
 import com.workplace.global.util.SingleLineTitles;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -29,7 +30,8 @@ public record CalendarEventRequest(
     boolean allDay,
     @Size(max = 200) String location,
     @Size(max = 32) String color,
-    @Min(0) Integer reminderMinutes,
+    // 상한 4주(40320분, 구글 캘린더와 같은 한도) — 없으면 몇 년 앞선 리마인더가 저장돼 일정 등록 직후 알림이 나갔다(WP-799).
+    @Min(0) @Max(value = 40320, message = "리마인더는 일정 4주 전까지만 설정할 수 있습니다") Integer reminderMinutes,
     @Size(max = 500) String recurrenceRule,
     // 같은 id 를 수만 번 넣으면 요청 하나가 수 초 걸렸다(WP-794).
     @Size(max = 500, message = "참석자는 한 번에 500명까지 초대할 수 있습니다") List<Long> attendeeUserIds,

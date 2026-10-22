@@ -534,7 +534,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "reminderMinutes": {
-          "maximum": 9007199254740991,
+          "maximum": 40320,
           "minimum": 0,
           "type": "integer",
         },
@@ -2760,7 +2760,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "reminderMinutes": {
           "anyOf": [
             {
-              "maximum": 9007199254740991,
+              "maximum": 40320,
               "minimum": 0,
               "type": "integer",
             },

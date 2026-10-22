@@ -191,7 +191,7 @@ const proposeUpdateEventInput = z.object({
   allDay: z.boolean().optional(),
   location: z.string().max(200).optional(),
   color: z.string().max(32).optional(),
-  reminderMinutes: z.number().int().min(0).optional(),
+  reminderMinutes: z.number().int().min(0).max(40320).optional(), // 상한 4주 — 서버와 같은 한도(WP-799)
   recurrenceRule: z.string().max(500).optional(),
 });
 // #333 M4: 일정 삭제 제안 입력 — id + 반복 scope/occurrenceDate + summary.
@@ -213,7 +213,7 @@ const proposeCreateEventInput = z.object({
   endsAt: z.string().min(1),
   allDay: z.boolean().default(false),
   location: z.string().max(200).optional(),
-  reminderMinutes: z.number().int().min(0).optional(),
+  reminderMinutes: z.number().int().min(0).max(40320).optional(), // 상한 4주 — 서버와 같은 한도(WP-799)
   recurrenceRule: z.string().max(500).optional(),
   attendees: z.array(z.string().min(1)).optional(), // #852: 초대할 구성원 username 목록(주최자 본인은 넣지 않는다)
   summary: z.string().min(1),    // 사람이 읽는 카드 요약
