@@ -111,8 +111,8 @@ public class DriveShareLinkService {
    * 공개 다운로드용 resolve + 가드. 컨텍스트 설정은 호출부(컨트롤러)가 담당(2-트랜잭션).
    *
    * <p>비밀번호 검증에는 브루트포스 방어(#700)가 적용된다 — {@code login_attempts}(#144)와 동일 정책(5회 연속 실패 시 15분 잠금)을 공유
-   * 토큰의 SHA-256 hex(token_hash) 기준으로 적용한다. 비교 전에 잠금 여부를 먼저 확인해 잠긴 상태에서는 bcrypt 비교조차 수행하지
-   * 않는다(fail-closed, 연산 낭비 방지).
+   * 토큰의 SHA-256 hex(token_hash) 기준으로 적용한다. 비교 전에 시도 한 칸을 원자적으로 잡아(WP-783) 동시 요청으로도 상한을 넘겨 추측하지 못하게
+   * 하고, 잠긴 상태에서는 bcrypt 비교조차 수행하지 않는다(fail-closed, 연산 낭비 방지).
    */
   public ResolvedTarget resolveForDownload(
       String token, String password, Long requesterTenantId, boolean authenticated) {
@@ -144,13 +144,15 @@ public class DriveShareLinkService {
     }
 
     if (link.passwordHash() != null) {
-      if (attemptService.isBlocked(tokenHash)) {
+      // 비교 전에 시도 한 칸을 잡는다(WP-783) — 잠겼으면(칸 없음) bcrypt 비교조차 하지 않는다.
+      int attempt = attemptService.tryReserve(tokenHash);
+      if (attempt == 0) {
         throw new com.workplace.drive.exception.DriveShareLinkLockedException(
             "비밀번호 시도 횟수를 초과했습니다. 잠시 후 다시 시도해 주세요");
       }
       if (password == null || !passwordEncoder.matches(password, link.passwordHash())) {
-        attemptService.attemptFailed(tokenHash);
-        if (attemptService.isBlocked(tokenHash)) {
+        // 잡은 칸이 곧 실패 기록이다.
+        if (attemptService.reachedLimit(attempt)) {
           // 잠금이 이번 실패로 발동됨 — 이상 시도 추적을 위해 감사 로그 기록(#700)
           auditLogService.log(
               null,

@@ -12,34 +12,44 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 공유 링크 비밀번호 실패 카운터 영속 저장소(#700).
  *
- * <p>{@code LoginAttemptRepository}(#144)와 동일 패턴 — 키만 username 대신 공유 토큰의 SHA-256 hex(token_hash)를
- * 사용한다. {@link #incrementAttempts(String)}는 UPSERT + RETURNING으로 동시 실패 요청의 카운터 증가를 원자적으로 처리한다. 잠금
- * 기간(15분)은 V121 마이그레이션과 동일하게 SQL에 인라인된다.
+ * <p>{@code LoginAttemptRepository}(#144)와 같은 표를 쓰되 키는 username 대신 공유 토큰의 SHA-256 hex(token_hash)다.
+ * {@link #reserveAttempt(String, int)}는 비밀번호를 비교하기 <b>전에</b> 시도 한 칸을 조건부 UPSERT 로 잡는다(WP-783) —
+ * 「잠겼나 확인 → 비교 → 실패 증가」로 나눠 두면 동시 요청이 모두 확인을 통과한 뒤에야 카운터가 올라 상한이 무력해졌다. 잠금 기간(15분)은 V121 마이그레이션과
+ * 동일하게 SQL에 인라인된다.
  */
 @Repository
 @RequiredArgsConstructor
 public class DriveShareLinkAttemptRepository {
 
-  /** UPSERT: 신규면 attempts=1, 기존이면 +1. 매 호출마다 expires_at을 now()+15min로 갱신(rolling window). */
-  private static final String INCREMENT_SQL =
+  /**
+   * 조건부 UPSERT: 행이 없거나 만료됐으면 1 로 새로 시작하고, 상한 미만이면 +1. 상한에 닿은 채 만료 전이면 WHERE 에 걸려 아무 행도 돌려주지 않는다 (=
+   * 잠김). 같은 행의 동시 UPSERT 는 행 잠금으로 줄을 서므로 상한을 넘겨 잡히는 칸이 없다. 매번 expires_at 을 now()+15분으로 미룬다(rolling
+   * window).
+   */
+  private static final String RESERVE_SQL =
       "INSERT INTO drive_share_link_attempts (token_hash, attempts, expires_at) "
           + "VALUES (?, 1, now() + interval '15 minutes') "
           + "ON CONFLICT (token_hash) DO UPDATE SET "
-          + "  attempts = drive_share_link_attempts.attempts + 1, "
+          + "  attempts = CASE WHEN drive_share_link_attempts.expires_at <= now() THEN 1 "
+          + "                  ELSE drive_share_link_attempts.attempts + 1 END, "
           + "  expires_at = now() + interval '15 minutes', "
           + "  updated_at = now() "
+          + "WHERE drive_share_link_attempts.expires_at <= now() "
+          + "   OR drive_share_link_attempts.attempts < ? "
           + "RETURNING attempts";
 
   private final DSLContext dsl;
 
   /**
-   * 실패 카운터를 원자적으로 1 증가시킨다. 부모 트랜잭션이 롤백돼도 카운터는 유지되도록 REQUIRES_NEW로 독립 커밋한다.
+   * 시도 한 칸을 원자적으로 잡는다. 부모 트랜잭션이 롤백돼도 남도록 REQUIRES_NEW 로 독립 커밋한다 — 비교에 성공하면 호출자가 {@link
+   * #clear(String)} 로 지우고, 실패하면 잡은 칸이 곧 실패 기록이 된다.
    *
-   * @return 증가 후 카운터 값
+   * @return 잡은 뒤의 시도 횟수(1..maxAttempts), 이미 상한이라 잠겼으면 0
    */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
-  public int incrementAttempts(String tokenHash) {
-    return dsl.fetchOne(INCREMENT_SQL, tokenHash).get(0, Integer.class);
+  public int reserveAttempt(String tokenHash, int maxAttempts) {
+    var row = dsl.fetchOptional(RESERVE_SQL, tokenHash, maxAttempts);
+    return row.map(r -> r.get(0, Integer.class)).orElse(0);
   }
 
   /**

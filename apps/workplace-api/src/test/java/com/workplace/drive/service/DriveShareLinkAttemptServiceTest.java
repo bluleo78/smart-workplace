@@ -41,7 +41,7 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
   private static final Field<LocalDateTime> ONE_MINUTE_AGO_DB =
       DSL.localDateTimeSub(DSL.currentLocalDateTime(), 1, DatePart.MINUTE);
 
-  // attemptFailed 는 REQUIRES_NEW 로 커밋되어 롤백되지 않으므로, 사용한 token_hash 를 추적해 @AfterEach 에서 회수.
+  // tryReserve 는 REQUIRES_NEW 로 커밋되어 롤백되지 않으므로, 사용한 token_hash 를 추적해 @AfterEach 에서 회수.
   private final List<String> createdHashes = new ArrayList<>();
 
   @BeforeEach
@@ -65,19 +65,19 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
 
   @Test
   void isBlocked_returnsFalse_after4Attempts() {
-    for (int i = 0; i < 4; i++) attemptService.attemptFailed(uniqueTokenHash);
+    for (int i = 0; i < 4; i++) attemptService.tryReserve(uniqueTokenHash);
     assertThat(attemptService.isBlocked(uniqueTokenHash)).isFalse();
   }
 
   @Test
   void isBlocked_returnsTrue_after5Attempts() {
-    for (int i = 0; i < 5; i++) attemptService.attemptFailed(uniqueTokenHash);
+    for (int i = 0; i < 5; i++) attemptService.tryReserve(uniqueTokenHash);
     assertThat(attemptService.isBlocked(uniqueTokenHash)).isTrue();
   }
 
   @Test
   void attemptSucceeded_resetsCounter() {
-    for (int i = 0; i < 5; i++) attemptService.attemptFailed(uniqueTokenHash);
+    for (int i = 0; i < 5; i++) attemptService.tryReserve(uniqueTokenHash);
     assertThat(attemptService.isBlocked(uniqueTokenHash)).isTrue();
 
     attemptService.attemptSucceeded(uniqueTokenHash);
@@ -94,7 +94,7 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
   @Test
   void isBlocked_isolatesTokenHashes() {
     String other = "other-" + UUID.randomUUID();
-    for (int i = 0; i < 5; i++) attemptService.attemptFailed(uniqueTokenHash);
+    for (int i = 0; i < 5; i++) attemptService.tryReserve(uniqueTokenHash);
 
     assertThat(attemptService.isBlocked(uniqueTokenHash)).isTrue();
     assertThat(attemptService.isBlocked(other)).isFalse();
@@ -102,7 +102,7 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
 
   @Test
   void getAttempts_returnsZero_whenExpired() {
-    for (int i = 0; i < 5; i++) attemptService.attemptFailed(uniqueTokenHash);
+    for (int i = 0; i < 5; i++) attemptService.tryReserve(uniqueTokenHash);
     dsl.update(DRIVE_SHARE_LINK_ATTEMPTS)
         .set(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT, ONE_MINUTE_AGO_DB)
         .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(uniqueTokenHash))
@@ -111,12 +111,40 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
     assertThat(attemptService.isBlocked(uniqueTokenHash)).isFalse();
   }
 
+  /** WP-783: 상한(5)에 닿으면 다음 칸은 잡히지 않는다(0) — 카운터도 5 에서 멈춘다. */
+  @Test
+  void tryReserve_returnsZero_onceLimitReached() {
+    for (int i = 1; i <= 5; i++)
+      assertThat(attemptService.tryReserve(uniqueTokenHash)).isEqualTo(i);
+    assertThat(attemptService.tryReserve(uniqueTokenHash)).isZero();
+    assertThat(attemptService.tryReserve(uniqueTokenHash)).isZero();
+    assertThat(
+            dsl.select(DRIVE_SHARE_LINK_ATTEMPTS.ATTEMPTS)
+                .from(DRIVE_SHARE_LINK_ATTEMPTS)
+                .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(uniqueTokenHash))
+                .fetchOne(DRIVE_SHARE_LINK_ATTEMPTS.ATTEMPTS))
+        .isEqualTo(5);
+  }
+
+  /** WP-783: 잠금이 만료된 행(정리 전)은 1 부터 다시 센다 — 전에는 6 으로 이어져 만료 직후 첫 실패에 다시 잠겼다. */
+  @Test
+  void tryReserve_restartsFromOne_afterExpiry() {
+    for (int i = 0; i < 5; i++) attemptService.tryReserve(uniqueTokenHash);
+    dsl.update(DRIVE_SHARE_LINK_ATTEMPTS)
+        .set(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT, ONE_MINUTE_AGO_DB)
+        .where(DRIVE_SHARE_LINK_ATTEMPTS.TOKEN_HASH.eq(uniqueTokenHash))
+        .execute();
+
+    assertThat(attemptService.tryReserve(uniqueTokenHash)).isEqualTo(1);
+    assertThat(attemptService.isBlocked(uniqueTokenHash)).isFalse();
+  }
+
   @Test
   void incrementAttempts_isAtomic_underConcurrency()
       throws ExecutionException, InterruptedException {
     CompletableFuture<?>[] futures = new CompletableFuture[5];
     for (int i = 0; i < 5; i++) {
-      futures[i] = CompletableFuture.runAsync(() -> attemptService.attemptFailed(uniqueTokenHash));
+      futures[i] = CompletableFuture.runAsync(() -> attemptService.tryReserve(uniqueTokenHash));
     }
     CompletableFuture.allOf(futures).get();
 
@@ -136,9 +164,9 @@ class DriveShareLinkAttemptServiceTest extends IntegrationTestBase {
     String fresh = "fresh-" + UUID.randomUUID();
     createdHashes.addAll(List.of(expired1, expired2, fresh));
 
-    attemptService.attemptFailed(expired1);
-    attemptService.attemptFailed(expired2);
-    attemptService.attemptFailed(fresh);
+    attemptService.tryReserve(expired1);
+    attemptService.tryReserve(expired2);
+    attemptService.tryReserve(fresh);
 
     dsl.update(DRIVE_SHARE_LINK_ATTEMPTS)
         .set(DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT, ONE_MINUTE_AGO_DB)

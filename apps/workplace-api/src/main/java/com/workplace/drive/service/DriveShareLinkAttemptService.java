@@ -19,9 +19,19 @@ public class DriveShareLinkAttemptService {
 
   private final DriveShareLinkAttemptRepository repository;
 
-  /** 비밀번호 검증 실패 시 카운터 1 증가. */
-  public void attemptFailed(String tokenHash) {
-    repository.incrementAttempts(tokenHash);
+  /**
+   * 비밀번호를 비교하기 전에 시도 한 칸을 잡는다(WP-783). 동시 요청이 몇 개든 잠금 기간 안에 잡히는 칸은 {@value #MAX_ATTEMPTS} 개뿐이라,
+   * 비교까지 가는 추측도 그만큼이다. 비교에 성공하면 {@link #attemptSucceeded} 로 지운다.
+   *
+   * @return 잡은 뒤의 시도 횟수(1..MAX_ATTEMPTS), 잠겨 있으면 0
+   */
+  public int tryReserve(String tokenHash) {
+    return repository.reserveAttempt(tokenHash, MAX_ATTEMPTS);
+  }
+
+  /** 이번 시도로 상한에 닿았는지 — 잠금이 막 걸린 시점(감사 기록용). */
+  public boolean reachedLimit(int attempt) {
+    return attempt >= MAX_ATTEMPTS;
   }
 
   /** 비밀번호 검증 성공 시 카운터 제거. */
