@@ -1,6 +1,7 @@
 package com.workplace.wiki.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.workplace.global.time.SupportedDateTime;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
@@ -22,7 +23,7 @@ public record WikiPageShareRequest(
     String permission,
     boolean includeChildren,
     List<Long> userIds,
-    OffsetDateTime expiresAt,
+    @SupportedDateTime OffsetDateTime expiresAt,
     @Valid @JsonProperty("notify") Notify notification) {
 
   /**

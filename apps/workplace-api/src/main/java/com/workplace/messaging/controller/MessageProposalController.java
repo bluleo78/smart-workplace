@@ -36,7 +36,7 @@ public class MessageProposalController {
   public ResponseEntity<MessageResponse> confirm(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long id,
-      @RequestBody(required = false) ConfirmProposalRequest body) {
+      @Valid @RequestBody(required = false) ConfirmProposalRequest body) {
     return ResponseEntity.ok(proposalService.confirmWithBody(callerId, id, body));
   }
 
