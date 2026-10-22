@@ -122,7 +122,8 @@ class HomeChatAttachmentContextTest extends HomeAttachmentTestSupport {
 
     ChatRequest req = send(uid, sid, "다음", List.of());
 
-    assertThat(req.recentContext().get(0).content()).isEqualTo("봐\n[첨부: x   지시.pdf]");
+    // 줄바꿈은 업로드 때 이미 "_" 로 바뀌고(WP-737), 대괄호는 표시 단계에서 공백으로 바뀐다.
+    assertThat(req.recentContext().get(0).content()).isEqualTo("봐\n[첨부: x _ 지시.pdf]");
   }
 
   @Test

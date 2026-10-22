@@ -7,7 +7,6 @@ import com.workplace.file.storage.FilePathBuilder;
 import com.workplace.file.storage.FileStore;
 import com.workplace.file.storage.StorageDomain;
 import com.workplace.global.util.SafeFileNames;
-import com.workplace.global.util.UnicodeNames;
 import com.workplace.wiki.exception.WikiAttachmentNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -57,12 +56,9 @@ public class WikiAttachmentStorage {
    * Content-Type 이 아니라 호출자가 매직바이트로 판정한 값({@code detectedMime})을 그대로 저장한다.
    */
   public Long storeTemporary(MultipartFile mf, Long uploaderId, String detectedMime) {
-    String rawName =
-        mf.getOriginalFilename() != null && !mf.getOriginalFilename().isBlank()
-            ? mf.getOriginalFilename()
-            : "image";
-    // 저장 칸(255자)을 넘는 이름은 확장자를 살려 줄인다(WP-561) — 응답 이름(WikiAttachmentService)도 같은 규칙.
-    String originalName = SafeFileNames.fitLength(UnicodeNames.toNfc(rawName));
+    // 원본 파일명 정리 — 경로 구분자·제어 문자는 "_" 로, 빈 이름은 대체 이름으로(WP-737), 255자를 넘으면 확장자를 살려 줄인다(WP-561). 응답
+    // 이름(WikiAttachmentService)도 같은 규칙.
+    String originalName = SafeFileNames.sanitize(mf.getOriginalFilename(), "image");
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성(상대경로)
     String relativePath = pathBuilder.build(StorageDomain.WIKI, originalName);
     fileStore.store(relativePath, mf);
