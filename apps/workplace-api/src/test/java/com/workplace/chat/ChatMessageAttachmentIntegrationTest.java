@@ -330,6 +330,23 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
   }
 
   @Test
+  void 보이지_않는_글자만_있고_첨부가_없으면_EmptyChatMessageException() {
+    // WP-777: 제로폭 문자·점자 빈칸만 있는 본문은 공백만 있는 본문처럼 거절한다.
+    ChatFixtures.Setup s = fx.setup();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+    long threadId = thread.threadId();
+    long callerId = s.reporterId();
+
+    assertThatThrownBy(
+            () ->
+                chatMessageService.create(
+                    callerId,
+                    threadId,
+                    new CreateChatMessageRequest("\u200B\u2800", List.of(), List.of())))
+        .isInstanceOf(EmptyChatMessageException.class);
+  }
+
+  @Test
   void 첨부만_있고_본문이_빈문자열이어도_생성된다() throws Exception {
     // ⚠️ 프로덕션 경로는 본문 없는 첨부를 body="" 로 보낸다(프론트 trim).
     //    V82 마이그레이션이 BETWEEN 1 AND 4000 제약을 올바르게 교체했는지 검증한다.

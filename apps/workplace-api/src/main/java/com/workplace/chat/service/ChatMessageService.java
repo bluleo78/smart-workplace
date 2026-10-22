@@ -23,6 +23,7 @@ import com.workplace.drive.service.DriveLinkService;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.MentionParser;
+import com.workplace.global.util.PersonNames;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
@@ -89,7 +90,8 @@ public class ChatMessageService {
       throw new ChatThreadIssueDeletedException(threadId);
     }
     // 빈 메시지 거부: 본문·첨부·드라이브 링크가 모두 없으면 작성 불가 (400).
-    boolean bodyEmpty = req.body() == null || req.body().isBlank();
+    // 제로폭 문자·점자 빈칸 등 보이지 않는 글자만 있는 본문도 비어 있는 것으로 본다(WP-777)
+    boolean bodyEmpty = !PersonNames.hasVisibleChar(req.body());
     if (bodyEmpty && req.fileIds().isEmpty() && req.driveFileIds().isEmpty()) {
       throw new EmptyChatMessageException();
     }
