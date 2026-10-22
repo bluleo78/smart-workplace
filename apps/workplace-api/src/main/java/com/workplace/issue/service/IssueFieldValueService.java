@@ -50,7 +50,8 @@ public class IssueFieldValueService {
             .map(UpdateIssueFieldsRequest.FieldValueInput::defId)
             .distinct()
             .toList();
-    var defs = defRepo.findByIds(defIds);
+    // 정의를 공유 잠금으로 읽는다(WP-773) — 옵션을 줄이는 수정과 차례를 세워, 검증한 옵션이 저장 전에 지워지지 않게 한다.
+    var defs = defRepo.findByIdsForShare(defIds);
     if (defs.size() != defIds.size()) {
       throw new InvalidFieldForProjectException();
     }
