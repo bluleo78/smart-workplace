@@ -591,7 +591,8 @@ public class UserRepository {
         .where(tenantSearchCondition(tenantId, search, kind))
         .orderBy(USER.ID.asc())
         .limit(size)
-        .offset(page * size)
+        // long 으로 곱한다 — int 로 곱하면 아주 큰 page 에서 넘쳐 첫 페이지·음수 오프셋이 됐다(WP-774).
+        .offset((long) page * size)
         .fetch(userMapper(WORKSPACE_ACTIVE));
   }
 

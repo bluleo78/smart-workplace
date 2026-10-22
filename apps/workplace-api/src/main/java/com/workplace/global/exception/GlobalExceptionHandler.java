@@ -278,16 +278,12 @@ public class GlobalExceptionHandler {
       DataIntegrityViolationException ex, HttpServletRequest request) {
     String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : null;
 
-    // 페이지네이션 음수 파라미터 → 입력값 오류(400)
+    // 페이지네이션 음수 파라미터 → 입력값 오류(400). 화면 토스트로 그대로 나가는 문구라 한국어로 둔다(WP-774).
     if (causeMsg != null
         && (causeMsg.contains("OFFSET must not be negative")
             || causeMsg.contains("LIMIT must not be negative"))) {
       ErrorResponse response =
-          buildError(
-              HttpStatus.BAD_REQUEST,
-              "Invalid pagination parameter: value must not be negative",
-              null,
-              request);
+          buildError(HttpStatus.BAD_REQUEST, "페이지 번호와 크기는 0 이상이어야 합니다", null, request);
       return ResponseEntity.badRequest().body(response);
     }
 

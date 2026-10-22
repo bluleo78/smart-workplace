@@ -239,7 +239,8 @@ public class AuditLogRepository {
             // id 보조 정렬(WP-182): 같은 시각 행의 순서가 요청마다 달라지면 페이지를 이어 붙이는 무한 스크롤에서
             // 행이 중복되거나 누락된다 — 정렬을 결정적으로 고정한다.
             .orderBy(AL_ACTION_TIME.desc(), AL_ID.desc())
-            .offset(page * size)
+            // long 으로 곱한다 — int 로 곱하면 아주 큰 page 에서 넘쳐 첫 페이지·음수 오프셋이 됐다(WP-774).
+            .offset((long) page * size)
             .limit(size)
             .fetch(this::mapToResponse);
 
