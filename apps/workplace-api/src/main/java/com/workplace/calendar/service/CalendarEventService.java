@@ -684,8 +684,8 @@ public class CalendarEventService {
   /**
    * update 의 로컬 경로 — 기존 update 본문(반복 scope 분기 포함). txTemplate 안에서만 호출.
    *
-   * <p>requireOwner/requireWritableEvent/requireOccurrenceDate 는 resolve 단계의 checkUpdatable 에서 이미
-   * 통과했으므로 재검증하지 않는다(이중 검증 불필요). target 재조회만 유지.
+   * <p>requireOwner/requireWritableEvent 는 resolve 단계의 checkUpdatable 에서 이미 통과했으므로 재검증하지 않는다. 회차
+   * 식별자만은 원본 행을 잠근 뒤 다시 본다 — 같은 회차를 동시에 나누면 둘 다 사전검증을 통과해 꼬리 시리즈가 두 벌 생겼다(WP-761).
    */
   private CalendarEventResponse doUpdateLocal(
       long callerId,
@@ -693,8 +693,7 @@ public class CalendarEventService {
       CalendarEventRequest req,
       EditScope scope,
       OffsetDateTime occurrenceDate) {
-    CalendarEventResponse target =
-        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    CalendarEventResponse target = lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate);
 
     // 단일 일정 또는 ALL → 마스터 행 전체 교체(RRULE 포함). 기존 예외는 유지(v1b 한계).
     if (target.recurrenceRule() == null || scope == EditScope.ALL) {
@@ -1003,14 +1002,14 @@ public class CalendarEventService {
   /**
    * delete 의 로컬 경로 — 기존 delete 본문(반복 scope 분기 포함). txTemplate 안에서만 호출.
    *
-   * <p>requireOwner/requireWritableEvent/requireOccurrenceDate 는 resolve 단계의 validateDeletable 에서
-   * 이미 통과했으므로 재검증하지 않는다(이중 검증 불필요). 단일 일정이거나 scope=ALL 이면 마스터 삭제(예외·리마인더 cascade). 오버라이드 별도 일정은
-   * cascade 되지 않으므로 직접 제거. THIS=회차 취소, THIS_AND_FOLLOWING=시리즈 잘라내기.
+   * <p>requireOwner/requireWritableEvent 는 resolve 단계의 validateDeletable 에서 이미 통과했으므로 재검증하지 않는다. 회차
+   * 식별자만은 원본 행을 잠근 뒤 다시 본다(WP-761 — 동시에 시리즈가 나뉘면 지울 회차가 이미 없다). 단일 일정이거나 scope=ALL 이면 마스터
+   * 삭제(예외·리마인더 cascade). 오버라이드 별도 일정은 cascade 되지 않으므로 직접 제거. THIS=회차 취소, THIS_AND_FOLLOWING=시리즈
+   * 잘라내기.
    */
   private void doDeleteLocal(
       long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
-    CalendarEventResponse target =
-        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    CalendarEventResponse target = lockAndRecheckOccurrence(callerId, id, scope, occurrenceDate);
 
     // override 별도 일정 자신의 id 를 occurrenceDate 없이(=scope 인지 못하고 "독립 삭제"로) 요청받은 경우(#816).
     // override 이벤트 행 자체는 recurrenceRule=null 이라 바로 아래 분기로 빠지면 repo.delete(id) 가 실행되는데,
@@ -1603,6 +1602,21 @@ public class CalendarEventService {
         repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id)),
         scope,
         occurrenceDate);
+  }
+
+  /**
+   * 원본 행을 잠그고 다시 읽어 회차 식별자를 재검증한 뒤 돌려준다 — 로컬 수정·삭제의 쓰기 tx 첫 단계(WP-761).
+   *
+   * <p>사전검증(checkUpdatable/validateDeletable)은 잠금 없이 별도 tx 에서 돌아, 같은 회차를 동시에 나누거나 지우는 요청이 모두 통과했다.
+   * 잠금으로 차례를 세우면 늦은 쪽은 앞선 쪽이 잘라 둔 RRULE 을 읽고, 차례로 보냈을 때처럼 「반복 일정에 없는 회차」 400 을 받는다.
+   */
+  private CalendarEventResponse lockAndRecheckOccurrence(
+      long callerId, long id, EditScope scope, OffsetDateTime occurrenceDate) {
+    repo.lockForUpdate(id);
+    CalendarEventResponse target =
+        repo.findById(callerId, id).orElseThrow(() -> new CalendarEventNotFoundException(id));
+    requireOccurrenceDateIfRecurring(target, scope, occurrenceDate);
+    return target;
   }
 
   /**
