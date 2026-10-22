@@ -251,4 +251,58 @@ class RecurrenceExpanderTest {
 
     assertThat(next).isEmpty();
   }
+
+  /** BYMONTH·BYDAY·BYMONTHDAY·BYSETPOS 의 범위 밖 값은 무시된 채 시작일 기준으로 반복되던 것을 400 으로 거절한다(WP-746). */
+  @Test
+  void validate_outOfRangeByParts_throws() {
+    for (String rule :
+        new String[] {
+          "FREQ=YEARLY;BYMONTH=13",
+          "FREQ=YEARLY;BYMONTH=0",
+          "FREQ=WEEKLY;BYDAY=XX",
+          "FREQ=WEEKLY;BYDAY=MO,XX",
+          "FREQ=MONTHLY;BYDAY=6MO",
+          "FREQ=MONTHLY;BYMONTHDAY=32",
+          "FREQ=MONTHLY;BYMONTHDAY=0",
+          "FREQ=MONTHLY;BYDAY=MO;BYSETPOS=0",
+        }) {
+      assertThatThrownBy(() -> expander.validate(rule))
+          .as(rule)
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+  }
+
+  @Test
+  void validate_ordinalAndNegativeByParts_pass() {
+    for (String rule :
+        new String[] {
+          "FREQ=MONTHLY;BYDAY=2TU",
+          "FREQ=MONTHLY;BYDAY=-1FR",
+          "FREQ=YEARLY;BYDAY=+20MO",
+          "FREQ=MONTHLY;BYMONTHDAY=-1",
+          "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1",
+          "FREQ=YEARLY;BYMONTH=1,12;BYMONTHDAY=31",
+        }) {
+      expander.validate(rule);
+    }
+  }
+
+  /** 시작보다 이른 UNTIL 은 회차가 하나도 없는 일정이 된다 — 400 으로 거절한다(WP-746). 같은 날 끝까지인 UNTIL 은 받는다. */
+  @Test
+  void validate_untilBeforeStart_throws() {
+    OffsetDateTime start = OffsetDateTime.parse("2026-11-01T01:00:00Z");
+    for (String rule :
+        new String[] {
+          "FREQ=DAILY;UNTIL=00000101T000000Z",
+          "FREQ=DAILY;UNTIL=20261101T005959Z",
+          "FREQ=WEEKLY;UNTIL=20261031",
+        }) {
+      assertThatThrownBy(() -> expander.validate(rule, start))
+          .as(rule)
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+    expander.validate("FREQ=DAILY;UNTIL=20261101T145959Z", start);
+    expander.validate("FREQ=DAILY;UNTIL=20261101T010000Z", start);
+    expander.validate("FREQ=DAILY;COUNT=3", start);
+  }
 }

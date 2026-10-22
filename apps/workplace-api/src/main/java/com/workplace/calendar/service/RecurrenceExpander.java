@@ -12,6 +12,8 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.dmfs.rfc5545.DateTime;
@@ -189,6 +191,88 @@ public class RecurrenceExpander {
     }
     if (!positiveToken(rrule, "COUNT")) {
       throw new IllegalArgumentException("반복 횟수는 1 이상이어야 합니다");
+    }
+    // 관용 파싱은 범위 밖 BY 값(BYMONTH=13·BYDAY=XX)을 조용히 버려, 저장된 규칙과 달리 시작일 기준으로 반복됐다(WP-746). 원문 토큰으로 본다.
+    checkByValues(rrule, "BYMONTH", v -> inRange(v, 1, 12), "반복 월(BYMONTH)은 1~12 여야 합니다");
+    checkByValues(
+        rrule,
+        "BYMONTHDAY",
+        v -> nonZeroWithin(v, 31),
+        "반복 날짜(BYMONTHDAY)는 1~31 또는 -1~-31 이어야 합니다");
+    checkByValues(
+        rrule, "BYSETPOS", v -> nonZeroWithin(v, 366), "반복 순번(BYSETPOS)은 0 이 아닌 -366~366 이어야 합니다");
+    // BYDAY 서수는 한 달 안에서 세면(MONTHLY, 또는 BYMONTH 가 있는 YEARLY) ±1~5, 한 해 안에서 세면 ±1~53 이다.
+    int maxOrdinal =
+        rule.getFreq() == Freq.MONTHLY
+                || (rule.getFreq() == Freq.YEARLY
+                    && rrule.toUpperCase(Locale.ROOT).contains("BYMONTH="))
+            ? 5
+            : 53;
+    checkByValues(
+        rrule,
+        "BYDAY",
+        v -> validByDay(v, maxOrdinal),
+        "반복 요일(BYDAY)은 MO·TU·WE·TH·FR·SA·SU 이어야 합니다(예: MO, 2TU, -1FR)");
+  }
+
+  /** BYDAY 한 값 — 요일 앞에 부호 있는 서수를 붙일 수 있다(예: 2TU, -1FR). */
+  private static final Pattern BYDAY_VALUE =
+      Pattern.compile("([+-]?\\d{1,2})?(MO|TU|WE|TH|FR|SA|SU)");
+
+  /** BYDAY 한 값이 요일이고, 서수가 있으면 0 이 아닌 ±maxOrdinal 안인지. */
+  private static boolean validByDay(String v, int maxOrdinal) {
+    var m = BYDAY_VALUE.matcher(v);
+    if (!m.matches()) return false;
+    return m.group(1) == null || nonZeroWithin(m.group(1), maxOrdinal);
+  }
+
+  /** RRULE 원문의 name= 토큰이 있으면 쉼표로 나눈 값마다 ok 를 만족하는지 보고, 아니면 message 로 거절한다. */
+  private static void checkByValues(
+      String rrule, String name, Predicate<String> ok, String message) {
+    String prefix = name + "=";
+    for (String part : rrule.split(";")) {
+      String p = part.trim();
+      if (p.toUpperCase(Locale.ROOT).startsWith(prefix)) {
+        for (String v : p.substring(prefix.length()).split(",")) {
+          if (!ok.test(v.trim().toUpperCase(Locale.ROOT))) {
+            throw new IllegalArgumentException(message);
+          }
+        }
+      }
+    }
+  }
+
+  private static boolean inRange(String v, int min, int max) {
+    try {
+      int n = Integer.parseInt(v);
+      return n >= min && n <= max;
+    } catch (NumberFormatException e) {
+      return false;
+    }
+  }
+
+  /** 0 이 아닌 -max~max(앞쪽 + 허용). */
+  private static boolean nonZeroWithin(String v, int max) {
+    try {
+      int n = Integer.parseInt(v.startsWith("+") ? v.substring(1) : v);
+      return n != 0 && Math.abs(n) <= max;
+    } catch (NumberFormatException e) {
+      return false;
+    }
+  }
+
+  /**
+   * {@link #validate(String)} 에 더해 일정 시작과 함께 본다 — UNTIL 이 시작보다 일러 회차가 하나도 없는 규칙을 거절한다(WP-746).
+   * UNTIL 이 있을 때만 본다: UNTIL 이 반복을 끝내므로 첫 회차를 찾는 탐색이 끝없이 돌지 않는다.
+   */
+  public void validate(String rrule, OffsetDateTime start) {
+    validate(rrule);
+    RecurrenceRule rule = parse(rrule);
+    if (rule.getUntil() != null && start != null) {
+      DateTime dtStart = new DateTime(EXPANSION_ZONE, start.toInstant().toEpochMilli());
+      if (!rule.iterator(dtStart).hasNext()) {
+        throw new IllegalArgumentException("반복 종료일이 일정 시작보다 이릅니다");
+      }
     }
   }
 
