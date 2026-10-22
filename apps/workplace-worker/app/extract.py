@@ -12,7 +12,21 @@ from html.parser import HTMLParser
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
-from . import converter
+from . import config, converter
+
+# PDF·문서 mime — 이 형식만 DOC_MAX_BYTES 까지 받는다(WP-803). api FileUploadService 의 PDF·DOCUMENT 범주와 1:1 미러 —
+# 한쪽만 고치면 25MB~100MB 문서가 추출 oversize 로 빠진다. 레거시 .xls 는 데이터 형식이라 변환기 형식에서 뺀다.
+_DOC_MIMES: frozenset[str] = (converter.CONVERTER_MIMES - {"application/vnd.ms-excel"}) | {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/hwp+zip",
+}
+
+
+def max_bytes_for(mime: str) -> int:
+    """mime 별 추출·렌더 입력 상한(바이트). PDF·문서는 DOC_MAX_BYTES, 그 밖은 MAX_BYTES."""
+    return config.DOC_MAX_BYTES if mime in _DOC_MIMES else config.MAX_BYTES
 
 
 class _HtmlTextStripper(HTMLParser):

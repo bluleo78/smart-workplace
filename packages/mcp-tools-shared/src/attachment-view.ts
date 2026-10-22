@@ -13,8 +13,8 @@ import type { FileBytes } from './tool-client.js';
 
 /** 한 번의 read_file 호출로 볼 수 있는 최대 쪽수. */
 export const MAX_PAGES_PER_CALL = 3;
-/** 서버 /view 원본 상한(AttachmentViewService.MAX_SOURCE_BYTES, 워커 config.MAX_BYTES)과 같은 25MB — 넘는 PDF 는 페이지를 그리지 않는다(413). */
-export const MAX_VIEW_SOURCE_BYTES = 25 * 1024 * 1024;
+/** 서버 /view PDF 원본 상한(AttachmentViewService.PDF_MAX_SOURCE_BYTES, 워커 config.DOC_MAX_BYTES)과 같은 100MB(WP-803) — 넘는 PDF 는 페이지를 그리지 않는다(413). */
+export const MAX_VIEW_SOURCE_BYTES = 100 * 1024 * 1024;
 /** 모델이 이미지를 볼 수 있을 때 ai-agent 첨부 도구(read_chat_attachment·read_chat_thread_attachment) 설명에 덧붙이는 pages 한 문장. */
 /** 쪽 이미지 결과 끝에 붙이는 안내 — 대화가 길어져 압축되면 이미지는 빠지고 글만 남는다(WP-250). */
 export const PAGES_NOTE_HINT = '이 쪽들에서 본 핵심(수치·표·그림 요지)을 짧게 글로 적어 두세요 — 대화가 길어져 정리되면 이미지는 빠지고 글만 남습니다.';

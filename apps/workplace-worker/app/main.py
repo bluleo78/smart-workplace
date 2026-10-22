@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from . import config, blobs, callback, embed
 from .converter import ConverterUnavailable
 from .auth import require_internal
-from .extract import extract_text
+from .extract import extract_text, max_bytes_for
 from .render import RenderError, render_image, render_pdf_page
 
 log = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ def render(t: RenderTask) -> Response:
         size = path.stat().st_size
     except FileNotFoundError:  # 500 대신 404 로 구분해 api 가 '파일 없음'으로 매핑
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND"})
-    if size > config.MAX_BYTES:
+    if size > max_bytes_for(t.mime):
         raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
     # PDF 는 경로로 연다(MuPDF 가 필요한 부분만 읽는다). 이미지는 어차피 통째로 디코딩하므로 바이트로.
     return _render_response(t.mime, t.page, t.maxEdge, pdf_source=path, image_bytes=path.read_bytes)
@@ -104,16 +104,17 @@ async def render_bytes(
     """요청 본문(원본 바이트)을 /render 와 같이 그린다(WP-388). 저장소에 두지 않는 원본 — 메일 첨부 — 용이다.
 
     메일 원본은 복호화한 평문을 디스크에 남기지 않으려고 공유 볼륨을 거치지 않고 본문으로 받는다. 한도·오류 코드·응답 모양은 /render 와 같다
-    (BAD_KEY·NOT_FOUND 는 경로가 없어 생기지 않는다). 본문은 MAX_BYTES 를 넘는 순간 읽기를 멈추고 413 — 거대한 본문을 메모리에 다 올리지 않는다.
+    (BAD_KEY·NOT_FOUND 는 경로가 없어 생기지 않는다). 본문은 mime 별 상한(max_bytes_for)을 넘는 순간 읽기를 멈추고 413 — 거대한 본문을 메모리에 다 올리지 않는다.
     인증은 /render 와 같은 Internal 토큰(require_internal).
     """
     declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > config.MAX_BYTES:
+    limit = max_bytes_for(mime)
+    if declared is not None and declared.isdigit() and int(declared) > limit:
         raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
     buf = bytearray()
     async for chunk in request.stream():
         buf.extend(chunk)
-        if len(buf) > config.MAX_BYTES:  # Content-Length 없이(chunked) 온 경우도 막는다
+        if len(buf) > limit:  # Content-Length 없이(chunked) 온 경우도 막는다
             raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
     data = bytes(buf)
     # 렌더는 CPU 작업·PDF 잠금 대기가 있어 이벤트 루프를 막지 않게 스레드풀에서(동기 /render 와 같은 실행 모델).
@@ -145,7 +146,7 @@ def _run_extract(t: ExtractTask) -> None:
     try:
         path = blobs.resolve_blob_path(config.BLOB_BASE, t.storageKey)
         size = path.stat().st_size
-        if size > config.MAX_BYTES:
+        if size > max_bytes_for(t.mime):
             callback.post_result(t.jobId, {**base_payload, "status": "SKIPPED", "error": "oversize"})
             return
         r = extract_text(path.read_bytes(), t.mime, config.MAX_CHARS, page_markers=t.pageMarkers)

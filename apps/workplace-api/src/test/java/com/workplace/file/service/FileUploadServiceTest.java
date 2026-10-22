@@ -187,6 +187,35 @@ class FileUploadServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void uploadFiles_pdfOver10MB_isAccepted() throws IOException {
+    // WP-803: PDF 한도는 100MB — 예전 한도(10MB)를 넘는 11MB 도 받는다
+    MockMultipartFile file =
+        new MockMultipartFile("files", "big.pdf", "application/pdf", new byte[11 * 1024 * 1024]);
+
+    assertThat(fileUploadService.uploadFiles(List.of(file), testUserId)).hasSize(1);
+  }
+
+  @Test
+  void uploadFiles_documentOver100MB_throwsException() {
+    // WP-803: DOCUMENT 한도 100MB 초과 — 크기만 크게 알리는 스텁이라 100MB 배열을 만들지 않는다
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "files",
+            "big.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            new byte[0]) {
+          @Override
+          public long getSize() {
+            return 100L * 1024 * 1024 + 1;
+          }
+        };
+
+    assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(file), testUserId))
+        .isInstanceOf(FileSizeLimitExceededException.class)
+        .hasMessageContaining("100MB");
+  }
+
+  @Test
   void uploadFiles_textTooLarge_throwsException() {
     // TEXT 한도 10MB 초과 케이스로 11MB 사용
     byte[] bigContent = new byte[11 * 1024 * 1024];

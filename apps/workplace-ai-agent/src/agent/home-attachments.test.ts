@@ -81,12 +81,12 @@ describe('formatHomeAttachmentsBlock', () => {
     expect(block).not.toContain('이미지는 볼 수 없');
   });
 
-  // WP-250 코드 리뷰: 글자로 못 읽는 PDF 도 비전 모델은 pages 로 볼 수 있다고 적는다(25MB 이하).
-  it('비전 가능: 글자로 못 읽는 PDF 에 pages 안내, 25MB 초과·비전 불가는 안내 없음', () => {
+  // WP-250 코드 리뷰: 글자로 못 읽는 PDF 도 비전 모델은 pages 로 볼 수 있다고 적는다(100MB 이하, WP-803).
+  it('비전 가능: 글자로 못 읽는 PDF 에 pages 안내, 100MB 초과·비전 불가는 안내 없음', () => {
     const list = [
       a({ fileId: 1, extraction: st('NONE') }),
       a({ fileId: 2, extraction: st('FAILED', '추출 오류') }),
-      a({ fileId: 3, sizeBytes: 26 * 1024 * 1024, extraction: st('SKIPPED', '파일이 커서') }),
+      a({ fileId: 3, sizeBytes: 100 * 1024 * 1024 + 1, extraction: st('SKIPPED', '파일이 커서') }),
     ];
     const block = formatHomeAttachmentsBlock(list, true);
     expect(block).toContain('fileId 1 · 텍스트 추출 대상 아님 — pages 로 페이지 이미지를 볼 수 있음');

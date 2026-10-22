@@ -255,9 +255,9 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void PDF_이미지가_아니면_415_25MB_를_넘으면_413() {
+  void PDF_이미지가_아니면_415_100MB_를_넘으면_413() {
     long txt = seedFile("text/plain", "c.txt", 10L);
-    long big = seedFile("application/pdf", "big.pdf", 26L * 1024 * 1024);
+    long big = seedFile("application/pdf", "big.pdf", 100L * 1024 * 1024 + 1);
 
     assertThatThrownBy(() -> service.view(txt, null))
         .isInstanceOfSatisfying(

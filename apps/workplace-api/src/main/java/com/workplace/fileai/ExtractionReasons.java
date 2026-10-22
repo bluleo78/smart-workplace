@@ -55,7 +55,7 @@ public final class ExtractionReasons {
     return switch (code) {
       case IMAGE -> "이미지 파일은 글자를 추출하지 않습니다.";
       case UNSUPPORTED_TYPE -> "이 형식은 텍스트 추출을 지원하지 않습니다.";
-      case TOO_LARGE -> "파일이 커서(25MB 초과) 텍스트를 추출하지 않았습니다.";
+      case TOO_LARGE -> "파일이 커서(PDF·문서 100MB, 그 밖 25MB 초과) 텍스트를 추출하지 않았습니다.";
       case SCANNED_PDF -> "스캔된 PDF로 보여 읽을 수 있는 글자가 없습니다.";
       case EMPTY -> "파일에서 글자를 찾지 못했습니다.";
       case EXTRACTION_ERROR -> "텍스트 추출 중 오류가 발생했습니다.";

@@ -8,7 +8,7 @@ metadata:
   annotations:
     # ingress-nginx 기본 proxy-body-size 는 1MiB 라, 이 값이 없으면 1MiB 초과 업로드가 api 에 닿기도 전에
     # nginx 가 413 으로 자른다(2026-08-04 드라이브 업로드 장애). 앱 상한(max-request-size 275MB,
-    # 단일 파일 25MB)에 맞춰 두어 크기 검증은 앱이 제대로 된 에러 메시지와 함께 수행하게 한다.
+    # 단일 파일 100MB)에 맞춰 두어 크기 검증은 앱이 제대로 된 에러 메시지와 함께 수행하게 한다.
     nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.ingress.proxyBodySize | quote }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}

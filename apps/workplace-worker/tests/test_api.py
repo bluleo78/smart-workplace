@@ -163,9 +163,34 @@ def test_render_oversize_is_413(monkeypatch, tmp_path):
     from app import config
     (tmp_path / "a.pdf").write_bytes(_pdf_bytes(1))
     c = _render_client(monkeypatch, tmp_path)
-    monkeypatch.setattr(config, "MAX_BYTES", 10)
+    monkeypatch.setattr(config, "DOC_MAX_BYTES", 10)
     r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf", "page": 1})
     assert r.status_code == 413 and r.json()["detail"]["code"] == "TOO_LARGE"
+
+
+def test_render_pdf_uses_doc_limit_not_general_limit(monkeypatch, tmp_path):
+    """WP-803: PDF 는 일반 상한(MAX_BYTES)을 넘어도 문서 상한(DOC_MAX_BYTES) 안이면 그린다."""
+    from app import config
+    (tmp_path / "a.pdf").write_bytes(_pdf_bytes(1))
+    c = _render_client(monkeypatch, tmp_path)
+    monkeypatch.setattr(config, "MAX_BYTES", 10)
+    r = c.post("/render", headers=_AUTH, json={"storageKey": "a.pdf", "mime": "application/pdf", "page": 1})
+    assert r.status_code == 200
+
+
+def test_run_extract_size_limit_by_mime(monkeypatch, tmp_path):
+    """WP-803: 일반 상한을 넘는 PDF 는 추출하고, 같은 크기의 텍스트(데이터) 파일은 oversize 로 건너뛴다."""
+    from app import config, main
+    (tmp_path / "a.pdf").write_bytes(_pdf_bytes(1))
+    (tmp_path / "a.csv").write_bytes(b"x" * 100)
+    monkeypatch.setattr(config, "BLOB_BASE", str(tmp_path))
+    monkeypatch.setattr(config, "MAX_BYTES", 10)
+    posted = []
+    monkeypatch.setattr("app.callback.post_result", lambda job_id, payload, **kw: posted.append(payload))
+    main._run_extract(main.ExtractTask(jobId=1, storageKey="a.pdf", mime="application/pdf", tenantId=7))
+    main._run_extract(main.ExtractTask(jobId=2, storageKey="a.csv", mime="text/csv", tenantId=7))
+    assert posted[0]["status"] == "DONE"
+    assert posted[1] == {"tenantId": 7, "status": "SKIPPED", "error": "oversize"}
 
 
 def test_run_extract_skipped_empty_carries_page_count(monkeypatch, tmp_path):
@@ -238,7 +263,7 @@ def test_render_bytes_requires_auth(monkeypatch, tmp_path):
 def test_render_bytes_oversize_is_413(monkeypatch, tmp_path):
     from app import config
     c = _render_client(monkeypatch, tmp_path)
-    monkeypatch.setattr(config, "MAX_BYTES", 10)
+    monkeypatch.setattr(config, "DOC_MAX_BYTES", 10)
     r = c.post(_bytes_url(mime="application/pdf", page=1), headers=_AUTH, content=_pdf_bytes(1))
     assert r.status_code == 413 and r.json()["detail"]["code"] == "TOO_LARGE"
     # Content-Length 없이(chunked) 와도 읽는 도중 끊는다.
