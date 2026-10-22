@@ -14,14 +14,13 @@ import { IssueStatusIcon } from '../../../../components/issues/IssueStatusIcon';
 import { useCreateLabel, useLabels } from '../../../../hooks/queries/useLabels';
 import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
-import { useProjectStatuses } from '../../../../hooks/queries/useProjectStatuses';
+import { useSortedProjectStatuses } from '../../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueAssignees } from '../../../../hooks/queries/useUpdateIssueAssignees';
 import { useUpdateIssueLabels } from '../../../../hooks/queries/useUpdateIssueLabels';
 import { useUpdateIssueParent } from '../../../../hooks/queries/useUpdateIssueParent';
 import { formatDateMonthDay, parseValidDateKey } from '../../../../lib/formatters';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/issueGrouping';
 import { isOverdue } from '../../../../lib/issueOverdue';
-import { sortStatuses } from '../../../../lib/projectStatuses';
 import type { IssuePriority, IssueResponse, UpdateIssueRequest } from '../../../../types/issue';
 import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
 import type { ProjectStatus } from '../../../../types/projectStatus';
@@ -57,7 +56,7 @@ export function IssueMobilePropertyChips({
   // 값은 확인 뒤 보낼 목표 상태(완료 범주의 어느 상태든).
   const [confirmDone, setConfirmDone] = useState<ProjectStatus | null>(null);
   // 상태 시트 선택지 — 프로젝트 상태 목록(이름, WP-808). 칩 글자는 응답의 statusName 이라 목록이 없어도 보인다.
-  const statuses = sortStatuses(useProjectStatuses(projectKey).data ?? []);
+  const statuses = useSortedProjectStatuses(projectKey);
   const typeName = issue.type?.name;
   // 에픽 칩이 구성에 없으면(개인 작업) 에픽 목록도 조회하지 않는다.
   const showEpic = fields.includes('epic') && typeName !== 'EPIC' && typeName !== 'SUBTASK';
@@ -77,7 +76,8 @@ export function IssueMobilePropertyChips({
       type="button"
       aria-label={label}
       data-testid={`mobile-prop-${key}`}
-      disabled={disabled}
+      // 상태 목록 로딩 중엔 빈 시트가 열리지 않게 상태 칩만 잠근다(칩 글자는 응답 statusName 이라 그대로 보인다).
+      disabled={disabled || (key === 'status' && statuses.length === 0)}
       onPointerDown={key === 'epic' ? () => setEpicsWanted(true) : undefined}
       onClick={() => {
         if (key === 'epic') setEpicsWanted(true);

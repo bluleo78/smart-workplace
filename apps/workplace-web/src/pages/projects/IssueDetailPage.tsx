@@ -635,6 +635,7 @@ export default function IssueDetailPage() {
               parent={summary.parent}
               status={summary.status}
               statusId={summary.statusId}
+              statusName={summary.statusName}
               priority={summary.priority}
               dueDate={summary.dueDate}
               startDate={summary.startDate}

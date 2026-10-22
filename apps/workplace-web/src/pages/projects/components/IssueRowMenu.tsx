@@ -111,7 +111,8 @@ export function IssueRowMenu({
       >
         {bulk && <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">선택한 {count}개 이슈</DropdownMenuLabel>}
 
-        {items.status && (
+        {/* 상태 목록을 아직 못 받았으면(로딩 중) 빈 하위 메뉴 대신 항목을 숨긴다. */}
+        {items.status && statuses.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger data-testid="row-menu-status"><CircleDot />상태</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>

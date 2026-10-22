@@ -61,4 +61,9 @@ describe('IssueStatusSelect — 프로젝트 상태', () => {
     expect(onChange).toHaveBeenCalledTimes(1)
     expect(onChange.mock.calls[0][0].id).toBe(13)
   })
+
+  it('상태 목록 로딩 중(빈 목록)이면 트리거에 응답의 상태 이름을 보인다', () => {
+    renderWithProviders(<IssueStatusSelect value={12} statuses={[]} currentName="검토 중" onChange={vi.fn()} />)
+    expect(screen.getByTestId('issue-status-select')).toHaveTextContent('검토 중')
+  })
 })

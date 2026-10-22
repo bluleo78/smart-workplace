@@ -76,6 +76,7 @@ export function StatusDoneBlockedDialog({
 export function IssueStatusSelect({
   value,
   statuses,
+  currentName,
   onChange,
   disabled,
   blockedBy = [],
@@ -83,8 +84,10 @@ export function IssueStatusSelect({
 }: {
   /** 현재 statusId. */
   value: number;
-  /** 프로젝트 상태 목록 — 표시 순서로 정렬해 옵션으로 쓴다. 로딩 중(빈 목록)이면 트리거가 비어 보인다. */
+  /** 프로젝트 상태 목록 — 표시 순서로 정렬해 옵션으로 쓴다. */
   statuses: readonly ProjectStatus[];
+  /** 현재 상태 이름(응답 statusName) — 상태 목록 로딩 중이거나 목록에 없는 statusId 면 트리거에 대신 보인다. */
+  currentName?: string;
   onChange: (s: ProjectStatus) => void;
   disabled?: boolean;
   blockedBy?: IssueLinkSummary[];
@@ -113,7 +116,8 @@ export function IssueStatusSelect({
     <>
       <Select value={String(value)} onValueChange={handleChange} disabled={disabled}>
         <SelectTrigger className="w-full" aria-label="상태" data-testid="issue-status-select">
-          <SelectValue />
+          {/* 목록에서 현재 상태를 찾으면 Radix 가 그 항목을 그리고, 못 찾으면(로딩 중 등) 응답의 이름을 그대로 보인다. */}
+          <SelectValue>{current ? undefined : currentName}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((s) => (

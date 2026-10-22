@@ -14,7 +14,7 @@ import { isEscapeForInnerOverlay } from '@/lib/escapeOverlay';
 import { parseId } from '@/lib/historyParam';
 import { cn } from '@/lib/utils';
 
-import { useProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
+import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
 import { AssigneePickerPopover } from '../components/AssigneePickerPopover';
 import { IssueChatSection } from '../components/chat/IssueChatSection';
 import { InlineEditableTitle } from '../components/InlineEditableTitle';
@@ -159,7 +159,7 @@ export function PersonalTaskDetail({
   // 조회·수정·404 판정·AI 화면 컨텍스트 등록은 모바일 전체 화면과 공유(WP-221).
   const { q, update, data } = usePersonalTask(projectKey, number);
   // 상태 선택지 — 개인 프로젝트도 시드 상태 목록(이름)을 갖는다(WP-808).
-  const statuses = useProjectStatuses(projectKey).data ?? [];
+  const statuses = useSortedProjectStatuses(projectKey);
 
   return (
     // 스크롤 컨테이너 — 외부 wrapper가 h-full flex flex-col이므로 flex-1로 남은 높이 채움.
@@ -204,6 +204,7 @@ export function PersonalTaskDetail({
             <IssueStatusSelect
               value={data.summary.statusId}
               statuses={statuses}
+              currentName={data.summary.statusName}
               disabled={update.isPending}
               onChange={(s) => update.mutate({ statusId: s.id })}
               blockedBy={data.summary.blockedBy}

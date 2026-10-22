@@ -277,7 +277,8 @@ export function useIssueRowActions({
   const actions: MobileSheetAction[] = !issue
     ? []
     : ([
-        items.status && { key: 'status', label: '상태', icon: <CircleDot />, hint: issue.statusName, onSelect: () => toSheet('status') },
+        // 상태 목록 로딩 중이면 빈 시트 대신 항목을 숨긴다.
+        items.status && statuses.length > 0 && { key: 'status', label: '상태', icon: <CircleDot />, hint: issue.statusName, onSelect: () => toSheet('status') },
         items.assignee && { key: 'assignee', label: '담당자', icon: <UserRound />, hint: assigneeNames, onSelect: () => toSheet('assignee') },
         items.priority && { key: 'priority', label: '우선순위', icon: <SignalHigh />, hint: ISSUE_PRIORITY_LABEL[issue.priority], onSelect: () => toSheet('priority') },
         items.epic && { key: 'epic', label: '에픽', icon: <Layers />, hint: issue.parent?.title ?? '없음', onSelect: () => toSheet('epic') },
