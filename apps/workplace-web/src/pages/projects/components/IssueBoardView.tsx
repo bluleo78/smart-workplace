@@ -142,7 +142,8 @@ function IssueBoardViewInner({
     const issueNumber = active.data.current?.issueNumber as number | undefined;
     if (!sourceStatus || !targetStatus || !issueNumber) return;
     if (sourceStatus === targetStatus) return;
-    updateStatus.mutate({ number: issueNumber, status: targetStatus });
+    // 컬럼·카드 id 는 상태 범주 값으로만 만든다(DEFAULT_COLUMNS) — 문자열 id 를 범주로 좁힌다.
+    updateStatus.mutate({ number: issueNumber, status: targetStatus as IssueStatus });
   }
 
   // 순차 로드 상태 문구(그룹 보드) — 데스크톱 BoardScroll footer(mt-3)와 모바일 탭 컬럼(gap 이 간격을 맡아 여백 없음)이 같은 마크업을 쓴다.

@@ -11,6 +11,8 @@ function mk(over: Partial<IssueResponse>): IssueResponse {
     number: 0,
     title: 't',
     status: 'TODO',
+    statusId: 1,
+    statusName: '할 일',
     priority: 'MID',
     dueDate: null,
     startDate: null,

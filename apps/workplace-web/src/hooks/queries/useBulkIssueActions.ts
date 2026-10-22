@@ -35,7 +35,7 @@ export function useBulkUpdateStatus(projectKey: string, closedHiding?: ClosedHid
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ numbers, status }: { numbers: number[]; status: IssueStatus }) =>
-      Promise.allSettled(numbers.map((n) => updateIssueStatus(projectKey, n, status))),
+      Promise.allSettled(numbers.map((n) => updateIssueStatus(projectKey, n, { status }))),
     onSuccess: (results, { numbers, status }) => {
       const { level, message } = bulkResultToast(results, { done: '상태를 변경했습니다', fail: '상태를 변경하지 못했습니다' });
       const changed = numbers.filter((_, i) => results[i]?.status === 'fulfilled');

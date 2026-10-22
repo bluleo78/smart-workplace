@@ -3,6 +3,7 @@ import { type BrowserContext, type Page, test as base } from '@playwright/test'
 import type { TokenResponse, UserResponse } from '../../src/types/auth'
 import type { RoleResponse } from '../../src/types/role'
 import { createTokenResponse, createUser } from '../factories/auth.factory'
+import { seedStatuses } from '../factories/projectStatus.factory'
 import { mockApi } from './api-mock'
 import { collabTestToken, injectCollabNamespace } from './collab'
 import { stubDraftsDefault } from './mail-drafts-mock'
@@ -60,6 +61,14 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'POST', '/api/v1/auth/refresh', token)
   await mockApi(page, 'POST', '/api/v1/auth/login', token)
   await mockApi(page, 'GET', '/api/v1/users/me', { ...user, roles })
+  // 프로젝트 상태 기본 스텁(WP-808) — 보드·목록·상세가 프로젝트마다 상태 목록을 불러오므로 기본 4상태(id 1~4)를 준다.
+  // 미스텁 시 dev 프록시로 누수된다. GET 만 응답하고 추가·이름 변경(POST·PATCH)은 fallback — 그걸 검증하는 스펙이 자기 route 를
+  // 나중에 등록(LIFO 우선)하므로, 상태 목록을 바꾸고 싶은 스펙도 같은 경로를 다시 등록하면 된다.
+  await page.route('**/api/v1/projects/*/statuses', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(seedStatuses()) })
+      : route.fallback(),
+  )
   // Phase 6d — 이슈 상세 진입 시 chat thread/messages 가 자동 lazy fetch 되므로,
   // 모든 인증 테스트에 빈 chat 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // chat 을 검증하는 spec 은 더 구체적 라우트를 나중에 등록 → 그쪽이 우선한다.
