@@ -67,7 +67,11 @@ public class MilestoneService {
     }
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_MILESTONE, OP_UPDATED, project, milestoneId, callerId);
-    return toResponse(milestoneRepository.findById(milestoneId).orElseThrow());
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    return toResponse(
+        milestoneRepository
+            .findById(milestoneId)
+            .orElseThrow(() -> new MilestoneNotFoundException(milestoneId)));
   }
 
   /** 멤버 — 마일스톤 삭제(issue.milestone_id ON DELETE SET NULL). */
