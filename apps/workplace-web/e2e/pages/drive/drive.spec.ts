@@ -1,4 +1,6 @@
 // 드라이브 E2E — 폴더 생성 · 파일 업로드 · 다운로드 · 삭제 (백엔드 없이 page.route 모킹).
+import { truncateSync, writeFileSync } from 'node:fs'
+
 import type { Locator, Page, Route } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, makeTrashList, personalSpace } from '../../factories/drive.factory'
@@ -658,7 +660,7 @@ test('업로드 실패(400) 시 에러 토스트를 표시한다', async ({ auth
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('drive-page')).toBeVisible()
 
-  // 25MB 이하 파일이라 클라이언트 가드는 통과 → 서버 400 → 토스트.
+  // 100MB 이하 파일이라 클라이언트 가드는 통과 → 서버 400 → 토스트.
   await page.getByTestId('file-input').setInputFiles({
     name: 'memo.txt',
     mimeType: 'text/plain',
@@ -786,7 +788,7 @@ test('업로드 중 취소 버튼을 클릭하면 요청이 중단되고 파일�
   await expect(page.getByText('memo.txt')).toHaveCount(0)
 })
 
-test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내한다', async ({ authenticatedPage: page }) => {
+test('100MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내한다', async ({ authenticatedPage: page }, testInfo) => {
   await stubSpaces(page)
   await stubItems(page, () => ({ folders: [], files: [] }))
   // 업로드 엔드포인트가 호출되면 안 된다(클라이언트 사전 차단).
@@ -799,14 +801,13 @@ test('25MB 초과 파일은 업로드 요청 없이 클라이언트에서 안내
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('drive-page')).toBeVisible()
 
-  // 26MB 더미 파일 → 한도(25MB) 초과.
-  await page.getByTestId('file-input').setInputFiles({
-    name: 'huge.bin',
-    mimeType: 'application/octet-stream',
-    buffer: Buffer.alloc(26 * 1024 * 1024, 1),
-  })
+  // 100MB+1B 더미 파일 → 한도(100MB, WP-803) 초과. Playwright 는 50MB 넘는 buffer 를 받지 않아 디스크 파일(희소 파일)로 넘긴다.
+  const huge = testInfo.outputPath('huge.bin')
+  writeFileSync(huge, '')
+  truncateSync(huge, 100 * 1024 * 1024 + 1)
+  await page.getByTestId('file-input').setInputFiles(huge)
 
-  await expect(page.getByText('파일 크기가 25MB를 초과합니다.')).toBeVisible()
+  await expect(page.getByText('파일 크기가 100MB를 초과합니다.')).toBeVisible()
   expect(uploads.count()).toBe(0)
 
   // #715 — 에러 토스트가 헤더 툴바(검색/새 폴더/업로드)를 가려 클릭을 막지 않아야 한다.

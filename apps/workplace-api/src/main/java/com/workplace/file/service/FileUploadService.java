@@ -32,6 +32,7 @@ import org.springframework.web.multipart.MultipartFile;
 @Slf4j
 public class FileUploadService {
 
+  // PDF·DOCUMENT 범주 mime 은 워커 extract._DOC_MIMES(문서 추출 상한)와 1:1 미러다(WP-803) — 바꾸면 양쪽을 함께 고친다.
   private static final Map<String, String> MIME_TO_CATEGORY =
       Map.ofEntries(
           Map.entry("image/png", "IMAGE"),
@@ -68,15 +69,15 @@ public class FileUploadService {
           Map.entry("application/hwp+zip", "DOCUMENT"));
 
   // 카테고리별 첨부 사이즈 제한 (바이트). DATA는 대용량 CSV/XLSX 적재를 위해 256MB까지 허용,
-  // 나머지(IMAGE/PDF/TEXT/DOCUMENT)는 10MB로 통일한다. OTHER(미분류 allow-all)는 파일당 multipart
-  // 상한(application.yml max-file-size 25MB)과 동일한 25MB.
+  // PDF/DOCUMENT 는 스캔본·hwp·pptx 가 10MB 를 자주 넘어 크게 둔다(WP-803) — 변환기·워커 문서 상한과 같은 값.
+  // 파일당 multipart 상한(application.yml max-file-size)도 함께 걸린다.
   private static final Map<String, Long> CATEGORY_SIZE_LIMITS =
       Map.of(
           "IMAGE", 10L * 1024 * 1024,
-          "PDF", 10L * 1024 * 1024,
+          "PDF", 100L * 1024 * 1024,
           "TEXT", 10L * 1024 * 1024,
           "DATA", 256L * 1024 * 1024,
-          "DOCUMENT", 10L * 1024 * 1024,
+          "DOCUMENT", 100L * 1024 * 1024,
           "OTHER", 25L * 1024 * 1024);
 
   private final DSLContext dsl;

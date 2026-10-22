@@ -279,8 +279,9 @@ public class DriveFileService {
    *   <li>추출이 잘림(file_extraction.truncated) — 워커 MAX_CHARS 초과로 앞부분만 있다. 추출 행이 없거나 아직 PENDING 이면 알 수
    *       없어 다음 검사만으로 판단한다.
    *   <li>현재 버전이 텍스트 상한({@link #TEXT_FILE_MAX_BYTES}, 10MB)을 넘음 — 고쳐 쓴 전문도 10MB 를 넘을 수 없고, 잘리지 않은
-   *       추출(기본 100만 자)은 UTF-8 로 4MB 이하라 읽을 수 있는 파일을 막지 않는다. 추출 상한(25MB) 초과로 SKIPPED 된 csv·추출하지 않는
-   *       octet-stream 로그처럼 잘림 표시가 없는 큰 파일을, 테넌트 advisory lock 을 쥔 채 끝까지 읽지 않게 하는 상한이기도 하다.
+   *       추출(기본 100만 자)은 UTF-8 로 4MB 이하라 읽을 수 있는 파일을 막지 않는다. 추출 상한(PDF·문서 100MB, 그 밖 25MB) 초과로
+   *       SKIPPED 된 csv·추출하지 않는 octet-stream 로그처럼 잘림 표시가 없는 큰 파일을, 테넌트 advisory lock 을 쥔 채 끝까지 읽지
+   *       않게 하는 상한이기도 하다.
    *   <li>현재 버전 blob 이 올바른 UTF-8 이 아님(예: CP949 CSV) — 워커가 대체 문자(U+FFFD)로 읽어 한글이 깨진다. 위 상한 덕에 많아야
    *       10MB 를 스트림으로 읽는다.
    * </ol>

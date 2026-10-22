@@ -20,8 +20,9 @@ spring:
       thread-name-prefix: sched-
   servlet:
     multipart:
-      # 이슈 첨부 25MB × 최대 10개. 단일 파일 25MB, 요청 전체 275MB.
-      max-file-size: 25MB
+      # 단일 파일 100MB(드라이브 PDF·문서 상한, WP-803), 요청 전체 275MB(이슈 첨부 25MB × 최대 10개).
+      # 채팅·메일·홈 첨부는 workplace.storage.attachment.max-file-size-bytes(25MB)로 따로 막는다.
+      max-file-size: 100MB
       max-request-size: 275MB
 
 # 파일 저장·첨부 통합 설정 (workplace.storage.* 단일 네임스페이스 — 모든 도메인 공유).
