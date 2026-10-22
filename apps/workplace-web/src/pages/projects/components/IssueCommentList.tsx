@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useListFocusRescue } from '@/hooks/useListFocusRescue';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 
@@ -318,6 +319,11 @@ function CommentItem({
 }
 
 // 코멘트 목록을 시간순으로 표시하고, 하단 폼에서 신규 코멘트를 추가.
+/** 코멘트를 모두 지웠을 때 포커스를 받을 작성칸 — 데스크톱은 목록 아래, 모바일(WP-196)은 화면 하단 줄에 하나만 그려진다. */
+function commentComposerInput(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[data-testid="issue-comment-input"]');
+}
+
 export function IssueCommentList({
   projectKey,
   issueNumber,
@@ -356,6 +362,8 @@ export function IssueCommentList({
   if (reactors?.open && !reactorsComment?.reactions?.length) setReactors({ ...reactors, open: false });
   // 터치에서 칩을 길게 누르면 반응자 시트 — 코멘트 행 자체의 길게 누르기 작업 시트는 없다(canOpen=false, 네이티브 메뉴 유지).
   const longPress = useMessageListLongPress(touch, () => false, () => {}, openReactors);
+  // 코멘트를 키보드로 지우면 행이 빠지며 포커스가 body 로 빠졌다 — 같은 자리에 온 코멘트로, 다 지웠으면 작성칸으로 잇는다(WP-832).
+  const listRef = useListFocusRescue(comments, commentComposerInput);
 
   // 프로젝트 멤버 = RichInput @ 자동완성 후보이자, 본문 <@id> 토큰의 이름/종류 역매핑 소스.
   const membersQuery = useProjectMembers(projectKey);
@@ -369,7 +377,7 @@ export function IssueCommentList({
   return (
     <section aria-label="코멘트" className="space-y-3">
       {/* "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거). */}
-      <ul className="space-y-2" role="list" {...longPress}>
+      <ul ref={listRef} className="space-y-2" role="list" {...longPress}>
         {comments.map((c) => (
           <CommentItem
             key={c.id}

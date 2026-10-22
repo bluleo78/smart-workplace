@@ -739,6 +739,33 @@ test.describe('이슈 chat panel', () => {
     await expect(page.getByTestId('chat-message-body-601')).toContainText('(삭제됨)');
   });
 
+  // WP-832: 키보드로 지운 메시지가 「(삭제됨)」으로 다시 그려지며 삭제 버튼이 사라져 포커스가 body 로 빠졌다 — 그 메시지 행으로 잇는다.
+  // 빈 채팅에서 시작한다 — 메시지가 없으면 목록 대신 빈 안내를 그려, 목록이 나중에 생겨도 포커스를 추적해야 한다.
+  test('키보드로 본인 메시지를 지우면 (삭제됨) 이 된 그 메시지 행이 포커스를 받는다', async ({ authenticatedPage: page }) => {
+    const detailRef = {
+      current: createIssueDetail({
+        summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '키보드 삭제' }),
+      }),
+    };
+    await setupCommonStubs(page, detailRef);
+    const sent = await setupChatStubs(page, freshStubs());
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await page.getByTestId('issue-chat-open').click();
+    // 첫 메시지를 보내 목록이 생기게 한다(스텁이 id 1001 로 저장).
+    await page.getByTestId('chat-composer-input').click();
+    await page.keyboard.type('지울 것');
+    await page.getByTestId('chat-composer-submit').click();
+    // 툴바는 opacity 토글이라 키보드 포커스로도 닿는다 — 확정된 행의 삭제 버튼에 포커스를 두고 Enter.
+    await page.getByTestId('chat-message-delete-1001').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('메시지를 삭제했습니다')).toBeVisible();
+    // 실행 취소가 없으면 지연(5s) 후 실제 DELETE + 마스킹.
+    await expect.poll(() => sent.deleteIds(), { timeout: 8000 }).toEqual([1001]);
+    await expect(page.getByTestId('chat-message-body-1001')).toContainText('(삭제됨)');
+    await expect(page.getByTestId('chat-message-1001')).toBeFocused();
+  });
+
   test('mark-as-read — 마지막 메시지 viewport 진입 시 POST /read', async ({
     authenticatedPage: page,
   }) => {

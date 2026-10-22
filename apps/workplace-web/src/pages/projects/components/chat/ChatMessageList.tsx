@@ -14,6 +14,7 @@ import {
 } from '@/components/chat/messageSheetActions';
 import { findChatBundle, issueChatBundle } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
+import { useListFocusRescue } from '@/hooks/useListFocusRescue';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useMessageSheet } from '@/hooks/useMessageSheet';
 
@@ -75,6 +76,8 @@ export function ChatMessageList({
       ),
     [messages],
   );
+  // 키보드로 지운 메시지가 「(삭제됨)」으로 다시 그려지며 삭제 버튼이 사라져 포커스가 body 로 빠졌다 — 그 메시지 행으로 잇는다(WP-832).
+  const listRef = useListFocusRescue(sorted);
   // 질문 글별 상태(열림/답변됨) — 로드된 메시지와 질문한 AI 의 작업 상태에서 도출한다(questionState.ts).
   const qStates = useMemo(() => questionStates(sorted, questionWorks), [sorted, questionWorks]);
   const lastId = sorted.length > 0 ? sorted[sorted.length - 1].id : null;
@@ -148,7 +151,7 @@ export function ChatMessageList({
         data-testid="chat-message-list"
       >
         {/* 터치 셸이면 길게 누르기를 이 컨테이너가 위임으로 받는다(행은 data-message-id). 아니면 핸들러 없음. */}
-        <div className="flex flex-col" {...longPress}>
+        <div ref={listRef} className="flex flex-col" {...longPress}>
           {hasMore && (
             <div className="flex justify-center py-2">
               <Button

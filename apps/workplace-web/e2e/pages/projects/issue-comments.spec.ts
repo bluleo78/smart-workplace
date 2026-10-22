@@ -413,6 +413,50 @@ test.describe('IssueCommentList 수정·삭제 (#154)', () => {
     await expect(page.getByText('코멘트가 없습니다')).toBeVisible();
   });
 
+  // WP-832: 키보드로 지우면 행이 빠지며 포커스가 body 로 빠졌다 — 같은 자리에 온 코멘트로, 다 지웠으면 작성칸으로 잇는다.
+  test('키보드로 코멘트를 지우면 포커스가 다음 코멘트로, 마지막 코멘트까지 지우면 작성칸으로 간다', async ({ authenticatedPage: page }) => {
+    const first = createComment({ id: 21, issueId: ISSUE_ID, authorId: ME_ID, body: '첫 코멘트' });
+    const second = createComment({ id: 22, issueId: ISSUE_ID, authorId: ME_ID, body: '둘째 코멘트' });
+    const detailRef = { current: createIssueDetail({ comments: [first, second] }) };
+    await setupIssueStubs(page, detailRef);
+    await page.route(
+      (url) => /\/api\/v1\/issues\/\d+\/comments\/\d+$/.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'DELETE') return route.fallback();
+        // 지운 코멘트를 뺀 목록으로 재조회되게 한다.
+        const id = Number(new URL(route.request().url()).pathname.split('/').pop());
+        const left = detailRef.current.comments.filter((c) => c.id !== id);
+        detailRef.current = createIssueDetail({ comments: left });
+        return route.fulfill({ status: 204 });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const items = page.locator('section[aria-label="코멘트"] ul li');
+    await expect(items.filter({ hasText: '둘째 코멘트' })).toBeVisible();
+
+    // 키보드로: 「코멘트 삭제」 → Enter → 확인창 「삭제」 → Enter.
+    const deleteWithKeyboard = async (body: string) => {
+      await items.filter({ hasText: body }).locator('button[aria-label="코멘트 삭제"]').focus();
+      await page.keyboard.press('Enter');
+      const dialog = page.getByRole('alertdialog');
+      await dialog.getByRole('button', { name: '삭제' }).focus();
+      await page.keyboard.press('Enter');
+      await expect(items.filter({ hasText: body })).toHaveCount(0);
+    };
+
+    await deleteWithKeyboard('첫 코멘트');
+    // 지운 자리에 온 「둘째 코멘트」 행이 포커스를 받는다(body 가 아니다).
+    await expect(items.filter({ hasText: '둘째 코멘트' })).toBeFocused();
+    // 이어서 Tab 하면 화면 처음이 아니라 그 코멘트 안의 컨트롤로 간다.
+    await page.keyboard.press('Tab');
+    await expect(items.filter({ hasText: '둘째 코멘트' }).locator(':focus')).toHaveCount(1);
+
+    await deleteWithKeyboard('둘째 코멘트');
+    // 남은 코멘트가 없으면 작성칸으로.
+    await expect(page.getByTestId('issue-comment-input')).toBeFocused();
+  });
+
   test('타인의 코멘트 — 수정·삭제 버튼이 hover 시에도 보이지 않는다', async ({ authenticatedPage: page }) => {
     const otherComment: IssueCommentResponse = createComment({
       id: 12,
