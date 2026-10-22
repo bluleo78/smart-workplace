@@ -143,11 +143,11 @@ public class StagedUploadService {
     String safeName = SafeFileNames.sanitize(name, "file");
     // UTF-8 바이트 수는 문자(UTF-16 코드 단위) 수 이상이다 — 문자 수만으로 넘으면 인코딩하지 않고 바로 거절한다.
     if (content.length() > TEXT_MAX_BYTES) {
-      throw new FileSizeLimitExceededException("TEXT", TEXT_MAX_BYTES);
+      throw new FileSizeLimitExceededException("TEXT", TEXT_MAX_BYTES, safeName);
     }
     byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
     if (bytes.length > TEXT_MAX_BYTES) {
-      throw new FileSizeLimitExceededException("TEXT", TEXT_MAX_BYTES);
+      throw new FileSizeLimitExceededException("TEXT", TEXT_MAX_BYTES, safeName);
     }
     String relativePath = pathBuilder.build(StorageDomain.STAGED, safeName);
     fileStore.storeBytes(relativePath, bytes);

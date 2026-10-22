@@ -40,7 +40,7 @@ test.describe('드라이브 업로드 실패 사유', () => {
         await route.fulfill({
           status: 400,
           contentType: 'application/json',
-          body: JSON.stringify({ message: 'IMAGE 파일은 최대 10MB까지 업로드할 수 있습니다' }),
+          body: JSON.stringify({ message: '이미지 파일은 최대 10MB까지 업로드할 수 있습니다: big.png' }),
         })
       } else {
         await route.fallback()
@@ -57,6 +57,6 @@ test.describe('드라이브 업로드 실패 사유', () => {
     ])
 
     // 요약 토스트에 백엔드 사유가 포함되어야 한다(파일명만이 아님).
-    await expect(page.getByText(/IMAGE 파일은 최대 10MB/)).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText(/이미지 파일은 최대 10MB/)).toBeVisible({ timeout: 10000 })
   })
 })

@@ -172,7 +172,8 @@ class FileUploadServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(file), testUserId))
         .isInstanceOf(FileSizeLimitExceededException.class)
-        .hasMessageContaining("OTHER");
+        // WP-834: 영문 범주(OTHER) 대신 사용자 말 + 파일 이름.
+        .hasMessage("이 형식의 파일은 최대 25MB까지 업로드할 수 있습니다: big.bin");
   }
 
   @Test
@@ -183,7 +184,7 @@ class FileUploadServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(file), testUserId))
         .isInstanceOf(FileSizeLimitExceededException.class)
-        .hasMessageContaining("IMAGE");
+        .hasMessage("이미지 파일은 최대 10MB까지 업로드할 수 있습니다: big.png");
   }
 
   @Test
@@ -212,7 +213,7 @@ class FileUploadServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(file), testUserId))
         .isInstanceOf(FileSizeLimitExceededException.class)
-        .hasMessageContaining("100MB");
+        .hasMessage("문서 파일은 최대 100MB까지 업로드할 수 있습니다: big.docx");
   }
 
   @Test
@@ -223,7 +224,7 @@ class FileUploadServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> fileUploadService.uploadFiles(List.of(file), testUserId))
         .isInstanceOf(FileSizeLimitExceededException.class)
-        .hasMessageContaining("TEXT");
+        .hasMessage("텍스트 파일은 최대 10MB까지 업로드할 수 있습니다: big.txt");
   }
 
   @Test
