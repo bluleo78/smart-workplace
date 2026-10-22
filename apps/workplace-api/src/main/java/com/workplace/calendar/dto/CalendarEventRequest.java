@@ -31,7 +31,8 @@ public record CalendarEventRequest(
     @Size(max = 32) String color,
     @Min(0) Integer reminderMinutes,
     @Size(max = 500) String recurrenceRule,
-    List<Long> attendeeUserIds,
+    // 같은 id 를 수만 번 넣으면 요청 하나가 수 초 걸렸다(WP-794).
+    @Size(max = 500, message = "참석자는 한 번에 500명까지 초대할 수 있습니다") List<Long> attendeeUserIds,
     Long calendarId) {
   public CalendarEventRequest {
     // 제목은 한 줄로 다듬는다 — 제로폭 문자만 있는 제목이 그대로 저장돼 빈 일정처럼 보였다(WP-671, WP-628 후속). 다듬어 비면 위 검증이 한국어로 거절한다

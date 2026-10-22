@@ -28,7 +28,8 @@ public record CreateIssueRequest(
     @Size(max = 10000) String body,
     @Pattern(regexp = "LOW|MID|HIGH") String priority,
     LocalDate dueDate,
-    List<Long> assigneeIds,
+    // 같은 id 를 수만 번 넣으면 요청 하나가 수 초 걸렸다(WP-794).
+    @Size(max = 50, message = "담당자는 50명까지 지정할 수 있습니다") List<Long> assigneeIds,
     Long typeId,
     Integer parentNumber,
     LocalDate startDate,

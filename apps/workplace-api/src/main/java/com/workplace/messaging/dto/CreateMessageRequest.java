@@ -13,7 +13,9 @@ public record CreateMessageRequest(
     Long parentMessageId,
     List<Long> fileIds,
     // 원소 null 은 400 — 드라이브 링크 조회에서 500 이 났다(WP-743). fileIds 는 첨부 claim 이 한국어 400 으로 따로 막는다.
-    List<@NotNull Long> driveFileIds) {
+    // 같은 id 를 수만 번 넣으면 요청 하나가 수십 초 걸렸다(WP-794) — 개수 상한 + 중복 제거(driveFileIds()).
+    @Size(max = 50, message = "드라이브 파일은 한 메시지에 50개까지 연결할 수 있습니다")
+        List<@NotNull Long> driveFileIds) {
 
   /** 스레드가 아닌 일반 메시지용 보조 생성자 — parentMessageId = null, 첨부 없음, 드라이브 링크 없음. */
   public CreateMessageRequest(String body) {
@@ -35,8 +37,9 @@ public record CreateMessageRequest(
     return fileIds == null ? List.of() : fileIds;
   }
 
-  /** null 방어: driveFileIds 가 null 이면 빈 리스트. */
+  /** null 방어: driveFileIds 가 null 이면 빈 리스트. 중복 id 는 한 번만. */
   public List<Long> driveFileIds() {
-    return driveFileIds == null ? List.of() : driveFileIds;
+    // 같은 파일을 여러 번 넣어도 링크는 하나 — 중복을 미리 걸러 반복 검사를 없앤다(WP-794).
+    return driveFileIds == null ? List.of() : driveFileIds.stream().distinct().toList();
   }
 }
