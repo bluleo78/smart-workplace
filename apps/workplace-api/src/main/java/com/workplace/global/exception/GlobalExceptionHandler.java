@@ -291,6 +291,15 @@ public class GlobalExceptionHandler {
       return ResponseEntity.badRequest().body(response);
     }
 
+    // NUL(U+0000) 입력 → 입력값 오류(400). text 는 22021, jsonb 의 \u0000 은 22P05 로 DB 가 거절한다. 정리하지 않는
+    // 본문·검색어·jsonb
+    // 값 어디서든 나는 같은 오류라 경로마다 막지 않고 여기서 한 번에 바꾼다(WP-739 — 충돌처럼 보이는 409 로 나갔다).
+    if (hasSqlState(ex, "22021") || hasSqlState(ex, "22P05")) {
+      ErrorResponse response =
+          buildError(HttpStatus.BAD_REQUEST, "입력값에 쓸 수 없는 문자(NUL)가 들어 있습니다", null, request);
+      return ResponseEntity.badRequest().body(response);
+    }
+
     // 화면 토스트로 그대로 나가는 문구라 한국어로 둔다(WP-705 — 영어 「Data integrity violation …」이 그대로 떴다).
     String message = "저장할 수 없는 값이 있어 요청을 처리하지 못했습니다";
     if (causeMsg != null) {
@@ -305,6 +314,16 @@ public class GlobalExceptionHandler {
     }
     ErrorResponse response = buildError(HttpStatus.CONFLICT, message, null, request);
     return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+  }
+
+  /** 원인 체인에 해당 SQLState 의 SQLException 이 있는지. */
+  private static boolean hasSqlState(Throwable ex, String sqlState) {
+    for (Throwable t = ex; t != null; t = t.getCause()) {
+      if (t instanceof java.sql.SQLException sql && sqlState.equals(sql.getSQLState())) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @ExceptionHandler(AccessDeniedException.class)
