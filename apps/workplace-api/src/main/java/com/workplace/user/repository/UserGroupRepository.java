@@ -27,6 +27,17 @@ import org.springframework.stereotype.Repository;
 public class UserGroupRepository {
   private final DSLContext dsl;
 
+  /** 그룹 이동 직렬화 잠금 classId — 2-인자 pg_advisory_xact_lock(classId, tenantId)(WP-790). */
+  private static final int MOVE_LOCK_CLASS = 790;
+
+  /**
+   * 이 테넌트의 그룹 이동(부모 변경)을 트랜잭션 끝까지 직렬화한다(자동 해제, WP-790). 순환 검사(자손 집합)와 부모 변경 사이에 다른 이동이 끼면, 두 요청이 서로
+   * 커밋 전의 트리를 보고 둘 다 통과해 X→Y·Y→X 순환이 저장됐다. 그룹은 테넌트 안에서만 이어지므로 테넌트 단위로 잠근다 — 이동은 드물어 넓은 범위로도 충분하다.
+   */
+  public void lockMoves(long tenantId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", MOVE_LOCK_CLASS, (int) tenantId);
+  }
+
   /** 평면 그룹 레코드(트리 조립 전). */
   public record FlatGroup(
       long id,
