@@ -36,11 +36,13 @@ export function useSortedProjectStatuses(projectKey?: string): ProjectStatus[] {
 }
 
 // 상태가 바뀌면 상태 목록과, 상태 이름을 싣고 있는 이슈 검색 캐시를 함께 다시 받는다.
+// 상태 목록 재조회 promise 를 돌려준다 — onSuccess 가 돌려주면 mutateAsync 가 새 목록이 캐시에 들어온 뒤 끝나,
+// 호출부가 새 상태를 바로 고를 수 있다(모바일 보드 새 탭 선택). 이슈 검색 재조회는 기다리지 않는다.
 function useInvalidateStatuses(projectKey: string) {
   const qc = useQueryClient();
   return () => {
-    qc.invalidateQueries({ queryKey: ['projectStatuses', projectKey] });
-    qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
+    void qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
+    return qc.invalidateQueries({ queryKey: ['projectStatuses', projectKey] });
   };
 }
 
@@ -64,7 +66,7 @@ export function useRenameProjectStatus(projectKey: string) {
       qc.setQueryData<ProjectStatus[]>(['projectStatuses', projectKey], (list) =>
         list?.map((s) => (s.id === saved.id ? { ...s, name: saved.name } : s)),
       );
-      invalidate();
+      void invalidate();
     },
   });
 }

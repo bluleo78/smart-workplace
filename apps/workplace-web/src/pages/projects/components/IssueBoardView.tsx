@@ -6,6 +6,7 @@ import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CircleCheckBig, Inbox, Plus, TriangleAlert } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ import { useCreateProjectStatus, useProjectStatuses, useRenameProjectStatus } fr
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
+import { withBoardTab } from '../../../lib/issueFilters';
 import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
 import { categorySpans } from '../../../lib/projectStatuses';
 import type {
@@ -107,6 +109,8 @@ function IssueBoardViewInner({
   // 상태 추가·이름 변경(OWNER) — 실패는 입력기가 받아 그 자리에 보인다(reject 전달).
   const createStatus = useCreateProjectStatus(projectKey);
   const renameStatus = useRenameProjectStatus(projectKey);
+  // 모바일 보드 선택 탭(boardTab) — 상태를 추가하면 새 탭을 고른다.
+  const [, setParams] = useSearchParams();
   // 헤더 인라인 이름 변경 중인 컬럼(statusId).
   const [renamingId, setRenamingId] = useState<number | null>(null);
   // 상태 목록 조회 실패 — 컬럼을 만들 수 없으니 빈 보드 대신 오류와 다시 시도를 보인다(호출부와 같은 캐시).
@@ -242,7 +246,12 @@ function IssueBoardViewInner({
                   await renameStatus.mutateAsync({ id: s.id, body: { name } });
                 }}
                 onAddAfter={async (name) => {
-                  await createStatus.mutateAsync({ name, category: s.category, afterStatusId: s.id });
+                  // mutateAsync 는 상태 목록 재조회가 끝난 뒤 끝난다 — 새 상태가 이미 탭에 있으므로 바로 골라도
+                  // 기본 탭 고정(MobileBoard)이 「보이지 않는 id」로 보고 덮어쓰지 않는다. 필터로 숨는 상태면 고르지 않는다.
+                  const created = await createStatus.mutateAsync({ name, category: s.category, afterStatusId: s.id });
+                  if (columnFilters(filters, created) !== null) {
+                    setParams((prev) => withBoardTab(prev, created.id), { replace: true });
+                  }
                 }}
               />
             );

@@ -2,7 +2,7 @@
 // 탭은 프로젝트 상태 하나에 하나(WP-808) — 탭 위 범주 색 띠로 할 일·진행 중·완료·취소를 구분한다.
 // 탭 전환: 탭 누르기 또는 목록 영역 좌우 스와이프. 선택 탭(statusId)은 URL boardTab(replace)으로 유지 — 상세 갔다 뒤로·새로고침 복귀.
 // 카드·sentinel 렌더는 호출처(IssueBoardView)가 children(statusId, root) 로 맡는다 — 데이터(컬럼 쿼리)는 그쪽에 있으므로.
-// menu 를 주면(OWNER 상태 보드) 탭 아래에 현재 상태 이름·개수와 ⋯(편집 바텀시트) 줄을 둔다(모바일 A안).
+// 탭 아래에 현재 상태 이름·개수 줄을 두고, menu 를 주면(OWNER 상태 보드) 그 줄에 ⋯(편집 바텀시트)를 붙인다(모바일 A안).
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -26,7 +26,7 @@ export function MobileBoard({
   tabs: MobileBoardTab[];
   // 탭 위 범주 색 띠(기본 표시). 개인 보드는 상태가 범주와 1:1 이라 데스크톱처럼 숨긴다.
   band?: boolean;
-  // 현재 탭 헤더 줄의 ⋯ 편집 진입점(OWNER) — 없으면 헤더 줄을 그리지 않는다(탭이 이미 이름·개수를 보인다).
+  // 현재 탭 헤더 줄의 ⋯ 편집 진입점(OWNER) — 없으면 헤더 줄에 이름·개수만 보인다.
   menu?: (statusId: number) => ReactNode;
   children: (statusId: number, root: Element) => ReactNode;
 }) {
@@ -65,6 +65,7 @@ export function MobileBoard({
 
   // 선택 탭이 탭 줄 밖에 있으면(상태가 많을 때 새로고침·스와이프) 탭 줄만 가로로 옮겨 보이게 한다.
   // scrollIntoView 는 바깥 스크롤러(문서·본문)까지 움직이므로 쓰지 않는다. 탭 폭이 소수점이라 화면 좌표로 재고 올림한다.
+  // settled 도 의존성 — 개수 응답이 늦게 와 탭 폭이 바뀐 뒤에도 한 번 더 맞춘다.
   useEffect(() => {
     const list = listRef.current;
     const el = list?.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
@@ -73,7 +74,7 @@ export function MobileBoard({
     const tab = el.getBoundingClientRect();
     if (tab.left < box.left) list.scrollLeft -= Math.ceil(box.left - tab.left);
     else if (tab.right > box.right) list.scrollLeft += Math.ceil(tab.right - box.right);
-  }, [active, tabs.length]);
+  }, [active, tabs.length, settled]);
 
   const current = tabs.find((t) => t.statusId === active);
   return (
@@ -115,11 +116,12 @@ export function MobileBoard({
           ))}
         </TabsList>
       </Tabs>
-      {/* 현재 탭 헤더(OWNER) — 긴 이름은 탭보다 넓게 보이되 말줄임하고, ⋯ 는 늘 오른쪽 끝 44px. */}
-      {menu && current && (
-        <div className="flex shrink-0 items-center justify-between gap-2 pl-3" data-testid="board-tab-header">
-          <span className="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
-            <span className="truncate" title={current.label}>
+      {/* 현재 탭 헤더(모든 역할·개인 보드, 모바일 A안) — 탭은 긴 이름을 말줄임하므로 여기서 전체 이름을 두 줄까지 보인다.
+          ⋯(편집)는 OWNER 상태 보드(menu)에만, 늘 오른쪽 끝 44px. ⋯ 가 없어도 줄 높이(min-h-11)는 같다. */}
+      {current && (
+        <div className={cn('flex min-h-11 shrink-0 items-center justify-between gap-2 pl-3', !menu && 'pr-3')} data-testid="board-tab-header">
+          <span className="flex min-w-0 items-baseline gap-1.5 text-sm font-semibold">
+            <span className="line-clamp-2 break-words" title={current.label}>
               {current.label}
             </span>
             <span className="shrink-0 font-normal tabular-nums text-muted-foreground">
@@ -127,7 +129,7 @@ export function MobileBoard({
               {current.hasMore ? '+' : ''}
             </span>
           </span>
-          {menu(current.statusId)}
+          {menu?.(current.statusId)}
         </div>
       )}
       {/* 목록 영역 — 세로 스크롤 + 좌우 스와이프. pan-y: 수평 제스처를 브라우저가 가로채지 않게. sentinel 의 IO root. */}

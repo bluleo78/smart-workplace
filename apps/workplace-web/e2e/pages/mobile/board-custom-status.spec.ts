@@ -118,7 +118,7 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
   });
 
   test('⋯ 바텀시트로 이 뒤에 상태를 추가한다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
+    const statuses = await stubBoard(page);
     const posts = trackRequests(page, 'POST', STATUSES_PATH);
     await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=12`);
 
@@ -150,9 +150,15 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     await nameSheet.getByTestId('status-name-submit').click();
     await expect.poll(() => posts.lastBody()).toEqual({ name: 'QA 대기', category: 'IN_PROGRESS', afterStatusId: 12 });
     await expect(nameSheet).toHaveCount(0);
-    await expect(page.getByTestId('board-tab-28')).toContainText('QA 대기');
-    // 현재 탭은 그대로.
-    await expect(page.getByTestId('board-tab-12')).toHaveAttribute('aria-selected', 'true');
+    // 목이 만든 상태의 id 로 단언한다(id 규칙에 기대지 않게).
+    const created = statuses.find((x) => x.name === 'QA 대기')!;
+    const newTab = page.getByTestId(`board-tab-${created.id}`);
+    await expect(newTab).toContainText('QA 대기');
+    // 상태 목록 재조회가 끝난 뒤 새 탭이 선택되고 탭 줄에 보인다 — 기본 탭 고정이 되돌리지 않는다.
+    await expect(newTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page).toHaveURL(new RegExp(`boardTab=${created.id}(&|$)`));
+    await expect(newTab).toBeInViewport({ ratio: 0.95 });
+    await expect(page.getByTestId('board-tab-header')).toContainText('QA 대기');
   });
 
   test('⋯ 바텀시트로 이름을 바꾼다', async ({ authenticatedPage: page }) => {
@@ -197,11 +203,18 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     await expect(nameSheet.getByTestId('status-name-input')).toHaveValue('동시 추가');
   });
 
-  test('MEMBER 는 ⋯ 편집 항목이 없다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page, { role: 'MEMBER' });
-    await page.goto(`/projects/${KEY}?view=board&group=none`);
-    await expect(page.getByTestId('board-tab-2')).toHaveAttribute('aria-selected', 'true');
+  test('MEMBER 는 ⋯ 편집 항목이 없고 헤더 줄에서 긴 이름 전체를 본다', async ({ authenticatedPage: page }) => {
+    const long = '고객사 보안 검토 및 법무 승인 대기 중인 배포 후보군';
+    const statuses = [...withCustomStatuses(long), makeProjectStatus({ id: 14, name: '배포 완료', category: 'DONE', position: 5 })];
+    await stubBoard(page, { role: 'MEMBER', statuses });
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=11`);
+    await expect(page.getByTestId('board-tab-11')).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('board-tab-menu')).toHaveCount(0);
+    // 헤더 줄은 MEMBER 에게도 있다 — 탭에서 잘린 30자 이름 전체를 말줄임 없이 보인다(최대 2줄).
+    const name = page.getByTestId('board-tab-header').getByTitle(long);
+    await expect(name).toHaveText(long);
+    expect(await name.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+    await expectNoHorizontalOverflow(page);
   });
 
   test('「상태」 필터(statusId)로 고른 상태 탭만 보인다', async ({ authenticatedPage: page }) => {
