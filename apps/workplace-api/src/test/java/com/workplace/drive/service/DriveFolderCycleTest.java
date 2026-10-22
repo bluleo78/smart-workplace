@@ -21,6 +21,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -178,10 +179,25 @@ class DriveFolderCycleTest extends IntegrationTestBase {
         .where(DRIVE_FOLDER.ID.eq(b))
         .execute();
 
-    List<Long> subtree =
-        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> folders.findSubtreeFolderIds(a));
-    assertThat(subtree).containsExactlyInAnyOrder(a, a1, b, b1);
-    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> folderService.delete(ownerId, a));
+    // 앞선 비-tx 테스트가 풀 커넥션의 세션 GUC 를 다른 테넌트로 남긴 상황을 재현한다(WP-797). 순회·삭제가 그 값을 따르면 하위 폴더가 RLS 에
+    // 가려 시작 폴더만 보였다 — 테넌트를 건 트랜잭션 안에서 돌려 doBegin 이 넣는 트랜잭션-로컬 GUC 를 따르게 한다.
+    baseDsl.execute("SELECT set_config('app.tenant_id', '999999', false)");
+    try {
+      List<Long> subtree =
+          assertTimeoutPreemptively(
+              Duration.ofSeconds(5), () -> inTenantTx(() -> folders.findSubtreeFolderIds(a)));
+      assertThat(subtree).containsExactlyInAnyOrder(a, a1, b, b1);
+      assertTimeoutPreemptively(
+          Duration.ofSeconds(5),
+          () ->
+              inTenantTx(
+                  () -> {
+                    folderService.delete(ownerId, a);
+                    return null;
+                  }));
+    } finally {
+      baseDsl.execute("SELECT set_config('app.tenant_id', '1', false)");
+    }
     List<Long> trashed = new ArrayList<>();
     for (long id : List.of(a, a1, b, b1)) {
       if (baseDsl.fetchExists(
@@ -190,6 +206,19 @@ class DriveFolderCycleTest extends IntegrationTestBase {
       }
     }
     assertThat(trashed).containsExactlyInAnyOrder(a, a1, b, b1);
+  }
+
+  /**
+   * 테넌트 1 을 건 트랜잭션 안에서 실행한다. assertTimeoutPreemptively 는 다른 스레드에서 돌아 TenantContext(ThreadLocal)가 비어
+   * 있어, 그대로 부르면 트랜잭션이 테넌트 GUC 를 넣지 못하고 풀 커넥션의 세션 GUC 를 따른다(WP-797).
+   */
+  private <T> T inTenantTx(Supplier<T> work) {
+    TenantContext.set(1L);
+    try {
+      return new TransactionTemplate(txManager).execute(status -> work.get());
+    } finally {
+      TenantContext.clear();
+    }
   }
 
   private static void await(CountDownLatch latch) {
