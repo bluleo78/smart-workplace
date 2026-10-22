@@ -1,7 +1,9 @@
 package com.workplace.chat.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -159,5 +161,19 @@ class ChatMessageControllerTest {
         .perform(post("/api/v1/chat/threads/1/typing").header("Authorization", "Bearer v"))
         .andExpect(status().isNoContent());
     verify(messageService).notifyTyping(1L, 1L);
+  }
+
+  /** driveFileIds 의 null 원소는 400(WP-743 — 500 이 났다). */
+  @Test
+  void create_driveFileIds_null_원소는_400() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/chat/threads/1/messages")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"body\":\"x\",\"driveFileIds\":[null]}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors['driveFileIds[0]']").value("값이 필요합니다"));
+    verify(messageService, never()).create(anyLong(), anyLong(), any());
   }
 }

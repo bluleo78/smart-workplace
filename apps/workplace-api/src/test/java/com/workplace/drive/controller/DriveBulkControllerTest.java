@@ -3,10 +3,13 @@ package com.workplace.drive.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
@@ -32,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpMethod;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -107,5 +111,47 @@ class DriveBulkControllerTest {
                 .contentType("application/json")
                 .content("{\"fileIds\":[1],\"folderIds\":[]}"))
         .andExpect(status().isOk());
+  }
+
+  /** 목록의 null 원소는 서비스에 닿기 전 400 으로 거절한다(WP-743 — 언박싱 NPE 로 500 이 났다). */
+  @Test
+  void 목록에_null_원소가_있으면_400_서비스_미호출() throws Exception {
+    String[][] cases = {
+      {
+        "DELETE",
+        "/api/v1/drive/spaces/9/items",
+        "{\"fileIds\":[1,null],\"folderIds\":[]}",
+        "fileIds[1]"
+      },
+      {
+        "DELETE",
+        "/api/v1/drive/spaces/9/items",
+        "{\"fileIds\":[],\"folderIds\":[null]}",
+        "folderIds[0]"
+      },
+      {
+        "PATCH",
+        "/api/v1/drive/spaces/9/items/move",
+        "{\"fileIds\":[null],\"folderIds\":[],\"targetFolderId\":null}",
+        "fileIds[0]"
+      },
+      {
+        "POST",
+        "/api/v1/drive/spaces/9/download-zip",
+        "{\"fileIds\":[null],\"folderIds\":[]}",
+        "fileIds[0]"
+      },
+    };
+    for (String[] c : cases) {
+      mockMvc
+          .perform(
+              request(HttpMethod.valueOf(c[0]), c[1])
+                  .header("Authorization", "Bearer test-token")
+                  .contentType("application/json")
+                  .content(c[2]))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.errors['" + c[3] + "']").value("값이 필요합니다"));
+    }
+    verifyNoInteractions(bulkService, zipService);
   }
 }
