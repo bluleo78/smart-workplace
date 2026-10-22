@@ -8,8 +8,11 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
@@ -19,6 +22,9 @@ import org.springframework.stereotype.Repository;
 @Repository
 @RequiredArgsConstructor
 public class UserApiTokenRepository {
+
+  /** 발급 잠금의 advisory lock 클래스(WP-818) — 에이전트 키 발급도 같은 클래스·사용자 id 로 잡는다(사람·에이전트 id 는 겹치지 않는다). */
+  public static final int ISSUE_LOCK_CLASS = 818;
 
   private final DSLContext dsl;
 
@@ -62,14 +68,46 @@ public class UserApiTokenRepository {
   }
 
   /**
-   * 특정 사용자의 PAT 목록 (회수된 것 포함). 최근 생성 순. created_at 이 동일 timestamp 로 밀릴 수 있어(짧은 간격 연속 발급) id desc 를
-   * tie-breaker 로 둔다.
+   * 특정 사용자의 PAT 목록. 최근 생성 순. created_at 이 동일 timestamp 로 밀릴 수 있어(짧은 간격 연속 발급) id desc 를 tie-breaker
+   * 로 둔다. 쓸 수 있는 토큰은 전부, 회수·만료된 토큰은 그 시각이 {@code since} 이후인 것만 싣는다(WP-818) — 오래된 것까지 실으면 목록이 끝없이
+   * 길어진다. 행은 감사용으로 남는다.
    */
-  public List<UserApiTokenResponse> findByUser(Long userId) {
+  public List<UserApiTokenResponse> findByUser(Long userId, OffsetDateTime since) {
+    OffsetDateTime now = OffsetDateTime.now();
+    Condition revoked = USER_API_TOKEN.REVOKED_AT.isNotNull();
+    // expires_at 이 NULL(무기한)이면 비교가 NULL 이 돼 쓸 수 있는 토큰이 빠지므로 NULL 을 먼저 거른다.
+    Condition expired =
+        USER_API_TOKEN.EXPIRES_AT.isNotNull().and(USER_API_TOKEN.EXPIRES_AT.le(now));
+    // 회수·만료가 둘 다 있으면 먼저 일어난 쪽이 쓸 수 없게 된 시각이다 — 그 시각이 since 이후면 싣는다.
+    Field<OffsetDateTime> endedAt =
+        DSL.least(
+            DSL.coalesce(USER_API_TOKEN.REVOKED_AT, USER_API_TOKEN.EXPIRES_AT),
+            DSL.coalesce(USER_API_TOKEN.EXPIRES_AT, USER_API_TOKEN.REVOKED_AT));
     return dsl.selectFrom(USER_API_TOKEN)
         .where(USER_API_TOKEN.USER_ID.eq(userId))
+        .and(revoked.or(expired).not().or(endedAt.gt(since)))
         .orderBy(USER_API_TOKEN.CREATED_AT.desc(), USER_API_TOKEN.ID.desc())
         .fetch(this::mapToResponse);
+  }
+
+  /** 쓸 수 있는(회수·만료되지 않은) PAT 수 — 발급 상한 판정용(WP-818). */
+  public int countActive(Long userId) {
+    return dsl.fetchCount(
+        USER_API_TOKEN,
+        USER_API_TOKEN
+            .USER_ID
+            .eq(userId)
+            .and(USER_API_TOKEN.REVOKED_AT.isNull())
+            .and(
+                USER_API_TOKEN
+                    .EXPIRES_AT
+                    .isNull()
+                    .or(USER_API_TOKEN.EXPIRES_AT.gt(OffsetDateTime.now()))));
+  }
+
+  /** 사용자 단위 발급 잠금(트랜잭션 끝까지) — 동시 발급이 서로의 커밋 전 개수를 보고 상한을 함께 넘기지 않게 센 뒤 넣기까지를 차례로 세운다(WP-818). */
+  public void lockIssue(Long userId) {
+    dsl.execute("SELECT pg_advisory_xact_lock(?, ?)", ISSUE_LOCK_CLASS, userId.intValue());
   }
 
   /** 인증 hot path — hash 매칭 + 미회수 + 미만료. */
