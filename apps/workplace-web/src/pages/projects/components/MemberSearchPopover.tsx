@@ -124,7 +124,8 @@ export function MemberSearchPopover({
               ))}
             </div>
           )}
-          <CommandList>
+          {/* 목록 이름을 주지 않으면 cmdk 기본값 영어 「Suggestions」로 읽힌다(WP-731). */}
+          <CommandList label="멤버 후보">
             {/* 검색어가 없어도 기본 후보 목록을 그대로 렌더한다(#734). 안내 문구는 CommandInput placeholder 로 대체. */}
             {search.isLoading ? (
               <CommandEmpty>검색 중…</CommandEmpty>

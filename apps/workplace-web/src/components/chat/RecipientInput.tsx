@@ -222,7 +222,8 @@ export function RecipientInput({
                 ))}
               </div>
               {/* 모바일에서 가상 키보드 위 영역을 넘지 않게 높이를 화면 비율로도 제한한다. */}
-              <CommandList className="max-h-[min(300px,35dvh)]">
+              {/* 목록 이름을 주지 않으면 cmdk 기본값 영어 「Suggestions」로 읽힌다(WP-731). */}
+              <CommandList label="받는 사람 후보" className="max-h-[min(300px,35dvh)]">
                 {search.isLoading ? (
                   <CommandEmpty>검색 중…</CommandEmpty>
                 ) : search.isError ? (

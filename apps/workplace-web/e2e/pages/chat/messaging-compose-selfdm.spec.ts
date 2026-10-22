@@ -93,6 +93,9 @@ test.describe('messaging 인라인 compose + self-DM', () => {
     await expect(page.getByLabel('받는 사람 검색')).toHaveCount(1)
     await input.fill('밥')
     await expect(page.getByTestId('member-search-row-2')).toBeVisible()
+    // 후보 목록은 한국어 이름으로 읽힌다 — cmdk 기본값 영어 「Suggestions」가 아니다(WP-731)
+    await expect(page.getByRole('listbox', { name: '받는 사람 후보' })).toBeVisible()
+    await expect(page.getByRole('listbox', { name: 'Suggestions' })).toHaveCount(0)
   })
 
   // (F) 회귀: /chat/new 받는사람 검색은 AGENT 사용자도 포함해야 한다 (#691)

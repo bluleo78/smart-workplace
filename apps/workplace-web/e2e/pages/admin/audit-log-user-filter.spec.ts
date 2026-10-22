@@ -76,6 +76,8 @@ test.describe('감사 로그 사용자 필터 (WP-183)', () => {
     await page.getByRole('combobox', { name: '사용자 검색' }).fill('구성원150');
     await expect.poll(() => memberRequests.lastUrl()?.searchParams.get('search')).toBe('구성원150');
     await expect.poll(() => memberRequests.lastUrl()?.searchParams.get('includeInactive')).toBe('true');
+    // 후보 목록은 한국어 이름으로 읽힌다(WP-731)
+    await expect(page.getByRole('listbox', { name: '사용자 후보' })).toBeVisible();
     await page.getByTestId('audit-user-option-150').click();
 
     await expect(page.getByRole('combobox', { name: '사용자 필터' })).toHaveText(/구성원150/);

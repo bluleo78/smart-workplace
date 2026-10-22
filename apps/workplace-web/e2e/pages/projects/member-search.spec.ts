@@ -364,6 +364,8 @@ test.describe('멤버 추가 검색 picker', () => {
     await expect(page.getByTestId(`member-search-row-${AGENT1.userId}`)).toBeVisible();
     // 비활성 사용자는 후보에서 제외.
     await expect(page.getByTestId(`member-search-row-${INACTIVE.userId}`)).toHaveCount(0);
+    // 후보 목록은 한국어 이름으로 읽힌다 — cmdk 기본값 영어 「Suggestions」가 아니다(WP-731).
+    await expect(page.getByRole('listbox', { name: '멤버 후보' })).toBeVisible();
 
     // 빈 search + kind=ALL 로 조회했는지 검증.
     await expect

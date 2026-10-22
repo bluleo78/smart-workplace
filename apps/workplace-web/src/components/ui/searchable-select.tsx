@@ -35,6 +35,8 @@ interface SearchableSelectProps {
   // 선택 해제(none) 옵션을 표시할지 여부 — true면 첫 항목으로 "선택 안 함" 노출
   allowClear?: boolean;
   clearLabel?: string;
+  // 후보 목록의 접근성 이름 — 주지 않으면 cmdk 기본값 영어 「Suggestions」로 읽힌다(WP-731)
+  listLabel?: string;
   id?: string;
   className?: string;
 }
@@ -49,6 +51,7 @@ export function SearchableSelect({
   disabled = false,
   allowClear = false,
   clearLabel = '선택 안 함',
+  listLabel = '선택 후보',
   id,
   className,
 }: SearchableSelectProps) {
@@ -78,7 +81,7 @@ export function SearchableSelect({
       <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <CommandList label={listLabel}>
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {allowClear && (

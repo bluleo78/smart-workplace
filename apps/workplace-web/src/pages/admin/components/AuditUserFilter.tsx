@@ -79,7 +79,8 @@ export function AuditUserFilter({
             placeholder="이름·아이디로 검색"
             aria-label="사용자 검색"
           />
-          <CommandList>
+          {/* 목록 이름을 주지 않으면 cmdk 기본값 영어 「Suggestions」로 읽힌다(WP-731). */}
+          <CommandList label="사용자 후보">
             {members.isLoading ? (
               <CommandEmpty>검색 중…</CommandEmpty>
             ) : members.isError ? (
