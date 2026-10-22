@@ -43,13 +43,14 @@ export function StatusNameEditor({
 
   // 인라인 편집의 바깥 누르기 = 취소. 포커스(blur) 대신 포인터로 본다 — 메뉴가 닫히며 포커스를 옮기는 순간 닫히지 않게.
   useEffect(() => {
-    if (!inline) return;
+    // 저장 중에는 닫지 않는다 — 요청이 실패하면 오류를 그 자리에 보여야 한다.
+    if (!inline || saving) return;
     const onPointerDown = (e: PointerEvent) => {
       if (!formRef.current?.contains(e.target as Node)) onCancel();
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [inline, onCancel]);
+  }, [inline, saving, onCancel]);
 
   // 저장 — 바뀌지 않은 이름(이름 변경)은 요청 없이 닫는다.
   async function submit(e: FormEvent) {

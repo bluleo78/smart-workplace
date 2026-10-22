@@ -140,7 +140,8 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await stubBoard(page);
     await page.goto(`/projects/${KEY}?view=board`);
 
-    // 진행 중 띠(4컬럼)는 보드 폭을 넘는다 — 그래도 ＋ 는 화면 안.
+    // 진행 중 띠(4컬럼)는 보드 폭을 넘는다 — 그래도 ＋ 는 화면 안. 상태 목록이 와서 띠가 그려진 뒤에 잰다.
+    await expect(page.getByTestId('board-band-IN_PROGRESS')).toBeVisible();
     const scroller = (await page.getByTestId('board-scroll').boundingBox())!;
     const band = (await page.getByTestId('board-band-IN_PROGRESS').boundingBox())!;
     expect(band.x + band.width).toBeGreaterThan(scroller.x + scroller.width);
@@ -153,12 +154,13 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await stubBoard(page);
     let fail = true;
     await page.route(`**${STATUSES_PATH}`, (route) =>
-      route.request().method() === 'GET' && fail ? route.fulfill({ status: 500, json: { status: 500, message: '' } }) : route.fallback(),
+      // 403 — 재시도하지 않는 오류라 곧바로 오류 화면이 뜬다(전역 재시도 정책 shouldRetryQuery).
+      route.request().method() === 'GET' && fail ? route.fulfill({ status: 403, json: { status: 403, message: '권한이 없습니다' } }) : route.fallback(),
     );
     await page.goto(`/projects/${KEY}?view=board`);
 
     const error = page.getByTestId('board-statuses-error');
-    await expect(error).toContainText('상태 목록을 불러오지 못했습니다', { timeout: 20_000 });
+    await expect(error).toContainText('상태 목록을 불러오지 못했습니다');
     fail = false;
     await error.getByRole('button', { name: '다시 시도' }).click();
     await expect(page.getByTestId('board-col-12')).toBeVisible();

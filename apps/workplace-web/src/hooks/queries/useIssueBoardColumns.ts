@@ -111,12 +111,15 @@ export function useIssueBoardColumns(
     specs.forEach((s, i) => {
       const o = observers[i];
       if (!subs.has(s.id)) {
+        // 새로 붙이는 관찰자는 현재 옵션을 먼저 입힌다 — 만든 뒤 키가 바뀌었으면 구독 시점에 옛 키로 조회하지 않게.
+        o.setOptions(s.options);
         subs.set(s.id, { observer: o, unsubscribe: o.subscribe(notifyManager.batchCalls(rerender)) });
         // 렌더와 구독 사이에 바뀐 결과를 반영한다(useBaseQuery 와 같다) — 바뀌었으면 리스너가 불린다.
         o.updateResult();
+      } else {
+        // 구독 중인 관찰자 — 키가 바뀌면 새 쿼리로 옮겨 가며 필요하면 받는다.
+        o.setOptions(s.options);
       }
-      // 키가 바뀐 관찰자는 새 쿼리로 옮겨 가며 필요하면 받는다(구독 중이라 fetch 가 일어난다).
-      o.setOptions(s.options);
     });
   });
   // 언마운트 — 모든 구독을 뗀다(StrictMode 재마운트 시 위 effect 가 비어 있는 subs 를 보고 다시 붙인다).
