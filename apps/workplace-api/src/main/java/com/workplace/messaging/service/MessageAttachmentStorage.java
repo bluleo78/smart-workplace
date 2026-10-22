@@ -58,10 +58,9 @@ public class MessageAttachmentStorage {
    * @throws IOException 파일 저장 실패 시
    */
   public Long storeTemporary(MultipartFile mf, Long uploaderId) throws IOException {
-    // 저장 칸(255자)을 넘는 이름은 확장자를 살려 줄인다(WP-561) — 응답 이름(MessageAttachmentService)도 같은 규칙.
-    String originalName =
-        SafeFileNames.fitLength(
-            mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file");
+    // 원본 파일명 정리 — 경로 구분자·제어 문자는 "_" 로, 빈 이름은 대체 이름으로(WP-737), 255자를 넘으면 확장자를 살려 줄인다(WP-561). 응답
+    // 이름(MessageAttachmentService)도 같은 규칙.
+    String originalName = SafeFileNames.sanitize(mf.getOriginalFilename(), "file");
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성(상대경로)
     String relativePath = pathBuilder.build(StorageDomain.MESSAGING, originalName);
     fileStore.store(relativePath, mf);
