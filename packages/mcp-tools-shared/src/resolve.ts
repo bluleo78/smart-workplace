@@ -14,6 +14,8 @@ export interface ProjectMetaClient {
   >;
   /** GET /projects/{key}/fields — 커스텀 필드 정의(WP-356). options 는 SELECT·MULTI_SELECT 만. */
   getProjectFields(projectKey: string): Promise<ProjectFieldDef[]>;
+  /** GET /projects/{key}/statuses — 프로젝트 상태 목록(WP-807). category 는 범주(TODO·IN_PROGRESS·DONE·CANCELED). */
+  getProjectStatuses(projectKey: string): Promise<{ id: number; name: string; category: string; position: number }[]>;
 }
 
 /** 커스텀 필드 정의 행(IssueFieldDefResponse) — 이름 해석·값 검증에 쓰는 필드만. */
@@ -45,6 +47,54 @@ export function rowByName<T extends { name: string }>(rows: T[], name: string, w
 /** 유형 이름 → typeId. */
 export async function resolveTypeId(client: Pick<ProjectMetaClient, 'getProjectTypes'>, projectKey: string, typeName: string): Promise<number> {
   return idByName(await client.getProjectTypes(projectKey), typeName, '유형');
+}
+
+/** 이슈 상태 범주(WP-807) — 프로젝트 상태는 모두 이 넷 중 하나에 속한다. 도구의 status 값이 이 중 하나면 범주로 본다. */
+export const ISSUE_STATUS_CATEGORIES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
+
+/** 값이 범주인지 — 대소문자·앞뒤 공백 무시. 범주를 이름보다 먼저 보므로 'DONE' 이라는 이름의 상태가 있어도 범주로 해석한다. */
+const asCategory = (token: string): string | undefined => {
+  const upper = token.trim().toUpperCase();
+  return (ISSUE_STATUS_CATEGORIES as readonly string[]).includes(upper) ? upper : undefined;
+};
+
+/**
+ * 상태 CSV → 범주·이름(WP-807). 대문자로 맞춘 토큰이 범주면 범주, 아니면 상태 이름(원문 trim). 빈 토큰은 버린다.
+ * list_issues 가 범주는 서버 status, 이름은 statusName 으로 나눠 보낼 때 쓴다.
+ */
+export function splitStatusTokens(csv: string): { categories: string[]; names: string[] } {
+  const categories: string[] = [];
+  const names: string[] = [];
+  for (const raw of csv.split(',')) {
+    const token = raw.trim();
+    if (!token) continue;
+    const category = asCategory(token);
+    if (category) categories.push(category);
+    else names.push(token);
+  }
+  return { categories, names };
+}
+
+/** 상태 이름 → 프로젝트 상태 id(WP-807). 정확일치, 없으면 사용 가능한 상태 이름을 담아 throw. */
+export async function resolveStatusId(
+  client: Pick<ProjectMetaClient, 'getProjectStatuses'>,
+  projectKey: string,
+  name: string,
+): Promise<number> {
+  return idByName(await client.getProjectStatuses(projectKey), name, '상태');
+}
+
+/**
+ * update_issue 의 status 값 → PATCH 본문 조각(WP-807). 범주면 { status } — 서버가 범주 기본 상태로 옮긴다(이미 그 범주면 유지).
+ * 그 밖의 값은 프로젝트 상태 이름으로 보고 { statusId } — 범주 판정이 먼저라 범주 값에는 상태 목록을 조회하지 않는다.
+ */
+export async function resolveStatusPatch(
+  client: Pick<ProjectMetaClient, 'getProjectStatuses'>,
+  projectKey: string,
+  status: string,
+): Promise<{ status: string } | { statusId: number }> {
+  const category = asCategory(status);
+  return category ? { status: category } : { statusId: await resolveStatusId(client, projectKey, status.trim()) };
 }
 
 /** 호출자 본인 조회(GET /auth/me) — 담당자 "me" 를 호출자로 치환할 때 쓴다. */

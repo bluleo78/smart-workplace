@@ -55,6 +55,7 @@ function sharedMock(): MockedShared {
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
     getProjectFields: vi.fn().mockResolvedValue([]),
+    getProjectStatuses: vi.fn().mockResolvedValue([]),
     createProjectMeta: vi.fn().mockResolvedValue({}),
     updateProjectMeta: vi.fn().mockResolvedValue({}),
     updateProject: vi.fn().mockResolvedValue({}),
@@ -513,7 +514,8 @@ describe('프로필 구성', () => {
     for (const profile of ['issue', 'assistant'] as const) {
       const tool = find(buildTools(client(), AGENT_ID, profile), 'update_issue');
       expect(tool.inputSchema.parse({ issueKey: 'WP-1', status: 'IN_PROGRESS' })).toMatchObject({ status: 'IN_PROGRESS' });
-      expect(() => tool.inputSchema.parse({ issueKey: 'WP-1', status: 'WRONG' })).toThrow();
+      // WP-807: 범주가 아닌 값은 프로젝트 상태 이름으로 받는다 — 모르는 이름은 핸들러가 사용 가능 목록과 함께 거절한다.
+      expect(tool.inputSchema.parse({ issueKey: 'WP-1', status: '검토 중' })).toMatchObject({ status: '검토 중' });
     }
   });
 
@@ -528,6 +530,14 @@ describe('프로필 구성', () => {
     expect(() =>
       t.inputSchema.parse({ params: { status: 'IN_PROGRESS', priority: ['HIGH'], assignee: 'me' }, layout: { page: 'current' } }),
     ).not.toThrow();
+  });
+
+  it('WP-807: show_issue_list 의 status 설명은 범주만 안내한다(상태 이름은 웹·서버 status 로 못 간다)', () => {
+    const t = find(buildTools(client(), AGENT_ID, 'home'), 'show_issue_list');
+    const json = JSON.stringify(z.toJSONSchema(t.inputSchema));
+    expect(json).toContain('"description":"CSV: TODO,IN_PROGRESS,DONE,CANCELED"');
+    expect(json).not.toContain('상태 이름');
+    expect(json).not.toMatch(/status name/i);
   });
 
   it('#469 show_mail_list 가 params.unreadOnly 를 허용한다', () => {

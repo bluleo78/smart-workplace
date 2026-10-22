@@ -78,7 +78,10 @@ export interface IssueRow {
   projectKey?: string;
   number?: number;
   title?: string;
+  /** 상태 범주(TODO·IN_PROGRESS·DONE·CANCELED). */
   status?: string;
+  /** 프로젝트 상태 이름(WP-807) — 범주 안의 개별 상태(예: 검토 중). */
+  statusName?: string | null;
   priority?: string;
   assignees?: { username?: string; name?: string; kind?: string; [key: string]: unknown }[] | null;
   dueDate?: string | null;

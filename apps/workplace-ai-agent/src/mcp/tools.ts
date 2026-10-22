@@ -230,7 +230,13 @@ const layoutSchema = z
   .optional();
 const showMyTasksInput = z.object({ params: z.object({}).optional(), layout: layoutSchema });
 // #371/#846: show_issue_list(표시 지시)는 list_issues(데이터 조회, 공유)와 같은 필터 집합을 쓴다.
-const showIssueListInput = z.object({ params: z.object(issueListFilterShape).optional(), layout: layoutSchema });
+// WP-807: show_issue_list 의 status 는 웹을 거쳐 서버 status(범주만)로 그대로 가므로 상태 이름을 안내하지 않는다 — 공유 설명(범주 또는 이름)을 범주 전용으로 덮는다.
+const showIssueListInput = z.object({
+  params: z
+    .object({ ...issueListFilterShape, status: z.string().optional().describe('CSV: TODO,IN_PROGRESS,DONE,CANCELED') })
+    .optional(),
+  layout: layoutSchema,
+});
 const showIssueDetailInput = z.object({
   params: z.object({ number: z.number().int().positive(), projectKey: z.string().optional() }),
   layout: layoutSchema,

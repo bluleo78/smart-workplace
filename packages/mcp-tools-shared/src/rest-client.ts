@@ -175,6 +175,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async getProjectFields(key) {
       return (await http.get(`${project(key)}/fields`)).data ?? [];
     },
+    async getProjectStatuses(key) {
+      return (await http.get(`${project(key)}/statuses`)).data ?? [];
+    },
     async createProjectMeta(key, kind, body) {
       return (await http.post(`${project(key)}/${META_PATH[kind]}`, body)).data;
     },

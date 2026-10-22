@@ -1626,7 +1626,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "integer",
         },
         "status": {
-          "description": "CSV: TODO,IN_PROGRESS,DONE,CANCELED",
+          "description": "CSV: TODO,IN_PROGRESS,DONE,CANCELED (category) or status names",
           "type": "string",
         },
         "topLevel": {
@@ -2980,12 +2980,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "status": {
-          "enum": [
-            "TODO",
-            "IN_PROGRESS",
-            "DONE",
-            "CANCELED",
-          ],
+          "description": "TODO/IN_PROGRESS/DONE/CANCELED or a status name",
           "type": "string",
         },
         "title": {

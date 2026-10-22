@@ -39,6 +39,11 @@ function mockClient(): IssueToolClient {
       { id: 10, name: '태그', type: 'MULTI_SELECT', options: ['x', 'y'] },
     ]),
     updateIssueFields: vi.fn().mockResolvedValue({}),
+    getProjectStatuses: vi.fn().mockResolvedValue([
+      { id: 10, name: '할 일', category: 'TODO', position: 0 },
+      { id: 11, name: '진행 중', category: 'IN_PROGRESS', position: 1 },
+      { id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 },
+    ]),
     addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
     claimIssueAttachments: vi.fn().mockResolvedValue([]),
   };
@@ -564,6 +569,42 @@ describe('buildSharedIssueTools', () => {
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { clearMilestone: true });
     expect(c.replaceIssueCycles).toHaveBeenCalledWith('WP-12', []);
     expect(c.getProjectMilestones).not.toHaveBeenCalled();
+  });
+
+  // WP-807: status 는 범주(TODO/IN_PROGRESS/DONE/CANCELED) 또는 프로젝트 상태 이름 — 범주면 status, 이름이면 statusId 로 보낸다.
+  it('update_issue: 범주 값이면 status 로 보낸다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'DONE' })));
+    expect(out.results).toEqual({ content: 'ok' });
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { status: 'DONE' });
+    expect(c.getProjectStatuses).not.toHaveBeenCalled();
+  });
+
+  it('update_issue: 이름이면 statusId 로 보낸다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', status: '검토 중' });
+    expect(c.getProjectStatuses).toHaveBeenCalledWith('WP');
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { statusId: 12 });
+  });
+
+  it('update_issue: "DONE" 이름 상태가 있어도 범주로 해석한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectStatuses).mockResolvedValue([{ id: 40, name: 'DONE', category: 'IN_PROGRESS', position: 0 }]);
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', status: 'done' });
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { status: 'DONE' });
+    expect(c.getProjectStatuses).not.toHaveBeenCalled();
+  });
+
+  it('update_issue: 모르는 이름은 사용 가능 목록과 함께 실패한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await expect(t.handler({ issueKey: 'WP-12', title: '수정', status: '배포' })).rejects.toThrow(
+      /상태 '배포' 을\(를\) 찾을 수 없습니다\. 사용 가능: 할 일, 진행 중, 검토 중/,
+    );
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
   });
 
   it('update_issue 는 모르는 마일스톤이면 아무것도 쓰지 않고 throw (#854)', async () => {

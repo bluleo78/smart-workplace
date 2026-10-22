@@ -45,7 +45,8 @@ export const updateIssueInput = z.object({
   title: z.string().max(200).optional(),
   body: z.string().max(10000).optional(),
   priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']).optional(),
+  // WP-807: 범주 또는 프로젝트 상태 이름 — 핸들러가 범주는 status, 이름은 statusId 로 바꾼다. 설명은 크기 상한 때문에 영어 짧은 문구.
+  status: z.string().optional().describe('TODO/IN_PROGRESS/DONE/CANCELED or a status name'),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   clearDueDate: z.boolean().optional(),
@@ -125,7 +126,10 @@ const assigneeDescription = (extra: string) =>
 
 export const issueListFilterShape = {
   projectKey: z.string().optional().describe('Omit for all my projects'),
-  status: z.string().optional().describe('CSV: TODO,IN_PROGRESS,DONE,CANCELED'),
+  status: z
+    .string()
+    .optional()
+    .describe('CSV — 범주(TODO,IN_PROGRESS,DONE,CANCELED)는 그 범주 전체, 그 밖의 값은 상태 이름(projectKey 없으면 볼 수 있는 모든 프로젝트의 같은 이름)'),
   priority: z.array(z.enum(['LOW', 'MID', 'HIGH'])).optional(),
   label: z.string().optional().describe('Label names CSV; all must match'),
   type: z.string().optional().describe('Type names CSV; any matches'),
@@ -155,6 +159,11 @@ export const listIssuesInput = z.object({
   cursor: z.string().optional(),
   // WP-356 크기 정리: 날짜 범위(…From/…To, yyyy-MM-dd·양끝 포함·종료/생성은 KST)는 list_issues 도구 설명에 한 번만 적고 파라미터 설명은 뺀다.
   // 공유 필터(show_issue_list)의 설명은 그대로 두고 여기서만 덮어쓴다 — 그쪽은 크기 상한 대상이 아니다.
+  // WP-807: 상태 설명도 크기 상한 때문에 영어 짧은 문구로 덮는다(뜻은 공유 필터의 한국어 설명과 같다 — 범주는 그 범주 전체, 그 밖은 상태 이름).
+  status: z
+    .string()
+    .optional()
+    .describe('CSV: TODO,IN_PROGRESS,DONE,CANCELED (category) or status names'),
   dueFrom: z.string().optional(),
   closedFrom: z.string().optional(),
   createdFrom: z.string().optional(),

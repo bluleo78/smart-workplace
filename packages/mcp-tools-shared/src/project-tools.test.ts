@@ -25,6 +25,7 @@ function mockClient(): Client {
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
     getProjectFields: vi.fn().mockResolvedValue([]),
+    getProjectStatuses: vi.fn().mockResolvedValue([]),
     listIssues: vi.fn().mockResolvedValue({ items: [] }),
     updateProject: vi.fn().mockResolvedValue({ key: 'WP' }),
     createProjectMeta: vi.fn().mockResolvedValue({ id: 1, projectId: 2, name: 'x' }),
@@ -70,7 +71,22 @@ describe('get_project', () => {
     const c = mockClient();
     const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
     expect(c.getProject).toHaveBeenCalledWith('WP');
-    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], fields: [], members: [] });
+    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], fields: [], statuses: [], members: [] });
+  });
+
+  it('get_project: statuses 를 포함한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectStatuses).mockResolvedValue([
+      { id: 10, name: '할 일', category: 'TODO', position: 0 },
+      { id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 },
+    ]);
+    const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
+    expect(c.getProjectStatuses).toHaveBeenCalledWith('WP');
+    // 숫자 id 는 빼고 이름·범주·순서만 — update_issue·list_issues 의 status 가 받는 이름이다(WP-807).
+    expect(out.statuses).toEqual([
+      { name: '할 일', category: 'TODO', position: 0 },
+      { name: '검토 중', category: 'IN_PROGRESS', position: 2 },
+    ]);
   });
 
   it('옛 파라미터 key 는 거부한다(projectKey 만)', async () => {
@@ -96,6 +112,7 @@ describe('get_project', () => {
       { id: 8, name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
       { id: 9, name: '견적', type: 'NUMBER', options: null },
     ]);
+    vi.mocked(c.getProjectStatuses).mockResolvedValue([{ id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 }]);
     vi.mocked(c.getProjectMembers).mockResolvedValue([
       { userId: 1010, username: 'alice', name: 'Alice', role: 'OWNER' } as { userId: number; username: string },
     ]);
@@ -116,11 +133,12 @@ describe('get_project', () => {
         { name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
         { name: '견적', type: 'NUMBER' },
       ],
+      statuses: [{ name: '검토 중', category: 'IN_PROGRESS', position: 2 }],
       members: [{ username: 'alice', name: 'Alice', role: 'OWNER' }],
     });
     expect(resultText(raw)).not.toContain('userId');
     expect(resultText(raw)).not.toContain('1010');
-    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectFields, c.getProjectMembers]) {
+    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectFields, c.getProjectStatuses, c.getProjectMembers]) {
       expect(fn).toHaveBeenCalledWith('WP');
     }
   });
@@ -231,6 +249,22 @@ describe('list_issues', () => {
       assignee: 'me',
       size: 10,
     });
+  });
+
+  it('list_issues: 이름은 statusName, 범주는 status 로 나눠 보낸다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', status: 'done, 검토 중' });
+    // 이름 해석은 서버가 한다(projectKey 없으면 볼 수 있는 모든 프로젝트의 같은 이름) — 여기서는 상태 목록을 조회하지 않는다(WP-807).
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', status: 'DONE', statusName: '검토 중', size: 30 });
+    expect(c.getProjectStatuses).not.toHaveBeenCalled();
+  });
+
+  it('list_issues: 범주만 주면 statusName 키가 없고, 이름만 주면 status 키가 없다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ assignee: 'any', status: 'TODO,IN_PROGRESS' });
+    expect(issueQuery(c)).toStrictEqual({ status: 'TODO,IN_PROGRESS', size: 30 });
+    await tool(c, 'list_issues').handler({ assignee: 'any', status: '검토 중,QA' });
+    expect(vi.mocked(c.listIssues).mock.calls[1][0]).toStrictEqual({ statusName: '검토 중,QA', size: 30 });
   });
 
   it('WP-176: assignee="any" 면 담당자 조건을 싣지 않는다(담당자 무관 조회)', async () => {
@@ -367,6 +401,16 @@ describe('list_issues', () => {
     ] });
     expect(raw).not.toContain('9001');
     expect(raw).not.toContain('5005');
+  });
+
+  it('list_issues 항목에 statusName 이 있다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssues).mockResolvedValue({ items: [
+      { projectKey: 'WP', number: 4, title: '리뷰', status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중', statusPosition: 2, priority: 'MID' },
+    ] });
+    const out = JSON.parse(resultText(await tool(c, 'list_issues').handler({})));
+    // status 는 범주 그대로, statusName 은 프로젝트 상태 이름(WP-807). 숫자 statusId·statusPosition 은 싣지 않는다.
+    expect(out.items[0]).toEqual({ issueKey: 'WP-4', title: '리뷰', status: 'IN_PROGRESS', statusName: '검토 중', priority: 'MID', blocked: false });
   });
 
   it('WP-307: 날짜·라벨·마일스톤·부모·하위 진행률을 싣고, 시각은 KST·유형은 이름만', async () => {
