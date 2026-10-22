@@ -180,6 +180,22 @@ class PlatformTenantControllerTest extends IntegrationTestBase {
                 .content(body))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errors.name").exists());
+
+    // WP-780: 로그인 아이디가 되는 이메일에 제로폭 공백(U+200B)을 끼우면 400.
+    String invisible =
+        objectMapper.writeValueAsString(
+            java.util.Map.of(
+                "email", "p780​@x.io",
+                "name", "멤버",
+                "password", "Passw0rdxx",
+                "role", "MEMBER"));
+    mvc.perform(
+            post("/api/platform/tenants/" + tenantId + "/members")
+                .header("Authorization", auth)
+                .contentType("application/json")
+                .content(invisible))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.email").value(org.hamcrest.Matchers.containsString("영문")));
   }
 
   @Test

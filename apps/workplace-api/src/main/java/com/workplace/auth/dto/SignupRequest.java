@@ -1,13 +1,23 @@
 package com.workplace.auth.dto;
 
+import com.workplace.global.util.AccountIdentifierRules;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record SignupRequest(
-    @NotBlank @Email String username,
-    @Email String email,
+    @NotBlank
+        @Email
+        @Pattern(
+            regexp = AccountIdentifierRules.ASCII_ONLY,
+            message = AccountIdentifierRules.ASCII_ONLY_MESSAGE)
+        String username,
+    @Email
+        @Pattern(
+            regexp = AccountIdentifierRules.ASCII_ONLY,
+            message = AccountIdentifierRules.ASCII_ONLY_MESSAGE)
+        String email,
     @NotBlank
         @Size(min = 8, max = 128)
         @Pattern(

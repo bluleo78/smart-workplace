@@ -1,5 +1,6 @@
 package com.workplace.user.dto;
 
+import com.workplace.global.util.AccountIdentifierRules;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -16,8 +17,15 @@ public record CreateMemberRequest(
     @NotBlank
         @Size(max = 50, message = "아이디는 50자 이하여야 합니다")
         @Pattern(regexp = "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", message = "아이디는 이메일 형식이어야 합니다")
+        @Pattern(
+            regexp = AccountIdentifierRules.ASCII_ONLY,
+            message = AccountIdentifierRules.ASCII_ONLY_MESSAGE)
         String username,
-    @Email(message = "올바른 이메일 형식이 아닙니다") String email,
+    @Email(message = "올바른 이메일 형식이 아닙니다")
+        @Pattern(
+            regexp = AccountIdentifierRules.ASCII_ONLY,
+            message = AccountIdentifierRules.ASCII_ONLY_MESSAGE)
+        String email,
     @NotBlank @Size(max = 50, message = "이름은 50자 이하여야 합니다") String name,
     // WP-48: 비우면(null) SSO 전용 구성원 — 서비스가 워크스페이스 SSO 켜짐을 검증한다.
     @Size(min = 8, max = 128)

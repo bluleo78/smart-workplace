@@ -1,6 +1,8 @@
 package com.workplace.user.dto;
 
+import com.workplace.global.util.AccountIdentifierRules;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -11,6 +13,11 @@ import jakarta.validation.constraints.Size;
  * 거른다.
  */
 public record RenameAgentRequest(
-    @NotBlank @Size(max = 50) String username,
+    @NotBlank
+        @Size(max = 50)
+        @Pattern(
+            regexp = AccountIdentifierRules.ASCII_ONLY,
+            message = AccountIdentifierRules.ASCII_ONLY_MESSAGE)
+        String username,
     @NotBlank @Size(max = 50) String name,
     @Size(max = 500) String description) {}
