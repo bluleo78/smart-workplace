@@ -158,7 +158,7 @@ export default function SignupPage() {
               />
             </FormField>
             {serverError && (
-              <p className="text-sm text-destructive">{serverError}</p>
+              <p role="alert" className="text-sm text-destructive">{serverError}</p>
             )}
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? '회원가입 중...' : '회원가입'}

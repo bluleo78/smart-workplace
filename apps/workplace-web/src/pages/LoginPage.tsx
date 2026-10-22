@@ -89,10 +89,14 @@ export default function LoginPage() {
                 type="text"
                 placeholder="아이디를 입력하세요"
                 autoComplete="username"
+                aria-invalid={!!errors.username || undefined}
+                aria-describedby={errors.username ? 'username-error' : undefined}
                 {...register('username')}
               />
               {errors.username && (
-                <p className="text-sm text-destructive">{errors.username.message}</p>
+                <p id="username-error" role="alert" className="text-sm text-destructive">
+                  {errors.username.message}
+                </p>
               )}
             </div>
             <div className="space-y-2">
@@ -100,15 +104,20 @@ export default function LoginPage() {
               <PasswordInput
                 id="password"
                 autoComplete="current-password"
+                aria-invalid={!!errors.password || undefined}
+                aria-describedby={errors.password ? 'password-error' : undefined}
                 {...register('password')}
               />
               {errors.password && (
-                <p className="text-sm text-destructive">{errors.password.message}</p>
+                <p id="password-error" role="alert" className="text-sm text-destructive">
+                  {errors.password.message}
+                </p>
               )}
             </div>
-            {/* 제출 오류가 우선, 없으면 세션 안내(예: refresh 후 남은 워크스페이스 없음 — WP-341 후속) */}
+            {/* 제출 오류가 우선, 없으면 세션 안내(예: refresh 후 남은 워크스페이스 없음 — WP-341 후속).
+                role=alert — 실패하면 포커스가 칸에 머물러 화면을 못 보는 사용자는 실패를 알 수 없었다(WP-733). */}
             {(serverError || authNotice) && (
-              <p className="text-sm text-destructive">{serverError || authNotice}</p>
+              <p role="alert" className="text-sm text-destructive">{serverError || authNotice}</p>
             )}
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? '로그인 중...' : '로그인'}

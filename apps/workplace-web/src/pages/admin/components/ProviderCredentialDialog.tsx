@@ -317,7 +317,7 @@ export function ProviderCredentialDialog({
 
               {probeError ? (
                 <div className="space-y-1.5">
-                  <p className="text-sm text-destructive">{probeError}</p>
+                  <p role="alert" className="text-sm text-destructive">{probeError}</p>
                   <Label htmlFor="credential-model-manual">모델 id (직접 입력)</Label>
                   <Input
                     id="credential-model-manual"

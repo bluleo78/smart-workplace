@@ -148,8 +148,18 @@ export default function ProjectSettingsPage() {
               )}
               <div className={cn('space-y-1', settingsFieldClass)}>
                 <label className="text-sm font-medium" htmlFor="settings-name">이름</label>
-                <Input id="settings-name" {...register('name')} disabled={!canManage} />
-                {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+                <Input
+                  id="settings-name"
+                  aria-invalid={!!errors.name || undefined}
+                  aria-describedby={errors.name ? 'settings-name-error' : undefined}
+                  {...register('name')}
+                  disabled={!canManage}
+                />
+                {errors.name && (
+                  <p id="settings-name-error" role="alert" className="text-sm text-destructive">
+                    {errors.name.message}
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="settings-desc">설명</label>

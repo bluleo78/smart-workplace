@@ -65,7 +65,7 @@ export function WorkspaceSelectCard({ options, notice }: { options: Membership[]
               )}
             </Button>
           ))}
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </CardContent>
       </Card>
     </div>

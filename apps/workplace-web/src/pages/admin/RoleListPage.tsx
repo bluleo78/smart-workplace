@@ -140,7 +140,7 @@ export default function RoleListPage() {
                 />
               </FormField>
               {createError && (
-                <p className="text-sm text-destructive">{createError}</p>
+                <p role="alert" className="text-sm text-destructive">{createError}</p>
               )}
               <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting ? '생성 중...' : '생성'}

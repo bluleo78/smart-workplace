@@ -88,6 +88,8 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 autoFocus
                 enterKeyHint="next"
                 aria-label="제목"
+                aria-invalid={!!errors.title || undefined}
+                aria-describedby={errors.title ? 'issue-create-title-error' : undefined}
                 placeholder="제목"
                 maxLength={200}
                 data-testid="issue-create-title"
@@ -101,7 +103,11 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 }}
                 className="block w-full resize-none overflow-hidden bg-transparent text-xl! leading-7 font-semibold outline-none placeholder:text-muted-foreground"
               />
-              {errors.title && <p className="text-sm text-destructive">{errors.title.message}</p>}
+              {errors.title && (
+                <p id="issue-create-title-error" role="alert" className="text-sm text-destructive">
+                  {errors.title.message}
+                </p>
+              )}
               <textarea
                 {...bodyField}
                 ref={(el) => { bodyField.ref(el); bodyRef.current = el; }}
@@ -121,16 +127,22 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                     inputMode="numeric"
                     min={1}
                     data-testid="create-parent-number"
+                    aria-invalid={!!errors.parentNumber || undefined}
+                    aria-describedby={errors.parentNumber ? 'create-parent-number-error' : undefined}
                     {...register('parentNumber', { valueAsNumber: true })}
                     className="h-11 w-full rounded-md border bg-background px-3 text-base"
                   />
-                  {errors.parentNumber && <p className="text-sm text-destructive">{errors.parentNumber.message}</p>}
+                  {errors.parentNumber && (
+                    <p id="create-parent-number-error" role="alert" className="text-sm text-destructive">
+                      {errors.parentNumber.message}
+                    </p>
+                  )}
                 </div>
               )}
               {/* 보드 컬럼에서 연 경우 그 상태로 만들어진다는 것을 알린다(WP-464). */}
               {f.statusNote && <p className="text-sm text-muted-foreground" data-testid="create-status-note">상태: {f.statusNote}</p>}
               {startDate && <p className="text-sm text-muted-foreground">시작일 {formatDateMonthDay(startDate)}</p>}
-              {errors.startDate && <p className="text-sm text-destructive">{errors.startDate.message}</p>}
+              {errors.startDate && <p role="alert" className="text-sm text-destructive">{errors.startDate.message}</p>}
               {f.classifyReason && <p data-testid="create-ai-reason" className="line-clamp-2 text-xs text-muted-foreground">✦ {f.classifyReason}</p>}
             </div>
             <div className="min-h-14 shrink-0 border-t bg-background" data-testid="issue-create-chips">

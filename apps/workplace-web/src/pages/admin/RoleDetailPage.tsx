@@ -192,29 +192,37 @@ export default function RoleDetailPage() {
             <Label htmlFor="role-name">역할 이름</Label>
             <Input
               id="role-name"
+              aria-invalid={!!form.formState.errors.name || undefined}
+              aria-describedby={form.formState.errors.name ? 'role-name-error' : undefined}
               {...form.register('name')}
               disabled={role.isSystem}
               className="disabled:bg-muted disabled:text-muted-foreground"
             />
             {form.formState.errors.name && (
-              <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
+              <p id="role-name-error" role="alert" className="text-sm text-destructive">
+                {form.formState.errors.name.message}
+              </p>
             )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="role-description">설명</Label>
             <Input
               id="role-description"
+              aria-invalid={!!form.formState.errors.description || undefined}
+              aria-describedby={form.formState.errors.description ? 'role-description-error' : undefined}
               {...form.register('description')}
               disabled={role.isSystem}
               className="disabled:bg-muted disabled:text-muted-foreground"
             />
             {/* WP-570: 설명 상한(255자) 위반을 칸 아래에 보여 준다 — 없으면 저장이 아무 안내 없이 막혔다 */}
             {form.formState.errors.description && (
-              <p className="text-sm text-destructive">{form.formState.errors.description.message}</p>
+              <p id="role-description-error" role="alert" className="text-sm text-destructive">
+                {form.formState.errors.description.message}
+              </p>
             )}
           </div>
           {roleError && (
-            <p className="text-sm text-destructive">{roleError}</p>
+            <p role="alert" className="text-sm text-destructive">{roleError}</p>
           )}
           {/* 시스템 역할은 수정 불가 — isSystem 플래그로 저장 버튼도 비활성화 */}
           <Button type="submit" disabled={isSavingRole || role.isSystem}>

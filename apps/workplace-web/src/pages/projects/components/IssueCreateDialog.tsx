@@ -135,9 +135,17 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="issue-start">시작일</label>
-              <Input id="issue-start" type="date" {...register('startDate')} />
+              <Input
+                id="issue-start"
+                type="date"
+                aria-invalid={!!errors.startDate || undefined}
+                aria-describedby={errors.startDate ? 'issue-start-error' : undefined}
+                {...register('startDate')}
+              />
               {errors.startDate && (
-                <p className="text-sm text-destructive">{errors.startDate.message}</p>
+                <p id="issue-start-error" role="alert" className="text-sm text-destructive">
+                  {errors.startDate.message}
+                </p>
               )}
             </div>
             <div className="space-y-1">
@@ -156,11 +164,15 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
                 id="create-parent-number"
                 type="number"
                 min={1}
+                aria-invalid={!!errors.parentNumber || undefined}
+                aria-describedby={errors.parentNumber ? 'create-parent-number-error' : undefined}
                 {...register('parentNumber', { valueAsNumber: true })}
                 data-testid="create-parent-number"
               />
               {errors.parentNumber && (
-                <p className="text-sm text-destructive">{errors.parentNumber.message}</p>
+                <p id="create-parent-number-error" role="alert" className="text-sm text-destructive">
+                  {errors.parentNumber.message}
+                </p>
               )}
             </div>
           )}

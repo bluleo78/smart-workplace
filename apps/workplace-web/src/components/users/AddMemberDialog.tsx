@@ -131,7 +131,7 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
             첫 저장 직후 체크가 풀려 '계속 추가'가 깨진다(#655 연속등록 flake 의 진짜 원인). */}
         <form id="add-member-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
-            <p className="text-sm text-destructive" data-testid="add-member-error">
+            <p role="alert" className="text-sm text-destructive" data-testid="add-member-error">
               {serverError}
             </p>
           )}
@@ -158,20 +158,47 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
               autoComplete="off"
               placeholder="name@company.com"
               data-testid="add-member-username"
+              aria-invalid={!!errors.username || undefined}
+              aria-describedby={errors.username ? 'member-username-error' : undefined}
               {...register('username')}
             />
             <p className="text-xs text-muted-foreground">회사 계정 주소(이메일)를 입력하세요.</p>
-            {errors.username && <p className="text-sm text-destructive">{errors.username.message}</p>}
+            {errors.username && (
+              <p id="member-username-error" role="alert" className="text-sm text-destructive">
+                {errors.username.message}
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="member-email">이메일 (선택)</Label>
-            <Input id="member-email" type="email" data-testid="add-member-email" {...register('email')} />
-            {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+            <Input
+              id="member-email"
+              type="email"
+              data-testid="add-member-email"
+              aria-invalid={!!errors.email || undefined}
+              aria-describedby={errors.email ? 'member-email-error' : undefined}
+              {...register('email')}
+            />
+            {errors.email && (
+              <p id="member-email-error" role="alert" className="text-sm text-destructive">
+                {errors.email.message}
+              </p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="member-name">이름</Label>
-            <Input id="member-name" data-testid="add-member-name" {...register('name')} />
-            {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
+            <Input
+              id="member-name"
+              data-testid="add-member-name"
+              aria-invalid={!!errors.name || undefined}
+              aria-describedby={errors.name ? 'member-name-error' : undefined}
+              {...register('name')}
+            />
+            {errors.name && (
+              <p id="member-name-error" role="alert" className="text-sm text-destructive">
+                {errors.name.message}
+              </p>
+            )}
           </div>
           {loginMethod === 'PASSWORD' && (
             <div className="space-y-2">
@@ -181,9 +208,15 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
                 type="password"
                 placeholder="8자 이상, 영문 대/소문자·숫자 포함"
                 data-testid="add-member-password"
+                aria-invalid={!!errors.password || undefined}
+                aria-describedby={errors.password ? 'member-password-error' : undefined}
                 {...register('password')}
               />
-              {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
+              {errors.password && (
+                <p id="member-password-error" role="alert" className="text-sm text-destructive">
+                  {errors.password.message}
+                </p>
+              )}
             </div>
           )}
           <div className="space-y-2">
