@@ -45,7 +45,10 @@ public class PermissionInterceptor implements HandlerInterceptor {
     boolean adminOnly =
         handlerMethod.hasMethodAnnotation(RequireAdmin.class)
             || handlerMethod.getBeanType().isAnnotationPresent(RequireAdmin.class);
-    if (annotation == null && !adminOnly) {
+    boolean webSessionOnly =
+        handlerMethod.hasMethodAnnotation(RequireWebSession.class)
+            || handlerMethod.getBeanType().isAnnotationPresent(RequireWebSession.class);
+    if (annotation == null && !adminOnly && !webSessionOnly) {
       return true;
     }
 
@@ -63,6 +66,10 @@ public class PermissionInterceptor implements HandlerInterceptor {
             && permissionChecker.getIfAvailable() instanceof PermissionChecker checker
             && checker.userHasRole(userId, "ADMIN"))) {
       throw new AccessDeniedException("관리자만 할 수 있는 작업입니다");
+    }
+    // WP-845: 권한·자격 증명을 새로 만드는 관리 동작은 웹 로그인 세션에서만 — 권한 확인 뒤에 판정해 권한 없는 호출은 그대로 권한 오류를 받는다.
+    if (webSessionOnly) {
+      AuthDetails.requireWebSession(authentication);
     }
 
     return true;

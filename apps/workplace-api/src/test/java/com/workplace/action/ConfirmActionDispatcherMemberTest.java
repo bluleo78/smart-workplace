@@ -12,6 +12,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.support.WebSessionAuth;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -42,10 +45,13 @@ class ConfirmActionDispatcherMemberTest extends IntegrationTestBase {
     TenantContext.set(1L);
     admin = seedHuman("member_admin", "ADMIN");
     target = seedHuman("member_target", "USER");
+    // 역할 부여 승인은 웹 로그인 세션에서만 된다(WP-845) — 화면에서 승인하는 요청처럼 세션 인증을 건다.
+    SecurityContextHolder.getContext().setAuthentication(WebSessionAuth.of(admin, List.of()));
   }
 
   @AfterEach
   void tearDown() {
+    SecurityContextHolder.clearContext();
     TenantContext.clear();
   }
 

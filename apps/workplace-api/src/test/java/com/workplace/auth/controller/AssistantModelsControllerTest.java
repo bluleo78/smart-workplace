@@ -26,6 +26,7 @@ import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.WebSessionAuth;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -67,7 +67,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
 
   private Authentication authWith(Long userId, String... permissions) {
     var authorities = Arrays.stream(permissions).map(SimpleGrantedAuthority::new).toList();
-    return new UsernamePasswordAuthenticationToken(userId, "n/a", authorities);
+    return WebSessionAuth.of(userId, authorities);
   }
 
   @Test

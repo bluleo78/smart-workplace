@@ -4,6 +4,7 @@ import com.workplace.auth.web.RefreshTokenCookies;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.security.AuthDetails;
 import com.workplace.global.security.RequirePermission;
+import com.workplace.global.security.RequireWebSession;
 import com.workplace.user.dto.*;
 import com.workplace.user.service.UserService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -35,6 +36,7 @@ public class UserController {
    * 권한 상승을 막기 위함. callerId 는 감사 로그용으로 서비스에 전달.
    */
   @PostMapping
+  @RequireWebSession
   @RequirePermission({"user:write", "role:assign"})
   public ResponseEntity<MemberResponse> createMember(
       Authentication authentication, @Valid @RequestBody CreateMemberRequest req) {
@@ -114,6 +116,7 @@ public class UserController {
   }
 
   @PutMapping("/{id}/roles")
+  @RequireWebSession
   @RequirePermission("role:assign")
   public ResponseEntity<Void> setUserRoles(
       Authentication authentication,
