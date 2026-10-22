@@ -20,6 +20,7 @@ import com.workplace.calendar.repository.CalendarTagRepository;
 import com.workplace.calendar.repository.CalendarTagRepository.EventTagLink;
 import com.workplace.calendar.repository.CalendarTagRepository.TagRow;
 import com.workplace.calendar.service.CalendarTransport.LiveCategories;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.global.util.Texts;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.repository.EmailAccountRepository;
@@ -110,7 +111,10 @@ public class CalendarTagService {
   public CalendarTagResponse update(long callerId, long tagId, CalendarTagRequest req) {
     TagRow current = requireOwned(callerId, tagId);
     // 이름이 그대로면 이름 검사를 건너뛴다 — Outlook 범주에서 온 50자 넘는 태그도 색만 바꿀 수 있어야 한다(화면은 늘 이름·색을 함께 보낸다).
-    boolean sameName = req.name() == null || req.name().strip().equals(current.name());
+    boolean sameName =
+        req.name() == null
+            || req.name().strip().equals(current.name())
+            || SingleLineTitles.normalize(req.name()).equals(current.name());
     if (!sameName && tagRepo.hasOutlookLinks(tagId)) {
       throw new OutlookTagRenameNotAllowedException();
     }
@@ -375,9 +379,12 @@ public class CalendarTagService {
     return tagRepo.findOwned(callerId, tagId).orElseThrow(CalendarTagNotFoundException::new);
   }
 
-  /** 이름 정리·검증 — 앞뒤 공백을 떼고 1~50자. */
+  /**
+   * 이름 정리·검증 — 다른 이름 칸처럼 한 줄로 다듬고(줄바꿈→공백, 앞뒤 보이지 않는 글자 제거, 그려지는 글자가 없으면 빈 이름) 1~50자. 제로폭·점자 빈칸만 있는
+   * 이름이 빈 칩으로, 줄바꿈 든 이름이 두 줄로 저장됐다(WP-768, WP-724 빈틈).
+   */
   private static String requireName(String raw) {
-    String name = Objects.requireNonNullElse(raw, "").strip();
+    String name = SingleLineTitles.normalize(Objects.requireNonNullElse(raw, ""));
     if (name.isEmpty() || name.length() > NAME_MAX) {
       throw new IllegalArgumentException("태그 이름은 1~" + NAME_MAX + "자로 입력하세요");
     }
