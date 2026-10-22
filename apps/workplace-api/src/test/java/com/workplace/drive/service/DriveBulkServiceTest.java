@@ -88,4 +88,37 @@ class DriveBulkServiceTest extends IntegrationTestBase {
     assertThat(folderOp).isNotNull();
     assertThat(fileOp).isEqualTo(folderOp);
   }
+
+  /** WP-782: 부모 폴더와 그 안의 폴더·파일을 함께 골라도(순서 무관) 404 없이 지워지고, 휴지통 최상위는 부모 하나다. */
+  @Test
+  void 부모와_하위를_함께_골라도_한번에_지워지고_최상위는_부모만() throws Exception {
+    DriveSpaceResponse space = createSpace();
+    DriveFolderResponse parent = folderService.create(owner, space.id(), null, "parent");
+    DriveFolderResponse child = folderService.create(owner, space.id(), parent.id(), "child");
+    DriveFileResponse inChild = uploadFile(space.id(), child.id(), "in-child.txt");
+    DriveFileResponse inParent = uploadFile(space.id(), parent.id(), "in-parent.txt");
+
+    bulkService.bulkDelete(
+        owner,
+        space.id(),
+        List.of(inChild.id(), inParent.id(), inParent.id()),
+        List.of(child.id(), parent.id()));
+
+    assertThat(
+            dsl.select(DRIVE_FOLDER.ID, DRIVE_FOLDER.TRASH_ROOT)
+                .from(DRIVE_FOLDER)
+                .where(DRIVE_FOLDER.ID.in(parent.id(), child.id()))
+                .and(DRIVE_FOLDER.TRASHED_AT.isNotNull())
+                .fetchMap(DRIVE_FOLDER.ID, DRIVE_FOLDER.TRASH_ROOT))
+        .containsEntry(parent.id(), true)
+        .containsEntry(child.id(), false);
+    assertThat(
+            dsl.select(DRIVE_FILE.ID, DRIVE_FILE.TRASH_ROOT)
+                .from(DRIVE_FILE)
+                .where(DRIVE_FILE.ID.in(inChild.id(), inParent.id()))
+                .and(DRIVE_FILE.TRASHED_AT.isNotNull())
+                .fetchMap(DRIVE_FILE.ID, DRIVE_FILE.TRASH_ROOT))
+        .containsEntry(inChild.id(), false)
+        .containsEntry(inParent.id(), false);
+  }
 }

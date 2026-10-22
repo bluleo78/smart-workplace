@@ -12,9 +12,11 @@ import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,9 +51,8 @@ public class DriveBulkService {
     DriveBulkSelection selection = DriveBulkSelection.of(fileIds, folderIds);
     fileIds = selection.fileIds();
     folderIds = selection.folderIds();
-    long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
-    String username = usernameOf(callerId);
-
+    // 1) 표시 전에 모두 확인한다 — 없는 항목·다른 공간 항목이 있으면 아무것도 지우지 않고 거절(404·400).
+    Map<Long, DriveFileRepository.DriveFileRow> fileRows = new LinkedHashMap<>();
     if (folderIds != null) {
       for (Long folderId : folderIds) {
         long fSpace =
@@ -61,7 +62,6 @@ public class DriveBulkService {
         if (fSpace != spaceId) {
           throw new DriveInvalidTargetException("다른 공간의 폴더는 포함할 수 없습니다.");
         }
-        folders.markSubtreeTrashed(folderId, opId);
       }
     }
     if (fileIds != null) {
@@ -71,21 +71,45 @@ public class DriveBulkService {
         if (row.spaceId() != spaceId) {
           throw new DriveInvalidTargetException("다른 공간의 파일은 포함할 수 없습니다.");
         }
-        files.markTrashed(fileId, opId);
-        // 단건 삭제와 동일하게 FILE_DELETE 감사 로그를 남긴다(#81).
-        auditLogService.log(
-            callerId,
-            username,
-            "FILE_DELETE",
-            "drive",
-            String.valueOf(fileId),
-            "드라이브 파일 삭제(벌크): " + row.name(),
-            null,
-            null,
-            "SUCCESS",
-            null,
-            Map.of("spaceId", spaceId, "fileName", row.name(), "bulkOpId", opId));
+        fileRows.put(fileId, row);
       }
+    }
+
+    long opId = dsl.nextval(com.workplace.jooq.Sequences.DRIVE_TRASH_OP_SEQ);
+    String username = usernameOf(callerId);
+    // 2) 부모 폴더와 그 안의 폴더·파일을 함께 고르면 안쪽 항목은 부모와 함께 지워지므로 따로 표시하지 않는다(WP-782). 예전엔 부모를 먼저 표시한 뒤
+    // 안쪽 항목을 「찾을 수 없음」 404 로 보고 전체를 실패시켰다. 안쪽 폴더를 따로 표시하면 휴지통 최상위(trash_root)로도 잘못 남는다.
+    // 고른 폴더마다 하위(자기 제외)를 한 번씩만 모은다 — 어느 고른 폴더의 하위인 고른 폴더는 최상위로 표시하지 않는다.
+    Set<Long> covered = new HashSet<>(); // 고른 폴더들의 서브트리(자기 포함) — 그 안의 고른 파일은 함께 지워진다
+    Set<Long> nested = new HashSet<>(); // 다른 고른 폴더의 하위
+    if (folderIds != null) {
+      for (Long folderId : folderIds) {
+        for (Long sub : folders.findSubtreeFolderIds(folderId)) {
+          covered.add(sub);
+          if (!sub.equals(folderId)) nested.add(sub);
+        }
+      }
+      for (Long folderId : folderIds) {
+        if (!nested.contains(folderId)) folders.markSubtreeTrashed(folderId, opId);
+      }
+    }
+    for (DriveFileRepository.DriveFileRow row : fileRows.values()) {
+      long fileId = row.id();
+      if (row.folderId() != null && covered.contains(row.folderId())) continue; // 고른 폴더와 함께 지워짐
+      files.markTrashed(fileId, opId);
+      // 단건 삭제와 동일하게 FILE_DELETE 감사 로그를 남긴다(#81).
+      auditLogService.log(
+          callerId,
+          username,
+          "FILE_DELETE",
+          "drive",
+          String.valueOf(fileId),
+          "드라이브 파일 삭제(벌크): " + row.name(),
+          null,
+          null,
+          "SUCCESS",
+          null,
+          Map.of("spaceId", spaceId, "fileName", row.name(), "bulkOpId", opId));
     }
     notifier.itemsChanged(OP_DELETED, spaceId, union(fileIds, folderIds), callerId);
   }
