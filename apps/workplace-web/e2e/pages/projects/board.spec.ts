@@ -218,6 +218,13 @@ test.describe('태스크 보드/검색', () => {
     await expect.poll(() => searches.urls().some((u) => u.search.includes('q=login'))).toBe(true);
     // URL 도 동기화
     await expect(page).toHaveURL(/q=login/);
+
+    // WP-732 — 긴 글은 200자로 잘려 요청된다(요청 줄 한도를 넘겨 목록이 실패하지 않게)
+    await page.getByLabel('태스크 검색').fill('a'.repeat(9000));
+    await expect(page.getByLabel('태스크 검색')).toHaveValue('a'.repeat(200));
+    await expect
+      .poll(() => searches.urls().some((u) => u.searchParams.get('q') === 'a'.repeat(200)))
+      .toBe(true);
   });
 
   test('status 필터 버튼 클릭 → URL + API status 파라미터 반영', async ({

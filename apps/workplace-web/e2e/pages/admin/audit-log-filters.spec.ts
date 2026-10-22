@@ -124,6 +124,44 @@ test.describe('/settings/audit-logs — actionType·resource facet 필터', () =
     },
   );
 
+  // WP-732 — 긴 글을 붙여 넣어도 검색어는 200자로 잘려, 요청 줄 한도를 넘겨 목록이 실패하지 않는다.
+  test('검색칸에 긴 글을 넣으면 200자로 잘려 요청된다', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    const capture = await setupCapturedAuditLogMocks(page);
+    await page.goto('/settings/audit-logs');
+    await capture.waitForRequest();
+
+    const input = page.getByPlaceholder('설명으로 검색...');
+    await input.fill('가'.repeat(3000));
+    await expect(input).toHaveValue('가'.repeat(200));
+    await expect.poll(() => capture.lastRequest()?.searchParams.get('search')).toBe('가'.repeat(200));
+  });
+
+  // WP-732 — 긴 검색어로 결과가 0건이면 빈 결과 문구가 검색어를 줄여 보이고, 표를 가로로 늘리지 않는다.
+  test('긴 검색어의 빈 결과 문구는 줄여 보이고 표 너비를 넘지 않는다', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    await setupCapturedAuditLogMocks(page);
+    await page.route(
+      (url) => url.pathname === '/api/v1/admin/audit-logs' && url.searchParams.has('search'),
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createPageResponse([])) }),
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/settings/audit-logs');
+    await page.getByPlaceholder('설명으로 검색...').fill('가'.repeat(200));
+
+    const empty = page.getByText('에 대한 결과가 없습니다.');
+    await expect(empty).toBeVisible();
+    await expect(page.getByText(`'${'가'.repeat(40)}…'`)).toBeVisible();
+    // 표(가로 스크롤 영역)가 문구 때문에 넓어지지 않는다
+    const table = page.locator('table').first();
+    const { scroll, client } = await table.evaluate((el) => {
+      const box = el.parentElement as HTMLElement;
+      return { scroll: box.scrollWidth, client: box.clientWidth };
+    });
+    expect(scroll).toBeLessThanOrEqual(client + 1);
+  });
+
   // #810 — 행이 클릭 전용이라 키보드로는 상세 다이얼로그를 열 수 없었다.
   test('감사 로그 행을 키보드(Tab+Enter)로 상세 다이얼로그를 열 수 있다 (#810)', async ({ adminPage: page }) => {
     await setupAdminAuth(page);

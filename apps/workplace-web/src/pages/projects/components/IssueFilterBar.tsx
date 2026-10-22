@@ -19,6 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits';
 import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +42,8 @@ export function IssueFilterBar({
       <Input
         value={c.qDraft}
         onChange={(e) => c.setQDraft(e.target.value)}
+        // 검색어 길이 상한 — 서버 요청 줄 한도를 넘겨 목록이 실패하지 않게(WP-732)
+        maxLength={SEARCH_QUERY_MAX_LENGTH}
         placeholder="태스크 검색"
         className="w-64"
         aria-label="태스크 검색"

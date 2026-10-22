@@ -16,6 +16,15 @@ interface TableEmptyRowProps {
   emptyAction?: ReactNode;
 }
 
+/** 빈 결과 문구에 넣는 검색어의 최대 글자 수 — 긴 검색어(최대 200자, WP-732)가 표를 가로로 늘리지 않게 줄여 보인다. */
+const KEYWORD_DISPLAY_MAX = 40;
+
+/** 검색어를 글자(코드 포인트) 단위로 잘라 말줄임표를 붙인다 — 이모지 쌍을 반으로 가르지 않게. */
+function shortenKeyword(keyword: string): string {
+  const chars = Array.from(keyword);
+  return chars.length > KEYWORD_DISPLAY_MAX ? chars.slice(0, KEYWORD_DISPLAY_MAX).join('') + '…' : keyword;
+}
+
 /**
  * 테이블 빈 상태 행.
  *
@@ -33,13 +42,14 @@ export function TableEmptyRow({
 
   return (
     <TableRow>
-      <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-12">
+      {/* TableCell 기본 nowrap 을 풀어, 문구가 표 너비를 넘지 않고 줄바꿈되게 한다(WP-732). */}
+      <TableCell colSpan={colSpan} className="text-center text-muted-foreground py-12 whitespace-normal">
         {isSearchEmpty ? (
           <div className="flex flex-col items-center gap-3">
             <SearchX className="h-8 w-8 text-muted-foreground/60" aria-hidden="true" />
             <div className="space-y-1">
               <p className="text-sm">
-                <span className="font-medium text-foreground">'{searchKeyword}'</span>
+                <span className="font-medium text-foreground break-all">'{shortenKeyword(searchKeyword)}'</span>
                 <span>에 대한 결과가 없습니다.</span>
               </p>
               <p className="text-xs">다른 키워드로 검색해 보세요.</p>

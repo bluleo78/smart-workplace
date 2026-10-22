@@ -1,5 +1,6 @@
 import { Search, X } from 'lucide-react';
 
+import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits';
 import { cn } from '@/lib/utils';
 
 import { Input } from './input';
@@ -30,6 +31,8 @@ export function SearchInput({ placeholder = '검색...', 'aria-label': ariaLabel
         aria-label={ariaLabel ?? placeholder}
         data-testid={inputTestId}
         value={value}
+        // 검색어 길이 상한 — 서버 요청 줄 한도를 넘겨 목록이 실패하지 않게(WP-732)
+        maxLength={SEARCH_QUERY_MAX_LENGTH}
         onChange={(e) => onChange(e.target.value)}
         className={cn('pl-9', hasValue && 'pr-9')}
       />

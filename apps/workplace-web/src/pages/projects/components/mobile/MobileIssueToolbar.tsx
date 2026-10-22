@@ -7,6 +7,7 @@ import { type ReactNode, useState } from 'react';
 
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { Input } from '@/components/ui/input';
+import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits';
 import { cn, euroRo } from '@/lib/utils';
 
 import { ISSUE_GROUP_BY_LABEL } from '../../../../lib/issueGrouping';
@@ -59,6 +60,8 @@ function ToolbarBody({
           autoFocus
           value={c.qDraft}
           onChange={(e) => c.setQDraft(e.target.value)}
+        // 검색어 길이 상한 — 서버 요청 줄 한도를 넘겨 목록이 실패하지 않게(WP-732)
+        maxLength={SEARCH_QUERY_MAX_LENGTH}
           placeholder="태스크 검색"
           aria-label="태스크 검색"
           data-testid="mobile-search-input"
