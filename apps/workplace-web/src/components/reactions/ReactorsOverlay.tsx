@@ -1,37 +1,44 @@
 // 반응자 전체 보기 오버레이(WP-106) — 데스크톱은 Dialog, 모바일 터치 셸은 하단 Sheet. 내용은 ReactorsPanel 공용.
-// 열린 대상은 MessageList 가 id 로 들고 최신 목록에서 찾아 넘긴다 — 반응이 모두 사라지면 MessageList 가 open 을 내려 닫는다.
-import { ReactorsPanel } from '@/components/chat/ReactorsPanel'
+// WP-504: 대상·반응자 소스 주입형 — 채팅 메시지·이슈 코멘트가 함께 쓴다.
+// 열린 대상은 호출부(채팅은 MessageList)가 id 로 들고 최신 목록에서 찾아 넘긴다 — 반응이 모두 사라지면 호출부가 open 을 내려 닫는다.
+import { ReactorsPanel } from '@/components/reactions/ReactorsPanel'
+import type { ReactionTarget, ReactorSource } from '@/components/reactions/types'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
-import type { MessageResponse } from '@/types/messaging'
 
 export function ReactorsOverlay({
-  message,
+  target,
+  source,
   initialEmoji,
   open,
   onClose,
   touch,
   currentUserId,
   meName,
+  description = '이 메시지에 반응한 사람',
 }: {
-  message: MessageResponse | undefined
+  target: ReactionTarget | undefined
+  source: ReactorSource
   initialEmoji: string
   open: boolean
   onClose: () => void
   touch: boolean
   currentUserId: number
   meName: string
+  // 스크린리더용 설명 — 대상 종류에 맞춘다(채팅은 기본값, 이슈 코멘트는 「이 코멘트에 반응한 사람」).
+  description?: string
 }) {
-  // 반응이 모두 사라졌을 때 닫는 일은 MessageList 의 render-time 닫기가 맡는다 — 여기선 대상 메시지가 목록에 있는지만 본다.
-  const visible = open && !!message
+  // 반응이 모두 사라졌을 때 닫는 일은 호출부의 render-time 닫기가 맡는다 — 여기선 대상이 목록에 있는지만 본다.
+  const visible = open && !!target
   const onOpenChange = (next: boolean) => {
     if (!next) onClose()
   }
   // 열 때마다 탭을 누른 이모지로 초기화 — key 로 패널을 새로 만든다.
-  const panel = message && (
+  const panel = target && (
     <ReactorsPanel
-      key={`${message.id}-${initialEmoji}`}
-      message={message}
+      key={`${target.id}-${initialEmoji}`}
+      target={target}
+      source={source}
       initialEmoji={initialEmoji}
       currentUserId={currentUserId}
       meName={meName}
@@ -50,7 +57,7 @@ export function ReactorsOverlay({
         >
           <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
           <SheetTitle>반응</SheetTitle>
-          <SheetDescription className="sr-only">이 메시지에 반응한 사람</SheetDescription>
+          <SheetDescription className="sr-only">{description}</SheetDescription>
           {panel}
         </SheetContent>
       </Sheet>
@@ -60,7 +67,7 @@ export function ReactorsOverlay({
     <Dialog open={visible} onOpenChange={onOpenChange}>
       <DialogContent data-testid="reactors-dialog" className="gap-3 sm:max-w-sm">
         <DialogTitle>반응</DialogTitle>
-        <DialogDescription className="sr-only">이 메시지에 반응한 사람</DialogDescription>
+        <DialogDescription className="sr-only">{description}</DialogDescription>
         {panel}
       </DialogContent>
     </Dialog>

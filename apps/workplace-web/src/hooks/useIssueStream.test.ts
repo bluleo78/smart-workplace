@@ -27,6 +27,15 @@ describe('handleIssueEvent', () => {
     expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.detail('EX', 21) });
   });
 
+  it('issue.comment_reactions_changed → 이슈 detail 캐시와 그 코멘트의 반응자 캐시를 무효화 (WP-504)', () => {
+    const qc = mockQueryClient();
+    handleIssueEvent(qc, 'issue.comment_reactions_changed', {
+      projectKey: 'EX', issueNumber: 21, issueId: 7, issueKey: 'EX-21', commentId: 99, actorId: 3,
+    });
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.detail('EX', 21) });
+    expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: issueKeys.commentReactors(99) });
+  });
+
   it('알 수 없는 이벤트는 무시', () => {
     const qc = mockQueryClient();
     handleIssueEvent(qc, 'issue.status_changed', { projectKey: 'EX', issueNumber: 21 });

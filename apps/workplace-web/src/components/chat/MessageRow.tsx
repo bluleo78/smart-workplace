@@ -7,7 +7,6 @@ import type { ComponentProps, Ref } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
-import { EmojiPicker } from '@/components/chat/EmojiPicker'
 import { MessageActionsButton } from '@/components/chat/MessageActionsButton'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
@@ -19,12 +18,14 @@ import {
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
-import { ReactionBar } from '@/components/chat/ReactionBar'
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
+import { EmojiPicker } from '@/components/reactions/EmojiPicker'
+import { ReactionBar } from '@/components/reactions/ReactionBar'
 import { Button } from '@/components/ui/button'
 import { teamChatBundle } from '@/components/viewer/viewerItems'
+import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
@@ -278,7 +279,8 @@ export function MessageRow({
   // 반응 칩 — 메시지 아래, 메시지와 같은 쪽 정렬(위는 작업 툴바, 아래는 결과).
   const reactions = (
     <ReactionBar
-      message={m}
+      target={m}
+      source={messageReactorSource(m.id)}
       align={isOwn ? 'end' : 'start'}
       currentUserId={currentUserId}
       onToggle={onToggleReaction}

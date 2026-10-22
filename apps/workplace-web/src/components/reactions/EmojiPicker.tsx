@@ -2,7 +2,7 @@
 import { SmilePlus } from 'lucide-react'
 import { useState } from 'react'
 
-import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/chat/emojiSets'
+import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 

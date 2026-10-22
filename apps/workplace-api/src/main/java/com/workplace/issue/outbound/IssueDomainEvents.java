@@ -76,6 +76,18 @@ public final class IssueDomainEvents {
       long commentId,
       Instant occurredAt) {}
 
+  /**
+   * 코멘트 반응 추가·취소(WP-504). 실시간 재조회 신호 전용 — 알림·ai-agent 발사·AI 요약 갱신 대상이 아니다(반응은 알림을 만들지 않는다). 무엇이
+   * 바뀌었는지는 싣지 않는다: 받는 쪽은 코멘트 목록을 다시 받아 보는 사람별 reacted 를 얻는다.
+   */
+  public record IssueCommentReactionsChangedEvent(
+      Long issueId,
+      String issueKey,
+      String projectKey,
+      int issueNumber,
+      Long commentId,
+      Long actorId) {}
+
   /** 상태 전이 (예: TODO → IN_PROGRESS). */
   public record IssueStatusChangedEvent(
       long issueId,

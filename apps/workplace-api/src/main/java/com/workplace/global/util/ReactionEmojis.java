@@ -1,12 +1,13 @@
-package com.workplace.messaging.service;
+package com.workplace.global.util;
 
 import java.util.regex.Pattern;
 
 /**
  * 리액션 값 판정(WP-594). 리액션은 이모지 하나(확장 그래핌 하나)만 받는다 — 글자·HTML·이모지 여러 개·보이지 않는 문자가 리액션 줄에 붙으면 「승인함」처럼 공식
- * 표시로 오해되거나 무엇인지 알 수 없는 칩이 생긴다. 웹 피커 목록으로 제한하지 않는 것은 AI 도구(MCP)가 다른 이모지를 쓸 수 있게 하려는 것이다.
+ * 표시로 오해되거나 무엇인지 알 수 없는 칩이 생긴다. 웹 피커 목록으로 제한하지 않는 것은 AI 도구(MCP)가 다른 이모지를 쓸 수 있게 하려는 것이다. 채팅 메시지 반응과
+ * 이슈 코멘트 반응(WP-504)이 함께 쓰므로 global.util 에 둔다.
  */
-final class ReactionEmojis {
+public final class ReactionEmojis {
 
   /** 확장 그래핌 하나 — 피부색·ZWJ 묶음(👩‍💻)·국기(🇰🇷)·키캡(1️⃣)도 한 덩어리로 본다. */
   private static final Pattern ONE_GRAPHEME = Pattern.compile("\\X");
@@ -14,7 +15,7 @@ final class ReactionEmojis {
   private ReactionEmojis() {}
 
   /** 값이 이모지 하나인가. 그래핌이 하나이고, 그림 이모지이거나 이모지 표시(FE0F·키캡·국기)가 붙은 것만 참. */
-  static boolean isSingleEmoji(String value) {
+  public static boolean isSingleEmoji(String value) {
     if (value == null || value.isEmpty() || !ONE_GRAPHEME.matcher(value).matches()) {
       return false;
     }

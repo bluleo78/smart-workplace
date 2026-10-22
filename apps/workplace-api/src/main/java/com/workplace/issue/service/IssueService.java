@@ -78,6 +78,7 @@ public class IssueService {
   private final IssueRepository issueRepository;
   private final IssueBodyImageService bodyImageService;
   private final IssueCommentRepository commentRepository;
+  private final IssueCommentReactionService commentReactionService;
   private final IssueHistoryRepository historyRepository;
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
@@ -481,7 +482,8 @@ public class IssueService {
     var assignees = assigneeRepository.findByIssue(row.id());
     var typeMap = typeRepository.findByIds(List.of(row.typeId()));
     var type = typeMap.get(row.typeId());
-    var comments = commentRepository.findByIssue(row.id());
+    // 코멘트마다 보는 사람별 반응 집계를 싣는다(WP-504) — 집계 쿼리 한 번.
+    var comments = commentReactionService.enrich(commentRepository.findByIssue(row.id()), callerId);
     var history = historyRepository.findByIssue(row.id());
     // Phase 4a — 부모/자식 트리 정보. SUBTASK 면 parent 채움, 비SUBTASK 면 자식 집계.
     var parentRef =

@@ -85,7 +85,7 @@ class IssueCommentControllerTest {
 
   private IssueCommentResponse sampleComment() {
     return new IssueCommentResponse(
-        50L, 100L, 1L, "me", "HUMAN", "hello", Instant.now(), Instant.now(), "me");
+        50L, 100L, 1L, "me", "HUMAN", "hello", Instant.now(), Instant.now(), "me", List.of());
   }
 
   @Test
@@ -93,7 +93,16 @@ class IssueCommentControllerTest {
     mockAuthentication("project:read");
     IssueCommentResponse agentComment =
         new IssueCommentResponse(
-            51L, 100L, 9L, "ai-bot", "AGENT", "응답입니다", Instant.now(), Instant.now(), "ai-bot");
+            51L,
+            100L,
+            9L,
+            "ai-bot",
+            "AGENT",
+            "응답입니다",
+            Instant.now(),
+            Instant.now(),
+            "ai-bot",
+            List.of());
     when(commentService.list(1L, 100L)).thenReturn(List.of(agentComment));
 
     mockMvc

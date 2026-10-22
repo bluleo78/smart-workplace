@@ -13,6 +13,8 @@ export const issueKeys = {
   search: (projectKey: string) => ['issues', 'search', projectKey] as const,
   detail: (projectKey: string, number: number) =>
     [...issueKeys.all, projectKey, 'detail', number] as const,
+  // 코멘트 하나의 반응자 목록 접두사(WP-504) — useReactors 가 이모지를 덧붙인다. 토글·SSE 가 이 접두사로 무효화.
+  commentReactors: (commentId: number) => [...issueKeys.all, 'comment-reactors', commentId] as const,
 };
 
 export function useCreateIssue(projectKey: string) {
