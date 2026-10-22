@@ -113,57 +113,64 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
   /** 사람 담당자 브라우저 JWT(테넌트 클레임 포함, Bearer 포함). */
   protected String jwtToken;
 
-  /** 사용자·프로젝트·이슈·토큰을 시드한다. 서비스 호출은 요청 밖이라 TenantContext 를 직접 잡는다. */
+  /**
+   * 사용자·프로젝트·이슈·토큰을 시드한다. 시드 전체를 테넌트#1 트랜잭션 하나로 묶는다 — 트랜잭션 밖(autocommit) 쓰기는 풀에서 받은 커넥션의 세션 GUC 로
+   * tenant_id 가 정해져, 다른 테스트가 남긴 값을 가진 커넥션을 받으면 담당자·프로젝트 멤버·사용자 역할이 다른 테넌트로 들어가 테넌트#1 에서 보이지
+   * 않았다(WP-827 — 자동 터치가 「담당자 아님」으로 건너뛰어 전체 실행에서만 간헐 실패). 트랜잭션은 시작할 때 GUC 를 트랜잭션-로컬로 넣으므로 커넥션의 세션 값과
+   * 무관하다.
+   */
   @BeforeEach
   void seedAgentWorkFixture() {
+    inTenant(
+        () -> {
+          seedUsersProjectIssueAndTokens();
+          return null;
+        });
+  }
+
+  /** {@link #seedAgentWorkFixture} 의 본문 — 테넌트#1 트랜잭션 안에서 부른다. */
+  private void seedUsersProjectIssueAndTokens() {
     humanId = createHuman("aw-human");
     otherId = createHuman("aw-other");
     agentId = withMembership(createAgentUser("aw-agent"));
     userIds.add(agentId);
 
-    TenantContext.set(TENANT_ID);
-    try {
-      String suffix =
-          UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
-      var project =
-          projectService.create(humanId, new CreateProjectRequest("AW" + suffix, "P-aw", "x"));
-      projectId = project.id();
-      projectKey = project.key();
-      // 프로젝트 생성 시 소유자(human)는 자동 멤버 — AI 구성원·비담당 사람만 추가한다.
-      projectMemberRepository.insert(projectId, agentId, "MEMBER");
-      projectMemberRepository.insert(projectId, otherId, "MEMBER");
-      var issue =
-          issueService.create(
-              humanId,
-              projectKey,
-              new CreateIssueRequest("AI 작업 대상", "본문", "MID", null, List.of(), null, null, null));
-      issueId = issue.id();
-      issueNumber = issue.number();
-      // 담당자 직접 시드 — 배정 이벤트(ai-agent 발사 후보)를 일으키지 않게 저장소로 넣는다.
-      issueAssigneeRepository.add(issueId, humanId, humanId);
-      issueAssigneeRepository.add(issueId, agentId, humanId);
+    String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
+    var project =
+        projectService.create(humanId, new CreateProjectRequest("AW" + suffix, "P-aw", "x"));
+    projectId = project.id();
+    projectKey = project.key();
+    // 프로젝트 생성 시 소유자(human)는 자동 멤버 — AI 구성원·비담당 사람만 추가한다.
+    projectMemberRepository.insert(projectId, agentId, "MEMBER");
+    projectMemberRepository.insert(projectId, otherId, "MEMBER");
+    var issue =
+        issueService.create(
+            humanId,
+            projectKey,
+            new CreateIssueRequest("AI 작업 대상", "본문", "MID", null, List.of(), null, null, null));
+    issueId = issue.id();
+    issueNumber = issue.number();
+    // 담당자 직접 시드 — 배정 이벤트(ai-agent 발사 후보)를 일으키지 않게 저장소로 넣는다.
+    issueAssigneeRepository.add(issueId, humanId, humanId);
+    issueAssigneeRepository.add(issueId, agentId, humanId);
 
-      patToken =
-          "Bearer "
-              + userTokenService
-                  .issue(humanId, new IssueUserTokenRequest("aw", null))
-                  .plaintextToken();
-      otherPatToken =
-          "Bearer "
-              + userTokenService
-                  .issue(otherId, new IssueUserTokenRequest("aw", null))
-                  .plaintextToken();
-      akToken =
-          "Bearer "
-              + agentKeyService
-                  .issue(humanId, agentId, new IssueAgentKeyRequest("aw"))
-                  .plaintextKey();
-      jwtToken =
-          "Bearer "
-              + jwtTokenProvider.generateAccessToken(humanId, "aw-human-" + humanId, TENANT_ID);
-    } finally {
-      TenantContext.clear();
-    }
+    patToken =
+        "Bearer "
+            + userTokenService
+                .issue(humanId, new IssueUserTokenRequest("aw", null))
+                .plaintextToken();
+    otherPatToken =
+        "Bearer "
+            + userTokenService
+                .issue(otherId, new IssueUserTokenRequest("aw", null))
+                .plaintextToken();
+    akToken =
+        "Bearer "
+            + agentKeyService
+                .issue(humanId, agentId, new IssueAgentKeyRequest("aw"))
+                .plaintextKey();
+    jwtToken =
+        "Bearer " + jwtTokenProvider.generateAccessToken(humanId, "aw-human-" + humanId, TENANT_ID);
   }
 
   /**
@@ -420,7 +427,8 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
 
   /** 워크스페이스 구성원인 AI 를 하나 더 시드한다(정리 대상에 넣는다) — 프로젝트 구성원은 아니다. */
   protected long addAgent(String prefix) {
-    long id = createAgentUserWithMembership(prefix);
+    // 사용자 역할(user_role)이 커넥션의 세션 GUC 가 아닌 테넌트#1 로 들어가게 트랜잭션 안에서 만든다(WP-827).
+    long id = inTenant(() -> createAgentUserWithMembership(prefix));
     userIds.add(id);
     return id;
   }
