@@ -164,6 +164,26 @@ class MyApiTokenControllerTest extends IntegrationTestBase {
             e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
   }
 
+  /** WP-767: 제로폭 공백·점자 빈칸만 있는 이름은 목록에서 빈 칸으로 보인다 — 채널·라벨 이름처럼 한국어 400 으로 거절. */
+  @Test
+  void issue_withInvisibleOnlyName_isBadRequest() {
+    assertThatThrownBy(() -> issueViaHttp(sessionBearer(humanUserId), "​⠀"))
+        .isInstanceOfSatisfying(
+            org.springframework.web.client.HttpClientErrorException.class,
+            e -> {
+              assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+              assertThat(e.getResponseBodyAsString()).contains("토큰 이름을 입력해 주세요");
+            });
+  }
+
+  /** WP-767: 이름 앞뒤의 보이지 않는 글자와 줄바꿈은 다듬어 저장한다(채널·라벨 이름과 같은 정리). */
+  @Test
+  void issue_trimsInvisibleEdgesOfName() {
+    ResponseEntity<UserApiTokenIssueResponse> res =
+        issueViaHttp(sessionBearer(humanUserId), "​ 내\n노트북 ⠀");
+    assertThat(res.getBody().name()).isEqualTo("내 노트북");
+  }
+
   @Test
   void issue_list_revoke_full_lifecycle() {
     UserApiTokenIssueResponse authToken = issueToken(humanUserId, "인증용");
