@@ -112,7 +112,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--secondary` | `oklch(1 0 0 / 5%)` | 흰색 5% 알파 |
 | `--secondary-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--muted` | `oklch(1 0 0 / 5%)` | 흰색 5% 알파 |
-| `--muted-foreground` | `oklch(0.6 0 0)` | 중간 회색 |
+| `--muted-foreground` | `oklch(0.65 0 0)` | 중간 회색 — 카드 두 겹 위 12px 에서도 4.5:1 (WP-736) |
 | `--accent` | `oklch(1 0 0 / 7%)` | 흰색 7% 알파 |
 | `--accent-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--selected` | `oklch(0.28 0.02 275)` | 솔리드(배경 위 흰 ~11% 상당) — 떠 있는 패널(popover) 위에서도 구분되게 알파 대신 솔리드 (WP-368) |

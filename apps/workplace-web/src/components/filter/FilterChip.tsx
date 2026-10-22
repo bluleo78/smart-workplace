@@ -43,7 +43,7 @@ export function FilterChip({
           >
             <span className="text-muted-foreground">{facet.label}:</span>
             {firstOpt?.render ?? (
-              <span className={isUnresolved ? 'italic text-muted-foreground/70' : undefined}>
+              <span className={isUnresolved ? 'italic text-muted-foreground' : undefined}>
                 {firstOpt?.label ?? (isUnresolved ? '(알 수 없음)' : selected[0])}
               </span>
             )}

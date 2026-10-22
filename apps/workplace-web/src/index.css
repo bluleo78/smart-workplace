@@ -201,7 +201,8 @@
   --secondary: oklch(1 0 0 / 5%);
   --secondary-foreground: oklch(0.93 0 0);
   --muted: oklch(1 0 0 / 5%);
-  --muted-foreground: oklch(0.6 0 0);
+  /* 0.6 → 0.65: 카드가 두 겹 깔린 곳(홈 요약 칸 등)에서도 12px 보조 글자가 4.5:1 을 넘게(WP-736). */
+  --muted-foreground: oklch(0.65 0 0);
   --accent: oklch(1 0 0 / 7%);
   --accent-foreground: oklch(0.93 0 0);
   /* WP-368: 다크 선택 배경 — 흰 알파 대신 솔리드(배경 위 흰 ~11% 상당). 떠 있는 패널(popover 0.18) 위에서도 구분된다. */

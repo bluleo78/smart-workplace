@@ -27,7 +27,9 @@ UI primitive 는 shadcn/ui (new-york) 로 추가하며, 그 기반은 **Radix UI
 |-------------|-----------|-----------|
 | 일반 텍스트 (< 18px) | 4.5:1 | foreground `oklch(0.145)` on background `oklch(0.985)` ≈ 18:1 ✅ |
 | 큰 텍스트 (≥ 18px bold) | 3:1 | ✅ |
-| muted-foreground on background | 4.5:1 | `oklch(0.5)` on `oklch(0.985)` ≈ 6:1 ✅ |
+| muted-foreground on background | 4.5:1 | 라이트 `oklch(0.5)` on `oklch(0.985)` ≈ 5.8:1 · 다크 `oklch(0.65)` on `oklch(0.13)` ≈ 6.2:1 ✅ |
+| 보조 글자 투명도 변형(`text-muted-foreground/60` 등) | 4.5:1 | ≈ 2.5~3.5:1 ❌ — **글자에는 쓰지 않는다**(아이콘·구분선·비활성만, WP-736) |
+| 캘린더 일정 칩(흰 글자) | 4.5:1 | 배경 -600/-700 ✅ (-500 은 파랑 3.8·주황 2.2:1, WP-736) |
 | primary-foreground on primary | 4.5:1 | `oklch(0.985)` on `oklch(0.45 0.2 264)` (버튼·뱃지) ✅ |
 | UI 컴포넌트 (테두리, 아이콘) | 3:1 | border `oklch(0.94)` on background — 비필수 구분선은 낮은 대비 허용 ⚠️ |
 | 비활성(Disabled) 상태 | N/A | `disabled:opacity-50` — 의도적으로 낮은 대비 |

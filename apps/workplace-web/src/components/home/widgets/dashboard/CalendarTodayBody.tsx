@@ -77,8 +77,9 @@ export default function CalendarTodayBody({
                 <span
                   data-testid="cal-time"
                   className={cn(
-                    'flex w-14 shrink-0 items-center gap-1.5 text-xs tabular-nums',
-                    kind === 'untimed' ? 'text-muted-foreground/70' : 'text-muted-foreground',
+                    // 미정은 흐린 색 대신 기울임으로 구분한다 — 투명도를 낮추면 글자 대비가 4.5:1 밑으로 떨어진다(WP-736).
+                    'flex w-14 shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted-foreground',
+                    kind === 'untimed' && 'italic',
                   )}
                 >
                   <span aria-hidden className={cn('size-1.5 shrink-0 rounded-full', DOT_CLASS[kind])} />
