@@ -270,8 +270,8 @@ public class GlobalExceptionHandler {
   /**
    * DB 무결성 위반 예외 처리.
    *
-   * <p>OFFSET/LIMIT 음수 에러(페이지네이션 입력값 오류)는 클라이언트 잘못이므로 400으로 반환한다. 그 외
-   * DataIntegrityViolationException은 409로 처리하되, raw DB 에러 메시지를 그대로 노출하지 않는다.
+   * <p>OFFSET/LIMIT 음수 에러(페이지네이션 입력값 오류)는 클라이언트 잘못이므로 400으로 반환한다. 가리키는 행이 없어 난 외래 키 위반은
+   * 404(WP-754). 그 외 DataIntegrityViolationException은 409로 처리하되, raw DB 에러 메시지를 그대로 노출하지 않는다.
    */
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
@@ -298,6 +298,19 @@ public class GlobalExceptionHandler {
       ErrorResponse response =
           buildError(HttpStatus.BAD_REQUEST, "입력값에 쓸 수 없는 문자(NUL)가 들어 있습니다", null, request);
       return ResponseEntity.badRequest().body(response);
+    }
+
+    // 가리키는 행이 없어 난 외래 키 위반(insert or update … violates foreign key constraint) → 404.
+    // 라벨·사이클·마일스톤·유형·커스텀
+    // 필드·노트 부모를 지우는 요청과 그것을 붙이거나 바꾸는 요청이 겹쳐, 존재 확인을 지난 뒤 삭제가 커밋된 경우다 — 순차로는 「찾을 수 없습니다」인
+    // 상황이라 충돌 409 대신 같은 404 로 맞춘다(WP-754). 지우려는 행을 다른 데이터가 아직 가리키는 위반(update or delete …)은 아래 409
+    // 그대로.
+    if (hasSqlState(ex, "23503")
+        && causeMsg != null
+        && causeMsg.contains("insert or update on table")) {
+      ErrorResponse response =
+          buildError(HttpStatus.NOT_FOUND, "참조한 항목을 찾을 수 없습니다. 방금 삭제되었을 수 있습니다", null, request);
+      return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
 
     // 화면 토스트로 그대로 나가는 문구라 한국어로 둔다(WP-705 — 영어 「Data integrity violation …」이 그대로 떴다).
