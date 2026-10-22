@@ -598,6 +598,13 @@ describe('buildSharedIssueTools', () => {
     expect(c.getProjectStatuses).not.toHaveBeenCalled();
   });
 
+  it('update_issue: 빈 status 는 스키마 오류다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await expect(t.handler({ issueKey: 'WP-12', status: '' })).rejects.toThrow();
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+  });
+
   it('update_issue: 모르는 이름은 사용 가능 목록과 함께 실패한다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;

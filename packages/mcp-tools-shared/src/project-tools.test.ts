@@ -251,12 +251,22 @@ describe('list_issues', () => {
     });
   });
 
-  it('list_issues: 이름은 statusName, 범주는 status 로 나눠 보낸다', async () => {
+  it('list_issues: 범주는 대문자로 맞춰 status, 이름은 statusName 으로 보낸다', async () => {
     const c = mockClient();
-    await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', status: 'done, 검토 중' });
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', status: 'done, in_progress' });
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', status: 'DONE,IN_PROGRESS', size: 30 });
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', status: ' 검토 중 ' });
     // 이름 해석은 서버가 한다(projectKey 없으면 볼 수 있는 모든 프로젝트의 같은 이름) — 여기서는 상태 목록을 조회하지 않는다(WP-807).
-    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', status: 'DONE', statusName: '검토 중', size: 30 });
+    expect(vi.mocked(c.listIssues).mock.calls[1][0]).toStrictEqual({ projectKey: 'WP', statusName: '검토 중', size: 30 });
     expect(c.getProjectStatuses).not.toHaveBeenCalled();
+  });
+
+  it('list_issues: 범주와 이름을 섞으면 서버를 부르지 않고 거절한다(서버는 AND 라 뜻한 OR 와 다르다)', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', status: 'DONE,검토 중' })).rejects.toThrow(
+      'status 에 범주(TODO 등)와 상태 이름을 함께 쓸 수 없습니다 — 따로 조회하세요',
+    );
+    expect(c.listIssues).not.toHaveBeenCalled();
   });
 
   it('list_issues: 범주만 주면 statusName 키가 없고, 이름만 주면 status 키가 없다', async () => {

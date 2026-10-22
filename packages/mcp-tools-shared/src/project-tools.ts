@@ -275,6 +275,10 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         // WP-807: status CSV 의 범주는 서버 status, 그 밖의 값은 statusName 으로 나눈다 — 이름 해석(모르는 이름 400 + 사용 가능 목록)은 서버가 한다.
         // projectKey 가 없으면 서버가 볼 수 있는 모든 프로젝트의 같은 이름 상태를 OR 로 맞춘다.
         const statusTokens = p.status ? splitStatusTokens(p.status) : undefined;
+        // 서버는 범주(status)와 이름(statusName)을 AND 로 묶는다 — 섞어 주면 사용자가 뜻한 OR 대신 거의 빈 결과가 되므로 조회 전에 거절한다.
+        if (statusTokens?.categories.length && statusTokens.names.length) {
+          throw new Error('status 에 범주(TODO 등)와 상태 이름을 함께 쓸 수 없습니다 — 따로 조회하세요');
+        }
         // WP-176: 사이클 이름·active·none·backlog → 서버 토큰(id·none·null). WP-356: 마일스톤 이름 → id, 필드 "이름=값" → fieldId + JSON 값.
         // 서버는 해석 못 한 토큰을 조용히 버리므로 해석 실패는 모두 조회 전에 throw 한다.
         const [cycle, milestone, fieldFilter] = await Promise.all([
