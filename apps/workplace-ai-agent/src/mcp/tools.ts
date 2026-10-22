@@ -61,9 +61,10 @@ export const CARD_ONLY_SHARED_TOOLS: Readonly<Record<string, readonly string[]>>
  * WP-377: AI Chat·서브에이전트 프로필에 싣지 않는 공유 도구. 외부 클라이언트(Claude Code·Cursor 등) 전용이다 —
  * 서버가 돌리는 AI 는 이슈 진행 기록(report_agent_work)을 남기지 않는다(스펙 §1 "하지 않는 것").
  * WP-373: get_issue_chat 도 같다 — 외부 AI 가 맡은 이슈에서 던진 질문의 답을 읽는 도구이고, 서버 AI 는 이슈 챗 스레드(chat 프로필)에서 직접 대화한다. 그래서 sharedTool() 이 이 이름을 거부하고,
+ * WP-800: claim_issue 도 같다 — 대기열 라벨 이슈를 스스로 가져가는 외부 AI(work-loop) 전용이고, 서버 AI 는 담당 지정 시점에 일을 받는다.
  * tools.test.ts 의 "공유 도구 전부 노출" 검사도 이 목록만 빼고 본다. CARD_ONLY_SHARED_TOOLS 와 달리 대체 도구(확인 카드)는 없다.
  */
-export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set(['report_agent_work', 'get_issue_chat']);
+export const AI_AGENT_EXCLUDED_SHARED_TOOLS: ReadonlySet<string> = new Set(['report_agent_work', 'get_issue_chat', 'claim_issue']);
 
 /**
  * WP-423: 에이전트 신원 프로필(messaging)에서 입력을 좁혀 싣는 공유 도구 — 도구 이름 → 뺀 입력 필드.

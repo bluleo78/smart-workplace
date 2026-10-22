@@ -114,3 +114,77 @@ test('SKILL.md 근거 이미지·파일은 첨부로 올리고, 이슈 설명은
   // 첨부가 만료·이미 붙은 파일이면 보고 전체가 거절된다 — 첨부 없이 다시 보내야 상태 보고가 사라지지 않는다.
   assert.ok(text.includes('`fileIds` 를 빼고 다시 보내며'));
 });
+
+// WP-800 대기열 라벨 — 할 일이 없는 AI 가 라벨이 붙은 이슈를 하나 가져간다. 할 일이 있는데 가져가면 일을 쌓아 두고,
+// 하나보다 많이 가져가면 다른 AI 몫을 막는다. 넘길 때 AI 를 담당으로 넣으면 아무도 가져갈 수 없다(AI_ALREADY_ASSIGNED).
+const section = (text, from, to) => {
+  const a = text.indexOf(from);
+  const b = text.indexOf(to, a + 1);
+  assert.ok(a > -1 && b > a, `「${from}」~「${to}」 절이 없다`);
+  return text.slice(a, b);
+};
+
+// 3번(후보 고르기) 본문 — 대기열 가져오기 테스트들이 함께 쓴다.
+const s3 = section(workLoop('SKILL.md'), '\n### 3. 후보 고르기\n', '\n### 4. ');
+// 한 줄을 찾는다 — 없으면 빈 문자열로 넘어가 뒤 단언이 엉뚱하게 실패하지 않게 여기서 바로 알린다.
+function lineWith(text, needle) {
+  const line = text.split('\n').find((l) => l.includes(needle));
+  assert.ok(line, `「${needle}」 가 든 줄이 없다`);
+  return line;
+}
+
+test('SKILL.md 인자에 --queue 가 있다', () => {
+  const text = body(workLoop('SKILL.md'));
+  assert.ok(text.includes('`<프로젝트 키> [--queue "<라벨>"]`'));
+  assert.ok(text.includes('/loop /genia-works:work-loop WP --queue "AI 개발팀"'));
+});
+
+test('SKILL.md 3번: 고를 후보가 없을 때만 대기열에서 최대 하나를 가져가고, 그 뒤에 「할 일 없음」으로 끝낸다', () => {
+  assert.ok(s3.includes("`list_issues({ projectKey, label: <대기열 라벨>, assignee: 'any', status: 'TODO,IN_PROGRESS' })`"));
+  assert.ok(s3.includes("`kind: 'AGENT'`"));
+  assert.ok(s3.includes('`claim_issue({ issueKey, queueLabel: <대기열 라벨> })`'));
+  assert.ok(s3.includes('`NOT_IN_QUEUE`'));
+  assert.ok(s3.includes('`AI_ALREADY_ASSIGNED`'));
+  assert.ok(s3.includes('최대 하나'));
+  // 미뤄 둔 후보까지 없을 때만 가져간다 — 가져오기 단계가 「할 일 없음」 결론보다 먼저 나와야 한다.
+  assertBefore(s3, '`claim_issue(', '가져간 이슈가 없으면 「할 일 없음」으로 끝낸다');
+});
+
+test('SKILL.md 3번: 목록과 가져가기 사이에 대기열을 떠난 이슈(ISSUE_CLOSED 포함)는 다음 후보로 넘어간다', () => {
+  // 그 사이 닫힌 이슈 하나 때문에 나머지 대기열을 두고 멈추면 할 일 없는 AI 가 한 번을 헛돈다.
+  const moveOn = lineWith(s3, '다음 이슈로 간다');
+  for (const code of ['`NOT_IN_QUEUE`', '`AI_ALREADY_ASSIGNED`', '`ISSUE_CLOSED`']) assert.ok(moveOn.includes(code), `${code} 가 다음 후보로 넘어가는 줄에 없다`);
+  const stop = lineWith(s3, '더 시도하지 않고');
+  assert.ok(stop.includes('`CLAIM_AGENT_ONLY`'), '멈추는 줄에 CLAIM_AGENT_ONLY 가 없다');
+  assert.ok(!stop.includes('`ISSUE_CLOSED`'), 'ISSUE_CLOSED 가 멈추는 줄에 있다');
+});
+
+test('SKILL.md 3번: 대기열 라벨이 프로젝트에 아직 없어 목록이 실패하면 오류가 아니라 빈 대기열로 본다', () => {
+  // 서버 문구가 아니라 안정적인 부분(label 필터 오류 400)에 건다.
+  const line = lineWith(s3, '`label` 필터 오류');
+  assert.ok(line.includes('400'), '400 이 줄에 없다');
+  assert.ok(line.includes('빈 대기열'), '라벨 없음 → 빈 대기열 줄이 없다');
+  assertBefore(s3, '`label` 필터 오류', '`claim_issue(');
+});
+
+test('SKILL.md 5번: 가져갔으면 처리할 후보가 남은 것과 같게 다룬다', () => {
+  const text = workLoop('SKILL.md');
+  const s5 = text.slice(text.indexOf('\n### 5. 다음 확인\n'));
+  assert.ok(s5.includes('대기열에서 이슈를 가져갔으면'));
+});
+
+test('SKILL.md 넘기기: 대기열 라벨이 있는 역할은 AI 를 담당으로 넣지 않고 라벨을 붙인다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('대기열 라벨이 있는 역할은 라벨로 넘긴다'));
+  assert.ok(text.includes('어떤 AI 도 담당으로 넣지 않는다'));
+  assert.ok(text.includes('`update_issue` 의 `labels` 도 통째로 바꾸는 집합이다'));
+  // 대기열이 없는 역할은 WP-455 대로 설명을 보고 고른다 — 그 규칙보다 먼저 나와야 넘길 때 먼저 본다.
+  assertBefore(text, '대기열 라벨이 있는 역할은 라벨로 넘긴다', "`search_members({ kind: 'AGENT' })`");
+});
+
+test('.work-loop/project.md 에 역할별 대기열 라벨(개발 일 → AI 개발팀)이 있다', () => {
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  const s6 = project.slice(project.indexOf('\n## 6. 대기열 라벨'));
+  assert.ok(s6.length > 20, '「6. 대기열 라벨」 절이 없다');
+  assert.match(s6, /^\|[^\n]*개발[^\n]*\|[^\n]*`AI 개발팀`[^\n]*\|\s*$/m);
+});

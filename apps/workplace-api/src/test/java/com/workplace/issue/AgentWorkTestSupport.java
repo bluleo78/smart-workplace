@@ -164,11 +164,7 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
             + userTokenService
                 .issue(otherId, new IssueUserTokenRequest("aw", null))
                 .plaintextToken();
-    akToken =
-        "Bearer "
-            + agentKeyService
-                .issue(humanId, agentId, new IssueAgentKeyRequest("aw"))
-                .plaintextKey();
+    akToken = keyFor(agentId);
     jwtToken =
         "Bearer " + jwtTokenProvider.generateAccessToken(humanId, "aw-human-" + humanId, TENANT_ID);
   }
@@ -387,6 +383,25 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
       if (prev == null) TenantContext.clear();
       else TenantContext.set(prev);
     }
+  }
+
+  /** 테넌트#1 트랜잭션 안에서 값 없이 실행한다(시드·변경용). */
+  protected void inTenantRun(Runnable body) {
+    inTenant(
+        () -> {
+          body.run();
+          return null;
+        });
+  }
+
+  /** AI 구성원의 ak_ 키(Bearer 포함) — 발급자는 사람 소유자. */
+  protected String keyFor(long agentUserId) {
+    return "Bearer "
+        + inTenant(
+            () ->
+                agentKeyService
+                    .issue(humanId, agentUserId, new IssueAgentKeyRequest("aw"))
+                    .plaintextKey());
   }
 
   /** (이슈, 작업자)의 진행 중 작업. */

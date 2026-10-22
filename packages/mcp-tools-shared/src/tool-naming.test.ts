@@ -7,10 +7,11 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
 /**
  * 기본 연결 도구 정의 크기 상한(근사 토큰, 근사식은 tool-definitions.ts estimateTokens·README). 사용자 결정(2026-10-13).
  * 15,000 → 16,000: WP-377 A2A 상태 정렬로 report_agent_work 상태 10종(enum·설명)이 늘어 상향했다(2026-10-14 사용자 승인).
+ * 16,000 → 16,500, 앱당 15 → 16: WP-800 대기열 이슈 가져가기 도구(claim_issue)로 늘어 상향했다(2026-10-22 사용자 승인).
  */
-const DEFINITION_TOKEN_CAP = 16_000;
-/** 앱당 도구 수 상한. 사용자 결정(2026-10-13). */
-const APP_TOOL_CAP = 15;
+const DEFINITION_TOKEN_CAP = 16_500;
+/** 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). */
+const APP_TOOL_CAP = 16;
 
 // 도구 구성 시점에는 클라이언트 메서드를 부르지 않으므로 빈 객체로 충분하다.
 const tools = buildSharedTools({} as unknown as SharedToolClient);

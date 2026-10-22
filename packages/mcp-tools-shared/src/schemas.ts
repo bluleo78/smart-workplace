@@ -16,6 +16,14 @@ export const watchIssueInput = issueKeyInput.extend({
   watching: z.boolean().describe('true watches, false stops watching'),
 });
 
+/**
+ * claim_issue 입력(WP-800) — 가져갈 이슈와 대기열 라벨 이름. 라벨 이름은 프로젝트마다 다를 수 있어 코드에 박지 않고 호출자가 넘긴다
+ * (work-loop 기본값 "AI 개발팀"). max 40 은 서버 ClaimIssueRequest·라벨 이름 컬럼(VARCHAR(40))과 같다.
+ */
+export const claimIssueInput = issueKeyInput.extend({
+  queueLabel: z.string().min(1).max(40).describe('Queue label name on the issue, e.g. "AI 개발팀"'),
+});
+
 /** get_issue_detail 입력 — issueKey 에 코멘트 전체 읽기(allComments)를 더했다(WP-353: 기본은 최근 30건, allComments 는 최근 200건까지). */
 export const getIssueDetailInput = issueKeyInput.extend({
   allComments: z.boolean().optional(),

@@ -1,6 +1,6 @@
 # 이 저장소의 테스트·라이브 검증 방법 (work-loop)
 
-`/genia-works:work-loop` 스킬이 읽는 저장소 안내다(`process-issue.md` 2·6·8번). 사람 세션도 같은 방법을 쓸 수 있다.
+`/genia-works:work-loop` 스킬이 읽는 저장소 안내다(`process-issue.md` 2·6·8번, `SKILL.md` 「이슈 만들기·담당 바꾸기」). 사람 세션도 같은 방법을 쓸 수 있다.
 경로는 모두 이슈 워크트리(`MAIN/.claude/worktrees/<이슈 키>`) 루트 기준이다. 실행 상태는 `MAIN/.work-loop/state/`(git 무시).
 
 ## 1. 새 워크트리 준비
@@ -83,3 +83,11 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - main 작업 폴더(MAIN)에서 브랜치를 만들거나 바꾸지 않는다. 모든 수정은 이슈 워크트리에서 한다.
 - `.env` 내용을 출력하거나 로그·이슈 챗에 옮기지 않는다.
 - 커밋 메시지는 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md), 코드 주석은 [docs/CODING_CONVENTION.md](../docs/CODING_CONVENTION.md)(한국어 주석 필수)를 따른다.
+
+## 6. 대기열 라벨
+
+다른 AI 에게 일을 넘길 때 아래 역할이면 특정 AI 를 담당으로 넣지 않고 그 라벨을 붙인다(`SKILL.md` 「이슈 만들기·담당 바꾸기」). 그 라벨로 도는 AI(`--queue "<라벨>"`) 중 할 일이 없는 AI 가 하나 가져간다. 표에 없는 역할은 지금처럼 설명을 보고 AI 를 고른다. 대기열 라벨 이름은 숫자만으로 짓지 않고 쉼표(,)를 넣지 않는다 — `list_issues` 의 label 필터가 숫자는 라벨 id 로, 쉼표는 구분자로 읽는다.
+
+| 역할 | 라벨 |
+|---|---|
+| 개발 일(구현·결함 수정) | `AI 개발팀` |

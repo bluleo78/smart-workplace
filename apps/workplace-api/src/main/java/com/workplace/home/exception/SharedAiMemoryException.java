@@ -1,5 +1,6 @@
 package com.workplace.home.exception;
 
+import com.workplace.global.exception.CodedException;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -8,7 +9,7 @@ import org.springframework.http.HttpStatus;
  * 공용 AI 메모리 오류(WP-386) — 상태와 코드를 함께 싣는다(GlobalExceptionHandler 가 errors.code 로 내보낸다). 읽기 권한 없는 공간은
  * 존재를 숨기려고 404, 조직 지침을 관리자가 아닌 사람이 쓰면 403.
  */
-public class SharedAiMemoryException extends RuntimeException {
+public class SharedAiMemoryException extends RuntimeException implements CodedException {
 
   public static final String INVALID = "SHARED_MEMORY_INVALID";
   public static final String SPACE_UNRESOLVED = "SHARED_MEMORY_SPACE_UNRESOLVED";
@@ -71,6 +72,7 @@ public class SharedAiMemoryException extends RuntimeException {
         HttpStatus.SERVICE_UNAVAILABLE, CHECK_UNAVAILABLE, "지금은 공용 메모리에 저장하지 못했어요.");
   }
 
+  @Override
   public HttpStatus status() {
     return status;
   }
@@ -80,6 +82,7 @@ public class SharedAiMemoryException extends RuntimeException {
   }
 
   /** 응답 errors — code 하나. */
+  @Override
   public Map<String, String> errors() {
     Map<String, String> m = new LinkedHashMap<>();
     m.put("code", code);

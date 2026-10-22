@@ -47,6 +47,7 @@ function sharedMock(): MockedShared {
     updateIssueFields: vi.fn().mockResolvedValue({}),
     addIssueDriveLink: vi.fn().mockResolvedValue(undefined),
     claimIssueAttachments: vi.fn().mockResolvedValue([]),
+    claimIssue: vi.fn().mockResolvedValue({ assignees: [], labels: [] }),
     // 프로젝트 메타·목록(ProjectToolClient)
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
@@ -599,6 +600,13 @@ describe('공유 도구 패리티 (#846)', () => {
       .map((t) => t.name)
       .filter((n) => !names.has(n) && !(n in CARD_ONLY_SHARED_TOOLS) && !AI_AGENT_EXCLUDED_SHARED_TOOLS.has(n));
     expect(missing).toEqual([]);
+  });
+
+  // WP-800: 대기열 이슈 가져가기는 외부 AI(work-loop 등) 전용 — 서버가 돌리는 AI 는 담당 지정 시점에 이미 일을 받는다.
+  it('WP-800: claim_issue 는 서버 AI 제외 목록에 있고 어떤 프로필에도 없다', () => {
+    expect(AI_AGENT_EXCLUDED_SHARED_TOOLS.has('claim_issue')).toBe(true);
+    const c = client();
+    for (const v of variants) expect(v.build(c).map((t) => t.name), v.label).not.toContain('claim_issue');
   });
 
   it('WP-377: 제외 목록의 도구는 실제 공유 도구이고 어떤 프로필에도 없다', () => {

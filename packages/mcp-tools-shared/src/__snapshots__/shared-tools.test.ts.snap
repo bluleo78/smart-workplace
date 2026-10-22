@@ -9,6 +9,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_issue_dependency": "write",
   "add_project_member": "write",
   "add_user_group_member": "write",
+  "claim_issue": "write",
   "copy_drive_item": "write",
   "create_channel": "write",
   "create_drive_download_link": "write",
@@ -297,6 +298,30 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       },
       "required": [
         "groupId",
+      ],
+      "type": "object",
+    },
+  },
+  {
+    "name": "claim_issue",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "queueLabel": {
+          "description": "Queue label name on the issue, e.g. "AI 개발팀"",
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "queueLabel",
       ],
       "type": "object",
     },
