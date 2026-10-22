@@ -327,7 +327,7 @@ public class ProjectService {
   /** 멤버 역할 변경. OWNER 권한 필요. 마지막 OWNER 강등 시 409. */
   public void updateMemberRole(
       Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
-    ProjectRow project = checkUpdateMemberRole(callerId, projectKey, memberUserId, req);
+    ProjectRow project = checkUpdateMemberRole(callerId, projectKey, memberUserId, req, true);
     memberRepository.updateRole(project.id(), memberUserId, req.role());
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_PROJECT_MEMBER, OP_UPDATED, project, memberUserId, callerId);
@@ -344,17 +344,24 @@ public class ProjectService {
   @Transactional(readOnly = true)
   public void validateUpdateMemberRole(
       Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
-    checkUpdateMemberRole(callerId, projectKey, memberUserId, req);
+    checkUpdateMemberRole(callerId, projectKey, memberUserId, req, false);
   }
 
-  /** 역할 변경 술어 — 현재 OWNER 가 OWNER 아닌 역할로 바뀌며 다른 OWNER 가 없으면 차단. */
+  /**
+   * 역할 변경 술어 — 현재 OWNER 가 OWNER 아닌 역할로 바뀌며 다른 OWNER 가 없으면 차단. lock 이면 소유자 행을 잠그고 센다(실행 경로, {@link
+   * #ownerCount}).
+   */
   private ProjectRow checkUpdateMemberRole(
-      Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
+      Long callerId,
+      String projectKey,
+      Long memberUserId,
+      UpdateMemberRoleRequest req,
+      boolean lock) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     MemberRow current = requireMember(project, memberUserId);
     if ("OWNER".equals(current.role())
         && !"OWNER".equals(req.role())
-        && memberRepository.countOwners(project.id()) <= 1) {
+        && ownerCount(project, lock) <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
     return project;
@@ -366,7 +373,7 @@ public class ProjectService {
    * 사용자가 담당자로 남아 본인은 접근 불가한 유령 담당자 상태가 됨).
    */
   public void removeMember(Long callerId, String projectKey, Long memberUserId) {
-    ProjectRow project = checkRemoveMember(callerId, projectKey, memberUserId);
+    ProjectRow project = checkRemoveMember(callerId, projectKey, memberUserId, true);
     // 이력에 남길 담당자 요약 — 멤버 행을 지우기 전에 읽는다.
     var removed = memberRepository.findMemberWithUser(project.id(), memberUserId).orElse(null);
     memberRepository.delete(project.id(), memberUserId);
@@ -404,17 +411,28 @@ public class ProjectService {
    */
   @Transactional(readOnly = true)
   public void validateRemoveMember(Long callerId, String projectKey, Long memberUserId) {
-    checkRemoveMember(callerId, projectKey, memberUserId);
+    checkRemoveMember(callerId, projectKey, memberUserId, false);
   }
 
-  /** 멤버 제거 술어 — 마지막 OWNER 는 제거할 수 없다. */
-  private ProjectRow checkRemoveMember(Long callerId, String projectKey, Long memberUserId) {
+  /** 멤버 제거 술어 — 마지막 OWNER 는 제거할 수 없다. lock 이면 소유자 행을 잠그고 센다(실행 경로, {@link #ownerCount}). */
+  private ProjectRow checkRemoveMember(
+      Long callerId, String projectKey, Long memberUserId, boolean lock) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     MemberRow current = requireMember(project, memberUserId);
-    if ("OWNER".equals(current.role()) && memberRepository.countOwners(project.id()) <= 1) {
+    if ("OWNER".equals(current.role()) && ownerCount(project, lock) <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
     return project;
+  }
+
+  /**
+   * 「마지막 소유자」 판정용 소유자 수. 실행 경로(lock)는 소유자 행을 잠근 뒤 센다(WP-753) — 두 소유자가 서로를 동시에 강등·제거하면 나중 요청이 앞 요청의
+   * 커밋을 기다렸다 줄어든 소유자로 판정해 소유자 0명이 되지 않는다. 확인 카드 사전검증(dry-run)은 읽기 전용 트랜잭션이라 잠그지 않고 센다.
+   */
+  private long ownerCount(ProjectRow project, boolean lock) {
+    return lock
+        ? memberRepository.lockOwnersAndCount(project.id())
+        : memberRepository.countOwners(project.id());
   }
 
   /** 대상 멤버십 조회 — 멤버가 아니면 404. */

@@ -128,6 +128,21 @@ public class ProjectMemberRepository {
         .execute();
   }
 
+  /**
+   * 프로젝트의 OWNER 멤버 행을 잠그고 그 수를 돌려준다(WP-753). 「마지막 소유자」 판정을 이 잠근 집합으로 해야, 두 소유자가 서로를 동시에 강등·제거할 때 나중
+   * 요청이 앞 요청의 커밋을 기다렸다가 줄어든 소유자로 판정한다 — {@link #countOwners} 는 둘 다 커밋 전의 소유자 2명을 보고 통과해 소유자 0명이 됐다.
+   * 같은 행을 잡는 순서가 엇갈려 교착하지 않게 user_id 순으로 잠근다. 쓰기 트랜잭션에서만 부른다(읽기 전용 트랜잭션은 FOR UPDATE 를 거부한다).
+   */
+  public long lockOwnersAndCount(Long projectId) {
+    return dsl.select(PROJECT_MEMBER.USER_ID)
+        .from(PROJECT_MEMBER)
+        .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId).and(PROJECT_MEMBER.ROLE.eq("OWNER")))
+        .orderBy(PROJECT_MEMBER.USER_ID)
+        .forUpdate()
+        .fetch()
+        .size();
+  }
+
   /** 프로젝트의 OWNER 멤버 수. 마지막 OWNER 보호 체크에 사용. */
   public long countOwners(Long projectId) {
     return dsl.select(count())
