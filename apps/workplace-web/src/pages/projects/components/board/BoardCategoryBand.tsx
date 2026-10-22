@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
 import type { ProjectStatus } from '@/types/projectStatus';
 
-import { StatusNameEditor } from './StatusNameEditor';
+import { NewStatusPopoverBody } from './StatusNameEditor';
 
 // 범주 색 — IssueStatusIcon 과 같은 시맨틱 토큰(할 일 흐림 · 진행 중 primary · 완료 success · 취소 muted).
 const BAND_TONE: Record<IssueStatus, string> = {
@@ -75,7 +75,8 @@ function BandAddButton({
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 text-current hover:text-current"
+          // sticky right-0 — 띠가 화면보다 넓어도(진행 중 컬럼이 많을 때) 보이는 오른쪽 끝에 붙어 늘 누를 수 있다.
+          className="sticky right-0 h-6 w-6 shrink-0 bg-background text-current hover:text-current"
           aria-label={`${span.label}에 상태 추가`}
           data-testid={`board-band-add-${span.category}`}
         >
@@ -83,17 +84,11 @@ function BandAddButton({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-2 p-3">
-        <p className="text-sm font-semibold">
-          새 상태 <span className="font-normal text-muted-foreground">· {span.label}</span>
-        </p>
-        <StatusNameEditor
+        <NewStatusPopoverBody
+          subtitle={span.label}
           statuses={statuses}
-          submitLabel="추가"
-          onSubmit={async (name) => {
-            await onAdd(span.category, name);
-            setOpen(false);
-          }}
-          onCancel={() => setOpen(false)}
+          onSubmit={(name) => onAdd(span.category, name)}
+          onClose={() => setOpen(false)}
         />
       </PopoverContent>
     </Popover>

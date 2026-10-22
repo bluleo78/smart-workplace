@@ -4,7 +4,7 @@
 //     독립 쿼리를 두면 각 컬럼이 자기 끝까지 스크롤하며 다음 페이지를 이어 받을 수 있다.
 // 컬럼 수는 프로젝트 상태 수라 정해져 있지 않다(WP-808) — 훅 규칙상 반복 호출할 수 없고, useQueries 는 무한 쿼리를
 // 지원하지 않는다(내부 QueriesObserver 가 일반 QueryObserver 만 만든다). 그래서 useBaseQuery 와 같은 방식으로
-// 컬럼마다 InfiniteQueryObserver 를 두고 한 번의 useSyncExternalStore 로 구독한다.
+// 컬럼마다 InfiniteQueryObserver 를 두고 커밋 뒤 관찰자 단위로 구독한다.
 
 import {
   type DefaultedInfiniteQueryObserverOptions,
@@ -15,7 +15,7 @@ import {
   type UseInfiniteQueryResult,
   useQueryClient,
 } from '@tanstack/react-query';
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 
 import type { IssueFilters, IssueSearchResponse } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
@@ -80,6 +80,8 @@ export function useIssueBoardColumns(
   }
 
   // 관찰자 보관소 — statusId 별로 하나. 컬럼이 다시 활성되거나 필터가 바뀌어도 같은 관찰자가 키만 옮긴다.
+  // 렌더에서는 「없으면 만들기」만 한다 — 렌더는 버려질 수 있으므로(라우터 setSearchParams 의 transition 등)
+  // 삭제·구독 정리는 커밋 뒤(아래 effect)에서만 한다. 그래야 버려진 렌더가 관찰자를 지워 구독되지 않은 사본이 남지 않는다.
   const [store] = useState(() => new Map<number, ColumnObserver>());
   const observers = specs.map(({ id, options }) => {
     let o = store.get(id);
@@ -89,39 +91,42 @@ export function useIssueBoardColumns(
     }
     return o;
   });
-  // 사라진(제외·삭제된) 컬럼의 관찰자는 버린다 — 구독 해제는 아래 구독 정리가 맡는다.
-  const activeIds = new Set(specs.map((s) => s.id));
-  for (const id of [...store.keys()]) if (!activeIds.has(id)) store.delete(id);
 
-  // 구독 — 관찰자 집합이 바뀔 때만 다시 묶는다(상태 추가·필터로 컬럼 제외 시). 어느 컬럼이 바뀌어도 버전을 올려 다시 그린다.
-  const idsKey = specs.map((s) => s.id).join(',');
-  const [version] = useState(() => ({ n: 0 }));
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => {
-      const notify = notifyManager.batchCalls(() => {
-        version.n += 1;
-        onStoreChange();
-      });
-      const unsubscribes = idsKey
-        .split(',')
-        .filter(Boolean)
-        .map((id) => store.get(Number(id))?.subscribe(notify));
-      // 구독 사이에 바뀐 결과를 반영한다(useBaseQuery 와 같다) — 바뀌었으면 notify 가 불린다.
-      for (const id of idsKey.split(',').filter(Boolean)) store.get(Number(id))?.updateResult();
-      return () => unsubscribes.forEach((u) => u?.());
-    },
-    [idsKey, store, version],
-  );
-  useSyncExternalStore(
-    subscribe,
-    () => version.n,
-    () => version.n,
-  );
+  // 어느 컬럼 결과가 바뀌어도 보드를 다시 그린다.
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  // 지금 구독 중인 관찰자 — 관찰자 단위로 붙이고 뗀다(컬럼 하나가 늘거나 빠져도 다른 컬럼은 재구독·재조회하지 않는다).
+  const [subs] = useState(() => new Map<number, { observer: ColumnObserver; unsubscribe: () => void }>());
 
-  // 옵션(필터·키) 반영은 커밋 뒤에 — 키가 바뀐 관찰자는 새 쿼리로 옮겨 가며 필요하면 받는다.
+  // 커밋 뒤 구독 맞추기 — 빠진 컬럼·교체된 관찰자는 떼고, 새 관찰자는 붙인 뒤 옵션(필터·키)을 반영한다.
   useEffect(() => {
-    observers.forEach((o, i) => o.setOptions(specs[i].options));
+    const wanted = new Map(specs.map((s, i) => [s.id, observers[i]] as const));
+    for (const [id, sub] of subs) {
+      if (wanted.get(id) !== sub.observer) {
+        sub.unsubscribe();
+        subs.delete(id);
+      }
+    }
+    // 보관소 정리 — 커밋된 활성 컬럼에 없는 관찰자는 버린다(다시 활성되면 새로 만들어 붙인다).
+    for (const id of [...store.keys()]) if (!wanted.has(id)) store.delete(id);
+    specs.forEach((s, i) => {
+      const o = observers[i];
+      if (!subs.has(s.id)) {
+        subs.set(s.id, { observer: o, unsubscribe: o.subscribe(notifyManager.batchCalls(rerender)) });
+        // 렌더와 구독 사이에 바뀐 결과를 반영한다(useBaseQuery 와 같다) — 바뀌었으면 리스너가 불린다.
+        o.updateResult();
+      }
+      // 키가 바뀐 관찰자는 새 쿼리로 옮겨 가며 필요하면 받는다(구독 중이라 fetch 가 일어난다).
+      o.setOptions(s.options);
+    });
   });
+  // 언마운트 — 모든 구독을 뗀다(StrictMode 재마운트 시 위 effect 가 비어 있는 subs 를 보고 다시 붙인다).
+  useEffect(
+    () => () => {
+      subs.forEach((sub) => sub.unsubscribe());
+      subs.clear();
+    },
+    [subs],
+  );
 
   const result: Record<number, BoardColumnQuery | undefined> = {};
   observers.forEach((o, i) => {

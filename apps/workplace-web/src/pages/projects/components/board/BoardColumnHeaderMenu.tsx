@@ -13,7 +13,7 @@ import {
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import type { ProjectStatus } from '@/types/projectStatus';
 
-import { StatusNameEditor } from './StatusNameEditor';
+import { NewStatusPopoverBody } from './StatusNameEditor';
 
 export function BoardColumnHeaderMenu({
   status,
@@ -61,17 +61,11 @@ export function BoardColumnHeaderMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       <PopoverContent align="end" className="w-72 space-y-2 p-3">
-        <p className="text-sm font-semibold">
-          새 상태 <span className="font-normal text-muted-foreground">· {status.name} 뒤</span>
-        </p>
-        <StatusNameEditor
+        <NewStatusPopoverBody
+          subtitle={`${status.name} 뒤`}
           statuses={statuses}
-          submitLabel="추가"
-          onSubmit={async (name) => {
-            await onAddAfter(name);
-            setAdding(false);
-          }}
-          onCancel={() => setAdding(false)}
+          onSubmit={onAddAfter}
+          onClose={() => setAdding(false)}
         />
       </PopoverContent>
     </Popover>

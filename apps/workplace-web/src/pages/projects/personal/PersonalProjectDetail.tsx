@@ -101,6 +101,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                   statuses={statuses}
                   canEditStatuses={false}
                   excludeCategories={PERSONAL_EXCLUDED}
+                  showCategoryBand={false}
                   cardTo={cardTo}
                   showType={false}
                   onOpenCreate={(statusId) => {

@@ -4,9 +4,10 @@
 
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CircleCheckBig, Inbox, Plus } from 'lucide-react';
+import { CircleCheckBig, Inbox, Plus, TriangleAlert } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
+import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -18,7 +19,7 @@ import {
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import { useCreateProjectStatus, useRenameProjectStatus } from '../../../hooks/queries/useProjectStatuses';
+import { useCreateProjectStatus, useProjectStatuses, useRenameProjectStatus } from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
@@ -48,6 +49,7 @@ function IssueBoardViewInner({
   statuses,
   canEditStatuses,
   excludeCategories,
+  showCategoryBand = true,
   cardTo,
   showType = true,
   onOpenCreate,
@@ -63,6 +65,8 @@ function IssueBoardViewInner({
   canEditStatuses: boolean;
   // 컬럼에서 뺄 범주(개인 보드 ['CANCELED']) — 그 범주 상태의 이슈는 렌더하지 않는다. 렌더마다 새 배열을 넘기지 말 것(모듈 상수).
   excludeCategories?: IssueStatus[];
+  // 컬럼 위 범주 띠(기본 표시). 개인 보드는 편집이 없고 컬럼이 범주와 1:1 이라 숨긴다.
+  showCategoryBand?: boolean;
   // 카드 링크 대상 빌더(기본 미지정 = IssueCard 기본 상세 경로). 개인은 drawer 경로 주입.
   cardTo?: (issue: IssueResponse) => string;
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
@@ -103,6 +107,9 @@ function IssueBoardViewInner({
   const renameStatus = useRenameProjectStatus(projectKey);
   // 헤더 인라인 이름 변경 중인 컬럼(statusId).
   const [renamingId, setRenamingId] = useState<number | null>(null);
+  // 상태 목록 조회 실패 — 컬럼을 만들 수 없으니 빈 보드 대신 오류와 다시 시도를 보인다(호출부와 같은 캐시).
+  const statusesQuery = useProjectStatuses(projectKey);
+  const statusesFailed = statuses.length === 0 && statusesQuery.isError;
   // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
   const { openMenu, menuIssueNumber } = cardActions;
   const cardMenu = useMemo(() => ({ openMenu, menuIssueNumber }), [openMenu, menuIssueNumber]);
@@ -185,6 +192,21 @@ function IssueBoardViewInner({
 
   // 모바일 보드(WP-195) — 컬럼을 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
   // 그룹 보드는 선택 탭 안에 그룹 섹션을 쌓는다.
+  // 상태 보드는 컬럼(상태) 없이는 그릴 수 없다 — 그룹 보드는 상태 목록 없이도 그린다.
+  if (!grouped && statusesFailed) {
+    return (
+      <div data-testid="board-statuses-error">
+        <ResourceErrorState
+          icon={TriangleAlert}
+          title="상태 목록을 불러오지 못했습니다"
+          description="보드 컬럼을 만들 수 없습니다. 잠시 후 다시 시도해 주세요."
+          actionLabel="다시 시도"
+          onAction={() => void statusesQuery.refetch()}
+        />
+      </div>
+    );
+  }
+
   if (isMobile) {
     // 그룹 보드는 전체 페이지 순차 로드 — 개수는 로드 건수 그대로(「+」 없음), 로드 중엔 pending 으로 기본 탭이 튀지 않게.
     // 모바일은 아직 범주 탭이다(상태 탭은 WP-808 후속) — 범주 안 상태 컬럼 쿼리들을 모아 한 탭으로 보인다.
@@ -282,15 +304,17 @@ function IssueBoardViewInner({
   return (
     <IssueCardMenuContext.Provider value={cardMenu}>
       <BoardStatusDropMonitor onDragEnd={handleDragEnd} />
-      <BoardScroll columnCount={columns.length}>
-        <BoardCategoryBand
-          spans={categorySpans(columns)}
-          canEdit={canEditStatuses}
-          statuses={statuses}
-          onAdd={async (category, name) => {
-            await createStatus.mutateAsync({ name, category });
-          }}
-        />
+      <BoardScroll columnCount={columns.length} band={showCategoryBand}>
+        {showCategoryBand && (
+          <BoardCategoryBand
+            spans={categorySpans(columns)}
+            canEdit={canEditStatuses}
+            statuses={statuses}
+            onAdd={async (category, name) => {
+              await createStatus.mutateAsync({ name, category });
+            }}
+          />
+        )}
         {columns.map((col) => (
           <BoardColumn
             key={col.id}
@@ -304,6 +328,7 @@ function IssueBoardViewInner({
             onShowAllClosed={showAllClosedFor(col.category)}
             dragDisabled={!canDragStatus}
             onLongPress={onCardLongPress}
+            belowBand={showCategoryBand}
             edit={
               canEditStatuses
                 ? {
@@ -361,14 +386,25 @@ const BoardScrollRootContext = createContext<Element | null>(null);
 //     상태 보드·그룹 보드가 같은 구조를 쓴다.
 //     columnCount 가 있으면(상태 보드) 범주 띠 줄 + 컬럼 줄의 그리드 — 띠 칸이 걸친 컬럼 폭(gap 포함)과 정확히 맞고 함께 가로 스크롤된다.
 //     컬럼 트랙은 minmax(240px, 1fr) 로 예전 flex-1 + min-w-[240px] 과 같은 폭 규칙이다.
-function BoardScroll({ children, footer, columnCount }: { children?: ReactNode; footer?: ReactNode; columnCount?: number }) {
+//     band=false(개인 보드)면 띠 줄 없이 컬럼 줄 하나다.
+function BoardScroll({
+  children,
+  footer,
+  columnCount,
+  band = false,
+}: {
+  children?: ReactNode;
+  footer?: ReactNode;
+  columnCount?: number;
+  band?: boolean;
+}) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   return (
     <div ref={setEl} className="h-full overflow-auto" data-testid="board-scroll">
       <BoardScrollRootContext.Provider value={el}>
         {columnCount ? (
           <div
-            className="grid min-h-full grid-rows-[auto_1fr] gap-x-3"
+            className={cn('grid min-h-full gap-x-3', band ? 'grid-rows-[auto_1fr]' : 'grid-rows-[1fr]')}
             style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(240px, 1fr))` }}
           >
             {children}
@@ -410,6 +446,7 @@ function BoardColumn({
   onShowAllClosed,
   dragDisabled = false,
   onLongPress,
+  belowBand = false,
   edit,
 }: {
   status: ProjectStatus;
@@ -428,6 +465,8 @@ function BoardColumn({
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
   onLongPress?: (issue: IssueResponse) => void;
+  // 범주 띠 아래 컬럼 — 헤더가 sticky 띠(h-9) 바로 아래에 붙는다.
+  belowBand?: boolean;
   // OWNER 편집 — 없으면 ⋯ 를 그리지 않는다.
   edit?: ColumnEdit;
 }) {
@@ -444,8 +483,8 @@ function BoardColumn({
       data-status-id={status.id}
       className={`min-h-[200px] min-w-0 rounded-md border p-2 ${isOver ? 'bg-accent/30' : ''}`}
     >
-      {/* 범주 띠(sticky, h-9) 바로 아래에 붙는다 — 세로 스크롤해도 띠와 헤더가 함께 보인다. */}
-      <header className={cn(COLUMN_HEADER_CLASS, 'top-9')}>
+      {/* 범주 띠가 있으면 sticky 띠(h-9) 바로 아래에 붙는다 — 세로 스크롤해도 띠와 헤더가 함께 보인다. */}
+      <header className={cn(COLUMN_HEADER_CLASS, belowBand && 'top-9')}>
         {edit?.renaming ? (
           // 헤더 자리 인라인 이름 변경 — Enter 저장, Esc 취소. 오류는 입력 아래.
           <StatusNameEditor
@@ -454,6 +493,7 @@ function BoardColumn({
             excludeId={status.id}
             onSubmit={edit.onRenameSubmit}
             onCancel={edit.onRenameCancel}
+            inline
             className="flex-1"
           />
         ) : (
