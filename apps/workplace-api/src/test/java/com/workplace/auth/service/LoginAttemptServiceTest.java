@@ -2,6 +2,8 @@ package com.workplace.auth.service;
 
 import static com.workplace.jooq.Tables.LOGIN_ATTEMPTS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.workplace.auth.repository.LoginAttemptRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -19,6 +21,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * LoginAttemptService 통합 테스트(#144).
@@ -31,6 +35,7 @@ class LoginAttemptServiceTest extends IntegrationTestBase {
   @Autowired private LoginAttemptService loginAttemptService;
   @Autowired private LoginAttemptRepository loginAttemptRepository;
   @Autowired private DSLContext dsl;
+  @Autowired private MockMvc mvc;
 
   private String uniqueUser;
 
@@ -155,5 +160,22 @@ class LoginAttemptServiceTest extends IntegrationTestBase {
         dsl.fetchCount(
             dsl.selectOne().from(LOGIN_ATTEMPTS).where(LOGIN_ATTEMPTS.USERNAME.eq(fresh)));
     assertThat(freshRow).isEqualTo(1);
+  }
+
+  /**
+   * 실패 카운터 키(255자)보다 긴 아이디로 로그인하면 카운터 저장이 DB 길이 제약에 걸려 409 가 났다(WP-748). 그런 아이디의 계정은 있을 수 없으니(아이디는
+   * 50자) 다른 틀린 로그인과 같은 401 이어야 한다.
+   */
+  @Test
+  void 카운터_키보다_긴_아이디도_401() throws Exception {
+    String longName = "a".repeat(300);
+    for (int i = 0; i < 2; i++) {
+      mvc.perform(
+              post("/api/v1/auth/login")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content("{\"username\":\"" + longName + "\",\"password\":\"x\"}"))
+          .andExpect(status().isUnauthorized());
+    }
+    assertThat(loginAttemptService.isBlocked(longName)).isFalse();
   }
 }
