@@ -27,6 +27,18 @@ public class DriveSpaceRepository {
         .getId();
   }
 
+  private static final int TEAM_NAME_LOCK_CLASS = 772;
+
+  /**
+   * 같은 이름의 TEAM 공간 만들기·이름 바꾸기를 차례로 세우는 잠금(WP-772, 트랜잭션 종료 시 해제). WP-693 이 「볼 수 있는 공간끼리만」 이름을 견주려고
+   * 유니크 인덱스를 내리고 서비스 검사만 남겨, 같은 이름의 동시 요청이 모두 검사를 통과했다. 이름 검사 전에 잡으면 늦은 쪽이 앞선 쪽 커밋 뒤의 공간을 보고 거절된다.
+   * 키는 검사와 같은 대소문자 무시 이름 — 다른 이름끼리는 기다리지 않는다. classId 는 이슈 번호 관례.
+   */
+  public void lockTeamSpaceName(String name) {
+    dsl.execute(
+        "SELECT pg_advisory_xact_lock(?, hashtext(?))", TEAM_NAME_LOCK_CLASS, name.toLowerCase());
+  }
+
   /**
    * callerId 가 볼 수 있는(멤버인) TEAM 공간 중 같은 이름이 있는지(대소문자 무시, #696). 볼 수 없는 공간까지 견주면 거절 여부로 남의 비공개 공간
    * 존재·이름이 드러난다(WP-693 — 채널 WP-590 과 같은 범위). excludeId 는 이름변경 시 자기 자신 제외용.

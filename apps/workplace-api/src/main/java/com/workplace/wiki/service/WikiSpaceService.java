@@ -69,6 +69,8 @@ public class WikiSpaceService {
   public WikiSpaceResponse createTeamSpace(long callerId, String rawName) {
     // 앞뒤 공백을 다듬고 NFC 로 맞춰 저장·중복 판정한다(WP-562) — 공백만 다른 이름이 목록에 같은 이름으로 두 번 보이지 않게.
     String name = UnicodeNames.toNfc(rawName.strip());
+    // 같은 이름의 동시 생성과 차례를 세운 뒤 검사한다(WP-772 — 유니크 인덱스가 없어 검사만으로는 동시 요청이 모두 통과했다).
+    spaces.lockTeamSpaceName(name);
     if (spaces.existsVisibleTeamSpaceName(name, callerId, null)) {
       throw new WikiSpaceNameDuplicatedException(name);
     }

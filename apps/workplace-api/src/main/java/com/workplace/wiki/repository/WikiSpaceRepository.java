@@ -58,6 +58,20 @@ public class WikiSpaceRepository {
     dsl.deleteFrom(WIKI_SPACE).where(WIKI_SPACE.ID.eq(spaceId)).execute();
   }
 
+  private static final int TEAM_NAME_LOCK_CLASS = 7720;
+
+  /**
+   * 같은 이름의 TEAM 공간 만들기를 차례로 세우는 잠금(WP-772, 트랜잭션 종료 시 해제) — 드라이브 {@code
+   * DriveSpaceRepository#lockTeamSpaceName} 과 같은 이유. 키는 검사와 같은 다듬은·대소문자 무시 이름. classId 는 드라이브(772)와
+   * 겹치지 않게 7720.
+   */
+  public void lockTeamSpaceName(String name) {
+    dsl.execute(
+        "SELECT pg_advisory_xact_lock(?, hashtext(?))",
+        TEAM_NAME_LOCK_CLASS,
+        name.strip().toLowerCase());
+  }
+
   /**
    * callerId 가 볼 수 있는(멤버인) TEAM 공간 중 같은 이름이 있는지(대소문자 무시, #696). 볼 수 없는 공간까지 견주면 거절 여부로 남의 비공개 스페이스
    * 존재·이름이 드러난다(WP-693 — 채널 WP-590 과 같은 범위). excludeId 는 이름변경 시 자기 자신 제외용(현재 TEAM 공간은 이름변경 API 가 없어
