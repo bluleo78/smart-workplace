@@ -1,7 +1,7 @@
 // 담당자 아바타 스택 필터 (#647) — 프로젝트 멤버를 상시 노출하고 클릭으로 담당자 필터를 토글한다.
 // Jira 타임라인의 아바타 필터 미러. 최대 5명 + 초과분은 +N 팝오버로 폴백.
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { avatarInitials } from '@/lib/avatarColor';
 import { presenceStyle } from '@/lib/collab/presence';
 import { cn } from '@/lib/utils';

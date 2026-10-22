@@ -6,18 +6,18 @@ import { Slot } from 'radix-ui'
 import { type ReactNode, useState } from 'react'
 
 import { MobileSheetShell } from '@/components/mobile/MobileSheetShell'
-import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/overlay/select'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import type { DashboardWidgetConfig } from '@/types/dashboard'
 
 import type { CatalogWidget } from './catalogRegistry'

@@ -2,7 +2,7 @@
 // 값이 1개 이상인 facet 의 칩. 본문 클릭=값 편집 팝오버, ×=해당 facet 값 전부 비움.
 import { X } from 'lucide-react';
 
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 
 import { FacetValueList } from './FacetValueList';
 import type { FacetDef, FacetValue } from './types';

@@ -42,6 +42,21 @@ const headerBarRule = {
   message: headerBarMessage,
 }
 
+// 팝퍼(팝오버·선택 창·메뉴) 직접 가져오기 금지 — 앱 공용 래퍼(src/components/overlay)만 하단 탭바를 피한다(WP-806).
+const popperImportMessage =
+  'Popover·Select·DropdownMenu 는 @/components/overlay/* 에서 가져오세요 — 휴대폰 하단 탭바를 피하는 충돌 여백이 거기서 들어갑니다(WP-806).'
+// shadcn 원본(ui/*)과 Radix 개별 패키지(@radix-ui/react-*)
+const popperImportPattern = {
+  regex: '((^|/)ui/(popover|select|dropdown-menu)|^@radix-ui/react-(popover|select|dropdown-menu))$',
+  message: popperImportMessage,
+}
+// 통합 패키지 radix-ui — Slot·Dialog 등은 그대로 쓰고 팝퍼 셋만 막는다.
+const radixPopperPackageRule = {
+  name: 'radix-ui',
+  importNames: ['Popover', 'Select', 'DropdownMenu'],
+  message: popperImportMessage,
+}
+
 export default defineConfig([
   globalIgnores(['dist', 'src/components/ui', 'playwright-report', 'test-results']),
   {
@@ -69,6 +84,17 @@ export default defineConfig([
       // 날짜/시간 표시는 공용 포매터(src/lib/formatters.ts)로만 — 화면마다 toLocale* 직접 호출이
       // 난립해 표기 불일치(#617)가 반복됐다. 문서만으로는 재발을 못 막아 린트로 강제한다(#632).
       'no-restricted-syntax': ['error', toLocaleRule, srcDocIframeRule, headerBarRule],
+      // 팝오버·선택 창·메뉴는 앱 공용 래퍼(src/components/overlay)로만 — 휴대폰 하단 탭바를 피하는 충돌 여백이
+      // 거기서 한 번에 들어간다(WP-806). ui/* 나 Radix 원본을 직접 쓰면 그 화면만 탭바 밑으로 펼쳐진다.
+      // (src/components/ui 는 globalIgnores 라 shadcn 원본의 radix-ui 가져오기는 걸리지 않는다.)
+      'no-restricted-imports': ['error', { paths: [radixPopperPackageRule], patterns: [popperImportPattern] }],
+    },
+  },
+  {
+    // 앱 공용 팝퍼 래퍼 — shadcn 원본(ui/*)을 감싸는 유일한 자리.
+    files: ['src/components/overlay/**'],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
   {

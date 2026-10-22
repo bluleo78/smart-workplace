@@ -1,6 +1,9 @@
 // 사이클 생성/수정 다이얼로그. cycle 이 주어지면 수정, 없으면 생성.
 import { useEffect, useState } from 'react';
 
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,9 +14,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
 import { useCreateCycle, useUpdateCycle } from '../../hooks/queries/useCycles';

@@ -5,9 +5,9 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import type { DependencyDirection } from '../../../api/issueDependencies';
 import { useAddIssueDependency } from '../../../hooks/queries/useIssueDependencies';

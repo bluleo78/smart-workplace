@@ -117,3 +117,33 @@ export async function expectTouchTarget(target: Locator, min = 24) {
   }, min)
   expect(misses, `터치 영역 ${min}px 미달 방향`).toEqual([])
 }
+
+/**
+ * 하단 탭바 위쪽 끝(y) — 탭바가 실제로 보이는지 먼저 확인한다(WP-806).
+ * 왜: 탭바가 없는 화면(상세)에선 --mobile-tabbar-h 가 0 이라, 탭바 겹침 단언이 아무것도 증명하지 못한 채 통과한다.
+ */
+export async function tabBarTop(page: Page): Promise<number> {
+  const bar = page.getByTestId('mobile-tabbar')
+  await expect(bar).toBeVisible()
+  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--mobile-tabbar-h'))).not.toBe('')
+  return (await bar.boundingBox())!.y
+}
+
+/** 대상이 하단 탭바 위 영역(화면 위끝 ~ 탭바 위끝) 안에 온전히 들어 있는지 — 탭바에 가리거나 그 밑으로 이어지지 않게(WP-806). */
+export async function expectAboveTabBar(page: Page, target: Locator) {
+  const navTop = await tabBarTop(page)
+  const b = (await target.boundingBox())!
+  expect(b.y, 'top').toBeGreaterThanOrEqual(0)
+  expect(b.y + b.height, 'bottom').toBeLessThanOrEqual(navTop)
+}
+
+/** 가운데 정렬 대화상자가 하단 탭바 위 영역의 가운데에 있는지(±2px) — 화면 전체 가운데면 아래끝이 탭바에 붙는다(WP-801·WP-806). */
+export async function expectCenteredAboveTabBar(page: Page, dialog: Locator) {
+  const navTop = await tabBarTop(page)
+  // 열림 애니메이션(zoom-in-95) 중엔 상자가 작게 잡히므로 크기가 멈출 때까지 기다린다.
+  await expect.poll(async () => {
+    const b = (await dialog.boundingBox())!
+    return Math.abs(b.y + b.height / 2 - navTop / 2)
+  }).toBeLessThan(2)
+  await expectAboveTabBar(page, dialog)
+}

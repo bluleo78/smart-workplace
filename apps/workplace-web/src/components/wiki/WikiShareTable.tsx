@@ -1,11 +1,11 @@
 import { ExternalLink, Link2, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { TableEmptyRow } from '@/components/ui/table-empty'
 import { TableSkeletonRows } from '@/components/ui/table-skeleton'

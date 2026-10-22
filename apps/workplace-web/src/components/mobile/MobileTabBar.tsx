@@ -13,6 +13,7 @@ import { useObservedHeight } from '@/hooks/useObservedHeight'
 import { aiTriggerLabel } from '@/lib/ai/aiActivity'
 import { DEFAULT_TAB_SLOTS } from '@/lib/mobile/tabConfig'
 import { MOBILE_TABS, type MobileTabId, under } from '@/lib/mobile/tabs'
+import { setMobileTabBarHeight } from '@/lib/mobileTabBar'
 import { cn } from '@/lib/utils'
 
 import { useMobileChrome } from './MobileChromeContext'
@@ -37,16 +38,15 @@ const TAB_BADGE_CLASS = 'absolute right-[calc(50%-18px)] top-0.5 h-4 min-w-4 tex
 /**
  * 실제 탭바 높이(안전영역 포함)를 :root 의 --mobile-tabbar-h 로 공개한다 — 모바일 AI 시트 등 셸 위 층이
  * 탭바 위로 뜨게 하되, 탭바가 숨으면(언마운트) 변수를 지워 폴백 0 으로 화면 하단에 붙는다.
+ * 같은 때 :root[data-mobile-tabbar] 표식도 달고 뗀다 — 대화상자 높이처럼 "탭바가 있을 때만" 바꿔야 하는 CSS 가
+ * 변수 폴백(0)으로는 구분할 수 없어 이 표식으로 고른다(index.css 「하단 탭바 위 대화상자」, WP-806).
+ * 팝퍼 래퍼(overlay/*)는 useMobileTabBarHeight 로 구독해 바뀐 값을 바로 쓴다.
  * 고정 px 를 복제하지 않도록 렌더된 높이를 관측한다(useObservedHeight — 뷰어 하단 바와 공용).
  * 반환값은 탭바 요소에 다는 콜백 ref.
  */
 function useTabBarHeightVar() {
   const [bar, setBar] = useState<HTMLElement | null>(null)
-  useObservedHeight(bar, (h) => {
-    const root = document.documentElement
-    if (h == null) root.style.removeProperty('--mobile-tabbar-h')
-    else root.style.setProperty('--mobile-tabbar-h', `${h}px`)
-  })
+  useObservedHeight(bar, setMobileTabBarHeight)
   return setBar
 }
 

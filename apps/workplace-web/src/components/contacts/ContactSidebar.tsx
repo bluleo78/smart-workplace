@@ -2,14 +2,14 @@ import { Star, Users, X } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
-import { Button } from '@/components/ui/button'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/overlay/select'
+import { Button } from '@/components/ui/button'
 import { useContactFacets } from '@/hooks/queries/useContactFacets'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'

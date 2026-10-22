@@ -2,9 +2,9 @@
 import { SmilePlus } from 'lucide-react'
 import { useState } from 'react'
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 interface EmojiPickerProps {
   onPick: (emoji: string) => void

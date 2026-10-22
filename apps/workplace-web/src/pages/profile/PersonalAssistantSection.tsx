@@ -9,6 +9,14 @@ import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
+
 import { probeMyAssistantModels } from '../../api/models';
 import { SuggestionModelField } from '../../components/ai/SuggestionModelField';
 import { VisionInputSelect } from '../../components/ai/VisionInputSelect';
@@ -19,13 +27,6 @@ import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { PasswordInput } from '../../components/ui/password-input';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../components/ui/select';
 import { Skeleton } from '../../components/ui/skeleton';
 import {
   useDisableMyAssistant,

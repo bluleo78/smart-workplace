@@ -1,3 +1,6 @@
+// Radix 원본을 직접 쓴다(아래 Content 주석 — 포털 없이 툴바 안에 그려야 tiptap 블러 숨김을 피한다). 공용 래퍼의 탭바 피하기는
+// 필요 없다: 이 툴바는 노트 페이지 편집기(상세 화면)에만 떠 휴대폰 하단 탭바가 없는 화면이다(WP-806).
+// eslint-disable-next-line no-restricted-imports
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu'
 import { type Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -5,8 +8,8 @@ import { Bold, ChevronDown, Heading1, Heading2, Italic, Link, List, Quote } from
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { EditorFloatingToolbar } from '@/components/editor/EditorFloatingToolbar'
+import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ghostToggleClass } from '@/lib/selectionStyles'
 
 import {

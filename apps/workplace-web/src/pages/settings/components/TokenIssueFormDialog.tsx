@@ -6,6 +6,13 @@ import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -17,13 +24,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
 // GitHub PAT 등 통상적인 프리셋 — 30일을 기본값(권장)으로 안내.
 const EXPIRY_PRESETS = {

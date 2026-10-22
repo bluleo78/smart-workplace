@@ -8,7 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
 import { hasOpenMark } from '@/lib/historyParam'
 import { mailViewHref, resolveMailView } from '@/lib/mailView'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'

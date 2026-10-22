@@ -9,14 +9,13 @@
 import { Plus } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useCalendarTags, useCreateCalendarTag, useSetEventTags } from '@/hooks/queries/useCalendarTags'
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { filterTagsByName, pickTagColor, sameTagIds, tagNameToCreate, tagRefsForIds, toggleTagId } from '@/lib/calendarTag'
-import { popoverCollisionPadding } from '@/lib/mobileTabBar'
 import type { CalendarTagRef } from '@/types/calendar'
 
 interface TagPickerPopoverProps {
@@ -81,8 +80,8 @@ function TagPickerPopover({ checkedIds, onToggle, onCreated, onOpen, children }:
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="start"
-        // 휴대폰(390px)에서 화면 끝에 붙지 않게 가장자리에서 16px, 아래는 하단 탭바만큼 더 띄운다(자리가 없으면 위로 뒤집힘)
-        collisionPadding={popoverCollisionPadding()}
+        // 휴대폰(390px)에서 화면 끝에 붙지 않게 가장자리에서 16px — 아래 하단 탭바 높이는 앱 공용 PopoverContent 가 더한다(자리가 없으면 위로 뒤집힘, WP-806)
+        collisionPadding={16}
         className="w-72 p-2"
         data-testid="calendar-tag-picker"
       >

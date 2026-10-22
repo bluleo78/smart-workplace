@@ -1,6 +1,6 @@
 // 이슈 우선순위 인라인 변경 select. shadcn/Radix Select 사용.
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';
 
 import type { IssuePriority } from '../../../types/issue';
 

@@ -3,6 +3,13 @@ import { useState } from 'react';
 import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { useSettingsScrollRoot } from '@/components/layout/settingsScrollRoot';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -14,13 +21,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { SearchInput } from '@/components/ui/search-input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Table,
   TableBody,

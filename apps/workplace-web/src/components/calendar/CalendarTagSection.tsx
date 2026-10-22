@@ -6,13 +6,13 @@
 import { LinkIcon, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 
 import { useCloseSheetAfterMenu } from '@/components/mobile/MobileSidebarSheetContext'
-import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
+import { Button } from '@/components/ui/button'
 import { useCalendarTags } from '@/hooks/queries/useCalendarTags'
 import { resolvePalette } from '@/lib/calendarPalette'
 import type { CalendarTag } from '@/types/calendar'

@@ -3,14 +3,14 @@
 // XSS 방어: editable=false 에서 메일 본문(공격자 콘텐츠)을 절대 HTML 로 렌더하지 않는다.
 import { Bot } from 'lucide-react'
 
-import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/overlay/select'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
 import { assigneeCandidates } from '../../lib/assigneeCandidates'

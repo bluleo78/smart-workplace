@@ -1,14 +1,14 @@
 // 모델의 "이미지 입력" 지원 여부 선택 상자 + 도움말 — AI 연결 다이얼로그(관리자)·개인 비서 등록 폼과, 등록 후 모델 설정(개인 비서·공통 비서)이 같이 쓴다.
 // 자동 감지가 실패하는 OpenAI 호환 모델을 위해 사람이 직접 "볼 수 있음/볼 수 없음"을 지정할 수 있게 한다.
 // 선택값은 visionConfigFor 로 providerConfig.vision 에 실린다(자동이면 키 생략).
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@/components/overlay/select';
+import { Label } from '@/components/ui/label';
 import type { VisionChoice } from '@/lib/ai/visionConfig';
 
 interface Props {

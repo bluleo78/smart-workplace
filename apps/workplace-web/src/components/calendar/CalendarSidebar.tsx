@@ -5,16 +5,16 @@ import { CalendarTagSection } from '@/components/calendar/CalendarTagSection'
 import { miniCalendarDotClass } from '@/components/calendar/miniCalendarClass'
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { useCloseSheetAfterMenu } from '@/components/mobile/MobileSidebarSheetContext'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Calendar } from '@/components/ui/calendar'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   type CalendarLayers,
   groupCalendarsBySource,

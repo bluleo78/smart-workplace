@@ -6,9 +6,9 @@ import { ko } from 'date-fns/locale';
 import { CalendarIcon, X } from 'lucide-react';
 import { useState } from 'react';
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { parseValidDateKey } from '@/lib/formatters';
 
 import type { IssueFieldDef } from '../../types/customField';

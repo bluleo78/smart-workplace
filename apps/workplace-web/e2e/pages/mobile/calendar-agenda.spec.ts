@@ -8,7 +8,14 @@ import type { CalendarEvent } from '../../../src/types/calendar'
 import type { IssueResponse } from '../../../src/types/issue'
 import { calendar, calendarEvent } from '../../factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
-import { expect, expectNoHorizontalOverflow, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
+import {
+  expect,
+  expectAboveTabBar,
+  expectCenteredAboveTabBar,
+  expectNoHorizontalOverflow,
+  test,
+  toCalendarMonthView,
+} from '../../fixtures/mobile.fixture'
 import { touchDrag } from '../../fixtures/touch'
 
 // 화면 날짜·시간은 로컬 타임존 기준 — 실행 머신과 무관하게 KST 로 고정한다.
@@ -600,6 +607,35 @@ test('⑧-3 일정 다이얼로그 — 아이콘 줄 폼은 390px 에서 반복 
   expect(pop.x + pop.width).toBeLessThanOrEqual(390 - 16)
   expect(pop.y + pop.height).toBeLessThanOrEqual(navTop)
   await expectNoHorizontalOverflow(page)
+})
+
+test.describe('390×664 — 낮은 화면', () => {
+  test.use({ viewport: { width: 390, height: 664 } })
+
+  test('⑧-4 일정 다이얼로그 — 탭바 위 가운데, 끝까지 내리면 수정이 탭바 위, 아래쪽 알림·캘린더 선택 창도 탭바 위(WP-806)', async ({
+    authenticatedPage: page,
+  }) => {
+    await stubCalendar(page)
+    await page.route((u) => u.pathname === '/api/v1/calendar/tags', (r) => r.fulfill({ json: [] }))
+    await page.goto('/calendar')
+    await agendaList(page).getByTestId('calendar-event-2').tap()
+    const dialog = page.getByTestId('calendar-event-dialog')
+    await expect(page.getByTestId('calendar-form-title')).toHaveValue('주간 스프린트 회의')
+    await expectCenteredAboveTabBar(page, dialog)
+
+    await dialog.evaluate((el) => el.scrollTo({ top: el.scrollHeight }))
+    await expect(page.getByTestId('calendar-form-submit')).toBeInViewport({ ratio: 1 })
+    await expectAboveTabBar(page, page.getByTestId('calendar-form-submit'))
+
+    for (const id of ['calendar-form-reminder', 'calendar-form-calendar']) {
+      await page.getByTestId(id).tap()
+      const listbox = page.getByRole('listbox')
+      await expect(listbox).toBeVisible()
+      await expectAboveTabBar(page, listbox)
+      await page.keyboard.press('Escape')
+      await expect(listbox).toBeHidden()
+    }
+  })
 })
 
 test('⑧-2 초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력칸 없는 상세 보기·캘린더 칩 「초대받은 일정」·반복은 문장으로(WP-604·WP-708)', async ({

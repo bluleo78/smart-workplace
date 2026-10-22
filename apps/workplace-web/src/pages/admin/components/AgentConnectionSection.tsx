@@ -10,6 +10,13 @@ import { toast } from 'sonner';
 import { SuggestionModelField } from '@/components/ai/SuggestionModelField';
 import { VisionInputSelect } from '@/components/ai/VisionInputSelect';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -22,13 +29,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 
 import { getAgentModels } from '../../../api/models';

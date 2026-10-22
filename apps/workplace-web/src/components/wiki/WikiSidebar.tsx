@@ -28,7 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
 import {
   Select,
   SelectContent,
@@ -36,7 +36,7 @@ import {
   SelectSeparator,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
+} from '@/components/overlay/select'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { parseId } from '@/lib/historyParam'
 import { canDeleteWikiSpace } from '@/lib/wikiSpaces'

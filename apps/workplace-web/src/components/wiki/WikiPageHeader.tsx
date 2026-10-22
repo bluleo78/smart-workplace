@@ -7,7 +7,6 @@ import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { Page } from '@/components/layout/Page'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
-import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +14,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+} from '@/components/overlay/dropdown-menu'
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/useIsMobile'

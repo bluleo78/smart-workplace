@@ -4,8 +4,8 @@
 import { UserPlus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';

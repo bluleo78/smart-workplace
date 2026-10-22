@@ -12,7 +12,7 @@ import { AISessionItems } from '@/components/ai/AISessionList';
 import { AiStatusDot } from '@/components/ai/AiStatusDot';
 import { DeleteSessionDialog } from '@/components/ai/DeleteSessionDialog';
 import { useTabBarVisible } from '@/components/mobile/useTabBarVisible';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/overlay/dropdown-menu';
 import { useAssistantChat } from '@/hooks/useAssistantChat';
 import { sessionListLabel } from '@/lib/ai/aiActivity';
 import { cn } from '@/lib/utils';

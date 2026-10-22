@@ -14,6 +14,14 @@ import { EventFormRow, FORM_CHIP_LINE_CLASS } from '@/components/calendar/EventF
 import { EventTagsField } from '@/components/calendar/EventTagsField'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/overlay/select'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -25,14 +33,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent'
 import {
@@ -57,7 +57,6 @@ import { reminderLabel } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { changedTagIds, eventTagHint } from '@/lib/calendarTag'
 import { HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
-import { DIALOG_ABOVE_TAB_BAR_CLASS, popoverCollisionPadding } from '@/lib/mobileTabBar'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent, CalendarEventRequest, CalendarTagRef } from '@/types/calendar'
@@ -339,10 +338,10 @@ export function EventDialog({
         data-testid="calendar-event-dialog"
         // 상세 보기는 본문 스크롤·응답 줄 고정을 위해 세로 flex — 여백은 EventDetailView 안쪽이 맡는다.
         // 폼은 한 단계 넓게(sm:max-w-xl) — 아이콘 줄에서 시작·종료 datetime-local 두 칸이 한 줄에 들어가게(한국어 표기 「2026. 10. 19. 오전 10:00」 기준).
-        // 모바일 하단 탭바(--mobile-tabbar-h, MobileTabBar 가 공개·없으면 0) 위 영역 안에 가운데 두고 높이도 그만큼 줄인다 —
-        // 화면 전체 기준이면 다이얼로그 아래끝이 탭바에 붙어 탭바 밑으로 이어지는 것처럼 보였다. 휴대폰 폼은 여백·줄 간격을 줄인다.
+        // 높이는 화면 안(85vh·위아래 1rem)으로 — 휴대폰 하단 탭바가 보이면 index.css 「하단 탭바 위 대화상자」가 탭바 위 영역 가운데로 옮기고
+        // 높이도 그 안으로 줄인다(WP-801→WP-806 공용화). 휴대폰 폼은 여백·줄 간격을 줄인다.
         className={cn(
-          DIALOG_ABOVE_TAB_BAR_CLASS,
+          'max-h-[min(85vh,calc(100dvh-2rem))]',
           showDetail ? 'flex flex-col gap-0 p-0' : 'overflow-y-auto max-sm:gap-3 max-sm:p-4 sm:max-w-xl',
           aiAware.contentClassName,
         )}
@@ -685,8 +684,8 @@ export function EventDialog({
                     <PopoverContent
                       align="start"
                       // 휴대폰에서 화면 가장자리에 붙지 않게 16px 띄우고, 좁으면 팔레트가 다음 줄로 꺾인다.
-                      // 아래쪽은 하단 탭바 높이만큼 더 띄워, 자리가 없으면 위로 뒤집혀 탭바 뒤로 숨지 않는다
-                      collisionPadding={popoverCollisionPadding()}
+                      // 아래쪽 하단 탭바 높이는 앱 공용 PopoverContent(overlay/popover)가 더해 자리가 없으면 위로 뒤집힌다(WP-806)
+                      collisionPadding={16}
                       className="w-auto max-w-[calc(100vw-2rem)] p-3"
                       data-testid="calendar-color-popover"
                     >
