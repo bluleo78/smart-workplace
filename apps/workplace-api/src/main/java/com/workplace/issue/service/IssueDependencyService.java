@@ -58,6 +58,8 @@ public class IssueDependencyService {
     Long fromId = blockedBy ? otherRow.id() : thisRow.id();
     Long toId = blockedBy ? thisRow.id() : otherRow.id();
 
+    // 순환 검사와 저장 사이에 같은 프로젝트의 다른 추가가 끼지 않게 잠근다(WP-758) — 나중 요청은 앞 요청이 커밋한 관계까지 보고 판정한다.
+    depRepository.lockProjectDependencies(project.id());
     if (depRepository.exists(fromId, toId)) {
       // 멱등 — history 미기록.
       return;
