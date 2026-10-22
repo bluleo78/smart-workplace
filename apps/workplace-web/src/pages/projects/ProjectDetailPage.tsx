@@ -17,6 +17,7 @@ import { useMilestones } from '../../hooks/queries/useMilestones';
 import { useProjectEpics } from '../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
+import { useSortedProjectStatuses } from '../../hooks/queries/useProjectStatuses';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
 import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue';
@@ -183,6 +184,8 @@ function ProjectIssuesSection({
   const types = useIssueTypes(projectKey);
   const cycles = useCycles(projectKey);
   const milestones = useMilestones(projectKey);
+  // 「상태」 필터(statusIds)를 AI 화면 컨텍스트에 이름으로 싣기 위한 프로젝트 상태(WP-808).
+  const projectStatuses = useSortedProjectStatuses(projectKey);
   // 리스트 뷰가 보고하는 로드 건수 — 보드는 컬럼별 로드, 사이클 그룹(#878)은 구간별 로드라 건수를 싣지 않는다.
   const [loaded, setLoaded] = useState<{ count: number; hasMore: boolean } | null>(null);
   // 목록 정체성(보기 + 리스트 쿼리 키와 같은 기본 범위 적용 필터)이 바뀌면 이전 건수를 버린다 —
@@ -214,11 +217,12 @@ function ProjectIssuesSection({
           types: types.data ?? [],
           cycles: cycles.data ?? [],
           milestones: milestones.data ?? [],
+          statuses: projectStatuses,
         },
         count: listLoaded?.count,
         hasMore: listLoaded?.hasMore,
       }),
-    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, listLoaded],
+    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, listLoaded],
   );
   useRegisterAiScreenContext(screenContext);
 

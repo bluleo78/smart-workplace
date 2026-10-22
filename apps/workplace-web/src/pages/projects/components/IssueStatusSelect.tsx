@@ -99,6 +99,8 @@ export function IssueStatusSelect({
   const blockers = incompleteBlockers(blockedBy);
   const options = sortStatuses(statuses);
   const current = options.find((s) => s.id === value);
+  // 트리거 툴팁 — 긴 이름은 말줄임되므로 전체 이름을 title 로 남긴다.
+  const triggerName = current?.name ?? currentName;
 
   const handleChange = (id: string) => {
     const next = options.find((s) => String(s.id) === id);
@@ -115,15 +117,16 @@ export function IssueStatusSelect({
   return (
     <>
       <Select value={String(value)} onValueChange={handleChange} disabled={disabled}>
-        <SelectTrigger className="w-full" aria-label="상태" data-testid="issue-status-select">
-          {/* 목록에서 현재 상태를 찾으면 Radix 가 그 항목을 그리고, 못 찾으면(로딩 중 등) 응답의 이름을 그대로 보인다. */}
-          <SelectValue>{current ? undefined : currentName}</SelectValue>
+        <SelectTrigger className="w-full" aria-label="상태" title={triggerName} data-testid="issue-status-select">
+          {/* 목록에서 현재 상태를 찾으면 Radix 가 그 항목을 그리고, 못 찾으면(로딩 중 등) 응답의 이름을 그대로 보인다.
+              이름은 min-w-0 truncate span 으로 감싼다 — 값 영역이 flex + line-clamp 라 텍스트 노드만으론 말줄임표가 생기지 않는다. */}
+          <SelectValue>{current ? undefined : currentName && <span className="min-w-0 truncate">{currentName}</span>}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {options.map((s) => (
             <SelectItem key={s.id} value={String(s.id)} data-testid={`issue-status-option-${s.id}`}>
               <IssueStatusIcon status={s.category} decorative className="size-4" />
-              {s.name}
+              <span className="min-w-0 truncate">{s.name}</span>
             </SelectItem>
           ))}
         </SelectContent>

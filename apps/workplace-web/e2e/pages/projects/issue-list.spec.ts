@@ -446,12 +446,23 @@ test.describe('팀 리스트 뷰', () => {
   test('예전 ?status=IN_PROGRESS 링크는 상태 범주 칩으로 열린다 (WP-808)', async ({ authenticatedPage: page }) => {
     await routeStatuses(page);
     const lastSearch = await captureSearch(page);
-    await page.goto(`/projects/${KEY}?status=IN_PROGRESS&statusId=12`);
+    await page.goto(`/projects/${KEY}?status=IN_PROGRESS`);
 
-    // 두 필터는 따로 칩이 되고, 검색 요청에 함께 실린다(서버가 AND 로 묶는다).
     const categoryChip = page.getByTestId('filter-chip-status');
     await expect(categoryChip).toContainText('상태 범주:');
     await expect(categoryChip).toContainText('진행 중');
+    await expect(page.getByTestId('filter-chip-statusId')).toHaveCount(0);
+    await expect.poll(() => lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS');
+    expect(lastSearch()?.searchParams.get('statusId')).toBeNull();
+  });
+
+  test('상태와 상태 범주를 함께 걸면 칩이 따로 생기고 검색 요청에 둘 다 실린다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}?status=IN_PROGRESS&statusId=12`);
+
+    // 서버가 두 조건을 AND 로 묶는다 — 웹은 둘 다 그대로 보낸다.
+    await expect(page.getByTestId('filter-chip-status')).toContainText('진행 중');
     await expect(page.getByTestId('filter-chip-statusId')).toContainText('검토 중');
     await expect.poll(() => lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS');
     expect(lastSearch()?.searchParams.get('statusId')).toBe('12');

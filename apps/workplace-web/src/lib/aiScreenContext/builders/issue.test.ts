@@ -59,7 +59,7 @@ describe('buildIssueListContext', () => {
       view: 'list',
       groupBy: 'status',
       filters: { ...emptyFilters, q: '로그인', statuses: ['TODO', 'IN_PROGRESS'], assigneeIds: [1, 99], includeUnassigned: true, labelIds: [5] },
-      lookups: { members: [{ userId: 1, name: '양동희' }], labels: [{ id: 5, name: '버그' }], types: [], cycles: [], milestones: [] },
+      lookups: { members: [{ userId: 1, name: '양동희' }], labels: [{ id: 5, name: '버그' }], types: [], cycles: [], milestones: [], statuses: [] },
       count: 23,
       hasMore: true,
     });
@@ -70,7 +70,7 @@ describe('buildIssueListContext', () => {
       refs: { projectKey: 'WP' },
       facts: [
         { label: '검색어', value: '로그인' },
-        { label: '상태', value: '할 일, 진행 중' },
+        { label: '상태 범주', value: '할 일, 진행 중' },
         { label: '담당', value: '양동희, #99, 미할당' },
         { label: '라벨', value: '버그' },
         { label: '보기', value: '리스트' },
@@ -84,7 +84,7 @@ describe('buildIssueListContext', () => {
   it('필터가 없으면 보기만', () => {
     const ctx = buildIssueListContext({
       projectKey: 'WP', projectName: 'Workplace', view: 'board', groupBy: null, filters: emptyFilters,
-      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [] },
+      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [] },
     });
     expect(ctx.scope!.facts).toEqual([{ label: '보기', value: '보드' }]);
     expect(ctx.scope!.count).toBeUndefined();
@@ -92,6 +92,16 @@ describe('buildIssueListContext', () => {
 });
 
 describe('buildIssueListContext 상한 초과', () => {
+  it('개별 상태(statusIds)는 「상태」로 이름을 싣고, 범주는 「상태 범주」로 따로 싣는다 (WP-808)', () => {
+    const ctx = buildIssueListContext({
+      projectKey: 'WP', projectName: 'Workplace', view: 'list', groupBy: null,
+      filters: { ...emptyFilters, statusIds: [12, 99] },
+      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [{ id: 12, name: '검토 중' }] },
+    });
+    const facts = ctx.scope!.facts!;
+    expect(facts).toContainEqual({ label: '상태', value: '검토 중, #99' });
+    expect(facts.map((f) => f.label)).not.toContain('상태 범주');
+  });
   it('모든 필터가 켜지면 12개로 자르되 밀린 필터 이름을 "기타 필터"로 요약', () => {
     const ctx = buildIssueListContext({
       projectKey: 'WP', projectName: 'Workplace', view: 'board', groupBy: 'status',
@@ -101,7 +111,7 @@ describe('buildIssueListContext 상한 초과', () => {
       },
       lookups: {
         members: [{ userId: 1, name: '양' }], labels: [{ id: 5, name: 'L' }], types: [{ id: 2, name: 'T' }],
-        cycles: [{ id: 7, name: 'C' }], milestones: [{ id: 8, name: 'M' }],
+        cycles: [{ id: 7, name: 'C' }], milestones: [{ id: 8, name: 'M' }], statuses: [],
       },
     });
     const facts = ctx.scope!.facts!;
@@ -164,7 +174,7 @@ describe('화면 앱 (WP-379)', () => {
       view: 'list',
       groupBy: null,
       filters: emptyFilters,
-      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [] },
+      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [] },
     });
     expect(list.app).toBe('ISSUE');
   });

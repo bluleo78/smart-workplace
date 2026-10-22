@@ -45,6 +45,25 @@ describe('IssueStatusSelect — 프로젝트 상태', () => {
     expect(onChange.mock.calls[0][0].id).toBe(12)
   })
 
+  it('긴 상태 이름은 트리거에서 말줄임 span 으로 감싸고 전체 이름을 title 로 둔다 (WP-808)', () => {
+    const long = '고객 확인 및 QA 승인 대기 중인 아주 긴 상태 이름입니다'
+    renderWithProviders(
+      <IssueStatusSelect value={20} statuses={[...statuses, { id: 20, name: long, category: 'IN_PROGRESS', position: 9 }]} onChange={vi.fn()} />,
+    )
+    const trigger = screen.getByTestId('issue-status-select')
+    expect(trigger).toHaveAttribute('title', long)
+    const name = trigger.querySelector('span.truncate')
+    expect(name).toHaveTextContent(long)
+    expect(name).toHaveClass('min-w-0')
+  })
+
+  it('상태 목록 로딩 중에도 응답 이름을 title·말줄임으로 보인다', () => {
+    renderWithProviders(<IssueStatusSelect value={12} statuses={[]} currentName="검토 중" onChange={vi.fn()} />)
+    const trigger = screen.getByTestId('issue-status-select')
+    expect(trigger).toHaveAttribute('title', '검토 중')
+    expect(trigger.querySelector('span.truncate')).toHaveTextContent('검토 중')
+  })
+
   it('DONE 범주 상태를 고르고 blockedBy 가 있으면 확인 다이얼로그', async () => {
     const onChange = vi.fn()
     renderWithProviders(
