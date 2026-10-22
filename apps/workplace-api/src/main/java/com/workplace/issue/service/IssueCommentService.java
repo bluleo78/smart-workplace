@@ -190,7 +190,11 @@ public class IssueCommentService {
     // 새 글·이전 글 모두 이미지 참조가 없으면 syncIssueImages 가 추가 쿼리 없이 돌아간다(WP-362).
     bodyImageService.syncIssueImages(
         project, issueId, callerId, mutable.comment().body(), req.body());
-    var updated = commentRepository.findById(commentId).orElseThrow();
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    var updated =
+        commentRepository
+            .findById(commentId)
+            .orElseThrow(() -> new IssueCommentNotFoundException(commentId));
 
     // 도메인 이벤트 발행 — create() 와 동일 패턴(#717, SSE 실시간 반영 갭 해소).
     var assignees = assigneeRepository.findByIssue(issueId);

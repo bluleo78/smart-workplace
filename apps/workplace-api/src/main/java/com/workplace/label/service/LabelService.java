@@ -175,7 +175,10 @@ public class LabelService {
     }
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_LABEL, OP_UPDATED, project, labelId, callerId);
-    return toResponse(labelRepository.findById(labelId).orElseThrow(), true);
+    // 수정 중에 다른 요청이 지웠으면 다시 읽기가 비어 있다 — 500 대신 처음 찾을 때와 같은 404(WP-755).
+    return toResponse(
+        labelRepository.findById(labelId).orElseThrow(() -> new LabelNotFoundException(labelId)),
+        true);
   }
 
   /** OWNER·ADMIN 또는 만든 멤버 — 라벨 삭제(cascade, 다른 사람이 붙인 이슈에서도 빠진다). */
