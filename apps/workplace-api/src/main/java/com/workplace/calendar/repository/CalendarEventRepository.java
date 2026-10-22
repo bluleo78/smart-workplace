@@ -429,6 +429,18 @@ public class CalendarEventRepository {
         .execute();
   }
 
+  /**
+   * 일정 행을 쓰기 잠금(FOR UPDATE)한다 — 같은 일정을 고치거나 지우는 요청을 차례로 세워, 늦은 쪽이 앞선 쪽의 결과(잘린 RRULE 등)를 보고 다시 판단하게
+   * 한다(WP-761). 쓰기 tx 안에서만 부른다.
+   */
+  public void lockForUpdate(long id) {
+    dsl.select(CALENDAR_EVENT.ID)
+        .from(CALENDAR_EVENT)
+        .where(CALENDAR_EVENT.ID.eq(id))
+        .forUpdate()
+        .fetch();
+  }
+
   /** RRULE 만 교체 + updated_at 갱신 — 시리즈 잘라내기(UNTIL 적용)에 사용. */
   public void updateRecurrenceRule(long id, String recurrenceRule) {
     dsl.update(CALENDAR_EVENT)
