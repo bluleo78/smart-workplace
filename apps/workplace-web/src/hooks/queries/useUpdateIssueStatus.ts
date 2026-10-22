@@ -10,7 +10,7 @@ import { handleApiError } from '../../lib/api-error';
 import type { ClosedHidingNotice } from '../../lib/closedHiding';
 import type { IssueStatus } from '../../types/issue';
 import { toastStatusChange } from './closedHidingToast';
-import { patchIssueInSearchCache } from './issueSearchCache';
+import { copyIssueIntoStatusColumn, patchIssueInSearchCache } from './issueSearchCache';
 
 export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHidingNotice) {
   const qc = useQueryClient();
@@ -18,8 +18,12 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
     mutationFn: ({ number, status }: { number: number; status: string }) =>
       updateIssueStatus(projectKey, number, status),
     // 진행 중인 검색 쿼리 취소 + 스냅샷 + 패치를 공용 헬퍼로 — 실패 시 restore() 로 되돌린다.
-    onMutate: ({ number, status }) =>
-      patchIssueInSearchCache(qc, projectKey, number, { status: status as IssueStatus }),
+    // 보드 새 열 캐시에도 카드를 넣는다 — 이유는 copyIssueIntoStatusColumn(WP-860).
+    onMutate: async ({ number, status }) => {
+      const ctx = await patchIssueInSearchCache(qc, projectKey, number, { status: status as IssueStatus });
+      copyIssueIntoStatusColumn(qc, projectKey, number, status);
+      return ctx;
+    },
     onError: (err, _vars, ctx) => {
       ctx?.restore();
       handleApiError(err, '태스크 상태 변경에 실패했습니다');
