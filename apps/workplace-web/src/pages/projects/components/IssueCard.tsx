@@ -74,8 +74,8 @@ export function IssueCard({
   });
   const sortable = useSortable({
     id: dragScope ? `issue-${dragScope}-${issue.id}` : `issue-${issue.id}`,
-    // issueNumber/status: 보드 상태 드롭용, issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).
-    data: { issueNumber: issue.number, status: issue.status, issue, source: 'card', showType } satisfies IssueDragData,
+    // issueNumber/status/statusId: 보드 상태 드롭용(카드 위에 놓으면 그 카드의 statusId 컬럼), issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).
+    data: { issueNumber: issue.number, status: issue.status, statusId: issue.statusId, issue, source: 'card', showType } satisfies IssueDragData,
     disabled: asOverlay || dragDisabled,
   });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =

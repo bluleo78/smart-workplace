@@ -2,7 +2,7 @@
 import type { IssueStatus } from '../types/issue';
 import type { ProjectType } from '../types/project';
 import type { ProjectStatus } from '../types/projectStatus';
-import { ISSUE_STATUSES } from './issueGrouping';
+import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from './issueGrouping';
 
 /** 상태 이름 최대 길이 — 서버 ProjectStatusService.NAME_MAX 와 같다(코드 포인트 기준). */
 export const STATUS_NAME_MAX = 30;
@@ -24,6 +24,26 @@ export function statusesByCategory(list: readonly ProjectStatus[]): Record<Issue
   >;
   for (const s of sortStatuses(list)) by[s.category].push(s);
   return by;
+}
+
+/** 보드 범주 띠 한 칸 — 범주와 고정 라벨, 그 범주에 속한 컬럼 수(띠가 걸칠 폭). */
+export interface CategorySpan {
+  category: IssueStatus;
+  label: string;
+  count: number;
+}
+
+/**
+ * 보드 범주 띠 구간 — 범주 순서대로, 컬럼(상태)이 있는 범주만. 라벨은 범주 고정 라벨(상태 이름이 아님)이다.
+ * 컬럼과 같은 정렬(sortStatuses)로 세므로 띠가 컬럼 순서와 어긋나지 않는다.
+ */
+export function categorySpans(list: readonly ProjectStatus[]): CategorySpan[] {
+  const by = statusesByCategory(list);
+  return ISSUE_STATUSES.filter((c) => by[c].length > 0).map((c) => ({
+    category: c,
+    label: ISSUE_STATUS_LABEL[c],
+    count: by[c].length,
+  }));
 }
 
 /** 범주의 기본 상태 — 그 범주에서 가장 앞(position 최소) 상태. 서버 project_status_default_id 와 같은 규칙. 없으면 undefined. */

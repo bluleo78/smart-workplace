@@ -395,7 +395,7 @@ test.describe('에픽 왼쪽 패널', () => {
       // 데스크톱 최소 폭 — 컬럼 min-w 로 가로 스크롤이 생기는 조건. 1024px 미만은 모바일 보드(상태 탭·한 컬럼, WP-195)라 가로 스크롤이 없다.
       await stubLongList(page, { width: 1024, height: 700 });
       await page.goto(`/projects/${PROJECT_KEY}?view=board`);
-      await expect(page.getByTestId('board-col-TODO')).toContainText('긴 목록 이슈 59');
+      await expect(page.getByTestId('board-col-1')).toContainText('긴 목록 이슈 59');
 
       const scroller = page.getByTestId('board-scroll');
       // 보드 스크롤 컨테이너 자체가 뷰포트 안에서 끝난다 → 가로 스크롤바가 콘텐츠 끝이 아닌 화면 하단에 보인다.
@@ -406,7 +406,7 @@ test.describe('에픽 왼쪽 패널', () => {
       }).toPass();
       expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 
-      const colHeader = page.getByTestId('board-col-TODO').locator('header');
+      const colHeader = page.getByTestId('board-col-1').locator('header');
       const before = (await colHeader.boundingBox())!;
       await wheelScroll(page, 'board-scroll');
       // sticky 헤더 — 세로 스크롤 후에도 같은 위치에 남는다(컬럼 상단 테두리 1px 만큼만 올라간다).

@@ -1,5 +1,5 @@
-// 4 컬럼 칸반 보드 — @dnd-kit.
-// 상태 보드는 컬럼마다 독립 무한 쿼리(useIssueBoardColumns)로 각 컬럼 끝까지 스크롤하며 이어 받는다(#875).
+// 칸반 보드 — @dnd-kit. 컬럼은 프로젝트 상태 목록 하나에 하나(WP-808), 위에 범주 띠(할 일·진행 중·완료·취소)를 둔다.
+// 상태 보드는 컬럼(statusId)마다 독립 무한 쿼리(useIssueBoardColumns)로 각 컬럼 끝까지 스크롤하며 이어 받는다(#875).
 // 담당자·우선순위 그룹 보드는 그룹이 동적이라 단일 쿼리로 마지막 페이지까지 순차 로드한다.
 
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
@@ -12,41 +12,42 @@ import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
+import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import {
   type BoardColumnQuery,
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
+import { useCreateProjectStatus, useRenameProjectStatus } from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
-import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
+import type { IssueDragData } from '../../../lib/epicDnd';
+import { groupIssues, ISSUE_STATUS_LABEL, ISSUE_STATUSES, type IssueGroup } from '../../../lib/issueGrouping';
+import { categorySpans, defaultStatusOf } from '../../../lib/projectStatuses';
 import type {
   IssueClientGroupBy,
   IssueFilters,
   IssueResponse,
   IssueStatus,
 } from '../../../types/issue';
+import type { ProjectStatus } from '../../../types/projectStatus';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
+import { BoardCategoryBand } from './board/BoardCategoryBand';
+import { BoardColumnHeaderMenu } from './board/BoardColumnHeaderMenu';
+import { StatusNameEditor } from './board/StatusNameEditor';
 import { IssueCard } from './IssueCard';
 import { IssueCardMenuContext } from './issueCardMenuContext';
 import { IssueDndProvider, useIssueDnd } from './IssueDndProvider';
 import { MobileBoard, type MobileBoardTab } from './mobile/MobileBoard';
 
-// 기본 4컬럼(팀). 개인은 3컬럼(CANCELED 제외) 을 주입한다.
-const DEFAULT_COLUMNS: { status: string; label: string }[] = [
-  { status: 'TODO', label: '할 일' },
-  { status: 'IN_PROGRESS', label: '진행 중' },
-  { status: 'DONE', label: '완료' },
-  { status: 'CANCELED', label: '취소' },
-];
-
 function IssueBoardViewInner({
   projectKey,
   filters,
   groupBy,
-  columns = DEFAULT_COLUMNS,
+  statuses,
+  canEditStatuses,
+  excludeCategories,
   cardTo,
   showType = true,
   onOpenCreate,
@@ -56,14 +57,18 @@ function IssueBoardViewInner({
   projectKey: string;
   filters: IssueFilters;
   groupBy: IssueClientGroupBy | null;
-  // 컬럼 세트 override(기본 팀 4컬럼). 컬럼에 없는 상태의 이슈는 렌더 제외.
-  columns?: { status: string; label: string }[];
+  // 프로젝트 상태 목록(표시 순서, useSortedProjectStatuses) — 상태마다 컬럼 하나. 로딩 중(빈 배열)엔 컬럼을 그리지 않는다.
+  statuses: ProjectStatus[];
+  // 범주 띠 ＋·헤더 ⋯ 로 상태를 추가·이름 변경할 수 있는가(OWNER, 개인 프로젝트 제외 — canEditStatuses()).
+  canEditStatuses: boolean;
+  // 컬럼에서 뺄 범주(개인 보드 ['CANCELED']) — 그 범주 상태의 이슈는 렌더하지 않는다. 렌더마다 새 배열을 넘기지 말 것(모듈 상수).
+  excludeCategories?: IssueStatus[];
   // 카드 링크 대상 빌더(기본 미지정 = IssueCard 기본 상세 경로). 개인은 drawer 경로 주입.
   cardTo?: (issue: IssueResponse) => string;
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
-  // 빈 컬럼 CTA — "이슈 추가" 버튼 클릭 시 이슈 생성 다이얼로그를 여는 콜백.
-  onOpenCreate?: (status?: IssueStatus) => void;
+  // 빈 컬럼 CTA — "이슈 추가" 버튼 클릭 시 이슈 생성 다이얼로그를 여는 콜백. 그 컬럼의 상태(statusId)로 만든다.
+  onOpenCreate?: (statusId?: number) => void;
   // 서버 플래그 — 상태 drag-to-change 허용 여부(멤버만). false 이면 DnD 이벤트를 무시한다.
   canDragStatus?: boolean;
   // 길게 누르기 액션(상태·에픽) 권한 — 미지정 시 canDragStatus 와 같다(개인 보드).
@@ -74,25 +79,30 @@ function IssueBoardViewInner({
   const canDragStatus = canDragStatusProp && !isMobile;
   // 노출 범위(에픽 제외 등)는 호출처가 정한다 — 팀 보드는 withDefaultIssueScope, 개인 보드는 최상위만.
   const grouped = groupBy != null && groupBy !== 'status';
-  const statuses = columns.map((c) => c.status);
-  // 상태 보드 — 컬럼별 쿼리. 그룹 보드에서는 비활성.
-  const columnQueries = useIssueBoardColumns(projectKey, filters, statuses, !grouped);
+  // 보드 컬럼 = 프로젝트 상태(제외 범주 빼고). 개인 보드는 취소 범주가 빠져 3컬럼이 된다.
+  const columns = useMemo(
+    () => (excludeCategories?.length ? statuses.filter((s) => !excludeCategories.includes(s.category)) : statuses),
+    [statuses, excludeCategories],
+  );
+  // 상태 보드 — 컬럼(statusId)별 쿼리. 그룹 보드에서는 비활성.
+  const columnQueries = useIssueBoardColumns(projectKey, filters, columns, !grouped);
   // 그룹 보드 — 단일 쿼리. 상태 보드에서는 비활성.
   const groupQuery = useIssueSearch(projectKey, filters, 100, grouped);
   // 종료 이슈 숨김 안내(WP-606) — 팀 보드 기본 범위만 숨김이 켜진다(개인 보드·「완료 모두 보기」·상태 필터는 꺼짐).
   // 끌어 놓기·카드 메뉴로 종료한 이슈가 숨겨지면 토스트로, 빈 완료·취소 열은 안내 + 「완료 모두 보기」로 알린다.
   const closedHiding = useClosedHidingNotice(!!filters.hideInactiveClosed);
-  const showAllClosedFor = (status: string) =>
-    closedHiding && CLOSED_ISSUE_STATUSES.has(status) ? closedHiding.onShowAll : undefined;
+  // 범주 기준 — 완료·취소 범주의 모든 컬럼(「배포 완료」 같은 사용자 상태 포함)에 안내를 붙인다(WP-808).
+  const showAllClosedFor = (category: IssueStatus) =>
+    closedHiding && CLOSED_ISSUE_STATUSES.has(category) ? closedHiding.onShowAll : undefined;
   const updateStatus = useUpdateIssueStatus(projectKey, closedHiding);
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
-  // 카드 메뉴 상태 선택지 — 프로젝트 상태 중 보드 컬럼 범주에 있는 것만(개인 보드는 취소 범주 제외, WP-808).
-  const allStatuses = useSortedProjectStatuses(projectKey);
-  const menuStatuses = useMemo(
-    () => allStatuses.filter((s) => columns.some((c) => c.status === s.category)),
-    [allStatuses, columns],
-  );
-  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: menuStatuses, linkFor: cardTo, closedHiding });
+  // 카드 메뉴 상태 선택지 — 보드 컬럼과 같은 상태들(개인 보드는 취소 범주 제외, WP-808).
+  const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: columns, linkFor: cardTo, closedHiding });
+  // 상태 추가·이름 변경(OWNER) — 실패는 입력기가 받아 그 자리에 보인다(reject 전달).
+  const createStatus = useCreateProjectStatus(projectKey);
+  const renameStatus = useRenameProjectStatus(projectKey);
+  // 헤더 인라인 이름 변경 중인 컬럼(statusId).
+  const [renamingId, setRenamingId] = useState<number | null>(null);
   // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
   const { openMenu, menuIssueNumber } = cardActions;
   const cardMenu = useMemo(() => ({ openMenu, menuIssueNumber }), [openMenu, menuIssueNumber]);
@@ -110,12 +120,12 @@ function IssueBoardViewInner({
   }, [grouped, groupHasNext, groupFetching, groupNextError, fetchNextPage]);
 
   // 응답 모양이 예상과 다른 경우(p.items 누락) flatMap 이 [undefined] 를 만들지 못하게 방어.
-  // 상태 보드는 모든 컬럼 쿼리를 합친 뒤 id 로 중복 제거하고 아래 byStatus 에서 it.status 로 다시 나눈다 —
-  // DnD 낙관적 패치는 원래 컬럼 쿼리 캐시 안에서 status 만 바꾸므로, 쿼리 단위가 아니라 status 로 나눠야
+  // 상태 보드는 모든 컬럼 쿼리를 합친 뒤 id 로 중복 제거하고 아래 byStatusId 에서 it.statusId 로 다시 나눈다 —
+  // DnD 낙관적 패치는 원래 컬럼 쿼리 캐시 안에서 statusId 만 바꾸므로, 쿼리 단위가 아니라 statusId 로 나눠야
   // 드롭 즉시 대상 컬럼에 카드가 나타난다.
   const pages = grouped
     ? (groupQuery.data?.pages ?? [])
-    : statuses.flatMap((s) => columnQueries[s]?.data?.pages ?? []);
+    : columns.flatMap((s) => columnQueries[s.id]?.data?.pages ?? []);
   const allIssues: IssueResponse[] = [];
   const seen = new Set<number>();
   for (const p of pages) {
@@ -126,11 +136,11 @@ function IssueBoardViewInner({
     }
   }
 
-  // byStatus 는 columns 기준으로 동적 생성 — 컬럼에 없는 상태(개인 CANCELED)는 자연 제외.
-  const byStatus: Record<string, IssueResponse[]> = {};
-  for (const col of columns) byStatus[col.status] = [];
+  // byStatusId 는 컬럼(상태) 기준으로 동적 생성 — 컬럼에 없는 상태(개인 보드의 취소 범주)는 자연 제외.
+  const byStatusId: Record<number, IssueResponse[]> = {};
+  for (const col of columns) byStatusId[col.id] = [];
   for (const it of allIssues) {
-    byStatus[it.status]?.push(it);
+    byStatusId[it.statusId]?.push(it);
   }
 
   function handleDragEnd(e: DragEndEvent) {
@@ -138,19 +148,20 @@ function IssueBoardViewInner({
     if (!canDragStatus) return;
     const { active, over } = e;
     if (!over) return;
-    const sourceStatus = active.data.current?.status as string | undefined;
-    // drop 대상이 카드면 카드의 status, 컬럼이면 droppable id 에서 추출.
-    const overStatus = over.data.current?.status as string | undefined;
-    const targetStatus =
-      overStatus ??
-      (typeof over.id === 'string' && over.id.startsWith('col-')
-        ? over.id.replace('col-', '')
-        : undefined);
-    const issueNumber = active.data.current?.issueNumber as number | undefined;
-    if (!sourceStatus || !targetStatus || !issueNumber) return;
-    if (sourceStatus === targetStatus) return;
-    // 컬럼·카드 id 는 상태 범주 값으로만 만든다(DEFAULT_COLUMNS) — 문자열 id 를 범주로 좁힌다.
-    updateStatus.mutate({ number: issueNumber, status: targetStatus as IssueStatus });
+    const src = active.data.current as IssueDragData | undefined;
+    // drop 대상이 카드면 카드의 statusId, 컬럼이면 컬럼 data(droppable id col-{statusId} 는 예비).
+    const overId = over.data.current?.statusId;
+    const targetId =
+      typeof overId === 'number'
+        ? overId
+        : typeof over.id === 'string' && over.id.startsWith('col-')
+          ? Number(over.id.slice('col-'.length))
+          : undefined;
+    const target = columns.find((s) => s.id === targetId);
+    const issueNumber = src?.issueNumber;
+    if (!src || !target || !issueNumber || src.statusId === target.id) return;
+    // 범주(종료 안내 토스트·아이콘)와 상태 id·이름(카드 이름 즉시 갱신)을 함께 넘긴다.
+    updateStatus.mutate({ number: issueNumber, status: target.category, statusId: target.id, statusName: target.name });
   }
 
   // 순차 로드 상태 문구(그룹 보드) — 데스크톱 BoardScroll footer(mt-3)와 모바일 탭 컬럼(gap 이 간격을 맡아 여백 없음)이 같은 마크업을 쓴다.
@@ -175,36 +186,47 @@ function IssueBoardViewInner({
   // 모바일 보드(WP-195) — 컬럼을 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
   // 그룹 보드는 선택 탭 안에 그룹 섹션을 쌓는다.
   if (isMobile) {
-    // 탭 — 사용자 상태 필터로 제외된 상태는 숨긴다(그 컬럼은 쿼리가 비활성이라 비어 보이기만 한다).
     // 그룹 보드는 전체 페이지 순차 로드 — 개수는 로드 건수 그대로(「+」 없음), 로드 중엔 pending 으로 기본 탭이 튀지 않게.
-    const toTab = (c: { status: string; label: string }): MobileBoardTab => {
-      const q = grouped ? undefined : columnQueries[c.status];
-      return {
-        status: c.status,
-        label: c.label,
-        count: byStatus[c.status]?.length ?? 0,
-        hasMore: !!q?.hasNextPage,
-        pending: grouped ? groupQuery.isPending : !!q?.isPending,
-      };
-    };
-    const tabs = columns
-      .filter((c) => filters.statuses.length === 0 || filters.statuses.includes(c.status))
-      .map(toTab);
+    // 모바일은 아직 범주 탭이다(상태 탭은 WP-808 후속) — 범주 안 상태 컬럼 쿼리들을 모아 한 탭으로 보인다.
+    // 이슈는 범주(it.status)로 나누고, 개수·「+」·로딩은 그 범주 컬럼 쿼리들을 합쳐 본다.
+    const categories = ISSUE_STATUSES.filter((c) => !excludeCategories?.includes(c));
+    const byCategory = Object.fromEntries(categories.map((c) => [c, [] as IssueResponse[]])) as Record<IssueStatus, IssueResponse[]>;
+    for (const it of allIssues) byCategory[it.status]?.push(it);
+    const queriesOf = (c: IssueStatus) =>
+      grouped
+        ? []
+        : columns.flatMap((s) => (s.category === c && columnQueries[s.id] ? [columnQueries[s.id]!] : []));
+    // 상태 목록 로딩 중(컬럼 없음)도 pending — 기본 탭이 빈 개수로 먼저 고정되지 않게.
+    const pendingOf = (c: IssueStatus) =>
+      grouped ? groupQuery.isPending : columns.length === 0 || queriesOf(c).some((q) => q.isPending);
+    // 범주의 「이슈 추가」는 그 범주의 기본 상태로 만든다.
+    const createIn = (c: IssueStatus) => (onOpenCreate ? () => onOpenCreate(defaultStatusOf(columns, c)?.id) : undefined);
+    const tabs: MobileBoardTab[] = categories
+      // 탭 — 사용자 범주 필터로 제외된 범주는 숨긴다(그 컬럼은 쿼리가 비활성이라 비어 보이기만 한다).
+      .filter((c) => filters.statuses.length === 0 || filters.statuses.includes(c))
+      .map((c) => ({
+        status: c,
+        label: ISSUE_STATUS_LABEL[c],
+        count: byCategory[c].length,
+        hasMore: queriesOf(c).some((q) => q.hasNextPage),
+        pending: pendingOf(c),
+      }));
     return (
       <IssueCardMenuContext.Provider value={cardMenu}>
         <MobileBoard tabs={tabs}>
-          {(status, root) =>
-            grouped ? (
+          {(tab, root) => {
+            const status = tab as IssueStatus;
+            return grouped ? (
               <MobileGroupedColumn
                 status={status}
-                issues={byStatus[status] ?? []}
+                issues={byCategory[status] ?? []}
                 groupBy={groupBy}
                 pending={groupQuery.isPending}
                 footer={groupFooter('')}
                 projectKey={projectKey}
                 cardTo={cardTo}
                 showType={showType}
-                onOpenCreate={onOpenCreate}
+                onOpenCreate={createIn(status)}
                 onShowAllClosed={showAllClosedFor(status)}
                 onLongPress={onCardLongPress}
               />
@@ -212,18 +234,19 @@ function IssueBoardViewInner({
               <BoardScrollRootContext.Provider value={root}>
                 <MobileStatusColumn
                   status={status}
-                  issues={byStatus[status] ?? []}
-                  query={columnQueries[status]}
+                  issues={byCategory[status] ?? []}
+                  queries={queriesOf(status)}
+                  pending={pendingOf(status)}
                   projectKey={projectKey}
                   cardTo={cardTo}
                   showType={showType}
-                  onOpenCreate={onOpenCreate}
+                  onOpenCreate={createIn(status)}
                   onShowAllClosed={showAllClosedFor(status)}
                   onLongPress={onCardLongPress}
                 />
               </BoardScrollRootContext.Provider>
-            )
-          }
+            );
+          }}
         </MobileBoard>
         {cardActions.sheets}
       </IssueCardMenuContext.Provider>
@@ -233,10 +256,11 @@ function IssueBoardViewInner({
   // group 이 상태/없음이 아니면(담당자·우선순위) 동적 읽기전용 그룹 컬럼을 렌더한다.
   // 상태 그룹/그룹 없음은 기존 드래그-상태변경 보드를 그대로 유지한다 (#58).
   if (grouped) {
-    // 개인 3컬럼 보드에서 우선순위 그룹 시 CANCELED 누출 방지 — columns 에 없는 상태는 그룹 전에 제거.
-    // 팀(DEFAULT_COLUMNS=4상태)은 모든 상태가 허용돼 필터가 아무것도 제거하지 않아 출력이 byte-identical.
-    const allowedStatuses = new Set(columns.map((c) => c.status));
-    const visibleIssues = allIssues.filter((it) => allowedStatuses.has(it.status));
+    // 개인 3컬럼 보드에서 우선순위 그룹 시 CANCELED 누출 방지 — 제외 범주 이슈는 그룹 전에 제거.
+    // 상태 목록 로딩과 무관하게 범주로 거른다(팀 보드는 제외 범주가 없어 아무것도 빠지지 않는다).
+    const visibleIssues = excludeCategories?.length
+      ? allIssues.filter((it) => !excludeCategories.includes(it.status))
+      : allIssues;
     const groups = groupIssues(visibleIssues, groupBy);
     return (
       <IssueCardMenuContext.Provider value={cardMenu}>
@@ -252,24 +276,51 @@ function IssueBoardViewInner({
     );
   }
 
+  // 상태 목록을 불러오는 동안은 컬럼 없이 빈 보드 — 범주 컬럼으로 그렸다가 상태 컬럼으로 바뀌며 튀지 않게.
+  if (columns.length === 0) return <BoardScroll />;
+
   return (
     <IssueCardMenuContext.Provider value={cardMenu}>
       <BoardStatusDropMonitor onDragEnd={handleDragEnd} />
-      <BoardScroll>
+      <BoardScroll columnCount={columns.length}>
+        <BoardCategoryBand
+          spans={categorySpans(columns)}
+          canEdit={canEditStatuses}
+          statuses={statuses}
+          onAdd={async (category, name) => {
+            await createStatus.mutateAsync({ name, category });
+          }}
+        />
         {columns.map((col) => (
           <BoardColumn
-            key={col.status}
-            status={col.status}
-            label={col.label}
-            issues={byStatus[col.status] ?? []}
-            query={columnQueries[col.status]}
+            key={col.id}
+            status={col}
+            issues={byStatusId[col.id] ?? []}
+            query={columnQueries[col.id]}
             projectKey={projectKey}
             cardTo={cardTo}
             showType={showType}
             onOpenCreate={onOpenCreate}
-            onShowAllClosed={showAllClosedFor(col.status)}
+            onShowAllClosed={showAllClosedFor(col.category)}
             dragDisabled={!canDragStatus}
             onLongPress={onCardLongPress}
+            edit={
+              canEditStatuses
+                ? {
+                    statuses,
+                    renaming: renamingId === col.id,
+                    onRename: () => setRenamingId(col.id),
+                    onRenameCancel: () => setRenamingId(null),
+                    onRenameSubmit: async (name) => {
+                      await renameStatus.mutateAsync({ id: col.id, body: { name } });
+                      setRenamingId(null);
+                    },
+                    onAddAfter: async (name) => {
+                      await createStatus.mutateAsync({ name, category: col.category, afterStatusId: col.id });
+                    },
+                  }
+                : undefined
+            }
           />
         ))}
       </BoardScroll>
@@ -308,12 +359,23 @@ const BoardScrollRootContext = createContext<Element | null>(null);
 //     세로 스크롤도 같은 컨테이너가 맡아야 가로 스크롤바가 콘텐츠 끝이 아닌 영역 하단에 늘 보이고,
 //     컬럼 헤더 sticky 가 이 컨테이너 기준으로 붙는다. 행은 min-h-full 로 컬럼(드롭 영역)을 영역 높이까지 늘린다.
 //     상태 보드·그룹 보드가 같은 구조를 쓴다.
-function BoardScroll({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+//     columnCount 가 있으면(상태 보드) 범주 띠 줄 + 컬럼 줄의 그리드 — 띠 칸이 걸친 컬럼 폭(gap 포함)과 정확히 맞고 함께 가로 스크롤된다.
+//     컬럼 트랙은 minmax(240px, 1fr) 로 예전 flex-1 + min-w-[240px] 과 같은 폭 규칙이다.
+function BoardScroll({ children, footer, columnCount }: { children?: ReactNode; footer?: ReactNode; columnCount?: number }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
   return (
     <div ref={setEl} className="h-full overflow-auto" data-testid="board-scroll">
       <BoardScrollRootContext.Provider value={el}>
-        <div className="flex min-h-full gap-3">{children}</div>
+        {columnCount ? (
+          <div
+            className="grid min-h-full grid-rows-[auto_1fr] gap-x-3"
+            style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(240px, 1fr))` }}
+          >
+            {children}
+          </div>
+        ) : (
+          <div className="flex min-h-full gap-3">{children}</div>
+        )}
         {footer}
       </BoardScrollRootContext.Provider>
     </div>
@@ -323,12 +385,22 @@ function BoardScroll({ children, footer }: { children: ReactNode; footer?: React
 // 컬럼 헤더 — 보드 스크롤 컨테이너 기준 sticky 라 긴 컬럼을 내려도 라벨·개수가 보인다.
 // -mx-2 -mt-2 / px-3 pt-2 는 컬럼의 p-2 를 상쇄해 배경이 컬럼 폭을 덮게 한다(컬럼 패딩과 함께 바꿀 것).
 const COLUMN_HEADER_CLASS =
-  'sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between rounded-t-md bg-background px-3 pt-2 pb-2 text-sm font-semibold text-foreground';
+  'sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between gap-2 rounded-t-md bg-background px-3 pt-2 pb-2 text-sm font-semibold text-foreground';
 
-// 각 컬럼은 droppable + 내부 카드들이 SortableContext 에 묶여 있다.
+// 상태 이름 편집(OWNER) — 헤더 ⋯ 메뉴와 인라인 이름 변경에 필요한 것들. 없으면 편집 진입점을 그리지 않는다.
+type ColumnEdit = {
+  // 이름 중복 검사용 프로젝트 상태 목록.
+  statuses: ProjectStatus[];
+  renaming: boolean;
+  onRename: () => void;
+  onRenameCancel: () => void;
+  onRenameSubmit: (name: string) => Promise<void>;
+  onAddAfter: (name: string) => Promise<void>;
+};
+
+// 각 컬럼(프로젝트 상태 하나)은 droppable + 내부 카드들이 SortableContext 에 묶여 있다.
 function BoardColumn({
   status,
-  label,
   issues,
   query,
   projectKey,
@@ -338,9 +410,9 @@ function BoardColumn({
   onShowAllClosed,
   dragDisabled = false,
   onLongPress,
+  edit,
 }: {
-  status: string;
-  label: string;
+  status: ProjectStatus;
   issues: IssueResponse[];
   // 이 컬럼 전용 무한 쿼리 — 끝 sentinel 로 다음 페이지를 받고, 남은 페이지가 있으면 카운트에 "+" 표시.
   query?: BoardColumnQuery;
@@ -349,33 +421,66 @@ function BoardColumn({
   cardTo?: (issue: IssueResponse) => string;
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
-  // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
-  onOpenCreate?: (status?: IssueStatus) => void;
-  // 종료 이슈를 숨긴 완료·취소 열 — 있으면 빈 열에 숨김 안내와 「완료 모두 보기」를 둔다(WP-606).
+  // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시. 이 컬럼 상태로 만든다.
+  onOpenCreate?: (statusId?: number) => void;
+  // 종료 이슈를 숨긴 완료·취소 범주 열 — 있으면 빈 열에 숨김 안내와 「완료 모두 보기」를 둔다(WP-606).
   onShowAllClosed?: () => void;
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
   onLongPress?: (issue: IssueResponse) => void;
+  // OWNER 편집 — 없으면 ⋯ 를 그리지 않는다.
+  edit?: ColumnEdit;
 }) {
   const { setNodeRef, isOver } = useDroppable({
-    id: `col-${status}`,
+    id: `col-${status.id}`,
     // label: 스크린리더 드래그 안내가 컬럼 이름을 읽는 데 쓴다(epicDnd.describeDropTarget).
-    data: { status, label },
+    data: { statusId: status.id, label: status.name },
   });
   return (
     <section
       ref={setNodeRef}
-      aria-label={`${label} 컬럼`}
-      data-testid={`board-col-${status}`}
-      className={`rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1 ${isOver ? 'bg-accent/30' : ''}`}
+      aria-label={`${status.name} 컬럼`}
+      data-testid={`board-col-${status.id}`}
+      data-status-id={status.id}
+      className={`min-h-[200px] min-w-0 rounded-md border p-2 ${isOver ? 'bg-accent/30' : ''}`}
     >
-      <header className={COLUMN_HEADER_CLASS}>
-        <span>{label}</span>
-        {/* 아직 받지 않은 페이지가 있으면 로드분이 전체가 아니므로 "N+" 로 표시 */}
-        <span data-testid={`board-col-count-${status}`}>
-          {issues.length}
-          {query?.hasNextPage ? '+' : ''}
-        </span>
+      {/* 범주 띠(sticky, h-9) 바로 아래에 붙는다 — 세로 스크롤해도 띠와 헤더가 함께 보인다. */}
+      <header className={cn(COLUMN_HEADER_CLASS, 'top-9')}>
+        {edit?.renaming ? (
+          // 헤더 자리 인라인 이름 변경 — Enter 저장, Esc 취소. 오류는 입력 아래.
+          <StatusNameEditor
+            initial={status.name}
+            statuses={edit.statuses}
+            excludeId={status.id}
+            onSubmit={edit.onRenameSubmit}
+            onCancel={edit.onRenameCancel}
+            className="flex-1"
+          />
+        ) : (
+          <>
+            {/* 상태 이름은 30자까지 — 좁은 컬럼에서 말줄임하고 전체 이름은 title 로 보인다. */}
+            <span className="flex min-w-0 items-center gap-1.5">
+              <IssueStatusIcon status={status.category} decorative className="h-4 w-4" />
+              <span className="truncate" title={status.name}>
+                {status.name}
+              </span>
+              {/* 아직 받지 않은 페이지가 있으면 로드분이 전체가 아니므로 "N+" 로 표시 */}
+              <span className="shrink-0 font-normal text-muted-foreground" data-testid={`board-col-count-${status.id}`}>
+                {issues.length}
+                {query?.hasNextPage ? '+' : ''}
+              </span>
+            </span>
+            {edit && (
+              <BoardColumnHeaderMenu
+                status={status}
+                canEdit
+                statuses={edit.statuses}
+                onRename={edit.onRename}
+                onAddAfter={edit.onAddAfter}
+              />
+            )}
+          </>
+        )}
       </header>
       <SortableContext
         items={issues.map((i) => `issue-${i.id}`)}
@@ -385,7 +490,7 @@ function BoardColumn({
           /* 빈 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
           <div
             className="flex flex-col items-center justify-center py-8 gap-3 text-center"
-            data-testid={`board-col-empty-${status}`}
+            data-testid={`board-col-empty-${status.id}`}
           >
             <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
             <div className="space-y-1">
@@ -395,10 +500,10 @@ function BoardColumn({
                 {onShowAllClosed ? CLOSED_HIDDEN_NOTE : '드래그하거나 새 이슈를 추가하세요'}
               </p>
             </div>
-            {onShowAllClosed && <ShowAllClosedButton status={status} onClick={onShowAllClosed} />}
+            {onShowAllClosed && <ShowAllClosedButton testKey={status.id} onClick={onShowAllClosed} />}
             {onOpenCreate && (
-              // 컬럼 상태로 만든다(WP-464) — 예전엔 상태 없이 열려 어느 컬럼에서 눌러도 할 일로 만들어졌다.
-              <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status as IssueStatus)} data-testid={`board-col-add-${status}`}>
+              // 컬럼 상태로 만든다(WP-464, WP-808) — 「검토 중」 컬럼에서 누르면 검토 중으로 만들어진다.
+              <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status.id)} data-testid={`board-col-add-${status.id}`}>
                 <Plus className="h-4 w-4" />
                 이슈 추가
               </Button>
@@ -412,28 +517,30 @@ function BoardColumn({
           </div>
         )}
       </SortableContext>
-      {query && <ColumnLoadMore status={status} query={query} />}
+      {query && <ColumnLoadMore testKey={status.id} query={query} />}
     </section>
   );
 }
 
 // 컬럼 끝 sentinel — 화면에 들어오면 이 컬럼의 다음 페이지를 받는다(짧은 컬럼은 끝까지 연속 로드).
 // 다음 페이지 요청이 실패하면 자동 로드를 멈추고 "다시 시도" 버튼을 보인다(공용 LoadMoreFooter).
-function ColumnLoadMore({ status, query }: { status: string; query: BoardColumnQuery }) {
+// testKey — 데스크톱은 statusId, 모바일 범주 탭은 범주 값.
+function ColumnLoadMore({ testKey, query }: { testKey: string | number; query: BoardColumnQuery }) {
   return (
     <LoadMoreFooter
       query={query}
       root={useContext(BoardScrollRootContext)}
       className="py-2"
-      data-testid={`board-col-more-${status}`}
+      data-testid={`board-col-more-${testKey}`}
     />
   );
 }
 
 // 빈 완료·취소 열의 「완료 모두 보기」(WP-606) — 필터 바 토글과 같은 상태(closed=all)를 켠다. 데스크톱·모바일 공용.
-function ShowAllClosedButton({ status, onClick, className }: { status: string; onClick: () => void; className?: string }) {
+// testKey — 데스크톱은 statusId, 모바일 범주 탭은 범주 값.
+function ShowAllClosedButton({ testKey, onClick, className }: { testKey: string | number; onClick: () => void; className?: string }) {
   return (
-    <Button size="sm" variant="outline" className={className} onClick={onClick} data-testid={`board-col-show-closed-${status}`}>
+    <Button size="sm" variant="outline" className={className} onClick={onClick} data-testid={`board-col-show-closed-${testKey}`}>
       <CircleCheckBig className="h-4 w-4" />
       완료 모두 보기
     </Button>
@@ -448,7 +555,8 @@ function MobileBoardEmpty({
   onShowAllClosed,
 }: {
   status: string;
-  onOpenCreate?: (status?: IssueStatus) => void;
+  // 이 탭 범주의 기본 상태로 만드는 콜백(호출부가 묶어 넘긴다).
+  onOpenCreate?: () => void;
   onShowAllClosed?: () => void;
 }) {
   return (
@@ -458,11 +566,11 @@ function MobileBoardEmpty({
       {onShowAllClosed && (
         <>
           <p className="break-keep px-6 text-xs text-muted-foreground">{CLOSED_HIDDEN_NOTE}</p>
-          <ShowAllClosedButton status={status} onClick={onShowAllClosed} className="h-11 px-4" />
+          <ShowAllClosedButton testKey={status} onClick={onShowAllClosed} className="h-11 px-4" />
         </>
       )}
       {onOpenCreate && (
-        <Button size="sm" variant="ghost" className="h-11 px-4" onClick={() => onOpenCreate(status as IssueStatus)} data-testid={`board-col-add-${status}`}>
+        <Button size="sm" variant="ghost" className="h-11 px-4" onClick={onOpenCreate} data-testid={`board-col-add-${status}`}>
           <Plus className="h-4 w-4" />
           이슈 추가
         </Button>
@@ -475,7 +583,8 @@ function MobileBoardEmpty({
 function MobileStatusColumn({
   status,
   issues,
-  query,
+  queries,
+  pending,
   projectKey,
   cardTo,
   showType,
@@ -485,16 +594,19 @@ function MobileStatusColumn({
 }: {
   status: string;
   issues: IssueResponse[];
-  query?: BoardColumnQuery;
+  // 이 범주 탭에 모인 상태 컬럼 쿼리들 — 각자 끝 sentinel 로 다음 페이지를 받는다.
+  queries: BoardColumnQuery[];
+  // 첫 페이지(또는 상태 목록) 로딩 중.
+  pending: boolean;
   projectKey: string;
   cardTo?: (issue: IssueResponse) => string;
   showType: boolean;
-  onOpenCreate?: (status?: IssueStatus) => void;
+  onOpenCreate?: () => void;
   onShowAllClosed?: () => void;
   onLongPress?: (issue: IssueResponse) => void;
 }) {
   // 첫 페이지 응답 전에는 빈 상태를 띄우지 않는다(「이슈 없음」 깜빡임 방지).
-  if (issues.length === 0 && query?.isPending) return null;
+  if (issues.length === 0 && pending) return null;
   return (
     <section data-testid={`board-col-${status}`} className="flex flex-col gap-2">
       {issues.length === 0 ? (
@@ -504,7 +616,9 @@ function MobileStatusColumn({
           <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled onLongPress={onLongPress} />
         ))
       )}
-      {query && <ColumnLoadMore status={status} query={query} />}
+      {queries.map((q, i) => (
+        <ColumnLoadMore key={i} testKey={status} query={q} />
+      ))}
     </section>
   );
 }
@@ -531,7 +645,7 @@ function MobileGroupedColumn({
   projectKey: string;
   cardTo?: (issue: IssueResponse) => string;
   showType: boolean;
-  onOpenCreate?: (status?: IssueStatus) => void;
+  onOpenCreate?: () => void;
   onShowAllClosed?: () => void;
   onLongPress?: (issue: IssueResponse) => void;
 }) {
@@ -575,7 +689,7 @@ function ReadOnlyColumn({
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
   // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
-  onOpenCreate?: (status?: IssueStatus) => void;
+  onOpenCreate?: (statusId?: number) => void;
   // 비멤버는 카드 드래그 차단.
   dragDisabled?: boolean;
   onLongPress?: (issue: IssueResponse) => void;

@@ -138,8 +138,8 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: '카드', status: 'IN_PROGRESS' }) })) });
     });
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
-    await dragTo(page, 'issue-card-1', 'board-col-IN_PROGRESS');
-    await expect.poll(() => statusPatches.lastBody()).toEqual({ status: 'IN_PROGRESS' });
+    await dragTo(page, 'issue-card-1', 'board-col-2');
+    await expect.poll(() => statusPatches.lastBody()).toEqual({ statusId: 2 });
     expect(patches()).toEqual([]);
   });
 
@@ -191,7 +191,7 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     const statusPatch = trackStatusPatch(page);
     await page.goto(`/projects/${PROJECT_KEY}?view=board`);
     const aside = (await page.getByTestId('epic-side-panel').boundingBox())!;
-    const col = (await page.getByTestId('board-col-TODO').boundingBox())!;
+    const col = (await page.getByTestId('board-col-1').boundingBox())!;
     await startDrag(page, 'issue-card-1');
     // 틈 = 패널 오른쪽 끝과 첫 컬럼 왼쪽 끝의 중간, 컬럼 세로 중앙.
     await page.mouse.move((aside.x + aside.width + col.x) / 2, col.y + col.height / 2, { steps: 10 });
@@ -229,9 +229,9 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     const panel = (await page.getByTestId('epic-side-panel').boundingBox())!;
     const lastEpic = (await page.getByTestId(`epic-filter-${EPIC_B.number}`).boundingBox())!;
     const x = panel.x + panel.width / 2;
-    // 패널 중앙 x 아래에 깔린 컬럼 — 상태명으로 정확히 찾는다(board-col-count-* 등 접두 일치 회피).
+    // 패널 중앙 x 아래에 깔린 컬럼 — 상태 id 로 정확히 찾는다(board-col-count-* 등 접두 일치 회피).
     let covered: { x: number; y: number; width: number; height: number } | null = null;
-    for (const st of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) {
+    for (const st of [1, 2, 3, 4]) {
       const b = await page.getByTestId(`board-col-${st}`).boundingBox();
       if (b && b.x <= x && x <= b.x + b.width) covered = b;
     }
@@ -639,17 +639,17 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
     // 패널이 막 뜬 직후라 배치가 자리 잡을 때까지 다시 재며 단언한다(WP-225).
     await expect(async () => {
       const panelBox = await measureBox(page.getByTestId('epic-side-panel'));
-      const canceledBox = await measureBox(page.getByTestId('board-col-CANCELED'));
+      const canceledBox = await measureBox(page.getByTestId('board-col-4'));
       expect(panelBox.x).toBeLessThan(canceledBox.x + canceledBox.width);
       expect(panelBox.x + panelBox.width).toBeGreaterThan(canceledBox.x);
     }).toPass();
-    const canceled = page.getByTestId('board-col-CANCELED');
+    const canceled = page.getByTestId('board-col-4');
     for (let i = 0; i < 10 && !/bg-accent\/30/.test((await canceled.getAttribute('class')) ?? ''); i++) {
       await page.keyboard.press('ArrowRight');
     }
     await expect(canceled).toHaveClass(/bg-accent\/30/);
     await page.keyboard.press('Space');
-    await expect.poll(() => statusPatches.lastBody()).toEqual({ status: 'CANCELED' });
+    await expect.poll(() => statusPatches.lastBody()).toEqual({ statusId: 4 });
     await expectStays(page, patches, []);
   });
 

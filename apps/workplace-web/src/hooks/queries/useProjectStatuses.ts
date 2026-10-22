@@ -54,10 +54,17 @@ export function useCreateProjectStatus(projectKey: string) {
 }
 
 // OWNER — 상태 이름 변경. 실패 문구는 호출부(인라인 편집기)가 보인다.
+// 응답으로 목록 캐시의 그 상태를 바로 바꾼다 — 재조회를 기다리는 동안 보드 헤더가 옛 이름으로 돌아가 보이지 않게(범주·순서는 그대로라 안전).
 export function useRenameProjectStatus(projectKey: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateStatuses(projectKey);
   return useMutation({
     mutationFn: (v: { id: number; body: RenameProjectStatusBody }) => renameProjectStatus(projectKey, v.id, v.body),
-    onSuccess: invalidate,
+    onSuccess: (saved) => {
+      qc.setQueryData<ProjectStatus[]>(['projectStatuses', projectKey], (list) =>
+        list?.map((s) => (s.id === saved.id ? { ...s, name: saved.name } : s)),
+      );
+      invalidate();
+    },
   });
 }

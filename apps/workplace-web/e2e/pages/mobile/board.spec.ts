@@ -41,7 +41,9 @@ async function mock(page: Page, { issues: seed = [LONG, TODO2, PROG, DONE1], mor
     if (r.request().method() !== 'GET') return r.fallback();
     const url = new URL(r.request().url());
     if (url.searchParams.get('type') === String(makeEpicType().id)) return r.fulfill(json(createIssueSearchResponse([EPIC], null)));
-    const status = url.searchParams.get('status');
+    // 컬럼 쿼리는 시드 상태 id(statusId)로 좁혀 온다(WP-808) — 범주로 되돌려 범주 기준 목을 그대로 쓴다.
+    const statusId = url.searchParams.get('statusId');
+    const status = statusId ? (statusFieldsOf(Number(statusId)).status ?? null) : url.searchParams.get('status');
     const list = status ? issues.filter((i) => status.split(',').includes(i.status)) : issues;
     const more = status != null && status === moreStatus && !url.searchParams.get('cursor');
     return r.fulfill(json(createIssueSearchResponse(list, more ? 'next' : null)));

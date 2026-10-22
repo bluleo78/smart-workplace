@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { ProjectResponse } from '@/types/project';
 
+import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
 import { parseFilters, parseGroupBy, parseView, toClientGroupBy } from '../../../lib/issueFilters';
 import { IssueBoardView } from '../components/IssueBoardView';
 import { IssueCreateDialog } from '../components/IssueCreateDialog';
@@ -22,12 +23,8 @@ import type { IssueFilterBarOptions } from '../hooks/useIssueFilterControls';
 import { PersonalChecklistView } from './PersonalChecklistView';
 import { PersonalTaskPanel } from './PersonalTaskPanel';
 
-// 개인 보드 컬럼 — 취소 제외 3컬럼.
-const PERSONAL_COLUMNS = [
-  { status: 'TODO', label: '할 일' },
-  { status: 'IN_PROGRESS', label: '진행 중' },
-  { status: 'DONE', label: '완료' },
-];
+// 개인 보드 — 시드된 상태에서 취소 범주를 뺀 3컬럼(WP-808 이후에도 편집 없음). 모듈 상수라 보드 memo 가 깨지지 않는다.
+const PERSONAL_EXCLUDED: IssueStatus[] = ['CANCELED'];
 
 // 개인 툴바 옵션 — 사이클·유형·담당자그룹 제외, 뷰토글 'list'='체크리스트'.
 const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
@@ -55,8 +52,10 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   // 개인 화면엔 사이클이 없다 — URL 에 group=cycle 이 와도(팀 링크 복사 등) 그룹 없음으로 본다.
   const groupBy = toClientGroupBy(parseGroupBy(params));
   const [createOpen, setCreateOpen] = useState(false);
-  // 새 이슈의 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태로 만든다.
-  const [createStatus, setCreateStatus] = useState<IssueStatus | undefined>(undefined);
+  // 새 이슈의 처음 상태(WP-464·WP-808) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태(id)로 만든다.
+  const [createStatusId, setCreateStatusId] = useState<number | undefined>(undefined);
+  // 보드 컬럼 = 프로젝트 상태(로딩 중 빈 배열).
+  const statuses = useSortedProjectStatuses(key);
 
   // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N drawer 오픈(view=board 보존). 풀페이지 이동 없음.
   // 기존 URLSearchParams 를 복제해 병합(#616) — priority 등 활성 필터 파라미터가 유실되지 않도록 한다.
@@ -73,9 +72,9 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
     <Page data-testid="personal-project-detail">
       <Page.Header
         title={project.name}
-        actions={<Button onClick={() => { setCreateStatus(undefined); setCreateOpen(true); }}>+ 빠른 추가</Button>}
+        actions={<Button onClick={() => { setCreateStatusId(undefined); setCreateOpen(true); }}>+ 빠른 추가</Button>}
         // 모바일: 단일 주 액션은 ＋ 아이콘으로 인라인(⋯ 없음).
-        mobilePrimaryAction={<HeaderIconAction label="빠른 추가" onClick={() => { setCreateStatus(undefined); setCreateOpen(true); }}><Plus /></HeaderIconAction>}
+        mobilePrimaryAction={<HeaderIconAction label="빠른 추가" onClick={() => { setCreateStatusId(undefined); setCreateOpen(true); }}><Plus /></HeaderIconAction>}
         mobileActions={null}
       />
       <Page.Body padded={false} className="overflow-hidden">
@@ -99,11 +98,13 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                   projectKey={key}
                   filters={filters}
                   groupBy={groupBy}
-                  columns={PERSONAL_COLUMNS}
+                  statuses={statuses}
+                  canEditStatuses={false}
+                  excludeCategories={PERSONAL_EXCLUDED}
                   cardTo={cardTo}
                   showType={false}
-                  onOpenCreate={(status) => {
-                    setCreateStatus(status);
+                  onOpenCreate={(statusId) => {
+                    setCreateStatusId(statusId);
                     setCreateOpen(true);
                   }}
                 />
@@ -117,7 +118,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
         <PersonalTaskPanel projectKey={key} mode={view === 'board' ? 'modal' : 'panel'} />
       </Page.Body>
       {/* 개인 프로젝트 — TASK 단일 유형(#226): 유형 select 숨김 */}
-      <IssueCreateDialog projectKey={key} personal open={createOpen} onOpenChange={setCreateOpen} initialStatus={createStatus} />
+      <IssueCreateDialog projectKey={key} personal open={createOpen} onOpenChange={setCreateOpen} initialStatusId={createStatusId} />
     </Page>
   );
 }

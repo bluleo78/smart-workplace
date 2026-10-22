@@ -17,15 +17,14 @@ import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { normalizeSingleLineInput } from '@/lib/singleLine';
 
 import { formatDateMonthDay } from '../../../../lib/formatters';
-import type { IssueStatus } from '../../../../types/issue';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { HIT_EXPAND } from './chipStyles';
 import { CreateIssueChips } from './CreateIssueChips';
 
-type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number; initialStatus?: IssueStatus };
+type Props = { projectKey: string; open: boolean; onOpenChange: (v: boolean) => void; personal?: boolean; initialTypeId?: number; initialStatusId?: number };
 
-export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatus }: Props) {
-  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatus });
+export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, personal = false, initialTypeId, initialStatusId }: Props) {
+  const f = useIssueCreateForm({ projectKey, open, onOpenChange, initialTypeId, initialStatusId });
   const { register, watch, formState: { errors } } = f.form;
   const { bodyRef, bodyField } = f;
   const [confirmDiscard, setConfirmDiscard] = useState(false);

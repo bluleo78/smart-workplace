@@ -50,6 +50,8 @@ export type IssueDragData = {
   showType?: boolean;
   issueNumber?: number;
   status?: string;
+  // 보드 상태 드롭(WP-808) — 출발 프로젝트 상태. 같은 컬럼에 놓으면 변경하지 않는다.
+  statusId?: number;
   cycleSection?: CycleSectionRef;
 };
 

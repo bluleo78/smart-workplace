@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ProjectStatus } from '../types/projectStatus';
 import {
   canEditStatuses,
+  categorySpans,
   defaultStatusOf,
   sortStatuses,
   STATUS_NAME_MAX,
@@ -77,5 +78,29 @@ describe('projectStatuses', () => {
     expect(validateStatusName('qa', [st(20, 'QA', 'IN_PROGRESS', 3)])).toBe('이미 존재하는 상태 이름입니다');
     expect(validateStatusName('검토 중', MIXED, 12)).toBeNull();
     expect(validateStatusName('QA 대기', MIXED)).toBeNull();
+  });
+
+  it('categorySpans: 진행 중 범주 컬럼 3개면 span count 3, 범주 순서 고정', () => {
+    // 입력 순서를 섞어도 띠는 범주 순서(할 일 → 진행 중 → 완료 → 취소)이고, 라벨은 고정 범주 라벨이다.
+    const spans = categorySpans([
+      st(4, '취소', 'CANCELED', 9),
+      st(13, 'QA 대기', 'IN_PROGRESS', 4),
+      st(1, '접수', 'TODO', 0),
+      st(2, '작업 중', 'IN_PROGRESS', 1),
+      st(3, '완료', 'DONE', 8),
+      st(12, '검토 중', 'IN_PROGRESS', 2),
+    ]);
+    expect(spans).toEqual([
+      { category: 'TODO', label: '할 일', count: 1 },
+      { category: 'IN_PROGRESS', label: '진행 중', count: 3 },
+      { category: 'DONE', label: '완료', count: 1 },
+      { category: 'CANCELED', label: '취소', count: 1 },
+    ]);
+  });
+
+  it('categorySpans: 컬럼이 없는 범주(개인 보드의 취소)는 띠에서 뺀다', () => {
+    const spans = categorySpans([st(1, '할 일', 'TODO', 0), st(2, '진행 중', 'IN_PROGRESS', 1), st(3, '완료', 'DONE', 2)]);
+    expect(spans.map((s) => s.category)).toEqual(['TODO', 'IN_PROGRESS', 'DONE']);
+    expect(categorySpans([])).toEqual([]);
   });
 });
