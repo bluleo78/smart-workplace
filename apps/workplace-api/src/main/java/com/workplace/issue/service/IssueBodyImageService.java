@@ -3,7 +3,6 @@ package com.workplace.issue.service;
 import com.workplace.drive.service.DriveQuotaService;
 import com.workplace.file.api.ImageSniffer;
 import com.workplace.global.util.SafeFileNames;
-import com.workplace.global.util.UnicodeNames;
 import com.workplace.issue.dto.IssueBodyImageResponse;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.exception.IssueBodyImageLimitException;
@@ -123,8 +122,8 @@ public class IssueBodyImageService {
     quota.assertWithinQuotaLocked(file.getSize());
 
     // 저장 이름과 응답 이름이 어긋나지 않게 한 번만 계산해 함께 쓴다.
-    String name =
-        SafeFileNames.fitLength(UnicodeNames.toNfcOrDefault(file.getOriginalFilename(), "image"));
+    // 경로 구분자·제어 문자는 "_" 로, 빈 이름은 대체 이름으로(WP-737).
+    String name = SafeFileNames.sanitize(file.getOriginalFilename(), "image");
     Long fileId = storage.storeTemporaryImage(file, callerId, mime, name);
     repo.insertPending(fileId, project.id(), callerId);
     return new IssueBodyImageResponse(

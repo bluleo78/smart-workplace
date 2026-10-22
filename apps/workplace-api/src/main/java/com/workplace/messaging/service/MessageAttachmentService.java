@@ -107,11 +107,7 @@ public class MessageAttachmentService {
       String mime = MessageAttachmentStorage.normalizedMime(mf);
       out.add(
           new UploadedFile(
-              id,
-              SafeFileNames.fitLength(
-                  mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file"),
-              mime,
-              mf.getSize()));
+              id, SafeFileNames.sanitize(mf.getOriginalFilename(), "file"), mime, mf.getSize()));
     }
     return out;
   }

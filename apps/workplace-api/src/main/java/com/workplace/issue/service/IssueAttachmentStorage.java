@@ -58,10 +58,8 @@ public class IssueAttachmentStorage {
    * STORAGE_PATH 에는 상대 경로만 저장 — 절대 경로 복원은 load() 에서 FileStore.resolve() 가 담당.
    */
   public Long storeAndInsert(MultipartFile mf, Long uploaderId) {
-    // 저장 칸(255자)을 넘는 이름은 확장자를 살려 줄인다(WP-561).
-    String originalName =
-        SafeFileNames.fitLength(
-            mf.getOriginalFilename() != null ? mf.getOriginalFilename() : "file");
+    // 원본 파일명 정리 — 경로 구분자·제어 문자는 "_" 로, 빈 이름은 대체 이름으로(WP-737), 255자를 넘으면 확장자를 살려 줄인다(WP-561).
+    String originalName = SafeFileNames.sanitize(mf.getOriginalFilename(), "file");
     // 코어 FilePathBuilder 가 UUID·날짜·확장자·테넌트 디렉토리를 일괄 생성
     String relativePath = pathBuilder.build(StorageDomain.ISSUE, originalName);
     fileStore.store(relativePath, mf);

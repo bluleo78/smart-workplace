@@ -131,10 +131,8 @@ public class WikiAttachmentService {
         FileExtractionRequestedEvent.of(fileId, detectedMime, ExtractionProfile.TEXT_ONLY));
     notifier.attachmentChanged(ResourceChangedEvent.OP_CREATED, spaceId, pageId, callerId);
 
-    String originalName =
-        file.getOriginalFilename() != null && !file.getOriginalFilename().isBlank()
-            ? SafeFileNames.fitLength(UnicodeNames.toNfc(file.getOriginalFilename()))
-            : "image";
+    // 저장 이름(WikiAttachmentStorage)과 같은 규칙(WP-737).
+    String originalName = SafeFileNames.sanitize(file.getOriginalFilename(), "image");
     return new WikiAttachmentResponse(
         fileId,
         WikiAttachmentResponse.urlOf(pageId, fileId),
