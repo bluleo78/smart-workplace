@@ -13,6 +13,7 @@ import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
@@ -758,6 +759,8 @@ function MailInbox() {
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 사이드바도 같은 판정(WP-218).
   const location = useLocation()
   const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId') })
+  // 탭 제목 — 「{폴더} · 메일」(WP-814). 계정이 없으면(연결 안내 화면) 폴더가 없으니 「메일」만.
+  useDocumentTitle([(accounts?.length ?? 0) > 0 && view.title, '메일'])
 
   const { data: fetchedMessages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',

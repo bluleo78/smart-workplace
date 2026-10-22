@@ -65,9 +65,12 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
 
   test('← 버튼 → 필터가 유지된 목록으로 복귀하고 히스토리를 쌓지 않는다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
+    // WP-814: 탭 제목은 열린 이슈(키-번호 제목), 목록으로 돌아가면 「이슈 · {프로젝트}」.
+    await expect(page).toHaveTitle('WP-8 비밀번호 재설정 메일 · Gen:iA Works');
 
     await page.getByRole('button', { name: '이전 화면으로 돌아가기' }).click();
     await expect(page).toHaveURL(FILTERED_LIST_URL);
+    await expect(page).toHaveTitle(/^이슈 · .+ · Gen:iA Works$/);
 
     // 되감기이므로 앞으로가기로 다시 상세에 갈 수 있다(새 항목을 push 했다면 앞으로가기가 없다).
     await page.goForward();

@@ -9,6 +9,7 @@ import { MobileActionSheet } from '@/components/mobile/MobileActionSheet';
 import { TOUCH_ROW_TRIGGER } from '@/components/mobile/TouchRowActionsMenu';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
@@ -26,6 +27,8 @@ export default function CyclesPage() {
   const navigate = useNavigate();
   const project = useProject(key);
   const cycles = useCycles(key);
+  // 탭 제목 — 「사이클 · {프로젝트}」(WP-814).
+  useDocumentTitle(['사이클', project.data?.name]);
   const progress = useCycleProgress(key);
   const del = useDeleteCycle(key);
   const [editing, setEditing] = useState<CycleResponse | undefined>();

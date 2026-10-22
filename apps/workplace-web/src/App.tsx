@@ -9,6 +9,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { Skeleton } from './components/ui/skeleton'
 import { WikiSharePublicViewContext } from './components/wiki/wikiSharePublicView'
 import { useAuth } from './hooks/useAuth'
+import { useRouteDocumentTitle } from './hooks/useDocumentTitle'
 import { useIsMobile } from './hooks/useIsMobile'
 
 // 페이지는 라우트 진입 시점에만 로드해 초기 번들을 가볍게 유지한다.
@@ -153,6 +154,12 @@ function KeyedByParam({ component: Page, param }: { component: ComponentType; pa
   return <Page key={params[param]} />
 }
 
+/** 주소별 기본 탭 제목(화면 이름)을 맞춘다 — 항목 화면은 useDocumentTitle 로 덮는다(WP-814). */
+function RouteDocumentTitle() {
+  useRouteDocumentTitle()
+  return null
+}
+
 function PageLoader() {
   return (
     <div className="container mx-auto p-8">
@@ -165,6 +172,7 @@ function PageLoader() {
 export default function App() {
   return (
     <PageErrorBoundary>
+      <RouteDocumentTitle />
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* 공개 라우트 */}

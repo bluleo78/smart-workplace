@@ -202,6 +202,8 @@ test.describe('받은편지함', () => {
     )
     await page.goto('/mail/1')
     await expect(page.getByTestId('mail-row-20')).toBeVisible()
+    // WP-814: 탭 제목은 「{폴더} · 메일」(기본 보기 = 업무).
+    await expect(page).toHaveTitle('업무 · 메일 · Gen:iA Works')
     // snippet 있는 행은 미리보기 노출, null 행은 미리보기 줄 생략.
     await expect(page.getByTestId('mail-snippet-10')).toBeVisible()
     await expect(page.getByTestId('mail-snippet-20')).toHaveCount(0)
@@ -213,6 +215,8 @@ test.describe('받은편지함', () => {
     await expect(page.getByTestId('mail-empty-accounts')).toBeVisible()
     // WP-816: 헤더가 없는 안내 화면에도 스크린리더 제목 이동용 h1(숨김)이 있다.
     await expect(page.getByRole('heading', { level: 1, name: '메일' })).toBeAttached()
+    // WP-814: 계정이 없으면 폴더가 없으니 탭 제목은 화면 이름만.
+    await expect(page).toHaveTitle('메일 · Gen:iA Works')
   })
 
   // #113 전폭 PageHeader(폴더명) + 좁은 화면 뒤로가기 — 800px 뷰포트에서 마스터-디테일 토글 검증.

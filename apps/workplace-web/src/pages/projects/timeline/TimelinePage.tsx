@@ -7,6 +7,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { Page } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
 
@@ -50,6 +51,8 @@ export default function TimelinePage() {
   } | null>(null);
 
   const project = useProject(key);
+  // 탭 제목 — 「타임라인 · {프로젝트}」(WP-814).
+  useDocumentTitle(['타임라인', project.data?.name]);
   const search = useIssueSearch(key, effectiveFilters, 100);
   const milestones = useMilestones(key);
   // 조회 기간(WP-247) — 화면 거름은 상태 필터의 「취소」 포함 여부와 함께 간트·아젠다에 넘긴다(조회 자체는 전량 그대로).

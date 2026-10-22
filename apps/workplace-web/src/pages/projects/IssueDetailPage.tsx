@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { cn } from '@/lib/utils';
 
 import { AgentQuestionCard } from '../../components/issue/agentWork/AgentQuestionCard';
@@ -371,6 +372,8 @@ export default function IssueDetailPage() {
   // 개인 프로젝트 여부 판별 — 개인 프로젝트의 이슈는 풀페이지 대신 패널로 귀결시킨다.
   const project = useProject(key);
   const { data, isLoading, error, refetch } = useIssue(key, issueNumber);
+  // 탭 제목 — 「{키-번호} {제목}」(WP-814). 불러오기 전에는 주소 기본값(작업 관리).
+  useDocumentTitle([data && `${data.summary.projectKey}-${data.summary.number} ${data.summary.title}`]);
   const update = useUpdateIssue(key, issueNumber);
   // #611 제목·본문은 편집을 시작한 순간의 version 을 저장 기준으로 고정한다 — 편집하는 사이 코멘트 SSE·창 포커스 리페치로 캐시 version 이
   // 올라가도, 그 사이 다른 사람이 바꾼 내용을 모른 채 덮어쓰지 않고 409 로 알 수 있게.

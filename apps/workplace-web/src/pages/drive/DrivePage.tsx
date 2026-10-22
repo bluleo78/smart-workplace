@@ -48,6 +48,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { RenameDialog } from '@/components/ui/rename-dialog'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -202,6 +203,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // WP-63: useQuery 전환 — 실패 시 data 가 없어 배너 미표시로 폴백(기존 동작 유지).
   const spaceQuery = useDriveSpace(validSid)
   const space = spaceQuery.data ?? null
+  // 탭 제목 — 「{공간} · 드라이브」(WP-814).
+  useDocumentTitle([space?.name, '드라이브'])
   // WP-602: 팀 공간 VIEWER — 쓰기 버튼(새 폴더·업로드·이동·삭제·공유 링크 등)을 감추고 읽기 동작만 둔다. 눌러도 서버가 403 이다.
   const readOnlyRole = isDriveViewer(space)
   // WP-529: 없는 공간·멤버가 아닌 공간(서버는 존재 은닉으로 404, 역할 미달 403)·숫자가 아닌 주소 — 빈 폴더 + 켜진 업로드로 보이면 안 된다.

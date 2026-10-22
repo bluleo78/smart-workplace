@@ -10,6 +10,7 @@ import { buildWikiContext } from '@/lib/aiScreenContext/builders/wiki'
 
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
+import { useDocumentTitle } from '../../hooks/useDocumentTitle'
 import { useWikiLastVisitedKey } from '../../hooks/useWikiLastVisitedKey'
 import {
   clearWikiLastVisited,
@@ -51,6 +52,11 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     [spaceId, spaceName, pageId, isError, page],
   )
   useRegisterAiScreenContext(screenContext)
+  // 탭 제목 — 노트를 열었으면 「{노트 제목} · 노트」, 공간 첫 화면이면 「{공간} · 노트」(WP-814).
+  useDocumentTitle([
+    pageId != null ? (page?.id === pageId && !isError ? page.title || '제목 없음' : null) : spaceName,
+    '노트',
+  ])
 
   // 로드에 성공한 페이지를 "마지막으로 본 노트"로 기록 — /wiki 재진입 시 WikiIndexRedirect 가 복원한다.
   // 보던 중 삭제·권한 상실(404/403)된 페이지가 기록돼 있으면 지워, 에러 화면의 「노트 목록으로」가
