@@ -19,6 +19,7 @@ import type { MentionCandidate, MentionUser } from '@/components/mentions/types'
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu';
 import { ReactorsOverlay } from '@/components/reactions/ReactorsOverlay';
+import { useReactionFocusRestore } from '@/components/reactions/useReactionFocusRestore';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
@@ -101,6 +102,9 @@ function CommentItem({
   const toggleReaction = (emoji: string) => toggle(comment.id, emoji);
   // 반응 없는 코멘트(마우스)의 😊+ 는 본문 아래가 아니라 헤더 hover 액션 자리에 둔다 — 빈 칩 줄이 공간을 차지하지 않게(WP-504).
   const headerReactionAdd = canReact && !touch && !editing && (comment.reactions ?? []).length === 0;
+  // 반응 칩·헤더 「반응 추가」가 눌린 뒤 사라지면(첫 반응 → 칩 줄 ＋, 내 반응만 있던 칩 취소) 같은 코멘트의 반응 컨트롤로 포커스를 잇는다(WP-830).
+  const itemRef = useRef<HTMLLIElement>(null);
+  useReactionFocusRestore(itemRef, comment.reactions);
 
   // 수정 저장 — PATCH 호출 후 편집 모드 종료. 실패 시 편집 모드 유지 + 입력 보존(RichInput reject 처리).
   const handleSave = async (body: string) => {
@@ -142,6 +146,7 @@ function CommentItem({
 
   return (
     <li
+      ref={itemRef}
       className={[
         // min-w-0 — 카드가 flex/grid 자식일 때 긴 내용이 카드 폭을 밀어내지 않게(WP-228).
         'relative group min-w-0 border rounded p-3',

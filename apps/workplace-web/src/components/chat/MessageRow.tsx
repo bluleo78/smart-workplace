@@ -3,7 +3,7 @@
 //   본인: 우측 말풍선(최대 75%, 아바타·이름 없음). 수정 중에는 전폭 에디터.
 // 뮤테이션·편집 상태는 목록(MessageList)이 갖고, 이 컴포넌트는 콜백만 받아 그린다.
 import { Bot, MessageSquare, Pencil, Trash2, Users } from 'lucide-react'
-import { type ComponentProps, type Ref, useRef } from 'react'
+import { type ComponentProps, type Ref, useCallback, useRef } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
@@ -23,6 +23,7 @@ import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { EmojiPicker } from '@/components/reactions/EmojiPicker'
 import { ReactionBar } from '@/components/reactions/ReactionBar'
+import { useReactionFocusRestore } from '@/components/reactions/useReactionFocusRestore'
 import { Button } from '@/components/ui/button'
 import { teamChatBundle } from '@/components/viewer/viewerItems'
 import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
@@ -114,6 +115,18 @@ export function MessageRow({
   // 수정을 끝내면(Esc 취소·저장) 편집기와 함께 툴바가 사라져 있어 포커스가 body 로 빠졌다 — 「수정」 버튼으로 돌린다(WP-813).
   const editButtonRef = useRef<HTMLButtonElement | null>(null)
   useRestoreFocusOnExit(isEditing, editButtonRef)
+
+  // 내 반응만 있던 칩을 취소해 칩이 사라지면 같은 메시지의 다음 칩·「이모지 추가」로 포커스를 잇는다(WP-830).
+  // 행 요소는 목록이 넘긴 rowRef(마지막 행 스크롤용)와 함께 잡는다.
+  const hostRef = useRef<HTMLDivElement | null>(null)
+  useReactionFocusRestore(hostRef, m.reactions)
+  const setRowRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      hostRef.current = node
+      assignRef(rowRef, node)
+    },
+    [rowRef],
+  )
 
   // 모바일 터치 셸 — hover 툴바를 그리지 않고, 길게 누르면 목록이 가진 작업 시트가 열린다.
   const touchShell = useIsTouchShell()
@@ -321,7 +334,7 @@ export function MessageRow({
 
   return (
     <div
-      ref={rowRef}
+      ref={setRowRef}
       data-testid={`message-${m.id}`}
       data-pending={isPending ? 'true' : undefined}
       data-group-start={startsGroup ? 'true' : 'false'}
@@ -416,4 +429,10 @@ export function MessageRow({
       {onOpenActions && <MessageActionsButton onOpen={onOpenActions} />}
     </div>
   )
+}
+
+/** 목록이 넘긴 ref(객체·함수 모두)에 행 요소를 넣는다 — 행이 자기 ref 와 함께 잡을 때 쓴다. */
+function assignRef(ref: Ref<HTMLDivElement> | undefined, node: HTMLDivElement | null) {
+  if (typeof ref === 'function') ref(node)
+  else if (ref) ref.current = node
 }

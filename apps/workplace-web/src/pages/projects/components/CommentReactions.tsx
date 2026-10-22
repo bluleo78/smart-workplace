@@ -10,10 +10,10 @@
 import { Plus, SmilePlus } from 'lucide-react';
 import { useRef, useState } from 'react';
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { PICKER_EMOJIS, QUICK_EMOJIS } from '@/components/reactions/emojiSets';
 import { QuickReactionRow } from '@/components/reactions/QuickReactionRow';
 import { ReactionBar } from '@/components/reactions/ReactionBar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 
 import { commentReactorSource } from '../../../hooks/queries/commentReactorSource';
@@ -115,6 +115,8 @@ export function AddReactionButton({
       aria-label="반응 추가"
       title="반응 추가"
       data-testid={`comment-reaction-add-${commentId}`}
+      // 반응 컨트롤 표식 — 헤더 버튼이 칩 줄 ＋ 로 바뀌거나 칩이 모두 사라지면 코멘트가 이 버튼으로 포커스를 잇는다(useReactionFocusRestore, WP-830).
+      data-reaction-control="add"
       // 터치는 PopoverTrigger 가 없으니 열기·열림 표식(data-state — 열린 동안 강조 스타일)을 직접 단다.
       {...(touch && {
         onClick: () => setOpen(true),

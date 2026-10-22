@@ -26,6 +26,8 @@ export function EmojiPicker({ onPick, testIdPrefix }: EmojiPickerProps) {
           className="h-6 w-6"
           aria-label="이모지 추가"
           data-testid={`${testIdPrefix}-react`}
+          // 반응 컨트롤 표식 — 칩이 모두 사라지면 포커스가 여기로 온다(useReactionFocusRestore, WP-830).
+          data-reaction-control="add"
         >
           <SmilePlus className="h-3 w-3" />
         </Button>
