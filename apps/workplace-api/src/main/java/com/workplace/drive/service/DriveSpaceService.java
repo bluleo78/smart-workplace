@@ -56,6 +56,8 @@ public class DriveSpaceService {
    */
   @Transactional
   public DriveSpaceResponse createTeamSpace(long callerId, String name) {
+    // 같은 이름의 동시 생성·이름 변경과 차례를 세운 뒤 검사한다(WP-772 — 유니크 인덱스가 없어 검사만으로는 동시 요청이 모두 통과했다).
+    spaces.lockTeamSpaceName(name);
     if (spaces.existsVisibleTeamSpaceName(name, callerId, null)) {
       throw new DriveSpaceNameDuplicatedException(name);
     }
@@ -158,6 +160,7 @@ public class DriveSpaceService {
   public DriveSpaceResponse renameTeamSpace(long callerId, long spaceId, String name) {
     perms.requireRole(spaceId, callerId, "OWNER");
     requireTeamSpace(spaceId);
+    spaces.lockTeamSpaceName(name); // WP-772 — 만들기와 같은 이름 잠금
     if (spaces.existsVisibleTeamSpaceName(name, callerId, spaceId)) {
       throw new DriveSpaceNameDuplicatedException(name);
     }
