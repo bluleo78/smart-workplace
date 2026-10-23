@@ -203,7 +203,10 @@ function IssueBoardViewInner({
   // 다시 시도는 실패한 쿼리만 다시 부른다. 다음 페이지 실패는 그룹 footer·컬럼 「더 보기」가 맡는다.
   const failedQueries = grouped
     ? (groupQuery.isLoadingError ? [groupQuery] : [])
-    : statuses.flatMap((s) => (columnQueries[s]?.isLoadingError ? [columnQueries[s]] : []));
+    : columns.flatMap((s) => {
+        const q = columnQueries[s.id];
+        return q?.isLoadingError ? [q] : [];
+      });
   if (failedQueries.length > 0) {
     return <IssueLoadErrorState queries={failedQueries} />;
   }
