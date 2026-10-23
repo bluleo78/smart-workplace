@@ -388,10 +388,9 @@ export function TimelineGantt({
     // 차트 영역 왼쪽 끝(containerRef 기준) — 사이클 이름표를 이보다 왼쪽(그리드 표 위)에 그리지 않는다(WP-489).
     let chartLeft = 0
     const bandLefts = new Map<number, { left: number; width: number }>()
-    // 마일스톤 오버레이 좌표(#648) — vline 은 항상 마감일 정확한 X, 칩은 겹칠 때 우측으로 밀어
-    // 배치한 X. 두 값을 분리해야 칩이 밀려도 실제 마감 위치를 점선으로 정확히 알 수 있다.
-    const milestoneLefts = new Map<number, number>()
-    const chipLefts = new Map<number, number>()
+    // 마일스톤 오버레이 좌표(#648) — 마감일 오름차순으로 마감일 정확한 X 와 칩 폭을 둔다. vline 은 늘 이 X,
+    // 칩은 스크롤 뒤 겹치거나 차트 왼쪽에 걸리면 우측으로 밀어 배치한다(applyTransform).
+    const milestoneLayout: { id: number; x: number; width: number }[] = []
 
     const recompute = () => {
       const chartScales = api.getState()._scales
@@ -428,19 +427,10 @@ export function TimelineGantt({
         const width = baseLeft + toOffset(parseISO(band.endDate)) - left
         bandLefts.set(band.id, { left, width })
       }
-      // 마감일 오름차순으로 훑으며 직전 칩과 겹치면 그 우측 +4px 로 밀어 배치(간단한 충돌 회피).
-      milestoneLefts.clear()
-      chipLefts.clear()
-      const sortedMilestones = [...milestones].sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-      let prevRight = -Infinity
-      for (const m of sortedMilestones) {
-        const x = baseLeft + toOffset(parseISO(m.dueDate))
-        milestoneLefts.set(m.id, x)
-        const chip = milestoneChipRefs.current.get(m.id)
-        const width = chip?.offsetWidth ?? 0
-        const left = Math.max(x - width / 2, prevRight + 4)
-        chipLefts.set(m.id, left)
-        prevRight = left + width
+      milestoneLayout.length = 0
+      for (const m of [...milestones].sort((a, b) => a.dueDate.localeCompare(b.dueDate))) {
+        const width = milestoneChipRefs.current.get(m.id)?.offsetWidth ?? 0
+        milestoneLayout.push({ id: m.id, x: baseLeft + toOffset(parseISO(m.dueDate)), width })
       }
       applyTransform()
     }
@@ -461,15 +451,27 @@ export function TimelineGantt({
         el.style.transform = `translateX(${visibleLeft}px)`
         el.style.width = `${Math.max(visibleWidth, 0)}px`
       }
-      for (const [id, left] of chipLefts) {
-        const chip = milestoneChipRefs.current.get(id)
-        // 우측 스크롤 시 (left - scrollLeft) 가 음수에 가까워지며 좌측 "마일스톤" 라벨과
-        // 겹칠 수 있어, 라벨 예약 폭 미만으로는 밀리지 않도록 클램프한다.
-        if (chip) chip.style.transform = `translateX(${Math.max(left - scrollLeft, MILESTONE_LABEL_RESERVED_PX)}px)`
-      }
-      for (const [id, left] of milestoneLefts) {
+      // 마일스톤은 사이클 이름표처럼 차트 영역 안에만 그린다(WP-861) — 마감일이 차트 왼쪽 밖으로 스크롤되면
+      // 칩·점선을 숨겨 왼쪽 그리드 표 위에 겹치지 않게 하고, 마감일은 보이는데 칩만 걸치면 차트 왼쪽 끝에 붙인다.
+      // 좌측 "마일스톤" 라벨 예약 폭보다 왼쪽으로도 밀리지 않는다(그리드가 좁을 때).
+      const minChipLeft = Math.max(chartLeft, MILESTONE_LABEL_RESERVED_PX)
+      // 마감일 오름차순으로 훑으며 직전 칩과 겹치면 그 우측 +4px 로 밀어 배치(간단한 충돌 회피).
+      let prevRight = -Infinity
+      for (const { id, x, width } of milestoneLayout) {
+        const lineX = x - scrollLeft
+        const visible = lineX >= chartLeft
         const vline = milestoneVlineRefs.current.get(id)
-        if (vline) vline.style.transform = `translateX(${left - scrollLeft}px)`
+        if (vline) {
+          vline.style.visibility = visible ? '' : 'hidden'
+          vline.style.transform = `translateX(${lineX}px)`
+        }
+        const chip = milestoneChipRefs.current.get(id)
+        if (!chip) continue
+        chip.style.visibility = visible ? '' : 'hidden'
+        if (!visible) continue
+        const left = Math.max(lineX - width / 2, minChipLeft, prevRight + 4)
+        chip.style.transform = `translateX(${left}px)`
+        prevRight = left + width
       }
     }
 

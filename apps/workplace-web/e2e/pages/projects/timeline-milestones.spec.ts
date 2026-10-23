@@ -87,6 +87,48 @@ test('마일스톤 레인의 그리드/차트 경계 구분선이 아래 차트 
   expect(Math.abs(dividerLeft - chartLeft)).toBeLessThan(2);
 });
 
+// 오늘 기준 days 일 뒤(음수면 앞) 날짜 — 첫 화면은 오늘 근처로 스크롤되므로 지난 마일스톤이 차트 왼쪽 밖에 놓인다.
+function isoFromToday(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// WP-861: 차트 시작보다 이른 마일스톤의 칩·점선이 왼쪽 이슈 표 위에 겹쳐 그려졌다.
+test('차트 왼쪽 밖의 마일스톤은 칩·점선을 그리드 위에 그리지 않고, 보이는 칩은 차트 영역 안에서 시작한다', async ({
+  authenticatedPage: page,
+}) => {
+  await setupStubs(page, {
+    milestones: [
+      { id: 1, projectId: 1, name: '지난 마일스톤', dueDate: isoFromToday(-120), description: null, createdAt: '', updatedAt: '' },
+      { id: 2, projectId: 1, name: '다음 마일스톤', dueDate: isoFromToday(7), description: null, createdAt: '', updatedAt: '' },
+      // 첫 화면은 오늘 −7일 근처에서 시작하므로 −5일 마감은 차트 왼쪽 끝 바로 안쪽이다.
+      { id: 3, projectId: 1, name: '경계 근처 마일스톤', dueDate: isoFromToday(-5), description: null, createdAt: '', updatedAt: '' },
+    ],
+  });
+  // 기본 기간(사이클 없음 → 최근 3개월~향후 6개월)의 차트는 120일 전 마일스톤보다 늦게 시작한다.
+  // 그 기간 안에 막대가 있어야 간트가 그려진다.
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [createIssue({ number: 1, title: '이번 주 이슈', startDate: isoFromToday(-1), dueDate: isoFromToday(3) })];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+  const scroller = page.locator('.timeline-gantt-root .wx-chart').first();
+  await expect(page.getByTestId('milestone-chip-2')).toBeVisible();
+  const chartLeft = await scroller.evaluate((el) => el.getBoundingClientRect().left);
+
+  // 차트 시작 전 마일스톤은 칩·점선이 숨고, 보이는 칩은 차트 왼쪽 경계 오른쪽에 있다.
+  await expect(page.getByTestId('milestone-chip-1')).toBeHidden();
+  await expect(page.getByTestId('milestone-vline-1')).toBeHidden();
+  expect((await page.getByTestId('milestone-chip-2').boundingBox())!.x).toBeGreaterThanOrEqual(chartLeft - 1);
+  expect((await page.getByTestId('milestone-vline-2').boundingBox())!.x).toBeGreaterThanOrEqual(chartLeft - 1);
+
+  // 마감일은 차트 안이지만 칩 가운데 정렬로는 왼쪽 경계를 넘는 마일스톤은 차트 왼쪽 끝에 붙는다.
+  await expect(page.getByTestId('milestone-chip-3')).toBeVisible();
+  expect((await page.getByTestId('milestone-chip-3').boundingBox())!.x).toBeGreaterThanOrEqual(chartLeft - 1);
+});
+
 test('툴바 버튼으로 마일스톤 생성', async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/milestones`);
