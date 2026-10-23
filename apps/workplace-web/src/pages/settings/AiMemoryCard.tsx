@@ -9,6 +9,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { BusySwitch } from '@/components/BusySwitch';
 import { useSettingsScrollRoot } from '@/components/layout/settingsScrollRoot';
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection';
 import {
@@ -24,7 +25,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { SearchInput } from '@/components/ui/search-input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { useAiMemories, useClearAiMemories } from '@/hooks/queries/useAiMemories';
@@ -124,11 +124,12 @@ export function AiMemoryCard() {
               </span>
             }
             control={
-              <Switch
+              <BusySwitch
                 data-testid="ai-memory-toggle"
                 checked={enabled}
                 // 응답 전 연타로 요청 순서가 엇갈리지 않게 저장 중엔 잠근다(추천 질문 스위치와 같은 이유).
-                disabled={!prefs.isSuccess || updatePrefs.isPending}
+                disabled={!prefs.isSuccess}
+                busy={updatePrefs.isPending}
                 onCheckedChange={(v) => updatePrefs.mutate({ memoryEnabled: v })}
                 aria-label="메모리 사용"
               />

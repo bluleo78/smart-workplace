@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { wikiApi } from '@/api/wiki'
+import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
 import {
@@ -17,7 +18,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Switch } from '@/components/ui/switch'
 import { WikiRevokeSharesDialog } from '@/components/wiki/WikiRevokeSharesDialog'
 import { ADMIN_SHARE_LIST_CAP, countLivePublicShares } from '@/components/wiki/wikiShare'
 import { WikiShareTable } from '@/components/wiki/WikiShareTable'
@@ -68,12 +68,13 @@ export default function WikiSharingPage() {
         <SettingsToggleRow
           label={<span id="wiki-external-share-label">외부 공유 허용</span>}
           control={
-            <Switch
+            <BusySwitch
               aria-labelledby="wiki-external-share-label"
               data-testid="wiki-external-share-switch"
               checked={policy.data?.externalShareEnabled ?? false}
               // 설정을 못 불러왔을 때 「꺼짐」으로 보이지 않게 잠근다 — 잘못된 값 위에서 켜고 끄지 않도록.
-              disabled={!policy.data || setPolicy.isPending}
+              disabled={!policy.data}
+              busy={setPolicy.isPending}
               onCheckedChange={onToggle}
             />
           }

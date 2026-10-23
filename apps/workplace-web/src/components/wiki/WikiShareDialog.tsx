@@ -2,6 +2,7 @@ import { ChevronDown, Info, Link2, RefreshCw, UserPlus, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { BusySwitch } from '@/components/BusySwitch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select'
 import {
   AlertDialog,
@@ -26,7 +27,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatMonthDayClock } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
@@ -276,11 +276,12 @@ export function WikiShareDialog({
                   : '지금은 스페이스 멤버만 이 페이지를 볼 수 있습니다.'}
               </p>
             </div>
-            <Switch
+            <BusySwitch
               id="wiki-share-switch"
               data-testid="wiki-share-switch"
               checked={share != null}
-              disabled={stateQuery.isPending || busy}
+              disabled={stateQuery.isPending}
+              busy={busy}
               onCheckedChange={(on) => (on ? apply(DEFAULT_SHARE) : setPending({ kind: 'revoke' }))}
             />
           </div>

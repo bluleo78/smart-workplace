@@ -60,7 +60,8 @@ test.describe('알림 설정', () => {
     await expect(page.getByTestId('push-pref-CALENDAR')).toHaveAttribute('aria-checked', 'false')
   })
 
-  test('저장 중에는 종류별 토글이 모두 비활성화된다', async ({ authenticatedPage: page }) => {
+  // WP-847: 잠금은 disabled 가 아니라 aria-disabled + 바꾸기 무시 — disabled 로 꺼지면 키보드 초점이 body 로 사라졌다.
+  test('저장 중에는 종류별 토글이 모두 잠기고, 키보드로 바꾼 스위치에 초점이 남는다', async ({ authenticatedPage: page }) => {
     await installPushManagerStub(page)
     await mockPushApis(page)
     await page.goto('/settings/notifications')
@@ -74,16 +75,28 @@ test.describe('알림 설정', () => {
       await gate
       await route.fulfill({ json: { DM: true, MENTION: true, ISSUE: true, CALENDAR: false } })
     })
+    const puts = trackRequests(page, 'PUT', '/api/v1/push/preferences')
 
-    await page.getByTestId('push-pref-CALENDAR').click()
-    await expect(page.getByTestId('push-pref-DM')).toBeDisabled()
-    await expect(page.getByTestId('push-pref-MENTION')).toBeDisabled()
-    await expect(page.getByTestId('push-pref-ISSUE')).toBeDisabled()
-    await expect(page.getByTestId('push-pref-CALENDAR')).toBeDisabled()
+    const calendar = page.getByTestId('push-pref-CALENDAR')
+    await calendar.focus()
+    await page.keyboard.press('Space')
+    await puts.waitFor()
+    for (const key of ['DM', 'MENTION', 'ISSUE', 'CALENDAR']) {
+      await expect(page.getByTestId(`push-pref-${key}`)).toHaveAttribute('aria-disabled', 'true')
+    }
+    await expect(calendar).toBeFocused()
+
+    // 잠긴 동안 다시 누르거나 다른 종류를 눌러도 요청을 더 보내지 않고 값도 그대로다.
+    await page.keyboard.press('Space')
+    // aria-disabled 요소는 Playwright 가 click 을 기다리므로, 초점을 옮기지 않는 클릭 이벤트로 누름을 흉내 낸다.
+    await page.getByTestId('push-pref-DM').dispatchEvent('click')
+    await expect(page.getByTestId('push-pref-DM')).toHaveAttribute('aria-checked', 'true')
 
     release()
-    await expect(page.getByTestId('push-pref-DM')).toBeEnabled()
-    await expect(page.getByTestId('push-pref-CALENDAR')).toHaveAttribute('aria-checked', 'false')
+    await expect(page.getByTestId('push-pref-DM')).not.toHaveAttribute('aria-disabled', 'true')
+    await expect(calendar).toHaveAttribute('aria-checked', 'false')
+    await expect(calendar).toBeFocused()
+    expect(puts.count()).toBe(1)
   })
 
   test('권한을 거부하면 안내가 보인다', async ({ authenticatedPage: page }) => {
