@@ -196,6 +196,9 @@ test.describe('커스텀 필드', () => {
         'placeholder',
         '값을 입력하세요',
       );
+      // WP-854 — 텍스트·숫자 칸도 선택형처럼 필드 이름으로 읽힌다(이전엔 placeholder 로만 읽혔다).
+      await expect(page.getByRole('spinbutton', { name: '스토리포인트', exact: true })).toBeVisible();
+      await expect(page.getByRole('textbox', { name: '비고', exact: true })).toBeVisible();
       await page.getByTestId(`field-input-${fieldId}`).fill('5');
 
       await expect.poll(() => puts.lastBody(), { timeout: 2000 }).toMatchObject({

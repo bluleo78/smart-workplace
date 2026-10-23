@@ -51,6 +51,8 @@ export function FieldNumberInput({
         onChange(parsed.value);
       }}
       placeholder="숫자를 입력하세요"
+      // 필드 이름으로 읽힌다 — 이름이 없으면 placeholder 로 떨어져 칸이 여럿일 때 구분되지 않았다(WP-854, 선택형 위젯과 같은 방식).
+      aria-label={def.name}
       data-testid={`field-input-${def.id}`}
     />
   );
