@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ResponsiveModuleLayout } from '@/components/mobile/ResponsiveModuleLayout'
-import { useProjects } from '@/hooks/queries/useProjects'
+import { useAllProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { buildTaskListContext } from '@/lib/aiScreenContext/builders/mobileLists'
 
@@ -14,9 +14,9 @@ export function IssueModuleLayout() {
   return <ResponsiveModuleLayout sidebar={<IssueSidebar />} rootPath="/tasks" title="작업" listContext={<TaskListScreenContext />} />
 }
 
-/** WP-191: 모바일 작업 목록의 화면 컨텍스트 등록기 — 프로젝트·고정 보기 이름(쿼리는 사이드바·위젯과 캐시 공유). 모바일 목록 분기에서만 마운트. */
+/** WP-191: 모바일 작업 목록의 화면 컨텍스트 등록기 — 프로젝트·고정 보기 이름(전체 프로젝트 쿼리는 사이드바와 캐시 공유). 모바일 목록 분기에서만 마운트. */
 function TaskListScreenContext() {
-  const projects = useProjects()
+  const projects = useAllProjects()
   const pinned = useMyPinnedViews()
   const ctx = useMemo(
     () => buildTaskListContext({

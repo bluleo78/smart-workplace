@@ -5,7 +5,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { ProjectBadge } from '@/components/ProjectBadge'
-import { useProjects } from '@/hooks/queries/useProjects'
+import { useAllProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
 import { queriesEqualIgnoringView, savedViewQueryToParams } from '@/lib/savedViewQuery'
@@ -15,7 +15,7 @@ export function IssueSidebar() {
   // 프로젝트 생성 다이얼로그 열림 상태 — 섹션 헤더 + 버튼이 트리거한다.
   const [createOpen, setCreateOpen] = useState(false)
   // 프로젝트 목록은 PageResponse<ProjectResponse> 형태 — data.content 로 접근한다.
-  const projects = useProjects()
+  const projects = useAllProjects()
   // 사용자가 고정한 뷰 — 프로젝트 교차 빠른 접근(사이드바 상단 노출).
   const pinned = useMyPinnedViews()
   // 고정 뷰 활성 판정(WP-607) — NavLink 는 쿼리를 보지 않고 경로 접두만 맞춰, 그 프로젝트의 어느 화면(전체 목록·설정)에서도
