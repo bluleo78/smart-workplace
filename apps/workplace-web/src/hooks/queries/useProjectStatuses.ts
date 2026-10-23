@@ -2,6 +2,7 @@
 // 쿼리 키 ['projectStatuses', projectKey] 는 SSE 'project-status' 무효화 규칙(lib/resourceInvalidation)과 같아야 한다.
 
 import { type InfiniteData, type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo } from 'react';
 
 import {
   createProjectStatus,
@@ -14,12 +15,23 @@ import type { IssueDetailResponse, IssueResponse, IssueSearchResponse, IssueStat
 import type { ProjectStatus } from '../../types/projectStatus';
 
 // 프로젝트의 상태 목록 — projectKey 가 아직 없으면(라우트 로딩 중) 조회하지 않는다.
+// 목록이 도착·갱신되면 이미 캐시된 이슈 검색 페이지에 모르는 상태가 있는지 다시 본다 — 이슈 검색이 목록보다 먼저 와
+// 그때는 판정을 건너뛰었더라도(refreshStatusesOnUnknown 참고) 목록이 온 뒤 한 번 더 물을 수 있게.
 export function useProjectStatuses(projectKey?: string) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: ['projectStatuses', projectKey],
     queryFn: () => listProjectStatuses(projectKey!),
     enabled: !!projectKey,
   });
+  const { data } = query;
+  useEffect(() => {
+    if (!projectKey || !data) return;
+    const pages = qc.getQueriesData<InfiniteData<IssueSearchResponse>>({ queryKey: ['issues', 'search', projectKey] });
+    const issues = pages.flatMap(([, d]) => d?.pages?.flatMap((p) => p.items ?? []) ?? []);
+    refreshStatusesOnUnknown(qc, projectKey, issues);
+  }, [qc, projectKey, data]);
+  return query;
 }
 
 // 로딩 중·키 없음일 때 돌려줄 고정 빈 배열 — 매 렌더 새 배열을 만들면 이것을 deps 로 쓰는 memo 가 매번 깨진다.
@@ -47,15 +59,16 @@ export function unknownStatusIds(issues: readonly { statusId?: number | null }[]
   return [...out];
 }
 
-// 이미 다시 받게 한 「프로젝트:상태 id」 — QueryClient 마다 따로 둔다(테스트마다 새 클라이언트라 서로 섞이지 않게).
-const askedByClient = new WeakMap<QueryClient, Set<string>>();
+// 이미 다시 받게 한 상태 id — 판정에 쓴 상태 목록(배열 참조)마다 따로 둔다. 다시 받은 내용이 같으면 TanStack 구조 공유로 같은 참조가
+// 남아 같은 id 를 또 묻지 않고(무한 재조회 방지), 내용이 바뀌어 새 배열이 오면 비어 있는 집합으로 다시 물을 수 있다 — 앱 세션 내내 쌓이지 않는다.
+const askedByList = new WeakMap<readonly ProjectStatus[], Set<number>>();
 
 /**
  * 이슈 검색 응답에 상태 목록에 없는 statusId 가 있으면 프로젝트 상태 목록을 한 번 다시 받는다(WP-808).
  * 왜: 그 상태 컬럼·버킷이 없어 보드에선 카드가 사라지고 목록에선 이름만 있는 버킷이 덧붙는다. 이슈 이벤트마다 상태 목록을 다시 받는 대신
- *     모르는 상태를 실제로 만났을 때만 받는다. 데이터 계층(이슈 검색 queryFn)에서 부르므로 보드·목록 뷰가 따로 부르지 않는다.
- * - 상태 목록이 캐시에 있을 때만 판정한다 — 아직 받는 중이면 그 응답이 새 상태를 담아 온다.
- * - 같은 id 는 한 번만 — 다시 받아도 없으면(지워진 상태 등) 반복 재조회하지 않는다.
+ *     모르는 상태를 실제로 만났을 때만 받는다. 데이터 계층(이슈 검색 queryFn)과 상태 목록 도착(useProjectStatuses)에서 부른다.
+ * - 상태 목록이 캐시에 없으면 건너뛴다 — 목록이 도착하면 useProjectStatuses 가 캐시된 검색 페이지로 다시 부른다.
+ * - 같은 목록에선 같은 id 를 한 번만 — 다시 받아도 없으면(지워진 상태 등) 목록 내용이 바뀌기 전까지 반복 재조회하지 않는다.
  */
 export function refreshStatusesOnUnknown(
   client: QueryClient,
@@ -64,17 +77,21 @@ export function refreshStatusesOnUnknown(
 ) {
   const statuses = client.getQueryData<ProjectStatus[]>(['projectStatuses', projectKey]);
   if (!statuses) return;
-  let asked = askedByClient.get(client);
-  if (!asked) askedByClient.set(client, (asked = new Set()));
-  const fresh = unknownStatusIds(issues, statuses).filter((id) => !asked.has(`${projectKey}:${id}`));
+  let asked = askedByList.get(statuses);
+  if (!asked) askedByList.set(statuses, (asked = new Set()));
+  const fresh = unknownStatusIds(issues, statuses).filter((id) => !asked.has(id));
   if (fresh.length === 0) return;
-  fresh.forEach((id) => asked.add(`${projectKey}:${id}`));
+  fresh.forEach((id) => asked.add(id));
   void client.invalidateQueries({ queryKey: ['projectStatuses', projectKey] });
 }
+
+// 제자리 패치하지 않는, statusName 을 싣는 이슈 목록 캐시 — lib/resourceInvalidation 의 issueTargets 중 이슈 행을 담는 것.
+const STATUS_NAME_LIST_KEYS = [['me-issues'], ['watched-issues'], ['ai-tasks'], ['home', 'myIssues'], ['home', 'watched']];
 
 /**
  * 상태 이름이 바뀌면 그 상태를 쓰는 이슈의 statusName 을 캐시에서 제자리로 고친다 — 검색(보드·목록) 캐시와 이슈 상세 요약.
  * 이슈 검색 전체를 다시 받지 않는다(이름 말고는 바뀐 것이 없다). 그 상태의 이슈가 없는 캐시는 그대로 둔다.
+ * 그 밖에 statusName 을 싣는 프로젝트 횡단 이슈 목록(내 이슈·워치·AI 작업·홈 위젯)은 모양이 제각각이라 다시 받는다.
  */
 function patchStatusNameInIssueCaches(qc: QueryClient, projectKey: string, statusId: number, name: string) {
   const rename = (it: IssueResponse) => (it.statusId === statusId ? { ...it, statusName: name } : it);
@@ -85,7 +102,9 @@ function patchStatusNameInIssueCaches(qc: QueryClient, projectKey: string, statu
   qc.setQueriesData<IssueDetailResponse>({ queryKey: ['issues', projectKey, 'detail'] }, (old) =>
     old?.summary?.statusId === statusId ? { ...old, summary: rename(old.summary) } : old,
   );
+  for (const queryKey of STATUS_NAME_LIST_KEYS) void qc.invalidateQueries({ queryKey });
 }
+
 
 /**
  * 보드 상태 편집 배선(OWNER) — 상태 목록과 이름 변경·「이 뒤에」 추가·범주 끝 추가를 한 묶음으로 준다.
@@ -96,17 +115,26 @@ export function useStatusEditing(projectKey: string) {
   const statuses = useProjectStatusList(projectKey);
   const create = useCreateProjectStatus(projectKey);
   const renameMutation = useRenameProjectStatus(projectKey);
-  return {
-    statuses,
-    rename: async (id: number, name: string) => {
-      await renameMutation.mutateAsync({ id, body: { name } });
+  // mutateAsync 는 렌더마다 같은 참조라 이것을 deps 로 둔다(useMutation 결과 객체는 매번 새로 만들어져 memo 를 깬다).
+  const createAsync = create.mutateAsync;
+  const renameAsync = renameMutation.mutateAsync;
+  const rename = useCallback(
+    async (id: number, name: string) => {
+      await renameAsync({ id, body: { name } });
     },
-    addAfter: (after: ProjectStatus, name: string) =>
-      create.mutateAsync({ name, category: after.category, afterStatusId: after.id }),
-    addAt: async (category: IssueStatus, name: string) => {
-      await create.mutateAsync({ name, category });
+    [renameAsync],
+  );
+  const addAfter = useCallback(
+    (after: ProjectStatus, name: string) => createAsync({ name, category: after.category, afterStatusId: after.id }),
+    [createAsync],
+  );
+  const addAt = useCallback(
+    async (category: IssueStatus, name: string) => {
+      await createAsync({ name, category });
     },
-  };
+    [createAsync],
+  );
+  return useMemo(() => ({ statuses, rename, addAfter, addAt }), [statuses, rename, addAfter, addAt]);
 }
 
 // OWNER — 상태 추가. 실패 문구(중복·길이)는 인라인 편집기가 입력 아래 보이므로 토스트를 띄우지 않는다.

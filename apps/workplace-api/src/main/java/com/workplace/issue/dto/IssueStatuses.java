@@ -1,6 +1,7 @@
 package com.workplace.issue.dto;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -47,5 +48,13 @@ public final class IssueStatuses {
   /** 4개 범주 값 중 하나인가. */
   public static boolean isCategory(String value) {
     return value != null && CATEGORY_ORDER.contains(value);
+  }
+
+  /**
+   * 프로젝트 상태 이름 비교 키(WP-807) — 앞뒤 공백(전각 포함)을 지우고 대소문자를 무시한다. 이름 유일 규칙(lower(btrim(name)))과 같은 뜻으로,
+   * 이름으로 상태를 찾는 곳(검색 statusName 필터 등)이 중복 판정과 어긋나지 않게 한 곳에서 정한다.
+   */
+  public static String statusNameKey(String name) {
+    return name.strip().toLowerCase(Locale.ROOT);
   }
 }

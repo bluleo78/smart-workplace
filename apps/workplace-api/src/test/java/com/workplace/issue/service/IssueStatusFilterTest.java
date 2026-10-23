@@ -147,6 +147,12 @@ class IssueStatusFilterTest extends IntegrationTestBase {
     assertThat(titles(Map.of("statusName", " review "))).containsExactly("english");
   }
 
+  /** 한글 입력기의 전각 공백(U+3000)처럼 trim 이 못 지우는 앞뒤 공백도 서버 이름 규칙(strip)대로 무시한다. */
+  @Test
+  void statusName은_전각공백도_무시한다() {
+    assertThat(titles(Map.of("statusName", "\u3000검토 중\u3000"))).containsExactly("reviewing");
+  }
+
   @Test
   void statusId와_statusName은_합집합() {
     assertThat(titles(Map.of("statusId", String.valueOf(todo), "statusName", "검토 중")))

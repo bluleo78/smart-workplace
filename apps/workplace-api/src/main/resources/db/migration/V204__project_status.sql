@@ -78,6 +78,8 @@ ALTER TABLE issue
 -- 보드 상태 컬럼(프로젝트 + 상태 id, 최근 수정 순 키셋)용 — 범주 인덱스 idx_issue_project_status_updated(V5)와 같은 모양.
 -- 앞머리 (project_id, status_id) 가 상태 삭제 시 복합 FK(ON DELETE RESTRICT) 참조 검사도 받친다.
 CREATE INDEX idx_issue_project_status_id_updated ON issue (project_id, status_id, updated_at DESC);
+-- 상태 id 단독 조회용 — 프로젝트를 모르는 횡단 검색의 statusId/statusName 필터(내 이슈·AI 도구)는 project_id 가 앞머리인 위 인덱스를 못 쓴다.
+CREATE INDEX idx_issue_status_id ON issue (status_id);
 
 -- V182·V183·V185·V197 처럼 소유자에게도 RLS 를 강제한다. GUC 없이 쓰는 위 시드·백필 뒤에 둔다
 -- (Flyway 소유자 롤은 BYPASSRLS 라 순서와 상관없이 통과하지만, 데이터 쓰기 뒤에 두어 그 전제에 기대지 않는다).

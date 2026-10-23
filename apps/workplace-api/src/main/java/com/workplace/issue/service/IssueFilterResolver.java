@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import com.workplace.cycle.dto.CycleRow;
 import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeRow;
 import com.workplace.issue.dto.ProjectStatusRow;
 import com.workplace.issue.exception.InvalidIssueFilterException;
@@ -16,6 +17,7 @@ import com.workplace.milestone.repository.MilestoneRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -138,9 +140,10 @@ class IssueFilterResolver {
 
   /**
    * 개별 상태 필터(WP-807) → 프로젝트 상태 id 합집합. statusId 토큰은 숫자만 받고(아니면 400, 없는 id 는 빈 결과), statusName 토큰은
-   * 범위 안 상태 중 이름이 대소문자 무시로 같은 것을 모두 고른다(토큰 앞뒤 공백은 CSV 파싱이 이미 다듬었다) — 횡단 검색이면 여러 프로젝트의 같은 이름 상태가 함께
-   * 풀린다. 이름 하나라도 못 찾으면 범위 안 상태 이름을 담아 400. 범위는 단일 프로젝트 검색이면 그 프로젝트, 횡단 검색이면 호출자가 멤버인 프로젝트 전체이고, 후보는
-   * 한 번만 읽는다.
+   * 범위 안 상태 중 이름이 서버 이름 규칙({@link IssueStatuses#statusNameKey}: 앞뒤 공백·대소문자 무시)으로 같은 것을 모두 고른다 — CSV
+   * 파싱의 trim 이 못 지우는 전각 공백도 무시하고, 중복 판정과 같은 규칙이라 「같은 이름」의 뜻이 어긋나지 않는다. 횡단 검색이면 여러 프로젝트의 같은 이름 상태가
+   * 함께 풀린다. 이름 하나라도 못 찾으면 범위 안 상태 이름을 담아 400. 범위는 단일 프로젝트 검색이면 그 프로젝트, 횡단 검색이면 호출자가 멤버인 프로젝트 전체이고,
+   * 후보는 한 번만 읽는다.
    */
   List<Long> resolveStatusIds(
       List<String> idTokens, List<String> nameTokens, Long projectId, Long callerId) {
@@ -168,7 +171,8 @@ class IssueFilterResolver {
                 candidates,
                 ProjectStatusRow::name,
                 ProjectStatusRow::id,
-                false)));
+                false,
+                (a, b) -> IssueStatuses.statusNameKey(a).equals(IssueStatuses.statusNameKey(b)))));
     return ids;
   }
 
@@ -184,12 +188,13 @@ class IssueFilterResolver {
       Supplier<List<T>> candidateSupplier,
       Function<T, String> nameOf,
       Function<T, Long> idOf) {
-    return resolveByName(field, kind, tokens, candidateSupplier, nameOf, idOf, true);
+    return resolveByName(
+        field, kind, tokens, candidateSupplier, nameOf, idOf, true, String::equalsIgnoreCase);
   }
 
   /**
    * {@link #resolveByName} 본체. numericAsId 가 false 면 숫자 토큰도 이름으로 비교한다 — id 를 따로 받는 필터(상태
-   * statusName)용.
+   * statusName)용. sameName 은 (후보 이름, 토큰) 이 같은 이름인지 — 상태는 서버 이름 규칙으로, 그 밖은 대소문자 무시로 비교한다.
    */
   private static <T> List<List<Long>> resolveByName(
       String field,
@@ -198,7 +203,8 @@ class IssueFilterResolver {
       Supplier<List<T>> candidateSupplier,
       Function<T, String> nameOf,
       Function<T, Long> idOf,
-      boolean numericAsId) {
+      boolean numericAsId,
+      BiPredicate<String, String> sameName) {
     List<List<Long>> groups = new ArrayList<>();
     List<T> candidates = null;
     for (String tok : tokens) {
@@ -209,7 +215,7 @@ class IssueFilterResolver {
       }
       if (candidates == null) candidates = candidateSupplier.get();
       List<Long> ids =
-          candidates.stream().filter(c -> nameOf.apply(c).equalsIgnoreCase(tok)).map(idOf).toList();
+          candidates.stream().filter(c -> sameName.test(nameOf.apply(c), tok)).map(idOf).toList();
       if (ids.isEmpty()) {
         List<String> available =
             candidates.stream().map(nameOf).distinct().limit(MAX_LISTED).toList();

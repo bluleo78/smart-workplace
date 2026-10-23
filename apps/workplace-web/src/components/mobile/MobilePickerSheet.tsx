@@ -22,6 +22,7 @@ export interface PickerOption {
 
 export function MobilePickerSheet({
   open, onClose, title, options, value, onSelect, searchable = false, testId = 'mobile-picker-sheet', headerAction, listFooter, reserveCheck = false,
+  wrapLabels = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -38,6 +39,8 @@ export function MobilePickerSheet({
   listFooter?: ReactNode | ((ctx: { close: () => void; keyword: string }) => ReactNode);
   /** 미선택 줄에도 ✓ 자리를 비워 둔다 — hint 가 줄마다 같은 x 에 서야 하는 시트(진행률 등)용. 선택된 줄만 hint 가 밀리지 않게. */
   reserveCheck?: boolean;
+  /** 이름을 한 줄 말줄임 대신 두 줄까지 보인다 — 서로 앞부분만 같은 긴 이름(상태 30자 등)을 구별해야 하는 시트용. */
+  wrapLabels?: boolean;
 }) {
   const [q, setQ] = useState('');
   const keyword = q.trim().toLowerCase();
@@ -89,10 +92,10 @@ export function MobilePickerSheet({
                 onSelect(o.value);
               }}
               // 상세 버튼이 붙는 행은 선택 막대·배경을 바깥 래퍼가 맡고(아래), 굵기는 상속받는다.
-              className={cn(MOBILE_SHEET_ROW, hasDetail && 'min-w-0 flex-1', selected && !hasDetail && SELECTED_ROW_CLASS)}
+              className={cn(MOBILE_SHEET_ROW, wrapLabels && 'py-2', hasDetail && 'min-w-0 flex-1', selected && !hasDetail && SELECTED_ROW_CLASS)}
             >
               {o.icon}
-              <span className="min-w-0 flex-1 truncate">{o.label}</span>
+              <span className={cn('min-w-0 flex-1', wrapLabels ? 'line-clamp-2 wrap-break-word break-keep' : 'truncate')}>{o.label}</span>
               {/* hint 는 선택 줄(font-semibold)에서도 보통 굵기 — 굵기가 바뀌면 ch 폭이 달라져 줄마다 위치가 어긋난다. */}
               {o.hint && <span className="shrink-0 text-xs font-normal text-muted-foreground">{o.hint}</span>}
               {selected ? <Check className="text-primary" aria-hidden /> : reserveCheck && <span className="size-5 shrink-0" aria-hidden />}

@@ -52,7 +52,8 @@ export function MobileActionSheet({
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
         <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-muted-foreground/30" />
-        <SheetTitle className="line-clamp-2 px-4 pb-1 pt-3 text-base font-semibold">{title}</SheetTitle>
+        {/* break-keep: 한글 제목이 음절 중간에서 끊기지 않게 낱말 단위로 줄바꿈 — 공백 없는 긴 이름은 wrap-break-word 가 그래도 끊어 넘치지 않는다. */}
+        <SheetTitle className="line-clamp-2 px-4 pb-1 pt-3 text-base font-semibold wrap-break-word break-keep">{title}</SheetTitle>
         <SheetDescription className="sr-only">{description ?? `${title} 작업`}</SheetDescription>
         <div className="py-1">
           {actions.map((a, i) => (
