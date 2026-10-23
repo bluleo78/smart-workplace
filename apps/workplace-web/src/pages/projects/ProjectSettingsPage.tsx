@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { SharedMemoryLink } from '@/components/ai/SharedMemoryLink';
 import { SettingsPage } from '@/components/layout/SettingsPage';
 import { settingsFieldClass, SettingsSection } from '@/components/layout/SettingsSection';
-import { projectSettingsGuide } from '@/components/settings-guide/settingsGuides';
+import { DEFAULT_PROJECT_UNDELETABLE, projectSettingsGuide } from '@/components/settings-guide/settingsGuides';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,6 +60,8 @@ export default function ProjectSettingsPage() {
   const isPersonal = project.data?.type === 'PERSONAL';
   // 기본 정보 저장·멤버 관리·삭제 권한(WP-479) — 서버와 같은 규칙. 멤버 목록을 받기 전엔 OWNER 여부를 몰라 잠시 읽기 전용으로 보인다.
   const canManage = canManageProject(isOwner, isAdmin, isPersonal);
+  // 기본 개인 프로젝트(사용자마다 하나 보장)는 서버가 삭제를 거절한다 — 삭제 버튼을 미리 막는 데 쓴다(WP-857).
+  const isDefaultProject = project.data?.isDefault ?? false;
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<UpdateProjectFormData>({
     resolver: zodResolver(updateProjectSchema),
@@ -86,6 +88,8 @@ export default function ProjectSettingsPage() {
 
   // 삭제 토스트에 사용할 프로젝트 이름 — data 미로드 시 key로 fallback.
   const projectName = project.data?.name ?? key;
+  // 삭제 확인창의 대상 — 이름이 있으면 「이름」(키), 없으면 키만(「P1」(P1)처럼 겹치지 않게, WP-857).
+  const deleteTarget = project.data ? `「${project.data.name}」(${key})` : key;
 
   // 프로젝트 삭제 확인 다이얼로그 open 상태 — shadcn AlertDialog 제어형.
   const [deletePending, setDeletePending] = useState(false);
@@ -194,10 +198,20 @@ export default function ProjectSettingsPage() {
 
           {/* 삭제는 소유자만(WP-479) — 권한이 없으면 위험 구역 자체를 그리지 않는다. */}
           {canManage && (
-            <SettingsSection tone="danger" title="위험 구역" description="프로젝트를 삭제하면 이슈와 코멘트도 함께 숨겨져요.">
-              <Button variant="destructive" onClick={onDelete} disabled={remove.isPending} data-testid="project-delete">
-                프로젝트 삭제
-              </Button>
+            <SettingsSection
+              tone="danger"
+              title="위험 구역"
+              description={isDefaultProject
+                ? DEFAULT_PROJECT_UNDELETABLE
+                : '프로젝트를 삭제하면 이슈와 코멘트도 함께 숨겨져요.'}
+            >
+              {/* 기본 개인 프로젝트는 서버가 409 로 거절한다(WP-857) — 확인창까지 간 뒤에 거절되지 않게 삭제 버튼을 두지 않고
+                  위 설명으로 이유를 미리 알린다(막힌 버튼은 키보드 초점을 받지 못해 이유가 전달되지 않는다). */}
+              {!isDefaultProject && (
+                <Button variant="destructive" onClick={onDelete} disabled={remove.isPending} data-testid="project-delete">
+                  프로젝트 삭제
+                </Button>
+              )}
             </SettingsSection>
           )}
         </>
@@ -208,7 +222,8 @@ export default function ProjectSettingsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>프로젝트 삭제</AlertDialogTitle>
             <AlertDialogDescription>
-              프로젝트 {key}를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+              {/* 키·이름 뒤 조사가 받침에 따라 틀리지 않게 「프로젝트를」로 맺고, 위험 구역 설명과 같은 말(함께 숨겨짐)로 알린다(WP-857). */}
+              {deleteTarget} 프로젝트를 삭제할까요? 이슈와 코멘트도 함께 숨겨지고, 화면에서 되돌릴 수 없어요.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

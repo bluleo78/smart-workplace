@@ -8,6 +8,8 @@ import type { SettingsGuide } from './types'
 // 「최대 30분」은 workplace-api application.yml app.jwt.access-expiration(1800000ms) 값이다 — 바꾸면 이 문구도 함께 고친다.
 const SESSION_REFRESH = '세션이 갱신될 때(최대 30분)'
 const TIP_TYPE_IN_USE = '이슈가 하나라도 쓰고 있는 유형은 지울 수 없어요.'
+// 프로젝트 설정 「위험 구역」 설명도 같은 문장을 쓴다(WP-857 — 기본 개인 프로젝트는 삭제 버튼 대신 이 안내).
+export const DEFAULT_PROJECT_UNDELETABLE = '처음부터 있던 기본 개인 프로젝트는 지울 수 없어요.'
 const TIP_FIELD_PLACEMENT = '필드는 모든 이슈의 상세 화면 「커스텀 필드」 묶음에 나와요. 형식은 만든 뒤 바꿀 수 없어요.'
 
 // 가이드를 다는 화면 전부 — satisfies 로 값마다 SettingsGuide 모양을 검사하고, 키는 객체 리터럴 그대로 남긴다.
@@ -105,7 +107,7 @@ export const settingsGuides = {
       '사람은 멤버로 넣을 수 없어요. AI 어시스턴트만 추가해 이슈 담당자로 지정할 수 있어요.',
       TIP_TYPE_IN_USE,
       TIP_FIELD_PLACEMENT,
-      '처음부터 있던 기본 개인 프로젝트는 지울 수 없어요.',
+      DEFAULT_PROJECT_UNDELETABLE,
     ],
     caution: 'AI 어시스턴트를 빼면 그 AI 가 맡던 이 프로젝트 이슈의 담당자 자리도 함께 비워져요. 다시 추가해도 담당은 돌아오지 않아요.',
   },
