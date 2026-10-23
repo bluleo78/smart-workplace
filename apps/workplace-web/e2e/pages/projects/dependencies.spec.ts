@@ -148,7 +148,8 @@ test.describe('의존성', () => {
       await page.getByTestId('issue-link-picker-trigger-blocks').click();
       await expect(page.getByTestId('issue-link-picker-blocks')).toBeVisible();
       await page.getByTestId('issue-link-picker-input-blocks').fill('42');
-      await page.getByTestId('issue-link-picker-save-blocks').click();
+      // WP-852 — 한 칸짜리 입력이라 Enter 로 「추가」가 실행된다(버튼 클릭 경로는 아래 409 테스트가 지킨다).
+      await page.getByTestId('issue-link-picker-input-blocks').press('Enter');
 
       // POST payload — direction='blocks' 컨트랙트 검증.
       await expect

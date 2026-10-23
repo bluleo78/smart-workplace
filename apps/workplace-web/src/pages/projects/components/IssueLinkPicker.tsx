@@ -70,46 +70,57 @@ export function IssueLinkPicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-56 p-2 space-y-2"
+        className="w-56 p-2"
         data-testid={`issue-link-picker-${direction}`}
       >
-        <label
-          className="text-sm font-medium"
-          htmlFor={`link-picker-input-${direction}`}
+        {/* 한 칸짜리 입력이라 Enter 로 「추가」가 실행되게 form 으로 감싼다(WP-852) — 예전엔 버튼까지 Tab 으로 가야 했다.
+            진행 중이거나 비었으면 버튼처럼 Enter 도 무시한다. noValidate — 브라우저 기본 검증(min·정수) 말풍선 대신
+            onSave 의 한국어 안내(WP-618)가 뜨게 한다. */}
+        <form
+          noValidate
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!add.isPending && value.trim()) void onSave();
+          }}
         >
-          이슈 번호
-        </label>
-        <Input
-          id={`link-picker-input-${direction}`}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder="예: 12"
-          type="number"
-          min={1}
-          data-testid={`issue-link-picker-input-${direction}`}
-        />
-        <div className="flex gap-2 justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            onClick={() => {
-              setValue('');
-              setOpen(false);
-            }}
+          <label
+            className="text-sm font-medium"
+            htmlFor={`link-picker-input-${direction}`}
           >
-            취소
-          </Button>
-          <Button
-            size="sm"
-            type="button"
-            onClick={onSave}
-            disabled={add.isPending || !value.trim()}
-            data-testid={`issue-link-picker-save-${direction}`}
-          >
-            추가
-          </Button>
-        </div>
+            이슈 번호
+          </label>
+          <Input
+            id={`link-picker-input-${direction}`}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="예: 12"
+            type="number"
+            min={1}
+            data-testid={`issue-link-picker-input-${direction}`}
+          />
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => {
+                setValue('');
+                setOpen(false);
+              }}
+            >
+              취소
+            </Button>
+            <Button
+              size="sm"
+              type="submit"
+              disabled={add.isPending || !value.trim()}
+              data-testid={`issue-link-picker-save-${direction}`}
+            >
+              추가
+            </Button>
+          </div>
+        </form>
       </PopoverContent>
     </Popover>
   );
