@@ -6,7 +6,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { ChevronRight } from 'lucide-react';
 import { useId, useMemo } from 'react';
 
-import { Button } from '@/components/ui/button';
+import { LoadErrorState } from '@/components/LoadErrorState';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { StatusBadge, type StatusBadgeType } from '@/components/ui/status-badge';
 import { TableSkeletonRows } from '@/components/ui/table-skeleton';
@@ -28,6 +28,7 @@ import {
   cycleSectionFilters,
   remainingLabel,
 } from '../../../lib/issueCycleSections';
+import { failedWithoutData } from '../../../lib/queryFailure';
 import type { CycleProgress } from '../../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../../types/cycle';
 import type { IssueFilters, IssueResponse } from '../../../types/issue';
@@ -388,6 +389,14 @@ function SectionBody({
   cycleSection: CycleSectionRef | undefined;
 }) {
   const isMobile = useIsMobile();
+  // 첫 페이지 실패만 오류 화면 — 다음 페이지 실패는 받은 행을 두고 LoadMoreFooter 가 다시 시도를 보인다(WP-183).
+  // 스켈레톤보다 먼저 failedWithoutData 로 본다 — 다시 부르는 동안에도 안내를 두어 키보드 초점을 지키고,
+  // 성공하면 공용 안내가 불러온 행으로 초점을 옮긴다(WP-893). 구간 안 한 줄이라 배너 모양.
+  if (query && failedWithoutData(query)) {
+    return (
+      <LoadErrorState variant="banner" title="이슈를 불러오지 못했습니다." queries={[query]} testId={`list-cycle-error-${testKey}`} />
+    );
+  }
   if (!query || query.isLoading) {
     return (
       <table className="w-full" aria-busy="true" aria-label="이슈 불러오는 중">
@@ -395,17 +404,6 @@ function SectionBody({
           <CycleSectionSkeletonRows />
         </tbody>
       </table>
-    );
-  }
-  // 첫 페이지 실패만 오류 화면 — 다음 페이지 실패는 받은 행을 두고 LoadMoreFooter 가 다시 시도를 보인다(WP-183).
-  if (query.isLoadingError) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-3 text-sm" data-testid={`list-cycle-error-${testKey}`}>
-        <span className="text-destructive">이슈를 불러오지 못했습니다.</span>
-        <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
-          다시 시도
-        </Button>
-      </div>
     );
   }
   if (items.length === 0) {

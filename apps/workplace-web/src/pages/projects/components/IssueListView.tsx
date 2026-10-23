@@ -20,6 +20,7 @@ import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
 import { labelFg } from '../../../lib/labelColors';
+import { failedWithoutData } from '../../../lib/queryFailure';
 import type { IssueClientGroupBy, IssueFilters, IssueResponse } from '../../../types/issue';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
@@ -124,13 +125,14 @@ export function IssueListView({
     onLoadedChange?.(data.pages.reduce((n, p) => n + (p.items?.length ?? 0), 0), hasMore);
   }, [data, hasMore, onLoadedChange]);
 
-  if (isLoading) {
-    return <p className="text-muted-foreground py-4">로딩 중…</p>;
+  // 첫 페이지를 못 불러왔으면 빈 상태가 아니라 실패로 알린다(WP-858) — 다음 페이지 실패는 LoadMoreFooter 가 맡는다.
+  // 로딩보다 먼저, failedWithoutData 로 본다 — 다시 시도로 다시 부르는 동안(pending)에도 안내를 두어 키보드 초점을 지킨다(WP-893).
+  if (failedWithoutData(searchQuery)) {
+    return <IssueLoadErrorState queries={[searchQuery]} />;
   }
 
-  // 첫 페이지를 못 불러왔으면 빈 상태가 아니라 실패로 알린다(WP-858) — 다음 페이지 실패는 LoadMoreFooter 가 맡는다.
-  if (searchQuery.isLoadingError) {
-    return <IssueLoadErrorState queries={[searchQuery]} />;
+  if (isLoading) {
+    return <p className="text-muted-foreground py-4">로딩 중…</p>;
   }
 
   // 검색어·필터가 하나라도 적용된 상태인지 판별.

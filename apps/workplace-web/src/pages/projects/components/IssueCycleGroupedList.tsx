@@ -12,6 +12,7 @@ import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses'
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { buildCycleSections } from '../../../lib/issueCycleSections';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
+import { failedWithoutData } from '../../../lib/queryFailure';
 import type { CycleProgress, CycleStatus } from '../../../types/cycle';
 import type { IssueFilters } from '../../../types/issue';
 import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
@@ -109,12 +110,12 @@ export function IssueCycleGroupedList({
   // 남은 일수(D-N) 기준 — 렌더마다 새 Date 를 만들면 구간끼리 자정 경계에서 어긋날 수 있어 한 번만 잡는다.
   const [now] = useState(() => new Date());
 
-  if (cycles.isLoading) return <IssueCycleListSkeleton />;
   // 사이클 목록을 못 불러오면 구간을 만들 수 없다 — 백로그만 남은 목록이나 「사이클 없음」 대신 실패로 알린다(WP-858).
-  // 구간별 이슈 실패는 각 구간(IssueCycleSection)이 따로 알린다.
-  if (cycles.isLoadingError) {
+  // 구간별 이슈 실패는 각 구간(IssueCycleSection)이 따로 알린다. 스켈레톤보다 먼저 본다 — 다시 부르는 동안에도 안내를 둔다(WP-893).
+  if (failedWithoutData(cycles)) {
     return <IssueLoadErrorState queries={[cycles]} />;
   }
+  if (cycles.isLoading) return <IssueCycleListSkeleton />;
 
   // 사이클 필터로 고른 사이클이 목록에 없으면(삭제 등) 보여줄 구간이 없다 — 평면 목록 빈 상태와 같은 구성(필터 초기화 포함).
   if (sections.length === 0) {
