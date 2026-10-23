@@ -20,7 +20,9 @@ export default defineConfig({
 
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // 로컬 1회 재시도 = 게이트 안전망(web 과 동일). 전체 회귀에서 web E2E 직후 부하 속에 dev 서버 첫 화면이
+  // 30초를 넘겨 로그인 화면 대기가 끊긴 일이 있었다(단독 재실행은 통과). 재시도 통과는 'flaky' 로 보고된다.
+  retries: process.env.CI ? 2 : 1,
   // 로컬 워커 3 고정 — 코어 비율은 Chromium 초과 구독으로 시스템을 포화시킨다 (WP-98, web 과 동일).
   workers: process.env.CI ? 1 : 3,
   reporter: 'html',
