@@ -56,12 +56,13 @@ export async function pausePageClock(page: Page) {
  * 한 손가락 끌기 — from → to 를 steps 번에 나눠 움직인다.
  * stepDelayMs 를 주면 느린 끌기(이벤트 간격 = stepDelayMs, 플링 아님), 생략하면 빠른 끌기(16ms 간격).
  * beforeEnd 는 손을 떼기 직전(손가락이 아직 닿은 상태)에 불린다 — 끌기 중 무대가 실제로 움직였는지 확인할 때.
+ * settleMs 를 주면 끝 위치에서 그만큼(합성 시각) 멈췄다 뗀다 — 플링 없이 놓아, 바로 뒤 탭이 플링 멈춤으로 삼켜지지 않게.
  */
 export async function touchDrag(
   page: Page,
   from: Pt,
   to: Pt,
-  opts: { steps?: number; stepDelayMs?: number; beforeEnd?: () => Promise<void> } = {},
+  opts: { steps?: number; stepDelayMs?: number; beforeEnd?: () => Promise<void>; settleMs?: number } = {},
 ) {
   const steps = opts.steps ?? 8
   const step = opts.stepDelayMs ? opts.stepDelayMs / 1000 : STEP_S
@@ -76,8 +77,12 @@ export async function touchDrag(
       if (opts.stepDelayMs) await page.waitForTimeout(opts.stepDelayMs)
     }
     await opts.beforeEnd?.()
-    // 마지막 이동 직후 뗀다(반 프레임) — 멈췄다 놓은 것으로 치지 않게.
-    await send(s, 'touchEnd', [], t0 + step * steps + STEP_S / 2)
+    // settleMs: 끝 위치에서 그만큼 멈췄다가 뗀다(같은 자리 touchMove 를 그 시각에 한 번 더) — 속도 0 으로 놓아 플링이 남지 않게.
+    // 빠르게 밀고 놓으면 브라우저가 플링을 시작하고, 플링 중의 다음 탭은 플링을 멈추는 데 쓰여 click 이 되지 않는다(WP-866).
+    const endAt = t0 + step * steps + (opts.settleMs ? opts.settleMs / 1000 : 0)
+    if (opts.settleMs) await send(s, 'touchMove', [{ ...to, id: 0 }], endAt)
+    // 마지막 이동 직후 뗀다(반 프레임) — 멈췄다 놓은 것으로 치지 않게(settleMs 를 준 때는 멈춘 뒤).
+    await send(s, 'touchEnd', [], endAt + STEP_S / 2)
   } finally {
     await s.detach()
   }

@@ -123,11 +123,11 @@ async function scrollToDay(page: Page, key: string) {
  * "브라우저가 가로 끌기를 패닝으로 가로채 pointercancel" 하는 실제 기기 동작을 재현하지 못한다(주·일 그리드 회귀).
  * yRatio — 스와이프 영역 안 세로 위치(0~1). 기본은 가운데(월 그리드 셀·주/일 시간 그리드 스크롤 영역 안).
  */
-async function swipe(page: Page, dx: number, yRatio = 0.6) {
+async function swipe(page: Page, dx: number, yRatio = 0.6, settleMs?: number) {
   const box = (await page.getByTestId('calendar-swipe-area').boundingBox())!
   const y = box.y + box.height * yRatio
   const cx = box.x + box.width / 2
-  await touchDrag(page, { x: cx - dx / 2, y }, { x: cx + dx / 2, y })
+  await touchDrag(page, { x: cx - dx / 2, y }, { x: cx + dx / 2, y }, { settleMs })
 }
 
 test('① ② 진입 — 목록이 기본, 오늘부터 날짜별 묶음·건수, 첫 요청은 오늘 00:00 부터 30일 하나뿐', async ({ authenticatedPage: page }) => {
@@ -313,7 +313,9 @@ test('⑤ 월 보기로 바꾸면 ‹ › 가 돌아오고, 좌우 스와이프�
   for (let i = 0; i < 3; i++) await swipe(page, -150)
   await expect(page.getByTestId('calendar-title')).toHaveText('2027년 1월')
   await swipe(page, 150)
-  await swipe(page, 150)
+  // 탭 직전 스와이프는 멈췄다 놓는다(WP-866) — 빠르게 놓으면 남은 플링이 다음 탭을 「플링 멈춤」으로 삼켜 click 이 안 온다.
+  // 합성 시계가 벽시계보다 앞서는 빠른 기기에선 그 플링이 탭 때까지 남아 이 기기들에서만 실패했다.
+  await swipe(page, 150, 0.6, 200)
 
   // 스와이프 뒤 그냥 탭 — 일정 칩이 다이얼로그를 연다(스와이프 직후 click 만 막는다).
   await expect(page.getByTestId('calendar-title')).toHaveText('11월')

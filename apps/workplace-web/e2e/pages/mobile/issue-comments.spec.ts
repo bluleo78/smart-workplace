@@ -75,9 +75,10 @@ test('내 코멘트 — ⋯ 는 44px 이상 · 수정 → 저장 → PATCH 와 �
   await expect(page.locator('body')).not.toHaveCSS('pointer-events', 'none');
   const input = page.getByTestId('issue-comment-edit-input');
   await expect(input).toContainText('내 코멘트 원본');
-  await input.click();
-  await page.keyboard.press('ControlOrMeta+a');
-  await page.keyboard.type('수정한 코멘트');
+  // 키보드 전체 선택(ControlOrMeta+a)을 쓰지 않는다(WP-866) — iPhone 에뮬레이션(UA 에 Mac·터치)이면 Tiptap 이 iOS 로 보고
+  // Ctrl-a 를 「줄 처음으로」에 묶고, 전체 선택(Mod-a)은 호스트의 navigator.platform 으로 Ctrl/Meta 를 정한다.
+  // 그래서 Linux 기기에선 어느 키로도 전체 선택이 안 돼 입력이 앞에 붙었다(맥 기기에서만 통과). fill 은 호스트와 상관없이 내용을 바꾼다.
+  await input.fill('수정한 코멘트');
   await page.getByTestId('issue-comment-edit-save').click();
   await expect.poll(patches).toEqual([{ id: 10, body: '수정한 코멘트' }]);
   await expect(page.getByText('수정한 코멘트')).toBeVisible();
