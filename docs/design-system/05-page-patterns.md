@@ -247,6 +247,7 @@ export default function ProjectListPage() {
 - 목록 끝에 높이 1px sentinel 을 두고 `useLoadMoreSentinel(query, scrollRoot)` 를 단다. 목록이 자기 스크롤 안에 있으면(설정 본문·대화상자·바텀시트) 그 스크롤 요소를 `root` 로 넘긴다 — 뷰포트로 두면 끝에 닿아야 불러온다.
 - 불러오는 중에는 목록 아래 「불러오는 중…」(muted, 가운데), 다음 묶음이 실패하면 「다시 시도」 버튼 한 줄(sentinel 은 실패 뒤 멈춘다). 끝에 닿으면 아무것도 붙이지 않는다.
 - 검색 중에는 서버가 맞는 것 전부를 한 묶음으로 줄 수 있다(`nextCursor` 없음) — 같은 sentinel 이 그대로 멈춘다.
+- **예외 — 구간을 여러 개 쌓은 목록**(이슈 목록 사이클 그룹: 진행 중 → 예정 → 백로그): 자동 로드는 **마지막 구간만**. 그 위 구간은 끝에 「더 보기」 버튼(`LoadMoreFooter manualLabel`)을 두고 눌러야 다음 묶음을 불러온다 — 중간 구간이 스크롤로 자라면 이미 보이는 아래 구간 앞에 행이 끼어들어 순서가 섞인다(WP-876).
 - 예: 설정 › AI 비서 › 메모리 — 개인 메모리 행(`AiMemoryCard`, 그릴 행 수 늘리기), 공용 메모리 목록(`SharedMemoryList`, 커서 무한 쿼리), AI가 정리한 기록(`AiMemoryCleanupLog`, 대화상자 스크롤 root).
 
 ---

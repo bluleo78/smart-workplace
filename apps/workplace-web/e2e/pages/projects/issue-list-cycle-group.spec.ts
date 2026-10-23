@@ -11,6 +11,7 @@ import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { expectToggleLook } from '../../fixtures/selection';
+import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`;
@@ -129,6 +130,31 @@ async function setup(page: Page, { cycles = CYCLES, savedViews = [] }: SetupOpti
     },
   );
   return () => searches.urls().map((u) => u.searchParams);
+}
+
+/** 진행 중 사이클(스프린트 12)·백로그 모두 다음 페이지가 남은 상태 — 첫 페이지 30행(사이클 #200~229·백로그 #500~529),
+ * 둘째 페이지 1행(사이클 #109·백로그 #409) (WP-876). */
+async function mockPagedSections(page: Page) {
+  await page.route(
+    (url) => url.pathname === ISSUES_PATH && ['1', 'null'].includes(url.searchParams.get('cycle') ?? ''),
+    (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      const isBacklog = params.get('cycle') === 'null';
+      const base = isBacklog ? 400 : 100;
+      const label = isBacklog ? '백로그' : '사이클';
+      const page2 = params.get('cursor') != null;
+      const items = page2
+        ? [createIssue({ id: base + 9, number: base + 9, title: `${label} 둘째 페이지` })]
+        : Array.from({ length: 30 }, (_, i) =>
+            createIssue({ id: base + 100 + i, number: base + 100 + i, title: `${label} ${i}` }),
+          );
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueSearchResponse(items, page2 ? null : 'next')),
+      });
+    },
+  );
 }
 
 const section = (page: Page, key: string) => page.getByTestId(`list-cycle-section-${key}`);
@@ -408,5 +434,45 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(page.getByTestId('list-cycle-empty-backlog')).toHaveText(
       '진행 중·예정 사이클에 없는 미완료 이슈가 없습니다',
     );
+  });
+
+  test('위 사이클 구간은 「더 보기」를 눌러야 다음 페이지를 불러오고, 마지막(백로그) 구간만 자동 로드한다 (WP-876)', async ({
+    authenticatedPage: page,
+  }) => {
+    const requests = await setup(page);
+    await mockPagedSections(page);
+    await page.goto(`/projects/${KEY}`);
+    const cycleMore = page.getByTestId('list-cycle-more-cycle-1');
+    await expect(section(page, 'cycle-1').getByTestId('issue-row-229')).toBeVisible();
+
+    // 사이클 구간 끝이 화면에 들어와도 자동으로 불러오지 않는다 — 버튼을 보인다.
+    await cycleMore.scrollIntoViewIfNeeded();
+    const moreButton = cycleMore.getByRole('button', { name: '더 보기' });
+    await expect(moreButton).toBeVisible();
+    // 부재 확인 — 끝이 보인 뒤 observer 가 돌 시간을 주고도 둘째 페이지 요청이 없어야 한다.
+    await expectStays(page, () => requests().some((p) => p.get('cycle') === '1' && p.has('cursor')), false);
+
+    // 눌러야 둘째 페이지 — 사이클 구간 안(백로그 앞)에 붙고 버튼은 사라진다.
+    await moreButton.click();
+    await expect(section(page, 'cycle-1').getByTestId('issue-row-109')).toBeVisible();
+    await expect(cycleMore).toHaveCount(0);
+    expect(requests().find((p) => p.get('cycle') === '1' && p.has('cursor'))?.get('cursor')).toBe('next');
+
+    // 마지막(백로그) 구간은 끝에 닿으면 자동으로 불러온다 — 버튼 없음.
+    await expect(section(page, 'backlog').getByTestId('issue-row-529')).toBeVisible();
+    await expect(page.getByTestId('list-cycle-more-backlog').getByRole('button', { name: '더 보기' })).toHaveCount(0);
+    await section(page, 'backlog').getByTestId('issue-row-529').scrollIntoViewIfNeeded();
+    await expect(section(page, 'backlog').getByTestId('issue-row-409')).toBeVisible();
+  });
+
+  test('아래 구간이 모두 접혀 있으면 펼친 마지막 사이클 구간이 자동 로드한다 (WP-876)', async ({ authenticatedPage: page }) => {
+    await setup(page);
+    await mockPagedSections(page);
+    await page.goto(`/projects/${KEY}`);
+    await expect(section(page, 'backlog').getByTestId('issue-row-500')).toBeVisible();
+    await page.getByTestId('list-cycle-toggle-backlog').click();
+    await section(page, 'cycle-1').getByTestId('issue-row-229').scrollIntoViewIfNeeded();
+    await expect(section(page, 'cycle-1').getByTestId('issue-row-109')).toBeVisible();
+    await expect(page.getByTestId('list-cycle-more-cycle-1')).toHaveCount(0);
   });
 });
