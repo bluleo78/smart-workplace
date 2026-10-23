@@ -50,7 +50,9 @@ import { useWikiCreateSpaceDialog } from './useWikiCreateSpaceDialog'
 import { WikiDeletePageDialog } from './WikiDeletePageDialog'
 import { WikiDeleteSpaceDialog } from './WikiDeleteSpaceDialog'
 import { WIKI_DND_SCREEN_READER_INSTRUCTIONS, wikiDndAnnouncements } from './wikiDndAnnouncements'
+import { WikiMovePageDialog } from './WikiMovePageDialog'
 import { WikiMoveShareDialog } from './WikiMoveShareDialog'
+import { lastChildPosition } from './wikiMoveTargets'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
 import { shareMoveImpact, treeShareMarks } from './wikiShare'
@@ -214,6 +216,8 @@ export function WikiSidebar() {
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   // 삭제 확인 대상 pageId(없으면 닫힘).
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
+  // 「이동…」 위치 고르기 대상 pageId(없으면 닫힘, WP-839).
+  const [moveTarget, setMoveTarget] = useState<number | null>(null)
 
   // 평면화된 트리 — DnD SortableContext 의 항목 순서.
   const flatItems = useMemo(() => flattenTree(pages ?? [], collapsed), [pages, collapsed])
@@ -368,11 +372,15 @@ export function WikiSidebar() {
       .filter((i) => i.parentId === current.parentId).length
     if (parentId === current.parentId && position === currentSiblingsBefore) return
 
-    const move = { pageId: aId, parentId, position }
-    // 공유 범위는 지금 위치로 정해진다 — 하위 포함 공유에서 빠지거나 새로 들어가면 링크로 보이는 것이 바뀌므로 먼저 묻는다.
-    const impact = shareMoveImpact(pages ?? [], aId, parentId)
+    requestMove({ pageId: aId, parentId, position }, current.title)
+  }
+
+  // 끌어 놓기와 「이동…」이 함께 쓰는 옮기기 — 공유 범위는 지금 위치로 정해진다. 하위 포함 공유에서 빠지거나 새로 들어가면
+  // 링크로 보이는 것이 바뀌므로 먼저 묻는다(WP-579).
+  function requestMove(move: { pageId: number; parentId: number | null; position: number }, title: string) {
+    const impact = shareMoveImpact(pages ?? [], move.pageId, move.parentId)
     if (impact.leaving.length > 0 || impact.entering.length > 0) {
-      setMoveConfirm({ move, impact, title: current.title })
+      setMoveConfirm({ move, impact, title })
       return
     }
     movePage.mutate(move)
@@ -523,6 +531,7 @@ export function WikiSidebar() {
                   onOpen={openPage}
                   onAddChild={addSubPage}
                   onRequestDelete={setDeleteTarget}
+                  onRequestMove={setMoveTarget}
                   canEdit={canEdit}
                 />
               ))}
@@ -557,6 +566,20 @@ export function WikiSidebar() {
         pending={deleteSpace.isPending}
         // 이동·토스트는 useDeleteSpace 의 onDeleted 가 한다.
         onConfirm={() => spaceId != null && deleteSpace.mutate(spaceId)}
+      />
+      <WikiMovePageDialog
+        pages={pages ?? []}
+        pageId={moveTarget}
+        onClose={() => setMoveTarget(null)}
+        onPick={(parentId) => {
+          const target = moveTarget
+          setMoveTarget(null)
+          if (target == null) return
+          // 고른 페이지의 맨 아래 하위로 — 펼쳐 둬야 옮긴 페이지가 바로 보인다.
+          if (parentId != null) setCollapsed((prev) => (prev.has(parentId) ? new Set([...prev].filter((v) => v !== parentId)) : prev))
+          const title = pages?.find((p) => p.id === target)?.title ?? ''
+          requestMove({ pageId: target, parentId, position: lastChildPosition(pages ?? [], target, parentId) }, title)
+        }}
       />
       <WikiMoveShareDialog
         state={moveConfirm}
