@@ -1,4 +1,4 @@
--- V203: 프로젝트별 이슈 상태(WP-807).
+-- V204: 프로젝트별 이슈 상태(WP-807).
 -- 이슈 상태를 고정 4값(issue.status)에서 프로젝트가 정의하는 상태 목록(project_status)으로 넓힌다.
 -- issue.status 는 상태의 범주(TODO/IN_PROGRESS/DONE/CANCELED)로 남고, issue.status_id 가 실제 상태를 가리킨다.
 -- 복합 FK (status_id, project_id, status) → project_status(id, project_id, category) 가 "같은 프로젝트의 상태" 와

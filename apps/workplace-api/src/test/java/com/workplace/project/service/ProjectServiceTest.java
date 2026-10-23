@@ -292,6 +292,96 @@ class ProjectServiceTest extends IntegrationTestBase {
         .isInstanceOf(ProjectConflictException.class);
   }
 
+  /**
+   * WP-856: 개인 프로젝트에서 주인이 아닌 멤버(AGENT)는 역할 변경으로도 OWNER 가 될 수 없다 — 추가 경로의 「AGENT 는 MEMBER 고정」과 같은
+   * 규칙. 확인 카드 사전검증(dry-run)도 같은 술어로 거절한다.
+   */
+  @Test
+  void updateMemberRole_personalAgentToOwner_throwsConflict() {
+    Long agent = createAgentUserWithMembership("bot-po");
+    ProjectResponse personal = personalProjectWith(agent);
+
+    var toOwner = new UpdateMemberRoleRequest("OWNER");
+    assertThatThrownBy(
+            () -> projectService.validateUpdateMemberRole(ownerId, personal.key(), agent, toOwner))
+        .isInstanceOf(ProjectConflictException.class);
+    assertThatThrownBy(
+            () -> projectService.updateMemberRole(ownerId, personal.key(), agent, toOwner))
+        .isInstanceOf(ProjectConflictException.class)
+        .hasMessage("개인 프로젝트는 주인만 소유자가 될 수 있습니다");
+    assertThat(memberRole(personal.id(), agent)).isEqualTo("MEMBER");
+  }
+
+  /**
+   * WP-856: 개인 프로젝트 주인(사람)은 강등·제거할 수 없다 — 다른 소유자가 있어도(이전 결함으로 AGENT 가 OWNER 가 된 데이터) 사람이 자기 공간의 권한을
+   * 잃지 않게 막는다. 그런 AGENT 를 MEMBER 로 되돌리는 것은 허용한다.
+   */
+  @Test
+  void updateMemberRole_personalOwnerDemotionOrRemoval_throwsConflict_agentDemotionAllowed() {
+    Long agent = createAgentUserWithMembership("bot-pd");
+    ProjectResponse personal = personalProjectWith(agent);
+    // 이전 결함으로 AGENT 가 OWNER 로 올라간 상태를 직접 만든다.
+    setRole(personal.id(), agent, "OWNER");
+
+    assertThatThrownBy(
+            () ->
+                projectService.updateMemberRole(
+                    ownerId, personal.key(), ownerId, new UpdateMemberRoleRequest("MEMBER")))
+        .isInstanceOf(ProjectConflictException.class)
+        .hasMessage("개인 프로젝트 주인의 역할은 바꿀 수 없습니다");
+    assertThat(memberRole(personal.id(), ownerId)).isEqualTo("OWNER");
+
+    // 주인 제거도 막는다 — 다른 소유자(AGENT)가 남아 있어도.
+    assertThatThrownBy(() -> projectService.removeMember(ownerId, personal.key(), ownerId))
+        .isInstanceOf(ProjectConflictException.class)
+        .hasMessage("개인 프로젝트 주인은 제거할 수 없습니다");
+    assertThatThrownBy(() -> projectService.validateRemoveMember(ownerId, personal.key(), ownerId))
+        .isInstanceOf(ProjectConflictException.class);
+
+    projectService.updateMemberRole(
+        ownerId, personal.key(), agent, new UpdateMemberRoleRequest("MEMBER"));
+    assertThat(memberRole(personal.id(), agent)).isEqualTo("MEMBER");
+  }
+
+  /** ownerId 가 주인인 개인 프로젝트를 만들고 AGENT 를 멤버로 넣는다. */
+  private ProjectResponse personalProjectWith(Long agent) {
+    ProjectResponse personal =
+        projectService.create(ownerId, new CreateProjectRequest(null, "개인", null, "PERSONAL"));
+    projectService.addMember(ownerId, personal.key(), new AddMemberRequest(agent, "MEMBER"));
+    return personal;
+  }
+
+  /** 프로젝트 멤버 역할을 DB 에 직접 쓴다 — 이전 결함이 남긴 상태를 만들 때. */
+  private void setRole(Long projectId, Long userId, String role) {
+    dsl.update(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.ROLE, role)
+        .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId))
+        .and(PROJECT_MEMBER.USER_ID.eq(userId))
+        .execute();
+  }
+
+  /** WP-856 범위 밖: 팀 프로젝트의 AGENT OWNER 허용 여부는 정책 판단이라 지금 동작(허용)을 그대로 둔다. */
+  @Test
+  void updateMemberRole_teamAgentToOwner_unchanged() {
+    Long agent = createAgentUserWithMembership("bot-to");
+    String key = uniqueKey("TO");
+    ProjectResponse team =
+        projectService.create(ownerId, new CreateProjectRequest(key, "팀TO", null));
+    projectService.addMember(ownerId, key, new AddMemberRequest(agent, "MEMBER"));
+
+    projectService.updateMemberRole(ownerId, key, agent, new UpdateMemberRoleRequest("OWNER"));
+    assertThat(memberRole(team.id(), agent)).isEqualTo("OWNER");
+  }
+
+  /** 프로젝트 멤버의 현재 역할 — DB 에서 직접 읽는다. */
+  private String memberRole(Long projectId, Long userId) {
+    return dsl.select(PROJECT_MEMBER.ROLE)
+        .from(PROJECT_MEMBER)
+        .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId))
+        .and(PROJECT_MEMBER.USER_ID.eq(userId))
+        .fetchOne(PROJECT_MEMBER.ROLE);
+  }
+
   @Test
   void removeMember_lastOwner_throwsConflict() {
     String key = uniqueKey("RM");

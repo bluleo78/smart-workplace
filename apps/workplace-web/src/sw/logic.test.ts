@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildNotification,
   isAppRouteUrl,
+  NAVIGATION_DENYLIST,
   parsePushPayload,
   requiresVisibleNotification,
   safeTarget,
@@ -127,6 +128,25 @@ describe('isAppRouteUrl', () => {
   it('다른 origin 이거나 파싱 실패면 앱 라우트가 아니다', () => {
     expect(isAppRouteUrl('not-a-url', ORIGIN)).toBe(false)
     expect(isAppRouteUrl('https://other.example/chat', ORIGIN)).toBe(false)
+  })
+})
+
+describe('NAVIGATION_DENYLIST', () => {
+  const denied = (pathname: string) => NAVIGATION_DENYLIST.some((pattern) => pattern.test(pathname))
+
+  it('API·드라이브 공유 링크·노트 공유 링크는 precache 앱 셸로 가로채지 않는다', () => {
+    expect(denied('/api/v1/me')).toBe(true)
+    expect(denied('/s/abc123')).toBe(true)
+    // 옛 버전 SW 가 공유 링크를 모르는 옛 앱으로 열어 404 가 나던 회귀(WP-867)
+    expect(denied('/wiki/share/wsh_token')).toBe(true)
+    expect(denied('/wiki/share/wsh_token/pages/12')).toBe(true)
+  })
+
+  it('일반 앱 화면은 precache 앱 셸로 연다', () => {
+    expect(denied('/')).toBe(false)
+    expect(denied('/wiki/spaces/3/pages/12')).toBe(false)
+    expect(denied('/wiki/open/12')).toBe(false)
+    expect(denied('/settings/shares')).toBe(false)
   })
 })
 

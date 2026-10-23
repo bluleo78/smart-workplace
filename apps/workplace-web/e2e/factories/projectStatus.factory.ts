@@ -3,7 +3,7 @@
 import type { IssueStatus } from '../../src/types/issue';
 import type { ProjectStatus } from '../../src/types/projectStatus';
 
-// 서버 V203 이 프로젝트마다 심는 기본 4상태와 같은 이름·순서 — id 는 범주 순서대로 1~4 로 고정한다.
+// 서버 V204 가 프로젝트마다 심는 기본 4상태와 같은 이름·순서 — id 는 범주 순서대로 1~4 로 고정한다.
 const SEED: readonly ProjectStatus[] = [
   { id: 1, name: '할 일', category: 'TODO', position: 0 },
   { id: 2, name: '진행 중', category: 'IN_PROGRESS', position: 1 },

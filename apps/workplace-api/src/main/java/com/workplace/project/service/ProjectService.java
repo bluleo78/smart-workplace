@@ -325,7 +325,7 @@ public class ProjectService {
     return project;
   }
 
-  /** 멤버 역할 변경. OWNER 권한 필요. 마지막 OWNER 강등 시 409. */
+  /** 멤버 역할 변경. OWNER 권한 필요. 마지막 OWNER 강등 · 개인 프로젝트 규칙 위반(WP-856) 시 409. */
   public void updateMemberRole(
       Long callerId, String projectKey, Long memberUserId, UpdateMemberRoleRequest req) {
     ProjectRow project = checkUpdateMemberRole(callerId, projectKey, memberUserId, req, true);
@@ -340,7 +340,7 @@ public class ProjectService {
    *
    * @throws ProjectAccessDeniedException OWNER 아님
    * @throws ProjectNotFoundException 프로젝트 없음 · 대상이 멤버 아님
-   * @throws ProjectConflictException 마지막 OWNER 강등
+   * @throws ProjectConflictException 마지막 OWNER 강등 · 개인 프로젝트의 주인 강등·주인 아닌 멤버 승격(WP-856)
    */
   @Transactional(readOnly = true)
   public void validateUpdateMemberRole(
@@ -360,12 +360,30 @@ public class ProjectService {
       boolean lock) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     MemberRow current = requireMember(project, memberUserId);
+    if ("PERSONAL".equals(project.type())) {
+      checkPersonalRoleChange(project, memberUserId, req.role());
+    }
     if ("OWNER".equals(current.role())
         && !"OWNER".equals(req.role())
         && ownerCount(project, lock) <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }
     return project;
+  }
+
+  /**
+   * 개인 프로젝트 역할 변경 규칙(WP-856). 개인 프로젝트의 소유자는 주인({@code project.ownerId}) 하나뿐이다 — 주인은 강등할 수 없고, 주인이
+   * 아닌 멤버(담당자용 AGENT)는 OWNER 가 될 수 없다. 추가 경로의 「AGENT 는 MEMBER 고정」을 역할 변경에도 적용한 것으로, 막지 않으면 AGENT 를
+   * OWNER 로 올린 뒤 주인을 내려 사람이 자기 공간의 권한을 되찾을 수 없게 된다.
+   */
+  private static void checkPersonalRoleChange(ProjectRow project, Long memberUserId, String role) {
+    boolean owner = memberUserId.equals(project.ownerId());
+    if (owner && !"OWNER".equals(role)) {
+      throw new ProjectConflictException("개인 프로젝트 주인의 역할은 바꿀 수 없습니다");
+    }
+    if (!owner && "OWNER".equals(role)) {
+      throw new ProjectConflictException("개인 프로젝트는 주인만 소유자가 될 수 있습니다");
+    }
   }
 
   /**
@@ -408,18 +426,25 @@ public class ProjectService {
    *
    * @throws ProjectAccessDeniedException OWNER 아님
    * @throws ProjectNotFoundException 프로젝트 없음 · 대상이 멤버 아님
-   * @throws ProjectConflictException 마지막 OWNER 제거
+   * @throws ProjectConflictException 마지막 OWNER 제거 · 개인 프로젝트 주인 제거(WP-856)
    */
   @Transactional(readOnly = true)
   public void validateRemoveMember(Long callerId, String projectKey, Long memberUserId) {
     checkRemoveMember(callerId, projectKey, memberUserId, false);
   }
 
-  /** 멤버 제거 술어 — 마지막 OWNER 는 제거할 수 없다. lock 이면 소유자 행을 잠그고 센다(실행 경로, {@link #ownerCount}). */
+  /**
+   * 멤버 제거 술어 — 마지막 OWNER 와 개인 프로젝트 주인(WP-856)은 제거할 수 없다. lock 이면 소유자 행을 잠그고 센다(실행 경로, {@link
+   * #ownerCount}).
+   */
   private ProjectRow checkRemoveMember(
       Long callerId, String projectKey, Long memberUserId, boolean lock) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     MemberRow current = requireMember(project, memberUserId);
+    // 개인 프로젝트 주인은 제거할 수 없다(WP-856) — 다른 소유자가 남아 있어도(이전 결함으로 OWNER 가 된 AGENT) 사람이 자기 공간을 잃지 않게.
+    if ("PERSONAL".equals(project.type()) && memberUserId.equals(project.ownerId())) {
+      throw new ProjectConflictException("개인 프로젝트 주인은 제거할 수 없습니다");
+    }
     if ("OWNER".equals(current.role()) && ownerCount(project, lock) <= 1) {
       throw new ProjectConflictException("소유자가 최소 1명 이상 있어야 합니다");
     }

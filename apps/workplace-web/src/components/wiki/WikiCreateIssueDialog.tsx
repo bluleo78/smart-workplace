@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useProjects } from '@/hooks/queries/useProjects'
+import { useAllProjects } from '@/hooks/queries/useProjects'
 
 export interface CreatedIssue {
   id: number
@@ -110,7 +110,7 @@ export function WikiCreateIssueDialog({
   onCreated: (issue: CreatedIssue) => void
   onClose: () => void
 }) {
-  const { data: projectsPage } = useProjects()
+  const { data: projectsPage } = useAllProjects()
   // projectsPage?.content ?? [] 를 useMemo 로 안정화해 아래 useMemo 의 deps 에 안전하게 쓴다.
   const projects = useMemo(() => projectsPage?.content ?? [], [projectsPage])
 

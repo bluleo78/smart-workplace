@@ -292,7 +292,7 @@ public class IssueRepository {
 
   /**
    * 처음 상태(범주)만 지정해 INSERT(WP-464) — 테스트 시드·예전 호출 호환 경로. status 가 null 이면 할 일. status_id 는 그 범주의 기본
-   * 상태(가장 앞)로 자바에서 정해 상태 id 오버로드에 맡긴다 — DB 동기화 트리거(V203 (c))에 기대지 않아 트리거를 지워도 그대로 동작한다.
+   * 상태(가장 앞)로 자바에서 정해 상태 id 오버로드에 맡긴다 — DB 동기화 트리거(V204 (c))에 기대지 않아 트리거를 지워도 그대로 동작한다.
    */
   public IssueRow insert(
       Long projectId,
@@ -461,7 +461,7 @@ public class IssueRepository {
 
   /**
    * 모든 변경 가능 필드 일괄 갱신 — 상태 id 없이 범주만 쓰는 테스트 시드용 호환 경로. 이미 그 범주면 지금 상태를 유지하고, 아니면 그 범주의 기본 상태로
-   * 간다(WP-807) — 상태 id 를 자바에서 정해 DB 동기화 트리거(V203 (c))에 기대지 않는다.
+   * 간다(WP-807) — 상태 id 를 자바에서 정해 DB 동기화 트리거(V204 (c))에 기대지 않는다.
    */
   public void updateAll(
       Long id,
