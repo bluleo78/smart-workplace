@@ -71,3 +71,44 @@ test('빈 목록·로딩·에러 상태 유지', async ({ authenticatedPage: pag
   await page.goto('/projects')
   await expect(page.getByTestId('projects-empty')).toBeVisible()
 })
+
+// WP-863 — 첫 페이지(20개)만 받아 21번째부터 목록·이름순 정렬·즐겨찾기에서 사라졌다. 끝 페이지까지 이어 받는다.
+test('프로젝트가 한 페이지를 넘어도 마지막 페이지까지 받아 목록·이름순·즐겨찾기 사이드바에 모두 보인다', async ({
+  authenticatedPage: page,
+}) => {
+  // 최근 생성순 130개 — 가장 오래된 「가나다 기획실」(OLD)은 두 번째 페이지 끝에 있다.
+  const many = [
+    ...Array.from({ length: 129 }, (_, i) =>
+      createProject({ id: 1000 + i, key: `T${String(i + 1).padStart(3, '0')}`, name: `팀 프로젝트 ${i + 1}`, type: 'TEAM' }),
+    ),
+    createProject({ id: 2000, key: 'OLD', name: '가나다 기획실 — 오래전에 만든 프로젝트', type: 'TEAM' }),
+  ]
+  const requested: string[] = []
+  await page.route(
+    (u) => u.pathname === '/api/v1/projects',
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const url = new URL(route.request().url())
+      const p = Number(url.searchParams.get('page') ?? 0)
+      const size = Number(url.searchParams.get('size') ?? 20)
+      requested.push(`${p}/${size}`)
+      return route.fulfill({
+        json: createPageResponse(many.slice(p * size, (p + 1) * size), { page: p, size, totalElements: many.length }),
+      })
+    },
+  )
+  await page.goto('/projects')
+
+  const old = page.getByTestId('project-row-OLD')
+  await expect(old).toBeVisible()
+  await expect(page.locator('[data-testid^="project-row-"]')).toHaveCount(130)
+  expect(requested).toEqual(expect.arrayContaining(['0/100', '1/100']))
+
+  // 이름순은 받은 전체 기준 — 「가나다…」가 맨 위.
+  await page.getByTestId('project-sort-toggle').click()
+  await expect(page.locator('[data-testid^="project-row-"]').first()).toHaveAttribute('data-testid', 'project-row-OLD')
+
+  // 즐겨찾기하면 사이드바 프로젝트 묶음에도 나온다(전에는 사이드바도 20개 안에서만 골랐다).
+  await page.getByTestId('fav-toggle-OLD').click()
+  await expect(page.getByTestId('team-project-OLD')).toBeVisible()
+})

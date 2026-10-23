@@ -145,7 +145,7 @@ public class ProjectRepository {
               PROJECT.UPDATED_AT)
           .from(PROJECT)
           .where(adminVisibleCondition(userId))
-          .orderBy(PROJECT.UPDATED_AT.desc())
+          .orderBy(PROJECT.UPDATED_AT.desc(), PROJECT.ID.desc())
           .limit(size)
           .offset((long) page * size)
           .fetch(this::mapToRow);
@@ -163,7 +163,7 @@ public class ProjectRepository {
             PROJECT.UPDATED_AT)
         .from(PROJECT)
         .where(memberVisibleCondition(userId))
-        .orderBy(PROJECT.UPDATED_AT.desc())
+        .orderBy(PROJECT.UPDATED_AT.desc(), PROJECT.ID.desc())
         .limit(size)
         .offset((long) page * size)
         .fetch(this::mapToRow);

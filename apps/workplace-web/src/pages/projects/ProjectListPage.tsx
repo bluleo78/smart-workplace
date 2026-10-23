@@ -10,7 +10,7 @@ import { useIsMobile } from '@/hooks/useIsMobile'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
 import { cn } from '@/lib/utils'
 
-import { useProjects } from '../../hooks/queries/useProjects'
+import { useAllProjects } from '../../hooks/queries/useProjects'
 import { ProjectCreateDialog } from './components/ProjectCreateDialog'
 import { ProjectListRow } from './components/ProjectListRow'
 
@@ -23,10 +23,10 @@ export default function ProjectListPage() {
   const isMobile = useIsMobile()
   const [sort, setSort] = useState<SortKey>('recent')
   // isError/refetch 구조분해 — API 실패 시 오류 상태와 재시도 버튼 표시
-  const { data, isLoading, isError, refetch } = useProjects()
+  const { data, isLoading, isError, refetch } = useAllProjects()
   const { favs, isFav, toggle } = useProjectFavorites()
 
-  // 정렬: 즐겨찾기 핀 우선 → 선택 정렬(최근 활동순/이름순). 현재 페이지 범위 내 정렬(YAGNI).
+  // 정렬: 즐겨찾기 핀 우선 → 선택 정렬(최근 활동순/이름순). 전부 받은 목록 기준(WP-863).
   const sorted = useMemo(() => {
     const items = [...(data?.content ?? [])]
     const cmp = (a: typeof items[number], b: typeof items[number]) =>
