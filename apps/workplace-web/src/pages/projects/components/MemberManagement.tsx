@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SettingsSection } from '@/components/layout/SettingsSection';
@@ -53,6 +53,31 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
   const [newRole, setNewRole] = useState<ProjectMemberRole>('MEMBER');
   // 멤버 제거 확인 다이얼로그 — { userId, name } 지정 시 해당 멤버 제거 확인 AlertDialog 표시.
   const [confirmRemove, setConfirmRemove] = useState<{ userId: number; name: string } | null>(null);
+  // 제거 뒤 초점을 받을 곳(WP-891) — 확인창은 닫힐 때 초점을 연 버튼(지운 행의 「제거」)으로 돌려주려 하지만 그 버튼이 행과 함께
+  // 사라져 초점이 body 로 빠졌다. 이웃 멤버의 「제거」 → 없으면 추가 버튼 순으로 data-testid 를 담아 두고, 지운 행이 표에서 빠진 뒤 옮긴다.
+  const focusAfterRemove = useRef<{ removedId: number; targets: string[] } | null>(null);
+  // 이번에 연 확인창에서 제거에 성공했는가 — Radix 는 닫힌 뒤 setTimeout 으로 초점 복원(onCloseAutoFocus)을 미루므로,
+  // 그 사이 재조회로 초점을 이미 옮겨 focusAfterRemove 가 비었어도 사라진 「제거」로의 기본 복원을 막아야 한다.
+  const removedInDialog = useRef(false);
+
+  // 이 행에 「제거」 버튼이 있는가 — 관리 권한이 있고, 개인 프로젝트 주인이 아닐 때(WP-856).
+  const canRemove = (userId: number) => canManage && !(agentOnly && userId === ownerId);
+
+  // 지운 행이 표에서 빠졌으면 담아 둔 곳으로 초점을 옮긴다 — 아직 남아 있으면(목록 재조회 전) 다음 기회에.
+  // 확인창이 닫히는 중(퇴장 애니메이션)이면 초점 가둠이 바깥 focus() 를 되돌리고, 닫힐 때 연 버튼으로 복원까지 하므로
+  // 그때는 옮기지 않고 onCloseAutoFocus 에 맡긴다.
+  const moveFocusAfterRemove = () => {
+    const pending = focusAfterRemove.current;
+    if (!pending || document.querySelector('[role="alertdialog"]')) return;
+    if (document.querySelector(`[data-testid="member-remove-${pending.removedId}"]`)) return;
+    focusAfterRemove.current = null;
+    for (const id of pending.targets) {
+      const el = document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+      if (el) { el.focus(); return; }
+    }
+  };
+  // 목록이 다시 그려진 뒤(지운 행이 빠진 뒤) 초점을 옮긴다 — 확인창이 이미 닫힌 뒤 재조회가 끝나는 경우.
+  useEffect(moveFocusAfterRemove, [members.data]);
 
   // 기존 멤버 id 집합 — picker 에서 disabled 처리에 사용.
   const existingIds = useMemo(
@@ -89,13 +114,23 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
 
   // 제거 버튼 클릭 시 확인 다이얼로그 표시 — 실제 제거는 onRemoveConfirm에서 수행.
   const onRemove = (userId: number, name: string) => {
+    removedInDialog.current = false;
     setConfirmRemove({ userId, name });
   };
 
   const onRemoveConfirm = async () => {
     if (!confirmRemove) return;
+    // 이웃 멤버 — 지운 자리에 올 다음 행(마지막이었으면 바로 앞 행) 중 「제거」 버튼이 있는 멤버.
+    const removable = (members.data ?? []).filter((m) => canRemove(m.userId));
+    const at = removable.findIndex((m) => m.userId === confirmRemove.userId);
+    const neighbor = removable[at + 1] ?? removable[at - 1];
     try {
       await removeMember.mutateAsync(confirmRemove.userId);
+      removedInDialog.current = true;
+      focusAfterRemove.current = {
+        removedId: confirmRemove.userId,
+        targets: [...(neighbor ? [`member-remove-${neighbor.userId}`] : []), 'member-add-trigger'],
+      };
       toast.success('멤버를 제거했습니다');
       setConfirmRemove(null);
     } catch (e) {
@@ -196,7 +231,7 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
                 </td>
                 <td>
                   {/* 개인 프로젝트 주인은 제거할 수 없다(WP-856) — 버튼을 두지 않는다. */}
-                  {canManage && !(agentOnly && m.userId === ownerId) && (
+                  {canRemove(m.userId) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -223,7 +258,14 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
     </SettingsSection>
     {/* 멤버 제거 확인 AlertDialog — window.confirm() 대체. */}
     <AlertDialog open={!!confirmRemove} onOpenChange={(open) => !open && setConfirmRemove(null)}>
-      <AlertDialogContent>
+      <AlertDialogContent
+        onCloseAutoFocus={(e) => {
+          // 제거했으면 지운 「제거」 버튼 대신 이웃으로 옮긴다(WP-891). 취소·Esc 는 기본 복원(연 버튼).
+          if (!removedInDialog.current) return;
+          e.preventDefault();
+          moveFocusAfterRemove();
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>멤버 제거</AlertDialogTitle>
           <AlertDialogDescription>

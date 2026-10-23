@@ -514,6 +514,69 @@ test.describe('멤버 제거 AlertDialog (#139)', () => {
   });
 });
 
+// WP-891: 키보드로 멤버를 제거하면 확인창이 지운 행의 「제거」로 초점을 돌려주려다 그 버튼이 사라져 초점이 body 로 빠졌다.
+test.describe('멤버 제거 뒤 초점 (WP-891)', () => {
+  // personal: 개인 프로젝트(나=주인, 「제거」 없음) — 제거할 수 있는 멤버가 바닥나는 경우를 만든다.
+  async function setup(page: import('@playwright/test').Page, members: StubMember[], personal = false) {
+    const membersRef = { current: members };
+    await setupStubs(page, membersRef);
+    if (personal) {
+      await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 1, projectKey: PROJECT_KEY, name: 'WP', description: '', ownerId: 1, type: 'PERSONAL', createdAt: '2026-01-01T00:00:00Z' }),
+        }),
+      );
+    }
+    await page.route(/\/api\/v1\/projects\/[^/]+\/members\/\d+$/, (route) => {
+      if (route.request().method() !== 'DELETE') return route.fallback();
+      const id = Number(new URL(route.request().url()).pathname.split('/').pop());
+      membersRef.current = membersRef.current.filter((m) => m.userId !== id);
+      return route.fulfill({ status: 204 });
+    });
+    await page.route(/\/members\/\d+\/assigned-issue-count$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0 }) }),
+    );
+    await page.goto(SETTINGS_URL);
+  }
+
+  async function removeByKeyboard(page: import('@playwright/test').Page, userId: number) {
+    await page.getByTestId(`member-remove-${userId}`).focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await page.getByRole('button', { name: '제거', exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId(`member-remove-${userId}`)).toHaveCount(0);
+  }
+
+  test('지운 자리에 온 다음 멤버의 「제거」로, 마지막 멤버였으면 앞 멤버의 「제거」로 옮긴다', async ({ authenticatedPage: page }) => {
+    await setup(page, [
+      { userId: 1, username: 'me', name: 'Me', role: 'OWNER' },
+      { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' },
+      { userId: 3, username: 'bob', name: 'Bob', role: 'MEMBER' },
+    ]);
+    await removeByKeyboard(page, 2);
+    await expect(page.getByTestId('member-remove-3')).toBeFocused();
+
+    await removeByKeyboard(page, 3);
+    await expect(page.getByTestId('member-remove-1')).toBeFocused();
+  });
+
+  test('제거할 수 있는 멤버가 더 없으면 「AI 어시스턴트 추가」로 옮기고, 취소하면 연 버튼으로 돌아간다', async ({ authenticatedPage: page }) => {
+    await setup(page, [{ userId: 2, username: 'helper', name: 'Helper', role: 'MEMBER' }], true);
+    // 취소(Esc)는 기본 복원 — 연 「제거」 버튼으로.
+    await page.getByTestId('member-remove-2').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('member-remove-2')).toBeFocused();
+
+    await removeByKeyboard(page, 2);
+    await expect(page.getByTestId('member-add-trigger')).toBeFocused();
+  });
+});
+
 test.describe('멤버 행 hover 상태 (#308 회귀)', () => {
   // 멤버 테이블 tbody tr 행에 hover:bg-accent/50 클래스가 있는지 검증 — 클릭 가능 행 시각 피드백 회귀 방지.
   test('멤버 테이블 행에 hover 스타일 클래스가 적용된다', async ({ authenticatedPage: page }) => {
