@@ -5,8 +5,18 @@
 // 토스트를 본 적 없는 창은 새 SW 아래에서 옛 번들로 남았다.
 // → 누른 창은 대기 중인 SW 가 활성화되는 것을 직접 기다렸다가 새로고침하고(applyWaitingUpdate),
 //   관리받던 다른 창은 관리 SW 가 바뀌면 알린다(watchControllerUpdate).
+// 적용하는 길이 둘(토스트 PwaUpdatePrompt·404 복구 outdatedApp)이라, 이 창이 적용 중인지는 여기 한 곳에 둔다.
 
-type WaitingSw = EventTarget & { state: string }
+// 이 창이 지금 새 버전을 적용 중인지 — 그동안 이 창에도 오는 관리 SW 교체(controllerchange)는 적용하는 쪽이 새로고침하므로 넘긴다.
+let applyingInThisWindow = false
+
+/** 이 창이 applyWaitingUpdate 로 새 버전을 적용하는 중인지 */
+export function isApplyingUpdate(): boolean {
+  return applyingInThisWindow
+}
+
+/** 상태 전환을 지켜볼 수 있는 ServiceWorker(테스트 대역 포함) */
+export type WaitingSw = EventTarget & { state: string }
 
 /**
  * 대기 중인 SW 를 활성화하고, 활성화가 끝난 뒤 새로고침한다 — 새로고침한 문서가 새 SW 의 관리를 받게 하려는 것.
@@ -19,21 +29,44 @@ export async function applyWaitingUpdate(
   skipWaiting: () => Promise<void> | void,
   reload: () => void,
 ): Promise<boolean> {
-  if (waiting) {
-    // 메시지보다 리스너를 먼저 건다 — 활성화가 빨라 statechange 를 놓치지 않게.
-    const activated = new Promise<boolean>((resolve) => {
-      const onStateChange = () => {
-        if (waiting.state !== 'activated' && waiting.state !== 'redundant') return
-        waiting.removeEventListener('statechange', onStateChange)
-        resolve(waiting.state === 'activated')
-      }
-      waiting.addEventListener('statechange', onStateChange)
-    })
-    await skipWaiting()
-    if (!(await activated)) return false
+  if (!waiting) {
+    reload()
+    return true
   }
-  reload()
-  return true
+  applyingInThisWindow = true
+  try {
+    // 메시지보다 리스너를 먼저 건다 — 활성화가 빨라 statechange 를 놓치지 않게.
+    const settled = waitForSwState(waiting, ['activated', 'redundant'])
+    await skipWaiting()
+    if ((await settled) !== 'activated') return false
+    reload()
+    return true
+  } finally {
+    // 끝나면 푼다 — 호출부가 새로고침을 건너뛴 창(404 화면을 떠남)이 다음 배포의 관리 SW 교체까지 놓치지 않게.
+    applyingInThisWindow = false
+  }
+}
+
+/**
+ * SW 가 targets 중 한 상태가 될 때까지 기다려 그 상태를 돌려준다 — 이미 그 상태면 바로, timeoutMs 를 넘기면 null.
+ * 부르는 즉시 리스너를 걸므로 상태를 바꾸는 요청(SKIP_WAITING 등)보다 먼저 부른다.
+ */
+export function waitForSwState(sw: WaitingSw, targets: readonly string[], timeoutMs?: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const finish = (state: string | null) => {
+      clearTimeout(timer)
+      sw.removeEventListener('statechange', onStateChange)
+      resolve(state)
+    }
+    const onStateChange = () => {
+      if (targets.includes(sw.state)) finish(sw.state)
+    }
+    sw.addEventListener('statechange', onStateChange)
+    if (timeoutMs != null) timer = setTimeout(() => finish(null), timeoutMs)
+    // 리스너를 걸기 전에 이미 그 상태였을 수 있다.
+    onStateChange()
+  })
 }
 
 /**

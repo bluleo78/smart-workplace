@@ -1,7 +1,33 @@
 import { ArrowLeft, Home } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
+import { PageLoader } from '@/components/layout/PageLoader';
 import { Button } from '@/components/ui/button';
+import { browserOutdatedAppEnv, isSwControlled, recoverOutdatedApp } from '@/lib/pwa/outdatedApp';
+
+/** 옛 버전 앱이라 모르는 주소인지 확인하는 동안 true(WP-872 — 판단은 lib/pwa/outdatedApp). SW 관리 밖이면 확인하지 않는다. */
+function useOutdatedAppCheck(): boolean {
+  const { pathname } = useLocation();
+  // sw.ts 는 clients.claim 을 하지 않아 열린 동안 관리 여부가 바뀌지 않는다.
+  const controlled = isSwControlled();
+  // 404 로 판정한 주소 — 새 버전을 적용하면 새로고침될 때까지 확인 중으로 남고, 다른 없는 주소로 옮기면 다시 확인한다.
+  const [notFoundPath, setNotFoundPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!controlled) return;
+    // 화면을 떠나면 확인을 중단한다 — 다른 화면에서 갑자기 새로고침되지 않게.
+    const controller = new AbortController();
+    recoverOutdatedApp(browserOutdatedAppEnv(pathname, controller.signal))
+      .catch(() => false)
+      .then((recovering) => {
+        if (!recovering && !controller.signal.aborted) setNotFoundPath(pathname);
+      });
+    return () => controller.abort();
+  }, [controlled, pathname]);
+
+  return controlled && notFoundPath !== pathname;
+}
 
 /**
  * 404 페이지 — 존재하지 않는 라우트 진입 시 표시.
@@ -10,6 +36,8 @@ import { Button } from '@/components/ui/button';
  */
 export default function NotFoundPage() {
   const navigate = useNavigate();
+  const checking = useOutdatedAppCheck();
+  if (checking) return <PageLoader />;
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center min-h-[60vh]">

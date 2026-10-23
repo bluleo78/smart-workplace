@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
-import { applyWaitingUpdate, watchControllerUpdate } from '@/lib/pwa/applyUpdate'
+import { applyWaitingUpdate, isApplyingUpdate, watchControllerUpdate } from '@/lib/pwa/applyUpdate'
 import { startSwUpdateChecks } from '@/lib/pwa/updateCheck'
 import { hasUnsavedInput } from '@/lib/unsavedInput'
 
@@ -24,8 +24,6 @@ export function PwaUpdatePrompt() {
   const stopChecksRef = useRef<(() => void) | null>(null)
   // workbox 가 관리하는 등록 — 토스트를 누를 때 대기 중인 SW 를 여기서 찾는다.
   const registrationRef = useRef<ServiceWorkerRegistration | null>(null)
-  // 이 창이 직접 적용 중인지 — 그동안의 controllerchange 는 적용 흐름이 새로고침하므로 넘긴다.
-  const applyingRef = useRef(false)
 
   const {
     needRefresh: [needRefresh],
@@ -46,7 +44,8 @@ export function PwaUpdatePrompt() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
     return watchControllerUpdate(navigator.serviceWorker, () => {
-      if (applyingRef.current) return
+      // 이 창이 직접 적용 중이면(토스트·404 복구) 적용하는 쪽이 새로고침한다.
+      if (isApplyingUpdate()) return
       if (hasUnsavedInput()) showUpdateToast('새 버전이 적용됐습니다', reload)
       else reload()
     })
@@ -57,13 +56,11 @@ export function PwaUpdatePrompt() {
     // 「새로고침」 — 대기 중인 SW 를 활성화하고 활성화된 뒤 새로고침. 더 새 SW 에 밀려 적용되지 않으면 토스트를 다시 띄워
     // 새 대기 SW 로 다시 시도하게 하고, 도중에 실패하면 새로고침이라도 해 다시 확인하게 한다.
     const apply = async () => {
-      applyingRef.current = true
       try {
         // 등록 콜백보다 대기 알림이 먼저 올 수 있어, 아직 등록을 모르면 직접 찾는다.
         const registration = registrationRef.current ?? (await navigator.serviceWorker.getRegistration())
         const applied = await applyWaitingUpdate(registration?.waiting ?? null, updateServiceWorker, reload)
         if (!applied) {
-          applyingRef.current = false
           showUpdateToast('새 버전이 있습니다', () => void apply())
         }
       } catch {

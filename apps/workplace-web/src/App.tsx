@@ -4,9 +4,9 @@ import { Navigate, Route, Routes, useLocation, useParams } from 'react-router-do
 import { AdminRoute } from './components/AdminRoute'
 import { IssueModuleLayout } from './components/issue/IssueModuleLayout'
 import { AppLayout } from './components/layout/AppLayout'
+import { PageLoader } from './components/layout/PageLoader'
 import { PageErrorBoundary } from './components/PageErrorBoundary'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { Skeleton } from './components/ui/skeleton'
 import { WikiSharePublicViewContext } from './components/wiki/wikiSharePublicView'
 import { useAuth } from './hooks/useAuth'
 import { useRouteDocumentTitle } from './hooks/useDocumentTitle'
@@ -158,15 +158,6 @@ function KeyedByParam({ component: Page, param }: { component: ComponentType; pa
 function RouteDocumentTitle() {
   useRouteDocumentTitle()
   return null
-}
-
-function PageLoader() {
-  return (
-    <div className="container mx-auto p-8">
-      <Skeleton className="h-8 w-48 mb-4" />
-      <Skeleton className="h-64 w-full" />
-    </div>
-  )
 }
 
 export default function App() {

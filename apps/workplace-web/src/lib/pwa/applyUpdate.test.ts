@@ -3,7 +3,7 @@
 // 다른 창은 실제 업데이트(관리 SW 교체)에만 반응하는지.
 import { describe, expect, it, vi } from 'vitest'
 
-import { applyWaitingUpdate, watchControllerUpdate } from './applyUpdate'
+import { applyWaitingUpdate, isApplyingUpdate, watchControllerUpdate } from './applyUpdate'
 
 /** state 를 바꾸며 statechange 를 쏠 수 있는 최소 ServiceWorker 대역 */
 function fakeSw(initial = 'installed') {
@@ -22,6 +22,18 @@ function fakeSw(initial = 'installed') {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('applyWaitingUpdate', () => {
+  it('적용하는 동안은 이 창이 적용 중으로 보이고, 밀려나 적용되지 않으면 풀린다', async () => {
+    const { sw, moveTo } = fakeSw()
+    const done = applyWaitingUpdate(sw, vi.fn(), vi.fn())
+
+    await flush()
+    // 이 창에도 오는 관리 SW 교체를 PwaUpdatePrompt 가 다른 창 몫으로 처리(새로고침)하지 않게 하는 표시
+    expect(isApplyingUpdate()).toBe(true)
+    moveTo('redundant')
+    await expect(done).resolves.toBe(false)
+    expect(isApplyingUpdate()).toBe(false)
+  })
+
   it('대기 중인 SW 를 활성화하라고 보내고, 활성화된 뒤에야 새로고침한다', async () => {
     const { sw, moveTo } = fakeSw()
     const skipWaiting = vi.fn()
