@@ -15,12 +15,14 @@ import {
   useState,
 } from 'react';
 
+import { SIDE_DEFAULT_WIDTH, SIDE_MAX_WIDTH, SIDE_MIN_WIDTH } from '@/components/ai/aiSidePanelWidth';
 import { useTriggerActivity } from '@/hooks/useChatStreams';
 import { useHistoryParam, useStripStaleStateMark } from '@/hooks/useHistoryParam';
 import { getIsMobile, useIsMobile } from '@/hooks/useIsMobile';
 import { type AiActivity } from '@/lib/ai/aiActivity';
 import { chatStreams } from '@/lib/ai/chatStreams';
 import { type PromptSeed } from '@/lib/ai/promptSeed';
+import { clampWidth } from '@/lib/clampWidth';
 import { hasLiveStateMark } from '@/lib/historyParam';
 
 /** AI 어시스턴트 표시 모드. closed=닫힘, side=우측 도킹, fullscreen=콘텐츠 영역 2단. */
@@ -30,10 +32,6 @@ const MODE_KEY = 'ai-mode';
 const WIDTH_KEY = 'ai-side-width';
 // 전체화면 히스토리 표식 키(router state). 값은 '1'.
 const HISTORY_KEY = 'aiOpen';
-// 사이드 패널 폭 범위 — 클램프는 resize() 단일 책임이므로 외부 export 불필요.
-const SIDE_MIN_WIDTH = 320;
-const SIDE_MAX_WIDTH = 600;
-const SIDE_DEFAULT_WIDTH = 380;
 
 interface AIAssistantValue {
   mode: AIMode;
@@ -70,7 +68,7 @@ function readInitialWidth(): number {
   const raw = localStorage.getItem(WIDTH_KEY);
   const n = raw ? Number(raw) : NaN;
   if (!Number.isFinite(n)) return SIDE_DEFAULT_WIDTH;
-  return Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, n));
+  return clampWidth(n, SIDE_MIN_WIDTH, SIDE_MAX_WIDTH);
 }
 
 /** ⌘K 토글 시 복원할 직전 open 모드(기본 side). localStorage(ai-mode)에 마지막 open 모드 보관. */
@@ -188,7 +186,7 @@ export function AIAssistantProvider({ children, hotkeysEnabled }: { children: Re
   }, [transition]);
   // 드래그 중에는 상태만 갱신(매 pointermove 마다 localStorage 쓰기 방지), 종료 시 persist 로 1회 영속.
   const resize = useCallback((w: number, persist = false) => {
-    const clamped = Math.min(SIDE_MAX_WIDTH, Math.max(SIDE_MIN_WIDTH, Math.round(w)));
+    const clamped = clampWidth(w, SIDE_MIN_WIDTH, SIDE_MAX_WIDTH);
     if (persist) localStorage.setItem(WIDTH_KEY, String(clamped));
     setWidth(clamped);
   }, []);

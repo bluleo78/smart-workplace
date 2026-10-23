@@ -5,6 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 /* 그룹 안에 키보드 포커스(:focus-visible)가 있을 때 — 호버 전용 액션을 키보드 사용자에게도 노출한다. */
 @custom-variant group-kbd (&:is(:where(.group):has(:focus-visible) *));
+/* 패널 경계선을 끄는 동안(useResizeHandle 이 body 에 data-panel-resizing) — 패널 폭을 따라 움직이는 요소의 transition 을 끈다(WP-892). */
+@custom-variant panel-resizing (&:where([data-panel-resizing] *));
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);

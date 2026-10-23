@@ -35,7 +35,7 @@ export function AIChip() {
         // 패널이 좁으면 (2)>(1) 이라 정적 유지, 넓으면 (2)<(1) 이라 좌측으로 밀려 비겹침 보장.
         // --ai-side-width 미설정(closed/fullscreen/모바일)이면 (2)=100%-70px 라 항상 (1) 채택.
         // 모바일은 AppRail 보정이 불필요하므로 left-1/2 유지.
-        'fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[left,background-color,color,border-color] duration-200 ease-in-out lg:left-[min(calc(50%+28px),calc(100%-var(--ai-side-width,0px)-70px))]',
+        'fixed left-1/2 top-2 z-[70] inline-flex -translate-x-1/2 items-center border font-medium shadow-md backdrop-blur transition-[left,background-color,color,border-color] duration-200 ease-in-out panel-resizing:transition-none lg:left-[min(calc(50%+28px),calc(100%-var(--ai-side-width,0px)-70px))]',
         open
           ? 'border-ai-accent bg-card text-ai-accent'
           : 'bg-card/90 text-muted-foreground hover:text-foreground',

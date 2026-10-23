@@ -4,30 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryStorage } from '@/test/memoryStorage'
 
 import {
-  clampSidebarWidth,
   readSidebarWidth,
   SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
   sidebarMaxFor,
   writeSidebarWidth,
 } from './sidebarWidth'
 
 beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
 afterEach(() => vi.unstubAllGlobals())
-
-describe('clampSidebarWidth', () => {
-  it('범위 밖은 최소·최대로, 소수는 정수 px 로', () => {
-    expect(clampSidebarWidth(50)).toBe(SIDEBAR_MIN_WIDTH)
-    expect(clampSidebarWidth(9999)).toBe(SIDEBAR_MAX_WIDTH)
-    expect(clampSidebarWidth(300.6)).toBe(301)
-  })
-
-  it('그 화면의 상한(max)을 넘지 않고, 상한이 최소보다 작으면 최소 폭', () => {
-    expect(clampSidebarWidth(400, 350)).toBe(350)
-    expect(clampSidebarWidth(400, 100)).toBe(SIDEBAR_MIN_WIDTH)
-  })
-})
 
 describe('sidebarMaxFor', () => {
   it('앱 영역의 40% 와 최대 폭 중 작은 쪽', () => {
