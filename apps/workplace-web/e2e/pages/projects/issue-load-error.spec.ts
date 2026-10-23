@@ -21,12 +21,15 @@ async function mockSearch(page: import('@playwright/test').Page, failing: () => 
       if (failing()) {
         return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: '서버 오류' }) });
       }
-      const status = new URL(route.request().url()).searchParams.get('status') ?? 'TODO';
+      // 목록은 범주(status)로, 보드 컬럼은 프로젝트 상태 id(statusId — 시드 할 일 = 1)로 좁혀 온다(WP-808).
+      const params = new URL(route.request().url()).searchParams;
+      const statusId = params.get('statusId');
+      const todo = statusId != null ? statusId === '1' : (params.get('status') ?? 'TODO').includes('TODO');
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(
-          createIssueSearchResponse(status.includes('TODO') ? [createIssue({ number: 7, title: '살아 있는 이슈', status: 'TODO' })] : [], null),
+          createIssueSearchResponse(todo ? [createIssue({ number: 7, title: '살아 있는 이슈', status: 'TODO' })] : [], null),
         ),
       });
     },
@@ -77,11 +80,11 @@ test.describe('이슈 불러오기 실패 상태 (WP-858)', () => {
     await page.goto(`/projects/${KEY}?view=board`);
 
     await expect(page.getByTestId('issue-load-error')).toBeVisible();
-    await expect(page.getByTestId('board-col-TODO')).toHaveCount(0);
+    await expect(page.getByTestId('board-col-1')).toHaveCount(0);
 
     failing = false;
     await page.getByTestId('issue-load-retry').click();
-    await expect(page.getByTestId('board-col-TODO')).toContainText('살아 있는 이슈');
+    await expect(page.getByTestId('board-col-1')).toContainText('살아 있는 이슈');
     await expect(page.getByTestId('issue-load-error')).toHaveCount(0);
   });
 
