@@ -115,6 +115,20 @@ test.describe('이슈 라벨 즉석 만들기', () => {
     expect(puts.count()).toBe(1);
   });
 
+  // WP-850: 검색어가 곧 새 라벨 이름이라 설정 화면 폼처럼 40자에서 입력이 멈춘다 — 41자를 넣어도 40자로 만든다.
+  test('라벨 이름은 40자에서 입력이 멈추고, 그 이름 그대로 만든다', async ({ authenticatedPage: page }) => {
+    await stubIssueWithLabels(page);
+    const posts = trackRequests(page, 'POST', LABELS_PATH);
+    const picker = await openPicker(page);
+    const search = picker.getByLabel('라벨 검색');
+
+    await search.pressSequentially('가'.repeat(41));
+    await expect(search).toHaveValue('가'.repeat(40));
+    await search.press('Enter');
+    await posts.waitFor();
+    expect(posts.lastBody()).toEqual({ name: '가'.repeat(40), colorToken: 'GRAY' });
+  });
+
   // WP-458: 두 번 클릭은 다시 그리기 전에 들어와 isPending 으로는 못 막는다 — 요청 한 번, 만든 라벨은 체크된 채 부착.
   test('만들기를 빠르게 두 번 눌러도 POST 는 한 번이고 만든 라벨이 이슈에 붙는다', async ({ authenticatedPage: page }) => {
     await stubIssueWithLabels(page);
