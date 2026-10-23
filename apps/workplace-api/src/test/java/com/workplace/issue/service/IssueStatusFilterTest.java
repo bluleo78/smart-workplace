@@ -147,6 +147,20 @@ class IssueStatusFilterTest extends IntegrationTestBase {
     assertThat(titles(Map.of("statusName", " review "))).containsExactly("english");
   }
 
+  /** 한글 입력기의 전각 공백(U+3000)처럼 trim 이 못 지우는 앞뒤 공백도 서버 이름 규칙(strip)대로 무시한다. */
+  @Test
+  void statusName은_전각공백도_무시한다() {
+    assertThat(titles(Map.of("statusName", "\u3000검토 중\u3000"))).containsExactly("reviewing");
+  }
+
+  /** 저장 규칙(SingleLineTitles: NFC·보이지 않는 가장자리 문자)과 같게 — 자모 분리(NFD) 토큰·뒤에 붙은 제로폭 공백도 같은 이름이다. */
+  @Test
+  void statusName은_NFD_토큰과_제로폭_가장자리도_같은이름으로_본다() {
+    String nfd = java.text.Normalizer.normalize("검토 중", java.text.Normalizer.Form.NFD);
+    assertThat(titles(Map.of("statusName", nfd))).containsExactly("reviewing");
+    assertThat(titles(Map.of("statusName", "검토 중\u200B"))).containsExactly("reviewing");
+  }
+
   @Test
   void statusId와_statusName은_합집합() {
     assertThat(titles(Map.of("statusId", String.valueOf(todo), "statusName", "검토 중")))

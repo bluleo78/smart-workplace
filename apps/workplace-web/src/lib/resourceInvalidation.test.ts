@@ -86,6 +86,27 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
     expect(keysOf('milestone', 'deleted')).not.toContainEqual(['home', 'activity']);
   });
 
+  it('project-status 수정(이름 변경) → 상태 목록 + 이슈 값 대상 + 상태 이름을 싣는 교차 프로젝트 이슈 목록(WP-808)', () => {
+    const keys = keysOf('project-status', 'updated');
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ['projectStatuses', 'EX'],
+        ['issues', 'search', 'EX'],
+        ['issues', 'EX'],
+        ['me-issues'],
+        ['watched-issues'],
+        ['ai-tasks'],
+        ['my-issue-dues'],
+        ['home', 'myIssues'],
+        ['home', 'watched'],
+      ]),
+    );
+    // 같은 키를 두 번 무효화하지 않는다
+    expect(new Set(keys.map((k) => JSON.stringify(k))).size).toBe(keys.length);
+    // 새 상태(생성)는 아직 쓰는 이슈가 없어 상태 목록만
+    expect(keysOf('project-status', 'created')).toEqual([['projectStatuses', 'EX']]);
+  });
+
   it('cycle 수정·삭제 → cycles·cycleProgress·issueCycles + 이슈 값 대상', () => {
     expect(keysOf('cycle', 'deleted')).toEqual([
       ['cycles', 'EX'],

@@ -177,6 +177,8 @@ export function IssueMobilePropertyChips({
         title="상태"
         value={String(issue.statusId)}
         options={statusPickerOptions(statuses)}
+        // 상태 이름은 30자까지라 한 줄 말줄임이면 앞부분만 같은 상태를 구별하지 못한다 — 두 줄까지 보인다.
+        wrapLabels
         onSelect={(v) => {
           const next = findStatus(statuses, v);
           if (!next || next.id === issue.statusId) return;

@@ -473,6 +473,10 @@ public class IssueRepository {
       LocalDate startDate,
       Long milestoneId,
       java.time.Instant closedAt) {
+    // 범주는 필수다 — null 이면 아래 비교가 NPE 로, 기본 상태 조회가 「null 범주」 오류로 새지 않게 이유를 밝혀 거절한다
+    if (status == null) {
+      throw new IllegalArgumentException("updateAll: 상태 범주(status)는 null 일 수 없습니다: issue " + id);
+    }
     var current =
         dsl.select(ISSUE.PROJECT_ID, ISSUE.STATUS, ISSUE.STATUS_ID)
             .from(ISSUE)

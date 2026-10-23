@@ -116,7 +116,13 @@ const RULES: Record<string, Rule> = {
   'field-def': configRule((pk) => [{ queryKey: ['customFields', pk] }]),
   'issue-type': configRule((pk) => [{ queryKey: ['issueTypes', pk] }]),
   // 프로젝트별 이슈 상태(WP-807) — 보드 컬럼·상태 고르기가 쓰는 상태 목록.
-  'project-status': configRule((pk) => [{ queryKey: ['projectStatuses', pk] }]),
+  // 이름 변경·삭제는 statusName 을 싣는 교차 프로젝트 이슈 목록(AI 작업·마감·홈 위젯)도 바꾼다 — 행위자 탭을 포함한 모든 화면이 이 이벤트로 맞춘다.
+  'project-status': (p) => {
+    const own = configRule((pk) => [{ queryKey: ['projectStatuses', pk] }])(p);
+    if (p.op === 'created' || !p.projectKey) return own;
+    const seen = new Set(own.map((t) => JSON.stringify(t.queryKey)));
+    return [...own, ...MY_ISSUE_TARGETS.filter((t) => !seen.has(JSON.stringify(t.queryKey)))];
+  },
   'saved-view': (p) => [
     ...(p.projectKey ? [{ queryKey: ['savedViews', p.projectKey] }] : []),
     { queryKey: ['pinnedViews'] },

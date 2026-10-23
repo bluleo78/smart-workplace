@@ -66,12 +66,16 @@ public class ProjectStatusService {
     repo.lockByProject(project.id());
     // 잠근 뒤 목록을 한 번 읽는다 — 잠금을 기다린 쪽은 잠금 문장에서 상대가 방금 넣은 행을 보지 못한다(READ COMMITTED).
     int anchor = anchorPosition(repo.findByProject(project.id()), category, req.afterStatusId());
+    // 중복은 쓰기 전에 거른다 — 유일 인덱스 위반은 트랜잭션을 중단시켜, 같은 트랜잭션에서 이어지는 문장(호출부의 후속 처리 등)까지 실패하게 한다
+    if (repo.existsName(project.id(), name, null)) {
+      throw new StatusNameDuplicatedException(name);
+    }
     repo.shiftPositionsAfter(project.id(), anchor);
     ProjectStatusRow row;
     try {
       row = repo.insert(project.id(), name, category, anchor + 1);
     } catch (DuplicateKeyException e) {
-      // 이름 중복은 유일 인덱스(project_id, lower(btrim(name)))가 판정한다 — 미리 확인하지 않고 막힌 것을 409 로(트랜잭션은 롤백)
+      // 추가·이름 변경은 같은 잠금 아래라 보통 위 확인이 거른다 — 잠금을 거치지 않는 쓰기와의 경합만 유일 인덱스가 막고, 그때도 같은 409 로(트랜잭션은 롤백)
       throw new StatusNameDuplicatedException(name);
     }
     changeNotifier.changed(
@@ -88,11 +92,17 @@ public class ProjectStatusService {
     if (!current.projectId().equals(project.id())) {
       throw new StatusNotFoundException();
     }
+    // 추가와 같이 프로젝트 상태 행을 잠근 뒤 확인한다 — 같은 프로젝트의 추가·이름 변경이 직렬화돼 확인과 쓰기 사이에 같은 이름이 끼어들지
+    // 않는다. 자기 자신은 빼고 확인한다(자기 이름 그대로·대소문자만 바꿈은 중복이 아니다).
+    repo.lockByProject(project.id());
+    if (repo.existsName(project.id(), name, statusId)) {
+      throw new StatusNameDuplicatedException(name);
+    }
     ProjectStatusRow row;
     try {
       row = repo.rename(statusId, name);
     } catch (DuplicateKeyException e) {
-      // 이름 중복은 유일 인덱스가 판정한다 — 자기 이름 그대로(대소문자만 바꿈 포함)는 같은 행이라 걸리지 않는다
+      // 잠금을 거치지 않는 쓰기와의 경합은 여전히 유일 인덱스가 막는다 — 그때도 같은 409 로(트랜잭션은 롤백)
       throw new StatusNameDuplicatedException(name);
     }
     changeNotifier.changed(

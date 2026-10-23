@@ -22,8 +22,8 @@ import org.springframework.stereotype.Repository;
 
 /**
  * 프로젝트별 이슈 상태(project_status) jOOQ 리포지토리(WP-807). 목록은 늘 「범주 순서 → position → id」 로 정렬해 보드 컬럼 순서와 같게
- * 돌려준다. 이름 유일성은 DB 유일 인덱스(project_id, lower(btrim(name)))가 최종 보장하고, 위반은 Spring 예외 변환으로 {@code
- * DuplicateKeyException} 이 된다.
+ * 돌려준다. 이름 중복은 서비스가 {@link #existsName} 으로 먼저 거르고, DB 유일 인덱스(project_id, lower(btrim(name)))가 경쟁까지
+ * 최종 보장한다 — 위반은 Spring 예외 변환으로 {@code DuplicateKeyException} 이 된다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -111,10 +111,10 @@ public class ProjectStatusRepository {
   }
 
   /**
-   * 프로젝트의 상태 행을 모두 잠근다(FOR NO KEY UPDATE) — 상태 추가가 position 을 정하고 뒤 행을 밀어내는 동안 같은 프로젝트의 다른 추가가 끼어들지
-   * 못하게. NO KEY UPDATE 끼리는 서로 막아 동시 추가는 직렬화되지만, 이슈 INSERT·status_id 변경의 FK 검사(FOR KEY SHARE)는 막지
-   * 않는다. 잠금을 기다렸던 쪽은 상대가 커밋한 새 행을 이 결과에서 보지 못하므로(READ COMMITTED), position 계산은 잠근 뒤 다시 조회해서 한다 —
-   * 그래서 잠금은 id 만 읽는다.
+   * 프로젝트의 상태 행을 모두 잠근다(FOR NO KEY UPDATE) — 상태 추가가 position 을 정하고 뒤 행을 밀어내는 동안, 그리고 추가·이름 변경이 이름
+   * 중복을 확인하고 쓰는 동안 같은 프로젝트의 다른 추가·이름 변경이 끼어들지 못하게. NO KEY UPDATE 끼리는 서로 막아 동시 추가는 직렬화되지만, 이슈
+   * INSERT·status_id 변경의 FK 검사(FOR KEY SHARE)는 막지 않는다. 잠금을 기다렸던 쪽은 상대가 커밋한 새 행을 이 결과에서 보지 못하므로(READ
+   * COMMITTED), position 계산은 잠근 뒤 다시 조회해서 한다 — 그래서 잠금은 id 만 읽는다.
    */
   public void lockByProject(Long projectId) {
     dsl.select(PROJECT_STATUS.ID)
@@ -159,5 +159,21 @@ public class ProjectStatusRepository {
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(StatusNotFoundException::new);
+  }
+
+  /**
+   * 같은 프로젝트에 대소문자·앞뒤 공백만 다른 같은 이름이 있는가 — 유일 인덱스와 같은 식(lower(btrim))으로 비교한다. 서비스가 쓰기 전에 확인해 중복을 409
+   * 로 돌려준다(유일 인덱스 위반은 트랜잭션을 중단시켜 같은 트랜잭션의 이후 문장이 실패한다).
+   *
+   * @param excludeId 이름을 바꾸는 상태 자신(추가할 때는 null)
+   */
+  public boolean existsName(Long projectId, String name, Long excludeId) {
+    var cond =
+        PROJECT_STATUS
+            .PROJECT_ID
+            .eq(projectId)
+            .and(DSL.lower(DSL.trim(PROJECT_STATUS.NAME)).eq(DSL.lower(DSL.trim(DSL.val(name)))));
+    if (excludeId != null) cond = cond.and(PROJECT_STATUS.ID.ne(excludeId));
+    return dsl.fetchExists(PROJECT_STATUS, cond);
   }
 }
