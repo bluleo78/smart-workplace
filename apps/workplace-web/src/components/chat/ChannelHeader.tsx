@@ -157,7 +157,10 @@ export function ChannelHeader({
               )}
               {canManage && (
                 <>
-                  <button type="button" data-testid="channel-rename-action" onClick={onOpenRename}>이름 변경</button>
+                  {/* 보관된 채널은 서버가 이름 변경을 거절한다(WP-508) — 입력창을 숨기는 것과 같은 기준으로 숨긴다(WP-843). */}
+                  {!channel.archived && (
+                    <button type="button" data-testid="channel-rename-action" onClick={onOpenRename}>이름 변경</button>
+                  )}
                   {channel.archived ? (
                     <button type="button" data-testid="channel-unarchive-action" onClick={() => unarchive.mutate()}>보관 해제</button>
                   ) : (
@@ -239,12 +242,15 @@ export function ChannelHeader({
                 <DropdownMenuContent align="end">
                   {canManage && (
                     <>
-                      <DropdownMenuItem
-                        data-testid="channel-rename-action"
-                        onClick={onOpenRename}
-                      >
-                        이름 변경
-                      </DropdownMenuItem>
+                      {/* 보관된 채널은 이름을 바꿀 수 없다 — 보관 해제만 남긴다(WP-843). */}
+                      {!channel.archived && (
+                        <DropdownMenuItem
+                          data-testid="channel-rename-action"
+                          onClick={onOpenRename}
+                        >
+                          이름 변경
+                        </DropdownMenuItem>
+                      )}
                       {channel.archived ? (
                         <DropdownMenuItem
                           data-testid="channel-unarchive-action"

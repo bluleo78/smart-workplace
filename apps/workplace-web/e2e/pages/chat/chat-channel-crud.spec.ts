@@ -289,6 +289,17 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await expectStays(page, () => reads.count(), 0, { message: '비멤버는 읽음 표시 요청을 보내지 않는다' })
   })
 
+  // WP-843: 보관된 채널은 서버가 이름 변경을 거절한다 — 설정 메뉴엔 「보관 해제」만 남고 「이름 변경」은 없다.
+  test('보관된 채널 OWNER → 설정 메뉴에 이름 변경 없이 보관 해제만', async ({ authenticatedPage: page }) => {
+    const archived = createChannel({ id: 42, name: '보관됨', archived: true, role: 'OWNER', member: true })
+    await stubChannelView(page, archived)
+    await page.goto('/chat/channels/42')
+    await expect(page.getByTestId('channel-archived-badge')).toBeVisible()
+    await page.getByTestId('channel-settings-btn').click()
+    await expect(page.getByTestId('channel-unarchive-action')).toBeVisible()
+    await expect(page.getByTestId('channel-rename-action')).toHaveCount(0)
+  })
+
   test('OWNER → 설정에서 이름 변경', async ({ authenticatedPage: page }) => {
     const ch = createChannel({ id: 41, name: '구이름', role: 'OWNER', member: true })
     await stubChannelView(page, ch)
