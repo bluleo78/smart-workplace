@@ -2,12 +2,13 @@
 // 앱 목록의 길게 누르기(고정·교체)가 빠른 교체라면, 이 화면은 칸 순서 조정까지 하는 상세 편집이다.
 // 드래그 대신 위/아래·추가/제거 버튼으로 편집한다(접근성·단순성). 모바일 전용.
 // 앱 목록에서 들어오는 푸시 화면 — ‹(앱 목록) + 제목 + 우측 [저장] 헤더, 탭바 없음(U2-2).
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useTabSlots } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
+import { eulReul, euroRo } from '@/lib/utils'
 
 // 탭바 사용자 칸 수(AI·앱 제외).
 const SLOT_COUNT = 3
@@ -19,13 +20,56 @@ export default function TabEditPage() {
   // 저장 전까지는 로컬 초안만 바꾼다(저장 시 탭바·localStorage 에 반영).
   const [draft, setDraft] = useState<MobileTabId[]>(saved)
   const navigate = useNavigate()
-  const move = (i: number, d: -1 | 1) =>
-    setDraft((s) => { const n = [...s]; [n[i], n[i + d]] = [n[i + d], n[i]]; return n })
   const candidates = ALL_TAB_IDS.filter((id) => !draft.includes(id))
   const full = draft.length >= SLOT_COUNT
   // 저장은 바뀐 것이 있을 때만(U3-R9) — 순서까지 같은지 칸별로 비교한다. 3칸을 다 채워야 저장할 수 있다.
   const changed = draft.length !== saved.length || draft.some((id, i) => id !== saved[i])
   const canSave = draft.length === SLOT_COUNT && changed
+
+  // 조작 뒤 초점 잇기·알림(WP-846) — 경계로 옮긴 「위로/아래로」, 빠진 행의 「빼기」, 3칸이 차 꺼진 「＋」는 눌린 버튼이
+  // 사라지거나 disabled 가 되어 초점이 body 로 사라졌다. 다시 그린 뒤 이어서 쓸 수 있는 버튼(후보를 앞에서부터)으로 옮기고,
+  // 바뀐 내용을 라이브 영역으로 알린다(보드·드라이브·대시보드 WP-837·840·842 와 같은 기준).
+  const focusNext = useRef<string[] | null>(null)
+  const [live, setLive] = useState('')
+  useEffect(() => {
+    const ids = focusNext.current
+    if (!ids) return
+    focusNext.current = null
+    for (const id of ids) {
+      const el = document.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)
+      if (el && !el.disabled) { el.focus(); return }
+    }
+  }, [draft])
+  const labelOf = (id: MobileTabId) => MOBILE_TABS[id].label
+
+  function move(i: number, d: -1 | 1) {
+    const j = i + d
+    const label = labelOf(draft[i])
+    // 같은 방향 버튼이 경계에서 꺼지면 반대 방향 버튼으로.
+    focusNext.current = d < 0 ? [`tab-edit-up-${j}`, `tab-edit-down-${j}`] : [`tab-edit-down-${j}`, `tab-edit-up-${j}`]
+    setLive(`${label}${eulReul(label)} ${j + 1}번째 칸${euroRo(`${j + 1}번째 칸`)} 옮겼습니다`)
+    setDraft((s) => { const n = [...s]; [n[i], n[j]] = [n[j], n[i]]; return n })
+  }
+
+  function remove(i: number) {
+    const id = draft[i]
+    const rest = draft.length - 1
+    // 같은 자리(마지막이었으면 앞) 칸의 「빼기」 → 남은 칸이 없으면 방금 뺀 앱의 「＋」.
+    focusNext.current = rest > 0 ? [`tab-edit-remove-${Math.min(i, rest - 1)}`] : [`tab-edit-add-${id}`]
+    setLive(`${labelOf(id)}${eulReul(labelOf(id))} 탭바에서 뺐습니다`)
+    setDraft((s) => s.filter((x) => x !== id))
+  }
+
+  function add(id: MobileTabId) {
+    const at = candidates.indexOf(id)
+    const rest = candidates.filter((x) => x !== id)
+    // 아직 칸이 남으면 같은 자리의 다음 후보 「＋」, 꽉 찼으면 「저장」(바뀐 게 없어 꺼져 있으면 추가한 칸의 「빼기」).
+    focusNext.current = draft.length + 1 < SLOT_COUNT && rest.length > 0
+      ? [`tab-edit-add-${rest[Math.min(at, rest.length - 1)]}`]
+      : ['tab-edit-save', `tab-edit-remove-${draft.length}`]
+    setLive(`${labelOf(id)}${eulReul(labelOf(id))} ${draft.length + 1}번째 칸에 추가했습니다`)
+    setDraft((s) => [...s, id])
+  }
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* 저장은 헤더 우측(스크롤 안에 두지 않음) — 3칸을 채우고 바뀐 것이 있어야 활성. 뒤로가기 = 앱 목록(moduleRootFor). */}
@@ -57,7 +101,7 @@ export default function TabEditPage() {
                 <Icon className="h-4 w-4" /><span className="flex-1 text-sm">{t.label}</span>
                 <button type="button" data-testid={`tab-edit-up-${i}`} aria-label={`${t.label} 위로`} disabled={i === 0} onClick={() => move(i, -1)} className={ICON_BTN}>↑</button>
                 <button type="button" data-testid={`tab-edit-down-${i}`} aria-label={`${t.label} 아래로`} disabled={i === draft.length - 1} onClick={() => move(i, 1)} className={ICON_BTN}>↓</button>
-                <button type="button" data-testid={`tab-edit-remove-${i}`} aria-label={`${t.label} 빼기`} onClick={() => setDraft((s) => s.filter((x) => x !== id))} className={`${ICON_BTN} text-destructive`}>−</button>
+                <button type="button" data-testid={`tab-edit-remove-${i}`} aria-label={`${t.label} 빼기`} onClick={() => remove(i)} className={`${ICON_BTN} text-destructive`}>−</button>
               </li>
             )
           })}
@@ -76,12 +120,13 @@ export default function TabEditPage() {
             return (
               <li key={id} className="flex min-h-11 items-center gap-2 pl-4 pr-1">
                 <Icon className="h-4 w-4" /><span className="flex-1 text-sm">{t.label}</span>
-                <button type="button" data-testid={`tab-edit-add-${id}`} aria-label={`${t.label} 추가`} disabled={full} onClick={() => setDraft((s) => [...s, id])} className={`${ICON_BTN} text-primary`}>＋</button>
+                <button type="button" data-testid={`tab-edit-add-${id}`} aria-label={`${t.label} 추가`} disabled={full} onClick={() => add(id)} className={`${ICON_BTN} text-primary`}>＋</button>
               </li>
             )
           })}
         </ul>
       </div>
+      <p className="sr-only" aria-live="polite" data-testid="tab-edit-live">{live}</p>
     </div>
   )
 }
