@@ -35,8 +35,9 @@ test('앱 목록: 전체 10개 앱이 순서대로 보이고 탭바 고정 앱�
   await expect(page.getByTestId('apps-app-settings')).toBeVisible()
   const ids = await page.locator('[data-testid^="apps-app-"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
   expect(ids).toEqual(ALL_APPS.map((id) => `apps-app-${id}`))
-  for (const id of ['home', 'chat', 'mail']) await expect(page.getByTestId(`apps-pinned-${id}`)).toBeVisible()
-  await expect(page.getByTestId('apps-pinned-calendar')).toHaveCount(0)
+  // 넓은 폰(iPhone 13, 390pt) 기본 구성 5칸(WP-877).
+  for (const id of ['home', 'chat', 'mail', 'calendar', 'drive']) await expect(page.getByTestId(`apps-pinned-${id}`)).toBeVisible()
+  await expect(page.getByTestId('apps-pinned-tasks')).toHaveCount(0)
   await expect(page.getByTestId('apps-app-home')).toHaveAccessibleName(/탭바에 고정됨/)
   // 탭바 끝 칸은 "앱" 이고 /apps 에서 활성.
   await expect(page.getByTestId('mobile-tab-apps')).toHaveAttribute('aria-current', 'page')
@@ -50,10 +51,10 @@ test('앱 목록: 전체 10개 앱이 순서대로 보이고 탭바 고정 앱�
   await expect(page).toHaveURL(/\/calendar$/)
 })
 
-test('길게 누르기: 캘린더를 메일 대신 고정하면 3번째 칸에 들어가고 새로고침 후에도 유지', async ({ authenticatedPage: page }) => {
+test('길게 누르기: 작업을 메일 대신 고정하면 3번째 칸에 들어가고 새로고침 후에도 유지', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
-  await longPress(page, 'apps-app-calendar')
+  await longPress(page, 'apps-app-tasks')
   // 길게 누르기는 이동을 일으키지 않는다(뗄 때의 click 억제).
   await expect(page).toHaveURL(/\/apps$/)
   await expect(page.getByTestId('apps-swap')).toHaveCount(0)
@@ -63,13 +64,14 @@ test('길게 누르기: 캘린더를 메일 대신 고정하면 3번째 칸에 �
   await expectNoHorizontalOverflow(page)
   await page.getByTestId('apps-replace-mail').click()
   await expect(page.getByTestId('apps-menu')).toHaveCount(0)
-  await expect(page.getByText('캘린더를 탭바에 고정했어요')).toBeVisible()
-  expect(await tabIds(page)).toEqual(['mobile-tab-home', 'mobile-tab-chat', 'mobile-tab-ai', 'mobile-tab-calendar', 'mobile-tab-apps'])
-  await expect(page.getByTestId('apps-pinned-calendar')).toBeVisible()
+  await expect(page.getByText('작업을 탭바에 고정했어요')).toBeVisible()
+  const pinned = ['mobile-tab-home', 'mobile-tab-chat', 'mobile-tab-tasks', 'mobile-tab-ai', 'mobile-tab-calendar', 'mobile-tab-drive', 'mobile-tab-apps']
+  expect(await tabIds(page)).toEqual(pinned)
+  await expect(page.getByTestId('apps-pinned-tasks')).toBeVisible()
   await expect(page.getByTestId('apps-pinned-mail')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
   await page.reload()
-  expect(await tabIds(page)).toEqual(['mobile-tab-home', 'mobile-tab-chat', 'mobile-tab-ai', 'mobile-tab-calendar', 'mobile-tab-apps'])
+  expect(await tabIds(page)).toEqual(pinned)
   await expect(page).toHaveURL(/\/apps$/)
 })
 
@@ -84,9 +86,11 @@ test('고정된 앱 우클릭(contextmenu): 다른 앱으로 교체하면 같은
   await expect(page.getByTestId('apps-swap-to-home')).toHaveCount(0)
   await expect(page.getByTestId('apps-swap-to-settings')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
-  await page.getByTestId('apps-swap-to-drive').click()
-  await expect(page.getByText('드라이브를 탭바에 고정했어요')).toBeVisible()
-  expect(await tabIds(page)).toEqual(['mobile-tab-home', 'mobile-tab-drive', 'mobile-tab-ai', 'mobile-tab-mail', 'mobile-tab-apps'])
+  await page.getByTestId('apps-swap-to-wiki').click()
+  await expect(page.getByText('노트를 탭바에 고정했어요')).toBeVisible()
+  expect(await tabIds(page)).toEqual([
+    'mobile-tab-home', 'mobile-tab-wiki', 'mobile-tab-mail', 'mobile-tab-ai', 'mobile-tab-calendar', 'mobile-tab-drive', 'mobile-tab-apps',
+  ])
   await expect(page).toHaveURL(/\/apps$/)
   await expectNoHorizontalOverflow(page)
 })
@@ -191,20 +195,23 @@ test('앱 목록의 "탭바 순서 편집" 링크 → /apps/tabs', async ({ auth
   await expectNoHorizontalOverflow(page)
 })
 
-test('탭 편집: 메일을 빼고 캘린더를 넣으면 새로고침 후에도 유지', async ({ authenticatedPage: page }) => {
+test('탭 편집: 메일을 빼고 작업을 넣으면 새로고침 후에도 유지', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps/tabs')
+  // 넓은 폰은 5칸을 고른다(WP-877).
+  await expect(page.getByText('나머지 5칸을 고르세요')).toBeVisible()
+  await expect(page.getByTestId('tab-edit-slot-4')).toBeVisible()
   await page.getByTestId('tab-edit-remove-2').click() // mail
-  await page.getByTestId('tab-edit-add-calendar').click()
+  await page.getByTestId('tab-edit-add-tasks').click()
   await page.getByTestId('tab-edit-save').click()
   await expect(page).toHaveURL(/\/apps$/)
   await page.reload()
-  await expect(page.getByTestId('mobile-tab-calendar')).toBeVisible()
+  await expect(page.getByTestId('mobile-tab-tasks')).toBeVisible()
   await expect(page.getByTestId('mobile-tab-mail')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 })
 
-test('탭 편집: 3칸 미만이면 저장 불가', async ({ authenticatedPage: page }) => {
+test('탭 편집: 칸을 다 채우지 않으면 저장 불가', async ({ authenticatedPage: page }) => {
   await page.goto('/apps/tabs')
   await page.getByTestId('tab-edit-remove-0').click()
   await expect(page.getByTestId('tab-edit-save')).toBeDisabled()

@@ -1,4 +1,5 @@
-// 모바일 하단 탭바 — [slot0, slot1, AI, slot2, 앱]. AI 는 가운데 칸의 그라데이션 캡슐(다른 탭과 같은 선상, AI 미사용이면 제외).
+// 모바일 하단 탭바 — 넓은 폰 [앱 3칸, AI, 앱 2칸, 앱 목록]·좁은 폰 [앱 2칸, AI, 앱 1칸, 앱 목록](WP-877).
+// AI 는 가운데 칸의 그라데이션 캡슐(다른 탭과 같은 선상, AI 미사용이면 제외).
 // Slack(탭바 회귀)·Teams(앱 1급 노출)·Linear(구성 변경) 패턴을 따른다.
 import { LayoutGrid } from 'lucide-react'
 import { useState } from 'react'
@@ -11,7 +12,7 @@ import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { unreadLabel, useAppUnreadCounts } from '@/hooks/useAppUnreadCounts'
 import { useObservedHeight } from '@/hooks/useObservedHeight'
 import { aiTriggerLabel } from '@/lib/ai/aiActivity'
-import { DEFAULT_TAB_SLOTS } from '@/lib/mobile/tabConfig'
+import { DEFAULT_TAB_SLOTS, visibleSlotCount } from '@/lib/mobile/tabConfig'
 import { MOBILE_TABS, type MobileTabId, under } from '@/lib/mobile/tabs'
 import { setMobileTabBarHeight } from '@/lib/mobileTabBar'
 import { cn } from '@/lib/utils'
@@ -59,8 +60,10 @@ export function MobileTabBar() {
   const aiAvailable = useAiAvailable()
   const chrome = useMobileChrome()
   const badges: Partial<Record<MobileTabId, number>> = useAppUnreadCounts()
-  // Provider 는 AppLayout 이 항상 감싸지만, 혹시 밖에서 렌더돼도 빈 슬롯(undefined 탭) 대신 기본 구성을 쓴다.
-  const slots = chrome?.slots ?? DEFAULT_TAB_SLOTS
+  // Provider 는 AppLayout 이 항상 감싸지만, 혹시 밖에서 렌더돼도 빈 슬롯(undefined 탭) 대신 기본 구성을 쓴다 — 어느 폭에도 들어가는 좁은 폰 칸 수로.
+  const slots = chrome?.slots ?? DEFAULT_TAB_SLOTS.slice(0, visibleSlotCount(false))
+  // AI 왼쪽에 둘 칸 수 — 앞쪽 절반(올림). 앱 목록 칸이 오른쪽 끝에 붙어 AI 가 정확히 가운데에 온다(5칸 → 3|2, 3칸 → 2|1).
+  const leftCount = Math.ceil(slots.length / 2)
   const aiOpen = mode !== 'closed'
 
   // 슬롯 탭: 이미 그 탭 루트면 AI 만 닫고(연 항목 되돌림) 본문을 맨 위로(모바일 관례).
@@ -113,8 +116,7 @@ export function MobileTabBar() {
       data-testid="mobile-tabbar"
       className="flex shrink-0 items-stretch border-t bg-background px-1 pb-[env(safe-area-inset-bottom)] pt-1"
     >
-      {renderSlot(slots[0])}
-      {renderSlot(slots[1])}
+      {slots.slice(0, leftCount).map(renderSlot)}
       {aiAvailable && (
         <button
           type="button"
@@ -148,7 +150,7 @@ export function MobileTabBar() {
           AI
         </button>
       )}
-      {renderSlot(slots[2])}
+      {slots.slice(leftCount).map(renderSlot)}
       <button
         type="button"
         data-testid="mobile-tab-apps"

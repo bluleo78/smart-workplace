@@ -1,30 +1,52 @@
-// 모바일 탭바 사용자 구성(가운데 AI·끝 앱 목록을 제외한 3칸) — localStorage 기기별 저장.
-// 손상·구버전 값은 조용히 기본값으로 복구한다(프라이빗 모드 등 storage 예외도 무시).
+// 모바일 탭바 사용자 구성(가운데 AI·끝 앱 목록을 제외한 칸) — localStorage 기기별 저장.
+// 늘 5개를 저장하고, 화면 폭에 따라 앞에서부터 보이는 칸 수만큼 쓴다(넓은 폰 5칸 = 탭바 7칸, 좁은 폰 3칸 = 탭바 5칸, WP-877).
+// 손상 값은 조용히 기본값으로 복구하고, 예전 3칸 구성은 기본 앱으로 채워 5개로 늘린다(프라이빗 모드 등 storage 예외도 무시).
 import { ALL_TAB_IDS, type MobileTabId } from './tabs'
 
 const TAB_SLOTS_KEY = 'mobile-tabs'
-export const DEFAULT_TAB_SLOTS: MobileTabId[] = ['home', 'chat', 'mail']
-const SLOT_COUNT = 3
+export const DEFAULT_TAB_SLOTS: MobileTabId[] = ['home', 'chat', 'mail', 'calendar', 'drive']
+// 저장하는 칸 수 = 넓은 폰에서 보이는 칸 수.
+const SLOT_COUNT = DEFAULT_TAB_SLOTS.length
+// 좁은 폰에서 보이는 칸 수 — WP-877 이전 구성의 칸 수와 같다.
+const NARROW_SLOT_COUNT = 3
 
 /** 기본 구성의 복사본 — 호출부가 결과 배열을 바꿔도 DEFAULT_TAB_SLOTS 가 오염되지 않게. */
 const fallback = (): MobileTabId[] => [...DEFAULT_TAB_SLOTS]
 
-/** 3칸·알려진 id·중복 없음 규칙을 모두 만족하는 구성인가. */
-function isValidSlots(v: unknown): v is MobileTabId[] {
+/** 지금 화면에서 보이는 사용자 칸 수 — 넓으면 저장한 5칸 모두, 좁으면 앞의 3칸. */
+export function visibleSlotCount(wide: boolean): number {
+  return wide ? SLOT_COUNT : NARROW_SLOT_COUNT
+}
+
+/** 알려진 id·중복 없음 규칙을 만족하는 count 칸 구성인가. */
+function isValidSlots(v: unknown, count: number): v is MobileTabId[] {
   return (
     Array.isArray(v) &&
-    v.length === SLOT_COUNT &&
+    v.length === count &&
     v.every((x) => typeof x === 'string' && (ALL_TAB_IDS as string[]).includes(x)) &&
     new Set(v).size === v.length
   )
 }
 
-/** 저장 문자열을 검증해 3칸 구성으로 변환. 규칙 위반·JSON 손상 시 기본값. */
+/**
+ * 보이는 칸 구성(visible)을 저장 구성(all, 5칸)에 합친다 — 넓은 폰은 5칸을 다 넘기므로 visible 이 그대로 저장 구성이다.
+ * 좁은 폰은 앞 3칸만 바꾸고 안 보이는 뒤 칸은 그대로 둔다. 다만 뒤 칸에 있던 앱을 앞으로 가져오면(고정·교체) 중복이 되므로
+ * 그 자리에 앞에서 빠진 앱을 넣는다(자리 맞바꿈). 앞으로 온 뒤 칸 앱 수만큼 앞에서 빠진 앱이 있으므로 늘 채워진다.
+ */
+export function mergeVisibleSlots(all: readonly MobileTabId[], visible: readonly MobileTabId[]): MobileTabId[] {
+  const freed = all.slice(0, visible.length).filter((id) => !visible.includes(id))
+  const tail = all.slice(visible.length).map((id) => (visible.includes(id) ? freed.shift()! : id))
+  return [...visible, ...tail]
+}
+
+/** 저장 문자열을 검증해 5칸 구성으로 변환. 예전 3칸 구성은 기본 앱으로 채우고, 규칙 위반·JSON 손상 시 기본값. */
 export function parseTabSlots(raw: string | null): MobileTabId[] {
   if (!raw) return fallback()
   try {
     const v: unknown = JSON.parse(raw)
-    return isValidSlots(v) ? v : fallback()
+    if (isValidSlots(v, SLOT_COUNT)) return v
+    // 예전 3칸 = 기본 구성의 앞 3칸을 고친 것으로 보고 합친다 — 뒤 칸은 기본 구성의 캘린더·드라이브(앞으로 옮겨 왔으면 빠진 기본 앱).
+    return isValidSlots(v, NARROW_SLOT_COUNT) ? mergeVisibleSlots(DEFAULT_TAB_SLOTS, v) : fallback()
   } catch {
     return fallback()
   }
@@ -39,7 +61,11 @@ function readSaved(): string | null {
   }
 }
 
-/** localStorage 에서 탭 구성을 읽는다 — 접근 불가·손상 값이면 기본 구성. */
+/**
+ * localStorage 에서 탭 구성을 읽는다 — 접근 불가·손상 값이면 기본 구성.
+ * 예전 3칸 구성은 읽을 때마다 채우고 다시 쓰지 않는다 — 아직 옛 버전 앱을 띄운 다른 창이 5칸 값을 못 읽어
+ * 탭바가 기본값으로 돌아가지 않게. 사용자가 탭바를 고쳐 저장할 때 5칸으로 바뀐다.
+ */
 export function loadTabSlots(): MobileTabId[] {
   return parseTabSlots(readSaved())
 }
