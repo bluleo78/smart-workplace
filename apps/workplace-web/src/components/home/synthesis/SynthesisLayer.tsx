@@ -22,6 +22,7 @@ import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useN
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { todayRange } from '@/lib/calendarRange'
 import { HIT_AREA_COARSE, HIT_AREA_COARSE_TIGHT } from '@/lib/hitArea'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
@@ -175,7 +176,8 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
   // 행을 만드는 소스 중 실패한 것(WP-865) — 하나라도 실패하면 0건이어도 「다 확인했습니다」라고 말할 수 없고,
   // 행이 있어도 빠진 소스가 있음을 알린다. AI 우선순위(priority)는 정렬 점수만 주고 행을 만들지 않아(없으면 고정 순위로 폴백) 넣지 않는다.
   // 다시 시도는 실패한 소스만 다시 부른다.
-  const failedSources = previewData ? [] : [dues, notifs, mail, messaging].filter((q) => q.isError)
+  // 다시 부르는 동안(pending)에도 실패로 둔다 — 안내가 「다 확인했습니다」로 바뀌면 다시 시도의 초점이 사라진다(WP-881).
+  const failedSources = previewData ? [] : [dues, notifs, mail, messaging].filter(showsLoadError)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리). previewData 있으면 항상 로딩/에러 없음으로 고정.
   // ai=true 이면 CountCell 이 Sparkles 배지를 표시(AI 분류 활성 신호).

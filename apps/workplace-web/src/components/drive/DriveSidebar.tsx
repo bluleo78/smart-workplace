@@ -36,6 +36,7 @@ import { extractApiError } from '@/lib/api-error'
 import { canManageDriveSpace, hasDriveSpaceMembers, partitionSpaces } from '@/lib/driveSpaces'
 import { formatFileSize } from '@/lib/formatters'
 import { HIT_AREA_COARSE } from '@/lib/hitArea'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -194,7 +195,7 @@ export function DriveSidebar() {
           </button>
         </div>
         {/* 첫 조회 실패는 공간 없는 새 사용자 화면과 구분해 안내 + 다시 시도(WP-865) */}
-        {spacesQuery.isLoadingError && (
+        {failedWithoutData(spacesQuery) && (
           <LoadErrorState
             variant="inline"
             title="공간 목록을 불러오지 못했습니다"

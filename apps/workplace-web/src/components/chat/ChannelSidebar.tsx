@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { previewLine } from '@/lib/conversationPreview'
 import { dmDisplayName, isSelfDm } from '@/lib/dm'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { SELECTED_NAV_CLASS, SELECTED_ROW_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -123,9 +124,10 @@ export function ChannelSidebar() {
             </Button>
           </div>
         </div>
-        {isLoading && <div className="px-3 text-sm text-muted-foreground">불러오는 중…</div>}
+        {/* 첫 조회 실패는 다시 부르는 동안에도 안내를 그대로 둔다 — 「불러오는 중…」으로 바뀌면 다시 시도의 초점이 사라진다(WP-881). */}
+        {isLoading && !failedWithoutData(channelsQuery) && <div className="px-3 text-sm text-muted-foreground">불러오는 중…</div>}
         {/* 첫 조회 실패는 채널 없는 화면과 구분해 안내 + 다시 시도(WP-865) */}
-        {channelsQuery.isLoadingError && (
+        {failedWithoutData(channelsQuery) && (
           <LoadErrorState
             variant="inline"
             title="채널 목록을 불러오지 못했습니다"

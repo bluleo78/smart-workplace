@@ -66,6 +66,7 @@ import {
 import { headerMonthLabel } from '@/lib/calendarAgenda'
 import { RECURRING_TAGS_NOTE } from '@/lib/calendarTag'
 import { parseId } from '@/lib/historyParam'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
 import type {
   Calendar,
@@ -182,8 +183,8 @@ export function CalendarPage() {
   const issueDuesQuery = useMyIssueDues(from, to, { enabled: !mobileAgenda })
   const { data: issueDues = [] } = issueDuesQuery
   // 본문 범위 조회 중 첫 조회에 실패한 것(WP-865) — 일정·이슈 마감 어느 쪽이든 빠진 채 「없음」으로 보이지 않게 달력 위에 알린다.
-  const failedRange = [eventsQuery, issueDuesQuery].filter((q) => q.isLoadingError)
-  const failedRangeTitle = eventsQuery.isLoadingError ? '일정을 불러오지 못했습니다' : '이슈 마감을 불러오지 못했습니다'
+  const failedRange = [eventsQuery, issueDuesQuery].filter(failedWithoutData)
+  const failedRangeTitle = failedWithoutData(eventsQuery) ? '일정을 불러오지 못했습니다' : '이슈 마감을 불러오지 못했습니다'
 
   // 캘린더 표시 토글 + 초대받은 일정 토글 존중.
   // 내 캘린더(myCalendarIds) 면 캘린더별 토글, 아니면 invited 토글.

@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useDriveItems } from '@/hooks/queries/useDriveItems'
 import { useDriveSpaces } from '@/hooks/queries/useDriveSpaces'
 import { driveSpaceTypeLabel } from '@/lib/driveSpaces'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { DriveSpace } from '@/types/drive'
 
 import { WidgetError } from './WidgetError'
@@ -34,17 +35,18 @@ export default function DriveWidget({
 
   if (isSpaceMode) {
     // 스페이스 목록 모드.
+    // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+    if (!previewData && showsLoadError(spaces)) {
+      return (
+        <WidgetFrame title="드라이브">
+          <WidgetError onRetry={() => spaces.refetch()} retrying={spaces.isFetching} testId="drive-error" />
+        </WidgetFrame>
+      )
+    }
     if (!previewData && spaces.isLoading) {
       return (
         <WidgetFrame title="드라이브">
           <Skeleton className="h-24 w-full" />
-        </WidgetFrame>
-      )
-    }
-    if (!previewData && spaces.isError) {
-      return (
-        <WidgetFrame title="드라이브">
-          <WidgetError onRetry={() => spaces.refetch()} testId="drive-error" />
         </WidgetFrame>
       )
     }
@@ -85,17 +87,17 @@ export default function DriveWidget({
   }
 
   // 아이템 목록 모드(spaceId 지정).
+  if (showsLoadError(items)) {
+    return (
+      <WidgetFrame title="드라이브">
+        <WidgetError onRetry={() => items.refetch()} retrying={items.isFetching} testId="drive-error" />
+      </WidgetFrame>
+    )
+  }
   if (items.isLoading) {
     return (
       <WidgetFrame title="드라이브">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    )
-  }
-  if (items.isError) {
-    return (
-      <WidgetFrame title="드라이브">
-        <WidgetError onRetry={() => items.refetch()} testId="drive-error" />
       </WidgetFrame>
     )
   }

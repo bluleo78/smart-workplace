@@ -3,6 +3,7 @@ import { FolderKanban } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectMembers } from '@/hooks/queries/useProjectMembers'
 import { useProject } from '@/hooks/queries/useProjects'
+import { showsLoadError } from '@/lib/queryFailure'
 
 import { WidgetError } from './WidgetError'
 import { WidgetFrame } from './WidgetFrame'
@@ -45,24 +46,24 @@ function ProjectDetailContent({ projectKey }: { projectKey: string }) {
   const project = useProject(projectKey)
   const members = useProjectMembers(projectKey)
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  const failed = [project, members].filter(showsLoadError)
+  if (failed.length > 0) {
+    return (
+      <WidgetFrame title="프로젝트 상세">
+        {/* 실패한 쿼리를 모두 다시 부른다 — 둘 다 실패했을 때 두 번 누르지 않게. */}
+        <WidgetError
+          onRetry={() => failed.forEach((q) => void q.refetch())}
+          retrying={failed.some((q) => q.isFetching)}
+          testId="project-error"
+        />
+      </WidgetFrame>
+    )
+  }
   if (project.isLoading || members.isLoading) {
     return (
       <WidgetFrame title="프로젝트 상세">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    )
-  }
-  if (project.isError) {
-    return (
-      <WidgetFrame title="프로젝트 상세">
-        <WidgetError onRetry={() => project.refetch()} testId="project-error" />
-      </WidgetFrame>
-    )
-  }
-  if (members.isError) {
-    return (
-      <WidgetFrame title="프로젝트 상세">
-        <WidgetError onRetry={() => members.refetch()} testId="project-error" />
       </WidgetFrame>
     )
   }

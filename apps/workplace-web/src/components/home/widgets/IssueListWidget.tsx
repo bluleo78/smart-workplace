@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues } from '@/hooks/queries/useHomeQueries';
 import { extractApiError } from '@/lib/api-error';
 import { countOverdue } from '@/lib/issueOverdue';
+import { showsLoadError } from '@/lib/queryFailure';
 // 이슈 상태 전용 배지 — 범용 StatusBadge(type 기반)가 아니라 IssueStatus 를 직접 받는다.
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge';
 import type { IssueSearchResponse } from '@/types/issue';
@@ -22,10 +23,11 @@ export default function IssueListWidget({
   params?: Record<string, unknown>
   previewData?: IssueSearchResponse
 }) {
-  const { data: queryData, isLoading, isError, error, refetch } = useMyIssues(
+  const issues = useMyIssues(
     params ?? { assignee: 'me' },
     { enabled: !previewData },
   );
+  const { data: queryData, isLoading, error, refetch } = issues;
   // #841: 400 은 AI 가 준 필터 값(없는 라벨명·username 등)을 서버가 해석하지 못한 것 — 재시도로 풀리지 않으므로
   // 서버 사유(사용 가능 목록 포함)를 그대로 보여준다. 그 외 실패는 기본 문구 유지.
   const errorMessage =
@@ -35,11 +37,17 @@ export default function IssueListWidget({
   const data = previewData ?? queryData;
   return (
     <WidgetFrame title="이슈">
-      {!previewData && isLoading ? (
-        <Skeleton className="h-24 w-full" />
-      ) : !previewData && isError ? (
+      {/* 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881). */}
+      {!previewData && showsLoadError(issues) ? (
         // fetch 실패 — '배정된 이슈가 없어요' 거짓 빈 상태 대신 에러+재시도 표시(#205).
-        <WidgetError message={errorMessage} onRetry={() => refetch()} testId="issuelist-error" />
+        <WidgetError
+          message={errorMessage}
+          onRetry={() => refetch()}
+          retrying={issues.isFetching}
+          testId="issuelist-error"
+        />
+      ) : !previewData && isLoading ? (
+        <Skeleton className="h-24 w-full" />
       ) : data && data.items.length > 0 ? (
         <>
           {(() => {

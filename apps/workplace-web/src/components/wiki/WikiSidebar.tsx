@@ -40,6 +40,7 @@ import {
 } from '@/components/overlay/select'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { parseId } from '@/lib/historyParam'
+import { failedWithoutData } from '@/lib/queryFailure'
 import { canDeleteWikiSpace } from '@/lib/wikiSpaces'
 
 import { useDeletePage, useDeleteSpace, useMovePage } from '../../hooks/queries/useWikiMutations'
@@ -396,7 +397,7 @@ export function WikiSidebar() {
   )
   // 공간 목록 첫 조회 실패(WP-865) — 공간을 고르기 전(/wiki, 모바일 목록)엔 빈 선택 상자 대신 실패 안내 + 다시 시도.
   // 공간 안에서는 트리가 따로 조회되므로 아래에서 선택 상자 자리만 바꾸고 트리·새 노트는 그대로 둔다.
-  const spacesError = spacesQuery.isLoadingError ? (
+  const spacesError = failedWithoutData(spacesQuery) ? (
     <LoadErrorState
       variant="inline"
       title="노트 공간을 불러오지 못했습니다"

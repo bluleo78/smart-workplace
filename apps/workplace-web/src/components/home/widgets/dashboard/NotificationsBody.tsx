@@ -7,6 +7,7 @@ import { useMarkNotificationRead } from '@/hooks/queries/useMarkNotificationRead
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { HIT_AREA_Y_COARSE } from '@/lib/hitArea'
 import { groupNotifications } from '@/lib/notifGrouping'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { NotificationResponse } from '@/types/notification'
 
 import { WidgetError } from '../WidgetError'
@@ -33,6 +34,9 @@ export default function NotificationsBody({
   // 위젯은 요약이므로 첫 페이지(최근 20건)만 사용 — 무한스크롤은 InboxPanel 담당(#610).
   const rawItems = previewData ?? flattenNotificationPages(list.data?.pages)
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (!previewData && showsLoadError(list))
+    return <WidgetError onRetry={() => list.refetch()} retrying={list.isFetching} testId="dash-notif-error" />
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
   if (!previewData && list.isLoading)
     return (
@@ -40,8 +44,6 @@ export default function NotificationsBody({
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (!previewData && list.isError)
-    return <WidgetError onRetry={() => list.refetch()} testId="dash-notif-error" />
 
   const grouped = groupNotifications(rawItems ?? [])
   // 캐치업: 미읽음 그룹만 노출(읽은 이력은 인박스 패널 담당).

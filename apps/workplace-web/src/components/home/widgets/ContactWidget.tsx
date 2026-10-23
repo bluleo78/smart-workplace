@@ -2,6 +2,7 @@ import { Contact } from 'lucide-react'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useContactDetail } from '@/hooks/queries/useContactDetail'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { ExternalContactDetail } from '@/types/contact'
 
 import { WidgetError } from './WidgetError'
@@ -46,17 +47,18 @@ function ContactDetailContent({ externalId }: { externalId: number }) {
   // AI 연락처 도메인은 외부 연락처 — type 'EXTERNAL' 고정.
   const contact = useContactDetail({ type: 'EXTERNAL', id: externalId })
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (showsLoadError(contact)) {
+    return (
+      <WidgetFrame title="연락처 상세">
+        <WidgetError onRetry={() => contact.refetch()} retrying={contact.isFetching} testId="contact-error" />
+      </WidgetFrame>
+    )
+  }
   if (contact.isLoading) {
     return (
       <WidgetFrame title="연락처 상세">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    )
-  }
-  if (contact.isError) {
-    return (
-      <WidgetFrame title="연락처 상세">
-        <WidgetError onRetry={() => contact.refetch()} testId="contact-error" />
       </WidgetFrame>
     )
   }

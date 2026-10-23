@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjects } from '@/hooks/queries/useProjects'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { ProjectResponse } from '@/types/project'
 
 import { WidgetError } from './WidgetError'
@@ -19,20 +20,22 @@ export default function ProjectsWidget({
   params?: Record<string, unknown>
   previewData?: ProjectResponse[]
 }) {
-  const { data: queryData, isLoading, isError, refetch } = useProjects(0, 20, { enabled: !previewData })
+  const query = useProjects(0, 20, { enabled: !previewData })
+  const { data: queryData, isLoading, refetch } = query
   const data = previewData ? { content: previewData } : queryData
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (!previewData && showsLoadError(query)) {
+    return (
+      <WidgetFrame title="프로젝트">
+        <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="projects-error" />
+      </WidgetFrame>
+    )
+  }
   if (!previewData && isLoading) {
     return (
       <WidgetFrame title="프로젝트">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    )
-  }
-  if (!previewData && isError) {
-    return (
-      <WidgetFrame title="프로젝트">
-        <WidgetError onRetry={() => refetch()} testId="projects-error" />
       </WidgetFrame>
     )
   }

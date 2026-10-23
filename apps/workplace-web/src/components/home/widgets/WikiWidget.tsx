@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
 import { useWikiTree } from '@/hooks/queries/useWikiTree'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { WikiSpace } from '@/types/wiki'
 
 import { WidgetError } from './WidgetError'
@@ -34,17 +35,18 @@ export default function WikiWidget({
   const isSpaceMode = spaceId === null
 
   if (isSpaceMode) {
+    // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+    if (!previewData && showsLoadError(spaces)) {
+      return (
+        <WidgetFrame title="노트">
+          <WidgetError onRetry={() => spaces.refetch()} retrying={spaces.isFetching} testId="wiki-error" />
+        </WidgetFrame>
+      )
+    }
     if (!previewData && spaces.isLoading) {
       return (
         <WidgetFrame title="노트">
           <Skeleton className="h-24 w-full" />
-        </WidgetFrame>
-      )
-    }
-    if (!previewData && spaces.isError) {
-      return (
-        <WidgetFrame title="노트">
-          <WidgetError onRetry={() => spaces.refetch()} testId="wiki-error" />
         </WidgetFrame>
       )
     }
@@ -89,17 +91,17 @@ export default function WikiWidget({
   }
 
   // spaceId 지정 모드 — 페이지 트리 표시.
+  if (showsLoadError(tree)) {
+    return (
+      <WidgetFrame title="노트 페이지">
+        <WidgetError onRetry={() => tree.refetch()} retrying={tree.isFetching} testId="wiki-error" />
+      </WidgetFrame>
+    )
+  }
   if (tree.isLoading) {
     return (
       <WidgetFrame title="노트 페이지">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    )
-  }
-  if (tree.isError) {
-    return (
-      <WidgetFrame title="노트 페이지">
-        <WidgetError onRetry={() => tree.refetch()} testId="wiki-error" />
       </WidgetFrame>
     )
   }

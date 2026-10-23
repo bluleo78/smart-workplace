@@ -5,6 +5,7 @@ import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { relTime } from '@/components/ai/relTime'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { ConversationSummaryItem } from '@/types/dashboard'
 
 import { WidgetError } from '../WidgetError'
@@ -66,8 +67,12 @@ export default function ConversationsBody({
   count?: number
   previewData?: ConversationSummaryItem[]
 }) {
-  const { data, isLoading, isError, refetch } = useMessagingSummary({ enabled: !previewData })
+  const query = useMessagingSummary({ enabled: !previewData })
+  const { data, isLoading, refetch } = query
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (!previewData && showsLoadError(query))
+    return <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="dash-chat-error" />
   // 로딩 중: 스켈레톤으로 레이아웃 유지.
   if (!previewData && isLoading)
     return (
@@ -75,7 +80,6 @@ export default function ConversationsBody({
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (!previewData && isError) return <WidgetError onRetry={() => refetch()} testId="dash-chat-error" />
 
   const recent = previewData ?? data?.recent ?? []
   const needsReplyCount = previewData ? previewData.filter((c) => c.needsReply).length : (data?.needsReplyCount ?? 0)

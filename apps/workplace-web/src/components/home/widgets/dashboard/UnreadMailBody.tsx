@@ -7,6 +7,7 @@ import { relTime } from '@/components/ai/relTime'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { MailSummaryItem } from '@/types/dashboard'
 
 import { WidgetError } from '../WidgetError'
@@ -30,10 +31,14 @@ export default function UnreadMailBody({
   count?: number
   previewData?: MailSummaryItem[]
 }) {
-  const { data: queryData, isLoading, isError, refetch } = useMailSummary({ enabled: !previewData })
+  const query = useMailSummary({ enabled: !previewData })
+  const { data: queryData, isLoading, refetch } = query
   // "회신 필요" 토글 — 켜면 회신필요(AI 판정 && 안 읽음) 메일만 필터(헤더 칩 클릭). 위젯 로컬 상태.
   const [needsReplyOnly, setNeedsReplyOnly] = useState(false)
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (!previewData && showsLoadError(query))
+    return <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="dash-mail-error" />
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
   if (!previewData && isLoading)
     return (
@@ -41,7 +46,6 @@ export default function UnreadMailBody({
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (!previewData && isError) return <WidgetError onRetry={() => refetch()} testId="dash-mail-error" />
 
   const recent = previewData ?? queryData?.recent ?? []
   const unreadCount = previewData ? previewData.filter((m) => !m.seen).length : (queryData?.unreadCount ?? 0)

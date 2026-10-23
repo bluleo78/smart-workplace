@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useMyIssues, useWatchedIssues } from '@/hooks/queries/useHomeQueries'
 import { formatRelativeTime } from '@/lib/formatters'
 import { buildMyTaskRows, dueLabel, type MyTaskBucket, type MyTaskRow } from '@/lib/myTasks'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { IssueSearchResponse } from '@/types/issue'
 
 import { WidgetError } from '../WidgetError'
@@ -33,15 +34,9 @@ export default function MyTasksBody({
   const watched = useWatchedIssues({ enabled: !previewData })
   const loading = !previewData && (assigned.isLoading || watched.isLoading)
   // 둘 중 하나라도 실패하면 분류가 거짓이 되므로 전체를 에러 처리(#205).
-  const isError = !previewData && (assigned.isError || watched.isError)
+  const isError = !previewData && (showsLoadError(assigned) || showsLoadError(watched))
 
-  // I3(a11y): 로딩 영역에 aria-busy + 라벨.
-  if (loading)
-    return (
-      <div aria-busy="true" aria-label="불러오는 중">
-        <Skeleton className="h-12 w-full" />
-      </div>
-    )
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
   if (isError)
     return (
       <WidgetError
@@ -49,8 +44,16 @@ export default function MyTasksBody({
           assigned.refetch()
           watched.refetch()
         }}
+        retrying={assigned.isFetching || watched.isFetching}
         testId="dash-mytasks-error"
       />
+    )
+  // I3(a11y): 로딩 영역에 aria-busy + 라벨.
+  if (loading)
+    return (
+      <div aria-busy="true" aria-label="불러오는 중">
+        <Skeleton className="h-12 w-full" />
+      </div>
     )
 
   const now = new Date()

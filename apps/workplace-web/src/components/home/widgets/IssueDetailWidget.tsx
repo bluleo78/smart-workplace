@@ -1,6 +1,7 @@
 import { Skeleton } from '@/components/ui/skeleton';
 // 기존 이슈 단건 상세 훅 — 파일은 useIssue(단수). enabled 가드 내장.
 import { useIssue } from '@/hooks/queries/useIssue';
+import { showsLoadError } from '@/lib/queryFailure'
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
@@ -21,12 +22,14 @@ export default function IssueDetailWidget({ params }: { params?: Record<string, 
 
 // 훅 조건부 호출 회피 — projectKey/number 가 확정된 뒤에만 마운트되는 내부 컴포넌트.
 function IssueDetailInner({ projectKey, number }: { projectKey: string; number: number }) {
-  const { data, isLoading, isError, refetch } = useIssue(projectKey, number);
+  const query = useIssue(projectKey, number);
+  const { data, isLoading, refetch } = query;
   return (
     <WidgetFrame title={`${projectKey}-${number}`}>
       {/* #465: fetch 실패 시 무한 스켈레톤 대신 재시도 가능한 에러 표시(다른 상세 위젯과 일관). */}
-      {isError ? (
-        <WidgetError onRetry={() => refetch()} testId="issuedetail-error" />
+      {/* 다시 부르는 동안에도 실패 안내를 남긴다 — 다시 시도의 초점 유지(WP-881). */}
+      {showsLoadError(query) ? (
+        <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="issuedetail-error" />
       ) : isLoading || !data ? (
         <Skeleton className="h-20 w-full" />
       ) : (

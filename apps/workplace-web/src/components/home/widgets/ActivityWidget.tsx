@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useActivity } from '@/hooks/queries/useHomeQueries';
+import { showsLoadError } from '@/lib/queryFailure'
 import type { ActivityPage } from '@/types/home';
 
 import { WidgetError } from './WidgetError';
@@ -43,15 +44,16 @@ export default function ActivityWidget({
   previewData?: ActivityPage;
 }) {
   const actorKind = params?.actorKind as string | undefined;
-  const { data: queryData, isLoading, isError, refetch } = useActivity(actorKind, { enabled: !previewData });
+  const query = useActivity(actorKind, { enabled: !previewData });
+  const { data: queryData, isLoading, refetch } = query;
   const data = previewData ?? queryData;
   return (
     <WidgetFrame title={actorKind === 'AGENT' ? 'AI 활동' : '최근 활동'}>
-      {!previewData && isLoading ? (
+      {/* fetch 실패 — 거짓 '빈 상태' 대신 에러+재시도 표시(#205). 로딩보다 먼저 봐 다시 부르는 동안에도 남긴다(WP-881). */}
+      {!previewData && showsLoadError(query) ? (
+        <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="activity-error" />
+      ) : !previewData && isLoading ? (
         <Skeleton className="h-24 w-full" />
-      ) : !previewData && isError ? (
-        // fetch 실패 — 거짓 '빈 상태' 대신 에러+재시도 표시(#205).
-        <WidgetError onRetry={() => refetch()} testId="activity-error" />
       ) : data && data.items.length > 0 ? (
         <ul className="space-y-2" data-testid="activity-items">
           {data.items.map((a) => (

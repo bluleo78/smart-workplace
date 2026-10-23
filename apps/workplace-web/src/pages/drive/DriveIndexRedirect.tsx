@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { LoadErrorState } from '@/components/LoadErrorState'
+import { failedWithoutData } from '@/lib/queryFailure'
 
 import { useDriveSpaces } from '../../hooks/queries/useDriveSpaces'
 
@@ -26,7 +27,7 @@ export function DriveIndexRedirect() {
     redirected.current = true
     navigate(`/drive/spaces/${personal.id}`, { replace: true })
   }, [spaces, navigate])
-  if (spacesQuery.isLoadingError) {
+  if (failedWithoutData(spacesQuery)) {
     return (
       <LoadErrorState
         title="드라이브를 불러오지 못했습니다"

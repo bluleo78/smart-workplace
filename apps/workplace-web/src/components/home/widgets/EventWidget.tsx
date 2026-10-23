@@ -3,6 +3,7 @@ import { MapPin } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCalendarEvent } from '@/hooks/queries/useCalendarEvent';
 import { formatDateMonthDay, formatLocalClockTime24 } from '@/lib/formatters';
+import { showsLoadError } from '@/lib/queryFailure';
 
 import { WidgetError } from './WidgetError';
 import { WidgetFrame } from './WidgetFrame';
@@ -25,7 +26,8 @@ function formatRange(startsAt: string, endsAt: string, allDay: boolean): string 
 export default function EventWidget({ params }: { params?: Record<string, unknown> }) {
   const eventId = typeof params?.eventId === 'number' ? params.eventId : undefined;
 
-  const { data, isLoading, isError, refetch } = useCalendarEvent(eventId);
+  const query = useCalendarEvent(eventId);
+  const { data, isLoading, refetch } = query;
 
   // eventId 누락 — 정적 파라미터 오류: 재시도 버튼 없이 안내 메시지만 표시.
   if (eventId === undefined) {
@@ -44,18 +46,20 @@ export default function EventWidget({ params }: { params?: Record<string, unknow
     );
   }
 
-  if (isLoading) {
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  // 로딩이 끝났는데 데이터가 없는 경우(!data)도 같은 실패 안내로 둔다 — 그 판정은 로딩 뒤에 해야 스켈레톤을 가리지 않는다.
+  if (showsLoadError(query) || (!isLoading && !data)) {
     return (
       <WidgetFrame title="일정 상세">
-        <Skeleton className="h-24 w-full" />
+        <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="event-error" />
       </WidgetFrame>
     );
   }
 
-  if (isError || !data) {
+  if (isLoading || !data) {
     return (
       <WidgetFrame title="일정 상세">
-        <WidgetError onRetry={() => refetch()} testId="event-error" />
+        <Skeleton className="h-24 w-full" />
       </WidgetFrame>
     );
   }

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
 import { todayRange } from '@/lib/calendarRange'
+import { showsLoadError } from '@/lib/queryFailure'
 import { cn } from '@/lib/utils'
 import type { CalendarEvent } from '@/types/calendar'
 
@@ -27,9 +28,13 @@ export default function CalendarTodayBody({
   previewData?: CalendarEvent[]
 }) {
   const { from, to } = todayRange()
-  const { data: queryData, isLoading, isError, refetch } = useCalendarEvents(from, to, { enabled: !previewData })
+  const query = useCalendarEvents(from, to, { enabled: !previewData })
+  const { data: queryData, isLoading, refetch } = query
   const data = previewData ?? queryData
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (!previewData && showsLoadError(query))
+    return <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="dash-calendar-error" />
   // I3(a11y): 로딩 영역에 aria-busy + 라벨.
   if (!previewData && isLoading)
     return (
@@ -37,7 +42,6 @@ export default function CalendarTodayBody({
         <Skeleton className="h-20 w-full" />
       </div>
     )
-  if (!previewData && isError) return <WidgetError onRetry={() => refetch()} testId="dash-calendar-error" />
 
   const events = data ?? []
   if (events.length === 0)

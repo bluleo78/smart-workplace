@@ -64,6 +64,41 @@ test.describe('목록 불러오기 실패 상태 (WP-865)', () => {
     await expect(page.getByTestId('channel-load-error')).toHaveCount(0)
   })
 
+  // WP-881: 다시 부르는 동안 버튼이 disabled 로 꺼져 키보드 초점이 body 로 사라졌다.
+  test('대화 — 키보드로 다시 시도하면 다시 부르는 동안·다시 실패해도 초점이 버튼에 남고, 성공하면 불러온 목록으로 옮긴다', async ({ authenticatedPage: page }) => {
+    const channels = await failingThenOk(page, '/api/v1/messaging/channels', [createChannel({ id: 3, name: '공지' })])
+    // 다시 시도 응답만 늦춰 「다시 부르는 중」 상태를 확인할 수 있게 한다.
+    let slow = false
+    await page.route(
+      (url) => url.pathname === '/api/v1/messaging/channels',
+      async (route) => {
+        if (slow) await new Promise((resolve) => setTimeout(resolve, 1500))
+        return route.fallback()
+      },
+    )
+
+    await page.goto('/chat')
+    const retry = page.getByTestId('channel-list-error-retry')
+    await expect(retry).toBeVisible()
+
+    slow = true
+    await retry.focus()
+    await page.keyboard.press('Enter')
+    // 다시 부르는 중 — 누름은 막혀도(aria-disabled) 초점은 그대로다.
+    await expect(retry).toHaveAttribute('aria-disabled', 'true')
+    await expect(retry).toBeFocused()
+    // 다시 실패 — 같은 버튼에 남는다.
+    await expect(retry).not.toHaveAttribute('aria-disabled')
+    await expect(retry).toBeFocused()
+
+    channels.recover()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('channel-link-3')).toContainText('공지')
+    await expect(page.getByTestId('channel-list-error')).toHaveCount(0)
+    // 안내가 있던 자리 뒤 — 불러온 채널 목록의 첫 링크로 초점이 옮겨 간다(body 로 사라지지 않음).
+    await expect(page.getByTestId('channel-link-3')).toBeFocused()
+  })
+
   test('노트 — 공간 목록 500 이면 「준비 중…」에 멈추지 않고 실패 안내, 다시 시도하면 첫 공간으로 간다', async ({ authenticatedPage: page }) => {
     const spaces = await failingThenOk(page, '/api/v1/wiki/spaces', [wikiSpace({ id: 4, name: '개인 노트' })])
 

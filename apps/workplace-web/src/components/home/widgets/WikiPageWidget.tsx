@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWikiPage } from '@/hooks/queries/useWikiPage'
+import { showsLoadError } from '@/lib/queryFailure'
 
 import { WidgetError } from './WidgetError'
 import { WidgetFrame } from './WidgetFrame'
@@ -54,17 +55,18 @@ export default function WikiPageWidget({ params }: { params?: Record<string, unk
 function WikiPageContent({ pageId }: { pageId: number }) {
   const page = useWikiPage(pageId)
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (showsLoadError(page)) {
+    return (
+      <WidgetFrame title="노트 페이지">
+        <WidgetError onRetry={() => page.refetch()} retrying={page.isFetching} testId="wiki_page-error" />
+      </WidgetFrame>
+    )
+  }
   if (page.isLoading) {
     return (
       <WidgetFrame title="노트 페이지">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    )
-  }
-  if (page.isError) {
-    return (
-      <WidgetFrame title="노트 페이지">
-        <WidgetError onRetry={() => page.refetch()} testId="wiki_page-error" />
       </WidgetFrame>
     )
   }

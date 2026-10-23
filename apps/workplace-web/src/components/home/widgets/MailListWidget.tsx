@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMailAccounts } from '@/hooks/queries/useMailAccounts';
 import { useMailMessages } from '@/hooks/queries/useMailMessages';
+import { showsLoadError } from '@/lib/queryFailure';
 import type { EmailMessageSummary, MailFolder } from '@/types/mailMessage';
 
 import { WidgetError } from './WidgetError';
@@ -116,19 +117,28 @@ export default function MailListWidget({
     );
   }
 
+  // fetch 실패 — 거짓 빈 상태 대신 에러+재시도(#205).
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (showsLoadError(accounts)) {
+    return (
+      <WidgetFrame title={title}>
+        <WidgetError onRetry={() => accounts.refetch()} retrying={accounts.isFetching} testId="maillist-error" />
+      </WidgetFrame>
+    );
+  }
+  // 메시지 목록 실패 — 계정이 정해진 경우에만(계정이 없으면 목록 쿼리는 꺼져 있다).
+  if (accountId && showsLoadError(messages)) {
+    return (
+      <WidgetFrame title={title}>
+        <WidgetError onRetry={() => messages.refetch()} retrying={messages.isFetching} testId="maillist-error" />
+      </WidgetFrame>
+    );
+  }
   // 계정 목록 또는 메시지 목록 로딩 — 스켈레톤.
   if (accounts.isLoading || (accountId && messages.isLoading)) {
     return (
       <WidgetFrame title={title}>
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    );
-  }
-  // fetch 실패 — 거짓 빈 상태 대신 에러+재시도(#205).
-  if (accounts.isError) {
-    return (
-      <WidgetFrame title={title}>
-        <WidgetError onRetry={() => accounts.refetch()} testId="maillist-error" />
       </WidgetFrame>
     );
   }
@@ -144,13 +154,6 @@ export default function MailListWidget({
           <p className="text-sm font-semibold">연결된 메일 계정이 없어요</p>
           <p className="max-w-xs text-xs text-muted-foreground">메일 화면에서 계정을 추가해 보세요.</p>
         </div>
-      </WidgetFrame>
-    );
-  }
-  if (messages.isError) {
-    return (
-      <WidgetFrame title={title}>
-        <WidgetError onRetry={() => messages.refetch()} testId="maillist-error" />
       </WidgetFrame>
     );
   }

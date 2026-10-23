@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyChannels } from '@/hooks/queries/useMyChannels';
+import { showsLoadError } from '@/lib/queryFailure';
 import type { ChannelResponse } from '@/types/messaging';
 
 import { WidgetError } from './WidgetError';
@@ -27,20 +28,21 @@ export default function ChannelsWidget({
 }) {
   const channels = useMyChannels({ enabled: !previewData });
 
+  // fetch 실패 — 에러 + 재시도.
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (!previewData && showsLoadError(channels)) {
+    return (
+      <WidgetFrame title="채널 목록">
+        <WidgetError onRetry={() => channels.refetch()} retrying={channels.isFetching} testId="channels-error" />
+      </WidgetFrame>
+    );
+  }
+
   // 로딩 중 — 스켈레톤.
   if (!previewData && channels.isLoading) {
     return (
       <WidgetFrame title="채널 목록">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    );
-  }
-
-  // fetch 실패 — 에러 + 재시도.
-  if (!previewData && channels.isError) {
-    return (
-      <WidgetFrame title="채널 목록">
-        <WidgetError onRetry={() => channels.refetch()} testId="channels-error" />
       </WidgetFrame>
     );
   }

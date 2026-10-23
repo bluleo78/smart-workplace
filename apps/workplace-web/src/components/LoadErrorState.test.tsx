@@ -1,4 +1,4 @@
-// 불러오기 실패 상태(WP-865) — 세 배치 모두 안내를 alert 로 알리고, 다시 시도는 다시 부르는 동안 잠긴다.
+// 불러오기 실패 상태(WP-865) — 세 배치 모두 안내를 alert 로 알리고, 다시 시도는 다시 부르는 동안 잠긴다(초점은 남김, WP-881).
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -13,9 +13,15 @@ describe('LoadErrorState', () => {
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
 
-  it('다시 부르는 중이면 버튼을 잠근다 — 연타로 같은 요청을 거듭 보내지 않게', () => {
-    render(<LoadErrorState title="t" onRetry={() => {}} retrying testId="x" />)
-    expect(screen.getByTestId('x-retry')).toBeDisabled()
+  it('다시 부르는 중이면 누름을 무시하되 disabled 로 끄지 않는다 — 초점이 남게(WP-881)', () => {
+    const onRetry = vi.fn()
+    render(<LoadErrorState title="t" onRetry={onRetry} retrying testId="x" />)
+    const button = screen.getByTestId('x-retry')
+    expect(button).not.toBeDisabled()
+    expect(button).toHaveAttribute('aria-disabled', 'true')
+    expect(button).toHaveAttribute('aria-busy', 'true')
+    fireEvent.click(button)
+    expect(onRetry).not.toHaveBeenCalled()
   })
 
   it('보조 설명은 block 에만 보인다', () => {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import { useContacts } from '@/hooks/queries/useContacts'
+import { showsLoadError } from '@/lib/queryFailure'
 import type { ContactSummary, ContactTypeFilter } from '@/types/contact'
 
 import { WidgetError } from './WidgetError'
@@ -28,21 +29,23 @@ export default function ContactsWidget({
   const org = (params?.org as string) || undefined
   const title = (params?.title as string) || undefined
 
-  const { data, isLoading, isError, refetch } = useContacts(search, typeFilter, org, title, {
+  const query = useContacts(search, typeFilter, org, title, {
     enabled: !previewData,
   })
+  const { data, isLoading, refetch } = query
 
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (!previewData && showsLoadError(query)) {
+    return (
+      <WidgetFrame title="연락처">
+        <WidgetError onRetry={() => refetch()} retrying={query.isFetching} testId="contacts-error" />
+      </WidgetFrame>
+    )
+  }
   if (!previewData && isLoading) {
     return (
       <WidgetFrame title="연락처">
         <Skeleton className="h-24 w-full" />
-      </WidgetFrame>
-    )
-  }
-  if (!previewData && isError) {
-    return (
-      <WidgetFrame title="연락처">
-        <WidgetError onRetry={() => refetch()} testId="contacts-error" />
       </WidgetFrame>
     )
   }

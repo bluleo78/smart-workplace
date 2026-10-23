@@ -1,6 +1,7 @@
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { useWikiCreateSpaceDialog } from '@/components/wiki/useWikiCreateSpaceDialog'
 import { WikiNoSpaces } from '@/components/wiki/WikiNoSpaces'
+import { failedWithoutData } from '@/lib/queryFailure'
 
 import { useWikiIndexRedirect } from '../../hooks/useWikiIndexRedirect'
 
@@ -15,9 +16,9 @@ export function WikiIndexRedirect() {
   // 공간 0개 빈 상태의 [공간 만들기] — 생성 후 새 스페이스로 이동한다.
   const { openCreateSpace, dialog: createSpaceDialog } = useWikiCreateSpaceDialog()
 
-  if (isLoading || restorePending) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
   // 공간 목록 첫 조회 실패 — 「준비 중…」에 멈추지 않고 실패 안내 + 다시 시도(WP-865).
-  if (spacesQuery.isLoadingError) {
+  // 「불러오는 중…」보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  if (failedWithoutData(spacesQuery)) {
     return (
       <LoadErrorState
         title="노트 공간을 불러오지 못했습니다"
@@ -27,6 +28,7 @@ export function WikiIndexRedirect() {
       />
     )
   }
+  if (isLoading || restorePending) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
   if (spaces?.length === 0) {
     return (
       <>

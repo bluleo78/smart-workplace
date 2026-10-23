@@ -7,6 +7,7 @@ import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
+import { failedWithoutData } from '@/lib/queryFailure'
 
 export default function ChannelListPage() {
   // 사이드바와 같은 키라 요청은 한 번만 간다.
@@ -15,7 +16,7 @@ export default function ChannelListPage() {
     <div className="flex h-full items-center justify-center" data-testid="channel-empty">
       {/* 채널을 고르기 전 빈 화면에도 화면 이름을 숨은 h1 로 둔다 — 스크린리더 제목 이동용(WP-816). */}
       <h1 className="sr-only">대화</h1>
-      {channels.isLoadingError ? (
+      {failedWithoutData(channels) ? (
         <LoadErrorState
           title="대화 목록을 불러오지 못했습니다"
           queries={[channels]}

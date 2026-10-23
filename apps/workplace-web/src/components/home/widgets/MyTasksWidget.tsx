@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMyIssues, useWatchedIssues } from '@/hooks/queries/useHomeQueries';
+import { showsLoadError } from '@/lib/queryFailure';
 import type { IssueSearchResponse } from '@/types/issue';
 
 import { WidgetError } from './WidgetError';
@@ -19,20 +20,22 @@ export default function MyTasksWidget() {
   const watched = useWatchedIssues();
   const loading = assigned.isLoading || watched.isLoading;
   // 둘 중 하나라도 실패하면 카운트 일부가 거짓 '–'(0건과 구분 불가)로 보이므로 위젯 전체를 에러로 처리(#205).
-  const isError = assigned.isError || watched.isError;
+  // 실패 안내는 로딩보다 먼저 본다 — 다시 부르는 동안에도 안내를 그대로 둬야 다시 시도의 초점이 남는다(WP-881).
+  const isError = showsLoadError(assigned) || showsLoadError(watched);
   return (
     <WidgetFrame title="내 할 일">
-      {loading ? (
-        <Skeleton className="h-12 w-full" />
-      ) : isError ? (
+      {isError ? (
         // fetch 실패 — 두 쿼리 모두 재시도.
         <WidgetError
           onRetry={() => {
             assigned.refetch();
             watched.refetch();
           }}
+          retrying={assigned.isFetching || watched.isFetching}
           testId="mytasks-error"
         />
+      ) : loading ? (
+        <Skeleton className="h-12 w-full" />
       ) : (
         <div className="flex gap-6">
           {/* 내 담당: 전역 "내 담당" 라우트가 아직 없어 카운트만 표기(링크 X). */}
