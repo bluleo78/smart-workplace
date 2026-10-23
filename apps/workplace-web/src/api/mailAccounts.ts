@@ -50,6 +50,15 @@ export async function getM365AuthorizeUrl(): Promise<string> {
 }
 
 /**
+ * 메일 계정 추가 기본 공급자 판단(WP-879) — preferred=워크스페이스가 Microsoft 로그인을 켰고 메일용 M365 앱도 설정돼
+ * Outlook(Microsoft 365)을 미리 골라 둘지.
+ */
+export async function getM365MailStatus(): Promise<{ preferred: boolean }> {
+  const { data } = await client.get<{ preferred: boolean }>('/mail/oauth/m365/status');
+  return data;
+}
+
+/**
  * 팝업 콜백 페이지가 AAD 인가 코드를 백엔드로 중계한다(공개 경로 — state 로 신원 복원).
  * 성공 200 {connected:true}, 실패 시 axios 가 4xx 로 throw.
  */

@@ -3,6 +3,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockApi } from '../../fixtures/api-mock';
+import { gate } from '../../fixtures/wait';
 import type { MailAccountResponse } from '../../../src/types/mailAccount';
 
 /** 기본 메일 계정 픽스처 생성 */
@@ -30,6 +31,11 @@ function account(overrides?: Partial<MailAccountResponse>): MailAccountResponse 
 }
 
 test.describe('메일 계정 설정', () => {
+  // WP-879: 기본 공급자 판단 — 미스텁이면 dev 프록시로 누수되므로 기본은 IMAP(preferred=false). 필요한 테스트가 덮어쓴다(LIFO).
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/oauth/m365/status', { preferred: false });
+  });
+
   test('목록 비어있을 때 안내 노출 + 추가 다이얼로그 열림', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
     await page.goto('/settings/mail');
@@ -242,6 +248,70 @@ test.describe('메일 계정 설정', () => {
     // "Outlook 계정 연결" 버튼이 표시되고, IMAP 호스트 필드는 사라져야 함
     await expect(page.getByRole('button', { name: 'Outlook 계정 연결' })).toBeVisible();
     await expect(page.locator('#mail-imap-host')).toHaveCount(0);
+  });
+
+  // WP-879 — Microsoft 로그인을 켠 워크스페이스는 추가 시 Outlook 이 기본 선택
+  test('Microsoft 로그인 워크스페이스 — 추가 다이얼로그가 Outlook 을 미리 골라 둔다', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/oauth/m365/status', { preferred: true });
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
+    await page.goto('/settings/mail');
+    await page.getByTestId('mail-add-trigger').click();
+    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
+
+    // 공급자 선택 없이 바로 Outlook 연결 버튼, IMAP 입력란은 없다
+    await expect(page.getByRole('combobox', { name: '공급자' })).toContainText('Outlook (Microsoft 365)');
+    await expect(page.getByRole('button', { name: 'Outlook 계정 연결' })).toBeVisible();
+    await expect(page.locator('#mail-imap-host')).toHaveCount(0);
+
+    // 사용자는 IMAP 으로 바꿀 수 있다
+    await page.getByRole('combobox', { name: '공급자' }).click();
+    await page.getByRole('option', { name: 'IMAP (앱 비밀번호)' }).click();
+    await expect(page.locator('#mail-imap-host')).toBeVisible();
+  });
+
+  test('기본값 조회가 늦게 와도 이미 고른 공급자와 입력값은 그대로', async ({ authenticatedPage: page }) => {
+    // 조회 응답을 붙잡아 두었다가, 사용자가 IMAP 을 고르고 입력한 뒤에 preferred=true 로 풀어 준다.
+    const held = gate();
+    await page.route('**/api/v1/mail/oauth/m365/status', async (route) => {
+      await held.p;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ preferred: true }) });
+    });
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
+    await page.goto('/settings/mail');
+    await page.getByTestId('mail-add-trigger').click();
+    await page.getByRole('combobox', { name: '공급자' }).click();
+    await page.getByRole('option', { name: 'IMAP (앱 비밀번호)' }).click();
+    await page.locator('#mail-imap-host').fill('imap.example.com');
+
+    const statusResponse = page.waitForResponse('**/api/v1/mail/oauth/m365/status');
+    held.release();
+    await statusResponse;
+
+    // 폼이 초기화되지 않고, 사용자가 고른 IMAP 이 유지된다
+    await expect(page.getByRole('combobox', { name: '공급자' })).toContainText('IMAP (앱 비밀번호)');
+    await expect(page.locator('#mail-imap-host')).toHaveValue('imap.example.com');
+  });
+
+  test('Microsoft 로그인 워크스페이스여도 기존 IMAP 계정 수정은 IMAP 그대로', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/oauth/m365/status', { preferred: true });
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [account()]);
+    await page.goto('/settings/mail');
+    await page.getByTestId('mail-account-row-1').getByRole('button', { name: '수정' }).click();
+    await expect(page.getByTestId('mail-account-dialog')).toBeVisible();
+    await expect(page.locator('#mail-imap-host')).toHaveValue('imap.gmail.com');
+    await expect(page.getByRole('button', { name: 'Outlook 계정 연결' })).toHaveCount(0);
+  });
+
+  test('Microsoft 로그인을 쓰지 않는 워크스페이스 — 추가 다이얼로그는 IMAP 기본', async ({
+    authenticatedPage: page,
+  }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
+    await page.goto('/settings/mail');
+    await page.getByTestId('mail-add-trigger').click();
+    await expect(page.getByRole('combobox', { name: '공급자' })).toContainText('IMAP (앱 비밀번호)');
+    await expect(page.locator('#mail-imap-host')).toBeVisible();
   });
 
   // M365 Outlook 연결 — 팝업 흐름

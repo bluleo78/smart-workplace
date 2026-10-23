@@ -25,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
  * Microsoft 365 Graph OAuth2 auth-code 흐름 컨트롤러.
  *
  * <ul>
+ *   <li>{@code GET /api/v1/mail/oauth/m365/status} — 인증 필수. 메일 계정 추가 시 Outlook 을 기본 공급자로
+ *       고를지(WP-879).
  *   <li>{@code GET /api/v1/mail/oauth/m365/start} — 인증 필수. AAD 인가 URL을 JSON(200)으로 반환. 프론트가 인증된
  *       axios로 받아 window.location.href로 이동한다(C1: Bearer 헤더 유실 방지).
  *   <li>{@code POST /api/v1/mail/oauth/m365/complete} — 공개 경로(SecurityConfig 등록). 프론트 콜백 라우트가
@@ -50,6 +52,19 @@ public class M365OAuthController {
   private final M365OAuthService oauthService;
   // 공개 경로라 JWT 필터의 테넌트 상태 검사를 타지 않으므로 직접 확인한다(WP-341).
   private final TenantStatusChecker tenantStatusChecker;
+
+  /** /status 응답 DTO — preferred=메일 계정 추가 다이얼로그가 Outlook(Microsoft 365)을 미리 골라 둘지. */
+  public record M365StatusResponse(boolean preferred) {}
+
+  /**
+   * 메일 계정 추가 다이얼로그의 기본 공급자 판단(WP-879).
+   *
+   * <p>워크스페이스 SSO 켜짐 값은 관리자 API({@code sso:manage})로만 읽을 수 있어, 일반 구성원 화면이 쓸 수 있게 판단 결과만 내려준다.
+   */
+  @GetMapping("/status")
+  public M365StatusResponse status() {
+    return new M365StatusResponse(oauthService.isPreferredFor(TenantContext.get()));
+  }
 
   /**
    * M365 OAuth2 인가 흐름을 시작한다.

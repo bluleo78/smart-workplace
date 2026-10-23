@@ -1,6 +1,7 @@
 package com.workplace.mail.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.util.StringUtils;
 
 /**
  * Microsoft 365 Graph API / Azure AD OAuth2 설정.
@@ -41,4 +42,11 @@ public record M365GraphProperties(
    */
   public static final String SCOPE =
       "Mail.ReadWrite Mail.Send Calendars.ReadWrite offline_access openid profile email";
+
+  /** Outlook 연결에 필요한 앱 값(client-id·secret·디렉터리 ID)이 모두 있는지(WP-879). 하나라도 비면 인가·토큰 교환이 실패한다. */
+  public boolean isConfigured() {
+    return StringUtils.hasText(clientId)
+        && StringUtils.hasText(clientSecret)
+        && StringUtils.hasText(tenantId);
+  }
 }

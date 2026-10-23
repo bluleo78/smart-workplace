@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import {
   createMailAccount,
   deleteMailAccount,
+  getM365MailStatus,
   listMailAccounts,
   setMailAiEnabled,
   testMailConnection,
@@ -24,6 +25,20 @@ export function useMailAccounts(options?: { enabled?: boolean }) {
     queryKey: mailAccountKeys.all,
     queryFn: listMailAccounts,
     enabled: options?.enabled ?? true,
+  });
+}
+
+/**
+ * 메일 계정 추가 시 Outlook(Microsoft 365)을 기본으로 고를지(WP-879). 워크스페이스 설정이라 거의 바뀌지 않는다.
+ * 실패하면 기본값(IMAP)을 그대로 쓰면 되므로 재시도하지 않는다.
+ */
+export function useM365MailStatus() {
+  return useQuery({
+    // 계정 목록 키(['mail-accounts']) 밖에 둔다 — 계정 추가·수정 무효화 때마다 다시 조회할 필요가 없다.
+    queryKey: ['mail-m365-status'],
+    queryFn: getM365MailStatus,
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 

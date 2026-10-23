@@ -28,6 +28,7 @@ import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import {
   useCreateMailAccount,
+  useM365MailStatus,
   useTestMailConnection,
   useTestMailConnectionForAccount,
   useUpdateMailAccount,
@@ -83,8 +84,17 @@ export function MailAccountDialog({
   const testConnExisting = useTestMailConnectionForAccount();
   // 연결 테스트 결과 — 추가 모드에서 저장 가능 여부 판단에 사용
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
-  // 공급자 선택 — 추가 모드에서만 선택 가능(수정 모드는 기존 provider 고정)
-  const [provider, setProvider] = useState<MailProvider>('IMAP');
+  // 공급자 선택 — 추가 모드에서만 선택 가능(수정 모드는 기존 provider 고정). null = 아직 고르지 않음.
+  const [chosenProvider, setChosenProvider] = useState<MailProvider | null>(null);
+  // WP-879: Microsoft 로그인을 켠 워크스페이스는 추가 모드 기본 공급자를 Outlook 으로. 다이얼로그가 페이지에 늘 마운트돼 있어
+  // 페이지 진입 때 미리 조회된다. 조회 전·실패면 IMAP.
+  const { data: m365Status } = useM365MailStatus();
+  const defaultProvider: MailProvider = m365Status?.preferred ? 'M365_GRAPH' : 'IMAP';
+  // 상태로 동기화하지 않고 매번 계산한다 — 조회가 다이얼로그를 연 뒤 도착해도 폼 초기화 없이, 사용자가 고르지 않았을 때만 기본값이 바뀐다.
+  const provider: MailProvider = account?.provider ?? chosenProvider ?? defaultProvider;
+  // 사용자가 공급자 목록을 열거나 입력을 시작하면 지금 보이는 공급자로 고정한다 — 보이는 값을 다시 고르면 Select 가 변경 이벤트를
+  // 내지 않아, 고정하지 않으면 늦게 온 기본값이 사용자가 쓰던 화면을 바꿔 버린다.
+  const pinProvider = () => setChosenProvider((c) => c ?? provider);
 
   const queryClient = useQueryClient();
   // M365 OAuth 팝업 흐름 상태. idle→connecting→(success 는 닫힘으로 표현)/error/blocked/cancelled.
@@ -190,8 +200,8 @@ export function MailAccountDialog({
     // OAuth 팝업 상태도 재오픈 시 idle 로 복귀 — stale 한 error/cancelled 잔존 방지
     setOauthPhase('idle');
     popupRef.current = null;
-    // 수정 모드는 기존 계정 공급자, 추가 모드는 IMAP 기본값
-    setProvider(account?.provider ?? 'IMAP');
+    // 공급자 선택을 비운다 — 수정 모드는 기존 계정 공급자, 추가 모드는 워크스페이스 기본값(WP-879)으로 돌아간다.
+    setChosenProvider(null);
     if (account) {
       form.reset({
         emailAddress: account.emailAddress,
@@ -274,11 +284,15 @@ export function MailAccountDialog({
           <DialogDescription className="sr-only">{isEdit ? '메일 계정 수정' : '메일 계정 추가'}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+        <form onSubmit={form.handleSubmit(onSubmit)} onChange={pinProvider} className="space-y-3">
           {/* 추가 모드에서만 공급자 선택 드롭다운 표시 — 수정 모드는 기존 공급자 고정 */}
           {!isEdit && (
             <FormField label="공급자" htmlFor="mail-provider">
-              <Select value={provider} onValueChange={(v) => setProvider(v as MailProvider)}>
+              <Select
+                value={provider}
+                onOpenChange={(o) => o && pinProvider()}
+                onValueChange={(v) => setChosenProvider(v as MailProvider)}
+              >
                 <SelectTrigger id="mail-provider" aria-label="공급자" className="w-full">
                   <SelectValue />
                 </SelectTrigger>

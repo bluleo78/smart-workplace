@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.EncryptionService;
+import com.workplace.mail.config.M365GraphProperties;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.outbound.MailDomainEvents.MailAccountConnectedEvent;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.OAuthStateStore.StateData;
+import com.workplace.tenant.repository.TenantRepository;
 import java.time.OffsetDateTime;
 import java.util.Base64;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,23 @@ public class M365OAuthService {
 
   /** WP-64: 계정 변경 resource.changed 발행기. */
   private final MailChangeNotifier notifier;
+
+  /** WP-879: 메일용 M365 앱 설정 — 비어 있으면 Outlook 연결 자체가 불가. */
+  private final M365GraphProperties props;
+
+  /** WP-879: 워크스페이스 SSO 켜짐 여부 조회(tenant 는 RLS 비대상 전역 테이블). */
+  private final TenantRepository tenantRepository;
+
+  /**
+   * 메일 계정 추가 시 Outlook(Microsoft 365)을 기본 공급자로 고를지(WP-879).
+   *
+   * <p>워크스페이스가 Microsoft 로그인(SSO)을 켰다면 구성원 대부분이 Microsoft 365 메일을 쓴다고 보고 기본값으로 권한다. 메일용 M365 앱이
+   * 설정되지 않은 환경에서는 연결이 실패하는 선택지가 기본이 되지 않도록 false.
+   */
+  @Transactional(readOnly = true)
+  public boolean isPreferredFor(Long tenantId) {
+    return props.isConfigured() && tenantId != null && tenantRepository.isSsoEnabled(tenantId);
+  }
 
   /**
    * OAuth2 인가 코드를 교환하고 M365 계정을 DB 에 upsert 한다.
