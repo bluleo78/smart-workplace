@@ -58,12 +58,12 @@ LLM 에 보여줄 형태로 가공하는 일은 **도구 핸들러**가 맡는�
 
 | 앱 | 도구 |
 |---|---|
-| `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `add_issue_dependency` `remove_issue_dependency` `watch_issue` `report_agent_work` `get_issue_chat` `claim_issue` + 겹침: `list_projects` `get_project` `read_file` `upload_file` (16개 — 앱당 상한에 닿았다) |
+| `issue` | `list_issues` `get_issue_detail` `create_issue` `update_issue` `add_comment` `update_comment` `link_issues` `react` `watch_issue` `report_agent_work` `get_issue_chat` `claim_issue` + 겹침: `list_projects` `get_project` `read_file` `upload_file` (16개 — 앱당 상한에 닿았다) |
 | `project` | `list_projects` `get_project` `create_project` `update_project` `add_project_member` `create_project_meta` `update_project_meta` + 겹침: `search_members` |
 | `wiki` | `list_wiki_spaces` `list_wiki_pages` `search_wiki` `get_wiki_page` `list_wiki_backlinks` `create_wiki_page` `update_wiki_page` `move_wiki_page` `restore_wiki_revision` + 겹침: `read_file` `upload_file` |
 | `drive` | `list_drive_spaces` `list_drive_items` `search_drive` `get_drive_file_summary` `search_drive_content` `list_drive_trash` `restore_drive_item` `create_drive_folder` `rename_drive_item` `move_drive_item` `copy_drive_item` `import_attachment_to_drive` `create_drive_download_link` `create_drive_file` + 겹침: `read_file` (15개 — 앱당 상한에 닿았다) |
 | `mail` | `list_mail_accounts` `list_mail` `get_mail` `get_mail_summary` `draft_mail_reply` `draft_issue_from_mail` `create_issue_from_mail` `mark_mail_read` `sync_mail` + 겹침: `read_file` |
-| `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `react_to_message` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_file` `upload_file` (15개 — 앱당 상한에 닿았다) |
+| `messaging` | `list_channels` `list_channel_messages` `list_thread_replies` `add_channel_message` `create_channel` `open_dm` `leave_channel` `join_channel` `update_channel_message` `mark_channel_read` `add_channel_member` + 겹침: `search_members` `read_file` `upload_file` `react` (15개 — 앱당 상한에 닿았다) |
 | `calendar` | `list_events` `get_event` `rsvp_event` `create_event` `update_event` + 겹침: `search_members` |
 | `contacts` | `list_contacts` `get_external_contact` `get_contact_facets` `add_contact_favorite` `remove_contact_favorite` `list_user_groups` `get_user_group` `create_user_group` `update_user_group` `add_user_group_member` `remove_user_group_member` `create_external_contact` `update_external_contact` + 겹침: `search_members` |
 | `notify` | `list_notifications` `mark_notification_read` `mark_all_notifications_read` `get_home_overview` |
@@ -125,7 +125,7 @@ workplace-mcp 는 이 태그로 `/mcp/x/{apps}`·`X-MCP-Toolsets` 연결을 걸�
 | 기능 | 처리 | 근거 |
 |---|---|---|
 | 채널 참여 | `join_channel`(`POST /channels/{id}/join`). 멱등 | 공개 채널만(비공개·DM 은 403). 이미 멤버면 `ON CONFLICT DO NOTHING` 이라 그대로. 참여 시점의 최신 메시지로 읽음 위치를 잡아 이전 메시지는 안 읽음이 아니다. `list_channels`(q 로 탐색)·`leave_channel` 설명이 이 도구를 가리킨다 |
-| 리액션 | `add_reaction`·`remove_reaction`(`POST`·`DELETE /messages/{id}/reactions`). 둘 다 멱등, 제거만 destructive. WP-421 에서 `react_to_message`(`reacted`)로 합쳤다 | 이모지는 1~32자 문자열이고 웹 선택기는 유니코드 문자를 보낸다. 제거는 읽기 출력 `reactions` 의 키와 같은 문자열이어야 한다. 이미 있는 추가·없는 제거는 서버가 이벤트 없이 무시한다. 채널 멤버만. 누가 눌렀는지는 서버도 주지 않는다 |
+| 리액션 | `add_reaction`·`remove_reaction`(`POST`·`DELETE /messages/{id}/reactions`). 둘 다 멱등, 제거만 destructive. WP-421 에서 `react_to_message`(`reacted`)로 합쳤고, WP-812 에서 이슈 코멘트 반응까지 받는 `react` 로 바꿨다 | 이모지는 1~32자 문자열이고 웹 선택기는 유니코드 문자를 보낸다. 제거는 읽기 출력 `reactions` 의 키와 같은 문자열이어야 한다. 이미 있는 추가·없는 제거는 서버가 이벤트 없이 무시한다. 채널 멤버만. 누가 눌렀는지는 서버도 주지 않는다 |
 | 내 메시지 수정 | `update_channel_message`(`PATCH /messages/{id}`, destructive·멱등) | 작성자만(403), 시간 제한 없음, 답글도 가능, 본문 1~4000자. 본문을 덮어쓰고 `editedAt` 이 찍힌다. 서버가 수정 때 `<@id>` 토큰을 다시 해석하므로 핸들러가 `@username` 을 토큰으로 바꿔 보낸다(`linkMentions`, 작성과 같음 — 빼먹으면 멘션이 조용히 사라진다). 수정은 SSE 만 내보내고 알림은 없다. 응답은 읽기와 같은 `toMessageView`. 메시지 id 는 읽기 출력의 `id` 다(입력 이름 `messageId` 와 어긋나지만 `list_thread_replies` 가 이미 그렇게 쓰므로 바꾸지 않았다) |
 | 채널 읽음 처리 | `mark_channel_read`(`POST /channels/{id}/read`, destructive·멱등) | 서버는 `uptoMessageId` 를 요구한다 — 핸들러가 가장 최근 최상위 메시지(`limit:1`)의 id 를 쓴다. 채널 `unreadCount` 도 최상위 메시지만 세므로 일치한다. 읽음 위치는 `GREATEST` 라 되돌아가지 않는다. 스레드 답글의 읽음(`hasUnreadThreads`)은 별도 상태(`/messages/{id}/thread/read`)라 건드리지 않는다. 메시지가 없는 채널은 서버를 부르지 않고 성공 |
 | 채널 멤버 목록 | 별도 도구 없이 `search_members` 의 `channelId` 옵션 | 서버 `/members` 에는 채널 필터가 없다. `/channels/{id}/members`(채널 멤버만, 페이지·검색 없는 전체)를 읽고 `search`(이름·username 부분일치)·`kind`(기본 HUMAN)·`page` 를 도구가 적용해 같은 `{items,total,hasMore?,nextPage?}` 로 낸다. 항목은 `{username,name,kind,role}`. 이 응답에는 username 이 없었으므로 **서버 `ChannelMemberResponse` 에 `username` 을 더했다**(숫자 userId·가입 시각은 내보내지 않는다). 활성 여부가 없어 `includeInactive` 는 적용하지 않는다 |
@@ -230,7 +230,8 @@ AI Chat 에는 라벨·마일스톤·사이클 생성·수정 확인 카드가 �
 | `upload_file` | `{name, content?}`(content null = 생략). `content` 가 있으면(빈 문자열 포함) 텍스트로 저장해 `{fileId, name, sizeBytes, mimeType, expiresAt}` 를, 없으면 일회용 PUT 링크를 `{uploadUrl, method:"PUT", expiresAt, maxBytes, name, singleUse, howTo, note}` 로 준다(`toStagedUploadLinkView` 허용 목록 — 로그인 없이 쓰는 링크라 서버 새 필드가 새지 않게). `curl -T <file> "<uploadUrl>"` 의 응답 JSON 이 같은 `{fileId, …}` 다. `note` 는 한 번만·원시 바이트·응답의 `fileId` 를 `fileIds` 에·24시간·실패하면 새 링크를 말한다 | `POST /staged-files/text`(201, UTF-8 10MB, MIME 은 이름으로 md·txt·csv·json 외 text/plain) · `POST /staged-files/upload-link`(201, 10분·일회용·일률 25MB) · 공개 `PUT /public/staged-files/{token}`(201) |
 
 - **크기**: 스테이징은 텍스트 10MB·링크 25MB 로 일률이고, 목적지 상한(이슈 25MB·10개, 노트 이미지 10MB 등)은 클레임 때 다시 본다. 24시간(`expiresAt`) 안에 붙이지 않으면 서버 만료 정리가 지운다. 링크 PUT 규칙은 드라이브 업로드 링크와 같다(폼·`--data-binary` 는 415, `-H Content-Type` 은 주지 않는다).
-- **합친 도구**: 앱당 15개 상한(issue·messaging 15개) 안에 `upload_file` 자리를 만들려고 `watch_issue`+`unwatch_issue` → `watch_issue({issueKey, watching})`, `add_reaction`+`remove_reaction` → `react_to_message({messageId, emoji, reacted})` 로 합쳤다. 불리언은 필수(최종 상태 지정이라 멱등), hints 는 둘 다 destructive·멱등. join/leave 는 비공개 채널 거부·확인 카드 연계가 있어 비대칭이라 합치지 않는다. 옛 이름은 웹 `LEGACY_TOOL_LABELS` 에 남겼다.
+- **반응·의존관계 합침(WP-812)**: 이슈 코멘트 반응(WP-504)을 도구로 열면서 `react_to_message` 를 대상만 다른 `react`({emoji, reacted} + `messageId` 또는 `issueKey`+`commentId`)로 바꿔 이슈·메시징 두 앱에 함께 태그했다(두 앱 다 상한 근처라 도구를 따로 두지 않았다). 이슈 앱 자리는 `add_issue_dependency`+`remove_issue_dependency` → `link_issues({issueKey, otherIssueKey, direction, linked})` 로 만들었다. `get_issue_detail` 의 `comments[].reactions` 는 채팅 읽기와 같은 `{이모지: 개수}`(반응자·내 반응 여부는 싣지 않음). AI 가 언제 반응을 달지는 규칙으로 정하지 않고 모델 판단에 맡긴다. 옛 이름은 웹 `LEGACY_TOOL_LABELS` 에 남겼다.
+- **합친 도구**: 앱당 15개 상한(issue·messaging 15개) 안에 `upload_file` 자리를 만들려고 `watch_issue`+`unwatch_issue` → `watch_issue({issueKey, watching})`, `add_reaction`+`remove_reaction` → `react({messageId, emoji, reacted})`(구 `react_to_message`, WP-812 에서 코멘트 반응까지) 로 합쳤다. 불리언은 필수(최종 상태 지정이라 멱등), hints 는 둘 다 destructive·멱등. join/leave 는 비공개 채널 거부·확인 카드 연계가 있어 비대칭이라 합치지 않는다. 옛 이름은 웹 `LEGACY_TOOL_LABELS` 에 남겼다.
 - **AI Chat**: ai-agent 의 `upload_file` 은 텍스트 전용 래퍼다(웹 사용자에게 셸이 없어 `content` 가 없으면 API 없이 오류, 설명은 한국어 머리말 + `UPLOAD_FILE_CONTENT_DESCRIPTION`). 요청자 신원(assistant, issue-agent·messaging-agent frontmatter)에만 싣고 라우터 목록·에이전트 신원 프로필(`issue`·`messaging`·`chat`)·wiki-agent 에는 싣지 않는다 — 에이전트 신원의 메시징 기능 확대는 위 WP-355 절이 보류한 제품 결정이고, 텍스트는 노트 이미지가 될 수 없다. 그 프로필들도 `fileIds` 입력은 보지만 채울 수단이 없을 뿐이다.
 - **instructions**: 앱 안내(`TOOL_APP_GUIDES`)에 issue·messaging "attach files", wiki "add images" 를 더했다. 전체 연결 instructions 가 2,048자를 넘어(2,073) "create and update" 꼴을 "create/update" 로 줄여 2,047 에 맞췄다(여유 1자).
 - **크기**: 정의 15,439 → 15,415 토큰(89개). 앱별 개수는 issue 15·project 8·wiki 11·drive 15·mail 10·messaging 15·calendar 6·contacts 14·notify 4·member 3.
@@ -317,7 +318,7 @@ AI 가 스스로 일을 집어 가게 하는 쓰기 도구 `claim_issue({issueKe
 | | `read_` | 본문 읽기 |
 | 쓰기 | `create_` / `update_` | 독립 리소스 |
 | | `add_` / `remove_` | 관계·하위 항목 |
-| 상태 짝 | `mark_*_read`, `join_` / `leave_` | 켜고 끄기만 다른 짝은 최종 상태 불리언을 받는 도구 하나로 둔다(`watch_issue` 의 `watching`, `react_to_message` 의 `reacted`, WP-421) |
+| 상태 짝 | `mark_*_read`, `join_` / `leave_` | 켜고 끄기만 다른 짝은 최종 상태 불리언을 받는 도구 하나로 둔다(`watch_issue` 의 `watching`, `react` 의 `reacted`, `link_issues` 의 `linked`, WP-421·WP-812) |
 
 - `edit_`·`save_`·`set_` 은 새로 쓰지 않는다. 여러 건을 돌려주는 도구는 `get_` 이 아니라 `list_` 다.
 - 다른 도메인과 겹치는 명사는 도메인 접두를 붙인다. 예: `drive_file`, `drive_folder`, `channel_message`.

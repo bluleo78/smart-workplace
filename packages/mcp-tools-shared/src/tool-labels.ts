@@ -19,8 +19,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   report_agent_work: { label: 'AI 작업 보고', icon: '🤖' },
   get_issue_chat: { label: '이슈 챗 읽기', icon: '💬' },
   update_comment: { label: '코멘트 수정', icon: '✏️' },
-  add_issue_dependency: { label: '이슈 의존관계 추가', icon: '🔗' },
-  remove_issue_dependency: { label: '이슈 의존관계 제거', icon: '🔗' },
+  link_issues: { label: '이슈 의존관계', icon: '🔗' }, // WP-812: add_issue_dependency·remove_issue_dependency 통합(linked)
   claim_issue: { label: '이슈 가져가기', icon: '🙋' }, // WP-800: 대기열 라벨 이슈를 AI 가 한 동작으로 담당
   watch_issue: { label: '이슈 구독 변경', icon: '👀' }, // WP-421: watch_issue·unwatch_issue 통합(watching)
   // 프로젝트
@@ -57,7 +56,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   leave_channel: { label: '채널 나가기', icon: '🚪' },
   add_channel_member: { label: '채널 초대', icon: '👥' },
   join_channel: { label: '채널 참여', icon: '🚪' },
-  react_to_message: { label: '리액션', icon: '👍' }, // WP-421: add_reaction·remove_reaction 통합(reacted)
+  react: { label: '리액션', icon: '👍' }, // WP-421: add_reaction·remove_reaction 통합(reacted), WP-812: 코멘트 반응까지 한 도구(구 react_to_message)
   update_channel_message: { label: '채널 메시지 수정', icon: '✏️' },
   mark_channel_read: { label: '채널 읽음 처리', icon: '✅' },
   open_dm: { label: 'DM 열기', icon: '✉️' },

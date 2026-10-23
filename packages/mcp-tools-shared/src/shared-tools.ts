@@ -15,6 +15,7 @@ import { buildMemberTools } from './member-tools.js';
 import { buildMessagingTools, type MessagingToolOptions } from './messaging-tools.js';
 import { buildNotifyTools } from './notify-tools.js';
 import { buildProjectTools } from './project-tools.js';
+import { buildReactionTools } from './reaction-tools.js';
 import type {
   AttachmentToolClient,
   CalendarToolClient,
@@ -64,6 +65,7 @@ export function buildSharedTools(client: SharedToolClient, opts: SharedToolOptio
     ...buildMemberTools(client),
     ...buildContactTools(client),
     ...buildMessagingTools(client, opts),
+    ...buildReactionTools(client),
     ...buildDriveTools(client),
     ...buildNotifyTools(client),
     ...buildHomeTools(client),

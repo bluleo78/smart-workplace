@@ -10,8 +10,8 @@ tools:
   - mcp__workplace__create_issue
   - mcp__workplace__update_issue
   - mcp__workplace__unassign_self
-  - mcp__workplace__add_issue_dependency
-  - mcp__workplace__remove_issue_dependency
+  - mcp__workplace__link_issues
+  - mcp__workplace__react
   - mcp__workplace__watch_issue
   - mcp__workplace__upload_file
   - mcp__workplace__propose_delete_issue
@@ -34,6 +34,7 @@ maxTurns: 20
 - 첨부 읽기: `read_file(source="issue", issueKey, attachmentId, offset?, limit?)` — attachmentId 는 `get_issue_detail` 의 `attachments[].attachmentId` 입니다(이슈 챗 도구 `read_chat_thread_attachment` 의 `fileId` 와 같은 이슈 첨부를 가리키는 같은 값). 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 첨부 내용을 근거로 코멘트·이슈를 쓸 때는 먼저 읽고 씁니다.
 - 상태 변경: `update_issue(issueKey, status=...)` — 범주(TODO / IN_PROGRESS / DONE / CANCELED) 또는 프로젝트가 정한 상태 이름(예: "검토 중" — `get_project` 의 `statuses`). 범주를 주면 그 범주의 기본 상태가 되고, 이미 그 범주면 그대로입니다. 상태만 바꿀 때는 `status` 만 넘깁니다. 결과의 `ok` 가 false 이거나 `results.content` 가 `failed` 로 시작하면 상태가 **바뀌지 않은 것**입니다 — 바뀌었다고 보고하지 말고 실패 사유를 그대로 알립니다(아래 "update_issue 부분 실패 처리" 참조).
 - 코멘트 작성: `add_comment(issueKey, body)` — 마크다운 지원.
+- 코멘트 반응: `react(issueKey, commentId, emoji, reacted)` — 내 이모지 반응을 `reacted=true` 면 추가, `false` 면 제거합니다(이미 그 상태면 그대로). commentId 는 `get_issue_detail` 의 comments 에서 확인하고, 코멘트마다 달린 반응은 `reactions`({이모지: 개수})로 옵니다. 반응을 달지 말지는 맥락에 맞게 판단합니다(정해진 규칙 없음). 채팅 메시지 반응은 이 에이전트의 일이 아닙니다.
 - 코멘트 수정: `update_comment(issueKey, commentId, body)` — commentId 는 `get_issue_detail` 의 comments 에서 확인(대상이 안 보이면 `allComments=true`).
 - 이슈 생성: `create_issue(projectKey, title, ...)` — 지정 프로젝트에 새 이슈 등록. 유형(`type`)·담당자(`assignees`)·부모(`parent`)·라벨(`labels`)·마일스톤(`milestone`)·사이클(`cycles`)을 **생성 호출 한 번에** 함께 넘기면 모두 같이 저장됩니다 — 만든 뒤 `update_issue` 를 다시 부를 필요가 없습니다. 이름이 안 맞으면 이슈를 만들지 않고 유효한 값 목록을 담은 오류를 반환합니다(라벨만 예외 — 없는 라벨은 새로 만들어 붙입니다, 아래 식별자 규칙).
 - 이슈 부분 수정: `update_issue(issueKey, ...)` — 상태·우선순위·타입·부모·담당자·라벨·마일스톤·사이클 등 전달한 필드만 변경.
@@ -43,7 +44,7 @@ maxTurns: 20
   - 커스텀 필드: `fields` 에 `{ "필드이름": 값 }` — 준 필드만 바뀝니다. 필드 이름·유형·선택지는 `get_project(projectKey)` 의 `fields` 에서 확인합니다(선택 필드는 선택지 중 하나, 복수 선택은 배열, 숫자·날짜(yyyy-MM-dd)는 그 형식). 값을 지우려면 `null`.
   - 드라이브 파일 연결: `driveFileId` — 드라이브 파일을 이슈에 연결합니다(이미 연결돼 있으면 그대로). 이 에이전트는 드라이브를 조회하지 못하므로 `driveFileId` 는 위임 prompt 에 적혀 온 값(라우터가 드라이브에서 찾아 넘긴 번호)이나 `get_issue_detail` 의 `driveLinks[].driveFileId` 만 씁니다 — 없으면 지어내지 말고 어느 파일인지 알 수 없다고 알립니다. 연결된 파일은 `get_issue_detail` 의 `driveLinks` 에 나옵니다.
 - 담당 해제: `unassign_self(issueKey)` — 작업 완료·반려 시.
-- 의존관계(차단) 추가/제거: `add_issue_dependency(issueKey, otherIssueKey, direction)` / `remove_issue_dependency(...)` — direction="blocks" 면 issueKey 가 otherIssueKey 를 차단, "blockedBy" 면 반대. 두 이슈는 같은 프로젝트여야 합니다.
+- 의존관계(차단) 추가/제거: `link_issues(issueKey, otherIssueKey, direction, linked)` — linked=true 면 추가, false 면 제거(이미 그 상태면 그대로). direction="blocks" 면 issueKey 가 otherIssueKey 를 차단, "blockedBy" 면 반대. 두 이슈는 같은 프로젝트여야 합니다.
 - 이슈 워치/해제: `watch_issue(issueKey, watching)` — `watching=true` 면 이슈 변경 알림 구독, `false` 면 해제. 이미 워치 중(또는 해제 상태)이어도 그대로 성공하는 멱등 동작이며, 프로젝트 멤버만 가능합니다.
 - 첨부용 파일 올려 두기: `upload_file(name, content)` — 대화에서 쓴 텍스트를 첨부용 파일로 올려 두고 `fileId` 를 받습니다(이름의 확장자로 형식이 정해집니다: md·txt·csv·json, 그 밖은 일반 텍스트). 24시간 안에 붙이지 않으면 사라집니다. **`content` 를 반드시 넘깁니다** — AI Chat 에서는 업로드 링크는 만들 수 없습니다. 사용자의 로컬 파일은 웹 화면에서 직접 첨부하라고 안내합니다.
   - 받은 `fileId` 는 `create_issue`/`update_issue` 의 `fileIds` 로 넘겨 이슈 첨부로 붙입니다(최대 10개). `update_issue` 는 결과의 `results.attachments` 가 `failed` 로 시작하면 첨부가 안 붙은 것이니 성공했다고 보고하지 않습니다.
@@ -101,7 +102,7 @@ maxTurns: 20
 - "이슈 화면에서 직접 변경해주세요" 안내는 실제로 도구가 없는 작업에만 사용합니다(이슈·코멘트 삭제는 `propose_delete_issue`/`propose_delete_comment` 로 제안). 우선순위 변경·이슈 타입 변경·이슈 생성은 이제 `update_issue`/`create_issue` 로 지원됩니다.
 
 ## 미지원 요청 처리
-- 우선순위 변경, 이슈 타입 변경, 부모/담당자/라벨 변경은 `update_issue`, 이슈 생성은 `create_issue`, 이슈 간 선후·차단 관계는 `add_issue_dependency`/`remove_issue_dependency` 로 **모두 지원됩니다.** 도구 호출 없이 "지원하지 않습니다"라고 응답하는 것은 **절대 금지**입니다.
+- 우선순위 변경, 이슈 타입 변경, 부모/담당자/라벨 변경은 `update_issue`, 이슈 생성은 `create_issue`, 이슈 간 선후·차단 관계는 `link_issues` 로 **모두 지원됩니다.** 도구 호출 없이 "지원하지 않습니다"라고 응답하는 것은 **절대 금지**입니다.
 - `create_issue` 는 대상 `projectKey` 가 필수입니다. 현재 작업 중인 이슈의 키(예: "WP-12")에서 프로젝트 코드("WP")를 추론할 수 있으면 그것을 사용하고, 어느 프로젝트에 생성할지 문맥상 불명확하면 사용자에게 먼저 확인하거나 정중히 거절합니다.
 - 이 외에도 담당 도구가 없는 요청은 **절대 무한 시도하거나 비정상 종료하지 않습니다.** "현재 [요청 내용]은 지원하지 않습니다. 이슈 화면에서 직접 변경해주세요." 안내 후 정상 종료합니다.
 

@@ -23,7 +23,7 @@ import {
   addCommentInput,
   claimIssueInput,
   createIssueInput,
-  dependencyInput,
+  linkIssuesInput,
   editCommentInput,
   getIssueChatInput,
   getIssueDetailInput,
@@ -337,44 +337,30 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       },
     },
     {
-      name: 'add_issue_dependency',
+      name: 'link_issues',
       app: 'issue',
       kind: 'write',
-      // 이미 있는 관계를 다시 추가하면 서버가 no-op 으로 처리한다 — 멱등.
-      hints: { destructive: false, idempotent: true },
+      // WP-812: 추가·제거를 합쳤다(앱당 도구 16개 상한 안에 react 자리를 만들려고, watch_issue 와 같은 방식). linked 는 최종 상태라 필수이고
+      // 서버가 이미 있는 링크 추가·없는 링크 제거를 no-op 으로 처리해 멱등이다. 제거 갈래가 있어 destructive.
+      hints: { destructive: true, idempotent: true },
       description:
-        'Adds a blocking link between two issues of the same project. direction "blocks": issueKey blocks otherIssueKey; "blockedBy": the ' +
-        'reverse. An existing link is a no-op; a cycle is an error. Returns the issue\'s links.',
-      inputSchema: dependencyInput,
+        'Adds (linked: true) or removes (false) a blocking link between two issues of the same project. direction "blocks": issueKey blocks otherIssueKey; ' +
+        '"blockedBy": the reverse. Repeating is a no-op; adding a cycle is an error. Adding returns the issue\'s links.',
+      inputSchema: linkIssuesInput,
       async handler(args) {
-        const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);
+        const { issueKey, otherIssueKey, direction, linked } = linkIssuesInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
         const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
         if (otherProjectKey !== projectKey) {
           throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
+        }
+        if (!linked) {
+          await client.removeIssueDependency(issueKey, otherNumber, direction);
+          return 'ok';
         }
         // 서버는 갱신된 이슈 상세 전체(코멘트·이력의 숫자 사용자 ID 포함)를 돌려준다 — 이 도구에 필요한 의존성 관계만 정규화해 내보낸다(#833, WP-353).
         const { blockedBy, blocks, blocked } = normalizeIssueDetail(await client.addIssueDependency(issueKey, otherNumber, direction));
         return JSON.stringify({ issueKey, blockedBy, blocks, blocked });
-      },
-    },
-    {
-      name: 'remove_issue_dependency',
-      app: 'issue',
-      kind: 'write',
-      hints: { destructive: true, idempotent: true },
-      description:
-        'Removes a blocking link (same arguments as add_issue_dependency). Succeeds when the link does not exist.',
-      inputSchema: dependencyInput,
-      async handler(args) {
-        const { issueKey, otherIssueKey, direction } = dependencyInput.parse(args);
-        const { projectKey } = parseIssueKey(issueKey);
-        const { projectKey: otherProjectKey, number: otherNumber } = parseIssueKey(otherIssueKey);
-        if (otherProjectKey !== projectKey) {
-          throw new Error('동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.');
-        }
-        await client.removeIssueDependency(issueKey, otherNumber, direction);
-        return 'ok';
       },
     },
     {

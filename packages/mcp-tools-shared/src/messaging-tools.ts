@@ -3,10 +3,10 @@
 // 확인 카드로 한다(경로마다 도구 하나 — ai-agent 프로필에는 싣지 않는다). 두 경로가 입력 스키마(addChannelMemberInput)와 대상 해석
 // (requireActiveMember)을 같이 쓴다. 비공개 채널 나가기는 계속 확인 카드(propose_leave_channel)만 한다.
 // WP-355: 채널 참여(join_channel)·리액션·내 메시지 수정(update_channel_message)·채널 읽음 처리(mark_channel_read)를 더했다.
-// WP-421: 리액션 추가·제거(add_reaction·remove_reaction)를 react_to_message 하나로 합쳤다(앱당 도구 15개 상한 안에 upload_file 자리를 만들려고).
+// 리액션 추가·제거는 reaction-tools.ts 의 react 가 한다(WP-421 에서 합치고 WP-812 에서 이슈 코멘트 반응까지 한 도구로).
 // 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(AI Chat 확인 카드도 아직 없음). 채널 멤버 목록은 search_members 의 channelId 옵션(member-tools.ts)이다.
 import { z } from 'zod';
-import { cursorPageView, dropEmpty, omitKeys, truncatedView } from './compact.js';
+import { cursorPageView, dropEmpty, omitKeys, reactionSummary, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
 import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
 import { stagedFileIdsInput } from './schemas.js';
@@ -159,13 +159,6 @@ export function stripMessageUserIds({ authorId: _authorId, ...rest }: Raw): Raw 
   return out;
 }
 
-/** 리액션 집계 [{emoji,count,reacted}] → { "👍": 2 }. 누른 사람 목록은 서버에 GET /api/v1/messaging/messages/{id}/reactions/users(WP-106)로 따로 있지만 메시지 목록 응답에는 없고 도구 뷰도 개수만 둔다. reacted(내가 눌렀나)는 읽기 맥락에서 쓸모가 적다. */
-function reactionSummary(reactions: unknown): Record<string, number> | undefined {
-  if (!Array.isArray(reactions) || reactions.length === 0) return undefined;
-  const entries = (reactions as Raw[]).filter((r) => typeof r.emoji === 'string').map((r) => [r.emoji as string, Number(r.count ?? 0)] as const);
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
-}
-
 /**
  * 메시지 행(MessageResponse) → LLM 뷰(WP-353). 사용자 ID 를 걷어내고(stripMessageUserIds) 본문 멘션 토큰을 이름으로 풀며 mentions 에서 id 를 뺀다.
  * 반복·노이즈 필드를 줄인다 — channelId(요청 인자와 같음)·parentMessageId(최상위는 null)·삭제 아님(deleted:false)·값 없는 키,
@@ -273,17 +266,8 @@ export const leaveChannelInput = z.object({ channelId: z.number().int().positive
 /** 채널 참여·읽음 처리 입력(WP-355) — 둘 다 channelId 하나다. */
 export const joinChannelInput = z.object({ channelId: z.number().int().positive() });
 export const markChannelReadInput = joinChannelInput;
-/**
- * 리액션 입력(WP-355). 서버는 이모지를 1~32자 문자열로만 검사하고(ReactionRequest) 웹 선택기는 유니코드 문자를 보낸다.
- * 제거는 추가한 것과 같은 문자열이어야 한다 — 읽기 출력 reactions 의 키 그대로다. messageId 는 메시지 행의 id 다(출력 이름은 id).
- */
+/** 메시지 행의 id(출력 이름은 id). 리액션 입력은 reaction-tools.ts 의 react 가 가진다(WP-812). */
 const messageIdField = z.number().int().positive().describe('from list_channel_messages or list_thread_replies');
-export const reactionInput = z.object({
-  messageId: messageIdField,
-  emoji: z.string().min(1).max(32).describe('Unicode emoji such as 👍, as in reactions'),
-});
-/** react_to_message 입력(WP-421) — reacted 는 최종 상태라 필수다(빠뜨리면 추가인지 제거인지 모호해 거절, 같은 값을 다시 보내도 결과가 같아 멱등). */
-export const reactToMessageInput = reactionInput.extend({ reacted: z.boolean() });
 /**
  * 내 메시지 수정 입력(WP-355). 길이 상한(4000자)은 서버 UpdateMessageRequest 가 판정한다(WP-435, add_channel_message 와 같은 꼴).
  * 서버가 재는 것은 멘션 변환(@username → <@id>) 뒤 본문이라, 변환 전 본문을 여기서 재면 변환으로 길이가 달라지는 한도 근처 수정을
@@ -320,7 +304,7 @@ export const ADD_CHANNEL_MESSAGE_DESCRIPTION =
 export const ADD_CHANNEL_MESSAGE_ATTACHMENTS_DESCRIPTION =
   'fileIds: staged files from upload_file; driveFileIds: drive files to link (VIEWER needed). Body may be empty with attachments.';
 
-/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/react_to_message/update_channel_message/mark_channel_read/add_channel_member). */
+/** 메시징 도구(list_channels/list_channel_messages/list_thread_replies/add_channel_message/create_channel/open_dm/leave_channel/join_channel/update_channel_message/mark_channel_read/add_channel_member). */
 export function buildMessagingTools(
   client: MessagingToolClient & Pick<MemberToolClient, 'searchMembers'>,
   opts: MessagingToolOptions = {},
@@ -465,22 +449,6 @@ export function buildMessagingTools(
       inputSchema: joinChannelInput,
       async handler(args) {
         await client.joinChannel(joinChannelInput.parse(args).channelId);
-        return 'ok';
-      },
-    },
-    {
-      name: 'react_to_message',
-      app: 'messaging',
-      kind: 'write',
-      // WP-421: 추가·제거를 합쳤다. 서버가 이미 있는 추가·없는 제거를 이벤트 없이 무시해(ReactionService.add·remove) 멱등이고,
-      // 제거 갈래가 있어 destructive 다(README 노출 기준). 누른 사람에게 알림은 가지 않는다.
-      hints: { destructive: true, idempotent: true },
-      description: 'Adds (reacted: true) or removes (false) my emoji reaction on a message in a channel or DM I belong to; repeating is a no-op.',
-      inputSchema: reactToMessageInput,
-      async handler(args) {
-        const { messageId, emoji, reacted } = reactToMessageInput.parse(args);
-        if (reacted) await client.addReaction(messageId, emoji);
-        else await client.removeReaction(messageId, emoji);
         return 'ok';
       },
     },

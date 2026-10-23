@@ -238,6 +238,13 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async editComment(issueKey, commentId, body) {
       await http.patch(`/issues/${await issueId(issueKey)}/comments/${commentId}`, { body });
     },
+    async addCommentReaction(issueKey, commentId, emoji) {
+      await http.post(`/issues/${await issueId(issueKey)}/comments/${commentId}/reactions`, { emoji });
+    },
+    async removeCommentReaction(issueKey, commentId, emoji) {
+      // 서버가 이모지를 쿼리 파라미터로 받는다(DELETE 본문 없음) — 채팅 removeReaction 과 같다.
+      await http.delete(`/issues/${await issueId(issueKey)}/comments/${commentId}/reactions`, { params: { emoji } });
+    },
     async reportAgentWork(issueKey, body) {
       return (await http.put(`${issue(issueKey)}/agent-work`, body)).data;
     },

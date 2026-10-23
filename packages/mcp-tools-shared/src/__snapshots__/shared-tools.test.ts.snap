@@ -6,7 +6,6 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_channel_message": "write",
   "add_comment": "write",
   "add_contact_favorite": "write",
-  "add_issue_dependency": "write",
   "add_project_member": "write",
   "add_user_group_member": "write",
   "claim_issue": "write",
@@ -42,6 +41,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "import_attachment_to_drive": "write",
   "join_channel": "write",
   "leave_channel": "write",
+  "link_issues": "write",
   "list_channel_messages": "read",
   "list_channels": "read",
   "list_contacts": "read",
@@ -66,10 +66,9 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "move_drive_item": "write",
   "move_wiki_page": "write",
   "open_dm": "write",
-  "react_to_message": "write",
+  "react": "write",
   "read_file": "read",
   "remove_contact_favorite": "write",
-  "remove_issue_dependency": "write",
   "remove_user_group_member": "write",
   "rename_drive_item": "write",
   "report_agent_work": "write",
@@ -220,36 +219,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
       },
-      "type": "object",
-    },
-  },
-  {
-    "name": "add_issue_dependency",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "direction": {
-          "enum": [
-            "blocks",
-            "blockedBy",
-          ],
-          "type": "string",
-        },
-        "issueKey": {
-          "minLength": 1,
-          "type": "string",
-        },
-        "otherIssueKey": {
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "issueKey",
-        "otherIssueKey",
-        "direction",
-      ],
       "type": "object",
     },
   },
@@ -1372,6 +1341,41 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
+    "name": "link_issues",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "blocks",
+            "blockedBy",
+          ],
+          "type": "string",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "linked": {
+          "description": "true adds the link, false removes it",
+          "type": "boolean",
+        },
+        "otherIssueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "otherIssueKey",
+        "direction",
+        "linked",
+      ],
+      "type": "object",
+    },
+  },
+  {
     "name": "list_channel_messages",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2039,29 +2043,40 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
     },
   },
   {
-    "name": "react_to_message",
+    "name": "react",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "commentId": {
+          "description": "Issue comment: its id as read from the issue detail comments",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+        },
         "emoji": {
-          "description": "Unicode emoji such as 👍, as in reactions",
+          "description": "Unicode emoji such as 👍; to remove, the exact string shown in reactions",
           "maxLength": 32,
           "minLength": 1,
           "type": "string",
         },
+        "issueKey": {
+          "description": "Issue comment: issue key, together with commentId",
+          "minLength": 1,
+          "type": "string",
+        },
         "messageId": {
-          "description": "from list_channel_messages or list_thread_replies",
+          "description": "Chat message: its id as read from channel or thread messages",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer",
         },
         "reacted": {
+          "description": "true adds my reaction, false removes it",
           "type": "boolean",
         },
       },
       "required": [
-        "messageId",
         "emoji",
         "reacted",
       ],
@@ -2220,36 +2235,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
       },
-      "type": "object",
-    },
-  },
-  {
-    "name": "remove_issue_dependency",
-    "schema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "direction": {
-          "enum": [
-            "blocks",
-            "blockedBy",
-          ],
-          "type": "string",
-        },
-        "issueKey": {
-          "minLength": 1,
-          "type": "string",
-        },
-        "otherIssueKey": {
-          "minLength": 1,
-          "type": "string",
-        },
-      },
-      "required": [
-        "issueKey",
-        "otherIssueKey",
-        "direction",
-      ],
       "type": "object",
     },
   },

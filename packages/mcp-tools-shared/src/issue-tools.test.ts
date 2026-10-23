@@ -23,6 +23,8 @@ function mockClient(): IssueToolClient {
     editComment: vi.fn().mockResolvedValue(undefined),
     addIssueDependency: vi.fn().mockResolvedValue({ summary: { title: 't', status: 'TODO', priority: 'MID', assignees: [] } }),
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
+    addCommentReaction: vi.fn().mockResolvedValue(undefined),
+    removeCommentReaction: vi.fn().mockResolvedValue(undefined),
     getProjectMilestones: vi.fn().mockResolvedValue([{ id: 7, name: 'v1.0' }]),
     getProjectCycles: vi.fn().mockResolvedValue([{ id: 30, name: 'Sprint 3' }]),
     replaceIssueCycles: vi.fn().mockResolvedValue([]),
@@ -51,18 +53,17 @@ function mockClient(): IssueToolClient {
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 11종을 반환한다', () => {
+  it('정확히 10종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [
         'add_comment',
-        'add_issue_dependency',
+        'link_issues',
         'claim_issue',
         'create_issue',
         'update_comment',
         'get_issue_chat',
         'get_issue_detail',
-        'remove_issue_dependency',
         'report_agent_work',
         'update_issue',
         'watch_issue',
@@ -512,7 +513,7 @@ describe('buildSharedIssueTools', () => {
     expect(text).not.toMatch(/reporterId|"id"/);
   });
 
-  it('add_issue_dependency 결과는 갱신된 의존성만 — 상세 raw 의 숫자 사용자 ID 를 싣지 않는다 (#833, WP-353)', async () => {
+  it('link_issues(linked: true) 결과는 갱신된 의존성만 — 상세 raw 의 숫자 사용자 ID 를 싣지 않는다 (#833, WP-353)', async () => {
     const c = mockClient();
     vi.mocked(c.addIssueDependency).mockResolvedValue({
       summary: {
@@ -523,8 +524,8 @@ describe('buildSharedIssueTools', () => {
       history: [{ actorId: 10, actorName: '앨리스', eventType: 'DEPENDENCY_ADDED' }],
       reporter: { id: 10, username: 'alice', name: '앨리스', kind: 'HUMAN' },
     });
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'add_issue_dependency')!;
-    const text = resultText(await t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blocks' }));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'link_issues')!;
+    const text = resultText(await t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blocks', linked: true }));
     expect(JSON.parse(text)).toEqual({ issueKey: 'WP-1', blockedBy: [], blocks: [{ issueKey: 'WP-2', title: '후속', status: 'TODO' }], blocked: false });
     expect(text).not.toMatch(/Id"|"id"/);
   });
@@ -727,27 +728,36 @@ describe('buildSharedIssueTools', () => {
     await expect(t.handler({ issueKey: 'WP-9', queueLabel: 'AI 개발팀' })).rejects.toThrow('NOT_IN_QUEUE');
   });
 
-  it('add_issue_dependency 는 다른 프로젝트면 클라이언트측 거부', async () => {
+  it('link_issues 는 다른 프로젝트면 클라이언트측 거부', async () => {
     const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'add_issue_dependency')!;
-    await expect(t.handler({ issueKey: 'WP-1', otherIssueKey: 'AB-2', direction: 'blocks' })).rejects.toThrow(
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'link_issues')!;
+    await expect(t.handler({ issueKey: 'WP-1', otherIssueKey: 'AB-2', direction: 'blocks', linked: true })).rejects.toThrow(
       '동일 프로젝트 이슈 간에만 의존성을 설정할 수 있습니다.',
     );
     expect(c.addIssueDependency).not.toHaveBeenCalled();
   });
 
-  it('add_issue_dependency 는 같은 프로젝트면 otherNumber 로 호출', async () => {
+  it('link_issues(linked: true) 는 같은 프로젝트면 otherNumber 로 호출', async () => {
     const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'add_issue_dependency')!;
-    await t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blocks' });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'link_issues')!;
+    await t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blocks', linked: true });
     expect(c.addIssueDependency).toHaveBeenCalledWith('WP-1', 2, 'blocks');
   });
 
-  it('remove_issue_dependency 는 "ok"', async () => {
+  it('link_issues(linked: false) 는 "ok" 이고 제거만 부른다', async () => {
     const c = mockClient();
-    const t = buildSharedIssueTools(c).find((x) => x.name === 'remove_issue_dependency')!;
-    await expect(t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blockedBy' })).resolves.toBe('ok');
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'link_issues')!;
+    await expect(t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blockedBy', linked: false })).resolves.toBe('ok');
     expect(c.removeIssueDependency).toHaveBeenCalledWith('WP-1', 2, 'blockedBy');
+    expect(c.addIssueDependency).not.toHaveBeenCalled();
+  });
+
+  it('link_issues 는 linked 를 빠뜨리면 거절한다(추가인지 제거인지 모호)', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'link_issues')!;
+    await expect(t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blocks' })).rejects.toThrow();
+    expect(c.addIssueDependency).not.toHaveBeenCalled();
+    expect(c.removeIssueDependency).not.toHaveBeenCalled();
   });
 });
 

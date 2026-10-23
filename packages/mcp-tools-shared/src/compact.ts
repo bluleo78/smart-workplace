@@ -45,3 +45,16 @@ export function numberedPageView<T>(items: T[], page: { total?: number; hasMore:
 export function truncatedView<T>(items: T[], truncated: boolean) {
   return { items, ...(truncated && { truncated: true as const }) };
 }
+
+/**
+ * 리액션 집계 [{emoji,count,reacted}] → { "👍": 2 }. 채팅 읽기와 이슈 코멘트 읽기가 같이 쓴다(WP-812). 누른 사람 목록과 reacted(내가 눌렀나)는
+ * 읽기 맥락에서 쓸모가 적어 도구 뷰에 싣지 않는다. count 가 숫자가 아니면 0 으로 보이면 모델이 반응이 없다고 읽어(중복 추가·잘못된 제거)
+ * 그 항목은 싣지 않는다. 반응이 없으면 undefined 라 펼쳐도 키가 생기지 않는다.
+ */
+export function reactionSummary(reactions: unknown): Record<string, number> | undefined {
+  if (!Array.isArray(reactions)) return undefined;
+  const entries = (reactions as { emoji?: unknown; count?: unknown }[])
+    .filter((r) => typeof r.emoji === 'string' && Number.isFinite(r.count))
+    .map((r) => [r.emoji as string, r.count as number] as const);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}

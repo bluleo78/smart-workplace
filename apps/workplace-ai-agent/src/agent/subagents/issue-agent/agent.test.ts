@@ -23,8 +23,8 @@ describe('issue-agent 정의', () => {
       'mcp__workplace__update_issue',
       'mcp__workplace__unassign_self',
       // #844: 의존관계 쓰기 + 쓰기 값 조달용 조회(유형·라벨, 사람 username)
-      'mcp__workplace__add_issue_dependency',
-      'mcp__workplace__remove_issue_dependency',
+      'mcp__workplace__link_issues', // WP-812: 의존관계 추가·제거 통합(linked)
+      'mcp__workplace__react', // WP-812: 이슈 코멘트 반응
       // #854: 이슈 워치/해제(멱등) — WP-421 에서 watch_issue(watching) 하나로 합쳐졌다
       'mcp__workplace__watch_issue',
       // WP-421: 첨부용 텍스트 파일 올려 두기(AI Chat 은 content 모드만)
@@ -110,5 +110,13 @@ describe('issue-agent 정의', () => {
     // WP-422: 받은 fileId 는 fileIds 로 이슈에 붙이고, update_issue 첨부 실패는 results.attachments 로 확인한다.
     expect(prompt).toContain('`fileIds`');
     expect(prompt).toContain('results.attachments');
+  });
+
+  // WP-812: 의존관계 추가·제거는 link_issues(linked) 하나로, 코멘트 반응은 react 로 — 옛 이름은 프롬프트에 남기지 않는다.
+  it('link_issues(linked)·react(코멘트 반응) 안내가 있고 옛 의존관계 도구 이름은 없다 (WP-812)', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('link_issues(issueKey, otherIssueKey, direction, linked)');
+    expect(prompt).toContain('react(issueKey, commentId, emoji, reacted)');
+    expect(prompt).not.toMatch(/add_issue_dependency|remove_issue_dependency/);
   });
 });

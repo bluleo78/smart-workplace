@@ -219,3 +219,22 @@ describe('normalizeIssueDetail', () => {
     expect(d.comments).toEqual([]);
   });
 });
+
+describe('normalizeIssueDetail 코멘트 반응 (WP-812)', () => {
+  it('반응 집계를 {이모지: 개수} 로만 싣고(reacted 는 뺌) 없으면 키를 만들지 않는다', () => {
+    const withReactions = {
+      ...raw,
+      comments: [
+        { ...raw.comments[0], reactions: [{ emoji: '👀', count: 2, reacted: true }, { emoji: '✅', count: 1, reacted: false }] },
+        { ...raw.comments[0], id: 2, reactions: [] },
+        { ...raw.comments[0], id: 3 },
+        { ...raw.comments[0], id: 4, reactions: [{ emoji: '👍', count: null, reacted: false }] }, // 숫자가 아닌 count 는 0 으로 위장하지 않고 뺀다
+      ],
+    };
+    const { comments } = normalizeIssueDetail(withReactions);
+    expect(comments[0].reactions).toEqual({ '👀': 2, '✅': 1 });
+    expect('reactions' in comments[1]).toBe(false);
+    expect('reactions' in comments[2]).toBe(false);
+    expect('reactions' in comments[3]).toBe(false);
+  });
+});

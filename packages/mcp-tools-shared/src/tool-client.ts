@@ -174,6 +174,10 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   replaceIssueLabels(issueKey: string, labelIds: number[], labelNames?: string[]): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;
   editComment(issueKey: string, commentId: number, body: string): Promise<void>;
+  /** POST .../comments/{id}/reactions — 이미 눌렀으면 no-op(멱등), emoji 1~32자(WP-504). 도구는 react 가 reacted 로 고른다(WP-812). */
+  addCommentReaction(issueKey: string, commentId: number, emoji: string): Promise<void>;
+  /** DELETE .../comments/{id}/reactions?emoji= — 누른 적 없으면 no-op(멱등)(WP-504). */
+  removeCommentReaction(issueKey: string, commentId: number, emoji: string): Promise<void>;
   /** PUT .../agent-work — 담당 이슈에 대한 AI 작업 보고(WP-377). message 가 있으면 호출마다 이슈 챗에 글이 올라가 재시도는 중복 글을 만든다(멱등 아님). */
   reportAgentWork(issueKey: string, body: ReportAgentWorkBody): Promise<AgentWorkReport>;
   /** 갱신된 상세 raw 반환. */
@@ -472,7 +476,7 @@ export interface MessagingToolClient {
   addChannelMember(channelId: number, userId: number): Promise<void>;
   /** POST /messaging/channels/{id}/join — 공개 채널만(비공개 403), 이미 멤버면 no-op(WP-355). */
   joinChannel(channelId: number): Promise<void>;
-  /** POST /messaging/messages/{id}/reactions — 이미 눌렀으면 no-op(멱등), 채널 멤버만. emoji 1~32자(WP-355). 도구는 react_to_message 가 reacted 로 고른다(WP-421). */
+  /** POST /messaging/messages/{id}/reactions — 이미 눌렀으면 no-op(멱등), 채널 멤버만. emoji 1~32자(WP-355). 도구는 react 가 reacted 로 고른다(WP-421·WP-812). */
   addReaction(messageId: number, emoji: string): Promise<void>;
   /** DELETE /messaging/messages/{id}/reactions?emoji= — 누른 적 없으면 no-op(멱등)(WP-355). */
   removeReaction(messageId: number, emoji: string): Promise<void>;

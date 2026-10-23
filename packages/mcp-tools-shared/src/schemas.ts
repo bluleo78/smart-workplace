@@ -115,11 +115,12 @@ export const editCommentInput = z.object({
   body: z.string().min(1),
 });
 
-/** 의존성 add/remove 공용 입력. */
-export const dependencyInput = z.object({
+/** link_issues 입력(WP-812) — 의존성 추가·제거를 한 도구로 합쳤다. linked 는 최종 상태라 필수(빠뜨리면 추가인지 제거인지 모호해 거절, 같은 값을 다시 보내도 결과가 같아 멱등). */
+export const linkIssuesInput = z.object({
   issueKey: z.string().min(1),
   otherIssueKey: z.string().min(1),
   direction: z.enum(['blocks', 'blockedBy']),
+  linked: z.boolean().describe('true adds the link, false removes it'),
 });
 
 /**

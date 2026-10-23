@@ -13,7 +13,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   add_channel_message: ['write', false, false, false],
   add_comment: ['write', false, false, false],
   add_contact_favorite: ['write', false, true, false],
-  add_issue_dependency: ['write', false, true, false],
+  link_issues: ['write', true, true, false],
   add_user_group_member: ['write', false, true, false],
   claim_issue: ['write', false, false, false],
   create_channel: ['write', false, false, false],
@@ -75,7 +75,6 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   open_dm: ['write', false, true, false],
   read_file: ['read', R, R, R],
   remove_contact_favorite: ['write', true, true, false],
-  remove_issue_dependency: ['write', true, true, false],
   remove_user_group_member: ['write', true, true, false],
   // 같은 입력을 다시 보고해도 message 가 있으면 챗 글이 또 올라가므로 멱등이 아니다.
   report_agent_work: ['write', false, false, false],
@@ -93,7 +92,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   // 읽음 처리는 위치가 후퇴하지 않아(GREATEST), 메시지 수정은 같은 본문을 다시 보내도 저장 상태가 같고 알림이 없어(SSE 만) 멱등이다. 제거·읽음·수정은 지우거나 덮어쓴다.
   join_channel: ['write', false, true, false],
   // WP-421: 추가·제거를 합친 도구는 최종 상태(reacted·watching)를 받아 멱등이고, 제거 갈래가 있어 destructive 다.
-  react_to_message: ['write', true, true, false],
+  react: ['write', true, true, false],
   update_channel_message: ['write', true, true, false],
   mark_channel_read: ['write', true, true, false],
   search_drive: ['read', R, R, R],

@@ -286,11 +286,11 @@ describe('이슈', () => {
   };
   const tools = buildSharedIssueTools(client as never) as never as Parameters<typeof find>[0];
 
-  it('get_issue_detail·create_issue·add_issue_dependency 응답에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
+  it('get_issue_detail·create_issue·link_issues 응답에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
     for (const [name, args] of [
       ['get_issue_detail', { issueKey: 'WP-12' }],
       ['create_issue', { projectKey: 'WP', title: 'T' }],
-      ['add_issue_dependency', { issueKey: 'WP-12', otherIssueKey: 'WP-13', direction: 'blocks' }],
+      ['link_issues', { issueKey: 'WP-12', otherIssueKey: 'WP-13', direction: 'blocks', linked: true }],
     ] as const) {
       expect(userIdLeaks(out(await find(tools, name).handler(args))), name).toEqual([]);
     }

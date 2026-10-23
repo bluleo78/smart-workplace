@@ -399,21 +399,6 @@ describe('메시징 보강 (WP-355)', () => {
     expect(tool(c, 'leave_channel').description).not.toContain('no tool here rejoins');
   });
 
-  // WP-421: 리액션 추가·제거를 react_to_message 하나로 합쳤다 — reacted 가 최종 상태라 멱등이고, 빠뜨리면 거절한다.
-  it('react_to_message: reacted 에 따라 add/remove, 이모지 1~32자', async () => {
-    const c = mockClient();
-    expect(resultText(await tool(c, 'react_to_message').handler({ messageId: 40, emoji: '👍', reacted: true }))).toBe('ok');
-    expect(c.addReaction).toHaveBeenCalledWith(40, '👍');
-    expect(c.removeReaction).not.toHaveBeenCalled();
-    expect(resultText(await tool(c, 'react_to_message').handler({ messageId: 40, emoji: '👍', reacted: false }))).toBe('ok');
-    expect(c.removeReaction).toHaveBeenCalledWith(40, '👍');
-    expect(c.addReaction).toHaveBeenCalledTimes(1);
-    await expect(tool(c, 'react_to_message').handler({ messageId: 40, emoji: '', reacted: true })).rejects.toThrow();
-    await expect(tool(c, 'react_to_message').handler({ messageId: 40, emoji: 'x'.repeat(33), reacted: true })).rejects.toThrow();
-    await expect(tool(c, 'react_to_message').handler({ messageId: 40, emoji: '👍' })).rejects.toThrow();
-    expect(c.addReaction).toHaveBeenCalledTimes(1);
-  });
-
   it('update_channel_message → @username 을 <@id> 로 바꿔 수정하고, 저장된 행은 읽기 뷰(숫자 사용자 ID 없음)로 돌려준다', async () => {
     const c = mockClient();
     vi.mocked(c.searchMembers).mockResolvedValue([{ userId: 5, username: 'minsu', name: '김민수', active: true }] as MemberRow[]);

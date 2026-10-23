@@ -3,6 +3,7 @@
 // WP-307: 예전엔 zod 파싱이 스키마 밖 필드를 조용히 지워 날짜·라벨·마일스톤 등이 빠졌다. 이제 필드를 명시적으로 골라 만들고,
 // AI 가 판단에 쓰는 정보(날짜·분류·계층·작성자·커스텀 필드·첨부·변경 이력)를 모두 싣는다.
 import { toAgentWorkView, type AgentWorkOut } from './agent-work-view.js';
+import { reactionSummary } from './compact.js';
 import { formatIssueKey } from './parse.js';
 import {
   labelNames,
@@ -72,7 +73,7 @@ export interface IssueDetail {
   blocked: boolean;
   customFields: { name: string; type: string; value: unknown }[];
   attachments: { attachmentId: number; name: string; mimeType: string | null; sizeBytes: number | null; attachedBy: PersonView; attachedAt: string | null }[];
-  comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null }[];
+  comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null; reactions?: Record<string, number> }[];
   /** 코멘트가 상한에 걸려 잘렸을 때만: 빠진 오래된 코멘트 수. 없으면 전부 담긴 것(allComments 로도 200건이 넘으면 생긴다). */
   commentsOmitted?: number;
   /** AI 가 이 이슈에서 하는 작업(WP-377) — 없으면 키가 없다. */
@@ -189,13 +190,18 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
       attachedBy: toAuthorView(a.attachedByUsername, a.attachedByName, undefined),
       attachedAt: toSeoulIso(a.attachedAt),
     })),
-    comments: comments.map((c) => ({
-      id: c.id as number,
-      body: String(c.body ?? ''),
-      author: toAuthorView(c.authorUsername, c.authorName, c.authorKind),
-      createdAt: toSeoulIso(c.createdAt),
-      updatedAt: toSeoulIso(c.updatedAt),
-    })),
+    comments: comments.map((c) => {
+      const reactions = reactionSummary(c.reactions);
+      return {
+        id: c.id as number,
+        body: String(c.body ?? ''),
+        author: toAuthorView(c.authorUsername, c.authorName, c.authorKind),
+        createdAt: toSeoulIso(c.createdAt),
+        updatedAt: toSeoulIso(c.updatedAt),
+        // WP-812: 반응은 {이모지: 개수} 로만 — 채팅 읽기(list_channel_messages)와 같은 꼴, 없으면 키를 뺀다.
+        ...(reactions && { reactions }),
+      };
+    }),
     ...(commentsOmitted > 0 && { commentsOmitted }),
     ...(Array.isArray(s.agentWork) && s.agentWork.length > 0 && { agentWork: (s.agentWork as Raw[]).map(toAgentWorkView) }),
     history: history.map((h) => ({

@@ -68,7 +68,12 @@ describe('getToolDisplay — 옛 도구 이름 폴백', () => {
     expect(getToolDisplay('add_reaction')).toEqual({ label: '리액션 추가', icon: '👍' });
     expect(getToolDisplay('remove_reaction')).toEqual({ label: '리액션 제거', icon: '👍' });
     expect(getToolDisplay('watch_issue')).toEqual(TOOL_LABELS.watch_issue);
-    expect(getToolDisplay('react_to_message')).toEqual(TOOL_LABELS.react_to_message);
+    // WP-812: react_to_message → react(코멘트 반응까지), 의존관계 추가·제거 → link_issues — 옛 이름은 LEGACY 폴백(옛 라벨 그대로).
+    expect(getToolDisplay('react')).toEqual(TOOL_LABELS.react);
+    expect(getToolDisplay('react_to_message')).toEqual({ label: '리액션', icon: '👍' });
+    expect(getToolDisplay('link_issues')).toEqual(TOOL_LABELS.link_issues);
+    expect(getToolDisplay('mcp__workplace__add_issue_dependency')).toEqual({ label: '이슈 의존관계 추가', icon: '🔗' });
+    expect(getToolDisplay('remove_issue_dependency')).toEqual({ label: '이슈 의존관계 제거', icon: '🔗' });
     expect(getToolDisplay('upload_file')).toEqual({ label: '파일 올리기', icon: '📤' });
     // 새 이름은 공유 TOOL_LABELS 에서 같은 라벨을 쓴다.
     expect(getToolDisplay('update_comment').label).toBe('코멘트 수정');

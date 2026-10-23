@@ -37,6 +37,8 @@ function sharedMock(): MockedShared {
     editComment: vi.fn().mockResolvedValue(undefined),
     addIssueDependency: vi.fn().mockResolvedValue({}),
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
+    addCommentReaction: vi.fn().mockResolvedValue(undefined),
+    removeCommentReaction: vi.fn().mockResolvedValue(undefined),
     replaceIssueCycles: vi.fn().mockResolvedValue([]),
     getIssueCycles: vi.fn().mockResolvedValue([]),
     watchIssue: vi.fn().mockResolvedValue(undefined),
@@ -274,13 +276,13 @@ describe('프로필 구성', () => {
     const names = buildTools(client(), AGENT_ID).map((t) => t.name).sort();
     expect(names).toEqual([
       'add_comment',
-      'add_issue_dependency',
       'create_issue',
       'get_issue_detail',
       'get_project',
       'get_wiki_page',
+      'link_issues',
       'list_wiki_spaces',
-      'remove_issue_dependency',
+      'react', // WP-812: 이슈 코멘트 반응
       'search_wiki',
       'unassign_self',
       'update_comment',
@@ -318,9 +320,9 @@ describe('프로필 구성', () => {
   });
 
   // WP-355: 리액션·메시지 수정·읽음 처리·채널 참여는 사용자 신원(assistant)에만 싣는다 — 채널에서 멘션된 에이전트 신원(messaging)에는 주지 않는다(정책 보류).
-  // WP-421: 리액션 추가·제거는 react_to_message 하나로 합쳐졌다.
+  // WP-421: 리액션 추가·제거는 react 하나로 합쳐졌다(WP-812: 이슈 코멘트 반응까지 같은 도구).
   it('WP-355: 채널 참여·리액션·메시지 수정·읽음 처리는 assistant 에만 있고 messaging 프로필·라우터 목록에는 없다', () => {
-    const added = ['join_channel', 'react_to_message', 'update_channel_message', 'mark_channel_read'];
+    const added = ['join_channel', 'react', 'update_channel_message', 'mark_channel_read'];
     const assistant = buildTools(client(), AGENT_ID, 'assistant').map((t) => t.name);
     for (const n of added) {
       expect(assistant, n).toContain(n);
@@ -365,7 +367,7 @@ describe('프로필 구성', () => {
     for (const n of [
       // 이슈
       'get_issue_detail', 'list_issues', 'add_comment', 'update_comment', 'create_issue', 'update_issue',
-      'unassign_self', 'add_issue_dependency', 'remove_issue_dependency',
+      'unassign_self', 'link_issues', 'react',
       // 노트
       'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'create_wiki_page', 'update_wiki_page',
       'list_wiki_pages', 'list_wiki_backlinks',
@@ -1893,8 +1895,8 @@ describe('공유로 옮긴 쓰기 도구는 에이전트 신원(toolClient(agent
     const old = [
       'create_folder', 'rename_folder', 'move_folder', 'move_file',
       'rename_drive_file', 'rename_drive_folder', 'move_drive_file', 'move_drive_folder', 'read_attachment',
-      // WP-421: watch_issue·react_to_message 로 합쳐진 이름
-      'unwatch_issue', 'add_reaction', 'remove_reaction',
+      // WP-421: watch_issue·react 로 합쳐진 이름, WP-812: 의존관계 추가·제거는 link_issues 로, react_to_message 는 react 로
+      'unwatch_issue', 'add_reaction', 'remove_reaction', 'add_issue_dependency', 'remove_issue_dependency', 'react_to_message',
     ];
     for (const p of ['issue', 'chat', 'home', 'messaging', 'assistant'] as McpProfile[]) {
       const names = buildTools(client(), AGENT_ID, p).map((t) => t.name);

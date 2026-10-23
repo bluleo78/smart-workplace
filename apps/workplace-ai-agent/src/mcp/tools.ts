@@ -706,7 +706,7 @@ export function buildTools(
     ];
   };
 
-  // 이슈 쓰기 도구(add_comment/update_comment/create_issue/update_issue/add_issue_dependency/remove_issue_dependency)는 공유본(sharedTool)이다.
+  // 이슈 쓰기 도구(add_comment/update_comment/create_issue/update_issue/link_issues)는 공유본(sharedTool)이다.
   // 상태 변경은 update_issue 의 status 로 한다(update_status 도구는 WP-343 에서 폐지).
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
   // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
@@ -1256,8 +1256,7 @@ export function buildTools(
       sharedTool('create_issue'),
       sharedTool('update_issue'),
       unassignSelfTool,
-      sharedTool('add_issue_dependency'),
-      sharedTool('remove_issue_dependency'),
+      sharedTool('link_issues'),
       sharedTool('list_events'),
       sharedTool('get_event'),              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
@@ -1303,8 +1302,8 @@ export function buildTools(
       sharedTool('create_channel'), sharedTool('open_dm'), sharedTool('leave_channel'),
       // WP-355: 채널 참여·리액션·내 메시지 수정·채널 읽음 처리 — 사용자 신원으로 하는 되돌릴 수 있는 쓰기(직접 실행, 확인 카드 없음). 메시지 삭제는 되돌릴 수 없어 도구로 두지 않는다(확인 카드도 아직 없음).
       // 채널에서 멘션된 에이전트 신원의 messaging 프로필에는 싣지 않는다(에이전트가 사람 이름으로 리액션·수정하는 정책은 별도 결정).
-      // WP-421: 리액션 추가·제거는 react_to_message(reacted) 하나로 합쳐졌다.
-      sharedTool('join_channel'), sharedTool('react_to_message'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
+      // WP-421: 리액션 추가·제거는 react(reacted) 하나로 합쳐졌다(WP-812: 이슈 코멘트 반응까지 같은 도구).
+      sharedTool('join_channel'), sharedTool('react'), sharedTool('update_channel_message'), sharedTool('mark_channel_read'),
       // WP-421: 첨부용 텍스트 파일 올려 두기(content 모드만) — 쓰기라 라우터가 아니라 issue-agent·messaging-agent 에만 둔다(wiki-agent 는 텍스트가 노트 이미지가 될 수 없어 싣지 않는다).
       sharedTool('upload_file'),
       sharedTool('get_mail_summary'), sharedTool('draft_mail_reply'), sharedTool('draft_issue_from_mail'),
@@ -1351,7 +1350,7 @@ export function buildTools(
     sharedTool('create_issue'),
     sharedTool('update_issue'),
     unassignSelfTool,
-    sharedTool('add_issue_dependency'),
-    sharedTool('remove_issue_dependency'),
+    sharedTool('link_issues'),
+    sharedTool('react'), // WP-812: 이슈 코멘트 반응(채팅과 같은 도구)
   ];
 }
