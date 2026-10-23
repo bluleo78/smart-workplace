@@ -43,6 +43,16 @@ public class FileSizeLimitExceededException extends RuntimeException {
   }
 
   /**
+   * 첨부(이슈·채널·이슈 챗) 크기 초과 안내 — 바이트 수 대신 MB 한도와 파일 이름으로 알린다(WP-848).
+   *
+   * <p>예: 「첨부 파일은 최대 25MB까지 업로드할 수 있습니다: backup.zip」.
+   */
+  public static String attachmentMessage(long maxBytes, String fileName) {
+    String text = "첨부 파일은 최대 " + formatSize(maxBytes) + "까지 업로드할 수 있습니다";
+    return fileName == null || fileName.isBlank() ? text : text + ": " + fileName;
+  }
+
+  /**
    * 바이트 → 읽을 수 있는 크기. 1MB 이상은 MB(딱 떨어지면 정수 「25MB」, 아니면 소수 한 자리 「9.5MB」), 그보다 작으면 KB·B — 설정으로 작게 바꾼
    * 한도도 「0MB」로 읽히지 않게.
    */

@@ -10,8 +10,11 @@
 //   - GET /chat/threads/*/messages: 빈 목록(초기).
 //   - POST /chat/threads/*/messages: 첨부 포함 응답 반환(본문은 trackRequests 로 검증).
 
+import type { Page } from '@playwright/test';
+
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { expectStays } from '../../fixtures/wait';
 import { createChatMember, createChatThread } from '../../factories/chat.factory';
 import { createFile } from '../../factories/drive.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
@@ -24,101 +27,112 @@ const THREAD_ID = 100;
 const ME_ID = 1;
 const FILE_ID = 1;
 
+/** 이슈 상세 + 이슈 채팅 스레드(빈 메시지)·드라이브 스페이스·읽음 스텁 — 첨부 테스트 공통. */
+async function stubIssueChatBase(page: Page) {
+  // ── 이슈 상세 공통 스텁 ────────────────────────────────────────────────
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createProject()),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          createIssueDetail({
+            summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '첨부 테스트' }),
+          }),
+        ),
+      }),
+  );
+  for (const sub of ['watchers', 'labels', 'attachments']) {
+    await page.route(
+      (url) =>
+        url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/${sub}`,
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+  }
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/labels`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  
+  // ── 드라이브 스페이스 스텁 — useAttachmentDraft 마운트 시 listSpaces 호출 ──
+  // PERSONAL 스페이스 1개 반환 → spacesResolved=true, personalSpaceId 세팅.
+  await page.route(
+    (url) => url.pathname === '/api/v1/drive/spaces',
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 10,
+            type: 'PERSONAL',
+            name: '개인 공간',
+            ownerId: ME_ID,
+            role: 'OWNER',
+            archived: false,
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+      }),
+  );
+  
+  // ── 채팅 스레드 스텁 ──────────────────────────────────────────────────
+  const thread = createChatThread({
+    threadId: THREAD_ID,
+    issueId: 1,
+    members: [createChatMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자' })],
+    recentMessages: [],
+  });
+  await page.route(
+    (url) =>
+      url.pathname ===
+      `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/chat/thread`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(thread),
+      }),
+  );
+  
+  // ── GET/POST /messages 스텁 ────────────────────────────────────────
+  // chat.spec.ts 패턴: GET 핸들러와 POST 핸들러를 각각 route.fallback() 으로 체이닝.
+  // auth.fixture 기본 글롭(**/chat/threads/*/messages)보다 늦게 등록되므로 LIFO 로 우선함.
+  await page.route(
+    (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
+      });
+    },
+  );
+  
+  // ── 미읽음 mark-read 스텁 ─────────────────────────────────────────────
+  await page.route(
+    (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/read`,
+    (route) => route.fulfill({ status: 204 }),
+  );
+}
+
 test(
   '파일 첨부 버튼 노출 → 업로드 → fileIds 포함 전송 → 첨부 카드 렌더 (#358)',
   { tag: '@smoke' },
   async ({ authenticatedPage: page }) => {
-    // ── 이슈 상세 공통 스텁 ────────────────────────────────────────────────
-    await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(createProject()),
-      }),
-    );
-    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            createIssueDetail({
-              summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '첨부 테스트' }),
-            }),
-          ),
-        }),
-    );
-    for (const sub of ['watchers', 'labels', 'attachments']) {
-      await page.route(
-        (url) =>
-          url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/${sub}`,
-        (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-      );
-    }
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/labels`,
-      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-
-    // ── 드라이브 스페이스 스텁 — useAttachmentDraft 마운트 시 listSpaces 호출 ──
-    // PERSONAL 스페이스 1개 반환 → spacesResolved=true, personalSpaceId 세팅.
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/spaces',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: 10,
-              type: 'PERSONAL',
-              name: '개인 공간',
-              ownerId: ME_ID,
-              role: 'OWNER',
-              archived: false,
-              createdAt: new Date().toISOString(),
-            },
-          ]),
-        }),
-    );
-
-    // ── 채팅 스레드 스텁 ──────────────────────────────────────────────────
-    const thread = createChatThread({
-      threadId: THREAD_ID,
-      issueId: 1,
-      members: [createChatMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자' })],
-      recentMessages: [],
-    });
-    await page.route(
-      (url) =>
-        url.pathname ===
-        `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/chat/thread`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(thread),
-        }),
-    );
-
-    // ── GET/POST /messages 스텁 ────────────────────────────────────────
-    // chat.spec.ts 패턴: GET 핸들러와 POST 핸들러를 각각 route.fallback() 으로 체이닝.
-    // auth.fixture 기본 글롭(**/chat/threads/*/messages)보다 늦게 등록되므로 LIFO 로 우선함.
-    await page.route(
-      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback();
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
-        });
-      },
-    );
+    await stubIssueChatBase(page);
 
     // ── POST /attachments — 업로드 스텁: 파일 1개 → fileId=1 반환 ────────
     await page.route(
@@ -175,12 +189,6 @@ test(
           }),
         });
       },
-    );
-
-    // ── 미읽음 mark-read 스텁 ─────────────────────────────────────────────
-    await page.route(
-      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/read`,
-      (route) => route.fulfill({ status: 204 }),
     );
 
     // ── 페이지 진입 ──────────────────────────────────────────────────────
@@ -406,3 +414,25 @@ test(
     });
   },
 );
+
+// WP-848: 이슈 챗도 25MB 를 넘는 파일은 고를 때 바로 빼고 이름과 함께 알린다(서버 「유효하지 않은 첨부」까지 가지 않는다).
+test('이슈 챗 — 25MB 를 넘는 파일은 업로드하지 않고 이름과 함께 알린다', async ({ authenticatedPage: page }) => {
+  await stubIssueChatBase(page);
+  const uploads = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/attachments`);
+  await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+  await page.getByTestId('issue-chat-open').click();
+  await expect(page.getByTestId('chat-section')).toBeVisible();
+
+  await page.getByTestId('chat-composer-attach-button').click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('chat-composer-attach-file').click();
+  await (await chooser).setFiles({
+    name: 'huge.zip',
+    mimeType: 'application/zip',
+    buffer: Buffer.alloc(25 * 1024 * 1024 + 1),
+  });
+
+  await expect(page.getByText('huge.zip는 25MB 한도를 초과합니다')).toBeVisible();
+  await expect(page.getByTestId('chat-composer-attachments')).toHaveCount(0);
+  await expectStays(page, () => uploads.count(), 0);
+});

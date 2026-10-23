@@ -6,6 +6,7 @@ import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.repository.ChatMessageRepository;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
+import com.workplace.file.exception.FileSizeLimitExceededException;
 import com.workplace.file.exception.StagedFileUnusableException;
 import com.workplace.file.storage.FileStore;
 import com.workplace.fileai.ExtractionProfile;
@@ -94,12 +95,14 @@ public class ChatMessageAttachmentService {
     if (files == null || files.isEmpty()) return List.of();
     if (files.size() > maxPerMessage) {
       // 한 번에 첨부 가능한 파일 개수 초과.
-      throw new InvalidChatAttachmentException();
+      throw InvalidChatAttachmentException.tooMany(maxPerMessage);
     }
     for (MultipartFile mf : files) {
       if (mf.getSize() > maxFileSize) {
-        // 파일 크기 한도 초과.
-        throw new InvalidChatAttachmentException();
+        // 파일 크기 한도 초과 — 어느 파일이 몇 MB 한도를 넘었는지 알린다(WP-848).
+        throw new InvalidChatAttachmentException(
+            FileSizeLimitExceededException.attachmentMessage(
+                maxFileSize, mf.getOriginalFilename()));
       }
     }
     List<UploadedFile> out = new ArrayList<>();
@@ -121,7 +124,7 @@ public class ChatMessageAttachmentService {
     if (fileIds == null || fileIds.isEmpty()) return;
     if (fileIds.size() > maxPerMessage) {
       // 바인딩 요청 첨부 개수 초과.
-      throw new InvalidChatAttachmentException();
+      throw InvalidChatAttachmentException.tooMany(maxPerMessage);
     }
     List<StagedFile> claimed;
     try {

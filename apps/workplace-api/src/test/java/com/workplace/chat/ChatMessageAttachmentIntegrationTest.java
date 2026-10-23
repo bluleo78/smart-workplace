@@ -187,6 +187,27 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
         .isInstanceOf(ChatAttachmentNotFoundException.class);
   }
 
+  /** WP-848: 크기·개수 초과는 「유효하지 않은 첨부」 대신 이유를 알린다(채널·이슈 첨부와 같은 문구). */
+  @Test
+  void 크기_초과와_개수_초과는_이유를_나눠_알린다() {
+    ChatFixtures.Setup s = fx.setup();
+    long threadId =
+        threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()).threadId();
+    long callerId = s.reporterId();
+
+    var big = mockMultipart("big.bin", "application/octet-stream", new byte[26_214_401]);
+    assertThatThrownBy(() -> attachmentService.upload(callerId, threadId, List.of(big)))
+        .isInstanceOf(InvalidChatAttachmentException.class)
+        .hasMessage("첨부 파일은 최대 25MB까지 업로드할 수 있습니다: big.bin");
+
+    var eleven = new java.util.ArrayList<MockMultipartFile>();
+    for (int i = 0; i < 11; i++)
+      eleven.add(mockMultipart("f" + i + ".txt", "text/plain", "x".getBytes()));
+    assertThatThrownBy(() -> attachmentService.upload(callerId, threadId, List.copyOf(eleven)))
+        .isInstanceOf(InvalidChatAttachmentException.class)
+        .hasMessage("메시지당 첨부 한도(10개)를 초과합니다");
+  }
+
   @Test
   void 업로드_storage_path_가_상대경로_형식이다() throws Exception {
     // given: 스레드 + 멤버.

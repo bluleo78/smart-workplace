@@ -74,7 +74,7 @@ public class IssueAttachmentService {
     // 1) 개별 사이즈 게이트 — 하나라도 초과면 즉시 400. 디스크 쓰기 전에 차단.
     for (MultipartFile mf : files) {
       if (mf.getSize() > maxFileSize) {
-        throw new AttachmentTooLargeException(mf.getSize(), maxFileSize);
+        throw new AttachmentTooLargeException(mf.getOriginalFilename(), maxFileSize);
       }
     }
 
@@ -153,7 +153,7 @@ public class IssueAttachmentService {
     // 스테이징 상한(링크 25MB 등)과 이슈 첨부 상한이 어긋날 수 있어 목적지 상한을 다시 본다. 예외로 클레임(영구화)도 함께 롤백된다.
     for (StagedFile f : staged) {
       if (f.sizeBytes() > maxFileSize) {
-        throw new AttachmentTooLargeException(f.sizeBytes(), maxFileSize);
+        throw new AttachmentTooLargeException(f.originalName(), maxFileSize);
       }
     }
 

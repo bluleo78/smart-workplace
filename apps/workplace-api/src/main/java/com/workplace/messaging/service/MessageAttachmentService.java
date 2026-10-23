@@ -97,7 +97,7 @@ public class MessageAttachmentService {
     // 크기 검증을 실제 저장 전에 수행해 불필요한 I/O 방지
     for (MultipartFile mf : files) {
       if (mf.getSize() > maxFileSize) {
-        throw new MessageAttachmentTooLargeException(mf.getSize(), maxFileSize);
+        throw new MessageAttachmentTooLargeException(mf.getOriginalFilename(), maxFileSize);
       }
     }
     List<UploadedFile> out = new ArrayList<>();
