@@ -14,7 +14,7 @@ import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
 import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import { useRefreshStatusesOnUnknown, useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
@@ -26,9 +26,6 @@ import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { ISSUE_LIST_COLUMN_COUNT, ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
-
-// 상태 그룹이 아닐 때 넘길 고정 빈 목록.
-const NO_ISSUES: IssueResponse[] = [];
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
@@ -61,7 +58,7 @@ export function IssueListView({
   const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
   const searchQuery = useIssueSearch(projectKey, scopedFilters);
   // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 로딩 중·실패(빈 배열)엔 범주 버킷으로 묶는다.
-  const statuses = useSortedProjectStatuses(projectKey);
+  const statuses = useProjectStatusList(projectKey);
   // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다. 총계가 오기 전·에픽 그룹은 불러온 행 수.
   // 상태 목록이 없어 범주 버킷으로 묶는 동안은 총계도 범주로 센다(버킷 key 와 맞게).
   const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy, statuses.length > 0);
@@ -96,8 +93,6 @@ export function IssueListView({
     () => (groupBy ? groupIssues(items, groupBy, statuses.length ? statuses : undefined).filter((g) => g.issues.length > 0) : null),
     [items, groupBy, statuses],
   );
-  // 상태 그룹에서 목록에 없는 상태는 이름만 있는 버킷으로 뒤에 붙는다 — 그 상태를 만난 때 한 번 상태 목록을 다시 받아 제자리에 둔다(WP-808).
-  useRefreshStatusesOnUnknown(projectKey, groupBy === 'status' ? items : NO_ISSUES);
   // 그룹 모드에서 모든 그룹이 접혀 행이 하나도 안 그려지면 sentinel 이 화면에 들어와 다음 페이지를 연쇄 로드한다 →
   // 이 경우엔 LoadMoreFooter 의 observer 를 달지 않는다(sentinel 은 그대로 마운트, 펼치면 정상 재개).
   const allGroupsCollapsed = groups != null && groups.length > 0 && groups.every((g) => collapsed.has(g.key));

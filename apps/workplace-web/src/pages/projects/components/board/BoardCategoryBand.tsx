@@ -5,14 +5,14 @@
 import { Plus } from 'lucide-react';
 import { useState } from 'react';
 
+import { CATEGORY_COLOR } from '@/components/issues/issueCategoryColor';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { CategorySpan } from '@/lib/projectStatuses';
 import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
 import type { ProjectStatus } from '@/types/projectStatus';
 
-import { CATEGORY_TONE } from './categoryTone';
 import { NewStatusPopoverBody } from './StatusNameEditor';
 
 export function BoardCategoryBand({
@@ -39,7 +39,7 @@ export function BoardCategoryBand({
           className="sticky top-0 z-20 h-9 min-w-0 bg-background pb-2"
         >
           <div
-            className={cn('flex h-full min-w-0 items-center justify-between gap-2 border-b-2 px-1 text-xs font-semibold', CATEGORY_TONE[s.category])}
+            className={cn('flex h-full min-w-0 items-center justify-between gap-2 border-b-2 px-1 text-xs font-semibold', CATEGORY_COLOR[s.category].band)}
             data-testid={`board-band-${s.category}`}
           >
             {/* 라벨은 왼쪽에 붙는다(sticky left) — 가로로 스크롤해 띠 앞부분이 지나가도 범주 이름이 남는다(＋ 의 sticky right 와 짝). */}

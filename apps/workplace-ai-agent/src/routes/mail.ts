@@ -119,8 +119,7 @@ const senderSchema = z.object({
 
 const priorMailSchema = z.object({ fromMe: z.boolean(), from: z.string(), date: z.string(), body: z.string() });
 
-// WP-807: statusName(프로젝트 상태 이름)은 선택 — 구버전 api 는 보내지 않는다.
-const linkedIssueSchema = z.object({ key: z.string(), title: z.string(), status: z.string(), statusName: z.string().nullish() });
+const linkedIssueSchema = z.object({ key: z.string(), title: z.string(), status: z.string() });
 
 // WP-149 ④ 개인 분석 + WP-150 보강 블록. 모르는 키는 zod 가 버린다.
 export const analyzePersonalSchema = z

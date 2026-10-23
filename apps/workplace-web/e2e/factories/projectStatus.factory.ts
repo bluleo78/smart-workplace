@@ -45,3 +45,14 @@ export function withCustomStatuses(...names: string[]): ProjectStatus[] {
   const custom = names.map((name, i) => ({ id: 11 + i, name, category: 'IN_PROGRESS' as const, position: 2 + i }));
   return [...seed.slice(0, 2), ...custom, ...seed.slice(2)];
 }
+
+// 범주 순서 — 서버 ProjectStatusRepository.DISPLAY_ORDER 와 같은 순서.
+const CATEGORY_RANK: Record<IssueStatus, number> = { TODO: 0, IN_PROGRESS: 1, DONE: 2, CANCELED: 3 };
+
+// 서버가 목록을 돌려주는 순서(범주 → position → id)로 정렬한 복사본 — 클라이언트는 다시 정렬하지 않으므로(WP-808)
+// 목 GET 도 서버처럼 정렬해 돌려줘야 한다. 추가(POST)한 상태를 끝에 push 하는 목도 이것으로 제자리에 둔다.
+export function inServerOrder(list: readonly ProjectStatus[]): ProjectStatus[] {
+  return [...list].sort(
+    (a, b) => CATEGORY_RANK[a.category] - CATEGORY_RANK[b.category] || a.position - b.position || a.id - b.id,
+  );
+}

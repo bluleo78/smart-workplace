@@ -63,12 +63,13 @@ describe('groupIssues - status', () => {
 
 describe('groupIssues - status (프로젝트 상태, WP-808)', () => {
   // 시드 4상태 + 진행 중 범주의 「검토 중」(id 12). position 은 프로젝트 안 순번이라 섞어 넣어도 범주 → position 순으로 묶인다.
+  // 서버가 주는 표시 순서(범주 → position) 그대로 — 그룹은 이 순서를 따르고 다시 정렬하지 않는다.
   const statuses: ProjectStatus[] = [
-    { id: 4, name: '취소', category: 'CANCELED', position: 4 },
     { id: 1, name: '할 일', category: 'TODO', position: 0 },
-    { id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 },
     { id: 2, name: '진행 중', category: 'IN_PROGRESS', position: 1 },
+    { id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 },
     { id: 3, name: '완료', category: 'DONE', position: 3 },
+    { id: 4, name: '취소', category: 'CANCELED', position: 4 },
   ];
 
   it('statuses 를 주면 statusId 별로 묶고 빈 상태도 버킷을 만든다', () => {
@@ -177,7 +178,9 @@ describe('groupIssues - epic', () => {
 // statusLabel/priorityLabel — 그룹 헤더·이력 등 버킷 밖 표시명. 모르는 값·프로토타입 키는 원문 그대로여야 한다.
 describe('statusLabel / priorityLabel', () => {
   it('enum 을 한국어로 바꾼다', () => {
-    expect(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'].map(statusLabel)).toEqual(['할 일', '진행 중', '완료', '취소']);
+    expect(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'].map((s) => statusLabel(s))).toEqual(['할 일', '진행 중', '완료', '취소']);
+    // 프로젝트 상태 이름(statusName)이 있으면 그것을 쓴다(WP-808).
+    expect(statusLabel('IN_PROGRESS', '검토 중')).toBe('검토 중');
     expect(['HIGH', 'MID', 'LOW'].map(priorityLabel)).toEqual(['높음', '보통', '낮음']);
   });
 

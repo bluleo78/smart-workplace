@@ -7,7 +7,7 @@ import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useProject } from '../../../hooks/queries/useProjects';
-import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
@@ -33,7 +33,7 @@ export function useIssueCreateForm({
   const [classifyReason, setClassifyReason] = useState<string | null>(null);
   const types = useIssueTypes(projectKey);
   // 처음 상태 안내 문구용 — 넘겨받은 상태 id 의 이름(WP-808).
-  const statuses = useSortedProjectStatuses(projectKey);
+  const statuses = useProjectStatusList(projectKey);
   const initialStatus = statuses.find((s) => s.id === initialStatusId);
   // OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 화면은 유형·우선순위·일정·담당자·부모 칸을 숨기고 송신도 제목·본문만 한다.
   const intakeOnly = isIntakeOnly(useProject(projectKey).data);

@@ -1,4 +1,4 @@
-// 프로젝트 상태 순수 로직(WP-808) — 정렬·범주 묶기·기본 상태·편집 권한·이름 검증.
+// 프로젝트 상태 순수 로직(WP-808) — 범주 묶기·기본 상태·선택지 찾기·완료 확인·편집 권한·이름 검증.
 import { describe, expect, it } from 'vitest';
 
 import type { ProjectStatus } from '../types/projectStatus';
@@ -6,7 +6,8 @@ import {
   canEditStatuses,
   categorySpans,
   defaultStatusOf,
-  sortStatuses,
+  findStatus,
+  needsDoneConfirm,
   STATUS_NAME_MAX,
   statusesByCategory,
   validateStatusName,
@@ -19,35 +20,43 @@ const st = (id: number, name: string, category: ProjectStatus['category'], posit
   position,
 });
 
-// 서버 순서와 일부러 다르게 섞은 목록 — 범주가 position 보다 앞서는지 본다.
+// 서버가 주는 표시 순서(범주 → position) 그대로의 목록 — 클라이언트는 다시 정렬하지 않는다.
 const MIXED: ProjectStatus[] = [
-  st(3, '완료', 'DONE', 0),
-  st(12, '검토 중', 'IN_PROGRESS', 5),
-  st(1, '할 일', 'TODO', 9),
-  st(4, '취소', 'CANCELED', 1),
-  st(2, '진행 중', 'IN_PROGRESS', 2),
+  st(1, '할 일', 'TODO', 0),
+  st(2, '진행 중', 'IN_PROGRESS', 1),
+  st(12, '검토 중', 'IN_PROGRESS', 2),
+  st(3, '완료', 'DONE', 3),
+  st(4, '취소', 'CANCELED', 4),
 ];
 
 describe('projectStatuses', () => {
-  it('sortStatuses 는 범주 순서 → position', () => {
-    const before = MIXED.map((s) => s.id);
-    expect(sortStatuses(MIXED).map((s) => s.id)).toEqual([1, 2, 12, 3, 4]);
-    // 입력 배열은 건드리지 않는다(쿼리 캐시 데이터를 직접 넘겨도 안전).
-    expect(MIXED.map((s) => s.id)).toEqual(before);
-  });
-
-  it('statusesByCategory 는 범주 4개를 모두 키로 두고 각 범주를 position 순으로 담는다', () => {
-    const by = statusesByCategory([st(2, '진행 중', 'IN_PROGRESS', 2), st(12, '검토 중', 'IN_PROGRESS', 1)]);
+  it('statusesByCategory 는 범주 4개를 모두 키로 두고 각 범주를 받은 순서로 담는다', () => {
+    const by = statusesByCategory([st(12, '검토 중', 'IN_PROGRESS', 1), st(2, '진행 중', 'IN_PROGRESS', 2)]);
     expect(by.TODO).toEqual([]);
     expect(by.IN_PROGRESS.map((s) => s.id)).toEqual([12, 2]);
     expect(by.DONE).toEqual([]);
     expect(by.CANCELED).toEqual([]);
   });
 
-  it('defaultStatusOf 는 범주의 최소 position', () => {
+  it('defaultStatusOf 는 범주의 맨 앞(최소 position) 상태', () => {
     expect(defaultStatusOf(MIXED, 'IN_PROGRESS')?.id).toBe(2);
     expect(defaultStatusOf(MIXED, 'TODO')?.id).toBe(1);
     expect(defaultStatusOf([], 'DONE')).toBeUndefined();
+  });
+
+  it('findStatus 는 문자열·숫자 값 모두로 찾는다', () => {
+    expect(findStatus(MIXED, '12')?.name).toBe('검토 중');
+    expect(findStatus(MIXED, 3)?.name).toBe('완료');
+    expect(findStatus(MIXED, '99')).toBeUndefined();
+  });
+
+  it('needsDoneConfirm 은 완료 범주로 처음 들어가고 미완료 선행이 있을 때만', () => {
+    const done = st(3, '완료', 'DONE', 3);
+    expect(needsDoneConfirm(done, 'IN_PROGRESS', 1)).toBe(true);
+    expect(needsDoneConfirm(done, 'IN_PROGRESS', 0)).toBe(false);
+    // 같은 완료 범주 안 이동(배포됨 → 완료)은 이미 완료라 묻지 않는다.
+    expect(needsDoneConfirm(done, 'DONE', 1)).toBe(false);
+    expect(needsDoneConfirm(st(4, '취소', 'CANCELED', 4), 'TODO', 1)).toBe(false);
   });
 
   it('canEditStatuses: OWNER+TEAM true, OWNER+PERSONAL false, MEMBER false', () => {

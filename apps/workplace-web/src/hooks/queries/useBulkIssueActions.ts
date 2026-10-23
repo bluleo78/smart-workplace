@@ -14,6 +14,7 @@ import type { IssuePriority, IssueStatus } from '../../types/issue';
 import { chatKeys } from './chatKeys';
 import { toastStatusChange } from './closedHidingToast';
 import { issueKeys } from './useIssues';
+import { statusRequestBody } from './useUpdateIssueStatus';
 
 // 성공/실패 건수를 세어 결과 토스트를 띄우는 공통 헬퍼 — 문구·종류 판단은 bulkResultToast(실패 사유 노출, #710).
 function reportBulkResult(results: PromiseSettledResult<unknown>[], labels: BulkLabels) {
@@ -38,7 +39,7 @@ export function useBulkUpdateStatus(projectKey: string, closedHiding?: ClosedHid
     // status(범주)는 statusId 가 있어도 함께 받는다 — 종료 숨김 토스트가 범주로 판정한다.
     mutationFn: async ({ numbers, status, statusId }: { numbers: number[]; status: IssueStatus; statusId?: number }) =>
       Promise.allSettled(
-        numbers.map((n) => updateIssueStatus(projectKey, n, statusId != null ? { statusId } : { status })),
+        numbers.map((n) => updateIssueStatus(projectKey, n, statusRequestBody(status, statusId))),
       ),
     onSuccess: (results, { numbers, status }) => {
       const { level, message } = bulkResultToast(results, { done: '상태를 변경했습니다', fail: '상태를 변경하지 못했습니다' });

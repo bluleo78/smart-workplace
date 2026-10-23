@@ -32,7 +32,7 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
       label: clip(`${issueKey} ${issue.title}`, LIMITS.label),
       refs: buildRefs({ issueKey }),
       facts: buildFacts([
-        ['상태', issue.statusName ?? statusLabel(issue.status)],
+        ['상태', statusLabel(issue.status, issue.statusName)],
         ['우선순위', priorityLabel(issue.priority)],
         ['담당', issue.assignees.length ? issue.assignees.map((a) => a.name).join(', ') : '미할당'],
         ['유형', issue.type?.name],

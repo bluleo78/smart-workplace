@@ -3,9 +3,11 @@
 // 모양·색은 범주(status)로 정하고, 읽어 주는 이름은 프로젝트 상태 이름(name, WP-808)이 있으면 그것을 쓴다.
 import { Circle, CircleCheckBig, CircleDashed, CircleX } from 'lucide-react';
 
-import { ISSUE_STATUS_LABEL } from '@/lib/issueGrouping';
+import { statusLabel } from '@/lib/issueGrouping';
 import { cn } from '@/lib/utils';
 import type { IssueStatus } from '@/types/issue';
+
+import { CATEGORY_COLOR } from './issueCategoryColor';
 
 export function IssueStatusIcon({
   status,
@@ -24,15 +26,15 @@ export function IssueStatusIcon({
   const base = cn('h-[18px] w-[18px] shrink-0', className);
   const a11yProps = decorative
     ? { 'aria-hidden': true as const }
-    : { role: 'img' as const, 'aria-label': `상태: ${name ?? ISSUE_STATUS_LABEL[status]}` };
+    : { role: 'img' as const, 'aria-label': `상태: ${statusLabel(status, name)}` };
   switch (status) {
     case 'DONE':
-      return <CircleCheckBig className={cn(base, 'text-success')} {...a11yProps} />;
+      return <CircleCheckBig className={cn(base, CATEGORY_COLOR.DONE.icon)} {...a11yProps} />;
     case 'IN_PROGRESS':
-      return <CircleDashed className={cn(base, 'text-primary')} {...a11yProps} />;
+      return <CircleDashed className={cn(base, CATEGORY_COLOR.IN_PROGRESS.icon)} {...a11yProps} />;
     case 'CANCELED':
-      return <CircleX className={cn(base, 'text-muted-foreground')} {...a11yProps} />;
+      return <CircleX className={cn(base, CATEGORY_COLOR.CANCELED.icon)} {...a11yProps} />;
     default:
-      return <Circle className={cn(base, 'text-muted-foreground/60')} {...a11yProps} />;
+      return <Circle className={cn(base, CATEGORY_COLOR.TODO.icon)} {...a11yProps} />;
   }
 }

@@ -2,16 +2,16 @@
 // 메뉴가 닫히며 ⋯ 로 포커스를 되돌리면 막 연 입력기가 포커스를 잃으므로 메뉴의 onCloseAutoFocus 를 막는다.
 // 「이 뒤에 상태 추가」 팝오버는 Trigger 없이 ⋯ 에 붙어(Anchor) 있어 Radix 가 돌아갈 곳을 모른다 — 닫힐 때 ⋯ 로 직접 돌린다.
 import { MoreHorizontal, Pencil, Plus } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { type RefObject, useRef, useState } from 'react';
 
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+} from '@/components/overlay/dropdown-menu';
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/overlay/popover';
+import { Button } from '@/components/ui/button';
 import type { ProjectStatus } from '@/types/projectStatus';
 
 import { NewStatusPopoverBody } from './StatusNameEditor';
@@ -20,6 +20,7 @@ export function BoardColumnHeaderMenu({
   status,
   canEdit,
   statuses,
+  triggerRef: triggerRefProp,
   onRename,
   onAddAfter,
 }: {
@@ -27,13 +28,16 @@ export function BoardColumnHeaderMenu({
   canEdit: boolean;
   // 이름 중복 검사용 상태 목록.
   statuses: ProjectStatus[];
+  // ⋯ 버튼 ref — 넘기면 호출부(컬럼)가 인라인 이름 변경이 끝난 뒤 이 버튼으로 포커스를 돌린다. 없으면 내부 ref.
+  triggerRef?: RefObject<HTMLButtonElement | null>;
   // 헤더를 인라인 편집으로 바꾼다(편집기는 헤더가 그린다).
   onRename: () => void;
   // 이 상태 바로 뒤(같은 범주)에 새 상태를 만든다 — 실패하면 reject(입력기가 오류를 보인다).
   onAddAfter: (name: string) => Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const ownTriggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = triggerRefProp ?? ownTriggerRef;
   if (!canEdit) return null;
   return (
     <Popover open={adding} onOpenChange={setAdding}>

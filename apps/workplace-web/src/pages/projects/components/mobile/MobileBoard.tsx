@@ -6,13 +6,12 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { CATEGORY_COLOR } from '@/components/issues/issueCategoryColor';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
 import { BOARD_TAB_PARAM, type BoardTabInfo, resolveBoardTab } from '@/lib/boardTabs';
 import { withBoardTab } from '@/lib/issueFilters';
 import { cn } from '@/lib/utils';
-
-import { CATEGORY_TONE } from '../board/categoryTone';
 
 export type MobileBoardTab = BoardTabInfo & { label: string; hasMore: boolean };
 
@@ -102,7 +101,7 @@ export function MobileBoard({
               {band && (
                 <span
                   aria-hidden="true"
-                  className={cn('absolute inset-x-2 top-1 h-0 rounded-full border-t-[3px]', CATEGORY_TONE[t.category])}
+                  className={cn('absolute inset-x-2 top-1 h-0 rounded-full border-t-[3px]', CATEGORY_COLOR[t.category].band)}
                   data-testid={`board-tab-band-${t.statusId}`}
                 />
               )}

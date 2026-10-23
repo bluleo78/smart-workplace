@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { ProjectResponse } from '@/types/project';
 
-import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
 import { parseFilters, parseGroupBy, parseView, toClientGroupBy } from '../../../lib/issueFilters';
 import { IssueBoardView } from '../components/IssueBoardView';
 import { IssueCreateDialog } from '../components/IssueCreateDialog';
@@ -54,8 +53,6 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   const [createOpen, setCreateOpen] = useState(false);
   // 새 이슈의 처음 상태(WP-464·WP-808) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태(id)로 만든다.
   const [createStatusId, setCreateStatusId] = useState<number | undefined>(undefined);
-  // 보드 컬럼 = 프로젝트 상태(로딩 중 빈 배열).
-  const statuses = useSortedProjectStatuses(key);
 
   // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N drawer 오픈(view=board 보존). 풀페이지 이동 없음.
   // 기존 URLSearchParams 를 복제해 병합(#616) — priority 등 활성 필터 파라미터가 유실되지 않도록 한다.
@@ -98,7 +95,6 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                   projectKey={key}
                   filters={filters}
                   groupBy={groupBy}
-                  statuses={statuses}
                   canEditStatuses={false}
                   excludeCategories={PERSONAL_EXCLUDED}
                   showCategoryBand={false}

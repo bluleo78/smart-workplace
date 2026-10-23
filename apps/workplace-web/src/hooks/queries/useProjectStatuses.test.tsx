@@ -1,40 +1,31 @@
-// useRefreshStatusesOnUnknown — 상태 목록에 없는 statusId 를 만나면 상태 목록을 한 번만 다시 받는다(WP-808).
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, waitFor } from '@testing-library/react';
+// 프로젝트 상태 캐시 규칙(WP-808) — 모르는 statusId 를 만나면 상태 목록을 한 번만 다시 받고(refreshStatusesOnUnknown),
+// 이름을 바꾸면 이슈 캐시의 상태 이름을 제자리로 고친다(useRenameProjectStatus).
+import { type InfiniteData, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import type { IssueDetailResponse, IssueResponse, IssueSearchResponse } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
 
-// 상태 목록 API 대역 — 호출 수를 세고 fail 이면 거절한다. vi.fn 에 거절 구현을 주면 react-query 가 처리해도 테스트가 실패로 보고돼 직접 센다.
-const api = { calls: 0, fail: false };
 vi.mock('../../api/projectStatuses', () => ({
-  listProjectStatuses: async () => {
-    api.calls++;
-    if (api.fail) throw new Error('목록 실패(테스트)');
-    return SEED;
-  },
+  listProjectStatuses: vi.fn(),
   createProjectStatus: vi.fn(),
-  renameProjectStatus: vi.fn(),
+  renameProjectStatus: async (_pk: string, id: number, body: { name: string }) => ({ ...SEED[1], id, name: body.name }),
 }));
 
-import { unknownStatusIds, useRefreshStatusesOnUnknown } from './useProjectStatuses';
+import { refreshStatusesOnUnknown, unknownStatusIds, useRenameProjectStatus } from './useProjectStatuses';
 
 const SEED: ProjectStatus[] = [
   { id: 1, name: '할 일', category: 'TODO', position: 0 },
   { id: 2, name: '진행 중', category: 'IN_PROGRESS', position: 1 },
 ];
 
-function setup() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
-  return { qc, wrapper };
+// 상태 목록 무효화 호출 수 — 재조회 여부는 무효화로 판정한다.
+function statusInvalidations(spy: { mock: { calls: unknown[][] } }) {
+  return spy.mock.calls.filter((args) => JSON.stringify((args[0] as { queryKey?: unknown } | undefined)?.queryKey) === '["projectStatuses","WP"]')
+    .length;
 }
-
-beforeEach(() => {
-  api.calls = 0;
-  api.fail = false;
-});
 
 describe('unknownStatusIds', () => {
   it('목록에 없는 statusId 만 중복 없이 돌려준다', () => {
@@ -42,33 +33,55 @@ describe('unknownStatusIds', () => {
   });
 });
 
-describe('useRefreshStatusesOnUnknown', () => {
-  it('모르는 상태를 만나면 상태 목록을 한 번 다시 받고, 다시 받아도 없으면 반복하지 않는다', async () => {
-    const { wrapper } = setup();
-    const { rerender } = renderHook(({ issues }) => useRefreshStatusesOnUnknown('WP', issues), {
-      wrapper,
-      initialProps: { issues: [{ statusId: 1 }, { statusId: 9 }] },
+describe('refreshStatusesOnUnknown', () => {
+  it('모르는 상태를 만나면 상태 목록을 한 번 무효화하고, 같은 id 는 반복하지 않는다', () => {
+    const qc = new QueryClient();
+    qc.setQueryData(['projectStatuses', 'WP'], SEED);
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    refreshStatusesOnUnknown(qc, 'WP', [{ statusId: 1 }, { statusId: 9 }]);
+    refreshStatusesOnUnknown(qc, 'WP', [{ statusId: 9 }, { statusId: 1 }]);
+    expect(statusInvalidations(spy)).toBe(1);
+  });
+
+  it('모르는 상태가 없으면 무효화하지 않는다', () => {
+    const qc = new QueryClient();
+    qc.setQueryData(['projectStatuses', 'WP'], SEED);
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    refreshStatusesOnUnknown(qc, 'WP', [{ statusId: 2 }]);
+    expect(statusInvalidations(spy)).toBe(0);
+  });
+
+  it('상태 목록이 아직 캐시에 없으면(로딩 중·실패) 판정하지 않는다', () => {
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    refreshStatusesOnUnknown(qc, 'WP', [{ statusId: 9 }]);
+    expect(statusInvalidations(spy)).toBe(0);
+  });
+});
+
+describe('useRenameProjectStatus', () => {
+  it('상태 목록·검색·상세 캐시의 이름을 제자리로 고치고 다시 받지 않는다', async () => {
+    const qc = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const searchKey = ['issues', 'search', 'WP', {}, 50];
+    const detailKey = ['issues', 'WP', 'detail', 7];
+    const issue = (number: number, statusId: number, statusName: string) =>
+      ({ number, status: 'IN_PROGRESS', statusId, statusName }) as IssueResponse;
+    qc.setQueryData(['projectStatuses', 'WP'], SEED);
+    qc.setQueryData<InfiniteData<IssueSearchResponse>>(searchKey, {
+      pages: [{ items: [issue(7, 2, '진행 중'), issue(8, 1, '할 일')], nextCursor: null, hasMore: false }],
+      pageParams: [null],
     });
-    await waitFor(() => expect(api.calls).toBe(2));
-    rerender({ issues: [{ statusId: 9 }, { statusId: 1 }] });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(api.calls).toBe(2);
-  });
+    qc.setQueryData(detailKey, { summary: issue(7, 2, '진행 중') } as IssueDetailResponse);
+    const spy = vi.spyOn(qc, 'invalidateQueries');
 
-  it('모르는 상태가 없으면 다시 받지 않는다', async () => {
-    const { wrapper } = setup();
-    renderHook(() => useRefreshStatusesOnUnknown('WP', [{ statusId: 2 }]), { wrapper });
-    await waitFor(() => expect(api.calls).toBe(1));
-    await new Promise((r) => setTimeout(r, 20));
-    expect(api.calls).toBe(1);
-  });
+    const { result } = renderHook(() => useRenameProjectStatus('WP'), { wrapper });
+    await act(() => result.current.mutateAsync({ id: 2, body: { name: '작업 중' } }));
 
-  it('상태 목록을 못 받으면(실패) 모든 id 가 모르는 것으로 보여도 재조회하지 않는다', async () => {
-    api.fail = true;
-    const { qc, wrapper } = setup();
-    renderHook(() => useRefreshStatusesOnUnknown('WP', [{ statusId: 9 }]), { wrapper });
-    await waitFor(() => expect(qc.getQueryState(['projectStatuses', 'WP'])?.status).toBe('error'));
-    await new Promise((r) => setTimeout(r, 20));
-    expect(api.calls).toBe(1);
+    expect(qc.getQueryData<ProjectStatus[]>(['projectStatuses', 'WP'])!.map((s) => s.name)).toEqual(['할 일', '작업 중']);
+    const items = qc.getQueryData<InfiniteData<IssueSearchResponse>>(searchKey)!.pages[0].items;
+    expect(items.map((it) => it.statusName)).toEqual(['작업 중', '할 일']);
+    expect(qc.getQueryData<IssueDetailResponse>(detailKey)!.summary.statusName).toBe('작업 중');
+    expect(spy).not.toHaveBeenCalled();
   });
 });

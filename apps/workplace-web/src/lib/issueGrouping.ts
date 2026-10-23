@@ -6,7 +6,6 @@ import type {
 } from '../types/issue';
 import type { ProjectStatus } from '../types/projectStatus';
 import { ownLookup } from './ownLookup';
-import { sortStatuses } from './projectStatuses';
 
 // 하나의 그룹 — key 는 React key·data-testid·droppable id 에 사용, label 은 헤더 표시.
 export interface IssueGroup {
@@ -57,9 +56,10 @@ const STATUS_ORDER: { key: string; label: string }[] = toOrder(ISSUE_STATUS_LABE
 // 상태 전체 목록(정의 순서) — 시트·드롭다운 등 선택지를 라벨 맵 하나에서 파생한다.
 export const ISSUE_STATUSES = Object.keys(ISSUE_STATUS_LABEL) as IssueStatus[];
 
-// 상태 한글 라벨 — 버킷 밖에서 상태명을 읽을 때(드래그 스크린리더 안내 등). 모르는 값은 그대로.
-export function statusLabel(status: string): string {
-  return ownLookup(ISSUE_STATUS_LABEL, status) ?? status;
+// 상태 표시 이름 — 프로젝트 상태 이름(응답 statusName, WP-808)이 있으면 그것, 없으면(범주만 아는 곳) 범주 한글 라벨.
+// 배지·아이콘 읽기·드래그 스크린리더 안내·AI 화면 컨텍스트가 같은 규칙을 쓴다. 모르는 범주 값은 그대로.
+export function statusLabel(status: string, name?: string | null): string {
+  return name ?? ownLookup(ISSUE_STATUS_LABEL, status) ?? status;
 }
 
 // 우선순위 한글 라벨 — statusLabel 과 같은 규칙. 모르는 값(과거·미래 enum)은 그대로, 프로토타입 키는 ownLookup 으로 거른다.
@@ -159,12 +159,12 @@ export function groupIssues(
 }
 
 /**
- * 프로젝트 상태별 버킷(WP-808) — 상태 표시 순서(범주 → position)대로 빈 버킷까지 만든다.
+ * 프로젝트 상태별 버킷(WP-808) — 받은 상태 목록 순서(서버 표시 순서: 범주 → position)대로 빈 버킷까지 만든다.
  * 목록에 없는 statusId(방금 추가돼 상태 목록 캐시가 아직 옛것 등)는 행을 잃지 않게 이슈의 statusName 으로 버킷을 뒤에 덧붙인다.
  */
 function groupByProjectStatus(issues: IssueResponse[], statuses: readonly ProjectStatus[]): IssueGroup[] {
   const buckets = new Map<number, IssueGroup>(
-    sortStatuses(statuses).map((s) => [s.id, { key: String(s.id), label: s.name, issues: [] }]),
+    statuses.map((s) => [s.id, { key: String(s.id), label: s.name, issues: [] }]),
   );
   for (const it of issues) {
     let g = buckets.get(it.statusId);

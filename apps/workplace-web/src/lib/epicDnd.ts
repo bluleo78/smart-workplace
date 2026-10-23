@@ -273,7 +273,7 @@ export function describeDropTarget(over: Pick<Over, 'data'> | null, projectKey: 
   if (d.zone) return '에픽 패널(놓을 수 없는 곳)';
   if (typeof d.label === 'string') return `「${d.label}」 컬럼`;
   const issue = d.issue as IssueResponse | undefined;
-  if (issue) return `${projectKey}-${issue.number} 카드(${issue.statusName ?? statusLabel(issue.status)})`;
+  if (issue) return `${projectKey}-${issue.number} 카드(${statusLabel(issue.status, issue.statusName)})`;
   return null;
 }
 

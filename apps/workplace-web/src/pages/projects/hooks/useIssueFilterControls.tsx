@@ -14,7 +14,7 @@ import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
-import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
 import {
@@ -107,7 +107,7 @@ export function useIssueFilterControls(
   // 프로젝트 멤버 목록 — 담당자 필터 facet 옵션 구성에 사용.
   const members = useProjectMembers(projectKey);
   // 프로젝트 상태(표시 순서) — 「상태」 facet 옵션. 로딩 중엔 빈 배열이라 고를 값이 없다.
-  const projectStatuses = useSortedProjectStatuses(projectKey);
+  const projectStatuses = useProjectStatusList(projectKey);
 
   // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
   // 외부 소스(URL)→로컬 draft 동기화는 의도된 effect 패턴이라 규칙을 명시 해제한다.

@@ -18,7 +18,7 @@ import { useMilestones } from '../../hooks/queries/useMilestones';
 import { useProjectEpics } from '../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
-import { useSortedProjectStatuses } from '../../hooks/queries/useProjectStatuses';
+import { useProjectStatusList } from '../../hooks/queries/useProjectStatuses';
 import { useAuth } from '../../hooks/useAuth';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
@@ -189,7 +189,7 @@ function ProjectIssuesSection({
   const cycles = useCycles(projectKey);
   const milestones = useMilestones(projectKey);
   // 프로젝트 상태(WP-808) — 보드 컬럼, 「상태」 필터(statusIds)를 AI 화면 컨텍스트에 이름으로 싣기.
-  const projectStatuses = useSortedProjectStatuses(projectKey);
+  const projectStatuses = useProjectStatusList(projectKey);
   // 보드에서 상태 추가·이름 변경 — 프로젝트 OWNER 만(서버와 같은 규칙, 개인 프로젝트는 이 화면에 오지 않는다).
   const { user } = useAuth();
   const statusEditable = canEditStatuses(isProjectOwner(members.data, user?.id), project.data?.type);
@@ -267,7 +267,6 @@ function ProjectIssuesSection({
               // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
               filters={withDefaultIssueScope(filters)}
               groupBy={toClientGroupBy(groupBy)}
-              statuses={projectStatuses}
               canEditStatuses={statusEditable}
               onOpenCreate={onOpenCreate}
               canDragStatus={canDragStatus}

@@ -14,7 +14,7 @@ import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProject } from '../../../hooks/queries/useProjects';
-import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { parseFilters } from '../../../lib/issueFilters';
 import type { MilestoneResponse } from '../../../types/milestone';
 import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
@@ -70,7 +70,7 @@ export default function TimelinePage() {
   const readOnly = !(project.data?.viewerIsMember ?? false);
   // filters 는 렌더마다 새로 파싱되므로 boolean 으로 줄여 메모 키로 쓴다.
   // 「상태」 필터로 취소 범주의 상태를 골라도 취소 이슈를 보여야 한다(WP-808) — 고른 상태 id 를 범주로 풀어 함께 본다.
-  const projectStatuses = useSortedProjectStatuses(key);
+  const projectStatuses = useProjectStatusList(key);
   const includeCanceled =
     filters.statuses.includes('CANCELED') ||
     projectStatuses.some((s) => s.category === 'CANCELED' && filters.statusIds.includes(s.id));

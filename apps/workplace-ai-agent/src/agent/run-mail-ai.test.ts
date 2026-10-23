@@ -289,15 +289,6 @@ describe('buildPersonalUserMessage — WP-150 보강 블록', () => {
     expect(msg).not.toContain('[이전 메일]');
     expect(msg).not.toContain('[첨부]');
   });
-
-  // WP-807: 프로젝트가 정한 상태 이름이 오면 범주 라벨 대신 그 이름을 쓴다.
-  it('연결 이슈에 상태 이름이 있으면 그 이름을 쓴다', () => {
-    const msg = buildPersonalUserMessage({
-      ...full,
-      linkedIssue: { key: 'WP-12', title: '배포 일정 확정', status: 'IN_PROGRESS', statusName: '검토 중' },
-    });
-    expect(msg).toContain('[연결 이슈] WP-12 배포 일정 확정 (검토 중)');
-  });
 });
 
 describe('runMailClassifyBatch', () => {

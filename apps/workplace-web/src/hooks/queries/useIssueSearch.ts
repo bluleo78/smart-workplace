@@ -5,6 +5,7 @@ import { infiniteQueryOptions, useInfiniteQuery } from '@tanstack/react-query';
 
 import { searchIssues } from '../../api/issues';
 import type { IssueFilters } from '../../types/issue';
+import { refreshStatusesOnUnknown } from './useProjectStatuses';
 
 // queryKey 는 ['issues', 'search', projectKey, filters, size] — URL 이 바뀌면 자동으로 재실행된다.
 // pageParam 은 nextCursor 문자열(또는 null) 이며 백엔드가 base64url 로 인코딩한 불투명 토큰이다.
@@ -22,7 +23,12 @@ export function issueSearchOptions(projectKey: string, filters: IssueFilters, si
   return infiniteQueryOptions({
     queryKey: issueSearchKey(projectKey, filters, size),
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => searchIssues(projectKey, filters, pageParam, size),
+    // 응답에 모르는 상태(방금 다른 사용자가 만든 상태)가 있으면 상태 목록을 한 번 다시 받는다(WP-808) — 보드 컬럼·목록 버킷이 생긴다.
+    queryFn: async ({ pageParam, client }) => {
+      const page = await searchIssues(projectKey, filters, pageParam, size);
+      refreshStatusesOnUnknown(client, projectKey, page.items ?? []);
+      return page;
+    },
     getNextPageParam: (last) => last.nextCursor,
     enabled: !!projectKey && enabled,
   });

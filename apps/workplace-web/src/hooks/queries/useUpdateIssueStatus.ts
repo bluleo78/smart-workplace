@@ -9,46 +9,42 @@ import { type IssueStatusUpdateBody, updateIssueStatus } from '../../api/issues'
 import { handleApiError } from '../../lib/api-error';
 import type { ClosedHidingNotice } from '../../lib/closedHiding';
 import type { IssueResponse, IssueStatus } from '../../types/issue';
+import type { ProjectStatus } from '../../types/projectStatus';
 import { toastStatusChange } from './closedHidingToast';
 import { copyIssueIntoStatusColumn, patchIssueInSearchCache } from './issueSearchCache';
 
-/**
- * 상태 변경 변수 — status 는 대상 범주(종료 안내 토스트·낙관적 범주 아이콘용), statusId·statusName 은 프로젝트 상태(WP-808).
- * statusId 는 선택이다: 프로젝트 상태를 고르는 화면은 넘기고, 범주만 아는 예전 호출부는 그대로 status 만 넘긴다.
- */
+/** 상태 변경 변수 — 옮겨 갈 프로젝트 상태(WP-808). 호출부(보드 드롭·행 메뉴)는 늘 고른 상태 전체를 안다. */
 export interface UpdateIssueStatusVars {
   number: number;
-  status: IssueStatus;
-  statusId?: number;
-  statusName?: string;
-}
-
-/** 서버로 보낼 본문 — statusId 가 있으면 그것만(서버는 statusId 를 범주보다 우선한다), 없으면 범주. */
-export function statusRequestBody({ status, statusId }: UpdateIssueStatusVars): IssueStatusUpdateBody {
-  return statusId != null ? { statusId } : { status };
+  to: ProjectStatus;
 }
 
 /**
- * 검색 캐시 낙관적 패치 — 범주는 늘, 프로젝트 상태 id·이름은 알 때만 덮는다.
+ * 서버로 보낼 본문 — 상태 id 가 있으면 그것만(서버는 statusId 를 범주보다 우선한다), 없으면 범주(그 범주의 기본 상태로 간다).
+ * 단건 변경은 늘 상태 id 를, 일괄 바(범주만 고름)는 범주를 보낸다.
+ */
+export function statusRequestBody(category: IssueStatus, statusId?: number): IssueStatusUpdateBody {
+  return statusId != null ? { statusId } : { status: category };
+}
+
+/**
+ * 검색 캐시 낙관적 패치 — 범주·상태 id·이름을 함께 덮는다.
  * 보드는 모든 컬럼 쿼리를 합친 뒤 이슈 필드로 다시 나누므로(IssueBoardView), 제자리 패치만으로 카드가 대상 컬럼으로 바로 옮겨 간다.
  */
-export function statusCachePatch({ status, statusId, statusName }: UpdateIssueStatusVars): Partial<IssueResponse> {
-  return {
-    status,
-    ...(statusId != null && { statusId }),
-    ...(statusName != null && { statusName }),
-  };
+export function statusCachePatch(to: ProjectStatus): Partial<IssueResponse> {
+  return { status: to.category, statusId: to.id, statusName: to.name };
 }
 
 export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHidingNotice) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: UpdateIssueStatusVars) => updateIssueStatus(projectKey, vars.number, statusRequestBody(vars)),
+    mutationFn: ({ number, to }: UpdateIssueStatusVars) =>
+      updateIssueStatus(projectKey, number, statusRequestBody(to.category, to.id)),
     // 진행 중인 검색 쿼리 취소 + 스냅샷 + 패치를 공용 헬퍼로 — 실패 시 restore() 로 되돌린다.
     // 보드 새 열 캐시에도 카드를 넣는다 — 이유는 copyIssueIntoStatusColumn(WP-860).
-    onMutate: async (vars) => {
-      const ctx = await patchIssueInSearchCache(qc, projectKey, vars.number, statusCachePatch(vars));
-      copyIssueIntoStatusColumn(qc, projectKey, vars.number, vars);
+    onMutate: async ({ number, to }) => {
+      const ctx = await patchIssueInSearchCache(qc, projectKey, number, statusCachePatch(to));
+      copyIssueIntoStatusColumn(qc, projectKey, number, to.id);
       return ctx;
     },
     onError: (err, _vars, ctx) => {
@@ -59,8 +55,8 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
       qc.invalidateQueries({ queryKey: ['issues', projectKey, 'detail'] });
     },
-    onSuccess: (_res, { number, status }) => {
-      void toastStatusChange(projectKey, [number], status, closedHiding, 'success', '상태를 변경했습니다');
+    onSuccess: (_res, { number, to }) => {
+      void toastStatusChange(projectKey, [number], to.category, closedHiding, 'success', '상태를 변경했습니다');
     },
   });
 }

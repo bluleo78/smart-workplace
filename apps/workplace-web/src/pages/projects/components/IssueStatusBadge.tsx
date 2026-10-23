@@ -2,7 +2,7 @@
 
 import { StatusBadge, type StatusBadgeType } from '@/components/ui/status-badge';
 
-import { ISSUE_STATUS_LABEL } from '../../../lib/issueGrouping';
+import { statusLabel } from '../../../lib/issueGrouping';
 import type { IssueStatus } from '../../../types/issue';
 
 // DS §B-1 시맨틱 매핑 — CANCELED 는 error(빨강)로 두면 상단 "차단됨" 배지와 색이 겹치므로 inactive(회색)로 구분.
@@ -15,5 +15,5 @@ const STATUS_TYPE: Record<IssueStatus, StatusBadgeType> = {
 
 /** name = 응답의 statusName(프로젝트 상태 이름). 없으면(링크 요약 등 범주만 아는 곳) 범주 라벨. */
 export function IssueStatusBadge({ status, name }: { status: IssueStatus; name?: string }) {
-  return <StatusBadge type={STATUS_TYPE[status]}>{name ?? ISSUE_STATUS_LABEL[status]}</StatusBadge>;
+  return <StatusBadge type={STATUS_TYPE[status]}>{statusLabel(status, name)}</StatusBadge>;
 }

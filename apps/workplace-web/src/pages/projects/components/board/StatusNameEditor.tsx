@@ -1,12 +1,11 @@
 // 상태 이름 입력기(WP-808) — 보드 범주 띠 ＋·헤더 ⋯ 「이 뒤에 상태 추가」(팝오버)와 헤더 인라인 이름 변경,
 // 모바일 탭 ⋯ 바텀시트(MobileStatusSheet)가 같이 쓴다.
 // 오류는 토스트가 아니라 입력 바로 아래에 보인다 — 클라이언트 검증(빈 이름·30자·중복) 뒤 서버 오류(409 동시 중복 등)도 같은 자리.
-import axios from 'axios';
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { extractApiError } from '@/lib/api-error';
+import { extractApiError, isConflictError } from '@/lib/api-error';
 import { STATUS_NAME_DUPLICATED, validateStatusName } from '@/lib/projectStatuses';
 import { cn } from '@/lib/utils';
 import type { ProjectStatus } from '@/types/projectStatus';
@@ -71,7 +70,7 @@ export function StatusNameEditor({
     } catch (err) {
       // 409(동시에 같은 이름이 생김)는 클라이언트 중복 문구와 같게 — 이름은 바로 위 입력에 있으니 서버 문구의 「: 이름」을 되풀이하지 않는다.
       setError(
-        axios.isAxiosError(err) && err.response?.status === 409
+        isConflictError(err)
           ? STATUS_NAME_DUPLICATED
           : extractApiError(err, '상태를 저장하지 못했습니다'),
       );

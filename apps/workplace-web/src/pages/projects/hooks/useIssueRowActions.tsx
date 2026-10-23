@@ -8,7 +8,6 @@ import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useSta
 import { toast } from 'sonner';
 
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
-import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon';
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
@@ -32,11 +31,13 @@ import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../../lib/
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { rowMenuItems, toggleAssigneeIds, toSummary } from '../../../lib/issueRowMenu';
 import { isProjectOwner } from '../../../lib/projectPermissions';
+import { findStatus } from '../../../lib/projectStatuses';
 import type { IssuePriority, IssueResponse } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
 import type { ProjectStatus } from '../../../types/projectStatus';
 import type { UserSummary } from '../../../types/user';
 import { IssueRowMenu, type RowMenuTarget } from '../components/IssueRowMenu';
+import { statusPickerOptions } from './statusFacets';
 
 // 「에픽 없음」 선택지 값 — 에픽 번호(양의 정수)와 겹치지 않는 문자열.
 const NO_EPIC = 'none';
@@ -161,7 +162,7 @@ export function useIssueRowActions({
   const changeStatus = (s: ProjectStatus) => {
     if (bulk) bulkStatus.mutate({ numbers, status: s.category, statusId: s.id }, afterBulk);
     else if (issue && s.id !== issue.statusId) {
-      updateStatus.mutate({ number: issue.number, status: s.category, statusId: s.id, statusName: s.name });
+      updateStatus.mutate({ number: issue.number, to: s });
     }
   };
   const changePriority = (p: IssuePriority) => {
@@ -298,9 +299,9 @@ export function useIssueRowActions({
         onClose={close}
         title="상태 변경"
         value={issue ? String(issue.statusId) : null}
-        options={statuses.map((s) => ({ value: String(s.id), label: s.name, icon: <IssueStatusIcon status={s.category} decorative /> }))}
+        options={statusPickerOptions(statuses)}
         onSelect={(v) => {
-          const s = statuses.find((x) => String(x.id) === v);
+          const s = findStatus(statuses, v);
           if (s) changeStatus(s);
         }}
       />

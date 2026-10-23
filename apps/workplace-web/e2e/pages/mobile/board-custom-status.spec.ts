@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
-import { makeProjectStatus, withCustomStatuses } from '../../factories/projectStatus.factory';
+import { inServerOrder, makeProjectStatus, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
@@ -41,7 +41,7 @@ async function stubBoard(
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}/members`, [createMember({ userId: 1, role })]);
   await page.route(`**${STATUSES_PATH}`, async (route) => {
     const req = route.request();
-    if (req.method() === 'GET') return route.fulfill({ json: statuses });
+    if (req.method() === 'GET') return route.fulfill({ json: inServerOrder(statuses) });
     if (req.method() === 'POST') {
       const body = req.postDataJSON() as { name: string; category: ProjectStatus['category']; afterStatusId?: number };
       const created = makeProjectStatus({ id: 20 + statuses.length, name: body.name, category: body.category, position: 50 });

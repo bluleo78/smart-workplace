@@ -66,23 +66,23 @@ export function findIssueInSearchCache(qc: QueryClient, projectKey: string, numb
  *     새 열 응답보다 먼저 오면 그 사이 두 캐시 어디에도 카드가 없어 깜빡인다. 새 열 캐시에 미리 넣어 두면 응답 순서와 상관없다
  *     (보드는 id 로 중복을 걷어 낸다). 새 열 캐시가 없거나·화면에 안 쓰이거나(무효화가 재조회하지 않아 넣은 카드가 남는다)
  *     이미 카드가 있으면 그대로 둔다 — 재조회가 서버 순서로 바로잡는다.
- * 열 키는 두 모양을 본다 — 프로젝트 상태 열(statusIds=[id], WP-808)은 target.statusId 로, 범주 열(statusIds 없이 statuses=[범주])은
- *     target.status 로 대상 열을 찾는다. statusId 를 모르는 호출(범주만 넘김)은 프로젝트 상태 열을 건너뛴다(어느 상태 열인지 모른다).
+ * 보드 열은 프로젝트 상태 하나로 좁힌 쿼리(statusIds=[id], WP-808)다 — 대상 상태 id 로 대상 열 키를 만든다.
  * 호출부는 patchIssueInSearchCache 뒤에 부른다 — 그 스냅샷에 새 열 캐시도 들어 있어 restore() 가 이것까지 되돌린다.
  */
 export function copyIssueIntoStatusColumn(
   qc: QueryClient,
   projectKey: string,
   number: number,
-  target: { status: string; statusId?: number },
+  targetStatusId: number,
 ) {
   const all = qc.getQueriesData<InfiniteData<IssueSearchResponse>>({ queryKey: ['issues', 'search', projectKey] });
   for (const [key, data] of all) {
     // 보드 열 키 모양 ['issues','search',pk, filters, BOARD_COLUMN_PAGE_SIZE] 이고 한 상태로 좁힌 쿼리만 원본으로 본다(목록 뷰 제외).
     const [, , , filters, size] = key as [string, string, string, IssueFilters | undefined, unknown];
     if (size !== BOARD_COLUMN_PAGE_SIZE || !filters) continue;
-    const targetFilters = targetColumnFilters(filters, target);
-    if (!targetFilters) continue;
+    // 한 상태로 좁힌 열이 아니거나 이미 대상 열이면 건너뛴다.
+    if (filters.statusIds?.length !== 1 || filters.statusIds[0] === targetStatusId) continue;
+    const targetFilters = { ...filters, statusIds: [targetStatusId] };
     const issue = findInPages(data, number);
     if (!issue) continue;
     const targetKey = issueSearchKey(projectKey, targetFilters, size);
@@ -93,16 +93,4 @@ export function copyIssueIntoStatusColumn(
       return { ...old, pages: [{ ...first, items: [issue, ...(first.items ?? [])] }, ...rest] };
     });
   }
-}
-
-// 원본 열 필터에서 대상 열 필터를 만든다 — 한 상태로 좁힌 열이 아니거나 이미 대상 열이면 null.
-function targetColumnFilters(filters: IssueFilters, { status, statusId }: { status: string; statusId?: number }) {
-  if (filters.statusIds?.length === 1) {
-    if (statusId == null || filters.statusIds[0] === statusId) return null;
-    return { ...filters, statusIds: [statusId] };
-  }
-  if (!filters.statusIds?.length && filters.statuses?.length === 1 && filters.statuses[0] !== status) {
-    return { ...filters, statuses: [status] };
-  }
-  return null;
 }

@@ -1,4 +1,5 @@
-// 프로젝트 상태(WP-808) 순수 로직 — 보드 컬럼·필터·상태 메뉴·인라인 편집기가 같은 정렬·기본 상태·권한·이름 검증을 쓰도록 모은다.
+// 프로젝트 상태(WP-808) 순수 로직 — 보드 컬럼·필터·상태 메뉴·인라인 편집기가 같은 기본 상태·권한·이름 검증을 쓰도록 모은다.
+// 상태 목록은 서버가 늘 표시 순서(범주 → position → id)로 주므로 여기서는 다시 정렬하지 않는다.
 import type { IssueStatus } from '../types/issue';
 import type { ProjectType } from '../types/project';
 import type { ProjectStatus } from '../types/projectStatus';
@@ -16,22 +17,13 @@ export const STATUS_NAME_IS_CATEGORY = '범주 코드(TODO·IN_PROGRESS·DONE·C
 /** 상태 이름 최대 길이 — 서버 ProjectStatusService.NAME_MAX 와 같다(코드 포인트 기준). */
 export const STATUS_NAME_MAX = 30;
 
-/**
- * 표시 순서로 정렬한 복사본 — 범주 순서(할 일 → 진행 중 → 완료 → 취소) → position → id.
- * 서버 목록 순서와 같은 규칙이며, 쿼리 캐시 배열을 그대로 넘겨도 원본을 바꾸지 않는다.
- */
-export function sortStatuses(list: readonly ProjectStatus[]): ProjectStatus[] {
-  const rank = (c: IssueStatus) => ISSUE_STATUSES.indexOf(c);
-  return [...list].sort((a, b) => rank(a.category) - rank(b.category) || a.position - b.position || a.id - b.id);
-}
-
-/** 범주별 상태 목록 — 범주 4개를 모두 키로 두고(없으면 빈 배열) 각 범주 안은 표시 순서. */
+/** 범주별 상태 목록 — 범주 4개를 모두 키로 두고(없으면 빈 배열) 각 범주 안은 받은(표시) 순서 그대로. */
 export function statusesByCategory(list: readonly ProjectStatus[]): Record<IssueStatus, ProjectStatus[]> {
   const by = Object.fromEntries(ISSUE_STATUSES.map((c) => [c, [] as ProjectStatus[]])) as Record<
     IssueStatus,
     ProjectStatus[]
   >;
-  for (const s of sortStatuses(list)) by[s.category].push(s);
+  for (const s of list) by[s.category].push(s);
   return by;
 }
 
@@ -44,7 +36,7 @@ export interface CategorySpan {
 
 /**
  * 보드 범주 띠 구간 — 범주 순서대로, 컬럼(상태)이 있는 범주만. 라벨은 범주 고정 라벨(상태 이름이 아님)이다.
- * 컬럼과 같은 정렬(sortStatuses)로 세므로 띠가 컬럼 순서와 어긋나지 않는다.
+ * 컬럼과 같은 목록 순서로 세므로 띠가 컬럼 순서와 어긋나지 않는다.
  */
 export function categorySpans(list: readonly ProjectStatus[]): CategorySpan[] {
   const by = statusesByCategory(list);
@@ -55,9 +47,29 @@ export function categorySpans(list: readonly ProjectStatus[]): CategorySpan[] {
   }));
 }
 
-/** 범주의 기본 상태 — 그 범주에서 가장 앞(position 최소) 상태. 서버 project_status_default_id 와 같은 규칙. 없으면 undefined. */
+/**
+ * 범주의 기본 상태 — 그 범주에서 가장 앞(position 최소) 상태. 서버 project_status_default_id 와 같은 규칙. 없으면 undefined.
+ * 목록이 표시 순서라 범주에서 처음 만나는 상태가 기본 상태다.
+ */
 export function defaultStatusOf(list: readonly ProjectStatus[], category: IssueStatus): ProjectStatus | undefined {
-  return statusesByCategory(list)[category][0];
+  return list.find((s) => s.category === category);
+}
+
+/** 선택지 값(statusId 문자열·숫자)으로 상태를 찾는다 — 셀렉트·시트·메뉴가 값을 문자열로 돌려준다. 없으면 undefined. */
+export function findStatus(list: readonly ProjectStatus[], value: string | number): ProjectStatus | undefined {
+  return list.find((s) => String(s.id) === String(value));
+}
+
+/**
+ * 완료 전환 확인이 필요한가(#827) — 완료 범주로 처음 들어가고(같은 완료 범주 안 이동은 이미 완료라 묻지 않는다)
+ * 미완료 선행 이슈가 있을 때. 데스크톱 상태 셀렉트와 모바일 상태 칩이 같은 규칙을 쓴다.
+ */
+export function needsDoneConfirm(
+  next: ProjectStatus,
+  currentCategory: IssueStatus | undefined,
+  blockerCount: number,
+): boolean {
+  return next.category === 'DONE' && currentCategory !== 'DONE' && blockerCount > 0;
 }
 
 /**

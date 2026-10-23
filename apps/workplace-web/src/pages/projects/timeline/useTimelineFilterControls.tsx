@@ -9,7 +9,7 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
-import { useSortedProjectStatuses } from '../../../hooks/queries/useProjectStatuses';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { filtersToParams, parseFilters } from '../../../lib/issueFilters';
 import type { IssueFilters } from '../../../types/issue';
 import type { MobileFilterControls } from '../components/mobile/MobileFilterSheet';
@@ -36,7 +36,7 @@ export function useTimelineFilterControls(
   const members = useProjectMembers(projectKey);
   const milestones = useMilestones(projectKey);
   // 타임라인은 한 프로젝트 화면이라 이슈 목록과 같이 「상태」(프로젝트 상태)·「상태 범주」를 따로 둔다(WP-808).
-  const projectStatuses = useSortedProjectStatuses(projectKey);
+  const projectStatuses = useProjectStatusList(projectKey);
   // filtersToParams 는 URL 을 새로 만든다 — 타임라인 전용 `period`(WP-247)는 필터 모델 밖이라 이전 값을 옮겨 둔다.
   const write = (next: IssueFilters) =>
     setParams(

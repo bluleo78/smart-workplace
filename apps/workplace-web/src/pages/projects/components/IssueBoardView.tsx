@@ -12,6 +12,7 @@ import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { cn } from '@/lib/utils';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
@@ -21,12 +22,7 @@ import {
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import {
-  useCreateProjectStatus,
-  useProjectStatuses,
-  useRefreshStatusesOnUnknown,
-  useRenameProjectStatus,
-} from '../../../hooks/queries/useProjectStatuses';
+import { useProjectStatuses, useStatusEditing } from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
@@ -56,7 +52,6 @@ function IssueBoardViewInner({
   projectKey,
   filters,
   groupBy,
-  statuses,
   canEditStatuses,
   excludeCategories,
   showCategoryBand = true,
@@ -69,8 +64,6 @@ function IssueBoardViewInner({
   projectKey: string;
   filters: IssueFilters;
   groupBy: IssueClientGroupBy | null;
-  // 프로젝트 상태 목록(표시 순서, useSortedProjectStatuses) — 상태마다 컬럼 하나. 로딩 중(빈 배열)엔 컬럼을 그리지 않는다.
-  statuses: ProjectStatus[];
   // 범주 띠 ＋·헤더 ⋯ 로 상태를 추가·이름 변경할 수 있는가(OWNER, 개인 프로젝트 제외 — canEditStatuses()).
   canEditStatuses: boolean;
   // 컬럼에서 뺄 범주(개인 보드 ['CANCELED']) — 그 범주 상태의 이슈는 렌더하지 않는다. 렌더마다 새 배열을 넘기지 말 것(모듈 상수).
@@ -89,6 +82,8 @@ function IssueBoardViewInner({
   canEdit?: boolean;
 }) {
   const isMobile = useIsMobile();
+  // 프로젝트 상태 목록(서버 표시 순서)과 편집 동작 — 상태마다 컬럼 하나. 로딩 중(빈 배열)엔 컬럼을 그리지 않는다.
+  const { statuses, rename: renameStatus, addAfter: addStatusAfter, addAt: addStatusAt } = useStatusEditing(projectKey);
   // 모바일은 드래그 대신 길게 누르기 — 호출처가 넘긴 값과 무관하게 여기서도 끈다(개인 보드 포함).
   const canDragStatus = canDragStatusProp && !isMobile;
   // 노출 범위(에픽 제외 등)는 호출처가 정한다 — 팀 보드는 withDefaultIssueScope, 개인 보드는 최상위만.
@@ -114,9 +109,6 @@ function IssueBoardViewInner({
   // 카드 길게 누르기 액션 시트(상태·에픽) — 선택 모드 없음. 시트는 컬럼과 형제로 렌더한다.
   // 카드 메뉴 상태 선택지 — 보드 컬럼과 같은 상태들(개인 보드는 취소 범주 제외, WP-808).
   const cardActions = useIssueRowActions({ projectKey, canEdit, statuses: columns, linkFor: cardTo, closedHiding });
-  // 상태 추가·이름 변경(OWNER) — 실패는 입력기가 받아 그 자리에 보인다(reject 전달).
-  const createStatus = useCreateProjectStatus(projectKey);
-  const renameStatus = useRenameProjectStatus(projectKey);
   // 모바일 보드 선택 탭(boardTab) — 상태를 추가하면 새 탭을 고른다.
   const [, setParams] = useSearchParams();
   // 헤더 인라인 이름 변경 중인 컬럼(statusId).
@@ -157,9 +149,6 @@ function IssueBoardViewInner({
     }
   }
 
-  // 상태 목록에 없는 상태의 카드는 어느 컬럼에도 들어가지 못한다 — 그 상태를 만난 때 한 번 상태 목록을 다시 받아 컬럼을 만든다(WP-808).
-  useRefreshStatusesOnUnknown(projectKey, allIssues);
-
   // byStatusId 는 컬럼(상태) 기준으로 동적 생성 — 컬럼에 없는 상태(개인 보드의 취소 범주)는 자연 제외.
   const byStatusId: Record<number, IssueResponse[]> = {};
   for (const col of columns) byStatusId[col.id] = [];
@@ -184,8 +173,8 @@ function IssueBoardViewInner({
     const target = columns.find((s) => s.id === targetId);
     const issueNumber = src?.issueNumber;
     if (!src || !target || !issueNumber || src.statusId === target.id) return;
-    // 범주(종료 안내 토스트·아이콘)와 상태 id·이름(카드 이름 즉시 갱신)을 함께 넘긴다.
-    updateStatus.mutate({ number: issueNumber, status: target.category, statusId: target.id, statusName: target.name });
+    // 고른 상태를 통째로 넘긴다 — 범주(종료 안내 토스트·아이콘)와 상태 id·이름(카드 이름 즉시 갱신).
+    updateStatus.mutate({ number: issueNumber, to: target });
     if (e.activatorEvent instanceof KeyboardEvent) focusKeyboardDrop({ number: issueNumber, column: target.id });
   }
 
@@ -254,13 +243,11 @@ function IssueBoardViewInner({
                 status={s}
                 canEdit
                 statuses={statuses}
-                onRename={async (name) => {
-                  await renameStatus.mutateAsync({ id: s.id, body: { name } });
-                }}
+                onRename={(name) => renameStatus(s.id, name)}
                 onAddAfter={async (name) => {
                   // mutateAsync 는 상태 목록 재조회가 끝난 뒤 끝난다 — 새 상태가 이미 탭에 있으므로 바로 골라도
                   // 기본 탭 고정(MobileBoard)이 「보이지 않는 id」로 보고 덮어쓰지 않는다. 필터로 숨는 상태면 고르지 않는다.
-                  const created = await createStatus.mutateAsync({ name, category: s.category, afterStatusId: s.id });
+                  const created = await addStatusAfter(s, name);
                   if (columnFilters(filters, created) !== null) {
                     setParams((prev) => withBoardTab(prev, created.id), { replace: true });
                   }
@@ -347,9 +334,7 @@ function IssueBoardViewInner({
             spans={categorySpans(columns)}
             canEdit={canEditStatuses}
             statuses={statuses}
-            onAdd={async (category, name) => {
-              await createStatus.mutateAsync({ name, category });
-            }}
+            onAdd={addStatusAt}
           />
         )}
         {columns.map((col) => (
@@ -374,11 +359,11 @@ function IssueBoardViewInner({
                     onRename: () => setRenamingId(col.id),
                     onRenameCancel: () => setRenamingId(null),
                     onRenameSubmit: async (name) => {
-                      await renameStatus.mutateAsync({ id: col.id, body: { name } });
+                      await renameStatus(col.id, name);
                       setRenamingId(null);
                     },
                     onAddAfter: async (name) => {
-                      await createStatus.mutateAsync({ name, category: col.category, afterStatusId: col.id });
+                      await addStatusAfter(col, name);
                     },
                   }
                 : undefined
@@ -513,19 +498,9 @@ function BoardColumn({
     data: { statusId: status.id, label: status.name },
   });
   // 인라인 이름 변경이 끝나면(Enter 저장·Esc·바깥 클릭) 이 컬럼의 ⋯ 로 포커스를 돌린다 — 입력이 사라져 포커스가 body 로 떨어지지 않게.
-  // 바깥 클릭으로 다른 요소에 포커스가 갔으면 그대로 둔다(빼앗지 않는다).
-  const headerRef = useRef<HTMLElement>(null);
-  const wasRenaming = useRef(false);
-  const renaming = !!edit?.renaming;
-  useEffect(() => {
-    if (wasRenaming.current && !renaming) {
-      const active = document.activeElement;
-      if (!active || active === document.body) {
-        headerRef.current?.querySelector<HTMLElement>(`[data-testid="board-col-menu-${status.id}"]`)?.focus();
-      }
-    }
-    wasRenaming.current = renaming;
-  }, [renaming, status.id]);
+  // 바깥 클릭으로 다른 요소에 포커스가 갔으면 그대로 둔다(빼앗지 않는다 — useRestoreFocusOnExit 규칙).
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  useRestoreFocusOnExit(!!edit?.renaming, menuTriggerRef);
   return (
     <section
       ref={setNodeRef}
@@ -535,7 +510,7 @@ function BoardColumn({
       className={`min-h-[200px] min-w-0 rounded-md border p-2 ${isOver ? 'bg-accent/30' : ''}`}
     >
       {/* 범주 띠가 있으면 sticky 띠(h-9) 바로 아래에 붙는다 — 세로 스크롤해도 띠와 헤더가 함께 보인다. */}
-      <header ref={headerRef} className={cn(COLUMN_HEADER_CLASS, belowBand && 'top-9')}>
+      <header className={cn(COLUMN_HEADER_CLASS, belowBand && 'top-9')}>
         {edit?.renaming ? (
           // 헤더 자리 인라인 이름 변경 — Enter 저장, Esc 취소. 오류는 입력 아래.
           <StatusNameEditor
@@ -566,6 +541,7 @@ function BoardColumn({
                 status={status}
                 canEdit
                 statuses={edit.statuses}
+                triggerRef={menuTriggerRef}
                 onRename={edit.onRename}
                 onAddAfter={edit.onAddAfter}
               />

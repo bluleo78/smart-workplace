@@ -19,7 +19,7 @@ import {
 import { useRestoreFocusAfterPick } from '@/hooks/useRestoreFocusOnExit';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
-import { sortStatuses } from '../../../lib/projectStatuses';
+import { findStatus, needsDoneConfirm } from '../../../lib/projectStatuses';
 import type { IssueLinkSummary } from '../../../types/issue';
 import type { ProjectStatus } from '../../../types/projectStatus';
 import { incompleteBlockers } from './incompleteBlockers';
@@ -85,7 +85,7 @@ export function IssueStatusSelect({
 }: {
   /** 현재 statusId. */
   value: number;
-  /** 프로젝트 상태 목록 — 표시 순서로 정렬해 옵션으로 쓴다. */
+  /** 프로젝트 상태 목록(서버 표시 순서) — 그대로 옵션으로 쓴다. */
   statuses: readonly ProjectStatus[];
   /** 현재 상태 이름(응답 statusName) — 상태 목록 로딩 중이거나 목록에 없는 statusId 면 트리거에 대신 보인다. */
   currentName?: string;
@@ -98,8 +98,7 @@ export function IssueStatusSelect({
   // 확인 대기 중인 목표 상태 — null 이면 다이얼로그 닫힘.
   const [pending, setPending] = useState<ProjectStatus | null>(null);
   const blockers = incompleteBlockers(blockedBy);
-  const options = sortStatuses(statuses);
-  const current = options.find((s) => s.id === value);
+  const current = findStatus(statuses, value);
   // 트리거 툴팁 — 긴 이름은 말줄임되므로 전체 이름을 title 로 남긴다.
   const triggerName = current?.name ?? currentName;
   // 값을 고르면 저장 중 잠금(disabled)으로 트리거가 포커스를 잃어 body 로 빠졌다 — 풀리면 트리거로 돌린다(WP-813).
@@ -107,12 +106,11 @@ export function IssueStatusSelect({
   const markPicked = useRestoreFocusAfterPick(disabled ?? false, triggerRef);
 
   const handleChange = (id: string) => {
-    const next = options.find((s) => String(s.id) === id);
+    const next = findStatus(statuses, id);
     if (!next || next.id === value) return;
     markPicked();
-    // 완료 범주로 처음 들어가고 미완료 선행이 있으면 → 즉시 PATCH 하지 않고 확인 다이얼로그.
-    // 같은 완료 범주 안 이동(배포됨 → 완료)은 이미 완료라 다시 묻지 않는다.
-    if (next.category === 'DONE' && current?.category !== 'DONE' && blockers.length > 0) {
+    // 완료 범주로 처음 들어가고 미완료 선행이 있으면 → 즉시 PATCH 하지 않고 확인 다이얼로그(needsDoneConfirm).
+    if (needsDoneConfirm(next, current?.category, blockers.length)) {
       setPending(next);
       return;
     }
@@ -130,7 +128,7 @@ export function IssueStatusSelect({
         {/* popper + collisionPadding — 내용 폭만큼 커지는 item-aligned 는 화면 경계를 무시해 30자 이름이면 오른쪽으로 넘쳤다.
             popper 는 Radix 가 화면 안(여백 8px)으로 밀어 넣는다. 트리거 오른쪽 끝에 맞춰 연다. */}
         <SelectContent position="popper" align="end" collisionPadding={8}>
-          {options.map((s) => (
+          {statuses.map((s) => (
             <SelectItem key={s.id} value={String(s.id)} data-testid={`issue-status-option-${s.id}`}>
               <IssueStatusIcon status={s.category} decorative className="size-4" />
               <span className="min-w-0 truncate">{s.name}</span>
