@@ -209,9 +209,17 @@ class IssueControllerTest {
         .andExpect(status().isBadRequest());
   }
 
+  /**
+   * WP-885: 이슈 본문은 5만자까지 — Jira 이전 본문(최대 2.5만자)이 들어가야 한다. 생성·수정 모두 5만자는 통과, 5만 1자는 400 이고 서비스까지 가지
+   * 않는다.
+   */
   @Test
-  void create_invalidPriority_returns400() throws Exception {
+  void create_and_patch_bodyUpTo50000Chars_accepted_over_rejected() throws Exception {
     mockAuthentication("issue:write");
+    when(issueService.create(eq(1L), eq("WP"), any())).thenReturn(sampleIssue());
+    when(issueService.update(eq(1L), eq("WP"), eq(1), any())).thenReturn(sampleDetail());
+    String max = "가".repeat(50_000);
+    String over = "가".repeat(50_001);
 
     mockMvc
         .perform(
@@ -220,9 +228,60 @@ class IssueControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new CreateIssueRequest(
-                            "title", "body", "FOO", null, null, null, null, null))))
+                        new CreateIssueRequest("title", max, null, null, null, null, null, null))))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP/issues/1")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of("body", max))))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post("/api/v1/projects/WP/issues")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new CreateIssueRequest("title", over, null, null, null, null, null, null))))
         .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            patch("/api/v1/projects/WP/issues/1")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(java.util.Map.of("body", over))))
+        .andExpect(status().isBadRequest());
+  }
+
+  /**
+   * 5단계(WP-886) 밖의 우선순위(FOO·URGENT·소문자)는 생성·수정 모두 서비스에 닿기 전에 400 이다. 새 두 단계가 DB 까지 통과하는지는
+   * IssuePriorityFiveLevelsTest(실 DB)가 지킨다.
+   */
+  @Test
+  void create_and_patch_invalidPriority_returns400() throws Exception {
+    mockAuthentication("issue:write");
+
+    for (String priority : List.of("FOO", "URGENT", "highest")) {
+      mockMvc
+          .perform(
+              post("/api/v1/projects/WP/issues")
+                  .header("Authorization", "Bearer valid-token")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(
+                      objectMapper.writeValueAsString(
+                          new CreateIssueRequest(
+                              "title", "body", priority, null, null, null, null, null))))
+          .andExpect(status().isBadRequest());
+      mockMvc
+          .perform(
+              patch("/api/v1/projects/WP/issues/1")
+                  .header("Authorization", "Bearer valid-token")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(objectMapper.writeValueAsString(java.util.Map.of("priority", priority))))
+          .andExpect(status().isBadRequest());
+    }
   }
 
   @Test

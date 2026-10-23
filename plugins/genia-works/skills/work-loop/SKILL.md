@@ -71,7 +71,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 | 멈춤(PAUSED) | 고르지 않는다(사람이 멈춘 것). 멈춘 뒤 사람의 새 글이 오면 읽기만 한다 — 다시 하라는 글이면 이어 하고, 아니면 멈춘 채 「멈춘 상태로 둡니다 — 다시 하려면 이슈 챗에 다시 해 달라고 남겨 주세요」를 `message` 로 남긴다 |
 | 다음 회차 대기(SCHEDULED) | 내 행의 `nextRunAt` 이 지났거나 없을 때 고른다 — 아직 오지 않았으면 고르지 않는다. 사람의 새 글이 있으면 시각과 상관없이 고른다 |
 
-순서: ① 사람이 새 글을 단 이슈 → ② 끊긴 작업(WORKING) → ③ `nextRunAt` 이 지난 다음 회차 대기(이른 시각 순, 같으면 부모 먼저 — 부모 회차가 하위를 만들거나 닫는다) → ④ 우선순위 HIGH·MID·LOW → ⑤ 같은 우선순위면 오래된 순(`createdAt`) → ⑥ 미뤄 둔 후보.
+순서: ① 사람이 새 글을 단 이슈 → ② 끊긴 작업(WORKING) → ③ `nextRunAt` 이 지난 다음 회차 대기(이른 시각 순, 같으면 부모 먼저 — 부모 회차가 하위를 만들거나 닫는다) → ④ 우선순위 HIGHEST·HIGH·MID·LOW·LOWEST → ⑤ 같은 우선순위면 오래된 순(`createdAt`) → ⑥ 미뤄 둔 후보.
 
 **미뤄 둔 후보**: `nextRunAt` 이 없는 다음 회차 대기와 **main 머지 대기**인 이슈(그 이슈의 notes 파일에서 `마지막 완료 단계` 가 「main 머지 대기」 — 머지 전 확인에 걸려 기다리는 중)다. 맨 뒤에 한 번 부르기에 한 번씩만 고르고(머지 대기는 그때 머지를 다시 시도한다), 5번에서 「남은 후보」로 세지 않는다. 고를 것이 없으면 아래 「대기열에서 가져오기」로 간다.
 
@@ -83,7 +83,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 **대기열에서 가져오기** — `--queue` 가 있고, 이번 부르기에서 고를 후보가 하나도 없을 때(미뤄 둔 후보까지 없을 때)만 한다. 4번의 main 머지 대기로 3번에 돌아와 다음 후보가 없는 경우는 이미 이슈를 고른 부르기라 가져가지 않는다.
 1. `list_issues({ projectKey, label: <대기열 라벨>, assignee: 'any', status: 'TODO,IN_PROGRESS' })` 로 대기열을 모두 읽는다(`hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지). `assignees` 에 `kind: 'AGENT'` 가 있는 이슈는 뺀다.
    - 그 라벨이 프로젝트에 아직 없어 목록이 `label` 필터 오류(400, `API 오류 400: … — label: …`)로 실패하면 오류가 아니라 빈 대기열로 본다 — 가져갈 이슈가 없으니 아래 「할 일 없음」으로 간다.
-2. 남은 이슈를 우선순위 HIGH·MID·LOW → 같으면 오래된 순(`createdAt`)으로 하나씩 `claim_issue({ issueKey, queueLabel: <대기열 라벨> })` 로 가져가 본다.
+2. 남은 이슈를 우선순위 HIGHEST·HIGH·MID·LOW·LOWEST → 같으면 오래된 순(`createdAt`)으로 하나씩 `claim_issue({ issueKey, queueLabel: <대기열 라벨> })` 로 가져가 본다.
    - 성공하면 거기서 멈춘다. 한 번 부르기에 가져가기는 **최대 하나**다.
    - 거절이 `NOT_IN_QUEUE`(다른 AI 가 먼저 가져가 라벨이 없다)·`AI_ALREADY_ASSIGNED`(AI 담당이 이미 있다)·`ISSUE_CLOSED`(그 사이 닫혔다)면 — 목록을 읽은 뒤 대기열을 떠난 이슈다 — 다음 이슈로 간다.
    - `CLAIM_AGENT_ONLY` 와 그 밖의 오류(권한·연결 등)면 더 시도하지 않고 이유를 실행 끝 요약에 적는다.

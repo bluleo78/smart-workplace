@@ -15,9 +15,13 @@ export interface IssueSummaryInput {
   priority: string
   dueDate: string | null
   comments: { authorName: string; body: string; createdAt: string }[]
+  // WP-885: 입력 예산 때문에 API 가 보내지 않은 오래된 코멘트 수(0/생략 = 없음).
+  omittedCommentCount?: number
   history: { actorName: string; eventType: string; fromValue: string | null; toValue: string | null; createdAt: string }[]
   // 이슈 채팅(사람↔AI 대화) 발췌 — 시간 오름차순. kind 로 USER/AGENT 구분.
   chat?: { author: string; kind: string; body: string; createdAt?: string | null }[]
+  // WP-885: 채팅 입력 예산 때문에 API 가 보내지 않은 오래된 채팅 메시지 수(0/생략 = 없음).
+  omittedChatCount?: number
   assistantAgentId: number
   model: string
   maxTurns: number
@@ -55,6 +59,10 @@ export function buildIssueSummaryPrompt(input: IssueSummaryInput): string {
 
   lines.push(`상태: ${statusDisplay(input.status, input.statusName)} / 우선순위: ${input.priority} / 마감: ${input.dueDate ?? '없음'}`)
   lines.push('--- 코멘트 ---')
+  // WP-885: 오래된 코멘트가 입력 예산 때문에 빠졌으면 모델이 "처음부터 코멘트가 이것뿐"이라 오해하지 않게 알린다.
+  if (input.omittedCommentCount && input.omittedCommentCount > 0) {
+    lines.push(`(더 오래된 코멘트 ${input.omittedCommentCount}건은 분량 때문에 생략됨 — 아래는 최근 코멘트만)`)
+  }
   for (const c of input.comments) {
     lines.push(`[${c.createdAt}] ${c.authorName}: ${c.body}`)
   }
@@ -67,6 +75,10 @@ export function buildIssueSummaryPrompt(input: IssueSummaryInput): string {
   const chat = input.chat ?? []
   if (chat.length > 0) {
     lines.push('## 이슈 채팅(사람↔AI 대화, 시간순)')
+    // WP-885: 오래된 채팅이 입력 예산 때문에 빠졌으면 코멘트와 같이 모델에 알린다.
+    if (input.omittedChatCount && input.omittedChatCount > 0) {
+      lines.push(`(더 오래된 채팅 ${input.omittedChatCount}건은 분량 때문에 생략됨 — 아래는 최근 채팅만)`)
+    }
     for (const m of chat) {
       lines.push(`- [${m.kind}] ${m.author}: ${m.body}`)
     }

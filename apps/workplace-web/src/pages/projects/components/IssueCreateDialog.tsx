@@ -12,8 +12,10 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
+import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN } from '../../../lib/supportedDate';
+import type { IssuePriority } from '../../../types/issue';
 import { useIssueCreateForm } from '../hooks/useIssueCreateForm';
 import { MobileIssueCreateSheet } from './mobile/MobileIssueCreateSheet';
 
@@ -77,7 +79,7 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               onDrop={images.onDrop}
               onDragOver={images.onDragOver}
             />
-            {/* 10000자 초과 검증 실패를 그리지 않으면 「생성」이 아무 반응 없이 멈춘다(WP-929). */}
+            {/* 본문 상한(5만자) 초과 검증 실패를 그리지 않으면 「생성」이 아무 반응 없이 멈춘다(WP-929·WP-885). */}
             {errors.body && (
               <p id="issue-body-error" role="alert" className="text-sm text-destructive">
                 {errors.body.message}
@@ -131,15 +133,16 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               {/* shadcn Select — native <select> 대신 사용(다크모드 스타일 일관성 #270) */}
               <Select
                 value={watch('priority') ?? 'MID'}
-                onValueChange={(v) => setValue('priority', v as 'LOW' | 'MID' | 'HIGH')}
+                onValueChange={(v) => setValue('priority', v as IssuePriority)}
               >
                 <SelectTrigger id="issue-priority" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="LOW">낮음</SelectItem>
-                  <SelectItem value="MID">보통</SelectItem>
-                  <SelectItem value="HIGH">높음</SelectItem>
+                  {/* 공용 5단계 선택지(매우 높음→매우 낮음, WP-886). */}
+                  {ISSUE_PRIORITY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

@@ -12,6 +12,7 @@ import {
   type AssigneeResolverClient,
   type ProjectMetaClient,
 } from './resolve.js';
+import { ISSUE_BODY_MAX_LENGTH, issuePriorityInput } from './schemas.js';
 import type { MailToolClient } from './tool-client.js';
 
 export const listMailInput = z.object({
@@ -30,8 +31,8 @@ export const createIssueFromMailInput = z.object({
   messageId: z.number().int().positive(),
   projectKey: z.string().min(1),
   title: z.string().min(1).max(200),
-  body: z.string().max(10000).optional(),
-  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+  body: z.string().max(ISSUE_BODY_MAX_LENGTH).optional(),
+  priority: issuePriorityInput.optional(),
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds
   // WP-356: 유형·라벨 이름(get_project) → id. 서버 승격 요청이 이슈 생성과 같은 트랜잭션에서 붙인다.
   type: z.string().min(1).optional(),

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { buildChatUserMessage } from './chat-user-message.js';
+import { buildChatUserMessage, CHAT_ISSUE_BODY_MAX_CHARS } from './chat-user-message.js';
 import { chatMessagePostedPayload, type ChatMessagePostedPayload } from '../types/chat-events.js';
 import type { ChatMessageItem } from '../clients/workplace-api.js';
 import type { PresentedAttachments } from './attachment-presenter.js';
@@ -82,5 +82,22 @@ describe('buildChatUserMessage', () => {
     const msg = buildChatUserMessage(payload, recent, NONE_PRESENTED);
     expect(msg).toContain('(제목 없음)');
     expect(msg).toContain('(본문 없음)');
+  });
+
+  // WP-885: 5만자 본문이 매 턴 컨텍스트를 잠식하지 않게 앞 2만자만 싣고 표식을 붙인다.
+  it('WP-885 본문이 2만자를 넘으면 앞 2만자만 넣고 생략 표식·조회 안내를 붙인다', () => {
+    const long = '가'.repeat(CHAT_ISSUE_BODY_MAX_CHARS) + '뷁'.repeat(30_000);
+    const msg = buildChatUserMessage({ ...payload, issueBody: long }, recent, NONE_PRESENTED);
+    expect(msg).toContain('가'.repeat(CHAT_ISSUE_BODY_MAX_CHARS));
+    expect(msg).not.toContain('뷁');
+    expect(msg).toContain('이하 30000자는 생략됨');
+    expect(msg).toContain('get_issue_detail(WP-1)');
+  });
+
+  it('WP-885 본문이 정확히 2만자면 그대로 넣고 표식을 붙이지 않는다', () => {
+    const exact = '가'.repeat(CHAT_ISSUE_BODY_MAX_CHARS);
+    const msg = buildChatUserMessage({ ...payload, issueBody: exact }, recent, NONE_PRESENTED);
+    expect(msg).toContain(exact);
+    expect(msg).not.toContain('생략됨');
   });
 });

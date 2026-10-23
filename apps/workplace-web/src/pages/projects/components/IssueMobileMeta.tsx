@@ -1,4 +1,4 @@
-// 모바일 메타 한 줄 — 키 · ◆에픽 · 높음·마감·하위·첫 라벨(+N) … 담당자(최대 2 + N).
+// 모바일 메타 한 줄 — 키 · ◆에픽 · (매우) 높음·마감·하위·첫 라벨(+N) … 담당자(최대 2 + N).
 // 목록 행(WP-194)과 보드 카드(WP-195)가 같은 정보 순서·말줄임 규칙을 쓰도록 공용화했다.
 import { Fragment, type ReactNode } from 'react';
 
@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { formatListDueDate } from '../../../lib/formatters';
-import { isEpicParent } from '../../../lib/issueGrouping';
+import { isEpicParent, ISSUE_PRIORITY_LABEL } from '../../../lib/issueGrouping';
 import { isOverdue } from '../../../lib/issueOverdue';
 import { labelFg } from '../../../lib/labelColors';
 import type { IssueResponse } from '../../../types/issue';
@@ -39,7 +39,10 @@ export function IssueMobileMeta({
   const firstLabel = it.labels[0];
   // 메타 꼬리 조각(높음·마감·하위·라벨) — 한 span 안에 인라인으로 이어 붙여, 넘치면 끝에서 「…」 로 말줄임된다.
   const tail: ReactNode[] = [];
-  if (it.priority === 'HIGH') tail.push(<span key="p" className="text-destructive">높음</span>);
+  // 우선순위는 높음·매우 높음만 빨간 글자로 — 좁은 모바일 메타에서 급한 일만 눈에 띄게 하고 나머지는 생략한다(WP-886).
+  if (it.priority === 'HIGH' || it.priority === 'HIGHEST') {
+    tail.push(<span key="p" className="text-destructive">{ISSUE_PRIORITY_LABEL[it.priority]}</span>);
+  }
   // 마감 — 지난 미완료면 데스크톱 목록과 같은 빨간 굵은 글씨 + 스크린리더 안내(WP-649). 완료·취소는 isOverdue 가 제외한다.
   if (it.dueDate) {
     const overdue = isOverdue(it);

@@ -13,6 +13,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
+import com.workplace.issue.outbound.dto.IssueClassifyRequest;
 import com.workplace.issue.outbound.dto.IssueClassifyResult;
 import com.workplace.label.dto.LabelRow;
 import com.workplace.label.repository.LabelRepository;
@@ -23,6 +24,7 @@ import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -114,5 +116,50 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
         .isInstanceOf(ProjectAccessDeniedException.class);
     verifyNoInteractions(labelRepository, assistantResolver);
     verify(aiClient, never()).classify(any());
+  }
+
+  /** WP-886 — ai-agent 가 보낸 5단계 우선순위(HIGHEST·LOWEST 포함)는 보정 없이 그대로 응답에 담긴다. */
+  @Test
+  void classify_우선순위_5단계는_그대로() {
+    ProjectRow project =
+        new ProjectRow(12L, "PRI", "우선순위 프로젝트", null, 1L, "TEAM", false, null, null);
+    when(accessGuard.assertIssueCreatable("PRI", 1L)).thenReturn(project);
+    when(labelRepository.findByProject(12L)).thenReturn(List.of());
+    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
+
+    when(aiClient.classify(any()))
+        .thenReturn(new IssueClassifyResult("BUG", "HIGHEST", List.of(), "운영 장애"));
+    assertThat(classifyService.classify(1L, "PRI", "결제 장애", "").priority()).isEqualTo("HIGHEST");
+
+    when(aiClient.classify(any()))
+        .thenReturn(new IssueClassifyResult("TASK", "LOWEST", List.of(), "아이디어"));
+    assertThat(classifyService.classify(1L, "PRI", "아이디어", "").priority()).isEqualTo("LOWEST");
+  }
+
+  /**
+   * WP-885 — 본문 상한이 5만자로 올라도 분류 입력에는 앞 2만자만 보낸다(65,536 토큰 모델 502 방지). 잘린 곳은 생략 글자 수 표식으로 알리고, 상한 이하
+   * 본문은 그대로 보낸다.
+   */
+  @Test
+  void classify_본문은_2만자까지만_보내고_표식을_붙인다() {
+    ProjectRow project =
+        new ProjectRow(13L, "LONG", "긴 본문 프로젝트", null, 1L, "TEAM", false, null, null);
+    when(accessGuard.assertIssueCreatable("LONG", 1L)).thenReturn(project);
+    when(labelRepository.findByProject(13L)).thenReturn(List.of());
+    AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
+    when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
+    when(aiClient.classify(any()))
+        .thenReturn(new IssueClassifyResult("TASK", "MID", List.of(), "긴 본문"));
+
+    classifyService.classify(1L, "LONG", "긴 이슈", "가".repeat(50_000));
+    classifyService.classify(1L, "LONG", "짧은 이슈", "나".repeat(20_000));
+
+    ArgumentCaptor<IssueClassifyRequest> captor =
+        ArgumentCaptor.forClass(IssueClassifyRequest.class);
+    verify(aiClient, org.mockito.Mockito.times(2)).classify(captor.capture());
+    assertThat(captor.getAllValues().get(0).body())
+        .isEqualTo("가".repeat(20_000) + "…(이하 30000자 생략)");
+    assertThat(captor.getAllValues().get(1).body()).isEqualTo("나".repeat(20_000));
   }
 }

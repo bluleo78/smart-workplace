@@ -615,7 +615,7 @@ public class Issue extends TableImpl<IssueRecord> {
     public List<Check<IssueRecord>> getChecks() {
         return Arrays.asList(
             Internal.createCheck(this, DSL.name("chk_issue_start_before_due"), "(((start_date IS NULL) OR (due_date IS NULL) OR (start_date <= due_date)))", true),
-            Internal.createCheck(this, DSL.name("issue_priority_check"), "(((priority)::text = ANY ((ARRAY['LOW'::character varying, 'MID'::character varying, 'HIGH'::character varying])::text[])))", true),
+            Internal.createCheck(this, DSL.name("issue_priority_check"), "(((priority)::text = ANY ((ARRAY['HIGHEST'::character varying, 'HIGH'::character varying, 'MID'::character varying, 'LOW'::character varying, 'LOWEST'::character varying])::text[]))) NOT VALID", true),
             Internal.createCheck(this, DSL.name("issue_status_check"), "(((status)::text = ANY ((ARRAY['TODO'::character varying, 'IN_PROGRESS'::character varying, 'DONE'::character varying, 'CANCELED'::character varying])::text[])))", true)
         );
     }

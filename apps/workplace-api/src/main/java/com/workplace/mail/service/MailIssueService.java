@@ -188,6 +188,7 @@ public class MailIssueService {
     // AI 추천 projectKey 가 후보에 없으면 무시(null) — 프론트가 개인 프로젝트로 폴백.
     String suggested =
         candidates.stream().anyMatch(c -> c.key().equals(r.projectKey())) ? r.projectKey() : null;
+    // 우선순위는 ai-agent(normalizePriority)가 5단계(WP-886) 안의 값으로 맞춰 보내므로 그대로 넘긴다.
     return new MailIssueDraft(r.title(), r.body(), r.priority(), suggested, candidates);
   }
 

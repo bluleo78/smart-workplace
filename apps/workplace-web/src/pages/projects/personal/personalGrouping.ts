@@ -1,5 +1,6 @@
 // 개인 체크리스트 그룹화 — 마감(due) 버킷 + 상태/우선순위 평탄 섹션.
 // 활성(미완료·미취소)만 섹션화하고 완료는 따로 반환(due 모드). 정렬은 우선순위→마감 공유.
+import { ISSUE_PRIORITY_OPTIONS, priorityRank } from '@/lib/issueGrouping';
 import type { IssueClientGroupBy, IssueResponse } from '@/types/issue';
 
 export type PersonalBucketKey = 'overdue' | 'today' | 'thisWeek' | 'upcoming' | 'noDue';
@@ -9,7 +10,6 @@ export interface PersonalGroup {
   items: IssueResponse[];
 }
 
-const PRIORITY_ORDER: Record<string, number> = { HIGH: 0, MID: 1, LOW: 2 };
 const LABELS: Record<PersonalBucketKey, string> = {
   overdue: '지남',
   today: '오늘',
@@ -19,22 +19,18 @@ const LABELS: Record<PersonalBucketKey, string> = {
 };
 const ORDER: PersonalBucketKey[] = ['overdue', 'today', 'thisWeek', 'upcoming', 'noDue'];
 
-// 상태/우선순위 그룹 정의 — 평탄 섹션(CANCELED 제외).
+// 상태 그룹 정의 — 평탄 섹션(CANCELED 제외). 우선순위 섹션은 공용 ISSUE_PRIORITY_OPTIONS 를 쓴다.
 const STATUS_GROUPS: { status: string; label: string }[] = [
   { status: 'TODO', label: '할 일' },
   { status: 'IN_PROGRESS', label: '진행 중' },
   { status: 'DONE', label: '완료' },
 ];
-const PRIORITY_GROUPS: { priority: string; label: string }[] = [
-  { priority: 'HIGH', label: '높음' },
-  { priority: 'MID', label: '보통' },
-  { priority: 'LOW', label: '낮음' },
-];
 
 // 우선순위(높음→낮음) 후 마감일 오름차순(마감 없음은 앞), 동률이면 id 오름차순. groupByDue 내부 정렬과 동일 규칙을 공유.
 // id 동률 규칙은 서버 checklist 정렬(WP-918)과 완전히 같게 하려고 둔다 — 다르면 페이지를 이어 붙일 때 같은 섹션 안 순서가 흔들린다.
 export function sortByPriorityThenDue(a: IssueResponse, b: IssueResponse): number {
-  const p = (PRIORITY_ORDER[a.priority] ?? 1) - (PRIORITY_ORDER[b.priority] ?? 1);
+  // 모르는 값은 보통 순위(priorityRank) — 예전 `?? 1` 은 5단계에선 「높음」 순위라 뒤섞였다(WP-886).
+  const p = priorityRank(a.priority) - priorityRank(b.priority);
   if (p !== 0) return p;
   const d = (a.dueDate ?? '').localeCompare(b.dueDate ?? '');
   if (d !== 0) return d;
@@ -121,11 +117,12 @@ export function groupChecklist(
     return { sections: active, collapsedDone: [] };
   }
   if (groupBy === 'priority') {
-    const active = PRIORITY_GROUPS.map((g) => ({
-      key: g.priority,
+    // 섹션은 공용 선택지 순서(매우 높음→매우 낮음, WP-886) 그대로 — 팀 보드 그룹과 같은 순서·문구.
+    const active = ISSUE_PRIORITY_OPTIONS.map((g) => ({
+      key: g.value,
       label: g.label,
       items: items
-        .filter((it) => it.status !== 'CANCELED' && it.priority === g.priority)
+        .filter((it) => it.status !== 'CANCELED' && it.priority === g.value)
         .sort(sortByPriorityThenDue),
     })).filter((g) => g.items.length > 0);
     return { sections: active, collapsedDone: [] };

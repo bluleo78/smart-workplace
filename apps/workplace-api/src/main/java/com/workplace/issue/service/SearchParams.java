@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.issue.dto.IssuePriorities;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidIssueFilterException;
 import java.util.Arrays;
@@ -15,8 +16,8 @@ final class SearchParams {
   /** 이슈 상태 값 — DB CHECK(V5) 와 같은 집합, 오류 문구에 이 순서로 나열한다. */
   private static final List<String> STATUSES = IssueStatuses.CATEGORY_ORDER;
 
-  /** 이슈 우선순위 값 — DB CHECK(V5) 와 같은 집합. */
-  private static final List<String> PRIORITIES = List.of("LOW", "MID", "HIGH");
+  /** 이슈 우선순위 값 — DB CHECK(V211) 와 같은 5단계, 오류 문구에 표시 순서로 나열한다(WP-886). */
+  private static final List<String> PRIORITIES = IssuePriorities.ORDER;
 
   private static final int DEFAULT_SIZE = 30;
   private static final int MAX_SIZE = 100;

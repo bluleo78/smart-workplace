@@ -2,10 +2,31 @@
 
 import { z } from 'zod';
 
+import { eunNeun } from '@/lib/utils';
+import { ISSUE_PRIORITIES } from '@/types/issue';
+
 import { isSupportedDateKey, SUPPORTED_DATE_RANGE_MESSAGE } from '../supportedDate';
 
+/**
+ * 이슈 본문·코멘트 본문 최대 길이(WP-885) — 서버 IssueTextLimits.BODY_MAX 와 같은 값.
+ * Jira 이전 데이터(본문 2.5만자·코멘트 3.1만자)를 담으려 1만에서 5만으로 올렸다. 코멘트 입력창(IssueCommentComposer)도 공유.
+ */
+export const ISSUE_BODY_MAX_LENGTH = 50000;
+
+/**
+ * 본문·코멘트가 상한(ISSUE_BODY_MAX_LENGTH)을 넘었을 때 입력창 아래에 보일 안내 문구 — 본문 편집기와 코멘트 작성·수정이 같은 문구를 쓴다.
+ * 입력을 자르지 않고(붙여넣기 유실 방지) 이 안내와 함께 저장만 막는다.
+ */
+export function issueTextOverLimitMessage(label: '본문' | '코멘트', count: number): string {
+  return `${label}${eunNeun(label)} ${ISSUE_BODY_MAX_LENGTH}자 이하여야 합니다 (현재 ${count}자)`;
+}
+
+/** 코멘트용 초과 안내 — 작성창·수정 폼이 RichInput 의 overLimitMessage 로 그대로 넘긴다. */
+export const commentOverLimitMessage = (count: number): string => issueTextOverLimitMessage('코멘트', count);
+
 const statusEnum = z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']);
-const priorityEnum = z.enum(['LOW', 'MID', 'HIGH']);
+// 우선순위 5단계(WP-886) — 서버 IssuePriorities 와 같은 공용 목록에서 만든다.
+const priorityEnum = z.enum(ISSUE_PRIORITIES);
 
 // 날짜 칸(HTML date input) 값 — 빈 문자열(미지정) 또는 받는 범위(1900~9999)의 YYYY-MM-DD.
 // 칸은 5자리 연도(20260-10-23)도 내보낸다 — 형식만 보던 regex 는 영어 원시 문구를 내거나(시작일) 오류를 그리지 않아
@@ -22,7 +43,7 @@ export const createIssueSchema = z
   .object({
     // 공백만 있는 제목을 서버 왕복 없이 클라이언트에서 즉시 막기 위해 trim 후 검증 (#612).
     title: z.string().trim().min(1, '제목은 필수입니다').max(200, '제목은 200자 이하여야 합니다'),
-    body: z.string().max(10000, '본문은 10000자 이하여야 합니다').optional(),
+    body: z.string().max(ISSUE_BODY_MAX_LENGTH, `본문은 ${ISSUE_BODY_MAX_LENGTH}자 이하여야 합니다`).optional(),
     priority: priorityEnum.optional(),
     // YYYY-MM-DD 형식 (HTML date input) 또는 빈 문자열 허용
     dueDate: optionalDateKey,
@@ -55,7 +76,7 @@ export type CreateIssueFormData = z.infer<typeof createIssueSchema>;
 
 export const updateIssueSchema = z.object({
   title: z.string().min(1).max(200).optional(),
-  body: z.string().max(10000).optional(),
+  body: z.string().max(ISSUE_BODY_MAX_LENGTH).optional(),
   status: statusEnum.optional(),
   priority: priorityEnum.optional(),
   dueDate: z.string().optional(),
@@ -63,6 +84,6 @@ export const updateIssueSchema = z.object({
 });
 
 export const createCommentSchema = z.object({
-  body: z.string().min(1, '내용은 필수입니다').max(10000),
+  body: z.string().min(1, '내용은 필수입니다').max(ISSUE_BODY_MAX_LENGTH),
 });
 export type CreateCommentFormData = z.infer<typeof createCommentSchema>;

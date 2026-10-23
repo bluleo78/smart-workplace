@@ -14,6 +14,15 @@ import {
 
 const EMPTY = parseFilters(new URLSearchParams());
 
+// WP-886: 우선순위 URL 토큰은 5단계만 통과하고 모르는 토큰(URGENT 등)은 버린다.
+describe('parseFilters — 우선순위 5단계', () => {
+  it('HIGHEST·LOWEST 를 포함한 5단계를 읽고 모르는 값은 버린다', () => {
+    const f = parseFilters(new URLSearchParams('priority=HIGHEST,LOWEST,URGENT,MID'));
+    expect(f.priorities).toEqual(['HIGHEST', 'LOWEST', 'MID']);
+    expect(filtersToParams(f, 'list', null).get('priority')).toBe('HIGHEST,LOWEST,MID');
+  });
+});
+
 describe('parseGroupBy', () => {
   it('알려진 group 값만 통과시킨다', () => {
     expect(parseGroupBy(new URLSearchParams('group=status'))).toBe('status');

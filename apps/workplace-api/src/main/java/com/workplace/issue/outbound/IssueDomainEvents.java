@@ -105,7 +105,7 @@ public final class IssueDomainEvents {
       String newStatusName,
       Instant occurredAt) {}
 
-  /** 우선순위 변경 (예: MEDIUM → HIGH). 상태 변경과 대칭적으로 모든 변경에 발행(임계치 조건 없음, #613). */
+  /** 우선순위 변경 (예: MID → HIGHEST). 상태 변경과 대칭적으로 모든 변경에 발행(임계치 조건 없음, #613). */
   public record IssuePriorityChangedEvent(
       long issueId,
       String projectKey,

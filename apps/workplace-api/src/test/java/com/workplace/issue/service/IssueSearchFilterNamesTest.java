@@ -305,7 +305,7 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
         .isInstanceOf(InvalidIssueFilterException.class);
     assertThatThrownBy(() -> searchService.search(owner.id(), p.key(), Map.of("priority", "XYZ")))
         .isInstanceOf(InvalidIssueFilterException.class)
-        .hasMessageContaining("LOW, MID, HIGH")
+        .hasMessageContaining("HIGHEST, HIGH, MID, LOW, LOWEST")
         .satisfies(
             e -> assertThat(((InvalidIssueFilterException) e).getField()).isEqualTo("priority"));
     // 횡단 검색(내 이슈)·그룹 총계도 같은 파서를 쓴다.

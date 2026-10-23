@@ -70,6 +70,47 @@ test.describe('팀 리스트 뷰', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/7$`));
   });
 
+  test('우선순위 5단계 — 매우 높음은 「!」 아이콘, 필터는 5개 옵션을 매우 높음→매우 낮음 순서로 보이고 고르면 priority=HIGHEST 로 검색한다 (WP-886)', async ({ authenticatedPage: page }) => {
+    await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await mock(page, [
+      createIssue({ id: 1, number: 1, title: '결제 장애', priority: 'HIGHEST' }),
+      createIssue({ id: 2, number: 2, title: '로그인 오류', priority: 'HIGH' }),
+      createIssue({ id: 3, number: 3, title: '아이디어', priority: 'LOWEST' }),
+    ]);
+    const searches = trackRequests(page, 'GET', `/api/v1/projects/${KEY}/issues`);
+
+    await page.goto(`/projects/${KEY}`);
+    // 매우 높음 — 빨간 사각형 「!」, 높음과 다른 이름으로 읽힌다(exact: 「우선순위 높음」 부분 일치로 섞이지 않게).
+    const highest = page.getByTestId('issue-row-1').getByRole('img', { name: '우선순위 매우 높음', exact: true });
+    await expect(highest).toBeVisible();
+    // 「!」 는 가상 요소로만 그려 텍스트에 섞이지 않는다.
+    await expect(highest).toHaveText('');
+    expect(await highest.locator('span').evaluate((el) => getComputedStyle(el, '::before').content)).toBe('"!"');
+    await expect(page.getByTestId('issue-row-2').getByRole('img', { name: '우선순위 높음', exact: true })).toBeVisible();
+    // 매우 낮음 — 막대 3개가 모두 비어 있다(글자 없음).
+    const lowest = page.getByTestId('issue-row-3').getByRole('img', { name: '우선순위 매우 낮음', exact: true });
+    await expect(lowest).toBeVisible();
+    await expect(lowest.locator('span')).toHaveCount(3);
+
+    // 필터 — 5개 옵션이 표시 순서대로.
+    await page.getByTestId('add-filter-trigger').click();
+    await page.getByTestId('add-filter-facet-priority').click();
+    const options = page.locator('[data-testid^="facet-value-priority-"]:not([data-testid$="-and-hint"])');
+    await expect(options).toHaveCount(5);
+    await expect(options).toHaveText(['매우 높음', '높음', '보통', '낮음', '매우 낮음']);
+    await expect(page.getByTestId('facet-value-priority-HIGHEST').getByRole('img', { name: '우선순위 매우 높음', exact: true })).toBeVisible();
+
+    // 매우 높음만 고르면 검색 요청이 priority=HIGHEST 로 나간다(높음과 따로 거른다).
+    await page.getByTestId('facet-value-priority-HIGHEST').click();
+    await expect.poll(() => searches.lastUrl()?.searchParams.get('priority')).toBe('HIGHEST');
+    await expect(page).toHaveURL(/priority=HIGHEST/);
+  });
+
   test('마감 지난 미완료 이슈 행만 마감일이 빨간색 + 「마감 지남」 — 완료·미래 마감은 그대로 (WP-649)', async ({ authenticatedPage: page }) => {
     await mock(page, [
       createIssue({ id: 1, number: 1, title: '지난 마감', status: 'IN_PROGRESS', dueDate: '2020-01-15' }),

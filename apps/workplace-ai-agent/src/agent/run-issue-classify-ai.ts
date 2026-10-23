@@ -2,6 +2,7 @@
 // run-messaging-ai.ts 의 runText 패턴 미러. 도구 없이 텍스트 in/out.
 import { z } from 'zod'
 import { runText } from './run-messaging-ai.js'
+import { normalizePriority } from './issue-priority.js'
 import type { RunAgentDeps } from './run-agent.js'
 
 // 이슈 분류 입력 스키마 — ai-agent /issue/classify 엔드포인트 요청 바디.
@@ -23,7 +24,9 @@ export type IssueClassifyInput = z.infer<typeof issueClassifyInputSchema>
 // LLM 출력 Zod 스키마 — greedy parse + safeParse 를 함께 사용.
 const ClassifyResultSchema = z.object({
   type: z.enum(['TASK', 'BUG', 'STORY', 'CHORE']).optional(),
-  priority: z.enum(['LOW', 'MID', 'HIGH']),
+  // 우선순위 5단계(WP-886). 모르는 값이면 이 필드만 MID 로 — 예전엔 전체가 폴백돼 유형·라벨 제안까지 잃었다.
+  // 모델이 소문자·공백으로 적어도("highest") 살리도록 normalizePriority(trim+대문자, mail-parser 와 공용)로 정규화한다.
+  priority: z.unknown().transform(normalizePriority),
   labels: z.array(z.string()),
   reason: z.string(),
 })
@@ -49,14 +52,17 @@ function buildClassifyPrompt(projectLabels: string[], isPersonalProject: boolean
     '제목과 본문을 읽고 아래 JSON만 반환하세요. 다른 텍스트 없이.\n\n' +
     '{\n' +
     typeBlock +
-    '  "priority": "LOW|MID|HIGH",\n' +
+    '  "priority": "HIGHEST|HIGH|MID|LOW|LOWEST",\n' +
     '  "labels": ["라벨명"],              // projectLabels 목록 안에 있는 것만\n' +
     '  "reason": "한 문장 이유"\n' +
     '}\n\n' +
-    '우선순위 기준:\n' +
-    '- HIGH: 사용자 직접 영향, 데이터 손실, 서비스 중단 가능\n' +
-    '- MID: 기능 제한, 불편하지만 우회 가능\n' +
-    '- LOW: 개선사항, 문서, 정리\n\n' +
+    // WP-886: 5단계. HIGHEST 는 긴급 건만 — 남용하면 「높음」과 따로 거르는 의미가 없어져 드물게 쓰라고 못 박는다.
+    '우선순위 기준(애매하면 한 단계 낮게):\n' +
+    '- HIGHEST: 운영 장애·보안 취약점·데이터 손실처럼 지금 바로 처리해야 하는 긴급 건만. 드물게 쓴다\n' +
+    '- HIGH: 사용자에게 직접 영향, 주요 기능 오동작으로 우회가 어려움\n' +
+    '- MID: 기능 제한, 불편하지만 우회 가능(기본)\n' +
+    '- LOW: 개선사항, 문서, 정리\n' +
+    '- LOWEST: 급하지 않은 아이디어·사소한 다듬기, 여유 있을 때 처리\n\n' +
     (!isPersonalProject
       ? '유형 기준:\n' +
         '- BUG: 오동작, 오류, 예상과 다른 동작\n' +

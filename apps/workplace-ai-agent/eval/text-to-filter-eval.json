@@ -7,18 +7,18 @@
       "query": "내가 맡은 급한 거",
       "expect": {
         "assignee": "me",
-        "priority": ["HIGH"]
+        "priority": ["HIGHEST", "HIGH"]
       },
-      "note": "담당=나 + 우선순위 HIGH"
+      "note": "담당=나 + 우선순위 매우 높음·높음(\"급한\" 은 두 단계, WP-886)"
     },
     {
       "id": 2,
       "query": "담당자 없는 가장 급한 이슈",
       "expect": {
         "assignee": "null",
-        "priority": ["HIGH"]
+        "priority": ["HIGHEST", "HIGH"]
       },
-      "note": "담당 없음 + 우선순위 HIGH (null 은 리터럴 문자열, 백엔드가 'null' 로 매핑)"
+      "note": "담당 없음 + 우선순위 매우 높음·높음(\"가장 급한\" 도 \"급한\" 과 같은 두 단계 — 기존 데이터엔 HIGHEST 가 없어 한 단계만 걸면 비어 보임, WP-886) (null 은 리터럴 문자열, 백엔드가 'null' 로 매핑)"
     },
     {
       "id": 3,
@@ -72,6 +72,15 @@
         "filterEmptyOrNoDateField": true
       },
       "note": "활동(수정) 시점 필터 미지원 — 안내 후 날짜 필터 없이. prose 에서 '지원하지 않' 류 문구 확인"
+    },
+    {
+      "id": 9,
+      "query": "담당자 없는 최우선 이슈",
+      "expect": {
+        "assignee": "null",
+        "priority": ["HIGHEST"]
+      },
+      "note": "최상위 단계를 명시(\"최우선\") — 이때만 HIGHEST 한 단계(WP-886). 「급한」 계열(case 1·2)과 겹치지 않는다"
     }
   ]
 }

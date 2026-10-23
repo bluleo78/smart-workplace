@@ -151,6 +151,48 @@ class IssueCommentControllerTest {
         .andExpect(status().isBadRequest());
   }
 
+  /**
+   * WP-885: 코멘트는 5만자까지 — Jira 이전 코멘트(최대 3.1만자)가 들어가야 한다. 5만자는 생성·수정 모두 통과하고 5만 1자는 400 이며 서비스까지 가지
+   * 않는다.
+   */
+  @Test
+  void create_and_update_bodyUpTo50000Chars_accepted_over_rejected() throws Exception {
+    mockAuthentication("issue:write");
+    when(commentService.create(eq(1L), eq(100L), any())).thenReturn(sampleComment());
+    when(commentService.update(eq(1L), eq(100L), eq(50L), any())).thenReturn(sampleComment());
+    String max = "가".repeat(50_000);
+    String over = "가".repeat(50_001);
+
+    mockMvc
+        .perform(
+            post("/api/v1/issues/100/comments")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new CreateCommentRequest(max))))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            patch("/api/v1/issues/100/comments/50")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new UpdateCommentRequest(max))))
+        .andExpect(status().isOk());
+    mockMvc
+        .perform(
+            post("/api/v1/issues/100/comments")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new CreateCommentRequest(over))))
+        .andExpect(status().isBadRequest());
+    mockMvc
+        .perform(
+            patch("/api/v1/issues/100/comments/50")
+                .header("Authorization", "Bearer valid-token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new UpdateCommentRequest(over))))
+        .andExpect(status().isBadRequest());
+  }
+
   @Test
   void update_byNonAuthor_returns403() throws Exception {
     mockAuthentication("issue:write");

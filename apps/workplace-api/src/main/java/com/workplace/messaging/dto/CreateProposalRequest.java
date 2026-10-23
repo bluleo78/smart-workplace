@@ -1,6 +1,8 @@
 package com.workplace.messaging.dto;
 
 import com.workplace.global.time.SupportedDateTime;
+import com.workplace.issue.dto.IssuePriorities;
+import com.workplace.issue.dto.IssueTextLimits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -28,8 +30,8 @@ public record CreateProposalRequest(
         String actionType,
     @NotBlank @Size(max = 200) String title,
     // --- 이슈 전용(CREATE_ISSUE) ---
-    @Size(max = 10000) String body,
-    @Pattern(regexp = "LOW|MID|HIGH") String priority,
+    @Size(max = IssueTextLimits.BODY_MAX) String body,
+    @Pattern(regexp = IssuePriorities.REGEX) String priority,
     String projectKey,
     @NotNull Long proposedByUserId,
     Long parentMessageId,

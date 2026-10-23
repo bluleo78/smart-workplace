@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { IssueResponse } from '../types/issue';
+import { ISSUE_PRIORITIES, type IssueResponse } from '../types/issue';
 import type { ProjectStatus } from '../types/projectStatus';
-import { groupCountsByKey, groupIssues, priorityLabel, statusLabel } from './issueGrouping';
+import {
+  groupCountsByKey, groupIssues, ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, priorityLabel, priorityRank, statusLabel, toIssuePriority,
+} from './issueGrouping';
 
 // 필수 필드가 많은 IssueResponse 를 최소 오버라이드로 생성하는 테스트 팩토리.
 function mk(over: Partial<IssueResponse>): IssueResponse {
@@ -101,16 +103,51 @@ describe('groupIssues - status (프로젝트 상태, WP-808)', () => {
 });
 
 describe('groupIssues - priority', () => {
-  it('우선순위 버킷을 HIGH→MID→LOW 순서로 반환한다', () => {
+  // WP-886: 5단계 — 매우 높음→높음→보통→낮음→매우 낮음, 빈 버킷도 고정 순서로 노출한다.
+  it('우선순위 버킷을 HIGHEST→HIGH→MID→LOW→LOWEST 순서로 반환한다', () => {
     const issues = [
       mk({ id: 1, priority: 'LOW' }),
       mk({ id: 2, priority: 'HIGH' }),
       mk({ id: 3, priority: 'MID' }),
+      mk({ id: 4, priority: 'LOWEST' }),
+      mk({ id: 5, priority: 'HIGHEST' }),
     ];
     const groups = groupIssues(issues, 'priority');
-    expect(groups.map((g) => g.key)).toEqual(['HIGH', 'MID', 'LOW']);
-    expect(groups.map((g) => g.label)).toEqual(['높음', '보통', '낮음']);
-    expect(groups[0].issues.map((i) => i.id)).toEqual([2]);
+    expect(groups.map((g) => g.key)).toEqual(['HIGHEST', 'HIGH', 'MID', 'LOW', 'LOWEST']);
+    expect(groups.map((g) => g.label)).toEqual(['매우 높음', '높음', '보통', '낮음', '매우 낮음']);
+    expect(groups.map((g) => g.issues.map((i) => i.id))).toEqual([[5], [2], [3], [1], [4]]);
+  });
+});
+
+// WP-886: 선택지·정렬 순위는 한 목록(ISSUE_PRIORITIES)에서 파생 — 화면마다 따로 적던 목록이 어긋나지 않게 지킨다.
+describe('우선순위 5단계 공용 목록', () => {
+  it('ISSUE_PRIORITY_LABEL 키 순서·선택지가 ISSUE_PRIORITIES(표시 순서)와 같다', () => {
+    expect(Object.keys(ISSUE_PRIORITY_LABEL)).toEqual([...ISSUE_PRIORITIES]);
+    expect(ISSUE_PRIORITY_OPTIONS).toEqual([
+      { value: 'HIGHEST', label: '매우 높음' },
+      { value: 'HIGH', label: '높음' },
+      { value: 'MID', label: '보통' },
+      { value: 'LOW', label: '낮음' },
+      { value: 'LOWEST', label: '매우 낮음' },
+    ]);
+  });
+
+  it('priorityRank 는 매우 높음 0 … 매우 낮음 4, 모르는 값은 보통 순위다', () => {
+    expect(ISSUE_PRIORITIES.map(priorityRank)).toEqual([0, 1, 2, 3, 4]);
+    expect(priorityRank('URGENT')).toBe(priorityRank('MID'));
+  });
+});
+
+describe('toIssuePriority (WP-886)', () => {
+  it('5단계는 그대로, 모르는 값·비문자열·누락은 보통(MID)', () => {
+    for (const p of ISSUE_PRIORITIES) expect(toIssuePriority(p)).toBe(p);
+    expect(toIssuePriority('URGENT')).toBe('MID');
+    expect(toIssuePriority('')).toBe('MID');
+    expect(toIssuePriority(undefined)).toBe('MID');
+    expect(toIssuePriority(null)).toBe('MID');
+    expect(toIssuePriority(2)).toBe('MID');
+    // 프로토타입 키(constructor 등)도 5단계가 아니므로 MID
+    expect(toIssuePriority('constructor')).toBe('MID');
   });
 });
 
@@ -181,7 +218,7 @@ describe('statusLabel / priorityLabel', () => {
     expect(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'].map((s) => statusLabel(s))).toEqual(['할 일', '진행 중', '완료', '취소']);
     // 프로젝트 상태 이름(statusName)이 있으면 그것을 쓴다(WP-808).
     expect(statusLabel('IN_PROGRESS', '검토 중')).toBe('검토 중');
-    expect(['HIGH', 'MID', 'LOW'].map(priorityLabel)).toEqual(['높음', '보통', '낮음']);
+    expect(['HIGHEST', 'HIGH', 'MID', 'LOW', 'LOWEST'].map(priorityLabel)).toEqual(['매우 높음', '높음', '보통', '낮음', '매우 낮음']);
   });
 
   it('매핑 없는 값과 프로토타입 키는 원문 그대로다', () => {

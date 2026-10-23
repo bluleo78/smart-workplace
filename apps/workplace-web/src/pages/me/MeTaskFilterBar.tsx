@@ -9,6 +9,7 @@ import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filte
 import { ShowAllClosedToggle } from '@/components/issue/ShowAllClosedToggle';
 
 import { parseFilters } from '../../lib/issueFilters';
+import { ISSUE_PRIORITY_OPTIONS } from '../../lib/issueGrouping';
 import { overridesMyTasksClosedHiding } from './myTasksQuery';
 
 // 상태 옵션 — 백엔드 IssueStatus enum 과 일치. IssueFilterBar 와 동일 라벨 유지.
@@ -17,13 +18,6 @@ const STATUS_OPTIONS = [
   { value: 'IN_PROGRESS', label: '진행 중' },
   { value: 'DONE', label: '완료' },
   { value: 'CANCELED', label: '취소' },
-];
-
-// 우선순위 옵션 — 본 코드베이스의 IssuePriority 는 LOW/MID/HIGH (URGENT 없음).
-const PRIORITY_OPTIONS = [
-  { value: 'LOW', label: '낮음' },
-  { value: 'MID', label: '보통' },
-  { value: 'HIGH', label: '높음' },
 ];
 
 /** showClosedToggle — 「완료 모두 보기」 토글 노출(할당 탭만, WP-916). 내가 만든 탭은 만든 이력이라 완료를 숨기지 않는다. */
@@ -42,7 +36,8 @@ export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle
   const facets: FacetDef[] = [
     // 범주 facet — 프로젝트 화면 필터 바와 같은 이름(「상태 범주」, WP-808). 여러 프로젝트를 걸치므로 개별 상태 facet 은 없다.
     { key: 'status', label: '상태 범주', options: STATUS_OPTIONS },
-    { key: 'priority', label: '우선순위', options: PRIORITY_OPTIONS },
+    // 우선순위는 공용 5단계 선택지(매우 높음→매우 낮음, WP-886) — 프로젝트 화면 필터와 같은 순서·문구.
+    { key: 'priority', label: '우선순위', options: ISSUE_PRIORITY_OPTIONS },
   ];
 
   // FilterValue → URL. status/priority 만 갱신하고 다른 query 키(있다면)는 보존.

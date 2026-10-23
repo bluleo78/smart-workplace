@@ -6,7 +6,7 @@ import java.util.List;
 public record IssueAiClassifyResponse(
     /** 제안 유형(TASK/BUG/STORY/CHORE). 개인 프로젝트면 null. */
     String type,
-    /** 제안 우선순위(LOW/MID/HIGH). 항상 반환. */
+    /** 제안 우선순위 — 5단계(HIGHEST/HIGH/MID/LOW/LOWEST, WP-886) 중 하나. 모르는 값은 MID 로 보정해 항상 반환. */
     String priority,
     /** 제안 라벨 이름 목록 — 프로젝트 실제 라벨 교차검증 완료. */
     List<String> labels,

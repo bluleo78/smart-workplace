@@ -26,7 +26,7 @@ import java.util.List;
  */
 public record CalendarEventRequest(
     @NotBlank(message = "일정 제목을 입력해 주세요") @Size(max = 200) String title,
-    // 상한이 없어 2MB 설명이 저장되고 그 달 목록 응답이 2MB 가 됐다 — 이슈 본문과 같은 10000자(WP-543).
+    // 상한이 없어 2MB 설명이 저장되고 그 달 목록 응답이 2MB 가 됐다 — 10000자로 둔다(WP-543, 이슈 본문 상한과는 별개).
     @Size(max = 10000, message = "설명은 10000자 이하여야 합니다") String description,
     // 시각은 1900~9999년만 — 0년·확장 연도가 저장돼 되돌아오던 것을 막는다(WP-744).
     @NotNull @SupportedDateTime OffsetDateTime startsAt,

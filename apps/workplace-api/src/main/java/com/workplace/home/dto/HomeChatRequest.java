@@ -36,7 +36,7 @@ public record HomeChatRequest(
 
   /**
    * 본문 상한(WP-674) — 상한이 없어 아주 긴 글도 그대로 저장되고 AI 에 넘어갔다. 긴 자료는 첨부로 보내게 하고, 붙여 넣은 메일·문서 한두 쪽은 들어갈 만큼
-   * 이슈 본문과 같은 10000자. 웹 입력창·ai-agent 검증과 같은 값.
+   * 10000자(이슈 본문 상한과는 별개). 웹 입력창·ai-agent 검증과 같은 값.
    */
   public static final int QUERY_MAX = 10_000;
 

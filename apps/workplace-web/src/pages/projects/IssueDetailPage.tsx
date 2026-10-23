@@ -66,6 +66,7 @@ import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../lib/iss
 import { isBodyDraftDirty } from '../../lib/issueDraft';
 import { isProjectOwner, workflowLockedNotice } from '../../lib/projectPermissions';
 import { eulReul } from '../../lib/utils';
+import { ISSUE_BODY_MAX_LENGTH, issueTextOverLimitMessage } from '../../lib/validations/issue';
 import type { UpdateIssueRequest } from '../../types/issue';
 import { IssueChatButton } from './components/chat/IssueChatButton';
 import { IssueChatDrawer } from './components/chat/IssueChatDrawer';
@@ -160,6 +161,9 @@ function InlineEditableBody({
     enabled: !disabled,
   });
   const uploading = images.isUploading;
+  // WP-885: 본문 상한(5만자) 초과 여부 — 넘으면 서버가 400 으로 돌려보내 토스트만 뜨므로 저장 전에 막고 입력창 아래에 안내한다.
+  // textarea maxLength 속성은 붙여넣기를 조용히 잘라 버려 쓰지 않는다(내용 유실 방지).
+  const overLimit = draft.length > ISSUE_BODY_MAX_LENGTH;
 
   // 저장 없이 새로고침/탭 닫기로 이탈 시 경고(#823) — 코멘트 작성창(#620)·이슈 생성
   // 다이얼로그와 동일 패턴. beforeunload 만 커버하므로 SPA 내부 네비게이션(사이드바 링크·
@@ -204,6 +208,8 @@ function InlineEditableBody({
     // 업로드 중 자리표시 토큰이 서버에 저장되지 않도록 단축키·버튼 공통으로 막는다.
     const block = images.pendingBlock(draft);
     if (block === 'uploading') return;
+    // 단축키(Cmd/Ctrl+Enter)·모바일 하단 바 저장도 같은 경로라 여기서 한 번에 막는다(WP-885).
+    if (overLimit) return;
     if (block === 'stale-token') {
       // 진행 중 업로드가 없는데 토큰이 남은 건 복원된 초안의 잔재 — 조용히 무시하면 저장이 안 되는 이유를 알 수 없다.
       toast.error('업로드가 끝나지 않은 이미지가 있습니다. 해당 줄을 지우고 다시 저장해 주세요');
@@ -235,7 +241,7 @@ function InlineEditableBody({
   useRestoreFocusOnExit(editing, viewRef);
 
   // 모바일 하단 편집 바 — 제목과 같은 훅. 업로드 중엔 저장·취소 모두 막는다(기존 버튼과 같은 조건).
-  useEditBarControls(editing, { save, cancel, disabled: disabled || uploading }, onEditingChange);
+  useEditBarControls(editing, { save, cancel, disabled: disabled || uploading || overLimit }, onEditingChange);
 
   if (!editing) {
     return (
@@ -333,7 +339,15 @@ function InlineEditableBody({
             if (!uploading) cancel();
           }
         }}
+        aria-invalid={overLimit || undefined}
+        aria-describedby={overLimit ? 'issue-body-limit-error' : undefined}
       />
+      {/* WP-885: 상한 초과 안내 — 저장 버튼은 비활성, 단축키·모바일 저장은 save() 가드가 막는다. */}
+      {overLimit && (
+        <p id="issue-body-limit-error" role="alert" data-testid="issue-body-limit-error" className="text-sm text-destructive">
+          {issueTextOverLimitMessage('본문', draft.length)}
+        </p>
+      )}
       {/* 편집 액션 — 하단 좌측 저장/취소(Jira 식). 모바일(hideActions)은 하단 편집 바가 대신한다. */}
       <div className="flex items-center gap-2">
         {!hideActions && (
@@ -341,7 +355,7 @@ function InlineEditableBody({
             <Button
               size="sm"
               onClick={save}
-              disabled={disabled || uploading}
+              disabled={disabled || uploading || overLimit}
               data-testid="issue-body-save"
             >
               저장
@@ -553,7 +567,7 @@ export default function IssueDetailPage() {
         onSuccess: async (result) => {
           const tasks: Promise<unknown>[] = [];
           // 우선순위 패치 적용.
-          tasks.push(patch({ priority: result.priority as 'LOW' | 'MID' | 'HIGH' }, { silent: true }));
+          tasks.push(patch({ priority: result.priority }, { silent: true }));
           // 유형 제안 — 이름→ID 매핑 후 별도 엔드포인트로 적용.
           // 왜: IssueTypeSelectPopover 에서 유형 변경 시 updateType.mutate({ typeId }) 패턴과 동일.
           if (result.type && allIssueTypes.data) {

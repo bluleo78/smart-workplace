@@ -24,22 +24,14 @@ import {
   parseFilters,
   parseView,
 } from '../../../lib/issueFilters';
-import { ISSUE_GROUP_BY_LABEL } from '../../../lib/issueGrouping';
+import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import type {
   IssueFilters,
   IssueGroupBy,
   IssueGroupParam,
-  IssuePriority,
   IssueView,
 } from '../../../types/issue';
 import { buildStatusFacets } from './statusFacets';
-
-// 본 코드베이스의 IssuePriority 는 LOW/MID/HIGH (URGENT 없음) — 백엔드 enum 일치.
-const PRIORITY_OPTIONS = [
-  { value: 'LOW', label: '낮음' },
-  { value: 'MID', label: '보통' },
-  { value: 'HIGH', label: '높음' },
-];
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
 // 사이클(#878)은 팀 목록 전용 — 보드·사이클 비사용 화면에선 목록에서 빠진다(아래 visibleGroupOptions).
@@ -199,12 +191,13 @@ export function useIssueFilterControls(
         key: 'priority',
         label: '우선순위',
         // 이슈 목록 행의 IssuePriorityBars 와 동일한 아이콘을 드롭다운 옵션에 표시해 시각 일관성 확보.
-        options: PRIORITY_OPTIONS.map((o) => ({
+        // 선택지는 공용 5단계 목록(매우 높음→매우 낮음, WP-886) — 서버 enum·다른 화면과 같은 순서.
+        options: ISSUE_PRIORITY_OPTIONS.map((o) => ({
           value: o.value,
           label: o.label,
           render: (
             <span className="flex items-center gap-1.5">
-              <IssuePriorityBars priority={o.value as IssuePriority} />
+              <IssuePriorityBars priority={o.value} />
               {o.label}
             </span>
           ),

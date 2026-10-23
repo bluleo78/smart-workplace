@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.action.ConfirmActionDispatcher;
 import com.workplace.calendar.dto.CalendarEventResponse;
+import com.workplace.issue.dto.IssuePriorities;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.messaging.dto.ConfirmProposalRequest;
 import com.workplace.messaging.dto.CreateProposalRequest;
@@ -101,7 +102,7 @@ public class MessagingProposalService {
 
     // #848: 카드를 만들기 전에 승인 때와 같은 파라미터로 위임자 권한 사전검증 — 승인할 수 없는 카드(권한 없음·잘못된 값)를
     // 만들지 않고, 실패 사유는 예외 그대로 ai-agent 툴 결과로 돌아가 AI 가 고쳐서 다시 제안한다(#842 와 같은 계약).
-    String priority = req.priority() != null ? req.priority() : "MID";
+    String priority = req.priority() != null ? req.priority() : IssuePriorities.DEFAULT;
     confirmDispatcher.validate(
         req.proposedByUserId(),
         "issue.create",
@@ -216,7 +217,8 @@ public class MessagingProposalService {
       throw new InvalidDelegationProjectException(projectKey);
 
     String title = p.path("title").asText();
-    String priority = p.hasNonNull("priority") ? p.get("priority").asText() : "MID";
+    String priority =
+        p.hasNonNull("priority") ? p.get("priority").asText() : IssuePriorities.DEFAULT;
     // 이슈 본문 — payload 저장값 사용(body 파라미터는 일정 override 용, 이슈 본문은 항상 제안 저장값).
     String issueBody = p.hasNonNull("body") ? p.get("body").asText() : null;
 

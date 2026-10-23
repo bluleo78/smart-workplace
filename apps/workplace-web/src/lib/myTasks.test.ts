@@ -102,13 +102,16 @@ describe('buildMyTaskRows', () => {
     expect(r.waitingCount).toBe(8) // waitingCount 는 slice 전 담당기반 총수
   })
 
-  it('버킷 내 priority desc 정렬', () => {
+  it('버킷 내 priority desc 정렬 — 5단계(매우 높음 먼저, 매우 낮음 마지막, WP-886)', () => {
     const assigned = [
       issue({ id: 70, number: 70, status: 'IN_PROGRESS', priority: 'LOW' }),
+      issue({ id: 72, number: 72, status: 'IN_PROGRESS', priority: 'LOWEST' }),
       issue({ id: 71, number: 71, status: 'IN_PROGRESS', priority: 'HIGH' }),
+      issue({ id: 73, number: 73, status: 'IN_PROGRESS', priority: 'HIGHEST' }),
+      issue({ id: 74, number: 74, status: 'IN_PROGRESS', priority: 'MID' }),
     ]
     const r = buildMyTaskRows(assigned, [], 5, NOW)
-    expect(r.rows.map((x) => x.issue.id)).toEqual([71, 70])
+    expect(r.rows.map((x) => x.issue.id)).toEqual([73, 71, 74, 70, 72])
   })
 
   it('미시작 TODO는 todo 버킷으로 in_progress 아래에 온다', () => {

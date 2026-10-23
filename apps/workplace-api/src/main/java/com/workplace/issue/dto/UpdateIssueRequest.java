@@ -10,9 +10,9 @@ import java.time.LocalDate;
  */
 public record UpdateIssueRequest(
     @Size(max = 200) String title,
-    @Size(max = 10000) String body,
+    @Size(max = IssueTextLimits.BODY_MAX) String body,
     @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status,
-    @Pattern(regexp = "LOW|MID|HIGH") String priority,
+    @Pattern(regexp = IssuePriorities.REGEX) String priority,
     LocalDate dueDate,
     Boolean clearDueDate,
     LocalDate startDate,

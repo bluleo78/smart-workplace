@@ -16,6 +16,8 @@ const summarySchema = z.object({
   priority: z.string(),
   dueDate: z.string().nullable(),
   comments: z.array(z.object({ authorName: z.string(), body: z.string(), createdAt: z.string() })),
+  // WP-885: API 입력 예산 때문에 통째로 빠진 오래된 코멘트 수. 구버전 API 는 보내지 않으므로 생략 가능.
+  omittedCommentCount: z.number().int().nonnegative().optional().default(0),
   history: z.array(z.object({
     actorName: z.string(),
     eventType: z.string(),
@@ -30,6 +32,8 @@ const summarySchema = z.object({
     body: z.string(),
     createdAt: z.string().nullable().optional(),
   })).optional().default([]),
+  // WP-885: API 채팅 입력 예산 때문에 통째로 빠진 오래된 채팅 메시지 수. 구버전 API 는 보내지 않으므로 생략 가능.
+  omittedChatCount: z.number().int().nonnegative().optional().default(0),
   assistantAgentId: z.number(),
   model: z.string(),
   maxTurns: z.number(),

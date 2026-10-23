@@ -3,6 +3,8 @@
 // collect 경로가 AgentRunner(Task 5)로 이관되며 provider-neutral `finalText`(runner-events.ts)
 // 로 대체됐다(의미 동일: result.text 우선, 없으면 assistant_text join). 이 함수는 제거.
 
+import { normalizePriority } from './issue-priority.js';
+
 const CATEGORIES = ['업무', '개인', '알림', '프로모션', '뉴스레터'];
 
 /** 코칭 평가 차원 화이트리스트. */
@@ -49,8 +51,8 @@ export function parseIssueDraftJson(text: string): {
   const title = String(obj.title ?? '').trim();
   const body = String(obj.body ?? '').trim();
   if (!title) throw new Error('issue-draft: title 누락');
-  const rawPriority = String(obj.priority ?? 'MID').toUpperCase();
-  const priority = ['LOW', 'MID', 'HIGH'].includes(rawPriority) ? rawPriority : 'MID';
+  // 우선순위 5단계(WP-886)만 통과, 그 밖은 MID — 서버 @Pattern 에 걸려 승격이 400 나지 않게. trim+대문자는 분류 러너와 같은 규칙.
+  const priority: string = normalizePriority(obj.priority);
   const projectKey =
     typeof obj.projectKey === 'string' && obj.projectKey.trim() ? obj.projectKey.trim() : undefined;
   return { title, body, priority, projectKey };

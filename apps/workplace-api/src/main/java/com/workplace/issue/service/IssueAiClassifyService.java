@@ -5,6 +5,7 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
 import com.workplace.issue.outbound.AiAgentIssueClient;
+import com.workplace.issue.outbound.IssueAiInputText;
 import com.workplace.issue.outbound.dto.IssueClassifyRequest;
 import com.workplace.issue.outbound.dto.IssueClassifyResult;
 import com.workplace.label.repository.LabelRepository;
@@ -102,7 +103,7 @@ public class IssueAiClassifyService {
     IssueClassifyRequest req =
         new IssueClassifyRequest(
             title,
-            body != null ? body : "",
+            body != null ? IssueAiInputText.truncate(body, IssueAiInputText.AI_BODY_MAX_CHARS) : "",
             gathered.labels(),
             isPersonal,
             gathered.spec().agentUserId(),
@@ -113,6 +114,7 @@ public class IssueAiClassifyService {
     IssueClassifyResult result = aiClient.classify(req); // 실패 시 IssueAiException 전파
 
     // ── 단계 3: 응답 변환 (DB 저장 없음) ──────────────────────────────────────────────
+    // 우선순위는 ai-agent(normalizePriority)가 5단계(WP-886) 안의 값으로 맞춰 보내므로 그대로 넘긴다.
     return new IssueAiClassifyResponse(
         result.type(), result.priority(), result.labels(), result.reason());
   }

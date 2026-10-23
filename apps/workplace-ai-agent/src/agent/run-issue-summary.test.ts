@@ -52,6 +52,24 @@ describe('buildIssueSummaryPrompt', () => {
     expect(prompt).toContain('이슈 설명입니다.')
   })
 
+  // WP-885: 입력 예산으로 오래된 코멘트가 빠졌음을 모델에 알린다.
+  it('omittedCommentCount 가 양수면 코멘트 섹션에 생략 안내를 넣고, 0·생략이면 넣지 않는다', () => {
+    const withOmitted = buildIssueSummaryPrompt({ ...baseInput, omittedCommentCount: 7 })
+    expect(withOmitted).toContain('더 오래된 코멘트 7건은 분량 때문에 생략됨')
+    expect(buildIssueSummaryPrompt({ ...baseInput, omittedCommentCount: 0 })).not.toContain('생략됨')
+    expect(buildIssueSummaryPrompt(baseInput)).not.toContain('생략됨')
+  })
+
+  // WP-885: 채팅도 코멘트와 같이 생략 건수를 알린다. 채팅 섹션이 없으면(전부 생략돼도 chat 이 비면) 안내만 덩그러니 두지 않는다.
+  it('omittedChatCount 가 양수면 채팅 섹션에 생략 안내를 넣고, 0·생략이면 넣지 않는다', () => {
+    const chat = [{ author: '홍길동', kind: 'USER', body: '진행 상황은요?' }]
+    const withOmitted = buildIssueSummaryPrompt({ ...baseInput, chat, omittedChatCount: 3 })
+    expect(withOmitted).toContain('더 오래된 채팅 3건은 분량 때문에 생략됨')
+    expect(buildIssueSummaryPrompt({ ...baseInput, chat, omittedChatCount: 0 })).not.toContain('분량 때문에')
+    expect(buildIssueSummaryPrompt({ ...baseInput, chat })).not.toContain('분량 때문에')
+    expect(buildIssueSummaryPrompt({ ...baseInput, chat: [], omittedChatCount: 3 })).not.toContain('생략됨')
+  })
+
   it('body 가 빈 문자열이면 이슈 본문 섹션을 생략한다', () => {
     const input: IssueSummaryInput = { ...baseInput, body: '   ' }
     const prompt = buildIssueSummaryPrompt(input)

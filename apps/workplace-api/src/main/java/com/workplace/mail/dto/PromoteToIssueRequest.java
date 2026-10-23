@@ -1,5 +1,7 @@
 package com.workplace.mail.dto;
 
+import com.workplace.issue.dto.IssuePriorities;
+import com.workplace.issue.dto.IssueTextLimits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -16,8 +18,8 @@ import java.util.List;
 public record PromoteToIssueRequest(
     @NotBlank String projectKey,
     @NotBlank @Size(max = 200) String title,
-    @Size(max = 10000) String body,
-    @Pattern(regexp = "LOW|MID|HIGH") String priority,
+    @Size(max = IssueTextLimits.BODY_MAX) String body,
+    @Pattern(regexp = IssuePriorities.REGEX) String priority,
     List<Long> assigneeIds,
     Long typeId,
     List<Long> labelIds,

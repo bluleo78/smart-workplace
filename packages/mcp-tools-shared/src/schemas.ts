@@ -2,6 +2,20 @@
 import { z } from 'zod';
 import { AGENT_WORK_STATE_INPUTS } from './tool-client.js';
 
+/**
+ * 이슈 본문·코멘트 본문 최대 길이(WP-885) — API IssueTextLimits.BODY_MAX·웹 ISSUE_BODY_MAX_LENGTH 와 같은 값.
+ * Jira 이전 데이터(본문 2.5만자·코멘트 3.1만자)를 담으려 1만에서 5만으로 올렸다. 이슈 본문이 되는 메일 승격·채팅 제안 도구도 같이 쓴다.
+ */
+export const ISSUE_BODY_MAX_LENGTH = 50000;
+
+/**
+ * 이슈 우선순위 5단계(WP-886) — 표시 순서(매우 높음 → 매우 낮음). API IssuePriorities.ORDER·웹 ISSUE_PRIORITIES·DB CHECK(V211) 와 같다.
+ * 모든 프로젝트 공통 고정 값. 이슈 생성·수정·목록 필터·메일 승격·채팅 제안 도구가 이 한 목록을 쓴다(따로 적던 4곳이 어긋나지 않게).
+ */
+export const ISSUE_PRIORITIES = ['HIGHEST', 'HIGH', 'MID', 'LOW', 'LOWEST'] as const;
+/** 우선순위 입력 스키마 — 영어 대문자 열거값만(#403: 한국어 「높음」 입력 차단). */
+export const issuePriorityInput = z.enum(ISSUE_PRIORITIES);
+
 /** upload_file 로 스테이징한 파일 id 목록(WP-422) — 이슈·메시지 쓰기 도구가 첨부 입력(fileIds)으로 같이 쓴다. 한 요청 10개는 서버 상한과 같다. */
 export const stagedFileIdsInput = z.array(z.number().int().positive()).max(10).describe('Staged files from upload_file to attach');
 
@@ -33,8 +47,8 @@ export const getIssueDetailInput = issueKeyInput.extend({
 export const createIssueInput = z.object({
   projectKey: z.string().min(1),
   title: z.string().min(1).max(200),
-  body: z.string().max(10000).optional(),
-  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+  body: z.string().max(ISSUE_BODY_MAX_LENGTH).optional(),
+  priority: issuePriorityInput.optional(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   type: z.string().optional(), // 유형 이름(예: BUG) → typeId 리졸브
@@ -51,8 +65,8 @@ export const createIssueInput = z.object({
 export const updateIssueInput = z.object({
   issueKey: z.string().min(1),
   title: z.string().max(200).optional(),
-  body: z.string().max(10000).optional(),
-  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+  body: z.string().max(ISSUE_BODY_MAX_LENGTH).optional(),
+  priority: issuePriorityInput.optional(),
   // WP-807·WP-870: 범주 또는 프로젝트 상태 이름 — 핸들러가 범주는 status, 이름은 statusName 으로 보내 서버가 해석한다. 설명은 크기 상한 때문에 영어 짧은 문구.
   status: z.string().min(1).optional().describe('TODO/IN_PROGRESS/DONE/CANCELED or a status name'),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -76,7 +90,7 @@ export const updateIssueInput = z.object({
 });
 
 /** 코멘트 작성 입력. */
-export const addCommentInput = z.object({ issueKey: z.string().min(1), body: z.string().min(1) });
+export const addCommentInput = z.object({ issueKey: z.string().min(1), body: z.string().min(1).max(ISSUE_BODY_MAX_LENGTH) });
 
 /**
  * AI 작업 보고 입력(WP-377). steps 두 값은 짝으로만 받는다 — 하나만 오면 "3/?" 처럼 의미 없는 진행이 되기 때문.
@@ -112,7 +126,7 @@ export const reportAgentWorkInput = z
 export const editCommentInput = z.object({
   issueKey: z.string().min(1),
   commentId: z.number().int().positive(),
-  body: z.string().min(1),
+  body: z.string().min(1).max(ISSUE_BODY_MAX_LENGTH),
 });
 
 /** link_issues 입력(WP-812) — 의존성 추가·제거를 한 도구로 합쳤다. linked 는 최종 상태라 필수(빠뜨리면 추가인지 제거인지 모호해 거절, 같은 값을 다시 보내도 결과가 같아 멱등). */
@@ -137,7 +151,7 @@ export const issueListFilterShape = {
   projectKey: z.string().optional().describe('Omit for all my projects'),
   // WP-807: 공유 필터(show_issue_list)의 status 는 웹·서버 status 로 그대로 가 범주만 받는다 — 상태 이름 안내는 list_issues 덮어쓰기에만 둔다.
   status: z.string().optional().describe('CSV: TODO,IN_PROGRESS,DONE,CANCELED'),
-  priority: z.array(z.enum(['LOW', 'MID', 'HIGH'])).optional(),
+  priority: z.array(issuePriorityInput).optional(),
   label: z.string().optional().describe('Label names CSV; all must match'),
   type: z.string().optional().describe('Type names CSV; any matches'),
   dueFrom: z.string().optional().describe('Due date range, yyyy-MM-dd'),

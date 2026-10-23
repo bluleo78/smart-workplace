@@ -1,8 +1,14 @@
 // 이슈 목록을 group 기준(상태/우선순위/담당자)으로 클라이언트에서 묶는 순수 함수 (#58).
 // 보드 뷰와 리스트 뷰가 동일한 그룹 결과를 공유한다.
 
-import type {
-  IssueClientGroupBy, IssueGroupBy, IssueGroupCountsResponse, IssuePriority, IssueResponse, IssueStatus,
+import {
+  ISSUE_PRIORITIES,
+  type IssueClientGroupBy,
+  type IssueGroupBy,
+  type IssueGroupCountsResponse,
+  type IssuePriority,
+  type IssueResponse,
+  type IssueStatus,
 } from '../types/issue';
 import type { ProjectStatus } from '../types/projectStatus';
 import { ownLookup } from './ownLookup';
@@ -22,18 +28,42 @@ export const ISSUE_STATUS_LABEL: Record<IssueStatus, string> = {
   CANCELED: '취소',
 };
 
-/** 이슈 우선순위 → 표시 라벨(높음→보통→낮음 순서로 정의 — 그룹 버킷 순서가 이 키 순서를 따른다). */
+/**
+ * 이슈 우선순위 → 표시 라벨. 키 순서 = 표시 순서(매우 높음→높음→보통→낮음→매우 낮음, WP-886) — 그룹 버킷 순서가 이 키 순서를 따른다.
+ * ISSUE_PRIORITIES 와 같은 순서로 둔다(issueGrouping.test 가 지킨다).
+ */
 export const ISSUE_PRIORITY_LABEL: Record<IssuePriority, string> = {
+  HIGHEST: '매우 높음',
   HIGH: '높음',
   MID: '보통',
   LOW: '낮음',
+  LOWEST: '매우 낮음',
 };
 
-/** 우선순위 선택지(높음→보통→낮음) — 모바일 우선순위 시트(상세·생성)가 공유한다. */
-export const ISSUE_PRIORITY_OPTIONS = (Object.keys(ISSUE_PRIORITY_LABEL) as IssuePriority[]).map((p) => ({
+/**
+ * 우선순위 선택지(매우 높음→매우 낮음) — 상세 select·생성 다이얼로그·필터 facet·행 메뉴·모바일 시트가 모두 이 목록을 쓴다(WP-886).
+ * 화면마다 따로 적던 목록이 단계 추가 때 어긋나지 않게 한 곳에서 파생한다.
+ */
+export const ISSUE_PRIORITY_OPTIONS: { value: IssuePriority; label: string }[] = ISSUE_PRIORITIES.map((p) => ({
   value: p,
   label: ISSUE_PRIORITY_LABEL[p],
 }));
+
+/**
+ * 타입이 없는 값(AI 제안 payload 등)을 5단계 우선순위로 맞춘다(WP-886). 모르는 값(과거·미래 enum)·비문자열은 보통(MID) — 라벨·아이콘 조회가
+ * undefined 로 깨지지 않는다. 타입이 IssuePriority 인 서버 응답에는 쓰지 않는다(서버가 5단계를 보장).
+ */
+export function toIssuePriority(value: unknown): IssuePriority {
+  return typeof value === 'string' && (ISSUE_PRIORITIES as readonly string[]).includes(value) ? (value as IssuePriority) : 'MID';
+}
+
+/**
+ * 우선순위 정렬 순위 — 매우 높음 0 … 매우 낮음 4(작을수록 먼저). 내 작업·개인 체크리스트 정렬이 공유한다(WP-886).
+ * 모르는 값(과거·미래 enum)은 {@link toIssuePriority} 처럼 보통(MID) 순위로 본다 — 맨 앞·맨 뒤로 튀지 않게.
+ */
+export function priorityRank(priority: string): number {
+  return ISSUE_PRIORITIES.indexOf(toIssuePriority(priority));
+}
 
 /**
  * 그룹 기준 → 표시 라벨. 필터 바의 그룹 선택 옵션과 AI 화면 컨텍스트가 공유한다.
@@ -72,7 +102,7 @@ export function isClosedStatus(status: string): boolean {
   return status === 'DONE' || status === 'CANCELED';
 }
 
-// 우선순위 버킷: 높음→보통→낮음 고정 순서.
+// 우선순위 버킷: 매우 높음→매우 낮음 고정 순서(ISSUE_PRIORITY_LABEL 키 순서, WP-886).
 const PRIORITY_ORDER: { key: string; label: string }[] = toOrder(ISSUE_PRIORITY_LABEL);
 
 // 부모가 에픽인지 — 에픽은 별도 플래그가 없고 유형 이름이 'EPIC' 인 이슈다(useProjectEpics 와 같은 기준).

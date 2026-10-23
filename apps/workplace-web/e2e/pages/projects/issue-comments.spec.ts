@@ -4,6 +4,7 @@
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { expectStays } from '../../fixtures/wait';
 import { createAgentComment, createComment, createIssueDetail } from '../../factories/issue.factory';
 import { createAgentMember, createMember, createProject } from '../../factories/project.factory';
 import type { IssueCommentResponse, IssueDetailResponse } from '../../../src/types/issue';
@@ -106,6 +107,67 @@ test.describe('IssueCommentList 코멘트 작성 폼 스타일 (#310, #785)', ()
 
     // UI에 새 코멘트 반영 확인
     await expect(page.getByText('새 코멘트')).toBeVisible();
+  });
+});
+
+// WP-885: 코멘트 상한(5만자) 초과 — 붙여넣기를 조용히 자르지 않고, 입력창 아래에 현재 글자 수를 안내하며 전송·저장(버튼·Enter)을 막는다.
+test.describe('IssueCommentList 코멘트 길이 상한 (WP-885)', () => {
+  test('작성창 — 5만 1자는 잘리지 않고 안내 + 전송 막힘(POST 없음), 5만자로 줄이면 전송된다', async ({ authenticatedPage: page }) => {
+    const detailRef = { current: createIssueDetail({ comments: [] }) };
+    await setupIssueStubs(page, detailRef);
+    const posts = trackRequests(page, 'POST', COMMENTS_PATH);
+    await page.route(
+      (url) => COMMENTS_PATH.test(url.pathname),
+      (route) => {
+        if (route.request().method() !== 'POST') return route.fallback();
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(createComment({ id: 21, issueId: ISSUE_ID, authorId: ME_ID, body: 'x' })),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const input = page.getByTestId('issue-comment-input');
+    await input.fill('가'.repeat(50001));
+
+    // 잘리지 않았다 — 안내가 실제 글자 수(50001)를 말한다.
+    await expect(page.getByTestId('issue-comment-input-limit-error')).toHaveText('코멘트는 50000자 이하여야 합니다 (현재 50001자)');
+    await expect(page.getByTestId('issue-comment-submit')).toBeDisabled();
+    // 키보드 전송(Enter)도 막힌다 — 입력은 그대로 남는다.
+    await input.press('Enter');
+    await expectStays(page, () => posts.count(), 0);
+    await expect(page.getByTestId('issue-comment-input-limit-error')).toBeVisible();
+
+    await input.fill('가'.repeat(50000));
+    await expect(page.getByTestId('issue-comment-input-limit-error')).toHaveCount(0);
+    await expect(page.getByTestId('issue-comment-submit')).toBeEnabled();
+    await page.getByTestId('issue-comment-submit').click();
+    await expect.poll(posts.count).toBe(1);
+    expect(posts.bodies<{ body: string }>()[0].body).toHaveLength(50000);
+  });
+
+  test('수정 폼 — 5만 1자는 안내 + 저장 막힘(PATCH 없음)', async ({ authenticatedPage: page }) => {
+    const myComment: IssueCommentResponse = createComment({ id: 10, issueId: ISSUE_ID, authorId: ME_ID, body: '원본 코멘트' });
+    const detailRef = { current: createIssueDetail({ comments: [myComment] }) };
+    await setupIssueStubs(page, detailRef);
+    const patches = trackRequests(page, 'PATCH', COMMENT_PATH);
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    const commentItem = page.locator('section[aria-label="코멘트"] ul li').first();
+    await commentItem.hover();
+    await commentItem.locator('button[aria-label="코멘트 수정"]').click();
+
+    const editInput = page.getByTestId('issue-comment-edit-input');
+    await editInput.fill('나'.repeat(50001));
+
+    await expect(page.getByTestId('issue-comment-edit-input-limit-error')).toHaveText('코멘트는 50000자 이하여야 합니다 (현재 50001자)');
+    await expect(page.getByTestId('issue-comment-edit-save')).toBeDisabled();
+    await editInput.press('Enter');
+    await expectStays(page, () => patches.count(), 0);
+    // 편집창도 그대로 열려 있다(입력 유실 없음).
+    await expect(editInput).toBeVisible();
   });
 });
 

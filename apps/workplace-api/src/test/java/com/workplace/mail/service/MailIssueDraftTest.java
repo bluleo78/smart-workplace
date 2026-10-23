@@ -155,6 +155,15 @@ class MailIssueDraftTest extends IntegrationTestBase {
     assertThat(draft.candidateProjects()).anyMatch(p -> p.key().equals(projectKey));
   }
 
+  /** WP-886 — ai-agent 가 보낸 5단계 우선순위(HIGHEST 포함)는 보정 없이 초안에 그대로 담긴다. */
+  @Test
+  void draftIssue_priority_fiveLevels_kept() {
+    long messageId = seedMailMessage(callerId);
+    when(mailClient.issueDraft(any()))
+        .thenReturn(new MailAiMessages.IssueDraftResult("서버 장애", "- 즉시 확인", "HIGHEST", projectKey));
+    assertThat(mailIssueService.draftIssue(callerId, messageId).priority()).isEqualTo("HIGHEST");
+  }
+
   /** draftIssue: AI 가 후보에 없는 projectKey 를 추천하면 suggestedProjectKey 는 null. */
   @Test
   void draftIssue_unknownSuggestedProject_ignored() {

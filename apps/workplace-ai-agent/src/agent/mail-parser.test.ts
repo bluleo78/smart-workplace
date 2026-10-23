@@ -39,6 +39,11 @@ describe('parseIssueDraftJson', () => {
     const r = parseIssueDraftJson('{"title":"t","body":"b","priority":"MID"}');
     expect(r.projectKey).toBeUndefined();
   });
+  // 정규화 규칙 자체는 issue-priority.test 가 지킨다 — 여기선 mail-parser 가 normalizePriority 를 거치는지만 본다.
+  it('5단계 우선순위는 normalizePriority 를 거쳐 살린다(WP-886)', () => {
+    expect(parseIssueDraftJson('{"title":"t","body":"b","priority":" highest "}').priority).toBe('HIGHEST');
+  });
+
   it('잘못된 priority 는 MID 로 보정', () => {
     const r = parseIssueDraftJson('{"title":"t","body":"b","priority":"URGENT"}');
     expect(r.priority).toBe('MID');

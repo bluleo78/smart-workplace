@@ -119,7 +119,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 onPaste={f.images.onPaste}
                 className="w-full resize-none overflow-hidden bg-transparent text-base leading-6 outline-none placeholder:text-muted-foreground"
               />
-              {/* 10000자 초과 검증 실패를 그리지 않으면 「만들기」가 아무 반응 없이 멈춘다(WP-929). */}
+              {/* 본문 상한(5만자) 초과 검증 실패를 그리지 않으면 「만들기」가 아무 반응 없이 멈춘다(WP-929·WP-885). */}
               {errors.body && (
                 <p id="issue-create-body-error" role="alert" className="text-sm text-destructive">
                   {errors.body.message}

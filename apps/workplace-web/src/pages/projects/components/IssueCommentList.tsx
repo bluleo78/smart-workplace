@@ -37,9 +37,10 @@ import { useToggleCommentReaction } from '../../../hooks/queries/useToggleCommen
 import { useAuth } from '../../../hooks/useAuth';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeMinute } from '../../../lib/formatters';
+import { commentOverLimitMessage, ISSUE_BODY_MAX_LENGTH } from '../../../lib/validations/issue';
 import type { IssueCommentResponse } from '../../../types/issue';
 import { AddReactionButton, CommentReactions } from './CommentReactions';
-import { COMMENT_MAX_LENGTH, IssueCommentComposer } from './IssueCommentComposer';
+import { IssueCommentComposer } from './IssueCommentComposer';
 
 // 개별 코멘트 항목 — 본인 HUMAN 코멘트에만 수정·삭제 액션 제공.
 // 마크다운 특수문자 — 멘션 이름에 섞여 있으면 강조·링크 등으로 해석되지 않게 백슬래시로 이스케이프한다.
@@ -251,7 +252,8 @@ function CommentItem({
             onSubmit={handleSave}
             onCancel={() => setEditing(false)}
             submitLabel="저장"
-            maxLength={COMMENT_MAX_LENGTH}
+            maxLength={ISSUE_BODY_MAX_LENGTH}
+            overLimitMessage={commentOverLimitMessage}
             autoFocus
             inputTestId="issue-comment-edit-input"
             submitTestId="issue-comment-edit-save"

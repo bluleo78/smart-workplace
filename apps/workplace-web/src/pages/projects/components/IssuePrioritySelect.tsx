@@ -5,13 +5,8 @@ import { useRef } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/overlay/select';
 import { useRestoreFocusAfterPick } from '@/hooks/useRestoreFocusOnExit';
 
+import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import type { IssuePriority } from '../../../types/issue';
-
-const OPTIONS: { value: IssuePriority; label: string }[] = [
-  { value: 'LOW', label: '낮음' },
-  { value: 'MID', label: '보통' },
-  { value: 'HIGH', label: '높음' },
-];
 
 // 우선순위 변경 시 onChange 콜백으로 상위에 위임 — 인라인 patch 호출에 사용.
 export function IssuePrioritySelect({
@@ -39,7 +34,8 @@ export function IssuePrioritySelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {OPTIONS.map((o) => (
+        {/* 선택지는 공용 5단계 목록(매우 높음→매우 낮음, WP-886) — 다른 화면과 순서·문구가 같다. */}
+        {ISSUE_PRIORITY_OPTIONS.map((o) => (
           <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
         ))}
       </SelectContent>

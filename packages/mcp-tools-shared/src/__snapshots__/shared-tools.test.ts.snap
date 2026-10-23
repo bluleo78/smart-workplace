@@ -188,6 +188,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "body": {
+          "maxLength": 50000,
           "minLength": 1,
           "type": "string",
         },
@@ -614,7 +615,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "body": {
-          "maxLength": 10000,
+          "maxLength": 50000,
           "type": "string",
         },
         "cycles": {
@@ -654,9 +655,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "priority": {
           "enum": [
-            "LOW",
-            "MID",
+            "HIGHEST",
             "HIGH",
+            "MID",
+            "LOW",
+            "LOWEST",
           ],
           "type": "string",
         },
@@ -697,7 +700,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "body": {
-          "maxLength": 10000,
+          "maxLength": 50000,
           "type": "string",
         },
         "labels": {
@@ -713,9 +716,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "priority": {
           "enum": [
-            "LOW",
-            "MID",
+            "HIGHEST",
             "HIGH",
+            "MID",
+            "LOW",
+            "LOWEST",
           ],
           "type": "string",
         },
@@ -1629,9 +1634,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "priority": {
           "items": {
             "enum": [
-              "LOW",
-              "MID",
+              "HIGHEST",
               "HIGH",
+              "MID",
+              "LOW",
+              "LOWEST",
             ],
             "type": "string",
           },
@@ -2641,6 +2648,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "additionalProperties": false,
       "properties": {
         "body": {
+          "maxLength": 50000,
           "minLength": 1,
           "type": "string",
         },
@@ -2900,7 +2908,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "array",
         },
         "body": {
-          "maxLength": 10000,
+          "maxLength": 50000,
           "type": "string",
         },
         "clearDueDate": {
@@ -2979,9 +2987,11 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "priority": {
           "enum": [
-            "LOW",
-            "MID",
+            "HIGHEST",
             "HIGH",
+            "MID",
+            "LOW",
+            "LOWEST",
           ],
           "type": "string",
         },

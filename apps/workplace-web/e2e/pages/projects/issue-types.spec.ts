@@ -263,8 +263,8 @@ test.describe('이슈 유형', () => {
     },
   );
 
-  // WP-929: 본문 10000자 초과로 「생성」하면 아무 반응 없이 멈추던 것 — 본문 아래 오류를 그리고 POST 는 보내지 않는다.
-  test('새 이슈 본문이 10000자를 넘으면 오류 문구가 보이고 생성 요청은 나가지 않는다 (WP-929)', async ({ authenticatedPage: page }) => {
+  // WP-929: 본문 상한(WP-885 이후 50000자) 초과로 「생성」하면 아무 반응 없이 멈추던 것 — 본문 아래 오류를 그리고 POST 는 보내지 않는다.
+  test('새 이슈 본문이 50000자를 넘으면 오류 문구가 보이고 생성 요청은 나가지 않는다 (WP-929)', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
     await mockApi(page, 'GET', '/api/v1/projects/WP/issues', createIssueSearchResponse([]));
     await page.route('**/api/v1/projects/WP/types', (route) =>
@@ -279,9 +279,9 @@ test.describe('이슈 유형', () => {
     await page.goto('/projects/WP');
     await page.getByRole('button', { name: '+ 새 태스크' }).click();
     await page.locator('#issue-title').fill('긴 본문');
-    await page.locator('#issue-body').fill('가'.repeat(10001));
+    await page.locator('#issue-body').fill('가'.repeat(50001));
     await page.getByRole('button', { name: '생성' }).click();
-    await expect(page.locator('#issue-body-error')).toHaveText('본문은 10000자 이하여야 합니다');
+    await expect(page.locator('#issue-body-error')).toHaveText('본문은 50000자 이하여야 합니다');
     await expect(page.locator('#issue-body')).toHaveAttribute('aria-invalid', 'true');
     expect(createRequests).toBe(0);
   });

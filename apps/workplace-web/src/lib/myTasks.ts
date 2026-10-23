@@ -1,4 +1,5 @@
-import type { IssuePriority,IssueResponse } from '@/types/issue'
+import { priorityRank } from '@/lib/issueGrouping'
+import type { IssueResponse } from '@/types/issue'
 
 // 위젯 행의 출처 버킷 — 위급도 정렬 순서를 표현한다. ③④는 향후 백엔드 신호용 자리.
 export type MyTaskBucket =
@@ -23,8 +24,6 @@ export interface MyTaskResult {
   watchedToday: number
 }
 
-const PRIORITY_RANK: Record<IssuePriority, number> = { HIGH: 0, MID: 1, LOW: 2 }
-
 // 로컬 타임존 기준 YYYY-MM-DD 키.
 function dateKeyLocal(d: Date): string {
   const y = d.getFullYear()
@@ -42,7 +41,8 @@ function tomorrowKey(now: Date): string {
 
 // 담당 버킷 내 정렬: priority desc → dueDate asc(null 뒤) → updatedAt desc.
 function compareAssigned(a: IssueResponse, b: IssueResponse): number {
-  const p = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+  // 우선순위 순위는 공용 priorityRank(매우 높음 먼저, WP-886) — 화면마다 따로 둔 순위표가 단계 추가 때 어긋나지 않게.
+  const p = priorityRank(a.priority) - priorityRank(b.priority)
   if (p !== 0) return p
   const ad = a.dueDate ?? '￿'
   const bd = b.dueDate ?? '￿'

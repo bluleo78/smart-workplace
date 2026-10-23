@@ -76,9 +76,11 @@ maxTurns: 20
 | IN_PROGRESS | 진행 중 |
 | DONE | 완료 |
 | CANCELED | 취소 |
+| HIGHEST | 매우 높음 |
 | HIGH | 높음 |
-| MEDIUM | 보통 |
+| MID | 보통 |
 | LOW | 낮음 |
+| LOWEST | 매우 낮음 |
 
 **금지 예시**: "완료(DONE)", "진행 중 (IN_PROGRESS)", "높음 (HIGH)"
 **허용 예시**: "완료", "진행 중", "높음"

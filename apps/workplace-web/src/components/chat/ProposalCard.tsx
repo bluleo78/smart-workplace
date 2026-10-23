@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/overlay/select'
 import { Button } from '@/components/ui/button'
+import { toIssuePriority } from '@/lib/issueGrouping'
 import type { MessageProposal } from '@/types/messaging'
 
 interface ProposalCardProps {
@@ -90,7 +91,7 @@ export function ProposalCard(props: ProposalCardProps) {
           value={{
             title: proposal.title ?? '',
             body: '',
-            priority: (proposal.priority as 'LOW' | 'MID' | 'HIGH') ?? 'MID',
+            priority: toIssuePriority(proposal.priority),
             projectKey: proposal.projectKey ?? proposal.projectName ?? '',
             assigneeIds: [],
           }}

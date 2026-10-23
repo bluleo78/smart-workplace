@@ -3,7 +3,7 @@
 // "에러가 실제 UI 에 뜨는지"는 각 필드별 E2E 가 계속 맡는다.
 import { describe, expect, it } from 'vitest';
 
-import { createIssueSchema } from './issue';
+import { createCommentSchema, createIssueSchema, issueTextOverLimitMessage, updateIssueSchema } from './issue';
 
 // 첫 번째 오류 메시지(없으면 null) — 필드별 오류 문구를 짧게 단언하려고 쓴다.
 function firstError(input: unknown, field: string): string | null {
@@ -25,6 +25,16 @@ describe('createIssueSchema — 제목', () => {
   it('200자는 통과, 201자는 한국어 오류', () => {
     expect(createIssueSchema.safeParse({ title: 'B'.repeat(200) }).success).toBe(true);
     expect(firstError({ title: 'A'.repeat(201) }, 'title')).toBe('제목은 200자 이하여야 합니다');
+  });
+});
+
+// WP-886: 우선순위 5단계 — 서버 @Pattern 과 같은 값만 받는다.
+describe('createIssueSchema — 우선순위', () => {
+  it('5단계는 통과하고 그 밖의 값은 거부한다', () => {
+    for (const priority of ['HIGHEST', 'HIGH', 'MID', 'LOW', 'LOWEST']) {
+      expect(createIssueSchema.safeParse({ title: 't', priority }).success).toBe(true);
+    }
+    expect(createIssueSchema.safeParse({ title: 't', priority: 'URGENT' }).success).toBe(false);
   });
 });
 
@@ -80,5 +90,30 @@ describe('createIssueSchema — 부모 번호', () => {
     for (const parentNumber of [3, null, undefined]) {
       expect(createIssueSchema.safeParse({ title: 't', parentNumber }).success).toBe(true);
     }
+  });
+});
+
+// WP-885: 본문·코멘트 상한 5만자 — 서버 IssueTextLimits.BODY_MAX 와 같다(Jira 이전 데이터 본문 2.5만자·코멘트 3.1만자).
+describe('이슈 본문·코멘트 길이 상한', () => {
+  it('생성 폼: 본문 5만자는 통과, 5만 1자는 한국어 오류', () => {
+    expect(createIssueSchema.safeParse({ title: 't', body: '가'.repeat(50000) }).success).toBe(true);
+    expect(firstError({ title: 't', body: '가'.repeat(50001) }, 'body')).toBe('본문은 50000자 이하여야 합니다');
+  });
+
+  it('수정: 본문 5만자는 통과, 5만 1자는 거절', () => {
+    expect(updateIssueSchema.safeParse({ body: '가'.repeat(50000) }).success).toBe(true);
+    expect(updateIssueSchema.safeParse({ body: '가'.repeat(50001) }).success).toBe(false);
+  });
+
+  it('코멘트: 5만자는 통과, 5만 1자·빈 값은 거절', () => {
+    expect(createCommentSchema.safeParse({ body: '가'.repeat(50000) }).success).toBe(true);
+    expect(createCommentSchema.safeParse({ body: '가'.repeat(50001) }).success).toBe(false);
+    expect(createCommentSchema.safeParse({ body: '' }).success).toBe(false);
+  });
+
+  // 본문 편집기와 코멘트 작성·수정이 같은 문구를 쓴다 — 받침에 맞는 조사와 현재 글자 수.
+  it('초과 안내 문구: 본문은·코멘트는 + 상한 + 현재 글자 수', () => {
+    expect(issueTextOverLimitMessage('본문', 50001)).toBe('본문은 50000자 이하여야 합니다 (현재 50001자)');
+    expect(issueTextOverLimitMessage('코멘트', 60000)).toBe('코멘트는 50000자 이하여야 합니다 (현재 60000자)');
   });
 });

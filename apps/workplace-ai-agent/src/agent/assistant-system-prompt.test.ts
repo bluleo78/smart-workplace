@@ -233,9 +233,21 @@ describe('#519 NL→필터 매핑 프롬프트', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).not.toContain('CRITICAL/HIGH/MEDIUM/LOW');
   });
 
-  it('priority 현행 어휘(LOW/MID/HIGH)가 있다', () => {
-    expect(ASSISTANT_SYSTEM_PROMPT).toContain('LOW / MID / HIGH');
+  it('priority 현행 어휘(5단계, WP-886)가 있다', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('HIGHEST / HIGH / MID / LOW / LOWEST');
   });
+
+  // 「급한」 계열(최상급 포함)은 HIGHEST+HIGH, 최상위 단계를 명시할 때만 HIGHEST — 겹치지 않아야 한다(기존 데이터엔 HIGHEST 가 없다).
+  it('「가장 급한」은 「급한」과 같은 두 단계, HIGHEST 단독은 명시 표현만', () => {
+    const lines = ASSISTANT_SYSTEM_PROMPT.split('\n')
+    const urgent = lines.find((l) => l.includes('"가장 급한"'))
+    expect(urgent).toContain('["HIGHEST","HIGH"]')
+    const highestOnly = lines.find((l) => l.includes('"최우선"'))
+    expect(highestOnly).toContain('priority: ["HIGHEST"]')
+    expect(highestOnly).toContain('"P0"')
+    expect(highestOnly).not.toContain('"가장 급한"')
+    expect(highestOnly).not.toContain('"급한"')
+  })
 
   it('dateContextDirective 에 Asia/Seoul 포함', () => {
     const out = dateContextDirective('2026-06-29');

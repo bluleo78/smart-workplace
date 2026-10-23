@@ -14,6 +14,7 @@ import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
+import com.workplace.issue.dto.IssuePriorities;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
@@ -221,7 +222,7 @@ public class IssueService {
             number,
             normalizeTitle(req.title()),
             req.body(),
-            req.priority() != null ? req.priority() : "MID",
+            req.priority() != null ? req.priority() : IssuePriorities.DEFAULT,
             req.dueDate(),
             callerId,
             typeId,
@@ -437,7 +438,7 @@ public class IssueService {
    * 검사.
    */
   private boolean specifiesMemberOnlyFields(ProjectRow project, CreateIssueRequest req) {
-    if (req.priority() != null && !"MID".equals(req.priority())) return true;
+    if (req.priority() != null && !IssuePriorities.DEFAULT.equals(req.priority())) return true;
     // 처음 상태(WP-464)도 상태 변경처럼 멤버 전용 — 할 일은 기본값과 같다.
     if (req.status() != null && !IssueStatuses.TODO.equals(req.status())) return true;
     // 상태 id(WP-807)도 할 일 기본 상태가 아니면 멤버 전용 — 범주 TODO 의 다른 상태도 상태 지정이다.

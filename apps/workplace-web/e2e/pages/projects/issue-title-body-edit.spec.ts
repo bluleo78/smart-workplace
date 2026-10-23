@@ -267,6 +267,28 @@ test.describe('이슈 상세 제목·본문 인라인 수정 (#117)', () => {
     await expect(page.getByText('수정된 본문')).toBeVisible();
   });
 
+  // WP-885: 본문 상한(5만자) 초과 — 서버 400 토스트 대신 입력창 아래 안내 + 저장 막힘, 상한 이내로 줄이면 저장된다.
+  test('본문이 5만자를 넘으면 안내를 보이고 저장을 막는다(PATCH 없음), 줄이면 저장된다', async ({ authenticatedPage: page }) => {
+    const stub = await setupStubs(page);
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+    await expect(page.getByText('원본 본문')).toBeVisible();
+
+    await page.getByRole('button', { name: '본문 편집' }).click();
+    const textarea = page.getByTestId('issue-body-textarea');
+    await textarea.fill('가'.repeat(50001));
+
+    await expect(page.getByTestId('issue-body-limit-error')).toContainText('50000자 이하');
+    await expect(page.getByTestId('issue-body-save')).toBeDisabled();
+    // 단축키 저장도 막힌다 — 편집기도 그대로 열려 있다.
+    await textarea.press('ControlOrMeta+Enter');
+    await expectStays(page, () => stub.patches().length, 0);
+    await expect(textarea).toBeVisible();
+
+    await textarea.fill('가'.repeat(50000));
+    await expect(page.getByTestId('issue-body-limit-error')).toHaveCount(0);
+    await expect(page.getByTestId('issue-body-save')).toBeEnabled();
+  });
+
   test('본문 편집 중 Escape → 취소(PATCH 없음)', async ({ authenticatedPage: page }) => {
     const stub = await setupStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);

@@ -14,11 +14,13 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
 import { assigneeCandidates } from '../../lib/assigneeCandidates'
+import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../lib/issueGrouping'
+import type { IssuePriority } from '../../types/issue'
 
 export interface IssueDraftValue {
   title: string
   body: string
-  priority: 'LOW' | 'MID' | 'HIGH'
+  priority: IssuePriority
   projectKey: string
   assigneeIds: number[]
 }
@@ -45,13 +47,6 @@ export interface IssueDraftFieldsProps {
   showAssignee?: boolean
 }
 
-/** 우선순위 레이블 */
-const PRIORITY_LABEL: Record<IssueDraftValue['priority'], string> = {
-  LOW: '낮음',
-  MID: '보통',
-  HIGH: '높음',
-}
-
 export function IssueDraftFields(props: IssueDraftFieldsProps) {
   const { value, onChange, candidateProjects, members, editable, showProject = true, showAssignee = true } = props
   // 담당 단일 선택(현재 스코프: 0 또는 1명). '' = 미지정.
@@ -67,7 +62,7 @@ export function IssueDraftFields(props: IssueDraftFieldsProps) {
         <div className="font-medium text-foreground">{value.title}</div>
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           {showProject && <span>프로젝트: {projectName}</span>}
-          <span>우선순위: {PRIORITY_LABEL[value.priority]}</span>
+          <span>우선순위: {ISSUE_PRIORITY_LABEL[value.priority]}</span>
         </div>
       </div>
     )
@@ -129,9 +124,10 @@ export function IssueDraftFields(props: IssueDraftFieldsProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="LOW">낮음</SelectItem>
-              <SelectItem value="MID">보통</SelectItem>
-              <SelectItem value="HIGH">높음</SelectItem>
+              {/* 공용 5단계 선택지(매우 높음→매우 낮음, WP-886) — 라벨도 같은 맵에서. */}
+              {ISSUE_PRIORITY_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>

@@ -1,18 +1,18 @@
 // URL SearchParams 와 IssueFilters / IssueView 사이의 양방향 직렬화.
 // 모든 필터 동작은 이 두 함수만 통과한다 — 화면/상태/URL 의 단일 진입점.
 
-import type {
-  IssueClientGroupBy,
-  IssueFilters,
-  IssueGroupBy,
-  IssueGroupParam,
-  IssueView,
+import {
+  ISSUE_PRIORITIES,
+  type IssueClientGroupBy,
+  type IssueFilters,
+  type IssueGroupBy,
+  type IssueGroupParam,
+  type IssueView,
 } from '../types/issue';
 import { BOARD_TAB_PARAM } from './boardTabs';
 import { parseValidDateKey } from './formatters';
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
-const PRIORITIES = ['LOW', 'MID', 'HIGH'] as const;
 const GROUP_BYS = ['status', 'assignee', 'priority', 'cycle', 'epic'] as const;
 
 // id 토큰 하나 — 십진 양의 정수(안전 정수 범위)만 받는다. 1.5·2.0·1e3·1e20 처럼 Number 로는 유한한 양수지만
@@ -78,8 +78,9 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
       (STATUSES as readonly string[]).includes(s),
     ),
     statusIds,
+    // 우선순위는 공용 5단계 목록(WP-886)만 통과 — 모르는 토큰은 버린다(잘못된 URL 입력 방어).
     priorities: csv(params.get('priority')).filter((p) =>
-      (PRIORITIES as readonly string[]).includes(p),
+      (ISSUE_PRIORITIES as readonly string[]).includes(p),
     ),
     assigneeIds,
     includeUnassigned,

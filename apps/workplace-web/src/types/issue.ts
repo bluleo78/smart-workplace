@@ -8,7 +8,12 @@ import type { ReactionResponse } from './messaging';
 import type { UserSummary } from './user';
 
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELED';
-export type IssuePriority = 'LOW' | 'MID' | 'HIGH';
+/**
+ * 이슈 우선순위 값 — 표시 순서(매우 높음 → 매우 낮음)로 둔다(WP-886). 모든 프로젝트 공통 고정 5단계이고 서버 IssuePriorities.ORDER·DB CHECK(V211) 와 같다.
+ * Jira 이전(Highest·Lowest)과 긴급 결함을 「높음」과 따로 거르려 3단계에서 HIGHEST·LOWEST 를 더했다. 선택지·필터·정렬 순위는 이 배열에서 파생한다.
+ */
+export const ISSUE_PRIORITIES = ['HIGHEST', 'HIGH', 'MID', 'LOW', 'LOWEST'] as const;
+export type IssuePriority = (typeof ISSUE_PRIORITIES)[number];
 
 // 자식 이슈가 응답에 포함하는 부모 요약 (Phase 4a).
 export interface ParentRef {
@@ -331,7 +336,7 @@ export interface IssueAiClassifyResponse {
   /** 제안 유형. 개인 프로젝트면 null */
   type: 'TASK' | 'BUG' | 'STORY' | 'CHORE' | null;
   /** 제안 우선순위 */
-  priority: 'LOW' | 'MID' | 'HIGH';
+  priority: IssuePriority;
   /** 제안 라벨 이름 목록 */
   labels: string[];
   /** 분류 이유 한 문장 */

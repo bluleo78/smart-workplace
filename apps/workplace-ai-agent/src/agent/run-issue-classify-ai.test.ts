@@ -117,4 +117,47 @@ describe('parseClassifyJson', () => {
     expect(result.priority).toBe('MID')  // fallback
     expect(result.type).toBeUndefined()   // fallback
   })
+
+  // WP-886: 5단계 — HIGHEST·LOWEST 를 그대로 받고, 모르는 우선순위는 그 필드만 MID(유형·라벨 제안은 지킨다).
+  const input = {
+    title: '제목',
+    body: '',
+    projectLabels: ['backend'],
+    isPersonalProject: false,
+    assistantAgentId: 1,
+    model: 'claude-sonnet-4-6',
+    maxTurns: 2,
+    timeoutMs: 30000,
+  }
+
+  it('HIGHEST·LOWEST 를 받는다', async () => {
+    for (const priority of ['HIGHEST', 'LOWEST']) {
+      vi.mocked(messagingAi.runText).mockResolvedValue(`{"type":"BUG","priority":"${priority}","labels":[],"reason":"r"}`)
+      const result = await runIssueClassify(input, mockDeps)
+      expect(result.priority).toBe(priority)
+    }
+  })
+
+  it('모르는 우선순위만 MID 로 — 유형·라벨은 그대로', async () => {
+    vi.mocked(messagingAi.runText).mockResolvedValue('{"type":"BUG","priority":"URGENT","labels":["backend"],"reason":"r"}')
+    const result = await runIssueClassify(input, mockDeps)
+    expect(result.priority).toBe('MID')
+    expect(result.type).toBe('BUG')
+    expect(result.labels).toEqual(['backend'])
+  })
+
+  it('프롬프트가 5단계와 매우 높음의 좁은 기준을 안내한다', async () => {
+    vi.mocked(messagingAi.runText).mockResolvedValue('{"priority":"MID","labels":[],"reason":"r"}')
+    await runIssueClassify(input, mockDeps)
+    const prompt = JSON.stringify(vi.mocked(messagingAi.runText).mock.calls.at(-1))
+    expect(prompt).toContain('HIGHEST|HIGH|MID|LOW|LOWEST')
+    expect(prompt).toContain('드물게')
+  })
+
+  // 정규화 규칙 자체는 issue-priority.test 가 지킨다 — 여기선 classify 가 그 정규화를 거치는지만 본다.
+  it('소문자·공백 우선순위는 normalizePriority 를 거쳐 살린다', async () => {
+    vi.mocked(messagingAi.runText).mockResolvedValue('{"type":"BUG","priority":" highest ","labels":[],"reason":"r"}')
+    const result = await runIssueClassify(input, mockDeps)
+    expect(result.priority).toBe('HIGHEST')
+  })
 })

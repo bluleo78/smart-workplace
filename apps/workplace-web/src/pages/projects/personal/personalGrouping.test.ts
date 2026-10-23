@@ -73,17 +73,19 @@ describe('groupChecklist — 마감 기준(그룹 없음)', () => {
     expect(all).not.toContain('취소작업');
   });
 
-  it('섹션 안은 우선순위(높음→낮음) 후 마감일 오름차순이다', () => {
+  it('섹션 안은 우선순위(매우 높음→매우 낮음) 후 마감일 오름차순이다', () => {
     const r = groupChecklist(
       [
         issue({ title: 'L', priority: 'LOW', dueDate: '2020-01-01' }),
         issue({ title: 'H2', priority: 'HIGH', dueDate: '2020-01-05' }),
         issue({ title: 'H1', priority: 'HIGH', dueDate: '2020-01-02' }),
+        issue({ title: 'LL', priority: 'LOWEST', dueDate: '2020-01-01' }),
+        issue({ title: 'HH', priority: 'HIGHEST', dueDate: '2020-01-09' }),
       ],
       null,
       NOW,
     );
-    expect(titlesBySection(r).overdue).toEqual(['H1', 'H2', 'L']);
+    expect(titlesBySection(r).overdue).toEqual(['HH', 'H1', 'H2', 'L', 'LL']);
   });
 });
 
@@ -105,6 +107,19 @@ describe('groupChecklist — 상태·우선순위', () => {
     const r = groupChecklist(items, 'priority', NOW);
     expect(r.sections.map((s) => s.label)).toEqual(['높음', '낮음']);
     expect(titlesBySection(r).HIGH).toHaveLength(2);
+  });
+
+  it('우선순위 그룹은 5단계를 매우 높음→매우 낮음 순서로 둔다(WP-886)', () => {
+    const r = groupChecklist(
+      [
+        issue({ title: '최저', priority: 'LOWEST' }),
+        issue({ title: '보통', priority: 'MID' }),
+        issue({ title: '최고', priority: 'HIGHEST' }),
+      ],
+      'priority',
+      NOW,
+    );
+    expect(r.sections.map((s) => s.label)).toEqual(['매우 높음', '보통', '매우 낮음']);
   });
 });
 

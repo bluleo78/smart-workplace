@@ -16,8 +16,12 @@ public record IssueSummaryRequest(
     String priority,
     String dueDate,
     List<CommentLine> comments,
+    // 입력 예산(WP-885) 때문에 통째로 빠진 오래된 코멘트 수. 0 이면 생략 없음. 구버전 ai-agent 는 모르는 필드를 무시한다.
+    int omittedCommentCount,
     List<HistoryLine> history,
     List<ChatLine> chat,
+    // 채팅 입력 예산(WP-885) 때문에 통째로 빠진 오래된 채팅 메시지 수. 0 이면 생략 없음.
+    int omittedChatCount,
     long assistantAgentId,
     String model,
     int maxTurns,

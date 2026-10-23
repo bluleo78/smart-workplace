@@ -3,7 +3,7 @@
 // 전략: compose done SSE 에 widgets:[{type:'issue_detail',...}] 를 포함시키고,
 //   위젯이 호출하는 이슈 상세 API 를 모킹(200/500)하여 백엔드 없이 성공·에러를 검증한다.
 
-import { createIssueDetail } from '../factories/issue.factory';
+import { createIssue, createIssueDetail } from '../factories/issue.factory';
 import { expect, test } from '../fixtures/auth.fixture';
 import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
@@ -20,7 +20,8 @@ test.describe('#465 홈 챗 도크 이슈 상세 위젯', () => {
         route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(createIssueDetail()),
+          // WP-886: 매우 높음이 원시 enum(HIGHEST)이 아니라 한글 라벨로 보이는지 본다.
+          body: JSON.stringify(createIssueDetail({ summary: createIssue({ priority: 'HIGHEST' }) })),
         }),
     );
 
@@ -30,6 +31,8 @@ test.describe('#465 홈 챗 도크 이슈 상세 위젯', () => {
     await page.getByRole('button', { name: '보내기' }).click();
 
     await expect(page.getByTestId('issuedetail')).toBeVisible();
+    await expect(page.getByTestId('issuedetail')).toContainText('매우 높음');
+    await expect(page.getByTestId('issuedetail')).not.toContainText('HIGHEST');
   });
 
   // #465 버그 수정: fetch 실패 시 무한 스켈레톤이 아니라 재시도 가능한 에러를 표시한다.

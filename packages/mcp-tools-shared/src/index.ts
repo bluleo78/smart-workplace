@@ -14,7 +14,7 @@ export {
   type ToolDefinitionSize,
 } from './tool-definitions.js';
 export { toMcpContent, summarizeToolResult, resultText, replaceImagesWithNotice, type McpContent, type McpToolResult } from './mcp-content.js';
-export { issueListFilterShape } from './schemas.js';
+export { ISSUE_BODY_MAX_LENGTH, ISSUE_PRIORITIES, issueListFilterShape, issuePriorityInput } from './schemas.js';
 export {
   READ_ATTACHMENT_DEFAULT_LIMIT,
   readRangeShape,

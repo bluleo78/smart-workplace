@@ -13,9 +13,7 @@ import { useCreateComment } from '../../../hooks/queries/useIssueComments';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
-
-// 코멘트 본문 최대 길이 — createCommentSchema/updateCommentSchema(서버 @Size)와 동일 기준. 목록의 수정 폼도 공유.
-export const COMMENT_MAX_LENGTH = 10000;
+import { commentOverLimitMessage, ISSUE_BODY_MAX_LENGTH } from '../../../lib/validations/issue';
 
 export function IssueCommentComposer({
   projectKey,
@@ -75,7 +73,9 @@ export function IssueCommentComposer({
       onChange={handleDraftChange}
       clearOnSubmit
       disableWhenEmpty
-      maxLength={COMMENT_MAX_LENGTH}
+      maxLength={ISSUE_BODY_MAX_LENGTH}
+      // RichInput 은 입력을 자르지 않고(붙여넣기 유실 방지) 이 안내와 함께 전송만 막는다 — 본문 편집기와 같은 문구.
+      overLimitMessage={commentOverLimitMessage}
       placeholder="코멘트를 작성하세요"
       submitLabel={create.isPending ? '작성 중…' : '작성'}
       submitDisabled={create.isPending}

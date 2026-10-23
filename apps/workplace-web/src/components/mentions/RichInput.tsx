@@ -56,6 +56,9 @@ interface RichInputProps {
   submitDisabled?: boolean;
   // 직렬화 본문(serializeToBody) 기준 최대 글자 수. 초과 시 전송 버튼 비활성화 + 카운터 빨간 표시.
   maxLength?: number;
+  // maxLength 초과 시 입력창 아래에 role=alert 로 보일 안내 문구(현재 글자 수를 받는다). 입력은 자르지 않고(붙여넣기 유실 방지) 전송만 막는다.
+  // 미전달이면 카운터(빨간 N / max)만 보인다.
+  overLimitMessage?: (count: number) => string;
   autoFocus?: boolean;
   // 버튼 행 좌측에 추가로 렌더할 노드(파일 첨부 버튼 등). 미전달 시 우측 버튼만 노출. inlineSubmit 이면 에디터 왼쪽.
   leftActions?: React.ReactNode;
@@ -96,6 +99,7 @@ export function RichInput({
   disableWhenEmpty = false,
   submitDisabled = false,
   maxLength,
+  overLimitMessage,
   autoFocus = false,
   leftActions,
   inputTestId,
@@ -458,6 +462,19 @@ export function RichInput({
     (disableWhenEmpty ? isEmpty && !allowEmptySubmit : false) ||
     (maxLength != null && charCount > maxLength);
 
+  // 상한 초과 안내(overLimitMessage 가 있을 때만) — 두 레이아웃이 공유. 전송은 submitBlocked·submit() 가드가 막는다.
+  const limitError =
+    maxLength != null && overLimitMessage && charCount > maxLength ? (
+      <p
+        role="alert"
+        id={`${inputTestId}-limit-error`}
+        data-testid={`${inputTestId}-limit-error`}
+        className="text-sm text-destructive"
+      >
+        {overLimitMessage(charCount)}
+      </p>
+    ) : null;
+
   if (inlineSubmit) {
     // 한 줄 레이아웃 [leftActions] [에디터] [전송] — 에디터만 min-w-0 flex-1 로 늘고(좁은 폭에서 TipTap 이 넘치지 않게) 양옆은 하단 정렬.
     // 카운터는 한도 80% 초과 시에만 — 평소엔 하단 줄 높이를 늘리지 않는다.
@@ -485,6 +502,7 @@ export function RichInput({
             <span className="max-lg:hidden">{submitLabel}</span>
           </Button>
         </div>
+        {limitError}
         {showCount && (
           <span
             className={`self-end text-xs tabular-nums ${charCount > maxLength ? 'text-destructive font-medium' : 'text-muted-foreground'}`}
@@ -502,6 +520,7 @@ export function RichInput({
       <div className="relative">
         <EditorContent editor={editor} />
       </div>
+      {limitError}
       {/* leftActions 가 있으면 justify-between 으로 좌우 분리, 없으면 justify-end 로 우측 정렬. */}
       <div className={`flex items-center gap-2 ${leftActions || imagesEnabled ? 'justify-between' : 'justify-end'}`}>
         {(leftActions || imagesEnabled) && (

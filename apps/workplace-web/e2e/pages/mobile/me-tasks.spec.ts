@@ -65,6 +65,27 @@ test('내 작업 — 표 대신 모바일 행: 긴 제목이 폭을 쓰고 메�
   await expectNoHorizontalOverflow(page)
 })
 
+test('모바일 메타 — 우선순위는 높음·매우 높음만 빨간 글자로, 매우 낮음은 숨긴다(WP-886)', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 301, number: 31, title: '결제 장애', priority: 'HIGHEST', assignees: [agent] }),
+      createIssue({ id: 302, number: 32, title: '로그인 오류', priority: 'HIGH', assignees: [agent] }),
+      createIssue({ id: 303, number: 33, title: '아이디어', priority: 'LOWEST', assignees: [agent] }),
+    ]),
+  )
+  await page.goto('/me/tasks/assigned')
+  const highest = page.getByTestId('assigned-row-301-meta').getByText('매우 높음', { exact: true })
+  await expect(highest).toBeVisible()
+  await expect(highest).toHaveClass(/text-destructive/)
+  await expect(page.getByTestId('assigned-row-302-meta').getByText('높음', { exact: true })).toHaveClass(/text-destructive/)
+  await expect(page.getByTestId('assigned-row-303-meta')).toBeVisible()
+  await expect(page.getByTestId('assigned-row-303-meta')).not.toContainText('낮음')
+})
+
 test('AI 위임 작업 — 제목 h1 한 번, 행 노출, 본문 스크롤로 마지막 행까지 보인다', async ({ authenticatedPage: page }) => {
   await setup(page, '/me/ai-tasks')
   await expectSmoke(page, 'AI 위임 작업', 'ai-row')

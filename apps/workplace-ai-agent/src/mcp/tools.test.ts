@@ -1207,6 +1207,13 @@ describe('messaging 위임 — propose_create_issue', () => {
     expect(out).toBe('제안 카드를 올렸습니다. 위임자의 승인을 기다립니다.');
   });
 
+  // WP-885: 제안 본문은 이슈 본문이 된다 — API 이슈 본문 상한(5만자)과 같게 입력에서 먼저 막는다.
+  it('제안 본문은 5만자까지 허용, 넘으면 거절', () => {
+    const t = find(buildTools(client(), 2, 'messaging', undefined, { actorId: 7, channelId: 9 }), 'propose_create_issue');
+    expect(t.inputSchema.safeParse({ title: 'A', body: '가'.repeat(50000) }).success).toBe(true);
+    expect(t.inputSchema.safeParse({ title: 'A', body: '가'.repeat(50001) }).success).toBe(false);
+  });
+
   it('성공 후 재호출은 차단된다(guard)', async () => {
     const c = client();
     const t = find(buildTools(c, 2, 'messaging', undefined, { actorId: 7, channelId: 9 }), 'propose_create_issue');

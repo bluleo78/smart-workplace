@@ -1,6 +1,8 @@
 import { Skeleton } from '@/components/ui/skeleton';
 // 기존 이슈 단건 상세 훅 — 파일은 useIssue(단수). enabled 가드 내장.
 import { useIssue } from '@/hooks/queries/useIssue';
+// 상태·우선순위 한글 라벨 — 원시 enum(HIGHEST 등)이 화면에 그대로 나오지 않게 한다(WP-886).
+import { priorityLabel, statusLabel } from '@/lib/issueGrouping';
 import { showsLoadError } from '@/lib/queryFailure'
 
 import { WidgetError } from './WidgetError';
@@ -36,7 +38,7 @@ function IssueDetailInner({ projectKey, number }: { projectKey: string; number: 
         <div className="space-y-1" data-testid="issuedetail">
           <div className="text-sm font-medium">{data.summary.title}</div>
           <div className="text-xs text-muted-foreground">
-            {data.summary.status} · {data.summary.priority}
+            {statusLabel(data.summary.status, data.summary.statusName)} · {priorityLabel(data.summary.priority)}
           </div>
         </div>
       )}

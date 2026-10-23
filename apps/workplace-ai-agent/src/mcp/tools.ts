@@ -10,7 +10,9 @@ import {
   createProjectInput,
   imageViewBlocks,
   isImageSkip,
+  ISSUE_BODY_MAX_LENGTH,
   issueListFilterShape,
+  issuePriorityInput,
   listConflicts as listConflictsShared,
   MEMORY_TOOL_NAMES,
   NO_ATTENDEE_TO_ADD,
@@ -369,8 +371,8 @@ export interface HostBridge {
 // projectKey: AI 가 위임 후보 목록에서 추론해 고름. 맞는 게 없으면 생략(백엔드 개인 작업 폴백).
 const proposeCreateIssueInput = z.object({
   title: z.string().min(1).max(200),
-  body: z.string().max(10000).optional(),
-  priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
+  body: z.string().max(ISSUE_BODY_MAX_LENGTH).optional(), // 이슈 본문 상한(WP-885) — API 와 같다
+  priority: issuePriorityInput.optional(), // 우선순위 5단계(WP-886) — 공유 도구와 같은 목록
   projectKey: z.string().optional(),
 });
 

@@ -1,5 +1,7 @@
 // 받은편지함/보낸편지함 메시지 DTO — 백엔드 com.workplace.mail.dto 와 1:1 매칭.
 
+import type { IssuePriority } from './issue';
+
 /** 메일 목록 한 행(본문 제외, 미리보기 snippet 포함). */
 export interface EmailMessageSummary {
   id: number;
@@ -157,7 +159,7 @@ export interface ComposeDraftResult {
 export interface MailIssueDraft {
   title: string
   body: string
-  priority: 'LOW' | 'MID' | 'HIGH'
+  priority: IssuePriority
   suggestedProjectKey: string | null
   candidateProjects: { key: string; name: string }[]
 }
@@ -167,7 +169,7 @@ export interface PromoteToIssuePayload {
   projectKey: string
   title: string
   body?: string
-  priority?: 'LOW' | 'MID' | 'HIGH'
+  priority?: IssuePriority
   assigneeIds?: number[]
 }
 

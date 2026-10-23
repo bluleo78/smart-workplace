@@ -19,8 +19,11 @@ import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectRepository;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -53,6 +56,15 @@ public class IssueAiSummaryService {
 
   /** 채팅 발췌 최대 행 수 — AI 컨텍스트 윈도우·비용 절감. */
   static final int CHAT_LIMIT = 50;
+
+  /** 코멘트 전체 합계 예산(WP-885) — 최신 코멘트부터 채우고 넘기 전에 멈춘다(오래된 것이 먼저 빠짐). 생략 표식까지 센 실제 전송 글자 수 기준. */
+  static final int COMMENTS_TOTAL_MAX_CHARS = 40_000;
+
+  /**
+   * 채팅 발췌 전체 합계 예산 — 최신 메시지부터 채우고 넘기 전에 멈춘다(오래된 것이 먼저 빠짐). 채팅 행 수는 {@link #CHAT_LIMIT} 로만 묶여 있어 긴
+   * 메시지가 섞이면 코멘트 예산과 별개로 입력을 넘칠 수 있다. 변경 이력은 제목·상태명·날짜·소형 JSON 같은 짧은 구조화 이벤트라 예산을 두지 않는다.
+   */
+  static final int CHAT_TOTAL_MAX_CHARS = 20_000;
 
   private final IssueRepository issueRepo;
   private final IssueCommentRepository commentRepo;
@@ -221,18 +233,72 @@ public class IssueAiSummaryService {
     return spec.orElseThrow(IssueAiAssistantUnavailableException::new);
   }
 
-  /** 수집 데이터를 ai-agent 요청 DTO 로 변환. spec·body·chat 포함. */
-  private IssueSummaryRequest toRequest(Gathered g, AssistantSpec spec) {
+  /** {@link #selectNewestWithinBudget} 결과 — 시간 오름차순으로 보낼 줄과, 합계 예산 때문에 통째로 빠진 오래된 항목 수. */
+  record Selected<L>(List<L> lines, int omittedCount) {}
+
+  /**
+   * 최신 항목부터 합계 예산({@code totalMax})까지만 담고 멈춘다(WP-885). 각 항목 본문은 {@code perItemMax} 로 자르며(생략 표식 포함),
+   * 더 오래된 것은 건너뛰고 채우지 않는다 — 중간이 비는 대신 최근 맥락이 연속된다. 합계는 생략 표식까지 센 실제 전송 글자 수 기준이다(표식을 빼면 건수가 많을 때
+   * 상한을 조금씩 넘는다). 입력은 시간 오름차순이며 출력도 오름차순(ai-agent 프롬프트가 시간순을 전제).
+   */
+  static <T, L> Selected<L> selectNewestWithinBudget(
+      List<T> items,
+      Function<T, String> body,
+      int perItemMax,
+      int totalMax,
+      BiFunction<T, String, L> toLine) {
+    ArrayDeque<L> picked = new ArrayDeque<>();
+    int total = 0;
+    for (int i = items.size() - 1; i >= 0; i--) {
+      T item = items.get(i);
+      String raw = body.apply(item);
+      String text = raw == null ? "" : IssueAiInputText.truncate(raw, perItemMax);
+      if (total + text.length() > totalMax) break;
+      total += text.length();
+      picked.addFirst(toLine.apply(item, text));
+    }
+    return new Selected<>(List.copyOf(picked), items.size() - picked.size());
+  }
+
+  /**
+   * AI 요약에 보낼 코멘트를 고른다 — 건당 {@link IssueAiInputText#AI_ITEM_MAX_CHARS}, 합계 {@link
+   * #COMMENTS_TOTAL_MAX_CHARS}.
+   */
+  static Selected<IssueSummaryRequest.CommentLine> selectComments(
+      List<IssueCommentResponse> comments) {
+    return selectNewestWithinBudget(
+        comments,
+        IssueCommentResponse::body,
+        IssueAiInputText.AI_ITEM_MAX_CHARS,
+        COMMENTS_TOTAL_MAX_CHARS,
+        (c, body) ->
+            new IssueSummaryRequest.CommentLine(
+                c.authorName(), body, c.createdAt() != null ? c.createdAt().toString() : null));
+  }
+
+  /**
+   * AI 요약에 보낼 채팅 발췌를 고른다 — 건당 {@link IssueAiInputText#AI_ITEM_MAX_CHARS}, 합계 {@link
+   * #CHAT_TOTAL_MAX_CHARS}.
+   */
+  static Selected<IssueSummaryRequest.ChatLine> selectChat(List<ChatExcerpt> chat) {
+    return selectNewestWithinBudget(
+        chat,
+        ChatExcerpt::body,
+        IssueAiInputText.AI_ITEM_MAX_CHARS,
+        CHAT_TOTAL_MAX_CHARS,
+        (m, body) ->
+            new IssueSummaryRequest.ChatLine(
+                m.authorName(),
+                m.authorKind(),
+                body,
+                m.createdAt() != null ? m.createdAt().toString() : null));
+  }
+
+  /** 수집 데이터를 ai-agent 요청 DTO 로 변환. spec·body·chat 포함. 본문·코멘트는 WP-885 입력 예산으로 자른다. */
+  IssueSummaryRequest toRequest(Gathered g, AssistantSpec spec) {
     IssueRow meta = g.meta();
-    List<IssueSummaryRequest.CommentLine> comments =
-        g.comments().stream()
-            .map(
-                c ->
-                    new IssueSummaryRequest.CommentLine(
-                        c.authorName(),
-                        c.body(),
-                        c.createdAt() != null ? c.createdAt().toString() : null))
-            .toList();
+    Selected<IssueSummaryRequest.CommentLine> selected = selectComments(g.comments());
+    List<IssueSummaryRequest.CommentLine> comments = selected.lines();
     List<IssueSummaryRequest.HistoryLine> history =
         g.history().stream()
             .map(
@@ -244,27 +310,22 @@ public class IssueAiSummaryService {
                         h.toValue(),
                         h.createdAt() != null ? h.createdAt().toString() : null))
             .toList();
-    List<IssueSummaryRequest.ChatLine> chat =
-        g.chat().stream()
-            .map(
-                m ->
-                    new IssueSummaryRequest.ChatLine(
-                        m.authorName(),
-                        m.authorKind(),
-                        m.body(),
-                        m.createdAt() != null ? m.createdAt().toString() : null))
-            .toList();
+    Selected<IssueSummaryRequest.ChatLine> selectedChat = selectChat(g.chat());
     return new IssueSummaryRequest(
         meta.title(),
         // 본문 없는 이슈는 null 대신 빈 문자열 — ai-agent zod(string)가 null 을 거부(400)하지 않도록.
-        meta.body() != null ? meta.body() : "",
+        meta.body() != null
+            ? IssueAiInputText.truncate(meta.body(), IssueAiInputText.AI_BODY_MAX_CHARS)
+            : "",
         meta.status(),
         meta.statusName(),
         meta.priority(),
         meta.dueDate() != null ? meta.dueDate().toString() : null,
         comments,
+        selected.omittedCount(),
         history,
-        chat,
+        selectedChat.lines(),
+        selectedChat.omittedCount(),
         spec.agentUserId(),
         spec.model(),
         spec.maxTurns(),

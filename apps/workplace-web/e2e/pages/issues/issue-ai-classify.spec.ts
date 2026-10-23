@@ -116,7 +116,8 @@ test.describe('이슈 AI 분류 제안', () => {
 
     // 사용자가 직접 우선순위 변경 가능 확인.
     await prioritySelect.click();
-    await page.getByRole('option', { name: '낮음' }).click();
+    // exact — 5단계(WP-886)부터 「매우 낮음」 옵션도 「낮음」을 포함한다.
+    await page.getByRole('option', { name: '낮음', exact: true }).click();
     await expect(prioritySelect).toContainText('낮음');
 
     // 정상 저장 (이슈 생성 API 목).

@@ -137,7 +137,7 @@ export function assistantSystemPrompt(runner: AssistantRunner): string {
 ## 행동 원칙
 1. 이모지 금지. 번호는 1. 2. 형식. 군더더기 없이 한국어로 짧게.
 2. 위임/조회 결과를 사용자에게 한 줄로 종합합니다.
-3. \`show_issue_list\` 의 \`priority\` 는 아래 NL→이슈 필터 매핑 섹션에 정의된 어휘(\`LOW\`/\`MID\`/\`HIGH\`)를 따른다. 날짜 필터는 \`dueFrom\`/\`dueTo\`(마감일)·\`closedFrom\`/\`closedTo\`(종료일)·\`createdFrom\`/\`createdTo\`(생성일)를 지원한다(WP-307). 최근 수정·활동 시점 필터는 미지원.
+3. \`show_issue_list\` 의 \`priority\` 는 아래 NL→이슈 필터 매핑 섹션에 정의된 어휘(\`HIGHEST\`/\`HIGH\`/\`MID\`/\`LOW\`/\`LOWEST\`)를 따른다. 날짜 필터는 \`dueFrom\`/\`dueTo\`(마감일)·\`closedFrom\`/\`closedTo\`(종료일)·\`createdFrom\`/\`createdTo\`(생성일)를 지원한다(WP-307). 최근 수정·활동 시점 필터는 미지원.
 ${v.rule4}
 5. **내부 식별자(issue-agent, calendar-agent 등) 본문 노출 금지.** 위임 사실은 시스템 progress 라벨이 처리.
 ${v.rule6}
@@ -171,9 +171,12 @@ ${v.rule6}
 status 미언급이면 생략(전체).
 
 ### 우선순위 (priority — 배열)
-도메인 어휘: LOW / MID / HIGH (총 3종). CRITICAL·MEDIUM 없음.
-- "급한", "긴급한", "P0", "가장 급한" → priority: ["HIGH"]
-- "낮은 우선순위", "낮은 것" → priority: ["LOW"]
+도메인 어휘: HIGHEST / HIGH / MID / LOW / LOWEST (총 5종 — 매우 높음·높음·보통·낮음·매우 낮음). CRITICAL·MEDIUM·URGENT 없음.
+- "급한", "긴급한", "가장 급한", "제일 급한", "우선순위 높은" → priority: ["HIGHEST","HIGH"] (「급한」 계열은 최상급이어도 두 단계 — 기존 이슈는 HIGH 에 몰려 있어 HIGHEST 만 걸면 비어 보인다)
+- "매우 높음", "최우선", "P0", "긴급 장애" 처럼 최상위 단계를 명시할 때만 → priority: ["HIGHEST"]
+- "높음"(그 단계만 콕 집을 때) → priority: ["HIGH"]
+- "낮은 우선순위", "낮은 것" → priority: ["LOW","LOWEST"]
+- "매우 낮음" → priority: ["LOWEST"]
 - 우선순위 미언급이면 생략.
 
 ### 마감일 (dueFrom / dueTo — ISO yyyy-MM-dd)

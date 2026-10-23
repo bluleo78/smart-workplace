@@ -8,19 +8,22 @@ NL→이슈 필터 매핑 정확도는 **라이브 LLM 속성**이라 CI 유닛/
 
 ## 목표
 
-held-out 질의 6개를 실행해 LLM 이 올바른 필터 파라미터(`assignee` / `priority` / `status` / `blocked` / `dueFrom`/`dueTo`)를 매핑하는지 검증한다.
+held-out 질의 9개를 실행해 LLM 이 올바른 필터 파라미터(`assignee` / `priority` / `status` / `blocked` / `dueFrom`/`dueTo`)를 매핑하는지 검증한다.
 few-shot 예시와 문장이 겹치지 않아 순환 평가를 방지한다.
 
 ## 테스트 케이스
 
 | # | 질의 | 검증 포인트 | 기대 필터 |
 |---|---|---|---|
-| 1 | 내가 맡은 급한 거 | assignee:me + 우선순위 높음 | `assignee:me`, `priority:["HIGH"]` |
-| 2 | 담당자 없는 가장 급한 이슈 | 담당 없음 + 우선순위 높음 | `assignee:"null"`, `priority:["HIGH"]` |
+| 1 | 내가 맡은 급한 거 | assignee:me + 우선순위 매우 높음·높음 | `assignee:me`, `priority:["HIGHEST","HIGH"]` |
+| 2 | 담당자 없는 가장 급한 이슈 | 담당 없음 + 「급한」 계열은 매우 높음·높음 두 단계 | `assignee:"null"`, `priority:["HIGHEST","HIGH"]` |
 | 3 | 이번 주에 마감인 내 이슈 | 담당자 + 날짜 범위 | `assignee:me`, `dueFrom/dueTo` (이번 주 범위) |
 | 4 | 내가 만든 막힌 이슈 | 작성자 + 블로커 | `reporter:me`, `blocked:true` |
 | 5 | 아직 안 끝난 내 작업 | 담당자 + 미완료 상태 | `assignee:me`, `status:["TODO","IN_PROGRESS"]` |
-| 6 | 지난주에 등록한 이슈 | **degradation** — 생성일 미지원 | 필터 0~1개 + "지원하지 않" 안내 prose |
+| 6 | 지난주에 등록한 이슈 | 생성일 범위(WP-307) | `createdFrom/createdTo` (지난주 범위) |
+| 7 | 이번 주에 끝낸 이슈 | 종료일 범위(WP-307) + 완료 상태 | `status:["DONE"]`, `closedFrom/closedTo` |
+| 8 | 최근에 수정된 이슈 | **degradation** — 수정 시점 필터 미지원 | 날짜 필터 없이 + "지원하지 않" 안내 prose |
+| 9 | 담당자 없는 최우선 이슈 | 최상위 단계 명시("최우선")는 HIGHEST 한 단계만 | `assignee:"null"`, `priority:["HIGHEST"]` |
 
 ## 실행 방법
 
@@ -102,7 +105,7 @@ eval 실행 중 FAIL 이 나면:
      도구 description/프롬프트의 "보여줘 → show_issue_list" 유도가 약하거나 rate-limit(EVAL_GAP_MS ↑) 의심.
 
 3. **프롬프트 재검토** — assistant-system-prompt.ts 의 필터 지시 확인
-   - `priority` 는 `LOW`/`MID`/`HIGH` 만 (CRITICAL·MEDIUM 없음)
+   - `priority` 는 `HIGHEST`/`HIGH`/`MID`/`LOW`/`LOWEST` 5단계만 (CRITICAL·MEDIUM·URGENT 없음, WP-886)
    - 날짜 필터는 `dueFrom`/`dueTo`(마감일)만 지원
    - 생성일(`createdFrom`/`createdTo`) 요청 시 안내 필수
 
