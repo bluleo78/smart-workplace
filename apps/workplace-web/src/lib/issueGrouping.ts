@@ -4,6 +4,7 @@
 import type {
   IssueClientGroupBy, IssueGroupBy, IssueGroupCountsResponse, IssuePriority, IssueResponse, IssueStatus,
 } from '../types/issue';
+import type { ProjectStatus } from '../types/projectStatus';
 import { ownLookup } from './ownLookup';
 
 // 하나의 그룹 — key 는 React key·data-testid·droppable id 에 사용, label 은 헤더 표시.
@@ -55,9 +56,10 @@ const STATUS_ORDER: { key: string; label: string }[] = toOrder(ISSUE_STATUS_LABE
 // 상태 전체 목록(정의 순서) — 시트·드롭다운 등 선택지를 라벨 맵 하나에서 파생한다.
 export const ISSUE_STATUSES = Object.keys(ISSUE_STATUS_LABEL) as IssueStatus[];
 
-// 상태 한글 라벨 — 버킷 밖에서 상태명을 읽을 때(드래그 스크린리더 안내 등). 모르는 값은 그대로.
-export function statusLabel(status: string): string {
-  return ownLookup(ISSUE_STATUS_LABEL, status) ?? status;
+// 상태 표시 이름 — 프로젝트 상태 이름(응답 statusName, WP-808)이 있으면 그것, 없으면(범주만 아는 곳) 범주 한글 라벨.
+// 배지·아이콘 읽기·드래그 스크린리더 안내·AI 화면 컨텍스트가 같은 규칙을 쓴다. 모르는 범주 값은 그대로.
+export function statusLabel(status: string, name?: string | null): string {
+  return name ?? ownLookup(ISSUE_STATUS_LABEL, status) ?? status;
 }
 
 // 우선순위 한글 라벨 — statusLabel 과 같은 규칙. 모르는 값(과거·미래 enum)은 그대로, 프로토타입 키는 ownLookup 으로 거른다.
@@ -83,13 +85,17 @@ export function isEpicParent(issue: IssueResponse): boolean {
  * 평탄한 이슈 목록을 그룹 기준으로 묶는다.
  *
  * - status/priority: 고정 버킷 전체를 순서대로 반환(빈 버킷 포함).
+ *   status 는 statuses(프로젝트 상태, WP-808)를 주면 statusId 버킷(상태 표시 순서, key = statusId 문자열 — 서버
+ *   groupBy=statusId 총계의 key 와 같다). 주지 않으면(프로젝트 횡단 화면·상태 목록 로딩 중) 범주 4버킷.
  * - assignee: 존재하는 담당자 버킷만 이름순 + "미지정" 버킷을 마지막에. 다중 담당자
  *   이슈는 각 담당자 그룹에 모두 등장한다.
  */
 export function groupIssues(
   issues: IssueResponse[],
   groupBy: IssueClientGroupBy,
+  statuses?: readonly ProjectStatus[],
 ): IssueGroup[] {
+  if (groupBy === 'status' && statuses) return groupByProjectStatus(issues, statuses);
   if (groupBy === 'status') {
     return STATUS_ORDER.map((s) => ({
       key: s.key,
@@ -153,8 +159,27 @@ export function groupIssues(
 }
 
 /**
+ * 프로젝트 상태별 버킷(WP-808) — 받은 상태 목록 순서(서버 표시 순서: 범주 → position)대로 빈 버킷까지 만든다.
+ * 목록에 없는 statusId(방금 추가돼 상태 목록 캐시가 아직 옛것 등)는 행을 잃지 않게 이슈의 statusName 으로 버킷을 뒤에 덧붙인다.
+ */
+function groupByProjectStatus(issues: IssueResponse[], statuses: readonly ProjectStatus[]): IssueGroup[] {
+  const buckets = new Map<number, IssueGroup>(
+    statuses.map((s) => [s.id, { key: String(s.id), label: s.name, issues: [] }]),
+  );
+  for (const it of issues) {
+    let g = buckets.get(it.statusId);
+    if (!g) {
+      g = { key: String(it.statusId), label: it.statusName, issues: [] };
+      buckets.set(it.statusId, g);
+    }
+    g.issues.push(it);
+  }
+  return [...buckets.values()];
+}
+
+/**
  * 서버 그룹 총계(WP-472)를 groupIssues 의 그룹 key 로 옮긴 맵 — 헤더가 「불러온 행 수」 대신 정확한 수를 쓴다.
- * 상태·우선순위는 값 그대로, 담당자는 `u-{id}`, 담당자 없음(null)은 `unassigned`.
+ * 상태(범주 또는 statusId, WP-808)·우선순위는 값 그대로, 담당자는 `u-{id}`, 담당자 없음(null)은 `unassigned`.
  */
 export function groupCountsByKey(res: IssueGroupCountsResponse | undefined): ReadonlyMap<string, number> {
   const out = new Map<string, number>();

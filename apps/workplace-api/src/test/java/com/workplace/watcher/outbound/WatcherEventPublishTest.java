@@ -91,6 +91,8 @@ class WatcherEventPublishTest {
             null,
             null,
             1,
+            null,
+            null,
             null);
     when(accessGuard.assertReadable(PROJECT_KEY, CALLER_ID)).thenReturn(project);
     when(accessGuard.lockReadable(project, CALLER_ID)).thenReturn(true);

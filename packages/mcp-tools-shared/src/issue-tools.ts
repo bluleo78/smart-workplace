@@ -14,6 +14,7 @@ import {
   resolveAssigneeIds,
   resolveCycleIds,
   resolveMilestoneId,
+  resolveStatusPatch,
   resolveTypeId,
   toFieldValue,
 } from './resolve.js';
@@ -173,7 +174,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'assignees and watchers, new assignees too. An AI whose agentRuntime is INTERNAL does not react to anything another AI does (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, status, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
@@ -181,7 +182,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         //    WP-356: 커스텀 필드는 이름 → 정의를 찾고 값 모양·선택지까지 확인한다(서버 검증과 같다, null 은 비우기).
         const parentNumber = parent === undefined || parent === null ? parent : parentNumberOf(parent, projectKey);
         const fieldEntries = fields ? Object.entries(fields) : [];
-        const [typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues] = await Promise.all([
+        //    WP-807: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusId } — 모르는 이름은 여기서 실패해 아무것도 쓰지 않는다.
+        const [statusPatch, typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues] = await Promise.all([
+          status !== undefined ? resolveStatusPatch(client, projectKey, status) : undefined,
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
@@ -218,7 +221,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (driveFileId !== undefined) await run('driveLink', () => client.addIssueDriveLink(issueKey, driveFileId));
 
         // 마일스톤은 이슈 PATCH 본문의 필드다(milestoneId 설정 / clearMilestone 해제).
-        const content: Record<string, unknown> = { ...rest };
+        const content: Record<string, unknown> = { ...rest, ...statusPatch };
         if (milestoneId !== undefined) content.milestoneId = milestoneId;
         if (milestone === null) content.clearMilestone = true;
         if (Object.keys(content).length > 0) {

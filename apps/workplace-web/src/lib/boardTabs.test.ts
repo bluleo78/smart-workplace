@@ -1,25 +1,51 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveBoardTab, swipeDirection } from './boardTabs';
+import type { IssueStatus } from '../types/issue';
+import { type BoardTabInfo, resolveBoardTab, swipeDirection } from './boardTabs';
 
-const tab = (status: string, count: number, pending = false) => ({ status, count, pending });
-const TEAM = (todo: number, prog: number, progPending = false) => [tab('TODO', todo), tab('IN_PROGRESS', prog, progPending), tab('DONE', 3), tab('CANCELED', 0)];
+const tab = (statusId: number, category: IssueStatus, count: number, pending = false): BoardTabInfo => ({
+  statusId,
+  category,
+  count,
+  pending,
+});
+// 상태 탭 — 할 일(1) · 진행 중(2)·검토 중(5) · 완료(3) · 취소(4).
+const TABS = (todo: number, prog: number, review: number, progPending = false) => [
+  tab(1, 'TODO', todo),
+  tab(2, 'IN_PROGRESS', prog, progPending),
+  tab(5, 'IN_PROGRESS', review),
+  tab(3, 'DONE', 3),
+  tab(4, 'CANCELED', 0),
+];
 
 describe('resolveBoardTab', () => {
-  it('URL 값이 보이는 탭이면 그대로', () => {
-    expect(resolveBoardTab('DONE', TEAM(1, 1))).toBe('DONE');
+  it('기본 탭은 진행 중 범주의 첫 상태', () => {
+    expect(resolveBoardTab(null, TABS(1, 2, 1))).toBe(2);
   });
-  it('URL 값이 없거나 숨겨진 상태면 기본 규칙', () => {
-    expect(resolveBoardTab(null, TEAM(1, 2))).toBe('IN_PROGRESS');
-    expect(resolveBoardTab('BOGUS', TEAM(1, 2))).toBe('IN_PROGRESS');
-    expect(resolveBoardTab('CANCELED', [tab('TODO', 1), tab('DONE', 0)])).toBe('TODO');
+  it('진행 중 범주가 모두 비면 할 일 범주의 첫 상태', () => {
+    expect(resolveBoardTab(null, TABS(4, 0, 0))).toBe(1);
   });
-  it('진행 중이 비면 할 일, 둘 다 비면 첫 탭', () => {
-    expect(resolveBoardTab(null, TEAM(4, 0))).toBe('TODO');
-    expect(resolveBoardTab(null, [tab('DONE', 2), tab('TODO', 0), tab('IN_PROGRESS', 0)])).toBe('DONE');
+  it('진행 중·할 일 범주가 모두 비면 첫 탭', () => {
+    expect(resolveBoardTab(null, [tab(3, 'DONE', 2), tab(1, 'TODO', 0), tab(2, 'IN_PROGRESS', 0)])).toBe(3);
   });
   it('진행 중이 아직 응답 전이면 기다린다(할 일로 튀지 않음)', () => {
-    expect(resolveBoardTab(null, TEAM(4, 0, true))).toBe('IN_PROGRESS');
+    expect(resolveBoardTab(null, TABS(4, 0, 0, true))).toBe(2);
+  });
+  it('예전 boardTab=IN_PROGRESS 는 진행 중 범주 첫 탭으로', () => {
+    expect(resolveBoardTab('IN_PROGRESS', TABS(1, 0, 0))).toBe(2);
+    expect(resolveBoardTab('DONE', TABS(1, 2, 1))).toBe(3);
+  });
+  it('보이는 statusId URL 값이 이긴다', () => {
+    expect(resolveBoardTab('5', TABS(1, 2, 1))).toBe(5);
+    expect(resolveBoardTab('4', TABS(1, 2, 1))).toBe(4);
+  });
+  it('숨겨진(보이지 않는) 상태·범주나 모르는 값이면 기본 규칙', () => {
+    expect(resolveBoardTab('99', TABS(1, 2, 1))).toBe(2);
+    expect(resolveBoardTab('BOGUS', TABS(1, 2, 1))).toBe(2);
+    expect(resolveBoardTab('CANCELED', [tab(1, 'TODO', 1), tab(3, 'DONE', 0)])).toBe(1);
+  });
+  it('탭이 없으면(상태 목록 로딩 중) 고르지 않는다', () => {
+    expect(resolveBoardTab('2', [])).toBeNull();
   });
 });
 

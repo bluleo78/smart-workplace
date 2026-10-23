@@ -1,9 +1,11 @@
 // 모바일 보드(WP-195) — 상태 탭 + 한 컬럼, 카드 2줄 레이아웃, 탭·스와이프 전환, boardTab URL 유지.
+// 탭은 프로젝트 상태(WP-808) — 기본 스텁(auth.fixture)의 시드 상태 할 일 1·진행 중 2·완료 3·취소 4.
 import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { statusFieldsOf } from '../../factories/projectStatus.factory';
 import { longPressWithMouse } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
@@ -26,7 +28,9 @@ async function mock(page: Page, { issues: seed = [LONG, TODO2, PROG, DONE1], mor
   await page.route((u) => /\/issues\/\d+\/status$/.test(u.pathname), (r) => {
     const id = Number(new URL(r.request().url()).pathname.split('/').at(-2));
     const target = issues.find((i) => i.id === id);
-    if (target) target.status = (r.request().postDataJSON() as { status: typeof target.status }).status;
+    // 본문은 범주(status, 드래그) 또는 프로젝트 상태 id(statusId, 카드 메뉴 — WP-808). statusId 면 시드 상태로 범주·이름을 맞춘다.
+    const body = r.request().postDataJSON() as { status?: typeof LONG.status; statusId?: number };
+    if (target) Object.assign(target, body.statusId != null ? statusFieldsOf(body.statusId) : { status: body.status });
     return r.fulfill(json(target ?? {}));
   });
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))));
@@ -38,7 +42,9 @@ async function mock(page: Page, { issues: seed = [LONG, TODO2, PROG, DONE1], mor
     if (r.request().method() !== 'GET') return r.fallback();
     const url = new URL(r.request().url());
     if (url.searchParams.get('type') === String(makeEpicType().id)) return r.fulfill(json(createIssueSearchResponse([EPIC], null)));
-    const status = url.searchParams.get('status');
+    // 컬럼 쿼리는 시드 상태 id(statusId)로 좁혀 온다(WP-808) — 범주로 되돌려 범주 기준 목을 그대로 쓴다.
+    const statusId = url.searchParams.get('statusId');
+    const status = statusId ? (statusFieldsOf(Number(statusId)).status ?? null) : url.searchParams.get('status');
     const list = status ? issues.filter((i) => status.split(',').includes(i.status)) : issues;
     const more = status != null && status === moreStatus && !url.searchParams.get('cursor');
     return r.fulfill(json(createIssueSearchResponse(list, more ? 'next' : null)));
@@ -52,7 +58,7 @@ test.describe('모바일 보드 카드', () => {
 
   test('긴 제목은 최대 2줄, ID 는 한 줄로 메타 줄에 — 카드는 화면 폭을 거의 다 쓴다', async ({ authenticatedPage: page }) => {
     await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&boardTab=TODO&group=none`);
+    await page.goto(`/projects/${KEY}?view=board&boardTab=1&group=none`);
     const card = page.getByTestId('issue-card-21');
     await expect(card).toBeVisible();
     expect((await card.boundingBox())!.width).toBeGreaterThan(320);
@@ -89,14 +95,14 @@ test.describe('모바일 보드 상태 탭', () => {
   test('탭 4개와 개수, 기본은 진행 중 — 선택 탭 카드만 보인다', async ({ authenticatedPage: page }) => {
     await mock(page, { moreStatus: 'TODO' });
     await page.goto(`/projects/${KEY}?view=board&group=none`);
-    for (const s of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) await expect(page.getByTestId(`board-tab-${s}`)).toBeVisible();
-    await expect(page.getByTestId('board-tab-count-TODO')).toHaveText('2+');
-    await expect(page.getByTestId('board-tab-count-IN_PROGRESS')).toHaveText('1');
-    await expect(page.getByTestId('board-tab-IN_PROGRESS')).toHaveAttribute('aria-selected', 'true');
+    for (const s of [1, 2, 3, 4]) await expect(page.getByTestId(`board-tab-${s}`)).toBeVisible();
+    await expect(page.getByTestId('board-tab-count-1')).toHaveText('2+');
+    await expect(page.getByTestId('board-tab-count-2')).toHaveText('1');
+    await expect(page.getByTestId('board-tab-2')).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('issue-card-1047')).toBeVisible();
     await expect(page.getByTestId('issue-card-21')).toHaveCount(0);
     // 탭 높이 = 터치 타깃 44px 이상
-    expect((await page.getByTestId('board-tab-TODO').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await page.getByTestId('board-tab-1').boundingBox())!.height).toBeGreaterThanOrEqual(44);
     // 탭 줄이 44px 탭을 다 담는다 — 줄이 낮으면 탭이 줄 안에서 세로 스크롤되고 활성 밑줄이 잘린다.
     expect(await page.getByTestId('board-tabs').evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
     await expectNoHorizontalOverflow(page);
@@ -105,10 +111,11 @@ test.describe('모바일 보드 상태 탭', () => {
   // WP-841 — 탭이 가리키는 패널(aria-controls)이 실제로 있어야 스크린리더가 탭과 카드 목록을 잇는다.
   test('선택 탭의 aria-controls 가 그 탭으로 이름 붙은 tabpanel(카드 목록)을 가리키고, 탭을 바꾸면 따라간다', async ({ authenticatedPage: page }) => {
     await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=TODO`);
-    for (const [status, card] of [['TODO', 'issue-card-21'], ['DONE', 'issue-card-31']] as const) {
-      if (status === 'DONE') await page.getByTestId('board-tab-DONE').click();
-      const tab = page.getByTestId(`board-tab-${status}`);
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=1`);
+    // 탭은 시드 상태 id — 할 일 1·완료 3.
+    for (const [statusId, card] of [[1, 'issue-card-21'], [3, 'issue-card-31']] as const) {
+      if (statusId === 3) await page.getByTestId('board-tab-3').click();
+      const tab = page.getByTestId(`board-tab-${statusId}`);
       await expect(tab).toHaveAttribute('aria-selected', 'true');
       const panel = page.locator(`[id="${await tab.getAttribute('aria-controls')}"]`);
       await expect(panel).toHaveAttribute('role', 'tabpanel');
@@ -120,59 +127,68 @@ test.describe('모바일 보드 상태 탭', () => {
   test('탭을 누르면 전환되고 URL boardTab 으로 유지(새로고침 복귀)', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&group=none`);
-    await page.getByTestId('board-tab-DONE').click();
-    await expect(page).toHaveURL(/boardTab=DONE/);
+    await page.getByTestId('board-tab-3').click();
+    await expect(page).toHaveURL(/boardTab=3/);
     await expect(page.getByTestId('issue-card-31')).toBeVisible();
     await page.reload();
-    await expect(page.getByTestId('board-tab-DONE')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('board-tab-3')).toHaveAttribute('aria-selected', 'true');
     await expect(page.getByTestId('issue-card-31')).toBeVisible();
+  });
+
+  test('예전 범주 링크(boardTab=DONE)는 그 범주 첫 상태 탭으로 열리고 URL 이 statusId 로 바뀐다', async ({ authenticatedPage: page }) => {
+    await mock(page);
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=DONE`);
+    await expect(page.getByTestId('board-tab-3')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('issue-card-31')).toBeVisible();
+    await expect(page).toHaveURL(/boardTab=3(&|$)/);
   });
 
   test('기본 탭은 첫 로드 후 URL 에 고정 — 마지막 진행 중 카드를 완료로 옮겨도 탭이 튀지 않는다', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&group=none`);
-    await expect(page).toHaveURL(/boardTab=IN_PROGRESS/);
+    await expect(page).toHaveURL(/boardTab=2/);
     await longPressWithMouse(page, page.getByTestId('issue-card-1047'));
     await page.getByTestId('mobile-action-status').click();
-    await page.getByTestId('picker-option-DONE').click();
-    await expect(page.getByTestId('board-tab-count-DONE')).toHaveText('2');
-    await expect(page.getByTestId('board-tab-IN_PROGRESS')).toHaveAttribute('aria-selected', 'true');
+    // 상태 시트 선택지는 프로젝트 상태(시드 「완료」 id 3, WP-808).
+    await page.getByTestId('picker-option-3').click();
+    await expect(page.getByTestId('board-tab-count-3')).toHaveText('2');
+    await expect(page.getByTestId('board-tab-2')).toHaveAttribute('aria-selected', 'true');
   });
 
   test('좌우 스와이프로 이웃 탭 전환, 끝에서는 그대로, 스와이프 후 상세로 이동하지 않는다', async ({ authenticatedPage: page }) => {
     await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=TODO`);
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=1`);
     await expect(page.getByTestId('issue-card-21')).toBeVisible();
     await swipe(page, -150);
-    await expect(page.getByTestId('board-tab-IN_PROGRESS')).toHaveAttribute('aria-selected', 'true');
-    await expect(page).toHaveURL(/boardTab=IN_PROGRESS/);
+    await expect(page.getByTestId('board-tab-2')).toHaveAttribute('aria-selected', 'true');
+    await expect(page).toHaveURL(/boardTab=2/);
     await expect(page).not.toHaveURL(/\/issues\/\d+/);
     await swipe(page, 150);
     await swipe(page, 150);
-    await expect(page.getByTestId('board-tab-TODO')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('board-tab-1')).toHaveAttribute('aria-selected', 'true');
     // 짧은 이동(임계 이하)은 무시
     await swipe(page, -40);
-    await expect(page.getByTestId('board-tab-TODO')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('board-tab-1')).toHaveAttribute('aria-selected', 'true');
   });
 
   test('상태 필터로 제외된 탭은 숨기고, 필터를 바꿔도 선택 탭은 유지된다', async ({ authenticatedPage: page }) => {
     await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none&status=TODO,DONE&boardTab=DONE`);
-    await expect(page.getByTestId('board-tab-IN_PROGRESS')).toHaveCount(0);
-    await expect(page.getByTestId('board-tab-DONE')).toHaveAttribute('aria-selected', 'true');
+    await page.goto(`/projects/${KEY}?view=board&group=none&status=TODO,DONE&boardTab=3`);
+    await expect(page.getByTestId('board-tab-2')).toHaveCount(0);
+    await expect(page.getByTestId('board-tab-3')).toHaveAttribute('aria-selected', 'true');
     // 검색어 입력 = writeFilters 경로
     await page.getByTestId('mobile-search-open').click();
     await page.getByTestId('mobile-search-input').fill('영수증');
     await expect(page).toHaveURL(/q=/);
-    await expect(page).toHaveURL(/boardTab=DONE/);
+    await expect(page).toHaveURL(/boardTab=3/);
   });
 
   test('탭을 바꾸면 목록 스크롤이 맨 위로', async ({ authenticatedPage: page }) => {
     const many = Array.from({ length: 30 }, (_, i) => createIssue({ id: 500 + i, number: 500 + i, projectKey: KEY, title: `대량 할 일 ${i}`, type: makeTaskType(), status: 'TODO' }));
     await mock(page, { issues: [...many, PROG] });
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=TODO`);
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=1`);
     await page.getByTestId('board-scroll').evaluate((el) => el.scrollTo(0, 2000));
-    await page.getByTestId('board-tab-IN_PROGRESS').click();
+    await page.getByTestId('board-tab-2').click();
     await expect.poll(() => page.getByTestId('board-scroll').evaluate((el) => el.scrollTop)).toBe(0);
   });
 });
@@ -186,10 +202,10 @@ test.describe('모바일 그룹·개인 보드', () => {
     const hi = createIssue({ id: 61, number: 61, projectKey: KEY, title: '높음 할 일', type: makeTaskType(), status: 'TODO', priority: 'HIGH' });
     const lo = createIssue({ id: 62, number: 62, projectKey: KEY, title: '낮음 할 일', type: makeTaskType(), status: 'TODO', priority: 'LOW' });
     await mock(page, { issues: [hi, lo, PROG] });
-    await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=TODO`);
-    await expect(page.getByTestId('board-tab-count-TODO')).toHaveText('2');
-    await expect(page.getByTestId('board-group-TODO-HIGH')).toContainText('높음 할 일');
-    await expect(page.getByTestId('board-group-TODO-LOW')).toContainText('낮음 할 일');
+    await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=1`);
+    await expect(page.getByTestId('board-tab-count-1')).toHaveText('2');
+    await expect(page.getByTestId('board-group-1-HIGH')).toContainText('높음 할 일');
+    await expect(page.getByTestId('board-group-1-LOW')).toContainText('낮음 할 일');
     await expect(page.getByTestId('issue-card-1047')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
   });
@@ -197,9 +213,9 @@ test.describe('모바일 그룹·개인 보드', () => {
   test('그룹 보드의 빈 탭도 통일된 빈 상태 — 이슈 추가 버튼 44px 이상', async ({ authenticatedPage: page }) => {
     const hi = createIssue({ id: 61, number: 61, projectKey: KEY, title: '높음 할 일', type: makeTaskType(), status: 'TODO', priority: 'HIGH' });
     await mock(page, { issues: [hi] });
-    await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=CANCELED`);
-    await expect(page.getByTestId('board-col-empty-CANCELED')).toBeVisible();
-    const box = await page.getByTestId('board-col-add-CANCELED').boundingBox();
+    await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=4`);
+    await expect(page.getByTestId('board-col-empty-4')).toBeVisible();
+    const box = await page.getByTestId('board-col-add-4').boundingBox();
     expect(box!.height).toBeGreaterThanOrEqual(44);
   });
 
@@ -207,9 +223,12 @@ test.describe('모바일 그룹·개인 보드', () => {
     await mock(page);
     await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'PERSONAL', viewerIsMember: true }))));
     await page.goto(`/projects/${KEY}?view=board`);
-    await expect(page.getByTestId('board-tab-TODO')).toBeVisible();
-    await expect(page.getByTestId('board-tab-DONE')).toBeVisible();
-    await expect(page.getByTestId('board-tab-CANCELED')).toHaveCount(0);
+    await expect(page.getByTestId('board-tab-1')).toBeVisible();
+    await expect(page.getByTestId('board-tab-3')).toBeVisible();
+    await expect(page.getByTestId('board-tab-4')).toHaveCount(0);
+    // 개인 보드는 상태 편집이 없고(⋯ 없음) 상태가 범주와 1:1 이라 범주 색 띠도 없다.
+    await expect(page.getByTestId('board-tab-menu')).toHaveCount(0);
+    await expect(page.getByTestId('board-tab-band-1')).toHaveCount(0);
   });
 });
 
@@ -221,16 +240,16 @@ test.describe('모바일 보드 종료 이슈 숨김 안내', () => {
 
   test('빈 취소 탭은 숨김 안내와 44px 「완료 모두 보기」를 보이고, 누르면 탭을 유지한 채 숨김을 해제한다', async ({ authenticatedPage: page }) => {
     await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&boardTab=CANCELED&group=none`);
-    const empty = page.getByTestId('board-col-empty-CANCELED');
+    await page.goto(`/projects/${KEY}?view=board&boardTab=4&group=none`);
+    const empty = page.getByTestId('board-col-empty-4');
     await expect(empty).toContainText('활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다');
-    const button = page.getByTestId('board-col-show-closed-CANCELED');
+    const button = page.getByTestId('board-col-show-closed-4');
     expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expectNoHorizontalOverflow(page);
 
     await button.click();
     await expect(page).toHaveURL(/closed=all/);
-    await expect(page).toHaveURL(/boardTab=CANCELED/);
-    await expect(page.getByTestId('board-col-show-closed-CANCELED')).toHaveCount(0);
+    await expect(page).toHaveURL(/boardTab=4/);
+    await expect(page.getByTestId('board-col-show-closed-4')).toHaveCount(0);
   });
 });

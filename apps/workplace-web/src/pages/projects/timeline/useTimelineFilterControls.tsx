@@ -5,21 +5,15 @@ import { useSearchParams } from 'react-router-dom';
 import type { FacetDef, FilterValue } from '@/components/filter';
 import type { MemberResponse } from '@/types/project';
 
-import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { filtersToParams, parseFilters } from '../../../lib/issueFilters';
-import type { IssueFilters, IssueStatus } from '../../../types/issue';
+import type { IssueFilters } from '../../../types/issue';
 import type { MobileFilterControls } from '../components/mobile/MobileFilterSheet';
-
-const STATUS_OPTIONS = [
-  { value: 'TODO', label: '할 일' },
-  { value: 'IN_PROGRESS', label: '진행 중' },
-  { value: 'DONE', label: '완료' },
-  { value: 'CANCELED', label: '취소' },
-];
+import { buildStatusFacets } from '../hooks/statusFacets';
 
 export interface TimelineFilterControls extends MobileFilterControls {
   filters: IssueFilters;
@@ -41,6 +35,8 @@ export function useTimelineFilterControls(
   const labels = useLabels(projectKey);
   const members = useProjectMembers(projectKey);
   const milestones = useMilestones(projectKey);
+  // 타임라인은 한 프로젝트 화면이라 이슈 목록과 같이 「상태」(프로젝트 상태)·「상태 범주」를 따로 둔다(WP-808).
+  const projectStatuses = useProjectStatusList(projectKey);
   // filtersToParams 는 URL 을 새로 만든다 — 타임라인 전용 `period`(WP-247)는 필터 모델 밖이라 이전 값을 옮겨 둔다.
   const write = (next: IssueFilters) =>
     setParams(
@@ -54,20 +50,7 @@ export function useTimelineFilterControls(
     );
 
   const facets: FacetDef[] = [
-    {
-      key: 'status',
-      label: '상태',
-      options: STATUS_OPTIONS.map((o) => ({
-        value: o.value,
-        label: o.label,
-        render: (
-          <span className="flex items-center gap-1.5">
-            <IssueStatusIcon status={o.value as IssueStatus} decorative />
-            {o.label}
-          </span>
-        ),
-      })),
-    },
+    ...buildStatusFacets(projectStatuses),
     {
       key: 'label',
       label: '라벨',
@@ -90,6 +73,7 @@ export function useTimelineFilterControls(
   ];
 
   const filterValue: FilterValue = {
+    statusId: filters.statusIds,
     status: filters.statuses,
     label: filters.labelIds,
     milestone: filters.milestoneIds,
@@ -100,6 +84,7 @@ export function useTimelineFilterControls(
     write({
       ...filters,
       statuses: (next.status ?? []) as string[],
+      statusIds: (next.statusId ?? []) as number[],
       labelIds: (next.label ?? []) as number[],
       milestoneIds: (next.milestone ?? []) as number[],
       // 데스크톱은 담당자 facet 이 없으므로 기존 값을 그대로 유지한다(아바타 스택이 유일한 쓰기 경로).
@@ -107,14 +92,14 @@ export function useTimelineFilterControls(
     });
   }
 
-  // 활성 필터 수 — 상태·라벨·마일스톤·담당자(아바타로 건 담당자도 모바일 칩 「필터 N」에 센다).
-  const activeFilterCount = [filters.statuses, filters.labelIds, filters.milestoneIds, filters.assigneeIds].filter(
+  // 활성 필터 수 — 상태·상태 범주·라벨·마일스톤·담당자(아바타로 건 담당자도 모바일 칩 「필터 N」에 센다).
+  const activeFilterCount = [filters.statusIds, filters.statuses, filters.labelIds, filters.milestoneIds, filters.assigneeIds].filter(
     (v) => v.length > 0,
   ).length;
 
-  // 모바일 필터 시트 「전체 해제」 — 위 4종을 모두 비운다(검색어 등 그 밖의 URL 값은 parseFilters 왕복으로 유지).
+  // 모바일 필터 시트 「전체 해제」 — 위 5종을 모두 비운다(검색어 등 그 밖의 URL 값은 parseFilters 왕복으로 유지).
   const clearFacets = () =>
-    write({ ...filters, statuses: [], labelIds: [], milestoneIds: [], assigneeIds: [], includeUnassigned: false });
+    write({ ...filters, statuses: [], statusIds: [], labelIds: [], milestoneIds: [], assigneeIds: [], includeUnassigned: false });
 
   const toggleAssignee = (userId: number) => {
     const cur = filters.assigneeIds;

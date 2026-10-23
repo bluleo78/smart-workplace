@@ -30,9 +30,12 @@ public class IssueHistoryRecorder {
       historyRepository.insert(
           before.id(), actorId, "TITLE_CHANGED", before.title(), after.title());
     }
-    if (!Objects.equals(before.status(), after.status())) {
+    // 상태는 프로젝트 상태 id 로 비교해 같은 범주 안 이동(진행 중 → 검토 중)도 남긴다(WP-807). 값은 그 시점의 상태 이름 — 나중에 이름을
+    // 바꿔도 이력은 당시 이름을 보여 준다. 예전 행의 범주 코드는 웹이 범주 라벨로 표시한다.
+    if (!Objects.equals(before.statusId(), after.statusId())
+        || !Objects.equals(before.status(), after.status())) {
       historyRepository.insert(
-          before.id(), actorId, "STATUS_CHANGED", before.status(), after.status());
+          before.id(), actorId, "STATUS_CHANGED", statusLabel(before), statusLabel(after));
     }
     if (!Objects.equals(before.priority(), after.priority())) {
       historyRepository.insert(
@@ -66,6 +69,11 @@ public class IssueHistoryRecorder {
               : milestoneRepository.findById(after.milestoneId()).map(m -> m.name()).orElse(null);
       historyRepository.insert(before.id(), actorId, "MILESTONE_CHANGED", fromName, toName);
     }
+  }
+
+  /** 이력에 남길 상태 값 — 상태 이름, 이름을 모르는 행(서브쿼리 없이 만든 행)이면 범주 코드. */
+  private static String statusLabel(IssueRow row) {
+    return row.statusName() != null ? row.statusName() : row.status();
   }
 
   /**

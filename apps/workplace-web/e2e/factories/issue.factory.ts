@@ -6,16 +6,21 @@ import type {
   IssueSearchResponse,
 } from '../../src/types/issue';
 import { makeTaskType } from './issueType.factory';
+import { seedStatusOf } from './projectStatus.factory';
 
 // 테스트용 이슈 요약 객체 팩토리.
+// statusId·statusName 은 status(범주)의 기본 시드 상태(id 1~4)에서 유도한다 — 직접 넘기면 그 값이 이긴다(WP-808).
 export function createIssue(overrides: Partial<IssueResponse> = {}): IssueResponse {
   const now = new Date().toISOString();
+  const seed = seedStatusOf(overrides.status ?? 'TODO');
   return {
     id: 100,
     projectKey: 'WP',
     number: 1,
     title: '첫 이슈',
     status: 'TODO',
+    statusId: seed.id,
+    statusName: seed.name,
     priority: 'MID',
     dueDate: null,
     // 타임라인 간트 뷰 필드 (#620) — 기본은 미배치 이슈.

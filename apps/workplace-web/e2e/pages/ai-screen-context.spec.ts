@@ -217,7 +217,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 이슈 목록', () => {
     await expect.poll(chat.count).toBe(1)
     expect(chat.bodies<HomeChatStartBody>()[0].screenContext).toMatchObject({ view: '이슈 목록', scope: { refs: { projectKey: 'WP' }, count: 1, hasMore: false } })
     expect(chat.bodies<HomeChatStartBody>()[0].screenContext!.scope!.facts).toEqual(
-      expect.arrayContaining([{ label: '상태', value: '할 일' }, { label: '검색어', value: '로그인' }]),
+      expect.arrayContaining([{ label: '상태 범주', value: '할 일' }, { label: '검색어', value: '로그인' }]),
     )
   })
 })

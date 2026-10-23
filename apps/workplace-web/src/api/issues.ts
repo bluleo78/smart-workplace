@@ -4,12 +4,13 @@ import type {
   CreateIssueRequest,
   IssueAiClassifyResponse,
   IssueAiContext,
-  IssueCountableGroupBy,
   IssueDetailResponse,
   IssueFilters,
+  IssueGroupCountsBy,
   IssueGroupCountsResponse,
   IssueResponse,
   IssueSearchResponse,
+  IssueStatus,
   UpdateIssueRequest,
 } from '../types/issue';
 import { client } from './client';
@@ -37,6 +38,8 @@ function issueFilterParams(filters: IssueFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.q) params.set('q', filters.q);
   if (filters.statuses.length) params.set('status', filters.statuses.join(','));
+  // 개별 상태(WP-808) — 서버가 범주(status)와 AND 로 묶는다.
+  if (filters.statusIds.length) params.set('statusId', filters.statusIds.join(','));
   if (filters.priorities.length) params.set('priority', filters.priorities.join(','));
   const assigneeTokens: string[] = [
     ...filters.assigneeIds.map(String),
@@ -91,7 +94,7 @@ export async function searchIssues(
 export async function getIssueGroupCounts(
   projectKey: string,
   filters: IssueFilters,
-  groupBy: IssueCountableGroupBy,
+  groupBy: IssueGroupCountsBy,
 ): Promise<IssueGroupCountsResponse> {
   const params = issueFilterParams(filters);
   params.set('groupBy', groupBy);
@@ -101,15 +104,18 @@ export async function getIssueGroupCounts(
   return data;
 }
 
-// DnD 전용 — status 만 변경. 응답은 갱신된 IssueDetailResponse.
+/** 상태 변경 본문(WP-808) — 프로젝트 상태 id, 또는 범주(그 범주의 기본 상태로 간다. 이미 그 범주면 유지). */
+export type IssueStatusUpdateBody = { statusId: number } | { status: IssueStatus };
+
+// DnD·행 메뉴·일괄 변경 — 상태만 변경. 응답은 갱신된 IssueDetailResponse.
 export async function updateIssueStatus(
   projectKey: string,
   number: number,
-  status: string,
+  body: IssueStatusUpdateBody,
 ): Promise<IssueDetailResponse> {
   const { data } = await client.patch<IssueDetailResponse>(
     `/projects/${projectKey}/issues/${number}/status`,
-    { status },
+    body,
   );
   return data;
 }

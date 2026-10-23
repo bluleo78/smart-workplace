@@ -9,6 +9,8 @@ import {
   rowByName,
   toFieldValue,
   splitLabelNames,
+  splitStatusTokens,
+  resolveStatusId,
   type CurrentUserClient,
   type ProjectMetaClient,
 } from './resolve.js';
@@ -35,8 +37,43 @@ function client(): ProjectMetaClient & CurrentUserClient {
       { id: 31, name: 'Sprint 4', status: 'PLANNED' },
     ]),
     getProjectFields: vi.fn().mockResolvedValue([]),
+    getProjectStatuses: vi.fn().mockResolvedValue([
+      { id: 10, name: '할 일', category: 'TODO', position: 0 },
+      { id: 11, name: '진행 중', category: 'IN_PROGRESS', position: 1 },
+      { id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 },
+    ]),
   };
 }
+
+describe('splitStatusTokens (WP-807)', () => {
+  it('splitStatusTokens: 범주와 이름을 나눈다', () => {
+    expect(splitStatusTokens('done, 검토 중 ,IN_PROGRESS')).toEqual({ categories: ['DONE', 'IN_PROGRESS'], names: ['검토 중'] });
+  });
+  it('빈 토큰은 버린다', () => {
+    expect(splitStatusTokens(' , TODO,,')).toEqual({ categories: ['TODO'], names: [] });
+  });
+});
+
+describe('resolveStatusId (WP-807)', () => {
+  it('상태 이름을 프로젝트 상태 id 로 바꾼다', async () => {
+    const c = client();
+    await expect(resolveStatusId(c, 'WP', '검토 중')).resolves.toBe(12);
+    expect(c.getProjectStatuses).toHaveBeenCalledWith('WP');
+  });
+  it('모르는 이름은 사용 가능 목록을 담아 throw', async () => {
+    await expect(resolveStatusId(client(), 'WP', '배포')).rejects.toThrow("상태 '배포' 을(를) 찾을 수 없습니다. 사용 가능: 할 일, 진행 중, 검토 중");
+  });
+  it('대소문자·앞뒤 공백만 다른 이름도 찾는다 — 서버 lower(btrim) 과 같은 규칙', async () => {
+    const c = client();
+    vi.mocked(c.getProjectStatuses).mockResolvedValue([
+      { id: 31, name: 'Review', category: 'IN_PROGRESS', position: 1 },
+      { id: 32, name: ' QA Wait ', category: 'IN_PROGRESS', position: 2 },
+    ]);
+    await expect(resolveStatusId(c, 'WP', 'review')).resolves.toBe(31);
+    await expect(resolveStatusId(c, 'WP', '  REVIEW ')).resolves.toBe(31);
+    await expect(resolveStatusId(c, 'WP', 'qa wait')).resolves.toBe(32);
+  });
+});
 
 describe('resolveTypeId', () => {
   it('유형 이름을 id 로 변환한다', async () => {

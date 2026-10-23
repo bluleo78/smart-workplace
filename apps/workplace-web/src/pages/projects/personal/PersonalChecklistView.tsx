@@ -31,6 +31,7 @@ export function PersonalChecklistView({
     const hasActiveFilters =
       filters.q !== '' ||
       filters.statuses.length > 0 ||
+      filters.statusIds.length > 0 ||
       filters.priorities.length > 0 ||
       filters.labelIds.length > 0 ||
       filters.assigneeIds.length > 0;

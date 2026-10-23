@@ -397,6 +397,8 @@ describe('프로젝트', () => {
     getProjectCycles: vi.fn().mockResolvedValue([{ id: 5, projectId: 3, name: 'S1', goal: null, startDate: null, endDate: null, status: 'ACTIVE' }]),
     // WP-356: 커스텀 필드 정의(IssueFieldDefResponse)·메타 생성/수정 응답(LabelResponse 등)은 사용자 ID 를 담지 않지만, 숫자 id·projectId 는 뺀다.
     getProjectFields: vi.fn().mockResolvedValue([{ id: 8, projectId: 3, name: '고객사', type: 'SELECT', options: ['A'], position: 0 }]),
+    // WP-807: 프로젝트 상태 — 숫자 id 는 get_project 출력에서 빠진다.
+    getProjectStatuses: vi.fn().mockResolvedValue([{ id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 }]),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 9, username: 'alice', name: '앨리스', role: 'OWNER' }]),
     createProject: vi.fn().mockResolvedValue(project),
     updateProject: vi.fn().mockResolvedValue(project),

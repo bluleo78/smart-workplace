@@ -44,7 +44,10 @@ export interface IssueDetail {
   issueKey: string;
   title: string;
   body: string | null;
+  /** 상태 범주(TODO·IN_PROGRESS·DONE·CANCELED). */
   status: string;
+  /** 프로젝트 상태 이름(WP-807) — 범주 안의 개별 상태. 서버가 안 주면 null. */
+  statusName: string | null;
   priority: string;
   type: string | null;
   assignees: PersonView[];
@@ -151,6 +154,7 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
     title: String(s.title ?? r.title ?? ''),
     body: (r.body ?? s.body ?? null) as string | null,
     status: String(s.status ?? r.status ?? ''),
+    statusName: (s.statusName ?? r.statusName ?? null) as string | null,
     priority: String(s.priority ?? r.priority ?? ''),
     type: typeName(s.type),
     assignees: toPeopleView(s.assignees ?? r.assignees),

@@ -39,9 +39,11 @@ export function buildUserMessage(env: IssueEventEnvelope): string {
     }
     case 'issue.status_changed': {
       const p = env.payload;
+      // WP-807: 상태 이름이 오면 "이름(범주)" 로 보여 준다 — 이름이 없는 구 페이로드는 범주만.
+      const label = (category: string, name?: string | null) => (name ? `${name}(${category})` : category);
       return (
         `[이벤트: issue.status_changed]\n` +
-        `담당한 이슈의 상태가 변경됐습니다: ${p.previousStatus} → ${p.newStatus} (by @${p.actor.username}).\n` +
+        `담당한 이슈의 상태가 변경됐습니다: ${label(p.previousStatus, p.previousStatusName)} → ${label(p.newStatus, p.newStatusName)} (by @${p.actor.username}).\n` +
         `이슈키: ${p.issueKey}\n\n` +
         `필요한 대응이 있으면 진행. 단순 알림이면 무시.`
       );

@@ -368,6 +368,9 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/3/drive-links');
     expect(await client.getProjectFields('WP')).toEqual([]);
     expect(http.get).toHaveBeenCalledWith('/projects/WP/fields');
+    // WP-807: 프로젝트 상태 목록
+    expect(await client.getProjectStatuses('WP')).toEqual([]);
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/statuses');
     await client.updateIssueFields('WP-3', [{ defId: 8, value: 'A' }]);
     expect(http.put).toHaveBeenCalledWith('/projects/WP/issues/3/fields', { values: [{ defId: 8, value: 'A' }] });
     await client.addIssueDriveLink('WP-3', 77);

@@ -39,6 +39,11 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const milestoneIds = csv(params.get('milestone'))
     .map((s) => Number(s))
     .filter((n) => Number.isFinite(n) && n > 0);
+  // statusId(「상태」 — 프로젝트 상태 id, WP-808) 토큰도 동일 규칙 — 양의 정수만 통과.
+  // 기존 status 키는 「상태 범주」로 그대로 남아 예전 링크·저장 뷰가 범주 필터로 열린다.
+  const statusIds = csv(params.get('statusId'))
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0);
   // type 토큰도 동일 규칙 — 양의 정수만 통과.
   const typeIds = csv(params.get('type'))
     .map((s) => Number(s))
@@ -61,6 +66,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     statuses: csv(params.get('status')).filter((s) =>
       (STATUSES as readonly string[]).includes(s),
     ),
+    statusIds,
     priorities: csv(params.get('priority')).filter((p) =>
       (PRIORITIES as readonly string[]).includes(p),
     ),
@@ -97,7 +103,7 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
   };
 }
 
-// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 완료 상태 선택, 지난 사이클·마일스톤 선택은
+// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 상태 범주·개별 상태(WP-808) 선택, 지난 사이클·마일스톤 선택은
 // 그 묶음 전체가 대상이라 숨기지 않는다. 묶음을 고르는 필터 필드를 새로 추가하면 여기 포함 여부를 결정할 것.
 // (검색어 q 는 의도적으로 제외 — 검색도 기본 범위 안에서 동작하고, 지난 이슈는 「완료 모두 보기」로 찾는다.)
 // (에픽 선택 parent 도 제외 — 진행 중 에픽의 백로그에 지난 사이클 완료분이 쌓이지 않게 사용자 토글을 따른다.
@@ -105,6 +111,7 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
 export function overridesClosedHiding(f: IssueFilters): boolean {
   return (
     f.statuses.length > 0 ||
+    f.statusIds.length > 0 ||
     f.cycleIds.length > 0 ||
     !!f.cycleUnassigned ||
     f.milestoneIds.length > 0
@@ -164,6 +171,7 @@ export function filtersToParams(
   if (groupBy) p.set('group', groupBy);
   if (f.q) p.set('q', f.q);
   if (f.statuses.length) p.set('status', f.statuses.join(','));
+  if (f.statusIds.length) p.set('statusId', f.statusIds.join(','));
   if (f.priorities.length) p.set('priority', f.priorities.join(','));
   const assigneeTokens: string[] = [...f.assigneeIds.map(String)];
   if (f.includeUnassigned) assigneeTokens.push('null');
@@ -199,6 +207,7 @@ function csv(v: string | null): string[] {
  * 필터를 URL 로 다시 쓸 때 모바일 보드 선택 탭(boardTab)을 이어 붙인다(WP-195).
  * filtersToParams 는 필터·view·group 만으로 새 쿼리를 만들어 boardTab 을 버린다 → 필터를 바꿀 때마다 탭이 기본값으로 튄다.
  * 보드 뷰가 유지될 때만 보존하고, 목록으로 바뀌면 버린다(쓸모없는 키를 남기지 않게).
+ * 값(statusId 또는 예전 범주 코드)은 해석하지 않고 그대로 옮긴다 — 해석은 resolveBoardTab 이 맡는다.
  * 필터 URL 을 새로 쓰는 곳은 이 함수를 거쳐야 탭이 유지된다.
  */
 export function carryBoardTab(next: URLSearchParams, prev: URLSearchParams): URLSearchParams {
@@ -207,9 +216,9 @@ export function carryBoardTab(next: URLSearchParams, prev: URLSearchParams): URL
   return next;
 }
 
-/** 현재 쿼리를 복사해 모바일 보드 선택 탭(boardTab)만 바꾼 새 쿼리 — 탭 선택·기본 탭 고정이 같이 쓴다(WP-195). */
-export function withBoardTab(prev: URLSearchParams, status: string): URLSearchParams {
+/** 현재 쿼리를 복사해 모바일 보드 선택 탭(boardTab = 프로젝트 statusId, WP-808)만 바꾼 새 쿼리 — 탭 선택·기본 탭 고정이 같이 쓴다(WP-195). */
+export function withBoardTab(prev: URLSearchParams, statusId: number): URLSearchParams {
   const next = new URLSearchParams(prev);
-  next.set(BOARD_TAB_PARAM, status);
+  next.set(BOARD_TAB_PARAM, String(statusId));
   return next;
 }

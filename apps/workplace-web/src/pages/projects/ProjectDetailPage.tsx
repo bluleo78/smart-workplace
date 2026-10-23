@@ -18,12 +18,14 @@ import { useMilestones } from '../../hooks/queries/useMilestones';
 import { useProjectEpics } from '../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
+import { useProjectStatusList } from '../../hooks/queries/useProjectStatuses';
+import { useAuth } from '../../hooks/useAuth';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
 import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue';
 import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
-import { canCreateIssueIn } from '../../lib/projectPermissions';
-import type { IssueStatus } from '../../types/issue';
+import { canCreateIssueIn, isProjectOwner } from '../../lib/projectPermissions';
+import { canEditStatuses } from '../../lib/projectStatuses';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
 import { IssueCreateDialog } from './components/IssueCreateDialog';
@@ -42,10 +44,10 @@ export default function ProjectDetailPage() {
   const { key = '' } = useParams();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  // 새 이슈의 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」는 그 컬럼 상태를, 헤더 「+ 새 태스크」는 기본(할 일)을 넘긴다.
-  const [createStatus, setCreateStatus] = useState<IssueStatus | undefined>(undefined);
-  const openCreate = (status?: IssueStatus) => {
-    setCreateStatus(status);
+  // 새 이슈의 처음 상태(WP-464·WP-808) — 보드 컬럼의 「이슈 추가」는 그 컬럼 상태 id 를, 헤더 「+ 새 태스크」는 기본(할 일)을 넘긴다.
+  const [createStatusId, setCreateStatusId] = useState<number | undefined>(undefined);
+  const openCreate = (statusId?: number) => {
+    setCreateStatusId(statusId);
     setOpen(true);
   };
   const project = useProject(key);
@@ -123,7 +125,7 @@ export default function ProjectDetailPage() {
           canEdit={isMember}
         />
       </Page.Body>
-      <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} initialStatus={createStatus} />
+      <IssueCreateDialog projectKey={key} open={open} onOpenChange={setOpen} initialStatusId={createStatusId} />
     </Page>
   );
 }
@@ -138,7 +140,7 @@ function IssueArea({
   canEdit,
 }: {
   projectKey: string;
-  onOpenCreate?: (status?: IssueStatus) => void;
+  onOpenCreate?: (statusId?: number) => void;
   canDragStatus?: boolean;
   canEdit: boolean;
 }) {
@@ -157,7 +159,7 @@ function ProjectIssuesSection({
   canEdit,
 }: {
   projectKey: string;
-  onOpenCreate?: (status?: IssueStatus) => void;
+  onOpenCreate?: (statusId?: number) => void;
   canDragStatus: boolean;
   // 길게 누르기 액션(상태·에픽) 권한 = 멤버 여부 — 모바일에선 canDragStatus 가 꺼져도 유지된다.
   canEdit: boolean;
@@ -186,6 +188,11 @@ function ProjectIssuesSection({
   const types = useIssueTypes(projectKey);
   const cycles = useCycles(projectKey);
   const milestones = useMilestones(projectKey);
+  // 프로젝트 상태(WP-808) — 보드 컬럼, 「상태」 필터(statusIds)를 AI 화면 컨텍스트에 이름으로 싣기.
+  const projectStatuses = useProjectStatusList(projectKey);
+  // 보드에서 상태 추가·이름 변경 — 프로젝트 OWNER 만(서버와 같은 규칙, 개인 프로젝트는 이 화면에 오지 않는다).
+  const { user } = useAuth();
+  const statusEditable = canEditStatuses(isProjectOwner(members.data, user?.id), project.data?.type);
   // 리스트 뷰가 보고하는 로드 건수 — 보드는 컬럼별 로드, 사이클 그룹(#878)은 구간별 로드라 건수를 싣지 않는다.
   const [loaded, setLoaded] = useState<{ count: number; hasMore: boolean } | null>(null);
   // 목록 정체성(보기 + 리스트 쿼리 키와 같은 기본 범위 적용 필터)이 바뀌면 이전 건수를 버린다 —
@@ -217,11 +224,12 @@ function ProjectIssuesSection({
           types: types.data ?? [],
           cycles: cycles.data ?? [],
           milestones: milestones.data ?? [],
+          statuses: projectStatuses,
         },
         count: listLoaded?.count,
         hasMore: listLoaded?.hasMore,
       }),
-    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, listLoaded],
+    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, listLoaded],
   );
   useRegisterAiScreenContext(screenContext);
 
@@ -259,6 +267,7 @@ function ProjectIssuesSection({
               // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
               filters={withDefaultIssueScope(filters)}
               groupBy={toClientGroupBy(groupBy)}
+              canEditStatuses={statusEditable}
               onOpenCreate={onOpenCreate}
               canDragStatus={canDragStatus}
               canEdit={canEdit}

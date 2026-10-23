@@ -115,6 +115,8 @@ const RULES: Record<string, Rule> = {
   ]),
   'field-def': configRule((pk) => [{ queryKey: ['customFields', pk] }]),
   'issue-type': configRule((pk) => [{ queryKey: ['issueTypes', pk] }]),
+  // 프로젝트별 이슈 상태(WP-807) — 보드 컬럼·상태 고르기가 쓰는 상태 목록.
+  'project-status': configRule((pk) => [{ queryKey: ['projectStatuses', pk] }]),
   'saved-view': (p) => [
     ...(p.projectKey ? [{ queryKey: ['savedViews', p.projectKey] }] : []),
     { queryKey: ['pinnedViews'] },

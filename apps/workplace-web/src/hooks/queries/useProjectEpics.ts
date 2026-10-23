@@ -17,6 +17,7 @@ function epicListFilters(epicTypeId: number, statuses: string[], activeCycleOnly
   return {
     q: '',
     statuses,
+    statusIds: [],
     priorities: [],
     assigneeIds: [],
     includeUnassigned: false,

@@ -1,5 +1,6 @@
 // 이슈 상태 인라인 변경 select. shadcn/Radix Select 사용.
-// 미완료 선행(blockedBy) 이슈가 있는 상태에서 '완료'로 전환하면 AlertDialog 로 한 번 확인한다(#827).
+// 선택지는 프로젝트 상태 목록(이름, WP-808)이고 값은 statusId 다 — 아이콘·종료 판정은 상태의 범주로 한다.
+// 미완료 선행(blockedBy) 이슈가 있는 상태에서 완료 범주로 전환하면 AlertDialog 로 한 번 확인한다(#827).
 // 의존성은 일정(scheduling) 관계라 서버는 전환을 막지 않는다 — soft 경고 정책(#669 와 동일 원칙).
 
 import { useRef, useState } from 'react';
@@ -17,15 +18,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useRestoreFocusAfterPick } from '@/hooks/useRestoreFocusOnExit';
 
-import type { IssueLinkSummary, IssueStatus } from '../../../types/issue';
+import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
+import { findStatus, needsDoneConfirm } from '../../../lib/projectStatuses';
+import type { IssueLinkSummary } from '../../../types/issue';
+import type { ProjectStatus } from '../../../types/projectStatus';
 import { incompleteBlockers } from './incompleteBlockers';
-
-const OPTIONS: { value: IssueStatus; label: string }[] = [
-  { value: 'TODO', label: '할 일' },
-  { value: 'IN_PROGRESS', label: '진행 중' },
-  { value: 'DONE', label: '완료' },
-  { value: 'CANCELED', label: '취소' },
-];
 
 // 완료 전환 확인 다이얼로그(#827) — 데스크톱 Select 와 모바일 상태 칩(WP-196)이 같은 확인을 쓴다.
 // 취소하면 상태 유지, 확인하면 호출부가 그대로 PATCH 한다.
@@ -75,48 +72,67 @@ export function StatusDoneBlockedDialog({
   );
 }
 
-// 상태 변경 시 onChange 콜백으로 상위에 위임 — 인라인 patch 호출에 사용.
-// blockedBy 를 넘기면 DONE 전환 직전 미완료 선행 이슈 확인 다이얼로그를 끼워 넣는다(취소 시 전환 중단).
+// 상태 변경 시 onChange 콜백으로 상위에 위임 — 인라인 patch 호출에 사용(호출부가 statusId·이름·범주를 함께 쓴다).
+// blockedBy 를 넘기면 완료 범주 전환 직전 미완료 선행 이슈 확인 다이얼로그를 끼워 넣는다(취소 시 전환 중단).
 export function IssueStatusSelect({
   value,
+  statuses,
+  currentName,
   onChange,
   disabled,
   blockedBy = [],
   projectKey,
 }: {
-  value: IssueStatus;
-  onChange: (v: IssueStatus) => void;
+  /** 현재 statusId. */
+  value: number;
+  /** 프로젝트 상태 목록(서버 표시 순서) — 그대로 옵션으로 쓴다. */
+  statuses: readonly ProjectStatus[];
+  /** 현재 상태 이름(응답 statusName) — 상태 목록 로딩 중이거나 목록에 없는 statusId 면 트리거에 대신 보인다. */
+  currentName?: string;
+  onChange: (s: ProjectStatus) => void;
   disabled?: boolean;
   blockedBy?: IssueLinkSummary[];
   // 다이얼로그에 선행 이슈 키(KEY-번호)를 표시하기 위한 프로젝트 키 — 없으면 #번호 로 표시.
   projectKey?: string;
 }) {
   // 확인 대기 중인 목표 상태 — null 이면 다이얼로그 닫힘.
-  const [pending, setPending] = useState<IssueStatus | null>(null);
+  const [pending, setPending] = useState<ProjectStatus | null>(null);
   const blockers = incompleteBlockers(blockedBy);
+  const current = findStatus(statuses, value);
+  // 트리거 툴팁 — 긴 이름은 말줄임되므로 전체 이름을 title 로 남긴다.
+  const triggerName = current?.name ?? currentName;
   // 값을 고르면 저장 중 잠금(disabled)으로 트리거가 포커스를 잃어 body 로 빠졌다 — 풀리면 트리거로 돌린다(WP-813).
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const markPicked = useRestoreFocusAfterPick(disabled ?? false, triggerRef);
 
-  const handleChange = (v: IssueStatus) => {
+  const handleChange = (id: string) => {
+    const next = findStatus(statuses, id);
+    if (!next || next.id === value) return;
     markPicked();
-    // 완료 전환 + 미완료 선행 존재 → 즉시 PATCH 하지 않고 확인 다이얼로그.
-    if (v === 'DONE' && v !== value && blockers.length > 0) {
-      setPending(v);
+    // 완료 범주로 처음 들어가고 미완료 선행이 있으면 → 즉시 PATCH 하지 않고 확인 다이얼로그(needsDoneConfirm).
+    if (needsDoneConfirm(next, current?.category, blockers.length)) {
+      setPending(next);
       return;
     }
-    onChange(v);
+    onChange(next);
   };
 
   return (
     <>
-      <Select value={value} onValueChange={(v) => handleChange(v as IssueStatus)} disabled={disabled}>
-        <SelectTrigger ref={triggerRef} className="w-full" aria-label="상태" data-testid="issue-status-select">
-          <SelectValue />
+      <Select value={String(value)} onValueChange={handleChange} disabled={disabled}>
+        <SelectTrigger ref={triggerRef} className="w-full" aria-label="상태" title={triggerName} data-testid="issue-status-select">
+          {/* 목록에서 현재 상태를 찾으면 Radix 가 그 항목을 그리고, 못 찾으면(로딩 중 등) 응답의 이름을 그대로 보인다.
+              이름은 min-w-0 truncate span 으로 감싼다 — 값 영역이 flex + line-clamp 라 텍스트 노드만으론 말줄임표가 생기지 않는다. */}
+          <SelectValue>{current ? undefined : currentName && <span className="min-w-0 truncate">{currentName}</span>}</SelectValue>
         </SelectTrigger>
-        <SelectContent>
-          {OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+        {/* popper + collisionPadding — 내용 폭만큼 커지는 item-aligned 는 화면 경계를 무시해 30자 이름이면 오른쪽으로 넘쳤다.
+            popper 는 Radix 가 화면 안(여백 8px)으로 밀어 넣는다. 트리거 오른쪽 끝에 맞춰 연다. */}
+        <SelectContent position="popper" align="end" collisionPadding={8}>
+          {statuses.map((s) => (
+            <SelectItem key={s.id} value={String(s.id)} data-testid={`issue-status-option-${s.id}`}>
+              <IssueStatusIcon status={s.category} decorative className="size-4" />
+              <span className="min-w-0 truncate">{s.name}</span>
+            </SelectItem>
           ))}
         </SelectContent>
       </Select>

@@ -78,6 +78,7 @@ import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
+import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
 import com.workplace.jooq.tables.Role.RolePath;
 import com.workplace.jooq.tables.RolePermission.RolePermissionPath;
 import com.workplace.jooq.tables.SavedView.SavedViewPath;
@@ -1328,6 +1329,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _membership = new MembershipPath(this, null, Keys.MEMBERSHIP__MEMBERSHIP_TENANT_ID_FKEY.getInverseKey());
 
         return _membership;
+    }
+
+    private transient ProjectStatusPath _projectStatus;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_status</code> table
+     */
+    public ProjectStatusPath projectStatus() {
+        if (_projectStatus == null)
+            _projectStatus = new ProjectStatusPath(this, null, Keys.PROJECT_STATUS__PROJECT_STATUS_TENANT_ID_FKEY.getInverseKey());
+
+        return _projectStatus;
     }
 
     private transient SharedAiMemoryChangePath _sharedAiMemoryChange;

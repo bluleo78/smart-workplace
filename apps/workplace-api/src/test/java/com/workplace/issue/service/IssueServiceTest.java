@@ -698,12 +698,13 @@ class IssueServiceTest extends IntegrationTestBase {
     assertThat(statusOf(child.id())).isEqualTo("TODO");
     assertThat(statusOf(epic.id())).isEqualTo("IN_PROGRESS");
     assertThat(issueRepository.findById(epic.id()).orElseThrow().closedAt()).isNull();
+    // 이력은 그 시점의 상태 이름으로 남는다(WP-807).
     var epicHistory = issueService.get(ownerId, projectKey, epic.number()).history();
     assertThat(epicHistory)
         .anySatisfy(
             h -> {
-              assertThat(h.fromValue()).isEqualTo("DONE");
-              assertThat(h.toValue()).isEqualTo("IN_PROGRESS");
+              assertThat(h.fromValue()).isEqualTo("완료");
+              assertThat(h.toValue()).isEqualTo("진행 중");
             });
   }
 

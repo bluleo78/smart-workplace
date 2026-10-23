@@ -5,14 +5,14 @@ import { useEffect, useState } from 'react';
 
 import { focusRow } from '@/hooks/useListFocusRescue';
 
-/** 키보드로 옮긴 카드(이슈 번호)와 놓은 열(상태). */
+/** 키보드로 옮긴 카드(이슈 번호)와 놓은 열 — column 은 열 testid 의 키(프로젝트 상태 보드는 상태 id, WP-808). */
 interface KeyboardDrop {
   number: number;
-  status: string;
+  column: string | number;
 }
 
 const cardSelector = (number: number) => `[data-testid="issue-card-${number}"]`;
-const columnSelector = (status: string) => `[data-testid="board-col-${status}"]`;
+const columnSelector = (column: string | number) => `[data-testid="board-col-${column}"]`;
 
 /**
  * 돌려준 함수를 키보드 상태 드롭 때 부른다. 그 뒤 다시 그려질 때마다, 포커스가 빠져 있거나 놓은 열에 맡겨 둔 상태면:
@@ -28,7 +28,7 @@ export function useKeyboardDropFocus() {
     if (!drop) return;
     const onFocusIn = (e: FocusEvent) => {
       const t = e.target;
-      if (t instanceof Element && (t.matches(cardSelector(drop.number)) || t.matches(columnSelector(drop.status)))) return;
+      if (t instanceof Element && (t.matches(cardSelector(drop.number)) || t.matches(columnSelector(drop.column)))) return;
       setDrop(null);
     };
     document.addEventListener('focusin', onFocusIn);
@@ -42,7 +42,7 @@ export function useKeyboardDropFocus() {
   useEffect(() => {
     if (!drop) return;
     const active = document.activeElement;
-    const column = document.querySelector<HTMLElement>(columnSelector(drop.status));
+    const column = document.querySelector<HTMLElement>(columnSelector(drop.column));
     const lost = active === null || active === document.body || !active.isConnected;
     if (!lost && active !== column) return;
     const card = document.querySelector<HTMLElement>(cardSelector(drop.number));

@@ -109,6 +109,8 @@ class NotificationDispatcherTest {
             List.of(ASSIGNEE_A, ASSIGNEE_B),
             "TODO",
             "IN_PROGRESS",
+            "할 일",
+            "진행 중",
             Instant.now());
 
     dispatcher.onIssueStatusChanged(e);

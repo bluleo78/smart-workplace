@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createAgentMember, createMember, createProject } from '../../factories/project.factory';
+import { statusFieldsOf } from '../../factories/projectStatus.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { bodyOf, trackRequests } from '../../fixtures/requests';
 
@@ -50,7 +51,10 @@ async function mock(page: Page, { members = [ME, KIM, BOT] } = {}) {
       db.delete(Number(num));
       return r.fulfill({ status: 204 });
     }
-    if (it && sub === 'status') it.status = body?.status as typeof it.status;
+    // 상태는 프로젝트 상태 id(statusId, WP-808) 또는 범주(status, 일괄 바) — statusId 면 시드 상태로 범주·이름을 맞춘다.
+    if (it && sub === 'status') {
+      Object.assign(it, body?.statusId != null ? statusFieldsOf(body.statusId as number) : { status: body?.status });
+    }
     if (it && sub === undefined && body?.priority) it.priority = body.priority as typeof it.priority;
     if (it && sub === 'assignees') {
       it.assignees = (body?.userIds as number[]).map((id) => {
@@ -87,14 +91,15 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
     await page.screenshot({ path: 'test-results/tc/issue-row-menu/desktop-row-menu.png' });
   });
 
-  test('우클릭 → 상태 › 진행 중 → PATCH status, 행 아이콘이 즉시 바뀐다', async ({ authenticatedPage: page }) => {
+  // 선택지는 프로젝트 상태(시드 id 1~4, WP-808) — 고른 상태를 statusId 로 보낸다.
+  test('우클릭 → 상태 › 진행 중 → PATCH statusId, 행 아이콘이 즉시 바뀐다', async ({ authenticatedPage: page }) => {
     const api = await mock(page);
     await page.goto(`/projects/${KEY}?view=list&group=none`);
     await page.getByTestId('issue-row-8').click({ button: 'right' });
     await page.getByTestId('row-menu-status').hover();
-    await page.getByTestId('row-menu-status-IN_PROGRESS').click();
+    await page.getByTestId('row-menu-status-2').click();
     await api.waitFor();
-    expect(api.calls()).toEqual([{ method: 'PATCH', path: `${ISSUES}/8/status`, body: { status: 'IN_PROGRESS' } }]);
+    expect(api.calls()).toEqual([{ method: 'PATCH', path: `${ISSUES}/8/status`, body: { statusId: 2 } }]);
     await expect(page.getByTestId('issue-row-menu')).toHaveCount(0);
     await expect(page.getByTestId('issue-row-8').getByLabel('상태: 진행 중')).toBeVisible();
   });
@@ -225,7 +230,7 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
 });
 
 test.describe('이슈 카드 ⋯ 메뉴 — 보드(데스크톱)', () => {
-  test('카드 ⋯ → 상태 › 완료 → PATCH status, 상세로 이동하지 않는다', async ({ authenticatedPage: page }) => {
+  test('카드 ⋯ → 상태 › 완료 → PATCH statusId, 상세로 이동하지 않는다', async ({ authenticatedPage: page }) => {
     const api = await mock(page);
     await page.goto(`/projects/${KEY}?view=board`);
     const card = page.getByTestId('issue-card-8');
@@ -235,9 +240,9 @@ test.describe('이슈 카드 ⋯ 메뉴 — 보드(데스크톱)', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board$`));
     await page.screenshot({ path: 'test-results/tc/issue-row-menu/desktop-card-menu.png' });
     await page.getByTestId('row-menu-status').hover();
-    await page.getByTestId('row-menu-status-DONE').click();
+    await page.getByTestId('row-menu-status-3').click();
     await api.waitFor();
-    expect(api.calls()).toEqual([{ method: 'PATCH', path: `${ISSUES}/8/status`, body: { status: 'DONE' } }]);
+    expect(api.calls()).toEqual([{ method: 'PATCH', path: `${ISSUES}/8/status`, body: { statusId: 3 } }]);
   });
 
   test('카드 우클릭으로도 같은 메뉴가 열린다', async ({ authenticatedPage: page }) => {

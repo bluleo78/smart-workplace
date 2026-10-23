@@ -40,7 +40,7 @@ test('개인 프로젝트는 전용 셸과 팀 툴바(개인 옵션)를 렌더�
   await expect(page.getByRole('button', { name: '보드' })).toHaveAttribute('aria-pressed', 'false');
   // 기본은 체크리스트 — 보드 컬럼은 없음.
   await expect(page.getByTestId('personal-checklist')).toBeVisible();
-  await expect(page.getByTestId('board-col-TODO')).toHaveCount(0);
+  await expect(page.getByTestId('board-col-1')).toHaveCount(0);
   // 개인 전용 — ＋필터 facet 목록에 상태/우선순위/라벨만 노출, 사이클·유형(팀 전용)은 부재.
   await page.getByTestId('add-filter-trigger').click();
   await expect(page.getByTestId('add-filter-facet-status')).toBeVisible();
@@ -101,12 +101,12 @@ test('보드 뷰는 팀 리치카드를 상태 3컬럼으로 배치한다(CANCEL
   await page.goto(`/projects/${KEY}?view=board`);
 
   // 팀 공유 보드 컬럼(board-col-*) + 팀 리치카드(issue-card-N).
-  await expect(page.getByTestId('board-col-TODO')).toContainText('할일카드');
-  await expect(page.getByTestId('board-col-IN_PROGRESS')).toContainText('진행카드');
-  await expect(page.getByTestId('board-col-DONE')).toContainText('완료카드');
+  await expect(page.getByTestId('board-col-1')).toContainText('할일카드');
+  await expect(page.getByTestId('board-col-2')).toContainText('진행카드');
+  await expect(page.getByTestId('board-col-3')).toContainText('완료카드');
   await expect(page.getByTestId('issue-card-1')).toBeVisible();
   // CANCELED 컬럼 자체가 없고(개인 3컬럼), 취소 카드도 렌더되지 않는다.
-  await expect(page.getByTestId('board-col-CANCELED')).toHaveCount(0);
+  await expect(page.getByTestId('board-col-4')).toHaveCount(0);
   await expect(page.getByTestId('issue-card-4')).toHaveCount(0);
 });
 
@@ -785,7 +785,7 @@ test('체크리스트 토글이 409 로 충돌하면 최신 version 을 다시 �
 test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하지 않는다', async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await mockPersonal(page);
-  // 컬럼마다 status 로 좁혀 조회한다 — 모든 컬럼이 화면보다 길게 채워지도록 요청 status 로 30건을 만든다
+  // 컬럼마다 statusId 로 좁혀 조회한다 — 모든 컬럼이 화면보다 길게 채워지도록 요청 status 로 30건을 만든다
   // (빈 컬럼은 sentinel 이 화면 안이라 다음 페이지 로드가 정상 동작이다). id 는 컬럼별로 겹치지 않게 — 보드가 id 로 합친다.
   const STATUS_BASE: Partial<Record<IssueStatus, number>> = { TODO: 500, IN_PROGRESS: 600, DONE: 700 };
   const longPage = (status: IssueStatus) =>
@@ -804,7 +804,8 @@ test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하�
       if (route.request().method() !== 'GET') return route.fallback();
       const params = new URL(route.request().url()).searchParams;
       const cursor = params.get('cursor');
-      const status = (params.get('status') ?? 'TODO') as IssueStatus;
+      // 컬럼 쿼리는 시드 상태 id(1~3)로 좁혀 온다(WP-808) — 범주로 되돌려 쓴다.
+      const status = (({ '2': 'IN_PROGRESS', '3': 'DONE' }) as Record<string, IssueStatus>)[params.get('statusId') ?? ''] ?? 'TODO';
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -814,9 +815,9 @@ test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하�
   );
 
   await page.goto(`/projects/${KEY}?view=board`);
-  await expect(page.getByTestId('board-col-TODO')).toContainText('TODO 긴 컬럼 이슈 29');
+  await expect(page.getByTestId('board-col-1')).toContainText('TODO 긴 컬럼 이슈 29');
   // 연쇄 로드는 sentinel 의 IntersectionObserver 판정 직후 일어난다 — 판정(화면 밖)이 한 번 돈 뒤에 창을 연다.
-  const sentinel = page.getByTestId('board-col-more-TODO');
+  const sentinel = page.getByTestId('board-col-more-1');
   await expect(sentinel).toBeAttached();
   await expect(sentinel).not.toBeInViewport();
   await expectStays(page, nextPages.count, 0);

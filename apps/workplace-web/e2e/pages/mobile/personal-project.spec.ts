@@ -100,14 +100,15 @@ test.describe('작업 상세(전체 화면)', () => {
     await expect(page.getByTestId('personal-task-modal')).toHaveCount(0);
   });
 
-  test('상태 칩 → 완료 → PATCH status', async ({ authenticatedPage: page }) => {
+  // 상태 시트 선택지는 프로젝트 상태(시드 「완료」 id 3, WP-808) — statusId 로 보낸다.
+  test('상태 칩 → 완료 → PATCH statusId', async ({ authenticatedPage: page }) => {
     const { patch } = await stubPersonal(page);
     await page.goto(`/projects/${KEY}?task=1`);
     await page.getByTestId('mobile-prop-status').tap();
     const sheet = page.getByTestId('issue-status-sheet');
-    await sheet.getByTestId('picker-option-DONE').tap();
+    await sheet.getByTestId('picker-option-3').tap();
     await expect(sheet).toBeHidden();
-    await expect.poll(() => patch.requests.map((r) => r.payload)).toContainEqual(expect.objectContaining({ status: 'DONE' }));
+    await expect.poll(() => patch.requests.map((r) => r.payload)).toContainEqual(expect.objectContaining({ statusId: 3 }));
   });
 
   test('라벨 칩 — 그대로 닫으면 요청 없음, 바꾸고 완료하면 PUT 1회', async ({ authenticatedPage: page }) => {
@@ -191,7 +192,7 @@ test.describe('작업 상세(전체 화면)', () => {
     await expect(page.getByTestId('personal-task-mobile')).toBeVisible();
     await page.getByTestId('mobile-prop-status').tap();
     const statusSheet = page.getByTestId('issue-status-sheet');
-    await statusSheet.getByTestId('picker-option-DONE').tap();
+    await statusSheet.getByTestId('picker-option-3').tap();
     await expect(statusSheet).toBeHidden();
     // auth.fixture 가 에러 토스트를 pointer-events:none 으로 꺼 두므로(다른 테스트의 클릭 방해 방지) 이 테스트에서만 되살려 실제 클릭 가능 여부를 본다.
     await page.addStyleTag({ content: '[data-sonner-toast][data-type="error"] { pointer-events: auto !important; }' });

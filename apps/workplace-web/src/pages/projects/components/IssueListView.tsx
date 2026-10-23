@@ -14,6 +14,7 @@ import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
 import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
@@ -56,8 +57,11 @@ export function IssueListView({
   const isMobile = useIsMobile();
   const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
   const searchQuery = useIssueSearch(projectKey, scopedFilters);
+  // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 로딩 중·실패(빈 배열)엔 범주 버킷으로 묶는다.
+  const statuses = useProjectStatusList(projectKey);
   // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다. 총계가 오기 전·에픽 그룹은 불러온 행 수.
-  const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy);
+  // 상태 목록이 없어 범주 버킷으로 묶는 동안은 총계도 범주로 센다(버킷 key 와 맞게).
+  const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy, statuses.length > 0);
   const countByKey = useMemo(() => groupCountsByKey(groupCounts.data), [groupCounts.data]);
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
@@ -86,8 +90,8 @@ export function IssueListView({
     [data],
   );
   const groups = useMemo(
-    () => (groupBy ? groupIssues(items, groupBy).filter((g) => g.issues.length > 0) : null),
-    [items, groupBy],
+    () => (groupBy ? groupIssues(items, groupBy, statuses.length ? statuses : undefined).filter((g) => g.issues.length > 0) : null),
+    [items, groupBy, statuses],
   );
   // 그룹 모드에서 모든 그룹이 접혀 행이 하나도 안 그려지면 sentinel 이 화면에 들어와 다음 페이지를 연쇄 로드한다 →
   // 이 경우엔 LoadMoreFooter 의 observer 를 달지 않는다(sentinel 은 그대로 마운트, 펼치면 정상 재개).
@@ -105,7 +109,7 @@ export function IssueListView({
   // 종료 이슈 숨김 안내(WP-606) — 행 메뉴·일괄 바로 종료한 이슈가 숨겨지면 토스트로 알린다.
   const closedHiding = useClosedHidingNotice(!!scopedFilters.hideInactiveClosed);
   const rowActions = useIssueRowActions({
-    projectKey, canEdit, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
+    projectKey, canEdit, statuses, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
     selected, onClearSelection: clearSelected, closedHiding,
   });
 

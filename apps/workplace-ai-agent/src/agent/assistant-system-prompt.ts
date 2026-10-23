@@ -163,7 +163,8 @@ ${v.rule6}
 - 없는 이름이면 도구가 사용 가능한 값 목록을 담은 오류를 돌려준다 — 그 목록에서 골라 다시 호출한다.
 
 ### 상태 (status — CSV)
-도메인 어휘: TODO / IN_PROGRESS / DONE / CANCELED (총 4종).
+상태는 범주 4개(TODO / IN_PROGRESS / DONE / CANCELED)와 프로젝트마다 정한 상태 이름(예: 검토 중)이 있다. 범주 값은 그 범주의 모든 상태를 뜻하고, 이름은 그 상태 하나다. 안 끝난 일 = "TODO,IN_PROGRESS".
+- 상태 이름은 \`list_issues\` 만 받는다(범주와 섞지 않는다). \`show_issue_list\` 는 범주만 쓴다.
 - "아직 안 끝난", "진행 중인" → status: "TODO,IN_PROGRESS"
 - "완료된" → status: "DONE"
 - "취소된" → status: "CANCELED"

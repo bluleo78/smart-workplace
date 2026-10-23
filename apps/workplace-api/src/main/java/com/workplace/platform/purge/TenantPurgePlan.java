@@ -45,7 +45,8 @@ public final class TenantPurgePlan {
           CHAT_THREAD,
           NOTIFICATION,
           THREAD_READ_STATE,
-          // 이슈 하위 → 이슈 → 프로젝트 하위 → 프로젝트 (issue.type_id RESTRICT 때문에 issue 가 issue_type_def 보다 먼저)
+          // 이슈 하위 → 이슈 → 프로젝트 하위 → 프로젝트 (issue.type_id·status_id RESTRICT 때문에 issue 가
+          // issue_type_def·project_status 보다 먼저)
           ISSUE_DEPENDENCY,
           ISSUE_LABEL,
           ISSUE_ASSIGNEE,
@@ -69,6 +70,7 @@ public final class TenantPurgePlan {
           PROJECT_MEMBER,
           PROJECT_ISSUE_SEQUENCE,
           ISSUE_TYPE_DEF,
+          PROJECT_STATUS,
           PROJECT,
           // 팀 채팅 (drive_space.linked_channel_id 는 SET NULL)
           MESSAGE_REACTION,

@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -59,6 +60,24 @@ class OpenIssueEditTest extends IntegrationTestBase {
             null, null, "DONE", null, null, false, null, false, null, false, null);
     assertThatThrownBy(
             () -> issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), statusReq))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+  }
+
+  /** WP-807: OPEN reporter 가 statusId 만 보내 상태를 바꾸려 해도 403 — 상태 id 도 워크플로 필드다. */
+  @Test
+  void open_reporter_cannot_change_status_id() {
+    var s = openScenario();
+    Long done =
+        dsl.select(PROJECT_STATUS.ID)
+            .from(PROJECT_STATUS)
+            .where(PROJECT_STATUS.PROJECT_ID.eq(s.project().id()))
+            .and(PROJECT_STATUS.CATEGORY.eq("DONE"))
+            .fetchOne(PROJECT_STATUS.ID);
+    var statusIdReq =
+        new UpdateIssueRequest(
+            null, null, null, null, null, false, null, false, null, false, null, done);
+    assertThatThrownBy(
+            () -> issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), statusIdReq))
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 

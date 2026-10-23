@@ -22,10 +22,11 @@ import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { assigneeCandidates } from '../../../lib/assigneeCandidates';
-import { ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL } from '../../../lib/issueGrouping';
+import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { type RowMenuItems, toSummary } from '../../../lib/issueRowMenu';
-import type { IssuePriority, IssueResponse, IssueStatus } from '../../../types/issue';
+import type { IssuePriority, IssueResponse } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
+import type { ProjectStatus } from '../../../types/projectStatus';
 
 /** 메뉴가 열린 대상 — at 은 뷰포트 좌표(우클릭 지점 또는 ⋯ 버튼 아래 모서리). */
 export interface RowMenuTarget {
@@ -61,7 +62,8 @@ export function IssueRowMenu({
   target: RowMenuTarget | null;
   onClose: () => void;
   items: RowMenuItems;
-  statuses: IssueStatus[];
+  /** 프로젝트 상태 목록(표시 순서, WP-808) — 보드는 컬럼에 있는 상태만. */
+  statuses: ProjectStatus[];
   members: MemberResponse[];
   agents: MemberResponse[];
   /** 지정 가능한 진행 중 에픽 — 에픽 항목을 열 때만 쓰인다. */
@@ -70,7 +72,7 @@ export function IssueRowMenu({
   epicsLoading: boolean;
   /** 단건 메뉴의 현재 담당자 id — 체크 토글 중에도 메뉴가 열려 있으므로 호출처가 로컬 상태로 들고 있다. */
   assigneeIds: number[];
-  onStatus: (s: IssueStatus) => void;
+  onStatus: (s: ProjectStatus) => void;
   onPriority: (p: IssuePriority) => void;
   onToggleAssignee: (m: MemberResponse) => void;
   /** 다중 선택 담당자 지정 — 일괄 바와 같은 집합 교체(빈 배열 = 미지정). */
@@ -109,14 +111,15 @@ export function IssueRowMenu({
       >
         {bulk && <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">선택한 {count}개 이슈</DropdownMenuLabel>}
 
-        {items.status && (
+        {/* 상태 목록을 아직 못 받았으면(로딩 중) 빈 하위 메뉴 대신 항목을 숨긴다. */}
+        {items.status && statuses.length > 0 && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger data-testid="row-menu-status"><CircleDot />상태</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
               {statuses.map((s) => (
-                <DropdownMenuCheckboxItem key={s} checked={cur?.status === s} onSelect={() => onStatus(s)} data-testid={`row-menu-status-${s}`}>
-                  <IssueStatusIcon status={s} decorative />
-                  {ISSUE_STATUS_LABEL[s]}
+                <DropdownMenuCheckboxItem key={s.id} checked={cur?.statusId === s.id} onSelect={() => onStatus(s)} data-testid={`row-menu-status-${s.id}`}>
+                  <IssueStatusIcon status={s.category} decorative />
+                  {s.name}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuSubContent>

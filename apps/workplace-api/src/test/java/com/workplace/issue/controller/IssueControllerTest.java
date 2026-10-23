@@ -102,6 +102,8 @@ class IssueControllerTest {
         1,
         "title",
         "TODO",
+        null,
+        null,
         "MID",
         null,
         null,

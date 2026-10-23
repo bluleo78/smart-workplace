@@ -62,7 +62,8 @@ test(
     await page.getByRole('option', { name: '진행 중' }).click();
 
     const patched = await patchCapture.waitForRequest();
-    expect(patched.payload).toMatchObject({ status: 'IN_PROGRESS' });
+    // 상태 선택은 프로젝트 상태 id 를 보낸다(WP-808) — 시드 「진행 중」 id 2.
+    expect(patched.payload).toMatchObject({ statusId: 2 });
 
     // 3. 코멘트 작성
     const commentCapture = await mockApi(

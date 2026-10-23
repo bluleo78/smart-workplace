@@ -8,13 +8,13 @@ import { useSearchParams } from 'react-router-dom';
 import type { FacetDef, FilterValue } from '@/components/filter';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
-import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { useCycles } from '../../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
 import {
@@ -30,16 +30,9 @@ import type {
   IssueGroupBy,
   IssueGroupParam,
   IssuePriority,
-  IssueStatus,
   IssueView,
 } from '../../../types/issue';
-
-const STATUS_OPTIONS = [
-  { value: 'TODO', label: '할 일' },
-  { value: 'IN_PROGRESS', label: '진행 중' },
-  { value: 'DONE', label: '완료' },
-  { value: 'CANCELED', label: '취소' },
-];
+import { buildStatusFacets } from './statusFacets';
 
 // 본 코드베이스의 IssuePriority 는 LOW/MID/HIGH (URGENT 없음) — 백엔드 enum 일치.
 const PRIORITY_OPTIONS = [
@@ -113,6 +106,8 @@ export function useIssueFilterControls(
   const types = useIssueTypes(projectKey);
   // 프로젝트 멤버 목록 — 담당자 필터 facet 옵션 구성에 사용.
   const members = useProjectMembers(projectKey);
+  // 프로젝트 상태(표시 순서) — 「상태」 facet 옵션. 로딩 중엔 빈 배열이라 고를 값이 없다.
+  const projectStatuses = useProjectStatusList(projectKey);
 
   // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
   // 외부 소스(URL)→로컬 draft 동기화는 의도된 effect 패턴이라 규칙을 명시 해제한다.
@@ -172,6 +167,7 @@ export function useIssueFilterControls(
   const hasActiveFilters =
     filters.q !== '' ||
     filters.statuses.length > 0 ||
+    filters.statusIds.length > 0 ||
     filters.priorities.length > 0 ||
     filters.labelIds.length > 0 ||
     filters.cycleIds.length > 0 ||
@@ -179,9 +175,10 @@ export function useIssueFilterControls(
     filters.assigneeIds.length > 0 ||
     filters.includeUnassigned;
 
-  // URL filters → 범용 FilterValue. 상태/우선순위는 문자열, 라벨/사이클/유형/담당자는 숫자 id.
+  // URL filters → 범용 FilterValue. 상태 범주/우선순위는 문자열, 상태/라벨/사이클/유형/담당자는 숫자 id.
   const filterValue: FilterValue = useMemo(
     () => ({
+      statusId: filters.statusIds,
       status: filters.statuses,
       priority: filters.priorities,
       label: filters.labelIds,
@@ -196,21 +193,8 @@ export function useIssueFilterControls(
   // 쿼리 데이터가 바뀔 때만 다시 만든다(옵션 render 노드 포함) — FacetFilter 가 매 렌더 새 배열을 받지 않게.
   const facets: FacetDef[] = useMemo(
     () => [
-      {
-        key: 'status',
-        label: '상태',
-        // 이슈 목록 행의 IssueStatusIcon 과 동일한 아이콘을 드롭다운 옵션에 표시해 시각 일관성 확보.
-        options: STATUS_OPTIONS.map((o) => ({
-          value: o.value,
-          label: o.label,
-          render: (
-            <span className="flex items-center gap-1.5">
-              <IssueStatusIcon status={o.value as IssueStatus} decorative />
-              {o.label}
-            </span>
-          ),
-        })),
-      },
+      // 「상태」(프로젝트 상태)·「상태 범주」(범주 4개) — 별도 facet 이고 서로는 AND 로 묶인다(WP-808).
+      ...buildStatusFacets(projectStatuses),
       {
         key: 'priority',
         label: '우선순위',
@@ -276,7 +260,7 @@ export function useIssueFilterControls(
           ]
         : []),
     ],
-    [labels.data, members.data, cycles.data, types.data, showCycle, showType],
+    [projectStatuses, labels.data, members.data, cycles.data, types.data, showCycle, showType],
   );
 
   // FilterValue → URL filters. 숫자 facet 값은 number 로 왕복(DOM stringify 금지).
@@ -285,6 +269,7 @@ export function useIssueFilterControls(
       {
         ...filters,
         statuses: (next.status ?? []) as string[],
+        statusIds: (next.statusId ?? []) as number[],
         priorities: (next.priority ?? []) as string[],
         labelIds: (next.label ?? []) as number[],
         cycleIds: (next.cycle ?? []) as number[],

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
 import { nullAsOmitted } from './tool-definitions.js';
-import { DEFAULT_LABEL_COLOR, defaultListAssignee, fieldDefByName, resolveCycleFilter, resolveMilestoneFilter, rowByName, toFieldValue } from './resolve.js';
+import { DEFAULT_LABEL_COLOR, defaultListAssignee, fieldDefByName, resolveCycleFilter, resolveMilestoneFilter, rowByName, splitStatusTokens, toFieldValue } from './resolve.js';
 import { formatIssueKey, parseIssueKey } from './parse.js';
 import { cursorPageView, dropEmpty, numberedPageView, omitKeys } from './compact.js';
 import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
@@ -143,6 +143,8 @@ export function toIssueListItem(it: IssueRow) {
     issueKey: it.issueKey ?? (formatIssueKey(projectKey, number) ?? String(it.id ?? '')),
     title: it.title ?? '',
     status: it.status ?? '',
+    // WP-807: 범주(status) 안의 프로젝트 상태 이름 — 없으면 dropEmpty 가 키를 뺀다.
+    statusName: it.statusName ?? undefined,
     priority: it.priority ?? '',
     type: typeName(it.type),
     assignees: toPeopleView(it.assignees),
@@ -217,19 +219,21 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'read',
       description:
         'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, milestones (with dueDate), cycles (status, ' +
-        'dates), fields (custom fields, with options), members (username, name, role).',
+        'dates), fields (custom fields, with options), statuses, members (username, name, role).',
       inputSchema: projectKeyInput,
       async handler(args) {
         const { projectKey } = projectKeyInput.parse(args);
         // #844: 이슈 쓰기 도구의 type·labels·assignees(#854: milestone·cycles) 값을 조회로 조달하게 한다(추측 방지). 모두 독립 조회라 병렬.
         // WP-356: 마일스톤 기한·사이클 기간(계획 판단용)과 커스텀 필드 정의(update_issue 의 fields·list_issues 의 field 가 받는 이름·선택지)도 싣는다.
-        const [project, types, labels, milestones, cycles, fields, members] = await Promise.all([
+        // WP-807: 프로젝트 상태(이름·범주·순서)도 싣는다 — update_issue·list_issues 의 status 가 받는 이름이다.
+        const [project, types, labels, milestones, cycles, fields, statuses, members] = await Promise.all([
           client.getProject(projectKey),
           client.getProjectTypes(projectKey),
           client.getProjectLabels(projectKey),
           client.getProjectMilestones(projectKey),
           client.getProjectCycles(projectKey),
           client.getProjectFields(projectKey),
+          client.getProjectStatuses(projectKey),
           client.getProjectMembers(projectKey),
         ]);
         return JSON.stringify({
@@ -239,6 +243,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           milestones: milestones.map(({ name, dueDate }) => dropEmpty({ name, dueDate })),
           cycles: cycles.map(({ name, status, startDate, endDate }) => dropEmpty({ name, status, startDate, endDate })),
           fields: fields.map(({ name, type, options }) => dropEmpty({ name, type, options })),
+          statuses: statuses.map(({ name, category, position }) => ({ name, category, position })),
           members: members.map(toProjectMemberView),
         });
       },
@@ -267,6 +272,13 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           parentNumber = key.number;
         }
         const assignee = defaultListAssignee({ ...p, watching, parent });
+        // WP-807: status CSV 의 범주는 서버 status, 그 밖의 값은 statusName 으로 나눈다 — 이름 해석(모르는 이름 400 + 사용 가능 목록)은 서버가 한다.
+        // projectKey 가 없으면 서버가 볼 수 있는 모든 프로젝트의 같은 이름 상태를 OR 로 맞춘다.
+        const statusTokens = p.status ? splitStatusTokens(p.status) : undefined;
+        // 서버는 범주(status)와 이름(statusName)을 AND 로 묶는다 — 섞어 주면 사용자가 뜻한 OR 대신 거의 빈 결과가 되므로 조회 전에 거절한다.
+        if (statusTokens?.categories.length && statusTokens.names.length) {
+          throw new Error('status 에 범주(TODO 등)와 상태 이름을 함께 쓸 수 없습니다 — 따로 조회하세요');
+        }
         // WP-176: 사이클 이름·active·none·backlog → 서버 토큰(id·none·null). WP-356: 마일스톤 이름 → id, 필드 "이름=값" → fieldId + JSON 값.
         // 서버는 해석 못 한 토큰을 조용히 버리므로 해석 실패는 모두 조회 전에 throw 한다.
         const [cycle, milestone, fieldFilter] = await Promise.all([
@@ -279,6 +291,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           Object.entries({
             ...p,
             projectKey,
+            status: statusTokens?.categories.join(',') || undefined,
+            statusName: statusTokens?.names.join(',') || undefined,
             assignee,
             cycle,
             milestone,

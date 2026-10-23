@@ -56,7 +56,7 @@ export function PersonalChecklistRow({ projectKey, issue }: { projectKey: string
         onClick={toggleDone}
         className="shrink-0"
       >
-        <IssueStatusIcon status={issue.status} />
+        <IssueStatusIcon status={issue.status} name={issue.statusName} />
       </button>
       <span className={cn('min-w-0 truncate text-sm', done && 'text-muted-foreground line-through')}>
         {issue.title}

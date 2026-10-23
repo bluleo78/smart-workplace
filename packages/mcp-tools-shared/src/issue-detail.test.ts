@@ -34,6 +34,13 @@ describe('normalizeIssueDetail agentWork (WP-377)', () => {
 });
 
 describe('normalizeIssueDetail', () => {
+  it('WP-807: 범주(status)와 함께 프로젝트 상태 이름(statusName)을 준다', () => {
+    const d = normalizeIssueDetail({ ...raw, summary: { ...raw.summary, statusName: '검토 중' } });
+    expect(d.status).toBe('IN_PROGRESS');
+    expect(d.statusName).toBe('검토 중');
+    expect(normalizeIssueDetail(raw).statusName).toBeNull();
+  });
+
   it('summary 를 flatten 하고 issueKey/title/status/priority/assignees 를 top-level 로', () => {
     const d = normalizeIssueDetail(raw);
     expect(d.issueKey).toBe('WP-12');

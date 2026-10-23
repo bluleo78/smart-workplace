@@ -45,10 +45,14 @@ export const issueCommentedPayload = z.object({
   commentBody: z.string(),
 });
 
+// previousStatus·newStatus 는 범주(TODO 등), *StatusName 은 프로젝트가 정한 상태 이름(WP-807).
+// 이름은 선택 — 구버전 api 페이로드(이름 없음)도 그대로 통과시킨다.
 export const issueStatusChangedPayload = z.object({
   ...common,
   previousStatus: z.string(),
   newStatus: z.string(),
+  previousStatusName: z.string().nullish(),
+  newStatusName: z.string().nullish(),
 });
 
 // type 별 분기를 zod 가 알아채도록 discriminatedUnion.

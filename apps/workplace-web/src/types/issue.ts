@@ -89,7 +89,11 @@ export interface IssueResponse {
   projectKey: string;
   number: number;
   title: string;
+  // 상태 범주 — 종료 판정·아이콘·통계는 범주로 한다.
   status: IssueStatus;
+  // 프로젝트 상태 id·이름(WP-808) — 화면에 보이는 상태는 이름이고, 보드 컬럼·필터는 id 로 나눈다.
+  statusId: number;
+  statusName: string;
   priority: IssuePriority;
   dueDate: string | null;
   // 타임라인 간트 뷰 시작일 (#620).
@@ -230,12 +234,16 @@ export interface CreateIssueRequest {
   startDate?: string;
   // 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태로 만든다. 생략 시 할 일. 할 일 외 지정은 멤버 전용.
   status?: IssueStatus;
+  // 처음 프로젝트 상태 id(WP-808) — status(범주)보다 우선한다.
+  statusId?: number;
 }
 
 export interface UpdateIssueRequest {
   title?: string;
   body?: string;
   status?: IssueStatus;
+  // 프로젝트 상태 id(WP-808) — status(범주)보다 우선한다.
+  statusId?: number;
   priority?: IssuePriority;
   dueDate?: string;
   // dueDate 단독 비우기 플래그 — true 면 dueDate 무시.
@@ -265,7 +273,10 @@ export interface IssueSearchResponse {
 // 필터 상태 — URL 의 SearchParams 와 1:1 매핑되는 정규화된 형태.
 export interface IssueFilters {
   q: string;
+  // 「상태 범주」 필터 — 범주 값(TODO·IN_PROGRESS·DONE·CANCELED) OR. URL·서버 키는 예전 그대로 status.
   statuses: string[];
+  // 「상태」 필터 — 프로젝트 상태 id OR(WP-808). URL·서버 키 statusId. 범주 필터와는 AND 로 묶인다.
+  statusIds: number[];
   priorities: string[];
   assigneeIds: number[];
   includeUnassigned: boolean;
@@ -324,9 +335,12 @@ export type IssueClientGroupBy = Exclude<IssueGroupBy, 'cycle'>;
 // 서버가 그룹별 총계를 내는 기준(WP-472) — 에픽 그룹은 「에픽 없음」 필터가 없어 대상이 아니다.
 export type IssueCountableGroupBy = Exclude<IssueClientGroupBy, 'epic'>;
 
-// 목록 그룹별 총계 응답(WP-472). key 는 상태·우선순위 값, assignee 면 담당자 user id 문자열(담당자 없음은 null). 0건 그룹은 없다.
+// 서버 group-counts 의 groupBy 값 — 프로젝트 목록의 상태 그룹은 statusId 별로 센다(WP-808, 키 = statusId 문자열).
+export type IssueGroupCountsBy = IssueCountableGroupBy | 'statusId';
+
+// 목록 그룹별 총계 응답(WP-472). key 는 상태(범주)·statusId·우선순위 값, assignee 면 담당자 user id 문자열(담당자 없음은 null). 0건 그룹은 없다.
 export interface IssueGroupCountsResponse {
-  groupBy: IssueCountableGroupBy;
+  groupBy: IssueGroupCountsBy;
   groups: { key: string | null; count: number }[];
 }
 

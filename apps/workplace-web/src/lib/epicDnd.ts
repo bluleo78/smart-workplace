@@ -50,6 +50,8 @@ export type IssueDragData = {
   showType?: boolean;
   issueNumber?: number;
   status?: string;
+  // 보드 상태 드롭(WP-808) — 출발 프로젝트 상태. 같은 컬럼에 놓으면 변경하지 않는다.
+  statusId?: number;
   cycleSection?: CycleSectionRef;
 };
 
@@ -271,7 +273,7 @@ export function describeDropTarget(over: Pick<Over, 'data'> | null, projectKey: 
   if (d.zone) return '에픽 패널(놓을 수 없는 곳)';
   if (typeof d.label === 'string') return `「${d.label}」 컬럼`;
   const issue = d.issue as IssueResponse | undefined;
-  if (issue) return `${projectKey}-${issue.number} 카드(${statusLabel(issue.status)})`;
+  if (issue) return `${projectKey}-${issue.number} 카드(${statusLabel(issue.status, issue.statusName)})`;
   return null;
 }
 

@@ -57,14 +57,15 @@ test.describe('이슈 행 길게 누르기', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('상태 변경 → 시트에서 진행 중 선택 → PATCH status', async ({ authenticatedPage: page }) => {
+  // 상태 시트 선택지는 프로젝트 상태(시드 id 1~4, WP-808) — statusId 로 보낸다.
+  test('상태 변경 → 시트에서 진행 중 선택 → PATCH statusId', async ({ authenticatedPage: page }) => {
     const calls = await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await longPressWithMouse(page, page.getByTestId('issue-row-21'));
     await page.getByTestId('mobile-action-status').click();
     await expect(page.getByTestId('issue-status-picker')).toBeVisible();
-    await page.getByTestId('picker-option-IN_PROGRESS').click();
-    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ status: 'IN_PROGRESS' });
+    await page.getByTestId('picker-option-2').click();
+    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ statusId: 2 });
   });
 
   test('에픽 지정 → 에픽 선택 → PATCH parent', async ({ authenticatedPage: page }) => {
@@ -166,8 +167,8 @@ test.describe('모바일 보드 카드', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board(&boardTab=\\w+)?$`));
     await expect(page.getByTestId('mobile-action-select')).toHaveCount(0);
     await page.getByTestId('mobile-action-status').click();
-    await page.getByTestId('picker-option-DONE').click();
-    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ status: 'DONE' });
+    await page.getByTestId('picker-option-3').click();
+    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ statusId: 3 });
     await expect(page.getByTestId('issue-card-drag-overlay')).toHaveCount(0);
   });
 

@@ -335,7 +335,7 @@ const SAMPLES: ResourceChangedPayload[] = [
   { resource: 'mail-account', op: 'updated', accountId: 5 },
   { resource: 'wiki-space', op: 'updated', spaceId: 2 },
   { resource: 'wiki-attachment', op: 'updated', spaceId: 2, pageId: 8 },
-  ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view'].map(
+  ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view', 'project-status'].map(
     (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
   ),
 ];

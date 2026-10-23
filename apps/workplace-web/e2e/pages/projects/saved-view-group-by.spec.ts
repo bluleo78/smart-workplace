@@ -92,16 +92,17 @@ test.describe('Saved View group-by', () => {
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ groupBy: 'status', groups: [{ key: 'TODO', count: 32 }, { key: 'DONE', count: 3 }] }),
+          // 상태 그룹 총계는 프로젝트 상태(statusId)별 — 시드 「할 일」 id 1, 「완료」 id 3 (WP-808).
+          body: JSON.stringify({ groupBy: 'statusId', groups: [{ key: '1', count: 32 }, { key: '3', count: 3 }] }),
         });
       },
     );
 
     await page.goto(`/projects/${KEY}?group=status&q=todo`);
 
-    await expect(page.getByTestId('list-group-count-TODO')).toHaveText('32');
+    await expect(page.getByTestId('list-group-count-1')).toHaveText('32');
     // 목록과 같은 필터(검색어·기본 범위)로 센다.
-    expect(countsUrl?.searchParams.get('groupBy')).toBe('status');
+    expect(countsUrl?.searchParams.get('groupBy')).toBe('statusId');
     expect(countsUrl?.searchParams.get('q')).toBe('todo');
     expect(countsUrl?.searchParams.get('excludeSubtasks')).toBe('true');
     expect(countsUrl?.searchParams.has('cursor')).toBe(false);

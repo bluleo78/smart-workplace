@@ -1,8 +1,26 @@
 package com.workplace.issue.dto;
 
-import jakarta.validation.constraints.NotBlank;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Pattern;
 
-/** PATCH /status 요청 — DnD 전용. status 는 UpdateIssueRequest 와 동일한 enum 값만 허용(400 으로 조기 차단). */
+/**
+ * PATCH /status 요청 — DnD 전용. status(범주)는 UpdateIssueRequest 와 동일한 값만 허용(400 으로 조기 차단).
+ * statusId(프로젝트 상태, WP-807)를 주면 그것이 우선하고, 범주만 오면 이미 그 범주인 이슈는 상태를 유지하고 아니면 범주 기본 상태로 간다. 둘 다 없으면
+ * 400.
+ */
 public record UpdateStatusRequest(
-    @NotBlank @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status) {}
+    @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status, Long statusId) {
+
+  /** 범주만 보내는 예전 호출 호환 생성자. */
+  public UpdateStatusRequest(String status) {
+    this(status, null);
+  }
+
+  /** 범주·상태 id 중 하나는 있어야 한다. 직렬화 대상이 아니다(JSON 에 "specified" 로 새지 않게). */
+  @JsonIgnore
+  @AssertTrue(message = "상태를 지정해 주세요")
+  public boolean isSpecified() {
+    return status != null || statusId != null;
+  }
+}

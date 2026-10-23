@@ -32,7 +32,7 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
       label: clip(`${issueKey} ${issue.title}`, LIMITS.label),
       refs: buildRefs({ issueKey }),
       facts: buildFacts([
-        ['상태', statusLabel(issue.status)],
+        ['상태', statusLabel(issue.status, issue.statusName)],
         ['우선순위', priorityLabel(issue.priority)],
         ['담당', issue.assignees.length ? issue.assignees.map((a) => a.name).join(', ') : '미할당'],
         ['유형', issue.type?.name],
@@ -57,6 +57,8 @@ export interface IssueListContextInput {
     types: { id: number; name: string }[];
     cycles: { id: number; name: string }[];
     milestones: { id: number; name: string }[];
+    // 프로젝트 상태(WP-808) — 「상태」 필터(statusIds)를 이름으로 풀 때 쓴다.
+    statuses: { id: number; name: string }[];
   };
   count?: number;
   hasMore?: boolean;
@@ -78,7 +80,9 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
     facts: buildFacts(
       [
         ['검색어', f.q],
-        ['상태', joinMapped(f.statuses, ISSUE_STATUS_LABEL)],
+        // 개별 상태(프로젝트 상태 이름)와 상태 범주는 필터 바처럼 따로 싣는다(WP-808).
+        ['상태', names(f.statusIds, lookups.statuses)],
+        ['상태 범주', joinMapped(f.statuses, ISSUE_STATUS_LABEL)],
         ['담당', assignee],
         ['우선순위', joinMapped(f.priorities, ISSUE_PRIORITY_LABEL)],
         ['라벨', names(f.labelIds, lookups.labels)],

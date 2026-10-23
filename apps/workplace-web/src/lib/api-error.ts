@@ -107,3 +107,8 @@ export function isPermanentClientStatus(status: number | undefined): boolean {
 export function isNotFoundError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 404;
 }
+
+/** HTTP 409(충돌 — 동시에 같은 이름이 생김·낙관적 잠금 등)인지 — 호출부가 상황에 맞는 문구로 바꿔 보일 때 쓴다. */
+export function isConflictError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 409;
+}

@@ -14,7 +14,7 @@ export function countActiveFacets(filterValue: Record<string, FacetValue[] | und
 
 /** facet 값만 비운 필터 — 모바일 필터 시트 「전체 해제」. 검색어·완료 보기·에픽 범위는 유지하고 담당자 미지정도 함께 푼다. */
 export function clearFacetFilters(filters: IssueFilters): IssueFilters {
-  return { ...filters, statuses: [], priorities: [], labelIds: [], cycleIds: [], typeIds: [], assigneeIds: [], includeUnassigned: false }
+  return { ...filters, statuses: [], statusIds: [], priorities: [], labelIds: [], cycleIds: [], typeIds: [], assigneeIds: [], includeUnassigned: false }
 }
 
 /**

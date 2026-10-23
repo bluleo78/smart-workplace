@@ -35,7 +35,8 @@ export function MeTaskFilterBar() {
   };
 
   const facets: FacetDef[] = [
-    { key: 'status', label: '상태', options: STATUS_OPTIONS },
+    // 범주 facet — 프로젝트 화면 필터 바와 같은 이름(「상태 범주」, WP-808). 여러 프로젝트를 걸치므로 개별 상태 facet 은 없다.
+    { key: 'status', label: '상태 범주', options: STATUS_OPTIONS },
     { key: 'priority', label: '우선순위', options: PRIORITY_OPTIONS },
   ];
 

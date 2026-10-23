@@ -1,9 +1,10 @@
 // 팀 리스트 뷰 E2E — 아이콘 렌더(상태/우선순위/유형/담당자) + 행 전체 클릭으로 상세 이동.
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
+import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
+import { withCustomStatuses } from '../../factories/projectStatus.factory';
 
 const KEY = 'WP';
 
@@ -396,5 +397,147 @@ test.describe('팀 리스트 뷰', () => {
     // IssueCreateDialog 는 유형 중립 문구 "새 이슈" 다이얼로그 타이틀을 포함 (#641)
     await expect(page.getByRole('dialog')).toBeVisible();
     await expect(page.getByRole('dialog').getByRole('heading', { name: '새 이슈' })).toBeVisible();
+  });
+
+  // WP-808 — 프로젝트 상태 이름(사용자 정의 「검토 중」, id 12)이 목록 행·상태 그룹 헤더·상세 상태 선택에 보인다.
+  // withCustomStatuses('대기', '검토 중') → 진행 중 범주에 「대기」(11)·「검토 중」(12).
+  const routeStatuses = (page: import('@playwright/test').Page) =>
+    page.route('**/api/v1/projects/*/statuses', (route) =>
+      route.request().method() === 'GET'
+        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(withCustomStatuses('대기', '검토 중')) })
+        : route.fallback(),
+    );
+
+  // WP-808 — 필터 바에 「상태」(프로젝트 상태 id, statusId)와 「상태 범주」(범주, 기존 status)가 따로 있다.
+  test('상태 필터에서 「검토 중」을 고르면 검색 요청에 statusId=12 가 붙는다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}`);
+
+    await page.getByTestId('add-filter-trigger').click();
+    await expect(page.getByTestId('add-filter-facet-statusId')).toHaveText('상태');
+    await page.getByTestId('add-filter-facet-statusId').click();
+    // 옵션은 프로젝트 상태 이름(표시 순서) + 범주 아이콘.
+    await expect(page.locator('[data-testid^="facet-value-statusId-"]')).toHaveText(['할 일', '진행 중', '대기', '검토 중', '완료', '취소']);
+    await expect(page.getByTestId('facet-value-statusId-12').locator('svg').first()).toHaveAttribute('aria-hidden', 'true');
+    await page.getByTestId('facet-value-statusId-12').click();
+
+    await expect(page).toHaveURL(/statusId=12/);
+    await expect.poll(() => lastSearch()?.searchParams.get('statusId')).toBe('12');
+    expect(lastSearch()?.searchParams.get('status')).toBeNull();
+    await expect(page.getByTestId('filter-chip-statusId')).toContainText('상태:');
+    await expect(page.getByTestId('filter-chip-statusId')).toContainText('검토 중');
+  });
+
+  test('상태 범주 필터는 status 파라미터를 쓴다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}`);
+
+    await page.getByTestId('add-filter-trigger').click();
+    await expect(page.getByTestId('add-filter-facet-status')).toHaveText('상태 범주');
+    await page.getByTestId('add-filter-facet-status').click();
+    await page.getByTestId('facet-value-status-IN_PROGRESS').click();
+
+    await expect.poll(() => lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS');
+    expect(lastSearch()?.searchParams.get('statusId')).toBeNull();
+  });
+
+  test('예전 ?status=IN_PROGRESS 링크는 상태 범주 칩으로 열린다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}?status=IN_PROGRESS`);
+
+    const categoryChip = page.getByTestId('filter-chip-status');
+    await expect(categoryChip).toContainText('상태 범주:');
+    await expect(categoryChip).toContainText('진행 중');
+    await expect(page.getByTestId('filter-chip-statusId')).toHaveCount(0);
+    await expect.poll(() => lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS');
+    expect(lastSearch()?.searchParams.get('statusId')).toBeNull();
+  });
+
+  test('상태와 상태 범주를 함께 걸면 칩이 따로 생기고 검색 요청에 둘 다 실린다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    const lastSearch = await captureSearch(page);
+    await page.goto(`/projects/${KEY}?status=IN_PROGRESS&statusId=12`);
+
+    // 서버가 두 조건을 AND 로 묶는다 — 웹은 둘 다 그대로 보낸다.
+    await expect(page.getByTestId('filter-chip-status')).toContainText('진행 중');
+    await expect(page.getByTestId('filter-chip-statusId')).toContainText('검토 중');
+    await expect.poll(() => lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS');
+    expect(lastSearch()?.searchParams.get('statusId')).toBe('12');
+  });
+
+  test('사용자 정의 상태 이름이 목록 행·상태 그룹 헤더에 보인다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    await mock(page, [
+      createIssue({ id: 1, number: 1, title: '리뷰 대기 작업', status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중' }),
+      createIssue({ id: 2, number: 2, title: '진행 작업', status: 'IN_PROGRESS' }),
+    ]);
+    // 상태 그룹 총계는 statusId 별로 센다 — 버킷 key(statusId)와 같은 키.
+    const counts = trackRequests(page, 'GET', `/api/v1/projects/${KEY}/issues/group-counts`);
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues/group-counts`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ groupBy: 'statusId', groups: [{ key: '12', count: 5 }, { key: '2', count: 1 }] }),
+        }),
+    );
+
+    await page.goto(`/projects/${KEY}?group=status`);
+
+    // 같은 진행 중 범주라도 상태마다 따로 묶이고, 헤더는 상태 이름 + 서버 총계.
+    const reviewGroup = page.getByTestId('list-group-12');
+    await expect(page.getByTestId('list-group-toggle-12')).toContainText('검토 중');
+    await expect(page.getByTestId('list-group-count-12')).toHaveText('5');
+    await expect(reviewGroup.getByTestId('issue-row-1')).toBeVisible();
+    await expect(page.getByTestId('list-group-2').getByTestId('issue-row-2')).toBeVisible();
+    // 행의 상태 아이콘은 범주 모양이지만 읽는 이름은 상태 이름.
+    await expect(page.getByTestId('issue-row-1').getByLabel('상태: 검토 중')).toBeVisible();
+    expect(counts.lastUrl()?.searchParams.get('groupBy')).toBe('statusId');
+  });
+
+  test('상세 상태 선택에서 사용자 정의 상태를 고르면 PATCH body 가 statusId 다 (WP-808)', async ({ authenticatedPage: page }) => {
+    await routeStatuses(page);
+    await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+    );
+    let patchBody: Record<string, unknown> | undefined;
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues/7`,
+      (route) => {
+        const req = route.request();
+        if (req.method() === 'PATCH') patchBody = req.postDataJSON() as Record<string, unknown>;
+        const reviewed = patchBody?.statusId === 12;
+        const summary = createIssue({
+          number: 7,
+          title: '상태 바꿀 작업',
+          status: 'IN_PROGRESS',
+          ...(reviewed ? { statusId: 12, statusName: '검토 중' } : {}),
+        });
+        if (req.method() === 'PATCH' || req.method() === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(createIssueDetail({ summary })),
+          });
+        }
+        return route.fallback();
+      },
+    );
+
+    await page.goto(`/projects/${KEY}/issues/7`);
+    const select = page.getByTestId('issue-status-select');
+    await expect(select).toContainText('진행 중');
+    await select.click();
+    // 선택지는 프로젝트 상태 이름(같은 범주 안 「대기」「검토 중」 포함).
+    await expect(page.getByRole('option')).toHaveText(['할 일', '진행 중', '대기', '검토 중', '완료', '취소']);
+    await page.getByRole('option', { name: '검토 중' }).click();
+
+    await expect.poll(() => patchBody?.statusId).toBe(12);
+    expect(patchBody).not.toHaveProperty('status');
+    await expect(select).toContainText('검토 중');
   });
 });

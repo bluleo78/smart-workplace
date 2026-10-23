@@ -48,7 +48,7 @@ public class IssueController {
     return ResponseEntity.ok(issueSearchService.search((Long) auth.getPrincipal(), key, params));
   }
 
-  /** 목록 그룹별 총계(WP-472) — 검색과 같은 필터 params + groupBy(status·priority·assignee). */
+  /** 목록 그룹별 총계(WP-472) — 검색과 같은 필터 params + groupBy(status·statusId·priority·assignee). */
   @GetMapping("/group-counts")
   @RequirePermission("project:read")
   public ResponseEntity<IssueGroupCountsResponse> groupCounts(
@@ -84,7 +84,7 @@ public class IssueController {
     return ResponseEntity.ok(issueService.update((Long) auth.getPrincipal(), key, number, req));
   }
 
-  /** DnD 전용 — status 만 갱신. */
+  /** DnD 전용 — 상태만 갱신. statusId(프로젝트 상태, WP-807)가 있으면 그것이 이기고, 없으면 범주(status)로 바꾼다. */
   @PatchMapping("/{number}/status")
   @RequirePermission("issue:write")
   public ResponseEntity<IssueDetailResponse> updateStatus(
@@ -93,7 +93,8 @@ public class IssueController {
       @PathVariable int number,
       @Valid @RequestBody UpdateStatusRequest req) {
     return ResponseEntity.ok(
-        issueService.updateStatus((Long) auth.getPrincipal(), key, number, req.status()));
+        issueService.updateStatus(
+            (Long) auth.getPrincipal(), key, number, req.status(), req.statusId()));
   }
 
   /**

@@ -84,6 +84,7 @@ import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
+import com.workplace.jooq.tables.ProjectStatus;
 import com.workplace.jooq.tables.PushSubscription;
 import com.workplace.jooq.tables.RefreshToken;
 import com.workplace.jooq.tables.Role;
@@ -271,6 +272,7 @@ public class Indexes {
     public static final Index IDX_ISSUE_LABEL_TENANT = Internal.createIndex(DSL.name("idx_issue_label_tenant"), IssueLabel.ISSUE_LABEL, new OrderField[] { IssueLabel.ISSUE_LABEL.TENANT_ID }, false);
     public static final Index IDX_ISSUE_MILESTONE = Internal.createIndex(DSL.name("idx_issue_milestone"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.MILESTONE_ID }, false);
     public static final Index IDX_ISSUE_PARENT = Internal.createIndex(DSL.name("idx_issue_parent"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PARENT_ISSUE_ID }, false);
+    public static final Index IDX_ISSUE_PROJECT_STATUS_ID_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_id_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS_ID, Issue.ISSUE.UPDATED_AT.desc() }, false);
     public static final Index IDX_ISSUE_PROJECT_STATUS_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS, Issue.ISSUE.UPDATED_AT.desc() }, false);
     public static final Index IDX_ISSUE_SOURCE = Internal.createIndex(DSL.name("idx_issue_source"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.SOURCE_TYPE, Issue.ISSUE.SOURCE_ID }, false);
     public static final Index IDX_ISSUE_TENANT = Internal.createIndex(DSL.name("idx_issue_tenant"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.TENANT_ID }, false);
@@ -310,6 +312,8 @@ public class Indexes {
     public static final Index IDX_PROJECT_ISSUE_SEQUENCE_TENANT = Internal.createIndex(DSL.name("idx_project_issue_sequence_tenant"), ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE, new OrderField[] { ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE.TENANT_ID }, false);
     public static final Index IDX_PROJECT_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_project_member_tenant"), ProjectMember.PROJECT_MEMBER, new OrderField[] { ProjectMember.PROJECT_MEMBER.TENANT_ID }, false);
     public static final Index IDX_PROJECT_MEMBER_USER = Internal.createIndex(DSL.name("idx_project_member_user"), ProjectMember.PROJECT_MEMBER, new OrderField[] { ProjectMember.PROJECT_MEMBER.USER_ID }, false);
+    public static final Index IDX_PROJECT_STATUS_PROJECT = Internal.createIndex(DSL.name("idx_project_status_project"), ProjectStatus.PROJECT_STATUS, new OrderField[] { ProjectStatus.PROJECT_STATUS.PROJECT_ID, ProjectStatus.PROJECT_STATUS.CATEGORY, ProjectStatus.PROJECT_STATUS.POSITION }, false);
+    public static final Index IDX_PROJECT_STATUS_TENANT = Internal.createIndex(DSL.name("idx_project_status_tenant"), ProjectStatus.PROJECT_STATUS, new OrderField[] { ProjectStatus.PROJECT_STATUS.TENANT_ID }, false);
     public static final Index IDX_PROJECT_TENANT = Internal.createIndex(DSL.name("idx_project_tenant"), Project.PROJECT, new OrderField[] { Project.PROJECT.TENANT_ID }, false);
     public static final Index IDX_PROJECT_TYPE = Internal.createIndex(DSL.name("idx_project_type"), Project.PROJECT, new OrderField[] { Project.PROJECT.TYPE }, false);
     public static final Index IDX_PUSH_SUBSCRIPTION_USER = Internal.createIndex(DSL.name("idx_push_subscription_user"), PushSubscription.PUSH_SUBSCRIPTION, new OrderField[] { PushSubscription.PUSH_SUBSCRIPTION.USER_ID }, false);

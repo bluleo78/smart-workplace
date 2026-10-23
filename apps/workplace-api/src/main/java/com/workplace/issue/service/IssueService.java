@@ -19,12 +19,14 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
+import com.workplace.issue.dto.ProjectStatusRow;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.EpicCannotHaveParentException;
 import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidIssueDateRangeException;
 import com.workplace.issue.exception.InvalidParentException;
+import com.workplace.issue.exception.InvalidStatusForProjectException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.IssueConflictException;
 import com.workplace.issue.exception.IssueNotFoundException;
@@ -48,6 +50,7 @@ import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
+import com.workplace.issue.repository.ProjectStatusRepository;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.repository.LabelRepository;
 import com.workplace.label.service.LabelService;
@@ -63,6 +66,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -119,6 +124,53 @@ public class IssueService {
   /** AI 즉시 컨텍스트: 블로커 결정적 계산기 (새 쿼리 0). */
   private final IssueBlockerCalculator blockerCalculator;
 
+  /** WP-807: 프로젝트 상태 해석(상태 id 검증·범주 기본 상태). */
+  private final ProjectStatusRepository projectStatusRepository;
+
+  /** 해석된 프로젝트 상태(WP-807) — 이슈에 쓸 상태 id·범주·이름. */
+  record ResolvedStatus(long id, String category, String name) {
+
+    static ResolvedStatus of(ProjectStatusRow row) {
+      return new ResolvedStatus(row.id(), row.category(), row.name());
+    }
+  }
+
+  /**
+   * 요청의 상태 지정을 프로젝트 상태 하나로 해석한다(WP-807). statusId 가 범주보다 우선한다 — 다른 프로젝트 상태이거나 없으면 400. 범주만 오면 이슈가
+   * 이미 그 범주일 때 지금 상태를 유지하고(시스템 전이 「진행 중으로」가 「검토 중」을 되돌리지 않게), 아니면 범주 기본 상태(가장 앞)로 간다. 둘 다 없으면 지금
+   * 상태(새 이슈면 할 일 기본 상태).
+   *
+   * @param requested statusId 로 읽은 상태 행({@link #lookupStatus}) — statusId 가 null 이면 빈 값
+   * @param before 수정 전 이슈(생성이면 null)
+   */
+  private ResolvedStatus resolveStatus(
+      ProjectRow project,
+      Long statusId,
+      Optional<ProjectStatusRow> requested,
+      String category,
+      IssueRow before) {
+    if (statusId != null) {
+      return requested
+          .filter(s -> s.projectId().equals(project.id()))
+          .map(ResolvedStatus::of)
+          .orElseThrow(InvalidStatusForProjectException::new);
+    }
+    String target =
+        category != null ? category : (before != null ? before.status() : IssueStatuses.TODO);
+    if (before != null && target.equals(before.status())) {
+      return new ResolvedStatus(before.statusId(), before.status(), before.statusName());
+    }
+    return projectStatusRepository
+        .findDefault(project.id(), target)
+        .map(ResolvedStatus::of)
+        .orElseThrow(() -> new IllegalStateException("프로젝트에 " + target + " 범주 상태가 없음"));
+  }
+
+  /** 요청의 상태 id 를 한 번만 읽는다 — 수정 경로는 잠금 순서 판정과 상태 해석이 같은 행을 쓴다. statusId 가 null 이면 빈 값. */
+  private Optional<ProjectStatusRow> lookupStatus(Long statusId) {
+    return statusId != null ? projectStatusRepository.findById(statusId) : Optional.empty();
+  }
+
   /**
    * 신규 이슈 생성. priority 기본값(MID)을 서비스에서 보정. assigneeIds 가 비어있지 않으면 issue_assignee 매핑까지 동시 INSERT.
    * typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 fallback. SUBTASK 면 parentNumber 필수 + 부모 검증, 비SUBTASK 면
@@ -142,7 +194,7 @@ public class IssueService {
       requireOpenChildAllowed(
           parent,
           "EPIC".equals(typeRepository.findById(parent.typeId()).orElseThrow().name()),
-          req.status() != null ? req.status() : "TODO");
+          plan.status().category());
     }
 
     int number = sequenceRepository.allocateNext(project.id());
@@ -159,11 +211,8 @@ public class IssueService {
             parentIssueId,
             req.startDate(),
             plan.milestoneId(),
-            req.status());
-    // INSERT RETURNING 은 마일스톤 이름(서브쿼리 컬럼)을 돌려주지 않는다 — 마일스톤을 지정했을 때만 다시 읽어 응답에 이름을 싣는다(WP-356).
-    if (plan.milestoneId() != null) {
-      row = issueRepository.findById(row.id()).orElseThrow();
-    }
+            plan.status().category(),
+            plan.status().id());
     // WP-356 라벨·사이클 연결 — 검증(planCreate)을 통과한 id 만 같은 트랜잭션에서 붙인다. 새 이슈라 diff·이력 없이 추가만 한다.
     // WP-394 이름 라벨은 여기서 없는 것을 만들어 id 로 합친다 — 이슈 생성과 한 트랜잭션이라 뒤에서 실패하면 라벨도 롤백된다.
     for (Long labelId :
@@ -219,7 +268,9 @@ public class IssueService {
       List<Long> labelIds,
       Long milestoneId,
       List<Long> cycleIds,
-      List<String> labelNames) {}
+      List<String> labelNames,
+      // WP-807 처음 상태 — statusId 우선, 범주만 오면 그 범주 기본 상태.
+      ResolvedStatus status) {}
 
   /** 생성 술어 본체 — 쓰기 없이 검증만 수행하고 실행에 필요한 해석값을 반환한다. 예외 종류·순서는 기존 create 와 동일. */
   CreateIssuePlan planCreate(Long callerId, String projectKey, CreateIssueRequest req) {
@@ -233,6 +284,10 @@ public class IssueService {
     if (!memberOrAdmin && specifiesMemberOnlyFields(project, req)) {
       throw new ProjectAccessDeniedException("우선순위·일정·담당자·유형·부모는 프로젝트 멤버만 지정할 수 있습니다");
     }
+
+    // 0-1) 처음 상태(WP-807) — 다른 프로젝트·없는 상태 id 는 400. 부모 검증(완료 에픽 아래 미완료 하위 금지)이 해석된 범주를 쓴다.
+    ResolvedStatus status =
+        resolveStatus(project, req.statusId(), lookupStatus(req.statusId()), req.status(), null);
 
     // 1) 담당자 검증 — 개인·팀 공통으로 프로젝트 멤버만 담당 가능 (정책 통일 #418)
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
@@ -291,7 +346,7 @@ public class IssueService {
       } else if (!parentIsEpic) {
         throw new ParentNotAllowedException();
       }
-      requireOpenChildAllowed(parent, parentIsEpic, req.status() != null ? req.status() : "TODO");
+      requireOpenChildAllowed(parent, parentIsEpic, status.category());
       parentIssueId = parent.id();
     } else if (isSubtask) {
       throw new SubtaskParentRequiredException();
@@ -350,14 +405,26 @@ public class IssueService {
         labelIds,
         milestoneId,
         cycleIds,
-        labelNames);
+        labelNames,
+        status);
   }
 
-  /** 요청이 기본값이 아닌 멤버 전용 값(우선순위≠MID·상태≠TODO·날짜·담당자·유형≠TASK·부모)을 지정했는지 — WP-477 비멤버 생성 검사. */
+  /**
+   * 요청이 기본값이 아닌 멤버 전용 값(우선순위≠MID·상태≠TODO(상태 id≠할 일 기본 상태)·날짜·담당자·유형≠TASK·부모)을 지정했는지 — WP-477 비멤버 생성
+   * 검사.
+   */
   private boolean specifiesMemberOnlyFields(ProjectRow project, CreateIssueRequest req) {
     if (req.priority() != null && !"MID".equals(req.priority())) return true;
     // 처음 상태(WP-464)도 상태 변경처럼 멤버 전용 — 할 일은 기본값과 같다.
-    if (req.status() != null && !"TODO".equals(req.status())) return true;
+    if (req.status() != null && !IssueStatuses.TODO.equals(req.status())) return true;
+    // 상태 id(WP-807)도 할 일 기본 상태가 아니면 멤버 전용 — 범주 TODO 의 다른 상태도 상태 지정이다.
+    if (req.statusId() != null
+        && !projectStatusRepository
+            .findDefault(project.id(), IssueStatuses.TODO)
+            .map(d -> d.id().equals(req.statusId()))
+            .orElse(false)) {
+      return true;
+    }
     if (req.startDate() != null || req.dueDate() != null || req.parentNumber() != null) return true;
     if (req.assigneeIds() != null && !req.assigneeIds().isEmpty()) return true;
     return req.typeId() != null
@@ -584,7 +651,9 @@ public class IssueService {
   public IssueDetailResponse update(
       Long callerId, String projectKey, int number, UpdateIssueRequest req) {
     var project = accessGuard.resolve(projectKey);
-    lockParentIfReopening(project, number, req);
+    // 상태 id 지정이면 그 상태 행을 한 번만 읽어 잠금 순서 판정과 아래 상태 해석에 함께 쓴다(WP-807).
+    Optional<ProjectStatusRow> requestedStatus = lookupStatus(req.statusId());
+    lockParentIfReopening(project, number, req, requestedStatus);
     // #611 읽은 값에 요청 필드를 병합해 전 컬럼을 다시 쓰므로 행을 잠가 동시 수정이 서로를 되돌리지 않게 한다.
     var before =
         issueRepository
@@ -600,6 +669,7 @@ public class IssueService {
       accessGuard.assertContentWritable(project, before.reporterId(), callerId);
       boolean touchesWorkflow =
           req.status() != null
+              || req.statusId() != null
               || req.priority() != null
               || req.dueDate() != null
               || Boolean.TRUE.equals(req.clearDueDate())
@@ -619,7 +689,10 @@ public class IssueService {
 
     String newTitle = req.title() != null ? normalizeTitle(req.title()) : before.title();
     String newBody = req.body() != null ? req.body() : before.body();
-    String newStatus = req.status() != null ? req.status() : before.status();
+    // WP-807 상태 — statusId 우선, 범주만 오면 이미 그 범주면 유지·아니면 범주 기본 상태. 이하 종료 시각·에픽 차단·AI 작업 종료는 범주로 판정한다.
+    ResolvedStatus resolved =
+        resolveStatus(project, req.statusId(), requestedStatus, req.status(), before);
+    String newStatus = resolved.category();
     String newPriority = req.priority() != null ? req.priority() : before.priority();
     LocalDate newDue =
         Boolean.TRUE.equals(req.clearDueDate())
@@ -656,7 +729,7 @@ public class IssueService {
     // EPIC → DONE 전이 시 미완료 자식 이슈가 있으면 하드 차단(#710). silent-cascade 로 EPIC 만 완료 처리되고
     // 자식이 미완료로 남는 불일치 상태를 막는다(#678 커스텀 역할 삭제와 동일한 hard-block 정책, 경고 후 강제진행 옵션은 두지 않음).
     // 자식 유형과 무관하게(SUBTASK 뿐 아니라 TASK 등 전체) 하나라도 미완료면 차단 — 보드 카드의 SUBTASK 전용 집계와는 별개 기준.
-    if (newStatus.equals("DONE") && !before.status().equals("DONE")) {
+    if (IssueStatuses.DONE.equals(newStatus) && !IssueStatuses.DONE.equals(before.status())) {
       var beforeType = typeRepository.findById(before.typeId()).orElseThrow();
       if ("EPIC".equals(beforeType.name())) {
         var incompleteChildNumbers = issueRepository.findIncompleteChildNumbers(before.id());
@@ -677,6 +750,7 @@ public class IssueService {
         newTitle,
         newBody,
         newStatus,
+        resolved.id(),
         newPriority,
         newDue,
         newStart,
@@ -686,7 +760,7 @@ public class IssueService {
     // DONE 은 COMPLETED(착수 전 SUBMITTED 만 CANCELED), CANCELED 는 CANCELED 로 닫고, 재오픈은 되살리지 않는다.
     // 알림은 아래 changeNotifier.updated 가 이미 보내므로 여기서는 기록만 닫는다.
     if (nowClosed && !wasClosed) {
-      if ("DONE".equals(newStatus)) {
+      if (IssueStatuses.DONE.equals(newStatus)) {
         agentWorkService.endAllOnIssueDone(List.of(before.id()));
       } else {
         agentWorkService.cancelAllForIssues(List.of(before.id()));
@@ -701,7 +775,9 @@ public class IssueService {
 
     // 상태·우선순위 전이가 있을 때 각각 이벤트 발행 (AFTER_COMMIT 에서 ai-agent/알림 발사 후보).
     // 우선순위는 상태와 대칭적으로 모든 변경에 발행(임계치 조건 없음, #613).
-    if (!before.status().equals(after.status()) || !before.priority().equals(after.priority())) {
+    // 상태는 프로젝트 상태 id 로 비교한다 — 같은 범주 안 이동(진행 중 → 검토 중)도 알림·이력에 남는다(WP-807).
+    boolean statusChanged = !Objects.equals(before.statusId(), after.statusId());
+    if (statusChanged || !before.priority().equals(after.priority())) {
       var actor =
           userRepository
               .findById(callerId)
@@ -710,7 +786,7 @@ public class IssueService {
       var currentAssignees = assigneeRepository.findByIssue(after.id());
       String issueKey = project.key() + "-" + after.number();
 
-      if (!before.status().equals(after.status())) {
+      if (statusChanged) {
         publisher.publishEvent(
             new IssueStatusChangedEvent(
                 after.id(),
@@ -721,6 +797,8 @@ public class IssueService {
                 currentAssignees,
                 before.status(),
                 after.status(),
+                before.statusName(),
+                after.statusName(),
                 Instant.now()));
       }
 
@@ -746,15 +824,17 @@ public class IssueService {
     if (isOrganizingOnly(req)) {
       changeNotifier.updatedWithoutTouch(project, number, before.id(), callerId);
     } else {
-      changeNotifier.updated(project, number, before.id(), callerId, req.status() != null);
+      changeNotifier.updated(
+          project, number, before.id(), callerId, req.status() != null || req.statusId() != null);
     }
     // WP-689 완료(DONE) 에픽의 하위가 다시 열리면 에픽도 진행 중으로 되돌린다 — 완료 에픽 아래 미완료 하위가 남지 않게.
     // 같은 update 경로로 바꿔 상태 이력·이벤트·실시간 무효화를 그대로 남긴다(에픽은 부모가 없어 더 올라가지 않는다).
     if (wasClosed && !nowClosed && before.parentIssueId() != null) {
       var parent = issueRepository.findById(before.parentIssueId()).orElseThrow();
-      if ("DONE".equals(parent.status())
+      // 범주 「진행 중」으로 보내면 resolveStatus 가 그 범주 기본 상태로 옮긴다(사용자 정의 완료 상태 「배포됨」 에픽도 같다, WP-807).
+      if (IssueStatuses.DONE.equals(parent.status())
           && "EPIC".equals(typeRepository.findById(parent.typeId()).orElseThrow().name())) {
-        updateStatus(callerId, projectKey, parent.number(), "IN_PROGRESS");
+        updateStatus(callerId, projectKey, parent.number(), IssueStatuses.IN_PROGRESS);
       }
     }
 
@@ -767,21 +847,37 @@ public class IssueService {
    * 쪽이 앞선 결과를 본다. 순서를 에픽 완료·삭제와 같은 「부모→하위」로 맞춰 서로 기다리지 않게 한다 — 그래서 하위 행을 잠그기 전에, 잠그지 않은 읽기로 대상을
    * 고른다(그 사이 상태·부모가 바뀌면 아래 다시 열기 판정이 잠근 행으로 다시 본다).
    */
-  private void lockParentIfReopening(ProjectRow project, int number, UpdateIssueRequest req) {
-    if (req.status() == null || IssueStatuses.CLOSED.contains(req.status())) return;
+  private void lockParentIfReopening(
+      ProjectRow project,
+      int number,
+      UpdateIssueRequest req,
+      Optional<ProjectStatusRow> requestedStatus) {
+    // 상태 id 로 다시 여는 요청(WP-807)도 같은 잠금 순서를 지키도록 그 상태의 범주로 판정한다(없는 id 는 뒤의 resolveStatus 가 400).
+    String target =
+        req.statusId() != null
+            ? requestedStatus.map(ProjectStatusRow::category).orElse(null)
+            : req.status();
+    if (target == null || IssueStatuses.isClosed(target)) return;
     issueRepository
         .findByProjectAndNumber(project.id(), number)
         .filter(row -> row.parentIssueId() != null && IssueStatuses.CLOSED.contains(row.status()))
         .ifPresent(row -> issueRepository.lockActiveByIdForUpdate(row.parentIssueId()));
   }
 
-  /** DnD 등에서 status 만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. */
+  /**
+   * DnD 등에서 상태만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. statusId(프로젝트 상태, WP-807)가 있으면 그것이 이기고
+   * 범주는 그 상태의 범주를 따른다. 범주만 오면 이미 그 범주일 때 지금 상태를 유지하고 아니면 범주 기본 상태로 간다 — 시스템 전이(AI 작업 시작·에픽 재오픈)가 이
+   * 경로라 사용자가 고른 같은 범주 상태를 되돌리지 않는다.
+   */
   public IssueDetailResponse updateStatus(
-      Long callerId, String projectKey, int number, String newStatus) {
-    var req =
-        new UpdateIssueRequest(
-            null, null, newStatus, null, null, false, null, false, null, false, null);
-    return update(callerId, projectKey, number, req);
+      Long callerId, String projectKey, int number, String category, Long statusId) {
+    return update(callerId, projectKey, number, UpdateIssueRequest.statusOnly(category, statusId));
+  }
+
+  /** 범주만으로 상태를 바꾸는 단축 — 시스템 전이·테스트 호출부용({@link #updateStatus(Long, String, int, String, Long)}). */
+  public IssueDetailResponse updateStatus(
+      Long callerId, String projectKey, int number, String category) {
+    return updateStatus(callerId, projectKey, number, category, null);
   }
 
   /**
@@ -920,7 +1016,10 @@ public class IssueService {
    * 것이 아니라 MCP 경유라도 AI 작업을 시작하지 않는다.
    */
   private static boolean isOrganizingOnly(UpdateIssueRequest req) {
-    return req.title() == null && req.body() == null && req.status() == null;
+    return req.title() == null
+        && req.body() == null
+        && req.status() == null
+        && req.statusId() == null;
   }
 
   /**
@@ -998,7 +1097,7 @@ public class IssueService {
   /** 처리팀이 아직 손대지 않은 이슈인지(WP-634) — 「할 일」 상태이고 담당자도, 제보자 외 사람의 코멘트도 없다. */
   private static boolean untouchedByTeam(
       IssueRow row, boolean hasAssignee, boolean othersCommented) {
-    return "TODO".equals(row.status()) && !hasAssignee && !othersCommented;
+    return IssueStatuses.TODO.equals(row.status()) && !hasAssignee && !othersCommented;
   }
 
   /** checkDeletable 결과 — 삭제 대상 이슈 행과 이미 resolve 된 프로젝트(알림 발행에 재사용). */
@@ -1062,7 +1161,7 @@ public class IssueService {
   private static void requireOpenChildAllowed(
       IssueRow parent, boolean parentIsEpic, String childStatus) {
     if (parentIsEpic
-        && "DONE".equals(parent.status())
+        && IssueStatuses.DONE.equals(parent.status())
         && !IssueStatuses.CLOSED.contains(childStatus)) {
       throw new InvalidParentException("완료된 에픽에는 미완료 하위 이슈를 넣을 수 없습니다. 에픽을 먼저 다시 열어 주세요");
     }

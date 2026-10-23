@@ -91,6 +91,7 @@ import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
+import com.workplace.jooq.tables.ProjectStatus;
 import com.workplace.jooq.tables.PushSubscription;
 import com.workplace.jooq.tables.PushVapidKey;
 import com.workplace.jooq.tables.RefreshToken;
@@ -570,6 +571,11 @@ public class Tables {
      * The table <code>public.project_member</code>.
      */
     public static final ProjectMember PROJECT_MEMBER = ProjectMember.PROJECT_MEMBER;
+
+    /**
+     * The table <code>public.project_status</code>.
+     */
+    public static final ProjectStatus PROJECT_STATUS = ProjectStatus.PROJECT_STATUS;
 
     /**
      * The table <code>public.push_subscription</code>.

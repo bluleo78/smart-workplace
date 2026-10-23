@@ -40,10 +40,14 @@ import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.InvalidIssueOperationException;
+import com.workplace.issue.exception.InvalidStatusForProjectException;
 import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.InvalidTypeIconException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.exception.StatusEditNotSupportedException;
+import com.workplace.issue.exception.StatusNameDuplicatedException;
+import com.workplace.issue.exception.StatusNotFoundException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SystemTypeImmutableException;
 import com.workplace.issue.exception.TypeInUseException;
@@ -1578,6 +1582,38 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(InvalidTypeForProjectException.class)
   public ResponseEntity<ErrorResponse> handleInvalidTypeForProject(
       InvalidTypeForProjectException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 프로젝트 상태를 찾을 수 없음(다른 프로젝트의 상태 포함) — 404 (WP-807). */
+  @ExceptionHandler(StatusNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleStatusNotFound(
+      StatusNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request));
+  }
+
+  /** 같은 프로젝트에 같은 이름(대소문자·앞뒤 공백 무시)의 상태 — 409 (WP-807). */
+  @ExceptionHandler(StatusNameDuplicatedException.class)
+  public ResponseEntity<ErrorResponse> handleStatusNameDuplicated(
+      StatusNameDuplicatedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 개인 프로젝트 상태 편집 시도 — 400 (WP-807). */
+  @ExceptionHandler(StatusEditNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleStatusEditNotSupported(
+      StatusEditNotSupportedException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
+  /** 이 프로젝트·범주에 맞지 않는 상태 지정 — 400 (WP-807). */
+  @ExceptionHandler(InvalidStatusForProjectException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidStatusForProject(
+      InvalidStatusForProjectException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }

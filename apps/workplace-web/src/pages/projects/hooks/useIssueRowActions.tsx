@@ -8,7 +8,6 @@ import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useSta
 import { toast } from 'sonner';
 
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
-import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon';
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
@@ -29,13 +28,16 @@ import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { issueDeleteChildrenWarning, issueDeleteEntityName } from '../../../lib/issueDeleteText';
-import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
+import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { rowMenuItems, toggleAssigneeIds, toSummary } from '../../../lib/issueRowMenu';
 import { isProjectOwner } from '../../../lib/projectPermissions';
-import type { IssuePriority, IssueResponse, IssueStatus } from '../../../types/issue';
+import { findStatus } from '../../../lib/projectStatuses';
+import type { IssuePriority, IssueResponse } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
+import type { ProjectStatus } from '../../../types/projectStatus';
 import type { UserSummary } from '../../../types/user';
 import { IssueRowMenu, type RowMenuTarget } from '../components/IssueRowMenu';
+import { statusPickerOptions } from './statusFacets';
 
 // 「에픽 없음」 선택지 값 — 에픽 번호(양의 정수)와 겹치지 않는 문자열.
 const NO_EPIC = 'none';
@@ -63,13 +65,13 @@ export function openRowMenuAtPointer(e: MouseEvent<HTMLElement>, issue: IssueRes
 }
 
 export function useIssueRowActions({
-  projectKey, canEdit, statuses = ISSUE_STATUSES, onSelect, isSelected, selected, onClearSelection, linkFor, closedHiding,
+  projectKey, canEdit, statuses, onSelect, isSelected, selected, onClearSelection, linkFor, closedHiding,
 }: {
   projectKey: string;
   /** 프로젝트 멤버 여부 — 아니면 변경 항목을 노출하지 않는다(서버 assertMember). */
   canEdit: boolean;
-  /** 보드 컬럼 등 허용 상태(개인 보드는 3개). */
-  statuses?: IssueStatus[];
+  /** 고를 수 있는 프로젝트 상태(표시 순서, WP-808) — 목록은 전체, 보드는 컬럼에 있는 상태만(개인 보드는 취소 범주 제외). */
+  statuses: ProjectStatus[];
   /** 목록 다중 선택 진입(모바일) — 있으면 「선택」 행을 시트에 둔다. */
   onSelect?: (issue: IssueResponse) => void;
   /** 이미 선택된 행인지 — 「선택」 행이 토글이라 선택된 행에서는 「선택 해제」로 보여 준다. */
@@ -156,9 +158,12 @@ export function useIssueRowActions({
 
   // ── 액션 ──────────────────────────────────────────────
   const afterBulk = { onSuccess: () => onClearSelection?.() };
-  const changeStatus = (s: IssueStatus) => {
-    if (bulk) bulkStatus.mutate({ numbers, status: s }, afterBulk);
-    else if (issue && s !== issue.status) updateStatus.mutate({ number: issue.number, status: s });
+  // 고른 상태의 id·이름·범주를 함께 넘긴다 — 서버엔 statusId 만 가고, 낙관적 패치는 이름까지 바로 바꾼다(WP-808).
+  const changeStatus = (s: ProjectStatus) => {
+    if (bulk) bulkStatus.mutate({ numbers, status: s.category, statusId: s.id }, afterBulk);
+    else if (issue && s.id !== issue.statusId) {
+      updateStatus.mutate({ number: issue.number, to: s });
+    }
   };
   const changePriority = (p: IssuePriority) => {
     if (bulk) bulkPriority.mutate({ numbers, priority: p }, afterBulk);
@@ -273,7 +278,8 @@ export function useIssueRowActions({
   const actions: MobileSheetAction[] = !issue
     ? []
     : ([
-        items.status && { key: 'status', label: '상태', icon: <CircleDot />, hint: ISSUE_STATUS_LABEL[issue.status], onSelect: () => toSheet('status') },
+        // 상태 목록 로딩 중이면 빈 시트 대신 항목을 숨긴다.
+        items.status && statuses.length > 0 && { key: 'status', label: '상태', icon: <CircleDot />, hint: issue.statusName, onSelect: () => toSheet('status') },
         items.assignee && { key: 'assignee', label: '담당자', icon: <UserRound />, hint: assigneeNames, onSelect: () => toSheet('assignee') },
         items.priority && { key: 'priority', label: '우선순위', icon: <SignalHigh />, hint: ISSUE_PRIORITY_LABEL[issue.priority], onSelect: () => toSheet('priority') },
         items.epic && { key: 'epic', label: '에픽', icon: <Layers />, hint: issue.parent?.title ?? '없음', onSelect: () => toSheet('epic') },
@@ -292,9 +298,12 @@ export function useIssueRowActions({
         open={sheet === 'status'}
         onClose={close}
         title="상태 변경"
-        value={issue?.status ?? null}
-        options={statuses.map((s) => ({ value: s, label: ISSUE_STATUS_LABEL[s], icon: <IssueStatusIcon status={s} decorative /> }))}
-        onSelect={(v) => changeStatus(v as IssueStatus)}
+        value={issue ? String(issue.statusId) : null}
+        options={statusPickerOptions(statuses)}
+        onSelect={(v) => {
+          const s = findStatus(statuses, v);
+          if (s) changeStatus(s);
+        }}
       />
       <MobilePickerSheet
         testId="issue-priority-picker"

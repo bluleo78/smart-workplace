@@ -24,6 +24,8 @@ function mk(over: Partial<IssueResponse>): IssueResponse {
     number: 0,
     title: 't',
     status: 'TODO',
+    statusId: 1,
+    statusName: '할 일',
     priority: 'MID',
     dueDate: null,
     startDate: null,
@@ -294,7 +296,8 @@ describe('스크린리더 안내', () => {
     ).toBe('사이클 「스프린트 12」');
     expect(describeDropTarget(over({ cycleSection: { cycle: null, queryKey: [] } }), 'WP')).toBe('「백로그」');
     expect(describeDropTarget(over({ status: 'DONE', label: '완료' }), 'WP')).toBe('「완료」 컬럼');
-    expect(describeDropTarget(over({ issue: mk({ number: 7, status: 'IN_PROGRESS' }), status: 'IN_PROGRESS' }), 'WP')).toBe('WP-7 카드(진행 중)');
+    // 카드 상태는 프로젝트 상태 이름(statusName, WP-808)으로 읽는다.
+    expect(describeDropTarget(over({ issue: mk({ number: 7, status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중' }), status: 'IN_PROGRESS' }), 'WP')).toBe('WP-7 카드(검토 중)');
     expect(describeDropTarget(over({ zone: true }), 'WP')).toBe('에픽 패널(놓을 수 없는 곳)');
     expect(describeDropTarget(null, 'WP')).toBeNull();
   });
