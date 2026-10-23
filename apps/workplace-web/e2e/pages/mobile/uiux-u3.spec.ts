@@ -297,6 +297,47 @@ test('R9 탭 편집: ✦ 없음, [저장]은 바뀐 것이 있을 때만 활성(
   await expect(save).toBeDisabled()
 })
 
+// WP-846: 키보드로 위로·아래로·빼기·추가를 눌러도 초점이 body 로 사라지지 않고, 바뀐 내용을 라이브 영역으로 알린다.
+test('탭 편집: 경계로 옮기기·빼기·추가 뒤에도 초점이 이어지고 바뀐 내용을 알린다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps/tabs')
+  const live = page.getByTestId('tab-edit-live')
+  const slot = (i: number) => page.getByTestId(`tab-edit-slot-${i}`)
+  await expect(slot(0)).toContainText('홈')
+  await expect(slot(1)).toContainText('채팅')
+
+  // 채팅을 맨 위로 — 「위로」가 꺼지므로 같은 항목의 「아래로」로.
+  await page.getByTestId('tab-edit-up-1').focus()
+  await page.keyboard.press('Enter')
+  await expect(slot(0)).toContainText('채팅')
+  await expect(page.getByTestId('tab-edit-down-0')).toBeFocused()
+  await expect(live).toHaveText('채팅을 1번째 칸으로 옮겼습니다')
+
+  // 홈(가운데)을 맨 아래로 — 「아래로」가 꺼지므로 「위로」로.
+  await page.getByTestId('tab-edit-down-1').focus()
+  await page.keyboard.press('Enter')
+  await expect(slot(2)).toContainText('홈')
+  await expect(page.getByTestId('tab-edit-up-2')).toBeFocused()
+  await expect(live).toHaveText('홈을 3번째 칸으로 옮겼습니다')
+
+  // 셋째 칸(홈) 빼기 — 앞 칸의 「빼기」로.
+  await page.getByTestId('tab-edit-remove-2').focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('tab-edit-slot-2')).toHaveCount(0)
+  await expect(page.getByTestId('tab-edit-remove-1')).toBeFocused()
+  await expect(live).toHaveText('홈을 탭바에서 뺐습니다')
+
+  // 첫 ＋ 로 3칸을 다시 채우면 ＋ 가 모두 꺼진다 — 「저장」으로.
+  const firstAdd = page.getByRole('button', { name: / 추가$/ }).first()
+  const added = ((await firstAdd.getAttribute('aria-label')) ?? '').replace(/ 추가$/, '')
+  await firstAdd.focus()
+  await page.keyboard.press('Enter')
+  await expect(slot(2)).toContainText(added)
+  await expect(page.getByTestId('tab-edit-save')).toBeFocused()
+  await expect(live).toContainText(`${added}`)
+  await expect(live).toContainText('3번째 칸에 추가했습니다')
+})
+
 test('R10 캘린더 도구 줄: ‹ › 도 [오늘]·보기 선택과 같은 테두리 버튼(≥44px)', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/calendars', [])
   await page.goto('/calendar')
