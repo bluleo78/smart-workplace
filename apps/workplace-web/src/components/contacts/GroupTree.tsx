@@ -94,7 +94,9 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
             ]}
           />
         ) : (
-          <span className="hidden shrink-0 gap-1 group-hover:flex">
+          // 늘 Tab 순서에 두고 투명도로만 숨긴다 — hover·행 안 키보드 초점(group-kbd)에서 보인다(WP-844). 조직도(OrgChartView)와 같은 규칙.
+          // display:none 으로 숨기면 키보드로는 닿을 수 없다. 안 보이는 동안은 눌리지 않게(pointer-events-none) — 빈 곳 클릭으로 삭제 창이 뜨지 않게.
+          <span className="pointer-events-none flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-kbd:pointer-events-auto group-kbd:opacity-100">
             <button
               type="button"
               data-testid={`group-edit-${node.id}`}

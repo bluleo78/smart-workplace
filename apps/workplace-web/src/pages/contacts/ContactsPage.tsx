@@ -69,7 +69,7 @@ function ContactRow({
           </span>
         </span>
       </button>
-      {/* 즐겨찾기 토글 — hover 시 표시, 이미 즐겨찾기면 항상 표시.
+      {/* 즐겨찾기 토글 — hover·키보드 초점 시 표시, 이미 즐겨찾기면 항상 표시.
           WP-237: 터치 기기(coarse)에선 hover 가 없어 안 보이는 ★ 가 오터치로 즐겨찾기될 수 있어 탭을 막는다(추가는 상세 패널 ★ 로). */}
       <button
         type="button"
@@ -79,7 +79,8 @@ function ContactRow({
         onClick={() => toggle.mutate({ targetType: c.type, targetId: c.id, isFavorite: c.isFavorite })}
         className={cn(
           'shrink-0 rounded p-1 transition-opacity',
-          c.isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 pointer-coarse:pointer-events-none',
+          // 행 안 키보드 초점(group-kbd)에서도 보인다 — 투명한 채 초점만 가 있으면 어디 있는지 알 수 없다(WP-844). 그룹 트리와 같은 규칙.
+          c.isFavorite ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-kbd:opacity-100 pointer-coarse:pointer-events-none',
         )}
       >
         <Star className={cn('h-4 w-4', c.isFavorite && 'fill-yellow-400 text-yellow-400')} />
