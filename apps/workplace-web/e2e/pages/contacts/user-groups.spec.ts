@@ -94,6 +94,29 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async ({ authent
   await expect(member).toHaveClass(/selection-bar/)
 })
 
+// WP-898 — 그룹을 고른 동안 꺼진 타입 퀵필터(「전체」)는 선택 표시도 aria-current 도 없고, 그룹을 풀면 「전체」가 다시 현재 항목이다.
+test('그룹을 고르면 꺼진 「전체」 퀵필터는 현재 항목으로 표시·안내되지 않는다 (WP-898)', async ({ authenticatedPage: page }) => {
+  await stubContacts(page)
+  await stubTree(page)
+  await stubDetail(page)
+  await page.goto('/contacts')
+  const all = page.getByTestId('contact-filter-ALL')
+  await expect(all).toHaveAttribute('aria-current', 'true')
+  await expect(all).toHaveClass(/bg-selected/)
+
+  await page.getByTestId('group-node-10').click()
+  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(all).toBeDisabled()
+  await expect(all).not.toHaveAttribute('aria-current')
+  await expect(all).not.toHaveClass(/bg-selected/)
+  await expect(page.locator('[data-testid^="contact-filter-"][aria-current]')).toHaveCount(0)
+
+  // 같은 노드를 다시 눌러 풀면 「전체」가 돌아온다.
+  await page.getByTestId('group-node-10').click()
+  await expect(all).toHaveAttribute('aria-current', 'true')
+  await expect(all).toHaveClass(/bg-selected/)
+})
+
 test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
   const memberAdds = trackRequests(page, 'POST', '/api/v1/user-groups/99/members')

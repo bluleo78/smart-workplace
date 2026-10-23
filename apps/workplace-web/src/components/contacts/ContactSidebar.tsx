@@ -87,13 +87,17 @@ export function ContactSidebar() {
 
         {/* 타입 퀵필터 — ALL/MEMBER/EXTERNAL/FAVORITE */}
         <nav className="space-y-1">
-        {TYPE_FILTERS.map((f) => (
+        {TYPE_FILTERS.map((f) => {
+          // 조직도·내 그룹을 고른 동안엔 퀵필터가 꺼져(목록이 그룹 구성원) 어느 것도 현재 항목이 아니다 —
+          // 꺼진 「전체」가 선택 막대·배경과 aria-current 를 달고 있어 그룹과 둘 다 선택된 것처럼 보였다(WP-898).
+          const current = selectedGroupId == null && type === f.value
+          return (
           <button
             key={f.value}
             type="button"
             data-testid={`contact-filter-${f.value}`}
             disabled={selectedGroupId != null}
-            aria-current={type === f.value ? 'true' : undefined}
+            aria-current={current ? 'true' : undefined}
             // 모바일 시트에서 고르면 시트를 닫아 바뀐 목록을 보여 준다(WP-578). 단 '외부'는 시트 안에
             // 조직·직책 필터가 이어 나타나므로 둔다. 검색·조직/직책 필터도 시트 안에서 이어 입력하므로 닫지 않는다.
             data-sheet-dismiss={f.value === 'EXTERNAL' ? undefined : true}
@@ -106,7 +110,7 @@ export function ContactSidebar() {
             }
             className={cn(
               'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50',
-              type === f.value
+              current
                 ? SELECTED_NAV_CLASS
                 : 'text-muted-foreground hover:bg-accent/50',
             )}
@@ -119,7 +123,8 @@ export function ContactSidebar() {
             )}
             {f.label}
           </button>
-        ))}
+          )
+        })}
       </nav>
 
         {/* #329 외부 전용 고급 필터 — 조직·직책 distinct 드롭다운. 외부 탭 + 그룹 미선택일 때만. */}
