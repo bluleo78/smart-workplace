@@ -1,7 +1,7 @@
 // e2e/fixtures/push-mock.ts
 // 푸시 E2E 공용 — headless Chromium 은 실제 푸시 서비스(FCM) 연결 없이 subscribe 가 실패하므로 PushManager 를 스텁하고
 // /push/* API 를 mock 한다. 스텁은 페이지 로드마다 초기화(구독 없음 상태에서 시작).
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
 
 import { mockApi } from './api-mock'
 
@@ -52,6 +52,14 @@ export async function stubNotificationPermission(page: Page, value: Notification
  */
 export async function waitForServiceWorkerReady(page: Page) {
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined))
+}
+
+/** SW 의 관리를 받는 상태로 연다 — 첫 방문은 관리 밖이라 한 번 새로고침해야 관리받는다(sw.ts 는 clients.claim 을 하지 않음). */
+export async function openSwControlled(page: Page, path: string) {
+  await page.goto(path)
+  await waitForServiceWorkerReady(page)
+  await page.reload()
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true)
 }
 
 export async function mockPushApis(page: Page, opts: { enabled?: boolean } = {}) {

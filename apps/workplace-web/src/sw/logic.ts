@@ -101,6 +101,13 @@ export function shouldSuppress(p: PushPayload, clients: ClientView[], origin: st
   })
 }
 
+/**
+ * 네비게이션을 precache 된 앱 셸(index.html)로 가로채지 않을 경로 — 서버로 그대로 보낸다.
+ * API 는 캐시 대상이 아니고, 공유 링크(드라이브 `/s/`·노트 `/wiki/share/`)는 앱을 쓰던 브라우저로 열어도 늘 최신 앱을 받아야 한다 —
+ * 새 버전은 사용자가 토스트를 눌러야 적용되므로, 가로채면 그 링크 화면이 없던 옛 앱이 떠 404 가 난다(WP-867).
+ */
+export const NAVIGATION_DENYLIST: RegExp[] = [/^\/api\//, /^\/s\//, /^\/wiki\/share\//]
+
 // notificationclick 이 postMessage 로 라우팅을 넘겨도 되는 "앱 라우트"가 아닌 경로 — 로그인/가입/공유링크/알림
 // 진입점/OAuth 콜백은 AppLayout(라우터) 밖이라 push-navigate 메시지를 받아 처리할 화면이 없다.
 const NON_APP_EXACT_PATHS = new Set(['/login', '/signup', '/push-open'])

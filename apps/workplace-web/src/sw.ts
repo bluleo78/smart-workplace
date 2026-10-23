@@ -9,6 +9,7 @@ import { NavigationRoute, registerRoute } from 'workbox-routing'
 import {
   buildNotification,
   isAppRouteUrl,
+  NAVIGATION_DENYLIST,
   parsePushPayload,
   requiresVisibleNotification,
   safeTarget,
@@ -21,7 +22,7 @@ if (import.meta.env.PROD) {
   precacheAndRoute(self.__WB_MANIFEST)
   cleanupOutdatedCaches()
   // 네비게이션(주소창 이동·새로고침)은 precache 된 index.html 로 — 단 API·공유 링크 경로는 제외.
-  registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: [/^\/api\//, /^\/s\//] }))
+  registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html'), { denylist: NAVIGATION_DENYLIST }))
 }
 
 // 업데이트 토스트 "새로고침" → workbox-window 가 보내는 메시지로 대기 중인 SW 를 즉시 활성화.

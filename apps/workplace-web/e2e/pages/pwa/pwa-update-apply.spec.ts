@@ -7,18 +7,15 @@ import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockAgentWorkDetail } from '../../fixtures/issue-detail-mock'
-import { waitForServiceWorkerReady } from '../../fixtures/push-mock'
+import { openSwControlled } from '../../fixtures/push-mock'
 
 test.use({ serviceWorkers: 'allow' })
 
 type Marked = { __beforeReload?: boolean }
 
-/** SW 의 관리를 받는 상태로 연다 — 첫 방문은 관리 밖이라 한 번 새로고침해야 관리받는다(sw.ts 는 clients.claim 을 하지 않음). */
+/** SW 의 관리를 받는 상태로 열고, 새로고침 여부를 가릴 표식을 남긴다. */
 async function openControlled(page: Page, path: string) {
-  await page.goto(path)
-  await waitForServiceWorkerReady(page)
-  await page.reload()
-  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true)
+  await openSwControlled(page, path)
   // 새로고침되면 사라지는 표식 — 남아 있으면 아직 같은 문서다.
   await page.evaluate(() => {
     ;(window as Marked).__beforeReload = true
