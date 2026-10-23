@@ -18,6 +18,22 @@ export const COLOR_TOKENS = [
 
 export type ColorToken = (typeof COLOR_TOKENS)[number];
 
+// 색 견본의 한국어 이름 — 스크린리더·툴팁이 코드값(GRAY) 대신 읽는다(WP-849). 캘린더 팔레트(calendarPalette label)와 같은 말투.
+export const COLOR_TOKEN_LABELS: Record<ColorToken, string> = {
+  GRAY: '회색',
+  RED: '빨강',
+  ORANGE: '주황',
+  YELLOW: '노랑',
+  GREEN: '초록',
+  TEAL: '청록',
+  CYAN: '하늘',
+  BLUE: '파랑',
+  INDIGO: '남색',
+  PURPLE: '보라',
+  PINK: '분홍',
+  BROWN: '갈색',
+};
+
 // 새 라벨 기본 색 — 설정 화면 기본 선택값이자 이슈 선택기에서 바로 만든 라벨의 색(WP-394).
 export const DEFAULT_LABEL_COLOR: ColorToken = 'GRAY';
 
