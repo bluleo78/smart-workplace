@@ -21,8 +21,8 @@ import { cn } from '@/lib/utils';
 
 import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
 import { LABEL_COLORS } from '../../../lib/labelColors';
-import { ICON_NAMES, type IconName } from '../../../types/issueType';
-import { COLOR_TOKENS, type ColorToken } from '../../../types/label';
+import { ICON_LABELS, ICON_NAMES, type IconName } from '../../../types/issueType';
+import { COLOR_TOKEN_LABELS, COLOR_TOKENS, type ColorToken } from '../../../types/label';
 
 /** 색상 견본 줄 — 만들기 폼과 편집 창이 같이 쓴다. testIdPrefix 를 주면 견본마다 `${prefix}${토큰}` testid 를 단다. */
 export function ColorTokenPicker({
@@ -44,7 +44,9 @@ export function ColorTokenPicker({
           key={tok}
           type="button"
           onClick={() => onChange(tok)}
-          aria-label={tok}
+          // 코드값(GRAY) 대신 한국어 색 이름 — 스크린리더가 읽고, 마우스엔 툴팁으로 보인다(WP-849).
+          aria-label={COLOR_TOKEN_LABELS[tok]}
+          title={COLOR_TOKEN_LABELS[tok]}
           aria-pressed={value === tok}
           className={cn('h-6 w-6 rounded-full', LABEL_COLORS[tok].dot, value === tok && 'ring-2 ring-foreground')}
           data-testid={testIdPrefix && `${testIdPrefix}${tok}`}
@@ -73,7 +75,8 @@ export function IssueTypeIconPicker({
             key={n}
             type="button"
             onClick={() => onChange(n)}
-            aria-label={n}
+            aria-label={ICON_LABELS[n]}
+            title={ICON_LABELS[n]}
             aria-pressed={value === n}
             data-testid={`${testIdPrefix}${n}`}
             className={cn(

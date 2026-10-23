@@ -141,8 +141,12 @@ test.describe('이슈 유형', () => {
       const createForm = page.getByTestId('issue-type-create-form');
       await createForm.getByLabel('이름').fill('디자인');
       // 라벨 관리 섹션에도 동일 라벨의 색상 버튼이 존재 — form 으로 범위 한정.
-      await createForm.getByRole('button', { name: 'PURPLE' }).click();
-      await createForm.getByTestId('issue-type-icon-Star').click();
+      // 견본·아이콘은 코드값(PURPLE·Star) 대신 한국어 이름으로 찾힌다 — 스크린리더가 읽는 이름(WP-849).
+      await createForm.getByRole('button', { name: '보라' }).click();
+      await expect(createForm.getByRole('button', { name: '보라' })).toHaveAttribute('aria-pressed', 'true');
+      await createForm.getByRole('button', { name: '별' }).click();
+      await expect(createForm.getByTestId('issue-type-icon-Star')).toHaveAttribute('aria-pressed', 'true');
+      await expect(createForm.getByRole('button', { name: 'PURPLE' })).toHaveCount(0);
       await page
         .getByTestId('issue-type-create-form')
         .getByRole('button', { name: '추가' })

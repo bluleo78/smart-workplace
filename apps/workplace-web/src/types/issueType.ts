@@ -16,6 +16,19 @@ export const ICON_NAMES = [
 
 export type IconName = (typeof ICON_NAMES)[number];
 
+// 아이콘의 한국어 이름 — 스크린리더·툴팁이 컴포넌트 이름(Circle) 대신 읽는다(WP-849).
+export const ICON_LABELS: Record<IconName, string> = {
+  Circle: '원',
+  Bug: '버그',
+  BookOpen: '책',
+  Wrench: '렌치',
+  Star: '별',
+  Zap: '번개',
+  Flag: '깃발',
+  Target: '과녁',
+  CornerDownRight: '하위 화살표',
+};
+
 // 이슈 응답에 embed 되는 유형 요약.
 export interface IssueTypeSummary {
   id: number;
