@@ -99,6 +99,8 @@ export function LabelPickerPopover({
         <Input
           placeholder="라벨 검색"
           value={search}
+          // 검색어가 곧 새 라벨 이름이라 설정 화면 폼과 같은 40자에서 입력을 멈춘다 — 넘기면 만든 뒤에야 서버가 거절했다(WP-850).
+          maxLength={40}
           onChange={(e) => setSearch(e.target.value)}
           // Enter 로 바로 만들기 — 겹치는 라벨이 하나도 없을 때만(「front」로 걸러 frontend 를 찾던 중이면 새로 만들지 않는다).
           onKeyDown={(e) =>
