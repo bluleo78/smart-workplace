@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom'
 import type { PriorityItem } from '@/api/priorityItems'
 import { AiContent } from '@/components/ai/AiContent'
 import { useInboxPanel } from '@/components/layout/InboxContext'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCalendarEvents } from '@/hooks/queries/useCalendarEvents'
@@ -171,6 +172,10 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
     todayKey,
   })
   const top = rows.slice(0, 5)
+  // 행을 만드는 소스 중 실패한 것(WP-865) — 하나라도 실패하면 0건이어도 「다 확인했습니다」라고 말할 수 없고,
+  // 행이 있어도 빠진 소스가 있음을 알린다. AI 우선순위(priority)는 정렬 점수만 주고 행을 만들지 않아(없으면 고정 순위로 폴백) 넣지 않는다.
+  // 다시 시도는 실패한 소스만 다시 부른다.
+  const failedSources = previewData ? [] : [dues, notifs, mail, messaging].filter((q) => q.isError)
 
   // 카운트 셀 로딩/에러 플래그(셀 단위 격리). previewData 있으면 항상 로딩/에러 없음으로 고정.
   // ai=true 이면 CountCell 이 Sparkles 배지를 표시(AI 분류 활성 신호).
@@ -232,7 +237,15 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
             />
             지금 신경 쓸 일{top.length > 0 ? ` (${top.length})` : ''}
           </div>
-          {top.length === 0 ? (
+          {top.length === 0 && failedSources.length > 0 ? (
+            <LoadErrorState
+              variant="inline"
+              title="지금 신경 쓸 일을 불러오지 못했습니다"
+              queries={failedSources}
+              className="rounded-md border border-border"
+              testId="dashboard-attention-error"
+            />
+          ) : top.length === 0 ? (
             <div
               className="flex items-center gap-2 rounded-md border border-border px-3 py-3 text-sm text-muted-foreground"
               data-testid="dashboard-attention-empty"
@@ -242,6 +255,16 @@ export function SynthesisLayer({ previewData }: { previewData?: SynthesisPreview
             </div>
           ) : (
             <div className="space-y-2">
+              {/* 일부 소스가 실패했는데 다른 소스 행은 있을 때 — 목록이 전부인 것처럼 보이지 않게 한 줄 알린다(WP-865). */}
+              {failedSources.length > 0 && (
+                <LoadErrorState
+                  variant="banner"
+                  title="일부 항목을 불러오지 못했습니다"
+                  queries={failedSources}
+                  className="rounded-md border"
+                  testId="dashboard-attention-partial-error"
+                />
+              )}
               {/* 포커스 카드 — 최상위 1건 강조. AI 발굴(isAi)이면 AiContent 아우라로 마킹, 아니면 표준 ai-accent 보더. */}
               {(() => {
                 const f = top[0]

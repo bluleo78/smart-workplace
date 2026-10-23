@@ -15,11 +15,12 @@ import { useWikiLastSpaceKey, useWikiLastVisitedKey } from './useWikiLastVisited
  * 1) (target='space' 만) 마지막으로 고른 공간이 아직 목록에 있으면 그 공간 목록으로(WP-180). 없어졌으면 기록을 지운다.
  * 2) 마지막으로 본 노트 기록이 있으면 서버에서 다시 조회해 열 수 있을 때 그곳으로 복원.
  * 3) 기록이 없거나 삭제(404)·권한 상실(403)이면 기록을 지우고 첫 스페이스(개인 위키)로 이동.
- * 4) 스페이스가 0개면 이동하지 않는다(호출부가 빈 상태를 그림).
+ * 4) 스페이스가 0개면 이동하지 않는다(호출부가 빈 상태를 그림). 목록 조회가 실패하면 첫 공간으로는 이동하지 않는다(호출부가 실패 안내) — 마지막으로 본 노트 복원은 공간 목록과 따로 조회해 그대로 한다.
  * target: 'page' 는 그 페이지를 연다(데스크톱). 'space' 는 스페이스 목록을 연다(모바일 — 앱은 목록에서 시작, WP-178).
  */
 export function useWikiIndexRedirect(target: 'page' | 'space') {
-  const { data: spaces, isLoading } = useWikiSpaces()
+  const spacesQuery = useWikiSpaces()
+  const { data: spaces, isLoading } = spacesQuery
   const navigate = useNavigate()
   const lastVisitedKey = useWikiLastVisitedKey()
   const lastSpaceKey = useWikiLastSpaceKey()
@@ -65,5 +66,6 @@ export function useWikiIndexRedirect(target: 'page' | 'space') {
     }
   }, [target, restorePending, storedSpaceId, spaceKept, spaceGone, lastSpaceKey, storedPageId, lastPage.isError, lastPage.error, lastPage.data, lastVisitedKey, spaces, navigate])
 
-  return { spaces, isLoading, restorePending }
+  // spacesQuery — 첫 조회 실패(isLoadingError)를 「준비 중…」 대신 실패 안내 + 다시 시도로 그리게 넘긴다(WP-865).
+  return { spaces, isLoading, restorePending, spacesQuery }
 }

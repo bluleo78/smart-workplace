@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,7 +79,8 @@ function SpaceTypeIcon({ personal }: { personal: boolean }) {
 /** 좌측 2차 사이드바 — 내 드라이브 + 팀 공간 목록, 팀 공간 생성. */
 export function DriveSidebar() {
   // WP-63: 공간 목록 — useDriveSpaces(['drive','spaces']) 로 조회해 resource.changed 무효화 대상이 되게 한다.
-  const { data: spaces = EMPTY_SPACES } = useDriveSpaces()
+  const spacesQuery = useDriveSpaces()
+  const spaces = spacesQuery.data ?? EMPTY_SPACES
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   // 팀 공간 생성 다이얼로그 — window.prompt 대체 (#148).
@@ -191,6 +193,15 @@ export function DriveSidebar() {
             <Plus className="h-4 w-4" />
           </button>
         </div>
+        {/* 첫 조회 실패는 공간 없는 새 사용자 화면과 구분해 안내 + 다시 시도(WP-865) */}
+        {spacesQuery.isLoadingError && (
+          <LoadErrorState
+            variant="inline"
+            title="공간 목록을 불러오지 못했습니다"
+            queries={[spacesQuery]}
+            testId="drive-spaces-error"
+          />
+        )}
         <nav className="mt-2 space-y-1" data-testid="drive-space-list">
           {primary.map((s) => {
             // TEAM 공간이면 ⋯ — 「멤버」는 모든 멤버, 이름 변경/삭제는 OWNER 만(개인·채널 공간은 ⋯ 없음, WP-582).

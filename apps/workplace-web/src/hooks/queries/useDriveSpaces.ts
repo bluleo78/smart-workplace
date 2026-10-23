@@ -15,12 +15,14 @@ const SPACES_ERROR_TOAST_ID = 'drive-spaces-load-error'
 // #460: 드라이브 스페이스 목록 — show_drive(spaceId 미지정) 위젯용.
 // errorToast: 조회 실패를 토스트로 알릴지(opt-in). 가져오기·링크처럼 개인 공간이 있어야 하는 기능만 켠다 —
 // 사이드바·위젯 등 다른 사용처는 예전처럼 조용히 둔다.
-export function useDriveSpaces(options?: { enabled?: boolean; errorToast?: boolean }) {
+// refetchOnMount: 'always' 면 캐시가 신선해도 마운트마다 다시 받는다 — /drive 진입 리다이렉트처럼 지금 목록으로 골라야 하는 곳(WP-865).
+export function useDriveSpaces(options?: { enabled?: boolean; errorToast?: boolean; refetchOnMount?: 'always' }) {
   const query = useQuery<DriveSpace[]>({
     queryKey: driveKeys.spaces(),
     queryFn: () => driveApi.listSpaces().then((r) => r.data),
     retry: false,
     enabled: options?.enabled ?? true,
+    refetchOnMount: options?.refetchOnMount ?? true,
   })
   const toastOnError = !!options?.errorToast && query.isError
   useEffect(() => {

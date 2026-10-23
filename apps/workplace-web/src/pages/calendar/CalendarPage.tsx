@@ -18,6 +18,7 @@ import { MobileAgendaView } from '@/components/calendar/views/MobileAgendaView'
 import { MonthView } from '@/components/calendar/views/MonthView'
 import { DayView, WeekView } from '@/components/calendar/views/WeekView'
 import { Page } from '@/components/layout/Page'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { MobileSidebarSheet } from '@/components/mobile/MobileSidebarSheet'
 import {
   AlertDialog,
@@ -175,9 +176,14 @@ export function CalendarPage() {
   // anchor·view 변경 시에만 from/to 재계산
   const { from, to } = useMemo(() => visibleRange(view, anchor), [view, anchor])
   // 모바일 목록은 청크 조회(useAgendaChunks)가 따로 하므로 본문 범위 조회를 끈다(일요일 시작 30일 범위를 헛되이 받지 않게).
-  const { data: events = [], isSuccess: eventsLoaded } = useCalendarEvents(from, to, { enabled: !mobileAgenda })
+  const eventsQuery = useCalendarEvents(from, to, { enabled: !mobileAgenda })
+  const { data: events = [], isSuccess: eventsLoaded } = eventsQuery
   // 내게 할당된 이슈 마감일을 같은 가시 범위로 조회해 읽기전용 오버레이.
-  const { data: issueDues = [] } = useMyIssueDues(from, to, { enabled: !mobileAgenda })
+  const issueDuesQuery = useMyIssueDues(from, to, { enabled: !mobileAgenda })
+  const { data: issueDues = [] } = issueDuesQuery
+  // 본문 범위 조회 중 첫 조회에 실패한 것(WP-865) — 일정·이슈 마감 어느 쪽이든 빠진 채 「없음」으로 보이지 않게 달력 위에 알린다.
+  const failedRange = [eventsQuery, issueDuesQuery].filter((q) => q.isLoadingError)
+  const failedRangeTitle = eventsQuery.isLoadingError ? '일정을 불러오지 못했습니다' : '이슈 마감을 불러오지 못했습니다'
 
   // 캘린더 표시 토글 + 초대받은 일정 토글 존중.
   // 내 캘린더(myCalendarIds) 면 캘린더별 토글, 아니면 invited 토글.
@@ -668,6 +674,16 @@ export function CalendarPage() {
 
           {/* 뷰 렌더링 — 월/주/일 그리드가 자체 스크롤·여백을 가져 padded=false(세로 쌓기). */}
           <Page.Body padded={false} className="flex-col">
+            {/* 범위 일정·이슈 마감 첫 조회 실패(WP-865) — 달력은 그대로 두되(이동·남은 쪽은 쓸 수 있다) 위에 알려, 「없음」으로 오해하지 않게.
+                모바일 목록 보기는 자체 실패 안내가 있다(useAgendaChunks). */}
+            {failedRange.length > 0 && (
+              <LoadErrorState
+                variant="banner"
+                title={failedRangeTitle}
+                queries={failedRange}
+                testId="calendar-events-error"
+              />
+            )}
             {/* 모바일 월·주·일은 좌우 스와이프 영역으로 감싼다(pan-y: 세로 스크롤은 브라우저, 스와이프 뒤 click 은 훅이 한 번 막는다). */}
             {GridView &&
               (isMobile ? (

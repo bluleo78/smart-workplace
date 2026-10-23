@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import { Button } from '@/components/ui/button'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
@@ -41,7 +42,8 @@ export function ChannelSidebar() {
   const location = useLocation()
   const isDmRoute = location.pathname.startsWith('/chat/dms/')
   const isThreadsRoute = location.pathname === '/chat/threads/inbox'
-  const { data: channels, isLoading } = useMyChannels()
+  const channelsQuery = useMyChannels()
+  const { data: channels, isLoading } = channelsQuery
   const { data: threadUnread = 0 } = useThreadsInboxUnreadCount()
   const { data: dms } = useMyDms()
   const { user } = useAuth()
@@ -122,6 +124,15 @@ export function ChannelSidebar() {
           </div>
         </div>
         {isLoading && <div className="px-3 text-sm text-muted-foreground">불러오는 중…</div>}
+        {/* 첫 조회 실패는 채널 없는 화면과 구분해 안내 + 다시 시도(WP-865) */}
+        {channelsQuery.isLoadingError && (
+          <LoadErrorState
+            variant="inline"
+            title="채널 목록을 불러오지 못했습니다"
+            queries={[channelsQuery]}
+            testId="channel-list-error"
+          />
+        )}
         <nav className="mt-2 space-y-1">
           {channels?.map((c) =>
             isMobile ? (

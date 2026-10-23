@@ -22,6 +22,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
+import { LoadErrorState } from '@/components/LoadErrorState'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -386,16 +387,38 @@ export function WikiSidebar() {
     movePage.mutate(move)
   }
 
+  // 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "노트" 앱임을 명시(다른 앱과 한 선 정렬). 세 갈래(실패·공간 0개·평소)가 같이 쓴다.
+  const appTitle = (
+    <div className={sidebarTitleClass}>
+      <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
+      노트
+    </div>
+  )
+  // 공간 목록 첫 조회 실패(WP-865) — 공간을 고르기 전(/wiki, 모바일 목록)엔 빈 선택 상자 대신 실패 안내 + 다시 시도.
+  // 공간 안에서는 트리가 따로 조회되므로 아래에서 선택 상자 자리만 바꾸고 트리·새 노트는 그대로 둔다.
+  const spacesError = spacesQuery.isLoadingError ? (
+    <LoadErrorState
+      variant="inline"
+      title="노트 공간을 불러오지 못했습니다"
+      queries={[spacesQuery]}
+      testId="wiki-sidebar-spaces-error"
+    />
+  ) : null
+  if (spacesError && spaceId == null) {
+    return (
+      <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
+        {appTitle}
+        {spacesError}
+      </aside>
+    )
+  }
+
   // 공간 0개(WP-143) — 선택 상자·페이지 트리 대신 빈 상태. 모바일은 이 목록이 화면 전체라 여기 그리고,
   // 데스크톱은 본문(/wiki, WikiIndexRedirect)이 같은 빈 상태를 그리므로 사이드바는 타이틀만 남긴다.
   if (spaces?.length === 0) {
     return (
       <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
-        {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "노트" 앱임을 명시(다른 앱과 한 선 정렬) */}
-        <div className={sidebarTitleClass}>
-          <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
-          노트
-        </div>
+        {appTitle}
         {isMobile && <WikiNoSpaces className="flex-1" onCreate={openCreateSpace} />}
         {createSpaceDialog}
       </aside>
@@ -404,78 +427,79 @@ export function WikiSidebar() {
 
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40">
-      {/* 앱 타이틀 헤더 — 레일과 동일한 아이콘 + 이름으로 "노트" 앱임을 명시(다른 앱과 한 선 정렬) */}
-      <div className={sidebarTitleClass}>
-        <BookOpen className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
-        노트
-      </div>
-      {/* 스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지. 옆 ⋯ 는 스페이스 단위 메뉴(WP-582: 멤버, WP-580: 삭제) */}
-      <div className="flex items-center gap-1 border-b p-2">
-        <Select
-          value={String(spaceId ?? '')}
-          onValueChange={(v) => {
-            // 생성 항목은 이동 대신 다이얼로그를 연다.
-            if (v === CREATE_SENTINEL) {
-              openCreateSpace()
-              return
-            }
-            navigate(`/wiki/spaces/${v}`)
-          }}
-        >
-          <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(spaces ?? []).map((s) => (
-              <SelectItem key={s.id} value={String(s.id)}>
-                {s.name}
+      {appTitle}
+      {/* 공간 목록 실패 중이면 선택 상자 자리에 안내(WP-865) — 트리는 아래에 그대로.
+          스페이스 전환 — shadcn/ui Select로 디자인 시스템 일관성 유지. 옆 ⋯ 는 스페이스 단위 메뉴(WP-582: 멤버, WP-580: 삭제) */}
+      {spacesError ? (
+        <div className="border-b">{spacesError}</div>
+      ) : (
+        <div className="flex items-center gap-1 border-b p-2">
+          <Select
+            value={String(spaceId ?? '')}
+            onValueChange={(v) => {
+              // 생성 항목은 이동 대신 다이얼로그를 연다.
+              if (v === CREATE_SENTINEL) {
+                openCreateSpace()
+                return
+              }
+              navigate(`/wiki/spaces/${v}`)
+            }}
+          >
+            <SelectTrigger className="h-8 w-full min-w-0 flex-1 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(spaces ?? []).map((s) => (
+                <SelectItem key={s.id} value={String(s.id)}>
+                  {s.name}
+                </SelectItem>
+              ))}
+              <SelectSeparator />
+              <SelectItem value={CREATE_SENTINEL} data-testid="wiki-space-create-item">
+                ＋ 새 스페이스
               </SelectItem>
-            ))}
-            <SelectSeparator />
-            <SelectItem value={CREATE_SENTINEL} data-testid="wiki-space-create-item">
-              ＋ 새 스페이스
-            </SelectItem>
-          </SelectContent>
-        </Select>
-        {/* 스페이스 ⋯ — 공유 중인 페이지(WP-579)는 모든 스페이스, 멤버(WP-582)·삭제(WP-580)는 팀 스페이스만. 드라이브 공간 줄 ⋯ 와 같은 자리. */}
-        {selectedSpace && !spaceUnavailable && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={`${selectedSpace?.name ?? '스페이스'} 메뉴`}
-                data-testid="wiki-space-menu"
-                className="flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground pointer-coarse:size-11"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {isTeamSpace && (
-                <DropdownMenuItem data-testid="wiki-space-members" onSelect={() => setMembersOpen(true)}>
-                  멤버
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem data-testid="wiki-space-shared-pages" onSelect={() => setSharedOpen(true)}>
-                공유 중인 페이지
-              </DropdownMenuItem>
-              {/* 삭제는 소유자에게만 — 되돌릴 수 없는 동작이라 구분선으로 떼어 둔다. */}
-              {canDeleteSpace && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    data-testid="wiki-space-delete"
-                    onSelect={() => setSpaceDeleteOpen(true)}
-                  >
-                    스페이스 삭제
+            </SelectContent>
+          </Select>
+          {/* 스페이스 ⋯ — 공유 중인 페이지(WP-579)는 모든 스페이스, 멤버(WP-582)·삭제(WP-580)는 팀 스페이스만. 드라이브 공간 줄 ⋯ 와 같은 자리. */}
+          {selectedSpace && !spaceUnavailable && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`${selectedSpace?.name ?? '스페이스'} 메뉴`}
+                  data-testid="wiki-space-menu"
+                  className="flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground pointer-coarse:size-11"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {isTeamSpace && (
+                  <DropdownMenuItem data-testid="wiki-space-members" onSelect={() => setMembersOpen(true)}>
+                    멤버
                   </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+                )}
+                <DropdownMenuItem data-testid="wiki-space-shared-pages" onSelect={() => setSharedOpen(true)}>
+                  공유 중인 페이지
+                </DropdownMenuItem>
+                {/* 삭제는 소유자에게만 — 되돌릴 수 없는 동작이라 구분선으로 떼어 둔다. */}
+                {canDeleteSpace && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      data-testid="wiki-space-delete"
+                      onSelect={() => setSpaceDeleteOpen(true)}
+                    >
+                      스페이스 삭제
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-xs font-semibold uppercase text-muted-foreground">페이지</span>
         <div className="flex items-center gap-1">

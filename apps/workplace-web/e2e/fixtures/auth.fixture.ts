@@ -124,6 +124,14 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 대시보드를 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/me/dashboard', { widgets: [] })
   await mockApi(page, 'GET', '/api/v1/me/mail-summary', { unreadCount: 0, recent: [] })
+  // 홈 합성 레이어 「확인 필요」·「지금 신경 쓸 일」 소스 — 실패한 소스가 있으면 「다 확인했습니다」 대신 실패 안내라(WP-865) 빈 기본 스텁.
+  await mockApi(page, 'GET', '/api/v1/me/messaging-summary', {
+    unreadConversationCount: 0,
+    needsReplyCount: 0,
+    aiAttentionCount: 0,
+    attentionCount: 0,
+    recent: [],
+  })
   // Task 11 — SynthesisLayer 가 usePriorityItems() 로 AI 우선순위 점수를 조회하므로
   // 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 정렬을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.
