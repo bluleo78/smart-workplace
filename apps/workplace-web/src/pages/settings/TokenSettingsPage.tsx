@@ -2,6 +2,7 @@
 // 개인 PAT(Personal Access Token) 발급/목록/폐기. 발급 직후에만 평문이 1회 노출된다.
 // 발급은 헤더 액션 버튼 → 입력 모달(TokenIssueFormDialog) → 결과 모달(TokenIssueDialog) 2단계.
 // 다른 관리 목록(구성원/역할/감사 로그)과 동일하게 풀폭 + Card 없는 bordered table 을 쓴다(#655).
+// 표 아래 「도구에 연결하기」 섹션은 발급 뒤에도 연결 방법을 다시 볼 수 있게 늘 보인다(WP-875, 발급 모달과 같은 TokenConnectGuide).
 
 import { useState } from 'react';
 
@@ -32,6 +33,7 @@ import { API_TOKEN_STATUS_LABEL, apiTokenStatus } from '@/lib/apiTokenStatus';
 import { formatDateShort, formatDateTimeLocale } from '@/lib/formatters';
 
 import { useIssueMyToken, useMyTokens, useRevokeMyToken } from '../../hooks/queries/useUserTokens';
+import { TokenConnectGuide } from './components/TokenConnectGuide';
 import { TokenIssueDialog } from './components/TokenIssueDialog';
 import { TokenIssueFormDialog } from './components/TokenIssueFormDialog';
 
@@ -164,6 +166,25 @@ export default function TokenSettingsPage() {
           </TableBody>
         </Table>
       </div>
+
+      {/* 도구에 연결하기 — 토큰 값은 다시 보이지 않으므로 2단계는 「발급 때 복사한 토큰」으로 안내한다(WP-875).
+          긴 명령이 풀폭으로 늘어지지 않게 읽기 좋은 폭으로 묶는다. */}
+      <section
+        aria-labelledby="token-connect-guide-title"
+        className="mt-8 max-w-3xl space-y-3 border-t pt-6"
+        data-testid="token-connect-guide"
+      >
+        <div className="space-y-1">
+          <h2 id="token-connect-guide-title" className="text-base leading-6 font-semibold">
+            도구에 연결하기
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            발급 때 나온 안내와 같습니다. 토큰은 다시 볼 수 없어요 — 발급 때 복사해 둔 토큰을 쓰고, 잃어버렸으면 새로 발급하세요.
+          </p>
+        </div>
+        <p className="text-sm font-medium">Claude Code 에 연결</p>
+        <TokenConnectGuide tokenSource="saved" testIdPrefix="connect-guide" />
+      </section>
 
       <TokenIssueFormDialog
         open={issueFormOpen}

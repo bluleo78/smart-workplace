@@ -221,4 +221,63 @@ test.describe('/settings/tokens', () => {
     await expect(page.getByTestId('token-revoke-1')).toBeVisible();
     await expect(page.getByTestId('token-row-2').getByText('활성', { exact: true })).toBeVisible();
   });
+
+  // WP-875 — 발급 모달을 닫은 뒤에도 API 토큰 화면 표 아래 「도구에 연결하기」에서 같은 연결 안내를 다시 본다.
+  // 토큰 값은 다시 보이지 않으므로 2단계는 「발급 때 복사한 토큰」·새로 발급 안내로 바뀐다.
+  test('토큰 화면에서 발급 없이도 연결 안내를 늘 볼 수 있다 (WP-875)', async ({ authenticatedPage: page }) => {
+    const tokens: UserApiTokenFixture[] = [
+      { id: 1, name: 'claude-code', tokenPrefix: 'swp_abc', tenantId: 1, expiresAt: null, createdAt: '2026-09-01T00:00:00Z', lastUsedAt: null, revokedAt: null },
+    ];
+    await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tokens) }),
+    );
+    await page.goto('/settings/tokens');
+    await expect(page.getByTestId('token-row-1')).toBeVisible();
+
+    const guide = page.getByRole('region', { name: '도구에 연결하기' });
+    await expect(guide).toBeVisible();
+    const origin = new URL(page.url()).origin;
+    await expect(guide.getByTestId('connect-guide-plugin-install-command')).toContainText(
+      `/plugin marketplace add ${origin}/claude/marketplace.json`,
+    );
+    const tokenStep = guide.getByTestId('connect-guide-plugin-token-step');
+    await expect(tokenStep).toContainText('발급 때 복사한 토큰');
+    // 토큰은 다시 볼 수 없다는 것과 잃어버렸을 때 새로 발급하라는 안내는 섹션 설명에 있다.
+    await expect(guide).toContainText('잃어버렸으면 새로 발급하세요');
+    await expect(tokenStep).not.toContainText('위 토큰');
+    // 모달과 같은 서버 주소 — 두 곳이 어긋나지 않는다(WP-387).
+    const expectedMcp = expectedMcpEndpoint(origin);
+    await expect(guide.getByTestId('connect-guide-server-url')).toHaveText(expectedMcp);
+    // 평문 토큰·토큰이 든 명령은 화면 어디에도 없다.
+    await expect(guide).not.toContainText('swp_');
+    await expect(guide).not.toContainText('--header');
+
+    // 다른 도구 안내는 모달처럼 접혀 있다가 펼치면 연결 주소가 보인다.
+    await expect(guide.getByTestId('connect-guide-mcp-endpoint')).toHaveCount(0);
+    await guide.getByTestId('connect-guide-other-tools').click();
+    await expect(guide.getByTestId('connect-guide-mcp-endpoint')).toHaveText(expectedMcp);
+
+    // 설치 명령 복사 — 클립보드가 모달과 같은 설치 명령 두 줄이다.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await guide.getByTestId('connect-guide-plugin-install-command-copy').click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      `/plugin marketplace add ${origin}/claude/marketplace.json\n/plugin install genia-works@genia-works`,
+    );
+  });
+
+  // WP-875 — 휴대폰 폭에서도 안내가 표 아래로 이어지고, 긴 명령 때문에 화면이 옆으로 밀리지 않는다.
+  test('휴대폰 폭에서 연결 안내가 표 아래로 이어지고 가로로 넘치지 않는다 (WP-875)', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.goto('/settings/tokens');
+    const guide = page.getByRole('region', { name: '도구에 연결하기' });
+    await expect(guide.getByTestId('connect-guide-plugin-install-command')).toBeVisible();
+    const table = await page.getByRole('table', { name: 'API 토큰 목록' }).boundingBox();
+    const box = await guide.boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(table!.y + table!.height);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
 });
