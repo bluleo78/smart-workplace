@@ -16,6 +16,7 @@ import {
   writeActiveTenant,
 } from '../lib/activeTenant';
 import { clearStarterStorage } from '../lib/ai/starterStorage';
+import { isTransientRequestError } from '../lib/api-error';
 import { clearIssueBodyDrafts } from '../lib/issueBodyDraft';
 import { clearPushOnLogout } from '../lib/push/subscription';
 import type { LoginFormData, SignupFormData } from '../lib/validations/auth';
@@ -44,6 +45,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [tenantOptions, setTenantOptions] = useState<Membership[] | null>(null);
   // 로그인/선택 화면에 띄울 세션 안내(워크스페이스 상실·무소속). LoginPage 와 WorkspaceSelectCard 가 표시한다.
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  // 세션 확인 일시 실패(WP-859) — 세션은 지우지 않고 다시 시도를 기다린다. authAttempt 를 올리면 세션 확인을 다시 돈다.
+  const [connectionError, setConnectionError] = useState(false);
+  const [authAttempt, setAuthAttempt] = useState(0);
 
   const isAuthenticated = user !== null;
 
@@ -130,10 +134,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (ignore) return;
         // 테넌트 변경 리로드 후 다른 워크스페이스로 진입했으면 한 번 알린다.
         if (tenantChanged) toast.info(TENANT_SWITCHED_MESSAGE);
-      } catch {
+      } catch (e) {
         if (ignore) return;
-        // refresh 실패(테넌트 정지/만료 포함) → 세션·활성테넌트 정리 후 로그인으로.
         setAccessToken(null);
+        // 일시 오류(배포 중 502·서버 500·네트워크 끊김)는 세션이 살아 있을 수 있다 — 세션 표시(hasSession)·활성 테넌트를 남기고
+        // 다시 시도를 보인다(WP-859). 지우면 다음 로드부터 refresh 를 아예 시도하지 않아 서버가 돌아와도 로그인 화면에 머문다.
+        if (isTransientRequestError(e)) {
+          setConnectionError(true);
+          return;
+        }
+        // 거절(401·403 — 만료·테넌트 정지 등) → 세션·활성테넌트 정리 후 로그인으로.
         localStorage.removeItem(AUTH_FLAG_KEY);
         writeActiveTenant(null);
         setActiveTenant(null);
@@ -144,7 +154,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initAuth();
     return () => { ignore = true; };
-  }, [fetchUserWithRoles]);
+  }, [fetchUserWithRoles, authAttempt]);
+
+  // 세션 확인 다시 시도 — 로딩으로 되돌리고 initAuth 를 다시 돌린다(authAttempt 가 effect 를 다시 실행).
+  const retryAuth = useCallback(() => {
+    setConnectionError(false);
+    setIsLoading(true);
+    setAuthAttempt((n) => n + 1);
+  }, []);
 
   const login = useCallback(async (data: LoginFormData) => {
     // 재로그인 시 이전 다중소속 선택지·세션 안내가 잔류하지 않도록 초기화
@@ -240,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await authApi.logout();
     } finally {
       setAccessToken(null);
+      setConnectionError(false);
       localStorage.removeItem(AUTH_FLAG_KEY);
       // WP-139: 빈 AI 대화 추천 저장(사용자별)을 지운다 — 같은 기기의 다음 사용자에게 보이지 않게.
       clearStarterStorage();
@@ -270,10 +288,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const ctxValue = useMemo(
     () => ({
-      user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice,
+      user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
       login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser,
     }),
-    [user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice,
+    [user, roles, isLoading, isAuthenticated, activeTenant, tenantOptions, authNotice, connectionError, retryAuth,
       login, signup, logout, selectTenant, completeSsoLogin, hasRole, isAdmin, refreshUser]
   );
 

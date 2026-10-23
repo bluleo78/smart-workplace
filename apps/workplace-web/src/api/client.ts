@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 import { markTenantChanged, readActiveTenant, tenantChangedSince } from '@/lib/activeTenant';
-import { isPermanentClientStatus } from '@/lib/api-error';
+import { isTransientRequestError } from '@/lib/api-error';
 
 let accessToken: string | null = null;
 
@@ -63,7 +63,10 @@ export async function refreshAccessTokenOutcome(): Promise<'ok' | 'rejected' | '
 }
 
 /** refreshOnce 결과 — 성공이면 설치한 새 토큰을 함께 돌려준다(인터셉터가 모듈 상태를 다시 읽지 않도록). */
-type RefreshResult = { outcome: 'ok'; token: string } | { outcome: 'rejected' | 'error' };
+type RefreshResult =
+  | { outcome: 'ok'; token: string }
+  // 실패면 refresh 의 오류(응답 상태 포함)를 함께 — 인터셉터가 일시 실패를 원래 401 대신 이 오류로 돌려 호출부가 만료로 오판하지 않게(WP-859).
+  | { outcome: 'rejected' | 'error'; error: unknown };
 
 /**
  * refresh 의 유일한 구현: 직전 토큰 포착·리로드 대기 검사·테넌트 변경 판정·토큰 설치가 여기 한곳에 있다.
@@ -71,7 +74,7 @@ type RefreshResult = { outcome: 'ok'; token: string } | { outcome: 'rejected' | 
  */
 async function refreshOnce(): Promise<RefreshResult> {
   // 테넌트 변경으로 리로드가 이미 시작됐으면 refresh·토큰 설치 없이 끝낸다.
-  if (tenantReloadPending) return { outcome: 'error' };
+  if (tenantReloadPending) return { outcome: 'error', error: null };
   // 이 탭이 쓰던 테넌트 판정 기준 — refresh 가 메모리 토큰을 바꾸기 전에 잡아 둔다.
   const previousToken = accessToken;
   try {
@@ -81,14 +84,13 @@ async function refreshOnce(): Promise<RefreshResult> {
     });
     // 테넌트가 바뀌었으면(쓰던 테넌트 정지·삭제) 새 토큰을 설치하지 않고 전체 리로드한다. refresh 를 기다리는 사이 다른 경로가
     // 리로드를 시작했어도 토큰을 설치하지 않는다.
-    if (tenantReloadPending || reloadIfTenantChanged(data.accessToken, previousToken)) return { outcome: 'error' };
+    if (tenantReloadPending || reloadIfTenantChanged(data.accessToken, previousToken)) return { outcome: 'error', error: null };
     setAccessToken(data.accessToken);
     return { outcome: 'ok', token: data.accessToken };
   } catch (e) {
     setAccessToken(null);
-    return {
-      outcome: isPermanentClientStatus(axios.isAxiosError(e) ? e.response?.status : undefined) ? 'rejected' : 'error',
-    };
+    // 일시 실패(응답 없음·5xx·408·429)와 거절을 앱을 열 때의 세션 확인(AuthContext)과 같은 규칙으로 가른다.
+    return { outcome: isTransientRequestError(e) ? 'error' : 'rejected', error: e };
   }
 }
 
@@ -172,8 +174,14 @@ client.interceptors.response.use(
           processQueue(null, result.token);
           return client(originalRequest);
         }
-        // 갱신 실패(거절·일시 실패 모두) — 기존처럼 세션을 정리하고 로그인으로.
-        processQueue(error, null);
+        // 일시 실패면 refresh 의 오류로, 거절이면 원래 401 로 — 원래 요청과 대기 요청이 같은 값으로 실패한다.
+        const failure = result.outcome === 'error' ? result.error : error;
+        processQueue(failure, null);
+        // 일시 실패(배포 중 502·서버 500·네트워크) — refresh 쿠키는 살아 있을 수 있어 세션을 지우거나 로그인으로 보내지 않는다(WP-859).
+        // 이 요청만 refresh 의 오류(5xx·네트워크)로 실패시켜 — 원래 401 로 돌리면 호출부가 만료로 오판한다 — 화면이 오류를 보이고,
+        // 다음 요청의 401 이 다시 refresh 를 시도한다.
+        if (result.outcome === 'error') return Promise.reject(failure);
+        // 거절(401·403 — 만료·폐기·정지) — 세션을 정리하고 로그인으로.
         localStorage.removeItem('hasSession');
         window.location.href = '/login';
         return Promise.reject(error);

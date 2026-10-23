@@ -31,6 +31,8 @@ const authValue: AuthContextValue = {
   activeTenant: { tenantId: 1, tenantName: 'Test', tenantSlug: 'test' },
   tenantOptions: null,
   authNotice: null,
+  connectionError: false,
+  retryAuth: () => {},
   login: noop,
   signup: noop,
   logout: noop,

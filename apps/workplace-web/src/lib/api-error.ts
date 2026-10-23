@@ -109,6 +109,14 @@ export function isPermanentClientStatus(status: number | undefined): boolean {
   return status != null && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
+/**
+ * 다시 시도하면 될 수 있는 요청 실패인가(WP-859) — 응답 없음(네트워크)·5xx·408·429. 요청 오류(Axios)가 아닌 예외(코드·데이터 결함)는
+ * 다시 해도 같으므로 일시 실패로 보지 않는다. 앱을 열 때의 세션 확인이 「세션을 남기고 다시 시도」와 「로그아웃」을 가르는 데 쓴다.
+ */
+export function isTransientRequestError(error: unknown): boolean {
+  return axios.isAxiosError(error) && !isPermanentClientStatus(error.response?.status);
+}
+
 export function isNotFoundError(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 404;
 }

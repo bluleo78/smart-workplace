@@ -1,4 +1,7 @@
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+
+import { Button } from '@/components/ui/button';
 
 import { useAuth } from '../hooks/useAuth';
 import { savePendingPushTarget } from '../lib/push/openTarget';
@@ -10,13 +13,49 @@ import { savePendingPushTarget } from '../lib/push/openTarget';
 const LOGIN_RETURN_PREFIXES = ['/wiki/share/', '/wiki/open/']
 
 export function ProtectedRoute() {
-  const { isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated, connectionError, retryAuth, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  // 세션 확인이 일시 오류(배포 중·서버 장애·네트워크)로 실패 — 로그인으로 보내지 않고 다시 시도를 준다(WP-859).
+  // 세션은 남아 있어 서버가 돌아오면 다시 시도(또는 새로고침)로 그대로 들어간다.
+  if (connectionError && !isAuthenticated) {
+    return (
+      <div
+        role="alert"
+        className="flex min-h-screen flex-col items-center justify-center gap-4 p-6 text-center"
+        data-testid="auth-connection-error"
+      >
+        <AlertTriangle className="h-12 w-12 text-destructive" aria-hidden="true" />
+        <div className="space-y-2">
+          <p className="text-lg font-semibold">서버에 연결하지 못했습니다</p>
+          <p className="max-w-md text-sm text-muted-foreground">
+            잠시 서버에 닿지 않았어요. 로그인은 그대로 남아 있으니 잠시 뒤 다시 시도해 주세요.
+          </p>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <Button variant="outline" onClick={retryAuth} data-testid="auth-connection-retry">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            다시 시도
+          </Button>
+          {/* 이 세션에만 서버가 계속 실패하는 경우의 빠져나갈 길 — 세션을 지우고(서버 로그아웃 실패는 무시) 로그인 화면으로. */}
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => void logout().catch(() => {}).then(() => navigate('/login', { replace: true }))}
+            data-testid="auth-connection-login"
+          >
+            다른 계정으로 로그인
+          </Button>
+        </div>
       </div>
     );
   }

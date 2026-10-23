@@ -21,6 +21,13 @@ export interface AuthContextValue {
    * null 이면 안내 없음.
    */
   authNotice: string | null;
+  /**
+   * 앱을 열 때 세션 확인(refresh·소속·내 정보)이 일시 오류(5xx·네트워크)로 실패했는가(WP-859). 세션 표시는 남겨 두고
+   * 보호 라우트가 로그인 화면 대신 「서버에 연결하지 못했습니다 — 다시 시도」를 보인다. 401·403 같은 거절은 여기 오지 않고 로그아웃된다.
+   */
+  connectionError: boolean;
+  /** connectionError 상태에서 세션 확인을 다시 한다. */
+  retryAuth: () => void;
   login: (data: LoginFormData) => Promise<void>;
   signup: (data: SignupFormData) => Promise<void>;
   logout: () => Promise<void>;

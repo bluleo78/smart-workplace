@@ -1,7 +1,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, expect, it } from 'vitest';
 
-import { extractApiError, extractApiErrorCode } from './api-error';
+import { extractApiError, extractApiErrorCode, isTransientRequestError } from './api-error';
 
 /** 서버 ErrorResponse 를 실은 axios 오류. */
 function apiError(status: number, data: unknown): AxiosError {
@@ -50,5 +50,18 @@ describe('extractApiError', () => {
     expect(extractApiError(apiError(400, { message: 'Validation failed', errors: { code: '코드는 6자리입니다.' } }), 'fb')).toBe(
       '코드는 6자리입니다.',
     );
+  });
+});
+
+// WP-859: 세션 확인이 「세션을 남기고 다시 시도」할지 가르는 판정.
+describe('isTransientRequestError', () => {
+  it('응답 없음(네트워크)·5xx·408·429 는 일시 실패', () => {
+    expect(isTransientRequestError(new AxiosError('Network Error', 'ERR_NETWORK'))).toBe(true);
+    for (const status of [500, 502, 503, 408, 429]) expect(isTransientRequestError(apiError(status, {}))).toBe(true);
+  });
+
+  it('401·403·404 같은 거절과 요청 오류가 아닌 예외는 일시 실패가 아니다', () => {
+    for (const status of [400, 401, 403, 404]) expect(isTransientRequestError(apiError(status, {}))).toBe(false);
+    expect(isTransientRequestError(new TypeError('x is undefined'))).toBe(false);
   });
 });

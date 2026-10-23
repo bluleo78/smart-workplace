@@ -158,9 +158,11 @@ describe('api/client — 테넌트 변경 리로드 대기', () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it('인터셉터: refresh 실패면 세션 플래그를 지우고 로그인으로 보낸다', async () => {
+  it('인터셉터: refresh 가 거절(401)되면 세션 플래그를 지우고 로그인으로 보낸다', async () => {
     const { client, setAccessToken } = await import('./client');
-    vi.spyOn(axios, 'post').mockRejectedValue(new AxiosError('401', 'ERR_BAD_REQUEST'));
+    vi.spyOn(axios, 'post').mockRejectedValue(
+      new AxiosError('401', 'ERR_BAD_REQUEST', undefined, null, { status: 401 } as AxiosResponse),
+    );
     client.defaults.adapter = unauthorizedAdapter;
     localStorage.setItem('hasSession', 'true');
     setAccessToken(jwt({ tenant: 10 }));
@@ -168,5 +170,23 @@ describe('api/client — 테넌트 변경 리로드 대기', () => {
     expect(await settleState(client.get('/me/issues'))).toBe('rejected');
     expect(localStorage.getItem('hasSession')).toBeNull();
     expect(window.location.href).toBe('/login');
+  });
+
+  // WP-859: 배포 중 502·서버 500·네트워크 끊김은 refresh 쿠키가 살아 있을 수 있다 — 세션을 지우거나 로그인으로 보내지 않고 이 요청만 실패한다.
+  it.each([
+    ['502 응답', new AxiosError('502', 'ERR_BAD_RESPONSE', undefined, null, { status: 502 } as AxiosResponse)],
+    ['네트워크 오류(응답 없음)', new AxiosError('Network Error', 'ERR_NETWORK')],
+  ])('인터셉터: refresh 가 일시 실패(%s)면 세션을 남기고 요청만 실패한다', async (_label, refreshError) => {
+    const { client, setAccessToken } = await import('./client');
+    vi.spyOn(axios, 'post').mockRejectedValue(refreshError);
+    client.defaults.adapter = unauthorizedAdapter;
+    localStorage.setItem('hasSession', 'true');
+    setAccessToken(jwt({ tenant: 10 }));
+
+    // 원래 401 이 아니라 refresh 의 오류로 실패한다 — 호출부가 만료(401)로 오판하지 않게.
+    const err = await client.get('/me/issues').catch((e: unknown) => e);
+    expect(err).toBe(refreshError);
+    expect(localStorage.getItem('hasSession')).toBe('true');
+    expect(window.location.href).toBe('/');
   });
 });
