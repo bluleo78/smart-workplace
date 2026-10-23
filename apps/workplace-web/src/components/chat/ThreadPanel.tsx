@@ -102,11 +102,17 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
           disableMarkRead
           readOnly={archived}
           emptyState={
-            /* 답글 0건일 때 빈 공백 대신 안내 메시지 표시 */
+            /* 답글 0건일 때 빈 공백 대신 안내 메시지 표시. 보관된 채널은 답글을 쓸 수 없으니 답글을 권하지 않는다(WP-843). */
             <div className="flex flex-col items-center gap-2 py-8 text-center text-sm text-muted-foreground">
               <MessageSquare className="h-6 w-6" />
-              <p>아직 답글이 없어요.</p>
-              <p className="text-xs">첫 번째 답글을 남겨보세요.</p>
+              {archived ? (
+                <p>답글이 없습니다.</p>
+              ) : (
+                <>
+                  <p>아직 답글이 없어요.</p>
+                  <p className="text-xs">첫 번째 답글을 남겨보세요.</p>
+                </>
+              )}
             </div>
           }
         />

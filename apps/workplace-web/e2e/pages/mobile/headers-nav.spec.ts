@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import { external, externalDetail, member, memberDetail, page as makeContactPage } from '../../factories/contacts.factory'
 import { detail as mailDetail, mailAccount, summary as mailSummary } from '../../factories/mail.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
+import { createChannel } from '../../factories/messaging.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
@@ -134,6 +135,16 @@ test('채널 상세: 채널 헤더가 ‹·✦ 를 품은 한 줄 헤더이고, 
   await expect(page.getByTestId('mobile-header-more')).toHaveCount(0)
   await expect(page.getByTestId('channel-header').getByTestId('channel-files-button')).toBeVisible()
   await expectNoHorizontalOverflow(page)
+})
+
+// WP-843: 보관된 채널은 이름을 바꿀 수 없다 — ⋯ 메뉴에도 「이름 변경」 없이 「보관 해제」만 남는다.
+test('보관된 채널(OWNER): ⋯ 메뉴에 이름 변경이 없고 보관 해제만 있다', async ({ authenticatedPage: page }) => {
+  await stubChat(page, { channels: [createChannel({ id: 1, name: '보관됨', archived: true, role: 'OWNER', member: true })] })
+  await page.goto('/chat/channels/1')
+  await page.getByTestId('mobile-header-more').click()
+  const menu = page.getByTestId('mobile-header-more-menu')
+  await expect(menu.getByTestId('channel-unarchive-action')).toBeVisible()
+  await expect(menu.getByTestId('channel-rename-action')).toHaveCount(0)
 })
 
 test('설정 상세: 설정 페이지 제목이 병합 헤더 제목이 된다', async ({ authenticatedPage: page }) => {

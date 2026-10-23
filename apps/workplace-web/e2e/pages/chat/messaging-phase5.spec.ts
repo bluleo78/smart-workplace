@@ -488,6 +488,33 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     await expect(panel.getByText('첫 번째 답글을 남겨보세요.')).toBeVisible()
   })
 
+  // WP-843: 보관된 채널의 빈 스레드는 답글을 쓸 수 없으니 답글을 권하지 않는다.
+  test('보관된 채널의 빈 스레드 — 「답글이 없습니다」만 보이고 답글을 권하지 않는다', async ({
+    authenticatedPage: page,
+  }) => {
+    const CHANNEL_ID = 512
+    const PARENT_ID = 9801
+    const channel = createChannel({ id: CHANNEL_ID, name: '보관스레드채널', archived: true })
+    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '보관 전 부모글', replyCount: 0 })
+
+    await stubChannelsList(page, [channel])
+    await stubDmsList(page)
+    await stubStream(page)
+    await stubChannelDetail(page, channel)
+    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
+    await stubMessages(page, CHANNEL_ID, [parent])
+    await stubReplies(page, PARENT_ID, [])
+
+    await page.goto(`/chat/channels/${CHANNEL_ID}`)
+    await page.getByTestId(`message-${PARENT_ID}`).hover()
+    await page.getByTestId(`message-reply-${PARENT_ID}`).click()
+
+    const panel = page.getByTestId('thread-panel')
+    await expect(panel.getByText('답글이 없습니다.')).toBeVisible()
+    await expect(panel.getByText('이 채널은 보관되었습니다')).toBeVisible()
+    await expect(panel.getByText('첫 번째 답글을 남겨보세요.')).toHaveCount(0)
+  })
+
   // 회귀 #281: 리액션 활성 pill 이 raw 팔레트(bg-blue-100 등) 대신 시맨틱 토큰(bg-primary/10)을 사용한다.
   test('활성(reacted=true) 리액션 pill 이 시맨틱 토큰 클래스를 사용한다', async ({
     authenticatedPage: page,
