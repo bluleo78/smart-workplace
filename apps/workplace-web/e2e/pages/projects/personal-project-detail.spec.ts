@@ -48,6 +48,8 @@ test('개인 프로젝트는 전용 셸과 팀 툴바(개인 옵션)를 렌더�
   await expect(page.getByTestId('add-filter-facet-label')).toBeVisible();
   await expect(page.getByTestId('add-filter-facet-cycle')).toHaveCount(0);
   await expect(page.getByTestId('add-filter-facet-type')).toHaveCount(0);
+  // 완료일 기간 필터(WP-873)는 종료 이슈 기능을 옵트아웃한 개인 화면에 없다 — 팀 목록엔 있다(issue-closed-filter.spec).
+  await expect(page.getByTestId('add-filter-facet-closedIn')).toHaveCount(0);
 });
 
 // 뷰 토글 — 공유 툴바 setView 는 URL 을 필터+view+group 으로 재구성한다(task 등 임시 파라미터 비보존).

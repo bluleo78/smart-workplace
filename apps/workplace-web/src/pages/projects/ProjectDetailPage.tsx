@@ -37,6 +37,7 @@ import { MobileEpicChip } from './components/mobile/MobileEpicSheet';
 import { MobileIssueToolbar } from './components/mobile/MobileIssueToolbar';
 import { ProjectStatusesGate } from './components/ProjectStatusesGate';
 import { ViewChipBar } from './components/ViewChipBar';
+import { useIssueListColumns } from './hooks/useIssueListColumns';
 import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 
 // 프로젝트 홈 — 태스크 필터/뷰 영역 + 새 태스크 생성. URL: /projects/:key
@@ -171,6 +172,9 @@ function ProjectIssuesSection({
   // params 가 바뀔 때만 새 필터 객체 — 매 렌더 새 객체면 아래 화면 컨텍스트 useMemo 가 매번 재계산된다.
   const filters = useMemo(() => parseFilters(params), [params]);
   const view = parseView(params);
+  // 목록 선택 열(WP-270) — URL cols → 개인 저장값 → 기본, 완료일 기간 필터가 걸리면 완료일 열 자동 추가.
+  // 필터 막대의 열 메뉴도 같은 훅을 부르며, URL·저장값을 공유 구독해 두 곳이 같은 열을 본다.
+  const { columns: listColumns } = useIssueListColumns(projectKey, filters.closedIn != null);
   // 그룹 기준 — URL 에 없으면 진행 중·예정 사이클이 있을 때 사이클 그룹이 목록 기본값(#878).
   // pending(사이클 목록 로딩 중)엔 스켈레톤 — 평면 목록이 잠깐 떴다 구간 목록으로 바뀌는 깜빡임과 헛요청을 막는다.
   const { groupBy, pending: groupPending } = useIssueGroupBy(projectKey, true);
@@ -278,11 +282,18 @@ function ProjectIssuesSection({
             ) : groupPending ? (
               <IssueCycleListSkeleton />
             ) : groupBy === 'cycle' ? (
-              <IssueCycleGroupedList projectKey={projectKey} filters={filters} canDrag={canDragStatus} canEdit={canEdit} />
+              <IssueCycleGroupedList
+                projectKey={projectKey}
+                filters={filters}
+                canDrag={canDragStatus}
+                canEdit={canEdit}
+                columns={listColumns}
+              />
             ) : (
               <IssueListView
                 projectKey={projectKey}
                 filters={filters}
+                columns={listColumns}
                 groupBy={toClientGroupBy(groupBy)}
                 onOpenCreate={onOpenCreate}
                 onLoadedChange={onLoadedChange}

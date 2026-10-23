@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  carryBoardTab,
+  carryViewOptions,
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
@@ -196,15 +196,15 @@ describe('milestoneIds 필터 (#620)', () => {
   });
 });
 
-describe('carryBoardTab', () => {
+describe('carryViewOptions', () => {
   it('보드 뷰면 이전 boardTab 을 이어 붙인다', () => {
-    const next = carryBoardTab(new URLSearchParams('view=board&q=x'), new URLSearchParams('view=board&boardTab=3'));
+    const next = carryViewOptions(new URLSearchParams('view=board&q=x'), new URLSearchParams('view=board&boardTab=3'));
     expect(next.get('boardTab')).toBe('3');
     expect(next.get('q')).toBe('x');
   });
   it('목록 뷰로 바뀌면 버린다, 이전에 없으면 그대로', () => {
-    expect(carryBoardTab(new URLSearchParams('q=x'), new URLSearchParams('view=board&boardTab=3')).has('boardTab')).toBe(false);
-    expect(carryBoardTab(new URLSearchParams('view=board'), new URLSearchParams('view=board')).has('boardTab')).toBe(false);
+    expect(carryViewOptions(new URLSearchParams('q=x'), new URLSearchParams('view=board&boardTab=3')).has('boardTab')).toBe(false);
+    expect(carryViewOptions(new URLSearchParams('view=board'), new URLSearchParams('view=board')).has('boardTab')).toBe(false);
   });
 });
 
@@ -261,5 +261,50 @@ describe('parseFilters — id 토큰 정수 검사', () => {
     expect(bad.dueFrom).toBeNull();
     expect(bad.dueTo).toBeNull();
     expect(parseFilters(new URLSearchParams('dueFrom=2026-02-30')).dueFrom).toBeNull();
+  });
+});
+
+describe('closedIn 완료일 기간 (WP-873)', () => {
+  it('URL 왕복 — 프리셋·직접 지정 토큰 모두 보존된다', () => {
+    for (const token of ['last-week', '2026-10-12~2026-10-18']) {
+      const parsed = parseFilters(new URLSearchParams({ closedIn: token }));
+      expect(parsed.closedIn).toBe(token);
+      expect(filtersToParams(parsed, 'list', null).get('closedIn')).toBe(token);
+    }
+  });
+
+  it('없으면 null 이고 URL 에도 싣지 않는다', () => {
+    expect(EMPTY.closedIn).toBeNull();
+    expect(filtersToParams(EMPTY, 'list', null).has('closedIn')).toBe(false);
+  });
+
+  it('잘못된 토큰(모르는 값·없는 날짜·from>to)은 버려 필터 없음과 같다', () => {
+    for (const bad of ['yesterday', '2026-13-01~2026-13-02', '2026-10-18~2026-10-12']) {
+      expect(parseFilters(new URLSearchParams({ closedIn: bad })).closedIn).toBeNull();
+    }
+  });
+
+  it('「완료 모두 보기」(closed=all)와 별개 키다', () => {
+    const parsed = parseFilters(new URLSearchParams('closed=all'));
+    expect(parsed.closedIn).toBeNull();
+    expect(parsed.showAllClosed).toBe(true);
+  });
+
+  it('완료일 기간을 고르면 종료 이슈 숨김(#876)이 풀린다', () => {
+    expect(overridesClosedHiding({ ...EMPTY, closedIn: 'last-week' })).toBe(true);
+    expect(withDefaultIssueScope({ ...EMPTY, closedIn: 'last-week' }).hideInactiveClosed).toBe(false);
+    expect(overridesClosedHiding(EMPTY)).toBe(false);
+  });
+});
+
+describe('carryViewOptions — 열 구성(WP-270)', () => {
+  // 열 구성(WP-270)은 필터가 아니라 표시 옵션 — 필터·view·group 을 다시 써도 이어 붙인다. 빈 값(cols=)은 「모두 끔」이라 지우면 안 된다.
+  it('이전 cols 를 view 와 무관하게 그대로 이어 붙인다 — 빈 값(모두 끔)도', () => {
+    expect(carryViewOptions(new URLSearchParams('q=x'), new URLSearchParams('cols=reporter,due')).get('cols')).toBe('reporter,due');
+    expect(carryViewOptions(new URLSearchParams('view=board'), new URLSearchParams('cols=reporter')).get('cols')).toBe('reporter');
+    const empty = carryViewOptions(new URLSearchParams('q=x'), new URLSearchParams('cols='));
+    expect(empty.has('cols')).toBe(true);
+    expect(empty.get('cols')).toBe('');
+    expect(carryViewOptions(new URLSearchParams('q=x'), new URLSearchParams('q=y')).has('cols')).toBe(false);
   });
 });

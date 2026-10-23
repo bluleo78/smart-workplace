@@ -22,6 +22,33 @@ describe('statusCachePatch', () => {
   it('범주·상태 id·이름을 함께 패치한다', () => {
     expect(statusCachePatch(review)).toEqual({ status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중' });
   });
+
+  // WP-873 — 완료 표식·완료일 열은 closedAt 기준이므로 낙관적 패치도 서버 규칙을 따라 한다.
+  describe('closedAt (서버 규칙 모사)', () => {
+    const done: ProjectStatus = { id: 13, name: '완료', category: 'DONE', position: 3 };
+    const canceled: ProjectStatus = { id: 14, name: '취소', category: 'CANCELED', position: 4 };
+
+    it('열린 상태 → DONE/CANCELED 면 closedAt 을 지금(ISO)으로 채운다', () => {
+      const before = Date.now();
+      for (const target of [done, canceled]) {
+        const patch = statusCachePatch(target, { status: 'IN_PROGRESS', closedAt: null });
+        expect(typeof patch.closedAt).toBe('string');
+        expect(Date.parse(patch.closedAt as string)).toBeGreaterThanOrEqual(before);
+      }
+    });
+    it('종료 → 열린 상태(재개) 면 closedAt 을 null 로 비운다', () => {
+      expect(statusCachePatch(review, { status: 'DONE', closedAt: '2026-10-01T00:00:00Z' }).closedAt).toBeNull();
+      expect(statusCachePatch(review, { status: 'CANCELED', closedAt: '2026-10-01T00:00:00Z' }).closedAt).toBeNull();
+    });
+    it('종료 → 종료는 기존 closedAt 을 유지한다(키를 패치에 넣지 않는다)', () => {
+      const patch = statusCachePatch(canceled, { status: 'DONE', closedAt: '2026-10-01T00:00:00Z' });
+      expect('closedAt' in patch).toBe(false);
+    });
+    it('열린 → 열린 상태나 현재 이슈를 모르면 closedAt 을 건드리지 않는다', () => {
+      expect('closedAt' in statusCachePatch(review, { status: 'TODO', closedAt: null })).toBe(false);
+      expect('closedAt' in statusCachePatch(done)).toBe(false);
+    });
+  });
 });
 
 describe('patchIssueInSearchCache — 상태 이름 반영', () => {

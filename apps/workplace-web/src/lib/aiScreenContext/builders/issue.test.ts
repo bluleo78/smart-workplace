@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IssueFilters, IssueResponse } from '@/types/issue';
 
@@ -20,7 +20,7 @@ const issue = {
 const emptyFilters: IssueFilters = {
   q: '', statuses: [], statusIds: [], priorities: [], assigneeIds: [], includeUnassigned: false, dueFrom: null, dueTo: null,
   labelIds: [], cycleIds: [], milestoneIds: [], typeIds: [], parentNumber: null, topLevel: false, blocked: false,
-  excludeSubtasks: false, showAllClosed: false,
+  excludeSubtasks: false, closedIn: null, showAllClosed: false,
 };
 
 describe('buildIssueDetailContext', () => {
@@ -88,6 +88,28 @@ describe('buildIssueListContext', () => {
     });
     expect(ctx.scope!.facts).toEqual([{ label: '보기', value: '보드' }]);
     expect(ctx.scope!.count).toBeUndefined();
+  });
+});
+
+describe('buildIssueListContext 완료일 필터 (WP-873)', () => {
+  const lookups = { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [] };
+  const build = (closedIn: string | null) =>
+    buildIssueListContext({ projectKey: 'WP', projectName: 'Workplace', view: 'list', groupBy: null, filters: { ...emptyFilters, closedIn }, lookups });
+  // 프리셋·연도 생략은 「지금」 기준이라 시계를 2026-10-23(금, KST) 로 고정한다.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-23T03:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('직접 지정 기간은 화면 칩과 같은 문구로 「완료일」 fact 에 싣는다', () => {
+    expect(build('2026-10-01~2026-10-10').scope!.facts).toContainEqual({ label: '완료일', value: '10/1–10/10' });
+  });
+  it('프리셋은 이름과 기간을 함께 싣는다', () => {
+    expect(build('last-week').scope!.facts).toContainEqual({ label: '완료일', value: '지난 주 (10/12–10/18)' });
+  });
+  it('필터가 없으면 「완료일」 fact 를 싣지 않는다', () => {
+    expect(build(null).scope!.facts!.map((f) => f.label)).not.toContain('완료일');
   });
 });
 

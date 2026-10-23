@@ -16,9 +16,11 @@ import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
+import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
+import { kstDateKey } from '../../../lib/formatters';
 import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
 import {
-  carryBoardTab,
+  carryViewOptions,
   filtersToParams,
   overridesClosedHiding,
   parseFilters,
@@ -31,6 +33,7 @@ import type {
   IssueGroupParam,
   IssueView,
 } from '../../../types/issue';
+import { ClosedRangeExtra } from '../components/ClosedRangeExtra';
 import { buildStatusFacets } from './statusFacets';
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
@@ -46,6 +49,8 @@ export interface IssueFilterBarOptions {
   showCycle?: boolean; // 기본 true
   showType?: boolean; // 기본 true
   showClosedToggle?: boolean; // 「완료 모두 보기」 노출. 기본 true — 종료 이슈 숨김 범위를 안 쓰는 화면(개인)은 false
+  showClosedFilter?: boolean; // 「완료일」 기간 필터 facet 노출(WP-873). 기본 true — 종료 이슈 기능을 안 쓰는 화면(개인)은 false
+  showColumnPicker?: boolean; // 목록 「▦ 열」 메뉴 노출(WP-270). 기본 true — 목록이 이슈 표가 아닌 화면(개인 체크리스트)은 false
   groupOptions?: { value: IssueGroupBy | null; label: string }[]; // 기본 GROUP_OPTIONS
   listLabel?: string; // 뷰토글의 'list' 버튼 접근성 라벨. 기본 '리스트'
   listIcon?: LucideIcon; // 뷰토글의 'list' 버튼 아이콘. 기본 List(목록). 개인=ListChecks(체크리스트)
@@ -82,6 +87,7 @@ export function useIssueFilterControls(
   const showCycle = options?.showCycle ?? true;
   const showType = options?.showType ?? true;
   const showClosedToggle = options?.showClosedToggle ?? true;
+  const showClosedFilter = options?.showClosedFilter ?? true;
   const groupOptions = options?.groupOptions ?? GROUP_OPTIONS;
   const [params, setParams] = useSearchParams();
   // params 는 URL(search)이 바뀔 때만 새 객체 — 파싱 결과를 메모해 아래 filterValue 메모가 매 렌더 깨지지 않게 한다.
@@ -124,7 +130,7 @@ export function useIssueFilterControls(
     nextView: IssueView,
     nextGroupBy: IssueGroupParam | null,
   ) {
-    setParams((prev) => carryBoardTab(filtersToParams(next, nextView, nextGroupBy), prev), { replace: true });
+    setParams((prev) => carryViewOptions(filtersToParams(next, nextView, nextGroupBy), prev), { replace: true });
   }
 
   function setView(v: IssueView) {
@@ -137,13 +143,13 @@ export function useIssueFilterControls(
     writeFilters(filters, view, g ?? 'none');
   }
 
-  // 초기화는 view·group 은 유지하고 나머지 필터만 비운다.
+  // 초기화는 view·group(과 보드 탭·목록 열 구성)은 유지하고 나머지 필터만 비운다.
   function reset() {
     setParams((prev) => {
       const p = new URLSearchParams();
       if (view === 'board') p.set('view', 'board');
       if (groupParam) p.set('group', groupParam);
-      return carryBoardTab(p, prev);
+      return carryViewOptions(p, prev);
     }, { replace: true });
   }
 
@@ -165,7 +171,8 @@ export function useIssueFilterControls(
     filters.cycleIds.length > 0 ||
     filters.typeIds.length > 0 ||
     filters.assigneeIds.length > 0 ||
-    filters.includeUnassigned;
+    filters.includeUnassigned ||
+    filters.closedIn != null;
 
   // URL filters → 범용 FilterValue. 상태 범주/우선순위는 문자열, 상태/라벨/사이클/유형/담당자는 숫자 id.
   const filterValue: FilterValue = useMemo(
@@ -177,9 +184,16 @@ export function useIssueFilterControls(
       cycle: filters.cycleIds,
       type: filters.typeIds,
       assignee: filters.assigneeIds,
+      // 완료일 기간은 토큰 하나(프리셋 또는 'from~to') — 단일 선택 facet.
+      closedIn: filters.closedIn ? [filters.closedIn] : [],
     }),
     [filters],
   );
+
+  // 「완료일」 프리셋 라벨의 기준일 — KST 오늘. 날짜가 바뀌면 라벨이 새로 계산되게 facet 메모의 의존값으로 쓴다.
+  const todayKey = kstDateKey(new Date());
+  // 라벨 계산 기준 시각(KST 오늘 정오) — 날짜가 바뀔 때만 새로 만든다(프리셋 라벨·선택값 라벨이 같은 값을 쓴다).
+  const todayNoon = useMemo(() => new Date(`${todayKey}T12:00:00+09:00`), [todayKey]);
 
   // facet 정의 — 노출 여부는 showCycle/showType 옵션으로 결정.
   // 쿼리 데이터가 바뀔 때만 다시 만든다(옵션 render 노드 포함) — FacetFilter 가 매 렌더 새 배열을 받지 않게.
@@ -252,8 +266,25 @@ export function useIssueFilterControls(
             } satisfies FacetDef,
           ]
         : []),
+      // 「완료일」 — 프리셋(날짜 범위를 라벨에 함께 보임) 또는 「기간 직접 지정」. 단일 선택이라 하나만 걸린다(WP-873).
+      // 종료 이슈 기능을 옵트아웃한 화면(개인 체크리스트)에는 넣지 않는다.
+      ...(showClosedFilter
+        ? [
+          {
+            key: 'closedIn',
+            label: '완료일',
+            single: true,
+            options: CLOSED_PRESETS.map((p) => ({
+              value: p.value,
+              label: closedRangeLabel(p.value, todayNoon),
+            })),
+            valueLabel: (v) => closedRangeLabel(String(v), todayNoon) || undefined,
+            renderExtra: (args) => <ClosedRangeExtra {...args} />,
+          } satisfies FacetDef,
+          ]
+        : []),
     ],
-    [projectStatuses, labels.data, members.data, cycles.data, types.data, showCycle, showType],
+    [projectStatuses, labels.data, members.data, cycles.data, types.data, showCycle, showType, showClosedFilter, todayNoon],
   );
 
   // FilterValue → URL filters. 숫자 facet 값은 number 로 왕복(DOM stringify 금지).
@@ -269,6 +300,8 @@ export function useIssueFilterControls(
         typeIds: (next.type ?? []) as number[],
         // 담당자 필터 — 숫자 id 배열로 왕복. (#363)
         assigneeIds: (next.assignee ?? []) as number[],
+        // 완료일 기간 — 단일 값(토큰)으로 왕복. 비면 null.
+        closedIn: next.closedIn?.[0] != null ? String(next.closedIn[0]) : null,
       },
       view,
       groupParam,

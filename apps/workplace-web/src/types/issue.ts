@@ -118,9 +118,14 @@ export interface IssueResponse {
   // 마일스톤 이름 — 없으면 null (WP-307, AI 도구용).
   milestoneName?: string | null;
   reporterId: number;
+  // 보고자 요약 — 목록 응답이 싣는다(WP-270 보고자 열). 모르는 사용자면 서버가 생략하고, 롤링 배포 중 구버전 응답에도 없어 optional.
+  reporter?: UserSummary | null;
+  // 이슈가 속한 사이클 요약 — 목록 응답이 싣는다(WP-270 사이클 열). 구버전 응답엔 없어 optional.
+  cycles?: { id: number; name: string; status: string }[];
   createdAt: string;
   updatedAt: string;
-  // 종료(DONE·CANCELED) 진입 시각 — 재오픈 시 null (WP-307). 화면은 아직 쓰지 않으며 AI 도구용으로 추가됐다.
+  // 종료(DONE·CANCELED) 진입 시각 — 재오픈 시 null (WP-307).
+  // 목록·카드·상세의 완료 표기(WP-873)와 완료일 열·필터가 쓴다. 구버전 응답엔 없을 수 있어 optional.
   closedAt?: string | null;
   // #611 낙관적 동시성 토큰 — 수정 요청에 실어 보내면 그 사이 다른 편집이 있었을 때 서버가 409 로 알린다.
   version?: number;
@@ -319,6 +324,8 @@ export interface IssueFilters {
   excludeSubtasks: boolean;
   // EPIC 유형 이슈 제외 — URL 로 직렬화하지 않는 파생 필드. 보드·목록 기본 범위(withDefaultIssueScope)만 주입한다.
   excludeEpics?: boolean;
+  // 완료일 기간(WP-873) — 프리셋 토큰('last-week' 등) 또는 'YYYY-MM-DD~YYYY-MM-DD'. URL closedIn. 서버엔 closedFrom/closedTo 로 풀어 보낸다.
+  closedIn: string | null;
   // 「완료 모두 보기」 토글 — URL closed=all. 끄면(기본) 활성 사이클 밖 종료 이슈를 보드·목록에서 숨긴다(#876).
   showAllClosed: boolean;
   // 활성 사이클 밖 종료(DONE·CANCELED) 이슈 제외 — URL 비직렬화 파생 필드. withDefaultIssueScope 만 주입한다.

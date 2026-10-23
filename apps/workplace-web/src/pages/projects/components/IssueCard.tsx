@@ -18,10 +18,12 @@ import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { IssueDragData } from '../../../lib/epicDnd';
+import { closedInfo } from '../../../lib/issueClosedInfo';
 import { isOverdue } from '../../../lib/issueOverdue';
 import type { IssueResponse } from '../../../types/issue';
 import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
 import { IssueCardMenuContext } from './issueCardMenuContext';
+import { IssueClosedDate } from './IssueClosedDate';
 import { IssueMobileMeta } from './IssueMobileMeta';
 import { RowMenuButton } from './RowMenuButton';
 
@@ -94,6 +96,8 @@ export function IssueCard({
   const identifier = `${projectKey}-${issue.number}`;
   // SUBTASK 여부 — 카드 헤더에 부모 식별자(└) 표시 분기에 사용.
   const isSubtask = issue.type?.name === 'SUBTASK';
+  // 끝난 이슈(DONE·CANCELED + closedAt)는 마감일 자리에 완료일을 보인다(WP-873). null 이면(미종료·구버전 응답) 기존 마감 표기.
+  const closed = closedInfo(issue);
 
   // 링크 대상 — override(개인 drawer) 우선, 미지정 시 팀 풀페이지 상세 경로(기본).
   const linkTo = to ?? `/projects/${projectKey}/issues/${issue.number}`;
@@ -230,8 +234,10 @@ export function IssueCard({
               └ {issue.childDoneCount}/{issue.childCount}
             </span>
           )}
+          {/* 끝난 카드는 마감 대신 완료일(+늦음) — 마감 지남 강조(WP-649)는 미종료 카드에만 해당한다. */}
+          {closed && <IssueClosedDate info={closed} testIdPrefix={`issue-card-${issue.number}`} />}
           {/* 마감 지난 미완료 카드는 마감일을 빨간 굵은 글씨로(WP-649). */}
-          {issue.dueDate && (
+          {!closed && issue.dueDate && (
             <span
               className={isOverdue(issue) ? 'whitespace-nowrap font-semibold text-destructive' : 'whitespace-nowrap'}
               data-testid={`issue-card-${issue.number}-due`}

@@ -6,10 +6,12 @@ import { cn } from '@/lib/utils';
 
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { formatListDueDate } from '../../../lib/formatters';
+import { closedInfo } from '../../../lib/issueClosedInfo';
 import { isEpicParent, ISSUE_PRIORITY_LABEL } from '../../../lib/issueGrouping';
 import { isOverdue } from '../../../lib/issueOverdue';
 import { labelFg } from '../../../lib/labelColors';
 import type { IssueResponse } from '../../../types/issue';
+import { IssueClosedDate } from './IssueClosedDate';
 
 export function IssueMobileMeta({
   issue: it,
@@ -43,8 +45,11 @@ export function IssueMobileMeta({
   if (it.priority === 'HIGH' || it.priority === 'HIGHEST') {
     tail.push(<span key="p" className="text-destructive">{ISSUE_PRIORITY_LABEL[it.priority]}</span>);
   }
-  // 마감 — 지난 미완료면 데스크톱 목록과 같은 빨간 굵은 글씨 + 스크린리더 안내(WP-649). 완료·취소는 isOverdue 가 제외한다.
-  if (it.dueDate) {
+  // 끝난 이슈(closedAt 있음)는 마감 대신 「✓ 10월 23일」(+늦음) — 없으면(미종료·구버전 응답) 마감 표기(WP-873).
+  // 마감은 데스크톱 목록 마감 칸과 같은 목록 공용 표기(formatListDueDate, WP-919). 지난 미완료면 빨간 굵은 글씨 + 스크린리더 안내(WP-649).
+  const closed = closedInfo(it);
+  if (closed) tail.push(<IssueClosedDate key="c" info={closed} testIdPrefix={testIdPrefix} />);
+  else if (it.dueDate) {
     const overdue = isOverdue(it);
     tail.push(
       <span key="d" className={overdue ? 'font-semibold text-destructive' : undefined} data-testid={`${testIdPrefix}-due`}>

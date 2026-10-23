@@ -34,7 +34,13 @@ import type { CycleProgress } from '../../../types/cycle';
 import { CYCLE_STATUS_LABEL } from '../../../types/cycle';
 import type { IssueFilters, IssueResponse } from '../../../types/issue';
 import type { OpenRowMenu } from '../hooks/useIssueRowActions';
+import { type ColumnDefs, columnHeadCells } from './issueListColumnDefs';
 import { IssueRow } from './IssueListRow';
+
+// 구간 안에서 표가 아닌 요소(빈 문구·오류·「더 보기」)를 보이는 폭에 묶는다 — 열이 많아 목록이 가로 스크롤돼도
+// 화면 왼쪽에 붙어 보이게(WP-270). 100cqw = 목록 바깥 컨테이너(IssueCycleGroupedList)의 보이는 폭, 2px·0.75rem = 구간 테두리·왼쪽 여백.
+// 모바일은 그 @container 가 없고(열 선택·가로 스크롤 없음) cqw 가 뷰포트 폭으로 풀려 구간보다 넓어지므로 클래스를 주지 않는다.
+const sectionVisible = (isMobile: boolean) => (isMobile ? undefined : 'sticky left-0 w-[calc(100cqw_-_2px_-_0.75rem)]');
 
 // 상태 배지 의미 — 디자인 시스템 StatusBadge 매핑(진행 중=info, 예정=pending, 완료=inactive).
 const STATUS_BADGE_TYPE: Record<string, StatusBadgeType> = {
@@ -53,23 +59,21 @@ function shortDate(d: string | null): string {
 /**
  * 구간 테이블 컬럼 폭 정의 행 — 모든 구간과 목록 상단 컬럼명 행이 같은 폭을 쓰게 공유한다(table-fixed 는 첫 행이 폭을 정한다).
  * visible=false 면 0 높이(스크린리더엔 컬럼명), true 면 목록 상단에 한 번 보이는 컬럼명 행.
+ * 선택 열은 평면 목록과 같은 열 정의(issueListColumnDefs)에서 그린다(WP-270) — 문구·폭이 두 곳에서 갈라지지 않게.
  * 데스크톱 전용 — 모바일 행은 컬럼 없는 한 칸 블록이라 호출하는 쪽이 모바일에선 그리지 않는다(WP-194).
  */
-export function CycleSectionColumnHead({ visible = false }: { visible?: boolean }) {
+export function CycleSectionColumnHead({ visible = false, columns }: { visible?: boolean; columns: ColumnDefs }) {
   const cell = visible ? LIST_HEAD_CELL_CLASS : 'h-0 p-0 overflow-hidden';
   return (
     <thead>
       <tr className={cn(!visible && 'h-0')}>
         <th className={cn('w-9', cell)}><span className="sr-only">선택</span></th>
         <th className={cn('w-9', cell)}><span className="sr-only">상태</span></th>
-        <th className={cn('w-9', cell)}><span className="sr-only">우선순위</span></th>
+        {columnHeadCells(columns.left, { thClass: cell, hideLabel: !visible })}
         {/* 보이는 머리에선 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다(WP-919). */}
         <th className={cn('w-28', cell, visible && LIST_ID_HEAD_INDENT_CLASS)}><span className={cn(!visible && 'sr-only')}>ID</span></th>
         <th className={cell}><span className={cn(!visible && 'sr-only')}>제목</span></th>
-        <th className={cn('w-20', cell)}><span className={cn(!visible && 'sr-only')}>담당자</span></th>
-        <th className={cn('w-32', cell)}>
-          <span className={cn(!visible && 'sr-only')}>마감</span>
-        </th>
+        {columnHeadCells(columns.right, { thClass: cell, hideLabel: !visible })}
         <th className={cn('w-8', cell)}><span className="sr-only">작업</span></th>
       </tr>
     </thead>
@@ -99,6 +103,7 @@ export function IssueCycleSection({
   selectionMode = false,
   hideEpic = false,
   autoLoadMore = true,
+  columns,
 }: {
   def: CycleSectionDef;
   expanded: boolean;
@@ -129,8 +134,12 @@ export function IssueCycleSection({
    * 이미 보이는 아래 구간 앞에 행이 끼어들어 순서가 섞이므로, 그 위 구간은 「더 보기」를 눌러야 불러온다.
    */
   autoLoadMore?: boolean;
+  /** 선택 열 정의(WP-270) — 목록(IssueCycleGroupedList)이 한 번 만들어 모든 구간이 같은 열·폭을 쓴다. */
+  columns: ColumnDefs;
 }) {
   const bodyId = useId();
+  // 모바일은 @container·가로 스크롤이 없어 헤더·「더 보기」에 sticky/cqw 폭을 주지 않는다(sectionVisible 주석 참고).
+  const isMobile = useIsMobile();
   const cycle = def.kind === 'cycle' ? def.cycle : null;
   const sectionFilters = useMemo(
     () => (cycle ? cycleSectionFilters(filters, cycle.id) : backlogSectionFilters(filters)),
@@ -189,8 +198,10 @@ export function IssueCycleSection({
       // 모든 구간이 같은 테두리·왼쪽 여백(pl-3)을 가져 컬럼이 어긋나지 않는다. 진행 중 강조선은 그 여백 위에 겹쳐 그리는
       // before: 오버레이라 레이아웃에 영향이 없다(border-l-4 를 쓰면 진행 중 구간만 컬럼이 밀린다).
       className={cn(
-        'relative min-w-0 overflow-hidden rounded-md border pl-3 transition-colors',
-        active && "before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-primary before:content-['']",
+        // overflow-clip(hidden 아님) — hidden 은 구간을 스크롤 컨테이너로 만들어 안쪽 sticky left(헤더 등)가 바깥 슬롯 가로 스크롤에 붙지 못한다.
+        'relative min-w-0 overflow-clip rounded-md border pl-3 transition-colors',
+        // z-10 — 진행 중 강조선이 sticky(=위치 지정)로 바뀐 헤더 배경 아래로 가려지지 않게.
+        active && "before:absolute before:inset-y-0 before:left-0 before:z-10 before:w-1 before:bg-primary before:content-['']",
         // 드롭 대상 강조 — 구간 전체 테두리+틴트(ring-inset 은 레이아웃을 밀지 않는다).
         dropTarget && 'bg-primary/10 ring-2 ring-primary ring-inset',
         blocked && 'opacity-50',
@@ -200,6 +211,9 @@ export function IssueCycleSection({
       <div
         className={cn(
           '-ml-3 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 pl-3 pr-3',
+          // 데스크톱만 sticky left-0 + 보이는 폭(100cqw − 테두리) — 열이 많아 목록이 가로 스크롤돼도 이름·기간·진행률이 화면 안에 남는다(WP-270).
+          // 모바일엔 @container 가 없어 cqw 가 뷰포트 폭이 되므로 쓰지 않는다(헤더가 구간보다 넓어져 잘림).
+          !isMobile && 'sticky left-0 w-[calc(100cqw_-_2px)]',
           active ? 'bg-primary/5 dark:bg-primary/10' : 'bg-muted/40',
         )}
         data-testid={`list-cycle-header-${def.key}`}
@@ -327,6 +341,7 @@ export function IssueCycleSection({
             menuIssueNumber={menuIssueNumber}
             selectionMode={selectionMode}
             hideEpic={hideEpic}
+            columns={columns}
             // 완료 사이클 구간의 행은 사이클 이동에서 뺀다 — 끝난 스프린트 이력을 드래그 한 번으로 바꾸고, 되돌리기(완료 사이클
             // 재연결)도 서버가 거부해 복구할 수 없다. 에픽 패널로 끄는 것은 그대로 허용.
             cycleSection={dropDisabled ? undefined : sectionRef}
@@ -336,7 +351,7 @@ export function IssueCycleSection({
             <LoadMoreFooter
               query={query}
               manualLabel={autoLoadMore ? undefined : '더 보기'}
-              className="px-3 py-2"
+              className={cn('px-3 py-2', sectionVisible(isMobile))}
               data-testid={`list-cycle-more-${def.key}`}
             />
           )}
@@ -372,6 +387,7 @@ function SectionBody({
   selectionMode,
   hideEpic,
   cycleSection,
+  columns,
 }: {
   query: ReturnType<typeof useCycleSectionIssues>;
   items: IssueResponse[];
@@ -388,6 +404,7 @@ function SectionBody({
   hideEpic: boolean;
   /** 이 구간 — 행 드래그 데이터의 출발 구간(사이클 이동 from). 없으면 사이클 이동 불가(완료 구간). */
   cycleSection: CycleSectionRef | undefined;
+  columns: ColumnDefs;
 }) {
   const isMobile = useIsMobile();
   // 첫 페이지 실패만 오류 화면 — 다음 페이지 실패는 받은 행을 두고 LoadMoreFooter 가 다시 시도를 보인다(WP-183).
@@ -395,7 +412,13 @@ function SectionBody({
   // 성공하면 공용 안내가 불러온 행으로 초점을 옮긴다(WP-893). 구간 안 한 줄이라 배너 모양.
   if (query && failedWithoutData(query)) {
     return (
-      <LoadErrorState variant="banner" title="이슈를 불러오지 못했습니다." queries={[query]} testId={`list-cycle-error-${testKey}`} />
+      <LoadErrorState
+        variant="banner"
+        title="이슈를 불러오지 못했습니다."
+        queries={[query]}
+        testId={`list-cycle-error-${testKey}`}
+        className={sectionVisible(isMobile)}
+      />
     );
   }
   if (!query || query.isLoading) {
@@ -409,7 +432,7 @@ function SectionBody({
   }
   if (items.length === 0) {
     return (
-      <p className="px-3 py-3 text-sm text-muted-foreground" data-testid={`list-cycle-empty-${testKey}`}>
+      <p className={cn('px-3 py-3 text-sm text-muted-foreground', sectionVisible(isMobile))} data-testid={`list-cycle-empty-${testKey}`}>
         {emptyText}
       </p>
     );
@@ -418,7 +441,7 @@ function SectionBody({
     // table-fixed — 긴 제목이 표 폭을 밀어내지 않고 말줄임되며, 구간마다 컬럼 폭이 같아 정렬이 맞는다.
     <table className="w-full table-fixed text-sm">
       {/* 모바일 행은 컬럼 없는 한 칸(colSpan) 블록이라 컬럼 헤더를 두지 않는다(WP-194). */}
-      {!isMobile && <CycleSectionColumnHead />}
+      {!isMobile && <CycleSectionColumnHead columns={columns} />}
       <tbody className="[&>tr:last-child]:border-b-0">
         {items.map((it) => (
           <IssueRow
@@ -436,6 +459,7 @@ function SectionBody({
             // 한 이슈가 여러 사이클 구간에 동시에 보일 수 있어(M:N) 구간 키로 드래그 id 를 구분한다.
             dragScope={testKey}
             cycleSection={cycleSection}
+            columns={columns}
           />
         ))}
       </tbody>

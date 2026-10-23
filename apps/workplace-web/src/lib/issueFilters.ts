@@ -10,7 +10,9 @@ import {
   type IssueView,
 } from '../types/issue';
 import { BOARD_TAB_PARAM } from './boardTabs';
+import { parseClosedIn } from './closedRange';
 import { parseValidDateKey } from './formatters';
+import { COLS_PARAM } from './issueListColumns';
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
 const GROUP_BYS = ['status', 'assignee', 'priority', 'cycle', 'epic'] as const;
@@ -94,6 +96,7 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     topLevel,
     blocked,
     excludeSubtasks,
+    closedIn: parseClosedIn(params.get('closedIn')),
     showAllClosed,
   };
 }
@@ -115,7 +118,7 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
   };
 }
 
-// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 상태 범주·개별 상태(WP-808) 선택, 지난 사이클·마일스톤 선택은
+// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 상태 범주·개별 상태(WP-808) 선택, 지난 사이클·마일스톤 선택, 완료일 기간(WP-873)은
 // 그 묶음 전체가 대상이라 숨기지 않는다. 묶음을 고르는 필터 필드를 새로 추가하면 여기 포함 여부를 결정할 것.
 // (검색어 q 는 의도적으로 제외 — 검색도 기본 범위 안에서 동작하고, 지난 이슈는 「완료 모두 보기」로 찾는다.)
 // (에픽 선택 parent 도 제외 — 진행 중 에픽의 백로그에 지난 사이클 완료분이 쌓이지 않게 사용자 토글을 따른다.
@@ -126,7 +129,8 @@ export function overridesClosedHiding(f: IssueFilters): boolean {
     f.statusIds.length > 0 ||
     f.cycleIds.length > 0 ||
     !!f.cycleUnassigned ||
-    f.milestoneIds.length > 0
+    f.milestoneIds.length > 0 ||
+    f.closedIn != null
   );
 }
 
@@ -190,6 +194,8 @@ export function filtersToParams(
   if (assigneeTokens.length) p.set('assignee', assigneeTokens.join(','));
   if (f.dueFrom) p.set('dueFrom', f.dueFrom);
   if (f.dueTo) p.set('dueTo', f.dueTo);
+  // 완료일 기간(WP-873) — 프리셋·직접 지정 토큰 그대로. 「완료 모두 보기」(closed=all)와 별개 키.
+  if (f.closedIn) p.set('closedIn', f.closedIn);
   if (f.labelIds.length) p.set('label', f.labelIds.join(','));
   if (f.cycleIds.length) p.set('cycle', f.cycleIds.join(','));
   if (f.milestoneIds.length) p.set('milestone', f.milestoneIds.join(','));
@@ -216,15 +222,19 @@ function csv(v: string | null): string[] {
 }
 
 /**
- * 필터를 URL 로 다시 쓸 때 모바일 보드 선택 탭(boardTab)을 이어 붙인다(WP-195).
+ * 필터를 URL 로 다시 쓸 때 표시 옵션 — 모바일 보드 선택 탭(boardTab, WP-195)·목록 열(cols) — 을 이어 붙인다.
  * filtersToParams 는 필터·view·group 만으로 새 쿼리를 만들어 boardTab 을 버린다 → 필터를 바꿀 때마다 탭이 기본값으로 튄다.
  * 보드 뷰가 유지될 때만 보존하고, 목록으로 바뀌면 버린다(쓸모없는 키를 남기지 않게).
  * 값(statusId 또는 예전 범주 코드)은 해석하지 않고 그대로 옮긴다 — 해석은 resolveBoardTab 이 맡는다.
- * 필터 URL 을 새로 쓰는 곳은 이 함수를 거쳐야 탭이 유지된다.
+ * 목록 열 구성(cols, WP-270)도 필터가 아닌 표시 옵션이라 같이 이어 붙인다 — 필터·그룹·보기를 바꿔도 고른 열이 남게.
+ * cols 는 view 와 무관하게(보드로 갔다 돌아와도) 보존하고, 빈 값(`cols=` = 선택 열 모두 끔)도 값 그대로 옮긴다(부재와 뜻이 다름).
+ * 필터 URL 을 새로 쓰는 곳은 이 함수를 거쳐야 탭·열이 유지된다.
  */
-export function carryBoardTab(next: URLSearchParams, prev: URLSearchParams): URLSearchParams {
+export function carryViewOptions(next: URLSearchParams, prev: URLSearchParams): URLSearchParams {
   const tab = prev.get(BOARD_TAB_PARAM);
   if (tab && next.get('view') === 'board') next.set(BOARD_TAB_PARAM, tab);
+  const cols = prev.get(COLS_PARAM);
+  if (cols !== null && !next.has(COLS_PARAM)) next.set(COLS_PARAM, cols);
   return next;
 }
 

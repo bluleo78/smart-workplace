@@ -14,11 +14,12 @@ import {
 import { handleApiError } from '../../lib/api-error';
 
 // 프로젝트 커스텀 필드 정의 전체 목록.
-export function useCustomFields(projectKey: string) {
+// enabled — 이슈 목록처럼 커스텀 필드 열이 켜졌을 때만 필요한 화면이 요청을 미룰 때(WP-270).
+export function useCustomFields(projectKey: string, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ['customFields', projectKey],
     queryFn: () => listCustomFields(projectKey),
-    enabled: !!projectKey,
+    enabled: !!projectKey && enabled,
   });
 }
 

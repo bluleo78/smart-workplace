@@ -28,6 +28,7 @@ import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
 import type { ProjectStatus } from '../../../../types/projectStatus';
 import { statusPickerOptions } from '../../hooks/statusFacets';
 import { incompleteBlockers } from '../incompleteBlockers';
+import { IssueClosedLine } from '../IssueClosedLine';
 import { StatusDoneBlockedDialog } from '../IssueStatusSelect';
 import { MOBILE_CHIP } from './chipStyles';
 import { memberOptions } from './issuePropOptions';
@@ -175,6 +176,10 @@ export function IssueMobilePropertyChips({
         )}
         {trailing}
       </div>
+      {/* 완료·취소 시각(WP-873) — 칩 줄 아래 한 줄. 상태 칩이 구성에 있을 때만 둔다(개인 작업 포함). */}
+      {fields.includes('status') && (
+        <IssueClosedLine status={issue.status} closedAt={issue.closedAt} dueDate={issue.dueDate} className="pb-2" />
+      )}
 
       <MobilePickerSheet
         testId="issue-status-sheet"

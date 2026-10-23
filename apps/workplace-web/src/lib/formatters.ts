@@ -567,3 +567,26 @@ function meridiemClock(h: number, min: number): { meridiem: '오전' | '오후';
 export function localClockParts(d: Date): { meridiem: '오전' | '오후'; clock: string } {
   return meridiemClock(d.getHours(), d.getMinutes())
 }
+
+/**
+ * 시각 값(ISO) → 로컬 날짜의 월·일 — "10월 23일", 올해(now 기준)가 아니면 "2025년 10월 23일" (WP-873 완료일 표기).
+ * 날짜 전용 값을 받는 formatDateOnlyMonthDay 와 달리 시각이 붙은 값의 「브라우저 로컬 날짜」를 쓴다 —
+ * 자정 직후(KST 00:30)에 끝낸 일이 UTC 날짜로 하루 앞서 보이지 않게. 무효 입력이면 ''(호출부가 세그먼트 생략).
+ */
+export function formatInstantMonthDay(dateStr: string | null | undefined, now: Date = new Date()): string {
+  const d = parseUtcDate(dateStr)
+  if (Number.isNaN(d.getTime())) return ''
+  const md = `${d.getMonth() + 1}월 ${d.getDate()}일`
+  return d.getFullYear() === now.getFullYear() ? md : `${d.getFullYear()}년 ${md}`
+}
+
+/**
+ * 시각 값(ISO) → 「10월 23일 (금) 오후 2:05」 — 완료일 툴팁용(WP-873). 로컬 타임존, 올해가 아니면 연도를 앞에 붙인다.
+ * 날짜·요일은 formatLocalDateWithWeekday, 오전/오후·시각은 localClockParts 를 재사용한다. 무효 입력이면 ''.
+ */
+export function formatMonthDayWeekdayClock(dateStr: string | null | undefined, now: Date = new Date()): string {
+  const d = parseUtcDate(dateStr)
+  if (Number.isNaN(d.getTime())) return ''
+  const { meridiem, clock } = localClockParts(d)
+  return `${formatLocalDateWithWeekday(d, now)} ${meridiem} ${clock}`
+}

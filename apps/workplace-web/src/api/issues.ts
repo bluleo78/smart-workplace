@@ -1,5 +1,6 @@
 // 이슈 API 클라이언트.
 
+import { resolveClosedRange } from '../lib/closedRange';
 import type {
   CreateIssueRequest,
   IssueAiClassifyResponse,
@@ -34,7 +35,7 @@ export const issuesApi = {
 };
 
 // IssueFilters 를 백엔드가 받는 검색 쿼리 파라미터 표현으로 직렬화한다 — 목록 검색과 그룹 총계(WP-472)가 같은 필터를 보내게 공용.
-function issueFilterParams(filters: IssueFilters): URLSearchParams {
+export function issueFilterParams(filters: IssueFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.q) params.set('q', filters.q);
   if (filters.statuses.length) params.set('status', filters.statuses.join(','));
@@ -48,6 +49,12 @@ function issueFilterParams(filters: IssueFilters): URLSearchParams {
   if (assigneeTokens.length) params.set('assignee', assigneeTokens.join(','));
   if (filters.dueFrom) params.set('dueFrom', filters.dueFrom);
   if (filters.dueTo) params.set('dueTo', filters.dueTo);
+  // 완료일 기간(WP-873) — 프리셋 토큰은 지금 시점의 KST 날짜 범위로 풀어 보낸다(저장 뷰·링크에 담긴 「지난 주」가 열 때마다 새로 풀린다).
+  const closed = filters.closedIn ? resolveClosedRange(filters.closedIn) : null;
+  if (closed) {
+    params.set('closedFrom', closed.from);
+    params.set('closedTo', closed.to);
+  }
   if (filters.labelIds.length) params.set('label', filters.labelIds.join(','));
   // cycle — 사이클 id 목록 + 백로그('null' 토큰 = 진행 중·예정 사이클 밖, assignee 의 미지정 토큰과 같은 패턴 · #878).
   const cycleTokens: string[] = [

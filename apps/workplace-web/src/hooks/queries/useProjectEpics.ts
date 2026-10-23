@@ -31,6 +31,7 @@ function epicListFilters(epicTypeId: number, statuses: string[], activeCycleOnly
     topLevel: true,
     blocked: false,
     excludeSubtasks: false,
+    closedIn: null,
     showAllClosed: false,
     hideInactiveClosed: activeCycleOnly,
   };

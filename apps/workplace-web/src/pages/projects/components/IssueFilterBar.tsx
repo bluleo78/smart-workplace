@@ -24,6 +24,7 @@ import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits';
 
 import type { IssueGroupBy } from '../../../types/issue';
 import { type IssueFilterBarOptions, useIssueFilterControls } from '../hooks/useIssueFilterControls';
+import { IssueColumnPickerButton } from './IssueColumnPicker';
 
 export function IssueFilterBar({
   projectKey,
@@ -88,6 +89,11 @@ export function IssueFilterBar({
             </SelectContent>
           </Select>
         </div>
+        {/* 표시할 열(WP-270) — 표가 있는 목록 뷰에서만. 보드엔 열이 없고, 모바일은 이 막대 대신 모바일 툴바를 쓴다.
+            완료일 기간 필터가 걸리면 완료일 열이 자동으로 켜져 메뉴에 「필터로 켜짐」이 보인다. */}
+        {c.view === 'list' && (options?.showColumnPicker ?? true) && (
+          <IssueColumnPickerButton projectKey={projectKey} closedFilterActive={c.filters.closedIn != null} />
+        )}
       </div>
 
       {/* 뷰 전환 — 아이콘 토글. AppRail 과 동일하게 shadcn Tooltip 사용(키보드 포커스 툴팁 지원). */}

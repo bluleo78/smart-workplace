@@ -29,6 +29,12 @@ describe('clearFacetFilters', () => {
     expect(qs.get('q')).toBe('결제')
     expect(qs.get('parent')).toBe('30')
   })
+  it('완료일 기간(closedIn)도 facet 이라 함께 풀린다(WP-873), 「완료 모두 보기」는 유지', () => {
+    const cleared = clearFacetFilters(f('closedIn=last-week&closed=all'))
+    const qs = filtersToParams(cleared, 'list', null)
+    expect(qs.has('closedIn')).toBe(false)
+    expect(qs.get('closed')).toBe('all')
+  })
 })
 
 describe('isAllIgnoringEpicScope (WP-194)', () => {

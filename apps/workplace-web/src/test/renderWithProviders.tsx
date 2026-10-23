@@ -12,8 +12,11 @@ import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 
 const noop = async () => {}
 
-/** 로그인된 일반 사용자(id 1) 상태의 고정 AuthContext 값 — e2e auth.factory 의 기본 사용자와 같은 모양. */
-const authValue: AuthContextValue = {
+/**
+ * 로그인된 일반 사용자(id 1) 상태의 고정 AuthContext 값 — e2e auth.factory 의 기본 사용자와 같은 모양.
+ * renderHook 처럼 이 헬퍼 대신 자기 감싸개(예: MemoryRouter initialEntries)가 필요한 테스트도 같은 값을 쓰도록 내보낸다.
+ */
+export const testAuthValue: AuthContextValue = {
   user: {
     id: 1,
     username: 'tester',
@@ -52,7 +55,7 @@ export function renderWithProviders(ui: ReactElement) {
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <AuthContext.Provider value={authValue}>
+        <AuthContext.Provider value={testAuthValue}>
           <MemoryRouter>
             <TooltipProvider>{children}</TooltipProvider>
           </MemoryRouter>

@@ -142,7 +142,16 @@ export function MobileViewSheet({
       </MobileSheetShell>
 
       {/* 열 때만 마운트 — 닫힌 다이얼로그를 상시 들고 있지 않는다. */}
-      {saveOpen && <SaveViewDialog projectKey={projectKey} query={saved.currentQuery} open onOpenChange={setSaveOpen} />}
+      {/* 모바일 목록엔 열이 없어 열 구성은 담지 않는다(「현재 열 구성도 함께 저장」 없음, WP-270). */}
+      {saveOpen && (
+        <SaveViewDialog
+          projectKey={projectKey}
+          query={saved.currentQuery}
+          onCreated={(v) => saved.select(v.id)}
+          open
+          onOpenChange={setSaveOpen}
+        />
+      )}
 
       {/* 공유 뷰 업데이트 확인 — ViewChipBar 와 같은 공용 컴포넌트. 데스크톱 바와 동시에 마운트되지 않는다. */}
       <SharedViewUpdateConfirm saved={saved} />

@@ -12,7 +12,7 @@ import {
   updateSavedView,
 } from '../../api/savedViews';
 import { handleApiError } from '../../lib/api-error';
-import type { SaveViewRequest } from '../../types/savedView';
+import type { SavedViewResponse, SaveViewRequest } from '../../types/savedView';
 
 // 프로젝트의 저장된 뷰 목록. enabled=false 면 요청하지 않는다(서버가 멤버 전용이라 비멤버는 403 — WP-741).
 export function useSavedViews(projectKey: string, enabled = true) {
@@ -28,7 +28,12 @@ export function useCreateSavedView(projectKey: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: SaveViewRequest) => createSavedView(projectKey, body),
-    onSuccess: () => {
+    onSuccess: (created) => {
+      // 다시 불러오기 전에 목록 캐시에 먼저 넣는다 — 호출부가 막 만든 뷰를 바로 활성으로 고를 때(useSavedViewState.select),
+      // 목록에 아직 없으면 일치 판정이 다른 뷰로 선택을 되돌릴 수 있다(WP-270).
+      qc.setQueryData<SavedViewResponse[]>(['savedViews', projectKey], (old) =>
+        old ? [...old.filter((v) => v.id !== created.id), created] : old,
+      );
       qc.invalidateQueries({ queryKey: ['savedViews', projectKey] });
       toast.success('뷰를 저장했습니다');
     },

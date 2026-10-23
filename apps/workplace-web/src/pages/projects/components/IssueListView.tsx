@@ -21,6 +21,7 @@ import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
+import { DEFAULT_COLUMNS, type IssueListColumnKey } from '../../../lib/issueListColumns';
 import { labelFg } from '../../../lib/labelColors';
 import { failedWithoutData } from '../../../lib/queryFailure';
 import type { IssueClientGroupBy, IssueFilters, IssueResponse } from '../../../types/issue';
@@ -28,7 +29,8 @@ import { useClosedHidingNotice } from '../hooks/useClosedHidingNotice';
 import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
-import { ISSUE_LIST_COLUMN_COUNT, ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
+import { columnHeadCells, hasExtraColumns, issueListColumnCount, useColumnDefs } from './issueListColumnDefs';
+import { ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
@@ -44,10 +46,13 @@ export function IssueListView({
   onLoadedChange,
   canDrag = false,
   canEdit = canDrag,
+  columns = DEFAULT_COLUMNS,
 }: {
   projectKey: string;
   filters: IssueFilters;
   groupBy: IssueClientGroupBy | null;
+  /** 보일 선택 열 키(표시 순서, WP-270) — 미지정이면 기본 열(우선순위·담당자·마감). 참조가 바뀌면 행이 다시 그려지니 안정된 배열을 넘긴다. */
+  columns?: IssueListColumnKey[];
   /** 초기 빈 상태 CTA — "새 태스크 만들기" 버튼에 연결 */
   onOpenCreate?: () => void;
   /** WP-54: 로드된 건수·추가 로드 가능 여부를 상위(IssueArea)로 알린다 — AI 화면 컨텍스트 건수용. */
@@ -59,6 +64,8 @@ export function IssueListView({
 }) {
   // 보드와 같은 기본 범위 — 에픽 행 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(withDefaultIssueScope).
   const isMobile = useIsMobile();
+  // 선택 열 정의 — 커스텀 필드 열이 있을 때만 필드 정의를 불러온다(기본 열 화면은 요청이 늘지 않게).
+  const columnDefs = useColumnDefs(projectKey, columns);
   const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
   const searchQuery = useIssueSearch(projectKey, scopedFilters);
   // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 호출부가 ProjectStatusesGate 로 목록을 받은 뒤에 그린다(WP-870).
@@ -218,12 +225,14 @@ export function IssueListView({
                 </th>
                 {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
                 <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}><span className="sr-only">상태</span></th>
-                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}><span className="sr-only">우선순위</span></th>
+                {/* 선택 열(우선순위 등)은 열 정의(issueListColumnDefs)에서 — ID 왼쪽 / 제목 뒤 순서로 그린다(WP-270). */}
+                {columnHeadCells(columnDefs.left, { thClass: LIST_HEAD_CELL_CLASS })}
                 {/* 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다. */}
                 <th className={cn(LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS, 'w-28 min-w-28')}>ID</th>
-                <th className={LIST_HEAD_CELL_CLASS}>제목</th>
-                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-20 min-w-20')}>담당자</th>
-                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-32 min-w-32')}>마감</th>
+                {/* min-w-64 — 기본 밖의 열을 켜면 제목이 안 보일 만큼 줄지 않게 하한을 두고, 넘치면 표가 가로 스크롤된다.
+                    기본 열 구성에선 걸지 않는다 — 좁은 데스크톱(1024px)에서 지금처럼 가로 스크롤 없이 제목이 줄어든다. */}
+                <th className={cn(LIST_HEAD_CELL_CLASS, hasExtraColumns(columnDefs.defs) && 'min-w-64')}>제목</th>
+                {columnHeadCells(columnDefs.right, { thClass: LIST_HEAD_CELL_CLASS })}
                 <th className={cn(LIST_HEAD_CELL_CLASS, 'w-8 min-w-8')}><span className="sr-only">작업</span></th>
               </tr>
             </thead>
@@ -233,7 +242,7 @@ export function IssueListView({
               <tbody key={g.key} data-testid={`list-group-${g.key}`}>
                 <tr className="bg-muted/40 border-b">
                   <td
-                    colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : ISSUE_LIST_COLUMN_COUNT}
+                    colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : issueListColumnCount(columnDefs.defs)}
                     className="px-1 py-0"
                   >
                     <button
@@ -275,6 +284,7 @@ export function IssueListView({
                     menuOpen={rowActions.menuIssueNumber === it.number}
                     selectionMode={isMobile && selected.size > 0}
                     hideEpic={hideEpic}
+                    columns={columnDefs}
                   />
                 ))}
               </tbody>
@@ -294,6 +304,7 @@ export function IssueListView({
                   menuOpen={rowActions.menuIssueNumber === it.number}
                   selectionMode={isMobile && selected.size > 0}
                   hideEpic={hideEpic}
+                  columns={columnDefs}
                 />
               ))}
             </tbody>

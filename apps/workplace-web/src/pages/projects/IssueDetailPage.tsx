@@ -671,6 +671,7 @@ export default function IssueDetailPage() {
               assignees={summary.assignees}
               reporter={data.reporter}
               createdAt={summary.createdAt}
+              closedAt={summary.closedAt}
               labels={summary.labels}
               blockedBy={summary.blockedBy}
               blocks={summary.blocks}

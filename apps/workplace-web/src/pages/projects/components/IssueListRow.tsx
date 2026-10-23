@@ -10,25 +10,21 @@ import { useLongPressCapture } from '@/hooks/useLongPressCapture';
 
 import { IssueLabelMeta } from '../../../components/issue/IssueLabelMeta';
 import { ChildProgress } from '../../../components/issues/ChildProgress';
-import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
-import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
-import { formatListDueDate } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
-import { isOverdue } from '../../../lib/issueOverdue';
 import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
+import type { ColumnDefs, IssueListColumnDef } from './issueListColumnDefs';
 import { IssueRowMobileCell } from './IssueRowMobileCell';
 import { RowMenuButton } from './RowMenuButton';
 
-// 목록 컬럼 수(체크박스·상태·우선순위·ID·제목·담당자·마감·⋯ 메뉴) — 그룹 헤더 colSpan 등에 쓴다.
-// 모바일은 체크박스·⋯ 컬럼이 없어 2 적다(⋯ 는 한 칸 셀 안, 선택은 액션 시트).
-export const ISSUE_LIST_COLUMN_COUNT = 8;
+// 모바일 목록 컬럼 수 — 모바일 행은 한 칸 블록(IssueRowMobileCell)이라 선택 열과 무관하게 고정이다.
+// 데스크톱 열 수는 보이는 선택 열에서 계산한다(issueListColumnCount, WP-270).
 export const ISSUE_LIST_COLUMN_COUNT_MOBILE = 6;
 
 // 리스트 행 — 평탄/그룹 렌더가 공유 (DRY). 행 전체 클릭 → 상세(#234).
@@ -47,6 +43,7 @@ export const IssueRow = memo(function IssueRow({
   menuOpen = false,
   selectionMode = false,
   hideEpic = false,
+  columns,
 }: {
   issue: IssueResponse;
   projectKey: string;
@@ -68,6 +65,11 @@ export const IssueRow = memo(function IssueRow({
   selectionMode?: boolean;
   /** 특정 에픽 필터·에픽 그룹 안 — 에픽 표시(모바일 ◆ 메타·데스크톱 칩) 생략. */
   hideEpic?: boolean;
+  /**
+   * 데스크톱 선택 열 정의(WP-270) — 목록이 useColumnDefs 로 한 번 만들고 ID 왼쪽 / 제목 뒤로 미리 나눠 넘긴다
+   * (메모된 값이라 memo 행이 매번 다시 그려지지 않고, 행마다 열을 다시 거르지 않는다).
+   */
+  columns: ColumnDefs;
 }) {
   const navigate = useNavigate();
   const to = `/projects/${projectKey}/issues/${it.number}`;
@@ -155,14 +157,15 @@ export const IssueRow = memo(function IssueRow({
         <td className="py-2">
           <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
         </td>
-        <td data-testid={`issue-row-${it.number}-priority`}><IssuePriorityBars priority={it.priority} /></td>
+        {/* ID 왼쪽 선택 열(우선순위) — 열 정의(issueListColumnDefs)가 정한다. */}
+        {columns.left.map((c) => renderCell(c, it, projectKey))}
         <td className="font-mono text-muted-foreground text-xs">
           <span className="flex items-center gap-1.5">
             {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
             <span>{projectKey}-{it.number}</span>
           </span>
         </td>
-        {/* pr-2 — 말줄임된 제목이 담당자 아바타에 붙지 않게 간격을 둔다.
+        {/* pr-2 — 말줄임된 제목이 다음 칸(담당자 아바타 등)에 붙지 않게 간격을 둔다.
             w-full max-w-0 — 자동 레이아웃 표에서 nowrap 제목의 최소 폭이 글자 폭 전체라 긴 제목이 표를 가로로 넘기던 것을 막는다
             (셀이 남은 폭에 맞춰 줄어야 안쪽 flex 의 truncate/min-w-0 가 동작, WP-194). */}
         <td className="w-full max-w-0 pr-2">
@@ -204,35 +207,8 @@ export const IssueRow = memo(function IssueRow({
             </div>
           </div>
         </td>
-        {/* 제목 셀이 w-full 로 남은 폭을 가져가므로 칸 폭은 헤더 min-w-* 하한에 의존한다 — 그래도
-            whitespace-nowrap 으로 날짜가 글자 단위로 꺾이지 않게, pr-3 으로 「+N」 이 마감 칸에 붙지 않게 한다(WP-194). */}
-        <td className="whitespace-nowrap pr-3" data-testid={`issue-row-${it.number}-assignee`}>
-          <span className="flex items-center -space-x-1">
-            {it.assignees.length === 0 ? (
-              <span className="text-muted-foreground">—</span>
-            ) : (
-              <>
-                {it.assignees.slice(0, 3).map((u) => (
-                  // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분.
-                  <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
-                ))}
-                {it.assignees.length > 3 && (
-                  <span className="text-xs text-muted-foreground ml-1">
-                    +{it.assignees.length - 3}
-                  </span>
-                )}
-              </>
-            )}
-          </span>
-        </td>
-        {/* 마감 지난 미완료 이슈는 홈 「내 작업」처럼 빨간 굵은 글씨로 구분한다(WP-649). */}
-        <td
-          className={cn('whitespace-nowrap pr-2', isOverdue(it) ? 'font-semibold text-destructive' : 'text-muted-foreground')}
-          data-testid={`issue-row-${it.number}-due`}
-        >
-          {formatListDueDate(it.dueDate)}
-          {isOverdue(it) && <span className="sr-only"> 마감 지남</span>}
-        </td>
+        {/* 제목 뒤 선택 열(담당자·마감·완료일 등) — 열 정의(issueListColumnDefs)가 정한다. 칸 폭은 헤더가 정한다. */}
+        {columns.right.map((c) => renderCell(c, it, projectKey))}
         {/* ⋯ 메뉴(WP-273 시안 A) — 호버·포커스 때만 보인다. 행 클릭(이동)·드래그로 새지 않게 버튼이 이벤트를 막는다. */}
         <td className="w-8 pr-1">
           {onOpenMenu && <RowMenuButton issue={it} onOpenMenu={onOpenMenu} open={menuOpen} testId={`issue-row-${it.number}-menu`} />}
@@ -242,3 +218,17 @@ export const IssueRow = memo(function IssueRow({
     </tr>
   );
 });
+
+/** 선택 열 셀 하나 — 클래스·툴팁·testid 는 열 정의에서, 내용은 정의의 셀 렌더러에서 온다. */
+function renderCell(def: IssueListColumnDef, issue: IssueResponse, projectKey: string) {
+  return (
+    <td
+      key={def.key}
+      className={def.cellClass?.(issue)}
+      title={def.cellTitle?.(issue)}
+      data-testid={def.testId?.(issue.number)}
+    >
+      {def.cell(issue, { projectKey })}
+    </td>
+  );
+}

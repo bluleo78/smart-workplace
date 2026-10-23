@@ -188,9 +188,13 @@ export function ViewChipBar({
         <PanelLeft aria-hidden="true" /> 에픽
       </Button>
 
+      {/* 열 구성은 목록 보기에서만 담을 수 있다(보드엔 열이 없다) — 체크박스는 columns 를 줄 때만 보인다(WP-270). */}
       <SaveViewDialog
         projectKey={projectKey}
         query={s.currentQuery}
+        queryWithColumns={s.currentQueryWithColumns}
+        columns={s.canSaveColumns ? s.chosenColumns : undefined}
+        onCreated={(v) => s.select(v.id)}
         open={saveOpen}
         onOpenChange={setSaveOpen}
       />
@@ -201,7 +205,9 @@ export function ViewChipBar({
           key={editing.id}
           projectKey={projectKey}
           query={s.currentQuery}
+          queryWithColumns={s.currentQueryWithColumns}
           editing={editing}
+          activeViewId={s.activeView?.id}
           open
           onOpenChange={(v) => {
             if (!v) setEditing(null)

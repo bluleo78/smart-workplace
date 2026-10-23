@@ -29,11 +29,13 @@ export function FacetFilter({
     latest.current = value;
   }, [value]);
 
-  // 단일 값 토글 — 있으면 제거, 없으면 추가.
+  // 단일 값 토글 — 있으면 제거, 없으면 추가(single facet 은 대체).
   function toggle(key: string, v: FacetValue) {
     const base = latest.current;
     const cur = base[key] ?? [];
-    const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+    // 단일 선택 facet 은 값을 대체한다(같은 값을 다시 고르면 해제) — 멀티셀렉트는 있으면 제거·없으면 추가.
+    const single = facets.find((f) => f.key === key)?.single;
+    const next = cur.includes(v) ? cur.filter((x) => x !== v) : single ? [v] : [...cur, v];
     const merged = { ...base, [key]: next };
     latest.current = merged;
     onChange(merged);

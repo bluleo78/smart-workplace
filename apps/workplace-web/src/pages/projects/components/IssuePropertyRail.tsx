@@ -25,6 +25,7 @@ import { AssigneePickerPopover } from './AssigneePickerPopover';
 import { CustomFieldsSection } from './CustomFieldsSection';
 import { DatePickerPopover } from './DatePickerPopover';
 import { DueDatePickerPopover } from './DueDatePickerPopover';
+import { IssueClosedLine } from './IssueClosedLine';
 import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
@@ -50,6 +51,7 @@ interface IssuePropertyRailProps {
   assignees: UserSummary[];   // summary.assignees
   reporter: UserSummary | null | undefined; // 상세 응답 reporter (WP-272)
   createdAt: string;          // summary.createdAt — 보고자 옆 생성일
+  closedAt?: string | null;   // summary.closedAt — 종료 상태의 완료·취소 시각(WP-873, 구버전 응답엔 없음)
   labels: LabelSummary[];     // summary.labels
   blockedBy: IssueLinkSummary[];  // summary.blockedBy
   blocks: IssueLinkSummary[];     // summary.blocks
@@ -84,6 +86,7 @@ export function IssuePropertyRail({
   assignees,
   reporter,
   createdAt,
+  closedAt,
   labels,
   blockedBy,
   blocks,
@@ -163,6 +166,8 @@ export function IssuePropertyRail({
               blockedBy={blockedBy}
               projectKey={projectKey}
             />
+            {/* 완료·취소 시각(WP-873) — 상태 바로 아래. 종료 상태가 아니면 스스로 숨는다. */}
+            <IssueClosedLine status={status} closedAt={closedAt} dueDate={dueDate} className="px-3" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">우선순위</label>

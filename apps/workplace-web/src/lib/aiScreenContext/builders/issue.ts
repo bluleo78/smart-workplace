@@ -2,6 +2,7 @@
 // 필터 id 는 이미 로드된 라벨/멤버/유형/사이클/마일스톤 목록으로 이름 해석(AI 도구가 이름을 받음). 모르는 id 는 #id.
 // 상태·우선순위·그룹 라벨은 화면(보드 헤더·필터 바)과 같은 공용 맵을 쓴다 — 사용자와 AI 가 같은 단어로 말하게.
 // WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
+import { closedRangeLabel } from '@/lib/closedRange';
 import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_LABEL, ISSUE_STATUS_LABEL, priorityLabel, statusLabel } from '@/lib/issueGrouping';
 import { ownLookup } from '@/lib/ownLookup';
 import { MY_TASKS_TAB_LABEL } from '@/pages/me/myTasksTabs';
@@ -88,6 +89,8 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
         ['라벨', names(f.labelIds, lookups.labels)],
         ['유형', names(f.typeIds, lookups.types)],
         ['마감', dueRange(f.dueFrom, f.dueTo)],
+        // 완료일 기간(WP-873) — 화면 칩과 같은 문구(프리셋은 이름+기간)로 AI 가 「지난 주 완료한 것」을 같은 범위로 안다.
+        ['완료일', f.closedIn ? closedRangeLabel(f.closedIn) : null],
         ['차단됨', f.blocked],
         ['상위 이슈', f.parentNumber != null ? `${input.projectKey}-${f.parentNumber}` : null],
         ['최상위만', f.topLevel],

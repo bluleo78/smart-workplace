@@ -11,6 +11,9 @@ import { cn } from '@/lib/utils';
 import { FacetValueList } from './FacetValueList';
 import type { FacetDef, FacetValue, FilterValue } from './types';
 
+/** 방향 고정 팝오버와 화면 끝 사이 여백(px). */
+const SIDE_EDGE_GAP = 12;
+
 export function AddFilterButton({
   facets,
   value,
@@ -23,6 +26,9 @@ export function AddFilterButton({
   /** 팝오버 방향 고정. 지정하면 충돌 회피(뒤집기)를 끄고, 대신 남은 높이 안에서 스크롤한다. */
   side?: 'top' | 'bottom';
 }) {
+  // 방향 고정(모바일 필터 시트) 때 화면 끝과 띄울 여백(px) — 목록이 화면 아래끝까지 늘어나 둥근 모서리가 시트 끝에 잘렸다(WP-873).
+  // Radix 는 이 여백을 뺀 높이를 --radix-popover-content-available-height 로 준다(탭바가 보이면 래퍼가 그 높이를 더한다).
+  const edgeGap = side ? SIDE_EDGE_GAP : undefined;
   const [open, setOpen] = useState(false);
   // 선택된 facet key(2-step). null = facet 목록 단계.
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -45,48 +51,52 @@ export function AddFilterButton({
       <PopoverContent
         className={cn(
           'w-64 p-2',
-          // 방향 고정 시 화면 밖으로 넘치지 않게 Radix 가 계산한 남은 높이까지만 쓰고 스크롤.
-          side && 'max-h-(--radix-popover-content-available-height) overflow-y-auto',
+          // 방향 고정 시 화면 밖으로 넘치지 않게 Radix 가 계산한 남은 높이까지만 쓰고, 스크롤은 안쪽 상자가 한다 —
+          // 바깥 여백(p-2)은 고정이라 스크롤된 항목이 테두리·둥근 모서리에 붙어 잘려 보이지 않는다.
+          side && 'flex max-h-(--radix-popover-content-available-height) flex-col',
         )}
         align="start"
         side={side}
         avoidCollisions={side ? false : undefined}
+        collisionPadding={edgeGap}
       >
-        {active == null ? (
-          <div className="space-y-0.5">
-            {facets.map((f) => (
+        <div className={cn(side && 'min-h-0 overflow-y-auto')}>
+          {active == null ? (
+            <div className="space-y-0.5">
+              {facets.map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded p-1.5 text-left text-sm hover:bg-accent"
+                  data-testid={`add-filter-facet-${f.key}`}
+                  onClick={() => setActiveKey(f.key)}
+                >
+                  {f.label}
+                  {(value[f.key]?.length ?? 0) > 0 && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {value[f.key].length}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-1">
               <button
-                key={f.key}
                 type="button"
-                className="flex w-full items-center gap-2 rounded p-1.5 text-left text-sm hover:bg-accent"
-                data-testid={`add-filter-facet-${f.key}`}
-                onClick={() => setActiveKey(f.key)}
+                className="mb-1 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setActiveKey(null)}
               >
-                {f.label}
-                {(value[f.key]?.length ?? 0) > 0 && (
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {value[f.key].length}
-                  </span>
-                )}
+                ← {active.label}
               </button>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-1">
-            <button
-              type="button"
-              className="mb-1 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setActiveKey(null)}
-            >
-              ← {active.label}
-            </button>
-            <FacetValueList
-              facet={active}
-              selected={value[active.key] ?? []}
-              onToggle={(v) => onToggle(active.key, v)}
-            />
-          </div>
-        )}
+              <FacetValueList
+                facet={active}
+                selected={value[active.key] ?? []}
+                onToggle={(v) => onToggle(active.key, v)}
+              />
+            </div>
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   );

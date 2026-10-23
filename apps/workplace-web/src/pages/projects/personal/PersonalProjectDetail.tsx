@@ -31,6 +31,10 @@ const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
   showCycle: false,
   showType: false,
   showClosedToggle: false,
+  // 완료일 기간 필터도 종료 이슈 숨김 범위와 함께 쓰는 기능이라 개인 화면엔 없다(WP-873).
+  showClosedFilter: false,
+  // 개인 목록은 이슈 표가 아니라 체크리스트라 고를 열이 없다(WP-270).
+  showColumnPicker: false,
   listLabel: '체크리스트',
   listIcon: ListChecks,
   groupOptions: [

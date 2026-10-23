@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
 import { currentEpicChoice, type EpicScopeChoice, nextEpicScope, nextShowAllClosed } from '../../../lib/epicScope';
-import { carryBoardTab, filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters';
+import { carryViewOptions, filtersToParams, parseFilters, parseGroupParam, parseView } from '../../../lib/issueFilters';
 import type { IssueResponse } from '../../../types/issue';
 
 // closedEpics: 「종료된 에픽」 목록 — 종료된 에픽으로 들어가고 나오는지 판정한다. 패널·시트가 이미 받아 둔 목록을 넘겨
@@ -19,7 +19,7 @@ export function useEpicFilter(projectKey: string, closedEpics: readonly Pick<Iss
   function select(c: EpicScopeChoice) {
     const { parentNumber, topLevel, invalidate } = nextEpicScope(filters, c);
     const showAllClosed = nextShowAllClosed(filters, parentNumber, (n) => closedEpics.some((e) => e.number === n));
-    setParams((prev) => carryBoardTab(filtersToParams({ ...filters, parentNumber, topLevel, showAllClosed }, parseView(prev), parseGroupParam(prev)), prev), { replace: true });
+    setParams((prev) => carryViewOptions(filtersToParams({ ...filters, parentNumber, topLevel, showAllClosed }, parseView(prev), parseGroupParam(prev)), prev), { replace: true });
     if (invalidate) queryClient.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });
   }
 

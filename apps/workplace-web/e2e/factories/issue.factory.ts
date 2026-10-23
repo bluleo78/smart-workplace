@@ -24,6 +24,8 @@ export function createIssue(overrides: Partial<IssueResponse> = {}): IssueRespon
     statusColor: seed.color,
     priority: 'MID',
     dueDate: null,
+    // 종료 시각 — 종료 이슈 테스트는 overrides 로 채운다(WP-873). 기본은 미종료.
+    closedAt: null,
     // 타임라인 간트 뷰 필드 (#620) — 기본은 미배치 이슈.
     startDate: null,
     milestoneId: null,

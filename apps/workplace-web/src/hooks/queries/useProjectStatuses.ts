@@ -281,6 +281,7 @@ const NO_FILTERS: IssueFilters = {
   includeUnassigned: false,
   dueFrom: null,
   dueTo: null,
+  closedIn: null,
   labelIds: [],
   cycleIds: [],
   milestoneIds: [],

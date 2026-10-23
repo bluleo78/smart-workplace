@@ -6,12 +6,14 @@ import { useCallback, useMemo, useState } from 'react';
 
 import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { cn } from '@/lib/utils';
 
 import { useCycleProgress, useCycles } from '../../../hooks/queries/useCycles';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
 import { buildCycleSections } from '../../../lib/issueCycleSections';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
+import { DEFAULT_COLUMNS, type IssueListColumnKey } from '../../../lib/issueListColumns';
 import { failedWithoutData } from '../../../lib/queryFailure';
 import type { CycleProgress, CycleStatus } from '../../../types/cycle';
 import type { IssueFilters } from '../../../types/issue';
@@ -20,6 +22,7 @@ import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { CycleSectionColumnHead, CycleSectionSkeletonRows, IssueCycleSection } from './IssueCycleSection';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
+import { issueListMinWidthRem, useColumnDefs } from './issueListColumnDefs';
 import { IssueLoadErrorState } from './IssueLoadErrorState';
 
 /** 목록 로딩 스켈레톤 — 구간 헤더 모양 + 행 3줄. 기본 그룹 판정 보류 중(ProjectDetailPage)에도 같은 모양을 쓴다. */
@@ -51,9 +54,12 @@ export function IssueCycleGroupedList({
   filters,
   canDrag = false,
   canEdit = canDrag,
+  columns = DEFAULT_COLUMNS,
 }: {
   projectKey: string;
   filters: IssueFilters;
+  /** 보일 선택 열 키(표시 순서, WP-270) — 미지정이면 기본 열. 참조가 바뀌면 행이 다시 그려지니 안정된 배열을 넘긴다. */
+  columns?: IssueListColumnKey[];
   /** 프로젝트 멤버만 행을 에픽 패널로 끌 수 있다 — 평면 목록과 같은 행(IssueRow)이라 동작도 같다. */
   canDrag?: boolean;
   // 길게 누르기 액션(상태·에픽) 권한 — 모바일에선 canDrag 가 꺼져도 멤버면 true. 미지정 시 canDrag(개인 화면 호환).
@@ -61,6 +67,9 @@ export function IssueCycleGroupedList({
 }) {
   const isMobile = useIsMobile();
   const cycles = useCycles(projectKey);
+  // 선택 열 정의 — 모든 구간·상단 열 이름 행이 같은 정의를 쓴다. 커스텀 필드 열이 있을 때만 필드 정의를 불러온다.
+  const columnDefs = useColumnDefs(projectKey, columns);
+  const minWidthRem = issueListMinWidthRem(columnDefs.defs);
   const progress = useCycleProgress(projectKey);
 
   // 다중 선택 — 이슈 number 집합(구간 공통). 필터(직렬화 값)가 바뀌면 이전 기준 선택은 의미가 없어 초기화한다.
@@ -128,14 +137,24 @@ export function IssueCycleGroupedList({
   }
 
   return (
-    <div data-testid="issue-cycle-grouped-list">
-      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} onSettled={settleBulk} closedHiding={closedHiding} />
+    // 바깥 = 보이는 폭(슬롯 폭)의 크기 컨테이너(@container) — 안쪽 표가 넓어져도 구간 헤더·빈 문구·「더 보기」·일괄 작업 바는
+    // `100cqw`(보이는 폭)에 맞추고 sticky left 로 왼쪽에 붙어 가로 스크롤해도 화면 안에 남는다(WP-270).
+    // 모바일은 컨테이너를 걸지 않는다 — 레이아웃 격리가 모바일 일괄 작업 바(fixed)의 기준을 이 요소로 바꿔 버린다.
+    <div data-testid="issue-cycle-grouped-list" className={cn(!isMobile && '@container')}>
+      {/* 최소 폭 — 구간 표는 table-fixed 라 열 합이 화면보다 넓어도 표가 넓어지지 않고 제목 칸만 0 으로 줄어든다.
+          기본 밖의 열이 켜지면 안쪽을 「열 폭 합 + 구간 왼쪽 여백(pl-3)·테두리」 이상으로 잡아, 바깥 슬롯(ProjectDetailPage, overflow-auto)이
+          가로 스크롤한다. 기본 열 구성이면 null — 지금처럼 제목 칸이 줄어든다. */}
+      <div style={isMobile || minWidthRem == null ? undefined : { minWidth: `calc(${minWidthRem}rem + 0.75rem + 2px)` }}>
+      {/* 일괄 작업 바 — 데스크톱은 보이는 폭으로 위·왼쪽에 붙인다(바 자신의 sticky top 은 이 감싸개가 대신한다). */}
+      <div className={cn(!isMobile && 'sticky top-0 left-0 z-20 w-[100cqw]')}>
+        <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} onSettled={settleBulk} closedHiding={closedHiding} />
+      </div>
       {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-3)으로 컬럼을 맞춘다.
           구간 테이블마다 스크린리더용 컬럼명이 있으므로 이 행은 보조기기에서 숨긴다. */}
       {!isMobile && (
-        <div className="border border-transparent pl-3" aria-hidden="true">
+        <div className="border border-transparent pl-3" aria-hidden="true" data-testid="list-cycle-column-head">
           <table className="w-full table-fixed">
-            <CycleSectionColumnHead visible />
+            <CycleSectionColumnHead visible columns={columnDefs} />
           </table>
         </div>
       )}
@@ -162,8 +181,10 @@ export function IssueCycleGroupedList({
             // 자동 로드는 펼친 구간 중 마지막만 — 위 구간이 스크롤로 자라 아래 구간 행 앞에 끼어들지 않게(WP-876).
             // 접힌 구간은 푸터가 없으니 i >= lastExpanded 로 충분하다.
             autoLoadMore={i >= lastExpanded}
+            columns={columnDefs}
           />
         ))}
+      </div>
       </div>
       {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
       <BulkBarSpacer active={selected.size > 0} />
