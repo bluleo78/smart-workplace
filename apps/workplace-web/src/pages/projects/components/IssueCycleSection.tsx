@@ -96,6 +96,7 @@ export function IssueCycleSection({
   menuIssueNumber = null,
   selectionMode = false,
   hideEpic = false,
+  autoLoadMore = true,
 }: {
   def: CycleSectionDef;
   expanded: boolean;
@@ -121,6 +122,11 @@ export function IssueCycleSection({
   selectionMode?: boolean;
   /** 특정 에픽 필터 중 — 행의 에픽 표시 생략(WP-194). */
   hideEpic?: boolean;
+  /**
+   * 구간 끝에서 다음 페이지를 자동으로 불러올지(WP-876). 마지막 구간만 true — 위 구간이 스크롤로 자라면
+   * 이미 보이는 아래 구간 앞에 행이 끼어들어 순서가 섞이므로, 그 위 구간은 「더 보기」를 눌러야 불러온다.
+   */
+  autoLoadMore?: boolean;
 }) {
   const bodyId = useId();
   const cycle = def.kind === 'cycle' ? def.cycle : null;
@@ -323,8 +329,15 @@ export function IssueCycleSection({
             // 재연결)도 서버가 거부해 복구할 수 없다. 에픽 패널로 끄는 것은 그대로 허용.
             cycleSection={dropDisabled ? undefined : sectionRef}
           />
-          {/* 구간 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
-          {query && <LoadMoreFooter query={query} className="px-3 py-2" data-testid={`list-cycle-more-${def.key}`} />}
+          {/* 구간 끝 — 마지막 구간은 자동 로드, 그 위 구간은 「더 보기」 버튼. 다음 페이지 실패 시 다시 시도(공용 LoadMoreFooter, WP-183) */}
+          {query && (
+            <LoadMoreFooter
+              query={query}
+              manualLabel={autoLoadMore ? undefined : '더 보기'}
+              className="px-3 py-2"
+              data-testid={`list-cycle-more-${def.key}`}
+            />
+          )}
         </div>
       )}
     </section>

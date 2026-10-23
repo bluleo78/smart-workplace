@@ -96,6 +96,9 @@ export function IssueCycleGroupedList({
     [sections],
   );
 
+  // 펼친 구간 중 마지막 위치 — 이 구간만 끝에서 자동 로드한다(WP-876).
+  const lastExpanded = sections.reduce((last, s, i) => (isExpanded(s.key, s.defaultExpanded) ? i : last), -1);
+
   const progressById = useMemo(() => {
     const m = new Map<number, CycleProgress>();
     (progress.data ?? []).forEach((p) => m.set(p.cycleId, p));
@@ -130,7 +133,7 @@ export function IssueCycleGroupedList({
         </div>
       )}
       <div className="flex flex-col gap-3">
-        {sections.map((def) => (
+        {sections.map((def, i) => (
           <IssueCycleSection
             key={def.key}
             def={def}
@@ -149,6 +152,9 @@ export function IssueCycleGroupedList({
             menuIssueNumber={rowActions.menuIssueNumber}
             selectionMode={isMobile && selected.size > 0}
             hideEpic={filters.parentNumber != null}
+            // 자동 로드는 펼친 구간 중 마지막만 — 위 구간이 스크롤로 자라 아래 구간 행 앞에 끼어들지 않게(WP-876).
+            // 접힌 구간은 푸터가 없으니 i >= lastExpanded 로 충분하다.
+            autoLoadMore={i >= lastExpanded}
           />
         ))}
       </div>
