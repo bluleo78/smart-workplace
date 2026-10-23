@@ -9,7 +9,8 @@ import {
   uploadAttachments,
 } from '../../api/issueAttachments';
 import { handleApiError } from '../../lib/api-error';
-import { eulReul, eunNeun } from '../../lib/utils';
+import { oversizeFileMessage } from '../../lib/attachmentLimits';
+import { eulReul } from '../../lib/utils';
 
 export function useUploadIssueAttachments(projectKey: string, number: number) {
   const qc = useQueryClient();
@@ -20,7 +21,7 @@ export function useUploadIssueAttachments(projectKey: string, number: number) {
       const accepted: File[] = [];
       for (const f of files) {
         if (f.size > ATTACHMENT_MAX_BYTES) {
-          toast.error(`${f.name}${eunNeun(f.name)} 25MB 한도를 초과합니다`);
+          toast.error(oversizeFileMessage(f.name));
           continue;
         }
         if (currentCount + accepted.length >= ATTACHMENT_MAX_PER_ISSUE) {

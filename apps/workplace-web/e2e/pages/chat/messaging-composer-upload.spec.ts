@@ -225,3 +225,34 @@ test.describe('MessageComposer — 파일 업로드 중 전송 차단 (#152)', (
     },
   )
 })
+
+// WP-848: 25MB 를 넘는 파일은 고를 때 바로 빼고 이슈 첨부와 같은 문구로 알린다 — 끝까지 올린 뒤 서버가 거절하던 것을 막는다.
+test('25MB 를 넘는 파일은 올리지 않고 이름과 함께 알린다 — 같이 고른 작은 파일만 업로드', async ({ authenticatedPage: page }) => {
+  await stubCommon(page)
+  const uploads = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/attachments`)
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/attachments`,
+    (route) =>
+      route.fulfill({ json: [{ fileId: 9101, originalName: 'small.txt', mimeType: 'text/plain', sizeBytes: 5 }] }),
+  )
+  await page.goto(`/chat/channels/${CHANNEL_ID}`)
+  await expect(page.getByTestId('message-composer')).toBeVisible()
+
+  await page.locator('[data-testid="composer-file-input"]').setInputFiles([
+    { name: 'big.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(25 * 1024 * 1024 + 1) },
+    { name: 'small.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') },
+  ])
+
+  await expect(page.getByText('big.bin는 25MB 한도를 초과합니다')).toBeVisible()
+  await uploads.waitFor()
+  const body = uploads.requests()[0].postDataBuffer()!.toString('latin1')
+  expect(body).toContain('filename="small.txt"')
+  expect(body).not.toContain('filename="big.bin"')
+
+  // 큰 파일만 고르면 업로드 요청 자체가 없다.
+  await page.locator('[data-testid="composer-file-input"]').setInputFiles({
+    name: 'only-big.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(25 * 1024 * 1024 + 1),
+  })
+  await expect(page.getByText('only-big.bin는 25MB 한도를 초과합니다')).toBeVisible()
+  await expectStays(page, () => uploads.count(), 1)
+})

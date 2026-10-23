@@ -190,8 +190,10 @@ class MessageAttachmentServiceTest extends IntegrationTestBase {
     byte[] bigBytes = new byte[26_214_401];
     var bigFile = new MockMultipartFile("files", "big.bin", "application/octet-stream", bigBytes);
 
+    // 안내는 바이트 수 대신 MB 한도와 파일 이름(WP-848).
     assertThatThrownBy(() -> attachmentService.upload(userId, channelId, List.of(bigFile)))
-        .isInstanceOf(MessageAttachmentTooLargeException.class);
+        .isInstanceOf(MessageAttachmentTooLargeException.class)
+        .hasMessage("첨부 파일은 최대 25MB까지 업로드할 수 있습니다: big.bin");
   }
 
   /**

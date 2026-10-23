@@ -174,7 +174,8 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
 
     byte[] huge = new byte[26 * 1024 * 1024]; // 26MB
     assertThatThrownBy(() -> service.upload(owner, p.key(), 1, List.of(mockFile("big.bin", huge))))
-        .isInstanceOf(AttachmentTooLargeException.class);
+        .isInstanceOf(AttachmentTooLargeException.class)
+        .hasMessage("첨부 파일은 최대 25MB까지 업로드할 수 있습니다: big.bin");
   }
 
   @Test

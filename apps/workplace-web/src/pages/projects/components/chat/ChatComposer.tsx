@@ -48,7 +48,7 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus,
     hasAny,
     fileIds,
     driveFileIds,
-  } = useAttachmentDraft((files) => chatApi.uploadAttachments(threadId, files));
+  } = useAttachmentDraft((files) => chatApi.uploadAttachments(threadId, files), { rejectOversize: true });
   // 입력창 영역 파일 드롭 → 사전 업로드(WP-235).
   const { isDragging, dropProps } = useComposerFileDrop(onFiles);
   // 터치 셸은 Enter 가 줄바꿈이라(가상 키보드, M4) Shift+Enter 안내가 맞지 않는다 — 팀 채팅과 같은 문구.
