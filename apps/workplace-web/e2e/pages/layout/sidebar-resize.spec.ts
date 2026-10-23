@@ -124,6 +124,24 @@ test.describe('좁은 데스크톱 창', () => {
     await dragHandle(page, 200)
     expect(await page.evaluate(() => localStorage.getItem('sidebar-width:contacts'))).toBe(String(cap))
   })
+
+  // WP-897: 손잡이는 저장값(480)이 아니라 보이는 폭과 그 화면에서 닿을 수 있는 최대를 알린다 — 새로고침 직후에도, 창을 넓혀도.
+  test('경계선 손잡이는 저장 폭이 아니라 보이는 폭·이 화면의 상한을 알리고, 창을 넓히면 따라간다', async ({ authenticatedPage: page }) => {
+    await page.addInitScript(() => localStorage.setItem('sidebar-width:contacts', '480'))
+    await openApp(page, '/contacts')
+    const handle = page.getByRole('separator', { name: '목록 폭 조절' })
+    const cap = await page.getByTestId('sidebar-frame').evaluate((el) => Math.floor(el.parentElement!.clientWidth * 0.4))
+    await expect(handle).toHaveAttribute('aria-valuenow', String(cap))
+    await expect(handle).toHaveAttribute('aria-valuemax', String(cap))
+    // 키를 누르지 않아도 맞는다 — 저장값은 그대로 480.
+    expect(await page.evaluate(() => localStorage.getItem('sidebar-width:contacts'))).toBe('480')
+
+    // 창을 넓히면 상한이 풀려 저장 폭 480 이 보이고 그대로 알린다.
+    await page.setViewportSize({ width: 1600, height: 800 })
+    await expect(handle).toHaveAttribute('aria-valuemax', '480')
+    await expect(handle).toHaveAttribute('aria-valuenow', '480')
+    expect((await widths(page)).frameW).toBe(480)
+  })
 })
 
 test.describe('모바일', () => {

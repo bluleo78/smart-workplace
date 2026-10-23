@@ -36,6 +36,19 @@ export function ResizableSidebar({ widthKey, children }: { widthKey: string; chi
   }
   const visibleWidth = () => clampSidebarWidth(frameRef.current?.getBoundingClientRect().width ?? width, maxNow())
 
+  // 그 화면의 상한을 상태로도 따라간다 — 손잡이의 aria-valuemax·aria-valuenow 가 저장값(480 등)이 아니라
+  // 보이는 폭·닿을 수 있는 최대를 알리게(WP-897). 앱 영역(틀의 부모) 폭이 바뀔 때(창 크기·AI 패널 열고 닫기)마다 다시 잰다.
+  const [limit, setLimit] = useState(SIDEBAR_MAX_WIDTH)
+  useEffect(() => {
+    const container = frameRef.current?.parentElement
+    if (!container) return
+    const measure = () => setLimit(sidebarMaxFor(container.clientWidth))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
+
   // 왼쪽에 붙은 목록이라 폭 = 시작 폭 + 마우스 이동량. 앱 레일 펼침 여부와 무관하게 맞는다.
   // 포인터를 손잡이에 캡처해, 메일 본문·미리보기 iframe 위에서 움직이거나 손을 떼도 이벤트를 놓치지 않는다.
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -128,8 +141,8 @@ export function ResizableSidebar({ widthKey, children }: { widthKey: string; chi
         aria-orientation="vertical"
         aria-label="목록 폭 조절"
         aria-valuemin={SIDEBAR_MIN_WIDTH}
-        aria-valuemax={SIDEBAR_MAX_WIDTH}
-        aria-valuenow={width}
+        aria-valuemax={Math.max(SIDEBAR_MIN_WIDTH, limit)}
+        aria-valuenow={clampSidebarWidth(width, limit)}
         tabIndex={0}
         title="끌어서 폭 조절 · 두 번 눌러 원래 폭으로"
         onPointerDown={onPointerDown}
