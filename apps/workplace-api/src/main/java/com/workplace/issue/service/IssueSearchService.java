@@ -19,6 +19,7 @@ import com.workplace.issue.dto.MeIssueGrouping;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
+import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
@@ -29,12 +30,16 @@ import com.workplace.issue.repository.MeIssueGroupedRepository;
 import com.workplace.issue.repository.MeIssueGroupedRepository.GroupedRow;
 import com.workplace.label.dto.LabelSummary;
 import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.dto.UserResponse;
+import com.workplace.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,6 +60,10 @@ public class IssueSearchService {
   private final IssueTypeRepository typeRepository;
   private final IssueDependencyRepository dependencyRepository;
   private final IssueFieldValueRepository fieldValueRepository;
+  // WP-270: 목록 항목에 연결된 사이클 요약을 싣는다(이슈별 정렬은 상세와 같다).
+  private final IssueCycleRepository issueCycleRepository;
+  // WP-270: 목록 항목에 보고자 요약을 싣는다(reporterId distinct 일괄 조회).
+  private final UserRepository userRepository;
   // WP-377: 목록 항목에 진행 중 AI 작업을 싣는다.
   private final AgentWorkService agentWorkService;
   private final ProjectAccessGuard accessGuard;
@@ -290,6 +299,18 @@ public class IssueSearchService {
     var fieldsByIssue = fieldValueRepository.findByIssueIds(issueIds);
     // WP-377 — 진행 중 AI 작업 batch (N+1 회피).
     var agentWorkByIssue = agentWorkService.viewsByIssueIds(issueIds);
+    // WP-270 — 보고자(reporterId distinct 일괄)·사이클 batch (N+1 회피). 사용자 행이 없으면 reporter 는 null(생략).
+    Map<Long, UserSummary> reporterById =
+        userRepository
+            .findByIds(
+                rows.stream()
+                    .map(IssueRow::reporterId)
+                    .filter(Objects::nonNull)
+                    .distinct()
+                    .toList())
+            .stream()
+            .collect(Collectors.toMap(u -> u.id(), UserResponse::toSummary));
+    var cyclesByIssue = issueCycleRepository.findCyclesByIssueIds(issueIds);
     return rows.stream()
         .map(
             r ->
@@ -307,7 +328,10 @@ public class IssueSearchService {
                         blocksByIssue.getOrDefault(r.id(), List.of()),
                         blockedFlagByIssue.getOrDefault(r.id(), false),
                         fieldsByIssue.getOrDefault(r.id(), List.of()))
-                    .withAgentWork(agentWorkByIssue.getOrDefault(r.id(), List.of())))
+                    .withAgentWork(agentWorkByIssue.getOrDefault(r.id(), List.of()))
+                    .withListExtras(
+                        r.reporterId() == null ? null : reporterById.get(r.reporterId()),
+                        cyclesByIssue.getOrDefault(r.id(), List.of())))
         .toList();
   }
 

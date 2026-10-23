@@ -129,6 +129,8 @@ class IssueControllerTest {
         List.of(),
         null,
         null,
+        null,
+        null,
         null);
   }
 

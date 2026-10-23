@@ -1,6 +1,7 @@
 package com.workplace.issue.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.cycle.dto.CycleSummary;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.label.dto.LabelSummary;
 import java.time.Instant;
@@ -56,34 +57,50 @@ public record IssueResponse(
     // WP-426 AI 위임 작업 행의 프로젝트 이름·건수 — /me/ai-tasks 만 채운다. 없으면 JSON 에서 생략.
     @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskProject aiProject,
     // WP-915 /me/issues 프로젝트 묶음 정렬(group=due|recent) 행의 프로젝트 이름·건수 — 그 요청만 채운다. 없으면 JSON 에서 생략.
-    @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskProject projectGroup) {
+    @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskProject projectGroup,
+    // WP-270 목록 열(보고자) — 검색 목록 조립(assembleItems)만 채운다. reporterId 와 함께 이름·종류를 내려 목록이 상세 조회 없이 그린다.
+    // 없으면 JSON 에서 생략.
+    @JsonInclude(JsonInclude.Include.NON_NULL) UserSummary reporter,
+    // WP-270 목록 열(사이클) — 검색 목록 조립만 채운다(시작일 최신순). 연결이 없으면 빈 배열, 목록 조립 밖 경로는 null 이라 생략.
+    @JsonInclude(JsonInclude.Include.NON_NULL) List<CycleSummary> cycles) {
 
   /** 진행 중 AI 작업 목록을 채운 사본을 돌려준다(목록·상세 조립 단계에서 한 번에 조회해 주입). */
   public IssueResponse withAgentWork(List<AgentWorkView> list) {
-    return copyWith(list == null ? List.of() : list, aiGroup, aiProject, projectGroup);
+    return copyWith(
+        list == null ? List.of() : list, aiGroup, aiProject, projectGroup, reporter, cycles);
   }
 
   /** AI 위임 작업 묶음 정보를 채운 사본(WP-375 — /me/ai-tasks 조립 단계). */
   public IssueResponse withAiGroup(AiTaskGroup g) {
-    return copyWith(agentWork, g, aiProject, projectGroup);
+    return copyWith(agentWork, g, aiProject, projectGroup, reporter, cycles);
   }
 
   /** AI 위임 작업 프로젝트 정보(이름·건수)를 채운 사본(WP-426 — /me/ai-tasks 조립 단계). */
   public IssueResponse withAiProject(AiTaskProject p) {
-    return copyWith(agentWork, aiGroup, p, projectGroup);
+    return copyWith(agentWork, aiGroup, p, projectGroup, reporter, cycles);
   }
 
   /** /me/issues 프로젝트 묶음 정보(이름·건수)를 채운 사본(WP-915 — group 요청 조립 단계). */
   public IssueResponse withProjectGroup(AiTaskProject p) {
-    return copyWith(agentWork, aiGroup, aiProject, p);
+    return copyWith(agentWork, aiGroup, aiProject, p, reporter, cycles);
   }
 
-  /** 나머지 필드는 그대로 두고 agentWork·aiGroup·aiProject·projectGroup 만 바꾼 사본 — 필드 복사를 한 곳에 둔다. */
+  /** 보고자·사이클을 채운 사본(WP-270 — 검색 목록 조립 단계에서 일괄 조회해 주입). */
+  public IssueResponse withListExtras(UserSummary newReporter, List<CycleSummary> newCycles) {
+    return copyWith(agentWork, aiGroup, aiProject, projectGroup, newReporter, newCycles);
+  }
+
+  /**
+   * 나머지 필드는 그대로 두고 agentWork·aiGroup·aiProject·projectGroup·reporter·cycles 만 바꾼 사본 — 필드 복사를 한 곳에
+   * 둔다.
+   */
   private IssueResponse copyWith(
       List<AgentWorkView> newAgentWork,
       AiTaskGroup newAiGroup,
       AiTaskProject newAiProject,
-      AiTaskProject newProjectGroup) {
+      AiTaskProject newProjectGroup,
+      UserSummary newReporter,
+      List<CycleSummary> newCycles) {
     return new IssueResponse(
         id,
         projectKey,
@@ -117,7 +134,9 @@ public record IssueResponse(
         newAgentWork,
         newAiGroup,
         newAiProject,
-        newProjectGroup);
+        newProjectGroup,
+        newReporter,
+        newCycles);
   }
 
   /**
@@ -156,6 +175,8 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
+        null,
         null,
         null,
         null);
@@ -200,6 +221,8 @@ public record IssueResponse(
         List.of(),
         null,
         null,
+        null,
+        null,
         null);
   }
 
@@ -237,6 +260,8 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
+        null,
         null,
         null,
         null);
@@ -282,6 +307,8 @@ public record IssueResponse(
         List.of(),
         null,
         null,
+        null,
+        null,
         null);
   }
 
@@ -324,6 +351,8 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
+        null,
         null,
         null,
         null);
@@ -376,6 +405,8 @@ public record IssueResponse(
         List.of(),
         null,
         null,
+        null,
+        null,
         null);
   }
 
@@ -424,6 +455,8 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
+        null,
         null,
         null,
         null);
@@ -477,6 +510,8 @@ public record IssueResponse(
         customFields == null ? List.of() : customFields,
         r.version(),
         List.of(),
+        null,
+        null,
         null,
         null,
         null);
