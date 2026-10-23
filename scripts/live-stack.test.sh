@@ -4,6 +4,7 @@
 # - 후보 포트가 비어 있으면 그대로 고른다.
 # - 후보가 쓰는 중이면 +1 한 포트를 고른다.
 # - 다른 세션 포트(6060 등)는 후보로 받아도 절대 고르지 않는다.
+# - docker 가 공개한 포트(단일·범위)는 lsof 에 안 보여도 쓰는 중으로 본다(WP-864).
 # - 스택 이름은 영문·숫자·_·- 만 받는다.
 # - 상태 파일 값은 공백·$·`·' 가 있어도 그대로 되읽히고, 사람이 `. ` 로 읽어도 실행되지 않는다.
 # - DB 컨테이너는 docker 에 닿지 않거나 지우지 못하면 실패로 알린다(down 이 상태 파일을 남기도록).
@@ -92,6 +93,24 @@ esac
 
 # 4) 올려 가다 금지 포트를 만나도 건너뛴다(6173 은 웹 기본 포트 — 고르면 안 됨)
 check "6173 후보는 건너뛰어 6175 이상" "1" "$([ "$(pick_port 6173)" -ge 6175 ] && echo 1 || echo 0)"
+
+# 4-1) Docker 공개 포트는 lsof 에 안 보여도 쓰는 중(WP-864) — Linux Docker 는 root 의 docker-proxy·iptables 가 잡는다.
+# 가짜 docker 가 다른 스택의 DB 컨테이너처럼 $BASE 를, 다른 컨테이너가 범위 $((BASE + 300))-$((BASE + 302)) 를 공개한 것으로 답한다.
+portbin=$(mktemp -d)
+cat >"$portbin/docker" <<FAKE
+#!/bin/sh
+[ "\$1" = ps ] && echo "127.0.0.1:$BASE->5432/tcp" && echo "0.0.0.0:$((BASE + 300))-$((BASE + 302))->80-82/tcp, :::$((BASE + 300))-$((BASE + 302))->80-82/tcp"
+exit 0
+FAKE
+chmod +x "$portbin/docker"
+check "docker 가 공개한 $BASE 이면 $((BASE + 1))" "$((BASE + 1))" "$(PATH="$portbin:$PATH" pick_port "$BASE")"
+check "docker 가 공개한 범위 안의 $((BASE + 301)) 도 쓰는 중" "0" "$(PATH="$portbin:$PATH" port_in_use $((BASE + 301)) && echo 0 || echo 1)"
+# 앞자리만 같은 짧은 포트는 겹침으로 보지 않는다 — 그 포트가 실제로 비어 있을 때만 본다(남이 쓰면 이 확인은 건너뜀).
+short=${BASE%?}
+if ! port_in_use "$short"; then
+  check "공개 포트 $BASE 가 앞자리만 같은 $short 을 막지 않는다" "1" "$(PATH="$portbin:$PATH" port_in_use "$short" && echo 0 || echo 1)"
+fi
+rm -rf "$portbin"
 
 # 5) 스택 이름 — 상태 파일 이름에 들어가므로 경로 조각·셸 글자는 거절한다
 for n in default work-loop fix_check2; do

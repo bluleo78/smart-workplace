@@ -17,6 +17,7 @@
 #   서로 겹쳐 띄우기를 막거나 서로를 내리지 않는다. up·status·down 은 그 이름의 스택만 다룬다.
 # - 모든 포트는 127.0.0.1 에만 연다 — DB 계정이 app/app 이고 API 는 개발 프로필이라 다른 기기에서 닿으면 안 된다.
 #
+# - 빈 포트 판정(port_in_use)은 lsof·ss 와 docker 공개 포트를 함께 본다 — Linux Docker 의 공개 포트는 일반 사용자 lsof 에 안 보인다(WP-864).
 # 시험: scripts/live-stack.test.sh 가 LIVE_STACK_LIB=1 로 이 파일을 읽어 pick_port·valid_stack_name·state_put/state_get·remove_db_container 를 확인한다.
 
 # ---------------------------------------------------------------------------
@@ -27,11 +28,33 @@
 # API 6060 · ai-agent 6070 · worker 6080 · MCP 6090 · collab 6095 · 웹 6173 · admin 6174 · dev DB 5434
 LIVE_STACK_FORBIDDEN_PORTS="6060 6070 6080 6090 6095 6173 6174 5434"
 
-# 포트를 누가 듣고 있는지 lsof 로만 본다.
+# 포트를 누가 쓰고 있는지 lsof·ss·docker 공개 포트로 본다.
 # nc -z 같은 접속 확인은 듣는 쪽(예: 시험의 nc -l)을 끊어 버리므로 쓰지 않는다.
-# Podman/Colima 가 공개한 컨테이너 포트도 호스트의 gvproxy 등이 듣고 있어 lsof 에 잡힌다.
+# - lsof: 내 프로세스가 듣는 포트. Podman/Colima 가 공개한 컨테이너 포트도 호스트의 gvproxy 등이 듣고 있어 잡힌다.
+# - ss(Linux): 남(root·다른 사용자)이 듣는 포트까지 — 일반 사용자 lsof 는 남의 소켓을 못 본다(WP-864).
+#   Linux Docker 의 공개 포트는 root 의 docker-proxy 가 들어 lsof 에는 안 보이고 ss 에는 보인다.
+# - docker 공개 포트: docker-proxy 없이 iptables 로만 공개(userland-proxy=false)하면 듣는 소켓이 없으므로,
+#   컨테이너(멈춘·만든 것 포함, -a)의 공개 포트(「…:<포트>->…」, 범위 「…:<시작>-<끝>->…」)도 쓰는 중으로 본다.
+#   목록은 pick_port 한 번에 한 번만 받는다(LIVE_STACK_DOCKER_PORTS) — 후보마다 데몬을 부르지 않게.
+# 도구가 없거나 docker 데몬에 닿지 않으면 그 확인만 건너뛴다.
+docker_published_ports() {
+  docker ps -a --format '{{.Ports}}' 2>/dev/null
+}
 port_in_use() {
-  lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  if command -v ss >/dev/null 2>&1; then
+    [ -n "$(ss -Hltn "sport = :$1" 2>/dev/null)" ] && return 0
+  fi
+  _ports=${LIVE_STACK_DOCKER_PORTS-$(docker_published_ports)}
+  # 「, 」로 나뉜 매핑마다 호스트 쪽(-> 앞, 마지막 : 뒤)을 단일 포트 또는 시작-끝 범위로 읽는다.
+  printf '%s\n' "$_ports" | tr ',' '\n' | awk -v p="$1" '
+    /->/ {
+      host = $0; sub(/->.*/, "", host); sub(/.*:/, "", host)
+      n = split(host, r, "-")
+      if (n == 1 && host + 0 == p) found = 1
+      if (n == 2 && p >= r[1] + 0 && p <= r[2] + 0) found = 1
+    }
+    END { exit found ? 0 : 1 }'
 }
 
 # 금지 포트인지
@@ -47,6 +70,8 @@ port_forbidden() {
 pick_port() {
   _p=$1
   _n=0
+  # docker 공개 포트 목록은 이 고르기 동안 한 번만 받는다(port_in_use 가 씀).
+  LIVE_STACK_DOCKER_PORTS=$(docker_published_ports)
   while [ "$_n" -lt 100 ]; do
     if ! port_forbidden "$_p" && ! port_in_use "$_p"; then
       echo "$_p"
