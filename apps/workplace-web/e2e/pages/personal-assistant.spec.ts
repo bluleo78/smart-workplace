@@ -289,7 +289,9 @@ test.describe('프로필 개인 비서', () => {
     await expect(vision).toBeFocused()
 
     // 끝 공백은 제출 id 가 같아(앞뒤 공백 정리) 선택이 그대로다 — 지울 때도 마찬가지.
-    await manual.press('End')
+    // macOS 에서는 End 키가 입력칸 커서를 옮기지 않으므로 커서를 끝에 직접 둔다.
+    await manual.focus()
+    await manual.evaluate((el: HTMLInputElement) => el.setSelectionRange(el.value.length, el.value.length))
     await manual.pressSequentially(' ')
     await expect(vision).toHaveText('볼 수 있음')
     await manual.press('Backspace')

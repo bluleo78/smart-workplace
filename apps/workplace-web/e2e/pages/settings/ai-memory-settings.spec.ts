@@ -13,7 +13,7 @@ import { gate, stableBox } from '../../fixtures/wait'
 
 const rows = (page: Page) => page.getByTestId('ai-memory-row')
 
-test('추천 질문 카드 아래·개인 비서 위에 최신순 목록과 배지·메타·카운트가 보인다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('개인 비서·추천 질문 카드 아래에 최신순 목록과 배지·메타·카운트가 보인다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [
     memoryItem(3, { kind: 'CONTEXT', content: '백엔드 팀이고 주로 WP 프로젝트를 본다', source: 'USER', updatedAt: '2026-10-13T12:00:00Z' }),
     memoryItem(2, { content: '이슈 목록은 짧은 목록으로 보여 준다', updatedAt: '2026-10-12T12:00:00Z' }),
@@ -24,8 +24,8 @@ test('추천 질문 카드 아래·개인 비서 위에 최신순 목록과 배�
   const suggestion = await stableBox(page.getByTestId('ai-suggestions-card'))
   const memory = await stableBox(card)
   const personal = await stableBox(page.getByText('개인 비서', { exact: true }))
-  expect(memory.y).toBeGreaterThan(suggestion.y)
-  expect(personal.y).toBeGreaterThan(memory.y + memory.height - 1)
+  expect(suggestion.y).toBeGreaterThan(personal.y)
+  expect(memory.y).toBeGreaterThan(suggestion.y + suggestion.height - 1)
 
   await expect(rows(page).getByTestId('ai-memory-content')).toHaveText([
     '백엔드 팀이고 주로 WP 프로젝트를 본다',
