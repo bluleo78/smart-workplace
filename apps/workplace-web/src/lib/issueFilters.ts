@@ -9,10 +9,35 @@ import type {
   IssueView,
 } from '../types/issue';
 import { BOARD_TAB_PARAM } from './boardTabs';
+import { parseValidDateKey } from './formatters';
 
 const STATUSES = ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED'] as const;
 const PRIORITIES = ['LOW', 'MID', 'HIGH'] as const;
 const GROUP_BYS = ['status', 'assignee', 'priority', 'cycle', 'epic'] as const;
+
+// id 토큰 하나 — 십진 양의 정수(안전 정수 범위)만 받는다. 1.5·2.0·1e3·1e20 처럼 Number 로는 유한한 양수지만
+// 서버가 id 로 받지 않는 값은 버린다 — 그대로 보내면 400 이 나 「검색 결과 없음」처럼 보였다(WP-858).
+function positiveId(tok: string, max = Number.MAX_SAFE_INTEGER): number | null {
+  if (!/^[1-9]\d*$/.test(tok)) return null;
+  const n = Number(tok);
+  return Number.isSafeInteger(n) && n <= max ? n : null;
+}
+
+// 이슈 번호(parent)의 상한 — 서버가 int 로 읽어, 넘치면 필터를 조용히 버리고 전체 목록을 돌려준다.
+const MAX_ISSUE_NUMBER = 2_147_483_647;
+
+// 날짜 토큰(dueFrom·dueTo) — 실제로 있는 날짜의 yyyy-MM-dd 만 받는다. 그 외(2026-13-99·tomorrow)는 서버가 400 으로
+// 거절해 불러오기 실패로 보이므로 버린다(WP-858).
+function isoDate(raw: string | null): string | null {
+  return parseValidDateKey(raw) ? raw : null;
+}
+
+// 쉼표 구분 id 목록 — 양의 정수 토큰만 남긴다(positiveId).
+function positiveIds(raw: string | null): number[] {
+  return csv(raw)
+    .map((tok) => positiveId(tok))
+    .filter((n): n is number => n != null);
+}
 
 // 알려진 토큰만 통과시켜 잘못된 URL 입력에 대해 안전하게 동작.
 export function parseFilters(params: URLSearchParams): IssueFilters {
@@ -23,35 +48,21 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     if (tok.toLowerCase() === 'null') {
       includeUnassigned = true;
     } else {
-      const n = Number(tok);
-      if (Number.isFinite(n) && n > 0) assigneeIds.push(n);
+      const n = positiveId(tok);
+      if (n != null) assigneeIds.push(n);
     }
   }
-  // label 토큰은 양의 정수만 허용; 그 외(빈문자, 비숫자, 음수, 0) 는 폐기.
-  const labelIds = csv(params.get('label'))
-    .map((s) => Number(s))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  // cycle 토큰도 동일 규칙 — 양의 정수만 통과.
-  const cycleIds = csv(params.get('cycle'))
-    .map((s) => Number(s))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  // milestone 토큰도 동일 규칙 — 양의 정수만 통과.
-  const milestoneIds = csv(params.get('milestone'))
-    .map((s) => Number(s))
-    .filter((n) => Number.isFinite(n) && n > 0);
+  // 라벨·사이클·마일스톤·유형 — 양의 정수 토큰만(positiveIds).
+  const labelIds = positiveIds(params.get('label'));
+  const cycleIds = positiveIds(params.get('cycle'));
+  const milestoneIds = positiveIds(params.get('milestone'));
   // statusId(「상태」 — 프로젝트 상태 id, WP-808) 토큰도 동일 규칙 — 양의 정수만 통과.
   // 기존 status 키는 「상태 범주」로 그대로 남아 예전 링크·저장 뷰가 범주 필터로 열린다.
-  const statusIds = csv(params.get('statusId'))
-    .map((s) => Number(s))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  // type 토큰도 동일 규칙 — 양의 정수만 통과.
-  const typeIds = csv(params.get('type'))
-    .map((s) => Number(s))
-    .filter((n) => Number.isFinite(n) && n > 0);
+  const statusIds = positiveIds(params.get('statusId'));
+  const typeIds = positiveIds(params.get('type'));
   // parent 는 단일 양의 정수만 허용.
   const parentRaw = params.get('parent');
-  const parentNum = parentRaw == null ? NaN : Number(parentRaw);
-  const parentNumber = Number.isFinite(parentNum) && parentNum > 0 ? parentNum : null;
+  const parentNumber = parentRaw == null ? null : positiveId(parentRaw, MAX_ISSUE_NUMBER);
   // 최상위 이슈만 — 'true' 로 명시될 때만 켠다(에픽 패널 「에픽 미할당」). 기본 범위는 withDefaultIssueScope 가 결정.
   // (구 URL 의 topLevel=false 는 기본값과 같아져 자연히 흡수된다.)
   const topLevel = params.get('topLevel') === 'true';
@@ -72,8 +83,8 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     ),
     assigneeIds,
     includeUnassigned,
-    dueFrom: params.get('dueFrom'),
-    dueTo: params.get('dueTo'),
+    dueFrom: isoDate(params.get('dueFrom')),
+    dueTo: isoDate(params.get('dueTo')),
     labelIds,
     cycleIds,
     milestoneIds,

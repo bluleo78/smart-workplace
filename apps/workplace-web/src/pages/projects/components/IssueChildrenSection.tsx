@@ -177,6 +177,14 @@ export function IssueChildrenSection({
 
       {children.isLoading ? (
         <p className="text-xs text-muted-foreground">로딩 중…</p>
+      ) : children.isLoadingError ? (
+        // 목록을 못 불러오면 진행률(「2/3」)과 빈 목록이 어긋나 보인다 — 실패를 알리고 다시 시도를 준다(WP-858).
+        <p role="alert" className="text-xs text-destructive" data-testid="children-load-error">
+          하위 이슈를 불러오지 못했습니다.{' '}
+          <button type="button" className="underline" onClick={() => void children.refetch()}>
+            다시 시도
+          </button>
+        </p>
       ) : items.length === 0 ? null : (
         <ul className="space-y-1">
           {items.map((it) => {

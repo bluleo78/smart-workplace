@@ -2,10 +2,9 @@
 // 평면 목록(IssueListView)과 사이클 구간 목록(IssueCycleGroupedList, #878)이 공유한다.
 
 import { SearchX } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
 
 import { Button } from '../../../components/ui/button';
-import { carryBoardTab } from '../../../lib/issueFilters';
+import { useResetIssueFilters } from '../hooks/useResetIssueFilters';
 
 export function IssueFilterEmptyState({
   title = '검색 결과가 없습니다',
@@ -14,19 +13,7 @@ export function IssueFilterEmptyState({
   title?: string;
   description?: string;
 }) {
-  const [, setParams] = useSearchParams();
-
-  // view·group 은 유지하고 나머지 필터 파라미터만 초기화. 모바일 보드 탭(boardTab)도 필터 컨트롤 초기화와 같이 유지.
-  function handleResetFilters() {
-    setParams((prev) => {
-      const p = new URLSearchParams();
-      const view = prev.get('view');
-      const group = prev.get('group');
-      if (view) p.set('view', view);
-      if (group) p.set('group', group);
-      return carryBoardTab(p, prev);
-    }, { replace: true });
-  }
+  const handleResetFilters = useResetIssueFilters();
 
   return (
     <div

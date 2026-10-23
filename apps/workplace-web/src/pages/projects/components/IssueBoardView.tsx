@@ -46,6 +46,7 @@ import { StatusNameEditor } from './board/StatusNameEditor';
 import { IssueCard } from './IssueCard';
 import { IssueCardMenuContext } from './issueCardMenuContext';
 import { IssueDndProvider, useIssueDnd } from './IssueDndProvider';
+import { IssueLoadErrorState } from './IssueLoadErrorState';
 import { MobileBoard, type MobileBoardTab } from './mobile/MobileBoard';
 
 function IssueBoardViewInner({
@@ -196,6 +197,16 @@ function IssueBoardViewInner({
       )}
     </>
   );
+
+  // 첫 페이지를 못 불러온 쿼리가 있으면 보드 전체를 실패로 알린다(WP-858) — 빈 컬럼(「이슈 없음」)으로 그리면 이슈가
+  // 사라진 것처럼 보인다. 컬럼 쿼리는 같은 서버·필터라 함께 실패하는 것이 보통이라 컬럼별로 나누지 않는다.
+  // 다시 시도는 실패한 쿼리만 다시 부른다. 다음 페이지 실패는 그룹 footer·컬럼 「더 보기」가 맡는다.
+  const failedQueries = grouped
+    ? (groupQuery.isLoadingError ? [groupQuery] : [])
+    : statuses.flatMap((s) => (columnQueries[s]?.isLoadingError ? [columnQueries[s]] : []));
+  if (failedQueries.length > 0) {
+    return <IssueLoadErrorState queries={failedQueries} />;
+  }
 
   // 모바일 보드(WP-195) — 컬럼을 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
   // 그룹 보드는 선택 탭 안에 그룹 섹션을 쌓는다.

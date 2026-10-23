@@ -91,6 +91,11 @@ export async function handleApiErrorAsync(
   toast.error(message);
 }
 
+/** 조회 오류의 HTTP 상태 — Axios 응답이 없으면(네트워크 오류 등) undefined. */
+export function apiErrorStatus(error: unknown): number | undefined {
+  return axios.isAxiosError(error) ? error.response?.status : undefined;
+}
+
 /**
  * 조회 에러가 HTTP 404(대상 삭제됨) 인지 판별한다.
  * resource.changed(deleted) 로 열린 상세가 재조회에서 404 를 받아도 TanStack Query 는 마지막 성공 data 를

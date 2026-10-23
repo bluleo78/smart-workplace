@@ -19,6 +19,7 @@ import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { CycleSectionColumnHead, CycleSectionSkeletonRows, IssueCycleSection } from './IssueCycleSection';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
+import { IssueLoadErrorState } from './IssueLoadErrorState';
 
 /** 목록 로딩 스켈레톤 — 구간 헤더 모양 + 행 3줄. 기본 그룹 판정 보류 중(ProjectDetailPage)에도 같은 모양을 쓴다. */
 export function IssueCycleListSkeleton() {
@@ -109,6 +110,11 @@ export function IssueCycleGroupedList({
   const [now] = useState(() => new Date());
 
   if (cycles.isLoading) return <IssueCycleListSkeleton />;
+  // 사이클 목록을 못 불러오면 구간을 만들 수 없다 — 백로그만 남은 목록이나 「사이클 없음」 대신 실패로 알린다(WP-858).
+  // 구간별 이슈 실패는 각 구간(IssueCycleSection)이 따로 알린다.
+  if (cycles.isLoadingError) {
+    return <IssueLoadErrorState queries={[cycles]} />;
+  }
 
   // 사이클 필터로 고른 사이클이 목록에 없으면(삭제 등) 보여줄 구간이 없다 — 평면 목록 빈 상태와 같은 구성(필터 초기화 포함).
   if (sections.length === 0) {

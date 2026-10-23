@@ -220,3 +220,37 @@ describe('statusIds(상태) 와 statuses(상태 범주) 분리 (WP-808)', () => 
     expect(overridesClosedHiding(EMPTY)).toBe(false);
   });
 });
+
+// WP-858: id·날짜 토큰은 서버가 받는 값만 — 1.5·1e20 같은 값이 서버로 가 400 → 「검색 결과 없음」으로 보이던 문제.
+describe('parseFilters — id 토큰 정수 검사', () => {
+  it('소수·안전 정수 범위를 넘는 값·지수 표기는 버리고 양의 정수만 남긴다', () => {
+    const f = parseFilters(
+      new URLSearchParams(
+        'label=1.5,3,99999999999999999999&cycle=2.0,4&milestone=1e3,5&type=0.5,6&assignee=7.1,8,null&parent=9.5',
+      ),
+    );
+    expect(f.labelIds).toEqual([3]);
+    expect(f.cycleIds).toEqual([4]);
+    expect(f.milestoneIds).toEqual([5]);
+    expect(f.typeIds).toEqual([6]);
+    expect(f.assigneeIds).toEqual([8]);
+    expect(f.includeUnassigned).toBe(true);
+    expect(f.parentNumber).toBeNull();
+  });
+
+  it('양의 정수 parent 는 받고, 서버 int 범위를 넘으면 버린다', () => {
+    expect(parseFilters(new URLSearchParams('parent=12')).parentNumber).toBe(12);
+    expect(parseFilters(new URLSearchParams('parent=2147483647')).parentNumber).toBe(2147483647);
+    expect(parseFilters(new URLSearchParams('parent=3000000000')).parentNumber).toBeNull();
+  });
+
+  it('마감 범위는 실제로 있는 yyyy-MM-dd 만 받는다', () => {
+    const ok = parseFilters(new URLSearchParams('dueFrom=2026-02-28&dueTo=2028-02-29'));
+    expect(ok.dueFrom).toBe('2026-02-28');
+    expect(ok.dueTo).toBe('2028-02-29');
+    const bad = parseFilters(new URLSearchParams('dueFrom=2026-13-99&dueTo=tomorrow'));
+    expect(bad.dueFrom).toBeNull();
+    expect(bad.dueTo).toBeNull();
+    expect(parseFilters(new URLSearchParams('dueFrom=2026-02-30')).dueFrom).toBeNull();
+  });
+});

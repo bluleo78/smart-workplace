@@ -26,6 +26,7 @@ import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { BulkBarSpacer, IssueBulkActions } from './IssueBulkActions';
 import { IssueFilterEmptyState } from './IssueFilterEmptyState';
 import { ISSUE_LIST_COLUMN_COUNT, ISSUE_LIST_COLUMN_COUNT_MOBILE, IssueRow } from './IssueListRow';
+import { IssueLoadErrorState } from './IssueLoadErrorState';
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
@@ -124,6 +125,11 @@ export function IssueListView({
 
   if (isLoading) {
     return <p className="text-muted-foreground py-4">로딩 중…</p>;
+  }
+
+  // 첫 페이지를 못 불러왔으면 빈 상태가 아니라 실패로 알린다(WP-858) — 다음 페이지 실패는 LoadMoreFooter 가 맡는다.
+  if (searchQuery.isLoadingError) {
+    return <IssueLoadErrorState queries={[searchQuery]} />;
   }
 
   // 검색어·필터가 하나라도 적용된 상태인지 판별.
