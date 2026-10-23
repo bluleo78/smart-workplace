@@ -24,6 +24,7 @@ import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
+import { failedOf } from '../../../lib/bulkResult';
 import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
@@ -65,7 +66,7 @@ export function openRowMenuAtPointer(e: MouseEvent<HTMLElement>, issue: IssueRes
 }
 
 export function useIssueRowActions({
-  projectKey, canEdit, statuses, onSelect, isSelected, selected, onClearSelection, linkFor, closedHiding,
+  projectKey, canEdit, statuses, onSelect, isSelected, selected, onBulkSettled, linkFor, closedHiding,
 }: {
   projectKey: string;
   /** 프로젝트 멤버 여부 — 아니면 변경 항목을 노출하지 않는다(서버 assertMember). */
@@ -78,8 +79,8 @@ export function useIssueRowActions({
   isSelected?: (issue: IssueResponse) => boolean;
   /** 데스크톱 다중 선택 집합 — 선택된 행에서 메뉴를 열면 선택 전체에 적용한다(아닌 행은 그 행만). */
   selected?: ReadonlySet<number>;
-  /** 다중 선택 일괄 작업 성공 후 선택 해제(일괄 바와 같은 동작). */
-  onClearSelection?: () => void;
+  /** 다중 선택 일괄 작업 뒤 실패한 이슈 number — 그것만 선택에 남긴다(일괄 바와 같은 동작, WP-851). */
+  onBulkSettled?: (failed: number[]) => void;
   /** 링크 복사·새 탭 경로 — 미지정 시 팀 풀페이지 상세. 개인 보드는 drawer 경로를 넘긴다. */
   linkFor?: (issue: IssueResponse) => string;
   /** 종료 이슈를 숨기는 화면 — 종료로 바꾼 이슈가 숨겨지면 토스트로 알린다(WP-606). */
@@ -157,16 +158,19 @@ export function useIssueRowActions({
   const assigneeIds = state?.assigneeIds ?? [];
 
   // ── 액션 ──────────────────────────────────────────────
-  const afterBulk = { onSuccess: () => onClearSelection?.() };
+  // 다중 선택 일괄 작업 뒤 실패한 이슈만 선택에 남긴다(WP-851) — 결과는 보낸 numbers 와 같은 순서.
+  const afterBulk = (sent: number[]) => ({
+    onSuccess: (results: PromiseSettledResult<unknown>[]) => onBulkSettled?.(failedOf(sent, results)),
+  });
   // 고른 상태의 id·이름·범주를 함께 넘긴다 — 서버엔 statusId 만 가고, 낙관적 패치는 이름까지 바로 바꾼다(WP-808).
   const changeStatus = (s: ProjectStatus) => {
-    if (bulk) bulkStatus.mutate({ numbers, status: s.category, statusId: s.id }, afterBulk);
+    if (bulk) bulkStatus.mutate({ numbers, status: s.category, statusId: s.id }, afterBulk(numbers));
     else if (issue && s.id !== issue.statusId) {
       updateStatus.mutate({ number: issue.number, to: s });
     }
   };
   const changePriority = (p: IssuePriority) => {
-    if (bulk) bulkPriority.mutate({ numbers, priority: p }, afterBulk);
+    if (bulk) bulkPriority.mutate({ numbers, priority: p }, afterBulk(numbers));
     else if (issue && p !== issue.priority) updatePriority.mutate({ number: issue.number, priority: p });
   };
   // 메뉴 담당자 집합을 바꾸고 요청한다. 함수형 갱신 — 모바일 시트가 먼저 닫혔으면(null) 다시 열지 않는다.
@@ -187,7 +191,7 @@ export function useIssueRowActions({
   const toggleAssignee = (m: MemberResponse) => {
     if (state) replaceAssignees(toggleAssigneeIds(state.assigneeIds, m.userId));
   };
-  const assignBulk = (userIds: number[]) => bulkAssign.mutate({ numbers, userIds }, afterBulk);
+  const assignBulk = (userIds: number[]) => bulkAssign.mutate({ numbers, userIds }, afterBulk(numbers));
   // AI 위임 = AGENT 담당자 추가(기존 담당자 유지) — 위임 배지·AI 처리 흐름은 담당자 기준으로 동작한다.
   const delegate = (a: MemberResponse) => {
     if (state) replaceAssignees([...state.assigneeIds.filter((id) => id !== a.userId), a.userId], `${a.name}에게 맡겼습니다`);
@@ -208,7 +212,7 @@ export function useIssueRowActions({
   const askDelete = () => issue && setPendingDelete({ numbers, issue });
   const confirmDelete = () => {
     if (!pendingDelete) return;
-    if (pendingDelete.numbers.length > 1) bulkDelete.mutate(pendingDelete.numbers, afterBulk);
+    if (pendingDelete.numbers.length > 1) bulkDelete.mutate(pendingDelete.numbers, afterBulk(pendingDelete.numbers));
     else removeIssue.mutate(pendingDelete.numbers[0]);
     setPendingDelete(null);
   };

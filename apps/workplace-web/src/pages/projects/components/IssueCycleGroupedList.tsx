@@ -65,7 +65,7 @@ export function IssueCycleGroupedList({
   // 다중 선택 — 이슈 number 집합(구간 공통). 필터(직렬화 값)가 바뀌면 이전 기준 선택은 의미가 없어 초기화한다.
   const filterKey = filtersToParams(filters, 'list', null).toString();
   const hasActiveFilters = filterKey !== '';
-  const { selected, toggle: toggleSelected, clear: clearSelected } = useIssueSelection(filterKey);
+  const { selected, toggle: toggleSelected, clear: clearSelected, settleBulk } = useIssueSelection(filterKey);
 
   // 모바일 길게 누르기 액션 — 시트는 구간 밖(목록 레벨)에서 하나만 소유한다.
   // 종료 이슈 숨김 안내(WP-606) — 종료 이슈를 숨기는 구간은 백로그뿐이라(진행 중·예정 구간은 소속 전체를 보인다)
@@ -75,7 +75,7 @@ export function IssueCycleGroupedList({
   const statuses = useProjectStatusList(projectKey);
   const rowActions = useIssueRowActions({
     projectKey, canEdit, statuses, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
-    selected, onClearSelection: clearSelected, closedHiding,
+    selected, onBulkSettled: settleBulk, closedHiding,
   });
 
   const sections = useMemo(
@@ -128,7 +128,7 @@ export function IssueCycleGroupedList({
 
   return (
     <div data-testid="issue-cycle-grouped-list">
-      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} closedHiding={closedHiding} />
+      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} onSettled={settleBulk} closedHiding={closedHiding} />
       {/* 컬럼명 — 구간마다 반복하지 않고 첫 구간 위에 한 번만. 구간과 같은 테두리·여백(border+pl-3)으로 컬럼을 맞춘다.
           구간 테이블마다 스크린리더용 컬럼명이 있으므로 이 행은 보조기기에서 숨긴다. */}
       {!isMobile && (

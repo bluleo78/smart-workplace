@@ -2,7 +2,7 @@
 import { AxiosError, AxiosHeaders } from 'axios';
 import { describe, expect, it } from 'vitest';
 
-import { bulkResultToast } from './bulkResult';
+import { bulkResultToast, failedOf } from './bulkResult';
 
 // 백엔드 ErrorResponse 를 실은 axios 오류 — extractApiError 가 message 를 꺼낸다.
 function apiError(status: number, data: unknown): AxiosError {
@@ -48,5 +48,24 @@ describe('bulkResultToast', () => {
     const unknown: PromiseSettledResult<unknown> = { status: 'rejected', reason: new Error('net') };
     expect(bulkResultToast([unknown, unknown], DELETE)).toEqual({ level: 'error', message: '2건 모두 삭제하지 못했습니다' });
     expect(bulkResultToast([unknown], DELETE)).toEqual({ level: 'error', message: '삭제하지 못했습니다' });
+  });
+
+  it('키를 주면 부분 실패 문구에 실패한 이슈 키를 싣는다 (WP-851)', () => {
+    expect(bulkResultToast([ok, blocked], STATUS, ['RX-65', 'RX-67']).message).toBe(
+      '1개 상태를 변경했습니다. 1건(RX-67)은 상태를 변경하지 못했습니다: 미완료 하위 이슈가 1건 있어 완료로 변경할 수 없습니다: WP-9',
+    );
+  });
+
+  it('실패 키는 5개까지 보이고 나머지는 「외 N건」 (WP-851)', () => {
+    const results = [ok, ...Array.from({ length: 7 }, () => blocked)];
+    const keys = Array.from({ length: 8 }, (_, i) => `RX-${i + 1}`);
+    expect(bulkResultToast(results, STATUS, keys).message).toContain('7건(RX-2, RX-3, RX-4, RX-5, RX-6 외 2건)은');
+  });
+});
+
+describe('failedOf (WP-851)', () => {
+  it('결과와 같은 순서로 실패한 항목만 고른다', () => {
+    expect(failedOf([7, 8, 9], [ok, blocked, blocked])).toEqual([8, 9]);
+    expect(failedOf([7, 8], [ok, ok])).toEqual([]);
   });
 });

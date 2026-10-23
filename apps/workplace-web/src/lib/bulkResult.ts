@@ -20,7 +20,12 @@ export interface BulkLabels {
  * 실패 문구를 따로 받는 이유(WP-608): 완료 문구에 「실패」를 덧붙이면 「삭제했습니다 실패 (2건)」처럼
  * 성공·실패가 한 문장에 섞여, 하나도 처리되지 않았는데 처리된 것처럼 읽혔다.
  */
-export function bulkResultToast(results: PromiseSettledResult<unknown>[], labels: BulkLabels): BulkResultToast {
+export function bulkResultToast(
+  results: PromiseSettledResult<unknown>[],
+  labels: BulkLabels,
+  /** 결과와 같은 순서의 이슈 키 — 부분 실패 때 어느 이슈가 실패했는지 문구에 싣는다(WP-851). */
+  keys?: string[],
+): BulkResultToast {
   const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
   const failed = rejected.length;
   const succeeded = results.length - failed;
@@ -33,5 +38,18 @@ export function bulkResultToast(results: PromiseSettledResult<unknown>[], labels
     const scope = failed === 1 ? '' : `${failed}건 모두 `;
     return { level: 'error', message: `${scope}${labels.fail}${why}` };
   }
-  return { level: 'warning', message: `${succeeded}개 ${labels.done}. ${failed}건은 ${labels.fail}${why}` };
+  const which = keys ? `(${failedKeysLabel(failedOf(keys, results))})` : '';
+  return { level: 'warning', message: `${succeeded}개 ${labels.done}. ${failed}건${which}은 ${labels.fail}${why}` };
+}
+
+/** allSettled 결과에서 실패한 항목만 고른다 — 결과는 입력과 같은 순서다(WP-851: 실패한 이슈만 선택에 남긴다). */
+export function failedOf<T>(items: T[], results: PromiseSettledResult<unknown>[]): T[] {
+  return items.filter((_, i) => results[i]?.status === 'rejected');
+}
+
+// 실패 키는 5개까지 보이고 나머지는 「외 N건」 — 수십 건이 실패해도 토스트가 한 화면을 넘지 않게 한다.
+const MAX_FAILED_KEYS = 5;
+function failedKeysLabel(keys: string[]): string {
+  const shown = keys.slice(0, MAX_FAILED_KEYS).join(', ');
+  return keys.length > MAX_FAILED_KEYS ? `${shown} 외 ${keys.length - MAX_FAILED_KEYS}건` : shown;
 }

@@ -9,6 +9,11 @@ export interface IssueSelection {
   /** 한 이슈 선택 토글. */
   toggle: (number: number) => void;
   clear: () => void;
+  /**
+   * 일괄 작업이 끝난 뒤 — 실패한 이슈만 선택에 남기고, 다 성공했으면 선택을 푼다(WP-851).
+   * 부분 실패 뒤 전부 풀리면 어느 이슈가 실패했는지 알 수 없고 다시 고를 수도 없었다.
+   */
+  settleBulk: (failed: number[]) => void;
 }
 
 /**
@@ -35,6 +40,7 @@ export function useIssueSelection(scopeKey: string): IssueSelection {
     });
   }, []);
   const clear = useCallback(() => setSelected(new Set()), []);
+  const settleBulk = useCallback((failed: number[]) => setSelected(new Set(failed)), []);
 
-  return { selected, setSelected, toggle, clear };
+  return { selected, setSelected, toggle, clear, settleBulk };
 }

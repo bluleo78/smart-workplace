@@ -36,6 +36,7 @@ import {
 } from '../../../hooks/queries/useBulkIssueActions';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useIsMobile } from '../../../hooks/useIsMobile';
+import { failedOf } from '../../../lib/bulkResult';
 import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
@@ -61,13 +62,16 @@ export function IssueBulkActions({
   projectKey,
   selected,
   onClear,
+  onSettled,
   closedHiding,
 }: {
   projectKey: string;
   /** 선택된 이슈 number 집합. */
   selected: Set<number>;
-  /** 선택 해제 — 일괄 작업 성공 후에도 호출한다. */
+  /** 선택 해제(「선택 해제」 버튼). */
   onClear: () => void;
+  /** 일괄 작업이 끝난 뒤 실패한 이슈 number — 호출 쪽이 그것만 선택에 남긴다(WP-851, 빈 배열이면 선택 해제). */
+  onSettled: (failed: number[]) => void;
   /** 종료 이슈를 숨기는 목록 — 일괄 종료로 숨겨지는 이슈가 있으면 토스트로 알린다(WP-606). */
   closedHiding?: ClosedHidingNotice;
 }) {
@@ -96,14 +100,16 @@ export function IssueBulkActions({
     })),
   ];
 
+  // 결과를 받아 실패한 이슈만 선택에 남긴다 — 부분 실패여도 mutation 은 성공(allSettled)으로 끝난다(WP-851).
+  const settle = { onSuccess: (results: PromiseSettledResult<unknown>[]) => onSettled(failedOf(selectedNumbers, results)) };
   function onBulkStatus(status: IssueStatus) {
-    bulkStatus.mutate({ numbers: selectedNumbers, status }, { onSuccess: onClear });
+    bulkStatus.mutate({ numbers: selectedNumbers, status }, settle);
   }
   function onBulkAssign(userIds: number[]) {
-    bulkAssign.mutate({ numbers: selectedNumbers, userIds }, { onSuccess: onClear });
+    bulkAssign.mutate({ numbers: selectedNumbers, userIds }, settle);
   }
   function onBulkDeleteConfirm() {
-    bulkDelete.mutate(selectedNumbers, { onSuccess: onClear });
+    bulkDelete.mutate(selectedNumbers, settle);
     setConfirmDeleteOpen(false);
   }
 

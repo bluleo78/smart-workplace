@@ -124,6 +124,48 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await expect(page.getByText('2개 상태를 변경했습니다')).toBeVisible();
   });
 
+  // WP-851 — 부분 실패여도 선택이 모두 풀려 어느 이슈가 실패했는지 알 수 없었다. 실패한 이슈만 선택에 남기고 토스트에 키를 싣는다.
+  test('벌크 상태 변경 부분 실패 — 실패한 이슈만 선택에 남고 토스트에 그 키가 나온다', async ({ authenticatedPage: page }) => {
+    await mock(page, [
+      createIssue({ id: 1, number: 7, title: '이슈A', status: 'TODO' }),
+      createIssue({ id: 2, number: 8, title: '이슈B', status: 'TODO' }),
+    ]);
+    await page.route(
+      (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)\/status$/.test(url.pathname),
+      async (route) => {
+        if (route.request().method() !== 'PATCH') return route.fallback();
+        const number = Number(route.request().url().match(/issues\/(\d+)\/status/)?.[1]);
+        if (number === 8) {
+          return route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 409, message: '다른 사람이 먼저 바꿨습니다' }),
+          });
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssue({ number, status: 'IN_PROGRESS' })),
+        });
+      },
+    );
+
+    await page.goto(`/projects/${KEY}`);
+    await expect(page.getByTestId('issue-row-7')).toBeVisible();
+    await page.getByTestId('select-issue-7').check();
+    await page.getByTestId('select-issue-8').check();
+    await page.getByTestId('bulk-status-trigger').click();
+    await page.getByTestId('bulk-status-option-IN_PROGRESS').click();
+
+    await expect(
+      page.getByText('1개 상태를 변경했습니다. 1건(WP-8)은 상태를 변경하지 못했습니다: 다른 사람이 먼저 바꿨습니다'),
+    ).toBeVisible();
+    // 실패한 WP-8 만 선택된 채 일괄 바가 남아 바로 다시 시도할 수 있다.
+    await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('선택 1개');
+    await expect(page.getByTestId('select-issue-8')).toBeChecked();
+    await expect(page.getByTestId('select-issue-7')).not.toBeChecked();
+  });
+
   // WP-606 — 기본 목록은 활성 사이클 밖 종료 이슈를 숨겨, 일괄 완료한 행이 이유 없이 사라졌다.
   test('일괄 완료로 숨겨지는 이슈가 있으면 토스트에 이유와 「모두 보기」를 붙인다', async ({ authenticatedPage: page }) => {
     await mock(page, [

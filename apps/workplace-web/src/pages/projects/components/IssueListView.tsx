@@ -104,6 +104,7 @@ export function IssueListView({
     setSelected,
     toggle: toggleSelected,
     clear: clearSelected,
+    settleBulk,
   } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
 
   // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canEdit 가 곧 멤버 여부.
@@ -111,7 +112,7 @@ export function IssueListView({
   const closedHiding = useClosedHidingNotice(!!scopedFilters.hideInactiveClosed);
   const rowActions = useIssueRowActions({
     projectKey, canEdit, statuses, onSelect: (i) => toggleSelected(i.number), isSelected: (i) => selected.has(i.number),
-    selected, onClearSelection: clearSelected, closedHiding,
+    selected, onBulkSettled: settleBulk, closedHiding,
   });
 
   // WP-54: 로드된 건수(무한 스크롤 누적)·다음 페이지 유무를 상위로 보고 — isLoading 조기 반환 전에 둔다.
@@ -188,7 +189,7 @@ export function IssueListView({
     // 높이를 안 주는 부모에서는 h-full 이 무시돼 기존처럼 콘텐츠 높이대로 늘어난다.
     <div className="flex h-full flex-col">
       {/* #606: 선택된 항목이 있을 때만 노출되는 벌크 액션 툴바(+삭제 확인) — 사이클 구간 목록과 공유. */}
-      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} closedHiding={closedHiding} />
+      <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} onSettled={settleBulk} closedHiding={closedHiding} />
       {/* 테이블 스크롤 영역 — thead 가 이 컨테이너 기준 sticky 로 붙는다(래퍼가 overflow-x 만 가지면 sticky 가 무력화됨).
           border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
       <div ref={setScrollEl} className="min-h-0 flex-1 overflow-auto" data-testid="issue-list-scroll">
