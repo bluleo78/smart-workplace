@@ -1,6 +1,7 @@
 package com.workplace.calendar;
 
 import static com.workplace.jooq.Tables.CALENDAR_EVENT;
+import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,8 +18,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 크로스소스 중복 제거 통합 테스트 — 같은 iCalUId·시작시각의 "내 소유 동기화 사본"과 "초대 사본"이 함께 조회될 때 초대 사본만 제거되는지, 그리고 과잉 제거가
- * 없는지 검증. @Transactional 롤백 격리.
+ * 크로스소스 중복 제거 통합 테스트 — 같은 iCalUId·시작시각의 "내 소유 동기화 사본"과 "초대 사본"이 함께 조회될 때 초대 사본만 제거되는지, 내 소유 사본이 없으면
+ * 남의 사본이 한 장만 남는지(WP-871), 그리고 과잉 제거가 없는지 검증. @Transactional 롤백 격리.
  */
 @Transactional
 class CalendarCrossSourceDedupTest extends IntegrationTestBase {
@@ -53,6 +54,21 @@ class CalendarCrossSourceDedupTest extends IntegrationTestBase {
         .set(CALENDAR_EVENT.ICAL_UID, uid)
         .where(CALENDAR_EVENT.ID.eq(eventId))
         .execute();
+  }
+
+  /**
+   * 동료 달력의 동기화 사본 시뮬레이션 — colleague 소유·me 참석자 일정을 만들고 주최자(ORGANIZER 행)를 organizer 로 바꾼다. 동기화 사본은
+   * 주인이 참석자일 뿐 주최자는 따로 실린다.
+   */
+  private long colleagueCopy(long colleague, long organizer, long me, String uid) {
+    long id = service.create(colleague, req(T, List.of(me))).id();
+    dsl.update(EVENT_ATTENDEE)
+        .set(EVENT_ATTENDEE.USER_ID, organizer)
+        .where(EVENT_ATTENDEE.EVENT_ID.eq(id))
+        .and(EVENT_ATTENDEE.ROLE.eq("ORGANIZER"))
+        .execute();
+    stampIcalUid(id, uid);
+    return id;
   }
 
   private List<Long> listedIds(long viewer) {
@@ -143,5 +159,46 @@ class CalendarCrossSourceDedupTest extends IntegrationTestBase {
     dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.eq(owned)).execute();
 
     assertThat(listedIds(me)).contains(invited);
+  }
+
+  /**
+   * ⑥ 내 소유 사본이 없고 같은 미팅의 남의 사본이 여러 장이면 주최자 달력의 사본 한 장만 남는다(WP-871). 연동 없는 참석자에게 Outlook 을 연동한 동료
+   * 수만큼 같은 미팅이 보였다. 주최자 사본을 나중에 만들어(id 가 더 큼) id 순이 아니라 주최자 우선으로 고르는지 본다.
+   */
+  @Test
+  void noOwnedCopy_othersCopies_keepsOrganizerCopyOnly() {
+    long me = seedUser("me");
+    long org = seedUser("org");
+    long colleague = seedUser("colleague");
+    long colleagueCopy = colleagueCopy(colleague, org, me, "UID-1");
+    long organizerCopy = service.create(org, req(T, List.of(me))).id();
+    stampIcalUid(organizerCopy, "UID-1");
+
+    assertThat(listedIds(me)).containsOnlyOnce(organizerCopy).doesNotContain(colleagueCopy);
+  }
+
+  /** ⑦ 주최자 사본이 보이지 않으면 남의 사본 중 id 가 가장 작은 한 장만 남는다 — 새로고침해도 같은 사본이 남게(WP-871). */
+  @Test
+  void noOwnedCopy_noOrganizerCopy_keepsSmallestId() {
+    long me = seedUser("me");
+    long org = seedUser("org");
+    long first = colleagueCopy(seedUser("c1"), org, me, "UID-1");
+    long second = colleagueCopy(seedUser("c2"), org, me, "UID-1");
+    long otherMeeting = colleagueCopy(seedUser("c3"), org, me, "UID-2");
+
+    assertThat(listedIds(me)).containsOnlyOnce(first, otherMeeting).doesNotContain(second);
+  }
+
+  /** ⑧ 내 소유 사본이 있으면 동료 사본이 여러 장이어도 모두 지워지고 내 사본만 남는다 — 3차(WP-871)가 2차 규칙을 바꾸지 않는다. */
+  @Test
+  void ownedCopy_withSeveralOthersCopies_keepsOnlyOwned() {
+    long me = seedUser("me");
+    long org = seedUser("org");
+    long c1 = colleagueCopy(seedUser("c1"), org, me, "UID-1");
+    long c2 = colleagueCopy(seedUser("c2"), org, me, "UID-1");
+    long owned = service.create(me, req(T, List.of())).id();
+    stampIcalUid(owned, "UID-1");
+
+    assertThat(listedIds(me)).containsOnlyOnce(owned).doesNotContain(c1, c2);
   }
 }

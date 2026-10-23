@@ -46,6 +46,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -583,8 +584,8 @@ public class CalendarEventService {
 
   /**
    * 크로스소스 중복 제거 — 같은 실제 미팅(동일 iCalUId)이 "내 소유 캘린더의 동기화 사본"과 "주최자 캘린더 크로스가시성 초대 사본"으로 두 번 나타나는 것을 조회
-   * 시점에 제거한다. 승자=내 소유 사본, 제거=비소유(초대) 사본. iCalUId 가 없는(순수 로컬) 이벤트는 무영향. 뷰어별 계산이므로 각 사용자에게 올바른 사본이
-   * 남는다. events 리스트를 제자리(in-place)에서 수정한다.
+   * 시점에 제거한다. 승자=내 소유 사본, 제거=비소유(초대) 사본. 내 소유 사본이 없으면 비소유 사본 중 한 장(주최자 사본 우선)만 남긴다(WP-871). iCalUId
+   * 가 없는(순수 로컬) 이벤트는 무영향. 뷰어별 계산이므로 각 사용자에게 올바른 사본이 남는다. events 리스트를 제자리(in-place)에서 수정한다.
    */
   private void dedupeCrossSource(long callerId, List<CalendarEventResponse> events) {
     // 내 소유 캘린더 id 집합(로컬 + 내 외부 컨테이너)
@@ -592,21 +593,44 @@ public class CalendarEventService {
     for (CalendarResponse c : calendarRepo.listByOwner(callerId)) {
       ownedCalendarIds.add(c.id());
     }
-    // 1차: 내 소유 사본이 존재하는 iCalUId 수집. 시작시각은 키에 넣지 않는다(WP-200) — 주최자가 시간을 옮기면 내 사본은 다음 동기화 전까지
-    // 옛 시각에 남아 키가 어긋나 같은 미팅이 두 번 보였다. 제거 대상은 비소유 사본뿐이라 내 반복 회차가 서로 병합될 일은 없다. iCalUId 는 동기화
+    // 1차: iCalUId 별로 내 사본 유무와 남의 사본을 한 번에 모은다. 시작시각은 키에 넣지 않는다(WP-200) — 주최자가 시간을 옮기면 내 사본은 다음 동기화
+    // 전까지 옛 시각에 남아 키가 어긋나 같은 미팅이 두 번 보였다. 제거 대상은 남의 사본뿐이라 내 반복 회차가 서로 병합될 일은 없다. iCalUId 는 동기화
     // 일정에만 있고 동기화 일정은 회차별 단일 행(반복 마스터 아님)이다. 내가 지운 회차의 주최자 사본이 가려지는 것은 "지운 일정이 되살아나지 않음"으로 의도와 같다.
     Set<String> ownedUids = new HashSet<>();
+    Map<String, List<CalendarEventResponse>> othersByUid = new HashMap<>();
     for (CalendarEventResponse e : events) {
-      if (e.iCalUid() != null && ownedCalendarIds.contains(e.calendarId())) {
+      if (e.iCalUid() == null) {
+        continue;
+      }
+      if (ownedCalendarIds.contains(e.calendarId())) {
         ownedUids.add(e.iCalUid());
+      } else {
+        othersByUid.computeIfAbsent(e.iCalUid(), k -> new ArrayList<>()).add(e);
       }
     }
-    // 2차: 비소유(초대) 사본이면서 같은 미팅의 소유 사본이 있으면 제거
+    // 2차: 내 사본이 있는 미팅은 남의 사본을 모두 지운다 — 남길 사본 후보에서 뺀다.
+    othersByUid.keySet().removeAll(ownedUids);
+    // 3차(WP-871): 내 사본이 없는 미팅은 남의 사본을 한 장만 남긴다. 동기화는 참석자 메일을 우리 사용자와 짝지어 사본마다 나를 참석자로 붙이므로,
+    // Outlook 을 연동한 동료가 n 명이면 같은 미팅이 n 장 보였다(연동 없는 사용자에게 특히). 남길 사본: 주최자 달력의 사본(참석자·응답이 가장 정확하다)
+    // → 없으면 id 가 가장 작은 사본. 새로고침해도 같은 사본이 남도록 결정적으로 고른다. 주최자 조회는 사본이 2장 이상인 미팅이 있을 때만 DB 를 읽는다.
+    Set<Long> organizerCopyIds =
+        attendeeRepo.organizerOwnedEventIds(
+            othersByUid.values().stream()
+                .filter(copies -> copies.size() > 1)
+                .flatMap(List::stream)
+                .map(CalendarEventResponse::id)
+                .toList());
+    Comparator<CalendarEventResponse> preferred =
+        Comparator.comparing((CalendarEventResponse e) -> !organizerCopyIds.contains(e.id()))
+            .thenComparingLong(CalendarEventResponse::id);
+    Map<String, CalendarEventResponse> kept = new HashMap<>();
+    othersByUid.forEach((uid, copies) -> kept.put(uid, Collections.min(copies, preferred)));
+    // 남의 사본은 그 미팅의 남길 사본만 산다 — 내 사본이 있는 미팅은 kept 에 없어(null) 모두 지워진다.
     events.removeIf(
         e ->
             e.iCalUid() != null
                 && !ownedCalendarIds.contains(e.calendarId())
-                && ownedUids.contains(e.iCalUid()));
+                && kept.get(e.iCalUid()) != e);
   }
 
   /**

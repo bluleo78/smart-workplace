@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -210,6 +211,25 @@ public class EventAttendeeRepository {
                     .eq(eventId)
                     .and(EVENT_ATTENDEE.USER_ID.eq(userId))
                     .and(EVENT_ATTENDEE.ROLE.eq("ORGANIZER"))));
+  }
+
+  /**
+   * eventIds 중 주인이 그 일정의 주최자(ORGANIZER 행)인 일정 id — 같은 미팅의 동기화 사본이 여러 장일 때 주최자 달력의 사본을 고르는 데
+   * 쓴다(WP-871). 동기화 사본에는 주최자가 ORGANIZER 행으로 실리므로, 그 행의 사용자가 사본 주인과 같으면 주최자 사본이다. 빈 목록이면 DB 를 읽지
+   * 않는다.
+   */
+  public Set<Long> organizerOwnedEventIds(Collection<Long> eventIds) {
+    if (eventIds.isEmpty()) {
+      return Set.of();
+    }
+    return dsl.select(EVENT_ATTENDEE.EVENT_ID)
+        .from(EVENT_ATTENDEE)
+        .join(CALENDAR_EVENT)
+        .on(CALENDAR_EVENT.ID.eq(EVENT_ATTENDEE.EVENT_ID))
+        .where(EVENT_ATTENDEE.EVENT_ID.in(eventIds))
+        .and(EVENT_ATTENDEE.ROLE.eq("ORGANIZER"))
+        .and(EVENT_ATTENDEE.USER_ID.eq(CALENDAR_EVENT.OWNER_ID))
+        .fetchSet(EVENT_ATTENDEE.EVENT_ID);
   }
 
   /**
