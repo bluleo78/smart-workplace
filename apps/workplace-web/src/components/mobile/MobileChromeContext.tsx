@@ -3,13 +3,16 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 
 import { useIsMobile } from '@/hooks/useIsMobile'
-import { loadTabSlots, saveTabSlots } from '@/lib/mobile/tabConfig'
+import { useIsTabBarWide } from '@/hooks/useIsTabBarWide'
+import { loadTabSlots, mergeVisibleSlots, saveTabSlots, visibleSlotCount } from '@/lib/mobile/tabConfig'
 import type { MobileTabId } from '@/lib/mobile/tabs'
 
 interface MobileChromeValue {
   tabBarHidden: boolean
   setHideCount: (fn: (n: number) => number) => void
+  /** 지금 화면 폭에서 보이는 탭 구성(넓으면 5칸, 좁으면 앞 3칸, WP-877). */
   slots: MobileTabId[]
+  /** 보이는 칸 구성을 저장한다 — 좁은 폰이면 안 보이는 뒤 칸은 지킨 채 합친다(mergeVisibleSlots). */
   setSlots: (s: MobileTabId[]) => void
 }
 
@@ -19,10 +22,18 @@ const Ctx = createContext<MobileChromeValue | null>(null)
 export function MobileChromeProvider({ children }: { children: ReactNode }) {
   // 숨김 요청 수(중첩 컴포넌트가 동시에 요청해도 마지막 해제 때만 다시 보이게 카운트).
   const [hideCount, setHideCount] = useState(0)
-  const [slots, setSlotsState] = useState<MobileTabId[]>(loadTabSlots)
+  // 저장된 5칸 전체 — 소비자에겐 화면 폭에 맞춰 앞에서부터 자른 slots 만 보인다.
+  const [allSlots, setAllSlots] = useState<MobileTabId[]>(loadTabSlots)
+  // 폭이 기준을 넘나들면(회전·창 크기) 보이는 칸 수가 바로 바뀐다.
+  const wide = useIsTabBarWide()
+  const slots = useMemo(() => allSlots.slice(0, visibleSlotCount(wide)), [allSlots, wide])
+  // 함수형 갱신 — 한 번에 두 번 저장해도 앞 저장(뒤 칸 맞바꿈)을 덮지 않게 늘 최신 구성에 합친다. 저장은 같은 값이라 두 번 불려도 무해하다.
   const setSlots = useCallback((s: MobileTabId[]) => {
-    saveTabSlots(s)
-    setSlotsState(s)
+    setAllSlots((prev) => {
+      const next = mergeVisibleSlots(prev, s)
+      saveTabSlots(next)
+      return next
+    })
   }, [])
   const value = useMemo(
     () => ({ tabBarHidden: hideCount > 0, setHideCount, slots, setSlots }),
@@ -54,7 +65,7 @@ export function useHideTabBar(hidden: boolean) {
   }, [hidden, isMobile, setHideCount])
 }
 
-/** 탭 편집 화면용 — 현재 구성과 저장 함수. */
+/** 탭 편집 화면·앱 목록용 — 지금 보이는 칸 구성과 저장 함수. */
 // eslint-disable-next-line react-refresh/only-export-components
 export function useTabSlots(): [MobileTabId[], (s: MobileTabId[]) => void] {
   const ctx = useContext(Ctx)

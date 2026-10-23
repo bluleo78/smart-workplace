@@ -270,12 +270,15 @@ test('메일 계정 없음: "메일" 헤더·🔔 와 가운데 빈 상태, 연�
   await expect(page).toHaveURL(/\/settings\/mail$/)
 })
 
-test('탭바 활성 폴백: 고정하지 않은 캘린더에선 앱 탭이 활성, 고정하면 캘린더 탭이 활성', async ({ authenticatedPage: page }) => {
-  await page.goto('/calendar')
+test('탭바 활성 폴백: 고정하지 않은 노트에선 앱 탭이 활성, 고정하면 노트 탭이 활성', async ({ authenticatedPage: page }) => {
+  await page.goto('/wiki')
   await expect(page.getByTestId('mobile-tab-apps')).toHaveAttribute('aria-current', 'page')
-  await page.evaluate(() => localStorage.setItem('mobile-tabs', JSON.stringify(['home', 'chat', 'calendar'])))
+  // WP-877 이전 형식(3칸)으로 저장해도 읽힌다 — 뒤 2칸은 기본 앱으로 채운다.
+  await page.evaluate(() => localStorage.setItem('mobile-tabs', JSON.stringify(['home', 'chat', 'wiki'])))
   await page.reload()
-  await expect(page.getByTestId('mobile-tab-calendar')).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('mobile-tab-wiki')).toHaveAttribute('aria-current', 'page')
+  // 넓은 폰에선 채운 뒤 2칸(캘린더·드라이브)까지 보인다.
+  await expect(page.getByTestId('mobile-tab-drive')).toBeVisible()
   await expect(page.getByTestId('mobile-tab-apps')).not.toHaveAttribute('aria-current', 'page')
 })
 

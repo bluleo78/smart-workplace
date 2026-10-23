@@ -60,7 +60,7 @@ export function AppActionMenu({ id, slots, onReplace, onOpen }: {
   const t = MOBILE_TABS[id]
 
   if (step === 'replace') {
-    // 탭바 3칸은 항상 차 있으므로 고정 = 기존 칸 하나와 교체.
+    // 탭바 칸은 항상 차 있으므로 고정 = 지금 보이는 칸 하나와 교체.
     return (
       <>
         <MenuCaption>탭바가 꽉 찼어요 — 바꿀 탭 선택</MenuCaption>

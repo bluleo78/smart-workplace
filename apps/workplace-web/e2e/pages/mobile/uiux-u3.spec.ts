@@ -299,6 +299,8 @@ test('R9 탭 편집: ✦ 없음, [저장]은 바뀐 것이 있을 때만 활성(
 
 // WP-846: 키보드로 위로·아래로·빼기·추가를 눌러도 초점이 body 로 사라지지 않고, 바뀐 내용을 라이브 영역으로 알린다.
 test('탭 편집: 경계로 옮기기·빼기·추가 뒤에도 초점이 이어지고 바뀐 내용을 알린다', async ({ authenticatedPage: page }) => {
+  // 3칸 편집 기준 시나리오 — 좁은 폰(390pt 미만)은 3칸을 고른다(WP-877).
+  await page.setViewportSize({ width: 375, height: 667 })
   await stubChat(page)
   await page.goto('/apps/tabs')
   const live = page.getByTestId('tab-edit-live')

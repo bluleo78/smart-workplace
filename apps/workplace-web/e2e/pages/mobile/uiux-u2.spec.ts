@@ -91,9 +91,9 @@ test('📌 배지를 누르면 길게 누르기와 같은 메뉴가 열린다(�
   // 배지 탭은 앱으로 이동하지 않는다.
   await expect(page).toHaveURL(/\/apps$/)
   await page.getByTestId('apps-swap').click()
-  await page.getByTestId('apps-swap-to-calendar').click()
-  await expect(page.getByText('캘린더를 탭바에 고정했어요')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-calendar')).toBeVisible()
+  await page.getByTestId('apps-swap-to-tasks').click()
+  await expect(page.getByText('작업을 탭바에 고정했어요')).toBeVisible()
+  await expect(page.getByTestId('mobile-tab-tasks')).toBeVisible()
 })
 
 test('탭 편집: ‹·제목·[저장] 한 줄 헤더(탭바 없음), 꽉 참 안내, 44×44 편집 버튼, ‹ 는 앱 목록으로', async ({ authenticatedPage: page }) => {
@@ -106,24 +106,24 @@ test('탭 편집: ‹·제목·[저장] 한 줄 헤더(탭바 없음), 꽉 참 �
   // 저장은 헤더 안(스크롤 영역 밖).
   await expect(header.getByTestId('tab-edit-save')).toBeVisible()
   await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
-  // 3칸이 차 있으면 이유를 먼저 알려주고 ＋ 는 비활성.
+  // 칸이 다 차 있으면 이유를 먼저 알려주고 ＋ 는 비활성.
   await expect(page.getByTestId('tab-edit-full-hint')).toHaveText('탭바가 꽉 찼어요 — 하나를 빼면 추가할 수 있어요')
-  await expect(page.getByTestId('tab-edit-add-calendar')).toBeDisabled()
-  for (const id of ['tab-edit-up-1', 'tab-edit-down-1', 'tab-edit-remove-1', 'tab-edit-add-calendar']) {
+  await expect(page.getByTestId('tab-edit-add-tasks')).toBeDisabled()
+  for (const id of ['tab-edit-up-1', 'tab-edit-down-1', 'tab-edit-remove-1', 'tab-edit-add-tasks']) {
     const b = (await page.getByTestId(id).boundingBox())!
     expect(b.width).toBeGreaterThanOrEqual(44)
     expect(b.height).toBeGreaterThanOrEqual(44)
   }
-  // 하나 빼면 안내가 사라지고 저장은 비활성(3칸 미만).
+  // 하나 빼면 안내가 사라지고 저장은 비활성(칸이 덜 참).
   await page.getByTestId('tab-edit-remove-2').click()
   await expect(page.getByTestId('tab-edit-full-hint')).toHaveCount(0)
   await expect(page.getByTestId('tab-edit-save')).toBeDisabled()
-  await page.getByTestId('tab-edit-add-drive').click()
+  await page.getByTestId('tab-edit-add-wiki').click()
   await expect(page.getByTestId('tab-edit-full-hint')).toBeVisible()
   await expectNoHorizontalOverflow(page)
   await header.getByTestId('tab-edit-save').click()
   await expect(page).toHaveURL(/\/apps$/)
-  await expect(page.getByTestId('mobile-tab-drive')).toBeVisible()
+  await expect(page.getByTestId('mobile-tab-wiki')).toBeVisible()
   // ‹ 는 앱 목록으로(딥링크 진입에서도).
   await page.goto('/apps/tabs')
   await page.getByTestId('mobile-back').click()
