@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { andParticle, euroRo, initialOf, objectParticle, subjectParticle } from './utils'
+import { andParticle, directionParticle, euroRo, initialOf, objectParticle, subjectParticle } from './utils'
 
 // 아바타 이니셜 — 법인 표기·기호로 시작하는 이름이 '(' 같은 기호를 이니셜로 쓰던 문제(WP-198).
 describe('initialOf', () => {
@@ -59,5 +59,14 @@ describe('euroRo', () => {
     expect(euroRo('체크리스트')).toBe('로')
     expect(euroRo('보드')).toBe('로')
     expect(euroRo('파일')).toBe('로')
+  })
+})
+
+describe('directionParticle', () => {
+  it('받침 있으면 「으로」, 받침 없음·ㄹ받침은 「로」, 한글이 아니면 「(으)로」', () => {
+    expect(directionParticle('에픽')).toBe('으로')
+    expect(directionParticle('모듈')).toBe('로')
+    expect(directionParticle('보드')).toBe('로')
+    expect(directionParticle('v2')).toBe('(으)로')
   })
 })

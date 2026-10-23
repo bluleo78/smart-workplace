@@ -42,6 +42,17 @@ export function andParticle(name: string) {
   return nameParticle(name, '과', '와', '와(과)');
 }
 
+/**
+ * 이름·제목 뒤 방향 조사 — 받침 없음·ㄹ받침은 「로」, 그 밖의 받침은 「으로」, 한글이 아니면 「(으)로」(WP-862).
+ * 고정 문구용 euroRo 와 달리 사용자가 정한 이름은 영문·숫자로 끝날 수 있어 받침을 모르면 둘 다 적는다.
+ */
+export function directionParticle(name: string) {
+  const code = name.charCodeAt(name.length - 1);
+  if (code < 0xac00 || code > 0xd7a3) return '(으)로';
+  const jong = (code - 0xac00) % 28;
+  return jong === 0 || jong === 8 ? '로' : '으로';
+}
+
 /** 마지막 음절 받침 유무에 따라 "은"/"는" 반환 */
 export function eunNeun(word: string) {
   const code = word.charCodeAt(word.length - 1) - 0xac00;

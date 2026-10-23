@@ -122,6 +122,13 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
             fromValue: 'LOW',
             toValue: 'HIGH',
           }),
+          // WP-862: 부모 설정 — 조사·따옴표·키 표기는 issueHistoryLabels 단위 테스트가, 여기선 프로젝트 키 배선을 본다.
+          createHistoryEntry({
+            id: 5,
+            eventType: 'PARENT_CHANGED',
+            fromValue: null,
+            toValue: JSON.stringify({ from: null, to: { number: 68, title: 'r76 에픽' } }),
+          }),
         ],
       });
 
@@ -152,6 +159,7 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       // 한국어 표시명이 렌더되어야 함
       await expect(timeline).toContainText('할 일 → 진행 중');
       await expect(timeline).toContainText('낮음 → 높음');
+      await expect(timeline).toContainText(`부모를 「r76 에픽」(${PROJECT_KEY}-68)으로 설정`);
     },
   );
 

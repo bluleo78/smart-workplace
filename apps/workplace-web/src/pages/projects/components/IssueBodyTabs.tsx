@@ -49,7 +49,7 @@ export function IssueBodyTabs({
           />
         </TabsContent>
         <TabsContent value="activity" className="pt-4">
-          <IssueActivityTimeline entries={history} />
+          <IssueActivityTimeline entries={history} projectKey={projectKey} />
         </TabsContent>
       </Tabs>
     </section>

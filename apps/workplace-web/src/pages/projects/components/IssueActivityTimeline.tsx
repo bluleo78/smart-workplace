@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge';
 
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
-import { historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
+import { formatParentChanged, historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
 
 // 이벤트 타입별 Lucide 아이콘 매핑 — 타임라인 스캔 가독성 향상 (#313).
 const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
@@ -123,26 +123,6 @@ function formatAssigneesChanged(toValue: string | null): string {
   }
 }
 
-// PARENT_CHANGED 페이로드는 toValue 에 {from:{number,title}|null, to:{number,title}|null} JSON.
-// 백엔드가 parent type 은 보내지 않으므로 텍스트만 렌더 — 설정/해제/변경을 자연어로 표기.
-function formatParentChanged(toValue: string | null): string {
-  if (!toValue) return '부모 변경';
-  try {
-    const p = JSON.parse(toValue) as {
-      from?: { number: number; title: string } | null;
-      to?: { number: number; title: string } | null;
-    };
-    const from = p.from ?? null;
-    const to = p.to ?? null;
-    if (to == null && from == null) return '부모 변경';
-    if (to == null) return `부모 해제 (이전 ${from?.title ?? ''})`;
-    if (from == null) return `부모 ${to.title} 로 설정`;
-    return `${from.title} → ${to.title}`;
-  } catch {
-    return toValue;
-  }
-}
-
 // TYPE_CHANGED 페이로드는 toValue 에 {from:{id,name}, to:{id,name}} JSON.
 // 파싱 실패 시 안전한 기본 문구로 폴백.
 function formatTypeChanged(toValue: string | null): string {
@@ -206,7 +186,14 @@ function formatCustomFieldChanged(toValue: string | null): string {
 const MAX_VISIBLE = 5;
 
 // 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
-export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[] }) {
+export function IssueActivityTimeline({
+  entries,
+  projectKey,
+}: {
+  entries: IssueHistoryEntry[];
+  /** 부모 이력의 키(RX-68) 표기용 — 부모는 늘 같은 프로젝트 이슈다(WP-862). */
+  projectKey: string;
+}) {
   // showAll: 전체 보기 여부. 기본은 최근 MAX_VISIBLE 건만 표시.
   const [showAll, setShowAll] = useState(false);
 
@@ -287,7 +274,7 @@ export function IssueActivityTimeline({ entries }: { entries: IssueHistoryEntry[
                   ) : e.eventType === 'TYPE_CHANGED' ? (
                     <span>{formatTypeChanged(e.toValue)}</span>
                   ) : e.eventType === 'PARENT_CHANGED' ? (
-                    <span>{formatParentChanged(e.toValue)}</span>
+                    <span>{formatParentChanged(e.toValue, projectKey)}</span>
                   ) : e.eventType === 'DEPENDENCY_ADDED' ? (
                     <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
                   ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
