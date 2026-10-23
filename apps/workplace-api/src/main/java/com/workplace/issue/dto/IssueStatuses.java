@@ -1,5 +1,6 @@
 package com.workplace.issue.dto;
 
+import com.workplace.global.util.SingleLineTitles;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -51,10 +52,12 @@ public final class IssueStatuses {
   }
 
   /**
-   * 프로젝트 상태 이름 비교 키(WP-807) — 앞뒤 공백(전각 포함)을 지우고 대소문자를 무시한다. 이름 유일 규칙(lower(btrim(name)))과 같은 뜻으로,
-   * 이름으로 상태를 찾는 곳(검색 statusName 필터 등)이 중복 판정과 어긋나지 않게 한 곳에서 정한다.
+   * 프로젝트 상태 이름 비교 키(WP-807) — 저장 규칙 {@link SingleLineTitles#normalize}(NFC·줄바꿈→공백·앞뒤의 보이지 않는 문자
+   * 제거)로 다듬은 뒤 {@code toLowerCase(Locale.ROOT)}. 저장되는 이름은 이미 이 정규화를 거쳤으므로, 유일 인덱스의 {@code
+   * lower(btrim(name))} 와 같은 이름을 같게 본다(btrim 은 ASCII 공백만 지우지만 저장값엔 가장자리 공백이 없다). 이름으로 상태를 찾는 곳(검색
+   * statusName 필터)이 입력 토큰을 저장과 같은 규칙으로 다듬어 NFD·제로폭·전각 공백이 붙은 토큰도 같은 상태를 찾게 한다.
    */
   public static String statusNameKey(String name) {
-    return name.strip().toLowerCase(Locale.ROOT);
+    return SingleLineTitles.normalize(name).toLowerCase(Locale.ROOT);
   }
 }

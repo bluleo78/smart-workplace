@@ -52,6 +52,17 @@ describe('refreshStatusesOnUnknown', () => {
     expect(statusInvalidations(spy)).toBe(0);
   });
 
+  it('같은 상태 목록 배열을 쓰는 다른 QueryClient 의 기록과 섞이지 않는다', () => {
+    const a = new QueryClient();
+    const b = new QueryClient();
+    a.setQueryData(['projectStatuses', 'WP'], SEED);
+    b.setQueryData(['projectStatuses', 'WP'], SEED);
+    const spyB = vi.spyOn(b, 'invalidateQueries');
+    refreshStatusesOnUnknown(a, 'WP', [{ statusId: 9 }]);
+    refreshStatusesOnUnknown(b, 'WP', [{ statusId: 9 }]);
+    expect(statusInvalidations(spyB)).toBe(1);
+  });
+
   it('상태 목록이 아직 캐시에 없으면(로딩 중·실패) 판정하지 않는다', () => {
     const qc = new QueryClient();
     const spy = vi.spyOn(qc, 'invalidateQueries');
@@ -90,6 +101,19 @@ describe('상태 목록이 이슈 검색보다 늦게 도착할 때', () => {
     expect(list).toHaveBeenCalledTimes(2);
   });
 
+  it('상태 목록을 쓰는 소비자가 여럿이어도 같은 목록으로는 검색 캐시를 한 번만 훑는다', async () => {
+    const list = vi.mocked(listProjectStatuses);
+    list.mockReset();
+    list.mockImplementation(async () => SEED.map((s) => ({ ...s })));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const scan = vi.spyOn(qc, 'getQueriesData');
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+    const { result } = renderHook(() => [useProjectStatuses('WP'), useProjectStatuses('WP'), useProjectStatuses('WP')], { wrapper });
+    await waitFor(() => expect(result.current[0].data).toBeDefined());
+    const searchScans = scan.mock.calls.filter((args) => JSON.stringify((args[0] as { queryKey?: unknown }).queryKey) === '["issues","search","WP"]');
+    expect(searchScans).toHaveLength(1);
+  });
+
   it('다시 받아도 없으면 멈추되, 목록 내용이 바뀌어 새로 받아지면 다시 물을 수 있다', async () => {
     const list = vi.mocked(listProjectStatuses);
     list.mockReset();
@@ -109,7 +133,7 @@ describe('상태 목록이 이슈 검색보다 늦게 도착할 때', () => {
 });
 
 describe('useRenameProjectStatus', () => {
-  it('상태 목록·검색·상세 캐시의 이름을 제자리로 고치고, 그 밖에 상태 이름을 싣는 이슈 목록만 다시 받는다', async () => {
+  it('상태 목록·검색·상세 캐시의 이름을 제자리로 고치고 다시 받지 않는다', async () => {
     const qc = new QueryClient();
     const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
     const searchKey = ['issues', 'search', 'WP', {}, 50];
@@ -131,14 +155,7 @@ describe('useRenameProjectStatus', () => {
     const items = qc.getQueryData<InfiniteData<IssueSearchResponse>>(searchKey)!.pages[0].items;
     expect(items.map((it) => it.statusName)).toEqual(['작업 중', '할 일']);
     expect(qc.getQueryData<IssueDetailResponse>(detailKey)!.summary.statusName).toBe('작업 중');
-    const invalidated = spy.mock.calls.map((args) => JSON.stringify((args[0] as { queryKey?: unknown } | undefined)?.queryKey));
-    // 제자리로 고친 캐시는 다시 받지 않는다
-    expect(invalidated).not.toContain('["projectStatuses","WP"]');
-    expect(invalidated).not.toContain('["issues","search","WP"]');
-    expect(invalidated).not.toContain('["issues","WP","detail"]');
-    // 제자리 패치하지 않는 이슈 목록(내 이슈·워치·AI 작업·홈 위젯)은 다시 받는다
-    expect(invalidated).toEqual(
-      expect.arrayContaining(['["me-issues"]', '["watched-issues"]', '["ai-tasks"]', '["home","myIssues"]', '["home","watched"]']),
-    );
+    // 교차 프로젝트 이슈 목록은 SSE project-status 규칙이 맞춘다 — 여기서는 아무것도 무효화하지 않는다
+    expect(spy).not.toHaveBeenCalled();
   });
 });

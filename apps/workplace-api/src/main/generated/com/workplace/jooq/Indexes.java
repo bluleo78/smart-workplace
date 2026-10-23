@@ -275,7 +275,6 @@ public class Indexes {
     public static final Index IDX_ISSUE_PROJECT_STATUS_ID_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_id_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS_ID, Issue.ISSUE.UPDATED_AT.desc() }, false);
     public static final Index IDX_ISSUE_PROJECT_STATUS_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS, Issue.ISSUE.UPDATED_AT.desc() }, false);
     public static final Index IDX_ISSUE_SOURCE = Internal.createIndex(DSL.name("idx_issue_source"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.SOURCE_TYPE, Issue.ISSUE.SOURCE_ID }, false);
-    public static final Index IDX_ISSUE_STATUS_ID = Internal.createIndex(DSL.name("idx_issue_status_id"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.STATUS_ID }, false);
     public static final Index IDX_ISSUE_TENANT = Internal.createIndex(DSL.name("idx_issue_tenant"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.TENANT_ID }, false);
     public static final Index IDX_ISSUE_TYPE = Internal.createIndex(DSL.name("idx_issue_type"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.TYPE_ID }, false);
     public static final Index IDX_ISSUE_TYPE_DEF_PROJECT = Internal.createIndex(DSL.name("idx_issue_type_def_project"), IssueTypeDef.ISSUE_TYPE_DEF, new OrderField[] { IssueTypeDef.ISSUE_TYPE_DEF.PROJECT_ID }, false);

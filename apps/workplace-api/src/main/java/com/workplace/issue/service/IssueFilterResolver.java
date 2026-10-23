@@ -17,7 +17,6 @@ import com.workplace.milestone.repository.MilestoneRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
@@ -140,10 +139,10 @@ class IssueFilterResolver {
 
   /**
    * 개별 상태 필터(WP-807) → 프로젝트 상태 id 합집합. statusId 토큰은 숫자만 받고(아니면 400, 없는 id 는 빈 결과), statusName 토큰은
-   * 범위 안 상태 중 이름이 서버 이름 규칙({@link IssueStatuses#statusNameKey}: 앞뒤 공백·대소문자 무시)으로 같은 것을 모두 고른다 — CSV
-   * 파싱의 trim 이 못 지우는 전각 공백도 무시하고, 중복 판정과 같은 규칙이라 「같은 이름」의 뜻이 어긋나지 않는다. 횡단 검색이면 여러 프로젝트의 같은 이름 상태가
-   * 함께 풀린다. 이름 하나라도 못 찾으면 범위 안 상태 이름을 담아 400. 범위는 단일 프로젝트 검색이면 그 프로젝트, 횡단 검색이면 호출자가 멤버인 프로젝트 전체이고,
-   * 후보는 한 번만 읽는다.
+   * 범위 안 상태 중 이름이 서버 이름 규칙({@link IssueStatuses#statusNameKey}: 저장과 같은 정규화 + 대소문자 무시)으로 같은 것을 모두
+   * 고른다 — CSV 파싱의 trim 이 못 지우는 전각 공백도 무시하고, 중복 판정과 같은 규칙이라 「같은 이름」의 뜻이 어긋나지 않는다. 횡단 검색이면 여러 프로젝트의
+   * 같은 이름 상태가 함께 풀린다. 이름 하나라도 못 찾으면 범위 안 상태 이름을 담아 400. 범위는 단일 프로젝트 검색이면 그 프로젝트, 횡단 검색이면 호출자가 멤버인
+   * 프로젝트 전체이고, 후보는 한 번만 읽는다.
    */
   List<Long> resolveStatusIds(
       List<String> idTokens, List<String> nameTokens, Long projectId, Long callerId) {
@@ -172,7 +171,7 @@ class IssueFilterResolver {
                 ProjectStatusRow::name,
                 ProjectStatusRow::id,
                 false,
-                (a, b) -> IssueStatuses.statusNameKey(a).equals(IssueStatuses.statusNameKey(b)))));
+                IssueStatuses::statusNameKey)));
     return ids;
   }
 
@@ -189,12 +188,13 @@ class IssueFilterResolver {
       Function<T, String> nameOf,
       Function<T, Long> idOf) {
     return resolveByName(
-        field, kind, tokens, candidateSupplier, nameOf, idOf, true, String::equalsIgnoreCase);
+        field, kind, tokens, candidateSupplier, nameOf, idOf, true, Function.identity());
   }
 
   /**
    * {@link #resolveByName} 본체. numericAsId 가 false 면 숫자 토큰도 이름으로 비교한다 — id 를 따로 받는 필터(상태
-   * statusName)용. sameName 은 (후보 이름, 토큰) 이 같은 이름인지 — 상태는 서버 이름 규칙으로, 그 밖은 대소문자 무시로 비교한다.
+   * statusName)용. keyOf 로 후보 이름·토큰을 다듬은 뒤 대소문자 무시로 비교한다 — 상태는 서버 이름 규칙({@link
+   * IssueStatuses#statusNameKey}), 그 밖은 그대로(identity, 예전 equalsIgnoreCase 와 같다).
    */
   private static <T> List<List<Long>> resolveByName(
       String field,
@@ -204,7 +204,7 @@ class IssueFilterResolver {
       Function<T, String> nameOf,
       Function<T, Long> idOf,
       boolean numericAsId,
-      BiPredicate<String, String> sameName) {
+      Function<String, String> keyOf) {
     List<List<Long>> groups = new ArrayList<>();
     List<T> candidates = null;
     for (String tok : tokens) {
@@ -214,8 +214,12 @@ class IssueFilterResolver {
         continue;
       }
       if (candidates == null) candidates = candidateSupplier.get();
+      String key = keyOf.apply(tok);
       List<Long> ids =
-          candidates.stream().filter(c -> sameName.test(nameOf.apply(c), tok)).map(idOf).toList();
+          candidates.stream()
+              .filter(c -> keyOf.apply(nameOf.apply(c)).equalsIgnoreCase(key))
+              .map(idOf)
+              .toList();
       if (ids.isEmpty()) {
         List<String> available =
             candidates.stream().map(nameOf).distinct().limit(MAX_LISTED).toList();
