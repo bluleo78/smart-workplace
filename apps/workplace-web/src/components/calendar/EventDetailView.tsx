@@ -10,6 +10,7 @@ import { CalendarTagAddButton, CalendarTagChip } from '@/components/calendar/Cal
 import { CalendarTagPicker } from '@/components/calendar/CalendarTagPicker'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { RsvpControls } from '@/components/calendar/RsvpControls'
+import { LinkedText } from '@/components/LinkedText'
 import { DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
@@ -24,11 +25,11 @@ import {
   rsvpSummary,
   sortAttendeesForView,
   splitMeetingBoilerplate,
-  splitTextLinks,
 } from '@/lib/calendarEventView'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { eventTagHint } from '@/lib/calendarTag'
 import { hashString } from '@/lib/project-color'
+import { CALENDAR_LINK_RULES } from '@/lib/textLinks'
 import type { Attendee, CalendarEvent } from '@/types/calendar'
 
 /** 제목 아래 칩(캘린더·읽기 전용 사유) 공통 모양 */
@@ -36,29 +37,6 @@ const CHIP_CLASS = 'inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py
 
 /** 참석자를 처음에 몇 명까지 펼쳐 보일지 — 넘으면 「외 N명 더 보기」로 접는다. */
 const ATTENDEE_PREVIEW = 5
-
-/** 설명 글 — 줄바꿈 보존 + 긴 URL 줄바꿈. URL 만 링크로 바꿔 새 탭에서 연다. 본문과 접힌 안내문이 같이 쓴다. */
-function LinkedText({ text }: { text: string }) {
-  return (
-    <>
-      {splitTextLinks(text).map((seg, i) =>
-        seg.type === 'link' ? (
-          <a
-            key={i}
-            href={seg.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary underline underline-offset-2 break-all"
-          >
-            {seg.text}
-          </a>
-        ) : (
-          seg.text
-        ),
-      )}
-    </>
-  )
-}
 
 interface EventDetailViewProps {
   /** 상세 데이터(참석자 포함)가 있으면 그것, 없으면 목록 이벤트 */
@@ -102,7 +80,7 @@ function MeetingInfoText({ text }: { text: string }) {
           <span key={i} className="my-1.5 block border-t border-border" aria-hidden="true" />
         ) : (
           <span key={i} className="block min-h-[1lh]">
-            <LinkedText text={line} />
+            <LinkedText text={line} rules={CALENDAR_LINK_RULES} />
           </span>
         ),
       )}
@@ -271,7 +249,7 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
             <DetailRow icon={<AlignLeft className="h-4 w-4" />} label="설명" testId="event-detail-description">
               {description.body && (
                 <p className="whitespace-pre-wrap break-words text-foreground/90">
-                  <LinkedText text={description.body} />
+                  <LinkedText text={description.body} rules={CALENDAR_LINK_RULES} />
                 </p>
               )}
               {description.boilerplate && (

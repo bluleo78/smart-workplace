@@ -17,6 +17,7 @@ import {
   TOOLBAR_POSITION,
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar';
+import { LinkedText } from '@/components/LinkedText';
 import { messagePlainText, parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 import { issueChatBundle } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
@@ -131,7 +132,8 @@ export function ChatMessageRow({
       ) : (
         parseMessageSegments(message.body, message.mentions).map((seg, i) =>
           seg.type === 'text' ? (
-            <span key={i}>{seg.value}</span>
+            // 본문 URL 은 새 탭 링크로(WP-874). 멘션 토큰은 이미 떼어 낸 평문 조각에만 적용한다.
+            <LinkedText key={i} text={seg.value} linkTestId="chat-link" />
           ) : (
             <span
               key={i}

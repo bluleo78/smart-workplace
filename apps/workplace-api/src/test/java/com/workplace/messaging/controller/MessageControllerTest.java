@@ -98,7 +98,8 @@ class MessageControllerTest {
         false,
         0,
         false,
-        null);
+        null,
+        java.util.List.of());
   }
 
   @Test

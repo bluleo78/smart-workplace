@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -30,6 +31,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 // MockMvc 를 모든 통합 테스트 컨텍스트에 공통으로 둔다(WP-115). 서브클래스마다 붙이면 MockMvc 유무만 다른 구성이
 // 별도 Spring 컨텍스트로 캐시돼 같은 앱이 여러 번 기동한다. 서브클래스에서 다시 선언하지 않는다.
 @AutoConfigureMockMvc
+// 링크 미리보기 가져오기를 고정 응답으로 바꾼다(WP-874) — URL 든 메시지를 커밋하는 테스트가 인터넷으로 나가지 않게. 모든 서브클래스가 같은
+// 구성이라 컨텍스트 캐시 키도 같다.
+@Import(FixtureHttpFetcherConfig.class)
 public abstract class IntegrationTestBase {
 
   /**

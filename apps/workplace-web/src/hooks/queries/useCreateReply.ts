@@ -5,6 +5,7 @@ import { type InfiniteData, type QueryClient, useMutation, useQueryClient } from
 import { messagingApi } from '../../api/messaging';
 import { handleApiError } from '../../lib/api-error';
 import type { MessagePage, MessageResponse, UserKind } from '../../types/messaging';
+import { withLatestLinkPreviews } from './linkPreviewCache';
 import { messagingKeys } from './messagingKeys';
 
 interface MeContext {
@@ -89,6 +90,8 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
 
     onSuccess: (saved, _body, ctx) => {
       const threadKey = messagingKeys.thread(parentMessageId);
+      // POST 응답은 링크 미리보기를 가져오기 전 상태다(WP-874) — echo 에 이미 붙은 미리보기 SSE 값을 살린다.
+      const next = withLatestLinkPreviews(qc, channelId, saved);
       qc.setQueryData<InfiniteData<MessagePage>>(threadKey, (old) => {
         if (!old) return old;
         const seen = new Set<number>();
@@ -97,7 +100,7 @@ export function useCreateReply(channelId: number, parentMessageId: number, me: M
           pages: old.pages.map((p) => ({
             ...p,
             items: p.items
-              .map((m) => (m.id === ctx?.tempId ? saved : m))
+              .map((m) => (m.id === ctx?.tempId ? next : m))
               .filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true))),
           })),
         };

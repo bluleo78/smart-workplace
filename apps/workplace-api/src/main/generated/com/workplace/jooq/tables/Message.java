@@ -10,6 +10,7 @@ import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Channel.ChannelPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
+import com.workplace.jooq.tables.MessageLinkPreview.MessageLinkPreviewPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.ThreadReadState.ThreadReadStatePath;
@@ -118,6 +119,11 @@ public class Message extends TableImpl<MessageRecord> {
      * The column <code>public.message.tenant_id</code>.
      */
     public final TableField<MessageRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
+
+    /**
+     * The column <code>public.message.link_previews_dismissed</code>.
+     */
+    public final TableField<MessageRecord, Boolean> LINK_PREVIEWS_DISMISSED = createField(DSL.name("link_previews_dismissed"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
 
     private Message(Name alias, Table<MessageRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
@@ -265,6 +271,19 @@ public class Message extends TableImpl<MessageRecord> {
             _messageAttachment = new MessageAttachmentPath(this, null, Keys.MESSAGE_ATTACHMENT__MESSAGE_ATTACHMENT_MESSAGE_ID_FKEY.getInverseKey());
 
         return _messageAttachment;
+    }
+
+    private transient MessageLinkPreviewPath _messageLinkPreview;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.message_link_preview</code> table
+     */
+    public MessageLinkPreviewPath messageLinkPreview() {
+        if (_messageLinkPreview == null)
+            _messageLinkPreview = new MessageLinkPreviewPath(this, null, Keys.MESSAGE_LINK_PREVIEW__MESSAGE_LINK_PREVIEW_MESSAGE_ID_FKEY.getInverseKey());
+
+        return _messageLinkPreview;
     }
 
     private transient MessageReactionPath _messageReaction;

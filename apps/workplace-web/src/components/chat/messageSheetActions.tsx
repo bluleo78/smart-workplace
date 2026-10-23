@@ -1,7 +1,7 @@
 // 메시지 작업 시트(MessageActionSheet)의 작업 행 정의 — 팀 채팅·이슈 채팅이 같은 문구·아이콘·순서·권한을 쓰도록 한곳에 둔다.
-// 순서 규칙: 스레드 → 복사 → 수정 → 삭제(파괴적 작업은 맨 아래).
+// 순서 규칙: 스레드 → 복사 → 수정 → 미리보기 지우기 → 삭제(파괴적 작업은 맨 아래).
 // 권한은 툴바와 같다: 스레드는 확정 메시지, 수정·삭제는 본인·미삭제·확정 메시지. 복사는 본문이 있는 미삭제 메시지.
-import { Copy, MessageSquare, Pencil, Trash2 } from 'lucide-react'
+import { Copy, Link2Off, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { messagePlainText } from '@/components/mentions/parseMessageSegments'
@@ -18,6 +18,8 @@ export interface SheetMessage {
   deleted: boolean
   body: string
   mentions: Mentions
+  // 링크 미리보기(WP-874) — 팀 채팅만 가진다. 있을 때만 「미리보기 지우기」 행을 둔다.
+  linkPreviews?: readonly unknown[]
 }
 
 /** 작업 행이 부를 동작. onThread 가 없으면(이슈 채팅·스레드 패널) 스레드 행을 두지 않는다. */
@@ -26,6 +28,8 @@ export interface MessageSheetHandlers<T> {
   onThread?: (m: T) => void
   onEdit: (m: T) => void
   onDelete: (m: T) => void
+  // 링크 미리보기 지우기(WP-874) — 팀 채팅만 넘긴다(이슈 채팅엔 미리보기가 없다).
+  onDismissPreviews?: (m: T) => void
   // 보관된 채널처럼 읽기 전용이면 수정·삭제를 두지 않는다(WP-508).
   readOnly?: boolean
 }
@@ -33,20 +37,28 @@ export interface MessageSheetHandlers<T> {
 /** 이 메시지에 허용된 작업 — 행 객체를 만들지 않고 판정만(행마다 "작업이 있나"를 볼 때 쓴다). */
 function permissions(
   m: SheetMessage,
-  { currentUserId, onThread, readOnly }: Pick<MessageSheetHandlers<never>, 'currentUserId' | 'onThread' | 'readOnly'>,
+  {
+    currentUserId,
+    onThread,
+    onDismissPreviews,
+    readOnly,
+  }: Pick<MessageSheetHandlers<never>, 'currentUserId' | 'onThread' | 'onDismissPreviews' | 'readOnly'>,
 ) {
   const confirmed = m.id >= 0 // 낙관적 미확정(음수 id)은 서버 작업 불가.
+  const edit = !readOnly && m.authorId === currentUserId && !m.deleted && confirmed
   return {
     thread: !!onThread && confirmed,
     copy: !m.deleted && m.body.trim() !== '',
-    edit: !readOnly && m.authorId === currentUserId && !m.deleted && confirmed,
+    edit,
+    // 미리보기 지우기는 수정과 같은 권한(작성자 본인·확정·미삭제·쓰기 가능) + 미리보기가 있을 때.
+    dismissPreviews: edit && !!onDismissPreviews && (m.linkPreviews?.length ?? 0) > 0,
   }
 }
 
 /** 시트에 그릴 작업이 하나라도 있는가(반응 줄 제외). */
 export function hasMessageSheetActions<T extends SheetMessage>(m: T, h: MessageSheetHandlers<T>): boolean {
   const p = permissions(m, h)
-  return p.thread || p.copy || p.edit
+  return p.thread || p.copy || p.edit || p.dismissPreviews
 }
 
 /** 시트 대상 메시지의 작업 행 목록. 대상 하나에 대해서만 만든다(행마다 만들지 않는다). */
@@ -58,12 +70,12 @@ export function buildMessageSheetActions<T extends SheetMessage>(m: T, h: Messag
     out.push({ key: 'thread', label: '스레드에서 답글', icon: <MessageSquare />, onSelect: () => onThread(m) })
   }
   if (p.copy) out.push(copyAction(messagePlainText(m.body, m.mentions)))
-  if (p.edit) {
-    out.push(
-      { key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => h.onEdit(m) },
-      { key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => h.onDelete(m), destructive: true },
-    )
+  if (p.edit) out.push({ key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => h.onEdit(m) })
+  if (p.dismissPreviews && h.onDismissPreviews) {
+    const onDismiss = h.onDismissPreviews
+    out.push({ key: 'dismiss-previews', label: '미리보기 지우기', icon: <Link2Off />, onSelect: () => onDismiss(m) })
   }
+  if (p.edit) out.push({ key: 'delete', label: '삭제', icon: <Trash2 />, onSelect: () => h.onDelete(m), destructive: true })
   return out
 }
 

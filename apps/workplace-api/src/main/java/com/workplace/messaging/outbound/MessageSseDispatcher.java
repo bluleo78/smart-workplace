@@ -2,6 +2,7 @@ package com.workplace.messaging.outbound;
 
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.util.AfterCommit;
+import com.workplace.messaging.outbound.MessagingDomainEvents.LinkPreviewsChangedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageCreatedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageDeletedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessageReadEvent;
@@ -35,11 +36,18 @@ public class MessageSseDispatcher {
 
   private final SseRegistry registry;
   private final ChannelMemberRepository memberRepo;
+  private final LinkPreviewDispatcher linkPreviews;
 
   @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onCreated(MessageCreatedEvent e) {
     Collection<Long> to = memberRepo.findMemberIds(e.channelId());
-    AfterCommit.run(() -> registry.fanOut(to, "messaging.message.created", e.message()));
+    // 순서 보장(WP-874): 같은 커밋 뒤 콜백 안에서 created 를 먼저 (동기로) 보낸 다음에 링크 미리보기 가져오기를 제출한다. fanOut 은 호출
+    // 스레드에서 전송까지 끝내고, 미리보기 SSE 는 그 뒤 워커가 가져오기를 마쳐야 나가므로 한 스트림에서 created 가 늘 먼저다.
+    AfterCommit.run(
+        () -> {
+          registry.fanOut(to, "messaging.message.created", e.message());
+          linkPreviews.afterCreated(e.message().id(), e.message().body());
+        });
   }
 
   /** 메시지 수정 이벤트를 채널 전 멤버에게 fan-out. */
@@ -52,7 +60,26 @@ public class MessageSseDispatcher {
     p.put("mentions", e.mentions());
     p.put("editedAt", e.editedAt() == null ? null : e.editedAt().toString());
     Collection<Long> to = memberRepo.findMemberIds(e.channelId());
-    AfterCommit.run(() -> registry.fanOut(to, "messaging.message.updated", p));
+    // 순서 보장(WP-874): onCreated 와 같다 — updated 를 보낸 다음에 미리보기 재계산을 제출한다.
+    AfterCommit.run(
+        () -> {
+          registry.fanOut(to, "messaging.message.updated", p);
+          linkPreviews.afterUpdated(e.messageId(), e.body());
+        });
+  }
+
+  /**
+   * 링크 미리보기 변경을 채널 전 멤버에게 fan-out(WP-874). payload {channelId, id, linkPreviews} — 웹은 해당 메시지 캐시의
+   * linkPreviews 를 통째로 바꾼다. 비동기 워커도 저장 트랜잭션 안에서 발행하므로 BEFORE_COMMIT 로 수신자를 같은 커넥션에서 읽는다.
+   */
+  @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+  public void onLinkPreviewsChanged(LinkPreviewsChangedEvent e) {
+    Map<String, Object> p = new LinkedHashMap<>();
+    p.put("channelId", e.channelId());
+    p.put("id", e.messageId());
+    p.put("linkPreviews", e.linkPreviews());
+    Collection<Long> to = memberRepo.findMemberIds(e.channelId());
+    AfterCommit.run(() -> registry.fanOut(to, "messaging.message.link-previews", p));
   }
 
   /** 메시지 삭제 이벤트를 채널 전 멤버에게 fan-out. */

@@ -79,6 +79,7 @@ import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
 import com.workplace.jooq.tables.MessageActionProposal;
 import com.workplace.jooq.tables.MessageAttachment;
+import com.workplace.jooq.tables.MessageLinkPreview;
 import com.workplace.jooq.tables.MessageReaction;
 import com.workplace.jooq.tables.MessagingClassifyWatermark;
 import com.workplace.jooq.tables.Milestone;
@@ -528,6 +529,11 @@ public class Public extends SchemaImpl {
     public final MessageAttachment MESSAGE_ATTACHMENT = MessageAttachment.MESSAGE_ATTACHMENT;
 
     /**
+     * The table <code>public.message_link_preview</code>.
+     */
+    public final MessageLinkPreview MESSAGE_LINK_PREVIEW = MessageLinkPreview.MESSAGE_LINK_PREVIEW;
+
+    /**
      * The table <code>public.message_reaction</code>.
      */
     public final MessageReaction MESSAGE_REACTION = MessageReaction.MESSAGE_REACTION;
@@ -870,6 +876,7 @@ public class Public extends SchemaImpl {
             Message.MESSAGE,
             MessageActionProposal.MESSAGE_ACTION_PROPOSAL,
             MessageAttachment.MESSAGE_ATTACHMENT,
+            MessageLinkPreview.MESSAGE_LINK_PREVIEW,
             MessageReaction.MESSAGE_REACTION,
             MessagingClassifyWatermark.MESSAGING_CLASSIFY_WATERMARK,
             Milestone.MILESTONE,

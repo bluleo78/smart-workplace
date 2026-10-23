@@ -7,7 +7,7 @@ import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 
 import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import { applyReaction } from '../lib/reactions';
-import type { MessagePage, MessageResponse } from '../types/messaging';
+import type { LinkPreview, MessagePage, MessageResponse } from '../types/messaging';
 import { messagingKeys } from './queries/messagingKeys';
 import { bumpReplyCount, bumpUnreadReplyCount, isParentFollowed } from './queries/useCreateReply';
 import { patchReactionEverywhere } from './queries/useToggleReaction';
@@ -59,7 +59,7 @@ function upsertMessage(qc: QueryClient, channelId: number, msg: MessageResponse)
 // full replace 가 아닌 merge 로 적용한다(authorId/authorName 등 보존). 미존재 시 no-op
 // (미오픈 채널 → 열 때 refetch 로 정합. created 와 달리 prepend 하지 않음).
 // 채널 캐시와 스레드 캐시 모두에 적용 — 답글은 thread 캐시에만 존재하므로 양쪽 모두 필요.
-function patchMessage(
+export function patchMessage(
   qc: QueryClient,
   channelId: number,
   id: number,
@@ -155,6 +155,13 @@ export function handleMessagingEvent(
     });
     // 목록 행 미리보기(WP-135)가 이 메시지일 수 있으므로 채널·DM 목록 재조회.
     invalidateLists(qc);
+  } else if (eventName === 'messaging.message.link-previews') {
+    // payload: {channelId,id,linkPreviews} — 보낸 뒤 서버가 비동기로 가져온 미리보기, 또는 작성자가 지운 뒤의 빈 배열(WP-874).
+    // 목록 행 미리보기(WP-135)는 본문만 보이므로 채널·DM 목록은 다시 부르지 않는다.
+    const id = Number(d.id);
+    if (!id) return;
+    // 같은 스트림에서 created 가 늘 먼저 오므로(서버 보장) 캐시에 있는 메시지를 patch 하면 된다.
+    patchMessage(qc, channelId, id, { linkPreviews: (d.linkPreviews ?? []) as LinkPreview[] });
   } else if (eventName === 'messaging.message.deleted') {
     // payload: {channelId,id}
     const id = Number(d.id);

@@ -7,6 +7,7 @@ import { isSameDay } from 'date-fns'
 import { allDayLocalDate } from '@/lib/calendar'
 import { formatLocalDateWithWeekday as dateLabel, localClockParts, WEEKDAY_KO } from '@/lib/formatters'
 import { isFormEditableRRule, parseRRule, recurrenceUnitLabel } from '@/lib/recurrence'
+import { CALENDAR_LINK_RULES, splitLinks, type TextSegment } from '@/lib/textLinks'
 import type { Attendee, CalendarEvent, OnlineMeetingProvider, RsvpStatus } from '@/types/calendar'
 
 /**
@@ -122,53 +123,12 @@ export function sortAttendeesForView<T extends Pick<Attendee, 'role' | 'userId'>
   return [...attendees].sort((a, b) => rank(a) - rank(b))
 }
 
-export type TextSegment = { type: 'text'; text: string } | { type: 'link'; text: string; href: string }
-
-// http(s) URL — 공백·꺾쇠·따옴표·한글에서 끊는다. 「…/doc에서 확인」처럼 URL 뒤에 조사를 붙여 쓰는 일이 흔하고,
-// 메일·Teams 본문의 한글 경로는 퍼센트 인코딩돼 들어온다. 문장 끝 구두점·짝 없는 닫는 괄호는 아래에서 떼어 낸다.
-const URL_RE = /https?:\/\/[^\s<>"'\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]+/g
-const TRAILING_PUNCT = '.,;:!?'
-const CLOSE_TO_OPEN: Record<string, string> = { ')': '(', ']': '[', '}': '{' }
-
-/** URL 끝의 문장 부호와, URL 안에 짝이 없는 닫는 괄호를 떼어 낸다 — 「(https://a.b/c).」 → https://a.b/c, 위키 「Foo_(bar)」는 유지. */
-function trimUrlEnd(url: string): string {
-  let u = url
-  for (;;) {
-    const last = u.at(-1)
-    if (!last) return u
-    if (TRAILING_PUNCT.includes(last)) {
-      u = u.slice(0, -1)
-      continue
-    }
-    const open = CLOSE_TO_OPEN[last]
-    if (open && u.split(open).length - 1 < u.split(last).length - 1) {
-      u = u.slice(0, -1)
-      continue
-    }
-    return u
-  }
-}
-
 /**
- * 설명 글을 텍스트·링크 조각으로 나눈다 — 보기 화면에서 URL 만 누를 수 있게 한다.
- * 줄바꿈은 텍스트 조각에 그대로 남는다(렌더 쪽 whitespace-pre-wrap). http(s) 만 링크로 만든다(javascript: 등 차단).
- * URL 이 꺾쇠로 감싸진 `<https://…>` 꼴이면(M365 가 텍스트로 바꾼 본문은 링크를 `글자<https://…>` 로 준다) 꺾쇠는 화면에서 뺀다 —
- * 꺾쇠가 URL 의 경계를 확정하므로 이 경우엔 문장부호 다듬기를 하지 않는다.
+ * 설명 글을 텍스트·링크 조각으로 나눈다 — 보기 화면에서 URL 만 누를 수 있게 한다. 규칙은 공용 분리기의 캘린더 규칙(CALENDAR_LINK_RULES).
+ * `<https://…>` 꼴이면 꺾쇠는 화면에서 빼고, 꺾쇠가 경계를 확정하므로 문장부호 다듬기를 하지 않는다.
  */
 export function splitTextLinks(text: string): TextSegment[] {
-  const out: TextSegment[] = []
-  let last = 0
-  for (const m of text.matchAll(URL_RE)) {
-    const start = m.index
-    const wrapped = start > 0 && text[start - 1] === '<' && text[start + m[0].length] === '>'
-    const url = wrapped ? m[0] : trimUrlEnd(m[0])
-    const textEnd = wrapped ? start - 1 : start
-    if (textEnd > last) out.push({ type: 'text', text: text.slice(last, textEnd) })
-    out.push({ type: 'link', text: url, href: url })
-    last = start + url.length + (wrapped ? 1 : 0)
-  }
-  if (last < text.length) out.push({ type: 'text', text: text.slice(last) })
-  return out
+  return splitLinks(text, CALENDAR_LINK_RULES)
 }
 
 /** 회의 참가 버튼 문구 — 공급자별로 사람이 부르는 이름을 쓴다. 알 수 없는 공급자는 「온라인 회의 참가」. */

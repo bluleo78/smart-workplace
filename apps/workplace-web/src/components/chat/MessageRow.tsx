@@ -7,6 +7,7 @@ import { type ComponentProps, type Ref, useCallback, useRef } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
+import { LinkPreviewList } from '@/components/chat/LinkPreviewCard'
 import { MessageActionsButton } from '@/components/chat/MessageActionsButton'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
 import { MessageImage } from '@/components/chat/MessageImage'
@@ -18,6 +19,7 @@ import {
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
+import { LinkedText } from '@/components/LinkedText'
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
@@ -58,6 +60,8 @@ interface MessageRowProps {
   onCancelEdit: () => void
   onSaveEdit: (body: string) => void
   onDelete: () => void
+  // 링크 미리보기 지우기(WP-874). 작성자 본인 확정 메시지에만 쓴다 — 데스크톱은 카드 ✕, 터치 셸은 작업 시트가 맡는다.
+  onDismissPreviews: () => void
   onToggleReaction: (emoji: string) => void
   // 반응자 전체 보기 열기(WP-106) — 호버 카드의 모두 보기·툴바의 반응한 사람 보기. 목록(MessageList)이 오버레이 상태를 가진다.
   onOpenReactors: (emoji: string) => void
@@ -83,6 +87,7 @@ export function MessageRow({
   onCancelEdit,
   onSaveEdit,
   onDelete,
+  onDismissPreviews,
   onToggleReaction,
   onOpenReactors,
   proposalBusy,
@@ -246,7 +251,8 @@ export function MessageRow({
       ) : (
         parseMessageSegments(m.body, m.mentions).map((seg, i) =>
           seg.type === 'text' ? (
-            <span key={i}>{seg.value}</span>
+            // 본문 URL 은 새 탭 링크로(WP-874). 멘션 토큰은 이미 떼어 낸 평문 조각에만 적용한다.
+            <LinkedText key={i} text={seg.value} linkTestId="chat-link" />
           ) : (
             <span
               key={i}
@@ -280,6 +286,17 @@ export function MessageRow({
         >
           (수정됨)
         </span>
+      )}
+      {/* 링크 미리보기 카드(WP-874) — 본문(본인은 말풍선) 안 아래. 삭제·미전송 메시지엔 없다.
+          ✕ 는 작성자 본인·데스크톱만(터치 셸은 작업 시트의 「미리보기 지우기」). */}
+      {/* 수정 중엔 숨긴다 — 본문이 바뀌면 다시 계산될 낡은 카드와, 누르면 영구히 지우는 ✕ 를 에디터 옆에 두지 않는다.
+          (지금 구조에선 수정 중이면 이 본문 블록 대신 에디터를 그리지만, 블록이 바뀌어도 지켜지게 조건으로 둔다.) */}
+      {!m.deleted && !isPending && !isEditing && (
+        <LinkPreviewList
+          messageId={m.id}
+          previews={m.linkPreviews ?? []}
+          onDismiss={canEdit && !touchShell ? onDismissPreviews : undefined}
+        />
       )}
     </div>
   )

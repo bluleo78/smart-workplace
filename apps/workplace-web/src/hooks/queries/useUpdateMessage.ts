@@ -6,6 +6,7 @@ import { type InfiniteData, useMutation, useQueryClient } from '@tanstack/react-
 import { messagingApi } from '../../api/messaging';
 import { handleApiError } from '../../lib/api-error';
 import type { MessagePage } from '../../types/messaging';
+import { withLatestLinkPreviews } from './linkPreviewCache';
 import { messagingKeys } from './messagingKeys';
 
 export function useUpdateMessage(channelId: number) {
@@ -17,6 +18,8 @@ export function useUpdateMessage(channelId: number) {
       messagingApi.updateMessage(messageId, body),
 
     onSuccess: (saved) => {
+      // PATCH 응답의 linkPreviews 는 다시 가져오기 전 값이다(WP-874) — 미리보기는 SSE 가 진실원이라 캐시 값을 남긴다.
+      const next = withLatestLinkPreviews(qc, channelId, saved);
       // 수정된 메시지를 채널 캐시와 스레드 캐시 모두에 반영(답글은 thread 캐시에만 존재).
       const apply = (old?: InfiniteData<MessagePage>) =>
         !old
@@ -25,7 +28,7 @@ export function useUpdateMessage(channelId: number) {
               ...old,
               pages: old.pages.map((p) => ({
                 ...p,
-                items: p.items.map((m) => (m.id === saved.id ? saved : m)),
+                items: p.items.map((m) => (m.id === saved.id ? next : m)),
               })),
             };
       qc.setQueryData<InfiniteData<MessagePage>>(messagingKeys.messages(channelId), apply);

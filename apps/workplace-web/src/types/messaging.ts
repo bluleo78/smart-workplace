@@ -122,6 +122,18 @@ export interface MessageResponse {
   editedAt: string | null;
   deleted: boolean;
   proposal?: MessageProposal | null; // L3 위임 제안(제안 없는 메시지엔 null/undefined)
+  // 본문 URL 의 Open Graph 미리보기(WP-874) — 처음 나오는 서로 다른 URL 3개까지. 서버는 늘 배열을 주지만 낙관적 메시지엔 없다.
+  linkPreviews?: LinkPreview[];
+}
+
+// 링크 미리보기 카드 1장(WP-874). 썸네일 원문 주소는 내보내지 않는다 — hasImage 면 서버 프록시 경로로 받는다.
+export interface LinkPreview {
+  position: number; // 메시지 안 순서(이미지 경로의 {position})
+  url: string; // 정규화한 링크(href)
+  title: string;
+  description: string | null;
+  siteName: string | null;
+  hasImage: boolean;
 }
 
 export interface MessagePage {

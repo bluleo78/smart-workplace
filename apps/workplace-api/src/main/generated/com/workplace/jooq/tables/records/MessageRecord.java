@@ -161,6 +161,20 @@ public class MessageRecord extends UpdatableRecordImpl<MessageRecord> {
         return (Long) get(9);
     }
 
+    /**
+     * Setter for <code>public.message.link_previews_dismissed</code>.
+     */
+    public void setLinkPreviewsDismissed(Boolean value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.message.link_previews_dismissed</code>.
+     */
+    public Boolean getLinkPreviewsDismissed() {
+        return (Boolean) get(10);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -184,7 +198,7 @@ public class MessageRecord extends UpdatableRecordImpl<MessageRecord> {
     /**
      * Create a detached, initialised MessageRecord
      */
-    public MessageRecord(Long id, Long channelId, Long authorId, String body, OffsetDateTime createdAt, OffsetDateTime editedAt, OffsetDateTime deletedAt, JSONB mentions, Long parentMessageId, Long tenantId) {
+    public MessageRecord(Long id, Long channelId, Long authorId, String body, OffsetDateTime createdAt, OffsetDateTime editedAt, OffsetDateTime deletedAt, JSONB mentions, Long parentMessageId, Long tenantId, Boolean linkPreviewsDismissed) {
         super(Message.MESSAGE);
 
         setId(id);
@@ -197,6 +211,7 @@ public class MessageRecord extends UpdatableRecordImpl<MessageRecord> {
         setMentions(mentions);
         setParentMessageId(parentMessageId);
         setTenantId(tenantId);
+        setLinkPreviewsDismissed(linkPreviewsDismissed);
         resetChangedOnNotNull();
     }
 }

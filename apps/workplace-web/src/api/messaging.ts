@@ -87,6 +87,20 @@ export const messagingApi = {
   updateMessage: (messageId: number, body: string) =>
     client.patch<MessageResponse>(`/messaging/messages/${messageId}`, { body }).then((r) => r.data),
 
+  // 링크 미리보기 지우기(WP-874) — 작성자 본인만. 모두에게서 사라지고 이후 수정해도 다시 생기지 않는다.
+  dismissLinkPreviews: (messageId: number) =>
+    client.delete(`/messaging/messages/${messageId}/link-previews`).then(() => undefined),
+
+  // 링크 미리보기 썸네일(WP-874) — 서버가 og:image 를 프록시한다. Bearer 인증이라 blob 으로 받는다.
+  // version 은 미리보기 내용(링크)에서 만든 값 — 응답이 하루 캐시되므로, 수정으로 같은 자리에 다른 링크가 오면 주소를 바꿔 옛 그림을 피한다(서버는 무시).
+  fetchLinkPreviewImage: (messageId: number, position: number, version: string) =>
+    client
+      .get<Blob>(`/messaging/messages/${messageId}/link-previews/${position}/image`, {
+        params: { v: version },
+        responseType: 'blob',
+      })
+      .then((r) => r.data),
+
   // 메시지 삭제(soft delete).
   deleteMessage: (messageId: number) =>
     client.delete(`/messaging/messages/${messageId}`).then(() => undefined),

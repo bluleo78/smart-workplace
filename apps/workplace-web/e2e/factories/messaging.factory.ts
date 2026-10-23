@@ -3,6 +3,7 @@
 
 import type {
   ChannelDriveSpaceResponse,
+  LinkPreview,
   ChannelResponse,
   ChannelMemberResponse,
   DmParticipant,
@@ -119,9 +120,23 @@ export function createMessage(overrides: Partial<MessageResponse> = {}): Message
     reactions: [], // Phase 5: 이모지별 집계
     attachments: [], // Phase 6: 첨부 파일 목록(기본 없음 — 첨부 테스트에서 override)
     driveLinks: [], // #80: 드라이브 연결 파일 링크 목록(기본 없음)
+    linkPreviews: [], // WP-874: 링크 미리보기(기본 없음)
     createdAt: new Date('2026-06-01T00:00:00Z').toISOString(),
     editedAt: null,
     deleted: false,
+    ...overrides,
+  };
+}
+
+/** WP-874: 링크 미리보기 카드 팩토리. */
+export function createLinkPreview(overrides: Partial<LinkPreview> = {}): LinkPreview {
+  return {
+    position: 0,
+    url: 'https://github.com/CopilotKit/OpenIntelligentUI',
+    title: 'GitHub - CopilotKit/OpenIntelligentUI',
+    description: 'Open-source building blocks for intelligent, agent-native user interfaces.',
+    siteName: 'GitHub',
+    hasImage: false,
     ...overrides,
   };
 }

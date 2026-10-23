@@ -69,7 +69,8 @@ public class ThreadInboxService {
                           false, // deleted
                           row.unreadReplyCount(),
                           true, // followed — 인박스에 떴다는 건 팔로우 중
-                          null); // proposal — 카드 불필요(인박스 카드)
+                          null, // proposal — 카드 불필요(인박스 카드)
+                          List.of()); // linkPreviews — 카드 불필요
                   return new ThreadInboxItem(root, row.channelName(), row.lastReplyAt());
                 })
             .toList();

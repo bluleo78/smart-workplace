@@ -75,6 +75,13 @@ dependencies {
     implementation("net.javacrumbs.shedlock:shedlock-spring:6.10.0")
     implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:6.10.0")
 
+    // 채팅 링크 미리보기(WP-874) — 사용자가 적은 URL 을 서버가 대신 가져온다(SSRF 경로).
+    // JDK HttpClient 는 이름 해석과 연결을 나눌 수 없어 검사한 IP 로 연결을 고정할 수 없다(DNS 재바인딩).
+    // HttpClient5 는 DnsResolver 를 갈아끼울 수 있어 검사를 통과한 주소로만 소켓을 열면서 TLS SNI·호스트 검증은 그대로 둔다. 버전은 Boot BOM 관리.
+    implementation("org.apache.httpcomponents.client5:httpclient5")
+    // Open Graph 메타 추출용 HTML 파서(WP-874). BOM 비관리라 버전 고정.
+    implementation("org.jsoup:jsoup:1.18.3")
+
     // 마이그레이션
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")

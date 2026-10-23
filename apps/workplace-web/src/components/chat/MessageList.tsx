@@ -18,6 +18,7 @@ import { ReactorsOverlay } from '@/components/reactions/ReactorsOverlay'
 import { findChatBundle, teamChatBundle } from '@/components/viewer/viewerItems'
 import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
 import { useDeleteMessage } from '@/hooks/queries/useDeleteMessage'
+import { useDismissLinkPreviews } from '@/hooks/queries/useDismissLinkPreviews'
 import { useMarkMessageRead } from '@/hooks/queries/useMarkMessageRead'
 import { useProposalActions } from '@/hooks/queries/useProposalActions'
 import { useToggleReaction } from '@/hooks/queries/useToggleReaction'
@@ -71,6 +72,8 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
 
   const update = useUpdateMessage(channelId)
   const remove = useDeleteMessage(channelId)
+  // 링크 미리보기 지우기(WP-874) — 낙관적으로 숨기고 실패하면 되돌린다.
+  const dismissPreviews = useDismissLinkPreviews(channelId)
   const toggleReaction = useToggleReaction(channelId)
   // L3 위임 제안 승인/거부 뮤테이션 — 성공 시 이 채널 메시지 목록 무효화.
   const proposalActions = useProposalActions(channelId)
@@ -130,6 +133,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     onThread: onOpenThread ? (m) => onOpenThread(m.id) : undefined,
     onEdit: (m) => setEditingId(m.id),
     onDelete: startDelete,
+    onDismissPreviews: (m) => dismissPreviews.mutate(m),
     readOnly,
   }
   // 확정 메시지는 반응 줄이 늘 있으므로 시트를 열 수 있다. 수정 중인 행은 제외(C2 — 에디터의 선택·붙여넣기 메뉴 유지).
@@ -191,6 +195,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                   update.mutate({ messageId: m.id, body: next }, { onSuccess: () => setEditingId(null) })
                 }
                 onDelete={() => startDelete(m)}
+                onDismissPreviews={() => dismissPreviews.mutate(m)}
                 onToggleReaction={(emoji) => toggle(m, emoji)}
                 onOpenReactors={(emoji) => openReactors(m.id, emoji)}
                 proposalBusy={proposalActions.confirm.isPending || proposalActions.reject.isPending}

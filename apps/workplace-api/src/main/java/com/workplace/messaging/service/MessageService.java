@@ -34,6 +34,7 @@ import com.workplace.messaging.outbound.MessagingDomainEvents.MessageUpdatedEven
 import com.workplace.messaging.outbound.MessagingDomainEvents.MessagingChannelProgressEvent;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
+import com.workplace.messaging.repository.LinkPreviewRepository;
 import com.workplace.messaging.repository.MessageActionProposalRepository;
 import com.workplace.messaging.repository.MessageAttachmentRepository;
 import com.workplace.messaging.repository.MessageRepository;
@@ -76,6 +77,8 @@ public class MessageService {
   // L3 위임 제안 enrich 용 의존성
   private final MessageActionProposalRepository proposalRepo;
   private final ObjectMapper objectMapper;
+  // 링크 미리보기 카드 batch enrich(WP-874)
+  private final LinkPreviewRepository linkPreviewRepo;
 
   /** 채널 멤버가 메시지 작성. 본문 @멘션 파싱·검증 후 INSERT, AFTER_COMMIT 이벤트 발행. */
   @Transactional
@@ -386,9 +389,9 @@ public class MessageService {
   }
 
   /**
-   * 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록 + 드라이브 링크를 batch 로 채운다(N+1 회피).
+   * 페이지 내 모든 메시지의 리액션 집계 + 첨부 목록 + 드라이브 링크 + 링크 미리보기를 batch 로 채운다(N+1 회피).
    *
-   * <p>삭제된 메시지는 첨부·드라이브 링크를 채우지 않는다(소프트 삭제 후에도 첨부 행이 남음, WP-366).
+   * <p>삭제된 메시지는 첨부·드라이브 링크·링크 미리보기를 채우지 않는다(소프트 삭제 후에도 첨부 행이 남음, WP-366).
    */
   private MessagePage enrichReactions(MessagePage page, long callerId) {
     java.util.List<Long> ids = page.items().stream().map(MessageResponse::id).toList();
@@ -397,13 +400,15 @@ public class MessageService {
     Map<Long, java.util.List<ReactionResponse>> rmap = reactionRepo.summariesFor(ids, callerId);
     var amap = attachmentRepo.findByMessageIds(liveIds);
     var dmap = driveLinkService.listLinksBatch("MESSAGE", liveIds);
+    var lmap = linkPreviewRepo.findByMessageIds(liveIds);
     java.util.List<MessageResponse> enriched =
         page.items().stream()
             .map(
                 m ->
                     m.withReactions(rmap.getOrDefault(m.id(), java.util.List.of()))
                         .withAttachments(amap.getOrDefault(m.id(), java.util.List.of()))
-                        .withDriveLinks(dmap.getOrDefault(m.id(), java.util.List.of())))
+                        .withDriveLinks(dmap.getOrDefault(m.id(), java.util.List.of()))
+                        .withLinkPreviews(lmap.getOrDefault(m.id(), java.util.List.of())))
             .toList();
     return new MessagePage(enriched, page.nextCursor(), page.hasMore());
   }

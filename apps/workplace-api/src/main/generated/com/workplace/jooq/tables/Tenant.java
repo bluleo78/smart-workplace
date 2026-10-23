@@ -72,6 +72,7 @@ import com.workplace.jooq.tables.MailDraftForward.MailDraftForwardPath;
 import com.workplace.jooq.tables.Membership.MembershipPath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
+import com.workplace.jooq.tables.MessageLinkPreview.MessageLinkPreviewPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
@@ -1329,6 +1330,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _membership = new MembershipPath(this, null, Keys.MEMBERSHIP__MEMBERSHIP_TENANT_ID_FKEY.getInverseKey());
 
         return _membership;
+    }
+
+    private transient MessageLinkPreviewPath _messageLinkPreview;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.message_link_preview</code> table
+     */
+    public MessageLinkPreviewPath messageLinkPreview() {
+        if (_messageLinkPreview == null)
+            _messageLinkPreview = new MessageLinkPreviewPath(this, null, Keys.MESSAGE_LINK_PREVIEW__MESSAGE_LINK_PREVIEW_TENANT_ID_FKEY.getInverseKey());
+
+        return _messageLinkPreview;
     }
 
     private transient ProjectStatusPath _projectStatus;

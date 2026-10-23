@@ -76,6 +76,7 @@ import com.workplace.jooq.tables.Membership;
 import com.workplace.jooq.tables.Message;
 import com.workplace.jooq.tables.MessageActionProposal;
 import com.workplace.jooq.tables.MessageAttachment;
+import com.workplace.jooq.tables.MessageLinkPreview;
 import com.workplace.jooq.tables.MessageReaction;
 import com.workplace.jooq.tables.Milestone;
 import com.workplace.jooq.tables.Notification;
@@ -297,6 +298,7 @@ public class Indexes {
     public static final Index IDX_MESSAGE_ATTACHMENT_MESSAGE = Internal.createIndex(DSL.name("idx_message_attachment_message"), MessageAttachment.MESSAGE_ATTACHMENT, new OrderField[] { MessageAttachment.MESSAGE_ATTACHMENT.MESSAGE_ID }, false);
     public static final Index IDX_MESSAGE_ATTACHMENT_TENANT = Internal.createIndex(DSL.name("idx_message_attachment_tenant"), MessageAttachment.MESSAGE_ATTACHMENT, new OrderField[] { MessageAttachment.MESSAGE_ATTACHMENT.TENANT_ID }, false);
     public static final Index IDX_MESSAGE_CHANNEL_CREATED = Internal.createIndex(DSL.name("idx_message_channel_created"), Message.MESSAGE, new OrderField[] { Message.MESSAGE.CHANNEL_ID, Message.MESSAGE.CREATED_AT.desc(), Message.MESSAGE.ID.desc() }, false);
+    public static final Index IDX_MESSAGE_LINK_PREVIEW_TENANT = Internal.createIndex(DSL.name("idx_message_link_preview_tenant"), MessageLinkPreview.MESSAGE_LINK_PREVIEW, new OrderField[] { MessageLinkPreview.MESSAGE_LINK_PREVIEW.TENANT_ID }, false);
     public static final Index IDX_MESSAGE_MENTIONS_GIN = Internal.createIndex(DSL.name("idx_message_mentions_gin"), Message.MESSAGE, new OrderField[] { Message.MESSAGE.MENTIONS }, false);
     public static final Index IDX_MESSAGE_PARENT = Internal.createIndex(DSL.name("idx_message_parent"), Message.MESSAGE, new OrderField[] { Message.MESSAGE.PARENT_MESSAGE_ID, Message.MESSAGE.CREATED_AT, Message.MESSAGE.ID }, false);
     public static final Index IDX_MESSAGE_REACTION_TENANT = Internal.createIndex(DSL.name("idx_message_reaction_tenant"), MessageReaction.MESSAGE_REACTION, new OrderField[] { MessageReaction.MESSAGE_REACTION.TENANT_ID }, false);

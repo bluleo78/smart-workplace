@@ -305,7 +305,8 @@ public class MessageRepository {
         deleted,
         0, // unreadReplyCount — service 가 enrich
         false, // followed — service 가 enrich
-        null); // proposal — service 가 batch enrich
+        null, // proposal — service 가 batch enrich
+        List.of()); // linkPreviews — service 가 batch enrich
   }
 
   @SneakyThrows

@@ -80,7 +80,7 @@ export function useToggleReaction(
 }
 
 /** 채널 캐시 + 모든 스레드 캐시에서 messageId 로 메시지를 찾는다(없으면 undefined). */
-function findMessageInCache(
+export function findMessageInCache(
   qc: ReturnType<typeof useQueryClient>,
   channelId: number,
   messageId: number,

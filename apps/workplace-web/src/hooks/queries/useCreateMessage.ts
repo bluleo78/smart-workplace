@@ -10,6 +10,7 @@ import type {
   MessageResponse,
   UserKind,
 } from '../../types/messaging';
+import { withLatestLinkPreviews } from './linkPreviewCache';
 import { messagingKeys } from './messagingKeys';
 
 interface MeContext {
@@ -67,6 +68,8 @@ export function useCreateMessage(channelId: number, me: MeContext) {
 
     onSuccess: (saved, _payload, ctx) => {
       const key = messagingKeys.messages(channelId);
+      // POST 응답은 링크 미리보기를 가져오기 전 상태다(WP-874) — echo 에 이미 붙은 미리보기 SSE 값을 살린다.
+      const next = withLatestLinkPreviews(qc, channelId, saved);
       qc.setQueryData<InfiniteData<MessagePage>>(key, (old) => {
         if (!old) return old;
         const seen = new Set<number>();
@@ -75,7 +78,7 @@ export function useCreateMessage(channelId: number, me: MeContext) {
           pages: old.pages.map((p) => ({
             ...p,
             items: p.items
-              .map((m) => (m.id === ctx?.tempId ? saved : m))
+              .map((m) => (m.id === ctx?.tempId ? next : m))
               .filter((m) => {
                 if (seen.has(m.id)) return false;
                 seen.add(m.id);

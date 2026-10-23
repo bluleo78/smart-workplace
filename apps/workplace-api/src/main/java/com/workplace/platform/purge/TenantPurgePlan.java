@@ -75,6 +75,7 @@ public final class TenantPurgePlan {
           // 팀 채팅 (drive_space.linked_channel_id 는 SET NULL)
           MESSAGE_REACTION,
           MESSAGE_ATTACHMENT,
+          MESSAGE_LINK_PREVIEW, // WP-874 링크 미리보기 — message 보다 먼저
           MESSAGE_ACTION_PROPOSAL,
           CONVERSATION_ATTENTION,
           MESSAGING_CLASSIFY_WATERMARK,

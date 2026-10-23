@@ -30,7 +30,9 @@ public record MessageResponse(
     boolean deleted,
     int unreadReplyCount, // 내가 팔로우하는 스레드면 미읽음 답글 수, 아니면 0
     boolean followed, // 이 스레드(부모 메시지) 팔로우 여부
-    MessageProposalResponse proposal) { // L3 위임 제안 카드 — service 가 batch enrich, 없으면 null
+    MessageProposalResponse proposal, // L3 위임 제안 카드 — service 가 batch enrich, 없으면 null
+    List<LinkPreviewResponse>
+        linkPreviews) { // 링크 미리보기 카드(WP-874) — service 가 batch enrich, 늘 non-null
 
   /**
    * 본문 없이 첨부만 있는 메시지는 DB 에 body NULL 로 남는다(MCP 가 body 를 생략). 응답은 늘 문자열로 맞춘다 — null 이 내려가면 웹 메시지 행이
@@ -38,6 +40,8 @@ public record MessageResponse(
    */
   public MessageResponse {
     if (body == null) body = "";
+    // 미리보기는 늘 배열로 내보낸다 — 웹이 null 분기 없이 다루도록(enrich 전·카드용 축약 응답 포함).
+    if (linkPreviews == null) linkPreviews = List.of();
   }
 
   /**
@@ -62,7 +66,8 @@ public record MessageResponse(
         deleted,
         unreadReplyCount,
         followed,
-        proposal);
+        proposal,
+        linkPreviews);
   }
 
   /** 첨부 목록을 채워 새 인스턴스 반환(repository 는 attachments 를 비워서 만들고 service 가 enrich). */
@@ -85,7 +90,8 @@ public record MessageResponse(
         deleted,
         unreadReplyCount,
         followed,
-        proposal);
+        proposal,
+        linkPreviews);
   }
 
   /** 드라이브 링크 목록을 채워 새 인스턴스 반환(service 가 batch enrich). */
@@ -108,7 +114,8 @@ public record MessageResponse(
         deleted,
         unreadReplyCount,
         followed,
-        proposal);
+        proposal,
+        linkPreviews);
   }
 
   /** 스레드 미읽음/팔로우 정보를 채워 새 인스턴스 반환(service 가 batch enrich). */
@@ -131,7 +138,8 @@ public record MessageResponse(
         deleted,
         unreadReplyCount,
         followed,
-        proposal);
+        proposal,
+        linkPreviews);
   }
 
   /** 제안(L3 위임 카드)을 채워 새 인스턴스 반환(service 가 batch enrich). */
@@ -154,6 +162,31 @@ public record MessageResponse(
         deleted,
         unreadReplyCount,
         followed,
-        proposal);
+        proposal,
+        linkPreviews);
+  }
+
+  /** 링크 미리보기를 채워 새 인스턴스 반환(service 가 batch enrich, WP-874). */
+  public MessageResponse withLinkPreviews(List<LinkPreviewResponse> linkPreviews) {
+    return new MessageResponse(
+        id,
+        channelId,
+        authorId,
+        authorName,
+        authorKind,
+        body,
+        mentions,
+        parentMessageId,
+        replyCount,
+        reactions,
+        attachments,
+        driveLinks,
+        createdAt,
+        editedAt,
+        deleted,
+        unreadReplyCount,
+        followed,
+        proposal,
+        linkPreviews);
   }
 }

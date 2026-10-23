@@ -28,9 +28,14 @@ public class WebPushGateway implements PushGateway {
 
   private final RestClient client;
 
+  /**
+   * 운영 — Boot 자동 구성 {@link ClientHttpRequestFactoryBuilder} 를 쓴다. 구현은 {@code
+   * spring.http.client.factory} (application.yml, jdk)가 정한다 — 정적 {@code detect()} 는 이 설정을 보지 않아
+   * classpath 에 따라 구현이 바뀐다(WP-874).
+   */
   @Autowired
-  public WebPushGateway(PushProperties props) {
-    this(buildClient(props));
+  public WebPushGateway(PushProperties props, ClientHttpRequestFactoryBuilder<?> factoryBuilder) {
+    this(buildClient(props, factoryBuilder));
   }
 
   /** 테스트용 — MockRestServiceServer 에 바인딩된 RestClient 주입. */
@@ -39,13 +44,14 @@ public class WebPushGateway implements PushGateway {
   }
 
   /** 코드베이스 표준 RestClient 구성(IssueAiConfig 등) + 리다이렉트 미추적을 명시한다 — 클라이언트 구현마다 기본값이 달라 생략하면 안 된다. */
-  private static RestClient buildClient(PushProperties props) {
+  private static RestClient buildClient(
+      PushProperties props, ClientHttpRequestFactoryBuilder<?> factoryBuilder) {
     var settings =
         ClientHttpRequestFactorySettings.defaults()
             .withConnectTimeout(props.timeout())
             .withReadTimeout(props.timeout())
             .withRedirects(ClientHttpRequestFactorySettings.Redirects.DONT_FOLLOW);
-    var factory = ClientHttpRequestFactoryBuilder.detect().build(settings);
+    var factory = factoryBuilder.build(settings);
     return RestClient.builder().requestFactory(factory).build();
   }
 
