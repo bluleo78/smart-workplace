@@ -593,6 +593,7 @@ export function CalendarPage() {
       {/* 모바일: 사이드바는 바텀시트(☰), 데스크톱: 기존 가로 배치 */}
       <MobileSidebarSheet
         title="캘린더"
+        widthKey="calendar"
         sidebar={
           <CalendarSidebar
             onNew={() => openNew()}

@@ -16,6 +16,7 @@ export function DriveModuleLayout() {
   return (
     <ResponsiveModuleLayout
       sidebar={<DriveSidebar />}
+      widthKey="drive"
       rootPath="/drive"
       title="드라이브"
       listClassName={mobileDriveListClass}

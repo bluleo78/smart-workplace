@@ -1,11 +1,12 @@
 // 모듈 레이아웃 목록↔상세 전환(WP-124).
-// 데스크톱: 기존과 동일한 "사이드바 + Outlet" 가로 배치(DOM 불변).
+// 데스크톱: "사이드바 + Outlet" 가로 배치. 사이드바는 폭 조절 틀(ResizableSidebar, WP-878)로 감싼다.
 // 모바일(list-detail): 모듈 루트면 사이드바를 전체폭 목록(탭 첫 화면)으로, 그 외 경로면 뒤로가기 바 + Outlet 만.
 // 사이드바 컴포넌트는 손대지 않고 래퍼 CSS 로 폭(w-56→전체)·테두리·자체 제목 헤더를 정리한다
 // (8개 사이드바 모두 <aside> 첫 자식이 sidebarTitleClass 제목 헤더라는 구조 규약에 기대어 숨김).
 import { type ReactNode, useCallback, useMemo, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
+import { ResizableSidebar } from '@/components/layout/ResizableSidebar'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { isTabRoot, norm } from '@/lib/mobile/routes'
 import { cn } from '@/lib/utils'
@@ -17,6 +18,7 @@ import { mobileSidebarListClass } from './sidebarListClass'
 
 export function ResponsiveModuleLayout({
   sidebar,
+  widthKey,
   rootPath,
   title,
   scroll = 'auto',
@@ -24,6 +26,8 @@ export function ResponsiveModuleLayout({
   listContext,
 }: {
   sidebar: ReactNode
+  /** 데스크톱 목록 폭을 기억하는 앱 이름(localStorage sidebar-width:<widthKey>, WP-878). */
+  widthKey: string
   rootPath: string
   title: string
   /** 데스크톱 Outlet 래퍼 overflow — 모듈별 기존 값 보존(auto=overflow-y-auto, none=없음). */
@@ -51,7 +55,8 @@ export function ResponsiveModuleLayout({
   if (!isMobile) {
     return (
       <div className="flex h-full min-h-0 flex-1">
-        {sidebar}
+        {/* 데스크톱만 경계선을 끌어 목록 폭 조절 — 모바일 목록 래퍼는 [&>aside] 직계 선택자에 기대므로 감싸지 않는다. */}
+        <ResizableSidebar widthKey={widthKey}>{sidebar}</ResizableSidebar>
         <div className={outletClass}>
           <Outlet />
         </div>

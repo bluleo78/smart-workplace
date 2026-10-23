@@ -1,19 +1,38 @@
 // content-sheet 모드(메일·캘린더·연락처) — 모바일에선 사이드바를 인라인 대신 바텀시트로 띄운다.
 // 본문(PageHeader)이 컨텍스트로 ☰ 트리거를 그려야 하므로 사이드바와 본문을 함께 감싼다.
-// 데스크톱은 기존 가로 배치(sidebar + children) 그대로(DOM 불변).
+// 데스크톱은 가로 배치(sidebar + children). 사이드바는 폭 조절 틀(ResizableSidebar, WP-878)로 감싼다.
 import { type ReactNode, useMemo, useState } from 'react'
 
+import { ResizableSidebar } from '@/components/layout/ResizableSidebar'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { useIsMobile } from '@/hooks/useIsMobile'
 
 import { MobileSidebarSheetCtx } from './MobileSidebarSheetContext'
 import { mobileSidebarListClass } from './sidebarListClass'
 
-export function MobileSidebarSheet({ title, sidebar, children }: { title: string; sidebar: ReactNode; children: ReactNode }) {
+/** widthKey: 데스크톱 목록 폭을 기억하는 앱 이름(localStorage sidebar-width:<widthKey>, WP-878). */
+export function MobileSidebarSheet({
+  title,
+  sidebar,
+  widthKey,
+  children,
+}: {
+  title: string
+  sidebar: ReactNode
+  widthKey: string
+  children: ReactNode
+}) {
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
   const value = useMemo(() => ({ openSheet: () => setOpen(true), closeSheet: () => setOpen(false) }), [])
-  if (!isMobile) return <>{sidebar}{children}</>
+  if (!isMobile) {
+    return (
+      <>
+        <ResizableSidebar widthKey={widthKey}>{sidebar}</ResizableSidebar>
+        {children}
+      </>
+    )
+  }
   return (
     <MobileSidebarSheetCtx.Provider value={value}>
       <Sheet open={open} onOpenChange={setOpen}>

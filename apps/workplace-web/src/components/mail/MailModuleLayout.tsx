@@ -13,7 +13,7 @@ export function MailModuleLayout() {
   return (
     <div className="flex h-full min-h-0 flex-1">
       {/* 모바일: 사이드바는 바텀시트(☰), 데스크톱: 기존 가로 배치 */}
-      <MobileSidebarSheet title="메일" sidebar={<MailSidebar />}>
+      <MobileSidebarSheet title="메일" sidebar={<MailSidebar />} widthKey="mail">
         <div className="min-w-0 flex-1 overflow-hidden">
           <Outlet />
         </div>

@@ -10,6 +10,7 @@ export function SettingsModuleLayout() {
   return (
     <ResponsiveModuleLayout
       sidebar={<SettingsSidebar />}
+      widthKey="settings"
       rootPath="/settings"
       title="설정"
       scroll="none"

@@ -29,7 +29,7 @@ export function WikiModuleLayout() {
   useRecordLastSpace()
   return (
     <>
-      <ResponsiveModuleLayout sidebar={<WikiSidebar />} rootPath={MOBILE_TABS.wiki.path} title="노트" listClassName={mobileWikiListClass} listContext={<WikiListScreenContext />} />
+      <ResponsiveModuleLayout sidebar={<WikiSidebar />} widthKey="wiki" rootPath={MOBILE_TABS.wiki.path} title="노트" listClassName={mobileWikiListClass} listContext={<WikiListScreenContext />} />
       {isMobile && norm(pathname) === MOBILE_TABS.wiki.path && <MobileWikiIndexRedirect />}
     </>
   )

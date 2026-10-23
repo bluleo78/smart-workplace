@@ -46,7 +46,7 @@ export function ChatModuleLayout() {
           실시간 연결 중...
         </div>
       )}
-      <ResponsiveModuleLayout sidebar={<ChannelSidebar />} rootPath="/chat" title="채팅" listContext={<ChatListScreenContext />} />
+      <ResponsiveModuleLayout sidebar={<ChannelSidebar />} widthKey="chat" rootPath="/chat" title="채팅" listContext={<ChatListScreenContext />} />
     </div>
   )
 }
