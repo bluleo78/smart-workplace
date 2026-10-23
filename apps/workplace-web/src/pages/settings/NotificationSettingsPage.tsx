@@ -2,10 +2,10 @@
 // 설정 > 개인 > 알림 — 이 기기 푸시 on/off 와 사용자 단위 종류별 설정. iOS 미설치·권한 거부·서버 비활성 상태를 안내한다.
 import { useState } from 'react'
 
+import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleGroup, SettingsToggleRow } from '@/components/layout/SettingsSection'
 import { settingsGuides } from '@/components/settings-guide/settingsGuides'
-import { Switch } from '@/components/ui/switch'
 import {
   useDevicePush,
   useDisablePush,
@@ -83,10 +83,11 @@ export default function NotificationSettingsPage() {
             <SettingsToggleRow
               label="이 기기에서 푸시 받기"
               control={
-                <Switch
+                <BusySwitch
                   data-testid="push-device-toggle"
                   checked={subscribed}
-                  disabled={busy || support === 'ios-needs-install' || support === 'unsupported'}
+                  disabled={support === 'ios-needs-install' || support === 'unsupported'}
+                  busy={busy}
                   onCheckedChange={onToggleDevice}
                   aria-label="이 기기에서 푸시 받기"
                 />
@@ -119,13 +120,14 @@ export default function NotificationSettingsPage() {
                   label={c.label}
                   description={c.description}
                   control={
-                    <Switch
+                    <BusySwitch
                       data-testid={`push-pref-${c.key}`}
                       checked={prefs.data?.[c.key] ?? true}
                       // 저장 요청이 진행 중이면 전부 비활성화 — 하나의 뮤테이션(updatePref)을 네 토글이 공유하므로,
                       // 응답 오기 전에 다른 종류를 또 누르면 부분 업데이트(PUT body 는 바뀐 필드만)가 겹쳐 순서에 따라
                       // 먼저 보낸 요청의 결과가 나중 응답으로 덮어써질 수 있다.
-                      disabled={!prefs.isSuccess || updatePref.isPending}
+                      disabled={!prefs.isSuccess}
+                      busy={updatePref.isPending}
                       onCheckedChange={(v) => updatePref.mutate({ category: c.key, enabled: v })}
                       aria-label={c.label}
                     />

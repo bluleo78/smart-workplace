@@ -3,10 +3,10 @@
 // 추가/수정 다이얼로그 상태는 MailSettingsPage 가 소유 — "계정 추가" 버튼을 헤더 actions 로 올리기 위함.
 
 import { AiLabel } from '@/components/ai/AiLabel';
+import { BusySwitch } from '@/components/BusySwitch';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
-import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -62,11 +62,11 @@ export function MailAccountsSection({ onEdit }: MailAccountsSectionProps) {
               <span className="text-muted-foreground">(본문이 개인 비서 AI로 전송됩니다)</span>
             </p>
           </div>
-          <Switch
+          <BusySwitch
             id="mail-ai-global"
             data-testid="mail-ai-global"
             checked={globalAiEnabled}
-            disabled={setAiEnabled.isPending}
+            busy={setAiEnabled.isPending}
             onCheckedChange={(v) => setAiEnabled.mutate(v)}
           />
         </div>

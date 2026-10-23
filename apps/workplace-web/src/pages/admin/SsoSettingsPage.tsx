@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { BusySwitch } from '@/components/BusySwitch'
 import { SettingsPage } from '@/components/layout/SettingsPage'
 import { SettingsSection, SettingsToggleRow } from '@/components/layout/SettingsSection'
 import { settingsGuides } from '@/components/settings-guide/settingsGuides'
@@ -11,7 +12,6 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { useSetSsoEnabled, useSsoSettings } from '@/hooks/queries/useSsoSettings'
 import { extractApiError } from '@/lib/api-error'
 import { copyToClipboard } from '@/lib/copyToClipboard'
@@ -63,10 +63,11 @@ export default function SsoSettingsPage() {
           label={<span id="sso-toggle-label">SSO 로그인 사용</span>}
           control={
             // 운영자 env 가 사라져(available=false) 켤 수는 없어도, 이미 켜져 있으면 끌 수는 있어야 한다.
-            <Switch
+            <BusySwitch
               aria-labelledby="sso-toggle-label"
               checked={data?.enabled ?? false}
-              disabled={(!data?.available && !data?.enabled) || setEnabled.isPending}
+              disabled={!data?.available && !data?.enabled}
+              busy={setEnabled.isPending}
               onCheckedChange={onToggle}
             />
           }

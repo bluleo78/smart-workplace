@@ -598,11 +598,14 @@ export default function IssueDetailPage() {
       <Button
         variant="outline"
         size="sm"
-        onClick={() => toggleWatch.mutate(!isWatching)}
+        // 요청 중엔 disabled 대신 aria-disabled + 누름 무시 — disabled 로 꺼지면 키보드 초점이 body 로 사라진다(WP-847).
+        onClick={() => { if (!toggleWatch.isPending) toggleWatch.mutate(!isWatching) }}
         aria-pressed={isWatching}
         aria-label={isMobile ? mobileWatchLabel : isWatching ? '구독 중' : '구독'}
         data-testid="watch-toggle"
-        disabled={toggleWatch.isPending}
+        aria-disabled={toggleWatch.isPending || undefined}
+        aria-busy={toggleWatch.isPending || undefined}
+        className={cn(toggleWatch.isPending && 'cursor-progress opacity-50')}
       >
         {isWatching ? <Eye className="h-4 w-4 mr-1" /> : <EyeOff className="h-4 w-4 mr-1" />}
         {isMobile ? (
