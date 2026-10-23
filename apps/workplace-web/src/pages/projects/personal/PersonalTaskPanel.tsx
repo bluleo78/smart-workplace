@@ -1,7 +1,8 @@
 // 개인 작업 상세 — 뷰별 하이브리드: 리스트/체크리스트=인플로우 사이드 패널, 보드=중앙 모달(#231).
 // ?task=N 이 있을 때만 표시. 기존 필드 위젯 + 이슈 chat 재사용. ESC·✕·같은 행 재클릭으로 닫힘.
 import { X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
@@ -12,6 +13,7 @@ import { useHistoryParam } from '@/hooks/useHistoryParam';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { isEscapeForInnerOverlay } from '@/lib/escapeOverlay';
 import { parseId } from '@/lib/historyParam';
+import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
 import { cn } from '@/lib/utils';
 
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
@@ -219,14 +221,9 @@ export function PersonalTaskDetail({
             />
           </Field>
           <Field label="마감">
-            <input
-              type="date"
-              value={data.summary.dueDate ?? ''}
-              disabled={update.isPending}
-              onChange={(e) =>
-                update.mutate(e.target.value ? { dueDate: e.target.value } : { clearDueDate: true })
-              }
-              className="rounded border bg-background px-2 py-1 text-sm"
+            <DueDateInput
+              value={data.summary.dueDate ?? null}
+              onSave={(next) => update.mutate(next ? { dueDate: next } : { clearDueDate: true })}
             />
           </Field>
           <Field label="담당자">
@@ -265,6 +262,50 @@ export function PersonalTaskDetail({
 }
 
 /** 라벨 + 값 한 줄 레이아웃. */
+/**
+ * 마감 입력(WP-903) — native 날짜 칸은 연도를 치는 도중에도 「0002-10-23」 같은 완성된 값을 내보낸다.
+ * 바로 저장하면 서버가 거절하고, 저장 중 칸을 잠그면 나머지 숫자가 사라져 마감일을 입력할 수 없었다.
+ * - 친 값은 칸 안에서만 들고(draft), 받는 범위(1900~9999)의 날짜가 되었을 때만 저장한다. 저장 중에도 잠그지 않는다.
+ * - 칸을 비우면(다 지움) 마감을 지운다. 일부만 지운 상태(badInput)는 빈 값과 구분해 지우지 않는다.
+ * - 범위 밖 날짜로 칸을 떠나면 안내하고 저장된 값으로 되돌린다. 덜 친 채 떠나면 조용히 되돌린다.
+ */
+function DueDateInput({ value, onSave }: { value: string | null; onSave: (next: string | null) => void }) {
+  const [draft, setDraft] = useState(value ?? '');
+  // 저장된 값이 바뀌면(저장 완료·다른 곳에서 수정) 칸도 따라간다.
+  const [synced, setSynced] = useState(value);
+  if (synced !== value) {
+    setSynced(value);
+    setDraft(value ?? '');
+  }
+  return (
+    <input
+      type="date"
+      aria-label="마감"
+      data-testid="personal-task-due"
+      min={SUPPORTED_DATE_MIN}
+      max={SUPPORTED_DATE_MAX}
+      value={draft}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        if (next === '') {
+          if (!e.target.validity.badInput && value) onSave(null);
+          return;
+        }
+        if (isSupportedDateKey(next) && next !== value) onSave(next);
+      }}
+      onBlur={(e) => {
+        if (draft === (value ?? '') && !e.target.validity.badInput) return;
+        if (draft !== '' && !isSupportedDateKey(draft)) toast.error(SUPPORTED_DATE_RANGE_MESSAGE);
+        // 덜 친 칸(badInput)은 React 값이 '' 그대로라 다시 그려도 칸의 숫자가 남는다 — 직접 비운 뒤 저장된 값으로 돌린다.
+        if (e.target.validity.badInput) e.target.value = '';
+        setDraft(value ?? '');
+      }}
+      className="rounded border bg-background px-2 py-1 text-sm"
+    />
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">

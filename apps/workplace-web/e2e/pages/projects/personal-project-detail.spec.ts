@@ -613,8 +613,9 @@ async function mockTaskDetailEditable(page: import('@playwright/test').Page, num
     (url) => url.pathname === `/api/v1/projects/${KEY}/issues/${number}`,
     (route) => {
       if (route.request().method() === 'PATCH') {
-        const body = route.request().postDataJSON() as { title?: string };
+        const body = route.request().postDataJSON() as { title?: string; dueDate?: string };
         if (body.title) issue = { ...issue, title: body.title };
+        if (body.dueDate) issue = { ...issue, dueDate: body.dueDate };
       }
       return route.fulfill({ json: createIssueDetail({ summary: issue, body: '서론은 짧게' }) });
     },
@@ -821,4 +822,40 @@ test('개인 보드는 스크롤 전에는 컬럼 다음 페이지를 요청하�
   await expect(sentinel).toBeAttached();
   await expect(sentinel).not.toBeInViewport();
   await expectStays(page, nextPages.count, 0);
+});
+
+// WP-903: 날짜 칸은 연도를 치는 도중에도 「0002-10-23」 같은 완성된 값을 내보낸다 — 그때마다 저장하고 칸을 잠가 마감일을 입력할 수 없었다.
+test.describe('개인 작업 마감 키보드 입력 (WP-903)', () => {
+  // 날짜 칸의 칸 순서는 브라우저 언어를 따른다 — 연도를 맨 뒤에 치는 en-US(월/일/연도)로 고정해 재현한다.
+  test.use({ locale: 'en-US' });
+  test('월·일·연도를 끝까지 치면 완성된 날짜 한 번만 저장한다 — 치는 도중의 연도는 보내지 않는다', async ({ authenticatedPage: page }) => {
+    await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+    const { patches } = await mockTaskDetailEditable(page);
+    await page.goto(`/projects/${KEY}?task=1`);
+
+    const due = page.getByTestId('personal-task-due');
+    await due.focus();
+    // en-US 칸 순서(월/일/연도) — 연도를 한 자리씩 치는 동안 칸이 잠기지 않아야 끝까지 들어간다.
+    await page.keyboard.type('10232026');
+    await expect(due).toHaveValue('2026-10-23');
+    await expect.poll(() => patches.bodies()).toEqual([{ dueDate: '2026-10-23' }]);
+    await expect(due).toBeEnabled();
+  });
+
+  test('범위 밖 연도(1800)는 저장하지 않고, 칸에서 초점이 빠지면 안내 뒤 저장된 값으로 돌아간다', async ({ authenticatedPage: page }) => {
+    await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+    const { patches } = await mockTaskDetailEditable(page);
+    await page.goto(`/projects/${KEY}?task=1`);
+
+    const due = page.getByTestId('personal-task-due');
+    await due.focus();
+    await page.keyboard.type('01011800');
+    await expect(due).toHaveValue('1800-01-01');
+    // Tab 은 날짜 칸 안의 칸 사이를 옮겨 다녀 칸을 떠나지 않는다 — 칸에서 초점을 뺀다.
+    await due.blur();
+
+    await expect(page.getByText('날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다')).toBeVisible();
+    await expect(due).toHaveValue('');
+    expect(patches.bodies()).toEqual([]);
+  });
 });
