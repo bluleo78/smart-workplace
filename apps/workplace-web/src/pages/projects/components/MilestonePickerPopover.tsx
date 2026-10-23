@@ -6,6 +6,7 @@ import { useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Button } from '@/components/ui/button';
+import { labelWithValue } from '@/lib/labelWithValue';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
@@ -44,7 +45,8 @@ export function MilestonePickerPopover({
             variant="outline"
             size="sm"
             disabled={disabled}
-            aria-label="마일스톤 선택"
+            // 이름에 보이는 값(마일스톤 이름/없음)을 붙인다 — aria-label 이 안쪽 글자를 덮어써 값을 못 읽었다(WP-853).
+            aria-label={labelWithValue('마일스톤 선택', current ? current.name : '없음')}
             data-testid="milestone-picker-trigger"
             className="w-full justify-start gap-2 font-normal"
           >

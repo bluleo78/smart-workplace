@@ -19,6 +19,7 @@ import { formatDateMonthDay } from '../../../../lib/formatters';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/issueGrouping';
 import { ISSUE_TYPE_ICONS } from '../../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../../lib/issueTypeLabels';
+import { labelWithValue } from '../../../../lib/labelWithValue';
 import type { IssuePriority } from '../../../../types/issue';
 import type { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
@@ -57,6 +58,15 @@ export function CreateIssueChips({
   const memberList = members.data ?? [];
   const firstAssignee = memberList.find((m) => m.userId === assigneeIds[0]);
   const epic = epics.find((e) => e.number === epicNumber);
+  // 칩에 그리는 값 글자 — aria-label 이 칩 안 글자를 덮어쓰므로 고른 값은 접근 이름에도 같은 문자열로 붙인다(WP-853).
+  // 고르기 전에는 칩이 속성 이름(유형·담당자·마감·에픽)만 보여 주므로 값을 붙이지 않는다.
+  const typeText = selectedType ? getIssueTypeLabel(selectedType.name) : null;
+  const priorityText = ISSUE_PRIORITY_LABEL[priority];
+  const assigneeText = firstAssignee
+    ? `${firstAssignee.name}${assigneeIds.length > 1 ? ` +${assigneeIds.length - 1}` : ''}`
+    : null;
+  const dueText = dueDate ? formatDateMonthDay(dueDate) : null;
+  const epicText = epic ? epic.title : null;
 
   // 시트를 동기로 닫고(포커스 트랩 해제) 같은 클릭 핸들러 안에서 직전 입력칸에 포커스를 돌려준다 — iOS 키보드가 다시 올라오도록.
   const closeSheet = () => {
@@ -138,33 +148,31 @@ export function CreateIssueChips({
           {!personal &&
             chip(
               'type',
-              '유형',
+              labelWithValue('유형', typeText),
               <>
                 {TypeIcon && <TypeIcon className="size-4" aria-hidden />}
-                {selectedType ? getIssueTypeLabel(selectedType.name) : '유형'}
+                {typeText ?? '유형'}
               </>,
             )}
-          {chip('priority', '우선순위', <><Flag className="size-4" aria-hidden />{ISSUE_PRIORITY_LABEL[priority]}</>, priority !== 'MID')}
+          {chip('priority', labelWithValue('우선순위', priorityText), <><Flag className="size-4" aria-hidden />{priorityText}</>, priority !== 'MID')}
           {chip(
             'assignee',
-            '담당자',
+            labelWithValue('담당자', assigneeText),
             <>
               <User className="size-4" aria-hidden />
-              {firstAssignee
-                ? `${firstAssignee.name}${assigneeIds.length > 1 ? ` +${assigneeIds.length - 1}` : ''}`
-                : '담당자'}
+              {assigneeText ?? '담당자'}
             </>,
             assigneeIds.length > 0,
             assigneeIds.length === 0,
           )}
-          {chip('due', '마감일', <><CalendarDays className="size-4" aria-hidden />{dueDate ? formatDateMonthDay(dueDate) : '마감'}</>, !!dueDate, !dueDate)}
+          {chip('due', labelWithValue('마감일', dueText), <><CalendarDays className="size-4" aria-hidden />{dueText ?? '마감'}</>, !!dueDate, !dueDate)}
           {showEpic &&
             chip(
               'epic',
-              '에픽',
+              labelWithValue('에픽', epicText),
               <>
                 <Diamond className="size-4 shrink-0 text-ai-accent" aria-hidden />
-                <span className="max-w-40 truncate">{epic ? epic.title : '에픽'}</span>
+                <span className="max-w-40 truncate">{epicText ?? '에픽'}</span>
               </>,
               epicNumber != null,
               epicNumber == null,

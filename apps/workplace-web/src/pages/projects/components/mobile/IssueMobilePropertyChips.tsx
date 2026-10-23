@@ -21,6 +21,7 @@ import { useUpdateIssueParent } from '../../../../hooks/queries/useUpdateIssuePa
 import { formatDateMonthDay, parseValidDateKey } from '../../../../lib/formatters';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/issueGrouping';
 import { isOverdue } from '../../../../lib/issueOverdue';
+import { labelWithValue } from '../../../../lib/labelWithValue';
 import { findStatus, needsDoneConfirm } from '../../../../lib/projectStatuses';
 import type { IssuePriority, IssueResponse, UpdateIssueRequest } from '../../../../types/issue';
 import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
@@ -92,13 +93,19 @@ export function IssueMobilePropertyChips({
   );
 
   const firstAssignee = issue.assignees[0];
+  // 칩에 그리는 값 글자 — aria-label 이 칩 안 글자를 덮어쓰므로 접근 이름에도 같은 문자열을 붙인다(WP-853 Label in Name).
+  const assigneeText = firstAssignee ? firstAssignee.name : '담당자 없음';
+  const assigneeMore = issue.assignees.length > 1 ? `+${issue.assignees.length - 1}` : null;
+  // 해석할 수 없는 마감일(API 로 들어간 +10000-01-01 등)은 엉뚱한 월·일 대신 「잘못된 날짜」(WP-725)
+  const dueText = issue.dueDate ? (parseValidDateKey(issue.dueDate) ? formatDateMonthDay(issue.dueDate) : '잘못된 날짜') : '마감 없음';
+  const epicText = issue.parent ? issue.parent.title : '에픽 없음';
   // 속성별 칩 — 내용은 기존 그대로, 렌더 순서만 fields 가 정한다.
   const renderChip = (f: MobilePropField): React.ReactNode => {
     switch (f) {
       case 'status':
         return chip(
           'status',
-          issue.blocked ? `상태: ${issue.statusName}, 차단됨` : '상태',
+          labelWithValue('상태', issue.statusName, issue.blocked && '차단됨'),
           <>
             <IssueStatusIcon status={issue.status} decorative className="size-4" />
             {issue.statusName}
@@ -110,26 +117,25 @@ export function IssueMobilePropertyChips({
       case 'assignee':
         return chip(
           'assignee',
-          '담당자',
+          labelWithValue('담당자', assigneeMore ? `${assigneeText} ${assigneeMore}` : assigneeText),
           <>
             <User className="size-4" aria-hidden />
             {/* 이름만 말줄임하고 +N 은 별도 span 으로 — 같은 truncate 안에 있으면 긴 이름에 +N 이 잘려 사라졌다. */}
-            <span className="max-w-28 truncate">{firstAssignee ? firstAssignee.name : '담당자 없음'}</span>
-            {issue.assignees.length > 1 && <span className="shrink-0">+{issue.assignees.length - 1}</span>}
+            <span className="max-w-28 truncate">{assigneeText}</span>
+            {assigneeMore && <span className="shrink-0">{assigneeMore}</span>}
           </>,
           !firstAssignee,
         );
       case 'priority':
-        return chip('priority', '우선순위', <><Flag className="size-4" aria-hidden />{ISSUE_PRIORITY_LABEL[issue.priority]}</>);
+        return chip('priority', labelWithValue('우선순위', ISSUE_PRIORITY_LABEL[issue.priority]), <><Flag className="size-4" aria-hidden />{ISSUE_PRIORITY_LABEL[issue.priority]}</>);
       case 'due':
         // 마감 지난 미완료 이슈는 차단 칩과 같은 경고 톤 + 「· 지남」(WP-649).
         return chip(
           'due',
-          isOverdue(issue) ? '마감일, 마감 지남' : '마감일',
+          labelWithValue('마감일', dueText, isOverdue(issue) && '마감 지남'),
           <>
             <CalendarDays className="size-4" aria-hidden />
-            {/* 해석할 수 없는 마감일(API 로 들어간 +10000-01-01 등)은 엉뚱한 월·일 대신 「잘못된 날짜」(WP-725) */}
-            {issue.dueDate ? (parseValidDateKey(issue.dueDate) ? formatDateMonthDay(issue.dueDate) : '잘못된 날짜') : '마감 없음'}
+            {dueText}
             {isOverdue(issue) && <span data-testid="issue-overdue-badge">· 지남</span>}
           </>,
           !issue.dueDate,
@@ -141,10 +147,10 @@ export function IssueMobilePropertyChips({
           showEpic &&
           chip(
             'epic',
-            '에픽',
+            labelWithValue('에픽', epicText),
             <>
               <Diamond className="size-4 shrink-0 text-ai-accent" aria-hidden />
-              <span className="max-w-40 truncate">{issue.parent ? issue.parent.title : '에픽 없음'}</span>
+              <span className="max-w-40 truncate">{epicText}</span>
             </>,
             !issue.parent,
           )
@@ -158,7 +164,7 @@ export function IssueMobilePropertyChips({
     <>
       <div className="flex flex-wrap items-center gap-2 py-2" data-testid="mobile-prop-chips">
         {/* 차단됨은 별도 칩 대신 상태 칩에 합친다 — 390px 에서 칩 줄이 한 줄 더 늘어 본문이 밀렸다(디자인 리뷰).
-            aria-label 이 내용을 덮어쓰므로 차단 여부도 label 에 넣어 스크린리더가 읽게 한다. testid 는 기존 단언 호환용 안쪽 span. */}
+            aria-label 이 내용을 덮어쓰므로 보이는 값·차단 여부를 label 에 넣어 스크린리더가 읽게 한다(WP-853 labelWithValue). testid 는 기존 단언 호환용 안쪽 span. */}
         {fields.map((f) => (
           <Fragment key={f}>{renderChip(f)}</Fragment>
         ))}
@@ -255,11 +261,14 @@ function LabelPropChip({ projectKey, issue, disabled }: { projectKey: string; is
   const update = useUpdateIssueLabels(projectKey, issue.number);
   const createLabel = useCreateLabel(projectKey); // WP-394: 시트에서 없는 라벨을 바로 만든다
   const first = issue.labels[0];
+  // 칩에 그리는 값 글자 — 접근 이름에도 같은 문자열을 붙인다(WP-853).
+  const labelText = first ? first.name : '라벨 없음';
+  const labelMore = issue.labels.length > 1 ? `+${issue.labels.length - 1}` : null;
   return (
     <>
       <button
         type="button"
-        aria-label="라벨"
+        aria-label={labelWithValue('라벨', labelMore ? `${labelText} ${labelMore}` : labelText)}
         data-testid="mobile-prop-label"
         // 라벨 목록 로딩 중엔 시트가 「결과가 없습니다」로 보이므로 칩을 막는다.
         disabled={disabled || labels.isLoading}
@@ -267,8 +276,8 @@ function LabelPropChip({ projectKey, issue, disabled }: { projectKey: string; is
         className={cn(MOBILE_CHIP, 'max-w-full disabled:opacity-60', !first && 'text-muted-foreground')}
       >
         <Tag className="size-4" aria-hidden />
-        <span className="max-w-28 truncate">{first ? first.name : '라벨 없음'}</span>
-        {issue.labels.length > 1 && <span className="shrink-0">+{issue.labels.length - 1}</span>}
+        <span className="max-w-28 truncate">{labelText}</span>
+        {labelMore && <span className="shrink-0">{labelMore}</span>}
       </button>
       <MobileMultiPickerSheet
         testId="issue-label-sheet"

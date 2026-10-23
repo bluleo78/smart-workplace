@@ -560,6 +560,8 @@ test('사이클 피커 — 안 붙은 완료 사이클은 고를 수 없고, 붙
   );
 
   await page.goto(`/projects/${KEY}/issues/1`);
+  // 붙은 사이클 이름이 트리거 접근 이름에도 붙는다(WP-853).
+  await expect(page.getByRole('button', { name: '사이클 편집: 9월 스프린트', exact: true })).toBeVisible();
   await page.getByTestId('cycle-picker-trigger').click();
   await expect(page.getByTestId('cycle-picker')).toBeVisible();
   // 안 붙은 완료 사이클 — 체크박스 비활성.

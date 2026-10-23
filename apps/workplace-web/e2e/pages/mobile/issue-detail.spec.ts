@@ -98,6 +98,9 @@ test.describe('속성 칩', () => {
       await expect(chips.getByTestId(`mobile-prop-${k}`)).toBeVisible();
     }
     await expect(chips.getByTestId('mobile-prop-status')).toContainText('할 일');
+    // 칩 접근 이름에 보이는 값이 붙는다(WP-853 Label in Name) — 고정 이름(「상태」「에픽」)만 읽히던 문제.
+    await expect(chips.getByRole('button', { name: '상태: 할 일', exact: true })).toBeVisible();
+    await expect(chips.getByRole('button', { name: `에픽: ${EPIC.title}`, exact: true })).toBeVisible();
     await expect(chips.getByTestId('mobile-prop-due')).toContainText('10');
     // 칩 줄은 제목 블록 바로 아래(활동·코멘트보다 위)
     const chipsBox = await chips.boundingBox();
@@ -112,7 +115,7 @@ test.describe('속성 칩', () => {
     const due = page.getByTestId('mobile-prop-due');
     await expect(due).toContainText('1월 15일');
     await expect(due.getByTestId('issue-overdue-badge')).toHaveText('· 지남');
-    await expect(due).toHaveAttribute('aria-label', '마감일, 마감 지남');
+    await expect(due).toHaveAttribute('aria-label', '마감일: 1월 15일, 마감 지남');
     await expect(due).toHaveClass(/text-destructive/);
     await expectNoHorizontalOverflow(page);
   });
@@ -132,6 +135,7 @@ test.describe('속성 칩', () => {
     await expect(status.getByTestId('issue-blocked-badge')).toHaveText('· 차단됨');
     await expect(status).toHaveAttribute('aria-label', '상태: 할 일, 차단됨');
     await expect(page.getByTestId('issue-blocked-badge')).toHaveCount(1);
+    await expect(page.getByTestId('mobile-prop-assignee')).toHaveAttribute('aria-label', '담당자: 아주긴이름을가진담당자홍길동선생님 +2');
     const plus = page.getByTestId('mobile-prop-assignee').getByText('+2', { exact: true });
     await expect(plus).toBeVisible();
     // +N 이 칩 안에서 잘리지 않았는지(이름 span 만 말줄임).

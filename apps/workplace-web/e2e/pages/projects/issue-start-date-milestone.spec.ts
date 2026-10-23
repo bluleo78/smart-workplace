@@ -109,6 +109,8 @@ test.describe('이슈 상세 시작일/마일스톤 피커 (#620)', () => {
     const { patches } = await setupDetailStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByTestId('start-date-trigger')).toContainText('없음');
+    // 접근 이름에 보이는 값이 붙는다(WP-853) — 고정 이름 「시작일 선택」만 읽히던 문제.
+    await expect(page.getByRole('button', { name: '시작일 선택: 없음', exact: true })).toBeVisible();
 
     await page.getByTestId('start-date-trigger').click();
     await expect(page.getByTestId('start-date-popover')).toBeVisible();
@@ -126,12 +128,15 @@ test.describe('이슈 상세 시작일/마일스톤 피커 (#620)', () => {
 
     await expect(page.getByTestId('start-date-popover')).not.toBeVisible();
     await expect(page.getByTestId('start-date-trigger')).toContainText('10일');
+    await expect(page.getByTestId('start-date-trigger')).toHaveAccessibleName(/^시작일 선택: \d{4}년 \d{1,2}월 10일$/);
   });
 
   test('마일스톤 선택 → PATCH {milestoneId} 호출 + UI 반영', async ({ authenticatedPage: page }) => {
     const { patches } = await setupDetailStubs(page);
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     await expect(page.getByTestId('milestone-picker-trigger')).toContainText('없음');
+    // 접근 이름에 보이는 값이 붙는다(WP-853).
+    await expect(page.getByRole('button', { name: '마일스톤 선택: 없음', exact: true })).toBeVisible();
 
     await page.getByTestId('milestone-picker-trigger').click();
     await expect(page.getByTestId('milestone-picker-popover')).toBeVisible();
@@ -144,6 +149,7 @@ test.describe('이슈 상세 시작일/마일스톤 피커 (#620)', () => {
 
     await expect(page.getByTestId('milestone-picker-popover')).not.toBeVisible();
     await expect(page.getByTestId('milestone-picker-trigger')).toContainText('v2.0 출시');
+    await expect(page.getByTestId('milestone-picker-trigger')).toHaveAccessibleName('마일스톤 선택: v2.0 출시');
   });
 
   test('마일스톤 선택 해제 → PATCH {clearMilestone: true} + "없음" 복원', async ({ authenticatedPage: page }) => {

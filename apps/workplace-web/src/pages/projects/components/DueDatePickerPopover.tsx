@@ -1,6 +1,7 @@
 // 이슈 마감일 DatePicker — DatePickerPopover 위임 래퍼 (Task 11 제네릭 추출).
 // 기존 due-date-picker/-trigger/-popover/-clear testid 와 "마감일 선택"/"마감일 지우기"
 // aria-label 을 그대로 유지 — 기존 E2E(issue-due-date-picker.spec.ts) 가 이 testid 에 의존.
+// 트리거 이름은 「마감일 선택: 보이는 날짜」로 값이 붙는다(WP-853, DatePickerPopover).
 
 import { DatePickerPopover } from './DatePickerPopover';
 

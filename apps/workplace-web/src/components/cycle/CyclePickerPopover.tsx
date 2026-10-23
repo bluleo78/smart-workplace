@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 
 import { useCycles, useIssueCycles, useUpdateIssueCycles } from '../../hooks/queries/useCycles';
 import { canPickCycle } from '../../lib/cycleMeta';
+import { labelWithValue } from '../../lib/labelWithValue';
 import { cn } from '../../lib/utils';
 import { CYCLE_STATUS_LABEL } from '../../types/cycle';
 
@@ -63,7 +64,8 @@ export function CyclePickerPopover({
           <Button
             variant="outline"
             size="sm"
-            aria-label="사이클 편집"
+            // 붙은 사이클은 버튼 밖 칩으로 보이지만 이름에도 넣어 지금 값을 함께 읽힌다(WP-853). 없으면 「사이클 편집」만.
+            aria-label={labelWithValue('사이클 편집', attached.map((c) => c.name).join(', '))}
             data-testid="cycle-picker-trigger"
             disabled={disabled}
             className="w-full justify-start gap-2 font-normal"

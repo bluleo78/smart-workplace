@@ -176,7 +176,7 @@ test.describe('이슈 상세 마감일 DatePicker (#284)', () => {
     const trigger = page.getByTestId('due-date-trigger');
     await expect(trigger).toContainText('2020년 1월 15일');
     await expect(trigger.getByTestId('due-date-overdue')).toHaveText('· 마감 지남');
-    await expect(trigger).toHaveAccessibleName('마감일 선택, 마감 지남');
+    await expect(trigger).toHaveAccessibleName('마감일 선택: 2020년 1월 15일, 마감 지남');
     await expect(trigger.getByText('2020년 1월 15일')).toHaveClass(/text-destructive/);
   });
 
@@ -186,6 +186,7 @@ test.describe('이슈 상세 마감일 DatePicker (#284)', () => {
     const trigger = page.getByTestId('due-date-trigger');
     await expect(trigger).toContainText('2099년 1월 15일');
     await expect(trigger.getByTestId('due-date-overdue')).toHaveCount(0);
-    await expect(trigger).toHaveAccessibleName('마감일 선택');
+    // 접근 이름에 보이는 날짜가 붙는다(WP-853 Label in Name) — 역할+이름으로도 찾힌다.
+    await expect(page.getByRole('button', { name: '마감일 선택: 2099년 1월 15일', exact: true })).toBeVisible();
   });
 });

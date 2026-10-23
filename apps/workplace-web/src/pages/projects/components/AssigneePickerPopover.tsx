@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Input } from '@/components/ui/input';
+import { labelWithValue } from '@/lib/labelWithValue';
 
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
@@ -68,10 +69,11 @@ export function AssigneePickerPopover({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         {/* 담당자 필드 — 값(담당자/미지정)을 보여주는 풀폭 인라인 필드.
-            평소 borderless, 호버 시 보더+배경(편집 가능 신호). 클릭→팝오버, 외부클릭→닫힘(Radix). */}
+            평소 borderless, 호버 시 보더+배경(편집 가능 신호). 클릭→팝오버, 외부클릭→닫힘(Radix).
+            이름에 보이는 값(담당자 이름들/미지정)을 붙인다 — aria-label 이 안쪽 글자를 덮어써 값을 못 읽었다(WP-853). */}
         <button
           type="button"
-          aria-label="담당자 편집"
+          aria-label={labelWithValue('담당자 편집', current.length === 0 ? '미지정' : current.map((u) => u.name).join(', '))}
           data-testid="assignee-picker-trigger"
           disabled={disabled}
           className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"

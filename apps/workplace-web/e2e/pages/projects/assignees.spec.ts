@@ -115,8 +115,9 @@ test.describe('이슈 담당자(다중)', () => {
 
       await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
 
-      // 초기: 미지정.
+      // 초기: 미지정. 접근 이름에도 보이는 값이 붙는다(WP-853).
       await expect(page.getByTestId('issue-assignees')).toContainText('미지정');
+      await expect(page.getByRole('button', { name: '담당자 편집: 미지정', exact: true })).toBeVisible();
 
       // Picker 열기 → 두 멤버 체크 → 외부로 포커스/Escape 로 닫기.
       await page.getByTestId('assignee-picker-trigger').click();
@@ -141,6 +142,7 @@ test.describe('이슈 담당자(다중)', () => {
       await expect(page.getByTestId(`issue-assignee-${USER2.id}`)).toBeVisible();
       await expect(page.getByTestId(`issue-assignee-${USER1.id}`)).toContainText(USER1.name);
       await expect(page.getByTestId(`issue-assignee-${USER2.id}`)).toContainText(USER2.name);
+      await expect(page.getByTestId('assignee-picker-trigger')).toHaveAccessibleName(`담당자 편집: ${USER1.name}, ${USER2.name}`);
       await expect(page.getByTestId(`user-avatar-${USER1.id}`).first()).toBeVisible();
       await expect(page.getByTestId(`user-avatar-${USER2.id}`).first()).toBeVisible();
     },

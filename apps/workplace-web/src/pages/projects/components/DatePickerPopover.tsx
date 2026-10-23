@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/po
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { parseValidDateKey } from '@/lib/formatters';
+import { labelWithValue } from '@/lib/labelWithValue';
 
 interface DatePickerPopoverProps {
   /** YYYY-MM-DD 형식 또는 null (미설정) */
@@ -20,7 +21,7 @@ interface DatePickerPopoverProps {
   /** 날짜 선택 시 YYYY-MM-DD 문자열을 반환. 지우기 시 undefined를 반환. */
   onChange: (date: string | undefined) => void;
   disabled?: boolean;
-  /** 트리거 버튼 aria-label. */
+  /** 트리거 버튼 aria-label 접두어 — 뒤에 「: 보이는 날짜 글자」가 붙는다(WP-853). */
   ariaLabel: string;
   /** 지우기 버튼 aria-label. */
   clearAriaLabel: string;
@@ -58,6 +59,8 @@ export function DatePickerPopover({
   // 화면 전체를 깨뜨리지 않고 「잘못된 날짜」로 보여 지울 수 있게 한다(WP-725).
   const selected = parseValidDateKey(value);
   const invalid = !!value && !selected;
+  // 트리거에 그리는 날짜 글자 — 화면과 접근 이름이 같은 문자열을 쓰도록 한 곳에서 만든다(WP-853 Label in Name).
+  const shownText = selected ? format(selected, 'yyyy년 M월 d일', { locale: ko }) : invalid ? '잘못된 날짜' : emptyLabel;
 
   function handleSelect(date: Date | undefined) {
     if (date) {
@@ -81,13 +84,13 @@ export function DatePickerPopover({
               size="sm"
               className="flex-1 justify-start gap-2 font-normal"
               disabled={disabled}
-              aria-label={overdueText ? `${ariaLabel}, ${overdueText}` : ariaLabel}
+              aria-label={labelWithValue(ariaLabel, shownText, overdueText)}
               data-testid={`${testIdPrefix}-trigger`}
             >
               <CalendarIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
               {selected ? (
                 <>
-                  <span className={overdueText ? 'font-semibold text-destructive' : undefined}>{format(selected, 'yyyy년 M월 d일', { locale: ko })}</span>
+                  <span className={overdueText ? 'font-semibold text-destructive' : undefined}>{shownText}</span>
                   {overdueText && (
                     <span className="text-xs text-destructive" data-testid={`${testIdPrefix}-overdue`}>
                       · {overdueText}
@@ -96,10 +99,10 @@ export function DatePickerPopover({
                 </>
               ) : invalid ? (
                 <span className="text-destructive" title={value ?? undefined} data-testid={`${testIdPrefix}-invalid`}>
-                  잘못된 날짜
+                  {shownText}
                 </span>
               ) : (
-                <span className="text-muted-foreground">{emptyLabel}</span>
+                <span className="text-muted-foreground">{shownText}</span>
               )}
             </Button>
           </PopoverTrigger>
