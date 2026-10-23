@@ -47,6 +47,15 @@ describe('createIssueSchema — 시작일·마감일', () => {
   });
 });
 
+describe('createIssueSchema — 날짜 범위 (WP-900)', () => {
+  it('5자리 연도·범위 밖 날짜는 영어 원시 문구 대신 한국어 범위 오류', () => {
+    const msg = '날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다';
+    expect(firstError({ title: 't', dueDate: '20260-10-23' }, 'dueDate')).toBe(msg);
+    expect(firstError({ title: 't', startDate: '20260-10-23' }, 'startDate')).toBe(msg);
+    expect(firstError({ title: 't', dueDate: '1899-12-31' }, 'dueDate')).toBe(msg);
+  });
+});
+
 describe('createIssueSchema — 부모 번호', () => {
   it('빈 입력(valueAsNumber → NaN)은 영문 원시 메시지 대신 한국어 오류', () => {
     expect(firstError({ title: 't', parentNumber: NaN }, 'parentNumber')).toBe('부모 이슈 번호를 입력해주세요');

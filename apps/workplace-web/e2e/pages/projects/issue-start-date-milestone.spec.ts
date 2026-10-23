@@ -259,4 +259,32 @@ test.describe('IssueCreateDialog 시작일 입력 (#620)', () => {
     expect(creates.count()).toBe(0);
     await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
   });
+
+  // WP-900: 날짜 칸이 내보내는 5자리 연도(20260-10-23)를 마감일은 오류도 그리지 않아 「생성」이 무반응이었고,
+  // 시작일은 영어 원시 문구가 보였다 — 둘 다 한국어 범위 안내를 칸 아래에 보이고 제출을 막는다.
+  test('시작일·마감일 연도가 5자리면 한국어 범위 안내를 보이고 제출을 막는다 (WP-900)', async ({ authenticatedPage: page }) => {
+    await stubProject(page);
+    const creates = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues`);
+
+    await page.goto(`/projects/${PROJECT_KEY}`);
+    await page.getByRole('button', { name: '+ 새 태스크' }).click();
+    await expect(page.getByRole('dialog', { name: '새 이슈' })).toBeVisible();
+    await page.getByLabel('제목').fill('연도 오입력 이슈');
+
+    // fill 은 5자리 연도를 받지 않아 칸 값을 직접 넣고 input 이벤트를 보낸다(min/max 가 없던 칸에 키보드로 넣을 수 있던 값).
+    for (const id of ['#issue-start', '#issue-due']) {
+      await page.locator(id).evaluate((el: HTMLInputElement) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '20260-10-23');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    }
+    await page.getByRole('button', { name: '생성' }).click();
+
+    const msg = '날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다';
+    await expect(page.locator('#issue-start-error')).toHaveText(msg);
+    await expect(page.locator('#issue-due-error')).toHaveText(msg);
+    await expect(page.locator('#issue-due')).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByText(/Invalid string/)).toHaveCount(0);
+    expect(creates.count()).toBe(0);
+  });
 });

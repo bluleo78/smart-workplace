@@ -13,6 +13,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
+import { SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN } from '../../../lib/supportedDate';
 import { useIssueCreateForm } from '../hooks/useIssueCreateForm';
 import { MobileIssueCreateSheet } from './mobile/MobileIssueCreateSheet';
 
@@ -46,7 +47,9 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
       <DialogContent>
         {/* 유형 드롭다운(에픽/버그/스토리 등)과 무관한 중립 문구로 통일 — 유형별 동적 제목보다 단순하고 확장에 안전 (#641) */}
         <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
-        <form onSubmit={f.onSubmit} className="space-y-4">
+        {/* noValidate — 날짜 칸 min/max 를 넘는 값이면 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내가
+            그려지지 않는다(WP-900). 검증은 zod 스키마 한 곳에서 한다. */}
+        <form noValidate onSubmit={f.onSubmit} className="space-y-4">
           {/* 보드 컬럼에서 연 경우 그 상태로 만들어진다는 것을 알린다(WP-464). */}
           {f.statusNote && (
             <p className="text-sm text-muted-foreground" data-testid="create-status-note">상태: {f.statusNote}</p>
@@ -137,6 +140,8 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               <Input
                 id="issue-start"
                 type="date"
+                min={SUPPORTED_DATE_MIN}
+                max={SUPPORTED_DATE_MAX}
                 aria-invalid={!!errors.startDate || undefined}
                 aria-describedby={errors.startDate ? 'issue-start-error' : undefined}
                 {...register('startDate')}
@@ -149,7 +154,21 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium" htmlFor="issue-due">마감일</label>
-              <Input id="issue-due" type="date" {...register('dueDate')} />
+              <Input
+                id="issue-due"
+                type="date"
+                min={SUPPORTED_DATE_MIN}
+                max={SUPPORTED_DATE_MAX}
+                aria-invalid={!!errors.dueDate || undefined}
+                aria-describedby={errors.dueDate ? 'issue-due-error' : undefined}
+                {...register('dueDate')}
+              />
+              {/* 마감일 오류도 그린다 — 안 그리면 「생성」이 막혀도 아무 안내가 없었다(WP-900). */}
+              {errors.dueDate && (
+                <p id="issue-due-error" role="alert" className="text-sm text-destructive">
+                  {errors.dueDate.message}
+                </p>
+              )}
             </div>
           </div>
           {/* SUBTASK 선택 시에만 부모 number 입력 노출 (Phase 4a).

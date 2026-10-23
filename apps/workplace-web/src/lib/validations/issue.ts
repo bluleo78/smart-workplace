@@ -2,8 +2,18 @@
 
 import { z } from 'zod';
 
+import { isSupportedDateKey, SUPPORTED_DATE_RANGE_MESSAGE } from '../supportedDate';
+
 const statusEnum = z.enum(['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']);
 const priorityEnum = z.enum(['LOW', 'MID', 'HIGH']);
+
+// 날짜 칸(HTML date input) 값 — 빈 문자열(미지정) 또는 받는 범위(1900~9999)의 YYYY-MM-DD.
+// 칸은 5자리 연도(20260-10-23)도 내보낸다 — 형식만 보던 regex 는 영어 원시 문구를 내거나(시작일) 오류를 그리지 않아
+// 「생성」이 아무 반응도 없었다(WP-900). 서버와 같은 한국어 범위 문구로 알린다.
+const optionalDateKey = z
+  .string()
+  .refine((v) => v === '' || isSupportedDateKey(v), SUPPORTED_DATE_RANGE_MESSAGE)
+  .optional();
 
 export const createIssueSchema = z
   .object({
@@ -12,9 +22,9 @@ export const createIssueSchema = z
     body: z.string().max(10000, '본문은 10000자 이하여야 합니다').optional(),
     priority: priorityEnum.optional(),
     // YYYY-MM-DD 형식 (HTML date input) 또는 빈 문자열 허용
-    dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
+    dueDate: optionalDateKey,
     // 타임라인 간트 뷰 시작일 (#620). dueDate 와 동일 형식/허용값.
-    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal('')),
+    startDate: optionalDateKey,
     // Phase 3c — 생성 시 다중 담당자 지정용. 현재 dialog 에서는 미노출이지만 schema 는 허용.
     assigneeIds: z.array(z.number().int().positive()).optional().nullable(),
     // 이슈 유형 id — 생략 시 백엔드가 TASK 로 fallback.
