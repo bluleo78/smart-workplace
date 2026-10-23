@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronDown, ChevronRight, Link2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, CornerDownRight, Link2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
@@ -8,6 +8,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer'
@@ -20,7 +21,7 @@ import type { TreeShareMark } from './wikiShare'
 const INDENT = 16
 
 /**
- * 노트 트리 행 — 접기 토글(자식 있을 때) + 제목(클릭=이동) + 호버 시 ＋(하위 생성)·⋯(삭제).
+ * 노트 트리 행 — 접기 토글(자식 있을 때) + 제목(클릭=이동) + 호버 시 ＋(하위 생성)·⋯(이동…·삭제).
  * DnD 는 useSortable. PointerSensor distance:5 가 클릭과 드래그를 분리하므로 행 컨테이너에
  * listeners 를 두고, 내부 버튼은 stopPropagation 으로 이동/드래그와 분리한다.
  * 터치 기기(pointer: coarse)는 hover 가 없어 ＋·⋯ 클러스터에 닿을 수 없으므로 44px ⋯ 하나로 모은다(WP-237) —
@@ -39,6 +40,7 @@ export function WikiTreeRow({
   onOpen,
   onAddChild,
   onRequestDelete,
+  onRequestMove,
   canEdit,
 }: {
   id: number
@@ -55,6 +57,8 @@ export function WikiTreeRow({
   onOpen: (id: number) => void
   onAddChild: (id: number) => void
   onRequestDelete: (id: number) => void
+  /** 「이동…」 — 위치 고르기 대화상자를 연다(WP-839). 끌기 없이 키보드·터치로 다른 페이지 하위에 넣는 길. */
+  onRequestMove: (id: number) => void
   /** 이 공간에 쓸 수 있는지(WP-602) — 거짓(VIEWER)이면 하위 페이지·삭제 버튼을 감추고 끌어 옮기기를 끈다(눌러도 403). */
   canEdit: boolean
 }) {
@@ -72,6 +76,7 @@ export function WikiTreeRow({
   const coarse = useIsCoarsePointer()
   // 삭제는 메뉴/시트가 닫힌 뒤 다이얼로그를 연다 — 닫히는 오버레이의 포커스 복귀·pointer-events 정리와 겹치지 않게.
   const requestDelete = () => setTimeout(() => onRequestDelete(id), 0)
+  const requestMove = () => setTimeout(() => onRequestMove(id), 0)
   return (
     <div
       ref={setNodeRef}
@@ -142,6 +147,7 @@ export function WikiTreeRow({
             isolateEvents
             actions={[
               { key: 'wiki-add-child', label: '하위 페이지 추가', icon: <Plus />, onSelect: () => onAddChild(id) },
+              { key: 'wiki-move', label: '이동…', icon: <CornerDownRight />, onSelect: requestMove },
               { key: 'wiki-delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: requestDelete },
             ]}
           />
@@ -167,7 +173,13 @@ export function WikiTreeRow({
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem onSelect={requestMove}>
+                  <CornerDownRight />
+                  이동…
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onSelect={requestDelete}>
+                  <Trash2 />
                   삭제
                 </DropdownMenuItem>
               </DropdownMenuContent>
