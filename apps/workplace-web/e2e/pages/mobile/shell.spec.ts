@@ -88,6 +88,18 @@ test('AI 미사용이면 AI 칸 없이 6칸', async ({ authenticatedPage: page }
   await expect(page.getByTestId('mobile-tabbar').locator('[data-testid^="mobile-tab-"]:not([data-testid^="mobile-tab-badge"]):not([data-testid="mobile-tab-ai-capsule"])')).toHaveCount(6)
 })
 
+// WP-880: AI 칸이 없는 탭바인데도 편집 화면이 「가운데 AI 와 끝의 앱은 고정」이라고 안내했다.
+test('탭바 순서 편집 안내는 AI 칸 유무에 맞춘다', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await page.goto('/apps/tabs')
+  await expect(page.getByTestId('tab-edit-intro')).toHaveText('가운데 AI 와 끝의 앱은 고정입니다. 나머지 5칸을 고르세요.')
+
+  await page.route((u) => u.pathname === '/api/v1/users/me', (r) =>
+    r.fulfill({ json: { ...createUser({ aiAvailable: false }), roles: [] } }))
+  await page.reload()
+  await expect(page.getByTestId('tab-edit-intro')).toHaveText('끝의 앱은 고정입니다. 나머지 5칸을 고르세요.')
+})
+
 test('AI 버튼은 다른 탭과 같은 선상 — 탭바 위로 돌출되지 않고, AI 시트 입력창을 가리지 않는다', async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')

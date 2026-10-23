@@ -1,4 +1,4 @@
-// /apps/tabs — 탭바 칸 구성·순서 편집(WP-126). AI(가운데)·앱(끝)은 고정 표시만.
+// /apps/tabs — 탭바 칸 구성·순서 편집(WP-126). AI(가운데, 쓸 수 있을 때만)·앱(끝)은 고정 표시만.
 // 칸 수는 지금 화면이 보여 주는 만큼(넓은 폰 5칸·좁은 폰 3칸, WP-877) — 구성은 기기별 저장이라 화면에 맞추면 충분해 안 보이는 칸 안내는 두지 않는다.
 // 앱 목록의 길게 누르기(고정·교체)가 빠른 교체라면, 이 화면은 칸 순서 조정까지 하는 상세 편집이다.
 // 드래그 대신 위/아래·추가/제거 버튼으로 편집한다(접근성·단순성). 모바일 전용.
@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { useTabSlots } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
+import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { ALL_TAB_IDS, MOBILE_TABS, type MobileTabId } from '@/lib/mobile/tabs'
 import { eulReul, euroRo } from '@/lib/utils'
 
@@ -28,6 +29,8 @@ function TabEditor() {
   const [draft, setDraft] = useState<MobileTabId[]>(saved)
   // 탭바 사용자 칸 수(AI·앱 제외) — 지금 화면에서 보이는 칸 수.
   const slotCount = saved.length
+  // AI 비서를 쓸 수 없으면 탭바에 가운데 AI 칸이 없다(MobileTabBar) — 안내도 실제 탭바 모양에 맞춘다(WP-880).
+  const aiAvailable = useAiAvailable()
   const navigate = useNavigate()
   const candidates = ALL_TAB_IDS.filter((id) => !draft.includes(id))
   const full = draft.length >= slotCount
@@ -100,7 +103,9 @@ function TabEditor() {
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto pb-4">
-        <p className="px-4 pt-3 text-xs text-muted-foreground">가운데 AI 와 끝의 앱은 고정입니다. 나머지 {slotCount}칸을 고르세요.</p>
+        <p data-testid="tab-edit-intro" className="px-4 pt-3 text-xs text-muted-foreground">
+          {aiAvailable ? '가운데 AI 와 끝의 앱은' : '끝의 앱은'} 고정입니다. 나머지 {slotCount}칸을 고르세요.
+        </p>
         <ul className="mt-2 border-y">
           {draft.map((id, i) => {
             const t = MOBILE_TABS[id]
