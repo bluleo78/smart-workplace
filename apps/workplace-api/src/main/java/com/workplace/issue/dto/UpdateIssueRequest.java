@@ -11,7 +11,7 @@ import java.time.LocalDate;
 public record UpdateIssueRequest(
     @Size(max = 200) String title,
     @Size(max = 10000) String body,
-    @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status,
+    @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status,
     @Pattern(regexp = "LOW|MID|HIGH") String priority,
     LocalDate dueDate,
     Boolean clearDueDate,
@@ -23,6 +23,12 @@ public record UpdateIssueRequest(
     Integer version,
     // WP-807 프로젝트 상태 id — status(범주)보다 우선한다. 범주만 오면 이미 그 범주인 이슈는 상태를 유지하고 아니면 범주 기본 상태로 간다.
     Long statusId) {
+
+  /** 상태만 바꾸는 요청(WP-807) — PATCH /status·시스템 전이가 쓴다. 범주·상태 id 중 statusId 가 우선한다. */
+  public static UpdateIssueRequest statusOnly(String category, Long statusId) {
+    return new UpdateIssueRequest(
+        null, null, category, null, null, false, null, false, null, false, null, statusId);
+  }
 
   /** WP-807 이전의 11-인자 호환 생성자 — 상태 id 없이(범주만) 수정한다. */
   public UpdateIssueRequest(

@@ -92,11 +92,9 @@ public class IssueController {
       @PathVariable String key,
       @PathVariable int number,
       @Valid @RequestBody UpdateStatusRequest req) {
-    Long callerId = (Long) auth.getPrincipal();
     return ResponseEntity.ok(
-        req.statusId() != null
-            ? issueService.updateStatusById(callerId, key, number, req.statusId())
-            : issueService.updateStatus(callerId, key, number, req.status()));
+        issueService.updateStatus(
+            (Long) auth.getPrincipal(), key, number, req.status(), req.statusId()));
   }
 
   /**

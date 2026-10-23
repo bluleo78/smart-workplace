@@ -203,6 +203,14 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> create(owner, p.key(), " review ", "DONE"))
         .isInstanceOf(StatusNameDuplicatedException.class)
         .hasMessage("이미 존재하는 상태 이름입니다: review");
+  }
+
+  /** 이름 변경도 같은 규칙. 중복 판정은 유일 인덱스가 하므로(위반 뒤 트랜잭션은 중단된다) @Transactional 테스트에서 위반은 테스트마다 하나만 일으킨다. */
+  @Test
+  void 이름변경도_대소문자만_다른_중복이름은_409() {
+    Long owner = createUser("dq");
+    ProjectResponse p = newProject(owner, "PSR");
+    create(owner, p.key(), "Review", "IN_PROGRESS");
     Long todo = byName(owner, p.key(), "할 일").id();
     assertThatThrownBy(
             () -> service.rename(owner, p.key(), todo, new RenameProjectStatusRequest("REVIEW")))

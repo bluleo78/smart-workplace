@@ -136,7 +136,7 @@ class IssueCustomStatusTest extends IntegrationTestBase {
   }
 
   private IssueResponse moveTo(int number, long statusId) {
-    return issueService.updateStatusById(owner, project.key(), number, statusId).summary();
+    return issueService.updateStatus(owner, project.key(), number, null, statusId).summary();
   }
 
   private IssueResponse moveToCategory(int number, String category) {

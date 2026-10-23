@@ -51,6 +51,9 @@ public class IssueRepository {
 
   private final DSLContext dsl;
 
+  /** WP-807: 범주만 받는 호환 경로에서 범주 기본 상태 id 를 정한다. */
+  private final ProjectStatusRepository projectStatusRepository;
+
   /**
    * 연결된 마일스톤 이름(스칼라 서브쿼리) — AI 도구가 update_issue 에 그대로 쓸 수 있게 응답에 이름을 싣는다(WP-307). 유형·라벨처럼 서버가 이름을
    * 주므로 클라이언트가 마일스톤 목록을 따로 조회하지 않는다. 조회·INSERT RETURNING 모두에서 평가된다.
@@ -288,9 +291,8 @@ public class IssueRepository {
   }
 
   /**
-   * 처음 상태(범주)만 지정해 INSERT(WP-464). status_id 는 DB 동기화 트리거(V203)가 범주 기본 상태로 채운다 — 테스트 시드용 호환 경로.
-   * 서비스는 상태 id 를 명시하는 {@link #insert(Long, int, String, String, String, LocalDate, Long, Long,
-   * Long, LocalDate, Long, String, long)} 를 쓴다(트리거는 후속 이슈에서 제거 예정).
+   * 처음 상태(범주)만 지정해 INSERT(WP-464) — 테스트 시드·예전 호출 호환 경로. status 가 null 이면 할 일. status_id 는 그 범주의 기본
+   * 상태(가장 앞)로 자바에서 정해 상태 id 오버로드에 맡긴다 — DB 동기화 트리거(V203 (c))에 기대지 않아 트리거를 지워도 그대로 동작한다.
    */
   public IssueRow insert(
       Long projectId,
@@ -305,7 +307,8 @@ public class IssueRepository {
       LocalDate startDate,
       Long milestoneId,
       String status) {
-    return insertRow(
+    String category = status != null ? status : IssueStatuses.TODO;
+    return insert(
         projectId,
         number,
         title,
@@ -317,13 +320,24 @@ public class IssueRepository {
         parentIssueId,
         startDate,
         milestoneId,
-        status,
-        null);
+        category,
+        defaultStatusId(projectId, category));
+  }
+
+  /** 범주의 기본 상태 id(WP-807) — 범주만 받는 호환 경로가 status_id 를 정할 때 쓴다. */
+  private long defaultStatusId(Long projectId, String category) {
+    return projectStatusRepository
+        .findDefault(projectId, category)
+        .orElseThrow(() -> new IllegalStateException("프로젝트에 " + category + " 범주 상태가 없음"))
+        .id();
   }
 
   /**
    * 처음 상태를 범주·프로젝트 상태 id 로 지정해 INSERT(WP-807). 둘은 같은 상태를 가리켜야 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE·
    * CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
+   *
+   * <p>INSERT RETURNING 은 테이블 컬럼만 돌려줘 서브쿼리 컬럼(마일스톤·상태 이름)이 빠진다 — 그래서 새 id 만 받아 {@link #findById} 로
+   * 다시 읽어, 조회와 같은 매핑으로 응답에 이름을 싣는다.
    */
   public IssueRow insert(
       Long projectId,
@@ -339,42 +353,6 @@ public class IssueRepository {
       Long milestoneId,
       String status,
       long statusId) {
-    return insertRow(
-        projectId,
-        number,
-        title,
-        body,
-        priority,
-        dueDate,
-        reporterId,
-        typeId,
-        parentIssueId,
-        startDate,
-        milestoneId,
-        status,
-        statusId);
-  }
-
-  /**
-   * INSERT 본체. status 가 null 이면 DB default('TODO'), statusId 가 null 이면 동기화 트리거가 범주 기본 상태로 채운다.
-   *
-   * <p>INSERT RETURNING 은 테이블 컬럼만 돌려줘 서브쿼리 컬럼(마일스톤·상태 이름)이 빠진다 — 그래서 새 id 만 받아 {@link #findById} 로
-   * 다시 읽어, 조회와 같은 매핑으로 응답에 이름을 싣는다(WP-807).
-   */
-  private IssueRow insertRow(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId,
-      Long typeId,
-      Long parentIssueId,
-      LocalDate startDate,
-      Long milestoneId,
-      String status,
-      Long statusId) {
     var insert =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, projectId)
@@ -387,15 +365,11 @@ public class IssueRepository {
             .set(ISSUE.REPORTER_ID, reporterId)
             .set(ISSUE.TYPE_ID, typeId)
             .set(ISSUE.PARENT_ISSUE_ID, parentIssueId)
-            .set(ISSUE.MILESTONE_ID, milestoneId);
-    if (status != null) {
-      insert = insert.set(ISSUE.STATUS, status);
-      if (IssueStatuses.isClosed(status)) {
-        insert = insert.set(ISSUE.CLOSED_AT, OffsetDateTime.now());
-      }
-    }
-    if (statusId != null) {
-      insert = insert.set(ISSUE.STATUS_ID, statusId);
+            .set(ISSUE.MILESTONE_ID, milestoneId)
+            .set(ISSUE.STATUS, status)
+            .set(ISSUE.STATUS_ID, statusId);
+    if (IssueStatuses.isClosed(status)) {
+      insert = insert.set(ISSUE.CLOSED_AT, OffsetDateTime.now());
     }
     Long id =
         insert
@@ -486,8 +460,8 @@ public class IssueRepository {
   }
 
   /**
-   * 모든 변경 가능 필드 일괄 갱신 — 상태 id 없이 범주만 쓰는 테스트 시드용 호환 경로. 범주가 바뀌면 동기화 트리거(V203)가 status_id 를 범주 기본 상태로
-   * 맞춘다.
+   * 모든 변경 가능 필드 일괄 갱신 — 상태 id 없이 범주만 쓰는 테스트 시드용 호환 경로. 이미 그 범주면 지금 상태를 유지하고, 아니면 그 범주의 기본 상태로
+   * 간다(WP-807) — 상태 id 를 자바에서 정해 DB 동기화 트리거(V203 (c))에 기대지 않는다.
    */
   public void updateAll(
       Long id,
@@ -499,8 +473,18 @@ public class IssueRepository {
       LocalDate startDate,
       Long milestoneId,
       java.time.Instant closedAt) {
-    updateAllRow(
-        id, title, body, status, null, priority, dueDate, startDate, milestoneId, closedAt);
+    var current =
+        dsl.select(ISSUE.PROJECT_ID, ISSUE.STATUS, ISSUE.STATUS_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(id))
+            .fetchOptional()
+            .orElseThrow(() -> new IllegalStateException("이슈 없음: " + id));
+    long statusId =
+        status.equals(current.value2())
+            ? current.value3()
+            : defaultStatusId(current.value1(), status);
+    updateAll(
+        id, title, body, status, statusId, priority, dueDate, startDate, milestoneId, closedAt);
   }
 
   /**
@@ -518,40 +502,20 @@ public class IssueRepository {
       LocalDate startDate,
       Long milestoneId,
       java.time.Instant closedAt) {
-    updateAllRow(
-        id, title, body, status, statusId, priority, dueDate, startDate, milestoneId, closedAt);
-  }
-
-  /** updateAll 본체 — statusId 가 null 이면 status_id 는 쓰지 않는다(트리거가 맞춘다). */
-  private void updateAllRow(
-      Long id,
-      String title,
-      String body,
-      String status,
-      Long statusId,
-      String priority,
-      LocalDate dueDate,
-      LocalDate startDate,
-      Long milestoneId,
-      java.time.Instant closedAt) {
-    var update =
-        dsl.update(ISSUE)
-            .set(ISSUE.TITLE, title)
-            .set(ISSUE.BODY, body)
-            .set(ISSUE.STATUS, status)
-            .set(ISSUE.PRIORITY, priority)
-            .set(ISSUE.DUE_DATE, dueDate)
-            .set(ISSUE.START_DATE, startDate)
-            .set(ISSUE.MILESTONE_ID, milestoneId)
-            .set(
-                ISSUE.CLOSED_AT,
-                closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
-            .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
-            .set(ISSUE.VERSION, ISSUE.VERSION.plus(1));
-    if (statusId != null) {
-      update = update.set(ISSUE.STATUS_ID, statusId);
-    }
-    update.where(ISSUE.ID.eq(id)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.TITLE, title)
+        .set(ISSUE.BODY, body)
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, statusId)
+        .set(ISSUE.PRIORITY, priority)
+        .set(ISSUE.DUE_DATE, dueDate)
+        .set(ISSUE.START_DATE, startDate)
+        .set(ISSUE.MILESTONE_ID, milestoneId)
+        .set(ISSUE.CLOSED_AT, closedAt != null ? closedAt.atOffset(java.time.ZoneOffset.UTC) : null)
+        .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+        .set(ISSUE.VERSION, ISSUE.VERSION.plus(1))
+        .where(ISSUE.ID.eq(id))
+        .execute();
   }
 
   /**

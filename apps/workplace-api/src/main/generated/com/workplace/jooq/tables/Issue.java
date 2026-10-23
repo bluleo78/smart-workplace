@@ -265,7 +265,7 @@ public class Issue extends TableImpl<IssueRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_ISSUE_ACTIVE, Indexes.IDX_ISSUE_MILESTONE, Indexes.IDX_ISSUE_PARENT, Indexes.IDX_ISSUE_PROJECT_STATUS_UPDATED, Indexes.IDX_ISSUE_SOURCE, Indexes.IDX_ISSUE_STATUS_ID, Indexes.IDX_ISSUE_TENANT, Indexes.IDX_ISSUE_TYPE);
+        return Arrays.asList(Indexes.IDX_ISSUE_ACTIVE, Indexes.IDX_ISSUE_MILESTONE, Indexes.IDX_ISSUE_PARENT, Indexes.IDX_ISSUE_PROJECT_STATUS_ID_UPDATED, Indexes.IDX_ISSUE_PROJECT_STATUS_UPDATED, Indexes.IDX_ISSUE_SOURCE, Indexes.IDX_ISSUE_TENANT, Indexes.IDX_ISSUE_TYPE);
     }
 
     @Override

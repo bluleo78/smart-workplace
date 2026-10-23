@@ -144,8 +144,8 @@ class IssueCycleRepositoryTest extends IntegrationTestBase {
     var reviewing =
         issueService.create(
             owner, p.key(), new CreateIssueRequest("R", null, null, null, null, null, null, null));
-    issueService.updateStatusById(owner, p.key(), shipped.number(), deployed);
-    issueService.updateStatusById(owner, p.key(), reviewing.number(), review);
+    issueService.updateStatus(owner, p.key(), shipped.number(), null, deployed);
+    issueService.updateStatus(owner, p.key(), reviewing.number(), null, review);
     for (var it : List.of(shipped, reviewing)) {
       issueCycleService.replace(owner, p.key(), it.number(), List.of(c1.id()));
     }

@@ -67,6 +67,7 @@ import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -139,13 +140,17 @@ public class IssueService {
    * 이미 그 범주일 때 지금 상태를 유지하고(시스템 전이 「진행 중으로」가 「검토 중」을 되돌리지 않게), 아니면 범주 기본 상태(가장 앞)로 간다. 둘 다 없으면 지금
    * 상태(새 이슈면 할 일 기본 상태).
    *
+   * @param requested statusId 로 읽은 상태 행({@link #lookupStatus}) — statusId 가 null 이면 빈 값
    * @param before 수정 전 이슈(생성이면 null)
    */
   private ResolvedStatus resolveStatus(
-      ProjectRow project, Long statusId, String category, IssueRow before) {
+      ProjectRow project,
+      Long statusId,
+      Optional<ProjectStatusRow> requested,
+      String category,
+      IssueRow before) {
     if (statusId != null) {
-      return projectStatusRepository
-          .findById(statusId)
+      return requested
           .filter(s -> s.projectId().equals(project.id()))
           .map(ResolvedStatus::of)
           .orElseThrow(InvalidStatusForProjectException::new);
@@ -159,6 +164,11 @@ public class IssueService {
         .findDefault(project.id(), target)
         .map(ResolvedStatus::of)
         .orElseThrow(() -> new IllegalStateException("프로젝트에 " + target + " 범주 상태가 없음"));
+  }
+
+  /** 요청의 상태 id 를 한 번만 읽는다 — 수정 경로는 잠금 순서 판정과 상태 해석이 같은 행을 쓴다. statusId 가 null 이면 빈 값. */
+  private Optional<ProjectStatusRow> lookupStatus(Long statusId) {
+    return statusId != null ? projectStatusRepository.findById(statusId) : Optional.empty();
   }
 
   /**
@@ -276,7 +286,8 @@ public class IssueService {
     }
 
     // 0-1) 처음 상태(WP-807) — 다른 프로젝트·없는 상태 id 는 400. 부모 검증(완료 에픽 아래 미완료 하위 금지)이 해석된 범주를 쓴다.
-    ResolvedStatus status = resolveStatus(project, req.statusId(), req.status(), null);
+    ResolvedStatus status =
+        resolveStatus(project, req.statusId(), lookupStatus(req.statusId()), req.status(), null);
 
     // 1) 담당자 검증 — 개인·팀 공통으로 프로젝트 멤버만 담당 가능 (정책 통일 #418)
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
@@ -640,7 +651,9 @@ public class IssueService {
   public IssueDetailResponse update(
       Long callerId, String projectKey, int number, UpdateIssueRequest req) {
     var project = accessGuard.resolve(projectKey);
-    lockParentIfReopening(project, number, req);
+    // 상태 id 지정이면 그 상태 행을 한 번만 읽어 잠금 순서 판정과 아래 상태 해석에 함께 쓴다(WP-807).
+    Optional<ProjectStatusRow> requestedStatus = lookupStatus(req.statusId());
+    lockParentIfReopening(project, number, req, requestedStatus);
     // #611 읽은 값에 요청 필드를 병합해 전 컬럼을 다시 쓰므로 행을 잠가 동시 수정이 서로를 되돌리지 않게 한다.
     var before =
         issueRepository
@@ -677,7 +690,8 @@ public class IssueService {
     String newTitle = req.title() != null ? normalizeTitle(req.title()) : before.title();
     String newBody = req.body() != null ? req.body() : before.body();
     // WP-807 상태 — statusId 우선, 범주만 오면 이미 그 범주면 유지·아니면 범주 기본 상태. 이하 종료 시각·에픽 차단·AI 작업 종료는 범주로 판정한다.
-    ResolvedStatus resolved = resolveStatus(project, req.statusId(), req.status(), before);
+    ResolvedStatus resolved =
+        resolveStatus(project, req.statusId(), requestedStatus, req.status(), before);
     String newStatus = resolved.category();
     String newPriority = req.priority() != null ? req.priority() : before.priority();
     LocalDate newDue =
@@ -833,14 +847,15 @@ public class IssueService {
    * 쪽이 앞선 결과를 본다. 순서를 에픽 완료·삭제와 같은 「부모→하위」로 맞춰 서로 기다리지 않게 한다 — 그래서 하위 행을 잠그기 전에, 잠그지 않은 읽기로 대상을
    * 고른다(그 사이 상태·부모가 바뀌면 아래 다시 열기 판정이 잠근 행으로 다시 본다).
    */
-  private void lockParentIfReopening(ProjectRow project, int number, UpdateIssueRequest req) {
+  private void lockParentIfReopening(
+      ProjectRow project,
+      int number,
+      UpdateIssueRequest req,
+      Optional<ProjectStatusRow> requestedStatus) {
     // 상태 id 로 다시 여는 요청(WP-807)도 같은 잠금 순서를 지키도록 그 상태의 범주로 판정한다(없는 id 는 뒤의 resolveStatus 가 400).
     String target =
         req.statusId() != null
-            ? projectStatusRepository
-                .findById(req.statusId())
-                .map(ProjectStatusRow::category)
-                .orElse(null)
+            ? requestedStatus.map(ProjectStatusRow::category).orElse(null)
             : req.status();
     if (target == null || IssueStatuses.isClosed(target)) return;
     issueRepository
@@ -850,24 +865,19 @@ public class IssueService {
   }
 
   /**
-   * DnD 등에서 status(범주)만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. 이미 그 범주면 지금 상태를 유지하고 아니면 범주 기본
-   * 상태로 간다(WP-807) — 시스템 전이(AI 작업 시작·에픽 재오픈)가 이 경로라 사용자가 고른 같은 범주 상태를 되돌리지 않는다.
+   * DnD 등에서 상태만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. statusId(프로젝트 상태, WP-807)가 있으면 그것이 이기고
+   * 범주는 그 상태의 범주를 따른다. 범주만 오면 이미 그 범주일 때 지금 상태를 유지하고 아니면 범주 기본 상태로 간다 — 시스템 전이(AI 작업 시작·에픽 재오픈)가 이
+   * 경로라 사용자가 고른 같은 범주 상태를 되돌리지 않는다.
    */
   public IssueDetailResponse updateStatus(
-      Long callerId, String projectKey, int number, String newStatus) {
-    var req =
-        new UpdateIssueRequest(
-            null, null, newStatus, null, null, false, null, false, null, false, null);
-    return update(callerId, projectKey, number, req);
+      Long callerId, String projectKey, int number, String category, Long statusId) {
+    return update(callerId, projectKey, number, UpdateIssueRequest.statusOnly(category, statusId));
   }
 
-  /** 프로젝트 상태 id 로 상태만 변경(WP-807 — 보드 컬럼 이동). 범주는 그 상태의 범주를 따른다. */
-  public IssueDetailResponse updateStatusById(
-      Long callerId, String projectKey, int number, long statusId) {
-    var req =
-        new UpdateIssueRequest(
-            null, null, null, null, null, false, null, false, null, false, null, statusId);
-    return update(callerId, projectKey, number, req);
+  /** 범주만으로 상태를 바꾸는 단축 — 시스템 전이·테스트 호출부용({@link #updateStatus(Long, String, int, String, Long)}). */
+  public IssueDetailResponse updateStatus(
+      Long callerId, String projectKey, int number, String category) {
+    return updateStatus(callerId, projectKey, number, category, null);
   }
 
   /**

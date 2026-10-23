@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Pattern;
  * 400.
  */
 public record UpdateStatusRequest(
-    @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status, Long statusId) {
+    @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status, Long statusId) {
 
   /** 범주만 보내는 예전 호출 호환 생성자. */
   public UpdateStatusRequest(String status) {

@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.InvalidIssueFilterException;
 import java.util.Arrays;
 import java.util.List;
@@ -12,7 +13,7 @@ import java.util.Locale;
 final class SearchParams {
 
   /** 이슈 상태 값 — DB CHECK(V5) 와 같은 집합, 오류 문구에 이 순서로 나열한다. */
-  private static final List<String> STATUSES = List.of("TODO", "IN_PROGRESS", "DONE", "CANCELED");
+  private static final List<String> STATUSES = IssueStatuses.CATEGORY_ORDER;
 
   /** 이슈 우선순위 값 — DB CHECK(V5) 와 같은 집합. */
   private static final List<String> PRIORITIES = List.of("LOW", "MID", "HIGH");

@@ -162,14 +162,6 @@ public class ProjectMemberRepository {
         .fetch(PROJECT_MEMBER.USER_ID);
   }
 
-  /** 사용자가 멤버인 프로젝트 id 목록 — 프로젝트 횡단 이슈 검색의 이름 필터(상태 이름, WP-807) 해석 범위. */
-  public List<Long> findProjectIdsByUser(Long userId) {
-    return dsl.select(PROJECT_MEMBER.PROJECT_ID)
-        .from(PROJECT_MEMBER)
-        .where(PROJECT_MEMBER.USER_ID.eq(userId))
-        .fetch(PROJECT_MEMBER.PROJECT_ID);
-  }
-
   /**
    * 멤버 행을 공유 잠금하고 있는지 돌려준다(WP-776) — 멤버십을 근거로 무언가를 남기는 쓰기(구독 등)가 커밋할 때까지 그 멤버 제거(행 삭제)를 기다리게 하고,
    * 제거가 먼저 커밋됐으면 행이 없어 false 다. 읽기 전용 트랜잭션에서는 쓰지 않는다(PG 가 FOR SHARE 를 거절).

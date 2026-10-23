@@ -1,5 +1,6 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
 
 import com.workplace.issue.dto.IssueStatuses;
@@ -86,11 +87,16 @@ public class ProjectStatusRepository {
         .fetchOptional(this::mapToRow);
   }
 
-  /** 여러 프로젝트의 상태 전부 — 프로젝트 횡단 상태 이름 필터가 못 찾았을 때 사용 가능한 이름을 알려 주는 데 쓴다. 빈 입력은 빈 목록. */
-  public List<ProjectStatusRow> findByProjects(Collection<Long> projectIds) {
-    if (projectIds == null || projectIds.isEmpty()) return List.of();
+  /**
+   * 사용자가 멤버인 프로젝트의 상태 전부 — 프로젝트 횡단 이슈 검색의 상태 이름 필터 해석 후보(유형·라벨의 findByMemberProjects 와 같은 서브쿼리 패턴).
+   */
+  public List<ProjectStatusRow> findByMemberProjects(Long userId) {
     return dsl.selectFrom(PROJECT_STATUS)
-        .where(PROJECT_STATUS.PROJECT_ID.in(projectIds))
+        .where(
+            PROJECT_STATUS.PROJECT_ID.in(
+                dsl.select(PROJECT_MEMBER.PROJECT_ID)
+                    .from(PROJECT_MEMBER)
+                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
         .orderBy(DISPLAY_ORDER)
         .fetch(this::mapToRow);
   }
@@ -107,14 +113,16 @@ public class ProjectStatusRepository {
   /**
    * 프로젝트의 상태 행을 모두 잠근다(FOR NO KEY UPDATE) — 상태 추가가 position 을 정하고 뒤 행을 밀어내는 동안 같은 프로젝트의 다른 추가가 끼어들지
    * 못하게. NO KEY UPDATE 끼리는 서로 막아 동시 추가는 직렬화되지만, 이슈 INSERT·status_id 변경의 FK 검사(FOR KEY SHARE)는 막지
-   * 않는다. 잠금을 기다렸던 쪽은 상대가 커밋한 새 행을 이 결과에서 보지 못하므로(READ COMMITTED), position 계산은 잠근 뒤 다시 조회해서 한다.
+   * 않는다. 잠금을 기다렸던 쪽은 상대가 커밋한 새 행을 이 결과에서 보지 못하므로(READ COMMITTED), position 계산은 잠근 뒤 다시 조회해서 한다 —
+   * 그래서 잠금은 id 만 읽는다.
    */
-  public List<ProjectStatusRow> lockByProject(Long projectId) {
-    return dsl.selectFrom(PROJECT_STATUS)
+  public void lockByProject(Long projectId) {
+    dsl.select(PROJECT_STATUS.ID)
+        .from(PROJECT_STATUS)
         .where(PROJECT_STATUS.PROJECT_ID.eq(projectId))
         .orderBy(PROJECT_STATUS.ID.asc())
         .forNoKeyUpdate()
-        .fetch(this::mapToRow);
+        .execute();
   }
 
   /** position 이 주어진 값보다 큰 상태를 한 칸씩 뒤로 민다 — 그 바로 뒤 자리(position + 1)를 비우기 위해. */
@@ -151,38 +159,5 @@ public class ProjectStatusRepository {
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(StatusNotFoundException::new);
-  }
-
-  /**
-   * 같은 프로젝트에 대소문자·앞뒤 공백만 다른 같은 이름이 있는가 — 유일 인덱스와 같은 식(lower(btrim))으로 비교한다.
-   *
-   * @param excludeId 이름을 바꾸는 상태 자신(추가할 때는 null)
-   */
-  public boolean existsName(Long projectId, String name, Long excludeId) {
-    var cond =
-        PROJECT_STATUS
-            .PROJECT_ID
-            .eq(projectId)
-            .and(DSL.lower(DSL.trim(PROJECT_STATUS.NAME)).eq(DSL.lower(DSL.trim(DSL.val(name)))));
-    if (excludeId != null) cond = cond.and(PROJECT_STATUS.ID.ne(excludeId));
-    return dsl.fetchExists(PROJECT_STATUS, cond);
-  }
-
-  /** 여러 프로젝트에서 이름으로 상태를 찾는다(대소문자·앞뒤 공백 무시) — 프로젝트 횡단 이슈 검색의 상태 이름 필터를 id 로 해석할 때 쓴다. 빈 입력은 빈 목록. */
-  public List<ProjectStatusRow> findByNamesInProjects(
-      Collection<Long> projectIds, Collection<String> names) {
-    if (projectIds == null || projectIds.isEmpty() || names == null || names.isEmpty()) {
-      return List.of();
-    }
-    // 비교 키도 DB 의 lower(btrim) 로 만든다 — 자바 쪽 소문자·공백 규칙과 어긋나지 않게(유일 인덱스와 같은 식)
-    List<Field<String>> keys = names.stream().map(n -> DSL.lower(DSL.trim(DSL.val(n)))).toList();
-    return dsl.selectFrom(PROJECT_STATUS)
-        .where(
-            PROJECT_STATUS
-                .PROJECT_ID
-                .in(projectIds)
-                .and(DSL.lower(DSL.trim(PROJECT_STATUS.NAME)).in(keys)))
-        .orderBy(DISPLAY_ORDER)
-        .fetch(this::mapToRow);
   }
 }

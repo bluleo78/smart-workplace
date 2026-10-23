@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Pattern;
  */
 public record CreateProjectStatusRequest(
     @NotBlank(message = "상태 이름을 입력해 주세요") String name,
-    @NotBlank @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String category,
+    @NotBlank @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String category,
     Long afterStatusId) {
   public CreateProjectStatusRequest {
     // 이름은 한 줄로 다듬는다 — 줄바꿈·앞뒤 공백·제로폭 문자만 남은 이름이 보드 컬럼에 빈 머리로 보이지 않게(유형 이름 WP-671 과 같은 규칙)

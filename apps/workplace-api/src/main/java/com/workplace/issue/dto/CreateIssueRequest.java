@@ -41,7 +41,7 @@ public record CreateIssueRequest(
     List<@NotNull Long> cycleIds,
     List<String> labelNames,
     @Size(max = 10) List<Long> fileIds,
-    @Pattern(regexp = "TODO|IN_PROGRESS|DONE|CANCELED") String status,
+    @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status,
     Long statusId) {
 
   /** WP-807 이전의 14-인자 호환 생성자 — 상태 id 없이(범주만) 만든다. */

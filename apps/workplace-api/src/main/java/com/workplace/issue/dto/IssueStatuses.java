@@ -27,6 +27,13 @@ public final class IssueStatuses {
   /** 범주의 화면·보드 순서. 프로젝트 상태 목록은 이 순서로 묶이고, 범주 안에서는 position 순이다. */
   public static final List<String> CATEGORY_ORDER = List.of(TODO, IN_PROGRESS, DONE, CANCELED);
 
+  /**
+   * 요청 DTO 의 범주 검증 정규식 — {@code @Pattern(regexp = ...)} 은 컴파일 타임 상수만 받아 {@link #CATEGORY_ORDER} 에서
+   * 만들 수 없으므로 한 곳에 문자열로 둔다(범주를 늘리면 둘을 함께 고친다).
+   */
+  public static final String CATEGORY_REGEX =
+      TODO + "|" + IN_PROGRESS + "|" + DONE + "|" + CANCELED;
+
   /** 종료 상태(Jira 의 Done 분류) — 완료와 취소 모두 "끝난 일"로 본다. */
   public static final Set<String> CLOSED = Set.of(DONE, CANCELED);
 

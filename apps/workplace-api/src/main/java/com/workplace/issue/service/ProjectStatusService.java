@@ -64,17 +64,14 @@ public class ProjectStatusService {
     }
 
     repo.lockByProject(project.id());
-    // 잠근 뒤 다시 읽는다 — 잠금을 기다린 쪽은 잠금 결과에서 상대가 방금 넣은 행을 보지 못한다(READ COMMITTED).
-    int anchor = anchorPosition(project.id(), category, req.afterStatusId());
-    if (repo.existsName(project.id(), name, null)) {
-      throw new StatusNameDuplicatedException(name);
-    }
+    // 잠근 뒤 목록을 한 번 읽는다 — 잠금을 기다린 쪽은 잠금 문장에서 상대가 방금 넣은 행을 보지 못한다(READ COMMITTED).
+    int anchor = anchorPosition(repo.findByProject(project.id()), category, req.afterStatusId());
     repo.shiftPositionsAfter(project.id(), anchor);
     ProjectStatusRow row;
     try {
       row = repo.insert(project.id(), name, category, anchor + 1);
     } catch (DuplicateKeyException e) {
-      // 위 확인과 INSERT 사이 경합(이름 변경 등) — 유일 인덱스가 막은 것을 같은 409 로
+      // 이름 중복은 유일 인덱스(project_id, lower(btrim(name)))가 판정한다 — 미리 확인하지 않고 막힌 것을 409 로(트랜잭션은 롤백)
       throw new StatusNameDuplicatedException(name);
     }
     changeNotifier.changed(
@@ -91,13 +88,11 @@ public class ProjectStatusService {
     if (!current.projectId().equals(project.id())) {
       throw new StatusNotFoundException();
     }
-    if (repo.existsName(project.id(), name, statusId)) {
-      throw new StatusNameDuplicatedException(name);
-    }
     ProjectStatusRow row;
     try {
       row = repo.rename(statusId, name);
     } catch (DuplicateKeyException e) {
+      // 이름 중복은 유일 인덱스가 판정한다 — 자기 이름 그대로(대소문자만 바꿈 포함)는 같은 행이라 걸리지 않는다
       throw new StatusNameDuplicatedException(name);
     }
     changeNotifier.changed(
@@ -118,19 +113,22 @@ public class ProjectStatusService {
    * 새 상태가 들어갈 자리의 바로 앞 position. after 가 있으면 그 상태(없거나 다른 프로젝트면 404, 범주가 다르면 400), 없으면 그 범주까지(범주 순서상
    * 이 범주와 그 앞 범주들)의 마지막 position — 범주가 비어 있어도 앞 범주 뒤에 들어가 범주 순서가 깨지지 않는다. 상태가 하나도 없으면 -1.
    */
-  private int anchorPosition(Long projectId, String category, Long afterStatusId) {
+  private static int anchorPosition(
+      List<ProjectStatusRow> statuses, String category, Long afterStatusId) {
     if (afterStatusId != null) {
-      var after = repo.findById(afterStatusId).orElseThrow(StatusNotFoundException::new);
-      if (!after.projectId().equals(projectId)) {
-        throw new StatusNotFoundException();
-      }
+      // 목록은 이 프로젝트의 상태뿐이라, 없는 id·다른 프로젝트 id 모두 여기서 404 가 된다
+      var after =
+          statuses.stream()
+              .filter(s -> s.id().equals(afterStatusId))
+              .findFirst()
+              .orElseThrow(StatusNotFoundException::new);
       if (!after.category().equals(category)) {
         throw new InvalidStatusForProjectException();
       }
       return after.position();
     }
     int rank = IssueStatuses.CATEGORY_ORDER.indexOf(category);
-    return repo.findByProject(projectId).stream()
+    return statuses.stream()
         .filter(s -> IssueStatuses.CATEGORY_ORDER.indexOf(s.category()) <= rank)
         .mapToInt(ProjectStatusRow::position)
         .max()
