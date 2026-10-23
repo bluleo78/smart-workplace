@@ -37,6 +37,7 @@ import { AUDIT_ACTION_TYPES, AUDIT_RESOURCES, formatAuditAction, formatAuditReso
 import { clickableRowProps } from '@/lib/clickableRowProps';
 import { formatDateTime, formatIpAddress, formatNumber } from '@/lib/formatters';
 import { flattenUniquePages } from '@/lib/offsetPaging';
+import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_MIN, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
 import type { AuditLogResponse } from '@/types/auditLog';
 
 import { AuditUserFilter, type AuditUserSelection } from './components/AuditUserFilter';
@@ -186,6 +187,12 @@ export default function AuditLogListPage() {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
 
+  // 칸이 받는 아주 큰 연도(275760-09-13 등)는 toISOString 이 RangeError 를 던져 화면 전체가 무너졌다(WP-899).
+  // 받는 범위의 날짜만 조건으로 쓰고, 범위 밖이면 그 조건은 빼고 칸 아래에 안내한다.
+  const startSupported = isSupportedDateKey(startDate);
+  const endSupported = isSupportedDateKey(endDate);
+  const dateOutOfRange = (startDate !== '' && !startSupported) || (endDate !== '' && !endSupported);
+
   /** 상세 보기 다이얼로그 상태 */
   const [selectedLog, setSelectedLog] = useState<AuditLogResponse | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -197,9 +204,9 @@ export default function AuditLogListPage() {
     actionType: actionType || undefined,
     resource: resource || undefined,
     result: result || undefined,
-    // 날짜 범위를 ISO datetime으로 변환하여 API에 전달
-    startDate: startDate ? toIsoDateTime(startDate) : undefined,
-    endDate: endDate ? toIsoDateTime(endDate, true) : undefined,
+    // 날짜 범위를 ISO datetime으로 변환하여 API에 전달 — 받는 범위(1900~9999) 밖의 날짜는 보내지 않는다.
+    startDate: startSupported ? toIsoDateTime(startDate) : undefined,
+    endDate: endSupported ? toIsoDateTime(endDate, true) : undefined,
   });
   // 오류 행은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
   const { data, isLoading, isLoadingError } = logsQuery;
@@ -304,7 +311,10 @@ export default function AuditLogListPage() {
             aria-label="시작 날짜"
             className="min-w-0 flex-1 sm:w-[150px] sm:flex-none"
             value={startDate}
-            max={endDate || undefined}
+            min={SUPPORTED_DATE_MIN}
+            max={endDate || SUPPORTED_DATE_MAX}
+            aria-invalid={(startDate !== '' && !startSupported) || undefined}
+            aria-describedby={dateOutOfRange ? 'audit-log-date-error' : undefined}
             onChange={handleDateChange(setStartDate)}
           />
           <span className="text-muted-foreground text-sm">~</span>
@@ -313,7 +323,10 @@ export default function AuditLogListPage() {
             aria-label="종료 날짜"
             className="min-w-0 flex-1 sm:w-[150px] sm:flex-none"
             value={endDate}
-            min={startDate || undefined}
+            min={startDate || SUPPORTED_DATE_MIN}
+            max={SUPPORTED_DATE_MAX}
+            aria-invalid={(endDate !== '' && !endSupported) || undefined}
+            aria-describedby={dateOutOfRange ? 'audit-log-date-error' : undefined}
             onChange={handleDateChange(setEndDate)}
           />
         </div>
@@ -323,6 +336,11 @@ export default function AuditLogListPage() {
           <span className="ml-auto text-sm text-muted-foreground" data-testid="audit-log-total">
             총 {formatNumber(totalElements)}건
           </span>
+        )}
+        {dateOutOfRange && (
+          <p id="audit-log-date-error" role="alert" className="w-full text-xs text-destructive" data-testid="audit-log-date-error">
+            {SUPPORTED_DATE_RANGE_MESSAGE} — 이 날짜는 조건에서 뺐어요.
+          </p>
         )}
       </div>
 

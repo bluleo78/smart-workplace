@@ -1,5 +1,6 @@
 package com.workplace.audit.controller;
 
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -187,6 +188,23 @@ class AuditLogControllerTest {
                 .param("userId", "42"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.totalElements").value(0));
+  }
+
+  // WP-899: 받는 날짜 범위(1900~9999) 밖의 기간은 조회까지 가지 않고 400 + 범위 안내로 거절한다(DB 에서 원인 모를 409 가 나던 것).
+  @Test
+  void getAuditLogs_withUnsupportedDateRange_returnsBadRequest() throws Exception {
+    mockAuthentication("audit:read");
+
+    mockMvc
+        .perform(
+            get("/api/v1/admin/audit-logs")
+                .header("Authorization", "Bearer valid-token")
+                .param("startDate", "1899-12-31T15:00:00Z")
+                .param("endDate", "+275760-09-13T14:59:59Z"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.startDate").value("날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다"))
+        .andExpect(jsonPath("$.errors.endDate").value("날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다"));
+    verifyNoInteractions(auditLogService);
   }
 
   @Test

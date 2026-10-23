@@ -124,6 +124,33 @@ test.describe('/settings/audit-logs — actionType·resource facet 필터', () =
     },
   );
 
+  // WP-899 — 날짜 칸이 받는 최대 연도(275760-09-13)를 넣으면 ISO 변환이 RangeError 를 던져 화면 전체가 무너졌다.
+  // 범위(1900~9999) 밖 날짜는 조건에서 빼고 칸 아래에 안내하며, 목록은 그대로 보인다.
+  test('종료 날짜에 범위 밖 연도를 넣어도 화면이 무너지지 않고, 그 날짜는 조건에서 빼고 안내한다 (WP-899)', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    const capture = await setupCapturedAuditLogMocks(page);
+    await page.goto('/settings/audit-logs');
+    await capture.waitForRequest();
+
+    // fill 은 5자리 이상 연도를 받지 않아 칸의 값을 직접 넣고 React 에 input 이벤트를 보낸다(키보드로 칠 수 있는 값).
+    const end = page.getByLabel('종료 날짜');
+    await end.evaluate((el: HTMLInputElement) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '275760-09-13');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await expect(page.getByTestId('audit-log-date-error')).toContainText('날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다');
+    await expect(end).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByRole('heading', { name: '감사 로그' })).toBeVisible();
+    await expect(page.getByText('페이지를 불러오는 중 문제가 발생했습니다')).toHaveCount(0);
+    expect(capture.lastRequest()?.searchParams.has('endDate')).toBe(false);
+
+    // 범위 안 날짜로 고치면 안내가 사라지고 조건으로 보낸다.
+    await end.fill('2026-01-31');
+    await expect(page.getByTestId('audit-log-date-error')).toHaveCount(0);
+    await expect.poll(() => capture.lastRequest()?.searchParams.has('endDate')).toBe(true);
+  });
+
   // WP-732 — 긴 글을 붙여 넣어도 검색어는 200자로 잘려, 요청 줄 한도를 넘겨 목록이 실패하지 않는다.
   test('검색칸에 긴 글을 넣으면 200자로 잘려 요청된다', async ({ adminPage: page }) => {
     await setupAdminAuth(page);
