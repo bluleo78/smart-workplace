@@ -105,8 +105,9 @@ export function MemberSearchPopover({
           {!agentOnly && includeAgents && (
             <div
               className="flex gap-1 p-2 border-b"
-              role="tablist"
-              aria-label="kind 필터"
+              // 패널 없는 필터라 탭이 아니라 눌림 토글 묶음, 이름은 한국어(WP-855 — 예전엔 영어 「kind 필터」로 읽혔다).
+              role="group"
+              aria-label="사람·에이전트 필터"
             >
               {(['ALL', 'HUMAN', 'AGENT'] as const).map((k) => (
                 <Button
@@ -115,8 +116,7 @@ export function MemberSearchPopover({
                   size="sm"
                   variant={kindFilter === k ? 'default' : 'ghost'}
                   onClick={() => setKindFilter(k)}
-                  role="tab"
-                  aria-selected={kindFilter === k}
+                  aria-pressed={kindFilter === k}
                   data-testid={`member-search-filter-${k}`}
                 >
                   {k === 'ALL' ? '전체' : k === 'HUMAN' ? '사람' : '에이전트'}

@@ -201,7 +201,8 @@ export function RecipientInput({
             </p>
           ) : (
             <>
-              <div className="flex gap-1 overflow-x-auto border-b p-2" role="tablist" aria-label="kind 필터">
+              {/* 패널 없는 필터라 탭이 아니라 눌림 토글 묶음, 이름은 한국어(WP-855). */}
+              <div className="flex gap-1 overflow-x-auto border-b p-2" role="group" aria-label="사람·에이전트 필터">
                 {(['ALL', 'HUMAN', 'AGENT'] as const).map((k) => (
                   <Button
                     key={k}
@@ -209,8 +210,7 @@ export function RecipientInput({
                     size="sm"
                     variant={kindFilter === k ? 'default' : 'ghost'}
                     onClick={() => setKindFilter(k)}
-                    role="tab"
-                    aria-selected={kindFilter === k}
+                    aria-pressed={kindFilter === k}
                     // Tab 은 입력에서 곧바로 메시지 입력창으로 넘어가야 한다 — 탭 버튼은 포인터 전용.
                     tabIndex={-1}
                     // 터치(coarse)에선 44px 터치 타깃(M3). 마우스 환경은 sm 높이 그대로.

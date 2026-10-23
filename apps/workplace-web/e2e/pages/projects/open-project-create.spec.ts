@@ -16,7 +16,7 @@ test.describe('OPEN 프로젝트 생성', () => {
       await expect(page.getByRole('dialog', { name: '새 프로젝트' })).toBeVisible()
 
       // OPEN 토글 버튼 존재 확인
-      await expect(page.getByRole('tab', { name: '공개' })).toBeVisible()
+      await expect(page.getByRole('button', { name: '공개' })).toBeVisible()
     },
   )
 
@@ -27,8 +27,13 @@ test.describe('OPEN 프로젝트 생성', () => {
     await page.getByRole('button', { name: '+ 새 프로젝트' }).click()
     await expect(page.getByRole('dialog', { name: '새 프로젝트' })).toBeVisible()
 
-    // 공개 탭 클릭
-    await page.getByRole('tab', { name: '공개' }).click()
+    // 공개 선택 — WP-855: 패널 없는 탭이 아니라 「프로젝트 유형」 묶음의 눌림 토글로 알린다.
+    const typeGroup = page.getByRole('group', { name: '프로젝트 유형' })
+    await expect(typeGroup.getByRole('button', { name: '팀' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByRole('tab')).toHaveCount(0)
+    await typeGroup.getByRole('button', { name: '공개' }).click()
+    await expect(typeGroup.getByRole('button', { name: '공개' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(typeGroup.getByRole('button', { name: '팀' })).toHaveAttribute('aria-pressed', 'false')
 
     // OPEN 선택 시 key 입력 필드가 노출되어야 함
     await expect(page.getByLabel('key (예: WP)')).toBeVisible()
@@ -42,7 +47,7 @@ test.describe('OPEN 프로젝트 생성', () => {
     await expect(page.getByRole('dialog', { name: '새 프로젝트' })).toBeVisible()
 
     // 개인 탭 클릭
-    await page.getByRole('tab', { name: '개인' }).click()
+    await page.getByRole('button', { name: '개인' }).click()
 
     // PERSONAL 선택 시 key 입력 필드가 숨겨져야 함
     await expect(page.getByLabel('key (예: WP)')).not.toBeVisible()
@@ -67,7 +72,7 @@ test.describe('OPEN 프로젝트 생성', () => {
       await expect(page.getByRole('dialog', { name: '새 프로젝트' })).toBeVisible()
 
       // 공개 탭 선택
-      await page.getByRole('tab', { name: '공개' }).click()
+      await page.getByRole('button', { name: '공개' }).click()
 
       // key 와 이름 입력
       await page.getByLabel('key (예: WP)').fill('OPNQA')

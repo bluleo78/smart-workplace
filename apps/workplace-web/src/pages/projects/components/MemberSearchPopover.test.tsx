@@ -45,7 +45,10 @@ describe('MemberSearchPopover — 모드별 kind 탭·조회 범위', () => {
   it('includeAgents(팀 프로젝트): 전체/사람/에이전트 탭을 보이고 기본은 전체(ALL)로 조회한다', () => {
     renderPopover({ includeAgents: true })
     for (const k of KIND_TABS) expect(screen.getByTestId(`member-search-filter-${k}`)).toBeInTheDocument()
-    expect(screen.getByTestId('member-search-filter-ALL')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('member-search-filter-ALL')).toHaveAttribute('aria-pressed', 'true')
+    // WP-855 — 패널 없는 필터라 탭이 아니라 한국어 이름의 토글 묶음(예전엔 「kind 필터」로 읽혔다).
+    expect(screen.getByRole('group', { name: '사람·에이전트 필터' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
     expect(useUserSearch).toHaveBeenLastCalledWith('', 'ALL')
   })
 

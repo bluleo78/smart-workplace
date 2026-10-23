@@ -70,8 +70,9 @@ export function ProjectCreateDialog({
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-1">
             <span className="text-sm font-medium">유형</span>
-            {/* 유형 토글 — TEAM(팀 공유) | PERSONAL(개인 전용) | OPEN(공개 접수함). MemberSearchPopover 탭 스타일과 동일. */}
-            <div className="flex gap-1" role="tablist" aria-label="프로젝트 유형" data-testid="project-type-toggle">
+            {/* 유형 토글 — TEAM(팀 공유) | PERSONAL(개인 전용) | OPEN(공개 접수함). MemberSearchPopover 필터와 같은 모양.
+                하나만 고르는 폼 값이라 탭(role=tab)이 아니라 눌림 토글 묶음으로 알린다 — 패널 없는 탭은 화면이 바뀌는 것으로 오해된다(WP-855). */}
+            <div className="flex gap-1" role="group" aria-label="프로젝트 유형" data-testid="project-type-toggle">
               {(['TEAM', 'PERSONAL', 'OPEN'] as const).map((t) => (
                 <Button
                   key={t}
@@ -79,8 +80,7 @@ export function ProjectCreateDialog({
                   size="sm"
                   variant={type === t ? 'default' : 'ghost'}
                   onClick={() => setValue('type', t)}
-                  role="tab"
-                  aria-selected={type === t}
+                  aria-pressed={type === t}
                   data-testid={`project-type-${t}`}
                 >
                   {t === 'TEAM' ? '팀' : t === 'PERSONAL' ? '개인' : '공개'}
