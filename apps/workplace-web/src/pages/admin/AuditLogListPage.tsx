@@ -192,6 +192,14 @@ export default function AuditLogListPage() {
   const startSupported = isSupportedDateKey(startDate);
   const endSupported = isSupportedDateKey(endDate);
   const dateOutOfRange = (startDate !== '' && !startSupported) || (endDate !== '' && !endSupported);
+  // 시작이 종료보다 늦은 거꾸로 된 기간 — 결과가 늘 비어 「감사 로그가 없습니다」만 보였다(WP-910). 칸 아래에 바로잡으라고 알린다.
+  // 둘 다 YYYY-MM-DD 라 문자열 비교로 순서를 본다.
+  const dateReversed = startSupported && endSupported && startDate > endDate;
+  const dateError = dateOutOfRange
+    ? `${SUPPORTED_DATE_RANGE_MESSAGE} — 이 날짜는 조건에서 뺐어요.`
+    : dateReversed
+      ? '시작 날짜가 종료 날짜보다 늦습니다 — 기간을 바로잡아 주세요.'
+      : null;
 
   /** 상세 보기 다이얼로그 상태 */
   const [selectedLog, setSelectedLog] = useState<AuditLogResponse | null>(null);
@@ -313,8 +321,8 @@ export default function AuditLogListPage() {
             value={startDate}
             min={SUPPORTED_DATE_MIN}
             max={endDate || SUPPORTED_DATE_MAX}
-            aria-invalid={(startDate !== '' && !startSupported) || undefined}
-            aria-describedby={dateOutOfRange ? 'audit-log-date-error' : undefined}
+            aria-invalid={(startDate !== '' && !startSupported) || dateReversed || undefined}
+            aria-describedby={dateError ? 'audit-log-date-error' : undefined}
             onChange={handleDateChange(setStartDate)}
           />
           <span className="text-muted-foreground text-sm">~</span>
@@ -325,8 +333,8 @@ export default function AuditLogListPage() {
             value={endDate}
             min={startDate || SUPPORTED_DATE_MIN}
             max={SUPPORTED_DATE_MAX}
-            aria-invalid={(endDate !== '' && !endSupported) || undefined}
-            aria-describedby={dateOutOfRange ? 'audit-log-date-error' : undefined}
+            aria-invalid={(endDate !== '' && !endSupported) || dateReversed || undefined}
+            aria-describedby={dateError ? 'audit-log-date-error' : undefined}
             onChange={handleDateChange(setEndDate)}
           />
         </div>
@@ -337,9 +345,9 @@ export default function AuditLogListPage() {
             총 {formatNumber(totalElements)}건
           </span>
         )}
-        {dateOutOfRange && (
+        {dateError && (
           <p id="audit-log-date-error" role="alert" className="w-full text-xs text-destructive" data-testid="audit-log-date-error">
-            {SUPPORTED_DATE_RANGE_MESSAGE} — 이 날짜는 조건에서 뺐어요.
+            {dateError}
           </p>
         )}
       </div>

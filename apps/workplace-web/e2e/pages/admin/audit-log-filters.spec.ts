@@ -151,6 +151,29 @@ test.describe('/settings/audit-logs — actionType·resource facet 필터', () =
     await expect.poll(() => capture.lastRequest()?.searchParams.has('endDate')).toBe(true);
   });
 
+  // WP-910 — 시작 날짜를 종료 날짜보다 늦게 고르면 결과가 늘 비어 「감사 로그가 없습니다」만 보였다. 기간이 거꾸로라고 알린다.
+  test('시작 날짜가 종료 날짜보다 늦으면 기간을 바로잡으라고 안내한다 (WP-910)', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    const capture = await setupCapturedAuditLogMocks(page);
+    await page.goto('/settings/audit-logs');
+    await capture.waitForRequest();
+
+    const start = page.getByLabel('시작 날짜');
+    const end = page.getByLabel('종료 날짜');
+    await end.fill('2026-01-10');
+    await start.fill('2026-01-20');
+
+    const error = page.getByTestId('audit-log-date-error');
+    await expect(error).toHaveText('시작 날짜가 종료 날짜보다 늦습니다 — 기간을 바로잡아 주세요.');
+    await expect(start).toHaveAttribute('aria-invalid', 'true');
+    await expect(end).toHaveAttribute('aria-describedby', 'audit-log-date-error');
+
+    // 순서를 바로잡으면 안내가 사라진다.
+    await start.fill('2026-01-05');
+    await expect(error).toHaveCount(0);
+    await expect(start).not.toHaveAttribute('aria-invalid', 'true');
+  });
+
   // WP-732 — 긴 글을 붙여 넣어도 검색어는 200자로 잘려, 요청 줄 한도를 넘겨 목록이 실패하지 않는다.
   test('검색칸에 긴 글을 넣으면 200자로 잘려 요청된다', async ({ adminPage: page }) => {
     await setupAdminAuth(page);
