@@ -88,9 +88,11 @@ public class UserService {
   @Transactional(readOnly = true)
   public PageResponse<UserResponse> getUsers(String search, int page, int size, String kind) {
     Long tenantId = requireTenant();
-    List<UserResponse> content =
-        userRepository.findAllPaginated(tenantId, search, page, size, kind);
-    long totalElements = userRepository.countByTenant(tenantId, search, kind);
+    // 검색어 앞뒤 공백은 떼고, 공백뿐이면 조건 없음 — 「 bob」처럼 붙은 공백 때문에 있는 사람도 결과가 없었다(WP-930).
+    // 이슈 목록 검색과 같게 맞춘다. 화면·MCP(search_members) 등 모든 호출에 같이 적용되도록 서비스에서 정리한다.
+    String query = search == null || search.isBlank() ? null : search.strip();
+    List<UserResponse> content = userRepository.findAllPaginated(tenantId, query, page, size, kind);
+    long totalElements = userRepository.countByTenant(tenantId, query, kind);
     int totalPages = (int) Math.ceil((double) totalElements / size);
     return new PageResponse<>(content, page, size, totalElements, totalPages);
   }
