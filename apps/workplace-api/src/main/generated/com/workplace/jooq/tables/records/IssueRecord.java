@@ -329,6 +329,48 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
         return (Long) get(21);
     }
 
+    /**
+     * Setter for <code>public.issue.imported_by</code>.
+     */
+    public void setImportedBy(Long value) {
+        set(22, value);
+    }
+
+    /**
+     * Getter for <code>public.issue.imported_by</code>.
+     */
+    public Long getImportedBy() {
+        return (Long) get(22);
+    }
+
+    /**
+     * Setter for <code>public.issue.imported_at</code>.
+     */
+    public void setImportedAt(OffsetDateTime value) {
+        set(23, value);
+    }
+
+    /**
+     * Getter for <code>public.issue.imported_at</code>.
+     */
+    public OffsetDateTime getImportedAt() {
+        return (OffsetDateTime) get(23);
+    }
+
+    /**
+     * Setter for <code>public.issue.import_source_key</code>.
+     */
+    public void setImportSourceKey(String value) {
+        set(24, value);
+    }
+
+    /**
+     * Getter for <code>public.issue.import_source_key</code>.
+     */
+    public String getImportSourceKey() {
+        return (String) get(24);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -352,7 +394,7 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
     /**
      * Create a detached, initialised IssueRecord
      */
-    public IssueRecord(Long id, Long projectId, Integer number, String title, String body, String status, String priority, LocalDate dueDate, Long reporterId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime closedAt, OffsetDateTime deletedAt, Long typeId, Long parentIssueId, Long tenantId, String sourceType, Long sourceId, LocalDate startDate, Long milestoneId, Integer version, Long statusId) {
+    public IssueRecord(Long id, Long projectId, Integer number, String title, String body, String status, String priority, LocalDate dueDate, Long reporterId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime closedAt, OffsetDateTime deletedAt, Long typeId, Long parentIssueId, Long tenantId, String sourceType, Long sourceId, LocalDate startDate, Long milestoneId, Integer version, Long statusId, Long importedBy, OffsetDateTime importedAt, String importSourceKey) {
         super(Issue.ISSUE);
 
         setId(id);
@@ -377,6 +419,9 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
         setMilestoneId(milestoneId);
         setVersion(version);
         setStatusId(statusId);
+        setImportedBy(importedBy);
+        setImportedAt(importedAt);
+        setImportSourceKey(importSourceKey);
         resetChangedOnNotNull();
     }
 }

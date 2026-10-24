@@ -18,6 +18,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -142,25 +143,72 @@ public class IssueAttachmentService {
       return List.of();
     }
 
-    repo.advisoryLockIssue(issueId);
-    int current = repo.countByIssue(issueId);
-    if (current + fileIds.size() > maxPerIssue) {
-      throw new AttachmentLimitExceededException(current, fileIds.size(), maxPerIssue);
+    List<StagedFile> staged = claimStaged(issueId, callerId, fileIds, maxPerIssue);
+    for (StagedFile f : staged) {
+      repo.insert(f.fileId(), issueId, callerId);
+    }
+    List<IssueAttachmentResponse> added = loadAdded(issueId, staged);
+    for (StagedFile f : staged) {
+      requestTextExtraction(f);
     }
 
+    historyRecorder.recordAttachmentsChanged(callerId, issueId, added, List.of());
+    return added;
+  }
+
+  /** 가져오기(WP-883)가 넘기는 첨부 한 건 — 파일, 원 첨부자, 원 첨부 시각. */
+  public record ImportedAttachment(long fileId, long attachedBy, OffsetDateTime attachedAt) {}
+
+  /**
+   * 가져오기용 첨부 — {@link #attachStaged} 와 같은 잠금·스테이징 클레임(호출자 소유·만료·중복 바인딩 검사)·파일 크기 상한·텍스트 추출 요청을 거치되,
+   * 첨부자·시각을 원본 값으로 기록하고 <b>이력·알림은 남기지 않는다</b>(원래 이력은 가져오기가 따로 옮긴다). 개수 상한은 일반 경로(10)가 아니라 호출자가 넘기는
+   * 가져오기 상한(maxCount, 요청 DTO 의 상한)이다 — 다른 트래커의 이슈에는 첨부가 더 많을 수 있다. 호출자의 쓰기 트랜잭션 안에서 불러야 하며, 권한 판정은
+   * 호출자 몫이다.
+   *
+   * @return 붙인 첨부 수(응답의 첨부 개수를 다시 세지 않게)
+   */
+  public int attachImported(
+      long issueId, long callerId, List<ImportedAttachment> items, int maxCount) {
+    if (items == null || items.isEmpty()) {
+      return 0;
+    }
+    List<Long> fileIds = items.stream().map(ImportedAttachment::fileId).toList();
+    List<StagedFile> staged = claimStaged(issueId, callerId, fileIds, maxCount);
+    Map<Long, ImportedAttachment> byFile = new HashMap<>();
+    for (ImportedAttachment it : items) {
+      byFile.put(it.fileId(), it);
+    }
+    for (StagedFile f : staged) {
+      ImportedAttachment it = byFile.get(f.fileId());
+      repo.insert(f.fileId(), issueId, it.attachedBy(), it.attachedAt());
+      requestTextExtraction(f);
+    }
+    return staged.size();
+  }
+
+  /**
+   * 첨부 공통 앞단 — 이슈 단위 advisory lock(동시 업로드·클레임 직렬화, upload 와 같은 #625) → 누적 한도(limit) → 클레임(파일
+   * 잠금·소유/만료/중복 바인딩 검사·영구화) → 크기 상한. 스테이징 상한(링크 25MB 등)과 이슈 첨부 상한이 어긋날 수 있어 목적지 상한을 다시 본다. 어느 검사든
+   * 예외로 트랜잭션이 롤백돼 클레임(영구화)도 함께 취소된다.
+   */
+  private List<StagedFile> claimStaged(long issueId, long callerId, List<Long> fileIds, int limit) {
+    repo.advisoryLockIssue(issueId);
+    int current = repo.countByIssue(issueId);
+    if (current + fileIds.size() > limit) {
+      throw new AttachmentLimitExceededException(current, fileIds.size(), limit);
+    }
     List<StagedFile> staged =
         stagedFileClaimer.claim(callerId, fileIds, StagedFileClaimer.Retention.PERMANENT);
-    // 스테이징 상한(링크 25MB 등)과 이슈 첨부 상한이 어긋날 수 있어 목적지 상한을 다시 본다. 예외로 클레임(영구화)도 함께 롤백된다.
     for (StagedFile f : staged) {
       if (f.sizeBytes() > maxFileSize) {
         throw new AttachmentTooLargeException(f.originalName(), maxFileSize);
       }
     }
+    return staged;
+  }
 
-    for (StagedFile f : staged) {
-      repo.insert(f.fileId(), issueId, callerId);
-    }
-    // 방금 묶은 행(첨부자 이름·시각 포함)을 한 번에 읽는다 — 이슈 첨부는 한도(maxPerIssue) 안이라 이슈 전체를 읽어 입력 순서로 고른다.
+  /** 방금 묶은 행(첨부자 이름·시각 포함)을 한 번에 읽는다 — 이슈 첨부는 한도 안이라 이슈 전체를 읽어 입력 순서로 고른다. */
+  private List<IssueAttachmentResponse> loadAdded(long issueId, List<StagedFile> staged) {
     Map<Long, IssueAttachmentResponse> byId = new HashMap<>();
     for (IssueAttachmentResponse r : repo.findByIssue(issueId)) {
       byId.put(r.fileId(), r);
@@ -172,13 +220,14 @@ public class IssueAttachmentService {
         throw new AttachmentNotFoundException(f.fileId());
       }
       added.add(r);
-      // 클레임은 추출 이벤트를 내지 않는다 — 업로드와 같이 바인딩한 쪽이 TEXT_ONLY 추출을 요청한다(WP-242).
-      eventPublisher.publishEvent(
-          FileExtractionRequestedEvent.of(f.fileId(), f.mimeType(), ExtractionProfile.TEXT_ONLY));
     }
-
-    historyRecorder.recordAttachmentsChanged(callerId, issueId, added, List.of());
     return added;
+  }
+
+  /** 클레임은 추출 이벤트를 내지 않는다 — 업로드와 같이 바인딩한 쪽이 TEXT_ONLY 추출을 요청한다(WP-242). */
+  private void requestTextExtraction(StagedFile f) {
+    eventPublisher.publishEvent(
+        FileExtractionRequestedEvent.of(f.fileId(), f.mimeType(), ExtractionProfile.TEXT_ONLY));
   }
 
   /** 이슈 첨부 목록 조회 — 조회 가드(OPEN 은 테넌트 전원 개방). 업로드는 본문 편집 권한, 삭제는 첨부자/OWNER 로 별도 게이트. */

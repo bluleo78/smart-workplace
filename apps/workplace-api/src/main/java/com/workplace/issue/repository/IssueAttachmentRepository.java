@@ -27,11 +27,16 @@ public class IssueAttachmentRepository {
 
   /** 매핑 row 삽입. fileId 가 PK 이므로 동일 fileId 재삽입은 PK 위반(서비스 흐름상 발생 불가). */
   public void insert(Long fileId, Long issueId, Long attachedBy) {
+    insert(fileId, issueId, attachedBy, OffsetDateTime.now());
+  }
+
+  /** 첨부 시각을 지정해 삽입 — 가져오기(WP-883)가 원본 첨부 시각을 보존할 때 쓴다. */
+  public void insert(Long fileId, Long issueId, Long attachedBy, OffsetDateTime attachedAt) {
     dsl.insertInto(ISSUE_ATTACHMENT)
         .set(ISSUE_ATTACHMENT.FILE_ID, fileId)
         .set(ISSUE_ATTACHMENT.ISSUE_ID, issueId)
         .set(ISSUE_ATTACHMENT.ATTACHED_BY, attachedBy)
-        .set(ISSUE_ATTACHMENT.ATTACHED_AT, OffsetDateTime.now())
+        .set(ISSUE_ATTACHMENT.ATTACHED_AT, attachedAt)
         .execute();
   }
 

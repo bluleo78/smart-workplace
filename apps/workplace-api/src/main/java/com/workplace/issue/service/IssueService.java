@@ -14,6 +14,7 @@ import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
+import com.workplace.issue.dto.IssueFieldEntry;
 import com.workplace.issue.dto.IssuePriorities;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
@@ -197,16 +198,8 @@ public class IssueService {
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
     CreateIssuePlan plan = planCreate(callerId, projectKey, req);
     var project = plan.project();
-    List<Long> assigneeIds = plan.assigneeIds();
-    Long typeId = plan.typeId();
-    Long parentIssueId = plan.parentIssueId();
-    // 부모가 지금도 살아 있는지 잠가서 다시 본다(WP-759) — 사전검증과 공유하는 planCreate 는 읽기 전용이라 잠글 수 없다. 에픽 삭제와 겹치면
-    // 삭제 커밋을 기다렸다가 거절해, 지워진 에픽 아래에 새 이슈가 남지 않게 한다.
-    if (parentIssueId != null) {
-      IssueRow parent =
-          issueRepository
-              .findActiveByIdForShare(parentIssueId)
-              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+    IssueRow parent = lockParentForShare(plan);
+    if (parent != null) {
       // 잠근 뒤의 최신 부모로 「완료 에픽에는 미완료 하위 불가」를 다시 본다(WP-771) — 에픽 완료가 먼저 잠금을 쥐고 있었으면 planCreate 는 완료 전
       // 상태를 보고 통과해, 완료 에픽 아래 미완료 하위가 남았다.
       requireOpenChildAllowed(
@@ -216,33 +209,8 @@ public class IssueService {
     }
 
     int number = sequenceRepository.allocateNext(project.id());
-    IssueRow row =
-        issueRepository.insert(
-            project.id(),
-            number,
-            normalizeTitle(req.title()),
-            req.body(),
-            req.priority() != null ? req.priority() : IssuePriorities.DEFAULT,
-            req.dueDate(),
-            callerId,
-            typeId,
-            parentIssueId,
-            req.startDate(),
-            plan.milestoneId(),
-            plan.status().category(),
-            plan.status().id(),
-            plan.status().name(),
-            plan.status().color(),
-            plan.milestoneName());
-    // WP-356 라벨·사이클 연결 — 검증(planCreate)을 통과한 id 만 같은 트랜잭션에서 붙인다. 새 이슈라 diff·이력 없이 추가만 한다.
-    // WP-394 이름 라벨은 여기서 없는 것을 만들어 id 로 합친다 — 이슈 생성과 한 트랜잭션이라 뒤에서 실패하면 라벨도 롤백된다.
-    for (Long labelId :
-        labelService.mergeWithNames(project, callerId, plan.labelIds(), plan.labelNames())) {
-      issueLabelRepository.add(row.id(), labelId);
-    }
-    for (Long cycleId : plan.cycleIds()) {
-      issueCycleRepository.add(row.id(), cycleId);
-    }
+    IssueRow row = insertFromPlan(plan, number, req, callerId, null);
+    linkLabelsAndCycles(callerId, row.id(), plan);
     // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
     // 이미지 참조가 없는 본문(대부분)은 syncIssueImages 가 쿼리 없이 돌아간다.
     bodyImageService.syncIssueImages(project, row.id(), callerId, null, req.body());
@@ -251,7 +219,64 @@ public class IssueService {
     if (req.fileIds() != null && !req.fileIds().isEmpty()) {
       issueAttachmentService.attachStaged(project, row.id(), callerId, req.fileIds());
     }
-    return finishCreate(callerId, project, row, number, assigneeIds, plan.assignees());
+    return finishCreate(callerId, project, row, number, plan.assigneeIds(), plan.assignees());
+  }
+
+  /**
+   * 부모가 지금도 살아 있는지 공유 잠금으로 다시 읽는다(WP-759) — 사전검증과 공유하는 planCreate 는 읽기 전용이라 잠글 수 없다. 에픽 삭제와 겹치면 삭제
+   * 커밋을 기다렸다가 거절해, 지워진 에픽 아래에 새 이슈가 남지 않게 한다. 일반 생성·가져오기가 함께 쓴다.
+   *
+   * @return 잠근 부모 행(부모 없는 이슈면 null) — 일반 생성은 이것으로 완료 에픽 규칙을 다시 본다
+   */
+  IssueRow lockParentForShare(CreateIssuePlan plan) {
+    if (plan.parentIssueId() == null) return null;
+    return issueRepository
+        .findActiveByIdForShare(plan.parentIssueId())
+        .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+  }
+
+  /**
+   * 검증을 마친 계획(plan)과 요청으로 이슈 행을 INSERT 한다 — 일반 생성·가져오기가 같은 열 매핑(제목 정리·우선순위 기본값·처음 상태)을 쓰게 한 곳에 둔다.
+   * 보고자는 일반 생성이면 호출자, 가져오기면 원래 보고자다. marks 는 가져오기 표시(원 시각·원본 키, 일반 생성은 null).
+   */
+  IssueRow insertFromPlan(
+      CreateIssuePlan plan,
+      int number,
+      CreateIssueRequest req,
+      Long reporterId,
+      IssueRepository.ImportMarks marks) {
+    return issueRepository.insert(
+        plan.project().id(),
+        number,
+        normalizeTitle(req.title()),
+        req.body(),
+        req.priority() != null ? req.priority() : IssuePriorities.DEFAULT,
+        req.dueDate(),
+        reporterId,
+        plan.typeId(),
+        plan.parentIssueId(),
+        req.startDate(),
+        plan.milestoneId(),
+        plan.status().category(),
+        plan.status().id(),
+        plan.status().name(),
+        plan.status().color(),
+        plan.milestoneName(),
+        marks);
+  }
+
+  /**
+   * WP-356 라벨·사이클 연결 — 검증(planCreate)을 통과한 id 만 같은 트랜잭션에서 붙인다. 새 이슈라 diff·이력 없이 추가만 한다. WP-394 이름
+   * 라벨은 여기서 없는 것을 만들어 id 로 합친다 — 이슈 생성과 한 트랜잭션이라 뒤에서 실패하면 라벨도 롤백된다. 일반 생성·가져오기가 함께 쓴다.
+   */
+  void linkLabelsAndCycles(Long callerId, long issueId, CreateIssuePlan plan) {
+    for (Long labelId :
+        labelService.mergeWithNames(plan.project(), callerId, plan.labelIds(), plan.labelNames())) {
+      issueLabelRepository.add(issueId, labelId);
+    }
+    for (Long cycleId : plan.cycleIds()) {
+      issueCycleRepository.add(issueId, cycleId);
+    }
   }
 
   /**
@@ -295,8 +320,28 @@ public class IssueService {
       // WP-807 처음 상태 — statusId 우선, 범주만 오면 그 범주 기본 상태.
       ResolvedStatus status) {}
 
+  /**
+   * 생성 검증 방식 — NORMAL 은 일반 생성·사전검증, IMPORT 는 이슈 가져오기(WP-883). IMPORT 는 원본을 그대로 옮기는 데 방해되는 두 규칙만
+   * 건너뛴다 — 완료 사이클에 넣기 거절과 완료 에픽 아래 미완료 하위 거절. 다른 트래커에서는 둘 다 흔한 상태라 막으면 이관한 이슈가 원본과 달라진다. 나머지 검증(소속·
+   * 유형·부모 모양·날짜 등)은 같다.
+   */
+  enum CreateMode {
+    NORMAL,
+    IMPORT
+  }
+
   /** 생성 술어 본체 — 쓰기 없이 검증만 수행하고 실행에 필요한 해석값을 반환한다. 예외 종류·순서는 기존 create 와 동일. */
   CreateIssuePlan planCreate(Long callerId, String projectKey, CreateIssueRequest req) {
+    return planCreate(callerId, projectKey, req, CreateMode.NORMAL);
+  }
+
+  /**
+   * {@link #planCreate(Long, String, CreateIssueRequest)} 와 같은 검증이되, mode 가 IMPORT 면 {@link
+   * CreateMode} 의 두 규칙을 건너뛴다.
+   */
+  CreateIssuePlan planCreate(
+      Long callerId, String projectKey, CreateIssueRequest req, CreateMode mode) {
+    boolean importing = mode == CreateMode.IMPORT;
     // OPEN 프로젝트는 테넌트 전원이 이슈를 생성할 수 있다(assertIssueCreatable). TEAM/PERSONAL 은 멤버만.
     var project = accessGuard.assertIssueCreatable(projectKey, callerId);
     boolean memberOrAdmin = accessGuard.isMemberOrAdmin(project, callerId);
@@ -369,7 +414,7 @@ public class IssueService {
       } else if (!parentIsEpic) {
         throw new ParentNotAllowedException();
       }
-      requireOpenChildAllowed(parent, parentIsEpic, status.category());
+      if (!importing) requireOpenChildAllowed(parent, parentIsEpic, status.category());
       parentIssueId = parent.id();
     } else if (isSubtask) {
       throw new SubtaskParentRequiredException();
@@ -413,8 +458,8 @@ public class IssueService {
           || cycles.stream().anyMatch(c -> !c.projectId().equals(project.id()))) {
         throw new InvalidCycleForProjectException();
       }
-      // 완료 사이클에는 새 이슈를 넣지 않는다 — 사이클 피커(replace)·보드 드래그(move)와 같은 규칙(WP-659).
-      if (cycles.stream().anyMatch(c -> CycleStatus.COMPLETED.equals(c.status()))) {
+      // 완료 사이클에는 새 이슈를 넣지 않는다 — 사이클 피커(replace)·보드 드래그(move)와 같은 규칙(WP-659). 가져오기는 원본 그대로 넣는다.
+      if (!importing && cycles.stream().anyMatch(c -> CycleStatus.COMPLETED.equals(c.status()))) {
         throw new CompletedCycleNotAssignableException();
       }
     }
@@ -525,20 +570,45 @@ public class IssueService {
     }
 
     // 6) 응답에 유형·담당자·부모·라벨을 채운다(#877) — 부분 응답(from)이면 저장은 됐어도 호출자(MCP create_issue 등)가 미반영으로 오판한다.
-    //    라벨은 생성 때 붙였을 수 있다(WP-356, 없으면 빈 목록). 새 이슈라 첨부·자식은 없다.
+    //    새 이슈라 첨부·커스텀 필드는 없다.
+    // 수행 도구 헤더가 있는 생성이면 알림의 AI 작업 자동 시작이 이슈를 진행 중으로 올렸을 수 있다(WP-393) — 응답의 상태·버전이 저장된 값과
+    // 어긋나지 않게 그때만 다시 읽는다(브라우저 생성은 자동 시작이 없다). WP-870 에서 INSERT 뒤 재조회는 없앴지만 이 재조회는 이름을 채우려는
+    // 것이 아니라 생성 뒤 바뀐 상태를 반영하려는 것이라 그대로 둔다.
+    var saved =
+        AgentToolContext.current() == null ? row : issueRepository.findById(row.id()).orElse(row);
+    return newIssueSummary(project, saved, assigneeSummaries, 0, List.of());
+  }
+
+  /**
+   * 방금 만든 이슈의 요약 응답 — 유형·부모·라벨을 읽어 채운다. 새 이슈라 자식·의존성은 없으므로 상세 조회(get)처럼 댓글·이력까지 다시 읽지 않는다. 일반
+   * 생성(첨부·필드 없음)과 가져오기(원 첨부 수·필드 값)가 함께 쓴다. 라벨은 생성 때 붙였을 수 있다(WP-356, 없으면 빈 목록).
+   */
+  IssueResponse newIssueSummary(
+      ProjectRow project,
+      IssueRow row,
+      List<UserSummary> assignees,
+      int attachmentCount,
+      List<IssueFieldEntry> customFields) {
     var type = typeRepository.findByIds(List.of(row.typeId())).get(row.typeId());
     var parentRef =
         row.parentIssueId() == null
             ? null
             : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
-    // 수행 도구 헤더가 있는 생성이면 알림의 AI 작업 자동 시작이 이슈를 진행 중으로 올렸을 수 있다(WP-393) — 응답의 상태·버전이 저장된 값과
-    // 어긋나지 않게 그때만 다시 읽는다(브라우저 생성은 자동 시작이 없다). WP-870 에서 INSERT 뒤 재조회는 없앴지만 이 재조회는 이름을 채우려는
-    // 것이 아니라 생성 뒤 바뀐 상태를 반영하려는 것이라 그대로 둔다.
-    var saved =
-        AgentToolContext.current() == null ? row : issueRepository.findById(row.id()).orElse(row);
-    return IssueResponse.fromWithSubtasks(
-        project.key(), saved, labels, 0, type, assigneeSummaries, parentRef, 0, 0);
+    return IssueResponse.fromWithCustomFields(
+        project.key(),
+        row,
+        labels,
+        attachmentCount,
+        type,
+        assignees,
+        parentRef,
+        0,
+        0,
+        List.of(),
+        List.of(),
+        false,
+        customFields);
   }
 
   /** 프로젝트 내 이슈 목록 페이지 조회. */
@@ -1079,7 +1149,7 @@ public class IssueService {
    * 이슈 제목 정규화(WP-585) — 앞뒤 공백을 다듬고, 남는 것이 없으면(빈 문자열·공백뿐) 400. 생성은 @NotBlank 가 막지만 수정은 null=미변경이라
    * DTO 로 막을 수 없어, 생성·수정(웹·MCP·AI 도구 공통) 모두 이 경로로 저장한다.
    */
-  private static String normalizeTitle(String raw) {
+  static String normalizeTitle(String raw) {
     // 한 줄로 다듬는다 — 앞뒤 공백뿐 아니라 제로폭 문자만 남은 제목도 빈 제목으로 본다(WP-628)
     String title = raw == null ? "" : SingleLineTitles.normalize(raw);
     if (title.isEmpty()) {

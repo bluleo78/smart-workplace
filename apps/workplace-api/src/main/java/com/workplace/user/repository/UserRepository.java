@@ -385,6 +385,21 @@ public class UserRepository {
    */
   public List<AssigneeInfo> findAssigneeInfos(Collection<Long> ids, Long tenantId) {
     if (ids == null || ids.isEmpty()) return List.of();
+    return fetchAssigneeInfos(USER.ID.in(ids), tenantId);
+  }
+
+  /**
+   * username 집합으로 {@link #findAssigneeInfos} 와 같은 정보를 한 번에 읽는다(WP-883 이슈 가져오기의 원작성자 해석). 활성 판정은 같은
+   * 워크스페이스 기준이며, 정확히 일치하는 username 만 찾는다(대소문자 구분).
+   */
+  public List<AssigneeInfo> findAssigneeInfosByUsernames(
+      Collection<String> usernames, Long tenantId) {
+    if (usernames == null || usernames.isEmpty()) return List.of();
+    return fetchAssigneeInfos(USER.USERNAME.in(usernames), tenantId);
+  }
+
+  /** 조건에 맞는 사용자를 워크스페이스 기준 활성 여부와 함께 AssigneeInfo 로 읽는 공통 쿼리. */
+  private List<AssigneeInfo> fetchAssigneeInfos(Condition where, Long tenantId) {
     Field<Boolean> active = tenantId == null ? USER.IS_ACTIVE : WORKSPACE_ACTIVE;
     Condition membershipJoin =
         tenantId == null ? DSL.falseCondition() : WorkspaceActive.join(tenantId);
@@ -392,7 +407,7 @@ public class UserRepository {
         .from(USER)
         .leftJoin(MEMBERSHIP)
         .on(membershipJoin)
-        .where(USER.ID.in(ids))
+        .where(where)
         .fetch(
             r ->
                 new AssigneeInfo(

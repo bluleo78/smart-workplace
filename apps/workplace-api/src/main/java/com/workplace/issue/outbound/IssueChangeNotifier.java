@@ -41,6 +41,15 @@ public class IssueChangeNotifier {
   }
 
   /**
+   * 이슈 가져오기(WP-884) 알림 — 화면 갱신용 생성 이벤트({@link ResourceChangedEvent} OP_CREATED)만 낸다. {@link
+   * #created} 와 달리 AI 작업 터치({@link AgentToolWriteEvent})는 내지 않는다: 원본을 옮기는 것이라 담당 AI 의 작업을 시작·재개하면 안
+   * 된다.
+   */
+  public void imported(ProjectRow project, int issueNumber, long issueId, Long actorId) {
+    changed(project, issueNumber, issueId, ResourceChangedEvent.OP_CREATED, actorId);
+  }
+
+  /**
    * 이슈 작업 쓰기(제목·본문·상태·코멘트·첨부·드라이브 링크) 알림. MCP(수행 도구 헤더) 경유 쓰기면 AI 작업 자동 시작·터치 이벤트도 함께 낸다(WP-377) —
    * 작업 쓰기 서비스가 모두 이 메서드를 거치므로 쓰기 지점마다 따로 넣지 않는다. 이슈를 정리만 하는 쓰기는 {@link #updatedWithoutTouch} 를
    * 쓴다(WP-425).

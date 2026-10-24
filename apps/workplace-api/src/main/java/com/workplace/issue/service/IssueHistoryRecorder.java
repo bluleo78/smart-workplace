@@ -7,6 +7,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
 import com.workplace.milestone.repository.MilestoneRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -82,6 +83,16 @@ public class IssueHistoryRecorder {
    */
   public void recordLabelsChanged(
       Long actorId, Long issueId, List<LabelSummary> added, List<LabelSummary> removed) {
+    recordLabelsChanged(actorId, issueId, added, removed, null);
+  }
+
+  /** 라벨 변경 기록 — {@code at} 이 있으면 그 시각(가져오기), null 이면 DB 기본값(지금). 저장 모양은 같다. */
+  public void recordLabelsChanged(
+      Long actorId,
+      Long issueId,
+      List<LabelSummary> added,
+      List<LabelSummary> removed,
+      OffsetDateTime at) {
     if ((added == null || added.isEmpty()) && (removed == null || removed.isEmpty())) {
       return;
     }
@@ -95,7 +106,7 @@ public class IssueHistoryRecorder {
     } catch (Exception e) {
       payload = "{}";
     }
-    historyRepository.insert(issueId, actorId, "LABELS_CHANGED", null, payload);
+    historyRepository.insert(issueId, actorId, "LABELS_CHANGED", null, payload, at);
   }
 
   /**
@@ -141,6 +152,16 @@ public class IssueHistoryRecorder {
    */
   public void recordAssigneesChanged(
       Long actorId, Long issueId, List<UserSummary> added, List<UserSummary> removed) {
+    recordAssigneesChanged(actorId, issueId, added, removed, null);
+  }
+
+  /** 담당자 변경 기록 — {@code at} 이 있으면 그 시각(가져오기), null 이면 DB 기본값(지금). 저장 모양은 같다. */
+  public void recordAssigneesChanged(
+      Long actorId,
+      Long issueId,
+      List<UserSummary> added,
+      List<UserSummary> removed,
+      OffsetDateTime at) {
     boolean noAdd = added == null || added.isEmpty();
     boolean noRem = removed == null || removed.isEmpty();
     if (noAdd && noRem) {
@@ -156,7 +177,7 @@ public class IssueHistoryRecorder {
     } catch (Exception e) {
       payload = "{}";
     }
-    historyRepository.insert(issueId, actorId, "ASSIGNEES_CHANGED", null, payload);
+    historyRepository.insert(issueId, actorId, "ASSIGNEES_CHANGED", null, payload, at);
   }
 
   /**
@@ -168,6 +189,16 @@ public class IssueHistoryRecorder {
       Long issueId,
       com.workplace.issue.dto.IssueTypeSummary from,
       com.workplace.issue.dto.IssueTypeSummary to) {
+    recordTypeChanged(actorId, issueId, from, to, null);
+  }
+
+  /** 유형 변경 기록 — {@code at} 이 있으면 그 시각(가져오기), null 이면 DB 기본값(지금). 저장 모양은 같다. */
+  public void recordTypeChanged(
+      Long actorId,
+      Long issueId,
+      com.workplace.issue.dto.IssueTypeSummary from,
+      com.workplace.issue.dto.IssueTypeSummary to,
+      OffsetDateTime at) {
     String payload;
     try {
       payload =
@@ -178,7 +209,7 @@ public class IssueHistoryRecorder {
     } catch (Exception e) {
       payload = "{}";
     }
-    historyRepository.insert(issueId, actorId, "TYPE_CHANGED", null, payload);
+    historyRepository.insert(issueId, actorId, "TYPE_CHANGED", null, payload, at);
   }
 
   /**
@@ -266,6 +297,15 @@ public class IssueHistoryRecorder {
       payload = "{}";
     }
     historyRepository.insert(issueId, actorId, "CUSTOM_FIELD_CHANGED", null, payload);
+  }
+
+  /**
+   * 단순 값 이력(상태·우선순위·제목·일정)을 원래 시각으로 기록 — 가져오기용. 일반 변경({@link #recordChanges})이 남기는 행과 같은 from/to
+   * 문자열을 넣는다.
+   */
+  public void recordImportedValue(
+      long issueId, long actorId, String eventType, String from, String to, OffsetDateTime at) {
+    historyRepository.insert(issueId, actorId, eventType, from, to, at);
   }
 
   /** 객체 → 문자열 (null 보존). */

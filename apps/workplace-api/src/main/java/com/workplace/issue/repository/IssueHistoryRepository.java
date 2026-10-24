@@ -55,16 +55,34 @@ public class IssueHistoryRepository {
         .fetch(this::mapToResponse);
   }
 
-  /** 히스토리 한 건 INSERT. */
+  /**
+   * 이력 한 건 INSERT — createdAt 이 있으면 그 시각(가져오기가 원본 이력을 보존할 때, WP-883), null 이면 DB 기본값(지금). INSERT
+   * 구현은 이 한 곳뿐이다.
+   */
+  public void insert(
+      Long issueId,
+      Long actorId,
+      String eventType,
+      String fromValue,
+      String toValue,
+      OffsetDateTime createdAt) {
+    var insert =
+        dsl.insertInto(ISSUE_HISTORY)
+            .set(ISSUE_HISTORY.ISSUE_ID, issueId)
+            .set(ISSUE_HISTORY.ACTOR_ID, actorId)
+            .set(ISSUE_HISTORY.EVENT_TYPE, eventType)
+            .set(ISSUE_HISTORY.FROM_VALUE, fromValue)
+            .set(ISSUE_HISTORY.TO_VALUE, toValue);
+    if (createdAt != null) {
+      insert = insert.set(ISSUE_HISTORY.CREATED_AT, createdAt);
+    }
+    insert.execute();
+  }
+
+  /** 히스토리 한 건 INSERT(시각은 DB 기본값) — 일반 변경 기록용 편의 오버로드. */
   public void insert(
       Long issueId, Long actorId, String eventType, String fromValue, String toValue) {
-    dsl.insertInto(ISSUE_HISTORY)
-        .set(ISSUE_HISTORY.ISSUE_ID, issueId)
-        .set(ISSUE_HISTORY.ACTOR_ID, actorId)
-        .set(ISSUE_HISTORY.EVENT_TYPE, eventType)
-        .set(ISSUE_HISTORY.FROM_VALUE, fromValue)
-        .set(ISSUE_HISTORY.TO_VALUE, toValue)
-        .execute();
+    insert(issueId, actorId, eventType, fromValue, toValue, null);
   }
 
   /**

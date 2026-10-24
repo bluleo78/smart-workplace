@@ -196,6 +196,21 @@ public class Issue extends TableImpl<IssueRecord> {
      */
     public final TableField<IssueRecord, Long> STATUS_ID = createField(DSL.name("status_id"), SQLDataType.BIGINT.nullable(false), this, "");
 
+    /**
+     * The column <code>public.issue.imported_by</code>.
+     */
+    public final TableField<IssueRecord, Long> IMPORTED_BY = createField(DSL.name("imported_by"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.issue.imported_at</code>.
+     */
+    public final TableField<IssueRecord, OffsetDateTime> IMPORTED_AT = createField(DSL.name("imported_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.issue.import_source_key</code>.
+     */
+    public final TableField<IssueRecord, String> IMPORT_SOURCE_KEY = createField(DSL.name("import_source_key"), SQLDataType.VARCHAR(100), this, "");
+
     private Issue(Name alias, Table<IssueRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -265,7 +280,7 @@ public class Issue extends TableImpl<IssueRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_ISSUE_ACTIVE, Indexes.IDX_ISSUE_MILESTONE, Indexes.IDX_ISSUE_PARENT, Indexes.IDX_ISSUE_PROJECT_STATUS_ID_UPDATED, Indexes.IDX_ISSUE_PROJECT_STATUS_UPDATED, Indexes.IDX_ISSUE_SOURCE, Indexes.IDX_ISSUE_TENANT, Indexes.IDX_ISSUE_TYPE);
+        return Arrays.asList(Indexes.IDX_ISSUE_ACTIVE, Indexes.IDX_ISSUE_MILESTONE, Indexes.IDX_ISSUE_PARENT, Indexes.IDX_ISSUE_PROJECT_STATUS_ID_UPDATED, Indexes.IDX_ISSUE_PROJECT_STATUS_UPDATED, Indexes.IDX_ISSUE_SOURCE, Indexes.IDX_ISSUE_TENANT, Indexes.IDX_ISSUE_TYPE, Indexes.UQ_ISSUE_PROJECT_IMPORT_SOURCE_KEY);
     }
 
     @Override
@@ -285,7 +300,7 @@ public class Issue extends TableImpl<IssueRecord> {
 
     @Override
     public List<ForeignKey<IssueRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.ISSUE__FK_ISSUE_STATUS_CATEGORY, Keys.ISSUE__FK_ISSUE_TENANT, Keys.ISSUE__ISSUE_MILESTONE_ID_FKEY, Keys.ISSUE__ISSUE_PARENT_ISSUE_ID_FKEY, Keys.ISSUE__ISSUE_PROJECT_ID_FKEY, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY, Keys.ISSUE__ISSUE_TYPE_ID_FKEY);
+        return Arrays.asList(Keys.ISSUE__FK_ISSUE_STATUS_CATEGORY, Keys.ISSUE__FK_ISSUE_TENANT, Keys.ISSUE__ISSUE_IMPORTED_BY_FKEY, Keys.ISSUE__ISSUE_MILESTONE_ID_FKEY, Keys.ISSUE__ISSUE_PARENT_ISSUE_ID_FKEY, Keys.ISSUE__ISSUE_PROJECT_ID_FKEY, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY, Keys.ISSUE__ISSUE_TYPE_ID_FKEY);
     }
 
     private transient ProjectStatusPath _projectStatus;
@@ -311,6 +326,19 @@ public class Issue extends TableImpl<IssueRecord> {
             _tenant = new TenantPath(this, Keys.ISSUE__FK_ISSUE_TENANT, null);
 
         return _tenant;
+    }
+
+    private transient UserPath _issueImportedByFkey;
+
+    /**
+     * Get the implicit join path to the <code>public.user</code> table, via the
+     * <code>issue_imported_by_fkey</code> key.
+     */
+    public UserPath issueImportedByFkey() {
+        if (_issueImportedByFkey == null)
+            _issueImportedByFkey = new UserPath(this, Keys.ISSUE__ISSUE_IMPORTED_BY_FKEY, null);
+
+        return _issueImportedByFkey;
     }
 
     private transient MilestonePath _milestone;
@@ -349,16 +377,17 @@ public class Issue extends TableImpl<IssueRecord> {
         return _project;
     }
 
-    private transient UserPath _user;
+    private transient UserPath _issueReporterIdFkey;
 
     /**
-     * Get the implicit join path to the <code>public.user</code> table.
+     * Get the implicit join path to the <code>public.user</code> table, via the
+     * <code>issue_reporter_id_fkey</code> key.
      */
-    public UserPath user() {
-        if (_user == null)
-            _user = new UserPath(this, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY, null);
+    public UserPath issueReporterIdFkey() {
+        if (_issueReporterIdFkey == null)
+            _issueReporterIdFkey = new UserPath(this, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY, null);
 
-        return _user;
+        return _issueReporterIdFkey;
     }
 
     private transient IssueTypeDefPath _issueTypeDef;

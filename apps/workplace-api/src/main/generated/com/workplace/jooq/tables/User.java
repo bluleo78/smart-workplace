@@ -792,17 +792,32 @@ public class User extends TableImpl<UserRecord> {
         return _issueBodyImage;
     }
 
-    private transient IssueCommentPath _issueComment;
+    private transient IssueCommentPath _issueCommentAuthorIdFkey;
 
     /**
      * Get the implicit to-many join path to the
-     * <code>public.issue_comment</code> table
+     * <code>public.issue_comment</code> table, via the
+     * <code>issue_comment_author_id_fkey</code> key
      */
-    public IssueCommentPath issueComment() {
-        if (_issueComment == null)
-            _issueComment = new IssueCommentPath(this, null, Keys.ISSUE_COMMENT__ISSUE_COMMENT_AUTHOR_ID_FKEY.getInverseKey());
+    public IssueCommentPath issueCommentAuthorIdFkey() {
+        if (_issueCommentAuthorIdFkey == null)
+            _issueCommentAuthorIdFkey = new IssueCommentPath(this, null, Keys.ISSUE_COMMENT__ISSUE_COMMENT_AUTHOR_ID_FKEY.getInverseKey());
 
-        return _issueComment;
+        return _issueCommentAuthorIdFkey;
+    }
+
+    private transient IssueCommentPath _issueCommentImportedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_comment</code> table, via the
+     * <code>issue_comment_imported_by_fkey</code> key
+     */
+    public IssueCommentPath issueCommentImportedByFkey() {
+        if (_issueCommentImportedByFkey == null)
+            _issueCommentImportedByFkey = new IssueCommentPath(this, null, Keys.ISSUE_COMMENT__ISSUE_COMMENT_IMPORTED_BY_FKEY.getInverseKey());
+
+        return _issueCommentImportedByFkey;
     }
 
     private transient IssueCommentReactionPath _issueCommentReaction;
@@ -844,16 +859,30 @@ public class User extends TableImpl<UserRecord> {
         return _issueHistory;
     }
 
-    private transient IssuePath _issue;
+    private transient IssuePath _issueImportedByFkey;
 
     /**
-     * Get the implicit to-many join path to the <code>public.issue</code> table
+     * Get the implicit to-many join path to the <code>public.issue</code>
+     * table, via the <code>issue_imported_by_fkey</code> key
      */
-    public IssuePath issue() {
-        if (_issue == null)
-            _issue = new IssuePath(this, null, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY.getInverseKey());
+    public IssuePath issueImportedByFkey() {
+        if (_issueImportedByFkey == null)
+            _issueImportedByFkey = new IssuePath(this, null, Keys.ISSUE__ISSUE_IMPORTED_BY_FKEY.getInverseKey());
 
-        return _issue;
+        return _issueImportedByFkey;
+    }
+
+    private transient IssuePath _issueReporterIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the <code>public.issue</code>
+     * table, via the <code>issue_reporter_id_fkey</code> key
+     */
+    public IssuePath issueReporterIdFkey() {
+        if (_issueReporterIdFkey == null)
+            _issueReporterIdFkey = new IssuePath(this, null, Keys.ISSUE__ISSUE_REPORTER_ID_FKEY.getInverseKey());
+
+        return _issueReporterIdFkey;
     }
 
     private transient IssueWatcherPath _issueWatcher;

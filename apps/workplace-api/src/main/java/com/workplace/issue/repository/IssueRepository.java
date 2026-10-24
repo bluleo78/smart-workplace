@@ -227,6 +227,29 @@ public class IssueRepository {
         .fetch(this::mapToRow);
   }
 
+  /**
+   * 가져오기(WP-883) 표시 — 이슈 INSERT 에 함께 실어 원본 생성·수정·종료 시각, 가져온 사람, 원본 키를 한 번에 쓴다(INSERT 뒤 UPDATE 로
+   * 덮어쓰지 않게). closedAt 이 null 이면 종료 시각도 null, sourceKey 가 null 이면 원본 키 없음. imported_at 은 INSERT 하는
+   * 지금.
+   */
+  public record ImportMarks(
+      OffsetDateTime createdAt,
+      OffsetDateTime updatedAt,
+      OffsetDateTime closedAt,
+      long importedBy,
+      String sourceKey) {}
+
+  /** 소프트 삭제된 이슈까지 포함해 그 번호가 이미 쓰였는지 — 지정 번호 가져오기가 삭제된 번호와 겹치지 않게 한다(번호는 재사용하지 않는다). */
+  public boolean existsNumberIncludingDeleted(long projectId, int number) {
+    return dsl.fetchExists(ISSUE, ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.NUMBER.eq(number)));
+  }
+
+  /** 이 프로젝트에 같은 원본 키로 가져온 이슈가 이미 있는지(삭제된 것 포함 — 고유 인덱스와 같은 범위). */
+  public boolean existsImportSourceKey(long projectId, String sourceKey) {
+    return dsl.fetchExists(
+        ISSUE, ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.IMPORT_SOURCE_KEY.eq(sourceKey)));
+  }
+
   /** projectId + number 로 활성 이슈 조회. */
   public Optional<IssueRow> findByProjectAndNumber(Long projectId, int number) {
     return dsl.select(ROW_FIELDS)
@@ -260,10 +283,10 @@ public class IssueRepository {
   }
 
   /**
-   * 신규 이슈 INSERT 후 생성된 row 반환 — 운영 코드의 유일한 생성 경로다(범주만 받던 호환 오버로드는 테스트 IssueSeeds 로 옮김, WP-937).
-   * 담당자는 별도 매핑(issue_assignee). typeId 는 호출자가 정하고, parentIssueId 는 SUBTASK 일 때만 non-null 이며 정합성은
-   * 서비스가 가드한다. 처음 상태를 범주·프로젝트 상태 id 로 지정한다(WP-807). 둘은 같은 상태를 가리켜야 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE·
-   * CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
+   * 신규 이슈 INSERT 후 생성된 row 반환 — 운영 코드의 생성 경로다(가져오기 표시를 싣는 아래 변형으로 위임한다. 범주만 받던 호환 오버로드는 테스트
+   * IssueSeeds 로 옮김, WP-937). 담당자는 별도 매핑(issue_assignee). typeId 는 호출자가 정하고, parentIssueId 는
+   * SUBTASK 일 때만 non-null 이며 정합성은 서비스가 가드한다. 처음 상태를 범주·프로젝트 상태 id 로 지정한다(WP-807). 둘은 같은 상태를 가리켜야
+   * 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE· CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
    *
    * <p>INSERT RETURNING 은 테이블 컬럼만 돌려줘 조인 컬럼(상태 이름·색)과 마일스톤 이름이 빠진다 — 호출자가 이미 검증하며 읽은 상태 이름·색과 마일스톤
    * 이름을 받아 채운다. 그래서 INSERT 뒤 이슈를 다시 조회하지 않는다(WP-870).
@@ -285,6 +308,50 @@ public class IssueRepository {
       String statusName,
       String statusColor,
       String milestoneName) {
+    return insert(
+        projectId,
+        number,
+        title,
+        body,
+        priority,
+        dueDate,
+        reporterId,
+        typeId,
+        parentIssueId,
+        startDate,
+        milestoneId,
+        status,
+        statusId,
+        statusName,
+        statusColor,
+        milestoneName,
+        null);
+  }
+
+  /**
+   * 위 INSERT 에 가져오기 표시({@link ImportMarks})를 함께 싣는 변형 — marks 가 null 이면 일반 생성과 같다. 가져오기면 생성·수정·종료
+   * 시각을 원본 값으로, 가져온 사람·시각·원본 키를 같은 INSERT 에서 쓴다. 같은 번호·같은 원본 키가 이미 있으면 고유
+   * 제약(uq_issue_project_number· uq_issue_project_import_source_key)이 {@link
+   * org.springframework.dao.DuplicateKeyException} 으로 막는다.
+   */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId,
+      Long parentIssueId,
+      LocalDate startDate,
+      Long milestoneId,
+      String status,
+      long statusId,
+      String statusName,
+      String statusColor,
+      String milestoneName,
+      ImportMarks marks) {
     var insert =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, projectId)
@@ -300,7 +367,17 @@ public class IssueRepository {
             .set(ISSUE.MILESTONE_ID, milestoneId)
             .set(ISSUE.STATUS, status)
             .set(ISSUE.STATUS_ID, statusId);
-    if (IssueStatuses.isClosed(status)) {
+    if (marks != null) {
+      // 가져오기 — 종료 시각은 원본 값(서비스가 종료 범주일 때만 채운다)이고 지금으로 채우지 않는다.
+      insert =
+          insert
+              .set(ISSUE.CREATED_AT, marks.createdAt())
+              .set(ISSUE.UPDATED_AT, marks.updatedAt())
+              .set(ISSUE.CLOSED_AT, marks.closedAt())
+              .set(ISSUE.IMPORTED_BY, marks.importedBy())
+              .set(ISSUE.IMPORTED_AT, OffsetDateTime.now())
+              .set(ISSUE.IMPORT_SOURCE_KEY, marks.sourceKey());
+    } else if (IssueStatuses.isClosed(status)) {
       insert = insert.set(ISSUE.CLOSED_AT, OffsetDateTime.now());
     }
     // 상태 FK(fk_issue_status_category) 위반은 공용 처리기가 409 STATUS_DELETED 로 바꾼다(WP-936).

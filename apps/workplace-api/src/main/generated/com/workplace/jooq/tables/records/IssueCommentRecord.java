@@ -132,6 +132,34 @@ public class IssueCommentRecord extends UpdatableRecordImpl<IssueCommentRecord> 
         return (Long) get(7);
     }
 
+    /**
+     * Setter for <code>public.issue_comment.imported_by</code>.
+     */
+    public void setImportedBy(Long value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_comment.imported_by</code>.
+     */
+    public Long getImportedBy() {
+        return (Long) get(8);
+    }
+
+    /**
+     * Setter for <code>public.issue_comment.imported_at</code>.
+     */
+    public void setImportedAt(OffsetDateTime value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.issue_comment.imported_at</code>.
+     */
+    public OffsetDateTime getImportedAt() {
+        return (OffsetDateTime) get(9);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -155,7 +183,7 @@ public class IssueCommentRecord extends UpdatableRecordImpl<IssueCommentRecord> 
     /**
      * Create a detached, initialised IssueCommentRecord
      */
-    public IssueCommentRecord(Long id, Long issueId, Long authorId, String body, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, Long tenantId) {
+    public IssueCommentRecord(Long id, Long issueId, Long authorId, String body, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, Long tenantId, Long importedBy, OffsetDateTime importedAt) {
         super(IssueComment.ISSUE_COMMENT);
 
         setId(id);
@@ -166,6 +194,8 @@ public class IssueCommentRecord extends UpdatableRecordImpl<IssueCommentRecord> 
         setUpdatedAt(updatedAt);
         setDeletedAt(deletedAt);
         setTenantId(tenantId);
+        setImportedBy(importedBy);
+        setImportedAt(importedAt);
         resetChangedOnNotNull();
     }
 }

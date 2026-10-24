@@ -84,6 +84,29 @@ public class IssueBodyImageService {
     repo.demote(dropped, graceExpiry());
   }
 
+  /**
+   * 가져오기(WP-883) — 새로 가져온 글(본문 또는 댓글)이 참조하는 이미지를 이 이슈에 연결하고 올린 사람·시각을 원본 값으로 되돌린다. 대상은 호출자가 올린 미연결
+   * 임시 이미지뿐이다(남의 id 는 건너뜀). 이미 이 이슈에 붙은 이미지는 다시 되돌리지 않는다 — 본문과 댓글이 같은 이미지를 가리키면 처음 붙인 글(본문 → 댓글 순)의
+   * 작성자·시각이 남는다. 새 글이라 강등 판정은 없다. 인가하지 않는다 — 호출자(가져오기 서비스)가 관리자 여부를 이미 확인했다.
+   *
+   * @param uploadedBy 원래 글 작성자, at 원래 글 시각
+   */
+  public void claimForImport(
+      ProjectRow project,
+      long issueId,
+      long callerId,
+      String text,
+      long uploadedBy,
+      OffsetDateTime at) {
+    if (!IssueBodyImageResponse.mayReferenceImages(text)) return;
+    repo.lockIssue(issueId);
+    Set<Long> ids = IssueBodyImageResponse.idsIn(text, project.key());
+    // 이번에 처음 붙는 것(호출자가 올린 미연결 임시 이미지)만 — 앞선 본문·댓글이 이미 붙인 이미지는 그 글의 작성자·시각을 지킨다.
+    List<Long> pending = repo.lockPendingOf(project.id(), callerId, ids);
+    repo.claim(issueId, pending);
+    repo.reassign(issueId, pending, uploadedBy, at);
+  }
+
   /** 강등·보존 시 새로 걸 만료 시각(지금 + 유예) — 강등과 스윕 보존 정책이 같은 유예를 쓰도록 한 곳에서 계산한다. */
   public OffsetDateTime graceExpiry() {
     return OffsetDateTime.now(ZoneOffset.UTC).plusHours(demoteGraceHours);

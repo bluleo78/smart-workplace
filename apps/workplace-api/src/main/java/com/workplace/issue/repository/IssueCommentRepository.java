@@ -100,6 +100,31 @@ public class IssueCommentRepository {
     return findById(id).orElseThrow();
   }
 
+  /**
+   * 가져오기(WP-883) 댓글 INSERT — 원작성자·원 작성·수정 시각과 가져옴 표시(imported_by·imported_at=지금)를 한 번에 쓴다(INSERT 뒤
+   * UPDATE 로 덮어쓰지 않게). 응답 조립이 필요 없어 새 id 만 돌려준다.
+   */
+  public long insertImported(
+      long issueId,
+      long authorId,
+      String body,
+      OffsetDateTime createdAt,
+      OffsetDateTime updatedAt,
+      long importedBy) {
+    return dsl.insertInto(ISSUE_COMMENT)
+        .set(ISSUE_COMMENT.ISSUE_ID, issueId)
+        .set(ISSUE_COMMENT.AUTHOR_ID, authorId)
+        .set(ISSUE_COMMENT.BODY, body)
+        .set(ISSUE_COMMENT.CREATED_AT, createdAt)
+        .set(ISSUE_COMMENT.UPDATED_AT, updatedAt)
+        .set(ISSUE_COMMENT.IMPORTED_BY, importedBy)
+        .set(ISSUE_COMMENT.IMPORTED_AT, OffsetDateTime.now())
+        .returning(ISSUE_COMMENT.ID)
+        .fetchOptional()
+        .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"))
+        .getId();
+  }
+
   /** body 갱신. updated_at = now(). */
   public void update(Long id, String body) {
     dsl.update(ISSUE_COMMENT)

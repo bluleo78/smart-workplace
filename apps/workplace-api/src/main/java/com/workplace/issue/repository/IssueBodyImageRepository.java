@@ -92,6 +92,28 @@ public class IssueBodyImageRepository {
         .fetch(FILE.ID);
   }
 
+  /**
+   * 가져오기(WP-883) — 본문에 적힌 fileId 중 이 프로젝트에 내가 올린 <b>아직 어느 이슈에도 붙지 않은</b> 임시 파일만 골라 file 행을 잠근다.
+   *
+   * <p>{@link #lockClaimable} 과 달리 이미 이 이슈에 붙은 파일은 빼는 이유: 가져오기는 연결하면서 올린 사람·시각을 원본 값으로 되돌리는데, 본문과
+   * 댓글이 같은 이미지를 가리키면 뒤 댓글이 이미 붙은 이미지를 다시 되돌려 마지막 댓글 작성자·시각이 이긴다. 처음 붙인 글의 값만 남도록 처음 붙는 것만 고른다. 잠금
+   * 이유는 {@link #lockClaimable} 과 같다(정리 스윕과의 경합).
+   */
+  public List<Long> lockPendingOf(long projectId, long callerId, Collection<Long> fileIds) {
+    if (fileIds.isEmpty()) return List.of();
+    return dsl.select(FILE.ID)
+        .from(FILE)
+        .join(ISSUE_BODY_IMAGE)
+        .on(ISSUE_BODY_IMAGE.FILE_ID.eq(FILE.ID))
+        .where(FILE.ID.in(fileIds))
+        .and(ISSUE_BODY_IMAGE.PROJECT_ID.eq(projectId))
+        .and(ISSUE_BODY_IMAGE.ISSUE_ID.isNull())
+        .and(ISSUE_BODY_IMAGE.UPLOADED_BY.eq(callerId))
+        .forUpdate()
+        .of(FILE)
+        .fetch(FILE.ID);
+  }
+
   /** 잠근 파일을 이 이슈에 연결하고 만료를 해제한다(강등 중이던 것도 원상 복구). */
   public void claim(long issueId, Collection<Long> fileIds) {
     if (fileIds.isEmpty()) return;
@@ -101,6 +123,21 @@ public class IssueBodyImageRepository {
         .where(ISSUE_BODY_IMAGE.FILE_ID.in(fileIds))
         .execute();
     dsl.update(FILE).setNull(FILE.EXPIRES_AT).where(FILE.ID.in(fileIds)).execute();
+  }
+
+  /**
+   * 가져오기(WP-883) — 이 이슈에 연결된 파일들의 올린 사람·시각을 원본 값으로 바꾼다. 가져오기는 호출자 이름으로 올린 뒤 연결하므로, 원작성자·원시각으로 되돌리는
+   * 용도다.
+   */
+  public void reassign(
+      long issueId, Collection<Long> fileIds, long uploadedBy, OffsetDateTime createdAt) {
+    if (fileIds.isEmpty()) return;
+    dsl.update(ISSUE_BODY_IMAGE)
+        .set(ISSUE_BODY_IMAGE.UPLOADED_BY, uploadedBy)
+        .set(ISSUE_BODY_IMAGE.CREATED_AT, createdAt)
+        .where(ISSUE_BODY_IMAGE.ISSUE_ID.eq(issueId))
+        .and(ISSUE_BODY_IMAGE.FILE_ID.in(fileIds))
+        .execute();
   }
 
   public List<Long> fileIdsOfIssue(long issueId) {

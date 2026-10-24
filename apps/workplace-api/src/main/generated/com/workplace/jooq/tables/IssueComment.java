@@ -103,6 +103,16 @@ public class IssueComment extends TableImpl<IssueCommentRecord> {
      */
     public final TableField<IssueCommentRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.issue_comment.imported_by</code>.
+     */
+    public final TableField<IssueCommentRecord, Long> IMPORTED_BY = createField(DSL.name("imported_by"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.issue_comment.imported_at</code>.
+     */
+    public final TableField<IssueCommentRecord, OffsetDateTime> IMPORTED_AT = createField(DSL.name("imported_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private IssueComment(Name alias, Table<IssueCommentRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -187,7 +197,7 @@ public class IssueComment extends TableImpl<IssueCommentRecord> {
 
     @Override
     public List<ForeignKey<IssueCommentRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.ISSUE_COMMENT__FK_ISSUE_COMMENT_TENANT, Keys.ISSUE_COMMENT__ISSUE_COMMENT_AUTHOR_ID_FKEY, Keys.ISSUE_COMMENT__ISSUE_COMMENT_ISSUE_ID_FKEY);
+        return Arrays.asList(Keys.ISSUE_COMMENT__FK_ISSUE_COMMENT_TENANT, Keys.ISSUE_COMMENT__ISSUE_COMMENT_AUTHOR_ID_FKEY, Keys.ISSUE_COMMENT__ISSUE_COMMENT_IMPORTED_BY_FKEY, Keys.ISSUE_COMMENT__ISSUE_COMMENT_ISSUE_ID_FKEY);
     }
 
     private transient TenantPath _tenant;
@@ -202,16 +212,30 @@ public class IssueComment extends TableImpl<IssueCommentRecord> {
         return _tenant;
     }
 
-    private transient UserPath _user;
+    private transient UserPath _issueCommentAuthorIdFkey;
 
     /**
-     * Get the implicit join path to the <code>public.user</code> table.
+     * Get the implicit join path to the <code>public.user</code> table, via the
+     * <code>issue_comment_author_id_fkey</code> key.
      */
-    public UserPath user() {
-        if (_user == null)
-            _user = new UserPath(this, Keys.ISSUE_COMMENT__ISSUE_COMMENT_AUTHOR_ID_FKEY, null);
+    public UserPath issueCommentAuthorIdFkey() {
+        if (_issueCommentAuthorIdFkey == null)
+            _issueCommentAuthorIdFkey = new UserPath(this, Keys.ISSUE_COMMENT__ISSUE_COMMENT_AUTHOR_ID_FKEY, null);
 
-        return _user;
+        return _issueCommentAuthorIdFkey;
+    }
+
+    private transient UserPath _issueCommentImportedByFkey;
+
+    /**
+     * Get the implicit join path to the <code>public.user</code> table, via the
+     * <code>issue_comment_imported_by_fkey</code> key.
+     */
+    public UserPath issueCommentImportedByFkey() {
+        if (_issueCommentImportedByFkey == null)
+            _issueCommentImportedByFkey = new UserPath(this, Keys.ISSUE_COMMENT__ISSUE_COMMENT_IMPORTED_BY_FKEY, null);
+
+        return _issueCommentImportedByFkey;
     }
 
     private transient IssuePath _issue;

@@ -1,0 +1,178 @@
+# 이슈 가져오기 API 사용법 (이관 스크립트 작성자용)
+
+다른 트래커(예: Jira CLIM)의 이슈를 **원래 보고자·작성자·시각 그대로**, **알림·푸시·AI 작업 시작 없이** Works 로 옮기는 REST API 다. 이슈 한 건(댓글·첨부·워처·변경 이력 포함)을 한 요청·한 트랜잭션으로 넣는다. 어느 검증이든 실패하면 아무것도 남지 않는다.
+
+## 호출
+
+- `POST /api/v1/projects/{projectKey}/import/issues` — 성공 시 `201` + 만든 이슈(일반 이슈 응답의 요약과 같은 모양).
+- 인증: 개인 API 토큰(`swp_`) 또는 JWT. **워크스페이스 관리자(ADMIN 역할)인 사람만** 쓸 수 있다. 프로젝트 소유자도, AI 키(`ak_`)·AI 구성원도 403.
+- 개인 프로젝트로는 가져올 수 없다(400).
+
+## 준비 순서
+
+1. **구성원**: 요청에 나오는 모든 사람(보고자·담당자·워처·댓글 작성자·첨부자·이력 행위자·담당자 이력의 added/removed)을 먼저 **그 프로젝트의 활성 구성원**으로 추가한다. 사람은 모두 username 으로 적는다. 하나라도 아니면 400 이고 맞지 않은 username 을 전부 알려 준다. 다른 사람으로 대신 넣지 않는다.
+2. **프로젝트 설정**: 상태·유형·사이클·마일스톤·커스텀 필드 정의를 미리 만들고 id 를 모아 둔다. 라벨은 `labelNames` 로 주면 없을 때 만들어지지만, 변경 이력의 라벨 이름은 이미 있어야 한다(아래).
+3. **이슈마다** 「그 이슈의 첨부·이미지 업로드 → 가져오기」를 번갈아 한다(아래 「업로드」).
+4. **에픽(부모) 먼저**, 하위 이슈는 나중에. 하위에서 `parentNumber` 로 부모 번호를 건다.
+
+## 업로드
+
+업로드는 **가져오는 관리자 본인 토큰**으로 한다.
+
+- **첨부 파일**: 스테이징 업로드로 먼저 올리고 `fileId` 를 얻어 요청의 `attachments[].fileId` 에 넣는다.
+  - `POST /api/v1/staged-files/upload-link` (`{"name":"파일명"}`) → 10분짜리 일회용 PUT URL. `curl -T 파일 URL` 로 올리면 `{fileId, ...}` 가 온다(최대 25MB). 텍스트는 `POST /api/v1/staged-files/text` (`{name, content}`) 로도 만들 수 있고, 이때 내용은 10MB(텍스트 상한 `TEXT_MAX_BYTES`) 까지다.
+  - 스테이징 파일은 **24시간 안에** 쓰지 않으면 지워진다.
+- **본문·댓글 이미지**: `POST /api/v1/projects/{projectKey}/issue-images` (multipart, 필드 `file`) → `201` + `{fileId, url, ...}`. 응답의 `url`(`/api/v1/projects/{projectKey}/issue-images/{fileId}`)을 본문·댓글 마크다운에 그대로 넣는다. 예: `![스크린샷](/api/v1/projects/CLIM/issue-images/123)`.
+  - 이미지는 파일당 10MB 까지이고(PNG·JPEG·GIF·WebP), 연결되지 않은 이미지는 업로드 24시간 뒤 수거되며, 한 사람이 한 프로젝트에 **연결 전 50개까지**만 둘 수 있다. 그래서 이슈 한 건씩 「그 이슈의 파일 업로드 → 가져오기」로 돌린다(이슈 한 건의 본문·댓글 이미지는 합쳐 50개까지).
+  - 가져오기가 이미지를 연결하면서 올린 사람을 그 글의 작성자(본문=보고자, 댓글=댓글 작성자)로, 올린 시각을 그 글의 작성 시각으로 바꾼다.
+- **주의(조용히 건너뜀)**: 본문·댓글의 이미지 참조 중 **연결할 수 없는 것**(다른 사람이 올림, 만료됨, 잘못된 id)은 오류 없이 건너뛰고 **그래도 201** 이다. 이미지는 깨진 채로 보인다. 응답으로는 알 수 없으니 올린 사람·만료 시간을 지켜야 한다.
+
+## 요청 필드
+
+필수는 `title`, `reporter`, `createdAt` 뿐이다. 나머지는 선택.
+
+| 필드 | 설명 |
+|---|---|
+| `number` | 이슈 번호(1 ~ 1,000,000,000). 주면 그 번호로 만들고 이미 쓰였으면(삭제된 이슈 포함) 409. 없으면 다음 번호. 이후 일반 생성은 겹치지 않게 이어진다. |
+| `sourceKey` | 원본 키(100자, 예 `CLIM-17`). 프로젝트 안에서 고유 — 재시도 판별용. |
+| `title` / `body` | 제목 200자, 본문 50,000자(마크다운). |
+| `typeId`, `statusId` 또는 `status`(상태 분류), `priority`, `startDate`, `dueDate`(`YYYY-MM-DD`), `parentNumber`, `milestoneId`, `labelIds`, `labelNames`, `cycleIds` | 일반 이슈 생성과 같은 뜻·검증. |
+| `fields` | 커스텀 필드 값 `[{defId, value}]` — 일반 필드 값 API 와 같은 형식. 이력은 남기지 않는다. |
+| `reporter` | 보고자 username. |
+| `assignees` | 담당자 username(50명까지). 지정자는 호출자로 남고 원래 지정자는 `history` 로 옮긴다. |
+| `watchers` | 워처 username. **넘긴 목록 그대로**만 워처가 된다. 보고자·담당자를 자동으로 넣지 않는다. |
+| `createdAt` | 원래 생성 시각(오프셋 포함 ISO-8601). |
+| `updatedAt` | 원래 수정 시각. 없으면 `createdAt`. `createdAt` 보다 이르면 400. 종료 시각보다 이르면(아래) 400. |
+| `closedAt` | 종료 시각. **종료 범주(완료·취소) 상태일 때만** 줄 수 있고(아니면 400), 없으면 `updatedAt`. `createdAt` 보다 이르거나 `updatedAt` 보다 늦으면 400(종료도 변경이라 수정 시각이 종료 이후여야 한다). |
+| 딸린 것들의 시각 | 댓글 `createdAt`·첨부 `attachedAt`·이력 `at` 은 이슈 `createdAt` 보다 이르면 400. 미래 시각 검사는 하지 않는다. |
+| `attachments` | `[{fileId, attachedBy, attachedAt}]` 50개까지. |
+| `comments` | `[{author, createdAt, updatedAt?, body}]` 500개까지, 입력 순서대로. 본문 50,000자. 댓글 `updatedAt` 이 `createdAt` 보다 이르면 400. |
+| `history` | 변경 이력 1,000개까지(아래). |
+
+### 변경 이력 `history[]`
+
+항목은 `{type, actor, at, from?, to?, fromStatusId?, toStatusId?, fromTypeId?, toTypeId?, added?, removed?}`. `actor` 는 username, `at` 은 원래 시각. 받은 순서대로 넣고 정렬은 활동 목록이 시각으로 한다.
+
+| type | 쓰는 값 / 규칙 |
+|---|---|
+| `STATUS_CHANGED` | **Works 프로젝트 상태 id** `toStatusId` 필수, `fromStatusId` 는 null 가능(첫 전이). 이 프로젝트 상태가 아니면 400. 이름이 아니라 id 로 받는다. `fromStatusId` 와 `toStatusId` 가 같으면 400. |
+| `PRIORITY_CHANGED` | `to` 필수, `from` 선택. 우선순위 코드 5개 중 하나: `HIGHEST`·`HIGH`·`MID`·`LOW`·`LOWEST`(그 밖은 400). `from` 과 `to` 가 같으면 400. |
+| `TITLE_CHANGED` | `to` 필수(200자), `from` 선택. `from` 과 `to` 가 같으면 400. |
+| `DUE_DATE_CHANGED`, `START_DATE_CHANGED` | `from`/`to` 는 `YYYY-MM-DD` 또는 null. `from` 과 `to` 가 같으면(둘 다 null 포함) 400. |
+| `ASSIGNEES_CHANGED` | `added`/`removed` username 목록 — **둘 중 하나는 비어 있지 않아야** 한다. |
+| `LABELS_CHANGED` | `added`/`removed` 라벨 이름 — 둘 중 하나는 비어 있지 않아야 하고, **이 프로젝트에 있는 라벨이어야** 한다(대소문자 구분). 이름은 `labelNames` 와 같게 앞뒤 공백을 지우고 한 줄로 다듬어 찾으므로 같은 요청의 `labelNames` 로 만든 라벨도 쓸 수 있다. 없으면 400. |
+| `TYPE_CHANGED` | `fromTypeId`·`toTypeId` **둘 다** 필수, 이 프로젝트의 유형 id. 둘이 같으면 400. |
+| 그 밖 | 400(`지원하지 않는 이력 유형`). |
+
+## 요청 예시
+
+```json
+{
+  "number": 17,
+  "sourceKey": "CLIM-17",
+  "title": "로그인 후 빈 화면이 나온다",
+  "body": "재현 절차는 아래와 같다.\n\n![화면](/api/v1/projects/CLIM/issue-images/901)",
+  "typeId": 3,
+  "statusId": 12,
+  "priority": "HIGH",
+  "startDate": "2025-03-03",
+  "dueDate": "2025-03-14",
+  "parentNumber": 5,
+  "milestoneId": 2,
+  "labelIds": [4],
+  "labelNames": ["compute"],
+  "cycleIds": [7],
+  "fields": [{ "defId": 31, "value": "RND-2025-03" }],
+  "reporter": "kim.reporter",
+  "assignees": ["lee.dev"],
+  "watchers": ["lee.dev", "park.qa"],
+  "createdAt": "2025-03-03T09:12:00+09:00",
+  "updatedAt": "2025-03-20T17:40:00+09:00",
+  "closedAt": "2025-03-20T17:40:00+09:00",
+  "attachments": [
+    { "fileId": 5521, "attachedBy": "kim.reporter", "attachedAt": "2025-03-03T09:15:00+09:00" }
+  ],
+  "comments": [
+    {
+      "author": "lee.dev",
+      "createdAt": "2025-03-04T10:00:00+09:00",
+      "updatedAt": "2025-03-04T10:05:00+09:00",
+      "body": "원인을 찾았다. 수정 중."
+    }
+  ],
+  "history": [
+    {
+      "type": "STATUS_CHANGED",
+      "actor": "lee.dev",
+      "at": "2025-03-04T09:30:00+09:00",
+      "fromStatusId": 10,
+      "toStatusId": 11
+    },
+    {
+      "type": "ASSIGNEES_CHANGED",
+      "actor": "kim.reporter",
+      "at": "2025-03-03T09:20:00+09:00",
+      "added": ["lee.dev"],
+      "removed": []
+    },
+    {
+      "type": "LABELS_CHANGED",
+      "actor": "kim.reporter",
+      "at": "2025-03-03T09:21:00+09:00",
+      "added": ["compute"]
+    },
+    {
+      "type": "PRIORITY_CHANGED",
+      "actor": "kim.reporter",
+      "at": "2025-03-03T09:22:00+09:00",
+      "from": "MID",
+      "to": "HIGH"
+    }
+  ]
+}
+```
+
+## 오류 응답
+
+응답 `errors.reason` 으로 원인을 구분한다.
+
+| 상태 | `errors.reason` | 뜻 / 할 일 |
+|---|---|---|
+| 403 | `IMPORT_ADMIN_ONLY` | 관리자(사람)가 아니다. 관리자 토큰으로 호출. |
+| 400 | `IMPORT_PERSONAL_PROJECT` | 개인 프로젝트. 팀 프로젝트로 가져온다. |
+| 400 | `IMPORT_UNKNOWN_USERS` | `errors.usernames` 에 프로젝트 활성 구성원이 아닌 username 이 쉼표로 나열된다. 구성원 추가 후 재시도. |
+| 400 | `IMPORT_INVALID_TIMES` | 수정·종료 시각이 생성보다 이르거나, 종료가 수정보다 늦거나, 댓글·첨부·이력 시각이 이슈 생성보다 이르거나, 종료 상태가 아닌데 `closedAt` 을 줬다. |
+| 400 | `IMPORT_INVALID_HISTORY` | `errors.index`(0부터)번째 이력이 규칙에 어긋난다. `errors.detail` 참고. |
+| 400 | `IMPORT_UNKNOWN_LABELS` | 이력의 라벨 이름이 프로젝트에 없다. `errors.labels` 참고. |
+| 400 | (검증 메시지) | 필수 값 누락·길이 초과·잘못된 상태/유형/부모 등 일반 생성과 같은 검증. |
+| 409 | `IMPORT_NUMBER_TAKEN` | 지정한 `number` 가 이미 쓰였다. |
+| 409 | `IMPORT_SOURCE_KEY_TAKEN` | 같은 `sourceKey` 로 이미 가져왔다. |
+
+## 재시도
+
+시간 초과 등으로 결과를 모르면 **같은 `sourceKey` 로 다시 보낸다.** `409 IMPORT_SOURCE_KEY_TAKEN` 이면 이미 들어간 것이니 건너뛴다(이슈가 두 번 만들어지지 않는다). 첫 요청이 아직 처리 중일 때 재시도가 와도, 번호·첨부가 같아 생기는 다른 오류보다 원본 키 409 가 먼저 온다. 요청 하나는 한 트랜잭션이라 실패하면 아무것도 남지 않는다. 단, 업로드한 첨부(24시간)·이미지(24시간)는 그 사이 만료될 수 있으니 오래 지났다면 다시 올린다.
+
+## CLIM 이관 때 주의
+
+- Jira 우선순위 이름은 Works 코드로 바꿔 넣는다(`priority` 와 이력의 `from`/`to` 모두): Highest→`HIGHEST`, High→`HIGH`, Medium→`MID`, Low→`LOW`, Lowest→`LOWEST`.
+- 상태 이력은 Jira 상태 id → Works 상태 id 로 맞춘다(이름 금지). 종료 시각(`closedAt`)은 Works 에서 완료 범주로 매핑한 상태로 들어간 마지막 전이 시각을 넘긴다(Jira `resolutiondate` 는 4건에만 있어 쓰지 않는다).
+- Jira 인라인 이미지는 이슈 첨부이기도 하다(약 345개) — 둘 다 올리면 이중으로 들어간다. 본문 이미지로 쓴 파일은 첨부로 다시 올리지 않는 식으로 한 번만 넣는다. 인라인 파일 카드(로그 등, 이미지 아님)는 첨부로 넣고 본문엔 링크 문구로.
+- 대소문자만 다른 라벨(Compute/compute 등 6쌍)은 Works 에서 다른 라벨이 된다 — 미리 합친다.
+- 다른 프로젝트(CL) 에픽이 부모인 62건은 `parentNumber` 로 걸 수 없다 — WP-887 외부 링크로.
+- 본문의 `CLIM-n` 링크(773개)는 Works 프로젝트 키를 `CLIM` 으로 두면 번호 보존으로 그대로 맞는다.
+- 커넥터가 주는 주석 HTML 을 그대로 보내면 5만 자를 넘는 댓글이 있다(CLIM-16·14) — 마크다운으로 바꿔 보낸다.
+- 멘션은 Jira 계정 id → Works username 으로 바꾼다. 가져오기는 멘션 알림을 내지 않는다.
+- 비밀값처럼 보이는 문자열(약 57곳)은 그대로 옮기면 Works 검색·첨부 텍스트 추출에도 들어간다 — 이관 전 검토.
+- CLIM 일부 댓글(25개)은 이미 한 번 옮겨 온 것이라 본문 첫 줄에 「원작성자: …」가 있다 — 원래 사람으로 바꿀지는 스크립트가 정한다.
+
+## 동작상 참고
+
+- 가져오는 동안 그 프로젝트의 일반 이슈 생성은 이 가져오기의 트랜잭션이 커밋될 때까지 기다린다(번호 시퀀스 잠금) — 아직 아무도 쓰지 않는 프로젝트로 옮기는 용도다. 가져온 이슈에는 AI 요약이 자동으로 만들어지지 않고, 다음 댓글·상태 변경 때 생긴다.
+
+## 지원하지 않는 것
+
+- 이슈 관계·외부 링크(차단·관련·중복 등) — WP-887. 일반 의존성 API 로 넣으면 관리자·지금 시각 이력이 남으니 그 전까지 기다린다.
+- 수정·영향 버전 — WP-888.
+- 구성요소(components) — WP-933.
+- 사이클·스프린트 이동 이력, 본문 변경 이력, 작업 기록·투표·반응.
+- 이미 있는 이슈에 댓글만 덧붙이는 추가 가져오기(이슈 한 건을 한 번에 넣는다).

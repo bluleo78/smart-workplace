@@ -47,7 +47,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 | `global` | SecurityConfig, JwtAuthenticationFilter, GlobalExceptionHandler, `@RequirePermission`, 공통 DTO, EncryptionService(AES-256-GCM) |
 | `home` | 홈 대시보드 집계 — 내 이슈·워치·활동 |
 | `project` | 프로젝트 CRUD·멤버·권한·custom field |
-| `issue` | 이슈 CRUD·상태/우선순위/유형·subtask·의존성·다중 assignee·이벤트 발행 |
+| `issue` | 이슈 CRUD·상태/우선순위/유형·subtask·의존성·다중 assignee·이벤트 발행 · 관리자 전용 가져오기(`/import/issues`, 사용법 docs/integrations/issue-import-api.md) |
 | `label` | 라벨 CRUD·이슈 라벨링 |
 | `watcher` | 이슈 워처(구독) |
 | `view` | Saved View — 필터 조건 저장·공유 |
