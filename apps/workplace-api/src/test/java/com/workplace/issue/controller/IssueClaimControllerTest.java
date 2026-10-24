@@ -172,15 +172,14 @@ class IssueClaimControllerTest extends AgentWorkTestSupport {
     assertUnchanged();
   }
 
-  /** 목록 필터(IssueFilterResolver)가 라벨 이름을 대소문자 무시로 맞추므로 가져가기도 같아야 한다 — 입력의 대소문자·앞뒤 공백도 무시한다. */
+  /**
+   * 목록 필터(IssueFilterResolver)가 라벨 이름을 대소문자 무시로 맞추므로 가져가기도 같아야 한다 — 입력의 대소문자·앞뒤 공백도 무시한다. 대소문자만 다른
+   * 같은 이름 라벨이 둘 붙는 경우는 라벨 이름이 대소문자 무시로 유일해져(WP-911) 더는 생기지 않는다.
+   */
   @Test
-  void claim_sameNameLabelsDifferentCase_removesAll() {
-    // 대소문자만 다른 같은 이름 라벨이 둘 붙은 이슈 — 하나만 떼면 대기열 라벨이 남아 다른 AI 가 계속 재시도한다.
-    // 한글은 대소문자가 없어 영문 이름으로 바꿔 둘 다 같은 이름(대소문자만 다름)으로 맞춘다.
+  void claim_labelNameDifferentCase_removesIt() {
+    // 한글은 대소문자가 없어 영문 이름으로 바꾼 뒤 대소문자·공백이 다른 입력으로 가져간다.
     labelRepository.update(queueLabelId, "AI Dev Team", "GRAY");
-    long dup =
-        inTenant(() -> labelRepository.insert(projectId, "ai dev team", "RED", humanId).id());
-    inTenantRun(() -> issueLabelRepository.add(issueId, dup));
 
     var res = claim(claimerToken, "  ai dev team ");
 

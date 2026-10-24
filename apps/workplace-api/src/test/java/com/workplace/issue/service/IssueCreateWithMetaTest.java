@@ -358,6 +358,22 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isEqualTo(2);
   }
 
+  /** WP-911 — 이름 라벨은 대소문자를 무시해 기존 라벨을 쓴다. 대소문자만 다른 이름을 함께 보내도 라벨은 하나만 붙고 새로 만들지 않는다. */
+  @Test
+  void create_withLabelNames_matchesExistingIgnoringCase() {
+    var bug = labelService.create(ownerId, projectKey, new CreateLabelRequest("Bug", "RED"));
+
+    var created =
+        issueService.create(
+            ownerId,
+            projectKey,
+            withLabelNames("case", null, List.of("bug", "BUG", "New", "new"), null));
+
+    assertThat(created.labels()).extracting(l -> l.name()).containsExactlyInAnyOrder("Bug", "New");
+    assertThat(created.labels()).extracting(l -> l.id()).contains(bug.id());
+    assertThat(dsl.fetchCount(LABEL, LABEL.PROJECT_ID.eq(projectId))).isEqualTo(2);
+  }
+
   /** WP-394 — 이슈 생성이 검증에서 실패하면 이름 라벨도 만들지 않는다(고아 라벨 없음). */
   @Test
   void create_withLabelNames_failingCreate_leavesNoLabel() {

@@ -156,21 +156,25 @@ const LABEL_NAME_MAX = 40;
  * 이슈에 붙일 라벨 이름 → 요청 본문 조각(WP-394). 앞뒤 공백을 빼고 같은 이름은 하나로 친 뒤, 미리 읽은 프로젝트 라벨(existing)에 있는 이름은
  * labelIds 로, 없는 이름만 labelNames 로 나눈다 — 없는 라벨은 서버가 이슈 쓰기와 같은 트랜잭션에서 만든다(쓰기가 실패하면 라벨도 남지 않는다).
  * 있는 라벨을 id 로 보내는 이유: labelNames 를 모르는 구버전 API(롤링 배포)가 그 필드를 무시해도 기존 라벨이 지워지지 않게.
- * created(= 새로 만들 이름)는 오타로 생긴 라벨을 호출자가 알아챌 수 있게 결과에 싣는다. 이름은 정확 일치(대소문자 구분, 서버 유일 제약과 같은 기준).
+ * created(= 새로 만들 이름)는 오타로 생긴 라벨을 호출자가 알아챌 수 있게 결과에 싣는다. 이름은 대소문자를 무시해 맞춘다 — 「bug」 는 있는 「Bug」 를
+ * 쓴다(서버 유일 제약 lower(name) 과 같은 기준, WP-911). 대소문자만 다른 이름을 함께 주면 하나로 친다.
  */
 export function splitLabelNames(
   labelNames: string[],
   existing: { id: number; name: string }[],
 ): { ids: number[]; created: string[] } {
-  const names = [...new Set(labelNames.map((n) => n.trim()))];
+  // 대소문자만 다른 이름은 처음 나온 표기 하나로 친다(서버도 같은 라벨 하나로 붙인다).
+  const byKey = new Map<string, string>();
+  for (const n of labelNames.map((x) => x.trim())) if (!byKey.has(n.toLowerCase())) byKey.set(n.toLowerCase(), n);
+  const names = [...byKey.values()];
   if (names.some((n) => n.length === 0)) throw new Error('라벨 이름이 비어 있습니다.');
   const tooLong = names.find((n) => n.length > LABEL_NAME_MAX);
   if (tooLong) throw new Error(`라벨 이름은 ${LABEL_NAME_MAX}자 이하여야 합니다: '${tooLong}'`);
-  const idOf = new Map(existing.map((l) => [l.name, l.id]));
+  const idOf = new Map(existing.map((l) => [l.name.toLowerCase(), l.id]));
   const ids: number[] = [];
   const created: string[] = [];
   for (const name of names) {
-    const id = idOf.get(name);
+    const id = idOf.get(name.toLowerCase());
     if (id !== undefined) ids.push(id);
     else created.push(name);
   }

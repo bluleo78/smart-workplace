@@ -186,11 +186,6 @@ public class Milestone extends TableImpl<MilestoneRecord> {
     }
 
     @Override
-    public List<UniqueKey<MilestoneRecord>> getUniqueKeys() {
-        return Arrays.asList(Keys.MILESTONE_PROJECT_ID_NAME_KEY);
-    }
-
-    @Override
     public List<ForeignKey<MilestoneRecord, ?>> getReferences() {
         return Arrays.asList(Keys.MILESTONE__FK_MILESTONE_TENANT, Keys.MILESTONE__MILESTONE_PROJECT_ID_FKEY);
     }

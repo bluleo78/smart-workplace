@@ -192,11 +192,6 @@ public class IssueFieldDef extends TableImpl<IssueFieldDefRecord> {
     }
 
     @Override
-    public List<UniqueKey<IssueFieldDefRecord>> getUniqueKeys() {
-        return Arrays.asList(Keys.ISSUE_FIELD_DEF_PROJECT_ID_NAME_KEY);
-    }
-
-    @Override
     public List<ForeignKey<IssueFieldDefRecord, ?>> getReferences() {
         return Arrays.asList(Keys.ISSUE_FIELD_DEF__FK_ISSUE_FIELD_DEF_TENANT, Keys.ISSUE_FIELD_DEF__ISSUE_FIELD_DEF_PROJECT_ID_FKEY);
     }

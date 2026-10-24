@@ -146,6 +146,16 @@ class SavedViewServiceTest extends IntegrationTestBase {
         .isInstanceOf(SavedViewNameDuplicatedException.class);
   }
 
+  /** WP-911 — 같은 사람의 뷰는 대소문자만 다른 이름도 409. */
+  @Test
+  void case_only_different_name_same_owner_throws_409() {
+    Long owner = createUser("vo5c");
+    ProjectResponse p = newProject(owner, "VFC");
+    service.create(owner, p.key(), req("CaseSV", "q=1", "PRIVATE"));
+    assertThatThrownBy(() -> service.create(owner, p.key(), req("caseSV", "q=2", "PRIVATE")))
+        .isInstanceOf(SavedViewNameDuplicatedException.class);
+  }
+
   @Test
   void list_requires_membership() {
     Long owner = createUser("vo6");

@@ -10,6 +10,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -85,17 +86,22 @@ public class LabelRepository {
     }
   }
 
-  /** 프로젝트 안에서 이름이 정확히 같은(대소문자 구분) 라벨들. */
+  /** 프로젝트 안에서 이름이 같은(대소문자 무시 — 유니크 인덱스 lower(name) 과 같은 기준, WP-911) 라벨들. */
   public List<LabelRow> findByProjectAndNames(Long projectId, List<String> names) {
     if (names.isEmpty()) return List.of();
     return dsl.selectFrom(LABEL)
-        .where(LABEL.PROJECT_ID.eq(projectId).and(LABEL.NAME.in(names)))
+        .where(
+            LABEL
+                .PROJECT_ID
+                .eq(projectId)
+                .and(DSL.lower(LABEL.NAME).in(names.stream().map(DSL::lower).toList())))
         .fetch(this::mapToRow);
   }
 
   /**
    * 같은 이름이 없을 때만 삽입(WP-394). 이미 있으면(동시 생성 포함) 아무것도 쓰지 않고 empty — UNIQUE 위반 예외로 트랜잭션이 깨지지 않게 ON
-   * CONFLICT DO NOTHING 을 쓴다. 호출자는 empty 면 다시 읽어 기존 라벨을 쓴다.
+   * CONFLICT DO NOTHING 을 쓴다. 호출자는 empty 면 다시 읽어 기존 라벨을 쓴다. 유니크가 식 인덱스(project_id, lower(name),
+   * WP-911)라 충돌 대상 열을 적지 않는다.
    */
   public Optional<LabelRow> insertIfAbsent(
       Long projectId, String name, String colorToken, Long createdBy) {
@@ -104,8 +110,7 @@ public class LabelRepository {
         .set(LABEL.NAME, name)
         .set(LABEL.COLOR_TOKEN, colorToken)
         .set(LABEL.CREATED_BY, createdBy)
-        .onConflict(LABEL.PROJECT_ID, LABEL.NAME)
-        .doNothing()
+        .onConflictDoNothing()
         .returning()
         .fetchOptional()
         .map(this::mapToRow);

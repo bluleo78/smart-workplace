@@ -121,8 +121,10 @@ describe('splitLabelNames', () => {
     expect(splitLabelNames([' urgent ', 'ai-fix', 'ai-fix', 'backend'], existing)).toEqual({ ids: [100, 101], created: ['ai-fix'] });
   });
 
-  it('대소문자가 다르면 다른 라벨이다(서버 유일 제약과 같은 기준)', () => {
-    expect(splitLabelNames(['Urgent'], existing)).toEqual({ ids: [], created: ['Urgent'] });
+  // WP-911: 서버 유일 제약이 lower(name) 이라 대소문자만 다른 이름은 같은 라벨이다.
+  it('대소문자만 다르면 있는 라벨을 쓰고, 함께 준 대소문자 변형은 하나로 친다', () => {
+    expect(splitLabelNames(['Urgent'], existing)).toEqual({ ids: [100], created: [] });
+    expect(splitLabelNames(['New', 'new', 'NEW'], existing)).toEqual({ ids: [], created: ['New'] });
   });
 
   it('빈 이름·40자 초과면 throw', () => {

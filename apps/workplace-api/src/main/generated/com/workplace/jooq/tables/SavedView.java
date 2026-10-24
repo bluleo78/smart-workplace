@@ -197,11 +197,6 @@ public class SavedView extends TableImpl<SavedViewRecord> {
     }
 
     @Override
-    public List<UniqueKey<SavedViewRecord>> getUniqueKeys() {
-        return Arrays.asList(Keys.UQ_SAVED_VIEW_OWNER_NAME);
-    }
-
-    @Override
     public List<ForeignKey<SavedViewRecord, ?>> getReferences() {
         return Arrays.asList(Keys.SAVED_VIEW__FK_SAVED_VIEW_TENANT, Keys.SAVED_VIEW__SAVED_VIEW_OWNER_ID_FKEY, Keys.SAVED_VIEW__SAVED_VIEW_PROJECT_ID_FKEY);
     }

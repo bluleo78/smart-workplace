@@ -181,6 +181,20 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
         .isInstanceOf(FieldNameDuplicatedException.class);
   }
 
+  /** WP-911 — 대소문자만 다른 이름도 같은 이름으로 막는다. */
+  @Test
+  void case_only_different_name_throws_409() {
+    Long owner = createUser("fc");
+    var p = newProject(owner, "FSC");
+    service.create(owner, p.key(), new CreateIssueFieldDefRequest("Num", "NUMBER", null));
+
+    assertThatThrownBy(
+            () ->
+                service.create(
+                    owner, p.key(), new CreateIssueFieldDefRequest("num", "NUMBER", null)))
+        .isInstanceOf(FieldNameDuplicatedException.class);
+  }
+
   @Test
   void invalid_type_throws_400() {
     Long owner = createUser("g");

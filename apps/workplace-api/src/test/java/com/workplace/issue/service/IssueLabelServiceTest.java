@@ -135,9 +135,9 @@ class IssueLabelServiceTest extends IntegrationTestBase {
         issueLabelService.replace(
             owner, p.key(), 1, List.of(bug.id()), List.of("ai-fix", "bug", "Bug"));
 
-    // 대소문자가 다르면 다른 라벨(「Bug」 새로 생성), 「bug」 는 기존 것을 쓴다.
-    assertThat(result).extracting(l -> l.name()).containsExactlyInAnyOrder("bug", "ai-fix", "Bug");
-    assertThat(labelService.list(owner, p.key())).hasSize(3);
+    // WP-911: 대소문자만 다른 「Bug」 도 기존 「bug」 를 쓴다(새로 만들지 않음) — 없는 「ai-fix」 만 만든다.
+    assertThat(result).extracting(l -> l.name()).containsExactlyInAnyOrder("bug", "ai-fix");
+    assertThat(labelService.list(owner, p.key())).hasSize(2);
     assertThat(historyRepository.findByIssue(issue.id()))
         .anyMatch(h -> h.eventType().equals("LABELS_CHANGED"));
   }

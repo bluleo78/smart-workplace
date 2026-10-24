@@ -95,6 +95,17 @@ class MilestoneServiceTest extends IntegrationTestBase {
         .isInstanceOf(MilestoneNameDuplicatedException.class);
   }
 
+  /** WP-911 — 대소문자만 다른 이름도 같은 이름으로 막는다(채널·조직 그룹과 같은 기준). */
+  @Test
+  void case_only_different_name_throws() {
+    Long owner = createUser("o2c");
+    ProjectResponse p = newProject(owner, "MBC");
+    milestoneService.create(owner, p.key(), req("DupL"));
+
+    assertThatThrownBy(() -> milestoneService.create(owner, p.key(), req("dupl")))
+        .isInstanceOf(MilestoneNameDuplicatedException.class);
+  }
+
   @Test
   void non_member_cannot_create() {
     Long owner = createUser("o3");

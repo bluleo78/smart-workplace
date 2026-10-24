@@ -187,11 +187,6 @@ public class Label extends TableImpl<LabelRecord> {
     }
 
     @Override
-    public List<UniqueKey<LabelRecord>> getUniqueKeys() {
-        return Arrays.asList(Keys.LABEL_PROJECT_ID_NAME_KEY);
-    }
-
-    @Override
     public List<ForeignKey<LabelRecord, ?>> getReferences() {
         return Arrays.asList(Keys.LABEL__FK_LABEL_TENANT, Keys.LABEL__LABEL_CREATED_BY_FKEY, Keys.LABEL__LABEL_PROJECT_ID_FKEY);
     }

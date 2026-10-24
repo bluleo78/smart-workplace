@@ -253,6 +253,33 @@ class LabelServiceTest extends IntegrationTestBase {
         .isInstanceOf(LabelNameDuplicatedException.class);
   }
 
+  /** WP-911 — 대소문자만 다른 이름으로 새로 만들면 409. (한 테스트에 위반 한 번 — 위반 뒤 트랜잭션이 깨진다) */
+  @Test
+  void case_only_different_name_on_create_throws_409() {
+    Long owner = createUser("o3c");
+    ProjectResponse p = newProject(owner, "LCC");
+    labelService.create(owner, p.key(), new CreateLabelRequest("DupL", "RED"));
+
+    assertThatThrownBy(
+            () -> labelService.create(owner, p.key(), new CreateLabelRequest("dupl", "BLUE")))
+        .isInstanceOf(LabelNameDuplicatedException.class);
+  }
+
+  /** WP-911 — 다른 라벨 이름을 대소문자만 다르게 바꿔도 409. */
+  @Test
+  void case_only_different_name_on_update_throws_409() {
+    Long owner = createUser("o3d");
+    ProjectResponse p = newProject(owner, "LCD");
+    labelService.create(owner, p.key(), new CreateLabelRequest("DupL", "RED"));
+    var other = labelService.create(owner, p.key(), new CreateLabelRequest("other", "RED"));
+
+    assertThatThrownBy(
+            () ->
+                labelService.update(
+                    owner, p.key(), other.id(), new CreateLabelRequest("DUPL", "BLUE")))
+        .isInstanceOf(LabelNameDuplicatedException.class);
+  }
+
   @Test
   void invalid_color_token_throws_400() {
     Long owner = createUser("o4");

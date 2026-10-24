@@ -22,8 +22,11 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.outbound.ProjectChangeNotifier;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -106,28 +109,42 @@ public class LabelService {
 
   /**
    * 이름 → 라벨 id(WP-394). 프로젝트에 없는 이름은 기본 색으로 만들고 요청자를 만든 사람으로 기록한다 — 이슈 생성·라벨 교체와 같은 트랜잭션에서 불려 이슈
-   * 쓰기가 실패하면 함께 롤백된다(고아 라벨 없음). 이름은 정확 일치(대소문자 구분, UNIQUE(project_id, name) 와 같은 기준).
+   * 쓰기가 실패하면 함께 롤백된다(고아 라벨 없음). 이름은 대소문자를 무시해 맞춘다 — 「bug」 는 이미 있는 「Bug」 를 쓴다(유니크 인덱스 (project_id,
+   * lower(name)) 와 같은 기준, WP-911). 대소문자만 다른 이름을 함께 보내면 같은 라벨 하나로 붙는다.
    *
    * <p>권한은 호출부가 확인한다 — 이슈에 라벨을 붙일 수 있는 사람(프로젝트 멤버·ADMIN)이 곧 라벨을 만들 수 있는 사람이다.
    */
   public List<Long> ensureByNames(ProjectRow project, Long callerId, List<String> names) {
     List<String> normalized = normalizeNames(names);
     if (normalized.isEmpty()) return List.of();
+    // 키는 소문자 이름 — 대소문자만 다른 요청 이름이 같은 라벨로 모이고, 없는 이름도 한 번만 만든다.
     var idByName = new HashMap<String, Long>();
     labelRepository
         .findByProjectAndNames(project.id(), normalized)
-        .forEach(r -> idByName.put(r.name(), r.id()));
-    var missing = normalized.stream().filter(n -> !idByName.containsKey(n)).toList();
+        .forEach(r -> idByName.put(caseKey(r.name()), r.id()));
+    var missing =
+        normalized.stream()
+            .filter(n -> !idByName.containsKey(caseKey(n)))
+            .collect(
+                Collectors.toMap(LabelService::caseKey, n -> n, (a, b) -> a, LinkedHashMap::new))
+            .values()
+            .stream()
+            .toList();
     if (!missing.isEmpty()) {
       // 새로 만드는 건 라벨 관리 권한이 있을 때만 — 이슈 쓰기(issue:write)만 있는 역할이 이 경로로 label:manage 를 우회하지 않게.
       if (!permissionChecker.hasPermission(callerId, "label:manage")) {
         throw new ProjectAccessDeniedException("라벨을 만들 권한이 없습니다: " + String.join(", ", missing));
       }
       for (String name : missing) {
-        idByName.put(name, insertOrFind(project, callerId, name));
+        idByName.put(caseKey(name), insertOrFind(project, callerId, name));
       }
     }
-    return normalized.stream().map(idByName::get).toList();
+    return normalized.stream().map(n -> idByName.get(caseKey(n))).distinct().toList();
+  }
+
+  /** 대소문자 무시 비교용 키(WP-911) — DB lower() 와 같은 기준으로 소문자화한다. */
+  private static String caseKey(String name) {
+    return name.toLowerCase(Locale.ROOT);
   }
 
   /** 이미 확인한 라벨 id 와 이름 라벨(없으면 생성)을 순서를 지켜 한 목록으로 — 이슈 생성·라벨 교체가 같이 쓴다. */
