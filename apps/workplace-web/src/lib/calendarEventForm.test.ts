@@ -289,6 +289,29 @@ describe('eventFormSchema 설명 길이 (WP-543)', () => {
   })
 })
 
+// WP-902: 연도를 5자리로 넣으면 Date 로 해석되지 않는다 — 순서가 맞는데도 「종료는 시작보다 뒤여야 합니다」로 오안내하던 것을 원인 안내로 바꾼다.
+describe('eventFormSchema 시작·종료 해석 (WP-902)', () => {
+  const messageOf = (r: ReturnType<typeof eventFormSchema.safeParse>, field: string) =>
+    r.error?.issues.filter((i) => i.path[0] === field).map((i) => i.message)
+
+  it('종료 연도가 5자리면 연도 안내만 나오고 순서 오안내는 없다', () => {
+    const r = eventFormSchema.safeParse({ ...base, start: '2026-06-19T09:00', end: '12026-06-19T10:00' })
+    expect(r.success).toBe(false)
+    expect(messageOf(r, 'end')).toEqual(['날짜와 시각을 올바르게 입력하세요 (연도는 4자리)'])
+  })
+
+  it('시작 연도가 5자리면 시작 칸에 연도 안내가 나온다', () => {
+    const r = eventFormSchema.safeParse({ ...base, start: '12026-06-19T09:00', end: '2026-06-19T10:00' })
+    expect(messageOf(r, 'start')).toEqual(['날짜와 시각을 올바르게 입력하세요 (연도는 4자리)'])
+    expect(messageOf(r, 'end')).toEqual([])
+  })
+
+  it('둘 다 유효하고 종료가 시작보다 앞서면 기존 순서 안내', () => {
+    const r = eventFormSchema.safeParse({ ...base, start: '2026-06-19T10:00', end: '2026-06-19T09:00' })
+    expect(messageOf(r, 'end')).toEqual(['종료는 시작보다 뒤여야 합니다'])
+  })
+})
+
 describe('restoreTimedRange (WP-711)', () => {
   it('종일을 켰다 끄면 체크 전 시각으로 돌아온다', () => {
     const remembered = { start: '2026-10-22T10:00', end: '2026-10-22T11:00' }

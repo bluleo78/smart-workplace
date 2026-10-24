@@ -41,9 +41,26 @@ export const eventFormSchema = z
     recurrenceUntil: z.string().optional(),
     recurrenceCount: z.number().optional(),
   })
-  .refine((v) => new Date(v.end) > new Date(v.start), {
-    message: '종료는 시작보다 뒤여야 합니다',
-    path: ['end'],
+  // 시작·종료 검증 — 연도를 5자리 이상으로 넣으면 datetime-local 값이 Date 로 해석되지 않아(Invalid Date)
+  // 순서 비교가 항상 false 가 된다. 그대로 두면 순서가 맞는데도 「종료는 시작보다 뒤여야 합니다」로 오안내하므로
+  // 해석 불가인 칸에 원인(연도 자릿수)을 먼저 알리고 순서 비교는 둘 다 유효할 때만 한다(WP-902).
+  .superRefine((v, ctx) => {
+    const startMs = new Date(v.start).getTime()
+    const endMs = new Date(v.end).getTime()
+    const invalid = { start: Number.isNaN(startMs), end: Number.isNaN(endMs) }
+    for (const field of ['start', 'end'] as const) {
+      // 빈 값은 필드 자체의 필수 메시지가 안내하므로 겹쳐 내지 않는다.
+      if (invalid[field] && v[field]) {
+        ctx.addIssue({
+          code: 'custom',
+          message: '날짜와 시각을 올바르게 입력하세요 (연도는 4자리)',
+          path: [field],
+        })
+      }
+    }
+    if (!invalid.start && !invalid.end && endMs <= startMs) {
+      ctx.addIssue({ code: 'custom', message: '종료는 시작보다 뒤여야 합니다', path: ['end'] })
+    }
   })
   // 반복 관련 필드는 해당 입력이 실제로 노출될 때(freq≠NONE)만 검증한다.
   .superRefine((v, ctx) => {
