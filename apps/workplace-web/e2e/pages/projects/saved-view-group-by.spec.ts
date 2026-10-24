@@ -123,7 +123,12 @@ test.describe('Saved View group-by', () => {
     await expect(page).toHaveURL(/view=board/);
 
     // 없음으로 되돌리면 group=none 명시 — 키를 지우면 사이클이 있는 프로젝트는 기본 사이클 그룹으로 돌아가므로(#878)
+    // 앞 선택의 목록이 닫히고 값이 그려진 뒤에 다시 연다 — 닫히는 중에 열면 「없음」 클릭이 먹지 않아
+    // 부하가 걸린 게이트에서 가끔 실패했다(CPU 8배 감속으로 6/6 재현, 대기 추가 후 통과 — WP-929 에서 확인).
+    await expect(page.getByRole('listbox')).toHaveCount(0);
+    await expect(page.getByTestId('group-by-trigger')).toContainText('담당자');
     await page.getByTestId('group-by-trigger').click();
+    await expect(page.getByTestId('group-by-none')).toBeVisible();
     await page.getByTestId('group-by-none').click();
     await expect(page).toHaveURL(/group=none/);
     await expect(page).not.toHaveURL(/group=assignee/);

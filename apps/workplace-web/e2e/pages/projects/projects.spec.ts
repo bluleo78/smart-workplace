@@ -251,3 +251,26 @@ test('이슈 필드 변경 시 "이슈 필드가 업데이트되었습니다" �
 
   await expect(page.getByText('이슈 필드가 업데이트되었습니다')).toBeVisible();
 });
+
+// WP-929: 설명 2000자 초과로 저장하면 아무 반응 없이 멈추던 것 — 검증 오류를 칸 아래에 그리고 PATCH 는 보내지 않는다.
+test('프로젝트 설정 — 설명이 2000자를 넘으면 오류 문구가 보이고 저장 요청은 나가지 않는다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject());
+  await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember()]);
+  let patchRequests = 0;
+  await page.route(
+    (url) => url.pathname === '/api/v1/projects/WP',
+    (route) => {
+      if (route.request().method() === 'PATCH') patchRequests += 1;
+      return route.fallback();
+    },
+  );
+
+  await page.goto('/projects/WP/settings');
+  const desc = page.locator('#settings-desc');
+  await desc.fill('가'.repeat(2001));
+  await page.getByRole('button', { name: '저장' }).click();
+  await expect(page.locator('#settings-desc-error')).toHaveText('설명은 2000자 이하여야 합니다');
+  await expect(desc).toHaveAttribute('aria-invalid', 'true');
+  await expect(desc).toHaveAttribute('aria-describedby', 'settings-desc-error');
+  expect(patchRequests).toBe(0);
+});

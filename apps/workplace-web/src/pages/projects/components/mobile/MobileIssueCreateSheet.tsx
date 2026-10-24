@@ -114,9 +114,17 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
                 aria-label="설명"
                 placeholder="설명 (선택)"
                 data-testid="issue-create-body"
+                aria-invalid={!!errors.body || undefined}
+                aria-describedby={errors.body ? 'issue-create-body-error' : undefined}
                 onPaste={f.images.onPaste}
                 className="w-full resize-none overflow-hidden bg-transparent text-base leading-6 outline-none placeholder:text-muted-foreground"
               />
+              {/* 10000자 초과 검증 실패를 그리지 않으면 「만들기」가 아무 반응 없이 멈춘다(WP-929). */}
+              {errors.body && (
+                <p id="issue-create-body-error" role="alert" className="text-sm text-destructive">
+                  {errors.body.message}
+                </p>
+              )}
               {parentVisible && !f.intakeOnly && (
                 <div className="space-y-1">
                   <label htmlFor="create-parent-number" className="text-xs font-medium text-muted-foreground">상위 이슈 번호</label>

@@ -385,7 +385,12 @@ export function MailAccountDialog({
                 <Input id="mail-email" type="email" {...form.register('emailAddress')} />
               </FormField>
 
-              <FormField label="표시 이름(선택)" htmlFor="mail-display">
+              {/* 120자 초과 검증 실패를 그리지 않으면 연결 테스트·저장이 아무 반응 없이 멈춘다(WP-929). */}
+              <FormField
+                label="표시 이름(선택)"
+                htmlFor="mail-display"
+                error={form.formState.errors.displayName?.message}
+              >
                 <Input id="mail-display" {...form.register('displayName')} />
               </FormField>
 

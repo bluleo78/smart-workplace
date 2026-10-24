@@ -172,7 +172,20 @@ export default function ProjectSettingsPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="settings-desc">설명</label>
-                <Textarea id="settings-desc" {...register('description')} rows={4} disabled={!canManage} />
+                <Textarea
+                  id="settings-desc"
+                  aria-invalid={!!errors.description || undefined}
+                  aria-describedby={errors.description ? 'settings-desc-error' : undefined}
+                  {...register('description')}
+                  rows={4}
+                  disabled={!canManage}
+                />
+                {/* 2000자 초과 등 검증 실패를 그리지 않으면 저장을 눌러도 요청도 안내도 없어 저장된 줄 안다(WP-929). */}
+                {errors.description && (
+                  <p id="settings-desc-error" role="alert" className="text-sm text-destructive">
+                    {errors.description.message}
+                  </p>
+                )}
               </div>
               {canManage && (
                 <Button type="submit" disabled={update.isPending}>{update.isPending ? '저장 중…' : '저장'}</Button>

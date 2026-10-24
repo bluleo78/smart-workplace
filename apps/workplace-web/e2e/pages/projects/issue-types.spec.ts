@@ -263,6 +263,29 @@ test.describe('이슈 유형', () => {
     },
   );
 
+  // WP-929: 본문 10000자 초과로 「생성」하면 아무 반응 없이 멈추던 것 — 본문 아래 오류를 그리고 POST 는 보내지 않는다.
+  test('새 이슈 본문이 10000자를 넘으면 오류 문구가 보이고 생성 요청은 나가지 않는다 (WP-929)', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
+    await mockApi(page, 'GET', '/api/v1/projects/WP/issues', createIssueSearchResponse([]));
+    await page.route('**/api/v1/projects/WP/types', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(systemTypes()) }),
+    );
+    let createRequests = 0;
+    await page.route('**/api/v1/projects/WP/issues', (route) => {
+      if (route.request().method() === 'POST') createRequests += 1;
+      return route.fallback();
+    });
+
+    await page.goto('/projects/WP');
+    await page.getByRole('button', { name: '+ 새 태스크' }).click();
+    await page.locator('#issue-title').fill('긴 본문');
+    await page.locator('#issue-body').fill('가'.repeat(10001));
+    await page.getByRole('button', { name: '생성' }).click();
+    await expect(page.locator('#issue-body-error')).toHaveText('본문은 10000자 이하여야 합니다');
+    await expect(page.locator('#issue-body')).toHaveAttribute('aria-invalid', 'true');
+    expect(createRequests).toBe(0);
+  });
+
   // WP-906: 0·소수·32비트 초과 부모 번호가 브라우저 영문 말풍선이나 zod 영문 메시지·서버 400 으로 새던 것을 한국어 안내로 막는다.
   test(
     '하위 태스크의 부모 번호에 0·소수·너무 큰 수를 넣으면 한국어 안내가 표시되고 요청은 나가지 않는다 (WP-906)',

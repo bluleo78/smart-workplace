@@ -177,6 +177,31 @@ test.describe('메일 계정 설정', () => {
     await expect(save).not.toHaveAttribute('aria-describedby', /.+/)
   })
 
+  // WP-929: 표시 이름 120자 초과는 연결 테스트를 눌러도 반응이 없던 것 — 칸 아래 오류를 그리고 요청은 보내지 않는다.
+  test('표시 이름이 120자를 넘으면 오류 문구가 보이고 연결 테스트 요청은 나가지 않는다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
+    let testRequests = 0;
+    await page.route('**/api/v1/mail/accounts/test', (route) => {
+      testRequests += 1;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ imapOk: true, imapError: null, smtpOk: true, smtpError: null }) });
+    });
+    await page.goto('/settings/mail');
+    await page.getByTestId('mail-add-trigger').click();
+
+    await page.locator('#mail-email').fill('me@example.com');
+    await page.locator('#mail-display').fill('가'.repeat(121));
+    await page.locator('#mail-imap-host').fill('imap.x.com');
+    await page.locator('#mail-imap-user').fill('me@example.com');
+    await page.locator('#mail-smtp-host').fill('smtp.x.com');
+    await page.locator('#mail-smtp-user').fill('me@example.com');
+    await page.locator('#mail-pw').fill('pw');
+
+    await page.getByTestId('mail-test-button').click();
+    await expect(page.locator('#mail-display-error')).toHaveText('표시 이름은 120자 이하여야 합니다');
+    await expect(page.locator('#mail-display')).toHaveAttribute('aria-invalid', 'true');
+    expect(testRequests).toBe(0);
+  });
+
   // 전역 AI 토글
   test('계정 없을 때 전역 개인 비서 토글 숨김', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);

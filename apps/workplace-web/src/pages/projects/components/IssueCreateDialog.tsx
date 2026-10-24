@@ -65,6 +65,8 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
             </div>
             <Textarea
               id="issue-body"
+              aria-invalid={!!errors.body || undefined}
+              aria-describedby={errors.body ? 'issue-body-error' : undefined}
               {...bodyField}
               ref={(el) => {
                 bodyField.ref(el);
@@ -75,6 +77,12 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               onDrop={images.onDrop}
               onDragOver={images.onDragOver}
             />
+            {/* 10000자 초과 검증 실패를 그리지 않으면 「생성」이 아무 반응 없이 멈춘다(WP-929). */}
+            {errors.body && (
+              <p id="issue-body-error" role="alert" className="text-sm text-destructive">
+                {errors.body.message}
+              </p>
+            )}
           </div>
           {/* OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 유형·우선순위·일정·부모 칸과 AI 분류(유형·우선순위 제안) 대신 안내 한 줄. */}
           {intakeOnly ? (

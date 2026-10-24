@@ -70,6 +70,19 @@ test.describe('생성 시트', () => {
     await expect.poll(async () => (await body.boundingBox())!.height).toBeGreaterThan(h0 + 48);
   });
 
+  // WP-929: 설명 10000자 초과로 생성하면 아무 반응 없이 멈추던 것 — 설명 아래 오류를 그리고 POST 는 보내지 않는다.
+  test('설명이 10000자를 넘으면 오류 문구가 보이고 생성 요청은 나가지 않는다', async ({ authenticatedPage: page }) => {
+    const posts = await mockCreate(page);
+    await openSheet(page);
+    await page.getByTestId('issue-create-title').fill('긴 설명');
+    const body = page.getByTestId('issue-create-body');
+    await body.fill('가'.repeat(10001));
+    await page.getByTestId('issue-create-submit').click();
+    await expect(page.locator('#issue-create-body-error')).toHaveText('본문은 10000자 이하여야 합니다');
+    await expect(body).toHaveAttribute('aria-invalid', 'true');
+    expect(posts.bodies()).toHaveLength(0);
+  });
+
   test('제목은 길면 줄바꿈되며 자라고, Enter 는 줄바꿈 대신 설명으로 이동', async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
