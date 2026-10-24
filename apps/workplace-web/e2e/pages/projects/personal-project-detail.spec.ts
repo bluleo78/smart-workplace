@@ -571,6 +571,30 @@ test('검색어 활성 상태에서 결과 0건 → 필터 0건 빈 상태 + 필
   expect(new URL(page.url()).searchParams.get('group')).toBe('priority');
 });
 
+// 서버는 취소 이슈를 돌려주지만 체크리스트는 CANCELED 를 섹션에 넣지 않아 그릴 행이 0개다 —
+// 「표시할 작업이 없습니다/빠른 추가」가 아니라 필터 0건 + 초기화를 보여야 한다(WP-918). 뷰·그룹·열린 작업은 남긴다.
+test('상태 범주 「취소」로 거른 결과가 섹션에 안 보이면 필터 0건 빈 상태 + 필터 초기화', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '취소된 작업', status: 'CANCELED' })]);
+  await page.goto(`/projects/${KEY}?status=CANCELED&group=priority`);
+
+  const empty = page.getByTestId('personal-empty-filter');
+  await expect(empty).toContainText('일치하는 작업이 없습니다');
+  await expect(page.getByTestId('personal-empty')).toHaveCount(0);
+  await expect(page.getByTestId('personal-empty-create')).toHaveCount(0);
+  await page.getByTestId('personal-empty-reset').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBeNull();
+  expect(new URL(page.url()).searchParams.get('group')).toBe('priority');
+});
+
+// 담당자 「미지정」(assignee=null)만 걸린 0건도 필터 0건이다 — 프로젝트 목록 판정(includeUnassigned)과 같게.
+test('담당자 미지정 필터만 걸린 0건 → 필터 0건 빈 상태', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, []);
+  await page.goto(`/projects/${KEY}?assignee=null`);
+
+  await expect(page.getByTestId('personal-empty-filter')).toContainText('일치하는 작업이 없습니다');
+  await expect(page.getByTestId('personal-empty-create')).toHaveCount(0);
+});
+
 test('필터 없는 빈 프로젝트 → 데이터 없음 빈 상태 + 빠른 추가', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, []); // 이슈 없음 + 필터 없음
   await page.goto(`/projects/${KEY}`);

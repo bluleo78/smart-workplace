@@ -76,35 +76,35 @@ export function PersonalChecklistView({
         {[0, 1, 2].map((i) => <Skeleton key={i} className="h-8 w-full" />)}
       </div>
     );
-  if (items.length === 0) {
-    // 활성 필터(검색어·상태·우선순위·라벨·담당자) 여부에 따라 빈 상태 메시지 분기
-    const hasActiveFilters =
-      filters.q !== '' ||
-      filters.statuses.length > 0 ||
-      filters.statusIds.length > 0 ||
-      filters.priorities.length > 0 ||
-      filters.labelIds.length > 0 ||
-      filters.assigneeIds.length > 0;
-    // 필터 0건과 데이터 없음을 구분한다 — 필터 0건엔 초기화를 준다(DS 06 §B).
-    return hasActiveFilters ? (
-      <ListEmptyState
-        icon={SearchX}
-        title="일치하는 작업이 없습니다"
-        description="다른 키워드나 필터 조건을 사용해 보세요."
-        action={{ label: '필터 초기화', onClick: resetFilters, testId: 'personal-empty-reset' }}
-        testId="personal-empty-filter"
-      />
-    ) : (
-      noData('작업이 없습니다')
-    );
-  }
+  // 활성 필터(검색어·상태·우선순위·라벨·담당자, 담당자 「미지정」 포함) — 프로젝트 목록 판정(useIssueFilterControls)과 같은 기준.
+  // 빈 응답뿐 아니라 「불러온 행은 있지만 보일 섹션이 없음」(상태 「취소」로 거름 → CANCELED 는 섹션에 안 넣음, WP-918)에도 쓴다.
+  const hasActiveFilters =
+    filters.q !== '' ||
+    filters.statuses.length > 0 ||
+    filters.statusIds.length > 0 ||
+    filters.priorities.length > 0 ||
+    filters.labelIds.length > 0 ||
+    filters.assigneeIds.length > 0 ||
+    filters.includeUnassigned;
+  // 필터 0건 — 데이터 없음과 구분해 초기화를 준다(DS 06 §B).
+  const filterEmpty = (
+    <ListEmptyState
+      icon={SearchX}
+      title="일치하는 작업이 없습니다"
+      description="다른 키워드나 필터 조건을 사용해 보세요."
+      action={{ label: '필터 초기화', onClick: resetFilters, testId: 'personal-empty-reset' }}
+      testId="personal-empty-filter"
+    />
+  );
+  if (items.length === 0) return hasActiveFilters ? filterEmpty : noData('작업이 없습니다');
 
   const { sections, collapsedDone } = groupChecklist(items, groupBy, now);
-  // 전부 CANCELED 등으로 섹션·완료 모두 비면 백지 대신 빈 상태 안내 — 다음 페이지가 남았으면 푸터가 이어 불러온다.
+  // 전부 CANCELED 등으로 섹션·완료 모두 비면 백지 대신 빈 상태 안내 — 필터가 걸렸으면 필터 0건, 아니면 데이터 없음.
+  // 다음 페이지가 남았으면 푸터가 이어 불러온다.
   if (sections.length === 0 && collapsedDone.length === 0)
     return (
       <>
-        {noData('표시할 작업이 없습니다')}
+        {hasActiveFilters ? filterEmpty : noData('표시할 작업이 없습니다')}
         <LoadMoreFooter query={q} root={scrollRoot} data-testid="personal-more" />
       </>
     );
