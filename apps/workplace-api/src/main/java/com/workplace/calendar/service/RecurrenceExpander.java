@@ -1,5 +1,6 @@
 package com.workplace.calendar.service;
 
+import java.math.BigInteger;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -41,6 +42,12 @@ public class RecurrenceExpander {
    * DB 커넥션을 쥔 채 그동안 멈춰, 그런 일정 하나와 조회 10건만으로 풀이 고갈됐다.
    */
   static final int MAX_INTERVAL = 999;
+
+  /**
+   * 받는 반복 횟수(COUNT)의 상한(WP-905) — 간격과 같이 Outlook 이 고를 수 있는 최댓값. 상한이 없을 때 21억이 넘는 값은 int 로 읽히지 않아 「1
+   * 이상이어야 합니다」로 잘못 거절됐다.
+   */
+  static final int MAX_COUNT = 999;
 
   /**
    * 회차를 펼치는 벽시계 시간대(WP-534). 일정에는 시간대가 따로 저장되지 않고 사용자가 보는 날짜가 한국 날짜라(이슈 날짜 필터 WP-307·AI 메모리 기한
@@ -185,12 +192,14 @@ public class RecurrenceExpander {
     if (!positiveToken(rrule, "INTERVAL")) {
       throw new IllegalArgumentException("반복 간격은 1 이상이어야 합니다");
     }
-    Integer interval = intervalOf(rrule);
-    if (interval != null && interval > MAX_INTERVAL) {
+    if (tokenAbove(rrule, "INTERVAL", MAX_INTERVAL)) {
       throw new IllegalArgumentException("반복 간격은 " + MAX_INTERVAL + " 이하여야 합니다");
     }
     if (!positiveToken(rrule, "COUNT")) {
       throw new IllegalArgumentException("반복 횟수는 1 이상이어야 합니다");
+    }
+    if (tokenAbove(rrule, "COUNT", MAX_COUNT)) {
+      throw new IllegalArgumentException("반복 횟수는 " + MAX_COUNT + " 이하여야 합니다");
     }
     // 관용 파싱은 범위 밖 BY 값(BYMONTH=13·BYDAY=XX)을 조용히 버려, 저장된 규칙과 달리 시작일 기준으로 반복됐다(WP-746). 원문 토큰으로 본다.
     checkByValues(rrule, "BYMONTH", v -> inRange(v, 1, 12), "반복 월(BYMONTH)은 1~12 여야 합니다");
@@ -292,20 +301,36 @@ public class RecurrenceExpander {
     return null;
   }
 
-  /** RRULE 원문에 name= 토큰이 없거나, 있으면 1 이상의 정수인지. */
+  /** RRULE 원문에 name= 토큰이 없거나, 있으면 1 이상의 정수인지 — int 범위를 넘는 큰 수도 양수로 본다(상한은 tokenAbove 가 본다). */
   private static boolean positiveToken(String rrule, String name) {
+    String value = tokenValue(rrule, name);
+    if (value == null) return true;
+    try {
+      return new BigInteger(value).signum() > 0;
+    } catch (NumberFormatException e) {
+      return false;
+    }
+  }
+
+  /** RRULE 원문의 name= 값이 max 보다 큰 정수인지 — int 로 읽히지 않는 큰 수도 넘은 것으로 본다(WP-905). */
+  private static boolean tokenAbove(String rrule, String name, int max) {
+    String value = tokenValue(rrule, name);
+    if (value == null) return false;
+    try {
+      return new BigInteger(value).compareTo(BigInteger.valueOf(max)) > 0;
+    } catch (NumberFormatException e) {
+      return false;
+    }
+  }
+
+  /** RRULE 원문에서 name= 토큰의 값(앞뒤 공백 제거) — 없으면 null. */
+  private static String tokenValue(String rrule, String name) {
     String prefix = name + "=";
     for (String part : rrule.split(";")) {
       String p = part.trim();
-      if (p.toUpperCase(Locale.ROOT).startsWith(prefix)) {
-        try {
-          return Integer.parseInt(p.substring(prefix.length()).trim()) >= 1;
-        } catch (NumberFormatException e) {
-          return false;
-        }
-      }
+      if (p.toUpperCase(Locale.ROOT).startsWith(prefix)) return p.substring(prefix.length()).trim();
     }
-    return true;
+    return null;
   }
 
   /**

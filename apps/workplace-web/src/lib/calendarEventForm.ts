@@ -13,6 +13,8 @@ import type { Calendar, CalendarEvent, CalendarEventRequest } from '@/types/cale
 // ────────────────────────────────────────────────────────────
 /** 반복 간격 상한 — 서버(RecurrenceExpander.MAX_INTERVAL, WP-760)·Outlook 과 같다. */
 export const MAX_RECURRENCE_INTERVAL = 999
+/** 반복 횟수 상한 — 서버(RecurrenceExpander.MAX_COUNT, WP-905)·Outlook 과 같다. 없으면 21억 넘는 값이 서버에서 「1 이상」으로 잘못 거절됐다. */
+export const MAX_RECURRENCE_COUNT = 999
 
 export const eventFormSchema = z
   .object({
@@ -92,6 +94,12 @@ export const eventFormSchema = z
       ctx.addIssue({
         code: 'custom',
         message: '횟수는 1 이상이어야 합니다',
+        path: ['recurrenceCount'],
+      })
+    } else if (v.recurrenceEnd === 'count' && (v.recurrenceCount ?? 0) > MAX_RECURRENCE_COUNT) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `횟수는 ${MAX_RECURRENCE_COUNT} 이하여야 합니다`,
         path: ['recurrenceCount'],
       })
     }

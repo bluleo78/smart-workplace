@@ -266,6 +266,18 @@ describe('eventFormSchema 반복 간격 상한 (WP-760)', () => {
 })
 
 // WP-543: 설명은 서버 상한(10000자)과 같게 폼에서 먼저 막는다 — 상한이 없어 2MB 설명이 저장되고 그 달 목록이 2MB 가 됐다.
+// WP-905: 횟수도 서버 상한(999)과 같게 폼에서 먼저 막는다 — 21억 넘는 값이 서버에서 「1 이상」으로 잘못 거절됐다.
+describe('eventFormSchema 반복 횟수 상한 (WP-905)', () => {
+  const countOf = (n: number) => ({ ...base, recurrenceFreq: 'DAILY' as const, recurrenceEnd: 'count' as const, recurrenceCount: n })
+  it('999 까지 받고 넘으면 상한 문구', () => {
+    expect(eventFormSchema.safeParse(countOf(999)).success).toBe(true)
+    for (const n of [1000, 2147483648]) {
+      const r = eventFormSchema.safeParse(countOf(n))
+      expect(r.error?.issues.find((i) => i.path[0] === 'recurrenceCount')?.message).toBe('횟수는 999 이하여야 합니다')
+    }
+  })
+})
+
 describe('eventFormSchema 설명 길이 (WP-543)', () => {
   it('10000자까지 허용, 넘으면 description 에러', () => {
     expect(eventFormSchema.safeParse({ ...base, description: '가'.repeat(10000) }).success).toBe(true)

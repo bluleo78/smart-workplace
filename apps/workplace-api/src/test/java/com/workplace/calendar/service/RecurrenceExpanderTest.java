@@ -113,6 +113,20 @@ class RecurrenceExpanderTest {
   }
 
   @Test
+  void validate_countAbove999_throws() {
+    // WP-905: int 를 넘는 COUNT(2147483648)는 읽히지 않아 「1 이상이어야 합니다」로 잘못 거절됐다 — 상한 문구로 거절한다.
+    for (String rule : new String[] {"FREQ=DAILY;COUNT=1000", "FREQ=DAILY;COUNT=2147483648"}) {
+      assertThatThrownBy(() -> expander.validate(rule))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessage("반복 횟수는 999 이하여야 합니다");
+    }
+    assertThatThrownBy(() -> expander.validate("FREQ=DAILY;INTERVAL=2147483648"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("반복 간격은 999 이하여야 합니다");
+    expander.validate("FREQ=DAILY;COUNT=999");
+  }
+
+  @Test
   void validate_intervalAbove999_throws() {
     // WP-760: int 최댓값 근처 INTERVAL 은 전개기가 일수 계산 끝에서 넘쳐 1년 조회 한 번에 약 60초를 쓴다 — 999 까지만 받는다(Outlook 과
     // 같은 상한).
