@@ -13,6 +13,7 @@ import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.exception.InvalidIssueFilterException;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -161,7 +162,7 @@ class IssueChecklistOrderTest extends IntegrationTestBase {
     Map<String, String> noToday = new HashMap<>(Map.of("order", "checklist", "mode", "due"));
     noToday.put("weekEnd", WEEK_END);
     assertThatThrownBy(() -> issueSearchService.search(me, p.key(), noToday))
-        .isInstanceOf(InvalidCursorException.class);
+        .isInstanceOf(InvalidIssueFilterException.class);
     // HTTP 로는 400.
     String url =
         "/api/v1/projects/" + p.key() + "/issues?order=checklist&mode=due&weekEnd=" + WEEK_END;
@@ -170,6 +171,23 @@ class IssueChecklistOrderTest extends IntegrationTestBase {
     assertThat(status("/api/v1/projects/" + p.key() + "/issues?order=checklist&mode=nope"))
         .isEqualTo(400);
     assertThat(status("/api/v1/projects/" + p.key() + "/issues?order=nope")).isEqualTo(400);
+    // 이번 주 끝이 오늘보다 앞서면 거꾸로 된 경계라 400.
+    assertThat(status(url + "&today=2026-10-26")).isEqualTo(400);
+  }
+
+  @Test
+  void sundayTodayEqualsWeekEndLeavesThisWeekEmpty() {
+    // 일요일 — 오늘이 곧 이번 주 마지막 날. 내일 마감은 「이번 주」가 아니라 「예정」으로, 오늘 마감은 「오늘」로 간다.
+    long tomorrow = seed("tomorrow", "HIGH", date(10, 26), null);
+    long noDue = seed("nodue", "HIGH", null, null);
+    long today = seed("today", "LOW", date(10, 25), null);
+    long over = seed("over", "LOW", date(10, 24), null);
+    Map<String, String> sunday =
+        Map.of("order", "checklist", "mode", "due", "today", "2026-10-25", "weekEnd", "2026-10-25");
+
+    assertThat(ids(page(sunday, 100, null))).containsExactly(over, today, tomorrow, noDue);
+    // 페이지 경계마다 끊어 받아도 같은 순서 — 빈 「이번 주」 버킷을 건너뛰어도 커서가 이어진다.
+    assertThat(pageThrough(sunday, 1)).containsExactly(over, today, tomorrow, noDue);
   }
 
   @Test

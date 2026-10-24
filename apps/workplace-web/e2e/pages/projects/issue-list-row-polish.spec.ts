@@ -114,8 +114,7 @@ test.describe('프로젝트 목록 소정리 (WP-919)', () => {
     await setup(page);
     await page.goto(`/projects/${KEY}`);
     await expect(page.getByTestId('issue-row-13-due')).toHaveText('—');
-    // 담당자 칸 = 마감 칸 바로 앞 칸.
-    await expect(page.getByTestId('issue-row-13').locator('td').nth(5)).toHaveText('—');
+    await expect(page.getByTestId('issue-row-13-assignee')).toHaveText('—');
     await expect(page.getByTestId('issue-row-11-due')).toHaveText('10월 25일');
     await expect(page.getByTestId('issue-row-12-due')).toHaveText('2027. 1. 5');
   });
@@ -124,9 +123,7 @@ test.describe('프로젝트 목록 소정리 (WP-919)', () => {
     await page.setViewportSize({ width: 1024, height: 800 });
     await setup(page);
     await page.goto(`/projects/${KEY}`);
-    const row = page.getByTestId('issue-row-11');
-    // 우선순위 칸 = 체크박스·상태 다음 셋째 칸.
-    await expect(row.locator('td').nth(2)).toBeVisible();
+    await expect(page.getByTestId('issue-row-11-priority')).toBeVisible();
     await expect(page.getByTestId('issue-row-11-due')).toBeVisible();
     // 유형 아이콘도 키 앞에 보인다(예전 sm:inline-flex).
     expect(await idHeadOffset(page)).toBeLessThanOrEqual(2);

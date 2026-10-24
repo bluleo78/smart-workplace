@@ -53,14 +53,14 @@ function shortDate(d: string | null): string {
 /**
  * 구간 테이블 컬럼 폭 정의 행 — 모든 구간과 목록 상단 컬럼명 행이 같은 폭을 쓰게 공유한다(table-fixed 는 첫 행이 폭을 정한다).
  * visible=false 면 0 높이(스크린리더엔 컬럼명), true 면 목록 상단에 한 번 보이는 컬럼명 행.
+ * 데스크톱 전용 — 모바일 행은 컬럼 없는 한 칸 블록이라 호출하는 쪽이 모바일에선 그리지 않는다(WP-194).
  */
 export function CycleSectionColumnHead({ visible = false }: { visible?: boolean }) {
-  const isMobile = useIsMobile();
   const cell = visible ? LIST_HEAD_CELL_CLASS : 'h-0 p-0 overflow-hidden';
   return (
     <thead>
       <tr className={cn(!visible && 'h-0')}>
-        {!isMobile && <th className={cn('w-9', cell)}><span className="sr-only">선택</span></th>}
+        <th className={cn('w-9', cell)}><span className="sr-only">선택</span></th>
         <th className={cn('w-9', cell)}><span className="sr-only">상태</span></th>
         <th className={cn('w-9', cell)}><span className="sr-only">우선순위</span></th>
         {/* 보이는 머리에선 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다(WP-919). */}
@@ -70,7 +70,7 @@ export function CycleSectionColumnHead({ visible = false }: { visible?: boolean 
         <th className={cn('w-32', cell)}>
           <span className={cn(!visible && 'sr-only')}>마감</span>
         </th>
-        {!isMobile && <th className={cn('w-8', cell)}><span className="sr-only">작업</span></th>}
+        <th className={cn('w-8', cell)}><span className="sr-only">작업</span></th>
       </tr>
     </thead>
   );

@@ -22,7 +22,7 @@ export function InfiniteIssueList({
   showAssignee,
   empty,
   filtered,
-  filteredDescription = '다른 필터 조건을 사용해 보세요.',
+  filteredDescription,
   onResetFilters,
   scrollRoot = null,
 }: {
@@ -34,7 +34,7 @@ export function InfiniteIssueList({
   empty: { title: string; description?: string; action?: EmptyAction }
   /** 필터(상태 범주·우선순위 등)가 걸려 있으면 필터 0건 화면 + 초기화 */
   filtered: boolean
-  /** 필터 0건 설명 — 탭마다 무엇이 걸러졌는지(「할당된 작업은 있지만…」). */
+  /** 필터 0건 설명 — 탭마다 무엇이 걸러졌는지(「할당된 작업은 있지만…」). 필터를 거는 탭은 늘 넘긴다(필터 없는 탭은 쓰지 않음). */
   filteredDescription?: string
   onResetFilters?: () => void
   /** 목록을 감싼 스크롤 요소(Page.Body) — 무한 로드 sentinel 의 root(DS 05 §A-3). 뷰포트로 두면 선행 로드 여유가 스크롤 클리핑에 먹혀 끝에 닿아야 불러온다. */

@@ -3,13 +3,10 @@
 // (label/cycle/type 은 프로젝트별 동적 옵션 — 횡단 뷰에는 단일 옵션 소스가 없어 제외.)
 // URL SearchParams 가 단일 source of truth — 탭(경로 세그먼트)·assignee/reporter(프로그램 인자)와
 // 독립적으로 status/priority 만 query 로 읽고 쓴다.
-import { CircleCheckBig } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
 import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
-import { Button } from '@/components/ui/button';
-import { ghostToggleClass } from '@/lib/selectionStyles';
-import { cn } from '@/lib/utils';
+import { ShowAllClosedToggle } from '@/components/issue/ShowAllClosedToggle';
 
 import { parseFilters } from '../../lib/issueFilters';
 import { overridesMyTasksClosedHiding } from './myTasksQuery';
@@ -69,24 +66,17 @@ export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle
     setParams(p, { replace: true });
   }
 
-  const closedPressed = filters.showAllClosed || closedHidingOverridden;
-
   return (
     <div className="flex flex-wrap items-center gap-2 py-1" data-testid="me-task-filter-bar">
       <FacetFilter facets={facets} value={filterValue} onChange={handleFilterChange} />
       {/* 모양·문구는 프로젝트 목록 IssueFilterBar 의 토글과 같다. */}
       {showClosedToggle && (
-        <Button
-          variant="ghost"
-          size="sm"
-          data-testid="show-all-closed-toggle"
-          aria-pressed={closedPressed}
-          disabled={closedHidingOverridden}
-          onClick={toggleShowAllClosed}
-          className={cn('ml-auto transition-colors', ghostToggleClass(closedPressed))}
-        >
-          <CircleCheckBig aria-hidden="true" /> 완료 모두 보기
-        </Button>
+        <ShowAllClosedToggle
+          on={filters.showAllClosed}
+          overridden={closedHidingOverridden}
+          onToggle={toggleShowAllClosed}
+          className="ml-auto"
+        />
       )}
     </div>
   );

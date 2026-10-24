@@ -963,8 +963,9 @@ test('요청에 order=checklist·mode=due·today·weekEnd를 보내고, 그룹�
   expect(first.get('today')).toBe(localYmd(now));
   expect(first.get('weekEnd')).toBe(localYmd(weekEnd));
 
-  // 그룹=상태 — 새 쿼리 키라 커서 없이 1페이지부터, 날짜 경계는 보내지 않는다.
-  await page.goto(`/projects/${KEY}?group=status`);
+  // 그룹=상태(앱 안 그룹 셀렉터로 전환) — 새 쿼리 키라 커서 없이 1페이지부터, 날짜 경계는 보내지 않는다.
+  await page.getByTestId('group-by-trigger').click();
+  await page.getByTestId('group-by-status').click();
   await expect.poll(() => gets.lastUrl()?.searchParams.get('mode')).toBe('status');
   const status = gets.lastUrl()!.searchParams;
   expect(status.get('cursor')).toBeNull();

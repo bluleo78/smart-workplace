@@ -155,7 +155,7 @@ export const IssueRow = memo(function IssueRow({
         <td className="py-2">
           <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
         </td>
-        <td><IssuePriorityBars priority={it.priority} /></td>
+        <td data-testid={`issue-row-${it.number}-priority`}><IssuePriorityBars priority={it.priority} /></td>
         <td className="font-mono text-muted-foreground text-xs">
           <span className="flex items-center gap-1.5">
             {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
@@ -206,7 +206,7 @@ export const IssueRow = memo(function IssueRow({
         </td>
         {/* 제목 셀이 w-full 로 남은 폭을 가져가므로 칸 폭은 헤더 min-w-* 하한에 의존한다 — 그래도
             whitespace-nowrap 으로 날짜가 글자 단위로 꺾이지 않게, pr-3 으로 「+N」 이 마감 칸에 붙지 않게 한다(WP-194). */}
-        <td className="whitespace-nowrap pr-3">
+        <td className="whitespace-nowrap pr-3" data-testid={`issue-row-${it.number}-assignee`}>
           <span className="flex items-center -space-x-1">
             {it.assignees.length === 0 ? (
               <span className="text-muted-foreground">—</span>

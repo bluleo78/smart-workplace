@@ -192,7 +192,7 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
     assertThat(viaService).containsExactlyElementsOf(all);
 
     // 기본 경로는 예전 (updated_at, id) 커서 그대로.
-    assertThat(pageThrough(URL + "?x=1", 2, false))
+    assertThat(pageThrough(URL, 2, false))
         .containsExactlyElementsOf(ids(getJson(URL + "?size=100")));
   }
 
@@ -236,7 +236,10 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
     List<Long> out = new ArrayList<>();
     String cursor = null;
     for (int guard = 0; guard < 50; guard++) {
-      JsonNode page = getJson(base + "&size=" + size + (cursor == null ? "" : "&cursor=" + cursor));
+      // base 에 쿼리가 이미 있으면 & 로, 없으면 ? 로 잇는다.
+      String sep = base.contains("?") ? "&" : "?";
+      JsonNode page =
+          getJson(base + sep + "size=" + size + (cursor == null ? "" : "&cursor=" + cursor));
       out.addAll(ids(page));
       JsonNode next = page.get("nextCursor");
       if (next == null || next.isNull()) return out;

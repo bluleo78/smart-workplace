@@ -1,6 +1,6 @@
 package com.workplace.issue.dto;
 
-import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.exception.InvalidIssueFilterException;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.Locale;
@@ -30,38 +30,48 @@ public record ChecklistOrder(Mode mode, LocalDate today, LocalDate weekEnd) {
 
   /**
    * 파라미터 해석 — order 가 없으면 null(기존 정렬). order 가 checklist 가 아니거나, mode 가 없거나 틀리거나, DUE 인데
-   * today·weekEnd 가 없거나 형식이 틀리면 {@link InvalidCursorException}(400).
+   * today·weekEnd 가 없거나 형식이 틀리거나 weekEnd 가 today 보다 앞서면 {@link InvalidIssueFilterException}(400,
+   * 필드별 사유).
    */
   public static ChecklistOrder parse(String order, String mode, String today, String weekEnd) {
     if (order == null || order.isBlank()) return null;
     if (!"checklist".equalsIgnoreCase(order.trim())) {
-      throw new InvalidCursorException("order 는 checklist 만 받습니다: " + order);
+      throw new InvalidIssueFilterException("order", "order 는 checklist 만 받습니다: " + order);
     }
     Mode m = parseMode(mode);
     if (m != Mode.DUE) return new ChecklistOrder(m, null, null);
-    return new ChecklistOrder(m, requiredDate("today", today), requiredDate("weekEnd", weekEnd));
+    LocalDate t = requiredDate("today", today);
+    LocalDate w = requiredDate("weekEnd", weekEnd);
+    // 이번 주 마지막 날은 오늘이거나 그 뒤다(일요일이면 같은 날) — 거꾸로면 「이번 주」 버킷 정렬이 뜻을 잃으므로 거부한다.
+    if (w.isBefore(t)) {
+      throw new InvalidIssueFilterException("weekEnd", "weekEnd 는 today 보다 앞설 수 없습니다: " + weekEnd);
+    }
+    return new ChecklistOrder(m, t, w);
   }
 
   private static Mode parseMode(String raw) {
     if (raw == null || raw.isBlank()) {
-      throw new InvalidCursorException("order=checklist 에는 mode(due·status·priority)가 필요합니다");
+      throw new InvalidIssueFilterException(
+          "mode", "order=checklist 에는 mode(due·status·priority)가 필요합니다");
     }
     return switch (raw.trim().toLowerCase(Locale.ROOT)) {
       case "due" -> Mode.DUE;
       case "status" -> Mode.STATUS;
       case "priority" -> Mode.PRIORITY;
-      default -> throw new InvalidCursorException("mode 는 due·status·priority 중 하나여야 합니다: " + raw);
+      default ->
+          throw new InvalidIssueFilterException(
+              "mode", "mode 는 due·status·priority 중 하나여야 합니다: " + raw);
     };
   }
 
   private static LocalDate requiredDate(String name, String raw) {
     if (raw == null || raw.isBlank()) {
-      throw new InvalidCursorException("mode=due 에는 " + name + "(YYYY-MM-DD)가 필요합니다");
+      throw new InvalidIssueFilterException(name, "mode=due 에는 " + name + "(YYYY-MM-DD)가 필요합니다");
     }
     try {
       return LocalDate.parse(raw.trim());
     } catch (DateTimeParseException e) {
-      throw new InvalidCursorException(name + " 날짜 형식 오류: " + raw);
+      throw new InvalidIssueFilterException(name, name + " 날짜 형식 오류: " + raw);
     }
   }
 }

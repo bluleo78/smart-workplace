@@ -1,6 +1,6 @@
 package com.workplace.issue.dto;
 
-import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.exception.InvalidIssueFilterException;
 import java.util.Locale;
 
 /**
@@ -22,7 +22,8 @@ public enum MeIssueGrouping {
     return switch (raw.trim().toLowerCase(Locale.ROOT)) {
       case "due" -> DUE;
       case "recent" -> RECENT;
-      default -> throw new InvalidCursorException("group 은 due·recent 중 하나여야 합니다: " + raw);
+      default ->
+          throw new InvalidIssueFilterException("group", "group 은 due·recent 중 하나여야 합니다: " + raw);
     };
   }
 }

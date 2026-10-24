@@ -2,7 +2,7 @@ package com.workplace.watcher.service;
 
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.MeIssueGrouping;
-import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.exception.InvalidIssueFilterException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueRepository;
@@ -96,10 +96,10 @@ public class WatcherService {
       Long callerId, String cursorStr, int size, String group) {
     MeIssueGrouping grouping = MeIssueGrouping.parse(group);
     if (grouping != null && grouping != MeIssueGrouping.RECENT) {
-      throw new InvalidCursorException("group 은 recent 만 받습니다: " + group);
+      throw new InvalidIssueFilterException("group", "group 은 recent 만 받습니다: " + group);
     }
     // 구독이 하나도 없으면 목록 쿼리 없이 바로 빈 페이지.
-    if (watcherRepository.findIssueIdsByUser(callerId).isEmpty()) {
+    if (!watcherRepository.existsByUser(callerId)) {
       return new IssueSearchResponse(List.of(), null, false);
     }
     return issueSearchService.watchedPage(callerId, cursorStr, size, grouping);
