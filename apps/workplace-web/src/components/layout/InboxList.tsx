@@ -11,6 +11,7 @@ import {
 } from "@/components/home/notifTarget";
 import { PushPromptBanner } from "@/components/layout/PushPromptBanner";
 import { MobileEmptyState } from "@/components/mobile/MobileEmptyState";
+import { AgentActorBadge } from "@/components/users/AgentBadge";
 import { useMarkAllNotificationsRead } from "@/hooks/queries/useMarkAllNotificationsRead";
 import { useMarkNotificationRead } from "@/hooks/queries/useMarkNotificationRead";
 import {
@@ -18,7 +19,6 @@ import {
   useNotifications,
 } from "@/hooks/queries/useNotifications";
 import { useUnreadCount } from "@/hooks/queries/useUnreadCount";
-import { hasAiToken } from "@/lib/aiToken";
 import { formatDateTimeMinute, formatRelativeTime } from "@/lib/formatters";
 import { notificationAction } from "@/lib/notifText";
 import { cn } from "@/lib/utils";
@@ -175,12 +175,7 @@ export function InboxList({
                             <span className="font-medium">
                               {n.actorName ?? "시스템"}
                             </span>
-                            {n.actorKind === "AGENT" &&
-                              !hasAiToken(n.actorName) && (
-                                <span className="ml-1 rounded bg-primary/10 px-1 text-xs text-primary">
-                                  AI
-                                </span>
-                              )}
+                            <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
                             <span className="text-muted-foreground">
                               {wikiShareText(n)}
                             </span>
@@ -201,12 +196,7 @@ export function InboxList({
                         <span className="font-medium">
                           {n.actorName ?? "시스템"}
                         </span>
-                        {n.actorKind === "AGENT" &&
-                          !hasAiToken(n.actorName) && (
-                            <span className="ml-1 rounded bg-primary/10 px-1 text-xs text-primary">
-                              AI
-                            </span>
-                          )}
+                        <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
                         <span className="text-muted-foreground">
                           {notificationAction(n)}
                         </span>
@@ -220,12 +210,7 @@ export function InboxList({
                         <span className="font-medium">
                           {n.actorName ?? "시스템"}
                         </span>
-                        {n.actorKind === "AGENT" &&
-                          !hasAiToken(n.actorName) && (
-                            <span className="ml-1 rounded bg-primary/10 px-1 text-xs text-primary">
-                              AI
-                            </span>
-                          )}
+                        <AgentActorBadge kind={n.actorKind} className="ml-1 align-middle" />
                         <span className="text-muted-foreground">
                           {notificationAction(n)}
                         </span>

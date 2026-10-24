@@ -19,6 +19,38 @@ test.describe('모바일 알림 설정', () => {
     await expectNoHorizontalOverflow(page)
   })
 
+  // WP-935 — 카드 머리에도 데스크톱처럼 「앱 전체」 글자를 스위치 왼쪽에 둔다. 스위치 중심은 아래 AI 열 칸 스위치와 같은 x.
+  test('카드 머리에 「앱 전체」 글자가 스위치 왼쪽에 보이고, 글자를 눌러도 스위치가 바뀌며, 스위치는 AI 열과 줄을 맞춘다', async ({ authenticatedPage: page }) => {
+    await mockPushApis(page)
+    const { nextSettingsPut } = await mockNotificationSettings(page)
+    await page.goto('/settings/notifications')
+
+    const issue = page.getByTestId('notif-app-ISSUE')
+    const label = issue.getByText('앱 전체', { exact: true })
+    await expect(label).toBeVisible()
+    const appToggle = page.getByTestId('notif-app-toggle-ISSUE')
+    const [labelBox, toggleBox, cellBox] = await Promise.all([
+      label.boundingBox(),
+      appToggle.boundingBox(),
+      page.getByTestId('notif-cell-ISSUE_ASSIGNED-AGENT').boundingBox(),
+    ])
+    expect(labelBox!.x + labelBox!.width).toBeLessThanOrEqual(toggleBox!.x)
+    expect(Math.abs(toggleBox!.x + toggleBox!.width / 2 - (cellBox!.x + cellBox!.width / 2))).toBeLessThanOrEqual(1)
+    // 글자는 낭독에서 빠지고 스위치 이름으로 듣는다.
+    await expect(appToggle).toHaveAccessibleName('이슈 앱 전체')
+
+    // 「앱 전체」 글자는 스위치의 label — 글자를 눌러도 앱 스위치가 바뀐다.
+    const put = nextSettingsPut()
+    await label.click()
+    expect((await put).postDataJSON()).toEqual({ apps: { ISSUE: false } })
+    await expect(appToggle).toHaveAttribute('aria-checked', 'false')
+
+    // 가장 좁은 폭(320px)에서도 가로로 넘치지 않는다.
+    await page.setViewportSize({ width: 320, height: 640 })
+    await expect(label).toBeVisible()
+    await expectNoHorizontalOverflow(page)
+  })
+
   test('카드를 누르면 펼쳐지고, 앱 스위치를 눌러도 펼침은 그대로다', async ({ authenticatedPage: page }) => {
     await mockPushApis(page)
     const { nextSettingsPut } = await mockNotificationSettings(page)

@@ -31,11 +31,21 @@ export const BRAND_THEMES = {
   'sunset-dark': block(/^\.theme-sunset\.dark, \.dark \.theme-sunset \{([\s\S]*?)^\}/m) + THEMES.dark,
 }
 
-/** 블록 안 토큰의 oklch(L C h). 줄 시작(공백 뒤)에서만 찾는다 — 다른 토큰 이름의 꼬리와 섞이지 않게. */
-export function oklchOf(body: string, name: string): [number, number, number] {
-  const m = new RegExp(`(?:^|\\s)--${name}:\\s*oklch\\(([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)\\)`, 'm').exec(body)
+/** 블록 안 토큰의 oklch(L C h [/ a%]) — 투명도가 없으면 1. 줄 시작(공백 뒤)에서만 찾는다 — 다른 토큰 이름의 꼬리와 섞이지 않게. */
+function oklchAlphaOf(body: string, name: string): { lch: [number, number, number]; alpha: number } {
+  const m = new RegExp(
+    `(?:^|\\s)--${name}:\\s*oklch\\(([\\d.]+)\\s+([\\d.]+)\\s+([\\d.]+)(?:\\s*/\\s*([\\d.]+)%)?\\)`,
+    'm',
+  ).exec(body)
   if (!m) throw new Error(`--${name} 없음`)
-  return [Number(m[1]), Number(m[2]), Number(m[3])]
+  return { lch: [Number(m[1]), Number(m[2]), Number(m[3])], alpha: m[4] == null ? 1 : Number(m[4]) / 100 }
+}
+
+/** 블록 안 불투명 토큰의 oklch(L C h). 반투명 토큰은 단독 휘도가 뜻이 없으므로 거부한다(겹쳐 잴 때는 stackedLuminance). */
+export function oklchOf(body: string, name: string): [number, number, number] {
+  const { lch, alpha } = oklchAlphaOf(body, name)
+  if (alpha !== 1) throw new Error(`--${name} 는 반투명 — stackedLuminance 로 겹쳐 잰다`)
+  return lch
 }
 
 /** oklch → 선형 sRGB [r,g,b](OKLab 표준 행렬, 색역 밖 성분은 0..1 로 자른다 — 브라우저와 같은 방향). */
@@ -63,18 +73,26 @@ export const luminance = (lch: [number, number, number]) => luminanceOfLinear(li
 const encode = (v: number) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)
 const decode = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
 
-/**
- * 반투명 채움(bg-x/90 등)을 바탕 토큰 위에 합성한 색의 상대 휘도 — hover 처럼 투명도로 칠한 바탕 위 글자 대비를 잴 때 쓴다.
- * fill 을 alpha 만큼 under 위에 sRGB 로 섞는다(브라우저 합성과 같은 방식).
- */
-export function compositeLuminance(body: string, fill: string, alpha: number, under: string): number {
-  const f = linearSrgbOf(oklchOf(body, fill)).map(encode)
-  const u = linearSrgbOf(oklchOf(body, under)).map(encode)
-  return luminanceOfLinear(f.map((v, i) => decode(v * alpha + u[i] * (1 - alpha))))
-}
-
 /** 두 상대 휘도의 WCAG 대비. */
 export const contrast = (x: number, y: number) => (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
 
 /** 한 테마 블록에서 두 토큰의 대비. */
 export const tokenContrast = (body: string, a: string, b: string) => contrast(luminance(oklchOf(body, a)), luminance(oklchOf(body, b)))
+
+/** 겹칠 한 층 — 토큰 이름, 또는 [이름, 투명도 배율](bg-x/50 처럼 유틸리티가 토큰 투명도에 곱하는 값). */
+export type Layer = string | [string, number]
+
+/**
+ * 토큰을 아래에서 위로 겹쳐(첫 층이 맨 아래, 그 투명도는 무시) 각자의 투명도로 sRGB 합성한 색의 상대 휘도(브라우저 합성과 같은 방식).
+ * 예: ['background', 'card', 'switch-off-border'] — 다크 카드(바탕 위 흰 3%) 위의 반투명 테두리. ['background', 'card', ['muted', 0.5]] — 카드 머리(bg-muted/50).
+ */
+export function stackedLuminance(body: string, layers: Layer[]): number {
+  const [bottom, ...rest] = layers.map((l) => {
+    const [name, factor] = typeof l === 'string' ? [l, 1] : l
+    const { lch, alpha } = oklchAlphaOf(body, name)
+    return { rgb: linearSrgbOf(lch).map(encode), alpha: alpha * factor }
+  })
+  let rgb = bottom.rgb
+  for (const top of rest) rgb = rgb.map((u, i) => top.rgb[i] * top.alpha + u * (1 - top.alpha))
+  return luminanceOfLinear(rgb.map(decode))
+}

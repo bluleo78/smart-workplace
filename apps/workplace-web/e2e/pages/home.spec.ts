@@ -2162,7 +2162,7 @@ test('알림 위젯 — 미읽음이 없으면 "다 따라잡았어요" 빈 상�
   await expect(page.getByTestId('dash-notif-empty')).toContainText('다 따라잡았어요')
 })
 
-test('알림 위젯 — AI(AGENT) 행위자 그룹에 AI 배지를 표시한다', async ({
+test('알림 위젯 — AI(AGENT) 행위자 그룹에 에이전트 배지를 표시한다 (WP-935)', async ({
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
@@ -2177,10 +2177,14 @@ test('알림 위젯 — AI(AGENT) 행위자 그룹에 AI 배지를 표시한다'
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['notifications']))
   await page.goto('/')
 
-  await expect(page.getByTestId('dash-notif-mine').getByText('AI', { exact: true })).toBeVisible()
+  // 인박스와 같은 공용 에이전트 배지(Bot+「에이전트」, ai-accent).
+  const badge = page.getByTestId('dash-notif-mine').getByTestId('agent-badge')
+  await expect(badge).toHaveText('에이전트')
+  await expect(badge).toHaveClass(/bg-ai-accent-subtle/)
 })
 
-test('알림 위젯 — 액터 이름에 이미 "AI" 가 포함되면 AGENT 뱃지를 생략한다 (#637)', async ({
+// WP-935 — 「AI」 칩 시절엔 「My AI AI」 중복이라 생략했지만(#637), 에이전트 배지는 중복이 없어 늘 붙인다.
+test('알림 위젯 — 액터 이름에 "AI" 가 있어도 에이전트 배지를 단다 (#637, WP-935)', async ({
   authenticatedPage: page,
 }) => {
   await mockWidgets(page)
@@ -2197,8 +2201,9 @@ test('알림 위젯 — 액터 이름에 이미 "AI" 가 포함되면 AGENT 뱃�
 
   const row = page.getByTestId('dash-notif-mine').getByTestId('dash-notif-row')
   await expect(row).toContainText('My AI')
-  // 별도 "AI" 뱃지가 덧붙어 "My AI AI" 로 중복되지 않아야 한다.
-  await expect(row.getByText('AI', { exact: true })).not.toBeVisible()
+  await expect(row.getByTestId('agent-badge')).toHaveText('에이전트')
+  // 「AI」 글자 칩은 더 이상 없다 — 「My AI AI」 중복이 생기지 않는다.
+  await expect(row.getByText('AI', { exact: true })).toHaveCount(0)
 })
 
 test('알림 위젯 — 업데이트가 표시 개수를 넘으면 헤더는 전체 수, 초과분은 "+N건 더"로 정직 표시', async ({

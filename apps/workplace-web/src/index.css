@@ -35,6 +35,7 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-switch-off-border: var(--switch-off-border);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -116,6 +117,9 @@
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(0.94 0.005 264);
   --input: oklch(0.92 0.005 264);
+  /* WP-935: 꺼진 스위치 테두리 — 트랙(input)은 흰 카드와 1.2:1 이라 경계가 안 보였다. 테두리로 비텍스트 3:1(WCAG 1.4.11)을 맞춘다.
+     브랜드 테마는 덮지 않는다(무채색). 대비는 actionTokens.test 가 고정(리터럴 oklch 필수). */
+  --switch-off-border: oklch(0.6 0.005 264);
   --ring: oklch(0.55 0.15 264);
   /* 전역 슬림 스크롤바 thumb 색 — 라이트 캔버스에서 보이되 콘텐츠보다 튀지 않는 톤. */
   --scrollbar-thumb: oklch(0.82 0.005 264);
@@ -215,6 +219,8 @@
   --destructive-foreground: oklch(0.18 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 12%);
+  /* WP-935: 다크 꺼진 스위치 테두리 — 카드(바탕 위 흰 3%) 위에 합성해 3:1. */
+  --switch-off-border: oklch(1 0 0 / 40%);
   --ring: oklch(0.65 0.2 264);
   --scrollbar-thumb: oklch(1 0 0 / 18%);
   --scrollbar-thumb-hover: oklch(1 0 0 / 30%);

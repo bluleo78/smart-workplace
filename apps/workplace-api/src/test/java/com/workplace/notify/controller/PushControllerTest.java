@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -26,7 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * /api/v1/push/* 통합 테스트 — 실제 JWT(테넌트 미선택 토큰 포함)로 호출. 구독 upsert·소유자 이전·본인만 삭제·20개 제한·키/endpoint 검증,
- * 설정 기본값·부분 업데이트, config 응답.
+ * config 응답.
  */
 @Transactional
 class PushControllerTest extends IntegrationTestBase {
@@ -38,7 +37,7 @@ class PushControllerTest extends IntegrationTestBase {
 
   long userA;
   long userB;
-  String tokenA; // 테넌트 미선택(2-인자) 토큰 — 구독/설정은 글로벌이라 이 토큰으로도 동작해야 한다.
+  String tokenA; // 테넌트 미선택(2-인자) 토큰 — 구독은 글로벌이라 이 토큰으로도 동작해야 한다.
   String tokenB;
   String p256dh;
   final String auth = EcKeys.b64e(new byte[16]);
@@ -176,37 +175,6 @@ class PushControllerTest extends IntegrationTestBase {
                 .content(badPub))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.message").value("푸시 키가 올바른 base64url 형식이 아닙니다"));
-  }
-
-  @Test
-  void preferences_defaultAllOn_thenPartialUpdate() throws Exception {
-    mvc.perform(get("/api/v1/push/preferences").header("Authorization", "Bearer " + tokenA))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.DM").value(true))
-        .andExpect(jsonPath("$.MENTION").value(true))
-        .andExpect(jsonPath("$.ISSUE").value(true))
-        .andExpect(jsonPath("$.CALENDAR").value(true));
-
-    mvc.perform(
-            put("/api/v1/push/preferences")
-                .header("Authorization", "Bearer " + tokenA)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"CALENDAR\":false}"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.CALENDAR").value(false))
-        .andExpect(jsonPath("$.DM").value(true));
-  }
-
-  @Test
-  void preferences_unknownCategory_returns400() throws Exception {
-    // PushCategory 에 없는 키 — Jackson 이 Map<PushCategory,Boolean> 역직렬화 중 예외를 던지고
-    // GlobalExceptionHandler(HttpMessageNotReadableException) 가 400 으로 매핑한다.
-    mvc.perform(
-            put("/api/v1/push/preferences")
-                .header("Authorization", "Bearer " + tokenA)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"NOT_A_CATEGORY\":true}"))
-        .andExpect(status().isBadRequest());
   }
 
   @Test

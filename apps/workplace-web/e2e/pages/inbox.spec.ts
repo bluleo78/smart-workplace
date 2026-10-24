@@ -33,7 +33,8 @@ test('안읽음 배지가 카운트를 렌더한다', { tag: '@smoke' }, async (
 
 test('패널을 열면 목록을 보여주고, AI 액터에 배지를 단다', async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
-  await mockApi(page, 'GET', '/api/v1/notifications', [notif()])
+  // 이름에 "AI" 가 없는 에이전트 — 이름에 AI 가 있으면 배지를 생략하므로(#636) 배지가 붙는 경우를 따로 본다.
+  await mockApi(page, 'GET', '/api/v1/notifications', [notif({ actorName: '업무 비서' })])
   await page.goto('/')
   await page.getByTestId('inbox-trigger').click()
   const panel = page.getByTestId('inbox-panel')
@@ -41,12 +42,17 @@ test('패널을 열면 목록을 보여주고, AI 액터에 배지를 단다', a
   // 스크린리더가 dialog를 "알림"으로 안내하도록 accessible name 지정 필요 (#698).
   await expect(panel).toHaveAttribute('aria-label', '알림')
   const item = page.getByTestId('inbox-item').first()
-  await expect(item).toContainText('AI 동료')
+  await expect(item).toContainText('업무 비서')
   await expect(item).toContainText('WP-3 리팩터링')
-  await expect(item).toContainText('AI')
+  // WP-935 — 에이전트 주체 표식은 공용 AgentBadge(Bot 아이콘 + 「에이전트」, ai-accent 토큰). 디자인 시스템 07 §7.2.
+  const badge = item.getByTestId('agent-badge')
+  await expect(badge).toBeVisible()
+  await expect(badge).toHaveText('에이전트')
+  await expect(badge).toHaveClass(/bg-ai-accent-subtle/)
 })
 
-test('액터 이름에 이미 "AI" 가 포함되면 AGENT 뱃지를 생략한다 (#636)', async ({
+// WP-935 — 예전 「AI」 칩은 이름에 "AI" 가 있으면 「My AI AI」 중복이라 생략했지만(#636), Bot+「에이전트」 배지는 중복이 없어 늘 붙인다.
+test('액터 이름에 "AI" 가 있어도 에이전트 배지를 단다 (#636, WP-935)', async ({
   authenticatedPage: page,
 }) => {
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })
@@ -56,8 +62,9 @@ test('액터 이름에 이미 "AI" 가 포함되면 AGENT 뱃지를 생략한다
   await page.goto('/')
   await page.getByTestId('inbox-trigger').click()
   const item = page.getByTestId('inbox-item').first()
-  await expect(item).toContainText('My AI님이 코멘트를 남겼습니다')
-  // "My AI" 자체 텍스트 외에 별도 뱃지가 덧붙어 "AI AI" 로 중복되지 않아야 한다.
+  await expect(item).toContainText('My AI')
+  await expect(item.getByTestId('agent-badge')).toHaveText('에이전트')
+  // 「AI」 글자 칩은 더 이상 없다 — 「AI AI」 중복이 생기지 않는다.
   await expect(item.getByText('AI', { exact: true })).toHaveCount(0)
 })
 
@@ -385,7 +392,7 @@ test('이슈 챗 AI 질문·멘션 알림을 렌더하고, 클릭하면 이슈 �
   await page.getByTestId('inbox-trigger').click()
 
   const items = page.getByTestId('inbox-item')
-  // AGENT 행위자는 이름 뒤에 AI 배지가 붙는다 — 이름·문구를 따로 확인.
+  // AGENT 행위자는 이름 뒤에 에이전트 배지가 붙는다 — 이름·문구를 따로 확인.
   await expect(items.nth(0)).toContainText('개발 에이전트')
   await expect(items.nth(0)).toContainText('님이 이슈 챗에서 질문했습니다')
   await expect(items.nth(0)).toContainText('WP-12 알림 연결')
@@ -466,7 +473,7 @@ test('AI 검토 요청·막힘 알림 문구와 이동', async ({ authenticatedP
   await page.getByTestId('inbox-trigger').click()
 
   const items = page.getByTestId('inbox-item')
-  // AGENT 행위자는 이름 뒤에 AI 배지가 붙는다 — 문구만 따로 확인.
+  // AGENT 행위자는 이름 뒤에 에이전트 배지가 붙는다 — 문구만 따로 확인.
   await expect(items.nth(0)).toContainText('님이 검토를 요청했습니다')
   await expect(items.nth(0)).toContainText('WP-12 알림 연결')
   await expect(items.nth(1)).toContainText('님이 작업이 막혔다고 알렸습니다')

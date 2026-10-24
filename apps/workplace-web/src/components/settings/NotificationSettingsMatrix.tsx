@@ -2,7 +2,7 @@
 // 설정 › 알림 「알림 종류」 매트릭스(WP-913) — 앱별 카드 안에 항목 줄 × 「사람이 / AI가」 두 열 스위치.
 // 왜: 같은 알림이라도 사람이 했을 때와 AI 가 했을 때 받고 싶은 정도가 달라(AI 작업 중 코멘트·상태 변경 알림 폭주), 칸마다 따로 끈다.
 import { ChevronDown } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { BusySwitch } from '@/components/BusySwitch'
@@ -93,15 +93,26 @@ function AppCard({
 }) {
   const appLabel = APP_LABEL[a.app]
   const appNote = APP_NOTE[a.app]
-  const appSwitch = (
-    <BusySwitch
-      data-testid={`notif-app-toggle-${a.app}`}
-      className={switchHit(compact)}
-      checked={a.enabled}
-      busy={saving}
-      onCheckedChange={(v) => onAppChange(a.app, v)}
-      aria-label={`${appLabel} 앱 전체`}
-    />
+  const switchId = useId()
+  // 「앱 전체」 글자 + 앱 스위치 묶음 — 데스크톱·모바일 머리가 같이 쓰고 여백만 다르다.
+  // 글자는 <label htmlFor> 라 눌러도 스위치가 바뀐다(WP-935, 모바일에서 작은 스위치만 노리지 않게).
+  // 낭독 이름은 스위치 aria-label(「… 앱 전체」)이 정하므로 글자는 aria-hidden — 이름이 두 번 읽히지 않는다.
+  // 모바일 pr-5: 스위치 중심을 아래 AI 열(2.5rem, 줄 px-4) 스위치 중심과 같은 x(오른쪽에서 36px)에 맞춘다.
+  const appToggle = (
+    <div className={cn('flex shrink-0 items-center gap-2 text-xs text-muted-foreground', compact && 'pr-5 pl-2')}>
+      <label htmlFor={switchId} aria-hidden="true" className="cursor-pointer select-none">
+        앱 전체
+      </label>
+      <BusySwitch
+        id={switchId}
+        data-testid={`notif-app-toggle-${a.app}`}
+        className={switchHit(compact)}
+        checked={a.enabled}
+        busy={saving}
+        onCheckedChange={(v) => onAppChange(a.app, v)}
+        aria-label={`${appLabel} 앱 전체`}
+      />
+    </div>
   )
   return (
     // 접기/펼치기는 디자인 시스템 Collapsible(04-components) — aria-expanded·aria-controls 를 트리거에 자동으로 붙인다.
@@ -128,16 +139,12 @@ function AppCard({
                 />
               </CollapsibleTrigger>
             </h3>
-            {/* pr-5: 스위치 중심을 아래 AI 열(2.5rem, 줄 px-4) 스위치 중심과 같은 x(오른쪽에서 36px)에 맞춘다. */}
-            <div className="flex shrink-0 items-center pr-5 pl-2">{appSwitch}</div>
+            {appToggle}
           </div>
         ) : (
           <div className="flex items-center justify-between gap-3 bg-muted/50 px-4 py-2.5">
             <h3 className="text-sm font-semibold">{appLabel}</h3>
-            <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-              <span aria-hidden="true">앱 전체</span>
-              {appSwitch}
-            </div>
+            {appToggle}
           </div>
         )}
         <CollapsibleContent>

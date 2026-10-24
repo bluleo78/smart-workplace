@@ -12,13 +12,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 푸시 저장소 3종(구독·설정·VAPID) 통합 테스트 — 글로벌 테이블 CRUD 와 upsert 의미 검증. */
+/** 푸시 저장소 2종(구독·VAPID) 통합 테스트 — 글로벌 테이블 CRUD 와 upsert 의미 검증. */
 @Transactional
 class PushRepositoriesTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired PushSubscriptionRepository subs;
-  @Autowired NotificationPreferenceRepository prefs;
   @Autowired PushVapidKeyRepository vapid;
 
   /** 격리된 HUMAN 사용자 1명 시드. */
@@ -58,18 +57,6 @@ class PushRepositoriesTest extends IntegrationTestBase {
     subs.upsert(a, ep, "k", "s", null);
     assertThat(subs.deleteByUserAndEndpoint(b, ep)).isZero();
     assertThat(subs.deleteByUserAndEndpoint(a, ep)).isEqualTo(1);
-  }
-
-  @Test
-  void preferences_defaultOn_andUpsert() {
-    long a = TestFixtures.createHuman(dsl);
-    long b = TestFixtures.createHuman(dsl);
-    prefs.upsert(a, PushCategory.DM, false);
-    prefs.upsert(a, PushCategory.DM, false); // 멱등
-    prefs.upsert(b, PushCategory.DM, true);
-
-    assertThat(prefs.findByUser(a)).containsEntry(PushCategory.DM, false);
-    assertThat(prefs.findByUser(b)).containsEntry(PushCategory.DM, true);
   }
 
   @Test

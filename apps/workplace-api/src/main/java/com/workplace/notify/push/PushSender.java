@@ -33,8 +33,7 @@ public class PushSender {
 
   /**
    * 사용자들에게 발송. 비활성·빈 수신자는 건너뛴다. 받을지 말지(알림 설정)는 보지 않는다 — 호출측이 알림 설정(NotificationSettingService)으로 이미
-   * 거른 수신자만 넘긴다(인박스 알림은 NotificationService, 메시지는 MessagePushRecipientResolver). 옛 종류별 푸시 설정
-   * (notification_preference)은 더는 판정에 쓰지 않는다(WP-913).
+   * 거른 수신자만 넘긴다(인박스 알림은 NotificationService, 메시지는 MessagePushRecipientResolver).
    */
   public void send(Collection<Long> userIds, PushMessage message) {
     if (!props.enabled() || userIds.isEmpty()) return;

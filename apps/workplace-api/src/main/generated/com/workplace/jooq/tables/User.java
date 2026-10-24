@@ -54,7 +54,6 @@ import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.NotificationAppSetting.NotificationAppSettingPath;
-import com.workplace.jooq.tables.NotificationPreference.NotificationPreferencePath;
 import com.workplace.jooq.tables.NotificationSetting.NotificationSettingPath;
 import com.workplace.jooq.tables.PlatformRole.PlatformRolePath;
 import com.workplace.jooq.tables.PlatformUserRole.PlatformUserRolePath;
@@ -1000,19 +999,6 @@ public class User extends TableImpl<UserRecord> {
             _notificationAppSetting = new NotificationAppSettingPath(this, null, Keys.NOTIFICATION_APP_SETTING__NOTIFICATION_APP_SETTING_USER_ID_FKEY.getInverseKey());
 
         return _notificationAppSetting;
-    }
-
-    private transient NotificationPreferencePath _notificationPreference;
-
-    /**
-     * Get the implicit to-many join path to the
-     * <code>public.notification_preference</code> table
-     */
-    public NotificationPreferencePath notificationPreference() {
-        if (_notificationPreference == null)
-            _notificationPreference = new NotificationPreferencePath(this, null, Keys.NOTIFICATION_PREFERENCE__NOTIFICATION_PREFERENCE_USER_ID_FKEY.getInverseKey());
-
-        return _notificationPreference;
     }
 
     private transient NotificationPath _notificationRecipientIdFkey;

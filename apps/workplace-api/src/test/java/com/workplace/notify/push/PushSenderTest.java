@@ -30,7 +30,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
-/** PushSender — 설정 필터, 헤더, 상태코드별 구독 처리(성공 초기화·410 삭제·5회 실패 삭제), 한 구독 실패 격리. */
+/** PushSender — 헤더, 상태코드별 구독 처리(성공 초기화·410 삭제·5회 실패 삭제), 한 구독 실패 격리. */
 @Transactional
 @ExtendWith(OutputCaptureExtension.class)
 class PushSenderTest extends IntegrationTestBase {
@@ -38,7 +38,6 @@ class PushSenderTest extends IntegrationTestBase {
   @MockitoBean PushGateway gateway;
   @Autowired PushSender sender;
   @Autowired PushSubscriptionRepository subs;
-  @Autowired NotificationPreferenceRepository prefs;
   @Autowired DSLContext dsl;
   @Autowired ObjectMapper om;
 
@@ -144,16 +143,6 @@ class PushSenderTest extends IntegrationTestBase {
 
     assertThat(subs.findOwner(ep)).isEmpty();
     verify(gateway, never()).deliver(eq(ep), any(), anyMap());
-  }
-
-  /** 옛 종류별 푸시 설정(notification_preference)으로 꺼도 발송된다 — 받을지는 호출 전 새 알림 설정이 정한다(WP-913, 이중 필터 방지). */
-  @Test
-  void send_ignoresLegacyCategoryPreference() {
-    String ep = addSub();
-    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
-    prefs.upsert(user, PushCategory.DM, false);
-    sender.send(List.of(user), msg());
-    verify(gateway).deliver(eq(ep), any(), anyMap());
   }
 
   @Test

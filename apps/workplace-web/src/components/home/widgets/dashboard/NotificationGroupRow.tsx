@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { hasAiToken } from "@/lib/aiToken";
+import { AgentActorBadge } from "@/components/users/AgentBadge";
 import { formatRelativeTime } from "@/lib/formatters";
 import type { NotifGroup } from "@/lib/notifGrouping";
 import type { NotificationResponse } from "@/types/notification";
@@ -78,18 +78,13 @@ export function NotificationGroupRow({
         >
           {group.title}
         </span>
-        {/* secondary: 행위자 + AI배지 + 델타 + 상대시간 한 줄(muted). */}
+        {/* secondary: 행위자 + 에이전트 배지 + 델타 + 상대시간 한 줄(muted). */}
         <span className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
           {group.actorName && (
             <span className="truncate">{group.actorName}</span>
           )}
-          {/* AI 배지 — primary 토큰에서 ai-accent 시맨틱 토큰으로 통일.
-              단, 대표 행위자명(actorName)에 이미 "AI" 토큰이 포함돼 있으면(예: "My AI") 중복 표시를 피한다 (#637). */}
-          {group.hasAgent && !hasAiToken(group.actorName) && (
-            <span className="rounded bg-ai-accent-subtle px-1 text-ai-accent">
-              AI
-            </span>
-          )}
+          {/* 에이전트 배지 — 인박스와 같은 공용 AgentActorBadge(Bot+「에이전트」, WP-935). 그룹에 AGENT 행위자가 있으면 붙는다. */}
+          <AgentActorBadge kind={group.hasAgent ? "AGENT" : null} />
           <span className="truncate">
             {group.deltaSummary} · {formatRelativeTime(group.latestAt)}
           </span>

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import { TOGGLE_ON_CLASS } from './selectionStyles'
-import { BRAND_THEMES, compositeLuminance, contrast, luminance, oklchOf, tokenContrast } from './test/cssContrast'
+import { BRAND_THEMES, contrast, type Layer,luminance, oklchOf, stackedLuminance, tokenContrast } from './test/cssContrast'
 
 // 채움 버튼·배지 글자 대비(WP-322)를 index.css 원본 값으로 고정한다 — 기본(primary)·사이드바 선택·삭제(destructive) 채움 위 글자 4.5:1(WCAG AA).
 // 브랜드 테마(ocean·sunset)는 primary 만 덮으므로 기본 라이트/다크 위에 덮어 6조합을 모두 잰다.
 // hover 는 bg-x/90(반투명)이라 바탕(background·popover) 위에 합성한 색으로 잰다.
 const fgOn = (body: string, fg: string, fill: string, alpha: number, under: string) =>
-  contrast(luminance(oklchOf(body, fg)), compositeLuminance(body, fill, alpha, under))
+  contrast(luminance(oklchOf(body, fg)), stackedLuminance(body, [under, [fill, alpha]]))
 
 describe.each(Object.entries(BRAND_THEMES))('filled action tokens (%s)', (_theme, body) => {
   it.each([
@@ -65,5 +65,21 @@ describe.each(Object.entries(BRAND_THEMES))('selection tokens (%s)', (theme, bod
     for (const alpha of alphas) {
       expect(fgOn(body, 'primary', 'primary', alpha, under), `bg-primary/${alpha * 100}`).toBeGreaterThanOrEqual(4.5)
     }
+  })
+})
+
+// 꺼진 스위치 경계(WP-935) — 연한 트랙(input)만으로는 흰 카드 위에서 경계가 안 보여 테두리(switch-off-border)를 둘렀다.
+// 테두리가 놓이는 바닥마다 비텍스트 3:1(WCAG 1.4.11). 다크 card·muted·border 는 반투명이라 바탕부터 차례로 겹쳐 잰다.
+// 카드 머리(설정 › 알림 앱 카드의 「앱 전체」 스위치)는 카드 위 bg-muted/50.
+const SWITCH_SURFACES: [string, Layer[]][] = [
+  ['background', ['background']],
+  ['card', ['background', 'card']],
+  ['card header (bg-muted/50)', ['background', 'card', ['muted', 0.5]]],
+]
+describe.each(Object.entries(BRAND_THEMES))('switch off border (%s)', (_theme, body) => {
+  it.each(SWITCH_SURFACES)('switch-off-border on %s keeps 3:1', (_surface, under) => {
+    expect(
+      contrast(stackedLuminance(body, [...under, 'switch-off-border']), stackedLuminance(body, under)),
+    ).toBeGreaterThanOrEqual(3)
   })
 })

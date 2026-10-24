@@ -85,7 +85,6 @@ import com.workplace.jooq.tables.MessagingClassifyWatermark;
 import com.workplace.jooq.tables.Milestone;
 import com.workplace.jooq.tables.Notification;
 import com.workplace.jooq.tables.NotificationAppSetting;
-import com.workplace.jooq.tables.NotificationPreference;
 import com.workplace.jooq.tables.NotificationSetting;
 import com.workplace.jooq.tables.Permission;
 import com.workplace.jooq.tables.PlatformRole;
@@ -561,11 +560,6 @@ public class Public extends SchemaImpl {
     public final NotificationAppSetting NOTIFICATION_APP_SETTING = NotificationAppSetting.NOTIFICATION_APP_SETTING;
 
     /**
-     * The table <code>public.notification_preference</code>.
-     */
-    public final NotificationPreference NOTIFICATION_PREFERENCE = NotificationPreference.NOTIFICATION_PREFERENCE;
-
-    /**
      * The table <code>public.notification_setting</code>.
      */
     public final NotificationSetting NOTIFICATION_SETTING = NotificationSetting.NOTIFICATION_SETTING;
@@ -894,7 +888,6 @@ public class Public extends SchemaImpl {
             Milestone.MILESTONE,
             Notification.NOTIFICATION,
             NotificationAppSetting.NOTIFICATION_APP_SETTING,
-            NotificationPreference.NOTIFICATION_PREFERENCE,
             NotificationSetting.NOTIFICATION_SETTING,
             Permission.PERMISSION,
             PlatformRole.PLATFORM_ROLE,
