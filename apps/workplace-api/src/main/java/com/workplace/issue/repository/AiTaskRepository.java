@@ -1,5 +1,7 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.issue.repository.KeysetSeek.after;
+import static com.workplace.issue.repository.KeysetSeek.utc;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
@@ -23,10 +25,10 @@ import com.workplace.issue.dto.AgentWorkState;
 import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.repository.KeysetSeek.SeekKey;
 import com.workplace.user.dto.UserKind;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -522,45 +524,6 @@ public class AiTaskRepository {
                     r.get(rGroupSize),
                     r.get(rEpic),
                     r.get(rEndedWork)));
-  }
-
-  /** 커서 시각(Instant) → timestamptz 비교 값. 마이크로초 그대로. */
-  private static OffsetDateTime utc(Instant t) {
-    return t.atOffset(ZoneOffset.UTC);
-  }
-
-  /** seek 정렬 키 하나 — 필드·커서 값·방향. */
-  private record SeekKey<T>(Field<T> field, T value, boolean desc) {
-    static <T> SeekKey<T> asc(Field<T> f, T v) {
-      return new SeekKey<>(f, v, false);
-    }
-
-    static <T> SeekKey<T> desc(Field<T> f, T v) {
-      return new SeekKey<>(f, v, true);
-    }
-
-    /** 이 키에서 커서 행보다 "뒤"(ASC 면 큼, DESC 면 작음). */
-    Condition beyond() {
-      return desc ? field.lt(value) : field.gt(value);
-    }
-
-    /** 이 키에서 커서 행과 같음 — 다음 키로 동률을 깬다. */
-    Condition same() {
-      return field.eq(value);
-    }
-  }
-
-  /**
-   * 커서 행 다음 행 조건 — 정렬 키를 사전식으로 비교한다: k1 뒤 OR (k1 같음 AND (k2 뒤 OR (k2 같음 AND …))). 방향이 섞인 키에도 맞다(행 값
-   * 비교 (a,b) &gt; (x,y) 는 방향이 모두 같을 때만 쓸 수 있다).
-   */
-  private static Condition after(List<SeekKey<?>> keys) {
-    Condition c = keys.get(keys.size() - 1).beyond();
-    for (int i = keys.size() - 2; i >= 0; i--) {
-      SeekKey<?> k = keys.get(i);
-      c = k.beyond().or(k.same().and(c));
-    }
-    return c;
   }
 
   /** 건수 칩별 진행 중 상태 묶음 — 키로 집계 컬럼(w_live_<키>)을 찾는다(위치에 기대지 않게). */

@@ -54,26 +54,36 @@ public record IssueResponse(
     // WP-375 AI 위임 작업 행의 에픽 묶음 — /me/ai-tasks 만 채운다. 없으면 JSON 에서 생략.
     @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskGroup aiGroup,
     // WP-426 AI 위임 작업 행의 프로젝트 이름·건수 — /me/ai-tasks 만 채운다. 없으면 JSON 에서 생략.
-    @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskProject aiProject) {
+    @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskProject aiProject,
+    // WP-915 /me/issues 프로젝트 묶음 정렬(group=due|recent) 행의 프로젝트 이름·건수 — 그 요청만 채운다. 없으면 JSON 에서 생략.
+    @JsonInclude(JsonInclude.Include.NON_NULL) AiTaskProject projectGroup) {
 
   /** 진행 중 AI 작업 목록을 채운 사본을 돌려준다(목록·상세 조립 단계에서 한 번에 조회해 주입). */
   public IssueResponse withAgentWork(List<AgentWorkView> list) {
-    return copyWith(list == null ? List.of() : list, aiGroup, aiProject);
+    return copyWith(list == null ? List.of() : list, aiGroup, aiProject, projectGroup);
   }
 
   /** AI 위임 작업 묶음 정보를 채운 사본(WP-375 — /me/ai-tasks 조립 단계). */
   public IssueResponse withAiGroup(AiTaskGroup g) {
-    return copyWith(agentWork, g, aiProject);
+    return copyWith(agentWork, g, aiProject, projectGroup);
   }
 
   /** AI 위임 작업 프로젝트 정보(이름·건수)를 채운 사본(WP-426 — /me/ai-tasks 조립 단계). */
   public IssueResponse withAiProject(AiTaskProject p) {
-    return copyWith(agentWork, aiGroup, p);
+    return copyWith(agentWork, aiGroup, p, projectGroup);
   }
 
-  /** 나머지 필드는 그대로 두고 agentWork·aiGroup·aiProject 만 바꾼 사본 — 필드 복사를 한 곳에 둔다. */
+  /** /me/issues 프로젝트 묶음 정보(이름·건수)를 채운 사본(WP-915 — group 요청 조립 단계). */
+  public IssueResponse withProjectGroup(AiTaskProject p) {
+    return copyWith(agentWork, aiGroup, aiProject, p);
+  }
+
+  /** 나머지 필드는 그대로 두고 agentWork·aiGroup·aiProject·projectGroup 만 바꾼 사본 — 필드 복사를 한 곳에 둔다. */
   private IssueResponse copyWith(
-      List<AgentWorkView> newAgentWork, AiTaskGroup newAiGroup, AiTaskProject newAiProject) {
+      List<AgentWorkView> newAgentWork,
+      AiTaskGroup newAiGroup,
+      AiTaskProject newAiProject,
+      AiTaskProject newProjectGroup) {
     return new IssueResponse(
         id,
         projectKey,
@@ -106,7 +116,8 @@ public record IssueResponse(
         version,
         newAgentWork,
         newAiGroup,
-        newAiProject);
+        newAiProject,
+        newProjectGroup);
   }
 
   /**
@@ -145,6 +156,7 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
         null,
         null);
   }
@@ -187,6 +199,7 @@ public record IssueResponse(
         r.version(),
         List.of(),
         null,
+        null,
         null);
   }
 
@@ -224,6 +237,7 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
         null,
         null);
   }
@@ -267,6 +281,7 @@ public record IssueResponse(
         r.version(),
         List.of(),
         null,
+        null,
         null);
   }
 
@@ -309,6 +324,7 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
         null,
         null);
   }
@@ -359,6 +375,7 @@ public record IssueResponse(
         r.version(),
         List.of(),
         null,
+        null,
         null);
   }
 
@@ -407,6 +424,7 @@ public record IssueResponse(
         List.of(),
         r.version(),
         List.of(),
+        null,
         null,
         null);
   }
@@ -459,6 +477,7 @@ public record IssueResponse(
         customFields == null ? List.of() : customFields,
         r.version(),
         List.of(),
+        null,
         null,
         null);
   }

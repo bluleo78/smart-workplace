@@ -97,13 +97,13 @@ class WatcherServiceTest extends IntegrationTestBase {
     issueRepository.insert(p.id(), 1, "제보", null, "MID", null, reporter);
 
     watcherService.watch(reporter, p.key(), 1);
-    assertThat(watcherService.watchedIssues(reporter, null, 30).items())
+    assertThat(watcherService.watchedIssues(reporter, null, 30, null).items())
         .extracting(i -> i.number())
         .containsExactly(1);
 
     watcherService.unwatch(reporter, p.key(), 1);
     assertThat(watcherService.list(owner, p.key(), 1)).isEmpty();
-    assertThat(watcherService.watchedIssues(reporter, null, 30).items()).isEmpty();
+    assertThat(watcherService.watchedIssues(reporter, null, 30, null).items()).isEmpty();
   }
 
   @Test
@@ -113,9 +113,9 @@ class WatcherServiceTest extends IntegrationTestBase {
     issueRepository.insert(p.id(), 1, "t", null, "MID", null, u);
     watcherService.watch(u, p.key(), 1);
 
-    assertThat(watcherService.watchedIssues(u, null, 30).items()).hasSize(1);
+    assertThat(watcherService.watchedIssues(u, null, 30, null).items()).hasSize(1);
 
     memberRepository.delete(p.id(), u); // 멤버 박탈
-    assertThat(watcherService.watchedIssues(u, null, 30).items()).isEmpty();
+    assertThat(watcherService.watchedIssues(u, null, 30, null).items()).isEmpty();
   }
 }

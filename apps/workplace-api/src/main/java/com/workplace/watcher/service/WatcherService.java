@@ -1,22 +1,18 @@
 package com.workplace.watcher.service;
 
-import com.workplace.issue.dto.IssueCursor;
-import com.workplace.issue.dto.IssueResponse;
-import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchResponse;
+import com.workplace.issue.dto.MeIssueGrouping;
+import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
-import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
-import com.workplace.label.dto.LabelSummary;
+import com.workplace.issue.service.IssueSearchService;
 import com.workplace.project.exception.ProjectNotFoundException;
-import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.dto.WatcherResponse;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,8 +25,8 @@ public class WatcherService {
 
   private final IssueWatcherRepository watcherRepository;
   private final IssueRepository issueRepository;
-  private final IssueLabelRepository issueLabelRepository;
-  private final ProjectRepository projectRepository;
+  // WP-915: 구독 목록 조회·조립 — 다른 목록과 같은 응답 모양.
+  private final IssueSearchService issueSearchService;
   private final UserRepository userRepository;
   private final ProjectAccessGuard accessGuard;
   private final WatcherAutoEnroller watcherAutoEnroller;
@@ -91,35 +87,21 @@ public class WatcherService {
   /**
    * /me/watched-issues — 멤버인 프로젝트와 공개 접수함(OPEN) 프로젝트의 이슈만. 멤버에서 빠진 TEAM 프로젝트 이슈는 숨긴다. OPEN 은 비멤버도
    * 구독할 수 있어(WP-631) 함께 보여 준다 — 알림은 오는데 어디서 구독 중인지 볼 수 없던 문제.
+   *
+   * <p>조회·조립은 {@link IssueSearchService#watchedPage} 에 맡긴다(WP-915) — 다른 목록과 같은 응답 모양(담당자·유형 등)이 되고,
+   * 행마다 프로젝트를 다시 조회하던 N+1 이 없어진다. group 은 recent 만 받는다(구독 탭은 최근 움직인 프로젝트 먼저) — 그 밖의 값은 400.
    */
   @Transactional(readOnly = true)
-  public IssueSearchResponse watchedIssues(Long callerId, String cursorStr, int size) {
-    int clamped = Math.max(1, Math.min(100, size));
-    IssueCursor cursor = cursorStr == null ? null : IssueCursor.decode(cursorStr);
-
-    var issueIds = watcherRepository.findIssueIdsByUser(callerId);
-    if (issueIds.isEmpty()) return new IssueSearchResponse(List.of(), null, false);
-
-    var rows = issueRepository.findByIdsReadableWatchedBy(issueIds, callerId, cursor, clamped);
-    Map<Long, List<LabelSummary>> labelsByIssue =
-        issueLabelRepository.findLabelsByIssueIds(rows.stream().map(IssueRow::id).toList());
-    var items =
-        rows.stream()
-            .map(
-                r -> {
-                  var proj = projectRepository.findById(r.projectId()).orElseThrow();
-                  return IssueResponse.fromWithLabels(
-                      proj.key(), r, labelsByIssue.getOrDefault(r.id(), List.of()));
-                })
-            .toList();
-
-    String nextCursor = null;
-    boolean hasMore = false;
-    if (!rows.isEmpty() && rows.size() >= clamped) {
-      var last = rows.get(rows.size() - 1);
-      nextCursor = IssueCursor.encode(last.updatedAt(), last.id());
-      hasMore = true;
+  public IssueSearchResponse watchedIssues(
+      Long callerId, String cursorStr, int size, String group) {
+    MeIssueGrouping grouping = MeIssueGrouping.parse(group);
+    if (grouping != null && grouping != MeIssueGrouping.RECENT) {
+      throw new InvalidCursorException("group 은 recent 만 받습니다: " + group);
     }
-    return new IssueSearchResponse(items, nextCursor, hasMore);
+    // 구독이 하나도 없으면 목록 쿼리 없이 바로 빈 페이지.
+    if (watcherRepository.findIssueIdsByUser(callerId).isEmpty()) {
+      return new IssueSearchResponse(List.of(), null, false);
+    }
+    return issueSearchService.watchedPage(callerId, cursorStr, size, grouping);
   }
 }

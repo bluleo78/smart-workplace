@@ -2,12 +2,17 @@ package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -61,6 +66,55 @@ public class MeIssuesTestFixtures {
 
     return new Setup(caller, keyA, keyB, keyC, issueC.id());
   }
+
+  // ---------------------------------------------------------------- WP-915 프로젝트 묶음 정렬 시드
+
+  /** MockMvc(JWT) 로 부를 수 있는 사용자 — USER 역할까지 넣는다(역할이 없으면 인증 필터가 거절한다). */
+  public long loginUser(String prefix) {
+    long id = insertUser(prefix + UUID.randomUUID().toString().replaceAll("-", "").substring(0, 8));
+    Long roleId = dsl.select(ROLE.ID).from(ROLE).where(ROLE.NAME.eq("USER")).fetchOne(ROLE.ID);
+    dsl.insertInto(USER_ROLE).set(USER_ROLE.USER_ID, id).set(USER_ROLE.ROLE_ID, roleId).execute();
+    return id;
+  }
+
+  /** owner 가 소유한(자동 멤버) 새 프로젝트 — 키는 무작위라 테스트끼리 겹치지 않는다. */
+  public ProjectRef project(long owner, String name) {
+    String key =
+        "G" + UUID.randomUUID().toString().replaceAll("-", "").substring(0, 5).toUpperCase();
+    ProjectResponse p = projectService.create(owner, new CreateProjectRequest(key, name, "x"));
+    return new ProjectRef(p.id(), p.key());
+  }
+
+  /**
+   * 이슈 한 건 시드 — 마감·상태·담당자를 정하고, 수정 시각을 <b>마지막에</b> 직접 쓴다. 테스트 트랜잭션 안에서는 now() 가 고정이라 모든 행의
+   * updated_at 이 같아지므로 정렬 검증에 필요한 시각을 명시한다. assignee 가 null 이면 담당자 없음.
+   */
+  public long issue(
+      ProjectRef p,
+      String title,
+      long reporter,
+      Long assignee,
+      LocalDate due,
+      String status,
+      Instant updatedAt) {
+    int number =
+        dsl.select(org.jooq.impl.DSL.coalesce(org.jooq.impl.DSL.max(ISSUE.NUMBER), 0))
+                .from(ISSUE)
+                .where(ISSUE.PROJECT_ID.eq(p.id()))
+                .fetchOne(0, Integer.class)
+            + 1;
+    long id = issueRepository.insert(p.id(), number, title, null, "MID", due, reporter).id();
+    if (assignee != null) insertAssignee(id, assignee, reporter);
+    if (status != null) setStatus(id, status);
+    dsl.update(ISSUE)
+        .set(ISSUE.UPDATED_AT, updatedAt.atOffset(ZoneOffset.UTC))
+        .where(ISSUE.ID.eq(id))
+        .execute();
+    return id;
+  }
+
+  /** 시드한 프로젝트의 id·key. */
+  public record ProjectRef(long id, String key) {}
 
   /** USER 테이블에 최소 컬럼만 INSERT (kind/is_active 는 default). 비밀번호는 더미. */
   private long insertUser(String username) {

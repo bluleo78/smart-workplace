@@ -9,10 +9,9 @@ import static org.mockito.Mockito.when;
 
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.outbound.IssueChangeNotifier;
-import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueSearchService;
 import com.workplace.project.dto.ProjectRow;
-import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.outbound.WatcherDomainEvents.WatcherAddedEvent;
@@ -34,8 +33,6 @@ class WatcherEventPublishTest {
 
   private IssueWatcherRepository watcherRepository;
   private IssueRepository issueRepository;
-  private IssueLabelRepository issueLabelRepository;
-  private ProjectRepository projectRepository;
   private UserRepository userRepository;
   private ProjectAccessGuard accessGuard;
   private ApplicationEventPublisher publisher;
@@ -51,8 +48,6 @@ class WatcherEventPublishTest {
   void setUp() {
     watcherRepository = mock(IssueWatcherRepository.class);
     issueRepository = mock(IssueRepository.class);
-    issueLabelRepository = mock(IssueLabelRepository.class);
-    projectRepository = mock(ProjectRepository.class);
     userRepository = mock(UserRepository.class);
     accessGuard = mock(ProjectAccessGuard.class);
     publisher = mock(ApplicationEventPublisher.class);
@@ -61,8 +56,7 @@ class WatcherEventPublishTest {
         new WatcherService(
             watcherRepository,
             issueRepository,
-            issueLabelRepository,
-            projectRepository,
+            mock(IssueSearchService.class),
             userRepository,
             accessGuard,
             // 등록·이벤트 발행은 실제 enroller 를 통해 — publisher mock 으로 발행 여부를 검증한다.
