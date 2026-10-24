@@ -286,10 +286,12 @@ export default function App() {
               {/* 호환 리다이렉트 — 구 경로 흡수 */}
               <Route path="profile" element={<Navigate to="/settings/profile" replace />} />
               <Route path="admin/*" element={<AdminRedirect />} />
+
+              {/* 없는 주소 — 앱 셸(사이드바·헤더·main) 안에서 그려 다른 메뉴로 바로 갈 수 있게 한다(WP-924).
+                  로그인 전이면 ProtectedRoute 가 로그인으로 보낸 뒤 돌아와 이 화면을 본다. */}
+              <Route path="*" element={<NotFoundPage />} />
             </Route>
           </Route>
-
-          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Suspense>
     </PageErrorBoundary>

@@ -13,6 +13,10 @@ test('없는 주소는 새 버전 확인 없이 404 를 보이고 홈으로 갈 
   await expect(page.getByRole('heading', { name: '404' })).toBeVisible()
   await expect(page.getByText('페이지를 찾을 수 없습니다')).toBeVisible()
   await expectStays(page, versionChecks.count, 0)
+  // WP-924: 앱 셸 안에서 그린다 — 레일(다른 메뉴)·main 구역이 함께 있고 탭 제목도 없는 화면임을 알린다.
+  await expect(page.getByRole('main').getByRole('heading', { name: '404' })).toBeVisible()
+  await expect(page.getByTestId('app-rail')).toBeVisible()
+  await expect(page).toHaveTitle(/^페이지를 찾을 수 없음 · /)
 
   await page.getByRole('button', { name: '홈으로 가기' }).click()
   await expect(page).toHaveURL(/\/$/)

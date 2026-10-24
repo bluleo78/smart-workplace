@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { PageLoader } from '@/components/layout/PageLoader';
 import { Button } from '@/components/ui/button';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { browserOutdatedAppEnv, isSwControlled, recoverOutdatedApp } from '@/lib/pwa/outdatedApp';
 
 /** 옛 버전 앱이라 모르는 주소인지 확인하는 동안 true(WP-872 — 판단은 lib/pwa/outdatedApp). SW 관리 밖이면 확인하지 않는다. */
@@ -37,6 +38,8 @@ function useOutdatedAppCheck(): boolean {
 export default function NotFoundPage() {
   const navigate = useNavigate();
   const checking = useOutdatedAppCheck();
+  // 탭 제목도 없는 화면임을 알린다 — 주소 기본값(「Gen:iA Works」)으로 남지 않게(WP-924).
+  useDocumentTitle(['페이지를 찾을 수 없음']);
   if (checking) return <PageLoader />;
 
   return (
