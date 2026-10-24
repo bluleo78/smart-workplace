@@ -107,6 +107,7 @@ class InboxPushDeliveryTest extends IntegrationTestBase {
                           .getId();
                   return dsl.insertInto(ISSUE)
                       .set(ISSUE.PROJECT_ID, pid)
+                      .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(pid, "TODO"))
                       .set(ISSUE.NUMBER, 1)
                       .set(ISSUE.TITLE, "t")
                       .set(ISSUE.REPORTER_ID, actor)

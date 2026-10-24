@@ -15,6 +15,7 @@ import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
@@ -171,6 +172,7 @@ class IssueClosedAtTest extends IntegrationTestBase {
     baseDsl
         .update(ISSUE)
         .set(ISSUE.STATUS, "DONE")
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, "DONE"))
         .set(ISSUE.CLOSED_AT, OffsetDateTime.parse(closedAt))
         .where(ISSUE.ID.eq(id))
         .execute();

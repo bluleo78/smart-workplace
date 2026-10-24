@@ -67,6 +67,7 @@ class TenantPurgeIsolationTest extends IntegrationTestBase {
                   .getId();
           dsl.insertInto(ISSUE)
               .set(ISSUE.PROJECT_ID, project)
+              .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(project, "TODO"))
               .set(ISSUE.NUMBER, 1)
               .set(ISSUE.TITLE, "i")
               .set(ISSUE.REPORTER_ID, user)

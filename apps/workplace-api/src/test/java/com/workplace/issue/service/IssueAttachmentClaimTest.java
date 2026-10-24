@@ -306,7 +306,8 @@ class IssueAttachmentClaimTest extends IntegrationTestBase {
 
   private CreateIssueRequest requestWithFiles(List<Long> fileIds) {
     return new CreateIssueRequest(
-        "첨부와 함께", "본문", "MID", null, null, null, null, null, null, null, null, null, fileIds);
+        "첨부와 함께", "본문", "MID", null, null, null, null, null, null, null, null, null, fileIds, null,
+        null);
   }
 
   /** 업로드 경로와 클레임 경로가 같은 이슈 안에서 섞여도 한도를 함께 센다. */

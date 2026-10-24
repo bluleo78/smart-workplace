@@ -10,6 +10,7 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -142,6 +143,7 @@ class IssueDomainRlsTest extends IntegrationTestBase {
               Long iid =
                   dsl.insertInto(ISSUE)
                       .set(ISSUE.PROJECT_ID, pid)
+                      .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(pid, "TODO"))
                       .set(ISSUE.NUMBER, 1)
                       .set(ISSUE.TITLE, "rls-issue")
                       .set(ISSUE.STATUS, "TODO")
@@ -218,6 +220,7 @@ class IssueDomainRlsTest extends IntegrationTestBase {
               Long iid =
                   dsl.insertInto(ISSUE)
                       .set(ISSUE.PROJECT_ID, pid)
+                      .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(pid, "TODO"))
                       .set(ISSUE.NUMBER, 1)
                       .set(ISSUE.TITLE, "rls-aw-issue")
                       .set(ISSUE.STATUS, "TODO")

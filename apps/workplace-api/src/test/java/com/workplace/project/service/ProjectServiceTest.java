@@ -410,6 +410,7 @@ class ProjectServiceTest extends IntegrationTestBase {
     Long issueId =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, project.id())
+            .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(project.id(), "TODO"))
             .set(ISSUE.NUMBER, 1)
             .set(ISSUE.TITLE, "유령 담당자 테스트")
             .set(ISSUE.REPORTER_ID, ownerId)
@@ -462,6 +463,7 @@ class ProjectServiceTest extends IntegrationTestBase {
       Long id =
           dsl.insertInto(ISSUE)
               .set(ISSUE.PROJECT_ID, project.id())
+              .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(project.id(), "TODO"))
               .set(ISSUE.NUMBER, n)
               .set(ISSUE.TITLE, "i" + n)
               .set(ISSUE.REPORTER_ID, ownerId)

@@ -19,6 +19,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.PostgresTestContainer;
+import com.workplace.support.TestFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -1034,7 +1035,11 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   private void setStatus(long issueId, String status) {
-    dsl.update(ISSUE).set(ISSUE.STATUS, status).where(ISSUE.ID.eq(issueId)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, status))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
   }
 
   private MvcResult perform(String url) throws Exception {

@@ -248,7 +248,11 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Test
   void startOrUpdate_종료된_이슈면_NPE_대신_AgentWorkIssueClosedException() {
     // 보고 검증을 우회해 서비스를 직접 호출 — 동시 종료로 조회에서 이슈가 빠지는 경합과 같은 상황.
-    dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(issueId)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, "DONE")
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, "DONE"))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
     assertThatThrownBy(
             () -> service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty()))
         .isInstanceOf(AgentWorkIssueClosedException.class);

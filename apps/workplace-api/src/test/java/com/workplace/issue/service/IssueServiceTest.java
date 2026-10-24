@@ -281,7 +281,8 @@ class IssueServiceTest extends IntegrationTestBase {
                       projectKey,
                       created.number(),
                       new UpdateIssueRequest(
-                          blank, null, null, null, null, null, null, false, null, false, null)))
+                          blank, null, null, null, null, null, null, false, null, false, null, null,
+                          null)))
           .isInstanceOf(IllegalArgumentException.class)
           .hasMessage("이슈 제목을 입력해 주세요");
     }
@@ -304,7 +305,7 @@ class IssueServiceTest extends IntegrationTestBase {
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            "  고친 제목  ", null, null, null, null, null, null, false, null, false, null));
+            "  고친 제목  ", null, null, null, null, null, null, false, null, false, null, null, null));
     assertThat(issueService.get(ownerId, projectKey, created.number()).summary().title())
         .isEqualTo("고친 제목");
   }
@@ -322,14 +323,26 @@ class IssueServiceTest extends IntegrationTestBase {
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            null, null, "IN_PROGRESS", null, null, null, null, false, null, false, null));
+            null,
+            null,
+            "IN_PROGRESS",
+            null,
+            null,
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            null,
+            null));
     // IN_PROGRESS → DONE
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            null, null, "DONE", null, null, null, null, false, null, false, null));
+            null, null, "DONE", null, null, null, null, false, null, false, null, null, null));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -351,14 +364,14 @@ class IssueServiceTest extends IntegrationTestBase {
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            null, null, "DONE", null, null, null, null, false, null, false, null));
+            null, null, "DONE", null, null, null, null, false, null, false, null, null, null));
     // DONE → TODO 재오픈
     issueService.update(
         ownerId,
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            null, null, "TODO", null, null, null, null, false, null, false, null));
+            null, null, "TODO", null, null, null, null, false, null, false, null, null, null));
 
     var closedAt =
         dsl.select(ISSUE.CLOSED_AT)
@@ -381,7 +394,7 @@ class IssueServiceTest extends IntegrationTestBase {
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            "renamed", null, null, null, null, null, null, false, null, false, null));
+            "renamed", null, null, null, null, null, null, false, null, false, null, null, null));
 
     int historyCount =
         dsl.fetchCount(
@@ -440,7 +453,7 @@ class IssueServiceTest extends IntegrationTestBase {
         projectKey,
         created.number(),
         new UpdateIssueRequest(
-            "renamed", null, null, null, null, null, null, false, null, false, null));
+            "renamed", null, null, null, null, null, null, false, null, false, null, null, null));
     // 코멘트 1개 추가
     dsl.insertInto(ISSUE_COMMENT)
         .set(ISSUE_COMMENT.ISSUE_ID, created.id())
@@ -510,7 +523,7 @@ class IssueServiceTest extends IntegrationTestBase {
   /** 제목만 바꾸는 요청 — version 을 지정할 수 있다. */
   private static UpdateIssueRequest titleOnly(String title, Integer version) {
     return new UpdateIssueRequest(
-        title, null, null, null, null, null, null, null, null, null, version);
+        title, null, null, null, null, null, null, null, null, null, version, null, null);
   }
 
   private IssueResponse newIssue(String title) {
@@ -651,7 +664,8 @@ class IssueServiceTest extends IntegrationTestBase {
                 null,
                 null,
                 null,
-                "DONE"));
+                "DONE",
+                null));
     assertThat(child.status()).isEqualTo("DONE");
     assertThat(statusOf(epic.id())).isEqualTo("DONE");
   }

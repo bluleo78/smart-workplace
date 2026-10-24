@@ -52,6 +52,7 @@ class PushContentServiceTest extends IntegrationTestBase {
     issueId =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, projectId)
+            .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(projectId, "TODO"))
             .set(ISSUE.NUMBER, 7)
             .set(ISSUE.TITLE, "로그인 버그")
             .set(ISSUE.REPORTER_ID, actor)

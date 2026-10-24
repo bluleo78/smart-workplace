@@ -11,6 +11,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -168,7 +169,11 @@ public class MeIssuesTestFixtures {
 
   /** 이슈 status 직접 변경 — 시드 편의용(production update 경로 우회). */
   private void setStatus(long issueId, String status) {
-    dsl.update(ISSUE).set(ISSUE.STATUS, status).where(ISSUE.ID.eq(issueId)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, status))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
   }
 
   /** twoProjectsOneForeign() 결과 — 테스트가 의존하는 식별자 묶음. */

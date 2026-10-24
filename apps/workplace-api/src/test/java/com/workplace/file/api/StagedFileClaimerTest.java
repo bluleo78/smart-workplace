@@ -440,6 +440,7 @@ class StagedFileClaimerTest extends IntegrationTestBase {
             .getId();
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(projectId, "TODO"))
         .set(ISSUE.NUMBER, 1)
         .set(ISSUE.TITLE, "클레임 이슈")
         .set(ISSUE.STATUS, "TODO")

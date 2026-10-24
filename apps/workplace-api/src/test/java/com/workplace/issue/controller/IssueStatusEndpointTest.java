@@ -81,7 +81,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
 
-    String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS"));
+    String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS", null, null));
     mvc.perform(
             patch("/api/v1/projects/" + key + "/issues/1/status")
                 .header("Authorization", "Bearer " + tokenFor(userId))
@@ -100,7 +100,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
 
-    String body = om.writeValueAsString(new UpdateStatusRequest("TODO"));
+    String body = om.writeValueAsString(new UpdateStatusRequest("TODO", null, null));
     mvc.perform(
             patch("/api/v1/projects/" + key + "/issues/1/status")
                 .header("Authorization", "Bearer " + tokenFor(userId))
@@ -120,7 +120,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     ProjectResponse proj = projectService.create(owner, new CreateProjectRequest(key, "P", "x"));
     issueRepository.insert(proj.id(), 1, "t", null, "MID", null, owner);
 
-    String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS"));
+    String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS", null, null));
     mvc.perform(
             patch("/api/v1/projects/" + key + "/issues/1/status")
                 .header("Authorization", "Bearer " + tokenFor(other))
@@ -151,7 +151,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     String key = uniqueKey("PP");
     projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
 
-    String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS"));
+    String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS", null, null));
     mvc.perform(
             patch("/api/v1/projects/" + key + "/issues/999/status")
                 .header("Authorization", "Bearer " + tokenFor(userId))

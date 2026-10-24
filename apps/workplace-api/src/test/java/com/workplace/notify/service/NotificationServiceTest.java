@@ -15,6 +15,7 @@ import com.workplace.notify.dto.UpdateNotificationSettingsRequest;
 import com.workplace.notify.dto.UpdateNotificationSettingsRequest.CellChange;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -72,6 +73,7 @@ class NotificationServiceTest extends IntegrationTestBase {
             .getId();
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(projectId, "TODO"))
         .set(ISSUE.NUMBER, 1)
         .set(ISSUE.TITLE, "t")
         .set(ISSUE.REPORTER_ID, ownerId)

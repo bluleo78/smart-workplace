@@ -14,6 +14,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -93,7 +94,11 @@ class OpenIssueDeleteTest extends IntegrationTestBase {
   @Test
   void open_non_member_reporter_cannot_delete_after_status_changed() {
     var s = openScenario();
-    dsl.update(ISSUE).set(ISSUE.STATUS, "IN_PROGRESS").where(ISSUE.ID.eq(s.issueId())).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, "IN_PROGRESS")
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, "IN_PROGRESS"))
+        .where(ISSUE.ID.eq(s.issueId()))
+        .execute();
     assertThatThrownBy(
             () -> issueService.softDelete(s.reporterId(), s.projectKey(), s.issueNumber()))
         .isInstanceOf(ProjectAccessDeniedException.class);

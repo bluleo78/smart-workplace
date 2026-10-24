@@ -126,7 +126,11 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
     var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     var done = issueRepository.insert(proj.id(), 1, "끝남", null, "MID", null, userId);
     agentWorkService.startOrUpdate(done.id(), userId, "claude-code", AgentWorkPatch.empty());
-    dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(done.id())).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, "DONE")
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, "DONE"))
+        .where(ISSUE.ID.eq(done.id()))
+        .execute();
 
     mvc.perform(
             get("/api/v1/projects/" + key + "/issues/1").header("Authorization", bearer(userId)))

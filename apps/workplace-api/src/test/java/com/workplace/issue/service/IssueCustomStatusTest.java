@@ -300,7 +300,8 @@ class IssueCustomStatusTest extends IntegrationTestBase {
                 project.key(),
                 issue.number(),
                 new UpdateIssueRequest(
-                    null, null, "TODO", null, null, null, null, null, null, null, null, deployed))
+                    null, null, "TODO", null, null, null, null, null, null, null, null, deployed,
+                    null))
             .summary();
 
     assertThat(after.status()).isEqualTo("DONE");

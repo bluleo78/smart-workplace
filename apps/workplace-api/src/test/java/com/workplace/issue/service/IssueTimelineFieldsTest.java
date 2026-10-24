@@ -95,7 +95,7 @@ class IssueTimelineFieldsTest extends IntegrationTestBase {
             p.key(),
             issue.number(),
             new UpdateIssueRequest(
-                null, null, null, null, null, false, start, false, null, false, null));
+                null, null, null, null, null, false, start, false, null, false, null, null, null));
 
     assertThat(updated.summary().startDate()).isEqualTo(start);
     assertThat(historyRepository.findByIssue(issue.id()))
@@ -121,7 +121,7 @@ class IssueTimelineFieldsTest extends IntegrationTestBase {
             p.key(),
             issue.number(),
             new UpdateIssueRequest(
-                null, null, null, null, null, false, null, true, null, false, null));
+                null, null, null, null, null, false, null, true, null, false, null, null, null));
 
     assertThat(updated.summary().startDate()).isNull();
   }
@@ -153,6 +153,8 @@ class IssueTimelineFieldsTest extends IntegrationTestBase {
                         false,
                         null,
                         false,
+                        null,
+                        null,
                         null)))
         .isInstanceOf(InvalidIssueDateRangeException.class);
   }
@@ -174,7 +176,19 @@ class IssueTimelineFieldsTest extends IntegrationTestBase {
             p.key(),
             issue.number(),
             new UpdateIssueRequest(
-                null, null, null, null, null, false, null, false, milestone.id(), false, null));
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                null,
+                false,
+                milestone.id(),
+                false,
+                null,
+                null,
+                null));
 
     assertThat(updated.summary().milestoneId()).isEqualTo(milestone.id());
     assertThat(historyRepository.findByIssue(issue.id()))
@@ -214,6 +228,8 @@ class IssueTimelineFieldsTest extends IntegrationTestBase {
                         false,
                         milestoneOfP2.id(),
                         false,
+                        null,
+                        null,
                         null)))
         .isInstanceOf(MilestoneNotFoundException.class);
   }
@@ -233,7 +249,19 @@ class IssueTimelineFieldsTest extends IntegrationTestBase {
         p.key(),
         issue.number(),
         new UpdateIssueRequest(
-            null, null, null, null, null, false, null, false, milestone.id(), false, null));
+            null,
+            null,
+            null,
+            null,
+            null,
+            false,
+            null,
+            false,
+            milestone.id(),
+            false,
+            null,
+            null,
+            null));
 
     var updated =
         issueService.update(
@@ -241,7 +269,7 @@ class IssueTimelineFieldsTest extends IntegrationTestBase {
             p.key(),
             issue.number(),
             new UpdateIssueRequest(
-                null, null, null, null, null, false, null, false, null, true, null));
+                null, null, null, null, null, false, null, false, null, true, null, null, null));
 
     assertThat(updated.summary().milestoneId()).isNull();
   }

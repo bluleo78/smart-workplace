@@ -27,8 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * V204 project_status 마이그레이션 통합 테스트(WP-807).
  *
- * <p>새 프로젝트 4상태 시드 트리거, 이슈 status ↔ status_id 동기화 트리거(구 파드 호환), 복합 FK(id, project_id, category) 의
- * 범주·프로젝트 정합, 이름 유일·길이 제약, 백필 SQL 을 DB 수준에서 고정한다. 기존 코드는 status_id 를 모르므로 트리거만으로 동작해야 한다.
+ * <p>새 프로젝트 4상태 시드 트리거, 복합 FK(id, project_id, category) 의 범주·프로젝트 정합, 이름 유일·길이 제약, 백필 SQL 을 DB 수준에서
+ * 고정한다. 구 파드 호환용 status ↔ status_id 동기화 트리거는 V208 에서 걷어냈다(WP-868) — 이제 쓰는 쪽이 status_id 를 반드시 함께 준다.
  */
 @Transactional
 class ProjectStatusMigrationTest extends IntegrationTestBase {
@@ -80,7 +80,7 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
         .fetchOne(PROJECT_STATUS.ID);
   }
 
-  /** 구 코드처럼 status 만 지정하고(status_id 생략) 이슈를 직접 넣는다. */
+  /** 범주의 기본 상태(status_id)와 함께 이슈를 직접 넣는다 — 호환 트리거가 없어 status_id 를 빼면 NOT NULL 에 걸린다(WP-868). */
   private Long insertIssue(Long projectId, Long reporterId, int number, String status) {
     Long typeId =
         dsl.select(ISSUE_TYPE_DEF.ID)
@@ -93,6 +93,7 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
         .set(ISSUE.NUMBER, number)
         .set(ISSUE.TITLE, "status-" + number)
         .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, statusId(projectId, status))
         .set(ISSUE.PRIORITY, "MID")
         .set(ISSUE.REPORTER_ID, reporterId)
         .set(ISSUE.TYPE_ID, typeId)
@@ -156,25 +157,64 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
   }
 
   @Test
-  void status_id_없이_INSERT하면_범주_기본상태가_채워진다() {
-    Long owner = createUser("ps-c");
-    ProjectResponse p = newProject(owner, "PSC");
-
-    Long issueId = insertIssue(p.id(), owner, 1, "DONE");
-
-    assertThat(issueStatusId(issueId)).isEqualTo(statusId(p.id(), "DONE"));
+  void 호환_트리거와_함수는_V208에서_사라졌다() {
+    // V208 의 DROP 이 시그니처 불일치 등으로 조용히 건너뛰지 않았는지 카탈로그로 직접 확인한다(WP-868).
+    assertThat(
+            dsl.fetchCount(
+                dsl.selectFrom("pg_trigger").where("tgname = 'trg_issue_status_id_sync'")))
+        .isZero();
+    assertThat(
+            dsl.fetchCount(
+                dsl.selectFrom("pg_proc")
+                    .where("proname in ('issue_status_id_sync', 'project_status_default_id')")))
+        .isZero();
+    // 새 프로젝트 시드 트리거는 남는다.
+    assertThat(
+            dsl.fetchCount(
+                dsl.selectFrom("pg_trigger").where("tgname = 'trg_project_seed_statuses'")))
+        .isOne();
   }
 
   @Test
-  void status만_UPDATE하면_status_id가_새_범주_기본상태로_맞춰진다() {
+  void status_id_없이_INSERT하면_NOT_NULL이_거절한다() {
+    Long owner = createUser("ps-c");
+    ProjectResponse p = newProject(owner, "PSC");
+    Long typeId =
+        dsl.select(ISSUE_TYPE_DEF.ID)
+            .from(ISSUE_TYPE_DEF)
+            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(p.id()))
+            .limit(1)
+            .fetchOne(ISSUE_TYPE_DEF.ID);
+
+    // 호환 트리거가 없으므로 범주만 주면 status_id 를 채워 주는 쪽이 없다(WP-868).
+    assertThatThrownBy(
+            () ->
+                dsl.insertInto(ISSUE)
+                    .set(ISSUE.PROJECT_ID, p.id())
+                    .set(ISSUE.NUMBER, 1)
+                    .set(ISSUE.TITLE, "no-status-id")
+                    .set(ISSUE.STATUS, "DONE")
+                    .set(ISSUE.PRIORITY, "MID")
+                    .set(ISSUE.REPORTER_ID, owner)
+                    .set(ISSUE.TYPE_ID, typeId)
+                    .execute())
+        .isInstanceOf(DataIntegrityViolationException.class);
+  }
+
+  @Test
+  void status만_다른_범주로_UPDATE하면_FK가_거절한다() {
     Long owner = createUser("ps-d");
     ProjectResponse p = newProject(owner, "PSD");
     Long issueId = insertIssue(p.id(), owner, 1, "TODO");
 
-    // 구 코드 흉내: status 만 바꾸고 status_id 는 건드리지 않는다.
-    dsl.update(ISSUE).set(ISSUE.STATUS, "IN_PROGRESS").where(ISSUE.ID.eq(issueId)).execute();
-
-    assertThat(issueStatusId(issueId)).isEqualTo(statusId(p.id(), "IN_PROGRESS"));
+    // 범주만 바꾸면 status_id(할 일 상태)와 범주가 어긋나 복합 FK 가 막는다 — 예전엔 트리거가 범주 기본 상태로 맞췄다(WP-868).
+    assertThatThrownBy(
+            () ->
+                dsl.update(ISSUE)
+                    .set(ISSUE.STATUS, "IN_PROGRESS")
+                    .where(ISSUE.ID.eq(issueId))
+                    .execute())
+        .isInstanceOf(DataIntegrityViolationException.class);
   }
 
   @Test
@@ -184,7 +224,7 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
     Long issueId = insertIssue(p.id(), owner, 1, "TODO");
     Long doneId = statusId(p.id(), "DONE");
 
-    // status_id 를 바꾸므로(OLD 와 다름) 트리거가 보정하지 않고, 범주 불일치는 복합 FK 가 막는다.
+    // 범주 불일치는 복합 FK 가 막는다.
     assertThatThrownBy(
             () ->
                 dsl.update(ISSUE)
@@ -275,7 +315,7 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
     Long issueId = insertIssue(p.id(), owner, 1, "TODO");
     Long todoId = statusId(p.id(), "TODO");
 
-    // 상태 범주 변경(WP-811) — ON UPDATE CASCADE 가 issue.status 로 전파된다. 트리거가 status_id 를 다른 상태로 돌리면 안 된다.
+    // 상태 범주 변경(WP-811) — ON UPDATE CASCADE 가 issue.status 로 전파되고 status_id 는 그대로다.
     dsl.update(PROJECT_STATUS)
         .set(PROJECT_STATUS.CATEGORY, "IN_PROGRESS")
         .where(PROJECT_STATUS.ID.eq(todoId))
@@ -302,8 +342,6 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
     assertThat(updated).isEqualTo(2);
     assertThat(issueStatusId(todoIssue)).isEqualTo(statusId(p.id(), "TODO"));
     assertThat(issueStatusId(canceledIssue)).isEqualTo(statusId(p.id(), "CANCELED"));
-    assertThat(dsl.fetchValue("SELECT project_status_default_id(?, 'DONE')", p.id()))
-        .isEqualTo(statusId(p.id(), "DONE"));
   }
 
   // ---- V206 상태 색(WP-809) ----

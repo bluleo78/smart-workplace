@@ -320,8 +320,8 @@ class IssueControllerTest {
                 .content(
                     objectMapper.writeValueAsString(
                         new UpdateIssueRequest(
-                            null, null, "UNKNOWN", null, null, null, null, false, null, false,
-                            null))))
+                            null, null, "UNKNOWN", null, null, null, null, false, null, false, null,
+                            null, null))))
         .andExpect(status().isBadRequest());
   }
 

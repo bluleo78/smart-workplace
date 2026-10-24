@@ -252,13 +252,14 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
 
   /** 본문만 바꾸는 PATCH (version null → 충돌 검사 생략). */
   private UpdateIssueRequest bodyOnly(String body) {
-    return new UpdateIssueRequest(null, body, null, null, null, null, null, null, null, null, null);
+    return new UpdateIssueRequest(
+        null, body, null, null, null, null, null, null, null, null, null, null, null);
   }
 
   /** 제목만 바꾸는 PATCH — 본문 null 이면 이미지 동기화를 건드리지 않아야 한다. */
   private UpdateIssueRequest titleOnly(String title) {
     return new UpdateIssueRequest(
-        title, null, null, null, null, null, null, null, null, null, null);
+        title, null, null, null, null, null, null, null, null, null, null, null, null);
   }
 
   private String ref(String key, long fileId) {

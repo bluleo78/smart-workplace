@@ -1,6 +1,7 @@
 package com.workplace.support;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
@@ -11,6 +12,8 @@ import com.workplace.user.dto.UserKind;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.impl.DSL;
 
 /**
  * 통합 테스트용 공용 픽스처 헬퍼. 여러 태스크(resolver/service 테스트)가 재사용한다.
@@ -25,6 +28,26 @@ public final class TestFixtures {
   private static final AtomicLong SEQ = new AtomicLong();
 
   private TestFixtures() {}
+
+  /**
+   * 프로젝트 범주의 기본 상태 id 를 고르는 스칼라 서브쿼리(WP-868) — raw jOOQ 로 issue 를 넣거나 범주를 바꿀 때 status_id 를 함께 쓴다.
+   * 호환 트리거가 사라져 status_id 없이 넣으면 NOT NULL, 범주만 바꾸면 복합 FK 에 걸린다. 규칙은 운영 findDefault 와 같다(position,
+   * id 순 첫 상태). UPDATE 에서는 {@code ISSUE.PROJECT_ID} 를 넘겨 행마다 자기 프로젝트의 상태를 고른다.
+   */
+  public static Field<Long> defaultStatusId(Field<Long> projectId, String category) {
+    return DSL.field(
+        DSL.select(PROJECT_STATUS.ID)
+            .from(PROJECT_STATUS)
+            .where(PROJECT_STATUS.PROJECT_ID.eq(projectId))
+            .and(PROJECT_STATUS.CATEGORY.eq(category))
+            .orderBy(PROJECT_STATUS.POSITION, PROJECT_STATUS.ID)
+            .limit(1));
+  }
+
+  /** {@link #defaultStatusId(Field, String)} 의 프로젝트 id 값 버전 — INSERT 에서 쓴다. */
+  public static Field<Long> defaultStatusId(Long projectId, String category) {
+    return defaultStatusId(DSL.val(projectId), category);
+  }
 
   /**
    * 지정 상태의 테넌트를 새로 만든다(slug 는 UUID 접미사로 유일). 영구 삭제 등 테넌트 단위 테스트용.

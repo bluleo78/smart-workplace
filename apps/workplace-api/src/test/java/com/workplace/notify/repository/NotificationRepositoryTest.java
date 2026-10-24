@@ -13,6 +13,7 @@ import com.workplace.calendar.service.CalendarService;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -74,6 +75,7 @@ class NotificationRepositoryTest extends IntegrationTestBase {
             .getId();
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(projectId, "TODO"))
         .set(ISSUE.NUMBER, 1)
         .set(ISSUE.TITLE, title)
         .set(ISSUE.REPORTER_ID, ownerId)

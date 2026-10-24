@@ -269,12 +269,13 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     assertThat(row.issueDone()).isEqualTo(1);
   }
 
-  /** 이슈 직접 삽입 헬퍼. type_id 는 프로젝트 시스템 유형 중 하나를 자동 조회. */
+  /** 이슈 직접 삽입 헬퍼. type_id 는 프로젝트 시스템 유형 중 하나를, 상태는 범주 기본 상태를 자동 조회. */
   private void insertIssue(Long pid, String status, Long reporterId) {
-    insertIssue(pid, status, null, reporterId);
+    insertIssue(
+        pid, status, statusRepository.findDefault(pid, status).orElseThrow().id(), reporterId);
   }
 
-  /** 상태 id 까지 지정하는 삽입 헬퍼(WP-807) — statusId 가 null 이면 트리거가 범주 기본 상태로 채운다. */
+  /** 상태 id 까지 지정하는 삽입 헬퍼(WP-807) — 호환 트리거가 없어 status_id 는 반드시 넘긴다(WP-868). */
   private void insertIssue(Long pid, String status, Long statusId, Long reporterId) {
     Long typeId =
         dsl.select(ISSUE_TYPE_DEF.ID)

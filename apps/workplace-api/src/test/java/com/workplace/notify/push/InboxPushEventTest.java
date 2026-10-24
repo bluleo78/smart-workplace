@@ -53,6 +53,7 @@ class InboxPushEventTest extends IntegrationTestBase {
             .getId();
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, projectId)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(projectId, "TODO"))
         .set(ISSUE.NUMBER, 1)
         .set(ISSUE.TITLE, "t")
         .set(ISSUE.REPORTER_ID, owner)

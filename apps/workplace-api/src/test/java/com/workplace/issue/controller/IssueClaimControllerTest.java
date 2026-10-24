@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.AgentWorkTestSupport;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.label.repository.LabelRepository;
+import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -292,7 +293,12 @@ class IssueClaimControllerTest extends AgentWorkTestSupport {
 
   private void setStatus(String status) {
     inTenant(
-        () -> dsl.update(ISSUE).set(ISSUE.STATUS, status).where(ISSUE.ID.eq(issueId)).execute());
+        () ->
+            dsl.update(ISSUE)
+                .set(ISSUE.STATUS, status)
+                .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, status))
+                .where(ISSUE.ID.eq(issueId))
+                .execute());
   }
 
   /** JSON 배열 각 원소의 한 필드를 문자열로 뽑는다(id 도 문자열로 비교). */

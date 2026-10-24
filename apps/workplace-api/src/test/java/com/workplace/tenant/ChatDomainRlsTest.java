@@ -15,6 +15,7 @@ import com.workplace.chat.dto.ChatMessagePage;
 import com.workplace.chat.repository.ChatThreadMemberRepository;
 import com.workplace.chat.service.ChatMessageService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -265,6 +266,7 @@ class ChatDomainRlsTest extends IntegrationTestBase {
 
     return dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, pid)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(pid, "TODO"))
         .set(ISSUE.NUMBER, 1)
         .set(ISSUE.TITLE, "rls-chat-issue")
         .set(ISSUE.STATUS, "TODO")
