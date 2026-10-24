@@ -93,6 +93,20 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
         .toList();
   }
 
+  /** WP-930: 검색어 앞뒤 공백을 떼고 찾는다 — 관리자 구성원 화면(/settings/users)과 AI search_members 가 이 경로를 쓴다. */
+  @Test
+  void list_searchWithSurroundingWhitespace_findsMember() {
+    String suffix = UUID.randomUUID().toString().substring(0, 6);
+    long id = seedNamed("ws_" + suffix, "공백검색" + suffix, "HUMAN", true);
+    linkMembership(id, 1L, "ACTIVE");
+    assertThat(listedIds(" 공백검색" + suffix)).contains(id);
+    assertThat(listedIds("공백검색" + suffix + "  ")).contains(id);
+    assertThat(listedIds("\t공백검색" + suffix + "\n")).contains(id);
+    // 공백뿐이면 조건 없이 전체 — 빈 검색과 같은 수(전체가 한 페이지를 넘을 수 있어 수로 비교).
+    assertThat(service.list("   ", "ALL", false, 0, 1).totalElements())
+        .isEqualTo(service.list(null, "ALL", false, 0, 1).totalElements());
+  }
+
   /** WP-554: 자모가 분리된(NFD) 한글 검색어도 완성형(NFC) 이름의 구성원을 찾는다. */
   @Test
   void list_nfdSearch_findsNfcNamedMember() {

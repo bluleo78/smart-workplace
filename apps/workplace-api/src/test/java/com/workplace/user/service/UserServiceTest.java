@@ -67,6 +67,24 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void getUsers_trimsSurroundingWhitespaceInSearch() {
+    // WP-930: 앞뒤 공백이 붙은 검색어도 같은 사람을 찾는다 — 전에는 「 x」·「x 」가 결과 없음이었다.
+    for (String q :
+        new String[] {
+          " testuser@example.com", "testuser@example.com  ", "\ttestuser@example.com\n"
+        }) {
+      PageResponse<UserResponse> result = userService.getUsers(q, 0, 20);
+      assertThat(
+              result.content().stream().anyMatch(u -> u.username().equals("testuser@example.com")))
+          .as("검색어 [%s]", q)
+          .isTrue();
+    }
+    // 공백뿐이면 조건 없이 전체 목록(빈 검색과 같은 수)
+    assertThat(userService.getUsers("   ", 0, 20).totalElements())
+        .isEqualTo(userService.getUsers(null, 0, 20).totalElements());
+  }
+
+  @Test
   void getUsers_returnsPaginatedResults() {
     PageResponse<UserResponse> result = userService.getUsers("testuser@example.com", 0, 20);
 

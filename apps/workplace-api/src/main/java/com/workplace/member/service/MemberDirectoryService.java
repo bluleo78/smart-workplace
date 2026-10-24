@@ -41,7 +41,8 @@ public class MemberDirectoryService {
       Long viewerId, String search, String kind, boolean includeInactive, int page, int size) {
     long tenantId = TenantContext.require();
     // 검색어 NFC 정규화(WP-554) — 맥 붙여넣기 등 NFD(자모 분리) 한글이 완성형 저장값과 맞지 않던 것을 맞춘다(UnicodeNames 참조).
-    String nfc = UnicodeNames.toNfc(search);
+    // 앞뒤 공백은 떼고 공백뿐이면 조건 없음(WP-930) — 「 bob」처럼 공백이 붙으면 있는 사람도 결과가 없었다. 이슈 목록 검색과 같게 맞춘다.
+    String nfc = search == null || search.isBlank() ? null : UnicodeNames.toNfc(search.strip());
     // offset 은 long 으로 — page×size 가 int 를 넘으면 음수 offset 이 되어 「음수」 400 이 났다(WP-552). 끝을 넘는 page 는 빈
     // 목록.
     List<MemberSummary> content =
