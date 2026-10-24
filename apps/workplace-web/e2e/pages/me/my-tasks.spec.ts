@@ -54,16 +54,19 @@ test('내 작업 — 탭 클릭으로 경로가 바뀐다', async ({ authenticat
   await expect(page).toHaveURL(/\/me\/tasks\/reported$/)
 })
 
-test('내 작업 — 잘못된 탭은 할당 탭으로 폴백 렌더된다', async ({ authenticatedPage: page }) => {
+test('내 작업 — 잘못된 탭은 할당 탭 주소로 바로잡고 할당 탭을 그린다', async ({ authenticatedPage: page }) => {
   await mockApi(
     page,
     'GET',
     '/api/v1/me/issues',
     createIssueSearchResponse([createIssue({ id: 55, title: '폴백 할당 이슈' })]),
   )
-  await page.goto('/me/tasks/bogus')
+  await page.goto('/me/tasks/bogus?priority=HIGH')
   // 잘못된 탭이어도 할당 탭 내용(assignee=me 결과)이 렌더된다.
   await expect(page.getByTestId('assigned-row-55')).toContainText('폴백 할당 이슈')
+  // WP-926: 주소도 할당 탭으로 바뀌고(필터 쿼리는 유지) 할당 탭이 선택돼 있다.
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned\?priority=HIGH$/)
+  await expect(page.getByTestId('tab-assigned')).toHaveAttribute('aria-selected', 'true')
 })
 
 test('내 작업 — /me/tasks 는 할당 탭으로 리다이렉트된다', async ({ authenticatedPage: page }) => {

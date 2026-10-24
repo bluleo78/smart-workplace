@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, CheckCheck, Forward, Inbox, Loader2, Mail, MailOpen, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
+import { Check, CheckCheck, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -9,6 +9,7 @@ import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
 import { Page } from '@/components/layout/Page'
+import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
@@ -699,8 +700,37 @@ function MessageDetailPanel({
 export function MailInboxPage() {
   const { accountId } = useParams()
   const [params] = useSearchParams()
+  const { data: accounts, isLoading: accountsLoading } = useMailAccounts()
+  // 주소의 계정이 내 계정 목록에 없으면(없는 번호·남의 계정·/mail/abc) 메일함을 열지 않는다 — 열면 빈 목록의
+  // 「동기화를 눌러보세요」나 소용없는 「다시 시도」만 보인다(WP-926). 계정 목록을 못 불러온 경우는 판단하지 않고 그대로 둔다.
+  if (accountId) {
+    if (accountsLoading) return <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
+    if (accounts && !accounts.some((a) => String(a.id) === accountId)) {
+      // 연결된 계정이 하나도 없으면 /mail 의 「연결된 메일 계정이 없습니다」 안내로 보낸다.
+      if (accounts.length === 0) return <Navigate to="/mail" replace />
+      return <MailAccountNotFound />
+    }
+  }
   if (accountId && params.get('folder') === 'drafts') return <MailDraftsPage accountId={Number(accountId)} />
   return <MailInbox />
+}
+
+/** 주소의 메일 계정이 내 계정이 아닐 때의 안내 — 다른 없는 리소스 화면(이슈·프로젝트)과 같은 모양(WP-926). */
+function MailAccountNotFound() {
+  const navigate = useNavigate()
+  useDocumentTitle(['메일 계정을 찾을 수 없음', '메일'])
+  return (
+    <Page>
+      <Page.Header title="메일" mobileHideSheetTrigger />
+      <ResourceErrorState
+        icon={MailX}
+        title="메일 계정을 찾을 수 없습니다"
+        description="연결이 해제되었거나 내 메일 계정이 아닙니다."
+        actionLabel="메일함으로 돌아가기"
+        onAction={() => navigate('/mail')}
+      />
+    </Page>
+  )
 }
 
 /**

@@ -219,6 +219,36 @@ test.describe('받은편지함', () => {
     await expect(page).toHaveTitle('메일 · Gen:iA Works')
   })
 
+  // WP-926: 내 계정이 아닌 주소(없는 번호·문자)는 메일함을 열지 않고 「찾을 수 없음」 안내, 메일 목록 요청도 보내지 않는다.
+  test('내 계정이 아닌 메일 계정 주소는 찾을 수 없음 안내를 보인다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
+    await stubMessages(page)
+    const messageRequests: string[] = []
+    page.on('request', (req) => {
+      if (/\/api\/v1\/mail\/accounts\/[^/]+\/messages/.test(req.url())) messageRequests.push(req.url())
+    })
+    for (const path of ['/mail/99999', '/mail/abc', '/mail/99999?folder=drafts']) {
+      await page.goto(path)
+      await expect(page.getByText('메일 계정을 찾을 수 없습니다')).toBeVisible()
+      await expect(page.getByText('받은 메일이 없습니다. 동기화를 눌러보세요.')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '다시 시도' })).toHaveCount(0)
+    }
+    await expect(page).toHaveTitle('메일 계정을 찾을 수 없음 · 메일 · Gen:iA Works')
+    expect(messageRequests).toEqual([])
+    // 「메일함으로 돌아가기」는 첫 계정의 메일함으로 보낸다.
+    await page.getByRole('button', { name: '메일함으로 돌아가기' }).click()
+    await expect(page).toHaveURL(/\/mail\/1$/)
+    await expect(page.getByTestId('mail-row-10')).toBeVisible()
+  })
+
+  // WP-926: 연결된 계정이 하나도 없으면 계정 주소로 들어와도 「연결된 메일 계정이 없습니다」 안내로 보낸다.
+  test('계정이 없을 때 계정 주소로 들어오면 계정 없음 안내로 보낸다', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
+    await page.goto('/mail/99999')
+    await expect(page).toHaveURL(/\/mail$/)
+    await expect(page.getByTestId('mail-empty-accounts')).toBeVisible()
+  })
+
   // #113 전폭 PageHeader(폴더명) + 좁은 화면 뒤로가기 — 800px 뷰포트에서 마스터-디테일 토글 검증.
   test('메일 전폭 헤더 + 좁은 화면 뒤로가기', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 800, height: 900 }) // lg(1024px) 미만
@@ -915,7 +945,11 @@ test.describe('메일 목록 — 보기·안 읽은 메일만(WP-186)', () => {
     await page.clock.install()
     await page.goto('/mail/1?unread=true')
     await page.getByTestId('mail-row-10').click()
+    // 10 선택이 화면에 그려진 뒤에 11 을 누른다 — 앞 주소 변경이 그려지기 전의 클릭은 열기가 무시돼(useHistoryParam 의
+    // snapshot 이 null) 10 이 열린 메일로 남고 목록에서 빠지지 않는다(경합으로 가끔 실패하던 원인, WP-926 에서 확인).
+    await expect(page.getByTestId('mail-row-10')).toHaveAttribute('aria-current', 'true')
     await page.getByTestId('mail-row-11').click()
+    await expect(page).toHaveURL(/messageId=11/)
     readElsewhere = true // 10 은 이 기기에서 읽지 않았고, 다른 기기에서 읽혀 서버가 뺀다
     const before = lists.count()
     await page.clock.fastForward(61_000)

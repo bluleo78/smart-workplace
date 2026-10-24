@@ -1,6 +1,6 @@
 // 내 작업 — 할당/내가 만든/구독 3탭. 경로 기반(/me/tasks/:tab)으로 공유 가능한 URL.
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { InfiniteIssueList } from '@/components/issue/InfiniteIssueList'
@@ -100,8 +100,9 @@ const TABS: readonly MyTasksTab[] = ['assigned', 'reported', 'watched']
 export default function MyTasksPage() {
   const navigate = useNavigate()
   const { tab } = useParams<{ tab: string }>()
-  // 잘못된 탭은 할당으로 폴백(에러 아님).
-  const active: MyTasksTab = (TABS as readonly string[]).includes(tab ?? '') ? (tab as MyTasksTab) : 'assigned'
+  const isKnownTab = (TABS as readonly string[]).includes(tab ?? '')
+  // 잘못된 탭은 할당으로 그린 뒤 아래에서 주소도 할당 탭으로 바로잡는다(에러 아님).
+  const active: MyTasksTab = isKnownTab ? (tab as MyTasksTab) : 'assigned'
   // WP-54: 탭 + facet 을 AI 화면 컨텍스트(목록 상태)로 등록 — 건수는 탭 하위 목록이 소유해 이번 범위에선 생략.
   // 구독 탭은 facet 을 적용하지 않으므로(필터 바 미노출) URL 에 남은 facet 을 싣지 않는다.
   const [params] = useSearchParams()
@@ -109,6 +110,10 @@ export default function MyTasksPage() {
   useRegisterAiScreenContext(useMemo(() => buildMyTasksContext({ tab: active, facets }), [active, facets]))
   // 본문 스크롤 요소 — 탭 목록 무한 로드 sentinel 의 root(DS 05 §A-3). state ref 라 마운트 뒤 observer 가 다시 붙는다.
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+
+  // 알 수 없는 탭 주소(/me/tasks/abc)는 할당 탭 주소로 바꾼다 — 주소가 그대로 남으면 공유·새로고침해도
+  // 없는 탭 주소가 퍼지고, 보이는 탭과 주소가 어긋난다(WP-926). 필터 쿼리는 그대로 넘긴다.
+  if (!isKnownTab) return <Navigate to={{ pathname: '/me/tasks/assigned', search: params.toString() }} replace />
 
   return (
     <Page>
