@@ -284,7 +284,8 @@ export function MailAccountDialog({
           <DialogDescription className="sr-only">{isEdit ? '메일 계정 수정' : '메일 계정 추가'}</DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={form.handleSubmit(onSubmit)} onChange={pinProvider} className="space-y-3">
+        {/* noValidate — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내 대신 말풍선만 뜨고 화면엔 문구가 남지 않았다(WP-912). 검증은 zod 스키마가 한다. */}
+        <form noValidate onSubmit={form.handleSubmit(onSubmit)} onChange={pinProvider} className="space-y-3">
           {/* 추가 모드에서만 공급자 선택 드롭다운 표시 — 수정 모드는 기존 공급자 고정 */}
           {!isEdit && (
             <FormField label="공급자" htmlFor="mail-provider">

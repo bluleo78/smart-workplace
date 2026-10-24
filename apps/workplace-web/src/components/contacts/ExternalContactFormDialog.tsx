@@ -128,7 +128,8 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
             <DialogDescription className="sr-only">{isEdit ? '외부 연락처 수정' : '새 외부 연락처'}</DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+          {/* noValidate — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내 대신 말풍선만 뜨고 화면엔 문구가 남지 않았다(WP-912). 검증은 zod 스키마가 한다. */}
+          <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
             {/* 이름 — 필수 필드: required prop 으로 붉은 별표 표시 */}
             <FormField label="이름" htmlFor="c-name" required error={form.formState.errors.name?.message}>
               <Input id="c-name" data-testid="c-name" {...form.register('name')} />

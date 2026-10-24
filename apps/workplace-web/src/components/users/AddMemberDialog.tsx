@@ -129,7 +129,8 @@ export function AddMemberDialog({ open, onOpenChange }: AddMemberDialogProps) {
             Radix Checkbox 는 소속 form 의 reset 이벤트에 반응해 스스로 onCheckedChange(false) 를
             발화하는데, onSuccess 의 react-hook-form reset() 이 그 reset 을 유발한다 → 폼 안에 두면
             첫 저장 직후 체크가 풀려 '계속 추가'가 깨진다(#655 연속등록 flake 의 진짜 원인). */}
-        <form id="add-member-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        {/* noValidate — 이메일 칸(type=email)의 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내 대신 말풍선만 뜨고 화면엔 문구가 남지 않았다(WP-912). 검증은 zod 스키마가 한다. */}
+        <form id="add-member-form" noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           {serverError && (
             <p role="alert" className="text-sm text-destructive" data-testid="add-member-error">
               {serverError}
