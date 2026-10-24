@@ -291,6 +291,57 @@ test(
   },
 )
 
+// WP-901 — 범위 밖 연도(5자리)는 과거 날짜 가드보다 먼저 서버와 같은 범위 안내로 막는다.
+test(
+  '만료일 연도가 5자리면 범위 안내를 보이고 생성을 막는다 (WP-901)',
+  async ({ authenticatedPage: page }) => {
+    const posts = trackRequests(page, 'POST', `/api/v1/drive/files/${FILE_ID}/share-links`)
+    await page.route(
+      (url) => url.pathname === `/api/v1/drive/files/${FILE_ID}/share-links`,
+      async (route) => {
+        if (route.request().method() === 'POST') {
+          await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+        } else {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([]),
+          })
+        }
+      },
+    )
+
+    await stubSpaces(page)
+    await stubSpaceSingle(page)
+    await stubItems(page)
+
+    await page.goto(`/drive/spaces/${SPACE_ID}`)
+    await expect(page.getByTestId('drive-page')).toBeVisible()
+
+    const fileRow = page.getByRole('listitem').filter({ hasText: 'report.txt' })
+    await fileRow.hover()
+    await fileRow.getByTestId('share-link-btn').click()
+    await expect(page.getByTestId('share-link-modal')).toBeVisible()
+
+    // 날짜 칸이 내보내는 5자리 연도 — fill 은 받지 않아 값을 직접 넣고 input 이벤트를 보낸다(max 가 없던 칸에서 키보드로 들어가던 값).
+    // 전에는 toISOString 이 RangeError 를 던져 버튼이 아무 반응도 없었다.
+    await page.locator('#share-expires').evaluate((el: HTMLInputElement) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '20260-10-23')
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await page.getByTestId('share-link-create-btn').click()
+
+    // 인라인 에러 표시 + POST 호출 자체가 발생하지 않아야 한다
+    await expect(page.getByTestId('share-expires-error')).toBeVisible()
+    await expect(page.getByTestId('share-expires-error')).toHaveText('날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다')
+    await expect(page.locator('#share-expires')).toHaveAttribute('aria-describedby', 'share-expires-error')
+    expect(posts.count()).toBe(0)
+
+    // 생성 직후 URL 노출 영역도 나타나지 않아야 한다
+    await expect(page.getByTestId('share-link-created-url')).toHaveCount(0)
+  },
+)
+
 test(
   '공유 비밀번호가 72바이트를 넘으면 생성이 차단되고 한국어 인라인 에러가 표시된다(WP-497)',
   async ({ authenticatedPage: page }) => {

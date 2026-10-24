@@ -29,6 +29,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { handleApiError } from '@/lib/api-error';
 import { copyToClipboard } from '@/lib/copyToClipboard';
 import { formatDateOnly } from '@/lib/formatters';
+import { isSupportedDateKey, SUPPORTED_DATE_MAX, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate';
 import { isPasswordWithinBytes, PASSWORD_BYTES_MESSAGE } from '@/lib/validations/user';
 import type { DriveFile } from '@/types/drive';
 
@@ -83,6 +84,12 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
 
   /** 공유 링크 생성 */
   async function onCreate() {
+    // 범위 밖 날짜(5자리 연도 등) — 날짜 칸이 그대로 내보내는 값으로 아래 toISOString 이 RangeError 를 던져
+    // 「링크 생성」이 아무 반응도 없었다(WP-901). 변환 전에 서버와 같은 범위 안내로 막는다.
+    if (expiresAt && !isSupportedDateKey(expiresAt)) {
+      setExpiresAtError(SUPPORTED_DATE_RANGE_MESSAGE);
+      return;
+    }
     // 만료일 — 로컬 23:59:59 로 설정해 UTC+ 사용자의 당일 만료 오인 방지.
     // "2026-06-30" 입력 → "2026-06-30T23:59:59" 로컬 → ISO 변환.
     const expiresAtIso = expiresAt
@@ -221,10 +228,12 @@ export function ShareLinkModal({ file, archived = false, onClose }: ShareLinkMod
                 setExpiresAtError(null);
               }}
               min={new Date().toISOString().slice(0, 10)}
+              max={SUPPORTED_DATE_MAX}
               aria-invalid={expiresAtError != null}
+              aria-describedby={expiresAtError ? 'share-expires-error' : undefined}
             />
             {expiresAtError && (
-              <p className="text-xs text-destructive" data-testid="share-expires-error">
+              <p id="share-expires-error" className="text-xs text-destructive" data-testid="share-expires-error">
                 {expiresAtError}
               </p>
             )}
