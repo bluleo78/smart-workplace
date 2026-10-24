@@ -7,7 +7,11 @@ import com.workplace.global.security.JsonAuthenticationEntryPoint;
 import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.UserTokenAuthenticationFilter;
+import com.workplace.global.security.ratelimit.PublicRateLimitFilter;
+import com.workplace.global.security.ratelimit.RateLimitProperties;
+import com.workplace.global.security.ratelimit.TokenBucketLimiter;
 import jakarta.servlet.DispatcherType;
+import java.time.Clock;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -27,7 +31,11 @@ import org.springframework.web.filter.CorsFilter;
 
 @Configuration
 @EnableWebSecurity
-@EnableConfigurationProperties({JwtProperties.class, CorsProperties.class})
+@EnableConfigurationProperties({
+  JwtProperties.class,
+  CorsProperties.class,
+  RateLimitProperties.class
+})
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -37,6 +45,10 @@ public class SecurityConfig {
   // 사용자 PAT 인증 (Bearer swp_...) 도 JWT 보다 먼저 시도 (ak_/swp_/JWT 는 prefix 로 상호 배타)
   private final UserTokenAuthenticationFilter userTokenAuthenticationFilter;
   private final CorsProperties corsProperties;
+  private final RateLimitProperties rateLimitProperties;
+
+  /** 공개 경로 속도 제한 버킷(WP-763) — 인스턴스 메모리에 둔다. 여러 대로 늘릴 때는 docs/ops/rate-limit.md. */
+  private final TokenBucketLimiter publicRateLimiter = new TokenBucketLimiter(Clock.systemUTC());
 
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -122,6 +134,9 @@ public class SecurityConfig {
         .exceptionHandling(ex -> ex.authenticationEntryPoint(new JsonAuthenticationEntryPoint()))
         // 인증 필터의 DB 조회가 커넥션을 못 얻으면 기본 500 대신 503 재시도 안내(WP-751). CORS 헤더가 붙은 뒤에 둔다.
         .addFilterAfter(new DbBusyResponseFilter(), CorsFilter.class)
+        // 인증 없는 공개 경로의 해시 계산 요청을 IP 단위로 제한(WP-763). CORS 뒤라 429 를 브라우저가 읽는다 — 인증 필터보다 먼저 거른다.
+        .addFilterAfter(
+            new PublicRateLimitFilter(publicRateLimiter, rateLimitProperties), CorsFilter.class)
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
         // ak_ 토큰을 JWT 보다 먼저 시도 (둘 다 Bearer 헤더 — prefix 로 분기)
         .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class)
