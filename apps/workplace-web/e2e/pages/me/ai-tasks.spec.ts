@@ -283,6 +283,43 @@ test('첫 페이지 실패는 빈 상태가 아니라 오류 + 다시 시도', a
   await expect(error).toHaveCount(0)
 })
 
+// WP-893: 다시 시도로 부르는 동안 안내가 「불러오는 중」으로 바뀌면 초점이 body 로 빠진다 — 안내·버튼이 남아(aria-disabled) 초점을 지킨다.
+test('첫 페이지 실패 뒤 다시 시도 — 부르는 동안·다시 실패해도 초점이 다시 시도에 남는다', async ({ authenticatedPage: page }) => {
+  let failing = true
+  let release: () => void = () => {}
+  let held: Promise<void> = Promise.resolve()
+  await mockApi(page, 'GET', COUNTS, createAiTaskCounts())
+  await page.route(
+    (url) => url.pathname === LIST,
+    async (route) => {
+      await held
+      return failing
+        ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'boom' }) })
+        : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(ROWS)) })
+    },
+  )
+  await page.goto('/me/ai-tasks')
+  const retry = page.getByTestId('ai-tasks-error-retry')
+  await retry.focus()
+
+  // 다시 부르는 중 — 안내와 버튼이 그대로, 버튼은 잠김 표시만.
+  held = new Promise<void>((r) => (release = r))
+  await page.keyboard.press('Enter')
+  await expect(retry).toHaveAttribute('aria-disabled', 'true')
+  await expect(retry).toBeFocused()
+  await expect(page.locator('[aria-busy="true"][data-testid="list-loading-skeleton"]')).toHaveCount(0)
+
+  // 다시 실패 — 초점은 여전히 다시 시도.
+  release()
+  await expect(retry).not.toHaveAttribute('aria-disabled')
+  await expect(retry).toBeFocused()
+
+  failing = false
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('ai-row-412')).toBeVisible()
+  await expect(page.getByTestId('ai-tasks-error')).toHaveCount(0)
+})
+
 // 페이지 레이아웃 — 헤더 바 안 h1·하단 56px·툴바와 같은 시작선, 표가 가로로 넘치지 않음(1280 포함 넓은 화면).
 for (const width of [1280, ...DESKTOP_WIDTHS]) {
   test.describe(`AI 위임 작업 레이아웃 @${width}px`, () => {

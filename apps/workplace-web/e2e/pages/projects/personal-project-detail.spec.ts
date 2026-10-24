@@ -533,7 +533,8 @@ test('빠른 추가 다이얼로그는 유형 select 를 숨기고 POST payload 
   );
 
   await page.goto(`/projects/${KEY}`);
-  await page.getByRole('button', { name: '빠른 추가' }).click();
+  // 헤더 버튼 — 빈 목록이라 빈 상태에도 같은 이름의 「빠른 추가」가 있다.
+  await page.getByTestId('page-header').getByRole('button', { name: '빠른 추가' }).click();
 
   // 다이얼로그 오픈 + 유형 select 부재(개인 전용).
   await expect(page.getByRole('dialog')).toBeVisible();
@@ -548,7 +549,7 @@ test('빠른 추가 다이얼로그는 유형 select 를 숨기고 POST payload 
 });
 
 // ─── #252 검색/필터 결과 0건 시 빈 상태 메시지 분기 ─────────────────────────────────
-test('검색어 활성 상태에서 결과 0건 → "일치하는 작업이 없습니다." (빠른 추가 유도 문구 미표시)', async ({ authenticatedPage: page }) => {
+test('검색어 활성 상태에서 결과 0건 → 필터 0건 빈 상태 + 필터 초기화(빠른 추가 유도 없음)', async ({ authenticatedPage: page }) => {
   const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, []);
@@ -557,22 +558,29 @@ test('검색어 활성 상태에서 결과 0건 → "일치하는 작업이 없�
   // 검색 결과 0건 응답
   await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues`, createIssueSearchResponse([]));
 
-  // q= 파라미터가 있는 URL 직접 진입 (검색 필터 활성 상태)
-  await page.goto(`/projects/${KEY}?q=zzz없는검색어`);
+  // q= 파라미터가 있는 URL 직접 진입 (검색 필터 활성 상태) — 그룹(group)은 필터가 아니라 초기화 뒤에도 남아야 한다.
+  await page.goto(`/projects/${KEY}?q=zzz없는검색어&group=priority`);
 
-  // "일치하는 작업이 없습니다." 가 보여야 한다 (빈 프로젝트 메시지가 아님)
-  await expect(page.getByText('일치하는 작업이 없습니다.')).toBeVisible();
-  // "빠른 추가로 시작하세요." 유도 문구는 없어야 한다
-  await expect(page.getByText(/빠른 추가로 시작하세요/)).toHaveCount(0);
+  // 필터 0건 빈 상태(DS 06 §B) — 빈 프로젝트 안내·빠른 추가 버튼이 아니다.
+  const empty = page.getByTestId('personal-empty-filter');
+  await expect(empty).toContainText('일치하는 작업이 없습니다');
+  await expect(page.getByTestId('personal-empty-create')).toHaveCount(0);
+  // 필터 초기화 — 검색어는 지우고 그룹은 그대로.
+  await page.getByTestId('personal-empty-reset').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('q')).toBeNull();
+  expect(new URL(page.url()).searchParams.get('group')).toBe('priority');
 });
 
-test('필터 없는 빈 프로젝트 → "작업이 없습니다. + 빠른 추가로 시작하세요." 표시', async ({ authenticatedPage: page }) => {
+test('필터 없는 빈 프로젝트 → 데이터 없음 빈 상태 + 빠른 추가', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, []); // 이슈 없음 + 필터 없음
   await page.goto(`/projects/${KEY}`);
 
-  // 필터가 없으면 기존 빈 상태 메시지 유지
-  await expect(page.getByText('작업이 없습니다. + 빠른 추가로 시작하세요.')).toBeVisible();
-  await expect(page.getByText('일치하는 작업이 없습니다.')).toHaveCount(0);
+  const empty = page.getByTestId('personal-empty');
+  await expect(empty).toContainText('작업이 없습니다');
+  await expect(page.getByTestId('personal-empty-filter')).toHaveCount(0);
+  // 다음 행동 — 헤더 「+ 빠른 추가」와 같은 만들기 대화상자.
+  await page.getByTestId('personal-empty-create').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
 });
 
 test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬럼에도 나타나지 않는다', async ({ authenticatedPage: page }) => {

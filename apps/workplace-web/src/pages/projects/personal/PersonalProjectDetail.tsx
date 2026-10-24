@@ -112,7 +112,13 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                   />
                 </ProjectStatusesGate>
               ) : (
-                <PersonalChecklistView projectKey={key} filters={filters} groupBy={groupBy} scrollRoot={scrollRoot} />
+                <PersonalChecklistView
+                  projectKey={key}
+                  filters={filters}
+                  groupBy={groupBy}
+                  scrollRoot={scrollRoot}
+                  onCreate={() => { setCreateStatusId(undefined); setCreateOpen(true); }}
+                />
               )}
             </div>
           </div>

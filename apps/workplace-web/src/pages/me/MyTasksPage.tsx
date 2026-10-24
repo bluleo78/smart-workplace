@@ -1,5 +1,5 @@
 // 내 작업 — 할당/내가 만든/구독 3탭. 경로 기반(/me/tasks/:tab)으로 공유 가능한 URL.
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -40,7 +40,7 @@ function useMyTasksFilters() {
   }
 }
 
-function AssignedTab() {
+function AssignedTab({ scrollRoot }: { scrollRoot: Element | null }) {
   const { params, filtered, resetFilters, showAllClosed } = useMyTasksFilters()
   const query = useMeIssues(myTasksQueryParams('assigned', params))
   // 완료를 숨겨 비었을 수 있다 — 숨겼다고 알리고 「완료 모두 보기」를 다음 행동으로 준다(프로젝트 목록 WP-606 과 같은 안내).
@@ -58,11 +58,12 @@ function AssignedTab() {
       filtered={filtered}
       filteredDescription="할당된 작업은 있지만 필터에 걸러졌습니다"
       onResetFilters={resetFilters}
+      scrollRoot={scrollRoot}
     />
   )
 }
 
-function ReportedTab() {
+function ReportedTab({ scrollRoot }: { scrollRoot: Element | null }) {
   const { params, filtered, resetFilters } = useMyTasksFilters()
   const query = useMeIssues(myTasksQueryParams('reported', params))
   return (
@@ -74,12 +75,13 @@ function ReportedTab() {
       filtered={filtered}
       filteredDescription="내가 만든 작업은 있지만 필터에 걸러졌습니다"
       onResetFilters={resetFilters}
+      scrollRoot={scrollRoot}
     />
   )
 }
 
 // 구독 탭은 /me/watched-issues(다른 엔드포인트) — facet 미지원이라 필터 바를 노출하지 않고 필터 0건도 없다. 최근 순 프로젝트 묶음(WP-915).
-function WatchedTab() {
+function WatchedTab({ scrollRoot }: { scrollRoot: Element | null }) {
   const query = useWatchedIssues(30, 'recent')
   return (
     <InfiniteIssueList
@@ -88,6 +90,7 @@ function WatchedTab() {
       showAssignee
       empty={{ title: '구독 중인 작업이 없습니다', description: '이슈 상세에서 구독하면 여기에 모입니다' }}
       filtered={false}
+      scrollRoot={scrollRoot}
     />
   )
 }
@@ -104,12 +107,14 @@ export default function MyTasksPage() {
   const [params] = useSearchParams()
   const facets = useMemo(() => (active === 'watched' ? {} : meFacetParams(params)), [active, params])
   useRegisterAiScreenContext(useMemo(() => buildMyTasksContext({ tab: active, facets }), [active, facets]))
+  // 본문 스크롤 요소 — 탭 목록 무한 로드 sentinel 의 root(DS 05 §A-3). state ref 라 마운트 뒤 observer 가 다시 붙는다.
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
 
   return (
     <Page>
       {/* 모바일은 모듈 레이아웃의 뒤로가기 바(‹ 작업 ✦)가 헤더 — Page.Header 를 두면 그 바를 대체하므로 모바일에선 숨긴다. */}
       <Page.Header title="내 작업" mobile="hidden" />
-      <Page.Body className="space-y-4">
+      <Page.Body className="space-y-4" scrollRef={setScrollEl}>
         {/* 모바일은 기존처럼 본문 첫 줄 큰 제목으로 화면 이름을 보인다(데스크톱은 헤더 제목이 대신). */}
         <h1 className={cn(pageTitleClass, 'lg:hidden')}>내 작업</h1>
         {/* 탭 내용은 TabsContent(role=tabpanel) 안에 둔다 — 없으면 탭의 aria-controls 가 없는 id 를 가리켜 스크린리더가 탭과
@@ -124,14 +129,14 @@ export default function MyTasksPage() {
           <TabsContent value="assigned" className="space-y-4">
             {/* 할당 탭만 완료를 기본으로 숨기므로 「완료 모두 보기」 토글을 둔다(WP-916). */}
             <MeTaskFilterBar showClosedToggle />
-            <AssignedTab />
+            <AssignedTab scrollRoot={scrollEl} />
           </TabsContent>
           <TabsContent value="reported" className="space-y-4">
             <MeTaskFilterBar />
-            <ReportedTab />
+            <ReportedTab scrollRoot={scrollEl} />
           </TabsContent>
           <TabsContent value="watched">
-            <WatchedTab />
+            <WatchedTab scrollRoot={scrollEl} />
           </TabsContent>
         </Tabs>
       </Page.Body>

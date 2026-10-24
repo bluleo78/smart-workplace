@@ -6,13 +6,12 @@ import { ClipboardList, SearchX } from 'lucide-react'
 
 import { LoadErrorState } from '@/components/LoadErrorState'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
-import { TableSkeletonRows } from '@/components/ui/table-skeleton'
-import { useIsMobile } from '@/hooks/useIsMobile'
 import { failedWithoutData } from '@/lib/queryFailure'
 
 import type { IssueSearchResponse } from '../../types/issue'
 import { IssueListTable } from './IssueListTable'
 import { ListEmptyState } from './ListEmptyState'
+import { ListLoadingSkeleton } from './ListLoadingSkeleton'
 
 /** 빈 상태 다음 행동 버튼 — testId 는 목록 접두어로 붙인다. */
 type EmptyAction = { label: string; onClick: () => void; testIdSuffix: string }
@@ -25,6 +24,7 @@ export function InfiniteIssueList({
   filtered,
   filteredDescription = '다른 필터 조건을 사용해 보세요.',
   onResetFilters,
+  scrollRoot = null,
 }: {
   query: UseInfiniteQueryResult<InfiniteData<IssueSearchResponse>, Error>
   rowTestIdPrefix: string
@@ -37,8 +37,9 @@ export function InfiniteIssueList({
   /** 필터 0건 설명 — 탭마다 무엇이 걸러졌는지(「할당된 작업은 있지만…」). */
   filteredDescription?: string
   onResetFilters?: () => void
+  /** 목록을 감싼 스크롤 요소(Page.Body) — 무한 로드 sentinel 의 root(DS 05 §A-3). 뷰포트로 두면 선행 로드 여유가 스크롤 클리핑에 먹혀 끝에 닿아야 불러온다. */
+  scrollRoot?: Element | null
 }) {
-  const isMobile = useIsMobile()
   const { data, hasNextPage, isFetching, isLoading } = query
 
   const items = data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? []
@@ -56,14 +57,8 @@ export function InfiniteIssueList({
       />
     )
   } else if (isLoading) {
-    // 로딩 — 표 자리 스켈레톤(DS 06 §A-2). 모바일은 행이 높아 3행만.
-    body = (
-      <table className="w-full" aria-busy="true" aria-label="작업 불러오는 중">
-        <tbody>
-          <TableSkeletonRows columns={4} rows={isMobile ? 3 : 5} widths={['w-4', 'w-16', 'w-full', 'w-16']} />
-        </tbody>
-      </table>
-    )
+    // 로딩 — 스켈레톤(DS 06 §A-2). 데스크톱은 표 자리, 모바일은 2줄 행 모양(ListLoadingSkeleton).
+    body = <ListLoadingSkeleton label="작업 불러오는 중" />
   } else if (items.length === 0 && !hasNextPage && !isFetching) {
     // 마지막 페이지까지 받은 뒤에만 빈 상태 — 스트리밍 중 깜빡임 방지.
     // 필터가 걸렸으면 「데이터 없음」과 구분해 초기화를 준다(DS 06 §B).
@@ -93,7 +88,7 @@ export function InfiniteIssueList({
     <div className="space-y-4">
       {body}
       {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
-      <LoadMoreFooter query={query} data-testid={`${rowTestIdPrefix}-more`} />
+      <LoadMoreFooter query={query} root={scrollRoot} data-testid={`${rowTestIdPrefix}-more`} />
     </div>
   )
 }

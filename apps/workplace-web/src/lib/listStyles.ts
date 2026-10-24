@@ -4,7 +4,8 @@
 export const LIST_HEAD_CELL_CLASS = 'py-1.5 text-left text-xs font-normal text-muted-foreground'
 
 /**
- * ID 열 머리 들여쓰기 — ID 칸 내용은 유형 아이콘(1rem) + gap(0.375rem) 뒤에 키 글자가 오므로,
- * 헤더 「ID」 글자를 키 글자 시작에 맞추려고 같은 폭만큼 민다. 내 작업과 프로젝트 목록이 함께 쓴다.
+ * ID 열 머리 들여쓰기 — ID 칸 내용은 유형 아이콘 배지(IssueTypeBadge sm iconOnly: 아이콘 0.75rem + 좌우 패딩 0.25rem×2 = 1.25rem)
+ * + gap(0.375rem) 뒤에 키 글자가 오므로, 헤더 「ID」 글자를 키 글자 시작에 맞추려고 같은 폭(1.625rem)만큼 민다.
+ * 내 작업과 프로젝트 목록이 함께 쓴다. 실제 오프셋은 E2E(issue-list-row-polish·my-tasks)가 2px 이내로 잰다.
  */
-export const LIST_ID_HEAD_INDENT_CLASS = 'pl-[1.375rem]'
+export const LIST_ID_HEAD_INDENT_CLASS = 'pl-[1.625rem]'

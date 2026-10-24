@@ -1,9 +1,11 @@
 // 개인 체크리스트 뷰 — 마감 기준 섹션(지남/오늘/이번 주/예정/없음) + 완료(접힘) 하단. 본문 폭 전체를 쓴다.
 // 서버가 화면 섹션 순서(checklist 정렬, WP-918)로 내려주므로 목록 끝에 닿으면 다음 페이지를 자동으로 붙인다 —
 // 새 페이지는 마지막 섹션(또는 그 아래 새 섹션)에만 붙어 위 섹션이 되돌아가지 않는다.
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, ListChecks, SearchX } from 'lucide-react';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
+import { ListEmptyState } from '@/components/issue/ListEmptyState';
 import { LoadErrorState } from '@/components/LoadErrorState';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -25,11 +27,14 @@ export function PersonalChecklistView({
   filters,
   groupBy,
   scrollRoot,
+  onCreate,
 }: {
   projectKey: string;
   filters: IssueFilters;
   groupBy: IssueClientGroupBy | null;
   scrollRoot: Element | null;
+  /** 빈 상태의 다음 행동 — 헤더 「+ 빠른 추가」와 같은 만들기 대화상자를 연다(DS 06 §B). */
+  onCreate: () => void;
 }) {
   // 버킷 경계와 정렬 파라미터는 같은 now 로 — 화면 묶음과 서버 정렬이 같은 날짜를 본다.
   // 파라미터는 쿼리 키에 들어간다: 자정을 넘기거나 그룹을 바꾸면 키가 바뀌어 1페이지부터 다시 받는다(커서에 모드·날짜가 없다).
@@ -38,6 +43,28 @@ export function PersonalChecklistView({
   // IssueBoardView 와 동일한 방어 — items 누락 페이지가 groupChecklist 의 it.status 접근에서 throw 하지 않도록.
   const items = q.data?.pages.flatMap((p) => p.items ?? []).filter((x) => x != null) ?? [];
   const [showDone, setShowDone] = useState(false);
+  const [, setParams] = useSearchParams();
+  // 필터 초기화 — 필터 키만 지우고 뷰·그룹·열린 작업(task)은 남긴다. 오른쪽 패널이 열린 채 필터로 0건이 돼도 패널이 닫히지 않게
+  // (프로젝트 목록 useResetIssueFilters 는 task 를 모르므로 여기서 따로 둔다).
+  const resetFilters = () =>
+    setParams((prev) => {
+      const next = new URLSearchParams();
+      for (const k of ['view', 'group', 'task']) {
+        const v = prev.get(k);
+        if (v) next.set(k, v);
+      }
+      return next;
+    }, { replace: true });
+  // 데이터 없음 — 아이콘·제목·설명·빠른 추가(DS 06 §B 4요소). 섹션이 모두 비는 경우(취소만 남음 등)도 같은 모양.
+  const noData = (title: string) => (
+    <ListEmptyState
+      icon={ListChecks}
+      title={title}
+      description="빠른 추가로 첫 작업을 만들어 보세요."
+      action={{ label: '빠른 추가', onClick: onCreate, testId: 'personal-empty-create' }}
+      testId="personal-empty"
+    />
+  );
 
   // 첫 페이지 실패 — 빈 상태가 아니라 실패로 알린다(다시 부르는 동안에도 유지, 다음 페이지 실패는 LoadMoreFooter 가 맡는다).
   if (failedWithoutData(q))
@@ -58,12 +85,17 @@ export function PersonalChecklistView({
       filters.priorities.length > 0 ||
       filters.labelIds.length > 0 ||
       filters.assigneeIds.length > 0;
-    return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        {hasActiveFilters
-          ? '일치하는 작업이 없습니다.'
-          : '작업이 없습니다. + 빠른 추가로 시작하세요.'}
-      </p>
+    // 필터 0건과 데이터 없음을 구분한다 — 필터 0건엔 초기화를 준다(DS 06 §B).
+    return hasActiveFilters ? (
+      <ListEmptyState
+        icon={SearchX}
+        title="일치하는 작업이 없습니다"
+        description="다른 키워드나 필터 조건을 사용해 보세요."
+        action={{ label: '필터 초기화', onClick: resetFilters, testId: 'personal-empty-reset' }}
+        testId="personal-empty-filter"
+      />
+    ) : (
+      noData('작업이 없습니다')
     );
   }
 
@@ -72,7 +104,7 @@ export function PersonalChecklistView({
   if (sections.length === 0 && collapsedDone.length === 0)
     return (
       <>
-        <p className="py-12 text-center text-sm text-muted-foreground">표시할 작업이 없습니다.</p>
+        {noData('표시할 작업이 없습니다')}
         <LoadMoreFooter query={q} root={scrollRoot} data-testid="personal-more" />
       </>
     );

@@ -122,7 +122,8 @@ export const IssueRow = memo(function IssueRow({
         menuOpen && 'bg-accent',
         isDragging && 'opacity-40',
         isMobile && 'select-none [-webkit-touch-callout:none]',
-        isMobile && selected && MULTI_SELECTED_ROW_CLASS,
+        // 체크로 고른 행 — 모바일 선택 모드와 데스크톱 체크박스 선택이 같은 다중 선택 배경을 쓴다(WP-919). menuOpen 의 bg-accent 보다 뒤에 둬 이긴다.
+        selected && MULTI_SELECTED_ROW_CLASS,
       )}
       aria-selected={isMobile && selectionMode ? selected : undefined}
       data-testid={`issue-row-${it.number}`}
@@ -154,16 +155,10 @@ export const IssueRow = memo(function IssueRow({
         <td className="py-2">
           <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
         </td>
-        {/* 좁은 화면(<sm)에선 우선순위·마감 컬럼을 숨겨 제목 폭을 확보한다 — 헤더의 같은 컬럼도 함께 숨긴다. */}
-        <td className="hidden sm:table-cell"><IssuePriorityBars priority={it.priority} /></td>
+        <td><IssuePriorityBars priority={it.priority} /></td>
         <td className="font-mono text-muted-foreground text-xs">
           <span className="flex items-center gap-1.5">
-            {/* 좁은 화면(<sm)에선 유형 아이콘을 숨겨 좁은 ID 컬럼(w-16)에 키만 남긴다. */}
-            {it.type && (
-              <span className="hidden sm:inline-flex">
-                <IssueTypeBadge type={it.type} size="sm" iconOnly />
-              </span>
-            )}
+            {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
             <span>{projectKey}-{it.number}</span>
           </span>
         </td>
@@ -232,7 +227,7 @@ export const IssueRow = memo(function IssueRow({
         </td>
         {/* 마감 지난 미완료 이슈는 홈 「내 작업」처럼 빨간 굵은 글씨로 구분한다(WP-649). */}
         <td
-          className={cn('hidden whitespace-nowrap pr-2 sm:table-cell', isOverdue(it) ? 'font-semibold text-destructive' : 'text-muted-foreground')}
+          className={cn('whitespace-nowrap pr-2', isOverdue(it) ? 'font-semibold text-destructive' : 'text-muted-foreground')}
           data-testid={`issue-row-${it.number}-due`}
         >
           {formatListDueDate(it.dueDate)}

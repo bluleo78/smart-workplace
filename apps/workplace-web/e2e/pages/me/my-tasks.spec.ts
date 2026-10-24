@@ -422,3 +422,26 @@ test.describe('내 작업 상태 화면(WP-916)', () => {
     await expect.poll(() => seen.at(-1)?.get('hideClosed') ?? 'none').toBe('none')
   })
 })
+
+// WP-919 — ID 헤더 글자가 키 글자(유형 아이콘 뒤) 시작과 같은 x 에 온다. 프로젝트 목록과 같은 LIST_ID_HEAD_INDENT_CLASS 를 쓴다.
+test('내 작업 — ID 헤더 글자가 키 글자와 2px 이내로 맞는다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([createIssue({ id: 31, number: 31, title: '줄 맞춤 이슈' })]),
+  )
+  await page.goto('/me/tasks/assigned')
+  const key = page.getByTestId('assigned-row-31').getByText('WP-31', { exact: true })
+  await expect(key).toBeVisible()
+  // 글자 시작점은 Range 로 잰다 — 셀 상자 x 는 패딩(들여쓰기)을 포함한다.
+  const textLeft = (el: Element) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    return range.getBoundingClientRect().x
+  }
+  const headX = await page.getByRole('columnheader', { name: 'ID', exact: true }).evaluate(textLeft)
+  const keyX = await key.evaluate(textLeft)
+  expect(Math.abs(headX - keyX)).toBeLessThanOrEqual(2)
+})
