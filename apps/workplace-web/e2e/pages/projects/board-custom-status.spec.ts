@@ -397,6 +397,96 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
       await expect(page.getByTestId('board-col-1').getByTestId('issue-card-1')).toHaveCount(0);
       release();
     });
+
+    // 409 STATUS_DELETED: 서버 확인 뒤 삭제가 커밋된 경합. 400 STATUS_NOT_FOUND: 요청 전에 이미 삭제돼 보드의 상태 목록이 낡은 경우.
+    // 둘 다 서버 문구를 띄우고 상태 목록을 다시 받아 그 컬럼을 지운다(WP-936).
+    for (const gone of [
+      { status: 409, code: 'STATUS_DELETED', message: '상태가 방금 삭제됐어요. 다른 상태를 골라 주세요.' },
+      { status: 400, code: 'STATUS_NOT_FOUND', message: '상태를 찾을 수 없어요. 다른 상태를 골라 주세요.' },
+    ]) {
+      test(`옮긴 상태가 없어졌으면(${gone.status} ${gone.code}) 서버 안내를 보이고 상태 목록을 다시 받아 그 컬럼을 지운다`, async ({ authenticatedPage: page }) => {
+        const issues = [createIssue({ id: 1, number: 1, title: '옮길 카드', status: 'TODO' })];
+        const statuses = await stubBoard(page, { issues });
+        // 다른 사람이 「리뷰 대기」(12)를 지운 상황 — PATCH 는 거절되고, 이후 상태 목록에서 빠진다.
+        await page.route(`**${ISSUES_PATH}/1/status`, async (route) => {
+          if (route.request().method() !== 'PATCH') return route.fallback();
+          statuses.splice(statuses.findIndex((s) => s.id === 12), 1);
+          return route.fulfill({
+            status: gone.status,
+            json: { status: gone.status, message: gone.message, errors: { code: gone.code } },
+          });
+        });
+        const statusGets = trackRequests(page, 'GET', STATUSES_PATH);
+        await page.goto(`/projects/${KEY}?view=board`);
+        await expect(page.getByTestId('board-col-1').getByTestId('issue-card-1')).toBeVisible();
+        const before = statusGets.count();
+
+        await dragCardTo(page, 'issue-card-1', 'board-col-12');
+
+        // 토스트는 코드 문자열이 아니라 서버 문구 그대로다.
+        await expect(page.getByText(gone.message)).toBeVisible();
+        await statusGets.waitFor(before + 1);
+        await expect(page.getByTestId('board-col-12')).toHaveCount(0);
+        // 카드는 원래 컬럼으로 돌아온다(낙관적 갱신 복원).
+        await expect(page.getByTestId('board-col-1').getByTestId('issue-card-1')).toBeVisible();
+      });
+    }
+  });
+
+  test.describe('컬럼에서 이슈 추가', () => {
+    test.use({ viewport: { width: 1920, height: 1000 } });
+
+    // 409 STATUS_DELETED(확인 뒤 삭제 경합)·400 STATUS_NOT_FOUND(요청 전에 이미 삭제) 둘 다 같은 흐름이다.
+    // 다이얼로그엔 상태 고르기가 없으므로 서버 문구(「다른 상태를 골라 주세요」) 대신 다시 만들면 무엇이 되는지 알린다.
+    for (const gone of [
+      { status: 409, code: 'STATUS_DELETED', message: '상태가 방금 삭제됐어요. 다른 상태를 골라 주세요.' },
+      { status: 400, code: 'STATUS_NOT_FOUND', message: '상태를 찾을 수 없어요. 다른 상태를 골라 주세요.' },
+    ]) {
+      test(`컬럼 상태가 없어져 ${gone.status} ${gone.code} 면 결과 안내를 보이고 상태 목록을 다시 받아, 다시 누르면 statusId 없이 만든다(WP-936)`, async ({ authenticatedPage: page }) => {
+        const statuses = await stubBoard(page);
+        // 다른 사람이 「리뷰 대기」(12)를 막 지운 상황 — 첫 POST 는 거절되고 이후 상태 목록에서 빠진다. 다음 POST 는 성공.
+        const posted: Record<string, unknown>[] = [];
+        await page.route(
+          (url) => url.pathname === ISSUES_PATH,
+          async (route) => {
+            if (route.request().method() !== 'POST') return route.fallback();
+            posted.push(route.request().postDataJSON() as Record<string, unknown>);
+            if (posted.length === 1) {
+              statuses.splice(statuses.findIndex((s) => s.id === 12), 1);
+              return route.fulfill({
+                status: gone.status,
+                json: { status: gone.status, message: gone.message, errors: { code: gone.code } },
+              });
+            }
+            return route.fulfill({ status: 201, json: createIssue({ id: 9, number: 9, title: '새 이슈', status: 'TODO' }) });
+          },
+        );
+        const statusGets = trackRequests(page, 'GET', STATUSES_PATH);
+        await page.goto(`/projects/${KEY}?view=board`);
+        await expect(page.getByTestId('board-col-12')).toBeVisible();
+        const before = statusGets.count();
+
+        await page.getByTestId('board-col-add-12').click();
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.getByTestId('create-status-note')).toHaveText('상태: 리뷰 대기');
+        await dialog.getByLabel('제목').fill('지워진 상태에서 연 이슈');
+        await dialog.getByRole('button', { name: '생성' }).click();
+
+        await expect(page.getByText("상태가 방금 삭제됐어요. 다시 만들면 '할 일'로 만들어져요.")).toBeVisible();
+        await expect(page.getByText(gone.message)).toHaveCount(0);
+        await statusGets.waitFor(before + 1);
+        await expect(page.getByTestId('board-col-12')).toHaveCount(0);
+        expect(posted[0]?.statusId).toBe(12);
+        // 다이얼로그는 입력을 지닌 채 남고, 지워진 상태 안내는 사라진다.
+        await expect(dialog.getByTestId('create-status-note')).toHaveCount(0);
+
+        await dialog.getByRole('button', { name: '생성' }).click();
+        await expect.poll(() => posted.length).toBe(2);
+        expect(posted[1]?.statusId).toBeUndefined();
+        expect(posted[1]?.title).toBe('지워진 상태에서 연 이슈');
+        await expect(dialog).toBeHidden();
+      });
+    }
   });
 
   test('MEMBER 에게는 ＋와 ⋯ 편집 항목이 없다', async ({ authenticatedPage: page }) => {

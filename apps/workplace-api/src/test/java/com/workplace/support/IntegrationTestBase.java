@@ -10,6 +10,7 @@ import com.workplace.global.tenant.TenantContext;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.assertj.core.api.SoftAssertions;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
@@ -139,6 +140,22 @@ public abstract class IntegrationTestBase {
     try {
       runWithDeadlockRetry(
           () -> new TransactionTemplate(txManager).executeWithoutResult(status -> deletes.run()));
+    } finally {
+      if (prev == null) TenantContext.clear();
+      else TenantContext.set(prev);
+    }
+  }
+
+  /**
+   * 지정 테넌트의 트랜잭션에서 {@code body} 를 실행하고 그 값을 돌려준다 — 비-@Transactional(커밋) 테스트가 서비스·저장소를 부를 때 쓴다. 실행
+   * 스레드에 TenantContext 를 세워 트랜잭션 시작 시 GUC 가 주입되게 하고, 끝나면 이전 값으로 되돌린다({@link #cleanupInTenant} 와 같은
+   * 방식, 데드락 재시도는 없음). 하위 클래스의 private {@code inTenant(Supplier)} 와 시그니처가 겹치지 않게 이름을 따로 둔다.
+   */
+  protected <T> T callInTenant(long tenantId, Supplier<T> body) {
+    Long prev = TenantContext.get();
+    TenantContext.set(tenantId);
+    try {
+      return new TransactionTemplate(txManager).execute(status -> body.get());
     } finally {
       if (prev == null) TenantContext.clear();
       else TenantContext.set(prev);

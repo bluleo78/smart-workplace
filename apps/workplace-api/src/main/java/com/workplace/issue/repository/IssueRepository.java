@@ -303,6 +303,7 @@ public class IssueRepository {
     if (IssueStatuses.isClosed(status)) {
       insert = insert.set(ISSUE.CLOSED_AT, OffsetDateTime.now());
     }
+    // 상태 FK(fk_issue_status_category) 위반은 공용 처리기가 409 STATUS_DELETED 로 바꾼다(WP-936).
     IssueRow inserted =
         insert
             .returning(ISSUE.fields())

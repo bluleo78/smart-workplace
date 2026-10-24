@@ -11,6 +11,7 @@ import { driveKeys } from '../hooks/queries/driveKeys';
 import { mailMessageKeys } from '../hooks/queries/mailMessageKeys';
 import { messagingKeys } from '../hooks/queries/messagingKeys';
 import { notificationKeys } from '../hooks/queries/notificationKeys';
+import { projectStatusesKey } from '../hooks/queries/useProjectStatuses';
 import { wikiKeys } from '../hooks/queries/wikiKeys';
 
 /** 서버 ResourceSseDispatcher payload — attrs 는 평탄화되어 온다. */
@@ -121,7 +122,7 @@ const RULES: Record<string, Rule> = {
   // 이슈 검색·상세는 configRule 이 수정·삭제에 이미 더한다.
   'project-status': (p) => {
     const own = configRule((pk) => [
-      { queryKey: ['projectStatuses', pk] },
+      { queryKey: projectStatusesKey(pk) },
       ...(p.op === 'deleted' ? [{ queryKey: ['savedViews', pk] }, { queryKey: ['pinnedViews'] }] : []),
     ])(p);
     if (p.op === 'created' || !p.projectKey) return own;

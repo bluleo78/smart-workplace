@@ -182,6 +182,27 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.summary.statusName").value("완료"));
   }
 
+  /**
+   * 없는 statusId 는 400 + 코드 STATUS_NOT_FOUND — 웹이 코드를 보고 낡은 상태 목록을 다시 받는다. 409 STATUS_DELETED 는 확인 뒤
+   * 삭제가 커밋되는 경합에만 쓴다(WP-936).
+   */
+  @Test
+  void PATCH_status에_없는_statusId면_400() throws Exception {
+    long userId = createUser("gone");
+    String key = uniqueKey("PG");
+    ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
+
+    mvc.perform(
+            patch("/api/v1/projects/" + key + "/issues/1/status")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"statusId\":" + Long.MAX_VALUE + "}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.code").value("STATUS_NOT_FOUND"))
+        .andExpect(jsonPath("$.message").value("상태를 찾을 수 없어요. 다른 상태를 골라 주세요."));
+  }
+
   @Test
   void PATCH_status에_둘다_없으면_400() throws Exception {
     long userId = createUser("none");
