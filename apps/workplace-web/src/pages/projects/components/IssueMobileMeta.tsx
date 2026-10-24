@@ -5,7 +5,7 @@ import { Fragment, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 import { UserAvatar } from '../../../components/users/UserAvatar';
-import { formatDateKorean } from '../../../lib/formatters';
+import { formatListDueDate } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
 import { labelFg } from '../../../lib/labelColors';
 import type { IssueResponse } from '../../../types/issue';
@@ -36,7 +36,7 @@ export function IssueMobileMeta({
   // 메타 꼬리 조각(높음·마감·하위·라벨) — 한 span 안에 인라인으로 이어 붙여, 넘치면 끝에서 「…」 로 말줄임된다.
   const tail: ReactNode[] = [];
   if (it.priority === 'HIGH') tail.push(<span key="p" className="text-destructive">높음</span>);
-  if (it.dueDate) tail.push(formatDateKorean(it.dueDate));
+  if (it.dueDate) tail.push(formatListDueDate(it.dueDate));
   if (it.childCount > 0) tail.push(`${it.childDoneCount}/${it.childCount}`);
   if (firstLabel) tail.push(`${firstLabel.name}${it.labels.length > 1 ? ` +${it.labels.length - 1}` : ''}`);
   // 구분점 — 스크린리더가 읽지 않게 aria-hidden.

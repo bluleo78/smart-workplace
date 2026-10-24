@@ -8,15 +8,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLongPressCapture } from '@/hooks/useLongPressCapture';
 
+import { IssueLabelMeta } from '../../../components/issue/IssueLabelMeta';
 import { ChildProgress } from '../../../components/issues/ChildProgress';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
-import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
-import { formatDateKorean } from '../../../lib/formatters';
+import { formatListDueDate } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
 import { isOverdue } from '../../../lib/issueOverdue';
 import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
@@ -194,20 +194,7 @@ export const IssueRow = memo(function IssueRow({
                     shownParent ? 'ml-auto' : '@min-[40rem]:ml-auto',
                   )}
                 >
-                  {it.labels.length > 0 && (
-                    <span
-                      className="hidden items-center gap-1 @min-[40rem]:flex"
-                      title={it.labels.map((l) => l.name).join(', ')}
-                      data-testid={`issue-row-${it.number}-labels`}
-                    >
-                      {it.labels.slice(0, 2).map((l) => (
-                        <LabelChip key={l.id} label={l} size="sm" variant="outline" />
-                      ))}
-                      {it.labels.length > 2 && (
-                        <span className="text-xs font-normal text-muted-foreground">+{it.labels.length - 2}</span>
-                      )}
-                    </span>
-                  )}
+                  <IssueLabelMeta labels={it.labels} testId={`issue-row-${it.number}-labels`} />
                   {shownParent && <ParentChip projectKey={projectKey} parent={shownParent} issueNumber={it.number} />}
                 </div>
               )}
@@ -248,7 +235,7 @@ export const IssueRow = memo(function IssueRow({
           className={cn('hidden whitespace-nowrap pr-2 sm:table-cell', isOverdue(it) ? 'font-semibold text-destructive' : 'text-muted-foreground')}
           data-testid={`issue-row-${it.number}-due`}
         >
-          {formatDateKorean(it.dueDate)}
+          {formatListDueDate(it.dueDate)}
           {isOverdue(it) && <span className="sr-only"> 마감 지남</span>}
         </td>
         {/* ⋯ 메뉴(WP-273 시안 A) — 호버·포커스 때만 보인다. 행 클릭(이동)·드래그로 새지 않게 버튼이 이벤트를 막는다. */}

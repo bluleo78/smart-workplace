@@ -13,9 +13,10 @@ describe('formatDueShort', () => {
     expect(formatDueShort('2026-06-16', NOW)).toBe('어제');
   });
 
-  it('같은 해는 "M월 D일", 다른 해는 연도 포함', () => {
+  it('같은 해는 "M월 D일", 다른 해는 「YYYY. M. D」', () => {
     expect(formatDueShort('2026-07-05', NOW)).toBe('7월 5일');
-    expect(formatDueShort('2020-01-10', NOW)).toBe('2020년 1월 10일');
+    expect(formatDueShort('2020-01-10', NOW)).toBe('2020. 1. 10');
+    expect(formatDueShort('2027-01-05', NOW)).toBe('2027. 1. 5');
   });
 });
 

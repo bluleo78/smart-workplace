@@ -313,7 +313,7 @@ test('행에 우선순위(막대)·라벨·짧은 마감 텍스트가 렌더된�
       title: '중요작업',
       status: 'TODO',
       priority: 'HIGH',
-      dueDate: '2020-01-10', // 명확히 지난 날 → "2020년 1월 10일" + text-destructive
+      dueDate: '2020-01-10', // 명확히 지난 날 → "2020. 1. 10" + text-destructive
       labels: [toLabelSummary(label)],
     }),
   ]);
@@ -326,7 +326,7 @@ test('행에 우선순위(막대)·라벨·짧은 마감 텍스트가 렌더된�
   await expect(row).toHaveAttribute('data-priority', 'HIGH');
   await expect(row).not.toContainText('높음');
   // 지난 마감 → 짧은 포맷(연도 포함) + text-destructive 색.
-  await expect(row.locator('span.text-destructive')).toContainText('2020년 1월 10일');
+  await expect(row.locator('span.text-destructive')).toContainText('2020. 1. 10');
 });
 
 test('행 data-status 속성이 이슈 상태와 일치한다', async ({ authenticatedPage: page }) => {

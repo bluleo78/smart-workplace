@@ -148,6 +148,8 @@ export interface IssueResponse {
   aiGroup?: AiTaskGroup | null;
   // AI 위임 작업(WP-426) — 프로젝트 이름·건수. 이 목록 밖에서는 생략.
   aiProject?: AiTaskProject | null;
+  // 내 작업 묶음(WP-915) — 이 목록 밖에서는 생략.
+  projectGroup?: AiTaskProject | null;
 }
 
 export interface IssueCommentResponse {

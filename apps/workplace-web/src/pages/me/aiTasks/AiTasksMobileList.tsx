@@ -14,15 +14,16 @@ import {
   AgentStateBadge,
   AgentToolChip,
 } from '@/components/ai/agentWork/AgentWorkBits'
+import { ProjectRunHead } from '@/components/issue/ProjectRunHead'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
 import { displayState, issueChatPath, primaryWork } from '@/lib/agentWork'
+import { splitByProject } from '@/lib/projectRuns'
 import { cn } from '@/lib/utils'
 import type { IssueResponse } from '@/types/issue'
 
-import { type EpicHead, groupAiTasks, splitByProject } from './aiTaskGroups'
+import { type EpicHead, groupAiTasks } from './aiTaskGroups'
 import { AiTaskAssignee } from './AiTasksTable'
 import { EpicHeadTitle } from './EpicHeadTitle'
-import { ProjectHeadTitle } from './ProjectHeadTitle'
 
 /** 기존 모바일 행 그대로(묶음 안에서도 같은 모양). */
 function MobileRow({ it }: { it: IssueResponse }) {
@@ -102,7 +103,7 @@ export function AiTasksMobileList({ items }: { items: IssueResponse[] }) {
         return (
           <Fragment key={`${run.key}-${run.items[0].id}`}>
             <li className={cn('border-b px-1 pb-2', i === 0 ? 'pt-1' : 'pt-6')} data-testid={tid}>
-              <ProjectHeadTitle run={run} tid={tid} />
+              <ProjectRunHead run={run} tid={tid} />
             </li>
             {groupAiTasks(run.items).map((e) =>
               e.kind === 'row' ? (

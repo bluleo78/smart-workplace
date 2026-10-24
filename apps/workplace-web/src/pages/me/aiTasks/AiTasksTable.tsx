@@ -13,6 +13,7 @@ import {
   AgentStateBadge,
   AgentToolChip,
 } from '@/components/ai/agentWork/AgentWorkBits'
+import { ProjectRunHead } from '@/components/issue/ProjectRunHead'
 import { ChildProgress } from '@/components/issues/ChildProgress'
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
@@ -20,12 +21,12 @@ import { ParentChip } from '@/components/issues/ParentChip'
 import { IssueTypeBadge } from '@/components/issueTypes/IssueTypeBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { displayState, issueChatPath, primaryWork } from '@/lib/agentWork'
+import { splitByProject } from '@/lib/projectRuns'
 import { cn } from '@/lib/utils'
 import type { AgentWorkView, IssueResponse } from '@/types/issue'
 
-import { type EpicHead, groupAiTasks, splitByProject } from './aiTaskGroups'
+import { type EpicHead, groupAiTasks } from './aiTaskGroups'
 import { EpicHeadTitle } from './EpicHeadTitle'
-import { ProjectHeadTitle } from './ProjectHeadTitle'
 
 const DASH = <span className="text-muted-foreground">—</span>
 
@@ -154,7 +155,7 @@ export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; 
             <tbody key={`${run.key}-${run.items[0].id}`} data-testid={`ai-project-${run.key}`}>
               <tr className="border-b" data-testid={tid}>
                 <td colSpan={10} className={cn('pb-2', i === 0 ? 'pt-3' : 'pt-6')}>
-                  <ProjectHeadTitle run={run} tid={tid} />
+                  <ProjectRunHead run={run} tid={tid} />
                 </td>
               </tr>
               {groupAiTasks(run.items).map((e) =>
