@@ -47,6 +47,8 @@ test('제자리에서 고치면 PATCH 를 보내고 맨 위로 올라간다 — 
   await openMemorySettings(page)
   const second = rows(page).nth(1)
   await second.getByTestId('ai-memory-edit').click()
+  // WP-940 — 행마다 같은 「수정」「삭제」가 아니라 어느 메모리의 버튼인지 이름에 담는다.
+  await expect(rows(page).nth(0).getByTestId('ai-memory-delete')).toHaveAccessibleName('「첫째」 메모리 삭제')
   await expect(page.getByTestId('ai-memory-edit-input')).toHaveValue('둘째')
   await page.getByTestId('ai-memory-edit-input').fill('둘째를 고침')
   await expect(page.getByTestId('ai-memory-edit-count')).toHaveText('6 / 300')

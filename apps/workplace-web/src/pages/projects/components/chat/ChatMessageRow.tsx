@@ -22,6 +22,7 @@ import { messagePlainText, parseMessageSegments } from '@/components/mentions/pa
 import { issueChatBundle } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
+import { itemActionLabel } from '@/lib/itemActionLabel'
 
 import { Button } from '../../../../components/ui/button';
 import { AgentBadge } from '../../../../components/users/AgentBadge';
@@ -97,7 +98,7 @@ export function ChatMessageRow({
         size="icon"
         variant="ghost"
         className="h-6 w-6"
-        aria-label="수정"
+        aria-label={itemActionLabel(message.body, '메시지', '수정')}
         data-testid={`chat-message-edit-${message.id}`}
         onClick={() => onEdit?.(message.id)}
       >
@@ -107,7 +108,7 @@ export function ChatMessageRow({
         size="icon"
         variant="ghost"
         className="h-6 w-6"
-        aria-label="삭제"
+        aria-label={itemActionLabel(message.body, '메시지', '삭제')}
         data-testid={`chat-message-delete-${message.id}`}
         onClick={() => onDelete?.(message.id)}
       >

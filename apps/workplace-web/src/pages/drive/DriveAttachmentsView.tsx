@@ -144,7 +144,8 @@ export function DriveAttachmentsView() {
                     <button
                       type="button"
                       onClick={() => toggleGroup(g.key)}
-                      aria-label={isCollapsed ? '펼치기' : '접기'}
+                      // 묶음 이름을 앞에 붙여 어느 묶음의 버튼인지 구분한다(WP-940).
+                      aria-label={`${g.sourceLabel} 묶음 ${isCollapsed ? '펼치기' : '접기'}`}
                       aria-expanded={!isCollapsed}
                       data-testid="drive-attachment-group-toggle"
                       className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent"

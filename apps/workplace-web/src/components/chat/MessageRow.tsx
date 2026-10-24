@@ -33,6 +33,7 @@ import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
+import { itemActionLabel } from '@/lib/itemActionLabel'
 import type { MessageResponse } from '@/types/messaging'
 
 // 제안 승인 인자 — ProposalCard 가 정의하는 형태를 그대로 따른다.
@@ -184,7 +185,7 @@ export function MessageRow({
             size="icon"
             variant="ghost"
             className="h-6 w-6"
-            aria-label="수정"
+            aria-label={itemActionLabel(m.body, '메시지', '수정')}
             data-testid={`message-edit-${m.id}`}
             onClick={onStartEdit}
           >
@@ -194,7 +195,7 @@ export function MessageRow({
             size="icon"
             variant="ghost"
             className="h-6 w-6"
-            aria-label="삭제"
+            aria-label={itemActionLabel(m.body, '메시지', '삭제')}
             data-testid={`message-delete-${m.id}`}
             onClick={onDelete}
           >

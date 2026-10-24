@@ -618,6 +618,9 @@ test.describe('이슈 chat panel', () => {
     await page.mouse.move(0, 0);
     await expect(toolbar).toHaveCSS('opacity', '0');
     await page.getByTestId('chat-message-edit-611').focus();
+    // WP-940 — 수정·삭제 이름에 메시지 미리보기를 붙여 행마다 구분한다.
+    await expect(page.getByTestId('chat-message-edit-611')).toHaveAccessibleName(/^「.+」 메시지 수정$/);
+    await expect(page.getByTestId('chat-message-delete-611')).toHaveAccessibleName(/^「.+」 메시지 삭제$/);
     await expect(toolbar).toHaveCSS('opacity', '1');
 
     // 툴바는 말풍선 위에 있고 겹치지 않는다.
