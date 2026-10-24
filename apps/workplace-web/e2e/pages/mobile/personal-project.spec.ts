@@ -269,3 +269,22 @@ test.describe('작업 상세(전체 화면)', () => {
     expect(cb.y + cb.height).toBeGreaterThanOrEqual(page.viewportSize()!.height - 2);
   });
 });
+
+// 개인 목록 모바일 행(WP-918) — 레이블은 1개 + +N, 긴 제목도 7rem(112px) 이상 남고 가로로 넘치지 않는다.
+test('개인 목록 모바일 행 — 레이블 5개면 칩 1개와 +4, 제목 폭 ≥ 112px', async ({ authenticatedPage: page }) => {
+  await stubPersonal(page);
+  const labels = ['세금', '긴급', '가족', '병원', '보험'].map((name, i) => toLabelSummary(createLabel({ id: i + 1, name })));
+  // 뒤에 등록한 스텁이 우선 — 레이블 5개·긴 제목 작업 1건으로 목록을 바꾼다.
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/issues`, createIssueSearchResponse([
+    createIssue({ projectKey: KEY, number: 1, title: LONG_TITLE, status: 'TODO', dueDate: '2020-01-10', labels }),
+  ]));
+  await page.goto(`/projects/${KEY}`);
+  const meta = page.getByTestId('personal-task-labels-1');
+  await expect(meta).toBeVisible();
+  await expect(meta).toContainText('세금');
+  await expect(meta).not.toContainText('긴급');
+  await expect(meta).toContainText('+4');
+  const title = page.getByTestId('personal-task-title-1');
+  expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(112);
+  await expectNoHorizontalOverflow(page);
+});

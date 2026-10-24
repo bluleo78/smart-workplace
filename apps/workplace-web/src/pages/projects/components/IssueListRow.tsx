@@ -8,15 +8,15 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLongPressCapture } from '@/hooks/useLongPressCapture';
 
+import { IssueLabelMeta } from '../../../components/issue/IssueLabelMeta';
 import { ChildProgress } from '../../../components/issues/ChildProgress';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
-import { LabelChip } from '../../../components/labels/LabelChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import type { CycleSectionRef, IssueDragData } from '../../../lib/epicDnd';
-import { formatDateKorean } from '../../../lib/formatters';
+import { formatListDueDate } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
 import { isOverdue } from '../../../lib/issueOverdue';
 import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
@@ -122,7 +122,8 @@ export const IssueRow = memo(function IssueRow({
         menuOpen && 'bg-accent',
         isDragging && 'opacity-40',
         isMobile && 'select-none [-webkit-touch-callout:none]',
-        isMobile && selected && MULTI_SELECTED_ROW_CLASS,
+        // 체크로 고른 행 — 모바일 선택 모드와 데스크톱 체크박스 선택이 같은 다중 선택 배경을 쓴다(WP-919). menuOpen 의 bg-accent 보다 뒤에 둬 이긴다.
+        selected && MULTI_SELECTED_ROW_CLASS,
       )}
       aria-selected={isMobile && selectionMode ? selected : undefined}
       data-testid={`issue-row-${it.number}`}
@@ -154,16 +155,10 @@ export const IssueRow = memo(function IssueRow({
         <td className="py-2">
           <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
         </td>
-        {/* 좁은 화면(<sm)에선 우선순위·마감 컬럼을 숨겨 제목 폭을 확보한다 — 헤더의 같은 컬럼도 함께 숨긴다. */}
-        <td className="hidden sm:table-cell"><IssuePriorityBars priority={it.priority} /></td>
+        <td data-testid={`issue-row-${it.number}-priority`}><IssuePriorityBars priority={it.priority} /></td>
         <td className="font-mono text-muted-foreground text-xs">
           <span className="flex items-center gap-1.5">
-            {/* 좁은 화면(<sm)에선 유형 아이콘을 숨겨 좁은 ID 컬럼(w-16)에 키만 남긴다. */}
-            {it.type && (
-              <span className="hidden sm:inline-flex">
-                <IssueTypeBadge type={it.type} size="sm" iconOnly />
-              </span>
-            )}
+            {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
             <span>{projectKey}-{it.number}</span>
           </span>
         </td>
@@ -194,20 +189,7 @@ export const IssueRow = memo(function IssueRow({
                     shownParent ? 'ml-auto' : '@min-[40rem]:ml-auto',
                   )}
                 >
-                  {it.labels.length > 0 && (
-                    <span
-                      className="hidden items-center gap-1 @min-[40rem]:flex"
-                      title={it.labels.map((l) => l.name).join(', ')}
-                      data-testid={`issue-row-${it.number}-labels`}
-                    >
-                      {it.labels.slice(0, 2).map((l) => (
-                        <LabelChip key={l.id} label={l} size="sm" variant="outline" />
-                      ))}
-                      {it.labels.length > 2 && (
-                        <span className="text-xs font-normal text-muted-foreground">+{it.labels.length - 2}</span>
-                      )}
-                    </span>
-                  )}
+                  <IssueLabelMeta labels={it.labels} testId={`issue-row-${it.number}-labels`} />
                   {shownParent && <ParentChip projectKey={projectKey} parent={shownParent} issueNumber={it.number} />}
                 </div>
               )}
@@ -224,7 +206,7 @@ export const IssueRow = memo(function IssueRow({
         </td>
         {/* 제목 셀이 w-full 로 남은 폭을 가져가므로 칸 폭은 헤더 min-w-* 하한에 의존한다 — 그래도
             whitespace-nowrap 으로 날짜가 글자 단위로 꺾이지 않게, pr-3 으로 「+N」 이 마감 칸에 붙지 않게 한다(WP-194). */}
-        <td className="whitespace-nowrap pr-3">
+        <td className="whitespace-nowrap pr-3" data-testid={`issue-row-${it.number}-assignee`}>
           <span className="flex items-center -space-x-1">
             {it.assignees.length === 0 ? (
               <span className="text-muted-foreground">—</span>
@@ -245,10 +227,10 @@ export const IssueRow = memo(function IssueRow({
         </td>
         {/* 마감 지난 미완료 이슈는 홈 「내 작업」처럼 빨간 굵은 글씨로 구분한다(WP-649). */}
         <td
-          className={cn('hidden whitespace-nowrap pr-2 sm:table-cell', isOverdue(it) ? 'font-semibold text-destructive' : 'text-muted-foreground')}
+          className={cn('whitespace-nowrap pr-2', isOverdue(it) ? 'font-semibold text-destructive' : 'text-muted-foreground')}
           data-testid={`issue-row-${it.number}-due`}
         >
-          {formatDateKorean(it.dueDate)}
+          {formatListDueDate(it.dueDate)}
           {isOverdue(it) && <span className="sr-only"> 마감 지남</span>}
         </td>
         {/* ⋯ 메뉴(WP-273 시안 A) — 호버·포커스 때만 보인다. 행 클릭(이동)·드래그로 새지 않게 버튼이 이벤트를 막는다. */}

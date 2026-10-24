@@ -8,8 +8,10 @@ import { ChevronRight, CircleCheckBig, LayoutList } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS } from '@/lib/listStyles';
 import { cn } from '@/lib/utils';
 
+import { ListLoadingSkeleton } from '../../../components/issue/ListLoadingSkeleton';
 import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
 import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
@@ -130,8 +132,9 @@ export function IssueListView({
     return <IssueLoadErrorState queries={[searchQuery]} />;
   }
 
+  // 첫 로딩 — 「로딩 중…」 글자 대신 스켈레톤(DS 06 §A-2). 데스크톱은 표 자리, 모바일은 2줄 행 모양.
   if (isLoading) {
-    return <p className="text-muted-foreground py-4">로딩 중…</p>;
+    return <ListLoadingSkeleton label="이슈 불러오는 중" />;
   }
 
   // 검색어·필터가 하나라도 적용된 상태인지 판별.
@@ -201,8 +204,9 @@ export function IssueListView({
             <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
               {/* min-w-* — 제목 칸이 w-full(IssueRow)로 남은 폭을 가져가면 자동 레이아웃 표는 다른 칸의 w-* 를 무시하고
                   최소 내용폭까지 줄인다(ID 가 제목에 붙음). min-width 로 기존 칸 폭을 하한으로 고정한다(WP-194). */}
-              <tr className="text-left text-muted-foreground">
-                <th className="w-9 min-w-9 py-2">
+              {/* 열 머리 모양은 공용 LIST_HEAD_CELL_CLASS — 사이클 구간 목록 헤더·내 작업과 같다(WP-919). */}
+              <tr>
+                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}>
                   <input
                     type="checkbox"
                     checked={allSelected}
@@ -213,14 +217,14 @@ export function IssueListView({
                   />
                 </th>
                 {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
-                <th className="w-9 min-w-9 py-2"><span className="sr-only">상태</span></th>
-                {/* 우선순위·마감은 좁은 화면(<sm)에서 행과 함께 숨긴다(IssueRow). */}
-                <th className="hidden w-9 min-w-9 sm:table-cell"><span className="sr-only">우선순위</span></th>
-                <th className="w-16 min-w-16 sm:w-28 sm:min-w-28">ID</th>
-                <th>제목</th>
-                <th className="w-12 min-w-12 sm:w-20 sm:min-w-20">담당자</th>
-                <th className="hidden w-32 min-w-32 sm:table-cell">마감</th>
-                <th className="w-8 min-w-8"><span className="sr-only">작업</span></th>
+                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}><span className="sr-only">상태</span></th>
+                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}><span className="sr-only">우선순위</span></th>
+                {/* 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다. */}
+                <th className={cn(LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS, 'w-28 min-w-28')}>ID</th>
+                <th className={LIST_HEAD_CELL_CLASS}>제목</th>
+                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-20 min-w-20')}>담당자</th>
+                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-32 min-w-32')}>마감</th>
+                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-8 min-w-8')}><span className="sr-only">작업</span></th>
               </tr>
             </thead>
           )}

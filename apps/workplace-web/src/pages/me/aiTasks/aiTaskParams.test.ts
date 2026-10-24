@@ -25,6 +25,15 @@ describe('aiTaskParams', () => {
     expect(out.list).toEqual({ scope: 'ALL', agentState: 'COMPLETED,FAILED,CANCELED,REJECTED' })
     expect(out.counts).toEqual({ scope: 'ALL' })
     expect(out.filtered).toBe(true)
+    expect(out.doneView).toBe(true)
+  })
+
+  it('완료 칩에 facet 이 함께 걸리면 완료 보기가 아니라 조건 필터다(WP-917)', () => {
+    const out = aiTaskParams(new URLSearchParams('state=DONE&priority=HIGH'))
+    expect(out.filtered).toBe(true)
+    expect(out.doneView).toBe(false)
+    expect(aiTaskParams(new URLSearchParams('state=REVIEW')).doneView).toBe(false)
+    expect(aiTaskParams(new URLSearchParams('')).doneView).toBe(false)
   })
 
   it('칩 순서는 미완료 다음 답변·검토·막힘·작업 중·다음 회차 대기, 마지막이 완료 — 칩 라벨·건수 키', () => {

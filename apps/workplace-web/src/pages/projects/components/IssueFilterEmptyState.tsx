@@ -1,9 +1,10 @@
 // 필터 결과 없음 빈 상태 — 디자인 시스템 empty state 4요소(아이콘·제목·설명·액션, #337).
 // 평면 목록(IssueListView)과 사이클 구간 목록(IssueCycleGroupedList, #878)이 공유한다.
+// 레이아웃은 공용 ListEmptyState 를 그대로 쓴다 — 다른 이슈 목록 빈 상태와 같은 마크업 한 벌(WP-919).
 
 import { SearchX } from 'lucide-react';
 
-import { Button } from '../../../components/ui/button';
+import { ListEmptyState } from '../../../components/issue/ListEmptyState';
 import { useResetIssueFilters } from '../hooks/useResetIssueFilters';
 
 export function IssueFilterEmptyState({
@@ -16,18 +17,12 @@ export function IssueFilterEmptyState({
   const handleResetFilters = useResetIssueFilters();
 
   return (
-    <div
-      className="flex flex-col items-center justify-center gap-3 py-16 text-center"
-      data-testid="empty-filter"
-    >
-      <SearchX className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-      <div className="space-y-1">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{description}</p>
-      </div>
-      <Button variant="outline" size="sm" onClick={handleResetFilters} data-testid="empty-reset-filter">
-        필터 초기화
-      </Button>
-    </div>
+    <ListEmptyState
+      icon={SearchX}
+      title={title}
+      description={description}
+      action={{ label: '필터 초기화', onClick: handleResetFilters, testId: 'empty-reset-filter' }}
+      testId="empty-filter"
+    />
   );
 }

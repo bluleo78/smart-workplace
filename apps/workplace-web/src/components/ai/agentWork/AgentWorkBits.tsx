@@ -12,14 +12,17 @@ import type { AgentWorkState, AgentWorkView } from '@/types/issue'
 export function AgentStateBadge({
   state,
   to,
+  suffix,
   'data-testid': testId,
 }: {
   state: AgentWorkState | 'NOT_STARTED'
   /** 주면 칩이 그 경로로 가는 링크가 된다 — 어느 상태에 줄지는 호출부가 정한다(예: 「답변 필요」만 이슈 챗 딥링크). */
   to?: string
+  /** 상태 라벨 뒤에 붙일 짧은 글자 — 좁은 표에서 진행률 칸을 숨길 때 「작업 중 64%」처럼 진행률을 배지에 합친다(WP-917). */
+  suffix?: string
   'data-testid'?: string
 }) {
-  const label = AGENT_STATE_LABEL[state]
+  const label = suffix ? `${AGENT_STATE_LABEL[state]} ${suffix}` : AGENT_STATE_LABEL[state]
   const tone = agentStateTone(state)
   if (tone === 'action' || tone === 'info') return <AiSignalBadge variant={tone} to={to} data-testid={testId}>{label}</AiSignalBadge>
   if (tone === 'muted') return <Badge variant="outline" className="text-muted-foreground" data-testid={testId}>{label}</Badge>

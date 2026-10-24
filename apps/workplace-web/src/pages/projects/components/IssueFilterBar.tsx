@@ -1,9 +1,10 @@
 // 태스크 필터/검색 + 뷰(list/board) 토글 바.
 // URL 의 SearchParams 가 단일 source of truth — 로직은 useIssueFilterControls 훅이 담당하고 이 컴포넌트는 렌더만 한다.
 
-import { CircleCheckBig, LayoutGrid, List } from 'lucide-react';
+import { LayoutGrid, List } from 'lucide-react';
 
 import { FacetFilter } from '@/components/filter';
+import { ShowAllClosedToggle } from '@/components/issue/ShowAllClosedToggle';
 import {
   Select,
   SelectContent,
@@ -20,8 +21,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { SEARCH_QUERY_MAX_LENGTH } from '@/lib/searchLimits';
-import { ghostToggleClass } from '@/lib/selectionStyles';
-import { cn } from '@/lib/utils';
 
 import type { IssueGroupBy } from '../../../types/issue';
 import { type IssueFilterBarOptions, useIssueFilterControls } from '../hooks/useIssueFilterControls';
@@ -55,20 +54,11 @@ export function IssueFilterBar({
         {/* 「완료 모두 보기」 — 종료 이슈 숨김 기본 범위(withDefaultIssueScope)를 쓰는 화면만 노출.
             상태·사이클 등 명시 필터가 이미 숨김을 해제했으면 눌린 상태로 비활성화한다. */}
         {c.showClosedToggle && (
-          <Button
-            variant="ghost"
-            size="sm"
-            data-testid="show-all-closed-toggle"
-            aria-pressed={c.filters.showAllClosed || c.closedHidingOverridden}
-            disabled={c.closedHidingOverridden}
-            onClick={c.toggleShowAllClosed}
-            className={cn(
-              'transition-colors',
-              ghostToggleClass(c.filters.showAllClosed || c.closedHidingOverridden),
-            )}
-          >
-            <CircleCheckBig aria-hidden="true" /> 완료 모두 보기
-          </Button>
+          <ShowAllClosedToggle
+            on={c.filters.showAllClosed}
+            overridden={c.closedHidingOverridden}
+            onToggle={c.toggleShowAllClosed}
+          />
         )}
         {/* 그룹 기준 — 셀렉트(드롭다운). null='none' 으로 매핑. */}
         <div className="flex items-center gap-1">

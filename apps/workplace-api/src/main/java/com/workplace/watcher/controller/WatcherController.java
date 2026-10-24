@@ -48,13 +48,17 @@ public class WatcherController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 호출자가 watch 한 이슈 목록 (cursor 페이지네이션, 비멤버 프로젝트 자동 숨김). */
+  /**
+   * 호출자가 watch 한 이슈 목록 (cursor 페이지네이션, 비멤버 프로젝트 자동 숨김). group=recent 면 프로젝트 묶음 순서(WP-915), 없으면 기존
+   * 최근 수정 순.
+   */
   @GetMapping("/api/v1/me/watched-issues")
   public ResponseEntity<IssueSearchResponse> watched(
       Authentication auth,
       @RequestParam(required = false) String cursor,
-      @RequestParam(defaultValue = "30") int size) {
+      @RequestParam(defaultValue = "30") int size,
+      @RequestParam(required = false) String group) {
     return ResponseEntity.ok(
-        watcherService.watchedIssues((Long) auth.getPrincipal(), cursor, size));
+        watcherService.watchedIssues((Long) auth.getPrincipal(), cursor, size, group));
   }
 }

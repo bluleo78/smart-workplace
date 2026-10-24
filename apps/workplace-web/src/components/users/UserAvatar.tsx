@@ -25,6 +25,7 @@ export function UserAvatar({
   size = 'sm',
   ring = false,
   agent = false,
+  title,
 }: {
   user: AvatarUser;
   size?: 'xs' | 'sm' | 'md' | 'lg';
@@ -34,6 +35,8 @@ export function UserAvatar({
   // 없는 좁은 곳에서 사람과 구분하기 위해 보라색 ring + 우하단 Bot 마커를 덧붙인다.
   // accessible name 에도 "(AGENT)" 를 붙여 스크린리더에 AI 여부를 전달한다.
   agent?: boolean;
+  // 마우스 툴팁만 바꿀 때(accessible name 은 그대로) — 예: AI 위임 작업 표가 숨긴 에이전트 유형을 「이름 · 도구」로 보일 때(WP-917).
+  title?: string;
 }) {
   const seed = user.name || user.username || '?';
   const initial = avatarInitials(seed);
@@ -51,7 +54,7 @@ export function UserAvatar({
     <span
       className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} bg-presence text-presence-foreground ${ringClass}`}
       style={presenceStyle(user.id)}
-      title={label}
+      title={title ?? label}
       aria-label={label}
       data-testid={`user-avatar-${user.id}`}
       data-agent={agent ? 'true' : undefined}

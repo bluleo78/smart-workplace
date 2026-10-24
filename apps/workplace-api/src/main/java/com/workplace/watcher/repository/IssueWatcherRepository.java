@@ -51,11 +51,8 @@ public class IssueWatcherRepository {
         .fetch(ISSUE_WATCHER.USER_ID);
   }
 
-  /** 사용자가 watch 하는 이슈 ID 목록. */
-  public List<Long> findIssueIdsByUser(Long userId) {
-    return dsl.select(ISSUE_WATCHER.ISSUE_ID)
-        .from(ISSUE_WATCHER)
-        .where(ISSUE_WATCHER.USER_ID.eq(userId))
-        .fetch(ISSUE_WATCHER.ISSUE_ID);
+  /** 사용자가 구독 중인 이슈가 하나라도 있는지 — 빈 목록 판정에 id 를 모두 읽지 않도록 EXISTS 로 본다. */
+  public boolean existsByUser(Long userId) {
+    return dsl.fetchExists(ISSUE_WATCHER, ISSUE_WATCHER.USER_ID.eq(userId));
   }
 }

@@ -6,8 +6,10 @@
 import { useSearchParams } from 'react-router-dom';
 
 import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
+import { ShowAllClosedToggle } from '@/components/issue/ShowAllClosedToggle';
 
 import { parseFilters } from '../../lib/issueFilters';
+import { overridesMyTasksClosedHiding } from './myTasksQuery';
 
 // 상태 옵션 — 백엔드 IssueStatus enum 과 일치. IssueFilterBar 와 동일 라벨 유지.
 const STATUS_OPTIONS = [
@@ -24,9 +26,12 @@ const PRIORITY_OPTIONS = [
   { value: 'HIGH', label: '높음' },
 ];
 
-export function MeTaskFilterBar() {
+/** showClosedToggle — 「완료 모두 보기」 토글 노출(할당 탭만, WP-916). 내가 만든 탭은 만든 이력이라 완료를 숨기지 않는다. */
+export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle?: boolean }) {
   const [params, setParams] = useSearchParams();
   const filters = parseFilters(params);
+  // 상태 범주를 직접 고르면 숨김이 이미 풀린다 — 프로젝트 목록처럼 눌린 채 비활성. 판정은 숨김 쿼리와 같은 함수(myTasksQuery).
+  const closedHidingOverridden = overridesMyTasksClosedHiding(filters);
 
   // URL filters → 범용 FilterValue (상태/우선순위만).
   const filterValue: FilterValue = {
@@ -53,9 +58,26 @@ export function MeTaskFilterBar() {
     setParams(p, { replace: true });
   }
 
+  // 「완료 모두 보기」 — 프로젝트 목록과 같은 URL 키(closed=all)로 켜고 끈다. 다른 query 키는 보존.
+  function toggleShowAllClosed() {
+    const p = new URLSearchParams(params);
+    if (filters.showAllClosed) p.delete('closed');
+    else p.set('closed', 'all');
+    setParams(p, { replace: true });
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2 py-1" data-testid="me-task-filter-bar">
       <FacetFilter facets={facets} value={filterValue} onChange={handleFilterChange} />
+      {/* 모양·문구는 프로젝트 목록 IssueFilterBar 의 토글과 같다. */}
+      {showClosedToggle && (
+        <ShowAllClosedToggle
+          on={filters.showAllClosed}
+          overridden={closedHidingOverridden}
+          onToggle={toggleShowAllClosed}
+          className="ml-auto"
+        />
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { IssueResponse } from '@/types/issue';
 
-import { groupChecklist } from './personalGrouping';
+import { checklistOrderParams, dueBucketBounds, groupChecklist, sortByPriorityThenDue } from './personalGrouping';
 
 function issue(over: Partial<IssueResponse>): IssueResponse {
   return {
@@ -105,5 +105,38 @@ describe('groupChecklist — 상태·우선순위', () => {
     const r = groupChecklist(items, 'priority', NOW);
     expect(r.sections.map((s) => s.label)).toEqual(['높음', '낮음']);
     expect(titlesBySection(r).HIGH).toHaveLength(2);
+  });
+});
+
+// 서버 checklist 정렬 파라미터(WP-918) — 버킷 경계가 groupByDue 와 같은 로컬 날짜이고, 모드·날짜가 쿼리 키에 들어갈 값인지 본다.
+describe('checklistOrderParams·dueBucketBounds', () => {
+  it('dueBucketBounds는 일요일까지 — 토요일이면 다음 날, 일요일이면 오늘', () => {
+    expect(dueBucketBounds(new Date(2026, 9, 24, 23, 59))).toEqual({ today: '2026-10-24', weekEnd: '2026-10-25' });
+    expect(dueBucketBounds(new Date(2026, 9, 25, 0, 1))).toEqual({ today: '2026-10-25', weekEnd: '2026-10-25' });
+    // 월요일이면 그 주 일요일. 월이 넘어가도 0 채움 형식.
+    expect(dueBucketBounds(new Date(2026, 8, 28, 9))).toEqual({ today: '2026-09-28', weekEnd: '2026-10-04' });
+  });
+
+  it('그룹 없음은 mode=due 와 today·weekEnd, 상태·우선순위는 날짜 없음', () => {
+    const now = new Date(2026, 9, 24, 12);
+    expect(checklistOrderParams(null, now)).toEqual({ order: 'checklist', mode: 'due', today: '2026-10-24', weekEnd: '2026-10-25' });
+    expect(checklistOrderParams('status', now)).toEqual({ order: 'checklist', mode: 'status' });
+    expect(checklistOrderParams('priority', now)).toEqual({ order: 'checklist', mode: 'priority' });
+  });
+
+  it('자정을 넘기면 값이 달라진다 — 쿼리 키가 바뀌어 1페이지부터 다시 받는다', () => {
+    const before = checklistOrderParams(null, new Date(2026, 9, 24, 23, 59, 59));
+    const after = checklistOrderParams(null, new Date(2026, 9, 25, 0, 0, 1));
+    expect(after).not.toEqual(before);
+    // 상태 모드는 날짜에 기대지 않으므로 그대로다(불필요한 재조회 없음).
+    expect(checklistOrderParams('status', new Date(2026, 9, 25))).toEqual(checklistOrderParams('status', new Date(2026, 9, 24)));
+  });
+
+  it('sortByPriorityThenDue는 같은 우선순위·마감이면 id 오름차순', () => {
+    const a = issue({ id: 9, title: 'a', priority: 'HIGH', dueDate: '2026-10-30' });
+    const b = issue({ id: 3, title: 'b', priority: 'HIGH', dueDate: '2026-10-30' });
+    const c = issue({ id: 5, title: 'c', priority: 'HIGH', dueDate: null });
+    const d = issue({ id: 1, title: 'd', priority: 'LOW', dueDate: null });
+    expect([a, d, b, c].sort(sortByPriorityThenDue).map((x) => x.title)).toEqual(['c', 'b', 'a', 'd']);
   });
 });

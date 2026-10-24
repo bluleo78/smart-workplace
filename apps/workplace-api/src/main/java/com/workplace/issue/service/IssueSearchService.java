@@ -4,6 +4,9 @@ import static com.workplace.issue.service.SearchParams.csv;
 import static com.workplace.issue.service.SearchParams.trimToNull;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.issue.dto.AiTaskProject;
+import com.workplace.issue.dto.ChecklistCursor;
+import com.workplace.issue.dto.ChecklistOrder;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueGroupCountsResponse;
 import com.workplace.issue.dto.IssueResponse;
@@ -11,6 +14,8 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.dto.IssueTypeSummary;
+import com.workplace.issue.dto.MeGroupedCursor;
+import com.workplace.issue.dto.MeIssueGrouping;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
@@ -18,11 +23,16 @@ import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.repository.IssueRepository.ChecklistRow;
 import com.workplace.issue.repository.IssueTypeRepository;
+import com.workplace.issue.repository.MeIssueGroupedRepository;
+import com.workplace.issue.repository.MeIssueGroupedRepository.GroupedRow;
 import com.workplace.label.dto.LabelSummary;
 import com.workplace.project.service.ProjectAccessGuard;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +62,8 @@ public class IssueSearchService {
   private final IssueFilterResolver filterResolver;
   // 7c: 횡단 검색 시 row 별 projectId → projectKey 일괄 해석용.
   private final com.workplace.project.repository.ProjectRepository projectRepository;
+  // WP-915: /me/issues 프로젝트 묶음 정렬(group=due|recent).
+  private final MeIssueGroupedRepository groupedRepository;
 
   /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
   private static final java.util.Set<String> COUNTABLE_GROUPS =
@@ -84,11 +96,48 @@ public class IssueSearchService {
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
     var project = accessGuard.assertReadable(projectKey, callerId);
+    // WP-918: order=checklist 면 화면 섹션 순서 정렬로. 없으면 아래 기존 (updated_at, id) 경로 그대로.
+    ChecklistOrder order =
+        ChecklistOrder.parse(
+            params.get("order"), params.get("mode"), params.get("today"), params.get("weekEnd"));
+    if (order != null) {
+      return searchChecklist(callerId, project.id(), project.key(), params, order);
+    }
     IssueSearchQuery query = parse(callerId, project.id(), params);
 
     var rows = issueRepository.search(project.id(), query);
     // 단일 프로젝트 검색이므로 projectId 무시하고 상수 key 사용.
     return assemble(rows, query, pid -> project.key());
+  }
+
+  /**
+   * WP-918: 개인 작업 목록 체크리스트 정렬 — 범위·필터는 기본 검색과 같고 정렬·커서만 화면 섹션 순서({@link ChecklistOrder})다.
+   *
+   * <p>커서는 전용 형식({@link ChecklistCursor})이라 cursor 를 뺀 params 로 parse 한다 — parse 는 cursor 를 {@link
+   * IssueCursor} 로 풀어 실패하면 400 이라, 그대로 넘기면 2페이지가 항상 400 이 된다.
+   */
+  private IssueSearchResponse searchChecklist(
+      Long callerId,
+      long projectId,
+      String projectKey,
+      Map<String, String> params,
+      ChecklistOrder order) {
+    var withoutCursor = new HashMap<>(params);
+    withoutCursor.remove("cursor");
+    IssueSearchQuery query = parse(callerId, projectId, withoutCursor);
+    String cursorStr = trimToNull(params.get("cursor"));
+    ChecklistCursor cursor = cursorStr == null ? null : ChecklistCursor.decode(cursorStr);
+
+    List<ChecklistRow> sorted = issueRepository.searchChecklist(projectId, query, order, cursor);
+    List<IssueRow> rows = sorted.stream().map(ChecklistRow::row).toList();
+    var items = assembleItems(rows, pid -> projectKey);
+    String nextCursor = null;
+    boolean hasMore = false;
+    if (!sorted.isEmpty() && sorted.size() >= query.size()) {
+      nextCursor = sorted.get(sorted.size() - 1).toCursor().encode();
+      hasMore = true;
+    }
+    return new IssueSearchResponse(items, nextCursor, hasMore);
   }
 
   /**
@@ -102,6 +151,11 @@ public class IssueSearchService {
     if (projectKey != null) {
       return search(callerId, projectKey, params);
     }
+    // WP-915: group 이 있으면 프로젝트 묶음 정렬로. 없으면 아래 기존 (updated_at, id) 경로 그대로.
+    MeIssueGrouping grouping = MeIssueGrouping.parse(trimToNull(params.get("group")));
+    if (grouping != null) {
+      return searchMineGrouped(callerId, params, grouping);
+    }
     IssueSearchQuery query = parse(callerId, null, params);
     var rows = issueRepository.searchMemberOf(callerId, query);
     // projectId → key 일괄 해석(횡단이므로 여러 프로젝트). distinct 후 한 번에.
@@ -110,13 +164,101 @@ public class IssueSearchService {
     return assemble(rows, query, pid -> keyById.getOrDefault(pid, ""));
   }
 
+  /**
+   * WP-915: 프로젝트 묶음 정렬 횡단 검색. 범위·필터는 기본 경로와 같고(memberOfFilterCondition), 정렬·커서만 프로젝트 묶음 단위다. 각 행에
+   * 프로젝트 이름·묶음 건수(projectGroup)를 싣는다 — 건수는 커서 앞에서 세므로 어느 페이지에서 받아도 같다. hideClosed 는 group 이 있을 때만
+   * 읽는다.
+   *
+   * <p>커서는 묶음 전용 형식({@link MeGroupedCursor})이라 cursor 를 뺀 params 로 parse 한다 — parse 는 cursor 를
+   * {@link IssueCursor} 로 풀어 실패하면 400 이라, 그대로 넘기면 2페이지가 항상 400 이 된다.
+   */
+  private IssueSearchResponse searchMineGrouped(
+      Long callerId, Map<String, String> params, MeIssueGrouping grouping) {
+    var withoutCursor = new HashMap<>(params);
+    withoutCursor.remove("cursor");
+    IssueSearchQuery query = parse(callerId, null, withoutCursor);
+    String cursorStr = trimToNull(params.get("cursor"));
+    MeGroupedCursor cursor = cursorStr == null ? null : MeGroupedCursor.decode(cursorStr);
+    if (cursor != null && !cursor.fits(grouping)) {
+      // 다른 묶음 기준(due ↔ recent)의 커서는 쓰는 정렬 키가 비어 있어 이어 읽을 수 없다.
+      throw new InvalidCursorException("cursor 가 group 과 맞지 않습니다");
+    }
+    boolean hideClosed = "true".equalsIgnoreCase(params.get("hideClosed"));
+
+    List<GroupedRow> grouped =
+        groupedRepository.search(
+            issueRepository.memberOfFilterCondition(callerId, query),
+            grouping,
+            hideClosed,
+            cursor,
+            query.size());
+    return groupedPageOf(grouped, query.size());
+  }
+
+  /**
+   * WP-915: 구독 목록(/me/watched-issues) 한 페이지. 범위는 {@link
+   * IssueRepository#watchedReadableCondition}(구독 + 활성 + OPEN 또는 멤버). grouping 이 null 이면 기존
+   * (updated_at, id) 순서와 {@link IssueCursor}, 있으면 프로젝트 묶음 순서와 {@link MeGroupedCursor} 에
+   * projectGroup 을 싣는다. 어느 쪽이든 항목은 {@link #assembleItems} 로 조립해 담당자·유형·부모·하위 건수가 실리고, 프로젝트 키는 한 번에
+   * 해석한다 — 예전엔 행마다 프로젝트를 다시 조회했다. 구독 탭은 모든 상태를 보이므로 hideClosed 는 없다.
+   */
+  public IssueSearchResponse watchedPage(
+      Long callerId, String cursorStr, int size, MeIssueGrouping grouping) {
+    int clamped = Math.max(1, Math.min(100, size));
+    String trimmed = trimToNull(cursorStr);
+    if (grouping == null) {
+      IssueCursor cursor = trimmed == null ? null : IssueCursor.decode(trimmed);
+      var rows = issueRepository.findReadableWatchedBy(callerId, cursor, clamped);
+      var keyById =
+          projectRepository.keysByIds(rows.stream().map(IssueRow::projectId).distinct().toList());
+      var items = assembleItems(rows, pid -> keyById.getOrDefault(pid, ""));
+      return pageOf(items, rows, clamped);
+    }
+    MeGroupedCursor cursor = trimmed == null ? null : MeGroupedCursor.decode(trimmed);
+    if (cursor != null && !cursor.fits(grouping)) {
+      throw new InvalidCursorException("cursor 가 group 과 맞지 않습니다");
+    }
+    List<GroupedRow> grouped =
+        groupedRepository.search(
+            issueRepository.watchedReadableCondition(callerId), grouping, false, cursor, clamped);
+    return groupedPageOf(grouped, clamped);
+  }
+
+  /**
+   * 묶음 정렬 행 → 응답. 항목을 조립하고 각 행에 프로젝트 이름·묶음 건수(projectGroup)를 싣는다 — 건수는 커서 앞에서 세므로 어느 페이지에서 받아도 같다.
+   * 마지막 행의 정렬 키가 다음 커서({@link MeGroupedCursor}).
+   */
+  private IssueSearchResponse groupedPageOf(List<GroupedRow> grouped, int size) {
+    List<IssueRow> rows = grouped.stream().map(GroupedRow::row).toList();
+    List<Long> projectIds = rows.stream().map(IssueRow::projectId).distinct().toList();
+    var keyById = projectRepository.keysByIds(projectIds);
+    var nameById = projectRepository.namesByIds(projectIds);
+    var items = assembleItems(rows, pid -> keyById.getOrDefault(pid, ""));
+
+    List<IssueResponse> withGroups = new ArrayList<>(items.size());
+    for (int i = 0; i < items.size(); i++) {
+      GroupedRow g = grouped.get(i);
+      // 이름이 없으면(이론상 없음 — 활성 프로젝트만 조회됨) 키로 대신한다 — AI 위임 작업 머리와 같은 규칙.
+      String name = nameById.getOrDefault(g.projectId(), keyById.getOrDefault(g.projectId(), ""));
+      withGroups.add(items.get(i).withProjectGroup(new AiTaskProject(name, g.projectSize())));
+    }
+
+    String nextCursor = null;
+    boolean hasMore = false;
+    if (!grouped.isEmpty() && grouped.size() >= size) {
+      nextCursor = grouped.get(grouped.size() - 1).toCursor().encode();
+      hasMore = true;
+    }
+    return new IssueSearchResponse(withGroups, nextCursor, hasMore);
+  }
+
   /** rows → IssueSearchResponse 조립. 항목 조립은 {@link #assembleItems} 에 맡기고 여기선 커서만 계산한다. */
   private IssueSearchResponse assemble(
       List<IssueRow> rows,
       IssueSearchQuery query,
       java.util.function.LongFunction<String> keyResolver) {
     var items = assembleItems(rows, keyResolver);
-    return pageOf(items, rows, query);
+    return pageOf(items, rows, query.size());
   }
 
   /**
@@ -170,12 +312,11 @@ public class IssueSearchService {
   }
 
   /** 항목 + 원본 rows 로 커서 페이지 응답을 만든다. 마지막 행의 (updatedAt, id) 가 다음 커서. */
-  private IssueSearchResponse pageOf(
-      List<IssueResponse> items, List<IssueRow> rows, IssueSearchQuery query) {
+  private IssueSearchResponse pageOf(List<IssueResponse> items, List<IssueRow> rows, int size) {
 
     String nextCursor = null;
     boolean hasMore = false;
-    if (!rows.isEmpty() && rows.size() >= query.size()) {
+    if (!rows.isEmpty() && rows.size() >= size) {
       var last = rows.get(rows.size() - 1);
       nextCursor = IssueCursor.encode(last.updatedAt(), last.id());
       hasMore = true;

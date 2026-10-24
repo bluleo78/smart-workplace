@@ -19,12 +19,15 @@ import static org.jooq.impl.DSL.row;
 import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.global.util.LikePatternUtils;
+import com.workplace.issue.dto.ChecklistCursor;
+import com.workplace.issue.dto.ChecklistOrder;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.dto.ProjectStatusRow;
+import com.workplace.issue.repository.KeysetSeek.SeekKey;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -43,6 +46,7 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.SelectField;
+import org.jooq.SortField;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -671,10 +675,10 @@ public class IssueRepository {
   }
 
   /**
-   * 단일 프로젝트 검색 필터 조건(cursor 제외) — 목록(search)과 그룹 총계(countGrouped, WP-472)가 같은 조건을 쓰게 한 곳에 둔다. 둘이 따로
-   * 만들면 필터 하나만 바뀌어도 헤더 수와 목록이 어긋난다.
+   * 단일 프로젝트 검색 필터 조건(cursor 제외) — 목록(search)·그룹 총계(countGrouped, WP-472)·체크리스트 정렬(searchChecklist,
+   * WP-918)이 같은 조건을 쓰게 한 곳에 둔다. 따로 만들면 필터 하나만 바뀌어도 헤더 수와 목록이 어긋난다.
    */
-  private org.jooq.Condition searchCondition(
+  private org.jooq.Condition projectFilterCondition(
       Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition where = ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull());
 
@@ -853,7 +857,7 @@ public class IssueRepository {
    */
   public java.util.Map<String, Integer> countGrouped(
       Long projectId, com.workplace.issue.dto.IssueSearchQuery query, String groupBy) {
-    org.jooq.Condition where = searchCondition(projectId, query);
+    org.jooq.Condition where = projectFilterCondition(projectId, query);
     java.util.Map<String, Integer> out = new java.util.LinkedHashMap<>();
     switch (groupBy) {
       case "status", "priority" -> {
@@ -904,7 +908,7 @@ public class IssueRepository {
    * typeIds 는 OR 결합. Phase 4a: parentNumber/topLevel 필터.
    */
   public List<IssueRow> search(Long projectId, com.workplace.issue.dto.IssueSearchQuery query) {
-    org.jooq.Condition where = searchCondition(projectId, query);
+    org.jooq.Condition where = projectFilterCondition(projectId, query);
     if (query.cursor() != null) {
       var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = query.cursor().id();
@@ -919,6 +923,107 @@ public class IssueRepository {
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
         .limit(query.size())
         .fetch(this::mapToRow);
+  }
+
+  /** 체크리스트 정렬(WP-918) 센티널 — 마감 없음 자리를 가장 이른 날짜로 채워 NULL 없이 비교하고 같은 우선순위 안에서 맨 앞에 둔다. */
+  static final LocalDate CHECKLIST_NO_DUE = LocalDate.of(1, 1, 1);
+
+  /**
+   * 체크리스트 정렬 행 — 다음 커서를 만들 수 있게 정렬 키(섹션 k1, 우선순위 순위, 마감)를 함께 싣는다.
+   *
+   * @param k1 섹션 순위(모드별 — {@link #searchChecklist} 참고)
+   * @param prio 우선순위 순위(HIGH 0, MID 1, 그 밖 2)
+   * @param due 마감(없으면 {@link #CHECKLIST_NO_DUE})
+   */
+  public record ChecklistRow(IssueRow row, int k1, int prio, LocalDate due) {
+
+    /** 이 행 다음부터 이어 읽는 커서 — 정렬 키를 그대로 옮긴다. */
+    public ChecklistCursor toCursor() {
+      return new ChecklistCursor(k1, prio, due, row.id());
+    }
+  }
+
+  /**
+   * 개인 작업 목록 체크리스트 정렬 한 페이지(WP-918, opt-in). 범위·필터는 {@link #search} 와 같고({@link
+   * #projectFilterCondition}), 정렬만 화면 섹션 순서 → 우선순위 → 마감 → id (모두 ASC)다. 클라이언트가 페이지를 이어 붙여도 섹션이
+   * 되돌아가지 않게 서버가 섹션 순서대로 내린다.
+   *
+   * <p>정렬 키는 파생 테이블 한 단에서 계산하고 NULL 이 없다(마감 없음은 센티널) — {@link KeysetSeek} 의 lt·eq 비교가 NULL 이 되지 않게.
+   * ORDER BY 와 seek 는 같은 키 목록에서 만든다.
+   *
+   * <ul>
+   *   <li>DUE: 닫힘 5, 마감 없음 4, 지남 0, 오늘 1, weekEnd 까지 2, 그 뒤 3 — 클라이언트 groupByDue 와 같은 경계(날짜는 클라이언트
+   *       로컬).
+   *   <li>STATUS: TODO 0, IN_PROGRESS 1, DONE 2, 그 밖(CANCELED) 3.
+   *   <li>PRIORITY: 취소 1, 그 밖 0 — 섹션 안 우선순위 순은 prio 가 맡는다.
+   * </ul>
+   *
+   * @param cursor 이전 페이지 마지막 행의 커서, 첫 페이지면 null
+   */
+  public List<ChecklistRow> searchChecklist(
+      Long projectId, IssueSearchQuery query, ChecklistOrder order, ChecklistCursor cursor) {
+    // 우선순위 enum 문자열은 알파벳순이 화면 순서(HIGH→MID→LOW)와 달라 CASE 로 순위를 매긴다.
+    Field<Integer> prioCase =
+        DSL.when(ISSUE.PRIORITY.eq("HIGH"), DSL.inline(0))
+            .when(ISSUE.PRIORITY.eq("MID"), DSL.inline(1))
+            .otherwise(DSL.inline(2));
+    Field<LocalDate> dueKey = DSL.coalesce(ISSUE.DUE_DATE, DSL.inline(CHECKLIST_NO_DUE));
+
+    Table<?> t =
+        dsl.select(
+                ISSUE.ID.as("ck_id"),
+                checklistSection(order).as("ck_k1"),
+                prioCase.as("ck_prio"),
+                dueKey.as("ck_due"))
+            .from(ISSUE)
+            .where(projectFilterCondition(projectId, query))
+            .asTable("ck");
+    Field<Long> id = t.field("ck_id", Long.class);
+    Field<Integer> k1 = t.field("ck_k1", Integer.class);
+    Field<Integer> prio = t.field("ck_prio", Integer.class);
+    Field<LocalDate> due = t.field("ck_due", LocalDate.class);
+
+    ChecklistCursor c = cursor;
+    List<SeekKey<?>> keys =
+        List.of(
+            SeekKey.asc(k1, c == null ? null : c.k1()),
+            SeekKey.asc(prio, c == null ? null : c.prio()),
+            SeekKey.asc(due, c == null ? null : c.due()),
+            SeekKey.asc(id, c == null ? null : c.id()));
+    List<SortField<?>> orderBy = keys.stream().<SortField<?>>map(k -> k.field().asc()).toList();
+    Condition seek = c == null ? noCondition() : KeysetSeek.after(keys);
+
+    List<SelectField<?>> fields = new ArrayList<>(List.of(ROW_FIELDS));
+    fields.addAll(List.of(k1, prio, due));
+    // 바깥 행 컬럼(ROW_FIELDS)의 상태 이름·색은 상태 조인에서 읽는다(WP-870) — 정렬 키 파생 테이블은 issue 만 본다
+    return dsl.select(fields)
+        .from(ISSUE_WITH_STATUS)
+        .join(t)
+        .on(id.eq(ISSUE.ID))
+        .where(seek)
+        .orderBy(orderBy)
+        .limit(query.size())
+        .fetch(r -> new ChecklistRow(mapToRow(r), r.get(k1), r.get(prio), r.get(due)));
+  }
+
+  /** 체크리스트 정렬의 섹션 순위 식 — 모드별 화면 섹션 순서. 규칙은 {@link #searchChecklist} 참고. */
+  private static Field<Integer> checklistSection(ChecklistOrder order) {
+    return switch (order.mode()) {
+      case DUE ->
+          DSL.when(ISSUE.STATUS.in(IssueStatuses.CLOSED), DSL.inline(5))
+              .when(ISSUE.DUE_DATE.isNull(), DSL.inline(4))
+              .when(ISSUE.DUE_DATE.lt(order.today()), DSL.inline(0))
+              .when(ISSUE.DUE_DATE.eq(order.today()), DSL.inline(1))
+              .when(ISSUE.DUE_DATE.le(order.weekEnd()), DSL.inline(2))
+              .otherwise(DSL.inline(3));
+      case STATUS ->
+          DSL.when(ISSUE.STATUS.eq(IssueStatuses.TODO), DSL.inline(0))
+              .when(ISSUE.STATUS.eq(IssueStatuses.IN_PROGRESS), DSL.inline(1))
+              .when(ISSUE.STATUS.eq(IssueStatuses.DONE), DSL.inline(2))
+              .otherwise(DSL.inline(3));
+      case PRIORITY ->
+          DSL.when(ISSUE.STATUS.eq(IssueStatuses.CANCELED), DSL.inline(1)).otherwise(DSL.inline(0));
+    };
   }
 
   /**
@@ -1083,6 +1188,30 @@ public class IssueRepository {
    */
   public List<IssueRow> searchMemberOf(
       Long memberUserId, com.workplace.issue.dto.IssueSearchQuery query) {
+    org.jooq.Condition where = memberOfFilterCondition(memberUserId, query);
+    if (query.cursor() != null) {
+      var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
+      var cursorId = query.cursor().id();
+      // (updated_at, id) < (cursorTs, cursorId) — 동일 updated_at 인 경우 id 로 tie-break
+      where =
+          where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
+    }
+
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE_WITH_STATUS)
+        .where(where)
+        .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
+        .limit(query.size())
+        .fetch(this::mapToRow);
+  }
+
+  /**
+   * 프로젝트 횡단 검색의 WHERE — 접근 범위({@link #memberScopeCondition}) AND 검색 필터. 커서 조건은 넣지 않는다: 기본
+   * (updated_at, id) 커서는 {@link #searchMemberOf} 가, 프로젝트 묶음 정렬(WP-915)의 복합 커서는 {@link
+   * MeIssueGroupedRepository} 가 각자 붙인다 — 두 경로가 같은 범위·필터를 쓰도록 한 곳에 둔다.
+   */
+  public Condition memberOfFilterCondition(
+      Long memberUserId, com.workplace.issue.dto.IssueSearchQuery query) {
     org.jooq.Condition where = memberScopeCondition(memberUserId);
 
     if (query.q() != null && !query.q().isBlank()) {
@@ -1195,20 +1324,7 @@ public class IssueRepository {
                                       .cast(String.class)
                                       .eq(query.fieldValue())))));
     }
-    if (query.cursor() != null) {
-      var ts = query.cursor().updatedAt().atOffset(java.time.ZoneOffset.UTC);
-      var cursorId = query.cursor().id();
-      // (updated_at, id) < (cursorTs, cursorId) — 동일 updated_at 인 경우 id 로 tie-break
-      where =
-          where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
-    }
-
-    return dsl.select(ROW_FIELDS)
-        .from(ISSUE_WITH_STATUS)
-        .where(where)
-        .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
-        .limit(query.size())
-        .fetch(this::mapToRow);
+    return where;
   }
 
   /** soft-delete: deleted_at = 호출자 지정 timestamp. (Phase 4a — cascade 동일 timestamp 보장용 명시 인자) */
@@ -1455,21 +1571,26 @@ public class IssueRepository {
   }
 
   /**
-   * watched-issues 전용 헬퍼. 호출자가 현재 멤버인 프로젝트 또는 공개 접수함(OPEN) 프로젝트의 활성 이슈만, ids 제한 + (updated_at, id)
-   * DESC cursor 페이징. OPEN 은 비멤버도 구독할 수 있다(WP-631). 프로젝트 soft-delete 는 소속 이슈/watcher 를 정리하지 않으므로,
-   * 삭제된 프로젝트는 여기서 직접 제외한다(#623 후속, 그렇지 않으면 이후 project 조회에서 orElseThrow 가 터진다).
+   * 구독 목록(/me/watched-issues)의 범위 — 호출자가 구독한(issue_watcher) 활성 이슈 중 활성 프로젝트이면서 공개 접수함(OPEN)이거나 호출자가
+   * 현재 멤버인 프로젝트의 것. OPEN 은 비멤버도 구독할 수 있어(WP-631) 함께 보이고, 멤버에서 빠진 TEAM 프로젝트 이슈는 숨는다. 프로젝트
+   * soft-delete 는 소속 이슈/watcher 를 정리하지 않으므로 삭제된 프로젝트는 여기서 직접 제외한다(#623 후속). 기본 (updated_at, id)
+   * 경로({@link #findReadableWatchedBy})와 프로젝트 묶음 정렬(WP-915, {@link MeIssueGroupedRepository})이 같은
+   * 범위를 쓰도록 한 곳에 둔다.
    */
-  public List<IssueRow> findByIdsReadableWatchedBy(
-      List<Long> issueIds,
-      Long watcherUserId,
-      com.workplace.issue.dto.IssueCursor cursor,
-      int size) {
-    if (issueIds == null || issueIds.isEmpty()) return List.of();
+  public Condition watchedReadableCondition(Long watcherUserId) {
     var project = com.workplace.jooq.Tables.PROJECT;
     var member = com.workplace.jooq.Tables.PROJECT_MEMBER;
-    org.jooq.Condition where = ISSUE.ID.in(issueIds).and(ISSUE.DELETED_AT.isNull());
-    where =
-        where.and(
+    var watcher = com.workplace.jooq.Tables.ISSUE_WATCHER;
+    return org.jooq
+        .impl
+        .DSL
+        .exists(
+            dsl.selectOne()
+                .from(watcher)
+                .where(watcher.ISSUE_ID.eq(ISSUE.ID))
+                .and(watcher.USER_ID.eq(watcherUserId)))
+        .and(ISSUE.DELETED_AT.isNull())
+        .and(
             org.jooq.impl.DSL.exists(
                 dsl.selectOne()
                     .from(project)
@@ -1485,6 +1606,12 @@ public class IssueRepository {
                                         .from(member)
                                         .where(member.PROJECT_ID.eq(ISSUE.PROJECT_ID))
                                         .and(member.USER_ID.eq(watcherUserId)))))));
+  }
+
+  /** 구독 목록 기본 경로 — {@link #watchedReadableCondition} 범위를 (updated_at, id) DESC cursor 로 페이징한다. */
+  public List<IssueRow> findReadableWatchedBy(
+      Long watcherUserId, com.workplace.issue.dto.IssueCursor cursor, int size) {
+    Condition where = watchedReadableCondition(watcherUserId);
     if (cursor != null) {
       var ts = cursor.updatedAt().atOffset(java.time.ZoneOffset.UTC);
       var cursorId = cursor.id();
@@ -1501,7 +1628,7 @@ public class IssueRepository {
 
   /**
    * 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 배치 조회한다. wiki 멘션 하이드레이션용 — 가시성은 PROJECT_MEMBER
-   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #findByIdsReadableWatchedBy}), 삭제된 프로젝트의 이슈 제외. PROJECT 조인으로
+   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #watchedReadableCondition}), 삭제된 프로젝트의 이슈 제외. PROJECT 조인으로
    * projectKey/number/title 을 함께 반환한다. 빈 ids 면 빈 리스트.
    */
   public List<com.workplace.issue.dto.IssueRef> findVisibleRefsByIds(
