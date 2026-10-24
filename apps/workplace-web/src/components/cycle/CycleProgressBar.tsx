@@ -9,7 +9,9 @@ const STATUS_COLOR: Record<string, string> = {
   DONE: 'bg-success',
   CANCELED: 'bg-success/40',
 };
-const STATUS_ORDER = ['DONE', 'CANCELED', 'IN_PROGRESS', 'TODO'];
+// 막대에 그리는 건 종료 상태뿐 — 미완료(TODO/IN_PROGRESS 등)는 칸을 그리지 않아 트랙(bg-muted)이 그대로 보인다.
+// 미완료 칸을 회색으로 칠하면 0% 인데 막대가 꽉 차 보였다(WP-921).
+const STATUS_ORDER = ['DONE', 'CANCELED'];
 
 /**
  * @param compact 한 줄 표기(막대 + "38%") — 목록 사이클 구간 헤더처럼 높이를 한 줄로 맞춰야 하는 곳(#878).
@@ -31,7 +33,7 @@ export function CycleProgressBar({
       : STATUS_ORDER.filter((s) => byStatus[s]).map((s) => (
           <div
             key={s}
-            className={STATUS_COLOR[s] ?? 'bg-muted-foreground/40'}
+            className={STATUS_COLOR[s]}
             style={{ width: `${((byStatus[s] ?? 0) / total) * 100}%` }}
             title={compact ? undefined : `${s}: ${byStatus[s]}`}
           />

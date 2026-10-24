@@ -193,6 +193,9 @@ test.describe('사이클 관리', () => {
       await expect(bar.locator('[class*="bg-primary"]')).toHaveCount(0);
       await expect(bar.locator('[class*="bg-destructive"]')).toHaveCount(0);
       await expect(bar.locator('[class*="bg-success"]')).toHaveCount(0);
+      // WP-921: 미완료 칸을 회색으로 칠하지도 않는다 — 트랙 안이 비어 있어야 0% 와 맞는다.
+      await expect(bar.locator('[class*="bg-muted-foreground"]')).toHaveCount(0);
+      await expect(bar.locator('.bg-muted > *')).toHaveCount(0);
 
       // 완료율 텍스트는 0/1 완료 (0%) 로, 시각적으로도 색이 채워지지 않아 모순이 없다.
       await expect(bar).toContainText('0/1 완료 (0%)');
