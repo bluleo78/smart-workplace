@@ -101,6 +101,26 @@ class IssueChecklistOrderTest extends IntegrationTestBase {
   }
 
   @Test
+  void customStatusSortsByCategory() {
+    // 사용자 정의 상태(WP-807·809) — 섹션은 상태 이름이 아니라 범주로 가른다. 「검토 중」(IN_PROGRESS)은 진행 중 섹션, 「배포됨」(DONE)은 완료
+    // 섹션.
+    long shipped = seed("shipped", "HIGH", null, null);
+    long todo = seed("todo", "LOW", null, null);
+    long review = seed("review", "LOW", null, null);
+    fx.moveToCustomStatus(shipped, p, "배포됨", "DONE", "GREEN");
+    fx.moveToCustomStatus(review, p, "검토 중", "IN_PROGRESS", "PURPLE");
+
+    IssueSearchResponse page = page(mode("status"), 100, null);
+    assertThat(ids(page)).containsExactly(todo, review, shipped);
+    // 행의 상태 이름·색은 상태 조인에서 온다(WP-870).
+    IssueResponse reviewRow = page.items().get(1);
+    assertThat(reviewRow.statusName()).isEqualTo("검토 중");
+    assertThat(reviewRow.statusColor()).isEqualTo("PURPLE");
+    // 마감 모드에서도 완료 범주 상태는 닫힘 버킷(맨 뒤)이다.
+    assertThat(ids(page(due(), 100, null))).containsExactly(todo, review, shipped);
+  }
+
+  @Test
   void priorityModePutsCanceledLast() {
     long canceledHigh = seed("canceled-high", "HIGH", null, "CANCELED");
     long low = seed("low", "LOW", null, null);

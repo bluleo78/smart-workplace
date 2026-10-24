@@ -2,6 +2,7 @@ package com.workplace.issue;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
@@ -133,6 +134,35 @@ public class MeIssuesTestFixtures {
         .set(ISSUE_ASSIGNEE.ISSUE_ID, issueId)
         .set(ISSUE_ASSIGNEE.USER_ID, userId)
         .set(ISSUE_ASSIGNEE.ASSIGNED_BY, assignedBy)
+        .execute();
+  }
+
+  /**
+   * 이슈를 프로젝트의 사용자 정의 상태(WP-807·809)로 옮긴다 — 새 상태 행(이름·범주·색)을 만들고 이슈의 status_id·status(범주)를 함께 바꾼다.
+   * 목록 정렬·완료 숨김이 상태 이름이 아니라 범주로 판정하는지, 응답이 상태 이름·색을 조인으로 싣는지(WP-870) 보는 시드다.
+   */
+  public void moveToCustomStatus(
+      long issueId, ProjectRef p, String name, String category, String color) {
+    int position =
+        dsl.select(org.jooq.impl.DSL.coalesce(org.jooq.impl.DSL.max(PROJECT_STATUS.POSITION), 0))
+                .from(PROJECT_STATUS)
+                .where(PROJECT_STATUS.PROJECT_ID.eq(p.id()))
+                .fetchOne(0, Integer.class)
+            + 1;
+    long statusId =
+        dsl.insertInto(PROJECT_STATUS)
+            .set(PROJECT_STATUS.PROJECT_ID, p.id())
+            .set(PROJECT_STATUS.NAME, name)
+            .set(PROJECT_STATUS.CATEGORY, category)
+            .set(PROJECT_STATUS.POSITION, position)
+            .set(PROJECT_STATUS.COLOR, color)
+            .returning(PROJECT_STATUS.ID)
+            .fetchOne()
+            .getId();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS_ID, statusId)
+        .set(ISSUE.STATUS, category)
+        .where(ISSUE.ID.eq(issueId))
         .execute();
   }
 

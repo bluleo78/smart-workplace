@@ -97,6 +97,24 @@ class MeIssuesGroupedTest extends IntegrationTestBase {
   }
 
   @Test
+  void dueGroupingHidesCustomClosedStatusByCategory() throws Exception {
+    // 사용자 정의 상태(WP-807·809) — 이름이 「배포됨」이어도 범주가 DONE 이면 닫힘으로 숨고, 「검토 중」(IN_PROGRESS)은 열림으로 남는다.
+    ProjectRef p = fx.project(me, "P");
+    long review = open(p, "review", date(10, 1), t(1));
+    long shipped = open(p, "shipped", date(10, 2), t(2));
+    fx.moveToCustomStatus(review, p, "검토 중", "IN_PROGRESS", "PURPLE");
+    fx.moveToCustomStatus(shipped, p, "배포됨", "DONE", "GREEN");
+
+    JsonNode hidden = getJson(DUE + "&hideClosed=true&size=100");
+    assertThat(ids(hidden)).containsExactly(review);
+    // 행의 상태 이름·색은 상태 조인에서 온다(WP-870) — 범주 코드가 아니라 사람이 정한 이름.
+    assertThat(hidden.at("/items/0/statusName").asText()).isEqualTo("검토 중");
+    assertThat(hidden.at("/items/0/statusColor").asText()).isEqualTo("PURPLE");
+
+    assertThat(ids(getJson(DUE + "&size=100"))).containsExactly(review, shipped);
+  }
+
+  @Test
   void projectWithOnlyClosedGoesLast() throws Exception {
     // D 를 먼저 만들어 project_id 가 더 작다 — id 동률 깨기만으로는 D 가 마지막이 될 수 없게.
     ProjectRef d = fx.project(me, "D");
