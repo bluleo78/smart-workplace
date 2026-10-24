@@ -190,5 +190,34 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
     await expect(page.getByTestId('date-range-panel')).toBeVisible();
     await expectApplyFullyVisible(page);
   });
-});
 
+  // 무엇을: 완료일 칩처럼 긴 칩을 걸어도 「초기화」 가 「＋ 필터」 바로 옆에 붙고, 검색창·칩과 같은 줄에 있는지 — 1280·1024, 칩 1개·2개.
+  // 왜: 「초기화」 가 막대 맨 끝(뷰 전환 뒤)에 있어, 1280 폭에서 완료일 칩만 걸어도 줄이 넘쳐 그것만 아랫줄 왼쪽으로 떨어졌다(WP-931).
+  //     고치는 중에 1024 폭에서 검색창 / 칩 / 「＋ 필터」·「초기화」 가 세 줄로 갈라진 적도 있다 — 넘치면 보기 설정 묶음이 내려가야 한다.
+  test('필터 줄 — 긴 칩을 걸어도 「초기화」 는 「＋ 필터」 옆, 검색창과 같은 줄에 있다(1280·1024)', async ({ authenticatedPage: page }) => {
+    await setup(page);
+    const main = page.getByTestId('issue-filter-main');
+    const centerY = (b: { y: number; height: number }) => b.y + b.height / 2;
+    for (const [width, query] of [
+      [1280, 'closedIn=last-week'],
+      [1280, 'priority=HIGH&closedIn=2026-10-01~2026-10-23'],
+      [1024, 'closedIn=last-week'],
+      [1024, 'priority=HIGH&closedIn=2026-10-01~2026-10-23'],
+    ] as const) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto(`/projects/${KEY}?${query}`);
+      await expect(page.getByTestId('issue-row-7')).toBeVisible();
+      const [r, add, q] = await Promise.all([
+        main.getByRole('button', { name: '초기화' }).boundingBox(),
+        main.getByTestId('add-filter-trigger').boundingBox(),
+        main.getByRole('textbox', { name: '태스크 검색' }).boundingBox(),
+      ]);
+      // 같은 줄(세로 가운데가 같다)이고, 「＋ 필터」 바로 오른쪽이다.
+      expect(Math.abs(centerY(r!) - centerY(add!))).toBeLessThanOrEqual(2);
+      expect(r!.x).toBeGreaterThan(add!.x + add!.width);
+      expect(r!.x - (add!.x + add!.width)).toBeLessThanOrEqual(16);
+      // 검색창도 같은 줄이다.
+      expect(Math.abs(centerY(q!) - centerY(r!))).toBeLessThanOrEqual(2);
+    }
+  });
+});

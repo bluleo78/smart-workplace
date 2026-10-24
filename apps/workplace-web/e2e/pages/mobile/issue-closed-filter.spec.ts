@@ -77,9 +77,10 @@ test('필터 시트 — 「＋ 필터」 목록은 화면 아래끝과 떨어져
   expect(hit).toBe(true);
 });
 
-// 무엇을: 짧은 휴대폰(390×664)에서 「기간 직접 지정」 달력을 열면 「취소」·「적용」 줄이 스크롤 없이 화면·목록 상자 안에 보이는지.
-// 왜: 달력(약 350px)이 「＋ 필터」 아래 남은 높이(약 240px)보다 커서 「적용」 까지 목록 안을 스크롤해야 했다.
-test('필터 시트 — 「기간 직접 지정」 달력을 열면 「적용」 이 스크롤 없이 보인다(390×664)', async ({ authenticatedPage: page }) => {
+// 무엇을: 짧은 휴대폰(390×664)에서 「기간 직접 지정」 달력을 열면 「취소」·「적용」 줄과 달력 전체가 스크롤 없이 화면·목록 상자 안에 보이는지.
+// 왜: 달력(약 350px)이 「＋ 필터」 아래 남은 높이(약 240px)보다 커서 「적용」 까지 목록 안을 스크롤해야 했다(WP-873).
+//     「적용」 줄을 붙여 둔 뒤에도 달력이 두 주만 보이고 나머지는 안을 스크롤해야 해 시트를 높였다(WP-932).
+test('필터 시트 — 「기간 직접 지정」 달력을 열면 달력 전체와 「적용」 이 스크롤 없이 보인다(390×664)', async ({ authenticatedPage: page }) => {
   await stubChat(page);
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
   await page.route(`**/api/v1/projects/${KEY}`, (r) =>
@@ -112,7 +113,56 @@ test('필터 시트 — 「기간 직접 지정」 달력을 열면 「적용」
   });
   expect(hit).toBe(true);
   // 달력 첫 줄(월 이동)도 위에 그대로 보인다 — 적용 줄을 보이려고 달력을 밀어 올리지 않는다.
-  await expect(page.getByTestId('date-range-panel').getByRole('button', { name: /이전|previous/i }).first()).toBeInViewport();
+  const prev = page.getByTestId('date-range-panel').getByRole('button', { name: /이전|previous/i }).first();
+  await expect(prev).toBeInViewport();
+
+  // 달력 전체가 안쪽 스크롤 없이 들어간다(WP-932) — 가장 큰 6주짜리 달(2026년 8월)로 넘겨서도 같아야 한다.
+  const noInnerScroll = () =>
+    page.getByTestId('date-range-panel').evaluate((el) => {
+      const box = el.closest('.overflow-y-auto');
+      return box ? box.scrollHeight <= box.clientHeight : 'no-scroll-box';
+    });
+  expect(await noInnerScroll()).toBe(true);
+  for (const month of ['2026년 9월', '2026년 8월']) {
+    await prev.click();
+    await expect(page.getByTestId('date-range-panel')).toContainText(month);
+  }
+  expect(await noInnerScroll()).toBe(true);
+  await expect(apply).toBeInViewport({ ratio: 1 });
+});
+
+// 무엇을: 필터 칩이 쌓여 「＋ 필터」 가 아래로 밀려도(우선순위·완료일 칩 2개) 6주짜리 달력이 안쪽 스크롤 없이 들어가는지(390×664).
+// 왜: 시트 전체 최소 높이만 올리면 칩만큼 「＋ 필터」 아래 공간이 줄어 달력 안을 다시 스크롤해야 했다(WP-932).
+test('필터 시트 — 칩이 쌓여도 「기간 직접 지정」 달력이 안쪽 스크롤 없이 들어간다(390×664)', async ({ authenticatedPage: page }) => {
+  await stubChat(page);
+  await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
+  await page.route(`**/api/v1/projects/${KEY}`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+  );
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) =>
+    r.request().method() === 'GET'
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse([createIssue({ number: 7 })], null)) })
+      : r.fallback(),
+  );
+  await page.goto(`/projects/${KEY}?priority=HIGH&closedIn=last-week`);
+  await page.getByTestId('mobile-chip-filter').click();
+  const sheet = page.getByTestId('mobile-filter-sheet');
+  await expect(sheet.getByTestId('filter-chip-priority')).toBeVisible();
+  await sheet.getByTestId('add-filter-trigger').click();
+  await page.getByTestId('add-filter-facet-closedIn').click();
+  await page.getByTestId('closed-range-open').click();
+  const panel = page.getByTestId('date-range-panel');
+  const prev = panel.getByRole('button', { name: /이전|previous/i }).first();
+  for (const month of ['2026년 9월', '2026년 8월']) {
+    await prev.click();
+    await expect(panel).toContainText(month);
+  }
+  const fits = await panel.evaluate((el) => {
+    const box = el.closest('.overflow-y-auto');
+    return box ? box.scrollHeight <= box.clientHeight : 'no-scroll-box';
+  });
+  expect(fits).toBe(true);
+  await expect(page.getByTestId('date-range-apply')).toBeInViewport({ ratio: 1 });
 });
 
 // 무엇을: 필터 시트에서 이미 걸린 완료일 칩을 눌러 「기간 직접 지정」 을 열어도 짧은 휴대폰(390×664)에서 「적용」 이 화면 안에 보이는지.

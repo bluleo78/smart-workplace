@@ -39,19 +39,35 @@ export function IssueFilterBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2 py-2">
-      <Input
-        value={c.qDraft}
-        onChange={(e) => c.setQDraft(e.target.value)}
-        // 검색어 길이 상한 — 서버 요청 줄 한도를 넘겨 목록이 실패하지 않게(WP-732)
-        maxLength={SEARCH_QUERY_MAX_LENGTH}
-        placeholder="태스크 검색"
-        className="w-64"
-        aria-label="태스크 검색"
-      />
+      {/* 왼쪽 묶음 — 검색·필터 칩·「초기화」. 「초기화」는 「＋ 필터」 와 한 덩어리라 줄이 넘쳐도 혼자 떨어지지 않는다(WP-931).
+          내용 폭만큼 자리를 잡아(grow·기본 basis auto), 한 줄에 다 안 들어가면 오른쪽 묶음이 아랫줄로 내려간다. */}
+      <div className="flex min-w-0 grow flex-wrap items-center gap-2" data-testid="issue-filter-main">
+        <Input
+          value={c.qDraft}
+          onChange={(e) => c.setQDraft(e.target.value)}
+          // 검색어 길이 상한 — 서버 요청 줄 한도를 넘겨 목록이 실패하지 않게(WP-732)
+          maxLength={SEARCH_QUERY_MAX_LENGTH}
+          placeholder="태스크 검색"
+          className="w-auto max-w-64 grow basis-40"
+          aria-label="태스크 검색"
+        />
 
-      <FacetFilter facets={c.facets} value={c.filterValue} onChange={c.onFilterChange} />
+        <FacetFilter
+          facets={c.facets}
+          value={c.filterValue}
+          onChange={c.onFilterChange}
+          trailing={
+            c.hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={c.reset}>
+                초기화
+              </Button>
+            )
+          }
+        />
+      </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      {/* 오른쪽 묶음 — 보기 설정(완료 모두 보기·그룹·열·뷰 전환). */}
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
         {/* 「완료 모두 보기」 — 종료 이슈 숨김 기본 범위(withDefaultIssueScope)를 쓰는 화면만 노출.
             상태·사이클 등 명시 필터가 이미 숨김을 해제했으면 눌린 상태로 비활성화한다. */}
         {c.showClosedToggle && (
@@ -94,47 +110,41 @@ export function IssueFilterBar({
         {c.view === 'list' && (options?.showColumnPicker ?? true) && (
           <IssueColumnPickerButton projectKey={projectKey} closedFilterActive={c.filters.closedIn != null} />
         )}
+
+        {/* 뷰 전환 — 아이콘 토글. AppRail 과 동일하게 shadcn Tooltip 사용(키보드 포커스 툴팁 지원). */}
+        <TooltipProvider>
+          <div className="flex items-center gap-1" role="group" aria-label="뷰 전환">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={c.view === 'list' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => c.setView('list')}
+                  aria-pressed={c.view === 'list'}
+                  aria-label={listLabel}
+                >
+                  <ListIcon className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{listLabel}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={c.view === 'board' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => c.setView('board')}
+                  aria-pressed={c.view === 'board'}
+                  aria-label="보드"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>보드</TooltipContent>
+            </Tooltip>
+          </div>
+        </TooltipProvider>
       </div>
-
-      {/* 뷰 전환 — 아이콘 토글. AppRail 과 동일하게 shadcn Tooltip 사용(키보드 포커스 툴팁 지원). */}
-      <TooltipProvider>
-        <div className="flex items-center gap-1" role="group" aria-label="뷰 전환">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={c.view === 'list' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => c.setView('list')}
-                aria-pressed={c.view === 'list'}
-                aria-label={listLabel}
-              >
-                <ListIcon className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{listLabel}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={c.view === 'board' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => c.setView('board')}
-                aria-pressed={c.view === 'board'}
-                aria-label="보드"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>보드</TooltipContent>
-          </Tooltip>
-        </div>
-      </TooltipProvider>
-
-      {c.hasActiveFilters && (
-        <Button variant="ghost" size="sm" onClick={c.reset}>
-          초기화
-        </Button>
-      )}
     </div>
   );
 }
