@@ -272,6 +272,12 @@ export function MailAccountDialog({
   // 추가 모드는 IMAP + SMTP 모두 성공 후에만 저장 허용; 수정 모드는 항상 허용
   const canSave =
     isEdit || (testResult?.imapOk === true && testResult?.smtpOk === true);
+  // 저장이 막힌 이유 — 버튼만 회색이면 값을 다 채워도 왜 저장이 안 되는지 알 수 없었다(WP-928). 저장 버튼 아래에 보이고 버튼과 잇는다.
+  const saveBlockedReason = canSave
+    ? null
+    : testResult
+      ? '연결 테스트를 통과해야 저장할 수 있어요. 위 오류를 고친 뒤 다시 테스트하세요.'
+      : '저장하려면 먼저 「연결 테스트」로 IMAP·SMTP 연결을 확인하세요.';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -551,12 +557,22 @@ export function MailAccountDialog({
                   <Button
                     type="submit"
                     disabled={saving || !canSave}
+                    aria-describedby={saveBlockedReason ? 'mail-save-blocked-reason' : undefined}
                     data-testid="mail-save-button"
                   >
                     {saving ? '저장 중…' : '저장'}
                   </Button>
                 </div>
               </div>
+              {saveBlockedReason && (
+                <p
+                  id="mail-save-blocked-reason"
+                  className="text-right text-xs text-muted-foreground"
+                  data-testid="mail-save-blocked-reason"
+                >
+                  {saveBlockedReason}
+                </p>
+              )}
             </>
           )}
         </form>

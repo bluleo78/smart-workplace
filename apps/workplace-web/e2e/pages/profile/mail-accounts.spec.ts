@@ -142,6 +142,41 @@ test.describe('메일 계정 설정', () => {
     expect(tested).toBe(false)
   })
 
+  // WP-928 — 저장 버튼이 연결 테스트 전까지 이유 없이 회색이었다. 버튼 아래에 막힌 이유와 할 일을 보이고, 통과하면 사라진다.
+  test('연결 테스트 전·실패 시 저장이 막힌 이유를 보이고, 통과하면 사라진다 (WP-928)', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
+    await mockApi(page, 'POST', '/api/v1/mail/accounts/test', {
+      imapOk: false,
+      imapError: '인증 실패',
+      smtpOk: true,
+      smtpError: null,
+    })
+    await page.goto('/settings/mail')
+    await page.getByTestId('mail-add-trigger').click()
+
+    const save = page.getByTestId('mail-save-button')
+    const reason = page.getByTestId('mail-save-blocked-reason')
+    await expect(save).toBeDisabled()
+    await expect(reason).toHaveText('저장하려면 먼저 「연결 테스트」로 IMAP·SMTP 연결을 확인하세요.')
+    await expect(save).toHaveAttribute('aria-describedby', 'mail-save-blocked-reason')
+
+    await page.locator('#mail-email').fill('me@example.com')
+    await page.locator('#mail-imap-host').fill('imap.x.com')
+    await page.locator('#mail-imap-user').fill('me@example.com')
+    await page.locator('#mail-smtp-host').fill('smtp.x.com')
+    await page.locator('#mail-smtp-user').fill('me@example.com')
+    await page.locator('#mail-pw').fill('pw')
+    await page.getByTestId('mail-test-button').click()
+    await expect(reason).toHaveText('연결 테스트를 통과해야 저장할 수 있어요. 위 오류를 고친 뒤 다시 테스트하세요.')
+
+    // 다시 테스트해 통과하면 이유가 사라지고 저장할 수 있다(route 는 LIFO — 나중 등록이 우선).
+    await mockApi(page, 'POST', '/api/v1/mail/accounts/test', { imapOk: true, imapError: null, smtpOk: true, smtpError: null })
+    await page.getByTestId('mail-test-button').click()
+    await expect(reason).toHaveCount(0)
+    await expect(save).toBeEnabled()
+    await expect(save).not.toHaveAttribute('aria-describedby', /.+/)
+  })
+
   // 전역 AI 토글
   test('계정 없을 때 전역 개인 비서 토글 숨김', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);
