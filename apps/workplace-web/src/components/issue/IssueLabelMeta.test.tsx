@@ -37,4 +37,10 @@ describe('IssueLabelMeta', () => {
     renderWithProviders(<IssueLabelMeta labels={labels(3)} testId="meta" />)
     expect(screen.getByTestId('meta')).toHaveAttribute('title', '레이블1, 레이블2, 레이블3')
   })
+
+  it('collapse="none"이면 좁은 폭 숨김(hidden)이 없다 — 개인 목록 모바일은 항상 보인다', () => {
+    renderWithProviders(<IssueLabelMeta labels={labels(2)} max={1} collapse="none" testId="meta" />)
+    expect(screen.getByTestId('meta')).not.toHaveClass('hidden')
+    expect(screen.getByTestId('meta')).toHaveClass('flex')
+  })
 })

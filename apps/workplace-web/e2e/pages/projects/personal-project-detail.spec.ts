@@ -297,8 +297,10 @@ test('체크 토글 클릭 → PATCH { status: DONE } 호출 + 완료 스타일 
   // 체크 후 drawer가 열리지 않아야 함.
   await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);
   // DONE 이슈는 완료 섹션으로 이동 → 섹션 펼침 후 취소선 확인.
+  // 목록 쿼리 키에 checklist 정렬 파라미터(extra)가 붙어도 접두 무효화가 닿아, 행이 기한 없음 섹션을 떠나 완료로 옮겨진다(WP-918).
+  await expect(page.getByTestId('personal-section-noDue')).toHaveCount(0);
   await page.getByTestId('personal-section-done').getByRole('button').click();
-  await expect(page.getByTestId('personal-task-row-1').locator('.line-through')).toContainText('운동 계획');
+  await expect(page.getByTestId('personal-section-done').getByTestId('personal-task-row-1').locator('.line-through')).toContainText('운동 계획');
 });
 
 // ─── 신규 테스트 ───────────────────────────────────────────────────────────────
@@ -858,4 +860,172 @@ test.describe('개인 작업 마감 키보드 입력 (WP-903)', () => {
     await expect(due).toHaveValue('');
     expect(patches.bodies()).toEqual([]);
   });
+});
+
+// ─── 개인 작업 목록 결함 수정(WP-918) ─────────────────────────────────────────────
+
+/** 브라우저와 같은 로컬 날짜 YYYY-MM-DD — 테스트 러너와 브라우저가 같은 시간대라 「오늘」 섹션 데이터를 만들 수 있다. */
+function localYmd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 커서로 두 페이지를 내주는 개인 목록 스텁 — 1페이지 100건(지남 60·오늘 40, 다음 커서 있음), 2페이지(예정 2·마감 없음 2).
+ * 서버 checklist 정렬처럼 섹션 순서대로 나눠 준다. 2페이지 요청은 releasePage2 를 부를 때까지 붙잡아 「불러오는 중」 상태를 볼 수 있다.
+ */
+async function mockTwoPages(page: import('@playwright/test').Page) {
+  const project = createProject({ id: 7, key: KEY, name: '개인 작업', type: 'PERSONAL', isDefault: true });
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, project);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/labels`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/cycles`, []);
+  await mockApi(page, 'GET', `/api/v1/projects/${KEY}/types`, []);
+  const today = localYmd(new Date());
+  const page1 = Array.from({ length: 100 }, (_, i) =>
+    createIssue({ id: i + 1, projectKey: KEY, number: i + 1, title: `작업 ${i + 1}`, priority: 'MID', dueDate: i < 60 ? '2020-01-10' : today }),
+  );
+  const page2 = [
+    createIssue({ id: 101, projectKey: KEY, number: 101, title: '예정 작업 A', dueDate: '2099-01-01' }),
+    createIssue({ id: 102, projectKey: KEY, number: 102, title: '예정 작업 B', dueDate: '2099-01-02' }),
+    createIssue({ id: 103, projectKey: KEY, number: 103, title: '기한 없는 작업 A', dueDate: null }),
+    createIssue({ id: 104, projectKey: KEY, number: 104, title: '기한 없는 작업 B', dueDate: null }),
+  ];
+  let release!: () => void;
+  const page2Gate = new Promise<void>((r) => (release = r));
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const cursor = new URL(route.request().url()).searchParams.get('cursor');
+      if (!cursor) return route.fulfill({ json: createIssueSearchResponse(page1, 'c1|page2') });
+      await page2Gate;
+      return route.fulfill({ json: createIssueSearchResponse(page2) });
+    },
+  );
+  return { releasePage2: () => release() };
+}
+
+/** 섹션 안 행 testid 목록(그려진 순서). */
+async function rowIdsIn(page: import('@playwright/test').Page, section: string) {
+  return page
+    .getByTestId(`personal-section-${section}`)
+    .locator('[data-testid^="personal-task-row-"]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')));
+}
+
+/** 목록을 감싼 스크롤 컨테이너를 끝까지 내린다. */
+async function scrollListToEnd(page: import('@playwright/test').Page) {
+  await page.getByTestId('personal-scroll').evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+}
+
+test('요청에 order=checklist·mode=due·today·weekEnd를 보내고, 그룹을 바꾸면 mode 만 바꿔 1페이지부터 받는다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page);
+  const gets = trackRequests(page, 'GET', `/api/v1/projects/${KEY}/issues`);
+  await page.goto(`/projects/${KEY}`);
+  await expect(page.getByTestId('personal-checklist')).toBeVisible();
+
+  const now = new Date();
+  const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((7 - now.getDay()) % 7));
+  const first = gets.lastUrl()!.searchParams;
+  expect(first.get('order')).toBe('checklist');
+  expect(first.get('mode')).toBe('due');
+  expect(first.get('today')).toBe(localYmd(now));
+  expect(first.get('weekEnd')).toBe(localYmd(weekEnd));
+
+  // 그룹=상태 — 새 쿼리 키라 커서 없이 1페이지부터, 날짜 경계는 보내지 않는다.
+  await page.goto(`/projects/${KEY}?group=status`);
+  await expect.poll(() => gets.lastUrl()?.searchParams.get('mode')).toBe('status');
+  const status = gets.lastUrl()!.searchParams;
+  expect(status.get('cursor')).toBeNull();
+  expect(status.get('today')).toBeNull();
+  expect(status.get('weekEnd')).toBeNull();
+});
+
+test('스크롤 컨테이너 끝까지 내리면 다음 페이지를 부르고, 위 섹션 행 순서는 그대로다', async ({ authenticatedPage: page }) => {
+  const { releasePage2 } = await mockTwoPages(page);
+  const nextPages = trackRequests(page, 'GET', (url: URL) => url.pathname === `/api/v1/projects/${KEY}/issues` && url.searchParams.has('cursor'));
+  await page.goto(`/projects/${KEY}`);
+  await expect(page.getByTestId('personal-task-row-100')).toBeAttached();
+  // 스크롤 전엔 다음 페이지를 부르지 않는다(sentinel 이 컨테이너 밖).
+  await expectStays(page, () => nextPages.count(), 0);
+  const overdueBefore = await rowIdsIn(page, 'overdue');
+  const todayBefore = await rowIdsIn(page, 'today');
+  expect(overdueBefore).toHaveLength(60);
+
+  await scrollListToEnd(page);
+  await nextPages.waitFor(1);
+  releasePage2();
+  await expect(page.getByTestId('personal-task-row-101')).toBeVisible();
+  await expect(page.getByTestId('personal-section-upcoming')).toContainText('예정 작업 A');
+  await expect(page.getByTestId('personal-section-noDue')).toContainText('기한 없는 작업 B');
+  // 위 섹션은 이미 완결 — 새 페이지가 붙어도 행이 끼어들거나 순서가 바뀌지 않는다.
+  expect(await rowIdsIn(page, 'overdue')).toEqual(overdueBefore);
+  expect(await rowIdsIn(page, 'today')).toEqual(todayBefore);
+});
+
+test('불러오는 중인 마지막 섹션은 건수를 숨기고, 다 받으면 보인다', async ({ authenticatedPage: page }) => {
+  const { releasePage2 } = await mockTwoPages(page);
+  await page.goto(`/projects/${KEY}`);
+  await expect(page.getByTestId('personal-task-row-100')).toBeAttached();
+  // 위 섹션(지남)은 완결이라 건수가 정확하다. 마지막 섹션(오늘)은 다음 페이지가 남아 건수를 숨긴다.
+  await expect(page.getByTestId('personal-section-count-overdue')).toHaveText('60');
+  await expect(page.getByTestId('personal-section-count-today')).toHaveCount(0);
+
+  releasePage2();
+  await scrollListToEnd(page);
+  await expect(page.getByTestId('personal-task-row-104')).toBeVisible();
+  await expect(page.getByTestId('personal-section-count-today')).toHaveText('40');
+  await expect(page.getByTestId('personal-section-count-noDue')).toHaveText('2');
+});
+
+test('행 순서는 상태(완료 토글) 다음 우선순위, 레이블 5개면 칩 2개와 +3', async ({ authenticatedPage: page }) => {
+  const labels = ['세금', '긴급', '가족', '병원', '보험'].map((name, i) => toLabelSummary(createLabel({ id: i + 1, name })));
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '레이블 많은 작업', labels })]);
+  await page.goto(`/projects/${KEY}`);
+  const row = page.getByTestId('personal-task-row-1');
+  await expect(row).toBeVisible();
+  // 행 안 첫 요소 = 완료 토글, 그다음 = 우선순위 막대.
+  const order = await row.evaluate((el) => {
+    const flex = el.firstElementChild!;
+    return Array.from(flex.children).slice(0, 2).map((c) => c.getAttribute('data-testid') ?? c.tagName.toLowerCase());
+  });
+  expect(order[0]).toBe('personal-task-check-1');
+  expect(order[1]).not.toBe('personal-task-check-1');
+  await expect(row.getByTestId('personal-task-labels-1')).toContainText('세금');
+  await expect(row.getByTestId('personal-task-labels-1')).toContainText('긴급');
+  await expect(row.getByTestId('personal-task-labels-1')).not.toContainText('가족');
+  await expect(row.getByTestId('personal-task-labels-1')).toContainText('+3');
+});
+
+test('열린 행은 bg-selected 로 표시한다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
+  await mockTaskDetail(page);
+  await page.goto(`/projects/${KEY}?task=1`);
+  await expect(page.getByTestId('personal-task-row-1')).toHaveClass(/bg-selected/);
+});
+
+test('첫 페이지 실패는 다시 시도로 회복한다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page);
+  let fail = true;
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      if (fail) return route.fulfill({ status: 500, json: { message: 'boom' } });
+      return route.fulfill({ json: createIssueSearchResponse([createIssue({ projectKey: KEY, number: 1, title: '회복된 작업' })]) });
+    },
+  );
+  await page.goto(`/projects/${KEY}`);
+  await expect(page.getByTestId('personal-error')).toContainText('작업을 불러오지 못했습니다');
+  fail = false;
+  await page.getByTestId('personal-error-retry').click();
+  await expect(page.getByTestId('personal-task-row-1')).toContainText('회복된 작업');
+  await expect(page.getByTestId('personal-error')).toHaveCount(0);
+});
+
+test('섹션 제목은 대문자 변환 없이 그린다', async ({ authenticatedPage: page }) => {
+  await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '할 일', dueDate: null })]);
+  await page.goto(`/projects/${KEY}`);
+  const h3 = page.getByTestId('personal-section-noDue').locator('h3');
+  await expect(h3).toBeVisible();
+  expect(await h3.evaluate((el) => getComputedStyle(el).textTransform)).toBe('none');
 });

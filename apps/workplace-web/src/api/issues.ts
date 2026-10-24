@@ -80,8 +80,11 @@ export async function searchIssues(
   filters: IssueFilters,
   cursor: string | null,
   size = 30,
+  // 필터 밖 추가 쿼리 파라미터 — 개인 목록의 checklist 정렬(order·mode·today·weekEnd, WP-918). 없으면 기존 요청 그대로.
+  extra?: Record<string, string>,
 ): Promise<IssueSearchResponse> {
   const params = issueFilterParams(filters);
+  if (extra) for (const [k, v] of Object.entries(extra)) params.set(k, v);
   if (cursor) params.set('cursor', cursor);
   params.set('size', String(size));
   const { data } = await client.get<IssueSearchResponse>(

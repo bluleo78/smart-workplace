@@ -54,6 +54,8 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
   const [createOpen, setCreateOpen] = useState(false);
   // 새 이슈의 처음 상태(WP-464·WP-808) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태(id)로 만든다.
   const [createStatusId, setCreateStatusId] = useState<number | undefined>(undefined);
+  // 본문 스크롤 컨테이너 — 체크리스트 무한 로드 sentinel 의 root(WP-918). state ref 라 마운트 뒤 observer 가 다시 붙는다.
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
 
   // 개인 보드 카드 클릭 → 같은 라우트의 ?task=N drawer 오픈(view=board 보존). 풀페이지 이동 없음.
   // 기존 URLSearchParams 를 복제해 병합(#616) — priority 등 활성 필터 파라미터가 유실되지 않도록 한다.
@@ -86,7 +88,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
               <IssueFilterBar projectKey={key} options={PERSONAL_FILTER_OPTIONS} />
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div ref={setScrollRoot} data-testid="personal-scroll" className="min-h-0 flex-1 overflow-y-auto">
             {/* 개인 화면 본문 — 전체폭. 좌우 여백은 헤더와 같은 페이지 여백(pageGutterClass) 축.
                 보드는 h-full 로 높이를 받아 자체 스크롤(컬럼 헤더 sticky·가로 스크롤바 하단 고정 — 팀 보드와 동일),
                 모바일(<lg)은 탭이 상단에 붙도록 위·아래 여백을 줄인다(WP-195). 체크리스트는 콘텐츠 높이대로 늘어나 바깥 래퍼가 스크롤한다. */}
@@ -110,7 +112,7 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                   />
                 </ProjectStatusesGate>
               ) : (
-                <PersonalChecklistView projectKey={key} filters={filters} groupBy={groupBy} />
+                <PersonalChecklistView projectKey={key} filters={filters} groupBy={groupBy} scrollRoot={scrollRoot} />
               )}
             </div>
           </div>

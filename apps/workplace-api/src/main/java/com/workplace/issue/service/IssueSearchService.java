@@ -5,6 +5,8 @@ import static com.workplace.issue.service.SearchParams.trimToNull;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.AiTaskProject;
+import com.workplace.issue.dto.ChecklistCursor;
+import com.workplace.issue.dto.ChecklistOrder;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueGroupCountsResponse;
 import com.workplace.issue.dto.IssueResponse;
@@ -21,6 +23,7 @@ import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueLabelRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.repository.IssueRepository.ChecklistRow;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.issue.repository.MeIssueGroupedRepository;
 import com.workplace.issue.repository.MeIssueGroupedRepository.GroupedRow;
@@ -93,11 +96,48 @@ public class IssueSearchService {
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
     var project = accessGuard.assertReadable(projectKey, callerId);
+    // WP-918: order=checklist 면 화면 섹션 순서 정렬로. 없으면 아래 기존 (updated_at, id) 경로 그대로.
+    ChecklistOrder order =
+        ChecklistOrder.parse(
+            params.get("order"), params.get("mode"), params.get("today"), params.get("weekEnd"));
+    if (order != null) {
+      return searchChecklist(callerId, project.id(), project.key(), params, order);
+    }
     IssueSearchQuery query = parse(callerId, project.id(), params);
 
     var rows = issueRepository.search(project.id(), query);
     // 단일 프로젝트 검색이므로 projectId 무시하고 상수 key 사용.
     return assemble(rows, query, pid -> project.key());
+  }
+
+  /**
+   * WP-918: 개인 작업 목록 체크리스트 정렬 — 범위·필터는 기본 검색과 같고 정렬·커서만 화면 섹션 순서({@link ChecklistOrder})다.
+   *
+   * <p>커서는 전용 형식({@link ChecklistCursor})이라 cursor 를 뺀 params 로 parse 한다 — parse 는 cursor 를 {@link
+   * IssueCursor} 로 풀어 실패하면 400 이라, 그대로 넘기면 2페이지가 항상 400 이 된다.
+   */
+  private IssueSearchResponse searchChecklist(
+      Long callerId,
+      long projectId,
+      String projectKey,
+      Map<String, String> params,
+      ChecklistOrder order) {
+    var withoutCursor = new HashMap<>(params);
+    withoutCursor.remove("cursor");
+    IssueSearchQuery query = parse(callerId, projectId, withoutCursor);
+    String cursorStr = trimToNull(params.get("cursor"));
+    ChecklistCursor cursor = cursorStr == null ? null : ChecklistCursor.decode(cursorStr);
+
+    List<ChecklistRow> sorted = issueRepository.searchChecklist(projectId, query, order, cursor);
+    List<IssueRow> rows = sorted.stream().map(ChecklistRow::row).toList();
+    var items = assembleItems(rows, pid -> projectKey);
+    String nextCursor = null;
+    boolean hasMore = false;
+    if (!sorted.isEmpty() && sorted.size() >= query.size()) {
+      nextCursor = sorted.get(sorted.size() - 1).toCursor().encode();
+      hasMore = true;
+    }
+    return new IssueSearchResponse(items, nextCursor, hasMore);
   }
 
   /**
