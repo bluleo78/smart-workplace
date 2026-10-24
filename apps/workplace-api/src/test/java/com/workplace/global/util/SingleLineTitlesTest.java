@@ -27,4 +27,15 @@ class SingleLineTitlesTest {
     assertThat(SingleLineTitles.normalize("⠀분기 계획⠀")).isEqualTo("분기 계획");
     assertThat(SingleLineTitles.normalize("🚀️ 출시")).isEqualTo("🚀️ 출시");
   }
+
+  /** WP-908: 가운데에 낀 양방향 제어 문자는 뒤 글자의 표시 순서를 뒤집으므로 지운다. */
+  @Test
+  void removesBidiControlsEverywhere() {
+    assertThat(SingleLineTitles.normalize("n \u202Eabc")).isEqualTo("n abc");
+    assertThat(SingleLineTitles.normalize("a\u202Ab\u202Bc\u202Cd\u202De\u202Ef"))
+        .isEqualTo("abcdef");
+    assertThat(SingleLineTitles.normalize("x\u2066y\u2067z\u2068w\u2069")).isEqualTo("xyzw");
+    // 방향 제어 문자만 있으면 그려지는 글자가 없는 제목 — 빈 문자열
+    assertThat(SingleLineTitles.normalize("\u202E\u202E")).isEmpty();
+  }
 }
