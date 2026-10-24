@@ -143,6 +143,9 @@ export default function UserDetailPage() {
     }
   };
 
+  // 지금 보고 있는 활성 계정이 나 자신인지 — 활성 상태 스위치를 막는 데 쓴다(WP-909).
+  const isSelfActive = !!user && currentUser?.id === user.id && user.isActive;
+
   // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102).
   const backButton = (
     <Button variant="ghost" size="icon" onClick={() => navigate('/settings/users')} aria-label="목록으로 돌아가기" title="목록으로 돌아가기">
@@ -236,13 +239,16 @@ export default function UserDetailPage() {
         title="활성 상태"
         description="비활성 구성원은 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스에는 영향이 없어요."
       >
+        {/* WP-909: 내 계정은 끌 수 없으니 스위치를 처음부터 막고 이유를 보인다 — 확인창을 거친 뒤에야 거절되던 흐름을 없앤다.
+            자기 ADMIN 역할 체크박스를 막아 둔 것(#57)과 같은 방식. 비활성인 내 계정은 없으므로 활성일 때만 따진다. */}
         <SettingsToggleRow
           label={user.isActive ? '활성' : '비활성'}
+          description={isSelfActive ? '내 계정은 비활성화할 수 없어요.' : undefined}
           control={
             <Switch
               checked={user.isActive}
               onCheckedChange={handleSwitchChange}
-              disabled={isTogglingActive}
+              disabled={isTogglingActive || isSelfActive}
               aria-label="활성 상태"
             />
           }

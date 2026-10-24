@@ -184,6 +184,34 @@ test.describe('/settings/users/:id — 활성 상태 (WP-417)', () => {
     await expect(page.getByRole('switch', { name: '활성 상태' })).not.toBeChecked();
   });
 
+  // WP-909 — 내 계정은 스위치가 처음부터 막혀 있고 이유가 보인다(확인창을 거친 뒤 거절되던 흐름 제거).
+  test('내 계정 상세에서는 활성 상태 스위치가 막혀 있고 이유가 보이며 확인창·요청이 없다', async ({ adminPage: page }) => {
+    await setupAdminAuth(page);
+    // setupAdminAuth 의 로그인 사용자(createAdminUserDetail)는 id 2 — 같은 id 의 상세를 연다.
+    const me = createUserDetail({ id: 2, name: '나', username: 'me', email: 'me@example.com', roles: ROLES_LIST });
+    await page.route(/\/api\/v1\/users\/2$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }),
+    );
+    await page.route(/\/api\/v1\/roles$/, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ROLES_LIST) }),
+    );
+    let activeRequests = 0;
+    await page.route(/\/api\/v1\/users\/2\/active$/, (route) => {
+      activeRequests += 1;
+      return route.fulfill({ status: 204 });
+    });
+
+    await page.goto('/settings/users/2');
+    const toggle = page.getByRole('switch', { name: '활성 상태' });
+    await expect(toggle).toBeChecked();
+    await expect(toggle).toBeDisabled();
+    await expect(page.getByText('내 계정은 비활성화할 수 없어요.')).toBeVisible();
+
+    // 막힌 스위치라 누를 수 없다 — 확인창도 뜨지 않고 요청도 없다.
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    expect(activeRequests).toBe(0);
+  });
+
   // WP-728 — 대상 종류에 맞는 역할만 보인다(AI: ADMIN·관리 권한 역할 숨김, 사람: AGENT 숨김). 서버도 같은 기준으로 거절한다.
   const KIND_ROLES = [
     createRole({ id: 1, name: 'USER', description: '일반 사용자', isSystem: true }),
