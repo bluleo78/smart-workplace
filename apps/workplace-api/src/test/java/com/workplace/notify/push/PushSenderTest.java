@@ -146,12 +146,14 @@ class PushSenderTest extends IntegrationTestBase {
     verify(gateway, never()).deliver(eq(ep), any(), anyMap());
   }
 
+  /** 옛 종류별 푸시 설정(notification_preference)으로 꺼도 발송된다 — 받을지는 호출 전 새 알림 설정이 정한다(WP-913, 이중 필터 방지). */
   @Test
-  void send_categoryDisabled_skips() {
-    addSub();
+  void send_ignoresLegacyCategoryPreference() {
+    String ep = addSub();
+    when(gateway.deliver(eq(ep), any(), anyMap())).thenReturn(PushGateway.Result.of(201));
     prefs.upsert(user, PushCategory.DM, false);
     sender.send(List.of(user), msg());
-    verify(gateway, never()).deliver(any(), any(), anyMap());
+    verify(gateway).deliver(eq(ep), any(), anyMap());
   }
 
   @Test

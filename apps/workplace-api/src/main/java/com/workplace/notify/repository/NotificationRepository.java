@@ -17,7 +17,9 @@ import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import java.time.OffsetDateTime;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -57,25 +59,40 @@ public class NotificationRepository {
         .fetch(USER.ID);
   }
 
-  /** 주어진 id 중 존재하는 HUMAN 사용자만(입력 순서 무관, id 오름차순). 멘션 토큰처럼 검증 전 id 를 거를 때 쓴다(WP-650). */
+  /**
+   * 주어진 id 중 존재하는 HUMAN 사용자만(입력 순서 무관, 중복 없이 id 오름차순). 멘션 토큰처럼 검증 전 id 를 거를 때 쓴다(WP-650). 종류 조회는
+   * {@link #findKinds} 한 곳에서 한다 — 없는 사용자는 결과에서 빠진다(알림 설정 판정은 없는 사용자를 사람으로 보지만, 여기서는 「존재하는 사람」만).
+   */
   public List<Long> filterHumanIds(Collection<Long> userIds) {
     if (userIds == null || userIds.isEmpty()) return List.of();
-    return dsl.select(USER.ID)
+    return findKinds(userIds).entrySet().stream()
+        .filter(e -> "HUMAN".equals(e.getValue()))
+        .map(Map.Entry::getKey)
+        .sorted()
+        .toList();
+  }
+
+  /** 사용자 id → kind(HUMAN·AGENT). 없는 사용자는 결과에 없다. 알림 수신자·행위자 종류 판정이 모두 이것을 쓴다(WP-913). */
+  public Map<Long, String> findKinds(Collection<Long> userIds) {
+    Map<Long, String> out = new HashMap<>();
+    if (userIds.isEmpty()) return out;
+    dsl.select(USER.ID, USER.KIND)
         .from(USER)
-        .where(USER.ID.in(userIds).and(USER.KIND.eq("HUMAN")))
-        .orderBy(USER.ID)
-        .fetch(USER.ID);
+        .where(USER.ID.in(userIds))
+        .forEach(r -> out.put(r.get(USER.ID), r.get(USER.KIND)));
+    return out;
   }
 
   /** 수신자별 1행씩 batch insert. created_at 은 DB default, read_at 은 null(안읽음). */
   public void insertBatch(
       List<Long> recipientIds, NotificationType type, Long actorId, long issueId, Long commentId) {
-    insertBatch(recipientIds, type, actorId, issueId, commentId, null);
+    insertBatch(recipientIds, type, actorId, issueId, commentId, null, null);
   }
 
   /**
-   * {@link #insertBatch(List, NotificationType, Long, long, Long)} + 상태 이름(WP-869). STATUS_CHANGED
-   * 알림은 그때의 새 상태 이름을 남겨, 나중에 상태 이름이 바뀌거나 지워져도 알림 문구가 「그때 바꾼 상태」를 가리키게 한다. 그 외 알림은 null.
+   * 위 + 상태 이름(WP-869)·AI 작업 상태(WP-913). STATUS_CHANGED 알림은 그때의 새 상태 이름을 남겨, 나중에 상태 이름이 바뀌거나 지워져도 알림
+   * 문구가 「그때 바꾼 상태」를 가리키게 한다. AI 작업 상태로 생긴 알림은 원인 상태(REVIEW·FAILED·AUTH_REQUIRED 등)를 남겨, 인박스·푸시가 상태별
+   * 문구를 고르게 한다. 상태 이름(statusName)과는 다른 칸이다 — 섞이면 웹이 「상태를 'REVIEW'(으)로 변경」처럼 보인다.
    */
   public void insertBatch(
       List<Long> recipientIds,
@@ -83,7 +100,8 @@ public class NotificationRepository {
       Long actorId,
       long issueId,
       Long commentId,
-      String statusName) {
+      String statusName,
+      String agentWorkState) {
     List<Query> rows =
         recipientIds.stream()
             .map(
@@ -95,7 +113,8 @@ public class NotificationRepository {
                             .set(NOTIFICATION.TYPE, type.name())
                             .set(NOTIFICATION.ISSUE_ID, issueId)
                             .set(NOTIFICATION.COMMENT_ID, commentId)
-                            .set(NOTIFICATION.STATUS_NAME, statusName))
+                            .set(NOTIFICATION.STATUS_NAME, statusName)
+                            .set(NOTIFICATION.AGENT_WORK_STATE, agentWorkState))
             .toList();
     dsl.batch(rows).execute();
   }
@@ -194,6 +213,7 @@ public class NotificationRepository {
             WIKI_PAGE.TITLE,
             NOTIFICATION.MESSAGE,
             NOTIFICATION.STATUS_NAME,
+            NOTIFICATION.AGENT_WORK_STATE,
             NOTIFICATION.READ_AT,
             NOTIFICATION.CREATED_AT)
         .from(NOTIFICATION)
@@ -238,6 +258,7 @@ public class NotificationRepository {
                   r.get(WIKI_PAGE.TITLE),
                   r.get(NOTIFICATION.MESSAGE),
                   r.get(NOTIFICATION.STATUS_NAME),
+                  r.get(NOTIFICATION.AGENT_WORK_STATE),
                   r.get(NOTIFICATION.READ_AT) != null,
                   created == null ? null : created.toInstant());
             });

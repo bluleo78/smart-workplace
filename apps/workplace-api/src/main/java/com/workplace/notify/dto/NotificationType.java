@@ -3,7 +3,8 @@ package com.workplace.notify.dto;
 /**
  * 알림 종류 — DB 의 notification.type(VARCHAR) 과 name() 으로 매핑. ISSUE 계열(이슈 챗
  * AI_QUESTION·ISSUE_CHAT_MENTION, 코멘트 멘션 ISSUE_COMMENT_MENTION 포함)은 issue_id, REMINDER 는 event_id,
- * 노트 공유 계열(WIKI_*)은 wiki_page_id 를 채운다. DB 에 CHECK 제약이 없어 새 값 추가에 마이그레이션이 필요 없다.
+ * 노트 공유 계열(WIKI_*)은 wiki_page_id 를 채운다. AI 작업 상태로 생긴 알림(AI_REVIEW_REQUESTED·AI_WORK_FAILED, 상태 경로의
+ * AI_QUESTION)은 agent_work_state 에 원인 상태를 남긴다(WP-913). DB 에 CHECK 제약이 없어 새 값 추가에 마이그레이션이 필요 없다.
  */
 public enum NotificationType {
   ASSIGNED,
@@ -20,5 +21,9 @@ public enum NotificationType {
   WIKI_SHARE_ACCESS_REQUESTED, // 노트 접근 요청(WP-579) — 공유를 만든 사람
   WIKI_SHARE_ACCESS_APPROVED, // 노트 접근 요청 승인(WP-579) — 요청자
   CALENDAR_EVENT_UPDATED, // 주최자가 일정 시간·장소를 바꿈(WP-712) — 참석자 수신, event_id + 그때의 제목·새 시각
-  CALENDAR_EVENT_CANCELED // 주최자가 일정을 지움(WP-712) — 참석자 수신, event_id 없이 제목·원래 시각만
+  CALENDAR_EVENT_CANCELED, // 주최자가 일정을 지움(WP-712) — 참석자 수신, event_id 없이 제목·원래 시각만
+  // AI 작업이 검토 대기(REVIEW)로 바뀜(WP-913) — 그 AI 를 담당자로 지정한 사람(없거나 못 보면 보고자) 1명. agent_work_state=REVIEW
+  AI_REVIEW_REQUESTED,
+  // AI 작업이 실패·거절로 끝남(WP-913) — 수신자는 AI_REVIEW_REQUESTED 와 같다. agent_work_state=FAILED|REJECTED
+  AI_WORK_FAILED
 }

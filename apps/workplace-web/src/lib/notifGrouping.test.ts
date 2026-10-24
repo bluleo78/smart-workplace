@@ -40,6 +40,11 @@ describe('notifSection', () => {
     expect(notifSection(notif({ type: 'ISSUE_CHAT_MENTION' }))).toBe('mine')
   })
 
+  it('AI 검토 요청·실패는 내 차례 (WP-913)', () => {
+    expect(notifSection(notif({ type: 'AI_REVIEW_REQUESTED' }))).toBe('mine')
+    expect(notifSection(notif({ type: 'AI_WORK_FAILED' }))).toBe('mine')
+  })
+
   it('코멘트 멘션도 내 차례, 델타는 「코멘트 멘션」 (WP-650)', () => {
     expect(notifSection(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe('mine')
     const { mine } = groupNotifications([
@@ -208,5 +213,21 @@ describe('groupNotifications', () => {
     expect(updates[0].title).toBe('회의록')
     expect(updates[0].target).toBe('/wiki/open/88')
     expect(updates[1].target).toBe('/wiki/open/77')
+  })
+
+  it('AI 검토 요청·실패는 내 차례로 묶고 델타를 따로 센다, 이슈 상세로 딥링크한다 (WP-913)', () => {
+    const review = groupNotifications([
+      notif({ id: 1, type: 'AI_REVIEW_REQUESTED', actorKind: 'AGENT', agentWorkState: 'REVIEW' }),
+    ])
+    expect(review.updates).toHaveLength(0)
+    expect(review.mine[0].deltaSummary).toBe('검토 요청')
+    expect(review.mine[0].target).toBe('/projects/WP/issues/7')
+
+    const failed = groupNotifications([
+      notif({ id: 1, type: 'AI_WORK_FAILED', actorKind: 'AGENT', agentWorkState: 'FAILED', createdAt: '2026-06-16T01:00:00Z' }),
+      notif({ id: 2, type: 'AI_WORK_FAILED', actorKind: 'AGENT', agentWorkState: 'REJECTED', createdAt: '2026-06-16T02:00:00Z' }),
+    ])
+    expect(failed.mine).toHaveLength(1)
+    expect(failed.mine[0].deltaSummary).toBe('AI 실패 2건')
   })
 })

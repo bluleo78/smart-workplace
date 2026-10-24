@@ -8,7 +8,11 @@ import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.notify.dto.NotificationActor;
+import com.workplace.notify.dto.NotificationSettingItem;
 import com.workplace.notify.dto.NotificationType;
+import com.workplace.notify.dto.UpdateNotificationSettingsRequest;
+import com.workplace.notify.dto.UpdateNotificationSettingsRequest.CellChange;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
@@ -28,6 +32,7 @@ class NotificationServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired NotificationService service;
   @Autowired ApplicationEvents events;
+  @Autowired NotificationSettingService settings;
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -103,7 +108,8 @@ class NotificationServiceTest extends IntegrationTestBase {
     long a = seedUser();
     long b = seedUser();
     long issueId = seedIssue(a);
-    service.createAndFanOut(NotificationType.STATUS_CHANGED, List.of(a, b), null, issueId, null);
+    // 읽음 범위만 보는 테스트라 기본 켜짐 타입(COMMENTED)을 쓴다 — 상태 변경은 WP-913 부터 기본 꺼짐.
+    service.createAndFanOut(NotificationType.COMMENTED, List.of(a, b), null, issueId, null);
 
     service.markAllRead(a);
     assertThat(service.countUnread(a)).isZero();
@@ -116,6 +122,14 @@ class NotificationServiceTest extends IntegrationTestBase {
     long actor = seedUser();
     long assignee = seedUser();
     long issueId = seedIssue(actor);
+    // 상태 변경 알림은 기본 꺼짐(WP-913) — 상태 이름 왕복을 보려고 담당자가 그 칸을 켠다.
+    settings.update(
+        assignee,
+        new UpdateNotificationSettingsRequest(
+            null,
+            List.of(
+                new CellChange(
+                    NotificationSettingItem.ISSUE_STATUS_CHANGED, NotificationActor.HUMAN, true))));
 
     service.createWithWatchersAndFanOut(
         NotificationType.STATUS_CHANGED,

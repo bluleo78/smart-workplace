@@ -17,6 +17,9 @@ import java.time.Instant;
  * @param wikiPageTitle 노트 공유 알림의 노트 제목(그 외에는 null)
  * @param message 공유한 사람이 덧붙인 메시지(WIKI_SHARED 만, 없으면 null)
  * @param statusName STATUS_CHANGED 알림의 새 상태 이름(WP-869). 이름을 남기기 전 알림·그 외 유형은 null — 프론트는 없으면 기존 문구
+ * @param agentWorkState AI 작업 상태로 생긴 알림의 원인 상태(WP-913) — AI_REVIEW_REQUESTED=REVIEW,
+ *     AI_WORK_FAILED=FAILED|REJECTED, 상태 경로 AI_QUESTION=AUTH_REQUIRED|BLOCKED|INPUT_REQUIRED. 이슈 챗
+ *     질문으로 생긴 AI_QUESTION·그 외 유형은 null — 프론트가 상태별 문구를 고른다
  * @param read read_at 존재 여부(읽음)
  */
 public record NotificationResponse(
@@ -37,5 +40,6 @@ public record NotificationResponse(
     String wikiPageTitle,
     String message,
     String statusName,
+    String agentWorkState,
     boolean read,
     Instant createdAt) {}

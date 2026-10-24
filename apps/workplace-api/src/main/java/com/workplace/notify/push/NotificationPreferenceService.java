@@ -1,15 +1,17 @@
 package com.workplace.notify.push;
 
-import java.util.Collection;
 import java.util.EnumMap;
-import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 사용자 단위 알림 종류 설정. 저장 안 된 카테고리는 켜짐으로 채워 돌려준다. */
+/**
+ * 옛 사용자 단위 푸시 종류 설정(/api/v1/push/preferences). 저장 안 된 카테고리는 켜짐으로 채워 돌려준다.
+ *
+ * <p>WP-913 부터 알림·푸시 판정에 쓰지 않는다(새 설정 NotificationSettingService 만 판정). 롤링 배포 중 옛 웹 화면이 깨지지 않게
+ * 조회·저장만 남겨 둔 것이며, 엔드포인트·이 코드·notification_preference 테이블 제거는 후속 이슈에서 한다(expand/contract).
+ */
 @Service
 @RequiredArgsConstructor
 public class NotificationPreferenceService {
@@ -30,14 +32,5 @@ public class NotificationPreferenceService {
   public Map<PushCategory, Boolean> update(long userId, Map<PushCategory, Boolean> changes) {
     changes.forEach((c, enabled) -> repo.upsert(userId, c, Boolean.TRUE.equals(enabled)));
     return get(userId);
-  }
-
-  /** 해당 카테고리를 끄지 않은 사용자만(입력 순서 유지, 중복 제거). */
-  @Transactional(readOnly = true)
-  public Set<Long> filterEnabled(Collection<Long> userIds, PushCategory category) {
-    Set<Long> disabled = repo.findDisabledUsers(userIds, category);
-    Set<Long> out = new LinkedHashSet<>(userIds);
-    out.removeAll(disabled);
-    return out;
   }
 }

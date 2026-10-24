@@ -72,7 +72,7 @@ test.describe('설정 레이아웃 — AI 비서', () => {
 
 test.describe('설정 레이아웃 — 알림', () => {
   test.use({ serviceWorkers: 'allow' })
-  test('1920: 이 기기·알림 종류가 2단이고 토글 4개가 행으로 오른쪽 끝에 있다', async ({ authenticatedPage: page, context }) => {
+  test('1920: 이 기기·알림 종류가 2단이고 알림 매트릭스가 입력 열 안에 넘치지 않고 들어간다', async ({ authenticatedPage: page, context }) => {
     await context.grantPermissions(['notifications'])
     await installPushManagerStub(page)
     await mockPushApis(page)
@@ -81,9 +81,13 @@ test.describe('설정 레이아웃 — 알림', () => {
     await expectSideBySide(settingsSection(page, '이 기기'))
     const kinds = settingsSection(page, '알림 종류')
     await expectSideBySide(kinds)
-    const content = await boxOf(kinds.locator('[data-slot="settings-section-content"]'))
-    const toggles = await Promise.all(['DM', 'MENTION', 'ISSUE', 'CALENDAR'].map((key) => boxOf(page.getByTestId(`push-pref-${key}`))))
-    for (const b of toggles) expect(Math.abs(content.x + content.width - (b.x + b.width))).toBeLessThanOrEqual(2)
+    // WP-913: 앱별 카드 매트릭스는 입력 열 안에 있고, 열 안에서 가로로 넘치지 않는다.
+    const contentEl = kinds.locator('[data-slot="settings-section-content"]')
+    const content = await boxOf(contentEl)
+    const matrix = await boxOf(kinds.getByTestId('notif-settings-matrix'))
+    expect(matrix.x).toBeGreaterThanOrEqual(content.x - 1)
+    expect(matrix.x + matrix.width).toBeLessThanOrEqual(content.x + content.width + 1)
+    expect(await contentEl.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   })
 })
 

@@ -230,6 +230,20 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         return (String) get(14);
     }
 
+    /**
+     * Setter for <code>public.notification.agent_work_state</code>.
+     */
+    public void setAgentWorkState(String value) {
+        set(15, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.agent_work_state</code>.
+     */
+    public String getAgentWorkState() {
+        return (String) get(15);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -253,7 +267,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
     /**
      * Create a detached, initialised NotificationRecord
      */
-    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt, String statusName) {
+    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt, String statusName, String agentWorkState) {
         super(Notification.NOTIFICATION);
 
         setId(id);
@@ -271,6 +285,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         setEventTitle(eventTitle);
         setEventStartsAt(eventStartsAt);
         setStatusName(statusName);
+        setAgentWorkState(agentWorkState);
         resetChangedOnNotNull();
     }
 }

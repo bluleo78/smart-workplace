@@ -448,6 +448,12 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
     return id;
   }
 
+  /** 워크스페이스 구성원인 사람을 하나 더 시드한다(정리 대상에 넣는다) — 프로젝트 구성원은 아니다. */
+  protected long addHuman(String prefix) {
+    // createHuman 이 정리 대상에 넣는다. 사용자 역할·멤버십이 테넌트#1 로 들어가게 트랜잭션 안에서 만든다(WP-827).
+    return inTenant(() -> createHuman(prefix));
+  }
+
   /** 프로젝트 구성원인 AI 를 하나 더 시드한다 — AI 가 다른 AI 에게 일을 맡기는 흐름(WP-453)의 받는 쪽. */
   protected long addAgentMember(String prefix) {
     long id = addAgent(prefix);

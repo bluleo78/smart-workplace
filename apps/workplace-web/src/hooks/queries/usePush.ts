@@ -1,36 +1,20 @@
 // src/hooks/queries/usePush.ts
-// 푸시 설정 쿼리/뮤테이션 — 서버 config·종류별 설정과 "이 기기" 구독 상태(브라우저 PushManager)를 함께 다룬다.
+// 푸시 쿼리/뮤테이션 — 서버 config 와 "이 기기" 구독 상태(브라우저 PushManager)를 함께 다룬다.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 import { pushApi } from '../../api/push'
 import { handleApiError } from '../../lib/api-error'
 import { currentSubscription, disablePush, enablePush } from '../../lib/push/subscription'
-import type { PushCategory } from '../../types/push'
 
 export const pushKeys = {
   all: ['push'] as const,
   config: ['push', 'config'] as const,
-  preferences: ['push', 'preferences'] as const,
   device: ['push', 'device'] as const,
 }
 
 export function usePushConfig() {
   return useQuery({ queryKey: pushKeys.config, queryFn: pushApi.config, staleTime: 5 * 60_000 })
-}
-
-export function usePushPreferences(enabled: boolean) {
-  return useQuery({ queryKey: pushKeys.preferences, queryFn: pushApi.preferences, enabled })
-}
-
-export function useUpdatePushPreference() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ category, enabled }: { category: PushCategory; enabled: boolean }) =>
-      pushApi.updatePreferences({ [category]: enabled }),
-    onSuccess: (data) => qc.setQueryData(pushKeys.preferences, data),
-    onError: (e) => handleApiError(e, '알림 설정 저장에 실패했습니다'),
-  })
 }
 
 /** 이 기기 구독 여부(브라우저 기준). */

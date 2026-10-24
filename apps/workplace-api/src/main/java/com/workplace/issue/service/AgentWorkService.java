@@ -2,6 +2,7 @@ package com.workplace.issue.service;
 
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
+import com.workplace.issue.dto.AgentWorkTransition;
 import com.workplace.issue.dto.AgentWorkView;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
@@ -80,6 +81,15 @@ public class AgentWorkService {
    */
   public AgentWorkView startOrUpdate(
       long issueId, long workerId, String tool, AgentWorkPatch patch) {
+    return startOrUpdateTracked(issueId, workerId, tool, patch).view();
+  }
+
+  /**
+   * {@link #startOrUpdate} 와 같고 갱신 전 상태를 함께 돌려준다(새 행이면 null) — 보고 쪽이 「상태가 바뀐 순간」에만 알림을 내려고
+   * 비교한다(WP-913).
+   */
+  public AgentWorkTransition startOrUpdateTracked(
+      long issueId, long workerId, String tool, AgentWorkPatch patch) {
     String initial =
         AgentWorkState.isActive(patch.state()) ? patch.state() : AgentWorkState.WORKING;
     // 충돌로 기존 행을 돌려받았는데 그 사이 다른 트랜잭션이 종료해 진행 중 행이 없으면(조회가 비면) 500 이 아니라 409 로 답한다.
@@ -118,10 +128,13 @@ public class AgentWorkService {
     }
     notifyChanged(issueId, workerId);
     // 동시 종료로 조회에서 이슈가 빠지면(종료 이슈 제외) NPE 대신 409 로 답한다.
-    return viewsByIssueIds(List.of(issueId)).getOrDefault(issueId, List.of()).stream()
-        .filter(v -> v.worker().id() == workerId)
-        .findFirst()
-        .orElseThrow(AgentWorkIssueClosedException::new);
+    var view =
+        viewsByIssueIds(List.of(issueId)).getOrDefault(issueId, List.of()).stream()
+            .filter(v -> v.worker().id() == workerId)
+            .findFirst()
+            .orElseThrow(AgentWorkIssueClosedException::new);
+    // row 는 갱신 전에 읽은 행이다 — 새로 만든 행이면 직전 상태가 없다.
+    return new AgentWorkTransition(view, outcome.inserted() ? null : row.state());
   }
 
   /**

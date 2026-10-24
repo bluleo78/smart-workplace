@@ -6,7 +6,6 @@ import com.workplace.notify.dto.NotificationType;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -62,7 +61,7 @@ class PushRepositoriesTest extends IntegrationTestBase {
   }
 
   @Test
-  void preferences_defaultOn_andDisabledUsers() {
+  void preferences_defaultOn_andUpsert() {
     long a = TestFixtures.createHuman(dsl);
     long b = TestFixtures.createHuman(dsl);
     prefs.upsert(a, PushCategory.DM, false);
@@ -70,8 +69,7 @@ class PushRepositoriesTest extends IntegrationTestBase {
     prefs.upsert(b, PushCategory.DM, true);
 
     assertThat(prefs.findByUser(a)).containsEntry(PushCategory.DM, false);
-    assertThat(prefs.findDisabledUsers(List.of(a, b), PushCategory.DM)).isEqualTo(Set.of(a));
-    assertThat(prefs.findDisabledUsers(List.of(a, b), PushCategory.ISSUE)).isEmpty();
+    assertThat(prefs.findByUser(b)).containsEntry(PushCategory.DM, true);
   }
 
   @Test
@@ -90,5 +88,8 @@ class PushRepositoriesTest extends IntegrationTestBase {
     assertThat(PushCategory.of(NotificationType.REMINDER)).isEqualTo(PushCategory.CALENDAR);
     assertThat(PushCategory.of(NotificationType.CALENDAR_RSVP_CHANGED))
         .isEqualTo(PushCategory.CALENDAR);
+    // AI 작업 상태 알림(WP-913)은 이슈 분류.
+    assertThat(PushCategory.of(NotificationType.AI_REVIEW_REQUESTED)).isEqualTo(PushCategory.ISSUE);
+    assertThat(PushCategory.of(NotificationType.AI_WORK_FAILED)).isEqualTo(PushCategory.ISSUE);
   }
 }

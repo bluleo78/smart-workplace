@@ -94,7 +94,9 @@ class NotificationControllerTest {
             null,
             null,
             null,
-            null,
+            // 상태 이름(WP-869)과 AI 작업 상태(WP-913)는 같은 String 자리라 뒤바뀌어도 컴파일된다 — 다른 값으로 두 필드를 함께 단언한다.
+            "검토 중",
+            "REVIEW",
             false,
             Instant.now());
     when(service.listRecent(eq(1L), eq(20), eq(0L))).thenReturn(List.of(n));
@@ -105,7 +107,9 @@ class NotificationControllerTest {
         .andExpect(jsonPath("$[0].id").value(5))
         .andExpect(jsonPath("$[0].actorKind").value("AGENT"))
         .andExpect(jsonPath("$[0].projectKey").value("WP"))
-        .andExpect(jsonPath("$[0].issueNumber").value(3));
+        .andExpect(jsonPath("$[0].issueNumber").value(3))
+        .andExpect(jsonPath("$[0].statusName").value("검토 중"))
+        .andExpect(jsonPath("$[0].agentWorkState").value("REVIEW"));
     verify(service).listRecent(eq(1L), eq(20), eq(0L));
   }
 

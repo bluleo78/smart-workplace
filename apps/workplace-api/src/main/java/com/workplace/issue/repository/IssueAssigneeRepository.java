@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
@@ -64,6 +65,15 @@ public class IssueAssigneeRepository {
                   r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)));
     }
     return result;
+  }
+
+  /** 그 담당 행을 만든 사람(assigned_by). 담당 행이 없거나 기록이 없으면 비어 있다 — AI 작업 검토 요청·실패 알림(WP-913)의 수신자 후보. */
+  public Optional<Long> findAssignedBy(long issueId, long userId) {
+    return Optional.ofNullable(
+        dsl.select(ISSUE_ASSIGNEE.ASSIGNED_BY)
+            .from(ISSUE_ASSIGNEE)
+            .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId).and(ISSUE_ASSIGNEE.USER_ID.eq(userId)))
+            .fetchOne(ISSUE_ASSIGNEE.ASSIGNED_BY));
   }
 
   /** 단건 추가. 동일 (issue,user) 충돌 시 no-op. */

@@ -20,7 +20,7 @@ import {
 import { useUnreadCount } from "@/hooks/queries/useUnreadCount";
 import { hasAiToken } from "@/lib/aiToken";
 import { formatDateTimeMinute, formatRelativeTime } from "@/lib/formatters";
-import { ACTION_LABEL, notificationAction } from "@/lib/notifText";
+import { notificationAction } from "@/lib/notifText";
 import { cn } from "@/lib/utils";
 import type { NotificationResponse } from "@/types/notification";
 
@@ -208,7 +208,7 @@ export function InboxList({
                             </span>
                           )}
                         <span className="text-muted-foreground">
-                          {ACTION_LABEL[n.type]}
+                          {notificationAction(n)}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {n.eventTitle} ·{" "}

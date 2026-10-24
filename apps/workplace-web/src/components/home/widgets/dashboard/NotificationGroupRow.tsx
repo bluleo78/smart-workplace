@@ -4,6 +4,8 @@ import {
   Calendar,
   CalendarClock,
   CalendarX,
+  CircleAlert,
+  ClipboardCheck,
   FileText,
   MessageCircleQuestion,
   MessageSquare,
@@ -34,6 +36,8 @@ const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   WIKI_SHARED: FileText, // 노트 공유 알림(WP-579)
   WIKI_SHARE_ACCESS_REQUESTED: FileText,
   WIKI_SHARE_ACCESS_APPROVED: FileText,
+  AI_REVIEW_REQUESTED: ClipboardCheck, // AI 작업 검토 요청(WP-913)
+  AI_WORK_FAILED: CircleAlert, // AI 작업 실패·거절(WP-913)
 };
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.

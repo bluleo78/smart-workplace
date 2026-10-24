@@ -2,7 +2,10 @@ package com.workplace.notify.push;
 
 import com.workplace.global.util.KoreanParticles;
 import com.workplace.global.util.Texts;
+import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.notify.dto.NotificationType;
+import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -129,8 +132,9 @@ public class PushContentService {
 
   /**
    * 이슈 알림 행위 문구. 상태 변경에 새 상태 이름이 있으면(WP-869) 「님이 상태를 '검토 중'으로 변경했습니다」 — 인박스와 같은 문구로, 조사도 인박스처럼 받침에
-   * 맞춘다({@link KoreanParticles#direction} — 한글로 끝나지 않는 이름만 「(으)로」). 이름이 없는 예전 알림·그 외 유형은 {@link
-   * #label} 그대로.
+   * 맞춘다({@link KoreanParticles#direction} — 한글로 끝나지 않는 이름만 「(으)로」). AI 작업 상태로 생긴 알림(WP-913)은 원인 상태별
+   * 문구 — 웹 notifText 의 notificationAction 과 같은 문구라 인박스와 푸시가 같은 말을 한다. 그 외(이름·상태가 없는 예전 알림, 이슈 챗
+   * 질문으로 생긴 AI_QUESTION 등)는 {@link #label} 그대로.
    */
   private static String issueLabel(InboxPushRequestedEvent e) {
     if (e.type() == NotificationType.STATUS_CHANGED && e.statusName() != null)
@@ -139,8 +143,37 @@ public class PushContentService {
           + "'"
           + KoreanParticles.direction(e.statusName())
           + " 변경했습니다";
+    // Set.of().contains(null) 은 NPE 라 상태 없음을 먼저 거른다.
+    if (e.agentWorkState() != null
+        && STATE_LABEL_ALLOWED.getOrDefault(e.type(), Set.of()).contains(e.agentWorkState()))
+      return AGENT_WORK_STATE_LABEL.get(e.agentWorkState());
     return label(e.type());
   }
+
+  /**
+   * 종류별로 상태 문구를 쓰는 상태(WP-913) — 표에 없는 종류·상태 조합(검토 요청 전부, 실패의 FAILED·모르는 상태 등)은 종류 문구 그대로다. 엇갈린
+   * 조합(실패 알림에 BLOCKED 가 실린 경우 등)이 다른 종류의 문구를 빌려 쓰지 않게 막는다.
+   */
+  private static final Map<NotificationType, Set<String>> STATE_LABEL_ALLOWED =
+      Map.of(
+          NotificationType.AI_WORK_FAILED,
+          Set.of(AgentWorkNoticeEvent.REJECTED),
+          NotificationType.AI_QUESTION,
+          Set.of(
+              AgentWorkNoticeEvent.INPUT_REQUIRED,
+              AgentWorkNoticeEvent.AUTH_REQUIRED,
+              AgentWorkNoticeEvent.BLOCKED));
+
+  /**
+   * AI 작업 상태 → 문구(WP-913). 종류 기본 문구({@link #label})와 다른 상태만 둔다 — 검토 대기(REVIEW)·실패(FAILED)·모르는 상태는
+   * 종류 문구로 떨어진다. 웹 notifText 의 AGENT_WORK_STATE_LABEL 과 같은 표다.
+   */
+  private static final Map<String, String> AGENT_WORK_STATE_LABEL =
+      Map.of(
+          AgentWorkNoticeEvent.REJECTED, "님이 작업을 거절했습니다",
+          AgentWorkNoticeEvent.INPUT_REQUIRED, "님이 답변을 기다리고 있습니다",
+          AgentWorkNoticeEvent.AUTH_REQUIRED, "님이 권한이 필요하다고 알렸습니다",
+          AgentWorkNoticeEvent.BLOCKED, "님이 작업이 막혔다고 알렸습니다");
 
   /** 행위 문구(행위자 이름 뒤에 붙음). */
   private static String label(NotificationType t) {
@@ -160,6 +193,9 @@ public class PushContentService {
       case WIKI_SHARE_ACCESS_APPROVED -> "접근이 승인됐습니다";
       case CALENDAR_EVENT_UPDATED -> "님이 일정을 변경했습니다";
       case CALENDAR_EVENT_CANCELED -> "님이 일정을 취소했습니다";
+      // AI 작업 상태 알림(WP-913) — 실패의 기본 문구는 FAILED, 거절(REJECTED)은 issueLabel 이 따로 고른다.
+      case AI_REVIEW_REQUESTED -> "님이 검토를 요청했습니다";
+      case AI_WORK_FAILED -> "님이 작업에 실패했습니다";
     };
   }
 }

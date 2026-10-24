@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -26,19 +25,20 @@ public class PushSender {
 
   private final PushProperties props;
   private final PushSubscriptionRepository subscriptions;
-  private final NotificationPreferenceService preferences;
   private final WebPushEncryptor encryptor;
   private final VapidSigner signer;
   private final EndpointValidator endpointValidator;
   private final PushGateway gateway;
   private final ObjectMapper objectMapper;
 
-  /** 사용자들에게 발송. 비활성·빈 수신자·설정 off 는 건너뛴다. */
+  /**
+   * 사용자들에게 발송. 비활성·빈 수신자는 건너뛴다. 받을지 말지(알림 설정)는 보지 않는다 — 호출측이 알림 설정(NotificationSettingService)으로 이미
+   * 거른 수신자만 넘긴다(인박스 알림은 NotificationService, 메시지는 MessagePushRecipientResolver). 옛 종류별 푸시 설정
+   * (notification_preference)은 더는 판정에 쓰지 않는다(WP-913).
+   */
   public void send(Collection<Long> userIds, PushMessage message) {
     if (!props.enabled() || userIds.isEmpty()) return;
-    Set<Long> targets = preferences.filterEnabled(userIds, message.category());
-    if (targets.isEmpty()) return;
-    List<PushSubscriptionRow> subs = subscriptions.findByUserIds(targets);
+    List<PushSubscriptionRow> subs = subscriptions.findByUserIds(userIds);
     if (subs.isEmpty()) return;
     byte[] json = payload(props.preview() ? message : message.redacted());
     // 한 번의 send 안에서만 재사용하는 캐시 — 같은 푸시 서비스(FCM 등)로 가는 구독이 대부분이라 origin 별 DNS 검증과 origin(aud)별 VAPID

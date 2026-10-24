@@ -41,6 +41,14 @@ describe('notifTarget', () => {
     // 코멘트 멘션(WP-650)은 코멘트가 있는 이슈 상세로 — 챗 드로워를 열지 않는다.
     expect(notifTarget(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe('/projects/WP/issues/452')
     expect(notifTarget(notif({ type: 'ASSIGNED' }))).toBe('/projects/WP/issues/452')
+    // AI 검토 요청·실패(WP-913)는 결과를 볼 이슈 상세로 — 챗 드로워를 열지 않는다.
+    expect(notifTarget(notif({ type: 'AI_REVIEW_REQUESTED', agentWorkState: 'REVIEW' }))).toBe('/projects/WP/issues/452')
+    expect(notifTarget(notif({ type: 'AI_WORK_FAILED', agentWorkState: 'FAILED' }))).toBe('/projects/WP/issues/452')
+  })
+
+  it('AI 질문은 상태(권한 필요·막힘)가 있어도 챗 드로워로 연다 (WP-913)', () => {
+    expect(notifTarget(notif({ type: 'AI_QUESTION', agentWorkState: 'AUTH_REQUIRED' }))).toBe('/projects/WP/issues/452?chat=1')
+    expect(notifTarget(notif({ type: 'AI_QUESTION', agentWorkState: 'BLOCKED' }))).toBe('/projects/WP/issues/452?chat=1')
   })
 })
 
@@ -51,6 +59,9 @@ describe('isMentionLike', () => {
     expect(isMentionLike(notif({ type: 'COMMENTED' }))).toBe(true)
     expect(isMentionLike(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe(true)
     expect(isMentionLike(notif({ type: 'STATUS_CHANGED' }))).toBe(false)
+    // AI 검토 요청·실패(WP-913)는 나를 호출한 알림이 아니다(멘션 카운트에 넣지 않음).
+    expect(isMentionLike(notif({ type: 'AI_REVIEW_REQUESTED' }))).toBe(false)
+    expect(isMentionLike(notif({ type: 'AI_WORK_FAILED' }))).toBe(false)
   })
 })
 

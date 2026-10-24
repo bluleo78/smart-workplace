@@ -53,7 +53,9 @@ import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.MessageAttachment.MessageAttachmentPath;
 import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
+import com.workplace.jooq.tables.NotificationAppSetting.NotificationAppSettingPath;
 import com.workplace.jooq.tables.NotificationPreference.NotificationPreferencePath;
+import com.workplace.jooq.tables.NotificationSetting.NotificationSettingPath;
 import com.workplace.jooq.tables.PlatformRole.PlatformRolePath;
 import com.workplace.jooq.tables.PlatformUserRole.PlatformUserRolePath;
 import com.workplace.jooq.tables.Project.ProjectPath;
@@ -958,6 +960,19 @@ public class User extends TableImpl<UserRecord> {
         return _notificationActorIdFkey;
     }
 
+    private transient NotificationAppSettingPath _notificationAppSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.notification_app_setting</code> table
+     */
+    public NotificationAppSettingPath notificationAppSetting() {
+        if (_notificationAppSetting == null)
+            _notificationAppSetting = new NotificationAppSettingPath(this, null, Keys.NOTIFICATION_APP_SETTING__NOTIFICATION_APP_SETTING_USER_ID_FKEY.getInverseKey());
+
+        return _notificationAppSetting;
+    }
+
     private transient NotificationPreferencePath _notificationPreference;
 
     /**
@@ -983,6 +998,19 @@ public class User extends TableImpl<UserRecord> {
             _notificationRecipientIdFkey = new NotificationPath(this, null, Keys.NOTIFICATION__NOTIFICATION_RECIPIENT_ID_FKEY.getInverseKey());
 
         return _notificationRecipientIdFkey;
+    }
+
+    private transient NotificationSettingPath _notificationSetting;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.notification_setting</code> table
+     */
+    public NotificationSettingPath notificationSetting() {
+        if (_notificationSetting == null)
+            _notificationSetting = new NotificationSettingPath(this, null, Keys.NOTIFICATION_SETTING__NOTIFICATION_SETTING_USER_ID_FKEY.getInverseKey());
+
+        return _notificationSetting;
     }
 
     private transient PlatformUserRolePath _platformUserRole;

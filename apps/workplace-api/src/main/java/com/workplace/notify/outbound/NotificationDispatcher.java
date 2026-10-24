@@ -8,6 +8,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.MentionParser;
+import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
@@ -229,6 +230,25 @@ public class NotificationDispatcher {
           "[notify] 이슈 챗 알림 실패 issueId={} messageId={}: {}",
           e.issueId(),
           e.messageId(),
+          ex.getMessage());
+    }
+  }
+
+  /**
+   * AI 작업 상태 알림(WP-913) — 검토 요청·실패는 그 AI 를 맡긴 사람(없거나 못 보면 보고자)에게, 권한 필요·막힘·글 없는 답변 필요는 「답변 필요」
+   * AI_QUESTION 으로. 판정·수신자 계산은 서비스 트랜잭션 안(RLS).
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onAgentWorkNotice(AgentWorkNoticeEvent e) {
+    try {
+      service.createAgentWorkNoticeAndFanOut(
+          e.issueId(), e.workerId(), e.state(), e.delegateCandidates());
+    } catch (Exception ex) {
+      log.warn(
+          "[notify] AI 작업 상태 알림 실패 issueId={} state={}: {}",
+          e.issueId(),
+          e.state(),
           ex.getMessage());
     }
   }

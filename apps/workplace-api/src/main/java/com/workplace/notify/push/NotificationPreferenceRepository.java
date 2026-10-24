@@ -2,16 +2,16 @@ package com.workplace.notify.push;
 
 import static com.workplace.jooq.Tables.NOTIFICATION_PREFERENCE;
 
-import java.util.Collection;
 import java.util.EnumMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
-/** notification_preference 접근. 행이 없으면 켜짐으로 간주하므로 "꺼진 사용자"만 조회한다. */
+/**
+ * 옛 notification_preference 접근(행이 없으면 켜짐). WP-913 부터 옛 /push/preferences 화면의 조회·저장에만 쓰이고 알림·푸시 판정에는
+ * 쓰이지 않는다 — 테이블과 함께 후속 이슈에서 제거.
+ */
 @Repository
 @RequiredArgsConstructor
 public class NotificationPreferenceRepository {
@@ -42,17 +42,5 @@ public class NotificationPreferenceRepository {
         .doUpdate()
         .set(NOTIFICATION_PREFERENCE.ENABLED, enabled)
         .execute();
-  }
-
-  /** 주어진 사용자 중 해당 카테고리를 끈 사용자 집합. */
-  public Set<Long> findDisabledUsers(Collection<Long> userIds, PushCategory category) {
-    if (userIds.isEmpty()) return Set.of();
-    return new HashSet<>(
-        dsl.select(NOTIFICATION_PREFERENCE.USER_ID)
-            .from(NOTIFICATION_PREFERENCE)
-            .where(NOTIFICATION_PREFERENCE.USER_ID.in(userIds))
-            .and(NOTIFICATION_PREFERENCE.CATEGORY.eq(category.name()))
-            .and(NOTIFICATION_PREFERENCE.ENABLED.isFalse())
-            .fetch(NOTIFICATION_PREFERENCE.USER_ID));
   }
 }

@@ -431,3 +431,48 @@ test('코멘트 멘션 알림을 전용 문구로 렌더하고, 클릭하면 이
   await expect(page).toHaveURL(/\/projects\/WP\/issues\/12$/)
   await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0)
 })
+
+// WP-913 — AI 작업 검토 요청·막힘 알림은 서버 푸시와 같은 문구로 보이고, 검토 요청은 (챗 드로워 없이) 이슈 상세로 간다.
+test('AI 검토 요청·막힘 알림 문구와 이동', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 2 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({
+      id: 31,
+      type: 'AI_REVIEW_REQUESTED',
+      actorName: '개발 에이전트',
+      actorKind: 'AGENT',
+      agentWorkState: 'REVIEW',
+      commentId: null,
+      issueNumber: 12,
+      issueTitle: '알림 연결',
+    }),
+    notif({
+      id: 32,
+      type: 'AI_QUESTION',
+      actorName: '개발 에이전트',
+      actorKind: 'AGENT',
+      agentWorkState: 'BLOCKED',
+      commentId: null,
+      issueNumber: 13,
+    }),
+  ])
+  const readCapture = await mockApi(page, 'POST', '/api/v1/notifications/31/read', {}, {
+    status: 204,
+    capture: true,
+  })
+  await mockAgentWorkDetail(page, undefined)
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+
+  const items = page.getByTestId('inbox-item')
+  // AGENT 행위자는 이름 뒤에 AI 배지가 붙는다 — 문구만 따로 확인.
+  await expect(items.nth(0)).toContainText('님이 검토를 요청했습니다')
+  await expect(items.nth(0)).toContainText('WP-12 알림 연결')
+  await expect(items.nth(1)).toContainText('님이 작업이 막혔다고 알렸습니다')
+
+  await items.nth(0).click()
+  await readCapture.waitForRequest()
+  await expect(page).toHaveURL(/\/projects\/WP\/issues\/12$/)
+  await expect(page.getByTestId('issue-chat-drawer')).toHaveCount(0)
+})

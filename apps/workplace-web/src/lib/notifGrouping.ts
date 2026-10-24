@@ -34,12 +34,15 @@ export interface GroupedNotifs {
 }
 
 // 알림 단건 섹션 분류. ASSIGNED(나에게 직접 배정)·이슈 챗 AI 질문·이슈 챗 멘션(WP-452) = 행동 필요.
+// AI 작업 검토 요청·실패(WP-913)도 내가 검토하거나 다시 맡겨야 하는 알림이라 행동 필요.
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
 export function notifSection(n: NotificationResponse): NotifSection {
   // 코멘트 멘션(WP-650)은 나를 직접 가리킨 알림, 노트 접근 요청(WP-579)은 승인·거절이 필요한 알림이라 둘 다 행동 필요.
   return n.type === "ASSIGNED" ||
     n.type === "ISSUE_COMMENT_MENTION" ||
     n.type === "WIKI_SHARE_ACCESS_REQUESTED" ||
+    n.type === "AI_REVIEW_REQUESTED" ||
+    n.type === "AI_WORK_FAILED" ||
     isIssueChatType(n)
     ? "mine"
     : "updates";
@@ -76,6 +79,8 @@ function repLabel(n: NotificationResponse): string {
 // 델타 요약 문자열 — 종류별 건수를 고정 순서로 합친다.
 const TYPE_ORDER: NotificationResponse["type"][] = [
   "AI_QUESTION",
+  "AI_REVIEW_REQUESTED", // WP-913
+  "AI_WORK_FAILED", // WP-913
   "ISSUE_CHAT_MENTION",
   "ISSUE_COMMENT_MENTION",
   "ASSIGNED",
@@ -99,6 +104,10 @@ function deltaSummary(group: NotificationResponse[]): string {
     const c = counts.get(t);
     if (!c) continue;
     if (t === "AI_QUESTION") parts.push(c > 1 ? `AI 질문 ${c}건` : "AI 질문");
+    else if (t === "AI_REVIEW_REQUESTED")
+      parts.push(c > 1 ? `검토 요청 ${c}건` : "검토 요청");
+    else if (t === "AI_WORK_FAILED")
+      parts.push(c > 1 ? `AI 실패 ${c}건` : "AI 실패");
     else if (t === "ISSUE_CHAT_MENTION")
       parts.push(c > 1 ? `멘션 ${c}건` : "멘션");
     else if (t === "ISSUE_COMMENT_MENTION")

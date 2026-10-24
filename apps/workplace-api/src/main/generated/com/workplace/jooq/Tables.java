@@ -84,7 +84,9 @@ import com.workplace.jooq.tables.MessageReaction;
 import com.workplace.jooq.tables.MessagingClassifyWatermark;
 import com.workplace.jooq.tables.Milestone;
 import com.workplace.jooq.tables.Notification;
+import com.workplace.jooq.tables.NotificationAppSetting;
 import com.workplace.jooq.tables.NotificationPreference;
+import com.workplace.jooq.tables.NotificationSetting;
 import com.workplace.jooq.tables.Permission;
 import com.workplace.jooq.tables.PlatformRole;
 import com.workplace.jooq.tables.PlatformRolePermission;
@@ -539,9 +541,19 @@ public class Tables {
     public static final Notification NOTIFICATION = Notification.NOTIFICATION;
 
     /**
+     * The table <code>public.notification_app_setting</code>.
+     */
+    public static final NotificationAppSetting NOTIFICATION_APP_SETTING = NotificationAppSetting.NOTIFICATION_APP_SETTING;
+
+    /**
      * The table <code>public.notification_preference</code>.
      */
     public static final NotificationPreference NOTIFICATION_PREFERENCE = NotificationPreference.NOTIFICATION_PREFERENCE;
+
+    /**
+     * The table <code>public.notification_setting</code>.
+     */
+    public static final NotificationSetting NOTIFICATION_SETTING = NotificationSetting.NOTIFICATION_SETTING;
 
     /**
      * The table <code>public.permission</code>.

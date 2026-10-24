@@ -13,14 +13,12 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /** PushSender — 한 번의 send 안에서 endpoint 검증은 origin 별, VAPID 서명은 origin(aud) 별 1회만 수행한다. */
 class PushSenderMemoTest {
 
   final PushSubscriptionRepository subs = mock(PushSubscriptionRepository.class);
-  final NotificationPreferenceService prefs = mock(NotificationPreferenceService.class);
   final WebPushEncryptor encryptor = mock(WebPushEncryptor.class);
   final VapidSigner signer = mock(VapidSigner.class);
   final EndpointValidator validator = mock(EndpointValidator.class);
@@ -29,7 +27,6 @@ class PushSenderMemoTest {
       new PushSender(
           new PushProperties(true, true, null, Duration.ofSeconds(1), null, null),
           subs,
-          prefs,
           encryptor,
           signer,
           validator,
@@ -41,7 +38,6 @@ class PushSenderMemoTest {
     String a1 = "https://fcm.example.com/send/1";
     String a2 = "https://fcm.example.com/send/2";
     String b1 = "https://push.other.example/send/3";
-    when(prefs.filterEnabled(anyCollection(), any())).thenReturn(Set.of(7L));
     when(subs.findByUserIds(anyCollection()))
         .thenReturn(
             List.of(

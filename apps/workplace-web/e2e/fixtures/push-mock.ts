@@ -65,18 +65,8 @@ export async function openSwControlled(page: Page, path: string) {
 export async function mockPushApis(page: Page, opts: { enabled?: boolean } = {}) {
   const enabled = opts.enabled ?? true
   await mockApi(page, 'GET', '/api/v1/push/config', { enabled, vapidPublicKey: enabled ? VAPID_KEY : null })
-  // 설정은 GET/PUT 을 한 핸들러가 상태로 처리(PUT 결과가 이후 GET 에 반영).
-  let prefsState = { DM: true, MENTION: true, ISSUE: true, CALENDAR: true }
-  await page.route('**/api/v1/push/preferences', async (route) => {
-    if (route.request().method() === 'PUT') {
-      prefsState = { ...prefsState, ...route.request().postDataJSON() }
-    }
-    await route.fulfill({ json: prefsState })
-  })
   const subscribe = await mockApi(page, 'POST', '/api/v1/push/subscriptions', {}, { status: 204, capture: true })
   const unsubscribe = await mockApi(page, 'DELETE', '/api/v1/push/subscriptions', {}, { status: 204, capture: true })
-  /** 다음 설정 PUT 요청 대기 — 클릭 전에 호출해 Promise 를 잡아 둔다. */
-  const nextPrefsPut = () =>
-    page.waitForRequest((r) => r.url().endsWith('/api/v1/push/preferences') && r.method() === 'PUT')
-  return { subscribe, unsubscribe, nextPrefsPut }
+  // WP-913: 종류별 설정은 /notification-settings 로 옮겼다 — notification-settings-mock.ts 의 mockNotificationSettings.
+  return { subscribe, unsubscribe }
 }

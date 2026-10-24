@@ -139,6 +139,11 @@ public class Notification extends TableImpl<NotificationRecord> {
      */
     public final TableField<NotificationRecord, String> STATUS_NAME = createField(DSL.name("status_name"), SQLDataType.VARCHAR(30), this, "");
 
+    /**
+     * The column <code>public.notification.agent_work_state</code>.
+     */
+    public final TableField<NotificationRecord, String> AGENT_WORK_STATE = createField(DSL.name("agent_work_state"), SQLDataType.VARCHAR(20), this, "");
+
     private Notification(Name alias, Table<NotificationRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

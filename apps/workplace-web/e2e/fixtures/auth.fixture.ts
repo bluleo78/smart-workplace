@@ -3,6 +3,7 @@ import { type BrowserContext, type Page, test as base } from '@playwright/test'
 import type { TokenResponse, UserResponse } from '../../src/types/auth'
 import type { RoleResponse } from '../../src/types/role'
 import { createTokenResponse, createUser } from '../factories/auth.factory'
+import { defaultNotificationSettings } from '../factories/notificationSettings.factory'
 import { seedStatuses } from '../factories/projectStatus.factory'
 import { mockApi } from './api-mock'
 import { collabTestToken, injectCollabNamespace } from './collab'
@@ -109,6 +110,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/drive/spaces', [])
   await mockApi(page, 'GET', '/api/v1/calendars', [])
   await mockApi(page, 'GET', '/api/v1/messaging/threads/inbox/unread-count', { count: 0 })
+  // 알림 설정(WP-913) — 설정 › 알림 화면이 푸시 설정과 상관없이 늘 조회한다. 저장을 보는 spec 은 mockNotificationSettings 로 덮어쓴다.
+  await mockApi(page, 'GET', '/api/v1/notification-settings', defaultNotificationSettings())
   // 프로젝트 하위 목록(/projects/{key}/cycles 등)과 이슈 하위 목록(/projects/{key}/issues/{n}/cycles 등).
   const projectLists = /^\/api\/v1\/projects\/[^/]+\/(cycles|types|milestones|labels|members|saved-views)$/
   const issueLists = /^\/api\/v1\/projects\/[^/]+\/issues\/\d+\/(cycles|drive-links)$/

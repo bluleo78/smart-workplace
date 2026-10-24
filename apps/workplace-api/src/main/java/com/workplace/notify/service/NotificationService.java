@@ -4,12 +4,15 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.notify.dto.NotificationResponse;
+import com.workplace.notify.dto.NotificationSettingItem;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.outbound.NotificationChangeNotifier;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.notify.push.PushCategory;
 import com.workplace.notify.repository.NotificationRepository;
+import com.workplace.user.dto.UserKind;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -27,6 +30,10 @@ import org.springframework.transaction.annotation.Transactional;
  * 알림 생성·조회·읽음. 생성 시 수신자 후보에서 actor 본인 제외 + 중복 제거 후 persist 하고, 같은 수신자 집합에 SSE("notify.created")로
  * fan-out 한다. 모든 조회/변경은 recipientId 스코프(타 사용자 알림 접근 불가). insert 후 InboxPushRequestedEvent 발행 → 커밋 후
  * 푸시.
+ *
+ * <p>모든 생성 경로는 「수신자 확정 → 알림 설정 필터({@link #allowed}) → insert → SSE·푸시」 순서다(WP-913). 설정으로 걸러진 사람에게는
+ * 인박스 행·SSE notify.created·웹 푸시 셋 다 없다 — 푸시는 insert 된 수신자에게만 나가므로 필터를 insert 앞 한 곳에 두면 세 채널이 함께
+ * 따른다.
  */
 @Service
 @RequiredArgsConstructor
@@ -38,32 +45,52 @@ public class NotificationService {
   private final ApplicationEventPublisher publisher;
   private final NotificationChangeNotifier changeNotifier;
   private final PermissionChecker permissionChecker;
+  private final NotificationSettingService settings;
+
+  /**
+   * 이슈 알림 한 건의 내용(수신자 빼고). statusName(이슈 상태 이름, WP-869)과 agentWorkState(AI 작업 상태, WP-913)는 둘 다
+   * String 이라 위치 인자로 넘기면 자리가 뒤바뀌어도 컴파일된다 — 이름 있는 칸으로 묶어 생성·푸시 경로가 같은 값을 그대로 나르게 한다.
+   */
+  private record IssueNotice(
+      NotificationType type,
+      Long actorId,
+      long issueId,
+      Long commentId,
+      String statusName,
+      String agentWorkState) {
+
+    /** 상태 이름·AI 작업 상태 없는 알림. */
+    static IssueNotice of(NotificationType type, Long actorId, long issueId, Long commentId) {
+      return new IssueNotice(type, actorId, issueId, commentId, null, null);
+    }
+
+    IssueNotice withStatusName(String statusName) {
+      return new IssueNotice(type, actorId, issueId, commentId, statusName, agentWorkState);
+    }
+
+    IssueNotice withAgentWorkState(String agentWorkState) {
+      return new IssueNotice(type, actorId, issueId, commentId, statusName, agentWorkState);
+    }
+  }
 
   /** 수신자 확정(actor 제외·중복 제거) → batch insert → SSE fan-out. 빈 수신자면 no-op. */
   @Transactional
   public void createAndFanOut(
       NotificationType type, List<Long> recipientIds, Long actorId, long issueId, Long commentId) {
-    createAndFanOut(type, recipientIds, actorId, issueId, commentId, null);
+    create(IssueNotice.of(type, actorId, issueId, commentId), recipientIds);
   }
 
-  /** 상태 이름(WP-869)을 함께 남기는 생성 — STATUS_CHANGED 외에는 statusName=null 로 위 오버로드를 쓴다. */
-  private void createAndFanOut(
-      NotificationType type,
-      List<Long> recipientIds,
-      Long actorId,
-      long issueId,
-      Long commentId,
-      String statusName) {
-    List<Long> recipients =
-        insertAndFanOut(type, recipientIds, actorId, issueId, commentId, statusName);
+  /** 생성 + 종류 기본 분류로 푸시. */
+  private void create(IssueNotice n, List<Long> recipientIds) {
+    List<Long> recipients = insertAndFanOut(n, recipientIds);
     if (recipients.isEmpty()) return;
-    publishPush(type, PushCategory.of(type), recipients, actorId, issueId, null, null, statusName);
+    publishPush(n, PushCategory.of(n.type()), recipients);
   }
 
   /**
    * 이슈 챗 AI 질문 알림(WP-452). 수신자 = 이슈의 사람 관계자(보고자 ∪ 담당자 ∪ 워처, HUMAN) ∪ 질문 글에서 멘션된 사람 — 작성자 제외·중복 제거로
-   * 한 사람에 AI_QUESTION 1건만 만든다. 푸시는 멘션된 사람만 MENTION 카테고리, 나머지는 ISSUE 카테고리로 나눠 보낸다(사용자가 멘션 푸시만 켜 둔
-   * 경우에도 "나를 부른 질문"은 받게).
+   * 한 사람에 AI_QUESTION 1건만 만든다. 받을지는 멘션 여부와 무관하게 「답변 필요」 한 줄(ISSUE_AI_NEEDS_INPUT)이 정한다(WP-913). 푸시는
+   * 멘션된 사람만 MENTION, 나머지는 ISSUE 분류로 나눠 보낸다 — 서비스워커가 「나를 부른 질문」을 멘션으로 표시·억제하게.
    *
    * <p>관계자 조회(RLS 대상)는 이 트랜잭션 안에서 실행 — createWithWatchersAndFanOut 과 같은 이유(@Async 워커 스레드에서 GUC 주입 후
    * 조회).
@@ -72,105 +99,185 @@ public class NotificationService {
    */
   @Transactional
   public void createAiQuestionAndFanOut(long issueId, List<Long> mentionedHumanIds, Long actorId) {
+    aiQuestion(issueId, mentionedHumanIds, actorId, null);
+  }
+
+  /**
+   * AI_QUESTION 생성 본체. agentWorkState 는 AI 작업 상태로 생긴 「답변 필요」(권한 필요·막힘·글 없는 답변 필요, WP-913)의 원인 상태이고,
+   * 이슈 챗 질문 글로 생긴 것이면 null 이다. 알림 행과 푸시에 함께 실어 인박스·푸시가 같은 상태별 문구를 쓰게 한다.
+   */
+  private void aiQuestion(
+      long issueId, List<Long> mentionedHumanIds, Long actorId, String agentWorkState) {
+    IssueNotice n =
+        IssueNotice.of(NotificationType.AI_QUESTION, actorId, issueId, null)
+            .withAgentWorkState(agentWorkState);
     List<Long> ids = new ArrayList<>(repo.findHumanStakeholderIds(issueId));
     ids.addAll(mentionedHumanIds);
-    List<Long> recipients =
-        insertAndFanOut(NotificationType.AI_QUESTION, ids, actorId, issueId, null);
+    List<Long> recipients = insertAndFanOut(n, ids);
     if (recipients.isEmpty()) return;
     Set<Long> mentioned = new HashSet<>(mentionedHumanIds);
     List<Long> toMention = recipients.stream().filter(mentioned::contains).toList();
     List<Long> toIssue = recipients.stream().filter(id -> !mentioned.contains(id)).toList();
-    if (!toMention.isEmpty())
-      publishPush(
-          NotificationType.AI_QUESTION, PushCategory.MENTION, toMention, actorId, issueId, null);
-    if (!toIssue.isEmpty())
-      publishPush(
-          NotificationType.AI_QUESTION, PushCategory.ISSUE, toIssue, actorId, issueId, null);
+    if (!toMention.isEmpty()) publishPush(n, PushCategory.MENTION, toMention);
+    if (!toIssue.isEmpty()) publishPush(n, PushCategory.ISSUE, toIssue);
   }
 
   /**
-   * 수신자 확정(null·actor 제외, 중복 제거, 이슈의 프로젝트를 볼 수 없는 사람 제외) → batch insert → SSE fan-out. 실제 insert 한
-   * 수신자를 돌려준다(빈 목록이면 아무것도 안 함).
+   * AI 작업 상태 알림(WP-913) — AI 작업자가 보고한 상태가 그 값으로 바뀐 순간 issue 모듈이 낸 이벤트를 커밋 뒤 받아 만든다. 작업자가 AI 인지는 발행
+   * 쪽(issue)이 이미 판정했다 — 사람이 자기 도구로 보고한 작업은 이벤트가 오지 않는다.
    *
-   * <p>조회 권한 필터(WP-501)는 여기 한 곳에서 건다 — 보고자·워처·멘션 등 어느 경로로 들어온 수신자든, 프로젝트에서 빠졌거나 처음부터 볼 수 없는 사람에게 알림
-   * 행과 웹 푸시(이슈 제목 포함)를 만들지 않는다.
+   * <ul>
+   *   <li>REVIEW → AI_REVIEW_REQUESTED, FAILED·REJECTED → AI_WORK_FAILED: 받는 사람은 한 명 —
+   *       delegateCandidates (그 AI 를 담당자로 지정한 사람, 보고자 순)에서 작업자 본인이 아니고 사람(HUMAN)이며 이슈를 볼 수 있는 첫 사람.
+   *   <li>AUTH_REQUIRED·BLOCKED·INPUT_REQUIRED → 「답변 필요」 AI_QUESTION, 수신자는 이슈 챗 질문과 같은 규칙.
+   *   <li>그 밖의 상태 → 알림 없음.
+   * </ul>
+   *
+   * <p>알림 설정 필터는 대체 수신자를 고른 <b>뒤</b> 건다 — 할당자가 이 알림을 꺼 두었으면 아무도 받지 않는다. 개인 설정이 다른 사람(보고자)에게 가는 대체
+   * 경로를 열면 「끈 알림이 남에게 넘어가는」 셈이 되기 때문이다.
+   *
+   * @param delegateCandidates [AI 담당 행의 assigned_by, 보고자] 순서(null 제외)
    */
-  private List<Long> insertAndFanOut(
-      NotificationType type, List<Long> recipientIds, Long actorId, long issueId, Long commentId) {
-    return insertAndFanOut(type, recipientIds, actorId, issueId, commentId, null);
+  @Transactional
+  public void createAgentWorkNoticeAndFanOut(
+      long issueId, long workerId, String state, List<Long> delegateCandidates) {
+    switch (state) {
+      case AgentWorkNoticeEvent.REVIEW ->
+          notifyDelegate(
+              NotificationType.AI_REVIEW_REQUESTED, issueId, workerId, state, delegateCandidates);
+      case AgentWorkNoticeEvent.FAILED, AgentWorkNoticeEvent.REJECTED ->
+          notifyDelegate(
+              NotificationType.AI_WORK_FAILED, issueId, workerId, state, delegateCandidates);
+      case AgentWorkNoticeEvent.AUTH_REQUIRED,
+          AgentWorkNoticeEvent.BLOCKED,
+          AgentWorkNoticeEvent.INPUT_REQUIRED ->
+          aiQuestion(issueId, List.of(), workerId, state);
+      default -> {
+        // CANCELED·COMPLETED 등 — 알림 없음(완료는 이슈 상태 변경 알림이 맡는다).
+      }
+    }
   }
 
-  /** 위와 같고 상태 이름(STATUS_CHANGED, WP-869)을 알림 행에 함께 남긴다. */
-  private List<Long> insertAndFanOut(
-      NotificationType type,
-      List<Long> recipientIds,
-      Long actorId,
-      long issueId,
-      Long commentId,
-      String statusName) {
+  /**
+   * 검토 요청·실패 — 대체 규칙으로 고른 한 사람에게만 만들고, 설정 필터는 그 뒤 건다. 대리인은 firstReachableDelegate 가 이미 사람·이슈 열람 가능을
+   * 확인했고 작업자는 AI(이벤트 계약)라, 열람·종류를 다시 조회하지 않고 설정 판정부터 한다.
+   */
+  private void notifyDelegate(
+      NotificationType type, long issueId, long workerId, String state, List<Long> candidates) {
+    Long delegate = firstReachableDelegate(issueId, workerId, candidates);
+    if (delegate == null) return;
+    IssueNotice n = IssueNotice.of(type, workerId, issueId, null).withAgentWorkState(state);
+    List<Long> recipients =
+        deliver(n, List.of(delegate), Map.of(delegate, UserKind.HUMAN, workerId, UserKind.AGENT));
+    if (recipients.isEmpty()) return;
+    publishPush(n, PushCategory.ISSUE, recipients);
+  }
+
+  /**
+   * 후보 순서대로 작업자 본인이 아니고 사람(HUMAN)이며 이슈를 볼 수 있는 첫 사람. 없으면 null. filterHumanIds 는 id 순으로 돌려주므로 순서는 후보
+   * 목록을 따라가며 집합으로만 확인한다.
+   */
+  private Long firstReachableDelegate(long issueId, long workerId, List<Long> candidates) {
+    List<Long> others =
+        candidates.stream().filter(Objects::nonNull).filter(id -> id != workerId).toList();
+    if (others.isEmpty()) return null;
+    Set<Long> humans = new HashSet<>(repo.filterHumanIds(others));
+    Set<Long> readable =
+        new HashSet<>(
+            repo.filterCanReadIssue(issueId, others.stream().filter(humans::contains).toList()));
+    return others.stream().filter(readable::contains).findFirst().orElse(null);
+  }
+
+  /**
+   * 수신자 확정(null·actor 제외, 중복 제거, 이슈의 프로젝트를 볼 수 없는 사람 제외) → 알림 설정 필터 → batch insert → SSE fan-out.
+   * 실제 insert 한 수신자를 돌려준다(빈 목록이면 아무것도 안 함).
+   *
+   * <p>조회 권한 필터(WP-501)는 여기 한 곳에서 건다 — 보고자·워처·멘션 등 어느 경로로 들어온 수신자든, 프로젝트에서 빠졌거나 처음부터 볼 수 없는 사람에게 알림
+   * 행과 웹 푸시(이슈 제목 포함)를 만들지 않는다. 알림 설정 필터(WP-913)도 그 뒤에 건다.
+   */
+  private List<Long> insertAndFanOut(IssueNotice n, List<Long> recipientIds) {
     List<Long> candidates =
         recipientIds.stream()
             .filter(Objects::nonNull)
             .distinct()
-            .filter(id -> !id.equals(actorId))
+            .filter(id -> !id.equals(n.actorId()))
             .toList();
     if (candidates.isEmpty()) return candidates;
-    Set<Long> readable = new HashSet<>(repo.filterCanReadIssue(issueId, candidates));
+    Set<Long> readable = new HashSet<>(repo.filterCanReadIssue(n.issueId(), candidates));
     // 후보 순서를 유지한다(푸시 묶음·테스트가 수신자 순서에 기대지 않지만 결정적으로 두려고).
-    List<Long> recipients = candidates.stream().filter(readable::contains).toList();
+    return deliver(n, candidates.stream().filter(readable::contains).toList(), Map.of());
+  }
+
+  /**
+   * 수신자가 확정된(actor 제외·열람 가능) 뒤의 생성 — 알림 설정 필터 → batch insert → SSE fan-out. knownKinds 는 호출자가 이미 아는
+   * 사용자 종류(설정 판정이 다시 조회하지 않게).
+   */
+  private List<Long> deliver(
+      IssueNotice n, List<Long> readableRecipients, Map<Long, String> knownKinds) {
+    List<Long> recipients = allowed(readableRecipients, n.type(), n.actorId(), knownKinds);
     if (recipients.isEmpty()) return recipients;
-    repo.insertBatch(recipients, type, actorId, issueId, commentId, statusName);
+    repo.insertBatch(
+        recipients,
+        n.type(),
+        n.actorId(),
+        n.issueId(),
+        n.commentId(),
+        n.statusName(),
+        n.agentWorkState());
     // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회.
-    registry.fanOut(recipients, "notify.created", Map.of("type", type.name(), "issueId", issueId));
+    registry.fanOut(
+        recipients, "notify.created", Map.of("type", n.type().name(), "issueId", n.issueId()));
     return recipients;
   }
 
-  /** 테넌트가 없으면(비정상 경로) 푸시만 건너뛴다. 푸시 때문에 인박스 insert 가 롤백되면 안 되므로 require() 금지. */
-  private void publishPush(
-      NotificationType type,
-      PushCategory category,
-      List<Long> recipients,
-      Long actorId,
-      Long issueId,
-      Long eventId) {
-    publishPush(type, category, recipients, actorId, issueId, eventId, null);
+  /**
+   * 그 알림을 받겠다고 설정한 수신자만(순서 유지). 알림 종류 → 설정 줄, 행위자 kind → 칸은 NotificationSettingService 가 정하고, AGENT
+   * 수신자는 설정과 무관하게 남는다. 모든 생성 경로가 이 한 메서드로 걸러 경로마다 규칙이 갈라지지 않게 한다.
+   */
+  private List<Long> allowed(
+      List<Long> recipients, NotificationType type, Long actorId, Map<Long, String> knownKinds) {
+    if (recipients.isEmpty()) return recipients;
+    return settings.filterRecipients(
+        recipients, NotificationSettingItem.of(type), actorId, knownKinds);
   }
 
-  private void publishPush(
-      NotificationType type,
-      PushCategory category,
-      List<Long> recipients,
-      Long actorId,
-      Long issueId,
-      Long eventId,
-      Long wikiPageId) {
-    publishPush(type, category, recipients, actorId, issueId, eventId, wikiPageId, null);
+  /** 단건 경로(캘린더·노트·리마인더)용 — 그 한 사람이 이 알림을 받겠다고 설정했는지. */
+  private boolean allowedOne(long recipientId, NotificationType type, Long actorId) {
+    return !allowed(List.of(recipientId), type, actorId, Map.of()).isEmpty();
   }
 
-  /** statusName 은 STATUS_CHANGED 의 새 상태 이름(WP-869) — 푸시 문구에 쓴다. */
-  private void publishPush(
-      NotificationType type,
-      PushCategory category,
-      List<Long> recipients,
-      Long actorId,
-      Long issueId,
-      Long eventId,
-      Long wikiPageId,
-      String statusName) {
+  /** 이슈 알림 푸시. 테넌트가 없으면(비정상 경로) 푸시만 건너뛴다 — 푸시 때문에 인박스 insert 가 롤백되면 안 되므로 require() 금지. */
+  private void publishPush(IssueNotice n, PushCategory category, List<Long> recipients) {
     Long tenantId = TenantContext.get();
     if (tenantId == null) return;
     publisher.publishEvent(
         new InboxPushRequestedEvent(
             tenantId,
-            type,
+            n.type(),
             category,
             recipients,
-            actorId,
-            issueId,
-            eventId,
-            wikiPageId,
+            n.actorId(),
+            n.issueId(),
             null,
-            statusName));
+            null,
+            null,
+            n.statusName(),
+            n.agentWorkState()));
+  }
+
+  /** 이슈 밖 알림(일정·노트·리마인더) 푸시 — eventId·wikiPageId 중 해당하는 것만 싣는다. 테넌트 없으면 건너뛴다(위와 같은 이유). */
+  private void publishPush(
+      NotificationType type,
+      PushCategory category,
+      List<Long> recipients,
+      Long actorId,
+      Long eventId,
+      Long wikiPageId) {
+    Long tenantId = TenantContext.get();
+    if (tenantId == null) return;
+    publisher.publishEvent(
+        new InboxPushRequestedEvent(
+            tenantId, type, category, recipients, actorId, null, eventId, wikiPageId, null));
   }
 
   /**
@@ -204,14 +311,15 @@ public class NotificationService {
       Long actorId,
       Long commentId,
       String statusName) {
-    createAndFanOut(
-        type, assigneesAndWatchers(issueId, assignees), actorId, issueId, commentId, statusName);
+    create(
+        IssueNotice.of(type, actorId, issueId, commentId).withStatusName(statusName),
+        assigneesAndWatchers(issueId, assignees));
   }
 
   /**
    * 코멘트 알림(WP-650) — 본문에서 멘션된 사람(HUMAN)에게 ISSUE_COMMENT_MENTION(푸시 MENTION), 나머지 담당자 ∪ 워처에게
-   * COMMENTED. 멘션 알림을 받은 사람은 COMMENTED 에서 빼 한 사람에 1건만 만든다. 볼 수 없는 사람·작성자 제외는 insertAndFanOut 이 그대로
-   * 건다. 워처 구독은 하지 않는다(이슈 챗 멘션과 같음).
+   * COMMENTED. 멘션된 사람은 COMMENTED 에서 빼 한 사람에 1건만 만든다. 볼 수 없는 사람·작성자 제외·알림 설정 필터는 insertAndFanOut 이
+   * 그대로 건다. 워처 구독은 하지 않는다(이슈 챗 멘션과 같음).
    *
    * @param mentionedIds 코멘트 본문의 멘션 토큰 id(존재·종류 미검증 — 여기서 HUMAN 만 남긴다)
    */
@@ -222,24 +330,16 @@ public class NotificationService {
       List<Long> mentionedIds,
       Long actorId,
       Long commentId) {
-    List<Long> mentioned =
-        insertAndFanOut(
-            NotificationType.ISSUE_COMMENT_MENTION,
-            repo.filterHumanIds(mentionedIds),
-            actorId,
-            issueId,
-            commentId);
-    if (!mentioned.isEmpty())
-      publishPush(
-          NotificationType.ISSUE_COMMENT_MENTION,
-          PushCategory.MENTION,
-          mentioned,
-          actorId,
-          issueId,
-          null);
+    List<Long> mentionCandidates = repo.filterHumanIds(mentionedIds);
+    IssueNotice mention =
+        IssueNotice.of(NotificationType.ISSUE_COMMENT_MENTION, actorId, issueId, commentId);
+    List<Long> mentioned = insertAndFanOut(mention, mentionCandidates);
+    if (!mentioned.isEmpty()) publishPush(mention, PushCategory.MENTION, mentioned);
     List<Long> others = new ArrayList<>(assigneesAndWatchers(issueId, assignees));
-    others.removeAll(mentioned);
-    createAndFanOut(NotificationType.COMMENTED, others, actorId, issueId, commentId);
+    // 실제로 멘션 알림을 받은 사람이 아니라 설정 필터 전 멘션 후보를 뺀다 — 「나를 멘션」을 끈 담당자에게 같은 코멘트가 COMMENTED 로 새어 들어가지
+    // 않게(그 코멘트는 그 사람에게 멘션 알림이고, 끈 이상 아무 알림도 오지 않아야 한다). 작성자·볼 수 없는 사람은 어차피 COMMENTED 에서도 빠진다.
+    others.removeAll(mentionCandidates);
+    create(IssueNotice.of(NotificationType.COMMENTED, actorId, issueId, commentId), others);
   }
 
   /** 담당자(이벤트 페이로드) ∪ 워처. 트랜잭션 내에서 조회 — TenantAwareTransactionManager 가 GUC 를 주입한 후이므로 RLS 정책 통과. */
@@ -259,10 +359,11 @@ public class NotificationService {
       long recipientId, NotificationType type, long actorId, long eventId) {
     // 본인 행위 → 자기 자신에게 알림 없음
     if (actorId == recipientId) return;
+    if (!allowedOne(recipientId, type, actorId)) return;
     repo.insertEventNotification(recipientId, type, actorId, eventId);
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", type.name(), "eventId", eventId));
-    publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, null, eventId);
+    publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, eventId, null);
   }
 
   /**
@@ -276,10 +377,11 @@ public class NotificationService {
   public void createWikiShareNotificationAndFanOut(
       long recipientId, NotificationType type, long actorId, long pageId, String message) {
     if (actorId == recipientId) return;
+    if (!allowedOne(recipientId, type, actorId)) return;
     repo.insertWikiShareNotification(recipientId, type, actorId, pageId, message);
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", type.name(), "wikiPageId", pageId));
-    publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, null, null, pageId);
+    publishPush(type, PushCategory.of(type), List.of(recipientId), actorId, null, pageId);
   }
 
   /**
@@ -294,7 +396,12 @@ public class NotificationService {
       Long eventId,
       String eventTitle,
       OffsetDateTime eventStartsAt) {
-    List<Long> recipients = recipientIds.stream().filter(id -> id != actorId).distinct().toList();
+    List<Long> recipients =
+        allowed(
+            recipientIds.stream().filter(id -> id != actorId).distinct().toList(),
+            type,
+            actorId,
+            Map.of());
     if (recipients.isEmpty()) return;
     for (long recipientId : recipients) {
       repo.insertEventNotice(recipientId, type, actorId, eventId, eventTitle, eventStartsAt);
@@ -322,6 +429,8 @@ public class NotificationService {
    */
   @Transactional
   public void createReminderAndFanOut(long recipientId, long eventId) {
+    // 행위자 없음 → 「사람이」 칸으로 판정.
+    if (!allowedOne(recipientId, NotificationType.REMINDER, null)) return;
     repo.insertReminder(recipientId, eventId);
     registry.fanOut(
         List.of(recipientId), "notify.created", Map.of("type", "REMINDER", "eventId", eventId));
@@ -330,8 +439,8 @@ public class NotificationService {
         PushCategory.CALENDAR,
         List.of(recipientId),
         null,
-        null,
-        eventId);
+        eventId,
+        null);
   }
 
   @Transactional(readOnly = true)

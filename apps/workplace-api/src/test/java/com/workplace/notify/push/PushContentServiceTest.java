@@ -203,4 +203,55 @@ class PushContentServiceTest extends IntegrationTestBase {
     assertThat(m.body()).isEqualTo("박민수님이 이슈 챗에서 회원님을 멘션했습니다");
     assertThat(m.url()).isEqualTo("/projects/" + key + "/issues/7?chat=1");
   }
+
+  /** AI 작업 상태 알림(WP-913) 이벤트 — 원인 상태를 11번째 성분에 실은 이슈 알림. */
+  private InboxPushRequestedEvent agentWorkEvent(NotificationType type, String state) {
+    return new InboxPushRequestedEvent(
+        1L, type, PushCategory.ISSUE, List.of(99L), actor, issueId, null, null, null, null, state);
+  }
+
+  /** 검토 요청(WP-913) — ISSUE 분류, 이슈 상세로(챗 드로워 없이). */
+  @Test
+  void forInbox_aiReviewRequested_buildsIssueMessage() {
+    seedIssue();
+    PushMessage m =
+        content.forInbox(agentWorkEvent(NotificationType.AI_REVIEW_REQUESTED, "REVIEW"));
+
+    assertThat(m.category()).isEqualTo(PushCategory.ISSUE);
+    assertThat(m.title()).isEqualTo(key + "-7 로그인 버그");
+    assertThat(m.body()).isEqualTo("박민수님이 검토를 요청했습니다");
+    assertThat(m.url()).isEqualTo("/projects/" + key + "/issues/7");
+  }
+
+  /** 실패·거절(WP-913) — 원인 상태별 문구, 이슈 상세로. */
+  @Test
+  void forInbox_aiWorkFailed_textByState() {
+    seedIssue();
+    PushMessage failed =
+        content.forInbox(agentWorkEvent(NotificationType.AI_WORK_FAILED, "FAILED"));
+    PushMessage rejected =
+        content.forInbox(agentWorkEvent(NotificationType.AI_WORK_FAILED, "REJECTED"));
+
+    assertThat(failed.category()).isEqualTo(PushCategory.ISSUE);
+    assertThat(failed.body()).isEqualTo("박민수님이 작업에 실패했습니다");
+    assertThat(failed.url()).isEqualTo("/projects/" + key + "/issues/7");
+    assertThat(rejected.body()).isEqualTo("박민수님이 작업을 거절했습니다");
+    // 종류에 맞지 않는 상태는 종류 문구 그대로(다른 종류의 상태 문구를 빌려 쓰지 않는다).
+    assertThat(content.forInbox(agentWorkEvent(NotificationType.AI_WORK_FAILED, "BLOCKED")).body())
+        .isEqualTo("박민수님이 작업에 실패했습니다");
+  }
+
+  /** 상태 경로 「답변 필요」(WP-913) — 인박스와 같은 상태별 문구. 상태 없는 AI_QUESTION(챗 질문)은 기존 문구(위 테스트). */
+  @Test
+  void forInbox_aiQuestion_textByAgentWorkState() {
+    seedIssue();
+    assertThat(
+            content.forInbox(agentWorkEvent(NotificationType.AI_QUESTION, "INPUT_REQUIRED")).body())
+        .isEqualTo("박민수님이 답변을 기다리고 있습니다");
+    assertThat(
+            content.forInbox(agentWorkEvent(NotificationType.AI_QUESTION, "AUTH_REQUIRED")).body())
+        .isEqualTo("박민수님이 권한이 필요하다고 알렸습니다");
+    assertThat(content.forInbox(agentWorkEvent(NotificationType.AI_QUESTION, "BLOCKED")).body())
+        .isEqualTo("박민수님이 작업이 막혔다고 알렸습니다");
+  }
 }

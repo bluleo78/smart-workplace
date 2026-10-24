@@ -40,7 +40,8 @@ export function isWikiShareType(n: NotificationResponse): boolean {
 /**
  * 알림 대상 라우트 해소 — InboxPanel/알림 위젯과 동일 규칙.
  * 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 캘린더로, 그 외 이슈 타입은 이슈 상세로.
- * 이슈 챗 알림(AI_QUESTION/ISSUE_CHAT_MENTION)은 이슈 상세 + 챗 드로워(`?chat=1`)로.
+ * 이슈 챗 알림(AI_QUESTION/ISSUE_CHAT_MENTION)은 이슈 상세 + 챗 드로워(`?chat=1`)로 — 상태 알림(권한 필요·막힘)인 AI_QUESTION 도 같다.
+ * AI 작업 검토 요청·실패(AI_REVIEW_REQUESTED/AI_WORK_FAILED, WP-913)는 결과를 볼 이슈 상세 그대로(챗 드로워 없음).
  * 식별 정보가 없으면 인박스 대용(내 작업)으로 폴백(데드 클릭 방지).
  *
  * 캘린더 알림은 메일 알림(`/mail/:accountId?messageId=N`)과 동일 수준으로 해당 일정까지

@@ -24,3 +24,33 @@ describe('notificationAction', () => {
     expect(notificationAction(n({ type: 'COMMENTED', statusName: '완료' }))).toBe('님이 코멘트를 남겼습니다');
   });
 });
+
+// WP-913 — AI 작업 알림은 서버 푸시와 같은 문구를 쓴다. AI_QUESTION·AI_WORK_FAILED 는 agentWorkState 로 문구를 고른다.
+describe('notificationAction — AI 작업 알림 (WP-913)', () => {
+  it('검토 요청·실패·거절', () => {
+    expect(notificationAction(n({ type: 'AI_REVIEW_REQUESTED', agentWorkState: 'REVIEW' }))).toBe('님이 검토를 요청했습니다');
+    expect(notificationAction(n({ type: 'AI_WORK_FAILED', agentWorkState: 'FAILED' }))).toBe('님이 작업에 실패했습니다');
+    expect(notificationAction(n({ type: 'AI_WORK_FAILED', agentWorkState: 'REJECTED' }))).toBe('님이 작업을 거절했습니다');
+  });
+
+  it('실패 알림의 상태가 없거나 모르는 값이면 실패 문구', () => {
+    expect(notificationAction(n({ type: 'AI_WORK_FAILED', agentWorkState: null }))).toBe('님이 작업에 실패했습니다');
+    expect(notificationAction(n({ type: 'AI_WORK_FAILED' }))).toBe('님이 작업에 실패했습니다');
+    expect(notificationAction(n({ type: 'AI_WORK_FAILED', agentWorkState: 'WHATEVER' }))).toBe('님이 작업에 실패했습니다');
+  });
+
+  it('AI 질문은 상태별 문구, 상태가 없으면 기존 문구', () => {
+    expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: null }))).toBe('님이 이슈 챗에서 질문했습니다');
+    expect(notificationAction(n({ type: 'AI_QUESTION' }))).toBe('님이 이슈 챗에서 질문했습니다');
+    expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: 'INPUT_REQUIRED' }))).toBe('님이 답변을 기다리고 있습니다');
+    expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: 'AUTH_REQUIRED' }))).toBe('님이 권한이 필요하다고 알렸습니다');
+    expect(notificationAction(n({ type: 'AI_QUESTION', agentWorkState: 'BLOCKED' }))).toBe('님이 작업이 막혔다고 알렸습니다');
+  });
+
+  it('다른 종류는 상태가 있어도 종류별 문구', () => {
+    expect(notificationAction(n({ type: 'COMMENTED', agentWorkState: 'BLOCKED' }))).toBe('님이 코멘트를 남겼습니다');
+    // 종류에 맞지 않는 상태는 종류 문구 그대로(다른 종류의 상태 문구를 빌려 쓰지 않는다).
+    expect(notificationAction(n({ type: 'AI_WORK_FAILED', agentWorkState: 'BLOCKED' }))).toBe('님이 작업에 실패했습니다');
+    expect(notificationAction(n({ type: 'AI_REVIEW_REQUESTED', agentWorkState: 'REJECTED' }))).toBe('님이 검토를 요청했습니다');
+  });
+});

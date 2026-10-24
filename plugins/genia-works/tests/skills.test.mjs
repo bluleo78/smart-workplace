@@ -188,3 +188,10 @@ test('.work-loop/project.md 에 역할별 대기열 라벨(개발 일 → AI 개
   assert.ok(s6.length > 20, '「6. 대기열 라벨」 절이 없다');
   assert.match(s6, /^\|[^\n]*개발[^\n]*\|[^\n]*`AI 개발팀`[^\n]*\|\s*$/m);
 });
+
+// WP-913 — REVIEW 보고는 맡긴 사람에게 검토 요청 알림을 보낸다. 바로 완료할 때는 WORKING 으로 보고한 뒤 DONE 으로 바꿔 알림 없이 닫는다.
+test('work-done 「완료」는 검토 대기(REVIEW)를 거치지 않는다', () => {
+  const doc = readFileSync(new URL('work-done/SKILL.md', skillsDir), 'utf8');
+  const row = doc.split('\n').find((l) => l.startsWith('| 완료 |'));
+  assert.ok(row && row.includes("state: 'WORKING'") && !row.includes('REVIEW'));
+});
