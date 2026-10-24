@@ -9,6 +9,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -43,7 +44,9 @@ class IssueDetailAiContextTest extends IntegrationTestBase {
     String projKey = uniqueKey("AICA");
     long projectId =
         projectService.create(userId, new CreateProjectRequest(projKey, "AiContext A", "x")).id();
-    var issue = issueRepository.insert(projectId, 1, "테스트 이슈 A", null, "MID", null, userId);
+    var issue =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, projectId, 1, "테스트 이슈 A", null, "MID", null, userId);
 
     // 요약 저장
     summaryRepo.upsert(issue.id(), "리뷰 대기 중", "리뷰어 지정");
@@ -72,7 +75,8 @@ class IssueDetailAiContextTest extends IntegrationTestBase {
     String projKey = uniqueKey("AICB");
     long projectId =
         projectService.create(userId, new CreateProjectRequest(projKey, "AiContext B", "x")).id();
-    issueRepository.insert(projectId, 1, "테스트 이슈 B", null, "MID", null, userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, 1, "테스트 이슈 B", null, "MID", null, userId);
 
     var detail = issueService.get(userId, projKey, 1);
 

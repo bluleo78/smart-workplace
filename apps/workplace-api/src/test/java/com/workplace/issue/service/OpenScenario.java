@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import java.util.UUID;
@@ -26,8 +27,8 @@ import org.jooq.DSLContext;
  *
  * <p>이슈는 {@code issueService.create} 가 아닌 {@code issueRepository.insert} 로 직접 시드한다 — create() 는 여전히
  * assertMember 가드라 비멤버 reporter 로는 생성할 수 없고, reporter 가 멤버가 되면 viewerCanEditWorkflow 검증이 무의미해지기
- * 때문이다. 시스템 유형(TASK)은 {@link IssueTypeService#seedSystemTypes} 로 시드한 뒤 7-인자 insert 가 TASK 로 자동
- * fallback.
+ * 때문이다. 시스템 유형(TASK)은 {@link IssueTypeService#seedSystemTypes} 로 시드한 뒤 IssueSeeds.insert 가 TASK 로
+ * 자동 fallback.
  */
 public final class OpenScenario {
 
@@ -74,7 +75,7 @@ public final class OpenScenario {
     insertMember(dsl, project.id(), ownerId, "OWNER");
     insertMember(dsl, project.id(), memberId, "MEMBER");
 
-    // 시스템 유형 시드(TASK 포함) → 7-인자 insert 가 TASK 로 자동 fallback.
+    // 시스템 유형 시드(TASK 포함) → IssueSeeds.insert 가 TASK 로 자동 fallback.
     types.seedSystemTypes(project.id(), true);
 
     // 이슈 시퀀스 초기화(raw-DSL 프로젝트 삽입이라 create() 경로의 initialize 를 대신 호출).
@@ -82,7 +83,9 @@ public final class OpenScenario {
 
     // reporter(비멤버)가 생성한 이슈 1건을 직접 삽입(create() 가드 우회).
     int number = sequences.allocateNext(project.id());
-    var row = issues.insert(project.id(), number, "접수 문의", "본문", "MID", null, reporterId);
+    var row =
+        IssueSeeds.insert(
+            issues, dsl, project.id(), number, "접수 문의", "본문", "MID", null, reporterId);
 
     return new Result(project, ownerId, memberId, reporterId, strangerId, row.id(), row.number());
   }

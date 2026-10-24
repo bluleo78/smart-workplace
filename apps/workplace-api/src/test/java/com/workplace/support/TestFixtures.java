@@ -31,8 +31,10 @@ public final class TestFixtures {
 
   /**
    * 프로젝트 범주의 기본 상태 id 를 고르는 스칼라 서브쿼리(WP-868) — raw jOOQ 로 issue 를 넣거나 범주를 바꿀 때 status_id 를 함께 쓴다.
-   * 호환 트리거가 사라져 status_id 없이 넣으면 NOT NULL, 범주만 바꾸면 복합 FK 에 걸린다. 규칙은 운영 findDefault 와 같다(position,
-   * id 순 첫 상태). UPDATE 에서는 {@code ISSUE.PROJECT_ID} 를 넘겨 행마다 자기 프로젝트의 상태를 고른다.
+   * 호환 트리거가 사라져 status_id 없이 넣으면 NOT NULL, 범주만 바꾸면 복합 FK 에 걸린다. 여러 행을 한 번에 바꾸는 raw UPDATE 가 행마다 자기
+   * 프로젝트의 상태를 고르려면({@code ISSUE.PROJECT_ID} 를 넘긴다) SQL 안의 서브쿼리여야 해서 둔다. 기본 상태 규칙의 주인은 운영 {@link
+   * com.workplace.issue.repository.ProjectStatusRepository#findDefault}(position, id 순 첫 상태)다 — 그
+   * 규칙이 바뀌면 여기도 맞춘다. 행 하나를 시드할 때는 {@code IssueSeeds} 처럼 findDefault 를 직접 쓴다.
    */
   public static Field<Long> defaultStatusId(Field<Long> projectId, String category) {
     return DSL.field(

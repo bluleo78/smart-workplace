@@ -17,6 +17,7 @@ import com.workplace.issue.exception.TypeImmutableException;
 import com.workplace.issue.repository.IssueFieldDefRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -196,7 +197,8 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
     Long owner = createUser("h");
     var p = newProject(owner, "FSH");
     var def = service.create(owner, p.key(), new CreateIssueFieldDefRequest("x", "TEXT", null));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree("v"));
 
     service.delete(owner, p.key(), def.id());
@@ -213,7 +215,8 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
     var p = newProject(owner, "FSI");
     var opts = om.createArrayNode().add("옵션A").add("옵션B").add("옵션C");
     var def = service.create(owner, p.key(), new CreateIssueFieldDefRequest("선", "SELECT", opts));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree("옵션C"));
 
     var shrunk = om.createArrayNode().add("옵션A").add("옵션B");
@@ -239,7 +242,8 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
     var opts = om.createArrayNode().add("라벨1").add("라벨2").add("라벨3");
     var def =
         service.create(owner, p.key(), new CreateIssueFieldDefRequest("다", "MULTI_SELECT", opts));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     valueRepo.upsert(issue.id(), def.id(), om.createArrayNode().add("라벨2").add("라벨3"));
 
     var shrunk = om.createArrayNode().add("라벨1").add("라벨2");
@@ -260,7 +264,8 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
     var p = newProject(owner, "FSK");
     var opts = om.createArrayNode().add("옵션A").add("옵션B").add("옵션C");
     var def = service.create(owner, p.key(), new CreateIssueFieldDefRequest("선", "SELECT", opts));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree("옵션A"));
 
     var shrunk = om.createArrayNode().add("옵션A").add("옵션B");
@@ -278,7 +283,8 @@ class IssueFieldDefServiceTest extends IntegrationTestBase {
     var p = newProject(owner, "FSL");
     var opts = om.createArrayNode().add("기획").add("개발").add("폐기");
     var def = service.create(owner, p.key(), new CreateIssueFieldDefRequest("단계", "SELECT", opts));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree("폐기"));
     issueRepository.softDelete(issue.id(), java.time.Instant.now());
 

@@ -16,6 +16,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.PersonalProjectProvisioner;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -69,15 +70,9 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
         ownerId, new CreateProjectRequest(uniqueKey(prefix), "P-" + prefix, "x"));
   }
 
-  /** 프로젝트의 범주 기본 상태(시드된 행) id. */
+  /** 프로젝트의 범주 기본 상태(시드된 행) id — 시드 공용식 {@link TestFixtures#defaultStatusId} 를 그대로 쓴다. */
   private Long statusId(Long projectId, String category) {
-    return dsl.select(PROJECT_STATUS.ID)
-        .from(PROJECT_STATUS)
-        .where(PROJECT_STATUS.PROJECT_ID.eq(projectId))
-        .and(PROJECT_STATUS.CATEGORY.eq(category))
-        .orderBy(PROJECT_STATUS.POSITION)
-        .limit(1)
-        .fetchOne(PROJECT_STATUS.ID);
+    return dsl.fetchValue(TestFixtures.defaultStatusId(projectId, category));
   }
 
   /** 범주의 기본 상태(status_id)와 함께 이슈를 직접 넣는다 — 호환 트리거가 없어 status_id 를 빼면 NOT NULL 에 걸린다(WP-868). */

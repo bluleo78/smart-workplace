@@ -13,6 +13,7 @@ import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentReactionsChang
 import com.workplace.issue.repository.IssueCommentReactionRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -156,8 +157,16 @@ class IssueCommentReactionServiceTest extends IntegrationTestBase {
 
     int otherNumber = sequenceRepository.allocateNext(s.project().id());
     var other =
-        issueRepository.insert(
-            s.project().id(), otherNumber, "다른 이슈", "본문", "MID", null, s.ownerId());
+        IssueSeeds.insert(
+            issueRepository,
+            baseDsl,
+            s.project().id(),
+            otherNumber,
+            "다른 이슈",
+            "본문",
+            "MID",
+            null,
+            s.ownerId());
     long foreign = commentRepository.insert(other.id(), s.ownerId(), "다른 이슈 코멘트").id();
     assertThatThrownBy(() -> reactionService.add(s.memberId(), s.issueId(), foreign, "👍"))
         .isInstanceOf(IssueCommentNotFoundException.class);

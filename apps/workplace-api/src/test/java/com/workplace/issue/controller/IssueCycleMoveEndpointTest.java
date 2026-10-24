@@ -11,6 +11,7 @@ import com.workplace.cycle.dto.CreateCycleRequest;
 import com.workplace.cycle.service.CycleService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -87,7 +88,7 @@ class IssueCycleMoveEndpointTest extends IntegrationTestBase {
     long userId = createUser("m");
     String key = uniqueKey("CM");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
     var cycle =
         cycleService.create(userId, key, new CreateCycleRequest("S", null, null, null, null));
 
@@ -103,7 +104,7 @@ class IssueCycleMoveEndpointTest extends IntegrationTestBase {
     long userId = createUser("c");
     String key = uniqueKey("CC");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
     var done =
         cycleService.create(
             userId, key, new CreateCycleRequest("D", null, null, null, "COMPLETED"));
@@ -117,7 +118,7 @@ class IssueCycleMoveEndpointTest extends IntegrationTestBase {
     long other = createUser("x");
     String key = uniqueKey("CN");
     ProjectResponse proj = projectService.create(owner, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, owner);
     var cycle =
         cycleService.create(owner, key, new CreateCycleRequest("S", null, null, null, null));
 

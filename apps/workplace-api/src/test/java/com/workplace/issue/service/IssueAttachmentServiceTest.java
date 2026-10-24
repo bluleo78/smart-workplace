@@ -15,6 +15,7 @@ import com.workplace.issue.exception.AttachmentTooLargeException;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -108,7 +109,8 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   void member_uploads_one_file_records_history() throws IOException {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     var result =
         service.upload(owner, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1, 2, 3})));
@@ -124,7 +126,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     // STORAGE_PATH 에는 절대경로가 아닌 tenant-{id}/issue/{date}/... 상대경로가 저장돼야 한다.
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "RP");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     service.upload(owner, p.key(), 1, List.of(mockFile("hello.txt", new byte[] {7, 8, 9})));
 
@@ -151,7 +153,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     byte[] content = new byte[] {10, 20, 30, 40, 50};
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "RT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     service.upload(owner, p.key(), 1, List.of(mockFile("data.bin", content)));
 
@@ -170,7 +172,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   void file_exceeds_25mb_throws_400() {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     byte[] huge = new byte[26 * 1024 * 1024]; // 26MB
     assertThatThrownBy(() -> service.upload(owner, p.key(), 1, List.of(mockFile("big.bin", huge))))
@@ -182,7 +184,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   void over_10_per_issue_throws_409() throws IOException {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     // 1차로 9개 업로드 → OK
     List<MultipartFile> nine =
@@ -207,7 +209,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     Long owner = createUser("owner");
     Long stranger = createUser("stranger");
     ProjectResponse p = newProject(owner, "AT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () -> service.upload(stranger, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1}))))
@@ -222,7 +224,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "AT");
     projectService.addMember(owner, p.key(), new AddMemberRequest(memberA, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(memberB, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     // memberA 가 2개 첨부
     var attached =
@@ -253,7 +255,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
   void delete_alsoRemovesThumbnailAndViewCache() throws IOException {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "AT");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     Long fileId =
         service
             .upload(owner, p.key(), 1, List.of(mockFile("a.pdf", new byte[] {1})))
@@ -298,7 +300,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     Long owner = createUser("owner");
     Long reporter = createUser("reporter");
     ProjectResponse p = newOpenProject(owner, "OA");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, reporter);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, reporter);
 
     var added =
         service.upload(reporter, p.key(), 1, List.of(mockFile("photo.png", new byte[] {1, 2})));
@@ -318,7 +320,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     Long owner = createUser("owner");
     Long stranger = createUser("stranger");
     ProjectResponse p = newOpenProject(owner, "OB");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     Long fileId =
         service
             .upload(owner, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1})))
@@ -340,7 +342,7 @@ class IssueAttachmentServiceTest extends IntegrationTestBase {
     Long owner = createUser("owner");
     Long reporter = createUser("reporter");
     ProjectResponse p = newProject(owner, "TA");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, reporter);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, reporter);
     Long fileId =
         service
             .upload(owner, p.key(), 1, List.of(mockFile("a.txt", new byte[] {1})))

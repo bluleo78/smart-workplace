@@ -118,6 +118,24 @@ test.describe('설정 — 상태 섹션', () => {
     await expect(input).toHaveValue('보류')
   })
 
+  test('그새 같은 이름이 생겨 409 면 보드 편집기와 같은 중복 문구를 보인다', async ({ authenticatedPage: page }) => {
+    await setup(page)
+    // 다른 사람이 방금 같은 이름을 만든 경우 — 화면 목록엔 없어 서버가 409 로 거절한다.
+    await page.route('**/api/v1/projects/WP/statuses', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({ status: 409, json: { status: 409, message: '이미 존재하는 상태 이름입니다: 보류' } })
+        : route.fallback(),
+    )
+    await page.getByTestId('status-add-TODO').click()
+    const input = page.getByRole('textbox', { name: '새 상태 이름' })
+    await input.fill('보류')
+    await input.press('Enter')
+    // 이름은 바로 위 입력에 있으니 서버 문구의 「: 이름」을 되풀이하지 않는다(WP-937).
+    await expect(page.getByTestId('status-add-error')).toHaveText('이미 존재하는 상태 이름입니다')
+    await expect(input).toHaveValue('보류')
+    await expect(input).toBeFocused()
+  })
+
   test('편집 창으로 이름과 색을 바꾼다', async ({ authenticatedPage: page }) => {
     const mock = await setup(page)
     await openMenu(page, 12)

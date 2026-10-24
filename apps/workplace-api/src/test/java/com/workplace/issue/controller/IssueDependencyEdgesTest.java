@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -70,9 +71,12 @@ class IssueDependencyEdgesTest extends IntegrationTestBase {
     long userId = createUser("ea");
     String key = uniqueKey("EA");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    var a = issueRepository.insert(proj.id(), 1, "a", null, "MID", null, userId);
-    var b = issueRepository.insert(proj.id(), 2, "b", null, "MID", null, userId);
-    var c = issueRepository.insert(proj.id(), 3, "c", null, "MID", null, userId);
+    var a =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "a", null, "MID", null, userId);
+    var b =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 2, "b", null, "MID", null, userId);
+    var c =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 3, "c", null, "MID", null, userId);
     dependencyRepository.add(a.id(), b.id(), userId);
     dependencyRepository.add(b.id(), c.id(), userId);
 
@@ -102,9 +106,12 @@ class IssueDependencyEdgesTest extends IntegrationTestBase {
     long userId = createUser("eb");
     String key = uniqueKey("EB");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    var a = issueRepository.insert(proj.id(), 1, "a", null, "MID", null, userId);
-    var b = issueRepository.insert(proj.id(), 2, "b", null, "MID", null, userId);
-    var c = issueRepository.insert(proj.id(), 3, "c", null, "MID", null, userId);
+    var a =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "a", null, "MID", null, userId);
+    var b =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 2, "b", null, "MID", null, userId);
+    var c =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 3, "c", null, "MID", null, userId);
     dependencyRepository.add(a.id(), b.id(), userId);
     dependencyRepository.add(b.id(), c.id(), userId);
     issueRepository.softDelete(c.id(), Instant.now());

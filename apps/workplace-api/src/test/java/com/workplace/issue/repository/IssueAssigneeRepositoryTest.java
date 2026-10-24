@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -59,7 +60,8 @@ class IssueAssigneeRepositoryTest extends IntegrationTestBase {
     Long u1 = createUser("alpha");
     Long u2 = createUser("bravo");
     ProjectResponse p = newProject(owner, "IA1");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     repo.add(issue.id(), u1, owner);
     repo.add(issue.id(), u2, owner);
@@ -75,8 +77,10 @@ class IssueAssigneeRepositoryTest extends IntegrationTestBase {
     Long u1 = createUser("c1");
     Long u2 = createUser("c2");
     ProjectResponse p = newProject(owner, "IA2");
-    IssueRow i1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
-    IssueRow i2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
+    IssueRow i1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner);
+    IssueRow i2 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "t2", null, "MID", null, owner);
 
     repo.add(i1.id(), u1, owner);
     repo.add(i1.id(), u2, owner);
@@ -92,7 +96,8 @@ class IssueAssigneeRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("c");
     Long u1 = createUser("d1");
     ProjectResponse p = newProject(owner, "IA3");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     repo.add(issue.id(), u1, owner);
     assertThat(repo.findUserIdsByIssue(issue.id())).contains(u1);
 

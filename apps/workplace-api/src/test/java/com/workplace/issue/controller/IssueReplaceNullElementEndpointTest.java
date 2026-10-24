@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -60,7 +61,7 @@ class IssueReplaceNullElementEndpointTest extends IntegrationTestBase {
     TestFixtures.activeMemberOfCurrentTenant(dsl, userId);
     key = ("NE" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase()).substring(0, 6);
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
   }
 
   @ParameterizedTest

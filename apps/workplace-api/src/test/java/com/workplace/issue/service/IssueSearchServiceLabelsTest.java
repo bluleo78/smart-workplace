@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.service.LabelService;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -65,10 +66,12 @@ class IssueSearchServiceLabelsTest extends IntegrationTestBase {
     var bug = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
     var docs = labelService.create(owner, p.key(), new CreateLabelRequest("문서", "BLUE"));
 
-    issueRepository.insert(p.id(), 1, "with-both", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 2, "with-bug-only", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 3, "with-docs-only", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 4, "with-none", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "with-both", null, "MID", null, owner);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, p.id(), 2, "with-bug-only", null, "MID", null, owner);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, p.id(), 3, "with-docs-only", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 4, "with-none", null, "MID", null, owner);
 
     issueLabelService.replace(owner, p.key(), 1, List.of(bug.id(), docs.id()));
     issueLabelService.replace(owner, p.key(), 2, List.of(bug.id()));
@@ -86,7 +89,7 @@ class IssueSearchServiceLabelsTest extends IntegrationTestBase {
     Long owner = createUser("lb");
     ProjectResponse p = newProject(owner, "LBM");
     var bug = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     issueLabelService.replace(owner, p.key(), 1, List.of(bug.id()));
 
     var resp = searchService.search(owner, p.key(), Map.of());

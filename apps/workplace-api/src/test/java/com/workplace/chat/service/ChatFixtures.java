@@ -8,6 +8,7 @@ import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -107,9 +108,10 @@ public class ChatFixtures {
           memberRepository.insert(projectId, assignee, "MEMBER");
           memberRepository.insert(projectId, watcher, "MEMBER");
 
-          // TASK 타입을 자동 선택하는 7-인자 오버로드 사용.
+          // TASK 타입을 자동 선택하는 IssueSeeds.insert 사용.
           var issueRow =
-              issueRepository.insert(projectId, 1, "t-" + suffix, null, "MID", null, reporter);
+              IssueSeeds.insert(
+                  issueRepository, dsl, projectId, 1, "t-" + suffix, null, "MID", null, reporter);
           long issueId = issueRow.id();
 
           insertAssignee(issueId, assignee, reporter);

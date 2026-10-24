@@ -11,6 +11,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueAiSummaryRecord;
 import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -51,7 +52,9 @@ class IssueAiSummaryRepositoryTest extends IntegrationTestBase {
             .create(userId, new CreateProjectRequest(uniqueKey("AIS"), "AIS 테스트", "x"))
             .id();
     long issueId =
-        issueRepository.insert(projectId, 1, "요약 테스트 이슈", null, "MID", null, userId).id();
+        IssueSeeds.insert(
+                issueRepository, baseDsl, projectId, 1, "요약 테스트 이슈", null, "MID", null, userId)
+            .id();
 
     try {
       // 첫 번째 upsert
@@ -116,10 +119,18 @@ class IssueAiSummaryRepositoryTest extends IntegrationTestBase {
                       .create(ownerId, new CreateProjectRequest(projKey, "RLS AIS", "x"))
                       .id();
 
-              // issueRepository.insert 7-인자 오버로드(typeId 자동 fallback = TASK)
+              // 테스트 시드(typeId 자동 fallback = TASK)
               long issueId =
-                  issueRepository
-                      .insert(projId, 9001, "rls-ais-issue-" + suffix, null, "MID", null, ownerId)
+                  IssueSeeds.insert(
+                          issueRepository,
+                          baseDsl,
+                          projId,
+                          9001,
+                          "rls-ais-issue-" + suffix,
+                          null,
+                          "MID",
+                          null,
+                          ownerId)
                       .id();
 
               // tid2 GUC 에서 issue_ai_summary 삽입 — tenant_id 는 GUC DEFAULT

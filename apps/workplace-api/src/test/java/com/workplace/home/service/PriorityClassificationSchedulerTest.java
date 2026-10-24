@@ -23,6 +23,7 @@ import com.workplace.home.outbound.dto.PriorityClassifyResult;
 import com.workplace.home.repository.PriorityItemRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -125,7 +126,9 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     ProjectResponse proj =
         projectService.create(userId, new CreateProjectRequest(key, namePrefix + " 프로젝트", "x"));
     var issue =
-        issueRepository.insert(
+        IssueSeeds.insert(
+            issueRepository,
+            baseDsl,
             proj.id(),
             1,
             namePrefix + " 마감 지난 이슈",
@@ -225,8 +228,16 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
         projectService.create(userId, new CreateProjectRequest(key, "충돌 테스트 프로젝트", "x"));
     projectsToDelete.add(proj.id());
     var issue =
-        issueRepository.insert(
-            proj.id(), 1, "충돌 테스트 이슈", null, "MID", LocalDate.now().minusDays(1), userId);
+        IssueSeeds.insert(
+            issueRepository,
+            baseDsl,
+            proj.id(),
+            1,
+            "충돌 테스트 이슈",
+            null,
+            "MID",
+            LocalDate.now().minusDays(1),
+            userId);
     issueAssigneeRepository.add(issue.id(), userId, userId);
     long issueId = issue.id();
 

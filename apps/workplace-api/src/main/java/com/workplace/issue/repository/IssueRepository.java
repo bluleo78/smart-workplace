@@ -1,5 +1,7 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.issue.repository.IssueStatusProjection.STATUS_COLOR;
+import static com.workplace.issue.repository.IssueStatusProjection.STATUS_NAME;
 import static com.workplace.jooq.Tables.CHAT_MESSAGE;
 import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.CYCLE;
@@ -26,7 +28,6 @@ import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
-import com.workplace.issue.dto.ProjectStatusRow;
 import com.workplace.issue.repository.KeysetSeek.SeekKey;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -58,9 +59,6 @@ public class IssueRepository {
 
   private final DSLContext dsl;
 
-  /** WP-807: 범주만 받는 호환 경로에서 범주 기본 상태 id 를 정한다. */
-  private final ProjectStatusRepository projectStatusRepository;
-
   /**
    * 연결된 마일스톤 이름(스칼라 서브쿼리) — AI 도구가 update_issue 에 그대로 쓸 수 있게 응답에 이름을 싣는다(WP-307). 유형·라벨처럼 서버가 이름을
    * 주므로 클라이언트가 마일스톤 목록을 따로 조회하지 않는다. 조회·INSERT RETURNING 모두에서 평가된다.
@@ -86,14 +84,7 @@ public class IssueRepository {
    * inner JOIN 으로 바꿔 project_status 행까지 잠그면 상태 삭제(project_status 잠금 → issue UPDATE)와 잠금 순서가 반대가 되어
    * 교착될 수 있다.
    */
-  static final Table<?> ISSUE_WITH_STATUS =
-      ISSUE.leftJoin(PROJECT_STATUS).on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID));
-
-  /** 프로젝트 상태 이름 — {@link #ISSUE_WITH_STATUS} 조인 컬럼(WP-807 → WP-870). */
-  private static final Field<String> STATUS_NAME = PROJECT_STATUS.NAME.as("status_name");
-
-  /** 프로젝트 상태 색 토큰 — {@link #ISSUE_WITH_STATUS} 조인 컬럼(WP-870). */
-  private static final Field<String> STATUS_COLOR = PROJECT_STATUS.COLOR.as("status_color");
+  static final Table<?> ISSUE_WITH_STATUS = IssueStatusProjection.leftJoin(ISSUE);
 
   /**
    * {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. 같은 패키지의
@@ -269,128 +260,9 @@ public class IssueRepository {
   }
 
   /**
-   * 신규 이슈 INSERT 후 생성된 row 반환. status 는 DB default('TODO') 사용. 담당자는 별도 매핑(issue_assignee) 으로 관리.
-   * typeId 는 V10 이후 NOT NULL — 호출자가 결정(typically TASK fallback) 해서 전달. parentIssueId 는 SUBTASK 일 때만
-   * non-null (Phase 4a) — 부모-자식 정합성은 서비스 계층에서 가드. milestoneId 는 생성 시 지정(WP-356) — 같은 프로젝트 소속은 서비스가
-   * 검증한다.
-   */
-  public IssueRow insert(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId,
-      Long typeId,
-      Long parentIssueId,
-      LocalDate startDate,
-      Long milestoneId) {
-    return insert(
-        projectId,
-        number,
-        title,
-        body,
-        priority,
-        dueDate,
-        reporterId,
-        typeId,
-        parentIssueId,
-        startDate,
-        milestoneId,
-        null);
-  }
-
-  /**
-   * 처음 상태(범주)만 지정해 INSERT(WP-464) — 테스트 시드·예전 호출 호환 경로. status 가 null 이면 할 일. status_id 는 그 범주의 기본
-   * 상태(가장 앞)로 자바에서 정해 상태 id 오버로드에 맡긴다 — DB 동기화 트리거(V204 (c))에 기대지 않아 트리거를 지워도 그대로 동작한다.
-   */
-  public IssueRow insert(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId,
-      Long typeId,
-      Long parentIssueId,
-      LocalDate startDate,
-      Long milestoneId,
-      String status) {
-    String category = status != null ? status : IssueStatuses.TODO;
-    return insert(
-        projectId,
-        number,
-        title,
-        body,
-        priority,
-        dueDate,
-        reporterId,
-        typeId,
-        parentIssueId,
-        startDate,
-        milestoneId,
-        category,
-        defaultStatusId(projectId, category));
-  }
-
-  /** 범주의 기본 상태 id(WP-807) — 범주만 받는 호환 경로가 status_id 를 정할 때 쓴다. */
-  private long defaultStatusId(Long projectId, String category) {
-    return projectStatusRepository
-        .findDefault(projectId, category)
-        .orElseThrow(() -> new IllegalStateException("프로젝트에 " + category + " 범주 상태가 없음"))
-        .id();
-  }
-
-  /**
-   * 처음 상태를 범주·프로젝트 상태 id 로 지정해 INSERT(WP-807) — 이름·색·마일스톤 이름을 모르는 호환 경로(테스트 시드 등). 상태 행과 마일스톤 이름을
-   * 읽어 {@link #insert(Long, int, String, String, String, LocalDate, Long, Long, Long, LocalDate,
-   * Long, String, long, String, String, String) 이름을 받는 오버로드}에 맡긴다.
-   */
-  public IssueRow insert(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId,
-      Long typeId,
-      Long parentIssueId,
-      LocalDate startDate,
-      Long milestoneId,
-      String status,
-      long statusId) {
-    var statusRow = projectStatusRepository.findById(statusId);
-    String milestoneName =
-        milestoneId == null
-            ? null
-            : dsl.select(MILESTONE.NAME)
-                .from(MILESTONE)
-                .where(MILESTONE.ID.eq(milestoneId))
-                .fetchOne(MILESTONE.NAME);
-    return insert(
-        projectId,
-        number,
-        title,
-        body,
-        priority,
-        dueDate,
-        reporterId,
-        typeId,
-        parentIssueId,
-        startDate,
-        milestoneId,
-        status,
-        statusId,
-        statusRow.map(ProjectStatusRow::name).orElse(null),
-        statusRow.map(ProjectStatusRow::color).orElse(null),
-        milestoneName);
-  }
-
-  /**
-   * 처음 상태를 범주·프로젝트 상태 id 로 지정해 INSERT(WP-807). 둘은 같은 상태를 가리켜야 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE·
+   * 신규 이슈 INSERT 후 생성된 row 반환 — 운영 코드의 유일한 생성 경로다(범주만 받던 호환 오버로드는 테스트 IssueSeeds 로 옮김, WP-937).
+   * 담당자는 별도 매핑(issue_assignee). typeId 는 호출자가 정하고, parentIssueId 는 SUBTASK 일 때만 non-null 이며 정합성은
+   * 서비스가 가드한다. 처음 상태를 범주·프로젝트 상태 id 로 지정한다(WP-807). 둘은 같은 상태를 가리켜야 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE·
    * CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
    *
    * <p>INSERT RETURNING 은 테이블 컬럼만 돌려줘 조인 컬럼(상태 이름·색)과 마일스톤 이름이 빠진다 — 호출자가 이미 검증하며 읽은 상태 이름·색과 마일스톤
@@ -459,118 +331,6 @@ public class IssueRepository {
         inserted.statusId(),
         statusName,
         statusColor);
-  }
-
-  /** 10-인자 호환 오버로드 — 마일스톤 없이 생성(WP-356 이전 호출부). */
-  public IssueRow insert(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId,
-      Long typeId,
-      Long parentIssueId,
-      LocalDate startDate) {
-    return insert(
-        projectId,
-        number,
-        title,
-        body,
-        priority,
-        dueDate,
-        reporterId,
-        typeId,
-        parentIssueId,
-        startDate,
-        null);
-  }
-
-  /**
-   * 8-인자 호환 오버로드 — Phase 27 도입. parentIssueId/startDate 는 null 로 위임. 비SUBTASK 이슈 시드용 서비스 경로에서 사용.
-   */
-  public IssueRow insert(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId,
-      Long typeId) {
-    return insert(
-        projectId, number, title, body, priority, dueDate, reporterId, typeId, null, null);
-  }
-
-  /** 9-인자 호환 오버로드 — Phase 5(타임라인) 도입. startDate 는 null 로 위임. */
-  public IssueRow insert(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId,
-      Long typeId,
-      Long parentIssueId) {
-    return insert(
-        projectId, number, title, body, priority, dueDate, reporterId, typeId, parentIssueId, null);
-  }
-
-  /**
-   * 테스트 편의 오버로드 — typeId 미지정 시 프로젝트의 TASK 시스템 유형으로 자동 fallback. 프로덕션 서비스 코드는 8/9-인자 변형을 직접 호출. 이
-   * 오버로드는 신규 type 컬럼 추가 후 다수 테스트 시드의 마이그레이션 비용을 줄이기 위한 호환층.
-   */
-  public IssueRow insert(
-      Long projectId,
-      int number,
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      Long reporterId) {
-    Long taskTypeId =
-        dsl.select(ISSUE_TYPE_DEF.ID)
-            .from(ISSUE_TYPE_DEF)
-            .where(ISSUE_TYPE_DEF.PROJECT_ID.eq(projectId).and(ISSUE_TYPE_DEF.NAME.eq("TASK")))
-            .fetchOptional(ISSUE_TYPE_DEF.ID)
-            .orElseThrow(
-                () -> new IllegalStateException("프로젝트에 TASK 유형이 없음: projectId=" + projectId));
-    return insert(
-        projectId, number, title, body, priority, dueDate, reporterId, taskTypeId, null, null);
-  }
-
-  /**
-   * 모든 변경 가능 필드 일괄 갱신 — 상태 id 없이 범주만 쓰는 테스트 시드용 호환 경로. 이미 그 범주면 지금 상태를 유지하고, 아니면 그 범주의 기본 상태로
-   * 간다(WP-807) — 상태 id 를 자바에서 정해 DB 동기화 트리거(V204 (c))에 기대지 않는다.
-   */
-  public void updateAll(
-      Long id,
-      String title,
-      String body,
-      String status,
-      String priority,
-      LocalDate dueDate,
-      LocalDate startDate,
-      Long milestoneId,
-      java.time.Instant closedAt) {
-    // 범주는 필수다 — null 이면 아래 비교가 NPE 로, 기본 상태 조회가 「null 범주」 오류로 새지 않게 이유를 밝혀 거절한다
-    if (status == null) {
-      throw new IllegalArgumentException("updateAll: 상태 범주(status)는 null 일 수 없습니다: issue " + id);
-    }
-    var current =
-        dsl.select(ISSUE.PROJECT_ID, ISSUE.STATUS, ISSUE.STATUS_ID)
-            .from(ISSUE)
-            .where(ISSUE.ID.eq(id))
-            .fetchOptional()
-            .orElseThrow(() -> new IllegalStateException("이슈 없음: " + id));
-    long statusId =
-        status.equals(current.value2())
-            ? current.value3()
-            : defaultStatusId(current.value1(), status);
-    updateAll(
-        id, title, body, status, statusId, priority, dueDate, startDate, milestoneId, closedAt);
   }
 
   /**
@@ -1496,25 +1256,25 @@ public class IssueRepository {
     var p = ISSUE.as("p");
     Map<Long, ParentRef> result = new HashMap<>();
     dsl.select(
-            ISSUE.ID,
-            p.NUMBER,
-            p.TITLE,
-            p.STATUS,
-            ISSUE_TYPE_DEF.ID,
-            ISSUE_TYPE_DEF.NAME,
-            ISSUE_TYPE_DEF.COLOR_TOKEN,
-            ISSUE_TYPE_DEF.ICON,
-            p.STATUS_ID,
-            PROJECT_STATUS.NAME,
-            PROJECT_STATUS.COLOR)
-        .from(ISSUE)
-        .join(p)
-        .on(p.ID.eq(ISSUE.PARENT_ISSUE_ID))
-        .join(ISSUE_TYPE_DEF)
-        .on(ISSUE_TYPE_DEF.ID.eq(p.TYPE_ID))
-        // 부모의 사용자 정의 상태 이름·색(WP-869) — 별칭 p 기준, status_id 가 비어도 행은 남게 LEFT JOIN
-        .leftJoin(PROJECT_STATUS)
-        .on(PROJECT_STATUS.ID.eq(p.STATUS_ID))
+            IssueStatusProjection.withFields(
+                p,
+                ISSUE.ID,
+                p.NUMBER,
+                p.TITLE,
+                p.STATUS,
+                ISSUE_TYPE_DEF.ID,
+                ISSUE_TYPE_DEF.NAME,
+                ISSUE_TYPE_DEF.COLOR_TOKEN,
+                ISSUE_TYPE_DEF.ICON))
+        // 부모의 사용자 정의 상태 이름·색(WP-869) — 별칭 p 기준 공용 LEFT JOIN(WP-937)
+        .from(
+            IssueStatusProjection.leftJoin(
+                ISSUE
+                    .join(p)
+                    .on(p.ID.eq(ISSUE.PARENT_ISSUE_ID))
+                    .join(ISSUE_TYPE_DEF)
+                    .on(ISSUE_TYPE_DEF.ID.eq(p.TYPE_ID)),
+                p))
         .where(ISSUE.ID.in(issueIds).and(ISSUE.PARENT_ISSUE_ID.isNotNull()))
         .fetch()
         .forEach(
@@ -1532,8 +1292,8 @@ public class IssueRepository {
                         // 부모 상태 — 부모 행이 응답에 없어도 하위만으로 부모 취소 여부를 판단하게(WP-247)
                         r.get(p.STATUS),
                         r.get(p.STATUS_ID),
-                        r.get(PROJECT_STATUS.NAME),
-                        r.get(PROJECT_STATUS.COLOR))));
+                        r.get(STATUS_NAME),
+                        r.get(STATUS_COLOR))));
     return result;
   }
 

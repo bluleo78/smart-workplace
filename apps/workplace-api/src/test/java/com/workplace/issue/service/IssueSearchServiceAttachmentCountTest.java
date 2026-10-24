@@ -10,6 +10,7 @@ import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -73,8 +74,10 @@ class IssueSearchServiceAttachmentCountTest extends IntegrationTestBase {
     Long owner = createUser("o");
     ProjectResponse p =
         projectService.create(owner, new CreateProjectRequest(uniqueKey("AC"), "P", "x"));
-    IssueRow i1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
-    IssueRow i2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
+    IssueRow i1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner);
+    IssueRow i2 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "t2", null, "MID", null, owner);
 
     // i1 에 첨부 3개
     for (int i = 0; i < 3; i++) {

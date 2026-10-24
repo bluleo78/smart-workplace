@@ -24,6 +24,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.exception.AttachmentNotFoundException;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -119,7 +120,8 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
   /** 프로젝트의 다음 번호로 이슈 생성 — 프로젝트 안 번호를 돌려준다. */
   private int createIssue(Long projectId, Long reporter) {
     int number = 1;
-    issueRepository.insert(projectId, number, "t", null, "MID", null, reporter);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, number, "t", null, "MID", null, reporter);
     return number;
   }
 
@@ -213,7 +215,7 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
   @Test
   void 다른_이슈의_fileId_는_404() {
     long fileId = uploadPdf();
-    issueRepository.insert(projectId, 2, "t2", null, "MID", null, ownerId);
+    IssueSeeds.insert(issueRepository, baseDsl, projectId, 2, "t2", null, "MID", null, ownerId);
     assertThatThrownBy(() -> service.readText(ownerId, projectKey, 2, fileId, 0, 10))
         .isInstanceOf(AttachmentNotFoundException.class);
     assertThatThrownBy(
@@ -272,7 +274,7 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
   @Test
   void view_는_다른_이슈의_fileId_를_404_로_막는다() throws Exception {
     long fileId = uploadPdf();
-    issueRepository.insert(projectId, 2, "t2", null, "MID", null, ownerId);
+    IssueSeeds.insert(issueRepository, baseDsl, projectId, 2, "t2", null, "MID", null, ownerId);
     mvc.perform(
             get(viewUrl(projectKey, 2, fileId))
                 .param("page", "1")

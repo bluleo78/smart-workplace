@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -37,7 +38,8 @@ class IssueDetailReporterTest extends IntegrationTestBase {
     String projKey = uniqueKey("REPH");
     long projectId =
         projectService.create(userId, new CreateProjectRequest(projKey, "Reporter H", "x")).id();
-    issueRepository.insert(projectId, 1, "사람이 만든 이슈", null, "MID", null, userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, 1, "사람이 만든 이슈", null, "MID", null, userId);
 
     var detail = issueService.get(userId, projKey, 1);
 
@@ -57,7 +59,8 @@ class IssueDetailReporterTest extends IntegrationTestBase {
     String projKey = uniqueKey("REPA");
     long projectId =
         projectService.create(viewerId, new CreateProjectRequest(projKey, "Reporter A", "x")).id();
-    issueRepository.insert(projectId, 1, "AI 가 만든 이슈", null, "MID", null, agentId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, 1, "AI 가 만든 이슈", null, "MID", null, agentId);
 
     var detail = issueService.get(viewerId, projKey, 1);
 

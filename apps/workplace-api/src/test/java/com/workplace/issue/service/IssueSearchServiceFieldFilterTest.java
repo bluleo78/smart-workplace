@@ -10,6 +10,7 @@ import com.workplace.issue.dto.CreateIssueFieldDefRequest;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest.FieldValueInput;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -66,8 +67,8 @@ class IssueSearchServiceFieldFilterTest extends IntegrationTestBase {
     Long owner = createUser("a");
     var p = newProject(owner, "SFA");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("n", "NUMBER", null));
-    issueRepository.insert(p.id(), 1, "match", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 2, "no-match", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "match", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "no-match", null, "MID", null, owner);
     valueService.replace(
         owner,
         p.key(),
@@ -92,8 +93,8 @@ class IssueSearchServiceFieldFilterTest extends IntegrationTestBase {
     Long owner = createUser("b");
     var p = newProject(owner, "SFB");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
-    issueRepository.insert(p.id(), 1, "a", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 2, "b", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "a", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "b", null, "MID", null, owner);
     valueService.replace(
         owner,
         p.key(),
@@ -119,7 +120,7 @@ class IssueSearchServiceFieldFilterTest extends IntegrationTestBase {
     Long owner = createUser("d");
     var p = newProject(owner, "SFD");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
-    issueRepository.insert(p.id(), 1, "i1", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "i1", null, "MID", null, owner);
     valueService.replace(
         owner,
         p.key(),
@@ -143,7 +144,7 @@ class IssueSearchServiceFieldFilterTest extends IntegrationTestBase {
     var p = newProject(owner, "SFC");
     var d1 = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("a", "TEXT", null));
     var d2 = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("b", "TEXT", null));
-    issueRepository.insert(p.id(), 1, "i1", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "i1", null, "MID", null, owner);
     valueService.replace(
         owner,
         p.key(),

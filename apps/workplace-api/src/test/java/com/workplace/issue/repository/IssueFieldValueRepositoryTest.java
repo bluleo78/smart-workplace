@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -60,7 +61,8 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("a");
     var p = newProject(owner, "FVA");
     var def = defRepo.insert(p.id(), "메모", "TEXT", null, 0);
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree("hello"));
     var map = valueRepo.findValuesByIssue(issue.id());
@@ -74,7 +76,8 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("b");
     var p = newProject(owner, "FVB");
     var def = defRepo.insert(p.id(), "n", "NUMBER", null, 0);
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree(1));
 
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree(2));
@@ -87,7 +90,8 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("c");
     var p = newProject(owner, "FVC");
     var def = defRepo.insert(p.id(), "x", "TEXT", null, 0);
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     valueRepo.upsert(issue.id(), def.id(), om.valueToTree("x"));
 
     valueRepo.delete(issue.id(), def.id());
@@ -101,8 +105,10 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
     var p = newProject(owner, "FVD");
     var def1 = defRepo.insert(p.id(), "a", "TEXT", null, 0);
     var def2 = defRepo.insert(p.id(), "b", "NUMBER", null, 1);
-    var issue1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
-    var issue2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
+    var issue1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner);
+    var issue2 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "t2", null, "MID", null, owner);
     valueRepo.upsert(issue1.id(), def1.id(), om.valueToTree("v1"));
     valueRepo.upsert(issue1.id(), def2.id(), om.valueToTree(10));
     valueRepo.upsert(issue2.id(), def1.id(), om.valueToTree("v2"));
@@ -120,8 +126,8 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("e");
     var p = newProject(owner, "FVE");
     var def = defRepo.insert(p.id(), "x", "TEXT", null, 0);
-    var i1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
-    var i2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
+    var i1 = IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner);
+    var i2 = IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "t2", null, "MID", null, owner);
     valueRepo.upsert(i1.id(), def.id(), om.valueToTree("a"));
     valueRepo.upsert(i2.id(), def.id(), om.valueToTree("b"));
 
@@ -134,8 +140,8 @@ class IssueFieldValueRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("f");
     var p = newProject(owner, "FVF");
     var def = defRepo.insert(p.id(), "x", "TEXT", null, 0);
-    var i1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
-    var i2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
+    var i1 = IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner);
+    var i2 = IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "t2", null, "MID", null, owner);
     valueRepo.upsert(i1.id(), def.id(), om.valueToTree("a"));
     valueRepo.upsert(i2.id(), def.id(), om.valueToTree("b"));
     issueRepository.softDelete(i2.id(), java.time.Instant.now());

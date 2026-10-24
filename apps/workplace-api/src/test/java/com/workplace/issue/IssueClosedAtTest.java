@@ -12,6 +12,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueCommentService;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -65,7 +66,7 @@ class IssueClosedAtTest extends IntegrationTestBase {
   /** 종료 상태로 바꾸면 closedAt 이 채워지고, 재오픈하면 null 로 돌아간다 — 상세·목록 응답 모두. */
   @Test
   void closedAt_setOnDone_clearedOnReopen() {
-    issueRepository.insert(projectId, 1, "완료될 이슈", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, projectId, 1, "완료될 이슈", null, "MID", null, userId);
 
     var done = issueService.updateStatus(userId, projKey, 1, "DONE");
     assertThat(done.summary().closedAt()).isNotNull();
@@ -79,7 +80,7 @@ class IssueClosedAtTest extends IntegrationTestBase {
   /** 취소도 종료 상태라 closedAt 이 채워진다 — 완료/취소 구분은 status 로 한다. */
   @Test
   void closedAt_setOnCanceled() {
-    issueRepository.insert(projectId, 1, "취소될 이슈", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, projectId, 1, "취소될 이슈", null, "MID", null, userId);
 
     var canceled = issueService.updateStatus(userId, projKey, 1, "CANCELED");
 
@@ -95,7 +96,7 @@ class IssueClosedAtTest extends IntegrationTestBase {
     // KST 10-07 23:59 종료 — 10-07 에 속한다.
     long prevDay = insertClosed(2, "2026-10-07T23:59:00+09:00");
     // 미종료 — 종료일 필터에서 항상 빠진다.
-    issueRepository.insert(projectId, 3, "열린 이슈", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, projectId, 3, "열린 이슈", null, "MID", null, userId);
 
     var oct8 =
         searchService.search(
@@ -109,8 +110,12 @@ class IssueClosedAtTest extends IntegrationTestBase {
   /** createdFrom/createdTo 도 같은 규칙 — 횡단(/me/issues) 경로에서도 적용된다. */
   @Test
   void createdRange_appliesOnCrossProjectSearch() {
-    long oldIssue = issueRepository.insert(projectId, 1, "옛 이슈", null, "MID", null, userId).id();
-    long newIssue = issueRepository.insert(projectId, 2, "새 이슈", null, "MID", null, userId).id();
+    long oldIssue =
+        IssueSeeds.insert(issueRepository, baseDsl, projectId, 1, "옛 이슈", null, "MID", null, userId)
+            .id();
+    long newIssue =
+        IssueSeeds.insert(issueRepository, baseDsl, projectId, 2, "새 이슈", null, "MID", null, userId)
+            .id();
     setCreatedAt(oldIssue, "2026-09-01T10:00:00+09:00");
     setCreatedAt(newIssue, "2026-10-08T01:00:00+09:00");
 
@@ -123,7 +128,10 @@ class IssueClosedAtTest extends IntegrationTestBase {
   /** 코멘트·이력 응답이 작성자 username 을 싣는다 — AI 도구가 표시 이름 대신 쓰는 식별자(WP-307). */
   @Test
   void commentAndHistory_carryAuthorUsername() {
-    long issueId = issueRepository.insert(projectId, 1, "작성자 확인", null, "MID", null, userId).id();
+    long issueId =
+        IssueSeeds.insert(
+                issueRepository, baseDsl, projectId, 1, "작성자 확인", null, "MID", null, userId)
+            .id();
     String username =
         baseDsl.select(USER.USERNAME).from(USER).where(USER.ID.eq(userId)).fetchOne(USER.USERNAME);
 
@@ -138,8 +146,11 @@ class IssueClosedAtTest extends IntegrationTestBase {
   /** 마일스톤이 연결되면 응답에 이름이 함께 실린다(목록·상세) — AI 도구가 목록을 따로 조회하지 않는다(WP-307). */
   @Test
   void milestoneName_includedInListAndDetail() {
-    long issueId = issueRepository.insert(projectId, 1, "마일스톤 이슈", null, "MID", null, userId).id();
-    issueRepository.insert(projectId, 2, "마일스톤 없음", null, "MID", null, userId);
+    long issueId =
+        IssueSeeds.insert(
+                issueRepository, baseDsl, projectId, 1, "마일스톤 이슈", null, "MID", null, userId)
+            .id();
+    IssueSeeds.insert(issueRepository, baseDsl, projectId, 2, "마일스톤 없음", null, "MID", null, userId);
     Long milestoneId =
         baseDsl
             .insertInto(MILESTONE)
@@ -168,7 +179,17 @@ class IssueClosedAtTest extends IntegrationTestBase {
   /** DONE 상태 + 지정 종료 시각 이슈 삽입(시각 고정을 위해 서비스 전이 대신 직접 갱신). */
   private long insertClosed(int number, String closedAt) {
     long id =
-        issueRepository.insert(projectId, number, "종료 " + number, null, "MID", null, userId).id();
+        IssueSeeds.insert(
+                issueRepository,
+                baseDsl,
+                projectId,
+                number,
+                "종료 " + number,
+                null,
+                "MID",
+                null,
+                userId)
+            .id();
     baseDsl
         .update(ISSUE)
         .set(ISSUE.STATUS, "DONE")

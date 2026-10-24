@@ -25,6 +25,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueCommentService;
 import com.workplace.issue.service.IssueFieldDefService;
 import com.workplace.issue.service.IssueTypeService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.exception.LabelNotFoundException;
 import com.workplace.label.service.LabelService;
@@ -195,7 +196,9 @@ class UpdateDeleteRaceNotFoundTest extends IntegrationTestBase {
 
   @Test
   void 댓글() throws Exception {
-    long issueId = issueRepository.insert(projectId, 1, "t", null, "MID", null, owner).id();
+    long issueId =
+        IssueSeeds.insert(issueRepository, baseDsl, projectId, 1, "t", null, "MID", null, owner)
+            .id();
     long id = commentService.create(owner, issueId, new CreateCommentRequest("c")).id();
     Object r =
         race(

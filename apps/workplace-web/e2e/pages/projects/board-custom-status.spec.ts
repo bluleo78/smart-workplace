@@ -10,6 +10,7 @@ import { mockApi } from '../../fixtures/api-mock';
 import { mockProjectSettings } from '../../fixtures/project-settings-mocks';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { pressMacChromeImeEnter } from '../../fixtures/ime';
 import { dropDnd, expectStays } from '../../fixtures/wait';
 import type { IssueResponse } from '../../../src/types/issue';
 import type { ProjectStatus } from '../../../src/types/projectStatus';
@@ -332,6 +333,22 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     // 입력은 그대로 남고 포커스가 돌아와 바로 고칠 수 있다.
     await expect(page.getByTestId('status-name-input')).toHaveValue('검토 중');
     await expect(page.getByTestId('status-name-input')).toBeFocused();
+  });
+
+  test('한글 조합 중 Enter 는 저장하지 않고, 확정 뒤 Enter 로 저장한다', async ({ authenticatedPage: page }) => {
+    await stubBoard(page);
+    const posts = trackRequests(page, 'POST', STATUSES_PATH);
+    await page.goto(`/projects/${KEY}?view=board`);
+
+    await page.getByTestId('board-band-add-IN_PROGRESS').click();
+    const input = page.getByTestId('status-name-input');
+    await input.fill('검토');
+    // 조합 Enter(isComposing)·꼬리 Enter 는 글자 확정용 — 설정 추가 폼과 같이 저장으로 보지 않는다(WP-937).
+    await pressMacChromeImeEnter(input, '토');
+    await expectStays(page, posts.count, 0);
+    await expect(input).toHaveValue('검토');
+    await input.press('Enter');
+    await expect.poll(() => posts.lastBody()).toEqual({ name: '검토', category: 'IN_PROGRESS' });
   });
 
   test('31자 이름은 저장하지 않고 오류를 보인다', async ({ authenticatedPage: page }) => {

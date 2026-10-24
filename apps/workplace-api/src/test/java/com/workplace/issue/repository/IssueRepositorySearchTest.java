@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueSearchQuery;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.milestone.repository.MilestoneRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -66,8 +67,10 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   @Test
   void empty_filters_returns_all_active_by_updated_desc() {
     var s = seed("a");
-    issueRepository.insert(s.projectId, 1, "first", null, "MID", null, s.userId);
-    issueRepository.insert(s.projectId, 2, "second", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 1, "first", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 2, "second", null, "MID", null, s.userId);
 
     var result =
         issueRepository.search(
@@ -84,9 +87,20 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   @Test
   void q_matches_title_or_body_ilike() {
     var s = seed("b");
-    issueRepository.insert(s.projectId, 1, "Login bug", "auth", "MID", null, s.userId);
-    issueRepository.insert(s.projectId, 2, "Other", "needs LOGIN flow", "MID", null, s.userId);
-    issueRepository.insert(s.projectId, 3, "Unrelated", "nothing", "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 1, "Login bug", "auth", "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository,
+        baseDsl,
+        s.projectId,
+        2,
+        "Other",
+        "needs LOGIN flow",
+        "MID",
+        null,
+        s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 3, "Unrelated", "nothing", "MID", null, s.userId);
 
     var result =
         issueRepository.search(
@@ -104,10 +118,14 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   @Test
   void q_treats_like_wildcards_literally() {
     var s = seed("w");
-    issueRepository.insert(s.projectId, 1, "100% 완료", null, "MID", null, s.userId);
-    issueRepository.insert(s.projectId, 2, "snake_case 이름", null, "MID", null, s.userId);
-    issueRepository.insert(s.projectId, 3, "C:\\temp 경로", null, "MID", null, s.userId);
-    issueRepository.insert(s.projectId, 4, "평범한 제목", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 1, "100% 완료", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 2, "snake_case 이름", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 3, "C:\\temp 경로", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 4, "평범한 제목", null, "MID", null, s.userId);
 
     assertThat(searchTitles(s, "%")).containsExactly("100% 완료");
     assertThat(searchTitles(s, "_")).containsExactly("snake_case 이름");
@@ -134,11 +152,25 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   @Test
   void status_csv_or_matching() {
     var s = seed("c");
-    issueRepository.insert(s.projectId, 1, "todo", null, "MID", null, s.userId);
-    var inProgRow = issueRepository.insert(s.projectId, 2, "inprog", null, "MID", null, s.userId);
-    issueRepository.updateAll(
-        inProgRow.id(), "inprog", null, "IN_PROGRESS", "MID", null, null, null, null);
-    issueRepository.insert(s.projectId, 3, "todo2", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 1, "todo", null, "MID", null, s.userId);
+    var inProgRow =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, s.projectId, 2, "inprog", null, "MID", null, s.userId);
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
+        inProgRow.id(),
+        "inprog",
+        null,
+        "IN_PROGRESS",
+        "MID",
+        null,
+        null,
+        null,
+        null);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 3, "todo2", null, "MID", null, s.userId);
 
     var result =
         issueRepository.search(
@@ -180,9 +212,11 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   @Test
   void include_unassigned_matches_null_assignee() {
     var s = seed("d");
-    issueRepository.insert(s.projectId, 1, "unassigned", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 1, "unassigned", null, "MID", null, s.userId);
     var assignedRow =
-        issueRepository.insert(s.projectId, 2, "assigned", null, "MID", null, s.userId);
+        IssueSeeds.insert(
+            issueRepository, baseDsl, s.projectId, 2, "assigned", null, "MID", null, s.userId);
     issueAssigneeRepository.add(assignedRow.id(), s.userId, s.userId);
 
     var result =
@@ -201,11 +235,16 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   void assignee_ids_or_includes_unassigned() {
     var s = seed("e");
     Long other = createUser("other-e");
-    var byme = issueRepository.insert(s.projectId, 1, "byme", null, "MID", null, s.userId);
+    var byme =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, s.projectId, 1, "byme", null, "MID", null, s.userId);
     issueAssigneeRepository.add(byme.id(), s.userId, s.userId);
-    var byother = issueRepository.insert(s.projectId, 2, "byother", null, "MID", null, s.userId);
+    var byother =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, s.projectId, 2, "byother", null, "MID", null, s.userId);
     issueAssigneeRepository.add(byother.id(), other, s.userId);
-    issueRepository.insert(s.projectId, 3, "unassigned", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 3, "unassigned", null, "MID", null, s.userId);
 
     var result =
         issueRepository.search(
@@ -247,12 +286,36 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   @Test
   void due_range_inclusive() {
     var s = seed("f");
-    issueRepository.insert(
-        s.projectId, 1, "before", null, "MID", LocalDate.parse("2026-05-01"), s.userId);
-    issueRepository.insert(
-        s.projectId, 2, "in", null, "MID", LocalDate.parse("2026-05-15"), s.userId);
-    issueRepository.insert(
-        s.projectId, 3, "after", null, "MID", LocalDate.parse("2026-06-01"), s.userId);
+    IssueSeeds.insert(
+        issueRepository,
+        baseDsl,
+        s.projectId,
+        1,
+        "before",
+        null,
+        "MID",
+        LocalDate.parse("2026-05-01"),
+        s.userId);
+    IssueSeeds.insert(
+        issueRepository,
+        baseDsl,
+        s.projectId,
+        2,
+        "in",
+        null,
+        "MID",
+        LocalDate.parse("2026-05-15"),
+        s.userId);
+    IssueSeeds.insert(
+        issueRepository,
+        baseDsl,
+        s.projectId,
+        3,
+        "after",
+        null,
+        "MID",
+        LocalDate.parse("2026-06-01"),
+        s.userId);
 
     var result =
         issueRepository.search(
@@ -295,7 +358,8 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
   void cursor_paging_continues_after_first_page() {
     var s = seed("g");
     for (int i = 1; i <= 5; i++) {
-      issueRepository.insert(s.projectId, i, "n" + i, null, "MID", null, s.userId);
+      IssueSeeds.insert(
+          issueRepository, baseDsl, s.projectId, i, "n" + i, null, "MID", null, s.userId);
     }
 
     var page1 =
@@ -326,10 +390,17 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
     var s = seed("h");
     var m1 = milestoneRepository.insert(s.projectId, "M1", LocalDate.parse("2026-08-01"), null);
     var m2 = milestoneRepository.insert(s.projectId, "M2", LocalDate.parse("2026-09-01"), null);
-    var i1 = issueRepository.insert(s.projectId, 1, "in-m1", null, "MID", null, s.userId);
-    var i2 = issueRepository.insert(s.projectId, 2, "in-m2", null, "MID", null, s.userId);
-    issueRepository.insert(s.projectId, 3, "no-milestone", null, "MID", null, s.userId);
-    issueRepository.updateAll(
+    var i1 =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, s.projectId, 1, "in-m1", null, "MID", null, s.userId);
+    var i2 =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, s.projectId, 2, "in-m2", null, "MID", null, s.userId);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, s.projectId, 3, "no-milestone", null, "MID", null, s.userId);
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
         i1.id(),
         i1.title(),
         i1.body(),
@@ -339,7 +410,9 @@ class IssueRepositorySearchTest extends IntegrationTestBase {
         null,
         m1.id(),
         null);
-    issueRepository.updateAll(
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
         i2.id(),
         i2.title(),
         i2.body(),

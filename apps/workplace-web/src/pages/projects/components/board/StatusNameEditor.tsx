@@ -1,14 +1,14 @@
 // 상태 이름 입력기(WP-808) — 보드 범주 띠 ＋·헤더 ⋯ 「이 뒤에 상태 추가」(팝오버)와 헤더 인라인 이름 변경,
 // 모바일 탭 ⋯ 바텀시트(MobileStatusSheet)가 같이 쓴다.
 // 오류는 토스트가 아니라 입력 바로 아래에 보인다 — 클라이언트 검증(빈 이름·30자·중복) 뒤 서버 오류(409 동시 중복 등)도 같은 자리.
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { extractApiError, isConflictError } from '@/lib/api-error';
-import { STATUS_NAME_DUPLICATED, validateStatusName } from '@/lib/projectStatuses';
 import { cn } from '@/lib/utils';
 import type { ProjectStatus } from '@/types/projectStatus';
+
+import { useStatusNameForm } from '../status/useStatusNameForm';
 
 export function StatusNameEditor({
   initial = '',
@@ -24,7 +24,7 @@ export function StatusNameEditor({
   initial?: string;
   // 중복 검사 대상 — 이 프로젝트의 상태 목록.
   statuses: ProjectStatus[];
-  // 이름을 바꾸는 상태 자신(중복 비교에서 뺀다).
+  // 이름을 바꾸는 상태 자신(중복 비교에서 뺀다). 없으면 새 상태 — 상한(20)도 검사한다.
   excludeId?: number;
   // 앞뒤 공백을 뺀 이름으로 저장한다. 실패(reject)하면 서버 문구를 입력 아래에 보이고 입력을 유지한다.
   onSubmit: (name: string) => Promise<void>;
@@ -37,12 +37,16 @@ export function StatusNameEditor({
   touch?: boolean;
   className?: string;
 }) {
-  const [value, setValue] = useState(initial);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  // 검증·Enter(한글 조합 가드)·Esc·서버 오류 문구는 설정 추가 입력 줄과 같은 흐름(WP-937).
+  // 바뀌지 않은 이름(이름 변경)은 요청 없이 닫는다.
+  // 실패 문구는 설정 추가 폼(「상태를 만들지 못했어요」)과 같은 해요체 — 새 상태면 만들기, 이름 변경이면 저장.
+  const form = useStatusNameForm({
+    initial, statuses, excludeId, onSubmit, onCancel,
+    failMessage: excludeId == null ? '상태를 만들지 못했어요' : '상태를 저장하지 못했어요',
+  });
+  const { error, saving } = form;
   // 오류 문구 id — 인라인 편집과 팝오버가 동시에 떠 있어도 겹치지 않게 인스턴스마다 고유.
   const errorId = useId();
-  const inputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   // 인라인 편집의 바깥 누르기 = 취소. 포커스(blur) 대신 포인터로 본다 — 메뉴가 닫히며 포커스를 옮기는 순간 닫히지 않게.
@@ -56,52 +60,25 @@ export function StatusNameEditor({
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [inline, saving, onCancel]);
 
-  // 저장 — 바뀌지 않은 이름(이름 변경)은 요청 없이 닫는다.
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (saving) return;
-    const name = value.trim();
-    if (initial && name === initial.trim()) return onCancel();
-    const invalid = validateStatusName(value, statuses, excludeId);
-    if (invalid) return setError(invalid);
-    setSaving(true);
-    try {
-      await onSubmit(name);
-    } catch (err) {
-      // 409(동시에 같은 이름이 생김)는 클라이언트 중복 문구와 같게 — 이름은 바로 위 입력에 있으니 서버 문구의 「: 이름」을 되풀이하지 않는다.
-      setError(
-        isConflictError(err)
-          ? STATUS_NAME_DUPLICATED
-          : extractApiError(err, '상태를 저장하지 못했습니다'),
-      );
-      // 고칠 수 있게 입력으로 포커스를 되돌린다.
-      inputRef.current?.focus();
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
-    <form ref={formRef} onSubmit={submit} className={cn('relative flex min-w-0 flex-col gap-1', className)}>
+    <form
+      ref={formRef}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void form.submit();
+      }}
+      className={cn('relative flex min-w-0 flex-col gap-1', className)}>
       {/* 바텀시트(touch)는 입력 → 오류 → 전체 폭 저장 버튼 순 — 줄(div)을 contents 로 풀고 버튼을 맨 뒤(order-last)로 보낸다. */}
       <div className={touch ? 'contents' : 'flex min-w-0 items-center gap-2'}>
         {/* maxLength 를 두지 않는다 — 30자에서 입력이 조용히 잘리면 왜 막혔는지 모른다. 길이 오류는 아래 문구로 알린다.
             저장 중엔 disabled 대신 readOnly — disabled 는 포커스를 잃어 실패 뒤 바로 고칠 수 없다. */}
         <Input
-          ref={inputRef}
+          {...form.inputProps}
           autoFocus
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            setError(null);
-          }}
           onKeyDown={(e) => {
             // 보드 키보드 DnD(Space 시작)·메뉴 타입어헤드로 새지 않게 입력 안의 키는 여기서 끝낸다.
             e.stopPropagation();
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              onCancel();
-            }
+            form.inputProps.onKeyDown(e);
           }}
           readOnly={saving}
           aria-busy={saving}
@@ -121,9 +98,10 @@ export function StatusNameEditor({
         <p
           id={errorId}
           role="alert"
+          // 오류 문구는 DS 09 대로 text-sm(설정 추가 폼과 같다). 헤더 인라인만 헤더 줄 높이 때문에 text-xs 로 둔다.
           className={cn(
             'break-keep font-normal text-destructive',
-            touch ? 'text-sm' : 'text-xs',
+            inline ? 'text-xs' : 'text-sm',
           )}
           data-testid="status-name-error"
         >

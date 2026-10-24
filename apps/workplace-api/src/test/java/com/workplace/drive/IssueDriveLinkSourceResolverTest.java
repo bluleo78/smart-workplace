@@ -12,6 +12,7 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueAttachmentSourceProvider;
 import com.workplace.issue.service.IssueDriveLinkSourceResolver;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -99,7 +100,9 @@ class IssueDriveLinkSourceResolverTest extends IntegrationTestBase {
     Long owner = createUser("owner");
     Long stranger = createUser("stranger");
     ProjectResponse p = newProject(owner, "RS");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "리졸버 테스트 제목", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, p.id(), 1, "리졸버 테스트 제목", null, "MID", null, owner);
 
     // 멤버(프로젝트 오너) → accessible=true
     var ownerMap = issueResolver.resolve(owner, List.of(issue.id()));
@@ -134,9 +137,12 @@ class IssueDriveLinkSourceResolverTest extends IntegrationTestBase {
     ProjectResponse myProject = newProject(owner, "MP");
     ProjectResponse otherProject = newProject(stranger, "OP");
 
-    IssueRow myIssue = issueRepository.insert(myProject.id(), 1, "내 이슈", null, "MID", null, owner);
+    IssueRow myIssue =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, myProject.id(), 1, "내 이슈", null, "MID", null, owner);
     IssueRow otherIssue =
-        issueRepository.insert(otherProject.id(), 1, "남의 이슈", null, "MID", null, stranger);
+        IssueSeeds.insert(
+            issueRepository, baseDsl, otherProject.id(), 1, "남의 이슈", null, "MID", null, stranger);
 
     long myFileId = seedFile(owner, "my-doc.pdf", "application/pdf");
     long otherFileId = seedFile(stranger, "other-doc.pdf", "application/pdf");
@@ -158,7 +164,8 @@ class IssueDriveLinkSourceResolverTest extends IntegrationTestBase {
   void provider_list_filtersByName() {
     Long owner = createUser("qfilter");
     ProjectResponse p = newProject(owner, "QF");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "q이슈", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "q이슈", null, "MID", null, owner);
 
     long fileA = seedFile(owner, "report_2024.pdf", "application/pdf");
     long fileB = seedFile(owner, "image_thumb.png", "image/png");
@@ -178,7 +185,8 @@ class IssueDriveLinkSourceResolverTest extends IntegrationTestBase {
   void provider_list_cursorPagination() {
     Long owner = createUser("cursor");
     ProjectResponse p = newProject(owner, "CU");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "커서 이슈", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "커서 이슈", null, "MID", null, owner);
 
     OffsetDateTime t1 = OffsetDateTime.now().minusSeconds(10);
     OffsetDateTime t2 = OffsetDateTime.now().minusSeconds(5);
@@ -204,7 +212,8 @@ class IssueDriveLinkSourceResolverTest extends IntegrationTestBase {
   void provider_list_orderedByAttachedAtDesc() {
     Long owner = createUser("order");
     ProjectResponse p = newProject(owner, "OR");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "정렬 이슈", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "정렬 이슈", null, "MID", null, owner);
 
     OffsetDateTime older = OffsetDateTime.now().minusSeconds(10);
     OffsetDateTime newer = OffsetDateTime.now().minusSeconds(1);

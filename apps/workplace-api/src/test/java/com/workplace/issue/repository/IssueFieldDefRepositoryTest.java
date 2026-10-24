@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -142,7 +143,8 @@ class IssueFieldDefRepositoryTest extends IntegrationTestBase {
     Long owner = createUser("g");
     var p = newProject(owner, "FDG");
     var def = defRepo.insert(p.id(), "x", "TEXT", null, 0);
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     dsl.insertInto(ISSUE_FIELD_VALUE)
         .set(ISSUE_FIELD_VALUE.ISSUE_ID, issue.id())
         .set(ISSUE_FIELD_VALUE.FIELD_DEF_ID, def.id())

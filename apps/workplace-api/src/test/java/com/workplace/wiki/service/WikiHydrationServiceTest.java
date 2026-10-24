@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -82,13 +83,15 @@ class WikiHydrationServiceTest extends IntegrationTestBase {
     // u 가 멤버(OWNER)인 프로젝트의 이슈 → 가시.
     ProjectResponse proj =
         projectService.create(u, new CreateProjectRequest(uniqueKey(), "P", "x"));
-    IssueRow visibleIssue = issueRepository.insert(proj.id(), 1, "이슈제목", null, "MID", null, u);
+    IssueRow visibleIssue =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "이슈제목", null, "MID", null, u);
 
     // other 만 멤버인 프로젝트의 이슈 → u 는 비멤버이므로 비가시.
     ProjectResponse otherProj =
         projectService.create(other, new CreateProjectRequest(uniqueKey(), "Q", "x"));
     IssueRow invisibleIssue =
-        issueRepository.insert(otherProj.id(), 1, "남의이슈", null, "MID", null, other);
+        IssueSeeds.insert(
+            issueRepository, baseDsl, otherProj.id(), 1, "남의이슈", null, "MID", null, other);
 
     // 본문: 실존 유저 멘션 + 비실존 유저(999999) + 가시/비가시 페이지 + 가시/비가시 이슈.
     String body =

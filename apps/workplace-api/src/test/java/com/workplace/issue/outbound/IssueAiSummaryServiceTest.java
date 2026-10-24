@@ -23,6 +23,7 @@ import com.workplace.issue.outbound.dto.IssueSummaryResult;
 import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -91,7 +92,10 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("C1T"), "케이스1팀", "x"))
               .id();
-      issueId = issueRepo.insert(projectId, 1, "테스트 이슈", "이슈 본문 내용입니다.", "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(
+                  issueRepo, baseDsl, projectId, 1, "테스트 이슈", "이슈 본문 내용입니다.", "MID", null, userId)
+              .id();
       commentRepo.insert(issueId, userId, "첫 번째 코멘트");
       commentRepo.insert(issueId, userId, "두 번째 코멘트");
 
@@ -155,7 +159,9 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           .set(PROJECT.OWNER_ID, ownerId)
           .where(PROJECT.ID.eq(projectId))
           .execute();
-      issueId = issueRepo.insert(projectId, 1, "개인 이슈", "본문", "MID", null, ownerId).id();
+      issueId =
+          IssueSeeds.insert(issueRepo, baseDsl, projectId, 1, "개인 이슈", "본문", "MID", null, ownerId)
+              .id();
 
       service.generateOnDemand(issueId);
 
@@ -193,7 +199,9 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
               .create(userId, new CreateProjectRequest(uniqueKey("C2N"), "케이스2무활동", "x"))
               .id();
       // body=null 이슈
-      issueId = issueRepo.insert(projectId, 1, "활동없는 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(issueRepo, baseDsl, projectId, 1, "활동없는 이슈", null, "MID", null, userId)
+              .id();
       // 코멘트·히스토리 없음
 
       service.generateOnDemand(issueId);
@@ -228,7 +236,9 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("C3R"), "케이스3미옵인", "x"))
               .id();
-      issueId = issueRepo.insert(projectId, 1, "미옵인 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(issueRepo, baseDsl, projectId, 1, "미옵인 이슈", null, "MID", null, userId)
+              .id();
 
       service.regenerate(issueId);
 
@@ -259,7 +269,9 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("C4U"), "케이스4갱신", "x"))
               .id();
-      issueId = issueRepo.insert(projectId, 1, "갱신 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(issueRepo, baseDsl, projectId, 1, "갱신 이슈", null, "MID", null, userId)
+              .id();
 
       // 1차 온디맨드 생성(저장본 만들기)
       service.generateOnDemand(issueId);
@@ -297,7 +309,10 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("C5A"), "케이스5에이전트없음", "x"))
               .id();
-      issueId = issueRepo.insert(projectId, 1, "에이전트없음 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(
+                  issueRepo, baseDsl, projectId, 1, "에이전트없음 이슈", null, "MID", null, userId)
+              .id();
       final long fid = issueId;
 
       assertThatThrownBy(() -> service.generateOnDemand(fid))
@@ -323,7 +338,10 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("C5B"), "케이스5스킵", "x"))
               .id();
-      issueId = issueRepo.insert(projectId, 1, "에이전트사라짐 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(
+                  issueRepo, baseDsl, projectId, 1, "에이전트사라짐 이슈", null, "MID", null, userId)
+              .id();
 
       // 저장본 만들기
       service.generateOnDemand(issueId);
@@ -363,7 +381,9 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("C6E"), "케이스6빈요약", "x"))
               .id();
-      issueId = issueRepo.insert(projectId, 1, "빈요약 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(issueRepo, baseDsl, projectId, 1, "빈요약 이슈", null, "MID", null, userId)
+              .id();
       final long fid = issueId;
 
       assertThatThrownBy(() -> service.generateOnDemand(fid)).isInstanceOf(IssueAiException.class);
@@ -395,7 +415,10 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("PH"), "PHANTOM프로젝트", "x"))
               .id();
-      issueId = issueRepo.insert(projectId, 1, "PHANTOM 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(
+                  issueRepo, baseDsl, projectId, 1, "PHANTOM 이슈", null, "MID", null, userId)
+              .id();
       service.generateOnDemand(issueId);
       // 테넌트#1 에서 요약이 보임
       assertThat(summaryRepo.find(issueId)).isPresent();

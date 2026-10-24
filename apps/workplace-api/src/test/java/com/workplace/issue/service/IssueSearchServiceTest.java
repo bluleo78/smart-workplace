@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -56,7 +57,7 @@ class IssueSearchServiceTest extends IntegrationTestBase {
     String key = uniqueKey("PA");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
     for (int i = 1; i <= 3; i++) {
-      issueRepository.insert(proj.id(), i, "t" + i, null, "MID", null, userId);
+      IssueSeeds.insert(issueRepository, baseDsl, proj.id(), i, "t" + i, null, "MID", null, userId);
     }
 
     var resp = searchService.search(userId, key, java.util.Map.of("size", "2"));
@@ -71,7 +72,7 @@ class IssueSearchServiceTest extends IntegrationTestBase {
     Long userId = createUser("ub");
     String key = uniqueKey("PB");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "only", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "only", null, "MID", null, userId);
 
     var resp = searchService.search(userId, key, java.util.Map.of("size", "10"));
 

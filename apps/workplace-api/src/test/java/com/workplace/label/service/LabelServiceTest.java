@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
@@ -126,8 +127,10 @@ class LabelServiceTest extends IntegrationTestBase {
     Long owner = createUser("o10");
     ProjectResponse p = newProject(owner, "LK");
     var label = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
-    Long live = issueRepository.insert(p.id(), 1, "a", null, "MID", null, owner).id();
-    Long gone = issueRepository.insert(p.id(), 2, "b", null, "MID", null, owner).id();
+    Long live =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "a", null, "MID", null, owner).id();
+    Long gone =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "b", null, "MID", null, owner).id();
     dsl.insertInto(ISSUE_LABEL)
         .set(ISSUE_LABEL.ISSUE_ID, live)
         .set(ISSUE_LABEL.LABEL_ID, label.id())

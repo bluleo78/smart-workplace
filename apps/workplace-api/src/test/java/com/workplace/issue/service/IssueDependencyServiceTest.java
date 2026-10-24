@@ -12,6 +12,7 @@ import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -63,7 +64,8 @@ class IssueDependencyServiceTest extends IntegrationTestBase {
   }
 
   private IssueRow newTask(Long projectId, int number, String title, Long reporterId) {
-    return issueRepository.insert(projectId, number, title, "b", "MID", null, reporterId);
+    return IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, number, title, "b", "MID", null, reporterId);
   }
 
   @Test

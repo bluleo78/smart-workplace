@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -67,8 +68,8 @@ class IssueSearchServiceReporterTest extends IntegrationTestBase {
     Long u1 = createUser("r1");
     ProjectResponse p = newProject(owner, "SR1");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "by-owner", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 2, "by-u1", null, "MID", null, u1);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "by-owner", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "by-u1", null, "MID", null, u1);
 
     var resp = searchService.search(owner, p.key(), Map.of("reporter", String.valueOf(u1)));
 
@@ -81,8 +82,8 @@ class IssueSearchServiceReporterTest extends IntegrationTestBase {
     Long other = createUser("rm2");
     ProjectResponse p = newProject(owner, "SR2");
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "mine", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 2, "theirs", null, "MID", null, other);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "mine", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "theirs", null, "MID", null, other);
 
     var resp = searchService.search(owner, p.key(), Map.of("reporter", "me"));
 
@@ -99,8 +100,8 @@ class IssueSearchServiceReporterTest extends IntegrationTestBase {
     Long other = createUser("rx2");
     ProjectResponse p = newProject(owner, "SR3");
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "x-mine", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 2, "x-theirs", null, "MID", null, other);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "x-mine", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "x-theirs", null, "MID", null, other);
 
     var resp = searchService.searchMine(owner, Map.of("reporter", "me"));
 

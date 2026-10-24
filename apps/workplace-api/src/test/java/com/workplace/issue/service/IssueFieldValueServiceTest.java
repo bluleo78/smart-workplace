@@ -16,6 +16,7 @@ import com.workplace.issue.exception.InvalidFieldValueException;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -74,7 +75,8 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     var d1 = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
     var d2 = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("n", "NUMBER", null));
     var d3 = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("dt", "DATE", null));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     service.replace(
         owner,
@@ -98,7 +100,8 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     Long owner = createUser("b");
     var p = newProject(owner, "VSB");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(
         owner,
         p.key(),
@@ -129,7 +132,8 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     Long owner = createUser("c");
     var p = newProject(owner, "VSC");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(
         owner,
         p.key(),
@@ -157,7 +161,7 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     var pb = newProject(owner, "VSDB");
     var foreign =
         defService.create(owner, pb.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
-    issueRepository.insert(pa.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, pa.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () ->
@@ -176,7 +180,7 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     var p = newProject(owner, "VSE");
     var opts = om.createArrayNode().add("a").add("b");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("s", "SELECT", opts));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () ->
@@ -194,7 +198,7 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     Long owner = createUser("f");
     var p = newProject(owner, "VSF");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () ->
@@ -212,7 +216,7 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     Long owner = createUser("g");
     var p = newProject(owner, "VSG");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("n", "NUMBER", null));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () ->
@@ -233,7 +237,7 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     var d =
         defService.create(
             owner, p.key(), new CreateIssueFieldDefRequest("m", "MULTI_SELECT", opts));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     service.replace(
         owner,
@@ -258,7 +262,8 @@ class IssueFieldValueServiceTest extends IntegrationTestBase {
     Long owner = createUser("i");
     var p = newProject(owner, "VSI");
     var d = defService.create(owner, p.key(), new CreateIssueFieldDefRequest("t", "TEXT", null));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(
         owner,
         p.key(),

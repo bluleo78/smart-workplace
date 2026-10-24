@@ -18,6 +18,7 @@ import com.workplace.issue.exception.IssueBodyImageLimitException;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.repository.IssueBodyImageRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -228,7 +229,7 @@ class IssueBodyImageServiceTest extends IntegrationTestBase {
   void non_image_file_id_is_not_served() {
     Long owner = createUser("owner");
     ProjectResponse p = newProject(owner, "GN");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     Long attachmentFileId =
         attachmentService
             .upload(

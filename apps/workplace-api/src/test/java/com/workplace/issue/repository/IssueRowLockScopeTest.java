@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -48,7 +49,7 @@ class IssueRowLockScopeTest extends IntegrationTestBase {
     String key =
         "LKS" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
-    issueRepository.insert(project.id(), 1, "t1", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, project.id(), 1, "t1", null, "MID", null, owner);
   }
 
   @AfterEach

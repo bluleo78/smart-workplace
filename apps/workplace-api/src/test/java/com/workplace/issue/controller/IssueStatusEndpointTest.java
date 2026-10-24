@@ -15,6 +15,7 @@ import com.workplace.issue.dto.UpdateStatusRequest;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.ProjectStatusRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -79,7 +80,8 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("m");
     String key = uniqueKey("PM");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
 
     String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS", null, null));
     mvc.perform(
@@ -98,7 +100,8 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("n");
     String key = uniqueKey("PN");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    IssueRow issue = issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
 
     String body = om.writeValueAsString(new UpdateStatusRequest("TODO", null, null));
     mvc.perform(
@@ -118,7 +121,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long other = createUser("xx");
     String key = uniqueKey("PO");
     ProjectResponse proj = projectService.create(owner, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, owner);
 
     String body = om.writeValueAsString(new UpdateStatusRequest("IN_PROGRESS", null, null));
     mvc.perform(
@@ -134,7 +137,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("q");
     String key = uniqueKey("PQ");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
 
     String body = "{\"status\":\"NOT_A_REAL_STATUS\"}";
     mvc.perform(
@@ -165,7 +168,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("sid");
     String key = uniqueKey("PS");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
     long done = projectStatusRepository.findDefault(proj.id(), "DONE").orElseThrow().id();
 
     mvc.perform(
@@ -184,7 +187,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("none");
     String key = uniqueKey("PE");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
 
     mvc.perform(
             patch("/api/v1/projects/" + key + "/issues/1/status")
@@ -199,7 +202,7 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
     long userId = createUser("snm");
     String key = uniqueKey("PT");
     ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "t", null, "MID", null, userId);
 
     mvc.perform(
             patch("/api/v1/projects/" + key + "/issues/1/status")

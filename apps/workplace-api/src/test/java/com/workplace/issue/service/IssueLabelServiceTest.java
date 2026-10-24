@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.service.LabelService;
@@ -70,7 +71,8 @@ class IssueLabelServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "IL");
     var l1 = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
     var l2 = labelService.create(owner, p.key(), new CreateLabelRequest("문서", "BLUE"));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     var result = issueLabelService.replace(owner, p.key(), 1, List.of(l1.id(), l2.id()));
 
@@ -85,7 +87,7 @@ class IssueLabelServiceTest extends IntegrationTestBase {
     ProjectResponse pa = newProject(owner, "ILA");
     ProjectResponse pb = newProject(owner, "ILB");
     var foreignLabel = labelService.create(owner, pb.key(), new CreateLabelRequest("버그", "RED"));
-    issueRepository.insert(pa.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, pa.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () -> issueLabelService.replace(owner, pa.key(), 1, List.of(foreignLabel.id())))
@@ -97,7 +99,7 @@ class IssueLabelServiceTest extends IntegrationTestBase {
     Long owner = createUser("c");
     ProjectResponse p = newProject(owner, "ILC");
     var l = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     issueLabelService.replace(owner, p.key(), 1, List.of(l.id()));
 
     var result = issueLabelService.replace(owner, p.key(), 1, List.of());
@@ -110,7 +112,8 @@ class IssueLabelServiceTest extends IntegrationTestBase {
     Long owner = createUser("d");
     ProjectResponse p = newProject(owner, "ILD");
     var l = labelService.create(owner, p.key(), new CreateLabelRequest("버그", "RED"));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     issueLabelService.replace(owner, p.key(), 1, List.of(l.id()));
     int before = historyRepository.findByIssue(issue.id()).size();
 
@@ -125,7 +128,8 @@ class IssueLabelServiceTest extends IntegrationTestBase {
     Long owner = createUser("n");
     ProjectResponse p = newProject(owner, "IN");
     var bug = labelService.create(owner, p.key(), new CreateLabelRequest("bug", "RED"));
-    var issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     var result =
         issueLabelService.replace(
@@ -144,7 +148,7 @@ class IssueLabelServiceTest extends IntegrationTestBase {
     Long owner = createUser("o");
     Long outsider = createUser("x");
     ProjectResponse p = newProject(owner, "IO");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () -> issueLabelService.replace(outsider, p.key(), 1, List.of(), List.of("new")))
@@ -157,7 +161,7 @@ class IssueLabelServiceTest extends IntegrationTestBase {
   void replace_with_label_names_rejects_invisible_and_too_many() {
     Long owner = createUser("z");
     ProjectResponse p = newProject(owner, "IZ");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(
             () -> issueLabelService.replace(owner, p.key(), 1, List.of(), List.of("\u200B")))
