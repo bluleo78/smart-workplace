@@ -1,11 +1,12 @@
 // 타임라인 페이지 E2E — 프로젝트 홈 진입, 이슈/사이클/마일스톤 렌더, 줌 토글.
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
+import { inServerOrder, withCustomStatuses } from '../../factories/projectStatus.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 import { expectToggle } from '../../fixtures/selection';
@@ -630,6 +631,46 @@ test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 
   await expect(page.locator('.wx-bar[data-task-id$="7"]')).toBeVisible();
 });
 
+// WP-938 — 스크롤 요청을 날짜로만 넘겨, 이미 요청한 날짜(「오늘」을 한 번 누른 뒤 등)를 다시 요청하면 상태가 그대로라
+// 스크롤하지 않았다. 차트를 옆으로 밀어 둔 뒤 「오늘」을 다시 누르면 매번 오늘선이 차트 안으로 돌아온다.
+test('「오늘」을 다시 눌러도(같은 날짜) 옆으로 밀어 둔 차트가 오늘로 돌아온다', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z'));
+  await setupTimelineStubs(page);
+  // 차트를 넓히는 이른(1월)·늦은(12월) 이슈 — 「전체」 기간이라 축이 1년 가까이 퍼져 가로 스크롤이 생긴다.
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [
+      createIssue({ number: 9, title: '연초 이슈', startDate: '2026-01-05', dueDate: '2026-01-20' }),
+      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
+      createIssue({ number: 8, title: '연말 이슈', startDate: '2026-12-01', dueDate: '2026-12-20' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  const chart = page.locator('.timeline-gantt-root .wx-chart');
+  const todayLine = page.getByTestId('timeline-today-line');
+  const todayInChart = async () => {
+    const c = await chart.boundingBox();
+    const t = await todayLine.boundingBox();
+    return !!c && !!t && t.x >= c.x && t.x <= c.x + c.width;
+  };
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expect.poll(todayInChart).toBe(true);
+  const todayButton = page.getByRole('button', { name: '오늘' });
+  // 같은 날짜를 두 번 요청하는 경우 — 첫 「오늘」 뒤 밀어 두고 다시 누른다. 양 끝 모두 확인.
+  for (const edge of ['start', 'end'] as const) {
+    await todayButton.click();
+    await expect.poll(todayInChart).toBe(true);
+    // 「오늘」 스크롤은 한 프레임 미뤄 실행된다 — 그 프레임이 지나기 전에 밀면 미뤄 둔 스크롤이 다시 오늘로 되돌린다.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await chart.evaluate((el, e) => el.scrollTo({ left: e === 'start' ? 0 : el.scrollWidth }), edge);
+    await expect.poll(todayInChart).toBe(false);
+    await todayButton.click();
+    await expect.poll(todayInChart).toBe(true);
+  }
+});
+
 // WP-605 — 주 보기 위쪽 월 칸이 축 시작에서 멀어질수록 밀려(21개월에 3달) 오늘(10월) 위에 「7월」이 적혔다.
 // 위쪽 행을 주 경계에 맞춘 달로 그리므로, 오늘선 위 월 칸이 실제 달이고 월 칸 경계가 주 칸 경계와 겹친다.
 test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 월 칸 경계가 주 칸 경계와 맞는다', async ({ authenticatedPage: page }) => {
@@ -675,4 +716,90 @@ test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 
   const inRange = bounds.months.filter((l) => l >= lo && l <= hi);
   expect(inRange.length).toBeGreaterThan(0);
   for (const l of inRange) expect(bounds.weeks.some((w) => Math.abs(w - l) <= 1)).toBe(true);
+});
+
+// WP-938 — 타임라인도 목록·보드(WP-870)처럼 상태 목록을 받은 뒤에만 본문(간트·필터 바)을 그린다.
+// 받기 전에 그리면 「상태」 facet 이 비어 고를 값이 없고, 취소 범주 판단이 빈 목록으로 돌았다.
+const STATUSES_PATH = `/api/v1/projects/${KEY}/statuses`;
+
+test('상태 목록을 받기 전엔 로딩만 보이고, 받은 뒤 간트와 프로젝트 상태 이름의 「상태」 필터가 그려진다 (WP-938)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupTimelineStubs(page);
+  // 상태 목록 응답을 붙잡아 둔다 — 풀기 전까지 본문이 그려지지 않아야 한다.
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(`**${STATUSES_PATH}`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await held;
+    return route.fulfill({ json: inServerOrder(withCustomStatuses('설계')) });
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+
+  // 헤더는 관문 밖이라 바로 보이고, 본문은 로딩 문구뿐 — 간트·필터 바가 없다.
+  await expect(page.getByRole('heading', { name: '타임라인' })).toBeVisible();
+  await expect(page.getByTestId('timeline-page')).toContainText('로딩 중…');
+  await expectStays(page, () => page.getByTestId('add-filter-trigger').count(), 0);
+  await expect(page.getByTestId('timeline-gantt')).toHaveCount(0);
+
+  release();
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await page.getByTestId('add-filter-trigger').click();
+  await page.getByTestId('add-filter-facet-statusId').click();
+  await expect(page.locator('[data-testid^="facet-value-statusId-"]')).toHaveText(['할 일', '진행 중', '설계', '완료', '취소']);
+});
+
+test('상태 목록을 불러오지 못하면 타임라인이 다시 시도를 보이고, 다시 시도 성공 뒤 간트가 그려진다 (WP-938)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupTimelineStubs(page);
+  // 500 — 전역 재시도 정책이 한 번 더 부르므로 다시 시도를 누르기 전까지 계속 실패시킨다(board-custom-status 와 같은 방식).
+  let fail = true;
+  await page.route(`**${STATUSES_PATH}`, (route) =>
+    route.request().method() === 'GET' && fail
+      ? route.fulfill({ status: 500, json: { status: 500, message: '서버 오류' } })
+      : route.fallback(),
+  );
+  await page.goto(`/projects/${KEY}/timeline`);
+
+  const error = page.getByTestId('project-statuses-error');
+  await expect(error).toContainText('상태 목록을 불러오지 못했습니다');
+  await expect(error).toContainText('타임라인을 그릴 수 없습니다');
+  await expect(page.getByTestId('timeline-gantt')).toHaveCount(0);
+  fail = false;
+  await error.getByRole('button', { name: '다시 시도' }).click();
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expect(error).toHaveCount(0);
+});
+
+// 관문 로딩 문구와 실패 화면 덩어리(아이콘 위 ~ 「다시 시도」 아래)가 본문 자리(timeline-body)의 세로 가운데에서 벗어난 px.
+async function offsetFromBodyCenter(page: Page, top: Locator, bottom: Locator = top) {
+  const slot = (await page.getByTestId('timeline-body').boundingBox())!;
+  const a = (await top.boundingBox())!;
+  const b = (await bottom.boundingBox())!;
+  return Math.abs((a.y + b.y + b.height) / 2 - (slot.y + slot.height / 2));
+}
+
+// WP-938 디자이너 리뷰 — 실패 화면 감싸개가 flex 가 아니어서 ResourceErrorState 가 60vh 상자로 줄어, 로딩 문구(본문 가운데)에서
+// 실패 화면으로 바뀔 때 덩어리가 위로 약 150px 튀었다. 로딩 문구와 실패 화면이 같은 본문 자리의 세로 가운데에 놓인다.
+test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 세로 가운데에 놓인다 (WP-938)', async ({ authenticatedPage: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await setupTimelineStubs(page);
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(`**${STATUSES_PATH}`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await held;
+    return route.fulfill({ status: 500, json: { status: 500, message: '서버 오류' } });
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+
+  const loading = page.getByTestId('timeline-body').getByText('로딩 중…');
+  await expect(loading).toBeVisible();
+  expect(await offsetFromBodyCenter(page, loading)).toBeLessThan(4);
+
+  release();
+  const error = page.getByTestId('project-statuses-error');
+  await expect(error).toBeVisible();
+  expect(await offsetFromBodyCenter(page, error.locator('svg').first(), error.getByRole('button', { name: '다시 시도' }))).toBeLessThan(4);
 });

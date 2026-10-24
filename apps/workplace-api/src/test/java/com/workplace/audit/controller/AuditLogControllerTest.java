@@ -1,5 +1,6 @@
 package com.workplace.audit.controller;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -188,6 +189,27 @@ class AuditLogControllerTest {
                 .param("userId", "42"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.totalElements").value(0));
+  }
+
+  // WP-938: 웹은 기간을 KST 하루의 시작·끝 순간을 UTC(Z)로 바꿔 보낸다(toISOString). 저장이 UTC 벽시계(V209)이므로
+  // 바인딩은 Z 를 떼고 UTC 벽시계 그대로 LocalDateTime 이 돼야 한다 — JVM 시간대로 옮기면 기간이 9시간 어긋난다.
+  @Test
+  void getAuditLogs_withUtcInstantRange_bindsUtcWallClock() throws Exception {
+    mockAuthentication("audit:read");
+    LocalDateTime from = LocalDateTime.of(2026, 10, 23, 15, 0, 0);
+    LocalDateTime to = LocalDateTime.of(2026, 10, 24, 14, 59, 59, 999_000_000);
+    when(auditLogService.getAuditLogs(null, null, null, null, null, from, to, 0, 20))
+        .thenReturn(new PageResponse<>(List.of(), 0, 20, 0, 0));
+
+    mockMvc
+        .perform(
+            get("/api/v1/admin/audit-logs")
+                .header("Authorization", "Bearer valid-token")
+                // KST 2026-10-24 하루 = UTC 10-23T15:00 ~ 10-24T14:59:59.999
+                .param("startDate", "2026-10-23T15:00:00.000Z")
+                .param("endDate", "2026-10-24T14:59:59.999Z"))
+        .andExpect(status().isOk());
+    verify(auditLogService).getAuditLogs(null, null, null, null, null, from, to, 0, 20);
   }
 
   // WP-899: 받는 날짜 범위(1900~9999) 밖의 기간은 조회까지 가지 않고 400 + 범위 안내로 거절한다(DB 에서 원인 모를 409 가 나던 것).

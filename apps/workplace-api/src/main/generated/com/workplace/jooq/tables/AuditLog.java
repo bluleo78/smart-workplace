@@ -100,7 +100,7 @@ public class AuditLog extends TableImpl<AuditLogRecord> {
     /**
      * The column <code>public.audit_log.action_time</code>.
      */
-    public final TableField<AuditLogRecord, LocalDateTime> ACTION_TIME = createField(DSL.name("action_time"), SQLDataType.LOCALDATETIME(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.LOCALDATETIME)), this, "");
+    public final TableField<AuditLogRecord, LocalDateTime> ACTION_TIME = createField(DSL.name("action_time"), SQLDataType.LOCALDATETIME(6).nullable(false).defaultValue(DSL.field(DSL.raw("(now() AT TIME ZONE 'UTC'::text)"), SQLDataType.LOCALDATETIME)), this, "");
 
     /**
      * The column <code>public.audit_log.ip_address</code>.
