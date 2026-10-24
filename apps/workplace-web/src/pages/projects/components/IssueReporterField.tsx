@@ -25,7 +25,8 @@ export function IssueReporterField({
   if (reporter === undefined) return null;
   const createdDay = formatDateMonthDay(createdAt);
   const value = (
-    <span className="inline-flex min-w-0 items-center gap-1 text-sm" data-testid="issue-reporter">
+    // max-w-full — 레일(블록 부모)에서 긴 이름이 폭을 넘지 않고 말줄임되게 한다(WP-805). min-w-0 은 시트의 flex 행용.
+    <span className="inline-flex max-w-full min-w-0 items-center gap-1 text-sm" data-testid="issue-reporter">
       {reporter ? (
         <>
           {/* AGENT 는 담당자 칩과 같은 아바타 표식(ring + Bot 마커)으로 사람과 구분한다. */}

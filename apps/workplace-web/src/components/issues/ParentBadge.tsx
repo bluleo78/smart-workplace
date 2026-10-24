@@ -21,11 +21,12 @@ export function ParentBadge({
   return (
     <Link
       to={`/projects/${projectKey}/issues/${parent.number}`}
-      className={cn('inline-flex items-center gap-1 text-sm hover:underline', className)}
+      // max-w-full — 링크가 부모(레일) 폭을 넘지 않아야 안쪽 제목 span 의 truncate 가 걸린다(WP-805).
+      className={cn('inline-flex max-w-full items-center gap-1 text-sm hover:underline', className)}
       data-testid={`parent-badge-${parent.number}`}
     >
       <IssueTypeBadge type={parent.type} size="sm" iconOnly />
-      <span className="font-mono text-xs text-muted-foreground">
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
         {projectKey}-{parent.number}
       </span>
       <span className="truncate">{parent.title}</span>

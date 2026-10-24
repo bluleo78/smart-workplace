@@ -9,8 +9,13 @@
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { agentWorker, createAgentWork } from '../../factories/agentWork.factory';
-import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
+import {
+  createIssue,
+  createIssueDetail,
+  createIssueSearchResponse,
+} from '../../factories/issue.factory';
 import { makeSubtaskType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
+import type { IssueDetailResponse } from '../../../src/types/issue';
 
 const KEY = 'WP';
 const ISSUES_BASE = `/api/v1/projects/${KEY}/issues`;
@@ -51,6 +56,40 @@ async function setupCommonStubs(page: Parameters<Parameters<typeof test>[2]>[0][
   );
   await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+}
+
+type StubParent = { number: number; title: string; type: ReturnType<typeof makeTaskType> };
+
+// SUBTASK(#5) 상세 응답 본문 — 부모만 바꿔 가며 여러 테스트가 같이 쓴다(멤버 시나리오 — 편집 권한 있음, WP-481).
+function subtaskDetailBody(parent: StubParent, overrides: Partial<IssueDetailResponse> = {}) {
+  return createIssueDetail({
+    ...overrides,
+    body: '',
+    summary: createIssue({ id: 5, number: 5, title: '자식 SUBTASK', type: makeSubtaskType(), parent }),
+  });
+}
+
+// SUBTASK(#5) 상세 + watchers/attachments stub. 부모는 호출 시점의 getParent() 로 동적.
+async function stubSubtaskDetail(
+  page: Parameters<Parameters<typeof test>[2]>[0]['page'],
+  getParent: () => StubParent,
+  overrides: Partial<IssueDetailResponse> = {},
+) {
+  await page.route(
+    (url) => url.pathname === `${ISSUES_BASE}/5`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(subtaskDetailBody(getParent(), overrides)),
+      }),
+  );
+  await page.route(
+    (url) =>
+      url.pathname === `${ISSUES_BASE}/5/watchers` ||
+      url.pathname === `${ISSUES_BASE}/5/attachments`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
 }
 
@@ -291,59 +330,13 @@ test.describe('SUBTASK', () => {
       icon: 'Circle' as const,
     };
     // 초기 부모: TASK number=12. PATCH 후 number=15 로 변경.
-    let currentParent: { number: number; title: string } = { number: 12, title: '부모 12' };
+    let currentParent: StubParent = { number: 12, title: '부모 12', type: taskSummary };
     const parentPatches = trackRequests(page, 'ANY', `${ISSUES_BASE}/5/parent`);
 
     await setupCommonStubs(page);
 
     // 이슈 상세 — SUBTASK 유형. parent 는 currentParent 기준으로 동적.
-    await page.route(
-      (url) => url.pathname === `${ISSUES_BASE}/5`,
-      (route) => {
-        const req = route.request();
-        if (req.method() === 'PATCH') {
-          // /issues/5/parent 가 아닌 본문 PATCH 는 본 테스트에선 발생하지 않음 — 안전망.
-          return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-        }
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            summary: {
-              ...createIssue({ id: 5, number: 5, title: '자식 SUBTASK' }),
-              type: makeSubtaskType(),
-              parent: {
-                number: currentParent.number,
-                title: currentParent.title,
-                type: taskSummary,
-              },
-              childCount: 0,
-              childDoneCount: 0,
-              labels: [],
-              attachmentCount: 0,
-              assignees: [],
-            },
-            // 멤버 시나리오 — 부모 「변경」은 워크플로 편집 권한이 있어야 활성(WP-481).
-            viewerCanEditContent: true,
-            viewerCanEditWorkflow: true,
-            body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-          }),
-        });
-      },
-    );
-    await page.route(
-      (url) => url.pathname === `${ISSUES_BASE}/5/watchers`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-    await page.route(
-      (url) => url.pathname === `${ISSUES_BASE}/5/attachments`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
+    await stubSubtaskDetail(page, () => currentParent);
 
     // PATCH /issues/5/parent — currentParent 갱신 + IssueDetailResponse 반환.
     await page.route(
@@ -351,30 +344,11 @@ test.describe('SUBTASK', () => {
       (route) => {
         const req = route.request();
         const newNumber = (req.postDataJSON() as { parentNumber: number }).parentNumber;
-        currentParent = { number: newNumber, title: `부모 ${newNumber}` };
+        currentParent = { number: newNumber, title: `부모 ${newNumber}`, type: taskSummary };
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
-            summary: {
-              ...createIssue({ id: 5, number: 5, title: '자식 SUBTASK' }),
-              type: makeSubtaskType(),
-              parent: {
-                number: currentParent.number,
-                title: currentParent.title,
-                type: taskSummary,
-              },
-              childCount: 0,
-              childDoneCount: 0,
-              labels: [],
-              attachmentCount: 0,
-              assignees: [],
-            },
-            body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-          }),
+          body: JSON.stringify(subtaskDetailBody(currentParent)),
         });
       },
     );
@@ -401,6 +375,52 @@ test.describe('SUBTASK', () => {
     // 슬롯 갱신 — picker 닫히고 새 ParentBadge 노출.
     await expect(page.getByTestId('issue-parent-picker')).toHaveCount(0);
     await expect(page.getByTestId('parent-badge-15')).toBeVisible();
+  });
+
+  // WP-805 회귀: 부모 제목이 길면 레일 폭 안에서 말줄임돼야 한다 — 전에는 inline-flex 링크가 폭 제한 없이
+  // 늘어나 제목 span 의 truncate 가 걸리지 않고 레일 밖(화면 끝)까지 넘쳤다.
+  test('SUBTASK 상세 — 긴 부모 제목은 레일 폭 안에서 말줄임된다 (WP-805)', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const longTitle = '분기 결산 보고서 작성 — 재무팀 협업 및 경영진 검토 일정 조율';
+    // 같은 레일의 보고자 값도 같은 inline-flex + truncate 구조라 긴 이름으로 함께 지킨다.
+    const longReporter = '재무팀 분기 결산 자동화 담당 AI 에이전트 (경영진 보고용)';
+
+    await setupCommonStubs(page);
+    await stubSubtaskDetail(page, () => ({ number: 12, title: longTitle, type: makeTaskType() }), {
+      reporter: { id: 9, username: 'ai@x', name: longReporter, kind: 'AGENT' },
+    });
+
+    await page.goto(`/projects/${KEY}/issues/5`);
+
+    const slot = page.getByTestId('issue-parent-slot');
+    const badge = page.getByTestId('parent-badge-12');
+    await expect(badge).toBeVisible();
+
+    // 전제 — 1440px 에서 레일이 오른쪽 280px 칸으로 나와 있다(좁아져 본문 아래로 내려가면 제목이 안 잘려 검증이 무의미).
+    const slotBox = await slot.boundingBox();
+    expect(slotBox!.width).toBeLessThanOrEqual(280);
+
+    // 배지 오른쪽 끝이 슬롯(레일 폭) 안에 있다.
+    const badgeBox = await badge.boundingBox();
+    expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(slotBox!.x + slotBox!.width + 0.5);
+
+    // 제목 span 이 실제로 잘려 말줄임 중이다(내용 폭 > 보이는 폭).
+    const clipped = await badge
+      .getByText(longTitle)
+      .evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(clipped).toBe(true);
+
+    // 보고자 값도 레일 폭 안에서 말줄임된다.
+    const reporter = page.getByTestId('issue-reporter');
+    await expect(reporter).toBeVisible();
+    const railBox = await page.getByTestId('property-rail').boundingBox();
+    const reporterBox = await reporter.boundingBox();
+    expect(reporterBox!.x + reporterBox!.width).toBeLessThanOrEqual(railBox!.x + railBox!.width + 0.5);
+    expect(
+      await reporter.getByText(longReporter).evaluate((el) => el.scrollWidth > el.clientWidth),
+    ).toBe(true);
   });
 
   // WP-745: 유형을 SUBTASK 로 바꾸면 바로 저장하지 않고 부모 번호를 받아 유형·부모를 한 요청으로 보낸다.
