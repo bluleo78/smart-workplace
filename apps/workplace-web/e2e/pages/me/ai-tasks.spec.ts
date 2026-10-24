@@ -422,3 +422,169 @@ test('다음 회차 대기 칩은 SCHEDULED 로 요청하고, 행은 배지와 �
   // 다른 상태 행에는 예정 라벨이 없다.
   await expect(page.getByTestId('ai-row-412-next-run')).toHaveCount(0)
 })
+
+// WP-917: 좁은 폭 접기 — 표 래퍼(@container) 폭에 따라 에이전트 유형(60.25rem 미만) → 진행률(53.25rem 미만) 순으로 숨기고
+// 제목 칸 15rem 을 지킨다. 1024 미만은 모바일 목록이라 표 단언은 1024px 이상에서만 한다.
+const PROGRESS_ROW = createIssue({
+  id: 440, number: 440, title: '대시보드 위젯 드래그 정렬', status: 'IN_PROGRESS', assignees: [agent],
+  agentWork: [createAgentWork({ worker: agent, state: 'WORKING', note: '드래그 핸들 구현 중', progress: 64 })],
+})
+const REM = 16
+
+/** 보이는(display≠none) 헤더 셀 텍스트 — sr-only 칸은 빈 글자로 센다. */
+async function visibleHeads(page: Page) {
+  return page.getByTestId('ai-tasks-table').locator('thead th').evaluateAll((els) =>
+    els.filter((e) => getComputedStyle(e).display !== 'none').map((e) => (e.textContent ?? '').trim()))
+}
+
+/** 행의 보이는 칸 수 — colSpan 을 반영한다(에픽 머리 줄의 앞 4칸 합침). */
+async function visibleCellCount(page: Page, testId: string) {
+  return page.getByTestId(testId).locator('td').evaluateAll((els) =>
+    els.filter((e) => getComputedStyle(e).display !== 'none').reduce((n, e) => n + (e as HTMLTableCellElement).colSpan, 0))
+}
+
+async function tableWidth(page: Page) {
+  return page.getByTestId('ai-tasks-table').evaluate((el) => el.getBoundingClientRect().width)
+}
+
+test.describe('AI 위임 작업 좁은 폭 접기 @1440px', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+  test('1440에서 10개 헤더가 모두 보인다', async ({ authenticatedPage: page }) => {
+    await setup(page, [...ROWS, PROGRESS_ROW])
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-row-440')).toBeVisible()
+    const heads = await visibleHeads(page)
+    expect(heads).toHaveLength(10)
+    expect(heads).toEqual(expect.arrayContaining(['ID', '제목', 'AI 진행', '최근 보고', '진행률', '담당자', '에이전트 유형', '마지막 보고']))
+    // 넓은 폭 — 진행률은 제 칸, AI 진행 배지는 suffix 없이.
+    await expect(page.getByTestId('ai-row-440-state')).toBeVisible()
+    await expect(page.getByTestId('ai-row-440-state')).toContainText('작업 중')
+    await expect(page.getByTestId('ai-row-440-state')).not.toContainText('%')
+    await expect(page.getByTestId('ai-row-440-state-compact')).toBeHidden()
+  })
+
+  test('앱 레일을 펼쳐도 제목 칸이 240px 이상', async ({ authenticatedPage: page }) => {
+    await setup(page, [...ROWS, PROGRESS_ROW])
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-row-412')).toBeVisible()
+    await page.getByTestId('rail-toggle').click()
+    await expect(page.getByTestId('rail-collapse')).toBeVisible()
+    await expect.poll(async () => (await page.getByTestId('ai-row-412').locator('td').nth(3).boundingBox())!.width).toBeGreaterThanOrEqual(240)
+  })
+})
+
+test.describe('AI 위임 작업 좁은 폭 접기 @1280px', () => {
+  test.use({ viewport: { width: 1280, height: 800 } })
+  test('1280에서도 에이전트 유형·진행률 헤더가 보인다', async ({ authenticatedPage: page }) => {
+    await setup(page, [...ROWS, PROGRESS_ROW])
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-row-440')).toBeVisible()
+    const heads = await visibleHeads(page)
+    expect(heads).toContain('에이전트 유형')
+    expect(heads).toContain('진행률')
+  })
+})
+
+test.describe('AI 위임 작업 좁은 폭 접기 @1024px', () => {
+  test.use({ viewport: { width: 1024, height: 800 } })
+
+  // 1024 기본 배치(레일 접힘·목록 224px)의 표 폭은 712px — 3단계(최근 보고 5.5rem)까지 접어 제목 15rem 을 지킨다.
+  test('1024에서 제목 칸 폭이 240px 이상', async ({ authenticatedPage: page }) => {
+    await setup(page, [...ROWS, PROGRESS_ROW])
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-row-412')).toBeVisible()
+    const box = (await page.getByTestId('ai-row-412').locator('td').nth(3).boundingBox())!
+    expect(box.width).toBeGreaterThanOrEqual(240)
+    // 줄어든 최근 보고는 한 줄 말줄임 + 전체는 title.
+    const note = page.getByTestId('ai-row-412-note')
+    await expect(note).toHaveCSS('text-overflow', 'ellipsis')
+    await expect(note).toHaveAttribute('title', '잠금 시간을 5분/30분 중 어느 쪽으로 할까요?')
+  })
+
+  test('앱 레일을 펼친 1024에서도 묶음 하위 행 제목은 칸 안에서 말줄임된다', async ({ authenticatedPage: page }) => {
+    await setup(page, GROUPED_ROWS)
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-row-413')).toBeVisible()
+    await page.getByTestId('rail-toggle').click()
+    await expect(page.getByTestId('rail-collapse')).toBeVisible()
+    const link = page.getByTestId('ai-row-413').getByRole('link', { name: '결제 실패 재시도 정책' })
+    const cell = page.getByTestId('ai-row-413').locator('td').nth(3)
+    await expect.poll(async () => {
+      const l = (await link.boundingBox())!
+      const c = (await cell.boundingBox())!
+      return l.x + l.width <= c.x + c.width + 0.5 // 링크가 제목 칸 안(옆 AI 진행 칸을 덮지 않음)
+    }).toBe(true)
+    const m = await link.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, to: getComputedStyle(el).textOverflow }))
+    if (m.sw > m.cw) expect(m.to).toBe('ellipsis')
+  })
+
+  test('1024에서 에이전트 유형이 숨고 담당자 툴팁에 유형이 있다', async ({ authenticatedPage: page }) => {
+    await setup(page, [...ROWS, PROGRESS_ROW])
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-row-412')).toBeVisible()
+    expect(await visibleHeads(page)).not.toContain('에이전트 유형')
+    await expect(page.getByTestId('ai-row-412-tool')).toBeHidden()
+    await expect(page.getByTestId('ai-row-412-assignee')).toHaveAttribute('title', `${agent.name} (에이전트) · Claude Code`)
+    // 도구를 모르는 행(시작 전)은 이름만.
+    await expect(page.getByTestId('ai-row-420-assignee')).toHaveAttribute('title', `${agent.name} (에이전트)`)
+  })
+
+  test('좁으면 진행률이 AI 진행 배지에 합쳐진다', async ({ authenticatedPage: page }) => {
+    await setup(page, [...ROWS, PROGRESS_ROW])
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-row-440')).toBeVisible()
+    if ((await tableWidth(page)) < 53.25 * REM) {
+      await expect(page.getByTestId('ai-row-440-state-compact')).toBeVisible()
+      await expect(page.getByTestId('ai-row-440-state-compact')).toContainText('작업 중 64%')
+      await expect(page.getByTestId('ai-row-440-state')).toBeHidden()
+      expect(await visibleHeads(page)).not.toContain('진행률')
+      // 진행 정보가 없는 행은 좁은 배지에도 suffix 가 없다.
+      await expect(page.getByTestId('ai-row-416-state-compact')).toContainText('인증 필요')
+      await expect(page.getByTestId('ai-row-416-state-compact')).not.toContainText('%')
+      // 가장 긴 합친 배지(「검토 필요 100%」)도 AI 진행 칸 밖(최근 보고 칸)으로 넘치지 않는다.
+      await expect(page.getByTestId('ai-row-415-state-compact')).toContainText('검토 필요 100%')
+      const badge = (await page.getByTestId('ai-row-415-state-compact').boundingBox())!
+      const cell = (await page.getByTestId('ai-row-415').locator('td').nth(4).boundingBox())!
+      expect(badge.x + badge.width).toBeLessThanOrEqual(cell.x + cell.width)
+    } else {
+      await expect(page.getByTestId('ai-row-440-state')).toBeVisible()
+      await expect(page.getByTestId('ai-row-440-state-compact')).toBeHidden()
+      expect(await visibleHeads(page)).toContain('진행률')
+    }
+  })
+
+  test('에픽 머리 줄의 보이는 칸 수 = 보이는 헤더 수', async ({ authenticatedPage: page }) => {
+    await setup(page, GROUPED_ROWS)
+    await page.goto('/me/ai-tasks')
+    await expect(page.getByTestId('ai-epic-412')).toBeVisible()
+    const heads = (await visibleHeads(page)).length
+    expect(heads).toBeLessThan(10)
+    expect(await visibleCellCount(page, 'ai-epic-412')).toBe(heads) // 에픽 자신 AI 작업이 있는 머리
+    expect(await visibleCellCount(page, 'ai-epic-420')).toBe(heads) // AI 칸이 빈 머리
+    expect(await visibleCellCount(page, 'ai-row-413')).toBe(heads)
+  })
+})
+
+test('헤더 셀은 text-xs·font-normal', async ({ authenticatedPage: page }) => {
+  await setup(page)
+  await page.goto('/me/ai-tasks')
+  await expect(page.getByTestId('ai-row-412')).toBeVisible()
+  const styles = await page.getByTestId('ai-tasks-table').locator('thead th').evaluateAll((els) =>
+    els.map((e) => ({ weight: getComputedStyle(e).fontWeight, size: getComputedStyle(e).fontSize })))
+  for (const s of styles) expect(s).toEqual({ weight: '400', size: '12px' })
+})
+
+test('완료 칩 0건은 「아직 완료된 AI 작업이 없습니다」이고 필터 초기화가 없다', async ({ authenticatedPage: page }) => {
+  await setup(page, [], createAiTaskCounts())
+  await page.goto('/me/ai-tasks?state=DONE')
+  const empty = page.getByTestId('ai-row-empty')
+  await expect(empty).toContainText('아직 완료된 AI 작업이 없습니다')
+  await expect(empty).toContainText('AI가 작업을 끝내면 여기에 최근 종료순으로 쌓여요.')
+  await expect(empty.locator('svg')).toBeVisible()
+  await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
+
+  // 완료 칩 + facet 이 함께 걸려 0건이면 조건 문구 + 필터 초기화를 유지한다.
+  await page.goto('/me/ai-tasks?state=DONE&priority=HIGH')
+  await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
+  await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
+})

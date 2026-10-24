@@ -23,7 +23,7 @@ import { AiTasksToolbar } from './aiTasks/AiTasksToolbar'
 export default function AiDelegatedTasksPage() {
   const [params] = useSearchParams()
   // facet 은 이 화면이 서버에 실제로 보내는 것(status/priority)만 — 빈 상태 판정·AI 화면 컨텍스트도 같은 값을 쓴다.
-  const { list, counts, facets, filtered, scope, state } = useMemo(() => aiTaskParams(params), [params])
+  const { list, counts, facets, filtered, doneView, scope, state } = useMemo(() => aiTaskParams(params), [params])
   const query = useAiTasks(list)
   const countsQuery = useAiTaskCounts(counts)
   const isMobile = useIsMobile()
@@ -66,7 +66,7 @@ export default function AiDelegatedTasksPage() {
             </Button>
           </div>
         ) : empty ? (
-          <AiTasksEmptyState filtered={filtered} />
+          <AiTasksEmptyState filtered={filtered} doneView={doneView} />
         ) : isMobile ? (
           <AiTasksMobileList items={items} />
         ) : (

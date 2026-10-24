@@ -46,6 +46,8 @@ export interface AiTaskParams {
   facets: Record<string, string>
   /** 빠른 필터나 facet 이 걸려 있는지 — 빈 상태를 "조건에 맞는 작업 없음"으로 보일지. 범위는 필터로 보지 않는다. */
   filtered: boolean
+  /** 완료 칩만 켠 보기(facet 없음) — 0건이면 조건 문구가 아니라 「아직 완료된 AI 작업이 없습니다」를 보인다(WP-917). */
+  doneView: boolean
   /** 범위 — 없으면 나와 관련(mine). */
   scope: 'mine' | 'all'
   /** 켜진 빠른 필터 — 없으면 미완료(null). */
@@ -62,6 +64,8 @@ export function aiTaskParams(params: URLSearchParams): AiTaskParams {
   for (const key of AI_TASK_FACET_KEYS) if (all[key]) facets[key] = all[key]
   const counts = { ...facets, scope: scope === 'all' ? 'ALL' : 'MINE' }
   const list: Record<string, string> = state ? { ...counts, agentState: QUICK_STATE_META[state].agentState } : { ...counts }
-  const filtered = state != null || Object.keys(facets).length > 0
-  return { list, counts, facets, filtered, scope, state }
+  const hasFacets = Object.keys(facets).length > 0
+  const filtered = state != null || hasFacets
+  const doneView = state === 'DONE' && !hasFacets
+  return { list, counts, facets, filtered, doneView, scope, state }
 }
