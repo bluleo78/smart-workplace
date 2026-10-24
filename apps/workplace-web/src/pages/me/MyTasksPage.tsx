@@ -44,7 +44,9 @@ function AssignedTab({ scrollRoot }: { scrollRoot: Element | null }) {
   const { params, filtered, resetFilters, showAllClosed } = useMyTasksFilters()
   const query = useMeIssues(myTasksQueryParams('assigned', params))
   // 완료를 숨겨 비었을 수 있다 — 숨겼다고 알리고 「완료 모두 보기」를 다음 행동으로 준다(프로젝트 목록 WP-606 과 같은 안내).
+  // 필터 0건에서도 같다 — 걸린 이슈가 완료라 숨겨진 것인지 구분하게, 초기화 옆에 바로가기를 둔다(WP-941).
   const hiding = isHidingClosed(params)
+  const showClosedAction = hiding ? { label: '완료 모두 보기', onClick: showAllClosed, testIdSuffix: 'show-closed' } : undefined
   return (
     <InfiniteIssueList
       query={query}
@@ -53,10 +55,15 @@ function AssignedTab({ scrollRoot }: { scrollRoot: Element | null }) {
       empty={{
         title: '할당된 작업이 없습니다',
         description: hiding ? '완료한 작업은 「완료 모두 보기」로 볼 수 있습니다' : undefined,
-        action: hiding ? { label: '완료 모두 보기', onClick: showAllClosed, testIdSuffix: 'show-closed' } : undefined,
+        action: showClosedAction,
       }}
       filtered={filtered}
-      filteredDescription="할당된 작업은 있지만 필터에 걸러졌습니다"
+      filteredDescription={
+        hiding
+          ? '할당된 작업은 있지만 필터에 걸러졌습니다. 완료·취소한 작업은 숨겨져 있습니다'
+          : '할당된 작업은 있지만 필터에 걸러졌습니다'
+      }
+      filteredAction={showClosedAction}
       onResetFilters={resetFilters}
       scrollRoot={scrollRoot}
     />

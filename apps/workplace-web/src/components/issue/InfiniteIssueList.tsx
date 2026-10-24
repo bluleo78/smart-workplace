@@ -23,6 +23,7 @@ export function InfiniteIssueList({
   empty,
   filtered,
   filteredDescription,
+  filteredAction,
   onResetFilters,
   scrollRoot = null,
 }: {
@@ -36,6 +37,8 @@ export function InfiniteIssueList({
   filtered: boolean
   /** 필터 0건 설명 — 탭마다 무엇이 걸러졌는지(「할당된 작업은 있지만…」). 필터를 거는 탭은 늘 넘긴다(필터 없는 탭은 쓰지 않음). */
   filteredDescription?: string
+  /** 필터 0건에서 「필터 초기화」 옆에 둘 다음 행동 — 할당 탭이 완료를 숨기는 중이면 「완료 모두 보기」(WP-941). */
+  filteredAction?: EmptyAction
   onResetFilters?: () => void
   /** 목록을 감싼 스크롤 요소(Page.Body) — 무한 로드 sentinel 의 root(DS 05 §A-3). 뷰포트로 두면 선행 로드 여유가 스크롤 클리핑에 먹혀 끝에 닿아야 불러온다. */
   scrollRoot?: Element | null
@@ -63,12 +66,14 @@ export function InfiniteIssueList({
     // 마지막 페이지까지 받은 뒤에만 빈 상태 — 스트리밍 중 깜빡임 방지.
     // 필터가 걸렸으면 「데이터 없음」과 구분해 초기화를 준다(DS 06 §B).
     const emptyTid = `${rowTestIdPrefix}-empty`
+    const toAction = (a: EmptyAction) => ({ label: a.label, onClick: a.onClick, testId: `${emptyTid}-${a.testIdSuffix}` })
     body = filtered ? (
       <ListEmptyState
         icon={SearchX}
         title="조건에 맞는 작업이 없습니다"
         description={filteredDescription}
         action={onResetFilters && { label: '필터 초기화', onClick: onResetFilters, testId: `${emptyTid}-reset` }}
+        secondaryAction={filteredAction && toAction(filteredAction)}
         testId={emptyTid}
       />
     ) : (
@@ -76,7 +81,7 @@ export function InfiniteIssueList({
         icon={ClipboardList}
         title={empty.title}
         description={empty.description}
-        action={empty.action && { label: empty.action.label, onClick: empty.action.onClick, testId: `${emptyTid}-${empty.action.testIdSuffix}` }}
+        action={empty.action && toAction(empty.action)}
         testId={emptyTid}
       />
     )

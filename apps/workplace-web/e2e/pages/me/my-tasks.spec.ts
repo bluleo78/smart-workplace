@@ -407,6 +407,31 @@ test.describe('내 작업 상태 화면(WP-916)', () => {
     await expect(page.getByTestId('assigned-row-52')).toBeVisible()
   })
 
+  // WP-941 — 완료를 숨긴 채 필터 0건이면, 걸린 이슈가 완료라 숨겨진 것인지 구분하게 숨김 안내와 「완료 모두 보기」를 함께 준다.
+  test('완료 숨김 중 필터 0건은 숨김 안내와 「완료 모두 보기」, 누르면 필터는 남기고 hideClosed 를 뺀다', async ({ authenticatedPage: page }) => {
+    const seen = await routeMeIssues(page, (sp) => createIssueSearchResponse(sp.get('hideClosed') ? [] : twoProjectItems()))
+    await page.goto('/me/tasks/assigned?priority=HIGH')
+    const empty = page.getByTestId('assigned-row-empty')
+    await expect(empty).toContainText('조건에 맞는 작업이 없습니다')
+    await expect(empty).toContainText('완료·취소한 작업은 숨겨져 있습니다')
+    await expect(page.getByTestId('assigned-row-empty-reset')).toBeVisible()
+    await page.getByTestId('assigned-row-empty-show-closed').click()
+    await expect(page).toHaveURL((u) => u.searchParams.get('closed') === 'all' && u.searchParams.get('priority') === 'HIGH')
+    await expect.poll(() => seen.at(-1)?.get('hideClosed') ?? 'none').toBe('none')
+    await expect.poll(() => seen.at(-1)?.get('priority')).toBe('HIGH')
+    await expect(page.getByTestId('assigned-row-52')).toBeVisible()
+  })
+
+  test('상태 필터로 0건이면 숨김이 꺼져 있어 「완료 모두 보기」를 주지 않는다', async ({ authenticatedPage: page }) => {
+    await routeMeIssues(page, () => createIssueSearchResponse([]))
+    await page.goto('/me/tasks/assigned?status=DONE')
+    const empty = page.getByTestId('assigned-row-empty')
+    await expect(empty).toContainText('할당된 작업은 있지만 필터에 걸러졌습니다')
+    await expect(empty).not.toContainText('숨겨져 있습니다')
+    await expect(page.getByTestId('assigned-row-empty-reset')).toBeVisible()
+    await expect(page.getByTestId('assigned-row-empty-show-closed')).toHaveCount(0)
+  })
+
   test('내가 만든 탭의 필터 0건 설명은 내가 만든 작업 문구다', async ({ authenticatedPage: page }) => {
     await routeMeIssues(page, () => createIssueSearchResponse([]))
     await page.goto('/me/tasks/reported?status=DONE')
