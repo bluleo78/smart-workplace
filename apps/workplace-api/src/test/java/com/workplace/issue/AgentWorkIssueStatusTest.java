@@ -97,6 +97,19 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
   }
 
   @Test
+  void statusName만_보낸_수정은_명시적_상태변경으로_취급된다() {
+    // 할 일 범주의 사용자 정의 상태 — 이름으로 지정해도 명시적 상태 변경이라 자동 시작이 진행 중으로 덮으면 안 된다(WP-870).
+    inTenant(
+        () ->
+            projectStatusService.create(
+                humanId, projectKey, new CreateProjectStatusRequest("대기", "TODO", null, null)));
+    assertOk(patch(jwtToken, Map.of("status", "IN_PROGRESS"), null));
+    assertOk(patch(patToken, Map.of("statusName", "대기"), TOOL));
+    assertThat(activeWork(issueId, humanId).orElseThrow().state()).isEqualTo("WORKING");
+    assertThat(issueStatusName()).isEqualTo("대기");
+  }
+
+  @Test
   void 자동_시작의_상태_이력은_그것을_일으킨_변경_뒤에_남는다() {
     assertOk(patch(patToken, Map.of("title", "진행"), TOOL));
     assertThat(historyTypes(issueId)).containsExactly("TITLE_CHANGED", "STATUS_CHANGED");
@@ -131,7 +144,9 @@ class AgentWorkIssueStatusTest extends AgentWorkTestSupport {
         () ->
             projectStatusService
                 .create(
-                    humanId, projectKey, new CreateProjectStatusRequest(name, "IN_PROGRESS", null))
+                    humanId,
+                    projectKey,
+                    new CreateProjectStatusRequest(name, "IN_PROGRESS", null, null))
                 .id());
   }
 

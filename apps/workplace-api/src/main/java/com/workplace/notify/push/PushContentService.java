@@ -1,5 +1,6 @@
 package com.workplace.notify.push;
 
+import com.workplace.global.util.KoreanParticles;
 import com.workplace.global.util.Texts;
 import com.workplace.notify.dto.NotificationType;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +37,7 @@ public class PushContentService {
                       category,
                       Texts.truncateCodePoints(
                           i.projectKey() + "-" + i.number() + " " + i.title(), 120),
-                      actor + label(e.type()),
+                      actor + issueLabel(e),
                       issueUrl(i.projectKey(), i.number(), e.type()),
                       "issue-" + e.issueId(),
                       "normal",
@@ -124,6 +125,21 @@ public class PushContentService {
   /** 이슈 챗에서 생긴 알림인지(WP-452). */
   private static boolean isIssueChat(NotificationType t) {
     return t == NotificationType.AI_QUESTION || t == NotificationType.ISSUE_CHAT_MENTION;
+  }
+
+  /**
+   * 이슈 알림 행위 문구. 상태 변경에 새 상태 이름이 있으면(WP-869) 「님이 상태를 '검토 중'으로 변경했습니다」 — 인박스와 같은 문구로, 조사도 인박스처럼 받침에
+   * 맞춘다({@link KoreanParticles#direction} — 한글로 끝나지 않는 이름만 「(으)로」). 이름이 없는 예전 알림·그 외 유형은 {@link
+   * #label} 그대로.
+   */
+  private static String issueLabel(InboxPushRequestedEvent e) {
+    if (e.type() == NotificationType.STATUS_CHANGED && e.statusName() != null)
+      return "님이 상태를 '"
+          + e.statusName()
+          + "'"
+          + KoreanParticles.direction(e.statusName())
+          + " 변경했습니다";
+    return label(e.type());
   }
 
   /** 행위 문구(행위자 이름 뒤에 붙음). */

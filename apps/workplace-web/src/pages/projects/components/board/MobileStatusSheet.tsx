@@ -1,13 +1,14 @@
-// 모바일 보드 현재 탭 ⋯ → 바텀시트(WP-808, 모바일 A안) — OWNER 에게만: 「이름 변경」「이 뒤에 상태 추가」.
+// 모바일 보드 현재 탭 ⋯ → 바텀시트(WP-808, 모바일 A안) — OWNER 에게만: 「이름 변경」「이 뒤에 상태 추가」「상태 관리…」(WP-809, 설정 「상태」 섹션).
 // 데스크톱 컬럼 헤더 ⋯ 메뉴(BoardColumnHeaderMenu)와 같은 항목이다. 액션은 MobileActionSheet, 이름 입력은 MobileSheetShell 안의
 // 공용 StatusNameEditor(빈 이름·30자·중복·서버 오류를 입력 아래에 보인다). 새 상태의 범주는 현재 탭 범주 — 위치로 정해진다.
-import { MoreHorizontal, Pencil, Plus } from 'lucide-react';
+import { MoreHorizontal, Pencil, Plus, Settings2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { MobileActionSheet } from '@/components/mobile/MobileActionSheet';
 import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
 import { Button } from '@/components/ui/button';
 import { ISSUE_STATUS_LABEL } from '@/lib/issueGrouping';
+import { statusAddBlockedReason } from '@/lib/projectStatuses';
 import type { ProjectStatus } from '@/types/projectStatus';
 
 import { StatusNameEditor } from './StatusNameEditor';
@@ -21,22 +22,26 @@ export function MobileStatusSheet({
   statuses,
   onRename,
   onAddAfter,
+  onManage,
 }: {
   // 현재 탭의 상태.
   status: ProjectStatus;
   canEdit: boolean;
-  // 이름 중복 검사용 상태 목록.
+  // 이름 중복 검사·상한(20개) 판정용 상태 목록.
   statuses: ProjectStatus[];
   // 이 상태 이름을 바꾼다 — 실패하면 reject(입력기가 오류를 보인다).
   onRename: (name: string) => Promise<void>;
   // 이 상태 바로 뒤(같은 범주)에 새 상태를 만든다 — 실패하면 reject.
   onAddAfter: (name: string) => Promise<void>;
+  // 설정 「상태」 섹션으로 간다 — 없으면 항목을 그리지 않는다.
+  onManage?: () => void;
 }) {
   const [step, setStep] = useState<Step>(null);
   // 이름 입력 시트의 용도 — 닫히는 애니메이션 동안에도 제목이 바뀌지 않게 step 과 따로 둔다.
   const [mode, setMode] = useState<'rename' | 'add'>('add');
   if (!canEdit) return null;
   const category = ISSUE_STATUS_LABEL[status.category];
+  const addBlocked = statusAddBlockedReason(statuses);
   const close = () => setStep(null);
   const openName = (m: 'rename' | 'add') => {
     setMode(m);
@@ -64,7 +69,16 @@ export function MobileStatusSheet({
         testId="mobile-status-sheet"
         actions={[
           { key: 'status-rename', label: '이름 변경', icon: <Pencil />, onSelect: () => openName('rename') },
-          { key: 'status-add-after', label: '이 뒤에 상태 추가', icon: <Plus />, onSelect: () => openName('add') },
+          // 상한(20개)이면 흐리게 막고 이유를 행 오른쪽에 보인다(설정 「+ 추가」와 같은 문구).
+          {
+            key: 'status-add-after',
+            label: '이 뒤에 상태 추가',
+            icon: <Plus />,
+            onSelect: () => openName('add'),
+            disabled: !!addBlocked,
+            hint: addBlocked,
+          },
+          ...(onManage ? [{ key: 'status-manage', label: '상태 관리…', icon: <Settings2 />, onSelect: onManage }] : []),
         ]}
       />
       <MobileSheetShell

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { buildChatUserMessage } from './chat-user-message.js';
-import type { ChatMessagePostedPayload } from '../types/chat-events.js';
+import { chatMessagePostedPayload, type ChatMessagePostedPayload } from '../types/chat-events.js';
 import type { ChatMessageItem } from '../clients/workplace-api.js';
 import type { PresentedAttachments } from './attachment-presenter.js';
 
@@ -58,8 +58,23 @@ describe('buildChatUserMessage', () => {
     const msg = buildChatUserMessage(enriched, recent, NONE_PRESENTED);
     expect(msg).toContain('현재 이슈 컨텍스트');
     expect(msg).toContain('로그인 버그');
-    expect(msg).toContain('IN_PROGRESS');
+    expect(msg).toContain('(상태: 진행 중)');
     expect(msg).toContain('재현 절차: 로그인 시 500 에러');
+  });
+
+  // WP-869: API 가 상태 이름(issueStatusName)을 함께 보내면 이름과 범주를 함께 보인다.
+  it('chat user message: issueStatusName 이 있으면 (상태: 검토 중(진행 중 범주))', () => {
+    const msg = buildChatUserMessage({ ...payload, issueStatus: 'IN_PROGRESS', issueStatusName: '검토 중' }, recent, NONE_PRESENTED);
+    expect(msg).toContain('이슈키: WP-1 (상태: 검토 중(진행 중 범주))');
+    // 기본 상태(이름 = 범주 라벨)는 이름만.
+    const plain = buildChatUserMessage({ ...payload, issueStatus: 'IN_PROGRESS', issueStatusName: '진행 중' }, recent, NONE_PRESENTED);
+    expect(plain).toContain('이슈키: WP-1 (상태: 진행 중)');
+  });
+
+  it('chat 이벤트 스키마는 issueStatusName 을 버리지 않는다(구 이벤트는 없어도 통과)', () => {
+    expect(chatMessagePostedPayload.parse({ ...payload, issueStatusName: '검토 중' }).issueStatusName).toBe('검토 중');
+    expect(chatMessagePostedPayload.parse({ ...payload, issueStatusName: null }).issueStatusName).toBeNull();
+    expect(chatMessagePostedPayload.safeParse(payload).success).toBe(true);
   });
 
   // 구버전 이벤트(컨텍스트 필드 부재)에도 깨지지 않고 placeholder 로 graceful 표기.

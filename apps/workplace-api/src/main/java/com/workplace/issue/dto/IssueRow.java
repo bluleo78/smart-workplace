@@ -8,7 +8,8 @@ import java.time.LocalDate;
  * parentIssueId 는 Phase 4a 부터 — SUBTASK 만 NOT NULL.
  *
  * <p>WP-807: status 는 상태의 범주(TODO/IN_PROGRESS/DONE/CANCELED), statusId 가 프로젝트 상태(project_status)
- * 행이다. statusName 은 그 상태의 이름(스칼라 서브쿼리) — 행을 읽은 시점의 값이라 이력에 그대로 남긴다.
+ * 행이다. statusName·statusColor 는 그 상태의 이름·색(project_status LEFT JOIN, WP-870) — 행을 읽은 시점의 값이라 이력에
+ * 그대로 남긴다.
  */
 public record IssueRow(
     Long id,
@@ -32,4 +33,6 @@ public record IssueRow(
     String milestoneName,
     // WP-807 프로젝트 상태 — id·이름.
     Long statusId,
-    String statusName) {}
+    String statusName,
+    // WP-870 상태 색 토큰(GRAY·BLUE …) — 웹 배지가 상태 목록을 따로 읽지 않고 색을 칠한다.
+    String statusColor) {}

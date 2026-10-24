@@ -70,6 +70,20 @@ public class NotificationRepository {
   /** 수신자별 1행씩 batch insert. created_at 은 DB default, read_at 은 null(안읽음). */
   public void insertBatch(
       List<Long> recipientIds, NotificationType type, Long actorId, long issueId, Long commentId) {
+    insertBatch(recipientIds, type, actorId, issueId, commentId, null);
+  }
+
+  /**
+   * {@link #insertBatch(List, NotificationType, Long, long, Long)} + 상태 이름(WP-869). STATUS_CHANGED
+   * 알림은 그때의 새 상태 이름을 남겨, 나중에 상태 이름이 바뀌거나 지워져도 알림 문구가 「그때 바꾼 상태」를 가리키게 한다. 그 외 알림은 null.
+   */
+  public void insertBatch(
+      List<Long> recipientIds,
+      NotificationType type,
+      Long actorId,
+      long issueId,
+      Long commentId,
+      String statusName) {
     List<Query> rows =
         recipientIds.stream()
             .map(
@@ -80,7 +94,8 @@ public class NotificationRepository {
                             .set(NOTIFICATION.ACTOR_ID, actorId)
                             .set(NOTIFICATION.TYPE, type.name())
                             .set(NOTIFICATION.ISSUE_ID, issueId)
-                            .set(NOTIFICATION.COMMENT_ID, commentId))
+                            .set(NOTIFICATION.COMMENT_ID, commentId)
+                            .set(NOTIFICATION.STATUS_NAME, statusName))
             .toList();
     dsl.batch(rows).execute();
   }
@@ -178,6 +193,7 @@ public class NotificationRepository {
             NOTIFICATION.WIKI_PAGE_ID,
             WIKI_PAGE.TITLE,
             NOTIFICATION.MESSAGE,
+            NOTIFICATION.STATUS_NAME,
             NOTIFICATION.READ_AT,
             NOTIFICATION.CREATED_AT)
         .from(NOTIFICATION)
@@ -221,6 +237,7 @@ public class NotificationRepository {
                   r.get(NOTIFICATION.WIKI_PAGE_ID),
                   r.get(WIKI_PAGE.TITLE),
                   r.get(NOTIFICATION.MESSAGE),
+                  r.get(NOTIFICATION.STATUS_NAME),
                   r.get(NOTIFICATION.READ_AT) != null,
                   created == null ? null : created.toInstant());
             });

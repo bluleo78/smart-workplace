@@ -497,8 +497,9 @@ public class AiTaskRepository {
             ? List.<SortField<?>>of(ISSUE.ID.desc(), rSortAt.desc())
             : List.<SortField<?>>of(rSortAt.desc(), ISSUE.ID.desc()));
 
+    // 이슈 행 컬럼(ROW_FIELDS)의 상태 이름·색은 상태 조인에서 읽는다(WP-870)
     return dsl.select(fields)
-        .from(ISSUE)
+        .from(IssueRepository.ISSUE_WITH_STATUS)
         .join(sorted)
         .on(rId.eq(ISSUE.ID))
         .where(seek)

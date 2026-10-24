@@ -2,25 +2,32 @@ package com.workplace.notify.service;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.NOTIFICATION;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.global.dto.UserSummary;
 import com.workplace.notify.dto.NotificationType;
+import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.support.IntegrationTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /** NotificationService 통합 테스트 — actor 제외·중복 제거·빈 수신자 no-op·스코프. */
 @Transactional
+@RecordApplicationEvents
 class NotificationServiceTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired NotificationService service;
+  @Autowired ApplicationEvents events;
 
   private long seedUser() {
     String s = UUID.randomUUID().toString().replace("-", "").substring(0, 8);
@@ -101,5 +108,53 @@ class NotificationServiceTest extends IntegrationTestBase {
     service.markAllRead(a);
     assertThat(service.countUnread(a)).isZero();
     assertThat(service.countUnread(b)).isEqualTo(1);
+  }
+
+  /** WP-869: 상태 변경 알림은 새 상태 이름을 행에 남기고, 목록 응답과 푸시 이벤트에 그대로 싣는다. */
+  @Test
+  void 상태변경_알림은_새상태이름을_저장한다() {
+    long actor = seedUser();
+    long assignee = seedUser();
+    long issueId = seedIssue(actor);
+
+    service.createWithWatchersAndFanOut(
+        NotificationType.STATUS_CHANGED,
+        issueId,
+        List.of(new UserSummary(assignee, "a", "담당", "HUMAN")),
+        actor,
+        null,
+        "검토 중");
+
+    assertThat(
+            dsl.select(NOTIFICATION.STATUS_NAME)
+                .from(NOTIFICATION)
+                .where(NOTIFICATION.RECIPIENT_ID.eq(assignee))
+                .fetchOne(NOTIFICATION.STATUS_NAME))
+        .isEqualTo("검토 중");
+    assertThat(service.listRecent(assignee, 20, 0))
+        .singleElement()
+        .satisfies(n -> assertThat(n.statusName()).isEqualTo("검토 중"));
+    assertThat(events.stream(InboxPushRequestedEvent.class))
+        .singleElement()
+        .satisfies(e -> assertThat(e.statusName()).isEqualTo("검토 중"));
+  }
+
+  /** 상태 이름이 없는 경로(기존 5인자·다른 유형)는 status_name 을 비워 둔다 — 프론트·푸시가 기존 문구로 돌아간다. */
+  @Test
+  void 상태이름없는_알림은_statusName이_null이다() {
+    long actor = seedUser();
+    long r1 = seedUser();
+    long issueId = seedIssue(actor);
+
+    service.createWithWatchersAndFanOut(
+        NotificationType.COMMENTED,
+        issueId,
+        List.of(new UserSummary(r1, "b", "담당", "HUMAN")),
+        actor,
+        null);
+
+    assertThat(service.listRecent(r1, 20, 0))
+        .singleElement()
+        .satisfies(n -> assertThat(n.statusName()).isNull());
   }
 }

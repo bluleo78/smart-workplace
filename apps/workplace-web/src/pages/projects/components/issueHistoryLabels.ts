@@ -9,6 +9,14 @@ export function historyStatusLabel(v: string | null): string {
   return v ? statusLabel(v) : '없음';
 }
 
+/**
+ * 상태 삭제로 옮겨진 이력(STATUS_MIGRATED, WP-809) 문구 — fromValue 는 지운 상태 이름, toValue 는 옮겨 간 상태 이름.
+ * 사용자의 상태 변경과 구분되게 「상태 삭제로 '코드 리뷰 중' → '진행 중'」. 값이 비면 '없음'.
+ */
+export function formatStatusMigrated(from: string | null, to: string | null): string {
+  return `상태 삭제로 '${from || '없음'}' → '${to || '없음'}'`;
+}
+
 /** 우선순위 이력 값 → 표시명. null/빈 값은 '없음'. */
 export function historyPriorityLabel(v: string | null): string {
   return v ? priorityLabel(v) : '없음';

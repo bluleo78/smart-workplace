@@ -9,6 +9,7 @@ import com.workplace.issue.exception.StatusNotFoundException;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.CaseValueStep;
@@ -59,6 +60,7 @@ public class ProjectStatusRepository {
         r.get(PROJECT_STATUS.NAME),
         r.get(PROJECT_STATUS.CATEGORY),
         r.get(PROJECT_STATUS.POSITION),
+        r.get(PROJECT_STATUS.COLOR),
         c != null ? c.toInstant() : null,
         u != null ? u.toInstant() : null);
   }
@@ -125,6 +127,24 @@ public class ProjectStatusRepository {
         .execute();
   }
 
+  /**
+   * 지울 상태 행 하나를 FOR UPDATE 로 잠근다(WP-809). {@link #lockByProject} 의 NO KEY UPDATE 는 이슈 쪽 FK 검사(KEY
+   * SHARE)를 막지 않아, 이슈를 옮긴 뒤 행을 지우기 전에 다른 요청이 이 상태로 이슈를 넣거나 옮기면 삭제가 FK 위반(500)이 된다. FOR UPDATE 는 KEY
+   * SHARE 와 충돌하므로 그런 쓰기는 삭제가 끝날 때까지 기다린다 — 옮긴 뒤 끼어든 이슈 때문에 삭제 쪽이 실패하지 않는다.
+   */
+  public void lockForDelete(Long id) {
+    dsl.select(PROJECT_STATUS.ID)
+        .from(PROJECT_STATUS)
+        .where(PROJECT_STATUS.ID.eq(id))
+        .forUpdate()
+        .execute();
+  }
+
+  /** 상태 행 삭제 — 이 상태를 가리키는 이슈를 모두 옮긴 뒤에 부른다(이슈 FK 는 ON DELETE RESTRICT). */
+  public void delete(Long id) {
+    dsl.deleteFrom(PROJECT_STATUS).where(PROJECT_STATUS.ID.eq(id)).execute();
+  }
+
   /** position 이 주어진 값보다 큰 상태를 한 칸씩 뒤로 민다 — 그 바로 뒤 자리(position + 1)를 비우기 위해. */
   public void shiftPositionsAfter(Long projectId, int position) {
     dsl.update(PROJECT_STATUS)
@@ -133,13 +153,36 @@ public class ProjectStatusRepository {
         .execute();
   }
 
+  /**
+   * 여러 상태의 position 을 한 문장(CASE id WHEN … THEN …)으로 바꾼다 — 같은 범주 안 순서 변경(WP-809)이 그 범주가 쓰던 position
+   * 들을 서로 맞바꾸는 데 쓴다. 행마다 따로 UPDATE 하면 중간에 순서가 어긋난 상태가 보일 수 있어 한 번에 바꾼다. 빈 입력은 아무것도 하지 않는다.
+   */
+  public void updatePositions(Map<Long, Integer> positionById) {
+    if (positionById.isEmpty()) return;
+    CaseValueStep<Long> c = DSL.choose(PROJECT_STATUS.ID);
+    CaseWhenStep<Long, Integer> step = null;
+    for (var e : positionById.entrySet()) {
+      step =
+          step == null
+              ? c.when(e.getKey(), DSL.val(e.getValue()))
+              : step.when(e.getKey(), DSL.val(e.getValue()));
+    }
+    dsl.update(PROJECT_STATUS)
+        .set(PROJECT_STATUS.POSITION, step.otherwise(PROJECT_STATUS.POSITION))
+        .set(PROJECT_STATUS.UPDATED_AT, OffsetDateTime.now())
+        .where(PROJECT_STATUS.ID.in(positionById.keySet()))
+        .execute();
+  }
+
   /** 상태 추가. 이름 유일 위반은 {@code DuplicateKeyException}(서비스가 409 로). */
-  public ProjectStatusRow insert(Long projectId, String name, String category, int position) {
+  public ProjectStatusRow insert(
+      Long projectId, String name, String category, int position, String color) {
     return dsl.insertInto(PROJECT_STATUS)
         .set(PROJECT_STATUS.PROJECT_ID, projectId)
         .set(PROJECT_STATUS.NAME, name)
         .set(PROJECT_STATUS.CATEGORY, category)
         .set(PROJECT_STATUS.POSITION, position)
+        .set(PROJECT_STATUS.COLOR, color)
         .returning()
         .fetchOptional()
         .map(this::mapToRow)
@@ -147,14 +190,14 @@ public class ProjectStatusRepository {
   }
 
   /**
-   * 이름만 바꾼다(범주·position 유지). 이름 유일 위반은 {@code DuplicateKeyException}. 그 사이 지워져 행이 없으면 처음 찾을 때와 같은
-   * 404(500 대신, WP-755 와 같은 이유).
+   * 이름·색 중 null 이 아닌 것만 바꾼다(범주·position 유지, WP-809). 이름 유일 위반은 {@code DuplicateKeyException}. 그 사이
+   * 지워져 행이 없으면 처음 찾을 때와 같은 404(500 대신, WP-755 와 같은 이유).
    */
-  public ProjectStatusRow rename(Long id, String name) {
-    return dsl.update(PROJECT_STATUS)
-        .set(PROJECT_STATUS.NAME, name)
-        .set(PROJECT_STATUS.UPDATED_AT, OffsetDateTime.now())
-        .where(PROJECT_STATUS.ID.eq(id))
+  public ProjectStatusRow update(Long id, String name, String color) {
+    var step = dsl.update(PROJECT_STATUS).set(PROJECT_STATUS.UPDATED_AT, OffsetDateTime.now());
+    if (name != null) step = step.set(PROJECT_STATUS.NAME, name);
+    if (color != null) step = step.set(PROJECT_STATUS.COLOR, color);
+    return step.where(PROJECT_STATUS.ID.eq(id))
         .returning()
         .fetchOptional()
         .map(this::mapToRow)

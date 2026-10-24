@@ -4,7 +4,8 @@ import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
-import { withCustomStatuses } from '../../factories/projectStatus.factory';
+import { seedStatuses, withCustomStatuses } from '../../factories/projectStatus.factory';
+import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
 
@@ -539,5 +540,26 @@ test.describe('팀 리스트 뷰', () => {
     await expect.poll(() => patchBody?.statusId).toBe(12);
     expect(patchBody).not.toHaveProperty('status');
     await expect(select).toContainText('검토 중');
+  });
+  test('상태 목록이 늦게 와도 목록이 범주 버킷으로 먼저 그려졌다 바뀌지 않는다', async ({ authenticatedPage: page }) => {
+    await mock(page, [createIssue({ id: 1, number: 1, title: '할 일 이슈', status: 'TODO' })]);
+    // 상태 목록 응답을 붙잡아 둔다(WP-870) — 붙잡힌 요청 수로 「지금 기다리는 중」을 확인한다.
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let heldHits = 0;
+    await page.route(`**/api/v1/projects/${KEY}/statuses`, async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      heldHits += 1;
+      await held;
+      return route.fulfill({ json: seedStatuses() });
+    });
+    await page.goto(`/projects/${KEY}?group=status`);
+
+    // 상태 목록이 오기 전엔 목록을 그리지 않는다 — 범주 버킷(list-group-TODO)으로 먼저 그렸다가 statusId 버킷으로 바꾸지 않게.
+    await expect.poll(() => heldHits).toBeGreaterThan(0);
+    await expectStays(page, () => page.getByTestId('issue-list-scroll').count(), 0);
+    release();
+    await expect(page.getByTestId('list-group-1').getByTestId('issue-row-1')).toBeVisible();
+    await expect(page.getByTestId('list-group-TODO')).toHaveCount(0);
   });
 });

@@ -10,7 +10,7 @@ import {
   toFieldValue,
   splitLabelNames,
   splitStatusTokens,
-  resolveStatusId,
+  resolveStatusPatch,
   type CurrentUserClient,
   type ProjectMetaClient,
 } from './resolve.js';
@@ -54,24 +54,13 @@ describe('splitStatusTokens (WP-807)', () => {
   });
 });
 
-describe('resolveStatusId (WP-807)', () => {
-  it('상태 이름을 프로젝트 상태 id 로 바꾼다', async () => {
-    const c = client();
-    await expect(resolveStatusId(c, 'WP', '검토 중')).resolves.toBe(12);
-    expect(c.getProjectStatuses).toHaveBeenCalledWith('WP');
+describe('resolveStatusPatch (WP-870)', () => {
+  it('범주 값은 대소문자·공백을 무시하고 { status } 로 바꾼다', () => {
+    expect(resolveStatusPatch('DONE')).toEqual({ status: 'DONE' });
+    expect(resolveStatusPatch(' done ')).toEqual({ status: 'DONE' });
   });
-  it('모르는 이름은 사용 가능 목록을 담아 throw', async () => {
-    await expect(resolveStatusId(client(), 'WP', '배포')).rejects.toThrow("상태 '배포' 을(를) 찾을 수 없습니다. 사용 가능: 할 일, 진행 중, 검토 중");
-  });
-  it('대소문자·앞뒤 공백만 다른 이름도 찾는다 — 서버 lower(btrim) 과 같은 규칙', async () => {
-    const c = client();
-    vi.mocked(c.getProjectStatuses).mockResolvedValue([
-      { id: 31, name: 'Review', category: 'IN_PROGRESS', position: 1 },
-      { id: 32, name: ' QA Wait ', category: 'IN_PROGRESS', position: 2 },
-    ]);
-    await expect(resolveStatusId(c, 'WP', 'review')).resolves.toBe(31);
-    await expect(resolveStatusId(c, 'WP', '  REVIEW ')).resolves.toBe(31);
-    await expect(resolveStatusId(c, 'WP', 'qa wait')).resolves.toBe(32);
+  it('그 밖의 값은 상태 이름으로 보고 trim 해 { statusName } 으로 보낸다 — 목록 조회 없이 서버가 해석한다', () => {
+    expect(resolveStatusPatch('  검토 중 ')).toEqual({ statusName: '검토 중' });
   });
 });
 

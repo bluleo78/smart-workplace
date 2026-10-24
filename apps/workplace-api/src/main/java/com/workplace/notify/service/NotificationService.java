@@ -43,9 +43,21 @@ public class NotificationService {
   @Transactional
   public void createAndFanOut(
       NotificationType type, List<Long> recipientIds, Long actorId, long issueId, Long commentId) {
-    List<Long> recipients = insertAndFanOut(type, recipientIds, actorId, issueId, commentId);
+    createAndFanOut(type, recipientIds, actorId, issueId, commentId, null);
+  }
+
+  /** 상태 이름(WP-869)을 함께 남기는 생성 — STATUS_CHANGED 외에는 statusName=null 로 위 오버로드를 쓴다. */
+  private void createAndFanOut(
+      NotificationType type,
+      List<Long> recipientIds,
+      Long actorId,
+      long issueId,
+      Long commentId,
+      String statusName) {
+    List<Long> recipients =
+        insertAndFanOut(type, recipientIds, actorId, issueId, commentId, statusName);
     if (recipients.isEmpty()) return;
-    publishPush(type, PushCategory.of(type), recipients, actorId, issueId, null);
+    publishPush(type, PushCategory.of(type), recipients, actorId, issueId, null, null, statusName);
   }
 
   /**
@@ -85,6 +97,17 @@ public class NotificationService {
    */
   private List<Long> insertAndFanOut(
       NotificationType type, List<Long> recipientIds, Long actorId, long issueId, Long commentId) {
+    return insertAndFanOut(type, recipientIds, actorId, issueId, commentId, null);
+  }
+
+  /** 위와 같고 상태 이름(STATUS_CHANGED, WP-869)을 알림 행에 함께 남긴다. */
+  private List<Long> insertAndFanOut(
+      NotificationType type,
+      List<Long> recipientIds,
+      Long actorId,
+      long issueId,
+      Long commentId,
+      String statusName) {
     List<Long> candidates =
         recipientIds.stream()
             .filter(Objects::nonNull)
@@ -96,7 +119,7 @@ public class NotificationService {
     // 후보 순서를 유지한다(푸시 묶음·테스트가 수신자 순서에 기대지 않지만 결정적으로 두려고).
     List<Long> recipients = candidates.stream().filter(readable::contains).toList();
     if (recipients.isEmpty()) return recipients;
-    repo.insertBatch(recipients, type, actorId, issueId, commentId);
+    repo.insertBatch(recipients, type, actorId, issueId, commentId, statusName);
     // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회.
     registry.fanOut(recipients, "notify.created", Map.of("type", type.name(), "issueId", issueId));
     return recipients;
@@ -121,11 +144,33 @@ public class NotificationService {
       Long issueId,
       Long eventId,
       Long wikiPageId) {
+    publishPush(type, category, recipients, actorId, issueId, eventId, wikiPageId, null);
+  }
+
+  /** statusName 은 STATUS_CHANGED 의 새 상태 이름(WP-869) — 푸시 문구에 쓴다. */
+  private void publishPush(
+      NotificationType type,
+      PushCategory category,
+      List<Long> recipients,
+      Long actorId,
+      Long issueId,
+      Long eventId,
+      Long wikiPageId,
+      String statusName) {
     Long tenantId = TenantContext.get();
     if (tenantId == null) return;
     publisher.publishEvent(
         new InboxPushRequestedEvent(
-            tenantId, type, category, recipients, actorId, issueId, eventId, wikiPageId, null));
+            tenantId,
+            type,
+            category,
+            recipients,
+            actorId,
+            issueId,
+            eventId,
+            wikiPageId,
+            null,
+            statusName));
   }
 
   /**
@@ -144,7 +189,23 @@ public class NotificationService {
       List<UserSummary> assignees,
       Long actorId,
       Long commentId) {
-    createAndFanOut(type, assigneesAndWatchers(issueId, assignees), actorId, issueId, commentId);
+    createWithWatchersAndFanOut(type, issueId, assignees, actorId, commentId, null);
+  }
+
+  /**
+   * {@link #createWithWatchersAndFanOut(NotificationType, long, List, Long, Long)} + 상태 이름(WP-869).
+   * 상태 변경 알림은 새 상태 이름을 알림 행·푸시에 실어 「상태를 '검토 중'으로 변경했습니다」로 보이게 한다(조사는 받침에 맞춘다).
+   */
+  @Transactional
+  public void createWithWatchersAndFanOut(
+      NotificationType type,
+      long issueId,
+      List<UserSummary> assignees,
+      Long actorId,
+      Long commentId,
+      String statusName) {
+    createAndFanOut(
+        type, assigneesAndWatchers(issueId, assignees), actorId, issueId, commentId, statusName);
   }
 
   /**

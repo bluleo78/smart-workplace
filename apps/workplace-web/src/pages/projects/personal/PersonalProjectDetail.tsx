@@ -18,6 +18,7 @@ import { IssueBoardView } from '../components/IssueBoardView';
 import { IssueCreateDialog } from '../components/IssueCreateDialog';
 import { IssueFilterBar } from '../components/IssueFilterBar';
 import { MobileIssueToolbar } from '../components/mobile/MobileIssueToolbar';
+import { ProjectStatusesGate } from '../components/ProjectStatusesGate';
 import type { IssueFilterBarOptions } from '../hooks/useIssueFilterControls';
 import { PersonalChecklistView } from './PersonalChecklistView';
 import { PersonalTaskPanel } from './PersonalTaskPanel';
@@ -91,20 +92,23 @@ export function PersonalProjectDetail({ project }: { project: ProjectResponse })
                 모바일(<lg)은 탭이 상단에 붙도록 위·아래 여백을 줄인다(WP-195). 체크리스트는 콘텐츠 높이대로 늘어나 바깥 래퍼가 스크롤한다. */}
             <div className={cn('w-full py-6', pageGutterClass, view === 'board' && 'h-full max-lg:pt-2 max-lg:pb-0')}>
               {view === 'board' ? (
-                <IssueBoardView
-                  projectKey={key}
-                  filters={filters}
-                  groupBy={groupBy}
-                  canEditStatuses={false}
-                  excludeCategories={PERSONAL_EXCLUDED}
-                  showCategoryBand={false}
-                  cardTo={cardTo}
-                  showType={false}
-                  onOpenCreate={(statusId) => {
-                    setCreateStatusId(statusId);
-                    setCreateOpen(true);
-                  }}
-                />
+                // 보드는 상태 목록을 받은 뒤에만 그린다(WP-870, 팀 화면과 같은 관문) — 실패면 다시 시도.
+                <ProjectStatusesGate projectKey={key}>
+                  <IssueBoardView
+                    projectKey={key}
+                    filters={filters}
+                    groupBy={groupBy}
+                    canEditStatuses={false}
+                    excludeCategories={PERSONAL_EXCLUDED}
+                    showCategoryBand={false}
+                    cardTo={cardTo}
+                    showType={false}
+                    onOpenCreate={(statusId) => {
+                      setCreateStatusId(statusId);
+                      setCreateOpen(true);
+                    }}
+                  />
+                </ProjectStatusesGate>
               ) : (
                 <PersonalChecklistView projectKey={key} filters={filters} groupBy={groupBy} />
               )}

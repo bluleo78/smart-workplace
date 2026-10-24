@@ -152,7 +152,7 @@ export const IssueRow = memo(function IssueRow({
             />
         </td>
         <td className="py-2">
-          <IssueStatusIcon status={it.status} name={it.statusName} />
+          <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
         </td>
         {/* 좁은 화면(<sm)에선 우선순위·마감 컬럼을 숨겨 제목 폭을 확보한다 — 헤더의 같은 컬럼도 함께 숨긴다. */}
         <td className="hidden sm:table-cell"><IssuePriorityBars priority={it.priority} /></td>

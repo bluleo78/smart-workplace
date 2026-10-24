@@ -79,6 +79,43 @@ class PushContentServiceTest extends IntegrationTestBase {
     assertThat(m.tenantId()).isEqualTo(1L);
   }
 
+  /**
+   * WP-869: 새 상태 이름이 실린 상태 변경 푸시는 인박스와 같은 「상태를 '<이름>'으로/로 변경했습니다」 문구를 쓴다 — 조사는
+   * 인박스(directionParticle)처럼 받침에 맞춘다.
+   */
+  @Test
+  void 푸시는_상태이름을_넣은_문구를_쓴다() {
+    seedIssue();
+    dsl.update(USER).set(USER.NAME, "김리드").where(USER.ID.eq(actor)).execute();
+    PushMessage m =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L,
+                NotificationType.STATUS_CHANGED,
+                PushCategory.ISSUE,
+                List.of(99L),
+                actor,
+                issueId,
+                null,
+                null,
+                null,
+                "검토 중"));
+
+    assertThat(m.body()).isEqualTo("김리드님이 상태를 '검토 중'으로 변경했습니다");
+  }
+
+  /** 상태 이름이 없는(이름을 남기기 전) 상태 변경 푸시는 기존 문구 그대로. */
+  @Test
+  void 이름없는_예전알림은_기존문구() {
+    seedIssue();
+    PushMessage m =
+        content.forInbox(
+            new InboxPushRequestedEvent(
+                1L, NotificationType.STATUS_CHANGED, List.of(99L), actor, issueId, null));
+
+    assertThat(m.body()).isEqualTo("박민수님이 상태를 변경했습니다");
+  }
+
   @Test
   void forInbox_actorMissing_usesSystemLabel() {
     // 행위자가 없는 경우(actorId == null) — 프론트 InboxPanel 의 `n.actorName ?? '시스템'` 과 표기를 통일한다.

@@ -2,7 +2,7 @@
 // enum → 한국어·원문 폴백은 issueGrouping.test 의 statusLabel/priorityLabel 이 검증하고, 여기선 이력 고유 규칙('없음')과 위임만 본다.
 import { describe, expect, it } from 'vitest';
 
-import { formatParentChanged, historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
+import { formatParentChanged, formatStatusMigrated, historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
 
 describe('historyStatusLabel / historyPriorityLabel', () => {
   it('값이 있으면 공용 표시명으로 바꾼다', () => {
@@ -46,5 +46,16 @@ describe('formatParentChanged', () => {
     expect(formatParentChanged(null, 'RX')).toBe('부모 변경');
     expect(formatParentChanged(json(null, null), 'RX')).toBe('부모 변경');
     expect(formatParentChanged('{oops', 'RX')).toBe('{oops');
+  });
+});
+
+// WP-809: 상태 삭제로 이슈가 다른 상태로 옮겨진 이력(STATUS_MIGRATED) — fromValue 는 지운 상태 이름, toValue 는 옮겨 간 상태 이름.
+describe('formatStatusMigrated', () => {
+  it('지운 상태와 옮겨 간 상태를 따옴표로 보인다', () => {
+    expect(formatStatusMigrated('코드 리뷰 중', '진행 중')).toBe("상태 삭제로 '코드 리뷰 중' → '진행 중'");
+  });
+
+  it('값이 비면 「없음」', () => {
+    expect(formatStatusMigrated(null, '진행 중')).toBe("상태 삭제로 '없음' → '진행 중'");
   });
 });

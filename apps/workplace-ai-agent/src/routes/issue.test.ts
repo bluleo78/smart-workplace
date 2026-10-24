@@ -70,6 +70,20 @@ describe('POST /issue/progress-summary', () => {
     expect(arg.chat?.[1]).toMatchObject({ author: 'AI', kind: 'AGENT', body: '리뷰 대기 중입니다' });
   });
 
+  // WP-869: 상태 이름(statusName)은 strip 되지 않고 러너까지 간다. 구 API(statusName 없음)·null 도 200.
+  it('statusName 이 러너로 전달된다', async () => {
+    vi.mocked(runIssueProgressSummary).mockResolvedValue({ summary: 's', nextAction: '' });
+    const res = await request(app()).post('/issue/progress-summary').send({ ...valid, statusName: '검토 중' });
+    expect(res.status).toBe(200);
+    expect(vi.mocked(runIssueProgressSummary).mock.calls[0][0].statusName).toBe('검토 중');
+  });
+
+  it('issue summary route: statusName 없는 구 payload 도 200', async () => {
+    vi.mocked(runIssueProgressSummary).mockResolvedValue({ summary: 's', nextAction: '' });
+    expect((await request(app()).post('/issue/progress-summary').send(valid)).status).toBe(200);
+    expect((await request(app()).post('/issue/progress-summary').send({ ...valid, statusName: null })).status).toBe(200);
+  });
+
   // 회귀 가드: 본문 없는 이슈는 api 가 body:null 을 보낸다 — zod 가 거부(400)하지 않고 통과해야 한다.
   it('body 가 null 이어도 400 아님(본문 없는 이슈)', async () => {
     vi.mocked(runIssueProgressSummary).mockResolvedValue({ summary: 's', nextAction: '' });

@@ -107,6 +107,23 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
     expect(keysOf('project-status', 'created')).toEqual([['projectStatuses', 'EX']]);
   });
 
+  it('project-status 삭제 → 이슈 검색·상세 + 다시 써진 저장된 뷰·고정 뷰(WP-809)', () => {
+    const keys = keysOf('project-status', 'deleted');
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ['projectStatuses', 'EX'],
+        ['savedViews', 'EX'],
+        ['pinnedViews'],
+        ['issues', 'search', 'EX'],
+        ['issues', 'EX'],
+        ['me-issues'],
+      ]),
+    );
+    expect(new Set(keys.map((k) => JSON.stringify(k))).size).toBe(keys.length);
+    // 이름·색·순서 수정은 저장된 뷰를 건드리지 않는다
+    expect(keysOf('project-status', 'updated')).not.toContainEqual(['savedViews', 'EX']);
+  });
+
   it('cycle 수정·삭제 → cycles·cycleProgress·issueCycles + 이슈 값 대상', () => {
     expect(keysOf('cycle', 'deleted')).toEqual([
       ['cycles', 'EX'],

@@ -32,9 +32,14 @@ describe('buildIssueSummaryPrompt', () => {
   it('기본 메타(제목·상태·우선순위·마감)를 포함한다', () => {
     const prompt = buildIssueSummaryPrompt(baseInput)
     expect(prompt).toContain('테스트 이슈')
-    expect(prompt).toContain('IN_PROGRESS')
+    expect(prompt).toContain('상태: 진행 중 /')
     expect(prompt).toContain('HIGH')
     expect(prompt).toContain('2026-07-01')
+  })
+
+  // WP-869: 상태 이름이 있으면 이름과 범주를 함께 보인다.
+  it('statusName 이 있으면 이름과 범주를 함께 보인다', () => {
+    expect(buildIssueSummaryPrompt({ ...baseInput, statusName: '검토 중' })).toContain('상태: 검토 중(진행 중 범주) /')
   })
 
   it('body 가 있으면 이슈 본문 섹션을 포함한다', () => {

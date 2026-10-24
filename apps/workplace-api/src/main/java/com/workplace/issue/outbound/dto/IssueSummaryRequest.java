@@ -2,11 +2,17 @@ package com.workplace.issue.outbound.dto;
 
 import java.util.List;
 
-/** ai-agent /issue/progress-summary 요청. dueDate 는 ISO(yyyy-MM-dd) 또는 null. */
+/**
+ * ai-agent /issue/progress-summary 요청. dueDate 는 ISO(yyyy-MM-dd) 또는 null.
+ *
+ * <p>{@code statusName} 은 프로젝트 사용자 정의 상태 이름(WP-869, 없으면 null) — AI 가 범주 코드(IN_PROGRESS) 대신 「검토 중」
+ * 같은 이름으로 현황을 말하게 한다. 예전 ai-agent 는 모르는 키를 무시한다.
+ */
 public record IssueSummaryRequest(
     String title,
     String body,
     String status,
+    String statusName,
     String priority,
     String dueDate,
     List<CommentLine> comments,

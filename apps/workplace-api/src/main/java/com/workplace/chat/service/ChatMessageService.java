@@ -320,6 +320,7 @@ public class ChatMessageService {
         context.issueKey(),
         context.issueTitle(),
         context.issueStatus(),
+        context.issueStatusName(),
         context.issueBody(),
         actor,
         body,

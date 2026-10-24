@@ -108,8 +108,11 @@ export function ProjectMetaEditDialog({
   target,
   onSave,
   onClose,
+  nameMaxLength = 40,
 }: {
   title: string;
+  /** 이름 최대 길이 — 라벨·유형은 40, 상태는 30(서버 ProjectStatusService.NAME_MAX, WP-809). */
+  nameMaxLength?: number;
   target: ({ id: number } & ProjectMetaEditValue) | null;
   onSave: (value: ProjectMetaEditValue) => Promise<unknown>;
   onClose: () => void;
@@ -117,7 +120,7 @@ export function ProjectMetaEditDialog({
   return (
     <Dialog open={target != null} onOpenChange={(open) => { if (!open) onClose(); }}>
       {/* 대상이 바뀔 때마다 입력을 새로 채우려고 key 로 다시 그린다. */}
-      {target && <EditForm key={target.id} title={title} initial={target} onSave={onSave} onClose={onClose} />}
+      {target && <EditForm key={target.id} title={title} initial={target} onSave={onSave} onClose={onClose} nameMaxLength={nameMaxLength} />}
     </Dialog>
   );
 }
@@ -127,8 +130,10 @@ function EditForm({
   initial,
   onSave,
   onClose,
+  nameMaxLength,
 }: {
   title: string;
+  nameMaxLength: number;
   initial: ProjectMetaEditValue;
   onSave: (value: ProjectMetaEditValue) => Promise<unknown>;
   onClose: () => void;
@@ -173,7 +178,7 @@ function EditForm({
             onChange={(e) => { setName(e.target.value); setError(null); }}
             onCompositionEnd={enterKey.onCompositionEnd}
             onKeyDown={(e) => enterKey.handleEnter(e, () => void save())}
-            maxLength={40}
+            maxLength={nameMaxLength}
             aria-invalid={!!error}
           />
         </div>

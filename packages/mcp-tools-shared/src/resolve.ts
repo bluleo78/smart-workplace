@@ -76,32 +76,28 @@ export function splitStatusTokens(csv: string): { categories: string[]; names: s
 }
 
 /**
- * 상태 이름 → 프로젝트 상태 id(WP-807). 대소문자·앞뒤 공백 무시 — 서버의 statusName 필터·이름 유일 규칙(lower(btrim))과 같아
- * list_issues 로 찾은 이름을 update_issue 에도 그대로 쓸 수 있다. 그 규칙으로 이름이 유일하니 첫 매치가 곧 유일 매치다.
- * 없으면 사용 가능한 상태 이름을 담아 throw.
+ * update_issue 의 status 값 → PATCH 본문 조각(WP-870). 범주면 { status } — 서버가 범주 기본 상태로 옮긴다(이미 그 범주면 유지).
+ * 그 밖의 값은 프로젝트 상태 이름으로 보고 { statusName } — 이름 해석(대소문자·공백 무시)과 모르는 이름 거절(사용 가능 목록을 담은 400)은
+ * 서버가 한다. 여기서 상태 목록을 조회하지 않아 호출 한 번이 줄고, 이름 규칙이 서버 한 곳에만 있다.
  */
-export async function resolveStatusId(
-  client: Pick<ProjectMetaClient, 'getProjectStatuses'>,
-  projectKey: string,
-  name: string,
-): Promise<number> {
-  const rows = await client.getProjectStatuses(projectKey);
-  const key = name.trim().toLowerCase();
-  const match = rows.find((r) => r.name.trim().toLowerCase() === key);
-  return match ? match.id : idByName(rows, name, '상태');
+export function resolveStatusPatch(status: string): { status: string } | { statusName: string } {
+  const category = asCategory(status);
+  return category ? { status: category } : { statusName: status.trim() };
 }
 
 /**
- * update_issue 의 status 값 → PATCH 본문 조각(WP-807). 범주면 { status } — 서버가 범주 기본 상태로 옮긴다(이미 그 범주면 유지).
- * 그 밖의 값은 프로젝트 상태 이름으로 보고 { statusId } — 범주 판정이 먼저라 범주 값에는 상태 목록을 조회하지 않는다.
+ * 상태 이름이 프로젝트에 없으면 거절 문구, 있으면 null(update_issue 가 쓰기 전에 확인할 때만). 서버 해석과 같이 대소문자·앞뒤 공백을 무시한다.
+ * 보통은 서버가 내용 PATCH 에서 확인하므로 부르지 않는다 — 내용 PATCH 보다 먼저 써야 하는 것(첨부·드라이브 링크)이 있을 때만 쓴다.
  */
-export async function resolveStatusPatch(
+export async function unknownStatusMessage(
   client: Pick<ProjectMetaClient, 'getProjectStatuses'>,
   projectKey: string,
-  status: string,
-): Promise<{ status: string } | { statusId: number }> {
-  const category = asCategory(status);
-  return category ? { status: category } : { statusId: await resolveStatusId(client, projectKey, status.trim()) };
+  name: string,
+): Promise<string | null> {
+  const rows = await client.getProjectStatuses(projectKey);
+  const key = name.trim().toLowerCase();
+  if (rows.some((r) => r.name.trim().toLowerCase() === key)) return null;
+  return `상태 '${name}' 을(를) 찾을 수 없습니다. 사용 가능: ${rows.map((r) => r.name).join(', ') || '(없음)'}`;
 }
 
 /** 호출자 본인 조회(GET /auth/me) — 담당자 "me" 를 호출자로 치환할 때 쓴다. */

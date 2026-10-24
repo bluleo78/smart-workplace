@@ -3,6 +3,7 @@ package com.workplace.issue.repository;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_DEPENDENCY;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 
 import com.workplace.issue.dto.IssueLinkSummary;
 import com.workplace.issue.dto.IssueStatuses;
@@ -122,12 +123,18 @@ public class IssueDependencyRepository {
             ISSUE_TYPE_DEF.ID,
             ISSUE_TYPE_DEF.NAME,
             ISSUE_TYPE_DEF.COLOR_TOKEN,
-            ISSUE_TYPE_DEF.ICON)
+            ISSUE_TYPE_DEF.ICON,
+            ISSUE.STATUS_ID,
+            PROJECT_STATUS.NAME,
+            PROJECT_STATUS.COLOR)
         .from(ISSUE_DEPENDENCY)
         .join(ISSUE)
         .on(ISSUE.ID.eq(ISSUE_DEPENDENCY.ISSUE_ID))
         .join(ISSUE_TYPE_DEF)
         .on(ISSUE_TYPE_DEF.ID.eq(ISSUE.TYPE_ID))
+        // 사용자 정의 상태 이름·색(WP-869) — status_id 가 없는 행도 남도록 LEFT JOIN
+        .leftJoin(PROJECT_STATUS)
+        .on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID))
         .where(ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID.in(issueIds).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(ISSUE.NUMBER.asc())
         .fetch()
@@ -145,7 +152,10 @@ public class IssueDependencyRepository {
                                 r.get(ISSUE_TYPE_DEF.NAME),
                                 r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
                                 r.get(ISSUE_TYPE_DEF.ICON)),
-                            r.get(ISSUE.DUE_DATE))));
+                            r.get(ISSUE.DUE_DATE),
+                            r.get(ISSUE.STATUS_ID),
+                            r.get(PROJECT_STATUS.NAME),
+                            r.get(PROJECT_STATUS.COLOR))));
     return result;
   }
 
@@ -163,12 +173,18 @@ public class IssueDependencyRepository {
             ISSUE_TYPE_DEF.ID,
             ISSUE_TYPE_DEF.NAME,
             ISSUE_TYPE_DEF.COLOR_TOKEN,
-            ISSUE_TYPE_DEF.ICON)
+            ISSUE_TYPE_DEF.ICON,
+            ISSUE.STATUS_ID,
+            PROJECT_STATUS.NAME,
+            PROJECT_STATUS.COLOR)
         .from(ISSUE_DEPENDENCY)
         .join(ISSUE)
         .on(ISSUE.ID.eq(ISSUE_DEPENDENCY.BLOCKS_ISSUE_ID))
         .join(ISSUE_TYPE_DEF)
         .on(ISSUE_TYPE_DEF.ID.eq(ISSUE.TYPE_ID))
+        // 사용자 정의 상태 이름·색(WP-869) — status_id 가 없는 행도 남도록 LEFT JOIN
+        .leftJoin(PROJECT_STATUS)
+        .on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID))
         .where(ISSUE_DEPENDENCY.ISSUE_ID.in(issueIds).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(ISSUE.NUMBER.asc())
         .fetch()
@@ -186,7 +202,10 @@ public class IssueDependencyRepository {
                                 r.get(ISSUE_TYPE_DEF.NAME),
                                 r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
                                 r.get(ISSUE_TYPE_DEF.ICON)),
-                            r.get(ISSUE.DUE_DATE))));
+                            r.get(ISSUE.DUE_DATE),
+                            r.get(ISSUE.STATUS_ID),
+                            r.get(PROJECT_STATUS.NAME),
+                            r.get(PROJECT_STATUS.COLOR))));
     return result;
   }
 

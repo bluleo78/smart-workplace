@@ -110,6 +110,9 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
       IssueSummaryRequest req = captor.getValue();
       assertThat(req.body()).isEqualTo("이슈 본문 내용입니다.");
       assertThat(req.assistantAgentId()).isEqualTo(999L);
+      // WP-869: 범주 코드와 함께 사용자 정의 상태 이름(새 이슈 = 범주 기본 상태 「할 일」)이 실린다
+      assertThat(req.status()).isEqualTo("TODO");
+      assertThat(req.statusName()).isEqualTo("할 일");
       // chat 은 IssueChatExcerptReader 가 실 빈이라 스레드 없으면 빈 리스트
       assertThat(req.chat()).isNotNull();
 

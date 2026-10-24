@@ -35,6 +35,7 @@ import { IssueFilterBar } from './components/IssueFilterBar';
 import { IssueListView } from './components/IssueListView';
 import { MobileEpicChip } from './components/mobile/MobileEpicSheet';
 import { MobileIssueToolbar } from './components/mobile/MobileIssueToolbar';
+import { ProjectStatusesGate } from './components/ProjectStatusesGate';
 import { ViewChipBar } from './components/ViewChipBar';
 import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 
@@ -261,32 +262,35 @@ function ProjectIssuesSection({
         {/* overflow-auto: 목록/보드는 h-full 로 슬롯을 정확히 채워 자체 스크롤하고,
             로딩·빈 상태·사이클 구간 목록처럼 자체 스크롤이 없는 화면이 넘칠 때만 이 슬롯이 스크롤한다. */}
         <div className="min-h-0 flex-1 overflow-auto">
-          {view === 'board' ? (
-            <IssueBoardView
-              projectKey={projectKey}
-              // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
-              filters={withDefaultIssueScope(filters)}
-              groupBy={toClientGroupBy(groupBy)}
-              canEditStatuses={statusEditable}
-              onOpenCreate={onOpenCreate}
-              canDragStatus={canDragStatus}
-              canEdit={canEdit}
-            />
-          ) : groupPending ? (
-            <IssueCycleListSkeleton />
-          ) : groupBy === 'cycle' ? (
-            <IssueCycleGroupedList projectKey={projectKey} filters={filters} canDrag={canDragStatus} canEdit={canEdit} />
-          ) : (
-            <IssueListView
-              projectKey={projectKey}
-              filters={filters}
-              groupBy={toClientGroupBy(groupBy)}
-              onOpenCreate={onOpenCreate}
-              onLoadedChange={onLoadedChange}
-              canDrag={canDragStatus}
-              canEdit={canEdit}
-            />
-          )}
+          {/* 목록·보드는 상태 목록을 받은 뒤에만 그린다(WP-870) — 받기 전엔 로딩, 실패면 다시 시도. */}
+          <ProjectStatusesGate projectKey={projectKey}>
+            {view === 'board' ? (
+              <IssueBoardView
+                projectKey={projectKey}
+                // 팀 보드 기본 범위 — 에픽 카드 제외, 에픽 하위 이슈 노출, SUBTASK 숨김(목록과 동일 규칙).
+                filters={withDefaultIssueScope(filters)}
+                groupBy={toClientGroupBy(groupBy)}
+                canEditStatuses={statusEditable}
+                onOpenCreate={onOpenCreate}
+                canDragStatus={canDragStatus}
+                canEdit={canEdit}
+              />
+            ) : groupPending ? (
+              <IssueCycleListSkeleton />
+            ) : groupBy === 'cycle' ? (
+              <IssueCycleGroupedList projectKey={projectKey} filters={filters} canDrag={canDragStatus} canEdit={canEdit} />
+            ) : (
+              <IssueListView
+                projectKey={projectKey}
+                filters={filters}
+                groupBy={toClientGroupBy(groupBy)}
+                onOpenCreate={onOpenCreate}
+                onLoadedChange={onLoadedChange}
+                canDrag={canDragStatus}
+                canEdit={canEdit}
+              />
+            )}
+          </ProjectStatusesGate>
         </div>
       </div>
       {/* 닫힌 패널은 드래그 동안만 떠 있는 드롭 대상으로 잠시 띄운다 — 저장된 열림 설정은 그대로. */}

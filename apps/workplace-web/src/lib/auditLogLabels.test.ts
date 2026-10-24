@@ -83,3 +83,12 @@ describe('lastFacetValue', () => {
     expect(lastFacetValue(undefined)).toBe('');
   });
 });
+
+// WP-811: 프로젝트 상태 추가·수정·순서 변경·삭제는 리소스 project_status 로 남는다.
+describe('formatAuditResource — 프로젝트 상태(WP-811)', () => {
+  it('project_status 는 「프로젝트 상태」로(raw·경고 없음)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(formatAuditResource('project_status')).toBe('프로젝트 상태');
+    expect(warn).not.toHaveBeenCalled();
+  });
+});

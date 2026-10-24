@@ -18,6 +18,10 @@ export interface ParentRef {
   // 부모 이슈의 현재 상태 — 필터로 부모(에픽) 행이 응답에 없어도 취소 여부를 알 수 있게 서버가 싣는다(WP-247).
   // 이력 등 다른 payload 에는 없을 수 있어 선택.
   status?: IssueStatus;
+  // 부모의 프로젝트 상태 id·이름·색(WP-869) — 구 서버 응답엔 없어 선택.
+  statusId?: number;
+  statusName?: string;
+  statusColor?: string | null;
 }
 
 // 의존성 응답에 임베드되는 이슈 요약 (Phase 4b).
@@ -29,6 +33,10 @@ export interface IssueLinkSummary {
   type: IssueTypeSummary;
   // 선행 이슈의 마감일 — 후행 이슈 날짜 선택 시 모순(선행보다 이른 날짜) 판정용 (#669, soft 경고 정책).
   dueDate: string | null;
+  // 링크된 이슈의 프로젝트 상태 id·이름·색(WP-869) — 구 서버 응답엔 없어 선택.
+  statusId?: number;
+  statusName?: string;
+  statusColor?: string | null;
 }
 
 // AI 에이전트 작업 상태 — 서버 AgentWorkState 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED·SCHEDULED) (WP-377·WP-450).
@@ -94,6 +102,8 @@ export interface IssueResponse {
   // 프로젝트 상태 id·이름(WP-808) — 화면에 보이는 상태는 이름이고, 보드 컬럼·필터는 id 로 나눈다.
   statusId: number;
   statusName: string;
+  // 상태 색 토큰(WP-809) — 아이콘 색. 구 서버 응답엔 없어 선택(없으면 범주 색).
+  statusColor?: string | null;
   priority: IssuePriority;
   dueDate: string | null;
   // 타임라인 간트 뷰 시작일 (#620).
@@ -173,7 +183,9 @@ export type IssueHistoryEventType =
   | 'CUSTOM_FIELD_CHANGED'
   // 타임라인 간트 뷰 시작일/마일스톤 변경 (#620).
   | 'START_DATE_CHANGED'
-  | 'MILESTONE_CHANGED';
+  | 'MILESTONE_CHANGED'
+  // 상태 삭제로 이슈가 다른 상태로 옮겨짐(WP-809) — 이름 전후는 from/toValue.
+  | 'STATUS_MIGRATED';
 
 export interface IssueHistoryEntry {
   id: number;

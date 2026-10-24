@@ -4,12 +4,15 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { UserPlus, X } from 'lucide-react';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu';
 import { assigneeCandidates } from '@/lib/assigneeCandidates';
@@ -35,18 +38,15 @@ import {
   useBulkUpdateStatus,
 } from '../../../hooks/queries/useBulkIssueActions';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
+import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { failedOf } from '../../../lib/bulkResult';
 import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { bulkDeleteDescription, countCascadedChildren } from '../../../lib/issueBulkDelete';
 import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
-import type { IssueStatus } from '../../../types/issue';
-
-// 상태 일괄 변경 드롭다운 옵션 — IssueStatusSelect 와 동일한 라벨 세트.
-const STATUS_OPTIONS: { value: IssueStatus; label: string }[] = ISSUE_STATUSES.map((value) => ({
-  value,
-  label: ISSUE_STATUS_LABEL[value],
-}));
+import { findStatus, statusesByCategory } from '../../../lib/projectStatuses';
+import type { ProjectStatus } from '../../../types/projectStatus';
+import { statusPickerOptions } from '../hooks/statusFacets';
 
 /**
  * 모바일 고정 바(+하단 탭바) 높이만큼의 여백 — 목록 맨 아래 행이 바에 가리지 않게 목록 끝에 둔다.
@@ -80,6 +80,10 @@ export function IssueBulkActions({
   // 모바일은 드롭다운(32px 항목) 대신 바텀 피커 시트로 고른다.
   const [picker, setPicker] = useState<'status' | 'assignee' | null>(null);
   const members = useProjectMembers(projectKey);
+  // 상태 선택지(WP-869) — 프로젝트 상태 목록(서버 표시 순서). 일괄 바는 상태 목록 관문(ProjectStatusesGate) 안의
+  // 목록에서만 그려져 목록이 늘 채워져 있다. 단일 프로젝트 화면에서만 쓰여 여러 프로젝트가 섞이는 경우는 없다.
+  const statuses = useProjectStatusList(projectKey);
+  const byCategory = statusesByCategory(statuses);
   const bulkStatus = useBulkUpdateStatus(projectKey, closedHiding);
   const bulkAssign = useBulkAssign(projectKey);
   const bulkDelete = useBulkDeleteIssues(projectKey);
@@ -102,8 +106,9 @@ export function IssueBulkActions({
 
   // 결과를 받아 실패한 이슈만 선택에 남긴다 — 부분 실패여도 mutation 은 성공(allSettled)으로 끝난다(WP-851).
   const settle = { onSuccess: (results: PromiseSettledResult<unknown>[]) => onSettled(failedOf(selectedNumbers, results)) };
-  function onBulkStatus(status: IssueStatus) {
-    bulkStatus.mutate({ numbers: selectedNumbers, status }, settle);
+  // 고른 상태로 옮긴다. 범주(status)는 종료 숨김 토스트 판정에 함께 넘긴다.
+  function onBulkStatus(st: ProjectStatus) {
+    bulkStatus.mutate({ numbers: selectedNumbers, status: st.category, statusId: st.id }, settle);
   }
   function onBulkAssign(userIds: number[]) {
     bulkAssign.mutate({ numbers: selectedNumbers, userIds }, settle);
@@ -122,15 +127,29 @@ export function IssueBulkActions({
             상태 변경
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          {STATUS_OPTIONS.map((o) => (
-            <DropdownMenuItem
-              key={o.value}
-              data-testid={`bulk-status-option-${o.value}`}
-              onClick={() => onBulkStatus(o.value)}
-            >
-              {o.label}
-            </DropdownMenuItem>
+        {/* 범주별 묶음(제목 = 범주 라벨) 아래 그 범주의 상태. 30자 이름도 메뉴가 화면을 넘지 않게 폭을 묶고 말줄임(title 로 전체).
+            상태가 많아 길어지면 화면 끝에 붙지 않게 8px 띄운다(available-height 도 그만큼 줄어 안에서 스크롤, WP-809). */}
+        <DropdownMenuContent align="start" collisionPadding={8} className="max-w-72">
+          {ISSUE_STATUSES.filter((c) => byCategory[c].length > 0).map((c, i) => (
+            <Fragment key={c}>
+              {i > 0 && <DropdownMenuSeparator />}
+              <DropdownMenuGroup data-testid={`bulk-status-group-${c}`}>
+                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                  {ISSUE_STATUS_LABEL[c]}
+                </DropdownMenuLabel>
+                {byCategory[c].map((st) => (
+                  <DropdownMenuItem
+                    key={st.id}
+                    data-testid={`bulk-status-option-${st.id}`}
+                    title={st.name}
+                    onClick={() => onBulkStatus(st)}
+                  >
+                    <IssueStatusIcon status={st.category} color={st.color} decorative className="size-4" />
+                    <span className="min-w-0 truncate">{st.name}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            </Fragment>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -226,8 +245,14 @@ export function IssueBulkActions({
             onClose={() => setPicker(null)}
             title="상태 변경"
             value={null}
-            options={STATUS_OPTIONS.map((o) => ({ ...o, icon: <IssueStatusIcon status={o.value} decorative /> }))}
-            onSelect={(v) => onBulkStatus(v as IssueStatus)}
+            // 프로젝트 상태(값 = statusId, 표시 순서라 범주끼리 모여 있고 아이콘 모양이 범주) — 이슈 상태 시트와 같은 모양.
+            options={statusPickerOptions(statuses)}
+            // 30자 이름은 한 줄 말줄임이면 앞부분만 같은 상태를 구별하지 못한다 — 두 줄까지.
+            wrapLabels
+            onSelect={(v) => {
+              const st = findStatus(statuses, v);
+              if (st) onBulkStatus(st);
+            }}
           />
           <MobilePickerSheet
             testId="bulk-assignee-picker"

@@ -17,6 +17,7 @@ import {
   resolveStatusPatch,
   resolveTypeId,
   toFieldValue,
+  unknownStatusMessage,
 } from './resolve.js';
 import {
   addCommentInput,
@@ -170,7 +171,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the set ([] clears). ' +
         'Names (type, milestone, cycles, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
-        '(gray) and listed in createdLabels. fileIds attach staged files. Then each part saves on its own: {ok, results, createdLabels?}. Status/priority changes notify ' +
+        '(gray) and listed in createdLabels. fileIds attach staged files. Then each part saves on its own: {ok, results, createdLabels?}; an unknown status name fails results.content (listing valid ones) and nothing else is written. Status/priority changes notify ' +
         'assignees and watchers, new assignees too. An AI whose agentRuntime is INTERNAL does not react to anything another AI does (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {
@@ -182,9 +183,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         //    WP-356: 커스텀 필드는 이름 → 정의를 찾고 값 모양·선택지까지 확인한다(서버 검증과 같다, null 은 비우기).
         const parentNumber = parent === undefined || parent === null ? parent : parentNumberOf(parent, projectKey);
         const fieldEntries = fields ? Object.entries(fields) : [];
-        //    WP-807: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusId } — 모르는 이름은 여기서 실패해 아무것도 쓰지 않는다.
-        const [statusPatch, typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues] = await Promise.all([
-          status !== undefined ? resolveStatusPatch(client, projectKey, status) : undefined,
+        //    WP-870: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusName } — 이름은 서버가 해석하고 모르면 content 가 400 으로 실패한다.
+        const statusPatch = status !== undefined ? resolveStatusPatch(status) : undefined;
+        const [typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
@@ -205,6 +206,16 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
 
         // 2) 필드별 팬아웃 — 각 단계 독립 저장, 성공/실패 구조화.
         const results: Record<string, string> = {};
+
+        // 모르는 상태 이름은 어떤 쓰기보다 먼저 실패해야 한다 — 담당자·라벨 등만 바뀐 반쯤 고친 이슈를 남기지 않게.
+        // 이름은 서버가 내용 PATCH 에서 해석·거절하므로 보통은 내용 PATCH 를 맨 앞에 두는 것으로 충분하다(아래 contentFirst).
+        // 다만 첨부·드라이브 링크는 상태보다 먼저 저장해야 해(아래 주석) 내용 PATCH 를 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
+        const statusName = statusPatch && 'statusName' in statusPatch ? statusPatch.statusName : undefined;
+        const writesBeforeContent = !!fileIds?.length || driveFileId !== undefined;
+        if (statusName !== undefined && writesBeforeContent) {
+          const unknown = await unknownStatusMessage(client, projectKey, statusName);
+          if (unknown) return JSON.stringify({ ok: false, results: { content: `failed: ${unknown}` } });
+        }
         const run = async (key: string, fn: () => Promise<unknown>) => {
           try {
             await fn();
@@ -226,6 +237,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (milestone === null) content.clearMilestone = true;
         if (Object.keys(content).length > 0) {
           await run('content', () => client.updateIssueContent(issueKey, content));
+          // 상태 이름을 실은 내용 PATCH 가 실패했으면(모르는 이름 400 등) 나머지는 쓰지 않는다 — 이 앞의 쓰기는 첨부·링크뿐이고 그때는 이름을 미리 확인했다.
+          if (statusName !== undefined && results.content !== 'ok') return JSON.stringify({ ok: false, results });
         }
         // WP-745: 유형과 부모를 함께 바꾸면 한 요청으로 보낸다 — SUBTASK 로 바꾸는 순간 부모가 있어야 해서,
         // 유형·부모를 따로 보내면 순서와 상관없이 한쪽이 거절된다. 결과는 type·parent 둘 다에 같은 값으로 싣는다.

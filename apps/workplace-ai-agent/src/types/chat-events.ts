@@ -17,6 +17,8 @@ export const chatMessagePostedPayload = z.object({
   // get_issue_detail 로 직접 못 읽으므로 여기서 받아 user message 에 주입한다. 구버전 이벤트 호환 위해 optional.
   issueTitle: z.string().optional(),
   issueStatus: z.string().optional(),
+  // WP-869: 프로젝트 상태 이름(issueStatus 는 범주). 이름 필드를 보내지 않는 구 API 호환 위해 nullish.
+  issueStatusName: z.string().nullish(),
   issueBody: z.string().nullable().optional(),
   threadId: z.number(),
   messageId: z.number(),

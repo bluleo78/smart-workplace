@@ -25,6 +25,8 @@ public final class ChatDomainEvents {
       // AGENT 는 비멤버라 get_issue_detail 로 직접 못 읽으므로 작성자 트랜잭션에서 미리 채워 전달한다.
       String issueTitle,
       String issueStatus,
+      // WP-869: 사용자 정의 상태 이름 — AI 가 범주 코드 대신 이름으로 말하게. 없으면 null.
+      String issueStatusName,
       String issueBody,
       UserSummary actor,
       String body,

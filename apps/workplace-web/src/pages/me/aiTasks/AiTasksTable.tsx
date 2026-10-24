@@ -82,7 +82,7 @@ function AiTaskRow({ it, inGroup }: { it: IssueResponse; inGroup: boolean }) {
   const tid = `ai-row-${it.id}`
   return (
     <tr className="border-b hover:bg-accent" data-testid={tid}>
-      <td className="py-2.5"><IssueStatusIcon status={it.status} name={it.statusName} /></td>
+      <td className="py-2.5"><IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} /></td>
       <td><IssuePriorityBars priority={it.priority} /></td>
       <td className="font-mono text-muted-foreground">{it.projectKey}-{it.number}</td>
       <td>

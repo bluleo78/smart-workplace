@@ -37,7 +37,7 @@ export function IssueRowMobileCell({
           {selected ? (
             <CheckCircle2 className="h-[18px] w-[18px] text-primary" aria-label="선택됨" />
           ) : (
-            <IssueStatusIcon status={it.status} name={it.statusName} />
+            <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
           )}
         </span>
         <div className="min-w-0 flex-1">

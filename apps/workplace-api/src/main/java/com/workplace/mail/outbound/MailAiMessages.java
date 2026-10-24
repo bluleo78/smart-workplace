@@ -188,8 +188,11 @@ public final class MailAiMessages {
    */
   public record PriorMail(boolean fromMe, String from, String date, String body) {}
 
-  /** 이 메일로 만든 이슈(WP-150). key = "{프로젝트키}-{번호}", status = TODO|IN_PROGRESS|DONE|CANCELED. */
-  public record IssueRef(String key, String title, String status) {}
+  /**
+   * 이 메일로 만든 이슈(WP-150). key = "{프로젝트키}-{번호}", status = TODO|IN_PROGRESS|DONE|CANCELED. statusName
+   * 은 프로젝트 사용자 정의 상태 이름(WP-869, 없으면 null) — AI 가 범주 코드 대신 「검토 중」 같은 이름을 쓰게 한다.
+   */
+  public record IssueRef(String key, String title, String status, String statusName) {}
 
   /** 받는 사람 블록 — myRole: TO|CC|NONE|UNKNOWN(NeedsReplyRules.RecipientRole 이름). */
   public record Recipient(String myRole, int toCount, int ccCount) {}

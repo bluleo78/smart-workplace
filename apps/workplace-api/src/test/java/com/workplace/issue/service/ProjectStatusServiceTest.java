@@ -10,11 +10,15 @@ import static org.assertj.core.api.Assertions.tuple;
 
 import com.workplace.issue.dto.CreateProjectStatusRequest;
 import com.workplace.issue.dto.ProjectStatusResponse;
-import com.workplace.issue.dto.RenameProjectStatusRequest;
+import com.workplace.issue.dto.ReorderProjectStatusesRequest;
+import com.workplace.issue.dto.UpdateProjectStatusRequest;
 import com.workplace.issue.exception.InvalidStatusForProjectException;
 import com.workplace.issue.exception.StatusEditNotSupportedException;
+import com.workplace.issue.exception.StatusLimitExceededException;
 import com.workplace.issue.exception.StatusNameDuplicatedException;
 import com.workplace.issue.exception.StatusNotFoundException;
+import com.workplace.issue.repository.ProjectStatusRepository;
+import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -24,7 +28,9 @@ import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +44,7 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
   @Autowired ProjectStatusService service;
   @Autowired ProjectService projectService;
   @Autowired PersonalProjectProvisioner personalProjectProvisioner;
+  @Autowired ProjectStatusRepository repo;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -89,7 +96,7 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
   }
 
   private ProjectStatusResponse create(Long caller, String key, String name, String category) {
-    return service.create(caller, key, new CreateProjectStatusRequest(name, category, null));
+    return service.create(caller, key, new CreateProjectStatusRequest(name, category, null, null));
   }
 
   @Test
@@ -129,7 +136,8 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     create(owner, p.key(), "검토 중", "IN_PROGRESS");
     Long inProgress = byName(owner, p.key(), "진행 중").id();
 
-    service.create(owner, p.key(), new CreateProjectStatusRequest("설계", "IN_PROGRESS", inProgress));
+    service.create(
+        owner, p.key(), new CreateProjectStatusRequest("설계", "IN_PROGRESS", inProgress, null));
 
     assertThat(names(owner, p.key())).containsExactly("할 일", "진행 중", "설계", "검토 중", "완료", "취소");
     assertThat(service.list(owner, p.key()))
@@ -147,7 +155,9 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     assertThatThrownBy(
             () ->
                 service.create(
-                    owner, p.key(), new CreateProjectStatusRequest("설계", "IN_PROGRESS", done)))
+                    owner,
+                    p.key(),
+                    new CreateProjectStatusRequest("설계", "IN_PROGRESS", done, null)))
         .isInstanceOf(InvalidStatusForProjectException.class)
         .hasMessage("이 프로젝트의 상태가 아닙니다");
   }
@@ -164,7 +174,7 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
                 service.create(
                     owner,
                     p.key(),
-                    new CreateProjectStatusRequest("설계", "IN_PROGRESS", otherInProgress)))
+                    new CreateProjectStatusRequest("설계", "IN_PROGRESS", otherInProgress, null)))
         .isInstanceOf(StatusNotFoundException.class)
         .hasMessage("상태를 찾을 수 없습니다");
   }
@@ -189,7 +199,7 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
         .hasMessage("상태 이름을 입력해 주세요");
     Long todo = byName(owner, p.key(), "할 일").id();
     assertThatThrownBy(
-            () -> service.rename(owner, p.key(), todo, new RenameProjectStatusRequest("​")))
+            () -> service.update(owner, p.key(), todo, new UpdateProjectStatusRequest("​", null)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("상태 이름을 입력해 주세요");
   }
@@ -206,7 +216,9 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     // 이름 변경도 같은 규칙. 중복은 미리 확인해 409 로 거절하므로 트랜잭션이 깨지지 않아 같은 트랜잭션에서 이어 쓸 수 있다
     Long todo = byName(owner, p.key(), "할 일").id();
     assertThatThrownBy(
-            () -> service.rename(owner, p.key(), todo, new RenameProjectStatusRequest("REVIEW")))
+            () ->
+                service.update(
+                    owner, p.key(), todo, new UpdateProjectStatusRequest("REVIEW", null)))
         .isInstanceOf(StatusNameDuplicatedException.class);
     assertThat(byName(owner, p.key(), "할 일").id()).isEqualTo(todo);
   }
@@ -235,7 +247,8 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
           .isInstanceOf(IllegalArgumentException.class)
           .hasMessage(msg);
       assertThatThrownBy(
-              () -> service.rename(owner, p.key(), todo, new RenameProjectStatusRequest(code)))
+              () ->
+                  service.update(owner, p.key(), todo, new UpdateProjectStatusRequest(code, null)))
           .isInstanceOf(IllegalArgumentException.class)
           .hasMessage(msg);
     }
@@ -250,7 +263,8 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     var inProgress = byName(owner, p.key(), "진행 중");
 
     var renamed =
-        service.rename(owner, p.key(), inProgress.id(), new RenameProjectStatusRequest("작업 중"));
+        service.update(
+            owner, p.key(), inProgress.id(), new UpdateProjectStatusRequest("작업 중", null));
 
     assertThat(renamed.id()).isEqualTo(inProgress.id());
     assertThat(renamed.name()).isEqualTo("작업 중");
@@ -264,7 +278,8 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "PSL");
     var todo = byName(owner, p.key(), "할 일");
 
-    var renamed = service.rename(owner, p.key(), todo.id(), new RenameProjectStatusRequest("할 일"));
+    var renamed =
+        service.update(owner, p.key(), todo.id(), new UpdateProjectStatusRequest("할 일", null));
 
     assertThat(renamed.name()).isEqualTo("할 일");
   }
@@ -277,12 +292,14 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     Long otherTodo = byName(owner, other.key(), "할 일").id();
 
     assertThatThrownBy(
-            () -> service.rename(owner, p.key(), otherTodo, new RenameProjectStatusRequest("X")))
+            () ->
+                service.update(
+                    owner, p.key(), otherTodo, new UpdateProjectStatusRequest("X", null)))
         .isInstanceOf(StatusNotFoundException.class);
   }
 
   @Test
-  void MEMBER는_생성_이름변경이_403() {
+  void MEMBER는_update가_403() {
     Long owner = createUser("ow");
     Long member = createUser("mb");
     ProjectResponse p = newProject(owner, "PSO");
@@ -293,7 +310,7 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> create(member, p.key(), "검토 중", "IN_PROGRESS"))
         .isInstanceOf(ProjectAccessDeniedException.class);
     assertThatThrownBy(
-            () -> service.rename(member, p.key(), todo, new RenameProjectStatusRequest("X")))
+            () -> service.update(member, p.key(), todo, new UpdateProjectStatusRequest("X", null)))
         .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
@@ -308,7 +325,7 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
         .isInstanceOf(StatusEditNotSupportedException.class)
         .hasMessage("개인 프로젝트는 상태를 편집할 수 없습니다");
     assertThatThrownBy(
-            () -> service.rename(owner, p.key(), todo, new RenameProjectStatusRequest("X")))
+            () -> service.update(owner, p.key(), todo, new UpdateProjectStatusRequest("X", null)))
         .isInstanceOf(StatusEditNotSupportedException.class);
   }
 
@@ -329,8 +346,8 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "PSQ");
     Long todo = byName(owner, p.key(), "할 일").id();
 
-    service.create(owner, p.key(), new CreateProjectStatusRequest("A", "TODO", todo));
-    service.create(owner, p.key(), new CreateProjectStatusRequest("B", "TODO", todo));
+    service.create(owner, p.key(), new CreateProjectStatusRequest("A", "TODO", todo, null));
+    service.create(owner, p.key(), new CreateProjectStatusRequest("B", "TODO", todo, null));
     create(owner, p.key(), "C", "CANCELED");
 
     var rows = service.list(owner, p.key());
@@ -339,5 +356,250 @@ class ProjectStatusServiceTest extends IntegrationTestBase {
     // 같은 after 로 두 번 넣으면 나중 것이 바로 뒤에 온다
     assertThat(rows.stream().map(ProjectStatusResponse::name).toList())
         .containsExactly("할 일", "B", "A", "진행 중", "완료", "취소", "C");
+  }
+
+  // ---- 상태 색(WP-809) ----
+
+  @Test
+  void color없이_만들면_범주기본색() {
+    Long owner = createUser("cl");
+    ProjectResponse p = newProject(owner, "PSR");
+
+    assertThat(create(owner, p.key(), "검토 중", "IN_PROGRESS").color()).isEqualTo("BLUE");
+    assertThat(create(owner, p.key(), "보류", "CANCELED").color()).isEqualTo("GRAY");
+    // 목록 조회에도 같은 색이 실린다
+    assertThat(byName(owner, p.key(), "검토 중").color()).isEqualTo("BLUE");
+  }
+
+  @Test
+  void color를_주면_그색으로_만든다() {
+    Long owner = createUser("cp");
+    ProjectResponse p = newProject(owner, "PSS");
+
+    var created =
+        service.create(
+            owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, "PURPLE"));
+
+    assertThat(created.color()).isEqualTo("PURPLE");
+    assertThat(byName(owner, p.key(), "검토 중").color()).isEqualTo("PURPLE");
+  }
+
+  @Test
+  void 모르는_color는_400() {
+    Long owner = createUser("cn");
+    ProjectResponse p = newProject(owner, "PST");
+    Long todo = byName(owner, p.key(), "할 일").id();
+
+    assertThatThrownBy(
+            () ->
+                service.create(
+                    owner,
+                    p.key(),
+                    new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, "NEON")))
+        .isInstanceOf(InvalidColorTokenException.class);
+    assertThatThrownBy(
+            () ->
+                service.update(owner, p.key(), todo, new UpdateProjectStatusRequest(null, "NEON")))
+        .isInstanceOf(InvalidColorTokenException.class);
+  }
+
+  @Test
+  void update_색만_바꾸면_이름은_그대로() {
+    Long owner = createUser("uc");
+    ProjectResponse p = newProject(owner, "PSU");
+    var inProgress = byName(owner, p.key(), "진행 중");
+
+    var updated =
+        service.update(
+            owner, p.key(), inProgress.id(), new UpdateProjectStatusRequest(null, "RED"));
+
+    assertThat(updated.name()).isEqualTo("진행 중");
+    assertThat(updated.color()).isEqualTo("RED");
+    assertThat(byName(owner, p.key(), "진행 중").color()).isEqualTo("RED");
+  }
+
+  @Test
+  void update_이름만_바꾸면_색은_그대로() {
+    Long owner = createUser("un");
+    ProjectResponse p = newProject(owner, "PSV");
+    var done = byName(owner, p.key(), "완료");
+
+    var updated =
+        service.update(owner, p.key(), done.id(), new UpdateProjectStatusRequest("끝남", null));
+
+    assertThat(updated.name()).isEqualTo("끝남");
+    assertThat(updated.color()).isEqualTo("GREEN");
+  }
+
+  @Test
+  void update_둘다_없으면_400() {
+    Long owner = createUser("ue");
+    ProjectResponse p = newProject(owner, "PSW");
+    Long todo = byName(owner, p.key(), "할 일").id();
+
+    assertThatThrownBy(
+            () -> service.update(owner, p.key(), todo, new UpdateProjectStatusRequest(null, null)))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("바꿀 내용을 입력해 주세요");
+  }
+
+  // ---- 같은 범주 안 순서 변경(WP-809) ----
+
+  /** 진행 중 범주에 「검토 중」「QA」를 더해 [진행 중, 검토 중, QA] 로 만든다. */
+  private ProjectResponse projectWithThreeInProgress(Long owner, String prefix) {
+    ProjectResponse p = newProject(owner, prefix);
+    create(owner, p.key(), "검토 중", "IN_PROGRESS");
+    create(owner, p.key(), "QA", "IN_PROGRESS");
+    return p;
+  }
+
+  private List<Long> ids(Long caller, String key, String... statusNames) {
+    return java.util.Arrays.stream(statusNames).map(n -> byName(caller, key, n).id()).toList();
+  }
+
+  private List<ProjectStatusResponse> reorder(Long caller, String key, List<Long> statusIds) {
+    return service.reorder(
+        caller, key, new ReorderProjectStatusesRequest("IN_PROGRESS", statusIds));
+  }
+
+  @Test
+  void reorder는_그범주_안에서만_순서를_바꾼다() {
+    Long owner = createUser("ro");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRA");
+
+    var result = reorder(owner, p.key(), ids(owner, p.key(), "QA", "진행 중", "검토 중"));
+
+    // 응답은 서버 정렬의 전체 목록
+    assertThat(result)
+        .extracting(ProjectStatusResponse::name)
+        .containsExactly("할 일", "QA", "진행 중", "검토 중", "완료", "취소");
+    assertThat(names(owner, p.key())).containsExactly("할 일", "QA", "진행 중", "검토 중", "완료", "취소");
+  }
+
+  @Test
+  void reorder는_다른범주_position을_바꾸지_않는다() {
+    Long owner = createUser("rp");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRB");
+    Map<String, Integer> before = positionsOutsideInProgress(owner, p.key());
+
+    reorder(owner, p.key(), ids(owner, p.key(), "QA", "진행 중", "검토 중"));
+
+    assertThat(positionsOutsideInProgress(owner, p.key())).isEqualTo(before);
+  }
+
+  private Map<String, Integer> positionsOutsideInProgress(Long caller, String key) {
+    return service.list(caller, key).stream()
+        .filter(s -> !s.category().equals("IN_PROGRESS"))
+        .collect(Collectors.toMap(ProjectStatusResponse::name, ProjectStatusResponse::position));
+  }
+
+  @Test
+  void reorder후_position은_프로젝트전체_단조증가() {
+    Long owner = createUser("rm");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRC");
+    create(owner, p.key(), "접수", "TODO");
+
+    reorder(owner, p.key(), ids(owner, p.key(), "검토 중", "QA", "진행 중"));
+
+    var positions =
+        service.list(owner, p.key()).stream().map(ProjectStatusResponse::position).toList();
+    for (int i = 1; i < positions.size(); i++) {
+      assertThat(positions.get(i)).isGreaterThan(positions.get(i - 1));
+    }
+  }
+
+  @Test
+  void reorder후_첫상태가_범주기본이_된다() {
+    Long owner = createUser("rd");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRD");
+
+    reorder(owner, p.key(), ids(owner, p.key(), "QA", "진행 중", "검토 중"));
+
+    assertThat(repo.findDefault(p.id(), "IN_PROGRESS").orElseThrow().name()).isEqualTo("QA");
+  }
+
+  @Test
+  void 다른범주_id가_섞이면_400() {
+    Long owner = createUser("rx");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRE");
+
+    assertThatThrownBy(() -> reorder(owner, p.key(), ids(owner, p.key(), "QA", "진행 중", "완료")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("그 범주의 상태 전체를 한 번씩 보내 주세요");
+    // 섞인 채 4개를 보내도(집합이 다르므로) 거절
+    assertThatThrownBy(
+            () -> reorder(owner, p.key(), ids(owner, p.key(), "QA", "진행 중", "검토 중", "완료")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("그 범주의 상태 전체를 한 번씩 보내 주세요");
+    assertThat(names(owner, p.key())).containsExactly("할 일", "진행 중", "검토 중", "QA", "완료", "취소");
+  }
+
+  @Test
+  void 누락이면_400() {
+    Long owner = createUser("rl");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRF");
+
+    assertThatThrownBy(() -> reorder(owner, p.key(), ids(owner, p.key(), "QA", "진행 중")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("그 범주의 상태 전체를 한 번씩 보내 주세요");
+  }
+
+  @Test
+  void 중복이면_400() {
+    Long owner = createUser("rq");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRG");
+
+    // 집합으로는 같지만 한 상태가 두 번 — 중복도 거절
+    assertThatThrownBy(
+            () -> reorder(owner, p.key(), ids(owner, p.key(), "QA", "진행 중", "검토 중", "QA")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("그 범주의 상태 전체를 한 번씩 보내 주세요");
+  }
+
+  @Test
+  void MEMBER는_403_개인프로젝트는_400() {
+    Long owner = createUser("rw");
+    Long member = createUser("rv");
+    ProjectResponse p = projectWithThreeInProgress(owner, "PRH");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
+    List<Long> order = ids(owner, p.key(), "QA", "진행 중", "검토 중");
+
+    assertThatThrownBy(() -> reorder(member, p.key(), order))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+
+    var personal = personalProjectProvisioner.createPersonal(owner, "개인 작업", null, false);
+    List<Long> personalOrder = ids(owner, personal.key(), "진행 중");
+    assertThatThrownBy(() -> reorder(owner, personal.key(), personalOrder))
+        .isInstanceOf(StatusEditNotSupportedException.class);
+  }
+
+  /** 기본 4상태에 「진행 N」 이름으로 n 개를 더한다 — 상한 테스트용. */
+  private void fill(Long owner, String key, int n) {
+    for (int i = 0; i < n; i++) {
+      create(owner, key, "진행 " + i, "IN_PROGRESS");
+    }
+  }
+
+  @Test
+  void 상태가_20개면_추가가_409와_문구() {
+    Long owner = createUser("lm");
+    ProjectResponse p = newProject(owner, "PLA");
+    fill(owner, p.key(), 16); // 기본 4 + 16 = 20
+
+    assertThatThrownBy(() -> create(owner, p.key(), "하나 더", "TODO"))
+        .isInstanceOf(StatusLimitExceededException.class)
+        .hasMessage("상태는 프로젝트당 20개까지 만들 수 있어요");
+    assertThat(service.list(owner, p.key())).hasSize(ProjectStatusService.MAX_STATUSES);
+  }
+
+  @Test
+  void 상태가_19개면_추가된다() {
+    Long owner = createUser("ln");
+    ProjectResponse p = newProject(owner, "PLB");
+    fill(owner, p.key(), 15); // 기본 4 + 15 = 19
+
+    create(owner, p.key(), "스무 번째", "DONE");
+
+    assertThat(service.list(owner, p.key())).hasSize(20);
   }
 }

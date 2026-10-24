@@ -182,6 +182,7 @@ class AiAgentMailClientTest {
         .andExpect(jsonPath("$.linkedIssue.key").value("WP-9"))
         .andExpect(jsonPath("$.linkedIssue.title").value("연결 이슈"))
         .andExpect(jsonPath("$.linkedIssue.status").value("IN_PROGRESS"))
+        .andExpect(jsonPath("$.linkedIssue.statusName").value("검토 중"))
         // attachments
         .andExpect(jsonPath("$.attachments[0]").value("견적서.pdf"))
         .andRespond(
@@ -200,7 +201,7 @@ class AiAgentMailClientTest {
             new Recipient("TO", 2, 3),
             new Sender("MEMBER", "김철수", "과장", "영업팀", List.of("개발팀"), true),
             List.of(new PriorMail(true, "홍길동 <me@x.com>", "2026-09-30T01:02:03Z", "이전 본문")),
-            new IssueRef("WP-9", "연결 이슈", "IN_PROGRESS"),
+            new IssueRef("WP-9", "연결 이슈", "IN_PROGRESS", "검토 중"),
             List.of("견적서.pdf"),
             true,
             false,

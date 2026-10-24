@@ -1,17 +1,22 @@
-// 프로젝트 상태(WP-808) 쿼리/뮤테이션 훅 — 목록 + OWNER 전용 추가·이름 변경.
+// 프로젝트 상태(WP-808·WP-809) 쿼리/뮤테이션 훅 — 목록 + OWNER 전용 추가·수정(이름·색)·순서 변경·삭제.
 // 쿼리 키 ['projectStatuses', projectKey] 는 SSE 'project-status' 무효화 규칙(lib/resourceInvalidation)과 같아야 한다.
 
 import { type InfiniteData, type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
+import { toast } from 'sonner';
 
+import { getIssueGroupCounts } from '../../api/issues';
 import {
   createProjectStatus,
   type CreateProjectStatusBody,
+  deleteProjectStatus,
   listProjectStatuses,
-  renameProjectStatus,
-  type RenameProjectStatusBody,
+  reorderProjectStatuses,
+  type ReorderProjectStatusesBody,
+  updateProjectStatus,
+  type UpdateProjectStatusBody,
 } from '../../api/projectStatuses';
-import type { IssueDetailResponse, IssueResponse, IssueSearchResponse, IssueStatus } from '../../types/issue';
+import type { IssueDetailResponse, IssueFilters, IssueResponse, IssueSearchResponse, IssueStatus } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
 
 // 프로젝트의 상태 목록 — projectKey 가 아직 없으면(라우트 로딩 중) 조회하지 않는다.
@@ -39,7 +44,7 @@ export function useProjectStatuses(projectKey?: string) {
 }
 
 // 로딩 중·키 없음일 때 돌려줄 고정 빈 배열 — 매 렌더 새 배열을 만들면 이것을 deps 로 쓰는 memo 가 매번 깨진다.
-const NO_STATUSES: ProjectStatus[] = [];
+export const NO_STATUSES: ProjectStatus[] = [];
 
 /**
  * 프로젝트 상태 목록(서버 표시 순서: 범주 → position) — 상태 선택·행 메뉴·모바일 시트·목록 그룹이 같은 순서를 쓴다.
@@ -102,13 +107,21 @@ export function refreshStatusesOnUnknown(
 }
 
 /**
- * 상태 이름이 바뀌면 그 상태를 쓰는 이슈의 statusName 을 캐시에서 제자리로 고친다 — 검색(보드·목록) 캐시와 이슈 상세 요약.
- * 이슈 검색 전체를 다시 받지 않는다(이름 말고는 바뀐 것이 없다). 그 상태의 이슈가 없는 캐시는 그대로 둔다.
+ * 상태 이름·색이 바뀌면 그 상태를 쓰는 이슈의 statusName·statusColor 를 캐시에서 제자리로 고친다 — 검색(보드·목록) 캐시와 이슈 상세 요약.
+ * 이슈 검색 전체를 다시 받지 않는다(이름·색 말고는 바뀐 것이 없다). 그 상태의 이슈가 없는 캐시는 그대로 둔다.
  * 그 밖에 statusName 을 싣는 교차 프로젝트 이슈 목록(내 이슈·워치·AI 작업·홈 위젯)은 SSE project-status 규칙(lib/resourceInvalidation)이
  * 행위자 탭을 포함한 모든 화면에서 다시 받게 한다.
  */
-function patchStatusNameInIssueCaches(qc: QueryClient, projectKey: string, statusId: number, name: string) {
-  const rename = (it: IssueResponse) => (it.statusId === statusId ? { ...it, statusName: name } : it);
+function patchStatusInIssueCaches(
+  qc: QueryClient,
+  projectKey: string,
+  statusId: number,
+  patch: { name: string; color?: string | null },
+) {
+  const rename = (it: IssueResponse) =>
+    it.statusId === statusId
+      ? { ...it, statusName: patch.name, ...(patch.color !== undefined ? { statusColor: patch.color } : {}) }
+      : it;
   qc.setQueriesData<InfiniteData<IssueSearchResponse>>({ queryKey: ['issues', 'search', projectKey] }, (old) => {
     if (!old?.pages?.some((p) => (p.items ?? []).some((it) => it.statusId === statusId))) return old;
     return { ...old, pages: old.pages.map((p) => ({ ...p, items: (p.items ?? []).map(rename) })) };
@@ -126,15 +139,15 @@ function patchStatusNameInIssueCaches(qc: QueryClient, projectKey: string, statu
 export function useStatusEditing(projectKey: string) {
   const statuses = useProjectStatusList(projectKey);
   const create = useCreateProjectStatus(projectKey);
-  const renameMutation = useRenameProjectStatus(projectKey);
+  const update = useUpdateProjectStatus(projectKey);
   // mutateAsync 는 렌더마다 같은 참조라 이것을 deps 로 둔다(useMutation 결과 객체는 매번 새로 만들어져 memo 를 깬다).
   const createAsync = create.mutateAsync;
-  const renameAsync = renameMutation.mutateAsync;
+  const updateAsync = update.mutateAsync;
   return useMemo(
     () => ({
       statuses,
       rename: async (id: number, name: string) => {
-        await renameAsync({ id, body: { name } });
+        await updateAsync({ id, body: { name } });
       },
       addAfter: (after: ProjectStatus, name: string) =>
         createAsync({ name, category: after.category, afterStatusId: after.id }),
@@ -142,7 +155,7 @@ export function useStatusEditing(projectKey: string) {
         await createAsync({ name, category });
       },
     }),
-    [statuses, renameAsync, createAsync],
+    [statuses, updateAsync, createAsync],
   );
 }
 
@@ -158,18 +171,112 @@ export function useCreateProjectStatus(projectKey: string) {
   });
 }
 
-// OWNER — 상태 이름 변경. 실패 문구는 호출부(인라인 편집기)가 보인다.
-// 응답으로 목록 캐시의 그 상태와 그 상태를 쓰는 이슈의 이름을 제자리로 바꾼다(범주·순서는 그대로라 안전) —
+// OWNER — 상태 이름·색 수정. 실패 문구는 호출부(인라인 편집기·편집 창)가 보인다.
+// 응답으로 목록 캐시의 그 상태와 그 상태를 쓰는 이슈의 이름·색을 제자리로 바꾼다(범주·순서는 그대로라 안전) —
 // 상태 목록을 다시 받지 않는다(다른 화면은 SSE project-status 무효화가 맞춘다).
-export function useRenameProjectStatus(projectKey: string) {
+export function useUpdateProjectStatus(projectKey: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: number; body: RenameProjectStatusBody }) => renameProjectStatus(projectKey, v.id, v.body),
+    mutationFn: (v: { id: number; body: UpdateProjectStatusBody }) => updateProjectStatus(projectKey, v.id, v.body),
     onSuccess: (saved) => {
       qc.setQueryData<ProjectStatus[]>(['projectStatuses', projectKey], (list) =>
-        list?.map((s) => (s.id === saved.id ? { ...s, name: saved.name } : s)),
+        list?.map((s) => (s.id === saved.id ? { ...s, name: saved.name, color: saved.color } : s)),
       );
-      patchStatusNameInIssueCaches(qc, projectKey, saved.id, saved.name);
+      patchStatusInIssueCaches(qc, projectKey, saved.id, { name: saved.name, color: saved.color });
     },
   });
+}
+
+/**
+ * 목록에서 한 범주의 상태를 statusIds 순서로 다시 놓는다 — 그 범주 칸(연속 구간)의 기존 position 값을 오름차순으로 다시 나눠 준다.
+ * 다른 범주 위치는 그대로다. 목록이 표시 순서라 defaultStatusOf·보드 컬럼이 바로 새 순서를 본다.
+ */
+export function applyCategoryOrder(list: readonly ProjectStatus[], category: IssueStatus, statusIds: readonly number[]): ProjectStatus[] {
+  const inCat = list.filter((s) => s.category === category);
+  const byId = new Map(inCat.map((s) => [s.id, s]));
+  const ordered = statusIds.map((id) => byId.get(id)).filter((s): s is ProjectStatus => !!s);
+  if (ordered.length !== inCat.length) return [...list];
+  const positions = inCat.map((s) => s.position).sort((a, b) => a - b);
+  let k = 0;
+  return list.map((s) => (s.category === category ? { ...ordered[k], position: positions[k++] } : s));
+}
+
+// OWNER — 같은 범주 안 순서 변경(낙관적). 끌어 놓은 즉시 목록 캐시를 새 순서로 두고, 실패하면 되돌리며 토스트로 알린다.
+// 끝나면(성공·실패) 서버 목록으로 맞춘다 — 그 사이 다른 사람이 바꾼 것도 반영된다.
+export function useReorderProjectStatuses(projectKey: string) {
+  const qc = useQueryClient();
+  const key = ['projectStatuses', projectKey];
+  return useMutation({
+    mutationFn: (body: ReorderProjectStatusesBody) => reorderProjectStatuses(projectKey, body),
+    onMutate: async (body) => {
+      // 진행 중인 조회가 낙관적 값을 덮어쓰지 않게 먼저 멈춘다.
+      await qc.cancelQueries({ queryKey: key });
+      const previous = qc.getQueryData<ProjectStatus[]>(key);
+      if (previous) qc.setQueryData<ProjectStatus[]>(key, applyCategoryOrder(previous, body.category, body.statusIds));
+      return { previous };
+    },
+    onError: (_err, _body, ctx) => {
+      if (ctx?.previous) qc.setQueryData(key, ctx.previous);
+      toast.error('순서를 바꾸지 못했어요');
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
+  });
+}
+
+// OWNER — 상태 삭제(이슈를 moveTo 로 옮긴다). 실패 문구(마지막 상태 409 등)는 호출부 삭제 창이 보인다.
+// 성공하면 상태 목록과 그 프로젝트의 이슈(검색·상세 — 상태 이름·범주가 바뀐다)·저장된 뷰(필터가 다시 써진다)와
+// 고정된 뷰(사이드바 — 같은 저장된 뷰 쿼리를 싣는다, SSE project-status op=deleted 규칙과 같다)를 다시 받는다.
+// 기다리는 것은 상태 목록뿐이다 — 삭제 창이 이슈 검색 재조회까지 기다리며 열려 있지 않게. 나머지는 뒤에서 받는다(SSE 도 무효화한다).
+export function useDeleteProjectStatus(projectKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: number; moveTo?: number }) => deleteProjectStatus(projectKey, v.id, v.moveTo),
+    onSuccess: () => {
+      const statuses = qc.invalidateQueries({ queryKey: ['projectStatuses', projectKey] });
+      for (const queryKey of [['issues', 'search', projectKey], ['issues', projectKey], ['savedViews', projectKey], ['pinnedViews']]) {
+        void qc.invalidateQueries({ queryKey });
+      }
+      return statuses;
+    },
+  });
+}
+
+// 상태별 이슈 수를 셀 때의 빈 필터 — 서버 group-counts 는 필터가 없으면 활성 이슈 전체를 센다(휴지통 제외, Task 4).
+const NO_FILTERS: IssueFilters = {
+  q: '',
+  statuses: [],
+  statusIds: [],
+  priorities: [],
+  assigneeIds: [],
+  includeUnassigned: false,
+  dueFrom: null,
+  dueTo: null,
+  labelIds: [],
+  cycleIds: [],
+  milestoneIds: [],
+  typeIds: [],
+  parentNumber: null,
+  topLevel: false,
+  blocked: false,
+  excludeSubtasks: false,
+  showAllClosed: false,
+};
+
+/**
+ * 상태별 활성 이슈 수(statusId → 수) — 설정 「상태」 행의 이슈 수. 아직 받지 못했으면 undefined(칸을 비운다),
+ * 받은 뒤 0건 상태는 키가 없다(호출부가 0 으로 본다 — 서버가 0건 묶음을 빼고 줄 수 있어서).
+ * 키를 이슈 검색 prefix(['issues','search',key]) 아래에 둬 이슈 변경·상태 삭제 무효화가 함께 다시 받게 한다.
+ */
+export function useStatusIssueCounts(projectKey: string): Record<number, number> | undefined {
+  const { data } = useQuery({
+    queryKey: ['issues', 'search', projectKey, 'group-counts', 'statusId', 'all'],
+    queryFn: () => getIssueGroupCounts(projectKey, NO_FILTERS, 'statusId'),
+    enabled: !!projectKey,
+  });
+  return useMemo(() => {
+    if (!data) return undefined;
+    const out: Record<number, number> = {};
+    for (const g of data.groups) if (g.key != null) out[Number(g.key)] = g.count;
+    return out;
+  }, [data]);
 }

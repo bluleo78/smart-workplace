@@ -216,6 +216,20 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         return (OffsetDateTime) get(13);
     }
 
+    /**
+     * Setter for <code>public.notification.status_name</code>.
+     */
+    public void setStatusName(String value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.notification.status_name</code>.
+     */
+    public String getStatusName() {
+        return (String) get(14);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -239,7 +253,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
     /**
      * Create a detached, initialised NotificationRecord
      */
-    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt) {
+    public NotificationRecord(Long id, Long recipientId, Long actorId, String type, Long issueId, Long commentId, OffsetDateTime readAt, OffsetDateTime createdAt, Long eventId, Long tenantId, Long wikiPageId, String message, String eventTitle, OffsetDateTime eventStartsAt, String statusName) {
         super(Notification.NOTIFICATION);
 
         setId(id);
@@ -256,6 +270,7 @@ public class NotificationRecord extends UpdatableRecordImpl<NotificationRecord> 
         setMessage(message);
         setEventTitle(eventTitle);
         setEventStartsAt(eventStartsAt);
+        setStatusName(statusName);
         resetChangedOnNotNull();
     }
 }

@@ -104,6 +104,11 @@ public class ProjectStatus extends TableImpl<ProjectStatusRecord> {
      */
     public final TableField<ProjectStatusRecord, OffsetDateTime> UPDATED_AT = createField(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6).nullable(false).defaultValue(DSL.field(DSL.raw("now()"), SQLDataType.TIMESTAMPWITHTIMEZONE)), this, "");
 
+    /**
+     * The column <code>public.project_status.color</code>.
+     */
+    public final TableField<ProjectStatusRecord, String> COLOR = createField(DSL.name("color"), SQLDataType.VARCHAR(16).nullable(false).defaultValue(DSL.field(DSL.raw("'GRAY'::character varying"), SQLDataType.VARCHAR)), this, "");
+
     private ProjectStatus(Name alias, Table<ProjectStatusRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

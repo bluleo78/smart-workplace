@@ -23,6 +23,7 @@ import {
 } from './mail-system-prompt.js';
 import { DEFAULT_MODEL } from './model-defaults.js';
 import type { RunAgentDeps } from './run-agent.js';
+import { statusDisplay } from './status-display.js';
 
 interface BaseConfig {
   assistantAgentId: number;
@@ -220,11 +221,12 @@ export interface PriorMailInfo {
   body: string;
 }
 
-/** [연결 이슈] — 이 메일로 만든 이슈. status 는 TODO|IN_PROGRESS|DONE|CANCELED. */
+/** [연결 이슈] — 이 메일로 만든 이슈. status 는 범주 TODO|IN_PROGRESS|DONE|CANCELED, statusName 은 프로젝트 상태 이름(구 API 는 없음, WP-869). */
 export interface LinkedIssueInfo {
   key: string;
   title: string;
   status: string;
+  statusName?: string | null;
 }
 
 /**
@@ -291,13 +293,6 @@ const RELATION_LABEL: Record<SenderRelationKind, string> = {
   UNKNOWN: '알 수 없는 외부',
 };
 
-const ISSUE_STATUS_LABEL: Record<string, string> = {
-  TODO: '할 일',
-  IN_PROGRESS: '진행 중',
-  DONE: '완료',
-  CANCELED: '취소',
-};
-
 /**
  * [나] 줄 — 이름이 있으면 "이름 (다른 이름: …) · 직함 · 소속: …" + 들여쓴 주소 줄, 없으면 WP-149 처럼 "[나] 주소: …" 한 줄.
  * ⚠️ api `UserMailProfile.render()` 와 같은 형식(양쪽 테스트로 고정).
@@ -360,13 +355,13 @@ function threadLines(thread: PriorMailInfo[] | null | undefined): string[] {
   return lines;
 }
 
-/** [연결 이슈] 줄 — "키 제목 (상태)". 키가 없으면 생략, 모르는 상태 코드는 그대로. */
+/** [연결 이슈] 줄 — "키 제목 (상태)". 키가 없으면 생략. 상태는 statusDisplay(이름이 있으면 범주와 함께, 모르는 범주 값은 그대로). */
 function linkedIssueLine(issue: LinkedIssueInfo | null | undefined): string | null {
   if (!issue) return null;
   const key = oneLine(issue.key);
   if (!key) return null;
   const title = oneLine(issue.title);
-  const status = ISSUE_STATUS_LABEL[issue.status] ?? oneLine(issue.status);
+  const status = statusDisplay(oneLine(issue.status), oneLine(issue.statusName));
   return `[연결 이슈] ${key}${title ? ` ${title}` : ''}${status ? ` (${status})` : ''}`;
 }
 

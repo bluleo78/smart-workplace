@@ -76,6 +76,7 @@ export const AUDIT_ACTION_TYPES = [
  *   실제 사용 중인 resource 값 전수: auth/system/api_connection/pipeline/dataset (data_import는 dataimport 도메인에서 dataset으로 기록).
  * - #109 회귀: auth/system/api_connection 매핑 누락으로 영문 raw 값 노출되던 문제 해소.
  * - #778 회귀: user_api_token/agent_api_key/ai_agent_credential/platform/drive 매핑 누락 보강.
+ * - WP-811: 프로젝트 상태 추가·수정·순서 변경·삭제(ProjectStatusService) — 리소스 project_status, 액션 CREATE/UPDATE/DELETE.
  */
 export const AUDIT_RESOURCES = [
   { value: 'auth', label: '인증' },
@@ -94,6 +95,7 @@ export const AUDIT_RESOURCES = [
   { value: 'tenant', label: '워크스페이스' },
   { value: 'workspace_assistant', label: '공용 비서' },
   { value: 'wiki', label: '노트' },
+  { value: 'project_status', label: '프로젝트 상태' },
 ];
 
 /**

@@ -1,5 +1,6 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static com.workplace.jooq.Tables.USER;
 
@@ -9,6 +10,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** issue_history 리포지토리. 응답 시 USER 테이블과 JOIN 하여 actor 이름을 포함한다. */
@@ -62,6 +64,33 @@ public class IssueHistoryRepository {
         .set(ISSUE_HISTORY.EVENT_TYPE, eventType)
         .set(ISSUE_HISTORY.FROM_VALUE, fromValue)
         .set(ISSUE_HISTORY.TO_VALUE, toValue)
+        .execute();
+  }
+
+  /**
+   * 같은 이벤트를 여러 이슈에 한 문장으로 남긴다 — 상태 삭제로 옮긴 이슈 전부의 STATUS_MIGRATED(WP-809). id 목록을 배열 하나로 묶어 {@code
+   * INSERT … SELECT … FROM issue WHERE id = ANY(?)} 로 넣는다 — 행마다 값을 바인딩하면 이슈가 많을 때 PostgreSQL 바인드
+   * 상한(65535)을 넘는다. 빈 입력은 아무것도 하지 않는다.
+   */
+  public void insertBatch(
+      List<Long> issueIds, Long actorId, String eventType, String fromValue, String toValue) {
+    if (issueIds == null || issueIds.isEmpty()) return;
+    dsl.insertInto(
+            ISSUE_HISTORY,
+            ISSUE_HISTORY.ISSUE_ID,
+            ISSUE_HISTORY.ACTOR_ID,
+            ISSUE_HISTORY.EVENT_TYPE,
+            ISSUE_HISTORY.FROM_VALUE,
+            ISSUE_HISTORY.TO_VALUE)
+        .select(
+            dsl.select(
+                    ISSUE.ID,
+                    DSL.val(actorId, ISSUE_HISTORY.ACTOR_ID),
+                    DSL.val(eventType, ISSUE_HISTORY.EVENT_TYPE),
+                    DSL.val(fromValue, ISSUE_HISTORY.FROM_VALUE),
+                    DSL.val(toValue, ISSUE_HISTORY.TO_VALUE))
+                .from(ISSUE)
+                .where(ISSUE.ID.eq(DSL.any(issueIds.toArray(Long[]::new)))))
         .execute();
   }
 }

@@ -1,11 +1,14 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.workplace.issue.dto.CreateProjectStatusRequest;
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.service.ProjectStatusService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -26,6 +29,7 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
   @Autowired IssueRepository issueRepo;
   @Autowired IssueTypeRepository typeRepo;
   @Autowired ProjectService projectService;
+  @Autowired ProjectStatusService statusService;
 
   /** USER + USER 역할 매핑 1건 시드. */
   private Long createUser(String prefix) {
@@ -75,6 +79,43 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
     assertThat(depRepo.exists(a.id(), b.id())).isTrue();
     assertThat(depRepo.exists(a.id(), c.id())).isTrue();
     assertThat(depRepo.exists(b.id(), a.id())).isFalse();
+  }
+
+  /**
+   * WP-869: 링크 요약은 범주 코드(status)와 함께 사용자 정의 상태 id·이름·색을 싣는다 — 「검토 중」(IN_PROGRESS 범주, PURPLE) 선행 이슈가
+   * blockedBy·blocks 양쪽에서 이름으로 보이게.
+   */
+  @Test
+  void blockedBy_blocks_요약에_statusName과_statusColor가_있다() {
+    Long owner = createUser("ra-sn");
+    var p = newProject(owner, "RSN");
+    long review =
+        statusService
+            .create(
+                owner,
+                p.key(),
+                new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, "PURPLE"))
+            .id();
+    var a = newTask(p.id(), 1, "a", owner);
+    var b = newTask(p.id(), 2, "b", owner);
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, "IN_PROGRESS")
+        .set(ISSUE.STATUS_ID, review)
+        .where(ISSUE.ID.eq(a.id()))
+        .execute();
+    depRepo.add(a.id(), b.id(), owner); // a 가 b 를 차단
+
+    var blocker = depRepo.findBlockedByForIssues(List.of(b.id())).get(b.id()).get(0);
+    assertThat(blocker.status()).isEqualTo("IN_PROGRESS");
+    assertThat(blocker.statusId()).isEqualTo(review);
+    assertThat(blocker.statusName()).isEqualTo("검토 중");
+    assertThat(blocker.statusColor()).isEqualTo("PURPLE");
+
+    // 반대 방향(blocks)은 기본 상태 「할 일」 그대로
+    var blocked = depRepo.findBlocksForIssues(List.of(a.id())).get(a.id()).get(0);
+    assertThat(blocked.status()).isEqualTo("TODO");
+    assertThat(blocked.statusName()).isEqualTo("할 일");
+    assertThat(blocked.statusColor()).isEqualTo("GRAY");
   }
 
   @Test

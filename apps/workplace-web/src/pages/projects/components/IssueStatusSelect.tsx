@@ -130,7 +130,7 @@ export function IssueStatusSelect({
         <SelectContent position="popper" align="end" collisionPadding={8}>
           {statuses.map((s) => (
             <SelectItem key={s.id} value={String(s.id)} data-testid={`issue-status-option-${s.id}`}>
-              <IssueStatusIcon status={s.category} decorative className="size-4" />
+              <IssueStatusIcon status={s.category} color={s.color} decorative className="size-4" />
               <span className="min-w-0 truncate">{s.name}</span>
             </SelectItem>
           ))}

@@ -16,6 +16,8 @@ interface SettingsSectionProps {
   /** danger: 위험 구역(삭제 등) — 제목을 파괴 색으로. */
   tone?: 'default' | 'danger'
   children?: ReactNode
+  /** 섹션 앵커 id — `#statuses` 처럼 해시로 바로 찾아오게 한다(WP-809). */
+  id?: string
   'data-testid'?: string
 }
 
@@ -24,11 +26,13 @@ export function SettingsSection({
   description,
   tone = 'default',
   children,
+  id,
   'data-testid': testId,
 }: SettingsSectionProps) {
   const headingId = useId()
   return (
     <section
+      id={id}
       data-slot="settings-section"
       data-testid={testId}
       // 영역 이름은 제목(h2) — 화면 낭독기가 섹션을 제목으로 찾는다.

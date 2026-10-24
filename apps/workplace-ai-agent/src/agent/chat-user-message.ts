@@ -2,6 +2,7 @@
 import type { ChatMessagePostedPayload } from '../types/chat-events.js';
 import type { ChatMessageItem } from '../clients/workplace-api.js';
 import type { PresentedAttachments } from './attachment-presenter.js';
+import { statusDisplay } from './status-display.js';
 
 export function buildChatUserMessage(
   payload: ChatMessagePostedPayload,
@@ -20,7 +21,8 @@ export function buildChatUserMessage(
   // #368: 이슈 제목·상태·본문을 user message 에 직접 주입한다. AGENT 는 프로젝트 비멤버라
   // get_issue_detail 이 403 으로 막히므로(이슈 컨텍스트 미인식의 근본 원인), 백엔드가 payload 로
   // 미리 전달한 컨텍스트를 1차 근거로 삼는다.
-  const statusSuffix = payload.issueStatus ? ` (상태: ${payload.issueStatus})` : '';
+  // WP-869: 상태 이름이 있으면 범주와 함께 보인다(statusDisplay).
+  const statusSuffix = payload.issueStatus ? ` (상태: ${statusDisplay(payload.issueStatus, payload.issueStatusName)})` : '';
   const bodyText = payload.issueBody && payload.issueBody.trim() ? payload.issueBody : '(본문 없음)';
   const issueContext =
     `## 현재 이슈 컨텍스트 (이 이슈에 대한 답변의 1차 근거)\n` +

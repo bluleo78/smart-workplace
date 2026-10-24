@@ -274,6 +274,21 @@ test('PRIORITY_CHANGED 알림은 상태 변경과 대칭적으로 렌더되고 �
   await expect(page).toHaveURL(/\/projects\/WP\/issues\/3$/)
 })
 
+// WP-869 — 상태 변경 알림이 어떤 상태로 바뀌었는지 보이지 않았다. 새 상태 이름을 받침에 맞는 조사로 싣는다.
+test('상태 변경 알림은 새 상태 이름을 보인다', async ({ authenticatedPage: page }) => {
+  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 2 })
+  await mockApi(page, 'GET', '/api/v1/notifications', [
+    notif({ id: 1, type: 'STATUS_CHANGED', actorName: '김리드', actorKind: 'HUMAN', commentId: null, statusName: '검토 중' }),
+    // 구 서버·이전 알림 — 상태 이름이 없으면 기존 문구.
+    notif({ id: 2, type: 'STATUS_CHANGED', actorName: '박개발', actorKind: 'HUMAN', commentId: null, statusName: null }),
+  ])
+  await page.goto('/')
+  await page.getByTestId('inbox-trigger').click()
+  const items = page.getByTestId('inbox-item')
+  await expect(items.nth(0)).toContainText("김리드님이 상태를 '검토 중'으로 변경했습니다")
+  await expect(items.nth(1)).toContainText('박개발님이 상태를 변경했습니다')
+})
+
 test('"모두 읽음" → read-all POST', async ({ authenticatedPage: page }) => {
   // unread-count 가 1 이상이어야 버튼이 활성화됨
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 1 })

@@ -16,6 +16,8 @@ const EVENT_LABEL: Record<string, string> = {
   COMMENTED: '코멘트',
   STATUS_CHANGED: '상태 변경',
   STATUS_CHANGE: '상태 변경',
+  // WP-809 상태 삭제로 다른 상태로 옮겨진 이슈 — 사용자 변경과 구분.
+  STATUS_MIGRATED: '상태 이전',
   // legacy 단일 assignee 시절 이벤트 — 과거 row 호환용(#200). 복수형 ASSIGNEES_CHANGED 와 동일 라벨.
   ASSIGNEE_CHANGED: '담당자 변경',
   ASSIGNEES_CHANGED: '담당자 변경',

@@ -4,8 +4,10 @@
 import { expect, test } from '../../fixtures/auth.fixture';
 import {
   createHistoryEntry,
+  createIssue,
   createIssueDetail,
 } from '../../factories/issue.factory';
+import { makeEpicType } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 
 const PROJECT_KEY = 'WP';
@@ -186,6 +188,29 @@ test.describe('IssueActivityTimeline — 한국어 enum 매핑', () => {
       await expect(timeline).not.toContainText('TODO');
     },
   );
+
+  // WP-809 — 상태 삭제로 옮겨진 이슈의 이력. 사용자 변경(STATUS_CHANGED)과 구분되게 「상태 이전」으로 보인다.
+  test('STATUS_MIGRATED 이력은 상태 삭제로 문구를 보인다', async ({ authenticatedPage: page }) => {
+    await setupCommonStubs(page);
+    const detail = createIssueDetail({
+      history: [
+        createHistoryEntry({ id: 1, eventType: 'STATUS_MIGRATED', actorName: '김리드', fromValue: '코드 리뷰 중', toValue: '진행 중' }),
+      ],
+    });
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail) })
+          : route.fallback(),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await page.getByRole('tab', { name: /이력/ }).click();
+    const timeline = page.getByRole('list', { name: '활동 타임라인' });
+    await expect(timeline).toContainText("상태 이전: 상태 삭제로 '코드 리뷰 중' → '진행 중'");
+    await expect(timeline.locator('li svg[aria-hidden="true"]')).toBeVisible();
+  });
 
   test(
     '이벤트 유형별 아이콘이 각 타임라인 항목에 렌더됨 (회귀 #313)',
@@ -408,4 +433,62 @@ test.describe('IssueActivityTimeline — 접기/펼치기 (#341)', () => {
       await expect(page.getByRole('button', { name: '이전 3건 활동 더 보기' })).toBeVisible();
     },
   );
+});
+
+// WP-869 — 이슈 상세 부모 표시가 범주만 알아 부모의 사용자 정의 상태(「검토 중」)를 보이지 못했다.
+test.describe('이슈 상세 — 부모 상태 (WP-869)', () => {
+  test('부모 표시에 상태 이름이 보인다', async ({ authenticatedPage: page }) => {
+    await setupCommonStubs(page);
+    const detail = createIssueDetail({
+      summary: createIssue({
+        id: 1,
+        number: 1,
+        parent: {
+          number: 5,
+          title: '결제 개편 에픽',
+          type: makeEpicType(),
+          status: 'IN_PROGRESS',
+          statusId: 12,
+          statusName: '검토 중',
+          statusColor: 'PURPLE',
+        },
+      }),
+    });
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail) })
+          : route.fallback(),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    const slot = page.getByTestId('issue-parent-slot');
+    await expect(slot.getByTestId('parent-badge-5')).toContainText('결제 개편 에픽');
+    const status = slot.getByTestId('issue-parent-status');
+    await expect(status).toHaveText('검토 중');
+    // 아이콘은 상태 색(PURPLE).
+    await expect(status.locator('svg')).toHaveClass(/text-purple-700/);
+  });
+
+  test('구 서버 응답(상태 이름 없음)이면 범주 라벨을 보인다', async ({ authenticatedPage: page }) => {
+    await setupCommonStubs(page);
+    const detail = createIssueDetail({
+      summary: createIssue({
+        id: 1,
+        number: 1,
+        parent: { number: 5, title: '결제 개편 에픽', type: makeEpicType(), status: 'DONE' },
+      }),
+    });
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1`,
+      (route) =>
+        route.request().method() === 'GET'
+          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail) })
+          : route.fallback(),
+    );
+
+    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
+    await expect(page.getByTestId('issue-parent-slot').getByTestId('issue-parent-status')).toHaveText('완료');
+  });
 });

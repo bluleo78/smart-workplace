@@ -84,7 +84,9 @@ public class IssueController {
     return ResponseEntity.ok(issueService.update((Long) auth.getPrincipal(), key, number, req));
   }
 
-  /** DnD 전용 — 상태만 갱신. statusId(프로젝트 상태, WP-807)가 있으면 그것이 이기고, 없으면 범주(status)로 바꾼다. */
+  /**
+   * DnD 전용 — 상태만 갱신. statusId(프로젝트 상태, WP-807) → statusName(상태 이름, WP-870) → 범주(status) 순으로 이긴다.
+   */
   @PatchMapping("/{number}/status")
   @RequirePermission("issue:write")
   public ResponseEntity<IssueDetailResponse> updateStatus(
@@ -94,7 +96,12 @@ public class IssueController {
       @Valid @RequestBody UpdateStatusRequest req) {
     return ResponseEntity.ok(
         issueService.updateStatus(
-            (Long) auth.getPrincipal(), key, number, req.status(), req.statusId()));
+            (Long) auth.getPrincipal(),
+            key,
+            number,
+            req.status(),
+            req.statusId(),
+            req.statusName()));
   }
 
   /**

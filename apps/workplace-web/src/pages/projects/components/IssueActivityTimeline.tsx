@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge';
 
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
-import { formatParentChanged, historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
+import { formatParentChanged, formatStatusMigrated, historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
 
 // 이벤트 타입별 Lucide 아이콘 매핑 — 타임라인 스캔 가독성 향상 (#313).
 const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
@@ -42,6 +42,7 @@ const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
   CUSTOM_FIELD_CHANGED: SlidersHorizontal,
   START_DATE_CHANGED: Calendar,
   MILESTONE_CHANGED: Flag,
+  STATUS_MIGRATED: GitBranch,
 };
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
@@ -61,6 +62,7 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   CUSTOM_FIELD_CHANGED: '필드',
   START_DATE_CHANGED: '시작일 변경',
   MILESTONE_CHANGED: '마일스톤 변경',
+  STATUS_MIGRATED: '상태 이전',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
@@ -261,6 +263,8 @@ export function IssueActivityTimeline({
                     <span>
                       {historyStatusLabel(e.fromValue)} → {historyStatusLabel(e.toValue)}
                     </span>
+                  ) : e.eventType === 'STATUS_MIGRATED' ? (
+                    <span>{formatStatusMigrated(e.fromValue, e.toValue)}</span>
                   ) : e.eventType === 'PRIORITY_CHANGED' ? (
                     <span>
                       {historyPriorityLabel(e.fromValue)} → {historyPriorityLabel(e.toValue)}

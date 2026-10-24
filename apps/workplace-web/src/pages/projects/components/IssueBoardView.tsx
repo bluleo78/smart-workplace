@@ -4,11 +4,10 @@
 
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CircleCheckBig, Inbox, Plus, TriangleAlert } from 'lucide-react';
+import { CircleCheckBig, Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -22,7 +21,7 @@ import {
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
-import { useProjectStatuses, useStatusEditing } from '../../../hooks/queries/useProjectStatuses';
+import { useStatusEditing } from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
@@ -84,8 +83,11 @@ function IssueBoardViewInner({
   canEdit?: boolean;
 }) {
   const isMobile = useIsMobile();
-  // 프로젝트 상태 목록(서버 표시 순서)과 편집 동작 — 상태마다 컬럼 하나. 로딩 중(빈 배열)엔 컬럼을 그리지 않는다.
+  // 프로젝트 상태 목록(서버 표시 순서)과 편집 동작 — 상태마다 컬럼 하나. 호출부가 ProjectStatusesGate 로 목록을 받은 뒤에 그린다(WP-870).
   const { statuses, rename: renameStatus, addAfter: addStatusAfter, addAt: addStatusAt } = useStatusEditing(projectKey);
+  // 헤더 ⋯·모바일 시트 「상태 관리…」 — 설정 「상태」 섹션으로(색·순서·삭제는 거기서, WP-809). 섹션은 #statuses 로 스크롤한다.
+  const navigate = useNavigate();
+  const manageStatuses = () => navigate(`/projects/${projectKey}/settings#statuses`);
   // 모바일은 드래그 대신 길게 누르기 — 호출처가 넘긴 값과 무관하게 여기서도 끈다(개인 보드 포함).
   const canDragStatus = canDragStatusProp && !isMobile;
   // 노출 범위(에픽 제외 등)는 호출처가 정한다 — 팀 보드는 withDefaultIssueScope, 개인 보드는 최상위만.
@@ -115,9 +117,6 @@ function IssueBoardViewInner({
   const [, setParams] = useSearchParams();
   // 헤더 인라인 이름 변경 중인 컬럼(statusId).
   const [renamingId, setRenamingId] = useState<number | null>(null);
-  // 상태 목록 조회 실패 — 컬럼을 만들 수 없으니 빈 보드 대신 오류와 다시 시도를 보인다(호출부와 같은 캐시).
-  const statusesQuery = useProjectStatuses(projectKey);
-  const statusesFailed = statuses.length === 0 && statusesQuery.isError;
   // 카드 ⋯·우클릭 메뉴(WP-273) — 컬럼 컴포넌트를 거치지 않고 컨텍스트로 카드에 전달한다.
   const { openMenu, menuIssueNumber } = cardActions;
   const cardMenu = useMemo(() => ({ openMenu, menuIssueNumber }), [openMenu, menuIssueNumber]);
@@ -214,26 +213,9 @@ function IssueBoardViewInner({
 
   // 모바일 보드(WP-195) — 컬럼을 나란히 두지 않고 상태 탭 + 선택 상태 한 컬럼(전체 폭). DnD 없음(길게 누르기로 상태 변경).
   // 그룹 보드는 선택 탭 안에 그룹 섹션을 쌓는다.
-  // 상태 보드는 컬럼(상태) 없이는 그릴 수 없다 — 데스크톱 그룹 보드는 상태 목록 없이도 그린다.
-  // 모바일은 그룹 보드도 상태 탭이라 상태 목록이 있어야 한다.
-  if ((!grouped || isMobile) && statusesFailed) {
-    return (
-      <div data-testid="board-statuses-error">
-        <ResourceErrorState
-          icon={TriangleAlert}
-          title="상태 목록을 불러오지 못했습니다"
-          description="보드 컬럼을 만들 수 없습니다. 잠시 후 다시 시도해 주세요."
-          actionLabel="다시 시도"
-          onAction={() => void statusesQuery.refetch()}
-        />
-      </div>
-    );
-  }
-
   if (isMobile) {
     // 탭 = 프로젝트 상태(WP-808, 제외 범주 빼고). 사용자 「상태 범주」·「상태」 필터로 제외된 상태는 탭을 숨긴다 —
     // 컬럼 쿼리와 같은 판정(columnFilters)이라 그룹 보드(컬럼 쿼리 비활성)에도 같게 적용된다.
-    // 상태 목록 로딩 중이면 탭이 없다 → MobileBoard 가 기본 탭을 미리 고르지 않는다.
     const visible = columns.filter((s) => columnFilters(filters, s) !== null);
     // 그룹 보드는 전체 페이지 순차 로드 — 개수는 로드 건수 그대로(「+」 없음), 로드 중엔 pending 으로 기본 탭이 튀지 않게.
     const pendingOf = (s: ProjectStatus) => (grouped ? groupQuery.isPending : (columnQueries[s.id]?.isPending ?? true));
@@ -259,6 +241,7 @@ function IssueBoardViewInner({
                 canEdit
                 statuses={statuses}
                 onRename={(name) => renameStatus(s.id, name)}
+                onManage={manageStatuses}
                 onAddAfter={async (name) => {
                   // mutateAsync 는 상태 목록 재조회가 끝난 뒤 끝난다 — 새 상태가 이미 탭에 있으므로 바로 골라도
                   // 기본 탭 고정(MobileBoard)이 「보이지 않는 id」로 보고 덮어쓰지 않는다. 필터로 숨는 상태면 고르지 않는다.
@@ -337,7 +320,7 @@ function IssueBoardViewInner({
     );
   }
 
-  // 상태 목록을 불러오는 동안은 컬럼 없이 빈 보드 — 범주 컬럼으로 그렸다가 상태 컬럼으로 바뀌며 튀지 않게.
+  // 방어 — 호출부 관문(ProjectStatusesGate)이 목록을 받은 뒤에 그리므로 보통 오지 않는다. 범주 컬럼으로 대신 그리지 않는다.
   if (columns.length === 0) return <BoardScroll />;
 
   return (
@@ -380,6 +363,7 @@ function IssueBoardViewInner({
                     onAddAfter: async (name) => {
                       await addStatusAfter(col, name);
                     },
+                    onManage: manageStatuses,
                   }
                 : undefined
             }
@@ -469,6 +453,7 @@ type ColumnEdit = {
   onRenameCancel: () => void;
   onRenameSubmit: (name: string) => Promise<void>;
   onAddAfter: (name: string) => Promise<void>;
+  onManage: () => void;
 };
 
 // 각 컬럼(프로젝트 상태 하나)은 droppable + 내부 카드들이 SortableContext 에 묶여 있다.
@@ -541,7 +526,7 @@ function BoardColumn({
           <>
             {/* 상태 이름은 30자까지 — 좁은 컬럼에서 말줄임하고 전체 이름은 title 로 보인다. */}
             <span className="flex min-w-0 items-center gap-1.5">
-              <IssueStatusIcon status={status.category} decorative className="h-4 w-4" />
+              <IssueStatusIcon status={status.category} color={status.color} decorative className="h-4 w-4" />
               <span className="truncate" title={status.name}>
                 {status.name}
               </span>
@@ -559,6 +544,7 @@ function BoardColumn({
                 triggerRef={menuTriggerRef}
                 onRename={edit.onRename}
                 onAddAfter={edit.onAddAfter}
+                onManage={edit.onManage}
               />
             )}
           </>

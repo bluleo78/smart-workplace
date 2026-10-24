@@ -573,7 +573,7 @@ describe('buildSharedIssueTools', () => {
     expect(c.getProjectMilestones).not.toHaveBeenCalled();
   });
 
-  // WP-807: status 는 범주(TODO/IN_PROGRESS/DONE/CANCELED) 또는 프로젝트 상태 이름 — 범주면 status, 이름이면 statusId 로 보낸다.
+  // WP-870: status 는 범주(TODO/IN_PROGRESS/DONE/CANCELED) 또는 프로젝트 상태 이름 — 범주면 status, 이름이면 statusName 으로 보내 서버가 해석한다.
   it('update_issue: 범주 값이면 status 로 보낸다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
@@ -583,12 +583,12 @@ describe('buildSharedIssueTools', () => {
     expect(c.getProjectStatuses).not.toHaveBeenCalled();
   });
 
-  it('update_issue: 이름이면 statusId 로 보낸다', async () => {
+  it('update_issue: 이름이면 statusName 으로 보내고 상태 목록을 조회하지 않는다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await t.handler({ issueKey: 'WP-12', status: '검토 중' });
-    expect(c.getProjectStatuses).toHaveBeenCalledWith('WP');
-    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { statusId: 12 });
+    await t.handler({ issueKey: 'WP-12', status: ' 검토 중 ' });
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { statusName: '검토 중' });
+    expect(c.getProjectStatuses).not.toHaveBeenCalled();
   });
 
   it('update_issue: "DONE" 이름 상태가 있어도 범주로 해석한다', async () => {
@@ -607,13 +607,59 @@ describe('buildSharedIssueTools', () => {
     expect(c.updateIssueContent).not.toHaveBeenCalled();
   });
 
-  it('update_issue: 모르는 이름은 사용 가능 목록과 함께 실패한다', async () => {
+  // WP-870: 모르는 이름은 서버가 사용 가능 목록과 함께 400 으로 거절한다 — 그 문구가 content 결과로 그대로 전달된다.
+  it('update_issue: 모르는 이름은 서버 400 문구를 content 결과로 전한다', async () => {
+    const c = mockClient();
+    const message = "상태 'WRONG' 을(를) 찾을 수 없습니다. 사용 가능: 할 일, 진행 중, 검토 중";
+    vi.mocked(c.updateIssueContent).mockRejectedValue(Object.assign(new Error('x'), { response: { status: 400, data: { message } } }));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', title: '수정', status: 'WRONG' })));
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { title: '수정', statusName: 'WRONG' });
+    expect(out.results.content).toBe(`failed: API 오류 400: ${message}`);
+    expect(c.getProjectStatuses).not.toHaveBeenCalled();
+  });
+
+  // 모르는 상태 이름은 다른 쓰기보다 먼저 실패해야 한다 — 담당자·라벨만 바뀌고 상태는 그대로인 반쯤 고친 이슈를 남기지 않게.
+  it('update_issue: 모르는 상태 이름이면 내용 저장이 먼저 실패하고 담당자·라벨·사이클·필드는 쓰지 않는다', async () => {
+    const c = mockClient();
+    const message = "상태 'WRONG' 을(를) 찾을 수 없습니다. 사용 가능: 할 일, 진행 중";
+    vi.mocked(c.updateIssueContent).mockRejectedValue(Object.assign(new Error('x'), { response: { status: 400, data: { message } } }));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(
+      resultText(await t.handler({ issueKey: 'WP-12', status: 'WRONG', assignees: ['alice'], labels: ['urgent'], cycles: [], type: 'BUG' })),
+    );
+    expect(out).toEqual({ ok: false, results: { content: `failed: API 오류 400: ${message}` } });
+    expect(c.replaceIssueAssignees).not.toHaveBeenCalled();
+    expect(c.replaceIssueLabels).not.toHaveBeenCalled();
+    expect(c.replaceIssueCycles).not.toHaveBeenCalled();
+    expect(c.setIssueType).not.toHaveBeenCalled();
+    expect(c.getProjectStatuses).not.toHaveBeenCalled();
+  });
+
+  // 첨부·드라이브 링크는 상태 저장보다 먼저 해야 해(위 WP-422 순서) 내용 저장을 앞당길 수 없다 — 그때만 상태 목록으로 이름을 먼저 확인한다.
+  it('update_issue: 첨부와 모르는 상태 이름을 함께 주면 아무것도 쓰지 않고 content 실패로 알린다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
-    await expect(t.handler({ issueKey: 'WP-12', title: '수정', status: '배포' })).rejects.toThrow(
-      /상태 '배포' 을\(를\) 찾을 수 없습니다\. 사용 가능: 할 일, 진행 중, 검토 중/,
-    );
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: 'WRONG', fileIds: [5], driveFileId: 77, assignees: ['alice'] })));
+    expect(out.ok).toBe(false);
+    expect(Object.keys(out.results)).toEqual(['content']);
+    expect(out.results.content).toMatch(/^failed: 상태 'WRONG' 을\(를\) 찾을 수 없습니다\. 사용 가능: /);
+    expect(c.claimIssueAttachments).not.toHaveBeenCalled();
+    expect(c.addIssueDriveLink).not.toHaveBeenCalled();
     expect(c.updateIssueContent).not.toHaveBeenCalled();
+    expect(c.replaceIssueAssignees).not.toHaveBeenCalled();
+  });
+
+  it('update_issue: 첨부와 아는 상태 이름(대소문자·공백 무시)이면 첨부를 먼저, 상태를 나중에 저장한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectStatuses).mockResolvedValue([{ id: 40, name: 'Code Review', category: 'IN_PROGRESS', position: 2 }]);
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', status: ' code review ', fileIds: [5] })));
+    expect(out).toEqual({ ok: true, results: { attachments: 'ok', content: 'ok' } });
+    expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { statusName: 'code review' });
+    const claimOrder = vi.mocked(c.claimIssueAttachments).mock.invocationCallOrder[0];
+    const contentOrder = vi.mocked(c.updateIssueContent).mock.invocationCallOrder[0];
+    expect(claimOrder).toBeLessThan(contentOrder);
   });
 
   it('update_issue 는 모르는 마일스톤이면 아무것도 쓰지 않고 throw (#854)', async () => {

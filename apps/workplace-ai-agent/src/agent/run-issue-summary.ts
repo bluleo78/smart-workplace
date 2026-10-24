@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { RunAgentDeps } from './run-agent.js'
 import { runText } from './run-mail-ai.js'
 import { ISSUE_PROGRESS_SUMMARY_PROMPT } from './issue-system-prompt.js'
+import { statusDisplay } from './status-display.js'
 
 // 이슈 현황 요약 입력 스키마 — 제목·본문·상태·우선순위·마감·코멘트·변경이력·채팅 + 에이전트 실행 설정.
 export interface IssueSummaryInput {
@@ -9,6 +10,8 @@ export interface IssueSummaryInput {
   // 이슈 본문(description). 없으면 빈 문자열 또는 null(본문 없는 이슈).
   body?: string | null
   status: string
+  // WP-869: 프로젝트 상태 이름(status 는 범주). 구 API 는 보내지 않는다.
+  statusName?: string | null
   priority: string
   dueDate: string | null
   comments: { authorName: string; body: string; createdAt: string }[]
@@ -50,7 +53,7 @@ export function buildIssueSummaryPrompt(input: IssueSummaryInput): string {
   const bodySection = input.body?.trim() ? `## 이슈 본문\n${input.body.trim()}` : ''
   if (bodySection) lines.push(bodySection)
 
-  lines.push(`상태: ${input.status} / 우선순위: ${input.priority} / 마감: ${input.dueDate ?? '없음'}`)
+  lines.push(`상태: ${statusDisplay(input.status, input.statusName)} / 우선순위: ${input.priority} / 마감: ${input.dueDate ?? '없음'}`)
   lines.push('--- 코멘트 ---')
   for (const c of input.comments) {
     lines.push(`[${c.createdAt}] ${c.authorName}: ${c.body}`)

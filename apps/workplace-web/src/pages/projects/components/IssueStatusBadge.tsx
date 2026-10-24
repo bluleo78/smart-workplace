@@ -13,7 +13,15 @@ const STATUS_TYPE: Record<IssueStatus, StatusBadgeType> = {
   CANCELED: 'inactive',
 };
 
-/** name = 응답의 statusName(프로젝트 상태 이름). 없으면(링크 요약 등 범주만 아는 곳) 범주 라벨. */
-export function IssueStatusBadge({ status, name }: { status: IssueStatus; name?: string }) {
-  return <StatusBadge type={STATUS_TYPE[status]}>{statusLabel(status, name)}</StatusBadge>;
+/**
+ * name = 응답의 statusName(프로젝트 상태 이름). 없으면(구 서버 응답 등 범주만 아는 곳) 범주 라벨.
+ * className 으로 폭을 줄이면(예: 의존성 행의 shrink·max-w) 30자 이름이 말줄임되고 전체 이름은 title 로 보인다.
+ */
+export function IssueStatusBadge({ status, name, className }: { status: IssueStatus; name?: string; className?: string }) {
+  const label = statusLabel(status, name);
+  return (
+    <StatusBadge type={STATUS_TYPE[status]} className={className} title={label}>
+      <span className="min-w-0 truncate">{label}</span>
+    </StatusBadge>
+  );
 }

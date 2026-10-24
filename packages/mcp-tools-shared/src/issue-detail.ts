@@ -8,6 +8,7 @@ import {
   labelNames,
   toAuthorView,
   toChildrenView,
+  statusNameOf,
   toParentView,
   toPeopleView,
   toPersonView,
@@ -38,6 +39,8 @@ interface IssueLinkView {
   issueKey: string;
   title: string;
   status: string;
+  /** 프로젝트 상태 이름(WP-869) — 구 API 면 키가 없다. */
+  statusName?: string;
 }
 
 export interface IssueDetail {
@@ -61,7 +64,7 @@ export interface IssueDetail {
   closedAt: string | null;
   labels: string[];
   milestone: string | null;
-  parent: { issueKey: string; title: string; status: string | null } | null;
+  parent: { issueKey: string; title: string; status: string | null; statusName?: string } | null;
   /** 하위 이슈 진행률(없으면 null). 목록은 list_issues(projectKey, q 등)로. */
   children: { total: number; done: number } | null;
   blockedBy: IssueLinkView[];
@@ -124,6 +127,7 @@ const links = (arr: unknown, projectKey: unknown): IssueLinkView[] =>
     issueKey: formatIssueKey(projectKey as string | undefined, l.number as number | undefined) ?? String(l.number ?? ''),
     title: l.title as string,
     status: l.status as string,
+    ...statusNameOf(l),
   }));
 
 /** 뒤에서 limit 개만(최근 것) 남기고 빠진 개수를 함께 돌려준다. */

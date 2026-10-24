@@ -51,6 +51,22 @@ public class SavedViewRepository {
         .fetch(this::mapToRow);
   }
 
+  /**
+   * 프로젝트의 저장된 뷰 전부 — 소유자·공개 범위 무관(WP-809). 상태 삭제가 그 상태를 가리키는 다른 사람의 비공개 뷰까지 고쳐야 하므로 권한 거르기 없이
+   * 읽는다(서비스가 OWNER 확인 뒤에만 부른다).
+   */
+  public List<SavedViewRow> findByProject(Long projectId) {
+    return dsl.selectFrom(SAVED_VIEW)
+        .where(SAVED_VIEW.PROJECT_ID.eq(projectId))
+        .orderBy(SAVED_VIEW.ID.asc())
+        .fetch(this::mapToRow);
+  }
+
+  /** 쿼리만 바꾼다(WP-809) — 상태 삭제로 필터의 상태 id 를 옮기는 시스템 정리라, 사용자가 뷰를 고친 것이 아니므로 updated_at 은 그대로 둔다. */
+  public void updateQuery(Long id, String query) {
+    dsl.update(SAVED_VIEW).set(SAVED_VIEW.QUERY, query).where(SAVED_VIEW.ID.eq(id)).execute();
+  }
+
   /** id 로 단건 조회. */
   public Optional<SavedViewRow> findById(Long id) {
     return dsl.selectFrom(SAVED_VIEW).where(SAVED_VIEW.ID.eq(id)).fetchOptional(this::mapToRow);

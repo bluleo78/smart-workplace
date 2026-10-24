@@ -193,4 +193,21 @@ class IssueStatusEndpointTest extends IntegrationTestBase {
                 .content("{}"))
         .andExpect(status().isBadRequest());
   }
+
+  @Test
+  void PATCH_status에_statusName만_보내도_200() throws Exception {
+    long userId = createUser("snm");
+    String key = uniqueKey("PT");
+    ProjectResponse proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
+    issueRepository.insert(proj.id(), 1, "t", null, "MID", null, userId);
+
+    mvc.perform(
+            patch("/api/v1/projects/" + key + "/issues/1/status")
+                .header("Authorization", "Bearer " + tokenFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"statusName\":\"완료\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.summary.status").value("DONE"))
+        .andExpect(jsonPath("$.summary.statusName").value("완료"));
+  }
 }

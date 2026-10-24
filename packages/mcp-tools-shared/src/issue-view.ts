@@ -55,11 +55,22 @@ export function labelNames(labels: unknown): string[] {
 }
 
 /** 부모 요약(ParentRef: number·title·status) → issueKey 로 가리키는 뷰. 부모는 같은 프로젝트라 projectKey 를 빌린다. 키를 못 만들면 null. */
-export function toParentView(parent: unknown, projectKey: unknown): { issueKey: string; title: string; status: string | null } | null {
+export function toParentView(
+  parent: unknown,
+  projectKey: unknown,
+): { issueKey: string; title: string; status: string | null; statusName?: string } | null {
   const p = parent as Raw | null | undefined;
   const issueKey = formatIssueKey(projectKey as string | undefined, p?.number as number | undefined);
   if (!p || !issueKey) return null;
-  return { issueKey, title: String(p.title ?? ''), status: (p.status as string | undefined) ?? null };
+  return { issueKey, title: String(p.title ?? ''), status: (p.status as string | undefined) ?? null, ...statusNameOf(p) };
+}
+
+/**
+ * 부모·링크 요약의 프로젝트 상태 이름(WP-869) — 있으면 { statusName }, 없으면(구 API) 빈 객체라 키가 생기지 않는다.
+ * statusId·statusColor 는 싣지 않는다(숫자 id 는 쓰기 도구로 흘려보내지 않고 #833, 색은 LLM 에 쓸모없는 토큰).
+ */
+export function statusNameOf(r: Raw): { statusName?: string } {
+  return typeof r.statusName === 'string' && r.statusName ? { statusName: r.statusName } : {};
 }
 
 /** 하위 이슈 진행률 — 하위가 없으면 null(빈 0/0 을 싣지 않는다). */

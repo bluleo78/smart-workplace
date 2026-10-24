@@ -95,7 +95,7 @@ public class PersonalContextLoader {
   private IssueRef linkedIssue(long userId, long messageId) {
     return issueLookup
         .findVisibleSourceIssue(userId, MAIL_SOURCE, messageId)
-        .map(r -> new IssueRef(r.key(), r.title(), r.status()))
+        .map(r -> new IssueRef(r.key(), r.title(), r.status(), r.statusName()))
         .orElse(null);
   }
 

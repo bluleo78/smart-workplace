@@ -7,6 +7,7 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../..
 import { createMember, createProject } from '../../factories/project.factory';
 import { inServerOrder, makeProjectStatus, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { mockApi } from '../../fixtures/api-mock';
+import { mockProjectSettings } from '../../fixtures/project-settings-mocks';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import type { IssueResponse } from '../../../src/types/issue';
@@ -117,6 +118,21 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     await expect.poll(() => creates.lastBody<{ statusId?: number }>()?.statusId).toBe(13);
   });
 
+  test('상태가 20개면 ⋯ 바텀시트의 이 뒤에 상태 추가가 막히고 이유를 보인다', async ({ authenticatedPage: page }) => {
+    // 8개 + 진행 중 12개 = 상한 20개.
+    const extra = Array.from({ length: 12 }, (_, i) =>
+      makeProjectStatus({ id: 100 + i, name: `추가 상태 ${i + 1}`, category: 'IN_PROGRESS', position: 20 + i }),
+    );
+    await stubBoard(page, { statuses: [...boardStatuses(), ...extra] });
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=12`);
+
+    await page.getByTestId('board-tab-menu').click();
+    const item = page.getByTestId('mobile-action-status-add-after');
+    await expect(item).toBeDisabled();
+    await expect(item).toContainText('상태는 프로젝트당 20개까지예요');
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('⋯ 바텀시트로 이 뒤에 상태를 추가한다', async ({ authenticatedPage: page }) => {
     const statuses = await stubBoard(page);
     const posts = trackRequests(page, 'POST', STATUSES_PATH);
@@ -159,6 +175,20 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     await expect(page).toHaveURL(new RegExp(`boardTab=${created.id}(&|$)`));
     await expect(newTab).toBeInViewport({ ratio: 0.95 });
     await expect(page.getByTestId('board-tab-header')).toContainText('QA 대기');
+  });
+
+  // WP-809 — 시트에서 설정 「상태」 섹션(색·순서·삭제)으로 바로 간다.
+  test('상태 시트의 상태 관리… 는 설정으로 간다', async ({ authenticatedPage: page }) => {
+    await stubBoard(page);
+    await mockProjectSettings(page, [createMember({ userId: 1, role: 'OWNER' })], createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }));
+    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=12`);
+
+    await page.getByTestId('board-tab-menu').click();
+    await page.getByTestId('mobile-action-status-manage').click();
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/settings#statuses$`));
+    await expect(page.getByTestId('settings-statuses')).toBeInViewport();
+    await expect(page.getByTestId('status-row-12')).toContainText('리뷰 대기');
   });
 
   test('⋯ 바텀시트로 이름을 바꾼다', async ({ authenticatedPage: page }) => {

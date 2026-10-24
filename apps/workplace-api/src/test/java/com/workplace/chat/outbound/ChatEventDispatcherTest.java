@@ -89,6 +89,7 @@ class ChatEventDispatcherTest {
         "WP-1",
         "로그인 버그",
         "IN_PROGRESS",
+        "검토 중",
         "재현 절차: 로그인 시 500",
         actor,
         "@ai",
@@ -159,6 +160,8 @@ class ChatEventDispatcherTest {
     var payload = captor.getValue().payload();
     assertThat(payload.get("issueTitle")).isEqualTo("로그인 버그");
     assertThat(payload.get("issueStatus")).isEqualTo("IN_PROGRESS");
+    // WP-869: 사용자 정의 상태 이름도 payload 키 issueStatusName 으로
+    assertThat(payload.get("issueStatusName")).isEqualTo("검토 중");
     assertThat(payload.get("issueBody")).isEqualTo("재현 절차: 로그인 시 500");
   }
 

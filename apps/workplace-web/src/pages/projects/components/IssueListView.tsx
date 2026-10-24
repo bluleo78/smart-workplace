@@ -59,11 +59,10 @@ export function IssueListView({
   const isMobile = useIsMobile();
   const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
   const searchQuery = useIssueSearch(projectKey, scopedFilters);
-  // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 로딩 중·실패(빈 배열)엔 범주 버킷으로 묶는다.
+  // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 호출부가 ProjectStatusesGate 로 목록을 받은 뒤에 그린다(WP-870).
   const statuses = useProjectStatusList(projectKey);
   // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다. 총계가 오기 전·에픽 그룹은 불러온 행 수.
-  // 상태 목록이 없어 범주 버킷으로 묶는 동안은 총계도 범주로 센다(버킷 key 와 맞게).
-  const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy, statuses.length > 0);
+  const groupCounts = useIssueGroupCounts(projectKey, scopedFilters, groupBy);
   const countByKey = useMemo(() => groupCountsByKey(groupCounts.data), [groupCounts.data]);
   const { data, isLoading } = searchQuery;
   // 테이블 스크롤 컨테이너 — 목록 끝 LoadMoreFooter sentinel 의 IntersectionObserver root(콜백 ref 라 마운트 후 재부착).
@@ -92,7 +91,7 @@ export function IssueListView({
     [data],
   );
   const groups = useMemo(
-    () => (groupBy ? groupIssues(items, groupBy, statuses.length ? statuses : undefined).filter((g) => g.issues.length > 0) : null),
+    () => (groupBy ? groupIssues(items, groupBy, statuses).filter((g) => g.issues.length > 0) : null),
     [items, groupBy, statuses],
   );
   // 그룹 모드에서 모든 그룹이 접혀 행이 하나도 안 그려지면 sentinel 이 화면에 들어와 다음 페이지를 연쇄 로드한다 →

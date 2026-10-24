@@ -305,4 +305,70 @@ class ProjectStatusMigrationTest extends IntegrationTestBase {
     assertThat(dsl.fetchValue("SELECT project_status_default_id(?, 'DONE')", p.id()))
         .isEqualTo(statusId(p.id(), "DONE"));
   }
+
+  // ---- V206 상태 색(WP-809) ----
+
+  @Test
+  void 새프로젝트_시드상태는_범주색을_가진다() {
+    Long owner = createUser("ps-k");
+    ProjectResponse p = newProject(owner, "PSL");
+
+    var rows =
+        dsl.select(PROJECT_STATUS.NAME, PROJECT_STATUS.COLOR)
+            .from(PROJECT_STATUS)
+            .where(PROJECT_STATUS.PROJECT_ID.eq(p.id()))
+            .orderBy(PROJECT_STATUS.POSITION)
+            .fetch();
+
+    assertThat(rows)
+        .extracting(r -> r.get(PROJECT_STATUS.NAME), r -> r.get(PROJECT_STATUS.COLOR))
+        .containsExactly(
+            tuple("할 일", "GRAY"), tuple("진행 중", "BLUE"), tuple("완료", "GREEN"), tuple("취소", "GRAY"));
+  }
+
+  @Test
+  void color없이_INSERT하면_GRAY_기본값() {
+    Long owner = createUser("ps-l");
+    ProjectResponse p = newProject(owner, "PSM");
+    // 롤링 배포 중 color 를 모르는 구 파드의 INSERT 흉내 — DEFAULT 가 있어 깨지지 않고 GRAY 가 된다
+    String color =
+        dsl.insertInto(PROJECT_STATUS)
+            .set(PROJECT_STATUS.PROJECT_ID, p.id())
+            .set(PROJECT_STATUS.NAME, "검토 중")
+            .set(PROJECT_STATUS.CATEGORY, "IN_PROGRESS")
+            .set(PROJECT_STATUS.POSITION, 4)
+            .returning(PROJECT_STATUS.COLOR)
+            .fetchOne()
+            .getColor();
+
+    assertThat(color).isEqualTo("GRAY");
+  }
+
+  @Test
+  void 색_backfill_SQL은_범주별_기본색을_넣는다() {
+    Long owner = createUser("ps-m");
+    ProjectResponse p = newProject(owner, "PSN");
+    // 마이그레이션 시점의 기존 행은 DEFAULT GRAY 로 채워진 상태 — 그것을 흉내 낸 뒤 V206 백필 UPDATE 를 이 프로젝트로 좁혀 돌린다
+    dsl.update(PROJECT_STATUS)
+        .set(PROJECT_STATUS.COLOR, "GRAY")
+        .where(PROJECT_STATUS.PROJECT_ID.eq(p.id()))
+        .execute();
+    dsl.execute(
+        "UPDATE project_status SET color = CASE category WHEN 'IN_PROGRESS' THEN 'BLUE' "
+            + "WHEN 'DONE' THEN 'GREEN' ELSE 'GRAY' END WHERE project_id = ?",
+        p.id());
+
+    assertThat(
+            dsl.select(PROJECT_STATUS.CATEGORY, PROJECT_STATUS.COLOR)
+                .from(PROJECT_STATUS)
+                .where(PROJECT_STATUS.PROJECT_ID.eq(p.id()))
+                .orderBy(PROJECT_STATUS.POSITION)
+                .fetch())
+        .extracting(r -> r.get(PROJECT_STATUS.CATEGORY), r -> r.get(PROJECT_STATUS.COLOR))
+        .containsExactly(
+            tuple("TODO", "GRAY"),
+            tuple("IN_PROGRESS", "BLUE"),
+            tuple("DONE", "GREEN"),
+            tuple("CANCELED", "GRAY"));
+  }
 }

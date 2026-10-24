@@ -1,13 +1,15 @@
 // 이슈 상세 우측 사이드바 — 부모 표시/설정 슬롯 (Phase 4a, EPIC 계층 확장).
 // SUBTASK 는 "부모"(비-EPIC 비-SUBTASK 필수), 일반 이슈는 "상위 에픽"(EPIC, 선택) 문구로 분기.
-// 부모가 있으면 ParentBadge + 변경 버튼, 없으면 안내 문구 + 설정 버튼.
+// 부모가 있으면 ParentBadge + 부모 상태(아이콘·이름, WP-869) + 변경 버튼, 없으면 안내 문구 + 설정 버튼.
 // 편집 상태에서는 IssueParentPicker 를 인라인으로 노출.
 
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
+import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentBadge } from '../../../components/issues/ParentBadge';
+import { statusLabel } from '../../../lib/issueGrouping';
 import type { ParentRef } from '../../../types/issue';
 import { IssueParentPicker } from './IssueParentPicker';
 
@@ -55,7 +57,21 @@ export function IssueParentSlot({
           onClose={() => setEditing(false)}
         />
       ) : parent ? (
-        <ParentBadge projectKey={projectKey} parent={parent} />
+        // 제목이 길면 상태가 다음 줄로 내려간다(flex-wrap) — 좁은 오른쪽 레일에서도 가로로 넘치지 않게.
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {/* 긴 제목은 레일 폭에서 말줄임(max-w-full) — 가로로 넘치지 않게. */}
+          <ParentBadge projectKey={projectKey} parent={parent} className="min-w-0 max-w-full" />
+          {/* 부모 상태 — 서버가 범주(status)를 실은 경우만. 이름은 상태 이름, 구 서버 응답이면 범주 라벨. */}
+          {parent.status && (
+            <span
+              className="inline-flex min-w-0 max-w-full items-center gap-1 text-xs text-muted-foreground"
+              data-testid="issue-parent-status"
+            >
+              <IssueStatusIcon status={parent.status} color={parent.statusColor} decorative className="size-3.5" />
+              <span className="truncate">{statusLabel(parent.status, parent.statusName)}</span>
+            </span>
+          )}
+        </div>
       ) : isSubtask ? (
         <p
           className="text-xs text-destructive"

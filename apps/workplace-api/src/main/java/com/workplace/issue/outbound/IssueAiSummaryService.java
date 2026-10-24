@@ -259,6 +259,7 @@ public class IssueAiSummaryService {
         // 본문 없는 이슈는 null 대신 빈 문자열 — ai-agent zod(string)가 null 을 거부(400)하지 않도록.
         meta.body() != null ? meta.body() : "",
         meta.status(),
+        meta.statusName(),
         meta.priority(),
         meta.dueDate() != null ? meta.dueDate().toString() : null,
         comments,

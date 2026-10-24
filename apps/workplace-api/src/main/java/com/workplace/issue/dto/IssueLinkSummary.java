@@ -7,6 +7,16 @@ import java.time.LocalDate;
  *
  * <p>{@code dueDate} 는 #669 에서 추가 — 프론트가 blockedBy 선행 이슈의 마감일을 알아야 "선행보다 이른 날짜" 모순을 클라이언트에서 판정할 수
  * 있다(정책: soft 경고, 서버 검증/차단 없음).
+ *
+ * <p>{@code statusId}·{@code statusName}·{@code statusColor} 는 WP-869 — 범주 코드({@code status}) 대신
+ * 프로젝트 사용자 정의 상태 이름·색을 보여 주기 위해 싣는다. 예전 클라이언트는 무시하므로 끝에 덧붙인다(롤링 배포 호환).
  */
 public record IssueLinkSummary(
-    int number, String title, String status, IssueTypeSummary type, LocalDate dueDate) {}
+    int number,
+    String title,
+    String status,
+    IssueTypeSummary type,
+    LocalDate dueDate,
+    Long statusId,
+    String statusName,
+    String statusColor) {}

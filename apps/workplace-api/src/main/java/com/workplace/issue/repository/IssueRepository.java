@@ -24,6 +24,7 @@ import com.workplace.issue.dto.IssueSearchQuery;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
+import com.workplace.issue.dto.ProjectStatusRow;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -42,6 +43,8 @@ import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.SelectField;
+import org.jooq.Table;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /** issue 테이블 jOOQ 리포지토리. 모든 조회는 soft-delete(deleted_at IS NULL) 기준 활성 row 만 대상. */
@@ -72,22 +75,21 @@ public class IssueRepository {
           .as("milestone_name");
 
   /**
-   * 프로젝트 상태 이름(스칼라 서브쿼리, WP-807) — 범주(status)가 아니라 사람이 정한 상태 이름을 응답·이력에 싣는다. 별칭 없는 {@code ISSUE} 를
-   * 참조하므로 ROW_FIELDS 는 별칭 없는 issue 테이블에서 읽을 때만 쓴다(별칭 테이블로 행을 읽는 경로가 생기면
-   * ProjectStatusRepository.findByIds 로 이름을 따로 붙인다).
+   * 이슈 + 그 프로젝트 상태(WP-870) — 상태 이름·색을 행마다 스칼라 서브쿼리로 읽지 않고 한 번의 LEFT JOIN 으로 읽는다. {@link
+   * #ROW_FIELDS} 로 SELECT 하는 모든 조회의 FROM 이다(같은 패키지의 {@link AiTaskRepository} 포함).
+   *
+   * <p>잠그는 조회는 반드시 {@code .of(ISSUE)} 로 issue 행만 잠근다 — PostgreSQL 은 외부 조인의 nullable 쪽 잠금을 거절하고,
+   * inner JOIN 으로 바꿔 project_status 행까지 잠그면 상태 삭제(project_status 잠금 → issue UPDATE)와 잠금 순서가 반대가 되어
+   * 교착될 수 있다.
    */
-  private static final Field<String> STATUS_NAME =
-      org.jooq
-          .impl
-          .DSL
-          .field(
-              org.jooq
-                  .impl
-                  .DSL
-                  .select(PROJECT_STATUS.NAME)
-                  .from(PROJECT_STATUS)
-                  .where(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID)))
-          .as("status_name");
+  static final Table<?> ISSUE_WITH_STATUS =
+      ISSUE.leftJoin(PROJECT_STATUS).on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID));
+
+  /** 프로젝트 상태 이름 — {@link #ISSUE_WITH_STATUS} 조인 컬럼(WP-807 → WP-870). */
+  private static final Field<String> STATUS_NAME = PROJECT_STATUS.NAME.as("status_name");
+
+  /** 프로젝트 상태 색 토큰 — {@link #ISSUE_WITH_STATUS} 조인 컬럼(WP-870). */
+  private static final Field<String> STATUS_COLOR = PROJECT_STATUS.COLOR.as("status_color");
 
   /**
    * {@link #mapToRow} 가 읽는 이슈 행 컬럼 — 조회·INSERT RETURNING 이 한 목록을 공유해 컬럼 추가 시 한 곳만 고친다. 같은 패키지의
@@ -113,7 +115,8 @@ public class IssueRepository {
     ISSUE.VERSION,
     MILESTONE_NAME,
     ISSUE.STATUS_ID,
-    STATUS_NAME
+    STATUS_NAME,
+    STATUS_COLOR
   };
 
   /**
@@ -142,10 +145,11 @@ public class IssueRepository {
         r.get(ISSUE.START_DATE),
         r.get(ISSUE.MILESTONE_ID),
         r.get(ISSUE.VERSION),
-        // 서브쿼리 컬럼(마일스톤·상태 이름)은 ROW_FIELDS 로 SELECT 할 때만 있다(INSERT RETURNING 은 테이블 컬럼만) — 없으면 null.
+        // 마일스톤 이름·상태 이름·색은 ROW_FIELDS 로 SELECT 할 때만 있다(INSERT RETURNING 은 테이블 컬럼만) — 없으면 null.
         r.indexOf(MILESTONE_NAME) >= 0 ? r.get(MILESTONE_NAME) : null,
         r.get(ISSUE.STATUS_ID),
-        r.indexOf(STATUS_NAME) >= 0 ? r.get(STATUS_NAME) : null);
+        r.indexOf(STATUS_NAME) >= 0 ? r.get(STATUS_NAME) : null,
+        r.indexOf(STATUS_COLOR) >= 0 ? r.get(STATUS_COLOR) : null);
   }
 
   /**
@@ -155,7 +159,7 @@ public class IssueRepository {
    */
   public Optional<IssueRow> findByProjectAndNumberForUpdate(Long projectId, int number) {
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(
             ISSUE
                 .PROJECT_ID
@@ -163,6 +167,7 @@ public class IssueRepository {
                 .and(ISSUE.NUMBER.eq(number))
                 .and(ISSUE.DELETED_AT.isNull()))
         .forNoKeyUpdate()
+        .of(ISSUE)
         .fetchOptional(this::mapToRow);
   }
 
@@ -173,7 +178,7 @@ public class IssueRepository {
    */
   public Optional<IssueRow> findByProjectAndNumberForShare(Long projectId, int number) {
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(
             ISSUE
                 .PROJECT_ID
@@ -181,6 +186,7 @@ public class IssueRepository {
                 .and(ISSUE.NUMBER.eq(number))
                 .and(ISSUE.DELETED_AT.isNull()))
         .forShare()
+        .of(ISSUE)
         .fetchOptional(this::mapToRow);
   }
 
@@ -190,9 +196,10 @@ public class IssueRepository {
    */
   public Optional<IssueRow> findActiveByIdForShare(Long id) {
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .forShare()
+        .of(ISSUE)
         .fetchOptional(this::mapToRow);
   }
 
@@ -211,7 +218,7 @@ public class IssueRepository {
   /** id 로 활성 이슈 조회. */
   public Optional<IssueRow> findById(Long id) {
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(ISSUE.ID.eq(id).and(ISSUE.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
   }
@@ -220,7 +227,7 @@ public class IssueRepository {
   public List<IssueRow> findByIds(Collection<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(ISSUE.ID.in(ids).and(ISSUE.DELETED_AT.isNull()))
         .fetch(this::mapToRow);
   }
@@ -228,7 +235,7 @@ public class IssueRepository {
   /** projectId + number 로 활성 이슈 조회. */
   public Optional<IssueRow> findByProjectAndNumber(Long projectId, int number) {
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(
             ISSUE
                 .PROJECT_ID
@@ -241,7 +248,7 @@ public class IssueRepository {
   /** 프로젝트 내 활성 이슈를 updated_at desc 정렬로 페이지 조회. */
   public List<IssueRow> findByProject(Long projectId, int page, int size) {
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.DELETED_AT.isNull()))
         .orderBy(ISSUE.UPDATED_AT.desc())
         .limit(size)
@@ -333,11 +340,9 @@ public class IssueRepository {
   }
 
   /**
-   * 처음 상태를 범주·프로젝트 상태 id 로 지정해 INSERT(WP-807). 둘은 같은 상태를 가리켜야 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE·
-   * CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
-   *
-   * <p>INSERT RETURNING 은 테이블 컬럼만 돌려줘 서브쿼리 컬럼(마일스톤·상태 이름)이 빠진다 — 그래서 새 id 만 받아 {@link #findById} 로
-   * 다시 읽어, 조회와 같은 매핑으로 응답에 이름을 싣는다.
+   * 처음 상태를 범주·프로젝트 상태 id 로 지정해 INSERT(WP-807) — 이름·색·마일스톤 이름을 모르는 호환 경로(테스트 시드 등). 상태 행과 마일스톤 이름을
+   * 읽어 {@link #insert(Long, int, String, String, String, LocalDate, Long, Long, Long, LocalDate,
+   * Long, String, long, String, String, String) 이름을 받는 오버로드}에 맡긴다.
    */
   public IssueRow insert(
       Long projectId,
@@ -353,6 +358,57 @@ public class IssueRepository {
       Long milestoneId,
       String status,
       long statusId) {
+    var statusRow = projectStatusRepository.findById(statusId);
+    String milestoneName =
+        milestoneId == null
+            ? null
+            : dsl.select(MILESTONE.NAME)
+                .from(MILESTONE)
+                .where(MILESTONE.ID.eq(milestoneId))
+                .fetchOne(MILESTONE.NAME);
+    return insert(
+        projectId,
+        number,
+        title,
+        body,
+        priority,
+        dueDate,
+        reporterId,
+        typeId,
+        parentIssueId,
+        startDate,
+        milestoneId,
+        status,
+        statusId,
+        statusRow.map(ProjectStatusRow::name).orElse(null),
+        statusRow.map(ProjectStatusRow::color).orElse(null),
+        milestoneName);
+  }
+
+  /**
+   * 처음 상태를 범주·프로젝트 상태 id 로 지정해 INSERT(WP-807). 둘은 같은 상태를 가리켜야 한다(복합 FK 가 어긋남을 거절). 종료 범주(DONE·
+   * CANCELED)면 closed_at 을 지금으로 채운다 — 상태 변경 경로의 종료 진입 규칙과 같다.
+   *
+   * <p>INSERT RETURNING 은 테이블 컬럼만 돌려줘 조인 컬럼(상태 이름·색)과 마일스톤 이름이 빠진다 — 호출자가 이미 검증하며 읽은 상태 이름·색과 마일스톤
+   * 이름을 받아 채운다. 그래서 INSERT 뒤 이슈를 다시 조회하지 않는다(WP-870).
+   */
+  public IssueRow insert(
+      Long projectId,
+      int number,
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      Long reporterId,
+      Long typeId,
+      Long parentIssueId,
+      LocalDate startDate,
+      Long milestoneId,
+      String status,
+      long statusId,
+      String statusName,
+      String statusColor,
+      String milestoneName) {
     var insert =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, projectId)
@@ -371,12 +427,34 @@ public class IssueRepository {
     if (IssueStatuses.isClosed(status)) {
       insert = insert.set(ISSUE.CLOSED_AT, OffsetDateTime.now());
     }
-    Long id =
+    IssueRow inserted =
         insert
-            .returning(ISSUE.ID)
-            .fetchOptional(ISSUE.ID)
+            .returning(ISSUE.fields())
+            .fetchOptional(this::mapToRow)
             .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
-    return findById(id).orElseThrow();
+    // RETURNING 에 없는 이름 컬럼만 채운 사본 — 나머지는 DB 가 돌려준 값(기본값·트리거 반영) 그대로다.
+    return new IssueRow(
+        inserted.id(),
+        inserted.projectId(),
+        inserted.number(),
+        inserted.title(),
+        inserted.body(),
+        inserted.status(),
+        inserted.priority(),
+        inserted.dueDate(),
+        inserted.reporterId(),
+        inserted.createdAt(),
+        inserted.updatedAt(),
+        inserted.closedAt(),
+        inserted.typeId(),
+        inserted.parentIssueId(),
+        inserted.startDate(),
+        inserted.milestoneId(),
+        inserted.version(),
+        milestoneName,
+        inserted.statusId(),
+        statusName,
+        statusColor);
   }
 
   /** 10-인자 호환 오버로드 — 마일스톤 없이 생성(WP-356 이전 호출부). */
@@ -836,7 +914,7 @@ public class IssueRepository {
     }
 
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
         .limit(query.size())
@@ -1126,7 +1204,7 @@ public class IssueRepository {
     }
 
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
         .limit(query.size())
@@ -1175,6 +1253,125 @@ public class IssueRepository {
   }
 
   /**
+   * 상태 삭제로 옮긴 이슈 한 건(WP-809).
+   *
+   * @param deleted 휴지통 이슈인가 — AI 작업 종료·에픽 재오픈은 활성 이슈만 대상
+   */
+  public record MigratedIssue(long id, boolean deleted, Long parentIssueId) {}
+
+  /**
+   * 한 상태의 이슈를 활성·휴지통 가리지 않고 모두 다른 상태로 옮긴다(상태 삭제, WP-809). status_id·status(범주)는 복합 FK 때문에 한 문장에서 함께
+   * 바꾸고, closed_at 은 열림→종료면 now, 종료→열림이면 NULL, 그 밖에는 그대로 둔다. 사용자가 이슈를 고친 것이 아니라 설정 정리라
+   * updated_at·version 은 건드리지 않는다(목록 정렬이 흔들리거나 편집 중인 화면이 거짓 충돌을 받지 않게).
+   *
+   * <p>열림·종료 판정은 행의 기존 status(범주)로 한다 — SET 의 오른쪽은 갱신 전 값을 보므로 범주를 따로 읽지 않아도 된다.
+   */
+  public List<MigratedIssue> migrateStatus(
+      long projectId, long fromStatusId, long toStatusId, String toCategory) {
+    Condition wasClosed = ISSUE.STATUS.in(IssueStatuses.CLOSED);
+    Field<OffsetDateTime> closedAt =
+        IssueStatuses.isClosed(toCategory)
+            // 종료로: 열려 있던 행만 지금 시각, 이미 종료였던 행은 그대로
+            ? DSL.when(wasClosed, ISSUE.CLOSED_AT).otherwise(DSL.currentOffsetDateTime())
+            // 열림으로: 종료였던 행만 NULL, 열려 있던 행은 그대로
+            : DSL.when(wasClosed, DSL.inline((OffsetDateTime) null)).otherwise(ISSUE.CLOSED_AT);
+    return dsl.update(ISSUE)
+        .set(ISSUE.STATUS_ID, toStatusId)
+        .set(ISSUE.STATUS, toCategory)
+        .set(ISSUE.CLOSED_AT, closedAt)
+        .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.STATUS_ID.eq(fromStatusId)))
+        .returning(ISSUE.ID, ISSUE.DELETED_AT, ISSUE.PARENT_ISSUE_ID)
+        .fetch(
+            r ->
+                new MigratedIssue(
+                    r.get(ISSUE.ID),
+                    r.get(ISSUE.DELETED_AT) != null,
+                    r.get(ISSUE.PARENT_ISSUE_ID)));
+  }
+
+  /** 한 상태의 활성(휴지통 제외) 이슈 수 — 상태 삭제 영향·옮길 상태 필수 판정(WP-809). */
+  public int countActiveByStatus(long projectId, long statusId) {
+    return dsl.fetchCount(
+        ISSUE,
+        ISSUE
+            .PROJECT_ID
+            .eq(projectId)
+            .and(ISSUE.STATUS_ID.eq(statusId))
+            .and(ISSUE.DELETED_AT.isNull()));
+  }
+
+  /**
+   * 이 상태의 활성 에픽 중, 이 상태가 아닌 미완료(종료 범주가 아닌) 활성 하위가 있는 에픽 수(WP-809). 이 상태를 완료 범주로 옮기면 그 에픽들이 미완료 하위를
+   * 둔 채 완료되므로 삭제를 막는 근거다. 같은 상태의 하위는 함께 옮겨져 같이 완료되므로 세지 않는다. 미완료 판정은 {@link
+   * #findIncompleteChildNumbers} 와 같다(하위 유형 무관).
+   */
+  public int countEpicsWithIncompleteChildrenOutside(long projectId, long statusId) {
+    var child = ISSUE.as("child");
+    return dsl.fetchCount(
+        dsl.select(ISSUE.ID)
+            .from(ISSUE)
+            .join(ISSUE_TYPE_DEF)
+            .on(ISSUE_TYPE_DEF.ID.eq(ISSUE.TYPE_ID))
+            .where(
+                ISSUE
+                    .PROJECT_ID
+                    .eq(projectId)
+                    .and(ISSUE.STATUS_ID.eq(statusId))
+                    .and(ISSUE.DELETED_AT.isNull())
+                    .and(ISSUE_TYPE_DEF.NAME.eq("EPIC"))
+                    .and(
+                        exists(
+                            selectOne()
+                                .from(child)
+                                .where(
+                                    child
+                                        .PARENT_ISSUE_ID
+                                        .eq(ISSUE.ID)
+                                        .and(child.DELETED_AT.isNull())
+                                        .and(child.STATUS.notIn(IssueStatuses.CLOSED))
+                                        .and(child.STATUS_ID.ne(statusId)))))));
+  }
+
+  /**
+   * 주어진 id 중 완료(DONE) 범주인 활성 에픽의 id → 지금 상태 이름(WP-809). 상태 삭제로 하위가 다시 열렸을 때 되돌릴 완료 에픽을 고르고, 그 이력의
+   * 「이전 이름」을 남기는 데 쓴다. 빈 입력은 빈 맵.
+   */
+  public Map<Long, String> findDoneEpicStatusNames(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return Map.of();
+    Map<Long, String> out = new LinkedHashMap<>();
+    dsl.select(ISSUE.ID, PROJECT_STATUS.NAME)
+        .from(ISSUE)
+        .join(ISSUE_TYPE_DEF)
+        .on(ISSUE_TYPE_DEF.ID.eq(ISSUE.TYPE_ID))
+        .join(PROJECT_STATUS)
+        .on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID))
+        .where(
+            ISSUE
+                .ID
+                .in(ids)
+                .and(ISSUE.DELETED_AT.isNull())
+                .and(ISSUE.STATUS.eq(IssueStatuses.DONE))
+                .and(ISSUE_TYPE_DEF.NAME.eq("EPIC")))
+        .orderBy(ISSUE.ID.asc())
+        .forEach(r -> out.put(r.value1(), r.value2()));
+    return out;
+  }
+
+  /**
+   * 이슈들을 열린 범주 상태로 조용히 되돌린다 — closed_at 을 지우고 updated_at·version 은 그대로(상태 삭제의 완료 에픽 재오픈, WP-809).
+   * 상태 삭제 이전과 같은 「설정 정리」라 {@link #migrateStatus} 와 같은 규칙을 따른다.
+   */
+  public void reopenQuietly(Collection<Long> ids, String category, long statusId) {
+    if (ids == null || ids.isEmpty()) return;
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS_ID, statusId)
+        .set(ISSUE.STATUS, category)
+        .set(ISSUE.CLOSED_AT, (OffsetDateTime) null)
+        .where(ISSUE.ID.in(ids))
+        .execute();
+  }
+
+  /**
    * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row(번호·제목·상태)와 부모 type 을 함께 fetch. 부모가 없는 id 는 결과
    * 맵에서 제외된다.
    */
@@ -1190,12 +1387,18 @@ public class IssueRepository {
             ISSUE_TYPE_DEF.ID,
             ISSUE_TYPE_DEF.NAME,
             ISSUE_TYPE_DEF.COLOR_TOKEN,
-            ISSUE_TYPE_DEF.ICON)
+            ISSUE_TYPE_DEF.ICON,
+            p.STATUS_ID,
+            PROJECT_STATUS.NAME,
+            PROJECT_STATUS.COLOR)
         .from(ISSUE)
         .join(p)
         .on(p.ID.eq(ISSUE.PARENT_ISSUE_ID))
         .join(ISSUE_TYPE_DEF)
         .on(ISSUE_TYPE_DEF.ID.eq(p.TYPE_ID))
+        // 부모의 사용자 정의 상태 이름·색(WP-869) — 별칭 p 기준, status_id 가 비어도 행은 남게 LEFT JOIN
+        .leftJoin(PROJECT_STATUS)
+        .on(PROJECT_STATUS.ID.eq(p.STATUS_ID))
         .where(ISSUE.ID.in(issueIds).and(ISSUE.PARENT_ISSUE_ID.isNotNull()))
         .fetch()
         .forEach(
@@ -1211,7 +1414,10 @@ public class IssueRepository {
                             r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
                             r.get(ISSUE_TYPE_DEF.ICON)),
                         // 부모 상태 — 부모 행이 응답에 없어도 하위만으로 부모 취소 여부를 판단하게(WP-247)
-                        r.get(p.STATUS))));
+                        r.get(p.STATUS),
+                        r.get(p.STATUS_ID),
+                        r.get(PROJECT_STATUS.NAME),
+                        r.get(PROJECT_STATUS.COLOR))));
     return result;
   }
 
@@ -1286,7 +1492,7 @@ public class IssueRepository {
           where.and(ISSUE.UPDATED_AT.lt(ts).or(ISSUE.UPDATED_AT.eq(ts).and(ISSUE.ID.lt(cursorId))));
     }
     return dsl.select(ROW_FIELDS)
-        .from(ISSUE)
+        .from(ISSUE_WITH_STATUS)
         .where(where)
         .orderBy(ISSUE.UPDATED_AT.desc(), ISSUE.ID.desc())
         .limit(size)
@@ -1363,8 +1569,9 @@ public class IssueRepository {
    */
   public Optional<com.workplace.issue.dto.SourceIssueRef> findVisibleSourceIssue(
       long callerId, String sourceType, long sourceId) {
-    return dsl.select(PROJECT.KEY, ISSUE.NUMBER, ISSUE.TITLE, ISSUE.STATUS)
-        .from(ISSUE)
+    return dsl.select(PROJECT.KEY, ISSUE.NUMBER, ISSUE.TITLE, ISSUE.STATUS, STATUS_NAME)
+        // 상태 이름(WP-869)도 함께 — 메일 AI 가 범주 코드 대신 「검토 중」 같은 이름을 쓰게
+        .from(ISSUE_WITH_STATUS)
         .join(PROJECT)
         .on(ISSUE.PROJECT_ID.eq(PROJECT.ID))
         .where(ISSUE.SOURCE_TYPE.eq(sourceType))
@@ -1385,7 +1592,7 @@ public class IssueRepository {
         .fetchOptional(
             r ->
                 new com.workplace.issue.dto.SourceIssueRef(
-                    r.value1() + "-" + r.value2(), r.value3(), r.value4()));
+                    r.value1() + "-" + r.value2(), r.value3(), r.value4(), r.value5()));
   }
 
   /** #520 출처로 연결된 이슈 키 조회(메일 배지용). 반환값은 "{projectKey}-{number}". 테넌트 RLS 내에서만 보이는 이슈로 한정된다. */

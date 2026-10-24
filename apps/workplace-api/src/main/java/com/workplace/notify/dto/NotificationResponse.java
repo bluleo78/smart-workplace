@@ -16,6 +16,7 @@ import java.time.Instant;
  * @param wikiPageId 노트 공유 알림(WIKI_*)이 가리키는 노트 id(그 외에는 null)
  * @param wikiPageTitle 노트 공유 알림의 노트 제목(그 외에는 null)
  * @param message 공유한 사람이 덧붙인 메시지(WIKI_SHARED 만, 없으면 null)
+ * @param statusName STATUS_CHANGED 알림의 새 상태 이름(WP-869). 이름을 남기기 전 알림·그 외 유형은 null — 프론트는 없으면 기존 문구
  * @param read read_at 존재 여부(읽음)
  */
 public record NotificationResponse(
@@ -35,5 +36,6 @@ public record NotificationResponse(
     Long wikiPageId,
     String wikiPageTitle,
     String message,
+    String statusName,
     boolean read,
     Instant createdAt) {}

@@ -20,35 +20,12 @@ import {
 import { useUnreadCount } from "@/hooks/queries/useUnreadCount";
 import { hasAiToken } from "@/lib/aiToken";
 import { formatDateTimeMinute, formatRelativeTime } from "@/lib/formatters";
+import { ACTION_LABEL, notificationAction } from "@/lib/notifText";
 import { cn } from "@/lib/utils";
 import type { NotificationResponse } from "@/types/notification";
 
 // 스크롤이 바닥에서 이 거리(px) 이내로 들어오면 다음 페이지를 로드한다.
 const LOAD_MORE_THRESHOLD_PX = 48;
-
-// 알림 종류별 동작 문구(액터명 뒤에 붙는다).
-const ACTION_LABEL: Record<NotificationResponse["type"], string> = {
-  ASSIGNED: "님이 회원님을 배정했습니다",
-  COMMENTED: "님이 코멘트를 남겼습니다",
-  STATUS_CHANGED: "님이 상태를 변경했습니다",
-  PRIORITY_CHANGED: "님이 우선순위를 변경했습니다",
-  // REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED 는 별도 분기로 렌더(아래 isCalendarType 목록 참조).
-  REMINDER: "일정 알림",
-  CALENDAR_INVITED: "님이 일정에 초대했습니다",
-  CALENDAR_RSVP_CHANGED: "님이 참석 응답을 변경했습니다",
-  // WP-452 이슈 챗 알림 — 클릭하면 이슈 챗 드로워가 열린 이슈 상세로 간다(notifTarget).
-  AI_QUESTION: "님이 이슈 챗에서 질문했습니다",
-  ISSUE_CHAT_MENTION: "님이 이슈 챗에서 회원님을 멘션했습니다",
-  // WP-650 코멘트 멘션 — 클릭하면 그 이슈 상세로 간다(챗 드로워 없이).
-  ISSUE_COMMENT_MENTION: "님이 코멘트에서 회원님을 멘션했습니다",
-  // WP-579 노트 공유 알림 — 노트 제목이 들어간 실제 문구는 wikiShareText 가 만든다(이 값은 타입 완결용 기본 문구).
-  WIKI_SHARED: "님이 노트를 공유했습니다",
-  WIKI_SHARE_ACCESS_REQUESTED: "님이 접근을 요청했습니다",
-  WIKI_SHARE_ACCESS_APPROVED: "접근이 승인됐습니다",
-  // WP-712 주최자의 일정 변경(시간·장소)·취소 — 일정 제목·시각은 아래 줄에 함께 보인다.
-  CALENDAR_EVENT_UPDATED: "님이 일정을 변경했습니다",
-  CALENDAR_EVENT_CANCELED: "님이 일정을 취소했습니다",
-};
 
 /**
  * 노트 공유 알림 문구(WP-579) — 행위자 이름 뒤에 붙는 부분. 접근 승인은 행위자 없이 노트 기준 문구만 쓴다.
@@ -250,7 +227,7 @@ export function InboxList({
                             </span>
                           )}
                         <span className="text-muted-foreground">
-                          {ACTION_LABEL[n.type]}
+                          {notificationAction(n)}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {n.projectKey}-{n.issueNumber} {n.issueTitle}

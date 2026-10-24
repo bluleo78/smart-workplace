@@ -66,6 +66,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -127,11 +128,11 @@ public class IssueService {
   /** WP-807: 프로젝트 상태 해석(상태 id 검증·범주 기본 상태). */
   private final ProjectStatusRepository projectStatusRepository;
 
-  /** 해석된 프로젝트 상태(WP-807) — 이슈에 쓸 상태 id·범주·이름. */
-  record ResolvedStatus(long id, String category, String name) {
+  /** 해석된 프로젝트 상태(WP-807) — 이슈에 쓸 상태 id·범주·이름·색(WP-870, 생성 응답을 재조회 없이 채운다). */
+  record ResolvedStatus(long id, String category, String name, String color) {
 
     static ResolvedStatus of(ProjectStatusRow row) {
-      return new ResolvedStatus(row.id(), row.category(), row.name());
+      return new ResolvedStatus(row.id(), row.category(), row.name(), row.color());
     }
   }
 
@@ -158,7 +159,8 @@ public class IssueService {
     String target =
         category != null ? category : (before != null ? before.status() : IssueStatuses.TODO);
     if (before != null && target.equals(before.status())) {
-      return new ResolvedStatus(before.statusId(), before.status(), before.statusName());
+      return new ResolvedStatus(
+          before.statusId(), before.status(), before.statusName(), before.statusColor());
     }
     return projectStatusRepository
         .findDefault(project.id(), target)
@@ -169,6 +171,18 @@ public class IssueService {
   /** 요청의 상태 id 를 한 번만 읽는다 — 수정 경로는 잠금 순서 판정과 상태 해석이 같은 행을 쓴다. statusId 가 null 이면 빈 값. */
   private Optional<ProjectStatusRow> lookupStatus(Long statusId) {
     return statusId != null ? projectStatusRepository.findById(statusId) : Optional.empty();
+  }
+
+  /**
+   * 상태 이름을 해석한 수정 요청과 그 요청의 statusId 행(WP-870) — 이름으로 찾은 상태는 이미 읽은 행을 그대로 실어 다시 읽지 않는다.
+   *
+   * @param status 요청 statusId 의 상태 행 — statusId 가 null 이면 빈 값
+   */
+  private record RequestedStatus(UpdateIssueRequest req, Optional<ProjectStatusRow> status) {}
+
+  /** 이름 해석이 행을 주지 않은 요청 — statusId 가 있으면 그 행을 한 번 읽어 함께 싣는다. */
+  private RequestedStatus withLookedUpStatus(UpdateIssueRequest req) {
+    return new RequestedStatus(req, lookupStatus(req.statusId()));
   }
 
   /**
@@ -212,7 +226,10 @@ public class IssueService {
             req.startDate(),
             plan.milestoneId(),
             plan.status().category(),
-            plan.status().id());
+            plan.status().id(),
+            plan.status().name(),
+            plan.status().color(),
+            plan.milestoneName());
     // WP-356 라벨·사이클 연결 — 검증(planCreate)을 통과한 id 만 같은 트랜잭션에서 붙인다. 새 이슈라 diff·이력 없이 추가만 한다.
     // WP-394 이름 라벨은 여기서 없는 것을 만들어 id 로 합친다 — 이슈 생성과 한 트랜잭션이라 뒤에서 실패하면 라벨도 롤백된다.
     for (Long labelId :
@@ -267,6 +284,8 @@ public class IssueService {
       Long parentIssueId,
       List<Long> labelIds,
       Long milestoneId,
+      // 검증하며 읽은 마일스톤 이름(WP-870) — INSERT 뒤 재조회 없이 응답에 싣는다. 마일스톤이 없으면 null.
+      String milestoneName,
       List<Long> cycleIds,
       List<String> labelNames,
       // WP-807 처음 상태 — statusId 우선, 범주만 오면 그 범주 기본 상태.
@@ -380,10 +399,10 @@ public class IssueService {
         throw new InvalidLabelForProjectException();
       }
     }
-    Long milestoneId =
+    var milestone =
         req.milestoneId() == null
             ? null
-            : milestoneService.loadInProject(req.milestoneId(), project.id()).id();
+            : milestoneService.loadInProject(req.milestoneId(), project.id());
     if (!cycleIds.isEmpty()) {
       var cycles = cycleRepository.findByIds(cycleIds);
       if (cycles.size() != cycleIds.size()
@@ -403,7 +422,8 @@ public class IssueService {
         typeId,
         parentIssueId,
         labelIds,
-        milestoneId,
+        milestone == null ? null : milestone.id(),
+        milestone == null ? null : milestone.name(),
         cycleIds,
         labelNames,
         status);
@@ -509,7 +529,8 @@ public class IssueService {
             : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
     // 수행 도구 헤더가 있는 생성이면 알림의 AI 작업 자동 시작이 이슈를 진행 중으로 올렸을 수 있다(WP-393) — 응답의 상태·버전이 저장된 값과
-    // 어긋나지 않게 그때만 다시 읽는다(브라우저 생성은 자동 시작이 없다).
+    // 어긋나지 않게 그때만 다시 읽는다(브라우저 생성은 자동 시작이 없다). WP-870 에서 INSERT 뒤 재조회는 없앴지만 이 재조회는 이름을 채우려는
+    // 것이 아니라 생성 뒤 바뀐 상태를 반영하려는 것이라 그대로 둔다.
     var saved =
         AgentToolContext.current() == null ? row : issueRepository.findById(row.id()).orElse(row);
     return IssueResponse.fromWithSubtasks(
@@ -649,10 +670,14 @@ public class IssueService {
 
   /** 이슈 부분 수정. null 필드는 변경 없음, clearDueDate 플래그로 명시적 NULL 설정 지원. 담당자는 별도 PUT /assignees 흐름에서 관리. */
   public IssueDetailResponse update(
-      Long callerId, String projectKey, int number, UpdateIssueRequest req) {
+      Long callerId, String projectKey, int number, UpdateIssueRequest rawReq) {
     var project = accessGuard.resolve(projectKey);
-    // 상태 id 지정이면 그 상태 행을 한 번만 읽어 잠금 순서 판정과 아래 상태 해석에 함께 쓴다(WP-807).
-    Optional<ProjectStatusRow> requestedStatus = lookupStatus(req.statusId());
+    // WP-870 상태 이름은 맨 앞에서 상태 id(범주 코드면 범주)로 바꾼다 — 아래의 잠금 순서·권한·정리성 판정·자동 시작 플래그가 모두
+    // status/statusId 만 보므로, 바꾸지 않으면 이름으로 지정한 상태가 명시적 상태 변경으로 취급되지 않는다.
+    // 상태 id 지정이면 그 상태 행을 한 번만 읽어(이름으로 찾았으면 그 행 그대로) 잠금 순서 판정과 아래 상태 해석에 함께 쓴다(WP-807).
+    RequestedStatus named = resolveStatusName(callerId, projectKey, project, rawReq);
+    UpdateIssueRequest req = named.req();
+    Optional<ProjectStatusRow> requestedStatus = named.status();
     lockParentIfReopening(project, number, req, requestedStatus);
     // #611 읽은 값에 요청 필드를 병합해 전 컬럼을 다시 쓰므로 행을 잠가 동시 수정이 서로를 되돌리지 않게 한다.
     var before =
@@ -865,13 +890,61 @@ public class IssueService {
   }
 
   /**
+   * 요청의 상태 이름(WP-870)을 상태 id 또는 범주로 바꾼 요청과 그 statusId 의 상태 행을 돌려준다(이름으로 찾았으면 그 행을 그대로 실어 다시 읽지
+   * 않는다). statusId 가 있으면 이름은 무시하고(우선순위 statusId → statusName → status), 이름이 없으면 요청을 그대로 둔다. 이름이 범주
+   * 코드(대소문자·앞뒤 공백 무시)면 범주로 본다 — 1차의 「범주가 이름보다 먼저」 규칙이고 상태 이름은 범주 코드와 같을 수 없다. 아니면 프로젝트 상태 중 {@link
+   * IssueStatuses#statusNameKey} 가 같은 것을 고르고, 없으면 검색 필터와 같은 문구로 사용 가능 이름을 담아 400.
+   */
+  private RequestedStatus resolveStatusName(
+      Long callerId, String projectKey, ProjectRow project, UpdateIssueRequest req) {
+    if (req.statusName() == null) return withLookedUpStatus(req);
+    if (req.statusId() != null) {
+      return withLookedUpStatus(req.withResolvedStatus(req.status(), req.statusId()));
+    }
+    String category = req.statusName().strip().toUpperCase(Locale.ROOT);
+    if (IssueStatuses.isCategory(category)) {
+      return withLookedUpStatus(req.withResolvedStatus(category, null));
+    }
+    // 볼 수 없는 프로젝트의 상태 이름이 400 메시지로 새지 않게, 이름을 찾기 전에 읽기 권한을 본다(없으면 없는 프로젝트와 같은 404).
+    accessGuard.assertReadable(projectKey, callerId);
+    List<ProjectStatusRow> statuses = projectStatusRepository.findByProject(project.id());
+    String key = IssueStatuses.statusNameKey(req.statusName());
+    return statuses.stream()
+        .filter(s -> IssueStatuses.statusNameKey(s.name()).equals(key))
+        .findFirst()
+        .map(s -> new RequestedStatus(req.withResolvedStatus(req.status(), s.id()), Optional.of(s)))
+        .orElseThrow(
+            () ->
+                new InvalidStatusForProjectException(
+                    IssueFilterResolver.notFoundMessage(
+                        "상태",
+                        req.statusName().strip(),
+                        statuses.stream().map(ProjectStatusRow::name).toList())));
+  }
+
+  /**
    * DnD 등에서 상태만 변경. update(...) 의 단축 경로 — 히스토리 기록도 동일하게 수행. statusId(프로젝트 상태, WP-807)가 있으면 그것이 이기고
    * 범주는 그 상태의 범주를 따른다. 범주만 오면 이미 그 범주일 때 지금 상태를 유지하고 아니면 범주 기본 상태로 간다 — 시스템 전이(AI 작업 시작·에픽 재오픈)가 이
    * 경로라 사용자가 고른 같은 범주 상태를 되돌리지 않는다.
    */
   public IssueDetailResponse updateStatus(
       Long callerId, String projectKey, int number, String category, Long statusId) {
-    return update(callerId, projectKey, number, UpdateIssueRequest.statusOnly(category, statusId));
+    return updateStatus(callerId, projectKey, number, category, statusId, null);
+  }
+
+  /** PATCH /status — 상태 이름(WP-870)까지 받는다. 이름 해석은 {@link #update} 맨 앞에서 한다. */
+  public IssueDetailResponse updateStatus(
+      Long callerId,
+      String projectKey,
+      int number,
+      String category,
+      Long statusId,
+      String statusName) {
+    return update(
+        callerId,
+        projectKey,
+        number,
+        UpdateIssueRequest.statusOnly(category, statusId, statusName));
   }
 
   /** 범주만으로 상태를 바꾸는 단축 — 시스템 전이·테스트 호출부용({@link #updateStatus(Long, String, int, String, Long)}). */
@@ -1219,6 +1292,10 @@ public class IssueService {
         parent.number(),
         parent.title(),
         new IssueTypeSummary(type.id(), type.name(), type.colorToken(), type.icon()),
-        parent.status());
+        parent.status(),
+        // 부모의 사용자 정의 상태(WP-869) — findById 가 ISSUE_WITH_STATUS 조인으로 채운 값
+        parent.statusId(),
+        parent.statusName(),
+        parent.statusColor());
   }
 }

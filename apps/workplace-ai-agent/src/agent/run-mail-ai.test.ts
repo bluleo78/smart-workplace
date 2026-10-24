@@ -289,6 +289,12 @@ describe('buildPersonalUserMessage — WP-150 보강 블록', () => {
     expect(msg).not.toContain('[이전 메일]');
     expect(msg).not.toContain('[첨부]');
   });
+
+  // WP-869: API 가 상태 이름을 함께 보내면 이름과 범주를 함께 보인다.
+  it('mail linkedIssueLine: statusName 을 쓴다', () => {
+    const msg = buildPersonalUserMessage({ ...full, linkedIssue: { key: 'WP-1', title: '제목', status: 'IN_PROGRESS', statusName: '검토 중' } });
+    expect(msg).toContain('[연결 이슈] WP-1 제목 (검토 중(진행 중 범주))');
+  });
 });
 
 describe('runMailClassifyBatch', () => {

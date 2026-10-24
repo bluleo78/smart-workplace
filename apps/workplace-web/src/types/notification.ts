@@ -38,6 +38,8 @@ export interface NotificationResponse {
   wikiPageId?: number | null;
   wikiPageTitle?: string | null;
   message?: string | null; // 공유한 사람이 덧붙인 메시지(WIKI_SHARED)
+  // STATUS_CHANGED 알림의 새 상태 이름(WP-869) — 이름을 남기기 전 알림·그 외 유형·구 서버면 없다(기존 문구로 폴백).
+  statusName?: string | null;
   read: boolean;
   createdAt: string;
 }

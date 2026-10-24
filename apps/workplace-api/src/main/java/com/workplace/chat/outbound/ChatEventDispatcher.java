@@ -75,6 +75,8 @@ public class ChatEventDispatcher {
     // #368: AI 가 이슈 컨텍스트를 인지하도록 제목·상태·본문 동봉. body 는 null 가능(CLOB).
     p.put("issueTitle", e.issueTitle());
     p.put("issueStatus", e.issueStatus());
+    // WP-869: 사용자 정의 상태 이름(없으면 null) — 예전 ai-agent 는 모르는 키를 무시한다.
+    p.put("issueStatusName", e.issueStatusName());
     p.put("issueBody", e.issueBody());
     p.put("threadId", e.threadId());
     p.put("messageId", e.messageId());

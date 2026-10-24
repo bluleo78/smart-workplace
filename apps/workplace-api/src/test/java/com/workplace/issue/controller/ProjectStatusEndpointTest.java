@@ -4,16 +4,20 @@ import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.hamcrest.Matchers.hasSize;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.CreateProjectStatusRequest;
-import com.workplace.issue.dto.RenameProjectStatusRequest;
+import com.workplace.issue.dto.UpdateProjectStatusRequest;
+import com.workplace.issue.service.IssueService;
 import com.workplace.issue.service.ProjectStatusService;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -42,6 +46,7 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired ProjectService projectService;
   @Autowired ProjectStatusService statusService;
+  @Autowired IssueService issueService;
 
   /** USER 역할이 부여된 사용자 시드. */
   private long createUser(String prefix) {
@@ -94,12 +99,57 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
   }
 
   @Test
+  void GET_statuses는_color를_싣는다() throws Exception {
+    long owner = createUser("gc");
+    ProjectResponse p = newProject(owner, "PEI");
+
+    mvc.perform(
+            get("/api/v1/projects/" + p.key() + "/statuses")
+                .header("Authorization", "Bearer " + tokenFor(owner)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].color").value("GRAY"))
+        .andExpect(jsonPath("$[1].color").value("BLUE"))
+        .andExpect(jsonPath("$[2].color").value("GREEN"));
+  }
+
+  @Test
+  void PATCH_color만_보내도_200() throws Exception {
+    long owner = createUser("pc");
+    ProjectResponse p = newProject(owner, "PEJ");
+    Long todo = statusService.list(owner, p.key()).get(0).id();
+
+    // 구 웹은 이름만, 새 웹은 색만 보낼 수 있다 — 색만 담은 본문도 받아 이름은 그대로 둔다
+    mvc.perform(
+            patch("/api/v1/projects/" + p.key() + "/statuses/" + todo)
+                .header("Authorization", "Bearer " + tokenFor(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"color\":\"TEAL\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.name").value("할 일"))
+        .andExpect(jsonPath("$.color").value("TEAL"));
+  }
+
+  @Test
+  void PATCH_빈본문은_400() throws Exception {
+    long owner = createUser("pz");
+    ProjectResponse p = newProject(owner, "PEK");
+    Long todo = statusService.list(owner, p.key()).get(0).id();
+
+    mvc.perform(
+            patch("/api/v1/projects/" + p.key() + "/statuses/" + todo)
+                .header("Authorization", "Bearer " + tokenFor(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void POST_statuses는_201과_본문() throws Exception {
     long owner = createUser("po");
     ProjectResponse p = newProject(owner, "PEB");
 
     String body =
-        om.writeValueAsString(new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null));
+        om.writeValueAsString(new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, null));
     mvc.perform(
             post("/api/v1/projects/" + p.key() + "/statuses")
                 .header("Authorization", "Bearer " + tokenFor(owner))
@@ -118,7 +168,7 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "PEC");
 
     String body =
-        om.writeValueAsString(new CreateProjectStatusRequest("가".repeat(31), "TODO", null));
+        om.writeValueAsString(new CreateProjectStatusRequest("가".repeat(31), "TODO", null, null));
     mvc.perform(
             post("/api/v1/projects/" + p.key() + "/statuses")
                 .header("Authorization", "Bearer " + tokenFor(owner))
@@ -135,7 +185,7 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
 
     // 요청 record 가 한 줄로 다듬어 빈 문자열이 되고 @NotBlank 가 거절한다(유형 API 와 같은 동작)
     String body =
-        om.writeValueAsString(new CreateProjectStatusRequest("\u200B\u3164", "TODO", null));
+        om.writeValueAsString(new CreateProjectStatusRequest("\u200B\u3164", "TODO", null, null));
     mvc.perform(
             post("/api/v1/projects/" + p.key() + "/statuses")
                 .header("Authorization", "Bearer " + tokenFor(owner))
@@ -149,7 +199,7 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
     long owner = createUser("pd");
     ProjectResponse p = newProject(owner, "PED");
     statusService.create(
-        owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null));
+        owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, null));
     Long todo =
         statusService.list(owner, p.key()).stream()
             .filter(s -> s.name().equals("할 일"))
@@ -161,7 +211,7 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
             patch("/api/v1/projects/" + p.key() + "/statuses/" + todo)
                 .header("Authorization", "Bearer " + tokenFor(owner))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(om.writeValueAsString(new RenameProjectStatusRequest("검토 중"))))
+                .content(om.writeValueAsString(new UpdateProjectStatusRequest("검토 중", null))))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.message").value("이미 존재하는 상태 이름입니다: 검토 중"));
   }
@@ -177,7 +227,7 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
             patch("/api/v1/projects/" + p.key() + "/statuses/" + otherTodo)
                 .header("Authorization", "Bearer " + tokenFor(owner))
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(om.writeValueAsString(new RenameProjectStatusRequest("X"))))
+                .content(om.writeValueAsString(new UpdateProjectStatusRequest("X", null))))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.message").value("상태를 찾을 수 없습니다"));
   }
@@ -192,5 +242,163 @@ class ProjectStatusEndpointTest extends IntegrationTestBase {
             get("/api/v1/projects/" + p.key() + "/statuses")
                 .header("Authorization", "Bearer " + tokenFor(other)))
         .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void PUT_order는_200과_정렬된_전체목록() throws Exception {
+    long owner = createUser("po");
+    ProjectResponse p = newProject(owner, "PEO");
+    var review =
+        statusService.create(
+            owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, null));
+    Long inProgress =
+        statusService.list(owner, p.key()).stream()
+            .filter(s -> s.name().equals("진행 중"))
+            .findFirst()
+            .orElseThrow()
+            .id();
+
+    mvc.perform(
+            put("/api/v1/projects/" + p.key() + "/statuses/order")
+                .header("Authorization", "Bearer " + tokenFor(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"category\":\"IN_PROGRESS\",\"statusIds\":["
+                        + review.id()
+                        + ","
+                        + inProgress
+                        + "]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$", hasSize(5)))
+        .andExpect(jsonPath("$[0].name").value("할 일"))
+        .andExpect(jsonPath("$[1].name").value("검토 중"))
+        .andExpect(jsonPath("$[2].name").value("진행 중"))
+        .andExpect(jsonPath("$[3].name").value("완료"));
+
+    // 범주 코드가 아니면 검증에서 400
+    mvc.perform(
+            put("/api/v1/projects/" + p.key() + "/statuses/order")
+                .header("Authorization", "Bearer " + tokenFor(owner))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"category\":\"NOPE\",\"statusIds\":[]}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** 상태 이름으로 id 를 찾는다. */
+  private Long idOf(long caller, String key, String name) {
+    return statusService.list(caller, key).stream()
+        .filter(s -> s.name().equals(name))
+        .findFirst()
+        .orElseThrow()
+        .id();
+  }
+
+  @Test
+  void DELETE_moveTo로_204() throws Exception {
+    long owner = createUser("dm");
+    ProjectResponse p = newProject(owner, "PEQ");
+    var review =
+        statusService.create(
+            owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, null));
+    Long inProgress = idOf(owner, p.key(), "진행 중");
+
+    mvc.perform(
+            delete("/api/v1/projects/" + p.key() + "/statuses/" + review.id())
+                .param("moveTo", String.valueOf(inProgress))
+                .header("Authorization", "Bearer " + tokenFor(owner)))
+        .andExpect(status().isNoContent());
+
+    mvc.perform(
+            get("/api/v1/projects/" + p.key() + "/statuses")
+                .header("Authorization", "Bearer " + tokenFor(owner)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$", hasSize(4)));
+  }
+
+  @Test
+  void DELETE_마지막상태_409와_메시지() throws Exception {
+    long owner = createUser("dl");
+    ProjectResponse p = newProject(owner, "PER");
+    Long todo = idOf(owner, p.key(), "할 일");
+
+    mvc.perform(
+            delete("/api/v1/projects/" + p.key() + "/statuses/" + todo)
+                .header("Authorization", "Bearer " + tokenFor(owner)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.message").value("범주의 마지막 상태는 지울 수 없어요"));
+  }
+
+  @Test
+  void DELETE_이슈가_있는데_moveTo없으면_400과_메시지() throws Exception {
+    long owner = createUser("dn");
+    ProjectResponse p = newProject(owner, "PES");
+    var review =
+        statusService.create(
+            owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, null));
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest(
+            "t",
+            null,
+            null,
+            null,
+            java.util.List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            review.id()));
+
+    mvc.perform(
+            delete("/api/v1/projects/" + p.key() + "/statuses/" + review.id())
+                .header("Authorization", "Bearer " + tokenFor(owner)))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("옮길 상태를 골라 주세요"));
+  }
+
+  @Test
+  void GET_deletion_impact_200() throws Exception {
+    long owner = createUser("di");
+    long member = createUser("dj");
+    ProjectResponse p = newProject(owner, "PET");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
+    var review =
+        statusService.create(
+            owner, p.key(), new CreateProjectStatusRequest("검토 중", "IN_PROGRESS", null, null));
+    issueService.create(
+        owner,
+        p.key(),
+        new CreateIssueRequest(
+            "t",
+            null,
+            null,
+            null,
+            java.util.List.of(),
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            review.id()));
+
+    // 조회는 project:read — 멤버도 볼 수 있다
+    mvc.perform(
+            get("/api/v1/projects/" + p.key() + "/statuses/" + review.id() + "/deletion-impact")
+                .header("Authorization", "Bearer " + tokenFor(member)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.issueCount").value(1))
+        .andExpect(jsonPath("$.savedViewCount").value(0))
+        .andExpect(jsonPath("$.blockedEpicCount").value(0))
+        .andExpect(jsonPath("$.emptiedFilterViewCount").value(0));
   }
 }

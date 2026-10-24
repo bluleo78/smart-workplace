@@ -3,6 +3,7 @@ package com.workplace.chat.service;
 import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.PROJECT;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -24,6 +25,7 @@ public class ChatThreadContextResolver {
             ISSUE.NUMBER,
             ISSUE.TITLE,
             ISSUE.STATUS,
+            PROJECT_STATUS.NAME,
             ISSUE.BODY,
             ISSUE.REPORTER_ID,
             PROJECT.ID,
@@ -33,6 +35,9 @@ public class ChatThreadContextResolver {
         .on(ISSUE.ID.eq(CHAT_THREAD.ISSUE_ID))
         .join(PROJECT)
         .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+        // WP-869: 범주 코드 대신 사용자 정의 상태 이름도 AI 에게 — status_id 가 비어도 행은 남게 LEFT JOIN
+        .leftJoin(PROJECT_STATUS)
+        .on(PROJECT_STATUS.ID.eq(ISSUE.STATUS_ID))
         .where(CHAT_THREAD.ID.eq(threadId))
         .fetchOne(
             r ->
@@ -43,6 +48,7 @@ public class ChatThreadContextResolver {
                     r.get(PROJECT.KEY) + "-" + r.get(ISSUE.NUMBER),
                     r.get(ISSUE.TITLE),
                     r.get(ISSUE.STATUS),
+                    r.get(PROJECT_STATUS.NAME),
                     r.get(ISSUE.BODY),
                     r.get(ISSUE.REPORTER_ID)));
   }
@@ -54,6 +60,8 @@ public class ChatThreadContextResolver {
       String issueKey,
       String issueTitle,
       String issueStatus,
+      // WP-869: 프로젝트 사용자 정의 상태 이름(「검토 중」 등). 없으면 null.
+      String issueStatusName,
       String issueBody,
       // WP-213: 이슈 토크 작성 권한(댓글과 동일 규칙 — OPEN 프로젝트 reporter 본인 허용) 판정용.
       Long reporterId) {

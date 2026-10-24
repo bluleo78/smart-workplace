@@ -47,6 +47,7 @@ class ChatSseDispatcherTest {
             "WP-1",
             "제목",
             "TODO",
+            null,
             "본문",
             HUMAN,
             "hi",

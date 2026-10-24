@@ -22,5 +22,7 @@ public enum IssueHistoryEventType {
   DEPENDENCY_ADDED,
   DEPENDENCY_REMOVED,
   // 프로젝트 custom field 값 변경 — Phase 4c. payload: {defId, name, type, from, to}
-  CUSTOM_FIELD_CHANGED
+  CUSTOM_FIELD_CHANGED,
+  // 상태 삭제로 이슈를 다른 상태로 옮김(WP-809) — 사용자가 이슈를 바꾼 것이 아니라 STATUS_CHANGED 와 구분한다. from/to 는 상태 이름.
+  STATUS_MIGRATED
 }

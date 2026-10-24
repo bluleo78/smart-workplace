@@ -1,5 +1,7 @@
 package com.workplace.chat.service;
 
+import static com.workplace.jooq.Tables.ISSUE;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -20,6 +22,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Instant;
 import java.util.List;
+import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.event.ApplicationEvents;
@@ -37,6 +40,7 @@ class ChatMessageServiceTest extends IntegrationTestBase {
   @Autowired ChatThreadMemberRepository memberRepo;
   @Autowired ApplicationEvents events;
   @Autowired IssueRepository issueRepository;
+  @Autowired DSLContext dsl;
 
   @Test
   void create_withAgentMention_addsAgentAsThreadMember() {
@@ -69,6 +73,33 @@ class ChatMessageServiceTest extends IntegrationTestBase {
     assertThat(msg.body()).isEqualTo("hi");
     assertThat(msg.authorId().longValue()).isEqualTo(s.reporterId());
     assertThat(events.stream(ChatMessageCreatedEvent.class).count()).isEqualTo(1L);
+  }
+
+  /** WP-869: 이슈 채팅 생성 이벤트는 범주 코드와 함께 사용자 정의 상태 이름을 싣는다 — AI 가 「검토 중」으로 말하게. */
+  @Test
+  void 이슈채팅_이벤트에_issueStatusName이_실린다() {
+    ChatFixtures.Setup s = fx.setup();
+    long review =
+        dsl.insertInto(PROJECT_STATUS)
+            .set(PROJECT_STATUS.PROJECT_ID, s.projectId())
+            .set(PROJECT_STATUS.NAME, "검토 중")
+            .set(PROJECT_STATUS.CATEGORY, "IN_PROGRESS")
+            .set(PROJECT_STATUS.POSITION, 9)
+            .returning(PROJECT_STATUS.ID)
+            .fetchOne()
+            .getId();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, "IN_PROGRESS")
+        .set(ISSUE.STATUS_ID, review)
+        .where(ISSUE.ID.eq(s.issueId()))
+        .execute();
+    var thread = threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber());
+
+    messageService.create(s.reporterId(), thread.threadId(), new CreateChatMessageRequest("hi"));
+
+    var e = events.stream(ChatMessageCreatedEvent.class).findFirst().orElseThrow();
+    assertThat(e.issueStatus()).isEqualTo("IN_PROGRESS");
+    assertThat(e.issueStatusName()).isEqualTo("검토 중");
   }
 
   @Test

@@ -11,6 +11,8 @@ const summarySchema = z.object({
   // 이슈 본문(description). 없으면 빈 문자열. null(본문 없는 이슈)도 허용 — 거부(400) 방지.
   body: z.string().nullable().optional().default(''),
   status: z.string(),
+  // WP-869: 프로젝트 상태 이름(status 는 범주). 구 API 는 보내지 않아 nullish.
+  statusName: z.string().nullish(),
   priority: z.string(),
   dueDate: z.string().nullable(),
   comments: z.array(z.object({ authorName: z.string(), body: z.string(), createdAt: z.string() })),

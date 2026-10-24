@@ -118,7 +118,7 @@ export function IssueRowMenu({
             <DropdownMenuSubContent>
               {statuses.map((s) => (
                 <DropdownMenuCheckboxItem key={s.id} checked={cur?.statusId === s.id} onSelect={() => onStatus(s)} data-testid={`row-menu-status-${s.id}`}>
-                  <IssueStatusIcon status={s.category} decorative />
+                  <IssueStatusIcon status={s.category} color={s.color} decorative />
                   {s.name}
                 </DropdownMenuCheckboxItem>
               ))}

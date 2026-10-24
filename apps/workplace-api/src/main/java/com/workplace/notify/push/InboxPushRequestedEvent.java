@@ -10,6 +10,8 @@ import java.util.List;
  *
  * <p>category 는 이 수신자 묶음에 적용할 푸시 카테고리(사용자 설정 단위). 대개 {@link PushCategory#of} 그대로지만, 같은 알림 유형이라도
  * 수신자마다 카테고리가 다를 수 있어(AI_QUESTION — 멘션된 사람은 MENTION, 나머지는 ISSUE, WP-452) 이벤트에 명시한다.
+ *
+ * <p>statusName 은 STATUS_CHANGED 알림의 새 상태 이름(WP-869, 그 외·이름 없으면 null).
  */
 public record InboxPushRequestedEvent(
     long tenantId,
@@ -20,7 +22,35 @@ public record InboxPushRequestedEvent(
     Long issueId,
     Long eventId,
     Long wikiPageId,
-    String eventTitle) {
+    String eventTitle,
+    String statusName) {
+
+  /**
+   * statusName 없이 만드는 생성자 — 상태 변경 알림이 아닌 모든 알림용. statusName 은 STATUS_CHANGED 의 새 상태 이름(WP-869)으로,
+   * 푸시 문구를 「상태를 '검토 중'으로 변경했습니다」로 만든다(조사는 받침에 맞춘다).
+   */
+  public InboxPushRequestedEvent(
+      long tenantId,
+      NotificationType type,
+      PushCategory category,
+      List<Long> recipientIds,
+      Long actorId,
+      Long issueId,
+      Long eventId,
+      Long wikiPageId,
+      String eventTitle) {
+    this(
+        tenantId,
+        type,
+        category,
+        recipientIds,
+        actorId,
+        issueId,
+        eventId,
+        wikiPageId,
+        eventTitle,
+        null);
+  }
 
   /**
    * 이슈·일정 알림용 — 노트 공유 알림이 아니면 wikiPageId 는 없고, 일정 제목은 싣지 않는다(가리킬 일정이 있으면 푸시가 일정 행에서 제목을 읽는다).

@@ -67,7 +67,7 @@ export function IssueListTable({
                 )}
               </td>
               <td>
-                <IssueStatusIcon status={it.status} name={it.statusName} />
+                <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
               </td>
               <td>
                 <IssuePriorityBars priority={it.priority} />
@@ -91,7 +91,7 @@ function IssueMobileList({ items, rowTestIdPrefix }: { items: IssueResponse[]; r
           <li key={it.id} className="border-b px-1 py-2.5" data-testid={tid}>
             <div className="flex min-w-0 items-start gap-2">
               <span className="mt-0.5 shrink-0">
-                <IssueStatusIcon status={it.status} name={it.statusName} />
+                <IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} />
               </span>
               <div className="min-w-0 flex-1">
                 <Link

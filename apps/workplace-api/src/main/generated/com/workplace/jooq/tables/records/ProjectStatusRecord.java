@@ -132,6 +132,20 @@ public class ProjectStatusRecord extends UpdatableRecordImpl<ProjectStatusRecord
         return (OffsetDateTime) get(7);
     }
 
+    /**
+     * Setter for <code>public.project_status.color</code>.
+     */
+    public void setColor(String value) {
+        set(8, value);
+    }
+
+    /**
+     * Getter for <code>public.project_status.color</code>.
+     */
+    public String getColor() {
+        return (String) get(8);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -155,7 +169,7 @@ public class ProjectStatusRecord extends UpdatableRecordImpl<ProjectStatusRecord
     /**
      * Create a detached, initialised ProjectStatusRecord
      */
-    public ProjectStatusRecord(Long id, Long tenantId, Long projectId, String name, String category, Integer position, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public ProjectStatusRecord(Long id, Long tenantId, Long projectId, String name, String category, Integer position, OffsetDateTime createdAt, OffsetDateTime updatedAt, String color) {
         super(ProjectStatus.PROJECT_STATUS);
 
         setId(id);
@@ -166,6 +180,7 @@ public class ProjectStatusRecord extends UpdatableRecordImpl<ProjectStatusRecord
         setPosition(position);
         setCreatedAt(createdAt);
         setUpdatedAt(updatedAt);
+        setColor(color);
         resetChangedOnNotNull();
     }
 }

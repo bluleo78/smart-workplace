@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
+import { inServerOrder, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { bodyOf, type RequestTracker, trackRequests } from '../../fixtures/requests';
 
@@ -111,17 +112,55 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await page.getByTestId('select-issue-7').check();
     await page.getByTestId('select-issue-8').check();
     await page.getByTestId('bulk-status-trigger').click();
-    await page.getByTestId('bulk-status-option-DONE').click();
+    // 옵션은 프로젝트 상태(auth.fixture 기본 4상태) — 「완료」(id 3)를 고르면 statusId 로 보낸다(WP-869).
+    await page.getByTestId('bulk-status-option-3').click();
 
     await expect.poll(statusPatches.count).toBe(2);
     const statusBodies = withIssueNumber(statusPatches);
-    expect(statusBodies).toContainEqual({ number: 7, body: { status: 'DONE' } });
-    expect(statusBodies).toContainEqual({ number: 8, body: { status: 'DONE' } });
+    expect(statusBodies).toContainEqual({ number: 7, body: { statusId: 3 } });
+    expect(statusBodies).toContainEqual({ number: 8, body: { statusId: 3 } });
 
     // 처리 후 선택 해제(벌크 툴바 사라짐)
     await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
     // 결과 토스트 — 부분 실패 시 백엔드 차단 사유 노출(#710) 등 문구 규칙은 bulkResult 단위 테스트(WP-412).
     await expect(page.getByText('2개 상태를 변경했습니다')).toBeVisible();
+  });
+
+  // WP-869 — 일괄 바가 범주 4개만 보여 사용자 정의 상태(「검토 중」)로는 일괄 변경할 수 없었다.
+  test('일괄 상태 변경은 프로젝트 상태 목록을 범주별로 보이고 statusId 로 보낸다', async ({ authenticatedPage: page }) => {
+    await mock(page, [
+      createIssue({ id: 1, number: 7, title: '이슈A', status: 'TODO' }),
+      createIssue({ id: 2, number: 8, title: '이슈B', status: 'TODO' }),
+    ]);
+    // 진행 중 범주에 「설계」(11)·「검토 중」(12)을 더한 6상태.
+    await page.route('**/api/v1/projects/WP/statuses', (route) =>
+      route.fulfill({ json: inServerOrder(withCustomStatuses('설계', '검토 중')) }),
+    );
+    const statusPatches = trackRequests(page, 'PATCH', /\/api\/v1\/projects\/WP\/issues\/(7|8)\/status$/);
+    await page.route(
+      (url) => /\/api\/v1\/projects\/WP\/issues\/(7|8)\/status$/.test(url.pathname),
+      (route) => route.fulfill({ json: createIssue({ status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중' }) }),
+    );
+
+    await page.goto(`/projects/${KEY}`);
+    await page.getByTestId('select-issue-7').check();
+    await page.getByTestId('select-issue-8').check();
+    await page.getByTestId('bulk-status-trigger').click();
+
+    // 범주 제목 아래 그 범주 상태가 표시 순서대로 — 진행 중 묶음은 진행 중·설계·검토 중.
+    const group = page.getByTestId('bulk-status-group-IN_PROGRESS');
+    await expect(group).toContainText('진행 중');
+    await expect(group.getByRole('menuitem')).toHaveText(['진행 중', '설계', '검토 중']);
+    await expect(page.getByTestId('bulk-status-group-DONE').getByRole('menuitem')).toHaveText(['완료']);
+    await page.getByTestId('bulk-status-option-12').click();
+
+    await expect.poll(statusPatches.count).toBe(2);
+    expect(withIssueNumber(statusPatches)).toEqual(
+      expect.arrayContaining([
+        { number: 7, body: { statusId: 12 } },
+        { number: 8, body: { statusId: 12 } },
+      ]),
+    );
   });
 
   // WP-851 — 부분 실패여도 선택이 모두 풀려 어느 이슈가 실패했는지 알 수 없었다. 실패한 이슈만 선택에 남기고 토스트에 키를 싣는다.
@@ -155,7 +194,7 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await page.getByTestId('select-issue-7').check();
     await page.getByTestId('select-issue-8').check();
     await page.getByTestId('bulk-status-trigger').click();
-    await page.getByTestId('bulk-status-option-IN_PROGRESS').click();
+    await page.getByTestId('bulk-status-option-2').click();
 
     await expect(
       page.getByText('1개 상태를 변경했습니다. 1건(WP-8)은 상태를 변경하지 못했습니다: 다른 사람이 먼저 바꿨습니다'),
@@ -186,7 +225,7 @@ test.describe('팀 리스트 뷰 — 벌크 작업 (#606)', () => {
     await page.getByTestId('select-issue-7').check();
     await page.getByTestId('select-issue-8').check();
     await page.getByTestId('bulk-status-trigger').click();
-    await page.getByTestId('bulk-status-option-DONE').click();
+    await page.getByTestId('bulk-status-option-3').click();
 
     const toast = page.locator('[data-sonner-toast]', { hasText: '2개 상태를 변경했습니다 — 활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다' });
     await expect(toast).toBeVisible();

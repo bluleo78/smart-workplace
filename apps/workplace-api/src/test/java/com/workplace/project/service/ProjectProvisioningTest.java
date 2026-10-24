@@ -254,8 +254,8 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     String key = uniqueKey("CST");
     ProjectResponse proj =
         projectService.create(ownerId, new CreateProjectRequest(key, key + " 프로젝트", null, "TEAM"));
-    long deployed = statusRepository.insert(proj.id(), "배포됨", "DONE", 10).id();
-    long review = statusRepository.insert(proj.id(), "검토 중", "IN_PROGRESS", 11).id();
+    long deployed = statusRepository.insert(proj.id(), "배포됨", "DONE", 10, "GREEN").id();
+    long review = statusRepository.insert(proj.id(), "검토 중", "IN_PROGRESS", 11, "BLUE").id();
     long canceled =
         statusRepository.findDefault(proj.id(), IssueStatuses.CANCELED).orElseThrow().id();
 

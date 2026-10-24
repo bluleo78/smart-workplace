@@ -82,7 +82,7 @@ class IssueStatusFilterTest extends IntegrationTestBase {
 
   private long addStatus(ProjectResponse p, String name, String category) {
     return statusService
-        .create(owner, p.key(), new CreateProjectStatusRequest(name, category, null))
+        .create(owner, p.key(), new CreateProjectStatusRequest(name, category, null, null))
         .id();
   }
 

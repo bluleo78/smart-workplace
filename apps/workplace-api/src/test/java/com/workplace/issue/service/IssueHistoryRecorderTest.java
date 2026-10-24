@@ -48,6 +48,7 @@ class IssueHistoryRecorderTest {
         1,
         null,
         null,
+        null,
         null);
   }
 
@@ -85,6 +86,7 @@ class IssueHistoryRecorderTest {
             1,
             null,
             null,
+            null,
             null);
     var after =
         new IssueRow(
@@ -105,6 +107,7 @@ class IssueHistoryRecorderTest {
             null,
             null,
             1,
+            null,
             null,
             null,
             null);

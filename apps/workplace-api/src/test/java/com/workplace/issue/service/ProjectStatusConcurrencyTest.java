@@ -98,7 +98,8 @@ class ProjectStatusConcurrencyTest extends IntegrationTestBase {
                             service.create(
                                 owner,
                                 key,
-                                new CreateProjectStatusRequest("A", "IN_PROGRESS", inProgress));
+                                new CreateProjectStatusRequest(
+                                    "A", "IN_PROGRESS", inProgress, null));
                         aInserted.countDown();
                         RowLockWaits.awaitQuietly(releaseA);
                         return r;
@@ -113,7 +114,8 @@ class ProjectStatusConcurrencyTest extends IntegrationTestBase {
                           service.create(
                               owner,
                               key,
-                              new CreateProjectStatusRequest("B", "IN_PROGRESS", inProgress))));
+                              new CreateProjectStatusRequest(
+                                  "B", "IN_PROGRESS", inProgress, null))));
       RowLockWaits.awaitLockWaiter(b);
       releaseA.countDown();
 

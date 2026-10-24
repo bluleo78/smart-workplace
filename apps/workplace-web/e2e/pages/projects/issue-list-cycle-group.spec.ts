@@ -359,7 +359,8 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
 
     const progressBefore = progressGets.count();
     await page.getByTestId('bulk-status-trigger').click();
-    await page.getByTestId('bulk-status-option-DONE').click();
+    // 기본 4상태(auth.fixture) 중 「완료」(id 3).
+    await page.getByTestId('bulk-status-option-3').click();
     await expect.poll(() => statusPatches.urls().map((u) => Number(u.pathname.match(/issues\/(\d+)\/status/)?.[1])).sort()).toEqual([11, 21, 41]);
     await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
     await progressGets.waitFor(progressBefore + 1);

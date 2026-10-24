@@ -111,7 +111,8 @@ test.describe('모바일 선택 모드', () => {
     // 모바일은 데스크톱 드롭다운 대신 피커 시트(44px 항목)로 고른다.
     await page.getByTestId('bulk-status-trigger').click();
     await expect(page.getByTestId('bulk-status-picker')).toBeVisible();
-    await page.getByTestId('picker-option-DONE').click();
+    // 값은 프로젝트 상태 id(WP-869) — 기본 4상태(auth.fixture) 중 「완료」(id 3).
+    await page.getByTestId('picker-option-3').click();
     await expect.poll(() => calls().filter((c) => c.path.endsWith('/status')).length).toBe(2);
     await expect(bar).toHaveCount(0);
   });

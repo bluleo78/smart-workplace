@@ -46,6 +46,9 @@ import com.workplace.issue.exception.InvalidTypeIconException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.exception.StatusEditNotSupportedException;
+import com.workplace.issue.exception.StatusLastInCategoryException;
+import com.workplace.issue.exception.StatusLimitExceededException;
+import com.workplace.issue.exception.StatusMoveTargetRequiredException;
 import com.workplace.issue.exception.StatusNameDuplicatedException;
 import com.workplace.issue.exception.StatusNotFoundException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
@@ -1600,6 +1603,30 @@ public class GlobalExceptionHandler {
       StatusNameDuplicatedException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.CONFLICT)
         .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 프로젝트 상태 상한(20개) 초과 추가 — 409 (WP-811). */
+  @ExceptionHandler(StatusLimitExceededException.class)
+  public ResponseEntity<ErrorResponse> handleStatusLimitExceeded(
+      StatusLimitExceededException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 범주의 마지막 상태 삭제 — 409 (WP-809). */
+  @ExceptionHandler(StatusLastInCategoryException.class)
+  public ResponseEntity<ErrorResponse> handleStatusLastInCategory(
+      StatusLastInCategoryException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(buildError(HttpStatus.CONFLICT, ex.getMessage(), null, request));
+  }
+
+  /** 활성 이슈가 있는 상태를 옮길 상태 없이 삭제 — 400 (WP-809). */
+  @ExceptionHandler(StatusMoveTargetRequiredException.class)
+  public ResponseEntity<ErrorResponse> handleStatusMoveTargetRequired(
+      StatusMoveTargetRequiredException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
   /** 개인 프로젝트 상태 편집 시도 — 400 (WP-807). */

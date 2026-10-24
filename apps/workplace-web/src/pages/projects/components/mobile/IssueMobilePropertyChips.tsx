@@ -107,7 +107,7 @@ export function IssueMobilePropertyChips({
           'status',
           labelWithValue('상태', issue.statusName, issue.blocked && '차단됨'),
           <>
-            <IssueStatusIcon status={issue.status} decorative className="size-4" />
+            <IssueStatusIcon status={issue.status} color={issue.statusColor} decorative className="size-4" />
             {issue.statusName}
             {issue.blocked && <span data-testid="issue-blocked-badge">· 차단됨</span>}
           </>,

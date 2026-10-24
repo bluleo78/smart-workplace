@@ -8,6 +8,7 @@ import type { Page, Route } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { stableBox } from '../../fixtures/wait';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import type { IssueLinkSummary } from '../../../src/types/issue';
@@ -321,6 +322,57 @@ test.describe('의존성', () => {
     await page.keyboard.press('Enter');
     await removes.waitFor(1);
     expect(removes.lastUrl()?.searchParams.get('otherNumber')).toBe('99');
+  });
+
+  /** 실제 길이의 제목 — 좁은 오른쪽 레일에서 제목이 상태에 밀려 굶지 않는지 본다. */
+  const LONG_LINK_TITLE = '결제 모듈 환불 처리 간헐적 실패 — PG사 웹훅 재시도 시 중복 환불 방지 로직 검토';
+
+  // WP-869 — 링크 행이 범주 라벨(「진행 중」)만 보여 사용자 정의 상태(「검토 중」)를 알 수 없었다.
+  test('링크 행은 상태 이름을 보인다', async ({ authenticatedPage: page }) => {
+    const taskType = makeTaskType();
+    await setupCommonStubs(page);
+    await page.route(
+      (url) => url.pathname === `${ISSUES_BASE}/1`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(createIssueDetail({
+            summary: {
+              ...createIssue({ id: 1, number: 1, title: 'task A' }),
+              type: taskType,
+              blockedBy: [
+                { number: 5, title: LONG_LINK_TITLE, status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중', statusColor: 'PURPLE', type: taskType, dueDate: null },
+                // 구 서버 응답 — 상태 이름이 없으면 범주 라벨.
+                { number: 6, title: '옛 응답 선행', status: 'DONE', type: taskType, dueDate: null },
+              ],
+              blocks: [],
+              blocked: true,
+            },
+            body: '',
+          })),
+        }),
+    );
+
+    await page.goto(`/projects/${KEY}/issues/1`);
+    await page.getByRole('button', { name: /의존성/ }).click();
+    const row = page.getByTestId('issue-link-row-5');
+    const status = page.getByTestId('issue-link-status-5');
+    await expect(status).toHaveText('검토 중');
+    await expect(row).not.toContainText('진행 중');
+    // 상태 아이콘은 상태 색(PURPLE) — 이름이 옆에 있으므로 아이콘은 장식(aria-hidden). 범주 색 배지는 없다(색이 둘로 갈리지 않게).
+    await expect(status.locator('svg[aria-hidden="true"].text-purple-700')).toHaveCount(1);
+    await expect(row.getByText('검토 중', { exact: true })).toHaveCount(1); // 상태 이름은 한 번만(배지 중복 없음)
+    await expect(page.getByTestId('issue-link-status-6')).toHaveText('완료');
+
+    // 2줄 구성(WP-809 디자이너 리뷰) — 상태는 제목 아래 줄, KEY 시작선에 맞춰 들여쓰고, 좁은 레일에서도 제목이 행 폭 대부분을 쓴다.
+    const title = await stableBox(row.getByRole('link', { name: LONG_LINK_TITLE }));
+    const key = await stableBox(row.getByText(`${KEY}-5`, { exact: true }));
+    const statusBox = await stableBox(status);
+    const rowBox = await stableBox(row);
+    expect(statusBox.y).toBeGreaterThanOrEqual(title.y + title.height - 1);
+    expect(Math.abs(statusBox.x - key.x)).toBeLessThanOrEqual(1);
+    expect(title.x + title.width - key.x).toBeGreaterThan((rowBox.width - 24) * 0.75);
   });
 
   // #669 — 미완료 선행(blockedBy) 이슈의 마감일보다 이른 날짜를 시작일/마감일에 선택하면

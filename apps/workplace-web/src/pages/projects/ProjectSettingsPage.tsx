@@ -30,6 +30,7 @@ import { useDeleteProject, useProject, useUpdateProject } from '../../hooks/quer
 import { useAuth } from '../../hooks/useAuth';
 import { handleApiError } from '../../lib/api-error';
 import { canManageProject, isProjectOwner } from '../../lib/projectPermissions';
+import { canEditStatuses } from '../../lib/projectStatuses';
 import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
 import type { ProjectType } from '../../types/project';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
@@ -37,6 +38,7 @@ import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
 import { MemberManagement } from './components/MemberManagement';
 import { ProjectUnavailableState } from './components/ProjectUnavailableState';
+import { StatusManagement } from './components/status/StatusManagement';
 
 /** WP-414: AI 화면 맥락에 싣는 프로젝트 종류 표시 문구. */
 const PROJECT_TYPE_LABEL: Record<ProjectType, string> = { TEAM: '팀', PERSONAL: '개인', OPEN: '접수함' };
@@ -185,6 +187,9 @@ export default function ProjectSettingsPage() {
           {isPersonal
             ? <MemberManagement projectKey={key} agentOnly ownerId={project.data?.ownerId} canManage={canManage} />
             : <MemberManagement projectKey={key} canManage={canManage} />}
+
+          {/* 상태(WP-809) — 개인 프로젝트는 상태를 고칠 수 없어(서버 400) 섹션을 그리지 않는다. 편집은 OWNER 만, 멤버는 읽기 전용. */}
+          {!isPersonal && <StatusManagement projectKey={key} canEdit={canEditStatuses(isOwner, project.data?.type)} />}
 
           <LabelManagement
             projectKey={key}

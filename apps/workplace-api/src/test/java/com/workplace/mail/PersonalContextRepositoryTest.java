@@ -2,6 +2,7 @@ package com.workplace.mail;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
+import static com.workplace.jooq.Tables.PROJECT_STATUS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.service.IssueLookupService;
@@ -38,7 +39,7 @@ class PersonalContextRepositoryTest extends IntegrationTestBase {
   private Optional<IssueRef> linked(long userId, long messageId) {
     return issueLookup
         .findVisibleSourceIssue(userId, "MAIL", messageId)
-        .map(r -> new IssueRef(r.key(), r.title(), r.status()));
+        .map(r -> new IssueRef(r.key(), r.title(), r.status(), r.statusName()));
   }
 
   private long mail(Box box, long folderId, String thread, int hour, String from, String body) {
@@ -110,8 +111,35 @@ class PersonalContextRepositoryTest extends IntegrationTestBase {
 
     Optional<IssueRef> ref = linked(box.userId(), env);
 
-    assertThat(ref).contains(new IssueRef(live.key(), "배포 일정 확정", "IN_PROGRESS"));
+    assertThat(ref).contains(new IssueRef(live.key(), "배포 일정 확정", "IN_PROGRESS", "진행 중"));
     assertThat(linked(box.userId(), env + 999_999)).isEmpty();
+  }
+
+  /** WP-869: 메일 연결 이슈는 범주 코드와 함께 사용자 정의 상태 이름을 싣는다 — 메일 AI 가 「검토 중」으로 말하게. */
+  @Test
+  void 메일_연결이슈에_statusName이_실린다() {
+    Box box = MailAnalysisFixtures.mailbox(dsl, true);
+    long env = mail(box, box.folderId(), "th-" + System.nanoTime(), 0, "a@x.com", "본문");
+    IssueSeed seed =
+        PersonalContextFixtures.linkedIssue(dsl, box.userId(), env, "검토 대상", "IN_PROGRESS");
+    long projectId =
+        dsl.select(ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(seed.issueId()))
+            .fetchOne(ISSUE.PROJECT_ID);
+    long review =
+        dsl.insertInto(PROJECT_STATUS)
+            .set(PROJECT_STATUS.PROJECT_ID, projectId)
+            .set(PROJECT_STATUS.NAME, "검토 중")
+            .set(PROJECT_STATUS.CATEGORY, "IN_PROGRESS")
+            .set(PROJECT_STATUS.POSITION, 9)
+            .returning(PROJECT_STATUS.ID)
+            .fetchOne()
+            .getId();
+    dsl.update(ISSUE).set(ISSUE.STATUS_ID, review).where(ISSUE.ID.eq(seed.issueId())).execute();
+
+    assertThat(linked(box.userId(), env))
+        .contains(new IssueRef(seed.key(), "검토 대상", "IN_PROGRESS", "검토 중"));
   }
 
   @Test

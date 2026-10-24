@@ -53,7 +53,7 @@ export const updateIssueInput = z.object({
   title: z.string().max(200).optional(),
   body: z.string().max(10000).optional(),
   priority: z.enum(['LOW', 'MID', 'HIGH']).optional(),
-  // WP-807: 범주 또는 프로젝트 상태 이름 — 핸들러가 범주는 status, 이름은 statusId 로 바꾼다. 설명은 크기 상한 때문에 영어 짧은 문구.
+  // WP-807·WP-870: 범주 또는 프로젝트 상태 이름 — 핸들러가 범주는 status, 이름은 statusName 으로 보내 서버가 해석한다. 설명은 크기 상한 때문에 영어 짧은 문구.
   status: z.string().min(1).optional().describe('TODO/IN_PROGRESS/DONE/CANCELED or a status name'),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),

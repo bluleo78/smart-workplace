@@ -95,7 +95,8 @@ class NotificationDispatcherTest {
   }
 
   /**
-   * status_changed: dispatcher 는 service.createWithWatchersAndFanOut 에 assignees 와 issueId 를 넘긴다.
+   * status_changed: dispatcher 는 service.createWithWatchersAndFanOut 에 assignees 와 issueId, 새 상태
+   * 이름(WP-869)을 넘긴다.
    */
   @Test
   void onIssueStatusChanged_delegatesToCreateWithWatchersAndFanOut_agentActorPreserved() {
@@ -121,7 +122,9 @@ class NotificationDispatcherTest {
             eq(12L),
             eq(List.of(ASSIGNEE_A, ASSIGNEE_B)),
             eq(9L),
-            eq(null));
+            eq(null),
+            // WP-869: 새 상태 이름을 알림에 넘긴다
+            eq("진행 중"));
   }
 
   /**
@@ -225,6 +228,7 @@ class NotificationDispatcherTest {
         "WP-20",
         "t",
         "TODO",
+        null,
         "b",
         actor,
         "body",

@@ -68,12 +68,15 @@ export function MobileActionSheet({
                   a.onSelect();
                 }}
                 className={cn(
-                  'flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent disabled:opacity-50 [&_svg]:size-5 [&_svg]:shrink-0',
+                  'group flex min-h-11 w-full items-center gap-3 px-4 text-left text-base active:bg-accent disabled:active:bg-transparent [&_svg]:size-5 [&_svg]:shrink-0',
                   a.destructive ? 'text-destructive' : a.ai ? 'text-ai-accent' : 'text-foreground [&_svg]:text-muted-foreground',
                 )}
               >
-                {a.icon}
-                {a.label}
+                {/* 막힌 작업은 아이콘·이름만 흐리게 — 오른쪽 hint 가 막힌 이유일 때 읽혀야 하므로 투명도 밖에 둔다(WP-809). */}
+                <span className="flex min-w-0 items-center gap-3 group-disabled:opacity-50">
+                  {a.icon}
+                  {a.label}
+                </span>
                 {a.hint != null && (
                   <span className="ml-auto flex min-w-0 items-center gap-1 truncate pl-3 text-sm text-muted-foreground">{a.hint}</span>
                 )}

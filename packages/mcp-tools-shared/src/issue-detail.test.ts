@@ -52,6 +52,21 @@ describe('normalizeIssueDetail', () => {
     expect(d.assignees).toEqual([{ username: 'alice', name: 'Alice', kind: 'HUMAN' }]);
   });
 
+  // WP-869: 부모·링크 요약에 상태 이름이 오면 함께 준다(색·id 는 싣지 않는다). 구 API(이름 없음)면 키가 없다.
+  it('부모·링크의 상태 이름(statusName)을 함께 준다', () => {
+    const d = normalizeIssueDetail({
+      ...raw,
+      summary: {
+        ...raw.summary,
+        projectKey: 'WP',
+        parent: { number: 2, title: '에픽', status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중', statusColor: 'PURPLE' },
+        blockedBy: [{ number: 11, title: '선행작업', status: 'TODO', statusId: 10, statusName: '접수', statusColor: 'GRAY' }],
+      },
+    });
+    expect(d.parent).toEqual({ issueKey: 'WP-2', title: '에픽', status: 'IN_PROGRESS', statusName: '검토 중' });
+    expect(d.blockedBy).toEqual([{ issueKey: 'WP-11', title: '선행작업', status: 'TODO', statusName: '접수' }]);
+  });
+
   it('의존성 필드를 summary 에서 top-level 로 lift', () => {
     const d = normalizeIssueDetail(raw);
     expect(d.blocked).toBe(true);

@@ -221,19 +221,25 @@ class IssueFilterResolver {
               .map(idOf)
               .toList();
       if (ids.isEmpty()) {
-        List<String> available =
-            candidates.stream().map(nameOf).distinct().limit(MAX_LISTED).toList();
         throw new InvalidIssueFilterException(
-            field,
-            kind
-                + " '"
-                + tok
-                + "' 을(를) 찾을 수 없습니다. 사용 가능: "
-                + (available.isEmpty() ? "(없음)" : String.join(", ", available)));
+            field, notFoundMessage(kind, tok, candidates.stream().map(nameOf).toList()));
       }
       groups.add(ids);
     }
     return groups;
+  }
+
+  /**
+   * 「{kind} '{tok}' 을(를) 찾을 수 없습니다. 사용 가능: …」 메시지 — 이름 해석 실패를 알리는 공통 문구. 후보 이름은 중복을 빼고 {@link
+   * #MAX_LISTED} 개까지만 나열한다. 이슈 수정의 상태 이름 해석(WP-870)도 검색 필터와 같은 문구·상한을 쓰도록 패키지에 연다.
+   */
+  static String notFoundMessage(String kind, String tok, List<String> candidateNames) {
+    List<String> available = candidateNames.stream().distinct().limit(MAX_LISTED).toList();
+    return kind
+        + " '"
+        + tok
+        + "' 을(를) 찾을 수 없습니다. 사용 가능: "
+        + (available.isEmpty() ? "(없음)" : String.join(", ", available));
   }
 
   private static Long parseLongOrNull(String tok) {

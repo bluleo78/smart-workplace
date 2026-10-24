@@ -515,7 +515,7 @@ describe('프로필 구성', () => {
     for (const profile of ['issue', 'assistant'] as const) {
       const tool = find(buildTools(client(), AGENT_ID, profile), 'update_issue');
       expect(tool.inputSchema.parse({ issueKey: 'WP-1', status: 'IN_PROGRESS' })).toMatchObject({ status: 'IN_PROGRESS' });
-      // WP-807: 범주가 아닌 값은 프로젝트 상태 이름으로 받는다 — 모르는 이름은 핸들러가 사용 가능 목록과 함께 거절한다.
+      // WP-807·WP-870: 범주가 아닌 값은 프로젝트 상태 이름으로 받는다 — 핸들러가 statusName 으로 보내고 모르는 이름은 서버가 사용 가능 목록과 함께 거절한다.
       expect(tool.inputSchema.parse({ issueKey: 'WP-1', status: '검토 중' })).toMatchObject({ status: '검토 중' });
     }
   });

@@ -154,7 +154,13 @@ public class NotificationDispatcher {
   public void onIssueStatusChanged(IssueStatusChangedEvent e) {
     try {
       service.createWithWatchersAndFanOut(
-          NotificationType.STATUS_CHANGED, e.issueId(), e.assignees(), actorId(e.actor()), null);
+          NotificationType.STATUS_CHANGED,
+          e.issueId(),
+          e.assignees(),
+          actorId(e.actor()),
+          null,
+          // WP-869: 새 상태 이름을 알림에 남긴다(인박스·푸시 문구 「상태를 '<이름>'으로/로 변경했습니다」 — 조사는 받침에 맞춘다)
+          e.newStatusName());
     } catch (Exception ex) {
       log.warn("[notify] status_changed 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
     }

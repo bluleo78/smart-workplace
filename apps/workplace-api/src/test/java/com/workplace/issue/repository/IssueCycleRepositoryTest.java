@@ -136,8 +136,8 @@ class IssueCycleRepositoryTest extends IntegrationTestBase {
         projectService.create(owner, new CreateProjectRequest(uniqueKey("PD"), "P", "x"));
     var c1 =
         cycleService.create(owner, p.key(), new CreateCycleRequest("S1", null, null, null, null));
-    long deployed = statusRepository.insert(p.id(), "배포됨", "DONE", 10).id();
-    long review = statusRepository.insert(p.id(), "검토 중", "IN_PROGRESS", 11).id();
+    long deployed = statusRepository.insert(p.id(), "배포됨", "DONE", 10, "GREEN").id();
+    long review = statusRepository.insert(p.id(), "검토 중", "IN_PROGRESS", 11, "BLUE").id();
     var shipped =
         issueService.create(
             owner, p.key(), new CreateIssueRequest("S", null, null, null, null, null, null, null));

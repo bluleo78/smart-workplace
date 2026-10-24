@@ -9,11 +9,12 @@ import { ISSUE_STATUS_LABEL, ISSUE_STATUSES } from '../../../lib/issueGrouping';
 import type { IssueStatus } from '../../../types/issue';
 import type { ProjectStatus } from '../../../types/projectStatus';
 
-// 옵션 표시 — 목록 행·배지와 같은 범주 아이콘을 이름 앞에 붙여 시각 일관성을 맞춘다.
-function withIcon(category: IssueStatus, label: string) {
+// 옵션 표시 — 목록 행·배지와 같은 상태 아이콘(모양=범주, 색=상태 색)을 이름 앞에 붙여 시각 일관성을 맞춘다.
+// 범주 facet 은 color 없이 불러 범주 색을 쓴다.
+function withIcon(category: IssueStatus, label: string, color?: string | null) {
   return (
     <span className="flex items-center gap-1.5">
-      <IssueStatusIcon status={category} decorative />
+      <IssueStatusIcon status={category} color={color} decorative />
       {label}
     </span>
   );
@@ -24,7 +25,7 @@ function withIcon(category: IssueStatus, label: string) {
  * 고른 값은 findStatus(lib/projectStatuses)로 상태로 되돌린다.
  */
 export function statusPickerOptions(statuses: readonly ProjectStatus[]): PickerOption[] {
-  return statuses.map((s) => ({ value: String(s.id), label: s.name, icon: <IssueStatusIcon status={s.category} decorative /> }));
+  return statuses.map((s) => ({ value: String(s.id), label: s.name, icon: <IssueStatusIcon status={s.category} color={s.color} decorative /> }));
 }
 
 /**
@@ -36,7 +37,7 @@ export function buildStatusFacets(statuses: readonly ProjectStatus[]): FacetDef[
     {
       key: 'statusId',
       label: '상태',
-      options: statuses.map((s) => ({ value: s.id, label: s.name, render: withIcon(s.category, s.name) })),
+      options: statuses.map((s) => ({ value: s.id, label: s.name, render: withIcon(s.category, s.name, s.color) })),
     },
     {
       key: 'status',
