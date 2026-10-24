@@ -39,7 +39,19 @@ export function apiErrorResponse(error: unknown): ErrorResponse | null {
  */
 export function extractApiError(error: unknown, fallback: string): string {
   const errData = apiErrorResponse(error);
-  return errData ? pickBestMessage(errData, fallback) : fallback;
+  if (errData) return pickBestMessage(errData, fallback);
+  return isNetworkError(error) ? `${fallback}. ${NETWORK_ERROR_HINT}` : fallback;
+}
+
+/** 서버에 닿지 못한 실패(오프라인·연결 끊김)에 덧붙이는 안내 — 무엇이 실패했는지(fallback) 뒤에 붙인다(WP-927). */
+export const NETWORK_ERROR_HINT = '네트워크 연결을 확인한 뒤 다시 시도하세요';
+
+/**
+ * 응답 없이 끝난 네트워크 오류(오프라인·연결 끊김 — Axios ERR_NETWORK)인가.
+ * 사용자가 취소한 요청(ERR_CANCELED)·시간 초과(ECONNABORTED)는 연결 문제로 안내하지 않는다.
+ */
+export function isNetworkError(error: unknown): boolean {
+  return axios.isAxiosError(error) && !error.response && error.code === 'ERR_NETWORK';
 }
 
 /**

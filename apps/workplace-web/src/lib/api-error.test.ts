@@ -46,6 +46,14 @@ describe('extractApiError', () => {
     // 코드는 있는데 message 가 비면 fallback.
     expect(extractApiError(apiError(503, { message: '', errors: { code: 'AI_DISABLED' } }), 'fb')).toBe('fb');
   });
+  // WP-927 — 서버에 닿지 못한 실패(오프라인)는 무엇이 실패했는지 뒤에 연결 확인 안내를 붙인다. 취소·시간 초과는 붙이지 않는다.
+  it('네트워크 오류면 fallback 뒤에 연결 확인 안내를 붙인다', () => {
+    expect(extractApiError(new AxiosError('Network Error', 'ERR_NETWORK'), '사이클 생성에 실패했습니다')).toBe(
+      '사이클 생성에 실패했습니다. 네트워크 연결을 확인한 뒤 다시 시도하세요',
+    );
+    expect(extractApiError(new AxiosError('canceled', 'ERR_CANCELED'), 'fb')).toBe('fb');
+    expect(extractApiError(new AxiosError('timeout', 'ECONNABORTED'), 'fb')).toBe('fb');
+  });
   it('code 라는 이름의 필드 검증 문구는 그대로 첫 메시지로 쓴다', () => {
     expect(extractApiError(apiError(400, { message: 'Validation failed', errors: { code: '코드는 6자리입니다.' } }), 'fb')).toBe(
       '코드는 6자리입니다.',

@@ -24,6 +24,11 @@ const queryClient = new QueryClient({
       staleTime: 30_000,
       refetchOnWindowFocus: false,
     },
+    mutations: {
+      // 저장 요청은 오프라인이어도 바로 보내 실패를 알린다(WP-927). 기본값(online)은 오프라인 동안 요청을 멈춰 두었다가
+      // 다시 연결되면 보내 — 화면엔 아무 안내 없이 기다리기만 하고, 대화상자를 닫아 취소한 줄 안 저장이 뒤늦게 실행됐다.
+      networkMode: 'always',
+    },
   },
 })
 
