@@ -263,6 +263,42 @@ test.describe('이슈 유형', () => {
     },
   );
 
+  // WP-906: 0·소수·32비트 초과 부모 번호가 브라우저 영문 말풍선이나 zod 영문 메시지·서버 400 으로 새던 것을 한국어 안내로 막는다.
+  test(
+    '하위 태스크의 부모 번호에 0·소수·너무 큰 수를 넣으면 한국어 안내가 표시되고 요청은 나가지 않는다 (WP-906)',
+    async ({ authenticatedPage: page }) => {
+      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
+      await mockApi(page, 'GET', '/api/v1/projects/WP/issues', createIssueSearchResponse([]));
+      await page.route('**/api/v1/projects/WP/types', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(systemTypes()) }),
+      );
+      let createRequests = 0;
+      await page.route('**/api/v1/projects/WP/issues', (route) => {
+        if (route.request().method() === 'POST') createRequests += 1;
+        return route.fallback();
+      });
+
+      await page.goto('/projects/WP');
+      await page.getByRole('button', { name: '+ 새 태스크' }).click();
+      await page.locator('#issue-title').fill('하위 번호 검증');
+      await page.getByTestId('create-type-select').click();
+      await page.getByRole('option', { name: '하위 태스크' }).click();
+
+      const parent = page.getByTestId('create-parent-number');
+      const error = page.locator('#create-parent-number-error');
+      for (const [value, message] of [
+        ['0', '부모 이슈 번호는 1 이상의 정수여야 합니다'],
+        ['1.5', '부모 이슈 번호는 1 이상의 정수여야 합니다'],
+        ['2147483648', '부모 이슈 번호는 2147483647 이하여야 합니다'],
+      ]) {
+        await parent.fill(value);
+        await page.getByRole('button', { name: '생성' }).click();
+        await expect(error).toHaveText(message);
+      }
+      expect(createRequests).toBe(0);
+    },
+  );
+
   test(
     '유형 드롭다운에서 에픽/버그를 선택해도 다이얼로그 제목은 유형 중립 문구 "새 이슈" 로 고정된다 (#641)',
     async ({ authenticatedPage: page }) => {

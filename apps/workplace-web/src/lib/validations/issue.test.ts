@@ -61,6 +61,21 @@ describe('createIssueSchema — 부모 번호', () => {
     expect(firstError({ title: 't', parentNumber: NaN }, 'parentNumber')).toBe('부모 이슈 번호를 입력해주세요');
   });
 
+  // WP-906: 0·소수·음수·32비트 초과가 zod 영문 메시지나 서버 400 으로 새던 것을 한국어 안내로 막는다.
+  it('0·소수·음수는 한국어 정수 안내', () => {
+    for (const parentNumber of [0, 1.5, -3]) {
+      expect(firstError({ title: 't', parentNumber }, 'parentNumber')).toBe('부모 이슈 번호는 1 이상의 정수여야 합니다');
+    }
+  });
+
+  it('32비트 정수 상한까지 통과, 넘으면 상한 안내', () => {
+    expect(createIssueSchema.safeParse({ title: 't', parentNumber: 2147483647 }).success).toBe(true);
+    expect(firstError({ title: 't', parentNumber: 2147483648 }, 'parentNumber')).toBe(
+      '부모 이슈 번호는 2147483647 이하여야 합니다',
+    );
+    expect(firstError({ title: 't', parentNumber: 1e21 }, 'parentNumber')).toBe('부모 이슈 번호는 2147483647 이하여야 합니다');
+  });
+
   it('양의 정수·null·생략은 통과', () => {
     for (const parentNumber of [3, null, undefined]) {
       expect(createIssueSchema.safeParse({ title: 't', parentNumber }).success).toBe(true);

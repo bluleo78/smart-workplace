@@ -47,8 +47,8 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
       <DialogContent>
         {/* 유형 드롭다운(에픽/버그/스토리 등)과 무관한 중립 문구로 통일 — 유형별 동적 제목보다 단순하고 확장에 안전 (#641) */}
         <DialogHeader><DialogTitle>새 이슈</DialogTitle><DialogDescription className="sr-only">새 이슈</DialogDescription></DialogHeader>
-        {/* noValidate — 날짜 칸 min/max 를 넘는 값이면 브라우저 기본 검증이 제출을 먼저 막아 zod 의 한국어 안내가
-            그려지지 않는다(WP-900). 검증은 zod 스키마 한 곳에서 한다. */}
+        {/* noValidate — 날짜 칸 min/max·부모 번호 칸 min/step 을 넘는 값이면 브라우저 기본 검증(영문 말풍선)이 제출을 먼저
+            막아 zod 의 한국어 안내가 그려지지 않는다(WP-900·WP-906). 검증은 zod 스키마 한 곳에서 한다. */}
         <form noValidate onSubmit={f.onSubmit} className="space-y-4">
           {/* 보드 컬럼에서 연 경우 그 상태로 만들어진다는 것을 알린다(WP-464). */}
           {f.statusNote && (

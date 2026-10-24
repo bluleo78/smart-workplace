@@ -15,6 +15,9 @@ const optionalDateKey = z
   .refine((v) => v === '' || isSupportedDateKey(v), SUPPORTED_DATE_RANGE_MESSAGE)
   .optional();
 
+/** 이슈 번호 상한 — 서버 이슈 number(Int) 최댓값. */
+const MAX_ISSUE_NUMBER = 2147483647;
+
 export const createIssueSchema = z
   .object({
     // 공백만 있는 제목을 서버 왕복 없이 클라이언트에서 즉시 막기 위해 trim 후 검증 (#612).
@@ -34,8 +37,12 @@ export const createIssueSchema = z
     // error: valueAsNumber 빈 값 → NaN 변환 시 한국어 오류 표시 (#159). Zod v4 에서는 invalid_type_error 대신 error.
     parentNumber: z
       .number({ error: '부모 이슈 번호를 입력해주세요' })
-      .int()
-      .positive()
+      // 서버 number 는 int(32비트) — 넘으면 원인 모를 「요청 본문을 해석할 수 없습니다」 400 이라 저장 전에 알린다(WP-906).
+      // 아주 큰 수는 안전 정수도 아니라 .int() 에도 걸리므로, 먼저 안내되도록 상한 검사를 앞에 둔다.
+      .max(MAX_ISSUE_NUMBER, `부모 이슈 번호는 ${MAX_ISSUE_NUMBER} 이하여야 합니다`)
+      // 0·소수·음수는 zod 기본 영문 메시지가 그대로 보이던 것을 한국어로 바꾼다(WP-906).
+      .int('부모 이슈 번호는 1 이상의 정수여야 합니다')
+      .positive('부모 이슈 번호는 1 이상의 정수여야 합니다')
       .optional()
       .nullable(),
   })

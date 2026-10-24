@@ -67,7 +67,7 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
           onOpenAutoFocus={(e) => e.preventDefault()}
           className="fixed inset-x-0 top-[var(--vv-top,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] outline-none [:root[data-keyboard-open]_&]:pb-0"
         >
-          <form onSubmit={f.onSubmit} className="flex min-h-0 flex-1 flex-col">
+          <form onSubmit={f.onSubmit} noValidate className="flex min-h-0 flex-1 flex-col">
             {/* 헤더 — 좌우 16px 거터(px-4). 취소는 -ml-3 으로 글자를 거터에 맞추고(버튼 패딩만큼 당김),
                 생성은 보이는 높이 36px(h-9) + HIT_EXPAND 로 터치 영역 44px 유지. */}
             <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4">
