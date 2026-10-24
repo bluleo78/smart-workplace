@@ -373,6 +373,14 @@ test.describe('messaging 채널 헤더·아카이브', () => {
     await expect(page.getByTestId('channel-not-found')).toBeVisible()
   })
 
+  // WP-925: 번호가 숫자가 아니면 조회가 시작되지 않아 「불러오는 중…」에 멈추던 것 — 채널 없음 안내로, 다시 시도 없이.
+  test('채널 번호가 숫자가 아니면 채널 없음 안내가 보이고 「다시 시도」는 없다', async ({ authenticatedPage: page }) => {
+    await page.goto('/chat/channels/abc')
+    await expect(page.getByTestId('channel-not-found')).toBeVisible()
+    await expect(page.getByText('불러오는 중…')).toHaveCount(0)
+    await expect(page.getByTestId('channel-not-found').getByRole('button', { name: '다시 시도' })).toHaveCount(0)
+  })
+
   test('채널 헤더 h-14 정렬 + 설정 드롭다운 동작', async ({ authenticatedPage: page }) => {
     // OWNER 권한 채널 진입 — stubChannelView 재사용.
     const ch = createChannel({ id: 45, name: '헤더테스트', role: 'OWNER', member: true })

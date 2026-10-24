@@ -1,5 +1,6 @@
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
+import { createProject } from '../../factories/project.factory';
 
 // 존재하지 않는 프로젝트/이슈 접근 시 404 패턴(아이콘+제목+설명+액션 버튼) 회귀 테스트 (#787).
 // 이전에는 <p> 한 줄("프로젝트를 불러올 수 없습니다")만 렌더해 액션이 전혀 없었다.
@@ -63,5 +64,18 @@ test.describe('리소스 로드 실패 화면 (#787)', () => {
     await listButton.click();
 
     await expect(page).toHaveURL(/\/projects$/);
+  });
+
+  // WP-925: 이슈 번호가 숫자가 아니면 조회 없이 같은 「이슈를 찾을 수 없습니다」 화면 — 소용없는 「다시 시도」를 보이지 않는다.
+  test('이슈 번호가 숫자가 아니면 이슈 없음 화면이 보이고 「다시 시도」는 없다 (WP-925)', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ key: 'WP' }));
+
+    await page.goto('/projects/WP/issues/abc');
+
+    await expect(page.getByText('이슈를 찾을 수 없습니다')).toBeVisible();
+    await expect(page.getByText('태스크를 찾을 수 없습니다')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '다시 시도' })).toHaveCount(0);
+    await page.getByRole('button', { name: '프로젝트로 돌아가기' }).click();
+    await expect(page).toHaveURL(/\/projects\/WP$/);
   });
 });

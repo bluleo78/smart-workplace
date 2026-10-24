@@ -471,7 +471,9 @@ export default function IssueDetailPage() {
   if (isLoading) return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   // 원격 삭제(resource.changed deleted) 후 재조회가 404 면 TanStack Query 가 마지막 data 를 남기므로,
   // data 유무보다 먼저 404 를 확인해 stale 이슈(편집 컨트롤 포함) 대신 not-found 상태를 보여준다.
-  if (isNotFoundError(error))
+  // 주소의 번호가 1 이상의 정수가 아니면(/issues/abc) 조회 자체를 하지 않으므로 같은 not-found 로 보인다(WP-925) —
+  // 아래의 「다시 시도」 안내는 다시 해도 소용이 없다.
+  if (isNotFoundError(error) || !(Number.isInteger(issueNumber) && issueNumber > 0))
     return (
       <ResourceErrorState
         icon={FileQuestion}

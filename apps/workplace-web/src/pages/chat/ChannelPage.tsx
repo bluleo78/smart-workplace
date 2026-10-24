@@ -188,15 +188,20 @@ export default function ChannelPage() {
     : { id: 0, name: '', kind: 'HUMAN' as UserKind }
   const create = useCreateMessage(channelId ?? 0, me)
 
+  // 주소의 채널 번호가 1 이상의 정수가 아니면(/chat/channels/abc) 조회가 시작되지 않아 「불러오는 중…」에 멈췄다(WP-925).
+  // 없는 채널과 같게 안내하되, 다시 해도 소용없으니 「다시 시도」는 두지 않는다.
+  const validChannelId = Number.isInteger(channelId) && (channelId ?? 0) > 0
   // 비공개 비멤버 등 404 → 존재 은닉(채널 없음 안내).
-  if (detail.isError) {
+  if (!validChannelId || detail.isError) {
     return (
       <div
         className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground"
         data-testid="channel-not-found"
       >
         <p className="text-sm text-destructive">채널을 찾을 수 없습니다.</p>
-        <Button variant="outline" size="sm" onClick={() => detail.refetch()}>다시 시도</Button>
+        {validChannelId && (
+          <Button variant="outline" size="sm" onClick={() => detail.refetch()}>다시 시도</Button>
+        )}
       </div>
     )
   }
