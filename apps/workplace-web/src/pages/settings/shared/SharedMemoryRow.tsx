@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useDeleteSharedAiMemory, useUpdateSharedAiMemory } from '@/hooks/queries/useSharedAiMemories';
 import { formatDateOnly } from '@/lib/formatters';
+import { itemActionLabel } from '@/lib/itemActionLabel'
 import { sharedRowMeta } from '@/lib/sharedAiMemory';
 import { AiMemoryContentEditor } from '@/pages/settings/AiMemoryContentEditor';
 import type { SharedAiMemoryItem, SharedSpaceRef } from '@/types/sharedAiMemory';
@@ -49,7 +50,7 @@ export function SharedMemoryRow({ item, space }: { item: SharedAiMemoryItem; spa
                 variant="ghost"
                 size="icon"
                 className="size-7 pointer-coarse:size-11"
-                aria-label="수정"
+                aria-label={itemActionLabel(item.content, '메모리', '수정')}
                 data-testid="shared-memory-edit"
                 onClick={() => {
                   setDraft(item.content);
@@ -62,7 +63,7 @@ export function SharedMemoryRow({ item, space }: { item: SharedAiMemoryItem; spa
                 variant="ghost"
                 size="icon"
                 className="size-7 text-muted-foreground hover:text-destructive pointer-coarse:size-11"
-                aria-label="삭제"
+                aria-label={itemActionLabel(item.content, '메모리', '삭제')}
                 data-testid="shared-memory-delete"
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(item.id)}

@@ -60,8 +60,11 @@ test('셰브론 토글로 그룹 접힘/펼침', async ({ authenticatedPage: pag
   await page.goto('/drive/attachments')
   const firstGroup = page.getByTestId('drive-attachment-group').nth(0)
   await expect(firstGroup.getByTestId('drive-attachment-row-1')).toBeVisible()
+  // WP-940 — 접기 버튼 이름에 묶음 이름을 붙여 어느 묶음의 버튼인지 구분한다.
+  await expect(firstGroup.getByTestId('drive-attachment-group-toggle')).toHaveAccessibleName('PROJ-123 제목 묶음 접기')
   await firstGroup.getByTestId('drive-attachment-group-toggle').click()
   await expect(firstGroup.getByTestId('drive-attachment-row-1')).toHaveCount(0)
+  await expect(firstGroup.getByTestId('drive-attachment-group-toggle')).toHaveAccessibleName('PROJ-123 제목 묶음 펼치기')
   await firstGroup.getByTestId('drive-attachment-group-toggle').click()
   await expect(firstGroup.getByTestId('drive-attachment-row-1')).toBeVisible()
 })

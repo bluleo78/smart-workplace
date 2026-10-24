@@ -19,6 +19,7 @@ import { useDeleteAiMemory, usePinAiMemory, useUpdateAiMemory } from '@/hooks/qu
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { type AiMemoryScopeKey, expiryPatch, MEMORY_LINK, purgeDateKey, scopeKeyOf } from '@/lib/aiMemory';
 import { formatDateOnly, formatDateOnlyMonthDay } from '@/lib/formatters';
+import { itemActionLabel } from '@/lib/itemActionLabel'
 import { cn } from '@/lib/utils';
 import { AiMemoryContentEditor } from '@/pages/settings/AiMemoryContentEditor';
 import { AiMemoryExpiryPicker } from '@/pages/settings/AiMemoryExpiryPicker';
@@ -209,7 +210,7 @@ export function AiMemoryRow({
               variant="ghost"
               size="icon"
               className="size-7 pointer-coarse:size-11"
-              aria-label="수정"
+              aria-label={itemActionLabel(item.content, '메모리', '수정')}
               data-testid="ai-memory-edit"
               onClick={startEdit}
             >
@@ -219,7 +220,7 @@ export function AiMemoryRow({
               variant="ghost"
               size="icon"
               className="size-7 text-muted-foreground hover:text-destructive pointer-coarse:size-11"
-              aria-label="삭제"
+              aria-label={itemActionLabel(item.content, '메모리', '삭제')}
               data-testid="ai-memory-delete"
               disabled={remove.isPending}
               onClick={() => remove.mutate(item)}

@@ -692,6 +692,8 @@ test.describe('메시지 좌/우 분리', () => {
   test('본인 메시지 툴바 — hover 없이 키보드 포커스만으로 접근 가능하다 (#809)', async ({ authenticatedPage: page }) => {
     const toolbar = page.getByTestId('message-toolbar-33')
     const editButton = toolbar.getByRole('button', { name: '수정' })
+    // WP-940 — 긴 본문은 20자 미리보기로 잘려 이름에 붙는다.
+    await expect(editButton).toHaveAccessibleName(/^「.{20}…」 메시지 수정$/)
     await expect(toolbar).toHaveCSS('opacity', '0')
     await editButton.focus()
     await expect(toolbar).toHaveCSS('opacity', '1')

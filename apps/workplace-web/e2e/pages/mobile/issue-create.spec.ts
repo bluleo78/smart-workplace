@@ -356,7 +356,8 @@ test.describe('생성 칩 줄', () => {
       await page.route((u) => u.pathname === p, (r) => r.fulfill(json([])));
     }
     await page.goto(`/projects/${PKEY}`);
-    await page.getByRole('button', { name: '빠른 추가', exact: true }).click();
+    // 빈 개인 목록은 본문에도 「빠른 추가」(personal-empty-create, WP-914)가 있어 머리말의 버튼으로 좁힌다.
+    await page.getByTestId('page-header').getByRole('button', { name: '빠른 추가', exact: true }).click();
     await expect(page.getByTestId('issue-create-sheet')).toBeVisible();
     await expect(page.getByTestId('create-chip-priority')).toBeVisible();
     await expect(page.getByTestId('create-chip-type')).toHaveCount(0);
