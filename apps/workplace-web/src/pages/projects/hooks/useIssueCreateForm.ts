@@ -7,7 +7,7 @@ import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useProject } from '../../../hooks/queries/useProjects';
-import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
+import { isStatusGoneError, useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
@@ -134,7 +134,9 @@ export function useIssueCreateForm({
       startDate: data.startDate || undefined,
       body: data.body || undefined,
       typeId: data.typeId ?? undefined,
-      statusId: initialStatusId,
+      // 넘겨받은 상태가 지금 목록에 없으면(삭제돼 409 STATUS_DELETED·400 STATUS_NOT_FOUND 뒤 목록을 다시 받음, WP-936) 빼고 보낸다 — 서버가 할 일 기본
+      // 상태로 만든다. 그대로 실으면 다시 눌러도 같은 409 만 되풀이한다. 목록을 아직 모르면(빈 배열) 넘겨받은 값을 그대로 싣는다.
+      statusId: initialStatus?.id ?? (statuses.length === 0 ? initialStatusId : undefined),
       // SUBTASK=부모 태스크 번호, 일반 이슈=모바일 에픽 칩(R8, 백엔드는 일반 이슈 부모로 EPIC 만 허용), EPIC=부모 불가.
       parentNumber: resolveParentNumber({
         isSubtask: isSubtaskSelected,
@@ -149,7 +151,13 @@ export function useIssueCreateForm({
       reset({ priority: 'MID' });
       onOpenChange(false);
     } catch (e) {
-      handleApiError(e, '태스크 생성에 실패했습니다');
+      // 처음 상태가 없어졌으면(WP-936) 서버 문구 「다른 상태를 골라 주세요」 대신 결과를 알린다 — 다이얼로그엔 상태 고르기가 없고,
+      // 목록을 다시 받으면 위 statusId 가 빠져 다시 누르면 할 일 기본 상태로 만들어진다.
+      if (isStatusGoneError(e)) {
+        toast.error(`상태가 방금 삭제됐어요. 다시 만들면 '${defaultStatusOf(statuses, 'TODO')?.name ?? '할 일'}'로 만들어져요.`);
+      } else {
+        handleApiError(e, '태스크 생성에 실패했습니다');
+      }
     }
   };
 

@@ -14,6 +14,7 @@ import com.workplace.drive.repository.DriveFileVersionRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.jooq.tables.File;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -170,7 +171,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
 
     // 이슈 첨부 (오래된)
     ProjectResponse proj = newProject(caller, "VA");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "VA 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "VA 이슈", null, "MID", null, caller);
     long issueFileId = seedFile(caller, "issue.txt", null);
     OffsetDateTime olderAt = OffsetDateTime.now(ZoneOffset.UTC).minusHours(2);
     bindIssueAttachment(issueFileId, issue.id(), caller, olderAt);
@@ -205,7 +207,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long caller = seedUser("caller2");
 
     ProjectResponse proj = newProject(caller, "SF");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "SF 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "SF 이슈", null, "MID", null, caller);
     long issueFileId = seedFile(caller, "issue-sf.txt", null);
     bindIssueAttachment(issueFileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -228,7 +231,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long caller = seedUser("caller3");
 
     ProjectResponse proj = newProject(caller, "QF2");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "QF 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "QF 이슈", null, "MID", null, caller);
     long matchId = seedFile(caller, "report-2024.pdf", null);
     long noMatchId = seedFile(caller, "readme.txt", null);
     OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -247,7 +251,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long caller = seedUser("caller4");
 
     ProjectResponse proj = newProject(caller, "CP");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "CP 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "CP 이슈", null, "MID", null, caller);
 
     // 3개 첨부, 시간 간격 두기
     OffsetDateTime base = OffsetDateTime.now(ZoneOffset.UTC).minusHours(1);
@@ -274,7 +279,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long stranger = seedUser("stranger5");
 
     ProjectResponse proj = newProject(owner, "OE");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "OE 이슈", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "OE 이슈", null, "MID", null, owner);
     long fileId = seedFile(owner, "owner-file.txt", null);
     bindIssueAttachment(fileId, issue.id(), owner, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -304,7 +310,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long caller = seedUser("wp722a");
     long spaceId = seedSpace(caller, "EDITOR");
     ProjectResponse proj = newProject(caller, "DA");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "가져간 첨부", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "가져간 첨부", null, "MID", null, caller);
     long fileId = seedFile(caller, "메모.txt", null);
     bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
     DriveFileResponse imported = service.importAttachment(caller, spaceId, null, fileId);
@@ -322,7 +329,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long caller = seedUser("wp722b");
     long spaceId = seedSpace(caller, "EDITOR");
     ProjectResponse proj = newProject(caller, "DB");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "휴지통 첨부", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "휴지통 첨부", null, "MID", null, caller);
     long fileId = seedFile(caller, "메모.txt", null);
     bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
     DriveFileResponse imported = service.importAttachment(caller, spaceId, null, fileId);
@@ -342,7 +350,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
   void deleteIssueAttachment_notImported_removesFileRow() {
     long caller = seedUser("wp722c");
     ProjectResponse proj = newProject(caller, "DC");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "일반 첨부", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "일반 첨부", null, "MID", null, caller);
     long fileId = seedFile(caller, "메모.txt", null);
     bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -361,7 +370,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
 
     // 이슈 첨부 시드
     ProjectResponse proj = newProject(caller, "IM");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "import 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "import 이슈", null, "MID", null, caller);
     // expires_at 설정(비-null)으로 시드 → promote 후 null 확인
     OffsetDateTime expiry = OffsetDateTime.now(ZoneOffset.UTC).plusDays(1);
     long fileId = seedFile(caller, "import.txt", expiry);
@@ -393,7 +403,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long caller = seedUser("editor");
     long spaceId = seedSpace(caller, "EDITOR");
     ProjectResponse proj = newProject(caller, "IS");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "import 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "import 이슈", null, "MID", null, caller);
     long fileId = seedFile(caller, "../a\u202Etxt.exe", null);
     bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -407,7 +418,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long caller = seedUser("editor9");
     long spaceId = seedSpace(caller, "EDITOR");
     ProjectResponse proj = newProject(caller, "DN");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "DN 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "DN 이슈", null, "MID", null, caller);
     long fileId = seedFile(caller, "same.txt", null);
     bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -432,7 +444,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
             .fetchOne()
             .getId();
     ProjectResponse proj = newProject(caller, "OF");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "OF 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "OF 이슈", null, "MID", null, caller);
     long fileId = seedFile(caller, "of.txt", null);
     bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -447,7 +460,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     long spaceId = seedSpace(viewer, "VIEWER");
 
     ProjectResponse proj = newProject(viewer, "VB");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "VB 이슈", null, "MID", null, viewer);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "VB 이슈", null, "MID", null, viewer);
     long fileId = seedFile(viewer, "vb.txt", null);
     bindIssueAttachment(fileId, issue.id(), viewer, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -464,7 +478,9 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
     // 다른 유저의 파일 — editor 는 해당 프로젝트 비멤버
     long stranger = seedUser("str7");
     ProjectResponse otherProj = newProject(stranger, "ST");
-    IssueRow otherIssue = issueRepo.insert(otherProj.id(), 1, "남의 이슈", null, "MID", null, stranger);
+    IssueRow otherIssue =
+        IssueSeeds.insert(
+            issueRepo, baseDsl, otherProj.id(), 1, "남의 이슈", null, "MID", null, stranger);
     long otherFileId = seedFile(stranger, "other.txt", null);
     bindIssueAttachment(otherFileId, otherIssue.id(), stranger, OffsetDateTime.now(ZoneOffset.UTC));
 
@@ -486,7 +502,8 @@ class DriveVirtualAttachmentServiceTest extends IntegrationTestBase {
 
     // 이슈 첨부 시드
     ProjectResponse proj = newProject(caller, "EV");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "버전제외 이슈", null, "MID", null, caller);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "버전제외 이슈", null, "MID", null, caller);
     long fileId = seedFile(caller, "versionless.txt", null);
     bindIssueAttachment(fileId, issue.id(), caller, OffsetDateTime.now(ZoneOffset.UTC));
 

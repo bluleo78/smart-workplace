@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -32,7 +33,9 @@ class IssueSourceRepositoryTest extends IntegrationTestBase {
             .create(userId, new CreateProjectRequest(uniqueKey("SRC"), "Source 테스트", "x"))
             .id();
     long issueId =
-        issueRepository.insert(projectId, 1, "출처 테스트 이슈", null, "MID", null, userId).id();
+        IssueSeeds.insert(
+                issueRepository, baseDsl, projectId, 1, "출처 테스트 이슈", null, "MID", null, userId)
+            .id();
     long mailMessageId = 7777L;
 
     try {
@@ -63,7 +66,10 @@ class IssueSourceRepositoryTest extends IntegrationTestBase {
         projectService
             .create(userId, new CreateProjectRequest(uniqueKey("DPJ"), "삭제될 프로젝트", "x"))
             .id();
-    long issueId = issueRepository.insert(projectId, 1, "비밀 제목", null, "MID", null, userId).id();
+    long issueId =
+        IssueSeeds.insert(
+                issueRepository, baseDsl, projectId, 1, "비밀 제목", null, "MID", null, userId)
+            .id();
     long mailMessageId = 7788L;
     try {
       issueRepository.updateSource(issueId, "MAIL", mailMessageId);

@@ -6,6 +6,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.exception.AttachmentLimitExceededException;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.jooq.Tables;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -98,7 +99,7 @@ class IssueAttachmentConcurrentUploadTest extends IntegrationTestBase {
     Long owner = createUser("owner");
     ProjectResponse project =
         projectService.create(owner, new CreateProjectRequest(uniqueKey("CC"), "P-CC", "x"));
-    issueRepository.insert(project.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, project.id(), 1, "t", null, "MID", null, owner);
 
     ExecutorService pool = Executors.newFixedThreadPool(2);
     CountDownLatch ready = new CountDownLatch(2);

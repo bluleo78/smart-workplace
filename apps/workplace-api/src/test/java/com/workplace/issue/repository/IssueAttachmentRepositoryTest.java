@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -75,7 +76,8 @@ class IssueAttachmentRepositoryTest extends IntegrationTestBase {
   void insert_and_find_by_issue() {
     Long owner = createUser("a");
     ProjectResponse p = newProject(owner, "AT");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     Long fileId = insertFileRow(owner, "a.txt");
 
     repo.insert(fileId, issue.id(), owner);
@@ -91,8 +93,10 @@ class IssueAttachmentRepositoryTest extends IntegrationTestBase {
   void count_by_issue_ids_returns_zero_for_missing() {
     Long owner = createUser("b");
     ProjectResponse p = newProject(owner, "AT");
-    IssueRow issue1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner);
-    IssueRow issue2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner);
+    IssueRow issue1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner);
+    IssueRow issue2 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "t2", null, "MID", null, owner);
     // issue1 에 첨부 2개
     repo.insert(insertFileRow(owner, "x.txt"), issue1.id(), owner);
     repo.insert(insertFileRow(owner, "y.txt"), issue1.id(), owner);
@@ -108,7 +112,8 @@ class IssueAttachmentRepositoryTest extends IntegrationTestBase {
   void find_by_id_returns_user_name() {
     Long owner = createUser("attacher-name");
     ProjectResponse p = newProject(owner, "AT");
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     Long fileId = insertFileRow(owner, "doc.pdf");
     repo.insert(fileId, issue.id(), owner);
 

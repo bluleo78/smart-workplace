@@ -12,11 +12,13 @@ import com.workplace.issue.dto.IssueGroupCountsResponse.GroupCount;
 import com.workplace.issue.exception.InvalidCursorException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -71,7 +73,11 @@ class IssueSearchServiceGroupCountsTest extends IntegrationTestBase {
   }
 
   private void setStatus(Long issueId, String status) {
-    dsl.update(ISSUE).set(ISSUE.STATUS, status).where(ISSUE.ID.eq(issueId)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, status))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
   }
 
   @Test
@@ -80,7 +86,8 @@ class IssueSearchServiceGroupCountsTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "GC1");
     // 35건 — 한 페이지(30)보다 많다. TODO 32 · DONE 3
     for (int n = 1; n <= 35; n++) {
-      var row = issueRepository.insert(p.id(), n, "i" + n, null, "MID", null, owner);
+      var row =
+          IssueSeeds.insert(issueRepository, baseDsl, p.id(), n, "i" + n, null, "MID", null, owner);
       if (n > 32) setStatus(row.id(), "DONE");
     }
 
@@ -94,9 +101,9 @@ class IssueSearchServiceGroupCountsTest extends IntegrationTestBase {
   void counts_follow_the_same_filters_as_search() {
     Long owner = createUser("gf");
     ProjectResponse p = newProject(owner, "GC2");
-    issueRepository.insert(p.id(), 1, "alpha one", null, "HIGH", null, owner);
-    issueRepository.insert(p.id(), 2, "alpha two", null, "LOW", null, owner);
-    issueRepository.insert(p.id(), 3, "beta", null, "HIGH", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "alpha one", null, "HIGH", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "alpha two", null, "LOW", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 3, "beta", null, "HIGH", null, owner);
 
     var resp =
         searchService.groupCounts(owner, p.key(), Map.of("groupBy", "priority", "q", "alpha"));
@@ -115,10 +122,12 @@ class IssueSearchServiceGroupCountsTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "GC3");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(u2, "MEMBER"));
-    var both = issueRepository.insert(p.id(), 1, "both", null, "MID", null, owner);
-    var only1 = issueRepository.insert(p.id(), 2, "only1", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 3, "none-a", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 4, "none-b", null, "MID", null, owner);
+    var both =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "both", null, "MID", null, owner);
+    var only1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "only1", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 3, "none-a", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 4, "none-b", null, "MID", null, owner);
     assigneeRepository.add(both.id(), u1, owner);
     assigneeRepository.add(both.id(), u2, owner);
     assigneeRepository.add(only1.id(), u1, owner);

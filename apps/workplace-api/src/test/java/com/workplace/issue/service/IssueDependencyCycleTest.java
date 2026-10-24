@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.DependencyCycleException;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -56,7 +57,8 @@ class IssueDependencyCycleTest extends IntegrationTestBase {
   }
 
   private IssueRow newTask(Long projectId, int number, String title, Long reporterId) {
-    return issueRepository.insert(projectId, number, title, "b", "MID", null, reporterId);
+    return IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, number, title, "b", "MID", null, reporterId);
   }
 
   @Test

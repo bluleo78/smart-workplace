@@ -11,6 +11,7 @@ import com.workplace.cycle.dto.CreateCycleRequest;
 import com.workplace.cycle.service.CycleService;
 import com.workplace.issue.exception.InvalidIssueFilterException;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.milestone.dto.CreateMilestoneRequest;
 import com.workplace.milestone.service.MilestoneService;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -80,9 +81,13 @@ class IssueSearchMilestoneCycleFilterTest extends IntegrationTestBase {
                 new CreateCycleRequest(
                     "스프린트 1", null, LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 14), null))
             .id();
-    var i1 = issueRepository.insert(project.id(), 1, "마일스톤", null, "MID", null, ownerId);
-    var i2 = issueRepository.insert(project.id(), 2, "사이클", null, "MID", null, ownerId);
-    issueRepository.insert(project.id(), 3, "없음", null, "MID", null, ownerId);
+    var i1 =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, project.id(), 1, "마일스톤", null, "MID", null, ownerId);
+    var i2 =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, project.id(), 2, "사이클", null, "MID", null, ownerId);
+    IssueSeeds.insert(issueRepository, baseDsl, project.id(), 3, "없음", null, "MID", null, ownerId);
     dsl.update(ISSUE).set(ISSUE.MILESTONE_ID, milestoneId).where(ISSUE.ID.eq(i1.id())).execute();
     dsl.insertInto(ISSUE_CYCLE)
         .set(ISSUE_CYCLE.ISSUE_ID, i2.id())

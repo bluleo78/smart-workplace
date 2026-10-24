@@ -285,7 +285,8 @@ class IssueCreateWithMetaTest extends IntegrationTestBase {
   /** 처음 상태만 지정한 생성 요청(WP-464). */
   private static CreateIssueRequest withStatus(String title, String status) {
     return new CreateIssueRequest(
-        title, null, null, null, null, null, null, null, null, null, null, null, null, status);
+        title, null, null, null, null, null, null, null, null, null, null, null, null, status,
+        null);
   }
 
   /** WP-464 — 보드 컬럼의 「이슈 추가」처럼 처음 상태를 지정해 만든다. 종료 상태면 closed_at 도 채운다. 미지정은 할 일. */

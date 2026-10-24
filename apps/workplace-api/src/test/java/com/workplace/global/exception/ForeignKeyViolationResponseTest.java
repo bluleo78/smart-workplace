@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import com.workplace.global.dto.ErrorResponse;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.IssueTypeService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -84,6 +85,8 @@ class ForeignKeyViolationResponseTest extends IntegrationTestBase {
     String key = "F" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
     var project = projectRepository.insert(key, "fk", null, owner, "TEAM", false);
     issueTypeService.seedSystemTypes(project.id(), true);
-    return issueRepository.insert(project.id(), 1, "t", null, "MID", null, owner).id();
+    return IssueSeeds.insert(
+            issueRepository, baseDsl, project.id(), 1, "t", null, "MID", null, owner)
+        .id();
   }
 }

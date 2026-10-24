@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.*;
 import com.workplace.drive.dto.DriveLinkResponse;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.jooq.tables.File;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -83,7 +84,8 @@ class IssueDriveLinkServiceTest extends IntegrationTestBase {
 
   /** 이슈 생성. */
   private void issue(ProjectResponse project, int number, Long owner) {
-    issueRepository.insert(project.id(), number, "t", null, "MID", null, owner);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, project.id(), number, "t", null, "MID", null, owner);
   }
 
   /**

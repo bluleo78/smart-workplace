@@ -12,6 +12,7 @@ import type { IssueResponse, IssueStatus } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
 import { toastStatusChange } from './closedHidingToast';
 import { copyIssueIntoStatusColumn, patchIssueInSearchCache } from './issueSearchCache';
+import { refreshStatusesIfGone } from './useProjectStatuses';
 
 /** 상태 변경 변수 — 옮겨 갈 프로젝트 상태(WP-808). 호출부(보드 드롭·행 메뉴)는 늘 고른 상태 전체를 안다. */
 export interface UpdateIssueStatusVars {
@@ -50,6 +51,8 @@ export function useUpdateIssueStatus(projectKey: string, closedHiding?: ClosedHi
     onError: (err, _vars, ctx) => {
       ctx?.restore();
       handleApiError(err, '태스크 상태 변경에 실패했습니다');
+      // 고른 상태가 삭제돼 없으면(WP-936) 상태 목록을 다시 받아 보드 컬럼·고르기에서 지운다.
+      refreshStatusesIfGone(qc, projectKey, err);
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['issues', 'search', projectKey] });

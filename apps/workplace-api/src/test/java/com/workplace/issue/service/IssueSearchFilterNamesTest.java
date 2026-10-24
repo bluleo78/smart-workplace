@@ -12,6 +12,7 @@ import com.workplace.issue.exception.InvalidIssueFilterException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.label.dto.CreateLabelRequest;
 import com.workplace.label.service.LabelService;
 import com.workplace.project.dto.CreateProjectRequest;
@@ -81,8 +82,9 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner.id(), "FLA");
     var bug = labelService.create(owner.id(), p.key(), new CreateLabelRequest("Bug", "RED"));
     var docs = labelService.create(owner.id(), p.key(), new CreateLabelRequest("문서", "BLUE"));
-    issueRepository.insert(p.id(), 1, "both", null, "MID", null, owner.id());
-    issueRepository.insert(p.id(), 2, "bug-only", null, "MID", null, owner.id());
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "both", null, "MID", null, owner.id());
+    IssueSeeds.insert(
+        issueRepository, baseDsl, p.id(), 2, "bug-only", null, "MID", null, owner.id());
     issueLabelService.replace(owner.id(), p.key(), 1, List.of(bug.id(), docs.id()));
     issueLabelService.replace(owner.id(), p.key(), 2, List.of(bug.id()));
 
@@ -112,7 +114,7 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     TestUser owner = createUser("fn", true);
     ProjectResponse p = newProject(owner.id(), "FLN");
     var bug = labelService.create(owner.id(), p.key(), new CreateLabelRequest("버그", "RED"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner.id());
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner.id());
     issueLabelService.replace(owner.id(), p.key(), 1, List.of(bug.id()));
 
     var resp = searchService.search(owner.id(), p.key(), Map.of("label", String.valueOf(bug.id())));
@@ -125,8 +127,8 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     TestUser owner = createUser("ft", true);
     ProjectResponse p = newProject(owner.id(), "FTY");
     var bugType = typeRepository.findByProjectAndName(p.id(), "BUG").orElseThrow();
-    issueRepository.insert(p.id(), 1, "a-bug", null, "MID", null, owner.id());
-    issueRepository.insert(p.id(), 2, "other", null, "MID", null, owner.id());
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "a-bug", null, "MID", null, owner.id());
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "other", null, "MID", null, owner.id());
     dsl.update(ISSUE)
         .set(ISSUE.TYPE_ID, bugType.id())
         .where(ISSUE.PROJECT_ID.eq(p.id()).and(ISSUE.NUMBER.eq(1)))
@@ -146,8 +148,12 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     TestUser owner = createUser("fo", true);
     TestUser mate = createUser("fm", true);
     ProjectResponse p = newProject(owner.id(), "FAS");
-    var mine = issueRepository.insert(p.id(), 1, "by-owner", null, "MID", null, owner.id());
-    var mates = issueRepository.insert(p.id(), 2, "by-mate", null, "MID", null, mate.id());
+    var mine =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, p.id(), 1, "by-owner", null, "MID", null, owner.id());
+    var mates =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, p.id(), 2, "by-mate", null, "MID", null, mate.id());
     assigneeRepository.add(mates.id(), mate.id(), owner.id());
 
     var assigned =
@@ -167,7 +173,8 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     TestUser upper = createNamedUser(base.toUpperCase());
     TestUser lower = createNamedUser(base);
     ProjectResponse p = newProject(owner.id(), "FKC");
-    var i = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner.id());
+    var i =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner.id());
     assigneeRepository.add(i.id(), lower.id(), owner.id());
 
     var exact = searchService.search(owner.id(), p.key(), Map.of("assignee", lower.username()));
@@ -229,8 +236,10 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     var la = labelService.create(caller.id(), a.key(), new CreateLabelRequest("공통", "RED"));
     var lb = labelService.create(caller.id(), b.key(), new CreateLabelRequest("공통", "RED"));
     labelService.create(stranger.id(), foreign.key(), new CreateLabelRequest("외부전용", "RED"));
-    var ia = issueRepository.insert(a.id(), 1, "a", null, "MID", null, caller.id());
-    var ib = issueRepository.insert(b.id(), 1, "b", null, "MID", null, caller.id());
+    var ia =
+        IssueSeeds.insert(issueRepository, baseDsl, a.id(), 1, "a", null, "MID", null, caller.id());
+    var ib =
+        IssueSeeds.insert(issueRepository, baseDsl, b.id(), 1, "b", null, "MID", null, caller.id());
     assigneeRepository.add(ia.id(), caller.id(), caller.id());
     assigneeRepository.add(ib.id(), caller.id(), caller.id());
     issueLabelService.replace(caller.id(), a.key(), 1, List.of(la.id()));
@@ -253,8 +262,10 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
     TestUser caller = createUser("fp", true);
     ProjectResponse a = newProject(caller.id(), "FPA");
     ProjectResponse b = newProject(caller.id(), "FPB");
-    var ia = issueRepository.insert(a.id(), 1, "a", null, "MID", null, caller.id());
-    var ib = issueRepository.insert(b.id(), 1, "b", null, "MID", null, caller.id());
+    var ia =
+        IssueSeeds.insert(issueRepository, baseDsl, a.id(), 1, "a", null, "MID", null, caller.id());
+    var ib =
+        IssueSeeds.insert(issueRepository, baseDsl, b.id(), 1, "b", null, "MID", null, caller.id());
     assigneeRepository.add(ia.id(), caller.id(), caller.id());
     assigneeRepository.add(ib.id(), caller.id(), caller.id());
 
@@ -275,7 +286,8 @@ class IssueSearchFilterNamesTest extends IntegrationTestBase {
   void unknown_status_or_priority_is_rejected_and_lowercase_is_normalized() {
     TestUser owner = createUser("fs", true);
     ProjectResponse p = newProject(owner.id(), "FST");
-    issueRepository.insert(p.id(), 1, "todo-high", null, "HIGH", null, owner.id());
+    IssueSeeds.insert(
+        issueRepository, baseDsl, p.id(), 1, "todo-high", null, "HIGH", null, owner.id());
 
     var byLower =
         searchService.search(owner.id(), p.key(), Map.of("status", "todo", "priority", "high"));

@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -71,8 +72,10 @@ class IssueSearchServiceAssigneesTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "SA1");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(u2, "MEMBER"));
-    var i1 = issueRepository.insert(p.id(), 1, "with-assignees", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 2, "without", null, "MID", null, owner);
+    var i1 =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, p.id(), 1, "with-assignees", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "without", null, "MID", null, owner);
     assigneeRepository.add(i1.id(), u1, owner);
     assigneeRepository.add(i1.id(), u2, owner);
 
@@ -94,9 +97,11 @@ class IssueSearchServiceAssigneesTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "SA2");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(u2, "MEMBER"));
-    var i1 = issueRepository.insert(p.id(), 1, "u1-only", null, "MID", null, owner);
-    var i2 = issueRepository.insert(p.id(), 2, "u2-only", null, "MID", null, owner);
-    issueRepository.insert(p.id(), 3, "none", null, "MID", null, owner);
+    var i1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "u1-only", null, "MID", null, owner);
+    var i2 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "u2-only", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 3, "none", null, "MID", null, owner);
     assigneeRepository.add(i1.id(), u1, owner);
     assigneeRepository.add(i2.id(), u2, owner);
 

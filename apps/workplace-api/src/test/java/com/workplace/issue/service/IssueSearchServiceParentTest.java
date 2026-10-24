@@ -86,13 +86,13 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
         p.key(),
         c1.number(),
         new UpdateIssueRequest(
-            null, null, "DONE", null, null, false, null, false, null, false, null));
+            null, null, "DONE", null, null, false, null, false, null, false, null, null, null));
     issueService.update(
         owner,
         p.key(),
         c2.number(),
         new UpdateIssueRequest(
-            null, null, "CANCELED", null, null, false, null, false, null, false, null));
+            null, null, "CANCELED", null, null, false, null, false, null, false, null, null, null));
 
     Map<String, String> params = new HashMap<>();
     var resp = searchService.search(owner, p.key(), params);
@@ -339,7 +339,7 @@ class IssueSearchServiceParentTest extends IntegrationTestBase {
         p.key(),
         epic.number(),
         new UpdateIssueRequest(
-            null, null, "CANCELED", null, null, false, null, false, null, false, null));
+            null, null, "CANCELED", null, null, false, null, false, null, false, null, null, null));
     var after =
         searchService.search(owner, p.key(), params).items().stream()
             .filter(i -> i.number() == child.number())

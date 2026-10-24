@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { issuesApi } from '../../api/issues';
 import { handleApiError } from '../../lib/api-error';
 import type { CreateIssueRequest } from '../../types/issue';
+import { refreshStatusesIfGone } from './useProjectStatuses';
 
 export const issueKeys = {
   all: ['issues'] as const,
@@ -24,6 +25,10 @@ export function useCreateIssue(projectKey: string) {
       issuesApi.create(projectKey, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: issueKeys.search(projectKey) });
+    },
+    // 처음 상태가 삭제돼 없으면(WP-936) 상태 목록을 다시 받는다 — 실패 토스트는 호출부(생성 폼)가 서버 문구로 띄운다.
+    onError: (e) => {
+      refreshStatusesIfGone(qc, projectKey, e);
     },
   });
 }

@@ -44,72 +44,6 @@ public record CreateIssueRequest(
     @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status,
     Long statusId) {
 
-  /** WP-807 이전의 14-인자 호환 생성자 — 상태 id 없이(범주만) 만든다. */
-  public CreateIssueRequest(
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      List<Long> assigneeIds,
-      Long typeId,
-      Integer parentNumber,
-      LocalDate startDate,
-      List<Long> labelIds,
-      Long milestoneId,
-      List<Long> cycleIds,
-      List<String> labelNames,
-      List<Long> fileIds,
-      String status) {
-    this(
-        title,
-        body,
-        priority,
-        dueDate,
-        assigneeIds,
-        typeId,
-        parentNumber,
-        startDate,
-        labelIds,
-        milestoneId,
-        cycleIds,
-        labelNames,
-        fileIds,
-        status,
-        null);
-  }
-
-  /** WP-464 이전의 13-인자 호환 생성자 — 상태 없이(할 일) 만든다. */
-  public CreateIssueRequest(
-      String title,
-      String body,
-      String priority,
-      LocalDate dueDate,
-      List<Long> assigneeIds,
-      Long typeId,
-      Integer parentNumber,
-      LocalDate startDate,
-      List<Long> labelIds,
-      Long milestoneId,
-      List<Long> cycleIds,
-      List<String> labelNames,
-      List<Long> fileIds) {
-    this(
-        title,
-        body,
-        priority,
-        dueDate,
-        assigneeIds,
-        typeId,
-        parentNumber,
-        startDate,
-        labelIds,
-        milestoneId,
-        cycleIds,
-        labelNames,
-        fileIds,
-        null);
-  }
-
   /** WP-422 이전의 12-인자 호환 생성자 — 첨부(fileIds) 없이 만든다. 기존 호출부(JSON 역직렬화는 정식 생성자)가 그대로 쓴다. */
   public CreateIssueRequest(
       String title,
@@ -137,6 +71,8 @@ public record CreateIssueRequest(
         milestoneId,
         cycleIds,
         labelNames,
+        null,
+        null,
         null);
   }
 
@@ -159,7 +95,6 @@ public record CreateIssueRequest(
         typeId,
         parentNumber,
         startDate,
-        null,
         null,
         null,
         null,

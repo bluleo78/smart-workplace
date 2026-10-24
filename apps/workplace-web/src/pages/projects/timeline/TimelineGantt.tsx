@@ -15,7 +15,7 @@ import {
 import { addDays, format, parseISO } from 'date-fns'
 import { Diamond } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 
 import { formatDateKey } from '@/lib/formatters'
 import type { IssueStatus } from '@/types/issue'
@@ -62,8 +62,8 @@ export interface TimelineGanttProps {
   zoom: TimelineZoom
   /** 비멤버 조회 전용 모드 — 드래그/리사이즈/링크 편집 전면 비활성 */
   readOnly: boolean
-  /** [오늘] 버튼 등에서 특정 날짜로 스크롤 이동 */
-  scrollToDate?: string
+  /** [오늘] 버튼 등에서 특정 날짜로 스크롤 이동 — 요청마다 새 객체(seq)라 같은 날짜를 다시 눌러도 스크롤한다(WP-938). */
+  scrollRequest?: TimelineScrollRequest
   /** 조회 기간(WP-595) — 간트 축을 이 기간 앞뒤로 자르는 기준. null/없음이면 「전체」라 오늘 기준. */
   period?: { from: string; to: string } | null
   /** 막대 이동/리사이즈 저장. 실패하면 reject 해야 간트가 서버 상태로 되돌린다(아래 saveFailures 참조). */
@@ -110,6 +110,35 @@ const NO_ROLLUP_VALUES = ROLLUP_VARS.map(() => '')
 
 // 주 보기 위쪽 행은 주 경계에 맞춘 달(WP-605) — SVAR 기본 'month' 는 달 경계 주를 양쪽 달에 두 번 세어 축이 길수록
 // 아래쪽 주 칸보다 밀린다. 단위는 모듈 로드 때 한 번 등록한다(같은 이름 재등록은 덮어쓰기라 HMR 에도 안전).
+/** 걸어 둔 차트 스크롤 — 걸 날짜(건 뒤 비운다)와 예약한 프레임. */
+/**
+ * 스크롤 요청 — 날짜만 넘기면 같은 날짜를 다시 요청할 때(「전체」 기간에서 처음 진입 날짜 = 「오늘」, 「오늘」 두 번) 상태가
+ * 바뀌지 않아 효과가 다시 돌지 않았다(WP-938). 요청마다 seq 를 올린 새 객체로 넘겨 매번 스크롤하게 한다.
+ */
+export interface TimelineScrollRequest {
+  date: string
+  seq: number
+}
+
+interface PendingScroll {
+  date: string | null
+  frame: number
+}
+
+/**
+ * 한 프레임 뒤 scroll-chart 를 건다(이미 예약한 프레임은 취소). 그때 api 가 아직 없으면 날짜를 남겨 둔다 —
+ * api 가 붙을 때(Gantt ref) 다시 부른다. 효과·ref 콜백 두 곳에서 부르므로 refs 만 읽는 모듈 함수로 둔다(의존성 없음).
+ */
+function applyScroll(pending: PendingScroll, apiRef: RefObject<IApi | null>) {
+  cancelAnimationFrame(pending.frame)
+  pending.frame = requestAnimationFrame(() => {
+    const api = apiRef.current
+    if (!pending.date || !api) return
+    api.exec('scroll-chart', { date: parseISO(pending.date) })
+    pending.date = null
+  })
+}
+
 const WEEK_MONTH_UNIT = 'weekmonth'
 registerScaleUnit(WEEK_MONTH_UNIT, {
   start: weekMonthStart,
@@ -176,7 +205,7 @@ export function TimelineGantt({
   dependencies,
   zoom,
   readOnly,
-  scrollToDate,
+  scrollRequest,
   period,
   onBarChange,
   onBarClick,
@@ -370,10 +399,17 @@ export function TimelineGantt({
   const { resolvedTheme } = useTheme()
   const ThemeWrapper = resolvedTheme === 'dark' ? WillowDark : Willow
 
+  // scroll-chart 는 한 프레임 미뤄 부른다 — 간트가 처음 마운트되는 그 커밋에서 바로 부르면 SVAR 가 차트 폭을 재기 전이라
+  // 시간축 눈금·의존 화살표가 그려지지 않았다. 상태 목록 관문(WP-938) 뒤에 마운트되면 날짜가 이미 정해진 채 첫 커밋을 맞는다.
+  // 그 프레임에 아직 api 가 붙지 않았으면 날짜를 남겨 두었다가 api 가 붙을 때(아래 Gantt ref) 다시 건다(applyScroll).
+  const scrollRef = useRef<PendingScroll>({ date: null, frame: 0 })
   useEffect(() => {
-    if (!scrollToDate || !apiRef.current) return
-    apiRef.current.exec('scroll-chart', { date: parseISO(scrollToDate) })
-  }, [scrollToDate])
+    if (!scrollRequest) return
+    const pending = scrollRef.current
+    pending.date = scrollRequest.date
+    applyScroll(pending, apiRef)
+    return () => cancelAnimationFrame(pending.frame)
+  }, [scrollRequest])
 
   // 오늘 세로선 + 사이클 밴드 라벨 오버레이 — 스파이크 노트대로 `.wx-chart`(실 스크롤 컨테이너) 의
   // scroll 이벤트에서 순수 DOM transform 갱신(리액트 리렌더 없이 동기화, 성능 고려).
@@ -700,6 +736,8 @@ export function TimelineGantt({
                 api.on('open-task', (ev: { id: unknown; mode: boolean }) => {
                   if (isGroupTaskId(ev.id)) onToggleGroupRef.current(groupKeyFromTaskId(ev.id), ev.mode)
                 })
+                // 첫 진입 스크롤이 api 보다 먼저 와 남아 있으면 이제 건다(applyScroll).
+                if (scrollRef.current.date) applyScroll(scrollRef.current, apiRef)
               }
               if (!api) apiRef.current = null
             }}

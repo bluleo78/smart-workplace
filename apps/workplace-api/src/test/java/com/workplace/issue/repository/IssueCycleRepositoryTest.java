@@ -15,6 +15,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -59,6 +60,7 @@ class IssueCycleRepositoryTest extends IntegrationTestBase {
   private void setStatus(String projectKey, int number, String status, Long projectId) {
     dsl.update(ISSUE)
         .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, status))
         .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.NUMBER.eq(number)))
         .execute();
   }

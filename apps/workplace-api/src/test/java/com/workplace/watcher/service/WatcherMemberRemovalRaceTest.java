@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -61,7 +62,9 @@ class WatcherMemberRemovalRaceTest extends IntegrationTestBase {
     String key =
         "WRR" + UUID.randomUUID().toString().replace("-", "").toUpperCase().substring(0, 4);
     project = projectService.create(owner, new CreateProjectRequest(key, "P", "x", "TEAM"));
-    issueId = issueRepository.insert(project.id(), 1, "t1", null, "MID", null, owner).id();
+    issueId =
+        IssueSeeds.insert(issueRepository, baseDsl, project.id(), 1, "t1", null, "MID", null, owner)
+            .id();
     projectService.addMember(owner, project.key(), new AddMemberRequest(member, "MEMBER"));
   }
 

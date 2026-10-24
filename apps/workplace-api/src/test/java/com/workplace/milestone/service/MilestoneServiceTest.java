@@ -20,6 +20,7 @@ import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.time.LocalDate;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -149,6 +150,7 @@ class MilestoneServiceTest extends IntegrationTestBase {
     Long issueId =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, p.id())
+            .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(p.id(), "TODO"))
             .set(ISSUE.NUMBER, 1)
             .set(ISSUE.TITLE, "milestone-linked-issue")
             .set(ISSUE.REPORTER_ID, owner)

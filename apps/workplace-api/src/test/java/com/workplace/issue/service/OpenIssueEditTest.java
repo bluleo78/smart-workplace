@@ -46,7 +46,7 @@ class OpenIssueEditTest extends IntegrationTestBase {
     var s = openScenario();
     var titleReq =
         new UpdateIssueRequest(
-            "제목수정", null, null, null, null, false, null, false, null, false, null);
+            "제목수정", null, null, null, null, false, null, false, null, false, null, null, null);
     var updated = issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), titleReq);
     assertThat(updated.summary().title()).isEqualTo("제목수정");
   }
@@ -57,7 +57,7 @@ class OpenIssueEditTest extends IntegrationTestBase {
     var s = openScenario();
     var statusReq =
         new UpdateIssueRequest(
-            null, null, "DONE", null, null, false, null, false, null, false, null);
+            null, null, "DONE", null, null, false, null, false, null, false, null, null, null);
     assertThatThrownBy(
             () -> issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), statusReq))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -75,7 +75,7 @@ class OpenIssueEditTest extends IntegrationTestBase {
             .fetchOne(PROJECT_STATUS.ID);
     var statusIdReq =
         new UpdateIssueRequest(
-            null, null, null, null, null, false, null, false, null, false, null, done);
+            null, null, null, null, null, false, null, false, null, false, null, done, null);
     assertThatThrownBy(
             () -> issueService.update(s.reporterId(), s.projectKey(), s.issueNumber(), statusIdReq))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -86,7 +86,8 @@ class OpenIssueEditTest extends IntegrationTestBase {
   void open_stranger_cannot_edit_content() {
     var s = openScenario();
     var titleReq =
-        new UpdateIssueRequest("해킹", null, null, null, null, false, null, false, null, false, null);
+        new UpdateIssueRequest(
+            "해킹", null, null, null, null, false, null, false, null, false, null, null, null);
     assertThatThrownBy(
             () -> issueService.update(s.strangerId(), s.projectKey(), s.issueNumber(), titleReq))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -98,7 +99,19 @@ class OpenIssueEditTest extends IntegrationTestBase {
     var s = openScenario();
     var statusReq =
         new UpdateIssueRequest(
-            null, null, "IN_PROGRESS", null, null, false, null, false, null, false, null);
+            null,
+            null,
+            "IN_PROGRESS",
+            null,
+            null,
+            false,
+            null,
+            false,
+            null,
+            false,
+            null,
+            null,
+            null);
     var updated = issueService.update(s.memberId(), s.projectKey(), s.issueNumber(), statusReq);
     assertThat(updated.summary().status()).isEqualTo("IN_PROGRESS");
   }

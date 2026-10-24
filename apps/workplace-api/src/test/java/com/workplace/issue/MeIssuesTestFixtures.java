@@ -8,9 +8,11 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -47,7 +49,9 @@ public class MeIssuesTestFixtures {
     String keyA = "A" + suffix.substring(0, 4).toUpperCase();
     ProjectResponse projectA =
         projectService.create(caller, new CreateProjectRequest(keyA, "PA-" + suffix, "x"));
-    var issueA = issueRepository.insert(projectA.id(), 1, "a-" + suffix, null, "MID", null, caller);
+    var issueA =
+        IssueSeeds.insert(
+            issueRepository, dsl, projectA.id(), 1, "a-" + suffix, null, "MID", null, caller);
     insertAssignee(issueA.id(), caller, caller);
     setStatus(issueA.id(), "IN_PROGRESS");
 
@@ -55,14 +59,18 @@ public class MeIssuesTestFixtures {
     String keyB = "B" + suffix.substring(0, 4).toUpperCase();
     ProjectResponse projectB =
         projectService.create(caller, new CreateProjectRequest(keyB, "PB-" + suffix, "x"));
-    var issueB = issueRepository.insert(projectB.id(), 1, "b-" + suffix, null, "MID", null, caller);
+    var issueB =
+        IssueSeeds.insert(
+            issueRepository, dsl, projectB.id(), 1, "b-" + suffix, null, "MID", null, caller);
     insertAssignee(issueB.id(), caller, caller);
 
     // projectC: other 가 owner → caller 는 비멤버. caller 담당으로 보이는 이슈 1건(멤버십 필터 검증용).
     String keyC = "C" + suffix.substring(0, 4).toUpperCase();
     ProjectResponse projectC =
         projectService.create(other, new CreateProjectRequest(keyC, "PC-" + suffix, "x"));
-    var issueC = issueRepository.insert(projectC.id(), 1, "c-" + suffix, null, "MID", null, other);
+    var issueC =
+        IssueSeeds.insert(
+            issueRepository, dsl, projectC.id(), 1, "c-" + suffix, null, "MID", null, other);
     insertAssignee(issueC.id(), caller, other);
 
     return new Setup(caller, keyA, keyB, keyC, issueC.id());
@@ -104,7 +112,9 @@ public class MeIssuesTestFixtures {
                 .where(ISSUE.PROJECT_ID.eq(p.id()))
                 .fetchOne(0, Integer.class)
             + 1;
-    long id = issueRepository.insert(p.id(), number, title, null, "MID", due, reporter).id();
+    long id =
+        IssueSeeds.insert(issueRepository, dsl, p.id(), number, title, null, "MID", due, reporter)
+            .id();
     if (assignee != null) insertAssignee(id, assignee, reporter);
     if (status != null) setStatus(id, status);
     dsl.update(ISSUE)
@@ -168,7 +178,11 @@ public class MeIssuesTestFixtures {
 
   /** 이슈 status 직접 변경 — 시드 편의용(production update 경로 우회). */
   private void setStatus(long issueId, String status) {
-    dsl.update(ISSUE).set(ISSUE.STATUS, status).where(ISSUE.ID.eq(issueId)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, status))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
   }
 
   /** twoProjectsOneForeign() 결과 — 테스트가 의존하는 식별자 묶음. */

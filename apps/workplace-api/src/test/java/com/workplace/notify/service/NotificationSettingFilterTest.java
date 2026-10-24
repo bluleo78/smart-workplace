@@ -279,6 +279,7 @@ class NotificationSettingFilterTest extends IntegrationTestBase {
         .set(ISSUE.TITLE, "t")
         .set(ISSUE.REPORTER_ID, ownerId)
         .set(ISSUE.TYPE_ID, typeId)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(projectId, "TODO"))
         .returning(ISSUE.ID)
         .fetchOne()
         .getId();

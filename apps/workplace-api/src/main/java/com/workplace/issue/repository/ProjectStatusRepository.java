@@ -80,7 +80,7 @@ public class ProjectStatusRepository {
         .fetchOptional(this::mapToRow);
   }
 
-  /** 범주의 기본 상태 — 그 범주에서 가장 앞(position 최소) 상태. SQL 함수 project_status_default_id 와 같은 규칙. */
+  /** 범주의 기본 상태 — 그 범주에서 가장 앞(position 최소, 동률이면 id) 상태. 범주만 오는 요청이 status_id 를 정할 때 쓴다. */
   public Optional<ProjectStatusRow> findDefault(Long projectId, String category) {
     return dsl.selectFrom(PROJECT_STATUS)
         .where(PROJECT_STATUS.PROJECT_ID.eq(projectId).and(PROJECT_STATUS.CATEGORY.eq(category)))

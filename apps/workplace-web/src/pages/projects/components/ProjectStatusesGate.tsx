@@ -55,8 +55,10 @@ export function ProjectStatusesGate({
         </div>
       );
     }
+    // 감싸는 div 도 flex 로 늘린다 — ResourceErrorState 의 flex-1 이 flex 부모(타임라인 본문)에서 로딩 문구와 같은 높이를 채워
+    // 실패 화면이 로딩 자리보다 위로 튀지 않게(WP-938). 목록·보드는 부모가 블록이라 영향이 없다.
     return (
-      <div data-testid={testId}>
+      <div data-testid={testId} className="flex flex-1 flex-col">
         <ResourceErrorState
           icon={TriangleAlert}
           title="상태 목록을 불러오지 못했습니다"

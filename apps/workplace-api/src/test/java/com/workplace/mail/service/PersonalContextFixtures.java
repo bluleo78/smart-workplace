@@ -11,6 +11,7 @@ import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
+import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import org.jooq.DSLContext;
 
@@ -130,6 +131,7 @@ public final class PersonalContextFixtures {
     long issue =
         dsl.insertInto(ISSUE)
             .set(ISSUE.PROJECT_ID, project)
+            .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(project, status))
             .set(ISSUE.NUMBER, 1)
             .set(ISSUE.TITLE, title)
             .set(ISSUE.STATUS, status)

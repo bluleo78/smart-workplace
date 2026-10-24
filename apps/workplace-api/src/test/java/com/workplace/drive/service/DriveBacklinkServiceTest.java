@@ -11,6 +11,7 @@ import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.jooq.tables.File;
 import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.repository.ChannelRepository;
@@ -146,7 +147,8 @@ class DriveBacklinkServiceTest extends IntegrationTestBase {
 
     // ISSUE ref: viewer 가 멤버인 프로젝트
     ProjectResponse proj = newProject(viewer, "BL");
-    IssueRow issue = issueRepo.insert(proj.id(), 1, "백링크 이슈", null, "MID", null, viewer);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepo, baseDsl, proj.id(), 1, "백링크 이슈", null, "MID", null, viewer);
     long fileId = seedFile(viewer, "attach.txt");
     dsl.insertInto(ISSUE_ATTACHMENT)
         .set(ISSUE_ATTACHMENT.FILE_ID, fileId)

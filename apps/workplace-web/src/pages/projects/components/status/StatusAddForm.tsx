@@ -6,14 +6,13 @@ import { useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useCreateProjectStatus } from '@/hooks/queries/useProjectStatuses'
-import { useSingleLineEnter } from '@/hooks/useSingleLineEnter'
-import { extractApiError } from '@/lib/api-error'
-import { CATEGORY_DEFAULT_COLOR, validateStatusName } from '@/lib/projectStatuses'
+import { CATEGORY_DEFAULT_COLOR } from '@/lib/projectStatuses'
 import type { IssueStatus } from '@/types/issue'
 import type { ColorToken } from '@/types/label'
 import type { ProjectStatus } from '@/types/projectStatus'
 
 import { ColorTokenPicker } from '../ProjectMetaEditDialog'
+import { useStatusNameForm } from './useStatusNameForm'
 
 export function StatusAddForm({
   projectKey,
@@ -28,29 +27,21 @@ export function StatusAddForm({
   onDone: () => void
 }) {
   const create = useCreateProjectStatus(projectKey)
-  const [name, setName] = useState('')
   // 기본 색 = 범주 기본 색(서버가 색 없이 만들 때와 같다).
   const [color, setColor] = useState<ColorToken>(CATEGORY_DEFAULT_COLOR[category])
-  const [error, setError] = useState<string | null>(null)
-  // 한글 조합 Enter·확정 직후 꼬리 Enter 는 저장으로 보지 않는다(WP-331).
-  const enterKey = useSingleLineEnter()
-  const errorId = useId()
-
-  async function save() {
-    if (create.isPending) return
-    const invalid = validateStatusName(name, statuses)
-    if (invalid) {
-      setError(invalid)
-      return
-    }
-    try {
-      // 목록 재조회가 끝난 뒤 닫혀 새 행이 입력 줄 자리에 바로 이어 보인다.
-      await create.mutateAsync({ name: name.trim(), category, color })
+  // 검증·Enter(한글 조합 가드)·Esc·서버 오류 문구는 보드 이름 입력기와 같은 흐름(WP-937).
+  const form = useStatusNameForm({
+    statuses,
+    failMessage: '상태를 만들지 못했어요',
+    // 목록 재조회가 끝난 뒤 닫혀 새 행이 입력 줄 자리에 바로 이어 보인다.
+    onSubmit: async (name) => {
+      await create.mutateAsync({ name, category, color })
       onDone()
-    } catch (e) {
-      setError(extractApiError(e, '상태를 만들지 못했어요'))
-    }
-  }
+    },
+    onCancel: onDone,
+  })
+  const { error } = form
+  const errorId = useId()
 
   return (
     <form
@@ -58,31 +49,19 @@ export function StatusAddForm({
       className="mt-1 space-y-2 rounded-md border border-dashed p-2"
       onSubmit={(e) => {
         e.preventDefault()
-        void save()
+        void form.submit()
       }}
     >
       <Input
+        {...form.inputProps}
         autoFocus
-        value={name}
         aria-label="새 상태 이름"
         placeholder="새 상태 이름"
+        // 저장 중엔 disabled 대신 readOnly — disabled 는 포커스를 잃어 실패 뒤 바로 고칠 수 없다.
+        readOnly={form.saving}
+        aria-busy={form.saving}
         aria-invalid={!!error || undefined}
         aria-describedby={error ? errorId : undefined}
-        onChange={(e) => {
-          setName(e.target.value)
-          setError(null)
-        }}
-        onCompositionEnd={enterKey.onCompositionEnd}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            // 섹션 밖(다이얼로그 등)으로 Esc 가 번지지 않게 여기서 끝낸다.
-            e.preventDefault()
-            e.stopPropagation()
-            onDone()
-            return
-          }
-          enterKey.handleEnter(e, () => void save())
-        }}
       />
       {error && (
         <p id={errorId} role="alert" data-testid="status-add-error" className="text-sm text-destructive">
@@ -95,7 +74,7 @@ export function StatusAddForm({
           <Button type="button" variant="ghost" size="sm" onClick={onDone}>
             취소
           </Button>
-          <Button type="submit" size="sm" disabled={!name.trim() || create.isPending}>
+          <Button type="submit" size="sm" disabled={!form.value.trim() || form.saving}>
             추가
           </Button>
         </div>

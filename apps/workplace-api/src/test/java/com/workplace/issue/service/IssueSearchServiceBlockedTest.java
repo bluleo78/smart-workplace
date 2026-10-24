@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -56,7 +57,8 @@ class IssueSearchServiceBlockedTest extends IntegrationTestBase {
   }
 
   private IssueRow newTask(Long projectId, int number, String title, Long reporterId) {
-    return issueRepository.insert(projectId, number, title, "b", "MID", null, reporterId);
+    return IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, number, title, "b", "MID", null, reporterId);
   }
 
   @Test
@@ -82,8 +84,18 @@ class IssueSearchServiceBlockedTest extends IntegrationTestBase {
     newTask(p.id(), 2, "y", owner);
     depService.add(owner, p.key(), 1, 2, "blocks");
     // X status -> DONE 로 변경 → 차단 해소
-    issueRepository.updateAll(
-        x.id(), x.title(), x.body(), "DONE", x.priority(), x.dueDate(), null, null, null);
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
+        x.id(),
+        x.title(),
+        x.body(),
+        "DONE",
+        x.priority(),
+        x.dueDate(),
+        null,
+        null,
+        null);
 
     var res = searchService.search(owner, p.key(), Map.of());
     var y = res.items().stream().filter(i -> i.number() == 2).findFirst().orElseThrow();
@@ -99,8 +111,18 @@ class IssueSearchServiceBlockedTest extends IntegrationTestBase {
     var y = newTask(p.id(), 2, "y", owner); // 피차단자
     depService.add(owner, p.key(), 1, 2, "blocks");
 
-    issueRepository.updateAll(
-        y.id(), y.title(), y.body(), "DONE", y.priority(), y.dueDate(), null, null, null);
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
+        y.id(),
+        y.title(),
+        y.body(),
+        "DONE",
+        y.priority(),
+        y.dueDate(),
+        null,
+        null,
+        null);
 
     var res = searchService.search(owner, p.key(), Map.of());
     var yItem = res.items().stream().filter(i -> i.number() == 2).findFirst().orElseThrow();
@@ -115,7 +137,9 @@ class IssueSearchServiceBlockedTest extends IntegrationTestBase {
     newTask(p.id(), 1, "blocker", owner); // TODO 유지
     var blockee = newTask(p.id(), 2, "blockee", owner);
     depService.add(owner, p.key(), 1, 2, "blocks");
-    issueRepository.updateAll(
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
         blockee.id(),
         blockee.title(),
         blockee.body(),

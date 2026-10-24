@@ -11,6 +11,7 @@ import com.workplace.fileai.inbound.ExtractionBackfillSource;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -97,7 +98,8 @@ class IssueAttachmentExtractionBackfillTest extends IntegrationTestBase {
   /** 프로젝트의 다음 번호로 이슈 생성 — 프로젝트 안 번호를 돌려준다. */
   private int createIssue(Long projectId, Long reporter) {
     int number = 1;
-    issueRepository.insert(projectId, number, "t", null, "MID", null, reporter);
+    IssueSeeds.insert(
+        issueRepository, baseDsl, projectId, number, "t", null, "MID", null, reporter);
     return number;
   }
 

@@ -20,6 +20,7 @@ import com.workplace.issue.repository.AgentWorkRepository.AgentWorkRow;
 import com.workplace.issue.repository.AgentWorkRepository.InsertOutcome;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -66,7 +67,10 @@ class AgentWorkServiceTest extends IntegrationTestBase {
     String suffix = UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
     var project =
         projectService.create(humanId, new CreateProjectRequest("W" + suffix, "PW-" + suffix, "x"));
-    issueId = issueRepository.insert(project.id(), 1, "i1", null, "MID", null, humanId).id();
+    issueId =
+        IssueSeeds.insert(
+                issueRepository, baseDsl, project.id(), 1, "i1", null, "MID", null, humanId)
+            .id();
   }
 
   /** 진행 중 작업을 만들고 행만 돌려준다(충돌이면 기존 행). */
@@ -248,7 +252,11 @@ class AgentWorkServiceTest extends IntegrationTestBase {
   @Test
   void startOrUpdate_종료된_이슈면_NPE_대신_AgentWorkIssueClosedException() {
     // 보고 검증을 우회해 서비스를 직접 호출 — 동시 종료로 조회에서 이슈가 빠지는 경합과 같은 상황.
-    dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(issueId)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, "DONE")
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, "DONE"))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
     assertThatThrownBy(
             () -> service.startOrUpdate(issueId, humanId, "claude-code", AgentWorkPatch.empty()))
         .isInstanceOf(AgentWorkIssueClosedException.class);

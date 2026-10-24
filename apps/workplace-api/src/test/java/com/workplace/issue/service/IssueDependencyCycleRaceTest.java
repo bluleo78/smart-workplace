@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.exception.DependencyCycleException;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -58,8 +59,10 @@ class IssueDependencyCycleRaceTest extends IntegrationTestBase {
     new TransactionTemplate(txManager)
         .executeWithoutResult(
             st -> {
-              issueRepository.insert(projectId, 1, "A", null, "MID", null, owner);
-              issueRepository.insert(projectId, 2, "B", null, "MID", null, owner);
+              IssueSeeds.insert(
+                  issueRepository, baseDsl, projectId, 1, "A", null, "MID", null, owner);
+              IssueSeeds.insert(
+                  issueRepository, baseDsl, projectId, 2, "B", null, "MID", null, owner);
             });
   }
 

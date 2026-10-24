@@ -32,6 +32,7 @@ import com.workplace.issue.exception.IssueConflictException;
 import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.exception.ParentCannotBeSubtaskException;
 import com.workplace.issue.exception.ParentNotAllowedException;
+import com.workplace.issue.exception.RequestedStatusNotFoundException;
 import com.workplace.issue.exception.SubtaskParentCannotBeEpicException;
 import com.workplace.issue.exception.SubtaskParentRequiredException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
@@ -137,9 +138,10 @@ public class IssueService {
   }
 
   /**
-   * 요청의 상태 지정을 프로젝트 상태 하나로 해석한다(WP-807). statusId 가 범주보다 우선한다 — 다른 프로젝트 상태이거나 없으면 400. 범주만 오면 이슈가
-   * 이미 그 범주일 때 지금 상태를 유지하고(시스템 전이 「진행 중으로」가 「검토 중」을 되돌리지 않게), 아니면 범주 기본 상태(가장 앞)로 간다. 둘 다 없으면 지금
-   * 상태(새 이슈면 할 일 기본 상태).
+   * 요청의 상태 지정을 프로젝트 상태 하나로 해석한다(WP-807). statusId 가 범주보다 우선한다 — 다른 프로젝트 상태이거나 없으면 400(없으면
+   * STATUS_NOT_FOUND 코드). 확인을 지난 뒤 상태 삭제가 커밋돼 쓰기가 FK 로 실패하는 경합만 공용 처리기가 409 STATUS_DELETED 로
+   * 바꾼다(WP-936). 범주만 오면 이슈가 이미 그 범주일 때 지금 상태를 유지하고(시스템 전이 「진행 중으로」가 「검토 중」을 되돌리지 않게), 아니면 범주 기본
+   * 상태(가장 앞)로 간다. 둘 다 없으면 지금 상태(새 이슈면 할 일 기본 상태).
    *
    * @param requested statusId 로 읽은 상태 행({@link #lookupStatus}) — statusId 가 null 이면 빈 값
    * @param before 수정 전 이슈(생성이면 null)
@@ -151,10 +153,11 @@ public class IssueService {
       String category,
       IssueRow before) {
     if (statusId != null) {
-      return requested
-          .filter(s -> s.projectId().equals(project.id()))
-          .map(ResolvedStatus::of)
-          .orElseThrow(InvalidStatusForProjectException::new);
+      // 상태가 아예 없으면(요청 전에 삭제됨 — 웹 목록이 낡음) 코드를 실은 400 으로 알려 웹이 상태 목록을 다시 받게 한다(WP-936).
+      // 다른 프로젝트의 상태는 예전처럼 코드 없는 400.
+      ProjectStatusRow row = requested.orElseThrow(RequestedStatusNotFoundException::new);
+      if (!row.projectId().equals(project.id())) throw new InvalidStatusForProjectException();
+      return ResolvedStatus.of(row);
     }
     String target =
         category != null ? category : (before != null ? before.status() : IssueStatuses.TODO);

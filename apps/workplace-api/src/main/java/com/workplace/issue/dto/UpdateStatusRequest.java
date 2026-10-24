@@ -14,16 +14,6 @@ public record UpdateStatusRequest(
     Long statusId,
     String statusName) {
 
-  /** 범주만 보내는 예전 호출 호환 생성자. */
-  public UpdateStatusRequest(String status) {
-    this(status, null, null);
-  }
-
-  /** 범주·상태 id 만 보내는 WP-870 이전 호출 호환 생성자. */
-  public UpdateStatusRequest(String status, Long statusId) {
-    this(status, statusId, null);
-  }
-
   /** 범주·상태 id·상태 이름 중 하나는 있어야 한다. 직렬화 대상이 아니다(JSON 에 "specified" 로 새지 않게). */
   @JsonIgnore
   @AssertTrue(message = "상태를 지정해 주세요")

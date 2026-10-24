@@ -24,7 +24,7 @@ import {
   milestonesToMarkers,
 } from './timelineData';
 import { TimelineFilterBar } from './TimelineFilterBar';
-import { TimelineGantt, type TimelineZoom } from './TimelineGantt';
+import { TimelineGantt, type TimelineScrollRequest, type TimelineZoom } from './TimelineGantt';
 import type { TimelineViewOptions } from './timelineTypes';
 import { UnscheduledSection } from './UnscheduledSection';
 import { useTimelineExpanded } from './useTimelineExpanded';
@@ -34,7 +34,7 @@ export function TimelineGanttBody({
   issues,
   milestones,
   zoom,
-  scrollToDate,
+  scrollRequest,
   readOnly,
   onMilestoneClick,
   onLaneClick,
@@ -48,7 +48,7 @@ export function TimelineGanttBody({
   issues: IssueResponse[];
   milestones: MilestoneResponse[] | undefined;
   zoom: TimelineZoom;
-  scrollToDate: string | undefined;
+  scrollRequest: TimelineScrollRequest | undefined;
   readOnly: boolean;
   /** 다이아몬드 클릭 — 편집 팝오버 상태는 TimelinePage 가 든다. */
   onMilestoneClick: (milestone: MilestoneResponse, anchorRect: DOMRect) => void;
@@ -113,7 +113,7 @@ export function TimelineGanttBody({
             dependencies={renderableDependencies}
             zoom={zoom}
             readOnly={readOnly}
-            scrollToDate={scrollToDate}
+            scrollRequest={scrollRequest}
             period={view.period}
             onBarChange={(issueNumber, change) =>
               updateIssue.mutateAsync({

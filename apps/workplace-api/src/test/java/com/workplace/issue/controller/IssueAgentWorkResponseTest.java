@@ -12,6 +12,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.service.AgentWorkService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -64,8 +65,9 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
     String key =
         "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
     var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    var working = issueRepository.insert(proj.id(), 1, "작업중", null, "MID", null, userId);
-    issueRepository.insert(proj.id(), 2, "조용함", null, "MID", null, userId);
+    var working =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "작업중", null, "MID", null, userId);
+    IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 2, "조용함", null, "MID", null, userId);
     agentWorkService.startOrUpdate(working.id(), userId, "claude-code", AgentWorkPatch.empty());
 
     mvc.perform(
@@ -92,7 +94,8 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
     String key =
         "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
     var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    var issue = issueRepository.insert(proj.id(), 1, "예약", null, "MID", null, userId);
+    var issue =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "예약", null, "MID", null, userId);
     var next = Instant.parse("2026-10-19T00:00:00Z");
     agentWorkService.startOrUpdate(
         issue.id(),
@@ -124,9 +127,14 @@ class IssueAgentWorkResponseTest extends IntegrationTestBase {
     String key =
         "AW" + UUID.randomUUID().toString().replaceAll("-", "").toUpperCase().substring(0, 6);
     var proj = projectService.create(userId, new CreateProjectRequest(key, "P", "x"));
-    var done = issueRepository.insert(proj.id(), 1, "끝남", null, "MID", null, userId);
+    var done =
+        IssueSeeds.insert(issueRepository, baseDsl, proj.id(), 1, "끝남", null, "MID", null, userId);
     agentWorkService.startOrUpdate(done.id(), userId, "claude-code", AgentWorkPatch.empty());
-    dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(done.id())).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, "DONE")
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, "DONE"))
+        .where(ISSUE.ID.eq(done.id()))
+        .execute();
 
     mvc.perform(
             get("/api/v1/projects/" + key + "/issues/1").header("Authorization", bearer(userId)))

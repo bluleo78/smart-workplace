@@ -20,6 +20,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -125,6 +126,7 @@ class IssueTypeServiceTest extends IntegrationTestBase {
     // 이슈 한 건을 해당 유형으로 직접 INSERT — Task 6 의 insert 시그니처 변경 전 우회 (DSL 직접).
     dsl.insertInto(ISSUE)
         .set(ISSUE.PROJECT_ID, p.id())
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(p.id(), "TODO"))
         .set(ISSUE.NUMBER, 1)
         .set(ISSUE.TITLE, "t")
         .set(ISSUE.PRIORITY, "MID")

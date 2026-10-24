@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.issue.dto.CreateProjectStatusRequest;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.service.ProjectStatusService;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
@@ -61,7 +62,8 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
 
   /** 같은 프로젝트에 TASK 이슈 한 건 생성 (parent 없음). */
   private IssueRow newTask(Long projectId, int number, String title, Long reporterId) {
-    return issueRepo.insert(projectId, number, title, "b", "MID", null, reporterId);
+    return IssueSeeds.insert(
+        issueRepo, baseDsl, projectId, number, title, "b", "MID", null, reporterId);
   }
 
   @Test
@@ -170,8 +172,18 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
     assertThat(flags.get(a.id())).isFalse();
 
     // a status=DONE 으로 갱신 → b 는 unblocked
-    issueRepo.updateAll(
-        a.id(), a.title(), a.body(), "DONE", a.priority(), a.dueDate(), null, null, null);
+    IssueSeeds.updateAll(
+        issueRepo,
+        baseDsl,
+        a.id(),
+        a.title(),
+        a.body(),
+        "DONE",
+        a.priority(),
+        a.dueDate(),
+        null,
+        null,
+        null);
     var flags2 = depRepo.findBlockedFlags(List.of(b.id()));
     assertThat(flags2.get(b.id())).isFalse();
   }
@@ -187,15 +199,35 @@ class IssueDependencyRepositoryTest extends IntegrationTestBase {
     depRepo.add(a.id(), b.id(), owner);
 
     // b 를 DONE 으로 전환 — a 는 여전히 TODO
-    issueRepo.updateAll(
-        b.id(), b.title(), b.body(), "DONE", b.priority(), b.dueDate(), null, null, null);
+    IssueSeeds.updateAll(
+        issueRepo,
+        baseDsl,
+        b.id(),
+        b.title(),
+        b.body(),
+        "DONE",
+        b.priority(),
+        b.dueDate(),
+        null,
+        null,
+        null);
 
     var flags = depRepo.findBlockedFlags(List.of(b.id()));
     assertThat(flags.get(b.id())).isFalse();
 
     // b 를 CANCELED 로 전환해도 동일하게 unblocked
-    issueRepo.updateAll(
-        b.id(), b.title(), b.body(), "CANCELED", b.priority(), b.dueDate(), null, null, null);
+    IssueSeeds.updateAll(
+        issueRepo,
+        baseDsl,
+        b.id(),
+        b.title(),
+        b.body(),
+        "CANCELED",
+        b.priority(),
+        b.dueDate(),
+        null,
+        null,
+        null);
     var flags2 = depRepo.findBlockedFlags(List.of(b.id()));
     assertThat(flags2.get(b.id())).isFalse();
   }

@@ -17,6 +17,7 @@ import com.workplace.issue.outbound.AiAgentIssueClient;
 import com.workplace.issue.outbound.dto.IssueSummaryResult;
 import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
@@ -71,7 +72,10 @@ class IssueAiSummaryEndpointTest extends IntegrationTestBase {
               .create(userId, new CreateProjectRequest(uniqueKey("RD"), "읽기경로테스트", "x"))
               .id();
       // 신규 TODO 이슈 — 마감 없음, 블로킹 없음, 요약 없음
-      issueId = issueRepository.insert(projectId, 1, "읽기경로 이슈", null, "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(
+                  issueRepository, baseDsl, projectId, 1, "읽기경로 이슈", null, "MID", null, userId)
+              .id();
       String projectKey = projectKeyFor(projectId);
 
       IssueDetailResponse detail = issueService.get(userId, projectKey, 1);
@@ -110,7 +114,10 @@ class IssueAiSummaryEndpointTest extends IntegrationTestBase {
           projectService
               .create(userId, new CreateProjectRequest(uniqueKey("PS"), "포스트테스트", "x"))
               .id();
-      issueId = issueRepository.insert(projectId, 1, "포스트 이슈", "본문", "MID", null, userId).id();
+      issueId =
+          IssueSeeds.insert(
+                  issueRepository, baseDsl, projectId, 1, "포스트 이슈", "본문", "MID", null, userId)
+              .id();
       String projectKey = projectKeyFor(projectId);
       Authentication auth = new UsernamePasswordAuthenticationToken(userId, null, List.of());
 
@@ -156,7 +163,8 @@ class IssueAiSummaryEndpointTest extends IntegrationTestBase {
           projectService
               .create(ownerId, new CreateProjectRequest(uniqueKey("NM"), "비멤버테스트", "x"))
               .id();
-      issueRepository.insert(projectId, 1, "비멤버 이슈", null, "MID", null, ownerId);
+      IssueSeeds.insert(
+          issueRepository, baseDsl, projectId, 1, "비멤버 이슈", null, "MID", null, ownerId);
       String projectKey = projectKeyFor(projectId);
       Authentication auth = new UsernamePasswordAuthenticationToken(nonMemberId, null, List.of());
 

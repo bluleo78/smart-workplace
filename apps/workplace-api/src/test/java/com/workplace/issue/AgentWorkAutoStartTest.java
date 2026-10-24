@@ -179,7 +179,8 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
   void 터치_억제_중_쓰기는_상태를_되돌리지_않음() {
     seedActive(issueId, humanId, "INPUT_REQUIRED");
     var req =
-        new UpdateIssueRequest("진행", null, null, null, null, null, null, null, null, null, null);
+        new UpdateIssueRequest(
+            "진행", null, null, null, null, null, null, null, null, null, null, null, null);
     AgentToolContext.set(TOOL);
     try {
       inTenant(

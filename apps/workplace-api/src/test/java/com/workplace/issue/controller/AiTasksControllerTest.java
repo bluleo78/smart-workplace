@@ -14,11 +14,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.PostgresTestContainer;
+import com.workplace.support.TestFixtures;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -181,10 +183,14 @@ class AiTasksControllerTest extends IntegrationTestBase {
     // 호출자가 멤버가 아닌 프로젝트 — AI 담당·사람 작업이 있어도 보이지 않아야 한다.
     var priv =
         projectService.create(other, new CreateProjectRequest(uniqueKey("PV"), "P-priv", "x"));
-    var x = issueRepository.insert(priv.id(), 1, "priv-x", null, "MID", null, other);
+    var x =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, priv.id(), 1, "priv-x", null, "MID", null, other);
     assign(x.id(), agent);
     work(x.id(), agent, "WORKING");
-    var y = issueRepository.insert(priv.id(), 2, "priv-y", null, "MID", null, other);
+    var y =
+        IssueSeeds.insert(
+            issueRepository, baseDsl, priv.id(), 2, "priv-y", null, "MID", null, other);
     work(y.id(), other, "INPUT_REQUIRED");
 
     assertThat(titles(getJson("/api/v1/me/ai-tasks?scope=all")))
@@ -964,7 +970,9 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   /** 지정한 프로젝트에 이슈를 만든다(제목으로 식별). */
   private long issueIn(long projectId, String title, long reporter) {
-    return issueRepository.insert(projectId, nextNumber++, title, null, "MID", null, reporter).id();
+    return IssueSeeds.insert(
+            issueRepository, baseDsl, projectId, nextNumber++, title, null, "MID", null, reporter)
+        .id();
   }
 
   private void assign(long issueId, long userId) {
@@ -1034,7 +1042,11 @@ class AiTasksControllerTest extends IntegrationTestBase {
   }
 
   private void setStatus(long issueId, String status) {
-    dsl.update(ISSUE).set(ISSUE.STATUS, status).where(ISSUE.ID.eq(issueId)).execute();
+    dsl.update(ISSUE)
+        .set(ISSUE.STATUS, status)
+        .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, status))
+        .where(ISSUE.ID.eq(issueId))
+        .execute();
   }
 
   private MvcResult perform(String url) throws Exception {

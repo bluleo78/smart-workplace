@@ -3,6 +3,7 @@
 // 순서 변경은 낙관적으로 목록을 바꾸고 실패하면 되돌린다, 삭제는 상태·이슈·저장된 뷰를 다시 받는다(WP-809).
 import { type InfiniteData, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { AxiosError, AxiosHeaders } from 'axios';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -28,6 +29,7 @@ import { toast } from 'sonner';
 import { listProjectStatuses, reorderProjectStatuses } from '../../api/projectStatuses';
 import {
   applyCategoryOrder,
+  refreshStatusesIfGone,
   refreshStatusesOnUnknown,
   unknownStatusIds,
   useDeleteProjectStatus,
@@ -105,6 +107,38 @@ function clientWithUnknownIssue() {
   });
   return qc;
 }
+
+// 서버 오류 응답 모양의 AxiosError — status·errors.code 만 다르게 만든다.
+function apiError(status: number, code?: string) {
+  const data = { status, message: '상태가 방금 삭제됐어요. 다른 상태를 골라 주세요.', ...(code ? { errors: { code } } : {}) };
+  return new AxiosError('fail', 'ERR_BAD_REQUEST', undefined, undefined, {
+    status, statusText: '', headers: {}, config: { headers: new AxiosHeaders() }, data,
+  });
+}
+
+describe('refreshStatusesIfGone (WP-936)', () => {
+  it.each([
+    [409, 'STATUS_DELETED'],
+    [400, 'STATUS_NOT_FOUND'],
+  ])('%i %s 면 그 프로젝트 상태 목록만 무효화한다', (status, code) => {
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    expect(refreshStatusesIfGone(qc, 'WP', apiError(status, code))).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ['projectStatuses', 'WP'] });
+  });
+
+  it('코드 없는 409(버전 충돌 등)·다른 오류는 상태 목록을 건드리지 않는다', () => {
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    expect(refreshStatusesIfGone(qc, 'WP', apiError(409))).toBe(false);
+    expect(refreshStatusesIfGone(qc, 'WP', apiError(404, 'NOT_FOUND'))).toBe(false);
+    // 다른 프로젝트 상태(코드 없는 400)는 목록이 낡은 게 아니다.
+    expect(refreshStatusesIfGone(qc, 'WP', apiError(400))).toBe(false);
+    expect(refreshStatusesIfGone(qc, 'WP', new Error('x'))).toBe(false);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
 
 describe('상태 목록이 이슈 검색보다 늦게 도착할 때', () => {
   it('목록이 도착하면 캐시된 검색 페이지를 검사해 모르는 상태로 한 번만 다시 받는다', async () => {

@@ -2,7 +2,7 @@
 // 의존 화살표(표시 전용)+일정 미정 섹션(Task 10) 렌더. URL: /projects/:key/timeline
 import { format } from 'date-fns';
 import { ArrowLeft, Diamond } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { Page } from '@/components/layout/Page';
@@ -16,13 +16,15 @@ import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { parseFilters } from '../../../lib/issueFilters';
+import type { IssueFilters } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
+import { ProjectStatusesGate } from '../components/ProjectStatusesGate';
 import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
 import { initialScrollDate, resolvePeriod } from './timelineData';
-import type { TimelineZoom } from './TimelineGantt';
+import type { TimelineScrollRequest, TimelineZoom } from './TimelineGantt';
 import { TimelineGanttBody } from './TimelineGanttBody';
 import { TimelinePeriodChip } from './TimelinePeriodChip';
 import { TimelinePeriodPicker } from './TimelinePeriodPicker';
@@ -41,7 +43,9 @@ export default function TimelinePage() {
   const effectiveFilters =
     params.get('topLevel') == null ? { ...filters, topLevel: false, excludeSubtasks: true } : filters;
   const [zoom, setZoom] = useState<TimelineZoom>('week');
-  const [scrollToDate, setScrollToDate] = useState<string | undefined>(undefined);
+  // 간트 스크롤 요청 — 요청마다 seq 를 올린 새 객체라 같은 날짜(첫 진입 날짜 = 「오늘」 등)도 다시 스크롤한다(WP-938).
+  const [scrollRequest, setScrollRequest] = useState<TimelineScrollRequest | undefined>(undefined);
+  const scrollTo = (date: string) => setScrollRequest((prev) => ({ date, seq: (prev?.seq ?? 0) + 1 }));
   // 마일스톤 생성 다이얼로그(툴바 버튼/레인 클릭 2경로 공용) + 편집 팝오버(다이아몬드 클릭) 상태.
   const [milestoneDialogState, setMilestoneDialogState] = useState<{ defaultDueDate?: string } | null>(
     null,
@@ -68,22 +72,11 @@ export default function TimelinePage() {
   // 모바일 = 아젠다(WP-197), 데스크톱 = 간트 본문(TimelineGanttBody) — 간트 전용 조회·계산은 그 본문 안에서만 돈다.
   const isMobile = useIsMobile();
   const readOnly = !(project.data?.viewerIsMember ?? false);
-  // filters 는 렌더마다 새로 파싱되므로 boolean 으로 줄여 메모 키로 쓴다.
-  // 「상태」 필터로 취소 범주의 상태를 골라도 취소 이슈를 보여야 한다(WP-808) — 고른 상태 id 를 범주로 풀어 함께 본다.
-  const projectStatuses = useProjectStatusList(key);
-  const includeCanceled =
-    filters.statuses.includes('CANCELED') ||
-    projectStatuses.some((s) => s.category === 'CANCELED' && filters.statusIds.includes(s.id));
-  const view = useMemo<TimelineViewOptions>(
-    () => ({ includeCanceled, period: periodCtl.period }),
-    [includeCanceled, periodCtl.period],
-  );
-
   // 기간을 바꾸면 간트를 새 기간 시작일로 옮긴다 — 새 기간이 화면 밖일 수 있어서. 전체(null)면 그대로.
   const changePeriod = (p: PeriodParam) => {
     periodCtl.setParam(p);
     const next = resolvePeriod(p, periodCtl.cycles, new Date());
-    if (next) setScrollToDate(next.from);
+    if (next) scrollTo(next.from);
   };
   const periodPicker = (
     <TimelinePeriodPicker param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />
@@ -100,8 +93,8 @@ export default function TimelinePage() {
   const issuesLoading = search.isLoading || search.isFetchingNextPage || search.hasNextPage === true;
   // 처음 열 때 한 번 오늘·조회 기간 쪽으로 스크롤한다(WP-486) — 간트는 가장 이른 막대부터 그려져 좁은 폭(1024)에선
   // 오늘선·사이클 구간이 화면 밖이었다. 기간(사이클)이 풀리고 이슈를 다 받은 뒤에만 정한다. 렌더 중 상태 조정(effect 아님).
-  if (scrollToDate === undefined && periodCtl.ready && !issuesLoading) {
-    setScrollToDate(initialScrollDate(periodCtl.period, new Date()));
+  if (scrollRequest === undefined && periodCtl.ready && !issuesLoading) {
+    scrollTo(initialScrollDate(periodCtl.period, new Date()));
   }
 
   // 프로젝트를 볼 수 없으면(403·404) 관리 화면 대신 접근 불가 안내(WP-480). 훅을 모두 부른 뒤에 분기한다.
@@ -155,7 +148,7 @@ export default function TimelinePage() {
               variant="outline"
               size="sm"
               // toISOString()은 UTC라 KST 0~9시에 어제로 스크롤 — 로컬 날짜 기준으로 계산.
-              onClick={() => setScrollToDate(format(new Date(), 'yyyy-MM-dd'))}
+              onClick={() => scrollTo(format(new Date(), 'yyyy-MM-dd'))}
             >
               오늘
             </Button>
@@ -174,39 +167,51 @@ export default function TimelinePage() {
         }
       />
       {/* 본문은 자체 레이아웃(padded=false) — 간트는 필터 줄·간트·일정 미정 섹션이 각자 pageGutterClass 로 헤더 축에 맞춘다. */}
-      <Page.Body padded={false} className="flex-col overflow-hidden">
-        {!periodCtl.ready ? (
-          <div data-testid="timeline-period-loading" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            불러오는 중…
-          </div>
-        ) : isMobile ? (
-          <TimelineAgendaList
-            projectKey={key}
-            issues={issues}
-            milestones={milestones.data ?? []}
-            loading={issuesLoading}
-            onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
-            view={view}
-            onShowAllPeriods={() => changePeriod({ kind: 'all' })}
-            periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}
-          />
-        ) : (
-          <TimelineGanttBody
-            projectKey={key}
-            issues={issues}
-            milestones={milestones.data}
-            zoom={zoom}
-            readOnly={readOnly}
-            scrollToDate={scrollToDate}
-            onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
-            onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
-            view={view}
-            periodPicker={periodPicker}
-            loading={issuesLoading}
-            cycles={periodCtl.cycles}
-            onShowAllPeriods={() => changePeriod({ kind: 'all' })}
-          />
-        )}
+      <Page.Body padded={false} className="flex-col overflow-hidden" data-testid="timeline-body">
+        {/* 간트·아젠다(필터 바·필터 시트 포함)는 상태 목록을 받은 뒤에만 그린다(WP-938) — 받기 전에 그리면 「상태」 facet 이 비고
+            취소 범주 판단이 빈 목록으로 돌았다. 목록·보드(WP-870)와 같은 관문 — 받기 전엔 로딩, 실패면 다시 시도. 헤더는 관문 밖. */}
+        <ProjectStatusesGate
+          projectKey={key}
+          description="타임라인을 그릴 수 없습니다. 잠시 후 다시 시도해 주세요."
+          // 기간 로딩(timeline-period-loading)과 같은 자리·모양·문구 — 두 로딩이 이어질 때 문구 자리도 글자도 바뀌지 않게.
+          loadingClassName="flex flex-1 items-center justify-center text-sm"
+        >
+          <TimelineViewScope projectKey={key} filters={filters} period={periodCtl.period}>
+            {(view) => !periodCtl.ready ? (
+              <div data-testid="timeline-period-loading" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                {/* 관문 로딩(목록·보드와 같은 「로딩 중…」)과 같은 문구(WP-938). */}
+                로딩 중…
+              </div>
+            ) : isMobile ? (
+              <TimelineAgendaList
+                projectKey={key}
+                issues={issues}
+                milestones={milestones.data ?? []}
+                loading={issuesLoading}
+                onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
+                view={view}
+                onShowAllPeriods={() => changePeriod({ kind: 'all' })}
+                periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}
+              />
+            ) : (
+              <TimelineGanttBody
+                projectKey={key}
+                issues={issues}
+                milestones={milestones.data}
+                zoom={zoom}
+                readOnly={readOnly}
+                scrollRequest={scrollRequest}
+                onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
+                onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
+                view={view}
+                periodPicker={periodPicker}
+                loading={issuesLoading}
+                cycles={periodCtl.cycles}
+                onShowAllPeriods={() => changePeriod({ kind: 'all' })}
+              />
+            )}
+          </TimelineViewScope>
+        </ProjectStatusesGate>
       </Page.Body>
       <MilestoneFormDialog
         projectKey={key}
@@ -227,4 +232,28 @@ export default function TimelinePage() {
       )}
     </Page>
   );
+}
+
+/**
+ * 간트·아젠다의 화면 거름(view)을 정해 children 에 넘긴다 — 상태 목록 관문 안에서만 그려, 상태 목록을 읽는 코드가 관문 밖에 없게 한다(WP-938).
+ * 「상태」 필터로 취소 범주의 상태를 골라도 취소 이슈를 보여야 한다(WP-808) — 고른 상태 id 를 범주로 풀어 함께 본다.
+ * filters 는 렌더마다 새로 파싱되므로 boolean 으로 줄여 메모 키로 쓴다.
+ */
+function TimelineViewScope({
+  projectKey,
+  filters,
+  period,
+  children,
+}: {
+  projectKey: string;
+  filters: IssueFilters;
+  period: TimelineViewOptions['period'];
+  children: (view: TimelineViewOptions) => ReactNode;
+}) {
+  const projectStatuses = useProjectStatusList(projectKey);
+  const includeCanceled =
+    filters.statuses.includes('CANCELED') ||
+    projectStatuses.some((s) => s.category === 'CANCELED' && filters.statusIds.includes(s.id));
+  const view = useMemo<TimelineViewOptions>(() => ({ includeCanceled, period }), [includeCanceled, period]);
+  return children(view);
 }

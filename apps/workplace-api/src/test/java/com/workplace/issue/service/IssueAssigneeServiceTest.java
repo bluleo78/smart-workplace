@@ -16,6 +16,7 @@ import com.workplace.issue.exception.InvalidAssigneeForProjectException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -88,7 +89,8 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "AS1");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(u2, "MEMBER"));
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     var result = service.replace(owner, p.key(), 1, List.of(u1, u2));
 
@@ -106,7 +108,8 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "AS2");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(u2, "MEMBER"));
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(u1));
 
     service.replace(owner, p.key(), 1, List.of(u2));
@@ -119,7 +122,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long owner = createUser("c");
     Long stranger = createUser("c-strange");
     ProjectResponse p = newProject(owner, "AS3");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(() -> service.replace(owner, p.key(), 1, List.of(stranger)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);
@@ -130,7 +133,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long owner = createUser("d");
     Long stranger = createUser("d-strange");
     ProjectResponse p = newProject(owner, "AS4");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     assertThatThrownBy(() -> service.replace(stranger, p.key(), 1, List.of()))
         .isInstanceOf(ProjectNotFoundException.class);
@@ -142,7 +145,8 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long u1 = createUser("e1");
     ProjectResponse p = newProject(owner, "AS5");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(u1));
     long before =
         historyRepository.findByIssue(issue.id()).stream()
@@ -166,7 +170,8 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "AS6");
     projectService.addMember(owner, p.key(), new AddMemberRequest(u1, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(u2, "MEMBER"));
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(u1, u2));
 
     var result = service.replace(owner, p.key(), 1, List.of());
@@ -181,7 +186,8 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long agent = createAgentUserWithMembership("ag-self");
     ProjectResponse p = newProject(owner, "AGSELF");
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
-    IssueRow issue = issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueRow issue =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(agent));
 
     var result = service.replace(agent, p.key(), 1, List.of());
@@ -197,7 +203,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     ProjectResponse p = newProject(owner, "AGOTH");
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(other, agent));
 
     // WP-453: AI 도 사람처럼 다른 담당자를 뺄 수 있다(이유는 work-loop 규칙이 댓글로 남긴다).
@@ -216,7 +222,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
     projectService.addMember(owner, p.key(), new AddMemberRequest(otherAgent, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(agent));
 
     // WP-453: AI 가 다른 사람·AI 를 담당자로 넣어 일을 맡길 수 있다.
@@ -231,7 +237,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long agent = createAgentUserWithMembership("ag4-self");
     ProjectResponse p = newProject(owner, "AGSOL");
     projectService.addMember(owner, p.key(), new AddMemberRequest(agent, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(agent));
 
     var result = service.replace(agent, p.key(), 1, List.of());
@@ -272,7 +278,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long member = createUser("inact-member");
     ProjectResponse p = newProject(owner, "INACT1");
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(member)).execute();
 
     // WP-487 — 멤버인데 「프로젝트 멤버만…」으로 거부하면 원인을 알 수 없다. 비활성 전용 메시지로 알린다.
@@ -291,7 +297,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long member = createUser("susp-member");
     ProjectResponse p = newProject(owner, "SUSP1");
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     TestFixtures.suspendMember(dsl, member, 1L);
 
     assertThatThrownBy(() -> service.replace(owner, p.key(), 1, List.of(member)))
@@ -337,7 +343,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long member = createUser("inact2-member");
     ProjectResponse p = newProject(owner, "INACT2");
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
     service.replace(owner, p.key(), 1, List.of(member));
     dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(member)).execute();
 
@@ -352,7 +358,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
     Long other = createUser("ag5-other");
     ProjectResponse p = newProject(owner, "AGHUM");
     projectService.addMember(owner, p.key(), new AddMemberRequest(other, "MEMBER"));
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     var result = service.replace(owner, p.key(), 1, List.of(other));
 

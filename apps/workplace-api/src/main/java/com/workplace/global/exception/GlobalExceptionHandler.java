@@ -45,6 +45,8 @@ import com.workplace.issue.exception.InvalidTypeForProjectException;
 import com.workplace.issue.exception.InvalidTypeIconException;
 import com.workplace.issue.exception.IssueCommentNotFoundException;
 import com.workplace.issue.exception.IssueNotFoundException;
+import com.workplace.issue.exception.RequestedStatusNotFoundException;
+import com.workplace.issue.exception.StatusDeletedException;
 import com.workplace.issue.exception.StatusEditNotSupportedException;
 import com.workplace.issue.exception.StatusLastInCategoryException;
 import com.workplace.issue.exception.StatusLimitExceededException;
@@ -56,6 +58,7 @@ import com.workplace.issue.exception.SystemTypeImmutableException;
 import com.workplace.issue.exception.TypeInUseException;
 import com.workplace.issue.exception.TypeNameDuplicatedException;
 import com.workplace.issue.exception.TypeNotFoundException;
+import com.workplace.jooq.Keys;
 import com.workplace.label.exception.InvalidColorTokenException;
 import com.workplace.label.exception.InvalidLabelForProjectException;
 import com.workplace.label.exception.LabelNameDuplicatedException;
@@ -91,6 +94,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.postgresql.util.PSQLException;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -283,6 +287,16 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ErrorResponse> handleDataIntegrityViolation(
       DataIntegrityViolationException ex, HttpServletRequest request) {
+    // 이슈 상태 복합 FK 위반 → 「상태가 방금 삭제됨」 409(WP-936). 서비스가 상태를 확인한 뒤 그 상태의 삭제가 커밋되면 쓰기가 이 FK 로
+    // 실패한다 — 아래 일반 FK 404 보다 먼저, 제약 이름으로만 갈라 코드 있는 예외와 같은 응답을 낸다.
+    if (ex.getMostSpecificCause() instanceof PSQLException p
+        && p.getServerErrorMessage() != null
+        && Keys.ISSUE__FK_ISSUE_STATUS_CATEGORY
+            .getName()
+            .equals(p.getServerErrorMessage().getConstraint())) {
+      return handleCoded(new StatusDeletedException(ex), request);
+    }
+
     String causeMsg = ex.getCause() != null ? ex.getCause().getMessage() : null;
 
     // 페이지네이션 음수 파라미터 → 입력값 오류(400). 화면 토스트로 그대로 나가는 문구라 한국어로 둔다(WP-774).
@@ -421,12 +435,15 @@ public class GlobalExceptionHandler {
 
   /**
    * 코드 있는 도메인 예외 — 예외가 정한 상태와 errors(사유 코드)를 그대로 싣는다. WP-55 AI 메모리(웹 토스트·ai-agent 도구 오류 문구가 코드로
-   * 가른다, 가득 참이면 errors.scope 도 WP-379), WP-386 공용 AI 메모리, WP-800 대기열 가져가기 거절(409).
+   * 가른다, 가득 참이면 errors.scope 도 WP-379), WP-386 공용 AI 메모리, WP-800 대기열 가져가기 거절(409), WP-936 상태가 방금
+   * 삭제됨(409).
    */
   @ExceptionHandler({
     AiMemoryException.class,
     com.workplace.home.exception.SharedAiMemoryException.class,
-    com.workplace.issue.exception.IssueClaimRejectedException.class
+    com.workplace.issue.exception.IssueClaimRejectedException.class,
+    StatusDeletedException.class,
+    RequestedStatusNotFoundException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {

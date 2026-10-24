@@ -1,5 +1,5 @@
 // 프로젝트 상태(WP-808·WP-809) 쿼리/뮤테이션 훅 — 목록 + OWNER 전용 추가·수정(이름·색)·순서 변경·삭제.
-// 쿼리 키 ['projectStatuses', projectKey] 는 SSE 'project-status' 무효화 규칙(lib/resourceInvalidation)과 같아야 한다.
+// 쿼리 키는 projectStatusesKey 한 곳에서 만든다 — SSE 'project-status' 무효화 규칙(lib/resourceInvalidation)도 이것을 쓴다.
 
 import { type InfiniteData, type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
@@ -16,8 +16,14 @@ import {
   updateProjectStatus,
   type UpdateProjectStatusBody,
 } from '../../api/projectStatuses';
+import { extractApiErrorCode } from '../../lib/api-error';
 import type { IssueDetailResponse, IssueFilters, IssueResponse, IssueSearchResponse, IssueStatus } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
+
+/** 프로젝트 상태 목록 쿼리 키 — 조회·무효화·캐시 직접 갱신이 모두 이 키를 쓴다. */
+export function projectStatusesKey(projectKey: string | undefined) {
+  return ['projectStatuses', projectKey] as const;
+}
 
 // 프로젝트의 상태 목록 — projectKey 가 아직 없으면(라우트 로딩 중) 조회하지 않는다.
 // 목록이 도착·갱신되면 이미 캐시된 이슈 검색 페이지에 모르는 상태가 있는지 다시 본다 — 이슈 검색이 목록보다 먼저 와
@@ -25,7 +31,7 @@ import type { ProjectStatus } from '../../types/projectStatus';
 export function useProjectStatuses(projectKey?: string) {
   const qc = useQueryClient();
   const query = useQuery({
-    queryKey: ['projectStatuses', projectKey],
+    queryKey: projectStatusesKey(projectKey),
     queryFn: () => listProjectStatuses(projectKey!),
     enabled: !!projectKey,
   });
@@ -97,13 +103,37 @@ export function refreshStatusesOnUnknown(
   projectKey: string,
   issues: readonly { statusId?: number | null }[],
 ) {
-  const statuses = client.getQueryData<ProjectStatus[]>(['projectStatuses', projectKey]);
+  const statuses = client.getQueryData<ProjectStatus[]>(projectStatusesKey(projectKey));
   if (!statuses) return;
   const { asked } = statusCheckFor(client, statuses);
   const fresh = unknownStatusIds(issues, statuses).filter((id) => !asked.has(id));
   if (fresh.length === 0) return;
   fresh.forEach((id) => asked.add(id));
-  void client.invalidateQueries({ queryKey: ['projectStatuses', projectKey] });
+  void client.invalidateQueries({ queryKey: projectStatusesKey(projectKey) });
+}
+
+/**
+ * 이슈 쓰기에 고른 상태가 없어졌을 때 서버가 싣는 오류 코드(ErrorResponse.errors.code — WP-936).
+ * STATUS_DELETED(409): 서버 확인 뒤 삭제가 커밋된 경합. STATUS_NOT_FOUND(400): 요청 전에 이미 삭제돼 웹 목록이 낡은 경우.
+ */
+const STATUS_GONE_CODES = new Set(['STATUS_DELETED', 'STATUS_NOT_FOUND']);
+
+/** 고른 상태가 없어져 거절된 오류인가(409 STATUS_DELETED·400 STATUS_NOT_FOUND) — 생성 폼이 토스트 문구를 바꾸는 데도 쓴다. */
+export function isStatusGoneError(error: unknown): boolean {
+  const code = extractApiErrorCode(error);
+  return code != null && STATUS_GONE_CODES.has(code);
+}
+
+/**
+ * 이슈 생성·수정·상태 변경이 「고른 상태가 없어짐」(409 STATUS_DELETED·400 STATUS_NOT_FOUND)으로 거절됐으면 상태 목록을 다시 받는다(WP-936).
+ * 왜: 서버 안내가 「다른 상태를 골라 주세요」인데 고르기(보드 컬럼·상태 팝오버·생성 폼)가 지워진 상태를 계속 보여 주면 같은 거절을 되풀이한다.
+ * 같은 409 인 버전 충돌(#611)과는 코드로 가른다 — 그래서 이 오류였는지 돌려준다(호출부가 버전 충돌 처리를 건너뛰게).
+ * 실패 안내 토스트는 호출부가 서버 문구 그대로 띄운다.
+ */
+export function refreshStatusesIfGone(client: QueryClient, projectKey: string, error: unknown): boolean {
+  if (!isStatusGoneError(error)) return false;
+  void client.invalidateQueries({ queryKey: projectStatusesKey(projectKey) });
+  return true;
 }
 
 /**
@@ -167,7 +197,7 @@ export function useCreateProjectStatus(projectKey: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: CreateProjectStatusBody) => createProjectStatus(projectKey, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projectStatuses', projectKey] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: projectStatusesKey(projectKey) }),
   });
 }
 
@@ -179,7 +209,7 @@ export function useUpdateProjectStatus(projectKey: string) {
   return useMutation({
     mutationFn: (v: { id: number; body: UpdateProjectStatusBody }) => updateProjectStatus(projectKey, v.id, v.body),
     onSuccess: (saved) => {
-      qc.setQueryData<ProjectStatus[]>(['projectStatuses', projectKey], (list) =>
+      qc.setQueryData<ProjectStatus[]>(projectStatusesKey(projectKey), (list) =>
         list?.map((s) => (s.id === saved.id ? { ...s, name: saved.name, color: saved.color } : s)),
       );
       patchStatusInIssueCaches(qc, projectKey, saved.id, { name: saved.name, color: saved.color });
@@ -205,7 +235,7 @@ export function applyCategoryOrder(list: readonly ProjectStatus[], category: Iss
 // 끝나면(성공·실패) 서버 목록으로 맞춘다 — 그 사이 다른 사람이 바꾼 것도 반영된다.
 export function useReorderProjectStatuses(projectKey: string) {
   const qc = useQueryClient();
-  const key = ['projectStatuses', projectKey];
+  const key = projectStatusesKey(projectKey);
   return useMutation({
     mutationFn: (body: ReorderProjectStatusesBody) => reorderProjectStatuses(projectKey, body),
     onMutate: async (body) => {
@@ -232,7 +262,7 @@ export function useDeleteProjectStatus(projectKey: string) {
   return useMutation({
     mutationFn: (v: { id: number; moveTo?: number }) => deleteProjectStatus(projectKey, v.id, v.moveTo),
     onSuccess: () => {
-      const statuses = qc.invalidateQueries({ queryKey: ['projectStatuses', projectKey] });
+      const statuses = qc.invalidateQueries({ queryKey: projectStatusesKey(projectKey) });
       for (const queryKey of [['issues', 'search', projectKey], ['issues', projectKey], ['savedViews', projectKey], ['pinnedViews']]) {
         void qc.invalidateQueries({ queryKey });
       }

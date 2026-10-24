@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
@@ -60,7 +61,7 @@ class WatcherServiceTest extends IntegrationTestBase {
   void member_can_watch_and_unwatch_idempotently() {
     Long owner = createUser("w1");
     ProjectResponse p = newProject(owner, "W1");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     watcherService.watch(owner, p.key(), 1);
     watcherService.watch(owner, p.key(), 1); // idempotent
@@ -76,7 +77,7 @@ class WatcherServiceTest extends IntegrationTestBase {
     Long owner = createUser("w2");
     Long other = createUser("x2");
     ProjectResponse p = newProject(owner, "W2");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, owner);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner);
 
     // 볼 수 없는 TEAM 프로젝트는 없는 프로젝트와 같은 404(WP-588) — 구독·해제 모두.
     assertThatThrownBy(() -> watcherService.watch(other, p.key(), 1))
@@ -94,7 +95,7 @@ class WatcherServiceTest extends IntegrationTestBase {
     ProjectResponse p =
         projectService.create(
             owner, new CreateProjectRequest(uniqueKey("PUB"), "공개 접수함", "x", "OPEN"));
-    issueRepository.insert(p.id(), 1, "제보", null, "MID", null, reporter);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "제보", null, "MID", null, reporter);
 
     watcherService.watch(reporter, p.key(), 1);
     assertThat(watcherService.watchedIssues(reporter, null, 30, null).items())
@@ -110,7 +111,7 @@ class WatcherServiceTest extends IntegrationTestBase {
   void watched_issues_filters_out_non_member_projects() {
     Long u = createUser("w3");
     ProjectResponse p = newProject(u, "W3");
-    issueRepository.insert(p.id(), 1, "t", null, "MID", null, u);
+    IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, u);
     watcherService.watch(u, p.key(), 1);
 
     assertThat(watcherService.watchedIssues(u, null, 30, null).items()).hasSize(1);

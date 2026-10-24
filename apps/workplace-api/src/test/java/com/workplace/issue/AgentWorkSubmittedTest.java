@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.issue.service.AgentWorkService;
+import com.workplace.support.TestFixtures;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.UserService;
 import java.util.List;
@@ -210,7 +211,12 @@ class AgentWorkSubmittedTest extends AgentWorkTestSupport {
     long notAssigned = createIssue(jwtToken, null, List.of(humanId));
     long working = createIssue(jwtToken, null, List.of(agentId));
     inTenant(
-        () -> dsl.update(ISSUE).set(ISSUE.STATUS, "DONE").where(ISSUE.ID.eq(closed)).execute());
+        () ->
+            dsl.update(ISSUE)
+                .set(ISSUE.STATUS, "DONE")
+                .set(ISSUE.STATUS_ID, TestFixtures.defaultStatusId(ISSUE.PROJECT_ID, "DONE"))
+                .where(ISSUE.ID.eq(closed))
+                .execute());
     seedActive(working, agentId, "WORKING");
     assertThat(activeCount(issueId)).isZero();
 

@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.AddMemberRequest;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -62,8 +63,10 @@ class WatcherProjectMemberRemovalTest extends IntegrationTestBase {
     Long owner = createUser("o");
     Long member = createUser("m");
     ProjectResponse p = newProject(owner, "TEAM");
-    long issue1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner).id();
-    long issue2 = issueRepository.insert(p.id(), 2, "t2", null, "MID", null, owner).id();
+    long issue1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner).id();
+    long issue2 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 2, "t2", null, "MID", null, owner).id();
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
     watcherService.watch(member, p.key(), 1);
     watcherService.watch(member, p.key(), 2);
@@ -80,7 +83,8 @@ class WatcherProjectMemberRemovalTest extends IntegrationTestBase {
     Long owner = createUser("o");
     Long member = createUser("m");
     ProjectResponse p = newProject(owner, "OPEN");
-    long issue1 = issueRepository.insert(p.id(), 1, "t1", null, "MID", null, owner).id();
+    long issue1 =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t1", null, "MID", null, owner).id();
     projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
     watcherService.watch(member, p.key(), 1);
 

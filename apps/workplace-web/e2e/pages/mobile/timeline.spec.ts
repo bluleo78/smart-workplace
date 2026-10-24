@@ -1,7 +1,7 @@
 // 모바일 타임라인(WP-197) — 간트 대신 월별 아젠다: 섹션 순서, 에픽 하위 들여쓰기, 미니 막대·오늘 선, 칩(필터·마일스톤·일정 미정).
 // WP-251 — 에픽 기본 접힘·펼침 유지(데스크톱과 같은 저장소 키), 진행률 배지, 에픽 기간 vs 하위 실제 범위 얇은 막대.
 // WP-247 — 기간 칩·시트와 완료·취소 에픽 상태 표시.
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { IssueResponse } from '../../../src/types/issue';
@@ -9,6 +9,7 @@ import type { MilestoneResponse } from '../../../src/types/milestone';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
+import { inServerOrder, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
@@ -45,7 +46,8 @@ function createCycle(o: Partial<CycleResponse>): CycleResponse {
 }
 
 /** period: 기본 'all'(기간 거름 없이 기존 검증 유지), null 이면 period 없이 진입해 기본(활성 사이클) 기간을 쓴다. */
-async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null; issues?: IssueResponse[]; milestones?: MilestoneResponse[] } = {}) {
+/** waitAgenda: 기본 true — 진입 뒤 아젠다가 보일 때까지 기다린다. 상태 목록 관문(WP-938)을 검증할 땐 false. */
+async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null; issues?: IssueResponse[]; milestones?: MilestoneResponse[]; waitAgenda?: boolean } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-15T03:00:00Z')); // 오늘 = 2026-10-15(KST)
   await stubChat(page);
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, viewerIsMember: opts.member ?? true }))));
@@ -63,7 +65,7 @@ async function setup(page: Page, opts: { member?: boolean; query?: string; cycle
   if (period) params.set('period', period);
   const qs = params.toString();
   await page.goto(`/projects/${KEY}/timeline${qs ? `?${qs}` : ''}`);
-  await expect(page.getByTestId('timeline-agenda')).toBeVisible();
+  if (opts.waitAgenda ?? true) await expect(page.getByTestId('timeline-agenda')).toBeVisible();
 }
 
 test('간트 대신 아젠다 — 월 섹션 오름차순 + 일정 미정 맨 아래, 행 날짜 문구, 넘침 없음', async ({ authenticatedPage: page }) => {
@@ -341,4 +343,74 @@ test('완료 에픽은 완료 배지, 「취소」 필터면 취소 에픽이 �
   await expect(canceled.getByTestId('agenda-status-badge')).toHaveText('취소');
   await expect(canceled.locator('.line-through')).toBeVisible();
   await expect(canceled.getByTestId('agenda-bar')).toHaveClass(/bg-muted-foreground/);
+});
+
+// WP-938 — 모바일 아젠다도 상태 목록을 받은 뒤에만 그린다(필터 칩·시트의 「상태」 facet 이 받은 상태 이름을 보인다).
+test('상태 목록을 받기 전엔 아젠다·필터 칩 대신 로딩, 받은 뒤 필터 시트 「상태」에 프로젝트 상태 이름 (WP-938)', async ({ authenticatedPage: page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(`**/api/v1/projects/${KEY}/statuses`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await held;
+    return route.fulfill(json(inServerOrder(withCustomStatuses('설계'))));
+  });
+  await setup(page, { waitAgenda: false });
+
+  await expect(page.getByTestId('timeline-page')).toContainText('로딩 중…');
+  await expect(page.getByTestId('timeline-agenda')).toHaveCount(0);
+  await expect(page.getByTestId('agenda-chip-filter')).toHaveCount(0);
+
+  release();
+  await page.getByTestId('agenda-chip-filter').tap();
+  const sheet = page.getByTestId('mobile-filter-sheet');
+  await sheet.getByTestId('add-filter-trigger').tap();
+  await page.getByTestId('add-filter-facet-statusId').tap();
+  await expect(page.locator('[data-testid^="facet-value-statusId-"]')).toHaveText(['할 일', '진행 중', '설계', '완료', '취소']);
+});
+
+test('상태 목록을 불러오지 못하면 아젠다 자리에 다시 시도, 성공 뒤 아젠다가 그려진다 (WP-938)', async ({ authenticatedPage: page }) => {
+  let fail = true;
+  await page.route(`**/api/v1/projects/${KEY}/statuses`, (route) =>
+    route.request().method() === 'GET' && fail ? route.fulfill({ status: 500, json: { status: 500, message: '서버 오류' } }) : route.fallback(),
+  );
+  await setup(page, { waitAgenda: false });
+
+  const error = page.getByTestId('project-statuses-error');
+  await expect(error).toContainText('상태 목록을 불러오지 못했습니다');
+  await expect(page.getByTestId('timeline-agenda')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  fail = false;
+  await error.getByRole('button', { name: '다시 시도' }).tap();
+  await expect(page.getByTestId('timeline-agenda')).toBeVisible();
+  await expect(error).toHaveCount(0);
+});
+
+// 관문 로딩 문구와 실패 화면 덩어리(아이콘 위 ~ 「다시 시도」 아래)가 본문 자리(timeline-body)의 세로 가운데에서 벗어난 px.
+async function offsetFromBodyCenter(page: Page, top: Locator, bottom: Locator = top) {
+  const slot = (await page.getByTestId('timeline-body').boundingBox())!;
+  const a = (await top.boundingBox())!;
+  const b = (await bottom.boundingBox())!;
+  return Math.abs((a.y + b.y + b.height) / 2 - (slot.y + slot.height / 2));
+}
+
+// WP-938 디자이너 리뷰 — 로딩 문구에서 실패 화면으로 바뀔 때 덩어리가 위로 튀지 않는다(데스크톱 timeline.spec 과 같은 확인, 모바일 폭).
+test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 세로 가운데에 놓인다 (WP-938)', async ({ authenticatedPage: page }) => {
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route(`**/api/v1/projects/${KEY}/statuses`, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    await held;
+    return route.fulfill({ status: 500, json: { status: 500, message: '서버 오류' } });
+  });
+  await setup(page, { waitAgenda: false });
+
+  const loading = page.getByTestId('timeline-body').getByText('로딩 중…');
+  await expect(loading).toBeVisible();
+  expect(await offsetFromBodyCenter(page, loading)).toBeLessThan(4);
+
+  release();
+  const error = page.getByTestId('project-statuses-error');
+  await expect(error).toBeVisible();
+  expect(await offsetFromBodyCenter(page, error.locator('svg').first(), error.getByRole('button', { name: '다시 시도' }))).toBeLessThan(4);
+  await expectNoHorizontalOverflow(page);
 });

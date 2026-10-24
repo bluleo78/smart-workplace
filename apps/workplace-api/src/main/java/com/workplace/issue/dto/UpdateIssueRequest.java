@@ -26,12 +26,7 @@ public record UpdateIssueRequest(
     // WP-870 프로젝트 상태 이름 — 서버가 상태 id(범주 코드면 범주)로 해석한다. 우선순위는 statusId → statusName → status.
     String statusName) {
 
-  /** 상태만 바꾸는 요청(WP-807) — PATCH /status·시스템 전이가 쓴다. 범주·상태 id 중 statusId 가 우선한다. */
-  public static UpdateIssueRequest statusOnly(String category, Long statusId) {
-    return statusOnly(category, statusId, null);
-  }
-
-  /** 상태만 바꾸는 요청에 상태 이름(WP-870)까지 — PATCH /status 가 쓴다. statusId → statusName → 범주 순으로 이긴다. */
+  /** 상태만 바꾸는 요청(WP-807·WP-870) — PATCH /status·시스템 전이가 쓴다. statusId → statusName → 범주 순으로 이긴다. */
   public static UpdateIssueRequest statusOnly(String category, Long statusId, String statusName) {
     return new UpdateIssueRequest(
         null,
@@ -64,65 +59,6 @@ public record UpdateIssueRequest(
         clearMilestone,
         version,
         resolvedStatusId,
-        null);
-  }
-
-  /** WP-870 이전의 12-인자 호환 생성자 — 상태 이름 없이 수정한다. */
-  public UpdateIssueRequest(
-      String title,
-      String body,
-      String status,
-      String priority,
-      LocalDate dueDate,
-      Boolean clearDueDate,
-      LocalDate startDate,
-      Boolean clearStartDate,
-      Long milestoneId,
-      Boolean clearMilestone,
-      Integer version,
-      Long statusId) {
-    this(
-        title,
-        body,
-        status,
-        priority,
-        dueDate,
-        clearDueDate,
-        startDate,
-        clearStartDate,
-        milestoneId,
-        clearMilestone,
-        version,
-        statusId,
-        null);
-  }
-
-  /** WP-807 이전의 11-인자 호환 생성자 — 상태 id 없이(범주만) 수정한다. */
-  public UpdateIssueRequest(
-      String title,
-      String body,
-      String status,
-      String priority,
-      LocalDate dueDate,
-      Boolean clearDueDate,
-      LocalDate startDate,
-      Boolean clearStartDate,
-      Long milestoneId,
-      Boolean clearMilestone,
-      Integer version) {
-    this(
-        title,
-        body,
-        status,
-        priority,
-        dueDate,
-        clearDueDate,
-        startDate,
-        clearStartDate,
-        milestoneId,
-        clearMilestone,
-        version,
-        null,
         null);
   }
 }
