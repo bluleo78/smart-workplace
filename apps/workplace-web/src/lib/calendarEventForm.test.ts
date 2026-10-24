@@ -237,6 +237,16 @@ describe('eventFormSchema 반복 종료일 (#114)', () => {
     )
   })
 
+  // WP-904: 날짜 칸이 내보내는 5자리 연도는 RRULE 조립에서 깨져 저장이 무반응이었다 — 서버와 같은 범위 문구 하나만 낸다.
+  it('종료 날짜 연도가 범위 밖이면 범위 문구 하나만 낸다', () => {
+    const r = eventFormSchema.safeParse(weeklyUntil('20260-10-23'))
+    expect(r.success).toBe(false)
+    expect(r.error?.issues.filter((i) => i.path[0] === 'recurrenceUntil').map((i) => i.message)).toEqual([
+      '날짜는 1900-01-01 ~ 9999-12-31 사이여야 합니다',
+    ])
+    expect(eventFormSchema.safeParse(weeklyUntil('9999-12-31')).success).toBe(true)
+  })
+
   it('반복 없음이면 숨겨진 반복 필드 잔존 값으로 막지 않는다', () => {
     expect(
       eventFormSchema.safeParse({ ...base, recurrenceEnd: 'until', recurrenceUntil: '', recurrenceInterval: 0 }).success,
