@@ -323,6 +323,16 @@ test.describe('인박스 배너', () => {
     await page.goto('/')
     await page.getByTestId('inbox-trigger').click()
     await expect(page.getByTestId('push-prompt-banner')).toBeVisible()
+    // WP-922: 「알림 켜기」·「배너 닫기」 모두 ::after 확장으로 손가락 터치 영역이 44px 이상이다.
+    for (const id of ['push-prompt-enable', 'push-prompt-dismiss']) {
+      const hit = await page.getByTestId(id).evaluate((el) => {
+        const s = getComputedStyle(el, '::after')
+        const r = el.getBoundingClientRect()
+        return { w: r.width - parseFloat(s.left) - parseFloat(s.right), h: r.height - parseFloat(s.top) - parseFloat(s.bottom) }
+      })
+      expect(hit.w, id).toBeGreaterThanOrEqual(44)
+      expect(hit.h, id).toBeGreaterThanOrEqual(44)
+    }
     await page.getByTestId('push-prompt-dismiss').click()
     await expect(page.getByTestId('push-prompt-banner')).toHaveCount(0)
     await page.reload()

@@ -26,16 +26,24 @@ export function PushPromptBanner() {
     <div className="flex items-center gap-2 border-b bg-muted/50 px-3 py-2 text-xs" data-testid="push-prompt-banner">
       <BellRing className="h-4 w-4 shrink-0 text-primary" />
       <span className="flex-1">앱을 닫아도 알림을 받아 보세요</span>
+      {/* WP-922: 두 버튼 모두 보이는 크기는 작게 두고 보이지 않는 ::after 로 터치 영역을 44px 이상으로 넓힌다(10-accessibility §I).
+          배너 높이는 그대로 — 넓힌 영역은 absolute 라 레이아웃을 밀지 않는다. */}
       <button
         type="button"
-        className="font-medium text-primary hover:underline"
+        className="relative font-medium text-primary hover:underline after:absolute after:-inset-x-2 after:-inset-y-3.5 after:content-['']"
         disabled={enablePush.isPending}
         onClick={() => enablePush.mutate({ vapidPublicKey: key, permission: requestPushPermission() }, { onSettled: dismiss })}
         data-testid="push-prompt-enable"
       >
         알림 켜기
       </button>
-      <button type="button" aria-label="배너 닫기" onClick={dismiss} data-testid="push-prompt-dismiss">
+      <button
+        type="button"
+        aria-label="배너 닫기"
+        onClick={dismiss}
+        className="relative -mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded after:absolute after:-inset-2 after:content-['']"
+        data-testid="push-prompt-dismiss"
+      >
         <X className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
     </div>
