@@ -69,3 +69,71 @@ test('AI 위임 작업 — 제목 h1 한 번, 행 노출, 본문 스크롤로 �
   await setup(page, '/me/ai-tasks')
   await expectSmoke(page, 'AI 위임 작업', 'ai-row')
 })
+
+// ── WP-916 모바일: 프로젝트 머리 줄·담당자 표시·마감 지남·행 탭 ─────────────────────────
+const human: UserSummary = { id: 7, username: 'kim', name: '김민수', kind: 'HUMAN' }
+const EX = { name: '외부 연동 프로젝트', size: 2 }
+const OPS = { name: '운영 개선', size: 1 }
+const GROUPED = [
+  createIssue({ id: 301, projectKey: 'EX', number: 31, title: '외부 연동 첫 작업', assignees: [human], projectGroup: EX }),
+  createIssue({ id: 302, projectKey: 'EX', number: 32, title: '외부 연동 둘째 작업', assignees: [human], projectGroup: EX }),
+  createIssue({ id: 303, projectKey: 'OPS', number: 5, title: '운영 작업', assignees: [human], projectGroup: OPS }),
+]
+
+test('내 작업 — 프로젝트 머리 줄이 그 프로젝트 행 위에 있다(WP-916)', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse(GROUPED))
+  await page.goto('/me/tasks/assigned')
+  const exHead = page.getByTestId('assigned-row-project-EX-head')
+  const opsHead = page.getByTestId('assigned-row-project-OPS-head')
+  await expect(exHead).toContainText(EX.name)
+  await expect(opsHead).toContainText(OPS.name)
+  const y = async (tid: string) => (await page.getByTestId(tid).boundingBox())!.y
+  expect(await y('assigned-row-project-EX-head')).toBeLessThan(await y('assigned-row-301'))
+  expect(await y('assigned-row-302')).toBeLessThan(await y('assigned-row-project-OPS-head'))
+  expect(await y('assigned-row-project-OPS-head')).toBeLessThan(await y('assigned-row-303'))
+  await expectNoHorizontalOverflow(page)
+})
+
+test('내 작업 — 할당 탭은 아바타가 없고 구독 탭은 있다(WP-916)', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse(GROUPED))
+  await mockApi(page, 'GET', '/api/v1/me/watched-issues', createIssueSearchResponse(GROUPED))
+  await page.goto('/me/tasks/assigned')
+  await expect(page.getByTestId('assigned-row-301')).toBeVisible()
+  await expect(page.getByTestId('assigned-row-301').getByTestId(/^user-avatar/)).toHaveCount(0)
+  await page.getByTestId('tab-watched').click()
+  await expect(page.getByTestId('watched-row-301')).toBeVisible()
+  await expect(page.getByTestId('watched-row-301').getByTestId(/^user-avatar/)).not.toHaveCount(0)
+})
+
+test('내 작업 — 마감 지남은 빨강(WP-916)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-24T10:00:00'))
+  await stubChat(page)
+  await mockApi(
+    page,
+    'GET',
+    '/api/v1/me/issues',
+    createIssueSearchResponse([
+      createIssue({ id: 401, projectKey: 'EX', number: 41, title: '지난 마감', dueDate: '2026-10-20', projectGroup: EX }),
+      createIssue({ id: 402, projectKey: 'EX', number: 42, title: '끝난 일', status: 'DONE', dueDate: '2026-10-20', projectGroup: EX }),
+    ]),
+  )
+  await page.goto('/me/tasks/assigned?closed=all')
+  const overdue = page.getByTestId('assigned-row-401-due')
+  await expect(overdue).toHaveClass(/text-destructive/)
+  await expect(overdue).toContainText('10월 20일')
+  await expect(overdue).toContainText('마감 지남')
+  const done = page.getByTestId('assigned-row-402-due')
+  await expect(done).not.toHaveClass(/text-destructive/)
+  await expect(done).not.toContainText('마감 지남')
+})
+
+test('내 작업 — 행 탭으로 상세 이동(WP-916)', async ({ authenticatedPage: page }) => {
+  await stubChat(page)
+  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse(GROUPED))
+  await page.goto('/me/tasks/assigned')
+  // 제목 링크가 아닌 메타 줄을 눌러도 행 전체 탭으로 상세로 간다.
+  await page.getByTestId('assigned-row-301-meta').click()
+  await expect(page).toHaveURL(/\/projects\/EX\/issues\/31/)
+})

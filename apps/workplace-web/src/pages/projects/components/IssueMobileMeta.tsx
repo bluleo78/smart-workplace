@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { formatListDueDate } from '../../../lib/formatters';
 import { isEpicParent } from '../../../lib/issueGrouping';
+import { isOverdue } from '../../../lib/issueOverdue';
 import { labelFg } from '../../../lib/labelColors';
 import type { IssueResponse } from '../../../types/issue';
 
@@ -15,6 +16,7 @@ export function IssueMobileMeta({
   projectKey,
   testIdPrefix,
   hideEpic = false,
+  hideAssignees = false,
   selected = false,
   className,
 }: {
@@ -24,6 +26,8 @@ export function IssueMobileMeta({
   testIdPrefix: string;
   /** 특정 에픽 필터·에픽 그룹 안에선 ◆에픽이 중복이라 숨긴다. */
   hideEpic?: boolean;
+  /** 담당자 아바타 숨김 — 내 작업 할당 탭은 모두 내 일이라 중복이다(WP-916). 기본은 보인다. */
+  hideAssignees?: boolean;
   /** 선택 행(bg-primary/10)에선 아바타 배경색 ring 을 끈다. */
   selected?: boolean;
   className?: string;
@@ -36,7 +40,16 @@ export function IssueMobileMeta({
   // 메타 꼬리 조각(높음·마감·하위·라벨) — 한 span 안에 인라인으로 이어 붙여, 넘치면 끝에서 「…」 로 말줄임된다.
   const tail: ReactNode[] = [];
   if (it.priority === 'HIGH') tail.push(<span key="p" className="text-destructive">높음</span>);
-  if (it.dueDate) tail.push(formatListDueDate(it.dueDate));
+  // 마감 — 지난 미완료면 데스크톱 목록과 같은 빨간 굵은 글씨 + 스크린리더 안내(WP-649). 완료·취소는 isOverdue 가 제외한다.
+  if (it.dueDate) {
+    const overdue = isOverdue(it);
+    tail.push(
+      <span key="d" className={overdue ? 'font-semibold text-destructive' : undefined} data-testid={`${testIdPrefix}-due`}>
+        {formatListDueDate(it.dueDate)}
+        {overdue && <span className="sr-only"> 마감 지남</span>}
+      </span>,
+    );
+  }
   if (it.childCount > 0) tail.push(`${it.childDoneCount}/${it.childCount}`);
   if (firstLabel) tail.push(`${firstLabel.name}${it.labels.length > 1 ? ` +${it.labels.length - 1}` : ''}`);
   // 구분점 — 스크린리더가 읽지 않게 aria-hidden.
@@ -79,7 +92,7 @@ export function IssueMobileMeta({
           </>
         )}
       </p>
-      {it.assignees.length > 0 && (
+      {!hideAssignees && it.assignees.length > 0 && (
         <span className="flex shrink-0 items-center -space-x-0.5">
           {/* 선택 행(bg-primary/10)에선 배경색 ring 이 흰 테두리로 떠 보여 끈다(AGENT 보라 ring 은 유지). */}
           {it.assignees.slice(0, 2).map((u) => (

@@ -14,41 +14,91 @@ import { cn } from '@/lib/utils'
 
 import { meFacetParams } from './meFacetParams'
 import { MeTaskFilterBar } from './MeTaskFilterBar'
+import { clearMyTasksFilters, hasMyTasksFilters, isHidingClosed, myTasksQueryParams, type MyTasksTab } from './myTasksQuery'
 import { MY_TASKS_TAB_LABEL } from './myTasksTabs'
 
-// 할당/내가 만든 탭은 /me/issues 기반이라 status/priority facet 을 서버 쿼리로 합친다.
+// 할당/내가 만든 탭은 /me/issues 기반 — 프로젝트 묶음 정렬(group)과 facet 을 서버 쿼리로 합친다(myTasksQuery, WP-916).
+// 할당 탭은 내가 맡은 일이라 담당자 열을 두지 않고, 내가 만든·구독 탭은 남이 맡은 일이 섞여 담당자 열을 둔다.
+
+/** URL 필터 상태 — 필터 0건 판정과 필터 초기화(탭 경로는 두고 필터 키만 지움)를 두 탭이 함께 쓴다. */
+function useMyTasksFilters() {
+  const [params, setParams] = useSearchParams()
+  return {
+    params,
+    filtered: hasMyTasksFilters(params),
+    resetFilters: () => setParams((prev) => clearMyTasksFilters(prev), { replace: true }),
+    /** 「완료 모두 보기」 켜기 — 필터 바 토글과 같은 URL 키(closed=all). */
+    showAllClosed: () =>
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.set('closed', 'all')
+          return next
+        },
+        { replace: true },
+      ),
+  }
+}
+
 function AssignedTab() {
-  const [params] = useSearchParams()
-  const query = useMeIssues({ assignee: 'me', ...meFacetParams(params) })
+  const { params, filtered, resetFilters, showAllClosed } = useMyTasksFilters()
+  const query = useMeIssues(myTasksQueryParams('assigned', params))
+  // 완료를 숨겨 비었을 수 있다 — 숨겼다고 알리고 「완료 모두 보기」를 다음 행동으로 준다(프로젝트 목록 WP-606 과 같은 안내).
+  const hiding = isHidingClosed(params)
   return (
-    <InfiniteIssueList query={query} rowTestIdPrefix="assigned-row" emptyText="할당된 작업이 없습니다." />
+    <InfiniteIssueList
+      query={query}
+      rowTestIdPrefix="assigned-row"
+      showAssignee={false}
+      empty={{
+        title: '할당된 작업이 없습니다',
+        description: hiding ? '완료한 작업은 「완료 모두 보기」로 볼 수 있습니다' : undefined,
+        action: hiding ? { label: '완료 모두 보기', onClick: showAllClosed, testIdSuffix: 'show-closed' } : undefined,
+      }}
+      filtered={filtered}
+      filteredDescription="할당된 작업은 있지만 필터에 걸러졌습니다"
+      onResetFilters={resetFilters}
+    />
   )
 }
 
 function ReportedTab() {
-  const [params] = useSearchParams()
-  const query = useMeIssues({ reporter: 'me', ...meFacetParams(params) })
+  const { params, filtered, resetFilters } = useMyTasksFilters()
+  const query = useMeIssues(myTasksQueryParams('reported', params))
   return (
-    <InfiniteIssueList query={query} rowTestIdPrefix="reported-row" emptyText="내가 만든 작업이 없습니다." />
+    <InfiniteIssueList
+      query={query}
+      rowTestIdPrefix="reported-row"
+      showAssignee
+      empty={{ title: '내가 만든 작업이 없습니다' }}
+      filtered={filtered}
+      filteredDescription="내가 만든 작업은 있지만 필터에 걸러졌습니다"
+      onResetFilters={resetFilters}
+    />
   )
 }
 
-// 구독 탭은 /me/watched-issues(다른 엔드포인트) — facet 미지원이라 필터 바를 노출하지 않는다.
+// 구독 탭은 /me/watched-issues(다른 엔드포인트) — facet 미지원이라 필터 바를 노출하지 않고 필터 0건도 없다. 최근 순 프로젝트 묶음(WP-915).
 function WatchedTab() {
-  const query = useWatchedIssues()
+  const query = useWatchedIssues(30, 'recent')
   return (
-    <InfiniteIssueList query={query} rowTestIdPrefix="watched-row" emptyText="구독 중인 작업이 없습니다." />
+    <InfiniteIssueList
+      query={query}
+      rowTestIdPrefix="watched-row"
+      showAssignee
+      empty={{ title: '구독 중인 작업이 없습니다', description: '이슈 상세에서 구독하면 여기에 모입니다' }}
+      filtered={false}
+    />
   )
 }
 
-const TABS = ['assigned', 'reported', 'watched'] as const
-type Tab = (typeof TABS)[number]
+const TABS: readonly MyTasksTab[] = ['assigned', 'reported', 'watched']
 
 export default function MyTasksPage() {
   const navigate = useNavigate()
   const { tab } = useParams<{ tab: string }>()
   // 잘못된 탭은 할당으로 폴백(에러 아님).
-  const active: Tab = (TABS as readonly string[]).includes(tab ?? '') ? (tab as Tab) : 'assigned'
+  const active: MyTasksTab = (TABS as readonly string[]).includes(tab ?? '') ? (tab as MyTasksTab) : 'assigned'
   // WP-54: 탭 + facet 을 AI 화면 컨텍스트(목록 상태)로 등록 — 건수는 탭 하위 목록이 소유해 이번 범위에선 생략.
   // 구독 탭은 facet 을 적용하지 않으므로(필터 바 미노출) URL 에 남은 facet 을 싣지 않는다.
   const [params] = useSearchParams()
@@ -72,7 +122,8 @@ export default function MyTasksPage() {
           </TabsList>
           {/* facet 바는 /me/issues 기반 탭(할당·내가 만든)에서만 노출 — 구독은 다른 엔드포인트라 제외. */}
           <TabsContent value="assigned" className="space-y-4">
-            <MeTaskFilterBar />
+            {/* 할당 탭만 완료를 기본으로 숨기므로 「완료 모두 보기」 토글을 둔다(WP-916). */}
+            <MeTaskFilterBar showClosedToggle />
             <AssignedTab />
           </TabsContent>
           <TabsContent value="reported" className="space-y-4">

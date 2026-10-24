@@ -31,11 +31,14 @@ export async function unwatchIssue(projectKey: string, number: number): Promise<
 }
 
 // 내가 구독 중인 이슈 — cursor 페이지네이션.
+// group='recent' 면 최근 순 프로젝트 묶음으로 받는다(WP-915, 내 작업 구독 탭). 없으면 기존 정렬(홈 등).
 export async function fetchWatchedIssues(
   cursor: string | null,
   size = 30,
+  group?: 'recent',
 ): Promise<IssueSearchResponse> {
   const params = new URLSearchParams();
+  if (group) params.set('group', group);
   if (cursor) params.set('cursor', cursor);
   params.set('size', String(size));
   const { data } = await client.get<IssueSearchResponse>(
