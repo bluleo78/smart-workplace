@@ -115,6 +115,33 @@ test.describe('메일 계정 설정', () => {
     await expect(page.getByTestId('mail-save-button')).toBeDisabled();
   });
 
+  // WP-907 — 포트 칸을 비우거나 소수를 넣으면 zod 영어 원문 대신 한국어로 무엇을 넣어야 하는지 보이고, 연결 테스트를 보내지 않는다.
+  test('포트 칸이 비거나 소수면 한국어 안내를 보이고 연결 테스트를 보내지 않는다 (WP-907)', async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
+    let tested = false
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && req.url().includes('/api/v1/mail/accounts/test')) tested = true
+    })
+    await page.goto('/settings/mail')
+    await page.getByTestId('mail-add-trigger').click()
+
+    await page.locator('#mail-email').fill('me@example.com')
+    await page.locator('#mail-imap-host').fill('imap.x.com')
+    await page.locator('#mail-imap-user').fill('me@example.com')
+    await page.locator('#mail-smtp-host').fill('smtp.x.com')
+    await page.locator('#mail-smtp-user').fill('me@example.com')
+    await page.locator('#mail-pw').fill('pw')
+    await page.locator('#mail-imap-port').fill('')
+    await page.locator('#mail-smtp-port').fill('587.5')
+
+    await page.getByTestId('mail-test-button').click()
+    const dialog = page.getByTestId('mail-account-dialog')
+    await expect(dialog.getByText('포트를 입력하세요')).toBeVisible()
+    await expect(dialog.getByText('포트는 소수점 없는 정수여야 합니다')).toBeVisible()
+    await expect(dialog.getByText(/Invalid input|expected/)).toHaveCount(0)
+    expect(tested).toBe(false)
+  })
+
   // 전역 AI 토글
   test('계정 없을 때 전역 개인 비서 토글 숨김', async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', []);

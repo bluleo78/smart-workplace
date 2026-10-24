@@ -1,7 +1,14 @@
 import { z } from 'zod';
 
 const securityEnum = z.enum(['NONE', 'STARTTLS', 'SSL_TLS']);
-const port = z.coerce.number().int().min(1, '1~65535').max(65535, '1~65535');
+// 포트 — 칸을 비우면 NaN, 소수면 정수 아님 오류가 나는데 문구를 지정하지 않아 zod 영어 원문(「Invalid input: expected number, received NaN」)이
+// 그대로 보였다(WP-907). 경우마다 한국어로 무엇을 넣어야 하는지 알린다.
+const PORT_RANGE_MESSAGE = '포트는 1~65535 사이의 숫자여야 합니다';
+const port = z.coerce
+  .number({ error: '포트를 입력하세요' })
+  .int({ error: '포트는 소수점 없는 정수여야 합니다' })
+  .min(1, PORT_RANGE_MESSAGE)
+  .max(65535, PORT_RANGE_MESSAGE);
 
 // 생성/수정 공용. password 는 수정 시 빈 값 허용(기존 유지)이라 optional.
 export const mailAccountSchema = z.object({
