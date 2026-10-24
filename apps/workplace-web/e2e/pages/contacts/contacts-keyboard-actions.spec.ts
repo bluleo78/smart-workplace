@@ -28,8 +28,9 @@ test('내 그룹 — 키보드로 그룹 이름에 오면 수정·삭제가 나�
   const actions = page.getByTestId('group-edit-20').locator('xpath=..')
   await expect(actions).toHaveCSS('opacity', '0')
 
-  // 같은 행의 앞 버튼(접기)에서 Tab — 마우스 없이 키보드로 그룹 이름에 초점을 준다.
-  await name.locator('xpath=preceding-sibling::button[1]').focus()
+  // 바로 앞 버튼(「내 그룹」 머리의 새 그룹)에서 Tab — 마우스 없이 키보드로 그룹 이름에 초점을 준다.
+  // 하위 그룹이 없는 노드엔 접기 버튼이 없어(WP-923) 머리 버튼에서 출발한다.
+  await page.getByTestId('group-create').focus()
   await page.keyboard.press('Tab')
   await expect(name).toBeFocused()
   await expect(actions).toHaveCSS('opacity', '1')

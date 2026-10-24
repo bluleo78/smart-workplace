@@ -51,7 +51,7 @@ test('⋯ 가 제목 옆에 44px 로 보이고, 시트에서 하위 페이지 �
   await expect(row.getByRole('button', { name: '하위 페이지' })).toHaveCount(0)
   const t = (await trigger.boundingBox())!
   expect(t.width).toBeGreaterThanOrEqual(44)
-  const title = (await row.getByRole('button', { name: /긴 제목의 개인 메모/ }).boundingBox())!
+  const title = (await row.getByRole('button', { name: '긴 제목의 개인 메모 페이지가 한 줄을 넘어가는 경우', exact: true }).boundingBox())!
   expect(title.x + title.width).toBeLessThanOrEqual(t.x)
   await expectNoHorizontalOverflow(page)
 

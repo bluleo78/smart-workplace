@@ -122,7 +122,8 @@ export default function CyclesPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="수정"
+                    // 행마다 같은 「수정」이면 스크린리더가 어느 사이클의 버튼인지 알 수 없어 이름을 넣는다(WP-923).
+                    aria-label={`${c.name} 수정`}
                     onClick={() => {
                       setEditing(c);
                       setOpen(true);
@@ -140,7 +141,7 @@ export default function CyclesPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="삭제"
+                        aria-label={`${c.name} 삭제`}
                         data-testid={`cycle-delete-${c.id}`}
                       >
                         <Trash2 className="h-4 w-4" />

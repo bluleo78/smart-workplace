@@ -28,6 +28,9 @@ test('목록 행 별 토글 — 추가 요청', { tag: '@smoke' }, async ({ auth
   )
 
   await page.goto('/contacts')
+  // WP-923: 행마다 반복되는 별 버튼은 이름에 연락처 이름을 넣어 구분한다.
+  await expect(page.getByTestId('contact-fav-EXTERNAL-100')).toHaveAccessibleName('박외부 즐겨찾기 추가')
+  await expect(page.getByTestId('contact-fav-MEMBER-1')).toHaveAccessibleName('김멤버 즐겨찾기 추가')
   await page.getByTestId('contact-fav-EXTERNAL-100').click()
 
   await posts.waitFor()

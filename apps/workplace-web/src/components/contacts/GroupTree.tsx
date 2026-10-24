@@ -54,22 +54,21 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
-        <button
-          type="button"
-          className="shrink-0 text-muted-foreground"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? '접기' : '펼치기'}
-        >
-          {hasChildren ? (
-            expanded ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )
-          ) : (
-            <span className="inline-block w-3.5" />
-          )}
-        </button>
+        {/* 접기 버튼은 하위 그룹이 있을 때만 둔다 — 없는 그룹에도 「접기」 버튼이 있어 눌러도 아무 일 없는 버튼이 읽혔다.
+            이름에 그룹 이름을 넣고 상태는 aria-expanded 로 전한다(WP-923). */}
+        {hasChildren ? (
+          <button
+            type="button"
+            className="shrink-0 text-muted-foreground"
+            onClick={() => setExpanded((v) => !v)}
+            aria-label={`${node.name} ${expanded ? '접기' : '펼치기'}`}
+            aria-expanded={expanded}
+          >
+            {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+        ) : (
+          <span className="inline-block w-3.5 shrink-0" />
+        )}
         <button
           type="button"
           data-testid={`group-node-${node.id}`}
@@ -101,7 +100,7 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
               type="button"
               data-testid={`group-edit-${node.id}`}
               onClick={() => onEdit?.(node)}
-              aria-label="수정"
+              aria-label={`${node.name} 수정`}
             >
               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
@@ -109,7 +108,7 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
               type="button"
               data-testid={`group-delete-${node.id}`}
               onClick={() => onDelete?.(node)}
-              aria-label="삭제"
+              aria-label={`${node.name} 삭제`}
             >
               <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
             </button>

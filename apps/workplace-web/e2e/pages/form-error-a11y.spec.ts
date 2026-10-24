@@ -57,7 +57,7 @@ test('가입 서버 오류가 알림으로 읽힌다', async ({ page }) => {
   await page.goto('/signup')
   await page.getByLabel('아이디 (이메일)').fill('first@example.com')
   await page.getByLabel('비밀번호', { exact: true }).fill('Password1!')
-  await page.getByLabel('비밀번호 확인').fill('Password1!')
+  await page.getByLabel('비밀번호 확인', { exact: true }).fill('Password1!')
   await page.getByLabel('이름').fill('첫 사용자')
   await page.getByRole('button', { name: '회원가입' }).click()
 

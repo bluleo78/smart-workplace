@@ -323,9 +323,11 @@ test.describe('노트 공유 — 공유하는 쪽', () => {
 test.describe('노트 공유 — 이동 경고', () => {
   /** 두 점 사이를 dnd-kit PointerSensor 가 활성화되도록 단계적으로 끈다(wiki-dnd.spec 와 같은 방식). */
   async function dragRowTo(page: Page, sourceName: string, targetName: string, dx = 0) {
-    // 행 버튼의 접근 가능한 이름에는 공유 표시(「상위 페이지 공유에 포함됨」)가 덧붙으므로 제목으로 시작하는 것을 찾는다.
-    const source = page.getByRole('button', { name: new RegExp(`^${sourceName}`) })
-    const target = page.getByRole('button', { name: new RegExp(`^${targetName}`) })
+    // 행 버튼의 접근 가능한 이름에는 공유 표시(「상위 페이지 공유에 포함됨」)가 덧붙고, 접기·메뉴 버튼 이름도 제목으로
+    // 시작하므로(WP-923) 버튼 대신 제목 글자를 잡는다.
+    const rows = page.locator('[data-testid^="wiki-tree-row-"]')
+    const source = rows.getByText(sourceName, { exact: true })
+    const target = rows.getByText(targetName, { exact: true })
     const sourceBox = await source.boundingBox()
     const box = await target.boundingBox()
     if (!sourceBox || !box) throw new Error('드래그 좌표를 잡을 수 없습니다')

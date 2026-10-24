@@ -92,7 +92,9 @@ export function WikiTreeRow({
         {hasChildren ? (
           <button
             type="button"
-            aria-label={collapsed ? '펼치기' : '접기'}
+            // 행마다 반복되는 버튼들 — 이름에 페이지 제목을 넣어 어느 페이지의 버튼인지 알 수 있게 한다(WP-923).
+            aria-label={`${label} ${collapsed ? '펼치기' : '접기'}`}
+            aria-expanded={!collapsed}
             onClick={(e) => {
               e.stopPropagation()
               onToggle(id)
@@ -141,7 +143,7 @@ export function WikiTreeRow({
           // 행의 DnD 리스너로 이벤트가 새지 않게 isolateEvents 로 버블링을 끊는다.
           <TouchRowActionsMenu
             title={label}
-            ariaLabel="페이지 메뉴"
+            ariaLabel={`${label} 페이지 메뉴`}
             testId={`wiki-tree-more-${id}`}
             sheetTestId="wiki-tree-action-sheet"
             isolateEvents
@@ -155,7 +157,7 @@ export function WikiTreeRow({
           <div className="absolute right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
-              aria-label="하위 페이지"
+              aria-label={`${label} 하위 페이지 추가`}
               onClick={(e) => {
                 e.stopPropagation()
                 onAddChild(id)
@@ -166,7 +168,7 @@ export function WikiTreeRow({
             </button>
             <DropdownMenu>
               <DropdownMenuTrigger
-                aria-label="페이지 메뉴"
+                aria-label={`${label} 페이지 메뉴`}
                 onClick={(e) => e.stopPropagation()}
                 className="flex h-6 w-6 items-center justify-center rounded bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
               >

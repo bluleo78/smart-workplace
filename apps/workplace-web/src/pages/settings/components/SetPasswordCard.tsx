@@ -46,10 +46,10 @@ export function SetPasswordCard({ onDone }: { onDone: () => Promise<void> }) {
     >
       <form onSubmit={form.handleSubmit(onSubmit)} className={cn('space-y-4', settingsFieldClass)}>
         <FormField label="새 비밀번호" htmlFor="set-new-password" error={form.formState.errors.newPassword?.message}>
-          <PasswordInput id="set-new-password" {...form.register('newPassword')} autoComplete="new-password" />
+          <PasswordInput id="set-new-password" fieldLabel="새 비밀번호" {...form.register('newPassword')} autoComplete="new-password" />
         </FormField>
         <FormField label="비밀번호 확인" htmlFor="set-confirm-password" error={form.formState.errors.confirmPassword?.message}>
-          <PasswordInput id="set-confirm-password" {...form.register('confirmPassword')} autoComplete="new-password" />
+          <PasswordInput id="set-confirm-password" fieldLabel="비밀번호 확인" {...form.register('confirmPassword')} autoComplete="new-password" />
         </FormField>
         {form.formState.errors.root && <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>}
         <Button type="submit" disabled={form.formState.isSubmitting}>

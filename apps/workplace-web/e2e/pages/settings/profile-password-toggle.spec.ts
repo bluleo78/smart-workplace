@@ -23,19 +23,19 @@ test.describe('프로필 설정 — 비밀번호 표시/숨김 토글', () => {
       // 초기 상태: 숨김 (password)
       await expect(input).toHaveAttribute('type', 'password')
 
-      // 토글 버튼은 aria-label "비밀번호 보기"로 접근
+      // 토글 버튼 이름에 칸 이름이 들어가 세 버튼이 구분된다(WP-923) — 「현재 비밀번호 보기」 등.
       const toggleBtn = page.locator(`#${id} ~ button[aria-label]`)
-      await expect(toggleBtn).toHaveAttribute('aria-label', '비밀번호 보기')
+      await expect(toggleBtn).toHaveAttribute('aria-label', `${label} 보기`)
 
       // 클릭 → 표시 (text)
       await toggleBtn.click()
       await expect(input).toHaveAttribute('type', 'text')
-      await expect(toggleBtn).toHaveAttribute('aria-label', '비밀번호 숨기기')
+      await expect(toggleBtn).toHaveAttribute('aria-label', `${label} 숨기기`)
 
       // 재클릭 → 다시 숨김 (password)
       await toggleBtn.click()
       await expect(input).toHaveAttribute('type', 'password')
-      await expect(toggleBtn).toHaveAttribute('aria-label', '비밀번호 보기')
+      await expect(toggleBtn).toHaveAttribute('aria-label', `${label} 보기`)
     })
   }
 

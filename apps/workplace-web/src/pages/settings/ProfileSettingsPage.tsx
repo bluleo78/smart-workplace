@@ -128,21 +128,21 @@ export default function ProfileSettingsPage() {
               htmlFor="current-password"
               error={passwordForm.formState.errors.currentPassword?.message}
             >
-              <PasswordInput id="current-password" {...passwordForm.register('currentPassword')} autoComplete="current-password" />
+              <PasswordInput id="current-password" fieldLabel="현재 비밀번호" {...passwordForm.register('currentPassword')} autoComplete="current-password" />
             </FormField>
             <FormField
               label="새 비밀번호"
               htmlFor="new-password"
               error={passwordForm.formState.errors.newPassword?.message}
             >
-              <PasswordInput id="new-password" {...passwordForm.register('newPassword')} autoComplete="new-password" />
+              <PasswordInput id="new-password" fieldLabel="새 비밀번호" {...passwordForm.register('newPassword')} autoComplete="new-password" />
             </FormField>
             <FormField
               label="비밀번호 확인"
               htmlFor="confirm-password"
               error={passwordForm.formState.errors.confirmPassword?.message}
             >
-              <PasswordInput id="confirm-password" {...passwordForm.register('confirmPassword')} autoComplete="new-password" />
+              <PasswordInput id="confirm-password" fieldLabel="비밀번호 확인" {...passwordForm.register('confirmPassword')} autoComplete="new-password" />
             </FormField>
             {passwordForm.formState.errors.root && (
               <p className="text-sm text-destructive">{passwordForm.formState.errors.root.message}</p>

@@ -16,7 +16,7 @@ test.describe('회원가입 가용성 게이트 (#495)', () => {
     // 폼 입력 필드들이 모두 렌더된다(요소 존재가 아닌 실제 폼 노출 검증).
     await expect(page.getByLabel('아이디 (이메일)')).toBeVisible()
     await expect(page.getByLabel('비밀번호', { exact: true })).toBeVisible()
-    await expect(page.getByLabel('비밀번호 확인')).toBeVisible()
+    await expect(page.getByLabel('비밀번호 확인', { exact: true })).toBeVisible()
     await expect(page.getByLabel('이름')).toBeVisible()
     await expect(page.getByRole('button', { name: '회원가입' })).toBeVisible()
     // 잠김 안내는 보이지 않아야 한다.
@@ -56,7 +56,7 @@ test.describe('회원가입 가용성 게이트 (#495)', () => {
     // 폼 입력 → 제출 파이프라인.
     await page.getByLabel('아이디 (이메일)').fill('first@example.com')
     await page.getByLabel('비밀번호', { exact: true }).fill('Password1!')
-    await page.getByLabel('비밀번호 확인').fill('Password1!')
+    await page.getByLabel('비밀번호 확인', { exact: true }).fill('Password1!')
     await page.getByLabel('이름').fill('첫 사용자')
     await page.getByRole('button', { name: '회원가입' }).click()
 

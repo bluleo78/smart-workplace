@@ -127,6 +127,7 @@ export default function SignupPage() {
               {/* 비밀번호 일치 검증 — Zod .refine으로 password와 동일한지 확인 */}
               <PasswordInput
                 id="confirmPassword"
+                fieldLabel="비밀번호 확인"
                 autoComplete="new-password"
                 {...register('confirmPassword')}
               />

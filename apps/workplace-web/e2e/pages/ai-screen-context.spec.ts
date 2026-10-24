@@ -963,7 +963,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 연락처', () => {
     const chat = await captureChat(page)
     await mockContactsScreen(page)
     await page.goto('/contacts?type=EXTERNAL')
-    await page.getByTestId('contact-row-EXTERNAL-55').getByRole('button', { name: /김철수/ }).click()
+    await page.getByTestId('contact-row-EXTERNAL-55').getByRole('button', { name: /^외부 김철수/ }).click()
     await page.getByTestId('chat-launcher').click()
     await expect(page.getByTestId('chat-context-chip')).toContainText('연락처 김철수')
     await page.getByTestId('chat-input').fill('이 사람이랑 최근 메일')
@@ -982,7 +982,7 @@ test.describe('AI 채팅 화면 컨텍스트 — 연락처', () => {
     await mockContactsScreen(page)
     await page.goto('/contacts')
     const detailLoaded = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/contacts/members/1')
-    await page.getByTestId('contact-row-MEMBER-1').getByRole('button', { name: /김멤버/ }).click()
+    await page.getByTestId('contact-row-MEMBER-1').getByRole('button', { name: /^멤버 김멤버/ }).click()
     await detailLoaded
     // 상세 패널에 응답 내용(그룹)이 그려진 뒤에야 컨텍스트가 username 을 가진다.
     await expect(page.getByTestId('contact-detail')).toContainText('개발팀')

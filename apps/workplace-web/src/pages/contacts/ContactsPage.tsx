@@ -74,7 +74,8 @@ function ContactRow({
       <button
         type="button"
         data-testid={`contact-fav-${c.type}-${c.id}`}
-        aria-label={c.isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+        // 행마다 반복되는 버튼이라 연락처 이름을 넣는다(WP-923). 상태는 aria-pressed 와 문구가 함께 전한다.
+        aria-label={`${c.name} ${c.isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}`}
         aria-pressed={c.isFavorite}
         onClick={() => toggle.mutate({ targetType: c.type, targetId: c.id, isFavorite: c.isFavorite })}
         className={cn(

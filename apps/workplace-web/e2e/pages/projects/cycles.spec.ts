@@ -486,6 +486,9 @@ test.describe('사이클 관리', () => {
 
       await page.goto(`/projects/${KEY}/cycles`);
       await expect(page.getByTestId('cycle-row-1')).toBeVisible();
+      // WP-923: 행마다 반복되는 아이콘 버튼은 이름에 사이클 이름을 넣어 스크린리더가 구분할 수 있다.
+      await expect(page.getByTestId('cycle-delete-1')).toHaveAccessibleName('스프린트 1 삭제');
+      await expect(page.getByTestId('cycle-row-1').getByRole('button', { name: '스프린트 1 수정' })).toBeVisible();
 
       // 삭제 버튼 클릭 → shadcn AlertDialog 표시.
       await page.getByTestId('cycle-delete-1').click();

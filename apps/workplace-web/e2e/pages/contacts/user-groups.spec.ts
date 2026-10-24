@@ -1,17 +1,17 @@
 // 사용자 그룹·조직도 E2E @smoke — 조직도 뷰 + 개인 그룹 생성 (백엔드 없이 page.route 모킹).
 import type { Page } from '@playwright/test'
 
-import { personalDetail, sharedDetail, tree } from '../../factories/userGroups.factory'
+import { personalDetail, personalNode, sharedDetail, sharedNode, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
 import { expectPressed, expectSelectedRow } from '../../fixtures/selection'
 
-// GET /api/v1/user-groups → 기본 트리(공유 1개 + 개인 1개)
-async function stubTree(page: Page) {
+// GET /api/v1/user-groups → 트리(기본: 공유 1개 + 개인 1개)
+async function stubTree(page: Page, body = tree()) {
   await page.route(
     (url) => url.pathname === '/api/v1/user-groups',
     (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree()) }),
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }),
   )
 }
 
@@ -115,6 +115,35 @@ test('그룹을 고르면 꺼진 「전체」 퀵필터는 현재 항목으로 �
   await page.getByTestId('group-node-10').click()
   await expect(all).toHaveAttribute('aria-current', 'true')
   await expect(all).toHaveClass(/bg-selected/)
+})
+
+// WP-923: 행마다 반복되는 접기·수정·삭제 버튼은 이름에 그룹 이름을 넣어 스크린리더가 어느 그룹의 버튼인지 구분한다.
+test('그룹 트리 — 접기·수정·삭제 버튼 이름에 그룹 이름이 들어간다', async ({ authenticatedPage: page }) => {
+  await stubContacts(page)
+  await stubTree(
+    page,
+    tree({
+      shared: [sharedNode({ children: [sharedNode({ id: 11, name: '플랫폼팀', parentId: 10 })] })],
+      personal: [personalNode()],
+    }),
+  )
+  await page.goto('/contacts')
+
+  // 하위가 있는 그룹만 접기 버튼이 있고, 상태는 aria-expanded 로 전한다.
+  const collapse = page.getByRole('button', { name: '개발본부 접기', exact: true })
+  await expect(collapse).toHaveAttribute('aria-expanded', 'true')
+  await collapse.click()
+  await expect(page.getByTestId('group-node-11')).toHaveCount(0)
+  const expand = page.getByRole('button', { name: '개발본부 펼치기', exact: true })
+  await expect(expand).toHaveAttribute('aria-expanded', 'false')
+  await expand.click()
+  await expect(page.getByTestId('group-node-11')).toBeVisible()
+  // 하위 그룹이 없는 노드엔 눌러도 아무 일 없는 접기 버튼을 두지 않는다.
+  await expect(page.getByRole('button', { name: /^플랫폼팀 (접기|펼치기)$/ })).toHaveCount(0)
+
+  // 개인 그룹의 수정·삭제 아이콘.
+  await expect(page.getByTestId('group-edit-20')).toHaveAccessibleName('내 분류 수정')
+  await expect(page.getByTestId('group-delete-20')).toHaveAccessibleName('내 분류 삭제')
 })
 
 test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {

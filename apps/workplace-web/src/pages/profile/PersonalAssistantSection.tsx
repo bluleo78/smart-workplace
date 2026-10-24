@@ -528,6 +528,7 @@ export function PersonalAssistantSection() {
                   <Label htmlFor="credential-api-key">API Key</Label>
                   <PasswordInput
                     id="credential-api-key"
+                    fieldLabel="API Key"
                     data-testid="credential-api-key"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}

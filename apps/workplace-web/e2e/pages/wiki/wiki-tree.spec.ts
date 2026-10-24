@@ -134,9 +134,9 @@ test('트리 — 열린 페이지 노드만 bg-selected·selection-bar 를 갖�
   )
 
   await page.goto(`/wiki/spaces/${SPACE_ID}/pages/1`)
-  // 선택 표시는 행 안의 제목 버튼이 갖는다.
-  const picked = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서' })
-  const other = page.getByTestId('wiki-tree-row-2').getByRole('button', { name: '기획' })
+  // 선택 표시는 행 안의 제목 버튼이 갖는다. 접기·하위 페이지 추가·메뉴 버튼 이름에도 제목이 들어가므로 exact(WP-923).
+  const picked = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서', exact: true })
+  const other = page.getByTestId('wiki-tree-row-2').getByRole('button', { name: '기획', exact: true })
   await expectSelectedRow(picked, other, { current: 'page' })
 })
 
@@ -155,9 +155,14 @@ test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ aut
 
   await page.goto(`/wiki/spaces/${SPACE_ID}`)
   await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
-  await page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '접기' }).click()
+  // WP-923: 접기 버튼 이름에 페이지 제목이 들어가고, 펼침 상태는 aria-expanded 로 전한다.
+  const collapse = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서 접기', exact: true })
+  await expect(collapse).toHaveAttribute('aria-expanded', 'true')
+  await collapse.click()
   await expect(page.getByTestId('wiki-tree-row-2')).toBeHidden()
-  await page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '펼치기' }).click()
+  const expand = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서 펼치기', exact: true })
+  await expect(expand).toHaveAttribute('aria-expanded', 'false')
+  await expand.click()
   await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
 })
 
@@ -178,8 +183,8 @@ test('인라인 액션 버튼 — WCAG 2.5.8 최소 24×24px 충족', async ({ a
   const row = page.getByTestId('wiki-tree-row-1')
   await row.hover()
 
-  // 접기 토글, 하위 페이지, 페이지 메뉴 버튼 각각 24px 이상 확인
-  for (const label of ['접기', '하위 페이지', '페이지 메뉴']) {
+  // 접기 토글, 하위 페이지, 페이지 메뉴 버튼 각각 24px 이상 확인 — 이름은 「<제목> <동작>」(WP-923).
+  for (const label of ['제품 문서 접기', '제품 문서 하위 페이지 추가', '제품 문서 페이지 메뉴']) {
     const btn = row.getByRole('button', { name: label })
     const box = await btn.boundingBox()
     expect(box, `${label} 버튼의 boundingBox가 null`).not.toBeNull()
@@ -399,7 +404,7 @@ test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', () => {
     const t = (await trigger.boundingBox())!
     expect(t.width).toBeGreaterThanOrEqual(44)
     expect(t.height).toBeGreaterThanOrEqual(44)
-    const titleBox = (await row.getByRole('button', { name: /아주 긴 제품 문서/ }).boundingBox())!
+    const titleBox = (await row.getByRole('button', { name: '아주 긴 제품 문서 제목이 사이드바 폭을 넘어가는 경우', exact: true }).boundingBox())!
     expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(t.x)
 
     await trigger.tap()
