@@ -312,6 +312,8 @@ export interface MailToolClient {
       labelIds?: number[];
       /** WP-394: 이름으로 붙일 라벨 — 없으면 서버가 이슈와 같은 트랜잭션에서 만든다(이미 승격된 메일이면 만들지 않는다). */
       labelNames?: string[];
+      /** WP-954: 보고자 — SENDER 면 보낸 사람, 생략이면 나. */
+      reporter?: 'SENDER';
     },
   ): Promise<{ issueKey: string }>;
   /** POST /mail/messages/{id}/read — 명시적 읽음 처리(WP-146). 사용자가 요청할 때만 쓴다. */

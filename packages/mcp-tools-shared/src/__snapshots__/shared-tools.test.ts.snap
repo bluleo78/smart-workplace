@@ -728,6 +728,13 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "minLength": 1,
           "type": "string",
         },
+        "reporter": {
+          "enum": [
+            "me",
+            "sender",
+          ],
+          "type": "string",
+        },
         "title": {
           "maxLength": 200,
           "minLength": 1,

@@ -34,6 +34,8 @@ class MailIssueServiceTest extends IntegrationTestBase {
   @Autowired com.workplace.issue.service.IssueService issueService;
   @Autowired com.workplace.issue.repository.IssueTypeRepository typeRepository;
   @Autowired com.workplace.label.service.LabelService labelService;
+  @Autowired com.workplace.watcher.repository.IssueWatcherRepository watcherRepository;
+  @Autowired MailSenderReporter senderReporter;
 
   /** AfterEach 에서 RLS-safe 정리용 — 생성된 이슈 id 기록. */
   private final java.util.List<Long> createdIssueIds = new java.util.ArrayList<>();
@@ -84,6 +86,11 @@ class MailIssueServiceTest extends IntegrationTestBase {
    * 추가를 대비해 caller 소유 계정으로 삽입한다. cleanupInTenant tx 안에서 삽입해 GUC(tenant_id)를 주입한다.
    */
   private long seedMailMessage(long userId) {
+    return seedMailMessage(userId, null);
+  }
+
+  /** 보낸 사람 주소를 지정해 메일을 심는다(WP-954 — 보고자 「보낸 사람」). */
+  private long seedMailMessage(long userId, String fromAddress) {
     // baseDsl 로 직접 삽입 — MailTestSupport.seedUnseenGraphMessage 패턴 참조
     // EMAIL_ACCOUNT 의 tenant_id 는 GUC DEFAULT; cleanupInTenant 가 GUC 주입 tx 를 제공
     long[] ids = new long[2]; // [0]=accountId, [1]=messageId
@@ -118,6 +125,7 @@ class MailIssueServiceTest extends IntegrationTestBase {
                   .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, "msg-" + suffix + "@test.local")
                   .set(EMAIL_MESSAGE.THREAD_ID, "thread-" + suffix)
                   .set(EMAIL_MESSAGE.SEEN, false)
+                  .set(EMAIL_MESSAGE.FROM_ADDRESS, fromAddress)
                   .returning(EMAIL_MESSAGE.ID)
                   .fetchOne()
                   .getId();
@@ -283,5 +291,126 @@ class MailIssueServiceTest extends IntegrationTestBase {
 
     assertThat(issueRepository.findSourceIssueKey("MAIL", messageId)).contains(again.issueKey());
     assertThat(mailIssueIds(messageId)).hasSize(2);
+  }
+
+  /** 보고자 「보낸 사람」 요청 — 9번째 인자만 다른 승격 요청. */
+  private PromoteToIssueRequest senderRequest(String key, String title) {
+    return new PromoteToIssueRequest(
+        key, title, null, "MID", List.of(), null, null, null, "SENDER");
+  }
+
+  /**
+   * WP-954 — 보고자를 보낸 사람으로 고르면 보낸 사람(이 워크스페이스 구성원·프로젝트 멤버)이 보고자가 되고, 이력에는 실제로 만든 사람이 행위자로 남으며, 만든
+   * 사람과 보낸 사람 둘 다 watcher 다.
+   */
+  @Test
+  void promoteToIssue_reporterSender_setsSenderAsReporter() {
+    long sender = withMembership(TestFixtures.createHuman(dsl));
+    withMembership(callerId);
+    projectService.addMember(
+        callerId, projectKey, new com.workplace.project.dto.AddMemberRequest(sender, "MEMBER"));
+    String senderEmail =
+        dsl.select(com.workplace.jooq.Tables.USER.EMAIL)
+            .from(com.workplace.jooq.Tables.USER)
+            .where(com.workplace.jooq.Tables.USER.ID.eq(sender))
+            .fetchOne(com.workplace.jooq.Tables.USER.EMAIL);
+    long messageId = seedMailMessage(callerId, "  " + senderEmail.toUpperCase() + " ");
+
+    PromotedIssue result =
+        mailIssueService.promoteToIssue(callerId, messageId, senderRequest(projectKey, "보낸 사람 보고"));
+    mailIssueIds(messageId);
+
+    int number = Integer.parseInt(result.issueKey().substring(projectKey.length() + 1));
+    var detail = issueService.get(callerId, projectKey, number);
+    assertThat(detail.reporter().id()).isEqualTo(sender);
+    assertThat(detail.history())
+        .anyMatch(h -> "REPORTER_CHANGED".equals(h.eventType()) && h.actorId().equals(callerId));
+    assertThat(watcherRepository.findUserIdsByIssue(detail.summary().id()))
+        .contains(callerId, sender);
+  }
+
+  /** WP-954 — 보낸 사람이 구성원이 아니면(외부 메일) 400 이고 이슈를 만들지 않는다. */
+  @Test
+  void promoteToIssue_reporterSender_externalSenderRejectedWithoutIssue() {
+    long messageId = seedMailMessage(callerId, "partner@outside.example");
+
+    assertThatThrownBy(
+            () ->
+                mailIssueService.promoteToIssue(
+                    callerId, messageId, senderRequest(projectKey, "외부 발신")))
+        .isInstanceOf(com.workplace.issue.exception.InvalidReporterException.class)
+        .hasMessageContaining("구성원이 아니라");
+    assertThat(issueRepository.findSourceIssueKey("MAIL", messageId)).isEmpty();
+  }
+
+  /** WP-954 — 내가 보낸 메일에 「보낸 사람」을 고르면 보낸 사람이 곧 나라 400 없이 내가 보고자로 남는다. */
+  @Test
+  void promoteToIssue_reporterSender_selfSentKeepsMe() {
+    long messageId = seedMailMessage(callerId);
+    cleanupInTenant(
+        1L,
+        () ->
+            dsl.update(EMAIL_MESSAGE)
+                .set(
+                    EMAIL_MESSAGE.FROM_ADDRESS,
+                    dsl.select(EMAIL_ACCOUNT.EMAIL_ADDRESS)
+                        .from(EMAIL_ACCOUNT)
+                        .where(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID)))
+                .where(EMAIL_MESSAGE.ID.eq(messageId))
+                .execute());
+
+    PromotedIssue result =
+        mailIssueService.promoteToIssue(callerId, messageId, senderRequest(projectKey, "내가 보낸 메일"));
+    mailIssueIds(messageId);
+
+    int number = Integer.parseInt(result.issueKey().substring(projectKey.length() + 1));
+    assertThat(issueService.get(callerId, projectKey, number).reporter().id()).isEqualTo(callerId);
+  }
+
+  /**
+   * WP-954 — 초안 후보 판정: OPEN 프로젝트는 멤버가 아니어도 고를 수 있고 기본, TEAM 은 멤버면 기본·아니면 고를 수 없다. 외부 발신자는 어디서도 못
+   * 고른다.
+   */
+  @Test
+  void senderReporter_candidateFlags() {
+    long sender = withMembership(TestFixtures.createHuman(dsl));
+    withMembership(callerId);
+    String openKey = projectKey.substring(0, Math.min(8, projectKey.length())) + "O";
+    projectService.create(callerId, new CreateProjectRequest(openKey, "오픈", "x", "OPEN"));
+    var team = projectService.get(callerId, projectKey);
+    var open = projectService.get(callerId, openKey);
+    cleanupInTenant(
+        1L,
+        () -> {
+          var member =
+              java.util.Optional.of(
+                  new com.workplace.mail.repository.MailPeopleRepository.MemberMatch(
+                      sender, "보낸이", null));
+          var external =
+              java.util.Optional
+                  .<com.workplace.mail.repository.MailPeopleRepository.MemberMatch>empty();
+          assertThat(senderReporter.candidate(open, member))
+              .extracting(c -> c.senderSelectable(), c -> c.senderDefault())
+              .containsExactly(true, true);
+          assertThat(senderReporter.candidate(team, member))
+              .extracting(c -> c.senderSelectable(), c -> c.senderDefault())
+              .containsExactly(false, false);
+          assertThat(senderReporter.candidate(open, external))
+              .extracting(c -> c.senderSelectable(), c -> c.senderDefault())
+              .containsExactly(false, false);
+        });
+    projectService.addMember(
+        callerId, projectKey, new com.workplace.project.dto.AddMemberRequest(sender, "MEMBER"));
+    cleanupInTenant(
+        1L,
+        () ->
+            assertThat(
+                    senderReporter.candidate(
+                        team,
+                        java.util.Optional.of(
+                            new com.workplace.mail.repository.MailPeopleRepository.MemberMatch(
+                                sender, "보낸이", null))))
+                .extracting(c -> c.senderSelectable(), c -> c.senderDefault())
+                .containsExactly(true, true));
   }
 }

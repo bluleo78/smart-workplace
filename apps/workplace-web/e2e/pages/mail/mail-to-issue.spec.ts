@@ -103,6 +103,99 @@ test.describe('메일→이슈 승격', () => {
     })
   })
 
+  // WP-954 — 보고자 「나/보낸 사람」. 기본은 보낸 사람이 그 프로젝트 멤버이거나 OPEN 이면 보낸 사람(서버 초안의 senderDefault).
+  // 보낸 사람이 볼 수 없는 프로젝트로 바꾸면 「보낸 사람」이 막히고 이유가 보이며, 나로 만든다(reporter 생략).
+  test('보고자: 기본은 보낸 사람, 볼 수 없는 프로젝트로 바꾸면 막히고 나로 만든다', async ({ authenticatedPage: page }) => {
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/issue-draft',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            title: '정산 자료 검토',
+            body: '- 5월 자료 확인',
+            priority: 'HIGH',
+            suggestedProjectKey: 'FIN',
+            candidateProjects: [
+              { key: 'FIN', name: '재무', senderSelectable: true, senderDefault: true },
+              { key: 'PERSONAL', name: '내 작업', senderSelectable: false, senderDefault: false },
+            ],
+            sender: { address: 'kim@corp.example', name: '김보냄', member: true, self: false },
+          }),
+        }),
+    )
+    await page.route(
+      (u) => /^\/api\/v1\/projects\/(FIN|PERSONAL)\/members$/.test(u.pathname),
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    const promotes = trackRequests(page, 'ANY', '/api/v1/mail/messages/7/issue')
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/issue',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ issueKey: 'FIN-13' }) }),
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await page.getByTestId('mail-ai-issue').click()
+    const reporter = page.getByTestId('mail-to-issue-reporter')
+    await expect(reporter).toContainText('보낸 사람 (김보냄)')
+    await expect(page.getByTestId('mail-to-issue-reporter-sender')).toBeChecked()
+
+    // 보낸 사람이 볼 수 없는 프로젝트 — 「보낸 사람」이 막히고 이유가 보이며 「나」로 돌아간다.
+    await page.getByTestId('issue-draft-project').click()
+    await page.getByRole('option', { name: '내 작업' }).click()
+    await expect(page.getByTestId('mail-to-issue-reporter-sender')).toBeDisabled()
+    await expect(page.getByTestId('mail-to-issue-reporter-me')).toBeChecked()
+    await expect(page.getByTestId('mail-to-issue-reporter-reason')).toHaveText('보낸 사람이 이 프로젝트를 볼 수 없어 고를 수 없어요')
+
+    // 다시 재무로 — 기본(보낸 사람)으로 만들면 payload 에 reporter: SENDER.
+    await page.getByTestId('issue-draft-project').click()
+    await page.getByRole('option', { name: '재무' }).click()
+    await expect(page.getByTestId('mail-to-issue-reporter-sender')).toBeChecked()
+    await page.getByTestId('mail-to-issue-submit').click()
+    await expect(page.getByText('이슈 FIN-13 를 만들었어요')).toBeVisible()
+    expect(promotes.lastBody()).toMatchObject({ projectKey: 'FIN', reporter: 'SENDER' })
+  })
+
+  test('보고자: 외부 발신자는 「보낸 사람」을 고를 수 없고 reporter 없이(나) 만든다', async ({ authenticatedPage: page }) => {
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/issue-draft',
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            title: '외부 요청',
+            body: '',
+            priority: 'MID',
+            suggestedProjectKey: 'FIN',
+            candidateProjects: [{ key: 'FIN', name: '재무', senderSelectable: false, senderDefault: false }],
+            sender: { address: 'partner@outside.example', name: null, member: false, self: false },
+          }),
+        }),
+    )
+    await page.route(
+      (u) => u.pathname === '/api/v1/projects/FIN/members',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    )
+    const promotes = trackRequests(page, 'ANY', '/api/v1/mail/messages/7/issue')
+    await page.route(
+      (u) => u.pathname === '/api/v1/mail/messages/7/issue',
+      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ issueKey: 'FIN-14' }) }),
+    )
+
+    await page.goto('/mail/1')
+    await page.getByTestId('mail-row-7').click()
+    await page.getByTestId('mail-ai-issue').click()
+    await expect(page.getByTestId('mail-to-issue-reporter')).toContainText('보낸 사람 (partner@outside.example)')
+    await expect(page.getByTestId('mail-to-issue-reporter-sender')).toBeDisabled()
+    await expect(page.getByTestId('mail-to-issue-reporter-reason')).toHaveText('보낸 사람이 워크스페이스 구성원이 아니라 고를 수 없어요')
+    await page.getByTestId('mail-to-issue-submit').click()
+    await expect(page.getByText('이슈 FIN-14 를 만들었어요')).toBeVisible()
+    expect(promotes.lastBody()).not.toHaveProperty('reporter')
+  })
+
   test('메일 배지: 연결된 이슈 키 표시', async ({ authenticatedPage: page }) => {
     // linked-issue 스텁 — issueKey 있는 경우.
     await page.route(

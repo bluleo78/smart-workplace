@@ -37,6 +37,8 @@ export const createIssueFromMailInput = z.object({
   // WP-356: 유형·라벨 이름(get_project) → id. 서버 승격 요청이 이슈 생성과 같은 트랜잭션에서 붙인다.
   type: z.string().min(1).optional(),
   labels: z.array(z.string()).optional(),
+  // WP-954: 보고자 — me(기본) 또는 sender(보낸 사람이 워크스페이스 구성원이고 프로젝트를 볼 수 있어야 함, 아니면 서버 400).
+  reporter: z.enum(['me', 'sender']).optional(),
 });
 // WP-146: 처리완료 도구를 대신하는 명시적 읽음 처리 입력. WP-357: read:false 면 안 읽음으로 되돌린다(짝 도구를 따로 두지 않는다).
 export const markMailReadInput = z.object({
@@ -169,7 +171,8 @@ export function buildMailTools(
       app: 'mail',
       kind: 'read',
       description:
-        'Drafts an issue from a mail: {title, body, priority, suggestedProjectKey, candidateProjects}. Creates nothing; confirm with the user, then ' +
+        'Drafts an issue from a mail: {title, body, priority, suggestedProjectKey, candidateProjects (senderSelectable, senderDefault), sender}. ' +
+        'Creates nothing; confirm with the user (reporter: me or sender, default per project = senderDefault), then ' +
         'call create_issue_from_mail.',
       inputSchema: getMailInput,
       async handler(args) {
@@ -185,11 +188,12 @@ export function buildMailTools(
       hints: { destructive: false, idempotent: true },
       description:
         'Creates an issue (이슈) from a mail. assignees are project member usernames ("me" = caller) and are notified; type and labels are ' +
-        'project names (unknown label names are created, gray, and listed in createdLabels). If the mail already has an issue, that ' +
+        'project names (unknown label names are created, gray, and listed in createdLabels). reporter: me (default) or sender (the mail ' +
+        'sender, must be a workspace member who can see the project). If the mail already has an issue, that ' +
         'issueKey returns: {issueKey, created}.',
       inputSchema: createIssueFromMailInput,
       async handler(args) {
-        const { messageId, assignees, type, labels, ...rest } = createIssueFromMailInput.parse(args);
+        const { messageId, assignees, type, labels, reporter, ...rest } = createIssueFromMailInput.parse(args);
         // 이름 → id 해석을 승격 전에 모두 끝낸다 — 하나라도 실패하면 이슈를 만들지 않는다(서로 독립 조회라 병렬).
         const [assigneeIds, typeId, existingLabels] = await Promise.all([
           assignees ? resolveAssigneeIds(client, rest.projectKey, assignees) : undefined,
@@ -205,6 +209,8 @@ export function buildMailTools(
             typeId,
             labelIds: labelPart?.ids,
             labelNames: labelPart?.created,
+            // WP-954: 보낸 사람만 싣는다 — 생략은 나(서버 기본).
+            ...(reporter === 'sender' ? { reporter: 'SENDER' as const } : {}),
           });
           return JSON.stringify({ issueKey, created: true, ...createdLabelsField(labelPart) });
         } catch (e) {

@@ -161,7 +161,10 @@ export interface MailIssueDraft {
   body: string
   priority: IssuePriority
   suggestedProjectKey: string | null
-  candidateProjects: { key: string; name: string }[]
+  // WP-954: 프로젝트마다 보낸 사람을 보고자로 고를 수 있는지(그 프로젝트를 볼 수 있음)·기본인지(멤버이거나 OPEN). 구버전 서버엔 없다.
+  candidateProjects: { key: string; name: string; senderSelectable?: boolean; senderDefault?: boolean }[]
+  // WP-954: 보낸 사람 — member = 이 워크스페이스 활성 사람 구성원(나 제외), self = 내가 보낸 메일. 구버전 서버엔 없다.
+  sender?: { address: string | null; name: string | null; member: boolean; self: boolean }
 }
 
 /** #520 메일→이슈 승격 요청. */
@@ -171,6 +174,8 @@ export interface PromoteToIssuePayload {
   body?: string
   priority?: IssuePriority
   assigneeIds?: number[]
+  // WP-954: 보고자 — SENDER 면 보낸 사람, 생략·ME 면 나.
+  reporter?: 'ME' | 'SENDER'
 }
 
 /** WP-149 메일 AI 요약 표시 상태 — READY 카드 · SKIPPED "AI 요약" 버튼 · EMPTY 숨김. */

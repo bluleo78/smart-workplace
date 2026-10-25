@@ -23,11 +23,31 @@ public record PromoteToIssueRequest(
     List<Long> assigneeIds,
     Long typeId,
     List<Long> labelIds,
-    List<String> labelNames) {
+    List<String> labelNames,
+    /** 보고자(WP-954) — ME(나, 기본) 또는 SENDER(보낸 사람). null 은 ME. */
+    @Pattern(regexp = "ME|SENDER", message = "보고자는 ME 또는 SENDER 여야 합니다") String reporter) {
 
   /** 유형·라벨 없이 승격하는 기존 5-인자 호환 생성자. */
   public PromoteToIssueRequest(
       String projectKey, String title, String body, String priority, List<Long> assigneeIds) {
-    this(projectKey, title, body, priority, assigneeIds, null, null, null);
+    this(projectKey, title, body, priority, assigneeIds, null, null, null, null);
+  }
+
+  /** 보고자 지정 없이(나) 유형·라벨까지 싣는 8-인자 호환 생성자(WP-954 이전 호출부). */
+  public PromoteToIssueRequest(
+      String projectKey,
+      String title,
+      String body,
+      String priority,
+      List<Long> assigneeIds,
+      Long typeId,
+      List<Long> labelIds,
+      List<String> labelNames) {
+    this(projectKey, title, body, priority, assigneeIds, typeId, labelIds, labelNames, null);
+  }
+
+  /** 보고자를 보낸 사람으로 하는지 — null·ME 는 나. */
+  public boolean reporterIsSender() {
+    return "SENDER".equals(reporter);
   }
 }

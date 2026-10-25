@@ -180,6 +180,16 @@ describe('메일 AI·처리 (#855)', () => {
     expect(out).toEqual({ issueKey: 'WP-9', created: true });
   });
 
+  // WP-954: reporter 'sender' 만 SENDER 로 싣고, 'me'·생략은 싣지 않는다(서버 기본 = 나).
+  it('WP-954: create_issue_from_mail 은 reporter sender 를 SENDER 로 보낸다', async () => {
+    const c = mockClient();
+    await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: '요청', reporter: 'sender' });
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, { projectKey: 'WP', title: '요청', reporter: 'SENDER' });
+    vi.mocked(c.promoteMailToIssue).mockClear();
+    await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: '요청', reporter: 'me' });
+    expect(c.promoteMailToIssue).toHaveBeenCalledWith(3, { projectKey: 'WP', title: '요청' });
+  });
+
   it('WP-356: create_issue_from_mail → 유형·라벨 이름을 id 로 바꿔 승격 요청에 싣고, 모르는 유형이면 만들지 않는다', async () => {
     const c = mockClient();
     await tool(c, 'create_issue_from_mail').handler({ messageId: 3, projectKey: 'WP', title: 't', type: 'BUG', labels: ['고객'] });

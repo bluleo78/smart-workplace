@@ -8,6 +8,7 @@ import com.workplace.global.ai.SharedMemories;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueReporterService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.mail.dto.LinkedIssue;
 import com.workplace.mail.dto.MailIssueDraft;
@@ -21,6 +22,7 @@ import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.AiContext;
+import com.workplace.mail.repository.MailPeopleRepository.MemberMatch;
 import com.workplace.mail.util.MailBodyText;
 import com.workplace.project.service.ProjectService;
 import java.util.List;
@@ -52,6 +54,11 @@ public class MailIssueService {
   private final ProjectService projectService;
   private final MailChangeNotifier notifier;
 
+  /** WP-954: 보고자 「보낸 사람」 판정과 승격 뒤 보고자 바꾸기. */
+  private final MailSenderReporter senderReporter;
+
+  private final IssueReporterService reporterService;
+
   /** WP-381: 메일 → 이슈 초안에 싣는 읽기 전용 메모리(공통 + 메일 — 이슈 범위 메모리는 싣지 않는다). */
   private final AiMemoryReader memoryReader;
 
@@ -74,7 +81,9 @@ public class MailIssueService {
       MailChangeNotifier notifier,
       PlatformTransactionManager txManager,
       AiMemoryReader memoryReader,
-      SharedAiMemoryReader sharedReader) {
+      SharedAiMemoryReader sharedReader,
+      MailSenderReporter senderReporter,
+      IssueReporterService reporterService) {
     this.issueService = issueService;
     this.issueRepository = issueRepository;
     this.messageRepo = messageRepo;
@@ -85,6 +94,8 @@ public class MailIssueService {
     this.txTemplate = new TransactionTemplate(txManager);
     this.memoryReader = memoryReader;
     this.sharedReader = sharedReader;
+    this.senderReporter = senderReporter;
+    this.reporterService = reporterService;
   }
 
   /**
@@ -108,6 +119,13 @@ public class MailIssueService {
     Optional<String> existing = issueRepository.findSourceIssueKey("MAIL", messageId);
     if (existing.isPresent()) throw new MailAlreadyPromotedException(existing.get());
 
+    // WP-954: 「보낸 사람」을 고르면 이슈를 만들기 전에 구성원인지 먼저 본다 — 외부 발신자면 아무것도 만들지 않고 400.
+    // 내가 보낸 메일이면 보낸 사람이 곧 나라 보고자를 바꾸지 않는다(구성원 조회는 나를 빼므로 그대로 두면 엉뚱한 400 이 난다).
+    Long senderId =
+        req.reporterIsSender() && !senderReporter.selfSent(owned)
+            ? senderReporter.requireSenderId(callerId, owned)
+            : null;
+
     List<Long> assigneeIds = req.assigneeIds() == null ? List.of() : req.assigneeIds();
     IssueResponse created =
         issueService.create(
@@ -127,6 +145,13 @@ public class MailIssueService {
                 null,
                 req.labelNames()));
     issueRepository.updateSource(created.id(), "MAIL", messageId);
+    // WP-954: 보고자를 보낸 사람으로 — 만든 사람(나)이 막 보고자라 보고자 바꾸기 권한이 있다. 같은 트랜잭션이라 실패하면(볼 수 없는 프로젝트 등)
+    // 이슈 생성까지 함께 되돌린다. 이력 REPORTER_CHANGED 의 행위자가 실제로 만든 사람으로 남고, 보낸 사람은 watcher·알림을 받으며 나는 watcher
+    // 로
+    // 남는다.
+    if (senderId != null) {
+      reporterService.change(callerId, created.projectKey(), created.number(), senderId);
+    }
     // WP-64: 메일 상세의 "연결된 이슈" 표시가 갱신돼야 하므로 소유자에게 mail 변경을 알린다.
     notifier.mailChanged(callerId, owned.accountId(), messageId, callerId);
     String issueKey = created.projectKey() + "-" + created.number();
@@ -151,12 +176,20 @@ public class MailIssueService {
     AssistantSpec spec = requireSpec(callerId);
 
     // 후보 프로젝트(사용자 멤버) — short-tx 로 RLS-safe 조회. 페이지 충분히 크게.
-    List<MailIssueDraft.CandidateProject> candidates =
+    // WP-954: 같은 tx 에서 보낸 사람을 구성원으로 찾고, 프로젝트마다 보고자 「보낸 사람」을 고를 수 있는지·기본인지 함께 싣는다.
+    record Lookup(
+        List<MailIssueDraft.CandidateProject> candidates, MailIssueDraft.DraftSender sender) {}
+    Lookup lookup =
         txTemplate.execute(
-            status ->
-                projectService.list(callerId, 0, 100).content().stream()
-                    .map(p -> new MailIssueDraft.CandidateProject(p.key(), p.name()))
-                    .toList());
+            status -> {
+              Optional<MemberMatch> member = senderReporter.member(callerId, ctx);
+              return new Lookup(
+                  projectService.list(callerId, 0, 100).content().stream()
+                      .map(p -> senderReporter.candidate(p, member))
+                      .toList(),
+                  senderReporter.sender(ctx, member));
+            });
+    List<MailIssueDraft.CandidateProject> candidates = lookup.candidates();
 
     String body = MailBodyText.effectiveBody(ctx.bodyText(), ctx.bodyHtml());
     List<MailAiMessages.CandidateProject> aiCandidates =
@@ -189,7 +222,8 @@ public class MailIssueService {
     String suggested =
         candidates.stream().anyMatch(c -> c.key().equals(r.projectKey())) ? r.projectKey() : null;
     // 우선순위는 ai-agent(normalizePriority)가 5단계(WP-886) 안의 값으로 맞춰 보내므로 그대로 넘긴다.
-    return new MailIssueDraft(r.title(), r.body(), r.priority(), suggested, candidates);
+    return new MailIssueDraft(
+        r.title(), r.body(), r.priority(), suggested, candidates, lookup.sender());
   }
 
   /** #520 메일에 연결된 이슈 키 조회(배지). 연결 없으면 issueKey=null. */
