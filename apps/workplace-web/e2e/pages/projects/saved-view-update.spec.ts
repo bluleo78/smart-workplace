@@ -110,3 +110,48 @@ test('저장된 뷰 — 필터 변경 후 "뷰 업데이트" 클릭 시 동일 i
   await page.getByTestId('view-chip-1').click()
   await expect(page).toHaveURL(/priority=HIGH%2CMID|priority=MID%2CHIGH/)
 })
+
+// WP-654 — 남이 만든 공유 뷰는 소유자만 고칠 수 있다(서버 403). 조건을 바꿔도 「뷰 업데이트」 대신 「새 뷰로 저장」만 보이고,
+// 새로 저장하면 내 뷰로 만들어진다(PATCH 없음).
+test('남의 공유 뷰를 고치면 「뷰 업데이트」 없이 「새 뷰로 저장」만 보인다 (WP-654)', async ({ authenticatedPage: page }) => {
+  const shared: SavedViewResponse = {
+    id: 7, name: '남의 팀 뷰', query: 'priority=HIGH', visibility: 'SHARED',
+    ownerId: 99, mine: false, pinned: false, createdAt: '', updatedAt: '',
+  }
+  const patches: string[] = []
+  await page.route(`**/api/v1/projects/${KEY}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
+  )
+  await page.route(`**/api/v1/projects/${KEY}/labels`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route(`**/api/v1/projects/${KEY}/types`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  )
+  await page.route(
+    (url) => url.pathname === `/api/v1/projects/${KEY}/issues`,
+    (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse([], null)) }),
+  )
+  await page.route(`**/api/v1/projects/${KEY}/saved-views`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([shared]) })
+  })
+  await page.route(`**/api/v1/projects/${KEY}/saved-views/7`, (route) => {
+    patches.push(route.request().method())
+    return route.fallback()
+  })
+
+  await page.goto(`/projects/${KEY}?${shared.query}`)
+  await expect(page.getByTestId('view-chip-7')).toContainText('남의 팀 뷰')
+  await page.getByTestId('add-filter-trigger').click()
+  await page.getByTestId('add-filter-facet-priority').click()
+  await page.getByTestId('facet-value-priority-MID').click()
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL(/priority=HIGH%2CMID|priority=MID%2CHIGH/)
+
+  await expect(page.getByTestId('save-view-button')).toBeEnabled()
+  await expect(page.getByTestId('save-view-button')).toContainText('새 뷰로 저장')
+  await expect(page.getByTestId('update-view-button')).toHaveCount(0)
+  expect(patches).toEqual([])
+})

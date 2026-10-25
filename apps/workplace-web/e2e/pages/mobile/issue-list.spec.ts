@@ -443,6 +443,27 @@ test.describe('모바일 에픽 시트', () => {
     await expect(page.getByTestId('mobile-filter-sheet')).toBeVisible();
   });
 
+  // WP-654 — 남이 만든 공유 뷰는 고쳐 쓸 수 없다(서버 403). 조건을 바꿔도 「뷰 업데이트」 없이 「새 뷰로 저장」만 보인다.
+  test('남의 공유 뷰를 고치면 「뷰 업데이트」 없이 「새 뷰로 저장」만 보인다', async ({ authenticatedPage: page }) => {
+    const shared = { ...MY_BUG_VIEW, id: 8, name: '남의 팀 뷰', query: 'priority=HIGH&group=none', visibility: 'SHARED', ownerId: 99, mine: false };
+    await mock(page, { views: [shared] });
+    await page.goto(`/projects/${KEY}?${shared.query}`);
+    await expect(page.getByTestId('mobile-chip-view')).toHaveText('남의 팀 뷰');
+    await page.getByTestId('mobile-chip-filter').click();
+    const filterSheet = page.getByTestId('mobile-filter-sheet');
+    await filterSheet.getByTestId('add-filter-trigger').click();
+    await page.getByTestId('add-filter-facet-status').click();
+    await page.getByRole('checkbox', { name: '진행 중' }).click();
+    await expect(page).toHaveURL(/status=IN_PROGRESS/);
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('add-filter-facet-status')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await expect(filterSheet).toBeHidden();
+    await page.getByTestId('mobile-chip-view').click();
+    await expect(page.getByTestId('mobile-view-save')).toBeEnabled();
+    await expect(page.getByTestId('mobile-view-update')).toHaveCount(0);
+  });
+
   test('에픽 미할당 선택 → topLevel 필터', async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);

@@ -112,15 +112,18 @@ export function MobileViewSheet({
               OPEN 비멤버는 뷰를 저장할 수 없어(서버 멤버 전용) 두지 않는다(WP-741). */}
           {!saved.canUseViews ? null : activeView && saved.isViewDirty ? (
             <>
-              <button
-                type="button"
-                data-testid="mobile-view-update"
-                onClick={() => pick(() => saved.updateActiveView(activeView))}
-                className={cn(ROW, 'text-primary')}
-              >
-                <RefreshCw aria-hidden="true" />
-                뷰 업데이트
-              </button>
+              {/* 뷰 수정은 소유자 본인만(서버 403) — 남의 공유 뷰면 「새 뷰로 저장」만 둔다(WP-654). */}
+              {activeView.mine && (
+                <button
+                  type="button"
+                  data-testid="mobile-view-update"
+                  onClick={() => pick(() => saved.updateActiveView(activeView))}
+                  className={cn(ROW, 'text-primary')}
+                >
+                  <RefreshCw aria-hidden="true" />
+                  뷰 업데이트
+                </button>
+              )}
               <button type="button" data-testid="mobile-view-save" onClick={openSave} className={ROW}>
                 새 뷰로 저장
               </button>

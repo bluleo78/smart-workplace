@@ -132,14 +132,17 @@ export function ViewChipBar({
       {!s.canUseViews ? null : activeView ? (
         s.isViewDirty ? (
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              data-testid="update-view-button"
-              onClick={() => s.updateActiveView(activeView)}
-              className="flex items-center gap-1 rounded-full border border-foreground bg-accent px-3 py-1 text-sm font-medium hover:bg-accent/70"
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> 뷰 업데이트
-            </button>
+            {/* 뷰 수정은 소유자 본인만 된다(서버 403) — 남의 공유 뷰를 고쳐 쓴 경우엔 「새 뷰로 저장」만 둔다(WP-654). */}
+            {activeView.mine && (
+              <button
+                type="button"
+                data-testid="update-view-button"
+                onClick={() => s.updateActiveView(activeView)}
+                className="flex items-center gap-1 rounded-full border border-foreground bg-accent px-3 py-1 text-sm font-medium hover:bg-accent/70"
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> 뷰 업데이트
+              </button>
+            )}
             <button
               type="button"
               data-testid="save-view-button"
