@@ -24,12 +24,13 @@ import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
 import { initialScrollDate, resolvePeriod } from './timelineData';
-import type { TimelineScrollRequest, TimelineZoom } from './TimelineGantt';
+import type { TimelineScrollRequest } from './TimelineGantt';
 import { TimelineGanttBody } from './TimelineGanttBody';
 import { TimelinePeriodChip } from './TimelinePeriodChip';
 import { TimelinePeriodPicker } from './TimelinePeriodPicker';
 import type { PeriodParam, TimelineViewOptions } from './timelineTypes';
 import { useTimelinePeriod } from './useTimelinePeriod';
+import { useTimelineZoom } from './useTimelineZoom';
 
 export default function TimelinePage() {
   const { key = '' } = useParams();
@@ -42,7 +43,8 @@ export default function TimelinePage() {
   // 명시된 경우엔 사용자의 선택을 존중해 주입하지 않는다(명시값 우선).
   const effectiveFilters =
     params.get('topLevel') == null ? { ...filters, topLevel: false, excludeSubtasks: true } : filters;
-  const [zoom, setZoom] = useState<TimelineZoom>('week');
+  // 보기 단위(일·주·월) — 사용자별로 기억한다(WP-889).
+  const [zoom, setZoom] = useTimelineZoom();
   // 간트 스크롤 요청 — 요청마다 seq 를 올린 새 객체라 같은 날짜(첫 진입 날짜 = 「오늘」 등)도 다시 스크롤한다(WP-938).
   const [scrollRequest, setScrollRequest] = useState<TimelineScrollRequest | undefined>(undefined);
   const scrollTo = (date: string) => setScrollRequest((prev) => ({ date, seq: (prev?.seq ?? 0) + 1 }));
@@ -126,6 +128,15 @@ export default function TimelinePage() {
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={
           <div className="flex items-center gap-1" role="group" aria-label="줌 전환">
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={zoom === 'day'}
+              className={zoom === 'day' ? TOGGLE_ON_CLASS : undefined}
+              onClick={() => setZoom('day')}
+            >
+              일
+            </Button>
             <Button
               variant="outline"
               size="sm"

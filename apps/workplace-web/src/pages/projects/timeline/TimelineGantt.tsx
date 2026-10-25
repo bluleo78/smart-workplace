@@ -21,7 +21,9 @@ import { formatDateKey } from '@/lib/formatters'
 import type { IssueStatus } from '@/types/issue'
 
 import {
+  dayCellLabel,
   ganttAxisBounds,
+  isWeekend,
   rollupOverlay,
   weekMonthAdd,
   weekMonthDiff,
@@ -35,6 +37,7 @@ import type {
   TimelineDependencyEdge,
   TimelineEpicGroup,
   TimelineMilestoneMarker,
+  TimelineZoom,
 } from './timelineTypes'
 
 // 데이터 모델(TimelineBar 등)은 timelineTypes.ts 로 이동했다 — timelineData.ts 와 이 파일이
@@ -47,7 +50,8 @@ export type {
   TimelineMilestoneMarker,
 } from './timelineTypes'
 
-export type TimelineZoom = 'week' | 'month'
+// 보기 단위 타입은 순수 로직(timelineData)도 쓰므로 timelineTypes 에 둔다(WP-889) — 기존 import 경로 호환용 재수출.
+export type { TimelineZoom }
 
 export interface TimelineGanttProps {
   /** 에픽 그룹 트리(#649) — bars 대신 groups 를 받아 부모(에픽)/자식(하위 이슈) 트리로 렌더한다. */
@@ -154,10 +158,25 @@ const WEEK_SCALES: IScaleConfig[] = [
   { unit: 'week', step: 1, format: (date) => format(date, "'W'w") },
 ]
 
+// 일 보기(WP-889) — 위 행은 달, 아래 행은 날짜·요일. 일은 달 안에 딱 맞게 나뉘어 주 보기처럼 칸이 밀리지 않는다.
+const DAY_SCALES: IScaleConfig[] = [
+  { unit: 'month', step: 1, format: (date) => format(date, 'yyyy년 M월') },
+  { unit: 'day', step: 1, format: dayCellLabel },
+]
+
+// 일 보기 칸 폭 — 「25 토」 라벨(12px)이 잘리지 않는 최소 폭. 주·월은 SVAR 기본 폭을 그대로 쓴다.
+const DAY_CELL_WIDTH = 44
+
 const MONTH_SCALES: IScaleConfig[] = [
   { unit: 'year', step: 1, format: (date) => format(date, 'yyyy년') },
   { unit: 'month', step: 1, format: (date) => format(date, 'M월') },
 ]
+
+const SCALES_BY_ZOOM: Record<TimelineZoom, IScaleConfig[]> = {
+  day: DAY_SCALES,
+  week: WEEK_SCALES,
+  month: MONTH_SCALES,
+}
 
 // SVAR 기본 그리드 컬럼 헤더가 영문(Task name/Start date/Duration)이라 앱 전체 한국어 UI와
 // 어긋남 — id/width 는 SVAR 기본값(getDefaultColumns)을 유지하고 header 텍스트만 교체한다.
@@ -387,13 +406,18 @@ export function TimelineGantt({
       start: parseISO(cycle.startDate).getTime(),
       end: parseISO(cycle.endDate).getTime(),
     }))
+    // SVAR 는 일 단위 칸마다 부른다(일 보기에서만 칸이 하루) — 일 보기에서는 주말 음영(WP-889)도 함께 단다.
+    const shadeWeekends = zoom === 'day'
     return (date: Date) => {
       const time = date.getTime()
-      return bands.some((band) => time >= band.start && time < band.end) ? 'timeline-cycle-band' : ''
+      const classes: string[] = []
+      if (bands.some((band) => time >= band.start && time < band.end)) classes.push('timeline-cycle-band')
+      if (shadeWeekends && isWeekend(date)) classes.push('timeline-weekend')
+      return classes.join(' ')
     }
-  }, [cycles])
+  }, [cycles, zoom])
 
-  const scales = zoom === 'week' ? WEEK_SCALES : MONTH_SCALES
+  const scales = SCALES_BY_ZOOM[zoom]
   // SVAR 는 <Willow>/<WillowDark> 테마 래퍼가 있어야 CSS 변수(막대 배경·보더·마일스톤 다이아몬드 등)가
   // 채워진다 — 래퍼 없이 렌더하면 막대가 투명해져 텍스트만 남는다. 앱 폰트 스택 유지 위해 fonts=false.
   const { resolvedTheme } = useTheme()
@@ -411,6 +435,30 @@ export function TimelineGantt({
     return () => cancelAnimationFrame(pending.frame)
   }, [scrollRequest])
 
+  // 보기 단위를 바꾸면 보던 날짜를 그대로 둔다(WP-889) — SVAR 는 가로 스크롤 px 만 남겨, 칸이 넓은 일 보기로 바꾸면
+  // 몇 달 뒤가, 월 보기로 바꾸면 축 끝이 보였다. 바꾸기 직전 차트 가운데 날짜(viewCenterRef — 아래 오버레이 효과가 스크롤마다
+  // 갱신)를 새 축에서도 가운데에 둔다. 왼쪽 끝 날짜로 맞추면 좁은 화면에서 주→일로 바꿀 때 보던 날짜가 오른쪽 밖으로 밀렸다.
+  // 이 효과는 오버레이 효과보다 먼저 선언돼야 새 축으로 viewCenterRef 가 덮이기 전에 읽는다. 새 축은 SVAR 가 다음 프레임에 잰다.
+  const viewCenterRef = useRef<number | null>(null)
+  const prevZoomRef = useRef(zoom)
+  useEffect(() => {
+    if (prevZoomRef.current === zoom) return
+    prevZoomRef.current = zoom
+    const center = viewCenterRef.current
+    if (center == null) return
+    const frame = requestAnimationFrame(() => {
+      const api = apiRef.current
+      const chartScales = api?.getState()._scales
+      const scroller = containerRef.current?.querySelector<HTMLElement>('.wx-chart')
+      if (!api || !chartScales || !scroller) return
+      const msPerPixel = (chartScales.end.getTime() - chartScales.start.getTime()) / chartScales.width
+      const left = (center - chartScales.start.getTime()) / msPerPixel - scroller.clientWidth / 2
+      // DOM scrollLeft 를 직접 바꾸면 SVAR 가 자기 상태의 scrollLeft 로 다시 덮는다 — 액션으로 상태째 옮긴다(축 끝에서는 SVAR 가 자른다).
+      api.exec('scroll-chart', { left: Math.max(0, Math.min(left, chartScales.width - scroller.clientWidth)) })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [zoom])
+
   // 오늘 세로선 + 사이클 밴드 라벨 오버레이 — 스파이크 노트대로 `.wx-chart`(실 스크롤 컨테이너) 의
   // scroll 이벤트에서 순수 DOM transform 갱신(리액트 리렌더 없이 동기화, 성능 고려).
   useEffect(() => {
@@ -421,6 +469,9 @@ export function TimelineGantt({
     if (!scroller) return
 
     let todayLeft = 0
+    // 차트 가운데 날짜 계산용 — recompute 가 새 축으로 채운다.
+    let axisStart = 0
+    let axisMsPerPixel = 0
     // 차트 영역 왼쪽 끝(containerRef 기준) — 사이클 이름표를 이보다 왼쪽(그리드 표 위)에 그리지 않는다(WP-489).
     let chartLeft = 0
     const bandLefts = new Map<number, { left: number; width: number }>()
@@ -433,6 +484,8 @@ export function TimelineGantt({
       if (!chartScales) return
       const msPerPixel = (chartScales.end.getTime() - chartScales.start.getTime()) / chartScales.width
       const toOffset = (date: Date) => (date.getTime() - chartScales.start.getTime()) / msPerPixel
+      axisStart = chartScales.start.getTime()
+      axisMsPerPixel = msPerPixel
       // 오버레이는 containerRef 기준 absolute — `.wx-chart` 가 그리드 패널 뒤에서 시작하므로 그 시작 오프셋을 더한다.
       const baseLeft = scroller.getBoundingClientRect().left - container.getBoundingClientRect().left
       // 마일스톤 레인은 containerRef 와 같은 좌측 원점을 공유하는 sibling 이므로, 그리드/차트
@@ -473,6 +526,7 @@ export function TimelineGantt({
 
     const applyTransform = () => {
       const scrollLeft = scroller.scrollLeft
+      if (axisMsPerPixel > 0) viewCenterRef.current = axisStart + (scrollLeft + scroller.clientWidth / 2) * axisMsPerPixel
       if (todayLineRef.current) {
         todayLineRef.current.style.transform = `translateX(${todayLeft - scrollLeft}px)`
       }
@@ -744,6 +798,8 @@ export function TimelineGantt({
             tasks={tasks}
             links={links}
             scales={scales}
+            // 일 보기만 칸 폭을 정한다 — 주·월은 SVAR 기본 폭(지금까지의 모양)을 그대로 둔다.
+            {...(zoom === 'day' ? { cellWidth: DAY_CELL_WIDTH } : {})}
             // 축을 자를 때만 고정 범위(autoScale 끔) — SVAR 는 start·end 가 둘 다 있고 autoScale 이 꺼져야 그 범위를 쓴다.
             {...(axis ? { start: axis.start, end: axis.end, autoScale: false } : {})}
             columns={GRID_COLUMNS}

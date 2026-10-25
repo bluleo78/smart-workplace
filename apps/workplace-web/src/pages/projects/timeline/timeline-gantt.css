@@ -118,3 +118,22 @@
 .timeline-gantt-root .wx-grid .wx-row[data-id*='group-'] .wx-cell {
   font-weight: 600;
 }
+
+/* 일 보기 주말 음영(WP-889) — highlightTime 이 토·일의 스케일 칸과 본문 음영 칸(.wx-gantt-holidays 아래) 모두에 붙인다.
+   본문 음영 칸은 SVAR 가 left·width 만 인라인으로 주고 위치·높이는 SVAR 자체 클래스 CSS 몫이라, 우리 클래스로는 높이 0 이었다 —
+   세로로 꽉 채운다. muted 는 배경과 거의 같아 안 보여 muted-foreground 를 옅게 섞는다(라이트·다크 모두 배경 위 은은한 띠). */
+.timeline-gantt-root .timeline-weekend {
+  background: color-mix(in oklab, var(--muted-foreground) 9%, transparent);
+}
+.timeline-gantt-root .wx-gantt-holidays > .timeline-weekend {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+
+/* 일 보기 위 행(달) — 축 끝에 며칠만 걸친 달은 칸이 좁아 「2026년 6월」이 두 줄로 꺾였다(WP-889). 한 줄로 두고 넘치면 자른다. */
+.timeline-gantt-root .wx-scale .wx-row:first-child .wx-cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

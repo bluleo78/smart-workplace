@@ -718,6 +718,71 @@ test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 
   for (const l of inRange) expect(bounds.weeks.some((w) => Math.abs(w - l) <= 1)).toBe(true);
 });
 
+// WP-889 — 「일」 보기: 위 행은 달·아래 행은 날짜·요일, 주말 음영, 막대 끌기는 하루 단위, 고른 보기 단위는 다시 열어도 남는다.
+test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 끌기, 보기 단위 기억', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z')); // 오늘 = 7/8(수)
+  await setupTimelineStubs(page);
+  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`);
+  await page.route(`**/api/v1/projects/${KEY}/issues/1`, (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-04', dueDate: '2026-07-08' })),
+    });
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  const dayButton = page.getByRole('button', { name: '일', exact: true });
+  await dayButton.click();
+  await expectToggle(dayButton, true);
+  await expectToggle(page.getByRole('button', { name: '주' }), false);
+
+  // 오늘선 아래의 위·아래 스케일 칸 — 달과 「날짜 요일」.
+  await page.getByRole('button', { name: '오늘' }).click();
+  const todayLine = page.getByTestId('timeline-today-line');
+  const cellAt = (row: 'first' | 'last') =>
+    todayLine.evaluate((line, which) => {
+      const x = line.getBoundingClientRect().left;
+      const rows = document.querySelectorAll('.timeline-gantt-root .wx-scale .wx-row');
+      const r = which === 'first' ? rows[0] : rows[rows.length - 1];
+      const cell = [...r.querySelectorAll<HTMLElement>('.wx-cell')].find((c) => {
+        const b = c.getBoundingClientRect();
+        return b.left <= x && x < b.right;
+      });
+      return cell?.textContent?.trim() ?? null;
+    }, row);
+  await expect.poll(() => cellAt('first')).toBe('2026년 7월');
+  expect(await cellAt('last')).toBe('8 수');
+
+  // 주말 음영 — 날짜 칸 중 토·일 칸에만 음영 클래스가 붙는다(차트 본문 음영도 같은 판정에서 나온다).
+  const dayCells = await page
+    .locator('.timeline-gantt-root .wx-scale .wx-row:last-child .wx-cell')
+    .evaluateAll((cells) => cells.map((c) => [c.textContent?.trim() ?? '', c.classList.contains('timeline-weekend')] as const));
+  expect(dayCells.some(([, shaded]) => shaded)).toBe(true);
+  for (const [label, shaded] of dayCells) expect(shaded).toBe(/ [토일]$/.test(label));
+
+  // 막대(7/1~7/5)를 칸 3개만큼 끌면 하루 단위로 3일 옮겨진다.
+  await expandNoEpicGroup(page);
+  const bar = page.locator('[data-task-id="1"]');
+  await expect(bar).toBeVisible();
+  const cellWidth = await page
+    .locator('.timeline-gantt-root .wx-scale .wx-row:last-child .wx-cell')
+    .first()
+    .evaluate((c) => c.getBoundingClientRect().width);
+  const box = (await bar.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + cellWidth * 3, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => patches.lastBody()).toEqual({ startDate: '2026-07-04', dueDate: '2026-07-08' });
+
+  // 다시 열어도 일 보기로 시작한다.
+  await page.reload();
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await expectToggle(page.getByRole('button', { name: '일', exact: true }), true);
+});
+
 // WP-938 — 타임라인도 목록·보드(WP-870)처럼 상태 목록을 받은 뒤에만 본문(간트·필터 바)을 그린다.
 // 받기 전에 그리면 「상태」 facet 이 비어 고를 값이 없고, 취소 범주 판단이 빈 목록으로 돌았다.
 const STATUSES_PATH = `/api/v1/projects/${KEY}/statuses`;
@@ -802,4 +867,43 @@ test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 �
   const error = page.getByTestId('project-statuses-error');
   await expect(error).toBeVisible();
   expect(await offsetFromBodyCenter(page, error.locator('svg').first(), error.getByRole('button', { name: '다시 시도' }))).toBeLessThan(4);
+});
+
+// WP-889 — 보기 단위를 바꾸면 보던 날짜(차트 가운데)가 그대로 가운데에 남는다. 전에는 가로 스크롤 px 만 남아 일 보기로 바꾸면
+// 몇 달 뒤가, 월 보기로 바꾸면 축 끝이 보였다.
+test('보기 단위를 바꿔도 차트 가운데 보던 날짜가 가운데에 남는다', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z'));
+  await setupTimelineStubs(page);
+  // 「전체」 기간에 1월·12월 이슈 — 축이 1년 가까이 퍼져 어느 보기에서도 가로 스크롤이 생긴다.
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [
+      createIssue({ number: 9, title: '연초 이슈', startDate: '2026-01-05', dueDate: '2026-01-20' }),
+      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
+      createIssue({ number: 8, title: '연말 이슈', startDate: '2026-12-01', dueDate: '2026-12-20' }),
+    ];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  const chart = page.locator('.timeline-gantt-root .wx-chart');
+  const todayLine = page.getByTestId('timeline-today-line');
+  // 오늘선이 차트 가운데에서 몇 px 떨어져 있는지
+  const offCenter = async () => {
+    const c = (await chart.boundingBox())!;
+    const t = (await todayLine.boundingBox())!;
+    return Math.abs(t.x - (c.x + c.width / 2));
+  };
+  await page.goto(`/projects/${KEY}/timeline?period=all`);
+  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await page.getByRole('button', { name: '오늘' }).click();
+  await expect(todayLine).toBeVisible();
+  // 「오늘」 스크롤은 한 프레임 미뤄 실행된다 — 그 뒤에 오늘선을 차트 가운데로 옮긴다.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const shift = (await todayLine.boundingBox())!.x - ((await chart.boundingBox())!.x + (await chart.boundingBox())!.width / 2);
+  await chart.evaluate((el, dx) => el.scrollBy({ left: dx }), shift);
+  await expect.poll(offCenter).toBeLessThan(4);
+  // 일 칸 하나(44px)·월 보기의 하루(약 3px) 안쪽 오차만 허용한다.
+  for (const name of ['일', '월', '주', '일']) {
+    await page.getByRole('button', { name, exact: true }).click();
+    await expect.poll(offCenter).toBeLessThan(44);
+  }
 });

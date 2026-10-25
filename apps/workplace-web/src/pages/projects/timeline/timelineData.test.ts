@@ -10,14 +10,17 @@ import {
   type AgendaSection,
   buildAgendaSections,
   cyclesToBands,
+  dayCellLabel,
   defaultScheduleRange,
   filterRenderableDependencies,
   formatPeriodSpan,
   ganttAxisBounds,
   groupTimelineIssues,
   initialScrollDate,
+  isWeekend,
   milestonesToMarkers,
   parsePeriodParam,
+  parseTimelineZoom,
   periodParamToString,
   prepareTimelineIssues,
   resolvePeriod,
@@ -1026,3 +1029,20 @@ describe('주 단위 달(weekMonth)', () => {
     expect(weeks * 7).toBe(differenceInCalendarDays(cur, first))
   })
 })
+
+describe('일 보기(WP-889)', () => {
+  it('저장해 둔 보기 단위를 읽고, 없거나 모르는 값이면 주 보기', () => {
+    expect(parseTimelineZoom('day')).toBe('day');
+    expect(parseTimelineZoom('month')).toBe('month');
+    expect(parseTimelineZoom(null)).toBe('week');
+    expect(parseTimelineZoom('year')).toBe('week');
+  });
+
+  it('날짜 칸 라벨은 「날짜 요일」, 주말은 토·일만', () => {
+    expect(dayCellLabel(parseISO('2026-07-08'))).toBe('8 수');
+    expect(dayCellLabel(parseISO('2026-07-12'))).toBe('12 일');
+    expect(isWeekend(parseISO('2026-07-11'))).toBe(true);
+    expect(isWeekend(parseISO('2026-07-12'))).toBe(true);
+    expect(isWeekend(parseISO('2026-07-13'))).toBe(false);
+  });
+});

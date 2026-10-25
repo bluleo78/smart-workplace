@@ -62,6 +62,9 @@ export interface TimelineEpicGroup {
   undatedChildren: IssueResponse[];
 }
 
+/** 간트 보기 단위 — 일(WP-889)·주·월. */
+export type TimelineZoom = 'day' | 'week' | 'month';
+
 /** URL `period` 값(WP-247) — 조회 기간 선택지. active 가 기본(URL 생략). */
 export type PeriodParam =
   | { kind: 'active' }

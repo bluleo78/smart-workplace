@@ -18,6 +18,7 @@ import type {
   TimelineMilestoneMarker,
   TimelinePeriod,
   TimelineViewOptions,
+  TimelineZoom,
 } from './timelineTypes';
 
 /** 시작/종료 날짜가 모두 있는 사이클만 밴드로 변환. */
@@ -732,4 +733,26 @@ export function weekMonthDiff(a: Date, b: Date): number {
 /** date 가 든 주 단위 달의 주 수(4 또는 5). */
 export function weeksInWeekMonth(date: Date): number {
   return differenceInCalendarDays(weekMonthAdd(weekMonthStart(date), 1), weekMonthStart(date)) / 7;
+}
+
+// ── 일 보기(WP-889) ─────────────────────────────────────────────
+
+const TIMELINE_ZOOMS: readonly TimelineZoom[] = ['day', 'week', 'month'];
+
+/** 저장해 둔 보기 단위 문자열 → 보기 단위. 없거나 모르는 값이면 주 보기(예전 기본값). */
+export function parseTimelineZoom(raw: string | null | undefined): TimelineZoom {
+  return TIMELINE_ZOOMS.includes(raw as TimelineZoom) ? (raw as TimelineZoom) : 'week';
+}
+
+const WEEKDAY_KO = ['일', '월', '화', '수', '목', '금', '토'] as const;
+
+/** 일 보기 아래 행 칸 라벨 — 「25 토」(날짜·요일). 칸이 좁아 요일은 한 글자다. */
+export function dayCellLabel(date: Date): string {
+  return `${date.getDate()} ${WEEKDAY_KO[date.getDay()]}`;
+}
+
+/** 토·일요일인지 — 일 보기 주말 음영. */
+export function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
 }
