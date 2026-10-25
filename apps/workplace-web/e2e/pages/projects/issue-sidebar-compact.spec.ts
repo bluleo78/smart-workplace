@@ -76,8 +76,9 @@ test.describe('좁은 데스크톱 창(1100px)', () => {
     await expect(all).toHaveClass(/selection-bar|bg-selected/)
     expect(Math.round((await all.boundingBox())!.height)).toBeGreaterThanOrEqual(32)
 
+    // 「내 작업」 링크(/me/tasks)는 라우터가 기본 탭(할당)으로 바꿔 연다(App.tsx 의 Navigate).
     await myTasks.click()
-    await expect(page).toHaveURL(/\/me\/tasks$/)
+    await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
   })
 
   test('새 프로젝트 버튼도 아이콘으로 남아 생성 창을 연다', async ({ authenticatedPage: page }) => {
