@@ -1946,4 +1946,134 @@ public class EmailMessageRepository {
             .execute()
         > 0;
   }
+
+  // ===== WP-962 메일 옮기기(보관·메일함 이동·휴지통) =====
+
+  /**
+   * 옮길 메일 한 통의 현재 위치(WP-962).
+   *
+   * @param folderName email_folder.name — IMAP 은 폴더를 여는 이름, 로컬 보낸 기록은 {@code SENT}
+   * @param folderRole 서버 폴더 역할(ARCHIVE·USER), INBOX·SENT 행이면 null
+   * @param seenPushPending 로컬 읽음 변경이 아직 서버에 반영되지 않았는지(WP-187)
+   * @param hasProviderAttachments Graph 첨부 id 를 저장한 첨부 행이 있는지 — 옮기면 첨부 id 도 바뀌어 다시 받아야 한다
+   * @param folderUidValidity 지금 메일함에 기록된 IMAP UIDVALIDITY(아직 가져오지 않았으면 null) — 서버 값과 다르면 UID 를 믿을 수
+   *     없다
+   */
+  public record MoveSource(
+      long messageId,
+      long folderId,
+      String folderName,
+      String folderRole,
+      Long imapUid,
+      String providerMessageId,
+      boolean seen,
+      boolean seenPushPending,
+      boolean hasProviderAttachments,
+      Long folderUidValidity) {}
+
+  /** 계정의 메일들 현재 위치(WP-962). 다른 계정 메일·없는 id 는 빠진다 — 호출자가 개수로 404 를 판정한다. */
+  public List<MoveSource> findMoveSources(long accountId, Collection<Long> messageIds) {
+    return dsl.select(
+            EMAIL_MESSAGE.ID,
+            EMAIL_MESSAGE.FOLDER_ID,
+            EMAIL_FOLDER.NAME,
+            EMAIL_FOLDER.ROLE,
+            EMAIL_MESSAGE.IMAP_UID,
+            EMAIL_MESSAGE.PROVIDER_MESSAGE_ID,
+            EMAIL_MESSAGE.SEEN,
+            EMAIL_MESSAGE.SEEN_PUSH_PENDING,
+            DSL.field(
+                DSL.exists(
+                    DSL.selectOne()
+                        .from(EMAIL_ATTACHMENT)
+                        .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(EMAIL_MESSAGE.ID))
+                        .and(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID.isNotNull()))),
+            EMAIL_FOLDER.UID_VALIDITY)
+        .from(EMAIL_MESSAGE)
+        .join(EMAIL_FOLDER)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.ID.in(messageIds))
+        .orderBy(EMAIL_MESSAGE.ID)
+        .fetch(
+            r ->
+                new MoveSource(
+                    r.get(EMAIL_MESSAGE.ID),
+                    r.get(EMAIL_MESSAGE.FOLDER_ID),
+                    r.get(EMAIL_FOLDER.NAME),
+                    r.get(EMAIL_FOLDER.ROLE),
+                    r.get(EMAIL_MESSAGE.IMAP_UID),
+                    r.get(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID),
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN)),
+                    Boolean.TRUE.equals(r.get(EMAIL_MESSAGE.SEEN_PUSH_PENDING)),
+                    Boolean.TRUE.equals(r.get(8, Boolean.class)),
+                    r.get(EMAIL_FOLDER.UID_VALIDITY)));
+  }
+
+  /**
+   * 서버에서 옮긴 메일을 같은 행 그대로 새 메일함으로 옮긴다(WP-962). id·본문(content)·첨부 행·AI 판정이 그대로 남아 새 메일함에 바로 보이고 본문을
+   * 다시 받지 않는다. 다음 동기화는 (account, folder, imap_uid)·(account, provider_message_id) 로 이미 있는 메일로 보고 넣지
+   * 않는다.
+   *
+   * @param imapUid 새 메일함의 UID(IMAP) — Graph 면 null
+   * @param providerMessageId 옮긴 뒤의 Graph 메시지 id — IMAP 이면 null
+   * @param clearSeenPending 로컬 읽음을 옮기기 전에 서버에 반영했으면 true — 대기 표시를 푼다. false 면 대기를 남겨 재시도 배치가 새 위치로
+   *     반영한다
+   * @return 바뀐 행 수(0|1)
+   */
+  public int relocate(
+      long messageId,
+      long folderId,
+      Long imapUid,
+      String providerMessageId,
+      boolean clearSeenPending) {
+    var update =
+        dsl.update(EMAIL_MESSAGE)
+            .set(EMAIL_MESSAGE.FOLDER_ID, folderId)
+            .set(EMAIL_MESSAGE.IMAP_UID, imapUid)
+            .set(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID, providerMessageId);
+    if (clearSeenPending) {
+      update =
+          update
+              .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, false)
+              .set(EMAIL_MESSAGE.SEEN_PUSH_ATTEMPTS, 0)
+              .setNull(EMAIL_MESSAGE.SEEN_PUSH_NEXT_AT);
+    }
+    return update.where(EMAIL_MESSAGE.ID.eq(messageId)).execute();
+  }
+
+  /**
+   * 옮긴 자리에 이미 다른 행이 있는지(WP-962) — 옮기는 사이 대상 메일함 동기화가 먼저 넣었으면 같은 행을 둘 만들 수 없어 원래 행을 지운다. IMAP 은
+   * (account, folder, uid), Graph 는 계정 안 provider id 로 본다(유니크 제약과 같은 범위).
+   */
+  public boolean existsAtDestination(
+      long accountId, long folderId, Long imapUid, String providerMessageId) {
+    Condition at =
+        providerMessageId != null
+            ? EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId)
+            : EMAIL_MESSAGE.FOLDER_ID.eq(folderId).and(EMAIL_MESSAGE.IMAP_UID.eq(imapUid));
+    return dsl.fetchExists(EMAIL_MESSAGE, EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(at));
+  }
+
+  /**
+   * 메일 행들을 지운다(WP-962 — 휴지통으로 옮겼거나 새 위치를 모르는 메일). 다른 envelope 가 참조하지 않게 된 content 도 정리한다.
+   *
+   * @return 지운 행 수
+   */
+  public int deleteByIds(long accountId, Collection<Long> messageIds) {
+    if (messageIds.isEmpty()) {
+      return 0;
+    }
+    Condition target = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_MESSAGE.ID.in(messageIds));
+    // envelope 삭제 전 영향받을 content_id 를 수집 — FK ON DELETE RESTRICT 이므로 envelope 먼저 삭제한 뒤 GC
+    List<Long> affectedContentIds =
+        dsl.selectDistinct(EMAIL_MESSAGE.CONTENT_ID)
+            .from(EMAIL_MESSAGE)
+            .where(target)
+            .and(EMAIL_MESSAGE.CONTENT_ID.isNotNull())
+            .fetchInto(Long.class);
+    int deleted = dsl.deleteFrom(EMAIL_MESSAGE).where(target).execute();
+    contentRepo.deleteOrphans(affectedContentIds);
+    return deleted;
+  }
 }

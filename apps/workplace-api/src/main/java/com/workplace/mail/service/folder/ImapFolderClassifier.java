@@ -170,6 +170,51 @@ public final class ImapFolderClassifier {
     return out;
   }
 
+  /** \Trash 표시. */
+  private static final String ATTR_TRASH = "\\trash";
+
+  /** 속성이 없을 때 휴지통으로 보는 이름(소문자) — 시스템 폴더 이름 판별과 같은 위치(최상위·INBOX 바로 아래·Gmail 묶음 바로 아래)에만. */
+  private static final List<String> TRASH_NAMES =
+      List.of("trash", "deleted items", "deleted messages", "deleted", "휴지통", "bin");
+
+  /**
+   * LIST 결과에서 서버 휴지통 폴더의 전체 경로를 찾는다(WP-962 — 앱에서 지운 메일을 옮길 곳). SPECIAL-USE {@code \Trash} 가 있으면 그
+   * 폴더, 없으면 이름으로 — 최상위·INBOX 바로 아래·Gmail 묶음({@code [Gmail]}) 바로 아래의 Trash·Deleted Items·휴지통 등. 이름
+   * 후보가 여럿이면 {@link #TRASH_NAMES} 순서(그다음 LIST 순서)로 고른다. 메일을 담지 못하는 폴더는 고르지 않는다.
+   *
+   * @return 휴지통 전체 경로. 찾지 못하면 null
+   */
+  public static String findTrash(List<Entry> entries) {
+    for (Entry e : entries) {
+      if (e.holdsMessages()
+          && e.attributes().stream().anyMatch(a -> ATTR_TRASH.equalsIgnoreCase(a))) {
+        return e.fullName();
+      }
+    }
+    String best = null;
+    int bestRank = Integer.MAX_VALUE;
+    for (Entry e : entries) {
+      if (!e.holdsMessages()) {
+        continue;
+      }
+      List<String> segs = segments(e);
+      boolean nameCheckable =
+          segs.size() == 1
+              || (segs.size() == 2
+                  && ("INBOX".equalsIgnoreCase(segs.get(0))
+                      || GMAIL_ROOTS.contains(segs.get(0).toLowerCase(Locale.ROOT))));
+      if (!nameCheckable) {
+        continue;
+      }
+      int rank = TRASH_NAMES.indexOf(segs.get(segs.size() - 1).trim().toLowerCase(Locale.ROOT));
+      if (rank >= 0 && rank < bestRank) {
+        best = e.fullName();
+        bestRank = rank;
+      }
+    }
+    return best;
+  }
+
   private static boolean isVisibleKind(Kind k) {
     return k == Kind.ARCHIVE || k == Kind.USER;
   }

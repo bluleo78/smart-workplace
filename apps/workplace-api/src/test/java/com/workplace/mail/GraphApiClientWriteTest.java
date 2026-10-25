@@ -124,8 +124,19 @@ class GraphApiClientWriteTest {
     assertThat(first.path("body").path("isRead").asBoolean()).isTrue();
     assertThat(reqs.get(1).path("body").path("isRead").asBoolean()).isFalse();
     assertThat(out)
+        .extracting(GraphBatchResponse::id, GraphBatchResponse::status)
         .containsExactlyInAnyOrder(
-            new GraphBatchResponse("11", 200), new GraphBatchResponse("22", 429));
+            org.assertj.core.groups.Tuple.tuple("11", 200),
+            org.assertj.core.groups.Tuple.tuple("22", 429));
+    // WP-962: 항목 본문이 있으면 싣고(옮기기의 새 id), 없으면 null
+    assertThat(out)
+        .filteredOn(r -> r.id().equals("11"))
+        .singleElement()
+        .satisfies(r -> assertThat(r.body()).isNotNull());
+    assertThat(out)
+        .filteredOn(r -> r.id().equals("22"))
+        .singleElement()
+        .satisfies(r -> assertThat(r.body()).isNull());
   }
 
   /** WP-187: $batch 최상위 응답이 2xx 가 아니면 예외 — 호출 측이 대기 표시를 유지한다. */

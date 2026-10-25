@@ -35,9 +35,11 @@ test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복�
   // 연 메일은 읽음 요청을 따로 보낸다 — 상세 조회는 읽음 처리하지 않는다(WP-214).
   await read.waitForRequest()
   expect(det.requests[0].searchParams.get('markSeen')).toBe('false')
-  // 데스크톱 상세 아이콘은 모바일에서 숨기고, ✦ 바로 왼쪽(헤더 바 trailing)에 "안 읽음"을 둔다.
+  // 데스크톱 상세 버튼은 모바일에서 숨기고, 「안 읽음」은 헤더 바 ⋯ 메뉴(✦ 왼쪽)에 둔다.
   await expect(page.getByTestId('mail-mark-unread')).toHaveCount(0)
   const bar = page.getByTestId('mail-back')
+  // WP-962: 받은편지함 메일은 ⋯ 메뉴에 「삭제」도 있어 「안 읽음」은 메뉴 안에 있다.
+  await bar.getByTestId('mobile-header-more').click()
   await expect(bar.getByTestId('mobile-mark-unread')).toHaveText('안 읽음')
   await bar.getByTestId('mobile-mark-unread').click()
   await unread.waitForRequest()

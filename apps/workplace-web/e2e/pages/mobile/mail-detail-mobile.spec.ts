@@ -242,8 +242,8 @@ test('AI 사용 계정: 「안 읽음」은 ⋯ 메뉴 안에 있고, 누르면 
   await bar.getByTestId('mobile-header-more').click()
   const menu = bar.getByTestId('mobile-header-more-menu')
   await expect(menu).toBeVisible()
-  // 라이트 테마라 원본 배경 토글은 없다 — 안 읽음, AI로 이슈 만들기 두 항목.
-  await expect(menu.getByRole('menuitem')).toHaveText(['안 읽음', 'AI로 이슈 만들기'])
+  // 라이트 테마라 원본 배경 토글은 없다 — 안 읽음, AI로 이슈 만들기, 삭제(WP-962, 맨 아래). 보관 메일함 목록이 없어 보관·옮기기는 없다.
+  await expect(menu.getByRole('menuitem')).toHaveText(['안 읽음', 'AI로 이슈 만들기', '삭제'])
   await menu.getByTestId('mobile-mark-unread').click()
   await unread.waitForRequest()
   await expect(page.getByTestId('mail-detail')).toHaveCount(0)
@@ -382,14 +382,16 @@ test.describe('하단 고정 바', () => {
     expect(lastBottom).toBeLessThanOrEqual(bar.y)
   })
 
-  test('AI 미사용 계정: 하단 바는 3버튼, 「안 읽음」은 메뉴 없이 헤더에 바로 둔다', async ({ authenticatedPage: page }) => {
+  // WP-962 부터 받은편지함 메일은 「삭제」도 메뉴에 있어 항목이 둘 — ⋯ 메뉴로 묶인다(항목 하나일 때만 헤더에 바로 둔다, U3-R7).
+  test('AI 미사용 계정: 하단 바는 3버튼, ⋯ 메뉴는 안 읽음·삭제', async ({ authenticatedPage: page }) => {
     await stubMail(page, { aiEnabled: false })
     await page.goto('/mail/1')
     await openMail(page, 11)
     await expect(page.getByTestId('mail-mobile-action-bar').getByRole('button')).toHaveText(['답장', '전체답장', '전달'])
     const bar = page.getByTestId('mail-back')
-    await expect(bar.getByTestId('mobile-header-more')).toHaveCount(0)
-    await expect(bar.getByTestId('mobile-header-inline-action').getByTestId('mobile-mark-unread')).toHaveText('안 읽음')
+    await expect(bar.getByTestId('mobile-header-inline-action')).toHaveCount(0)
+    await bar.getByTestId('mobile-header-more').click()
+    await expect(bar.getByTestId('mobile-header-more-menu').getByRole('menuitem')).toHaveText(['안 읽음', '삭제'])
   })
 })
 

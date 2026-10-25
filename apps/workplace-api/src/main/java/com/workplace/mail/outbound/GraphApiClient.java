@@ -469,7 +469,13 @@ public class GraphApiClient {
     JsonNode resp = post(accessToken, "/$batch", json, JsonNode.class, BATCH_TIMEOUT);
     List<GraphBatchResponse> out = new ArrayList<>();
     for (JsonNode n : resp.path("responses")) {
-      out.add(new GraphBatchResponse(n.path("id").asText(), n.path("status").asInt()));
+      // 항목 본문은 옮기기(WP-962)처럼 결과 값이 필요한 요청을 위해 함께 싣는다 — 없으면 null
+      JsonNode body = n.get("body");
+      out.add(
+          new GraphBatchResponse(
+              n.path("id").asText(),
+              n.path("status").asInt(),
+              body == null || body.isNull() ? null : body));
     }
     return out;
   }

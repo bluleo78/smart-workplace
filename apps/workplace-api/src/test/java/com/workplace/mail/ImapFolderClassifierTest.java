@@ -184,4 +184,24 @@ class ImapFolderClassifierTest {
               assertThat(f.parentKey()).isNull();
             });
   }
+
+  /** WP-962 휴지통 찾기 — SPECIAL-USE 우선, 없으면 최상위·INBOX 아래·Gmail 묶음 아래 이름만(깊은 곳 사용자 폴더는 아님). */
+  @Test
+  void findTrash_prefersSpecialUse_thenNamesAtSystemLevelsOnly() {
+    assertThat(
+            ImapFolderClassifier.findTrash(
+                List.of(box("Trash", '/'), box("Bin2", '/', "\\HasNoChildren", "\\Trash"))))
+        .isEqualTo("Bin2");
+    assertThat(ImapFolderClassifier.findTrash(List.of(box("INBOX", '.'), box("INBOX.Trash", '.'))))
+        .isEqualTo("INBOX.Trash");
+    assertThat(ImapFolderClassifier.findTrash(List.of(box("[Gmail]/휴지통", '/'))))
+        .isEqualTo("[Gmail]/휴지통");
+    assertThat(
+            ImapFolderClassifier.findTrash(
+                List.of(box("Deleted Messages", '/'), box("Trash", '/'))))
+        .isEqualTo("Trash");
+    assertThat(
+            ImapFolderClassifier.findTrash(List.of(box("고객사/Trash", '/'), noselect("Trash", '/'))))
+        .isNull();
+  }
 }

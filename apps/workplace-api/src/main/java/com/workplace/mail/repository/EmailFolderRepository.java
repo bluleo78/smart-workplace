@@ -250,6 +250,21 @@ public class EmailFolderRepository {
 
   /** 계정의 폴더 한 개를 동기화 대상으로 읽는다(WP-960). 다른 계정의 폴더면 empty. */
   public Optional<FolderTarget> findTarget(long accountId, long folderId) {
+    return selectTarget(EMAIL_FOLDER.ID.eq(folderId).and(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId)));
+  }
+
+  /**
+   * 계정의 보관 메일함(WP-962 — 「보관」으로 옮길 곳). 서버는 계정당 하나를 주지만 둘 이상이면 id 가 작은 것 — 사이드바(목록 첫 ARCHIVE)와 같은
+   * 메일함이 되도록 목록 순서(보관 먼저 → 이름순 → id)를 따른다.
+   */
+  public Optional<FolderTarget> findArchive(long accountId) {
+    return listServerFolders(accountId).stream()
+        .filter(r -> "ARCHIVE".equals(r.role()))
+        .findFirst()
+        .flatMap(r -> findTarget(accountId, r.id()));
+  }
+
+  private Optional<FolderTarget> selectTarget(org.jooq.Condition where) {
     return dsl.select(
             EMAIL_FOLDER.ID,
             EMAIL_FOLDER.NAME,
@@ -261,8 +276,7 @@ public class EmailFolderRepository {
             EMAIL_FOLDER.SYNCED_SINCE,
             EMAIL_FOLDER.FOLDER_SYNCED_AT)
         .from(EMAIL_FOLDER)
-        .where(EMAIL_FOLDER.ID.eq(folderId))
-        .and(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId))
+        .where(where)
         .fetchOptional(
             r ->
                 new FolderTarget(

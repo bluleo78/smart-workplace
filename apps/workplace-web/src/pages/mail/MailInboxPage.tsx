@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, CheckCheck, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun } from 'lucide-react'
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Archive, Check, CheckCheck, FolderInput, Forward, Inbox, Loader2, Mail, MailOpen, MailX, Moon, Paperclip, RefreshCw, Reply, ReplyAll, Search, Sparkles, Sun, Trash2 } from 'lucide-react'
+import { type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -29,6 +29,8 @@ import { forwardAttachments } from '@/lib/mailComposeAttachments'
 import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { formatReceivedAt } from '@/lib/mailListTime'
+import { type MailMoveAvailability, mailMoveAvailability, type MailMoveTargetOption, mailMoveTargets, mailMoveToastMessage } from '@/lib/mailMoveActions'
+import { scheduleMailMove, useMailMoveHidden } from '@/lib/mailMoveQueue'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
@@ -41,6 +43,7 @@ import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/ma
 import { FileTypeIcon } from '../../components/drive/FileTypeIcon'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
+import { MailMoveMenu, MailMoveTargetSheet } from '../../components/mail/MailMoveMenu'
 import { SandboxedHtmlFrame } from '../../components/SandboxedHtmlFrame'
 import { mailAttachmentMime, mailAttachmentName } from '../../components/viewer/viewerItems'
 import { splitName } from '../../components/viewer/viewerNav'
@@ -64,7 +67,7 @@ import {
   useToggleRead,
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
-import type { MailServerFolder } from '../../types/mailFolder'
+import type { MailMoveTarget, MailServerFolder } from '../../types/mailFolder'
 import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
 import { MailDraftsPage } from './MailDraftsPage'
 import { MAIL_DETAIL_PARAM } from './mailHistory'
@@ -76,6 +79,73 @@ import { useMailScreenContext } from './useMailScreenContext'
 // 목록 로딩 중 시트·길게 누르기에 넘길 빈 목록 — 렌더마다 새 배열을 만들지 않게 모듈에 하나만 둔다.
 const EMPTY_MESSAGES: EmailMessageSummary[] = []
 
+/** WP-962 한 메일에 대한 보관·옮기기·삭제 — 목록 행·상세가 같은 묶음을 받는다. */
+interface MailMoveActions {
+  avail: MailMoveAvailability
+  targets: readonly MailMoveTargetOption[]
+  onArchive: () => void
+  onTrash: () => void
+  onMove: (target: MailMoveTarget) => void
+}
+
+/** 행 hover 아이콘 버튼 공통 모양 — 읽음 전환 버튼과 같은 크기·테두리. */
+const ROW_ICON_BUTTON_CLASS =
+  'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40'
+
+/**
+ * WP-962 목록 행 hover 작업(데스크톱) — 보관 · 옮기기(메뉴) · 삭제. 읽음 전환 버튼 왼쪽에 둔다. 평소에는 폭 0 으로 접어 자리를
+ * 차지하지 않고(보낸사람 이름이 줄지 않게), hover·키보드 포커스·메뉴가 열린 동안에만 펼친다. display 가 아니라 폭으로 접어 탭 순서에 남는다
+ * (Tab 으로 들어오면 focus-within 으로 펼쳐진다).
+ * 행 열기와 분리하려고 클릭·키 입력을 멈춘다. 터치(coarse) 태블릿에선 숨은 채 탭이 닿지 않게 pointer-events 를 끈다(WP-237).
+ */
+function MailRowMoveActions({ id, actions }: { id: number; actions: MailMoveActions }) {
+  const stop = { onClick: (e: ReactMouseEvent) => e.stopPropagation(), onKeyDown: (e: ReactKeyboardEvent) => e.stopPropagation() }
+  return (
+    <span
+      data-testid={`mail-row-move-actions-${id}`}
+      className="flex w-0 shrink-0 items-center gap-1 overflow-hidden opacity-0 group-hover:w-auto group-hover:opacity-100 focus-within:w-auto focus-within:opacity-100 has-[[data-state=open]]:w-auto has-[[data-state=open]]:opacity-100 pointer-coarse:pointer-events-none"
+      {...stop}
+    >
+      {actions.avail.archive && (
+        <button
+          type="button"
+          data-testid={`mail-row-archive-${id}`}
+          aria-label="보관"
+          title="보관"
+          onClick={actions.onArchive}
+          className={ROW_ICON_BUTTON_CLASS}
+        >
+          <Archive className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {actions.avail.move && (
+        <MailMoveMenu
+          targets={actions.targets}
+          onPick={actions.onMove}
+          trigger={
+            <button type="button" data-testid={`mail-row-move-${id}`} aria-label="옮기기" title="옮기기" className={ROW_ICON_BUTTON_CLASS}>
+              <FolderInput className="h-3.5 w-3.5" />
+            </button>
+          }
+        />
+      )}
+      {actions.avail.trash && (
+        <button
+          type="button"
+          data-testid={`mail-row-trash-${id}`}
+          aria-label="삭제"
+          title="삭제"
+          onClick={actions.onTrash}
+          // 삭제는 위험 색(디자인 시스템 07 — 위험/삭제 아이콘 text-destructive). 행 hover 묶음 안이라 평소엔 보이지 않는다.
+          className={cn(ROW_ICON_BUTTON_CLASS, 'text-destructive hover:text-destructive')}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
+  )
+}
+
 // 목록 한 행 — 안 읽음은 굵게, 첨부 클립 표시.
 function MessageRow({
   m,
@@ -86,6 +156,7 @@ function MessageRow({
   aiSignalsVisible,
   showToggle,
   onToggleRead,
+  moveActions,
 }: {
   m: EmailMessageSummary
   /** 읽기 창에 열린 메일인가 — 선택 배경 + aria-current. */
@@ -101,6 +172,8 @@ function MessageRow({
   showToggle: boolean
   /** WP-187 읽음↔안읽음 전환(행 열기와 별개). */
   onToggleRead: () => void
+  /** WP-962 hover 보관·옮기기·삭제 — 터치 셸·보낸편지함에선 없다(null). 터치는 길게 누르기 시트가 맡는다. */
+  moveActions: MailMoveActions | null
 }) {
   const navigate = useNavigate()
   // WP-146: 회신필요 판정은 행마다 한 번만 계산. 서버 메일함 보기에서는 AI 배지를 모두 끈다(WP-961).
@@ -153,6 +226,7 @@ function MessageRow({
           {m.fromName || m.fromAddress || '(보낸사람 없음)'}
         </span>
         {m.hasAttachment && <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        {moveActions && <MailRowMoveActions id={m.id} actions={moveActions} />}
         {showToggle && (
           // WP-187: hover 시 읽음/안읽음 전환 — 행 열기와 분리(stopPropagation).
           // display 대신 opacity 로 숨겨 탭 순서에 남긴다 — 키보드 포커스 시에도 드러난다(접근성).
@@ -386,6 +460,8 @@ function MessageDetailPanel({
   issueDraftPending,
   onMarkUnread,
   onBack,
+  moveActions,
+  onOpenMoveSheet,
 }: {
   messageId: number | null
   aiEnabled: boolean
@@ -400,6 +476,10 @@ function MessageDetailPanel({
   onMarkUnread: () => void
   /** 모바일 상단바 ‹ — 상세를 닫고 목록으로(WP-400 부터 상단바를 이 패널이 그린다: ⋯ 메뉴가 패널 상태를 쓴다). */
   onBack: () => void
+  /** WP-962 열린 메일의 보관·옮기기·삭제 — 보낸편지함 등 옮길 수 없는 보기면 null. */
+  moveActions: MailMoveActions | null
+  /** WP-962 모바일 ⋯ 「옮기기」 — 바텀 시트로 메일함을 고른다(시트는 메일함 화면이 그린다). */
+  onOpenMoveSheet: () => void
 }) {
   const { data: detail, isLoading, isError, refetch } = useMailMessage(messageId)
   // 비서가 있을 때만 요약 조회 — aiAvailable false면 fetch 자체를 생략해 불필요한 API 호출을 막는다.
@@ -553,6 +633,19 @@ function MessageDetailPanel({
         onMarkUnread={onMarkUnread}
         menuItems={
           <>
+            {/* WP-962 보관·옮기기 — 하단 바(답장 계열)에 자리가 없어 ⋯ 메뉴로. 삭제는 메뉴 맨 아래(아래 참고). */}
+            {moveActions?.avail.archive && (
+              <button type="button" data-testid="mail-archive" onClick={moveActions.onArchive}>
+                <Archive aria-hidden className="h-4 w-4" />
+                보관
+              </button>
+            )}
+            {moveActions?.avail.move && (
+              <button type="button" data-testid="mail-move" onClick={onOpenMoveSheet}>
+                <FolderInput aria-hidden className="h-4 w-4" />
+                옮기기
+              </button>
+            )}
             {/* AI 이슈 생성 — 하단 바에 자리가 없어 메뉴로. AI 기능은 아이콘 색으로 구분(디자인 시스템 §7.2). */}
             {aiActions && (
               <button
@@ -580,6 +673,13 @@ function MessageDetailPanel({
                 <Sun aria-hidden className="h-4 w-4" />
                 원본 배경으로 보기
                 {showOriginal && <Check aria-hidden className="ml-auto h-4 w-4" />}
+              </button>
+            )}
+            {/* WP-962 삭제(서버 휴지통) — 파괴적 항목이라 메뉴 맨 아래, 빨간 글자. */}
+            {moveActions?.avail.trash && (
+              <button type="button" data-testid="mail-trash" className="text-destructive" onClick={moveActions.onTrash}>
+                <Trash2 aria-hidden className="h-4 w-4" />
+                삭제
               </button>
             )}
           </>
@@ -684,6 +784,35 @@ function MessageDetailPanel({
           >
             <Mail className="h-3.5 w-3.5" /> 안 읽음
           </Button>
+          {/* WP-962 보관·옮기기·삭제 — 누르면 상세가 닫히고 목록에서 빠진다(실행 취소 토스트). 보낸편지함에선 없다. */}
+          {moveActions?.avail.archive && (
+            <Button variant="outline" size="sm" data-testid="mail-archive" onClick={moveActions.onArchive}>
+              <Archive className="h-3.5 w-3.5" /> 보관
+            </Button>
+          )}
+          {moveActions?.avail.move && (
+            <MailMoveMenu
+              targets={moveActions.targets}
+              onPick={moveActions.onMove}
+              align="start"
+              trigger={
+                <Button variant="outline" size="sm" data-testid="mail-move">
+                  <FolderInput className="h-3.5 w-3.5" /> 옮기기
+                </Button>
+              }
+            />
+          )}
+          {moveActions?.avail.trash && (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="mail-trash"
+              className="text-destructive hover:text-destructive"
+              onClick={moveActions.onTrash}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> 삭제
+            </Button>
+          )}
           {/* AI 답장 초안 버튼 — 비서 있고 AI 사용 계정에서만 노출. AI 기능이므로 ai-accent 보조 컬러(아이콘+색, 디자인시스템 §7.2). */}
           {aiActions && (
             <Button
@@ -885,10 +1014,12 @@ function MailInbox() {
     setSelection({ id: selectedId, key: keepKey, row })
   }
   const openRow = selection.id === selectedId && selection.key === keepKey ? selection.row : undefined
-  const messages = useMemo(
-    () => mergeKeptRows(fetchedMessages, withOpenRow(keptRows, openRow)),
-    [fetchedMessages, keptRows, openRow],
-  )
+  // WP-962 보관·옮기기·삭제 대기 중인 메일은 숨긴다 — 유지 스냅샷·열린 행이 되살리지 않게 합친 뒤에 거른다.
+  const movingIds = useMailMoveHidden()
+  const messages = useMemo(() => {
+    const merged = mergeKeptRows(fetchedMessages, withOpenRow(keptRows, openRow))
+    return movingIds.size === 0 ? merged : merged?.filter((m) => !movingIds.has(m.id))
+  }, [fetchedMessages, keptRows, openRow, movingIds])
   // 유지 집합의 한 행을 넣거나 바꾼다(키가 바뀐 뒤 늦게 와도 새 보기에 새지 않게 현재 키로 쓴다).
   const putKept = (id: number, row: EmailMessageSummary) =>
     setKept((k) => ({ key: keepKey, rows: new Map(k.key === keepKey ? k.rows : []).set(id, row) }))
@@ -1039,6 +1170,32 @@ function MailInbox() {
   // 본문 보충 진행률 노출 여부 — 진행률 표시와 동기화 시각 숨김이 같은 판정을 쓴다.
   const bodiesProgress = syncStatus.data?.phase === 'BODIES' && syncStatus.data.total > 0
   const qc = useQueryClient()
+  // WP-962 보관·옮기기·삭제 — 보기별 노출(보낸편지함 없음·보관 보기엔 보관 없음)과 「옮기기」 대상(지금 메일함 제외).
+  const moveTargets = useMemo(() => mailMoveTargets(view, folders), [view, folders])
+  const moveAvail = mailMoveAvailability(view, folders)
+  const canMove = moveAvail.archive || moveAvail.move || moveAvail.trash
+  // 모바일 「옮기기」 바텀 시트의 대상 메일(길게 누르기 시트·상세 ⋯ 메뉴에서 연다).
+  const [moveSheetIds, setMoveSheetIds] = useState<number[] | null>(null)
+  /**
+   * 옮기기 예약 — 열린 메일이면 상세를 닫고, 유지 스냅샷에서도 빼 행이 되살아나지 않게 한 뒤 대기열에 넣는다.
+   * 서버 요청은 실행 취소 토스트가 닫힐 때 나간다(lib/mailMoveQueue).
+   */
+  const startMove = (ids: number[], target: MailMoveTarget) => {
+    if (accountIdNum == null) return
+    if (selectedId != null && ids.includes(selectedId)) mailParam.close()
+    setKept((k) => (k.key !== keepKey ? k : { key: keepKey, rows: new Map([...k.rows].filter(([id]) => !ids.includes(id))) }))
+    scheduleMailMove({ qc, accountId: accountIdNum, messageIds: ids, target, message: mailMoveToastMessage(target, folders, ids.length) })
+  }
+  const moveActionsFor = (id: number): MailMoveActions | null =>
+    canMove
+      ? {
+          avail: moveAvail,
+          targets: moveTargets,
+          onArchive: () => startMove([id], { kind: 'ARCHIVE' }),
+          onTrash: () => startMove([id], { kind: 'TRASH' }),
+          onMove: (t) => startMove([id], t),
+        }
+      : null
   // 본문 보충(running)이 끝나는 순간 목록을 다시 불러와 snippet 등을 갱신.
   const prevRunning = useRef(false)
   useEffect(() => {
@@ -1089,6 +1246,12 @@ function MailInbox() {
     { key: 'forward', label: '전달', icon: <Forward />, onSelect: () => void withDetail(m, onForward) },
     ...(aiAvailable && aiEnabled
       ? [{ key: 'ai-issue', label: 'AI 이슈 초안', icon: <Sparkles />, onSelect: () => void withDetail(m, onAiIssue) }]
+      : []),
+    // WP-962 보관·옮기기·삭제 — 옮기기는 메일함 고르기 시트를 연다. 삭제는 파괴적 항목이라 맨 아래.
+    ...(moveAvail.archive ? [{ key: 'archive', label: '보관', icon: <Archive />, onSelect: () => startMove([m.id], { kind: 'ARCHIVE' }) }] : []),
+    ...(moveAvail.move ? [{ key: 'move', label: '옮기기', icon: <FolderInput />, onSelect: () => setMoveSheetIds([m.id]) }] : []),
+    ...(moveAvail.trash
+      ? [{ key: 'trash', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => startMove([m.id], { kind: 'TRASH' }) }]
       : []),
   ]
 
@@ -1434,6 +1597,7 @@ function MailInbox() {
                   showToggle={!touchShell}
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}
+                  moveActions={touchShell ? null : moveActionsFor(m.id)}
                 />
               ))}
             </div>
@@ -1474,8 +1638,17 @@ function MailInbox() {
               if (selectedId != null) markUnreadAndClose(selectedId)
             }}
             onBack={mailParam.close}
+            moveActions={selectedId != null ? moveActionsFor(selectedId) : null}
+            onOpenMoveSheet={() => selectedId != null && setMoveSheetIds([selectedId])}
           />
         </div>
+        {/* WP-962 모바일 「옮기기」 메일함 고르기 — 길게 누르기 시트·상세 ⋯ 메뉴에서 연다. */}
+        <MailMoveTargetSheet
+          open={moveSheetIds != null}
+          onClose={() => setMoveSheetIds(null)}
+          targets={moveTargets}
+          onPick={(t) => moveSheetIds && startMove(moveSheetIds, t)}
+        />
       </Page.Body>
       {/* WP-187 모두 읽음 확인 — 실행 취소 대신 확인을 거친다. */}
       <MailMarkAllReadDialog

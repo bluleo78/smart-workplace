@@ -1,7 +1,7 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
 import type { AxiosProgressEvent } from 'axios';
 
-import type { MailFolderSyncResult, MailServerFolder } from '../types/mailFolder';
+import type { MailFolderSyncResult, MailMoveRequest, MailMoveResponse, MailServerFolder } from '../types/mailFolder';
 import type {
   ComposeAttachmentUpload,
   ComposeDraftRequest,
@@ -21,7 +21,7 @@ import type {
   SendResult,
 } from '../types/mailMessage';
 import { fetchBlobByPath } from './blobContent';
-import { client } from './client';
+import { client, getAccessToken } from './client';
 
 /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
 export async function syncMailbox(accountId: number): Promise<MailSyncResult> {
@@ -29,6 +29,36 @@ export async function syncMailbox(accountId: number): Promise<MailSyncResult> {
     `/mail/accounts/${accountId}/sync`,
   );
   return data;
+}
+
+/**
+ * WP-962 메일 옮기기 — 보관·받은편지함·내 메일함으로 옮기기와 삭제(서버 휴지통). 메일 서버에도 반영된다.
+ * 실행 취소는 호출 측이 토스트가 떠 있는 동안 이 요청을 미루는 방식이다(lib/mailMoveQueue).
+ */
+export async function moveMessages(accountId: number, body: MailMoveRequest): Promise<MailMoveResponse> {
+  const { data } = await client.post<MailMoveResponse>(`/mail/accounts/${accountId}/messages/move`, body);
+  return data;
+}
+
+/**
+ * WP-962 페이지를 떠날 때(탭 닫기·새로고침) 미뤄 둔 옮기기를 보낸다 — axios 요청은 페이지가 내려가면 끊기므로 keepalive fetch 를 쓴다.
+ * 응답은 받지 않는다(받을 페이지가 없다). 액세스 토큰이 없으면 보낼 수 없어 그냥 둔다(실행 취소한 것과 같아진다).
+ */
+export function moveMessagesOnUnload(accountId: number, body: MailMoveRequest): void {
+  const token = getAccessToken();
+  if (!token) return;
+  try {
+    void fetch(`/api/v1/mail/accounts/${accountId}/messages/move`, {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    }).catch(() => {
+      /* 내려가는 페이지 — 알릴 곳이 없다 */
+    });
+  } catch {
+    /* fetch 를 못 쓰는 환경 — 무시 */
+  }
 }
 
 /** 계정 동기화 진행 상태(폴링용). */

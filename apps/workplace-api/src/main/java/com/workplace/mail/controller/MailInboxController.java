@@ -8,6 +8,8 @@ import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailFolderResponse;
 import com.workplace.mail.dto.MailFolderSyncResult;
+import com.workplace.mail.dto.MailMoveRequest;
+import com.workplace.mail.dto.MailMoveResponse;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
@@ -21,6 +23,8 @@ import com.workplace.mail.service.MailAttachmentViewService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
+import com.workplace.mail.service.move.MailMoveService;
+import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +58,7 @@ public class MailInboxController {
   private final MailAttachmentViewService attachmentViewService;
   private final MailAttachmentPreviewService attachmentPreviewService;
   private final MailFolderService folderService;
+  private final MailMoveService moveService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
@@ -83,6 +88,19 @@ public class MailInboxController {
       @PathVariable long folderId,
       @RequestParam(defaultValue = "false") boolean older) {
     return folderService.syncFolder(callerId, accountId, folderId, older);
+  }
+
+  /**
+   * WP-962 메일 옮기기 — 보관·받은편지함·내 메일함으로 옮기기와 삭제(서버 휴지통으로 옮기기, 영구 삭제 아님)를 메일 서버에도 반영한다. 1~100통, 모두 이 계정
+   * 메일이어야 한다(아니면 404). 보낸편지함(앱에서 보낸 기록)은 400. 메일별 결과를 돌려주며 실패한 메일은 그대로 남는다. 실행 취소는 웹이 요청을 미루는 방식이라
+   * 되돌리기 정보는 없다. 서버 I/O 동안 DB 연결을 잡지 않게 트랜잭션을 걸지 않는다(서비스가 짧은 트랜잭션으로 나눈다).
+   */
+  @PostMapping("/accounts/{accountId}/messages/move")
+  public MailMoveResponse move(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @Valid @RequestBody MailMoveRequest req) {
+    return moveService.move(callerId, accountId, req);
   }
 
   /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit). */

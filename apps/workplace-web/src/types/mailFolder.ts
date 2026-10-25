@@ -32,3 +32,23 @@ export interface MailFolderSyncResult {
   syncedSince: string | null;
   folderSyncedAt: string | null;
 }
+
+/** WP-962 메일 옮기기 대상 종류 — 받은편지함·보관·서버 휴지통(삭제)·저장된 서버 메일함(folderId). */
+export type MailMoveTargetKind = 'INBOX' | 'ARCHIVE' | 'TRASH' | 'FOLDER';
+
+/** WP-962 메일 옮기기 대상 — 백엔드 MailMoveRequest.Target 과 1:1. FOLDER 일 때만 folderId. */
+export interface MailMoveTarget {
+  kind: MailMoveTargetKind;
+  folderId?: number;
+}
+
+/** WP-962 메일 옮기기 요청 — 백엔드 MailMoveRequest 와 1:1(1~100통). */
+export interface MailMoveRequest {
+  messageIds: number[];
+  target: MailMoveTarget;
+}
+
+/** WP-962 메일 옮기기 결과 — 메일별 성공 여부. 실패한 메일은 서버·앱 모두 그대로다. */
+export interface MailMoveResponse {
+  results: { messageId: number; ok: boolean; error: string | null }[];
+}

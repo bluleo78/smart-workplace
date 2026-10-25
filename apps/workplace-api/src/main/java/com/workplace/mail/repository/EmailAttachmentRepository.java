@@ -146,6 +146,29 @@ public class EmailAttachmentRepository {
   }
 
   /**
+   * Graph 메일을 옮긴 뒤 바뀐 첨부 id 로 갈아 끼운다(WP-962 — 옮긴 메일은 새 메시지 id 를 받고 첨부 id 도 그 아래로 바뀐다). ids 는 Graph
+   * 첨부 목록 순서 = ordinal. 로컬 행 수와 다르면(그 사이 첨부 구성이 달라 보이면) 아무것도 바꾸지 않는다 — 엉뚱한 첨부를 가리키지 않게.
+   *
+   * @return 바꾼 행 수
+   */
+  public int repointProviderAttachmentIds(long messageId, List<String> ids) {
+    int local = dsl.fetchCount(EMAIL_ATTACHMENT, EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId));
+    if (local != ids.size()) {
+      return 0;
+    }
+    int n = 0;
+    for (int i = 0; i < ids.size(); i++) {
+      n +=
+          dsl.update(EMAIL_ATTACHMENT)
+              .set(EMAIL_ATTACHMENT.PROVIDER_ATTACHMENT_ID, ids.get(i))
+              .where(EMAIL_ATTACHMENT.MESSAGE_ID.eq(messageId))
+              .and(EMAIL_ATTACHMENT.ORDINAL.eq(i))
+              .execute();
+    }
+    return n;
+  }
+
+  /**
    * 첨부 목록을 envelope 첨부로 삽입한다. ordinal = 목록 인덱스(0-based) — content_attachment manifest 의 안정 좌표이자
    * {@link ContentAttachmentRepository#matchesManifest} 비교 기준.
    *
