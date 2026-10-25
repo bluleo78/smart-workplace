@@ -47,6 +47,16 @@ describe('downscaleTarget — 긴 변 2048 · 3.5MiB', () => {
   });
 });
 
+describe('downscaleTarget — 호출처 한도(WP-947 메일 붙여넣기 1920px·512KB)', () => {
+  const opts = { maxEdge: 1920, triggerBytes: 512 * 1024 };
+  it('상한 안·512KB 이하면 그대로, 긴 변이 크면 1920 에 맞추고, 크기만 크면 같은 치수로 다시 인코딩한다', () => {
+    expect(downscaleTarget(1280, 720, 300_000, opts)).toBeNull();
+    expect(downscaleTarget(3840, 2160, 300_000, opts)).toEqual({ width: 1920, height: 1080 });
+    expect(downscaleTarget(1080, 3840, 300_000, opts)).toEqual({ width: 540, height: 1920 });
+    expect(downscaleTarget(1600, 900, 600_000, opts)).toEqual({ width: 1600, height: 900 });
+  });
+});
+
 describe('toJpegName', () => {
   it('확장자를 .jpg 로 바꾼다', () => {
     expect(toJpegName('photo.png')).toBe('photo.jpg');

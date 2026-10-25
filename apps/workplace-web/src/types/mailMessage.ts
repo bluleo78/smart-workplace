@@ -94,6 +94,8 @@ export interface MailSendRequest {
   forwardAttachmentIds?: number[];
   /** 이 작성의 임시저장 id(WP-577) — 보내면 서버가 그 임시저장을 지운다. 저장된 적 없으면 생략. */
   draftId?: number;
+  /** 본문에 붙여 넣은 이미지(WP-947) — attachmentIds 가운데 본문이 cid: 로 참조하는 업로드. 그 업로드는 첨부가 아니라 인라인 파트로 간다. */
+  inlineUploads?: { attachmentId: number; contentId: string }[];
 }
 
 /**

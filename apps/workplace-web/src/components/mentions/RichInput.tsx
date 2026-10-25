@@ -32,7 +32,7 @@ import { chatFormattingExtensions } from './chatFormatting';
 import { ChatFormatToggle, ChatFormatToolbar } from './ChatFormatToolbar';
 import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
-import { hasImage, hasPendingImage, RichImage, settlePendingImage } from './richImageNode';
+import { hasImage, hasPendingImage, insertImagePlaceholders, RichImage, settlePendingImage } from './richImageNode';
 import type { MentionCandidate, MentionUser } from './types';
 
 interface RichInputProps {
@@ -389,18 +389,7 @@ export function RichInput({
     if (valid.length < files.length) toast.error(INVALID_IMAGE_MSG);
     if (valid.length === 0) return;
     const items = valid.map((file) => ({ file, uploadId: `u${++uploadSeq.current}` }));
-    // 이미지마다 문단 하나 — 글 중간이면 문단이 나뉘어 이미지가 독립 줄에 온다(본문 이미지와 같은 배치).
-    const nodes = items.map(({ uploadId }) => ({
-      type: 'paragraph',
-      content: [{ type: 'image', attrs: { uploadId, src: null, alt: '' } }],
-    }));
-    const chain = editor.chain().focus();
-    (at != null ? chain.insertContentAt(at, nodes) : chain.insertContent(nodes)).run();
-    // 삽입 직후 커서는 마지막 이미지 바로 뒤(같은 문단)라, 이어 쓰면 글이 이미지 줄에 붙는다 — 다음 줄로 옮긴다.
-    // 뒤에 문단이 있으면(글 중간에 넣은 경우) 그 문단 처음으로, 없으면 새 빈 문단을 만든다.
-    const afterImage = editor.state.selection.$from.after();
-    if (afterImage < editor.state.doc.content.size) editor.commands.setTextSelection(afterImage + 1);
-    else editor.commands.splitBlock();
+    insertImagePlaceholders(editor, items.map((i) => i.uploadId), at);
     for (const { file, uploadId } of items) {
       upload(file)
         .then((res) => settlePendingImage(editor, uploadId, { src: res.url, alt: res.name }))

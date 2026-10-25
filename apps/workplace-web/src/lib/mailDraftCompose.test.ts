@@ -118,6 +118,22 @@ describe('buildDraftSavePayload', () => {
     // 새 메일은 원본이 없다
     expect(p.sourceMessageId).toBeNull();
   });
+  it('본문에 붙여 넣은 이미지 업로드도 첨부 id 에 함께 묶는다(WP-947) — 칩과 겹치면 한 번만', () => {
+    const p = buildDraftSavePayload({
+      draft: { accountId: 1, mode: 'new' },
+      to: '',
+      cc: '',
+      bcc: '',
+      subject: '',
+      bodyHtml: '<p><img src="/api/v1/files/601/content" alt="캡처"></p><p><img src="/api/v1/files/501/content"></p>',
+      bodyText: '',
+      quoteRemoved: false,
+      attachments: [chip({ key: 'upload-1', id: 501 })],
+    });
+    expect(p.attachmentIds).toEqual([501, 601]);
+    // 본문은 업로드 경로 그대로 저장한다 — cid 로 바꾸는 것은 보낼 때뿐
+    expect(p.bodyHtml).toContain('/api/v1/files/601/content');
+  });
 });
 
 describe('draftPreviewSource · draftPreview', () => {
@@ -197,6 +213,12 @@ describe('composeFromDraft', () => {
       { key: 'forward-31', name: '원본.pdf', size: 100, mimeType: 'application/pdf', status: 'done', progress: 100, source: 'forward', id: 31 },
       { key: 'draft-upload-501', name: '내 파일.png', size: 200, mimeType: 'image/png', status: 'done', progress: 100, source: 'upload', id: 501 },
     ]);
+  });
+
+  it('본문에 붙여 넣은 이미지 업로드는 칩으로 보이지 않는다(WP-947) — 본문에서 보인다', () => {
+    const d = composeFromDraft(detail({ bodyHtml: '<p><img src="/api/v1/files/501/content"></p>' }), null);
+    expect(d.attachments?.map((a) => a.key)).toEqual(['forward-31']);
+    expect(d.initialHtml).toContain('/api/v1/files/501/content');
   });
 
   it('인용문을 지웠으면 원본이 있어도 붙이지 않고, 지움 상태를 잇는다', () => {

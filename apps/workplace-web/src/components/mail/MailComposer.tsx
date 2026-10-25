@@ -7,7 +7,8 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Bold, Italic, Link2, List, ListOrdered } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { forwardRef, useImperativeHandle, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -19,10 +20,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { isFileDrag } from '@/lib/clipboardFiles';
+import { extractApiError } from '@/lib/api-error';
+import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
+import { downscaleImageForUpload } from '@/lib/imageDownscale';
+import { INVALID_IMAGE_MSG, isValidImageFile } from '@/lib/imageUpload';
 import { ImeCommitFlush } from '@/lib/imeCommitFlush';
+import { dropForeignPastedImages, PASTED_IMAGE_DOWNSCALE, pastedImageIds, pastedImageSrc } from '@/lib/mailPastedImages';
 import { ghostToggleClass } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
+
+import { hasPendingImage, insertImagePlaceholders } from '../mentions/richImageNode';
+import { MailImage, type PastedImageResult, settleMailImages } from './mailImageNode';
 
 /**
  * 에디터 배치 — 작성창 모양에 따라 본문 크기·툴바 위치가 달라진다.
@@ -43,6 +51,11 @@ interface MailComposerProps {
   toolbarEnd?: ReactNode;
   /** 본문 위에 겹쳐 그릴 것(빈 본문 AI 칩·생성 중 스켈레톤, WP-576). 본문 글자 자리(안쪽 여백)에 맞춰 놓이고, 빈 곳은 클릭이 본문으로 통과한다. */
   bodyOverlay?: ReactNode;
+  /**
+   * 클립보드 이미지(화면 캡처) 붙여넣기(WP-947) — 주면 Ctrl/Cmd+V 한 이미지를 커서 자리에 넣고 이 함수로 올린다(작성창 업로드 id 를 돌려준다).
+   * 없으면 지금처럼 이미지를 받지 않는다.
+   */
+  imageUpload?: (file: File) => Promise<number>;
 }
 
 /**
@@ -122,14 +135,23 @@ export interface MailComposerHandle {
   setContent: (html: string, opts?: { focus?: boolean }) => void
   /** 본문 끝에 초점 — AI 초안을 넣은 뒤 렌더가 끝나(inert 해제) 바로 이어 쓸 수 있게(WP-576). */
   focusEnd: () => void
+  /** 붙여 넣은 이미지가 아직 올라가는 중인가(WP-947) — 그동안 보내면 빈 그림이 나가므로 보내기를 막는다. */
+  hasPendingImage: () => boolean
 }
 
 /** 메일 본문 작성 에디터. */
 export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
-  function MailComposer({ initialHtml = '', onChange, layout = 'dock', toolbarEnd, bodyOverlay }, ref) {
+  function MailComposer({ initialHtml = '', onChange, layout = 'dock', toolbarEnd, bodyOverlay, imageUpload }, ref) {
   // 링크 URL 입력 다이얼로그 — window.prompt 대체 (#148).
   const [linkDialog, setLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
+  // 붙여넣기 처리기 — editorProps 는 에디터를 만들 때 한 번 정해지므로 최신 함수(에디터·업로드)를 ref 로 넘긴다.
+  const insertImagesRef = useRef<(files: File[]) => boolean>(() => false);
+  const uploadSeq = useRef(0);
+  // 끝난 업로드 결과(자리표시 id → 그림·실패) — 실행 취소로 되살아난 자리표시도 다시 맞춘다(settleMailImages).
+  const pastedResults = useRef(new Map<string, PastedImageResult>());
+  // 이 작성창의 본문 이미지 업로드 id — 처음 본문(임시저장)에 있던 것과 여기서 올린 것. 다른 작성의 그림을 복사해 붙이면 빼는 기준이다.
+  const [ownedImageIds] = useState(() => new Set(pastedImageIds(initialHtml)));
 
   const editor = useEditor({
     extensions: [
@@ -137,6 +159,8 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
       Link.configure({ openOnClick: false, autolink: true }),
       // macOS Chrome 한글 조합을 끝내는 Enter 가 마지막 글자를 지우지 않게(WP-333).
       ImeCommitFlush,
+      // 붙여 넣은 캡처(WP-947). 업로드 경로 <img> 만 받으므로 이미지를 받지 않는 작성창에서도 다른 <img> 는 지금처럼 버려진다.
+      MailImage,
     ],
     content: initialHtml,
     // 도크가 열리면 "받는사람"으로 포커스를 명시적으로 보낸다(#802) — 에디터가 자동으로
@@ -145,11 +169,26 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
     // 마운트 직후 refs 를 초기화해 상위 도크가 빈 본문 상태를 정확히 알게 한다.
     // (인용문은 에디터 밖에서 관리되므로 여기 포함되지 않는다 — 설계 §3)
     onCreate: ({ editor }) => onChange(editor.getHTML(), editor.getText(), true),
-    onUpdate: ({ editor }) => onChange(editor.getHTML(), editor.getText(), false),
+    onUpdate: ({ editor, transaction }) => {
+      // 실행 취소·다시 실행(history 플러그인 메타가 붙은 변경)으로 끝난 업로드의 자리표시가 돌아왔으면 먼저 그림으로 맞춘다
+      // (그 고침이 다시 onUpdate 로 이어진다). 자리표시는 그 경로로만 되살아나므로 타자마다 문서를 훑지 않는다.
+      if (transaction.getMeta('history$') && pastedResults.current.size > 0 && hasPendingImage(editor)) {
+        settleMailImages(editor, pastedResults.current);
+        return;
+      }
+      onChange(editor.getHTML(), editor.getText(), false);
+    },
     editorProps: {
       // 파일을 본문 위에 놓으면 에디터는 아무것도 넣지 않고 넘긴다 — 놓기 이벤트는 그대로 버블돼 작성창(useComposerFileDrop)이 첨부로 받는다(WP-574).
       // 글자·서식 끌어 놓기(파일 아님)는 에디터 기본 동작 그대로.
       handleDrop: (_view, event) => isFileDrag(event.dataTransfer),
+      // 클립보드 이미지(화면 캡처)는 커서 자리에 넣는다(WP-947). 텍스트가 함께 오면(문서에서 복사) 텍스트 붙여넣기가 우선이다(filesFromPaste).
+      handlePaste: (_view, event) => {
+        const images = filesFromPaste(event.clipboardData).filter((f) => f.type.startsWith('image/'));
+        return images.length > 0 && insertImagesRef.current(images);
+      },
+      // 다른 작성창(임시저장)에서 복사해 온 본문 이미지는 뺀다 — 그 업로드가 이 임시저장으로 옮겨 묶이면 원래 쪽 그림이 깨진다.
+      transformPastedHTML: (html) => dropForeignPastedImages(html, ownedImageIds),
       attributes: {
         'data-testid': 'mail-composer-body',
         'aria-label': '메일 본문',
@@ -172,9 +211,44 @@ export const MailComposer = forwardRef<MailComposerHandle, MailComposerProps>(
       focusEnd: () => {
         editor?.commands.focus('end')
       },
+      hasPendingImage: () => (editor ? hasPendingImage(editor) : false),
     }),
     [editor],
   )
+
+  /**
+   * 이미지마다 한 줄로 커서 자리에 넣고 올린다(WP-947, 이슈 코멘트 입력창 RichInput 과 같은 배치). 올리는 동안은 자리표시로 보이고,
+   * 끝나면 업로드 경로로 채우며, 실패하면 자리표시를 지우고 알린다. 큰 캡처는 올리기 전에 줄인다(PASTED_IMAGE_DOWNSCALE).
+   */
+  function insertImages(files: File[]): boolean {
+    const upload = imageUpload;
+    if (!editor || !upload) return false;
+    const items = files.map((file) => ({ file, uploadId: `p${++uploadSeq.current}` }));
+    insertImagePlaceholders(editor, items.map((i) => i.uploadId));
+    for (const { file, uploadId } of items) {
+      downscaleImageForUpload(file, PASTED_IMAGE_DOWNSCALE)
+        .then((ready) => {
+          if (!isValidImageFile(ready)) throw new Error(INVALID_IMAGE_MSG);
+          return upload(ready).then((id) => ({ id, name: ready.name }));
+        })
+        .then(({ id, name }) => {
+          ownedImageIds.add(id);
+          pastedResults.current.set(uploadId, { src: pastedImageSrc(id), alt: name });
+          settleMailImages(editor, pastedResults.current);
+        })
+        .catch((e) => {
+          pastedResults.current.set(uploadId, null);
+          settleMailImages(editor, pastedResults.current);
+          toast.error(e instanceof Error && e.message === INVALID_IMAGE_MSG ? INVALID_IMAGE_MSG : extractApiError(e, '이미지를 올리지 못했습니다'));
+        });
+    }
+    return true;
+  }
+
+  // 이미지를 받지 않는 작성창(imageUpload 없음)이면 false — 붙여넣기는 에디터 기본 동작 그대로다.
+  useEffect(() => {
+    insertImagesRef.current = insertImages;
+  });
 
   if (!editor) return null;
   const touch = layout === 'mobile';

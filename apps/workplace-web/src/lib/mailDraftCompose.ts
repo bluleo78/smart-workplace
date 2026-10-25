@@ -4,6 +4,7 @@
 
 import type { ComposeDraft } from '@/components/mail/MailComposeContext';
 import { type ComposeAttachment, sendAttachmentIds } from '@/lib/mailComposeAttachments';
+import { pastedImageIds, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
 import { buildQuote } from '@/lib/mailQuote';
 import { parseAddressList, parseRecipientInput, recipientShortName } from '@/lib/mailRecipients';
 import type { MailDraftDetail, MailDraftSaveRequest } from '@/types/mailDraft';
@@ -61,8 +62,9 @@ export function buildDraftSavePayload(v: DraftComposeValues): MailDraftSaveReque
     bodyText: draftPreviewSource(v.bodyText),
     sourceMessageId: v.draft.sourceMessageId ?? null,
     quoteRemoved: v.quoteRemoved,
-    // 발송 요청과 같은 나눔(올린 파일 / 전달 원본) — 올리는 중·실패한 칩은 빠진다.
-    ...sendAttachmentIds(v.attachments),
+    // 발송 요청과 같은 나눔(올린 파일 / 전달 원본) — 올리는 중·실패한 칩은 빠진다. 본문에 붙여 넣은 이미지(WP-947)도 업로드라 함께 묶는다 —
+    // 묶지 않으면 서버가 24시간 뒤 지워, 다시 연 임시저장의 그림이 깨진다.
+    ...uploadIdsWithBodyImages(v.attachments, v.bodyHtml),
   };
 }
 
@@ -110,7 +112,9 @@ export function savePayloadFromDetail(d: MailDraftDetail, preview: string): Mail
  * 첨부는 이미 올라간 것이라 완료 칩으로 넣는다(draftAttachmentChips).
  */
 export function composeFromDraft(d: MailDraftDetail, source: EmailMessageDetail | null): ComposeDraft {
-  const attachments = draftAttachmentChips(d);
+  // 본문에 붙여 넣은 이미지(WP-947)는 업로드로 묶여 있지만 칩이 아니라 본문에 보인다 — 칩에서 뺀다(저장할 때 본문에서 다시 모은다).
+  const inBody = pastedImageIds(d.bodyHtml);
+  const attachments = draftAttachmentChips(d).filter((a) => !(a.source === 'upload' && inBody.includes(a.id as number)));
   return {
     mode: d.mode,
     accountId: d.accountId,

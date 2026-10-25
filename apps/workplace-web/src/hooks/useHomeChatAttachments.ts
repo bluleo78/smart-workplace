@@ -43,7 +43,7 @@ export function useHomeChatAttachments({
 
   const upload = async (files: File[]): Promise<{ data: HomeUploadedFile[] }> => {
     const gen = resetGen.current;
-    const prepared = await Promise.all(files.map(downscaleImageForUpload));
+    const prepared = await Promise.all(files.map((f) => downscaleImageForUpload(f)));
     const { accepted, rejected } = splitOversize(prepared);
     if (rejected.length > 0) toast.error(oversizeMessage(rejected.map((f) => f.name)));
     if (accepted.length === 0) return { data: [] };

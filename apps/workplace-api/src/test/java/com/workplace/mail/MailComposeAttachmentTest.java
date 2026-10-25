@@ -33,6 +33,7 @@ import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.MailSendRequest.InlineUploadRef;
 import com.workplace.mail.dto.ParsedAttachment;
 import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.dto.SendResult;
@@ -55,6 +56,7 @@ import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.BodyPart;
 import jakarta.mail.Part;
+import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
 import java.nio.charset.StandardCharsets;
@@ -277,6 +279,125 @@ class MailComposeAttachmentTest extends IntegrationTestBase {
     assertThat(expiresAt(pdf.id())).isBeforeOrEqualTo(OffsetDateTime.now());
     assertThatThrownBy(() -> composeService.send(user, accountId, request(List.of(pdf.id()), null)))
         .isInstanceOf(MailValidationException.class);
+  }
+
+  // ---- 본문에 붙여 넣은 이미지(WP-947) ----
+
+  static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10, 0, 0, 0, 13};
+
+  /** 업로드 + 그 가운데 본문 인라인으로 쓸 것. 본문은 cid 로 참조한다. */
+  static MailSendRequest inlineRequest(List<Long> attachmentIds, List<InlineUploadRef> inline) {
+    return new MailSendRequest(
+        List.of("rcpt@test.local"),
+        List.of(),
+        List.of(),
+        "캡처 붙여넣기",
+        "<p>화면입니다</p><img src=\"cid:paste-1@genia\">",
+        "화면입니다",
+        null,
+        null,
+        attachmentIds,
+        null,
+        null,
+        inline);
+  }
+
+  /** 붙여 넣은 이미지는 일반 첨부가 아니라 related 안의 인라인 파트(같은 Content-ID)로 가고, 나머지 업로드는 그대로 첨부다. */
+  @Test
+  void send_withInlineUpload_goesAsCidInlinePartNotAttachment() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    var png = upload(user, "image.png", "image/png", PNG);
+    var pdf = upload(user, "견적서.pdf", "application/pdf", PDF);
+
+    composeService.send(
+        user,
+        accountId,
+        inlineRequest(
+            List.of(png.id(), pdf.id()), List.of(new InlineUploadRef(png.id(), "paste-1@genia"))));
+
+    MimeMultipart mixed = (MimeMultipart) greenMail.getReceivedMessages()[0].getContent();
+    // mixed[ related[ alternative, 인라인 png ], pdf ] — png 는 첨부 목록에 없다
+    assertThat(mixed.getCount()).isEqualTo(2);
+    assertThat(mixed.getBodyPart(0).isMimeType("multipart/related")).isTrue();
+    MimeMultipart related = (MimeMultipart) mixed.getBodyPart(0).getContent();
+    assertThat(related.getCount()).isEqualTo(2);
+    MimeBodyPart image = (MimeBodyPart) related.getBodyPart(1);
+    assertThat(image.getContentID()).isEqualTo("<paste-1@genia>");
+    assertThat(image.getDisposition()).isEqualToIgnoringCase(Part.INLINE);
+    assertThat(image.isMimeType("image/png")).isTrue();
+    assertThat(image.getInputStream().readAllBytes()).isEqualTo(PNG);
+    assertThat(mixed.getBodyPart(1).getFileName()).isEqualTo("견적서.pdf");
+    // 붙여 넣은 이미지도 업로드라 발송 뒤 만료된다
+    assertThat(expiresAt(png.id())).isBeforeOrEqualTo(OffsetDateTime.now());
+  }
+
+  /** attachmentIds 에 없는 업로드를 인라인으로 지목하면 거절 — 클레임·소비 경로를 건너뛰지 못하게. */
+  @Test
+  void send_inlineUploadNotInAttachmentIds_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    var png = upload(user, "image.png", "image/png", PNG);
+
+    assertThatThrownBy(
+            () ->
+                composeService.send(
+                    user,
+                    accountId,
+                    inlineRequest(
+                        List.of(), List.of(new InlineUploadRef(png.id(), "paste-1@genia")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("본문 이미지");
+    assertThat(greenMail.getReceivedMessages()).isEmpty();
+  }
+
+  /** 이미지가 아닌 업로드·잘못된 Content-ID 는 인라인으로 보내지 않는다. */
+  @Test
+  void send_inlineUploadNotImageOrBadContentId_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    var pdf = upload(user, "a.pdf", "application/pdf", PDF);
+    var png = upload(user, "image.png", "image/png", PNG);
+
+    assertThatThrownBy(
+            () ->
+                composeService.send(
+                    user,
+                    accountId,
+                    inlineRequest(
+                        List.of(pdf.id()),
+                        List.of(new InlineUploadRef(pdf.id(), "paste-1@genia")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("이미지 파일이 아닙니다");
+    assertThatThrownBy(
+            () ->
+                composeService.send(
+                    user,
+                    accountId,
+                    inlineRequest(
+                        List.of(png.id()), List.of(new InlineUploadRef(png.id(), "a b<c>")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("본문 이미지 참조");
+    assertThat(greenMail.getReceivedMessages()).isEmpty();
+  }
+
+  /** SVG 같은 활성 내용 형식은 image/* 라도 본문 이미지로 받지 않는다 — 웹 작성창과 같은 4형식만. */
+  @Test
+  void send_inlineUploadSvg_rejected() {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = smtpAccount(user);
+    var svg = upload(user, "a.svg", "image/svg+xml", "<svg/>".getBytes(StandardCharsets.UTF_8));
+
+    assertThatThrownBy(
+            () ->
+                composeService.send(
+                    user,
+                    accountId,
+                    inlineRequest(
+                        List.of(svg.id()),
+                        List.of(new InlineUploadRef(svg.id(), "paste-1@genia")))))
+        .isInstanceOf(MailValidationException.class)
+        .hasMessageContaining("이미지 파일이 아닙니다");
   }
 
   /** 전달 원본 첨부 — 캐시에 없으면 원본 서버(Graph)에서 즉시 받아 일반 첨부로 붙인다. */

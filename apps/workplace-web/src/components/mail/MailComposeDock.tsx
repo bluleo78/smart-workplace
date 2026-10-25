@@ -11,6 +11,7 @@ import type { ReactNode, Ref } from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { uploadComposeAttachment } from '@/api/mailMessages';
 import { useAssistant } from '@/components/ai/AIAssistantContext';
 import { AiContent } from '@/components/ai/AiContent';
 import { inertPageArea } from '@/components/ai/aiPanelSurface';
@@ -31,8 +32,9 @@ import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { extractApiError } from '@/lib/api-error';
 import { withComposerPreviewStyle } from '@/lib/composerPreviewHtml';
 import { isImeComposing } from '@/lib/imeKey';
-import { type ComposeAttachment, quoteInlineBytes, sendAttachmentIds } from '@/lib/mailComposeAttachments';
+import { type ComposeAttachment, quoteInlineBytes } from '@/lib/mailComposeAttachments';
 import { buildDraftSavePayload } from '@/lib/mailDraftCompose';
+import { toSendablePastedImages, uploadIdsWithBodyImages } from '@/lib/mailPastedImages';
 import { parseRecipientInput } from '@/lib/mailRecipients';
 import { cn } from '@/lib/utils';
 
@@ -127,6 +129,9 @@ function FieldRow({
 
 /** 제목 길이 상한 — 서버 MailComposeLimits.MAX_SUBJECT_LENGTH(임시저장·발송 공통)와 같은 값. */
 const MAIL_SUBJECT_MAX = 500;
+
+/** 붙여 넣은 이미지 올리기(WP-947) — 일반 첨부와 같은 작성창 업로드로 올리고 id 만 쓴다(칩으로는 보이지 않는다). */
+const uploadPastedImage = (file: File) => uploadComposeAttachment(file).then((res) => res.id);
 
 /** 버림 확인이 없어졌으므로(WP-577 — back 은 자동 저장 후 닫기) 막힌 back 처리가 쓰이지 않는다. */
 const noop = () => {};
@@ -506,11 +511,21 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
   // 기다리는 동안에도 잠가 두 번 눌러도 한 번만 나간다. 보내는 동안 작성창을 닫거나 다른 작성으로 바꿔도 결과는 이 작성에 묶어 처리한다.
   const onSend = async () => {
     if (sendLock.current) return;
+    // 붙여 넣은 이미지가 아직 올라가는 중이면 보내지 않는다 — 그대로 보내면 받는 쪽에 빈 그림 자리만 남는다(WP-947).
+    if (composerRef.current?.hasPendingImage()) {
+      toast.error('이미지를 올리는 중이에요. 다 올라간 뒤 보내 주세요');
+      return;
+    }
     sendLock.current = true;
     setPreparingSend(true);
     const instanceId = draft.instanceId as number;
     // 실패한 채 작성창이 닫혀 있고 저장도 못 했을 때 「다시 열기」로 열 내용
     const reopen = snapshotDraft();
+    // 붙여 넣은 이미지(WP-947) — 본문 src 를 cid: 로 바꾸고, 그 업로드를 첨부 id 에 함께 실어 서버가 인라인 파트로 붙이게 한다.
+    // 위의 「올리는 중」 검사와 같은 순간의 본문으로 만든다 — 아래 기다리는 동안 새로 붙인 그림(아직 자리표시)이 빈 그림으로 나가지 않게.
+    const bodyHtmlAtSend = bodyHtmlRef.current;
+    const pasted = toSendablePastedImages(bodyHtmlAtSend);
+    const bodyTextAtSend = bodyTextRef.current;
     const ticket = await autosave.beginSend();
     const body: MailSendRequest = {
       to: parseRecipientInput(to),
@@ -518,8 +533,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
       bcc: parseRecipientInput(bcc),
       subject,
       // 인용문은 에디터 밖에 있으므로 발송 시점에 뒤에 이어붙인다(설계 §7).
-      bodyHtml: bodyHtmlRef.current + (draft.quote?.html ?? ''),
-      bodyText: bodyTextRef.current + (draft.quote?.text ? '\n\n' + draft.quote.text : ''),
+      bodyHtml: pasted.html + (draft.quote?.html ?? ''),
+      bodyText: bodyTextAtSend + (draft.quote?.text ? '\n\n' + draft.quote.text : ''),
       inReplyToMessageId: draft.inReplyToMessageId,
       // WP-69 인용문 cid 이미지 — 서버가 원본 첨부를 같은 Content-ID 로 재첨부. 인용문을 지웠으면 보내지 않는다.
       inlineImages: draft.quote?.inlineImages.map(({ attachment, contentId }) => ({
@@ -527,7 +542,8 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
         contentId,
       })),
       // WP-574 첨부 — 올린 파일은 업로드 id, 전달 원본은 받은 메일 첨부 id. 서버 거절(합계 초과·만료 등)은 실패 토스트로 보인다.
-      ...sendAttachmentIds(attachments.items),
+      ...uploadIdsWithBodyImages(attachments.items, bodyHtmlAtSend),
+      inlineUploads: pasted.inlineUploads,
       draftId: ticket.draftId,
     };
     try {
@@ -798,10 +814,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
                 ref={composerRef}
                 layout={layout}
                 initialHtml={draft.initialHtml}
+                imageUpload={uploadPastedImage}
                 onChange={(html, text, initial) => {
                   bodyHtmlRef.current = html;
                   bodyTextRef.current = text;
-                  setHasBody(text.trim().length > 0);
+                  // 붙여 넣은 그림만 있는 본문도 쓴 내용이다(WP-947) — 비었다고 보면 AI 초안 칩이 그림을 덮고, 초안이 그림을 갈아 끼운다.
+                  setHasBody(text.trim().length > 0 || html.includes('<img'));
                   if (initial) bodyBaselineRef.current = html;
                   setBodyEdited(html !== bodyBaselineRef.current);
                   ai.noteBodyChange(html);

@@ -24,6 +24,10 @@ import java.util.List;
  * <p>draftId(WP-577, 선택): 이 발송이 이어받은 내 임시저장 — 발송에 성공하면 지운다(실패하면 남긴다). 없거나 남의 id 면 임시저장 없이 보낸 것과 같다.
  * 내 임시저장(어느 것이든)에 묶인 업로드는 draftId 와 상관없이 attachmentIds 로 다시 쓸 수 있다(남의 임시저장 업로드는 거절). AI
  * 확인카드(MailSendActionParams)는 이 필드를 받지 않는다.
+ *
+ * <p>inlineUploads(WP-947, 선택): attachmentIds 가운데 본문에 붙여 넣은 이미지 — 본문 HTML 이 {@code cid:} 로 참조한다. 그
+ * 업로드는 일반 첨부가 아니라 같은 Content-ID 의 인라인 파트로 붙는다(받는 메일 앱 본문에 그림이 보이게). 보관·클레임·소비는 attachmentIds 와 같다 —
+ * 그래서 여기 id 는 attachmentIds 에도 있어야 한다. null/빈 목록이면 붙여 넣은 이미지 없음.
  */
 public record MailSendRequest(
     List<String> to,
@@ -36,7 +40,8 @@ public record MailSendRequest(
     List<InlineImageRef> inlineImages,
     List<Long> attachmentIds,
     List<Long> forwardAttachmentIds,
-    Long draftId) {
+    Long draftId,
+    List<InlineUploadRef> inlineUploads) {
 
   /**
    * 목록 필드 생략(null)은 빈 목록으로 정규화 — 소비처가 null 을 다루지 않게 한다. id 목록의 null 원소·중복은 그대로 둔다(발송 검증이 사용자 문구로
@@ -44,6 +49,11 @@ public record MailSendRequest(
    */
   public MailSendRequest {
     inlineImages = inlineImages == null ? List.of() : List.copyOf(inlineImages);
+    // null 원소는 발송 검증이 사용자 문구로 거절한다 — List.copyOf 는 null 원소에서 NPE 를 내므로 쓰지 않는다.
+    inlineUploads =
+        inlineUploads == null
+            ? List.of()
+            : Collections.unmodifiableList(new ArrayList<>(inlineUploads));
     attachmentIds =
         attachmentIds == null
             ? List.of()
@@ -52,6 +62,34 @@ public record MailSendRequest(
         forwardAttachmentIds == null
             ? List.of()
             : Collections.unmodifiableList(new ArrayList<>(forwardAttachmentIds));
+  }
+
+  /** 붙여 넣은 본문 이미지 없는 발송(WP-577 호출처 호환). */
+  public MailSendRequest(
+      List<String> to,
+      List<String> cc,
+      List<String> bcc,
+      String subject,
+      String bodyHtml,
+      String bodyText,
+      Long inReplyToMessageId,
+      List<InlineImageRef> inlineImages,
+      List<Long> attachmentIds,
+      List<Long> forwardAttachmentIds,
+      Long draftId) {
+    this(
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyHtml,
+        bodyText,
+        inReplyToMessageId,
+        inlineImages,
+        attachmentIds,
+        forwardAttachmentIds,
+        draftId,
+        null);
   }
 
   /** 임시저장 없는 발송(WP-574 호출처 호환). */
@@ -123,4 +161,12 @@ public record MailSendRequest(
    * @param contentId 본문 HTML 의 cid: 값(URL 디코딩, 대소문자 보존) — 발송 파트의 Content-ID 로 그대로 쓴다
    */
   public record InlineImageRef(Long attachmentId, String contentId) {}
+
+  /**
+   * 본문에 붙여 넣은 이미지 참조(WP-947).
+   *
+   * @param attachmentId 작성창 업로드 id(attachmentIds 의 원소 = file.id)
+   * @param contentId 본문 HTML 의 cid: 값 — 발송 파트의 Content-ID 로 그대로 쓴다
+   */
+  public record InlineUploadRef(Long attachmentId, String contentId) {}
 }

@@ -3,11 +3,13 @@ package com.workplace.mail.service;
 import com.workplace.file.api.StagedFile;
 import com.workplace.file.api.StagedFileClaimer;
 import com.workplace.file.exception.StagedFileUnusableException;
+import com.workplace.file.service.MimeNormalizer;
 import com.workplace.file.storage.FileStore;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
+import com.workplace.mail.dto.MailSendRequest.InlineUploadRef;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.OutgoingMail.AttachmentPart;
 import com.workplace.mail.dto.OutgoingMail.InlineImagePart;
@@ -36,6 +38,7 @@ import jakarta.mail.internet.MimeMessage;
 import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -97,6 +100,13 @@ public class MailComposeService {
   static final String UPLOAD_UNUSABLE_MESSAGE = "첨부 파일을 찾을 수 없어요. 만료됐을 수 있으니 파일을 다시 올려 주세요";
 
   static final String FORWARD_MISSING_MESSAGE = "전달할 원본 첨부를 찾을 수 없어요";
+
+  /**
+   * 본문에 붙여 넣은 이미지(WP-947)로 받는 형식 — 웹 작성창이 받는 형식(PNG·JPEG·GIF·WebP)과 같다. SVG 처럼 활성 내용을 품을 수 있는 형식이
+   * API 를 직접 부른 요청으로 받는 사람 본문에 실리지 않게 서버도 같은 목록으로 막는다(인용문 이미지는 받은 메일 원본이라 이 목록을 쓰지 않는다).
+   */
+  private static final Set<String> PASTED_IMAGE_TYPES =
+      Set.of("image/png", "image/jpeg", "image/gif", "image/webp");
 
   /** Content-ID 허용 문자 — 출력 가능 ASCII 중 공백·꺾쇠·따옴표 제외(헤더 인젝션 차단), 최대 250자. */
   private static final Pattern CONTENT_ID = Pattern.compile("^[\\x21-\\x7E&&[^<>\"]]{1,250}$");
@@ -172,6 +182,7 @@ public class MailComposeService {
     List<InlineSource> inline =
         validateInlineImages(userId, account.provider(), req.inlineImages());
     List<StagedFile> uploads = checkUploads(userId, req.attachmentIds());
+    validateInlineUploads(account.provider(), req, inline, uploads);
     List<ForwardSource> forwards = validateForwards(userId, req.forwardAttachmentIds());
     long total = 0;
     for (InlineSource src : inline) {
@@ -279,20 +290,14 @@ public class MailComposeService {
     }
   }
 
-  /** 업로드 첨부 바이트를 읽는다(디스크, 트랜잭션 밖). 크기는 우리가 저장할 때 잰 값이라 믿을 수 있지만 읽은 바이트로 다시 센다. */
-  private List<AttachmentPart> loadUploads(List<StagedFile> uploads, Budget budget) {
-    List<AttachmentPart> parts = new ArrayList<>();
-    for (StagedFile f : uploads) {
-      budget.requireRoomFor(f.sizeBytes());
-      byte[] content;
-      try {
-        content = fileStore.readAllBytes(f.storagePath());
-      } catch (UncheckedIOException e) {
-        throw new MailSendException("첨부 파일을 읽지 못했어요. 파일을 다시 올려 주세요", e);
-      }
-      parts.add(new AttachmentPart(f.originalName(), f.mimeType(), budget.add(content)));
+  /** 업로드 바이트를 읽는다(디스크, 트랜잭션 밖). 크기는 우리가 저장할 때 잰 값이라 믿을 수 있지만 읽은 바이트로 다시 센다. */
+  private byte[] readUpload(StagedFile f, Budget budget) {
+    budget.requireRoomFor(f.sizeBytes());
+    try {
+      return budget.add(fileStore.readAllBytes(f.storagePath()));
+    } catch (UncheckedIOException e) {
+      throw new MailSendException("첨부 파일을 읽지 못했어요. 파일을 다시 올려 주세요", e);
     }
-    return parts;
   }
 
   /**
@@ -379,12 +384,66 @@ public class MailComposeService {
       total += meta.sizeBytes();
       out.add(new InlineSource(ref, meta));
     }
+    requireInlineWithin(provider, total, "인용문 이미지", "인용문을 제거하고 보내세요");
+    return out;
+  }
+
+  /**
+   * 본문에 붙여 넣은 이미지 검증(WP-947) — 업로드 자체(소유·만료·바인딩)는 checkUploads 가 이미 봤다. 여기서는 참조 형식 → attachmentIds
+   * 안에 있는지 → 중복(같은 업로드·같은 Content-ID, 인용문 cid 포함) → image/* → 인용문 이미지와 합친 개수·공급자별 총용량을 본다. 인라인 파트는
+   * MIME 안에 들어가 Graph 요청 본문 상한을 함께 쓰므로 인용문 이미지와 같은 한도를 나눠 쓴다.
+   */
+  private void validateInlineUploads(
+      MailProvider provider,
+      MailSendRequest req,
+      List<InlineSource> inline,
+      List<StagedFile> uploads) {
+    List<InlineUploadRef> refs = req.inlineUploads();
+    if (refs.isEmpty()) {
+      return;
+    }
+    if (inline.size() + refs.size() > MAX_INLINE_IMAGES) {
+      throw new MailValidationException(
+          "본문 이미지는 인용문 이미지와 합쳐 최대 " + MAX_INLINE_IMAGES + "개까지 보낼 수 있습니다");
+    }
+    Map<Long, StagedFile> byId = new HashMap<>();
+    for (StagedFile f : uploads) {
+      byId.put(f.fileId(), f);
+    }
+    Set<String> contentIds = new HashSet<>();
+    long total = 0;
+    for (InlineSource src : inline) {
+      contentIds.add(src.ref().contentId());
+      total += src.meta().sizeBytes();
+    }
+    Set<Long> seen = new HashSet<>();
+    for (InlineUploadRef ref : refs) {
+      if (ref == null
+          || ref.attachmentId() == null
+          || ref.contentId() == null
+          || !CONTENT_ID.matcher(ref.contentId()).matches()
+          || !byId.containsKey(ref.attachmentId())
+          || !seen.add(ref.attachmentId())
+          || !contentIds.add(ref.contentId())) {
+        throw new MailValidationException("본문 이미지 참조가 올바르지 않습니다");
+      }
+      StagedFile f = byId.get(ref.attachmentId());
+      if (!PASTED_IMAGE_TYPES.contains(MimeNormalizer.baseMime(f.mimeType()))) {
+        throw new MailValidationException("본문 이미지가 이미지 파일이 아닙니다");
+      }
+      total += f.sizeBytes();
+    }
+    requireInlineWithin(provider, total, "본문 이미지", "이미지를 줄이거나 첨부로 보내세요");
+  }
+
+  /** 인라인 이미지 원본 합계의 공급자별 상한 — 인용문 이미지와 붙여 넣은 본문 이미지가 같은 MIME 한도를 나눠 쓴다. */
+  private static void requireInlineWithin(
+      MailProvider provider, long total, String what, String advice) {
     long max = provider == MailProvider.M365_GRAPH ? MAX_INLINE_TOTAL_GRAPH : MAX_INLINE_TOTAL_SMTP;
     if (total > max) {
       throw new MailValidationException(
-          "인용문 이미지 용량이 너무 큽니다(최대 " + (max / (1024 * 1024)) + "MB). 인용문을 제거하고 보내세요");
+          what + " 용량이 너무 큽니다(최대 " + (max / (1024 * 1024)) + "MB). " + advice);
     }
-    return out;
   }
 
   /** 검증을 통과한 인라인 이미지 원본 — send 에서 바이트를 조회한다. */
@@ -515,8 +574,23 @@ public class MailComposeService {
     }
 
     Budget budget = new Budget();
-    List<AttachmentPart> uploadParts = loadUploads(uploads, budget);
-    List<InlineImagePart> inlineParts = loadInlineImages(userId, plan.inline(), budget);
+    // 본문에 붙여 넣은 이미지(WP-947)는 업로드 가운데 인라인 파트로 가고, 나머지만 일반 첨부가 된다.
+    Map<Long, String> inlineCids = new HashMap<>();
+    for (InlineUploadRef ref : req.inlineUploads()) {
+      inlineCids.put(ref.attachmentId(), ref.contentId());
+    }
+    List<AttachmentPart> uploadParts = new ArrayList<>();
+    List<InlineImagePart> inlineParts =
+        new ArrayList<>(loadInlineImages(userId, plan.inline(), budget));
+    for (StagedFile f : uploads) {
+      byte[] content = readUpload(f, budget);
+      String cid = inlineCids.get(f.fileId());
+      if (cid != null) {
+        inlineParts.add(new InlineImagePart(cid, f.originalName(), f.mimeType(), content));
+      } else {
+        uploadParts.add(new AttachmentPart(f.originalName(), f.mimeType(), content));
+      }
+    }
     // 메일 안 첨부 순서: 전달 원본(받은 메일 순서) 다음 업로드
     List<AttachmentPart> attachments =
         new ArrayList<>(loadForwards(userId, plan.forwards(), budget));
