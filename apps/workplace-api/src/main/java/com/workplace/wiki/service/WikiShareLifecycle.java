@@ -63,7 +63,8 @@ public class WikiShareLifecycle {
     if (movedOut.isEmpty() && movedIn.isEmpty()) {
       return;
     }
-    String title = pages.findTitle(pageId).filter(t -> !t.isBlank()).orElse("제목 없음");
+    String title =
+        pages.findTitle(pageId).filter(t -> !t.isBlank()).orElse(WikiPublicShareService.UNTITLED);
     movedOut.forEach(
         root ->
             recordMove(

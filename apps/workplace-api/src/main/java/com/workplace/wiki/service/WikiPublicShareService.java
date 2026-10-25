@@ -6,10 +6,12 @@ import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiPublicShareResponse;
 import com.workplace.wiki.dto.WikiPublicShareResponse.PublicPage;
 import com.workplace.wiki.dto.WikiPublicShareResponse.PublicPageBody;
+import com.workplace.wiki.dto.WikiSharePreview;
 import com.workplace.wiki.exception.WikiShareLoginRequiredException;
 import com.workplace.wiki.exception.WikiShareNotFoundException;
 import com.workplace.wiki.repository.WikiAttachmentRepository;
 import com.workplace.wiki.repository.WikiPageRepository;
+import com.workplace.wiki.repository.WikiPageRepository.PreviewSource;
 import com.workplace.wiki.repository.WikiShareRepository;
 import com.workplace.wiki.repository.WikiShareRepository.ShareRow;
 import java.util.LinkedHashMap;
@@ -38,6 +40,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class WikiPublicShareService {
   private static final String NOT_FOUND = "열 수 없는 링크입니다";
+
+  /** 제목 없는 노트의 미리보기 제목 — 노트 화면의 빈 제목 자리표시와 같은 말. */
+  static final String UNTITLED = "제목 없음";
 
   private final WikiShareRepository shares;
   private final WikiPageRepository pages;
@@ -81,23 +86,13 @@ public class WikiPublicShareService {
    */
   @Transactional
   public WikiPublicShareResponse view(long tenantId, String token, Long pageId) {
-    ShareRow share = shares.findActiveByToken(token).orElseThrow(WikiPublicShareService::notFound);
-    if (!"PUBLIC".equals(share.audience())) {
-      throw new WikiShareLoginRequiredException();
-    }
-    long target = pageId != null ? pageId : share.pageId();
-    // 범위·외부 정책 판정은 한 곳(WikiShareAccess)에서 — 비로그인(userId null)은 PUBLIC 공유만 열린다. 이미 읽은 공유 행으로 판정해
-    // 토큰을 다시 조회하지 않는다.
-    access.grant(share, target, null).orElseThrow(WikiPublicShareService::notFound);
-    WikiPageDetail detail = pages.findDetail(target).orElseThrow(WikiPublicShareService::notFound);
+    Opened opened = open(token, pageId);
+    ShareRow share = opened.share();
+    WikiPageDetail detail =
+        pages.findDetail(opened.target()).orElseThrow(WikiPublicShareService::notFound);
 
-    List<Long> covered =
-        share.includeChildren()
-            ? pages.subtreeIdsInclusive(share.pageId())
-            : List.of(share.pageId());
-    List<WikiPageSummary> summaries = shares.listSharedPages(covered, share.pageId());
-    Map<Long, String> titles = new LinkedHashMap<>();
-    summaries.forEach(s -> titles.put(s.id(), s.title()));
+    List<WikiPageSummary> summaries = sharedPages(share);
+    Map<Long, String> titles = titlesOf(summaries);
 
     WikiPublicShareResponse res =
         new WikiPublicShareResponse(
@@ -114,6 +109,66 @@ public class WikiPublicShareService {
                 detail.fullWidth()));
     shares.recordView(share.id());
     return res;
+  }
+
+  /**
+   * 링크 미리보기(WP-895) — 외부 메신저 봇이 공유 링크를 읽을 때 카드에 넣을 노트 제목·본문 앞부분. 보기({@link #view})와 같은 판정으로 연 페이지만,
+   * 보기와 같은 가림을 거친 본문으로 만든다. 제목이 비면 「제목 없음」, 본문이 비면 설명도 제목. 열람 수는 올리지 않는다(사람이 연 것이 아니다). 지금 테넌트
+   * 컨텍스트가 토큰의 워크스페이스여야 한다.
+   *
+   * @param pageId 공유된 하위 페이지 주소일 때(없으면 공유한 페이지)
+   * @throws WikiShareLoginRequiredException 내부 링크
+   * @throws WikiShareNotFoundException 그 밖의 열 수 없음 — 호출부는 둘 다 사이트 공통 카드를 쓴다
+   */
+  @Transactional(readOnly = true)
+  public WikiSharePreview preview(String token, Long pageId) {
+    Opened opened = open(token, pageId);
+    PreviewSource source =
+        pages
+            .findPreviewSource(opened.target(), WikiPreviewText.SOURCE_LIMIT)
+            .orElseThrow(WikiPublicShareService::notFound);
+    String title =
+        source.title() == null || source.title().isBlank() ? UNTITLED : source.title().strip();
+    String description =
+        WikiPreviewText.excerpt(
+            masker.mask(source.bodyHead(), titlesOf(sharedPages(opened.share())), token));
+    return new WikiSharePreview(title, description.isEmpty() ? title : description);
+  }
+
+  /** 외부로 연 공유와 볼 페이지. */
+  private record Opened(ShareRow share, long target) {}
+
+  /**
+   * 외부 보기·미리보기 공통 판정 — 살아 있는 링크, PUBLIC, 볼 페이지가 공유 범위 안. 범위·외부 정책 판정은 한 곳(WikiShareAccess)에서 —
+   * 비로그인(userId null)은 PUBLIC 공유만 열린다. 이미 읽은 공유 행으로 판정해 토큰을 다시 조회하지 않는다.
+   *
+   * @throws WikiShareLoginRequiredException 만료 전 내부 링크
+   * @throws WikiShareNotFoundException 그 밖의 열 수 없음
+   */
+  private Opened open(String token, Long pageId) {
+    ShareRow share = shares.findActiveByToken(token).orElseThrow(WikiPublicShareService::notFound);
+    if (!"PUBLIC".equals(share.audience())) {
+      throw new WikiShareLoginRequiredException();
+    }
+    long target = pageId != null ? pageId : share.pageId();
+    access.grant(share, target, null).orElseThrow(WikiPublicShareService::notFound);
+    return new Opened(share, target);
+  }
+
+  /** 링크로 볼 수 있는 페이지 — 하위 포함이면 공유한 페이지의 서브트리, 아니면 그 페이지 하나. */
+  private List<WikiPageSummary> sharedPages(ShareRow share) {
+    List<Long> covered =
+        share.includeChildren()
+            ? pages.subtreeIdsInclusive(share.pageId())
+            : List.of(share.pageId());
+    return shares.listSharedPages(covered, share.pageId());
+  }
+
+  /** 페이지 id → 제목(범위 순서 유지) — 본문 가림이 범위 판정에 쓴다. */
+  private static Map<Long, String> titlesOf(List<WikiPageSummary> summaries) {
+    Map<Long, String> titles = new LinkedHashMap<>();
+    summaries.forEach(s -> titles.put(s.id(), s.title()));
+    return titles;
   }
 
   /**

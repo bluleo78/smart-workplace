@@ -213,6 +213,20 @@ public class WikiPageRepository {
         .fetchOne(WIKI_PAGE.PARENT_ID);
   }
 
+  /** 링크 미리보기 원본(WP-895) — 제목과 본문 앞부분. */
+  public record PreviewSource(String title, String bodyHead) {}
+
+  /**
+   * 링크 미리보기 원본 — 제목과 본문 앞 bodyChars 글자만(DB 에서 자른다 — 긴 노트 전체를 읽지 않게). 공유 링크 HTML 을 낼 때마다 불리므로 상세
+   * 조회({@link #findDetail})의 다른 컬럼·하위 질의는 읽지 않는다.
+   */
+  public Optional<PreviewSource> findPreviewSource(long pageId, int bodyChars) {
+    return dsl.select(WIKI_PAGE.TITLE, DSL.left(WIKI_PAGE.BODY, bodyChars))
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOptional(r -> new PreviewSource(r.value1(), r.value2()));
+  }
+
   /** 제목만(없으면 빈 값) — 공유 이동 기록 문구용. */
   public Optional<String> findTitle(long pageId) {
     return dsl.select(WIKI_PAGE.TITLE)

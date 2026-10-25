@@ -2,6 +2,9 @@ package com.workplace.wiki.controller;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.wiki.dto.WikiPublicShareResponse;
+import com.workplace.wiki.dto.WikiSharePreview;
+import com.workplace.wiki.exception.WikiShareLoginRequiredException;
+import com.workplace.wiki.exception.WikiShareNotFoundException;
 import com.workplace.wiki.service.WikiPublicShareService;
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.HtmlUtils;
 
 /**
  * 노트 외부(비로그인) 공유 보기 API(WP-579) — 웹 {@code api/wikiPublic.ts} 와 짝. 인증 없이 토큰으로 연다(SecurityConfig
@@ -50,6 +54,45 @@ public class PublicWikiShareController {
     long tenantId = service.locateTenant(token);
     return ResponseEntity.ok(
         TenantContext.callAs(tenantId, () -> service.view(tenantId, token, pageId)));
+  }
+
+  /**
+   * 링크 미리보기 메타 조각(WP-895) — web nginx 가 공유 링크(/wiki/share/…) 의 index.html 에 SSI 로 끼워 넣는 {@code
+   * <meta>} 몇 줄(설명· og:title·og:description). 외부 메신저 봇은 자바스크립트를 실행하지 않아 HTML 을 내려보낼 때 노트 제목·앞부분이 들어
+   * 있어야 한다.
+   *
+   * <p>열 수 없는 링크(없는 토큰·만료·해제·내부 링크·범위 밖·정지된 워크스페이스)는 204 빈 응답 — nginx 는 빈 응답이면 사이트 공통 메타(SSI stub)를
+   * 그대로 쓴다. 상태 코드만 다르고 내용이 없어 토큰 존재를 더 드러내지 않는다(공유 화면 자체가 이미 404/401 로 갈린다).
+   *
+   * @param pageId 공유된 하위 페이지 주소(/wiki/share/{token}/pages/{pageId})일 때
+   */
+  @GetMapping(value = "/{token}/preview-meta", produces = "text/html;charset=UTF-8")
+  public ResponseEntity<String> previewMeta(
+      @PathVariable("token") String token,
+      @RequestParam(value = "pageId", required = false) Long pageId,
+      HttpServletResponse response) {
+    noIndexNoStore(response);
+    try {
+      long tenantId = service.locatePublicTenant(token);
+      WikiSharePreview preview =
+          TenantContext.callAs(tenantId, () -> service.preview(token, pageId));
+      return ResponseEntity.ok(previewMetaHtml(preview));
+    } catch (WikiShareNotFoundException | WikiShareLoginRequiredException e) {
+      return ResponseEntity.noContent().build();
+    }
+  }
+
+  /** 미리보기 메타 줄 — 값은 HTML 속성으로 이스케이프한다(제목·본문은 사용자가 쓴 글). */
+  static String previewMetaHtml(WikiSharePreview p) {
+    String title = HtmlUtils.htmlEscape(p.title(), "UTF-8");
+    String description = HtmlUtils.htmlEscape(p.description(), "UTF-8");
+    return "<meta name=\"description\" content=\""
+        + description
+        + "\" />\n<meta property=\"og:title\" content=\""
+        + title
+        + "\" />\n<meta property=\"og:description\" content=\""
+        + description
+        + "\" />\n";
   }
 
   /** 외부 보기 본문 이미지 — 공유 범위 안 페이지에 붙은 첨부만(아니면 404). 본문 &lt;img&gt; 가 직접 부르므로 inline. */

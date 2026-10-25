@@ -19,11 +19,18 @@
       Vite 가 상대 주소로 보고 고쳐 쓰지 않게 하려는 것이다(바깥은 늘 ingress TLS 라 https 고정).
       og:url 은 두지 않는다 — 모든 경로가 이 파일을 받으므로 고정하면 깊은 링크의 대표 주소까지 루트로 바뀐다.
     -->
+    <!--
+      공개 노트 공유 링크(WP-895)는 설명·제목만 그 노트 것으로 바꾼다. 아래 block 은 SSI 가 꺼진 응답(다른 모든 주소)에선 그냥 메타로 나가고,
+      nginx 가 SSI 를 켜는 /wiki/share/… 에선 숨겨졌다가 API 메타 조각을 받지 못하면(열 수 없는 링크·오류) stub 으로 대신 나간다.
+    -->
+    <!--# block name="common_meta" -->
     <meta name="description" content="%APP_DESCRIPTION%" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="%APP_NAME%" />
     <meta property="og:title" content="%APP_NAME%" />
     <meta property="og:description" content="%APP_DESCRIPTION%" />
+    <!--# endblock -->
+    <!--# include virtual="/__wiki-share-meta" stub="common_meta" -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="%APP_NAME%" />
     <meta property="og:image" content="https://__PUBLIC_HOST__/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />

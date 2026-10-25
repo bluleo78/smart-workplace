@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -261,6 +262,94 @@ class PublicWikiShareTest extends IntegrationTestBase {
     assertThat(notFoundMessage(publicPath(token))).isEqualTo(unknown);
     assertThat(notFoundMessage(publicPath(token) + "?pageId=" + childId)).isEqualTo(unknown);
     assertThat(notFoundMessage(attachmentPath(token, childId, fileId))).isEqualTo(unknown);
+  }
+
+  // ── 링크 미리보기(WP-895) ───────────────────────────────────────────────────
+
+  /**
+   * 외부 링크의 미리보기 메타 조각 — 노트 제목·본문 앞부분 평문을 HTML 속성으로 이스케이프해 준다. 하위 페이지 주소면 그 페이지, 범위 밖이면 204. 봇이 읽은
+   * 것이라 열람 수는 오르지 않는다.
+   */
+  @Test
+  void preview_meta_has_title_and_plain_excerpt_escaped() throws Exception {
+    String token = saveShare(rootId, "PUBLIC", "VIEW", true, List.of());
+    // 범위 밖 첨부 이미지는 가림(masker)이 대체 글자로 바꾸고, 그 글자만 설명에 남는다.
+    setBody(rootId, "# 개요\n**굵게** 쓴 \"계획\" & <b>일정</b>\n\n![도표](x.png)\n- 첫째");
+    long before = viewCount(token);
+
+    String html =
+        anon(publicPath(token) + "/preview-meta")
+            .andExpect(status().isOk())
+            .andExpect(header().string("Content-Type", "text/html;charset=UTF-8"))
+            .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString(StandardCharsets.UTF_8);
+    assertThat(html)
+        .contains("<meta property=\"og:title\" content=\"제품 로드맵\" />")
+        .contains(
+            "<meta property=\"og:description\" content=\"개요 굵게 쓴 &quot;계획&quot; &amp; 일정 도표 첫째\" />")
+        .contains("<meta name=\"description\" content=\"개요 굵게 쓴 &quot;계획&quot; &amp; 일정 도표 첫째\" />")
+        .doesNotContain("<b>")
+        .doesNotContain("x.png");
+    assertThat(viewCount(token)).isEqualTo(before);
+    // nginx 는 하위 페이지가 아닌 주소에서도 pageId 를 빈 값으로 붙여 부른다 — 공유한 페이지로 본다.
+    anon(publicPath(token) + "/preview-meta?pageId=")
+        .andExpect(status().isOk())
+        .andExpect(content().string(html));
+
+    // 하위 페이지 주소 — 본문이 비면 설명도 제목.
+    String child =
+        anon(publicPath(token) + "/preview-meta?pageId=" + childId)
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString(StandardCharsets.UTF_8);
+    assertThat(child)
+        .contains("<meta property=\"og:title\" content=\"1분기\" />")
+        .contains("<meta property=\"og:description\" content=\"1분기\" />");
+    // 제목 없는 노트는 「제목 없음」 — 공통 카드로 떨어뜨리지 않는다.
+    dsl.update(WIKI_PAGE).set(WIKI_PAGE.TITLE, "").where(WIKI_PAGE.ID.eq(grandchildId)).execute();
+    assertThat(
+            anon(publicPath(token) + "/preview-meta?pageId=" + grandchildId)
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8))
+        .contains("<meta property=\"og:title\" content=\"제목 없음\" />");
+    // 범위 밖 페이지는 공통 카드(204).
+    anon(publicPath(token) + "/preview-meta?pageId=" + siblingId).andExpect(status().isNoContent());
+  }
+
+  /** 열 수 없는 링크(없는 토큰·내부·만료·정책 꺼짐)는 204 빈 응답 — nginx 가 사이트 공통 메타를 쓴다. 제목이 새지 않는다. */
+  @Test
+  void preview_meta_no_content_when_link_cannot_open() throws Exception {
+    String workspace = saveShare(rootId, "WORKSPACE", "EDIT", false, List.of());
+    String expired = saveShare(childId, "PUBLIC", "VIEW", false, List.of());
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(WIKI_PAGE_SHARE.EXPIRES_AT, dbNow().minusMinutes(1))
+        .where(WIKI_PAGE_SHARE.TOKEN.eq(expired))
+        .execute();
+    for (String t : List.of("wsh_" + "x".repeat(40), workspace, expired)) {
+      String body =
+          anon(publicPath(t) + "/preview-meta")
+              .andExpect(status().isNoContent())
+              .andExpect(header().string("X-Robots-Tag", "noindex, nofollow"))
+              .andReturn()
+              .getResponse()
+              .getContentAsString(StandardCharsets.UTF_8);
+      assertThat(body).isEmpty();
+    }
+
+    String token = saveShare(rootId, "PUBLIC", "VIEW", true, List.of());
+    anon(publicPath(token) + "/preview-meta").andExpect(status().isOk());
+    call(
+            put("/api/v1/admin/wiki/share-policy")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(om.writeValueAsString(Map.of("externalShareEnabled", false))),
+            adminId)
+        .andExpect(status().isOk());
+    anon(publicPath(token) + "/preview-meta").andExpect(status().isNoContent());
   }
 
   // ── 헤더 ────────────────────────────────────────────────────────────────
