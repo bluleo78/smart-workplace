@@ -97,7 +97,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - 원격은 **origin**(`git@github.com:bluleo78/smart-workplace.git`), PR 대상 브랜치는 `main`, 도구는 `gh`(세션의 `GH_TOKEN` — 준비는 플러그인 README 「PR 흐름 준비」). gitlab 원격에는 push 하지 않는다 — 사람이 origin main 을 받아 맞춘다.
 - 브랜치: `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123`). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
 - PR 제목 `<이슈 키> <이슈 제목>`, 머지 커밋 제목 `merge: <이슈 키> <이슈 제목>`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다).
-- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. GitHub Actions 가 없으므로 이 게이트가 머지 전 유일한 회귀다 — 검토자는 최신 origin/main 위로 rebase 해 다시 push 한 뒤에만 머지한다.
+- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. GitHub Actions 가 없으므로 이 게이트가 머지 전 유일한 회귀다 — 검토자는 최신 origin/main 을 포함한 브랜치만 머지하고, 아니면 개발자에게 rebase 를 요청한다(검토자는 push 하지 않는다).
 - 마이그레이션(`db/migration/`)이 든 PR 을 rebase 하면 버전 번호(`V<n>__`)가 origin/main 의 마지막보다 큰지 다시 보고, 겹치면 올린 뒤 `./gradlew generateJooq` 결과를 함께 커밋한다.
 
 ## 8. 검토자

@@ -196,7 +196,7 @@ test('work-done 「완료」는 검토 대기(REVIEW)를 거치지 않는다', (
   assert.ok(row && row.includes("state: 'WORKING'") && !row.includes('REVIEW'));
 });
 
-// WP-963 PR 흐름 — 개발 AI 는 main 에 머지하지 않고 PR 을 올리고, 검토자(AI 팀장)가 리뷰·rebase·머지한다.
+// WP-963 PR 흐름 — 개발 AI 는 main 에 머지하지 않고 PR 을 올리고, 검토자(AI 팀장)가 리뷰·머지한다(main 반영은 개발 AI — WP-964).
 const pi = workLoop('process-issue.md');
 
 test('SKILL.md: push 는 PR 흐름에서만 하고 main 직접 push·gitlab push 는 하지 않는다', () => {
@@ -230,15 +230,27 @@ test('process-issue.md: 개발 순서는 PR → PR 리뷰 대기 → 검토 대�
   assert.ok(s10.includes('`nextRunAt` 은 넣지 않는다'));
 });
 
-test('process-issue.md 검토자: 리뷰 → rebase → push(게이트) → 머지 순서이고 반려는 SCHEDULED 로 기다린다', () => {
+test('process-issue.md 검토자: 리뷰 → main 포함 확인 → 머지 순서이고 rebase·push 는 하지 않는다 (WP-964)', () => {
   const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 막힘\n'));
   assert.ok(lead.length > 100, '검토자 절이 없다');
-  assertBefore(lead, '**리뷰**', '`git rebase origin/main`');
-  // push 때 도는 pre-push 게이트가 합친 결과를 검증한다 — 그 전에 머지하면 테스트 안 된 조합이 main 에 들어간다.
-  assertBefore(lead, '`git push --force-with-lease origin <브랜치>`', '`gh pr merge');
+  assertBefore(lead, '**리뷰**', '**main 포함 확인**');
+  assertBefore(lead, '**main 포함 확인**', '`gh pr merge');
+  // 검토자가 브랜치를 고치면 게이트가 두 번 돌고, 충돌을 코드를 모르는 쪽이 푼다.
+  assert.ok(!lead.includes('`git rebase origin/main`'), '검토자가 rebase 한다');
+  assert.ok(!lead.includes('git push'), '검토자가 push 한다');
+  // 충돌이 없어도 최신 main 을 포함하지 않으면 돌려보낸다 — 머지되는 트리가 게이트를 통과한 트리여야 한다.
+  assert.ok(lead.includes('충돌이 없어도 그렇다'));
   assert.ok(lead.includes("state: 'SCHEDULED', note: 'PR #<번호> 수정 대기'"));
-  // 동작을 바꿔야 풀리는 충돌은 검토자가 풀지 않는다.
-  assert.ok(lead.includes('동작을 바꿔야 풀리는 충돌이면'));
+  // 다시 받은 PR 은 지난 리뷰 뒤 달라진 것만 본다.
+  assert.ok(lead.includes('`git range-diff <리뷰한 base>..<리뷰한 HEAD> origin/main..HEAD`'));
+});
+
+test('process-issue.md 개발자: main 반영 요청을 받으면 rebase 해 충돌을 모두 풀고, 올리기 직전에 main 포함을 확인한다 (WP-964)', () => {
+  const s7 = section(pi, '\n### 7. 커밋 하나로 합치기\n', '\n### 8. ');
+  assert.ok(s7.includes('`git rebase origin/main`'));
+  assert.ok(s7.includes('충돌은 내가 모두 푼다'));
+  const s9 = section(pi, '\n### 9. PR\n', '\n### 10. ');
+  assert.ok(s9.includes('origin/main 을 포함하지 않으면 7번으로 돌아간다'));
 });
 
 test('SKILL.md: PR 을 두고 기다리는 이슈는 새 글이 있을 때만 고르고, 답하지 않고 넘긴 글을 적어 둔다', () => {
