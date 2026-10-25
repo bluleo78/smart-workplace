@@ -310,3 +310,23 @@ export function groupCalendarsBySource(calendars: Calendar[]): CalendarSourceGro
   }
   return { local, accounts }
 }
+
+/**
+ * 캘린더 화면에서 일정을 칠할 색 키(WP-952) — 일정에 직접 고른 색 › 첫 번째 태그 색 › 캘린더 색. 서버 effectiveColor 는
+ * 「직접 고른 색 › 캘린더 색」이라, 직접 고른 색(color)이 없을 때만 첫 태그 색을 끼워 넣는다. 태그는 칩과 같은 순서(이름순)라
+ * 「첫 태그」는 일정에 처음 보이는 태그다. 태그는 사람마다 따로라 같은 일정도 보는 사람에 따라 색이 다를 수 있다.
+ */
+export function eventDisplayColor(e: Pick<CalendarEvent, 'color' | 'tags' | 'effectiveColor'>): string {
+  if (e.color) return e.effectiveColor
+  return e.tags?.[0]?.color ?? e.effectiveColor
+}
+
+/** 첫 태그 말고 남은 태그 색(겹치지 않게, 블록 색과 같은 색은 뺀다) — 일정 블록 옆 작은 점으로 보인다(WP-952). */
+export function extraTagColors(e: Pick<CalendarEvent, 'color' | 'tags' | 'effectiveColor'>): string[] {
+  const main = eventDisplayColor(e)
+  const out: string[] = []
+  for (const t of e.tags?.slice(1) ?? []) {
+    if (t.color && t.color !== main && !out.includes(t.color)) out.push(t.color)
+  }
+  return out
+}

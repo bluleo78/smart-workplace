@@ -6,7 +6,9 @@ import {
   type CalendarLayers,
   dragSlotRange,
   eventCalendarLabel,
+  eventDisplayColor,
   eventsOnDay,
+  extraTagColors,
   groupCalendarsBySource,
   isEventVisible,
   isLocalRangeReversed,
@@ -275,5 +277,25 @@ describe('dragSlotRange — 시간 그리드 끌기 구간(WP-949)', () => {
     const r = dragSlotRange(day, -50, 30 * 48)
     expect(r.start.getTime()).toBe(at(0, 0))
     expect(r.end.getTime()).toBe(new Date(2026, 5, 11).getTime())
+  })
+})
+
+describe('eventDisplayColor·extraTagColors — 태그 색으로 일정 칠하기(WP-952)', () => {
+  const tag = (id: number, color: string) => ({ id, name: `t${id}`, color })
+  it('직접 고른 색이 있으면 그 색(서버 effectiveColor), 태그보다 먼저', () => {
+    expect(eventDisplayColor({ color: 'red', effectiveColor: 'red', tags: [tag(1, 'amber')] })).toBe('red')
+  })
+  it('직접 고른 색이 없으면 첫 태그 색', () => {
+    expect(eventDisplayColor({ color: null, effectiveColor: 'blue', tags: [tag(1, 'amber'), tag(2, 'violet')] })).toBe('amber')
+  })
+  it('태그도 없으면 캘린더 색(effectiveColor)', () => {
+    expect(eventDisplayColor({ color: null, effectiveColor: 'green', tags: [] })).toBe('green')
+    expect(eventDisplayColor({ color: null, effectiveColor: 'green' })).toBe('green')
+  })
+  it('남은 태그 색은 블록 색과 겹치지 않게 한 번씩', () => {
+    expect(
+      extraTagColors({ color: null, effectiveColor: 'blue', tags: [tag(1, 'amber'), tag(2, 'violet'), tag(3, 'amber'), tag(4, 'violet')] }),
+    ).toEqual(['violet'])
+    expect(extraTagColors({ color: null, effectiveColor: 'blue', tags: [tag(1, 'amber')] })).toEqual([])
   })
 })

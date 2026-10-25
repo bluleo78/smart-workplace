@@ -1077,3 +1077,28 @@ test.describe('시간 구간 끌어 일정 만들기 (WP-949)', () => {
     await expect(page.getByTestId('calendar-form-end')).toHaveValue('2026-06-10T15:00')
   })
 })
+
+// WP-952 — 일정 색 = 직접 고른 색 › 첫 태그 색 › 캘린더 색. 태그가 여럿이면 남은 태그 색을 블록 앞 작은 점으로 보인다.
+test('태그가 붙은 일정은 월·주 보기에서 첫 태그 색으로 칠하고, 직접 고른 색이 먼저다 (WP-952)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const tag = (id: number, name: string, color: string) => ({ id, name, color })
+  await stubCalendarEvents(page, [
+    calendarEvent({ id: 1, title: '고객 미팅', tags: [tag(1, '고객', 'amber'), tag(2, '전사', 'violet')] }),
+    calendarEvent({ id: 2, title: '직접 색 고른 일정', startsAt: '2026-06-10T04:00:00Z', endsAt: '2026-06-10T05:00:00Z', color: 'red', effectiveColor: 'red', tags: [tag(1, '고객', 'amber')] }),
+    calendarEvent({ id: 3, title: '태그 없는 일정', startsAt: '2026-06-10T06:00:00Z', endsAt: '2026-06-10T07:00:00Z' }),
+  ])
+  await page.goto('/calendar')
+  const chip = (id: number) => page.getByTestId(`calendar-event-${id}`).first()
+  // 월 보기
+  await expect(chip(1)).toHaveClass(/bg-amber-700/)
+  await expect(chip(1).getByTestId('calendar-event-extra-tags').locator('span')).toHaveCount(1)
+  await expect(chip(1).getByTestId('calendar-event-extra-tags').locator('span')).toHaveClass(/bg-violet-500/)
+  await expect(chip(2)).toHaveClass(/bg-red-/)
+  await expect(chip(2).getByTestId('calendar-event-extra-tags')).toHaveCount(0)
+  await expect(chip(3)).toHaveClass(/bg-blue-600/)
+  // 주 보기도 같은 색
+  await page.getByTestId('calendar-view-week-btn').click()
+  await expect(chip(1)).toHaveClass(/bg-amber-700/)
+  await expect(chip(2)).toHaveClass(/bg-red-/)
+  await expect(chip(3)).toHaveClass(/bg-blue-600/)
+})

@@ -10,7 +10,7 @@ import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { AgendaChunks } from '@/hooks/queries/useAgendaChunks'
 import { useCalendars } from '@/hooks/queries/useCalendars'
-import { eventCalendarLabel } from '@/lib/calendar'
+import { eventCalendarLabel, eventDisplayColor } from '@/lib/calendar'
 import {
   AGENDA_CHUNK_DAYS,
   type AgendaDay,
@@ -343,7 +343,7 @@ function EventRow({
       <Sep text=", " />
       <span
         aria-hidden="true"
-        className={cn('w-0.75 shrink-0 rounded-full', resolvePalette(event.effectiveColor).dotClass, past && 'opacity-50')}
+        className={cn('w-0.75 shrink-0 rounded-full', resolvePalette(eventDisplayColor(event)).dotClass, past && 'opacity-50')}
       />
       <RowBody title={event.title} sub={sub} muted={past} />
     </button>

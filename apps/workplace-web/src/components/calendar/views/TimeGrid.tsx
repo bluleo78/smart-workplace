@@ -4,8 +4,9 @@ import { format, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { type PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
 
+import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { dragSlotRange, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, timedEventBox } from '@/lib/calendar'
+import { dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, timedEventBox } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -155,8 +156,9 @@ export function TimeGrid({
                   key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
                   data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
                   onClick={() => onSelectEvent(e)}
-                  className={`w-full text-left text-xs px-1 py-0.5 rounded ${resolvePalette(e.effectiveColor).chipClass} truncate`}
+                  className={`w-full text-left text-xs px-1 py-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate`}
                 >
+                  <ExtraTagDots event={e} />
                   {e.title}
                 </button>
               ))}
@@ -235,8 +237,9 @@ export function TimeGrid({
                       ev.stopPropagation()
                       onSelectEvent(e)
                     }}
-                    className={`text-xs text-left px-1 rounded ${resolvePalette(e.effectiveColor).chipClass} overflow-hidden`}
+                    className={`text-xs text-left px-1 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} overflow-hidden`}
                   >
+                    <ExtraTagDots event={e} />
                     {formatClockTimePadded(e.startsAt)} {e.title}
                   </button>
                 )

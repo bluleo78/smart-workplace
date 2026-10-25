@@ -14,6 +14,7 @@ import { LinkedText } from '@/components/LinkedText'
 import { DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AgentBadge } from '@/components/users/AgentBadge'
 import { UserAvatar } from '@/components/users/UserAvatar'
+import { eventDisplayColor } from '@/lib/calendar'
 import type { ReadOnlyLabel } from '@/lib/calendarEventForm'
 import {
   attendeeDisplayName,
@@ -154,7 +155,7 @@ export function EventDetailView({ event, calendarLabel, readOnlyLabel, showRsvp,
                 className={CHIP_CLASS}
                 data-testid="event-detail-calendar"
               >
-                <span className={`size-2 rounded-full ${resolvePalette(event.effectiveColor).dotClass}`} aria-hidden="true" />
+                <span className={`size-2 rounded-full ${resolvePalette(eventDisplayColor(event)).dotClass}`} aria-hidden="true" />
                 {calendarLabel}
               </span>
             )}

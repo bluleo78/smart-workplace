@@ -3,6 +3,7 @@ import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { Flag } from 'lucide-react'
 
+import { eventDisplayColor } from '@/lib/calendar'
 import { eventDate } from '@/lib/calendarAgenda'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
@@ -51,7 +52,7 @@ export function AgendaView({ events, issueDues, onSelectEvent, onSelectIssue }: 
               </span>
               {/* 색 점 — effectiveColor 기반 */}
               <span
-                className={`size-2 rounded-full shrink-0 self-center ${resolvePalette(row.event.effectiveColor).dotClass}`}
+                className={`size-2 rounded-full shrink-0 self-center ${resolvePalette(eventDisplayColor(row.event)).dotClass}`}
                 aria-hidden="true"
               />
               {/* 제목 */}

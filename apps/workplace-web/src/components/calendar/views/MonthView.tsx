@@ -3,8 +3,9 @@
 import { format, isSameMonth, isToday } from 'date-fns'
 import { useLayoutEffect, useRef, useState } from 'react'
 
+import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
+import { eventDisplayColor, eventsOnDay, issueDuesOnDay, monthMatrix } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 
 import type { ViewProps } from './TimeGrid'
@@ -106,8 +107,9 @@ export function MonthView({ events, issueDues, anchor, onSelectEvent, onSelectIs
                     ev.stopPropagation()
                     onSelectEvent(e)
                   }}
-                  className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(e.effectiveColor).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
+                  className={`w-full text-left text-xs px-1 py-0.5 mb-0.5 rounded ${resolvePalette(eventDisplayColor(e)).chipClass} truncate block ${e.myRsvpStatus === 'DECLINED' ? 'opacity-40' : ''}`}
                 >
+                  <ExtraTagDots event={e} />
                   {e.title}
                 </button>
               ))}
