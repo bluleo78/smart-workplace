@@ -240,6 +240,22 @@ class MailResourceChangedIntegrationTest extends IntegrationTestBase {
   }
 
   @Test
+  @DisplayName("WP-959: 새 메일·읽음 변화 없이 서버에서 빠진 메일만 지워져도 소유자에게 mail updated 발행")
+  void sync_withRemovedOnly_publishesToOwner() {
+    MailFetcher original = swapImapFetcher(new MailSyncResult(0, 0, 0, 1));
+    try {
+      clearInvocations(registry);
+      TenantContext.set(1L);
+      syncService.sync(owner, accountId);
+      var c = capture("mail", "updated");
+      assertThat(c.recipients()).containsExactly(owner);
+      assertThat(c.payload().get("accountId")).isEqualTo(accountId);
+    } finally {
+      restoreImapFetcher(original);
+    }
+  }
+
+  @Test
   @DisplayName("읽음 처리는 소유자에게만 mail updated, 이미 읽은 메일은 재발행하지 않음")
   void markRead_ownerOnly_andIdempotent() {
     clearInvocations(registry);

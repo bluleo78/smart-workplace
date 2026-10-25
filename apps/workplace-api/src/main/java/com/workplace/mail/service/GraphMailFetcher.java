@@ -104,6 +104,7 @@ public class GraphMailFetcher implements MailFetcher {
     int fetched = 0;
     int saved = 0;
     int seenChanged = 0; // WP-148: 서버 isRead 를 따라 seen 이 바뀐 기존 메일 수(새 메일 아님)
+    int removed = 0; // WP-959: 서버에서 옮겨졌거나 지워져(@removed) 로컬에서 지운 메일 수
     String deltaLink = null;
 
     try {
@@ -117,7 +118,9 @@ public class GraphMailFetcher implements MailFetcher {
           if (m.removed() != null) {
             // @removed 마커 → DB 에서 해당 메시지 행 삭제
             final String msgId = m.id();
-            txTemplate.executeWithoutResult(s -> messageRepo.deleteByProviderId(accountId, msgId));
+            Integer deleted =
+                txTemplate.execute(s -> messageRepo.deleteByProviderId(accountId, msgId));
+            removed += deleted == null ? 0 : deleted;
             continue;
           }
 
@@ -159,7 +162,7 @@ public class GraphMailFetcher implements MailFetcher {
           fetched,
           saved,
           seenChanged);
-      return new MailSyncResult(fetched, saved, seenChanged);
+      return new MailSyncResult(fetched, saved, seenChanged, removed);
 
     } catch (MailSyncException e) {
       throw e; // 이미 래핑된 오류는 그대로 전파

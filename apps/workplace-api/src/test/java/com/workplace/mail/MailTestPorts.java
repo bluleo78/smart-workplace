@@ -12,6 +12,7 @@ import jakarta.mail.Store;
 import jakarta.mail.Transport;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
+import java.util.Arrays;
 import java.util.Properties;
 
 /**
@@ -79,6 +80,49 @@ public final class MailTestPorts {
       }
     } finally {
       store.close();
+    }
+  }
+
+  /**
+   * WP-959: 다른 메일 앱에서 보관한 것처럼 GreenMail INBOX 의 제목 일치 메시지를 {@code target} 폴더로 옮긴다(COPY → Deleted
+   * 플래그 → EXPUNGE). target 이 null 이면 옮기지 않고 지우기만 한다. 계정 box@test.local/pw 고정.
+   */
+  public static void moveServerMessage(String subject, String target) throws Exception {
+    Properties props = new Properties();
+    props.put("mail.store.protocol", "imap");
+    Store store = Session.getInstance(props).getStore("imap");
+    store.connect("127.0.0.1", IMAP, "box@test.local", "pw");
+    try {
+      Folder inbox = store.getFolder("INBOX");
+      inbox.open(Folder.READ_WRITE);
+      try {
+        Message[] hits =
+            Arrays.stream(inbox.getMessages())
+                .filter(m -> matchesSubject(m, subject))
+                .toArray(Message[]::new);
+        if (target != null) {
+          Folder dest = store.getFolder(target);
+          if (!dest.exists()) {
+            dest.create(Folder.HOLDS_MESSAGES);
+          }
+          inbox.copyMessages(hits, dest);
+        }
+        for (Message m : hits) {
+          m.setFlag(Flags.Flag.DELETED, true);
+        }
+      } finally {
+        inbox.close(true); // expunge — 서버에서 실제로 빠진다
+      }
+    } finally {
+      store.close();
+    }
+  }
+
+  private static boolean matchesSubject(Message m, String subject) {
+    try {
+      return subject.equals(m.getSubject());
+    } catch (Exception e) {
+      return false;
     }
   }
 

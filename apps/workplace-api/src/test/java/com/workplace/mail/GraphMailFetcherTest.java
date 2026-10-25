@@ -188,6 +188,8 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     // G2 는 존재, G1 은 삭제됨
     assertThat(messageRepo.findByProviderId(accountId, "G2")).isPresent();
     assertThat(messageRepo.findByProviderId(accountId, "G1")).isEmpty();
+    // WP-959: @removed 로 지운 건수를 변경으로 센다(웹 목록 갱신 알림 근거)
+    assertThat(r.removed()).isEqualTo(1);
 
     // deltaLink 가 폴더에 보관됨
     var folder = folderRepo.ensureFolder(accountId, "INBOX");

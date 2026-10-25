@@ -289,7 +289,7 @@ public class EmailMessageRepository {
    * @param accountId 계정 id(타 계정 메시지 차단)
    * @param providerMessageId 삭제할 Graph 메시지 id
    */
-  public void deleteByProviderId(long accountId, String providerMessageId) {
+  public int deleteByProviderId(long accountId, String providerMessageId) {
     // envelope 삭제 전 영향받을 content_id 를 수집
     List<Long> affectedContentIds =
         dsl.selectDistinct(EMAIL_MESSAGE.CONTENT_ID)
@@ -299,13 +299,62 @@ public class EmailMessageRepository {
             .and(EMAIL_MESSAGE.CONTENT_ID.isNotNull())
             .fetchInto(Long.class);
 
-    dsl.deleteFrom(EMAIL_MESSAGE)
-        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
-        .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
-        .execute();
+    int deleted =
+        dsl.deleteFrom(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
+            .execute();
 
     // 마지막 envelope 가 사라진 content 만 삭제
     contentRepo.deleteOrphans(affectedContentIds);
+    return deleted;
+  }
+
+  /**
+   * 폴더에 적재된 IMAP 메일의 UID 전부(WP-959). 서버에 아직 있는지 대조해 옮겨졌거나 지워진 메일을 찾는 데 쓴다.
+   *
+   * @param accountId 계정 id(타 계정 메시지 차단)
+   * @param folderId 폴더 id
+   * @return 로컬 UID 목록(오름차순)
+   */
+  public List<Long> listImapUids(long accountId, long folderId) {
+    return dsl.select(EMAIL_MESSAGE.IMAP_UID)
+        .from(EMAIL_MESSAGE)
+        .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+        .and(EMAIL_MESSAGE.IMAP_UID.isNotNull())
+        .orderBy(EMAIL_MESSAGE.IMAP_UID)
+        .fetchInto(Long.class);
+  }
+
+  /**
+   * 서버에서 사라진 IMAP 메일을 UID 로 지운다(WP-959). 다른 envelope 가 참조하지 않게 된 content 도 함께 정리한다.
+   *
+   * @param accountId 계정 id(타 계정 메시지 차단)
+   * @param folderId 폴더 id
+   * @param imapUids 지울 UID
+   * @return 실제로 지운 행 수
+   */
+  public int deleteByImapUids(long accountId, long folderId, Collection<Long> imapUids) {
+    if (imapUids.isEmpty()) {
+      return 0;
+    }
+    Condition target =
+        EMAIL_MESSAGE
+            .ACCOUNT_ID
+            .eq(accountId)
+            .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+            .and(EMAIL_MESSAGE.IMAP_UID.in(imapUids));
+    // envelope 삭제 전 영향받을 content_id 를 수집 — FK ON DELETE RESTRICT 이므로 envelope 먼저 삭제한 뒤 GC
+    List<Long> affectedContentIds =
+        dsl.selectDistinct(EMAIL_MESSAGE.CONTENT_ID)
+            .from(EMAIL_MESSAGE)
+            .where(target)
+            .and(EMAIL_MESSAGE.CONTENT_ID.isNotNull())
+            .fetchInto(Long.class);
+    int deleted = dsl.deleteFrom(EMAIL_MESSAGE).where(target).execute();
+    contentRepo.deleteOrphans(affectedContentIds);
+    return deleted;
   }
 
   /**

@@ -460,6 +460,38 @@ class MailSyncServiceTest extends IntegrationTestBase {
     assertThat(syncService.sync(user, accountId).seenChanged()).isZero();
   }
 
+  /**
+   * WP-959: 다른 메일 앱에서 보관(다른 폴더로 이동)하거나 지운 메일은 다음 동기화에서 로컬 받은편지함에서도 빠진다. 서버에 남은 메일은 그대로이고, 삭제도 목록을
+   * 바꾸므로 변경으로 센다.
+   */
+  @Test
+  void sync_serverMovedOrDeletedMessage_removedLocally() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    MailTestPorts.sendText("box@test.local", "alice@example.com", "보관할 메일", "본문");
+    MailTestPorts.sendText("box@test.local", "bob@example.com", "지울 메일", "본문");
+    MailTestPorts.sendText("box@test.local", "carol@example.com", "남는 메일", "본문");
+    greenMail.waitForIncomingEmail(3);
+    syncService.sync(user, accountId);
+    assertThat(messageRepo.listByAccount(accountId, null, 50)).hasSize(3);
+
+    progress.finish(accountId);
+    MailTestPorts.moveServerMessage("보관할 메일", "Archive");
+    MailTestPorts.moveServerMessage("지울 메일", null);
+    MailSyncResult r = syncService.sync(user, accountId);
+
+    assertThat(r.removed()).isEqualTo(2);
+    assertThat(r.saved()).isZero();
+    assertThat(r.changed()).isTrue();
+    assertThat(messageRepo.listByAccount(accountId, null, 50))
+        .extracting(EmailMessageSummary::subject)
+        .containsExactly("남는 메일");
+
+    // 변화 없으면 0건
+    progress.finish(accountId);
+    assertThat(syncService.sync(user, accountId).removed()).isZero();
+  }
+
   /** WP-148: 최근 14일 밖의 로컬 메일은 읽음 재조회 범위 밖이라 서버가 바뀌어도 건드리지 않는다(알려진 한계). */
   @Test
   void sync_outOfRangeMessage_notTouched() throws Exception {

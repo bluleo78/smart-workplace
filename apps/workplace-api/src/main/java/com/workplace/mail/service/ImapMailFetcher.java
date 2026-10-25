@@ -60,6 +60,9 @@ public class ImapMailFetcher implements MailFetcher {
   /** 읽음 상태 재조회 상한(건) — 기간과 건수 중 작은 쪽. 큰 메일함에서 FETCH 비용을 묶는다(WP-148). */
   static final int SEEN_SYNC_MAX = 500;
 
+  /** WP-959: 서버 삭제 대조를 한 번에 보낼 UID 수 — 명령 길이 한도를 넘지 않게 나눈다. */
+  static final int REMOVAL_CHECK_CHUNK = 1000;
+
   private final EmailFolderRepository folderRepo;
   private final EmailMessageRepository messageRepo;
   private final EncryptionService encryption;
@@ -131,6 +134,9 @@ public class ImapMailFetcher implements MailFetcher {
    *
    * <p>WP-148: 같은 세션에서 최근 범위 기존 메일의 FLAGS 만 다시 읽고(1단계), 신규 저장 뒤 \Seen 차이를 반영한다(2단계). 이 단계의 실패는 경고
    * 로그만 남기고 신규 적재·커서 전진을 막지 않는다.
+   *
+   * <p>WP-959: 같은 세션에서 로컬에 적재된 UID 가 서버에 아직 있는지 대조하고(1단계), 다른 앱에서 옮겼거나 지워 서버에 없는 메일을 로컬에서도
+   * 지운다(2단계). 증분 동기화는 새 UID 만 받으므로 이 대조가 없으면 사라진 메일이 받은편지함에 영원히 남는다. 실패는 경고 로그만 남긴다.
    */
   private MailSyncResult fetchMetadata(
       EmailAccountResponse account,
@@ -140,6 +146,8 @@ public class ImapMailFetcher implements MailFetcher {
       throws MessagingException {
     // WP-148: 읽음 재조회 대상(로컬 기존 메일 중 최근 범위)을 IMAP 세션을 열기 전에 짧은 트랜잭션으로 고른다. 첫 동기화면 대상 없음.
     List<ImapSeenState> seenCandidates = loadSeenCandidates(accountId, folder);
+    // WP-959: 서버에 아직 있는지 대조할 로컬 UID 전부. 첫 동기화면 대상 없음.
+    List<Long> localUids = loadLocalUids(accountId, folder);
 
     // === 1단계: IMAP 네트워크 I/O (트랜잭션 밖) — 메타 파싱 후 DTO 로 수집만 하고 DB 는 건드리지 않는다. ===
     Store store = null;
@@ -150,6 +158,7 @@ public class ImapMailFetcher implements MailFetcher {
     long maxUid;
     List<ParsedMessage> parsedList = new ArrayList<>();
     List<ImapSeenState> seenChanges = List.of();
+    List<Long> removedUids = List.of();
     try {
       store = imapConnector.connect(account, password);
       inbox = store.getFolder(INBOX);
@@ -197,6 +206,7 @@ public class ImapMailFetcher implements MailFetcher {
       // WP-148: 같은 세션에서 기존 메일의 FLAGS 만 재조회(본문 미조회). UIDVALIDITY 가 바뀌었으면 저장된 UID 가 무의미해 건너뛴다.
       if (!uidValidityChanged) {
         seenChanges = fetchSeenChanges(uidFolder, inbox, seenCandidates);
+        removedUids = findRemovedUids(uidFolder, localUids);
       }
     } finally {
       closeQuietly(inbox, store);
@@ -226,11 +236,13 @@ public class ImapMailFetcher implements MailFetcher {
     }
     // WP-148: 신규 저장 뒤 읽음 변화 반영(best-effort — 실패해도 커서 저장·동기화 성공은 그대로)
     int seenChanged = applySeenChanges(accountId, folder.id(), seenChanges);
+    // WP-959: 서버에서 사라진 메일을 로컬에서도 지운다(best-effort)
+    int removed = applyRemovals(accountId, folder.id(), removedUids);
     long finalMaxUid = maxUid;
     long finalUidValidity = uidValidity;
     txTemplate.executeWithoutResult(
         status -> folderRepo.updateSyncState(folder.id(), finalUidValidity, finalMaxUid));
-    return new MailSyncResult(fetched, saved, seenChanged);
+    return new MailSyncResult(fetched, saved, seenChanged, removed);
   }
 
   /**
@@ -260,8 +272,8 @@ public class ImapMailFetcher implements MailFetcher {
   }
 
   /**
-   * 열린 세션에서 대상 UID 의 FLAGS 만 받아 로컬과 \Seen 이 다른 것만 돌려준다(WP-148). 서버에서 지워진 UID(null)는 건너뛴다 — 삭제 반영은 이
-   * 작업 범위 밖. 실패는 경고 로그 후 빈 목록.
+   * 열린 세션에서 대상 UID 의 FLAGS 만 받아 로컬과 \Seen 이 다른 것만 돌려준다(WP-148). 서버에서 지워진 UID(null)는 건너뛴다 — 삭제 반영은
+   * {@link #findRemovedUids} 가 맡는다. 실패는 경고 로그 후 빈 목록.
    */
   private List<ImapSeenState> fetchSeenChanges(
       UIDFolder uidFolder, Folder inbox, List<ImapSeenState> candidates) {
@@ -320,6 +332,67 @@ public class ImapMailFetcher implements MailFetcher {
       return changed == null ? 0 : changed;
     } catch (Exception e) {
       log.warn("IMAP 읽음 상태 반영 실패(신규 적재는 계속): accountId={} {}", accountId, e.toString());
+      return 0;
+    }
+  }
+
+  /** 서버 대조 대상 로컬 UID(WP-959). 첫 동기화면 빈 목록. 조회 실패는 경고 로그 후 빈 목록 — 신규 적재를 막지 않는다. */
+  private List<Long> loadLocalUids(long accountId, EmailFolderRepository.FolderSyncState folder) {
+    if (folder.uidValidity() == null) {
+      return List.of();
+    }
+    try {
+      List<Long> found =
+          txTemplate.execute(status -> messageRepo.listImapUids(accountId, folder.id()));
+      return found == null ? List.of() : found;
+    } catch (Exception e) {
+      log.warn("IMAP 삭제 대조 대상 조회 실패(신규 적재는 계속): accountId={} {}", accountId, e.toString());
+      return List.of();
+    }
+  }
+
+  /**
+   * 로컬 UID 중 서버 폴더에 더 없는 것을 돌려준다(WP-959). {@code UID FETCH} 는 없는 UID 를 null 로 돌려주므로 메타·본문을 받지 않고
+   * UID 만으로 대조한다. 실패는 경고 로그 후 빈 목록 — 확인하지 못한 메일을 지우지 않는다.
+   */
+  private List<Long> findRemovedUids(UIDFolder uidFolder, List<Long> localUids) {
+    if (localUids.isEmpty()) {
+      return List.of();
+    }
+    try {
+      List<Long> removed = new ArrayList<>();
+      // 로컬 메일이 많으면 한 명령이 서버 명령 길이 한도를 넘을 수 있어 묶음으로 나눠 대조한다.
+      for (int from = 0; from < localUids.size(); from += REMOVAL_CHECK_CHUNK) {
+        long[] uids =
+            localUids.subList(from, Math.min(from + REMOVAL_CHECK_CHUNK, localUids.size())).stream()
+                .mapToLong(Long::longValue)
+                .toArray();
+        Message[] onServer = uidFolder.getMessagesByUID(uids);
+        for (int i = 0; i < uids.length; i++) {
+          if (onServer[i] == null) {
+            removed.add(uids[i]);
+          }
+        }
+      }
+      return removed;
+    } catch (Exception e) {
+      log.warn("IMAP 삭제 대조 실패(신규 적재는 계속): {}", e.toString());
+      return List.of();
+    }
+  }
+
+  /** 서버에서 사라진 메일을 한 트랜잭션으로 지우고 지운 건수를 돌려준다(WP-959). 실패는 경고 로그 후 0 — 동기화 성공은 유지. */
+  private int applyRemovals(long accountId, long folderId, List<Long> removedUids) {
+    if (removedUids.isEmpty()) {
+      return 0;
+    }
+    try {
+      Integer deleted =
+          txTemplate.execute(
+              status -> messageRepo.deleteByImapUids(accountId, folderId, removedUids));
+      return deleted == null ? 0 : deleted;
+    } catch (Exception e) {
+      log.warn("IMAP 삭제 반영 실패(신규 적재는 계속): accountId={} {}", accountId, e.toString());
       return 0;
     }
   }
