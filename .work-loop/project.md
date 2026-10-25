@@ -1,6 +1,6 @@
 # 이 저장소의 테스트·라이브 검증 방법 (work-loop)
 
-`/genia-works:work-loop` 스킬이 읽는 저장소 안내다(`process-issue.md` 2·6·8번, `SKILL.md` 「이슈 만들기·담당 바꾸기」). 사람 세션도 같은 방법을 쓸 수 있다.
+`/genia-works:work-loop` 스킬이 읽는 저장소 안내다(`process-issue.md` 2·6·8·9번과 「PR 리뷰·머지」, `SKILL.md` 「이슈 만들기·담당 바꾸기」·「검토자」). 사람 세션도 같은 방법을 쓸 수 있다.
 경로는 모두 이슈 워크트리(`MAIN/.claude/worktrees/<이슈 키>`) 루트 기준이다. 실행 상태는 `MAIN/.work-loop/state/`(git 무시).
 
 ## 1. 새 워크트리 준비
@@ -91,3 +91,17 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 | 역할 | 라벨 |
 |---|---|
 | 개발 일(구현·결함 수정) | `AI 개발팀` |
+
+## 7. PR (`process-issue.md` 9번·「PR 리뷰·머지」)
+
+- 원격은 **origin**(`git@github.com:bluleo78/smart-workplace.git`), PR 대상 브랜치는 `main`, 도구는 `gh`(세션의 `GH_TOKEN` — 준비는 플러그인 README 「PR 흐름 준비」). gitlab 원격에는 push 하지 않는다 — 사람이 origin main 을 받아 맞춘다.
+- 브랜치: `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123`). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
+- PR 제목 `<이슈 키> <이슈 제목>`, 머지 커밋 제목 `merge: <이슈 키> <이슈 제목>`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다).
+- 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. GitHub Actions 가 없으므로 이 게이트가 머지 전 유일한 회귀다 — 검토자는 최신 origin/main 위로 rebase 해 다시 push 한 뒤에만 머지한다.
+- 마이그레이션(`db/migration/`)이 든 PR 을 rebase 하면 버전 번호(`V<n>__`)가 origin/main 의 마지막보다 큰지 다시 보고, 겹치면 올린 뒤 `./gradlew generateJooq` 결과를 함께 커밋한다.
+
+## 8. 검토자
+
+개발한 PR 을 리뷰·머지하는 AI 팀장(`SKILL.md` 「검토자」). 비어 있으면 PR 을 사람이 리뷰·머지한다.
+
+- username: (아직 없음 — AI 팀장 구성원을 만들면 여기에 적는다)

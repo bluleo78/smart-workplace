@@ -35,9 +35,9 @@ test('work-loop SKILL.md 는 신원 확인(get_member)이 후보 고르기(list_
   assertBefore(body(workLoop('SKILL.md')), '`get_member(', '`list_issues(');
 });
 
-test('process-issue.md 에서 「브랜치 라이브 검증」이 「main 머지」보다 먼저 나온다', () => {
-  // 검증에 실패한 변경이 main 에 들어가 배포 전 일괄 push 로 나가면 안 된다.
-  assertBefore(workLoop('process-issue.md'), '\n### 8. 브랜치 라이브 검증\n', '\n### 9. main 머지\n');
+test('process-issue.md 에서 「브랜치 라이브 검증」이 「PR」보다 먼저 나온다', () => {
+  // 검증에 실패한 변경을 PR 로 올리면 검토자가 그것을 머지할 수 있다.
+  assertBefore(workLoop('process-issue.md'), '\n### 8. 브랜치 라이브 검증\n', '\n### 9. PR\n');
 });
 
 test('SKILL.md 의 후보 표에 PAUSED 행이 「고르지 않는다」로 있다', () => {
@@ -54,10 +54,10 @@ test('SKILL.md 순서에서 시각이 지난 다음 회차 대기가 우선순�
   assertBefore(workLoop('SKILL.md'), '③ `nextRunAt` 이 지난 다음 회차 대기', '④ 우선순위');
 });
 
-test('SKILL.md 다음 확인에서 미뤄 둔 후보(시각 없는 대기·머지 대기)는 남은 후보로 세지 않는다', () => {
+test('SKILL.md 다음 확인에서 미뤄 둔 후보(시각 없는 대기)는 남은 후보로 세지 않는다', () => {
   // 시각 없는 대기 하나만 남았을 때 1분마다 깨어나 헛도는 것을 막는다.
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('`nextRunAt` 이 없는 다음 회차 대기와 **main 머지 대기**'));
+  assert.ok(text.includes('`nextRunAt` 이 없는 다음 회차 대기(PR 을 두고 기다리는 이슈는 빼고)'));
   assert.ok(text.includes('미뤄 둔 후보(3번)는 「남은 후보」로 세지 않는다'));
 });
 
@@ -194,4 +194,63 @@ test('work-done 「완료」는 검토 대기(REVIEW)를 거치지 않는다', (
   const doc = readFileSync(new URL('work-done/SKILL.md', skillsDir), 'utf8');
   const row = doc.split('\n').find((l) => l.startsWith('| 완료 |'));
   assert.ok(row && row.includes("state: 'WORKING'") && !row.includes('REVIEW'));
+});
+
+// WP-963 PR 흐름 — 개발 AI 는 main 에 머지하지 않고 PR 을 올리고, 검토자(AI 팀장)가 리뷰·rebase·머지한다.
+const pi = workLoop('process-issue.md');
+
+test('SKILL.md: push 는 PR 흐름에서만 하고 main 직접 push·gitlab push 는 하지 않는다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(!text.includes('**하지 않는다**: push,'), '예전 push 전면 금지가 남아 있다');
+  assert.ok(text.includes('main 직접 push'));
+  assert.ok(text.includes('push 는 PR 흐름에서만 한다'));
+});
+
+test('SKILL.md: gh 가 준비되지 않았으면 스스로 설치·로그인하지 않고 AUTH_REQUIRED 로 멈춘다', () => {
+  // 무인 세션이 바이너리를 받아 깔거나 토큰을 만들면 사람이 모르는 것이 생긴다.
+  const line = lineWith(workLoop('SKILL.md'), 'GitHub 준비는 스스로 하지 않는다');
+  assert.ok(line.includes('`gh auth status`'));
+  assert.ok(line.includes('`AUTH_REQUIRED`'));
+});
+
+test('process-issue.md: 남이 만든 PR 이면 1번보다 먼저 검토자 절로 간다', () => {
+  // 검토자가 개발 절차부터 시작하면 남의 이슈를 다시 구현한다.
+  assertBefore(pi, '**먼저 갈래를 본다**', '\n### 1. 시작\n');
+  assert.ok(pi.includes('\n### PR 리뷰·머지 (검토자)\n'));
+});
+
+test('process-issue.md: 개발 순서는 PR → PR 리뷰 대기 → 검토 대기이고 MAIN 에 머지하지 않는다', () => {
+  assertBefore(pi, '\n### 9. PR\n', '\n### 10. PR 리뷰 대기\n');
+  assertBefore(pi, '\n### 10. PR 리뷰 대기\n', '\n### 11. 검토 대기\n');
+  assert.ok(!pi.includes('git -C MAIN merge'), 'MAIN 머지가 남아 있다');
+  assert.ok(!pi.includes('merge-ready'), 'merge-ready 가 남아 있다');
+  // 리뷰를 기다리는 동안 REVIEW 로 올리면 main 에 없는 코드로 사람에게 검토 요청 알림이 간다.
+  const s10 = section(pi, '\n### 10. PR 리뷰 대기\n', '\n### 11. ');
+  assert.ok(s10.includes("state: 'SCHEDULED', note: 'PR #<번호> 리뷰 대기'"));
+  assert.ok(s10.includes('`nextRunAt` 은 넣지 않는다'));
+});
+
+test('process-issue.md 검토자: 리뷰 → rebase → push(게이트) → 머지 순서이고 반려는 SCHEDULED 로 기다린다', () => {
+  const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 막힘\n'));
+  assert.ok(lead.length > 100, '검토자 절이 없다');
+  assertBefore(lead, '**리뷰**', '`git rebase origin/main`');
+  // push 때 도는 pre-push 게이트가 합친 결과를 검증한다 — 그 전에 머지하면 테스트 안 된 조합이 main 에 들어간다.
+  assertBefore(lead, '`git push --force-with-lease origin <브랜치>`', '`gh pr merge');
+  assert.ok(lead.includes("state: 'SCHEDULED', note: 'PR #<번호> 수정 대기'"));
+  // 동작을 바꿔야 풀리는 충돌은 검토자가 풀지 않는다.
+  assert.ok(lead.includes('동작을 바꿔야 풀리는 충돌이면'));
+});
+
+test('SKILL.md: PR 을 두고 기다리는 이슈는 새 글이 있을 때만 고르고, 답하지 않고 넘긴 글을 적어 둔다', () => {
+  const text = workLoop('SKILL.md');
+  assert.match(text, /^\|[^\n]*SCHEDULED[^\n]*「PR 리뷰 대기」·「PR 수정 대기」[^\n]*\|\s*$/m);
+  // pendingForMe 는 내가 글을 남겨야 풀린다 — 적어 두지 않으면 AI 끼리 답을 주고받거나 같은 이슈를 매번 다시 고른다.
+  assert.ok(text.includes('`MAIN/.work-loop/state/seen/<이슈 키>`'));
+});
+
+test('.work-loop/project.md 에 PR 절과 검토자 절이 있다', () => {
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  assert.ok(project.includes('\n## 7. PR'));
+  assert.ok(project.includes('\n## 8. 검토자'));
+  assert.ok(project.includes('`gh pr merge --merge`'));
 });

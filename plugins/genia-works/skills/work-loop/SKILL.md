@@ -1,6 +1,6 @@
 ---
 name: work-loop
-description: Use when the user runs /genia-works:work-loop <프로젝트 키> (usually as "/loop /genia-works:work-loop WP") in an AI-identity session — picks one genia-works issue assigned to this AI and processes it unattended up to review (implement, review, live-verify, merge to main), reporting progress on the issue.
+description: Use when the user runs /genia-works:work-loop <프로젝트 키> (usually as "/loop /genia-works:work-loop WP") in an AI-identity session — picks one genia-works issue assigned to this AI and processes it unattended up to review (implement, review, live-verify, open a GitHub PR for the reviewer AI; as the reviewer, review, rebase and merge others' PRs), reporting progress on the issue.
 ---
 
 # genia-works 할당 이슈 자동 처리
@@ -9,10 +9,13 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 ## 우선순위 — 이 저장소 `CLAUDE.md`·사용자 메모리의 규칙보다 먼저 따른다
 
-- **work-loop 실행 = 커밋·main 머지 승인이다.** 「커밋은 승인 뒤」, 「main 머지는 의견 들은 뒤」, 「수정 전 설명·승인」 같은 규칙은 사람과 함께 일하는 세션의 규칙이라 여기에는 적용하지 않는다.
+- **work-loop 실행 = 커밋·PR·(검토자라면) PR 머지 승인이다.** 「커밋은 승인 뒤」, 「main 머지는 의견 들은 뒤」, 「수정 전 설명·승인」 같은 규칙은 사람과 함께 일하는 세션의 규칙이라 여기에는 적용하지 않는다.
 - **사람에게 묻는 때는 UI/UX·아키텍처·설계·접근 방안에서 명확하지 않은 부분이 있을 때뿐이다.** 그 밖의 결정은 스스로 내리고 「내가 정한 것」으로 기록한다.
 - **사람에게 보이는 글은 모두 한국어로 쓴다** — 이슈 챗 메시지·note·질문뿐 아니라 실행 끝에 콘솔로 내는 최종 요약도 한국어다(코드·명령·식별자는 그대로).
-- **하지 않는다**: push, 태그, 운영 배포, 이슈 DONE 처리. 예외는 아래 「본문 지시」가 시킨 이슈 닫기뿐이다.
+- **하지 않는다**: main 직접 push, origin 밖의 원격(gitlab 등) push, 태그, 운영 배포, 이슈 DONE 처리. DONE 의 예외는 아래 「본문 지시」가 시킨 이슈 닫기뿐이다.
+  - **push 는 PR 흐름에서만 한다** — 개발할 때는 내 이슈 브랜치를 origin 에 push 하고 PR 을 만든다(`process-issue.md` 9번). 검토자(아래)일 때는 리뷰한 PR 의 브랜치를 rebase 해 다시 push 하고 GitHub 에서 그 PR 을 머지한다(`process-issue.md` 「PR 리뷰·머지」). MAIN 에는 머지하지 않는다.
+  - **GitHub 준비는 스스로 하지 않는다** — `gh` 가 없거나(`gh --version` 실패) 인증이 안 돼 있으면(`gh auth status` 실패) 설치·로그인·토큰 만들기를 하지 않고 그 이슈를 `AUTH_REQUIRED` 로 멈춘다. `message` 에 빠진 것과 준비 방법(`gh` 설치, 이 AI 의 GitHub 계정 토큰을 `GH_TOKEN` 으로 넣어 세션을 다시 띄우기 — 플러그인 README 「PR 흐름 준비」)을 적는다. 브랜치·워크트리는 남기고, 사람이 준비했다고 남기면 이어 한다.
+- **검토자** = `MAIN/.work-loop/project.md` 「검토자」 절의 username(AI 팀장). 개발한 PR 을 이 사람에게 맡기고, 내가 검토자면 남이 만든 PR 을 리뷰·머지한다. 절이 없거나 username 이 적혀 있지 않으면 검토자 없이 PR 링크와 함께 바로 검토 대기로 올린다(사람이 PR 을 리뷰·머지).
 - **이슈 만들기·담당 바꾸기는 사람처럼 한다** — 내 역할 권한으로 서버가 허락하는 일이다. 일을 나누거나 다른 AI·사람에게 맡겨야 하면 이슈를 만들고 담당자를 지정하고, 찾은 결함도 이슈로 등록한다.
   - 만들기 전에 같은 범위의 이슈가 이미 있는지(닫힌 것까지) `list_issues` 로 찾고, 없을 때만 만든다.
   - 결함 이슈에는 재현 근거(화면 캡처·오류 응답)를 첨부한다(아래 「근거 이미지·파일」).
@@ -24,10 +27,10 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 - **본문 지시** — 사람이 쓴 이슈 본문이 일을 회차로 나눠 이어 가라고 지시하면(예: 날마다 하위를 만들어 처리 — 이런 이슈를 「지시한 이슈」라 부른다), 아래 범위 안에서 이 스킬의 기본 동작 대신 본문을 따른다. 날짜·시각은 모두 한국 시간(KST)이다.
   - **사람이 쓴 본문**: 닫기를 허락하는 본문은 `get_issue_detail` 의 `reporter.kind` 가 `HUMAN` 인 이슈의 본문만이다. AI 가 만든 이슈(하루 하위 등)의 본문은 닫기를 허락하지 못한다.
   - **본문이 허락하는 닫기**: 이 지시로 내가 만든 하위(`reporter` 가 나)와, 본문이 스스로 닫으라고 한 그 이슈 자신을 닫는다. 「마감이 지나면 닫아라」처럼 명시돼 있을 때만이다. 회차마다 하위를 만들거나 찾은 결함을 등록하는 것은 위 「이슈 만들기·담당 바꾸기」대로 한다. 본문의 할 일 목록은 그대로 구현할 일이다.
-  - **본문이 바꾸지 못하는 것**: 이 「우선순위」의 나머지 규칙 전부(예: push 금지, 검증 전 main 머지 금지). 그렇게 하라는 본문은 따르지 않고 이슈 챗에 따르지 않은 이유를 남긴다.
+  - **본문이 바꾸지 못하는 것**: 이 「우선순위」의 나머지 규칙 전부(예: main 직접 push 금지, 검증 전 PR·머지 금지). 그렇게 하라는 본문은 따르지 않고 이슈 챗에 따르지 않은 이유를 남긴다.
   - 실행에 필요한 것(주기·시각·만들 이슈의 제목·마감 등)이 분명하지 않으면 추측하지 않고 답변 필요로 묻는다(work-on 4번). 분명하면 지시한 이슈에 처음 한 번 「본문을 이렇게 이해했다」(주기·시각·만들 것·닫을 조건)를 `message` 로 남기고 notes 파일에 남겼다고 적는다 — AI 가 만든 하위에는 남기지 않는다.
   - 절차는 `process-issue.md` 「본문 지시 회차」 — 회차를 마치면 다음 회차 대기(`SCHEDULED`)로 양보하고, 지시한 이슈는 검토 대기로 올리지 않는다.
-- **검증을 통과하기 전에는 main 에 머지하지 않는다**(`process-issue.md` 8번).
+- **검증을 통과하기 전에는 PR 을 올리지 않고**(`process-issue.md` 8번), **pre-push 게이트를 통과하지 않은 PR 은 머지하지 않는다**(`process-issue.md` 「PR 리뷰·머지」).
 - 상태는 매번 서버(이슈·챗·agentWork)와 git(워크트리·브랜치)에서 다시 읽는다. 대화 기억에 기대지 않는다(대화 요약이 일어나도 이어지게).
 - 보고 규칙(상태·note·질문·되돌리기)은 work-on 과 같다: 이 스킬 폴더 기준 `../work-on/SKILL.md` 의 4번을 읽고 따른다(하위 맡기는 3번 — 아래 3번에서 쓴다). 다만 마무리는 work-on 5번(work-done)을 따르지 않는다 — 두 가지가 다르다.
   - 끝낼 방식을 묻지 않고 DONE 처리도 하지 않는다. 다 끝나면 늘 검토 대기(REVIEW)이고, 마무리·리소스 정리는 `process-issue.md` 11번대로 한다.
@@ -59,28 +62,29 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 ### 3. 후보 고르기
 
-`list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS' })` 로 내 이슈를 모두 읽는다(`hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지). 같은 조건에 `pendingForMe: true` 를 더한 목록이 「사람의 새 글이 있는 이슈」다. 각 이슈를 내 행의 `state` 로 거른다.
+`list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS' })` 로 내 이슈를 모두 읽는다(`hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지). 같은 조건에 `pendingForMe: true` 를 더한 목록이 「새 글이 있는 이슈」다 — 사람이든 다른 AI(검토자·개발자)든 내 마지막 글 뒤에 남이 쓴 글이다. 글에 반응할지는 글의 맥락으로 정한다.
+- **답하지 않고 넘긴 글** — `pendingForMe` 는 내가 글을 남겨야 풀린다. 답할 것이 없는 글(검토 대기 보고, 인사 등)에 답하면 AI 끼리 끝없이 주고받게 되니, 답하지 않을 때는 그 이슈에서 읽은 마지막 글의 id 를 `MAIN/.work-loop/state/seen/<이슈 키>` 에 적는다. 이 파일이 있으면 `get_issue_chat` 으로 그보다 뒤에 남이 쓴 글이 있을 때만 「새 글이 있는 이슈」로 센다. 내가 글을 남기면 그 파일을 지운다. 각 이슈를 내 행의 `state` 로 거른다.
 
 | 내 작업 상태 | 고르나 |
 |---|---|
 | 없음 / 시작 전(SUBMITTED) | 새 작업으로 고른다 |
 | 작업 중(WORKING) | 이전 실행이 끊긴 것으로 보고 이어 한다 |
-| 답변 필요(INPUT_REQUIRED)·인증 필요(AUTH_REQUIRED) | 그 이슈에 사람의 새 글이 있을 때만(`pendingForMe`) |
-| 막힘(BLOCKED) | 사람의 새 글이 있을 때만 |
-| 검토 대기(REVIEW) | 사람의 새 글이 있을 때만 — 추가 요청으로 처리 |
-| 멈춤(PAUSED) | 고르지 않는다(사람이 멈춘 것). 멈춘 뒤 사람의 새 글이 오면 읽기만 한다 — 다시 하라는 글이면 이어 하고, 아니면 멈춘 채 「멈춘 상태로 둡니다 — 다시 하려면 이슈 챗에 다시 해 달라고 남겨 주세요」를 `message` 로 남긴다 |
-| 다음 회차 대기(SCHEDULED) | 내 행의 `nextRunAt` 이 지났거나 없을 때 고른다 — 아직 오지 않았으면 고르지 않는다. 사람의 새 글이 있으면 시각과 상관없이 고른다 |
+| 답변 필요(INPUT_REQUIRED)·인증 필요(AUTH_REQUIRED) | 그 이슈에 새 글이 있을 때만(`pendingForMe`) |
+| 막힘(BLOCKED) | 새 글이 있을 때만 |
+| 검토 대기(REVIEW) | 새 글이 있을 때만 — 추가 요청으로 처리 |
+| 멈춤(PAUSED) | 고르지 않는다(사람이 멈춘 것). 멈춘 뒤 새 글이 오면 읽기만 한다 — 다시 하라는 글이면 이어 하고, 아니면 멈춘 채 「멈춘 상태로 둡니다 — 다시 하려면 이슈 챗에 다시 해 달라고 남겨 주세요」를 `message` 로 남긴다 |
+| 다음 회차 대기(SCHEDULED) | 내 행의 `nextRunAt` 이 지났거나 없을 때 고른다 — 아직 오지 않았으면 고르지 않는다. 새 글이 있으면 시각과 상관없이 고른다. **PR 을 두고 상대를 기다리는 중**(notes 파일의 `마지막 완료 단계` 가 「PR 리뷰 대기」·「PR 수정 대기」)이면 새 글이 있을 때만 고른다 |
 
-순서: ① 사람이 새 글을 단 이슈 → ② 끊긴 작업(WORKING) → ③ `nextRunAt` 이 지난 다음 회차 대기(이른 시각 순, 같으면 부모 먼저 — 부모 회차가 하위를 만들거나 닫는다) → ④ 우선순위 HIGHEST·HIGH·MID·LOW·LOWEST → ⑤ 같은 우선순위면 오래된 순(`createdAt`) → ⑥ 미뤄 둔 후보.
+순서: ① 새 글이 있는 이슈 → ② 끊긴 작업(WORKING) → ③ `nextRunAt` 이 지난 다음 회차 대기(이른 시각 순, 같으면 부모 먼저 — 부모 회차가 하위를 만들거나 닫는다) → ④ 우선순위 HIGHEST·HIGH·MID·LOW·LOWEST → ⑤ 같은 우선순위면 오래된 순(`createdAt`) → ⑥ 미뤄 둔 후보.
 
-**미뤄 둔 후보**: `nextRunAt` 이 없는 다음 회차 대기와 **main 머지 대기**인 이슈(그 이슈의 notes 파일에서 `마지막 완료 단계` 가 「main 머지 대기」 — 머지 전 확인에 걸려 기다리는 중)다. 맨 뒤에 한 번 부르기에 한 번씩만 고르고(머지 대기는 그때 머지를 다시 시도한다), 5번에서 「남은 후보」로 세지 않는다. 고를 것이 없으면 아래 「대기열에서 가져오기」로 간다.
+**미뤄 둔 후보**: `nextRunAt` 이 없는 다음 회차 대기(PR 을 두고 기다리는 이슈는 빼고)다. 맨 뒤에 한 번 부르기에 한 번씩만 고르고, 5번에서 「남은 후보」로 세지 않는다. 고를 것이 없으면 아래 「대기열에서 가져오기」로 간다.
 
 **하위 이슈가 있는 이슈** — 열린 하위가 있는 이슈(`children.total` 이 `children.done` 보다 크다)는, 부모의 내 행이 없음·시작 전·작업 중일 때만 위 표 대신 이 규칙으로 다룬다. 부모의 내 행이 답변 필요·인증 필요·막힘·검토 대기·멈춤·다음 회차 대기면 위 표를 그대로 따른다(같은 보고를 확인마다 되풀이하지 않게). 지시한 이슈(「본문 지시」)는 이 규칙 대신 본문을 따른다 — 하위를 맡을지 묻지 않는다.
 - 처음 고르면 하위를 맡을지 `../work-on/SKILL.md` 3번대로 묻고(이미 물었거나 답을 받았는지는 `get_issue_chat` 으로 본다), 물었으면 이번 부르기를 끝낸다. 답을 받으면 그대로 `update_issue` 로 맡고 받은 답을 `message` 한 줄로 확인한다. 맡은 하위는 내게 할당된 이슈가 되어 각자 후보로 들어온다 — **하위 하나 = 머지 하나**.
-- **부모 자체는 구현하지 않는다**(부모의 할 일은 하위로 나뉘어 있다고 본다). `list_issues({ parent: <이슈 키>, assignee: 'me' })` 로 내가 맡은 하위를 보고, 모두 내 작업이 검토 대기(REVIEW) 이상이거나 이슈가 끝났으면 부모를 하위별 요약(키·제목·머지 커밋)과 함께 `report_agent_work({ issueKey: <부모 키>, state: 'REVIEW', note, message })` 로 올린다. 그 전에는 부모를 고르지 않는다(사람의 새 글이 오면 예외 — 읽고 답한다). 하위를 기다리는 동안의 부모는 「후보가 더 있음」으로 세지 않는다.
+- **부모 자체는 구현하지 않는다**(부모의 할 일은 하위로 나뉘어 있다고 본다). `list_issues({ parent: <이슈 키>, assignee: 'me' })` 로 내가 맡은 하위를 보고, 모두 내 작업이 검토 대기(REVIEW) 이상이거나 이슈가 끝났으면 부모를 하위별 요약(키·제목·머지 커밋)과 함께 `report_agent_work({ issueKey: <부모 키>, state: 'REVIEW', note, message })` 로 올린다. 그 전에는 부모를 고르지 않는다(새 글이 오면 예외 — 읽고 답한다). 하위를 기다리는 동안의 부모는 「후보가 더 있음」으로 세지 않는다.
 - 물을 하위도 맡은 하위도 없으면(모두 사람이 맡았거나, 맡지 말라는 답을 받음) 부모를 `BLOCKED` 로 두고 note 에 이유를 적는다.
 
-**대기열에서 가져오기** — `--queue` 가 있고, 이번 부르기에서 고를 후보가 하나도 없을 때(미뤄 둔 후보까지 없을 때)만 한다. 4번의 main 머지 대기로 3번에 돌아와 다음 후보가 없는 경우는 이미 이슈를 고른 부르기라 가져가지 않는다.
+**대기열에서 가져오기** — `--queue` 가 있고, 이번 부르기에서 고를 후보가 하나도 없을 때(미뤄 둔 후보까지 없을 때)만 한다.
 1. `list_issues({ projectKey, label: <대기열 라벨>, assignee: 'any', status: 'TODO,IN_PROGRESS' })` 로 대기열을 모두 읽는다(`hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지). `assignees` 에 `kind: 'AGENT'` 가 있는 이슈는 뺀다.
    - 그 라벨이 프로젝트에 아직 없어 목록이 `label` 필터 오류(400, `API 오류 400: … — label: …`)로 실패하면 오류가 아니라 빈 대기열로 본다 — 가져갈 이슈가 없으니 아래 「할 일 없음」으로 간다.
 2. 남은 이슈를 우선순위 HIGHEST·HIGH·MID·LOW·LOWEST → 같으면 오래된 순(`createdAt`)으로 하나씩 `claim_issue({ issueKey, queueLabel: <대기열 라벨> })` 로 가져가 본다.
@@ -93,7 +97,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 ### 4. 이슈 하나 처리
 
-고른 이슈 하나를 이 스킬 폴더의 `process-issue.md` 대로 멈출 지점까지 처리한다. `process-issue.md` 는 후보를 고른 뒤에만 읽는다 — 「할 일 없음」이나 잠금·신원 확인에서 끝나는 부르기에서는 읽지 않는다. 멈출 지점: 검토 대기(REVIEW), 질문(INPUT_REQUIRED·AUTH_REQUIRED), 막힘(BLOCKED), 멈춤(PAUSED), 다음 회차 대기(SCHEDULED), 본문 지시로 이슈를 닫음. 한 번 부르기에 이슈는 하나다. 예외: main 머지 대기에 걸리면 그 이슈를 두고 같은 부르기에서 3번의 다음 후보로 넘어간다(미뤄 둔 후보는 한 번 부르기에 한 번만).
+고른 이슈 하나를 이 스킬 폴더의 `process-issue.md` 대로 멈출 지점까지 처리한다. `process-issue.md` 는 후보를 고른 뒤에만 읽는다 — 「할 일 없음」이나 잠금·신원 확인에서 끝나는 부르기에서는 읽지 않는다. 멈출 지점: 검토 대기(REVIEW), 질문(INPUT_REQUIRED·AUTH_REQUIRED), 막힘(BLOCKED), 멈춤(PAUSED), 다음 회차 대기(SCHEDULED — PR 리뷰·수정 대기 포함), 본문 지시로 이슈를 닫음. 한 번 부르기에 이슈는 하나다.
 
 ### 5. 다음 확인
 

@@ -2,7 +2,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -357,111 +357,4 @@ test('loop-lock release: 내 잠금만 지우고 남의 잠금은 둔다', () =>
 test('loop-lock: 인자가 모자라거나 모르는 명령이면 exit 2', () => {
   assert.equal(run('loop-lock', ['acquire']).status, 2);
   assert.equal(run('loop-lock', ['steal', '/x']).status, 2);
-});
-
-// WP-376 main 머지 전 확인(merge-ready) — 임시 저장소: main 에 a.txt·b.txt, ai/WP-1 은 a.txt 를 고치고 c.txt 를 더한다.
-function git(cwd, ...args) {
-  const r = spawnSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    env: {
-      PATH: process.env.PATH,
-      HOME: home,
-      GIT_CONFIG_NOSYSTEM: '1',
-      GIT_AUTHOR_NAME: 't',
-      GIT_AUTHOR_EMAIL: 't@t',
-      GIT_COMMITTER_NAME: 't',
-      GIT_COMMITTER_EMAIL: 't@t',
-    },
-  });
-  assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
-  return r.stdout.trim();
-}
-function mergeRepo() {
-  const main = mkdtempSync(join(tmpdir(), 'gw-merge-'));
-  git(main, 'init', '-q', '-b', 'main');
-  writeFileSync(join(main, 'a.txt'), 'a\n');
-  writeFileSync(join(main, 'b.txt'), 'b\n');
-  git(main, 'add', '.');
-  git(main, 'commit', '-q', '-m', 'init');
-  git(main, 'switch', '-q', '-c', 'ai/WP-1');
-  writeFileSync(join(main, 'a.txt'), 'a2\n');
-  writeFileSync(join(main, 'c.txt'), 'c\n');
-  git(main, 'add', '.');
-  git(main, 'commit', '-q', '-m', 'work');
-  git(main, 'switch', '-q', 'main');
-  git(main, 'branch', 'feature/x', 'ai/WP-1');
-  return main;
-}
-const ready = (main, branch = 'ai/WP-1') => run('merge-ready', [main, branch]);
-
-test('merge-ready: 깨끗한 main 이면(겹치지 않는 수정 중 파일이 있어도) 아무것도 내지 않고 0', () => {
-  const main = mergeRepo();
-  let r = ready(main);
-  assert.equal(r.status, 0);
-  assert.equal(r.stdout, '');
-  writeFileSync(join(main, 'b.txt'), 'b-dirty\n');
-  writeFileSync(join(main, 'd.txt'), 'new\n');
-  r = ready(main);
-  assert.equal(r.status, 0);
-  assert.equal(r.stdout, '');
-});
-
-test('merge-ready: main 이 아니거나·진행 중 머지·스테이징한 변경이 있으면 막는다', () => {
-  const main = mergeRepo();
-  git(main, 'switch', '-q', '-c', 'human');
-  let r = ready(main);
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /^main 작업 폴더가 main 이 아니다: human$/m);
-  git(main, 'switch', '-q', 'main');
-
-  writeFileSync(join(main, '.git', 'MERGE_HEAD'), git(main, 'rev-parse', 'ai/WP-1') + '\n');
-  r = ready(main);
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /^진행 중: MERGE_HEAD$/m);
-  rmSync(join(main, '.git', 'MERGE_HEAD'));
-
-  // 진행 중인 rebase 는 rebase-merge 폴더로 안다.
-  mkdirSync(join(main, '.git', 'rebase-merge'));
-  r = ready(main);
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /^진행 중: rebase-merge$/m);
-  rmSync(join(main, '.git', 'rebase-merge'), { recursive: true });
-
-  // 끝난 rebase(pull --rebase 등)가 남긴 REBASE_HEAD 만 있으면 막지 않는다 — 막으면 그 저장소에선 영원히 머지 대기가 된다.
-  writeFileSync(join(main, '.git', 'REBASE_HEAD'), git(main, 'rev-parse', 'main') + '\n');
-  r = ready(main);
-  assert.equal(r.status, 0, r.stdout);
-  rmSync(join(main, '.git', 'REBASE_HEAD'));
-
-  writeFileSync(join(main, 'b.txt'), 'b-staged\n');
-  git(main, 'add', 'b.txt');
-  r = ready(main);
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout.trim(), '스테이징한 변경이 있다');
-});
-
-test('merge-ready: 브랜치가 바꾼 파일을 MAIN 에서 고치는 중이거나 같은 이름의 새 파일이 있으면 그 파일을 내고 막는다', () => {
-  const main = mergeRepo();
-  writeFileSync(join(main, 'a.txt'), 'a-human\n');
-  let r = ready(main);
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout.trim(), '겹치는 파일: a.txt');
-  git(main, 'checkout', '--', 'a.txt');
-
-  writeFileSync(join(main, 'c.txt'), 'human c\n'); // 추적 안 된 새 파일
-  r = ready(main);
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout.trim(), '겹치는 파일: c.txt');
-});
-
-test('merge-ready: ai/* 가 아닌 브랜치·없는 브랜치는 막는다, 인자가 모자라면 exit 2', () => {
-  const main = mergeRepo();
-  let r = ready(main, 'feature/x');
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout.trim(), 'ai/* 브랜치가 아니다: feature/x');
-  r = ready(main, 'ai/WP-404');
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout.trim(), '브랜치가 없다: ai/WP-404');
-  assert.equal(run('merge-ready', [main]).status, 2);
 });

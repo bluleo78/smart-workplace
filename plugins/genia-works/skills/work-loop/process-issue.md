@@ -2,31 +2,36 @@
 
 `SKILL.md` 3번에서 고른 이슈 하나를 처리한다. MAIN·notes 파일·보고 규칙(work-on 4번과 그 예외)·하지 않는 일·근거 이미지·스택 이름은 `SKILL.md` 「우선순위」대로다(아래에서 「우선순위」라고 부른다). 아래에는 work-loop 에서 더하는 것만 적는다.
 
-순서: 시작 → 워크트리 → 이해 → 질문 판단 → 설계·구현 → 리뷰 → 커밋 하나로 합치기 → 브랜치 라이브 검증 → 머지 → main 재확인 → 검토 대기. 본문 지시로 회차를 나눠 하는 이슈(또는 그런 부모의 하위)는 맨 아래 「본문 지시 회차」 순서를 따른다.
+순서: 시작 → 워크트리 → 이해 → 질문 판단 → 설계·구현 → 리뷰 → 커밋 하나로 합치기 → 브랜치 라이브 검증 → PR → PR 리뷰 대기 → 검토 대기. 본문 지시로 회차를 나눠 하는 이슈(또는 그런 부모의 하위)는 맨 아래 「본문 지시 회차」 순서를 따른다.
+
+**먼저 갈래를 본다** — 이 이슈의 PR(`gh pr list --state all --search "<이슈 키> in:title" --json number,state,author,headRefName,url,title` 에서 제목이 `<이슈 키> ` 로 시작하는 것 중 가장 최근 것 — 검색은 `WP-12` 로 `WP-123` 도 찾는다)이 있고 그 작성자가 내 GitHub 계정(`gh api user --jq .login`)이 아니면, 나는 그 PR 의 검토자다 — 아래 1~11번 대신 「PR 리뷰·머지」 절을 따른다(이미 머지·닫힌 PR 이어도 — 내가 구현할 이슈가 아니다). 내가 만든 PR 이거나 PR 이 없으면 1번부터다. `gh` 가 준비되지 않았으면 「우선순위」대로 `AUTH_REQUIRED` 로 멈춘다.
 
 **notes 파일**(`MAIN/.work-loop/state/notes/<이슈 키>.md`) — 다음 부르기나 대화 요약 뒤에도 여기서 이어 한다.
-- `마지막 완료 단계`: 단계를 마칠 때마다 그 번호와 이름으로 고친다(예: `7. 커밋 하나로 합치기`). 머지 조건을 기다리면 「main 머지 대기」.
+- `마지막 완료 단계`: 단계를 마칠 때마다 그 번호와 이름으로 고친다(예: `7. 커밋 하나로 합치기`). PR 을 두고 상대를 기다리면 개발자는 「PR 리뷰 대기」, 검토자는 「PR 수정 대기」(`SKILL.md` 3번이 이 값으로 고른다).
+- `브랜치`·`PR`: 브랜치 이름과 PR 번호·주소.
 - `검증한 HEAD SHA`: 8번을 통과한 커밋(`git -C <워크트리> rev-parse HEAD`). 그 뒤 브랜치가 바뀌면 지운다.
 - 「내가 정한 것」 목록과 단계별 시도 횟수. 11번에서 모은다.
 
 ### 1. 시작
 
-- notes 파일이 있으면 `마지막 완료 단계` 다음 단계부터 이어 한다(내 행의 note·진행률도 이어받는다). 「main 머지 대기」면 9번부터 다시 한다. 없으면 2번부터다.
-- 사람의 새 글로 고른 이슈는 보고하기 **전에** 새 글부터 읽고(`get_issue_chat` — 읽는 법은 work-on 4번), `WORKING` 으로 되돌리는 보고(work-on 4번 — note 에 이어서 할 일, `message` 에 받은 답·요청 확인)를 **한 번만** 한다. 멈추라는 글이면 「우선순위」대로 `PAUSED` 로 보고하고 끝낸다.
+- notes 파일이 있으면 `마지막 완료 단계` 다음 단계부터 이어 한다(내 행의 note·진행률도 이어받는다). 「PR 리뷰 대기」면 새 글을 읽고 2번(브랜치를 origin 에 맞춤) 뒤 3번 끝의 갈래(머지됨 → 11번, 고칠 것 → 6번)로 간다. 없으면 2번부터다.
+- 새 글로 고른 이슈는 보고하기 **전에** 새 글부터 읽고(`get_issue_chat` — 읽는 법은 work-on 4번), `WORKING` 으로 되돌리는 보고(work-on 4번 — note 에 이어서 할 일, `message` 에 받은 답·요청 확인)를 **한 번만** 한다. 멈추라는 글이면 「우선순위」대로 `PAUSED` 로 보고하고 끝낸다. 답할 것이 없는 글이면(검토 대기 보고·인사 등) 보고하지 않고 「답하지 않고 넘긴 글」(`SKILL.md` 3번)로 적고 끝낸다.
 - 그 밖에는 `report_agent_work({ issueKey, state: 'WORKING', note: '<한 줄 요약>' })` 로 시작을 알린다.
 
 ### 2. 워크트리
 
-- 이슈 전용 워크트리 `MAIN/.claude/worktrees/<이슈 키>`, 브랜치 `ai/<이슈 키>` 에서 일한다. 이미 있으면(`git -C MAIN worktree list`) 그것을 쓴다.
+- 이슈 전용 워크트리 `MAIN/.claude/worktrees/<이슈 키>` 에서 일한다. 브랜치는 `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123` — 타입은 저장소 커밋 규칙의 것)다. 이미 있으면(`git -C MAIN worktree list`) 그것을 쓴다.
+- 이 이슈의 **열린 PR** 이 있으면(맨 위 갈래에서 본 내 PR) 새로 만들지 않고 그 PR 의 브랜치(`headRefName`)를 받아 쓴다. 검토자가 rebase 해 다시 push 했을 수 있으니 로컬 브랜치를 늘 `origin/<브랜치>` 로 맞추고 시작한다(`git fetch origin` 뒤 `git reset --hard origin/<브랜치>` — 워크트리에 커밋 안 한 변경이 없을 때만).
 - 만들기 전에 폴더가 MAIN 에서 git 무시인지 본다: `git -C MAIN check-ignore -q .claude/worktrees/x`. 무시가 아니면 `MAIN/.git/info/exclude` 에 `.claude/worktrees/` 한 줄을 덧붙인다(로컬 전용 — 저장소의 `.gitignore` 는 이 일로 고치지 않는다). 안 하면 워크트리 폴더가 MAIN 에 추적 안 된 폴더로 보인다.
-- 없으면 최신 main 에서 만든다: `git -C MAIN worktree add .claude/worktrees/<이슈 키> -b ai/<이슈 키> main`. 의존성 설치는 `.work-loop/project.md` 를 따른다.
+- 없으면 최신 origin/main 에서 만든다: `git -C MAIN fetch origin` 뒤 `git -C MAIN worktree add .claude/worktrees/<이슈 키> -b <브랜치> origin/main`. 의존성 설치는 `.work-loop/project.md` 를 따른다.
 - **main 작업 폴더에서 브랜치를 만들거나 바꾸지 않는다**(같은 저장소의 사람 세션과 공유한다). 모든 수정은 워크트리 안에서 한다.
 
 ### 3. 이해
 
 - `get_issue_detail({ issueKey })` 로 본문·완료 기준을 읽고, 부모 에픽·연결 이슈도 `get_issue_detail` 로 읽는다.
-- 이슈 챗의 앞선 글(질문과 답, 요청)도 읽는다. 1번에서 읽은 사람의 새 글이 있으면 그것부터 반영한다.
-- 검토 대기 이슈에 사람이 새 요청을 남겼으면 같은 이슈의 추가 작업으로 이 순서를 다시 돈다(새 워크트리를 최신 main 에서 만든다).
+- 이슈 챗의 앞선 글(질문과 답, 요청, 검토자의 리뷰)도 읽는다. 1번에서 읽은 새 글이 있으면 그것부터 반영한다.
+- 검토 대기 이슈에 사람이 새 요청을 남겼으면 같은 이슈의 추가 작업으로 이 순서를 다시 돈다(PR 이 머지됐으면 새 워크트리와 새 브랜치를 최신 origin/main 에서 만든다 — 머지된 브랜치 이름이 원격에 남아 있으면 뒤에 `-2` 처럼 붙인다).
+- PR 리뷰 대기 중에 검토자의 글이 왔으면 읽고 갈래를 정한다: 머지했다 → 11번. 고칠 것을 남겼다 → 열린 PR 의 브랜치에서 고쳐 6번부터 다시 한다(새 PR 을 만들지 않는다).
 
 ### 4. 질문 판단
 
@@ -43,13 +48,13 @@
 
 ### 6. 리뷰
 
-- 브랜치 전체(main 과의 차이)에 `/code-review medium` → `/simplify` 를 돌리고 지적을 반영한다.
+- 브랜치 전체(origin/main 과의 차이)에 `/code-review medium` → `/simplify` 를 돌리고 지적을 반영한다.
 - 반영 뒤 `MAIN/.work-loop/project.md` 의 테스트 명령(바뀐 범위별)을 돌린다. 실패하면 고친다.
 
 ### 7. 커밋 하나로 합치기
 
-- main 이 브랜치를 만든 뒤 바뀌었으면 `git rebase main` 하고 테스트를 다시 돌린다.
-- 브랜치의 커밋을 하나로 합친다(`git reset --soft $(git merge-base main HEAD)` 뒤 커밋). 메시지는 저장소의 커밋 규칙을 따르고 이슈 키를 넣는다.
+- `git fetch origin` 뒤 origin/main 이 브랜치를 만든 뒤 바뀌었으면 `git rebase origin/main` 하고 테스트를 다시 돌린다.
+- 브랜치의 커밋을 하나로 합친다(`git reset --soft $(git merge-base origin/main HEAD)` 뒤 커밋). 메시지는 저장소의 커밋 규칙을 따르고 이슈 키를 넣는다.
 
 ### 8. 브랜치 라이브 검증
 
@@ -57,33 +62,49 @@
 - project.md 대로 합친 브랜치(이 워크트리)를 격리 로컬 스택(API·웹·DB)으로 띄운다(이름은 「우선순위」대로 `work-loop`). 다른 세션이 쓰는 포트는 건드리지 않고 겹치지 않는 포트를 쓴다.
 - 이슈의 완료 기준을 한 줄씩 **실제로 해 본다**. 화면이면 브라우저로 조작하고 전·후 스크린샷을 남긴다. API 면 실제 요청을 보내고 요청·응답을 요약한다. 테스트 통과는 동작의 근거로 치지 않는다.
 - 근거는 「완료 기준 → 확인 결과」로 정리한다(11번 `message` 에 쓴다). 사람이 그것만 보고 동작을 믿을 수 있어야 한다. 스크린샷은 11번 보고에 첨부한다(「우선순위」의 근거 이미지·파일 규칙대로).
-- 통과하면 notes 파일에 `검증한 HEAD SHA` 를 적는다. 실패하면 원인을 고쳐 6~8번을 되풀이한다(통과 전에는 머지하지 않는다 — 「우선순위」).
+- 통과하면 notes 파일에 `검증한 HEAD SHA` 를 적는다. 실패하면 원인을 고쳐 6~8번을 되풀이한다(통과 전에는 PR 을 올리지 않는다 — 「우선순위」).
 - 로컬에서 검증할 수 없는 이슈(문서만 바뀜, 운영에서만 재현 등)는 「로컬에서 검증할 수 없음」과 이유를 근거에 적고, `검증한 HEAD SHA` 를 적은 뒤 9번으로 간다.
 - 다 쓴 스택은 내린다(`LIVE_STACK_NAME=work-loop … down`).
 
-### 9. main 머지
+### 9. PR
 
-- `git -C MAIN rev-parse ai/<이슈 키>` 가 notes 파일의 `검증한 HEAD SHA` 와 같을 때만 머지한다. 다르거나 없으면 8번으로 돌아간다.
-- 머지 전 확인: `"<이 스킬 폴더>/../../scripts/merge-ready" "<MAIN>" ai/<이슈 키>` 를 실행한다. MAIN 이 `main` 인지, 진행 중인 git 작업(머지·rebase·cherry-pick·revert)·스테이징한 변경이 없는지, MAIN 에서 바뀐 파일(추적 안 된 새 파일 포함)이 브랜치가 바꾼 파일과 겹치지 않는지, 브랜치가 `ai/*` 인지 본다. MAIN 은 사람이 쓰는 폴더라, 사람이 하던 일을 건드릴 수 있으면 기다린다.
-- 무엇이든 출력하면(종료 코드가 0 이 아니면) 머지하지 않는다 — notes 파일의 `마지막 완료 단계` 를 「main 머지 대기」로 적고, note 「main 머지 대기 — main 작업 폴더 사용 중」으로 `WORKING` 을 둔 뒤, 같은 부르기에서 `SKILL.md` 3번의 다음 후보로 넘어간다(이 이슈는 다음 확인에 다시 시도한다).
-- 아무것도 출력하지 않으면 `git -C MAIN merge --no-ff ai/<이슈 키> -m "merge: <이슈 키> <제목>"`. merge-ready 가 통과했으니 머지 전에는 MERGE_HEAD 가 없었다. 실패하면 MERGE_HEAD 를 다시 본다(`[ -e "$(git -C MAIN rev-parse --path-format=absolute --git-path MERGE_HEAD)" ]`) — 지금 있으면 이 머지가 남긴 충돌이다. 그때만 `git -C MAIN merge --abort` 로 되돌리고, 워크트리에서 main 위로 rebase 해 6번부터 다시 한다. MERGE_HEAD 가 없으면(머지가 시작도 못 함 — 예: 작업 폴더의 파일을 덮어쓰게 돼 git 이 거절) 되돌릴 것이 없다 — 아무것도 고치지 않고 「main 머지 대기」로 둔다.
+- 로컬 브랜치 HEAD 가 notes 파일의 `검증한 HEAD SHA` 와 같을 때만 올린다. 다르거나 없으면 8번으로 돌아간다.
+- `git push --force-with-lease -u origin <브랜치>` — pre-push 게이트가 돈다(`.work-loop/project.md` 3번 — 10분 이상 걸릴 수 있다). 게이트가 실패하면 고쳐 6번부터 다시 한다. 다시 올리는 PR 이면 같은 명령으로 브랜치만 갱신한다.
+- PR 이 없으면 `gh pr create --base main --head <브랜치> --title "<이슈 키> <이슈 제목>" --body-file <파일>`. 본문은 이슈 링크, 완료 기준별 확인 결과, 「내가 정한 것」, 남은 위험이다. notes 파일에 `PR` 을 적는다.
 
-### 10. main 재확인
+### 10. PR 리뷰 대기
 
-- 검증한 브랜치와 머지 결과의 내용이 같으면(`git rev-parse ai/<이슈 키>^{tree}` 와 `main^{tree}` 가 같다 — 그 사이 main 이 안 바뀜) 다시 띄우지 않는다.
-- 다르면 워크트리를 머지된 main 으로 옮겨(`git switch --detach main`) 스택을 다시 띄우고 완료 기준을 한 번 더 확인한다.
-- 여기서 실패하면 다른 변경과 얽힌 것이다. `BLOCKED` + note 에 이유, `message` 에 머지 커밋과 실패한 기준을 적는다. 머지는 되돌리지 않는다.
+- 검토자(「우선순위」)가 없으면 기다리지 않고 11번으로 간다 — 보고에 PR 주소를 넣어 사람이 리뷰·머지하게 한다. 워크트리·브랜치는 지우지 않는다(머지 전이다).
+- 검토자가 담당자에 없으면 `update_issue` 로 더한다(기존 담당자 유지 — `get_issue_detail` 의 username 을 함께 넘긴다). 이유는 「우선순위」대로 `add_comment` 로 남긴다(예: 「PR #12 리뷰·머지를 <검토자> 에게 맡깁니다」).
+- `report_agent_work({ issueKey, state: 'SCHEDULED', note: 'PR #<번호> 리뷰 대기', message: '<PR 주소> 검토 부탁드립니다 — <바뀐 것 한두 줄>' })` — `nextRunAt` 은 넣지 않는다. 다시 올린 PR 이면 `message` 에 고친 것을 적는다. notes 파일의 `마지막 완료 단계` 를 「PR 리뷰 대기」로 적고 이번 부르기를 끝낸다. 검토자의 글이 오면 3번에서 이어진다.
 
 ### 11. 검토 대기
 
-- `report_agent_work({ issueKey, state: 'REVIEW', note: '<머지 커밋> main 머지 — 검토 대기', message: '<보고>' })` 로 올린다. 보고에는 머지 커밋, 완료 기준별 확인 결과(요청/응답 요약, 스크린샷은 `fileIds` 로 첨부), 「내가 정한 것」 목록, 남은 위험을 적는다. `message` 길이·나눠 보내기·되풀이 금지는 work-on 4번.
-- 그 뒤 이 이슈의 워크트리·브랜치와 notes 파일을 지운다(main 에 들어갔고 보고에 다 담았으므로). 먼저 `cd MAIN` 으로 워크트리 밖에 나온 뒤 `git -C MAIN worktree remove .claude/worktrees/<이슈 키>`, `git -C MAIN branch -d ai/<이슈 키>`.
-- DONE·push·배포는 「우선순위」대로 하지 않는다 — 사람이 한다.
+- 검토자가 머지했으면 `gh pr view <번호> --json state,mergeCommit` 로 `MERGED` 와 머지 커밋을 확인한다(아니면 검토자에게 이슈 챗으로 묻고 10번처럼 기다린다).
+- `report_agent_work({ issueKey, state: 'REVIEW', note: '<머지 커밋> 머지 — 검토 대기', message: '<보고>' })` 로 올린다. 검토자가 없어 머지 전이면 note 를 「PR #<번호> — 사람 리뷰·머지 대기」로 한다. 보고에는 PR·머지 커밋, 완료 기준별 확인 결과(요청/응답 요약, 스크린샷은 `fileIds` 로 첨부), 「내가 정한 것」 목록, 남은 위험을 적는다. `message` 길이·나눠 보내기·되풀이 금지는 work-on 4번.
+- 머지됐으면 이 이슈의 워크트리·로컬 브랜치와 notes 파일을 지운다(main 에 들어갔고 보고에 다 담았으므로). 먼저 `cd MAIN` 으로 워크트리 밖에 나온 뒤 `git -C MAIN worktree remove .claude/worktrees/<이슈 키>`, `git -C MAIN branch -D <브랜치>`(검토자의 rebase 로 로컬과 해시가 달라 `-d` 는 거절된다). 원격 브랜치는 지우지 않는다.
+- DONE·gitlab push·배포는 「우선순위」대로 하지 않는다 — 사람이 한다.
+
+### PR 리뷰·머지 (검토자)
+
+이 이슈의 열린 PR 을 다른 AI·사람이 만들었고 내가 담당자일 때다(맨 위 갈래). notes 파일·워크트리 위치는 같다(`MAIN/.claude/worktrees/<이슈 키>`, 브랜치는 PR 의 `headRefName`).
+
+1. **시작**: PR 이 이미 머지·닫혔으면 새 글만 읽는다 — 나에게 묻거나 부탁한 글이면 상태 없이 `report_agent_work({ issueKey, message })` 로 답하고, 아니면(개발자의 검토 대기 보고 등) 「답하지 않고 넘긴 글」(`SKILL.md` 3번)로 적고 끝낸다. 열린 PR 이면 위 1번과 같다(새 글부터 읽고 `WORKING`).
+2. **받기**: `git -C MAIN fetch origin` 뒤 워크트리가 없으면 `git -C MAIN worktree add .claude/worktrees/<이슈 키> -B <브랜치> origin/<브랜치>`, 있으면 그 안에서 `git reset --hard origin/<브랜치>`. 의존성 설치는 `.work-loop/project.md` 를 따른다.
+3. **리뷰**: 이슈 본문·완료 기준, PR 본문, 개발자의 근거를 읽고 브랜치 전체(origin/main 과의 차이)에 `/code-review medium` 을 돌린다. 근거가 모자라거나 의심스러우면 8번처럼 격리 스택으로 직접 확인한다.
+4. **반려**: 고칠 것이 있으면 `gh pr review <번호> --request-changes --body '<고칠 것>'`, `report_agent_work({ issueKey, state: 'SCHEDULED', note: 'PR #<번호> 수정 대기', message: '<고칠 것 — 파일·이유>' })`(`nextRunAt` 없음), `마지막 완료 단계` 를 「PR 수정 대기」로 적고 끝낸다. 개발자가 고쳐 다시 부탁하면 2번부터 다시 한다.
+5. **rebase**: 통과면 `git fetch origin` 뒤 브랜치가 origin/main 을 포함하지 않으면(`git merge-base --is-ancestor origin/main HEAD` 실패) `git rebase origin/main`.
+   - 충돌은 내가 푼다 — 양쪽의 뜻을 살리는 단순한 합치기(가져오기·목록·설정 줄, 마이그레이션 번호 올리기 등)일 때만이다. 동작을 바꿔야 풀리는 충돌이면 `git rebase --abort` 하고 4번처럼 반려한다(「main 반영 필요 — 충돌: <파일>」).
+   - 푼 뒤 바뀐 범위의 테스트(`.work-loop/project.md` 2번)를 돌린다. 푼 내용은 6번 보고와 PR 댓글(`gh pr comment`)에 남긴다.
+6. **push**: `git push --force-with-lease origin <브랜치>` — pre-push 게이트가 합친 결과를 검증한다(rebase 하지 않았으면 이미 올라간 그대로라 할 일이 없다). 게이트가 실패하면 고치지 않고 실패한 검사와 함께 4번처럼 반려한다.
+7. **머지**: 머지 직전에 다시 `git fetch origin` — origin/main 이 그 사이 바뀌어 브랜치가 그것을 포함하지 않으면 5번부터 다시 한다(GitHub 은 충돌만 없으면 낡은 브랜치도 머지해 준다). 포함하면 `gh pr review <번호> --approve` 뒤 `gh pr merge <번호> --merge --match-head-commit <push 한 HEAD SHA> --subject "merge: <이슈 키> <이슈 제목>"`(그 사이 누가 브랜치를 바꿨으면 거절된다). 거절되면 2번부터 다시 한다. 승인이 거절되면(같은 GitHub 계정 — 자기 PR) 머지하지 않고 `BLOCKED` + 이유로 둔다.
+8. **알림**: `report_agent_work({ issueKey, state: 'REVIEW', note: '<머지 커밋> 머지 — 검토 대기', message: '<PR> 을 머지했습니다(<머지 커밋>) — 리뷰 결과, 푼 충돌, 남은 위험' })`. 이 글이 개발자를 깨운다. 그 뒤 워크트리·로컬 브랜치·notes 파일을 위 11번처럼 지운다.
+- 같은 단계가 3번 되풀이돼도 풀리지 않으면 아래 「막힘」대로다. DONE·gitlab push·배포는 하지 않는다.
 
 ### 막힘
 
 - 같은 단계가 3번 되풀이돼도 풀리지 않으면(테스트·검증 실패, 혼자 풀 수 없는 머지 충돌 등) `report_agent_work({ issueKey, state: 'BLOCKED', note: '<이유 한 줄>', message: '<시도한 것, 브랜치·워크트리 위치>' })` 로 남기고 이번 부르기를 끝낸다(다음 확인에 다음 이슈로 넘어간다).
-- 머지 전 단계에서 막히면 main 은 그대로다. 브랜치·워크트리는 지우지 않고 남겨 둔다.
+- 머지 전 단계에서 막히면 main 은 그대로다. 브랜치·워크트리(올렸으면 PR 도)는 지우지 않고 남겨 둔다.
 - 할 수 없는 일·시도했지만 실패한 일도 `BLOCKED` 다(끝내는 상태는 보고하지 않는다 — 「우선순위」).
 
 ### 본문 지시 회차
