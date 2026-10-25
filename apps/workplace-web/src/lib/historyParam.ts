@@ -166,6 +166,14 @@ export function liveHistoryKey(): string {
   return typeof key === 'string' && key ? key : 'default'
 }
 
+/**
+ * 지금 브라우저 주소의 쿼리 — useSearchParams 의 값(과 setter 의 prev)은 마지막으로 그려진 렌더의 것이라,
+ * URL 바꾸기(transition)가 화면에 닿기 전이나 비동기 응답 뒤에 쓰는 쪽은 이것을 기준으로 해야 방금 바뀐 URL 을 되돌리지 않는다(WP-955).
+ */
+export function liveSearchParams(): URLSearchParams {
+  return new URLSearchParams(window.location.search)
+}
+
 /** 지금 브라우저 항목의 router state(usr). popstate 처럼 라우터 갱신 전 시점에 읽을 때 쓴다. */
 export function currentHistoryState(): RouterState {
   return asState(rawHistoryState()?.usr)

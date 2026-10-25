@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 
 import { useCreateSavedView, useUpdateSavedView } from '../../../hooks/queries/useSavedViews'
+import { liveSearchParams } from '../../../lib/historyParam'
 import type { IssueListColumnKey } from '../../../lib/issueListColumns'
 import { savedViewUpdateQuery, syncSavedViewColumns } from '../../../lib/savedViewQuery'
 import type { SavedViewResponse, Visibility } from '../../../types/savedView'
@@ -68,8 +69,9 @@ export function SaveViewDialog({
   const [, setParams] = useSearchParams()
   // 저장한 뷰가 지금 화면이 됐을 때 URL cols 를 그 뷰에 맞춘다 — 「그 뷰를 연 상태」 와 같게(열을 담았으면 URL 로, 아니면 빼서 개인 열로).
   // 맞추지 않으면 열을 담은 뷰를 막 만든 화면에서 열을 바꿀 때 뷰(URL)가 아니라 개인 저장값이 바뀌었다.
+  // 기준은 응답 시점의 지금 주소다(WP-955) — setParams 의 prev 는 저장을 누른 렌더의 URL 이라 그사이 바뀐 URL 을 되돌린다.
   const syncColumns = (savedQuery: string) =>
-    setParams((prev) => syncSavedViewColumns(prev, savedQuery), { replace: true })
+    setParams(syncSavedViewColumns(liveSearchParams(), savedQuery), { replace: true })
   const isEdit = !!editing
   // 수정 모드면 기존값으로 초기화 — 호출처에서 key 로 리마운트해 editing 별 초기값을 보장한다.
   const [name, setName] = useState(editing?.name ?? '')

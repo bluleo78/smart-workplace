@@ -5,7 +5,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { BrowserRouter, MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AuthContext } from '@/hooks/auth-context-value'
@@ -30,13 +30,17 @@ function def(id: number, position: number): IssueFieldDef {
   return { id, projectId: 1, name: `필드${id}`, type: 'TEXT', options: null, position, createdAt: '', updatedAt: '' }
 }
 
-/** 주어진 URL 로 훅을 렌더한다 — 현재 location 도 함께 돌려 URL 갱신을 확인한다. */
+/**
+ * 주어진 URL 로 훅을 렌더한다 — 현재 location 도 함께 돌려 URL 갱신을 확인한다.
+ * 앱과 같은 BrowserRouter 로 렌더한다 — 훅이 쓰기 기준을 지금 브라우저 주소(liveSearchParams)로 잡기 때문이다(WP-955).
+ */
 function renderColumns(url = `/projects/${KEY}`, closedFilterActive = false) {
+  window.history.replaceState(null, '', url)
   const queryClient = new QueryClient()
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={testAuthValue}>
-        <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>
+        <BrowserRouter>{children}</BrowserRouter>
       </AuthContext.Provider>
     </QueryClientProvider>
   )
@@ -52,6 +56,8 @@ const stored = () => localStorage.getItem(STORAGE_KEY)
 beforeEach(() => {
   // jsdom 의 localStorage 대신 테스트마다 새 메모리 저장소 — 앞 테스트의 저장값이 새지 않게.
   vi.stubGlobal('localStorage', memoryStorage())
+  // 앞 테스트가 남긴 브라우저 주소(cols 등)가 새지 않게 비운다.
+  window.history.replaceState(null, '', '/')
   fieldDefs = undefined
 })
 

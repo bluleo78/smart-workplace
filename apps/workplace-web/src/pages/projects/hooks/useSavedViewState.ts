@@ -6,6 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useProject } from '../../../hooks/queries/useProjects'
 import { useSavedViews, useUpdateSavedView } from '../../../hooks/queries/useSavedViews'
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy'
+import { liveSearchParams } from '../../../lib/historyParam'
 import { isAllIgnoringEpicScope } from '../../../lib/issueFacetFilters'
 import { filtersToParams, parseFilters, parseView } from '../../../lib/issueFilters'
 import { COLS_PARAM, type IssueListColumnKey, serializeColumns } from '../../../lib/issueListColumns'
@@ -141,12 +142,16 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   // 열은 뷰의 선택을 지킨다 — 열을 담은 뷰면 지금 열까지, 안 담은 뷰면 열 없이(savedViewUpdateQuery).
   // 공유(SHARED) 뷰는 갱신이 다른 사람에게도 즉시 반영되므로 확인 대화상자를 거친다.
   // 갱신에 성공하면 URL cols 를 저장된 뷰에 맞춘다(syncSavedViewColumns) — 열을 담은 뷰가 URL cols 없이 활성이던 화면에서도
-  // 이후 열 변경이 개인 저장값이 아니라 뷰(URL)를 바꾸게.
+  // 이후 열 변경이 개인 저장값이 아니라 뷰(URL)를 바꾸게. 기준은 응답 시점의 지금 주소다(WP-955) — setParams 의 prev 는
+  // 저장을 누른 렌더의 URL 이라, 응답을 기다리는 사이 바꾼 필터·열을 되돌려 버린다.
   const updateView = (v: SavedViewResponse) => {
     const query = savedViewUpdateQuery(v.query, currentQueryWithColumns)
     update.mutate(
       { id: v.id, body: { name: v.name, query, visibility: v.visibility } },
-      { onSuccess: () => setParams((prev) => syncSavedViewColumns(prev, query), { replace: true }) },
+      {
+        onSuccess: () =>
+          setParams(syncSavedViewColumns(liveSearchParams(), query), { replace: true }),
+      },
     )
   }
   const updateActiveView = (v: SavedViewResponse) => {

@@ -6,6 +6,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@/hooks/useAuth'
+import { liveSearchParams } from '@/lib/historyParam'
 import { safeLocalStorage } from '@/lib/safeLocalStorage'
 import { userScopedKey } from '@/lib/userScopedKey'
 
@@ -140,24 +141,21 @@ export function useIssueListColumns(projectKey: string, closedFilterActive: bool
   //   지우지 않고 기본 열로 쓴다(스펙 4.7) — 지우면 개인 열이 보여 「기본」이 아니고, 열을 담은 뷰는 기본 열로 바꾼 것이 「수정됨」으로 잡혀야 한다.
   // - 없으면 개인 저장값을 바꾸고, 되돌리기는 저장값을 지운다.
   // URL 쓰기는 savedViewQuery 의 syncSavedViewColumns(저장 뷰 쿼리 문자열 기준)와 입력이 달라 여기서 직접 한다.
-  const hasUrlCols = urlRaw !== null
+  // 갈림과 다음 URL 은 렌더 때의 params 가 아니라 지금 주소(window.location)로 정한다(WP-955) — 라우터는 URL 바꾸기를
+  // transition 으로 그려 history 가 화면보다 먼저 바뀐다. 그 사이(뷰 칩·뷰 저장 직후)에 누른 열 바꾸기·되돌리기가
+  // 이전 URL 로 계산되면 방금 바꾼 필터를 되살리거나(되돌리기가 완료일 필터를 다시 붙임) URL 열 대신 개인 저장값에 썼다.
   const commit = useCallback(
     (keys: IssueListColumnKey[] | null) => {
       const next = keys ? orderColumns(keys, order) : null
-      if (hasUrlCols) {
-        setParams(
-          (prev) => {
-            const p = new URLSearchParams(prev)
-            p.set(COLS_PARAM, serializeColumns(next ?? DEFAULT_COLUMNS))
-            return p
-          },
-          { replace: true },
-        )
+      const current = liveSearchParams()
+      if (current.has(COLS_PARAM)) {
+        current.set(COLS_PARAM, serializeColumns(next ?? DEFAULT_COLUMNS))
+        setParams(current, { replace: true })
       } else if (storageKey) {
         writeRaw(storageKey, next ? JSON.stringify(next) : null)
       }
     },
-    [hasUrlCols, order, setParams, storageKey],
+    [order, setParams, storageKey],
   )
   const setChosen = useCallback((keys: IssueListColumnKey[]) => commit(keys), [commit])
   const reset = useCallback(() => commit(null), [commit])
