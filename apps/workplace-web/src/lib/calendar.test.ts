@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { memoryStorage } from '@/test/memoryStorage'
 
 import type { Attendee, Calendar, CalendarEvent, IssueDueMarker } from '../types/calendar'
 import {
@@ -14,10 +16,12 @@ import {
   isLocalRangeReversed,
   isNotEventOrganizer,
   isoToLocalInput,
+  loadLastView,
   markedDays,
   monthMatrix,
   proposalTimeRange,
   providerLabel,
+  saveLastView,
   timedEventBox,
   toggleCalendar,
   visibleRange,
@@ -297,5 +301,53 @@ describe('eventDisplayColor·extraTagColors — 태그 색으로 일정 칠하�
       extraTagColors({ color: null, effectiveColor: 'blue', tags: [tag(1, 'amber'), tag(2, 'violet'), tag(3, 'amber'), tag(4, 'violet')] }),
     ).toEqual(['violet'])
     expect(extraTagColors({ color: null, effectiveColor: 'blue', tags: [tag(1, 'amber')] })).toEqual([])
+  })
+})
+
+// 캘린더 마지막 보기 기억(WP-948) — 다시 들어오면 마지막으로 쓴 보기로 연다. 사용자·워크스페이스·화면 종류별로 따로 둔다.
+const lastViewOwner = { userId: 1, tenantId: 10 }
+
+describe('loadLastView / saveLastView', () => {
+  beforeEach(() => vi.stubGlobal('localStorage', memoryStorage()))
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('저장한 적이 없으면 null(기본 보기를 쓴다)', () => {
+    expect(loadLastView(lastViewOwner, false)).toBeNull()
+  })
+
+  it('저장한 보기를 그대로 돌려준다', () => {
+    saveLastView(lastViewOwner, false, 'week')
+    expect(loadLastView(lastViewOwner, false)).toBe('week')
+    saveLastView(lastViewOwner, false, 'day')
+    expect(loadLastView(lastViewOwner, false)).toBe('day')
+  })
+
+  it('데스크톱과 모바일은 따로 기억한다', () => {
+    saveLastView(lastViewOwner, true, 'agenda')
+    expect(loadLastView(lastViewOwner, false)).toBeNull()
+    saveLastView(lastViewOwner, false, 'week')
+    expect(loadLastView(lastViewOwner, true)).toBe('agenda')
+  })
+
+  it('다른 사용자·워크스페이스에는 보이지 않는다', () => {
+    saveLastView(lastViewOwner, false, 'week')
+    expect(loadLastView({ userId: 2, tenantId: 10 }, false)).toBeNull()
+    expect(loadLastView({ userId: 1, tenantId: 11 }, false)).toBeNull()
+  })
+
+  it('알 수 없는 값은 무시한다', () => {
+    localStorage.setItem('calendar.lastView.desktop:1:10', 'year')
+    expect(loadLastView(lastViewOwner, false)).toBeNull()
+    localStorage.setItem('calendar.lastView.desktop:1:10', 'toString')
+    expect(loadLastView(lastViewOwner, false)).toBeNull()
+  })
+
+  it('저장소에 접근할 수 없어도 던지지 않는다', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => { throw new Error('blocked') },
+      setItem: () => { throw new Error('blocked') },
+    })
+    expect(() => saveLastView(lastViewOwner, false, 'week')).not.toThrow()
+    expect(loadLastView(lastViewOwner, false)).toBeNull()
   })
 })

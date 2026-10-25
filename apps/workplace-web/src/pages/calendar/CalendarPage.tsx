@@ -57,8 +57,10 @@ import {
   CALENDAR_VIEWS,
   type CalendarLayers,
   isEventVisible,
+  loadLastView,
   loadLayers,
   markedDays,
+  saveLastView,
   saveLayers,
   toggleCalendar,
   visibleRange,
@@ -95,10 +97,22 @@ export function CalendarPage() {
   const eventIdParam = parseId(eventParam.value)
   // 새 일정 딥링크(?new=true) — 홈 대시보드 "오늘 일정" 위젯 빈 상태 CTA(#653) 등에서 진입.
   const deepLinkNew = searchParams.get('new') === 'true'
-  // 첫 보기 — 모바일은 일정 목록(WP-136: 월 칩이 두세 글자로 잘려 읽히지 않음), 데스크톱은 월. 마운트 때 한 번만 정한다(isMobile 선언 전이라 동기 판정).
-  const [view, setView] = useState<CalendarViewType>(() => (getIsMobile() ? 'agenda' : 'month'))
+  // 표시 설정·마지막 보기는 사용자·워크스페이스별 저장(WP-701). 캘린더 화면은 로그인 뒤에만 열리므로 user 가 있다.
+  const { user, activeTenant } = useAuth()
+  const storageOwner = { userId: user?.id ?? 0, tenantId: activeTenant?.tenantId ?? null }
+  // 첫 보기 — 마지막으로 쓴 보기(WP-948), 없으면 모바일은 일정 목록(WP-136: 월 칩이 두세 글자로 잘려 읽히지 않음), 데스크톱은 월.
+  // 마운트 때 한 번만 정한다(isMobile 선언 전이라 동기 판정).
+  const [view, setViewState] = useState<CalendarViewType>(() => {
+    const mobile = getIsMobile()
+    return loadLastView(storageOwner, mobile) ?? (mobile ? 'agenda' : 'month')
+  })
   // 모바일(<lg): 오늘/‹/› 와 뷰 전환(단일 select)을 헤더 아래 도구 줄로 내린다(U2-5) — 390px 헤더에선 제목이 잘린다.
   const isMobile = useIsMobile()
+  // 사용자가 보기를 바꾸면 지금 화면 종류(데스크톱·모바일)의 마지막 보기로 기억한다(WP-948).
+  const setView = (next: CalendarViewType) => {
+    setViewState(next)
+    saveLastView(storageOwner, isMobile, next)
+  }
   // 모바일 이동 버튼 — 44×44 터치 타깃. 데스크톱은 기본 크기(sm) 그대로.
   const navBtnClass = isMobile ? 'h-11 min-w-11 px-3' : undefined
   const arrowBtnClass = isMobile ? 'h-11 w-11 px-0 text-lg' : undefined
@@ -146,10 +160,7 @@ export function CalendarPage() {
   const [editingCal, setEditingCal] = useState<Calendar | null>(null)
 
   // 사이드바 표시 레이어 토글 — localStorage 에서 초기화.
-  // 표시 설정은 사용자·워크스페이스별 저장(WP-701). 캘린더 화면은 로그인 뒤에만 열리므로 user 가 있다.
-  const { user, activeTenant } = useAuth()
-  const layersOwner = { userId: user?.id ?? 0, tenantId: activeTenant?.tenantId ?? null }
-  const [layers, setLayers] = useState<CalendarLayers>(() => loadLayers(layersOwner))
+  const [layers, setLayers] = useState<CalendarLayers>(() => loadLayers(storageOwner))
 
   // 내 캘린더 목록.
   const { data: calendars = [] } = useCalendars()
@@ -279,14 +290,14 @@ export function CalendarPage() {
   // issueDues / invited 토글(keyof Pick 으로 타입 안전).
   const toggleLayer = (key: keyof Pick<CalendarLayers, 'issueDues' | 'invited'>, value: boolean) => {
     const next = { ...layers, [key]: value }
-    saveLayers(layersOwner, next)
+    saveLayers(storageOwner, next)
     setLayers(next)
   }
 
   // 캘린더 컨테이너 표시 토글.
   const onToggleCalendar = (id: number) => {
     const next = toggleCalendar(layers, id)
-    saveLayers(layersOwner, next)
+    saveLayers(storageOwner, next)
     setLayers(next)
   }
 

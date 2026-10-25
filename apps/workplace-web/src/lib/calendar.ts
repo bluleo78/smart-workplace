@@ -199,6 +199,32 @@ export function saveLayers(owner: StorageOwner, layers: CalendarLayers): void {
   }
 }
 
+// 마지막으로 쓴 보기(WP-948) — 다시 들어오면 그 보기로 연다. 표시 설정처럼 사용자·워크스페이스별 localStorage 에 둔다.
+// 데스크톱과 모바일은 기본 보기(월·목록)도 화면 폭도 달라 따로 기억한다 — 모바일에서 고른 목록이 데스크톱을 목록으로 열지 않게.
+/** 마지막 보기 키 — `calendar.lastView.<desktop|mobile>` + 주인(사용자·워크스페이스). 읽기·쓰기가 같은 키를 쓰게 한 곳에서 만든다. */
+function lastViewKey(owner: StorageOwner, mobile: boolean): string {
+  return userScopedKey(`calendar.lastView.${mobile ? 'mobile' : 'desktop'}`, owner)
+}
+
+/** 저장된 마지막 보기. 없거나 알 수 없는 값이거나 저장소를 못 읽으면 null(호출자가 기본 보기를 쓴다). */
+export function loadLastView(owner: StorageOwner, mobile: boolean): CalendarViewType | null {
+  try {
+    const raw = localStorage.getItem(lastViewKey(owner, mobile))
+    return raw && Object.hasOwn(CALENDAR_VIEW_LABEL, raw) ? (raw as CalendarViewType) : null
+  } catch {
+    return null
+  }
+}
+
+/** 사용자가 고른 보기를 마지막 보기로 저장한다. 저장소를 못 쓰면 조용히 넘어간다(다음에 기본 보기로 열린다). */
+export function saveLastView(owner: StorageOwner, mobile: boolean, view: CalendarViewType): void {
+  try {
+    localStorage.setItem(lastViewKey(owner, mobile), view)
+  } catch {
+    // 저장 불가 — 무시.
+  }
+}
+
 // 캘린더 표시 여부 — hiddenCalendarIds 에 없으면 표시(기본 표시).
 export function isCalendarVisible(layers: CalendarLayers, calendarId: number): boolean {
   return !layers.hiddenCalendarIds.includes(calendarId)

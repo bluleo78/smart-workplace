@@ -1102,3 +1102,44 @@ test('태그가 붙은 일정은 월·주 보기에서 첫 태그 색으로 칠�
   await expect(chip(2)).toHaveClass(/bg-red-/)
   await expect(chip(3)).toHaveClass(/bg-blue-600/)
 })
+
+// WP-948: 캘린더를 다시 열면 마지막으로 쓴 보기(월·주·일)로 열린다. 데스크톱과 모바일은 따로 기억한다.
+test('다시 들어오면 마지막으로 쓴 보기로 열린다 (WP-948)', async ({ authenticatedPage: page }) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  await stubCalendarEvents(page, [])
+
+  // 처음엔 기본 보기(월)
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-view-month-btn')).toHaveAttribute('aria-pressed', 'true')
+
+  // 주 보기로 바꾸고 나갔다 다시 들어오면 주 보기
+  await page.getByTestId('calendar-view-week-btn').click()
+  await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-view-week-btn')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+
+  // 일 보기도 같다
+  await page.getByTestId('calendar-view-day-btn').click()
+  await expect(page.getByTestId('calendar-view-day-btn')).toHaveAttribute('aria-pressed', 'true')
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-view-day-btn')).toHaveAttribute('aria-pressed', 'true')
+
+  // 월 보기로 돌아가면 다시 월
+  await page.getByTestId('calendar-view-month-btn').click()
+  await expect(page.getByTestId('calendar-view-month-btn')).toHaveAttribute('aria-pressed', 'true')
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-view-month-btn')).toHaveAttribute('aria-pressed', 'true')
+
+  // 모바일은 따로 — 데스크톱에서 고른 보기와 상관없이 기본(목록), 모바일에서 고른 주 보기를 기억한다
+  await page.getByTestId('calendar-view-week-btn').click()
+  await expect(page.getByTestId('calendar-view-week-btn')).toHaveAttribute('aria-pressed', 'true')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-view-select')).toHaveValue('agenda')
+  await page.getByTestId('calendar-view-select').selectOption('week')
+  await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+  await page.goto('/calendar')
+  await expect(page.getByTestId('calendar-view-select')).toHaveValue('week')
+  await expect(page.getByTestId('calendar-view-week')).toBeVisible()
+})
