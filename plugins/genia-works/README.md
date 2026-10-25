@@ -181,7 +181,7 @@ AI 를 담당자로 둔 에픽 본문에 회차의 정의를 적어 두면, work
 AI 가 실행되는 서버마다 사람이 한 번 해 둡니다. 준비가 안 돼 있으면 work-loop 는 설치·로그인을 스스로 하지 않고 그 이슈를 「인증 필요」로 멈춰 무엇이 빠졌는지 알립니다 — 준비한 뒤 이슈 챗에 남기면 이어 합니다.
 
 1. [`gh`](https://cli.github.com/) 를 설치합니다.
-2. AI 마다 GitHub 계정을 두고 fine-grained 토큰(이 저장소의 Contents·Pull requests 쓰기)을 만듭니다. **개발 AI 와 팀장은 서로 다른 계정**이어야 합니다 — 자기 PR 은 승인할 수 없습니다.
+2. GitHub 토큰(이 저장소의 Contents·Pull requests 쓰기)을 만듭니다. AI 들이 계정 하나를 같이 써도 됩니다 — 누가 개발했는지는 PR 본문의 `개발: <username>` 줄로 가립니다. 다만 같은 계정이면 GitHub 의 「승인(Approve)」을 남길 수 없어 팀장은 승인 대신 댓글을 남기고 머지하므로, main 브랜치 보호에서 승인을 필수로 걸면 머지가 막힙니다(그때는 계정을 나눕니다).
 3. 토큰을 넣어 세션을 띄웁니다: `GH_TOKEN=<토큰> GENIA_WORKS_AS=<AI 이름> claude --permission-mode bypassPermissions`. `gh auth status` 가 통과하면 됩니다.
 4. 팀장 AI 의 username 을 `.work-loop/project.md` 「검토자」 절에 적습니다.
 

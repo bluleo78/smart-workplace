@@ -254,3 +254,10 @@ test('.work-loop/project.md 에 PR 절과 검토자 절이 있다', () => {
   assert.ok(project.includes('\n## 8. 검토자'));
   assert.ok(project.includes('`gh pr merge --merge`'));
 });
+
+test('process-issue.md: 개발자·검토자는 GitHub 계정이 아니라 PR 본문의 genia-works 신원으로 가린다', () => {
+  // AI 들이 GitHub 계정 하나를 같이 쓰면 작성자로 가를 때 검토자가 남의 PR 을 자기 것으로 보고 다시 구현한다.
+  assert.ok(!pi.includes('gh api user'), 'GitHub 계정으로 가르는 문구가 남아 있다');
+  assert.ok(pi.includes('`개발: <username>` 줄이 내'));
+  assert.ok(pi.includes('본문 첫 줄은 `개발: <내 username>`'));
+});
