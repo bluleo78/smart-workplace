@@ -21,6 +21,7 @@ function mockClient(): Client {
     getProject: vi.fn().mockResolvedValue({ key: 'WP' }),
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectLabels: vi.fn().mockResolvedValue([]),
+    getProjectComponents: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
@@ -72,7 +73,7 @@ describe('get_project', () => {
     const c = mockClient();
     const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
     expect(c.getProject).toHaveBeenCalledWith('WP');
-    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], fields: [], statuses: [], members: [], relationTypes: [] });
+    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], components: [], milestones: [], cycles: [], fields: [], statuses: [], members: [], relationTypes: [] });
   });
 
 
@@ -117,6 +118,14 @@ describe('get_project', () => {
     expect(out).not.toHaveProperty('relationTypes');
   });
 
+  it('WP-933: 구성요소 조회가 실패해도(API 가 더 옛 버전 등) get_project 는 돌려주고 components 키만 생략한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectComponents).mockRejectedValue(new Error('404'));
+    const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
+    expect(out).toMatchObject({ projectKey: 'WP', issueTypes: [], labels: [], statuses: [], members: [], relationTypes: [] });
+    expect(out).not.toHaveProperty('components');
+  });
+
   it('옛 파라미터 key 는 거부한다(projectKey 만)', async () => {
     const c = mockClient();
     await expect(tool(c, 'get_project').handler({ key: 'WP' })).rejects.toThrow();
@@ -131,6 +140,11 @@ describe('get_project', () => {
       { id: 2, name: 'BUG' },
     ]);
     vi.mocked(c.getProjectLabels).mockResolvedValue([{ id: 3, name: 'frontend' }]);
+    vi.mocked(c.getProjectComponents).mockResolvedValue([
+      { id: 1, name: 'Compute', archived: false, defaultAssignee: { id: 77, username: 'alice', name: 'Alice' } as { username: string }, defaultAssigneeValid: true },
+      { id: 2, name: 'Storage', archived: false, defaultAssignee: null },
+      { id: 3, name: '옛 구성요소', archived: true, defaultAssignee: null },
+    ]);
     vi.mocked(c.getProjectMilestones).mockResolvedValue([{ id: 4, name: 'v1.0', dueDate: '2026-12-01', description: null }]);
     vi.mocked(c.getProjectCycles).mockResolvedValue([
       { id: 5, name: 'Sprint 3', status: 'ACTIVE', goal: 'g', startDate: '2026-10-01', endDate: '2026-10-14' },
@@ -151,6 +165,12 @@ describe('get_project', () => {
       type: 'TEAM', // description:null 은 값이 없는 키라 생략된다(WP-353)
       issueTypes: ['TASK', 'BUG'],
       labels: ['frontend'],
+      // WP-933: 구성요소 — 보관된 것도 싣고(archived), 담당자는 username 으로만
+      components: [
+        { name: 'Compute', assignee: 'alice' },
+        { name: 'Storage' },
+        { name: '옛 구성요소', archived: true },
+      ],
       // WP-356: 마일스톤 기한·사이클 기간·커스텀 필드 정의(숫자 id·목표는 빼고, 없는 값은 생략)
       milestones: [{ name: 'v1.0', dueDate: '2026-12-01' }],
       cycles: [
@@ -167,7 +187,7 @@ describe('get_project', () => {
     });
     expect(resultText(raw)).not.toContain('userId');
     expect(resultText(raw)).not.toContain('1010');
-    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectMilestones, c.getProjectCycles, c.getProjectFields, c.getProjectStatuses, c.getProjectMembers]) {
+    for (const fn of [c.getProjectTypes, c.getProjectLabels, c.getProjectComponents, c.getProjectMilestones, c.getProjectCycles, c.getProjectFields, c.getProjectStatuses, c.getProjectMembers]) {
       expect(fn).toHaveBeenCalledWith('WP');
     }
   });
@@ -278,6 +298,12 @@ describe('list_issues', () => {
       assignee: 'me',
       size: 10,
     });
+  });
+
+  it('WP-933: component 는 이름 CSV 그대로(none 포함) 서버에 전달한다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', component: 'Compute,none' });
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', component: 'Compute,none', size: 30 });
   });
 
   it('list_issues: 범주는 대문자로 맞춰 status, 이름은 statusName 으로 보낸다', async () => {
@@ -469,6 +495,7 @@ describe('list_issues', () => {
         closedAt: '2026-10-07T15:30:00Z',
         type: { id: 6, name: 'TASK', colorToken: 'BLUE', icon: 'Circle' },
         labels: [{ id: 3, name: 'frontend', color: 'RED' }],
+        components: [{ id: 21, name: 'Compute', archived: false }],
         milestoneName: 'v1.0',
         parent: { number: 1, title: '에픽', type: { name: 'EPIC' }, status: 'IN_PROGRESS' },
         childCount: 3,
@@ -491,6 +518,7 @@ describe('list_issues', () => {
       updatedAt: '2026-10-08T00:30:00+09:00',
       closedAt: '2026-10-08T00:30:00+09:00',
       labels: ['frontend'],
+      components: ['Compute'],
       milestone: 'v1.0',
       parent: { issueKey: 'WP-1', title: '에픽', status: 'IN_PROGRESS' },
       children: { total: 3, done: 1 },
@@ -557,6 +585,7 @@ describe('toIssueListItem', () => {
       updatedAt: null,
       closedAt: null,
       labels: [],
+      components: [],
       milestone: null,
       parent: null,
       children: null,

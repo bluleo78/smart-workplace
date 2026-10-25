@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.ISSUE_COMPONENT;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
@@ -627,6 +628,7 @@ public class IssueRepository {
     where = where.and(pendingForCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
+    where = where.and(componentCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
       // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
       where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));
@@ -971,6 +973,35 @@ public class IssueRepository {
   }
 
   /**
+   * 구성요소 필터 조건(WP-933) — 지정 구성요소 중 하나라도 붙은(EXISTS … IN) 이슈 OR componentNone 이면 구성요소가 하나도 없는(NOT
+   * EXISTS) 이슈. 단일/횡단 검색과 그룹 총계가 같은 의미를 갖도록 한 곳에 둔다. 둘 다 없으면 조건 미적용.
+   */
+  private org.jooq.Condition componentCondition(com.workplace.issue.dto.IssueSearchQuery query) {
+    org.jooq.Condition cond = noCondition();
+    if (query.componentIds() != null && !query.componentIds().isEmpty()) {
+      cond =
+          cond.or(
+              exists(
+                  dsl.selectOne()
+                      .from(ISSUE_COMPONENT)
+                      .where(
+                          ISSUE_COMPONENT
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(ISSUE_COMPONENT.COMPONENT_ID.in(query.componentIds())))));
+    }
+    if (query.componentNone()) {
+      cond =
+          cond.or(
+              notExists(
+                  dsl.selectOne()
+                      .from(ISSUE_COMPONENT)
+                      .where(ISSUE_COMPONENT.ISSUE_ID.eq(ISSUE.ID))));
+    }
+    return cond;
+  }
+
+  /**
    * 라벨 필터 조건 — 그룹 간 AND, 그룹 내 OR. 그룹마다 EXISTS 를 누적한다. 그룹 하나는 필터 토큰 하나에 대응하며, 이름 토큰은 횡단 조회에서 여러
    * 프로젝트의 동명 라벨 id 로 풀리므로 그 안은 OR 이어야 한다(#841). 단일/횡단 검색이 같은 의미를 갖도록 한 곳에 둔다.
    */
@@ -1139,6 +1170,7 @@ public class IssueRepository {
     where = where.and(pendingForCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
+    where = where.and(componentCondition(query));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
       // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
       where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));

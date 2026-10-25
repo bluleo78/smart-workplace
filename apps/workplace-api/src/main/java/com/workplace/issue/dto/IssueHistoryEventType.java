@@ -14,6 +14,9 @@ public enum IssueHistoryEventType {
   // 마일스톤 연결/해제 — 타임라인 간트뷰. Phase 5.
   MILESTONE_CHANGED,
   LABELS_CHANGED,
+  // 구성요소 추가/제거(WP-933) — payload: {added:[{id,name}], removed:[{id,name}]}. 라벨과 같은 모양이며 화면은 저장된(당시)
+  // 이름을 그대로 보여 준다.
+  COMPONENTS_CHANGED,
   ATTACHMENTS_CHANGED,
   TYPE_CHANGED,
   // 부모(SUBTASK) 변경/해제 — Phase 4a.

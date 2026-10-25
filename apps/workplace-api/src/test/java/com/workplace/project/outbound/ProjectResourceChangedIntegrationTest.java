@@ -13,6 +13,9 @@ import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verify;
 
+import com.workplace.component.dto.CreateComponentRequest;
+import com.workplace.component.dto.UpdateComponentRequest;
+import com.workplace.component.service.ComponentService;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.label.dto.CreateLabelRequest;
@@ -56,6 +59,7 @@ class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberRepository memberRepository;
   @Autowired LabelService labelService;
+  @Autowired ComponentService componentService;
   @Autowired MilestoneService milestoneService;
   @Autowired SavedViewService savedViewService;
 
@@ -98,6 +102,23 @@ class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
     clearInvocations(registry);
     labelService.create(owner, key, new CreateLabelRequest("rc-label", "BLUE"));
     assertThat(captureRecipients("label", "created")).containsExactlyInAnyOrder(owner, viewer);
+  }
+
+  @Test
+  @DisplayName("구성요소 추가·편집·삭제는 프로젝트 멤버 전원에게 (WP-933)")
+  void component_crud_publishesToMembers() {
+    clearInvocations(registry);
+    var c = componentService.create(owner, key, new CreateComponentRequest("rc-comp", null, null));
+    assertThat(captureRecipients("component", "created")).containsExactlyInAnyOrder(owner, viewer);
+
+    clearInvocations(registry);
+    componentService.update(
+        owner, key, c.id(), new UpdateComponentRequest(null, null, null, null, true));
+    assertThat(captureRecipients("component", "updated")).containsExactlyInAnyOrder(owner, viewer);
+
+    clearInvocations(registry);
+    componentService.delete(owner, key, c.id());
+    assertThat(captureRecipients("component", "deleted")).containsExactlyInAnyOrder(owner, viewer);
   }
 
   @Test

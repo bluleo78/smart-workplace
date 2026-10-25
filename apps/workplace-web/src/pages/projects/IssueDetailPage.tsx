@@ -678,6 +678,7 @@ export default function IssueDetailPage() {
               createdAt={summary.createdAt}
               closedAt={summary.closedAt}
               labels={summary.labels}
+              components={summary.components ?? []}
               blockedBy={summary.blockedBy}
               blocks={summary.blocks}
               relations={data.relations ?? []}

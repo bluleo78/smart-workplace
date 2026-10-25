@@ -1,13 +1,16 @@
 package com.workplace.issue.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.component.dto.ComponentSummary;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.IssueAttachmentResponse;
+import com.workplace.issue.dto.IssueHistoryEventType;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
 import com.workplace.milestone.repository.MilestoneRepository;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -97,17 +100,43 @@ public class IssueHistoryRecorder {
     if ((added == null || added.isEmpty()) && (removed == null || removed.isEmpty())) {
       return;
     }
-    String payload;
-    try {
-      payload =
-          objectMapper.writeValueAsString(
-              Map.of(
-                  "added", added == null ? List.of() : added,
-                  "removed", removed == null ? List.of() : removed));
-    } catch (Exception e) {
-      payload = "{}";
-    }
+    String payload =
+        toJson(
+            Map.of(
+                "added", added == null ? List.of() : added,
+                "removed", removed == null ? List.of() : removed));
     historyRepository.insert(issueId, actorId, "LABELS_CHANGED", null, payload, at);
+  }
+
+  /**
+   * 구성요소 집합 변경을 한 건의 history 로 기록한다(WP-933). diff 가 없으면 no-op. payload 는 라벨과 같은 모양 {@code
+   * {added:[{id,name}], removed:[{id,name}]}} 이고 toValue 에 JSON 으로 저장한다 — 당시 이름을 그대로 남겨, 나중에 이름을
+   * 바꾸거나 구성요소를 지워도 지난 기록은 변하지 않는다.
+   */
+  public void recordComponentsChanged(
+      Long actorId, long issueId, List<ComponentSummary> added, List<ComponentSummary> removed) {
+    recordComponentsChanged(actorId, issueId, added, removed, null);
+  }
+
+  /** 구성요소 변경 기록 — {@code at} 이 있으면 그 시각(가져오기), null 이면 DB 기본값(지금). 저장 모양은 같다. */
+  public void recordComponentsChanged(
+      Long actorId,
+      long issueId,
+      List<ComponentSummary> added,
+      List<ComponentSummary> removed,
+      OffsetDateTime at) {
+    if ((added == null || added.isEmpty()) && (removed == null || removed.isEmpty())) {
+      return;
+    }
+    String payload = toJson(Map.of("added", idAndName(added), "removed", idAndName(removed)));
+    historyRepository.insert(
+        issueId, actorId, IssueHistoryEventType.COMPONENTS_CHANGED.name(), null, payload, at);
+  }
+
+  /** 이력 payload 에는 id·당시 이름만 싣는다(보관 여부는 지난 기록에 의미가 없다). */
+  private static List<Map<String, Object>> idAndName(List<ComponentSummary> list) {
+    if (list == null) return List.of();
+    return list.stream().map(c -> Map.<String, Object>of("id", c.id(), "name", c.name())).toList();
   }
 
   /**
@@ -124,26 +153,21 @@ public class IssueHistoryRecorder {
     if (noAdd && noRem) {
       return;
     }
-    String payload;
-    try {
-      payload =
-          objectMapper.writeValueAsString(
-              Map.of(
-                  "added",
-                  added == null
-                      ? List.of()
-                      : added.stream()
-                          .map(a -> Map.of("fileId", a.fileId(), "originalName", a.originalName()))
-                          .toList(),
-                  "removed",
-                  removed == null
-                      ? List.of()
-                      : removed.stream()
-                          .map(a -> Map.of("fileId", a.fileId(), "originalName", a.originalName()))
-                          .toList()));
-    } catch (Exception e) {
-      payload = "{}";
-    }
+    String payload =
+        toJson(
+            Map.of(
+                "added",
+                added == null
+                    ? List.of()
+                    : added.stream()
+                        .map(a -> Map.of("fileId", a.fileId(), "originalName", a.originalName()))
+                        .toList(),
+                "removed",
+                removed == null
+                    ? List.of()
+                    : removed.stream()
+                        .map(a -> Map.of("fileId", a.fileId(), "originalName", a.originalName()))
+                        .toList()));
     historyRepository.insert(issueId, actorId, "ATTACHMENTS_CHANGED", null, payload);
   }
 
@@ -177,17 +201,36 @@ public class IssueHistoryRecorder {
     if (noAdd && noRem) {
       return;
     }
-    String payload;
-    try {
-      payload =
-          objectMapper.writeValueAsString(
-              Map.of(
-                  "added", added == null ? List.of() : added,
-                  "removed", removed == null ? List.of() : removed));
-    } catch (Exception e) {
-      payload = "{}";
-    }
+    String payload = assigneesPayload(added, removed, Map.of());
     historyRepository.insert(issueId, actorId, "ASSIGNEES_CHANGED", null, payload, at);
+  }
+
+  /**
+   * 구성요소 담당자 자동 지정 한 건을 기록한다(WP-933 §4.3). 담당자 변경과 같은 {@code ASSIGNEES_CHANGED} 유형·모양에 이유를 더한다 —
+   * {@code {added:[UserSummary], removed:[], reason:"COMPONENT_DEFAULT", componentId,
+   * componentName}}. 화면은 이유가 있으면 「구성요소 X 담당자로 자동 지정」으로 그린다. 구성요소 이름은 당시 값을 남긴다.
+   */
+  public void recordComponentDefaultAssigned(
+      Long actorId, long issueId, UserSummary assignee, long componentId, String componentName) {
+    Map<String, Object> extra = new LinkedHashMap<>();
+    extra.put("reason", "COMPONENT_DEFAULT");
+    extra.put("componentId", componentId);
+    extra.put("componentName", componentName);
+    String payload = assigneesPayload(List.of(assignee), List.of(), extra);
+    historyRepository.insert(issueId, actorId, "ASSIGNEES_CHANGED", null, payload);
+  }
+
+  /**
+   * ASSIGNEES_CHANGED payload — {@code {added, removed}} 에 extra(자동 지정의 이유 등)를 더한다. 일반 변경과 구성요소 자동
+   * 지정이 같은 모양을 쓰게 한 곳에서 만든다.
+   */
+  private String assigneesPayload(
+      List<UserSummary> added, List<UserSummary> removed, Map<String, Object> extra) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("added", added == null ? List.of() : added);
+    body.put("removed", removed == null ? List.of() : removed);
+    body.putAll(extra);
+    return toJson(body);
   }
 
   /**
@@ -209,16 +252,11 @@ public class IssueHistoryRecorder {
       com.workplace.issue.dto.IssueTypeSummary from,
       com.workplace.issue.dto.IssueTypeSummary to,
       OffsetDateTime at) {
-    String payload;
-    try {
-      payload =
-          objectMapper.writeValueAsString(
-              Map.of(
-                  "from", Map.of("id", from.id(), "name", from.name()),
-                  "to", Map.of("id", to.id(), "name", to.name())));
-    } catch (Exception e) {
-      payload = "{}";
-    }
+    String payload =
+        toJson(
+            Map.of(
+                "from", Map.of("id", from.id(), "name", from.name()),
+                "to", Map.of("id", to.id(), "name", to.name())));
     historyRepository.insert(issueId, actorId, "TYPE_CHANGED", null, payload, at);
   }
 
@@ -231,16 +269,10 @@ public class IssueHistoryRecorder {
       Long issueId,
       com.workplace.issue.dto.ParentRef from,
       com.workplace.issue.dto.ParentRef to) {
-    String payload;
-    try {
-      java.util.Map<String, Object> body = new java.util.HashMap<>();
-      body.put(
-          "from", from == null ? null : Map.of("number", from.number(), "title", from.title()));
-      body.put("to", to == null ? null : Map.of("number", to.number(), "title", to.title()));
-      payload = objectMapper.writeValueAsString(body);
-    } catch (Exception e) {
-      payload = "{}";
-    }
+    Map<String, Object> body = new HashMap<>();
+    body.put("from", from == null ? null : Map.of("number", from.number(), "title", from.title()));
+    body.put("to", to == null ? null : Map.of("number", to.number(), "title", to.title()));
+    String payload = toJson(body);
     historyRepository.insert(issueId, actorId, "PARENT_CHANGED", null, payload);
   }
 
@@ -267,18 +299,13 @@ public class IssueHistoryRecorder {
       String otherTitle,
       String direction,
       String eventType) {
-    String payload;
-    try {
-      payload =
-          objectMapper.writeValueAsString(
-              Map.of(
-                  "other",
-                  Map.of("number", otherNumber, "title", otherTitle),
-                  "direction",
-                  direction));
-    } catch (Exception e) {
-      payload = "{}";
-    }
+    String payload =
+        toJson(
+            Map.of(
+                "other",
+                Map.of("number", otherNumber, "title", otherTitle),
+                "direction",
+                direction));
     historyRepository.insert(issueId, actorId, eventType, null, payload);
   }
 
@@ -306,13 +333,7 @@ public class IssueHistoryRecorder {
     body.put("typeId", typeId);
     body.put("label", label);
     body.put("other", other);
-    String payload;
-    try {
-      payload = objectMapper.writeValueAsString(body);
-    } catch (Exception e) {
-      payload = "{}";
-    }
-    historyRepository.insert(issueId, actorId, eventType, null, payload);
+    historyRepository.insert(issueId, actorId, eventType, null, toJson(body));
   }
 
   /**
@@ -345,11 +366,7 @@ public class IssueHistoryRecorder {
     body.put("key", s.key());
     body.put("title", s.title());
     body.put("url", s.url());
-    try {
-      return objectMapper.writeValueAsString(body);
-    } catch (Exception e) {
-      return "{}";
-    }
+    return toJson(body);
   }
 
   /**
@@ -364,19 +381,13 @@ public class IssueHistoryRecorder {
       String type,
       com.fasterxml.jackson.databind.JsonNode from,
       com.fasterxml.jackson.databind.JsonNode to) {
-    String payload;
-    try {
-      java.util.Map<String, Object> body = new java.util.HashMap<>();
-      body.put("defId", defId);
-      body.put("name", name);
-      body.put("type", type);
-      body.put("from", from);
-      body.put("to", to);
-      payload = objectMapper.writeValueAsString(body);
-    } catch (Exception e) {
-      payload = "{}";
-    }
-    historyRepository.insert(issueId, actorId, "CUSTOM_FIELD_CHANGED", null, payload);
+    Map<String, Object> body = new HashMap<>();
+    body.put("defId", defId);
+    body.put("name", name);
+    body.put("type", type);
+    body.put("from", from);
+    body.put("to", to);
+    historyRepository.insert(issueId, actorId, "CUSTOM_FIELD_CHANGED", null, toJson(body));
   }
 
   /**
@@ -386,6 +397,15 @@ public class IssueHistoryRecorder {
   public void recordImportedValue(
       long issueId, long actorId, String eventType, String from, String to, OffsetDateTime at) {
     historyRepository.insert(issueId, actorId, eventType, from, to, at);
+  }
+
+  /** payload → JSON 문자열. 직렬화에 실패하면 빈 객체 {@code "{}"} — 이력 기록 실패가 본 작업을 막지 않게 한다. */
+  private String toJson(Object payload) {
+    try {
+      return objectMapper.writeValueAsString(payload);
+    } catch (Exception e) {
+      return "{}";
+    }
   }
 
   /** 객체 → 문자열 (null 보존). */

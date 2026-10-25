@@ -16,7 +16,9 @@ import { useSheetHistory } from '@/hooks/useSheetHistory';
 import { useSingleLineEnter } from '@/hooks/useSingleLineEnter';
 import { normalizeSingleLineInput } from '@/lib/singleLine';
 
+import { ComponentAutoAssignHint } from '../../../../components/components/CreateComponentsField';
 import { formatDateMonthDay } from '../../../../lib/formatters';
+import { autoAssignHint } from '../../../../lib/issueComponents';
 import { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { HIT_EXPAND } from './chipStyles';
 import { CreateIssueChips } from './CreateIssueChips';
@@ -152,6 +154,15 @@ export function MobileIssueCreateSheet({ projectKey, open, onOpenChange, persona
               {errors.startDate && <p role="alert" className="text-sm text-destructive">{errors.startDate.message}</p>}
               {f.classifyReason && <p data-testid="create-ai-reason" className="line-clamp-2 text-xs text-muted-foreground">✦ {f.classifyReason}</p>}
             </div>
+            {/* 구성요소 자동 지정 안내(WP-933) — 구성요소 칩이 있는 맨 아래 칩 줄 바로 위에 붙여, 칩과 안내가 떨어져 보이지 않게 한다.
+                담당자를 이미 골랐으면 자동 지정이 일어나지 않으므로 숨긴다(안내가 없으면 아무것도 그리지 않는다). */}
+            {f.showComponents && (
+              <div className="shrink-0 px-4 pb-2">
+                <ComponentAutoAssignHint
+                  hint={autoAssignHint(f.componentIds, f.componentList, (watch('assigneeIds') ?? []).length > 0)}
+                />
+              </div>
+            )}
             <div className="min-h-14 shrink-0 border-t bg-background" data-testid="issue-create-chips">
               {/* OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 속성 칩 대신 안내 한 줄. */}
               {f.intakeOnly ? (

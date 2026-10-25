@@ -1,7 +1,8 @@
-// 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title/labels 변경 기록.
+// 이슈 변경 이력 타임라인. status/priority/assignee/dueDate/title/labels/components 변경 기록.
 
 import {
   AlertTriangle,
+  Boxes,
   Calendar,
   ExternalLink,
   Flag,
@@ -26,7 +27,11 @@ import { Badge } from '@/components/ui/badge';
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
 import {
+  formatAssigneesChanged,
+  formatAttachmentsChanged,
+  formatComponentsChanged,
   formatExternalLinkChanged,
+  formatLabelsChanged,
   formatParentChanged,
   formatRelationChanged,
   formatStatusMigrated,
@@ -59,6 +64,8 @@ const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
   EXTERNAL_LINK_ADDED: ExternalLink,
   EXTERNAL_LINK_UPDATED: ExternalLink,
   EXTERNAL_LINK_REMOVED: Link2Off,
+  // 구성요소(WP-933) — 영역 묶음 아이콘.
+  COMPONENTS_CHANGED: Boxes,
 };
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
@@ -85,67 +92,8 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   EXTERNAL_LINK_ADDED: '외부 링크 추가',
   EXTERNAL_LINK_UPDATED: '외부 링크 수정',
   EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
+  COMPONENTS_CHANGED: '구성요소 변경',
 };
-
-// LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
-// 파싱 실패 시 원문 그대로 노출.
-function formatLabelsChanged(toValue: string | null): string {
-  if (!toValue) return '없음';
-  try {
-    const parsed = JSON.parse(toValue) as {
-      added?: { name?: string }[];
-      removed?: { name?: string }[];
-    };
-    const added = (parsed.added ?? []).map((l) => l.name ?? '').filter(Boolean);
-    const removed = (parsed.removed ?? []).map((l) => l.name ?? '').filter(Boolean);
-    const parts: string[] = [];
-    if (added.length) parts.push(`+ ${added.join(', ')}`);
-    if (removed.length) parts.push(`- ${removed.join(', ')}`);
-    return parts.length ? parts.join(' / ') : '변경 없음';
-  } catch {
-    return toValue;
-  }
-}
-
-// ATTACHMENTS_CHANGED 페이로드는 toValue 에 {added:[{fileId,originalName}], removed:[{fileId,originalName}]} JSON.
-// 라벨과 동일 패턴으로 파싱해 +/- 로 표시. 파싱 실패 시 안전한 기본 문구로 폴백.
-function formatAttachmentsChanged(toValue: string | null): string {
-  if (!toValue) return '첨부 변경';
-  try {
-    const parsed = JSON.parse(toValue) as {
-      added?: { originalName?: string }[];
-      removed?: { originalName?: string }[];
-    };
-    const added = (parsed.added ?? []).map((x) => x.originalName ?? '').filter(Boolean);
-    const removed = (parsed.removed ?? []).map((x) => x.originalName ?? '').filter(Boolean);
-    const parts: string[] = [];
-    if (added.length) parts.push(`+ ${added.join(', ')}`);
-    if (removed.length) parts.push(`- ${removed.join(', ')}`);
-    return parts.length ? parts.join(' / ') : '변경 없음';
-  } catch {
-    return toValue;
-  }
-}
-
-// ASSIGNEES_CHANGED 페이로드는 toValue 에 {added:[{id,name,...}], removed:[{id,name,...}]} JSON.
-// name 이 비어 있을 수 있어 (removed 의 경우) #id 로 폴백.
-function formatAssigneesChanged(toValue: string | null): string {
-  if (!toValue) return '담당자 변경';
-  try {
-    const parsed = JSON.parse(toValue) as {
-      added?: { id: number; name?: string | null }[];
-      removed?: { id: number; name?: string | null }[];
-    };
-    const added = (parsed.added ?? []).map((x) => x.name ?? `#${x.id}`);
-    const removed = (parsed.removed ?? []).map((x) => x.name ?? `#${x.id}`);
-    const parts: string[] = [];
-    if (added.length) parts.push(`+ ${added.join(', ')}`);
-    if (removed.length) parts.push(`- ${removed.join(', ')}`);
-    return parts.length ? parts.join(' / ') : '변경 없음';
-  } catch {
-    return toValue;
-  }
-}
 
 // TYPE_CHANGED 페이로드는 toValue 에 {from:{id,name}, to:{id,name}} JSON.
 // 파싱 실패 시 안전한 기본 문구로 폴백.
@@ -295,6 +243,8 @@ export function IssueActivityTimeline({
                     <span>{formatLabelsChanged(e.toValue)}</span>
                   ) : e.eventType === 'ATTACHMENTS_CHANGED' ? (
                     <span>{formatAttachmentsChanged(e.toValue)}</span>
+                  ) : e.eventType === 'COMPONENTS_CHANGED' ? (
+                    <span>{formatComponentsChanged(e.toValue)}</span>
                   ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
                     <span>{formatAssigneesChanged(e.toValue)}</span>
                   ) : e.eventType === 'TYPE_CHANGED' ? (

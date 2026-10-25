@@ -1,5 +1,9 @@
 package com.workplace.issue.service;
 
+import com.workplace.component.dto.ComponentRow;
+import com.workplace.component.dto.ComponentSummary;
+import com.workplace.component.repository.ComponentRepository;
+import com.workplace.component.service.ComponentService;
 import com.workplace.cycle.dto.CycleStatus;
 import com.workplace.cycle.exception.CompletedCycleNotAssignableException;
 import com.workplace.cycle.exception.InvalidCycleForProjectException;
@@ -46,6 +50,7 @@ import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
+import com.workplace.issue.repository.IssueComponentRepository;
 import com.workplace.issue.repository.IssueCycleRepository;
 import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
@@ -70,6 +75,7 @@ import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -137,6 +143,15 @@ public class IssueService {
   /** 외부 링크(WP-887) — 상세의 외부 링크 목록. */
   private final IssueExternalLinkService externalLinkService;
 
+  /** 구성요소(WP-933) — 생성 시 소속·보관 검증, 응답의 구성요소 요약. */
+  private final ComponentRepository componentRepository;
+
+  /** 구성요소(WP-933) — 자동 지정 담당자 유효성(멤버·활성·사람) 판정. */
+  private final ComponentService componentService;
+
+  /** 구성요소(WP-933) — 생성 시 이슈 ↔ 구성요소 연결. */
+  private final IssueComponentRepository issueComponentRepository;
+
   /** 해석된 프로젝트 상태(WP-807) — 이슈에 쓸 상태 id·범주·이름·색(WP-870, 생성 응답을 재조회 없이 채운다). */
   record ResolvedStatus(long id, String category, String name, String color) {
 
@@ -202,7 +217,7 @@ public class IssueService {
    * parentNumber 지정 불가 (Phase 4a).
    */
   public IssueResponse create(Long callerId, String projectKey, CreateIssueRequest req) {
-    CreateIssuePlan plan = planCreate(callerId, projectKey, req);
+    CreateIssuePlan plan = lockComponentsForShare(planCreate(callerId, projectKey, req), false);
     var project = plan.project();
     IssueRow parent = lockParentForShare(plan);
     if (parent != null) {
@@ -214,9 +229,25 @@ public class IssueService {
           plan.status().category());
     }
 
+    // WP-933 구성요소 담당자 자동 지정 — 담당자를 고르지 않았을 때만. 일반 담당자와 같은 목록으로 finishCreate 에 넘겨 매핑·워처·이벤트·
+    // 알림·AI 작업 경로를 그대로 탄다. planCreate 는 읽기 전용 사전검증과 공유해 멤버 행을 잠글 수 없으므로 여기서 정한다. 가져오기는 create 를
+    // 거치지 않아 자동 지정이 없다.
+    AutoAssignment auto = plan.assigneeIds().isEmpty() ? pickComponentAssignee(plan) : null;
+    List<Long> assigneeIds = auto == null ? plan.assigneeIds() : List.of(auto.assignee().id());
+    List<AssigneeInfo> assignees = auto == null ? plan.assignees() : List.of(auto.assignee());
+
     int number = sequenceRepository.allocateNext(project.id());
     IssueRow row = insertFromPlan(plan, number, req, callerId, null);
     linkLabelsAndCycles(callerId, row.id(), plan);
+    if (auto != null) {
+      // 지금은 생성 때 담당자 이력을 남기지 않지만, 자동 지정은 사람이 고른 게 아니라 이유를 남긴다(설계 §4.3).
+      historyRecorder.recordComponentDefaultAssigned(
+          callerId,
+          row.id(),
+          auto.assignee().toSummary(),
+          auto.component().id(),
+          auto.component().name());
+    }
     // WP-199 본문 이미지 연결 — 생성 권한(planCreate)을 통과한 뒤라 별도 가드 없이 같은 트랜잭션에서 연결한다.
     // 이미지 참조가 없는 본문(대부분)은 syncIssueImages 가 쿼리 없이 돌아간다.
     bodyImageService.syncIssueImages(project, row.id(), callerId, null, req.body());
@@ -225,7 +256,49 @@ public class IssueService {
     if (req.fileIds() != null && !req.fileIds().isEmpty()) {
       issueAttachmentService.attachStaged(project, row.id(), callerId, req.fileIds());
     }
-    return finishCreate(callerId, project, row, number, plan.assigneeIds(), plan.assignees());
+    return finishCreate(callerId, project, row, number, assigneeIds, assignees, plan.components());
+  }
+
+  /** 구성요소 자동 지정 결과 — 붙일 담당자와, 그 담당자를 준 구성요소(이력의 이유). */
+  private record AutoAssignment(AssigneeInfo assignee, ComponentRow component) {}
+
+  /**
+   * 고른 구성요소를 목록 순서로 보아 처음으로 유효한 담당자(멤버·활성·사람)를 가진 구성요소의 담당자 — 없으면 null. 보관된 구성요소는 planCreate 가 이미
+   * 거절했지만, 쓰지 않는다는 규칙을 여기서도 지킨다. 멤버 행을 공유 잠금한 채 판정해, 동시에 들어온 멤버 제거와 겹쳐 비멤버 담당자가 남지 않게 한다(일반 담당자 지정의
+   * WP-775 와 같은 규칙).
+   */
+  private AutoAssignment pickComponentAssignee(CreateIssuePlan plan) {
+    var project = plan.project();
+    // 후보(보관 안 된 구성요소의 기본 담당자)를 목록 순서로 모아, 멤버 잠금·유효 판정·담당자 정보 조회를 한 번씩만 한다.
+    List<ComponentRow> candidates =
+        plan.components().stream()
+            .filter(c -> !c.archived() && c.defaultAssigneeId() != null)
+            .toList();
+    if (candidates.isEmpty()) return null;
+    List<Long> userIds =
+        candidates.stream().map(ComponentRow::defaultAssigneeId).distinct().toList();
+    memberRepository.lockMemberUserIds(project.id(), userIds);
+    Map<Long, AssigneeInfo> valid = componentService.validAssignees(project, userIds);
+    for (ComponentRow c : candidates) {
+      AssigneeInfo info = valid.get(c.defaultAssigneeId());
+      if (info != null) return new AutoAssignment(info, c);
+    }
+    return null;
+  }
+
+  /**
+   * 고른 구성요소 행을 공유 잠금한 채 다시 읽어 계획을 갱신한다 — planCreate 는 읽기 전용 사전검증과 공유해 잠그지 못하므로, 보관·삭제와 겹쳐 「보관된
+   * 구성요소가 새로 붙거나」 「지워진 구성요소의 외래키 위반이 일반 409 로 나가는」 일이 없게 쓰는 쪽(일반 생성·가져오기)이 따로 부른다. 잠그고 읽은 최신 행으로 보관
+   * 여부·기본 담당자도 다시 보게 된다. 잠금 순서는 부모 이슈 → 구성요소 행이다(구성요소 보관·삭제는 구성요소 행만 잡아 고리가 생기지 않는다).
+   *
+   * @param importing 가져오기면 보관된 구성요소도 허용(지난 기록)
+   */
+  CreateIssuePlan lockComponentsForShare(CreateIssuePlan plan, boolean importing) {
+    if (plan.components().isEmpty()) return plan;
+    List<Long> ids = plan.components().stream().map(ComponentRow::id).toList();
+    List<ComponentRow> locked = componentRepository.findByIds(plan.project().id(), ids, true);
+    ComponentService.requireAttachable(locked, ids.size(), importing);
+    return plan.withComponents(locked);
   }
 
   /**
@@ -283,6 +356,10 @@ public class IssueService {
     for (Long cycleId : plan.cycleIds()) {
       issueCycleRepository.add(issueId, cycleId);
     }
+    // WP-933 구성요소 — 라벨처럼 새 이슈라 이력 없이 추가만 한다.
+    for (ComponentRow c : plan.components()) {
+      issueComponentRepository.add(issueId, c.id());
+    }
   }
 
   /**
@@ -324,7 +401,26 @@ public class IssueService {
       List<Long> cycleIds,
       List<String> labelNames,
       // WP-807 처음 상태 — statusId 우선, 범주만 오면 그 범주 기본 상태.
-      ResolvedStatus status) {}
+      ResolvedStatus status,
+      // WP-933 고른 구성요소(목록 순서) — 연결과 담당자 자동 지정이 쓴다. 없으면 빈 목록.
+      List<ComponentRow> components) {
+    /** 구성요소만 바꾼 사본 — 잠그고 다시 읽은 행으로 갈아 끼울 때 쓴다. */
+    CreateIssuePlan withComponents(List<ComponentRow> newComponents) {
+      return new CreateIssuePlan(
+          project,
+          assigneeIds,
+          assignees,
+          typeId,
+          parentIssueId,
+          labelIds,
+          milestoneId,
+          milestoneName,
+          cycleIds,
+          labelNames,
+          status,
+          newComponents);
+    }
+  }
 
   /**
    * 생성 검증 방식 — NORMAL 은 일반 생성·사전검증, IMPORT 는 이슈 가져오기(WP-883). IMPORT 는 원본을 그대로 옮기는 데 방해되는 두 규칙만
@@ -438,14 +534,17 @@ public class IssueService {
     //    사이클은 집합 교체(IssueCycleService.replace)처럼 완료 사이클도 허용한다.
     List<Long> labelIds = distinct(req.labelIds());
     List<Long> cycleIds = distinct(req.cycleIds());
+    // WP-933 구성요소도 같은 멤버 전용 값 — 비구성원이 넘기면 자동 지정의 우회로가 되므로 라벨과 함께 막는다.
+    List<Long> componentIds = distinct(req.componentIds());
     // WP-394 이름 라벨 — 여기선 모양만 검증(쓰기 없음, 사전검증과 공유). 없는 라벨 생성은 create 실행 때.
     List<String> labelNames = LabelService.normalizeNames(req.labelNames());
     if ((!labelIds.isEmpty()
             || !labelNames.isEmpty()
             || !cycleIds.isEmpty()
+            || !componentIds.isEmpty()
             || req.milestoneId() != null)
         && !memberOrAdmin) {
-      throw new ProjectAccessDeniedException("라벨·마일스톤·사이클은 프로젝트 멤버만 지정할 수 있습니다");
+      throw new ProjectAccessDeniedException("라벨·마일스톤·사이클·구성요소는 프로젝트 멤버만 지정할 수 있습니다");
     }
     if (!labelIds.isEmpty()) {
       var labels = labelRepository.findByIds(labelIds);
@@ -470,6 +569,11 @@ public class IssueService {
       }
     }
 
+    // WP-933 구성요소 — 모두 이 프로젝트 소속이어야 하고(400), 보관된 것은 새로 붙일 수 없다. 가져오기는 지난 기록이라 보관된 것도 허용한다.
+    List<ComponentRow> components =
+        componentRepository.findByIds(project.id(), componentIds, false);
+    ComponentService.requireAttachable(components, componentIds.size(), importing);
+
     return new CreateIssuePlan(
         project,
         assigneeIds,
@@ -481,7 +585,8 @@ public class IssueService {
         milestone == null ? null : milestone.name(),
         cycleIds,
         labelNames,
-        status);
+        status,
+        components);
   }
 
   /**
@@ -521,7 +626,8 @@ public class IssueService {
       IssueRow row,
       int number,
       List<Long> assigneeIds,
-      List<AssigneeInfo> assignees) {
+      List<AssigneeInfo> assignees,
+      List<ComponentRow> components) {
     // 3) issue_assignee 매핑 INSERT
     for (Long uid : assigneeIds) {
       assigneeRepository.add(row.id(), uid, callerId);
@@ -582,19 +688,27 @@ public class IssueService {
     // 것이 아니라 생성 뒤 바뀐 상태를 반영하려는 것이라 그대로 둔다.
     var saved =
         AgentToolContext.current() == null ? row : issueRepository.findById(row.id()).orElse(row);
-    return newIssueSummary(project, saved, assigneeSummaries, 0, List.of());
+    return newIssueSummary(
+        project,
+        saved,
+        assigneeSummaries,
+        0,
+        List.of(),
+        components.stream().map(ComponentRow::toSummary).toList());
   }
 
   /**
    * 방금 만든 이슈의 요약 응답 — 유형·부모·라벨을 읽어 채운다. 새 이슈라 자식·의존성은 없으므로 상세 조회(get)처럼 댓글·이력까지 다시 읽지 않는다. 일반
-   * 생성(첨부·필드 없음)과 가져오기(원 첨부 수·필드 값)가 함께 쓴다. 라벨은 생성 때 붙였을 수 있다(WP-356, 없으면 빈 목록).
+   * 생성(첨부·필드 없음)과 가져오기(원 첨부 수·필드 값)가 함께 쓴다. 라벨은 생성 때 붙였을 수 있다(WP-356, 없으면 빈 목록). 구성요소는 호출부가 붙인
+   * 행(잠가서 읽은 계획의 구성요소)으로 넘겨 다시 읽지 않는다.
    */
   IssueResponse newIssueSummary(
       ProjectRow project,
       IssueRow row,
       List<UserSummary> assignees,
       int attachmentCount,
-      List<IssueFieldEntry> customFields) {
+      List<IssueFieldEntry> customFields,
+      List<ComponentSummary> components) {
     var type = typeRepository.findByIds(List.of(row.typeId())).get(row.typeId());
     var parentRef =
         row.parentIssueId() == null
@@ -602,19 +716,25 @@ public class IssueService {
             : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
     var labels = issueLabelRepository.findLabelsByIssue(row.id());
     return IssueResponse.fromWithCustomFields(
-        project.key(),
-        row,
-        labels,
-        attachmentCount,
-        type,
-        assignees,
-        parentRef,
-        0,
-        0,
-        List.of(),
-        List.of(),
-        false,
-        customFields);
+            project.key(),
+            row,
+            labels,
+            attachmentCount,
+            type,
+            assignees,
+            parentRef,
+            0,
+            0,
+            List.of(),
+            List.of(),
+            false,
+            customFields)
+        .withComponents(components);
+  }
+
+  /** 한 이슈에 붙은 구성요소 요약(목록 순서, WP-933) — 없으면 빈 목록. */
+  private List<ComponentSummary> componentsOf(long issueId) {
+    return componentRepository.summariesByIssue(issueId);
   }
 
   /** 프로젝트 내 이슈 목록 페이지 조회. */
@@ -684,7 +804,8 @@ public class IssueService {
                 blocksMap.getOrDefault(row.id(), List.of()),
                 blockedMap.getOrDefault(row.id(), false),
                 fieldsByIssue.getOrDefault(row.id(), List.of()))
-            .withAgentWork(agentWorkService.viewsByIssueIds(ids).getOrDefault(row.id(), List.of()));
+            .withAgentWork(agentWorkService.viewsByIssueIds(ids).getOrDefault(row.id(), List.of()))
+            .withComponents(componentsOf(row.id()));
     // AI Instant Context: 항상 반환 — 블로커는 항상 계산, summary/nextAction/generatedAt 은 저장본 없으면 null.
     // 생성 버튼은 항상 렌더(aiContext non-null)해야 하므로 저장본/블로커 여부와 무관하게 인스턴스화.
     var blockers = blockerCalculator.compute(summaryResponse, LocalDate.now(), Instant.now());

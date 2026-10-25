@@ -154,6 +154,7 @@ describe('normalizeIssueDetail', () => {
           closedAt: '2026-10-07T15:30:00Z',
           type: { id: 7, name: 'BUG', colorToken: 'RED', icon: 'Bug' },
           labels: [{ id: 1, name: '긴급' }],
+          components: [{ id: 21, name: 'Compute', archived: false }, { id: 23, name: '옛 구성요소', archived: true }],
           milestoneId: 9,
           milestoneName: 'v1.0',
           parent: { number: 2, title: '에픽', status: 'TODO' },
@@ -167,6 +168,8 @@ describe('normalizeIssueDetail', () => {
         history: [
           { id: 1, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', actorUsername: 'bob', eventType: 'STATUS_CHANGED', fromValue: 'TODO', toValue: 'CANCELED', createdAt: '2026-10-07T15:30:00Z' },
           { id: 2, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', actorUsername: 'bob', eventType: 'LABELS_CHANGED', fromValue: null, toValue: '{"added":[{"id":1,"name":"긴급","colorToken":"RED"}],"removed":[]}', createdAt: '2026-10-07T15:31:00Z' },
+          { id: 3, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', actorUsername: 'bob', eventType: 'COMPONENTS_CHANGED', fromValue: null, toValue: '{"added":[{"id":21,"name":"Compute"}],"removed":[]}', createdAt: '2026-10-07T15:32:00Z' },
+          { id: 4, actorId: 3, actorName: 'Bob', actorKind: 'AGENT', actorUsername: 'bob', eventType: 'ASSIGNEES_CHANGED', fromValue: null, toValue: '{"added":[{"id":10,"username":"alice","name":"Alice","kind":"HUMAN"}],"removed":[],"reason":"COMPONENT_DEFAULT","componentId":21,"componentName":"Compute"}', createdAt: '2026-10-07T15:33:00Z' },
         ],
       },
     );
@@ -179,6 +182,7 @@ describe('normalizeIssueDetail', () => {
       updatedAt: '2026-10-08T00:30:00+09:00',
       closedAt: '2026-10-08T00:30:00+09:00',
       labels: ['긴급'],
+      components: ['Compute', '옛 구성요소'],
       milestone: 'v1.0',
       parent: { issueKey: 'WP-2', title: '에픽', status: 'TODO' },
       children: null,
@@ -188,6 +192,9 @@ describe('normalizeIssueDetail', () => {
       history: [
         { at: '2026-10-08T00:30:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'STATUS_CHANGED', from: 'TODO', to: 'CANCELED' },
         { at: '2026-10-08T00:31:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'LABELS_CHANGED', from: null, to: { added: [{ name: '긴급' }], removed: [] } },
+        { at: '2026-10-08T00:32:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'COMPONENTS_CHANGED', from: null, to: { added: [{ name: 'Compute' }], removed: [] } },
+        // 구성요소 기본 담당자로 자동 지정된 기록 — 숫자 componentId 는 내보내지 않고 이름만 남는다.
+        { at: '2026-10-08T00:33:00+09:00', actor: { username: 'bob', name: 'Bob', kind: 'AGENT' }, event: 'ASSIGNEES_CHANGED', from: null, to: { added: [{ username: 'alice', name: 'Alice', kind: 'HUMAN' }], removed: [], reason: 'COMPONENT_DEFAULT', componentName: 'Compute' } },
       ],
     });
   });

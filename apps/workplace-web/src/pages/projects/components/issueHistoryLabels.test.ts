@@ -3,7 +3,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  formatAssigneesChanged,
+  formatAttachmentsChanged,
+  formatComponentsChanged,
   formatExternalLinkChanged,
+  formatLabelsChanged,
   formatParentChanged,
   formatRelationChanged,
   formatStatusMigrated,
@@ -110,5 +114,66 @@ describe('formatExternalLinkChanged', () => {
   it('값이 없거나 깨졌으면 안전한 폴백', () => {
     expect(formatExternalLinkChanged(null, null)).toBe('외부 링크 변경');
     expect(formatExternalLinkChanged(null, 'x')).toBe('외부 링크 변경');
+  });
+});
+
+// WP-933: 구성요소 추가·제거 기록(당시 이름)과 구성요소 담당자 자동 지정 문구.
+describe('formatComponentsChanged', () => {
+  it('추가·제거를 + / - 로, 저장된(당시) 이름 그대로', () => {
+    expect(formatComponentsChanged(JSON.stringify({ added: [{ id: 1, name: 'Compute' }], removed: [] }))).toBe('+ Compute');
+    expect(formatComponentsChanged(JSON.stringify({ added: [], removed: [{ id: 2, name: '옛 이름' }] }))).toBe('- 옛 이름');
+    expect(
+      formatComponentsChanged(JSON.stringify({ added: [{ id: 1, name: 'A' }, { id: 3, name: 'B' }], removed: [{ id: 2, name: 'C' }] })),
+    ).toBe('+ A, B / - C');
+  });
+  it('빈 값은 「구성요소 변경」, 깨진 JSON 은 원문', () => {
+    expect(formatComponentsChanged(null)).toBe('구성요소 변경');
+    expect(formatComponentsChanged('{oops')).toBe('{oops');
+  });
+});
+
+describe('formatAssigneesChanged', () => {
+  it('일반 담당자 변경은 + / -', () => {
+    expect(formatAssigneesChanged(JSON.stringify({ added: [{ id: 1, name: '박순' }], removed: [{ id: 2, name: null }] }))).toBe(
+      '+ 박순 / - #2',
+    );
+  });
+  it('구성요소 담당자 자동 지정은 「구성요소 {이름} 담당자로 자동 지정 — {담당자}」', () => {
+    const v = JSON.stringify({
+      added: [{ id: 10, username: 'soon.park', name: '박순', kind: 'HUMAN' }],
+      removed: [],
+      reason: 'COMPONENT_DEFAULT',
+      componentId: 3,
+      componentName: 'Compute',
+    });
+    expect(formatAssigneesChanged(v)).toBe('구성요소 Compute 담당자로 자동 지정 — 박순');
+  });
+  it('구성요소 이름이 없어도 공백이 겹치지 않는다', () => {
+    const v = JSON.stringify({ added: [{ id: 10, name: '박순' }], removed: [], reason: 'COMPONENT_DEFAULT' });
+    expect(formatAssigneesChanged(v)).toBe('구성요소 담당자로 자동 지정 — 박순');
+    expect(formatAssigneesChanged(JSON.stringify({ added: [], removed: [], reason: 'COMPONENT_DEFAULT' }))).toBe('구성요소 담당자로 자동 지정');
+  });
+});
+
+// 라벨·첨부 이력은 구성요소와 같은 + / - 표기 도우미를 쓴다 — 기존 문구가 그대로인지 고정한다.
+describe('formatLabelsChanged / formatAttachmentsChanged', () => {
+  it('라벨: 추가·제거를 + / -, 빈 값은 「없음」, 변화 없음은 「변경 없음」, 깨진 JSON 은 원문', () => {
+    expect(formatLabelsChanged(JSON.stringify({ added: [{ name: 'bug' }, { name: 'ui' }], removed: [{ name: 'old' }] }))).toBe(
+      '+ bug, ui / - old',
+    );
+    expect(formatLabelsChanged(JSON.stringify({ added: [], removed: [{ name: 'old' }] }))).toBe('- old');
+    expect(formatLabelsChanged(JSON.stringify({ added: [], removed: [] }))).toBe('변경 없음');
+    expect(formatLabelsChanged(null)).toBe('없음');
+    expect(formatLabelsChanged('{oops')).toBe('{oops');
+  });
+  it('첨부: 파일 이름을 + / -, 빈 값은 「첨부 변경」, 변화 없음은 「변경 없음」, 깨진 JSON 은 원문', () => {
+    expect(
+      formatAttachmentsChanged(
+        JSON.stringify({ added: [{ fileId: 1, originalName: 'a.png' }], removed: [{ fileId: 2, originalName: 'b.pdf' }] }),
+      ),
+    ).toBe('+ a.png / - b.pdf');
+    expect(formatAttachmentsChanged(JSON.stringify({ added: [], removed: [] }))).toBe('변경 없음');
+    expect(formatAttachmentsChanged(null)).toBe('첨부 변경');
+    expect(formatAttachmentsChanged('{oops')).toBe('{oops');
   });
 });

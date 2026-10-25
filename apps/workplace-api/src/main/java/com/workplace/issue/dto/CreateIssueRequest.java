@@ -24,6 +24,8 @@ import java.util.List;
  * <p>WP-394: labelNames 는 이름으로 붙일 라벨 — 프로젝트에 없는 이름은 같은 트랜잭션에서 기본 색으로 만들어 붙인다(labelIds 와 합친다).
  *
  * <p>WP-807: statusId 는 처음 프로젝트 상태 — status(범주)보다 우선한다. 범주만 오면 그 범주의 기본 상태로 만든다.
+ *
+ * <p>WP-933: componentIds 는 붙일 구성요소 — 담당자(assigneeIds)가 비어 있으면 서버가 목록 순서로 처음 유효한 구성요소 담당자를 붙인다.
  */
 public record CreateIssueRequest(
     @NotBlank(message = "이슈 제목을 입력해 주세요") @Size(max = 200) String title,
@@ -42,7 +44,46 @@ public record CreateIssueRequest(
     List<String> labelNames,
     @Size(max = 10) List<Long> fileIds,
     @Pattern(regexp = IssueStatuses.CATEGORY_REGEX) String status,
-    Long statusId) {
+    Long statusId,
+    // WP-933 구성요소 — 같은 프로젝트의 사용 중(보관 안 됨) 구성요소만, 구성원만 지정할 수 있다. 담당자 없이 만들면 고른 구성요소 담당자가
+    // 자동으로 붙는다. 원소 null 은 400.
+    @Size(max = 100) List<@NotNull Long> componentIds) {
+
+  /** WP-933 이전의 15-인자 호환 생성자 — 구성요소 없이 만든다(메일 승격·가져오기·기존 테스트가 그대로 쓴다). */
+  public CreateIssueRequest(
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      List<Long> assigneeIds,
+      Long typeId,
+      Integer parentNumber,
+      LocalDate startDate,
+      List<Long> labelIds,
+      Long milestoneId,
+      List<Long> cycleIds,
+      List<String> labelNames,
+      List<Long> fileIds,
+      String status,
+      Long statusId) {
+    this(
+        title,
+        body,
+        priority,
+        dueDate,
+        assigneeIds,
+        typeId,
+        parentNumber,
+        startDate,
+        labelIds,
+        milestoneId,
+        cycleIds,
+        labelNames,
+        fileIds,
+        status,
+        statusId,
+        null);
+  }
 
   /** WP-422 이전의 12-인자 호환 생성자 — 첨부(fileIds) 없이 만든다. 기존 호출부(JSON 역직렬화는 정식 생성자)가 그대로 쓴다. */
   public CreateIssueRequest(
@@ -71,6 +112,7 @@ public record CreateIssueRequest(
         milestoneId,
         cycleIds,
         labelNames,
+        null,
         null,
         null,
         null);

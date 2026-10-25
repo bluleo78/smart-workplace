@@ -15,6 +15,13 @@ const RELATION_TYPES = [
   relationType({ id: 10, name: '옛 유형', outwardLabel: '옛', inwardLabel: '옛2', hidden: true }),
 ];
 
+/** 프로젝트 구성요소 mock(GET /projects/{key}/components) — 사용 중 둘 + 보관 하나. */
+const COMPONENTS = [
+  { id: 21, name: 'Compute', archived: false, defaultAssignee: { username: 'alice' } },
+  { id: 22, name: 'Storage', archived: false, defaultAssignee: null },
+  { id: 23, name: '옛 구성요소', archived: true, defaultAssignee: null },
+];
+
 /** 전 메서드 vi.fn() 인 mock. 개별 테스트에서 필요한 것만 재설정. */
 function mockClient(): IssueToolClient {
   return {
@@ -22,6 +29,8 @@ function mockClient(): IssueToolClient {
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
     getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: 'urgent' }]),
+    getProjectComponents: vi.fn().mockResolvedValue(COMPONENTS),
+    replaceIssueComponents: vi.fn().mockResolvedValue([]),
     getIssueDetail: vi.fn(),
     createIssue: vi.fn().mockResolvedValue({ ok: true }),
     updateIssueContent: vi.fn().mockResolvedValue({}),
@@ -332,6 +341,75 @@ describe('buildSharedIssueTools', () => {
     vi.mocked(c.replaceIssueLabels).mockRejectedValueOnce(new Error('이슈를 찾을 수 없습니다'));
     const failed = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', labels: ['ai-fix'] })));
     expect(failed).toEqual({ ok: false, results: { labels: 'failed: 이슈를 찾을 수 없습니다' } });
+  });
+
+  it('WP-933: create_issue 는 components 이름(대소문자 무시)을 componentIds 로 바꿔 생성 요청 한 번에 싣는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await t.handler({ projectKey: 'WP', title: '새 이슈', components: ['compute', 'Storage'] });
+    expect(c.getProjectComponents).toHaveBeenCalledWith('WP');
+    expect(c.createIssue).toHaveBeenCalledTimes(1);
+    expect(c.createIssue).toHaveBeenCalledWith('WP', expect.objectContaining({ componentIds: [21, 22] }));
+    expect(c.replaceIssueComponents).not.toHaveBeenCalled();
+  });
+
+  it('WP-933: create_issue 는 components 를 안 주면 구성요소를 조회하지 않고 componentIds 도 보내지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await t.handler({ projectKey: 'WP', title: '새 이슈' });
+    expect(c.getProjectComponents).not.toHaveBeenCalled();
+    expect(vi.mocked(c.createIssue).mock.calls[0][1].componentIds).toBeUndefined();
+  });
+
+  it('WP-933: 없는 구성요소 이름이면 만들지 않고 이슈 생성 전에 사용 가능 목록을 담아 throw 한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', components: ['Network'] })).rejects.toThrow('사용 가능: Compute, Storage');
+    expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-933: 보관된 구성요소 이름은 새로 붙일 수 없어 이슈 생성 전에 throw 한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', components: ['옛 구성요소'] })).rejects.toThrow('보관');
+    expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-933: update_issue 는 components 를 집합 교체로 PUT 하고 결과에 components 를 싣는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', components: ['Compute'] })));
+    expect(c.replaceIssueComponents).toHaveBeenCalledWith('WP-12', [21]);
+    expect(out).toEqual({ ok: true, results: { components: 'ok' } });
+  });
+
+  it('WP-933: update_issue 의 components: [] 는 구성요소 조회 없이 비운다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', components: [] });
+    expect(c.getProjectComponents).not.toHaveBeenCalled();
+    expect(c.replaceIssueComponents).toHaveBeenCalledWith('WP-12', []);
+  });
+
+  it('WP-933: update_issue 는 없는 구성요소 이름이면 다른 필드도 쓰지 않고 throw 한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await expect(t.handler({ issueKey: 'WP-12', title: '바꿈', components: ['Network'] })).rejects.toThrow('사용 가능: Compute, Storage');
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+    expect(c.replaceIssueComponents).not.toHaveBeenCalled();
+  });
+
+  it('WP-933: update_issue 는 새로 붙이려는 보관 구성요소를 쓰기 전에 거절하지만, 이미 붙어 있는 보관 구성요소는 유지하게 둔다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { components: [{ id: 22, name: 'Storage', archived: false }] } });
+    await expect(t.handler({ issueKey: 'WP-12', title: '바꿈', components: ['옛 구성요소'] })).rejects.toThrow('보관');
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+    expect(c.replaceIssueComponents).not.toHaveBeenCalled();
+
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { components: [{ id: 23, name: '옛 구성요소', archived: true }] } });
+    await t.handler({ issueKey: 'WP-12', components: ['옛 구성요소', 'Compute'] });
+    expect(c.replaceIssueComponents).toHaveBeenCalledWith('WP-12', [23, 21]);
   });
 
   it('WP-745: update_issue 는 유형과 부모를 함께 바꾸면 유형 요청 하나에 부모를 실어 보낸다', async () => {

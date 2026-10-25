@@ -25,6 +25,8 @@ function epicListFilters(epicTypeId: number, statuses: string[], activeCycleOnly
     dueTo: null,
     labelIds: [],
     cycleIds: [],
+    componentIds: [],
+    componentNone: false,
     milestoneIds: [],
     typeIds: [epicTypeId],
     parentNumber: null,

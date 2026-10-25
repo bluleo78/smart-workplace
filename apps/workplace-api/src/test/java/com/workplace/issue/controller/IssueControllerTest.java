@@ -131,7 +131,8 @@ class IssueControllerTest {
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   private IssueDetailResponse sampleDetail() {

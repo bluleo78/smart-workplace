@@ -1,7 +1,7 @@
-// 모바일 이슈 생성 속성 칩 줄(WP-196) — 시트 맨 아래(=키보드 바로 위, 원칙 ②)에 유형·우선순위·담당자·마감·에픽·✦ AI·⋯ 를 가로 한 줄로.
+// 모바일 이슈 생성 속성 칩 줄(WP-196) — 시트 맨 아래(=키보드 바로 위, 원칙 ②)에 유형·우선순위·담당자·구성요소·마감·에픽·✦ AI·⋯ 를 가로 한 줄로.
 // 칩을 누르는 순간 입력칸 포커스를 기억하고 blur(키보드 내림) → 선택 시트 → 닫히면 그 칸으로 포커스 복귀(원칙 ③).
 // 상위 번호 입력·AI 이유·시작일 표시는 본문 영역 몫이라 여기선 칩 줄과 시트만 렌더한다.
-import { CalendarDays, CalendarPlus, Diamond, Flag, Hash, MoreHorizontal, User } from 'lucide-react';
+import { Boxes, CalendarDays, CalendarPlus, Diamond, Flag, Hash, MoreHorizontal, User } from 'lucide-react';
 import { type ReactNode, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 
@@ -24,9 +24,9 @@ import type { IssuePriority } from '../../../../types/issue';
 import type { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
 import { memberOptions } from './issuePropOptions';
-import { EpicPickerSheet } from './issuePropSheets';
+import { ComponentPickerSheet, EpicPickerSheet } from './issuePropSheets';
 
-type Sheet = 'type' | 'priority' | 'assignee' | 'due' | 'epic' | 'start' | 'more' | null;
+type Sheet = 'type' | 'priority' | 'assignee' | 'component' | 'due' | 'epic' | 'start' | 'more' | null;
 
 export function CreateIssueChips({
   projectKey, personal, f, focusReturn, onFocusParent,
@@ -39,6 +39,8 @@ export function CreateIssueChips({
   onFocusParent: () => void;
 }) {
   const { form, types, selectedType, isEpicSelected, isSubtaskSelected, classify, handleClassify, epicNumber, setEpicNumber } = f;
+  // 구성요소(WP-933) — 구성원이고 사용 중 구성요소가 있을 때만 칩을 둔다.
+  const { showComponents, componentList, componentIds, setComponentIds } = f;
   const { watch, setValue } = form;
   const [sheet, setSheet] = useState<Sheet>(null);
   // ⋯ 시트에서 액션을 골랐는지 — 액션 없이 닫혔을 때만 포커스를 복귀한다.
@@ -67,6 +69,11 @@ export function CreateIssueChips({
     : null;
   const dueText = dueDate ? formatDateMonthDay(dueDate) : null;
   const epicText = epic ? epic.title : null;
+  // 구성요소 칩 글자 — 첫 이름 + 「+N」(담당자 칩과 같은 모양).
+  const firstComponent = componentList.find((c) => c.id === componentIds[0]);
+  const componentText = firstComponent
+    ? `${firstComponent.name}${componentIds.length > 1 ? ` +${componentIds.length - 1}` : ''}`
+    : null;
 
   // 시트를 동기로 닫고(포커스 트랩 해제) 같은 클릭 핸들러 안에서 직전 입력칸에 포커스를 돌려준다 — iOS 키보드가 다시 올라오도록.
   const closeSheet = () => {
@@ -165,6 +172,17 @@ export function CreateIssueChips({
             assigneeIds.length > 0,
             assigneeIds.length === 0,
           )}
+          {showComponents &&
+            chip(
+              'component',
+              labelWithValue('구성요소', componentText),
+              <>
+                <Boxes className="size-4" aria-hidden />
+                <span className="max-w-40 truncate">{componentText ?? '구성요소'}</span>
+              </>,
+              componentIds.length > 0,
+              componentIds.length === 0,
+            )}
           {chip('due', labelWithValue('마감일', dueText), <><CalendarDays className="size-4" aria-hidden />{dueText ?? '마감'}</>, !!dueDate, !dueDate)}
           {showEpic &&
             chip(
@@ -239,6 +257,18 @@ export function CreateIssueChips({
           closeSheet();
         }}
       />
+      {showComponents && (
+        <ComponentPickerSheet
+          testId="create-component-sheet"
+          open={sheet === 'component'}
+          components={componentList}
+          value={componentIds}
+          onClose={(ids) => {
+            setComponentIds(ids);
+            closeSheet();
+          }}
+        />
+      )}
       <MobileDateSheet
         testId="create-due-sheet"
         open={sheet === 'due'}

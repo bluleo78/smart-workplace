@@ -3,6 +3,7 @@
 // 왜: 9개 속성이 단일 스크롤에 나열되어 과밀한 기존 aside 를 해소(#343).
 // 첨부 섹션은 Task 2 에서, 활동 섹션은 Task 3 에서 본문 탭으로 이동 완료.
 
+import { IssueComponentsField } from '../../../components/components/IssueComponentsField';
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
 import { AgentWorkRailSection } from '../../../components/issue/agentWork/AgentWorkRailSection';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
@@ -10,6 +11,7 @@ import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { isOverdue } from '../../../lib/issueOverdue';
+import type { ComponentSummary } from '../../../types/component';
 import type { IssueFieldEntry } from '../../../types/customField';
 import type {
   AgentWorkView,
@@ -56,6 +58,7 @@ interface IssuePropertyRailProps {
   createdAt: string;          // summary.createdAt — 보고자 옆 생성일
   closedAt?: string | null;   // summary.closedAt — 종료 상태의 완료·취소 시각(WP-873, 구버전 응답엔 없음)
   labels: LabelSummary[];     // summary.labels
+  components?: ComponentSummary[]; // summary.components — 붙은 구성요소(WP-933, 구버전 응답엔 없음)
   blockedBy: IssueLinkSummary[];  // summary.blockedBy
   blocks: IssueLinkSummary[];     // summary.blocks
   relations?: IssueRelationView[];        // 상세 relations — 차단 밖 이슈 사이 관계(WP-887)
@@ -94,6 +97,7 @@ export function IssuePropertyRail({
   createdAt,
   closedAt,
   labels,
+  components = [],
   blockedBy,
   blocks,
   relations = [],
@@ -195,6 +199,13 @@ export function IssuePropertyRail({
               disabled={updatePending || !canEditWorkflow}
             />
           </div>
+          {/* 구성요소(WP-933) — 담당자 바로 아래. 사용 중 구성요소가 없는 프로젝트면 행이 스스로 숨는다. 붙이기는 라벨과 같은 워크플로 권한. */}
+          <IssueComponentsField
+            projectKey={projectKey}
+            issueNumber={issueNumber}
+            current={components}
+            disabled={!canEditWorkflow}
+          />
           {/* AI 진행(WP-377) — 담당자 바로 아래. 진행 중 작업이 없으면 섹션이 스스로 숨는다. */}
           <AgentWorkRailSection list={agentWork} />
           {/* 보고자(WP-272) — 바꿀 수 있으면 고르기 트리거(WP-944). 구버전 서버 응답(reporter 없음)이면 필드가 스스로 숨는다. */}
@@ -208,7 +219,16 @@ export function IssuePropertyRail({
           )}
         </IssuePropertyGroup>
       ) : (
-        aiButton
+        <>
+          {aiButton}
+          {/* 시트(모바일)는 첫 묶음을 그리지 않으므로 구성요소 행을 단독으로 둔다 — 칩 줄엔 구성요소 칩이 없다. */}
+          <IssueComponentsField
+            projectKey={projectKey}
+            issueNumber={issueNumber}
+            current={components}
+            disabled={!canEditWorkflow}
+          />
+        </>
       )}
 
       {/* 그룹 2: 일정 — 기본 펼침 */}

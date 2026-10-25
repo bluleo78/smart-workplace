@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { useComponents } from '../../../hooks/queries/useComponents';
 import { useIssueAiClassify } from '../../../hooks/queries/useIssueAiClassify';
 import { useCreateIssue } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
@@ -11,6 +12,7 @@ import { isStatusGoneError, useProjectStatusList } from '../../../hooks/queries/
 import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
+import { hasActiveComponents } from '../../../lib/issueComponents';
 import { resolveParentNumber } from '../../../lib/issueCreateParent';
 import { hasIssueDraftContent } from '../../../lib/issueDraft';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
@@ -36,7 +38,14 @@ export function useIssueCreateForm({
   const statuses = useProjectStatusList(projectKey);
   const initialStatus = statuses.find((s) => s.id === initialStatusId);
   // OPEN 프로젝트 비멤버는 접수만 한다(WP-477) — 화면은 유형·우선순위·일정·담당자·부모 칸을 숨기고 송신도 제목·본문만 한다.
-  const intakeOnly = isIntakeOnly(useProject(projectKey).data);
+  const project = useProject(projectKey).data;
+  const intakeOnly = isIntakeOnly(project);
+  // 구성요소(WP-933) — 만들 때 고르는 것은 구성원만(서버도 비구성원 componentIds 를 거절). 개인 프로젝트는 구성요소가 없어 요청하지 않는다.
+  // 사용 중 구성요소가 하나도 없으면 칸을 그리지 않는다(showComponents) — 구성요소를 안 쓰는 프로젝트의 만들기 창은 그대로.
+  const components = useComponents(projectKey, { enabled: !!project && project.type !== 'PERSONAL' && !intakeOnly });
+  const componentList = components.data ?? [];
+  const showComponents = !intakeOnly && hasActiveComponents(componentList);
+  const [componentIds, setComponentIds] = useState<number[]>([]);
   // 모바일 에픽 칩 값(R8) — 폼 스키마 밖 별도 상태. 일반 이슈의 parentNumber 로 송신되고, EPIC·SUBTASK 유형이면 해제된다.
   const [epicNumber, setEpicNumber] = useState<number | null>(null);
   const form = useForm<CreateIssueFormData>({
@@ -61,6 +70,7 @@ export function useIssueCreateForm({
     reset({ priority: 'MID' });
     setClassifyReason(null); // AI 제안 이유 초기화
     setEpicNumber(null); // 에픽 칩 선택 초기화
+    setComponentIds([]); // 구성요소 선택 초기화
   }, [open, reset]);
 
   // 유형 목록 로드 시 기본값 세팅 — name === 'TASK' 우선, 없으면 첫 항목.
@@ -144,6 +154,8 @@ export function useIssueCreateForm({
         formParentNumber: data.parentNumber,
         epicNumber,
       }),
+      // 고른 구성요소 — 칸이 보일 때만(구성원·사용 중 구성요소 있음). 담당자를 비워 두면 서버가 구성요소 담당자를 자동으로 붙인다.
+      componentIds: showComponents && componentIds.length > 0 ? componentIds : undefined,
     };
     try {
       await create.mutateAsync(payload);
@@ -172,5 +184,7 @@ export function useIssueCreateForm({
     isSubmitting: create.isPending || images.isUploading,
     isCreating: create.isPending,
     hasContent, epicNumber, setEpicNumber,
+    // 구성요소(WP-933) — 칸 노출 여부·목록(보관 포함)·고른 id.
+    showComponents, componentList, componentIds, setComponentIds,
   };
 }

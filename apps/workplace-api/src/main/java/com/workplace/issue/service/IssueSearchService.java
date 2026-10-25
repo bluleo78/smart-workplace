@@ -73,6 +73,8 @@ public class IssueSearchService {
   private final com.workplace.project.repository.ProjectRepository projectRepository;
   // WP-915: /me/issues 프로젝트 묶음 정렬(group=due|recent).
   private final MeIssueGroupedRepository groupedRepository;
+  // WP-933: 목록 항목에 붙은 구성요소를 싣는다.
+  private final com.workplace.component.repository.ComponentRepository componentRepository;
 
   /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
   private static final java.util.Set<String> COUNTABLE_GROUPS =
@@ -99,8 +101,8 @@ public class IssueSearchService {
 
   /**
    * 검색. params 키: q, status, statusId·statusName(WP-807), assignee, priority, dueFrom, dueTo,
-   * label, type, cursor, size, watching(WP-356, true 만). assignee·reporter 는 me/숫자 id/username,
-   * label·type 은 숫자 id/이름을 받는다(#841).
+   * label, type, component(WP-933, id·이름·none), cursor, size, watching(WP-356, true 만).
+   * assignee·reporter 는 me/숫자 id/username, label·type 은 숫자 id/이름을 받는다(#841).
    */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
@@ -311,6 +313,8 @@ public class IssueSearchService {
             .stream()
             .collect(Collectors.toMap(u -> u.id(), UserResponse::toSummary));
     var cyclesByIssue = issueCycleRepository.findCyclesByIssueIds(issueIds);
+    // WP-933 — 구성요소 batch(이슈별 목록 순서, N+1 회피). 없는 이슈는 빈 배열.
+    var componentsByIssue = componentRepository.summariesByIssueIds(issueIds);
     return rows.stream()
         .map(
             r ->
@@ -331,7 +335,8 @@ public class IssueSearchService {
                     .withAgentWork(agentWorkByIssue.getOrDefault(r.id(), List.of()))
                     .withListExtras(
                         r.reporterId() == null ? null : reporterById.get(r.reporterId()),
-                        cyclesByIssue.getOrDefault(r.id(), List.of())))
+                        cyclesByIssue.getOrDefault(r.id(), List.of()))
+                    .withComponents(componentsByIssue.getOrDefault(r.id(), List.of())))
         .toList();
   }
 
@@ -412,6 +417,16 @@ public class IssueSearchService {
             projectId,
             callerId);
 
+    // 구성요소 CSV(WP-933) — 숫자 id 또는 구성요소 이름(대소문자 무시, 보관 포함), OR 결합. 'none' 은 구성요소가 없는 이슈(사이클 none
+    // 과 같은 토큰 규약). 못 찾는 이름은 400.
+    var componentTokens = csv(p.get("component"));
+    boolean componentNone = componentTokens.stream().anyMatch("none"::equalsIgnoreCase);
+    List<Long> componentIds =
+        filterResolver.resolveComponentIds(
+            componentTokens.stream().filter(t -> !"none".equalsIgnoreCase(t)).toList(),
+            projectId,
+            callerId);
+
     // 마일스톤 CSV — 숫자 id 또는 마일스톤 이름, OR 결합 필터. 못 찾는 이름은 400(WP-735).
     List<Long> milestoneIds =
         filterResolver.resolveMilestoneIds(csv(p.get("milestone")), projectId, callerId);
@@ -489,7 +504,9 @@ public class IssueSearchService {
         createdTo,
         watcherId,
         pendingForUserId,
-        statusIds);
+        statusIds,
+        componentIds,
+        componentNone);
   }
 
   private static LocalDate parseDate(String s) {

@@ -48,6 +48,13 @@ describe('ASSISTANT_SYSTEM_PROMPT', () => {
   });
 });
 
+describe('필터 매핑 안내', () => {
+  it('구성요소 → component(이름 CSV, none = 구성요소 없음) 매핑을 안내한다 (WP-933)', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('구성요소 → component');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('"none"');
+  });
+});
+
 describe('wiki-agent 라우팅·라벨 (M3)', () => {
   it('위임 테이블에 wiki-agent 행이 포함된다', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('wiki-agent');

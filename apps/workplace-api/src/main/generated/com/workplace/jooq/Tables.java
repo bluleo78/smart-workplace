@@ -59,6 +59,7 @@ import com.workplace.jooq.tables.IssueAttachment;
 import com.workplace.jooq.tables.IssueBodyImage;
 import com.workplace.jooq.tables.IssueComment;
 import com.workplace.jooq.tables.IssueCommentReaction;
+import com.workplace.jooq.tables.IssueComponent;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
 import com.workplace.jooq.tables.IssueExternalLink;
@@ -94,6 +95,7 @@ import com.workplace.jooq.tables.PlatformRole;
 import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
+import com.workplace.jooq.tables.ProjectComponent;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectStatus;
@@ -417,6 +419,11 @@ public class Tables {
     public static final IssueCommentReaction ISSUE_COMMENT_REACTION = IssueCommentReaction.ISSUE_COMMENT_REACTION;
 
     /**
+     * The table <code>public.issue_component</code>.
+     */
+    public static final IssueComponent ISSUE_COMPONENT = IssueComponent.ISSUE_COMPONENT;
+
+    /**
      * The table <code>public.issue_cycle</code>.
      */
     public static final IssueCycle ISSUE_CYCLE = IssueCycle.ISSUE_CYCLE;
@@ -591,6 +598,11 @@ public class Tables {
      * The table <code>public.project</code>.
      */
     public static final Project PROJECT = Project.PROJECT;
+
+    /**
+     * The table <code>public.project_component</code>.
+     */
+    public static final ProjectComponent PROJECT_COMPONENT = ProjectComponent.PROJECT_COMPONENT;
 
     /**
      * The table <code>public.project_issue_sequence</code>.

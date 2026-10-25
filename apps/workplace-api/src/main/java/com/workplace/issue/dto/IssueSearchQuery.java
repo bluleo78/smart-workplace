@@ -14,7 +14,8 @@ import java.util.List;
  * 사이클 미할당" 을 표현한다. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
  * watcherId 가 있으면 그 사용자가 워치 중인 이슈만(WP-356). pendingForUserId 가 있으면 그 사용자의 마지막 이슈 챗 글 이후 다른 사람 글이 있는
  * 이슈만(WP-373). statusIds 는 OR 결합 — 프로젝트 상태(project_status) id 중 하나와 일치하는 이슈만(WP-807).
- * statuses(범주)와는 AND.
+ * statuses(범주)와는 AND. componentIds·componentNone 은 OR 결합 — 지정 구성요소 중 하나라도 붙은 이슈 또는 구성요소가 없는
+ * 이슈(WP-933).
  */
 public record IssueSearchQuery(
     String q,
@@ -67,7 +68,80 @@ public record IssueSearchQuery(
     // 미적용.
     Long pendingForUserId,
     // 개별 상태 필터(WP-807) — statusId·statusName 을 해석한 프로젝트 상태 id 합집합, OR 결합. 비어 있으면 미적용.
-    List<Long> statusIds) {
+    List<Long> statusIds,
+    // 구성요소 필터(WP-933) — 지정 구성요소 중 하나라도 붙은 이슈(OR). 보관된 구성요소도 거를 수 있다. 비어 있으면 미적용.
+    List<Long> componentIds,
+    // 구성요소 없음 포함 — component=none 토큰(사이클 none 과 같은 규약). componentIds 와 OR 결합.
+    boolean componentNone) {
+
+  /** 구성요소 필터 없는 31-인자 호환 생성자 — 구성요소 필터를 쓰지 않는 호출부용. */
+  public IssueSearchQuery(
+      String q,
+      List<String> statuses,
+      List<Long> assigneeIds,
+      boolean includeUnassigned,
+      List<String> priorities,
+      LocalDate dueFrom,
+      LocalDate dueTo,
+      IssueCursor cursor,
+      int size,
+      List<List<Long>> labelIdGroups,
+      List<Long> typeIds,
+      Integer parentNumber,
+      Boolean topLevel,
+      Boolean blocked,
+      Long fieldId,
+      String fieldValue,
+      List<Long> reporterIds,
+      List<Long> cycleIds,
+      boolean includeNoOpenCycle,
+      List<Long> milestoneIds,
+      Boolean excludeSubtasks,
+      Boolean excludeEpics,
+      Boolean hideInactiveClosed,
+      boolean includeNoCycle,
+      LocalDate closedFrom,
+      LocalDate closedTo,
+      LocalDate createdFrom,
+      LocalDate createdTo,
+      Long watcherId,
+      Long pendingForUserId,
+      List<Long> statusIds) {
+    this(
+        q,
+        statuses,
+        assigneeIds,
+        includeUnassigned,
+        priorities,
+        dueFrom,
+        dueTo,
+        cursor,
+        size,
+        labelIdGroups,
+        typeIds,
+        parentNumber,
+        topLevel,
+        blocked,
+        fieldId,
+        fieldValue,
+        reporterIds,
+        cycleIds,
+        includeNoOpenCycle,
+        milestoneIds,
+        excludeSubtasks,
+        excludeEpics,
+        hideInactiveClosed,
+        includeNoCycle,
+        closedFrom,
+        closedTo,
+        createdFrom,
+        createdTo,
+        watcherId,
+        pendingForUserId,
+        statusIds,
+        null,
+        false);
+  }
 
   /** 워치 필터 없는 기존 28-인자 호환 생성자 — 리포지토리 테스트 시드가 그대로 쓴다. */
   public IssueSearchQuery(
@@ -130,6 +204,8 @@ public record IssueSearchQuery(
         createdTo,
         null,
         null,
-        null);
+        null,
+        null,
+        false);
   }
 }

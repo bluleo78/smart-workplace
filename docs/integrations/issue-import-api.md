@@ -13,6 +13,7 @@
 
 1. **구성원**: 요청에 나오는 모든 사람(보고자·담당자·워처·댓글 작성자·첨부자·이력 행위자·담당자 이력의 added/removed)을 먼저 **그 프로젝트의 활성 구성원**으로 추가한다. 사람은 모두 username 으로 적는다. 하나라도 아니면 400 이고 맞지 않은 username 을 전부 알려 준다. 다른 사람으로 대신 넣지 않는다.
 2. **프로젝트 설정**: 상태·유형·사이클·마일스톤·커스텀 필드 정의를 미리 만들고 id 를 모아 둔다. 라벨은 `labelNames` 로 주면 없을 때 만들어지지만, 변경 이력의 라벨 이름은 이미 있어야 한다(아래).
+   **구성요소는 라벨과 달리 가져오기가 만들어 주지 않는다.** 이관 스크립트가 먼저 일반 API(`POST /api/v1/projects/{projectKey}/components`, 프로젝트 소유자 또는 관리자)로 필요한 구성요소를 담당자와 함께 만들어 두고, 이슈에서는 `componentNames` 로 이름만 적는다. 이미 보관한 구성요소도 이름으로 연결할 수 있다.
 3. **이슈마다** 「그 이슈의 첨부·이미지 업로드 → 가져오기」를 번갈아 한다(아래 「업로드」).
 4. **에픽(부모) 먼저**, 하위 이슈는 나중에. 하위에서 `parentNumber` 로 부모 번호를 건다.
 5. **이슈를 전부 가져온 뒤** 관계를 한 번에 넣는다(아래 「관계·외부 링크」). 관계는 양쪽 이슈가 이미 있어야 걸 수 있다.
@@ -39,6 +40,7 @@
 | `sourceKey` | 원본 키(100자, 예 `CLIM-17`). 프로젝트 안에서 고유 — 재시도 판별용. |
 | `title` / `body` | 제목 200자, 본문 50,000자(마크다운). |
 | `typeId`, `statusId` 또는 `status`(상태 분류), `priority`, `startDate`, `dueDate`(`YYYY-MM-DD`), `parentNumber`, `milestoneId`, `labelIds`, `labelNames`, `cycleIds` | 일반 이슈 생성과 같은 뜻·검증. |
+| `componentNames` | 연결할 구성요소 **이름** 100개까지. 이 프로젝트에 이미 있는 구성요소여야 하고(**대소문자 무시**, 앞뒤 공백은 지운다) **보관된 구성요소도 허용**한다(지난 기록). 없는 이름이 하나라도 있으면 400 `IMPORT_UNKNOWN_COMPONENTS` 이고 이슈를 만들기 전에 거절한다. 같은 구성요소를 대소문자만 다르게 여러 번 적어도 한 번만 붙는다. 가져오기는 **구성요소 담당자 자동 지정을 하지 않는다** — 담당자는 `assignees` 로 준 사람뿐이고 비워 두면 담당자 없이 들어간다. |
 | `fields` | 커스텀 필드 값 `[{defId, value}]` — 일반 필드 값 API 와 같은 형식. 이력은 남기지 않는다. |
 | `reporter` | 보고자 username. |
 | `assignees` | 담당자 username(50명까지). 지정자는 호출자로 남고 원래 지정자는 `history` 로 옮긴다. |
@@ -64,6 +66,7 @@
 | `DUE_DATE_CHANGED`, `START_DATE_CHANGED` | `from`/`to` 는 `YYYY-MM-DD` 또는 null. `from` 과 `to` 가 같으면(둘 다 null 포함) 400. |
 | `ASSIGNEES_CHANGED` | `added`/`removed` username 목록 — **둘 중 하나는 비어 있지 않아야** 한다. |
 | `LABELS_CHANGED` | `added`/`removed` 라벨 이름 — 둘 중 하나는 비어 있지 않아야 하고, **이 프로젝트에 있는 라벨이어야** 한다(대소문자 구분). 이름은 `labelNames` 와 같게 앞뒤 공백을 지우고 한 줄로 다듬어 찾으므로 같은 요청의 `labelNames` 로 만든 라벨도 쓸 수 있다. 없으면 400. |
+| `COMPONENTS_CHANGED` | `added`/`removed` 구성요소 이름 — 둘 중 하나는 비어 있지 않아야 하고, **이 프로젝트에 있는 구성요소여야** 한다(대소문자 무시, 보관된 것도 허용). 없는 이름은 400 `IMPORT_UNKNOWN_COMPONENTS`. 이력에는 구성요소의 저장된 이름이 그 시점 이름으로 남는다. 이력은 기록일 뿐 이슈의 현재 구성요소는 `componentNames` 가 정한다. |
 | `TYPE_CHANGED` | `fromTypeId`·`toTypeId` **둘 다** 필수, 이 프로젝트의 유형 id. 둘이 같으면 400. |
 | 그 밖 | 400(`지원하지 않는 이력 유형`). |
 
@@ -84,6 +87,7 @@
   "milestoneId": 2,
   "labelIds": [4],
   "labelNames": ["compute"],
+  "componentNames": ["Compute", "Network"],
   "cycleIds": [7],
   "fields": [{ "defId": 31, "value": "RND-2025-03" }],
   "reporter": "kim.reporter",
@@ -123,6 +127,12 @@
       "actor": "kim.reporter",
       "at": "2025-03-03T09:21:00+09:00",
       "added": ["compute"]
+    },
+    {
+      "type": "COMPONENTS_CHANGED",
+      "actor": "kim.reporter",
+      "at": "2025-03-03T09:21:30+09:00",
+      "added": ["Compute", "Network"]
     },
     {
       "type": "PRIORITY_CHANGED",
@@ -200,6 +210,7 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 | 400 | `IMPORT_INVALID_TIMES` | 수정·종료 시각이 생성보다 이르거나, 종료가 수정보다 늦거나, 댓글·첨부·이력 시각이 이슈 생성보다 이르거나, 종료 상태가 아닌데 `closedAt` 을 줬다. |
 | 400 | `IMPORT_INVALID_HISTORY` | `errors.index`(0부터)번째 이력이 규칙에 어긋난다. `errors.detail` 참고. |
 | 400 | `IMPORT_UNKNOWN_LABELS` | 이력의 라벨 이름이 프로젝트에 없다. `errors.labels` 참고. |
+| 400 | `IMPORT_UNKNOWN_COMPONENTS` | `componentNames` 나 이력의 구성요소 이름이 프로젝트에 없다. `errors.components` 에 없는 이름이 쉼표로 나열된다. 구성요소를 먼저 만들고(가져오기는 만들지 않는다) 재시도. |
 | 400 | `IMPORT_UNKNOWN_RELATION_TYPE` | 외부 링크의 `type` 을 코드·이름으로 찾을 수 없다. `errors.type` 참고. |
 | 400 | `IMPORT_RELATION_SIDE_NOT_ALLOWED` | 상대 쪽 말이 없는 방향 있는 유형(`PARENT_EPIC` 등)에 `side: "target"` 을 줬다. 이런 유형은 `source` 로만 건다. `errors.type` 참고. |
 | 400 | `IMPORT_DUPLICATE_EXTERNAL_LINK` | 같은 요청의 `externalLinks` 에 같은 주소가 서로 다른 유형·방향으로 두 번 나왔다. 이슈를 만들기 전에 거절한다(유형·방향까지 같은 줄은 건너뛴다). `errors.url` 참고. |
@@ -220,6 +231,7 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 - 상태 이력은 Jira 상태 id → Works 상태 id 로 맞춘다(이름 금지). 종료 시각(`closedAt`)은 Works 에서 완료 범주로 매핑한 상태로 들어간 마지막 전이 시각을 넘긴다(Jira `resolutiondate` 는 4건에만 있어 쓰지 않는다).
 - Jira 인라인 이미지는 이슈 첨부이기도 하다(약 345개) — 둘 다 올리면 이중으로 들어간다. 본문 이미지로 쓴 파일은 첨부로 다시 올리지 않는 식으로 한 번만 넣는다. 인라인 파일 카드(로그 등, 이미지 아님)는 첨부로 넣고 본문엔 링크 문구로.
 - 대소문자만 다른 라벨(Compute/compute 등 6쌍)은 Works 에서 다른 라벨이 된다 — 미리 합친다.
+- Jira 구성요소 12개는 이슈를 가져오기 **전에** 일반 API 로 Works 구성요소(이름·담당자)로 만든다. 이름은 Works 에서 대소문자를 무시하고 유일해야 한다. 이슈에서는 Jira 구성요소 이름을 `componentNames` 에, 변경 이력은 `COMPONENTS_CHANGED` 로 옮긴다. 가져오기는 구성요소 담당자를 이슈 담당자로 붙이지 않으므로 담당자는 Jira 담당자를 `assignees` 로 보낸다.
 - 다른 프로젝트(CL) 에픽이 부모인 62건은 `parentNumber` 로 걸 수 없다 — `PARENT_EPIC` 외부 링크로(위 「관계·외부 링크」).
 - 본문의 `CLIM-n` 링크(773개)는 Works 프로젝트 키를 `CLIM` 으로 두면 번호 보존으로 그대로 맞는다.
 - 커넥터가 주는 주석 HTML 을 그대로 보내면 5만 자를 넘는 댓글이 있다(CLIM-16·14) — 마크다운으로 바꿔 보낸다.
@@ -235,6 +247,5 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 
 - 관계·외부 링크의 **이력**(원래 시각·행위자로 옮기기) — 관계 일괄은 이력을 남기지 않는다. 이슈의 `history` 에도 관계 이력 유형은 없다.
 - 수정·영향 버전 — WP-888.
-- 구성요소(components) — WP-933.
 - 사이클·스프린트 이동 이력, 본문 변경 이력, 작업 기록·투표·반응.
 - 이미 있는 이슈에 댓글만 덧붙이는 추가 가져오기(이슈 한 건을 한 번에 넣는다).

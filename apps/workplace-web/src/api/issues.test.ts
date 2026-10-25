@@ -34,3 +34,11 @@ describe('issueFilterParams — closedIn', () => {
     expect(p.has('closedTo')).toBe(false);
   });
 });
+
+// WP-933: 구성요소 필터는 서버에 component=id,…,none 으로 실린다(URL 과 같은 표현).
+describe('issueFilterParams — component', () => {
+  it('id 와 「구성요소 없음」을 component 한 키로 보낸다', () => {
+    expect(issueFilterParams({ ...EMPTY, componentIds: [3, 5], componentNone: true }).get('component')).toBe('3,5,none');
+    expect(issueFilterParams(EMPTY).has('component')).toBe(false);
+  });
+});

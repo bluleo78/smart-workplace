@@ -57,6 +57,7 @@ export const createIssueInput = z.object({
   parent: z.string().min(1).describe('Parent issue key, same project').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
   // WP-356: 라벨·마일스톤·사이클 이름 → id. 서버가 생성과 같은 트랜잭션에서 붙인다(생성 후 update_issue 를 따로 부를 필요 없음).
   labels: z.array(z.string()).optional(),
+  components: z.array(z.string()).optional(), // WP-933: 구성요소 이름[] → componentIds (없는 이름은 만들지 않고 실패)
   milestone: z.string().min(1).optional(),
   cycles: z.array(z.string()).optional(),
   fileIds: stagedFileIdsInput.optional(), // WP-422: 생성은 같은 트랜잭션, 수정은 클레임 API 로 붙는다
@@ -80,6 +81,7 @@ export const updateIssueInput = z.object({
   // WP-944: 보고자 username(me=호출자) → PUT .../reporter. 프로젝트 OWNER·ADMIN·지금 보고자만, 사람만 — 서버가 거절하면 results.reporter 실패.
   reporter: z.string().min(1).optional(),
   labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
+  components: z.array(z.string()).optional(), // WP-933: 구성요소명[] → 집합 교체([] = 전부 해제)
   milestone: z.string().min(1).nullable().describe('null clears').optional(), // 마일스톤 이름 → milestoneId, null=해제(#854)
   cycles: z.array(z.string()).optional(), // 사이클명[] → 집합 교체, []=전부 해제(#854)
   // WP-356: 커스텀 필드 값(필드 이름 → 값, null=비우기). 준 필드만 바뀐다(PUT .../fields 는 incoming 만 처리).
@@ -177,6 +179,7 @@ export const issueListFilterShape = {
   status: z.string().optional().describe('CSV: TODO,IN_PROGRESS,DONE,CANCELED'),
   priority: z.array(issuePriorityInput).optional(),
   label: z.string().optional().describe('Label names CSV; all must match'),
+  component: z.string().optional().describe('Component names CSV; any matches, "none" = no component'),
   type: z.string().optional().describe('Type names CSV; any matches'),
   dueFrom: z.string().optional().describe('Due date range, yyyy-MM-dd'),
   dueTo: z.string().optional(),

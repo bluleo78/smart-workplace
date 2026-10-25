@@ -162,6 +162,16 @@ public class ProjectMemberRepository {
         .fetch(PROJECT_MEMBER.USER_ID);
   }
 
+  /** 주어진 사용자 중 이 프로젝트 멤버인 user_id — 잠그지 않는 읽기(읽기 전용 트랜잭션에서도 쓴다). */
+  public Set<Long> findMemberUserIds(Long projectId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) return Set.of();
+    return new HashSet<>(
+        dsl.select(PROJECT_MEMBER.USER_ID)
+            .from(PROJECT_MEMBER)
+            .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId).and(PROJECT_MEMBER.USER_ID.in(userIds)))
+            .fetch(PROJECT_MEMBER.USER_ID));
+  }
+
   /**
    * 멤버 행을 공유 잠금하고 있는지 돌려준다(WP-776) — 멤버십을 근거로 무언가를 남기는 쓰기(구독 등)가 커밋할 때까지 그 멤버 제거(행 삭제)를 기다리게 하고,
    * 제거가 먼저 커밋됐으면 행이 없어 false 다. 읽기 전용 트랜잭션에서는 쓰지 않는다(PG 가 FOR SHARE 를 거절).

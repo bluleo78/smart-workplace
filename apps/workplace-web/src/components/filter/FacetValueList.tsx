@@ -1,6 +1,6 @@
 // src/components/filter/FacetValueList.tsx
 // facet 옵션 체크리스트(멀티셀렉트, single facet 은 하나만 체크). AddFilterButton 2-step 과 FilterChip 편집 팝오버가 공유.
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 
 import { Checkbox } from '@/components/ui/checkbox';
 
@@ -32,9 +32,15 @@ export function FacetValueList({
               선택한 {facet.label}을(를) 모두 가진 이슈만 표시됩니다
             </p>
           )}
-          {facet.options.map((opt) => (
+          {facet.options.map((opt, i) => (
+            <Fragment key={String(opt.value)}>
+            {/* 묶음 머리글 — 앞 옵션과 group 이 달라지는 첫 옵션 위에(예: 구성요소 「보관됨」). */}
+            {opt.group && opt.group !== facet.options[i - 1]?.group && (
+              <p className="px-1 pt-1 text-xs text-muted-foreground" data-testid={`facet-group-${facet.key}-${opt.group}`}>
+                {opt.group}
+              </p>
+            )}
             <label
-              key={String(opt.value)}
               className="flex items-center gap-2 cursor-pointer p-1 rounded hover:bg-accent"
               data-testid={`facet-value-${facet.key}-${opt.value}`}
             >
@@ -45,6 +51,7 @@ export function FacetValueList({
               />
               {opt.render ?? <span className="text-sm">{opt.label}</span>}
             </label>
+            </Fragment>
           ))}
           {facet.options.length === 0 && !facet.renderExtra && (
             <p className="text-xs text-muted-foreground py-2 text-center">옵션이 없습니다</p>

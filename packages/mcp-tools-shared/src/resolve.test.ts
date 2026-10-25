@@ -10,6 +10,8 @@ import {
   rowByName,
   toFieldValue,
   splitLabelNames,
+  resolveComponentNames,
+  resolveComponentIds,
   splitStatusTokens,
   resolveStatusPatch,
   type CurrentUserClient,
@@ -33,6 +35,7 @@ function client(): ProjectMetaClient & CurrentUserClient {
       { id: 100, name: 'urgent' },
       { id: 101, name: 'backend' },
     ]),
+    getProjectComponents: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([{ id: 7, name: 'v1.0' }]),
     getProjectCycles: vi.fn().mockResolvedValue([
       { id: 30, name: 'Sprint 3', status: 'ACTIVE' },
@@ -234,5 +237,44 @@ describe('resolveRelationType', () => {
   it('없는 유형은 사용 가능 목록과 함께, 숨긴 유형은 새로 걸 수 없다고 거절한다', () => {
     expect(() => resolveRelationType(types, '없음')).toThrow('사용 가능: RELATES, CAUSES, Follows, relates');
     expect(() => resolveRelationType(types, '감춤')).toThrow('숨겨져');
+  });
+});
+
+describe('resolveComponentNames (WP-933)', () => {
+  const existing = [
+    { id: 1, name: 'Compute' },
+    { id: 2, name: 'Storage' },
+    { id: 3, name: '옛 구성요소', archived: true },
+  ];
+
+  it('대소문자·앞뒤 공백을 무시하고 같은 이름은 하나로 쳐 id 로 바꾼다', () => {
+    expect(resolveComponentNames([' compute ', 'COMPUTE', 'Storage'], existing)).toEqual({ ids: [1, 2], unknown: [], archived: [] });
+  });
+
+  it('분해형(NFD) 한글 이름도 NFC 로 저장된 구성요소와 같은 것으로 맞춘다', () => {
+    const korean = [{ id: 7, name: '컴퓨트'.normalize('NFC') }];
+    const nfd = '컴퓨트'.normalize('NFD');
+    expect(nfd).not.toBe('컴퓨트');
+    expect(resolveComponentNames([` ${nfd} `, '컴퓨트'], korean)).toEqual({ ids: [7], unknown: [], archived: [] });
+  });
+
+  it('없는 이름은 unknown, 보관된 이름은 archived 로 따로 알린다(id 에는 넣지 않는다)', () => {
+    expect(resolveComponentNames(['Compute', 'Nope', '옛 구성요소'], existing)).toEqual({ ids: [1], unknown: ['Nope'], archived: ['옛 구성요소'] });
+  });
+
+  it('resolveComponentIds 는 없는 이름이면 쓸 수 있는(보관 안 된) 목록을 담아 throw 한다', () => {
+    expect(() => resolveComponentIds(['Nope'], existing)).toThrow("구성요소 'Nope' 을(를) 찾을 수 없습니다. 사용 가능: Compute, Storage");
+  });
+
+  it('resolveComponentIds 는 보관된 이름이면 새로 붙일 수 없다고 throw 한다', () => {
+    expect(() => resolveComponentIds(['옛 구성요소'], existing)).toThrow('보관');
+  });
+
+  it('resolveComponentIds 는 allowArchivedIds 에 든 보관 구성요소는 통과시킨다(이미 붙어 있던 것 유지)', () => {
+    expect(resolveComponentIds(['Compute', '옛 구성요소'], existing, new Set([3]))).toEqual([1, 3]);
+  });
+
+  it('빈 이름이면 throw 한다', () => {
+    expect(() => resolveComponentIds([' '], existing)).toThrow('구성요소 이름이 비어 있습니다.');
   });
 });

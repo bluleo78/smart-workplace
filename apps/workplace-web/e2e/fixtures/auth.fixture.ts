@@ -114,8 +114,9 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 알림 설정(WP-913) — 설정 › 알림 화면이 푸시 설정과 상관없이 늘 조회한다. 저장을 보는 spec 은 mockNotificationSettings 로 덮어쓴다.
   await mockApi(page, 'GET', '/api/v1/notification-settings', defaultNotificationSettings())
   // 프로젝트 하위 목록(/projects/{key}/cycles 등)과 이슈 하위 목록(/projects/{key}/issues/{n}/cycles 등).
+  // components(WP-933): 이슈 상세·만들기·목록 필터가 구성요소 목록을 부른다 — 빈 목록이면 칸·필터가 숨는다(기존 화면 그대로).
   // 메일 서버 메일함 목록(/mail/accounts/{id}/folders, WP-961) — 메일 사이드바가 늘 조회한다. 빈 목록 = 보관·내 메일함 숨김.
-  const projectLists = /^\/api\/v1\/projects\/[^/]+\/(cycles|types|milestones|labels|members|saved-views)$/
+  const projectLists = /^\/api\/v1\/projects\/[^/]+\/(cycles|types|milestones|labels|members|saved-views|components)$/
   const issueLists = /^\/api\/v1\/projects\/[^/]+\/issues\/\d+\/(cycles|drive-links)$/
   const mailFolders = /^\/api\/v1\/mail\/accounts\/\d+\/folders$/
   await page.route(

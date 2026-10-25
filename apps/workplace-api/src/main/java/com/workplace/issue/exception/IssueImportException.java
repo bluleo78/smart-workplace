@@ -85,6 +85,15 @@ public class IssueImportException extends RuntimeException implements CodedExcep
         Map.of("reason", "IMPORT_UNKNOWN_LABELS", "labels", joined));
   }
 
+  /** 프로젝트에 없는 구성요소 이름(WP-933) — 라벨과 달리 가져오기가 만들지 않으므로 먼저 일반 API 로 만들어 두어야 한다. */
+  public static IssueImportException unknownComponents(List<String> names) {
+    String joined = String.join(",", names);
+    return new IssueImportException(
+        HttpStatus.BAD_REQUEST,
+        "프로젝트에 없는 구성요소가 있습니다: " + joined,
+        Map.of("reason", "IMPORT_UNKNOWN_COMPONENTS", "components", joined));
+  }
+
   /** 외부 링크의 관계 유형 이름·코드를 찾을 수 없다. */
   public static IssueImportException unknownRelationType(String type) {
     return new IssueImportException(
