@@ -32,12 +32,15 @@ public class ProjectChangeNotifier {
   /** 프로젝트별 이슈 상태(WP-807) — 추가·이름 변경 시 보드 컬럼·상태 고르기를 다시 받게 한다. */
   public static final String RESOURCE_PROJECT_STATUS = "project-status";
 
+  /** 프로젝트 구성요소(WP-933) — 추가·편집·보관·삭제 시 설정·피커·필터의 구성요소 목록을 다시 받게 한다. */
+  public static final String RESOURCE_COMPONENT = "component";
+
   private final ApplicationEventPublisher publisher;
 
   /**
    * 프로젝트 멤버 전원에게 알린다. resource 는 이 클래스의 RESOURCE_*
    * 상수(project·label·milestone·cycle·field-def·issue-type·project-member·saved-view·
-   * project-status). 반드시 쓰기 트랜잭션 안에서 호출 — 밖에서 부르면 AFTER_COMMIT 리스너가 발화하지 않는다.
+   * project-status·component). 반드시 쓰기 트랜잭션 안에서 호출 — 밖에서 부르면 AFTER_COMMIT 리스너가 발화하지 않는다.
    */
   public void changed(String resource, String op, ProjectRow project, long id, Long actorId) {
     changed(resource, op, project, id, actorId, List.of());

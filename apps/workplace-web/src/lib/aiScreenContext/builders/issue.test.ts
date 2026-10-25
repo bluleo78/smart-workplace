@@ -19,7 +19,7 @@ const issue = {
 
 const emptyFilters: IssueFilters = {
   q: '', statuses: [], statusIds: [], priorities: [], assigneeIds: [], includeUnassigned: false, dueFrom: null, dueTo: null,
-  labelIds: [], cycleIds: [], milestoneIds: [], typeIds: [], parentNumber: null, topLevel: false, blocked: false,
+  labelIds: [], cycleIds: [], componentIds: [], componentNone: false, milestoneIds: [], typeIds: [], parentNumber: null, topLevel: false, blocked: false,
   excludeSubtasks: false, closedIn: null, showAllClosed: false,
 };
 
@@ -199,5 +199,22 @@ describe('화면 앱 (WP-379)', () => {
       lookups: { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [] },
     });
     expect(list.app).toBe('ISSUE');
+  });
+});
+
+// WP-933: 구성요소 필터·이슈 구성요소를 이름으로 싣는다(AI 도구 component 인자가 이름을 받는다).
+describe('구성요소 (WP-933)', () => {
+  it('목록 필터의 구성요소 id·「구성요소 없음」을 이름으로', () => {
+    const ctx = buildIssueListContext({
+      projectKey: 'WP', projectName: 'Workplace', view: 'list', groupBy: null,
+      filters: { ...emptyFilters, componentIds: [3, 9], componentNone: true },
+      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [], components: [{ id: 3, name: 'Compute' }] },
+    });
+    expect(ctx.scope!.facts).toContainEqual({ label: '구성요소', value: 'Compute, #9, 구성요소 없음' });
+  });
+  it('이슈 상세는 붙은 구성요소 이름을, 없으면 싣지 않는다', () => {
+    const withComp = buildIssueDetailContext({ projectKey: 'WP', issue: { ...issue, components: [{ id: 1, name: 'Compute', archived: false }] } });
+    expect(withComp.focus!.facts).toContainEqual({ label: '구성요소', value: 'Compute' });
+    expect(buildIssueDetailContext({ projectKey: 'WP', issue }).focus!.facts!.map((f) => f.label)).not.toContain('구성요소');
   });
 });

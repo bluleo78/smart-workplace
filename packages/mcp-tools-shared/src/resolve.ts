@@ -9,6 +9,8 @@ export interface ProjectMetaClient {
   getProjectTypes(projectKey: string): Promise<{ id: number; name: string }[]>;
   getProjectMembers(projectKey: string): Promise<{ userId: number; username: string; name?: string; role?: string }[]>;
   getProjectLabels(projectKey: string): Promise<{ id: number; name: string; colorToken?: string }[]>;
+  /** GET /projects/{key}/components — 구성요소 목록(WP-933). 보관된 것도 archived 로 함께 온다. */
+  getProjectComponents(projectKey: string): Promise<ProjectComponentRow[]>;
   getProjectMilestones(projectKey: string): Promise<{ id: number; name: string; dueDate?: string | null; description?: string | null }[]>;
   getProjectCycles(projectKey: string): Promise<
     { id: number; name: string; status?: string; goal?: string | null; startDate?: string | null; endDate?: string | null }[]
@@ -17,6 +19,16 @@ export interface ProjectMetaClient {
   getProjectFields(projectKey: string): Promise<ProjectFieldDef[]>;
   /** GET /projects/{key}/statuses — 프로젝트 상태 목록(WP-807). category 는 범주(TODO·IN_PROGRESS·DONE·CANCELED). */
   getProjectStatuses(projectKey: string): Promise<{ id: number; name: string; category: string; position: number }[]>;
+}
+
+/** 프로젝트 구성요소 행(ComponentResponse) — 이름 해석·get_project 표시에 쓰는 필드만. 기본 담당자는 username 으로만 가리킨다. */
+export interface ProjectComponentRow {
+  id: number;
+  name: string;
+  archived?: boolean;
+  defaultAssignee?: { username?: string | null } | null;
+  /** 저장된 기본 담당자가 지금도 유효한지 — false 면 자동 지정에서 건너뛴다(WP-933). */
+  defaultAssigneeValid?: boolean;
 }
 
 /** 커스텀 필드 정의 행(IssueFieldDefResponse) — 이름 해석·값 검증에 쓰는 필드만. */
@@ -178,6 +190,13 @@ export const DEFAULT_LABEL_COLOR = 'GRAY';
 /** 서버 라벨 이름 상한(label.name VARCHAR(40)) — 쓰기 전에 걸러 update_issue 가 일부만 저장되지 않게 한다. */
 const LABEL_NAME_MAX = 40;
 
+/** 이름들을 norm 으로 다듬은 뒤 대소문자만 다른 중복을 처음 나온 표기 하나로 합친다(순서 유지). */
+function dedupeIgnoreCase(names: string[], norm: (x: string) => string): string[] {
+  const byKey = new Map<string, string>();
+  for (const n of names.map(norm)) if (!byKey.has(n.toLowerCase())) byKey.set(n.toLowerCase(), n);
+  return [...byKey.values()];
+}
+
 /**
  * 이슈에 붙일 라벨 이름 → 요청 본문 조각(WP-394). 앞뒤 공백을 빼고 같은 이름은 하나로 친 뒤, 미리 읽은 프로젝트 라벨(existing)에 있는 이름은
  * labelIds 로, 없는 이름만 labelNames 로 나눈다 — 없는 라벨은 서버가 이슈 쓰기와 같은 트랜잭션에서 만든다(쓰기가 실패하면 라벨도 남지 않는다).
@@ -190,9 +209,7 @@ export function splitLabelNames(
   existing: { id: number; name: string }[],
 ): { ids: number[]; created: string[] } {
   // 대소문자만 다른 이름은 처음 나온 표기 하나로 친다(서버도 같은 라벨 하나로 붙인다).
-  const byKey = new Map<string, string>();
-  for (const n of labelNames.map((x) => x.trim())) if (!byKey.has(n.toLowerCase())) byKey.set(n.toLowerCase(), n);
-  const names = [...byKey.values()];
+  const names = dedupeIgnoreCase(labelNames, (x) => x.trim());
   if (names.some((n) => n.length === 0)) throw new Error('라벨 이름이 비어 있습니다.');
   const tooLong = names.find((n) => n.length > LABEL_NAME_MAX);
   if (tooLong) throw new Error(`라벨 이름은 ${LABEL_NAME_MAX}자 이하여야 합니다: '${tooLong}'`);
@@ -210,6 +227,48 @@ export function splitLabelNames(
 /** 도구 결과에 붙일 createdLabels — 새로 만든 라벨이 있을 때만 키를 싣는다. */
 export function createdLabelsField(part: { created: string[] } | undefined): { createdLabels?: string[] } {
   return part?.created.length ? { createdLabels: part.created } : {};
+}
+
+/**
+ * 구성요소 이름 → id 분류(WP-933). 라벨(splitLabelNames)과 달리 없는 이름을 만들지 않는다 — 구성요소는 OWNER 가 관리하는 목록이라 오타가 새 항목이 되면 안 된다.
+ * 앞뒤 공백을 빼고 NFC 로 맞춘 뒤 대소문자를 무시해 비교하며(저장 이름이 NFC 라 분해형 한글도 찾는다 · 서버 유일 제약 lower(name) 과 같은 기준), 대소문자만 다른 이름은 처음 표기 하나로 친다.
+ * 없는 이름은 unknown, 보관된 구성요소는 archived 로 나눠 ids 에 넣지 않는다 — 호출자가 어느 쪽이든 쓰기 전에 거절할 수 있게.
+ */
+export function resolveComponentNames(
+  names: string[],
+  existing: ProjectComponentRow[],
+): { ids: number[]; unknown: string[]; archived: string[] } {
+  // 서버는 이름을 NFC 로 저장한다 — 분해형(NFD) 입력이 같은 구성요소로 풀리게 양쪽을 같은 규칙으로 맞춘다.
+  const norm = (x: string) => x.normalize('NFC').trim();
+  const deduped = dedupeIgnoreCase(names, norm);
+  const rowOf = new Map(existing.map((c) => [norm(c.name).toLowerCase(), c]));
+  const ids: number[] = [];
+  const unknown: string[] = [];
+  const archived: string[] = [];
+  for (const name of deduped) {
+    if (name.length === 0) throw new Error('구성요소 이름이 비어 있습니다.');
+    const row = rowOf.get(name.toLowerCase());
+    if (!row) unknown.push(name);
+    else if (row.archived) archived.push(name);
+    else ids.push(row.id);
+  }
+  return { ids, unknown, archived };
+}
+
+/**
+ * 구성요소 이름 → id 목록. 없는 이름이면 쓸 수 있는(보관 안 된) 이름 목록을 담아 throw 하고(LLM 이 스스로 고친다), 보관된 이름은 새로 붙일 수 없다고 throw 한다.
+ * allowArchivedIds 는 이 이슈에 이미 붙어 있는 보관 구성요소 id — update_issue 가 전체 교체라 그것을 빼먹지 않고 다시 보내야 하므로 통과시킨다(서버도 유지는 허용).
+ */
+export function resolveComponentIds(names: string[], existing: ProjectComponentRow[], allowArchivedIds: ReadonlySet<number> = new Set()): number[] {
+  const usable = existing.filter((c) => !c.archived).map((c) => c.name);
+  const part = resolveComponentNames(names, existing.map((c) => ({ ...c, archived: c.archived && !allowArchivedIds.has(c.id) })));
+  if (part.unknown.length) {
+    throw new Error(`구성요소 '${part.unknown[0]}' 을(를) 찾을 수 없습니다. 사용 가능: ${usable.join(', ') || '(없음)'}`);
+  }
+  if (part.archived.length) {
+    throw new Error(`구성요소 '${part.archived[0]}' 은(는) 보관되어 새로 붙일 수 없습니다. 사용 가능: ${usable.join(', ') || '(없음)'}`);
+  }
+  return part.ids;
 }
 
 /** 마일스톤 이름 → milestoneId(#854). */

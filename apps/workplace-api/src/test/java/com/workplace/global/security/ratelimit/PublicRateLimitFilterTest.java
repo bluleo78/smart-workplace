@@ -66,6 +66,10 @@ class PublicRateLimitFilterTest extends IntegrationTestBase {
   @Test
   void 같은_IP_로그인은_20회까지_받고_넘기면_429와_안내를_돌려준다() throws Exception {
     String ip = randomDocIp();
+    // 버킷은 가득 찬 채(20) 시작하고 재충전은 넘치지 않으니 처음 20회는 늘 통과한다.
+    for (int i = 0; i < 20; i++) {
+      mvc.perform(login("198.51.100.9, " + ip)).andExpect(status().isUnauthorized());
+    }
     untilLimited(() -> mvc.perform(login("198.51.100.9, " + ip)), 20)
         .andExpect(header().exists("Retry-After"))
         .andExpect(jsonPath("$.message").value(PublicRateLimitFilter.MESSAGE));

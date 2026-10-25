@@ -10,6 +10,8 @@ import { toIssueListItem } from './project-tools.js';
 import {
   createdLabelsField,
   fieldDefByName,
+  resolveComponentIds,
+  resolveComponentNames,
   splitLabelNames,
   resolveAssigneeIds,
   resolveCycleIds,
@@ -109,6 +111,20 @@ async function customRelationTypeNames(client: IssueToolClient, raw: unknown): P
   }
 }
 
+/**
+ * update_issue 의 components 이름 → id(WP-933). 전체 교체라 이미 붙어 있는 보관 구성요소도 다시 보내야 하므로, 이름 중에 보관된 것이 있을 때만
+ * 이슈 상세로 지금 붙은 구성요소를 읽어 그 id 는 통과시킨다(그 밖의 보관 구성요소는 새로 못 붙인다). 보통은 상세 조회가 늘지 않는다.
+ */
+async function resolveUpdateComponentIds(client: IssueToolClient, issueKey: string, projectKey: string, names: string[]): Promise<number[]> {
+  const existing = await client.getProjectComponents(projectKey);
+  let attached = new Set<number>();
+  if (resolveComponentNames(names, existing).archived.length > 0) {
+    const detail = (await client.getIssueDetail(issueKey)) as { summary?: { components?: { id: number }[] } } | null;
+    attached = new Set((detail?.summary?.components ?? []).map((c) => c.id));
+  }
+  return resolveComponentIds(names, existing, attached);
+}
+
 /** 공유 이슈 도구 13종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
@@ -150,25 +166,28 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles and assignees (usernames, "me" = caller) are names ' +
+        'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles, components and assignees (usernames, "me" = caller) are names ' +
         'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown label names are ' +
         'created (gray) and listed in createdLabels. fileIds attach staged files. New assignees are notified; an assigned AI agent starts working, ' +
         'except one whose agentRuntime is INTERNAL — it does not react to anything another AI does (assigning, comments, status).',
       inputSchema: createIssueInput,
       async handler(args) {
-        const { projectKey, type, assignees, parent, labels, milestone, cycles, ...rest } = createIssueInput.parse(args);
+        const { projectKey, type, assignees, parent, labels, components, milestone, cycles, ...rest } = createIssueInput.parse(args);
         // 리졸브(이름→ID)를 create 이전에 수행 — 실패 시 이슈를 만들지 않고 throw. 서로 독립 조회라 병렬로 보낸다.
         // WP-356: 라벨·마일스톤·사이클도 서버가 생성과 같은 트랜잭션에서 붙인다 — 생성 후 update_issue 를 따로 부르지 않아도 된다.
         const parentNumber = parent != null ? parentNumberOf(parent, projectKey) : undefined;
-        const [typeId, assigneeIds, milestoneId, cycleIds, existingLabels] = await Promise.all([
+        const [typeId, assigneeIds, milestoneId, cycleIds, existingLabels, existingComponents] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
           milestone ? resolveMilestoneId(client, projectKey, milestone) : undefined,
           cycles?.length ? resolveCycleIds(client, projectKey, cycles) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
+          components?.length ? client.getProjectComponents(projectKey) : undefined,
         ]);
         // WP-394: 있는 라벨은 id, 없는 라벨은 이름으로 — 없는 라벨은 서버가 이슈 생성과 같은 트랜잭션에서 만든다(실패하면 라벨도 남지 않는다).
         const labelPart = existingLabels && labels ? splitLabelNames(labels, existingLabels) : undefined;
+        // WP-933: 구성요소는 라벨과 달리 만들지 않는다 — 없는 이름·보관된 이름은 이슈를 만들기 전에 throw. 서버가 담당자 없는 이슈에 기본 담당자를 붙인다.
+        const componentIds = existingComponents && components ? resolveComponentIds(components, existingComponents) : undefined;
         // undefined 는 JSON 직렬화에서 빠진다 — 준 값만 서버로 간다.
         const body = {
           ...rest,
@@ -177,6 +196,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           parentNumber,
           labelIds: labelPart?.ids,
           labelNames: labelPart?.created,
+          componentIds,
           milestoneId,
           cycleIds,
         };
@@ -191,14 +211,14 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the set ([] clears). ' +
+        'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels, cycles and components replace the set ([] clears). ' +
         'reporter (username) changes the reporter: project OWNER/ADMIN or the current reporter only, humans only. ' +
-        'Names (type, milestone, cycles, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
+        'Names (type, milestone, cycles, components, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
         '(gray) and listed in createdLabels. fileIds attach staged files. Then each part saves on its own: {ok, results, createdLabels?}; an unknown status name fails results.content (listing valid ones) and nothing else is written. Status/priority changes notify ' +
         'assignees and watchers, new assignees too. An AI whose agentRuntime is INTERNAL does not react to anything another AI does (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, status, type, parent, assignees, reporter, labels, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, status, type, parent, assignees, reporter, labels, components, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
@@ -208,10 +228,12 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         const fieldEntries = fields ? Object.entries(fields) : [];
         //    WP-870: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusName } — 이름은 서버가 해석하고 모르면 content 가 400 으로 실패한다.
         const statusPatch = status !== undefined ? resolveStatusPatch(status) : undefined;
-        const [typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues, reporterIds] = await Promise.all([
+        const [typeId, assigneeIds, existingLabels, componentIds, milestoneId, cycleIds, fieldValues, reporterIds] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
+          // WP-933: 구성요소 이름은 쓰기 전에 해석한다 — 없는 이름·새로 붙일 보관 구성요소면 아무것도 쓰지 않고 throw. [] 는 비우기라 조회 없이 비운다.
+          components?.length ? resolveUpdateComponentIds(client, issueKey, projectKey, components) : components ? [] : undefined,
           milestone ? resolveMilestoneId(client, projectKey, milestone) : undefined,
           cycles ? resolveCycleIds(client, projectKey, cycles) : undefined,
           fieldEntries.length
@@ -280,6 +302,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         if (labelPart !== undefined) {
           await run('labels', () => client.replaceIssueLabels(issueKey, labelPart.ids, labelPart.created));
         }
+        if (componentIds !== undefined) await run('components', () => client.replaceIssueComponents(issueKey, componentIds));
         if (cycleIds !== undefined) await run('cycles', () => client.replaceIssueCycles(issueKey, cycleIds));
         if (fieldValues !== undefined) await run('fields', () => client.updateIssueFields(issueKey, fieldValues));
         // WP-944: 보고자는 맨 마지막 — 쓰기 권한이 지금 보고자를 따르므로(OPEN 비멤버 보고자) 넘긴 뒤의 쓰기는 거절될 수 있다.

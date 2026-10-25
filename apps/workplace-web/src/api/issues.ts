@@ -1,6 +1,7 @@
 // 이슈 API 클라이언트.
 
 import { resolveClosedRange } from '../lib/closedRange';
+import { componentTokens } from '../lib/issueFilters';
 import type {
   CreateIssueRequest,
   IssueAiClassifyResponse,
@@ -62,6 +63,9 @@ export function issueFilterParams(filters: IssueFilters): URLSearchParams {
     ...(filters.cycleUnassigned ? ['null'] : []),
   ];
   if (cycleTokens.length) params.set('cycle', cycleTokens.join(','));
+  // 구성요소(WP-933) — id + 「구성요소 없음」 none 토큰, OR.
+  const component = componentTokens(filters);
+  if (component) params.set('component', component);
   if (filters.milestoneIds.length) params.set('milestone', filters.milestoneIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel·excludeSubtasks·excludeEpics 는

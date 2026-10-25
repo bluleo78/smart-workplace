@@ -690,6 +690,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "maxLength": 50000,
           "type": "string",
         },
+        "components": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "cycles": {
           "items": {
             "type": "string",
@@ -1669,6 +1675,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "closedTo": {
+          "type": "string",
+        },
+        "component": {
+          "description": "Component names CSV; any matches, "none" = no component",
           "type": "string",
         },
         "createdFrom": {
@@ -3036,6 +3046,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "clearStartDate": {
           "type": "boolean",
+        },
+        "components": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
         },
         "cycles": {
           "items": {

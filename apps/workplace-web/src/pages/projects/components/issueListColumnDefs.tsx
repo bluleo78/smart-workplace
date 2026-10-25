@@ -5,6 +5,7 @@
 
 import { type ReactNode, useMemo } from 'react';
 
+import { ComponentChips } from '../../../components/components/ComponentChip';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useCustomFields } from '../../../hooks/queries/useCustomFields';
@@ -268,6 +269,15 @@ function builtinDef(key: BuiltinColumnKey): IssueListColumnDef {
         // 여럿이면 첫 하나 + `+N`, 툴팁에 전부(스펙 5).
         cellTitle: (it) => (it.cycles?.length ? it.cycles.map((c) => c.name).join(', ') : undefined),
         cell: (it) => firstPlus((it.cycles ?? []).map((c) => c.name)),
+      };
+    case 'components':
+      return {
+        key, header: '구성요소', side: 'right', widthRem: 8, testId: tid,
+        cellClass: () => TEXT_CELL,
+        // 칩 2개 + 「+N」(스펙 6절), 툴팁에 전부. 구버전 응답(components 없음)·없음은 「—」.
+        cellTitle: (it) => (it.components?.length ? it.components.map((c) => c.name).join(', ') : undefined),
+        cell: (it) =>
+          it.components?.length ? <ComponentChips components={it.components} className="max-w-full overflow-hidden" /> : dash(),
       };
   }
 }

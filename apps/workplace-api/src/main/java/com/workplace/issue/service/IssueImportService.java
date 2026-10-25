@@ -1,7 +1,11 @@
 package com.workplace.issue.service;
 
 import com.workplace.audit.service.AuditLogService;
+import com.workplace.component.dto.ComponentRow;
+import com.workplace.component.dto.ComponentSummary;
+import com.workplace.component.repository.ComponentRepository;
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.ImportIssueRequest;
 import com.workplace.issue.dto.IssueFieldEntry;
@@ -38,6 +42,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -82,6 +87,7 @@ public class IssueImportService {
   private final IssueRelationTypeService relationTypeService;
   private final IssueExternalLinkService externalLinkService;
   private final LabelRepository labelRepository;
+  private final ComponentRepository componentRepository;
   private final ProjectStatusRepository statusRepository;
   private final IssueTypeRepository typeRepository;
   private final IssueFieldValueRepository fieldValueRepository;
@@ -108,6 +114,10 @@ public class IssueImportService {
     // 3-1) 외부 링크 — 유형·방향·주소를 쓰기 전에 풀어 둔다(틀리면 이슈 INSERT 전에 400 으로 끝난다). 숨긴 유형도 쓸 수 있다.
     List<ResolvedExternalLink> externalLinks = resolveExternalLinks(req.externalLinks());
 
+    // 3-2) 구성요소 — 이름으로 프로젝트에 이미 있는 것을 찾는다(대소문자 무시, 보관된 것도 허용). 없는 이름은 만들지 않고 이슈 INSERT 전에 400.
+    //      담당자 자동 지정은 일반 생성(IssueService.create)에만 있어 이 경로는 타지 않는다.
+    List<Long> componentIds = resolveComponentIds(project, req.componentNames());
+
     // 4) 사람 — 요청에 나온 username 을 모두 이 프로젝트 활성 멤버로 해석한다(하나라도 아니면 전부 나열해 400). 멤버 행을 공유 잠금하므로
     //    쓰기 트랜잭션 안에서 부른다.
     Map<String, UserSummary> users = userResolver.resolve(project.id(), req.referencedUsernames());
@@ -115,9 +125,12 @@ public class IssueImportService {
     List<Long> assigneeIds = idsOf(users, req.assignees());
 
     // 5) 일반 생성과 같은 검증 — 완료 사이클·완료 에픽 아래 미완료 하위만 풀어 준다(IMPORT).
-    CreateIssueRequest createReq = toCreateRequest(req, assigneeIds);
+    CreateIssueRequest createReq = toCreateRequest(req, assigneeIds, componentIds);
     CreateIssuePlan plan =
-        issueService.planCreate(callerId, projectKey, createReq, IssueService.CreateMode.IMPORT);
+        issueService.lockComponentsForShare(
+            issueService.planCreate(
+                callerId, projectKey, createReq, IssueService.CreateMode.IMPORT),
+            true);
     OffsetDateTime closedAt = resolveClosedAt(req, plan.status().category());
     // 부모가 지금도 살아 있는지 공유 잠금으로 다시 본다(WP-759, 일반 생성과 같음). 완료 에픽 규칙은 가져오기라 다시 보지 않는다.
     issueService.lockParentForShare(plan);
@@ -221,7 +234,13 @@ public class IssueImportService {
             : fieldValueRepository
                 .findByIssueIds(List.of(row.id()))
                 .getOrDefault(row.id(), List.of());
-    return issueService.newIssueSummary(project, row, assignees, attachmentCount, customFields);
+    return issueService.newIssueSummary(
+        project,
+        row,
+        assignees,
+        attachmentCount,
+        customFields,
+        plan.components().stream().map(ComponentRow::toSummary).toList());
   }
 
   /**
@@ -244,9 +263,10 @@ public class IssueImportService {
   }
 
   /**
-   * 라벨 이력의 이름 — 항목마다 라벨 생성과 같은 규칙(공백 정리·한 줄)으로 한 번만 정리해 둔다. 조회와 항목별 변환이 같은 이름을 써 같은 요청이 만든 라벨도 찾는다.
+   * 라벨·구성요소 이력의 추가/제거 이름 — 항목마다 각 이름 규칙(공백 정리·한 줄)으로 한 번만 정리해 둔다. 조회와 항목별 변환이 같은 이름을 써 같은 요청이 만든
+   * 라벨도 찾는다.
    */
-  private record LabelNames(List<String> added, List<String> removed) {
+  private record AddedRemovedNames(List<String> added, List<String> removed) {
 
     Stream<String> all() {
       return Stream.concat(added.stream(), removed.stream());
@@ -260,8 +280,10 @@ public class IssueImportService {
   private record HistoryLookups(
       Map<Long, ProjectStatusRow> statuses,
       Map<Long, IssueTypeSummary> types,
-      List<LabelNames> labelNames,
-      Map<String, LabelRow> labels) {}
+      List<AddedRemovedNames> labelNames,
+      Map<String, LabelRow> labels,
+      List<AddedRemovedNames> componentNames,
+      Map<String, ComponentRow> components) {}
 
   /** 이력 검증용 조회를 한 번에 — 라벨 이름 정리와 없는 라벨(전부 나열해 400) 확인까지 항목별 검증보다 먼저 한다. */
   private HistoryLookups loadLookups(
@@ -286,24 +308,47 @@ public class IssueImportService {
                     Collectors.toMap(
                         IssueTypeRow::id,
                         t -> new IssueTypeSummary(t.id(), t.name(), t.colorToken(), t.icon())));
-    List<LabelNames> labelNames =
+    List<AddedRemovedNames> labelNames =
         entries.stream()
             .map(
                 h ->
                     "LABELS_CHANGED".equals(h.type())
-                        ? new LabelNames(
+                        ? new AddedRemovedNames(
                             LabelService.normalizeNames(h.added()),
                             LabelService.normalizeNames(h.removed()))
                         : null)
             .toList();
     List<String> names =
-        labelNames.stream().filter(Objects::nonNull).flatMap(LabelNames::all).distinct().toList();
+        labelNames.stream()
+            .filter(Objects::nonNull)
+            .flatMap(AddedRemovedNames::all)
+            .distinct()
+            .toList();
     Map<String, LabelRow> labels =
         labelRepository.findByProjectAndNames(project.id(), names).stream()
             .collect(Collectors.toMap(LabelRow::name, l -> l));
     List<String> missing = names.stream().filter(n -> !labels.containsKey(n)).toList();
     if (!missing.isEmpty()) throw IssueImportException.unknownLabels(missing);
-    return new HistoryLookups(statuses, types, labelNames, labels);
+    // 구성요소 이력 — 이름은 라벨처럼 정리해 항목 순서대로 두고, 프로젝트에 없는 이름은 전부 모아 400 (이력에서도 구성요소를 만들지 않는다).
+    List<AddedRemovedNames> componentNames =
+        entries.stream()
+            .map(
+                h ->
+                    "COMPONENTS_CHANGED".equals(h.type())
+                        ? new AddedRemovedNames(
+                            normalizeComponentNames(h.added()),
+                            normalizeComponentNames(h.removed()))
+                        : null)
+            .toList();
+    Map<String, ComponentRow> components =
+        findComponents(
+            project,
+            componentNames.stream()
+                .filter(Objects::nonNull)
+                .flatMap(AddedRemovedNames::all)
+                .distinct()
+                .toList());
+    return new HistoryLookups(statuses, types, labelNames, labels, componentNames, components);
   }
 
   /** 이력 한 건 검증 — 유형별 규칙(설계 표)대로 값을 해석하고, 통과하면 넣는 동작을 돌려준다. */
@@ -324,11 +369,19 @@ public class IssueImportService {
         return () -> historyRecorder.recordAssigneesChanged(actorId, issueId, added, removed, at);
       }
       case "LABELS_CHANGED" -> {
-        LabelNames names = lookups.labelNames().get(index);
+        AddedRemovedNames names = lookups.labelNames().get(index);
         List<LabelSummary> added = labelSummaries(lookups.labels(), names.added());
         List<LabelSummary> removed = labelSummaries(lookups.labels(), names.removed());
         requireChange(index, added.isEmpty() && removed.isEmpty());
         return () -> historyRecorder.recordLabelsChanged(actorId, issueId, added, removed, at);
+      }
+      case "COMPONENTS_CHANGED" -> {
+        // 당시 이름은 프로젝트에 있는 구성요소의 이름(대소문자는 저장된 표기)으로 남긴다. 보관된 것도 지난 기록이라 허용.
+        AddedRemovedNames names = lookups.componentNames().get(index);
+        List<ComponentSummary> added = componentSummaries(lookups.components(), names.added());
+        List<ComponentSummary> removed = componentSummaries(lookups.components(), names.removed());
+        requireChange(index, added.isEmpty() && removed.isEmpty());
+        return () -> historyRecorder.recordComponentsChanged(actorId, issueId, added, removed, at);
       }
       case "TYPE_CHANGED" -> {
         IssueTypeSummary from = typeSummary(index, lookups.types(), h.fromTypeId());
@@ -425,6 +478,54 @@ public class IssueImportService {
         .toList();
   }
 
+  /**
+   * 구성요소 이름 정리 — 저장 이름과 같은 한 줄 정규화({@link SingleLineTitles#normalize})를 거쳐 빈 값을 버리며, 대소문자만 다른 중복은
+   * 먼저 나온 표기 하나로 합친다. 구성요소 이름이 프로젝트 안에서 대소문자 무시로 유일하기 때문에 같은 구성요소를 두 번 붙이려는 요청이 연결 테이블 중복 위반(500)이
+   * 되지 않게 한다.
+   */
+  private static List<String> normalizeComponentNames(List<String> raw) {
+    if (raw == null) return List.of();
+    Map<String, String> byLower = new LinkedHashMap<>();
+    for (String n : raw) {
+      if (n == null) continue;
+      // 저장된 이름과 같은 규칙(NFC·양방향 제어 문자 제거·줄바꿈→공백·앞뒤 보이지 않는 문자 제거)으로 맞춘다 — 분해형 한글이나 끝에 줄바꿈이 붙은 이름도 찾게.
+      String trimmed = SingleLineTitles.normalize(n);
+      if (!trimmed.isEmpty()) byLower.putIfAbsent(trimmed.toLowerCase(Locale.ROOT), trimmed);
+    }
+    return List.copyOf(byLower.values());
+  }
+
+  /**
+   * 정리된 이름들을 프로젝트의 구성요소(보관 포함)로 찾아 소문자 이름 → 행으로 돌려준다. 하나라도 없으면 없는 이름을 전부 모아 400 — 이슈를 쓰기 전에 거절하려고
+   * 호출부가 먼저 부른다.
+   */
+  private Map<String, ComponentRow> findComponents(ProjectRow project, List<String> names) {
+    if (names.isEmpty()) return Map.of();
+    Map<String, ComponentRow> found =
+        componentRepository.findByNamesIgnoreCase(project.id(), names).stream()
+            .collect(Collectors.toMap(c -> c.name().toLowerCase(Locale.ROOT), c -> c));
+    List<String> missing =
+        names.stream().filter(n -> !found.containsKey(n.toLowerCase(Locale.ROOT))).toList();
+    if (!missing.isEmpty()) throw IssueImportException.unknownComponents(missing);
+    return found;
+  }
+
+  /** 요청의 componentNames → 연결할 구성요소 id(요청 순서, 중복 합침). 없으면 빈 목록. */
+  private List<Long> resolveComponentIds(ProjectRow project, List<String> rawNames) {
+    List<String> names = normalizeComponentNames(rawNames);
+    Map<String, ComponentRow> found = findComponents(project, names);
+    return names.stream().map(n -> found.get(n.toLowerCase(Locale.ROOT)).id()).toList();
+  }
+
+  /** 구성요소 이력의 정리된 이름 → 요약(이름은 검증 단계에서 모두 있음을 확인했다). */
+  private static List<ComponentSummary> componentSummaries(
+      Map<String, ComponentRow> components, List<String> names) {
+    return names.stream()
+        .map(n -> components.get(n.toLowerCase(Locale.ROOT)))
+        .map(c -> new ComponentSummary(c.id(), c.name(), c.archived()))
+        .toList();
+  }
+
   /** 유형 이력의 유형 id → 요약. 없거나 이 프로젝트 유형이 아니면 400(미리 읽은 표는 이 프로젝트 유형뿐이다). */
   private static IssueTypeSummary typeSummary(
       int index, Map<Long, IssueTypeSummary> types, Long typeId) {
@@ -480,7 +581,7 @@ public class IssueImportService {
 
   /** 가져오기 요청을 일반 생성 요청 모양으로 — 검증(planCreate)을 공유하려는 것. 첨부는 가져오기가 원 첨부자·시각으로 따로 넣으므로 비운다. */
   private static CreateIssueRequest toCreateRequest(
-      ImportIssueRequest req, List<Long> assigneeIds) {
+      ImportIssueRequest req, List<Long> assigneeIds, List<Long> componentIds) {
     return new CreateIssueRequest(
         req.title(),
         req.body(),
@@ -496,7 +597,8 @@ public class IssueImportService {
         req.labelNames(),
         null,
         req.status(),
-        req.statusId());
+        req.statusId(),
+        componentIds);
   }
 
   /**

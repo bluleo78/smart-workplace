@@ -284,6 +284,8 @@ const NO_FILTERS: IssueFilters = {
   closedIn: null,
   labelIds: [],
   cycleIds: [],
+  componentIds: [],
+  componentNone: false,
   milestoneIds: [],
   typeIds: [],
   parentNumber: null,

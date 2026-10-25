@@ -92,6 +92,8 @@ export interface IssueRow {
   /** 서버는 유형 요약 객체({id,name,...})를 준다 — 뷰가 이름만 뽑는다. */
   type?: { name?: string; [key: string]: unknown } | null;
   labels?: { name?: string; [key: string]: unknown }[] | null;
+  /** 구성요소 요약(WP-933) — 뷰가 이름만 뽑는다. */
+  components?: { name?: string; [key: string]: unknown }[] | null;
   milestoneName?: string | null;
   parent?: { number?: number; title?: string; status?: string; [key: string]: unknown } | null;
   childCount?: number;
@@ -197,6 +199,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, I
   changeIssueReporter(issueKey: string, userId: number): Promise<void>;
   /** PUT .../labels — 집합 교체. labelNames(WP-394)는 이름으로 붙일 라벨로, 없으면 서버가 같은 트랜잭션에서 만든다. */
   replaceIssueLabels(issueKey: string, labelIds: number[], labelNames?: string[]): Promise<unknown>;
+  /** PUT .../components — 집합 교체(WP-933). 응답은 구성요소 요약 배열. 보관된 것을 새로 붙이면 서버가 400(이미 붙은 것 유지는 허용). */
+  replaceIssueComponents(issueKey: string, componentIds: number[]): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;
   editComment(issueKey: string, commentId: number, body: string): Promise<void>;
   /** POST .../comments/{id}/reactions — 이미 눌렀으면 no-op(멱등), emoji 1~32자(WP-504). 도구는 react 가 reacted 로 고른다(WP-812). */

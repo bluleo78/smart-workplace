@@ -59,6 +59,7 @@ import com.workplace.jooq.tables.IssueAttachment;
 import com.workplace.jooq.tables.IssueBodyImage;
 import com.workplace.jooq.tables.IssueComment;
 import com.workplace.jooq.tables.IssueCommentReaction;
+import com.workplace.jooq.tables.IssueComponent;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
 import com.workplace.jooq.tables.IssueExternalLink;
@@ -94,6 +95,7 @@ import com.workplace.jooq.tables.PlatformRole;
 import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
+import com.workplace.jooq.tables.ProjectComponent;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectStatus;
@@ -432,6 +434,11 @@ public class Public extends SchemaImpl {
     public final IssueCommentReaction ISSUE_COMMENT_REACTION = IssueCommentReaction.ISSUE_COMMENT_REACTION;
 
     /**
+     * The table <code>public.issue_component</code>.
+     */
+    public final IssueComponent ISSUE_COMPONENT = IssueComponent.ISSUE_COMPONENT;
+
+    /**
      * The table <code>public.issue_cycle</code>.
      */
     public final IssueCycle ISSUE_CYCLE = IssueCycle.ISSUE_CYCLE;
@@ -606,6 +613,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.project</code>.
      */
     public final Project PROJECT = Project.PROJECT;
+
+    /**
+     * The table <code>public.project_component</code>.
+     */
+    public final ProjectComponent PROJECT_COMPONENT = ProjectComponent.PROJECT_COMPONENT;
 
     /**
      * The table <code>public.project_issue_sequence</code>.
@@ -880,6 +892,7 @@ public class Public extends SchemaImpl {
             IssueBodyImage.ISSUE_BODY_IMAGE,
             IssueComment.ISSUE_COMMENT,
             IssueCommentReaction.ISSUE_COMMENT_REACTION,
+            IssueComponent.ISSUE_COMPONENT,
             IssueCycle.ISSUE_CYCLE,
             IssueDependency.ISSUE_DEPENDENCY,
             IssueExternalLink.ISSUE_EXTERNAL_LINK,
@@ -915,6 +928,7 @@ public class Public extends SchemaImpl {
             PlatformRolePermission.PLATFORM_ROLE_PERMISSION,
             PlatformUserRole.PLATFORM_USER_ROLE,
             Project.PROJECT,
+            ProjectComponent.PROJECT_COMPONENT,
             ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE,
             ProjectMember.PROJECT_MEMBER,
             ProjectStatus.PROJECT_STATUS,

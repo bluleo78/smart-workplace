@@ -11,7 +11,7 @@ import { nullAsOmitted } from './tool-definitions.js';
 import { DEFAULT_LABEL_COLOR, defaultListAssignee, fieldDefByName, resolveCycleFilter, resolveMilestoneFilter, rowByName, splitStatusTokens, toFieldValue } from './resolve.js';
 import { formatIssueKey, parseIssueKey } from './parse.js';
 import { cursorPageView, dropEmpty, numberedPageView, omitKeys } from './compact.js';
-import { labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
+import { componentNames, labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { CreateProjectBody, IssueListQuery, IssueRow, MemberToolClient, ProjectMetaKind, ProjectToolClient } from './tool-client.js';
 
@@ -154,6 +154,7 @@ export function toIssueListItem(it: IssueRow) {
     updatedAt: toSeoulIso(it.updatedAt),
     closedAt: toSeoulIso(it.closedAt),
     labels: labelNames(it.labels),
+    components: componentNames(it.components),
     milestone: it.milestoneName ?? null,
     parent: toParentView(it.parent, projectKey),
     children: toChildrenView(it.childCount, it.childDoneCount),
@@ -218,7 +219,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, milestones (with dueDate), cycles (status, ' +
+        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components (assignee, archived), milestones (with dueDate), cycles (status, ' +
         'dates), fields (custom fields, with options), statuses, members (username, name, role), relationTypes (issue link types: code?, name, outwardLabel, inwardLabel?, externalOnly).',
       inputSchema: projectKeyInput,
       async handler(args) {
@@ -226,10 +227,12 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         // #844: 이슈 쓰기 도구의 type·labels·assignees(#854: milestone·cycles) 값을 조회로 조달하게 한다(추측 방지). 모두 독립 조회라 병렬.
         // WP-356: 마일스톤 기한·사이클 기간(계획 판단용)과 커스텀 필드 정의(update_issue 의 fields·list_issues 의 field 가 받는 이름·선택지)도 싣는다.
         // WP-807: 프로젝트 상태(이름·범주·순서)도 싣는다 — update_issue·list_issues 의 status 가 받는 이름이다.
-        const [project, types, labels, milestones, cycles, fields, statuses, members, relationTypes] = await Promise.all([
+        const [project, types, labels, components, milestones, cycles, fields, statuses, members, relationTypes] = await Promise.all([
           client.getProject(projectKey),
           client.getProjectTypes(projectKey),
           client.getProjectLabels(projectKey),
+          // WP-933: 구성요소도 부가 정보다 — 아직 이 API 가 없는 서버(롤링 배포에서 MCP 가 API 보다 먼저 뜬 경우)나 일시 오류가 get_project 전체를 깨지 않게 실패하면 건너뛴다.
+          client.getProjectComponents(projectKey).catch(() => null),
           client.getProjectMilestones(projectKey),
           client.getProjectCycles(projectKey),
           client.getProjectFields(projectKey),
@@ -242,6 +245,13 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           ...toProjectView(project as Record<string, unknown>),
           issueTypes: types.map((t) => t.name),
           labels: labels.map((l) => l.name),
+          // WP-933: 구성요소 — 보관된 것도 싣되(archived) 새로 붙일 수 없다. 담당자는 username 으로만, 지금 유효하지 않으면 자동 지정에서 빠지므로 뺀다.
+          // 조회가 실패했으면 키를 생략한다(빈 배열로 두면 「구성요소가 없다」는 뜻으로 읽힌다).
+          ...(components && {
+            components: components.map((c) =>
+              dropEmpty({ name: c.name, assignee: c.defaultAssigneeValid === false ? undefined : c.defaultAssignee?.username, archived: c.archived || undefined }),
+            ),
+          }),
           milestones: milestones.map(({ name, dueDate }) => dropEmpty({ name, dueDate })),
           cycles: cycles.map(({ name, status, startDate, endDate }) => dropEmpty({ name, status, startDate, endDate })),
           fields: fields.map(({ name, type, options }) => dropEmpty({ name, type, options })),

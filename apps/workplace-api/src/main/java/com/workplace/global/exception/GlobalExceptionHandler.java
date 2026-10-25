@@ -436,7 +436,7 @@ public class GlobalExceptionHandler {
   /**
    * 코드 있는 도메인 예외 — 예외가 정한 상태와 errors(사유 코드)를 그대로 싣는다. WP-55 AI 메모리(웹 토스트·ai-agent 도구 오류 문구가 코드로
    * 가른다, 가득 참이면 errors.scope 도 WP-379), WP-386 공용 AI 메모리, WP-800 대기열 가져가기 거절(409), WP-936 상태가 방금
-   * 삭제됨(409), WP-883 이슈 가져오기 거절.
+   * 삭제됨(409), WP-883 이슈 가져오기 거절, WP-933 구성요소 거절.
    */
   @ExceptionHandler({
     AiMemoryException.class,
@@ -445,7 +445,8 @@ public class GlobalExceptionHandler {
     StatusDeletedException.class,
     RequestedStatusNotFoundException.class,
     com.workplace.issue.exception.IssueImportException.class,
-    com.workplace.issue.exception.IssueRelationException.class
+    com.workplace.issue.exception.IssueRelationException.class,
+    com.workplace.component.exception.ComponentException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {

@@ -104,3 +104,73 @@ export function formatExternalLinkChanged(fromValue: string | null, toValue: str
     return fallback;
   }
 }
+
+/** 추가·제거 목록을 「+ A, B / - C」로 — 라벨·첨부·담당자·구성요소 이력이 같은 모양을 쓴다. 둘 다 비면 「변경 없음」. */
+function addedRemoved(added: string[], removed: string[]): string {
+  const parts: string[] = [];
+  if (added.length) parts.push(`+ ${added.join(', ')}`);
+  if (removed.length) parts.push(`- ${removed.join(', ')}`);
+  return parts.length ? parts.join(' / ') : '변경 없음';
+}
+
+/**
+ * {added:[{<nameKey>}], removed:[{<nameKey>}]} JSON 이력 값 → 「+ A / - B」 — 라벨·첨부·구성요소 이력이 같은 파싱·표기를 쓴다.
+ * 빈 값은 emptyText, 파싱 실패는 원문. 이름이 비면 그 항목은 건너뛴다.
+ */
+function formatAddedRemoved(toValue: string | null, nameKey: 'name' | 'originalName', emptyText: string): string {
+  if (!toValue) return emptyText;
+  try {
+    const p = JSON.parse(toValue) as { added?: Record<string, unknown>[]; removed?: Record<string, unknown>[] };
+    const names = (list?: Record<string, unknown>[]) =>
+      (list ?? []).map((x) => (typeof x[nameKey] === 'string' ? (x[nameKey] as string) : '')).filter(Boolean);
+    return addedRemoved(names(p.added), names(p.removed));
+  } catch {
+    return toValue;
+  }
+}
+
+/** LABELS_CHANGED 이력 문구 — toValue 는 {added:[{name,...}], removed:[{name,...}]} JSON. 빈 값은 「없음」, 파싱 실패는 원문. */
+export function formatLabelsChanged(toValue: string | null): string {
+  return formatAddedRemoved(toValue, 'name', '없음');
+}
+
+/** ATTACHMENTS_CHANGED 이력 문구 — toValue 는 {added:[{fileId,originalName}], removed:[...]} JSON. 빈 값은 「첨부 변경」. */
+export function formatAttachmentsChanged(toValue: string | null): string {
+  return formatAddedRemoved(toValue, 'originalName', '첨부 변경');
+}
+
+/**
+ * COMPONENTS_CHANGED 이력 문구(WP-933) — toValue 는 {added:[{id,name}], removed:[{id,name}]} JSON.
+ * 이름은 기록 당시 값 그대로 보인다(나중에 이름을 바꾸거나 지워도 지난 기록은 그대로). 빈 값은 「구성요소 변경」, 파싱 실패는 원문.
+ */
+export function formatComponentsChanged(toValue: string | null): string {
+  return formatAddedRemoved(toValue, 'name', '구성요소 변경');
+}
+
+/**
+ * ASSIGNEES_CHANGED 이력 문구 — toValue 는 {added:[{id,name}], removed:[{id,name}]} JSON(이름이 비면 #id).
+ * 구성요소 담당자 자동 지정(WP-933, reason=COMPONENT_DEFAULT)이면 「구성요소 Compute 담당자로 자동 지정 — 박순」으로,
+ * 사람이 담당자를 바꾼 기록과 구분한다. 파싱 실패는 원문.
+ */
+export function formatAssigneesChanged(toValue: string | null): string {
+  if (!toValue) return '담당자 변경';
+  try {
+    const p = JSON.parse(toValue) as {
+      added?: { id: number; name?: string | null }[];
+      removed?: { id: number; name?: string | null }[];
+      reason?: string;
+      componentName?: string;
+    };
+    const names = (list?: { id: number; name?: string | null }[]) => (list ?? []).map((x) => x.name ?? `#${x.id}`);
+    const added = names(p.added);
+    if (p.reason === 'COMPONENT_DEFAULT') {
+      const who = added.length ? ` — ${added.join(', ')}` : '';
+      // 이름이 없으면(옛 기록 등) 공백이 두 칸 남지 않게 이름 자리를 통째로 뺀다.
+      const comp = p.componentName ? `구성요소 ${p.componentName}` : '구성요소';
+      return `${comp} 담당자로 자동 지정${who}`;
+    }
+    return addedRemoved(added, names(p.removed));
+  } catch {
+    return toValue;
+  }
+}

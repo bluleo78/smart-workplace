@@ -1,6 +1,7 @@
 // 이슈/댓글/이력 관련 타입 — 백엔드 DTO 와 1:1 매칭.
 
 import type { IssueAttachment } from './attachment';
+import type { ComponentSummary } from './component';
 import type { IssueFieldEntry } from './customField';
 import type { IssueTypeSummary } from './issueType';
 import type { LabelSummary } from './label';
@@ -131,6 +132,8 @@ export interface IssueResponse {
   version?: number;
   // 부착된 라벨 — 백엔드가 항상 배열로 내려준다 (없으면 빈 배열).
   labels: LabelSummary[];
+  // 붙은 구성요소(WP-933, 목록 순서) — 구버전 서버(롤링 배포 중) 응답엔 없어 optional(읽을 때 `?? []`).
+  components?: ComponentSummary[];
   // 이슈에 부착된 첨부 개수 — N+1 회피용 카운트 (목록 카드 표시).
   attachmentCount: number;
   // 이슈 유형 요약 — 검색·상세 응답에는 항상 채워지지만,
@@ -206,7 +209,9 @@ export type IssueHistoryEventType =
   // 외부 링크 추가·수정·삭제(WP-887). toValue = {label, key, title, url}, 수정이면 fromValue 에 이전 값.
   | 'EXTERNAL_LINK_ADDED'
   | 'EXTERNAL_LINK_UPDATED'
-  | 'EXTERNAL_LINK_REMOVED';
+  | 'EXTERNAL_LINK_REMOVED'
+  // 구성요소 추가·제거(WP-933). toValue = {added:[{id,name}], removed:[{id,name}]} — 당시 이름.
+  | 'COMPONENTS_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -362,6 +367,8 @@ export interface CreateIssueRequest {
   status?: IssueStatus;
   // 처음 프로젝트 상태 id(WP-808) — status(범주)보다 우선한다.
   statusId?: number;
+  // 구성요소 id(WP-933) — 구성원만. 담당자 없이 만들면 서버가 구성요소 담당자를 자동으로 붙인다.
+  componentIds?: number[];
 }
 
 export interface UpdateIssueRequest {
@@ -412,6 +419,10 @@ export interface IssueFilters {
   labelIds: number[];
   // 다중 사이클 OR 필터 — 선택된 사이클 중 하나에 속한 이슈 매칭.
   cycleIds: number[];
+  // 구성요소 OR 필터(WP-933) — 고른 구성요소 중 하나라도 붙은 이슈. URL·서버 키 component.
+  componentIds: number[];
+  // 「구성요소 없음」 — component 파라미터의 none 토큰. componentIds 와 OR.
+  componentNone: boolean;
   // 다중 마일스톤 OR 필터 — 선택된 마일스톤 중 하나에 연결된 이슈 매칭 (#620).
   milestoneIds: number[];
   // 다중 유형 OR 필터 — 선택된 유형 중 하나에 속한 이슈 매칭.

@@ -11,6 +11,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
+import { useComponents } from '../../hooks/queries/useComponents';
 import { useCycles } from '../../hooks/queries/useCycles';
 import { useIssueTypes } from '../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../hooks/queries/useLabels';
@@ -193,6 +194,8 @@ function ProjectIssuesSection({
   const types = useIssueTypes(projectKey);
   const cycles = useCycles(projectKey);
   const milestones = useMilestones(projectKey);
+  // 구성요소(WP-933) — 필터 바 facet 과 같은 쿼리 키(캐시 공유). 개인 프로젝트는 구성요소가 없어 요청하지 않는다(프로젝트 유형을 안 뒤에).
+  const components = useComponents(projectKey, { enabled: !!project.data && project.data.type !== 'PERSONAL' });
   // 프로젝트 상태(WP-808) — 보드 컬럼, 「상태」 필터(statusIds)를 AI 화면 컨텍스트에 이름으로 싣기.
   const projectStatuses = useProjectStatusList(projectKey);
   // 보드에서 상태 추가·이름 변경 — 프로젝트 OWNER 만(서버와 같은 규칙, 개인 프로젝트는 이 화면에 오지 않는다).
@@ -233,11 +236,12 @@ function ProjectIssuesSection({
           cycles: cycles.data ?? [],
           milestones: milestones.data ?? [],
           statuses: projectStatuses,
+          components: components.data ?? [],
         },
         count: listLoaded?.count,
         hasMore: listLoaded?.hasMore,
       }),
-    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, listLoaded],
+    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, components.data, listLoaded],
   );
   useRegisterAiScreenContext(screenContext);
 

@@ -33,6 +33,7 @@ import { canManageProject, isProjectOwner } from '../../lib/projectPermissions';
 import { canEditStatuses } from '../../lib/projectStatuses';
 import { type UpdateProjectFormData,updateProjectSchema } from '../../lib/validations/project';
 import type { ProjectType } from '../../types/project';
+import { ComponentManagement } from './components/ComponentManagement';
 import { CustomFieldManagement } from './components/CustomFieldManagement';
 import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
@@ -209,6 +210,9 @@ export default function ProjectSettingsPage() {
             canCreate={isMember || (isAdmin && !isPersonal)}
             isOwner={isOwner}
           />
+
+          {/* 구성요소(WP-933) — 라벨 아래. 개인 프로젝트는 구성요소를 만들 수 없어(서버 400) 그리지 않는다. 관리는 OWNER·ADMIN, 그 밖은 읽기 전용. */}
+          {!isPersonal && project.data && <ComponentManagement projectKey={key} canManage={canManage} />}
 
           <IssueTypeManagement projectKey={key} isOwner={isOwner} />
 

@@ -10,6 +10,8 @@ export interface FacetOption {
   value: FacetValue;
   label: string;
   render?: ReactNode;
+  // 묶음 머리글(예: 구성요소의 「보관됨」) — 앞 옵션과 group 이 달라지는 자리에 작은 머리글을 그린다. 생략 = 묶음 없음.
+  group?: string;
 }
 
 // 하나의 필터 차원(facet) 정의. options 는 호출부가 정적/페치해 전달.

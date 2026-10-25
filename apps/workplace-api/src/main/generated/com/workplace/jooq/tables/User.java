@@ -61,6 +61,7 @@ import com.workplace.jooq.tables.NotificationSetting.NotificationSettingPath;
 import com.workplace.jooq.tables.PlatformRole.PlatformRolePath;
 import com.workplace.jooq.tables.PlatformUserRole.PlatformUserRolePath;
 import com.workplace.jooq.tables.Project.ProjectPath;
+import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.PushSubscription.PushSubscriptionPath;
 import com.workplace.jooq.tables.RefreshToken.RefreshTokenPath;
@@ -1081,6 +1082,34 @@ public class User extends TableImpl<UserRecord> {
             _platformUserRole = new PlatformUserRolePath(this, null, Keys.PLATFORM_USER_ROLE__PLATFORM_USER_ROLE_USER_ID_FKEY.getInverseKey());
 
         return _platformUserRole;
+    }
+
+    private transient ProjectComponentPath _projectComponentCreatedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_component</code> table, via the
+     * <code>project_component_created_by_fkey</code> key
+     */
+    public ProjectComponentPath projectComponentCreatedByFkey() {
+        if (_projectComponentCreatedByFkey == null)
+            _projectComponentCreatedByFkey = new ProjectComponentPath(this, null, Keys.PROJECT_COMPONENT__PROJECT_COMPONENT_CREATED_BY_FKEY.getInverseKey());
+
+        return _projectComponentCreatedByFkey;
+    }
+
+    private transient ProjectComponentPath _projectComponentDefaultAssigneeIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_component</code> table, via the
+     * <code>project_component_default_assignee_id_fkey</code> key
+     */
+    public ProjectComponentPath projectComponentDefaultAssigneeIdFkey() {
+        if (_projectComponentDefaultAssigneeIdFkey == null)
+            _projectComponentDefaultAssigneeIdFkey = new ProjectComponentPath(this, null, Keys.PROJECT_COMPONENT__PROJECT_COMPONENT_DEFAULT_ASSIGNEE_ID_FKEY.getInverseKey());
+
+        return _projectComponentDefaultAssigneeIdFkey;
     }
 
     private transient ProjectMemberPath _projectMember;

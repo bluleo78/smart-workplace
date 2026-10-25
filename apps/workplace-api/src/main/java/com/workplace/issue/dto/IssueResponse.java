@@ -1,6 +1,7 @@
 package com.workplace.issue.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.component.dto.ComponentSummary;
 import com.workplace.cycle.dto.CycleSummary;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.label.dto.LabelSummary;
@@ -62,37 +63,58 @@ public record IssueResponse(
     // 없으면 JSON 에서 생략.
     @JsonInclude(JsonInclude.Include.NON_NULL) UserSummary reporter,
     // WP-270 목록 열(사이클) — 검색 목록 조립만 채운다(시작일 최신순). 연결이 없으면 빈 배열, 목록 조립 밖 경로는 null 이라 생략.
-    @JsonInclude(JsonInclude.Include.NON_NULL) List<CycleSummary> cycles) {
+    @JsonInclude(JsonInclude.Include.NON_NULL) List<CycleSummary> cycles,
+    // WP-933 붙은 구성요소(목록 순서 — 이름 대소문자 무시 오름차순). 상세·목록·생성 응답이 채우고, 없으면 빈 배열(null 아님).
+    List<ComponentSummary> components) {
 
   /** 진행 중 AI 작업 목록을 채운 사본을 돌려준다(목록·상세 조립 단계에서 한 번에 조회해 주입). */
   public IssueResponse withAgentWork(List<AgentWorkView> list) {
     return copyWith(
-        list == null ? List.of() : list, aiGroup, aiProject, projectGroup, reporter, cycles);
+        list == null ? List.of() : list,
+        aiGroup,
+        aiProject,
+        projectGroup,
+        reporter,
+        cycles,
+        components);
   }
 
   /** AI 위임 작업 묶음 정보를 채운 사본(WP-375 — /me/ai-tasks 조립 단계). */
   public IssueResponse withAiGroup(AiTaskGroup g) {
-    return copyWith(agentWork, g, aiProject, projectGroup, reporter, cycles);
+    return copyWith(agentWork, g, aiProject, projectGroup, reporter, cycles, components);
   }
 
   /** AI 위임 작업 프로젝트 정보(이름·건수)를 채운 사본(WP-426 — /me/ai-tasks 조립 단계). */
   public IssueResponse withAiProject(AiTaskProject p) {
-    return copyWith(agentWork, aiGroup, p, projectGroup, reporter, cycles);
+    return copyWith(agentWork, aiGroup, p, projectGroup, reporter, cycles, components);
   }
 
   /** /me/issues 프로젝트 묶음 정보(이름·건수)를 채운 사본(WP-915 — group 요청 조립 단계). */
   public IssueResponse withProjectGroup(AiTaskProject p) {
-    return copyWith(agentWork, aiGroup, aiProject, p, reporter, cycles);
+    return copyWith(agentWork, aiGroup, aiProject, p, reporter, cycles, components);
   }
 
   /** 보고자·사이클을 채운 사본(WP-270 — 검색 목록 조립 단계에서 일괄 조회해 주입). */
   public IssueResponse withListExtras(UserSummary newReporter, List<CycleSummary> newCycles) {
-    return copyWith(agentWork, aiGroup, aiProject, projectGroup, newReporter, newCycles);
+    return copyWith(
+        agentWork, aiGroup, aiProject, projectGroup, newReporter, newCycles, components);
+  }
+
+  /** 붙은 구성요소를 채운 사본(WP-933 — 상세·목록 조립 단계에서 일괄 조회해 주입). null 은 빈 배열로. */
+  public IssueResponse withComponents(List<ComponentSummary> list) {
+    return copyWith(
+        agentWork,
+        aiGroup,
+        aiProject,
+        projectGroup,
+        reporter,
+        cycles,
+        list == null ? List.of() : list);
   }
 
   /**
-   * 나머지 필드는 그대로 두고 agentWork·aiGroup·aiProject·projectGroup·reporter·cycles 만 바꾼 사본 — 필드 복사를 한 곳에
-   * 둔다.
+   * 나머지 필드는 그대로 두고 agentWork·aiGroup·aiProject·projectGroup·reporter·cycles·components 만 바꾼 사본 — 필드
+   * 복사를 한 곳에 둔다.
    */
   private IssueResponse copyWith(
       List<AgentWorkView> newAgentWork,
@@ -100,7 +122,8 @@ public record IssueResponse(
       AiTaskProject newAiProject,
       AiTaskProject newProjectGroup,
       UserSummary newReporter,
-      List<CycleSummary> newCycles) {
+      List<CycleSummary> newCycles,
+      List<ComponentSummary> newComponents) {
     return new IssueResponse(
         id,
         projectKey,
@@ -136,7 +159,8 @@ public record IssueResponse(
         newAiProject,
         newProjectGroup,
         newReporter,
-        newCycles);
+        newCycles,
+        newComponents);
   }
 
   /**
@@ -179,7 +203,8 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /**
@@ -223,7 +248,8 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /** 라벨 + 첨부 카운트까지 채운 버전 — Phase 3b 호출자 호환. type null, assignees 빈 리스트. */
@@ -264,7 +290,8 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /** 라벨 + 첨부 카운트 + 담당자까지 채운 풀버전 — Phase 3c 호출자 호환. type null. */
@@ -309,7 +336,8 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /** Phase 4 — 라벨 + 첨부 카운트 + 유형 + 담당자 모두 채운 풀버전. */
@@ -355,7 +383,8 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /**
@@ -407,7 +436,8 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /** Phase 4b — 의존성(blockedBy/blocks/blocked) 까지 채운 최신 풀버전. 검색/상세 경로에서 사용. */
@@ -459,7 +489,8 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 
   /**
@@ -514,6 +545,7 @@ public record IssueResponse(
         null,
         null,
         null,
-        null);
+        null,
+        List.of());
   }
 }

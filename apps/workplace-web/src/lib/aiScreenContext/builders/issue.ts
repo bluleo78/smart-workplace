@@ -1,5 +1,5 @@
 // 이슈 영역 화면 컨텍스트 builder(WP-54) — 이슈 상세·프로젝트 이슈 목록·내 작업·AI 위임 작업.
-// 필터 id 는 이미 로드된 라벨/멤버/유형/사이클/마일스톤 목록으로 이름 해석(AI 도구가 이름을 받음). 모르는 id 는 #id.
+// 필터 id 는 이미 로드된 라벨/멤버/유형/사이클/마일스톤/구성요소 목록으로 이름 해석(AI 도구가 이름을 받음). 모르는 id 는 #id.
 // 상태·우선순위·그룹 라벨은 화면(보드 헤더·필터 바)과 같은 공용 맵을 쓴다 — 사용자와 AI 가 같은 단어로 말하게.
 // WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
 import { closedRangeLabel } from '@/lib/closedRange';
@@ -37,6 +37,8 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
         ['우선순위', priorityLabel(issue.priority)],
         ['담당', issue.assignees.length ? issue.assignees.map((a) => a.name).join(', ') : '미할당'],
         ['유형', issue.type?.name],
+        // 구성요소(WP-933) — 붙은 것이 있을 때만(빈 문자열은 buildFacts 가 뺀다).
+        ['구성요소', (issue.components ?? []).map((c) => c.name).join(', ')],
         ['마감', issue.dueDate],
         ['상위 이슈', issue.parent ? `${projectKey}-${issue.parent.number} ${issue.parent.title}` : null],
         ['차단됨', issue.blocked],
@@ -60,6 +62,8 @@ export interface IssueListContextInput {
     milestones: { id: number; name: string }[];
     // 프로젝트 상태(WP-808) — 「상태」 필터(statusIds)를 이름으로 풀 때 쓴다.
     statuses: { id: number; name: string }[];
+    // 프로젝트 구성요소(WP-933) — 「구성요소」 필터를 이름으로 푼다(AI 도구 component 인자도 이름을 받는다).
+    components?: { id: number; name: string }[];
   };
   count?: number;
   hasMore?: boolean;
@@ -74,6 +78,8 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
   const { filters: f, lookups } = input;
   const memberList = lookups.members.map((m) => ({ id: m.userId, name: m.name }));
   const assignee = [names(f.assigneeIds, memberList), f.includeUnassigned ? '미할당' : ''].filter(Boolean).join(', ');
+  // 구성요소 — 이름 + 「구성요소 없음」(필터 바 문구 그대로).
+  const component = [names(f.componentIds, lookups.components ?? []), f.componentNone ? '구성요소 없음' : ''].filter(Boolean).join(', ');
   const scope = withListState({
     label: clip(`프로젝트 ${input.projectName} 이슈 목록`, LIMITS.label),
     refs: buildRefs({ projectKey: input.projectKey }),
@@ -87,6 +93,7 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
         ['담당', assignee],
         ['우선순위', joinMapped(f.priorities, ISSUE_PRIORITY_LABEL)],
         ['라벨', names(f.labelIds, lookups.labels)],
+        ['구성요소', component],
         ['유형', names(f.typeIds, lookups.types)],
         ['마감', dueRange(f.dueFrom, f.dueTo)],
         // 완료일 기간(WP-873) — 화면 칩과 같은 문구(프리셋은 이름+기간)로 AI 가 「지난 주 완료한 것」을 같은 범위로 안다.

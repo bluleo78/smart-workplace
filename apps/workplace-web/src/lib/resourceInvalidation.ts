@@ -116,6 +116,8 @@ const RULES: Record<string, Rule> = {
   ]),
   'field-def': configRule((pk) => [{ queryKey: ['customFields', pk] }]),
   'issue-type': configRule((pk) => [{ queryKey: ['issueTypes', pk] }]),
+  // 구성요소(WP-933) — 설정·피커·필터의 목록. 이름 변경·보관·삭제는 이슈 칩도 바꾸므로 configRule 이 수정·삭제에 이슈 대상을 더한다.
+  component: configRule((pk) => [{ queryKey: ['components', pk] }]),
   // 프로젝트별 이슈 상태(WP-807) — 보드 컬럼·상태 고르기가 쓰는 상태 목록.
   // 이름 변경·삭제는 statusName 을 싣는 교차 프로젝트 이슈 목록(AI 작업·마감·홈 위젯)도 바꾼다 — 행위자 탭을 포함한 모든 화면이 이 이벤트로 맞춘다.
   // 삭제(WP-809)는 그 상태를 가리키던 저장된 뷰 쿼리를 서버가 다시 쓰므로 저장된 뷰·고정 뷰(쿼리를 싣는다)도 다시 받는다.

@@ -107,6 +107,17 @@ describe('셀 렌더러', () => {
     expect(cellText('due', issue())).toBe('—')
   })
 
+  it('구성요소 — 칩 2개 + 「+N」, 없거나 구버전 응답이면 「—」(WP-933)', () => {
+    const comps = [
+      { id: 1, name: 'Compute', archived: false },
+      { id: 2, name: 'Storage', archived: false },
+      { id: 3, name: 'Old', archived: true },
+    ]
+    expect(cellText('components', issue({ components: comps }))).toBe('ComputeStorage+1')
+    expect(cellText('components', issue({ components: [] }))).toBe('—')
+    expect(cellText('components', issue({ components: undefined }))).toBe('—')
+  })
+
   it('구버전 응답(보고자·사이클 필드 없음)이면 「—」', () => {
     expect(cellText('reporter', issue({ reporter: undefined }))).toBe('—')
     expect(cellText('cycle', issue({ cycles: undefined }))).toBe('—')

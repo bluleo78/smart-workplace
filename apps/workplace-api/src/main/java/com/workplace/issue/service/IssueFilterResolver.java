@@ -1,8 +1,11 @@
 package com.workplace.issue.service;
 
+import com.workplace.component.dto.ComponentRow;
+import com.workplace.component.repository.ComponentRepository;
 import com.workplace.cycle.dto.CycleRow;
 import com.workplace.cycle.repository.CycleRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeRow;
 import com.workplace.issue.dto.ProjectStatusRow;
@@ -45,6 +48,7 @@ class IssueFilterResolver {
   private final MilestoneRepository milestoneRepository;
   private final CycleRepository cycleRepository;
   private final ProjectStatusRepository projectStatusRepository;
+  private final ComponentRepository componentRepository;
 
   /**
    * 담당자·작성자 토큰 → userId. "me" 는 호출자, 숫자는 그대로, 그 외는 현재 테넌트 구성원 username(대소문자 무시). "null"(미지정) 리터럴은
@@ -135,6 +139,29 @@ class IssueFilterResolver {
                 ? cycleRepository.findByProject(projectId)
                 : cycleRepository.findByMemberProjects(callerId);
     return flatten(resolveByName("cycle", "사이클", tokens, candidates, CycleRow::name, CycleRow::id));
+  }
+
+  /**
+   * 구성요소 토큰 → id 목록(OR, WP-933). 이름은 대소문자 무시이고 보관된 구성요소도 후보다(지난 이슈 찾기). 약속된 토큰(none)은 호출측이 먼저 걸러낸다.
+   * 횡단 검색이면 호출자가 멤버인 프로젝트의 같은 이름 구성요소가 함께 풀린다.
+   */
+  List<Long> resolveComponentIds(List<String> tokens, Long projectId, Long callerId) {
+    Supplier<List<ComponentRow>> candidates =
+        () ->
+            projectId != null
+                ? componentRepository.listByProject(projectId)
+                : componentRepository.findByMemberProjects(callerId);
+    // 저장 이름은 한 줄 정규화(NFC 등)를 거치므로 토큰도 같은 규칙으로 맞춰 비교한다 — 분해형 한글 토큰도 찾게.
+    return flatten(
+        resolveByName(
+            "component",
+            "구성요소",
+            tokens,
+            candidates,
+            ComponentRow::name,
+            ComponentRow::id,
+            true,
+            SingleLineTitles::normalize));
   }
 
   /**

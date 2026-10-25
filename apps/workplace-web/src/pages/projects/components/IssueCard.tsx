@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLongPressCapture } from '@/hooks/useLongPressCapture';
 
+import { ComponentChips } from '../../../components/components/ComponentChip';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
@@ -257,8 +258,10 @@ export function IssueCard({
         </div>
       )}
 
-      {issue.labels.length > 0 && (
+      {/* 구성요소 칩(WP-933) — 라벨 칩 앞에 작게, 최대 2개 + 「+N」. 붙은 게 없으면(또는 구버전 응답) 줄을 만들지 않는다. */}
+      {(issue.components?.length ?? 0) > 0 || issue.labels.length > 0 ? (
         <div className="mt-2 flex flex-wrap gap-1">
+          <ComponentChips components={issue.components ?? []} testId={`issue-card-${issue.number}-components`} />
           {issue.labels.slice(0, 3).map((l) => (
             <LabelChip key={l.id} label={l} size="sm" />
           ))}
@@ -268,7 +271,7 @@ export function IssueCard({
             </span>
           )}
         </div>
-      )}
+      ) : null}
         </>
       )}
 

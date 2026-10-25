@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useIsMobile } from '@/hooks/useIsMobile';
 
+import { CreateComponentsField } from '../../../components/components/CreateComponentsField';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { IssueBodyImageButton } from '../../../components/issue/IssueBodyImageButton';
 import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
@@ -182,6 +183,10 @@ function DesktopIssueCreateDialog({ projectKey, open, onOpenChange, personal = f
               )}
             </div>
           </div>
+          {/* 구성요소(WP-933) — 우선순위 묶음 바로 아래. 구성원이고 사용 중 구성요소가 있을 때만 보인다. */}
+          {f.showComponents && (
+            <CreateComponentsField components={f.componentList} value={f.componentIds} onChange={f.setComponentIds} />
+          )}
           {/* SUBTASK 선택 시에만 부모 number 입력 노출 (Phase 4a).
               valueAsNumber 로 number 변환 — 빈 값은 NaN 이 되어 송신 시 undefined. */}
           {isSubtaskSelected && (

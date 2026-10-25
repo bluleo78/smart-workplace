@@ -58,6 +58,10 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   const labelIds = positiveIds(params.get('label'));
   const cycleIds = positiveIds(params.get('cycle'));
   const milestoneIds = positiveIds(params.get('milestone'));
+  // 구성요소(WP-933) — id 토큰 + 「구성요소 없음」 none 토큰(사이클 none 과 같은 규약). 이름 토큰은 화면이 만들지 않아 버린다.
+  const componentRaw = params.get('component');
+  const componentIds = positiveIds(componentRaw);
+  const componentNone = csv(componentRaw).some((t) => t.toLowerCase() === 'none');
   // statusId(「상태」 — 프로젝트 상태 id, WP-808) 토큰도 동일 규칙 — 양의 정수만 통과.
   // 기존 status 키는 「상태 범주」로 그대로 남아 예전 링크·저장 뷰가 범주 필터로 열린다.
   const statusIds = positiveIds(params.get('statusId'));
@@ -90,6 +94,8 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     dueTo: isoDate(params.get('dueTo')),
     labelIds,
     cycleIds,
+    componentIds,
+    componentNone,
     milestoneIds,
     typeIds,
     parentNumber,
@@ -198,6 +204,8 @@ export function filtersToParams(
   if (f.closedIn) p.set('closedIn', f.closedIn);
   if (f.labelIds.length) p.set('label', f.labelIds.join(','));
   if (f.cycleIds.length) p.set('cycle', f.cycleIds.join(','));
+  const componentParam = componentTokens(f);
+  if (componentParam) p.set('component', componentParam);
   if (f.milestoneIds.length) p.set('milestone', f.milestoneIds.join(','));
   if (f.typeIds.length) p.set('type', f.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. UI 노출은 deferred.
@@ -211,6 +219,15 @@ export function filtersToParams(
   // 「완료 모두 보기」 직렬화 — 켰을 때만 명시(기본 숨김은 빈 정규형).
   if (f.showAllClosed) p.set('closed', 'all');
   return p;
+}
+
+/**
+ * 구성요소 필터의 component 파라미터 값 — id 들 뒤에 「구성요소 없음」 none 토큰. 비면 null(키 생략).
+ * URL(filtersToParams)과 서버 검색(issueFilterParams)이 같은 표현을 쓴다.
+ */
+export function componentTokens(f: Pick<IssueFilters, 'componentIds' | 'componentNone'>): string | null {
+  const tokens = [...f.componentIds.map(String), ...(f.componentNone ? ['none'] : [])];
+  return tokens.length ? tokens.join(',') : null;
 }
 
 function csv(v: string | null): string[] {

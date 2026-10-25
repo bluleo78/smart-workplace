@@ -6,6 +6,7 @@ import { toAgentWorkView, type AgentWorkOut } from './agent-work-view.js';
 import { reactionSummary } from './compact.js';
 import { formatIssueKey } from './parse.js';
 import {
+  componentNames,
   labelNames,
   toAuthorView,
   toChildrenView,
@@ -86,6 +87,8 @@ export interface IssueDetail {
   updatedAt: string | null;
   closedAt: string | null;
   labels: string[];
+  /** 구성요소 이름(WP-933) — 보관된 것도 포함. */
+  components: string[];
   milestone: string | null;
   parent: { issueKey: string; title: string; status: string | null; statusName?: string } | null;
   /** 하위 이슈 진행률(없으면 null). 목록은 list_issues(projectKey, q 등)로. */
@@ -111,11 +114,12 @@ export interface IssueDetail {
 }
 
 /** 이력 payload 에서 뺄 키 — 숫자 id 는 쓰기 도구로 흘려보내지 않고(#833), 색·아이콘은 LLM 에 쓸모없는 토큰이다. */
-const HISTORY_DROP_KEYS = new Set(['id', 'defId', 'fileId', 'typeId', 'colorToken', 'icon']);
+const HISTORY_DROP_KEYS = new Set(['id', 'defId', 'fileId', 'typeId', 'componentId', 'colorToken', 'icon']);
 
 /** payload 를 JSON 으로 저장하는 이력 이벤트(IssueHistoryRecorder). 그 밖(제목·상태 등)의 값은 '{'·'[' 로 시작해도 평문이다. */
 const JSON_PAYLOAD_EVENTS = new Set([
   'LABELS_CHANGED',
+  'COMPONENTS_CHANGED',
   'ASSIGNEES_CHANGED',
   'ATTACHMENTS_CHANGED',
   'TYPE_CHANGED',
@@ -211,6 +215,7 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
     updatedAt: toSeoulIso(s.updatedAt),
     closedAt: toSeoulIso(s.closedAt),
     labels: labelNames(s.labels),
+    components: componentNames(s.components),
     milestone: (s.milestoneName as string | null) ?? null,
     parent: toParentView(s.parent, s.projectKey),
     children: toChildrenView(s.childCount, s.childDoneCount),

@@ -1,6 +1,10 @@
 // 모바일 이슈 속성 공용 시트(WP-196) — 상세 칩(IssueMobilePropertyChips)과 생성 칩(CreateIssueChips)이 같은 에픽 선택 시트를 쓴다.
+// 구성요소 다중 선택 시트(WP-933)도 여기 둔다.
+import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 
+import { pickerComponentOptions } from '../../../../lib/issueComponents';
+import type { ComponentResponse } from '../../../../types/component';
 import type { IssueResponse } from '../../../../types/issue';
 
 // 「에픽 없음」 옵션 값 — 시트 안에서만 쓰고 밖으로는 null 로 주고받는다.
@@ -52,6 +56,37 @@ export function EpicPickerSheet({
           </div>
         ) : undefined
       }
+    />
+  );
+}
+
+/**
+ * 구성요소 다중 선택 시트(WP-933) — 사용 중 구성요소(+ 이미 고른 보관 구성요소)를 목록 순서로. 닫힐 때 최종 선택 id 를 한 번 알린다.
+ * 구성요소가 8개를 넘으면 검색창을 띄운다(에픽 시트와 같은 기준).
+ */
+export function ComponentPickerSheet({
+  open, onClose, components, value, testId,
+}: {
+  open: boolean;
+  onClose: (ids: number[]) => void;
+  components: ComponentResponse[];
+  value: number[];
+  testId: string;
+}) {
+  const options = pickerComponentOptions(components, value);
+  return (
+    <MobileMultiPickerSheet
+      testId={testId}
+      open={open}
+      title="구성요소"
+      searchable={options.length > 8}
+      value={value.map(String)}
+      options={options.map((c) => ({ value: String(c.id), label: c.archived ? `${c.name} (보관됨)` : c.name }))}
+      onClose={(picked) => {
+        // 목록 순서로 정리해 돌려준다 — 서버 자동 지정·칩 순서와 같게.
+        const chosen = new Set(picked.map(Number));
+        onClose(options.filter((c) => chosen.has(c.id)).map((c) => c.id));
+      }}
     />
   );
 }

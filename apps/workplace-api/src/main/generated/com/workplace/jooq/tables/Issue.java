@@ -16,6 +16,7 @@ import com.workplace.jooq.tables.IssueAssignee.IssueAssigneePath;
 import com.workplace.jooq.tables.IssueAttachment.IssueAttachmentPath;
 import com.workplace.jooq.tables.IssueBodyImage.IssueBodyImagePath;
 import com.workplace.jooq.tables.IssueComment.IssueCommentPath;
+import com.workplace.jooq.tables.IssueComponent.IssueComponentPath;
 import com.workplace.jooq.tables.IssueCycle.IssueCyclePath;
 import com.workplace.jooq.tables.IssueDependency.IssueDependencyPath;
 import com.workplace.jooq.tables.IssueExternalLink.IssueExternalLinkPath;
@@ -30,6 +31,7 @@ import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.Project.ProjectPath;
+import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -496,6 +498,19 @@ public class Issue extends TableImpl<IssueRecord> {
         return _issueComment;
     }
 
+    private transient IssueComponentPath _issueComponent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_component</code> table
+     */
+    public IssueComponentPath issueComponent() {
+        if (_issueComponent == null)
+            _issueComponent = new IssueComponentPath(this, null, Keys.ISSUE_COMPONENT__ISSUE_COMPONENT_ISSUE_ID_FKEY.getInverseKey());
+
+        return _issueComponent;
+    }
+
     private transient IssueCyclePath _issueCycle;
 
     /**
@@ -649,6 +664,14 @@ public class Issue extends TableImpl<IssueRecord> {
      */
     public UserPath issueAssigneeUserIdFkey() {
         return issueAssignee().issueAssigneeUserIdFkey();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.project_component</code> table
+     */
+    public ProjectComponentPath projectComponent() {
+        return issueComponent().projectComponent();
     }
 
     /**

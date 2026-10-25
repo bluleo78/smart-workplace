@@ -48,3 +48,12 @@ describe('isAllIgnoringEpicScope (WP-194)', () => {
     expect(isAllIgnoringEpicScope(f('parent=30'), true)).toBe(false)
   })
 })
+
+describe('clearFacetFilters — 구성요소(WP-933)', () => {
+  it('「필터 모두 지우기」에 구성요소와 「구성요소 없음」이 함께 풀린다', () => {
+    const cleared = clearFacetFilters(f('component=3,none&q=x'))
+    expect(cleared.componentIds).toEqual([])
+    expect(cleared.componentNone).toBe(false)
+    expect(filtersToParams(cleared, 'list', null).has('component')).toBe(false)
+  })
+})

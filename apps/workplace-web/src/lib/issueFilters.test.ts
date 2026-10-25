@@ -308,3 +308,31 @@ describe('carryViewOptions — 열 구성(WP-270)', () => {
     expect(carryViewOptions(new URLSearchParams('q=x'), new URLSearchParams('q=y')).has('cols')).toBe(false);
   });
 });
+
+// WP-933: 구성요소 필터 — URL component = id CSV + 「구성요소 없음」 none 토큰(OR).
+describe('구성요소 필터 왕복', () => {
+  it('component=3,5 ↔ componentIds', () => {
+    const f = parseFilters(new URLSearchParams('component=3,5'));
+    expect(f.componentIds).toEqual([3, 5]);
+    expect(f.componentNone).toBe(false);
+    expect(filtersToParams(f, 'list', null).get('component')).toBe('3,5');
+  });
+
+  it('none 토큰은 componentNone 으로, 함께 쓰면 id 뒤에 none 을 붙인다', () => {
+    const f = parseFilters(new URLSearchParams('component=none,4,x'));
+    expect(f.componentIds).toEqual([4]);
+    expect(f.componentNone).toBe(true);
+    expect(filtersToParams(f, 'list', null).get('component')).toBe('4,none');
+    expect(filtersToParams({ ...EMPTY, componentNone: true }, 'list', null).get('component')).toBe('none');
+  });
+
+  it('비어 있으면 키를 쓰지 않는다', () => {
+    expect(EMPTY.componentIds).toEqual([]);
+    expect(EMPTY.componentNone).toBe(false);
+    expect(filtersToParams(EMPTY, 'list', null).has('component')).toBe(false);
+  });
+
+  it('묶음 필터가 아니라 종료 이슈 숨김을 풀지 않는다', () => {
+    expect(overridesClosedHiding({ ...EMPTY, componentIds: [1], componentNone: true })).toBe(false);
+  });
+});

@@ -90,6 +90,8 @@ export function IssueChildrenSection({
           dueTo: null,
           labelIds: [],
           cycleIds: [],
+          componentIds: [],
+          componentNone: false,
           milestoneIds: [],
           typeIds: [],
           parentNumber,

@@ -1,9 +1,10 @@
-// 모바일 메타 한 줄 — 키 · ◆에픽 · (매우) 높음·마감·하위·첫 라벨(+N) … 담당자(최대 2 + N).
+// 모바일 메타 한 줄 — 키 · ◆에픽 · (매우) 높음·마감·하위·구성요소(2 + N)·첫 라벨(+N) … 담당자(최대 2 + N).
 // 목록 행(WP-194)과 보드 카드(WP-195)가 같은 정보 순서·말줄임 규칙을 쓰도록 공용화했다.
 import { Fragment, type ReactNode } from 'react';
 
 import { cn } from '@/lib/utils';
 
+import { ComponentChips } from '../../../components/components/ComponentChip';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { formatListDueDate } from '../../../lib/formatters';
 import { closedInfo } from '../../../lib/issueClosedInfo';
@@ -59,6 +60,10 @@ export function IssueMobileMeta({
     );
   }
   if (it.childCount > 0) tail.push(`${it.childDoneCount}/${it.childCount}`);
+  // 구성요소(WP-933) — 라벨 앞에 작은 칩 최대 2개 + 「+N」. 붙은 게 없으면 넣지 않는다.
+  if (it.components?.length) {
+    tail.push(<ComponentChips key="cm" components={it.components} className="align-middle" testId={`${testIdPrefix}-meta-components`} />);
+  }
   if (firstLabel) tail.push(`${firstLabel.name}${it.labels.length > 1 ? ` +${it.labels.length - 1}` : ''}`);
   // 구분점 — 스크린리더가 읽지 않게 aria-hidden.
   const sep = (key: string, cls = 'shrink-0') => (

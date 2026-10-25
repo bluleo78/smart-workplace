@@ -56,6 +56,7 @@ import com.workplace.jooq.tables.IssueAttachment.IssueAttachmentPath;
 import com.workplace.jooq.tables.IssueBodyImage.IssueBodyImagePath;
 import com.workplace.jooq.tables.IssueComment.IssueCommentPath;
 import com.workplace.jooq.tables.IssueCommentReaction.IssueCommentReactionPath;
+import com.workplace.jooq.tables.IssueComponent.IssueComponentPath;
 import com.workplace.jooq.tables.IssueCycle.IssueCyclePath;
 import com.workplace.jooq.tables.IssueDependency.IssueDependencyPath;
 import com.workplace.jooq.tables.IssueExternalLink.IssueExternalLinkPath;
@@ -80,6 +81,7 @@ import com.workplace.jooq.tables.MessageReaction.MessageReactionPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
 import com.workplace.jooq.tables.Notification.NotificationPath;
 import com.workplace.jooq.tables.Project.ProjectPath;
+import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
@@ -883,6 +885,19 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _issueComment;
     }
 
+    private transient IssueComponentPath _issueComponent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_component</code> table
+     */
+    public IssueComponentPath issueComponent() {
+        if (_issueComponent == null)
+            _issueComponent = new IssueComponentPath(this, null, Keys.ISSUE_COMPONENT__FK_ISSUE_COMPONENT_TENANT.getInverseKey());
+
+        return _issueComponent;
+    }
+
     private transient IssueCyclePath _issueCycle;
 
     /**
@@ -1113,6 +1128,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _notification = new NotificationPath(this, null, Keys.NOTIFICATION__FK_NOTIFICATION_TENANT.getInverseKey());
 
         return _notification;
+    }
+
+    private transient ProjectComponentPath _projectComponent;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_component</code> table
+     */
+    public ProjectComponentPath projectComponent() {
+        if (_projectComponent == null)
+            _projectComponent = new ProjectComponentPath(this, null, Keys.PROJECT_COMPONENT__FK_PROJECT_COMPONENT_TENANT.getInverseKey());
+
+        return _projectComponent;
     }
 
     private transient ProjectIssueSequencePath _projectIssueSequence;
