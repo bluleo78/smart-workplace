@@ -6,6 +6,8 @@ import com.workplace.filepreview.PreviewResponses;
 import com.workplace.mail.dto.AttachmentCacheUsage;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
+import com.workplace.mail.dto.MailFolderResponse;
+import com.workplace.mail.dto.MailFolderSyncResult;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
@@ -18,6 +20,7 @@ import com.workplace.mail.service.MailAttachmentTextService;
 import com.workplace.mail.service.MailAttachmentViewService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
+import com.workplace.mail.service.folder.MailFolderService;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -50,11 +53,36 @@ public class MailInboxController {
   private final MailAttachmentTextService attachmentTextService;
   private final MailAttachmentViewService attachmentViewService;
   private final MailAttachmentPreviewService attachmentPreviewService;
+  private final MailFolderService folderService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
   public MailSyncResult sync(@AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
     return syncService.sync(callerId, accountId);
+  }
+
+  /**
+   * WP-960 계정의 서버 메일함(보관·사용자 폴더) 목록 — 사이드바 트리용. 보관 먼저, 그다음 이름순. 서버에 접속하지 않고 마지막 동기화 때 저장한 목록을 읽는다.
+   * 내 계정이 아니면 404.
+   */
+  @GetMapping("/accounts/{accountId}/folders")
+  public List<MailFolderResponse> folders(
+      @AuthenticationPrincipal Long callerId, @PathVariable long accountId) {
+    return folderService.list(callerId, accountId);
+  }
+
+  /**
+   * WP-960 서버 메일함 한 개의 메일 가져오기. older=true 면 이미 가져온 기간 앞의 90일을 더 받는다. 보관·사용자 메일함만(받은편지함·보낸편지함·묶음
+   * 메일함은 400), 내 계정·계정 메일함이 아니면 404. 같은 메일함을 이미 가져오는 중이면 running=true 로 바로 돌아온다. 네트워크 I/O 동안 DB 연결을
+   * 잡지 않게 트랜잭션을 걸지 않는다(서비스가 짧은 트랜잭션으로 나눈다).
+   */
+  @PostMapping("/accounts/{accountId}/folders/{folderId}/sync")
+  public MailFolderSyncResult syncFolder(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @PathVariable long folderId,
+      @RequestParam(defaultValue = "false") boolean older) {
+    return folderService.syncFolder(callerId, accountId, folderId, older);
   }
 
   /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit). */
@@ -63,13 +91,14 @@ public class MailInboxController {
       @AuthenticationPrincipal Long callerId,
       @PathVariable long accountId,
       @RequestParam(required = false, defaultValue = "INBOX") String folder,
+      @RequestParam(required = false) Long folderId, // WP-960: 서버 메일함 id(있으면 folder·분류·회신필요 무시)
       @RequestParam(required = false) String query,
       @RequestParam(required = false, defaultValue = "false") boolean unread,
       @RequestParam(required = false) String category, // P2: 분류 필터(업무/개인/알림/프로모션/뉴스레터)
       @RequestParam(required = false, defaultValue = "false") boolean needsReply, // P2: 회신필요 필터
       @RequestParam(required = false, defaultValue = "0") int limit) {
     return messageService.list(
-        callerId, accountId, folder, query, unread, category, needsReply, limit);
+        callerId, accountId, folder, folderId, query, unread, category, needsReply, limit);
   }
 
   /** P2: 사이드바용 계정단위 회신필요 건수. */
@@ -128,8 +157,10 @@ public class MailInboxController {
       @PathVariable long accountId,
       @RequestParam(required = false) String category,
       @RequestParam(defaultValue = "false") boolean needsReply,
-      @RequestParam(required = false) String query) {
-    return messageService.unreadCountInView(callerId, accountId, category, needsReply, query);
+      @RequestParam(required = false) String query,
+      @RequestParam(required = false) Long folderId) { // WP-960: 서버 메일함 보기
+    return messageService.unreadCountInView(
+        callerId, accountId, folderId, category, needsReply, query);
   }
 
   /** WP-187: 모두 읽음 — 지금 보기 ∧ asOf 이전 도착 ∧ 안 읽음. */
@@ -137,8 +168,9 @@ public class MailInboxController {
   public MarkAllReadResponse markAllRead(
       @AuthenticationPrincipal Long callerId,
       @PathVariable long accountId,
+      @RequestParam(required = false) Long folderId, // WP-960: 서버 메일함 보기
       @RequestBody MarkAllReadRequest req) {
-    return new MarkAllReadResponse(messageService.markAllRead(callerId, accountId, req));
+    return new MarkAllReadResponse(messageService.markAllRead(callerId, accountId, folderId, req));
   }
 
   /** WP-187 모두 읽음 응답 — 실제로 읽음 처리된 메일 수. */

@@ -139,6 +139,38 @@ class MailSyncServiceTest extends IntegrationTestBase {
     assertThat(list.get(0).subject()).isEqualTo("최근 메일");
   }
 
+  /**
+   * WP-960: 받은편지함에 7일 밖 메일만 있으면 첫 동기화는 0건이고, 커서가 UIDNEXT−1 로 올라가 다음 증분이 과거 메일을 끌어오지 않는다. 그 뒤 새 메일은
+   * 받는다.
+   */
+  @Test
+  void sync_firstSync_onlyOldMail_doesNotPullHistoryOnNextSync() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = insertAccount(user);
+    GreenMailUser box = greenMail.getUserManager().getUser("box@test.local");
+    var inbox = greenMail.getManagers().getImapHostManager().getInbox(box);
+    inbox.appendMessage(
+        textMessage("<old1@test>", null, null, "오래된 1", "본문"),
+        new Flags(),
+        Date.from(Instant.now().minus(8, ChronoUnit.DAYS)));
+    inbox.appendMessage(
+        textMessage("<old2@test>", null, null, "오래된 2", "본문"),
+        new Flags(),
+        Date.from(Instant.now().minus(30, ChronoUnit.DAYS)));
+
+    assertThat(syncService.sync(user, accountId).fetched()).isZero();
+    assertThat(syncService.sync(user, accountId).fetched()).isZero();
+
+    inbox.appendMessage(
+        textMessage("<fresh@test>", null, null, "새 메일", "본문"), new Flags(), new Date());
+    MailSyncResult next = syncService.sync(user, accountId);
+    assertThat(next.fetched()).isEqualTo(1);
+    assertThat(next.saved()).isEqualTo(1);
+    assertThat(messageRepo.listByAccount(accountId, null, 50))
+        .extracting(EmailMessageSummary::subject)
+        .containsExactly("새 메일");
+  }
+
   @Test
   void sync_secondRunIsNoOp() {
     long user = TestFixtures.createHuman(dsl);

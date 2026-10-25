@@ -10,6 +10,7 @@ import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.folder.MailFolderService;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * ImapMailFetcher})로 위임한다(#499 seam 추출).
  *
  * <p>본 서비스는 (1) 계정 소유 검증 (2) 동시 동기화 가드 (3) 공급자 디스패치 (4) 본문 백필 트리거 (5) last_synced_at 갱신 (6) 선제 요약
- * 트리거 를 담당한다. 공급자별 자격증명 해석·네트워크 I/O 는 {@link MailFetcher#fetchNewMessages} 내부 책임이다.
+ * 트리거 (7) 서버 메일함 목록 갱신(WP-960, best-effort) 을 담당한다. 공급자별 자격증명 해석·네트워크 I/O 는 {@link
+ * MailFetcher#fetchNewMessages} 내부 책임이다.
  *
  * <p>RLS GUC(app.tenant_id)는 트랜잭션-로컬이라 소유 검증 SELECT·메시지 insert 등 DB 접근을 짧은 트랜잭션({@code
  * txTemplate})으로 감싼다.
@@ -47,6 +49,9 @@ public class MailSyncService {
    */
   private final TransactionTemplate txTemplate;
 
+  /** 서버 메일함 목록 갱신(WP-960) — 받은편지함 동기화 뒤 best-effort 로 부른다. */
+  private final MailFolderService folderService;
+
   /** 공급자 → fetcher 맵. Spring 이 MailFetcher 빈 목록을 자동 주입한다. */
   private final Map<MailProvider, MailFetcher> fetchers;
 
@@ -58,7 +63,8 @@ public class MailSyncService {
       MailChangeNotifier notifier,
       MailSummaryBackfillService summaryBackfillService,
       PlatformTransactionManager txManager,
-      List<MailFetcher> fetchers) {
+      List<MailFetcher> fetchers,
+      MailFolderService folderService) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
     this.progress = progress;
@@ -67,6 +73,7 @@ public class MailSyncService {
     this.summaryBackfillService = summaryBackfillService;
     this.txTemplate = new TransactionTemplate(txManager);
     this.fetchers = fetchers.stream().collect(toMap(MailFetcher::provider, f -> f));
+    this.folderService = folderService;
   }
 
   /**
@@ -92,6 +99,8 @@ public class MailSyncService {
         throw new MailSyncException("지원하지 않는 메일 공급자: " + account.provider());
       }
       MailSyncResult result = fetcher.fetchNewMessages(userId, accountId, account); // ← seam
+      // WP-960: 받은편지함 동기화 뒤 서버 메일함 목록(보관·사용자 폴더·안 읽은 수)을 갱신한다. 실패해도 동기화 결과는 그대로다.
+      boolean foldersChanged = refreshFoldersQuietly(userId, accountId, account);
 
       // 미적재 본문이 있으면 본문 보충 단계로 전환 + 비동기 트리거(완료 시 backfill 이 progress.finish 수행).
       int missing = txTemplate.execute(status -> messageRepo.countMissingBody(accountId));
@@ -104,6 +113,7 @@ public class MailSyncService {
         triggeredBackfill = true;
       }
       // 동기화 성공 — 마지막 동기화 시각 기록(자동·수동 공통). tx-local GUC 위해 txTemplate 사용.
+      // 서버 메일함 목록이 바뀐 것(WP-960)도 같은 이벤트로 알린다.
       // 새 메일이 적재됐거나(saved > 0) 서버 읽음 상태가 로컬에 반영됐거나(seenChanged > 0, WP-148) 서버에서 빠진 메일을 지웠으면
       // (removed > 0, WP-959) 같은 트랜잭션 안에서 소유자에게 resource.changed 를 발행한다 — 트랜잭션 밖 발행은 유실된다. 읽음
       // 변화·삭제도
@@ -112,7 +122,7 @@ public class MailSyncService {
       txTemplate.executeWithoutResult(
           status -> {
             accountRepo.updateLastSyncedAt(accountId, OffsetDateTime.now());
-            if (result.changed()) {
+            if (result.changed() || foldersChanged) {
               notifier.mailChanged(userId, accountId, null, null);
             }
           });
@@ -128,6 +138,19 @@ public class MailSyncService {
       if (!triggeredBackfill) {
         progress.finish(accountId);
       }
+    }
+  }
+
+  /**
+   * 서버 메일함 목록 갱신(WP-960) — best-effort. 목록 조회·반영 실패는 경고 로그만 남기고 false(바뀐 것 없음)를 돌려준다. 목록 조회가 실패하면
+   * 저장된 폴더는 지워지지 않는다({@link MailFolderService#refresh}). 예외 메시지에는 자격증명이 담기지 않는다.
+   */
+  private boolean refreshFoldersQuietly(long userId, long accountId, EmailAccountResponse account) {
+    try {
+      return folderService.refresh(userId, accountId, account);
+    } catch (Exception e) {
+      log.warn("서버 메일함 목록 갱신 실패(동기화 결과는 유지): accountId={} {}", accountId, e.toString());
+      return false;
     }
   }
 }

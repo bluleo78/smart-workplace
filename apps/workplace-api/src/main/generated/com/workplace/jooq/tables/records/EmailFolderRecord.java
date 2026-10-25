@@ -146,6 +146,146 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
         return (String) get(8);
     }
 
+    /**
+     * Setter for <code>public.email_folder.remote_id</code>.
+     */
+    public void setRemoteId(String value) {
+        set(9, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.remote_id</code>.
+     */
+    public String getRemoteId() {
+        return (String) get(9);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.display_name</code>.
+     */
+    public void setDisplayName(String value) {
+        set(10, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.display_name</code>.
+     */
+    public String getDisplayName() {
+        return (String) get(10);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.parent_id</code>.
+     */
+    public void setParentId(Long value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.parent_id</code>.
+     */
+    public Long getParentId() {
+        return (Long) get(11);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.role</code>.
+     */
+    public void setRole(String value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.role</code>.
+     */
+    public String getRole() {
+        return (String) get(12);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.selectable</code>.
+     */
+    public void setSelectable(Boolean value) {
+        set(13, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.selectable</code>.
+     */
+    public Boolean getSelectable() {
+        return (Boolean) get(13);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.server_unread</code>.
+     */
+    public void setServerUnread(Integer value) {
+        set(14, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.server_unread</code>.
+     */
+    public Integer getServerUnread() {
+        return (Integer) get(14);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.server_total</code>.
+     */
+    public void setServerTotal(Integer value) {
+        set(15, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.server_total</code>.
+     */
+    public Integer getServerTotal() {
+        return (Integer) get(15);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.listed_at</code>.
+     */
+    public void setListedAt(OffsetDateTime value) {
+        set(16, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.listed_at</code>.
+     */
+    public OffsetDateTime getListedAt() {
+        return (OffsetDateTime) get(16);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.synced_since</code>.
+     */
+    public void setSyncedSince(OffsetDateTime value) {
+        set(17, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.synced_since</code>.
+     */
+    public OffsetDateTime getSyncedSince() {
+        return (OffsetDateTime) get(17);
+    }
+
+    /**
+     * Setter for <code>public.email_folder.folder_synced_at</code>.
+     */
+    public void setFolderSyncedAt(OffsetDateTime value) {
+        set(18, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.folder_synced_at</code>.
+     */
+    public OffsetDateTime getFolderSyncedAt() {
+        return (OffsetDateTime) get(18);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -169,7 +309,7 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
     /**
      * Create a detached, initialised EmailFolderRecord
      */
-    public EmailFolderRecord(Long id, Long accountId, String name, Long uidValidity, Long lastSeenUid, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String deltaLink) {
+    public EmailFolderRecord(Long id, Long accountId, String name, Long uidValidity, Long lastSeenUid, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String deltaLink, String remoteId, String displayName, Long parentId, String role, Boolean selectable, Integer serverUnread, Integer serverTotal, OffsetDateTime listedAt, OffsetDateTime syncedSince, OffsetDateTime folderSyncedAt) {
         super(EmailFolder.EMAIL_FOLDER);
 
         setId(id);
@@ -181,6 +321,16 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
         setUpdatedAt(updatedAt);
         setTenantId(tenantId);
         setDeltaLink(deltaLink);
+        setRemoteId(remoteId);
+        setDisplayName(displayName);
+        setParentId(parentId);
+        setRole(role);
+        setSelectable(selectable);
+        setServerUnread(serverUnread);
+        setServerTotal(serverTotal);
+        setListedAt(listedAt);
+        setSyncedSince(syncedSince);
+        setFolderSyncedAt(folderSyncedAt);
         resetChangedOnNotNull();
     }
 }

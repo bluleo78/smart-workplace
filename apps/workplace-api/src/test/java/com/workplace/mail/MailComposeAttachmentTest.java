@@ -180,7 +180,7 @@ class MailComposeAttachmentTest extends IntegrationTestBase {
             null,
             List.of());
     messageRepo.upsertByProviderId(accountId, folderId, m, pmid, true);
-    long messageId = messageRepo.findByProviderId(accountId, pmid).orElseThrow();
+    long messageId = messageRepo.findByProviderId(accountId, folderId, pmid).orElseThrow();
     long contentId = messageRepo.findBodyTarget(accountId, messageId).orElseThrow().contentId();
     attachmentRepo.insert(
         messageId,

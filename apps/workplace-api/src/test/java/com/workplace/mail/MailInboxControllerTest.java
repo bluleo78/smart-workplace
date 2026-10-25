@@ -178,4 +178,155 @@ class MailInboxControllerTest extends IntegrationTestBase {
         .andExpect(status().isNotFound());
     assertThat(messageRepo.countNeedsReplyForAccount(accountId)).isEqualTo(1);
   }
+
+  /** WP-960 서버 폴더 행 시드(보관·사용자). */
+  private long seedServerFolder(
+      long accountId, String name, String displayName, String role, Long parentId, int unread) {
+    return dsl.insertInto(com.workplace.jooq.Tables.EMAIL_FOLDER)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.ACCOUNT_ID, accountId)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.NAME, name)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.REMOTE_ID, name)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.DISPLAY_NAME, displayName)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.ROLE, role)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.PARENT_ID, parentId)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.SERVER_UNREAD, unread)
+        .set(com.workplace.jooq.Tables.EMAIL_FOLDER.SERVER_TOTAL, unread + 3)
+        .returning(com.workplace.jooq.Tables.EMAIL_FOLDER.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  /** WP-960: 서버 메일함 목록 — 보관 먼저, INBOX·SENT 제외, 부모·개수 포함. */
+  @Test
+  void folders_returnsArchiveFirst_excludesInboxAndSent() throws Exception {
+    long owner = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(owner, "owner-folders-" + System.nanoTime() + "@test.local");
+    folderRepo.ensureFolder(accountId, "INBOX");
+    folderRepo.ensureFolder(accountId, "SENT");
+    long customer = seedServerFolder(accountId, "Customers", "Customers", "USER", null, 0);
+    long a = seedServerFolder(accountId, "Customers.A", "A", "USER", customer, 4);
+    long archive = seedServerFolder(accountId, "Zarchive", "Zarchive", "ARCHIVE", null, 1);
+    String token = jwtTokenProvider.generateAccessToken(owner, "user-" + owner);
+
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/folders", accountId)
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(3))
+        .andExpect(jsonPath("$[0].id").value(archive))
+        .andExpect(jsonPath("$[0].role").value("ARCHIVE"))
+        .andExpect(jsonPath("$[0].displayName").value("Zarchive"))
+        .andExpect(jsonPath("$[1].id").value(a))
+        .andExpect(jsonPath("$[1].parentId").value(customer))
+        .andExpect(jsonPath("$[1].unreadCount").value(4))
+        .andExpect(jsonPath("$[1].totalCount").value(7))
+        .andExpect(jsonPath("$[1].selectable").value(true))
+        .andExpect(jsonPath("$[1].syncedSince").doesNotExist())
+        .andExpect(jsonPath("$[2].id").value(customer))
+        .andExpect(jsonPath("$[2].parentId").doesNotExist());
+  }
+
+  /** WP-960: 남의 계정 메일함 목록은 404. */
+  @Test
+  void folders_deniedForOtherUsersAccount() throws Exception {
+    long owner = TestFixtures.createHuman(dsl);
+    long other = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(owner, "owner-folders2-" + System.nanoTime() + "@test.local");
+    seedServerFolder(accountId, "Archive", "Archive", "ARCHIVE", null, 0);
+    String otherToken = jwtTokenProvider.generateAccessToken(other, "user-" + other);
+
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/folders", accountId)
+                .header("Authorization", "Bearer " + otherToken))
+        .andExpect(status().isNotFound());
+  }
+
+  /** WP-960: folderId 보기 — 목록·건수·모두 읽음이 그 메일함만 다루고, 모두 읽음은 서버 안 읽은 수를 줄인다. 남의 메일함 id 는 404. */
+  @Test
+  void folderIdViews_listCountMarkAllRead_scopedToFolder() throws Exception {
+    long owner = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(owner, "owner-fview-" + System.nanoTime() + "@test.local");
+    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long project = seedServerFolder(accountId, "Projects", "Projects", "USER", null, 5);
+    seedMessage(accountId, inbox, false, null);
+    long p1 = seedMessage(accountId, project, false, null);
+    long p2 = seedMessage(accountId, project, false, null);
+    seedMessage(accountId, project, true, null);
+    String token = jwtTokenProvider.generateAccessToken(owner, "user-" + owner);
+
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/messages", accountId)
+                .param("folderId", String.valueOf(project))
+                .param("category", "업무") // folderId 가 있으면 무시
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(3));
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/messages", accountId)
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1)); // folderId 없으면 기존(INBOX)
+    String asOf =
+        mvc.perform(
+                get("/api/v1/mail/accounts/{a}/messages/unread-count", accountId)
+                    .param("folderId", String.valueOf(project))
+                    .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.count").value(2))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String asOfValue = com.jayway.jsonpath.JsonPath.read(asOf, "$.asOf");
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/messages/mark-all-read", accountId)
+                .param("folderId", String.valueOf(project))
+                .header("Authorization", "Bearer " + token)
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .content("{\"asOf\":\"" + asOfValue + "\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.updated").value(2));
+    assertThat(messageRepo.findDueSeenSyncItems(accountId, 10))
+        .extracting(i -> i.messageId())
+        .containsExactlyInAnyOrder(p1, p2);
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/folders", accountId)
+                .header("Authorization", "Bearer " + token))
+        .andExpect(jsonPath("$[0].unreadCount").value(3)); // 5 - 2
+
+    // 다른 계정의 메일함 id → 404
+    long other = TestFixtures.createHuman(dsl);
+    long otherAccount = createAccount(other, "other-fview-" + System.nanoTime() + "@test.local");
+    long otherFolder = seedServerFolder(otherAccount, "Theirs", "Theirs", "USER", null, 0);
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/messages", accountId)
+                .param("folderId", String.valueOf(otherFolder))
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isNotFound());
+  }
+
+  /** WP-960: 메일함 동기화 API — 받은편지함은 400, 없는 메일함·남의 계정은 404. */
+  @Test
+  void folderSync_rejectsInbox400_unknownOrOthers404() throws Exception {
+    long owner = TestFixtures.createHuman(dsl);
+    long other = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(owner, "owner-fsync-" + System.nanoTime() + "@test.local");
+    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long project = seedServerFolder(accountId, "Projects", "Projects", "USER", null, 0);
+    String token = jwtTokenProvider.generateAccessToken(owner, "user-" + owner);
+    String otherToken = jwtTokenProvider.generateAccessToken(other, "user-" + other);
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/folders/{f}/sync", accountId, inbox)
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/folders/{f}/sync", accountId, Long.MAX_VALUE)
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isNotFound());
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/folders/{f}/sync", accountId, project)
+                .header("Authorization", "Bearer " + otherToken))
+        .andExpect(status().isNotFound());
+  }
 }

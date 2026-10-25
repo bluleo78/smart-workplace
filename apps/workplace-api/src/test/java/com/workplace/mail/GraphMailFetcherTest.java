@@ -186,8 +186,8 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     MailSyncResult r = graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
 
     // G2 는 존재, G1 은 삭제됨
-    assertThat(messageRepo.findByProviderId(accountId, "G2")).isPresent();
-    assertThat(messageRepo.findByProviderId(accountId, "G1")).isEmpty();
+    assertThat(messageRepo.findByProviderId(accountId, inboxId(accountId), "G2")).isPresent();
+    assertThat(messageRepo.findByProviderId(accountId, inboxId(accountId), "G1")).isEmpty();
     // WP-959: @removed 로 지운 건수를 변경으로 센다(웹 목록 갱신 알림 근거)
     assertThat(r.removed()).isEqualTo(1);
 
@@ -196,7 +196,7 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     assertThat(folderRepo.getDeltaLink(folder.id())).contains("DELTA_LINK_VAL");
 
     // G2 행은 imap_uid = null(Graph 계정은 IMAP UID 없음) 확인
-    var g2Row = messageRepo.findByProviderId(accountId, "G2").orElseThrow();
+    var g2Row = messageRepo.findByProviderId(accountId, inboxId(accountId), "G2").orElseThrow();
     assertThat(
             dsl.select(EMAIL_MESSAGE.IMAP_UID)
                 .from(EMAIL_MESSAGE)
@@ -234,7 +234,7 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
 
     // G3 삽입 확인
-    assertThat(messageRepo.findByProviderId(accountId, "G3")).isPresent();
+    assertThat(messageRepo.findByProviderId(accountId, inboxId(accountId), "G3")).isPresent();
 
     // deltaLink 가 NEW_DELTA 로 갱신됨
     var updatedFolder = folderRepo.ensureFolder(accountId, "INBOX");
@@ -331,7 +331,7 @@ class GraphMailFetcherTest extends IntegrationTestBase {
 
     MailSyncResult first =
         graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
-    long g1 = messageRepo.findByProviderId(accountId, "G1").orElseThrow();
+    long g1 = messageRepo.findByProviderId(accountId, inboxId(accountId), "G1").orElseThrow();
     var before = snapshot(g1);
     assertThat(first.saved()).isEqualTo(1);
     assertThat(before.value1()).isFalse();
@@ -392,7 +392,7 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     MailSyncResult second =
         graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
 
-    long g1 = messageRepo.findByProviderId(accountId, "G1").orElseThrow();
+    long g1 = messageRepo.findByProviderId(accountId, inboxId(accountId), "G1").orElseThrow();
     assertThat(second.seenChanged()).isZero();
     assertThat(snapshot(g1).value1()).isTrue();
   }
@@ -426,7 +426,7 @@ class GraphMailFetcherTest extends IntegrationTestBase {
                 List.of(message("G1", "제목", "sender@example.com", false)), null, "D3"));
 
     graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
-    long g1 = messageRepo.findByProviderId(accountId, "G1").orElseThrow();
+    long g1 = messageRepo.findByProviderId(accountId, inboxId(accountId), "G1").orElseThrow();
     messageRepo.markSeen(g1); // 로컬 열람 — seen=true + 서버 반영 대기
 
     MailSyncResult pending =
@@ -439,5 +439,10 @@ class GraphMailFetcherTest extends IntegrationTestBase {
         graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
     assertThat(released.seenChanged()).isEqualTo(1);
     assertThat(snapshot(g1).value1()).isFalse();
+  }
+
+  /** 계정 INBOX 폴더 id(WP-960 — findByProviderId 는 폴더 단위). */
+  private long inboxId(long accountId) {
+    return folderRepo.ensureFolder(accountId, "INBOX").id();
   }
 }

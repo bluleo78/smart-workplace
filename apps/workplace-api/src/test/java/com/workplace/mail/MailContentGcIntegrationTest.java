@@ -254,6 +254,7 @@ class MailContentGcIntegrationTest extends IntegrationTestBase {
   @Test
   void refcountGc_contentKeptUntilLastEnvelopeGone_deleteByProviderId() {
     long[] accAHolder = new long[1];
+    long[] fldAHolder = new long[1];
     long[] fldBHolder = new long[1];
     long[] contentIdHolder = new long[1];
     String providerMsgId = "PROVIDER-GC-" + System.nanoTime();
@@ -307,6 +308,7 @@ class MailContentGcIntegrationTest extends IntegrationTestBase {
                       .returning(EMAIL_FOLDER.ID)
                       .fetchOne()
                       .getId();
+              fldAHolder[0] = fldA;
               folderIds.add(fldA);
 
               dsl.insertInto(
@@ -340,7 +342,9 @@ class MailContentGcIntegrationTest extends IntegrationTestBase {
     long contentId = contentIdHolder[0];
 
     // envA 를 provider id 로 삭제 → envB 참조 중이므로 content 유지
-    cleanupInTenant(TENANT_ID, () -> messageRepo.deleteByProviderId(accAHolder[0], providerMsgId));
+    cleanupInTenant(
+        TENANT_ID,
+        () -> messageRepo.deleteByProviderId(accAHolder[0], fldAHolder[0], providerMsgId));
     assertThat(contentExists(contentId))
         .as("deleteByProviderId 후 envB 참조 중이므로 content 유지")
         .isTrue();

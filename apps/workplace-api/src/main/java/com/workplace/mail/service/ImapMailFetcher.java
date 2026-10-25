@@ -10,6 +10,7 @@ import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.repository.EmailFolderRepository;
+import com.workplace.mail.repository.EmailFolderRepository.FolderTarget;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.EmailMessageRepository.ImapSeenState;
 import jakarta.mail.FetchProfile;
@@ -19,10 +20,12 @@ import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Store;
 import jakarta.mail.UIDFolder;
+import jakarta.mail.search.AndTerm;
 import jakarta.mail.search.ComparisonTerm;
 import jakarta.mail.search.ReceivedDateTerm;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,6 +33,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.angus.mail.imap.IMAPFolder;
 import org.springframework.stereotype.Service;
@@ -43,12 +47,15 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>IMAP 세션(네트워크 I/O)은 트랜잭션 밖에서 수행하고, DB 쓰기(메시지 저장)만 메시지 단위 짧은 트랜잭션({@code txTemplate})으로 처리해 DB
  * 커넥션을 최소로 점유한다(#232). 신규 적재 후 같은 세션에서 최근 범위 기존 메일의 FLAGS 만 다시 읽어 서버 읽음 상태를 반영한다(WP-148,
  * best-effort).
+ *
+ * <p>WP-960: 같은 흐름을 서버 메일함(보관·사용자 폴더)에도 쓴다 — 폴더 이름(email_folder.name = 서버 전체 경로)으로 열고, 첫 동기화 기간만
+ * {@value MailFetcher#FOLDER_INITIAL_WINDOW_DAYS}일로 다르다. 「이전 메일 더 가져오기」는 날짜 범위 SEARCH 로 받아 넣기만 한다.
  */
 @Slf4j
 @Service
 public class ImapMailFetcher implements MailFetcher {
 
-  /** v1 동기화 대상 폴더. */
+  /** 받은편지함 폴더 이름. */
   private static final String INBOX = "INBOX";
 
   /** 첫 동기화 시 가져올 최근 기간(일). */
@@ -119,11 +126,132 @@ public class ImapMailFetcher implements MailFetcher {
 
     // IMAP 네트워크 I/O 는 트랜잭션 밖, 메타 저장은 메시지 단위 짧은 트랜잭션(fetchMetadata 내부).
     try {
-      return fetchMetadata(account, accountId, password, folder);
+      Instant since = Instant.now().minus(INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
+      return fetchMetadata(account, accountId, password, folder, INBOX, since).result();
     } catch (MessagingException e) {
       throw new MailSyncException("받은편지함 동기화에 실패했습니다", e);
     }
   }
+
+  /**
+   * 서버 메일함 한 개 동기화(WP-960). 받은편지함과 같은 증분 흐름(UID 증분·WP-148 읽음 재조회·WP-959 삭제 대조)을 폴더 이름으로 돌리고, 첫
+   * 동기화(또는 UIDVALIDITY 변경으로 다시 받기)면 가져온 경계 synced_since 를 그 시작 시각으로 기록한다. older=true 이고 이미 가져온 폴더면
+   * 경계 앞 기간만 더 받는다. 끝나면 folder_synced_at 을 기록한다.
+   */
+  @Override
+  public MailSyncResult syncFolder(
+      long userId,
+      long accountId,
+      EmailAccountResponse account,
+      FolderTarget folder,
+      boolean older) {
+    String password =
+        txTemplate.execute(
+            status ->
+                accountRepo
+                    .findEncryptedPassword(userId, accountId)
+                    .map(encryption::decrypt)
+                    .orElseThrow(() -> new EmailAccountNotFoundException(accountId)));
+    try {
+      if (older && folder.syncedSince() != null && folder.uidValidity() != null) {
+        Optional<MailSyncResult> olderResult = fetchOlder(account, accountId, password, folder);
+        if (olderResult.isPresent()) {
+          return olderResult.get();
+        }
+        // UIDVALIDITY 가 바뀌어 저장된 UID 를 믿을 수 없다 — 아래 일반 동기화가 폐기·다시 받기를 맡는다.
+      }
+      // 경계는 초 단위로 맞춰 둔다(Graph 필터 값과 같은 표현 — 저장값으로 요청을 재현할 수 있게).
+      Instant since =
+          Instant.now()
+              .minus(FOLDER_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS)
+              .truncatedTo(ChronoUnit.SECONDS);
+      FetchOutcome outcome =
+          fetchMetadata(account, accountId, password, folder.syncState(), folder.name(), since);
+      OffsetDateTime newSince = outcome.firstSync() ? since.atOffset(ZoneOffset.UTC) : null;
+      txTemplate.executeWithoutResult(
+          status -> folderRepo.markFolderSynced(folder.id(), newSince, OffsetDateTime.now()));
+      return outcome.result();
+    } catch (MessagingException e) {
+      throw new MailSyncException("메일함 동기화에 실패했습니다", e);
+    }
+  }
+
+  /**
+   * 이전 메일 더 가져오기(WP-960) — [synced_since − {@value MailFetcher#FOLDER_INITIAL_WINDOW_DAYS}일,
+   * synced_since) 수신분을 받아 넣기만 한다. 증분 커서(last_seen_uid)는 건드리지 않는다 — 이 범위의 UID 는 커서보다 작아 다음 증분과 겹치지
+   * 않고, 겹치더라도 (account_id, folder_id, imap_uid) 유니크로 무시된다. 끝나면 synced_since 를 범위 시작으로 옮긴다.
+   *
+   * <p>IMAP SEARCH 의 날짜 비교(SINCE·BEFORE)는 날 단위라 경계일 메일이 앞뒤 범위에 함께 걸릴 수 있다 — 넣기는 멱등이라 문제없다.
+   *
+   * @return UIDVALIDITY 가 바뀌었으면 empty(저장된 메일을 믿을 수 없어 일반 동기화로 넘긴다)
+   */
+  private Optional<MailSyncResult> fetchOlder(
+      EmailAccountResponse account, long accountId, String password, FolderTarget folder)
+      throws MessagingException {
+    Instant to = folder.syncedSince().toInstant();
+    Instant from = to.minus(FOLDER_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
+    List<ParsedMessage> parsedList = new ArrayList<>();
+    int fetched = 0;
+    Store store = null;
+    Folder box = null;
+    try {
+      store = imapConnector.connect(account, password);
+      box = store.getFolder(folder.name());
+      box.open(Folder.READ_ONLY);
+      UIDFolder uidFolder = (UIDFolder) box;
+      if (uidFolder.getUIDValidity() != folder.uidValidity()) {
+        return Optional.empty();
+      }
+      Message[] messages =
+          box.search(
+              new AndTerm(
+                  new ReceivedDateTerm(ComparisonTerm.GE, Date.from(from)),
+                  new ReceivedDateTerm(ComparisonTerm.LT, Date.from(to))));
+      prefetchMetadata(box, messages);
+      for (Message msg : messages) {
+        if (msg == null) {
+          continue;
+        }
+        long uid = uidFolder.getUID(msg);
+        fetched++;
+        try {
+          parsedList.add(parser.parseMetadata(uid, msg));
+        } catch (Exception e) {
+          log.warn("메일 메타 파싱 중 건너뜀 (uid={}): {}", uid, e.toString());
+        }
+      }
+    } finally {
+      closeQuietly(box, store);
+    }
+    int saved = insertAll(accountId, folder.id(), parsedList);
+    OffsetDateTime newSince = from.atOffset(ZoneOffset.UTC);
+    txTemplate.executeWithoutResult(
+        status -> folderRepo.markFolderSynced(folder.id(), newSince, OffsetDateTime.now()));
+    return Optional.of(new MailSyncResult(fetched, saved, 0, 0));
+  }
+
+  /** 파싱한 메타를 메시지별 짧은 트랜잭션으로 넣고 새로 들어간 수를 돌려준다. 개별 저장 실패는 격리한다(실패해도 진행 — 커서는 호출자가 관리). */
+  private int insertAll(long accountId, long folderId, List<ParsedMessage> parsedList) {
+    int saved = 0;
+    for (ParsedMessage parsed : parsedList) {
+      try {
+        boolean inserted =
+            Boolean.TRUE.equals(
+                txTemplate.execute(
+                    status ->
+                        messageRepo.insertIgnoreConflict(accountId, folderId, parsed).isPresent()));
+        if (inserted) {
+          saved++;
+        }
+      } catch (Exception e) {
+        log.warn("메일 메타 저장 중 건너뜀: {}", e.toString());
+      }
+    }
+    return saved;
+  }
+
+  /** fetchMetadata 결과 — 동기화 결과와, 이번이 첫 동기화(또는 UIDVALIDITY 변경으로 다시 받기)였는지. */
+  private record FetchOutcome(MailSyncResult result, boolean firstSync) {}
 
   /**
    * IMAP 에서 대상 메시지의 <b>메타만</b> 받아 저장한다(본문 미수집). 첫 동기화는 최근 {@value #INITIAL_WINDOW_DAYS}일 SEARCH,
@@ -138,11 +266,13 @@ public class ImapMailFetcher implements MailFetcher {
    * <p>WP-959: 같은 세션에서 로컬에 적재된 UID 가 서버에 아직 있는지 대조하고(1단계), 다른 앱에서 옮겼거나 지워 서버에 없는 메일을 로컬에서도
    * 지운다(2단계). 증분 동기화는 새 UID 만 받으므로 이 대조가 없으면 사라진 메일이 받은편지함에 영원히 남는다. 실패는 경고 로그만 남긴다.
    */
-  private MailSyncResult fetchMetadata(
+  private FetchOutcome fetchMetadata(
       EmailAccountResponse account,
       long accountId,
       String password,
-      EmailFolderRepository.FolderSyncState folder)
+      EmailFolderRepository.FolderSyncState folder,
+      String folderName,
+      Instant initialSince)
       throws MessagingException {
     // WP-148: 읽음 재조회 대상(로컬 기존 메일 중 최근 범위)을 IMAP 세션을 열기 전에 짧은 트랜잭션으로 고른다. 첫 동기화면 대상 없음.
     List<ImapSeenState> seenCandidates = loadSeenCandidates(accountId, folder);
@@ -154,6 +284,7 @@ public class ImapMailFetcher implements MailFetcher {
     Folder inbox = null;
     long uidValidity;
     boolean uidValidityChanged = false;
+    boolean firstSync;
     int fetched = 0;
     long maxUid;
     List<ParsedMessage> parsedList = new ArrayList<>();
@@ -161,13 +292,13 @@ public class ImapMailFetcher implements MailFetcher {
     List<Long> removedUids = List.of();
     try {
       store = imapConnector.connect(account, password);
-      inbox = store.getFolder(INBOX);
+      inbox = store.getFolder(folderName); // WP-960: 받은편지함 또는 서버 메일함(전체 경로)
       inbox.open(Folder.READ_ONLY);
       UIDFolder uidFolder = (UIDFolder) inbox;
 
       uidValidity = uidFolder.getUIDValidity();
       long lastSeenUid = folder.lastSeenUid();
-      boolean firstSync = folder.uidValidity() == null;
+      firstSync = folder.uidValidity() == null;
       // UIDVALIDITY 변경 → UID 재사용 가능 → 기존 메시지 폐기(2단계) + 첫 동기화처럼 재적재.
       if (!firstSync && folder.uidValidity() != uidValidity) {
         uidValidityChanged = true;
@@ -177,7 +308,7 @@ public class ImapMailFetcher implements MailFetcher {
 
       Message[] messages =
           firstSync
-              ? searchRecent(inbox)
+              ? searchRecent(inbox, initialSince)
               : uidFolder.getMessagesByUID(lastSeenUid + 1, UIDFolder.LASTUID);
       prefetchMetadata(inbox, messages);
 
@@ -203,6 +334,13 @@ public class ImapMailFetcher implements MailFetcher {
         }
       }
 
+      // 첫 동기화(UIDVALIDITY 변경 포함)는 창(받은편지함 7일·메일함 90일) 안만 받는다. 커서를 창 안 최대 UID 에 두면, 창 안 메일이
+      // 없거나 적을 때 다음 증분(lastSeen+1 ~ LASTUID)이 창 밖 과거 메일 전체를 끌어온다 — 서버의 UIDNEXT−1(지금 폴더의 마지막 UID)까지
+      // 커서를 올려 「지금 이후 들어오는 메일」만 증분으로 받게 한다. UIDNEXT 를 모르면(-1·오류) 기존 동작을 유지한다.
+      if (firstSync) {
+        maxUid = Math.max(maxUid, uidNextMinusOne(uidFolder));
+      }
+
       // WP-148: 같은 세션에서 기존 메일의 FLAGS 만 재조회(본문 미조회). UIDVALIDITY 가 바뀌었으면 저장된 UID 가 무의미해 건너뛴다.
       if (!uidValidityChanged) {
         seenChanges = fetchSeenChanges(uidFolder, inbox, seenCandidates);
@@ -216,24 +354,8 @@ public class ImapMailFetcher implements MailFetcher {
     if (uidValidityChanged) {
       txTemplate.executeWithoutResult(status -> messageRepo.deleteByFolder(folder.id()));
     }
-    int saved = 0;
-    for (ParsedMessage parsed : parsedList) {
-      // 개별 저장 실패가 동기화 전체를 막지 않도록 메시지별 짧은 트랜잭션으로 격리한다(실패해도 진행 — 커서는 이미 전진).
-      try {
-        boolean inserted =
-            Boolean.TRUE.equals(
-                txTemplate.execute(
-                    status ->
-                        messageRepo
-                            .insertIgnoreConflict(accountId, folder.id(), parsed)
-                            .isPresent()));
-        if (inserted) {
-          saved++;
-        }
-      } catch (Exception e) {
-        log.warn("메일 메타 저장 중 건너뜀: {}", e.toString());
-      }
-    }
+    // 개별 저장 실패가 동기화 전체를 막지 않도록 메시지별 짧은 트랜잭션으로 격리한다(실패해도 진행 — 커서는 이미 전진).
+    int saved = insertAll(accountId, folder.id(), parsedList);
     // WP-148: 신규 저장 뒤 읽음 변화 반영(best-effort — 실패해도 커서 저장·동기화 성공은 그대로)
     int seenChanged = applySeenChanges(accountId, folder.id(), seenChanges);
     // WP-959: 서버에서 사라진 메일을 로컬에서도 지운다(best-effort)
@@ -242,7 +364,7 @@ public class ImapMailFetcher implements MailFetcher {
     long finalUidValidity = uidValidity;
     txTemplate.executeWithoutResult(
         status -> folderRepo.updateSyncState(folder.id(), finalUidValidity, finalMaxUid));
-    return new MailSyncResult(fetched, saved, seenChanged, removed);
+    return new FetchOutcome(new MailSyncResult(fetched, saved, seenChanged, removed), firstSync);
   }
 
   /**
@@ -397,10 +519,20 @@ public class ImapMailFetcher implements MailFetcher {
     }
   }
 
-  /** 최근 {@value #INITIAL_WINDOW_DAYS}일 수신 메시지 검색(첫 동기화 범위 한정). */
-  private Message[] searchRecent(Folder inbox) throws MessagingException {
-    Date since = Date.from(Instant.now().minus(INITIAL_WINDOW_DAYS, ChronoUnit.DAYS));
-    return inbox.search(new ReceivedDateTerm(ComparisonTerm.GE, since));
+  /** 폴더의 UIDNEXT − 1(마지막으로 배정된 UID). 서버가 알려 주지 않거나 실패하면 0 — 커서를 올리지 않는다. */
+  private static long uidNextMinusOne(UIDFolder uidFolder) {
+    try {
+      long next = uidFolder.getUIDNext();
+      return next > 0 ? next - 1 : 0;
+    } catch (MessagingException e) {
+      log.warn("IMAP UIDNEXT 조회 실패(커서는 창 안 최대 UID 유지): {}", e.toString());
+      return 0;
+    }
+  }
+
+  /** since 이후 수신 메시지 검색(첫 동기화 범위 한정 — 받은편지함 {@value #INITIAL_WINDOW_DAYS}일, 서버 메일함 90일). */
+  private Message[] searchRecent(Folder inbox, Instant since) throws MessagingException {
+    return inbox.search(new ReceivedDateTerm(ComparisonTerm.GE, Date.from(since)));
   }
 
   /** 헤더/플래그/봉투/구조를 일괄 선반입해 메시지별 라운드트립을 줄인다(전체 헤더 HEADERS 포함). 본문(getContent)은 받지 않는다 — 메타 전용. */

@@ -8,6 +8,7 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
+import com.workplace.jooq.tables.EmailFolder.EmailFolderPath;
 import com.workplace.jooq.tables.EmailMessage.EmailMessagePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.records.EmailFolderRecord;
@@ -17,6 +18,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
+import org.jooq.Check;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.ForeignKey;
@@ -37,6 +39,7 @@ import org.jooq.TableField;
 import org.jooq.TableOptions;
 import org.jooq.UniqueKey;
 import org.jooq.impl.DSL;
+import org.jooq.impl.Internal;
 import org.jooq.impl.SQLDataType;
 import org.jooq.impl.TableImpl;
 
@@ -107,6 +110,56 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
      */
     public final TableField<EmailFolderRecord, String> DELTA_LINK = createField(DSL.name("delta_link"), SQLDataType.CLOB, this, "");
 
+    /**
+     * The column <code>public.email_folder.remote_id</code>.
+     */
+    public final TableField<EmailFolderRecord, String> REMOTE_ID = createField(DSL.name("remote_id"), SQLDataType.CLOB, this, "");
+
+    /**
+     * The column <code>public.email_folder.display_name</code>.
+     */
+    public final TableField<EmailFolderRecord, String> DISPLAY_NAME = createField(DSL.name("display_name"), SQLDataType.VARCHAR(255), this, "");
+
+    /**
+     * The column <code>public.email_folder.parent_id</code>.
+     */
+    public final TableField<EmailFolderRecord, Long> PARENT_ID = createField(DSL.name("parent_id"), SQLDataType.BIGINT, this, "");
+
+    /**
+     * The column <code>public.email_folder.role</code>.
+     */
+    public final TableField<EmailFolderRecord, String> ROLE = createField(DSL.name("role"), SQLDataType.VARCHAR(16), this, "");
+
+    /**
+     * The column <code>public.email_folder.selectable</code>.
+     */
+    public final TableField<EmailFolderRecord, Boolean> SELECTABLE = createField(DSL.name("selectable"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("true"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
+     * The column <code>public.email_folder.server_unread</code>.
+     */
+    public final TableField<EmailFolderRecord, Integer> SERVER_UNREAD = createField(DSL.name("server_unread"), SQLDataType.INTEGER, this, "");
+
+    /**
+     * The column <code>public.email_folder.server_total</code>.
+     */
+    public final TableField<EmailFolderRecord, Integer> SERVER_TOTAL = createField(DSL.name("server_total"), SQLDataType.INTEGER, this, "");
+
+    /**
+     * The column <code>public.email_folder.listed_at</code>.
+     */
+    public final TableField<EmailFolderRecord, OffsetDateTime> LISTED_AT = createField(DSL.name("listed_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.email_folder.synced_since</code>.
+     */
+    public final TableField<EmailFolderRecord, OffsetDateTime> SYNCED_SINCE = createField(DSL.name("synced_since"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
+    /**
+     * The column <code>public.email_folder.folder_synced_at</code>.
+     */
+    public final TableField<EmailFolderRecord, OffsetDateTime> FOLDER_SYNCED_AT = createField(DSL.name("folder_synced_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private EmailFolder(Name alias, Table<EmailFolderRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -176,7 +229,7 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_EMAIL_FOLDER_TENANT);
+        return Arrays.asList(Indexes.IDX_EMAIL_FOLDER_PARENT, Indexes.IDX_EMAIL_FOLDER_TENANT);
     }
 
     @Override
@@ -196,7 +249,7 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
 
     @Override
     public List<ForeignKey<EmailFolderRecord, ?>> getReferences() {
-        return Arrays.asList(Keys.EMAIL_FOLDER__EMAIL_FOLDER_ACCOUNT_ID_FKEY, Keys.EMAIL_FOLDER__FK_EMAIL_FOLDER_TENANT);
+        return Arrays.asList(Keys.EMAIL_FOLDER__EMAIL_FOLDER_ACCOUNT_ID_FKEY, Keys.EMAIL_FOLDER__EMAIL_FOLDER_PARENT_ID_FKEY, Keys.EMAIL_FOLDER__FK_EMAIL_FOLDER_TENANT);
     }
 
     private transient EmailAccountPath _emailAccount;
@@ -210,6 +263,18 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
             _emailAccount = new EmailAccountPath(this, Keys.EMAIL_FOLDER__EMAIL_FOLDER_ACCOUNT_ID_FKEY, null);
 
         return _emailAccount;
+    }
+
+    private transient EmailFolderPath _emailFolder;
+
+    /**
+     * Get the implicit join path to the <code>public.email_folder</code> table.
+     */
+    public EmailFolderPath emailFolder() {
+        if (_emailFolder == null)
+            _emailFolder = new EmailFolderPath(this, Keys.EMAIL_FOLDER__EMAIL_FOLDER_PARENT_ID_FKEY, null);
+
+        return _emailFolder;
     }
 
     private transient TenantPath _tenant;
@@ -235,6 +300,13 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
             _emailMessage = new EmailMessagePath(this, null, Keys.EMAIL_MESSAGE__EMAIL_MESSAGE_FOLDER_ID_FKEY.getInverseKey());
 
         return _emailMessage;
+    }
+
+    @Override
+    public List<Check<EmailFolderRecord>> getChecks() {
+        return Arrays.asList(
+            Internal.createCheck(this, DSL.name("ck_email_folder_role"), "(((role IS NULL) OR ((role)::text = ANY ((ARRAY['ARCHIVE'::character varying, 'USER'::character varying])::text[]))))", true)
+        );
     }
 
     @Override

@@ -237,7 +237,13 @@ public class EmailMessageRepository {
    */
   public UpsertOutcome upsertByProviderId(
       long accountId, long folderId, ParsedMessage m, String providerMessageId, boolean syncSeen) {
-    if (findByProviderId(accountId, providerMessageId).isPresent()) {
+    // 존재 확인은 계정 단위 — (account_id, provider_message_id) 유니크라 한 메일은 계정에 한 행뿐이다(폴더 무관).
+    if (dsl.fetchExists(
+        EMAIL_MESSAGE,
+        EMAIL_MESSAGE
+            .ACCOUNT_ID
+            .eq(accountId)
+            .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId)))) {
       // 기존 행 — 서버 읽음 상태만 반영(값이 같으면 0건이라 SSE·순환 없음)
       if (!syncSeen) {
         return UpsertOutcome.UNCHANGED;
@@ -284,17 +290,20 @@ public class EmailMessageRepository {
   /**
    * Graph provider_message_id 로 메시지를 삭제한다.
    *
-   * <p>Graph delta 에서 {@code @removed} 마커가 있는 항목을 DB 에서 제거한다. 이미 없는 경우(멱등) 무시한다.
+   * <p>Graph delta 에서 {@code @removed} 마커가 있는 항목을 DB 에서 제거한다. 이미 없는 경우(멱등) 무시한다. WP-960: 동기화 중인 폴더의
+   * 행만 지운다 — 한 폴더의 delta 가 「이 폴더에서 빠짐」(다른 폴더로 옮김 포함)을 알릴 때 다른 폴더 행을 지우면 안 된다.
    *
    * @param accountId 계정 id(타 계정 메시지 차단)
+   * @param folderId 동기화 중인 폴더 id
    * @param providerMessageId 삭제할 Graph 메시지 id
    */
-  public int deleteByProviderId(long accountId, String providerMessageId) {
+  public int deleteByProviderId(long accountId, long folderId, String providerMessageId) {
     // envelope 삭제 전 영향받을 content_id 를 수집
     List<Long> affectedContentIds =
         dsl.selectDistinct(EMAIL_MESSAGE.CONTENT_ID)
             .from(EMAIL_MESSAGE)
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
             .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
             .and(EMAIL_MESSAGE.CONTENT_ID.isNotNull())
             .fetchInto(Long.class);
@@ -302,6 +311,7 @@ public class EmailMessageRepository {
     int deleted =
         dsl.deleteFrom(EMAIL_MESSAGE)
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
             .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
             .execute();
 
@@ -363,13 +373,15 @@ public class EmailMessageRepository {
    * <p>fetchNewMessages_appliesDeltaAndRemovals 에서 G1/G2 존재 여부를 단언할 때 사용.
    *
    * @param accountId 계정 id
+   * @param folderId 폴더 id(WP-960 — 폴더 단위로 한정)
    * @param providerMessageId Graph 메시지 id
    * @return 존재하면 메시지 PK, 없으면 empty
    */
-  public Optional<Long> findByProviderId(long accountId, String providerMessageId) {
+  public Optional<Long> findByProviderId(long accountId, long folderId, String providerMessageId) {
     return dsl.select(EMAIL_MESSAGE.ID)
         .from(EMAIL_MESSAGE)
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
         .and(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.eq(providerMessageId))
         .fetchOptional(EMAIL_MESSAGE.ID);
   }
@@ -844,37 +856,66 @@ public class EmailMessageRepository {
   }
 
   /**
-   * WP-187 보기 안의 안 읽은 메일 id 서브쿼리 — INBOX 고정. asOf 경계는 "이 DB 에 asOf 이전에 들어옴"(created_at &lt;= asOf)
-   * 하나뿐이다: 다이얼로그가 열린 사이 동기화로 들어온 메일(수신 시각이 과거여도)이 보지도 않고 읽음 처리되는 것을 막는다. 수신 시각은 경계에 쓰지 않는다 — 발신자가
-   * 정한 Date 헤더로 미래 시각이 들어올 수 있어, 사이드바 집계({@link #countUnreadAggregate})에는 잡히는데 모두 읽음으로는 영영 지울 수 없는
-   * 행이 생기기 때문이다.
+   * WP-187 보기 안의 안 읽은 메일 id 서브쿼리 — 폴더 이름 스코프(기본 INBOX, WP-960 서버 메일함). asOf 경계는 "이 DB 에 asOf 이전에
+   * 들어옴"(created_at &lt;= asOf) 하나뿐이다: 다이얼로그가 열린 사이 동기화로 들어온 메일(수신 시각이 과거여도)이 보지도 않고 읽음 처리되는 것을
+   * 막는다. 수신 시각은 경계에 쓰지 않는다 — 발신자가 정한 Date 헤더로 미래 시각이 들어올 수 있어, 사이드바 집계({@link
+   * #countUnreadAggregate})에는 잡히는데 모두 읽음으로는 영영 지울 수 없는 행이 생기기 때문이다.
    */
   private Select<Record1<Long>> unreadInView(
-      long accountId, String category, boolean needsReply, String query, OffsetDateTime asOf) {
+      long accountId,
+      String folderName,
+      String category,
+      boolean needsReply,
+      String query,
+      OffsetDateTime asOf) {
     return dsl.select(EMAIL_MESSAGE.ID)
         .from(EMAIL_MESSAGE)
         .join(EMAIL_FOLDER)
         .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
         .leftJoin(EMAIL_CONTENT)
         .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
-        .where(viewCondition(accountId, "INBOX", query, true, category, needsReply))
+        .where(viewCondition(accountId, folderName, query, true, category, needsReply))
         .and(EMAIL_MESSAGE.CREATED_AT.le(asOf));
   }
 
-  /** WP-187 모두 읽음 확인 다이얼로그용 건수. */
+  /** WP-187 모두 읽음 확인 다이얼로그용 건수(받은편지함). */
   public long countUnreadInView(
       long accountId, String category, boolean needsReply, String query, OffsetDateTime asOf) {
-    return dsl.fetchCount(unreadInView(accountId, category, needsReply, query, asOf));
+    return countUnreadInView(accountId, "INBOX", category, needsReply, query, asOf);
+  }
+
+  /** 폴더를 지정한 모두 읽음 건수(WP-960 — 서버 메일함 보기). */
+  public long countUnreadInView(
+      long accountId,
+      String folderName,
+      String category,
+      boolean needsReply,
+      String query,
+      OffsetDateTime asOf) {
+    return dsl.fetchCount(unreadInView(accountId, folderName, category, needsReply, query, asOf));
   }
 
   /** WP-187 모두 읽음 — 보기 조건 ∧ asOf 경계 ∧ 안 읽음을 한 번에 읽음 + 반영 대기로 바꾸고 바뀐 id 를 돌려준다. */
   public List<Long> markAllSeenInView(
       long accountId, String category, boolean needsReply, String query, OffsetDateTime asOf) {
+    return markAllSeenInView(accountId, "INBOX", category, needsReply, query, asOf);
+  }
+
+  /** 폴더를 지정한 모두 읽음(WP-960 — 서버 메일함 보기). */
+  public List<Long> markAllSeenInView(
+      long accountId,
+      String folderName,
+      String category,
+      boolean needsReply,
+      String query,
+      OffsetDateTime asOf) {
     return dsl.update(EMAIL_MESSAGE)
         .set(EMAIL_MESSAGE.SEEN, true)
         .set(EMAIL_MESSAGE.SEEN_PUSH_PENDING, true)
         .set(resetSeenPushRetry())
-        .where(EMAIL_MESSAGE.ID.in(unreadInView(accountId, category, needsReply, query, asOf)))
+        .where(
+            EMAIL_MESSAGE.ID.in(
+                unreadInView(accountId, folderName, category, needsReply, query, asOf)))
         .and(EMAIL_MESSAGE.SEEN.isFalse())
         .returning(EMAIL_MESSAGE.ID)
         .fetch(EMAIL_MESSAGE.ID);
@@ -1271,6 +1312,9 @@ public class EmailMessageRepository {
    * <p>V97(per-envelope): 미적재 판정을 email_message.fetched_at IS NULL 기준으로 변경. content.body_fetched_at
    * 이 설정된 경우에도 이 envelope 의 fetched_at 이 NULL 이면 재적재 대상이 된다 — 같은 content 를 공유하는 두 번째 수신자도 자신의 첨부 행을
    * 생성할 수 있도록 보장한다(공유 콘텐츠 첨부 누락 회귀 수정).
+   *
+   * <p>WP-960: 서버 메일함(보관·사용자 폴더, role 있는 행) 메일은 제외한다 — 메일함 첫 동기화가 90일치를 넣으므로 백그라운드로 본문을 다 받으면 보관함
+   * 전체를 내려받게 된다. 그 메일 본문은 열 때(온디맨드) 적재한다.
    */
   public List<BodyTarget> listMissingBody(long accountId, int limit) {
     return dsl.select(
@@ -1289,6 +1333,7 @@ public class EmailMessageRepository {
         .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
         .and(EMAIL_MESSAGE.FETCHED_AT.isNull()) // V97: per-envelope 게이트
         .and(EMAIL_MESSAGE.IMAP_UID.isNotNull().or(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNotNull()))
+        .and(EMAIL_FOLDER.ROLE.isNull()) // WP-960: 서버 메일함 메일은 온디맨드만
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast())
         .limit(limit)
         .fetch(this::toBodyTarget);
@@ -1299,13 +1344,17 @@ public class EmailMessageRepository {
    *
    * <p>IMAP(imap_uid) 과 Graph(provider_message_id) 메시지를 모두 포함한다 — listMissingBody 와 동일 조건.
    *
-   * <p>V97(per-envelope): email_message.fetched_at IS NULL 기준으로 전환(listMissingBody 와 일치).
+   * <p>V97(per-envelope): email_message.fetched_at IS NULL 기준으로 전환(listMissingBody 와 일치). WP-960:
+   * 서버 메일함 메일 제외도 같다.
    */
   public int countMissingBody(long accountId) {
     return dsl.fetchCount(
         dsl.select(EMAIL_MESSAGE.ID)
             .from(EMAIL_MESSAGE)
+            .join(EMAIL_FOLDER)
+            .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_FOLDER.ROLE.isNull()) // WP-960: 서버 메일함 메일은 온디맨드만
             .and(EMAIL_MESSAGE.FETCHED_AT.isNull()) // V97: per-envelope 게이트
             .and(
                 EMAIL_MESSAGE

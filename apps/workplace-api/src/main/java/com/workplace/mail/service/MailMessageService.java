@@ -13,9 +13,11 @@ import com.workplace.mail.dto.MarkAllReadRequest;
 import com.workplace.mail.event.InlineContentIdBackfillRequestedEvent;
 import com.workplace.mail.event.MessagesSeenChangedEvent;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
+import com.workplace.mail.exception.EmailFolderNotFoundException;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -41,6 +43,10 @@ public class MailMessageService {
 
   private final EmailAccountRepository accountRepo;
   private final EmailMessageRepository messageRepo;
+
+  /** WP-960: folderId 보기의 폴더 확인·서버 폴더 안 읽은 수 증감. */
+  private final EmailFolderRepository folderRepo;
+
   private final MailBodyFetcher bodyFetcher;
   private final MailSyncProgress progress;
   private final ApplicationEventPublisher eventPublisher;
@@ -60,6 +66,7 @@ public class MailMessageService {
   public MailMessageService(
       EmailAccountRepository accountRepo,
       EmailMessageRepository messageRepo,
+      EmailFolderRepository folderRepo,
       MailBodyFetcher bodyFetcher,
       MailSyncProgress progress,
       ApplicationEventPublisher eventPublisher,
@@ -70,6 +77,7 @@ public class MailMessageService {
       PlatformTransactionManager txManager) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
+    this.folderRepo = folderRepo;
     this.bodyFetcher = bodyFetcher;
     this.progress = progress;
     this.eventPublisher = eventPublisher;
@@ -91,13 +99,43 @@ public class MailMessageService {
       String category,
       boolean needsReply,
       int limit) {
+    return list(userId, accountId, folder, null, query, unread, category, needsReply, limit);
+  }
+
+  /**
+   * WP-960: folderId(서버 메일함)를 받는 목록. folderId 가 있으면 계정의 메일함인지 확인하고(아니면 404) 그 메일함 이름으로 같은 보기 조건을 쓴다
+   * — 분류·회신필요는 받은편지함 전용이라 무시한다. 없으면 folder 이름(기본 INBOX) 그대로.
+   */
+  @Transactional(readOnly = true)
+  public List<EmailMessageSummary> list(
+      long userId,
+      long accountId,
+      String folder,
+      Long folderId,
+      String query,
+      boolean unread,
+      String category,
+      boolean needsReply,
+      int limit) {
     accountRepo
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
+    if (folderId != null) {
+      return messageRepo.listByAccount(
+          accountId, folderName(accountId, folderId), query, unread, null, false, effective);
+    }
     String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
     return messageRepo.listByAccount(
         accountId, folderName, query, unread, category, needsReply, effective);
+  }
+
+  /** WP-960: 계정의 메일함 이름(서버 키). 계정에 없는 메일함이면 404. 호출자 트랜잭션 안에서 부른다. */
+  private String folderName(long accountId, long folderId) {
+    return folderRepo
+        .findTarget(accountId, folderId)
+        .orElseThrow(EmailFolderNotFoundException::new)
+        .name();
   }
 
   /** 사이드바용 계정단위 회신필요 건수(단일 술어: AI 판정 true + 안 읽음). 계정이 본인 소유가 아니면 404. */
@@ -214,6 +252,7 @@ public class MailMessageService {
                 if (target == null || messageRepo.markSeen(messageId) <= 0) {
                   return null;
                 }
+                folderRepo.adjustServerUnread(List.of(messageId), -1); // WP-960 서버 메일함 안 읽은 수
                 return target.accountId();
               });
       if (accountId != null) {
@@ -276,6 +315,8 @@ public class MailMessageService {
               if (updated <= 0) {
                 return null;
               }
+              // WP-960: 서버 메일함(보관·사용자) 메일이면 그 메일함 안 읽은 수를 같은 트랜잭션에서 맞춘다
+              folderRepo.adjustServerUnread(List.of(messageId), seen ? -1 : 1);
               // 읽음·안읽음 모두 messageId 를 싣는다 — 열린 상세가 새 상태를 다시 받는다.
               // 웹 상세 조회는 읽음 처리하지 않으므로(WP-214) 안읽음 직후 재조회가 다시 읽음 처리하지 않는다.
               notifier.mailChanged(userId, target.accountId(), messageId, userId);
@@ -293,10 +334,28 @@ public class MailMessageService {
   @Transactional(readOnly = true)
   public UnreadInView unreadCountInView(
       long userId, long accountId, String category, boolean needsReply, String query) {
+    return unreadCountInView(userId, accountId, null, category, needsReply, query);
+  }
+
+  /** WP-960: folderId(서버 메일함) 보기의 건수. folderId 가 있으면 분류·회신필요는 무시하고, 계정 메일함이 아니면 404. */
+  @Transactional(readOnly = true)
+  public UnreadInView unreadCountInView(
+      long userId,
+      long accountId,
+      Long folderId,
+      String category,
+      boolean needsReply,
+      String query) {
     accountRepo
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     OffsetDateTime asOf = dbNow();
+    if (folderId != null) {
+      return new UnreadInView(
+          messageRepo.countUnreadInView(
+              accountId, folderName(accountId, folderId), null, false, query, asOf),
+          asOf);
+    }
     return new UnreadInView(
         messageRepo.countUnreadInView(accountId, category, needsReply, query, asOf), asOf);
   }
@@ -306,6 +365,14 @@ public class MailMessageService {
    * 시각을 쓴다(그 경우 확인 이후 도착분도 포함될 수 있으나 클라이언트는 항상 asOf 를 보낸다).
    */
   public int markAllRead(long userId, long accountId, MarkAllReadRequest req) {
+    return markAllRead(userId, accountId, null, req);
+  }
+
+  /**
+   * WP-960: folderId(서버 메일함) 보기의 모두 읽음. folderId 가 있으면 분류·회신필요는 무시하고, 계정 메일함이 아니면 404. 바뀐 메일만큼 그
+   * 메일함의 서버 안 읽은 수를 같은 트랜잭션에서 줄인다.
+   */
+  public int markAllRead(long userId, long accountId, Long folderId, MarkAllReadRequest req) {
     List<Long> ids =
         txTemplate.execute(
             status -> {
@@ -314,8 +381,17 @@ public class MailMessageService {
                   .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
               OffsetDateTime asOf = req.asOf() != null ? req.asOf() : dbNow();
               List<Long> changed =
-                  messageRepo.markAllSeenInView(
-                      accountId, req.category(), req.needsReply(), req.query(), asOf);
+                  folderId != null
+                      ? messageRepo.markAllSeenInView(
+                          accountId,
+                          folderName(accountId, folderId),
+                          null,
+                          false,
+                          req.query(),
+                          asOf)
+                      : messageRepo.markAllSeenInView(
+                          accountId, req.category(), req.needsReply(), req.query(), asOf);
+              folderRepo.adjustServerUnread(changed, -1);
               if (!changed.isEmpty()) {
                 notifier.mailChanged(userId, accountId, null, userId);
               }
