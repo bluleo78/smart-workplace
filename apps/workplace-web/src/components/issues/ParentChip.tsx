@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 
 import { ISSUE_TYPE_ICONS } from '../../lib/issueTypeIcons';
 import { LABEL_COLORS } from '../../lib/labelColors';
+import { cn } from '../../lib/utils';
 import type { ParentRef } from '../../types/issue';
 import type { ColorToken } from '../../types/label';
 
@@ -16,6 +17,7 @@ export function ParentChip({
   issueNumber,
   variant = 'row',
   showKey = false,
+  titleClassName,
 }: {
   projectKey: string;
   parent: ParentRef;
@@ -23,6 +25,8 @@ export function ParentChip({
   variant?: 'row' | 'card';
   // AI 위임 작업처럼 칩이 좁은 화면에서 부모가 무엇인지 키로 먼저 알 수 있게 키를 제목 앞에 둔다(WP-375). 기본은 제목만.
   showKey?: boolean;
+  /** 제목 글자에 덧붙일 클래스 — 좁은 폭에서 글자를 sr-only 로 접는 기준(@container 폭)은 그 레이아웃을 아는 호출처가 정한다(WP-943). */
+  titleClassName?: string;
 }) {
   // 색상·아이콘은 부모 유형에서 파생 — 하드코딩 hex 없이 디자인시스템 색상 토큰만 사용.
   const colors = LABEL_COLORS[parent.type.colorToken as ColorToken] ?? LABEL_COLORS.GRAY;
@@ -36,7 +40,7 @@ export function ParentChip({
           {projectKey}-{parent.number}
         </span>
       )}
-      <span className="truncate">{parent.title}</span>
+      <span className={cn('truncate', titleClassName)}>{parent.title}</span>
     </>
   );
   // row 변형 칩은 줄어든다(min-w-0 shrink) — 칩이 제목을 밀어내지 않게, 제목은 min-w-[8rem] 을 보장(WP-194).

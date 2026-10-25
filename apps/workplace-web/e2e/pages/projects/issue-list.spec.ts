@@ -237,13 +237,66 @@ test.describe('팀 리스트 뷰', () => {
     // 좁은 화면(노트북 폭) — 제목 칸이 40rem 미만이면 레이블을 숨겨 제목 폭을 살리고, 행은 계속 한 줄이다.
     await page.setViewportSize({ width: 1100, height: 800 });
     // 전제 — 이 폭에서 제목 칸이 실제로 40rem(640px) 미만이어야 숨김 판정을 검증하는 것이다(레이아웃이 바뀌면 여기서 먼저 알린다).
-    await expect.poll(async () => (await row.locator('td').nth(4).boundingBox())!.width).toBeLessThan(640);
+    await expect.poll(async () => (await row.getByTestId('issue-row-481-title-cell').boundingBox())!.width).toBeLessThan(640);
     await expect(labels).toBeHidden();
     await expect(row.getByTestId('issue-row-481-parent')).toBeVisible();
     const narrowRow = await row.boundingBox();
     const narrowPlain = await page.getByTestId('issue-row-485').boundingBox();
     expect(Math.abs(narrowRow!.height - narrowPlain!.height)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: 'test-results/tc/issue-list/row-labels-narrow.png' });
+  });
+
+  test('제목 칸이 좁으면 소속 칩을 아이콘만 남기거나 숨겨 조각으로 보이지 않게 한다 (WP-943)', async ({ authenticatedPage: page }) => {
+    const parent = { number: 3, title: '인증/온보딩 사용자 경험 전면 개선 에픽', type: makeEpicType() };
+    // 하위 진행률 배지(└ 12/34)까지 붙은 행 — 칩·배지·제목 하한이 함께 칸 안에 들어와야 한다.
+    const child = createIssue({
+      id: 2,
+      number: 8,
+      title: '로그인 폼 컴포넌트 리팩터링 및 접근성 개선 — 키보드 포커스 트랩 대응',
+      parent,
+      childCount: 34,
+      childDoneCount: 12,
+    });
+    await mock(page, [child]);
+    // 앱 레일을 펼친 상태로 시작 — 1024px 에서 제목 칸이 가장 좁아지는 조합(useRailExpanded 의 localStorage 키).
+    await page.addInitScript(() => localStorage.setItem('app-rail-expanded', 'true'));
+    const row = page.getByTestId('issue-row-8');
+    const titleCell = row.getByTestId('issue-row-8-title-cell');
+    const chip = row.getByTestId('issue-row-8-parent');
+    const chipText = chip.getByText(parent.title);
+    const progress = row.getByTestId('issue-row-8-child-progress');
+    // 칩·하위 배지의 오른쪽 끝이 제목 칸 안 — 옆 칸(담당자)으로 넘치지 않는다.
+    const expectInsideTitleCell = async (el: typeof chip) => {
+      const [c, e] = [(await titleCell.boundingBox())!, (await el.boundingBox())!];
+      expect(e.x + e.width).toBeLessThanOrEqual(c.x + c.width);
+    };
+
+    // 넓은 폭(1280, 제목 칸 ≥20rem) — 칩에 부모 제목이 보인다.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`/projects/${KEY}`);
+    await expect.poll(async () => (await titleCell.boundingBox())!.width).toBeGreaterThanOrEqual(320);
+    await expect(chipText).toBeVisible();
+
+    // 1100 — 제목 칸 14~20rem: 유형 아이콘만 남고, 부모 제목은 툴팁과 접근 이름으로 남는다. 칩이 옆 칸으로 넘치지 않는다.
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await expect.poll(async () => (await titleCell.boundingBox())!.width).toBeLessThan(320);
+    await expect(chipText).toHaveClass(/sr-only/);
+    await expect.poll(async () => (await chip.boundingBox())!.width).toBeLessThan(32);
+    await expect(chip).toHaveAccessibleName(parent.title);
+    await expect(chip).toHaveAttribute('title', `${KEY}-3 · ${parent.title}`);
+    await expectInsideTitleCell(chip);
+    await expectInsideTitleCell(progress);
+    await page.screenshot({ path: 'test-results/tc/issue-list/parent-chip-icon-only.png' });
+
+    // 1024 + 레일 펼침 — 제목 칸 <14rem: 아이콘·하위 배지까지는 넘치므로 칩을 숨겨 제목에 폭을 준다.
+    await page.setViewportSize({ width: 1024, height: 800 });
+    await expect.poll(async () => (await titleCell.boundingBox())!.width).toBeLessThan(224);
+    await expect(chip).toBeHidden();
+    await expect(row.getByRole('link', { name: child.title })).toBeVisible();
+    // 숨긴 칩 대신 스크린리더용 소속 글자가 남는다. 하위 배지는 제목 바로 뒤(칸 안)에 붙는다.
+    await expect(row.getByText(`소속 ${KEY}-3 ${parent.title}`)).toHaveClass(/sr-only/);
+    await expectInsideTitleCell(progress);
+    await page.screenshot({ path: 'test-results/tc/issue-list/parent-chip-hidden.png' });
   });
 
   test('필터 상태·우선순위 드롭다운 옵션에 아이콘이 렌더된다 (#295)', async ({ authenticatedPage: page }) => {

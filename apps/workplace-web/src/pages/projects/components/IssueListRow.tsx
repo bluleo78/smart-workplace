@@ -168,7 +168,7 @@ export const IssueRow = memo(function IssueRow({
         {/* pr-2 — 말줄임된 제목이 다음 칸(담당자 아바타 등)에 붙지 않게 간격을 둔다.
             w-full max-w-0 — 자동 레이아웃 표에서 nowrap 제목의 최소 폭이 글자 폭 전체라 긴 제목이 표를 가로로 넘기던 것을 막는다
             (셀이 남은 폭에 맞춰 줄어야 안쪽 flex 의 truncate/min-w-0 가 동작, WP-194). */}
-        <td className="w-full max-w-0 pr-2">
+        <td className="w-full max-w-0 pr-2" data-testid={`issue-row-${it.number}-title-cell`}>
           {/* @container — 레이블 노출을 뷰포트가 아니라 제목 칸 폭으로 정한다(에픽 패널을 열고 닫으면 같은 창에서도 칸 폭이 바뀐다, WP-505). */}
           <div className="@container">
             <div className="flex min-w-0 items-center gap-1.5 font-medium">
@@ -177,7 +177,8 @@ export const IssueRow = memo(function IssueRow({
               <Link
                 to={to}
                 onClick={(e) => e.stopPropagation()}
-                className="min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                // min-w-[8rem] — 칩·레이블이 제목을 밀어내지 않게(WP-194). 칩을 숨기는 14rem 미만 칸에선 하한을 풀어 하위 배지가 칸 밖으로 넘치지 않게 한다(WP-943).
+                className="min-w-[8rem] truncate rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring @max-[14rem]:min-w-0"
               >
                 {it.title}
               </Link>
@@ -190,11 +191,29 @@ export const IssueRow = memo(function IssueRow({
                     'flex min-w-0 shrink items-center gap-1.5 @min-[40rem]:shrink-0',
                     // 소속 칩이 없으면 레이블이 보일 때만 오른쪽으로 민다 — 숨겨진 레이블의 빈 묶음이 하위 진행률 배지를 끝으로 밀지 않게.
                     shownParent ? 'ml-auto' : '@min-[40rem]:ml-auto',
+                    // 좁은 제목 칸의 소속 칩(WP-943) — 줄어든 칩은 몇 글자 조각으로만 보여 정보 없이 제목 폭만 먹었다.
+                    // 20rem 미만: 칩은 유형 아이콘만(부모 제목은 툴팁·sr-only), 묶음은 줄지 않는다(줄면 칩이 따라 줄어 아이콘마저 잘린다).
+                    // 14rem 미만: 묶음째 숨긴다(레이블은 이미 숨음) — 제목 하한 8rem + 아이콘 + 하위 배지(└ 12/34)가 칸을 넘친다.
+                    //   같은 14rem 을 제목 하한 해제(위 Link)·스크린리더용 소속 글자(아래 span)도 쓴다 — 함께 바꾼다.
+                    shownParent && '@max-[20rem]:shrink-0 @max-[14rem]:hidden',
                   )}
                 >
                   <IssueLabelMeta labels={it.labels} testId={`issue-row-${it.number}-labels`} />
-                  {shownParent && <ParentChip projectKey={projectKey} parent={shownParent} issueNumber={it.number} />}
+                  {shownParent && (
+                    <ParentChip
+                      projectKey={projectKey}
+                      parent={shownParent}
+                      issueNumber={it.number}
+                      titleClassName="@max-[20rem]:sr-only"
+                    />
+                  )}
                 </div>
+              )}
+              {/* 칩을 숨긴 폭에서도 스크린리더에는 소속을 알린다. */}
+              {shownParent && (
+                <span className="sr-only @min-[14rem]:hidden">
+                  소속 {projectKey}-{shownParent.number} {shownParent.title}
+                </span>
               )}
               {/* 하위를 가진 이슈엔 진행률(└ done/total)을 표시한다. 목록에서 SUBTASK 를 숨긴 부모는
                   이 배지로 하위 존재를 알리고, 에픽은 자식이 행으로 노출되므로 롤업 진행률로 읽힌다.
