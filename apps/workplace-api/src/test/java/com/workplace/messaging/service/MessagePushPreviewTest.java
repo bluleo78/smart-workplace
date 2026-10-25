@@ -32,4 +32,21 @@ class MessagePushPreviewTest {
   void collapsesWhitespace() {
     assertThat(MessagePushPreview.of("줄1\n\n줄2   끝", List.of(), false)).isEqualTo("줄1 줄2 끝");
   }
+
+  /** WP-101: 마크다운 기호는 지우고 멘션은 그대로 이름으로 바꾼다. */
+  @Test
+  void stripsMarkdownBeforeMentions() {
+    String p =
+        MessagePushPreview.of(
+            "<@12> **배포** 확인\n- [로그](https://a.com/x) 보기\n```\nint a = 2*3;\n```",
+            List.of(new MentionResponse(12L, "kim", "*김*철수", "HUMAN")),
+            false);
+    assertThat(p).isEqualTo("@*김*철수 배포 확인 로그 보기 int a = 2*3;");
+  }
+
+  @Test
+  void keepsPlainSymbols() {
+    assertThat(MessagePushPreview.of("snake_case 2*3 a_b", List.of(), false))
+        .isEqualTo("snake_case 2*3 a_b");
+  }
 }

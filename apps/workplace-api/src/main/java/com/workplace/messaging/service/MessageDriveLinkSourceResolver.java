@@ -8,6 +8,7 @@ import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.drive.api.DriveLinkSourceResolver;
+import com.workplace.global.util.ChatMarkdownText;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -81,8 +82,10 @@ public class MessageDriveLinkSourceResolver implements DriveLinkSourceResolver {
   }
 
   /** 본문을 최대 BODY_PREVIEW_LEN 자로 잘라 미리보기 텍스트 생성. null/빈 본문은 빈 문자열. */
-  private String bodyPreview(String body) {
-    if (body == null || body.isBlank()) return "";
+  private String bodyPreview(String raw) {
+    // 마크다운 기호는 지워서 보여 준다(WP-101).
+    String body = ChatMarkdownText.toPlain(raw);
+    if (body.isBlank()) return "";
     return body.length() <= BODY_PREVIEW_LEN ? body : body.substring(0, BODY_PREVIEW_LEN) + "…";
   }
 }

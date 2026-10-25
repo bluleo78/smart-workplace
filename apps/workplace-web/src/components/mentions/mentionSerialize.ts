@@ -4,11 +4,14 @@ import type { JSONContent } from '@tiptap/core';
 
 import { imageMarkdown } from '../../lib/markdownImageInsert';
 import { API_IMAGE_MD } from './apiImageSegments';
+import { chatMarkdownToDoc, hasChatFormatting, serializeChatMarkdown } from './chatMarkdownDoc';
 import type { MentionUser, UserKind } from './types';
 
 // TipTap JSON(doc) → 본문 문자열. mention 노드는 <@id>, 문단 경계는 \n, hardBreak 노드도 \n.
 // image 노드(WP-362)는 마크다운 `![이름](src)` — 업로드 중(src 없음) 노드는 빈 문자열(전송은 RichInput 이 막는다).
+// 서식(굵게·목록·코드 블록 등, WP-101)이 든 문서는 채팅 마크다운으로 — 서식 없는 문서는 아래 기존 경로 그대로(코멘트 등과 바이트 단위로 같게).
 export function serializeToBody(doc: JSONContent): string {
+  if (hasChatFormatting(doc)) return serializeChatMarkdown(doc);
   const paragraphs = (doc.content ?? []).map((para) => {
     const inline = (para.content ?? [])
       .map((node) => {
@@ -53,11 +56,13 @@ export function convertPlaintextMentions(
 
 // 본문 문자열 → TipTap JSON(doc). <@id> 는 mention 노드(label=이름)로 복원.
 // images 가 켜진 입력창(이슈 코멘트, WP-362)만 `![이름](/api/v1/...)` 을 image 노드로 복원한다 — 그 밖의 입력창은 스키마에 image 가 없다.
+// formatting 이 켜진 입력창(팀 채팅·이슈 채팅, WP-101)은 채팅 마크다운으로 읽어 굵게·목록 등을 복원한다(렌더러와 같은 파서).
 export function bodyToDoc(
   body: string,
   mentions: MentionUser[],
-  options: { images?: boolean } = {},
+  options: { images?: boolean; formatting?: boolean } = {},
 ): JSONContent {
+  if (options.formatting) return chatMarkdownToDoc(body, mentions);
   const nameById = new Map(mentions.map((m) => [m.id, m.name]));
   const lines = body.split('\n');
   // 멘션 토큰과 (켜져 있으면) 이미지 마크다운을 한 정규식으로 왼쪽부터 훑는다 — 줄마다 lastIndex 만 되돌려 재사용.

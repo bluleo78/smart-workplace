@@ -7,6 +7,7 @@ import { type ComponentProps, type Ref, useCallback, useRef } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
+import { ChatMarkdownText } from '@/components/chat/ChatMarkdownText'
 import { LinkPreviewList } from '@/components/chat/LinkPreviewCard'
 import { MessageActionsButton } from '@/components/chat/MessageActionsButton'
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList'
@@ -19,8 +20,7 @@ import {
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
-import { LinkedText } from '@/components/LinkedText'
-import { parseMessageSegments } from '@/components/mentions/parseMessageSegments'
+import { stripChatMarkdown } from '@/components/mentions/chatMarkdown'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { EmojiPicker } from '@/components/reactions/EmojiPicker'
@@ -185,7 +185,7 @@ export function MessageRow({
             size="icon"
             variant="ghost"
             className="h-6 w-6"
-            aria-label={itemActionLabel(m.body, '메시지', '수정')}
+            aria-label={itemActionLabel(stripChatMarkdown(m.body), '메시지', '수정')}
             data-testid={`message-edit-${m.id}`}
             onClick={onStartEdit}
           >
@@ -195,7 +195,7 @@ export function MessageRow({
             size="icon"
             variant="ghost"
             className="h-6 w-6"
-            aria-label={itemActionLabel(m.body, '메시지', '삭제')}
+            aria-label={itemActionLabel(stripChatMarkdown(m.body), '메시지', '삭제')}
             data-testid={`message-delete-${m.id}`}
             onClick={onDelete}
           >
@@ -219,6 +219,8 @@ export function MessageRow({
         submitLabel="저장"
         autoFocus
         disableWhenEmpty
+        // 서식 입력(WP-101) — 작성창과 같은 서식 도구·단축키. 본문 마크다운을 서식으로 복원해 편집한다.
+        formatting
         // 작성 입력창과 같은 서버 상한(4000자) — 넘으면 카운터를 보이고 저장을 막는다(WP-513).
         maxLength={4000}
         inputTestId={`message-editor-input-${m.id}`}
@@ -250,13 +252,15 @@ export function MessageRow({
         // #356: AI(에이전트) 메시지는 마크다운 렌더(사람 메시지는 멘션칩 포함 plain text 유지).
         <MarkdownMessage>{m.body}</MarkdownMessage>
       ) : (
-        parseMessageSegments(m.body, m.mentions).map((seg, i) =>
-          seg.type === 'text' ? (
-            // 본문 URL 은 새 탭 링크로(WP-874). 멘션 토큰은 이미 떼어 낸 평문 조각에만 적용한다.
-            <LinkedText key={i} text={seg.value} linkTestId="chat-link" />
-          ) : (
+        // 사람 메시지 — 채팅 마크다운 부분집합(굵게·목록·코드 등, WP-101). 서식 없는 예전 평문은 예전과 같게 보인다.
+        // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩.
+        <ChatMarkdownText
+          body={m.body}
+          mentions={m.mentions}
+          linkTestId="chat-link"
+          renderMention={(seg, key) => (
             <span
-              key={i}
+              key={key}
               data-testid={`mention-chip-${seg.id}`}
               className={`rounded px-1 font-medium ${
                 // 본인 말풍선은 wrap-anywhere 라 칩이 '@' 와 이름 사이에서 끊길 수 있어 한 덩어리로 유지한다.
@@ -274,8 +278,8 @@ export function MessageRow({
             >
               @{seg.name}
             </span>
-          ),
-        )
+          )}
+        />
       )}
       {/* 수정됨 표시 — 본문 끝에 인라인(본인은 말풍선 안). 삭제됨 메시지는 제외.
           whitespace-nowrap: 말풍선의 wrap-anywhere 때문에 '(수정'/'됨)' 으로 쪼개지는 것을 막는다. */}

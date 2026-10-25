@@ -1,5 +1,6 @@
 package com.workplace.messaging.service;
 
+import com.workplace.global.util.ChatMarkdownText;
 import com.workplace.messaging.dto.ConversationRow;
 import com.workplace.messaging.dto.ConversationSummaryItem;
 import com.workplace.messaging.dto.DmParticipant;
@@ -136,10 +137,10 @@ public class MessagingSummaryService {
     return others.get(0).name() + ", " + others.get(1).name() + " 외 " + (others.size() - 2) + "명";
   }
 
-  /** 본문 미리보기 — 개행 제거 + 길이 제한. */
+  /** 본문 미리보기 — 마크다운 기호 제거(WP-101) + 개행 제거 + 길이 제한. */
   private static String preview(String body) {
     if (body == null) return "";
-    String oneLine = body.replaceAll("\\s+", " ").trim();
+    String oneLine = ChatMarkdownText.toPlain(body).replaceAll("\\s+", " ").trim();
     return oneLine.length() <= PREVIEW_LEN ? oneLine : oneLine.substring(0, PREVIEW_LEN) + "…";
   }
 

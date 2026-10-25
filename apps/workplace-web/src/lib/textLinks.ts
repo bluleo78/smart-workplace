@@ -21,10 +21,11 @@ export interface LinkRules {
  *   - `http://`·`https://`·`www.`(대소문자 무관) 시작, 바로 앞이 ASCII 단어 문자([A-Za-z0-9_])면 시작으로 보지 않는다.
  *   - URL 문자는 RFC 3986 ASCII 집합만 — 공백·`<`·`>`·`"`·비-ASCII(한글 등)에서 끝난다.
  *   - 끝의 `.,!?;:'"` 와 짝 없는 `)` `]` 는 뺀다. `www.` 시작은 href 에 `https://` 를 붙인다.
+ *   - 끝의 강조 기호 `*`·`~` 도 뺀다 — 서식 메시지(WP-101)의 `**https://a**` 에서 주소만 링크로(서버도 같은 규칙).
  */
 export const CHAT_LINK_RULES: LinkRules = {
   re: /(?<![A-Za-z0-9_])(?:https?:\/\/|www\.)[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]*/gi,
-  trailing: `.,!?;:'"`,
+  trailing: `.,!?;:'"*~`,
   brackets: { ')': '(', ']': '[' },
   unwrapAngle: false,
 }

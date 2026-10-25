@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState'
 import { Page } from '@/components/layout/Page'
+import { messagePlainText } from '@/components/mentions/parseMessageSegments'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useThreadsInbox } from '@/hooks/queries/useThreadsInbox'
 import { buildThreadsInboxContext } from '@/lib/aiScreenContext/builders/messaging'
@@ -68,7 +69,8 @@ export default function ThreadsInboxPage() {
                       새 답글 {item.rootMessage.unreadReplyCount}개
                     </span>
                   </div>
-                  <div className="truncate text-sm">{item.rootMessage.body}</div>
+                  {/* 서식 기호(WP-101)를 빼고 멘션은 이름으로 — 한 줄 미리보기. */}
+                  <div className="truncate text-sm">{messagePlainText(item.rootMessage.body, item.rootMessage.mentions)}</div>
                   <div className="text-xs text-muted-foreground">
                     {item.rootMessage.authorName}
                   </div>

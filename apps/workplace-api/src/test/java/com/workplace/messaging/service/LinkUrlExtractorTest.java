@@ -70,4 +70,19 @@ class LinkUrlExtractorTest {
                 "https://a.com https://a.com https://b.com www.c.com https://d.com"))
         .containsExactly("https://a.com", "https://b.com", "https://www.c.com");
   }
+
+  /** WP-101: 마크다운 본문 — 링크는 주소만, 강조 기호는 끝에서 뺀다. */
+  @Test
+  void markdownLinkAndEmphasis() {
+    assertThat(LinkUrlExtractor.extract("[문서](https://a.com/x) 참고"))
+        .containsExactly("https://a.com/x");
+    assertThat(LinkUrlExtractor.extract("[https://a.com](https://a.com)"))
+        .containsExactly("https://a.com");
+    assertThat(LinkUrlExtractor.extract("[위키](https://en.wikipedia.org/wiki/A_(b))"))
+        .containsExactly("https://en.wikipedia.org/wiki/A_(b)");
+    assertThat(LinkUrlExtractor.extract("**https://a.com** ~~https://b.com~~ *https://c.com*"))
+        .containsExactly("https://a.com", "https://b.com", "https://c.com");
+    assertThat(LinkUrlExtractor.extract("`https://a.com/x_y`"))
+        .containsExactly("https://a.com/x_y");
+  }
 }

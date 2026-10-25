@@ -6,6 +6,7 @@ import { chatApi } from '@/api/chat';
 import { ComposerAttachmentChips } from '@/components/chat/ComposerAttachmentChips';
 import { ComposerAttachMenu } from '@/components/chat/ComposerAttachMenu';
 import { ComposerDropOverlay } from '@/components/chat/ComposerDropOverlay';
+import { chatOverLimitMessage } from '@/components/mentions/chatFormatting';
 import { convertPlaintextMentions } from '@/components/mentions/mentionSerialize';
 import { RichInput } from '@/components/mentions/RichInput';
 import { useAttachmentDraft } from '@/hooks/useAttachmentDraft';
@@ -86,8 +87,12 @@ export function ChatComposer({ threadId, members, onSubmit, onTyping, autoFocus,
         disableWhenEmpty
         submitLabel={uploading ? '업로드 중…' : '보내기'}
         submitDisabled={uploading}
+        // 서식 기호까지 센 저장 본문(마크다운) 기준 — 서버 상한과 같은 기준이다(WP-101).
         maxLength={4000}
+        overLimitMessage={chatOverLimitMessage}
         inlineSubmit
+        // 서식 입력(WP-101) — 「Aa」 로 여닫는 서식 도구 줄 + 단축키·마크다운 입력 규칙.
+        formatting
         onFiles={onFiles}
         leftActions={
           <ComposerAttachMenu

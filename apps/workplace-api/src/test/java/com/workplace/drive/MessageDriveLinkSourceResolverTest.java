@@ -107,6 +107,20 @@ class MessageDriveLinkSourceResolverTest extends IntegrationTestBase {
     assertThat(strangerMap.get(msg.id()).accessible()).isFalse();
   }
 
+  /** WP-101: 라벨의 본문 미리보기는 마크다운 기호 없이. */
+  @Test
+  void resolve_labelStripsMarkdown() {
+    long member = seedUser("md");
+    long channelId = channelRepo.insertPublic("마크다운채널", member);
+    channelService.join(member, channelId);
+    var msg =
+        messageService.create(
+            member, channelId, new CreateMessageRequest("**굵게** ~~취소~~ [문서](https://a.com)"));
+
+    var resolved = msgResolver.resolve(member, List.of(msg.id())).get(msg.id());
+    assertThat(resolved.label()).isEqualTo("#마크다운채널 · 굵게 취소 문서");
+  }
+
   /** 존재하지 않는 messageId 는 결과 맵에서 제외. */
   @Test
   void resolve_excludesNonExistentMessage() {

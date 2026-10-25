@@ -101,6 +101,23 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
 
   // ── 테스트 ────────────────────────────────────────────────────────────────
 
+  /** WP-101: 홈 요약의 마지막 메시지 미리보기는 마크다운 기호 없이 한 줄로. */
+  @Test
+  void lastMessagePreview_마크다운_기호를_지운다() {
+    long caller = seedUser("caller");
+    long other = seedUser("other");
+    long ch = seedChannel(caller);
+    joinChannel(other, ch);
+    seedMessage(ch, other, "**긴급** 확인\n1. [문서](https://a.com) 읽기\n- `a_b`");
+
+    ConversationSummaryItem item =
+        svc.summary(caller, 10).recent().stream()
+            .filter(i -> i.conversationId() == ch)
+            .findFirst()
+            .orElseThrow();
+    assertThat(item.lastMessagePreview()).isEqualTo("긴급 확인 문서 읽기 a_b");
+  }
+
   /**
    * AI 마크가 안읽음 대화에 aiReason 으로 실린다. 채널에 안읽음 메시지 시드 + AI 마크 upsert → recent 의 해당 item.aiReason() 이
    * non-null.

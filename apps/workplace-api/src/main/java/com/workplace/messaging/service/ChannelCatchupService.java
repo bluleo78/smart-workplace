@@ -6,6 +6,7 @@ import com.workplace.global.ai.AiMemoryLine;
 import com.workplace.global.ai.AiMemoryReader;
 import com.workplace.global.ai.SharedAiMemoryReader;
 import com.workplace.global.ai.SharedMemories;
+import com.workplace.global.util.ChatMarkdownText;
 import com.workplace.messaging.dto.ChannelCatchupResponse;
 import com.workplace.messaging.dto.ChannelCatchupResponse.MentionItem;
 import com.workplace.messaging.dto.ChannelCatchupResponse.SummaryGroup;
@@ -181,6 +182,8 @@ public class ChannelCatchupService {
     if (body == null) {
       return "";
     }
-    return body.length() <= SNIPPET_MAX ? body : body.substring(0, SNIPPET_MAX) + "…";
+    // 「내 차례」 목록에 보이는 미리보기라 서식 기호(**·<u> 등, WP-101)를 지운 글자만 싣는다. 멘션 토큰은 웹이 풀어 그린다.
+    String plain = ChatMarkdownText.toPlain(body);
+    return plain.length() <= SNIPPET_MAX ? plain : plain.substring(0, SNIPPET_MAX) + "…";
   }
 }

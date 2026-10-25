@@ -9,6 +9,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
+import { ChatMarkdownText } from '@/components/chat/ChatMarkdownText';
 import { MessageActionsButton } from '@/components/chat/MessageActionsButton';
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
 import {
@@ -17,8 +18,8 @@ import {
   TOOLBAR_POSITION,
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar';
-import { LinkedText } from '@/components/LinkedText';
-import { messagePlainText, parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+import { stripChatMarkdown } from '@/components/mentions/chatMarkdown';
+import { messagePlainText } from '@/components/mentions/parseMessageSegments';
 import { issueChatBundle } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
@@ -98,7 +99,7 @@ export function ChatMessageRow({
         size="icon"
         variant="ghost"
         className="h-6 w-6"
-        aria-label={itemActionLabel(message.body, '메시지', '수정')}
+        aria-label={itemActionLabel(stripChatMarkdown(message.body), '메시지', '수정')}
         data-testid={`chat-message-edit-${message.id}`}
         onClick={() => onEdit?.(message.id)}
       >
@@ -108,7 +109,7 @@ export function ChatMessageRow({
         size="icon"
         variant="ghost"
         className="h-6 w-6"
-        aria-label={itemActionLabel(message.body, '메시지', '삭제')}
+        aria-label={itemActionLabel(stripChatMarkdown(message.body), '메시지', '삭제')}
         data-testid={`chat-message-delete-${message.id}`}
         onClick={() => onDelete?.(message.id)}
       >
@@ -131,13 +132,15 @@ export function ChatMessageRow({
         // #356: AI(에이전트) 메시지는 마크다운 렌더(사람 메시지는 멘션칩 포함 plain text 유지).
         <MarkdownMessage>{message.body}</MarkdownMessage>
       ) : (
-        parseMessageSegments(message.body, message.mentions).map((seg, i) =>
-          seg.type === 'text' ? (
-            // 본문 URL 은 새 탭 링크로(WP-874). 멘션 토큰은 이미 떼어 낸 평문 조각에만 적용한다.
-            <LinkedText key={i} text={seg.value} linkTestId="chat-link" />
-          ) : (
+        // 사람 메시지 — 채팅 마크다운 부분집합(굵게·목록·코드 등, WP-101). 서식 없는 예전 평문은 예전과 같게 보인다.
+        // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩.
+        <ChatMarkdownText
+          body={message.body}
+          mentions={message.mentions}
+          linkTestId="chat-link"
+          renderMention={(seg, key) => (
             <span
-              key={i}
+              key={key}
               data-testid={`chat-mention-chip-${seg.id}`}
               // #208: AGENT 멘션칩은 ai-accent 토큰으로 통일(배지/아바타와 동일 색).
               // 사람(HUMAN) 칩은 중립 시맨틱 토큰으로 AGENT 칩과 구분하면서 다크모드도 자동 대응.
@@ -154,8 +157,8 @@ export function ChatMessageRow({
             >
               @{seg.name}
             </span>
-          ),
-        )
+          )}
+        />
       )}
     </div>
   );

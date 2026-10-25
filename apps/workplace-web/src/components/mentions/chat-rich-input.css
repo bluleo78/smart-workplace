@@ -24,3 +24,16 @@
     word-break: keep-all;
   }
 }
+/* 서식 입력창(WP-101) — 전역 .ProseMirror 목록·코드 블록 여백(노트 본문 기준)을 채팅 입력 한 줄 밀도에 맞게 줄인다. 색은 전역 규칙의 토큰 그대로. */
+[data-chat-formatting] .ProseMirror ul,
+[data-chat-formatting] .ProseMirror ol {
+  margin: 0.125em 0;
+  padding-left: 1.25rem;
+}
+[data-chat-formatting] .ProseMirror li {
+  margin: 0;
+}
+[data-chat-formatting] .ProseMirror pre {
+  margin: 0.25em 0;
+  padding: 0.375rem 0.5rem;
+}

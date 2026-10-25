@@ -1,6 +1,7 @@
 // TipTap 기반 chat 입력 공용 컴포넌트 (composer/editor 공용).
 // mention 칩 + @ suggestion. Enter=onSubmit(모바일 터치 셸은 줄바꿈 — lib/submitEnter), Shift+Enter=줄바꿈, Esc=onCancel.
 // IME(한글 조합)는 ProseMirror 가 처리. 전송 후 clearOnSubmit 이면 비우고 포커스 유지.
+// formatting(WP-101, 팀 채팅·이슈 채팅만)이면 서식(굵게·목록·코드 등) 확장과 「Aa」 서식 도구 줄을 더하고 본문을 채팅 마크다운으로 주고받는다.
 
 import './chat-rich-input.css';
 
@@ -19,6 +20,7 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 
 import { IssueBodyImageButton } from '@/components/issue/IssueBodyImageButton';
 import { Button } from '@/components/ui/button';
+import { usePersistentToggle } from '@/hooks/usePersistentToggle';
 import { extractApiError } from '@/lib/api-error';
 import { filesFromPaste, isFileDrag } from '@/lib/clipboardFiles';
 import { INVALID_IMAGE_MSG, isValidImageFile } from '@/lib/imageUpload';
@@ -26,6 +28,8 @@ import { ImeCommitFlush } from '@/lib/imeCommitFlush';
 import { keepFocusProps } from '@/lib/keepFocus';
 import { isSubmitEnter } from '@/lib/submitEnter';
 
+import { chatFormattingExtensions } from './chatFormatting';
+import { ChatFormatToggle, ChatFormatToolbar } from './ChatFormatToolbar';
 import { MentionList, type MentionListHandle } from './MentionList';
 import { bodyToDoc, serializeToBody } from './mentionSerialize';
 import { hasImage, hasPendingImage, RichImage, settlePendingImage } from './richImageNode';
@@ -82,7 +86,15 @@ interface RichInputProps {
    *  전송 탭이 에디터를 blur 하면 iOS 키보드가 내려가고 전송 후 비동기 focus 로는 다시 안 올라오므로(사용자 제스처 밖)
    *  전송 버튼은 포커스를 빼앗지 않는다(keepFocusProps — 기본 레이아웃 전송 버튼도 같다, WP-224). 기본 false. */
   inlineSubmit?: boolean;
+  /** 서식 입력(WP-101) — 팀 채팅·이슈 채팅의 작성·수정칸만 켠다(이슈 코멘트 등은 끈 채 그대로). 켜면:
+   *  ① 굵게·기울임·밑줄·취소선·코드·코드 블록·목록·링크 확장 + 단축키·마크다운 입력 규칙(chatFormatting)
+   *  ② 왼쪽 「Aa」 토글로 여닫는 서식 도구 줄(열림 상태는 기기별로 기억) — 한 줄 레이아웃은 입력 줄 위, 기본 레이아웃은 에디터 위
+   *  ③ 본문을 채팅 마크다운으로 직렬화·복원(mentionSerialize). 에디터 스키마가 1회 생성되므로 마운트 시점 값으로 고정. */
+  formatting?: boolean;
 }
+
+/** 서식 도구 줄 열림 상태 저장 키 — 채팅 입력창 전체가 하나를 공유한다(한 번 열어 두면 어느 채팅에서나 열려 있게). */
+const FORMAT_TOOLBAR_KEY = 'chat-format-toolbar-open';
 
 export function RichInput({
   members,
@@ -109,6 +121,7 @@ export function RichInput({
   inlineSubmit = false,
   onFiles,
   imageUpload,
+  formatting = false,
 }: RichInputProps) {
   // 에디터 본문 공백 여부 — disableWhenEmpty 가 true 일 때 전송 버튼 비활성화에 사용.
   // initialBody 가 있으면 비어있지 않은 상태로 초기화.
@@ -178,6 +191,16 @@ export function RichInput({
 
   // 이미지 스키마는 에디터 생성 시 1회만 정해진다 — 마운트 시점 값으로 고정. 업로드 함수는 insertImages 가 매 렌더 최신 prop 을 읽는다.
   const [imagesEnabled] = useState(() => imageUpload != null);
+  // 서식 스키마도 마찬가지로 마운트 시점 값으로 고정(WP-101).
+  const [formattingEnabled] = useState(formatting);
+  const [toolbarOpen, toggleToolbar] = usePersistentToggle(FORMAT_TOOLBAR_KEY, false);
+  // 「변경 없는 저장」 비교 기준 — 서식 입력창은 예전 본문이 직렬화로 모양만 바뀔 수 있어(`* a` → `- a`) 한 번 읽고 쓴 모양과 비교한다.
+  // 그래야 손대지 않은 예전 메시지를 저장해도 (수정됨) 이 붙지 않는다.
+  const [initialCompare] = useState(() =>
+    formatting && initialBody
+      ? serializeToBody(bodyToDoc(initialBody, initialMentions, { formatting: true })).trim()
+      : initialBody.trim(),
+  );
   // 자리표시 노드 식별자 순번 — 인스턴스마다 독립.
   const uploadSeq = useRef(0);
   // handlePaste/handleDrop(useEditor 1회 생성 클로저)이 최신 insertImages 를 부르도록 — 위 ref 패턴 동일.
@@ -224,6 +247,7 @@ export function RichInput({
       // eslint-disable-next-line react-hooks/refs
       Placeholder.configure({ placeholder: () => placeholderRef.current }),
       ...(imagesEnabled ? [RichImage] : []),
+      ...(formattingEnabled ? chatFormattingExtensions : []),
       // membersRef 는 suggestion items/render 콜백에서만 역참조된다. 이 콜백들은
       // 사용자가 '@' 를 입력할 때 ProseMirror 가 호출하며 렌더 시점에 동기 실행되지 않으므로
       // 안전하다 (react-hooks/refs 의 보수적 false positive).
@@ -293,7 +317,9 @@ export function RichInput({
         },
       }),
     ],
-    content: initialBody ? bodyToDoc(initialBody, initialMentions, { images: imagesEnabled }) : undefined,
+    content: initialBody
+      ? bodyToDoc(initialBody, initialMentions, { images: imagesEnabled, formatting: formattingEnabled })
+      : undefined,
     editorProps: {
       attributes: {
         'data-testid': inputTestId,
@@ -411,7 +437,7 @@ export function RichInput({
     if (maxLengthRef.current != null && body.length > maxLengthRef.current) return;
     // 변경 없는 저장은 no-op — onCancel 로 닫아 불필요한 update 호출을 막는다 (#44).
     // composer 는 initialBody='' + body 비어있지 않음이라 절대 매칭되지 않는다.
-    if (body === initialBody.trim() && onCancel) {
+    if (body === initialCompare && onCancel) {
       onCancel();
       return;
     }
@@ -475,15 +501,28 @@ export function RichInput({
       </p>
     ) : null;
 
+  // 서식 토글·도구 줄(formatting 일 때만). 토글은 ＋ 옆, 줄은 입력 위.
+  const formatToggle = formattingEnabled ? (
+    <ChatFormatToggle open={toolbarOpen} onToggle={toggleToolbar} testId={`${inputTestId}-format`} />
+  ) : null;
+  const formatToolbar =
+    formattingEnabled && toolbarOpen && editor ? <ChatFormatToolbar editor={editor} testId={`${inputTestId}-format`} /> : null;
+
   if (inlineSubmit) {
     // 한 줄 레이아웃 [leftActions] [에디터] [전송] — 에디터만 min-w-0 flex-1 로 늘고(좁은 폭에서 TipTap 이 넘치지 않게) 양옆은 하단 정렬.
     // 카운터는 한도 80% 초과 시에만 — 평소엔 하단 줄 높이를 늘리지 않는다.
     const showCount = maxLength != null && charCount > maxLength * 0.8;
     return (
-      <div className="flex flex-col gap-1" data-testid={`${inputTestId}-wrap`}>
+      <div className="flex flex-col gap-1" data-testid={`${inputTestId}-wrap`} data-chat-formatting={formattingEnabled ? '' : undefined}>
+        {formatToolbar}
         <div className="flex flex-row items-end gap-2">
           {imagesEnabled && <IssueBodyImageButton compact onFiles={insertImages} testId={`${inputTestId}-image`} />}
-          {leftActions && <div className="flex shrink-0 items-center">{leftActions}</div>}
+          {(leftActions || formatToggle) && (
+            <div className="flex shrink-0 items-center gap-1">
+              {leftActions}
+              {formatToggle}
+            </div>
+          )}
           <div className="relative min-w-0 flex-1">
             <EditorContent editor={editor} />
           </div>
@@ -516,17 +555,19 @@ export function RichInput({
   }
 
   return (
-    <div className="flex flex-col gap-2" data-testid={`${inputTestId}-wrap`}>
+    <div className="flex flex-col gap-2" data-testid={`${inputTestId}-wrap`} data-chat-formatting={formattingEnabled ? '' : undefined}>
+      {formatToolbar}
       <div className="relative">
         <EditorContent editor={editor} />
       </div>
       {limitError}
       {/* leftActions 가 있으면 justify-between 으로 좌우 분리, 없으면 justify-end 로 우측 정렬. */}
-      <div className={`flex items-center gap-2 ${leftActions || imagesEnabled ? 'justify-between' : 'justify-end'}`}>
-        {(leftActions || imagesEnabled) && (
+      <div className={`flex items-center gap-2 ${leftActions || imagesEnabled || formatToggle ? 'justify-between' : 'justify-end'}`}>
+        {(leftActions || imagesEnabled || formatToggle) && (
           <div className="flex items-center gap-1">
             {imagesEnabled && <IssueBodyImageButton onFiles={insertImages} testId={`${inputTestId}-image`} />}
             {leftActions}
+            {formatToggle}
           </div>
         )}
         <div className="flex items-center gap-2">

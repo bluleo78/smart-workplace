@@ -156,6 +156,22 @@ class ConversationLastMessageTest extends IntegrationTestBase {
     assertThat(myChannel(me, ch).lastMessage().preview()).isEqualTo("@이영희 배포 확인 부탁");
   }
 
+  /** WP-101: 대화 목록 마지막 메시지 미리보기는 마크다운 기호 없이 보인다. */
+  @Test
+  void markdownSymbolsAreStripped() {
+    long me = seedUser("나사용자");
+    long lee = seedUser("이영희");
+    long ch = seedChannel(me);
+    messageRepo.insert(
+        ch,
+        me,
+        "<@" + lee + "> **배포** ~~취소~~\n- `snake_case` [문서](https://a.com)",
+        List.of(lee),
+        null);
+
+    assertThat(myChannel(me, ch).lastMessage().preview()).isEqualTo("@이영희 배포 취소 snake_case 문서");
+  }
+
   @Test
   void attachmentOnlyMessageSaysFileSent() throws Exception {
     long me = seedUser("나사용자");

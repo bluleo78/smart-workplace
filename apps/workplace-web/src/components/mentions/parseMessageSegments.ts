@@ -1,5 +1,6 @@
 // 채팅 본문을 <@id> 토큰 기준으로 표시 세그먼트 배열로 분리. 에디터/DOM 비의존 순수 함수.
 
+import { stripChatMarkdown } from './chatMarkdown';
 import type { MentionUser, UserKind } from './types';
 
 export type MentionSegment =
@@ -31,9 +32,9 @@ export function parseMessageSegments(
   return segments;
 }
 
-/** 본문을 사람이 읽는 평문으로 — <@id> 토큰을 '@이름' 으로 바꾼다(접근 이름·복사용). */
+/** 본문을 사람이 읽는 평문으로 — 서식 기호(WP-101)를 빼고 <@id> 토큰을 '@이름' 으로 바꾼다(접근 이름·복사·답장 미리보기용). */
 export function messagePlainText(body: string, mentions: MentionUser[]): string {
-  return parseMessageSegments(body, mentions)
+  return parseMessageSegments(stripChatMarkdown(body), mentions)
     .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name}`))
     .join('');
 }
