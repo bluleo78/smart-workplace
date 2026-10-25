@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,10 +23,12 @@ import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.mail.dto.ComposeAttachmentResponse;
 import com.workplace.mail.dto.MailSendRequest;
 import com.workplace.mail.dto.MailSendRequest.InlineImageRef;
+import com.workplace.mail.dto.RecentRecipient;
 import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
+import com.workplace.mail.service.MailRecentRecipientService;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
@@ -63,6 +66,7 @@ class MailComposeControllerTest {
 
   @MockitoBean MailComposeService composeService;
   @MockitoBean MailComposeAttachmentService attachmentService;
+  @MockitoBean MailRecentRecipientService recentRecipientService;
   @MockitoBean JwtTokenProvider jwt;
   @MockitoBean JwtProperties jwtProps;
   @MockitoBean PermissionService permissionService;
@@ -84,6 +88,26 @@ class MailComposeControllerTest {
     when(jwt.validateAccessToken("v")).thenReturn(true);
     when(jwt.getUserIdFromToken("v")).thenReturn(1L);
     when(permissionService.getUserPermissions(1L)).thenReturn(Set.of("project:read"));
+  }
+
+  /** WP-945: 최근 수신인 — 개수(기본 100)를 서비스에 넘기고 목록을 그대로 돌려준다. */
+  @Test
+  void recentRecipients_passesDefaultLimit() throws Exception {
+    when(recentRecipientService.list(1L, 100))
+        .thenReturn(
+            List.of(
+                new RecentRecipient(
+                    "alice@example.com",
+                    "앨리스",
+                    OffsetDateTime.parse("2026-10-25T09:00:00+09:00"),
+                    3)));
+
+    mockMvc
+        .perform(get("/api/v1/mail/recent-recipients").header("Authorization", "Bearer v"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].address").value("alice@example.com"))
+        .andExpect(jsonPath("$[0].name").value("앨리스"))
+        .andExpect(jsonPath("$[0].sentCount").value(3));
   }
 
   @Test

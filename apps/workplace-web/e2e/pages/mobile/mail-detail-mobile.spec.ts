@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expectTheme, withTheme } from '../../fixtures/contrast'
+import { expectRecipientChips, recipientChipValues } from '../../fixtures/mailRecipients'
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture'
 
 const SUBJECT = '[공유] 4분기 통합 플랫폼 고도화 프로젝트 주간 진행 현황 및 다음 주 릴리스 일정 조율 요청'
@@ -317,24 +318,26 @@ test.describe('하단 고정 바', () => {
     // 답장 — 보낸 사람에게, Re: 제목, 인용문.
     await actions.getByTestId('mail-reply').click()
     await expect(dock.getByRole('heading', { name: '회신' })).toBeVisible()
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('minsu.kim@example.com')
+    await expectRecipientChips(page, 'to', ['minsu.kim@example.com'])
     await expect(page.getByTestId('mail-compose-subject')).toHaveValue(`Re: ${SUBJECT}`)
     await expect(dock.getByTestId('mail-compose-quote')).toBeVisible()
     await close()
 
     // 전체답장 — 받는사람·참조 중 나를 뺀 나머지가 참조로.
     await actions.getByTestId('mail-reply-all').click()
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('minsu.kim@example.com')
-    const cc = page.getByTestId('mail-compose-cc')
-    await expect(cc).toHaveValue(/seoyeon\.lee@example\.com/)
-    await expect(cc).toHaveValue(/qa-lead@example\.com/)
-    await expect(cc).not.toHaveValue(/me@example\.com/)
+    await expectRecipientChips(page, 'to', ['minsu.kim@example.com'])
+    // 참조는 칩으로 보인다(WP-945) — 칩 값을 이어 붙여 사람이 들었는지 본다.
+    const ccText = () => recipientChipValues(page, 'cc').then((v) => v.join(', '))
+    await expect.poll(ccText).toMatch(/seoyeon\.lee@example\.com/)
+    await expect.poll(ccText).toMatch(/qa-lead@example\.com/)
+    expect(await ccText()).not.toMatch(/me@example\.com/)
     await close()
 
     // 전달 — 받는사람 빈 칸, Fwd: 제목.
     await actions.getByTestId('mail-forward').click()
     await expect(dock.getByRole('heading', { name: '전달' })).toBeVisible()
     await expect(page.getByTestId('mail-compose-to')).toHaveValue('')
+    await expectRecipientChips(page, 'to', [])
     await expect(page.getByTestId('mail-compose-subject')).toHaveValue(`Fwd: ${SUBJECT}`)
     await close()
 
@@ -343,7 +346,7 @@ test.describe('하단 고정 바', () => {
     await actions.getByTestId('mail-ai-reply-draft').click()
     await replyDraft.waitForRequest()
     await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 쓴 회신 초안')
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('minsu.kim@example.com')
+    await expectRecipientChips(page, 'to', ['minsu.kim@example.com'])
   })
 
   test('한 줄 4버튼·44px 이상이고, 끝까지 스크롤해도 본문 마지막 줄이 바에 가리지 않는다', async ({ authenticatedPage: page }) => {

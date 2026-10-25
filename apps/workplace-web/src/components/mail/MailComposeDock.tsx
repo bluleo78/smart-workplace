@@ -7,7 +7,6 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, Maximize2, Minimize2, Minus, Paperclip, Send, Sparkles, Trash2, X } from 'lucide-react';
-import type { ReactNode, Ref } from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -48,6 +47,7 @@ import { MailComposeDropOverlay } from './MailComposeDropOverlay';
 import { MailComposer, type MailComposerHandle, type MailComposerLayout } from './MailComposer';
 import { MailDraftSaveStatus } from './MailDraftSaveStatus';
 import { MailQuoteBlock } from './MailQuoteBlock';
+import { MailRecipientInput } from './MailRecipientInput';
 import { useMailAiDraft } from './useMailAiDraft';
 
 /**
@@ -82,7 +82,7 @@ function composeTitle(draft: ComposeDraft): string {
 }
 
 /**
- * 받는사람·참조·제목 한 줄. 모바일은 칸 앞에 이름표를 붙이고(빈 새 메일에서도 칸이 구분되게, WP-583),
+ * 제목 한 줄(받는사람·참조·숨은참조는 칩 입력 MailRecipientInput, WP-945). 모바일은 칸 앞에 이름표를 붙이고(빈 새 메일에서도 칸이 구분되게, WP-583),
  * 데스크톱은 작은 창 공간을 아끼려 자리표시자만 쓴다.
  */
 function FieldRow({
@@ -91,8 +91,6 @@ function FieldRow({
   testId,
   value,
   onChange,
-  inputRef,
-  trailing,
   maxLength,
 }: {
   label: string;
@@ -100,8 +98,6 @@ function FieldRow({
   testId: string;
   value: string;
   onChange: (v: string) => void;
-  inputRef?: Ref<HTMLInputElement>;
-  trailing?: ReactNode;
   /** 입력 길이 상한 — 서버 상한(제목 500자)을 넘겨 저장·발송이 거절되지 않게 입력에서 막는다. */
   maxLength?: number;
 }) {
@@ -113,7 +109,6 @@ function FieldRow({
         </label>
       )}
       <input
-        ref={inputRef}
         id={testId}
         data-testid={testId}
         value={value}
@@ -122,7 +117,6 @@ function FieldRow({
         placeholder={mobile ? undefined : label}
         className={cn('min-w-0 flex-1 bg-transparent outline-none', mobile ? 'text-[15px]' : 'text-sm')}
       />
-      {trailing}
     </div>
   );
 }
@@ -743,11 +737,12 @@ const MailComposeDockBody = memo(function MailComposeDockBody({ aiFullscreen }: 
             최소화는 숨기기만 한다(언마운트 금지) — 에디터가 다시 만들어지면 쓰던 본문·진행 중 AI 초안 반영·되돌리기 기준을 잃는다(WP-576).
             display:none 이라 숨은 동안엔 초점·단축키가 안으로 가지 않는다. */}
         <div className={cn(BODY_CLASS[layout], minimized && 'hidden')}>
-          <FieldRow label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={edit(setTo)} inputRef={toInputRef} trailing={ccBccToggle} />
+          {/* 작성 회차마다 새로 그린다 — 앞 작성의 쓰던 조각·닫아 둔 후보 상태가 다음 작성으로 넘어가지 않게(WP-945). */}
+          <MailRecipientInput key={draft?.instanceId} label="받는사람" mobile={isMobile} testId="mail-compose-to" value={to} onChange={edit(setTo)} inputRef={toInputRef} trailing={ccBccToggle} />
           {showCcBcc && (
             <>
-              <FieldRow label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={edit(setCc)} />
-              <FieldRow label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={edit(setBcc)} />
+              <MailRecipientInput key={draft?.instanceId} label="참조" mobile={isMobile} testId="mail-compose-cc" value={cc} onChange={edit(setCc)} />
+              <MailRecipientInput key={draft?.instanceId} label="숨은참조" mobile={isMobile} testId="mail-compose-bcc" value={bcc} onChange={edit(setBcc)} />
             </>
           )}
           <FieldRow label="제목" mobile={isMobile} testId="mail-compose-subject" value={subject} onChange={changeSubject} maxLength={MAIL_SUBJECT_MAX} />

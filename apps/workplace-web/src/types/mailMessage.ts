@@ -111,6 +111,14 @@ export interface ComposeAttachmentUpload {
   expiresAt: string;
 }
 
+/** 받는사람 자동완성의 최근 수신인(WP-945) — 내가 최근 보낸 메일의 수신인 한 명. */
+export interface RecentRecipient {
+  address: string;
+  name: string | null;
+  lastSentAt: string | null;
+  sentCount: number;
+}
+
 /** 발송 결과. */
 export interface SendResult {
   localMessageId: number;

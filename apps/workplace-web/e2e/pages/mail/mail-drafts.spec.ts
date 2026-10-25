@@ -8,6 +8,7 @@ import { detail, draftDetail, mailAccount, summary } from '../../factories/mail.
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockDraftServer, mockSendWithDrafts } from '../../fixtures/mail-drafts-mock'
+import { expectRecipientChips } from '../../fixtures/mailRecipients'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
@@ -324,7 +325,7 @@ test.describe('메일 임시저장', () => {
     await row.click()
     const dock = page.getByTestId('mail-compose-dock')
     await expect(dock).toBeVisible()
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('앨리스 <alice@example.com>')
+    await expectRecipientChips(page, 'to', ['앨리스 <alice@example.com>'])
     await expect(page.getByTestId('mail-compose-subject')).toHaveValue('Re: 원문 회의')
     await expect(page.getByTestId('mail-composer-body')).toContainText('참석합니다')
     // 인용문 머리(보낸 사람 · 날짜)는 원본 상세로 다시 만든 것이다(본문은 접힌 격리 프레임 안).

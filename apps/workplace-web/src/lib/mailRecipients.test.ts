@@ -18,6 +18,9 @@ describe('parseAddressList', () => {
     ])
   })
 
+  it('닫히지 않은 꺾쇠 뒤의 구분자도 나눈다 — 여러 주소가 한 수신인으로 묶이지 않게 (WP-945)', () => {
+    expect(parseAddressList('Kim <kim@x.com, lee@y.com').map((r) => r.address)).toEqual(['Kim <kim@x.com', 'lee@y.com'])
+  })
   it('빈 값·빈 토큰은 버린다', () => {
     expect(parseAddressList(null)).toEqual([])
     expect(parseAddressList(' , a@b.c ,')).toEqual([{ name: null, address: 'a@b.c' }])

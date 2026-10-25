@@ -123,6 +123,8 @@ test('받는사람만 고쳐도 쓴 내용으로 본다 — ✕ 가 임시저장
   await page.getByTestId('mail-row-10').click()
   const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
   await page.getByTestId('mail-reply').click()
+  // 답장이 채운 받는사람은 칩이다(WP-945) — 빼고 다른 주소를 넣는다.
+  await page.getByRole('button', { name: 'alice@example.com 빼기' }).click()
   await page.getByTestId('mail-compose-to').fill('other@test.local')
   await page.getByTestId('mail-compose-close').click()
   await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)

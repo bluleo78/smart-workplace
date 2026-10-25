@@ -2,14 +2,18 @@ package com.workplace.mail.controller;
 
 import com.workplace.mail.dto.ComposeAttachmentResponse;
 import com.workplace.mail.dto.MailSendRequest;
+import com.workplace.mail.dto.RecentRecipient;
 import com.workplace.mail.dto.SendResult;
 import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
+import com.workplace.mail.service.MailRecentRecipientService;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -29,6 +33,7 @@ public class MailComposeController {
 
   private final MailComposeService composeService;
   private final MailComposeAttachmentService attachmentService;
+  private final MailRecentRecipientService recentRecipientService;
 
   /**
    * 작성 첨부 임시 업로드(WP-574) → 201 + {id, name, size, mimeType, expiresAt}. 발송 때 id 를 attachmentIds 로
@@ -47,5 +52,15 @@ public class MailComposeController {
       @PathVariable long accountId,
       @RequestBody MailSendRequest request) {
     return composeService.send(callerId, accountId, request);
+  }
+
+  /**
+   * 받는사람 자동완성의 최근 수신인(WP-945) — 내가 최근 보낸 메일의 수신인을 마지막으로 보낸 순으로 limit 명(최대 200)까지. 작성창이 한 번 받아 두고 쓰는
+   * 조각으로 브라우저에서 거른다. 구성원·주소록 후보는 연락처 목록({@code GET /contacts?search=})에서 따로 받는다.
+   */
+  @GetMapping("/recent-recipients")
+  public List<RecentRecipient> recentRecipients(
+      @AuthenticationPrincipal Long callerId, @RequestParam(defaultValue = "100") int limit) {
+    return recentRecipientService.list(callerId, limit);
   }
 }

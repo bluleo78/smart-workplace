@@ -1,5 +1,5 @@
 // 통합 연락처 목록 cursor 페이징.
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { type keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 
 import { contactsApi } from '../../api/contacts'
 import type { ContactPage, ContactTypeFilter } from '../../types/contact'
@@ -46,11 +46,14 @@ export function useContactsHead(
   organization: string | undefined,
   title: string | undefined,
   limit: number,
+  options?: { enabled?: boolean; placeholderData?: typeof keepPreviousData },
 ) {
   return useQuery<ContactPage>({
     queryKey: contactKeys.head(search, type, organization, title, limit),
     queryFn: () => contactsApi.list({ ...listParams(search, type, organization, title), limit }).then((r) => r.data),
     staleTime: 10_000,
     refetchOnWindowFocus: false,
+    enabled: options?.enabled ?? true,
+    placeholderData: options?.placeholderData,
   })
 }

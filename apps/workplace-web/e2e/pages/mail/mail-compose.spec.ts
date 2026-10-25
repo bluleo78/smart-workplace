@@ -3,6 +3,7 @@ import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { commitImeThenEnterInSameTask } from '../../fixtures/ime'
+import { expectRecipientChips } from '../../fixtures/mailRecipients'
 import { trackRequests } from '../../fixtures/requests'
 import { expectOnTop } from '../../fixtures/mobile.fixture'
 import { expectToggle } from '../../fixtures/selection'
@@ -201,7 +202,7 @@ test.describe('메일 작성·발송', () => {
     await page.getByTestId('mail-row-5').click()
     await page.getByTestId('mail-reply').click()
     // 답장 도크에 발신자 주소 자동 입력 검증.
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('alice@example.com')
+    await expectRecipientChips(page, 'to', ['alice@example.com'])
     await page.getByTestId('mail-compose-send').click()
 
     // payload: inReplyToMessageId = 5, subject Re: 로 시작, to = alice.
@@ -277,7 +278,7 @@ test.describe('메일 작성·발송', () => {
     await page.getByTestId('rail-link-/mail').click()
     await page.waitForURL(/\/mail/)
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('draft@example.com')
+    await expectRecipientChips(page, 'to', ['draft@example.com'])
     await expect(page.getByTestId('mail-compose-subject')).toHaveValue('Draft survival test')
   })
 
@@ -366,7 +367,8 @@ test.describe('메일 작성창 크게 보기 (WP-575)', () => {
     // 창 바깥(왼쪽 위 구석)을 누른다.
     await page.getByTestId('mail-compose-backdrop').click({ position: { x: 10, y: 10 } })
     await expect(page.getByTestId('mail-compose-backdrop')).toHaveCount(0)
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('keep@test.local')
+    // 칸을 떠나면 쓰던 주소는 칩으로 굳는다(WP-945).
+    await expectRecipientChips(page, 'to', ['keep@test.local'])
     expect((await dockBox(page)).width).toBeLessThan(560)
   })
 

@@ -7,36 +7,47 @@ export interface MailRecipient {
 }
 
 /**
- * `이름 <a@b>, "성, 이름" <c@d>, e@f` 형태의 주소 목록을 나눈다.
- * 쉼표·세미콜론으로 나누되 따옴표·꺾쇠 안의 구분자는 무시한다 — 이름에 쉼표가 든 수신자가 둘로 갈라지지 않게.
+ * 주소 목록 글자에서 사람 사이 구분자(쉼표·세미콜론) 위치들. 따옴표·꺾쇠 안의 구분자는 건너뛴다 — 이름에 쉼표가 든 수신자가 둘로 갈라지지
+ * 않게. 끝까지 닫히지 않은 따옴표·꺾쇠(`Kim <kim@x.com, lee@y.com` 처럼 > 를 빠뜨림)는 감싼 것으로 보지 않는다 — 그 뒤 구분자를 놓치면
+ * 여러 주소가 한 수신인으로 묶여 잘못 보내진다(WP-945).
  */
-export function parseAddressList(raw: string | null | undefined): MailRecipient[] {
-  if (!raw) return []
-  const tokens: string[] = []
-  let cur = ''
+export function addressSeparatorIndexes(raw: string, honorQuote = true, honorAngle = true): number[] {
+  const out: number[] = []
   let inQuote = false
   let inAngle = false
-  for (const ch of raw) {
-    if (ch === '"') inQuote = !inQuote
-    else if (ch === '<' && !inQuote) inAngle = true
-    else if (ch === '>' && !inQuote) inAngle = false
-    if ((ch === ',' || ch === ';') && !inQuote && !inAngle) {
-      tokens.push(cur)
-      cur = ''
-    } else {
-      cur += ch
-    }
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i]
+    if (ch === '"' && honorQuote) inQuote = !inQuote
+    else if (ch === '<' && honorAngle && !inQuote) inAngle = true
+    else if (ch === '>' && honorAngle && !inQuote) inAngle = false
+    else if ((ch === ',' || ch === ';') && !inQuote && !inAngle) out.push(i)
   }
-  tokens.push(cur)
-  return tokens
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .map((t) => {
-      const m = t.match(/^(.*?)\s*<([^>]+)>\s*$/)
-      if (!m) return { name: null, address: t }
-      const name = m[1].trim().replace(/^"(.*)"$/, '$1').trim()
-      return { name: name || null, address: m[2].trim() }
-    })
+  if (inQuote) return addressSeparatorIndexes(raw, false, honorAngle)
+  if (inAngle) return addressSeparatorIndexes(raw, honorQuote, false)
+  return out
+}
+
+/** 사람 한 명 표기(`이름 <주소>`·`"성, 이름" <주소>`·주소) → 수신자. 빈 글자면 null. */
+function parseOne(token: string): MailRecipient | null {
+  const t = token.trim()
+  if (!t) return null
+  const m = t.match(/^(.*?)\s*<([^>]+)>\s*$/)
+  if (!m) return { name: null, address: t }
+  const name = m[1].trim().replace(/^"(.*)"$/, '$1').trim()
+  return { name: name || null, address: m[2].trim() }
+}
+
+/** `이름 <a@b>, "성, 이름" <c@d>, e@f` 형태의 주소 목록을 사람 단위로 나눈다(구분 규칙은 addressSeparatorIndexes). */
+export function parseAddressList(raw: string | null | undefined): MailRecipient[] {
+  if (!raw) return []
+  const out: MailRecipient[] = []
+  let start = 0
+  for (const cut of [...addressSeparatorIndexes(raw), raw.length]) {
+    const r = parseOne(raw.slice(start, cut))
+    if (r) out.push(r)
+    start = cut + 1
+  }
+  return out
 }
 
 /** 요약에 쓰는 짧은 이름 — 표시 이름, 없으면 주소의 @ 앞(로컬파트). */

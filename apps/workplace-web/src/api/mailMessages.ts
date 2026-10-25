@@ -18,6 +18,7 @@ import type {
   MailSyncStatus,
   MailUnreadCounts,
   PromoteToIssuePayload,
+  RecentRecipient,
   SendResult,
 } from '../types/mailMessage';
 import { fetchBlobByPath } from './blobContent';
@@ -265,6 +266,12 @@ export async function sendMail(
     `/mail/accounts/${accountId}/send`,
     body,
   );
+  return data;
+}
+
+/** 최근 수신인(WP-945) — 내가 최근 보낸 메일의 수신인을 마지막으로 보낸 순으로 limit 명(최대 200)까지. 거르기는 브라우저에서 한다. */
+export async function fetchRecentRecipients(limit: number): Promise<RecentRecipient[]> {
+  const { data } = await client.get<RecentRecipient[]>('/mail/recent-recipients', { params: { limit } });
   return data;
 }
 
