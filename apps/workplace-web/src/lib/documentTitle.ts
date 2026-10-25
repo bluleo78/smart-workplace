@@ -25,8 +25,13 @@ const SETTINGS_TITLES: Record<string, string> = {
   agents: '에이전트',
   roles: '역할',
   sso: 'SSO',
-  'wiki-sharing': '노트 공유',
   'audit-logs': '감사 로그',
+}
+
+// 설정 › 앱 설정 하위 화면 이름(WP-887) — /settings/apps/{앱}. 사이드바 「앱 설정」 항목 이름과 같게 둔다.
+const SETTINGS_APP_TITLES: Record<string, string> = {
+  work: '작업 관리',
+  wiki: '노트',
 }
 
 /**
@@ -36,7 +41,7 @@ const SETTINGS_TITLES: Record<string, string> = {
  */
 export function routeTitleParts(pathname: string): string[] {
   const seg = pathname.split('/').filter(Boolean)
-  const [first, second] = seg
+  const [first, second, third] = seg
   switch (first) {
     case undefined:
       return ['홈']
@@ -70,7 +75,7 @@ export function routeTitleParts(pathname: string): string[] {
     case 'contacts':
       return ['연락처']
     case 'settings': {
-      const sub = second ? SETTINGS_TITLES[second] : undefined
+      const sub = second === 'apps' ? (third ? SETTINGS_APP_TITLES[third] : undefined) : second ? SETTINGS_TITLES[second] : undefined
       return sub ? [sub, '설정'] : ['설정']
     }
     default:

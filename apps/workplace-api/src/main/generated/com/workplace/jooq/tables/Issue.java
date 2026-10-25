@@ -18,10 +18,12 @@ import com.workplace.jooq.tables.IssueBodyImage.IssueBodyImagePath;
 import com.workplace.jooq.tables.IssueComment.IssueCommentPath;
 import com.workplace.jooq.tables.IssueCycle.IssueCyclePath;
 import com.workplace.jooq.tables.IssueDependency.IssueDependencyPath;
+import com.workplace.jooq.tables.IssueExternalLink.IssueExternalLinkPath;
 import com.workplace.jooq.tables.IssueFieldDef.IssueFieldDefPath;
 import com.workplace.jooq.tables.IssueFieldValue.IssueFieldValuePath;
 import com.workplace.jooq.tables.IssueHistory.IssueHistoryPath;
 import com.workplace.jooq.tables.IssueLabel.IssueLabelPath;
+import com.workplace.jooq.tables.IssueRelation.IssueRelationPath;
 import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
 import com.workplace.jooq.tables.Label.LabelPath;
@@ -535,6 +537,19 @@ public class Issue extends TableImpl<IssueRecord> {
         return _issueDependencyIssueIdFkey;
     }
 
+    private transient IssueExternalLinkPath _issueExternalLink;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_external_link</code> table
+     */
+    public IssueExternalLinkPath issueExternalLink() {
+        if (_issueExternalLink == null)
+            _issueExternalLink = new IssueExternalLinkPath(this, null, Keys.ISSUE_EXTERNAL_LINK__ISSUE_EXTERNAL_LINK_ISSUE_ID_FKEY.getInverseKey());
+
+        return _issueExternalLink;
+    }
+
     private transient IssueFieldValuePath _issueFieldValue;
 
     /**
@@ -572,6 +587,34 @@ public class Issue extends TableImpl<IssueRecord> {
             _issueLabel = new IssueLabelPath(this, null, Keys.ISSUE_LABEL__ISSUE_LABEL_ISSUE_ID_FKEY.getInverseKey());
 
         return _issueLabel;
+    }
+
+    private transient IssueRelationPath _issueRelationSourceIssueIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_relation</code> table, via the
+     * <code>issue_relation_source_issue_id_fkey</code> key
+     */
+    public IssueRelationPath issueRelationSourceIssueIdFkey() {
+        if (_issueRelationSourceIssueIdFkey == null)
+            _issueRelationSourceIssueIdFkey = new IssueRelationPath(this, null, Keys.ISSUE_RELATION__ISSUE_RELATION_SOURCE_ISSUE_ID_FKEY.getInverseKey());
+
+        return _issueRelationSourceIssueIdFkey;
+    }
+
+    private transient IssueRelationPath _issueRelationTargetIssueIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_relation</code> table, via the
+     * <code>issue_relation_target_issue_id_fkey</code> key
+     */
+    public IssueRelationPath issueRelationTargetIssueIdFkey() {
+        if (_issueRelationTargetIssueIdFkey == null)
+            _issueRelationTargetIssueIdFkey = new IssueRelationPath(this, null, Keys.ISSUE_RELATION__ISSUE_RELATION_TARGET_ISSUE_ID_FKEY.getInverseKey());
+
+        return _issueRelationTargetIssueIdFkey;
     }
 
     private transient IssueWatcherPath _issueWatcher;

@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.issue.domain.IssueDependencyGraph;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.exception.DependencyCycleException;
 import com.workplace.issue.exception.InvalidDependencyException;
@@ -9,10 +10,6 @@ import com.workplace.issue.repository.IssueDependencyRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.service.ProjectAccessGuard;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.HashSet;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -124,17 +121,6 @@ public class IssueDependencyService {
    * 사이클 없음을 가정.
    */
   private boolean wouldCycle(Long fromId, Long toId) {
-    Set<Long> visited = new HashSet<>();
-    Deque<Long> stack = new ArrayDeque<>();
-    stack.push(toId);
-    while (!stack.isEmpty()) {
-      Long cur = stack.pop();
-      if (cur.equals(fromId)) return true;
-      if (!visited.add(cur)) continue;
-      for (Long next : depRepository.findBlocksOf(cur)) {
-        stack.push(next);
-      }
-    }
-    return false;
+    return IssueDependencyGraph.reaches(toId, fromId, depRepository::findBlocksOf);
   }
 }

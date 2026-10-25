@@ -26,6 +26,7 @@ public final class AdminPermissionCodes {
           "audit:read",
           "wiki_share:manage",
           "user-group:manage",
+          "issue_relation_type:manage",
           "platform:tenant:create",
           "platform:tenant:read",
           "platform:tenant:suspend",

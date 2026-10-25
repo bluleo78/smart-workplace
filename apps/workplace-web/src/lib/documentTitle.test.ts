@@ -36,6 +36,10 @@ describe('routeTitleParts', () => {
     ['/settings/profile', ['프로필', '설정']],
     ['/settings/users/4', ['구성원', '설정']],
     ['/settings', ['설정']],
+    // 앱 설정(WP-887) — 세 번째 조각이 앱.
+    ['/settings/apps/work', ['작업 관리', '설정']],
+    ['/settings/apps/wiki', ['노트', '설정']],
+    ['/settings/apps', ['설정']],
     ['/login', ['로그인']],
   ])('%s → %j', (path, parts) => {
     expect(routeTitleParts(path)).toEqual(parts)

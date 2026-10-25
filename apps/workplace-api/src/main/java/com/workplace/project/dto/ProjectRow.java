@@ -12,4 +12,10 @@ public record ProjectRow(
     String type,
     boolean isDefault,
     Instant createdAt,
-    Instant updatedAt) {}
+    Instant updatedAt) {
+
+  /** 개인 프로젝트인가 — 소유자만 보고, 다른 프로젝트와 관계를 맺지 않으며, 가져오기 대상이 아니다. */
+  public boolean isPersonal() {
+    return "PERSONAL".equals(type);
+  }
+}

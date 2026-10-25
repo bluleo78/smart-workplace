@@ -33,6 +33,52 @@ describe('normalizeIssueDetail agentWork (WP-377)', () => {
   });
 });
 
+describe('normalizeIssueDetail relations·externalLinks (WP-887)', () => {
+  const relations = [
+    { id: 31, typeId: 2, typeCode: 'RELATES', label: '관련', issue: { projectKey: 'AB', number: 7, title: '다른 팀 이슈', status: 'TODO', type: null } },
+    { id: 32, typeId: 9, typeCode: null, label: '검토 요청받음', issue: { projectKey: 'WP', number: 3, title: '검토', status: 'DONE', type: { id: 1, name: 'TASK' } } },
+  ];
+  const externalLinks = [
+    { id: 41, typeId: 6, typeCode: 'PARENT_EPIC', label: '에픽에 속함', url: 'https://jira.example/CLIM-1', key: 'CLIM-1', title: '외부 에픽' },
+    { id: 42, typeId: 9, typeCode: null, label: '검토를 요청함', url: 'https://x.example/1', key: null, title: '키 없음' },
+  ];
+
+  it('서버가 거른 top-level relations·externalLinks 만 옮기고 id·유형 id 는 내보내지 않는다', () => {
+    const d = normalizeIssueDetail({ ...raw, relations, externalLinks }, { relationTypeNames: new Map([[9, '검토 요청']]) });
+    expect(d.relations).toEqual([
+      { relationId: 31, type: 'RELATES', label: '관련', issueKey: 'AB-7', title: '다른 팀 이슈', status: 'TODO' },
+      { relationId: 32, type: '검토 요청', label: '검토 요청받음', issueKey: 'WP-3', title: '검토', status: 'DONE' },
+    ]);
+    expect(d.externalLinks).toEqual([
+      { externalLinkId: 41, type: 'PARENT_EPIC', label: '에픽에 속함', key: 'CLIM-1', title: '외부 에픽', url: 'https://jira.example/CLIM-1' },
+      { externalLinkId: 42, type: '검토 요청', label: '검토를 요청함', key: null, title: '키 없음', url: 'https://x.example/1' },
+    ]);
+    expect(JSON.stringify(d.relations)).not.toMatch(/typeId/);
+  });
+
+  it('사용자 정의 유형 이름을 모르면 type 은 이 이슈 쪽 말로 대신한다', () => {
+    expect(normalizeIssueDetail({ ...raw, relations }).relations[1].type).toBe('검토 요청받음');
+  });
+
+  it('필드가 없으면 빈 배열 — 차단은 relations 에 섞이지 않는다', () => {
+    const d = normalizeIssueDetail(raw);
+    expect(d.relations).toEqual([]);
+    expect(d.externalLinks).toEqual([]);
+    expect(d.blockedBy).toHaveLength(1);
+  });
+
+  it('관계·외부 링크 이력은 JSON 으로 풀고 유형 id 를 뺀다(가려진 상대는 서버가 준 hidden 그대로)', () => {
+    const history = [
+      { createdAt: '2026-10-24T00:00:00Z', eventType: 'RELATION_ADDED', actorUsername: 'alice', actorName: 'Alice', toValue: JSON.stringify({ typeId: 2, label: '관련', other: { hidden: true } }) },
+      { createdAt: '2026-10-24T00:01:00Z', eventType: 'EXTERNAL_LINK_UPDATED', actorUsername: 'alice', actorName: 'Alice', fromValue: JSON.stringify({ label: '관련', key: null, title: '옛', url: 'https://x.example' }), toValue: JSON.stringify({ label: '관련', key: 'K-1', title: '새', url: 'https://x.example' }) },
+    ];
+    const d = normalizeIssueDetail({ ...raw, history });
+    expect(d.history[0].to).toEqual({ label: '관련', other: { hidden: true } });
+    expect(d.history[1].from).toMatchObject({ title: '옛' });
+    expect(d.history[1].to).toMatchObject({ key: 'K-1', title: '새' });
+  });
+});
+
 describe('normalizeIssueDetail', () => {
   it('WP-807: 범주(status)와 함께 프로젝트 상태 이름(statusName)을 준다', () => {
     const d = normalizeIssueDetail({ ...raw, summary: { ...raw.summary, statusName: '검토 중' } });

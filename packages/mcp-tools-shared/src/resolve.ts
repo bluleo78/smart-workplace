@@ -2,6 +2,7 @@
 // 유형명·라벨명은 프로젝트당 UNIQUE, username 은 전역 UNIQUE 이므로 첫 매치가 곧 유일 매치다.
 // 매치 실패 시 유효 목록을 담아 throw → 호출측(도구 레이어)이 그대로 전파하거나 래핑한다.
 // workplace-mcp(PatApiClient)와 workplace-ai-agent(WorkplaceApiClient 어댑터) 양쪽에서 공유한다.
+import type { IssueRelationTypeRow } from './tool-client.js';
 
 /** 리졸브에 필요한 최소 구조적 인터페이스. 양쪽 앱의 API 클라이언트가 이 시그니처를 만족하면 된다. */
 export interface ProjectMetaClient {
@@ -47,6 +48,31 @@ export function rowByName<T extends { name: string }>(rows: T[], name: string, w
 /** 유형 이름 → typeId. */
 export async function resolveTypeId(client: Pick<ProjectMetaClient, 'getProjectTypes'>, projectKey: string, typeName: string): Promise<number> {
   return idByName(await client.getProjectTypes(projectKey), typeName, '유형');
+}
+
+/**
+ * 관계 유형 입력(코드 또는 이름) → 유형 행(WP-887). 앞뒤 공백은 무시한다.
+ * 찾는 순서(서버 `resolveByCodeOrName`·가져오기와 같은 규칙 + 마지막 관용 한 단계):
+ *  1) 코드 정확 일치(`RELATES`) — 기본 유형은 코드로 부르는 게 정식이다.
+ *  2) 이름 대소문자 무시 일치 — 서버가 이름 중복을 대소문자 무시로 막으므로 한 행만 걸린다. 코드보다 뒤지만 「대소문자 무시 코드」보다는 앞이라,
+ *     `relates` 처럼 코드와 철자만 같은 이름의 사용자 정의 유형도 정확한 이름으로 부를 수 있다.
+ *  3) 코드 대소문자 무시 일치(`relates` → RELATES) — LLM 이 소문자로 쓴 코드를 받아 주는 관용 단계. 서버가 받는 입력(1·2)은 서버와 같은 행으로 풀린다.
+ * 없으면 쓸 수 있는 이름 목록을 담아 throw 해 LLM 이 스스로 고치게 하고(다른 리졸브와 같은 규칙), 숨긴 유형은 새로 걸 수 없다고 거절한다(숨긴 유형의
+ * 기존 관계는 그대로 보이지만 화면·MCP 로는 더 못 건다).
+ */
+export function resolveRelationType(types: IssueRelationTypeRow[], input: string): IssueRelationTypeRow {
+  const wanted = input.trim();
+  const lower = wanted.toLowerCase();
+  const found =
+    types.find((t) => t.code === wanted) ??
+    types.find((t) => t.name.toLowerCase() === lower) ??
+    types.find((t) => t.code?.toLowerCase() === lower);
+  if (!found) {
+    const usable = types.filter((t) => !t.hidden).map((t) => t.code ?? t.name);
+    throw new Error(`관계 유형 '${input}' 을(를) 찾을 수 없습니다. 사용 가능: ${usable.join(', ') || '(없음)'}`);
+  }
+  if (found.hidden) throw new Error(`관계 유형 '${input}' 은(는) 숨겨져 있어 새로 걸 수 없습니다.`);
+  return found;
 }
 
 /** 이슈 상태 범주(WP-807) — 프로젝트 상태는 모두 이 넷 중 하나에 속한다. 도구의 status 값이 이 중 하나면 범주로 본다. */

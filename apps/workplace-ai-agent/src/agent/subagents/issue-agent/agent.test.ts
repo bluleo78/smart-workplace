@@ -25,6 +25,9 @@ describe('issue-agent 정의', () => {
       // #844: 의존관계 쓰기 + 쓰기 값 조달용 조회(유형·라벨, 사람 username)
       'mcp__workplace__link_issues', // WP-812: 의존관계 추가·제거 통합(linked)
       'mcp__workplace__react', // WP-812: 이슈 코멘트 반응
+      // WP-887: 관련·중복·복제·원인 등 관계·외부 링크(차단 제외)
+      'mcp__workplace__add_issue_relation',
+      'mcp__workplace__remove_issue_relation',
       // #854: 이슈 워치/해제(멱등) — WP-421 에서 watch_issue(watching) 하나로 합쳐졌다
       'mcp__workplace__watch_issue',
       // WP-421: 첨부용 텍스트 파일 올려 두기(AI Chat 은 content 모드만)
@@ -48,6 +51,16 @@ describe('issue-agent 정의', () => {
     }
     // 드라이브 조회 도구가 없으므로 driveFileId 는 라우터가 위임 prompt 에 적어 준 값만 쓴다.
     expect(prompt).toContain('위임 prompt 에 라우터가 적어 준 값');
+  });
+
+  // WP-887: 관계 유형은 「이 이슈는 ___」 서술어로 읽고, 차단은 link_issues 로 건다.
+  it('WP-887: 관계 서술어 규칙·relationTypes 출처·차단은 link_issues·지우기 id 출처를 안내한다', () => {
+    const prompt = loaded['issue-agent'].prompt;
+    expect(prompt).toContain('add_issue_relation(issueKey, type, otherIssueKey | externalLink, side?)');
+    expect(prompt).toContain('「이 이슈는 ___」 서술어');
+    expect(prompt).toContain('`relationTypes`');
+    expect(prompt).toContain('**차단은 이 도구가 아니라 `link_issues`**');
+    expect(prompt).toContain('`relations[]`·`externalLinks[]`');
   });
 
   // WP-346: 첨부는 get_issue_detail 의 attachments[].attachmentId 로 source "issue" 읽기(WP-353: fileId → attachmentId).

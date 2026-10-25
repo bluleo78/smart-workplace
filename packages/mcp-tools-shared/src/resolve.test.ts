@@ -5,6 +5,7 @@ import {
   resolveAssigneeIds,
   resolveCycleIds,
   resolveMilestoneId,
+  resolveRelationType,
   resolveTypeId,
   rowByName,
   toFieldValue,
@@ -14,6 +15,7 @@ import {
   type CurrentUserClient,
   type ProjectMetaClient,
 } from './resolve.js';
+import type { IssueRelationTypeRow } from './tool-client.js';
 
 /** 리졸브 소스만 채운 mock 클라이언트. 호출자(me)는 alice(10). */
 function client(): ProjectMetaClient & CurrentUserClient {
@@ -193,5 +195,44 @@ describe('마일스톤·사이클 리졸브 (#854)', () => {
   it('사이클 이름 배열 → id 배열, 하나라도 없으면 throw', async () => {
     expect(await resolveCycleIds(client(), 'WP', ['Sprint 4', 'Sprint 3'])).toEqual([31, 30]);
     await expect(resolveCycleIds(client(), 'WP', ['Sprint 3', 'Sprint 9'])).rejects.toThrow('Sprint 9');
+  });
+});
+
+// WP-887: 관계 유형 입력 — 코드 정확 일치 → 이름(대소문자 무시) → 코드(대소문자 무시) 순.
+describe('resolveRelationType', () => {
+  const row = (id: number, code: string | null, name: string, hidden = false): IssueRelationTypeRow => ({
+    id,
+    code,
+    name,
+    directed: false,
+    outwardLabel: name,
+    inwardLabel: null,
+    externalOnly: false,
+    hidden,
+  } as IssueRelationTypeRow);
+  const types = [row(1, 'RELATES', '관련'), row(2, 'CAUSES', '원인'), row(3, null, 'Follows'), row(4, null, 'relates'), row(5, null, '감춤', true)];
+
+  it('코드는 정확히 같으면 이름보다 먼저 — RELATES 는 기본 유형', () => {
+    expect(resolveRelationType(types, ' RELATES ').id).toBe(1);
+  });
+
+  it('이름은 대소문자를 가리지 않는다(서버·가져오기와 같은 규칙)', () => {
+    expect(resolveRelationType(types, 'follows').id).toBe(3);
+    expect(resolveRelationType(types, 'FOLLOWS').id).toBe(3);
+    expect(resolveRelationType(types, '원인').id).toBe(2);
+  });
+
+  it('코드와 철자만 같은 사용자 정의 이름도 정확한 이름으로 닿는다 — 이름이 대소문자 무시 코드보다 앞', () => {
+    expect(resolveRelationType(types, 'relates').id).toBe(4);
+    expect(resolveRelationType(types, 'Relates').id).toBe(4);
+  });
+
+  it('겹치는 이름이 없으면 소문자 코드도 받아 준다', () => {
+    expect(resolveRelationType(types, 'causes').id).toBe(2);
+  });
+
+  it('없는 유형은 사용 가능 목록과 함께, 숨긴 유형은 새로 걸 수 없다고 거절한다', () => {
+    expect(() => resolveRelationType(types, '없음')).toThrow('사용 가능: RELATES, CAUSES, Follows, relates');
+    expect(() => resolveRelationType(types, '감춤')).toThrow('숨겨져');
   });
 });

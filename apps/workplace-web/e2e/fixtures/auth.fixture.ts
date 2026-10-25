@@ -4,6 +4,7 @@ import type { TokenResponse, UserResponse } from '../../src/types/auth'
 import type { RoleResponse } from '../../src/types/role'
 import { createTokenResponse, createUser } from '../factories/auth.factory'
 import { defaultNotificationSettings } from '../factories/notificationSettings.factory'
+import { defaultRelationTypes } from '../factories/issueRelation.factory'
 import { seedStatuses } from '../factories/projectStatus.factory'
 import { mockApi } from './api-mock'
 import { collabTestToken, injectCollabNamespace } from './collab'
@@ -148,6 +149,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 고정뷰를 검증하는 spec 은 더 구체적 목록을 나중에 등록 → 그쪽이 우선한다.
   await mockApi(page, 'GET', '/api/v1/me/pinned-views', [])
+  // WP-887: 이슈 「관계」 그룹(관계가 있을 때)·「＋ 관계 추가」 창이 관계 유형 목록을 부른다 — 기본 유형 6종 스텁. 검증 spec 이 나중에 등록하면 그쪽이 우선(LIFO).
+  await mockApi(page, 'GET', '/api/v1/issue-relation-types', defaultRelationTypes())
   // #878: 팀 프로젝트 목록은 사이클 유무로 기본 그룹(사이클/없음)을 정하므로 /cycles 응답을 기다린다.
   // 미스텁이면 503+재시도 동안 스켈레톤이 떠 목록 단언이 느려지므로 빈 기본 스텁(=사이클 없음 → 평면 목록)을 깐다.
   // 사이클을 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.

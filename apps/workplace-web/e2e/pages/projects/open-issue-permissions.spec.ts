@@ -257,8 +257,8 @@ test('OPEN reporter(비멤버): 유형 배지 옆 「멤버만 변경」을 누�
 });
 
 // 서버가 멤버만 허용하는 라벨·의존성·커스텀 필드·AI 제안(우선순위·유형·라벨 변경)도 비멤버에겐 막는다 — 예전엔 열려 있어 누르면 403,
-// AI 제안은 셋 다 403 인데도 「적용했습니다」 토스트가 떴다(WP-503). 위젯별 분기는 IssueDependenciesSection·CustomFieldEditor 컴포넌트 테스트.
-test('OPEN reporter(비멤버): 라벨·의존성·커스텀 필드는 꺼져 있고 AI 제안 버튼은 없다', async ({ authenticatedPage: page }) => {
+// AI 제안은 셋 다 403 인데도 「적용했습니다」 토스트가 떴다(WP-503). 위젯별 분기는 IssueRelationsSection·CustomFieldEditor 컴포넌트 테스트.
+test('OPEN reporter(비멤버): 라벨·관계·커스텀 필드는 꺼져 있고 AI 제안 버튼은 없다', async ({ authenticatedPage: page }) => {
   await setupOpenProjectMocks(page, {
     viewerCanEditContent: true,
     viewerCanEditWorkflow: false,
@@ -280,8 +280,10 @@ test('OPEN reporter(비멤버): 라벨·의존성·커스텀 필드는 꺼져 �
   await expect(page.getByRole('button', { name: /AI 제안/ })).toHaveCount(0);
   await page.getByTestId('property-group-classification').getByRole('button', { name: /분류/ }).click();
   await expect(page.getByTestId('label-picker-trigger')).toBeDisabled();
-  await page.getByTestId('property-group-dependencies').getByRole('button', { name: /의존성/ }).click();
-  await expect(page.getByTestId('issue-link-picker-trigger-blockedBy')).toBeDisabled();
+  // 관계(WP-887, 옛 의존성) — 편집 권한이 없으면 그룹 머리의 「＋ 관계 추가」 자체가 없다.
+  await page.getByTestId('property-group-relations').getByRole('button', { name: /^관계(\s*\d+)?$/ }).click();
+  await expect(page.getByTestId('issue-relations-section')).toBeVisible();
+  await expect(page.getByTestId('issue-relation-add')).toHaveCount(0);
   await page.getByTestId('property-group-custom-fields').getByRole('button', { name: /커스텀 필드/ }).click();
   await expect(page.getByTestId('field-input-11')).toBeDisabled();
 });

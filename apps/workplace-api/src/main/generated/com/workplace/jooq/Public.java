@@ -61,10 +61,13 @@ import com.workplace.jooq.tables.IssueComment;
 import com.workplace.jooq.tables.IssueCommentReaction;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
+import com.workplace.jooq.tables.IssueExternalLink;
 import com.workplace.jooq.tables.IssueFieldDef;
 import com.workplace.jooq.tables.IssueFieldValue;
 import com.workplace.jooq.tables.IssueHistory;
 import com.workplace.jooq.tables.IssueLabel;
+import com.workplace.jooq.tables.IssueRelation;
+import com.workplace.jooq.tables.IssueRelationType;
 import com.workplace.jooq.tables.IssueTypeDef;
 import com.workplace.jooq.tables.IssueWatcher;
 import com.workplace.jooq.tables.Label;
@@ -439,6 +442,11 @@ public class Public extends SchemaImpl {
     public final IssueDependency ISSUE_DEPENDENCY = IssueDependency.ISSUE_DEPENDENCY;
 
     /**
+     * The table <code>public.issue_external_link</code>.
+     */
+    public final IssueExternalLink ISSUE_EXTERNAL_LINK = IssueExternalLink.ISSUE_EXTERNAL_LINK;
+
+    /**
      * The table <code>public.issue_field_def</code>.
      */
     public final IssueFieldDef ISSUE_FIELD_DEF = IssueFieldDef.ISSUE_FIELD_DEF;
@@ -457,6 +465,16 @@ public class Public extends SchemaImpl {
      * The table <code>public.issue_label</code>.
      */
     public final IssueLabel ISSUE_LABEL = IssueLabel.ISSUE_LABEL;
+
+    /**
+     * The table <code>public.issue_relation</code>.
+     */
+    public final IssueRelation ISSUE_RELATION = IssueRelation.ISSUE_RELATION;
+
+    /**
+     * The table <code>public.issue_relation_type</code>.
+     */
+    public final IssueRelationType ISSUE_RELATION_TYPE = IssueRelationType.ISSUE_RELATION_TYPE;
 
     /**
      * The table <code>public.issue_type_def</code>.
@@ -864,10 +882,13 @@ public class Public extends SchemaImpl {
             IssueCommentReaction.ISSUE_COMMENT_REACTION,
             IssueCycle.ISSUE_CYCLE,
             IssueDependency.ISSUE_DEPENDENCY,
+            IssueExternalLink.ISSUE_EXTERNAL_LINK,
             IssueFieldDef.ISSUE_FIELD_DEF,
             IssueFieldValue.ISSUE_FIELD_VALUE,
             IssueHistory.ISSUE_HISTORY,
             IssueLabel.ISSUE_LABEL,
+            IssueRelation.ISSUE_RELATION,
+            IssueRelationType.ISSUE_RELATION_TYPE,
             IssueTypeDef.ISSUE_TYPE_DEF,
             IssueWatcher.ISSUE_WATCHER,
             Label.LABEL,

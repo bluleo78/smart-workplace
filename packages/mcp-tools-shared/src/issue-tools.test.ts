@@ -4,6 +4,17 @@ import { buildSharedIssueTools } from './issue-tools.js';
 import type { IssueToolClient } from './tool-client.js';
 import { resultText } from './mcp-content.js';
 
+/** 관계 유형 목록 mock(GET /issue-relation-types) — 기본 유형 일부 + 사용자 정의 유형 + 숨긴 유형. */
+const relationType = (o: Record<string, unknown>) => ({ id: 0, code: null, name: '', directed: true, outwardLabel: '', inwardLabel: null, externalOnly: false, hidden: false, sortOrder: 1000, ...o });
+const RELATION_TYPES = [
+  relationType({ id: 1, code: 'BLOCKS', name: '차단', outwardLabel: '차단 중', inwardLabel: '차단됨', sortOrder: 10 }),
+  relationType({ id: 2, code: 'RELATES', name: '관련', directed: false, outwardLabel: '관련', sortOrder: 20 }),
+  relationType({ id: 3, code: 'DUPLICATES', name: '중복', outwardLabel: '중복임', inwardLabel: '원본임', sortOrder: 30 }),
+  relationType({ id: 6, code: 'PARENT_EPIC', name: '상위 에픽', outwardLabel: '에픽에 속함', externalOnly: true, sortOrder: 60 }),
+  relationType({ id: 9, name: '검토 요청', outwardLabel: '검토를 요청함', inwardLabel: '검토 요청받음' }),
+  relationType({ id: 10, name: '옛 유형', outwardLabel: '옛', inwardLabel: '옛2', hidden: true }),
+];
+
 /** 전 메서드 vi.fn() 인 mock. 개별 테스트에서 필요한 것만 재설정. */
 function mockClient(): IssueToolClient {
   return {
@@ -26,6 +37,11 @@ function mockClient(): IssueToolClient {
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
     addCommentReaction: vi.fn().mockResolvedValue(undefined),
     removeCommentReaction: vi.fn().mockResolvedValue(undefined),
+    addIssueRelation: vi.fn().mockResolvedValue([]),
+    removeIssueRelation: vi.fn().mockResolvedValue(undefined),
+    addIssueExternalLink: vi.fn().mockResolvedValue([]),
+    removeIssueExternalLink: vi.fn().mockResolvedValue(undefined),
+    listIssueRelationTypes: vi.fn().mockResolvedValue(RELATION_TYPES),
     getProjectMilestones: vi.fn().mockResolvedValue([{ id: 7, name: 'v1.0' }]),
     getProjectCycles: vi.fn().mockResolvedValue([{ id: 30, name: 'Sprint 3' }]),
     replaceIssueCycles: vi.fn().mockResolvedValue([]),
@@ -54,17 +70,19 @@ function mockClient(): IssueToolClient {
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 10종을 반환한다', () => {
+  it('정확히 12종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [
         'add_comment',
         'link_issues',
+        'add_issue_relation',
         'claim_issue',
         'create_issue',
         'update_comment',
         'get_issue_chat',
         'get_issue_detail',
+        'remove_issue_relation',
         'report_agent_work',
         'update_issue',
         'watch_issue',
@@ -838,5 +856,118 @@ describe('get_issue_chat (WP-373)', () => {
     expect(cut.hasMore).toBe(false);
     vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: rows.slice(0, 1), nextCursor: null, hasMore: false });
     expect('truncated' in JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })))).toBe(false);
+  });
+});
+
+describe('이슈 관계·외부 링크 도구 (WP-887)', () => {
+  const addTool = (c: IssueToolClient) => buildSharedIssueTools(c).find((x) => x.name === 'add_issue_relation')!;
+  const removeTool = (c: IssueToolClient) => buildSharedIssueTools(c).find((x) => x.name === 'remove_issue_relation')!;
+  /** 서버가 돌려주는 상세 raw(관계·외부 링크 포함) — 쓰기 뒤 결과 조립이 이걸 다시 읽는다. */
+  const detailRaw = {
+    summary: { projectKey: 'WP', number: 1, title: 't', status: 'TODO', priority: 'MID', assignees: [] },
+    relations: [{ id: 31, typeId: 2, typeCode: 'RELATES', label: '관련', issue: { projectKey: 'AB', number: 7, title: '다른 팀', status: 'TODO', type: null } }],
+    externalLinks: [{ id: 41, typeId: 9, typeCode: null, label: '검토를 요청함', url: 'https://jira.example/CLIM-1', key: 'CLIM-1', title: '외부' }],
+    comments: [], history: [], attachments: [],
+  };
+
+  it('add_issue_relation: 코드로 유형을 풀어 POST — side 기본 source, 같은 프로젝트도 키를 실어 보낸다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue(detailRaw);
+    const out = JSON.parse(resultText(await addTool(c).handler({ issueKey: 'WP-1', type: 'relates', otherIssueKey: 'AB-7' })));
+    expect(c.addIssueRelation).toHaveBeenCalledWith('WP-1', { typeId: 2, side: 'source', target: { projectKey: 'AB', number: 7 } });
+    expect(c.addIssueExternalLink).not.toHaveBeenCalled();
+    // 결과는 두 목록 모두 — 사용자 정의 유형은 이름으로 채운다. 숫자 id 는 relationId·externalLinkId 뿐.
+    expect(out).toEqual({
+      issueKey: 'WP-1',
+      relations: [{ relationId: 31, type: 'RELATES', label: '관련', issueKey: 'AB-7', title: '다른 팀', status: 'TODO' }],
+      externalLinks: [{ externalLinkId: 41, type: '검토 요청', label: '검토를 요청함', key: 'CLIM-1', title: '외부', url: 'https://jira.example/CLIM-1' }],
+    });
+  });
+
+  it('add_issue_relation: 이름으로도 풀고 side:target 을 그대로 보낸다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue(detailRaw);
+    await addTool(c).handler({ issueKey: 'WP-1', type: '중복', side: 'target', otherIssueKey: 'WP-2' });
+    expect(c.addIssueRelation).toHaveBeenCalledWith('WP-1', { typeId: 3, side: 'target', target: { projectKey: 'WP', number: 2 } });
+  });
+
+  it('add_issue_relation: externalLink 는 외부 링크 경로로 — 외부 전용 유형도 허용, key 생략 가능', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue(detailRaw);
+    await addTool(c).handler({ issueKey: 'WP-1', type: 'PARENT_EPIC', externalLink: { url: 'https://jira.example/CLIM-1', key: 'CLIM-1', title: '에픽' } });
+    expect(c.addIssueExternalLink).toHaveBeenCalledWith('WP-1', { typeId: 6, side: 'source', url: 'https://jira.example/CLIM-1', key: 'CLIM-1', title: '에픽' });
+    expect(c.addIssueRelation).not.toHaveBeenCalled();
+    await addTool(c).handler({ issueKey: 'WP-1', type: '검토 요청', side: 'target', externalLink: { url: 'https://x.example/1', title: '키 없음' } });
+    expect(c.addIssueExternalLink).toHaveBeenLastCalledWith('WP-1', { typeId: 9, side: 'target', url: 'https://x.example/1', key: undefined, title: '키 없음' });
+  });
+
+  it('add_issue_relation: null 로 채운 반대쪽 인자는 생략으로 받는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue(detailRaw);
+    await addTool(c).handler({ issueKey: 'WP-1', type: 'RELATES', otherIssueKey: 'WP-2', externalLink: null });
+    expect(c.addIssueRelation).toHaveBeenCalledTimes(1);
+  });
+
+  it('add_issue_relation: 둘 다/둘 다 없음, 차단·외부 전용·숨김·모르는 유형은 쓰기 전에 거부한다', async () => {
+    const c = mockClient();
+    const link = { url: 'https://x.example', title: 't' };
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: 'RELATES' })).rejects.toThrow('정확히 하나');
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: 'RELATES', otherIssueKey: 'WP-2', externalLink: link })).rejects.toThrow('정확히 하나');
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: 'BLOCKS', otherIssueKey: 'WP-2' })).rejects.toThrow('link_issues');
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: '차단', otherIssueKey: 'WP-2' })).rejects.toThrow('link_issues');
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: 'PARENT_EPIC', otherIssueKey: 'WP-2' })).rejects.toThrow('externalLink');
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: '옛 유형', otherIssueKey: 'WP-2' })).rejects.toThrow('숨겨져');
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: '없는유형', otherIssueKey: 'WP-2' })).rejects.toThrow(/사용 가능: .*RELATES.*검토 요청/);
+    // 숨긴 유형은 사용 가능 목록에도 나오지 않는다.
+    const message = await addTool(c).handler({ issueKey: 'WP-1', type: '없는유형', otherIssueKey: 'WP-2' }).catch((e: Error) => e.message);
+    expect(message).not.toContain('옛 유형');
+    expect(c.addIssueRelation).not.toHaveBeenCalled();
+    expect(c.addIssueExternalLink).not.toHaveBeenCalled();
+  });
+
+  it('add_issue_relation: 서버 거절(읽을 수 없는 상대 등)은 그대로 전파한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.addIssueRelation).mockRejectedValue(new Error('상대 이슈를 찾을 수 없습니다'));
+    await expect(addTool(c).handler({ issueKey: 'WP-1', type: 'RELATES', otherIssueKey: 'XX-9' })).rejects.toThrow('상대 이슈');
+  });
+
+  it('remove_issue_relation: relationId 면 관계, externalLinkId 면 외부 링크를 지우고 "ok"', async () => {
+    const c = mockClient();
+    await expect(removeTool(c).handler({ issueKey: 'WP-1', relationId: 31 })).resolves.toBe('ok');
+    expect(c.removeIssueRelation).toHaveBeenCalledWith('WP-1', 31);
+    await expect(removeTool(c).handler({ issueKey: 'WP-1', externalLinkId: 41, relationId: null })).resolves.toBe('ok');
+    expect(c.removeIssueExternalLink).toHaveBeenCalledWith('WP-1', 41);
+  });
+
+  it('remove_issue_relation: 둘 다/둘 다 없음은 거부한다', async () => {
+    const c = mockClient();
+    await expect(removeTool(c).handler({ issueKey: 'WP-1' })).rejects.toThrow('정확히 하나');
+    await expect(removeTool(c).handler({ issueKey: 'WP-1', relationId: 1, externalLinkId: 2 })).rejects.toThrow('정확히 하나');
+    expect(c.removeIssueRelation).not.toHaveBeenCalled();
+    expect(c.removeIssueExternalLink).not.toHaveBeenCalled();
+  });
+
+  it('get_issue_detail: relations·externalLinks 를 싣고, 사용자 정의 유형이 있을 때만 유형 목록을 읽어 이름을 채운다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue(detailRaw);
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'get_issue_detail')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-1' })));
+    expect(out.relations).toEqual([{ relationId: 31, type: 'RELATES', label: '관련', issueKey: 'AB-7', title: '다른 팀', status: 'TODO' }]);
+    expect(out.externalLinks[0]).toMatchObject({ externalLinkId: 41, type: '검토 요청', key: 'CLIM-1' });
+    expect(c.listIssueRelationTypes).toHaveBeenCalledTimes(1);
+    // 기본 유형뿐이면 유형 목록을 읽지 않는다.
+    vi.mocked(c.listIssueRelationTypes).mockClear();
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ ...detailRaw, externalLinks: [] });
+    await t.handler({ issueKey: 'WP-1' });
+    expect(c.listIssueRelationTypes).not.toHaveBeenCalled();
+  });
+
+  it('get_issue_detail: 유형 목록 조회가 실패해도 상세는 돌려준다(type 은 이 이슈 쪽 말)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueDetail).mockResolvedValue(detailRaw);
+    vi.mocked(c.listIssueRelationTypes).mockRejectedValue(new Error('boom'));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'get_issue_detail')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-1' })));
+    expect(out.externalLinks[0].type).toBe('검토를 요청함');
   });
 });

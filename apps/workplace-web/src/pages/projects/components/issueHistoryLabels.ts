@@ -2,6 +2,7 @@
 // 표시명·원문 폴백은 issueGrouping 의 statusLabel/priorityLabel 을 그대로 써서 목록·보드와 같은 단어가 나오게 하고(드리프트 방지),
 // 이력 행 고유 규칙(값 없음 → '없음')만 여기서 더한다.
 import { priorityLabel, statusLabel } from '@/lib/issueGrouping';
+import { relatedIssueKey } from '@/lib/issueRelations';
 import { directionParticle } from '@/lib/utils';
 
 /** 상태 이력 값 → 표시명. null/빈 값은 '없음'. */
@@ -54,5 +55,52 @@ export function formatParentChanged(toValue: string | null, projectKey: string):
     return `${parentLabel(from, projectKey)} → ${parentLabel(to, projectKey)}`;
   } catch {
     return toValue;
+  }
+}
+
+/** 관계 이력의 상대(WP-887) — 조회자가 상대 프로젝트를 읽을 수 없으면 서버가 {hidden:true} 로 가린다. */
+type RelationOther = { projectKey?: string; number?: number; title?: string; hidden?: boolean } | null | undefined;
+
+/**
+ * RELATION_ADDED/REMOVED 이력 문구(WP-887) — toValue 는 {typeId, label, other} JSON. 「관련 「제목」(#12)」, 다른 프로젝트면 키(WPV-28).
+ * 가려진 상대는 「볼 수 없는 이슈」 — 키·제목을 드러내지 않는다. 파싱 실패·빈 값은 「관계 변경」.
+ */
+export function formatRelationChanged(toValue: string | null, projectKey: string): string {
+  const fallback = '관계 변경';
+  if (!toValue) return fallback;
+  try {
+    const p = JSON.parse(toValue) as { label?: string; other?: RelationOther };
+    const label = p.label ?? '관계';
+    const other = p.other;
+    if (!other || other.hidden || !other.projectKey || other.number == null) return `${label} 볼 수 없는 이슈`;
+    const key = relatedIssueKey(other.projectKey, projectKey, other.number);
+    return other.title ? `${label} 「${other.title}」(${key})` : `${label} ${key}`;
+  } catch {
+    return fallback;
+  }
+}
+
+/** 외부 링크 이력 값 한쪽 — {label, key, title, url}. */
+function externalLinkText(value: string): string | null {
+  const p = JSON.parse(value) as { label?: string; key?: string | null; title?: string } | null;
+  if (!p || typeof p !== 'object' || !p.title) return null;
+  const title = `「${p.title}」${p.key ? `(${p.key})` : ''}`;
+  return p.label ? `${p.label} ${title}` : title;
+}
+
+/**
+ * EXTERNAL_LINK_ADDED/UPDATED/REMOVED 이력 문구(WP-887) — 「에픽에 속함 「제목」(CL-1867)」, 수정은 「이전 → 이후」.
+ * 외부 주소는 프로젝트 권한과 무관해 가리지 않는다. 파싱 실패·빈 값은 「외부 링크 변경」.
+ */
+export function formatExternalLinkChanged(fromValue: string | null, toValue: string | null): string {
+  const fallback = '외부 링크 변경';
+  if (!toValue) return fallback;
+  try {
+    const to = externalLinkText(toValue);
+    if (!to) return fallback;
+    const from = fromValue ? externalLinkText(fromValue) : null;
+    return from ? `${from} → ${to}` : to;
+  } catch {
+    return fallback;
   }
 }

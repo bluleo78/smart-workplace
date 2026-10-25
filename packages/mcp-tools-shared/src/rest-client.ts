@@ -257,6 +257,21 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async removeIssueDependency(issueKey, otherNumber, direction) {
       await http.delete(`${issue(issueKey)}/dependencies`, { params: { otherNumber, direction } });
     },
+    async addIssueRelation(issueKey, body) {
+      return (await http.post(`${issue(issueKey)}/relations`, body)).data ?? [];
+    },
+    async removeIssueRelation(issueKey, relationId) {
+      await http.delete(`${issue(issueKey)}/relations/${relationId}`);
+    },
+    async addIssueExternalLink(issueKey, body) {
+      return (await http.post(`${issue(issueKey)}/external-links`, body)).data ?? [];
+    },
+    async removeIssueExternalLink(issueKey, linkId) {
+      await http.delete(`${issue(issueKey)}/external-links/${linkId}`);
+    },
+    async listIssueRelationTypes() {
+      return (await http.get('/issue-relation-types')).data ?? [];
+    },
     async replaceIssueCycles(issueKey, cycleIds) {
       return (await http.put(`${issue(issueKey)}/cycles`, { cycleIds })).data;
     },

@@ -40,6 +40,11 @@ function sharedMock(): MockedShared {
     removeIssueDependency: vi.fn().mockResolvedValue(undefined),
     addCommentReaction: vi.fn().mockResolvedValue(undefined),
     removeCommentReaction: vi.fn().mockResolvedValue(undefined),
+    addIssueRelation: vi.fn().mockResolvedValue([]),
+    removeIssueRelation: vi.fn().mockResolvedValue(undefined),
+    addIssueExternalLink: vi.fn().mockResolvedValue([]),
+    removeIssueExternalLink: vi.fn().mockResolvedValue(undefined),
+    listIssueRelationTypes: vi.fn().mockResolvedValue([]),
     replaceIssueCycles: vi.fn().mockResolvedValue([]),
     getIssueCycles: vi.fn().mockResolvedValue([]),
     watchIssue: vi.fn().mockResolvedValue(undefined),
@@ -277,6 +282,7 @@ describe('프로필 구성', () => {
     const names = buildTools(client(), AGENT_ID).map((t) => t.name).sort();
     expect(names).toEqual([
       'add_comment',
+      'add_issue_relation',
       'create_issue',
       'get_issue_detail',
       'get_project',
@@ -284,6 +290,7 @@ describe('프로필 구성', () => {
       'link_issues',
       'list_wiki_spaces',
       'react', // WP-812: 이슈 코멘트 반응
+      'remove_issue_relation',
       'search_wiki',
       'unassign_self',
       'update_comment',
@@ -368,7 +375,7 @@ describe('프로필 구성', () => {
     for (const n of [
       // 이슈
       'get_issue_detail', 'list_issues', 'add_comment', 'update_comment', 'create_issue', 'update_issue',
-      'unassign_self', 'link_issues', 'react',
+      'unassign_self', 'link_issues', 'react', 'add_issue_relation', 'remove_issue_relation',
       // 노트
       'list_wiki_spaces', 'search_wiki', 'get_wiki_page', 'create_wiki_page', 'update_wiki_page',
       'list_wiki_pages', 'list_wiki_backlinks',

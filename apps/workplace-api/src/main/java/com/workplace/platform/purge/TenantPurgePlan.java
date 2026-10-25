@@ -48,6 +48,10 @@ public final class TenantPurgePlan {
           // 이슈 하위 → 이슈 → 프로젝트 하위 → 프로젝트 (issue.type_id·status_id RESTRICT 때문에 issue 가
           // issue_type_def·project_status 보다 먼저)
           ISSUE_DEPENDENCY,
+          // 관계·외부 링크(WP-887)는 issue·issue_relation_type 을 참조 — 이슈보다 먼저 지우고 유형은 그 뒤에 둔다(type_id
+          // RESTRICT).
+          ISSUE_RELATION,
+          ISSUE_EXTERNAL_LINK,
           ISSUE_LABEL,
           ISSUE_ASSIGNEE,
           ISSUE_WATCHER,
@@ -69,6 +73,7 @@ public final class TenantPurgePlan {
           ISSUE_FIELD_DEF,
           PROJECT_MEMBER,
           PROJECT_ISSUE_SEQUENCE,
+          ISSUE_RELATION_TYPE, // 관계·외부 링크가 모두 지워진 뒤(type_id RESTRICT)
           ISSUE_TYPE_DEF,
           PROJECT_STATUS,
           PROJECT,

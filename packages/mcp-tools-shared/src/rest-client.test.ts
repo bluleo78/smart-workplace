@@ -389,6 +389,21 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.patch).toHaveBeenCalledWith('/projects/WP/cycles/5', { name: 'C' });
   });
 
+  it('WP-887: 관계·외부 링크 경로 — 추가는 POST 본문 그대로, 삭제는 id 경로, 유형 목록은 /issue-relation-types', async () => {
+    const { http, client } = mockHttp();
+    http.post.mockResolvedValueOnce({ data: [{ id: 5 }] });
+    expect(await client.addIssueRelation('WP-3', { typeId: 2, side: 'source', target: { projectKey: 'AB', number: 7 } })).toEqual([{ id: 5 }]);
+    expect(http.post).toHaveBeenLastCalledWith('/projects/WP/issues/3/relations', { typeId: 2, side: 'source', target: { projectKey: 'AB', number: 7 } });
+    await client.removeIssueRelation('WP-3', 5);
+    expect(http.delete).toHaveBeenLastCalledWith('/projects/WP/issues/3/relations/5');
+    await client.addIssueExternalLink('WP-3', { typeId: 2, side: 'target', url: 'https://jira.example/CLIM-1', key: 'CLIM-1', title: '외부' });
+    expect(http.post).toHaveBeenLastCalledWith('/projects/WP/issues/3/external-links', { typeId: 2, side: 'target', url: 'https://jira.example/CLIM-1', key: 'CLIM-1', title: '외부' });
+    await client.removeIssueExternalLink('WP-3', 8);
+    expect(http.delete).toHaveBeenLastCalledWith('/projects/WP/issues/3/external-links/8');
+    expect(await client.listIssueRelationTypes()).toEqual([]);
+    expect(http.get).toHaveBeenLastCalledWith('/issue-relation-types');
+  });
+
   it('#854 업무 쓰기 경로: 사이클·워치·마일스톤/사이클 목록·프로젝트 수정·노트 이동·휴지통', async () => {
     const { http, client } = mockHttp();
     await client.replaceIssueCycles('WP-3', [1, 2]);

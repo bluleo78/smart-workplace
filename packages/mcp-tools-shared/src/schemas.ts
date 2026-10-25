@@ -1,6 +1,7 @@
 // src/schemas.ts — 이슈 도구 입력 zod 스키마. 두 앱 공유(기존 중복 제거).
 import { z } from 'zod';
 import { AGENT_WORK_STATE_INPUTS } from './tool-client.js';
+import { nullAsOmitted } from './tool-definitions.js';
 
 /**
  * 이슈 본문·코멘트 본문 최대 길이(WP-885) — API IssueTextLimits.BODY_MAX·웹 ISSUE_BODY_MAX_LENGTH 와 같은 값.
@@ -137,6 +138,27 @@ export const linkIssuesInput = z.object({
   otherIssueKey: z.string().min(1),
   direction: z.enum(['blocks', 'blockedBy']),
   linked: z.boolean().describe('true adds the link, false removes it'),
+});
+
+/**
+ * 관계·외부 링크 추가 입력(WP-887). type 은 관계 유형의 코드(RELATES 등) 또는 이름(관련 등) — get_project 의 relationTypes 가 보여 주는 값이다.
+ * otherIssueKey(이슈 사이 관계)와 externalLink(다른 시스템 이슈) 중 정확히 하나만 받는다 — 둘 다/둘 다 없음은 핸들러가 거부한다
+ * (최상위가 z.object 여야 해서 유니온 대신 평평한 선택 필드로 두고 핸들러에서 검사한다, createProjectMetaInput 과 같은 이유).
+ * 입력 길이는 서버(@Size)가 검증하므로 정의 크기를 아끼려 되풀이하지 않는다.
+ */
+export const addIssueRelationInput = z.object({
+  issueKey: z.string().min(1),
+  type: z.string().min(1).describe('Code or name from get_project relationTypes'),
+  side: z.enum(['source', 'target']).optional().describe('Directed types: this issue says outwardLabel (source, default) or inwardLabel (target)'),
+  otherIssueKey: nullAsOmitted(z.string().min(1)),
+  externalLink: nullAsOmitted(z.object({ url: z.string().min(1), key: z.string().optional(), title: z.string().min(1) })),
+});
+
+/** 관계·외부 링크 삭제 입력(WP-887) — relationId 와 externalLinkId 중 정확히 하나(get_issue_detail 의 relations[]·externalLinks[]). */
+export const removeIssueRelationInput = z.object({
+  issueKey: z.string().min(1),
+  relationId: nullAsOmitted(z.number().int().positive()),
+  externalLinkId: nullAsOmitted(z.number().int().positive()),
 });
 
 /**

@@ -680,6 +680,8 @@ export default function IssueDetailPage() {
               labels={summary.labels}
               blockedBy={summary.blockedBy}
               blocks={summary.blocks}
+              relations={data.relations ?? []}
+              externalLinks={data.externalLinks ?? []}
               customFields={summary.customFields}
               updatePending={update.isPending}
               onPatch={patch}

@@ -1,4 +1,4 @@
-// WP-579 설정 › 워크스페이스 관리 › 노트 공유 — 외부 공유 허용 정책과 워크스페이스 전체 공유 목록(일괄 해제).
+// WP-579 설정 › 앱 설정 › 노트(WP-887 에서 「워크스페이스 관리 › 노트 공유」를 옮김) — 외부 공유 허용 정책과 워크스페이스 전체 공유 목록(일괄 해제).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -60,7 +60,7 @@ export default function WikiSharingPage() {
   }
 
   return (
-    <SettingsPage title="노트 공유" width="full" data-testid="wiki-sharing-admin-page">
+    <SettingsPage title="노트" width="full" data-testid="wiki-sharing-admin-page">
       <SettingsSection
         title="외부 공유"
         description="켜 두면 구성원이 노트 페이지를 로그인 없이 볼 수 있는 링크로 공유할 수 있어요(보기만). 끄면 지금 있는 외부 링크가 모두 바로 막히고, 다시 켜도 되살아나지 않아요."

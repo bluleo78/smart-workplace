@@ -14,6 +14,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   add_comment: ['write', false, false, false],
   add_contact_favorite: ['write', false, true, false],
   link_issues: ['write', true, true, false],
+  add_issue_relation: ['write', false, true, false],
   add_user_group_member: ['write', false, true, false],
   claim_issue: ['write', false, false, false],
   create_channel: ['write', false, false, false],
@@ -75,6 +76,7 @@ const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | nu
   open_dm: ['write', false, true, false],
   read_file: ['read', R, R, R],
   remove_contact_favorite: ['write', true, true, false],
+  remove_issue_relation: ['write', true, true, false],
   remove_user_group_member: ['write', true, true, false],
   // 같은 입력을 다시 보고해도 message 가 있으면 챗 글이 또 올라가므로 멱등이 아니다.
   report_agent_work: ['write', false, false, false],

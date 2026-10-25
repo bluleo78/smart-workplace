@@ -1,4 +1,4 @@
-// 설정 › 내 공유 · 워크스페이스 관리 › 노트 공유(WP-579) — 스페이스를 가로지르는 공유 목록에서 해제·일괄 해제·거르기와
+// 설정 › 내 공유 · 앱 설정 › 노트(WP-579, WP-887 에서 「워크스페이스 관리 › 노트 공유」를 옮김) — 스페이스를 가로지르는 공유 목록에서 해제·일괄 해제·거르기와
 // 외부 공유 스위치(끄기 확인 → PUT)가 실제 API 배선으로 도는지 본다. 서버는 상태를 가진 모킹으로 대신한다 —
 // 해제·정책 변경이 다음 GET 에 반영돼 화면이 서버 응답을 따르는지 확인한다.
 // 표·확인창의 조건부 렌더 경우의 수는 여기서 늘리지 않는다(화면별 실제 배선만).
@@ -122,13 +122,21 @@ test.describe('설정 › 내 공유', () => {
   })
 })
 
-test.describe('워크스페이스 관리 › 노트 공유', () => {
+test.describe('앱 설정 › 노트(노트 공유)', () => {
+  test('옛 주소(/settings/wiki-sharing)는 새 주소로 옮겨 가고 사이드바 「앱 설정 › 노트」가 선택된다', async ({ adminPage: page }) => {
+    await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
+    await page.goto('/settings/wiki-sharing')
+    await expect(page).toHaveURL(/\/settings\/apps\/wiki$/)
+    await expect(page.getByTestId('wiki-sharing-admin-page')).toBeVisible()
+    await expect(page.getByTestId('settings-apps-group').getByRole('link', { name: '노트' })).toHaveAttribute('aria-current', 'page')
+  })
+
   test('관리자는 여러 개를 골라 일괄 해제한다', async ({ adminPage: page }) => {
     const server: Server = { mine: [...MINE], all: [...ALL], externalShareEnabled: true }
     await mockServer(page, server)
     const revokes = trackRequests(page, 'POST', '/api/v1/admin/wiki/shares/revoke')
 
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(rowOf(page, 31)).toContainText('김민지')
 
     await page.getByRole('checkbox', { name: '고객사 A 킥오프 고르기' }).click()
@@ -151,7 +159,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
 
   test('거르기(범위·스페이스·검색)가 목록에 반영된다', async ({ adminPage: page }) => {
     await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(page.getByTestId('wiki-share-table').getByRole('row')).toHaveCount(ALL.length + 1)
 
     // 범위 — 외부 공개만.
@@ -188,7 +196,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
     const server: Server = { mine: [], all: [...ALL], externalShareEnabled: true }
     await mockServer(page, server)
     const revokes = trackRequests(page, 'POST', '/api/v1/admin/wiki/shares/revoke')
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
 
     await page.getByRole('checkbox', { name: '고객사 A 킥오프 고르기' }).click()
     await page.getByRole('checkbox', { name: '분기 OKR 고르기' }).click()
@@ -205,7 +213,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
     await mockServer(page, server)
     const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
 
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     const sw = page.getByTestId('wiki-external-share-switch')
     await expect(sw).toBeChecked()
     await expect(rowOf(page, 31)).toBeVisible()
@@ -244,7 +252,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
     const server: Server = { mine: [], all: ALL.filter((i) => i.audience !== 'PUBLIC'), externalShareEnabled: true }
     await mockServer(page, server)
     const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(rowOf(page, 11)).toBeVisible()
     await page.getByTestId('wiki-external-share-switch').click()
     await puts.waitFor(1)
@@ -256,7 +264,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
     const expired = share({ pageId: 41, title: '지난 행사 안내', audience: 'PUBLIC', expiresAt: '2020-01-01T00:00:00Z' })
     await mockServer(page, { mine: [], all: [expired], externalShareEnabled: true })
     const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(rowOf(page, 41)).toContainText('만료됨')
     await page.getByTestId('wiki-external-share-switch').click()
     await puts.waitFor(1)
@@ -268,7 +276,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
     await mockServer(page, { mine: [], all: [], externalShareEnabled: true })
     await page.route((u) => u.pathname === '/api/v1/admin/wiki/shares', (r) => r.fulfill({ status: 500, json: { message: '오류' } }))
     const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(page.getByTestId('wiki-share-table')).toContainText('목록을 불러오지 못했습니다')
     await page.getByTestId('wiki-external-share-switch').click()
     const dialog = page.getByTestId('wiki-external-share-off-dialog')
@@ -279,7 +287,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
   test('외부 공유 설정을 못 불러오면 꺼진 것처럼 보이지 않고 스위치를 잠근다', async ({ adminPage: page }) => {
     await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
     await page.route((u) => u.pathname === '/api/v1/admin/wiki/share-policy', (r) => r.fulfill({ status: 500, json: { message: '오류' } }))
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(page.getByTestId('wiki-external-share-error')).toBeVisible()
     await expect(page.getByTestId('wiki-external-share-switch')).toBeDisabled()
   })
@@ -287,7 +295,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
   test('목록이 500건이면 최신 500건만 보인다고 알린다', async ({ adminPage: page }) => {
     const many = Array.from({ length: 500 }, (_, i) => share({ pageId: 1000 + i, title: `페이지 ${i}` }))
     await mockServer(page, { mine: [], all: many, externalShareEnabled: true })
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(page.getByTestId('wiki-share-cap-note')).toContainText('최근 500개')
   })
 
@@ -297,7 +305,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
     )
     await mockServer(page, { mine: [], all: many, externalShareEnabled: true })
     const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(page.getByTestId('wiki-share-cap-note')).toBeVisible()
     await page.getByTestId('wiki-external-share-switch').click()
     const dialog = page.getByTestId('wiki-external-share-off-dialog')
@@ -309,7 +317,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
   test('해제·재조회 뒤 사라진 줄의 선택은 비워진다(같은 줄이 다시 나와도 체크돼 있지 않다)', async ({ adminPage: page }) => {
     const server: Server = { mine: [], all: [...ALL], externalShareEnabled: true }
     await mockServer(page, server)
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await page.getByRole('checkbox', { name: '고객사 A 킥오프 고르기' }).click()
     await expect(page.getByTestId('wiki-share-table-revoke-selected')).toBeVisible()
 
@@ -330,7 +338,7 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
 
   test('500건 미만이면 안내가 없다', async ({ adminPage: page }) => {
     await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
-    await page.goto('/settings/wiki-sharing')
+    await page.goto('/settings/apps/wiki')
     await expect(rowOf(page, 11)).toBeVisible()
     await expectStays(page, () => page.getByTestId('wiki-share-cap-note').count(), 0)
   })
@@ -339,11 +347,14 @@ test.describe('워크스페이스 관리 › 노트 공유', () => {
     await mockServer(page, { mine: [...MINE], all: [...ALL], externalShareEnabled: true })
     await page.goto('/settings/my-shares')
     await expect(page.getByTestId('settings-sidebar').getByRole('link', { name: '내 공유' })).toBeVisible()
-    await expect(page.getByTestId('settings-sidebar').getByRole('link', { name: '노트 공유' })).toHaveCount(0)
+    // 「앱 설정」 그룹(노트 포함)은 관리자에게만 보인다.
+    await expect(page.getByTestId('settings-apps-group')).toHaveCount(0)
 
-    // 주소를 직접 쳐도 막힌다 — AdminRoute 가 홈으로 돌려보내고 관리자 화면은 그려지지 않는다.
-    await page.goto('/settings/wiki-sharing')
-    await expect.poll(() => new URL(page.url()).pathname).not.toBe('/settings/wiki-sharing')
-    await expect(page.getByTestId('wiki-sharing-admin-page')).toHaveCount(0)
+    // 주소를 직접 쳐도 막힌다 — AdminRoute 가 홈으로 돌려보내고 관리자 화면은 그려지지 않는다(옛 주소도 같다).
+    for (const path of ['/settings/apps/wiki', '/settings/wiki-sharing']) {
+      await page.goto(path)
+      await expect.poll(() => new URL(page.url()).pathname).not.toBe(path)
+      await expect(page.getByTestId('wiki-sharing-admin-page')).toHaveCount(0)
+    }
   })
 })

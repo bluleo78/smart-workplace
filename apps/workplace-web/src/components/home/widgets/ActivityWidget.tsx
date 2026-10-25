@@ -36,6 +36,12 @@ const EVENT_LABEL: Record<string, string> = {
   DEPENDENCY_ADDED: '의존성 추가',
   DEPENDENCY_REMOVED: '의존성 제거',
   CUSTOM_FIELD_CHANGED: '필드',
+  // 관계·외부 링크(WP-887) — 이슈 활동 타임라인과 같은 문구.
+  RELATION_ADDED: '관계 추가',
+  RELATION_REMOVED: '관계 삭제',
+  EXTERNAL_LINK_ADDED: '외부 링크 추가',
+  EXTERNAL_LINK_UPDATED: '외부 링크 수정',
+  EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
 };
 
 /** 최근 활동. params.actorKind='AGENT' 면 AI 가 한 일만. */

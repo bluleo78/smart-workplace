@@ -146,7 +146,9 @@ class IssueControllerTest {
         true,
         true,
         null,
-        false);
+        false,
+        List.of(),
+        List.of());
   }
 
   @Test
@@ -460,7 +462,9 @@ class IssueControllerTest {
             true,
             true,
             null,
-            false);
+            false,
+            List.of(),
+            List.of());
     when(issueService.get(1L, "WP", 1)).thenReturn(detail);
 
     mockMvc

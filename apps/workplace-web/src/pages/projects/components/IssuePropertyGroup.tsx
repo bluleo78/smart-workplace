@@ -9,12 +9,14 @@ import { usePersistentToggle } from '../../../hooks/usePersistentToggle';
 // 속성 레일의 접기 그룹 1개.
 // 무엇을: 제목 헤더 클릭으로 펼침/접힘, 접힘 시 count 배지 노출.
 // 왜: 사이드바 9개 속성을 사람·일정·분류 3그룹으로 묶어 과밀 해소(#343).
+// action: 머리 오른쪽 조작(「＋ 관계 추가」 등, WP-887) — 접기 버튼 안에 버튼을 넣을 수 없어 형제로 둔다. 접혀 있어도 보인다.
 export function IssuePropertyGroup({
   title,
   storageKey,
   defaultOpen,
   count,
   testId,
+  action,
   children,
 }: {
   title: string;
@@ -22,6 +24,7 @@ export function IssuePropertyGroup({
   defaultOpen: boolean;
   count?: number;
   testId: string;
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const [open, , set] = usePersistentToggle(storageKey, defaultOpen);
@@ -33,25 +36,28 @@ export function IssuePropertyGroup({
       // 그룹을 라운드 카드로 구분 — 흰 배경 + 보더 + 라운드(그림자 없음).
       className="rounded-xl border bg-card px-4 py-3"
     >
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          // 머리말 줄 높이(20px)만큼만 눌려 터치에서는 위아래로 넓힌다 — 카드 안쪽 여백(12px) 안에 들어간다(WP-734).
-          className={`flex w-full items-center justify-between text-sm font-semibold text-foreground ${HIT_AREA_Y_COARSE}`}
-        >
-          <span>{title}</span>
-          <span className="flex items-center gap-1.5">
-            {!open && count != null && count > 0 && (
-              <Badge variant="secondary" data-testid="property-group-badge">
-                {count}
-              </Badge>
-            )}
-            <ChevronRight
-              className={`h-4 w-4 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
-            />
-          </span>
-        </button>
-      </CollapsibleTrigger>
+      <div className="flex items-center gap-2">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            // 머리말 줄 높이(20px)만큼만 눌려 터치에서는 위아래로 넓힌다 — 카드 안쪽 여백(12px) 안에 들어간다(WP-734).
+            className={`flex min-w-0 flex-1 items-center justify-between text-sm font-semibold text-foreground ${HIT_AREA_Y_COARSE}`}
+          >
+            <span>{title}</span>
+            <span className="flex items-center gap-1.5">
+              {!open && count != null && count > 0 && (
+                <Badge variant="secondary" data-testid="property-group-badge">
+                  {count}
+                </Badge>
+              )}
+              <ChevronRight
+                className={`h-4 w-4 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
+              />
+            </span>
+          </button>
+        </CollapsibleTrigger>
+        {action}
+      </div>
       <CollapsibleContent className="space-y-3 pt-3">{children}</CollapsibleContent>
     </Collapsible>
   );

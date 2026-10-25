@@ -1,5 +1,5 @@
 // WP-237: 휴대폰(390px, pointer: coarse)에서 hover 로만 드러나던 이슈 상세 행 액션에 닿을 수 있는지.
-// - 의존성 행(＋ 속성 시트 안): ⋯(44px) → 액션 시트 「의존성 제거」 → DELETE dependencies
+// - 의존성 행(＋ 속성 시트 안): ⋯(44px) → 액션 시트 「차단 제거」 → DELETE dependencies
 // - 드라이브 링크: 링크 제거 X 상시 노출(44px) → 확인창 → DELETE drive-links/{id}
 // (코멘트 ⋮ → 시트는 issue-comments.spec.ts(WP-223)가 검증한다.)
 import type { DriveLink } from '../../../src/types/drive';
@@ -52,11 +52,12 @@ async function setup(page: import('@playwright/test').Page) {
   return deletes;
 }
 
-test('의존성 행 — ⋯(44px) → 액션 시트 「의존성 제거」 → DELETE', async ({ authenticatedPage: page }) => {
+test('의존성 행 — ⋯(44px) → 액션 시트 「차단 제거」 → DELETE', async ({ authenticatedPage: page }) => {
   const deletes = await setup(page);
   await page.getByTestId('mobile-prop-more').click();
   const props = page.getByTestId('issue-more-props-sheet');
-  await props.getByRole('button', { name: /의존성/ }).click();
+  // 관계 그룹(옛 의존성) 펼치기 — 이름 옆 배지 수·「관계 추가」 버튼과 구분되게 앵커로.
+  await props.getByTestId('property-group-relations').getByRole('button', { name: /^관계(\s*\d+)?$/ }).click();
   await expect(props.getByTestId('issue-link-row-42')).toBeVisible();
   await expect(props.getByTestId('issue-link-remove-42')).toHaveCount(0);
   const more = props.getByTestId('issue-link-more-42');

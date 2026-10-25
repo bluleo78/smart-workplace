@@ -219,14 +219,14 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'read',
       description:
         'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, milestones (with dueDate), cycles (status, ' +
-        'dates), fields (custom fields, with options), statuses, members (username, name, role).',
+        'dates), fields (custom fields, with options), statuses, members (username, name, role), relationTypes (issue link types: code?, name, outwardLabel, inwardLabel?, externalOnly).',
       inputSchema: projectKeyInput,
       async handler(args) {
         const { projectKey } = projectKeyInput.parse(args);
         // #844: 이슈 쓰기 도구의 type·labels·assignees(#854: milestone·cycles) 값을 조회로 조달하게 한다(추측 방지). 모두 독립 조회라 병렬.
         // WP-356: 마일스톤 기한·사이클 기간(계획 판단용)과 커스텀 필드 정의(update_issue 의 fields·list_issues 의 field 가 받는 이름·선택지)도 싣는다.
         // WP-807: 프로젝트 상태(이름·범주·순서)도 싣는다 — update_issue·list_issues 의 status 가 받는 이름이다.
-        const [project, types, labels, milestones, cycles, fields, statuses, members] = await Promise.all([
+        const [project, types, labels, milestones, cycles, fields, statuses, members, relationTypes] = await Promise.all([
           client.getProject(projectKey),
           client.getProjectTypes(projectKey),
           client.getProjectLabels(projectKey),
@@ -235,6 +235,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           client.getProjectFields(projectKey),
           client.getProjectStatuses(projectKey),
           client.getProjectMembers(projectKey),
+          // WP-887: 관계 유형은 부가 정보다 — 아직 이 API 가 없는 서버(롤링 배포에서 MCP 가 API 보다 먼저 뜬 경우)나 일시 오류가 모든 쓰기 도구가 기대는 get_project 를 깨지 않게 실패하면 건너뛴다.
+          client.listIssueRelationTypes().catch(() => null),
         ]);
         return JSON.stringify({
           ...toProjectView(project as Record<string, unknown>),
@@ -245,6 +247,11 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           fields: fields.map(({ name, type, options }) => dropEmpty({ name, type, options })),
           statuses: statuses.map(({ name, category, position }) => ({ name, category, position })),
           members: members.map(toProjectMemberView),
+          // WP-887: add_issue_relation 의 type 이 받는 관계 유형(코드는 기본 유형만) — 숨긴 유형은 새로 걸 수 없어 뺀다. 차단은 link_issues 로 건다.
+          // 조회가 실패했으면 키를 생략한다(빈 배열로 두면 「유형이 없다」는 뜻으로 읽힌다).
+          ...(relationTypes && {
+            relationTypes: relationTypes.filter((t) => !t.hidden).map(({ code, name, outwardLabel, inwardLabel, externalOnly }) => dropEmpty({ code, name, outwardLabel, inwardLabel, externalOnly })),
+          }),
         });
       },
     },

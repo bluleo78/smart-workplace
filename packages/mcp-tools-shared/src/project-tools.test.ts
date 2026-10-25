@@ -26,6 +26,7 @@ function mockClient(): Client {
     getProjectCycles: vi.fn().mockResolvedValue([]),
     getProjectFields: vi.fn().mockResolvedValue([]),
     getProjectStatuses: vi.fn().mockResolvedValue([]),
+    listIssueRelationTypes: vi.fn().mockResolvedValue([]),
     listIssues: vi.fn().mockResolvedValue({ items: [] }),
     updateProject: vi.fn().mockResolvedValue({ key: 'WP' }),
     createProjectMeta: vi.fn().mockResolvedValue({ id: 1, projectId: 2, name: 'x' }),
@@ -71,8 +72,9 @@ describe('get_project', () => {
     const c = mockClient();
     const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
     expect(c.getProject).toHaveBeenCalledWith('WP');
-    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], fields: [], statuses: [], members: [] });
+    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], milestones: [], cycles: [], fields: [], statuses: [], members: [], relationTypes: [] });
   });
+
 
   it('get_project: statuses 를 포함한다', async () => {
     const c = mockClient();
@@ -87,6 +89,32 @@ describe('get_project', () => {
       { name: '할 일', category: 'TODO', position: 0 },
       { name: '검토 중', category: 'IN_PROGRESS', position: 2 },
     ]);
+  });
+
+  it('WP-887: relationTypes — 숨긴 유형은 빼고, 기본 유형은 code·사용자 정의 유형은 name 만, 방향 없는 유형은 inwardLabel 없이 싣는다', async () => {
+    const c = mockClient();
+    const row = (o: Record<string, unknown>) => ({ id: 1, code: null, name: 'x', directed: true, outwardLabel: 'o', inwardLabel: 'i', externalOnly: false, hidden: false, sortOrder: 1000, ...o });
+    vi.mocked(c.listIssueRelationTypes).mockResolvedValue([
+      row({ id: 2, code: 'RELATES', name: '관련', directed: false, outwardLabel: '관련', inwardLabel: null, sortOrder: 20 }),
+      row({ id: 6, code: 'PARENT_EPIC', name: '상위 에픽', outwardLabel: '에픽에 속함', inwardLabel: null, externalOnly: true, sortOrder: 60 }),
+      row({ id: 9, name: '검토 요청', outwardLabel: '검토를 요청함', inwardLabel: '검토 요청받음' }),
+      row({ id: 10, name: '옛 유형', hidden: true }),
+    ] as never);
+    const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
+    expect(out.relationTypes).toEqual([
+      { code: 'RELATES', name: '관련', outwardLabel: '관련', externalOnly: false },
+      { code: 'PARENT_EPIC', name: '상위 에픽', outwardLabel: '에픽에 속함', externalOnly: true },
+      { name: '검토 요청', outwardLabel: '검토를 요청함', inwardLabel: '검토 요청받음', externalOnly: false },
+    ]);
+    expect(JSON.stringify(out.relationTypes)).not.toMatch(/"id"|sortOrder|hidden|directed/);
+  });
+
+  it('WP-887: 관계 유형 조회가 실패해도(API 가 더 옛 버전 등) get_project 는 돌려주고 relationTypes 키만 생략한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.listIssueRelationTypes).mockRejectedValue(new Error('404'));
+    const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
+    expect(out).toMatchObject({ projectKey: 'WP', issueTypes: [], statuses: [], members: [] });
+    expect(out).not.toHaveProperty('relationTypes');
   });
 
   it('옛 파라미터 key 는 거부한다(projectKey 만)', async () => {
@@ -135,6 +163,7 @@ describe('get_project', () => {
       ],
       statuses: [{ name: '검토 중', category: 'IN_PROGRESS', position: 2 }],
       members: [{ username: 'alice', name: 'Alice', role: 'OWNER' }],
+      relationTypes: [], // WP-887: 관계 유형 mock 이 비어 있으면 빈 배열
     });
     expect(resultText(raw)).not.toContain('userId');
     expect(resultText(raw)).not.toContain('1010');

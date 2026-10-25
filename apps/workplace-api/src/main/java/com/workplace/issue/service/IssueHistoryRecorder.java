@@ -8,6 +8,7 @@ import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
 import com.workplace.milestone.repository.MilestoneRepository;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -279,6 +280,76 @@ public class IssueHistoryRecorder {
       payload = "{}";
     }
     historyRepository.insert(issueId, actorId, eventType, null, payload);
+  }
+
+  /**
+   * 이슈 사이 관계 추가·삭제 한 건 기록(WP-887) — 관계의 두 이슈 각각에 한 번씩, 각자 쪽 말로 부른다. toValue JSON = {typeId, label,
+   * other: {projectKey, number, title}}. 상대 정보는 당시 값을 그대로 남기고, 읽을 수 없는 조회자에겐 상세 조립이 가린다.
+   *
+   * @param eventType {@code RELATION_ADDED} 또는 {@code RELATION_REMOVED}
+   * @param label 이 이슈 쪽 말(당시 값)
+   */
+  public void recordRelation(
+      String eventType,
+      Long actorId,
+      long issueId,
+      long typeId,
+      String label,
+      String otherProjectKey,
+      int otherNumber,
+      String otherTitle) {
+    Map<String, Object> other = new LinkedHashMap<>();
+    other.put("projectKey", otherProjectKey);
+    other.put("number", otherNumber);
+    other.put("title", otherTitle);
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("typeId", typeId);
+    body.put("label", label);
+    body.put("other", other);
+    String payload;
+    try {
+      payload = objectMapper.writeValueAsString(body);
+    } catch (Exception e) {
+      payload = "{}";
+    }
+    historyRepository.insert(issueId, actorId, eventType, null, payload);
+  }
+
+  /**
+   * 외부 링크 추가·수정·삭제 한 건 기록(WP-887). toValue JSON = {label, key, title, url}(삭제면 지운 값), 수정이면
+   * fromValue 에 이전 값을 같은 모양으로 남긴다. 외부 주소는 프로젝트 권한과 무관해 가리지 않는다.
+   *
+   * @param eventType {@code EXTERNAL_LINK_ADDED|UPDATED|REMOVED}
+   * @param from 수정 전 값(수정 때만, 나머지는 null)
+   */
+  public void recordExternalLink(
+      String eventType,
+      Long actorId,
+      long issueId,
+      ExternalLinkSnapshot from,
+      ExternalLinkSnapshot to) {
+    historyRepository.insert(
+        issueId,
+        actorId,
+        eventType,
+        from == null ? null : externalLinkJson(from),
+        externalLinkJson(to));
+  }
+
+  /** 외부 링크 이력에 남기는 한 시점의 값 — label 은 이 이슈 쪽 말(당시 값). */
+  public record ExternalLinkSnapshot(String label, String key, String title, String url) {}
+
+  private String externalLinkJson(ExternalLinkSnapshot s) {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("label", s.label());
+    body.put("key", s.key());
+    body.put("title", s.title());
+    body.put("url", s.url());
+    try {
+      return objectMapper.writeValueAsString(body);
+    } catch (Exception e) {
+      return "{}";
+    }
   }
 
   /**

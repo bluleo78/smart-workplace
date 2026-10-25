@@ -2,7 +2,14 @@
 // enum → 한국어·원문 폴백은 issueGrouping.test 의 statusLabel/priorityLabel 이 검증하고, 여기선 이력 고유 규칙('없음')과 위임만 본다.
 import { describe, expect, it } from 'vitest';
 
-import { formatParentChanged, formatStatusMigrated, historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
+import {
+  formatExternalLinkChanged,
+  formatParentChanged,
+  formatRelationChanged,
+  formatStatusMigrated,
+  historyPriorityLabel,
+  historyStatusLabel,
+} from './issueHistoryLabels';
 
 describe('historyStatusLabel / historyPriorityLabel', () => {
   it('값이 있으면 공용 표시명으로 바꾼다', () => {
@@ -57,5 +64,51 @@ describe('formatStatusMigrated', () => {
 
   it('값이 비면 「없음」', () => {
     expect(formatStatusMigrated(null, '진행 중')).toBe("상태 삭제로 '없음' → '진행 중'");
+  });
+});
+
+// WP-887 — 관계·외부 링크 이력. 상대를 읽을 수 없는 조회자에겐 서버가 other 를 {hidden:true} 로 가려 보낸다.
+describe('formatRelationChanged', () => {
+  const payload = (other: unknown) => JSON.stringify({ typeId: 2, label: '관련', other });
+
+  it('같은 프로젝트 상대는 #번호, 다른 프로젝트는 키로 보인다', () => {
+    expect(formatRelationChanged(payload({ projectKey: 'WP', number: 12, title: 'SSO 로그인' }), 'WP')).toBe(
+      '관련 「SSO 로그인」(#12)',
+    );
+    expect(formatRelationChanged(payload({ projectKey: 'WPV', number: 28, title: '관계 유형' }), 'WP')).toBe(
+      '관련 「관계 유형」(WPV-28)',
+    );
+  });
+
+  it('가려진 상대는 「볼 수 없는 이슈」 — 키·제목을 드러내지 않는다', () => {
+    expect(formatRelationChanged(payload({ hidden: true }), 'WP')).toBe('관련 볼 수 없는 이슈');
+  });
+
+  it('값이 없거나 깨졌으면 안전한 폴백', () => {
+    expect(formatRelationChanged(null, 'WP')).toBe('관계 변경');
+    expect(formatRelationChanged('{', 'WP')).toBe('관계 변경');
+  });
+});
+
+describe('formatExternalLinkChanged', () => {
+  const v = (label: string, key: string | null, title: string) =>
+    JSON.stringify({ label, key, title, url: 'https://iacloud.atlassian.net/browse/CL-1' });
+
+  it('추가·삭제는 말 「제목」(키), 키가 없으면 제목만', () => {
+    expect(formatExternalLinkChanged(null, v('에픽에 속함', 'CL-1867', 'v1.7.0 버그 픽스'))).toBe(
+      '에픽에 속함 「v1.7.0 버그 픽스」(CL-1867)',
+    );
+    expect(formatExternalLinkChanged(null, v('관련', null, '커널 표준안'))).toBe('관련 「커널 표준안」');
+  });
+
+  it('수정은 이전 → 이후', () => {
+    expect(formatExternalLinkChanged(v('관련', 'CL-1', '옛 제목'), v('원인임', 'CL-1', '새 제목'))).toBe(
+      '관련 「옛 제목」(CL-1) → 원인임 「새 제목」(CL-1)',
+    );
+  });
+
+  it('값이 없거나 깨졌으면 안전한 폴백', () => {
+    expect(formatExternalLinkChanged(null, null)).toBe('외부 링크 변경');
+    expect(formatExternalLinkChanged(null, 'x')).toBe('외부 링크 변경');
   });
 });

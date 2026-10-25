@@ -4,7 +4,7 @@ import com.workplace.global.dto.UserSummary;
 import java.util.List;
 
 /**
- * 이슈 상세 응답 DTO: 요약 + 본문 + 코멘트 + 히스토리 + 첨부 + AI 즉시 컨텍스트.
+ * 이슈 상세 응답 DTO: 요약 + 본문 + 코멘트 + 히스토리 + 첨부 + AI 즉시 컨텍스트 + 관계·외부 링크.
  *
  * <p>aiContext 는 저장 요약이 없고 블로커도 없으면 null(프론트 카드 미렌더). 단순 목록 조회(IssueResponse) 경로에서는 사용하지 않는다.
  */
@@ -28,4 +28,11 @@ public record IssueDetailResponse(
      */
     UserSummary reporter,
     /** 보고자를 바꿀 수 있는지(WP-944) — 프로젝트 OWNER·ADMIN 또는 지금 보고자 본인. */
-    boolean viewerCanChangeReporter) {}
+    boolean viewerCanChangeReporter,
+    /**
+     * 이슈 사이 관계(WP-887, 차단 제외 — 차단은 summary.blockedBy/blocks). 조회자가 읽을 수 있는 상대만, 상대가 삭제된 관계는 뺀다. 유형
+     * 정렬값 → 말 → (프로젝트 키, 번호) 순.
+     */
+    List<IssueRelationView> relations,
+    /** 외부 링크(WP-887) — 다른 시스템 이슈를 관계 유형·키·제목·주소로 붙인 것. */
+    List<IssueExternalLinkView> externalLinks) {}

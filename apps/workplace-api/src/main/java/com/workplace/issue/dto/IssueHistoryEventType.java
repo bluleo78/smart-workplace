@@ -26,5 +26,14 @@ public enum IssueHistoryEventType {
   // 상태 삭제로 이슈를 다른 상태로 옮김(WP-809) — 사용자가 이슈를 바꾼 것이 아니라 STATUS_CHANGED 와 구분한다. from/to 는 상태 이름.
   STATUS_MIGRATED,
   // 보고자 변경(WP-944) — from/to 는 이전·새 보고자 이름.
-  REPORTER_CHANGED
+  REPORTER_CHANGED,
+  // 이슈 사이 관계 추가/삭제(WP-887) — 두 이슈 모두에 각자 쪽 말로 남는다. payload: {typeId, label, other: {projectKey,
+  // number, title}}. 상대 프로젝트를 읽을 수 없는 조회자에겐 other 가 {hidden: true} 로 가려져 나간다.
+  RELATION_ADDED,
+  RELATION_REMOVED,
+  // 외부 링크 추가/수정/삭제(WP-887) — payload: {label, key, title, url}. UPDATED 의 fromValue 는 이전 값. 외부 주소라
+  // 가리지 않는다.
+  EXTERNAL_LINK_ADDED,
+  EXTERNAL_LINK_UPDATED,
+  EXTERNAL_LINK_REMOVED
 }

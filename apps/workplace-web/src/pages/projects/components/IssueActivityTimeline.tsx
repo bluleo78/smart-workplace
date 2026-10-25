@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   Calendar,
+  ExternalLink,
   Flag,
   GitBranch,
   GitFork,
@@ -24,7 +25,14 @@ import { Badge } from '@/components/ui/badge';
 
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
-import { formatParentChanged, formatStatusMigrated, historyPriorityLabel, historyStatusLabel } from './issueHistoryLabels';
+import {
+  formatExternalLinkChanged,
+  formatParentChanged,
+  formatRelationChanged,
+  formatStatusMigrated,
+  historyPriorityLabel,
+  historyStatusLabel,
+} from './issueHistoryLabels';
 
 // 이벤트 타입별 Lucide 아이콘 매핑 — 타임라인 스캔 가독성 향상 (#313).
 const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
@@ -45,6 +53,12 @@ const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
   MILESTONE_CHANGED: Flag,
   STATUS_MIGRATED: GitBranch,
   REPORTER_CHANGED: UserRoundPen,
+  // 관계·외부 링크(WP-887) — 의존성과 같은 연결 아이콘, 외부 링크는 바깥으로 나가는 아이콘.
+  RELATION_ADDED: Link,
+  RELATION_REMOVED: Link2Off,
+  EXTERNAL_LINK_ADDED: ExternalLink,
+  EXTERNAL_LINK_UPDATED: ExternalLink,
+  EXTERNAL_LINK_REMOVED: Link2Off,
 };
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
@@ -66,6 +80,11 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   MILESTONE_CHANGED: '마일스톤 변경',
   STATUS_MIGRATED: '상태 이전',
   REPORTER_CHANGED: '보고자 변경',
+  RELATION_ADDED: '관계 추가',
+  RELATION_REMOVED: '관계 삭제',
+  EXTERNAL_LINK_ADDED: '외부 링크 추가',
+  EXTERNAL_LINK_UPDATED: '외부 링크 수정',
+  EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.
@@ -196,7 +215,7 @@ export function IssueActivityTimeline({
   projectKey,
 }: {
   entries: IssueHistoryEntry[];
-  /** 부모 이력의 키(RX-68) 표기용 — 부모는 늘 같은 프로젝트 이슈다(WP-862). */
+  /** 부모 이력의 키(RX-68) 표기용(부모는 늘 같은 프로젝트, WP-862)·관계 상대가 같은 프로젝트인지 가르는 기준(WP-887). */
   projectKey: string;
 }) {
   // showAll: 전체 보기 여부. 기본은 최근 MAX_VISIBLE 건만 표시.
@@ -286,6 +305,12 @@ export function IssueActivityTimeline({
                     <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_ADDED')}</span>
                   ) : e.eventType === 'DEPENDENCY_REMOVED' ? (
                     <span>{formatDependencyChanged(e.toValue, 'DEPENDENCY_REMOVED')}</span>
+                  ) : e.eventType === 'RELATION_ADDED' || e.eventType === 'RELATION_REMOVED' ? (
+                    <span>{formatRelationChanged(e.toValue, projectKey)}</span>
+                  ) : e.eventType === 'EXTERNAL_LINK_ADDED' ||
+                    e.eventType === 'EXTERNAL_LINK_UPDATED' ||
+                    e.eventType === 'EXTERNAL_LINK_REMOVED' ? (
+                    <span>{formatExternalLinkChanged(e.fromValue, e.toValue)}</span>
                   ) : e.eventType === 'CUSTOM_FIELD_CHANGED' ? (
                     <span>{formatCustomFieldChanged(e.toValue)}</span>
                   ) : (

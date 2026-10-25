@@ -1,5 +1,5 @@
 // WP-237: hover 로만 드러나던 이슈 상세·뷰 칩 행 액션을 ≥1024px 터치 태블릿(pointer: coarse)에서도 쓸 수 있는지.
-// - 의존성 행: hover X 대신 ⋯(44px) → DropdownMenu 「의존성 제거」 → DELETE dependencies
+// - 의존성 행: hover X 대신 ⋯(44px) → DropdownMenu 「차단 제거」 → DELETE dependencies
 // - 드라이브 링크: 링크 제거 X 상시 노출(44px) → 확인창 → DELETE drive-links/{id}
 // - 뷰 칩 ⋯: 상시 노출(44px) → 삭제 → 확인창 → DELETE saved-views/{id}
 // - 코멘트: hover 아이콘 대신 ⋯(44px) → DropdownMenu(휴대폰 시트 대신 — 다른 태블릿 행 메뉴와 일관) → 삭제 확인 → DELETE comments/{id}
@@ -78,11 +78,11 @@ async function expectTouchTarget(loc: Locator) {
 test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션', () => {
   test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true });
 
-  test('의존성 행 — hover X 대신 ⋯ → 메뉴 「의존성 제거」 → DELETE', async ({ authenticatedPage: page }) => {
+  test('의존성 행 — hover X 대신 ⋯ → 메뉴 「차단 제거」 → DELETE', async ({ authenticatedPage: page }) => {
     const deletes = await setupIssue(page);
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
-    // 의존성 그룹은 기본 접힘 — 펼쳐야 섹션이 마운트된다(#343).
-    await page.getByRole('button', { name: /의존성/ }).click();
+    // 관계 그룹(옛 의존성)은 기본 접힘 — 펼쳐야 섹션이 마운트된다(#343). 이름 옆 배지 수·「관계 추가」 버튼과 구분되게 앵커로.
+    await page.getByTestId('property-group-relations').getByRole('button', { name: /^관계(\s*\d+)?$/ }).click();
     const row = page.getByTestId('issue-link-row-42');
     await expect(row).toBeVisible();
     await expect(page.getByTestId('issue-link-remove-42')).toHaveCount(0);

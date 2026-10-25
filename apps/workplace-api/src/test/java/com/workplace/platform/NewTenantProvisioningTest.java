@@ -12,6 +12,7 @@ import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.service.PlatformTenantService;
 import com.workplace.support.IntegrationTestBase;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -179,5 +180,26 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
     dsl.execute(script);
 
     assertThat(roleCodes(tenantId, "USER")).isEqualTo(roleCodes(1L, "USER"));
+  }
+
+  /** WP-887: 새 테넌트의 기본 관계 유형 집합이 tenant#1(마이그레이션 시드)과 같다 — 코드·이름·말·방향·외부 전용·정렬. */
+  @Test
+  void createTenant_seedsBuiltInRelationTypes_sameAsTenant1() {
+    long owner = createHumanUser("owner");
+    TenantDetailResponse detail =
+        service.createTenant(new CreateTenantRequest("RelTypeCheck", uniqueSlug(), owner));
+
+    assertThat(builtInRelationTypes(detail.id())).hasSize(6).isEqualTo(builtInRelationTypes(1L));
+  }
+
+  /** 해당 테넌트의 기본(code 있는) 관계 유형을 정렬 순으로 문자열화한다 — id·시각은 빼고 값만 비교. */
+  private List<String> builtInRelationTypes(long tenantId) {
+    setGuc(Long.toString(tenantId));
+    return dsl.fetch(
+            "SELECT code, name, directed, outward_label, inward_label, external_only, hidden,"
+                + " sort_order FROM issue_relation_type WHERE tenant_id = ? AND code IS NOT NULL"
+                + " ORDER BY sort_order",
+            tenantId)
+        .map(r -> r.formatCSV(false));
   }
 }

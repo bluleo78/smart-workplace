@@ -708,7 +708,7 @@ export function buildTools(
     ];
   };
 
-  // 이슈 쓰기 도구(add_comment/update_comment/create_issue/update_issue/link_issues)는 공유본(sharedTool)이다.
+  // 이슈 쓰기 도구(add_comment/update_comment/create_issue/update_issue/link_issues/add_issue_relation/remove_issue_relation)는 공유본(sharedTool)이다.
   // 상태 변경은 update_issue 의 status 로 한다(update_status 도구는 WP-343 에서 폐지).
   // #378: unassign_self 실패 시 고정 안내 문구를 반환해 LLM 재해석을 차단한다.
   // 동시에 WORKPLACE_UNASSIGN_ERROR_PATH 사이드카에 오류를 기록해,
@@ -1259,6 +1259,8 @@ export function buildTools(
       sharedTool('update_issue'),
       unassignSelfTool,
       sharedTool('link_issues'),
+      sharedTool('add_issue_relation'),      // WP-887: 관련·중복·복제·원인 등 관계·외부 링크(차단 제외)
+      sharedTool('remove_issue_relation'),
       sharedTool('list_events'),
       sharedTool('get_event'),              // #333 M2: 캘린더 읽기
       proposeCreateEventTool,    // #333 M2: 일정 생성 제안(사이드카 쓰기)
@@ -1354,5 +1356,7 @@ export function buildTools(
     unassignSelfTool,
     sharedTool('link_issues'),
     sharedTool('react'), // WP-812: 이슈 코멘트 반응(채팅과 같은 도구)
+    sharedTool('add_issue_relation'), // WP-887: 관계 유형은 get_project 의 relationTypes, 지우기 id 는 get_issue_detail 의 relations·externalLinks
+    sharedTool('remove_issue_relation'),
   ];
 }

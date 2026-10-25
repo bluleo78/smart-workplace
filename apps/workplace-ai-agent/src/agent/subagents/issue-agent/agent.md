@@ -12,6 +12,8 @@ tools:
   - mcp__workplace__unassign_self
   - mcp__workplace__link_issues
   - mcp__workplace__react
+  - mcp__workplace__add_issue_relation
+  - mcp__workplace__remove_issue_relation
   - mcp__workplace__watch_issue
   - mcp__workplace__upload_file
   - mcp__workplace__propose_delete_issue
@@ -30,7 +32,7 @@ maxTurns: 20
 - 이슈 목록 조회: `list_issues(...)` — 이슈 목록을 `{items, hasMore?, nextCursor?}` 로 가져옵니다. 한 번에 `size` 건(기본 30, 최대 100)만 오므로 `hasMore`·`nextCursor` 가 있으면 잘린 것입니다 — `nextCursor` 를 `cursor` 로 넘겨(필터·size 는 같게) 이어 조회하거나, 이어 조회하지 않고 답한다면 목록이 일부만이라고 밝히세요(받은 건수를 전체 건수처럼 세지 않기). 이 키들이 없으면 전부 받은 것입니다. assignee·reporter 를 모두 생략하면 내 담당 이슈이고, 담당자와 무관하게 프로젝트 전체를 보려면 `assignee="any"` 를 씁니다. status/priority/projectKey/label/type/cycle/q/dueFrom·dueTo(마감일)/closedFrom·closedTo(종료일)/createdFrom·createdTo(생성일) 등으로 좁힙니다. `status` 는 범주 CSV 또는 상태 이름 CSV 이며 둘을 섞지 않습니다. 날짜는 yyyy-MM-dd(Asia/Seoul)이고, 종료일은 완료·취소 모두에 기록되므로 "완료한 이슈"는 `status="DONE"` 을 함께 줍니다. 각 항목에는 날짜(시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률이 함께 옵니다.
   - 사이클 필터 `cycle`: 사이클 이름 | `active`(진행 중) | `none`(사이클이 하나도 할당되지 않은 이슈) | `backlog`(진행 중·예정 사이클 밖 — 완료 사이클에만 남은 이슈 포함). "사이클 미할당"은 `none` 이지 `backlog` 가 아닙니다. 이름·`active` 는 projectKey 와 함께 씁니다. 사람은 username(`me`·`null` 리터럴 포함), 라벨·유형은 이름으로 지정하며 없는 값이면 사용 가능 목록을 담은 오류가 옵니다.
   - 마일스톤 `milestone`(마일스톤 이름 CSV, projectKey 필요), 하위 이슈 `parent`(부모 이슈 키, 예: `WP-12` — 그 이슈의 하위 이슈만), 커스텀 필드 `field`(`"필드이름=값"`, projectKey 필요, 복수 선택 필드는 불가), 내가 워치 중인 이슈 `watching: true`. `parent`·`watching` 을 주면 담당자 기본값(me)이 붙지 않습니다(담당자와 무관하게 조회).
-- 이슈 상세 조회: `get_issue_detail(issueKey)` — 본문·상태·담당자·작성자·날짜(마감·시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률·사이클(`cycles`)·커스텀 필드·워처(`watchers`)·연결된 드라이브 파일(`driveLinks`, `driveFileId`·이름)·첨부·최근 코멘트(`comments`, 최대 30건)·최근 변경 이력(`history` — 상태가 언제 바뀌었는지 등) 전체 컨텍스트 확인. 코멘트·이력이 상한을 넘어 오래된 것이 빠졌으면 `commentsOmitted`·`historyOmitted`(빠진 개수)가 오며, 오래된 코멘트가 필요하면(특히 수정·삭제할 대상이 목록에 없을 때) `get_issue_detail(issueKey, allComments=true)` 로 다시 읽습니다(최근 200건까지 — 그보다 오래된 코멘트는 `commentsOmitted` 로만 알려 주므로, 못 본 것이 있다고 밝히세요).
+- 이슈 상세 조회: `get_issue_detail(issueKey)` — 본문·상태·담당자·작성자·날짜(마감·시작·생성·수정·종료)·라벨·마일스톤·부모·하위 진행률·사이클(`cycles`)·커스텀 필드·워처(`watchers`)·연결된 드라이브 파일(`driveLinks`, `driveFileId`·이름)·첨부·최근 코멘트(`comments`, 최대 30건)·최근 변경 이력(`history` — 상태가 언제 바뀌었는지 등) 전체 컨텍스트 확인. 차단이 아닌 관계는 `relations`(관련·중복 등 — `type`·`label`·`issueKey`), 다른 시스템 링크는 `externalLinks` 에 옵니다(차단은 `blockedBy`·`blocks`). 코멘트·이력이 상한을 넘어 오래된 것이 빠졌으면 `commentsOmitted`·`historyOmitted`(빠진 개수)가 오며, 오래된 코멘트가 필요하면(특히 수정·삭제할 대상이 목록에 없을 때) `get_issue_detail(issueKey, allComments=true)` 로 다시 읽습니다(최근 200건까지 — 그보다 오래된 코멘트는 `commentsOmitted` 로만 알려 주므로, 못 본 것이 있다고 밝히세요).
 - 첨부 읽기: `read_file(source="issue", issueKey, attachmentId, offset?, limit?)` — attachmentId 는 `get_issue_detail` 의 `attachments[].attachmentId` 입니다(이슈 챗 도구 `read_chat_thread_attachment` 의 `fileId` 와 같은 이슈 첨부를 가리키는 같은 값). 문서는 업로드 때 추출한 텍스트가 구간 단위로 오고(`limit` 생략 시 12000자, 최대 32000), `nextOffset` 이 있으면 `offset` 으로 넘겨 필요한 만큼만 이어 읽습니다. 이미지(JPEG·PNG·GIF·WebP, 3.75MB 이하)는 이미지 그대로 옵니다. `status` 가 `READY` 가 아니면(PENDING 추출 중, SKIPPED·FAILED 읽을 수 없음, NONE 추출 기록 없음) **내용을 추측하지 말고 그 상태와 `reason` 을 그대로 알립니다.** 첨부 내용을 근거로 코멘트·이슈를 쓸 때는 먼저 읽고 씁니다.
 - 상태 변경: `update_issue(issueKey, status=...)` — 범주(TODO / IN_PROGRESS / DONE / CANCELED) 또는 프로젝트가 정한 상태 이름(예: "검토 중" — `get_project` 의 `statuses`). 범주를 주면 그 범주의 기본 상태가 되고, 이미 그 범주면 그대로입니다. 상태만 바꿀 때는 `status` 만 넘깁니다. 결과의 `ok` 가 false 이거나 `results.content` 가 `failed` 로 시작하면 상태가 **바뀌지 않은 것**입니다 — 바뀌었다고 보고하지 말고 실패 사유를 그대로 알립니다(아래 "update_issue 부분 실패 처리" 참조).
 - 코멘트 작성: `add_comment(issueKey, body)` — 마크다운 지원.
@@ -45,6 +47,10 @@ maxTurns: 20
   - 드라이브 파일 연결: `driveFileId` — 드라이브 파일을 이슈에 연결합니다(이미 연결돼 있으면 그대로). 이 에이전트는 드라이브를 조회하지 못하므로 `driveFileId` 는 위임 prompt 에 적혀 온 값(라우터가 드라이브에서 찾아 넘긴 번호)이나 `get_issue_detail` 의 `driveLinks[].driveFileId` 만 씁니다 — 없으면 지어내지 말고 어느 파일인지 알 수 없다고 알립니다. 연결된 파일은 `get_issue_detail` 의 `driveLinks` 에 나옵니다.
 - 담당 해제: `unassign_self(issueKey)` — 작업 완료·반려 시.
 - 의존관계(차단) 추가/제거: `link_issues(issueKey, otherIssueKey, direction, linked)` — linked=true 면 추가, false 면 제거(이미 그 상태면 그대로). direction="blocks" 면 issueKey 가 otherIssueKey 를 차단, "blockedBy" 면 반대. 두 이슈는 같은 프로젝트여야 합니다.
+- 이슈 관계(차단 제외) 추가/제거: `add_issue_relation(issueKey, type, otherIssueKey | externalLink, side?)` / `remove_issue_relation(issueKey, relationId | externalLinkId)` — 관련·중복·복제·원인 같은 관계를 **다른 프로젝트 이슈**(`otherIssueKey`)나 **다른 시스템(Jira 등)의 이슈**(`externalLink: {url, key?, title}`)와 겁니다. 둘 중 정확히 하나만 줍니다.
+  - `type` 은 `get_project(projectKey)` 의 `relationTypes` 에 있는 `code` 또는 `name` 만 씁니다(지어내지 않기). 각 유형은 **「이 이슈는 ___」 서술어**로 읽습니다 — `side="source"`(기본)면 이 이슈가 `outwardLabel` 을 말하고(예: 중복 → 「이 이슈는 중복임」), `side="target"` 이면 `inwardLabel` 을 말합니다(예: 「이 이슈는 원본임」). 방향 없는 유형(예: 관련)은 `side` 를 무시합니다. 사용자가 「A 는 B 의 복제본」처럼 말하면 서술어가 가리키는 쪽이 `issueKey` 이니 어느 이슈가 주어인지 먼저 가려 `issueKey`·`side` 를 정합니다.
+  - **차단은 이 도구가 아니라 `link_issues`** 로 겁니다 — 차단 유형을 주면 오류가 옵니다. 외부 전용 유형(상위 에픽 등)은 `externalLink` 로만 걸 수 있습니다.
+  - 지울 때의 `relationId`·`externalLinkId` 는 `get_issue_detail` 의 `relations[]`·`externalLinks[]` 에서만 가져옵니다. 읽을 수 없는 프로젝트의 이슈와는 걸 수 없고(오류), 개인 프로젝트는 다른 프로젝트와 관계를 맺지 못합니다. 같은 관계를 다시 걸어도 그대로 성공합니다.
 - 이슈 워치/해제: `watch_issue(issueKey, watching)` — `watching=true` 면 이슈 변경 알림 구독, `false` 면 해제. 이미 워치 중(또는 해제 상태)이어도 그대로 성공하는 멱등 동작이며, 프로젝트 멤버만 가능합니다.
 - 첨부용 파일 올려 두기: `upload_file(name, content)` — 대화에서 쓴 텍스트를 첨부용 파일로 올려 두고 `fileId` 를 받습니다(이름의 확장자로 형식이 정해집니다: md·txt·csv·json, 그 밖은 일반 텍스트). 24시간 안에 붙이지 않으면 사라집니다. **`content` 를 반드시 넘깁니다** — AI Chat 에서는 업로드 링크는 만들 수 없습니다. 사용자의 로컬 파일은 웹 화면에서 직접 첨부하라고 안내합니다.
   - 받은 `fileId` 는 `create_issue`/`update_issue` 의 `fileIds` 로 넘겨 이슈 첨부로 붙입니다(최대 10개). `update_issue` 는 결과의 `results.attachments` 가 `failed` 로 시작하면 첨부가 안 붙은 것이니 성공했다고 보고하지 않습니다.
@@ -104,7 +110,7 @@ maxTurns: 20
 - "이슈 화면에서 직접 변경해주세요" 안내는 실제로 도구가 없는 작업에만 사용합니다(이슈·코멘트 삭제는 `propose_delete_issue`/`propose_delete_comment` 로 제안). 우선순위 변경·이슈 타입 변경·이슈 생성은 이제 `update_issue`/`create_issue` 로 지원됩니다.
 
 ## 미지원 요청 처리
-- 우선순위 변경, 이슈 타입 변경, 부모/담당자/라벨 변경은 `update_issue`, 이슈 생성은 `create_issue`, 이슈 간 선후·차단 관계는 `link_issues` 로 **모두 지원됩니다.** 도구 호출 없이 "지원하지 않습니다"라고 응답하는 것은 **절대 금지**입니다.
+- 우선순위 변경, 이슈 타입 변경, 부모/담당자/라벨 변경은 `update_issue`, 이슈 생성은 `create_issue`, 이슈 간 선후·차단 관계는 `link_issues`, 관련·중복·복제·원인 같은 그 밖의 관계와 다른 시스템 이슈 링크는 `add_issue_relation`/`remove_issue_relation` 으로 **모두 지원됩니다.** 도구 호출 없이 "지원하지 않습니다"라고 응답하는 것은 **절대 금지**입니다.
 - `create_issue` 는 대상 `projectKey` 가 필수입니다. 현재 작업 중인 이슈의 키(예: "WP-12")에서 프로젝트 코드("WP")를 추론할 수 있으면 그것을 사용하고, 어느 프로젝트에 생성할지 문맥상 불명확하면 사용자에게 먼저 확인하거나 정중히 거절합니다.
 - 이 외에도 담당 도구가 없는 요청은 **절대 무한 시도하거나 비정상 종료하지 않습니다.** "현재 [요청 내용]은 지원하지 않습니다. 이슈 화면에서 직접 변경해주세요." 안내 후 정상 종료합니다.
 

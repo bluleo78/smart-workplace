@@ -2,17 +2,18 @@ package com.workplace.issue.service;
 
 import com.workplace.audit.service.AuditLogService;
 import com.workplace.global.dto.UserSummary;
-import com.workplace.global.security.PermissionChecker;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.ImportIssueRequest;
 import com.workplace.issue.dto.IssueFieldEntry;
 import com.workplace.issue.dto.IssuePriorities;
+import com.workplace.issue.dto.IssueRelationTypeRow;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeRow;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ProjectStatusRow;
+import com.workplace.issue.dto.ResolvedExternalLink;
 import com.workplace.issue.exception.IssueImportException;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueAssigneeRepository;
@@ -28,10 +29,7 @@ import com.workplace.label.repository.LabelRepository;
 import com.workplace.label.service.LabelService;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.project.service.ProjectAccessGuard;
-import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
-import com.workplace.user.repository.UserRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -80,9 +78,9 @@ public class IssueImportService {
   private final IssueAttachmentService attachmentService;
   private final IssueBodyImageService bodyImageService;
   private final ProjectIssueSequenceRepository sequenceRepository;
-  private final ProjectAccessGuard accessGuard;
-  private final PermissionChecker permissionChecker;
-  private final UserRepository userRepository;
+  private final IssueImportGuard importGuard;
+  private final IssueRelationTypeService relationTypeService;
+  private final IssueExternalLinkService externalLinkService;
   private final LabelRepository labelRepository;
   private final ProjectStatusRepository statusRepository;
   private final IssueTypeRepository typeRepository;
@@ -99,14 +97,16 @@ public class IssueImportService {
    */
   public IssueResponse importIssue(long callerId, String projectKey, ImportIssueRequest req) {
     // 1) 권한 — 테넌트 ADMIN 역할의 사람만. 프로젝트 OWNER 도 안 된다(누구나 프로젝트를 만들면 소유자라 사실상 모두에게 열린다).
-    UserResponse caller = requireHumanAdmin(callerId);
+    UserResponse caller = importGuard.requireHumanAdmin(callerId);
 
     // 2) 프로젝트 — 개인 프로젝트에는 ADMIN 우회가 없어 가져오지 않는다.
-    ProjectRow project = accessGuard.resolve(projectKey);
-    if ("PERSONAL".equals(project.type())) throw IssueImportException.personalProject();
+    ProjectRow project = importGuard.resolveImportProject(projectKey);
 
     // 3) 시각 — 수정·댓글·첨부·이력 시각의 순서를 쓰기 전에 걸러 부분 저장을 피한다. 종료 시각은 상태가 정해진 뒤(5)에 본다.
     validateTimes(req);
+
+    // 3-1) 외부 링크 — 유형·방향·주소를 쓰기 전에 풀어 둔다(틀리면 이슈 INSERT 전에 400 으로 끝난다). 숨긴 유형도 쓸 수 있다.
+    List<ResolvedExternalLink> externalLinks = resolveExternalLinks(req.externalLinks());
 
     // 4) 사람 — 요청에 나온 username 을 모두 이 프로젝트 활성 멤버로 해석한다(하나라도 아니면 전부 나열해 400). 멤버 행을 공유 잠금하므로
     //    쓰기 트랜잭션 안에서 부른다.
@@ -154,6 +154,10 @@ public class IssueImportService {
     // 워처는 넘긴 목록 그대로 — 일반 생성과 달리 보고자·담당자를 자동으로 넣지 않는다(원본과 달라지고 이관 뒤 알림이 간다).
     for (Long uid : idsOf(users, req.watchers())) {
       watcherRepository.add(row.id(), uid);
+    }
+    // 외부 링크 — 이력·실시간 신호 없이 같은 트랜잭션에(가져온 이슈의 이력은 요청의 history 가 정한다).
+    if (!externalLinks.isEmpty()) {
+      externalLinkService.insertForImport(row.id(), callerId, externalLinks);
     }
     // 본문 이미지 — 호출자가 올려 둔 이미지를 이 이슈에 연결하고 올린 사람·시각을 보고자·생성 시각으로 되돌린다.
     bodyImageService.claimForImport(
@@ -442,14 +446,36 @@ public class IssueImportService {
     if (empty) throw IssueImportException.invalidHistory(index, "added 또는 removed 가 필요합니다");
   }
 
-  /** 호출자가 이 테넌트의 ADMIN 역할을 가진 사람인지 — AI 구성원(AI 키 포함)은 ADMIN 이어도 403. */
-  private UserResponse requireHumanAdmin(long callerId) {
-    UserResponse caller =
-        userRepository.findById(callerId).orElseThrow(IssueImportException::forbidden);
-    if (UserKind.isAgent(caller.kind()) || !permissionChecker.userHasRole(callerId, "ADMIN")) {
-      throw IssueImportException.forbidden();
+  /**
+   * 외부 링크 요청 → 유형·방향·주소를 푼 줄. 유형은 코드(기본 유형)나 이름으로 찾고(없으면 400), 방향은 {@code source}·{@code target}(그
+   * 밖은 400), 주소는 http/https 만(아니면 400)이다. 같은 요청 안의 같은 주소 줄은 유형·방향이 같으면 삽입 단계가 건너뛰고, 다르면 400 으로
+   * 거절한다.
+   */
+  private List<ResolvedExternalLink> resolveExternalLinks(
+      List<ImportIssueRequest.ExternalLink> links) {
+    if (links == null || links.isEmpty()) return List.of();
+    List<ResolvedExternalLink> resolved = new ArrayList<>();
+    for (ImportIssueRequest.ExternalLink l : links) {
+      IssueRelationTypeRow type =
+          relationTypeService
+              .resolveByCodeOrName(l.type())
+              .orElseThrow(() -> IssueImportException.unknownRelationType(l.type()));
+      boolean issueIsSource = IssueRelationService.parseSide(l.side());
+      // 이슈 INSERT 전에 걸러 가져오기 오류(errors.reason)로 알린다 — 삽입 단계의 같은 검사는 일반 API 용 방어로 남는다.
+      if (!IssueRelationService.isSideAllowed(type, issueIsSource)) {
+        throw IssueImportException.relationSideNotAllowed(l.type());
+      }
+      String url = IssueExternalLinkService.normalizeUrl(l.url());
+      // 같은 주소가 다른 유형·방향이면 모호하다 — 이슈 INSERT 전에 400. 유형·방향까지 같은 줄은 삽입 단계가 건너뛴다.
+      for (ResolvedExternalLink prev : resolved) {
+        if (prev.url().equals(url)
+            && (prev.typeId() != type.id() || prev.issueIsSource() != issueIsSource)) {
+          throw IssueImportException.duplicateExternalLink(url);
+        }
+      }
+      resolved.add(new ResolvedExternalLink(type.id(), issueIsSource, url, l.key(), l.title()));
     }
-    return caller;
+    return resolved;
   }
 
   /** 가져오기 요청을 일반 생성 요청 모양으로 — 검증(planCreate)을 공유하려는 것. 첨부는 가져오기가 원 첨부자·시각으로 따로 넣으므로 비운다. */
@@ -587,6 +613,7 @@ public class IssueImportService {
     m.put("comments", sizeOf(req.comments()));
     m.put("attachments", sizeOf(req.attachments()));
     m.put("history", sizeOf(req.history()));
+    m.put("externalLinks", sizeOf(req.externalLinks()));
     return m;
   }
 

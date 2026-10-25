@@ -1,0 +1,24 @@
+package com.workplace.issue.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+/**
+ * 외부 링크 추가·수정 요청(WP-887).
+ *
+ * <p>{@code url} 에는 {@code @NotBlank} 를 걸지 않는다 — 빈 값·비어 있는 주소도 검증 실패의 일반 오류가 아니라 서비스의 {@code
+ * EXTERNAL_LINK_URL_INVALID} 로 답해 화면이 사유를 가를 수 있게 한다. 수정(PUT)은 주소를 바꾸지 않으므로 이 값을 무시한다.
+ *
+ * @param typeId 관계 유형 id
+ * @param side 방향 있는 유형에서 이 이슈가 A 쪽({@code "source"}, 기본)인지 B 쪽({@code "target"})인지
+ * @param url 추가 때만 쓰는 외부 주소(http/https)
+ * @param key 상대 시스템의 키(선택, 1~50자)
+ * @param title 제목(1~300자)
+ */
+public record SaveIssueExternalLinkRequest(
+    @NotNull Long typeId,
+    String side,
+    @Size(max = 2000) String url,
+    @Size(max = 50) String key,
+    @NotBlank @Size(max = 300) String title) {}

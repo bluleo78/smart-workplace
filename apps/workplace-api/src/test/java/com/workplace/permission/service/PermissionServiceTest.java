@@ -100,15 +100,16 @@ class PermissionServiceTest extends IntegrationTestBase {
   // =========================================================================
 
   /**
-   * Flyway seed 데이터(V2 10개 + V5 신규 4개 + V7 1개 + V20 1개 + V26 1개 + V31 연락처 3개 = 20개)가 모두 반환되어야 한다.
+   * Flyway seed 권한 32개가 모두 반환되어야 한다(V2 10개 + V5 신규 4개 + V7·V20·V26 각 1개 + V31 연락처 3개에 이후 추가분 —
+   * 마이그레이션별 내역은 아래 assert 주석).
    */
   @Test
   void getAllPermissions_returnAllSeedPermissions() {
     List<PermissionResponse> result = permissionService.getAllPermissions();
 
     assertThat(result)
-        .hasSize(31); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage, V132 member:read,
-    // V138 sso:manage, V195 wiki_share:manage 추가 → 31
+        .hasSize(32); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage, V132 member:read,
+    // V138 sso:manage, V195 wiki_share:manage, V214 issue_relation_type:manage 추가 → 32
     // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
     assertThat(result)
         .extracting(PermissionResponse::code)

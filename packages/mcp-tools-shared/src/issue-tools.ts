@@ -1,4 +1,4 @@
-// src/issue-tools.ts — 두 앱 공유 이슈 도구 11종(WP-800: claim_issue 추가, WP-421: watch_issue·unwatch_issue 를 watch_issue 하나로 합침). 핸들러는 IssueToolClient(issueKey 기준)만 호출.
+// src/issue-tools.ts — 두 앱 공유 이슈 도구 13종(WP-800: claim_issue 추가, WP-421: watch_issue·unwatch_issue 를 watch_issue 하나로 합침). 핸들러는 IssueToolClient(issueKey 기준)만 호출.
 import { normalizeTimezone } from './calendar-tools.js';
 import { dropEmpty } from './compact.js';
 import { errText, parseIssueKey } from './parse.js';
@@ -14,6 +14,7 @@ import {
   resolveAssigneeIds,
   resolveCycleIds,
   resolveMilestoneId,
+  resolveRelationType,
   resolveStatusPatch,
   resolveTypeId,
   toFieldValue,
@@ -21,18 +22,20 @@ import {
 } from './resolve.js';
 import {
   addCommentInput,
+  addIssueRelationInput,
   claimIssueInput,
   createIssueInput,
   linkIssuesInput,
   editCommentInput,
   getIssueChatInput,
   getIssueDetailInput,
+  removeIssueRelationInput,
   reportAgentWorkInput,
   updateIssueInput,
   watchIssueInput,
 } from './schemas.js';
 import { resolveMentionTokens } from './messaging-tools.js';
-import type { IssueRow, IssueToolClient } from './tool-client.js';
+import type { IssueRelationTypeRow, IssueRow, IssueToolClient } from './tool-client.js';
 
 /** 첨부 텍스트 추출 상태 → {status, totalChars?, reason?} — truncated·reasonCode 같은 내부 값은 AI 에 필요 없어 뺀다. */
 function toExtractionView(extraction: unknown) {
@@ -88,7 +91,25 @@ function toDriveLinkView(link: Record<string, unknown>) {
   });
 }
 
-/** 공유 이슈 도구 11종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
+/** 관계 유형 목록 → id 별 이름(WP-887) — 상세·추가 결과의 사용자 정의 유형 type 을 이름으로 채울 때 쓴다. */
+const relationTypeNames = (types: IssueRelationTypeRow[]): Map<number, string> => new Map(types.map((t) => [t.id, t.name]));
+
+/**
+ * 상세 raw 의 관계·외부 링크 중 코드 없는(사용자 정의) 유형이 있을 때만 유형 목록을 읽어 이름 표를 만든다 — 기본 유형만 쓰는 대부분의 이슈는 조회가 늘지 않는다.
+ * 유형 조회가 실패해도 상세 자체는 돌려준다: 그 경우 type 은 이 이슈 쪽 말로 대신한다(이 값은 표시용이고 쓰기는 relationId·externalLinkId 로 한다).
+ */
+async function customRelationTypeNames(client: IssueToolClient, raw: unknown): Promise<Map<number, string> | undefined> {
+  const r = (raw ?? {}) as { relations?: { typeCode?: string | null }[]; externalLinks?: { typeCode?: string | null }[] };
+  const needsNames = [...(r.relations ?? []), ...(r.externalLinks ?? [])].some((v) => !v.typeCode);
+  if (!needsNames) return undefined;
+  try {
+    return relationTypeNames(await client.listIssueRelationTypes());
+  } catch {
+    return undefined;
+  }
+}
+
+/** 공유 이슈 도구 13종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
     {
@@ -97,6 +118,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Returns one issue (이슈) by issueKey (e.g. WP-12): Markdown body, all fields (dates +09:00), cycles, parent, children, blockedBy/blocks, ' +
+        'relations and externalLinks (non-blocking links, with ids for remove_issue_relation), ' +
         `custom fields, watchers, driveLinks, attachments (attachmentId for read_file), the latest ${ISSUE_DETAIL_COMMENT_LIMIT} comments and ` +
         `${ISSUE_DETAIL_HISTORY_LIMIT} history entries. commentsOmitted/historyOmitted count older ones left out (absent = complete); ` +
         `allComments:true returns up to ${ISSUE_DETAIL_COMMENT_HARD_LIMIT} comments. closedAt: DONE or CANCELED time. People ` +
@@ -112,7 +134,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           client.getIssueWatchers(issueKey),
           client.getIssueDriveLinks(issueKey),
         ]);
-        const detail = normalizeIssueDetail(raw, { allComments });
+        const detail = normalizeIssueDetail(raw, { allComments, relationTypeNames: await customRelationTypeNames(client, raw) });
         return JSON.stringify({
           ...detail,
           cycles: cycles.map(({ name, status }) => ({ name, status })),
@@ -366,6 +388,59 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         // 서버는 갱신된 이슈 상세 전체(코멘트·이력의 숫자 사용자 ID 포함)를 돌려준다 — 이 도구에 필요한 의존성 관계만 정규화해 내보낸다(#833, WP-353).
         const { blockedBy, blocks, blocked } = normalizeIssueDetail(await client.addIssueDependency(issueKey, otherNumber, direction));
         return JSON.stringify({ issueKey, blockedBy, blocks, blocked });
+      },
+    },
+    {
+      name: 'add_issue_relation',
+      app: 'issue',
+      kind: 'write',
+      // 같은 관계·같은 외부 링크를 다시 걸면 서버가 건너뛴다(방향 없는 유형은 A·B 를 정규화) — 멱등.
+      hints: { destructive: false, idempotent: true },
+      description:
+        'Links issueKey to another issue (otherIssueKey) or an issue in another system (externalLink: url, key?, title) — exactly one. ' +
+        'Not for blocking (link_issues). Reads "this issue <outwardLabel> <other>". Repeating is a no-op. Returns issueKey, relations, externalLinks.',
+      inputSchema: addIssueRelationInput,
+      async handler(args) {
+        const { issueKey, type, side, otherIssueKey, externalLink } = addIssueRelationInput.parse(args);
+        // 이슈 사이 관계와 외부 링크는 서버 경로·본문이 달라 한 호출에 하나만 — 둘 다/둘 다 없음은 어느 쪽을 뜻하는지 알 수 없어 쓰기 전에 거부한다.
+        if ((otherIssueKey == null) === (externalLink == null)) {
+          throw new Error('otherIssueKey(이슈 사이 관계)와 externalLink(다른 시스템 이슈) 중 정확히 하나를 주세요.');
+        }
+        parseIssueKey(issueKey);
+        const types = await client.listIssueRelationTypes();
+        const relationType = resolveRelationType(types, type);
+        const sideValue = side ?? 'source';
+        if (externalLink != null) {
+          // 외부 링크에는 차단·외부 전용(상위 에픽) 유형도 쓸 수 있다 — 서버 규칙과 같다.
+          await client.addIssueExternalLink(issueKey, { typeId: relationType.id, side: sideValue, url: externalLink.url, key: externalLink.key, title: externalLink.title });
+        } else {
+          if (relationType.code === 'BLOCKS') throw new Error('차단 관계는 add_issue_relation 이 아니라 link_issues(linked: true) 로 거세요.');
+          if (relationType.externalOnly) throw new Error(`관계 유형 '${type}' 은(는) 다른 시스템 이슈 링크(externalLink)에만 쓸 수 있습니다.`);
+          const other = parseIssueKey(otherIssueKey!);
+          await client.addIssueRelation(issueKey, { typeId: relationType.id, side: sideValue, target: { projectKey: other.projectKey, number: other.number } });
+        }
+        // 서버 응답은 건 쪽 목록 하나뿐이라, 두 목록을 모두 돌려주려고 상세를 다시 읽는다(숨긴 상대는 서버가 이미 가린다).
+        const { relations, externalLinks } = normalizeIssueDetail(await client.getIssueDetail(issueKey), { relationTypeNames: relationTypeNames(types) });
+        return JSON.stringify({ issueKey, relations, externalLinks });
+      },
+    },
+    {
+      name: 'remove_issue_relation',
+      app: 'issue',
+      kind: 'write',
+      hints: { destructive: true, idempotent: true },
+      description:
+        'Removes a link made by add_issue_relation: exactly one of relationId or externalLinkId, from get_issue_detail. Not for blocking (link_issues).',
+      inputSchema: removeIssueRelationInput,
+      async handler(args) {
+        const { issueKey, relationId, externalLinkId } = removeIssueRelationInput.parse(args);
+        if ((relationId == null) === (externalLinkId == null)) {
+          throw new Error('relationId 와 externalLinkId 중 정확히 하나를 주세요.');
+        }
+        parseIssueKey(issueKey);
+        if (relationId != null) await client.removeIssueRelation(issueKey, relationId);
+        else await client.removeIssueExternalLink(issueKey, externalLinkId!);
+        return 'ok';
       },
     },
     {

@@ -265,7 +265,14 @@ describe('이슈', () => {
   const detail = {
     issueKey: 'WP-12', summary, body: '본문', reporter: person,
     comments: [{ id: 1, body: '확인', authorId: 9, authorUsername: 'alice', authorName: '앨리스', authorKind: 'HUMAN', createdAt: '2026-10-01T00:00:00Z' }],
-    history: [{ eventType: 'STATUS_CHANGED', actorId: 9, actorUsername: 'alice', actorName: '앨리스', actorKind: 'HUMAN', fromValue: 'TODO', toValue: 'DONE', createdAt: '2026-10-01T00:00:00Z' }],
+    history: [
+      { eventType: 'STATUS_CHANGED', actorId: 9, actorUsername: 'alice', actorName: '앨리스', actorKind: 'HUMAN', fromValue: 'TODO', toValue: 'DONE', createdAt: '2026-10-01T00:00:00Z' },
+      // WP-887: 관계 이력 payload 에도 유형 id 가 있다 — 도구는 풀어서 내보내되 id 류를 뺀다.
+      { eventType: 'RELATION_ADDED', actorId: 9, actorUsername: 'alice', actorName: '앨리스', actorKind: 'HUMAN', fromValue: null, toValue: '{"typeId":2,"label":"관련","other":{"projectKey":"AB","number":7,"title":"T"}}', createdAt: '2026-10-01T00:00:00Z' },
+    ],
+    // WP-887: 관계·외부 링크 — 서버 IssueRelationView·IssueExternalLinkView 필드 그대로.
+    relations: [{ id: 31, typeId: 2, typeCode: 'RELATES', label: '관련', issue: { projectKey: 'AB', number: 7, title: 'T', status: 'TODO', type: { id: 2, name: 'BUG' } } }],
+    externalLinks: [{ id: 41, typeId: 6, typeCode: 'PARENT_EPIC', label: '에픽에 속함', url: 'https://jira.example/CLIM-1', key: 'CLIM-1', title: '외부 에픽' }],
     attachments: [{ fileId: 70, originalName: 'a.png', mimeType: 'image/png', sizeBytes: 3, attachedById: 9, attachedByUsername: 'alice', attachedByName: '앨리스', attachedAt: '2026-10-01T00:00:00Z' }],
   };
   // WP-356: 워처(WatcherResponse)·드라이브 링크(DriveLinkResponse — 링크를 건 사람 createdById 와 core fileId 를 담는다).
@@ -281,16 +288,19 @@ describe('이슈', () => {
     getIssueDriveLinks: vi.fn().mockResolvedValue(driveLinks),
     createIssue: vi.fn().mockResolvedValue(summary),
     addIssueDependency: vi.fn().mockResolvedValue(detail),
+    listIssueRelationTypes: vi.fn().mockResolvedValue([{ id: 2, code: 'RELATES', name: '관련', directed: false, outwardLabel: '관련', inwardLabel: null, externalOnly: false, hidden: false, sortOrder: 20 }]),
+    addIssueRelation: vi.fn().mockResolvedValue([]),
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
   };
   const tools = buildSharedIssueTools(client as never) as never as Parameters<typeof find>[0];
 
-  it('get_issue_detail·create_issue·link_issues 응답에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
+  it('get_issue_detail·create_issue·link_issues·add_issue_relation 응답에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
     for (const [name, args] of [
       ['get_issue_detail', { issueKey: 'WP-12' }],
       ['create_issue', { projectKey: 'WP', title: 'T' }],
       ['link_issues', { issueKey: 'WP-12', otherIssueKey: 'WP-13', direction: 'blocks', linked: true }],
+      ['add_issue_relation', { issueKey: 'WP-12', type: 'RELATES', otherIssueKey: 'AB-7' }],
     ] as const) {
       expect(userIdLeaks(out(await find(tools, name).handler(args))), name).toEqual([]);
     }
@@ -399,6 +409,7 @@ describe('프로젝트', () => {
     getProjectFields: vi.fn().mockResolvedValue([{ id: 8, projectId: 3, name: '고객사', type: 'SELECT', options: ['A'], position: 0 }]),
     // WP-807: 프로젝트 상태 — 숫자 id 는 get_project 출력에서 빠진다.
     getProjectStatuses: vi.fn().mockResolvedValue([{ id: 12, name: '검토 중', category: 'IN_PROGRESS', position: 2 }]),
+    listIssueRelationTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 9, username: 'alice', name: '앨리스', role: 'OWNER' }]),
     createProject: vi.fn().mockResolvedValue(project),
     updateProject: vi.fn().mockResolvedValue(project),

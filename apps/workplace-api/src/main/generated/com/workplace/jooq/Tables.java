@@ -61,10 +61,13 @@ import com.workplace.jooq.tables.IssueComment;
 import com.workplace.jooq.tables.IssueCommentReaction;
 import com.workplace.jooq.tables.IssueCycle;
 import com.workplace.jooq.tables.IssueDependency;
+import com.workplace.jooq.tables.IssueExternalLink;
 import com.workplace.jooq.tables.IssueFieldDef;
 import com.workplace.jooq.tables.IssueFieldValue;
 import com.workplace.jooq.tables.IssueHistory;
 import com.workplace.jooq.tables.IssueLabel;
+import com.workplace.jooq.tables.IssueRelation;
+import com.workplace.jooq.tables.IssueRelationType;
 import com.workplace.jooq.tables.IssueTypeDef;
 import com.workplace.jooq.tables.IssueWatcher;
 import com.workplace.jooq.tables.Label;
@@ -424,6 +427,11 @@ public class Tables {
     public static final IssueDependency ISSUE_DEPENDENCY = IssueDependency.ISSUE_DEPENDENCY;
 
     /**
+     * The table <code>public.issue_external_link</code>.
+     */
+    public static final IssueExternalLink ISSUE_EXTERNAL_LINK = IssueExternalLink.ISSUE_EXTERNAL_LINK;
+
+    /**
      * The table <code>public.issue_field_def</code>.
      */
     public static final IssueFieldDef ISSUE_FIELD_DEF = IssueFieldDef.ISSUE_FIELD_DEF;
@@ -442,6 +450,16 @@ public class Tables {
      * The table <code>public.issue_label</code>.
      */
     public static final IssueLabel ISSUE_LABEL = IssueLabel.ISSUE_LABEL;
+
+    /**
+     * The table <code>public.issue_relation</code>.
+     */
+    public static final IssueRelation ISSUE_RELATION = IssueRelation.ISSUE_RELATION;
+
+    /**
+     * The table <code>public.issue_relation_type</code>.
+     */
+    public static final IssueRelationType ISSUE_RELATION_TYPE = IssueRelationType.ISSUE_RELATION_TYPE;
 
     /**
      * The table <code>public.issue_type_def</code>.

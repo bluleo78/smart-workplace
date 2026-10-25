@@ -85,6 +85,41 @@ public class IssueImportException extends RuntimeException implements CodedExcep
         Map.of("reason", "IMPORT_UNKNOWN_LABELS", "labels", joined));
   }
 
+  /** 외부 링크의 관계 유형 이름·코드를 찾을 수 없다. */
+  public static IssueImportException unknownRelationType(String type) {
+    return new IssueImportException(
+        HttpStatus.BAD_REQUEST,
+        "관계 유형을 찾을 수 없습니다: " + type,
+        Map.of("reason", "IMPORT_UNKNOWN_RELATION_TYPE", "type", type));
+  }
+
+  /** 같은 요청 안에 같은 주소가 다른 유형·방향으로 두 번 나왔다 — 어느 쪽이 맞는지 알 수 없어 이슈를 만들기 전에 거절. */
+  public static IssueImportException duplicateExternalLink(String url) {
+    return new IssueImportException(
+        HttpStatus.BAD_REQUEST,
+        "같은 주소의 외부 링크가 서로 다른 유형·방향으로 중복되었습니다: " + url,
+        Map.of("reason", "IMPORT_DUPLICATE_EXTERNAL_LINK", "url", url));
+  }
+
+  /** 외부 링크의 방향이 이 유형에서 쓸 수 없다 — 상대 쪽 말이 없는 방향 있는 유형(예: 상위 에픽)은 이 이슈가 A 쪽(source)으로만 건다. */
+  public static IssueImportException relationSideNotAllowed(String type) {
+    return new IssueImportException(
+        HttpStatus.BAD_REQUEST,
+        "이 관계 유형은 target 방향으로 걸 수 없습니다: " + type,
+        Map.of("reason", "IMPORT_RELATION_SIDE_NOT_ALLOWED", "type", type));
+  }
+
+  /**
+   * 관계 일괄의 틀린 줄들 — 전부 모아 한 번에 알린다. {@code rows} 는 {@code [{"index":4,"reason":"..."}]} 모양의 JSON
+   * 문자열이다(응답 errors 는 문자열 값만 받는다). 하나라도 틀리면 아무것도 쓰지 않는다.
+   */
+  public static IssueImportException invalidRelations(String rowsJson, int count) {
+    return new IssueImportException(
+        HttpStatus.BAD_REQUEST,
+        "올바르지 않은 관계가 " + count + "건 있습니다. 아무것도 가져오지 않았습니다.",
+        Map.of("reason", "IMPORT_INVALID_RELATIONS", "rows", rowsJson));
+  }
+
   @Override
   public HttpStatus status() {
     return status;

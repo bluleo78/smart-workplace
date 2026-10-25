@@ -17,6 +17,7 @@ import com.workplace.issue.repository.IssueAiSummaryRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueRelationService;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectRepository;
 import java.util.ArrayDeque;
@@ -75,6 +76,7 @@ public class IssueAiSummaryService {
   private final AssistantResolver assistantResolver;
   private final ProjectRepository projectRepo;
   private final IssueChatExcerptReader chatReader;
+  private final IssueRelationService relationService;
 
   public IssueAiSummaryService(
       IssueRepository issueRepo,
@@ -85,7 +87,8 @@ public class IssueAiSummaryService {
       PlatformTransactionManager txManager,
       AssistantResolver assistantResolver,
       ProjectRepository projectRepo,
-      IssueChatExcerptReader chatReader) {
+      IssueChatExcerptReader chatReader,
+      IssueRelationService relationService) {
     this.issueRepo = issueRepo;
     this.commentRepo = commentRepo;
     this.historyRepo = historyRepo;
@@ -95,6 +98,7 @@ public class IssueAiSummaryService {
     this.assistantResolver = assistantResolver;
     this.projectRepo = projectRepo;
     this.chatReader = chatReader;
+    this.relationService = relationService;
   }
 
   /** 이슈 생성 이벤트 핸들러. AFTER_COMMIT — 커밋 후 별도 워커 스레드에서 opt-in 자동 갱신. */
@@ -148,10 +152,17 @@ public class IssueAiSummaryService {
               if (meta.isEmpty()) return null;
               IssueRow issue = meta.get();
               List<IssueCommentResponse> comments = commentRepo.findByIssue(issueId);
-              List<IssueHistoryEntryResponse> history = historyRepo.findByIssue(issueId);
               List<ChatExcerpt> chat = chatReader.recentForIssue(issueId, CHAT_LIMIT);
               // 프로젝트 row 도 GUC 필요 — 같은 트랜잭션에서 읽는다
               Optional<ProjectRow> project = projectRepo.findById(issue.projectId());
+              // 요약은 그 이슈를 읽는 모든 사람이 보므로, 관계 이력의 다른 프로젝트 상대는 OPEN 만 남기고 가린다(WP-887 — 특정 조회자가 없다).
+              List<IssueHistoryEntryResponse> history =
+                  project
+                      .map(
+                          p ->
+                              relationService.redactHistory(
+                                  null, p, historyRepo.findByIssue(issueId)))
+                      .orElse(List.of());
               return new Gathered(issue, comments, history, chat, project.orElse(null));
             });
 

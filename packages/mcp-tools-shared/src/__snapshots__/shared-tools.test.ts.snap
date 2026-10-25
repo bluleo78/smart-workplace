@@ -6,6 +6,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_channel_message": "write",
   "add_comment": "write",
   "add_contact_favorite": "write",
+  "add_issue_relation": "write",
   "add_project_member": "write",
   "add_user_group_member": "write",
   "claim_issue": "write",
@@ -69,6 +70,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "react": "write",
   "read_file": "read",
   "remove_contact_favorite": "write",
+  "remove_issue_relation": "write",
   "remove_user_group_member": "write",
   "rename_drive_item": "write",
   "report_agent_work": "write",
@@ -220,6 +222,76 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
       },
+      "type": "object",
+    },
+  },
+  {
+    "name": "add_issue_relation",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "externalLink": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "type": "string",
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "url": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+              },
+              "required": [
+                "url",
+                "title",
+              ],
+              "type": "object",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "otherIssueKey": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "side": {
+          "description": "Directed types: this issue says outwardLabel (source, default) or inwardLabel (target)",
+          "enum": [
+            "source",
+            "target",
+          ],
+          "type": "string",
+        },
+        "type": {
+          "description": "Code or name from get_project relationTypes",
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "type",
+      ],
       "type": "object",
     },
   },
@@ -2249,6 +2321,47 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
       },
+      "type": "object",
+    },
+  },
+  {
+    "name": "remove_issue_relation",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "externalLinkId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "relationId": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+      },
+      "required": [
+        "issueKey",
+      ],
       "type": "object",
     },
   },

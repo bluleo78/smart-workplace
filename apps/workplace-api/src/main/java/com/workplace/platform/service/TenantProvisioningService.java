@@ -99,6 +99,8 @@ public class TenantProvisioningService {
       if (ownerUserId != null) {
         platformTenantRepository.assignUserRole(ownerUserId, adminRoleId);
       }
+      // 이슈 관계 기본 유형 6개(WP-887) — 마이그레이션이 기존 테넌트에 넣은 것과 같은 값. GUC 가 신규 테넌트인 지금 넣는다.
+      platformTenantRepository.insertBuiltInRelationTypes();
     } finally {
       // 같은 tx 의 후속 작업(findTenant 등)이 시드 GUC 를 물려받지 않게 빈 문자열로 리셋.
       platformTenantRepository.clearTenantGuc();

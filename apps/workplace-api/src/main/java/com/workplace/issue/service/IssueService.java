@@ -131,6 +131,12 @@ public class IssueService {
   /** WP-807: 프로젝트 상태 해석(상태 id 검증·범주 기본 상태). */
   private final ProjectStatusRepository projectStatusRepository;
 
+  /** 이슈 사이 관계(WP-887) — 상세의 관계 목록과 관계 이력 가림. */
+  private final IssueRelationService relationService;
+
+  /** 외부 링크(WP-887) — 상세의 외부 링크 목록. */
+  private final IssueExternalLinkService externalLinkService;
+
   /** 해석된 프로젝트 상태(WP-807) — 이슈에 쓸 상태 id·범주·이름·색(WP-870, 생성 응답을 재조회 없이 채운다). */
   record ResolvedStatus(long id, String category, String name, String color) {
 
@@ -643,7 +649,9 @@ public class IssueService {
     var type = typeMap.get(row.typeId());
     // 코멘트마다 보는 사람별 반응 집계를 싣는다(WP-504) — 집계 쿼리 한 번.
     var comments = commentReactionService.enrich(commentRepository.findByIssue(row.id()), callerId);
-    var history = historyRepository.findByIssue(row.id());
+    // 관계 이력(RELATION_*)은 상대 프로젝트를 읽을 수 없는 조회자에게 상대 키·제목을 가린다(WP-887).
+    var history =
+        relationService.redactHistory(callerId, project, historyRepository.findByIssue(row.id()));
     // Phase 4a — 부모/자식 트리 정보. SUBTASK 면 parent 채움, 비SUBTASK 면 자식 집계.
     var parentRef =
         row.parentIssueId() == null
@@ -723,7 +731,10 @@ public class IssueService {
         canWorkflow,
         canDelete,
         reporter,
-        accessGuard.canChangeReporter(project, row.reporterId(), callerId));
+        accessGuard.canChangeReporter(project, row.reporterId(), callerId),
+        // 관계(WP-887) — 조회자가 읽을 수 있는 상대만. 외부 링크는 외부 주소라 프로젝트 권한과 무관하게 전부 싣는다.
+        relationService.listFor(callerId, row, project),
+        externalLinkService.listFor(row.id()));
   }
 
   /**

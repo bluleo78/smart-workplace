@@ -44,6 +44,28 @@ interface IssueLinkView {
   statusName?: string;
 }
 
+/** 이슈 사이 관계 한 줄(WP-887, 차단 제외) — 「이 이슈는 {label} · {issueKey}」. relationId 는 remove_issue_relation 이 쓴다. */
+export interface IssueRelationOut {
+  relationId: number;
+  /** 유형 코드(기본 유형) — 사용자 정의 유형이면 유형 이름(이름을 못 얻으면 label 로 대신해 표시용일 뿐 add_issue_relation 의 type 으로는 못 쓴다). */
+  type: string;
+  /** 이 이슈 쪽 말(서술어) — 방향 있는 유형은 이 이슈가 A 쪽이면 A 쪽 말, B 쪽이면 B 쪽 말. */
+  label: string;
+  issueKey: string;
+  title: string;
+  status: string;
+}
+
+/** 외부 링크 한 줄(WP-887) — 다른 시스템(Jira 등)의 이슈. externalLinkId 는 remove_issue_relation 이 쓴다. */
+export interface IssueExternalLinkOut {
+  externalLinkId: number;
+  type: string;
+  label: string;
+  key: string | null;
+  title: string;
+  url: string;
+}
+
 export interface IssueDetail {
   issueKey: string;
   title: string;
@@ -71,6 +93,10 @@ export interface IssueDetail {
   blockedBy: IssueLinkView[];
   blocks: IssueLinkView[];
   blocked: boolean;
+  /** 차단이 아닌 관계(관련·중복·복제·원인 등) — 서버가 읽을 수 없는 상대를 이미 걸러 보낸다(WP-887). 차단은 blockedBy/blocks 에 그대로. */
+  relations: IssueRelationOut[];
+  /** 다른 시스템 이슈 링크(WP-887). */
+  externalLinks: IssueExternalLinkOut[];
   customFields: { name: string; type: string; value: unknown }[];
   attachments: { attachmentId: number; name: string; mimeType: string | null; sizeBytes: number | null; attachedBy: PersonView; attachedAt: string | null }[];
   comments: { id: number; body: string; author: PersonView; createdAt: string | null; updatedAt: string | null; reactions?: Record<string, number> }[];
@@ -85,7 +111,7 @@ export interface IssueDetail {
 }
 
 /** 이력 payload 에서 뺄 키 — 숫자 id 는 쓰기 도구로 흘려보내지 않고(#833), 색·아이콘은 LLM 에 쓸모없는 토큰이다. */
-const HISTORY_DROP_KEYS = new Set(['id', 'defId', 'fileId', 'colorToken', 'icon']);
+const HISTORY_DROP_KEYS = new Set(['id', 'defId', 'fileId', 'typeId', 'colorToken', 'icon']);
 
 /** payload 를 JSON 으로 저장하는 이력 이벤트(IssueHistoryRecorder). 그 밖(제목·상태 등)의 값은 '{'·'[' 로 시작해도 평문이다. */
 const JSON_PAYLOAD_EVENTS = new Set([
@@ -96,6 +122,12 @@ const JSON_PAYLOAD_EVENTS = new Set([
   'PARENT_CHANGED',
   'DEPENDENCY_ADDED',
   'DEPENDENCY_REMOVED',
+  // WP-887: 관계·외부 링크 이력도 JSON — 서버가 읽을 수 없는 상대는 이미 {hidden:true} 로 가려 보낸다.
+  'RELATION_ADDED',
+  'RELATION_REMOVED',
+  'EXTERNAL_LINK_ADDED',
+  'EXTERNAL_LINK_UPDATED',
+  'EXTERNAL_LINK_REMOVED',
   'CUSTOM_FIELD_CHANGED',
 ]);
 
@@ -131,6 +163,13 @@ const links = (arr: unknown, projectKey: unknown): IssueLinkView[] =>
     ...statusNameOf(l),
   }));
 
+/**
+ * 관계·외부 링크의 type — 기본 유형은 코드, 사용자 정의 유형은 이름(typeNames 에서 typeId 로 찾는다, 못 찾으면 이 이슈 쪽 말로 대신한다).
+ * 서버 view 에는 유형 이름이 없어 typeId 로 이름을 풀어야 하는데, 그 id 자체는 출력하지 않는다.
+ */
+const relationTypeOf = (v: Raw, typeNames: ReadonlyMap<number, string> | undefined): string =>
+  (v.typeCode as string | null) ?? typeNames?.get(v.typeId as number) ?? String(v.label ?? '');
+
 /** 뒤에서 limit 개만(최근 것) 남기고 빠진 개수를 함께 돌려준다. */
 function keepRecent<T>(list: T[], limit: number): { kept: T[]; omitted: number } {
   if (list.length <= limit) return { kept: list, omitted: 0 };
@@ -140,6 +179,8 @@ function keepRecent<T>(list: T[], limit: number): { kept: T[]; omitted: number }
 /** 정규화 옵션 — allComments 는 코멘트 상한을 30 에서 하드 상한 200 으로 늘린다(get_issue_detail 의 allComments). */
 export interface NormalizeIssueDetailOptions {
   allComments?: boolean;
+  /** 관계 유형 id → 이름(WP-887) — 사용자 정의 유형(코드 없음)의 type 을 이름으로 채운다. 없으면 이 이슈 쪽 말로 대신한다. */
+  relationTypeNames?: ReadonlyMap<number, string>;
 }
 
 /** summary 중첩을 풀고, 사람은 사람 뷰로, 시각은 KST 로 바꾼다. 코멘트·이력은 최근 것만(잘리면 …Omitted 로 알린다). */
@@ -176,6 +217,26 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
     blockedBy: links(s.blockedBy, projectKey),
     blocks: links(s.blocks, projectKey),
     blocked: Boolean(s.blocked),
+    // WP-887: 서버가 caller 의 읽기 권한으로 이미 거르고 이력도 가린 top-level relations·externalLinks 만 옮긴다 — 다른 곳(이력·요약)에서 상대를 되짚지 않는다.
+    relations: ((r.relations ?? []) as Raw[]).map((v) => {
+      const other = (v.issue ?? {}) as Raw;
+      return {
+        relationId: v.id as number,
+        type: relationTypeOf(v, options.relationTypeNames),
+        label: String(v.label ?? ''),
+        issueKey: formatIssueKey(other.projectKey as string | undefined, other.number as number | undefined) ?? String(other.number ?? ''),
+        title: String(other.title ?? ''),
+        status: String(other.status ?? ''),
+      };
+    }),
+    externalLinks: ((r.externalLinks ?? []) as Raw[]).map((v) => ({
+      externalLinkId: v.id as number,
+      type: relationTypeOf(v, options.relationTypeNames),
+      label: String(v.label ?? ''),
+      key: (v.key as string | null) ?? null,
+      title: String(v.title ?? ''),
+      url: String(v.url ?? ''),
+    })),
     customFields: ((s.customFields ?? []) as Raw[]).map((f) => ({
       name: String(f.name ?? ''),
       type: String(f.type ?? ''),

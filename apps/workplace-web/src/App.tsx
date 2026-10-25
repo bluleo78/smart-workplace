@@ -125,6 +125,7 @@ const AssistantSettingsPage = lazy(() => import('./pages/settings/AssistantSetti
 const TokenSettingsPage = lazy(() => import('./pages/settings/TokenSettingsPage'))
 const MySharesPage = lazy(() => import('./pages/settings/MySharesPage'))
 const WikiSharingPage = lazy(() => import('./pages/admin/WikiSharingPage'))
+const WorkAppSettingsPage = lazy(() => import('./pages/settings/apps/WorkAppSettingsPage'))
 const SettingsModuleLayout = lazy(() =>
   import('./components/layout/SettingsModuleLayout').then((m) => ({ default: m.SettingsModuleLayout })),
 )
@@ -277,7 +278,10 @@ export default function App() {
                   <Route path="settings/roles" element={<RoleListPage />} />
                   <Route path="settings/roles/:id" element={<RoleDetailPage />} />
                   <Route path="settings/sso" element={<SsoSettingsPage />} />
-                  <Route path="settings/wiki-sharing" element={<WikiSharingPage />} />
+                  {/* 앱 설정(WP-887) — 앱마다 한 화면. 옛 노트 공유 주소는 새 주소로 보낸다. */}
+                  <Route path="settings/apps/work" element={<WorkAppSettingsPage />} />
+                  <Route path="settings/apps/wiki" element={<WikiSharingPage />} />
+                  <Route path="settings/wiki-sharing" element={<Navigate to="/settings/apps/wiki" replace />} />
                   <Route path="settings/audit-logs" element={<AuditLogListPage />} />
                   <Route path="settings/agents" element={<AgentManagementPage />} />
                 </Route>

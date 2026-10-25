@@ -148,8 +148,31 @@ export interface AgentWorkReport {
   ended: boolean;
 }
 
+/** 관계 유형 행(GET /issue-relation-types, IssueRelationTypeResponse) — 도구가 읽는 필드. 숨긴 유형(hidden)도 함께 온다. */
+export interface IssueRelationTypeRow {
+  id: number;
+  /** 기본 유형 코드(BLOCKS·RELATES·DUPLICATES·CLONES·CAUSES·PARENT_EPIC) — 사용자 정의 유형이면 null. */
+  code: string | null;
+  name: string;
+  directed: boolean;
+  /** A 쪽(`source`) 이슈가 말하는 서술어. */
+  outwardLabel: string;
+  /** B 쪽(`target`) 이슈가 말하는 서술어 — 방향 없는 유형이면 null. */
+  inwardLabel: string | null;
+  /** 외부 링크로만 쓰는 유형(상위 에픽 등). */
+  externalOnly: boolean;
+  hidden: boolean;
+  sortOrder: number;
+}
+
+/** 관계 유형 조회(WP-887) — add_issue_relation 이 유형 이름·코드를 id 로 풀고 get_project 가 유형 목록을 싣는다. */
+export interface IssueRelationTypeClient {
+  /** GET /issue-relation-types — 로그인한 누구나 읽는다. 숨긴 유형도 오므로 걸 수 있는지는 호출자가 hidden 으로 가른다. */
+  listIssueRelationTypes(): Promise<IssueRelationTypeRow[]>;
+}
+
 /** 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다. */
-export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
+export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, IssueRelationTypeClient {
   /** GET .../chat/thread — 이슈 챗 스레드 id(없으면 서버가 만든다, WP-373). */
   getIssueChatThreadId(issueKey: string): Promise<number>;
   /**
@@ -185,6 +208,17 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   /** 갱신된 상세 raw 반환. */
   addIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<unknown>;
   removeIssueDependency(issueKey: string, otherNumber: number, direction: 'blocks' | 'blockedBy'): Promise<void>;
+  /**
+   * POST .../relations — 이슈 사이 관계(차단 제외)를 건다. 서버는 갱신된 관계 목록(IssueRelationView[])을 돌려준다(WP-887).
+   * side 는 이 이슈가 A(source) 쪽인지 B(target) 쪽인지, target 의 projectKey 는 다른 프로젝트일 때 준다. 읽을 수 없는 상대·차단·숨긴 유형은 400.
+   */
+  addIssueRelation(issueKey: string, body: { typeId: number; side: 'source' | 'target'; target: { projectKey: string; number: number } }): Promise<unknown[]>;
+  /** DELETE .../relations/{relationId} — 거는 것과 같은 규칙(주소 이슈 편집 + 상대 읽기). */
+  removeIssueRelation(issueKey: string, relationId: number): Promise<void>;
+  /** POST .../external-links — 다른 시스템 이슈 링크를 붙인다. 응답은 갱신된 링크 목록(IssueExternalLinkView[]). 같은 이슈에 같은 URL 은 하나. */
+  addIssueExternalLink(issueKey: string, body: { typeId: number; side: 'source' | 'target'; url: string; key?: string; title: string }): Promise<unknown[]>;
+  /** DELETE .../external-links/{linkId}. */
+  removeIssueExternalLink(issueKey: string, linkId: number): Promise<void>;
   /** PUT .../cycles — 사이클 집합 교체(빈 배열=전부 해제). */
   replaceIssueCycles(issueKey: string, cycleIds: number[]): Promise<unknown>;
   /** GET .../cycles — 이슈에 연결된 사이클 요약(id·name·status). get_issue_detail 동봉용(WP-176). */
@@ -753,7 +787,7 @@ export interface HomeToolClient {
   getThreadInbox(params: { cursor?: string; limit: number }): Promise<unknown>;
 }
 
-export interface ProjectToolClient extends ProjectMetaClient {
+export interface ProjectToolClient extends ProjectMetaClient, IssueRelationTypeClient {
   /** GET /projects — Spring 페이지를 PageResult 로 벗긴다(WP-352). */
   listProjects(page: number, size: number): Promise<PageResult<unknown>>;
   getProject(projectKey: string): Promise<Record<string, unknown>>;

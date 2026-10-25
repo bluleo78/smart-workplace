@@ -175,7 +175,7 @@ test('?task= 딥링크 직접 진입 — 작업 패널이 페이지 헤더 아�
   await expect(page.getByTestId('personal-task-panel-title')).toContainText('블로그 초안');
 });
 
-test('패널은 라벨·AI 대화 노출 / 사이클·의존성·커스텀필드·watch 미노출', async ({ authenticatedPage: page }) => {
+test('패널은 라벨·AI 대화 노출 / 사이클·관계·커스텀필드·watch 미노출', async ({ authenticatedPage: page }) => {
   await mockPersonal(page, [createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' })]);
   await mockTaskDetail(page);
   await page.goto(`/projects/${KEY}?task=1`);
@@ -185,7 +185,9 @@ test('패널은 라벨·AI 대화 노출 / 사이클·의존성·커스텀필드
   await expect(panel).toContainText('긴급'); // 라벨
   await expect(panel.getByTestId('personal-panel-chat')).toBeVisible(); // AI 대화
   await expect(panel.getByText('사이클')).toHaveCount(0);
-  await expect(panel.getByText('의존성')).toHaveCount(0);
+  // 관계(WP-887, 옛 의존성) 그룹도 개인 패널엔 없다.
+  await expect(panel.getByTestId('property-group-relations')).toHaveCount(0);
+  await expect(panel.getByText('관계', { exact: true })).toHaveCount(0);
   await expect(panel.getByText('구독')).toHaveCount(0);
 });
 

@@ -218,6 +218,24 @@ public class IssueRepository {
         .fetchOptional(this::mapToRow);
   }
 
+  /** 한 프로젝트의 활성(삭제 아님) 이슈를 번호들로 한 번에 조회 — 번호 → 이슈. 없는 번호는 결과에서 빠진다(가져오기 관계 일괄 N+1 회피). */
+  public Map<Integer, IssueRow> findByProjectAndNumbers(
+      Long projectId, Collection<Integer> numbers) {
+    if (numbers == null || numbers.isEmpty()) return Map.of();
+    return dsl
+        .select(ROW_FIELDS)
+        .from(ISSUE_WITH_STATUS)
+        .where(
+            ISSUE
+                .PROJECT_ID
+                .eq(projectId)
+                .and(ISSUE.NUMBER.in(numbers))
+                .and(ISSUE.DELETED_AT.isNull()))
+        .fetch(this::mapToRow)
+        .stream()
+        .collect(java.util.stream.Collectors.toMap(IssueRow::number, r -> r));
+  }
+
   /** id 들로 활성(삭제 아님) 이슈를 한 번에 조회 — N+1 회피. 없는 id 는 결과에서 빠진다. */
   public List<IssueRow> findByIds(Collection<Long> ids) {
     if (ids == null || ids.isEmpty()) return List.of();

@@ -91,7 +91,12 @@ public class ProjectAccessGuard {
    * 아는 호출부(이슈 챗 스레드 경유 이슈 첨부 조회, WP-244)가 이슈 첨부 API 와 같은 조회 규칙을 쓰게 한다.
    */
   public boolean canRead(long projectId, Long userId) {
-    return projectRepository.findById(projectId).map(p -> isReadable(p, userId)).orElse(false);
+    return projectRepository.findById(projectId).map(p -> canRead(p, userId)).orElse(false);
+  }
+
+  /** {@link #canRead(long, Long)} 의 행 버전 — 이미 프로젝트 행을 가진 호출부가 같은 행을 다시 읽지 않게 한다. */
+  public boolean canRead(ProjectRow project, Long userId) {
+    return isReadable(project, userId);
   }
 
   /**

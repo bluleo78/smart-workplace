@@ -52,7 +52,9 @@ public record ImportIssueRequest(
     @Size(max = 500, message = "댓글은 500개 이하여야 합니다.")
         List<@NotNull(message = "댓글 항목은 비울 수 없습니다.") @Valid Comment> comments,
     @Size(max = 1000, message = "변경 이력은 1000개 이하여야 합니다.")
-        List<@NotNull(message = "변경 이력 항목은 비울 수 없습니다.") @Valid HistoryEntry> history) {
+        List<@NotNull(message = "변경 이력 항목은 비울 수 없습니다.") @Valid HistoryEntry> history,
+    @Size(max = 50, message = "외부 링크는 50개 이하여야 합니다.")
+        List<@NotNull(message = "외부 링크 항목은 비울 수 없습니다.") @Valid ExternalLink> externalLinks) {
 
   /** 가져오기 한 번에 붙일 수 있는 첨부 상한 — 요청 검증(@Size)과 첨부 서비스가 같은 값을 쓴다. */
   public static final int MAX_ATTACHMENTS = 50;
@@ -62,6 +64,23 @@ public record ImportIssueRequest(
       @NotNull(message = "파일 id 는 필수입니다.") Long fileId,
       @NotBlank(message = "첨부자는 필수입니다.") String attachedBy,
       @NotNull(message = "첨부 시각은 필수입니다.") OffsetDateTime attachedAt) {}
+
+  /**
+   * 다른 시스템에 남는 이슈로 가는 외부 링크 한 줄(WP-887) — 가져오는 이슈와 같은 트랜잭션에 이력 없이 넣는다.
+   *
+   * @param type 관계 유형 코드(기본 유형, 예: RELATES·PARENT_EPIC) 또는 사용자 정의 유형 이름 — 숨긴 유형도 받는다
+   * @param side 방향 있는 유형에서 이 이슈의 쪽 — {@code source}(기본, 이 이슈가 A) 또는 {@code target}
+   * @param key 상대 시스템의 키(예: CLIM-12), 선택
+   */
+  public record ExternalLink(
+      @NotBlank(message = "외부 링크 유형은 필수입니다.") String type,
+      String side,
+      @NotBlank(message = "외부 링크 주소는 필수입니다.")
+          @Size(max = 2000, message = "외부 링크 주소는 2000자 이하여야 합니다.")
+          String url,
+      @Size(max = 50, message = "외부 링크 키는 50자 이하여야 합니다.") String key,
+      @NotBlank(message = "외부 링크 제목은 필수입니다.") @Size(max = 300, message = "외부 링크 제목은 300자 이하여야 합니다.")
+          String title) {}
 
   /** 원작성자·원시각을 가진 댓글. */
   public record Comment(

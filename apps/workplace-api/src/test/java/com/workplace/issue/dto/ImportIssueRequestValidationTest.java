@@ -47,7 +47,8 @@ class ImportIssueRequestValidationTest {
         null,
         List.of(new ImportIssueRequest.Attachment(1L, "att", T)),
         comments,
-        history);
+        history,
+        null);
   }
 
   /** 번호·필드·첨부·댓글·이력을 정해 만든 요청 — 목록 원소·번호 상한 검증용. */
@@ -82,7 +83,8 @@ class ImportIssueRequestValidationTest {
         null,
         attachments,
         comments,
-        history);
+        history,
+        null);
   }
 
   /** 목록 안의 null 원소는 서비스에서 NPE(500) 가 나므로 검증에서 막는다. */

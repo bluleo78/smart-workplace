@@ -1,11 +1,12 @@
-// 의존성/관련 이슈 한 행 (Phase 4b).
-// 구성(2줄, 부모 슬롯 IssueParentSlot 과 같은 모양): 1줄 = 유형 아이콘 + KEY-N + 제목 + 제거 버튼,
-//   2줄 = 상태 아이콘(상태 색) + 상태 이름(보조 글자). 좁은 오른쪽 레일에서도 제목이 상태에 밀려 굶지 않게 상태를 아래 줄로 내렸고,
+// 이슈 「관계」 묶음의 한 줄 — 차단(의존성)과 이슈 사이 관계(WP-887)가 같이 쓴다.
+// 구성(2줄, 부모 슬롯 IssueParentSlot 과 같은 모양): 1줄 = 유형 아이콘 + 표시 키(같은 프로젝트 #12 · 다른 프로젝트 WPV-28)
+//   + 제목(그 프로젝트 이슈 화면 링크) + 제거 버튼, 2줄 = 상태 아이콘(상태 색) + 상태 이름(보조 글자).
+//   좁은 오른쪽 레일에서도 제목이 상태에 밀려 굶지 않게 상태를 아래 줄로 내렸고,
 //   범주 색 배지는 쓰지 않는다 — 상태 색 아이콘 옆에 범주 색 배지가 붙으면 같은 상태가 두 색으로 보였다(WP-809 디자이너 리뷰).
 // 제거는 confirm 없이 즉시 호출 — 소규모 작업이므로 토스트 + invalidate 만으로 충분.
 // WP-237: 터치 기기(pointer: coarse)는 hover 가 없어 X 에 닿을 수 없으므로 행 끝 ⋯(44px) 하나로 모은다.
 //   폭 <1024 → 액션 시트, ≥1024(태블릿의 좁은 오른쪽 레일) → DropdownMenu. 마우스 데스크톱은 기존 hover X 그대로.
-//   X 를 그냥 상시 노출하지 않는 이유: 의존성 제거는 확인창 없이 즉시 실행되므로 ⋯ 한 단계가 오조작 가드다
+//   X 를 그냥 상시 노출하지 않는 이유: 제거는 확인창 없이 즉시 실행되므로 ⋯ 한 단계가 오조작 가드다
 //   (확인창이 있는 드라이브 링크 X 는 상시 노출 — IssueDriveLinkItem 과의 의도적 차이).
 
 import { Unlink, X } from 'lucide-react';
@@ -15,51 +16,79 @@ import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu';
 import { Button } from '@/components/ui/button';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { statusLabel } from '@/lib/issueGrouping';
+import { relatedIssueKey } from '@/lib/issueRelations';
 
-import type { IssueLinkSummary, IssueStatus } from '../../types/issue';
+import type { IssueStatus } from '../../types/issue';
+import type { IssueTypeSummary } from '../../types/issueType';
 import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge';
 import { IssueStatusIcon } from './IssueStatusIcon';
 
+/** 줄에 그릴 상대 이슈 — 의존성 요약(IssueLinkSummary)과 관계 상대(RelatedIssueSummary)가 모두 맞는 모양. */
+interface LinkRowIssue {
+  number: number;
+  title: string;
+  status: string;
+  /** 프로젝트 상태 이름·색(WP-869) — 의존성 요약에만 있고, 없으면 범주 라벨·범주 색으로 그린다. */
+  statusName?: string;
+  statusColor?: string | null;
+  type: IssueTypeSummary | null;
+}
+
 export function IssueLinkRow({
   projectKey,
+  currentProjectKey = projectKey,
   link,
   onRemove,
+  removeLabel = '차단 제거',
+  testIdPrefix = 'issue-link',
+  testIdKey = link.number,
 }: {
+  /** 이 줄 이슈의 프로젝트 키 — 링크 주소와 다른 프로젝트 키 표시에 쓴다. */
   projectKey: string;
-  link: IssueLinkSummary;
+  /** 지금 보고 있는 이슈의 프로젝트 키 — 같으면 키를 `#12` 로 줄인다. 생략하면 같은 프로젝트. */
+  currentProjectKey?: string;
+  link: LinkRowIssue;
   /** 없으면 제거 조작을 그리지 않는다 — 워크플로 편집 권한이 없는 OPEN 비멤버(WP-503, 서버는 멤버만 허용). */
   onRemove?: () => void;
+  /** 제거 버튼·메뉴 이름 — 차단은 「차단 제거」, 관계는 「관계 제거」. */
+  removeLabel?: string;
+  /** testid 접두사 — 차단 줄은 기존 `issue-link-*`(E2E 계약), 관계 줄은 `issue-relation-*`. */
+  testIdPrefix?: string;
+  /** testid 끝 — 차단 줄은 이슈 번호, 관계 줄은 관계 id(다른 프로젝트와 번호가 겹칠 수 있어서). */
+  testIdKey?: number | string;
 }) {
   const isCoarse = useIsCoarsePointer();
+  const displayKey = relatedIssueKey(projectKey, currentProjectKey, link.number);
 
   return (
     // group: hover-reveal 패턴 — hover 시 배경 + 삭제 버튼 표시 (IssueAttachmentItem 동일 패턴)
     <li
       className="group flex items-start gap-2 rounded px-1 -mx-1 text-sm py-1 hover:bg-accent/50"
-      data-testid={`issue-link-row-${link.number}`}
+      data-testid={`${testIdPrefix}-row-${testIdKey}`}
     >
       {/* 유형 아이콘은 첫 줄(제목 줄, 20px) 가운데에 맞춘다. */}
-      <span className="flex h-5 shrink-0 items-center">
-        <IssueTypeBadge type={link.type} size="sm" iconOnly />
-      </span>
+      {link.type && (
+        <span className="flex h-5 shrink-0 items-center">
+          <IssueTypeBadge type={link.type} size="sm" iconOnly />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 font-mono text-xs text-muted-foreground">
-            {projectKey}-{link.number}
-          </span>
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">{displayKey}</span>
           <Link
             to={`/projects/${projectKey}/issues/${link.number}`}
             className="min-w-0 flex-1 truncate hover:underline"
+            // 레일이 좁아 제목이 자주 잘린다 — 마우스를 올리면 전체 제목.
             title={link.title}
           >
             {link.title}
           </Link>
         </div>
-        {/* 상태 — 아이콘은 상태 색, 이름은 상태 이름(구 서버 응답이면 범주 라벨). 이름이 읽히므로 아이콘은 장식.
+        {/* 상태 — 아이콘은 상태 색, 이름은 상태 이름(구 서버 응답·관계 상대면 범주 라벨). 이름이 읽히므로 아이콘은 장식.
             KEY 시작선에 맞춰 들여쓰고, 30자 이름은 말줄임(title 로 전체). */}
         <div
           className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
-          data-testid={`issue-link-status-${link.number}`}
+          data-testid={`${testIdPrefix}-status-${testIdKey}`}
         >
           <IssueStatusIcon status={link.status as IssueStatus} color={link.statusColor} decorative className="size-3.5" />
           <span className="truncate" title={statusLabel(link.status, link.statusName)}>
@@ -70,13 +99,13 @@ export function IssueLinkRow({
       {onRemove && (isCoarse ? (
         // WP-237: 터치용 ⋯ — 44px 터치 영역이 행 높이를 키우지 않도록 음수 세로 마진으로 시각 크기만 유지.
         <TouchRowActionsMenu
-          title={`${projectKey}-${link.number} ${link.title}`}
-          ariaLabel="의존성 더보기"
-          testId={`issue-link-more-${link.number}`}
-          sheetTestId="issue-link-sheet"
-          itemTestId={(key) => `issue-link-menu-${key}-${link.number}`}
+          title={`${displayKey} ${link.title}`}
+          ariaLabel={`${displayKey} 더보기`}
+          testId={`${testIdPrefix}-more-${testIdKey}`}
+          sheetTestId={`${testIdPrefix}-sheet`}
+          itemTestId={(key) => `${testIdPrefix}-menu-${key}-${testIdKey}`}
           triggerClassName="-my-2.5"
-          actions={[{ key: 'remove', label: '의존성 제거', icon: <Unlink />, destructive: true, onSelect: onRemove }]}
+          actions={[{ key: 'remove', label: removeLabel, icon: <Unlink />, destructive: true, onSelect: onRemove }]}
         />
       ) : (
         // 마우스 데스크톱: hover·키보드 포커스 때만 보인다 — 파괴적 작업 보호. 숨김은 투명도로만 해서(display:none 이 아님)
@@ -86,9 +115,9 @@ export function IssueLinkRow({
           variant="ghost"
           size="icon"
           onClick={onRemove}
-          aria-label="의존성 제거"
+          aria-label={removeLabel}
           className="size-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          data-testid={`issue-link-remove-${link.number}`}
+          data-testid={`${testIdPrefix}-remove-${testIdKey}`}
         >
           <X className="h-4 w-4" />
         </Button>

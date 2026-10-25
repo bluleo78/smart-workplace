@@ -20,6 +20,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   get_issue_chat: { label: '이슈 챗 읽기', icon: '💬' },
   update_comment: { label: '코멘트 수정', icon: '✏️' },
   link_issues: { label: '이슈 의존관계', icon: '🔗' }, // WP-812: add_issue_dependency·remove_issue_dependency 통합(linked)
+  add_issue_relation: { label: '이슈 관계 추가', icon: '🔗' }, // WP-887: 관련·중복·복제·원인 등(차단 제외)·외부 링크
+  remove_issue_relation: { label: '이슈 관계 제거', icon: '🔗' },
   claim_issue: { label: '이슈 가져가기', icon: '🙋' }, // WP-800: 대기열 라벨 이슈를 AI 가 한 동작으로 담당
   watch_issue: { label: '이슈 구독 변경', icon: '👀' }, // WP-421: watch_issue·unwatch_issue 통합(watching)
   // 프로젝트

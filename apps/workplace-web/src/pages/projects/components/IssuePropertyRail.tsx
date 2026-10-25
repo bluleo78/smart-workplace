@@ -1,5 +1,5 @@
 // 이슈 상세 우측 속성 레일 — 3개 접기 그룹으로 속성을 구조화.
-// 무엇을: 상태·담당 / 일정 / 분류·관계 3그룹.
+// 무엇을: 상태·담당 / 일정 / 분류 / 관계 / 커스텀 필드 그룹.
 // 왜: 9개 속성이 단일 스크롤에 나열되어 과밀한 기존 aside 를 해소(#343).
 // 첨부 섹션은 Task 2 에서, 활동 섹션은 Task 3 에서 본문 탭으로 이동 완료.
 
@@ -13,8 +13,10 @@ import { isOverdue } from '../../../lib/issueOverdue';
 import type { IssueFieldEntry } from '../../../types/customField';
 import type {
   AgentWorkView,
+  IssueExternalLinkView,
   IssueLinkSummary,
   IssuePriority,
+  IssueRelationView,
   IssueStatus,
   ParentRef,
   UpdateIssueRequest,
@@ -26,10 +28,10 @@ import { CustomFieldsSection } from './CustomFieldsSection';
 import { DatePickerPopover } from './DatePickerPopover';
 import { DueDatePickerPopover } from './DueDatePickerPopover';
 import { IssueClosedLine } from './IssueClosedLine';
-import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
 import { IssuePropertyGroup } from './IssuePropertyGroup';
+import { AddIssueRelationButton, IssueRelationsSection } from './IssueRelationsSection';
 import { IssueReporterField, type ReporterEdit } from './IssueReporterField';
 import { IssueStatusSelect } from './IssueStatusSelect';
 import { MilestonePickerPopover } from './MilestonePickerPopover';
@@ -56,6 +58,8 @@ interface IssuePropertyRailProps {
   labels: LabelSummary[];     // summary.labels
   blockedBy: IssueLinkSummary[];  // summary.blockedBy
   blocks: IssueLinkSummary[];     // summary.blocks
+  relations?: IssueRelationView[];        // 상세 relations — 차단 밖 이슈 사이 관계(WP-887)
+  externalLinks?: IssueExternalLinkView[]; // 상세 externalLinks — 다른 시스템 이슈 링크(WP-887)
   customFields: IssueFieldEntry[];    // summary.customFields
   updatePending: boolean;     // update.isPending
   onPatch: (changes: UpdateIssueRequest) => void;
@@ -92,6 +96,8 @@ export function IssuePropertyRail({
   labels,
   blockedBy,
   blocks,
+  relations = [],
+  externalLinks = [],
   customFields,
   updatePending,
   onPatch,
@@ -119,8 +125,8 @@ export function IssuePropertyRail({
   const classificationCount = labels.length;
   // 커스텀 필드 그룹 배지 — 값이 채워진 필드 수는 섹션이 자체 관리하므로 정의 수 기준.
   const customFieldCount = customFields.length;
-  // 의존성 그룹 배지 — 차단됨 + 차단 중(양방향) 합산.
-  const dependencyCount = blockedBy.length + blocks.length;
+  // 관계 그룹 배지 — 차단(양방향) + 이슈 사이 관계 + 외부 링크(WP-887).
+  const relationCount = blockedBy.length + blocks.length + relations.length + externalLinks.length;
 
   // 의존성 일정 모순 soft 경고(#669) — 미완료(DONE/CANCELED 아님) 선행 이슈 중 가장 늦은 마감일을
   // 구해, 시작일/마감일이 그보다 이르면 인라인 경고를 띄운다. 저장 자체는 차단하지 않는다(정책 결정).
@@ -294,19 +300,23 @@ export function IssuePropertyRail({
         </div>
       </IssuePropertyGroup>
 
-      {/* 그룹 4: 의존성 — 차단됨/차단 중 두 슬롯(커스텀 필드보다 앞). 기본 접힘, 비어있지 않으면 배지 표시 */}
+      {/* 그룹 4: 관계(WP-887, 옛 「의존성」) — 차단·이슈 사이 관계·외부 링크(커스텀 필드보다 앞). 기본 접힘, 비어있지 않으면 배지.
+          접힘 상태 저장 키는 옛 「의존성」 그대로 — 사람마다 펼쳐 둔 상태를 잇는다. 머리의 「＋ 관계 추가」는 편집 권한이 있을 때만. */}
       <IssuePropertyGroup
-        title="의존성"
+        title="관계"
         storageKey="issue-rail:dependencies"
         defaultOpen={false}
-        count={dependencyCount}
-        testId="property-group-dependencies"
+        count={relationCount}
+        testId="property-group-relations"
+        action={canEditWorkflow ? <AddIssueRelationButton projectKey={projectKey} issueNumber={issueNumber} /> : undefined}
       >
-        <IssueDependenciesSection
+        <IssueRelationsSection
           projectKey={projectKey}
           issueNumber={issueNumber}
           blockedBy={blockedBy}
           blocks={blocks}
+          relations={relations}
+          externalLinks={externalLinks}
           disabled={!canEditWorkflow}
         />
       </IssuePropertyGroup>

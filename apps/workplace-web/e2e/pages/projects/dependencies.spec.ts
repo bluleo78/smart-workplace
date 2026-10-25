@@ -1,7 +1,8 @@
-// Phase 4b 의존성 도메인 E2E.
-// 시나리오 1 (smoke): 상세 진입 → '차단 중' 슬롯에 의존성 추가 → POST payload 검증
-//   → 슬롯에 행 노출 → X 클릭으로 제거 → DELETE 쿼리 검증 → 행 제거 확인.
-// 시나리오 2: POST 응답이 409(DEPENDENCY_CYCLE) → 토스트 노출 + picker 가 열린 상태로 유지.
+// Phase 4b 의존성 도메인 E2E — WP-887 부터 차단은 「관계」 그룹의 「＋ 관계 추가」 창에서 건다(저장은 그대로 의존성 API).
+// 시나리오 1 (smoke): 상세 진입 → 관계 추가 창에서 「차단 중」 + 이슈 찾기 → POST payload 검증
+//   → 「차단 중」 묶음에 행 노출 → X 클릭으로 제거 → DELETE 쿼리 검증 → 행 제거 확인.
+// 시나리오 2: POST 응답이 409(DEPENDENCY_CYCLE) → 토스트 노출 + 창이 열린 채 고른 이슈 유지.
+//   (옛 번호 입력 칸의 번호 검사(WP-470·618·852)는 찾기 목록에서 고르는 방식이 되며 사라졌다 — 없는 번호는 목록에 나오지 않는다.)
 // 시나리오 3 (#312): 의존성 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
 
 import type { Page, Route } from '@playwright/test';
@@ -9,6 +10,7 @@ import type { Page, Route } from '@playwright/test';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { stableBox } from '../../fixtures/wait';
+import type { IssueLookupItem } from '../../../src/types/issue';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import type { IssueLinkSummary } from '../../../src/types/issue';
@@ -65,9 +67,34 @@ async function setupCommonStubs(page: Page) {
   );
 }
 
+/** 「관계」 그룹 머리(접기 버튼) — 접혀 있으면 이름에 배지 수가 붙고, 옆 「관계 추가」 버튼과 구분되게 앵커로 고정한다. */
+function relationsGroupTrigger(page: Page) {
+  return page.getByTestId('property-group-relations').getByRole('button', { name: /^관계(\s*\d+)?$/ });
+}
+
+/** 관계 대상 찾기 스텁 — 받은 검색 주소를 기록하고 items 를 돌려준다. */
+async function stubLookup(page: Page, items: IssueLookupItem[]) {
+  const lookups = trackRequests(page, 'GET', '/api/v1/issues/lookup');
+  await page.route(
+    (url) => url.pathname === '/api/v1/issues/lookup',
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) }),
+  );
+  return lookups;
+}
+
+/** 관계 추가 창을 열고 「이 이슈는…」 말을 고른 뒤 번호로 찾아 그 이슈를 고른다. */
+async function pickBlockingTarget(page: Page, label: string, query: string, number: number) {
+  await page.getByTestId('issue-relation-add').click();
+  await expect(page.getByTestId('issue-relation-dialog')).toBeVisible();
+  await page.getByTestId('issue-relation-type-select').click();
+  await page.getByRole('option', { name: label, exact: true }).click();
+  await page.getByTestId('issue-relation-search').fill(query);
+  await page.getByTestId(`issue-relation-result-${KEY}-${number}`).click();
+}
+
 test.describe('의존성', () => {
   test(
-    '차단 중 추가 → POST payload + 행 노출 → 제거 → DELETE + 행 사라짐',
+    '관계 추가 창에서 차단 중 추가 → POST payload + 행 노출 → 제거 → DELETE + 행 사라짐',
     { tag: '@smoke' },
     async ({ authenticatedPage: page }) => {
       const taskType = makeTaskType();
@@ -140,27 +167,34 @@ test.describe('의존성', () => {
         },
       );
 
+      // 찾기 결과 — 현재 이슈(#1)도 섞여 오지만 창이 거른다.
+      const lookups = await stubLookup(page, [
+        { projectKey: KEY, number: 1, title: 'task A', status: 'TODO', type: taskType },
+        { projectKey: KEY, number: 42, title: '이슈 42', status: 'TODO', type: taskType },
+      ]);
+
       await page.goto(`/projects/${KEY}/issues/1`);
-      // 의존성 그룹은 기본 접힘 — 펼쳐야 의존성 섹션이 DOM 에 마운트됨 (#343).
-      await page.getByRole('button', { name: /의존성/ }).click();
-      await expect(page.getByTestId('issue-dependencies-section')).toBeVisible();
+      // 관계 그룹은 기본 접힘 — 펼쳐야 관계 섹션이 DOM 에 마운트됨 (#343). 비어 있으면 「없음」 한 줄.
+      await relationsGroupTrigger(page).click();
+      await expect(page.getByTestId('issue-relations-section')).toHaveText('없음');
 
-      // 차단 중 슬롯 — picker 열고 number 입력 후 저장.
-      await page.getByTestId('issue-link-picker-trigger-blocks').click();
-      await expect(page.getByTestId('issue-link-picker-blocks')).toBeVisible();
-      await page.getByTestId('issue-link-picker-input-blocks').fill('42');
-      // WP-852 — 한 칸짜리 입력이라 Enter 로 「추가」가 실행된다(버튼 클릭 경로는 아래 409 테스트가 지킨다).
-      await page.getByTestId('issue-link-picker-input-blocks').press('Enter');
+      // 관계 추가 창 — 「차단 중」 + 번호로 찾아 고른 뒤 추가.
+      await pickBlockingTarget(page, '차단 중', '42', 42);
+      // 찾기 요청 — 번호만 쳐도 그대로 묻고 현재 프로젝트를 from 으로 싣는다(서버가 이 프로젝트의 그 번호를 20건 상한 안 맨 앞에 둔다).
+      expect(lookups.lastUrl()?.searchParams.get('q')).toBe('42');
+      expect(lookups.lastUrl()?.searchParams.get('from')).toBe(KEY);
+      await expect(page.getByTestId(`issue-relation-result-${KEY}-1`)).toHaveCount(0);
+      await page.getByTestId('issue-relation-submit').click();
 
-      // POST payload — direction='blocks' 컨트랙트 검증.
+      // POST payload — direction='blocks' 컨트랙트 검증(차단은 의존성 API 로 간다).
       await expect
         .poll(() => depPosts.lastBody())
         .toEqual({ otherNumber: 42, direction: 'blocks' });
 
-      // 성공 토스트 + 슬롯의 행 노출 + picker close (mutateAsync 완료 후).
-      await expect(page.getByText('의존성을 추가했습니다')).toBeVisible();
-      await expect(page.getByTestId('issue-link-row-42')).toBeVisible();
-      await expect(page.getByTestId('issue-link-picker-blocks')).toHaveCount(0);
+      // 성공 토스트 + 「차단 중」 묶음의 행 노출 + 창 닫힘 (mutateAsync 완료 후).
+      await expect(page.getByText('차단 관계를 추가했습니다')).toBeVisible();
+      await expect(page.getByTestId('blocks-list').getByTestId('issue-link-row-42')).toBeVisible();
+      await expect(page.getByTestId('issue-relation-dialog')).toHaveCount(0);
 
       // 제거 — hover 후 X 클릭 (#312: hover-reveal 패턴이므로 hover 필수) → DELETE 발생 → 행 사라짐.
       const linkRow42 = page.getByTestId('issue-link-row-42');
@@ -172,12 +206,12 @@ test.describe('의존성', () => {
       expect(url.searchParams.get('otherNumber')).toBe('42');
       expect(url.searchParams.get('direction')).toBe('blocks');
 
-      await expect(page.getByText('의존성을 제거했습니다')).toBeVisible();
+      await expect(page.getByText('차단 관계를 제거했습니다')).toBeVisible();
       await expect(page.getByTestId('issue-link-row-42')).toHaveCount(0);
     },
   );
 
-  test('사이클 시도 → 409 토스트 + picker 유지 + 입력 보전', async ({
+  test('사이클 시도 → 409 토스트 + 창 유지 + 고른 이슈 보전', async ({
     authenticatedPage: page,
   }) => {
     const taskType = makeTaskType();
@@ -224,33 +258,28 @@ test.describe('의존성', () => {
       },
     );
 
-    await page.goto(`/projects/${KEY}/issues/1`);
-    // 의존성 그룹은 기본 접힘 — 펼쳐야 의존성 섹션이 DOM 에 마운트됨 (#343).
-    await page.getByRole('button', { name: /의존성/ }).click();
-    await expect(page.getByTestId('issue-dependencies-section')).toBeVisible();
+    await stubLookup(page, [{ projectKey: KEY, number: 7, title: '이슈 7', status: 'TODO', type: taskType }]);
 
-    // 차단 중 picker — 번호 입력 후 저장 시도.
-    await page.getByTestId('issue-link-picker-trigger-blocks').click();
-    // WP-470 — 번호 범위를 넘으면 요청 없이 화면 문구로 알린다(예전엔 「요청 본문을 해석할 수 없습니다」).
-    await page.getByTestId('issue-link-picker-input-blocks').fill('99999999999');
-    await page.getByTestId('issue-link-picker-save-blocks').click();
-    await expect(page.getByText('이 프로젝트에 없는 이슈 번호입니다')).toBeVisible();
-    // WP-618 — 0·음수·소수도 요청 없이 이유를 알린다(예전엔 아무 안내 없이 창만 남았다).
-    for (const bad of ['0', '-1', '1.5']) {
-      await page.getByTestId('issue-link-picker-input-blocks').fill(bad);
-      await page.getByTestId('issue-link-picker-save-blocks').click();
-      await expect(page.getByText('이슈 번호는 1 이상의 정수로 입력해 주세요').first()).toBeVisible();
-    }
+    await page.goto(`/projects/${KEY}/issues/1`);
+    await relationsGroupTrigger(page).click();
+
+    // 「차단됨 (선행 필요)」 + #7 — 고르기 전엔 추가 버튼이 꺼져 있다(요청 없음).
+    await page.getByTestId('issue-relation-add').click();
+    await expect(page.getByTestId('issue-relation-submit')).toBeDisabled();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('issue-relation-dialog')).toHaveCount(0);
+    await pickBlockingTarget(page, '차단됨 (선행 필요)', '#7', 7);
     expect(posts).toBe(0);
-    await page.getByTestId('issue-link-picker-input-blocks').fill('7');
-    await page.getByTestId('issue-link-picker-save-blocks').click();
+    await page.getByTestId('issue-relation-submit').click();
 
     // 토스트 — 백엔드 메시지 노출.
     await expect(page.getByText('의존성 사이클이 발생합니다')).toBeVisible();
+    expect(posts).toBe(1);
 
-    // picker 유지 + 입력 보전.
-    await expect(page.getByTestId('issue-link-picker-blocks')).toBeVisible();
-    await expect(page.getByTestId('issue-link-picker-input-blocks')).toHaveValue('7');
+    // 창 유지 + 고른 이슈 보전 — 다시 누를 수 있다.
+    await expect(page.getByTestId('issue-relation-dialog')).toBeVisible();
+    await expect(page.getByTestId('issue-relation-selected')).toContainText('#7');
+    await expect(page.getByTestId('issue-relation-submit')).toBeEnabled();
 
     // 행은 추가되지 않음.
     await expect(page.getByTestId('issue-link-row-7')).toHaveCount(0);
@@ -293,9 +322,9 @@ test.describe('의존성', () => {
     );
 
     await page.goto(`/projects/${KEY}/issues/1`);
-    // 의존성 그룹은 기본 접힘 — 펼쳐야 의존성 행이 DOM 에 마운트됨 (#343).
-    await page.getByRole('button', { name: /의존성/ }).click();
-    await expect(page.getByTestId('issue-link-row-99')).toBeVisible();
+    // 관계 그룹은 기본 접힘 — 펼쳐야 의존성 행이 DOM 에 마운트됨 (#343).
+    await relationsGroupTrigger(page).click();
+    await expect(page.getByTestId('blocked-by-list').getByTestId('issue-link-row-99')).toBeVisible();
 
     const row = page.getByTestId('issue-link-row-99');
     const removeBtn = page.getByTestId('issue-link-remove-99');
@@ -355,7 +384,7 @@ test.describe('의존성', () => {
     );
 
     await page.goto(`/projects/${KEY}/issues/1`);
-    await page.getByRole('button', { name: /의존성/ }).click();
+    await relationsGroupTrigger(page).click();
     const row = page.getByTestId('issue-link-row-5');
     const status = page.getByTestId('issue-link-status-5');
     await expect(status).toHaveText('검토 중');
@@ -367,7 +396,8 @@ test.describe('의존성', () => {
 
     // 2줄 구성(WP-809 디자이너 리뷰) — 상태는 제목 아래 줄, KEY 시작선에 맞춰 들여쓰고, 좁은 레일에서도 제목이 행 폭 대부분을 쓴다.
     const title = await stableBox(row.getByRole('link', { name: LONG_LINK_TITLE }));
-    const key = await stableBox(row.getByText(`${KEY}-5`, { exact: true }));
+    // 같은 프로젝트 이슈는 키를 「#5」 로 줄여 보인다(WP-887).
+    const key = await stableBox(row.getByText('#5', { exact: true }));
     const statusBox = await stableBox(status);
     const rowBox = await stableBox(row);
     expect(statusBox.y).toBeGreaterThanOrEqual(title.y + title.height - 1);

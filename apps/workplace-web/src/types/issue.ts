@@ -199,7 +199,14 @@ export type IssueHistoryEventType =
   // 상태 삭제로 이슈가 다른 상태로 옮겨짐(WP-809) — 이름 전후는 from/toValue.
   | 'STATUS_MIGRATED'
   // 보고자 변경(WP-944) — from/to 는 이전·새 보고자 이름.
-  | 'REPORTER_CHANGED';
+  | 'REPORTER_CHANGED'
+  // 이슈 사이 관계 추가·삭제(WP-887) — 두 이슈 모두에 남는다. toValue = {typeId, label, other:{projectKey,number,title}|{hidden:true}}.
+  | 'RELATION_ADDED'
+  | 'RELATION_REMOVED'
+  // 외부 링크 추가·수정·삭제(WP-887). toValue = {label, key, title, url}, 수정이면 fromValue 에 이전 값.
+  | 'EXTERNAL_LINK_ADDED'
+  | 'EXTERNAL_LINK_UPDATED'
+  | 'EXTERNAL_LINK_REMOVED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -245,6 +252,97 @@ export interface IssueDetailResponse {
   reporter?: UserSummary | null;
   // 보고자를 바꿀 수 있는지(WP-944) — 프로젝트 OWNER·ADMIN 또는 지금 보고자. 구버전 서버는 undefined(읽기 전용으로 둔다).
   viewerCanChangeReporter?: boolean;
+  // 이슈 사이 관계(차단 제외, WP-887) — 조회자가 상대 프로젝트를 읽을 수 있는 것만. 구버전 서버엔 없어 optional(읽을 때 `?? []`).
+  relations?: IssueRelationView[];
+  // 다른 시스템 이슈로 가는 외부 링크(WP-887). 구버전 서버엔 없어 optional.
+  externalLinks?: IssueExternalLinkView[];
+}
+
+// ── 이슈 관계(WP-887) ──────────────────────────────────────────────────────────────────
+
+/**
+ * 관계 유형 — 워크스페이스 공통. 기본 유형은 code(BLOCKS·RELATES …)가 있고, 관리자가 만든 유형은 code 가 null.
+ * 말(label)은 「이 이슈는 ___」의 서술어 — 방향이 있으면 A 쪽(outward)·B 쪽(inward) 두 개, 없으면 outward 하나.
+ */
+export interface IssueRelationType {
+  id: number;
+  code: string | null;
+  name: string;
+  directed: boolean;
+  outwardLabel: string;
+  inwardLabel: string | null;
+  // 외부 링크에만 쓰는 유형(상위 에픽) — 우리 이슈끼리는 걸 수 없다.
+  externalOnly: boolean;
+  // 숨긴 유형 — 새로 걸 수 없고 이미 걸린 관계는 그대로 보인다.
+  hidden: boolean;
+  sortOrder: number;
+}
+
+/** 관리 화면용 유형 — 쓰이는 곳 수(내부 관계·외부 링크)를 더한다. */
+export interface IssueRelationTypeAdmin extends IssueRelationType {
+  relationCount: number;
+  externalLinkCount: number;
+}
+
+/** 사용자 정의 유형 추가·편집 본문. 방향이 없으면 inwardLabel 은 null. */
+export interface SaveIssueRelationTypeRequest {
+  name: string;
+  directed: boolean;
+  outwardLabel: string;
+  inwardLabel: string | null;
+}
+
+/** 관계에서 이 이슈가 A 쪽(source)인지 B 쪽(target)인지 — 방향 없는 유형은 무시된다. */
+export type IssueRelationSide = 'source' | 'target';
+
+/** 관계 상대 이슈 요약 — 다른 프로젝트일 수 있어 projectKey 를 싣는다. */
+export interface RelatedIssueSummary {
+  projectKey: string;
+  number: number;
+  title: string;
+  status: string;
+  type: IssueTypeSummary | null;
+}
+
+/** 이슈 상세의 관계 한 줄. label 은 이 이슈 쪽 말, side 는 이 이슈가 어느 쪽인지(방향 없는 유형은 늘 source). */
+export interface IssueRelationView {
+  id: number;
+  typeId: number;
+  typeCode: string | null;
+  label: string;
+  side: IssueRelationSide;
+  issue: RelatedIssueSummary;
+}
+
+/** 이슈 상세의 외부 링크 한 줄. key 는 선택(Jira 키 등). side 는 이 이슈가 어느 쪽인지(방향 없는 유형은 늘 source). */
+export interface IssueExternalLinkView {
+  id: number;
+  typeId: number;
+  typeCode: string | null;
+  label: string;
+  side: IssueRelationSide;
+  url: string;
+  key: string | null;
+  title: string;
+}
+
+/** 관계 대상 찾기 결과 한 건 — 현재 이슈 자신도 섞일 수 있어 화면이 거른다. */
+export type IssueLookupItem = RelatedIssueSummary;
+
+/** 관계 추가 본문 — target 은 상대 이슈(다른 프로젝트 가능). */
+export interface AddIssueRelationRequest {
+  typeId: number;
+  side: IssueRelationSide;
+  target: { projectKey: string; number: number };
+}
+
+/** 외부 링크 추가·수정 본문. 수정 때 side 를 빼면 저장된 방향을 지킨다(URL 은 수정에서 무시). */
+export interface SaveIssueExternalLinkRequest {
+  typeId: number;
+  side?: IssueRelationSide;
+  url?: string;
+  key?: string | null;
+  title: string;
 }
 
 export interface CreateIssueRequest {

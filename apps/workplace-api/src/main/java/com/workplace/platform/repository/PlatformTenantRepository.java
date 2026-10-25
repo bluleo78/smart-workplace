@@ -1,5 +1,6 @@
 package com.workplace.platform.repository;
 
+import static com.workplace.jooq.Tables.ISSUE_RELATION_TYPE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PERMISSION;
 import static com.workplace.jooq.Tables.PLATFORM_USER_ROLE;
@@ -12,6 +13,7 @@ import static org.jooq.impl.DSL.select;
 import static org.jooq.impl.DSL.val;
 
 import com.workplace.global.tenant.DefaultTenant;
+import com.workplace.issue.domain.IssueRelationBuiltIns;
 import com.workplace.platform.dto.TenantDetailResponse;
 import com.workplace.platform.dto.TenantMemberResponse;
 import com.workplace.platform.dto.TenantSummaryResponse;
@@ -132,6 +134,25 @@ public class PlatformTenantRepository {
         .set(USER_ROLE.USER_ID, userId)
         .set(USER_ROLE.ROLE_ID, roleId)
         .execute();
+  }
+
+  /**
+   * 현재 GUC 테넌트에 이슈 관계 기본 유형({@link IssueRelationBuiltIns#ALL})을 넣는다(WP-887). tenant_id 는
+   * DEFAULT(GUC)로 채워진다 — 호출 전에 {@link #setTenantGuc} 로 신규 테넌트를 설정해야 한다. V214 마이그레이션이 기존 테넌트에 넣는 값과
+   * 같다.
+   */
+  public void insertBuiltInRelationTypes() {
+    for (IssueRelationBuiltIns.BuiltIn b : IssueRelationBuiltIns.ALL) {
+      dsl.insertInto(ISSUE_RELATION_TYPE)
+          .set(ISSUE_RELATION_TYPE.CODE, b.code())
+          .set(ISSUE_RELATION_TYPE.NAME, b.name())
+          .set(ISSUE_RELATION_TYPE.DIRECTED, b.directed())
+          .set(ISSUE_RELATION_TYPE.OUTWARD_LABEL, b.outwardLabel())
+          .set(ISSUE_RELATION_TYPE.INWARD_LABEL, b.inwardLabel())
+          .set(ISSUE_RELATION_TYPE.EXTERNAL_ONLY, b.externalOnly())
+          .set(ISSUE_RELATION_TYPE.SORT_ORDER, b.sortOrder())
+          .execute();
+    }
   }
 
   /**
