@@ -160,9 +160,12 @@ test.describe('IssueCommentList 코멘트 길이 상한 (WP-885)', () => {
     await commentItem.locator('button[aria-label="코멘트 수정"]').click();
 
     const editInput = page.getByTestId('issue-comment-edit-input');
-    // 편집기는 setTimeout(0) 뒤에 커서를 끝으로 옮긴다(autofocus 'end') — 그 전에 fill 하면 전체 선택이 풀려
-    // 원본 뒤에 덧붙는다(부하에서 50007자). 초점이 잡힌 뒤에 채운다.
+    // fill 은 DOM 에서 전체를 고른 뒤 따로 글자를 넣는다. 부하에서는 그 사이 편집기가 자기 커서(끝)를 DOM 에 다시 써
+    // 원본 「원본 코멘트」 뒤에 덧붙곤 했다(50007자). 편집기 단축키로 먼저 비우고 빈 것을 확인한 뒤 채우면 커서가 어디든 결과가 같다.
     await expect(editInput).toBeFocused();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Backspace');
+    await expect(editInput).toHaveText('');
     await editInput.fill('나'.repeat(50001));
 
     await expect(page.getByTestId('issue-comment-edit-input-limit-error')).toHaveText('코멘트는 50000자 이하여야 합니다 (현재 50001자)');
