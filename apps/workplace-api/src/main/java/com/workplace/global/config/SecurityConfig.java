@@ -47,8 +47,14 @@ public class SecurityConfig {
   private final CorsProperties corsProperties;
   private final RateLimitProperties rateLimitProperties;
 
-  /** 공개 경로 속도 제한 버킷(WP-763) — 인스턴스 메모리에 둔다. 여러 대로 늘릴 때는 docs/ops/rate-limit.md. */
-  private final TokenBucketLimiter publicRateLimiter = new TokenBucketLimiter(Clock.systemUTC());
+  /**
+   * 공개 경로 속도 제한 버킷(WP-763) — 인스턴스 메모리에 둔다. 여러 대로 늘릴 때는 docs/ops/rate-limit.md. 빈으로 두는 것은 통합 테스트가 같은
+   * 버킷을 미리 채워 한도 경계를 시간과 무관하게 확인하게 하려는 것이다(WP-953).
+   */
+  @Bean
+  public TokenBucketLimiter publicRateLimiter() {
+    return new TokenBucketLimiter(Clock.systemUTC());
+  }
 
   @Bean
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -136,7 +142,7 @@ public class SecurityConfig {
         .addFilterAfter(new DbBusyResponseFilter(), CorsFilter.class)
         // 인증 없는 공개 경로의 해시 계산 요청을 IP 단위로 제한(WP-763). CORS 뒤라 429 를 브라우저가 읽는다 — 인증 필터보다 먼저 거른다.
         .addFilterAfter(
-            new PublicRateLimitFilter(publicRateLimiter, rateLimitProperties), CorsFilter.class)
+            new PublicRateLimitFilter(publicRateLimiter(), rateLimitProperties), CorsFilter.class)
         .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
         // ak_ 토큰을 JWT 보다 먼저 시도 (둘 다 Bearer 헤더 — prefix 로 분기)
         .addFilterBefore(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class)
