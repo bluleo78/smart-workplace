@@ -4,13 +4,32 @@ import net from 'node:net'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 import { appVersionDefine, versionJsonPlugin } from '../../scripts/vite-app-version.mjs'
 
 // E2E(Playwright)·CI 에서는 백엔드를 띄우지 않고 page.route() 로 /api 를 모킹한다.
 const IS_E2E = process.env.E2E === '1' || !!process.env.CI
+/**
+ * 서비스 이름·소개 — PWA manifest 와 index.html 링크 미리보기 메타(WP-894)가 같은 값을 쓴다.
+ * index.html 의 %APP_NAME%·%APP_DESCRIPTION% 은 appMetaPlugin 이 빌드·dev 때 채운다.
+ */
+const APP_NAME = 'Gen:iA Works'
+const APP_DESCRIPTION = '사람과 AI가 함께 일하는 워크플레이스'
+
+/** index.html 의 서비스 이름·소개 자리(%APP_NAME%·%APP_DESCRIPTION%)를 채운다 — manifest 와 문구가 갈리지 않게 한 곳에서 정한다. */
+function appMetaPlugin(): Plugin {
+  return {
+    name: 'app-meta',
+    // pre — Vite 의 %ENV% 치환보다 먼저 채워, 환경 변수에 없는 이름이라는 경고가 나지 않게 한다.
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) => html.replaceAll('%APP_NAME%', APP_NAME).replaceAll('%APP_DESCRIPTION%', APP_DESCRIPTION),
+    },
+  }
+}
+
 // 릴리스 노트 위치 — Playwright 가 E2E_RELEASE_NOTES_DIR 로 픽스처 폴더를 명시할 때만 바꾼다. IS_E2E 로 고르면
 // CI 만 켜져도 참이라 CI 릴리스 빌드가 테스트 픽스처 노트를 번들에 담아 배포한다.
 const RELEASE_NOTES_DIR = process.env.E2E_RELEASE_NOTES_DIR || path.resolve(__dirname, '../../releases')
@@ -81,6 +100,7 @@ export default defineConfig({
     tailwindcss(),
     // 산출물 루트에 version.json({version, commit}) 을 내보낸다(WP-439).
     versionJsonPlugin(),
+    appMetaPlugin(),
     // PWA — injectManifest: SW 코드(src/sw.ts)는 직접 작성하고 플러그인은 precache 목록 주입·manifest 생성만 한다.
     // dev SW 는 E2E=1 일 때만 켠다(E2E 가 mock 기반 dev 서버에서 SW 등록·push 를 검증). 일반 개발에선 캐시 혼선 방지로 끈다.
     VitePWA({
@@ -90,9 +110,9 @@ export default defineConfig({
       registerType: 'prompt',
       injectRegister: false, // PwaUpdatePrompt 의 useRegisterSW 가 등록한다
       manifest: {
-        name: 'Gen:iA Works',
+        name: APP_NAME,
         short_name: 'Gen:iA',
-        description: '사람과 AI가 함께 일하는 워크플레이스',
+        description: APP_DESCRIPTION,
         lang: 'ko',
         start_url: '/',
         scope: '/',
@@ -108,6 +128,8 @@ export default defineConfig({
       },
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // 링크 미리보기 이미지(WP-894)는 메신저 봇만 받는다 — 앱이 쓰지 않으므로 모든 설치본이 미리 받아 두지 않게 뺀다.
+        globIgnores: ['**/node_modules/**', 'og-image.png'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
       devOptions: { enabled: process.env.E2E === '1', type: 'module' },

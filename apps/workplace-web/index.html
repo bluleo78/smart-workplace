@@ -10,6 +10,27 @@
     <meta name="apple-mobile-web-app-title" content="Gen:iA" />
     <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
     <title>Gen:iA Works</title>
+    <!--
+      링크 미리보기(WP-894) — 카카오톡·Slack·iMessage 미리보기 봇은 로그인 없이 이 HTML 만 읽으므로 사이트 공통 정보만 둔다
+      (이슈·노트 제목 같은 개별 정보는 권한 밖 노출이라 넣지 않는다).
+      %APP_NAME%·%APP_DESCRIPTION% 은 빌드 때 vite.config.ts(appMetaPlugin)가 PWA manifest 와 같은 값으로 채운다.
+      __PUBLIC_HOST__ 는 nginx(nginx.conf)가 응답 때 요청 호스트로 바꾼다 — 봇은 상대 주소 이미지를 읽지 못하고,
+      같은 웹 이미지가 운영·데모 등 여러 호스트로 배포되므로 빌드 때 한 주소로 굳히지 않는다. 자리표시를 절대 주소 안에 두는 것은
+      Vite 가 상대 주소로 보고 고쳐 쓰지 않게 하려는 것이다(바깥은 늘 ingress TLS 라 https 고정).
+      og:url 은 두지 않는다 — 모든 경로가 이 파일을 받으므로 고정하면 깊은 링크의 대표 주소까지 루트로 바뀐다.
+    -->
+    <meta name="description" content="%APP_DESCRIPTION%" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="%APP_NAME%" />
+    <meta property="og:title" content="%APP_NAME%" />
+    <meta property="og:description" content="%APP_DESCRIPTION%" />
+    <meta property="og:image" content="https://__PUBLIC_HOST__/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="%APP_NAME% — %APP_DESCRIPTION%" />
+    <meta property="og:locale" content="ko_KR" />
+    <!-- 트위터(X)는 큰 카드 형식만 따로 알리고 제목·설명·이미지는 og:* 를 그대로 쓴다. -->
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
     <div id="root"></div>
