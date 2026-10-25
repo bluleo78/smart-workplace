@@ -4,6 +4,7 @@ import type { Attendee, Calendar, CalendarEvent, IssueDueMarker } from '../types
 import {
   allDayLocalDate,
   type CalendarLayers,
+  dragSlotRange,
   eventCalendarLabel,
   eventsOnDay,
   groupCalendarsBySource,
@@ -251,5 +252,28 @@ describe('isLocalRangeReversed (WP-727)', () => {
     expect(isLocalRangeReversed('2026-07-05T15:00', '2026-07-05T16:00')).toBe(false)
     expect(isLocalRangeReversed('', '2026-07-05T16:00')).toBe(false)
     expect(isLocalRangeReversed('2026-07-05T15:00', '')).toBe(false)
+  })
+})
+
+describe('dragSlotRange — 시간 그리드 끌기 구간(WP-949)', () => {
+  const day = new Date(2026, 5, 10)
+  const at = (h: number, m: number) => new Date(2026, 5, 10, h, m).getTime()
+  // 한 시간 = 48px, 30분 칸 = 24px
+  it('두 점이 든 30분 칸을 모두 덮는다(시작 내림·종료 올림)', () => {
+    const r = dragSlotRange(day, 10 * 48 + 4, 11 * 48 + 20)
+    expect([r.start.getTime(), r.end.getTime()]).toEqual([at(10, 0), at(11, 30)])
+  })
+  it('위로 끌어도 같은 구간이다', () => {
+    const r = dragSlotRange(day, 11 * 48 + 20, 10 * 48 + 4)
+    expect([r.start.getTime(), r.end.getTime()]).toEqual([at(10, 0), at(11, 30)])
+  })
+  it('같은 칸 안이면 30분 한 칸', () => {
+    const r = dragSlotRange(day, 9 * 48 + 25, 9 * 48 + 40)
+    expect([r.start.getTime(), r.end.getTime()]).toEqual([at(9, 30), at(10, 0)])
+  })
+  it('열 밖으로 끌면 그날 0시~24시 안으로 자른다', () => {
+    const r = dragSlotRange(day, -50, 30 * 48)
+    expect(r.start.getTime()).toBe(at(0, 0))
+    expect(r.end.getTime()).toBe(new Date(2026, 5, 11).getTime())
   })
 })

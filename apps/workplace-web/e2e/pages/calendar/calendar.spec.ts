@@ -1005,3 +1005,75 @@ test('모바일 주 보기 — 오늘 날짜 배지가 좁은 열에서 잘리�
   expect(m.overflowX, '배지 가로 넘침').toBeLessThanOrEqual(0)
   expect(m.inCell, '배지가 날짜 열 안').toBe(true)
 })
+
+// WP-949 — 주·일 보기에서 시간 구간을 끌면 그 구간을 하이라이트하고, 놓으면 시작·종료가 채워진 만들기 창이 열린다(30분 단위).
+// 끌지 않고 한 칸만 누르면 지금처럼 정각 + 1시간으로 연다. 날짜를 넘기는 끌기는 시작한 날 안으로 자른다.
+test.describe('시간 구간 끌어 일정 만들기 (WP-949)', () => {
+  // 날짜 열의 y(그날 0시 기준 px)를 화면 좌표로 — 시간 그리드를 9시쯤으로 스크롤해 둔 뒤 잰다.
+  async function columnPoint(page: Page, index: number, y: number) {
+    const column = page.getByTestId('calendar-day-column').nth(index)
+    const box = (await column.boundingBox())!
+    return { x: box.x + box.width / 2, y: box.y + y }
+  }
+  async function openWeekAt9(page: Page) {
+    await page.goto('/calendar')
+    await page.getByTestId('calendar-view-week-btn').click()
+    await page.getByTestId('calendar-day-column').first().evaluate((el) => {
+      el.parentElement!.scrollTop = 9 * 48
+    })
+  }
+
+  test('10:00~11:30 을 끌면 그 시간이 채워진 창이 열리고 그 시간으로 저장된다', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    await stubCalendarEvents(page, [])
+    await openWeekAt9(page)
+
+    // 수요일(6/10) 열 — 10:05 쯤에서 11:25 쯤까지 끈다.
+    const from = await columnPoint(page, 3, 10 * 48 + 4)
+    const to = await columnPoint(page, 3, 11 * 48 + 20)
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 6 })
+    const selection = page.getByTestId('calendar-drag-selection')
+    await expect(selection).toHaveText('10:00 – 11:30')
+    await page.mouse.up()
+    await expect(selection).toHaveCount(0)
+
+    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
+    await expect(page.getByTestId('calendar-form-start')).toHaveValue('2026-06-10T10:00')
+    await expect(page.getByTestId('calendar-form-end')).toHaveValue('2026-06-10T11:30')
+    await page.getByTestId('calendar-form-title').fill('설계 리뷰')
+    const post = page.waitForRequest((req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'))
+    await page.getByTestId('calendar-form-submit').click()
+    const body = (await post).postDataJSON() as { title: string; startsAt: string; endsAt: string; allDay: boolean }
+    expect(body.title).toBe('설계 리뷰')
+    expect(body.allDay).toBe(false)
+    expect(new Date(body.endsAt).getTime() - new Date(body.startsAt).getTime()).toBe(90 * 60_000)
+  })
+
+  test('아래에서 위로 끌어도 되고, 다른 요일로 넘어가도 시작한 날 안의 구간이다', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    await stubCalendarEvents(page, [])
+    await openWeekAt9(page)
+
+    const from = await columnPoint(page, 3, 12 * 48 + 30) // 12:30~13:00 칸
+    const to = await columnPoint(page, 4, 10 * 48 + 30) // 옆 요일(목) 10:30 쯤
+    await page.mouse.move(from.x, from.y)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 6 })
+    await page.mouse.up()
+    await expect(page.getByTestId('calendar-form-start')).toHaveValue('2026-06-10T10:30')
+    await expect(page.getByTestId('calendar-form-end')).toHaveValue('2026-06-10T13:00')
+  })
+
+  test('끌지 않고 한 칸만 누르면 지금처럼 정각부터 1시간으로 연다', async ({ authenticatedPage: page }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    await stubCalendarEvents(page, [])
+    await openWeekAt9(page)
+
+    const at = await columnPoint(page, 3, 14 * 48 + 30)
+    await page.mouse.click(at.x, at.y)
+    await expect(page.getByTestId('calendar-form-start')).toHaveValue('2026-06-10T14:00')
+    await expect(page.getByTestId('calendar-form-end')).toHaveValue('2026-06-10T15:00')
+  })
+})

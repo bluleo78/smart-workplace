@@ -132,6 +132,8 @@ export function CalendarPage() {
   const dialogOpen =
     creating || (eventIdParam != null && editing?.id === eventIdParam && suspendedId !== eventIdParam)
   const [defaultStart, setDefaultStart] = useState<Date | undefined>()
+  // 주·일 보기에서 구간을 끌어 열면 그 종료 시각(WP-949) — 없으면 다이얼로그가 시작 + 1시간으로 둔다.
+  const [defaultEnd, setDefaultEnd] = useState<Date | undefined>()
   // 반복 회차 수정/삭제 시 scope 선택 다이얼로그 모드(null=닫힘)
   const [scopeMode, setScopeMode] = useState<'edit' | 'delete' | null>(null)
   // scope 선택 전까지 보류하는 수정 body — 폼에서 태그를 바꿨으면 tagIds 도 여기 함께 실려 있다(WP-801)
@@ -342,9 +344,10 @@ export function CalendarPage() {
   }
 
   // 새 일정 다이얼로그 열기 (시작 시각 선택 시 전달)
-  const openNew = (start?: Date) => {
+  const openNew = (start?: Date, end?: Date) => {
     setEditing(null)
     setDefaultStart(start)
+    setDefaultEnd(end)
     setCreating(true)
   }
 
@@ -709,6 +712,7 @@ export function CalendarPage() {
         }}
         event={creating ? undefined : (editing ?? undefined)}
         defaultStart={defaultStart}
+        defaultEnd={defaultEnd}
         onSubmit={submit}
         onDelete={onDelete}
         isPending={create.isPending || update.isPending}

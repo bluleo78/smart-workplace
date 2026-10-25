@@ -2,9 +2,10 @@
 // WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
 import { format, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
+import { type PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
 
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { eventsOnDay, HOURS, issueDuesOnDay, timedEventBox } from '@/lib/calendar'
+import { dragSlotRange, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, timedEventBox } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -19,7 +20,8 @@ export interface ViewProps {
   anchor: Date
   onSelectEvent: (e: CalendarEvent) => void
   onSelectIssue: (marker: IssueDueMarker) => void
-  onCreateAt: (start: Date) => void
+  // end 는 주·일 보기에서 시간 구간을 끌어 고른 경우만(WP-949) — 없으면 기본 길이로 연다.
+  onCreateAt: (start: Date, end?: Date) => void
 }
 
 // TimeGrid 전용 추가 props
@@ -28,6 +30,18 @@ interface TimeGridProps extends ViewProps {
   days: Date[]
   /** 루트 컨테이너 data-testid */
   testid: string
+}
+
+// 끌기로 보는 최소 이동(px) — 이보다 덜 움직이고 놓으면 지금처럼 한 칸 클릭(정각 + 1시간)으로 둔다.
+const DRAG_THRESHOLD_PX = 4
+
+/** 끌고 있는 구간 — 어느 날 열에서(dayKey), 누른 y 와 지금 y(열 맨 위 기준 px). */
+interface DragSelection {
+  dayKey: string
+  day: Date
+  startY: number
+  currentY: number
+  moved: boolean
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -42,6 +56,52 @@ export function TimeGrid({
   days,
   testid,
 }: TimeGridProps) {
+  // 시간 구간 끌어 만들기(WP-949) — 마우스·펜만. 터치는 세로 스크롤과 겹쳐 지금처럼 칸 탭(정각 + 1시간)만 둔다.
+  const [drag, setDragState] = useState<DragSelection | null>(null)
+  // 이벤트 처리기는 이 ref 의 최신 값을 읽는다 — 빠르게 튕기듯 끌면 다시 그리기 전에 pointerup 이 와서, 렌더 때 값(drag)으로는
+  // 움직이지 않은 것으로 보고 정각 클릭으로 열 수 있었다. state 는 하이라이트를 그리는 데만 쓴다.
+  const dragRef = useRef<DragSelection | null>(null)
+  const setDrag = (next: DragSelection | null) => {
+    dragRef.current = next
+    setDragState(next)
+  }
+  // 끌기를 마친 직후 같은 제스처의 click 이 칸 클릭(정각 생성)으로 한 번 더 열지 않게 막는다.
+  const suppressClickRef = useRef(false)
+
+  const columnY = (ev: ReactPointerEvent<HTMLDivElement>) =>
+    ev.clientY - ev.currentTarget.getBoundingClientRect().top
+
+  const startDrag = (ev: ReactPointerEvent<HTMLDivElement>, day: Date) => {
+    // 새 제스처마다 막음을 푼다 — 포인터를 붙잡은 끌기 뒤에는 click 이 오지 않을 수도 있어, 남은 막음이 다음 클릭을 삼키지 않게.
+    suppressClickRef.current = false
+    if (ev.pointerType === 'touch' || ev.button !== 0) return
+    // 기존 일정(버튼) 위에서 누르면 그 일정을 여는 클릭이라 끌기를 시작하지 않는다.
+    if ((ev.target as HTMLElement).closest('button')) return
+    const y = columnY(ev)
+    setDrag({ dayKey: day.toISOString(), day, startY: y, currentY: y, moved: false })
+  }
+
+  const moveDrag = (ev: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag) return
+    const y = columnY(ev)
+    const moved = drag.moved || Math.abs(y - drag.startY) >= DRAG_THRESHOLD_PX
+    // 끌기가 시작되면 포인터를 이 열에 붙잡는다 — 열 밖(다른 요일·그리드 밖)으로 끌어도 이 열의 구간으로 계속 받는다.
+    // 누를 때 바로 붙잡으면 움직이지 않은 클릭이 시간 칸까지 가지 않아 칸 클릭(정각 생성)이 막혔다.
+    if (moved && !drag.moved) ev.currentTarget.setPointerCapture(ev.pointerId)
+    setDrag({ ...drag, currentY: y, moved })
+  }
+
+  const endDrag = () => {
+    const drag = dragRef.current
+    if (!drag) return
+    setDrag(null)
+    if (!drag.moved) return // 움직이지 않았으면 칸 클릭(onClick)이 처리한다.
+    suppressClickRef.current = true
+    const { start, end } = dragSlotRange(drag.day, drag.startY, drag.currentY)
+    onCreateAt(start, end)
+  }
+
   return (
     <div data-testid={testid} className="flex flex-col h-full overflow-hidden">
       {/* ── 날짜 헤더 ── */}
@@ -130,13 +190,25 @@ export function TimeGrid({
           // 해당 날의 타임드(종일 아닌) 이벤트
           const timedEvts = eventsOnDay(events, day).filter((e) => !e.allDay)
           return (
-            <div key={day.toISOString()} data-testid="calendar-day-column" className="flex-1 relative border-l">
+            <div
+              key={day.toISOString()}
+              data-testid="calendar-day-column"
+              className="flex-1 relative border-l select-none"
+              onPointerDown={(ev) => startDrag(ev, day)}
+              onPointerMove={moveDrag}
+              onPointerUp={endDrag}
+              onPointerCancel={() => setDrag(null)}
+            >
               {/* 클릭 가능한 시간 슬롯 */}
               {HOURS.map((h) => (
                 <div
                   key={h}
                   className="h-12 border-b cursor-pointer hover:bg-muted/30"
                   onClick={() => {
+                    if (suppressClickRef.current) {
+                      suppressClickRef.current = false
+                      return
+                    }
                     // 해당 날 h시 정각으로 onCreateAt 호출
                     const d = new Date(day)
                     d.setHours(h, 0, 0, 0)
@@ -144,6 +216,11 @@ export function TimeGrid({
                   }}
                 />
               ))}
+
+              {/* 끌고 있는 구간 하이라이트(WP-949) — 30분 칸에 맞춰 그리고 시작~종료 시각을 보인다. */}
+              {drag?.moved && drag.dayKey === day.toISOString() && (
+                <DragSelectionBox day={day} startY={drag.startY} currentY={drag.currentY} />
+              )}
 
               {/* 절대 위치 타임드 이벤트 블록 */}
               {timedEvts.map((e) => {
@@ -168,6 +245,23 @@ export function TimeGrid({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+/** 끌고 있는 시간 구간 — 30분 칸에 맞춘 위치·높이와 「10:00 – 11:30」 라벨. 포인터 이벤트를 막지 않는다. */
+function DragSelectionBox({ day, startY, currentY }: { day: Date; startY: number; currentY: number }) {
+  const { start, end } = dragSlotRange(day, startY, currentY)
+  // 그날 0시 기준 위치 — 종료가 다음 날 0시(24:00)면 맨 아래.
+  const toPx = (d: Date) =>
+    (d.getDate() !== day.getDate() ? 24 : d.getHours() + d.getMinutes() / 60) * HOUR_SLOT_PX
+  return (
+    <div
+      data-testid="calendar-drag-selection"
+      className="pointer-events-none absolute inset-x-0.5 z-10 rounded border border-primary bg-primary/15 px-1 text-xs font-medium text-primary"
+      style={{ top: toPx(start), height: toPx(end) - toPx(start) }}
+    >
+      {format(start, 'HH:mm')} – {format(end, 'HH:mm')}
     </div>
   )
 }

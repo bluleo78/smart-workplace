@@ -85,6 +85,8 @@ interface EventDialogProps {
   event?: CalendarEvent | null
   /** 생성 모드: 기본 시작 시각 (미제공 시 현재 시각) */
   defaultStart?: Date
+  /** 생성 모드: 기본 종료 시각 — 시간 그리드에서 구간을 끌어 열 때(WP-949). 없으면 시작 + 1시간 */
+  defaultEnd?: Date
   /**
    * 저장 — 폼에서 고른 태그가 처음과 달라졌을 때만 body.tagIds 가 실린다(아니면 빠져 서버가 태그를 건드리지 않는다).
    * 태그는 일정 저장과 한 요청이라 반복 범위(「이후 모든 일정」의 새 시리즈 등)를 서버가 맞춘다(WP-801).
@@ -104,6 +106,7 @@ export function EventDialog({
   onOpenChange,
   event,
   defaultStart,
+  defaultEnd,
   onSubmit,
   onDelete,
   isPending = false,
@@ -238,9 +241,9 @@ export function EventDialog({
         ...recFields,
       })
     } else {
-      // 생성 모드: defaultStart(또는 현재 시각) 기준으로 초기화. 종료 = 시작 + 1시간
+      // 생성 모드: defaultStart(또는 현재 시각) 기준으로 초기화. 종료 = defaultEnd(끈 구간), 없으면 시작 + 1시간
       const startDate = defaultStart ?? new Date()
-      const endDate = new Date(startDate.getTime() + 60 * 60 * 1000)
+      const endDate = defaultEnd ?? new Date(startDate.getTime() + 60 * 60 * 1000)
       form.reset({
         title: '',
         allDay: false,
@@ -255,7 +258,7 @@ export function EventDialog({
         ...recFields,
       })
     }
-  }, [open, event, defaultStart, form])
+  }, [open, event, defaultStart, defaultEnd, form])
 
   // mutation 이 끝나면(성공 또는 실패) in-flight 가드 해제 — 실패 시 다이얼로그가
   // 그대로 유지되므로 재시도가 가능해야 한다.

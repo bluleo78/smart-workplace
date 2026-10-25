@@ -107,6 +107,29 @@ export function issueDuesOnDay(dues: IssueDueMarker[], day: Date): IssueDueMarke
   return dues.filter((d) => d.dueDate.slice(0, 10) === key)
 }
 
+// 시간 그리드 드래그로 고르는 단위(WP-949) — 30분. 한 시간 칸(HOUR_SLOT_PX)의 절반 높이다.
+export const DRAG_SLOT_MINUTES = 30
+const DRAG_SLOT_PX = (HOUR_SLOT_PX * DRAG_SLOT_MINUTES) / 60
+
+/**
+ * 시간 그리드에서 끈 구간(열 맨 위 기준 y px 두 점) → 그날의 시작·종료 시각(WP-949). 위아래 어느 쪽으로 끌어도 되고,
+ * 두 점이 든 30분 칸을 모두 덮도록 시작은 내림·종료는 올림한다. 열 밖으로 끌면 그날 0시~24시 안으로 자른다 — 날짜를 넘기는
+ * 드래그는 다루지 않는다(시작한 열의 날만).
+ */
+export function dragSlotRange(day: Date, y1: number, y2: number): { start: Date; end: Date } {
+  const slots = (24 * 60) / DRAG_SLOT_MINUTES
+  const clampSlot = (y: number) => Math.min(Math.max(Math.floor(y / DRAG_SLOT_PX), 0), slots - 1)
+  const from = clampSlot(Math.min(y1, y2))
+  const to = clampSlot(Math.max(y1, y2)) + 1
+  // 벽시계 기준으로 더한다(setMinutes) — 밀리초로 더하면 서머타임 바뀌는 날 한 시간 어긋난다.
+  const at = (slot: number) => {
+    const d = startOfDay(day)
+    d.setMinutes(slot * DRAG_SLOT_MINUTES)
+    return d
+  }
+  return { start: at(from), end: at(to) }
+}
+
 // 시간축(0~23시) 슬롯.
 export const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
