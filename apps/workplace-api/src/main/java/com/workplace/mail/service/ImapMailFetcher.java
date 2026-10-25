@@ -16,6 +16,7 @@ import com.workplace.mail.repository.EmailMessageRepository.ImapSeenState;
 import jakarta.mail.FetchProfile;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
+import jakarta.mail.FolderNotFoundException;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Store;
@@ -48,6 +49,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 커넥션을 최소로 점유한다(#232). 신규 적재 후 같은 세션에서 최근 범위 기존 메일의 FLAGS 만 다시 읽어 서버 읽음 상태를 반영한다(WP-148,
  * best-effort).
  *
+ * <p>WP-950: 받은편지함 뒤에 서버 보낸편지함도 같은 흐름으로 동기화해(외부 메일 클라이언트에서 보낸 메일) 서버 폴더 이름의 로컬 폴더에 적재한다.
+ *
  * <p>WP-960: 같은 흐름을 서버 메일함(보관·사용자 폴더)에도 쓴다 — 폴더 이름(email_folder.name = 서버 전체 경로)으로 열고, 첫 동기화 기간만
  * {@value MailFetcher#FOLDER_INITIAL_WINDOW_DAYS}일로 다르다. 「이전 메일 더 가져오기」는 날짜 범위 SEARCH 로 받아 넣기만 한다.
  */
@@ -55,11 +58,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class ImapMailFetcher implements MailFetcher {
 
-  /** 받은편지함 폴더 이름. */
+  /** 받은편지함 폴더 이름. 서버 보낸편지함은 서버 이름 그대로 동기화한다(WP-950, ImapSentFolderLocator). */
   private static final String INBOX = "INBOX";
 
-  /** 첫 동기화 시 가져올 최근 기간(일). */
-  private static final int INITIAL_WINDOW_DAYS = 7;
+  /** 첫 동기화 시 가져올 최근 기간(일) — 받은편지함·서버 보낸편지함(WP-950) 같음. */
+  static final int INITIAL_WINDOW_DAYS = 7;
 
   /** 읽음 상태 재조회 기간(일) — 이 기간 안의 기존 메일만 서버 FLAGS 를 다시 본다(WP-148). */
   static final int SEEN_SYNC_WINDOW_DAYS = 14;
@@ -110,6 +113,9 @@ public class ImapMailFetcher implements MailFetcher {
   /**
    * IMAP 에서 신규 메시지 메타를 동기화해 email_message 로 적재한다. 비밀번호 복호화→INBOX 폴더 보장→메타 FETCH 순서. 네트워크/IMAP 오류는
    * {@link MailSyncException}(502) 으로 래핑.
+   *
+   * <p>WP-950: 받은편지함을 끝까지(저장 포함) 마친 뒤 서버 보낸편지함도 읽어 서버 폴더 이름의 로컬 폴더로 적재한다 — 보낸편지함 첫 동기화의 큰 SEARCH 가
+   * 새 메일 적재를 늦추지 않게. 보낸편지함 단계는 best-effort — 실패해도 받은편지함 동기화 결과는 그대로 돌려준다.
    */
   @Override
   public MailSyncResult fetchNewMessages(
@@ -125,11 +131,73 @@ public class ImapMailFetcher implements MailFetcher {
         txTemplate.execute(status -> folderRepo.ensureFolder(accountId, INBOX));
 
     // IMAP 네트워크 I/O 는 트랜잭션 밖, 메타 저장은 메시지 단위 짧은 트랜잭션(fetchMetadata 내부).
+    MailSyncResult result;
     try {
       Instant since = Instant.now().minus(INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
-      return fetchMetadata(account, accountId, password, folder, INBOX, since).result();
+      result = fetchMetadata(account, accountId, password, folder, INBOX, since).result();
     } catch (MessagingException e) {
       throw new MailSyncException("받은편지함 동기화에 실패했습니다", e);
+    }
+    MailSyncResult sent = syncSent(account, accountId, password);
+    return sent == null ? result : result.withSent(sent);
+  }
+
+  /**
+   * 서버 보낸편지함을 찾아 동기화한다(WP-950, best-effort). 폴더가 없거나 로컬 예약 이름과 겹치면 null, 실패는 경고 로그 후 null — 받은편지함
+   * 결과를 막지 않는다. 지난번에 찾은 폴더 이름이 있으면 탐지(전체 폴더 목록 LIST) 없이 그 이름으로 바로 열고, 그 폴더가 없어졌을 때만 다시 찾는다.
+   */
+  private MailSyncResult syncSent(EmailAccountResponse account, long accountId, String password) {
+    try {
+      String known =
+          txTemplate.execute(status -> folderRepo.findServerSentName(accountId).orElse(null));
+      String name = known != null ? known : locateSentName(account, password);
+      if (name == null) {
+        return null;
+      }
+      try {
+        return syncSentFolder(account, accountId, password, name);
+      } catch (FolderNotFoundException e) {
+        // 지난번 이름의 폴더가 서버에서 사라졌다(이름 변경·SPECIAL-USE 표시 이동) — 다시 찾아 한 번 더.
+        String found = known == null ? null : locateSentName(account, password);
+        if (found == null || found.equals(name)) {
+          throw e;
+        }
+        return syncSentFolder(account, accountId, password, found);
+      }
+    } catch (Exception e) {
+      log.warn("보낸편지함 동기화 실패(받은편지함은 계속): accountId={} {}", accountId, e.toString());
+      return null;
+    }
+  }
+
+  /** 서버 보낸편지함 폴더 행을 보장하고 받은편지함과 같은 증분 흐름으로 동기화한다(WP-950). 로컬 예약 이름과 겹치면 null. */
+  private MailSyncResult syncSentFolder(
+      EmailAccountResponse account, long accountId, String password, String name)
+      throws MessagingException {
+    EmailFolderRepository.FolderSyncState state =
+        txTemplate.execute(
+            status -> folderRepo.ensureServerSentFolder(accountId, name).orElse(null));
+    if (state == null) {
+      log.info("보낸편지함 이름이 로컬 예약 이름과 같아 동기화 생략: accountId={}", accountId);
+      return null;
+    }
+    Instant since = Instant.now().minus(INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
+    return fetchMetadata(account, accountId, password, state, name, since).result();
+  }
+
+  /**
+   * 서버 보낸편지함 폴더 이름을 찾는다(WP-950 — SPECIAL-USE {@code \Sent} → 흔한 이름 후보, ImapSentFolderLocator). 없으면
+   * null.
+   */
+  private String locateSentName(EmailAccountResponse account, String password)
+      throws MessagingException {
+    Store store = null;
+    try {
+      store = imapConnector.connect(account, password);
+      Folder found = ImapSentFolderLocator.find(store, null);
+      return found == null ? null : found.getFullName();
+    } finally {
+      closeQuietly(null, store);
     }
   }
 

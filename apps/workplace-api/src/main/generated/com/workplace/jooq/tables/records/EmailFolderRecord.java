@@ -286,6 +286,20 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
         return (OffsetDateTime) get(18);
     }
 
+    /**
+     * Setter for <code>public.email_folder.server_sent</code>.
+     */
+    public void setServerSent(Boolean value) {
+        set(19, value);
+    }
+
+    /**
+     * Getter for <code>public.email_folder.server_sent</code>.
+     */
+    public Boolean getServerSent() {
+        return (Boolean) get(19);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -309,7 +323,7 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
     /**
      * Create a detached, initialised EmailFolderRecord
      */
-    public EmailFolderRecord(Long id, Long accountId, String name, Long uidValidity, Long lastSeenUid, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String deltaLink, String remoteId, String displayName, Long parentId, String role, Boolean selectable, Integer serverUnread, Integer serverTotal, OffsetDateTime listedAt, OffsetDateTime syncedSince, OffsetDateTime folderSyncedAt) {
+    public EmailFolderRecord(Long id, Long accountId, String name, Long uidValidity, Long lastSeenUid, OffsetDateTime createdAt, OffsetDateTime updatedAt, Long tenantId, String deltaLink, String remoteId, String displayName, Long parentId, String role, Boolean selectable, Integer serverUnread, Integer serverTotal, OffsetDateTime listedAt, OffsetDateTime syncedSince, OffsetDateTime folderSyncedAt, Boolean serverSent) {
         super(EmailFolder.EMAIL_FOLDER);
 
         setId(id);
@@ -331,6 +345,7 @@ public class EmailFolderRecord extends UpdatableRecordImpl<EmailFolderRecord> {
         setListedAt(listedAt);
         setSyncedSince(syncedSince);
         setFolderSyncedAt(folderSyncedAt);
+        setServerSent(serverSent);
         resetChangedOnNotNull();
     }
 }

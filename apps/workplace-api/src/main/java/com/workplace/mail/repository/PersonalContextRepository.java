@@ -25,9 +25,6 @@ import org.springframework.stereotype.Repository;
 @RequiredArgsConstructor
 public class PersonalContextRepository {
 
-  /** 스레드 맥락에 넣는 폴더 — 동기화하는 받은편지함과 이 앱에서 보낸 메일(MailComposeService 의 SENT). 보낸편지함은 동기화하지 않는다. */
-  public static final List<String> THREAD_FOLDERS = List.of("INBOX", "SENT");
-
   /** 첨부 행 조회 상한(이름 상한은 서비스가 다시 건다). */
   static final int ATTACHMENT_ROWS_MAX = 50;
 
@@ -47,8 +44,9 @@ public class PersonalContextRepository {
 
   /**
    * 같은 계정·같은 thread_id 에서 이 메일보다 앞선(received_at, id) 사본 중 최근 limit 건을 오래된 순으로. 폴더는 {@link
-   * #THREAD_FOLDERS}, 자기 사본을 적재·검증한(fetched_at) 것만 — 검증 전 사본의 공유 본문은 보여 주지 않는다(WP-130). 소유 검증 포함(타인
-   * 메일이면 빈 목록). thread_id·received_at 이 없으면 빈 목록.
+   * EmailMessageRepository#folderScope 받은편지함·보낸편지함(앱 발송 기록 + 동기화한 서버 보낸편지함, 앱 발송본 사본 제외 — WP-950)},
+   * 자기 사본을 적재·검증한(fetched_at) 것만 — 검증 전 사본의 공유 본문은 보여 주지 않는다(WP-130). 소유 검증 포함(타인 메일이면 빈 목록).
+   * thread_id·received_at 이 없으면 빈 목록.
    */
   public List<PriorMailRow> listPriorThreadMails(long userId, long messageId, int limit) {
     Record3<Long, String, OffsetDateTime> cur =
@@ -79,7 +77,11 @@ public class PersonalContextRepository {
             .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(cur.value1()))
             .and(EMAIL_MESSAGE.THREAD_ID.eq(cur.value2()))
             .and(EMAIL_MESSAGE.ID.ne(messageId))
-            .and(EMAIL_FOLDER.NAME.in(THREAD_FOLDERS))
+            .and(
+                EMAIL_FOLDER
+                    .NAME
+                    .eq("INBOX")
+                    .or(EmailMessageRepository.folderScope(EmailFolderRepository.LOCAL_SENT)))
             .and(EMAIL_MESSAGE.FETCHED_AT.isNotNull())
             .and(DSL.row(EMAIL_MESSAGE.RECEIVED_AT, EMAIL_MESSAGE.ID).lt(cur.value3(), messageId))
             .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc(), EMAIL_MESSAGE.ID.desc())

@@ -9,6 +9,8 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.LikePatternUtils;
+import com.workplace.jooq.tables.EmailFolder;
+import com.workplace.jooq.tables.EmailMessage;
 import com.workplace.jooq.tables.records.EmailMessageRecord;
 import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.ContentSource;
@@ -439,6 +441,57 @@ public class EmailMessageRepository {
         .execute();
   }
 
+  /** 서버 사본 중복 검사용 별칭 — 앱이 보낸 행(SENT 폴더)과 그 폴더(WP-950). */
+  private static final EmailMessage APP_SENT = EMAIL_MESSAGE.as("app_sent");
+
+  private static final EmailFolder APP_SENT_FOLDER = EMAIL_FOLDER.as("app_sent_folder");
+
+  /**
+   * Message-ID 비교식 — 꺾쇠를 벗긴다(IMAP 파서는 벗기고 Graph 는 그대로 둔다). 인덱스 idx_email_message_account_msgid 와 같은
+   * 식.
+   */
+  private static Field<String> bareMessageId(Field<String> messageId) {
+    return DSL.field("btrim({0}, '<>')", String.class, messageId);
+  }
+
+  /**
+   * 서버 보낸편지함 행 중 앱이 보낸 기록(SENT)과 같은 메일이 아닌 것(WP-950). 앱은 발송본을 서버 보낸편지함에도 남기므로(IMAP APPEND·Exchange
+   * 자동 저장) 동기화한 서버 사본은 같은 Message-ID 의 앱 행과 겹친다 — 첨부·숨은 참조 기록이 있는 앱 행을 남기고 사본을 가린다. 서버 보낸편지함이 아닌 행은
+   * 언제나 참. EMAIL_FOLDER 조인을 전제한다.
+   */
+  public static Condition notAppSentCopy() {
+    return EMAIL_FOLDER
+        .SERVER_SENT
+        .isFalse()
+        .or(
+            DSL.notExists(
+                DSL.selectOne()
+                    .from(APP_SENT)
+                    .join(APP_SENT_FOLDER)
+                    .on(APP_SENT_FOLDER.ID.eq(APP_SENT.FOLDER_ID))
+                    .where(APP_SENT.ACCOUNT_ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+                    .and(APP_SENT_FOLDER.NAME.eq(EmailFolderRepository.LOCAL_SENT))
+                    .and(APP_SENT.MESSAGE_ID.isNotNull())
+                    .and(
+                        bareMessageId(APP_SENT.MESSAGE_ID)
+                            .eq(bareMessageId(EMAIL_MESSAGE.MESSAGE_ID)))));
+  }
+
+  /**
+   * 목록 폴더 범위. 보낸편지함(SENT)은 앱이 보낸 기록과 동기화한 서버 보낸편지함(외부 클라이언트 발송 포함)을 합치되 겹치는 서버 사본은 뺀다(WP-950). 그 밖의
+   * 폴더는 이름 그대로. EMAIL_FOLDER 조인을 전제한다.
+   */
+  public static Condition folderScope(String folderName) {
+    if (!EmailFolderRepository.LOCAL_SENT.equals(folderName)) {
+      // 서버 보낸편지함 폴더 이름(「Sent」·sentitems)으로 직접 찾으면 앱 발송본의 사본까지 보이므로, 그 폴더는 SENT 보기로만 보인다.
+      return EMAIL_FOLDER.NAME.eq(folderName).and(EMAIL_FOLDER.SERVER_SENT.isFalse());
+    }
+    return EMAIL_FOLDER
+        .NAME
+        .eq(EmailFolderRepository.LOCAL_SENT)
+        .or(EMAIL_FOLDER.SERVER_SENT.isTrue().and(notAppSentCopy()));
+  }
+
   /** 기존 호출 호환(받은편지함). 폴더 미지정은 INBOX 로 스코프. */
   public List<EmailMessageSummary> listByAccount(long accountId, String query, int limit) {
     return listByAccount(accountId, "INBOX", query, limit);
@@ -467,7 +520,7 @@ public class EmailMessageRepository {
       boolean unreadOnly,
       String category,
       boolean needsReply) {
-    Condition where = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(EMAIL_FOLDER.NAME.eq(folderName));
+    Condition where = EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId).and(folderScope(folderName));
     if (unreadOnly) {
       where = where.and(EMAIL_MESSAGE.SEEN.isFalse());
     }
@@ -1334,6 +1387,7 @@ public class EmailMessageRepository {
         .and(EMAIL_MESSAGE.FETCHED_AT.isNull()) // V97: per-envelope 게이트
         .and(EMAIL_MESSAGE.IMAP_UID.isNotNull().or(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNotNull()))
         .and(EMAIL_FOLDER.ROLE.isNull()) // WP-960: 서버 메일함 메일은 온디맨드만
+        .and(notAppSentCopy()) // 가려 보이지 않는 앱 발송본의 서버 사본은 본문을 받지 않는다(WP-950)
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.desc().nullsLast())
         .limit(limit)
         .fetch(this::toBodyTarget);
@@ -1360,7 +1414,8 @@ public class EmailMessageRepository {
                 EMAIL_MESSAGE
                     .IMAP_UID
                     .isNotNull()
-                    .or(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNotNull())));
+                    .or(EMAIL_MESSAGE.PROVIDER_MESSAGE_ID.isNotNull()))
+            .and(notAppSentCopy())); // listMissingBody 와 같은 조건(WP-950)
   }
 
   /**
@@ -1500,7 +1555,7 @@ public class EmailMessageRepository {
   }
 
   /**
-   * 메시지가 속한 스레드 전체(시간순) — 답장 초안 컨텍스트. 소유 검증 포함.
+   * 메시지가 속한 스레드 전체(시간순) — 답장 초안 컨텍스트. 소유 검증 포함. 앱이 보낸 메일의 서버 보낸편지함 사본은 한 번만 넣는다(WP-950).
    *
    * <p>Task6: 스레드 멤버 본문은 email_content LEFT JOIN 으로 읽는다.
    */
@@ -1525,9 +1580,12 @@ public class EmailMessageRepository {
         .from(EMAIL_MESSAGE)
         .join(EMAIL_ACCOUNT)
         .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+        .join(EMAIL_FOLDER) // 서버 보낸편지함 사본 중복 제외(WP-950)
+        .on(EMAIL_FOLDER.ID.eq(EMAIL_MESSAGE.FOLDER_ID))
         .leftJoin(EMAIL_CONTENT) // 본문을 content 에서 읽기 위한 LEFT JOIN
         .on(EMAIL_CONTENT.ID.eq(EMAIL_MESSAGE.CONTENT_ID))
         .where(EMAIL_MESSAGE.THREAD_ID.eq(threadId))
+        .and(notAppSentCopy())
         .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
         .orderBy(EMAIL_MESSAGE.RECEIVED_AT.asc().nullsFirst(), EMAIL_MESSAGE.ID.asc())

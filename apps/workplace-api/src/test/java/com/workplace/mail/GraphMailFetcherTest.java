@@ -182,6 +182,12 @@ class GraphMailFetcherTest extends IntegrationTestBase {
     // nextLink URL 로 호출 시 page2 반환
     when(graphApiClient.get(eq("FAKE_TOKEN"), eq("NEXT_URL"), eq(GraphDeltaPage.class)))
         .thenReturn(page2);
+    // WP-950: 이어지는 서버 보낸편지함 delta 는 빈 페이지 — 받은편지함 결과만 본다
+    when(graphApiClient.get(
+            eq("FAKE_TOKEN"),
+            org.mockito.ArgumentMatchers.startsWith("/me/mailFolders/sentitems/"),
+            eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(), null, "SENT_DELTA"));
 
     MailSyncResult r = graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
 
@@ -444,5 +450,107 @@ class GraphMailFetcherTest extends IntegrationTestBase {
   /** 계정 INBOX 폴더 id(WP-960 — findByProviderId 는 폴더 단위). */
   private long inboxId(long accountId) {
     return folderRepo.ensureFolder(accountId, "INBOX").id();
+  }
+
+  /**
+   * WP-950: 받은편지함 뒤 서버 보낸편지함(sentitems)도 delta 로 동기화한다. 외부 클라이언트(Outlook)에서 보낸 메일은 보낸편지함 목록에 보이고,
+   * 앱이 보낸 메일의 Exchange 사본(같은 internetMessageId — Graph 는 꺾쇠를 둔다)은 앱 행 하나로만 보인다. 「새 메일」 수(saved)에는
+   * 섞지 않고 sentSaved 로 따로 센다.
+   */
+  @Test
+  void fetchNewMessages_syncsSentItems_andHidesCopyOfAppSentMail() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+
+    // 앱이 보낸 기록(로컬 SENT 행) — Message-ID 는 꺾쇠 없이 저장된다.
+    long sentFolder = folderRepo.ensureFolder(accountId, "SENT").id();
+    long appRow = messageRepo.insertSent(accountId, sentFolder, outgoing("msg-S1@example.com"));
+
+    // 받은편지함: 새 메일 1건 / 보낸편지함: 앱 발송본의 사본 S1 + 외부 클라이언트 발송 S2
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("I1", "받은 메일")), null, "INBOX_DELTA"));
+    // 첫 보낸편지함 delta 는 최근 7일 필터가 붙은 URL(몇 년 치를 한 번에 받지 않는다)
+    when(graphApiClient.get(
+            eq("FAKE_TOKEN"),
+            org.mockito.ArgumentMatchers.matches(
+                "^/me/mailFolders/sentitems/messages/delta\\?\\$select=.*&\\$filter=receivedDateTime%20ge%20.*"),
+            eq(GraphDeltaPage.class)))
+        .thenReturn(
+            new GraphDeltaPage(
+                List.of(
+                    message("S1", "앱에서 보낸 메일", "graph@example.com", true),
+                    message("S2", "Outlook 에서 보낸 메일", "graph@example.com", true)),
+                null,
+                "SENT_DELTA"));
+
+    MailSyncResult r = graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+
+    assertThat(r.saved()).isEqualTo(1);
+    assertThat(r.sentSaved()).isEqualTo(2);
+    // 보낸편지함 목록 = 앱 행 + 외부 발송본(사본 S1 은 가림)
+    var sent = messageRepo.listByAccount(accountId, "SENT", null, 50);
+    assertThat(sent)
+        .extracting(m -> m.id())
+        .containsExactlyInAnyOrder(
+            appRow,
+            messageRepo.findByProviderId(accountId, sentItemsId(accountId), "S2").orElseThrow());
+    // 받은편지함에는 보낸 메일이 섞이지 않는다
+    assertThat(messageRepo.listByAccount(accountId, null, 50))
+        .extracting(m -> m.subject())
+        .containsExactly("받은 메일");
+    // 보낸편지함 커서는 자기 폴더 행에 따로 보관된다
+    var sentItems = folderRepo.ensureServerSentFolder(accountId, "sentitems").orElseThrow();
+    assertThat(folderRepo.getDeltaLink(sentItems.id())).contains("SENT_DELTA");
+  }
+
+  /**
+   * WP-950: 보낸편지함 동기화가 실패해도 받은편지함 결과는 그대로 돌려준다(best-effort). 저장된 보낸편지함 커서는 지워 다음 동기화가 첫 범위부터 다시
+   * 시작한다 — 만료된 deltaLink(410)로 영영 멈추지 않게.
+   */
+  @Test
+  void fetchNewMessages_sentItemsFailure_keepsInboxResult_andResetsSentCursor() {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = seedGraphAccount(userId);
+    when(graphTokenService.getAccessToken(userId, accountId)).thenReturn("FAKE_TOKEN");
+    var sentItems = folderRepo.ensureServerSentFolder(accountId, "sentitems").orElseThrow();
+    folderRepo.setDeltaLink(sentItems.id(), "EXPIRED_SENT_DELTA");
+    when(graphApiClient.get(eq("FAKE_TOKEN"), any(String.class), eq(GraphDeltaPage.class)))
+        .thenReturn(new GraphDeltaPage(List.of(message("I1", "받은 메일")), null, "INBOX_DELTA"));
+    when(graphApiClient.get(eq("FAKE_TOKEN"), eq("EXPIRED_SENT_DELTA"), eq(GraphDeltaPage.class)))
+        .thenThrow(new IllegalStateException("Graph 410 syncStateNotFound"));
+
+    MailSyncResult r = graphMailFetcher.fetchNewMessages(userId, accountId, accountOf(accountId));
+
+    assertThat(r.saved()).isEqualTo(1);
+    assertThat(r.sentSaved()).isZero();
+    assertThat(messageRepo.findByProviderId(accountId, inboxId(accountId), "I1")).isPresent();
+    assertThat(folderRepo.getDeltaLink(sentItems.id())).isEmpty();
+  }
+
+  /** 계정의 서버 보낸편지함(sentitems) 폴더 id(WP-950 — findByProviderId 는 폴더 단위). */
+  private long sentItemsId(long accountId) {
+    return folderRepo.ensureServerSentFolder(accountId, "sentitems").orElseThrow().id();
+  }
+
+  /** 앱 발송 기록용 OutgoingMail(WP-950 테스트). */
+  private static com.workplace.mail.dto.OutgoingMail outgoing(String messageId) {
+    return new com.workplace.mail.dto.OutgoingMail(
+        messageId,
+        messageId,
+        "graph@example.com",
+        "나",
+        List.of("rcpt@example.com"),
+        List.of(),
+        List.of(),
+        "앱에서 보낸 메일",
+        "본문",
+        null,
+        null,
+        null,
+        "본문",
+        Instant.now(),
+        List.of(),
+        List.of());
   }
 }

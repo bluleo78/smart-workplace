@@ -80,7 +80,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class MailComposeService {
 
-  private static final String SENT = "SENT";
+  private static final String SENT = EmailFolderRepository.LOCAL_SENT;
   private static final int SNIPPET_MAX = 280;
 
   /** 인용문 인라인 이미지 최대 개수(WP-69). */

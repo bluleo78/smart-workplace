@@ -85,7 +85,9 @@ public class MailBackfillService {
       for (BodyTarget t : targets) {
         Boolean ok = txTemplate.execute(status -> bodyFetcher.fetchBody(userId, t));
         progress.incBody(accountId);
-        if (Boolean.TRUE.equals(ok)) {
+        // 적재 후 분석은 받은편지함만 한다(analyzeAfterLoad 가 그 밖은 건너뜀) — 동기화한 보낸 메일(WP-950)이 분석 상한 슬롯을 차지하지 않게
+        // 받은편지함 메일만 모은다.
+        if (Boolean.TRUE.equals(ok) && "INBOX".equals(t.folderName())) {
           loaded.add(t.messageId());
         }
       }

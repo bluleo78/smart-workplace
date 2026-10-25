@@ -160,6 +160,11 @@ public class EmailFolder extends TableImpl<EmailFolderRecord> {
      */
     public final TableField<EmailFolderRecord, OffsetDateTime> FOLDER_SYNCED_AT = createField(DSL.name("folder_synced_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.email_folder.server_sent</code>.
+     */
+    public final TableField<EmailFolderRecord, Boolean> SERVER_SENT = createField(DSL.name("server_sent"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
     private EmailFolder(Name alias, Table<EmailFolderRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

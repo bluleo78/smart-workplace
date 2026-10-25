@@ -33,6 +33,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p><b>슬라이스1 알려진 한계</b>: 첫 동기화는 INBOX 전체를 페이징한다(Graph delta 는 초기 범위를 receivedDateTime 필터로 제한할 수
  * 없음). 대용량 메일함 초기 적재 제한은 후속 과제로 남긴다.
  *
+ * <p>WP-950: 받은편지함 뒤에 서버 보낸편지함(Sent Items)도 같은 delta 흐름으로 가져와 외부 클라이언트(Outlook 등)에서 보낸 메일도 앱
+ * 보낸편지함에 보이게 한다 — 첫 동기화는 최근 {@value #SENT_INITIAL_WINDOW_DAYS}일 필터.
+ *
  * <p>WP-960: 서버 메일함(보관·사용자 폴더)도 같은 delta 흐름으로 가져온다 — 초기 URL 만 폴더 id 와 {@code receivedDateTime ge}
  * 필터(최근 {@value MailFetcher#FOLDER_INITIAL_WINDOW_DAYS}일)로 좁힌다. 「이전 메일 더 가져오기」는 delta 대신 messages 목록을 기간
  * 필터로 페이징한다(delta 의 $filter 는 receivedDateTime ge|gt 만 지원).
@@ -53,6 +56,12 @@ public class GraphMailFetcher implements MailFetcher {
 
   /** Graph INBOX delta 초기 URL. */
   static final String INITIAL_DELTA_URL = "/me/mailFolders/inbox/messages/delta?" + SELECT;
+
+  /** 서버 보낸편지함을 동기화하는 로컬 폴더 이름이자 Graph well-known 폴더 이름(WP-950). 본문·읽음은 폴더와 무관하게 메시지 id 로 다룬다. */
+  static final String SENT_FOLDER = "sentitems";
+
+  /** 보낸편지함 첫 동기화 범위(일, WP-950) — IMAP 첫 동기화와 같다. 몇 년 치 보낸 메일을 한 번에 페이징·본문 백필하지 않는다. */
+  static final int SENT_INITIAL_WINDOW_DAYS = ImapMailFetcher.INITIAL_WINDOW_DAYS;
 
   /** 이전 메일 더 가져오기의 한 페이지 크기(WP-960). */
   static final int OLDER_PAGE_SIZE = 100;
@@ -87,14 +96,16 @@ public class GraphMailFetcher implements MailFetcher {
   }
 
   /**
-   * Graph delta API 로 INBOX 증분 동기화를 수행한다.
+   * Graph delta API 로 INBOX 증분 동기화를 수행하고, 이어서 서버 보낸편지함(Sent Items)도 동기화한다(WP-950, best-effort).
    *
-   * <p>흐름: 토큰 획득 → INBOX 폴더 보장 → deltaLink 있으면 해당 URL, 없으면 INITIAL_DELTA_URL → {@link #runDelta}.
+   * <p>흐름: 토큰 획득 → INBOX 폴더 보장 → deltaLink 있으면 해당 URL, 없으면 INITIAL_DELTA_URL → {@link #runDelta} →
+   * {@link #syncSent}. 보낸편지함 단계의 실패는 경고 로그만 남기고 받은편지함 결과를 돌려준다.
    *
    * @param userId 계정 소유자
    * @param accountId 메일 계정 id
    * @param account 계정 응답 DTO(provider=M365_GRAPH)
-   * @return 동기화 결과(fetched=처리 항목 수, saved=신규 삽입 수, seenChanged=기존 메일 읽음 상태 변경 수, removed=삭제 수)
+   * @return 받은편지함 동기화 결과(fetched=처리 항목 수, saved=신규 삽입 수, seenChanged=기존 메일 읽음 상태 변경 수, removed=삭제
+   *     수) + 보낸편지함 신규 적재 수(sentSaved)
    * @throws MailSyncException 토큰 오류 · Graph API 오류 · 네트워크 오류 시
    */
   @Override
@@ -110,7 +121,48 @@ public class GraphMailFetcher implements MailFetcher {
     // 3. 시작 URL 결정: 저장된 deltaLink 있으면 재사용, 없으면 초기 delta URL
     String url =
         txTemplate.execute(s -> folderRepo.getDeltaLink(folder.id())).orElse(INITIAL_DELTA_URL);
-    return runDelta(accountId, folder.id(), token, url);
+    MailSyncResult result = runDelta(accountId, folder.id(), token, url);
+    MailSyncResult sent = syncSent(accountId, token);
+    return sent == null ? result : result.withSent(sent);
+  }
+
+  /**
+   * 서버 보낸편지함(Sent Items) delta 동기화(WP-950, best-effort). 저장된 deltaLink 가 없으면 최근 {@value
+   * #SENT_INITIAL_WINDOW_DAYS}일 필터를 건 초기 delta 로 시작한다. 실패는 경고 로그 후 null — 만료된 deltaLink(410 등)로 매번
+   * 같은 실패를 되풀이하지 않게 커서를 지워 다음 동기화가 첫 범위부터 다시 시작한다(이미 있는 메일은 UPSERT 라 중복되지 않는다).
+   */
+  private MailSyncResult syncSent(long accountId, String token) {
+    Long sentFolderId = null;
+    try {
+      sentFolderId =
+          txTemplate
+              .execute(s -> folderRepo.ensureServerSentFolder(accountId, SENT_FOLDER))
+              .orElseThrow()
+              .id();
+      long folderId = sentFolderId;
+      String url =
+          txTemplate
+              .execute(s -> folderRepo.getDeltaLink(folderId))
+              .orElseGet(() -> initialSentDeltaUrl(Instant.now()));
+      return runDelta(accountId, folderId, token, url);
+    } catch (Exception e) {
+      log.warn("M365 보낸편지함 동기화 실패(받은편지함은 완료): accountId={} {}", accountId, e.toString());
+      if (sentFolderId != null) {
+        long folderId = sentFolderId;
+        txTemplate.executeWithoutResult(s -> folderRepo.setDeltaLink(folderId, null));
+      }
+      return null;
+    }
+  }
+
+  /**
+   * 보낸편지함 첫 delta URL(WP-950) — 최근 {@value #SENT_INITIAL_WINDOW_DAYS}일만. 이후 동기화는 저장된 deltaLink 를
+   * 따른다.
+   */
+  static String initialSentDeltaUrl(Instant now) {
+    return folderDeltaUrl(
+        SENT_FOLDER,
+        now.minus(SENT_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS));
   }
 
   /**

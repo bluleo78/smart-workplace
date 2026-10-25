@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.workplace.global.security.EncryptionService;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailFolderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MailAccountCredentials {
 
   private final EmailAccountRepository accountRepo;
+  private final EmailFolderRepository folderRepo;
   private final EncryptionService encryption;
 
   /**
@@ -29,5 +31,11 @@ public class MailAccountCredentials {
         .findEncryptedPassword(userId, accountId)
         .map(encryption::decrypt)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
+  }
+
+  /** 지난 동기화에서 찾은 서버 보낸편지함 이름(WP-950) — Sent APPEND 가 전체 폴더 목록(LIST)보다 먼저 확인한다. 없으면 null. */
+  @Transactional(readOnly = true)
+  public String serverSentFolderName(long accountId) {
+    return folderRepo.findServerSentName(accountId).orElse(null);
   }
 }

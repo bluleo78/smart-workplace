@@ -15,7 +15,8 @@ import org.springframework.stereotype.Repository;
 /**
  * email_folder jOOQ 리포지토리. INBOX·SENT 동기화 커서(UIDVALIDITY · last_seen_uid · Graph deltaLink)를 보관하고,
  * WP-960 부터는 서버 메일함 목록에서 고른 보관(ARCHIVE)·사용자(USER) 폴더도 저장한다. 서버 폴더 행은 role 이 있고, 기존 INBOX·SENT 행은
- * role 이 NULL 이다 — 서버 폴더용 쓰기·삭제는 모두 role 이 있는 행으로 한정해 INBOX·SENT 를 건드리지 않는다.
+ * role 이 NULL 이다 — 서버 폴더용 쓰기·삭제는 모두 role 이 있는 행으로 한정해 INBOX·SENT 를 건드리지 않는다. 서버 보낸편지함을 동기화하는
+ * 행(server_sent, WP-950)도 role 이 NULL 이며, 앱 발송 기록(SENT) 보기에 합쳐 보인다.
  */
 @Repository
 @RequiredArgsConstructor
@@ -46,6 +47,58 @@ public class EmailFolderRepository {
                     r.get(EMAIL_FOLDER.ID),
                     r.get(EMAIL_FOLDER.UID_VALIDITY),
                     r.get(EMAIL_FOLDER.LAST_SEEN_UID)));
+  }
+
+  /** 앱이 보낸 메일을 기록하는 로컬 폴더 이름(MailComposeService). 서버 보낸편지함 동기화 폴더와 이름이 겹치면 안 된다. */
+  public static final String LOCAL_SENT = "SENT";
+
+  /**
+   * 서버 보낸편지함을 동기화하는 폴더 행을 보장하고 동기화 상태를 반환한다(WP-950). 이름은 서버 폴더 이름 그대로라 본문·첨부·읽음 반영이 그 이름으로 서버 폴더를
+   * 연다. 같은 이름의 행이 이미 있으면 보낸편지함 표시만 켠다. 보낸편지함이 다른 폴더로 바뀌었으면(이름 변경·SPECIAL-USE 표시 이동) 예전 행의 표시를 꺼
+   * 보낸편지함 목록에 두 벌로 보이지 않게 한다 — 예전 행의 메일은 새 폴더 첫 동기화 범위로 다시 들어온다.
+   *
+   * <p>로컬 예약 이름(INBOX·SENT)과 같은 서버 폴더는 앱의 받은편지함·발송 기록과 섞이므로 empty — 호출자는 동기화를 건너뛴다. 같은 이름이 이미 서버
+   * 메일함(role 이 있는 보관·사용자 폴더, WP-960)으로 저장돼 있어도 그 폴더와 섞이지 않게 empty 다(보낸편지함은 시스템 폴더라 보통 저장되지 않는다).
+   */
+  public Optional<FolderSyncState> ensureServerSentFolder(long accountId, String serverName) {
+    if ("INBOX".equalsIgnoreCase(serverName) || LOCAL_SENT.equals(serverName)) {
+      return Optional.empty();
+    }
+    dsl.insertInto(EMAIL_FOLDER)
+        .set(EMAIL_FOLDER.ACCOUNT_ID, accountId)
+        .set(EMAIL_FOLDER.NAME, serverName)
+        .set(EMAIL_FOLDER.SERVER_SENT, true)
+        .onConflict(EMAIL_FOLDER.ACCOUNT_ID, EMAIL_FOLDER.NAME)
+        .doUpdate()
+        .set(EMAIL_FOLDER.SERVER_SENT, true)
+        // 이미 표시된 행은 다시 쓰지 않고(동기화마다 불필요한 행 갱신 방지), 서버 메일함 행(role)은 보낸편지함으로 바꾸지 않는다(WP-960)
+        .where(EMAIL_FOLDER.SERVER_SENT.isFalse().and(EMAIL_FOLDER.ROLE.isNull()))
+        .execute();
+    Boolean marked =
+        dsl.select(EMAIL_FOLDER.SERVER_SENT)
+            .from(EMAIL_FOLDER)
+            .where(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_FOLDER.NAME.eq(serverName))
+            .fetchOne(EMAIL_FOLDER.SERVER_SENT);
+    if (!Boolean.TRUE.equals(marked)) {
+      return Optional.empty();
+    }
+    dsl.update(EMAIL_FOLDER)
+        .set(EMAIL_FOLDER.SERVER_SENT, false)
+        .where(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.SERVER_SENT.isTrue())
+        .and(EMAIL_FOLDER.NAME.ne(serverName))
+        .execute();
+    return Optional.of(ensureFolder(accountId, serverName));
+  }
+
+  /** 지난 동기화에서 찾은 서버 보낸편지함 이름(WP-950) — 폴더 탐지가 전체 목록(LIST)보다 먼저 확인한다. 없으면 empty. */
+  public Optional<String> findServerSentName(long accountId) {
+    return dsl.select(EMAIL_FOLDER.NAME)
+        .from(EMAIL_FOLDER)
+        .where(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId))
+        .and(EMAIL_FOLDER.SERVER_SENT.isTrue())
+        .fetchOptional(EMAIL_FOLDER.NAME);
   }
 
   /**
