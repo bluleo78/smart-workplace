@@ -2,7 +2,7 @@
 // 왜: 모바일 폭(useIsMobile)·coarse 포인터(터치 셸 판정)가 같은 "MediaQueryList 1개 + change 리스너 1개 + 구독자 Set 팬아웃"
 // 코드를 각자 들고 있었다. 훅을 쓰는 컴포넌트(메시지 행 등) 수만큼 matchMedia 객체·리스너가 생기지 않게 하는 규칙은 같으므로 한곳에 둔다.
 // React 를 모르는 lib 계층이라 키 입력 시점 판정(isSubmitEnter)처럼 렌더 밖에서도 get() 으로 즉시 읽을 수 있다.
-import { MOBILE_MEDIA_QUERY, TAB_BAR_WIDE_MEDIA_QUERY } from './breakpoint'
+import { MOBILE_MEDIA_QUERY, SIDEBAR_COMPACT_MEDIA_QUERY, TAB_BAR_WIDE_MEDIA_QUERY } from './breakpoint'
 
 export interface MediaQueryStore {
   /** 지금 쿼리가 맞는지 동기적으로 읽는다. matchMedia 가 없는 환경(node 단위 테스트·SSR)에선 false. */
@@ -45,3 +45,5 @@ export const coarsePointerStore = createMediaQueryStore('(pointer: coarse)')
 export const landscapeStore = createMediaQueryStore('(orientation: landscape)')
 /** 하단 탭바를 7칸으로 넓힐 만한 폭인가(WP-877) — 탭바 구성 중 보이는 칸 수를 정한다. */
 export const tabBarWideStore = createMediaQueryStore(TAB_BAR_WIDE_MEDIA_QUERY)
+/** 2차 사이드바를 아이콘 줄로 접을 만큼 좁은 창인가(WP-506) — 작업 관리 사이드바가 쓴다. */
+export const sidebarCompactStore = createMediaQueryStore(SIDEBAR_COMPACT_MEDIA_QUERY)

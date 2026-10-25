@@ -18,6 +18,7 @@ import { mobileSidebarListClass } from './sidebarListClass'
 
 export function ResponsiveModuleLayout({
   sidebar,
+  compactSidebar,
   widthKey,
   rootPath,
   title,
@@ -26,6 +27,11 @@ export function ResponsiveModuleLayout({
   listContext,
 }: {
   sidebar: ReactNode
+  /**
+   * 데스크톱에서 sidebar 대신 그릴 접힌(아이콘 줄) 사이드바(WP-506). 폭이 고정이라 폭 조절 틀로 감싸지 않는다.
+   * 언제 접을지(창 폭)는 부르는 쪽이 정해 그때만 넘긴다 — 접지 않는 모듈이 창 폭 변화를 구독하지 않게.
+   */
+  compactSidebar?: ReactNode
   /** 데스크톱 목록 폭을 기억하는 앱 이름(localStorage sidebar-width:<widthKey>, WP-878). */
   widthKey: string
   rootPath: string
@@ -55,8 +61,9 @@ export function ResponsiveModuleLayout({
   if (!isMobile) {
     return (
       <div className="flex h-full min-h-0 flex-1">
-        {/* 데스크톱만 경계선을 끌어 목록 폭 조절 — 모바일 목록 래퍼는 [&>aside] 직계 선택자에 기대므로 감싸지 않는다. */}
-        <ResizableSidebar widthKey={widthKey}>{sidebar}</ResizableSidebar>
+        {/* 데스크톱만 경계선을 끌어 목록 폭 조절 — 모바일 목록 래퍼는 [&>aside] 직계 선택자에 기대므로 감싸지 않는다.
+            접힌 사이드바(compactSidebar)는 폭이 고정이라 틀 없이 그린다. */}
+        {compactSidebar ?? <ResizableSidebar widthKey={widthKey}>{sidebar}</ResizableSidebar>}
         <div className={outletClass}>
           <Outlet />
         </div>

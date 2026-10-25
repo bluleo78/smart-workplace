@@ -167,6 +167,9 @@ test.describe('이슈 목록 열 정의 (WP-270)', () => {
     authenticatedPage: page,
   }) => {
     await page.setViewportSize({ width: 1024, height: 800 });
+    // 1280px 미만이면 작업 관리 사이드바가 아이콘 줄로 접혀(WP-506) 목록 폭이 넓어진다 — 에픽 패널을 켜 둔 채 일하는
+    // 흔한 상태로 목록을 좁혀 가로 스크롤 조건을 만든다.
+    await page.addInitScript(() => localStorage.setItem('epicSidePanel.open.WP', 'true'));
     await setup(page, { cycles: [CYCLE] });
     // 완료일 필터 → 완료일 열 자동 추가 → 제목 하한·가로 스크롤 하한이 켜진다.
     await page.goto(`/projects/${KEY}?closedIn=last-week`);

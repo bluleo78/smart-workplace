@@ -7,3 +7,8 @@ export const MOBILE_MEDIA_QUERY = '(width < 64rem)'
 // 하단 탭바를 7칸(사용자 5칸)으로 넓히는 기준 — 390pt 이상(iPhone 12 이후 일반·Pro·Pro Max, Pixel 등 412dp 안드로이드)이면
 // 칸당 54pt 이상으로 누르기 최소 크기(44pt)를 넉넉히 넘는다. 그보다 좁은 폰(SE 등)은 5칸(사용자 3칸)을 유지한다(WP-877).
 export const TAB_BAR_WIDE_MEDIA_QUERY = '(width >= 390px)'
+
+// 데스크톱이지만 좁은 창(노트북 1366·「텍스트 크게」 배율 등) — 1280px 미만. 작업 관리 사이드바를 아이콘 줄로 접어
+// 이슈 목록 제목 칸을 넓힌다(WP-506 B안). 에픽 패널을 늘 켜 두고 일하는 사용 방식을 그대로 두려고 사이드바 쪽을 줄인다.
+// 모바일(64rem 미만)과 겹치는 구간은 모바일 셸이 먼저라 실제로는 1024~1279px 데스크톱에서만 쓰인다.
+export const SIDEBAR_COMPACT_MEDIA_QUERY = '(width < 80rem)'

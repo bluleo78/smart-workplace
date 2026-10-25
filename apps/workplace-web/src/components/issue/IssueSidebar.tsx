@@ -1,17 +1,131 @@
 // 이슈 모듈 2차 사이드바 — 개인 영역(내 작업/AI 위임) + 프로젝트(컬러 식별자).
+// 좁은 데스크톱 창에선 compact(아이콘 줄, 56px)로 그린다(WP-506) — 이름은 숨기고 마우스를 올리면 Tooltip 으로 보인다.
+// compact 분기는 아래 SidebarItem(항목)·SidebarSection(섹션 머리말) 두 곳에만 둔다.
 import { LayoutGrid, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
-import { useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { type ReactElement, type ReactNode, useState } from 'react'
+import { Link, NavLink, type NavLinkProps, useLocation } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
 import { ProjectBadge } from '@/components/ProjectBadge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAllProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
 import { queriesEqualIgnoringView, savedViewQueryToParams } from '@/lib/savedViewQuery'
+import { cn } from '@/lib/utils'
 import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
 
-export function IssueSidebar() {
+/** compact 에서 아이콘을 칸 가운데에 두는 클래스 — 링크·제목 헤더가 함께 쓴다. */
+const COMPACT_CENTER = 'justify-center px-0'
+
+/** compact 에서 항목 이름을 오른쪽 Tooltip 으로 보인다(앱 레일 축소 상태와 같은 방식). 펼친 상태에선 그대로 둔다. */
+function CompactTip({ compact, label, children }: { compact: boolean; label: string; children: ReactElement }) {
+  if (!compact) return children
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * NavLink 의 활성 판정 className 함수를 linkClass 로 받는 얇은 래퍼. Tooltip 트리거(Radix Slot)는 자식의 className 을
+ * 문자열로 합치는데, NavLink 의 함수형 className 이 그대로 문자열이 되어 여백·선택 표시가 사라졌다 — className 을 Slot 이
+ * 보지 않는 prop 으로 옮겨 피한다. ref·이벤트 핸들러 등 Slot 이 주는 나머지 props 는 NavLink 로 넘긴다(React 19 의 ref prop).
+ */
+function SidebarNavLink({ linkClass, ...props }: Omit<NavLinkProps, 'className'> & { linkClass: NavLinkProps['className'] }) {
+  return <NavLink {...props} className={linkClass} />
+}
+
+/**
+ * 사이드바 항목 하나 — 아이콘 + 이름(+ 꼬리 글자). compact 면 아이콘만 가운데 두고 이름은 sr-only 로 남겨 접근 가능한 이름을 지키며,
+ * Tooltip 으로 보인다(tip 이 있으면 그 글로). active 를 주면 NavLink 의 경로 판정 대신 그 값으로 선택을 그린다(고정 뷰, WP-607).
+ */
+function SidebarItem({
+  compact,
+  to,
+  end,
+  icon,
+  label,
+  tip,
+  trailing,
+  active,
+  testId,
+}: {
+  compact: boolean
+  to: string
+  end?: boolean
+  icon: ReactNode
+  label: string
+  tip?: string
+  trailing?: string
+  active?: boolean
+  testId?: string
+}) {
+  const classFor = (isActive: boolean) => cn(sidebarLinkClass({ isActive }), compact && COMPACT_CENTER)
+  const content = (
+    <>
+      {icon}
+      <span className={compact ? 'sr-only' : 'truncate'}>{label}</span>
+      {trailing && <span className={compact ? 'sr-only' : 'ml-auto shrink-0 text-xs text-muted-foreground'}>{trailing}</span>}
+    </>
+  )
+  return (
+    <CompactTip compact={compact} label={tip ?? label}>
+      {active === undefined ? (
+        <SidebarNavLink to={to} end={end} data-testid={testId} linkClass={({ isActive }) => classFor(isActive)}>
+          {content}
+        </SidebarNavLink>
+      ) : (
+        <Link to={to} data-testid={testId} className={classFor(active)} aria-current={active ? 'page' : undefined}>
+          {content}
+        </Link>
+      )}
+    </CompactTip>
+  )
+}
+
+/**
+ * 섹션(고정된 뷰·개인·프로젝트) — 머리말 + 항목 목록. compact 면 라벨 글자가 56px 에 들어가지 않아 구분선으로 대신하고,
+ * 머리말 버튼(action)은 구분선 아래 아이콘 칸으로 둔다. 펼친 상태의 머리말 DOM(.justify-between 줄 > .uppercase 라벨 + 버튼)은
+ * 모바일 목록 래퍼(sidebarListClass)가 기대는 구조 규약이라 그대로 지킨다.
+ */
+function SidebarSection({
+  compact,
+  label,
+  action,
+  testId,
+  children,
+}: {
+  compact: boolean
+  label: string
+  action?: ReactNode
+  testId?: string
+  children: ReactNode
+}) {
+  const labelClass = 'text-xs font-semibold uppercase tracking-wider text-muted-foreground'
+  return (
+    <div className={compact ? 'mt-3' : 'mt-5'} data-testid={testId}>
+      {compact ? (
+        <>
+          <div aria-hidden="true" className="mx-2 border-t" />
+          {action && <div className="mt-3">{action}</div>}
+        </>
+      ) : action ? (
+        <div className="flex items-center justify-between px-3">
+          <span className={labelClass}>{label}</span>
+          {action}
+        </div>
+      ) : (
+        <div className={cn('px-3', labelClass)}>{label}</div>
+      )}
+      <nav className={cn(compact ? (action ? 'mt-1' : 'mt-3') : 'mt-2', 'space-y-1')}>{children}</nav>
+    </div>
+  )
+}
+
+export function IssueSidebar({ compact = false }: { compact?: boolean }) {
   // 프로젝트 생성 다이얼로그 열림 상태 — 섹션 헤더 + 버튼이 트리거한다.
   const [createOpen, setCreateOpen] = useState(false)
   // 프로젝트 목록은 PageResponse<ProjectResponse> 형태 — data.content 로 접근한다.
@@ -32,128 +146,110 @@ export function IssueSidebar() {
   const favTeam = all.filter((p) => p.type !== 'PERSONAL' && isFav(p.key))
 
   return (
-    <>
+    <TooltipProvider delayDuration={200}>
     <aside
-      className="flex w-56 shrink-0 flex-col border-r bg-sidebar/40"
+      className={cn('flex shrink-0 flex-col border-r bg-sidebar/40', compact ? 'w-14' : 'w-56')}
       data-testid="issue-sidebar"
+      data-compact={compact || undefined}
     >
-      {/* 앱 타이틀 헤더 — 레일과 동일한 앱 아이콘 + 이름으로 "작업 관리" 앱임을 명시(Slack 모델) */}
-      <div className={sidebarTitleClass}>
+      {/* 앱 타이틀 헤더 — 레일과 동일한 앱 아이콘 + 이름으로 "작업 관리" 앱임을 명시(Slack 모델). compact 는 아이콘만 */}
+      <div className={cn(sidebarTitleClass, compact && COMPACT_CENTER)}>
         <LayoutList className="h-[18px] w-[18px] shrink-0 text-muted-foreground" />
-        작업 관리
+        <span className={compact ? 'sr-only' : undefined}>작업 관리</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className={cn('flex-1 overflow-y-auto', compact ? 'p-2' : 'p-3')}>
         {/* 개인 영역 — 경쟁 솔루션 공통 패턴: 개인 작업을 사이드바 최상단에 고정 */}
         <nav className="space-y-1">
-          <NavLink to="/me/tasks" className={sidebarLinkClass}>
-            <ListChecks className="h-4 w-4" /> 내 작업
-          </NavLink>
-          <NavLink to="/me/ai-tasks" className={sidebarLinkClass}>
-            <Sparkles className="h-4 w-4" /> AI 위임 작업
-          </NavLink>
+          <SidebarItem compact={compact} to="/me/tasks" icon={<ListChecks className="h-4 w-4 shrink-0" />} label="내 작업" />
+          <SidebarItem compact={compact} to="/me/ai-tasks" icon={<Sparkles className="h-4 w-4 shrink-0" />} label="AI 위임 작업" />
         </nav>
 
         {(pinned.data?.length ?? 0) > 0 && (
-          <div className="mt-5" data-testid="sidebar-pinned-views">
-            <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              고정된 뷰
-            </div>
-            <nav className="mt-2 space-y-1">
-              {(pinned.data ?? []).map((v) => {
-                const active =
+          <SidebarSection compact={compact} label="고정된 뷰" testId="sidebar-pinned-views">
+            {(pinned.data ?? []).map((v) => (
+              <SidebarItem
+                key={v.id}
+                compact={compact}
+                // group 없는 (사이클 그룹 도입 전) 저장 뷰는 group=none 을 붙여 예전처럼 평면 목록으로 연다(#878).
+                to={`/projects/${v.projectKey}?${savedViewQueryToParams(v.query).toString()}`}
+                testId={`pinned-view-${v.id}`}
+                active={
                   location.pathname === `/projects/${v.projectKey}` &&
                   queriesEqualIgnoringView(location.search, v.query)
-                return (
-                <Link
-                  key={v.id}
-                  // group 없는 (사이클 그룹 도입 전) 저장 뷰는 group=none 을 붙여 예전처럼 평면 목록으로 연다(#878).
-                  to={`/projects/${v.projectKey}?${savedViewQueryToParams(v.query).toString()}`}
-                  data-testid={`pinned-view-${v.id}`}
-                  className={sidebarLinkClass({ isActive: active })}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  <Star className="h-4 w-4 shrink-0 fill-current text-muted-foreground" />
-                  <span className="truncate">{v.name}</span>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{v.projectKey}</span>
-                </Link>
-                )
-              })}
-            </nav>
-          </div>
+                }
+                icon={<Star className="h-4 w-4 shrink-0 fill-current text-muted-foreground" />}
+                label={v.name}
+                trailing={v.projectKey}
+                tip={`${v.name} · ${v.projectKey}`}
+              />
+            ))}
+          </SidebarSection>
         )}
 
         {/* 개인 영역 — 소유자 전용 비공개 개인 프로젝트(멤버 없음) 그룹. */}
         {personal.length > 0 && (
-          <div className="mt-5" data-testid="sidebar-personal-projects">
-            <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              개인
-            </div>
-            <nav className="mt-2 space-y-1">
-              {personal.map((p) => {
-                return (
-                  <NavLink
-                    key={p.id}
-                    to={`/projects/${p.key}`}
-                    data-testid={`personal-project-${p.key}`}
-                    className={sidebarLinkClass}
-                  >
-                    <ProjectBadge projectKey={p.key} />
-                    <span className="truncate">{p.name}</span>
-                  </NavLink>
-                )
-              })}
-            </nav>
-          </div>
+          <SidebarSection compact={compact} label="개인" testId="sidebar-personal-projects">
+            {personal.map((p) => (
+              <SidebarItem
+                key={p.id}
+                compact={compact}
+                to={`/projects/${p.key}`}
+                testId={`personal-project-${p.key}`}
+                icon={<ProjectBadge projectKey={p.key} />}
+                label={p.name}
+              />
+            ))}
+          </SidebarSection>
         )}
 
-        <div className="mt-5">
-          <div className="flex items-center justify-between px-3">
-            {/* 평범한 섹션 라벨(클릭 불가) — 진입로는 아래 "전체 보기" 항목이 담당 */}
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              프로젝트
-            </span>
-            {/* + 버튼: 새 프로젝트 생성 트리거 */}
-            <button
-              type="button"
-              data-testid="sidebar-create-project"
-              aria-label="새 프로젝트"
-              onClick={() => setCreateOpen(true)}
-              className="p-1 text-muted-foreground hover:text-foreground"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-          <nav className="mt-2 space-y-1">
-            {/* 첫 항목 = 전체 보기(전체 목록 /projects 진입로) */}
-            <NavLink
-              to="/projects"
-              end
-              data-testid="sidebar-all-projects"
-              className={sidebarLinkClass}
-            >
-              <LayoutGrid className="h-4 w-4" /> 전체 보기
-            </NavLink>
-            {/* 즐겨찾기한 팀 프로젝트만 노출(전체는 위 "전체 보기"). 개인 프로젝트는 위 "개인" 섹션에 항상 노출. */}
-            {favTeam.map((p) => {
-              return (
-                <NavLink
-                  key={p.id}
-                  to={`/projects/${p.key}`}
-                  className={sidebarLinkClass}
-                  data-testid={`team-project-${p.key}`}
-                >
-                  <ProjectBadge projectKey={p.key} />
-                  <span className="truncate">{p.name}</span>
-                </NavLink>
-              )
-            })}
-          </nav>
-        </div>
+        {/* 평범한 섹션 라벨(클릭 불가) — 진입로는 아래 "전체 보기" 항목이 담당 */}
+        <SidebarSection
+          compact={compact}
+          label="프로젝트"
+          action={
+            // + 버튼: 새 프로젝트 생성 트리거
+            <CompactTip compact={compact} label="새 프로젝트">
+              <button
+                type="button"
+                data-testid="sidebar-create-project"
+                aria-label="새 프로젝트"
+                onClick={() => setCreateOpen(true)}
+                className={cn(
+                  'text-muted-foreground hover:text-foreground',
+                  compact ? 'flex w-full justify-center rounded-md py-2 hover:bg-accent/50' : 'p-1',
+                )}
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </CompactTip>
+          }
+        >
+          {/* 첫 항목 = 전체 보기(전체 목록 /projects 진입로) */}
+          <SidebarItem
+            compact={compact}
+            to="/projects"
+            end
+            testId="sidebar-all-projects"
+            icon={<LayoutGrid className="h-4 w-4 shrink-0" />}
+            label="전체 보기"
+          />
+          {/* 즐겨찾기한 팀 프로젝트만 노출(전체는 위 "전체 보기"). 개인 프로젝트는 위 "개인" 섹션에 항상 노출. */}
+          {favTeam.map((p) => (
+            <SidebarItem
+              key={p.id}
+              compact={compact}
+              to={`/projects/${p.key}`}
+              testId={`team-project-${p.key}`}
+              icon={<ProjectBadge projectKey={p.key} />}
+              label={p.name}
+            />
+          ))}
+        </SidebarSection>
       </div>
     </aside>
     {/* 프로젝트 생성 다이얼로그 — aside 형제로 렌더해 z-index 스택 충돌 방지 */}
     <ProjectCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
-    </>
+    </TooltipProvider>
   )
 }
