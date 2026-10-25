@@ -396,3 +396,57 @@ test('saved view 의 status 조건은 상태 범주로 복원된다', async ({ a
   await expect.poll(() => searches.lastUrl()?.searchParams.get('status')).toBe('IN_PROGRESS')
   expect(searches.lastUrl()?.searchParams.get('statusId')).toBeNull()
 })
+
+/** WP-655: 프로젝트 멤버 목록 목 — 로그인한 목 사용자(id 1)의 역할을 정한다. */
+async function mockMembers(page: import('@playwright/test').Page, role: 'OWNER' | 'MEMBER') {
+  await page.route(`**/api/v1/projects/${KEY}/members`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { userId: 1, username: 'me@test.local', name: '나', kind: 'HUMAN', role, createdAt: '' },
+        { userId: 2, username: 'a@test.local', name: '멤버A', kind: 'HUMAN', role: 'MEMBER', createdAt: '' },
+      ]),
+    }),
+  )
+}
+
+/** 멤버 A(id 2)가 만든 공유 뷰 — 로그인한 사람의 뷰가 아니다. */
+const othersSharedView: SavedViewResponse = {
+  id: 7, name: 'A의 공유 뷰', query: 'priority=HIGH', visibility: 'SHARED',
+  ownerId: 2, mine: false, pinned: false, createdAt: '', updatedAt: '',
+}
+
+test('저장된 뷰 — 프로젝트 소유자는 다른 멤버의 공유 뷰를 ⋯ → 삭제로 지운다(수정·고정은 없음) (WP-655)', async ({
+  authenticatedPage: page,
+}) => {
+  await setupCommonRoutes(page, [othersSharedView])
+  await mockMembers(page, 'OWNER')
+  const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${KEY}/saved-views/7`)
+  await page.route(`**/api/v1/projects/${KEY}/saved-views/7`, (route) => route.fulfill({ status: 204, body: '' }))
+
+  await page.goto(`/projects/${KEY}`)
+  await page.getByTestId('view-chip-7').hover()
+  await page.getByTestId('view-chip-menu-7').click()
+
+  // 모더레이터에게는 삭제만 — 수정·고정은 뷰 소유자 전용으로 남는다.
+  await expect(page.getByTestId('view-delete-7')).toBeVisible()
+  await expect(page.getByTestId('view-edit-7')).toHaveCount(0)
+  await expect(page.getByTestId('view-pin-7')).toHaveCount(0)
+
+  await page.getByTestId('view-delete-7').click()
+  await expect(page.getByRole('alertdialog')).toContainText('A의 공유 뷰')
+  await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click()
+  await deletes.waitFor(1)
+  expect(deletes.count()).toBe(1)
+})
+
+test('저장된 뷰 — 일반 멤버에게는 다른 멤버의 공유 뷰 ⋯ 메뉴가 없다 (WP-655)', async ({ authenticatedPage: page }) => {
+  await setupCommonRoutes(page, [othersSharedView])
+  await mockMembers(page, 'MEMBER')
+
+  await page.goto(`/projects/${KEY}`)
+  await expect(page.getByTestId('view-chip-7')).toBeVisible()
+  await page.getByTestId('view-chip-7').hover()
+  await expect(page.getByTestId('view-chip-menu-7')).toHaveCount(0)
+})

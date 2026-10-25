@@ -1,5 +1,6 @@
 // 프로젝트 화면의 권한 판정 — 서버 플래그(viewerIsMember)와 프로젝트 유형으로 UI 노출을 정한다.
 import type { MemberResponse, ProjectResponse } from '../types/project'
+import type { SavedViewResponse } from '../types/savedView'
 
 /**
  * 이 프로젝트에서 이슈를 만들 수 있는가 — OPEN 프로젝트는 테넌트 전원(비멤버 reporter 포함), TEAM 등은 멤버만.
@@ -36,6 +37,17 @@ export function isProjectOwner(
  */
 export function canManageProject(isOwner: boolean, isAdmin: boolean, isPersonal: boolean): boolean {
   return isOwner || (isAdmin && !isPersonal)
+}
+
+/**
+ * 저장된 뷰를 지울 수 있는가(WP-655) — 서버 SavedViewService.delete 와 같은 규칙: 내 뷰, 또는 공유(SHARED) 뷰면 프로젝트를 관리할 수
+ * 있는 사람(canManageProject — OWNER·ADMIN)이 모더레이션으로 지운다. 수정·고정은 이 판정과 무관하게 내 뷰만.
+ */
+export function canDeleteSavedView(
+  view: Pick<SavedViewResponse, 'mine' | 'visibility'>,
+  canManage: boolean,
+): boolean {
+  return view.mine || (view.visibility === 'SHARED' && canManage)
 }
 
 /**

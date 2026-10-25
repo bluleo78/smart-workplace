@@ -1,7 +1,14 @@
 // 이슈 생성 권한 — 보드·목록의 「+ 새 태스크」 노출 게이트(WP-413: OPEN 보드 E2E 의 분기 검증을 대체).
 import { describe, expect, it } from 'vitest'
 
-import { canCreateIssueIn, canManageProject, isIntakeOnly, isProjectOwner, workflowLockedNotice } from './projectPermissions'
+import {
+  canCreateIssueIn,
+  canDeleteSavedView,
+  canManageProject,
+  isIntakeOnly,
+  isProjectOwner,
+  workflowLockedNotice,
+} from './projectPermissions'
 
 describe('canCreateIssueIn', () => {
   it('OPEN 프로젝트는 비멤버도 이슈를 만들 수 있다', () => {
@@ -55,6 +62,22 @@ describe('canManageProject (WP-479)', () => {
   it('ADMIN 은 개인 프로젝트가 아니면 관리할 수 있다', () => {
     expect(canManageProject(false, true, false)).toBe(true)
     expect(canManageProject(false, true, true)).toBe(false)
+  })
+})
+
+describe('canDeleteSavedView (WP-655)', () => {
+  it('내 뷰는 공유 여부·관리 권한과 상관없이 지울 수 있다', () => {
+    expect(canDeleteSavedView({ mine: true, visibility: 'PRIVATE' }, false)).toBe(true)
+    expect(canDeleteSavedView({ mine: true, visibility: 'SHARED' }, false)).toBe(true)
+  })
+
+  it('남의 공유 뷰는 프로젝트를 관리하는 사람(OWNER·ADMIN)만 지운다 — 서버 모더레이션 삭제', () => {
+    expect(canDeleteSavedView({ mine: false, visibility: 'SHARED' }, true)).toBe(true)
+    expect(canDeleteSavedView({ mine: false, visibility: 'SHARED' }, false)).toBe(false)
+  })
+
+  it('남의 비공개 뷰는 관리자라도 지우지 못한다(서버는 존재를 숨긴다)', () => {
+    expect(canDeleteSavedView({ mine: false, visibility: 'PRIVATE' }, true)).toBe(false)
   })
 })
 

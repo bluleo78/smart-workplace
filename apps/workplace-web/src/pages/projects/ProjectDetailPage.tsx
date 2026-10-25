@@ -24,7 +24,7 @@ import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
 import { buildIssueListContext } from '../../lib/aiScreenContext/builders/issue';
 import { parseFilters, parseView, toClientGroupBy, withDefaultIssueScope } from '../../lib/issueFilters';
-import { canCreateIssueIn, isProjectOwner } from '../../lib/projectPermissions';
+import { canCreateIssueIn, canManageProject, isProjectOwner } from '../../lib/projectPermissions';
 import { canEditStatuses } from '../../lib/projectStatuses';
 import { EpicSidePanel } from './components/EpicSidePanel';
 import { IssueBoardView } from './components/IssueBoardView';
@@ -196,8 +196,11 @@ function ProjectIssuesSection({
   // 프로젝트 상태(WP-808) — 보드 컬럼, 「상태」 필터(statusIds)를 AI 화면 컨텍스트에 이름으로 싣기.
   const projectStatuses = useProjectStatusList(projectKey);
   // 보드에서 상태 추가·이름 변경 — 프로젝트 OWNER 만(서버와 같은 규칙, 개인 프로젝트는 이 화면에 오지 않는다).
-  const { user } = useAuth();
-  const statusEditable = canEditStatuses(isProjectOwner(members.data, user?.id), project.data?.type);
+  const { user, isAdmin } = useAuth();
+  const isOwner = isProjectOwner(members.data, user?.id);
+  const statusEditable = canEditStatuses(isOwner, project.data?.type);
+  // 다른 멤버의 공유 뷰 삭제(모더레이션, WP-655) — 서버 assertWithRole(OWNER) 와 같은 규칙(OWNER, 개인 프로젝트가 아닌 곳의 ADMIN).
+  const canManage = canManageProject(isOwner, isAdmin, project.data?.type === 'PERSONAL');
   // 리스트 뷰가 보고하는 로드 건수 — 보드는 컬럼별 로드, 사이클 그룹(#878)은 구간별 로드라 건수를 싣지 않는다.
   const [loaded, setLoaded] = useState<{ count: number; hasMore: boolean } | null>(null);
   // 목록 정체성(보기 + 리스트 쿼리 키와 같은 기본 범위 적용 필터)이 바뀌면 이전 건수를 버린다 —
@@ -258,6 +261,7 @@ function ProjectIssuesSection({
                 projectKey={projectKey}
                 epicPanelOpen={epicPanelOpen}
                 onToggleEpicPanel={toggleEpicPanel}
+                canManageProject={canManage}
               />
               <IssueFilterBar projectKey={projectKey} />
             </>

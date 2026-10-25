@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { canDeleteSavedView } from '@/lib/projectPermissions'
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -32,10 +33,13 @@ export function ViewChipBar({
   projectKey,
   epicPanelOpen,
   onToggleEpicPanel,
+  canManageProject = false,
 }: {
   projectKey: string
   epicPanelOpen: boolean
   onToggleEpicPanel: () => void
+  /** 프로젝트를 관리할 수 있는가(OWNER·ADMIN) — 다른 멤버의 공유 뷰도 「⋯ → 삭제」로 지울 수 있다(서버 모더레이션 삭제, WP-655). */
+  canManageProject?: boolean
 }) {
   const s = useSavedViewState(projectKey)
   const del = useDeleteSavedView(projectKey)
@@ -66,6 +70,8 @@ export function ViewChipBar({
       {s.views.map((v) => {
         // 칩 활성 판정(전체와 동시 활성 방지, #599)은 훅의 isViewActive 가 담당.
         const active = s.isViewActive(v)
+        // ⋯ 메뉴: 내 뷰는 고정·수정·삭제, 남의 공유 뷰는 관리자(OWNER·ADMIN)에게 삭제만(WP-655).
+        const canDelete = canDeleteSavedView(v, canManageProject)
         return (
           <div key={v.id} className="group flex items-center">
             <button
@@ -84,7 +90,7 @@ export function ViewChipBar({
                 {v.name}
               </span>
             </button>
-            {v.mine && (
+            {canDelete && (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   data-testid={`view-chip-menu-${v.id}`}
@@ -98,19 +104,23 @@ export function ViewChipBar({
                   ⋯
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    data-testid={`view-pin-${v.id}`}
-                    onSelect={() => pin.mutate({ id: v.id, pinned: !v.pinned })}
-                  >
-                    <Star className={cn('mr-2 h-4 w-4', v.pinned && 'fill-current')} />
-                    {v.pinned ? '고정 해제' : '사이드바에 고정'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    data-testid={`view-edit-${v.id}`}
-                    onSelect={() => setEditing(v)}
-                  >
-                    <Pencil className="mr-2 h-4 w-4" /> 수정
-                  </DropdownMenuItem>
+                  {v.mine && (
+                    <>
+                      <DropdownMenuItem
+                        data-testid={`view-pin-${v.id}`}
+                        onSelect={() => pin.mutate({ id: v.id, pinned: !v.pinned })}
+                      >
+                        <Star className={cn('mr-2 h-4 w-4', v.pinned && 'fill-current')} />
+                        {v.pinned ? '고정 해제' : '사이드바에 고정'}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        data-testid={`view-edit-${v.id}`}
+                        onSelect={() => setEditing(v)}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" /> 수정
+                      </DropdownMenuItem>
+                    </>
+                  )}
                   <DropdownMenuItem
                     data-testid={`view-delete-${v.id}`}
                     onSelect={() => setDeleteTargetId(v.id)}
