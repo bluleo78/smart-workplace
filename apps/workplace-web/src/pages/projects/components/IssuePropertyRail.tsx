@@ -30,7 +30,7 @@ import { IssueDependenciesSection } from './IssueDependenciesSection';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
 import { IssuePropertyGroup } from './IssuePropertyGroup';
-import { IssueReporterField } from './IssueReporterField';
+import { IssueReporterField, type ReporterEdit } from './IssueReporterField';
 import { IssueStatusSelect } from './IssueStatusSelect';
 import { MilestonePickerPopover } from './MilestonePickerPopover';
 
@@ -50,6 +50,7 @@ interface IssuePropertyRailProps {
   milestoneId: number | null; // summary.milestoneId
   assignees: UserSummary[];   // summary.assignees
   reporter: UserSummary | null | undefined; // 상세 응답 reporter (WP-272)
+  reporterEdit?: ReporterEdit; // 보고자를 바꿀 수 있을 때만(WP-944)
   createdAt: string;          // summary.createdAt — 보고자 옆 생성일
   closedAt?: string | null;   // summary.closedAt — 종료 상태의 완료·취소 시각(WP-873, 구버전 응답엔 없음)
   labels: LabelSummary[];     // summary.labels
@@ -85,6 +86,7 @@ export function IssuePropertyRail({
   milestoneId,
   assignees,
   reporter,
+  reporterEdit,
   createdAt,
   closedAt,
   labels,
@@ -189,8 +191,8 @@ export function IssuePropertyRail({
           </div>
           {/* AI 진행(WP-377) — 담당자 바로 아래. 진행 중 작업이 없으면 섹션이 스스로 숨는다. */}
           <AgentWorkRailSection list={agentWork} />
-          {/* 보고자 — 읽기 전용(WP-272). 구버전 서버 응답(reporter 없음)이면 필드가 스스로 숨는다. */}
-          <IssueReporterField reporter={reporter} createdAt={createdAt} layout="rail" />
+          {/* 보고자(WP-272) — 바꿀 수 있으면 고르기 트리거(WP-944). 구버전 서버 응답(reporter 없음)이면 필드가 스스로 숨는다. */}
+          <IssueReporterField reporter={reporter} createdAt={createdAt} layout="rail" edit={reporterEdit} />
           {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}
           {aiButton && (
             <>

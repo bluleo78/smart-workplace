@@ -6,6 +6,7 @@ import { directionParticle } from './utils';
 // 알림 종류별 동작 문구(액터명 뒤에 붙는다).
 export const ACTION_LABEL: Record<NotificationResponse['type'], string> = {
   ASSIGNED: '님이 회원님을 배정했습니다',
+  REPORTER_ASSIGNED: '님이 회원님을 보고자로 지정했습니다', // WP-944
   COMMENTED: '님이 코멘트를 남겼습니다',
   STATUS_CHANGED: '님이 상태를 변경했습니다',
   PRIORITY_CHANGED: '님이 우선순위를 변경했습니다',

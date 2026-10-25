@@ -25,5 +25,7 @@ public enum NotificationType {
   // AI 작업이 검토 대기(REVIEW)로 바뀜(WP-913) — 그 AI 를 담당자로 지정한 사람(없거나 못 보면 보고자) 1명. agent_work_state=REVIEW
   AI_REVIEW_REQUESTED,
   // AI 작업이 실패·거절로 끝남(WP-913) — 수신자는 AI_REVIEW_REQUESTED 와 같다. agent_work_state=FAILED|REJECTED
-  AI_WORK_FAILED
+  AI_WORK_FAILED,
+  // 이슈 보고자로 지정됨(WP-944) — 새 보고자 1명. 설정은 「나에게 할당」 줄을 함께 쓴다
+  REPORTER_ASSIGNED
 }

@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
   Tag,
   User,
+  UserRoundPen,
   Users,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -43,6 +44,7 @@ const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
   START_DATE_CHANGED: Calendar,
   MILESTONE_CHANGED: Flag,
   STATUS_MIGRATED: GitBranch,
+  REPORTER_CHANGED: UserRoundPen,
 };
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
@@ -63,6 +65,7 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   START_DATE_CHANGED: '시작일 변경',
   MILESTONE_CHANGED: '마일스톤 변경',
   STATUS_MIGRATED: '상태 이전',
+  REPORTER_CHANGED: '보고자 변경',
 };
 
 // LABELS_CHANGED 페이로드는 toValue 에 {added:[{name,...}], removed:[{name,...}]} JSON 으로 들어온다.

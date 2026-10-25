@@ -722,7 +722,8 @@ public class IssueService {
         canContent,
         canWorkflow,
         canDelete,
-        reporter);
+        reporter,
+        accessGuard.canChangeReporter(project, row.reporterId(), callerId));
   }
 
   /**

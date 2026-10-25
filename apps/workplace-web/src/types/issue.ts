@@ -197,7 +197,9 @@ export type IssueHistoryEventType =
   | 'START_DATE_CHANGED'
   | 'MILESTONE_CHANGED'
   // 상태 삭제로 이슈가 다른 상태로 옮겨짐(WP-809) — 이름 전후는 from/toValue.
-  | 'STATUS_MIGRATED';
+  | 'STATUS_MIGRATED'
+  // 보고자 변경(WP-944) — from/to 는 이전·새 보고자 이름.
+  | 'REPORTER_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -241,6 +243,8 @@ export interface IssueDetailResponse {
   viewerCanDelete: boolean;        // 이슈 삭제 가능 (reporter 또는 OWNER)
   // 보고자(만든 사람) 요약 (WP-272) — 사용자 행이 없으면 null. 구버전 서버(롤링 배포 중)는 undefined 일 수 있다.
   reporter?: UserSummary | null;
+  // 보고자를 바꿀 수 있는지(WP-944) — 프로젝트 OWNER·ADMIN 또는 지금 보고자. 구버전 서버는 undefined(읽기 전용으로 둔다).
+  viewerCanChangeReporter?: boolean;
 }
 
 export interface CreateIssueRequest {

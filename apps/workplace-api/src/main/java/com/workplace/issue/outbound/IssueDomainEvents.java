@@ -23,6 +23,17 @@ public final class IssueDomainEvents {
       List<UserSummary> assignees,
       Instant occurredAt) {}
 
+  /** 보고자 변경(WP-944). from 은 이전 보고자(사용자 행이 없으면 null), to 는 새 보고자. */
+  public record IssueReporterChangedEvent(
+      long issueId,
+      String projectKey,
+      String issueKey,
+      String title,
+      UserSummary actor,
+      UserSummary from,
+      UserSummary to,
+      Instant occurredAt) {}
+
   /** assignee 집합 변경. added/removed 는 diff. */
   public record IssueAssignedEvent(
       long issueId,

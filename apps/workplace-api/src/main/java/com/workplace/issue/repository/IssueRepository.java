@@ -443,6 +443,18 @@ public class IssueRepository {
   }
 
   /**
+   * 보고자 변경(WP-944). 담당자 교체처럼 version 은 올리지 않는다 — 보고자는 본문 편집과 겹치지 않는 별도 필드라, 열어 둔 편집 화면을 409 로 막을
+   * 이유가 없다.
+   */
+  public void updateReporter(Long id, Long reporterId) {
+    dsl.update(ISSUE)
+        .set(ISSUE.REPORTER_ID, reporterId)
+        .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+        .where(ISSUE.ID.eq(id))
+        .execute();
+  }
+
+  /**
    * 유형만 갱신 — updated_at 동기. 서비스에서 fast-return / history 기록과 함께 사용. version 은 올리지 않는다(#611 — PATCH 가
    * 덮어쓰는 필드가 아니라 lost-update 대상이 아니고, 올리면 제목·본문 편집 중 유형만 바꿔도 저장이 거짓 409 가 된다).
    */

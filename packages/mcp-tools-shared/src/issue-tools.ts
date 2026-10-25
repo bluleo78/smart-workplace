@@ -170,12 +170,13 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: true, idempotent: true },
       description:
         'Updates an issue (이슈); only given fields change. assignees (usernames, "me" = caller), labels and cycles replace the set ([] clears). ' +
+        'reporter (username) changes the reporter: project OWNER/ADMIN or the current reporter only, humans only. ' +
         'Names (type, milestone, cycles, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
         '(gray) and listed in createdLabels. fileIds attach staged files. Then each part saves on its own: {ok, results, createdLabels?}; an unknown status name fails results.content (listing valid ones) and nothing else is written. Status/priority changes notify ' +
         'assignees and watchers, new assignees too. An AI whose agentRuntime is INTERNAL does not react to anything another AI does (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, status, type, parent, assignees, labels, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, status, type, parent, assignees, reporter, labels, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
@@ -185,7 +186,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         const fieldEntries = fields ? Object.entries(fields) : [];
         //    WP-870: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusName } — 이름은 서버가 해석하고 모르면 content 가 400 으로 실패한다.
         const statusPatch = status !== undefined ? resolveStatusPatch(status) : undefined;
-        const [typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues] = await Promise.all([
+        const [typeId, assigneeIds, existingLabels, milestoneId, cycleIds, fieldValues, reporterIds] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
@@ -199,6 +200,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
                 }),
               )
             : undefined,
+          // WP-944: 보고자도 담당자와 같은 이름 해석(프로젝트 멤버 username, "me")을 쓴다.
+          reporter ? resolveAssigneeIds(client, projectKey, [reporter]) : undefined,
         ]);
 
         // WP-394: 있는 라벨은 id, 없는 라벨은 이름으로 — 없는 라벨은 서버가 라벨 교체와 같은 트랜잭션에서 만든다. [] 는 비우기라 조회 없이 바로 비운다.
@@ -257,6 +260,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         }
         if (cycleIds !== undefined) await run('cycles', () => client.replaceIssueCycles(issueKey, cycleIds));
         if (fieldValues !== undefined) await run('fields', () => client.updateIssueFields(issueKey, fieldValues));
+        // WP-944: 보고자는 맨 마지막 — 쓰기 권한이 지금 보고자를 따르므로(OPEN 비멤버 보고자) 넘긴 뒤의 쓰기는 거절될 수 있다.
+        if (reporterIds !== undefined) await run('reporter', () => client.changeIssueReporter(issueKey, reporterIds[0]));
 
         const ok = Object.values(results).every((v) => v === 'ok');
         // 라벨 교체가 실패했으면 라벨도 만들어지지 않았다 — 성공했을 때만 새 라벨을 알린다.

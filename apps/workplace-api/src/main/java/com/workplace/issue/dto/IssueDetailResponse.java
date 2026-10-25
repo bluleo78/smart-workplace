@@ -26,4 +26,6 @@ public record IssueDetailResponse(
      * 보고자(이슈를 만든 사람) 요약 — 상세 속성 레일·모바일 속성 시트 표시용(WP-272). summary.reporterId 는 숫자뿐이라 이름·종류를 함께 싣는다.
      * 사용자 행을 찾지 못하면 null.
      */
-    UserSummary reporter) {}
+    UserSummary reporter,
+    /** 보고자를 바꿀 수 있는지(WP-944) — 프로젝트 OWNER·ADMIN 또는 지금 보고자 본인. */
+    boolean viewerCanChangeReporter) {}

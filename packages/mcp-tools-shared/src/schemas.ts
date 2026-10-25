@@ -76,6 +76,8 @@ export const updateIssueInput = z.object({
   type: z.string().optional(), // 유형 이름 → typeId
   parent: z.string().min(1).nullable().describe('Parent issue key, same project; null clears').optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 같은 프로젝트만(WP-353)
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
+  // WP-944: 보고자 username(me=호출자) → PUT .../reporter. 프로젝트 OWNER·ADMIN·지금 보고자만, 사람만 — 서버가 거절하면 results.reporter 실패.
+  reporter: z.string().min(1).optional(),
   labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
   milestone: z.string().min(1).nullable().describe('null clears').optional(), // 마일스톤 이름 → milestoneId, null=해제(#854)
   cycles: z.array(z.string()).optional(), // 사이클명[] → 집합 교체, []=전부 해제(#854)

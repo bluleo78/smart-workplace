@@ -22,6 +22,7 @@ import type { NotificationResponse } from "@/types/notification";
 // 대표 알림 종류별 아이콘.
 const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   ASSIGNED: UserPlus,
+  REPORTER_ASSIGNED: UserPlus, // 보고자로 지정됨(WP-944)
   COMMENTED: MessageSquare,
   STATUS_CHANGED: RefreshCw,
   PRIORITY_CHANGED: RefreshCw,

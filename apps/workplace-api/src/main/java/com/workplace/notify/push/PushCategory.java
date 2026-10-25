@@ -19,6 +19,7 @@ public enum PushCategory {
   public static PushCategory of(NotificationType type) {
     return switch (type) {
       case ASSIGNED,
+          REPORTER_ASSIGNED,
           COMMENTED,
           STATUS_CHANGED,
           PRIORITY_CHANGED,

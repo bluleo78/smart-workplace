@@ -39,15 +39,18 @@ async function mockIssueDetail(
     history?: IssueHistoryEntry[];
     // 상세 응답 reporter(WP-272) — 생략하면 팩토리 기본(양동희, HUMAN).
     reporter?: UserSummary | null;
+    // 보고자 바꾸기 권한(WP-944) — 생략하면 팩토리 기본(읽기 전용).
+    viewerCanChangeReporter?: boolean;
   } = {},
 ) {
-  const { comments, history, reporter, ...summaryOverrides } = overrides;
+  const { comments, history, reporter, viewerCanChangeReporter, ...summaryOverrides } = overrides;
   const summary = { ...createIssue({ projectKey: PROJECT_KEY }), ...summaryOverrides };
   const detail: IssueDetailResponse = createIssueDetail({
     summary,
     ...(comments !== undefined && { comments }),
     ...(history !== undefined && { history }),
     ...(reporter !== undefined && { reporter }),
+    ...(viewerCanChangeReporter !== undefined && { viewerCanChangeReporter }),
   });
   // reporter 키를 undefined 로 명시하면 필드가 없는 구버전 서버 응답을 흉내 낸다(롤링 배포).
   if ('reporter' in overrides && reporter === undefined) delete detail.reporter;
@@ -214,6 +217,97 @@ test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
     const assigneeBox = await group.getByTestId('assignee-picker-trigger').boundingBox();
     const reporterBox = await reporter.boundingBox();
     expect(reporterBox!.y).toBeGreaterThan(assigneeBox!.y);
+  });
+
+  // WP-944 — 바꿀 수 있는 사람(OWNER·ADMIN·지금 보고자)에게 보고자는 고르기 트리거다. 후보는 활성 사람 구성원(AI·지금 보고자 제외).
+  test('보고자를 바꿀 수 있으면 구성원을 골라 PUT 으로 바꾼다', async ({ authenticatedPage: page }) => {
+    await mockIssueDetail(page, {
+      reporter: { id: 5, username: 'kim', name: '김보고', kind: 'HUMAN' },
+      viewerCanChangeReporter: true,
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { userId: 5, username: 'kim', name: '김보고', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
+          { userId: 7, username: 'lee', name: '이새보고', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
+          { userId: 9, username: 'bot', name: '이슈 에이전트', kind: 'AGENT', role: 'MEMBER', createdAt: null },
+          { userId: 8, username: 'off', name: '정지된분', kind: 'HUMAN', role: 'MEMBER', createdAt: null, active: false },
+        ]),
+      }),
+    );
+    let putBody: unknown = null;
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/reporter`,
+      (route) => {
+        putBody = route.request().postDataJSON();
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 7, username: 'lee', name: '이새보고', kind: 'HUMAN' }),
+        });
+      },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByTestId('reporter-picker-trigger').click();
+    const picker = page.getByTestId('reporter-picker');
+    await expect(picker.getByTestId('reporter-option-7')).toBeVisible();
+    // AI·비활성·지금 보고자는 후보가 아니다.
+    await expect(picker.getByTestId('reporter-option-9')).toHaveCount(0);
+    await expect(picker.getByTestId('reporter-option-8')).toHaveCount(0);
+    await expect(picker.getByTestId('reporter-option-5')).toHaveCount(0);
+    await picker.getByTestId('reporter-option-7').click();
+
+    await expect.poll(() => putBody).toEqual({ userId: 7 });
+    await expect(page.getByText('보고자를 바꿨습니다')).toBeVisible();
+    // 다른 사람이 바꿀 때는 넘기기 확인창이 없다.
+    await expect(page.getByTestId('reporter-handover-confirm')).toHaveCount(0);
+  });
+
+  test('지금 보고자가 스스로 넘기면 확인창을 거친다 — 취소하면 바꾸지 않는다', async ({ authenticatedPage: page }) => {
+    // 로그인 사용자(id 1, testuser)가 보고자다.
+    await mockIssueDetail(page, {
+      reporter: { id: 1, username: 'testuser', name: '테스트', kind: 'HUMAN' },
+      viewerCanChangeReporter: true,
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { userId: 1, username: 'testuser', name: '테스트', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
+          { userId: 7, username: 'lee', name: '이새보고', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
+        ]),
+      }),
+    );
+    const puts: unknown[] = [];
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/reporter`,
+      (route) => {
+        puts.push(route.request().postDataJSON());
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 7, username: 'lee', name: '이새보고', kind: 'HUMAN' }),
+        });
+      },
+    );
+    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
+
+    await page.getByTestId('reporter-picker-trigger').click();
+    await page.getByTestId('reporter-option-7').click();
+    const confirm = page.getByTestId('reporter-handover-confirm');
+    await expect(confirm).toContainText('보고자를 이새보고님에게 넘길까요?');
+    await confirm.getByRole('button', { name: '취소' }).click();
+    await expect(confirm).toHaveCount(0);
+    expect(puts).toEqual([]);
+
+    await page.getByTestId('reporter-picker-trigger').click();
+    await page.getByTestId('reporter-option-7').click();
+    await page.getByTestId('reporter-handover-confirm-ok').click();
+    await expect.poll(() => puts).toEqual([{ userId: 7 }]);
   });
 
   test('AI(AGENT)가 만든 이슈는 보고자 아바타에 에이전트 표식이 붙는다', async ({ authenticatedPage: page }) => {

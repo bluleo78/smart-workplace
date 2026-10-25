@@ -520,6 +520,10 @@ export default function IssueDetailPage() {
   const canEditContent = data.viewerCanEditContent ?? false;
   const canEditWorkflow = data.viewerCanEditWorkflow ?? false;
   const canDelete = data.viewerCanDelete ?? false;
+  // 보고자 바꾸기(WP-944) — 서버 플래그가 참일 때만 레일·모바일 시트의 보고자 필드가 고르기 트리거가 된다.
+  const reporterEdit = data.viewerCanChangeReporter
+    ? { projectKey: key, issueNumber: issueNumber, currentUserId: user?.id }
+    : undefined;
   // 워크플로 필드가 권한으로 막혔을 때 안내(WP-503) — 제목 아래 속성 줄 끝엔 짧은 표시(누르면 문구), 모바일 「속성」 시트 맨 위엔 문구 한 줄.
   const lockedNotice = workflowLockedNotice(canEditWorkflow, canEditContent);
 
@@ -670,6 +674,7 @@ export default function IssueDetailPage() {
               milestoneId={summary.milestoneId}
               assignees={summary.assignees}
               reporter={data.reporter}
+              reporterEdit={reporterEdit}
               createdAt={summary.createdAt}
               closedAt={summary.closedAt}
               labels={summary.labels}
@@ -891,7 +896,7 @@ export default function IssueDetailPage() {
               </div>
             )}
             {/* 보고자(WP-272) — 시트는 상태·담당 그룹을 숨기므로 유형 바로 아래 같은 라벨↔값 행으로 둔다. */}
-            <IssueReporterField reporter={data.reporter} createdAt={summary.createdAt} layout="sheet" />
+            <IssueReporterField reporter={data.reporter} createdAt={summary.createdAt} layout="sheet" edit={reporterEdit} />
             {renderRail('sheet')}
           </div>
         </MobileSheetShell>

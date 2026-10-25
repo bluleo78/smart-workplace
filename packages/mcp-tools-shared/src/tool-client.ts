@@ -170,6 +170,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient {
   setIssueType(issueKey: string, typeId: number, parentNumber?: number): Promise<void>;
   setIssueParent(issueKey: string, parentNumber: number | null): Promise<void>;
   replaceIssueAssignees(issueKey: string, assigneeIds: number[]): Promise<unknown>;
+  /** PUT .../reporter — 보고자 바꾸기(WP-944). */
+  changeIssueReporter(issueKey: string, userId: number): Promise<void>;
   /** PUT .../labels — 집합 교체. labelNames(WP-394)는 이름으로 붙일 라벨로, 없으면 서버가 같은 트랜잭션에서 만든다. */
   replaceIssueLabels(issueKey: string, labelIds: number[], labelNames?: string[]): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;

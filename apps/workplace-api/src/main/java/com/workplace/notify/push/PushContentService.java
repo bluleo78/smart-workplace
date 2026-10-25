@@ -179,6 +179,7 @@ public class PushContentService {
   private static String label(NotificationType t) {
     return switch (t) {
       case ASSIGNED -> "님이 회원님을 배정했습니다";
+      case REPORTER_ASSIGNED -> "님이 회원님을 보고자로 지정했습니다";
       case COMMENTED -> "님이 코멘트를 남겼습니다";
       case STATUS_CHANGED -> "님이 상태를 변경했습니다";
       case PRIORITY_CHANGED -> "님이 우선순위를 변경했습니다";

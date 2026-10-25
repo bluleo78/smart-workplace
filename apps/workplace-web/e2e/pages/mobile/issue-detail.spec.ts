@@ -290,6 +290,27 @@ test('비멤버: 칩 줄 끝 자물쇠를 누르면 이유가 뜨고, ＋ 속성
 });
 
 test.describe('＋ 속성 시트', () => {
+  // WP-944 — 모바일 ＋ 속성 시트의 보고자도 바꿀 수 있으면 고르기 트리거다(데스크톱 레일과 같은 컴포넌트).
+  test('보고자를 바꿀 수 있으면 시트에서 구성원을 골라 바꾼다', async ({ authenticatedPage: page }) => {
+    await mockDetail(page, {}, '본문 첫 줄', {
+      // 로그인 사용자(id 1)가 아닌 사람이 보고자라 넘기기 확인창 없이 바로 바뀐다.
+      reporter: { id: 2, username: 'dev.kim@iacloud.kr', name: '김개발', kind: 'HUMAN' },
+      viewerCanChangeReporter: true,
+    });
+    let putBody: unknown = null;
+    await page.route((u) => u.pathname === `${BASE}/reporter`, (r) => {
+      putBody = r.request().postDataJSON();
+      return r.fulfill(json({ id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }));
+    });
+    await openDetail(page);
+    await page.getByTestId('mobile-prop-more').click();
+    const row = page.getByTestId('issue-more-props-sheet').getByTestId('issue-more-props-reporter');
+    await row.getByTestId('reporter-picker-trigger').click();
+    await page.getByTestId('reporter-picker').getByTestId('reporter-option-1').click();
+    await expect.poll(() => putBody).toEqual({ userId: 1 });
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('모바일에선 하단 레일이 없고, ＋ 속성 시트에 유형·일정·분류·커스텀 필드가 있다(칩과 중복 항목 없음)', async ({ authenticatedPage: page }) => {
     await mockDetail(page);
     await openDetail(page);

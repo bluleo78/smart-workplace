@@ -12,6 +12,7 @@ import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueReporterChangedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
@@ -53,6 +54,22 @@ public class NotificationDispatcher {
           NotificationType.ASSIGNED, recipients, actorId(e.actor()), e.issueId(), null);
     } catch (Exception ex) {
       log.warn("[notify] assigned 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
+    }
+  }
+
+  /** 보고자 변경(WP-944): 새 보고자에게 REPORTER_ASSIGNED. 스스로 넘겨받은 경우(행위자=새 보고자)는 서비스가 행위자를 걸러 보내지 않는다. */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onIssueReporterChanged(IssueReporterChangedEvent e) {
+    try {
+      service.createAndFanOut(
+          NotificationType.REPORTER_ASSIGNED,
+          List.of(e.to().id()),
+          actorId(e.actor()),
+          e.issueId(),
+          null);
+    } catch (Exception ex) {
+      log.warn("[notify] 보고자 지정 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
     }
   }
 

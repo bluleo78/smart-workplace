@@ -38,7 +38,9 @@ export interface GroupedNotifs {
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
 export function notifSection(n: NotificationResponse): NotifSection {
   // 코멘트 멘션(WP-650)은 나를 직접 가리킨 알림, 노트 접근 요청(WP-579)은 승인·거절이 필요한 알림이라 둘 다 행동 필요.
+  // 보고자로 지정됨(WP-944)도 나에게 맡겨진 이슈라 배정과 같이 행동 필요.
   return n.type === "ASSIGNED" ||
+    n.type === "REPORTER_ASSIGNED" ||
     n.type === "ISSUE_COMMENT_MENTION" ||
     n.type === "WIKI_SHARE_ACCESS_REQUESTED" ||
     n.type === "AI_REVIEW_REQUESTED" ||
@@ -84,6 +86,7 @@ const TYPE_ORDER: NotificationResponse["type"][] = [
   "ISSUE_CHAT_MENTION",
   "ISSUE_COMMENT_MENTION",
   "ASSIGNED",
+  "REPORTER_ASSIGNED", // WP-944
   "COMMENTED",
   "STATUS_CHANGED",
   "PRIORITY_CHANGED",
@@ -113,6 +116,8 @@ function deltaSummary(group: NotificationResponse[]): string {
     else if (t === "ISSUE_COMMENT_MENTION")
       parts.push(c > 1 ? `코멘트 멘션 ${c}건` : "코멘트 멘션");
     else if (t === "ASSIGNED") parts.push(c > 1 ? `배정 ${c}건` : "배정");
+    else if (t === "REPORTER_ASSIGNED")
+      parts.push(c > 1 ? `보고자 지정 ${c}건` : "보고자 지정");
     else if (t === "COMMENTED") parts.push(`코멘트 ${c}건`);
     else if (t === "STATUS_CHANGED")
       parts.push(c > 1 ? `상태 변경 ${c}건` : "상태 변경");

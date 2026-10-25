@@ -31,6 +31,7 @@ function sharedMock(): MockedShared {
     setIssueType: vi.fn().mockResolvedValue(undefined),
     setIssueParent: vi.fn().mockResolvedValue(undefined),
     replaceIssueAssignees: vi.fn().mockResolvedValue({}),
+    changeIssueReporter: vi.fn().mockResolvedValue(undefined),
     replaceIssueLabels: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue(undefined),
     reportAgentWork: vi.fn().mockResolvedValue({ work: null, ended: true }),

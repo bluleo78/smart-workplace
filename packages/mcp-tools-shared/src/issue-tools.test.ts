@@ -17,6 +17,7 @@ function mockClient(): IssueToolClient {
     setIssueType: vi.fn().mockResolvedValue({}),
     setIssueParent: vi.fn().mockResolvedValue({}),
     replaceIssueAssignees: vi.fn().mockResolvedValue({}),
+    changeIssueReporter: vi.fn().mockResolvedValue(undefined),
     replaceIssueLabels: vi.fn().mockResolvedValue({}),
     addComment: vi.fn().mockResolvedValue(undefined),
     reportAgentWork: vi.fn().mockResolvedValue({ work: null, ended: true }),
@@ -538,6 +539,20 @@ describe('buildSharedIssueTools', () => {
     expect(out.results).toEqual({ content: 'ok', assignees: 'ok' });
     expect(c.updateIssueContent).toHaveBeenCalledWith('WP-12', { title: '수정' });
     expect(c.replaceIssueAssignees).toHaveBeenCalledWith('WP-12', [10]);
+  });
+
+  // WP-944: reporter username 은 담당자와 같은 이름 해석으로 id 를 찾아 PUT .../reporter 로 보낸다. 모르는 이름이면 아무것도 쓰지 않는다.
+  it('update_issue 는 reporter 를 바꾸고, 모르는 이름이면 다른 필드도 쓰지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', reporter: 'alice' })));
+    expect(out).toEqual({ ok: true, results: { reporter: 'ok' } });
+    expect(c.changeIssueReporter).toHaveBeenCalledWith('WP-12', 10);
+
+    vi.mocked(c.changeIssueReporter).mockClear();
+    await expect(t.handler({ issueKey: 'WP-12', title: 'x', reporter: 'nobody' })).rejects.toThrow();
+    expect(c.changeIssueReporter).not.toHaveBeenCalled();
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
   });
 
   // WP-53: "나에게 할당해줘" — assignees 의 'me' 는 호출자 본인으로 지정된다.

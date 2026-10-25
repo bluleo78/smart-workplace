@@ -3,6 +3,8 @@ export interface NotificationResponse {
   id: number;
   type:
     | "ASSIGNED"
+    // WP-944: 이슈 보고자로 지정됨.
+    | "REPORTER_ASSIGNED"
     | "COMMENTED"
     | "STATUS_CHANGED"
     | "PRIORITY_CHANGED"

@@ -147,6 +147,15 @@ public class IssueHistoryRecorder {
   }
 
   /**
+   * 보고자 변경 한 건을 기록한다(WP-944). 이전·새 보고자 이름을 from/to 에 그대로 남긴다 — 이름이 나중에 바뀌어도 그때 누구였는지가 이력에 남는다. 이전
+   * 보고자 사용자 행이 없으면 from 은 null(화면은 「없음」).
+   */
+  public void recordReporterChanged(Long actorId, Long issueId, UserSummary from, UserSummary to) {
+    historyRepository.insert(
+        issueId, actorId, "REPORTER_CHANGED", from == null ? null : from.name(), to.name());
+  }
+
+  /**
    * 담당자 집합 교체를 한 건의 history 로 기록한다. diff 0 이면 no-op. payload JSON 은 toValue 필드에 저장한다 (fromValue 는
    * null). 라벨/첨부와 동일한 패턴.
    */

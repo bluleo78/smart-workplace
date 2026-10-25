@@ -76,7 +76,8 @@ public enum NotificationSettingItem {
    */
   public static NotificationSettingItem of(NotificationType type) {
     return switch (type) {
-      case ASSIGNED -> ISSUE_ASSIGNED;
+      // 보고자로 지정됨(WP-944)도 「나에게 맡겨진 이슈」라 같은 줄로 받는다.
+      case ASSIGNED, REPORTER_ASSIGNED -> ISSUE_ASSIGNED;
       case COMMENTED -> ISSUE_COMMENTED;
       case STATUS_CHANGED -> ISSUE_STATUS_CHANGED;
       case PRIORITY_CHANGED -> ISSUE_PRIORITY_CHANGED;

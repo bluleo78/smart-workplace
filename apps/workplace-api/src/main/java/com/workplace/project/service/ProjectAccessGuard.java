@@ -157,6 +157,18 @@ public class ProjectAccessGuard {
     return memberRepository.find(project.id(), userId).map(MemberRow::role).orElse(null);
   }
 
+  /**
+   * 이슈 보고자를 바꿀 수 있는지(WP-944) — 프로젝트 OWNER·ADMIN, 또는 지금 보고자 본인(넘겨주기). 보고자는 내용 쓰기·삭제 권한에 쓰여
+   * (canWriteContent·softDelete) 일반 멤버에게는 열지 않는다. 바꾸기 API 와 상세 화면 플래그가 이 한 곳의 판정을 쓴다.
+   */
+  public boolean canChangeReporter(ProjectRow project, Long reporterId, Long callerId) {
+    if (reporterId != null && reporterId.equals(callerId)) {
+      return true;
+    }
+    String role = viewerRole(project, callerId);
+    return "OWNER".equals(role) || "ADMIN".equals(role);
+  }
+
   /** ADMIN 우회 규칙 한 곳 — 비PERSONAL 프로젝트에서 ADMIN 이면 멤버십·역할 검사를 건너뛴다(PERSONAL 은 소유자만, 완전 비공개). */
   private boolean adminBypass(ProjectRow project, Long userId) {
     return !"PERSONAL".equals(project.type()) && permissionChecker.userHasRole(userId, "ADMIN");
