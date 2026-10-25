@@ -1,6 +1,6 @@
 ---
 name: work-loop
-description: Use when the user runs /genia-works:work-loop <프로젝트 키> (usually as "/loop /genia-works:work-loop WP") in an AI-identity session — picks one genia-works issue assigned to this AI and processes it unattended up to review (implement, review, live-verify, open a GitHub PR for the reviewer AI; as the reviewer, review, rebase and merge others' PRs), reporting progress on the issue.
+description: Use when the user runs /genia-works:work-loop <프로젝트 키> (usually as "/loop /genia-works:work-loop WP") in an AI-identity session — picks one genia-works issue assigned to this AI and processes it unattended up to review (implement, review, live-verify, open a GitHub PR for the reviewer AI; as the reviewer, review and merge others' PRs or send them back for fixes or a rebase onto main), reporting progress on the issue.
 ---
 
 # genia-works 할당 이슈 자동 처리
@@ -13,7 +13,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 - **사람에게 묻는 때는 UI/UX·아키텍처·설계·접근 방안에서 명확하지 않은 부분이 있을 때뿐이다.** 그 밖의 결정은 스스로 내리고 「내가 정한 것」으로 기록한다.
 - **사람에게 보이는 글은 모두 한국어로 쓴다** — 이슈 챗 메시지·note·질문뿐 아니라 실행 끝에 콘솔로 내는 최종 요약도 한국어다(코드·명령·식별자는 그대로).
 - **하지 않는다**: main 직접 push, origin 밖의 원격(gitlab 등) push, 태그, 운영 배포, 이슈 DONE 처리. DONE 의 예외는 아래 「본문 지시」가 시킨 이슈 닫기뿐이다.
-  - **push 는 PR 흐름에서만 한다** — 개발할 때는 내 이슈 브랜치를 origin 에 push 하고 PR 을 만든다(`process-issue.md` 9번). 검토자(아래)일 때는 리뷰한 PR 의 브랜치를 rebase 해 다시 push 하고 GitHub 에서 그 PR 을 머지한다(`process-issue.md` 「PR 리뷰·머지」). MAIN 에는 머지하지 않는다.
+  - **push 는 PR 흐름에서만 한다** — 개발할 때는 내 이슈 브랜치를 origin 에 push 하고 PR 을 만든다(`process-issue.md` 9번). 검토자(아래)일 때는 push 하지 않는다 — 리뷰한 PR 을 GitHub 에서 머지하거나, 고칠 것·main 반영(rebase)을 개발자에게 돌려보낸다(`process-issue.md` 「PR 리뷰·머지」). MAIN 에는 머지하지 않는다.
   - **GitHub 준비는 스스로 하지 않는다** — `gh` 가 없거나(`gh --version` 실패) 인증이 안 돼 있으면(`gh auth status` 실패) 설치·로그인·토큰 만들기를 하지 않고 그 이슈를 `AUTH_REQUIRED` 로 멈춘다. `message` 에 빠진 것과 준비 방법(`gh` 설치, 이 AI 의 GitHub 계정 토큰을 `GH_TOKEN` 으로 넣어 세션을 다시 띄우기 — 플러그인 README 「PR 흐름 준비」)을 적는다. 브랜치·워크트리는 남기고, 사람이 준비했다고 남기면 이어 한다.
 - **검토자** = `MAIN/.work-loop/project.md` 「검토자」 절의 username(AI 팀장). 개발한 PR 을 이 사람에게 맡기고, 내가 검토자면 남이 만든 PR 을 리뷰·머지한다. 절이 없거나 username 이 적혀 있지 않으면 검토자 없이 PR 링크와 함께 바로 검토 대기로 올린다(사람이 PR 을 리뷰·머지).
 - **이슈 만들기·담당 바꾸기는 사람처럼 한다** — 내 역할 권한으로 서버가 허락하는 일이다. 일을 나누거나 다른 AI·사람에게 맡겨야 하면 이슈를 만들고 담당자를 지정하고, 찾은 결함도 이슈로 등록한다.
