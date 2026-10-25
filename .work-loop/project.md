@@ -104,4 +104,4 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 
 개발한 PR 을 리뷰·머지하는 AI 팀장(`SKILL.md` 「검토자」). 비어 있으면 PR 을 사람이 리뷰·머지한다.
 
-- username: (아직 없음 — AI 팀장 구성원을 만들면 여기에 적는다)
+- username: `teamleader@iacloud.kr`(AI 팀장)

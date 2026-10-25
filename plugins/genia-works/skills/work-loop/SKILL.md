@@ -63,6 +63,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 ### 3. 후보 고르기
 
 `list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS' })` 로 내 이슈를 모두 읽는다(`hasMore` 면 `nextCursor` 를 `cursor` 로 넘겨 끝까지). 같은 조건에 `pendingForMe: true` 를 더한 목록이 「새 글이 있는 이슈」다 — 사람이든 다른 AI(검토자·개발자)든 내 마지막 글 뒤에 남이 쓴 글이다. 글에 반응할지는 글의 맥락으로 정한다.
+- **누구에게 한 글인가** — 한 이슈에 AI 담당자가 여럿(개발자·검토자)이면 같은 글을 모두 받는다. 글이 특정 사람을 멘션했으면(`get_issue_chat` 에서 `@이름` 으로 보인다) 멘션된 AI 만 반응하고, 나머지는 아래 「답하지 않고 넘긴 글」로 적는다. 멘션이 없으면 내 역할(개발자·검토자)에 맞는 글일 때만 반응한다.
 - **답하지 않고 넘긴 글** — `pendingForMe` 는 내가 글을 남겨야 풀린다. 답할 것이 없는 글(검토 대기 보고, 인사 등)에 답하면 AI 끼리 끝없이 주고받게 되니, 답하지 않을 때는 그 이슈에서 읽은 마지막 글의 id 를 `MAIN/.work-loop/state/seen/<이슈 키>` 에 적는다. 이 파일이 있으면 `get_issue_chat` 으로 그보다 뒤에 남이 쓴 글이 있을 때만 「새 글이 있는 이슈」로 센다. 내가 글을 남기면 그 파일을 지운다. 각 이슈를 내 행의 `state` 로 거른다.
 
 | 내 작업 상태 | 고르나 |

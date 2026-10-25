@@ -261,3 +261,10 @@ test('process-issue.md: 개발자·검토자는 GitHub 계정이 아니라 PR �
   assert.ok(pi.includes('`개발: <username>` 줄이 내'));
   assert.ok(pi.includes('본문 첫 줄은 `개발: <내 username>`'));
 });
+
+test('SKILL.md: AI 담당자가 여럿이면 멘션된 AI 만 반응하고 나머지는 넘긴 글로 적는다', () => {
+  // 개발자·검토자가 같은 글을 모두 받아, 기준이 없으면 둘 다 답하거나 둘 다 넘긴다.
+  const line = lineWith(workLoop('SKILL.md'), '누구에게 한 글인가');
+  assert.ok(line.includes('멘션된 AI 만 반응하고'));
+  assert.ok(line.includes('「답하지 않고 넘긴 글」'));
+});
