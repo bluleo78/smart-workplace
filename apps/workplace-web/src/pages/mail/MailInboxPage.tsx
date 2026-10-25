@@ -26,6 +26,7 @@ import { handleApiError } from '@/lib/api-error'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { forwardAttachments } from '@/lib/mailComposeAttachments'
+import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
 import { formatReceivedAt } from '@/lib/mailListTime'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
@@ -50,6 +51,7 @@ import {
   useInlineMailHtml,
   useIssueDraft,
   useLinkedIssue,
+  useMailFolders,
   useMailMessage,
   useMailMessages,
   useMailMessageSeen,
@@ -57,10 +59,12 @@ import {
   useMarkAllRead,
   useReplyDraft,
   useSyncMailbox,
+  useSyncMailFolder,
   useSyncStatus,
   useToggleRead,
   useUnreadCounts,
 } from '../../hooks/queries/useMailMessages'
+import type { MailServerFolder } from '../../types/mailFolder'
 import type { EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailCategory, MailFolder, MailIssueDraft } from '../../types/mailMessage'
 import { MailDraftsPage } from './MailDraftsPage'
 import { MAIL_DETAIL_PARAM } from './mailHistory'
@@ -79,6 +83,7 @@ function MessageRow({
   sheetTarget,
   onSelect,
   pendingVisible,
+  aiSignalsVisible,
   showToggle,
   onToggleRead,
 }: {
@@ -90,14 +95,17 @@ function MessageRow({
   onSelect: () => void
   /** "분류 전" 배지 노출 여부 — 받은편지함 계열이고 AI 분류가 켜진 계정일 때만. */
   pendingVisible: boolean
+  /** AI 분류·답장필요 배지 노출 — 서버 메일함 보기(WP-961)는 받은편지함 AI 분석 대상이 아니라 끈다. */
+  aiSignalsVisible: boolean
   /** WP-187 hover 읽음 전환 버튼 노출 — 터치 셸에는 hover 가 없어 렌더하지 않는다(길게 누르기 시트가 담당). */
   showToggle: boolean
   /** WP-187 읽음↔안읽음 전환(행 열기와 별개). */
   onToggleRead: () => void
 }) {
   const navigate = useNavigate()
-  // WP-146: 회신필요 판정은 행마다 한 번만 계산.
-  const needsReply = isNeedsReply(m)
+  // WP-146: 회신필요 판정은 행마다 한 번만 계산. 서버 메일함 보기에서는 AI 배지를 모두 끈다(WP-961).
+  const needsReply = aiSignalsVisible && isNeedsReply(m)
+  const aiCategory = aiSignalsVisible ? m.aiCategory : null
   return (
     // div role="button" — 내부 AiSignalBadge 가 실제 <button>이므로 바깥을 <button>으로
     // 감싸면 버튼 중첩(HTML 유효성 위반 + a11y 위험, #577)이 발생해 카드형 클릭 영역 패턴으로 전환.
@@ -185,19 +193,19 @@ function MessageRow({
         </span>
       )}
       {/* WP-146: 회신필요 = AI 판정 && 안 읽음 — 읽으면 배지 숨김. 분류 배지는 클릭 필터. */}
-      {(m.aiCategory || needsReply || (pendingVisible && m.categoryPending)) && (
+      {(aiCategory || needsReply || (pendingVisible && m.categoryPending)) && (
         <span className="mt-0.5 flex items-center gap-1">
           {/* AI 분류 배지 — 클릭 시 해당 분류 필터로 이동(onClick + stopPropagation 으로 행 선택과 분리). */}
-          {m.aiCategory && (
+          {aiCategory && (
             <AiSignalBadge
               variant="info"
               data-testid={`mail-badge-category-${m.id}`}
               onClick={(e) => {
                 e.stopPropagation()
-                navigate(mailViewHref(m.accountId, m.aiCategory as MailCategory, false))
+                navigate(mailViewHref(m.accountId, aiCategory as MailCategory, false))
               }}
             >
-              {m.aiCategory}
+              {aiCategory}
             </AiSignalBadge>
           )}
           {pendingVisible && m.categoryPending && (
@@ -217,6 +225,67 @@ function MessageRow({
           )}
         </span>
       )}
+    </div>
+  )
+}
+
+/**
+ * WP-961 서버 메일함 상태 줄 — 「최근 N일 · M분 전에 가져옴」 + 새로 고침 + 더 가져오기(앞의 90일).
+ * 기간은 가져온 시각과 가장 오래된 경계의 차이라 더 가져올 때마다 늘어난다. 처음 가져오는 동안은 「메일함을 가져오는 중…」.
+ * 메일함 목록을 아직 못 받았거나 열 수 없는 메일함이면 버튼을 끈다.
+ */
+function MailFolderStatusRow({
+  folder,
+  missing,
+  syncing,
+  olderSyncing,
+  onRefresh,
+  onFetchOlder,
+}: {
+  folder: MailServerFolder | undefined
+  /** 메일함 목록은 받았는데 이 id 가 없다(지워진 메일함·옛 링크) — 「가져오는 중」에 머물지 않게 따로 알린다. */
+  missing: boolean
+  syncing: boolean
+  olderSyncing: boolean
+  onRefresh: () => void
+  onFetchOlder: () => void
+}) {
+  const at = folder?.folderSyncedAt ?? null
+  const days = folder ? folderRangeDays(folder) : null
+  const text = missing
+    ? '메일함을 찾을 수 없어요'
+    : at
+    ? `${days != null ? `최근 ${days}일 · ` : ''}${formatRelativeTime(at)}에 가져옴`
+    : syncing || !folder
+      ? '메일함을 가져오는 중…'
+      : '아직 가져오지 않았어요'
+  const disabled = syncing || !folder?.selectable
+  return (
+    <div data-testid="mail-box-status" className="flex items-center gap-2 border-b py-1.5 pl-4 pr-3 text-xs text-muted-foreground">
+      <span data-testid="mail-box-status-text" title={at ? formatDateTime(at) : undefined} className="min-w-0 flex-1 truncate">
+        {text}
+      </span>
+      <button
+        type="button"
+        data-testid="mail-box-refresh"
+        aria-label="메일함 새로 고침"
+        title="메일함 새로 고침"
+        onClick={onRefresh}
+        disabled={disabled}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 max-lg:h-10 max-lg:w-10"
+      >
+        <RefreshCw className={cn('h-4 w-4', syncing && !olderSyncing && 'animate-spin')} />
+      </button>
+      <button
+        type="button"
+        data-testid="mail-box-older"
+        onClick={onFetchOlder}
+        disabled={disabled}
+        className="relative inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-foreground outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50 max-lg:h-9 max-lg:px-4 max-lg:text-sm"
+      >
+        {olderSyncing && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+        더 가져오기
+      </button>
     </div>
   )
 }
@@ -788,12 +857,17 @@ function MailInbox() {
   const classificationActive = unreadCounts?.classificationActive ?? true
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 사이드바도 같은 판정(WP-218).
   const location = useLocation()
-  const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId') })
+  // WP-961 서버 메일함(보관·내 메일함) — ?box 보기의 제목·경로·안 읽은 수·가져온 시각.
+  const { data: folders } = useMailFolders(accountIdNum)
+  const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId'), folders })
+  const folderView = view.kind === 'folder'
+  const currentFolder = folderView ? folders?.find((f) => f.id === view.folderId) : undefined
   // 탭 제목 — 「{폴더} · 메일」(WP-814). 계정이 없으면(연결 안내 화면) 폴더가 없으니 「메일」만.
   useDocumentTitle([(accounts?.length ?? 0) > 0 && view.title, '메일'])
 
   const { data: fetchedMessages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
+    { folderId: view.folderId },
   )
   // WP-186: 안 읽은 메일만 보기에서 연 메일은 보기·토글을 바꾸기 전까지 유지 — 보기 key 가 바뀌면 초기화.
   // 키에 계정·검색어를 포함한다 — 같은 페이지 인스턴스가 계정/검색만 바뀌어도 유지 집합이 새어 나가지 않게.
@@ -878,9 +952,10 @@ function MailInbox() {
   // WP-187 모두 읽음 — 버튼 → 건수 조회(+asOf) → 확인 다이얼로그 → 실행.
   // asOf 는 서버(DB 시계)가 준 문자열을 그대로 되돌려 보낸다 — 확인 뒤 새로 들어온 메일은 읽음 처리하지 않게.
   const markAll = useMarkAllRead(accountIdNum)
-  const markAllScope: MailViewScope = { category: view.apiCategory, needsReply: view.kind === 'needsReply', query: search }
+  const markAllScope: MailViewScope = { category: view.apiCategory, needsReply: view.kind === 'needsReply', query: search, folderId: view.folderId }
   // 누른 시점의 계정·범위 — 건수 조회 중 보기/계정을 바꾸면 이 키가 달라져 응답·다이얼로그를 버린다(다른 보기를 읽음 처리하지 않게).
-  const markAllKey = `${accountIdNum ?? ''}|${markAllScope.category}|${markAllScope.needsReply}|${markAllScope.query}`
+  // 서버 메일함끼리는 분류가 모두 비어 있어 메일함 id 까지 넣어야 메일함을 옮길 때 다이얼로그가 비워진다(WP-961).
+  const markAllKey = `${accountIdNum ?? ''}|${markAllScope.category}|${markAllScope.needsReply}|${markAllScope.query}|${view.folderId ?? ''}`
   // 다이얼로그 상태는 누른 시점의 범위·표시 이름과 건수·asOf 를 함께 묶어 둔다 — 확인 시 이 값만 쓴다.
   const [markAllPending, setMarkAllPending] = useState<{
     key: string
@@ -897,7 +972,8 @@ function MailInbox() {
     markAllKeyRef.current = markAllKey
   }, [markAllKey])
   // 검색 중이 아니면 사이드바와 같은 숫자로 0 을 미리 알 수 있어 버튼을 끈다(검색 중엔 눌러서 건수를 조회).
-  const markAllKnownZero = !search && unreadCounts != null && unreadCountForView(view, unreadCounts) === 0
+  // 서버 메일함은 그 메일함의 안 읽은 수 — 모르면(null) 끄지 않는다.
+  const markAllKnownZero = !search && unreadCounts != null && unreadCountForView(view, unreadCounts, folders) === 0
   const startMarkAll = async () => {
     if (accountIdNum == null) return
     // 검색 중이면 건수는 검색 결과만 센다 — 표시 이름에도 검색어를 붙여 보기 전체로 오해하지 않게 한다.
@@ -917,6 +993,40 @@ function MailInbox() {
     }
   }
   const sync = useSyncMailbox(accountIdNum)
+  // WP-961 서버 메일함 가져오기 — 메일함을 열 때(또는 다른 메일함으로 옮길 때) 한 번, 새로 고침, 더 가져오기(older).
+  const syncFolder = useSyncMailFolder(accountIdNum)
+  const { mutate: runFolderSync } = syncFolder
+  // 열 수 있는 메일함일 때만 자동으로 가져온다 — 묶음 메일함·없는 id 는 서버가 400/404 로 거절한다.
+  const autoSyncFolderId = currentFolder?.selectable ? currentFolder.id : null
+  // 마지막으로 자동 가져오기를 보낸 계정:메일함 — StrictMode 이중 실행·메일함 목록 재조회로 다시 보내지 않게.
+  const autoSyncedRef = useRef<string | null>(null)
+  useEffect(() => {
+    // 메일함 보기를 떠나면 기억을 지운다 — 같은 메일함으로 다시 돌아오면(받은편지함 → 보관 → 받은편지함 → 보관) 다시 가져온다.
+    if (accountIdNum == null || autoSyncFolderId == null) {
+      if (!folderView) autoSyncedRef.current = null
+      return
+    }
+    const target = `${accountIdNum}:${autoSyncFolderId}`
+    if (autoSyncedRef.current === target) return
+    autoSyncedRef.current = target
+    runFolderSync({ folderId: autoSyncFolderId, older: false })
+  }, [accountIdNum, autoSyncFolderId, folderView, runFolderSync])
+  // 지금 보는 메일함을 가져오는 중인가 — 빠르게 다른 메일함으로 옮겨도 앞 메일함 요청을 이 메일함 것으로 보지 않게 대상 id 를 맞춘다.
+  const folderSyncing = syncFolder.isPending && syncFolder.variables?.folderId === view.folderId
+  const olderSyncing = folderSyncing && syncFolder.variables?.older === true
+  // 「더 가져오기」 — 직접 누른 것이라 결과를 토스트로 알린다(열 때 자동 가져오기는 조용히).
+  const fetchOlder = () => {
+    if (!currentFolder) return
+    runFolderSync(
+      { folderId: currentFolder.id, older: true },
+      {
+        onSuccess: (r) => {
+          if (r.running) return
+          toast(r.saved > 0 ? `이전 메일 ${r.saved}통을 더 가져왔어요` : '이전 90일에는 가져올 메일이 없어요')
+        },
+      },
+    )
+  }
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
   // #520 AI 이슈 초안 — 버튼 클릭 시 모달 오픈 후 초안 로드.
@@ -997,6 +1107,8 @@ function MailInbox() {
     accountId: accountIdNum ?? null,
     accountEmail,
     folder: folderParam,
+    // WP-961 서버 메일함 보기 — 경로 이름(보관·내 메일함 › …). 메일함 목록 전이면 이름 없이 「메일함」(받은편지함으로 싣지 않게).
+    serverFolder: folderView ? (currentFolder ? view.breadcrumb.join(' › ') : '메일함') : null,
     q: search,
     category: view.apiCategory || null,
     needsReply: view.kind === 'needsReply',
@@ -1102,7 +1214,8 @@ function MailInbox() {
             ) : (
               // 데스크톱: 계층 구분자 "›" 를 작고 흐리게(스크린리더는 구분자를 읽지 않고 항목만 읽는다). 상위 항목은 흐린 색.
               view.breadcrumb.map((seg, i) => (
-                <span key={seg} className={i < view.breadcrumb.length - 1 ? 'font-medium text-muted-foreground' : undefined}>
+                // 경로에 같은 이름이 겹칠 수 있어(내 메일함 › 프로젝트 › 프로젝트) 위치를 키에 넣는다.
+                <span key={`${i}:${seg}`} className={i < view.breadcrumb.length - 1 ? 'font-medium text-muted-foreground' : undefined}>
                   {i > 0 && (
                     <span aria-hidden className="mx-1.5 text-muted-foreground">
                       ›
@@ -1131,52 +1244,57 @@ function MailInbox() {
           mobileMenuLabel="메일 검색"
         />
       )}
-      {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률. */}
+      {/* 리스트 툴바 — INBOX 전용: 아이콘 새로고침 + 마지막 동기화 상대시각 + 진행률.
+          서버 메일함 보기(WP-961)도 INBOX 로 해석되지만 계정 동기화 대신 목록 위 상태 줄이 메일함 가져오기를 맡아 오른쪽 그룹만 둔다. */}
       {showListChrome && folderParam === 'INBOX' && (
         // overflow-x-clip — 혹시 넘쳐도 포커스·클릭이 바깥 셸을 가로로 스크롤해 화면이 밀린 채 남지 않게(clip 은 스크롤 대상이 아니다).
         <div className="flex items-center overflow-x-clip border-b py-1.5">
           {/* 패딩을 안쪽 상자에 둬서(pl-3 pr-4) 오른쪽 끝이 목록 행의 시각 끝선(px-4)에 맞는다.
               lg 폭은 목록 열과 같은 min(절반, max-w-md) — flex-1 끼리 나누면 패딩만큼 목록 열보다 넓어져 구분선을 넘는다. */}
           <div className="flex min-w-0 flex-1 items-center gap-2 pl-3 pr-4 lg:w-1/2 lg:max-w-md lg:flex-none">
-            <button
-              type="button"
-              data-testid="mail-sync"
-              aria-label="지금 새로고침"
-              onClick={() => sync.mutate()}
-              disabled={sync.isPending || (syncStatus.data?.running ?? false)}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 max-lg:h-10 max-lg:w-10"
-            >
-              <RefreshCw
-                className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
-              />
-            </button>
-            {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시.
-                한 줄 유지 — 폭이 모자라면 말줄임(절대 시각은 title). 진행률이 보이는 동안은 숨긴다(진행률이 더 새 정보, 좁은 목록 열에서 넘침 방지). */}
-            <span
-              data-testid="mail-synced-at"
-              title={currentAccount?.lastSyncedAt ? formatDateTime(currentAccount.lastSyncedAt) : undefined}
-              className={cn(
-                'flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground',
-                bodiesProgress && 'hidden',
-              )}
-            >
-              {currentAccount?.lastSyncedAt ? (
-                <>
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" aria-hidden />
-                  <span className="truncate">{`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}</span>
-                </>
-              ) : (
-                <>
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
-                  <span className="truncate">동기화 안 됨</span>
-                </>
-              )}
-            </span>
-            {/* 본문 보충 진행률 — 두 줄로 꺾여 툴바 높이가 바뀌지 않게 한 줄 고정. */}
-            {bodiesProgress && (
-              <span data-testid="mail-sync-progress" className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                본문 {syncStatus.data?.done}/{syncStatus.data?.total}
-              </span>
+            {!folderView && (
+              <>
+                <button
+                  type="button"
+                  data-testid="mail-sync"
+                  aria-label="지금 새로고침"
+                  onClick={() => sync.mutate()}
+                  disabled={sync.isPending || (syncStatus.data?.running ?? false)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50 max-lg:h-10 max-lg:w-10"
+                >
+                  <RefreshCw
+                    className={cn('h-4 w-4', (sync.isPending || syncStatus.data?.running) && 'animate-spin')}
+                  />
+                </button>
+                {/* 마지막 성공 동기화 시각 — null이면 회색 점+"동기화 안 됨", 있으면 녹색 점+상대시각 표시.
+                    한 줄 유지 — 폭이 모자라면 말줄임(절대 시각은 title). 진행률이 보이는 동안은 숨긴다(진행률이 더 새 정보, 좁은 목록 열에서 넘침 방지). */}
+                <span
+                  data-testid="mail-synced-at"
+                  title={currentAccount?.lastSyncedAt ? formatDateTime(currentAccount.lastSyncedAt) : undefined}
+                  className={cn(
+                    'flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground',
+                    bodiesProgress && 'hidden',
+                  )}
+                >
+                  {currentAccount?.lastSyncedAt ? (
+                    <>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" aria-hidden />
+                      <span className="truncate">{`${formatRelativeTime(currentAccount.lastSyncedAt)} 동기화됨`}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden />
+                      <span className="truncate">동기화 안 됨</span>
+                    </>
+                  )}
+                </span>
+                {/* 본문 보충 진행률 — 두 줄로 꺾여 툴바 높이가 바뀌지 않게 한 줄 고정. */}
+                {bodiesProgress && (
+                  <span data-testid="mail-sync-progress" className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                    본문 {syncStatus.data?.done}/{syncStatus.data?.total}
+                  </span>
+                )}
+              </>
             )}
             {/* 오른쪽 그룹 — "안 읽은 메일만" 토글(회신필요엔 없음) + 모두 읽음. 감싼 div 가 ml-auto 를 가져 회신필요에서도 오른쪽에 붙는다(F24). */}
             <div className="ml-auto flex items-center gap-2">
@@ -1235,6 +1353,17 @@ function MailInbox() {
           )}
           data-testid="mail-list"
         >
+          {folderView && (
+            // WP-961 서버 메일함 상태 줄 — 가져온 기간·시각 + 새로 고침 + 더 가져오기. 목록이 비어 있어도 보인다.
+            <MailFolderStatusRow
+              folder={currentFolder}
+              missing={folders != null && currentFolder == null}
+              syncing={folderSyncing}
+              olderSyncing={olderSyncing}
+              onRefresh={() => currentFolder && runFolderSync({ folderId: currentFolder.id, older: false })}
+              onFetchOlder={fetchOlder}
+            />
+          )}
           {isLoading ? (
             <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>
           ) : isError ? (
@@ -1271,6 +1400,11 @@ function MailInbox() {
                   모든 메일 보기
                 </Button>
               </div>
+            ) : folderView && !search ? (
+              // WP-961 서버 메일함 0건 — 처음 가져오는 중이면 그렇게, 아니면 중립 문구(「동기화를 눌러보세요」는 받은편지함 안내).
+              <div data-testid="mail-box-empty" className="p-6 text-sm text-muted-foreground">
+                {folderSyncing ? '메일함을 가져오는 중…' : '이 메일함에 메일이 없습니다.'}
+              </div>
             ) : view.kind === 'category' ? (
               // 분류 필터 적용 중 0건 — "받은 메일 없음" 과 구분되는 중립 문구.
               <div data-testid="mail-category-empty" className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
@@ -1295,7 +1429,8 @@ function MailInbox() {
                   open={selectedId === m.id}
                   sheetTarget={sheet.open && sheet.target?.id === m.id}
                   onSelect={() => mailParam.open(String(m.id))}
-                  pendingVisible={view.kind !== 'sent' && classificationActive}
+                  pendingVisible={view.kind !== 'sent' && !folderView && classificationActive}
+                  aiSignalsVisible={!folderView}
                   showToggle={!touchShell}
                   // 상태만 뒤집는다 — 열린 메일이어도 상세는 그대로 둔다(조회가 읽음 처리하지 않는다, WP-214).
                   onToggleRead={() => toggleRow(m)}

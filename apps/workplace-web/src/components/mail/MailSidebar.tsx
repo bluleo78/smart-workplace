@@ -1,4 +1,4 @@
-import { Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
+import { Archive, Check, ChevronDown, FilePen, Inbox, Mail, PenSquare, Send, Settings, Tag } from 'lucide-react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -17,13 +17,14 @@ import { MAIL_CATEGORIES } from '@/types/mailMessage'
 
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import { useMailDraftCount } from '../../hooks/queries/useMailDrafts'
-import { useUnreadCounts } from '../../hooks/queries/useMailMessages'
+import { useMailFolders, useUnreadCounts } from '../../hooks/queries/useMailMessages'
 import { useMailCompose } from './MailComposeContext'
+import { MailFolderTree } from './MailFolderTree'
 
 /**
  * 메일 모듈 2차 사이드바 — 공유 셸(타이틀 헤더) 보존 + 계정 스위처 + 편지쓰기
- * + 폴더 nav(받은편지함 + 하위 분류 + 보낸편지함 + 임시보관함) + 회신필요.
- * 폴더/계정 상태는 URL(:accountId, ?folder) 단일 소스. accountId 미지정 시 첫 계정을 현재로 본다.
+ * + 폴더 nav(받은편지함 + 하위 분류 + 보낸편지함 + 임시보관함 + 보관) + 내 메일함 트리(WP-961) + 회신필요.
+ * 폴더/계정 상태는 URL(:accountId, ?folder, ?box) 단일 소스. accountId 미지정 시 첫 계정을 현재로 본다.
  */
 export function MailSidebar() {
   const { accountId } = useParams()
@@ -41,10 +42,14 @@ export function MailSidebar() {
   const { data: counts } = useUnreadCounts(current?.id)
   // WP-577 임시보관함 개수 — 앱 서버 임시저장(IMAP 폴더 아님).
   const { data: draftCount } = useMailDraftCount(current?.id)
+  // WP-961 서버 메일함(보관·내 메일함) — 보관은 기본 메일함 줄, 나머지는 「내 메일함」 트리.
+  const { data: folders } = useMailFolders(current?.id)
+  const archive = folders?.find((f) => f.role === 'ARCHIVE') ?? null
   // 앱 안에서 연 메일(열림 마크)은 딥링크로 보지 않는다 — 페이지와 같은 판정이라 활성 표시가 어긋나지 않는다(WP-218).
   const location = useLocation()
   const view = resolveMailView(params, counts?.classificationActive ?? true, {
     inAppSelection: hasOpenMark(location.state, 'messageId'),
+    folders,
   })
 
   // 빈 새 메일 작성 도크 오픈(현재 계정으로).
@@ -198,7 +203,31 @@ export function MailSidebar() {
                 <FilePen className="h-4 w-4 shrink-0" /> 임시보관함
                 {count(draftCount?.count, 'mail-count-drafts', view.kind === 'drafts', `임시저장 ${draftCount?.count}개`)}
               </Link>
+              {/* WP-961 보관 — 서버에 보관 메일함이 있을 때만. 이름은 서버 이름(Archive 등)과 무관하게 「보관」. */}
+              {archive && (
+                <Link
+                  to={mailViewHref(current!.id, { folderId: archive.id }, view.unreadOnly)}
+                  data-testid="mail-folder-archive"
+                  aria-current={view.folderId === archive.id ? 'page' : undefined}
+                  className={folderClass(view.folderId === archive.id)}
+                >
+                  <Archive className="h-4 w-4 shrink-0" /> 보관
+                  {count(archive.unreadCount ?? undefined, 'mail-count-archive', view.folderId === archive.id)}
+                </Link>
+              )}
             </nav>
+
+            {/* WP-961 내 메일함 — 사용자가 만든 서버 메일함 트리. 하나도 없으면 구역째 숨는다. 계정이 바뀌면 접힘 상태를 새로 읽는다. */}
+            {folders && (
+              <MailFolderTree
+                key={current!.id}
+                accountId={current!.id}
+                folders={folders}
+                activeFolderId={view.folderId}
+                unreadOnly={view.unreadOnly}
+                countPill={count}
+              />
+            )}
 
             {/* P2·WP-146: AI 필터 — 회신필요(AI 판정 && 안 읽음) 건수. 건수 > 0 일 때만 표시. */}
             {(counts?.needsReply ?? 0) > 0 && (

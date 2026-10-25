@@ -4,7 +4,7 @@ import { type QueryClient, queryOptions, useMutation, useQueries, useQuery, useQ
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, sendMail, syncMailbox } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMailFolders, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, sendMail, syncMailbox, syncMailFolder } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
@@ -23,7 +23,10 @@ function invalidateMailCounts(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ['mail-summary'], exact: true });
 }
 
-/** 계정의 메시지 목록(폴더·검색어·unread·category·needsReply 필터). accountId 가 없으면 비활성. */
+/**
+ * 계정의 메시지 목록(폴더·검색어·unread·category·needsReply 필터). accountId 가 없으면 비활성.
+ * options.folderId(WP-961) — 서버 메일함(보관·내 메일함) 보기. 있으면 서버가 folder·분류·회신필요를 무시한다.
+ */
 export function useMailMessages(
   accountId: number | undefined,
   folder: MailFolder,
@@ -31,13 +34,14 @@ export function useMailMessages(
   unread = false,
   category = '',
   needsReply = false,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; folderId?: number | null },
 ) {
+  const folderId = options?.folderId ?? null;
   return useQuery({
-    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread, category, needsReply),
+    queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread, category, needsReply, folderId),
     queryFn: () =>
       listMessages(accountId as number, folder, query || undefined, unread,
-                   category || undefined, needsReply),
+                   category || undefined, needsReply, undefined, folderId),
     enabled: (options?.enabled ?? true) && !!accountId,
     refetchInterval: 60_000,       // 백그라운드 자동 동기화로 들어온 새 메일을 주기 반영
     refetchOnWindowFocus: true,
@@ -75,6 +79,44 @@ export function useUnreadCounts(accountId: number | undefined) {
     refetchInterval: 60_000,
   });
 }
+
+/**
+ * WP-961 서버 메일함(보관·내 메일함) 목록 + 메일함별 안 읽은 수. accountId 없으면 비활성.
+ * 키가 안 읽은 수 키 아래라 안 읽은 수 무효화(읽음 전환·모두 읽음·SSE)에 함께 갱신된다(mailMessageKeys.folders).
+ */
+export function useMailFolders(accountId: number | undefined) {
+  return useQuery({
+    queryKey: mailMessageKeys.folders(accountId ?? 0),
+    queryFn: () => listMailFolders(accountId as number),
+    enabled: !!accountId,
+    refetchInterval: 60_000,
+  });
+}
+
+/**
+ * WP-961 서버 메일함 한 개 가져오기 — 메일함을 열 때·새로 고침(older=false), 더 가져오기(older=true).
+ * 끝나면 그 계정 목록·메일함 목록(가져온 시각·안 읽은 수)을 다시 받는다. 같은 메일함을 이미 가져오는 중(running)이면
+ * 서버가 바로 돌아오므로 잠시 뒤 한 번 더 다시 받아 진행 중이던 결과를 반영한다. 실패는 토스트.
+ */
+export function useSyncMailFolder(accountId: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ folderId, older }: { folderId: number; older: boolean }) =>
+      syncMailFolder(accountId as number, folderId, older),
+    onSuccess: (result) => {
+      const refresh = () => {
+        qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
+        qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) });
+      };
+      refresh();
+      if (result.running) setTimeout(refresh, FOLDER_SYNC_RETRY_MS);
+    },
+    onError: (e) => handleApiError(e, '메일함을 가져오지 못했어요'),
+  });
+}
+
+/** 이미 가져오는 중(running)일 때 다시 읽기까지 기다리는 시간. */
+const FOLDER_SYNC_RETRY_MS = 3_000;
 
 /** WP-186 모바일 탭 배지 합계. 모바일 셸에서만 켠다. */
 export function useUnreadSummary(enabled: boolean) {
@@ -287,6 +329,8 @@ export function useSyncMailbox(accountId: number | undefined) {
       // 표시가 이 쿼리의 lastSyncedAt 에서 오므로, 무효화하지 않으면 동기화 후에도
       // "동기화 안 됨"이 갱신되지 않는다.
       qc.invalidateQueries({ queryKey: ['mail-accounts'] });
+      // WP-961: 계정 동기화가 서버 메일함 목록(보관·내 메일함)도 새로 저장한다 — 사이드바 트리를 다시 받는다.
+      qc.invalidateQueries({ queryKey: mailMessageKeys.folders(accountId ?? 0) });
       // 홈 대시보드 안읽은 메일 위젯(useMailSummary, queryKey ['mail-summary'])도 갱신.
       // exact: true — 메시지별 AI 요약 ['mail-summary', messageId]까지 무효화해
       // 불필요한 AI 재생성이 일어나지 않도록 홈 요약 단건만 정확히 무효화한다.

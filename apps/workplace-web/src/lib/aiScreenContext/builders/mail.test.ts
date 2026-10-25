@@ -13,6 +13,15 @@ describe('buildMailContext', () => {
     });
   });
 
+  // WP-961 서버 메일함 보기 — list_mail 에 메일함 인자가 없어 folder 를 싣지 않고 경로 이름만.
+  it('서버 메일함 — 경로 이름 라벨, refs 에 folder 없음', () => {
+    expect(buildMailContext({ ...base, serverFolder: '내 메일함 › 프로젝트' }).scope).toEqual({
+      label: 'me@x.com · 내 메일함 › 프로젝트',
+      refs: { accountId: '3' },
+      count: 12,
+    });
+  });
+
   it('열린 메일 — 숫자 id 를 messageId 로, 필터 facts', () => {
     const ctx = buildMailContext({
       ...base,

@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
+import type { MailServerFolder } from '@/types/mailFolder'
 import type { MailUnreadCounts } from '@/types/mailMessage'
 
 import { mailViewHref, resolveMailView, unreadCountForView } from './mailView'
 
 const p = (q: string) => new URLSearchParams(q)
+/** 서버 메일함 한 개(기본: 열 수 있는 USER 최상위). */
+const mailServerFolder = (o: Partial<MailServerFolder> & { id: number }): MailServerFolder => ({
+  displayName: `메일함${o.id}`, parentId: null, role: 'USER', selectable: true, unreadCount: 0, totalCount: 0,
+  syncedSince: null, folderSyncedAt: null, ...o,
+})
 
 describe('resolveMailView', () => {
   it('기본 = 업무(API 에 업무 전달)', () => {
@@ -82,4 +88,55 @@ describe('unreadCountForView', () => {
   it('needsReply = 회신필요 수', () => expect(unreadCountForView(view('needsReply=true'), counts)).toBe(4))
   it('sent = 0', () => expect(unreadCountForView(view('folder=sent'), counts)).toBe(0))
   it('drafts = 0', () => expect(unreadCountForView(view('folder=drafts'), counts)).toBe(0))
+})
+
+// WP-961 서버 메일함 보기(?box=<id>) — 보관·내 메일함.
+describe('서버 메일함 보기', () => {
+  const folders: MailServerFolder[] = [
+    mailServerFolder({ id: 1, displayName: 'Archive', role: 'ARCHIVE', unreadCount: 2 }),
+    mailServerFolder({ id: 5, displayName: '프로젝트', unreadCount: 0 }),
+    mailServerFolder({ id: 6, displayName: '견적', parentId: 5, unreadCount: null }),
+  ]
+  it('?box=6 = folder 보기 — 분류·회신필요 없음, 토글 보임, 경로 breadcrumb', () => {
+    expect(resolveMailView(p('box=6&category=개인&needsReply=true'), true, { folders })).toMatchObject({
+      kind: 'folder', folderId: 6, apiCategory: '', activeCategory: null, unreadToggleVisible: true,
+      title: '견적', breadcrumb: ['내 메일함', '프로젝트', '견적'],
+    })
+  })
+  it('보관은 서버 이름과 무관하게 「보관」', () => {
+    expect(resolveMailView(p('box=1'), true, { folders })).toMatchObject({ kind: 'folder', title: '보관', breadcrumb: ['보관'] })
+  })
+  it('목록 로딩 전 — 자리표시 제목, key 는 목록과 무관(id 기반)', () => {
+    const before = resolveMailView(p('box=6'), true)
+    expect(before).toMatchObject({ kind: 'folder', folderId: 6, title: '메일함' })
+    expect(before.key).toBe(resolveMailView(p('box=6'), true, { folders }).key)
+    expect(before.key).not.toBe(resolveMailView(p('box=5'), true).key)
+    expect(resolveMailView(p('box=6&unread=true'), true)).toMatchObject({ unreadOnly: true, key: 'folder:6:true' })
+  })
+  it('딥링크 messageId 가 있어도 메일함 보기 유지, 분류 꺼짐과 무관', () => {
+    expect(resolveMailView(p('box=6&messageId=9'), true).kind).toBe('folder')
+    expect(resolveMailView(p('box=6'), false).kind).toBe('folder')
+  })
+  it('잘못된 box 값은 무시(기본 보기)', () => {
+    for (const q of ['box=abc', 'box=0', 'box=-1', 'box=1.5']) expect(resolveMailView(p(q), true).kind).toBe('work')
+  })
+  it('folder=sent 가 box 보다 앞선다', () => {
+    expect(resolveMailView(p('folder=sent&box=6'), true).kind).toBe('sent')
+  })
+  it('다른 보기는 folderId null', () => {
+    for (const q of ['', 'category=all', 'needsReply=true', 'folder=sent', 'folder=drafts']) {
+      expect(resolveMailView(p(q), true).folderId).toBeNull()
+    }
+  })
+  it('mailViewHref — ?box, 토글 유지', () => {
+    expect(mailViewHref(3, { folderId: 6 }, false)).toBe('/mail/3?box=6')
+    expect(mailViewHref(3, { folderId: 6 }, true)).toBe('/mail/3?box=6&unread=true')
+  })
+  it('unreadCountForView — 그 메일함 안 읽은 수, 모르면 null(0 아님)', () => {
+    const counts: MailUnreadCounts = { classificationActive: true, inbox: 9, byCategory: { 업무: 1, 개인: 0, 알림: 0, 프로모션: 0, 뉴스레터: 0 }, needsReply: 0 }
+    expect(unreadCountForView(resolveMailView(p('box=1'), true), counts, folders)).toBe(2)
+    expect(unreadCountForView(resolveMailView(p('box=5'), true), counts, folders)).toBe(0)
+    expect(unreadCountForView(resolveMailView(p('box=6'), true), counts, folders)).toBeNull()
+    expect(unreadCountForView(resolveMailView(p('box=1'), true), counts)).toBeNull()
+  })
 })

@@ -1,6 +1,7 @@
 // 받은편지함/보낸편지함 동기화·읽기·발송 API. baseURL '/api/v1' 가 client 에 포함.
 import type { AxiosProgressEvent } from 'axios';
 
+import type { MailFolderSyncResult, MailServerFolder } from '../types/mailFolder';
 import type {
   ComposeAttachmentUpload,
   ComposeDraftRequest,
@@ -38,9 +39,26 @@ export async function getSyncStatus(accountId: number): Promise<MailSyncStatus> 
   return data;
 }
 
+/** WP-961 계정의 서버 메일함(보관 먼저, 그다음 이름순) — 사이드바 트리용. 서버에 접속하지 않고 저장된 목록을 읽는다. */
+export async function listMailFolders(accountId: number): Promise<MailServerFolder[]> {
+  const { data } = await client.get<MailServerFolder[]>(`/mail/accounts/${accountId}/folders`);
+  return data;
+}
+
+/** WP-961 서버 메일함 한 개 가져오기. older=true 면 이미 가져온 기간 앞의 90일을 더 받는다(false 도 명시해 보낸다). */
+export async function syncMailFolder(accountId: number, folderId: number, older: boolean): Promise<MailFolderSyncResult> {
+  const { data } = await client.post<MailFolderSyncResult>(
+    `/mail/accounts/${accountId}/folders/${folderId}/sync`,
+    null,
+    { params: { older } },
+  );
+  return data;
+}
+
 /**
  * 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어·unread·category·needsReply 필터).
  * limit 은 최신 N건만 받을 때(모바일 홈 타일 요약 등, WP-160) — 생략하면 서버 기본 건수.
+ * folderId(WP-961)가 있으면 그 서버 메일함 — 서버가 folder·분류·회신필요를 무시하므로 아예 보내지 않는다.
  */
 export async function listMessages(
   accountId: number,
@@ -50,19 +68,25 @@ export async function listMessages(
   category?: string,
   needsReply?: boolean,
   limit?: number,
+  folderId?: number | null,
 ): Promise<EmailMessageSummary[]> {
-  const { data } = await client.get<EmailMessageSummary[]>(
-    `/mail/accounts/${accountId}/messages`,
-    {
-      params: {
+  const scope = folderId != null
+    ? { folderId }
+    : {
         folder,
-        ...(query ? { query } : {}),
-        // #469: unread=true 면 안 읽은 메일만.
-        ...(unread ? { unread: true } : {}),
         // P2: AI 분류 필터.
         ...(category ? { category } : {}),
         // P2: 회신필요(미처리) 필터.
         ...(needsReply ? { needsReply: true } : {}),
+      };
+  const { data } = await client.get<EmailMessageSummary[]>(
+    `/mail/accounts/${accountId}/messages`,
+    {
+      params: {
+        ...scope,
+        ...(query ? { query } : {}),
+        // #469: unread=true 면 안 읽은 메일만.
+        ...(unread ? { unread: true } : {}),
         ...(limit ? { limit } : {}),
       },
     },
@@ -92,11 +116,12 @@ export async function markMessageUnread(messageId: number): Promise<void> {
   await client.post(`/mail/messages/${messageId}/unread`);
 }
 
-/** WP-187 보기 범위 필터 — 목록 API 와 같은 의미(category '' = 전체). */
+/** WP-187 보기 범위 필터 — 목록 API 와 같은 의미(category '' = 전체). folderId(WP-961)가 있으면 그 서버 메일함(분류·회신필요 무시). */
 export interface MailViewScope {
   category: string;
   needsReply: boolean;
   query: string;
+  folderId?: number | null;
 }
 
 /** WP-187 모두 읽음 확인용 건수 + 서버(DB 시계) 기준 시각. asOf 는 모두 읽음 요청에 그대로 되돌려 보낸다. */
@@ -111,6 +136,7 @@ export async function getViewUnreadCount(
         ...(scope.category ? { category: scope.category } : {}),
         ...(scope.needsReply ? { needsReply: true } : {}),
         ...(scope.query ? { query: scope.query } : {}),
+        ...(scope.folderId != null ? { folderId: scope.folderId } : {}),
       },
     },
   );
@@ -127,6 +153,8 @@ export async function markAllRead(accountId: number, body: MailViewScope & { asO
       query: body.query || null,
       asOf: body.asOf,
     },
+    // WP-961: 서버 메일함은 본문이 아니라 쿼리 파라미터(백엔드 @RequestParam folderId).
+    body.folderId != null ? { params: { folderId: body.folderId } } : undefined,
   );
   return data.updated;
 }

@@ -1,6 +1,7 @@
 // 받은편지함 E2E 모킹 픽스처 — 계정 + 메시지 목록/상세.
 import type { MailAccountResponse } from '../../src/types/mailAccount'
 import type { MailDraftDetail } from '../../src/types/mailDraft'
+import type { MailServerFolder } from '../../src/types/mailFolder'
 import type {
   EmailMessageDetail,
   EmailMessageSummary,
@@ -90,6 +91,21 @@ export function draftDetail(overrides: Partial<MailDraftDetail> = {}): MailDraft
     attachments: [],
     version: 1,
     updatedAt: '2026-10-21T01:00:00Z',
+    ...overrides,
+  }
+}
+
+/** 서버 메일함 한 개(WP-961) — 기본: 열 수 있는 USER 최상위, 아직 안 가져옴. */
+export function mailServerFolder(overrides: Partial<MailServerFolder> & { id: number }): MailServerFolder {
+  return {
+    displayName: `메일함${overrides.id}`,
+    parentId: null,
+    role: 'USER',
+    selectable: true,
+    unreadCount: 0,
+    totalCount: 0,
+    syncedSince: null,
+    folderSyncedAt: null,
     ...overrides,
   }
 }
