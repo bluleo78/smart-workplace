@@ -1,8 +1,9 @@
 // 팀 리스트 뷰 E2E — 아이콘 렌더(상태/우선순위/유형/담당자) + 행 전체 클릭으로 상세 이동.
+import { mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
-import { makeEpicType } from '../../factories/issueType.factory';
+import { makeEpicType, systemTypes } from '../../factories/issueType.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import { seedStatuses, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { expectStays } from '../../fixtures/wait';
@@ -258,28 +259,42 @@ test.describe('팀 리스트 뷰', () => {
       childDoneCount: 12,
     });
     await mock(page, [child]);
-    // 앱 레일을 펼친 상태로 시작 — 1024px 에서 제목 칸이 가장 좁아지는 조합(useRailExpanded 의 localStorage 키).
-    await page.addInitScript(() => localStorage.setItem('app-rail-expanded', 'true'));
+    // 에픽 패널이 여는 요청 — 유형 목록과 에픽 검색(type=에픽 유형 id)은 빈 목록으로 고정해 패널 모양이 백엔드에 기대지 않게 한다.
+    // 뒤에 건 route 가 먼저 잡으므로 에픽 검색만 가로채고 나머지 목록 검색은 mock 으로 넘긴다.
+    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/types`, systemTypes());
+    await page.route(
+      (url) => url.pathname === `/api/v1/projects/${KEY}/issues` && url.searchParams.get('type') === String(makeEpicType().id),
+      (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse([], null)) }),
+    );
+    // 패널 열림은 localStorage 에 기억된다(useEpicPanelOpen) — 닫힌 채 시작하게 고정해 토글이 늘 「열기」가 되게 한다.
+    await page.addInitScript((key) => localStorage.setItem(`epicSidePanel.open.${key}`, 'false'), KEY);
     const row = page.getByTestId('issue-row-8');
     const titleCell = row.getByTestId('issue-row-8-title-cell');
     const chip = row.getByTestId('issue-row-8-parent');
     const chipText = chip.getByText(parent.title);
     const progress = row.getByTestId('issue-row-8-child-progress');
+    const titleWidth = async () => (await titleCell.boundingBox())!.width;
     // 칩·하위 배지의 오른쪽 끝이 제목 칸 안 — 옆 칸(담당자)으로 넘치지 않는다.
     const expectInsideTitleCell = async (el: typeof chip) => {
       const [c, e] = [(await titleCell.boundingBox())!, (await el.boundingBox())!];
       expect(e.x + e.width).toBeLessThanOrEqual(c.x + c.width);
     };
 
-    // 넓은 폭(1280, 제목 칸 ≥20rem) — 칩에 부모 제목이 보인다.
+    // 1280px 미만에선 작업 관리 사이드바가 접혀(WP-506) 창 폭만으로는 제목 칸이 20rem 밑으로 내려가지 않는다 — 에픽 패널을 연 채
+    // 한 페이지에서 창 폭을 바꿔 칸을 좁힌다(칩 모양이 @container 질의로 따라 바뀌는지도 함께 지킨다).
+
+    // 1280 · 패널 닫힘(제목 칸 ≥20rem) — 칩에 부모 제목이 보인다.
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(`/projects/${KEY}`);
-    await expect.poll(async () => (await titleCell.boundingBox())!.width).toBeGreaterThanOrEqual(320);
+    await expect.poll(titleWidth).toBeGreaterThanOrEqual(320);
     await expect(chipText).toBeVisible();
 
-    // 1100 — 제목 칸 14~20rem: 유형 아이콘만 남고, 부모 제목은 툴팁과 접근 이름으로 남는다. 칩이 옆 칸으로 넘치지 않는다.
-    await page.setViewportSize({ width: 1100, height: 800 });
-    await expect.poll(async () => (await titleCell.boundingBox())!.width).toBeLessThan(320);
+    // 1280 · 패널 열림 — 제목 칸 14~20rem: 유형 아이콘만 남고, 부모 제목은 툴팁과 접근 이름으로 남는다. 칩이 옆 칸으로 넘치지 않는다.
+    await page.getByTestId('epic-panel-toggle').click();
+    await expect(page.getByTestId('epic-side-panel')).toBeVisible();
+    await expect.poll(titleWidth).toBeLessThan(320);
+    await expect.poll(titleWidth).toBeGreaterThanOrEqual(224);
     await expect(chipText).toHaveClass(/sr-only/);
     await expect.poll(async () => (await chip.boundingBox())!.width).toBeLessThan(32);
     await expect(chip).toHaveAccessibleName(parent.title);
@@ -288,9 +303,9 @@ test.describe('팀 리스트 뷰', () => {
     await expectInsideTitleCell(progress);
     await page.screenshot({ path: 'test-results/tc/issue-list/parent-chip-icon-only.png' });
 
-    // 1024 + 레일 펼침 — 제목 칸 <14rem: 아이콘·하위 배지까지는 넘치므로 칩을 숨겨 제목에 폭을 준다.
+    // 1024 · 패널 열림 — 제목 칸 <14rem: 아이콘·하위 배지까지는 넘치므로 칩을 숨겨 제목에 폭을 준다.
     await page.setViewportSize({ width: 1024, height: 800 });
-    await expect.poll(async () => (await titleCell.boundingBox())!.width).toBeLessThan(224);
+    await expect.poll(titleWidth).toBeLessThan(224);
     await expect(chip).toBeHidden();
     await expect(row.getByRole('link', { name: child.title })).toBeVisible();
     // 숨긴 칩 대신 스크린리더용 소속 글자가 남는다. 하위 배지는 제목 바로 뒤(칸 안)에 붙는다.
