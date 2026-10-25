@@ -236,12 +236,13 @@ test('완료 칩은 종료 상태로 요청하고 done 건수, 행 배지는 결
 test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', async ({ authenticatedPage: page }) => {
   await setup(page, [], createAiTaskCounts())
   await page.goto('/me/ai-tasks')
-  // DS §2.5 빈 상태 — [아이콘(svg)+제목+설명] 3요소.
+  // DS 06 §B 빈 상태 — [아이콘(svg)+제목+설명+다음 행동] 4요소(WP-942).
   const empty = page.getByTestId('ai-row-empty')
   await expect(empty).toBeVisible()
   await expect(empty.locator('svg')).toBeVisible()
   await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
-  await expect(empty).toContainText('담당자를 AI 구성원으로 지정하거나, Claude Code 같은 AI 도구로 내 이슈를 작업하면 여기에 표시돼요.')
+  await expect(empty).toContainText('내 이슈의 담당자에 AI 구성원을 추가하면 여기에 표시돼요.')
+  await expect(page.getByTestId('ai-empty-assign')).toHaveText('내 작업에서 AI 배정하기')
 
   await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
 
@@ -249,6 +250,22 @@ test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', as
   await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
   await expect(empty).not.toContainText('AI가 진행 중인 작업이 없어요')
   await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
+  // 조건 빈 상태엔 다음 행동 대신 필터 초기화만 둔다.
+  await expect(page.getByTestId('ai-empty-assign')).toHaveCount(0)
+})
+
+test('AI 작업이 없으면 「내 작업에서 AI 배정하기」로 내 작업(할당 탭)에 간다 (WP-942)', async ({ authenticatedPage: page }) => {
+  await setup(page, [], createAiTaskCounts())
+  const cap = await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue({ id: 11, title: '할당된 이슈' })]), {
+    capture: true,
+  })
+  await page.goto('/me/ai-tasks')
+  await page.getByTestId('ai-empty-assign').click()
+  await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
+  // 도착한 화면이 실제 할당 탭이다 — 내가 담당인 이슈를 불러와 그린다.
+  expect((await cap.waitForRequest()).searchParams.get('assignee')).toBe('me')
+  await expect(page.getByTestId('tab-assigned')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('assigned-row-11')).toContainText('할당된 이슈')
 })
 
 test('facet 만 걸려도 조건 문구 — 필터 초기화는 빠른 필터·facet 을 지우고 범위는 남긴다', async ({ authenticatedPage: page }) => {
@@ -619,6 +636,8 @@ test('완료 칩 0건은 「아직 완료된 AI 작업이 없습니다」이고 
   await expect(empty).toContainText('AI가 작업을 끝내면 여기에 최근 종료순으로 쌓여요.')
   await expect(empty.locator('svg')).toBeVisible()
   await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
+  // 완료 기록은 미완료 작업이 끝나야 생긴다 — 다음 행동 버튼은 미완료 빈 상태에만 둔다(WP-942).
+  await expect(page.getByTestId('ai-empty-assign')).toHaveCount(0)
 
   // 완료 칩 + facet 이 함께 걸려 0건이면 조건 문구 + 필터 초기화를 유지한다.
   await page.goto('/me/ai-tasks?state=DONE&priority=HIGH')
