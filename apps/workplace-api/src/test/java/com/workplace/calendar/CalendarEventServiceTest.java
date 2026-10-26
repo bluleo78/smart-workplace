@@ -139,7 +139,9 @@ class CalendarEventServiceTest extends IntegrationTestBase {
   @Test
   void update_afterAlreadyFired_unrelatedFieldEdit_doesNotRearm() {
     long u = user();
-    OffsetDateTime start = OffsetDateTime.now().plusHours(1);
+    // DB(timestamptz)는 마이크로초까지만 저장한다 — 나노초가 붙은 now() 를 그대로 쓰면 읽어 온 값과 비교가 늘 어긋난다.
+    OffsetDateTime start =
+        OffsetDateTime.now().plusHours(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     CalendarEventResponse created =
         service.create(u, reqWithReminder(start, start.plusHours(2), 10));
     assertThat(nextFireOf(created.id())).isEqualTo(start.minusMinutes(10));
