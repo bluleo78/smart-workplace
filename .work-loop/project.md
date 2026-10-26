@@ -119,6 +119,15 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 |---|---|
 | 개발 일(구현·결함 수정) | `AI 개발팀` |
 
+### 선행 관계로 막힌 이슈 (WP-997)
+
+이슈 DONE 은 운영 배포 뒤에 사람이 처리하므로, 서버의 `blocked`(선행이 DONE·CANCELED 가 아님)는 선행이 main 에 들어간 뒤에도 배포 전까지 켜져 있다. 후속 개발은 main 위에서 하므로 배포를 기다리지 않는다 — 내 이슈든 대기열 이슈든 `blocked` 를 아래 기준으로 다시 판정한다.
+
+- 모든 선행(`get_issue_detail` 의 `blockedBy`)이 다음 중 하나면 착수할 수 있다: DONE·CANCELED / 선행 PR(제목이 `<선행 키> ` 로 시작하는 것 중 가장 최근 것 — `process-issue.md` 맨 위 갈래와 같은 조회)이 `MERGED` / 선행의 AI 작업이 「<커밋> 머지 — 검토 대기」(REVIEW).
+- 선행 본문이 사람 확인을 확정 조건으로 걸면(예: WP-975 「규칙안은 사람 확인을 받아야 확정」) 그 확인 글(사람이 쓴 이슈 챗·댓글)이 선행 이슈에 있어야 한다. 없으면 착수하지 않는다.
+- 후속 본문의 착수 조건 「WP-N 완료」는 이 기준으로 읽는다. 본문이 다른 조건(시안 확인, 같은 파일을 고치는 이슈 대기 등)을 더 걸었으면 그것도 따른다.
+- 하나라도 맞지 않으면 대기열에서 가져가지 않는다(가져간 뒤 막혀 있으면 `BLOCKED` + 기다리는 선행). 서버의 `blocked` 표시·DONE 처리 방식은 바꾸지 않는다.
+
 ## 7. PR (`process-issue.md` 9번·「PR 리뷰·머지」)
 
 - 원격은 **origin**(`git@github.com:bluleo78/smart-workplace.git`), PR 대상 브랜치는 `main`, 도구는 `gh`(세션의 `GH_TOKEN` — 준비는 플러그인 README 「PR 흐름 준비」). gitlab 원격에는 push 하지 않는다 — 사람이 origin main 을 받아 맞춘다.
