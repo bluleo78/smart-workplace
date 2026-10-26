@@ -1,3 +1,5 @@
+// M365 OAuth 팝업 콜백 E2E — 성공 경로의 배선(라우트 → POST /complete → 성공 UI + opener 통지) 1건만 남긴다.
+// 동의 거부(백엔드 호출 없음)·백엔드 400 의 실패 UI·통지는 화면 테스트 src/pages/publicRoutes.test.tsx 가 지킨다(WP-971).
 import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
@@ -22,7 +24,7 @@ async function installOpenerSpy(page: Page) {
 // 팝업 콜백 페이지: code/state → POST /complete 중계 → 결과 통지 + 성공/실패 UI.
 // opener.postMessage 를 스파이로 가로채 통지 페이로드를 검증한다.
 test.describe('M365 OAuth 콜백 페이지', () => {
-  test('성공: code/state 를 POST /complete 로 보내고 성공 UI + opener 통지', async ({ page }) => {
+  test('성공: code/state 를 POST /complete 로 보내고 성공 UI + opener 통지', { tag: '@wiring' }, async ({ page }) => {
     await installOpenerSpy(page)
 
     const completes = trackRequests(page, 'POST', '/api/v1/mail/oauth/m365/complete')
@@ -38,41 +40,5 @@ test.describe('M365 OAuth 콜백 페이지', () => {
       () => (window as unknown as { __posted: unknown[] }).__posted,
     )
     expect(posted).toContainEqual({ source: 'm365-oauth', ok: true })
-  })
-
-  test('동의 거부(error 파라미터): 백엔드 호출 없이 실패 UI', async ({ page }) => {
-    await installOpenerSpy(page)
-
-    const completes = trackRequests(page, 'ANY', '/api/v1/mail/oauth/m365/complete')
-    await page.route('**/api/v1/mail/oauth/m365/complete', async (route) => {
-      await route.fulfill({ status: 200, json: { connected: true } })
-    })
-
-    await page.goto('/oauth/m365/callback?error=access_denied')
-
-    await expect(page.getByText('연결에 실패했습니다')).toBeVisible()
-    expect(completes.count()).toBe(0)
-    // opener 에 실패 통지(error 파라미터 그대로 전달)
-    const posted = await page.evaluate(
-      () => (window as unknown as { __posted: unknown[] }).__posted,
-    )
-    expect(posted).toContainEqual({ source: 'm365-oauth', ok: false, error: 'access_denied' })
-  })
-
-  test('백엔드 400: 실패 UI 표시', async ({ page }) => {
-    await installOpenerSpy(page)
-
-    await page.route('**/api/v1/mail/oauth/m365/complete', async (route) => {
-      await route.fulfill({ status: 400, json: { connected: false, error: 'invalid_request' } })
-    })
-
-    await page.goto('/oauth/m365/callback?code=AUTHCODE&state=BAD')
-
-    await expect(page.getByText('연결에 실패했습니다')).toBeVisible()
-    // 교환 실패 → opener 에 connect_failed 통지
-    const posted = await page.evaluate(
-      () => (window as unknown as { __posted: unknown[] }).__posted,
-    )
-    expect(posted).toContainEqual({ source: 'm365-oauth', ok: false, error: 'connect_failed' })
   })
 })

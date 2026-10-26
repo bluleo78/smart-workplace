@@ -25,7 +25,7 @@ const payload = { v: 1, tenantId: 1, category: 'DM', title: '박OO', body: '안�
 // 'denied' 로 고정되어(플랫폼 알림 미지원) showNotification 이 예외를 던진다 — 실제 알림 표시는 검증 불가.
 // 브리프의 대체 지침대로 fixme 처리하고, 실기기 스모크(Task 6)로 대체한다. 억제 경로(다음 테스트)는
 // 알림 표시와 무관하게 유효하므로 그대로 유지한다.
-test.fixme('다른 화면을 보고 있으면 알림을 표시한다', async ({ authenticatedPage: page, context }) => {
+test.fixme('다른 화면을 보고 있으면 알림을 표시한다', { tag: '@platform' }, async ({ authenticatedPage: page, context }) => {
   await context.grantPermissions(['notifications'])
   await page.goto('/')
   await page.evaluate(() => navigator.serviceWorker.ready)
@@ -40,7 +40,7 @@ test.fixme('다른 화면을 보고 있으면 알림을 표시한다', async ({ 
     .toEqual([{ title: '박OO', body: '안녕', tag: 'ch-42' }])
 })
 
-test('같은 화면을 보고 있으면 알림 대신 창에 메시지를 보낸다', async ({ authenticatedPage: page, context }) => {
+test('같은 화면을 보고 있으면 알림 대신 창에 메시지를 보낸다', { tag: '@platform' }, async ({ authenticatedPage: page, context }) => {
   await context.grantPermissions(['notifications'])
   await page.goto('/chat/dms/42')
   await page.evaluate(() => {

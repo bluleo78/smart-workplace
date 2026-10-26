@@ -2,14 +2,14 @@
 // Radix 기본 동작은 다이얼로그를 연 요소(트리거)로 포커스를 정확히 되돌리지 못하는
 // 케이스가 있어, 열릴 때의 activeElement 를 캡처했다가 닫힐 때 복원하도록 공용
 // DialogContent 에 내장했다. Tab 으로 트리거에 포커스 → Enter 로 열기 → Esc 로 닫기 →
-// activeElement 가 트리거로 복원되는지 단언한다.
+// activeElement 가 트리거로 복원되는지 단언한다. 실제 키보드 포커스 이동·복원이라 브라우저에서 본다(@input).
 
 import { expect, test } from '../fixtures/auth.fixture'
 import { mockApi, createPageResponse } from '../fixtures/api-mock'
 import { createProject } from '../factories/project.factory'
 import type { CalendarEvent } from '../../src/types/calendar'
 
-test('캘린더 새 일정 다이얼로그 — Esc로 닫으면 포커스가 트리거로 복원된다 (#708)', async ({
+test('캘린더 새 일정 다이얼로그 — Esc로 닫으면 포커스가 트리거로 복원된다 (#708)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
@@ -56,7 +56,7 @@ test('캘린더 새 일정 다이얼로그 — Esc로 닫으면 포커스가 트
   await expect(trigger).toBeFocused()
 })
 
-test('프로젝트 새 프로젝트 다이얼로그 — Esc로 닫으면 포커스가 트리거로 복원된다 (#708)', async ({
+test('프로젝트 새 프로젝트 다이얼로그 — Esc로 닫으면 포커스가 트리거로 복원된다 (#708)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject()]))
