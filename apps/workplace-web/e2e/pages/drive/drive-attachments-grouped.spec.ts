@@ -1,3 +1,7 @@
+// 첨부 모아보기(/drive/attachments) E2E — 브라우저가 있어야 판정되는 것만 남긴다: 라우트 → 화면 → 목록 API 배선(@wiring),
+// 키보드 Tab 으로 보이는 다운로드(@input), 헤더·필터·AI 칩 기하(@layout).
+// 그룹 접기·불가 작업·다운로드/미리보기 경로·출처 필터·빈 화면·저장 payload·미리보기 묶음·딥링크는
+// src/pages/drive/driveAttachmentsView.test.tsx 가 지킨다(WP-971, WP-984).
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf, DESKTOP_WIDTHS, expectBelowHeader, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import { trackRequests } from '../../fixtures/requests'
@@ -41,7 +45,7 @@ async function stubAttachments(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/drive/files/*/thumbnail', (r) => r.fulfill({ status: 404 }))
 }
 
-test('출처 위치별 그룹: 같은 이슈 첨부는 한 그룹, 채널은 별도 그룹', async ({ authenticatedPage: page }) => {
+test('출처 위치별 그룹: 같은 이슈 첨부는 한 그룹, 채널은 별도 그룹', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   await stubAttachments(page)
   await page.goto('/drive/attachments')
   const groups = page.getByTestId('drive-attachment-group')
@@ -55,54 +59,8 @@ test('출처 위치별 그룹: 같은 이슈 첨부는 한 그룹, 채널은 별
   await expect(groups.nth(1).getByTestId('drive-attachment-row-3')).toBeVisible()
 })
 
-test('셰브론 토글로 그룹 접힘/펼침', async ({ authenticatedPage: page }) => {
-  await stubAttachments(page)
-  await page.goto('/drive/attachments')
-  const firstGroup = page.getByTestId('drive-attachment-group').nth(0)
-  await expect(firstGroup.getByTestId('drive-attachment-row-1')).toBeVisible()
-  // WP-940 — 접기 버튼 이름에 묶음 이름을 붙여 어느 묶음의 버튼인지 구분한다.
-  await expect(firstGroup.getByTestId('drive-attachment-group-toggle')).toHaveAccessibleName('PROJ-123 제목 묶음 접기')
-  await firstGroup.getByTestId('drive-attachment-group-toggle').click()
-  await expect(firstGroup.getByTestId('drive-attachment-row-1')).toHaveCount(0)
-  await expect(firstGroup.getByTestId('drive-attachment-group-toggle')).toHaveAccessibleName('PROJ-123 제목 묶음 펼치기')
-  await firstGroup.getByTestId('drive-attachment-group-toggle').click()
-  await expect(firstGroup.getByTestId('drive-attachment-row-1')).toBeVisible()
-})
-
-test('이슈/채널 불가 액션 미노출 — 공유/버전/이동/복사/삭제/체크박스 없음', async ({ authenticatedPage: page }) => {
-  await stubAttachments(page)
-  await page.goto('/drive/attachments')
-  const row = page.getByTestId('drive-attachment-row-1')
-  await expect(row.getByRole('button', { name: '공유 링크' })).toHaveCount(0)
-  await expect(row.getByRole('button', { name: '버전 이력' })).toHaveCount(0)
-  await expect(row.getByRole('button', { name: '이동' })).toHaveCount(0)
-  await expect(row.getByRole('button', { name: '복사' })).toHaveCount(0)
-  await expect(row.getByRole('button', { name: '삭제' })).toHaveCount(0)
-  await expect(row.locator('input[type="checkbox"]')).toHaveCount(0)
-  // 노출돼야 하는 것: 저장, (호버) 다운로드
-  await expect(row.getByTestId('drive-attachment-save-1')).toBeVisible()
-  // 저장 버튼 라벨은 다운로드(로컬)와 구분되도록 "내 드라이브에 저장".
-  await expect(row.getByTestId('drive-attachment-save-1')).toHaveText('내 드라이브에 저장')
-})
-
-test('다운로드 액션은 downloadUrl(첨부 콘텐츠 경로)을 요청', async ({ authenticatedPage: page }) => {
-  await stubAttachments(page)
-  const downloads = trackRequests(page, 'ANY', '/api/v1/projects/PROJ/issues/123/attachments/1/content')
-  await page.route('**/api/v1/projects/PROJ/issues/123/attachments/1/content', (r) => {
-    r.fulfill({ contentType: 'image/png', body: Buffer.from('x') })
-  })
-  await page.goto('/drive/attachments')
-  const row = page.getByTestId('drive-attachment-row-1')
-  await row.hover()
-  // 다운로드 버튼은 group-hover 로만 보인다 — 강제 클릭 대신 호버로 드러난 뒤 실제 클릭 경로로 누른다(WP-225).
-  const download = row.getByTestId('drive-attachment-download-1')
-  await expect(download).toBeVisible()
-  await download.click()
-  await downloads.waitFor()
-})
-
 // WP-498 — 다운로드 버튼은 hover 뿐 아니라 키보드 포커스로도 닿는다(display:none 이면 Tab 순서에서 빠졌다).
-test('다운로드 버튼은 키보드 Tab 으로 포커스를 받고 보인다', async ({ authenticatedPage: page }) => {
+test('다운로드 버튼은 키보드 Tab 으로 포커스를 받고 보인다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubAttachments(page)
   await page.goto('/drive/attachments')
   const row = page.getByTestId('drive-attachment-row-1')
@@ -116,7 +74,7 @@ test('다운로드 버튼은 키보드 Tab 으로 포커스를 받고 보인다'
 // #576: 전역 AIChip(fixed left-1/2 top-2)이 데스크톱 표준 해상도(1440x900)에서 상단 필터 바를
 // 겹쳐 가려 클릭을 가로채던 회귀. force 없이(실제 pointer-events 경로) 클릭이 통과하고,
 // 실제 쿼리 파라미터까지 반영되는지 입력→처리→출력 전체를 검증한다.
-test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼을 가리지 않고 클릭 가능', async ({
+test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼을 가리지 않고 클릭 가능', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -144,7 +102,7 @@ test('1440x900 데스크톱에서 AI 어시스턴트 칩이 출처 필터 버튼
 // 페이지 레이아웃 통합(Page) — 첨부 모아보기도 56px 헤더 바(제목)를 갖고, 출처 필터칩·검색은 헤더 아래 본문 첫 줄에 선다.
 // 예전엔 AI 칩을 피하려 필터 바에 lg:pt-12 를 더해 헤더가 ~93px 로 두꺼웠다(#576) — 이제 헤더 좌측 클램프가 칩 충돌을 막는다.
 for (const width of DESKTOP_WIDTHS) {
-  test.describe(`첨부 모아보기 헤더 바 @${width}px`, () => {
+  test.describe(`첨부 모아보기 헤더 바 @${width}px`, { tag: '@layout' }, () => {
     test.use({ viewport: { width, height: 900 } })
 
     test('제목은 56px 헤더 안, 필터칩·검색은 헤더 아래 같은 시작선', async ({ authenticatedPage: page }) => {
@@ -169,7 +127,7 @@ for (const width of DESKTOP_WIDTHS) {
 
 // 검색 입력은 헤더가 아니라 헤더 아래 필터 줄(칩이 닿지 않는 자리)에 둔다 — 옆 패널이 열려 칩이 콘텐츠 오른쪽 끝으로
 // 밀려도(헤더 우측 액션 자리) 검색이 칩에 가려지지 않고, 실제로 입력해 검색 쿼리(q)까지 반영되는지 본다.
-test('1440px · AI 옆 패널 열림 — 검색 입력이 AI 칩과 겹치지 않고 입력이 검색에 반영된다', async ({ authenticatedPage: page }) => {
+test('1440px · AI 옆 패널 열림 — 검색 입력이 AI 칩과 겹치지 않고 입력이 검색에 반영된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.addInitScript(() => window.localStorage.setItem('ai-side-width', '600'))
   await page.setViewportSize({ width: 1440, height: 900 })
   await stubAttachments(page)

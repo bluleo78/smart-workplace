@@ -1,5 +1,6 @@
 // 드라이브 끌어 옮기기(WP-364) E2E — 목록 행을 폴더 행·경로(상위 폴더/루트)로 끌어 bulkMove 로 옮긴다.
 // 이슈 → 에픽 DnD(epic-dnd.spec)와 같은 마우스 다운→이동(PointerSensor distance:5) 방식으로 끈다.
+// 실제 포인터·키보드 끌기(@input)와 휴대폰 폭(@layout)만 남긴다 — 보관된 공간에서 끌기를 켜지 않음은 src/pages/drive/driveRows.test.tsx 가 지킨다(WP-984).
 import type { Page } from '@playwright/test'
 
 import type { DriveFile, DriveFolder } from '../../../src/types/drive'
@@ -20,7 +21,7 @@ const DESIGN = 22
 type MoveBody = { fileIds: number[]; folderIds: number[]; targetFolderId: number | null }
 
 // 공간·경로·목록·이동 API 를 모킹한다. 목록은 이동 요청을 반영하는 가변 상태(옮겨진 항목은 기획 폴더에서 빠진다).
-async function setup(page: Page, opts: { moveStatus?: number; archived?: boolean } = {}) {
+async function setup(page: Page, opts: { moveStatus?: number } = {}) {
   const state: { folders: DriveFolder[]; files: DriveFile[] } = {
     folders: [
       createFolder({ id: MEETING, parentId: PLAN, name: '회의록' }),
@@ -41,7 +42,7 @@ async function setup(page: Page, opts: { moveStatus?: number; archived?: boolean
   )
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`,
-    (route) => route.fulfill(json(createSpace({ archived: opts.archived ?? false }))),
+    (route) => route.fulfill(json(createSpace())),
   )
   await page.route(
     (url) => url.pathname === `/api/v1/drive/folders/${PLAN}/path`,
@@ -101,7 +102,7 @@ async function dragTo(page: Page, sourceTestId: string, targetTestId: string) {
 test.describe('드라이브 끌어 옮기기', () => {
   // dnd-kit 은 놓은 뒤 50ms 타이머로 click 막음을 푼다 — 부하로 그 타이머가 늦어도 놓은 직후의 「되돌리기」가 삼켜지지 않아야 한다.
   // 그 해제 타이머(document 리스너를 모두 떼는 50ms 타이머)만 800ms 로 늦춰 순서를 고정한다(dropDnd 가 해제를 기다리는지 확인).
-  test('놓은 뒤 클릭 막음이 늦게 풀려도 되돌리기가 원래 폴더로 옮긴다', async ({ authenticatedPage: page }) => {
+  test('놓은 뒤 클릭 막음이 늦게 풀려도 되돌리기가 원래 폴더로 옮긴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => {
       const orig = window.setTimeout
       const isDndRelease = (fn: TimerHandler, ms?: number) => ms === 50 && typeof fn === 'function' && String(fn).includes('removeEventListener')
@@ -114,7 +115,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [SPEC], folderIds: [], targetFolderId: PLAN })
   })
 
-  test('파일을 폴더 행에 놓으면 그 폴더로 옮기고 되돌리기 토스트를 보인다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('파일을 폴더 행에 놓으면 그 폴더로 옮기고 되돌리기 토스트를 보인다', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
 
@@ -125,7 +126,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId(`drive-row-file-${SPEC}`)).toHaveCount(0)
   })
 
-  test('드래그 중 폴더 행·상위 경로는 놓을 수 있음, 현재 폴더는 흐림, 포인터 아래는 강조', async ({ authenticatedPage: page }) => {
+  test('드래그 중 폴더 행·상위 경로는 놓을 수 있음, 현재 폴더는 흐림, 포인터 아래는 강조', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     await startDrag(page, `drive-row-file-${SPEC}`)
     // 끄는 원본은 흐려지고, 칩은 잡은 항목 이름.
@@ -147,7 +148,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId(`drive-row-folder-${REFS}`)).not.toHaveAttribute('data-drop-state')
   })
 
-  test('선택한 묶음을 끌어 경로 루트에 놓으면 선택 전체를 루트로 옮긴다', async ({ authenticatedPage: page }) => {
+  test('선택한 묶음을 끌어 경로 루트에 놓으면 선택 전체를 루트로 옮긴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await page.getByTestId(`select-file-${DESIGN}`).check()
     await page.getByTestId(`select-folder-${REFS}`).check()
@@ -165,7 +166,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByText('2개 항목을 「드라이브」로 옮겼습니다')).toBeVisible()
   })
 
-  test('선택 밖 행을 끌면 그 항목만 옮긴다', async ({ authenticatedPage: page }) => {
+  test('선택 밖 행을 끌면 그 항목만 옮긴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await page.getByTestId(`select-file-${DESIGN}`).check()
     await dragTo(page, `drive-row-file-${SPEC}`, `drive-crumb-${DOCS}`)
@@ -173,7 +174,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [SPEC], folderIds: [], targetFolderId: DOCS })
   })
 
-  test('놓을 수 없는 곳(현재 폴더·끄는 폴더 자신·빈 곳)에 놓으면 요청하지 않는다', async ({ authenticatedPage: page }) => {
+  test('놓을 수 없는 곳(현재 폴더·끄는 폴더 자신·빈 곳)에 놓으면 요청하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await dragTo(page, `drive-row-folder-${MEETING}`, `drive-row-folder-${MEETING}`)
     await dragTo(page, `drive-row-folder-${MEETING}`, `drive-crumb-${PLAN}`)
@@ -185,7 +186,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [], folderIds: [MEETING], targetFolderId: REFS })
   })
 
-  test('되돌리기를 누르면 원래 폴더로 다시 옮긴다', async ({ authenticatedPage: page }) => {
+  test('되돌리기를 누르면 원래 폴더로 다시 옮긴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
     await expect(page.getByTestId(`drive-row-file-${SPEC}`)).toHaveCount(0)
@@ -197,7 +198,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId(`drive-row-file-${SPEC}`)).toBeVisible()
   })
 
-  test('연달아 옮기면 되돌리기는 마지막 이동만 가리킨다 — 이전 이동의 되돌리기가 남지 않는다', async ({ authenticatedPage: page }) => {
+  test('연달아 옮기면 되돌리기는 마지막 이동만 가리킨다 — 이전 이동의 되돌리기가 남지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
     await expect(page.getByText('1개 항목을 「회의록」으로 옮겼습니다')).toBeVisible()
@@ -213,7 +214,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [DESIGN], folderIds: [], targetFolderId: PLAN })
   })
 
-  test('서버가 거부하면 사유를 오류 토스트로 보이고 목록은 그대로다', async ({ authenticatedPage: page }) => {
+  test('서버가 거부하면 사유를 오류 토스트로 보이고 목록은 그대로다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page, { moveStatus: 409 })
     await dragTo(page, `drive-row-file-${SPEC}`, `drive-row-folder-${MEETING}`)
     await moves.waitFor(1)
@@ -222,14 +223,14 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId(`drive-row-file-${SPEC}`)).toBeVisible()
   })
 
-  test('짧은 클릭은 그대로 폴더를 연다', async ({ authenticatedPage: page }) => {
+  test('짧은 클릭은 그대로 폴더를 연다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     await page.getByTestId(`drive-row-folder-${MEETING}`).getByRole('button', { name: '회의록' }).click()
     await expect(page).toHaveURL(new RegExp(`folderId=${MEETING}`))
     expect(moves.count()).toBe(0)
   })
 
-  test('키보드로도 옮길 수 있다 — Space 로 집고 방향키로 폴더를 고른 뒤 Space', async ({ authenticatedPage: page }) => {
+  test('키보드로도 옮길 수 있다 — Space 로 집고 방향키로 폴더를 고른 뒤 Space', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     const row = page.getByTestId(`drive-row-file-${SPEC}`)
     await expect(row).toHaveAttribute('aria-roledescription', '드래그 가능한 항목')
@@ -251,7 +252,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId(`drive-row-folder-${REFS}`)).toBeFocused()
   })
 
-  test('키보드로 위 경로로 꺼낼 수 있다', async ({ authenticatedPage: page }) => {
+  test('키보드로 위 경로로 꺼낼 수 있다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const { moves } = await setup(page)
     // 집은 뒤 상위 경로가 놓을 수 있는 대상이 되고 센서가 방향키를 받을 준비가 될 때까지 기다린다.
     await startKeyboardDrag(page.getByTestId(`drive-row-file-${DESIGN}`), async () => {
@@ -270,13 +271,7 @@ test.describe('드라이브 끌어 옮기기', () => {
     await expect(page.getByTestId('drive-root')).toBeFocused()
   })
 
-  test('보관된 채널의 공간(읽기 전용)에서는 끌어 옮기기를 켜지 않는다', async ({ authenticatedPage: page }) => {
-    await setup(page, { archived: true })
-    await expect(page.getByTestId('drive-readonly-banner')).toBeVisible()
-    await expect(page.getByTestId(`drive-row-file-${SPEC}`)).not.toHaveAttribute('aria-roledescription')
-  })
-
-  test('휴대폰 폭에서는 끌어 옮기기를 켜지 않는다(길게 누르기 선택 유지)', async ({ authenticatedPage: page }) => {
+  test('휴대폰 폭에서는 끌어 옮기기를 켜지 않는다(길게 누르기 선택 유지)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await setup(page)
     await expect(page.getByTestId(`drive-row-file-${SPEC}`)).not.toHaveAttribute('aria-roledescription')

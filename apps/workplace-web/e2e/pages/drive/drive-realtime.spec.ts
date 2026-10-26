@@ -1,5 +1,6 @@
 // WP-36/WP-63 — 드라이브 resource.changed 실시간 반영 E2E.
-// /api/v1/events 를 게이트 모킹해 프레임을 첫 렌더 *뒤에* 흘려보내고, 재조회로 화면이 바뀌는지 본다.
+// /api/v1/events 를 게이트 모킹해 프레임을 첫 렌더 *뒤에* 흘려보내고, 재조회로 화면이 바뀌는지 본다 — 실제 SSE 연결이 필요하다(@platform).
+// 폴더·공간 전환 중 목록 유지(이전 목록 유지·이전 공간 숨김)는 src/pages/drive/drivePage.test.tsx 가 지킨다(WP-984).
 import type { Page } from '@playwright/test'
 
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'
@@ -37,7 +38,7 @@ function frame(resource: 'drive' | 'drive-space', op: 'created' | 'updated' | 'd
   return resourceChangedFrame(data)
 }
 
-test.describe('드라이브 실시간 반영 (WP-63)', () => {
+test.describe('드라이브 실시간 반영 (WP-63)', { tag: '@platform' }, () => {
   test('파일 생성 이벤트 — 새 파일 행이 나타난다', async ({ authenticatedPage: page }) => {
     let state = { folders: [] as unknown[], files: [createFile({ id: 20, name: 'a.txt' })] as unknown[] }
     await stubSpaces(page, () => [personalSpace(), createSpace()])
@@ -125,57 +126,5 @@ test.describe('드라이브 실시간 반영 (WP-63)', () => {
     expect(trashes.count(), '휴지통을 다시 열지 않았는데 휴지통 재조회가 나갔다').toBe(trashCallsBefore)
     await expect(page.getByTestId('trash-view')).toHaveCount(0)
     await expect(page.getByTestId('select-file-20')).toBeVisible()
-  })
-})
-
-test.describe('드라이브 전환 중 목록 유지 (WP-63)', () => {
-  test('같은 공간의 폴더 전환 — 새 목록이 오기 전까지 이전 목록을 유지하고 빈 폴더 문구를 숨긴다', async ({ authenticatedPage: page }) => {
-    await stubSpaces(page, () => [personalSpace(), createSpace()])
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-      async (route) => {
-        const inFolder = new URL(route.request().url()).searchParams.get('parentId') === '10'
-        if (inFolder) await new Promise((r) => setTimeout(r, 1500))
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            inFolder
-              ? { folders: [], files: [createFile({ id: 31, name: 'inner.txt', folderId: 10 })] }
-              : { folders: [{ id: 10, parentId: null, name: '문서', createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z' }], files: [createFile({ id: 20, name: 'root.txt' })] },
-          ),
-        })
-      },
-    )
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await expect(page.getByText('root.txt')).toBeVisible()
-
-    await page.getByText('문서', { exact: true }).first().click()
-    await expect(page.getByText('root.txt')).toBeVisible()
-    await expect(page.getByTestId('drive-empty-folder')).toHaveCount(0)
-    await expect(page.getByText('inner.txt')).toBeVisible()
-    await expect(page.getByText('root.txt')).toHaveCount(0)
-  })
-
-  test('공간 전환 — 새 공간 응답 전에 이전 공간 파일이 보이지 않는다', async ({ authenticatedPage: page }) => {
-    await stubSpaces(page, () => [personalSpace(), createSpace(), createSpace({ id: 2, name: '두번째' })])
-    await page.route(
-      (url) => /^\/api\/v1\/drive\/spaces\/[12]\/items$/.test(url.pathname),
-      async (route) => {
-        const two = route.request().url().includes('/spaces/2/')
-        if (two) await new Promise((r) => setTimeout(r, 1500))
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ folders: [], files: [two ? createFile({ id: 41, name: 'space2.txt' }) : createFile({ id: 40, name: 'space1.txt' })] }),
-        })
-      },
-    )
-    await page.goto('/drive/spaces/1')
-    await expect(page.getByText('space1.txt')).toBeVisible()
-
-    await page.getByTestId('drive-space-list').getByText('두번째').click()
-    await expect(page.getByText('space1.txt')).toHaveCount(0)
-    await expect(page.getByText('space2.txt')).toBeVisible()
   })
 })

@@ -1,4 +1,6 @@
-// 통합 첨부 뷰어(WP-277) — 드라이브 단건 E2E: 긴 파일명 헤더 보존·0 바이트 텍스트.
+// 통합 첨부 뷰어(WP-277) — 드라이브 단건 E2E. 브라우저가 있어야 판정되는 것만 남긴다 — 헤더·확대·패널 겹침 기하(@layout),
+// 브라우저가 못 그리는 이미지·PDF 렌더(@platform), 키보드 넘김·포커스(@input).
+// 0 바이트·PDF 위장 차단·늦은 응답·딥링크 없음·요약/참조 패널·AI 꺼짐·재조회로 빠진 파일·데스크톱 배치는 src/pages/drive/drivePreview.test.tsx 가 지킨다(WP-984).
 // 드라이브 route 모킹은 공용 fixture(e2e/fixtures/drive-mock.ts) — 모바일 뷰어 spec 과 같이 쓴다.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -6,10 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import type { Page } from '@playwright/test'
 
-import { createUser } from '../../factories/auth.factory'
-import { mockApi } from '../../fixtures/api-mock'
 import { type DriveSummaryStub, stubDriveFiles as stubDrive } from '../../fixtures/drive-mock'
-import { mockGatedEvents, resourceChangedFrame } from '../../fixtures/gatedEvents'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { solidPng } from '../../fixtures/png'
 
@@ -67,7 +66,7 @@ async function openPreview(page: Page, nameOrId: string | number) {
   await expect(page.getByTestId('preview-body')).toBeVisible()
 }
 
-test('확장자 없는 긴 이름도 헤더 버튼이 화면 안에 남는다', async ({ authenticatedPage: page }) => {
+test('확장자 없는 긴 이름도 헤더 버튼이 화면 안에 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const name = 'x'.repeat(200)
   await stubDriveFiles(page, [{ id: 70, name, mimeType: 'text/plain', sizeBytes: 4 }], { 70: 'body' })
   await openPreview(page, name)
@@ -75,14 +74,7 @@ test('확장자 없는 긴 이름도 헤더 버튼이 화면 안에 남는다', 
   await expect(page.getByTestId('preview-download')).toBeInViewport()
 })
 
-test('0 바이트 텍스트는 오류가 아니라 빈 미리보기', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [{ id: 71, name: 'empty.txt', mimeType: 'text/plain', sizeBytes: 0 }], { 71: '' })
-  await openPreview(page, 'empty.txt')
-  await expect(page.getByTestId('preview-body')).not.toContainText('미리보기를 불러오지 못했습니다.')
-  await expect(page.getByTestId('preview-loading')).toHaveCount(0)
-})
-
-test('브라우저가 못 그리는 이미지(HEIC)는 빈 그림 대신 미지원 화면과 다운로드', async ({ authenticatedPage: page }) => {
+test('브라우저가 못 그리는 이미지(HEIC)는 빈 그림 대신 미지원 화면과 다운로드', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // WP-250: HEIC 는 image/heic 로 분류된다 — 크롬은 그리지 못하므로 img error 로 미지원 화면에 넘어가야 한다.
   const body = Buffer.from('ftypheic — chromium cannot decode this')
   await stubDriveFiles(page, [{ id: 72, name: 'photo.heic', mimeType: 'image/heic', sizeBytes: body.length }], { 72: body })
@@ -93,7 +85,7 @@ test('브라우저가 못 그리는 이미지(HEIC)는 빈 그림 대신 미지�
   await expect(page.getByTestId('preview-body').locator('img')).toHaveCount(0)
 })
 
-test('PDF 는 모든 페이지를 세로로 그리고 현재 페이지를 보여 준다', async ({ authenticatedPage: page }) => {
+test('PDF 는 모든 페이지를 세로로 그리고 현재 페이지를 보여 준다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const pdf = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
   await stubDriveFiles(page, [{ id: 72, name: 'three.pdf', mimeType: 'application/pdf', sizeBytes: pdf.length }], { 72: pdf })
   await openPreview(page, 'three.pdf')
@@ -104,7 +96,7 @@ test('PDF 는 모든 페이지를 세로로 그리고 현재 페이지를 보여
   await expect(page.getByTestId('preview-meta')).toContainText('p.3 / 3')
 })
 
-test('PDF 를 300% 로 확대해도 페이지 왼쪽 끝까지 스크롤된다', async ({ authenticatedPage: page }) => {
+test('PDF 를 300% 로 확대해도 페이지 왼쪽 끝까지 스크롤된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const pdf = fs.readFileSync(path.join(HERE, '../../fixtures/sample-3p.pdf'))
   await stubDriveFiles(page, [{ id: 74, name: 'zoom.pdf', mimeType: 'application/pdf', sizeBytes: pdf.length }], { 74: pdf })
   await openPreview(page, 'zoom.pdf')
@@ -122,22 +114,13 @@ test('PDF 를 300% 로 확대해도 페이지 왼쪽 끝까지 스크롤된다',
   expect(r.pageLeft).toBeGreaterThanOrEqual(r.docLeft - 1)
 })
 
-test('PDF 로 위장한 HTML 은 렌더하지 않는다(WP-203 유지)', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [{ id: 73, name: 'fake.pdf', mimeType: 'application/pdf', sizeBytes: 20 }], {
-    73: '<html><script>1</script></html>',
-  })
-  await openPreview(page, 'fake.pdf')
-  await expect(page.getByTestId('preview-body')).toContainText('미리보기를 불러오지 못했습니다.')
-  await expect(page.getByTestId('pdf-document')).toHaveCount(0)
-})
-
 test.describe('묶음 넘김', () => {
   const files = [
     { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
     { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
     { id: 82, name: 'c.txt', mimeType: 'text/plain', sizeBytes: 1 },
   ]
-  test('‹ › 와 ←/→ 로 넘기고 끝에선 버튼이 없다', async ({ authenticatedPage: page }) => {
+  test('‹ › 와 ←/→ 로 넘기고 끝에선 버튼이 없다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, files, { 80: 'A', 81: 'B', 82: 'C' })
     await openPreview(page, 80)
     await expect(page.getByTestId('preview-meta')).toContainText('1 / 3')
@@ -153,19 +136,7 @@ test.describe('묶음 넘김', () => {
     await expect(page).toHaveURL(/preview=82/)
   })
 
-  test('늦게 온 이전 파일 응답이 현재 파일 자리에 그려지지 않는다', async ({ authenticatedPage: page }) => {
-    await stubDriveFiles(page, files, { 80: 'A', 81: 'B', 82: 'C' }, { delayMs: { 81: 1500 } })
-    await openPreview(page, 80)
-    await page.keyboard.press('ArrowRight') // b(지연)
-    await page.keyboard.press('ArrowRight') // c
-    await expect(page.getByTestId('preview-body')).toContainText('C')
-    // 지연 응답(1.5초)이 도착할 시간을 실제로 흘려보내야 "그려지지 않음"을 검증할 수 있다(부정 단언은 폴링으로 대체 불가).
-    // eslint-disable-next-line playwright/no-wait-for-timeout
-    await page.waitForTimeout(1700)
-    await expect(page.getByTestId('preview-body')).not.toContainText('B')
-  })
-
-  test('2건 묶음에서 끝에 닿으면 반대쪽 버튼으로 포커스가 옮겨진다', async ({ authenticatedPage: page }) => {
+  test('2건 묶음에서 끝에 닿으면 반대쪽 버튼으로 포커스가 옮겨진다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, files.slice(0, 2), { 80: 'A', 81: 'B' })
     await openPreview(page, 80)
     await page.getByRole('button', { name: '다음 파일' }).click()
@@ -176,41 +147,9 @@ test.describe('묶음 넘김', () => {
     await expect(page.getByRole('button', { name: '다음 파일' })).toBeFocused()
   })
 
-  test('딥링크로 목록에 없는 파일을 열면 찾을 수 없음 안내', async ({ authenticatedPage: page }) => {
-    await stubDriveFiles(page, files, { 80: 'A', 81: 'B', 82: 'C' })
-    await page.goto('/drive/spaces/1?preview=999')
-    await expect(page.getByTestId('preview-not-found')).toBeVisible()
-  })
 })
 
-test('드라이브에서 열면 요약 패널이 기본 펼침이고 참조된 곳이 보인다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [{ id: 90, name: 'doc.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 90: '# hi' }, {
-    summary: { 90: { summary: '요약 본문', status: 'DONE' } },
-    backlinks: { 90: [{ sourceType: 'ISSUE', sourceId: 3, label: 'WP-3 검토', deepLink: '/projects/WP/issues/3' }] },
-  })
-  await openPreview(page, 90)
-  const panel = page.getByTestId('viewer-side-panel')
-  await expect(panel.getByTestId('drive-summary-card')).toContainText('요약 본문')
-  await expect(panel.getByTestId('file-backlink-ISSUE-3')).toBeVisible()
-  await page.getByRole('button', { name: 'AI 요약' }).click()
-  await expect(panel).toHaveCount(0)
-})
-
-test('마지막 패널 열림 상태를 기억해 다시 열어도 유지한다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [{ id: 91, name: 'again.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 91: '# hi' }, {
-    summary: { 91: { summary: '기억', status: 'DONE' } },
-  })
-  await openPreview(page, 91)
-  await expect(page.getByTestId('viewer-side-panel')).toBeVisible()
-  await page.getByRole('button', { name: 'AI 요약' }).click()
-  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
-  await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'again.md', exact: true }).click()
-  await expect(page.getByTestId('preview-body')).toBeVisible()
-  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
-})
-
-test('AI 사이드 패널을 연 채로 뷰어가 패널을 가리지 않고, 패널에서 → 는 넘기지 않는다', async ({ authenticatedPage: page }) => {
+test('AI 사이드 패널을 연 채로 뷰어가 패널을 가리지 않고, 패널에서 → 는 넘기지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [
     { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
     { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
@@ -229,22 +168,7 @@ test('AI 사이드 패널을 연 채로 뷰어가 패널을 가리지 않고, �
   await expect(page.getByTestId('attachment-viewer')).toBeVisible() // Esc 는 패널만 닫음
 })
 
-test('AI 가 꺼져 있어도 참조된 곳은 보이고 ✨ 버튼은 없다', async ({ authenticatedPage: page }) => {
-  // fixture 기본(aiAvailable:true)을 false 로 재정의(나중 등록 우선).
-  await mockApi(page, 'GET', '/api/v1/users/me', {
-    ...createUser({ aiAvailable: false }),
-    roles: [{ id: 2, name: 'USER', description: '일반 사용자', isSystem: true }],
-  })
-  await stubDriveFiles(page, [{ id: 92, name: 'noai.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 92: '# hi' }, {
-    backlinks: { 92: [{ sourceType: 'ISSUE', sourceId: 3, label: 'WP-3 검토', deepLink: '/projects/WP/issues/3' }] },
-  })
-  await openPreview(page, 92)
-  await expect(page.getByTestId('file-backlink-ISSUE-3')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
-  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
-})
-
-test.describe('확대(WP-277)', () => {
+test.describe('확대(WP-277)', { tag: '@layout' }, () => {
   /** 본문 스크롤러와 이미지의 화면 사각형. */
   async function rects(page: Page) {
     return page.getByTestId('preview-body').evaluate((el) => {
@@ -312,7 +236,7 @@ test.describe('확대(WP-277)', () => {
   })
 })
 
-test('넓은 CSV 표 안을 클릭하고 → 를 누르면 파일을 넘기지 않고 표가 가로로 스크롤된다', async ({ authenticatedPage: page }) => {
+test('넓은 CSV 표 안을 클릭하고 → 를 누르면 파일을 넘기지 않고 표가 가로로 스크롤된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 30열 × 긴 셀 — 본문 폭보다 확실히 넓은 표.
   const cols = Array.from({ length: 30 }, (_, i) => `column-${i}-${'x'.repeat(20)}`)
   const csv = [cols.join(','), cols.map((c) => `${c}-value`).join(',')].join('\n')
@@ -336,7 +260,7 @@ test('넓은 CSV 표 안을 클릭하고 → 를 누르면 파일을 넘기지 �
   await expect(page).toHaveURL(/preview=86/)
 })
 
-test('확대한 이미지 안을 클릭하고 → 를 누르면 파일을 넘기지 않는다', async ({ authenticatedPage: page }) => {
+test('확대한 이미지 안을 클릭하고 → 를 누르면 파일을 넘기지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const png = solidPng(2400, 1600)
   await stubDriveFiles(page, [
     { id: 88, name: 'zoom.png', mimeType: 'image/png', sizeBytes: png.length },
@@ -362,7 +286,7 @@ test('확대한 이미지 안을 클릭하고 → 를 누르면 파일을 넘기
   await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
 })
 
-test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는다', async ({ authenticatedPage: page }) => {
+test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [
     { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
     { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
@@ -378,7 +302,7 @@ test('⋯ 메뉴가 열린 채 → 를 눌러도 파일이 넘어가지 않는�
   await expect(page.getByTestId('preview-body')).toContainText('A')
 })
 
-test('라이트 테마에서도 ⋯ 메뉴는 뷰어처럼 어두운 배경으로 뜬다', async ({ authenticatedPage: page }) => {
+test('라이트 테마에서도 ⋯ 메뉴는 뷰어처럼 어두운 배경으로 뜬다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [{ id: 82, name: 'c.txt', mimeType: 'text/plain', sizeBytes: 1 }], { 82: 'C' })
   await openPreview(page, 82)
   await page.getByRole('button', { name: '더 보기' }).click()
@@ -395,7 +319,7 @@ test('라이트 테마에서도 ⋯ 메뉴는 뷰어처럼 어두운 배경으�
   expect(luminance).toBeLessThan(0.3)
 })
 
-test('뷰어 접근 이름은 전체 파일명 + 미리보기이고, 닫으면 연 버튼으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
+test('뷰어 접근 이름은 전체 파일명 + 미리보기이고, 닫으면 연 버튼으로 포커스가 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const name = '아주-긴-파일명-'.repeat(8) + 'v3.txt'
   await stubDriveFiles(page, [{ id: 97, name, mimeType: 'text/plain', sizeBytes: 1 }], { 97: 'X' })
   await openPreview(page, name)
@@ -405,7 +329,7 @@ test('뷰어 접근 이름은 전체 파일명 + 미리보기이고, 닫으면 �
   await expect(page.getByRole('button', { name, exact: true })).toBeFocused()
 })
 
-test('좁은 화면(lg 미만)에서는 드라이브여도 요약 패널을 접은 채 연다', async ({ authenticatedPage: page }) => {
+test('좁은 화면(lg 미만)에서는 드라이브여도 요약 패널을 접은 채 연다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 900, height: 800 })
   await stubDriveFiles(page, [{ id: 93, name: 'narrow.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 93: '# hi' }, {
     summary: { 93: { summary: '좁은 화면 요약', status: 'DONE' } },
@@ -420,69 +344,7 @@ test('좁은 화면(lg 미만)에서는 드라이브여도 요약 패널을 접�
   await expect(page.getByTestId('viewer-summary-sheet').getByTestId('drive-summary-card')).toContainText('좁은 화면 요약')
 })
 
-test('요약 응답 전에는 ✨·패널을 띄우지 않고 응답이 성공하면 보인다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [{ id: 94, name: 'slow.md', mimeType: 'text/markdown', sizeBytes: 5 }], { 94: '# hi' })
-  // 요약 응답을 붙잡아 둔다 — 그 사이 ✨ 가 먼저 떴다가 사라지는 깜빡임이 없어야 한다(403 링크 대비).
-  let release!: () => void
-  const gate = new Promise<void>((r) => (release = r))
-  await page.route(
-    (u) => u.pathname === '/api/v1/drive/files/94/summary',
-    async (r) => {
-      await gate
-      await r.fulfill({ json: { summary: '늦은 요약', status: 'DONE' } }).catch(() => {})
-    },
-  )
-  await openPreview(page, 94)
-  await expect(page.getByTestId('preview-body')).toContainText('hi')
-  await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
-  await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0)
-  release()
-  await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('늦은 요약')
-  await expect(page.getByRole('button', { name: 'AI 요약' })).toBeVisible()
-})
-
-test('열린 파일이 재조회로 목록에서 빠지면 1건 묶음으로 유지한다(순번·‹ › 없음)', async ({ authenticatedPage: page }) => {
-  const files = [
-    { id: 80, name: 'a.txt', mimeType: 'text/plain', sizeBytes: 1 },
-    { id: 81, name: 'b.txt', mimeType: 'text/plain', sizeBytes: 1 },
-  ]
-  await stubDriveFiles(page, files, { 80: 'A', 81: 'B' })
-  // 목록 재정의(나중 등록 우선) — 재조회 때 열린 a.txt 가 빠진다.
-  let listed = files
-  await page.route(
-    (u) => u.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-    (r) =>
-      r.fulfill({
-        json: {
-          folders: [],
-          files: listed.map((f) => ({ ...f, folderId: null, fileId: f.id + 1000, category: 'TEXT', createdAt: '2026-01-01T00:00:00Z' })),
-        },
-      }),
-  )
-  const events = await mockGatedEvents(page)
-  await openPreview(page, 80)
-  await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
-  listed = files.slice(1)
-  events.deliver(resourceChangedFrame({ resource: 'drive', op: 'deleted', scopeType: 'USER', scopeId: 1, spaceId: SPACE_ID, ids: [80], actorId: 99 }))
-  // 재조회 반영 확인 — 목록에서 a.txt 행이 사라진다(뷰어 뒤 페이지 DOM).
-  await expect(page.getByRole('button', { name: 'a.txt', exact: true })).toHaveCount(0)
-  await expect(page.getByTestId('preview-meta')).not.toContainText('/ 2')
-  await expect(page.getByTestId('preview-body')).toContainText('A')
-  await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '이전 파일' })).toHaveCount(0)
-  await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
-})
-
-test('데스크톱(마우스)은 모바일 하단 바 없이 헤더·확대 툴바를 그대로 쓴다', async ({ authenticatedPage: page }) => {
-  await stubDriveFiles(page, [{ id: 90, name: 'desk.png', mimeType: 'image/png', sizeBytes: 100 }], { 90: solidPng(800, 600) })
-  await openPreview(page, 'desk.png')
-  await expect(page.getByTestId('viewer-action-bar')).toHaveCount(0)
-  await expect(page.getByTestId('viewer-top-bar')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '확대' })).toBeVisible()
-  await expect(page.getByTestId('preview-download')).toBeVisible()
-})
-
-test('좁은 창(900px) + 마우스는 모바일 배치여도 확대 툴바를 쓰고, 툴바는 하단 액션 바 위에 뜬다', async ({ authenticatedPage: page }) => {
+test('좁은 창(900px) + 마우스는 모바일 배치여도 확대 툴바를 쓰고, 툴바는 하단 액션 바 위에 뜬다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 1920 화면 반쪽 분할 같은 좁은 데스크톱 창 — 핀치·두 번 탭이 없으니 툴바가 유일하게 보이는 확대 수단이다(판정 R8 수정).
   await page.setViewportSize({ width: 900, height: 800 })
   await stubDriveFiles(page, [{ id: 96, name: 'narrow.png', mimeType: 'image/png', sizeBytes: 100 }], { 96: solidPng(800, 600) })

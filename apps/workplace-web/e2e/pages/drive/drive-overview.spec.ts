@@ -5,6 +5,9 @@
 // 그 GET 이 도착할 때까지 보류했다가(await) 해당 correlationId 로 태그된 SSE 본문을 흘린다 — /events 는
 // 앱 마운트 시 1회 연결되므로, 응답을 즉시 fulfill 하면 사용자 액션보다 먼저 도착해 유실된다
 // (wiki-ai.spec.ts 의 "await 로 보류 후 fulfill" 패턴과 동일).
+//
+// 실제 SSE(/api/v1/events) 로 델타가 쌓이는 것(@platform)만 남긴다. 생성 중 표시·카드가 사라질 때 취소(DELETE)·클라이언트 시간 초과 오류는
+// src/pages/drive/drivePage.test.tsx 가 지킨다(WP-984).
 import type { Page } from '@playwright/test'
 
 import type { DriveContentSearchResponse } from '../../../src/api/contentSearch'
@@ -12,9 +15,8 @@ import { createSpace } from '../../factories/drive.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
 
-// 시작(GET ?q=) / 취소(DELETE /{correlationId}) 요청 매처.
+// 시작(GET ?q=) 요청 매처.
 const OVERVIEW_START = '/api/v1/drive/search-overview'
-const OVERVIEW_CANCEL = /^\/api\/v1\/drive\/search-overview\/.+/
 
 const SPACE_ID = 1
 
@@ -157,7 +159,7 @@ async function mockOverviewGeneration(
 
 test(
   '드라이브 AI Overview — 검색 → 버튼 클릭 → /events 델타가 카드에 누적 표시된다',
-  { tag: '@smoke' },
+  { tag: ['@platform', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     await setupDriveMocks(page)
 
@@ -178,136 +180,3 @@ test(
     await expect(page.getByTestId('drive-overview-card')).toContainText('핵심 요약: 문서 내용입니다.')
   },
 )
-
-test('드라이브 AI Overview — 카드 unmount 시 진행 중인 생성을 취소(DELETE)한다', async ({
-  authenticatedPage: page,
-}) => {
-  await setupDriveMocks(page)
-
-  const cancels = trackRequests(page, 'DELETE', OVERVIEW_CANCEL)
-  let resolveStarted: (correlationId: string) => void
-  const started = new Promise<string>((resolve) => {
-    resolveStarted = resolve
-  })
-
-  // 주의: 문자열 glob '*' 는 '/' 를 넘지 못한다 — DELETE .../search-overview/{id} 는 '*' 로 매칭되지
-  // 않고 네트워크로 새어나간다. pathname prefix 술어로 GET/DELETE 양쪽을 함께 매칭한다.
-  await page.route(
-    (url) => url.pathname.startsWith('/api/v1/drive/search-overview'),
-    (route) => {
-      const req = route.request()
-      if (req.method() === 'GET') {
-        const correlationId = 'corr-pending'
-        resolveStarted(correlationId)
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ correlationId }),
-        })
-      }
-      if (req.method() === 'DELETE') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
-      }
-      return route.fallback()
-    },
-  )
-
-  // done 을 보내지 않고 응답을 무한정 보류 — "생성 중" 상태를 유지해 unmount 취소를 검증한다.
-  await page.route('**/api/v1/events', async (route) => {
-    await started
-    return new Promise(() => {})
-  })
-
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('drive-page')).toBeVisible()
-
-  await page.getByLabel('파일명 및 콘텐츠 검색').fill('기획서')
-  await expect(page.getByTestId('drive-content-results')).toBeVisible()
-
-  await page.getByTestId('drive-overview-btn').click()
-  await expect(page.getByTestId('drive-overview-card')).toBeVisible()
-  await started
-
-  // 생성 중 상태 — 스피너가 함께 노출돼야 한다 (#679, 정적 텍스트 단독 금지)
-  const card = page.getByTestId('drive-overview-card')
-  await expect(card).toContainText('생성 중…')
-  await expect(card.locator('svg.animate-spin')).toBeVisible()
-
-  // StrictMode(dev) 이중 마운트가 첫 인스턴스를 즉시 abort 하며 이미 DELETE 를 1회 쐈을 수 있다 —
-  // 이 시점 이후의 DELETE 만 보고, 아래 "검색어를 비워 unmount" 가 실제로 새 DELETE 를 유발하는지만 검증한다.
-  const cancelsBefore = cancels.count()
-
-  // 검색어를 비워 결과 화면을 벗어나면 DriveOverviewCard 가 unmount 되어 abort() 가 호출된다.
-  await page.getByLabel('파일명 및 콘텐츠 검색').fill('')
-  await expect(page.getByTestId('drive-overview-card')).toHaveCount(0)
-
-  await expect.poll(() => cancels.urls().slice(cancelsBefore).at(-1)?.pathname.split('/').pop()).toBe('corr-pending')
-})
-
-// StrictMode 이중 mount 에도 시작 요청 1회·취소 0회(#681)는 src/api/overviewStream.test.ts 가 본다 —
-// preview 빌드엔 StrictMode 가 없어 E2E 로는 그 경로를 지나지 않았다(WP-410).
-test('드라이브 AI Overview — SSE 유실로 done/error 가 도착하지 않으면 클라이언트 타임아웃으로 에러 상태로 전환된다(#681)', async ({
-  authenticatedPage: page,
-}) => {
-  await page.clock.install()
-  await setupDriveMocks(page)
-
-  let resolveStarted: () => void
-  const started = new Promise<void>((resolve) => {
-    resolveStarted = resolve
-  })
-
-  await page.route(
-    (url) => url.pathname.startsWith('/api/v1/drive/search-overview'),
-    (route) => {
-      const req = route.request()
-      if (req.method() === 'GET') {
-        resolveStarted()
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ correlationId: 'corr-lost-sse' }),
-        })
-      }
-      if (req.method() === 'DELETE') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
-      }
-      return route.fallback()
-    },
-  )
-
-  // /events 연결 자체는 살아있지만(재연결 없이) drive.overview.done/error 를 영원히 보내지 않는다 —
-  // 재연결 후 catch-up 미대상(useEventStream.ts)인 SSE 유실 상황을 그대로 흉내낸다.
-  await page.route('**/api/v1/events', async (route) => {
-    await started
-    return new Promise(() => {})
-  })
-
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('drive-page')).toBeVisible()
-
-  await page.getByLabel('파일명 및 콘텐츠 검색').fill('기획서')
-  await expect(page.getByTestId('drive-content-results')).toBeVisible()
-
-  await page.getByTestId('drive-overview-btn').click()
-  await started
-
-  const card = page.getByTestId('drive-overview-card')
-  await expect(card).toContainText('생성 중…')
-
-  // StrictMode 이중 mount 가드(microtask defer)+네트워크 왕복 처리 시간 때문에, 클라이언트 타임아웃
-  // setTimeout 이 실제로 등록되는 시점이 위 클릭 직후보다 미세하게 늦을 수 있다 — 한 번에 큰 값을
-  // fastForward 하면 그 등록 이전 시점을 스킵해버리는 경쟁 상태가 될 수 있으므로, 작은 단위로 여러 번
-  // fastForward 하며 폴링해 안전하게 타임아웃(125s) 을 넘긴다.
-  await expect
-    .poll(
-      async () => {
-        await page.clock.fastForward(10_000)
-        return card.textContent()
-      },
-      // 기본 폴링 백오프(최대 1초 간격)로는 13회 전진에 10초 넘게 걸린다 — 가상 시계라 짧은 간격으로 충분하다(WP-410).
-      // 125초 경계 자체는 src/api/overviewStream.test.ts 가 가짜 타이머로 본다. 여기선 타임아웃 → 카드 에러 배선만 확인.
-      { timeout: 30_000, intervals: [100] },
-    )
-    .toContain('생성 시간이 초과되었습니다.')
-})
