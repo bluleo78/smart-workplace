@@ -1,13 +1,15 @@
 // AI 위임 작업(WP-377) — 범위(나와 관련/전체)·빠른 필터 칩·AI 진행 표.
 // 조회는 /me/ai-tasks(목록)·/me/ai-tasks/counts(칩 건수) 서버 조건으로 하고, 화면은 서버 순서를 그대로 그린다.
+// 무소식 툴팁·범위/빠른 필터 칩 → URL·요청·칩 건수·완료 칩 배지 톤·빈/조건 빈 상태·필터 초기화·「AI 배정하기」 이동·
+// 첫 페이지 실패·다음 페이지 이어 붙이기·에픽/프로젝트 묶음 구조·다음 회차 대기는 src/pages/me/aiTasksPage.test.tsx(vitest 화면 테스트)가 지킨다.
+// 여기에는 대표 행 구조(@wiring), 다시 시도 초점(@input), 헤더 정렬·표 넘침·좁은 폭 접기·들여쓰기·글자 크기(@layout)만 둔다.
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockApi } from '../../fixtures/api-mock'
-import { agentWorker as agent, createAgentWork, createAiTaskCounts, createScheduledIssue, KST_1430, minutesAgo } from '../../factories/agentWork.factory'
+import { agentWorker as agent, createAgentWork, createAiTaskCounts, minutesAgo } from '../../factories/agentWork.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
 import { GROUPED_ROWS } from '../../fixtures/ai-tasks-groups'
-import { projectRows } from '../../fixtures/ai-tasks-projects'
 import { DESKTOP_WIDTHS, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
 import type { IssueResponse } from '../../../src/types/issue'
 import type { UserSummary } from '../../../src/types/user'
@@ -61,7 +63,7 @@ async function setup(page: Page, items: IssueResponse[] = ROWS, counts = createA
   return { list, cnt }
 }
 
-test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형·마지막 보고를 서버 순서대로 보인다', async ({ authenticatedPage: page }) => {
+test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형·마지막 보고를 서버 순서대로 보인다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   await setup(page)
   await page.goto('/me/ai-tasks')
 
@@ -123,185 +125,8 @@ test('행에 AI 진행·최근 보고·진행률·담당자·에이전트 유형
   await expect(page.getByTestId('ai-row-415-state')).not.toHaveAttribute('href', /.+/)
 })
 
-test('무소식 행은 마지막 보고에 경고 아이콘과 툴팁', async ({ authenticatedPage: page }) => {
-  await setup(page)
-  await page.goto('/me/ai-tasks')
-  const last = page.getByTestId('ai-row-380-last')
-  await expect(last).toHaveText('3시간 전')
-  await expect(last).toHaveAttribute('title', STALE_TOOLTIP)
-  await expect(last.locator('svg')).toBeVisible()
-})
-
-test('전체 범위·빠른 필터 칩이 URL 과 요청에 반영되고, 칩 건수는 counts 값', async ({ authenticatedPage: page }) => {
-  const { list, cnt } = await setup(page)
-  await page.goto('/me/ai-tasks')
-  await list.waitForRequest()
-
-  // 칩 건수는 목록 행 수가 아니라 counts 응답 값(답변 필요 7 ≠ 행 1).
-  await expect(page.getByTestId('ai-quick-count-all')).toHaveText('6')
-  await expect(page.getByTestId('ai-quick-count-inputRequired')).toHaveText('7')
-  await expect(page.getByTestId('ai-quick-count-review')).toHaveText('1')
-  await expect(page.getByTestId('ai-quick-count-blocked')).toHaveText('3')
-  await expect(page.getByTestId('ai-quick-count-working')).toHaveText('2')
-  await expect(page.getByTestId('ai-quick-inputRequired')).toContainText('답변 필요')
-  // 기본 칩은 「미완료」(옛 「전체」 자리) — 범위 버튼 「전체」와도 겹치지 않는다(WP-396).
-  await expect(page.getByTestId('ai-quick-all')).toContainText('미완료')
-
-  await page.getByTestId('ai-scope-all').click()
-  await expect(page).toHaveURL(/[?&]scope=all/)
-  await expect(page.getByTestId('ai-scope-all')).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => list.lastRequest()?.searchParams.get('scope')).toBe('ALL')
-  await expect.poll(() => cnt.lastRequest()?.searchParams.get('scope')).toBe('ALL')
-
-  await page.getByTestId('ai-quick-inputRequired').click()
-  await expect(page).toHaveURL(/[?&]state=INPUT_REQUIRED/)
-  await expect(page.getByTestId('ai-quick-inputRequired')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('INPUT_REQUIRED')
-  // 범위는 유지, 건수 요청엔 빠른 필터를 싣지 않는다(칩마다 자기 건수).
-  expect(list.lastRequest()?.searchParams.get('scope')).toBe('ALL')
-  expect(cnt.requests.every((r) => !r.searchParams.has('agentState'))).toBe(true)
-
-  // 미완료 칩 → state 제거, 나와 관련 → scope 제거(이미 받은 조합은 캐시로 그려 요청이 다시 안 날 수 있어 URL·눌림으로 본다).
-  await page.getByTestId('ai-quick-all').click()
-  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => new URL(page.url()).searchParams.has('state')).toBe(false)
-  await page.getByTestId('ai-scope-mine').click()
-  await expect(page.getByTestId('ai-scope-mine')).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => new URL(page.url()).searchParams.has('scope')).toBe(false)
-})
-
-// WP-396: 완료 칩 — 미완료와 배타인 별도 보기. 종료 상태 넷을 쉼표 목록으로 요청하고, 행 배지는 실제 결과(완료·실패·취소·반려)를 톤으로 구분한다.
-const DONE_ROWS: IssueResponse[] = [
-  createIssue({
-    id: 501, number: 501, title: '결제 웹훅 재시도 정책 정리', status: 'DONE', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'COMPLETED', note: 'PR #530 병합 완료', progress: 100, updatedAt: minutesAgo(3 * 24 * 60), endedAt: minutesAgo(20) })],
-  }),
-  createIssue({
-    id: 502, number: 502, title: '대용량 첨부 미리보기 생성 실패 원인 조사', status: 'IN_PROGRESS', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'FAILED', note: '샌드박스 메모리 한도 초과로 중단', updatedAt: minutesAgo(90), endedAt: minutesAgo(90) })],
-  }),
-  createIssue({
-    id: 503, number: 503, title: '구 알림 설정 마이그레이션', status: 'CANCELED', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'CANCELED', updatedAt: minutesAgo(200), endedAt: minutesAgo(200) })],
-  }),
-  // 조회 사이 작업이 다시 시작된 행 — 서버가 진행 중 작업을 실어 보내 endedAt 이 없다(「종료」 칸이지만 마지막 보고 시각).
-  createIssue({
-    id: 505, number: 505, title: '재시작된 작업', status: 'IN_PROGRESS', assignees: [agent],
-    agentWork: [createAgentWork({ state: 'WORKING', updatedAt: minutesAgo(5) })],
-  }),
-  createIssue({
-    id: 504, number: 504, title: '외부 저장소 권한 없는 작업', status: 'TODO', assignees: [human],
-    agentWork: [createAgentWork({ worker: human, state: 'REJECTED', note: '권한 밖 저장소라 맡지 않아요', updatedAt: minutesAgo(300), endedAt: minutesAgo(300) })],
-  }),
-]
-
-test('완료 칩은 종료 상태로 요청하고 done 건수, 행 배지는 결과별 톤', async ({ authenticatedPage: page }) => {
-  const { list, cnt } = await setup(page, DONE_ROWS, createAiTaskCounts({ all: 6, done: 4 }))
-  await page.goto('/me/ai-tasks')
-  await list.waitForRequest()
-  // 칩 순서 — 미완료·답변 필요·검토 필요·막힘·작업 중·다음 회차 대기·완료.
-  const chipIds = await page.getByTestId('ai-quick-chips').locator('button').evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(chipIds).toEqual(['ai-quick-all', 'ai-quick-inputRequired', 'ai-quick-review', 'ai-quick-blocked', 'ai-quick-working', 'ai-quick-scheduled', 'ai-quick-done'])
-  await expect(page.getByTestId('ai-quick-scheduled')).toContainText('다음 회차 대기')
-  await expect(page.getByTestId('ai-quick-done')).toContainText('완료')
-  await expect(page.getByTestId('ai-quick-count-done')).toHaveText('4')
-
-  await page.getByTestId('ai-quick-done').click()
-  await expect(page).toHaveURL(/[?&]state=DONE/)
-  await expect(page.getByTestId('ai-quick-done')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('COMPLETED,FAILED,CANCELED,REJECTED')
-  expect(cnt.requests.every((r) => !r.searchParams.has('agentState'))).toBe(true)
-
-  // 결과별 배지 — 완료 success·실패 옅은 위험 tint(진한 채움 아님)·취소·반려 중립 윤곽.
-  await expect(page.getByTestId('ai-row-501-state')).toHaveText('완료')
-  await expect(page.getByTestId('ai-row-501-state')).toHaveAttribute('data-variant', 'success')
-  await expect(page.getByTestId('ai-row-502-state')).toHaveText('실패')
-  await expect(page.getByTestId('ai-row-502-state')).toHaveClass(/bg-destructive\/10/)
-  await expect(page.getByTestId('ai-row-502-state')).not.toHaveAttribute('data-variant', 'destructive')
-  await expect(page.getByTestId('ai-row-503-state')).toHaveText('취소')
-  await expect(page.getByTestId('ai-row-503-state')).toHaveAttribute('data-variant', 'outline')
-  await expect(page.getByTestId('ai-row-504-state')).toHaveText('반려')
-  await expect(page.getByTestId('ai-row-504-state')).toHaveAttribute('data-variant', 'outline')
-
-  // 시간 칸은 종료 시각 — 칸 제목 「종료」, 마지막 보고(3일 전)가 아니라 종료(20분 전), 툴팁에 「종료」.
-  await expect(page.getByTestId('ai-tasks-table').locator('th').last()).toHaveText('종료')
-  await expect(page.getByTestId('ai-row-501-last')).toHaveText('20분 전')
-  await expect(page.getByTestId('ai-row-501-last')).toHaveAttribute('title', '종료 20분 전')
-  // 시각 표시는 행마다 — endedAt 없는 행은 툴팁으로 마지막 보고 시각임을 밝힌다.
-  await expect(page.getByTestId('ai-row-505-last')).toHaveAttribute('title', '마지막 보고 5분 전')
-})
-
-test('비어 있으면 안내 문구, 빠른 필터 중이면 조건 문구', async ({ authenticatedPage: page }) => {
-  await setup(page, [], createAiTaskCounts())
-  await page.goto('/me/ai-tasks')
-  // DS 06 §B 빈 상태 — [아이콘(svg)+제목+설명+다음 행동] 4요소(WP-942).
-  const empty = page.getByTestId('ai-row-empty')
-  await expect(empty).toBeVisible()
-  await expect(empty.locator('svg')).toBeVisible()
-  await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
-  await expect(empty).toContainText('내 이슈의 담당자에 AI 구성원을 추가하면 여기에 표시돼요.')
-  await expect(page.getByTestId('ai-empty-assign')).toHaveText('내 작업에서 AI 배정하기')
-
-  await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
-
-  await page.getByTestId('ai-quick-blocked').click()
-  await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
-  await expect(empty).not.toContainText('AI가 진행 중인 작업이 없어요')
-  await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
-  // 조건 빈 상태엔 다음 행동 대신 필터 초기화만 둔다.
-  await expect(page.getByTestId('ai-empty-assign')).toHaveCount(0)
-})
-
-test('AI 작업이 없으면 「내 작업에서 AI 배정하기」로 내 작업(할당 탭)에 간다 (WP-942)', async ({ authenticatedPage: page }) => {
-  await setup(page, [], createAiTaskCounts())
-  const cap = await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue({ id: 11, title: '할당된 이슈' })]), {
-    capture: true,
-  })
-  await page.goto('/me/ai-tasks')
-  await page.getByTestId('ai-empty-assign').click()
-  await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
-  // 도착한 화면이 실제 할당 탭이다 — 내가 담당인 이슈를 불러와 그린다.
-  expect((await cap.waitForRequest()).searchParams.get('assignee')).toBe('me')
-  await expect(page.getByTestId('tab-assigned')).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('assigned-row-11')).toContainText('할당된 이슈')
-})
-
-test('facet 만 걸려도 조건 문구 — 필터 초기화는 빠른 필터·facet 을 지우고 범위는 남긴다', async ({ authenticatedPage: page }) => {
-  await setup(page, [], createAiTaskCounts())
-  await page.goto('/me/ai-tasks?status=DONE')
-  const empty = page.getByTestId('ai-row-empty')
-  await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
-  await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
-
-  await page.goto('/me/ai-tasks?scope=all&state=BLOCKED&status=DONE&priority=HIGH')
-  await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
-  await page.getByTestId('ai-empty-reset').click()
-  await expect.poll(() => [...new URL(page.url()).searchParams.keys()]).toEqual(['scope'])
-  expect(new URL(page.url()).searchParams.get('scope')).toBe('all')
-  await expect(empty).toContainText('AI가 진행 중인 작업이 없어요')
-  await expect(page.getByTestId('ai-quick-all')).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByTestId('ai-scope-all')).toHaveAttribute('aria-pressed', 'true')
-})
-
-test('첫 페이지 실패는 빈 상태가 아니라 오류 + 다시 시도', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', LIST, { message: 'boom' }, { status: 500 })
-  await mockApi(page, 'GET', COUNTS, createAiTaskCounts())
-  await page.goto('/me/ai-tasks')
-  const error = page.getByTestId('ai-tasks-error')
-  await expect(error).toContainText('AI 위임 작업을 불러오지 못했습니다')
-  await expect(page.getByTestId('ai-row-empty')).toHaveCount(0)
-
-  // 다시 시도 — 이번엔 성공(나중 등록 라우트가 우선).
-  await mockApi(page, 'GET', LIST, createIssueSearchResponse(ROWS))
-  await error.getByRole('button', { name: '다시 시도' }).click()
-  await expect(page.getByTestId('ai-row-412')).toBeVisible()
-  await expect(error).toHaveCount(0)
-})
-
 // WP-893: 다시 시도로 부르는 동안 안내가 「불러오는 중」으로 바뀌면 초점이 body 로 빠진다 — 안내·버튼이 남아(aria-disabled) 초점을 지킨다.
-test('첫 페이지 실패 뒤 다시 시도 — 부르는 동안·다시 실패해도 초점이 다시 시도에 남는다', async ({ authenticatedPage: page }) => {
+test('첫 페이지 실패 뒤 다시 시도 — 부르는 동안·다시 실패해도 초점이 다시 시도에 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   let failing = true
   let release: () => void = () => {}
   let held: Promise<void> = Promise.resolve()
@@ -339,7 +164,7 @@ test('첫 페이지 실패 뒤 다시 시도 — 부르는 동안·다시 실패
 
 // 페이지 레이아웃 — 헤더 바 안 h1·하단 56px·툴바와 같은 시작선, 표가 가로로 넘치지 않음(1280 포함 넓은 화면).
 for (const width of [1280, ...DESKTOP_WIDTHS]) {
-  test.describe(`AI 위임 작업 레이아웃 @${width}px`, () => {
+  test.describe(`AI 위임 작업 레이아웃 @${width}px`, { tag: '@layout' }, () => {
     test.use({ viewport: { width, height: 1000 } })
 
     test('제목은 헤더 바 안 h1, 툴바와 같은 x, 표 가로 넘침 없음', async ({ authenticatedPage: page }) => {
@@ -361,120 +186,25 @@ for (const width of [1280, ...DESKTOP_WIDTHS]) {
   })
 }
 
-// 에픽 묶음(WP-375) — 서버가 묶음 단위로 정렬해 준 행을 머리 + 들여쓴 하위 행으로 그린다.
-test('에픽 묶음 머리 아래 하위 행이 들여쓰기되고 에픽 부모 칩은 숨는다', async ({ authenticatedPage: page }) => {
+// 에픽 묶음(WP-375) — 하위 행 제목 칸이 들여쓰기(20px)된다(계산된 패딩은 브라우저만 잰다). 머리·하위 행 구조는 vitest.
+test('에픽 묶음 하위 행 제목 칸이 20px 들여쓰기된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page, GROUPED_ROWS)
   await page.goto('/me/ai-tasks')
-  await expect(page.getByTestId('ai-epic-412')).toContainText('WP-412')
-  await expect(page.getByTestId('ai-epic-412')).toContainText('└ 1/5')
-  await expect(page.getByTestId('ai-row-412')).toHaveCount(0) // 에픽 행은 머리로만
-  await expect(page.getByTestId('ai-epic-412').getByTestId('ai-row-412-state')).toBeVisible() // 머리 줄에 에픽 자신 AI 진행
   const titleCell = page.getByTestId('ai-row-413').locator('td').nth(3).locator('div').first()
   await expect(titleCell).toHaveCSS('padding-left', '20px')
-  await expect(page.getByTestId('issue-row-413-parent')).toHaveCount(0)
-  await expect(page.getByTestId('ai-epic-420')).toBeVisible() // 에픽 행 없는 묶음도 머리
-  await expect(page.getByTestId('ai-epic-420').getByTestId('ai-row-420-state')).toHaveCount(0) // AI 칸은 비움
 })
 
-test('묶이지 않은 행의 부모 칩은 키를 먼저 보인다', async ({ authenticatedPage: page }) => {
+// 키·부모 제목 문구는 vitest — 여기서는 부모 제목이 폭 0 으로 숨지 않는지만 잰다.
+test('묶이지 않은 행의 부모 칩 제목이 폭 0 으로 숨지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page, GROUPED_ROWS)
   await page.goto('/me/ai-tasks')
   await expect(page.getByTestId('issue-row-431-parent')).toContainText('WP-377')
-  await expect(page.getByTestId('issue-row-431-parent')).toContainText('AI 작업 기록')
   // 1280 에서도 키 뒤에 부모 제목이 폭 0 으로 숨지 않고 앞 글자가 말줄임으로 보인다(제목 칸이 칩 몫을 남긴다).
   const parentTitle = page.getByTestId('issue-row-431-parent').locator('span').last()
   expect((await parentTitle.boundingBox())!.width).toBeGreaterThan(12)
   // 1440 부터는 최근 보고 칸이 넓어진다(WP-450) — 그래도 부모 제목 몫이 남는다.
   await page.setViewportSize({ width: 1440, height: 900 })
   await expect.poll(async () => (await parentTitle.boundingBox())!.width).toBeGreaterThan(12)
-})
-
-test('다음 페이지의 하위 행은 같은 머리 아래 이어 붙는다', async ({ authenticatedPage: page }) => {
-  const rows = GROUPED_ROWS.filter((r) => [421, 422, 430].includes(r.number)).map((r) => (
-    r.aiGroup ? { ...r, aiGroup: { ...r.aiGroup, size: 2 } } : r))
-  // 1페이지: [421] + nextCursor, 2페이지(cursor=c2): [422, 430].
-  await page.route((u) => u.pathname === LIST, (route) => {
-    const cursor = new URL(route.request().url()).searchParams.get('cursor')
-    return route.fulfill({
-      json: cursor === 'c2'
-        ? createIssueSearchResponse([rows[1], rows[2]])
-        : createIssueSearchResponse([rows[0]], 'c2'),
-    })
-  })
-  await mockApi(page, 'GET', COUNTS, createAiTaskCounts())
-  await page.goto('/me/ai-tasks')
-  await expect(page.getByTestId('ai-row-430')).toBeVisible()
-  await expect(page.getByTestId('ai-epic-420')).toHaveCount(1)
-  const order = await page.locator('[data-testid^="ai-row-"], [data-testid^="ai-epic-"]').evaluateAll((els) =>
-    els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-(row|epic)-\d+$/.test(t ?? '')))
-  expect(order).toEqual(['ai-epic-420', 'ai-row-421', 'ai-row-422', 'ai-row-430'])
-})
-
-// WP-426: 서버가 프로젝트 단위로 이어 준 행을 프로젝트 머리 줄 아래에 묶는다. 머리 건수는 서버 값(aiProject.size).
-test('프로젝트별 머리 줄 아래에 그 프로젝트 행이 서버 순서대로 온다', async ({ authenticatedPage: page }) => {
-  await setup(page, projectRows())
-  await page.goto('/me/ai-tasks')
-  await expect(page.getByTestId('ai-row-2061')).toBeVisible()
-
-  // 머리 줄 순서 — 서버가 준 프로젝트 순서(WP → HR → MKT).
-  const heads = await page.locator('[data-testid^="ai-project-"]').evaluateAll(
-    (els) => els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-project-[A-Z]+-head$/.test(t ?? '')),
-  )
-  expect(heads).toEqual(['ai-project-WP-head', 'ai-project-HR-head', 'ai-project-MKT-head'])
-
-  // 이름 링크·건수 — 건수는 불러온 2행이 아니라 서버가 준 4.
-  const name = page.getByTestId('ai-project-HR-head-name')
-  await expect(name).toHaveText('인사팀')
-  await expect(name).toHaveAttribute('href', '/projects/HR')
-  await expect(page.getByTestId('ai-project-HR-head-count')).toHaveText('HR · 4')
-  await expect(page.getByTestId('ai-project-WP-head-count')).toHaveText('WP · 5')
-
-  // 구간 안에는 그 프로젝트 행만.
-  const hrRows = await page.getByTestId('ai-project-HR').locator('[data-testid^="ai-row-"]').evaluateAll(
-    (els) => els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-row-\d+$/.test(t ?? '')),
-  )
-  expect(hrRows).toEqual(['ai-row-1012', 'ai-row-1015'])
-
-  // 에픽 묶음은 프로젝트 구간 안에서 그대로 — 머리 아래 하위 행이 이어진다.
-  const wp = page.getByTestId('ai-project-WP')
-  await expect(wp.getByTestId('ai-epic-412')).toBeVisible()
-  const wpOrder = await wp.locator('[data-testid^="ai-row-"], [data-testid^="ai-epic-"]').evaluateAll((els) =>
-    els.map((e) => e.getAttribute('data-testid')).filter((t) => /^ai-(row|epic)-\d+$/.test(t ?? '')))
-  expect(wpOrder).toEqual(['ai-epic-412', 'ai-row-413', 'ai-row-414', 'ai-row-418', 'ai-row-430'])
-})
-
-// WP-450: 다음 회차 대기 — 칩이 SCHEDULED 로 요청하고, 행은 배지 + 예정 시각 라벨을 최근 보고 앞에 둔다.
-// 기준 시각은 고정(2026-10-18 14:30 KST) — 「내일 09:00 이후」가 실행 시각과 무관하게 같다.
-test('다음 회차 대기 칩은 SCHEDULED 로 요청하고, 행은 배지와 예정 시각을 최근 보고 앞에 보인다', async ({ authenticatedPage: page }) => {
-  await page.clock.setFixedTime(new Date(KST_1430))
-  const rows = [
-    createScheduledIssue(601, '주간 리포트 생성', { note: '다른 작업에 양보했어요' }),
-    createScheduledIssue(602, '로그 정리', { note: '예정 없이 양보', nextRunAt: null }),
-  ]
-  const { list } = await setup(page, rows, createAiTaskCounts({ all: 5, scheduled: 2 }))
-  await page.goto('/me/ai-tasks')
-  await list.waitForRequest()
-  await expect(page.getByTestId('ai-quick-count-scheduled')).toHaveText('2')
-
-  await page.getByTestId('ai-quick-scheduled').click()
-  await expect(page).toHaveURL(/[?&]state=SCHEDULED/)
-  await expect(page.getByTestId('ai-quick-scheduled')).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => list.lastRequest()?.searchParams.get('agentState')).toBe('SCHEDULED')
-
-  await expect(page.getByTestId('ai-row-601-state')).toHaveText('다음 회차 대기')
-  const next = page.getByTestId('ai-row-601-next-run')
-  await expect(next).toHaveText('내일 09:00 이후')
-  await expect(next).toHaveAttribute('title', '예정 2026-10-19 09:00')
-  await expect(page.getByTestId('ai-row-601-note')).toHaveText('다른 작업에 양보했어요')
-  // 예정 라벨이 최근 보고보다 앞(왼쪽)에 놓인다.
-  const nb = (await next.boundingBox())!
-  const tb = (await page.getByTestId('ai-row-601-note').boundingBox())!
-  expect(nb.x + nb.width).toBeLessThanOrEqual(tb.x + 0.5)
-  // 예정 시각이 없으면 라벨만 있고 title 은 없다.
-  await expect(page.getByTestId('ai-row-602-next-run')).toHaveText('다른 작업 뒤 이어서')
-  await expect(page.getByTestId('ai-row-602-next-run')).not.toHaveAttribute('title', /.+/)
-  // 다른 상태 행에는 예정 라벨이 없다.
-  await expect(page.getByTestId('ai-row-412-next-run')).toHaveCount(0)
 })
 
 // WP-917: 좁은 폭 접기 — 표 래퍼(@container) 폭에 따라 에이전트 유형(60.25rem 미만) → 진행률(53.25rem 미만) 순으로 숨기고
@@ -501,7 +231,7 @@ async function tableWidth(page: Page) {
   return page.getByTestId('ai-tasks-table').evaluate((el) => el.getBoundingClientRect().width)
 }
 
-test.describe('AI 위임 작업 좁은 폭 접기 @1440px', () => {
+test.describe('AI 위임 작업 좁은 폭 접기 @1440px', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 1440, height: 900 } })
   test('1440에서 10개 헤더가 모두 보인다', async ({ authenticatedPage: page }) => {
     await setup(page, [...ROWS, PROGRESS_ROW])
@@ -527,7 +257,7 @@ test.describe('AI 위임 작업 좁은 폭 접기 @1440px', () => {
   })
 })
 
-test.describe('AI 위임 작업 좁은 폭 접기 @1280px', () => {
+test.describe('AI 위임 작업 좁은 폭 접기 @1280px', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 1280, height: 800 } })
   test('1280에서도 에이전트 유형·진행률 헤더가 보인다', async ({ authenticatedPage: page }) => {
     await setup(page, [...ROWS, PROGRESS_ROW])
@@ -539,7 +269,7 @@ test.describe('AI 위임 작업 좁은 폭 접기 @1280px', () => {
   })
 })
 
-test.describe('AI 위임 작업 좁은 폭 접기 @1024px', () => {
+test.describe('AI 위임 작업 좁은 폭 접기 @1024px', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 1024, height: 800 } })
 
   // 1024 기본 배치(레일 접힘·목록 224px)의 표 폭은 712px — 3단계(최근 보고 5.5rem)까지 접어 제목 15rem 을 지킨다.
@@ -619,28 +349,11 @@ test.describe('AI 위임 작업 좁은 폭 접기 @1024px', () => {
   })
 })
 
-test('헤더 셀은 text-xs·font-normal', async ({ authenticatedPage: page }) => {
+test('헤더 셀은 text-xs·font-normal', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page)
   await page.goto('/me/ai-tasks')
   await expect(page.getByTestId('ai-row-412')).toBeVisible()
   const styles = await page.getByTestId('ai-tasks-table').locator('thead th').evaluateAll((els) =>
     els.map((e) => ({ weight: getComputedStyle(e).fontWeight, size: getComputedStyle(e).fontSize })))
   for (const s of styles) expect(s).toEqual({ weight: '400', size: '12px' })
-})
-
-test('완료 칩 0건은 「아직 완료된 AI 작업이 없습니다」이고 필터 초기화가 없다', async ({ authenticatedPage: page }) => {
-  await setup(page, [], createAiTaskCounts())
-  await page.goto('/me/ai-tasks?state=DONE')
-  const empty = page.getByTestId('ai-row-empty')
-  await expect(empty).toContainText('아직 완료된 AI 작업이 없습니다')
-  await expect(empty).toContainText('AI가 작업을 끝내면 여기에 최근 종료순으로 쌓여요.')
-  await expect(empty.locator('svg')).toBeVisible()
-  await expect(page.getByTestId('ai-empty-reset')).toHaveCount(0)
-  // 완료 기록은 미완료 작업이 끝나야 생긴다 — 다음 행동 버튼은 미완료 빈 상태에만 둔다(WP-942).
-  await expect(page.getByTestId('ai-empty-assign')).toHaveCount(0)
-
-  // 완료 칩 + facet 이 함께 걸려 0건이면 조건 문구 + 필터 초기화를 유지한다.
-  await page.goto('/me/ai-tasks?state=DONE&priority=HIGH')
-  await expect(empty).toContainText('조건에 맞는 AI 작업이 없어요')
-  await expect(page.getByTestId('ai-empty-reset')).toBeVisible()
 })

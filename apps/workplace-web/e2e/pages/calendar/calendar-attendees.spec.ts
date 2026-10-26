@@ -1,5 +1,6 @@
-// 일정 참석자 + RSVP E2E — 참석자 추가·칩 표시·RSVP 수락 흐름 검증.
-// 백엔드 없이 page.route 모킹 사용. (이슈 #489)
+// 일정 참석자 + RSVP E2E — RSVP 수락 → PATCH /rsvp → 버튼 상태 배선(@wiring). 백엔드 없이 page.route 모킹 사용. (이슈 #489)
+// 참석자 고르기 → 저장 본문(attendeeUserIds)·편집 모드 즉시 초대(POST /attendees)·참석자 칩(AGENT 배지·외부 이메일·제거 버튼)은
+// src/pages/calendar/calendarAttendees.test.tsx 가 지킨다(WP-966).
 import type { Page } from '@playwright/test'
 
 import type { Attendee, CalendarEvent } from '../../../src/types/calendar'
@@ -140,144 +141,13 @@ async function stubCalendar(page: Page, store: CalendarEvent[], detailEvent: Cal
   )
 }
 
-/** 구성원 검색 모킹 — 구성원 디렉터리 GET /api/v1/members?search= (#833) */
-async function stubUserSearch(page: Page) {
-  await page.route(
-    (url) => url.pathname === '/api/v1/members' && url.searchParams.has('search'),
-    (route) => {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          content: [
-            {
-              userId: 2,
-              username: 'user2',
-              name: '홍길동',
-              email: 'hong@test.com',
-              kind: 'HUMAN',
-              active: true,
-            },
-            {
-              userId: 99,
-              username: 'ai-bot',
-              name: 'AI Bot',
-              email: 'ai@test.com',
-              kind: 'AGENT',
-              active: true,
-            },
-          ],
-          page: 0,
-          size: 20,
-          totalElements: 2,
-          totalPages: 1,
-        }),
-      })
-    },
-  )
-}
-
 // ────────────────────────────────────────────────────────────
 // 테스트
 // ────────────────────────────────────────────────────────────
 
 test(
-  '일정 생성 시 참석자 추가 버튼이 노출된다',
-  { tag: '@smoke' },
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = []
-    const detail = makeDetailEvent()
-    await stubCalendar(page, store, detail)
-    await stubUserSearch(page)
-
-    await page.goto('/calendar')
-
-    // 새 일정 버튼 클릭
-    await page.getByTestId('calendar-new-event').click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 참석자 섹션 + 추가 버튼 노출 확인
-    await expect(page.getByTestId('attendee-section')).toBeVisible()
-    await expect(page.getByTestId('attendee-add-btn')).toBeVisible()
-  },
-)
-
-test(
-  '일정 생성 시 attendeeUserIds 가 POST payload 에 포함된다',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = []
-    const detail = makeDetailEvent()
-    await stubCalendar(page, store, detail)
-    await stubUserSearch(page)
-
-    await page.goto('/calendar')
-    await page.getByTestId('calendar-new-event').click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 참석자 추가 팝오버 열기
-    await page.getByTestId('attendee-add-btn').click()
-    await expect(page.getByTestId('member-search-popover')).toBeVisible()
-
-    // 검색어 입력 후 결과 클릭
-    await page.getByRole('combobox', { name: '멤버 검색' }).fill('홍')
-    // 검색 결과 대기 후 사용자 선택
-    await expect(page.getByTestId('member-search-row-2')).toBeVisible({ timeout: 3000 })
-    await page.getByTestId('member-search-row-2').click()
-
-    // 팝오버 닫기
-    await page.keyboard.press('Escape')
-
-    // 생성 모드 칩에 실제 이름이 표시되는지 확인 (사용자 #2 가 아닌 홍길동)
-    await expect(page.getByTestId('attendee-selected-2')).toContainText('홍길동')
-
-    // 제목 입력 + 저장
-    await page.getByTestId('calendar-form-title').fill('참석자 테스트')
-    const postPromise = page.waitForRequest(
-      (req) => req.method() === 'POST' && req.url().includes('/api/v1/calendar/events'),
-    )
-    await page.getByTestId('calendar-form-submit').click()
-    const post = await postPromise
-
-    // attendeeUserIds 가 payload 에 포함되었는지 확인
-    const payload = post.postDataJSON() as { attendeeUserIds?: number[] }
-    expect(Array.isArray(payload.attendeeUserIds)).toBe(true)
-    expect(payload.attendeeUserIds).toContain(2)
-  },
-)
-
-test(
-  '일정 상세에서 참석자 목록(칩) + AGENT 뱃지가 표시된다',
-  { tag: '@smoke' },
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = [calendarEvent({ id: 100, title: '참석자 테스트 일정' })]
-    const detail = makeDetailEvent()
-    await stubCalendar(page, store, detail)
-
-    await page.goto('/calendar')
-
-    // 일정 클릭 → 다이얼로그(상세)
-    await page.getByTestId('calendar-event-100').first().click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 참석자 칩 섹션 표시 확인
-    await expect(page.getByTestId('attendee-chips')).toBeVisible()
-
-    // AGENT 참석자에 뱃지 표시 확인 (chipKey = u-{userId})
-    const agentChip = page.getByTestId('attendee-chip-u-99')
-    await expect(agentChip).toBeVisible()
-    await expect(agentChip.getByTestId('agent-badge')).toBeVisible()
-  },
-)
-
-test(
   'RSVP 수락 클릭 시 PATCH /rsvp 호출 + 상태 반영',
-  { tag: '@smoke' },
+  { tag: ['@wiring', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
 
@@ -337,78 +207,6 @@ test(
     await expect(acceptBtn).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('rsvp-btn-tentative')).toHaveAttribute('aria-pressed', 'false')
     await expect(page.getByTestId('rsvp-btn-declined')).toHaveAttribute('aria-pressed', 'false')
-  },
-)
-
-test(
-  '편집 모드에서 참석자 추가 시 POST /attendees 가 즉시 호출된다',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const store: CalendarEvent[] = [calendarEvent({ id: 100, title: '참석자 편집 테스트' })]
-    // 초기 상태: 주최자만 있음
-    const detail = makeDetailEvent({ attendees: [ORGANIZER_ATTENDEE] })
-    await stubCalendar(page, store, detail)
-    await stubUserSearch(page)
-
-    await page.goto('/calendar')
-    await page.getByTestId('calendar-event-100').first().click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 참석자 추가 팝오버 열기
-    await page.getByTestId('attendee-add-btn').click()
-    await expect(page.getByTestId('member-search-popover')).toBeVisible()
-
-    // 검색 후 사용자 선택
-    await page.getByRole('combobox', { name: '멤버 검색' }).fill('홍')
-    await expect(page.getByTestId('member-search-row-2')).toBeVisible({ timeout: 3000 })
-
-    // POST /events/{id}/attendees 호출 확인
-    const postPromise = page.waitForRequest(
-      (req) =>
-        req.method() === 'POST' && req.url().includes('/events/100/attendees'),
-    )
-    await page.getByTestId('member-search-row-2').click()
-    const post = await postPromise
-
-    // userIds 배열에 선택한 userId 포함
-    expect(post.postDataJSON()).toMatchObject({ userIds: [2] })
-  },
-)
-
-test(
-  '외부 참석자 이메일이 칩으로 표시된다 (#547)',
-  async ({ authenticatedPage: page }) => {
-    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
-
-    const EXTERNAL_ATTENDEE: Attendee = {
-      userId: null,
-      username: null,
-      name: 'Client Lee',
-      kind: 'EXTERNAL',
-      role: 'ATTENDEE',
-      rsvpStatus: 'ACCEPTED',
-      invitedByUserId: null,
-      externalEmail: 'client@partner.com',
-    }
-
-    const store: CalendarEvent[] = [calendarEvent({ id: 100, title: '외부 참석자 일정' })]
-    const detail = makeDetailEvent({
-      attendees: [ORGANIZER_ATTENDEE, EXTERNAL_ATTENDEE],
-    })
-    await stubCalendar(page, store, detail)
-
-    await page.goto('/calendar')
-    await page.getByTestId('calendar-event-100').first().click()
-    await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
-
-    // 외부 참석자 칩에 이메일이 표시되어야 함
-    const externalChip = page.getByTestId('attendee-chip-e-client@partner.com')
-    await expect(externalChip).toBeVisible()
-    await expect(externalChip).toContainText('client@partner.com')
-
-    // 외부 참석자 칩에는 제거 버튼이 없어야 함
-    await expect(externalChip.locator('button')).toHaveCount(0)
   },
 )
 

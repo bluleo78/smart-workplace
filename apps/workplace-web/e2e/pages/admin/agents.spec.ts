@@ -1,12 +1,12 @@
 // /admin/agents — AGENT 유저 + API 키 관리 페이지 E2E (@smoke).
 // 시나리오: ADMIN 으로 진입 → 신규 AGENT 생성 → 행 선택 → 키 발급 →
 // 평문 dialog 노출 (ak_) → 닫기 → 회수 → revoked_at 표시.
-// #136: window.confirm → AlertDialog 교체 검증 포함.
+// #136: window.confirm → AlertDialog 교체 검증 포함. 에이전트 화면의 대표 배선(@wiring)과 행 키보드 진입(@input)만 남는다.
+// 생성일 포맷·키 회수 취소·삭제/사용 중지 토스트·이름·아이디·설명 PUT 은 src/pages/admin/agentManagement.test.tsx 가 지킨다(WP-966).
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { trackRequests } from '../../fixtures/requests';
 
-// 단일 AGENT + API 키가 존재하는 상태를 셋업한다 — AlertDialog 경로 테스트용.
+// 단일 AGENT + API 키가 존재하는 상태 — 키보드 진입 테스트용.
 const AGENT_ID = 100;
 const KEY_ID = 1;
 
@@ -45,89 +45,36 @@ const KEYS_FIXTURE: AgentKeyFixture[] = [
   },
 ];
 
+// 키보드 진입 테스트용 — 목록·키·자격증명(없음)·공통 비서(미지정) 조회만 깐다.
 async function setupStatic(page: import('@playwright/test').Page) {
-  // agents 목록 + 단건 키 미리 로드 (immutable fixture).
-  let keys: AgentKeyFixture[] = [...KEYS_FIXTURE];
-  const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/admin\/agents\/\d+$/);
-  const revokes = trackRequests(page, 'DELETE', /^\/api\/v1\/admin\/agents\/\d+\/keys\/\d+$/);
-
   // includePersonal 기본값이 true 로 바뀌어 목록 조회가 항상 쿼리스트링을 동반하므로
   // 경로만 매칭(쿼리 유무 무관)하도록 정규식을 완화한다.
-  await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(AGENTS_FIXTURE),
-      });
-    }
-    return route.fallback();
-  });
-  await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
-    if (route.request().method() === 'DELETE') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ result: 'DELETED' }),
-      });
-    }
-    return route.fallback();
-  });
-  await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys$/, (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(keys),
-      });
-    }
-    return route.fallback();
-  });
-  await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys\/\d+$/, (route) => {
-    if (route.request().method() === 'DELETE') {
-      keys = keys.map((k) =>
-        k.id === KEY_ID ? { ...k, revokedAt: new Date().toISOString() } : k,
-      );
-      return route.fulfill({ status: 204, body: '' });
-    }
-    return route.fallback();
-  });
+  await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(AGENTS_FIXTURE) })
+      : route.fallback(),
+  );
+  await page.route(/\/api\/v1\/admin\/agents\/\d+\/keys$/, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(KEYS_FIXTURE) }),
+  );
   // provider-credential 없음 (404)
-  await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: '없음' }),
-      });
-    }
-    return route.fallback();
-  });
+  await page.route(/\/api\/v1\/admin\/agents\/\d+\/provider-credential$/, (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ message: '없음' }) }),
+  );
   // 공통 비서 — 미지정 상태(빈 상태 배너 방지용 최소 모킹).
-  await page.route('**/api/v1/admin/workspace-assistant', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          agentUserId: null,
-          agentName: null,
-          hasActiveToken: false,
-          model: null,
-          thinkingDepth: null,
-        }),
-      });
-    }
-    return route.fallback();
-  });
-
-  return { deletes, revokes };
+  await page.route('**/api/v1/admin/workspace-assistant', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ agentUserId: null, agentName: null, hasActiveToken: false, model: null, thinkingDepth: null }),
+    }),
+  );
 }
 
 test.describe('/admin/agents', () => {
   test(
     'AGENT 생성 → 키 발급 → 평문 표시 → 회수',
-    { tag: '@smoke' },
+    { tag: ['@wiring', '@smoke'] },
     async ({ adminPage: page }) => {
       // 상태 저장소 — 라우트 핸들러가 mutation 결과를 누적한다.
       let agents: Array<{
@@ -324,20 +271,8 @@ test.describe('/admin/agents', () => {
     },
   );
 
-  // #617: 목록 생성일 컬럼이 공용 formatDateOnly(zero-pad, 하이픈) 포맷으로 표시된다.
-  // 로케일 기본 toLocaleDateString('ko-KR') 이면 "2026. 5. 20." (non-zero-pad) 로 표시되던 회귀.
-  test('생성일 컬럼 — zero-pad 하이픈 포맷으로 표시된다', async ({ adminPage: page }) => {
-    await setupStatic(page);
-    await page.goto('/settings/agents');
-    const row = page.getByTestId(`agent-row-${AGENT_ID}`);
-    await expect(row).toBeVisible();
-    await expect(row).toContainText('2026-05-20');
-    const text = await row.innerText();
-    expect(text).not.toMatch(/\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?/);
-  });
-
   // #810 — 행이 클릭 전용(role/tabIndex/onKeyDown 부재)이라 키보드로는 상세 드로어에 진입 불가했다.
-  test('에이전트 행을 키보드(Tab+Enter)로 상세 드로어를 열 수 있다 (#810)', async ({ adminPage: page }) => {
+  test('에이전트 행을 키보드(Tab+Enter)로 상세 드로어를 열 수 있다 (#810)', { tag: '@input' }, async ({ adminPage: page }) => {
     await setupStatic(page);
     await page.goto('/settings/agents');
     const row = page.getByRole('button', { name: 'Claude 봇 상세 보기' });
@@ -347,102 +282,5 @@ test.describe('/admin/agents', () => {
     await row.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('agent-detail-drawer')).toBeVisible();
-  });
-
-  // #136: API 키 회수 AlertDialog 취소 → DELETE 없음.
-  test('API 키 회수 AlertDialog 취소 → DELETE 호출 없음', async ({ adminPage: page }) => {
-    const counts = await setupStatic(page);
-    await page.goto('/settings/agents');
-    await expect(page.getByRole('heading', { name: '에이전트' })).toBeVisible();
-    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-    const revokeBtn = page.getByTestId(`key-revoke-${KEY_ID}`);
-    await expect(revokeBtn).toBeVisible();
-
-    // AlertDialog 열기 → 취소
-    await revokeBtn.click();
-    await expect(page.getByTestId('agent-confirm-dialog')).toBeVisible();
-    await page.getByTestId('agent-confirm-cancel').click();
-    await expect(page.getByTestId('agent-confirm-dialog')).not.toBeVisible();
-
-    expect(counts.revokes.count()).toBe(0);
-    await expect(revokeBtn).toBeVisible();
-  });
-
-  // #136: AGENT 삭제 AlertDialog 확인 → DELETE 호출.
-  test('AGENT 삭제 AlertDialog 확인 → DELETE 호출', async ({ adminPage: page }) => {
-    const counts = await setupStatic(page);
-    await page.goto('/settings/agents');
-    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-    const deleteBtn = page.getByTestId(`agent-delete-${AGENT_ID}`);
-    await expect(deleteBtn).toBeVisible();
-
-    await deleteBtn.click();
-    await expect(page.getByTestId('agent-confirm-dialog')).toBeVisible();
-    // 조사는 이름 받침에 맞춘다 — 「Claude 봇」은 받침 있음 → 「을」(WP-679)
-    await expect(page.getByTestId('agent-confirm-dialog')).toContainText('에이전트 "Claude 봇"을 삭제하시겠습니까?');
-    await page.getByTestId('agent-confirm-confirm').click();
-
-    await expect.poll(counts.deletes.count).toBe(1);
-    await expect(page.getByText('에이전트를 삭제했습니다')).toBeVisible();
-  });
-
-  // WP-705: 남은 기록이 있어 서버가 삭제 대신 사용을 중지하면(DEACTIVATED) 그대로 알린다 — 예전엔 영어 409 만 떴다.
-  test('기록이 남은 AGENT 삭제 → 사용 중지 안내 토스트', async ({ adminPage: page }) => {
-    const counts = await setupStatic(page);
-    // setupStatic 의 DELETE 핸들러보다 나중에 등록해 이 응답이 이긴다.
-    await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
-      if (route.request().method() === 'DELETE') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ result: 'DEACTIVATED' }),
-        });
-      }
-      return route.fallback();
-    });
-    await page.goto('/settings/agents');
-    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-    await page.getByTestId(`agent-delete-${AGENT_ID}`).click();
-    await expect(page.getByTestId('agent-confirm-dialog')).toContainText(
-      '이 AI 가 남긴 기록이 있으면 기록은 두고 사용을 중지합니다.',
-    );
-    await page.getByTestId('agent-confirm-confirm').click();
-
-    await expect.poll(counts.deletes.count).toBe(1);
-    await expect(page.getByText('남은 기록이 있어 삭제 대신 사용을 중지했습니다')).toBeVisible();
-    await expect(page.getByText('에이전트를 삭제했습니다')).toHaveCount(0);
-  });
-
-  // AGENT 삭제의 취소 경로는 키 회수와 같은 확인 다이얼로그(confirmDialog 상태 하나)를 쓰므로 위 「API 키 회수 … 취소」가 맡는다.
-
-  // 에이전트 이름/아이디/설명(역할) 변경 → PUT payload 검증 + 성공 토스트(설명은 WP-455).
-  test('에이전트 이름·아이디·설명 변경 → PUT payload + 성공 토스트', async ({ adminPage: page }) => {
-    await setupStatic(page);
-    // PUT 응답 — setupStatic 의 DELETE 핸들러보다 나중에 등록해 PUT 을 가로채고, 그 외는 fallback.
-    const puts = trackRequests(page, 'PUT', /^\/api\/v1\/admin\/agents\/\d+$/);
-    await page.route(/\/api\/v1\/admin\/agents\/\d+$/, (route) => {
-      if (route.request().method() === 'PUT') {
-        return route.fulfill({ status: 204, body: '' });
-      }
-      return route.fallback();
-    });
-
-    await page.goto('/settings/agents');
-    await page.getByTestId(`agent-row-${AGENT_ID}`).click();
-
-    // 편집 섹션 노출(일반 에이전트) → 이름/아이디 변경 → 저장.
-    await expect(page.getByTestId('agent-identity-section')).toBeVisible();
-    await page.getByTestId('agent-name-input').fill('Claude 봇 v2');
-    await page.getByTestId('agent-username-input').fill('claude_bot_v2');
-    // 설명은 앞뒤 공백을 걷어 보낸다 — 다른 AI 가 MCP 로 읽는 글이다.
-    await page.getByLabel('설명(역할)').fill('  코드 리뷰를 맡습니다.  ');
-    await page.getByTestId('agent-identity-save').click();
-
-    await expect(page.getByText('에이전트를 변경했습니다')).toBeVisible();
-    expect(puts.lastBody()).toEqual({
-      username: 'claude_bot_v2',
-      name: 'Claude 봇 v2',
-      description: '코드 리뷰를 맡습니다.',
-    });
   });
 });

@@ -1,5 +1,6 @@
 // /settings/audit-logs — 액션/리소스 한글 라벨이 표 셀에 쓰이는지(배선) 회귀 (#778).
 // enum → 한글 라벨 매핑 전수(PAT·드라이브 파일·전송 링크 등)와 모르는 값 경고는 auditLogLabels.test 가 지킨다(WP-412).
+// 감사 로그 화면의 대표 배선(@wiring) — 필터 → 요청 파라미터는 src/pages/admin/auditLog.test.tsx 가 지킨다(WP-966).
 // 여기선 한 행으로 액션·리소스 열이 raw enum 대신 라벨을 그리고 "[AuditLog] Unknown" 경고가 없는지만 본다.
 
 import { setupAdminAuth } from '../../fixtures/admin.fixture';
@@ -8,7 +9,7 @@ import { createAuditLog } from '../../factories/admin.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 
 test.describe('/settings/audit-logs — 신규 액션/리소스 한글 라벨', () => {
-  test('액션·리소스 열이 raw enum 없이 한글 라벨로 표시된다', async ({ adminPage: page }) => {
+  test('액션·리소스 열이 raw enum 없이 한글 라벨로 표시된다', { tag: '@wiring' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page);
 
     const consoleWarnings: string[] = [];

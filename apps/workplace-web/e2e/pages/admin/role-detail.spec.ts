@@ -1,5 +1,6 @@
 // /settings/roles/:id — 역할 상세 페이지 E2E.
-// 시스템 역할(isSystem=true)에서 설명 필드가 disabled 처리되는지 검증한다 (#185).
+// 시스템 역할(isSystem=true)에서 설명 필드가 disabled 처리되는지 — 역할 상세 화면의 대표 배선(@wiring) (#185).
+// 커스텀 역할 편집 가능·설명 255자 안내는 src/pages/admin/roles.test.tsx 가 지킨다(WP-966).
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { setupAdminAuth, setupRoleDetailMocks } from '../../fixtures/admin.fixture';
@@ -7,7 +8,7 @@ import { setupAdminAuth, setupRoleDetailMocks } from '../../fixtures/admin.fixtu
 test.describe('/settings/roles/:id — 시스템 역할 필드 비활성화', () => {
   test(
     '시스템 역할 상세: 역할 이름·설명 필드와 저장 버튼이 모두 disabled',
-    { tag: '@smoke' },
+    { tag: ['@wiring', '@smoke'] },
     async ({ adminPage: page }) => {
       await setupAdminAuth(page);
       // isSystem=true 인 역할 상세 모킹
@@ -33,46 +34,4 @@ test.describe('/settings/roles/:id — 시스템 역할 필드 비활성화', ()
       await expect(nameInput).toHaveClass(/disabled:bg-muted/);
     },
   );
-
-  test(
-    '커스텀 역할 상세: 역할 이름·설명 필드와 저장 버튼이 모두 활성화',
-    async ({ adminPage: page }) => {
-      await setupAdminAuth(page);
-      // isSystem=false 인 커스텀 역할 상세 모킹
-      await setupRoleDetailMocks(page, 3, false);
-
-      await page.goto('/settings/roles/3');
-      await expect(page.getByRole('heading', { name: '역할 상세' })).toBeVisible();
-
-      // 커스텀 역할에서는 이름·설명 필드 모두 편집 가능
-      const nameInput = page.getByRole('textbox', { name: '역할 이름' });
-      await expect(nameInput).toBeEnabled();
-
-      const descriptionInput = page.getByRole('textbox', { name: '설명' });
-      await expect(descriptionInput).toBeEnabled();
-
-      // 저장 버튼도 활성화 (exact: true 로 '권한 저장' 버튼과 구분)
-      const saveButton = page.getByRole('button', { name: '저장', exact: true });
-      await expect(saveButton).toBeEnabled();
-    },
-  );
-
-  test('커스텀 역할 설명이 255자를 넘으면 칸 아래 한국어 안내가 뜨고 저장 요청을 보내지 않는다 (WP-570)', async ({
-    adminPage: page,
-  }) => {
-    await setupAdminAuth(page);
-    await setupRoleDetailMocks(page, 3, false);
-    const puts: string[] = [];
-    page.on('request', (req) => {
-      if (req.method() === 'PUT' && /\/api\/v1\/roles\/3$/.test(req.url())) puts.push(req.url());
-    });
-
-    await page.goto('/settings/roles/3');
-    await expect(page.getByRole('heading', { name: '역할 상세' })).toBeVisible();
-    await page.getByRole('textbox', { name: '설명' }).fill('x'.repeat(256));
-    await page.getByRole('button', { name: '저장', exact: true }).click();
-
-    await expect(page.getByText('역할 설명은 255자까지 쓸 수 있습니다')).toBeVisible();
-    expect(puts).toEqual([]);
-  });
 });
