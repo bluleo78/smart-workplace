@@ -18,7 +18,7 @@ pnpm --filter @smart-workplace/mcp-tools-shared build   # dist 는 git 무시라
 |---|---|
 | `apps/workplace-api/` | `cd apps/workplace-api && ./gradlew test --tests "<패키지>.*"` (예: `"com.workplace.issue.*"`) · 커밋 전 `./gradlew spotlessApply` |
 | ↳ `db/migration/` | 위에 더해 `./gradlew generateJooq` 로 `src/main/generated` 를 다시 만들어 함께 커밋. 버전 번호(`V<n>__`)가 main 의 마지막보다 큰지 rebase 뒤 다시 확인 |
-| `apps/workplace-web/` | `cd apps/workplace-web && pnpm test`(vitest 전체, 수 초) · `pnpm test:e2e e2e/<바꾼 화면 spec>` · `pnpm typecheck` |
+| `apps/workplace-web/` | `cd apps/workplace-web && pnpm test`(vitest 전체, 40초 안팎) · `pnpm test:e2e e2e/<바꾼 화면 spec>` · `pnpm typecheck` |
 | ↳ `vite.config.ts`·`src/App.tsx`·`src/main.tsx`·`e2e/fixtures/` 등 공유 설정 | `E2E_SERVER=preview pnpm test:e2e`(E2E 전체) |
 | `apps/workplace-admin/` | `cd apps/workplace-admin && pnpm test && pnpm test:e2e` |
 | `packages/mcp-tools-shared/` | `pnpm --filter @smart-workplace/mcp-tools-shared test` → `… build` → 쓰는 쪽 `pnpm --filter @smart-workplace/workplace-mcp test`·`pnpm --filter @smart-workplace/workplace-ai-agent test`·`cd apps/workplace-web && pnpm test` |
@@ -32,6 +32,20 @@ pnpm --filter @smart-workplace/mcp-tools-shared build   # dist 는 git 무시라
 - JS·TS 를 바꿨으면 `pnpm lint`·`pnpm typecheck` 도 돌린다.
 - api 테스트는 Testcontainers 가 격리 DB 를 스스로 띄운다(Docker 데몬만 필요). dev DB(5434)는 쓰지 않는다.
 - E2E 는 런마다 20000번대 랜덤 포트로 자체 Vite 를 띄우고 API 를 모킹한다 — 6173 dev 서버를 확인하거나 끄지 않는다.
+
+### 웹 테스트를 어디에 쓰나 (WP-971)
+
+새 테스트는 **기본이 vitest** 다(순수 함수 `*.test.ts`, 페이지 테스트 `*.test.tsx` + `renderPage`·MSW). 아래 이유가 있을 때만 E2E 로 쓰고 그 태그를 단다 — 태그 없는 E2E 는 `pnpm lint` 가 막는다.
+
+| 태그 | E2E 로 쓰는 경우 |
+|---|---|
+| `@layout` | 폭·겹침·넘침·스크롤 위치·정렬 — jsdom 이 못 재는 기하 |
+| `@input` | 포커스 이동·복원, IME 조합, 드래그, 길게 누르기, 호버, 붙여넣기, 파일 드롭 |
+| `@platform` | SW/PWA, 다운로드, 클립보드, 실제 SSE·collab 연결, PDF·미디어 렌더 |
+| `@wiring` | 화면당 1건 — 라우트 → 페이지 → API 실제 배선 |
+| `@flow` | 여러 화면을 넘나드는 흐름 |
+
+payload·쿼리·4xx/5xx 메시지·권한/조건부 렌더·유효성·빈/로딩 상태·문구는 vitest 다. 자세한 기준과 페이지 테스트 쓰는 법은 `apps/workplace-web/CLAUDE.md` 「테스트 종류 판정」·「단위·페이지 테스트」.
 
 ## 3. 전체 회귀
 
@@ -98,6 +112,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - 브랜치: `<커밋 타입>/<소문자 이슈 키>`(예: `feat/wp-123`, `fix/wp-123`). 커밋 타입은 [docs/COMMIT_CONVENTION.md](../docs/COMMIT_CONVENTION.md) 의 것.
 - PR 제목 `<이슈 키> <이슈 제목>`, 머지 커밋 제목 `merge: <이슈 키> <이슈 제목>`(`gh pr merge --merge` — 지금 main 이력 모양을 지킨다).
 - 브랜치 push 는 pre-push 게이트(3번 「전체 회귀」와 같은 검사, 생략 규칙 포함)를 거친다. GitHub Actions 가 없으므로 이 게이트가 머지 전 유일한 회귀다 — 검토자는 최신 origin/main 을 포함한 브랜치만 머지하고, 아니면 개발자에게 rebase 를 요청한다(검토자는 push 하지 않는다).
+- 검토자는 PR 이 더한 E2E 마다 판정 태그가 그 테스트에 맞는지 본다 — 태그가 붙어 있어도 실제로는 payload·권한·문구만 보는 테스트면 vitest 로 옮기라고 반려한다(2절 「웹 테스트를 어디에 쓰나」).
 - 마이그레이션(`db/migration/`)이 든 PR 을 rebase 하면 버전 번호(`V<n>__`)가 origin/main 의 마지막보다 큰지 다시 보고, 겹치면 올린 뒤 `./gradlew generateJooq` 결과를 함께 커밋한다.
 
 ## 8. 검토자

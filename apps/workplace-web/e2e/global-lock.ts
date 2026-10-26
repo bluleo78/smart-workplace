@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { reapOrphanWebServers } from '../scripts/e2e-orphan-webservers.mjs'
+
 // 병렬 Claude 세션 간 E2E 실행 직렬화.
 // - CPU 코어 대비 workers 비율(playwright.config.ts)은 "세션 1개"를 전제로 튜닝돼 있어,
 //   2~3개 세션이 동시에 pnpm test:e2e 를 돌리면 워커 수가 코어를 초과 구독해 지연 스파이크→
@@ -48,6 +50,8 @@ export default async function globalSetup(): Promise<() => void> {
     try {
       mkdirSync(LOCK_DIR)
       writeFileSync(PID_FILE, String(process.pid))
+      // 락을 잡은 뒤(다른 세션의 정리와 겹치지 않게) 이전에 강제 종료된 실행이 남긴 webServer 를 내린다(WP-972).
+      reapOrphanWebServers()
       break
     } catch {
       const now = Date.now()

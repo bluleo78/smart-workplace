@@ -1,5 +1,7 @@
 // 이슈 행·카드 「⋯」/우클릭 메뉴 E2E(WP-273, 데스크톱 시안 A).
-// 메뉴로 상태·담당자·우선순위·AI 위임·복사·삭제를 상세 진입 없이 수행하고, 요청 payload 와 화면 반영까지 확인한다.
+// 브라우저가 있어야 판정되는 것만 남긴다 — 호버 때만 보이는 ⋯(@input)과 클립보드 복사(@platform).
+// 메뉴 항목 구성(권한·선택)과 상태·담당자·우선순위·AI 위임·에픽·삭제 payload 는
+// 페이지 테스트 src/pages/projects/issueRowMenu.test.tsx 가 지킨다(WP-971).
 import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -72,7 +74,7 @@ async function mock(page: Page, { members = [ME, KIM, BOT] } = {}) {
 }
 
 test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
-  test('⋯ 는 호버 때만 보이고, 누르면 메뉴가 열리며 상세로 이동하지 않는다', async ({ authenticatedPage: page }) => {
+  test('⋯ 는 호버 때만 보이고, 누르면 메뉴가 열리며 상세로 이동하지 않는다', { tag: ['@input', '@wiring'] }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=list&group=none`);
     const btn = page.getByTestId('issue-row-7-menu');
@@ -91,84 +93,7 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
     await page.screenshot({ path: 'test-results/tc/issue-row-menu/desktop-row-menu.png' });
   });
 
-  // 선택지는 프로젝트 상태(시드 id 1~4, WP-808) — 고른 상태를 statusId 로 보낸다.
-  test('우클릭 → 상태 › 진행 중 → PATCH statusId, 행 아이콘이 즉시 바뀐다', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-8').click({ button: 'right' });
-    await page.getByTestId('row-menu-status').hover();
-    await page.getByTestId('row-menu-status-2').click();
-    await api.waitFor();
-    expect(api.calls()).toEqual([{ method: 'PATCH', path: `${ISSUES}/8/status`, body: { statusId: 2 } }]);
-    await expect(page.getByTestId('issue-row-menu')).toHaveCount(0);
-    await expect(page.getByTestId('issue-row-8').getByLabel('상태: 진행 중')).toBeVisible();
-  });
-
-  test('우선순위 › 높음 → PATCH issue { priority: HIGH }', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-8').click({ button: 'right' });
-    await page.getByTestId('row-menu-priority').hover();
-    await page.getByTestId('row-menu-priority-HIGH').click();
-    await api.waitFor();
-    expect(api.calls()).toEqual([{ method: 'PATCH', path: `${ISSUES}/8`, body: { priority: 'HIGH' } }]);
-  });
-
-  test('담당자 › 체크 토글은 기존 담당자를 유지한 채 추가하고, 메뉴는 열려 있다', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-7').click({ button: 'right' });
-    await page.getByTestId('row-menu-assignee').hover();
-    await expect(page.getByTestId('row-menu-assignee-2')).toHaveAttribute('aria-checked', 'true');
-    await page.getByTestId('row-menu-assignee-1').click();
-    await api.waitFor();
-    expect(api.calls()[0]).toEqual({ method: 'PUT', path: `${ISSUES}/7/assignees`, body: { userIds: [2, 1] } });
-    await expect(page.getByTestId('row-menu-assignee-1')).toHaveAttribute('aria-checked', 'true');
-    // 다시 누르면 뺀다.
-    await page.getByTestId('row-menu-assignee-2').click();
-    await api.waitFor(2);
-    expect(api.calls()[1].body).toEqual({ userIds: [1] });
-  });
-
-  test('AI에게 맡기기 → 기존 담당자 + AI 멤버로 PUT, 이미 AI 담당이면 항목이 없다', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-7').click({ button: 'right' });
-    await page.getByTestId('row-menu-ai').click();
-    await api.waitFor();
-    expect(api.calls()).toEqual([{ method: 'PUT', path: `${ISSUES}/7/assignees`, body: { userIds: [2, 99] } }]);
-    await expect(page.getByText('트리스타나에게 맡겼습니다')).toBeVisible();
-    // 낙관적 반영 — 같은 행 메뉴를 다시 열면 위임 상태라 AI 항목이 사라진다.
-    await page.getByTestId('issue-row-7').click({ button: 'right' });
-    await expect(page.getByTestId('row-menu-status')).toBeVisible();
-    await expect(page.getByTestId('row-menu-ai')).toHaveCount(0);
-  });
-
-  test('같은 메뉴에서 담당자를 뺀 뒤 AI에게 맡기면 뺀 사람을 되살리지 않는다', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-7').click({ button: 'right' });
-    await page.getByTestId('row-menu-assignee').hover();
-    await page.getByTestId('row-menu-assignee-2').click();
-    await api.waitFor();
-    // 하위 메뉴만 닫고(포인터를 옮김) 같은 메뉴에서 이어서 위임한다.
-    await page.getByTestId('row-menu-ai').hover();
-    await page.getByTestId('row-menu-ai').click();
-    await api.waitFor(2);
-    expect(api.calls().map((c) => c.body)).toEqual([{ userIds: [] }, { userIds: [99] }]);
-  });
-
-  test('에픽 › 결제 안정화 → PUT parent', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-8').click({ button: 'right' });
-    await page.getByTestId('row-menu-epic').hover();
-    await page.getByTestId('row-menu-epic-10').click();
-    await api.waitFor();
-    expect(api.calls()[0]).toMatchObject({ path: `${ISSUES}/8/parent`, body: { parentNumber: 10 } });
-  });
-
-  test('링크 복사·키 복사 — 클립보드에 상세 주소와 키가 담긴다', async ({ authenticatedPage: page, context }) => {
+  test('링크 복사·키 복사 — 클립보드에 상세 주소와 키가 담긴다', { tag: '@platform' }, async ({ authenticatedPage: page, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await mock(page);
     await page.goto(`/projects/${KEY}?view=list&group=none`);
@@ -179,76 +104,5 @@ test.describe('이슈 행 ⋯ 메뉴 — 목록(데스크톱)', () => {
     await page.getByTestId('issue-row-7').click({ button: 'right' });
     await page.getByTestId('row-menu-copy-key').click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('WP-7');
-  });
-
-  test('삭제 → 확인 다이얼로그 → DELETE, 보고자가 아니면(OWNER 도 아님) 삭제 항목이 없다', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('issue-row-8').click({ button: 'right' });
-    await expect(page.getByTestId('row-menu-status')).toBeVisible();
-    await expect(page.getByTestId('row-menu-delete')).toHaveCount(0);
-    await page.keyboard.press('Escape');
-
-    await page.getByTestId('issue-row-7').click({ button: 'right' });
-    await page.getByTestId('row-menu-delete').click();
-    await expect(page.getByRole('alertdialog')).toContainText('로그인 세션 만료 처리');
-    await page.getByRole('alertdialog').getByRole('button', { name: '삭제' }).click();
-    await api.waitFor();
-    expect(api.calls()).toEqual([{ method: 'DELETE', path: `${ISSUES}/7`, body: null }]);
-  });
-
-  test('선택된 행에서 열면 선택 전체에 적용, 선택 밖 행이면 그 행만', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=list&group=none`);
-    await page.getByTestId('select-issue-7').check();
-    await page.getByTestId('select-issue-8').check();
-
-    // 선택 밖 행(9) — 단건 메뉴.
-    await page.getByTestId('issue-row-9').click({ button: 'right' });
-    await expect(page.getByTestId('row-menu-copy-link')).toBeVisible();
-    await expect(page.getByTestId('issue-row-menu')).not.toContainText('선택한');
-    await page.keyboard.press('Escape');
-
-    // 선택된 행(8) — 「선택한 2개 이슈」, 복사·에픽·AI 없음, 우선순위 일괄.
-    await page.getByTestId('issue-row-8').click({ button: 'right' });
-    const menu = page.getByTestId('issue-row-menu');
-    await expect(menu).toContainText('선택한 2개 이슈');
-    await expect(page.getByTestId('row-menu-copy-link')).toHaveCount(0);
-    await expect(page.getByTestId('row-menu-epic')).toHaveCount(0);
-    await expect(page.getByTestId('row-menu-delete')).toContainText('2개 삭제');
-    await page.screenshot({ path: 'test-results/tc/issue-row-menu/desktop-row-menu-bulk.png' });
-    await page.getByTestId('row-menu-priority').hover();
-    await page.getByTestId('row-menu-priority-LOW').click();
-    await api.waitFor(2);
-    expect(api.calls().map((c) => [c.path, c.body]).sort()).toEqual([
-      [`${ISSUES}/7`, { priority: 'LOW' }],
-      [`${ISSUES}/8`, { priority: 'LOW' }],
-    ]);
-    // 일괄 작업 성공 → 선택 해제(일괄 바와 같은 동작).
-    await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
-  });
-});
-
-test.describe('이슈 카드 ⋯ 메뉴 — 보드(데스크톱)', () => {
-  test('카드 ⋯ → 상태 › 완료 → PATCH statusId, 상세로 이동하지 않는다', async ({ authenticatedPage: page }) => {
-    const api = await mock(page);
-    await page.goto(`/projects/${KEY}?view=board`);
-    const card = page.getByTestId('issue-card-8');
-    await card.hover();
-    await page.getByTestId('issue-card-8-menu').click();
-    await expect(page.getByTestId('issue-row-menu')).toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?view=board$`));
-    await page.screenshot({ path: 'test-results/tc/issue-row-menu/desktop-card-menu.png' });
-    await page.getByTestId('row-menu-status').hover();
-    await page.getByTestId('row-menu-status-3').click();
-    await api.waitFor();
-    expect(api.calls()).toEqual([{ method: 'PATCH', path: `${ISSUES}/8/status`, body: { statusId: 3 } }]);
-  });
-
-  test('카드 우클릭으로도 같은 메뉴가 열린다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?view=board`);
-    await page.getByTestId('issue-card-7').click({ button: 'right' });
-    await expect(page.getByTestId('row-menu-copy-key')).toContainText('WP-7');
   });
 });

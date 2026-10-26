@@ -98,4 +98,25 @@ releases/0.9.0.md" \
   "비코드 변경만 감지" \
   "vitest"
 
+# 14) 공유영역의 단위 테스트 파일만 변경 → vitest 만, E2E skip (WP-968 — 전엔 ALL 폴백으로 전체 E2E 35분)
+run_case "lib 단위 테스트 파일만 → E2E skip" \
+  "apps/workplace-web/src/lib/pluginGuide.test.ts" \
+  "단위 테스트 파일뿐 — E2E skip" \
+  "affected-domains.mjs"
+
+# 15) 평탄 페이지 옆 컴포넌트 테스트·vitest 셋업·scripts 테스트만 → 전체 E2E 로 빠지지 않음
+run_case "컴포넌트 테스트·셋업·scripts 테스트만 → E2E skip" \
+  "apps/workplace-web/src/pages/HomePage.test.tsx
+apps/workplace-web/src/test/setup.ts
+apps/workplace-web/scripts/affected-domains.test.mjs" \
+  "단위 테스트 파일뿐 — E2E skip" \
+  "전체 E2E"
+
+# 16) 테스트 파일과 그 소스가 함께 바뀌면 소스 기준으로 지금처럼 고른다
+run_case "테스트+소스 함께 → 소스 기준 그래프 선택" \
+  "apps/workplace-web/src/lib/pluginGuide.test.ts
+apps/workplace-web/src/lib/pluginGuide.ts" \
+  "affected-domains.mjs 로 영향 도메인 계산 예정: apps/workplace-web/src/lib/pluginGuide.ts" \
+  "단위 테스트 파일뿐"
+
 finish
