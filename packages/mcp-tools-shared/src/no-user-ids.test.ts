@@ -404,6 +404,7 @@ describe('프로젝트', () => {
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectComponents: vi.fn().mockResolvedValue([]),
+    getProjectVersions: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([{ id: 5, projectId: 3, name: 'S1', goal: null, startDate: null, endDate: null, status: 'ACTIVE' }]),
     // WP-356: 커스텀 필드 정의(IssueFieldDefResponse)·메타 생성/수정 응답(LabelResponse 등)은 사용자 ID 를 담지 않지만, 숫자 id·projectId 는 뺀다.

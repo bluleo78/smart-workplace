@@ -7,6 +7,7 @@ import { CLOSED_ISSUE_STATUSES } from '@/lib/closedHiding';
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
+import type { VersionResponse } from '@/types/version';
 
 import type {
   DateSpan,
@@ -17,6 +18,7 @@ import type {
   TimelineEpicGroup,
   TimelineMilestoneMarker,
   TimelinePeriod,
+  TimelineVersionMarker,
   TimelineViewOptions,
   TimelineZoom,
 } from './timelineTypes';
@@ -33,6 +35,21 @@ export function cyclesToBands(cycles: CycleResponse[]): TimelineCycleBand[] {
 /** 마일스톤 목록을 간트 마커로 변환. */
 export function milestonesToMarkers(milestones: MilestoneResponse[]): TimelineMilestoneMarker[] {
   return milestones.map((m) => ({ id: m.id, name: m.name, dueDate: m.dueDate }));
+}
+
+/**
+ * 버전 목록을 간트 ▲ 마커로 변환(WP-888) — 출시일이 있는 미출시·출시됨만(날짜 없음·보관은 그리지 않는다).
+ * 날짜 오름차순(같은 날은 이름·id)으로 돌려 겹침 배치가 마일스톤처럼 결정적이게 한다.
+ */
+export function versionsToMarkers(
+  versions: Pick<VersionResponse, 'id' | 'name' | 'releaseDate' | 'status'>[],
+): TimelineVersionMarker[] {
+  const out: TimelineVersionMarker[] = [];
+  for (const v of versions) {
+    if (!v.releaseDate || v.status === 'ARCHIVED') continue;
+    out.push({ id: v.id, name: v.name, date: v.releaseDate, status: v.status });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name) || a.id - b.id);
 }
 
 /**

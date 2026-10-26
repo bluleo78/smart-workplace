@@ -336,3 +336,41 @@ describe('구성요소 필터 왕복', () => {
     expect(overridesClosedHiding({ ...EMPTY, componentIds: [1], componentNone: true })).toBe(false);
   });
 });
+
+// WP-888: 수정 버전·영향 버전 필터 — URL fixVersion·affectsVersion = id CSV + none 토큰(각각 OR, 서로 AND 는 서버 몫).
+describe('버전 필터 왕복', () => {
+  it('fixVersion·affectsVersion 이 각자 id 로 왕복한다', () => {
+    const f = parseFilters(new URLSearchParams('fixVersion=3,5&affectsVersion=7'));
+    expect(f.fixVersionIds).toEqual([3, 5]);
+    expect(f.affectsVersionIds).toEqual([7]);
+    expect(f.fixVersionNone).toBe(false);
+    const p = filtersToParams(f, 'list', null);
+    expect(p.get('fixVersion')).toBe('3,5');
+    expect(p.get('affectsVersion')).toBe('7');
+  });
+
+  it('none 토큰은 각 필터의 「없음」으로, 이름 같은 모르는 토큰은 버린다', () => {
+    const f = parseFilters(new URLSearchParams('fixVersion=none,4,x&affectsVersion=NONE'));
+    expect(f.fixVersionIds).toEqual([4]);
+    expect(f.fixVersionNone).toBe(true);
+    expect(f.affectsVersionIds).toEqual([]);
+    expect(f.affectsVersionNone).toBe(true);
+    const p = filtersToParams(f, 'list', null);
+    expect(p.get('fixVersion')).toBe('4,none');
+    expect(p.get('affectsVersion')).toBe('none');
+  });
+
+  it('비어 있으면 키를 쓰지 않는다(모두 지우기 포함)', () => {
+    expect(filtersToParams(EMPTY, 'list', null).has('fixVersion')).toBe(false);
+    expect(filtersToParams(EMPTY, 'list', null).has('affectsVersion')).toBe(false);
+  });
+
+  it('버전 필터는 종료 이슈 숨김을 푼다 — 버전 상세의 「이슈 목록에서 열기」와 같은 묶음이 보이게', () => {
+    expect(overridesClosedHiding({ ...EMPTY, fixVersionIds: [1] })).toBe(true);
+    expect(overridesClosedHiding({ ...EMPTY, fixVersionNone: true })).toBe(true);
+    expect(overridesClosedHiding({ ...EMPTY, affectsVersionIds: [1] })).toBe(true);
+    expect(overridesClosedHiding({ ...EMPTY, affectsVersionNone: true })).toBe(true);
+    expect(withDefaultIssueScope({ ...EMPTY, fixVersionIds: [1] }).hideInactiveClosed).toBe(false);
+    expect(withDefaultIssueScope(EMPTY).hideInactiveClosed).toBe(true);
+  });
+});

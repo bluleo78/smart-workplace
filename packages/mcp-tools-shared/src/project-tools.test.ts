@@ -22,6 +22,7 @@ function mockClient(): Client {
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectLabels: vi.fn().mockResolvedValue([]),
     getProjectComponents: vi.fn().mockResolvedValue([]),
+    getProjectVersions: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([]),
     getProjectCycles: vi.fn().mockResolvedValue([]),
@@ -73,7 +74,7 @@ describe('get_project', () => {
     const c = mockClient();
     const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
     expect(c.getProject).toHaveBeenCalledWith('WP');
-    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], components: [], milestones: [], cycles: [], fields: [], statuses: [], members: [], relationTypes: [] });
+    expect(out).toEqual({ projectKey: 'WP', issueTypes: [], labels: [], components: [], versions: [], milestones: [], cycles: [], fields: [], statuses: [], members: [], relationTypes: [] });
   });
 
 
@@ -126,6 +127,30 @@ describe('get_project', () => {
     expect(out).not.toHaveProperty('components');
   });
 
+  it('WP-888: 버전 조회가 실패해도 get_project 는 돌려주고 versions 키만 생략한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectVersions).mockRejectedValue(new Error('404'));
+    const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
+    expect(out).toMatchObject({ projectKey: 'WP', issueTypes: [], labels: [], statuses: [], members: [] });
+    expect(out).not.toHaveProperty('versions');
+  });
+
+  it('WP-888: getProjectListsVersions — 이름·상태·출시일을 목록 순서대로 싣고 없는 값은 생략한다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectVersions).mockResolvedValue([
+      { id: 1, name: 'v1.0', status: 'UNRELEASED', releaseDate: '2026-12-01' },
+      { id: 2, name: 'v0.9', status: 'RELEASED', releaseDate: null },
+      { id: 3, name: 'v0.1', status: 'ARCHIVED' },
+    ]);
+    const out = JSON.parse(resultText(await tool(c, 'get_project').handler({ projectKey: 'WP' })));
+    expect(out.versions).toEqual([
+      { name: 'v1.0', status: 'UNRELEASED', releaseDate: '2026-12-01' },
+      { name: 'v0.9', status: 'RELEASED' },
+      { name: 'v0.1', status: 'ARCHIVED' },
+    ]);
+    expect(c.getProjectVersions).toHaveBeenCalledWith('WP');
+  });
+
   it('옛 파라미터 key 는 거부한다(projectKey 만)', async () => {
     const c = mockClient();
     await expect(tool(c, 'get_project').handler({ key: 'WP' })).rejects.toThrow();
@@ -171,6 +196,7 @@ describe('get_project', () => {
         { name: 'Storage' },
         { name: '옛 구성요소', archived: true },
       ],
+      versions: [],
       // WP-356: 마일스톤 기한·사이클 기간·커스텀 필드 정의(숫자 id·목표는 빼고, 없는 값은 생략)
       milestones: [{ name: 'v1.0', dueDate: '2026-12-01' }],
       cycles: [
@@ -304,6 +330,30 @@ describe('list_issues', () => {
     const c = mockClient();
     await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', component: 'Compute,none' });
     expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', component: 'Compute,none', size: 30 });
+  });
+
+  it('WP-888: listIssuesPassesVersionFilters — 버전 이름을 id 로 풀고 none 은 그대로 보낸다(숫자 이름·보관 버전 포함)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectVersions).mockResolvedValue([
+      { id: 11, name: '2026', status: 'UNRELEASED' },
+      { id: 12, name: 'v0.9', status: 'ARCHIVED' },
+    ] as never);
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', fixVersion: '2026,none', affectsVersion: 'V0.9' });
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', fixVersion: '11,none', affectsVersion: '12', size: 30 });
+  });
+
+  it('WP-888: 없는 버전 이름은 사용 가능 목록과 함께 실패하고 조회하지 않는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.getProjectVersions).mockResolvedValue([{ id: 11, name: '2026', status: 'UNRELEASED' }] as never);
+    await expect(tool(c, 'list_issues').handler({ projectKey: 'WP', assignee: 'any', fixVersion: 'v9' })).rejects.toThrow('사용 가능: 2026');
+    expect(c.listIssues).not.toHaveBeenCalled();
+  });
+
+  it('WP-888: projectKey 가 없는 교차 검색은 버전 이름을 그대로 넘긴다', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ assignee: 'any', fixVersion: 'v1.0,none' });
+    expect(c.getProjectVersions).not.toHaveBeenCalled();
+    expect(issueQuery(c)).toStrictEqual({ fixVersion: 'v1.0,none', size: 30 });
   });
 
   it('list_issues: 범주는 대문자로 맞춰 status, 이름은 statusName 으로 보낸다', async () => {
@@ -496,6 +546,8 @@ describe('list_issues', () => {
         type: { id: 6, name: 'TASK', colorToken: 'BLUE', icon: 'Circle' },
         labels: [{ id: 3, name: 'frontend', color: 'RED' }],
         components: [{ id: 21, name: 'Compute', archived: false }],
+        fixVersions: [{ id: 31, name: 'v1.0', status: 'UNRELEASED' }],
+        affectsVersions: [{ id: 32, name: 'v0.9', status: 'RELEASED' }],
         milestoneName: 'v1.0',
         parent: { number: 1, title: '에픽', type: { name: 'EPIC' }, status: 'IN_PROGRESS' },
         childCount: 3,
@@ -519,6 +571,8 @@ describe('list_issues', () => {
       closedAt: '2026-10-08T00:30:00+09:00',
       labels: ['frontend'],
       components: ['Compute'],
+      fixVersions: ['v1.0'],
+      affectsVersions: ['v0.9'],
       milestone: 'v1.0',
       parent: { issueKey: 'WP-1', title: '에픽', status: 'IN_PROGRESS' },
       children: { total: 3, done: 1 },
@@ -586,6 +640,8 @@ describe('toIssueListItem', () => {
       closedAt: null,
       labels: [],
       components: [],
+      fixVersions: [],
+      affectsVersions: [],
       milestone: null,
       parent: null,
       children: null,

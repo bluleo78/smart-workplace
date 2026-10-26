@@ -161,6 +161,7 @@ ${v.rule6}
 - "WP 프로젝트의" → projectKey: "WP"
 - 라벨 → label: 라벨 **이름** CSV(여러 개면 모두 붙은 이슈), 유형 → type: 유형 **이름** CSV(예: "BUG")
 - 구성요소 → component: 구성요소 **이름** CSV(하나라도 붙은 이슈), 없는 이슈는 "none"
+- 수정 버전 → fixVersion, 영향 버전 → affectsVersion: 버전 **이름** CSV(하나라도 붙은 이슈), 없는 이슈는 "none"
 - 없는 이름이면 도구가 사용 가능한 값 목록을 담은 오류를 돌려준다 — 그 목록에서 골라 다시 호출한다.
 
 ### 상태 (status — CSV)

@@ -10,6 +10,7 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_COMPONENT;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
+import static com.workplace.jooq.Tables.ISSUE_VERSION;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.MILESTONE;
 import static com.workplace.jooq.Tables.PROJECT;
@@ -30,6 +31,7 @@ import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.repository.KeysetSeek.SeekKey;
+import com.workplace.version.dto.VersionKind;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -629,6 +631,12 @@ public class IssueRepository {
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     where = where.and(componentCondition(query));
+    where =
+        where.and(versionCondition(VersionKind.FIX, query.fixVersionIds(), query.fixVersionNone()));
+    where =
+        where.and(
+            versionCondition(
+                VersionKind.AFFECTS, query.affectsVersionIds(), query.affectsVersionNone()));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
       // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
       where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));
@@ -1002,6 +1010,37 @@ public class IssueRepository {
   }
 
   /**
+   * 버전 필터 조건(WP-888) — kind(FIX|AFFECTS) 로 붙은 지정 버전 중 하나라도 있는(EXISTS … IN) 이슈 OR none 이면 그 종류 버전이
+   * 하나도 없는(NOT EXISTS) 이슈. 구성요소 조건과 같은 모양이고, 수정·영향 두 조건은 호출부에서 AND 로 겹친다. 둘 다 없으면 조건 미적용.
+   */
+  private org.jooq.Condition versionCondition(String kind, List<Long> ids, boolean none) {
+    org.jooq.Condition cond = noCondition();
+    if (ids != null && !ids.isEmpty()) {
+      cond =
+          cond.or(
+              exists(
+                  dsl.selectOne()
+                      .from(ISSUE_VERSION)
+                      .where(
+                          ISSUE_VERSION
+                              .ISSUE_ID
+                              .eq(ISSUE.ID)
+                              .and(ISSUE_VERSION.KIND.eq(kind))
+                              .and(ISSUE_VERSION.VERSION_ID.in(ids)))));
+    }
+    if (none) {
+      cond =
+          cond.or(
+              notExists(
+                  dsl.selectOne()
+                      .from(ISSUE_VERSION)
+                      .where(
+                          ISSUE_VERSION.ISSUE_ID.eq(ISSUE.ID).and(ISSUE_VERSION.KIND.eq(kind)))));
+    }
+    return cond;
+  }
+
+  /**
    * 라벨 필터 조건 — 그룹 간 AND, 그룹 내 OR. 그룹마다 EXISTS 를 누적한다. 그룹 하나는 필터 토큰 하나에 대응하며, 이름 토큰은 횡단 조회에서 여러
    * 프로젝트의 동명 라벨 id 로 풀리므로 그 안은 OR 이어야 한다(#841). 단일/횡단 검색이 같은 의미를 갖도록 한 곳에 둔다.
    */
@@ -1171,6 +1210,12 @@ public class IssueRepository {
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     where = where.and(componentCondition(query));
+    where =
+        where.and(versionCondition(VersionKind.FIX, query.fixVersionIds(), query.fixVersionNone()));
+    where =
+        where.and(
+            versionCondition(
+                VersionKind.AFFECTS, query.affectsVersionIds(), query.affectsVersionNone()));
     if (query.milestoneIds() != null && !query.milestoneIds().isEmpty()) {
       // 마일스톤은 issue.milestone_id 직접 컬럼 — OR 결합(IN), M:N 아니라 EXISTS 불필요
       where = where.and(ISSUE.MILESTONE_ID.in(query.milestoneIds()));

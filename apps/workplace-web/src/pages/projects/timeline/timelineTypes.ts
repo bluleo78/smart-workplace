@@ -22,6 +22,15 @@ export interface TimelineMilestoneMarker {
   dueDate: string;
 }
 
+/** 프로젝트 버전 출시일(WP-888) — 마일스톤 레인 아래 「버전」 레인의 ▲ 칩/점선으로 렌더된다. 출시일이 있는 미출시·출시됨만. */
+export interface TimelineVersionMarker {
+  id: number;
+  name: string;
+  /** 출시일 yyyy-MM-dd. */
+  date: string;
+  status: 'UNRELEASED' | 'RELEASED';
+}
+
 /** 사이클(스프린트) 구간 — 눈금 셀 배경(highlightTime)으로 표시. */
 export interface TimelineCycleBand {
   id: number;

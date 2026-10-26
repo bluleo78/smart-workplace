@@ -40,6 +40,11 @@ public record ImportIssueRequest(
     // WP-933 구성요소 이름 — 프로젝트에 이미 있는 것만(대소문자 무시, 보관된 것도 허용). 없는 이름은 만들지 않고 400 으로 거절한다.
     @Size(max = 100, message = "구성요소는 100개 이하여야 합니다.")
         List<@NotBlank(message = "구성요소 이름은 비울 수 없습니다.") String> componentNames,
+    // WP-888 수정 버전·영향 버전 이름 — 프로젝트에 이미 있는 것만(대소문자 무시, 보관·출시된 것도 허용). 없는 이름은 만들지 않고 400 으로 거절한다.
+    @Size(max = 100, message = "수정 버전은 100개 이하여야 합니다.")
+        List<@NotBlank(message = "수정 버전 이름은 비울 수 없습니다.") String> fixVersionNames,
+    @Size(max = 100, message = "영향 버전은 100개 이하여야 합니다.")
+        List<@NotBlank(message = "영향 버전 이름은 비울 수 없습니다.") String> affectsVersionNames,
     List<@NotNull(message = "사이클 id 는 비울 수 없습니다.") Long> cycleIds,
     // 목록 원소의 null 은 서비스에서 NPE(500) 가 되므로 원소마다 막는다(아래 첨부·댓글·이력도 같다).
     List<@NotNull(message = "필드 값 항목은 비울 수 없습니다.") @Valid FieldValueInput> fields,

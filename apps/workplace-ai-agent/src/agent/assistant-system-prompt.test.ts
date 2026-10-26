@@ -53,6 +53,11 @@ describe('필터 매핑 안내', () => {
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('구성요소 → component');
     expect(ASSISTANT_SYSTEM_PROMPT).toContain('"none"');
   });
+
+  it('수정 버전 → fixVersion, 영향 버전 → affectsVersion(이름 CSV, none = 버전 없음) 매핑을 안내한다 (WP-888)', () => {
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('수정 버전 → fixVersion');
+    expect(ASSISTANT_SYSTEM_PROMPT).toContain('영향 버전 → affectsVersion');
+  });
 });
 
 describe('wiki-agent 라우팅·라벨 (M3)', () => {

@@ -70,6 +70,7 @@ import com.workplace.jooq.tables.IssueLabel;
 import com.workplace.jooq.tables.IssueRelation;
 import com.workplace.jooq.tables.IssueRelationType;
 import com.workplace.jooq.tables.IssueTypeDef;
+import com.workplace.jooq.tables.IssueVersion;
 import com.workplace.jooq.tables.IssueWatcher;
 import com.workplace.jooq.tables.Label;
 import com.workplace.jooq.tables.LoginAttempts;
@@ -99,6 +100,7 @@ import com.workplace.jooq.tables.ProjectComponent;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectStatus;
+import com.workplace.jooq.tables.ProjectVersion;
 import com.workplace.jooq.tables.PushSubscription;
 import com.workplace.jooq.tables.PushVapidKey;
 import com.workplace.jooq.tables.RefreshToken;
@@ -489,6 +491,11 @@ public class Public extends SchemaImpl {
     public final IssueTypeDef ISSUE_TYPE_DEF = IssueTypeDef.ISSUE_TYPE_DEF;
 
     /**
+     * The table <code>public.issue_version</code>.
+     */
+    public final IssueVersion ISSUE_VERSION = IssueVersion.ISSUE_VERSION;
+
+    /**
      * The table <code>public.issue_watcher</code>.
      */
     public final IssueWatcher ISSUE_WATCHER = IssueWatcher.ISSUE_WATCHER;
@@ -633,6 +640,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.project_status</code>.
      */
     public final ProjectStatus PROJECT_STATUS = ProjectStatus.PROJECT_STATUS;
+
+    /**
+     * The table <code>public.project_version</code>.
+     */
+    public final ProjectVersion PROJECT_VERSION = ProjectVersion.PROJECT_VERSION;
 
     /**
      * The table <code>public.push_subscription</code>.
@@ -903,6 +915,7 @@ public class Public extends SchemaImpl {
             IssueRelation.ISSUE_RELATION,
             IssueRelationType.ISSUE_RELATION_TYPE,
             IssueTypeDef.ISSUE_TYPE_DEF,
+            IssueVersion.ISSUE_VERSION,
             IssueWatcher.ISSUE_WATCHER,
             Label.LABEL,
             LoginAttempts.LOGIN_ATTEMPTS,
@@ -932,6 +945,7 @@ public class Public extends SchemaImpl {
             ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE,
             ProjectMember.PROJECT_MEMBER,
             ProjectStatus.PROJECT_STATUS,
+            ProjectVersion.PROJECT_VERSION,
             PushSubscription.PUSH_SUBSCRIPTION,
             PushVapidKey.PUSH_VAPID_KEY,
             RefreshToken.REFRESH_TOKEN,

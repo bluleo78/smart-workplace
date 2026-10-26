@@ -11,6 +11,8 @@ export interface ProjectMetaClient {
   getProjectLabels(projectKey: string): Promise<{ id: number; name: string; colorToken?: string }[]>;
   /** GET /projects/{key}/components — 구성요소 목록(WP-933). 보관된 것도 archived 로 함께 온다. */
   getProjectComponents(projectKey: string): Promise<ProjectComponentRow[]>;
+  /** GET /projects/{key}/versions — 버전 목록(WP-888). 보관된 것도 status=ARCHIVED 로 함께 온다. */
+  getProjectVersions(projectKey: string): Promise<ProjectVersionRow[]>;
   getProjectMilestones(projectKey: string): Promise<{ id: number; name: string; dueDate?: string | null; description?: string | null }[]>;
   getProjectCycles(projectKey: string): Promise<
     { id: number; name: string; status?: string; goal?: string | null; startDate?: string | null; endDate?: string | null }[]
@@ -29,6 +31,15 @@ export interface ProjectComponentRow {
   defaultAssignee?: { username?: string | null } | null;
   /** 저장된 기본 담당자가 지금도 유효한지 — false 면 자동 지정에서 건너뛴다(WP-933). */
   defaultAssigneeValid?: boolean;
+}
+
+/** 프로젝트 버전 행(VersionResponse) — 이름 해석·get_project 표시에 쓰는 필드만(WP-888). */
+export interface ProjectVersionRow {
+  id: number;
+  name: string;
+  /** UNRELEASED·RELEASED·ARCHIVED. */
+  status: string;
+  releaseDate?: string | null;
 }
 
 /** 커스텀 필드 정의 행(IssueFieldDefResponse) — 이름 해석·값 검증에 쓰는 필드만. */
@@ -269,6 +280,58 @@ export function resolveComponentIds(names: string[], existing: ProjectComponentR
     throw new Error(`구성요소 '${part.archived[0]}' 은(는) 보관되어 새로 붙일 수 없습니다. 사용 가능: ${usable.join(', ') || '(없음)'}`);
   }
   return part.ids;
+}
+
+/**
+ * 버전 이름 → id 분류(WP-888). 구성요소와 같은 규칙(NFC·대소문자 무시·중복 하나로)이고 보관(status=ARCHIVED)만 다르다.
+ * allowArchivedIds 는 이 이슈에 같은 종류로 이미 붙어 있는 보관 버전 id — 유지는 허용이라 archived 로 치지 않는다.
+ */
+export function resolveVersionNames(
+  names: string[],
+  existing: ProjectVersionRow[],
+  options: { allowArchivedIds?: ReadonlySet<number> } = {},
+): { ids: number[]; unknown: string[]; archived: string[] } {
+  const allow = options.allowArchivedIds ?? new Set<number>();
+  const rows = existing.map((v) => ({ id: v.id, name: v.name, archived: v.status === 'ARCHIVED' && !allow.has(v.id) }));
+  try {
+    return resolveComponentNames(names, rows);
+  } catch (e) {
+    throw new Error((e as Error).message.replace('구성요소', '버전'));
+  }
+}
+
+/** 버전 이름 → id 목록. 없는 이름이면 쓸 수 있는(보관 안 된) 목록을 담아 throw, 새로 붙일 보관 버전도 throw — 쓰기 전에 실패시키려는 것(WP-888). */
+export function resolveVersionIds(names: string[], existing: ProjectVersionRow[], allowArchivedIds?: ReadonlySet<number>): number[] {
+  const usable = existing.filter((v) => v.status !== 'ARCHIVED').map((v) => v.name);
+  const part = resolveVersionNames(names, existing, { allowArchivedIds });
+  if (part.unknown.length) throw new Error(`버전 '${part.unknown[0]}' 을(를) 찾을 수 없습니다. 사용 가능: ${usable.join(', ') || '(없음)'}`);
+  if (part.archived.length) throw new Error(`버전 '${part.archived[0]}' 은(는) 보관되어 새로 붙일 수 없습니다. 사용 가능: ${usable.join(', ') || '(없음)'}`);
+  return part.ids;
+}
+
+/**
+ * list_issues 의 fixVersion·affectsVersion 이름 CSV → 서버 쿼리 토큰 CSV(WP-888). "none" 은 그대로, 나머지 이름은 id 로 바꾼다 —
+ * 서버는 숫자 토큰을 id 로 보므로 이름이 "2026"·"10" 인 버전은 이름으로 찾을 수 없어서다. 거르는 것이라 보관 버전도 허용한다.
+ * 이름 해석은 프로젝트 스코프라 projectKey 가 있을 때만 한다 — 프로젝트 없는 교차 검색은 이름을 그대로 넘긴다(숫자 이름은 서버가 id 로 읽는 한계).
+ * 없는 이름은 조회 전에 사용 가능 목록과 함께 throw 한다.
+ */
+export async function resolveVersionFilter(
+  client: Pick<ProjectMetaClient, 'getProjectVersions'>,
+  projectKey: string | undefined,
+  csv: string,
+): Promise<string> {
+  const tokens = csv.split(',').map((t) => t.trim()).filter(Boolean);
+  const names = tokens.filter((t) => t.toLowerCase() !== 'none');
+  if (!projectKey || names.length === 0) return csv;
+  const existing = await client.getProjectVersions(projectKey);
+  // 거르기라 보관 버전도 된다 — 보관 id 를 모두 허용 집합에 넣어 archived 로 치지 않게 한다.
+  const allowArchived = new Set(existing.filter((v) => v.status === 'ARCHIVED').map((v) => v.id));
+  const part = resolveVersionNames(names, existing, { allowArchivedIds: allowArchived });
+  if (part.unknown.length) {
+    throw new Error(`버전 '${part.unknown[0]}' 을(를) 찾을 수 없습니다. 사용 가능: ${existing.map((v) => v.name).join(', ') || '(없음)'}`);
+  }
+  const ids = [...part.ids.map(String)];
+  return tokens.some((t) => t.toLowerCase() === 'none') ? [...ids, 'none'].join(',') : ids.join(',');
 }
 
 /** 마일스톤 이름 → milestoneId(#854). */

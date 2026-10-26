@@ -12,6 +12,8 @@ import {
   splitLabelNames,
   resolveComponentNames,
   resolveComponentIds,
+  resolveVersionNames,
+  resolveVersionIds,
   splitStatusTokens,
   resolveStatusPatch,
   type CurrentUserClient,
@@ -36,6 +38,7 @@ function client(): ProjectMetaClient & CurrentUserClient {
       { id: 101, name: 'backend' },
     ]),
     getProjectComponents: vi.fn().mockResolvedValue([]),
+    getProjectVersions: vi.fn().mockResolvedValue([]),
     getProjectMilestones: vi.fn().mockResolvedValue([{ id: 7, name: 'v1.0' }]),
     getProjectCycles: vi.fn().mockResolvedValue([
       { id: 30, name: 'Sprint 3', status: 'ACTIVE' },
@@ -276,5 +279,35 @@ describe('resolveComponentNames (WP-933)', () => {
 
   it('빈 이름이면 throw 한다', () => {
     expect(() => resolveComponentIds([' '], existing)).toThrow('구성요소 이름이 비어 있습니다.');
+  });
+});
+
+describe('resolveVersionNames (WP-888)', () => {
+  const existing = [
+    { id: 1, name: 'v1.0', status: 'UNRELEASED' },
+    { id: 2, name: 'v0.9', status: 'RELEASED' },
+    { id: 3, name: 'v0.1', status: 'ARCHIVED' },
+  ];
+
+  it('대소문자·공백을 무시하고 같은 이름은 하나로 쳐 id 로 바꾼다(출시된 버전도 붙일 수 있다)', () => {
+    expect(resolveVersionNames([' V1.0 ', 'v1.0', 'v0.9'], existing)).toEqual({ ids: [1, 2], unknown: [], archived: [] });
+  });
+
+  it('없는 이름은 unknown, 보관(status=ARCHIVED)은 archived 로 따로 알린다', () => {
+    expect(resolveVersionNames(['v1.0', 'v9', 'v0.1'], existing)).toEqual({ ids: [1], unknown: ['v9'], archived: ['v0.1'] });
+  });
+
+  it('allowArchivedIds 에 든 보관 버전은 통과시킨다', () => {
+    expect(resolveVersionNames(['v0.1'], existing, { allowArchivedIds: new Set([3]) })).toEqual({ ids: [3], unknown: [], archived: [] });
+  });
+
+  it('resolveVersionIds 는 없는 이름이면 보관 아닌 목록을, 보관이면 새로 붙일 수 없다고 throw 한다', () => {
+    expect(() => resolveVersionIds(['v9'], existing)).toThrow("버전 'v9' 을(를) 찾을 수 없습니다. 사용 가능: v1.0, v0.9");
+    expect(() => resolveVersionIds(['v0.1'], existing)).toThrow('보관');
+    expect(resolveVersionIds(['v0.1'], existing, new Set([3]))).toEqual([3]);
+  });
+
+  it('빈 이름이면 구성요소 문구 없이 throw 한다', () => {
+    expect(() => resolveVersionIds([' '], existing)).toThrow('버전 이름이 비어 있습니다.');
   });
 });

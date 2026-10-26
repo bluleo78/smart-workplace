@@ -2,7 +2,7 @@
 // 상단 칩 줄 [기간 칩][필터 N][마일스톤 N][일정 미정 N] + 월 섹션(에픽 머리 행 아래 하위 들여쓰기) + 행마다 그 월 기준 미니 막대·오늘 선.
 // 에픽은 기본 접힘 — 왼쪽 펼침 버튼으로 하위를 보고(진행률은 제목 옆 배지), 펼침 상태는 데스크톱 간트와 공유한다(WP-251).
 // 데이터는 TimelinePage 가 이미 조회한 이슈(→ buildAgendaSections)·마일스톤 — 조회 추가 없음. 막대 드래그·마일스톤 편집은 범위 밖.
-import { CalendarRange, ChevronDown, Diamond } from 'lucide-react';
+import { CalendarRange, ChevronDown, Diamond, Triangle } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useMemo, useRef, useState } from 'react';
 
@@ -18,7 +18,7 @@ import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/m
 import { MobileFilterSheet } from '../components/mobile/MobileFilterSheet';
 import { type AgendaRow, buildAgendaSections, epicGroupKey } from './timelineData';
 import { TimelineStatusBadge } from './TimelineStatusBadge';
-import type { TimelineViewOptions } from './timelineTypes';
+import type { TimelineVersionMarker, TimelineViewOptions } from './timelineTypes';
 import { useTimelineExpanded } from './useTimelineExpanded';
 import { useTimelineFilterControls } from './useTimelineFilterControls';
 
@@ -41,6 +41,8 @@ export function TimelineAgendaList({
   projectKey,
   issues,
   milestones,
+  versions = [],
+  onOpenVersion,
   loading,
   onOpenIssue,
   view,
@@ -51,6 +53,10 @@ export function TimelineAgendaList({
   /** TimelinePage 가 조회한 이슈 전량 — 아젠다 섹션은 여기서 파생(조회 추가 없음). */
   issues: IssueResponse[];
   milestones: MilestoneResponse[];
+  /** 출시일 있는 버전(WP-888) — 「버전 N」 칩과 읽기 전용 시트. 없으면 칩을 그리지 않는다. */
+  versions?: TimelineVersionMarker[];
+  /** 시트에서 버전을 누르면 버전 상세로. */
+  onOpenVersion?: (id: number) => void;
   /** 첫 로드·자동 다음 페이지 페치 중 — 이 동안은 빈 상태를 띄우지 않는다(깜빡임 방지). */
   loading: boolean;
   onOpenIssue: (issueNumber: number) => void;
@@ -62,7 +68,7 @@ export function TimelineAgendaList({
   // 아젠다 섹션 — 이 컴포넌트는 모바일에서만 마운트되므로 데스크톱에선 계산 자체가 일어나지 않는다.
   const sections = useMemo(() => buildAgendaSections(issues, new Date(), view), [issues, view]);
   const filter = useTimelineFilterControls(projectKey, { includeAssignee: true });
-  const [sheet, setSheet] = useState<'filter' | 'milestones' | null>(null);
+  const [sheet, setSheet] = useState<'filter' | 'milestones' | 'versions' | null>(null);
   const undatedRef = useRef<HTMLElement | null>(null);
   // 「일정 미정 N」 = 미정 섹션의 마감일 없는 이슈 수(시작일만 있는 이슈 포함, WP-484) — 접힌 에픽의 하위도 센다(행이 숨어도 일정이 없는 건 같다).
   const undatedCount = sections.find((s) => s.key === 'undated')?.rows.filter((r) => !r.due).length ?? 0;
@@ -110,6 +116,12 @@ export function TimelineAgendaList({
           <button type="button" data-testid="agenda-chip-milestones" onClick={() => setSheet('milestones')} className={MOBILE_CHIP}>
             <Diamond className="size-3.5 text-ai-accent" aria-hidden />
             마일스톤 {milestones.length}
+          </button>
+        )}
+        {versions.length > 0 && (
+          <button type="button" data-testid="agenda-chip-versions" onClick={() => setSheet('versions')} className={MOBILE_CHIP}>
+            <Triangle className="size-3.5 text-info" aria-hidden />
+            버전 {versions.length}
           </button>
         )}
         {undatedCount > 0 && (
@@ -271,6 +283,31 @@ export function TimelineAgendaList({
                 <span className="min-w-0 flex-1 truncate">{m.name}</span>
                 {/* 올해가 아닌 마감일은 연도까지(WP-616) — 월·일만이면 지난 해·내년 마일스톤을 구분할 수 없었다. */}
                 <span className="shrink-0 text-sm text-muted-foreground">{formatDateOnlyMonthDay(m.dueDate)}</span>
+              </li>
+            ))}
+        </ul>
+      </MobileSheetShell>
+      {/* 버전 시트(WP-888) — 출시일 오름차순, 누르면 버전 상세로. 마일스톤 시트와 같은 모양. */}
+      <MobileSheetShell
+        open={sheet === 'versions'}
+        onClose={() => setSheet(null)}
+        title="버전"
+        description="출시일이 있는 프로젝트 버전 목록입니다."
+        testId="agenda-version-sheet"
+      >
+        <ul className="min-h-0 flex-1 overflow-y-auto pb-3">
+          {versions.map((v) => (
+              <li key={v.id}>
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full items-center gap-3 px-4 text-left text-base"
+                  data-testid={`agenda-version-${v.id}`}
+                  onClick={() => onOpenVersion?.(v.id)}
+                >
+                  <Triangle className="size-4 shrink-0 text-info" aria-hidden />
+                  <span className="min-w-0 flex-1 truncate">{v.name}</span>
+                  <span className="shrink-0 text-sm text-muted-foreground">{formatDateOnlyMonthDay(v.date)}</span>
+                </button>
               </li>
             ))}
         </ul>

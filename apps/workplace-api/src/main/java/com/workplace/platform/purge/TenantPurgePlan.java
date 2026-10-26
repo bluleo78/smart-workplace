@@ -54,6 +54,8 @@ public final class TenantPurgePlan {
           ISSUE_EXTERNAL_LINK,
           // 구성요소 연결(WP-933)은 issue·project_component 를 참조 — 이슈보다 먼저 지우고 구성요소는 프로젝트 앞에서 지운다.
           ISSUE_COMPONENT,
+          // 버전 연결(WP-888)은 issue·project_version 을 참조 — 이슈보다 먼저 지우고 버전은 프로젝트 앞에서 지운다.
+          ISSUE_VERSION,
           ISSUE_LABEL,
           ISSUE_ASSIGNEE,
           ISSUE_WATCHER,
@@ -73,6 +75,7 @@ public final class TenantPurgePlan {
           SAVED_VIEW,
           LABEL,
           PROJECT_COMPONENT, // issue_component 가 지워진 뒤(WP-933)
+          PROJECT_VERSION, // issue_version 이 지워진 뒤(WP-888)
           ISSUE_FIELD_DEF,
           PROJECT_MEMBER,
           PROJECT_ISSUE_SEQUENCE,

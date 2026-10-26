@@ -59,6 +59,11 @@ export function componentNames(components: unknown): string[] {
   return labelNames(components);
 }
 
+/** 버전 요약 배열 → 이름 배열(update_issue 의 fixVersions·affectsVersions 와 같은 값, WP-888). */
+export function versionNames(versions: unknown): string[] {
+  return labelNames(versions);
+}
+
 /** 부모 요약(ParentRef: number·title·status) → issueKey 로 가리키는 뷰. 부모는 같은 프로젝트라 projectKey 를 빌린다. 키를 못 만들면 null. */
 export function toParentView(
   parent: unknown,

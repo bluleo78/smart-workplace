@@ -7,6 +7,7 @@ import { reactionSummary } from './compact.js';
 import { formatIssueKey } from './parse.js';
 import {
   componentNames,
+  versionNames,
   labelNames,
   toAuthorView,
   toChildrenView,
@@ -89,6 +90,9 @@ export interface IssueDetail {
   labels: string[];
   /** 구성요소 이름(WP-933) — 보관된 것도 포함. */
   components: string[];
+  /** 수정 버전·영향 버전 이름(WP-888). */
+  fixVersions: string[];
+  affectsVersions: string[];
   milestone: string | null;
   parent: { issueKey: string; title: string; status: string | null; statusName?: string } | null;
   /** 하위 이슈 진행률(없으면 null). 목록은 list_issues(projectKey, q 등)로. */
@@ -120,6 +124,8 @@ const HISTORY_DROP_KEYS = new Set(['id', 'defId', 'fileId', 'typeId', 'component
 const JSON_PAYLOAD_EVENTS = new Set([
   'LABELS_CHANGED',
   'COMPONENTS_CHANGED',
+  'FIX_VERSIONS_CHANGED',
+  'AFFECTS_VERSIONS_CHANGED',
   'ASSIGNEES_CHANGED',
   'ATTACHMENTS_CHANGED',
   'TYPE_CHANGED',
@@ -216,6 +222,8 @@ export function normalizeIssueDetail(raw: unknown, options: NormalizeIssueDetail
     closedAt: toSeoulIso(s.closedAt),
     labels: labelNames(s.labels),
     components: componentNames(s.components),
+    fixVersions: versionNames(s.fixVersions),
+    affectsVersions: versionNames(s.affectsVersions),
     milestone: (s.milestoneName as string | null) ?? null,
     parent: toParentView(s.parent, s.projectKey),
     children: toChildrenView(s.childCount, s.childDoneCount),

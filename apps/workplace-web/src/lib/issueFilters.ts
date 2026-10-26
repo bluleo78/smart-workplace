@@ -61,7 +61,10 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
   // 구성요소(WP-933) — id 토큰 + 「구성요소 없음」 none 토큰(사이클 none 과 같은 규약). 이름 토큰은 화면이 만들지 않아 버린다.
   const componentRaw = params.get('component');
   const componentIds = positiveIds(componentRaw);
-  const componentNone = csv(componentRaw).some((t) => t.toLowerCase() === 'none');
+  const componentNone = hasNoneToken(componentRaw);
+  // 수정 버전·영향 버전(WP-888) — 구성요소와 같은 규약(id 토큰 + none 토큰, 이름 토큰은 화면이 만들지 않아 버린다).
+  const fixVersionRaw = params.get('fixVersion');
+  const affectsVersionRaw = params.get('affectsVersion');
   // statusId(「상태」 — 프로젝트 상태 id, WP-808) 토큰도 동일 규칙 — 양의 정수만 통과.
   // 기존 status 키는 「상태 범주」로 그대로 남아 예전 링크·저장 뷰가 범주 필터로 열린다.
   const statusIds = positiveIds(params.get('statusId'));
@@ -96,6 +99,10 @@ export function parseFilters(params: URLSearchParams): IssueFilters {
     cycleIds,
     componentIds,
     componentNone,
+    fixVersionIds: positiveIds(fixVersionRaw),
+    fixVersionNone: hasNoneToken(fixVersionRaw),
+    affectsVersionIds: positiveIds(affectsVersionRaw),
+    affectsVersionNone: hasNoneToken(affectsVersionRaw),
     milestoneIds,
     typeIds,
     parentNumber,
@@ -124,7 +131,7 @@ export function withDefaultIssueScope(f: IssueFilters): IssueFilters {
   };
 }
 
-// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 상태 범주·개별 상태(WP-808) 선택, 지난 사이클·마일스톤 선택, 완료일 기간(WP-873)은
+// 종료 이슈 숨김(#876)을 무력화하는 명시 필터 — 상태 범주·개별 상태(WP-808) 선택, 지난 사이클·마일스톤 선택, 수정·영향 버전(WP-888), 완료일 기간(WP-873)은
 // 그 묶음 전체가 대상이라 숨기지 않는다. 묶음을 고르는 필터 필드를 새로 추가하면 여기 포함 여부를 결정할 것.
 // (검색어 q 는 의도적으로 제외 — 검색도 기본 범위 안에서 동작하고, 지난 이슈는 「완료 모두 보기」로 찾는다.)
 // (에픽 선택 parent 도 제외 — 진행 중 에픽의 백로그에 지난 사이클 완료분이 쌓이지 않게 사용자 토글을 따른다.
@@ -136,6 +143,14 @@ export function overridesClosedHiding(f: IssueFilters): boolean {
     f.cycleIds.length > 0 ||
     !!f.cycleUnassigned ||
     f.milestoneIds.length > 0 ||
+    // 버전 필터(WP-888) — 「이슈 목록에서 열기」가 버전 상세처럼 종료 이슈까지 보이도록 숨기지 않는다.
+    // 단 기본 범위의 에픽·하위 작업 제외는 유형 필터를 명시할 때만 풀리므로(withDefaultIssueScope), 목록은 버전 상세와
+    // 달리 에픽·하위 작업을 보이지 않는다 — 건수가 다를 수 있다.
+    // 구성요소(component)는 여전히 숨김을 해제하지 않는다 — 버전은 출시 단위라 끝난 이슈가 정답의 대부분이다.
+    f.fixVersionIds.length > 0 ||
+    f.fixVersionNone ||
+    f.affectsVersionIds.length > 0 ||
+    f.affectsVersionNone ||
     f.closedIn != null
   );
 }
@@ -206,6 +221,10 @@ export function filtersToParams(
   if (f.cycleIds.length) p.set('cycle', f.cycleIds.join(','));
   const componentParam = componentTokens(f);
   if (componentParam) p.set('component', componentParam);
+  const fixVersionParam = versionTokens(f.fixVersionIds, f.fixVersionNone);
+  if (fixVersionParam) p.set('fixVersion', fixVersionParam);
+  const affectsVersionParam = versionTokens(f.affectsVersionIds, f.affectsVersionNone);
+  if (affectsVersionParam) p.set('affectsVersion', affectsVersionParam);
   if (f.milestoneIds.length) p.set('milestone', f.milestoneIds.join(','));
   if (f.typeIds.length) p.set('type', f.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. UI 노출은 deferred.
@@ -228,6 +247,20 @@ export function filtersToParams(
 export function componentTokens(f: Pick<IssueFilters, 'componentIds' | 'componentNone'>): string | null {
   const tokens = [...f.componentIds.map(String), ...(f.componentNone ? ['none'] : [])];
   return tokens.length ? tokens.join(',') : null;
+}
+
+/**
+ * 버전 필터(fixVersion·affectsVersion)의 파라미터 값 — id 들 뒤에 「버전 없음」 none 토큰. 비면 null(키 생략).
+ * URL(filtersToParams)과 서버 검색(issueFilterParams)이 같은 표현을 쓴다.
+ */
+export function versionTokens(ids: number[], none: boolean): string | null {
+  const tokens = [...ids.map(String), ...(none ? ['none'] : [])];
+  return tokens.length ? tokens.join(',') : null;
+}
+
+// CSV 안에 none 토큰이 있는가(대소문자 무시) — 구성요소·버전의 「없음」 규약.
+function hasNoneToken(raw: string | null): boolean {
+  return csv(raw).some((t) => t.toLowerCase() === 'none');
 }
 
 function csv(v: string | null): string[] {

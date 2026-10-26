@@ -94,6 +94,15 @@ public class IssueImportException extends RuntimeException implements CodedExcep
         Map.of("reason", "IMPORT_UNKNOWN_COMPONENTS", "components", joined));
   }
 
+  /** 프로젝트에 없는 버전 이름(WP-888) — 가져오기가 만들지 않으므로 먼저 버전 API 로 만들어 두어야 한다. */
+  public static IssueImportException unknownVersions(List<String> names) {
+    String joined = String.join(",", names);
+    return new IssueImportException(
+        HttpStatus.BAD_REQUEST,
+        "프로젝트에 없는 버전이 있습니다: " + joined,
+        Map.of("reason", "IMPORT_UNKNOWN_VERSIONS", "versions", joined));
+  }
+
   /** 외부 링크의 관계 유형 이름·코드를 찾을 수 없다. */
   public static IssueImportException unknownRelationType(String type) {
     return new IssueImportException(

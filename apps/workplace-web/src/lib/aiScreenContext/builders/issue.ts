@@ -39,6 +39,9 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
         ['유형', issue.type?.name],
         // 구성요소(WP-933) — 붙은 것이 있을 때만(빈 문자열은 buildFacts 가 뺀다).
         ['구성요소', (issue.components ?? []).map((c) => c.name).join(', ')],
+        // 수정 버전·영향 버전(WP-888) — 붙은 것이 있을 때만.
+        ['수정 버전', (issue.fixVersions ?? []).map((v) => v.name).join(', ')],
+        ['영향 버전', (issue.affectsVersions ?? []).map((v) => v.name).join(', ')],
         ['마감', issue.dueDate],
         ['상위 이슈', issue.parent ? `${projectKey}-${issue.parent.number} ${issue.parent.title}` : null],
         ['차단됨', issue.blocked],
@@ -64,6 +67,8 @@ export interface IssueListContextInput {
     statuses: { id: number; name: string }[];
     // 프로젝트 구성요소(WP-933) — 「구성요소」 필터를 이름으로 푼다(AI 도구 component 인자도 이름을 받는다).
     components?: { id: number; name: string }[];
+    // 프로젝트 버전(WP-888) — 「수정 버전」·「영향 버전」 필터를 이름으로 푼다(AI 도구 fixVersion·affectsVersion 인자도 이름을 받는다).
+    versions?: { id: number; name: string }[];
   };
   count?: number;
   hasMore?: boolean;
@@ -80,6 +85,9 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
   const assignee = [names(f.assigneeIds, memberList), f.includeUnassigned ? '미할당' : ''].filter(Boolean).join(', ');
   // 구성요소 — 이름 + 「구성요소 없음」(필터 바 문구 그대로).
   const component = [names(f.componentIds, lookups.components ?? []), f.componentNone ? '구성요소 없음' : ''].filter(Boolean).join(', ');
+  // 수정 버전·영향 버전 — 이름 + 「… 버전 없음」(필터 바 문구 그대로).
+  const fixVersion = [names(f.fixVersionIds, lookups.versions ?? []), f.fixVersionNone ? '수정 버전 없음' : ''].filter(Boolean).join(', ');
+  const affectsVersion = [names(f.affectsVersionIds, lookups.versions ?? []), f.affectsVersionNone ? '영향 버전 없음' : ''].filter(Boolean).join(', ');
   const scope = withListState({
     label: clip(`프로젝트 ${input.projectName} 이슈 목록`, LIMITS.label),
     refs: buildRefs({ projectKey: input.projectKey }),
@@ -94,6 +102,8 @@ export function buildIssueListContext(input: IssueListContextInput): AiScreenCon
         ['우선순위', joinMapped(f.priorities, ISSUE_PRIORITY_LABEL)],
         ['라벨', names(f.labelIds, lookups.labels)],
         ['구성요소', component],
+        ['수정 버전', fixVersion],
+        ['영향 버전', affectsVersion],
         ['유형', names(f.typeIds, lookups.types)],
         ['마감', dueRange(f.dueFrom, f.dueTo)],
         // 완료일 기간(WP-873) — 화면 칩과 같은 문구(프리셋은 이름+기간)로 AI 가 「지난 주 완료한 것」을 같은 범위로 안다.

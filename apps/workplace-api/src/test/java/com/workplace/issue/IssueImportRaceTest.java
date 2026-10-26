@@ -81,6 +81,8 @@ class IssueImportRaceTest extends IssueImportTestSupport {
         null,
         null,
         null,
+        null,
+        null,
         username(reporter),
         null,
         null,

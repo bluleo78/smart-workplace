@@ -11,6 +11,7 @@ import {
   formatParentChanged,
   formatRelationChanged,
   formatStatusMigrated,
+  formatVersionsChanged,
   historyPriorityLabel,
   historyStatusLabel,
 } from './issueHistoryLabels';
@@ -175,5 +176,19 @@ describe('formatLabelsChanged / formatAttachmentsChanged', () => {
     expect(formatAttachmentsChanged(JSON.stringify({ added: [], removed: [] }))).toBe('변경 없음');
     expect(formatAttachmentsChanged(null)).toBe('첨부 변경');
     expect(formatAttachmentsChanged('{oops')).toBe('{oops');
+  });
+});
+
+describe('formatVersionsChanged', () => {
+  it('추가·제거를 + / - 로, 저장된(당시) 이름 그대로', () => {
+    expect(formatVersionsChanged(JSON.stringify({ added: [{ id: 1, name: '1.2' }], removed: [] }))).toBe('+ 1.2');
+    expect(formatVersionsChanged(JSON.stringify({ added: [], removed: [{ id: 2, name: '옛 이름' }] }))).toBe('- 옛 이름');
+    expect(
+      formatVersionsChanged(JSON.stringify({ added: [{ id: 1, name: 'A' }], removed: [{ id: 2, name: 'B' }, { id: 3, name: 'C' }] })),
+    ).toBe('+ A / - B, C');
+  });
+  it('빈 값은 「버전 변경」, 깨진 JSON 은 원문', () => {
+    expect(formatVersionsChanged(null)).toBe('버전 변경');
+    expect(formatVersionsChanged('{oops')).toBe('{oops');
   });
 });

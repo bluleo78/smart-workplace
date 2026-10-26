@@ -22,6 +22,13 @@ const COMPONENTS = [
   { id: 23, name: '옛 구성요소', archived: true, defaultAssignee: null },
 ];
 
+/** 프로젝트 버전 mock(GET /projects/{key}/versions) — 미출시·출시됨 + 보관 하나(WP-888). */
+const VERSIONS = [
+  { id: 31, name: 'v1.0', status: 'UNRELEASED' },
+  { id: 32, name: 'v0.9', status: 'RELEASED' },
+  { id: 33, name: 'v0.1', status: 'ARCHIVED' },
+];
+
 /** 전 메서드 vi.fn() 인 mock. 개별 테스트에서 필요한 것만 재설정. */
 function mockClient(): IssueToolClient {
   return {
@@ -30,7 +37,9 @@ function mockClient(): IssueToolClient {
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
     getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: 'urgent' }]),
     getProjectComponents: vi.fn().mockResolvedValue(COMPONENTS),
+    getProjectVersions: vi.fn().mockResolvedValue(VERSIONS),
     replaceIssueComponents: vi.fn().mockResolvedValue([]),
+    replaceIssueVersions: vi.fn().mockResolvedValue({ fixVersions: [], affectsVersions: [] }),
     getIssueDetail: vi.fn(),
     createIssue: vi.fn().mockResolvedValue({ ok: true }),
     updateIssueContent: vi.fn().mockResolvedValue({}),
@@ -410,6 +419,87 @@ describe('buildSharedIssueTools', () => {
     vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { components: [{ id: 23, name: '옛 구성요소', archived: true }] } });
     await t.handler({ issueKey: 'WP-12', components: ['옛 구성요소', 'Compute'] });
     expect(c.replaceIssueComponents).toHaveBeenCalledWith('WP-12', [23, 21]);
+  });
+
+  it('WP-888: createIssueSetsVersionsAfterCreate — 이름을 해석해 이슈를 만든 뒤 PUT versions 로 두 종류를 붙이고 결과에 싣는다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ number: 7, issueKey: 'WP-7', title: 'x' });
+    vi.mocked(c.replaceIssueVersions).mockResolvedValue({ fixVersions: [{ id: 31, name: 'v1.0', status: 'UNRELEASED' }], affectsVersions: [{ id: 32, name: 'v0.9', status: 'RELEASED' }] });
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: 'x', fixVersions: ['V1.0'], affectsVersions: ['v0.9'] })));
+    expect(vi.mocked(c.createIssue).mock.calls[0][1]).not.toHaveProperty('fixVersionIds');
+    expect(c.replaceIssueVersions).toHaveBeenCalledWith('WP-7', { fixVersionIds: [31], affectsVersionIds: [32] });
+    expect(out).toMatchObject({ issueKey: 'WP-7', fixVersions: ['v1.0'], affectsVersions: ['v0.9'] });
+    expect(out).not.toHaveProperty('versionsError');
+  });
+
+  it('WP-888: create_issue 는 버전을 안 주면 버전 조회·PUT 을 하지 않는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await t.handler({ projectKey: 'WP', title: 'x' });
+    expect(c.getProjectVersions).not.toHaveBeenCalled();
+    expect(c.replaceIssueVersions).not.toHaveBeenCalled();
+  });
+
+  it('WP-888: unknownVersionFailsBeforeWrite — 없는 버전 이름이면 이슈를 만들지 않고 사용 가능 목록을 담아 throw 한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', fixVersions: ['v9'] })).rejects.toThrow('사용 가능: v1.0, v0.9');
+    expect(c.createIssue).not.toHaveBeenCalled();
+    expect(c.replaceIssueVersions).not.toHaveBeenCalled();
+  });
+
+  it('WP-888: archivedVersionFailsOnCreate — 보관된 버전은 이슈를 만들기 전에 거절한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    await expect(t.handler({ projectKey: 'WP', title: 'x', affectsVersions: ['v0.1'] })).rejects.toThrow('보관');
+    expect(c.createIssue).not.toHaveBeenCalled();
+  });
+
+  it('WP-888: 만든 뒤 버전 붙이기가 실패하면 이슈는 남기고 versionsError 로 알린다', async () => {
+    const c = mockClient();
+    vi.mocked(c.createIssue).mockResolvedValue({ number: 7, issueKey: 'WP-7', title: 'x' });
+    vi.mocked(c.replaceIssueVersions).mockRejectedValue(new Error('서버 오류'));
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ projectKey: 'WP', title: 'x', fixVersions: ['v1.0'] })));
+    expect(out.issueKey).toBe('WP-7');
+    expect(out.versionsError).toContain('서버 오류');
+  });
+
+  it('WP-888: updateReplacesOnlyGivenKind — fixVersions 만 주면 PUT 본문에 그 종류만 싣는다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    const out = JSON.parse(resultText(await t.handler({ issueKey: 'WP-12', fixVersions: ['v1.0', 'v0.9'] })));
+    expect(c.replaceIssueVersions).toHaveBeenCalledWith('WP-12', { fixVersionIds: [31, 32] });
+    expect(out).toEqual({ ok: true, results: { versions: 'ok' } });
+  });
+
+  it('WP-888: update_issue 의 affectsVersions: [] 는 조회 없이 그 종류만 비운다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await t.handler({ issueKey: 'WP-12', affectsVersions: [] });
+    expect(c.getProjectVersions).not.toHaveBeenCalled();
+    expect(c.replaceIssueVersions).toHaveBeenCalledWith('WP-12', { affectsVersionIds: [] });
+  });
+
+  it('WP-888: update_issue 는 없는 버전이면 다른 필드도 쓰지 않고 throw 한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    await expect(t.handler({ issueKey: 'WP-12', title: '바꿈', fixVersions: ['v9'] })).rejects.toThrow('사용 가능: v1.0, v0.9');
+    expect(c.updateIssueContent).not.toHaveBeenCalled();
+    expect(c.replaceIssueVersions).not.toHaveBeenCalled();
+  });
+
+  it('WP-888: updateKeepsAttachedArchived — 같은 종류로 이미 붙은 보관 버전은 유지하고, 새로 붙이는 보관 버전·다른 종류는 거절한다', async () => {
+    const c = mockClient();
+    const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+    vi.mocked(c.getIssueDetail).mockResolvedValue({ summary: { fixVersions: [{ id: 33, name: 'v0.1', status: 'ARCHIVED' }], affectsVersions: [] } });
+    await t.handler({ issueKey: 'WP-12', fixVersions: ['v0.1', 'v1.0'] });
+    expect(c.replaceIssueVersions).toHaveBeenCalledWith('WP-12', { fixVersionIds: [33, 31] });
+    // 수정 버전으로 붙은 보관 버전은 영향 버전으로는 새로 붙이는 것이라 거절된다.
+    vi.mocked(c.replaceIssueVersions).mockClear();
+    await expect(t.handler({ issueKey: 'WP-12', affectsVersions: ['v0.1'] })).rejects.toThrow('보관');
+    expect(c.replaceIssueVersions).not.toHaveBeenCalled();
   });
 
   it('WP-745: update_issue 는 유형과 부모를 함께 바꾸면 유형 요청 하나에 부모를 실어 보낸다', async () => {

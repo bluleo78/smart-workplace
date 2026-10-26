@@ -446,7 +446,8 @@ public class GlobalExceptionHandler {
     RequestedStatusNotFoundException.class,
     com.workplace.issue.exception.IssueImportException.class,
     com.workplace.issue.exception.IssueRelationException.class,
-    com.workplace.component.exception.ComponentException.class
+    com.workplace.component.exception.ComponentException.class,
+    com.workplace.version.exception.VersionException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {

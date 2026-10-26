@@ -7,6 +7,7 @@ import type { IssueTypeSummary } from './issueType';
 import type { LabelSummary } from './label';
 import type { ReactionResponse } from './messaging';
 import type { UserSummary } from './user';
+import type { VersionSummary } from './version';
 
 export type IssueStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'CANCELED';
 /**
@@ -134,6 +135,9 @@ export interface IssueResponse {
   labels: LabelSummary[];
   // 붙은 구성요소(WP-933, 목록 순서) — 구버전 서버(롤링 배포 중) 응답엔 없어 optional(읽을 때 `?? []`).
   components?: ComponentSummary[];
+  // 붙은 수정 버전·영향 버전(WP-888, 목록 순서) — 구버전 서버 응답엔 없어 optional(읽을 때 `?? []`).
+  fixVersions?: VersionSummary[];
+  affectsVersions?: VersionSummary[];
   // 이슈에 부착된 첨부 개수 — N+1 회피용 카운트 (목록 카드 표시).
   attachmentCount: number;
   // 이슈 유형 요약 — 검색·상세 응답에는 항상 채워지지만,
@@ -211,7 +215,10 @@ export type IssueHistoryEventType =
   | 'EXTERNAL_LINK_UPDATED'
   | 'EXTERNAL_LINK_REMOVED'
   // 구성요소 추가·제거(WP-933). toValue = {added:[{id,name}], removed:[{id,name}]} — 당시 이름.
-  | 'COMPONENTS_CHANGED';
+  | 'COMPONENTS_CHANGED'
+  // 수정 버전·영향 버전 추가·제거(WP-888). toValue = {added:[{id,name}], removed:[{id,name}]} — 당시 이름.
+  | 'FIX_VERSIONS_CHANGED'
+  | 'AFFECTS_VERSIONS_CHANGED';
 
 export interface IssueHistoryEntry {
   id: number;
@@ -423,6 +430,11 @@ export interface IssueFilters {
   componentIds: number[];
   // 「구성요소 없음」 — component 파라미터의 none 토큰. componentIds 와 OR.
   componentNone: boolean;
+  // 수정 버전·영향 버전 OR 필터(WP-888) — URL·서버 키 fixVersion·affectsVersion. 두 필터는 서로 AND, 각 none 토큰은 그 필터의 id 와 OR.
+  fixVersionIds: number[];
+  fixVersionNone: boolean;
+  affectsVersionIds: number[];
+  affectsVersionNone: boolean;
   // 다중 마일스톤 OR 필터 — 선택된 마일스톤 중 하나에 연결된 이슈 매칭 (#620).
   milestoneIds: number[];
   // 다중 유형 OR 필터 — 선택된 유형 중 하나에 속한 이슈 매칭.

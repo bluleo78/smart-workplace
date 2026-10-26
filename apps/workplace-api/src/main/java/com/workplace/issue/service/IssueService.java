@@ -70,6 +70,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.repository.UserRepository;
+import com.workplace.version.repository.VersionRepository;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
@@ -151,6 +152,8 @@ public class IssueService {
 
   /** 구성요소(WP-933) — 생성 시 이슈 ↔ 구성요소 연결. */
   private final IssueComponentRepository issueComponentRepository;
+
+  private final VersionRepository versionRepository;
 
   /** 해석된 프로젝트 상태(WP-807) — 이슈에 쓸 상태 id·범주·이름·색(WP-870, 생성 응답을 재조회 없이 채운다). */
   record ResolvedStatus(long id, String category, String name, String color) {
@@ -737,6 +740,13 @@ public class IssueService {
     return componentRepository.summariesByIssue(issueId);
   }
 
+  /** 한 이슈에 붙은 수정·영향 버전 요약(목록 순서, 한 쿼리, WP-888) — 없으면 빈 쌍. */
+  private VersionRepository.IssueVersionSummaries versionsOf(long issueId) {
+    return versionRepository
+        .summariesByIssueIdsBothKinds(List.of(issueId))
+        .getOrDefault(issueId, VersionRepository.IssueVersionSummaries.EMPTY);
+  }
+
   /** 프로젝트 내 이슈 목록 페이지 조회. */
   @Transactional(readOnly = true)
   public PageResponse<IssueResponse> list(Long callerId, String projectKey, int page, int size) {
@@ -789,6 +799,8 @@ public class IssueService {
     // Phase 4c — custom field 값 batch (단일 이슈 경로도 동일 API).
     var fieldsByIssue = fieldValueRepository.findByIssueIds(ids);
     // 이미 로드된 IssueResponse 로 블로커를 결정적으로 계산한다(새 쿼리 0).
+    // WP-888 — 수정·영향 버전을 한 쿼리로 읽는다.
+    var versions = versionsOf(row.id());
     var summaryResponse =
         IssueResponse.fromWithCustomFields(
                 project.key(),
@@ -805,7 +817,8 @@ public class IssueService {
                 blockedMap.getOrDefault(row.id(), false),
                 fieldsByIssue.getOrDefault(row.id(), List.of()))
             .withAgentWork(agentWorkService.viewsByIssueIds(ids).getOrDefault(row.id(), List.of()))
-            .withComponents(componentsOf(row.id()));
+            .withComponents(componentsOf(row.id()))
+            .withVersions(versions.fix(), versions.affects());
     // AI Instant Context: 항상 반환 — 블로커는 항상 계산, summary/nextAction/generatedAt 은 저장본 없으면 null.
     // 생성 버튼은 항상 렌더(aiContext non-null)해야 하므로 저장본/블로커 여부와 무관하게 인스턴스화.
     var blockers = blockerCalculator.compute(summaryResponse, LocalDate.now(), Instant.now());

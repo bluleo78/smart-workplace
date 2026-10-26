@@ -17,6 +17,11 @@ public enum IssueHistoryEventType {
   // 구성요소 추가/제거(WP-933) — payload: {added:[{id,name}], removed:[{id,name}]}. 라벨과 같은 모양이며 화면은 저장된(당시)
   // 이름을 그대로 보여 준다.
   COMPONENTS_CHANGED,
+  // 수정 버전·영향 버전 추가/제거(WP-888) — payload: {added:[{id,name}], removed:[{id,name}]}. 종류마다 한 건씩, 화면은
+  // 저장된(당시) 이름을 그대로
+  // 보여 준다.
+  FIX_VERSIONS_CHANGED,
+  AFFECTS_VERSIONS_CHANGED,
   ATTACHMENTS_CHANGED,
   TYPE_CHANGED,
   // 부모(SUBTASK) 변경/해제 — Phase 4a.

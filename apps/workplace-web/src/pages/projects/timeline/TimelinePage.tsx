@@ -15,6 +15,7 @@ import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
+import { useVersions } from '../../../hooks/queries/useVersions';
 import { parseFilters } from '../../../lib/issueFilters';
 import type { IssueFilters } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
@@ -23,7 +24,7 @@ import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
 import { MilestoneEditPopover } from './MilestoneEditPopover';
 import { MilestoneFormDialog } from './MilestoneFormDialog';
 import { TimelineAgendaList } from './TimelineAgendaList';
-import { initialScrollDate, resolvePeriod } from './timelineData';
+import { initialScrollDate, resolvePeriod, versionsToMarkers } from './timelineData';
 import type { TimelineScrollRequest } from './TimelineGantt';
 import { TimelineGanttBody } from './TimelineGanttBody';
 import { TimelinePeriodChip } from './TimelinePeriodChip';
@@ -62,6 +63,9 @@ export default function TimelinePage() {
   useDocumentTitle(['타임라인', project.data?.name]);
   const search = useIssueSearch(key, effectiveFilters, 100);
   const milestones = useMilestones(key);
+  // 버전 출시일(WP-888) — 출시일 있는 미출시·출시됨만 「버전」 레인/모바일 칩으로. 개인 프로젝트는 버전이 없어 요청하지 않는다.
+  const versions = useVersions(key, { enabled: !!project.data && project.data.type !== 'PERSONAL' });
+  const versionMarkers = useMemo(() => versionsToMarkers(versions.data ?? []), [versions.data]);
   // 조회 기간(WP-247) — 화면 거름은 상태 필터의 「취소」 포함 여부와 함께 간트·아젠다에 넘긴다(조회 자체는 전량 그대로).
   const periodCtl = useTimelinePeriod(key);
 
@@ -198,6 +202,8 @@ export default function TimelinePage() {
                 projectKey={key}
                 issues={issues}
                 milestones={milestones.data ?? []}
+                versions={versionMarkers}
+                onOpenVersion={(id) => navigate(`/projects/${key}/versions/${id}`)}
                 loading={issuesLoading}
                 onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
                 view={view}
@@ -209,6 +215,8 @@ export default function TimelinePage() {
                 projectKey={key}
                 issues={issues}
                 milestones={milestones.data}
+                versions={versionMarkers}
+                onVersionClick={(id) => navigate(`/projects/${key}/versions/${id}`)}
                 zoom={zoom}
                 readOnly={readOnly}
                 scrollRequest={scrollRequest}

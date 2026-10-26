@@ -32,6 +32,7 @@ import com.workplace.label.dto.LabelSummary;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import com.workplace.version.repository.VersionRepository;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -75,6 +76,7 @@ public class IssueSearchService {
   private final MeIssueGroupedRepository groupedRepository;
   // WP-933: 목록 항목에 붙은 구성요소를 싣는다.
   private final com.workplace.component.repository.ComponentRepository componentRepository;
+  private final VersionRepository versionRepository;
 
   /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
   private static final java.util.Set<String> COUNTABLE_GROUPS =
@@ -101,8 +103,9 @@ public class IssueSearchService {
 
   /**
    * 검색. params 키: q, status, statusId·statusName(WP-807), assignee, priority, dueFrom, dueTo,
-   * label, type, component(WP-933, id·이름·none), cursor, size, watching(WP-356, true 만).
-   * assignee·reporter 는 me/숫자 id/username, label·type 은 숫자 id/이름을 받는다(#841).
+   * label, type, component(WP-933, id·이름·none), fixVersion·affectsVersion(WP-888, id·이름·none),
+   * cursor, size, watching(WP-356, true 만). assignee·reporter 는 me/숫자 id/username, label·type 은 숫자
+   * id/이름을 받는다(#841).
    */
   public IssueSearchResponse search(Long callerId, String projectKey, Map<String, String> params) {
     // read 진입점 — OPEN 프로젝트는 테넌트 전원이 보드/목록을 조회할 수 있다(assertReadable). TEAM/PERSONAL 은 멤버만.
@@ -315,6 +318,8 @@ public class IssueSearchService {
     var cyclesByIssue = issueCycleRepository.findCyclesByIssueIds(issueIds);
     // WP-933 — 구성요소 batch(이슈별 목록 순서, N+1 회피). 없는 이슈는 빈 배열.
     var componentsByIssue = componentRepository.summariesByIssueIds(issueIds);
+    // WP-888 — 수정·영향 버전 batch(한 쿼리, N+1 회피). 없는 이슈는 빈 배열.
+    var versionsByIssue = versionRepository.summariesByIssueIdsBothKinds(issueIds);
     return rows.stream()
         .map(
             r ->
@@ -336,7 +341,14 @@ public class IssueSearchService {
                     .withListExtras(
                         r.reporterId() == null ? null : reporterById.get(r.reporterId()),
                         cyclesByIssue.getOrDefault(r.id(), List.of()))
-                    .withComponents(componentsByIssue.getOrDefault(r.id(), List.of())))
+                    .withComponents(componentsByIssue.getOrDefault(r.id(), List.of()))
+                    .withVersions(
+                        versionsByIssue
+                            .getOrDefault(r.id(), VersionRepository.IssueVersionSummaries.EMPTY)
+                            .fix(),
+                        versionsByIssue
+                            .getOrDefault(r.id(), VersionRepository.IssueVersionSummaries.EMPTY)
+                            .affects()))
         .toList();
   }
 
@@ -427,6 +439,24 @@ public class IssueSearchService {
             projectId,
             callerId);
 
+    // 수정 버전·영향 버전 CSV(WP-888) — 구성요소와 같은 규약(id 또는 이름·대소문자 무시·보관 포함, OR, 'none' = 그 종류 버전이 없는 이슈).
+    // 두 필터는 서로 AND. 못 찾는 이름은 400.
+    var versionCandidates = filterResolver.versionCandidates(projectId, callerId);
+    var fixTokens = csv(p.get("fixVersion"));
+    boolean fixVersionNone = fixTokens.stream().anyMatch("none"::equalsIgnoreCase);
+    List<Long> fixVersionIds =
+        filterResolver.resolveVersionIds(
+            "fixVersion",
+            fixTokens.stream().filter(t -> !"none".equalsIgnoreCase(t)).toList(),
+            versionCandidates);
+    var affectsTokens = csv(p.get("affectsVersion"));
+    boolean affectsVersionNone = affectsTokens.stream().anyMatch("none"::equalsIgnoreCase);
+    List<Long> affectsVersionIds =
+        filterResolver.resolveVersionIds(
+            "affectsVersion",
+            affectsTokens.stream().filter(t -> !"none".equalsIgnoreCase(t)).toList(),
+            versionCandidates);
+
     // 마일스톤 CSV — 숫자 id 또는 마일스톤 이름, OR 결합 필터. 못 찾는 이름은 400(WP-735).
     List<Long> milestoneIds =
         filterResolver.resolveMilestoneIds(csv(p.get("milestone")), projectId, callerId);
@@ -506,7 +536,11 @@ public class IssueSearchService {
         pendingForUserId,
         statusIds,
         componentIds,
-        componentNone);
+        componentNone,
+        fixVersionIds,
+        fixVersionNone,
+        affectsVersionIds,
+        affectsVersionNone);
   }
 
   private static LocalDate parseDate(String s) {

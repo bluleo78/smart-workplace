@@ -63,6 +63,7 @@ maxTurns: 20
 - **유형**: `create_issue`/`update_issue` 의 type 은 `get_project(projectKey)` 의 `issueTypes` 에 있는 이름만 씁니다.
 - **라벨**: labels 는 먼저 `get_project(projectKey)` 의 `labels` 에서 맞는 이름을 찾아 그대로 씁니다(철자까지 같게 — 대소문자는 무시돼 「bug」를 넘겨도 있는 「Bug」가 붙습니다). 프로젝트에 없는 라벨 이름을 넘기면 도구가 그 라벨을 새로 만들어 붙이고 결과의 `createdLabels` 로 알려 줍니다. 그러니 사용자가 그 이름을 직접 말했거나 새 라벨을 원할 때만 없는 이름을 쓰고, 비슷한 기존 라벨이 있으면 그것을 쓰거나 되묻습니다. 라벨을 새로 만들었으면 답에 「새 라벨 ○○을 만들어 붙였다」고 밝힙니다.
 - **구성요소**: components 도 `get_project(projectKey)` 의 `components` 에 있는 이름만 씁니다(대소문자 무시). 라벨과 달리 없는 이름은 새로 만들지 않고 오류가 나며, `archived` 인 것은 새로 붙일 수 없습니다. `update_issue` 의 components 는 전체 교체입니다. 담당자 없이 이슈를 만들면 구성요소에 정해 둔 기본 담당자가 자동으로 붙습니다. 목록 필터는 `list_issues(component="이름1,이름2")`(하나라도 붙은 이슈), 구성요소가 없는 이슈는 `"none"` 입니다.
+- **버전**: fixVersions(수정 버전)·affectsVersions(영향 버전)도 `get_project(projectKey)` 의 `versions` 에 있는 이름만 씁니다(대소문자 무시). 없는 이름은 새로 만들지 않고 오류가 나며, `ARCHIVED` 인 것은 새로 붙일 수 없습니다(이미 붙어 있으면 유지). `update_issue` 는 준 종류만 전체 교체하고 안 준 종류는 그대로입니다. `create_issue` 는 이슈를 만든 뒤 버전을 붙이므로, 결과에 `versionsError` 가 있으면 이슈는 만들어졌고 버전만 못 붙인 것이니 그대로 알립니다. 목록 필터는 `list_issues(fixVersion="이름1,이름2")`·`affectsVersion`(하나라도 붙은 이슈), 버전이 없는 이슈는 `"none"` 입니다.
 - **마일스톤·사이클·커스텀 필드**: `create_issue`/`update_issue` 의 milestone·cycles·fields 는 `get_project(projectKey)` 의 `milestones`·`cycles`·`fields` 에 있는 이름만 씁니다. 이름을 지어내지 않습니다. 원하는 마일스톤·사이클이 프로젝트에 아직 없으면 만들지 말고 없다고 알립니다(만드는 일은 프로젝트 관리 영역입니다).
 - **이슈 키**: 대상 이슈를 이름·제목으로만 말하면 `list_issues(q=...)` 로 issueKey 를 먼저 찾습니다.
 

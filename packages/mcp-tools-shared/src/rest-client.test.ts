@@ -398,6 +398,15 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.put).toHaveBeenLastCalledWith('/projects/WP/issues/3/components', { componentIds: [21] });
   });
 
+  it('WP-888: 버전 — 목록은 /projects/{key}/versions(없으면 빈 배열), 교체는 PUT .../versions 에 준 종류만', async () => {
+    const { http, client } = mockHttp();
+    expect(await client.getProjectVersions('WP')).toEqual([]);
+    expect(http.get).toHaveBeenLastCalledWith('/projects/WP/versions');
+    http.put.mockResolvedValueOnce({ data: { fixVersions: [], affectsVersions: [] } });
+    await client.replaceIssueVersions('WP-3', { fixVersionIds: [31] });
+    expect(http.put).toHaveBeenLastCalledWith('/projects/WP/issues/3/versions', { fixVersionIds: [31] });
+  });
+
   it('WP-887: 관계·외부 링크 경로 — 추가는 POST 본문 그대로, 삭제는 id 경로, 유형 목록은 /issue-relation-types', async () => {
     const { http, client } = mockHttp();
     http.post.mockResolvedValueOnce({ data: [{ id: 5 }] });
