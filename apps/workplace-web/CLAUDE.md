@@ -14,7 +14,7 @@ pnpm build            # tsc 검증 + Vite production 빌드
 pnpm preview          # production 빌드 미리보기
 pnpm lint             # ESLint
 pnpm typecheck        # tsc -b --noEmit
-pnpm test             # vitest 단위·페이지·컴포넌트 테스트 (src/**/*.test.ts · *.test.tsx, 40초 안팎)
+pnpm test             # vitest 단위·페이지·컴포넌트 테스트 (src/**/*.test.ts · *.test.tsx, 3분 안팎 — 페이지 테스트 빼면 40초 안팎)
 pnpm e2e:tag-baseline # E2E 판정 태그 기준선(e2e/untagged-baseline.json) 갱신 — 이관 뒤 낮출 때
 pnpm test:e2e         # Playwright E2E (Vite dev 자동 기동)
 E2E_SERVER=preview pnpm test:e2e  # 빌드 결과물 서빙 (전체 스위트용)
@@ -101,7 +101,7 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
 ## 단위·페이지 테스트 (vitest)
 
 - 설정: `vitest.config.ts` — 프로젝트 둘. **node**: `src/**/*.test.ts`(DOM 이 필요한 파일만 `// @vitest-environment jsdom`). **dom**: `src/**/*.test.tsx`(jsdom + React Testing Library + MSW, 셋업 `src/test/setup.ts`)
-- pre-commit(web 변경 시)·pre-push 게이트가 **항상 전체 실행**한다(3천여 건, 40초 안팎) — 게이트에 없던 동안 3건이 깨진 채 방치됐었다(WP-79)
+- pre-commit(web 변경 시)은 **페이지 테스트를 뺀 전체**(`VITEST_SKIP_PAGE_TESTS=1`, 40초 안팎), pre-push 는 **페이지 테스트까지 전체**(3분 안팎)를 돌린다 — 게이트에 없던 동안 3건이 깨진 채 방치됐었다(WP-79). 페이지 테스트는 파일마다 App 전체를 띄워 파일당 10초 안팎이 든다(WP-995)
 - **순수 함수(`*.test.ts`)**: 화면 안의 한 줄짜리 권한·비활성 판정도 순수 함수로 꺼내 지킨다(예: `lib/projectPermissions`·`lib/driveRowActions`·`lib/issueRowMenu`)
 - **페이지 테스트(`*.test.tsx` + `renderPage`, WP-971)**: `renderPage(path, { user, roles, handlers })`(`src/test/renderPage.tsx`)가 실제 라우트 트리(App)·인증(AuthProvider)·토스트를 띄운다 — E2E 의 `authenticatedPage` + `goto` 와 같은 상태. 훅을 `vi.mock` 으로 끊지 않고 **MSW 로 네트워크 계층에서 모킹**한다(`handlers` 에 `http.get(...)` 등). 응답 데이터는 E2E 와 같은 팩토리(`e2e/factories/`)를 쓴다. 예: `src/pages/projects/issueRowMenu.test.tsx`·`src/pages/drive/driveSpaceCreate.test.tsx`
   - 앱 셸이 늘 부르는 부가 조회는 `src/test/msw/baseHandlers.ts` 가 빈 성공으로 깐다(E2E `setupAuthMocks` 와 같은 목록). **핸들러가 없는 요청은 테스트 실패**다(E2E 의 「모킹 누락은 503」과 같은 원칙) — 화면 데이터(목록·쿼터 등)는 테스트가 준다

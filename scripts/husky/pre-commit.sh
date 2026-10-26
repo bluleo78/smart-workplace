@@ -6,7 +6,7 @@
 #   - workplace-web 공유 영역/매핑 모호: 전체 E2E
 #   - 도메인(admin) 단독: 전역 smoke + 해당 도메인 non-smoke
 #   - workplace-web 외만 변경: gradle 만
-#   - workplace-web 변경 시 vitest 단위 테스트는 항상 전체 실행(수 초)
+#   - workplace-web 변경 시 vitest 는 페이지 테스트를 뺀 전체 실행(40초 안팎, WP-995)
 # - 풀 회귀 안전망은 .husky/pre-push 가 담당
 #
 # 본 스크립트는 husky 외부에서도 테스트 가능하도록 분리됨.
@@ -39,13 +39,15 @@ if [ -z "$NEEDS_REGRESSION" ]; then
   exit 0
 fi
 
-# 3.5) workplace-web 단위 테스트(vitest) — web 변경이 있으면 항상 전체 실행 (WP-79).
-# 400여 건이 수 초면 끝나므로 선택 실행 없이 돌리고, E2E 보다 먼저 돌려 순수 로직 회귀를 빠르게 실패시킨다.
-# 브라우저가 필요 없는 검증은 E2E 대신 vitest 로 두므로, 이 단계가 빠지면 해당 회귀가 게이트를 통과한다.
+# 3.5) workplace-web 단위 테스트(vitest) — web 변경이 있으면 항상 실행 (WP-79).
+# E2E 보다 먼저 돌려 순수 로직 회귀를 빠르게 실패시킨다. 브라우저가 필요 없는 검증은 E2E 대신 vitest 로 두므로,
+# 이 단계가 빠지면 해당 회귀가 게이트를 통과한다.
+# 페이지 테스트(renderPage — App 전체를 띄움)는 파일당 10초 안팎이라 120여 개가 전체를 40초에서 3분으로 늘렸다 —
+# 커밋에서는 빼고(VITEST_SKIP_PAGE_TESTS, vitest.config.ts) pre-push 전체 회귀가 함께 돌린다 (WP-995).
 WEB_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/' || true)
 if [ -n "$WEB_CHANGED" ]; then
-  echo "[pre-commit] workplace-web 변경 — vitest 단위 테스트 실행"
-  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && run_locked pnpm test)
+  echo "[pre-commit] workplace-web 변경 — vitest 단위 테스트 실행(페이지 테스트는 pre-push)"
+  [ -n "$PRECOMMIT_DRY_RUN" ] || (cd apps/workplace-web && run_locked env VITEST_SKIP_PAGE_TESTS=1 pnpm test)
 fi
 
 # 3.6) 노트 동기화 서버(workplace-collab) — 서버·공용 스키마 변경 시 vitest 전체(실제 Hocuspocus 서버, 수십 초 이내) (WP-288).
@@ -60,7 +62,7 @@ fi
 # src/pages/ 서브디렉토리 = 도메인. 하드코딩하면 도메인 추가 시 드리프트되므로 동적으로 도출한다.
 WEB_DOMAINS_RE=$(ls -d apps/workplace-web/src/pages/*/ 2>/dev/null | xargs -n1 basename | sort | tr '\n' '|' | sed 's/|$//')
 
-# vitest 전용 파일(*.test.ts(x)·src/test/ 셋업·scripts 의 *.test.mjs)은 위 3.5 단계가 검증하므로 E2E 선택에서 뺀다 (WP-968).
+# vitest 전용 파일(*.test.ts(x)·src/test/ 셋업·scripts 의 *.test.mjs)은 위 3.5 단계(페이지 테스트는 pre-push)가 검증하므로 E2E 선택에서 뺀다 (WP-968).
 # 빼지 않으면 src/lib 의 테스트 파일 한 줄 변경도 그래프에서 화면을 못 찾아 ALL → 전체 E2E(35분)로 빠졌다.
 UNIT_TEST_RE='^apps/workplace-web/(src/.*\.test\.(ts|tsx)|src/test/.*|scripts/.*\.test\.mjs)$'
 E2E_CHANGED=$(printf '%s\n' "$CHANGED" | grep -vE "$UNIT_TEST_RE" || true)
