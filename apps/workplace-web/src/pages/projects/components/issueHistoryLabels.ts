@@ -148,6 +148,14 @@ export function formatComponentsChanged(toValue: string | null): string {
 }
 
 /**
+ * FIX_VERSIONS_CHANGED·AFFECTS_VERSIONS_CHANGED 이력 문구(WP-888) — toValue 는 {added:[{id,name}], removed:[{id,name}]} JSON.
+ * 구성요소와 같이 기록 당시 이름 그대로 「+ A / - B」로 보인다. 빈 값은 「버전 변경」, 파싱 실패는 원문.
+ */
+export function formatVersionsChanged(toValue: string | null): string {
+  return formatAddedRemoved(toValue, 'name', '버전 변경');
+}
+
+/**
  * ASSIGNEES_CHANGED 이력 문구 — toValue 는 {added:[{id,name}], removed:[{id,name}]} JSON(이름이 비면 #id).
  * 구성요소 담당자 자동 지정(WP-933, reason=COMPONENT_DEFAULT)이면 「구성요소 Compute 담당자로 자동 지정 — 박순」으로,
  * 사람이 담당자를 바꾼 기록과 구분한다. 파싱 실패는 원문.

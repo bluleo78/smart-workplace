@@ -25,6 +25,7 @@ import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueFieldValueRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
+import com.workplace.issue.repository.IssueVersionRepository;
 import com.workplace.issue.repository.ProjectStatusRepository;
 import com.workplace.issue.service.IssueService.CreateIssuePlan;
 import com.workplace.label.dto.LabelRow;
@@ -34,6 +35,10 @@ import com.workplace.label.service.LabelService;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.user.dto.UserResponse;
+import com.workplace.version.dto.VersionKind;
+import com.workplace.version.dto.VersionRow;
+import com.workplace.version.dto.VersionSummary;
+import com.workplace.version.repository.VersionRepository;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -88,6 +93,8 @@ public class IssueImportService {
   private final IssueExternalLinkService externalLinkService;
   private final LabelRepository labelRepository;
   private final ComponentRepository componentRepository;
+  private final VersionRepository versionRepository;
+  private final IssueVersionRepository issueVersionRepository;
   private final ProjectStatusRepository statusRepository;
   private final IssueTypeRepository typeRepository;
   private final IssueFieldValueRepository fieldValueRepository;
@@ -117,6 +124,11 @@ public class IssueImportService {
     // 3-2) 구성요소 — 이름으로 프로젝트에 이미 있는 것을 찾는다(대소문자 무시, 보관된 것도 허용). 없는 이름은 만들지 않고 이슈 INSERT 전에 400.
     //      담당자 자동 지정은 일반 생성(IssueService.create)에만 있어 이 경로는 타지 않는다.
     List<Long> componentIds = resolveComponentIds(project, req.componentNames());
+
+    // 3-3) 수정 버전·영향 버전 — 구성요소와 같이 이름으로 이미 있는 것만(보관·출시된 것도 허용). 없는 이름은 두 종류를 합쳐 전부 알리며 이슈 INSERT 전에
+    // 400.
+    VersionLinks versionLinks =
+        resolveVersionLinks(project, req.fixVersionNames(), req.affectsVersionNames());
 
     // 4) 사람 — 요청에 나온 username 을 모두 이 프로젝트 활성 멤버로 해석한다(하나라도 아니면 전부 나열해 400). 멤버 행을 공유 잠금하므로
     //    쓰기 트랜잭션 안에서 부른다.
@@ -159,6 +171,8 @@ public class IssueImportService {
 
     // 9) 딸린 것들 — 라벨·사이클·필드·담당자·워처. 모두 이벤트·이력 없이 넣는다.
     issueService.linkLabelsAndCycles(callerId, row.id(), plan);
+    // 버전 — 이슈 행이 생긴 뒤에 버전 행을 공유 잠금한다(이슈 → 버전, 교체·출시 옮기기와 같은 한 방향). 변경 이력·알림은 만들지 않는다.
+    linkVersions(project, row.id(), versionLinks);
     fieldValueService.importValues(project.id(), row.id(), req.fields());
     for (Long uid : assigneeIds) {
       // 지정자는 호출자(관리자) — 원래 지정자는 이력(history)으로 옮긴다.
@@ -234,13 +248,20 @@ public class IssueImportService {
             : fieldValueRepository
                 .findByIssueIds(List.of(row.id()))
                 .getOrDefault(row.id(), List.of());
-    return issueService.newIssueSummary(
-        project,
-        row,
-        assignees,
-        attachmentCount,
-        customFields,
-        plan.components().stream().map(ComponentRow::toSummary).toList());
+    var both =
+        versionRepository
+            .summariesByIssueIdsBothKinds(List.of(row.id()))
+            .getOrDefault(row.id(), VersionRepository.IssueVersionSummaries.EMPTY);
+    return issueService
+        .newIssueSummary(
+            project,
+            row,
+            assignees,
+            attachmentCount,
+            customFields,
+            plan.components().stream().map(ComponentRow::toSummary).toList())
+        // 버전 — 방금 연결한 행을 다시 읽어 일반 응답과 같은 모양(수정 버전·영향 버전)으로 채운다.
+        .withVersions(both.fix(), both.affects());
   }
 
   /**
@@ -283,7 +304,9 @@ public class IssueImportService {
       List<AddedRemovedNames> labelNames,
       Map<String, LabelRow> labels,
       List<AddedRemovedNames> componentNames,
-      Map<String, ComponentRow> components) {}
+      Map<String, ComponentRow> components,
+      List<AddedRemovedNames> versionNames,
+      Map<String, VersionRow> versions) {}
 
   /** 이력 검증용 조회를 한 번에 — 라벨 이름 정리와 없는 라벨(전부 나열해 400) 확인까지 항목별 검증보다 먼저 한다. */
   private HistoryLookups loadLookups(
@@ -348,7 +371,27 @@ public class IssueImportService {
                 .flatMap(AddedRemovedNames::all)
                 .distinct()
                 .toList());
-    return new HistoryLookups(statuses, types, labelNames, labels, componentNames, components);
+    // 버전 이력(수정·영향 공통) — 구성요소와 같은 방식으로 이름을 정리해 두고, 없는 이름은 전부 모아 400.
+    List<AddedRemovedNames> versionNames =
+        entries.stream()
+            .map(
+                h ->
+                    isVersionHistory(h.type())
+                        ? new AddedRemovedNames(
+                            normalizeComponentNames(h.added()),
+                            normalizeComponentNames(h.removed()))
+                        : null)
+            .toList();
+    Map<String, VersionRow> versions =
+        findVersions(
+            project,
+            versionNames.stream()
+                .filter(Objects::nonNull)
+                .flatMap(AddedRemovedNames::all)
+                .distinct()
+                .toList());
+    return new HistoryLookups(
+        statuses, types, labelNames, labels, componentNames, components, versionNames, versions);
   }
 
   /** 이력 한 건 검증 — 유형별 규칙(설계 표)대로 값을 해석하고, 통과하면 넣는 동작을 돌려준다. */
@@ -382,6 +425,16 @@ public class IssueImportService {
         List<ComponentSummary> removed = componentSummaries(lookups.components(), names.removed());
         requireChange(index, added.isEmpty() && removed.isEmpty());
         return () -> historyRecorder.recordComponentsChanged(actorId, issueId, added, removed, at);
+      }
+      case "FIX_VERSIONS_CHANGED", "AFFECTS_VERSIONS_CHANGED" -> {
+        // 당시 이름은 프로젝트에 있는 버전의 이름(저장된 표기)으로 남긴다. 보관·출시된 것도 지난 기록이라 허용.
+        AddedRemovedNames names = lookups.versionNames().get(index);
+        List<VersionSummary> added = versionSummaries(lookups.versions(), names.added());
+        List<VersionSummary> removed = versionSummaries(lookups.versions(), names.removed());
+        requireChange(index, added.isEmpty() && removed.isEmpty());
+        String kind = VersionKind.fromHistoryType(type);
+        return () ->
+            historyRecorder.recordVersionsChanged(actorId, issueId, kind, added, removed, at);
       }
       case "TYPE_CHANGED" -> {
         IssueTypeSummary from = typeSummary(index, lookups.types(), h.fromTypeId());
@@ -523,6 +576,75 @@ public class IssueImportService {
     return names.stream()
         .map(n -> components.get(n.toLowerCase(Locale.ROOT)))
         .map(c -> new ComponentSummary(c.id(), c.name(), c.archived()))
+        .toList();
+  }
+
+  /** 버전 변경 이력 유형인지. */
+  private static boolean isVersionHistory(String type) {
+    return VersionKind.isHistoryType(type);
+  }
+
+  /**
+   * 정리된 이름들을 프로젝트의 버전(보관·출시 포함)으로 찾아 소문자 이름 → 행으로 돌려준다. 하나라도 없으면 없는 이름을 전부 모아 400 — 이슈를 쓰기 전에 거절하려고
+   * 호출부가 먼저 부른다.
+   */
+  private Map<String, VersionRow> findVersions(ProjectRow project, List<String> names) {
+    if (names.isEmpty()) return Map.of();
+    Map<String, VersionRow> found =
+        versionRepository.findByNamesIgnoreCase(project.id(), names).stream()
+            .collect(Collectors.toMap(v -> v.name().toLowerCase(Locale.ROOT), v -> v));
+    List<String> missing =
+        names.stream().filter(n -> !found.containsKey(n.toLowerCase(Locale.ROOT))).toList();
+    if (!missing.isEmpty()) throw IssueImportException.unknownVersions(missing);
+    return found;
+  }
+
+  /** 요청에서 풀어 둔 두 종류의 버전 id(요청 순서, 중복 합침). */
+  private record VersionLinks(List<Long> fixIds, List<Long> affectsIds) {}
+
+  /**
+   * 요청의 fixVersionNames·affectsVersionNames → 버전 id. 두 종류의 이름을 한 번에 찾아 없는 이름을 합쳐서 알린다(스크립트가 한 번에
+   * 고치게). 이름 정리는 구성요소와 같은 규칙(NFC·대소문자만 다른 중복 합침)이다.
+   */
+  private VersionLinks resolveVersionLinks(
+      ProjectRow project, List<String> rawFix, List<String> rawAffects) {
+    List<String> fix = normalizeComponentNames(rawFix);
+    List<String> affects = normalizeComponentNames(rawAffects);
+    Map<String, VersionRow> found =
+        findVersions(project, Stream.concat(fix.stream(), affects.stream()).distinct().toList());
+    return new VersionLinks(idsByName(found, fix), idsByName(found, affects));
+  }
+
+  private static List<Long> idsByName(Map<String, VersionRow> found, List<String> names) {
+    return names.stream().map(n -> found.get(n.toLowerCase(Locale.ROOT)).id()).toList();
+  }
+
+  /**
+   * 새 이슈에 두 종류의 버전을 잇는다. 버전 행을 id 순으로 공유 잠근 뒤 아직 있는지 다시 본다 — 이름을 풀고 잠그기까지 사이에 버전이 지워졌다면 외래 키
+   * 위반(500)이 아니라 「없는 버전」 400 으로 끝낸다. 이력·알림은 만들지 않는다(이력은 요청의 history 가 정한다).
+   */
+  private void linkVersions(ProjectRow project, long issueId, VersionLinks links) {
+    Set<Long> all = new LinkedHashSet<>(links.fixIds());
+    all.addAll(links.affectsIds());
+    if (all.isEmpty()) return;
+    Map<Long, VersionRow> locked =
+        versionRepository.lockByIds(all, VersionRepository.LockMode.SHARE).stream()
+            .filter(v -> v.projectId() == project.id())
+            .collect(Collectors.toMap(VersionRow::id, v -> v));
+    if (!locked.keySet().containsAll(all)) {
+      throw IssueImportException.unknownVersions(
+          all.stream().filter(id -> !locked.containsKey(id)).map(String::valueOf).toList());
+    }
+    links.fixIds().forEach(id -> issueVersionRepository.add(issueId, id, VersionKind.FIX));
+    links.affectsIds().forEach(id -> issueVersionRepository.add(issueId, id, VersionKind.AFFECTS));
+  }
+
+  /** 버전 이력의 정리된 이름 → 요약(이름은 검증 단계에서 모두 있음을 확인했다). */
+  private static List<VersionSummary> versionSummaries(
+      Map<String, VersionRow> versions, List<String> names) {
+    return names.stream()
+        .map(n -> versions.get(n.toLowerCase(Locale.ROOT)))
+        .map(VersionRow::toSummary)
         .toList();
   }
 

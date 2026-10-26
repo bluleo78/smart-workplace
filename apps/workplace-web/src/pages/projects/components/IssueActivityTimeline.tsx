@@ -35,6 +35,7 @@ import {
   formatParentChanged,
   formatRelationChanged,
   formatStatusMigrated,
+  formatVersionsChanged,
   historyPriorityLabel,
   historyStatusLabel,
 } from './issueHistoryLabels';
@@ -66,6 +67,9 @@ const EVENT_ICON: Record<IssueHistoryEventType, LucideIcon> = {
   EXTERNAL_LINK_REMOVED: Link2Off,
   // 구성요소(WP-933) — 영역 묶음 아이콘.
   COMPONENTS_CHANGED: Boxes,
+  // 수정 버전·영향 버전(WP-888) — 출시 꼬리표 아이콘.
+  FIX_VERSIONS_CHANGED: Tag,
+  AFFECTS_VERSIONS_CHANGED: Tag,
 };
 
 // 이벤트 타입을 한국어 라벨로 매핑 — 백엔드 enum 과 1:1 매칭.
@@ -93,6 +97,8 @@ const EVENT_LABEL: Record<IssueHistoryEventType, string> = {
   EXTERNAL_LINK_UPDATED: '외부 링크 수정',
   EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
   COMPONENTS_CHANGED: '구성요소 변경',
+  FIX_VERSIONS_CHANGED: '수정 버전 변경',
+  AFFECTS_VERSIONS_CHANGED: '영향 버전 변경',
 };
 
 // TYPE_CHANGED 페이로드는 toValue 에 {from:{id,name}, to:{id,name}} JSON.
@@ -245,6 +251,8 @@ export function IssueActivityTimeline({
                     <span>{formatAttachmentsChanged(e.toValue)}</span>
                   ) : e.eventType === 'COMPONENTS_CHANGED' ? (
                     <span>{formatComponentsChanged(e.toValue)}</span>
+                  ) : e.eventType === 'FIX_VERSIONS_CHANGED' || e.eventType === 'AFFECTS_VERSIONS_CHANGED' ? (
+                    <span>{formatVersionsChanged(e.toValue)}</span>
                   ) : e.eventType === 'ASSIGNEES_CHANGED' ? (
                     <span>{formatAssigneesChanged(e.toValue)}</span>
                   ) : e.eventType === 'TYPE_CHANGED' ? (

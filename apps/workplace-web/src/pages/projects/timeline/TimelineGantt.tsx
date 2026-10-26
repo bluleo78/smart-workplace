@@ -13,7 +13,7 @@ import {
   WillowDark,
 } from '@svar-ui/react-gantt'
 import { addDays, format, parseISO } from 'date-fns'
-import { Diamond } from 'lucide-react'
+import { Diamond, Triangle } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -37,6 +37,7 @@ import type {
   TimelineDependencyEdge,
   TimelineEpicGroup,
   TimelineMilestoneMarker,
+  TimelineVersionMarker,
   TimelineZoom,
 } from './timelineTypes'
 
@@ -48,6 +49,7 @@ export type {
   TimelineDependencyEdge,
   TimelineEpicGroup,
   TimelineMilestoneMarker,
+  TimelineVersionMarker,
 } from './timelineTypes'
 
 // 보기 단위 타입은 순수 로직(timelineData)도 쓰므로 timelineTypes 에 둔다(WP-889) — 기존 import 경로 호환용 재수출.
@@ -61,6 +63,8 @@ export interface TimelineGanttProps {
   /** SVAR 트리 토글 → 페이지 상태로 펼침 여부 보고. */
   onToggleGroup: (key: string, open: boolean) => void
   milestones: TimelineMilestoneMarker[]
+  /** 버전 출시일(WP-888) — 마일스톤 레인 아래 별도 「버전」 레인. 없거나 비면 레인을 그리지 않는다. */
+  versions?: TimelineVersionMarker[]
   cycles: TimelineCycleBand[]
   dependencies: TimelineDependencyEdge[]
   zoom: TimelineZoom
@@ -74,6 +78,8 @@ export interface TimelineGanttProps {
   onBarChange: (issueNumber: number, change: { startDate: string; dueDate: string }) => Promise<unknown>
   onBarClick: (issueNumber: number) => void
   onMilestoneClick: (id: number, anchorRect: DOMRect) => void
+  /** 버전 칩 클릭 → 버전 상세로 이동(레인 빈 곳 클릭은 동작 없음). */
+  onVersionClick?: (id: number) => void
   onLaneClick: (date: string, anchorRect: DOMRect) => void
 }
 
@@ -82,6 +88,8 @@ export interface TimelineGanttProps {
 // translateX 가 음수에 가까워지며 라벨 위로 겹치는 것을 막는다. 라벨 실측 대신 고정 여백을
 // 쓴 것은 이 스코프에서 동적 폭 측정이 과설계이기 때문(YAGNI).
 const MILESTONE_LABEL_RESERVED_PX = 64
+// versions 기본값 — 렌더마다 새 배열이 되어 오버레이 effect 가 매번 다시 돌지 않게 고정 참조.
+const NO_VERSIONS: TimelineVersionMarker[] = []
 // 겹치는 사이클 이름표 한 줄 높이(text-xs 줄 높이 16px) — 줄을 나눌 때 아래로 내리는 간격(WP-489).
 const CYCLE_LABEL_LANE_PX = 16
 
@@ -220,6 +228,7 @@ export function TimelineGantt({
   expandedKeys,
   onToggleGroup,
   milestones,
+  versions = NO_VERSIONS,
   cycles,
   dependencies,
   zoom,
@@ -229,6 +238,7 @@ export function TimelineGantt({
   onBarChange,
   onBarClick,
   onMilestoneClick,
+  onVersionClick,
   onLaneClick,
 }: TimelineGanttProps) {
   const apiRef = useRef<IApi | null>(null)
@@ -241,6 +251,10 @@ export function TimelineGantt({
   // 마일스톤 레인과 그 아래 차트의 그리드/차트 경계선을 잇는 구분선 — 레인이 별도 sibling div라
   // SVAR 내부 구분선이 이 행 높이에서는 그려지지 않아 시각적으로 끊겨 보이는 문제를 보정한다.
   const milestoneDividerRef = useRef<HTMLDivElement | null>(null)
+  // 버전 레인(WP-888) — 마일스톤 레인과 같은 방식의 칩/세로 점선/구분선 참조.
+  const versionChipRefs = useRef(new Map<number, HTMLButtonElement>())
+  const versionVlineRefs = useRef(new Map<number, HTMLDivElement>())
+  const versionDividerRef = useRef<HTMLDivElement | null>(null)
   // onToggleGroup 최신 참조 — api.on 구독 콜백이 stale closure 를 잡지 않도록.
   // 렌더 중 ref 갱신은 React Compiler 가 금지하므로(react-hooks/refs) 이펙트에서 갱신한다.
   const onToggleGroupRef = useRef(onToggleGroup)
@@ -478,6 +492,8 @@ export function TimelineGantt({
     // 마일스톤 오버레이 좌표(#648) — 마감일 오름차순으로 마감일 정확한 X 와 칩 폭을 둔다. vline 은 늘 이 X,
     // 칩은 스크롤 뒤 겹치거나 차트 왼쪽에 걸리면 우측으로 밀어 배치한다(applyTransform).
     const milestoneLayout: { id: number; x: number; width: number }[] = []
+    // 버전 오버레이 좌표(WP-888) — 마일스톤과 같은 배치 규칙(placeLaneChips)을 쓴다.
+    const versionLayout: { id: number; x: number; width: number }[] = []
 
     const recompute = () => {
       const chartScales = api.getState()._scales
@@ -493,6 +509,9 @@ export function TimelineGantt({
       // 가로 스크롤과 무관하게 고정된 위치라 scrollLeft 보정이 필요 없다(칩/점선과의 차이점).
       if (milestoneDividerRef.current) {
         milestoneDividerRef.current.style.left = `${baseLeft}px`
+      }
+      if (versionDividerRef.current) {
+        versionDividerRef.current.style.left = `${baseLeft}px`
       }
       // 사이클 밴드 라벨은 스케일 헤더(월/주 눈금, `.wx-scale`) 아래 차트 바디 상단에 붙여야
       // 헤더 눈금 텍스트와 겹치지 않는다 — `.wx-chart` 자체는 헤더까지 포함해 top 이 0이라 헤더 높이를 더한다.
@@ -521,6 +540,12 @@ export function TimelineGantt({
         const width = milestoneChipRefs.current.get(m.id)?.offsetWidth ?? 0
         milestoneLayout.push({ id: m.id, x: baseLeft + toOffset(parseISO(m.dueDate)), width })
       }
+      versionLayout.length = 0
+      // versionsToMarkers 가 이미 날짜순(이름·id 동률 해소)으로 준다 — 다시 정렬하지 않는다.
+      for (const v of versions) {
+        const width = versionChipRefs.current.get(v.id)?.offsetWidth ?? 0
+        versionLayout.push({ id: v.id, x: baseLeft + toOffset(parseISO(v.date)), width })
+      }
       applyTransform()
     }
 
@@ -546,29 +571,38 @@ export function TimelineGantt({
       // 좌측 "마일스톤" 라벨 예약 폭보다 왼쪽으로도 밀리지 않는다(그리드가 좁을 때).
       const minChipLeft = Math.max(chartLeft, MILESTONE_LABEL_RESERVED_PX)
       // 마감일 오름차순으로 훑으며 직전 칩과 겹치면 그 우측 +4px 로 밀어 배치(간단한 충돌 회피).
-      let prevRight = -Infinity
-      for (const { id, x, width } of milestoneLayout) {
-        const lineX = x - scrollLeft
-        const visible = lineX >= chartLeft
-        const vline = milestoneVlineRefs.current.get(id)
-        if (vline) {
-          vline.style.visibility = visible ? '' : 'hidden'
-          vline.style.transform = `translateX(${lineX}px)`
+      // 버전 레인도 같은 규칙을 쓴다(WP-888).
+      const placeLaneChips = (
+        layout: { id: number; x: number; width: number }[],
+        chipRefs: Map<number, HTMLButtonElement>,
+        vlineRefs: Map<number, HTMLDivElement>,
+      ) => {
+        let prevRight = -Infinity
+        for (const { id, x, width } of layout) {
+          const lineX = x - scrollLeft
+          const visible = lineX >= chartLeft
+          const vline = vlineRefs.get(id)
+          if (vline) {
+            vline.style.visibility = visible ? '' : 'hidden'
+            vline.style.transform = `translateX(${lineX}px)`
+          }
+          const chip = chipRefs.get(id)
+          if (!chip) continue
+          chip.style.visibility = visible ? '' : 'hidden'
+          if (!visible) continue
+          const left = Math.max(lineX - width / 2, minChipLeft, prevRight + 4)
+          chip.style.transform = `translateX(${left}px)`
+          prevRight = left + width
         }
-        const chip = milestoneChipRefs.current.get(id)
-        if (!chip) continue
-        chip.style.visibility = visible ? '' : 'hidden'
-        if (!visible) continue
-        const left = Math.max(lineX - width / 2, minChipLeft, prevRight + 4)
-        chip.style.transform = `translateX(${left}px)`
-        prevRight = left + width
       }
+      placeLaneChips(milestoneLayout, milestoneChipRefs.current, milestoneVlineRefs.current)
+      placeLaneChips(versionLayout, versionChipRefs.current, versionVlineRefs.current)
     }
 
     recompute()
     scroller.addEventListener('scroll', applyTransform)
     return () => scroller.removeEventListener('scroll', applyTransform)
-  }, [cycles, zoom, tasks, milestones])
+  }, [cycles, zoom, tasks, milestones, versions])
 
   // 이슈 막대 상태별 색상(#639) — SVAR 는 task 필드 기반 className/style 주입 API 가 없어(스파이크 노트),
   // 렌더된 `.wx-bar` DOM 노드에 직접 CSS 변수를 주입한다. `--wx-gantt-task-color`(기본 배경)와
@@ -737,6 +771,44 @@ export function TimelineGantt({
           </button>
         ))}
       </div>
+      {/* 버전 레인(WP-888) — 마일스톤 레인 아래 별도 스트립. 마일스톤과 다른 색(info 토큰)의 ▲ 칩 + 세로 점선.
+          빈 곳 클릭 동작은 없고(마일스톤 만들기와 섞이지 않게), 칩 클릭은 버전 상세로 이동한다. 표시할 버전이 없으면 레인을 그리지 않는다. */}
+      {versions.length > 0 && (
+        <div
+          data-testid="version-lane"
+          className="bg-info-subtle relative h-8 shrink-0 overflow-hidden border-b"
+        >
+          <span className="text-info absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
+            버전
+          </span>
+          <div
+            ref={versionDividerRef}
+            data-testid="version-lane-divider"
+            className="border-border pointer-events-none absolute inset-y-0 w-0 border-l"
+          />
+          {versions.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              ref={(el) => {
+                if (el) versionChipRefs.current.set(v.id, el)
+                else versionChipRefs.current.delete(v.id)
+              }}
+              data-testid={`version-chip-${v.id}`}
+              // 출시됨은 채우지 않은 테두리 칩으로 미출시와 구분한다.
+              className={
+                v.status === 'RELEASED'
+                  ? 'border-info text-info bg-background absolute top-1 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium'
+                  : 'bg-info text-info-foreground border-info absolute top-1 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium'
+              }
+              onClick={() => onVersionClick?.(v.id)}
+            >
+              <Triangle className="h-3 w-3" aria-hidden="true" />
+              <span className="max-w-40 truncate">{v.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {/* timeline-gantt-root 는 timeline-gantt.css 오버라이드의 스코프 앵커(#646) */}
       <div ref={containerRef} className="timeline-gantt-root relative min-h-0 flex-1 overflow-hidden">
         {/* 오늘 세로선 — `.wx-chart` 스크롤에 맞춰 위 effect 가 transform 을 직접 갱신한다. */}
@@ -769,6 +841,18 @@ export function TimelineGantt({
             }}
             data-testid={`milestone-vline-${m.id}`}
             className="border-primary pointer-events-none absolute inset-y-0 left-0 z-10 w-0 border-l-2 border-dashed"
+          />
+        ))}
+        {/* 버전 출시일 세로 점선(WP-888) — 마일스톤 점선과 다른 토큰 색. */}
+        {versions.map((v) => (
+          <div
+            key={v.id}
+            ref={(el) => {
+              if (el) versionVlineRefs.current.set(v.id, el)
+              else versionVlineRefs.current.delete(v.id)
+            }}
+            data-testid={`version-vline-${v.id}`}
+            className="border-info pointer-events-none absolute inset-y-0 left-0 z-10 w-0 border-l-2 border-dashed"
           />
         ))}
         {/*

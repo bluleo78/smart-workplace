@@ -44,6 +44,9 @@ const EVENT_LABEL: Record<string, string> = {
   EXTERNAL_LINK_REMOVED: '외부 링크 삭제',
   // 구성요소(WP-933) — 이슈 활동 타임라인과 같은 문구. 자동 지정은 ASSIGNEES_CHANGED(담당자 변경)로 온다.
   COMPONENTS_CHANGED: '구성요소 변경',
+  // 수정 버전·영향 버전(WP-888).
+  FIX_VERSIONS_CHANGED: '수정 버전 변경',
+  AFFECTS_VERSIONS_CHANGED: '영향 버전 변경',
 };
 
 /** 최근 활동. params.actorKind='AGENT' 면 AI 가 한 일만. */

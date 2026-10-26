@@ -16,6 +16,7 @@ import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
+import { useVersions } from '../../../hooks/queries/useVersions';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
@@ -37,6 +38,7 @@ import type {
 import { ClosedRangeExtra } from '../components/ClosedRangeExtra';
 import { buildComponentFacet, componentFacetValue, componentFilterFromFacet } from './componentFacet';
 import { buildStatusFacets } from './statusFacets';
+import { buildVersionFacet, versionFacetValue, versionFilterFromFacet } from './versionFacet';
 
 // 그룹 기준 옵션 (#58). null = 그룹 없음(평탄 리스트 / 상태 보드).
 // 사이클(#878)은 팀 목록 전용 — 보드·사이클 비사용 화면에선 목록에서 빠진다(아래 visibleGroupOptions).
@@ -102,6 +104,8 @@ export function useIssueFilterControls(
   const labels = useLabels(projectKey);
   // 구성요소(WP-933) — 사용 중인 것이 있을 때만 facet 이 생긴다. 개인 화면(showType=false)은 구성요소가 없어 요청하지 않는다.
   const components = useComponents(projectKey, { enabled: showType });
+  // 버전(WP-888) — 보관 안 된 버전이 있을 때만 「수정 버전」·「영향 버전」 facet 이 생긴다. 개인 화면은 버전이 없어 요청하지 않는다.
+  const versions = useVersions(projectKey, { enabled: showType });
   // useCycles/useIssueTypes/useProjectMembers 는 훅 규칙상 항상 호출하지만,
   // showCycle/showType=false 면 렌더하지 않는다(개인 프로젝트). 네트워크는 발생하나 결과가 비어 무해.
   const cycles = useCycles(projectKey);
@@ -175,6 +179,10 @@ export function useIssueFilterControls(
     filters.cycleIds.length > 0 ||
     filters.componentIds.length > 0 ||
     filters.componentNone ||
+    filters.fixVersionIds.length > 0 ||
+    filters.fixVersionNone ||
+    filters.affectsVersionIds.length > 0 ||
+    filters.affectsVersionNone ||
     filters.typeIds.length > 0 ||
     filters.assigneeIds.length > 0 ||
     filters.includeUnassigned ||
@@ -190,6 +198,9 @@ export function useIssueFilterControls(
       cycle: filters.cycleIds,
       // 구성요소 — id 와 「구성요소 없음」('none')을 한 facet 값으로.
       component: componentFacetValue(filters.componentIds, filters.componentNone),
+      // 수정 버전·영향 버전 — 구성요소처럼 id 와 「없음」('none')을 한 facet 값으로.
+      fixVersion: versionFacetValue(filters.fixVersionIds, filters.fixVersionNone),
+      affectsVersion: versionFacetValue(filters.affectsVersionIds, filters.affectsVersionNone),
       type: filters.typeIds,
       assignee: filters.assigneeIds,
       // 완료일 기간은 토큰 하나(프리셋 또는 'from~to') — 단일 선택 facet.
@@ -200,6 +211,9 @@ export function useIssueFilterControls(
 
   // 구성요소 필터가 걸려 있는가 — 구성요소가 모두 보관돼도 facet 을 남겨 풀 수 있게 한다.
   const componentFilterActive = filters.componentIds.length > 0 || filters.componentNone;
+  // 버전 필터가 걸려 있는가 — 버전이 모두 보관돼도 facet 을 남겨 풀 수 있게 한다.
+  const fixVersionFilterActive = filters.fixVersionIds.length > 0 || filters.fixVersionNone;
+  const affectsVersionFilterActive = filters.affectsVersionIds.length > 0 || filters.affectsVersionNone;
 
   // 「완료일」 프리셋 라벨의 기준일 — KST 오늘. 날짜가 바뀌면 라벨이 새로 계산되게 facet 메모의 의존값으로 쓴다.
   const todayKey = kstDateKey(new Date());
@@ -244,6 +258,13 @@ export function useIssueFilterControls(
       // 구성요소 facet(WP-933) — 사용 중 구성요소가 없으면 넣지 않는다.
       ...(showType
         ? [buildComponentFacet(components.data ?? [], componentFilterActive)].filter((f): f is FacetDef => f !== null)
+        : []),
+      // 수정 버전·영향 버전 facet(WP-888) — 보관 안 된 버전이 없으면 넣지 않는다. 두 필터는 서로 AND.
+      ...(showType
+        ? [
+            buildVersionFacet('fix', versions.data ?? [], fixVersionFilterActive),
+            buildVersionFacet('affects', versions.data ?? [], affectsVersionFilterActive),
+          ].filter((f): f is FacetDef => f !== null)
         : []),
       // 담당자 facet — 프로젝트 멤버 목록을 옵션으로 사용. (#363)
       {
@@ -299,11 +320,13 @@ export function useIssueFilterControls(
           ]
         : []),
     ],
-    [projectStatuses, labels.data, components.data, componentFilterActive, members.data, cycles.data, types.data, showCycle, showType, showClosedFilter, todayNoon],
+    [projectStatuses, labels.data, components.data, componentFilterActive, versions.data, fixVersionFilterActive, affectsVersionFilterActive, members.data, cycles.data, types.data, showCycle, showType, showClosedFilter, todayNoon],
   );
 
   // FilterValue → URL filters. 숫자 facet 값은 number 로 왕복(DOM stringify 금지).
   function onFilterChange(next: FilterValue) {
+    const fixVersion = versionFilterFromFacet(next.fixVersion);
+    const affectsVersion = versionFilterFromFacet(next.affectsVersion);
     writeFilters(
       {
         ...filters,
@@ -313,6 +336,10 @@ export function useIssueFilterControls(
         labelIds: (next.label ?? []) as number[],
         cycleIds: (next.cycle ?? []) as number[],
         ...componentFilterFromFacet(next.component),
+        fixVersionIds: fixVersion.ids,
+        fixVersionNone: fixVersion.none,
+        affectsVersionIds: affectsVersion.ids,
+        affectsVersionNone: affectsVersion.none,
         typeIds: (next.type ?? []) as number[],
         // 담당자 필터 — 숫자 id 배열로 왕복. (#363)
         assigneeIds: (next.assignee ?? []) as number[],

@@ -20,6 +20,7 @@ import { useProjectEpics } from '../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../hooks/queries/useProjectMembers';
 import { useProject } from '../../hooks/queries/useProjects';
 import { useProjectStatusList } from '../../hooks/queries/useProjectStatuses';
+import { useVersions } from '../../hooks/queries/useVersions';
 import { useAuth } from '../../hooks/useAuth';
 import { useEpicPanelOpen } from '../../hooks/useEpicPanelOpen';
 import { useIssueGroupBy } from '../../hooks/useIssueGroupBy';
@@ -93,6 +94,9 @@ export default function ProjectDetailPage() {
             <Link to={`/projects/${key}/cycles`}>
               <Button variant="outline">사이클</Button>
             </Link>
+            <Link to={`/projects/${key}/versions`}>
+              <Button variant="outline">버전</Button>
+            </Link>
             <Link to={`/projects/${key}/timeline`}>
               <Button variant="outline">타임라인</Button>
             </Link>
@@ -104,7 +108,7 @@ export default function ProjectDetailPage() {
             )}
           </>
         }
-        // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 사이클·타임라인·설정은 ⋯ 메뉴로(U1-2).
+        // 모바일: 주 액션(새 태스크)만 ＋ 아이콘으로 인라인, 사이클·버전·타임라인·설정은 ⋯ 메뉴로(U1-2).
         mobilePrimaryAction={canCreateIssue && (
           <HeaderIconAction label="새 태스크" data-testid="mobile-new-issue" onClick={() => openCreate()}><Plus /></HeaderIconAction>
         )}
@@ -112,6 +116,7 @@ export default function ProjectDetailPage() {
         mobileActions={
           <>
             <Link to={`/projects/${key}/cycles`}>사이클</Link>
+            <Link to={`/projects/${key}/versions`}>버전</Link>
             <Link to={`/projects/${key}/timeline`}>타임라인</Link>
             <Link to={`/projects/${key}/settings`}>설정</Link>
           </>
@@ -196,6 +201,8 @@ function ProjectIssuesSection({
   const milestones = useMilestones(projectKey);
   // 구성요소(WP-933) — 필터 바 facet 과 같은 쿼리 키(캐시 공유). 개인 프로젝트는 구성요소가 없어 요청하지 않는다(프로젝트 유형을 안 뒤에).
   const components = useComponents(projectKey, { enabled: !!project.data && project.data.type !== 'PERSONAL' });
+  // 버전(WP-888) — AI 화면 맥락이 버전 필터를 이름으로 풀게 한다. 필터 바 facet 과 같은 쿼리(캐시 공유).
+  const versions = useVersions(projectKey, { enabled: !!project.data && project.data.type !== 'PERSONAL' });
   // 프로젝트 상태(WP-808) — 보드 컬럼, 「상태」 필터(statusIds)를 AI 화면 컨텍스트에 이름으로 싣기.
   const projectStatuses = useProjectStatusList(projectKey);
   // 보드에서 상태 추가·이름 변경 — 프로젝트 OWNER 만(서버와 같은 규칙, 개인 프로젝트는 이 화면에 오지 않는다).
@@ -237,11 +244,12 @@ function ProjectIssuesSection({
           milestones: milestones.data ?? [],
           statuses: projectStatuses,
           components: components.data ?? [],
+          versions: versions.data ?? [],
         },
         count: listLoaded?.count,
         hasMore: listLoaded?.hasMore,
       }),
-    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, components.data, listLoaded],
+    [projectKey, project.data?.name, view, groupBy, filters, members.data, labels.data, types.data, cycles.data, milestones.data, projectStatuses, components.data, versions.data, listLoaded],
   );
   useRegisterAiScreenContext(screenContext);
 

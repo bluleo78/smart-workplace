@@ -26,6 +26,7 @@ import com.workplace.jooq.tables.IssueHistory.IssueHistoryPath;
 import com.workplace.jooq.tables.IssueLabel.IssueLabelPath;
 import com.workplace.jooq.tables.IssueRelation.IssueRelationPath;
 import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
+import com.workplace.jooq.tables.IssueVersion.IssueVersionPath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
 import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
@@ -630,6 +631,19 @@ public class Issue extends TableImpl<IssueRecord> {
             _issueRelationTargetIssueIdFkey = new IssueRelationPath(this, null, Keys.ISSUE_RELATION__ISSUE_RELATION_TARGET_ISSUE_ID_FKEY.getInverseKey());
 
         return _issueRelationTargetIssueIdFkey;
+    }
+
+    private transient IssueVersionPath _issueVersion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_version</code> table
+     */
+    public IssueVersionPath issueVersion() {
+        if (_issueVersion == null)
+            _issueVersion = new IssueVersionPath(this, null, Keys.ISSUE_VERSION__ISSUE_VERSION_ISSUE_ID_FKEY.getInverseKey());
+
+        return _issueVersion;
     }
 
     private transient IssueWatcherPath _issueWatcher;

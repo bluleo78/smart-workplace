@@ -58,6 +58,16 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
     expect(keys).toEqual(expect.arrayContaining([['labels', 'EX'], ['issues', 'search', 'EX']]));
   });
 
+  it('version → 버전 목록, 수정·삭제는 이슈 대상도(WP-888)', () => {
+    expect(keysOf('version', 'created')).toEqual([['versions', 'EX']]);
+    expect(keysOf('version', 'updated')).toEqual(
+      expect.arrayContaining([['versions', 'EX'], ['issues', 'search', 'EX']]),
+    );
+    expect(keysOf('version', 'deleted')).toEqual(
+      expect.arrayContaining([['versions', 'EX'], ['issues', 'search', 'EX']]),
+    );
+  });
+
   it('component updated → 구성요소 목록 + 이슈 대상(이름·보관이 칩에 보인다, WP-933)', () => {
     expect(keysOf('component', 'updated')).toEqual(
       expect.arrayContaining([['components', 'EX'], ['issues', 'search', 'EX']]),
@@ -380,7 +390,7 @@ const SAMPLES: ResourceChangedPayload[] = [
   { resource: 'mail-account', op: 'updated', accountId: 5 },
   { resource: 'wiki-space', op: 'updated', spaceId: 2 },
   { resource: 'wiki-attachment', op: 'updated', spaceId: 2, pageId: 8 },
-  ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view', 'project-status', 'component'].map(
+  ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view', 'project-status', 'component', 'version'].map(
     (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
   ),
 ];

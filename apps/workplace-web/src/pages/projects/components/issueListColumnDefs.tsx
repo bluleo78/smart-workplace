@@ -8,6 +8,7 @@ import { type ReactNode, useMemo } from 'react';
 import { ComponentChips } from '../../../components/components/ComponentChip';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { UserAvatar } from '../../../components/users/UserAvatar';
+import { VersionChips } from '../../../components/versions/VersionChip';
 import { useCustomFields } from '../../../hooks/queries/useCustomFields';
 import { formatDateOnlyMonthDay, formatDateTimeMinute, formatInstantMonthDay, formatListDueDate } from '../../../lib/formatters';
 import { type ClosedInfo, closedInfo, closedVerb } from '../../../lib/issueClosedInfo';
@@ -278,6 +279,23 @@ function builtinDef(key: BuiltinColumnKey): IssueListColumnDef {
         cellTitle: (it) => (it.components?.length ? it.components.map((c) => c.name).join(', ') : undefined),
         cell: (it) =>
           it.components?.length ? <ComponentChips components={it.components} className="max-w-full overflow-hidden" /> : dash(),
+      };
+    // 수정 버전·영향 버전(WP-888) — 구성요소 열과 같은 모양(칩 2개 + 「+N」, 툴팁에 전부).
+    case 'fixVersions':
+      return {
+        key, header: '수정 버전', side: 'right', widthRem: 8, testId: tid,
+        cellClass: () => TEXT_CELL,
+        cellTitle: (it) => (it.fixVersions?.length ? it.fixVersions.map((v) => v.name).join(', ') : undefined),
+        cell: (it) =>
+          it.fixVersions?.length ? <VersionChips versions={it.fixVersions} className="max-w-full overflow-hidden" /> : dash(),
+      };
+    case 'affectsVersions':
+      return {
+        key, header: '영향 버전', side: 'right', widthRem: 8, testId: tid,
+        cellClass: () => TEXT_CELL,
+        cellTitle: (it) => (it.affectsVersions?.length ? it.affectsVersions.map((v) => v.name).join(', ') : undefined),
+        cell: (it) =>
+          it.affectsVersions?.length ? <VersionChips versions={it.affectsVersions} className="max-w-full overflow-hidden" /> : dash(),
       };
   }
 }

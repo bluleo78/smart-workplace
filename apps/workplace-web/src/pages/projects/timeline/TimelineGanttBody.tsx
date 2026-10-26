@@ -25,7 +25,7 @@ import {
 } from './timelineData';
 import { TimelineFilterBar } from './TimelineFilterBar';
 import { TimelineGantt, type TimelineScrollRequest, type TimelineZoom } from './TimelineGantt';
-import type { TimelineViewOptions } from './timelineTypes';
+import type { TimelineVersionMarker, TimelineViewOptions } from './timelineTypes';
 import { UnscheduledSection } from './UnscheduledSection';
 import { useTimelineExpanded } from './useTimelineExpanded';
 
@@ -33,6 +33,8 @@ export function TimelineGanttBody({
   projectKey: key,
   issues,
   milestones,
+  versions,
+  onVersionClick,
   zoom,
   scrollRequest,
   readOnly,
@@ -47,6 +49,10 @@ export function TimelineGanttBody({
   projectKey: string;
   issues: IssueResponse[];
   milestones: MilestoneResponse[] | undefined;
+  /** 출시일 있는 버전 마커(WP-888) — 마일스톤 레인 아래 「버전」 레인. */
+  versions: TimelineVersionMarker[];
+  /** 버전 칩 클릭 — 버전 상세로 이동. */
+  onVersionClick: (id: number) => void;
   zoom: TimelineZoom;
   scrollRequest: TimelineScrollRequest | undefined;
   readOnly: boolean;
@@ -109,6 +115,8 @@ export function TimelineGanttBody({
             expandedKeys={expandedKeys}
             onToggleGroup={handleToggleGroup}
             milestones={milestoneMarkers}
+            versions={versions}
+            onVersionClick={onVersionClick}
             cycles={cycleBands}
             dependencies={renderableDependencies}
             zoom={zoom}

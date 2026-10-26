@@ -27,6 +27,9 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.ResourceChangedCapture;
+import com.workplace.version.dto.CreateVersionRequest;
+import com.workplace.version.dto.UpdateVersionRequest;
+import com.workplace.version.service.VersionService;
 import com.workplace.view.dto.SaveViewRequest;
 import com.workplace.view.service.SavedViewService;
 import java.time.LocalDate;
@@ -60,6 +63,7 @@ class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
   @Autowired ProjectMemberRepository memberRepository;
   @Autowired LabelService labelService;
   @Autowired ComponentService componentService;
+  @Autowired VersionService versionService;
   @Autowired MilestoneService milestoneService;
   @Autowired SavedViewService savedViewService;
 
@@ -119,6 +123,34 @@ class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
     clearInvocations(registry);
     componentService.delete(owner, key, c.id());
     assertThat(captureRecipients("component", "deleted")).containsExactlyInAnyOrder(owner, viewer);
+  }
+
+  @Test
+  @DisplayName("버전 추가·출시·출시 취소·보관·삭제는 프로젝트 멤버 전원에게 (WP-888)")
+  void version_lifecycle_publishesToMembers() {
+    clearInvocations(registry);
+    var v = versionService.create(owner, key, new CreateVersionRequest("rc-ver", null, null, null));
+    assertThat(captureRecipients("version", "created")).containsExactlyInAnyOrder(owner, viewer);
+
+    clearInvocations(registry);
+    versionService.release(owner, key, v.id(), null);
+    assertThat(captureRecipients("version", "updated")).containsExactlyInAnyOrder(owner, viewer);
+
+    clearInvocations(registry);
+    versionService.unrelease(owner, key, v.id());
+    assertThat(captureRecipients("version", "updated")).containsExactlyInAnyOrder(owner, viewer);
+
+    clearInvocations(registry);
+    versionService.update(
+        owner,
+        key,
+        v.id(),
+        new UpdateVersionRequest(null, null, null, null, null, null, null, true));
+    assertThat(captureRecipients("version", "updated")).containsExactlyInAnyOrder(owner, viewer);
+
+    clearInvocations(registry);
+    versionService.delete(owner, key, v.id(), null);
+    assertThat(captureRecipients("version", "deleted")).containsExactlyInAnyOrder(owner, viewer);
   }
 
   @Test

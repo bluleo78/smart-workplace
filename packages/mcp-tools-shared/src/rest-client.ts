@@ -235,11 +235,17 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async changeIssueReporter(issueKey, userId) {
       await http.put(`${issue(issueKey)}/reporter`, { userId });
     },
+    async getProjectVersions(key) {
+      return (await http.get(`${project(key)}/versions`)).data ?? [];
+    },
     async replaceIssueLabels(issueKey, labelIds, labelNames) {
       return (await http.put(`${issue(issueKey)}/labels`, { labelIds, labelNames })).data;
     },
     async replaceIssueComponents(issueKey, componentIds) {
       return (await http.put(`${issue(issueKey)}/components`, { componentIds })).data;
+    },
+    async replaceIssueVersions(issueKey, body) {
+      return (await http.put(`${issue(issueKey)}/versions`, body)).data;
     },
     async addComment(issueKey, body) {
       await http.post(`/issues/${await issueId(issueKey)}/comments`, { body });

@@ -19,7 +19,7 @@ const issue = {
 
 const emptyFilters: IssueFilters = {
   q: '', statuses: [], statusIds: [], priorities: [], assigneeIds: [], includeUnassigned: false, dueFrom: null, dueTo: null,
-  labelIds: [], cycleIds: [], componentIds: [], componentNone: false, milestoneIds: [], typeIds: [], parentNumber: null, topLevel: false, blocked: false,
+  labelIds: [], cycleIds: [], componentIds: [], componentNone: false, fixVersionIds: [], fixVersionNone: false, affectsVersionIds: [], affectsVersionNone: false, milestoneIds: [], typeIds: [], parentNumber: null, topLevel: false, blocked: false,
   excludeSubtasks: false, closedIn: null, showAllClosed: false,
 };
 
@@ -216,5 +216,29 @@ describe('구성요소 (WP-933)', () => {
     const withComp = buildIssueDetailContext({ projectKey: 'WP', issue: { ...issue, components: [{ id: 1, name: 'Compute', archived: false }] } });
     expect(withComp.focus!.facts).toContainEqual({ label: '구성요소', value: 'Compute' });
     expect(buildIssueDetailContext({ projectKey: 'WP', issue }).focus!.facts!.map((f) => f.label)).not.toContain('구성요소');
+  });
+});
+
+// WP-888: 버전 필터·이슈 버전을 이름으로 싣는다(AI 도구 fixVersion·affectsVersion 인자가 이름을 받는다).
+describe('버전 (WP-888)', () => {
+  it('목록 필터의 수정·영향 버전 id·「없음」을 이름으로', () => {
+    const ctx = buildIssueListContext({
+      projectKey: 'WP', projectName: 'Workplace', view: 'list', groupBy: null,
+      filters: { ...emptyFilters, fixVersionIds: [3, 9], fixVersionNone: true, affectsVersionNone: true },
+      lookups: { members: [], labels: [], types: [], cycles: [], milestones: [], statuses: [], versions: [{ id: 3, name: '1.2' }] },
+    });
+    expect(ctx.scope!.facts).toContainEqual({ label: '수정 버전', value: '1.2, #9, 수정 버전 없음' });
+    expect(ctx.scope!.facts).toContainEqual({ label: '영향 버전', value: '영향 버전 없음' });
+  });
+  it('이슈 상세는 붙은 버전 이름을, 없으면 싣지 않는다', () => {
+    const withV = buildIssueDetailContext({
+      projectKey: 'WP',
+      issue: { ...issue, fixVersions: [{ id: 1, name: '1.2', status: 'UNRELEASED' }], affectsVersions: [{ id: 2, name: '1.1', status: 'RELEASED' }] },
+    });
+    expect(withV.focus!.facts).toContainEqual({ label: '수정 버전', value: '1.2' });
+    expect(withV.focus!.facts).toContainEqual({ label: '영향 버전', value: '1.1' });
+    const labels = buildIssueDetailContext({ projectKey: 'WP', issue }).focus!.facts!.map((f) => f.label);
+    expect(labels).not.toContain('수정 버전');
+    expect(labels).not.toContain('영향 버전');
   });
 });

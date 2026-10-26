@@ -680,6 +680,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "affectsVersions": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "assignees": {
           "items": {
             "type": "string",
@@ -714,6 +720,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "type": "integer",
           },
           "maxItems": 10,
+          "type": "array",
+        },
+        "fixVersions": {
+          "items": {
+            "type": "string",
+          },
           "type": "array",
         },
         "labels": {
@@ -1663,6 +1675,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "affectsVersion": {
+          "description": "Names CSV; "none"",
+          "type": "string",
+        },
         "assignee": {
           "description": "CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent is set",
           "type": "string",
@@ -1702,6 +1718,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         },
         "field": {
           "description": ""name=value" custom field match (not MULTI_SELECT); needs projectKey",
+          "type": "string",
+        },
+        "fixVersion": {
+          "description": "Names CSV; "none"",
           "type": "string",
         },
         "label": {
@@ -3031,6 +3051,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "affectsVersions": {
+          "items": {
+            "type": "string",
+          },
+          "type": "array",
+        },
         "assignees": {
           "items": {
             "type": "string",
@@ -3085,6 +3111,12 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "type": "integer",
           },
           "maxItems": 10,
+          "type": "array",
+        },
+        "fixVersions": {
+          "items": {
+            "type": "string",
+          },
           "type": "array",
         },
         "issueKey": {

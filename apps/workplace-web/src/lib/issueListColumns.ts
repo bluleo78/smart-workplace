@@ -16,6 +16,9 @@ export type BuiltinColumnKey =
   | 'cycle'
   // 구성요소(WP-933) — 기본 꺼짐. 사용 중 구성요소가 없는 프로젝트는 열 고르기에 보이지 않는다.
   | 'components'
+  // 수정 버전·영향 버전(WP-888) — 기본 꺼짐. 보관 안 된 버전이 없는 프로젝트는 열 고르기에 보이지 않는다.
+  | 'fixVersions'
+  | 'affectsVersions'
 
 /** 선택 열 키 — 내장 키 또는 커스텀 필드 `cf<필드 id>`. */
 export type IssueListColumnKey = BuiltinColumnKey | `cf${number}`
@@ -36,6 +39,8 @@ export const BUILTIN_ORDER: BuiltinColumnKey[] = [
   'milestone',
   'cycle',
   'components',
+  'fixVersions',
+  'affectsVersions',
 ]
 
 /** 열 구성을 싣는 URL 쿼리 파라미터 이름. */

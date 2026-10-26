@@ -63,6 +63,7 @@ import com.workplace.jooq.tables.PlatformUserRole.PlatformUserRolePath;
 import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
+import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.PushSubscription.PushSubscriptionPath;
 import com.workplace.jooq.tables.RefreshToken.RefreshTokenPath;
 import com.workplace.jooq.tables.Role.RolePath;
@@ -1136,6 +1137,19 @@ public class User extends TableImpl<UserRecord> {
             _project = new ProjectPath(this, null, Keys.PROJECT__PROJECT_OWNER_ID_FKEY.getInverseKey());
 
         return _project;
+    }
+
+    private transient ProjectVersionPath _projectVersion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_version</code> table
+     */
+    public ProjectVersionPath projectVersion() {
+        if (_projectVersion == null)
+            _projectVersion = new ProjectVersionPath(this, null, Keys.PROJECT_VERSION__PROJECT_VERSION_CREATED_BY_FKEY.getInverseKey());
+
+        return _projectVersion;
     }
 
     private transient PushSubscriptionPath _pushSubscription;

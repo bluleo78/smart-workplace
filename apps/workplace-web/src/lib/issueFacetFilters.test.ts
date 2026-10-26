@@ -57,3 +57,15 @@ describe('clearFacetFilters — 구성요소(WP-933)', () => {
     expect(filtersToParams(cleared, 'list', null).has('component')).toBe(false)
   })
 })
+
+describe('clearFacetFilters — 버전(WP-888)', () => {
+  it('「필터 모두 지우기」에 수정·영향 버전과 각 「없음」이 함께 풀린다', () => {
+    const cleared = clearFacetFilters(f('fixVersion=3,none&affectsVersion=none&q=x'))
+    expect(cleared.fixVersionIds).toEqual([])
+    expect(cleared.fixVersionNone).toBe(false)
+    expect(cleared.affectsVersionNone).toBe(false)
+    const p = filtersToParams(cleared, 'list', null)
+    expect(p.has('fixVersion')).toBe(false)
+    expect(p.has('affectsVersion')).toBe(false)
+  })
+})

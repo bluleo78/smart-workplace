@@ -9,6 +9,8 @@ import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.label.dto.LabelSummary;
 import com.workplace.milestone.repository.MilestoneRepository;
+import com.workplace.version.dto.VersionKind;
+import com.workplace.version.dto.VersionSummary;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -131,6 +133,42 @@ public class IssueHistoryRecorder {
     String payload = toJson(Map.of("added", idAndName(added), "removed", idAndName(removed)));
     historyRepository.insert(
         issueId, actorId, IssueHistoryEventType.COMPONENTS_CHANGED.name(), null, payload, at);
+  }
+
+  /**
+   * 수정 버전·영향 버전 변경을 한 건의 history 로 기록한다(WP-888). kind 는 FIX|AFFECTS — 종류별 유형({@code
+   * FIX_VERSIONS_CHANGED}·{@code AFFECTS_VERSIONS_CHANGED})으로 나눠 남긴다. diff 가 없으면 no-op, payload 는
+   * 구성요소와 같은 {@code {added:[{id,name}], removed:[{id,name}]}} 이고 당시 이름을 남긴다.
+   */
+  public void recordVersionsChanged(
+      Long actorId,
+      long issueId,
+      String kind,
+      List<VersionSummary> added,
+      List<VersionSummary> removed) {
+    recordVersionsChanged(actorId, issueId, kind, added, removed, null);
+  }
+
+  /** 버전 변경 기록 — {@code at} 이 있으면 그 시각(가져오기), null 이면 DB 기본값(지금). 저장 모양은 같다. */
+  public void recordVersionsChanged(
+      Long actorId,
+      long issueId,
+      String kind,
+      List<VersionSummary> added,
+      List<VersionSummary> removed,
+      OffsetDateTime at) {
+    if ((added == null || added.isEmpty()) && (removed == null || removed.isEmpty())) {
+      return;
+    }
+    String type = VersionKind.historyType(kind).name();
+    String payload =
+        toJson(Map.of("added", versionIdAndName(added), "removed", versionIdAndName(removed)));
+    historyRepository.insert(issueId, actorId, type, null, payload, at);
+  }
+
+  private static List<Map<String, Object>> versionIdAndName(List<VersionSummary> list) {
+    if (list == null) return List.of();
+    return list.stream().map(v -> Map.<String, Object>of("id", v.id(), "name", v.name())).toList();
   }
 
   /** 이력 payload 에는 id·당시 이름만 싣는다(보관 여부는 지난 기록에 의미가 없다). */

@@ -30,6 +30,8 @@ const ProjectDetailPage = lazy(() => import('./pages/projects/ProjectDetailPage'
 const ProjectSettingsPage = lazy(() => import('./pages/projects/ProjectSettingsPage'))
 const CyclesPage = lazy(() => import('./pages/projects/CyclesPage'))
 const TimelinePage = lazy(() => import('./pages/projects/timeline/TimelinePage'))
+const VersionsPage = lazy(() => import('./pages/projects/versions/VersionsPage'))
+const VersionDetailPage = lazy(() => import('./pages/projects/versions/VersionDetailPage'))
 const IssueDetailPage = lazy(() => import('./pages/projects/IssueDetailPage'))
 const MyTasksPage = lazy(() => import('./pages/me/MyTasksPage'))
 const AiDelegatedTasksPage = lazy(() => import('./pages/me/AiDelegatedTasksPage'))
@@ -202,6 +204,8 @@ export default function App() {
                 <Route path="projects/:key" element={<ProjectDetailPage />} />
                 <Route path="projects/:key/settings" element={<ProjectSettingsPage />} />
                 <Route path="projects/:key/cycles" element={<CyclesPage />} />
+                <Route path="projects/:key/versions" element={<VersionsPage />} />
+                <Route path="projects/:key/versions/:versionId" element={<VersionDetailPage />} />
                 <Route path="projects/:key/timeline" element={<TimelinePage />} />
                 <Route path="projects/:key/issues/:number" element={<IssueDetailPage />} />
 

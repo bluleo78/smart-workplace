@@ -11,8 +11,9 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  * 16,500 → 16,700, 앱당 16 → 18: WP-887 이슈 관계·외부 링크 도구 2종(add_issue_relation·remove_issue_relation)으로 늘어 상향했다(2026-10-24 사용자 승인).
  * 16,700 → 16,900: 2026-10-25 WP-933 구성요소 인자(list_issues component·create_issue/update_issue components·get_project components, 도구 수는 그대로)와
  *   main 에 먼저 들어온 WP-944 보고자 변경 인자(update_issue reporter)로 늘어 상향했다(2026-10-25 사용자 승인).
+ * 16,900 → 17,000: 2026-10-26 WP-888 버전 인자(list_issues fixVersion·affectsVersion, create_issue/update_issue fixVersions·affectsVersions, get_project versions — 도구 수는 그대로)로 늘어 상향했다(2026-10-26 사용자 승인).
  */
-const DEFINITION_TOKEN_CAP = 16_900;
+const DEFINITION_TOKEN_CAP = 17_000;
 /** 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인). */
 const APP_TOOL_CAP = 18;
 

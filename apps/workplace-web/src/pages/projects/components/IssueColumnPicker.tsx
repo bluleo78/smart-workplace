@@ -17,8 +17,10 @@ import { Button } from '@/components/ui/button';
 
 import { useComponents } from '../../../hooks/queries/useComponents';
 import { useCustomFields } from '../../../hooks/queries/useCustomFields';
+import { useVersions } from '../../../hooks/queries/useVersions';
 import { hasActiveComponents } from '../../../lib/issueComponents';
 import type { BuiltinColumnKey, IssueListColumnKey } from '../../../lib/issueListColumns';
+import { hasActiveVersions } from '../../../lib/issueVersions';
 import type { IssueFieldDef } from '../../../types/customField';
 import { useIssueListColumns } from '../hooks/useIssueListColumns';
 
@@ -48,6 +50,8 @@ const BUILTIN_GROUPS: { label: string | null; items: { key: BuiltinColumnKey; la
       { key: 'milestone', label: '마일스톤' },
       { key: 'cycle', label: '사이클' },
       { key: 'components', label: '구성요소' },
+      { key: 'fixVersions', label: '수정 버전' },
+      { key: 'affectsVersions', label: '영향 버전' },
     ],
   },
 ];
@@ -67,10 +71,12 @@ export interface IssueColumnPickerProps {
   onOpenChange?: (open: boolean) => void;
   /** 「구성요소」 열 항목을 보일까 — 사용 중 구성요소가 없는 프로젝트는 숨긴다(WP-933). 기본 false. */
   showComponents?: boolean;
+  /** 「수정 버전」·「영향 버전」 열 항목을 보일까 — 보관 안 된 버전이 없는 프로젝트는 숨긴다(WP-888). 기본 false. */
+  showVersions?: boolean;
 }
 
 /** 열 메뉴(표시 전용) — 체크 상태·토글 결과만 계산하고 저장 위치(URL/개인값)는 onChange 를 받는 쪽이 정한다. */
-export function IssueColumnPicker({ columns, autoClosed, fieldDefs, onChange, onReset, onOpenChange, showComponents = false }: IssueColumnPickerProps) {
+export function IssueColumnPicker({ columns, autoClosed, fieldDefs, onChange, onReset, onOpenChange, showComponents = false, showVersions = false }: IssueColumnPickerProps) {
   const toggle = (key: IssueListColumnKey) =>
     onChange(columns.includes(key) ? columns.filter((k) => k !== key) : [...columns, key]);
   const customs = [...fieldDefs].sort((a, b) => a.position - b.position);
@@ -112,7 +118,7 @@ export function IssueColumnPicker({ columns, autoClosed, fieldDefs, onChange, on
         {BUILTIN_GROUPS.map((g) => (
           <div key={g.label ?? 'default'} role="group" aria-label={g.label ?? '기본'}>
             {g.label && <DropdownMenuLabel className={GROUP_LABEL_CLASS}>{g.label}</DropdownMenuLabel>}
-            {g.items.filter((it) => it.key !== 'components' || showComponents).map((it) => item(it.key, it.label))}
+            {g.items.filter((it) => (it.key !== 'components' || showComponents) && ((it.key !== 'fixVersions' && it.key !== 'affectsVersions') || showVersions)).map((it) => item(it.key, it.label))}
           </div>
         ))}
         {customs.length > 0 && (
@@ -142,9 +148,12 @@ export function IssueColumnPickerButton({ projectKey, closedFilterActive }: { pr
   // 구성요소 목록 — 필터 바 facet 과 같은 쿼리(캐시 공유). 사용 중인 것이 있을 때만 「구성요소」 열을 고를 수 있다.
   // 커스텀 필드 정의처럼 메뉴를 처음 열 때만 요청한다(필터 바가 이미 받았으면 캐시를 그대로 쓴다).
   const components = useComponents(projectKey, { enabled: opened });
+  // 버전(WP-888) — 같은 방식. 보관 안 된 버전이 있을 때만 「수정 버전」·「영향 버전」 열을 고를 수 있다.
+  const versions = useVersions(projectKey, { enabled: opened });
   return (
     <IssueColumnPicker
       showComponents={hasActiveComponents(components.data ?? [])}
+      showVersions={hasActiveVersions(versions.data ?? [])}
       columns={chosen}
       autoClosed={autoClosed}
       fieldDefs={fields.data ?? []}

@@ -42,3 +42,14 @@ describe('issueFilterParams — component', () => {
     expect(issueFilterParams(EMPTY).has('component')).toBe(false);
   });
 });
+
+// WP-888: 수정 버전·영향 버전 필터는 각각 fixVersion·affectsVersion 으로 실린다(id,…,none).
+describe('issueFilterParams — 버전', () => {
+  it('두 필터를 각자의 키로 보낸다', () => {
+    const p = issueFilterParams({ ...EMPTY, fixVersionIds: [3], fixVersionNone: true, affectsVersionIds: [8] });
+    expect(p.get('fixVersion')).toBe('3,none');
+    expect(p.get('affectsVersion')).toBe('8');
+    expect(issueFilterParams(EMPTY).has('fixVersion')).toBe(false);
+    expect(issueFilterParams(EMPTY).has('affectsVersion')).toBe(false);
+  });
+});

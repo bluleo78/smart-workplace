@@ -16,7 +16,7 @@ describe('상수', () => {
     expect(DEFAULT_COLUMNS).toEqual(['priority', 'assignee', 'due'])
     expect(COLS_PARAM).toBe('cols')
     expect(BUILTIN_ORDER).toEqual([
-      'priority', 'assignee', 'due', 'closed', 'start', 'created', 'updated', 'reporter', 'milestone', 'cycle', 'components',
+      'priority', 'assignee', 'due', 'closed', 'start', 'created', 'updated', 'reporter', 'milestone', 'cycle', 'components', 'fixVersions', 'affectsVersions',
     ])
   })
 })

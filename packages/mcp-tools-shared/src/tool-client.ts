@@ -94,6 +94,9 @@ export interface IssueRow {
   labels?: { name?: string; [key: string]: unknown }[] | null;
   /** 구성요소 요약(WP-933) — 뷰가 이름만 뽑는다. */
   components?: { name?: string; [key: string]: unknown }[] | null;
+  /** 수정·영향 버전 요약(WP-888) — 뷰가 이름만 뽑는다. */
+  fixVersions?: { name?: string; [key: string]: unknown }[] | null;
+  affectsVersions?: { name?: string; [key: string]: unknown }[] | null;
   milestoneName?: string | null;
   parent?: { number?: number; title?: string; status?: string; [key: string]: unknown } | null;
   childCount?: number;
@@ -201,6 +204,8 @@ export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, I
   replaceIssueLabels(issueKey: string, labelIds: number[], labelNames?: string[]): Promise<unknown>;
   /** PUT .../components — 집합 교체(WP-933). 응답은 구성요소 요약 배열. 보관된 것을 새로 붙이면 서버가 400(이미 붙은 것 유지는 허용). */
   replaceIssueComponents(issueKey: string, componentIds: number[]): Promise<unknown>;
+  /** PUT .../versions — 준 종류만 집합 교체(WP-888, 생략한 종류는 유지). 보관 버전을 새로 붙이면 서버가 400. */
+  replaceIssueVersions(issueKey: string, body: { fixVersionIds?: number[]; affectsVersionIds?: number[] }): Promise<unknown>;
   addComment(issueKey: string, body: string): Promise<void>;
   editComment(issueKey: string, commentId: number, body: string): Promise<void>;
   /** POST .../comments/{id}/reactions — 이미 눌렀으면 no-op(멱등), emoji 1~32자(WP-504). 도구는 react 가 reacted 로 고른다(WP-812). */

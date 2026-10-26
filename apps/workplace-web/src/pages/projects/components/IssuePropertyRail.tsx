@@ -9,6 +9,7 @@ import { AgentWorkRailSection } from '../../../components/issue/agentWork/AgentW
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
+import { IssueVersionsField } from '../../../components/versions/IssueVersionsField';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { isOverdue } from '../../../lib/issueOverdue';
 import type { ComponentSummary } from '../../../types/component';
@@ -25,6 +26,7 @@ import type {
 } from '../../../types/issue';
 import type { LabelSummary } from '../../../types/label';
 import type { UserSummary } from '../../../types/user';
+import type { VersionSummary } from '../../../types/version';
 import { AssigneePickerPopover } from './AssigneePickerPopover';
 import { CustomFieldsSection } from './CustomFieldsSection';
 import { DatePickerPopover } from './DatePickerPopover';
@@ -59,6 +61,8 @@ interface IssuePropertyRailProps {
   closedAt?: string | null;   // summary.closedAt — 종료 상태의 완료·취소 시각(WP-873, 구버전 응답엔 없음)
   labels: LabelSummary[];     // summary.labels
   components?: ComponentSummary[]; // summary.components — 붙은 구성요소(WP-933, 구버전 응답엔 없음)
+  fixVersions?: VersionSummary[];    // summary.fixVersions — 붙은 수정 버전(WP-888, 구버전 응답엔 없음)
+  affectsVersions?: VersionSummary[]; // summary.affectsVersions — 붙은 영향 버전(WP-888)
   blockedBy: IssueLinkSummary[];  // summary.blockedBy
   blocks: IssueLinkSummary[];     // summary.blocks
   relations?: IssueRelationView[];        // 상세 relations — 차단 밖 이슈 사이 관계(WP-887)
@@ -98,6 +102,8 @@ export function IssuePropertyRail({
   closedAt,
   labels,
   components = [],
+  fixVersions = [],
+  affectsVersions = [],
   blockedBy,
   blocks,
   relations = [],
@@ -206,6 +212,9 @@ export function IssuePropertyRail({
             current={components}
             disabled={!canEditWorkflow}
           />
+          {/* 수정 버전·영향 버전(WP-888) — 구성요소 바로 아래 두 줄. 보관 안 된 버전이 없는 프로젝트면 줄이 스스로 숨는다. 붙이기는 구성요소와 같은 워크플로 권한. */}
+          <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="fix" current={fixVersions} disabled={!canEditWorkflow} />
+          <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="affects" current={affectsVersions} disabled={!canEditWorkflow} />
           {/* AI 진행(WP-377) — 담당자 바로 아래. 진행 중 작업이 없으면 섹션이 스스로 숨는다. */}
           <AgentWorkRailSection list={agentWork} />
           {/* 보고자(WP-272) — 바꿀 수 있으면 고르기 트리거(WP-944). 구버전 서버 응답(reporter 없음)이면 필드가 스스로 숨는다. */}
@@ -228,6 +237,9 @@ export function IssuePropertyRail({
             current={components}
             disabled={!canEditWorkflow}
           />
+          {/* 수정 버전·영향 버전(WP-888) — 구성요소 바로 아래 두 줄. 보관 안 된 버전이 없는 프로젝트면 줄이 스스로 숨는다. 붙이기는 구성요소와 같은 워크플로 권한. */}
+          <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="fix" current={fixVersions} disabled={!canEditWorkflow} />
+          <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="affects" current={affectsVersions} disabled={!canEditWorkflow} />
         </>
       )}
 

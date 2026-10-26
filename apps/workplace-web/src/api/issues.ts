@@ -1,7 +1,7 @@
 // 이슈 API 클라이언트.
 
 import { resolveClosedRange } from '../lib/closedRange';
-import { componentTokens } from '../lib/issueFilters';
+import { componentTokens, versionTokens } from '../lib/issueFilters';
 import type {
   CreateIssueRequest,
   IssueAiClassifyResponse,
@@ -66,6 +66,11 @@ export function issueFilterParams(filters: IssueFilters): URLSearchParams {
   // 구성요소(WP-933) — id + 「구성요소 없음」 none 토큰, OR.
   const component = componentTokens(filters);
   if (component) params.set('component', component);
+  // 수정 버전·영향 버전(WP-888) — id + none 토큰, 각각 OR 이고 두 필터는 서버가 AND 로 묶는다.
+  const fixVersion = versionTokens(filters.fixVersionIds, filters.fixVersionNone);
+  if (fixVersion) params.set('fixVersion', fixVersion);
+  const affectsVersion = versionTokens(filters.affectsVersionIds, filters.affectsVersionNone);
+  if (affectsVersion) params.set('affectsVersion', affectsVersion);
   if (filters.milestoneIds.length) params.set('milestone', filters.milestoneIds.join(','));
   if (filters.typeIds.length) params.set('type', filters.typeIds.join(','));
   // Phase 4a — parent / topLevel 직렬화. parent 가 지정되면 topLevel·excludeSubtasks·excludeEpics 는

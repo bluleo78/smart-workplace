@@ -12,6 +12,8 @@ import {
   fieldDefByName,
   resolveComponentIds,
   resolveComponentNames,
+  resolveVersionIds,
+  resolveVersionNames,
   splitLabelNames,
   resolveAssigneeIds,
   resolveCycleIds,
@@ -125,6 +127,37 @@ async function resolveUpdateComponentIds(client: IssueToolClient, issueKey: stri
   return resolveComponentIds(names, existing, attached);
 }
 
+/** 이슈 상세의 수정·영향 버전 중 보관된 것의 id — update_issue 가 전체 교체라 이미 붙은 보관 버전은 다시 보내도 된다(WP-888). */
+type AttachedVersions = { fixVersions?: { id: number }[]; affectsVersions?: { id: number }[] };
+
+/**
+ * update_issue 의 fixVersions·affectsVersions 이름 → PUT versions 본문(WP-888). 준 종류만 담는다(생략한 종류는 서버가 유지).
+ * 보관된 이름이 있을 때만 이슈 상세로 지금 붙은 것을 읽어 그 종류의 id 는 통과시킨다 — 없는·새로 붙일 보관 버전이면 쓰기 전에 throw.
+ */
+async function resolveUpdateVersionBody(
+  client: IssueToolClient,
+  issueKey: string,
+  projectKey: string,
+  fix: string[] | undefined,
+  affects: string[] | undefined,
+): Promise<{ fixVersionIds?: number[]; affectsVersionIds?: number[] } | undefined> {
+  const wantFix = fix?.length ? fix : undefined;
+  const wantAffects = affects?.length ? affects : undefined;
+  if (!wantFix && !wantAffects) {
+    // [] 는 비우기라 조회 없이 비운다.
+    if (fix === undefined && affects === undefined) return undefined;
+    return { ...(fix && { fixVersionIds: [] }), ...(affects && { affectsVersionIds: [] }) };
+  }
+  const existing = await client.getProjectVersions(projectKey);
+  const needDetail = [wantFix, wantAffects].some((n) => n && resolveVersionNames(n, existing).archived.length > 0);
+  const detail = needDetail ? ((await client.getIssueDetail(issueKey)) as { summary?: AttachedVersions } | null) : null;
+  const ids = (list?: { id: number }[]) => new Set((list ?? []).map((v) => v.id));
+  return {
+    ...(fix && { fixVersionIds: wantFix ? resolveVersionIds(wantFix, existing, ids(detail?.summary?.fixVersions)) : [] }),
+    ...(affects && { affectsVersionIds: wantAffects ? resolveVersionIds(wantAffects, existing, ids(detail?.summary?.affectsVersions)) : [] }),
+  };
+}
+
 /** 공유 이슈 도구 13종 구성. 각 앱은 자기 클라이언트를 IssueToolClient 로 어댑팅해 넘긴다. */
 export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
   return [
@@ -172,18 +205,22 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'except one whose agentRuntime is INTERNAL — it does not react to anything another AI does (assigning, comments, status).',
       inputSchema: createIssueInput,
       async handler(args) {
-        const { projectKey, type, assignees, parent, labels, components, milestone, cycles, ...rest } = createIssueInput.parse(args);
+        const { projectKey, type, assignees, parent, labels, components, fixVersions, affectsVersions, milestone, cycles, ...rest } = createIssueInput.parse(args);
         // 리졸브(이름→ID)를 create 이전에 수행 — 실패 시 이슈를 만들지 않고 throw. 서로 독립 조회라 병렬로 보낸다.
         // WP-356: 라벨·마일스톤·사이클도 서버가 생성과 같은 트랜잭션에서 붙인다 — 생성 후 update_issue 를 따로 부르지 않아도 된다.
         const parentNumber = parent != null ? parentNumberOf(parent, projectKey) : undefined;
-        const [typeId, assigneeIds, milestoneId, cycleIds, existingLabels, existingComponents] = await Promise.all([
+        const [typeId, assigneeIds, milestoneId, cycleIds, existingLabels, existingComponents, existingVersions] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
           milestone ? resolveMilestoneId(client, projectKey, milestone) : undefined,
           cycles?.length ? resolveCycleIds(client, projectKey, cycles) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
           components?.length ? client.getProjectComponents(projectKey) : undefined,
+          fixVersions?.length || affectsVersions?.length ? client.getProjectVersions(projectKey) : undefined,
         ]);
+        // WP-888: 버전도 이슈를 만들기 전에 이름을 해석한다 — 없는·보관된 이름이면 만들지 않고 throw. 만들기 API 에는 버전 인자가 없어 만든 뒤 PUT versions 로 붙인다.
+        const fixVersionIds = existingVersions && fixVersions?.length ? resolveVersionIds(fixVersions, existingVersions) : undefined;
+        const affectsVersionIds = existingVersions && affectsVersions?.length ? resolveVersionIds(affectsVersions, existingVersions) : undefined;
         // WP-394: 있는 라벨은 id, 없는 라벨은 이름으로 — 없는 라벨은 서버가 이슈 생성과 같은 트랜잭션에서 만든다(실패하면 라벨도 남지 않는다).
         const labelPart = existingLabels && labels ? splitLabelNames(labels, existingLabels) : undefined;
         // WP-933: 구성요소는 라벨과 달리 만들지 않는다 — 없는 이름·보관된 이름은 이슈를 만들기 전에 throw. 서버가 담당자 없는 이슈에 기본 담당자를 붙인다.
@@ -201,8 +238,23 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           cycleIds,
         };
         // 서버 응답(IssueResponse)은 reporterId·assignees[].id 같은 숫자 사용자 ID 를 담는다 — 목록 행과 같은 뷰로 바꿔 내보낸다(#833, WP-353).
-        const created = toIssueListItem((await client.createIssue(projectKey, body)) as IssueRow);
-        return JSON.stringify(dropEmpty({ ...created, ...createdLabelsField(labelPart) }));
+        const createdRaw = (await client.createIssue(projectKey, body)) as IssueRow;
+        // WP-888: 이슈는 이미 만들어졌다 — 버전 붙이기가 실패하면 되돌리지 않고 결과에 알린다(이슈는 생겼고 버전만 못 붙였다).
+        let versionsError: string | undefined;
+        if (fixVersionIds || affectsVersionIds) {
+          try {
+            const updated = (await client.replaceIssueVersions(createdRaw.issueKey ?? `${projectKey}-${createdRaw.number}`, { fixVersionIds, affectsVersionIds })) as {
+              fixVersions?: unknown;
+              affectsVersions?: unknown;
+            } | null;
+            createdRaw.fixVersions = (updated?.fixVersions ?? []) as IssueRow['fixVersions'];
+            createdRaw.affectsVersions = (updated?.affectsVersions ?? []) as IssueRow['affectsVersions'];
+          } catch (e) {
+            versionsError = `이슈는 만들어졌지만 버전을 붙이지 못했습니다: ${errText(e)}`;
+          }
+        }
+        const created = toIssueListItem(createdRaw);
+        return JSON.stringify(dropEmpty({ ...created, ...createdLabelsField(labelPart), versionsError }));
       },
     },
     {
@@ -218,7 +270,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'assignees and watchers, new assignees too. An AI whose agentRuntime is INTERNAL does not react to anything another AI does (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {
-        const { issueKey, status, type, parent, assignees, reporter, labels, components, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
+        const { issueKey, status, type, parent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
         const { projectKey } = parseIssueKey(issueKey);
 
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
@@ -228,12 +280,14 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         const fieldEntries = fields ? Object.entries(fields) : [];
         //    WP-870: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusName } — 이름은 서버가 해석하고 모르면 content 가 400 으로 실패한다.
         const statusPatch = status !== undefined ? resolveStatusPatch(status) : undefined;
-        const [typeId, assigneeIds, existingLabels, componentIds, milestoneId, cycleIds, fieldValues, reporterIds] = await Promise.all([
+        const [typeId, assigneeIds, existingLabels, componentIds, versionBody, milestoneId, cycleIds, fieldValues, reporterIds] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
           labels?.length ? client.getProjectLabels(projectKey) : undefined,
           // WP-933: 구성요소 이름은 쓰기 전에 해석한다 — 없는 이름·새로 붙일 보관 구성요소면 아무것도 쓰지 않고 throw. [] 는 비우기라 조회 없이 비운다.
           components?.length ? resolveUpdateComponentIds(client, issueKey, projectKey, components) : components ? [] : undefined,
+          // WP-888: 버전도 같은 방식 — 쓰기 전에 해석하고, 준 종류만 교체한다.
+          resolveUpdateVersionBody(client, issueKey, projectKey, fixVersions, affectsVersions),
           milestone ? resolveMilestoneId(client, projectKey, milestone) : undefined,
           cycles ? resolveCycleIds(client, projectKey, cycles) : undefined,
           fieldEntries.length
@@ -303,6 +357,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           await run('labels', () => client.replaceIssueLabels(issueKey, labelPart.ids, labelPart.created));
         }
         if (componentIds !== undefined) await run('components', () => client.replaceIssueComponents(issueKey, componentIds));
+        if (versionBody !== undefined) await run('versions', () => client.replaceIssueVersions(issueKey, versionBody));
         if (cycleIds !== undefined) await run('cycles', () => client.replaceIssueCycles(issueKey, cycleIds));
         if (fieldValues !== undefined) await run('fields', () => client.updateIssueFields(issueKey, fieldValues));
         // WP-944: 보고자는 맨 마지막 — 쓰기 권한이 지금 보고자를 따르므로(OPEN 비멤버 보고자) 넘긴 뒤의 쓰기는 거절될 수 있다.

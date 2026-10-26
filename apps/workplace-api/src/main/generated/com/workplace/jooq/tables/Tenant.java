@@ -67,6 +67,7 @@ import com.workplace.jooq.tables.IssueLabel.IssueLabelPath;
 import com.workplace.jooq.tables.IssueRelation.IssueRelationPath;
 import com.workplace.jooq.tables.IssueRelationType.IssueRelationTypePath;
 import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
+import com.workplace.jooq.tables.IssueVersion.IssueVersionPath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
 import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.MailAttachmentPreview.MailAttachmentPreviewPath;
@@ -85,6 +86,7 @@ import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
+import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.Role.RolePath;
 import com.workplace.jooq.tables.RolePermission.RolePermissionPath;
 import com.workplace.jooq.tables.SavedView.SavedViewPath;
@@ -1040,6 +1042,19 @@ public class Tenant extends TableImpl<TenantRecord> {
         return _issueTypeDef;
     }
 
+    private transient IssueVersionPath _issueVersion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_version</code> table
+     */
+    public IssueVersionPath issueVersion() {
+        if (_issueVersion == null)
+            _issueVersion = new IssueVersionPath(this, null, Keys.ISSUE_VERSION__FK_ISSUE_VERSION_TENANT.getInverseKey());
+
+        return _issueVersion;
+    }
+
     private transient IssueWatcherPath _issueWatcher;
 
     /**
@@ -1180,6 +1195,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _project = new ProjectPath(this, null, Keys.PROJECT__FK_PROJECT_TENANT.getInverseKey());
 
         return _project;
+    }
+
+    private transient ProjectVersionPath _projectVersion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_version</code> table
+     */
+    public ProjectVersionPath projectVersion() {
+        if (_projectVersion == null)
+            _projectVersion = new ProjectVersionPath(this, null, Keys.PROJECT_VERSION__FK_PROJECT_VERSION_TENANT.getInverseKey());
+
+        return _projectVersion;
     }
 
     private transient RolePermissionPath _rolePermission;

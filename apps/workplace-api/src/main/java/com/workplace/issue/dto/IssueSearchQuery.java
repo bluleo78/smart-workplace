@@ -72,7 +72,89 @@ public record IssueSearchQuery(
     // 구성요소 필터(WP-933) — 지정 구성요소 중 하나라도 붙은 이슈(OR). 보관된 구성요소도 거를 수 있다. 비어 있으면 미적용.
     List<Long> componentIds,
     // 구성요소 없음 포함 — component=none 토큰(사이클 none 과 같은 규약). componentIds 와 OR 결합.
-    boolean componentNone) {
+    boolean componentNone,
+    // 수정 버전 필터(WP-888) — 지정 버전 중 하나라도 수정 버전(FIX)으로 붙은 이슈(OR). 보관된 버전도 거를 수 있다. 비어 있으면 미적용.
+    List<Long> fixVersionIds,
+    // 수정 버전 없음 포함 — fixVersion=none 토큰. fixVersionIds 와 OR 결합.
+    boolean fixVersionNone,
+    // 영향 버전 필터(WP-888) — 같은 규약, 종류만 AFFECTS. 수정 버전 필터와는 AND.
+    List<Long> affectsVersionIds,
+    boolean affectsVersionNone) {
+
+  /** 버전 필터 없는 33-인자 호환 생성자 — 버전 필터를 쓰지 않는 호출부용. */
+  public IssueSearchQuery(
+      String q,
+      List<String> statuses,
+      List<Long> assigneeIds,
+      boolean includeUnassigned,
+      List<String> priorities,
+      LocalDate dueFrom,
+      LocalDate dueTo,
+      IssueCursor cursor,
+      int size,
+      List<List<Long>> labelIdGroups,
+      List<Long> typeIds,
+      Integer parentNumber,
+      Boolean topLevel,
+      Boolean blocked,
+      Long fieldId,
+      String fieldValue,
+      List<Long> reporterIds,
+      List<Long> cycleIds,
+      boolean includeNoOpenCycle,
+      List<Long> milestoneIds,
+      Boolean excludeSubtasks,
+      Boolean excludeEpics,
+      Boolean hideInactiveClosed,
+      boolean includeNoCycle,
+      LocalDate closedFrom,
+      LocalDate closedTo,
+      LocalDate createdFrom,
+      LocalDate createdTo,
+      Long watcherId,
+      Long pendingForUserId,
+      List<Long> statusIds,
+      List<Long> componentIds,
+      boolean componentNone) {
+    this(
+        q,
+        statuses,
+        assigneeIds,
+        includeUnassigned,
+        priorities,
+        dueFrom,
+        dueTo,
+        cursor,
+        size,
+        labelIdGroups,
+        typeIds,
+        parentNumber,
+        topLevel,
+        blocked,
+        fieldId,
+        fieldValue,
+        reporterIds,
+        cycleIds,
+        includeNoOpenCycle,
+        milestoneIds,
+        excludeSubtasks,
+        excludeEpics,
+        hideInactiveClosed,
+        includeNoCycle,
+        closedFrom,
+        closedTo,
+        createdFrom,
+        createdTo,
+        watcherId,
+        pendingForUserId,
+        statusIds,
+        componentIds,
+        componentNone,
+        null,
+        false,
+        null,
+        false);
+  }
 
   /** 구성요소 필터 없는 31-인자 호환 생성자 — 구성요소 필터를 쓰지 않는 호출부용. */
   public IssueSearchQuery(

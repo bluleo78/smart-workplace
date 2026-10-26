@@ -25,6 +25,7 @@ import {
   prepareTimelineIssues,
   resolvePeriod,
   rollupOverlay,
+  versionsToMarkers,
   weekMonthAdd,
   weekMonthDiff,
   weekMonthEnd,
@@ -1044,5 +1045,33 @@ describe('일 보기(WP-889)', () => {
     expect(isWeekend(parseISO('2026-07-11'))).toBe(true);
     expect(isWeekend(parseISO('2026-07-12'))).toBe(true);
     expect(isWeekend(parseISO('2026-07-13'))).toBe(false);
+  });
+});
+
+// WP-888: 버전 출시일 ▲ 마커 — 출시일이 있는 미출시·출시됨만, 날짜순.
+describe('versionsToMarkers', () => {
+  const v = (id: number, name: string, status: 'UNRELEASED' | 'RELEASED' | 'ARCHIVED', releaseDate: string | null) => ({
+    id,
+    name,
+    status,
+    releaseDate,
+  });
+
+  it('날짜 없는 버전과 보관된 버전은 뺀다', () => {
+    const markers = versionsToMarkers([
+      v(1, '날짜 없음', 'UNRELEASED', null),
+      v(2, '보관', 'ARCHIVED', '2026-01-10'),
+      v(3, '출시됨', 'RELEASED', '2026-03-01'),
+      v(4, '미출시', 'UNRELEASED', '2026-02-01'),
+    ]);
+    expect(markers).toEqual([
+      { id: 4, name: '미출시', date: '2026-02-01', status: 'UNRELEASED' },
+      { id: 3, name: '출시됨', date: '2026-03-01', status: 'RELEASED' },
+    ]);
+  });
+
+  it('표시할 버전이 없으면 빈 배열(레인을 그리지 않는다)', () => {
+    expect(versionsToMarkers([])).toEqual([]);
+    expect(versionsToMarkers([v(1, 'x', 'ARCHIVED', '2026-01-01'), v(2, 'y', 'UNRELEASED', null)])).toEqual([]);
   });
 });

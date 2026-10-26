@@ -17,6 +17,8 @@ import com.workplace.label.repository.LabelRepository;
 import com.workplace.member.repository.MemberDirectoryRepository;
 import com.workplace.milestone.dto.MilestoneRow;
 import com.workplace.milestone.repository.MilestoneRepository;
+import com.workplace.version.dto.VersionRow;
+import com.workplace.version.repository.VersionRepository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +51,7 @@ class IssueFilterResolver {
   private final CycleRepository cycleRepository;
   private final ProjectStatusRepository projectStatusRepository;
   private final ComponentRepository componentRepository;
+  private final VersionRepository versionRepository;
 
   /**
    * 담당자·작성자 토큰 → userId. "me" 는 호출자, 숫자는 그대로, 그 외는 현재 테넌트 구성원 username(대소문자 무시). "null"(미지정) 리터럴은
@@ -160,6 +163,46 @@ class IssueFilterResolver {
             candidates,
             ComponentRow::name,
             ComponentRow::id,
+            true,
+            SingleLineTitles::normalize));
+  }
+
+  /**
+   * 버전 이름 후보 — 처음 꺼낼 때 한 번만 읽고 기억한다. {@code fixVersion}·{@code affectsVersion} 두 필터가 같은 공급자를 나눠 써 한
+   * 요청에서 후보 목록을 두 번 읽지 않는다(둘 다 숫자 토큰이면 읽지 않는다).
+   */
+  Supplier<List<VersionRow>> versionCandidates(Long projectId, Long callerId) {
+    return new Supplier<>() {
+      private List<VersionRow> cached;
+
+      @Override
+      public List<VersionRow> get() {
+        if (cached == null) {
+          cached =
+              projectId != null
+                  ? versionRepository.listByProject(projectId)
+                  : versionRepository.findByMemberProjects(callerId);
+        }
+        return cached;
+      }
+    };
+  }
+
+  /**
+   * 버전 토큰 → id 목록(OR, WP-888) — {@code fixVersion}·{@code affectsVersion} 가 field 이름만 달리 같은 코드를 쓴다.
+   * 이름은 대소문자 무시이고 보관된 버전도 후보다(지난 이슈 찾기). 약속된 토큰(none)은 호출측이 먼저 걸러낸다. 후보는 {@link #versionCandidates}
+   * 로 받는다.
+   */
+  List<Long> resolveVersionIds(
+      String field, List<String> tokens, Supplier<List<VersionRow>> candidates) {
+    return flatten(
+        resolveByName(
+            field,
+            "버전",
+            tokens,
+            candidates,
+            VersionRow::name,
+            VersionRow::id,
             true,
             SingleLineTitles::normalize));
   }

@@ -18,6 +18,7 @@ import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
+import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.SavedView.SavedViewPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
@@ -384,6 +385,19 @@ public class Project extends TableImpl<ProjectRecord> {
             _projectStatus = new ProjectStatusPath(this, null, Keys.PROJECT_STATUS__PROJECT_STATUS_PROJECT_ID_FKEY.getInverseKey());
 
         return _projectStatus;
+    }
+
+    private transient ProjectVersionPath _projectVersion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_version</code> table
+     */
+    public ProjectVersionPath projectVersion() {
+        if (_projectVersion == null)
+            _projectVersion = new ProjectVersionPath(this, null, Keys.PROJECT_VERSION__PROJECT_VERSION_PROJECT_ID_FKEY.getInverseKey());
+
+        return _projectVersion;
     }
 
     private transient SavedViewPath _savedView;

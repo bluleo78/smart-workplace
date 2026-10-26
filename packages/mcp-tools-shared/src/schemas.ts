@@ -58,6 +58,8 @@ export const createIssueInput = z.object({
   // WP-356: 라벨·마일스톤·사이클 이름 → id. 서버가 생성과 같은 트랜잭션에서 붙인다(생성 후 update_issue 를 따로 부를 필요 없음).
   labels: z.array(z.string()).optional(),
   components: z.array(z.string()).optional(), // WP-933: 구성요소 이름[] → componentIds (없는 이름은 만들지 않고 실패)
+  fixVersions: z.array(z.string()).optional(), // WP-888: 수정 버전 이름[] — 생성 뒤 PUT versions 로 붙인다(없는·보관 이름은 만들기 전에 실패)
+  affectsVersions: z.array(z.string()).optional(), // WP-888: 영향 버전 이름[]
   milestone: z.string().min(1).optional(),
   cycles: z.array(z.string()).optional(),
   fileIds: stagedFileIdsInput.optional(), // WP-422: 생성은 같은 트랜잭션, 수정은 클레임 API 로 붙는다
@@ -82,6 +84,8 @@ export const updateIssueInput = z.object({
   reporter: z.string().min(1).optional(),
   labels: z.array(z.string()).optional(), // 라벨명[] → 집합 교체
   components: z.array(z.string()).optional(), // WP-933: 구성요소명[] → 집합 교체([] = 전부 해제)
+  fixVersions: z.array(z.string()).optional(), // WP-888: 수정 버전명[] → 그 종류만 집합 교체([] = 전부 해제), 생략 = 유지
+  affectsVersions: z.array(z.string()).optional(), // WP-888: 영향 버전명[] → 그 종류만 집합 교체
   milestone: z.string().min(1).nullable().describe('null clears').optional(), // 마일스톤 이름 → milestoneId, null=해제(#854)
   cycles: z.array(z.string()).optional(), // 사이클명[] → 집합 교체, []=전부 해제(#854)
   // WP-356: 커스텀 필드 값(필드 이름 → 값, null=비우기). 준 필드만 바뀐다(PUT .../fields 는 incoming 만 처리).
@@ -180,6 +184,8 @@ export const issueListFilterShape = {
   priority: z.array(issuePriorityInput).optional(),
   label: z.string().optional().describe('Label names CSV; all must match'),
   component: z.string().optional().describe('Component names CSV; any matches, "none" = no component'),
+  fixVersion: z.string().optional().describe('Names CSV; "none"'),
+  affectsVersion: z.string().optional().describe('Names CSV; "none"'),
   type: z.string().optional().describe('Type names CSV; any matches'),
   dueFrom: z.string().optional().describe('Due date range, yyyy-MM-dd'),
   dueTo: z.string().optional(),

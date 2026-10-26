@@ -8,10 +8,10 @@ import { z } from 'zod';
 import type { SharedTool } from './mcp-tool.js';
 import { requireActiveMember } from './member-tools.js';
 import { nullAsOmitted } from './tool-definitions.js';
-import { DEFAULT_LABEL_COLOR, defaultListAssignee, fieldDefByName, resolveCycleFilter, resolveMilestoneFilter, rowByName, splitStatusTokens, toFieldValue } from './resolve.js';
+import { DEFAULT_LABEL_COLOR, defaultListAssignee, fieldDefByName, resolveCycleFilter, resolveMilestoneFilter, resolveVersionFilter, rowByName, splitStatusTokens, toFieldValue } from './resolve.js';
 import { formatIssueKey, parseIssueKey } from './parse.js';
 import { cursorPageView, dropEmpty, numberedPageView, omitKeys } from './compact.js';
-import { componentNames, labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
+import { componentNames, versionNames, labelNames, toChildrenView, toParentView, toPeopleView, toSeoulIso, typeName } from './issue-view.js';
 import { listIssuesInput } from './schemas.js';
 import type { CreateProjectBody, IssueListQuery, IssueRow, MemberToolClient, ProjectMetaKind, ProjectToolClient } from './tool-client.js';
 
@@ -155,6 +155,8 @@ export function toIssueListItem(it: IssueRow) {
     closedAt: toSeoulIso(it.closedAt),
     labels: labelNames(it.labels),
     components: componentNames(it.components),
+    fixVersions: versionNames(it.fixVersions),
+    affectsVersions: versionNames(it.affectsVersions),
     milestone: it.milestoneName ?? null,
     parent: toParentView(it.parent, projectKey),
     children: toChildrenView(it.childCount, it.childDoneCount),
@@ -219,7 +221,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components (assignee, archived), milestones (with dueDate), cycles (status, ' +
+        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components (assignee, archived), versions, milestones (with dueDate), cycles (status, ' +
         'dates), fields (custom fields, with options), statuses, members (username, name, role), relationTypes (issue link types: code?, name, outwardLabel, inwardLabel?, externalOnly).',
       inputSchema: projectKeyInput,
       async handler(args) {
@@ -227,12 +229,14 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         // #844: 이슈 쓰기 도구의 type·labels·assignees(#854: milestone·cycles) 값을 조회로 조달하게 한다(추측 방지). 모두 독립 조회라 병렬.
         // WP-356: 마일스톤 기한·사이클 기간(계획 판단용)과 커스텀 필드 정의(update_issue 의 fields·list_issues 의 field 가 받는 이름·선택지)도 싣는다.
         // WP-807: 프로젝트 상태(이름·범주·순서)도 싣는다 — update_issue·list_issues 의 status 가 받는 이름이다.
-        const [project, types, labels, components, milestones, cycles, fields, statuses, members, relationTypes] = await Promise.all([
+        const [project, types, labels, components, versions, milestones, cycles, fields, statuses, members, relationTypes] = await Promise.all([
           client.getProject(projectKey),
           client.getProjectTypes(projectKey),
           client.getProjectLabels(projectKey),
           // WP-933: 구성요소도 부가 정보다 — 아직 이 API 가 없는 서버(롤링 배포에서 MCP 가 API 보다 먼저 뜬 경우)나 일시 오류가 get_project 전체를 깨지 않게 실패하면 건너뛴다.
           client.getProjectComponents(projectKey).catch(() => null),
+          // WP-888: 버전도 같은 이유로 실패를 격리한다.
+          client.getProjectVersions(projectKey).catch(() => null),
           client.getProjectMilestones(projectKey),
           client.getProjectCycles(projectKey),
           client.getProjectFields(projectKey),
@@ -252,6 +256,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
               dropEmpty({ name: c.name, assignee: c.defaultAssigneeValid === false ? undefined : c.defaultAssignee?.username, archived: c.archived || undefined }),
             ),
           }),
+          // WP-888: 버전 — 보관된 것도 싣는다(status). 조회가 실패했으면 키를 생략한다.
+          ...(versions && { versions: versions.map(({ name, status, releaseDate }) => dropEmpty({ name, status, releaseDate })) }),
           milestones: milestones.map(({ name, dueDate }) => dropEmpty({ name, dueDate })),
           cycles: cycles.map(({ name, status, startDate, endDate }) => dropEmpty({ name, status, startDate, endDate })),
           fields: fields.map(({ name, type, options }) => dropEmpty({ name, type, options })),
@@ -276,7 +282,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         'agentWork (dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
-        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, parent, field, watching, pendingForMe, ...p } = listIssuesInput.parse(args);
+        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, ...p } = listIssuesInput.parse(args);
         // WP-356: 부모는 이슈 키로 받는다 — 서버 parent 는 프로젝트 안의 번호라 키의 프로젝트로 범위를 고정한다(없으면 모든 프로젝트의 같은 번호가 걸린다).
         let projectKey = p.projectKey;
         let parentNumber: number | undefined;
@@ -298,9 +304,12 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
         }
         // WP-176: 사이클 이름·active·none·backlog → 서버 토큰(id·none·null). WP-356: 마일스톤 이름 → id, 필드 "이름=값" → fieldId + JSON 값.
         // 서버는 해석 못 한 토큰을 조용히 버리므로 해석 실패는 모두 조회 전에 throw 한다.
-        const [cycle, milestone, fieldFilter] = await Promise.all([
+        const [cycle, milestone, fixVersion, affectsVersion, fieldFilter] = await Promise.all([
           cycleCsv ? resolveCycleFilter(client, projectKey, cycleCsv) : undefined,
           milestoneCsv ? resolveMilestoneFilter(client, projectKey, milestoneCsv) : undefined,
+          // WP-888: 버전 이름 → id(숫자 이름 버전 대응). projectKey 가 없는 교차 검색은 이름을 그대로 넘긴다.
+          fixVersionCsv ? resolveVersionFilter(client, projectKey, fixVersionCsv) : undefined,
+          affectsVersionCsv ? resolveVersionFilter(client, projectKey, affectsVersionCsv) : undefined,
           field ? resolveFieldFilter(client, projectKey, field) : undefined,
         ]);
         // undefined 필드는 쿼리에서 뺀다 — 서버는 빈 값과 미지정을 다르게 볼 수 있다.
@@ -313,6 +322,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
             assignee,
             cycle,
             milestone,
+            fixVersion,
+            affectsVersion,
             parent: parentNumber,
             ...fieldFilter,
             watching: watching || undefined,

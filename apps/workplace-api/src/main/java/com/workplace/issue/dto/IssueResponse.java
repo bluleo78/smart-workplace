@@ -5,6 +5,7 @@ import com.workplace.component.dto.ComponentSummary;
 import com.workplace.cycle.dto.CycleSummary;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.label.dto.LabelSummary;
+import com.workplace.version.dto.VersionSummary;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -65,7 +66,103 @@ public record IssueResponse(
     // WP-270 목록 열(사이클) — 검색 목록 조립만 채운다(시작일 최신순). 연결이 없으면 빈 배열, 목록 조립 밖 경로는 null 이라 생략.
     @JsonInclude(JsonInclude.Include.NON_NULL) List<CycleSummary> cycles,
     // WP-933 붙은 구성요소(목록 순서 — 이름 대소문자 무시 오름차순). 상세·목록·생성 응답이 채우고, 없으면 빈 배열(null 아님).
-    List<ComponentSummary> components) {
+    List<ComponentSummary> components,
+    // WP-888 수정 버전(FIX)·영향 버전(AFFECTS) — 버전 목록 순서(미출시 → 출시됨 → 보관). 없으면 빈 배열(null 아님).
+    List<VersionSummary> fixVersions,
+    List<VersionSummary> affectsVersions) {
+
+  /** 버전 필드가 없던 36-인자 호환 생성자 — 버전을 채우지 않는 기존 호출부용(두 목록은 빈 배열). */
+  public IssueResponse(
+      Long id,
+      String projectKey,
+      int number,
+      String title,
+      String status,
+      Long statusId,
+      String statusName,
+      String statusColor,
+      String priority,
+      LocalDate dueDate,
+      LocalDate startDate,
+      Long milestoneId,
+      String milestoneName,
+      Long reporterId,
+      Instant createdAt,
+      Instant updatedAt,
+      Instant closedAt,
+      List<LabelSummary> labels,
+      int attachmentCount,
+      IssueTypeSummary type,
+      List<UserSummary> assignees,
+      ParentRef parent,
+      int childCount,
+      int childDoneCount,
+      List<IssueLinkSummary> blockedBy,
+      List<IssueLinkSummary> blocks,
+      boolean blocked,
+      List<IssueFieldEntry> customFields,
+      int version,
+      List<AgentWorkView> agentWork,
+      AiTaskGroup aiGroup,
+      AiTaskProject aiProject,
+      AiTaskProject projectGroup,
+      UserSummary reporter,
+      List<CycleSummary> cycles,
+      List<ComponentSummary> components) {
+    this(
+        id,
+        projectKey,
+        number,
+        title,
+        status,
+        statusId,
+        statusName,
+        statusColor,
+        priority,
+        dueDate,
+        startDate,
+        milestoneId,
+        milestoneName,
+        reporterId,
+        createdAt,
+        updatedAt,
+        closedAt,
+        labels,
+        attachmentCount,
+        type,
+        assignees,
+        parent,
+        childCount,
+        childDoneCount,
+        blockedBy,
+        blocks,
+        blocked,
+        customFields,
+        version,
+        agentWork,
+        aiGroup,
+        aiProject,
+        projectGroup,
+        reporter,
+        cycles,
+        components,
+        List.of(),
+        List.of());
+  }
+
+  /** 수정 버전·영향 버전을 채운 사본(WP-888 — 상세·목록 조립 단계에서 일괄 조회해 주입). null 은 빈 배열로. */
+  public IssueResponse withVersions(List<VersionSummary> fix, List<VersionSummary> affects) {
+    return copyWith(
+        agentWork,
+        aiGroup,
+        aiProject,
+        projectGroup,
+        reporter,
+        cycles,
+        components,
+        fix == null ? List.of() : fix,
+        affects == null ? List.of() : affects);
+  }
 
   /** 진행 중 AI 작업 목록을 채운 사본을 돌려준다(목록·상세 조립 단계에서 한 번에 조회해 주입). */
   public IssueResponse withAgentWork(List<AgentWorkView> list) {
@@ -124,6 +221,29 @@ public record IssueResponse(
       UserSummary newReporter,
       List<CycleSummary> newCycles,
       List<ComponentSummary> newComponents) {
+    return copyWith(
+        newAgentWork,
+        newAiGroup,
+        newAiProject,
+        newProjectGroup,
+        newReporter,
+        newCycles,
+        newComponents,
+        fixVersions,
+        affectsVersions);
+  }
+
+  /** {@link #copyWith} 의 버전 포함 본체 — 필드 복사는 여기 한 곳. */
+  private IssueResponse copyWith(
+      List<AgentWorkView> newAgentWork,
+      AiTaskGroup newAiGroup,
+      AiTaskProject newAiProject,
+      AiTaskProject newProjectGroup,
+      UserSummary newReporter,
+      List<CycleSummary> newCycles,
+      List<ComponentSummary> newComponents,
+      List<VersionSummary> newFixVersions,
+      List<VersionSummary> newAffectsVersions) {
     return new IssueResponse(
         id,
         projectKey,
@@ -160,7 +280,9 @@ public record IssueResponse(
         newProjectGroup,
         newReporter,
         newCycles,
-        newComponents);
+        newComponents,
+        newFixVersions,
+        newAffectsVersions);
   }
 
   /**

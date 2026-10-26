@@ -121,10 +121,12 @@ test('C3·R13 프로젝트 ⋯: 항목은 링크 하나씩(버튼 중첩 없음)
   const menu = page.getByTestId('mobile-header-more-menu')
   await expect(menu).toBeVisible()
   await expect(menu).toHaveAttribute('role', 'menu')
-  await expect(menu.getByRole('menuitem')).toHaveCount(3)
+  // 사이클 · 버전(WP-888) · 타임라인 · 설정
+  await expect(menu.getByRole('menuitem')).toHaveCount(4)
+  await expect(menu.getByRole('menuitem', { name: '버전' })).toBeVisible()
   // 링크 안에 버튼이 없다 — 항목당 포커스 한 번.
   await expect(menu.locator('a button')).toHaveCount(0)
-  await expect(menu.locator('a[role="menuitem"]')).toHaveCount(3)
+  await expect(menu.locator('a[role="menuitem"]')).toHaveCount(4)
   // 메뉴 항목 모양(44px·좌측 정렬·테두리 없음).
   const item = menu.getByRole('menuitem', { name: '사이클' })
   expect((await item.boundingBox())!.height).toBeGreaterThanOrEqual(44)
