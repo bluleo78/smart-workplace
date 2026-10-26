@@ -1,5 +1,5 @@
 // 일정 폼 태그 줄(WP-714, 일정 편집 폼 배치 B) — 붙일 수 있는 일정·Outlook 범주 일정·태그 없는 외부 일정에서 무엇이 보이는지,
-// 그리고 폼 상태라 체크가 저장(PUT)이 아니라 onChange 로만 가는지. 실제 PATCH 뒤 PUT 배선은 E2E(calendar-tags.spec.ts)가 본다.
+// 그리고 폼 상태라 체크가 저장(PUT)이 아니라 onChange 로만 가는지. 일정 저장(POST·PATCH)에 tagIds 가 함께 실리는 흐름은 src/pages/calendar/calendarTags.test.tsx 가 본다.
 import { fireEvent, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 

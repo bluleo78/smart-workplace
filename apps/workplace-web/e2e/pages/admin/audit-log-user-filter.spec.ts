@@ -1,13 +1,12 @@
-// WP-183: 감사 로그 — 검색형 사용자 필터 · 재진입 시 첫 페이지부터.
-// - 사용자 필터는 구성원 100명 상한 없이 검색어로 서버 조회하고, 고른 사람의 user_id 가 감사 로그 요청에 실린다.
-// - 깊이 스크롤한 뒤 다른 화면에 갔다 오면 받아 둔 페이지를 전부 다시 받지 않고 첫 페이지만 받는다.
+// WP-183: 감사 로그 — 재진입 시 첫 페이지부터.
+// - 깊이 스크롤한 뒤 다른 화면에 갔다 오면 받아 둔 페이지를 전부 다시 받지 않고 첫 페이지만 받는다 — 스크롤 + 화면 이동(@flow).
+// 검색형 사용자 필터(검색어 → 서버 조회 → userId)는 src/pages/admin/auditLog.test.tsx 가 지킨다(WP-966).
 
 import type { Page } from '@playwright/test';
 
 import { setupAdminAuth } from '../../fixtures/admin.fixture';
 import { createPageResponse } from '../../fixtures/api-mock';
 import { createAuditLog } from '../../factories/admin.factory';
-import { createMember } from '../../factories/auth.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 
@@ -36,61 +35,8 @@ async function stubAuditLogs(page: Page, totalPages: number) {
   return requests;
 }
 
-/** 구성원 디렉터리 스텁 — search 파라미터로 거른 결과를 돌려주고 요청 tracker 를 돌려준다. */
-async function stubMembers(page: Page, members: ReturnType<typeof createMember>[]) {
-  const requests = trackRequests(page, 'GET', '/api/v1/members');
-  await page.route(
-    (url) => url.pathname === '/api/v1/members',
-    (route) => {
-      const url = new URL(route.request().url());
-      const q = url.searchParams.get('search')?.toLowerCase();
-      const hit = q ? members.filter((m) => m.name.toLowerCase().includes(q) || m.username.includes(q)) : members;
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(createPageResponse(hit.slice(0, 20), { size: 20, totalElements: hit.length })),
-      });
-    },
-  );
-  return requests;
-}
-
 test.describe('감사 로그 사용자 필터 (WP-183)', () => {
-  test('검색어로 사람을 찾아 고르면 user_id 가 요청에 실리고, 전체 사용자로 되돌릴 수 있다', async ({
-    adminPage: page,
-  }) => {
-    await setupAdminAuth(page);
-    const auditRequests = await stubAuditLogs(page, 1);
-    // 150명 — 예전 Select(100명 상한)라면 150번째는 고를 수 없었다.
-    const members = Array.from({ length: 150 }, (_, i) =>
-      createMember({ userId: i + 1, name: `구성원${i + 1}`, username: `user${i + 1}` }),
-    );
-    const memberRequests = await stubMembers(page, members);
-
-    await page.goto('/settings/audit-logs');
-    await expect(page.getByText('감사 로그 1', { exact: true })).toBeVisible();
-    // 팝오버를 열기 전에는 구성원 목록을 받지 않는다
-    expect(memberRequests.count()).toBe(0);
-
-    await page.getByRole('combobox', { name: '사용자 필터' }).click();
-    await page.getByRole('combobox', { name: '사용자 검색' }).fill('구성원150');
-    await expect.poll(() => memberRequests.lastUrl()?.searchParams.get('search')).toBe('구성원150');
-    await expect.poll(() => memberRequests.lastUrl()?.searchParams.get('includeInactive')).toBe('true');
-    // 후보 목록은 한국어 이름으로 읽힌다(WP-731)
-    await expect(page.getByRole('listbox', { name: '사용자 후보' })).toBeVisible();
-    await page.getByTestId('audit-user-option-150').click();
-
-    await expect(page.getByRole('combobox', { name: '사용자 필터' })).toHaveText(/구성원150/);
-    await expect.poll(() => auditRequests.lastUrl()?.searchParams.get('userId')).toBe('150');
-
-    // 전체 사용자 → userId 파라미터 제거
-    await page.getByRole('combobox', { name: '사용자 필터' }).click();
-    await page.getByRole('option', { name: '전체 사용자' }).click();
-    await expect(page.getByRole('combobox', { name: '사용자 필터' })).toHaveText(/전체 사용자/);
-    await expect.poll(() => auditRequests.lastUrl()?.searchParams.has('userId')).toBe(false);
-  });
-
-  test('깊이 스크롤한 뒤 다른 화면에 갔다 오면 첫 페이지만 다시 받는다', async ({ adminPage: page }) => {
+  test('깊이 스크롤한 뒤 다른 화면에 갔다 오면 첫 페이지만 다시 받는다', { tag: '@flow' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page);
     const auditRequests = await stubAuditLogs(page, 4);
 

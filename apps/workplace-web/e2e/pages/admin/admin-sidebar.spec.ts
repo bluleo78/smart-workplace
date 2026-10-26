@@ -1,8 +1,9 @@
-// 관리 모듈 2차 사이드바 E2E — 항목 노출(AGENT 흡수 포함) + 비관리자 접근 차단.
+// 관리 모듈 2차 사이드바 E2E — 설정 화면에 사이드바가 붙고 링크로 에이전트 화면에 들어가는 배선(@wiring).
+// 워크스페이스 관리 항목 순서는 src/pages/admin/userList.test.tsx(renderScreen) 가 지킨다(WP-966).
 import { createPageResponse, mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
-test('관리 모듈 2차 사이드바에 AGENT가 포함된다', { tag: '@smoke' }, async ({ adminPage: page }) => {
+test('관리 모듈 2차 사이드바에 AGENT가 포함된다', { tag: ['@wiring', '@smoke'] }, async ({ adminPage: page }) => {
   // /settings/users 가 PageResponse<MemberSummary>(구성원 디렉터리, #833) 를 소비하므로 빈 페이지 응답을 모킹한다.
   await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
   // AGENT 링크 클릭 후 착지하는 /settings/agents 가 throw 없이 렌더되도록 최소 모킹.
@@ -28,18 +29,6 @@ test('관리 모듈 2차 사이드바에 AGENT가 포함된다', { tag: '@smoke'
   // 클릭 → URL 네비게이션까지 검증 (요소 존재만 보면 안 됨 — 입력→처리→출력).
   await sidebar.getByRole('link', { name: '에이전트' }).click()
   await expect(page).toHaveURL(/\/settings\/agents$/)
-})
-
-test('워크스페이스 관리 그룹에서 에이전트가 구성원 바로 다음에 온다', async ({ adminPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
-
-  await page.goto('/settings/users')
-
-  const adminGroup = page.getByTestId('settings-admin-group')
-  await expect(adminGroup).toBeVisible()
-  // 항목 순서: 구성원 → 에이전트 → 역할 → SSO → 감사 로그. 노트 공유는 WP-887 에서 「앱 설정 › 노트」로 옮겼다.
-  const labels = await adminGroup.getByRole('link').allTextContents()
-  expect(labels.map((label) => label.trim())).toEqual(['구성원', '에이전트', '역할', 'SSO', '감사 로그'])
 })
 
 // 비관리자의 /settings/users 접근 차단(홈 리다이렉트)은 settings/settings-nav.spec.ts 가 맡는다.

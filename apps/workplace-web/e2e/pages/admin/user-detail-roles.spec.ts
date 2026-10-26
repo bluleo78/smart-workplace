@@ -1,7 +1,7 @@
-// /settings/users/:id — 역할 할당 섹션 E2E.
-// 빈 역할 목록으로 저장 시도 시 프론트엔드 가드가 동작하는지 검증한다 (#150).
+// /settings/users/:id — 역할 할당 섹션 E2E. 구성원 상세 화면의 대표 배선(@wiring): 역할 선택 → PUT → 재조회·토스트.
+// 역할 0개 저장 가드(#150)·활성 상태 끄기(WP-417)·내 계정 잠금(WP-909)·대상 종류별 역할 숨김(WP-728)은
+// src/pages/admin/userDetail.test.tsx 가 지킨다(WP-966).
 
-import type { Page } from '@playwright/test';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { setupAdminAuth } from '../../fixtures/admin.fixture';
@@ -35,63 +35,10 @@ const ROLES_LIST = [
   createRole({ id: 2, name: 'ADMIN', description: '시스템 관리자', isSystem: true }),
 ];
 
-/** 역할 할당 테스트에 필요한 모든 API 모킹 + 페이지 진입 */
-async function setupPage(page: Page, user = INITIAL_USER, roles = ROLES_LIST) {
-  await setupAdminAuth(page);
-  await page.route(/\/api\/v1\/users\/4$/, (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(user),
-      });
-    }
-    return route.fallback();
-  });
-  await page.route(/\/api\/v1\/roles$/, (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(roles),
-      });
-    }
-    return route.fallback();
-  });
-}
-
 test.describe('/settings/users/:id — 역할 할당', () => {
   test(
-    '역할 0개 선택 후 저장 시도 → 에러 토스트 표시, API 호출 없음',
-    { tag: '@smoke' },
-    async ({ adminPage: page }) => {
-      await setupPage(page);
-
-      // PUT /users/:id/roles — 불려서는 안 된다
-      const roleSaves = trackRequests(page, 'PUT', /^\/api\/v1\/users\/\d+\/roles$/);
-
-      await page.goto(`/settings/users/${USER_ID}`);
-      await expect(page.getByRole('heading', { name: '사용자 상세' })).toBeVisible();
-
-      // 기본 선택된 USER 역할 체크박스 해제
-      const userCheckbox = page.getByRole('checkbox', { name: /USER/ });
-      await expect(userCheckbox).toBeChecked();
-      await userCheckbox.click();
-      await expect(userCheckbox).not.toBeChecked();
-
-      // 역할 저장 클릭 → 가드 동작 확인
-      await page.getByRole('button', { name: '역할 저장' }).click();
-
-      // 에러 토스트 표시 확인
-      await expect(page.getByText('역할은 최소 1개 이상 선택해야 합니다.')).toBeVisible();
-
-      // API 호출이 발생하지 않아야 함
-      expect(roleSaves.count()).toBe(0);
-    },
-  );
-
-  test(
     '역할 1개 이상 선택 후 저장 → API payload 에 roleIds 포함 + 성공 토스트',
+    { tag: ['@wiring', '@smoke'] },
     async ({ adminPage: page }) => {
       // ADMIN 체크박스 클릭 후 저장하면 PUT payload 에 [1, 2] 포함 검증
       const roleSaves = trackRequests(page, 'PUT', /^\/api\/v1\/users\/\d+\/roles$/);
@@ -154,89 +101,4 @@ test.describe('/settings/users/:id — 역할 할당', () => {
       expect(roleIds).toContain(2);
     },
   );
-});
-
-// WP-417 — 활성 상태 끄기는 이 워크스페이스 멤버십 정지다. 섹션 설명·확인 다이얼로그가 계정 전역 차단처럼 읽히지 않고
-// "이 워크스페이스" 범위로 안내하는지, 확인 후 PUT /users/:id/active 에 active=false 가 실리는지 본다.
-test.describe('/settings/users/:id — 활성 상태 (WP-417)', () => {
-  test('비활성화 문구가 이 워크스페이스 범위로 보이고, 확인하면 active=false 로 저장된다', async ({ adminPage: page }) => {
-    await setupPage(page);
-    // PUT /users/4/active — 확인 후 1회 불리고 payload 는 active=false
-    let activePayload: unknown;
-    await page.route(/\/api\/v1\/users\/4\/active$/, (route) => {
-      activePayload = route.request().postDataJSON();
-      return route.fulfill({ status: 204 });
-    });
-
-    await page.goto(`/settings/users/${USER_ID}`);
-    await expect(
-      page.getByText('비활성 구성원은 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스에는 영향이 없어요.'),
-    ).toBeVisible();
-
-    await page.getByRole('switch', { name: '활성 상태' }).click();
-    const dialog = page.getByRole('alertdialog');
-    await expect(
-      dialog.getByText('비활성화하면 이 사용자는 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스와 계정은 그대로예요. 계속할까요?'),
-    ).toBeVisible();
-
-    await dialog.getByRole('button', { name: '비활성화' }).click();
-    await expect.poll(() => activePayload).toEqual({ active: false });
-    await expect(page.getByRole('switch', { name: '활성 상태' })).not.toBeChecked();
-  });
-
-  // WP-909 — 내 계정은 스위치가 처음부터 막혀 있고 이유가 보인다(확인창을 거친 뒤 거절되던 흐름 제거).
-  test('내 계정 상세에서는 활성 상태 스위치가 막혀 있고 이유가 보이며 확인창·요청이 없다', async ({ adminPage: page }) => {
-    await setupAdminAuth(page);
-    // setupAdminAuth 의 로그인 사용자(createAdminUserDetail)는 id 2 — 같은 id 의 상세를 연다.
-    const me = createUserDetail({ id: 2, name: '나', username: 'me', email: 'me@example.com', roles: ROLES_LIST });
-    await page.route(/\/api\/v1\/users\/2$/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(me) }),
-    );
-    await page.route(/\/api\/v1\/roles$/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ROLES_LIST) }),
-    );
-    let activeRequests = 0;
-    await page.route(/\/api\/v1\/users\/2\/active$/, (route) => {
-      activeRequests += 1;
-      return route.fulfill({ status: 204 });
-    });
-
-    await page.goto('/settings/users/2');
-    const toggle = page.getByRole('switch', { name: '활성 상태' });
-    await expect(toggle).toBeChecked();
-    await expect(toggle).toBeDisabled();
-    await expect(page.getByText('내 계정은 비활성화할 수 없어요.')).toBeVisible();
-
-    // 막힌 스위치라 누를 수 없다 — 확인창도 뜨지 않고 요청도 없다.
-    await expect(page.getByRole('alertdialog')).toHaveCount(0);
-    expect(activeRequests).toBe(0);
-  });
-
-  // WP-728 — 대상 종류에 맞는 역할만 보인다(AI: ADMIN·관리 권한 역할 숨김, 사람: AGENT 숨김). 서버도 같은 기준으로 거절한다.
-  const KIND_ROLES = [
-    createRole({ id: 1, name: 'USER', description: '일반 사용자', isSystem: true }),
-    { ...createRole({ id: 2, name: 'ADMIN', description: '시스템 관리자', isSystem: true }), grantsAdmin: true },
-    createRole({ id: 3, name: 'AGENT', description: 'AI 에이전트', isSystem: true }),
-    { ...createRole({ id: 4, name: 'HR', description: '인사', isSystem: false }), grantsAdmin: true },
-    createRole({ id: 5, name: 'VIEWER', description: '보기 전용', isSystem: false }),
-  ];
-
-  test('AI 대상에게는 ADMIN·관리 권한 역할이 보이지 않는다', async ({ adminPage: page }) => {
-    await setupPage(page, { ...INITIAL_USER, kind: 'AGENT' as const, roles: [KIND_ROLES[2]] }, KIND_ROLES);
-    await page.goto(`/settings/users/${USER_ID}`);
-    await expect(page.getByText('AI 에게는 관리자 역할이나 관리 권한이 든 역할을 줄 수 없어요')).toBeVisible();
-    await expect(page.locator('#role-1')).toBeVisible();
-    await expect(page.locator('#role-3')).toBeVisible();
-    await expect(page.locator('#role-5')).toBeVisible();
-    await expect(page.locator('#role-2')).toHaveCount(0);
-    await expect(page.locator('#role-4')).toHaveCount(0);
-  });
-
-  test('사람 대상에게는 AGENT 역할이 보이지 않는다', async ({ adminPage: page }) => {
-    await setupPage(page, INITIAL_USER, KIND_ROLES);
-    await page.goto(`/settings/users/${USER_ID}`);
-    await expect(page.locator('#role-2')).toBeVisible();
-    await expect(page.locator('#role-4')).toBeVisible();
-    await expect(page.locator('#role-3')).toHaveCount(0);
-  });
 });
