@@ -246,6 +246,44 @@ test.describe('이슈 챗 질문 표시', () => {
     const emptyLine = (page: Page) =>
       page.getByTestId('chat-composer').locator('.ProseMirror p.is-editor-empty');
 
+    // WP-990 — 데스크톱에서도 이슈 챗 칸이 좁으면 긴 안내가 두 줄로 접힌다. 화면 폭(모바일)과 상관없이
+    // 입력창이 접힌 안내 높이만큼 늘어나 둘째 줄이 잘리지 않아야 한다.
+    test('데스크톱 좁은 이슈 챗 칸에서 긴 안내가 두 줄로 접혀도 입력창이 늘어나 잘리지 않는다', { tag: '@layout' }, async ({
+      authenticatedPage: page,
+    }) => {
+      await setup(page, { externalAgent: { ...KODI, name: 'AI 개발자1' } });
+      await openDrawer(page);
+      const line = emptyLine(page);
+      await expect(line).toHaveAttribute('data-placeholder', '답변 입력… 멘션 없이 보내도 AI 개발자1이(가) 이어받아요');
+
+      const m = await line.evaluate((p) => {
+        const editor = p.closest('.ProseMirror') as HTMLElement;
+        const lineHeight = parseFloat(getComputedStyle(p).lineHeight);
+        return {
+          lineHeight,
+          hint: parseFloat(getComputedStyle(p, '::before').height),
+          p: p.getBoundingClientRect().height,
+          editorBottom: editor.getBoundingClientRect().bottom,
+          pBottom: p.getBoundingClientRect().bottom,
+        };
+      });
+      // 이 폭에서 안내가 두 줄로 접히므로 빈 입력 줄도 두 줄 높이가 되고(고치기 전엔 한 줄이라 둘째 줄이 잘렸다),
+      // 접힌 안내 높이를 모두 품으며, 입력창이 그 끝까지 보인다.
+      expect(m.p).toBeGreaterThanOrEqual(m.lineHeight * 2 - 1);
+      expect(m.p).toBeGreaterThanOrEqual(m.hint - 0.5);
+      expect(m.editorBottom).toBeGreaterThanOrEqual(m.pBottom - 0.5);
+      await page.screenshot({ path: 'test-results/tc/chat-question/composer-hint-desktop-narrow.png' });
+
+      // 글자를 치면 안내가 사라지고 입력창은 한 줄로 돌아간다(첫 줄에 캐럿).
+      await page.getByTestId('chat-composer').locator('.ProseMirror').click();
+      await page.keyboard.type('네');
+      const typed = await page.getByTestId('chat-composer').locator('.ProseMirror p').first().evaluate((p) => ({
+        h: p.getBoundingClientRect().height,
+        lh: parseFloat(getComputedStyle(p).lineHeight),
+      }));
+      expect(typed.h).toBeLessThan(typed.lh * 1.5);
+    });
+
     test('담당자를 바꿔 스레드가 다시 오면 열린 작성창 안내도 바뀐다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
       const { agentRef } = await setup(page, { externalAgent: KODI });
       // 담당자 교체 PUT — 성공하면 서버가 다음 스레드 응답에서 externalAgent 를 null 로 돌려준다.

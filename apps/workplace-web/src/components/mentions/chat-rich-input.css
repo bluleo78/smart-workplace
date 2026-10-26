@@ -14,15 +14,18 @@
   height: 0;
   pointer-events: none;
 }
-/* 이슈 챗 작성창의 긴 안내(외부 실행 AI 이름이 든 문구)는 모바일 폭에서 두 줄로 접힌다 — placeholder 는 float+height 0 이라
-   입력창을 키우지 못해 둘째 줄이 잘리므로, 비어 있을 때만 두 줄 높이를 확보하고 단어 중간에서 끊지 않는다(WP-373). */
-@media (max-width: 1023.98px) {
-  [data-long-placeholder] .ProseMirror:has(> p.is-editor-empty:only-child) {
-    min-height: calc(2lh + 1rem + 2px);
-  }
-  [data-long-placeholder] .ProseMirror p.is-editor-empty::before {
-    word-break: keep-all;
-  }
+/* 이슈 챗 작성창의 긴 안내(외부 실행 AI 이름이 든 문구)는 입력칸이 좁으면 두 줄로 접힌다 — 기본 placeholder 는 float+height 0 이라
+   입력창을 키우지 못해 둘째 줄이 잘린다(WP-373). 화면 폭이 아니라 입력칸 폭에 따라 접히므로(데스크톱 좁은 이슈 챗 칸도, WP-990)
+   안내가 실제 높이를 갖게 한다: 문단을 BFC(flow-root)로 만들어 float 높이를 품게 하고, float 의 margin-right:-100% 로
+   여백 상자 폭을 0 으로 둬 캐럿(빈 줄)은 안내 위 첫 줄에 그대로 놓인다. 한 줄에 들어가면 높이는 그대로다. 단어 중간에서 끊지 않는다. */
+[data-long-placeholder] .ProseMirror p.is-editor-empty:first-child {
+  display: flow-root;
+}
+[data-long-placeholder] .ProseMirror p.is-editor-empty:first-child::before {
+  height: auto;
+  width: 100%;
+  margin-right: -100%;
+  word-break: keep-all;
 }
 /* 서식 입력창(WP-101) — 전역 .ProseMirror 목록·코드 블록 여백(노트 본문 기준)을 채팅 입력 한 줄 밀도에 맞게 줄인다. 색은 전역 규칙의 토큰 그대로. */
 [data-chat-formatting] .ProseMirror ul,
