@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 
 import { external, member, memberDetail, page as makePage } from '../../factories/contacts.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { trackRequests } from '../../fixtures/requests'
 import { expectCurrent, expectSelectedRow } from '../../fixtures/selection'
 
 // /api/v1/contacts 목록 — search·type·favorite 쿼리에 따라 분기.
@@ -89,6 +90,29 @@ test('통합 목록·검색·타입필터·상세', { tag: '@smoke' }, async ({ 
   await page.getByTestId('contact-row-MEMBER-1').click()
   await expect(page.getByTestId('contact-detail-member')).toContainText('김멤버')
   await expect(page.getByTestId('contact-detail-member')).toContainText('개발팀')
+})
+
+// WP-974 — 검색어가 URL q 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거치며 한글 IME 조합이 끊겼다.
+// 로컬 draft + 300ms debounce 로 바뀐 뒤: 입력값은 즉시 전부 반영되고(끊김 없음), 목록 API 의 search 파라미터는
+// 완성된 전체 글자로 한 번만 나간다(키 입력마다 요청하지 않는다).
+test('검색창에 한글을 연속 입력해도 끊기지 않고, API search 는 완성 글자로 한 번만 나간다 (WP-974)', async ({
+  authenticatedPage: page,
+}) => {
+  await stubList(page)
+  const tracker = trackRequests(page, 'GET', '/api/v1/contacts')
+  await page.goto('/contacts')
+  await tracker.waitFor(1) // 초기 목록 조회
+
+  const search = page.getByTestId('contact-search')
+  // pressSequentially — 키 입력마다 별도 input 이벤트가 나가 URL 왕복 타이밍 버그를 재현한다.
+  await search.pressSequentially('외부인', { delay: 30 })
+  // 끊김 없이 입력값 전체가 그대로 남는다(자소 분리·일부 유실 없음).
+  await expect(search).toHaveValue('외부인')
+
+  // debounce(300ms) 전에는 추가 요청이 없다가, 한 번만 완성된 검색어로 나간다.
+  await tracker.waitFor(2, { timeout: 2000 })
+  expect(tracker.lastUrl()?.searchParams.get('search')).toBe('외부인')
+  expect(tracker.count()).toBe(2)
 })
 
 // WP-368 — 고른 연락처 행만 선택 표시(막대 + bg-selected), 다른 행·고르기 전엔 없다. 사이드바 타입 필터도 활성 항목이 표시된다.
