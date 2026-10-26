@@ -30,7 +30,7 @@ function manyImageFiles() {
   )
 }
 
-test('파일 목록 진입 시 뷰포트 밖 썸네일은 요청하지 않고, 스크롤하면 추가 요청이 발생한다', async ({
+test('파일 목록 진입 시 뷰포트 밖 썸네일은 요청하지 않고, 스크롤하면 추가 요청이 발생한다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubSpaces(page)

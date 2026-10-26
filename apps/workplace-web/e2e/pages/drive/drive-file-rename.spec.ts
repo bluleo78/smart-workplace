@@ -1,5 +1,6 @@
 // 드라이브 파일 이름 변경(WP-335) — 데스크톱 행 ⋯ 메뉴 → 이름 변경 다이얼로그(확장자 앞까지 선택) → PATCH → 목록 반영.
-// 백엔드 없이 page.route 모킹.
+// 백엔드 없이 page.route 모킹. 브라우저가 있어야 판정되는 것만 남긴다 — 확장자 앞 선택·포커스 복원·IME Enter(@input), ⋯ 메뉴 위치(@layout).
+// 같은 이름(409)·다른 실패 문구·빈 이름 비활성·그대로인 이름은 src/pages/drive/driveRows.test.tsx 가 지킨다(WP-971, WP-984).
 import type { Page } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, personalSpace } from '../../factories/drive.factory'
@@ -53,7 +54,7 @@ async function openRename(page: Page, fileName: string, beforeRename?: () => Pro
     .toBe(true)
 }
 
-test('⋯ → 이름 변경 — 확장자 앞까지 선택된 채 열리고, 타이핑하면 이름만 바뀌어 PATCH 후 목록에 반영된다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('⋯ → 이름 변경 — 확장자 앞까지 선택된 채 열리고, 타이핑하면 이름만 바뀌어 PATCH 후 목록에 반영된다', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: '2026 사업계획서_최종.pdf', mimeType: 'application/pdf', category: 'PDF' })] }
   await stubDrive(page, state)
   await stubRename(page, state, 70)
@@ -77,7 +78,7 @@ test('⋯ → 이름 변경 — 확장자 앞까지 선택된 채 열리고, 타
   await expect(page.getByTestId('drive-row-file-70')).toContainText('사업계획서_v2.pdf')
 })
 
-test('⋯ 메뉴가 닫히며 포커스를 되돌리는 타이머가 늦게 돌아도, 열자마자 친 글자를 다시 선택해 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
+test('⋯ 메뉴가 닫히며 포커스를 되돌리는 타이머가 늦게 돌아도, 열자마자 친 글자를 다시 선택해 덮어쓰지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: '2026 사업계획서_최종.pdf', mimeType: 'application/pdf', category: 'PDF' })] }
   await stubDrive(page, state)
   await stubRename(page, state, 70)
@@ -97,7 +98,7 @@ test('⋯ 메뉴가 닫히며 포커스를 되돌리는 타이머가 늦게 돌�
   expect(patches.lastBody<{ name: string }>()).toEqual({ name: '사업계획서_v2.pdf' })
 })
 
-test('고치기 전 Tab 으로 나갔다 Shift+Tab 으로 돌아와도 확장자 앞까지 다시 선택된다', async ({ authenticatedPage: page }) => {
+test('고치기 전 Tab 으로 나갔다 Shift+Tab 으로 돌아와도 확장자 앞까지 다시 선택된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: 'notes.txt' })] }
   await stubDrive(page, state)
   await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -114,7 +115,7 @@ test('고치기 전 Tab 으로 나갔다 Shift+Tab 으로 돌아와도 확장자
 })
 
 // ⋯ 는 hover·키보드 포커스 때만 보여 닫힐 무렵엔 숨어 있다 — 그래도 포커스는 페이지 맨 위로 빠지지 않고 그 행에 머문다.
-test('⋯ → 이름 변경을 취소하면 포커스는 그 행에 머문다', async ({ authenticatedPage: page }) => {
+test('⋯ → 이름 변경을 취소하면 포커스는 그 행에 머문다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: 'notes.txt' }), createFile({ id: 71, name: 'memo.txt' })] }
   await stubDrive(page, state)
   await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -126,62 +127,7 @@ test('⋯ → 이름 변경을 취소하면 포커스는 그 행에 머문다', 
   await expect.poll(() => row.evaluate((el) => el.contains(document.activeElement))).toBe(true)
 })
 
-test('같은 이름이 있으면(409) 다이얼로그를 유지한 채 인라인으로 알리고, 고쳐서 다시 저장할 수 있다', async ({ authenticatedPage: page }) => {
-  const state = { files: [createFile({ id: 70, name: 'memo.txt' }), createFile({ id: 71, name: 'notes.txt' })] }
-  await stubDrive(page, state)
-  await stubRename(page, state, 70, (name) => (name === 'notes.txt' ? 409 : 200))
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-
-  await openRename(page, 'memo.txt')
-  const input = page.getByTestId('rename-dialog-input')
-  await input.fill('notes.txt')
-  await page.getByTestId('rename-dialog-confirm').click()
-  await expect(page.getByTestId('rename-dialog-error')).toHaveText("같은 폴더에 이미 'notes.txt' 이름이 있습니다.")
-  await expect(input).toHaveAttribute('aria-invalid', 'true')
-
-  // 입력하면 에러가 사라지고, 다른 이름으로는 저장된다.
-  await input.fill('notes-2.txt')
-  await expect(page.getByTestId('rename-dialog-error')).toBeHidden()
-  await page.getByTestId('rename-dialog-confirm').click()
-  await expect(page.getByRole('dialog')).toBeHidden()
-  await expect(page.getByTestId('drive-row-file-70')).toContainText('notes-2.txt')
-})
-
-test('중복이 아닌 다른 실패는 서버 문구를 그대로 인라인으로 보여 준다', async ({ authenticatedPage: page }) => {
-  const state = { files: [createFile({ id: 70, name: 'memo.txt' })] }
-  await stubDrive(page, state)
-  await page.route((u) => u.pathname === '/api/v1/drive/files/70', (r) =>
-    r.request().method() === 'PATCH'
-      ? r.fulfill(json({ status: 400, error: 'Bad Request', message: '파일 이름에 / \\ 나 제어 문자는 쓸 수 없고, . 이나 .. 만으로 지을 수 없습니다.' }, 400))
-      : r.fallback())
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-
-  await openRename(page, 'memo.txt')
-  await page.getByTestId('rename-dialog-input').fill('..')
-  await page.getByTestId('rename-dialog-confirm').click()
-  await expect(page.getByTestId('rename-dialog-error')).toContainText('제어 문자는 쓸 수 없고')
-  await expect(page.getByRole('dialog')).toBeVisible()
-})
-
-test('빈 이름이면 이름 변경 버튼이 비활성, 이름 그대로면 요청 없이 닫힌다', async ({ authenticatedPage: page }) => {
-  const state = { files: [createFile({ id: 70, name: 'memo.txt' })] }
-  await stubDrive(page, state)
-  await stubRename(page, state, 70)
-  const patches = trackRequests(page, 'PATCH', '/api/v1/drive/files/70')
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-
-  await openRename(page, 'memo.txt')
-  await expect(page.getByTestId('rename-dialog-confirm')).toHaveText('이름 변경')
-  await page.getByTestId('rename-dialog-input').fill('   ')
-  await expect(page.getByTestId('rename-dialog-confirm')).toBeDisabled()
-
-  await page.getByTestId('rename-dialog-input').fill('memo.txt')
-  await page.getByTestId('rename-dialog-confirm').click()
-  await expect(page.getByRole('dialog')).toBeHidden()
-  await expectStays(page, patches.count, 0)
-})
-
-test('한글 조합을 끝내는 Enter 는 저장하지 않고, 그 다음 Enter 로 저장한다(WP-331 규칙)', async ({ authenticatedPage: page }) => {
+test('한글 조합을 끝내는 Enter 는 저장하지 않고, 그 다음 Enter 로 저장한다(WP-331 규칙)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const state = { files: [createFile({ id: 70, name: 'memo.txt' })] }
   await stubDrive(page, state)
   await stubRename(page, state, 70)
@@ -200,7 +146,7 @@ test('한글 조합을 끝내는 Enter 는 저장하지 않고, 그 다음 Enter
   expect(patches.lastBody<{ name: string }>()).toEqual({ name: '회의록.txt' })
 })
 
-test('폴더 이름 칸도 한글 조합을 끝내는 Enter 로는 저장하지 않는다', async ({ authenticatedPage: page }) => {
+test('폴더 이름 칸도 한글 조합을 끝내는 Enter 로는 저장하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const folder = createFolder({ id: 10, name: '문서' })
   await stubDrive(page, { files: [], folders: [folder] })
   const patches = trackRequests(page, 'PATCH', '/api/v1/drive/folders/10')
@@ -224,7 +170,7 @@ test('폴더 이름 칸도 한글 조합을 끝내는 Enter 로는 저장하지 
   expect(patches.lastBody<{ name: string }>()).toEqual({ name: '회의록' })
 })
 
-test('⋯ 메뉴는 연 동안 트리거가 보이고 그 옆에 뜬다(왼쪽 위로 튀지 않음)', async ({ authenticatedPage: page }) => {
+test('⋯ 메뉴는 연 동안 트리거가 보이고 그 옆에 뜬다(왼쪽 위로 튀지 않음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubDrive(page, { files: [createFile({ id: 70, name: 'memo.txt' })] })
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   const row = page.getByRole('listitem').filter({ hasText: 'memo.txt' })
@@ -244,7 +190,7 @@ test('⋯ 메뉴는 연 동안 트리거가 보이고 그 옆에 뜬다(왼쪽 �
 })
 
 // WP-817: 드라이브 대화상자를 Esc 로 닫으면 포커스가 연 컨트롤로 돌아간다 — body 로 빠지면 키보드 사용자가 처음부터 다시 Tab 해야 한다.
-test('새 폴더 대화상자 — 키보드로 열고 Esc 로 닫으면 「새 폴더」 버튼으로 포커스가 돌아온다 (WP-817)', async ({ authenticatedPage: page }) => {
+test('새 폴더 대화상자 — 키보드로 열고 Esc 로 닫으면 「새 폴더」 버튼으로 포커스가 돌아온다 (WP-817)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubDrive(page, { files: [] })
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   const trigger = page.getByTestId('drive-new-folder')
@@ -262,7 +208,7 @@ test('새 폴더 대화상자 — 키보드로 열고 Esc 로 닫으면 「새 �
   await expect(trigger).toBeFocused()
 })
 
-test('⋯ → 이름 변경 대화상자 — Esc 로 닫으면 포커스가 body 로 빠지지 않고 그 행에 남는다 (WP-817)', async ({ authenticatedPage: page }) => {
+test('⋯ → 이름 변경 대화상자 — Esc 로 닫으면 포커스가 body 로 빠지지 않고 그 행에 남는다 (WP-817)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubDrive(page, { files: [createFile({ id: 71, name: '회의록.txt' })] })
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await openRename(page, '회의록.txt')

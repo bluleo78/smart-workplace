@@ -1,5 +1,6 @@
-// 드라이브 프리뷰 포맷 E2E — Markdown 렌더·SVG 이미지·CSV 표 검증.
+// 드라이브 프리뷰 포맷 E2E — 실제 브라우저에서만 판정되는 렌더(@platform: SheetJS 시트·mammoth DOCX·HTML iframe)와 이미지 가운데 정렬(@layout).
 // drive.spec.ts 의 파일목록 + 프리뷰 모달 진입 패턴을 그대로 복제한다.
+// Markdown·SVG·CSV 본문, 10MB 넘는 시트 확인, 로딩 스켈레톤은 src/pages/drive/drivePreview.test.tsx 가 지킨다(WP-984).
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
-import { trackRequests } from '../../fixtures/requests'
 import { expectThinScrollbar } from '../../fixtures/wait'
 
 const SPACE_ID = 1
@@ -53,222 +53,11 @@ async function stubSpaces(page: Page) {
 const SVG_BODY = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="blue"/></svg>`
 
 test.describe('드라이브 프리뷰 포맷', () => {
-  // Markdown 파일: mimeType='text/markdown', category='TEXT'
-  // /content → '# 제목\n\n**굵게**'  →  h1 "제목" + bold "굵게"
-  test('Markdown 파일은 서식 렌더된다', async ({ authenticatedPage: page }) => {
-    await stubSpaces(page)
-
-    const MD_FILE = {
-      id: 80,
-      folderId: null,
-      fileId: 300,
-      name: 'readme.md',
-      mimeType: 'text/markdown',
-      sizeBytes: 30,
-      category: 'TEXT',
-      createdAt: '2026-01-01T00:00:00Z',
-    }
-
-    // 파일 목록
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ folders: [], files: [MD_FILE] }),
-            })
-          : route.fallback(),
-    )
-    // 썸네일(TEXT 파일은 썸네일 미제공 → 404 허용)
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/thumbnail`,
-      (route) => route.fulfill({ status: 404, body: '' }),
-    )
-    // 콘텐츠: Markdown 본문
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/content`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/markdown',
-          body: '# 제목\n\n**굵게**',
-        }),
-    )
-    // AI 요약 — 모달에서 useDriveFileSummary 가 호출하므로 모킹 필요.
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/summary`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ summary: null, status: 'PENDING' }),
-        }),
-    )
-    // 백링크
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/backlinks`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-    )
-
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    // 파일 버튼 클릭 → 미리보기 모달 진입
-    await page.getByRole('button', { name: 'readme.md' }).click()
-
-    const body = page.getByTestId('preview-body')
-    await expect(body).toBeVisible()
-
-    // MarkdownMessage 가 렌더됐는지(data-testid="markdown-content")
-    await expect(body.getByTestId('markdown-content')).toBeVisible()
-    // # 제목 → <h1>제목</h1> → heading role
-    await expect(body.getByRole('heading', { name: '제목' })).toBeVisible()
-    // **굵게** → <strong>굵게</strong>
-    await expect(body.locator('strong', { hasText: '굵게' })).toBeVisible()
-  })
-
-  // SVG 파일: mimeType='image/svg+xml', category='IMAGE'
-  // resolvePreviewKind → 'IMAGE' → img 태그로 렌더
-  test('SVG 파일은 이미지로 렌더된다', async ({ authenticatedPage: page }) => {
-    await stubSpaces(page)
-
-    const SVG_FILE = {
-      id: 90,
-      folderId: null,
-      fileId: 400,
-      name: 'diagram.svg',
-      mimeType: 'image/svg+xml',
-      sizeBytes: SVG_BODY.length,
-      category: 'IMAGE',
-      createdAt: '2026-01-01T00:00:00Z',
-    }
-
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ folders: [], files: [SVG_FILE] }),
-            })
-          : route.fallback(),
-    )
-    // 썸네일도 SVG 로 모킹(IMAGE 카드는 썸네일 fetch)
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${SVG_FILE.id}/thumbnail`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'image/svg+xml', body: SVG_BODY }),
-    )
-    // 콘텐츠: SVG 본문 (blob URL 로 변환돼 img.src 에 주입됨)
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${SVG_FILE.id}/content`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'image/svg+xml', body: SVG_BODY }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${SVG_FILE.id}/summary`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ summary: null, status: 'PENDING' }),
-        }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${SVG_FILE.id}/backlinks`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-    )
-
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'diagram.svg' }).click()
-
-    const body = page.getByTestId('preview-body')
-    await expect(body).toBeVisible()
-    // IMAGE kind → <img> 태그 렌더
-    await expect(body.locator('img')).toBeVisible()
-  })
-
-  // CSV 파일: mimeType='text/csv', category='DATA'
-  // /content → 'a,b\n1,2' → 헤더(a,b) + 데이터 행(1,2)
-  test('CSV 파일은 표로 렌더된다', async ({ authenticatedPage: page }) => {
-    await stubSpaces(page)
-
-    const CSV_FILE = {
-      id: 100,
-      folderId: null,
-      fileId: 500,
-      name: 'data.csv',
-      mimeType: 'text/csv',
-      sizeBytes: 10,
-      category: 'DATA',
-      createdAt: '2026-01-01T00:00:00Z',
-    }
-
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ folders: [], files: [CSV_FILE] }),
-            })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${CSV_FILE.id}/thumbnail`,
-      (route) => route.fulfill({ status: 404, body: '' }),
-    )
-    // 콘텐츠: CSV 본문 — 헤더 a,b / 데이터행 1,2
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${CSV_FILE.id}/content`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/csv',
-          body: 'a,b\n1,2',
-        }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${CSV_FILE.id}/summary`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ summary: null, status: 'PENDING' }),
-        }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${CSV_FILE.id}/backlinks`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-    )
-
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'data.csv' }).click()
-
-    const body = page.getByTestId('preview-body')
-    await expect(body).toBeVisible()
-
-    // CsvTablePreview: data-testid="csv-table" + 헤더 + 셀
-    const table = body.getByTestId('csv-table')
-    await expect(table).toBeVisible()
-    // 헤더 검증(columnheader role)
-    await expect(table.getByRole('columnheader', { name: 'a' })).toBeVisible()
-    await expect(table.getByRole('columnheader', { name: 'b' })).toBeVisible()
-    // 데이터 셀 검증
-    await expect(table.getByRole('cell', { name: '1' })).toBeVisible()
-    await expect(table.getByRole('cell', { name: '2' })).toBeVisible()
-  })
-
   const XLSX_MIME =
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
   // XLSX 파일: 실제 fixture 바이너리를 /content 로 fulfill → SheetPreview 표 렌더
-  test('XLSX 파일은 표로 렌더된다', async ({ authenticatedPage: page }) => {
+  test('XLSX 파일은 표로 렌더된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     const XLSX_FILE = {
       id: 90,
@@ -325,68 +114,12 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(table.getByRole('cell', { name: '90' })).toBeVisible()
   })
 
-  // 상한(5MB) 초과 → 파싱 없이 다운로드 안내 폴백
-  test('10MB 를 넘는 XLSX 는 받지 않고 크기를 보여주며 볼지 묻는다', async ({ authenticatedPage: page }) => {
-    await stubSpaces(page)
-    const BIG_FILE = {
-      id: 91,
-      folderId: null,
-      fileId: 311,
-      name: 'big.xlsx',
-      mimeType: XLSX_MIME,
-      sizeBytes: 12 * 1024 * 1024,
-      category: 'DATA',
-      createdAt: '2026-07-01T00:00:00Z',
-      updatedAt: '2026-07-01T00:00:00Z',
-    }
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ folders: [], files: [BIG_FILE] }),
-        }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${BIG_FILE.id}/thumbnail`,
-      (route) => route.fulfill({ status: 404, body: '' }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${BIG_FILE.id}/summary`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ summary: null, status: 'PENDING' }),
-        }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${BIG_FILE.id}/backlinks`,
-      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    )
-    // 12MB(확인 기준 10MB 초과) — 묻는 동안 콘텐츠를 받지 않아야 한다(WP-203 후속).
-    const contents = trackRequests(page, 'ANY', `/api/v1/drive/files/${BIG_FILE.id}/content`)
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${BIG_FILE.id}/content`,
-      (route) => route.fulfill({ status: 200, contentType: XLSX_MIME, body: Buffer.alloc(16) }),
-    )
-
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'big.xlsx' }).click()
-
-    const body = page.getByTestId('preview-body')
-    await expect(body.getByTestId('preview-size-confirm')).toContainText('12.0 MB')
-    await expect(body.getByTestId('xlsx-table')).toHaveCount(0)
-    expect(contents.count()).toBe(0)
-  })
-
   const DOCX_MIME =
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 
   // DOCX 파일: 실제 fixture → mammoth 변환 HTML → sandbox iframe srcDoc.
   // 파이프라인(페치→arrayBuffer→mammoth→HTML→srcDoc)을 srcdoc 속성으로 검증(격리 프레임 순회 회피).
-  test('DOCX 파일은 sandbox iframe 으로 본문이 렌더된다', async ({ authenticatedPage: page }) => {
+  test('DOCX 파일은 sandbox iframe 으로 본문이 렌더된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     const DOCX_FILE = {
       id: 92,
@@ -449,7 +182,7 @@ test.describe('드라이브 프리뷰 포맷', () => {
 
   // HTML 파일: mimeType='text/html' → resolvePreviewKind='HTML' → sandbox iframe srcDoc 렌더(#732).
   // 과거엔 범용 text/ 분기로 흡수돼 <pre> 소스 덤프됐다 — 이제 격리 iframe 으로 렌더됨을 검증.
-  test('HTML 파일은 sandbox iframe 으로 렌더된다', async ({ authenticatedPage: page }) => {
+  test('HTML 파일은 sandbox iframe 으로 렌더된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     const HTML_FILE = {
       id: 110,
@@ -520,82 +253,11 @@ test.describe('드라이브 프리뷰 포맷', () => {
     await expect(body.locator('pre')).toHaveCount(0)
   })
 
-  // #775: 콘텐츠 페치(useEffect, /content 응답) 가 지연되는 동안 preview-body 가 완전히
-  // 빈 화면이 아니라 스켈레톤(animate-pulse)을 보여줘야 한다.
-  test('콘텐츠 로딩 중에는 스켈레톤이 보인다', async ({ authenticatedPage: page }) => {
-    await stubSpaces(page)
-
-    const MD_FILE = {
-      id: 81,
-      folderId: null,
-      fileId: 301,
-      name: 'slow.md',
-      mimeType: 'text/markdown',
-      sizeBytes: 30,
-      category: 'TEXT',
-      createdAt: '2026-01-01T00:00:00Z',
-    }
-
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ folders: [], files: [MD_FILE] }),
-            })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/thumbnail`,
-      (route) => route.fulfill({ status: 404, body: '' }),
-    )
-    // 콘텐츠 응답을 인위적으로 지연 — 그 사이 로딩 스켈레톤이 보여야 한다.
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/content`,
-      async (route) => {
-        await new Promise((r) => setTimeout(r, 1000))
-        await route.fulfill({
-          status: 200,
-          contentType: 'text/markdown',
-          body: '# 느린 문서',
-        })
-      },
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/summary`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ summary: null, status: 'PENDING' }),
-        }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/files/${MD_FILE.id}/backlinks`,
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-    )
-
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: 'slow.md' }).click()
-
-    const body = page.getByTestId('preview-body')
-    // 지연 응답이 오기 전 — 스켈레톤이 보여야 하고, 아직 마크다운 본문은 없어야 한다.
-    await expect(body.getByTestId('preview-loading')).toBeVisible()
-    await expect(body.getByTestId('markdown-content')).toHaveCount(0)
-
-    // 응답 도착 후 — 스켈레톤은 사라지고 실제 본문이 렌더된다.
-    await expect(body.getByTestId('markdown-content')).toBeVisible()
-    await expect(body.getByTestId('preview-loading')).toHaveCount(0)
-  })
-
   // #776: 작은 이미지는 preview-body 가운데(가로·세로)에 놓여 상단에 방치되지 않아야 한다.
   // WP-277: 확대 시 위·왼쪽까지 스크롤되도록 정렬을 items-center 대신 자식 m-auto(안전한 가운데 정렬)로 바꿨으므로
   // 클래스가 아니라 실제 위치로 검증한다. 텍스트/CSV 등 다른 kind 는 영향받지 않는다
   // (위 'Markdown 파일은 서식 렌더된다' 테스트가 그 회귀 가드 역할을 겸한다).
-  test('작은 이미지는 preview-body 가 세로 중앙정렬된다', async ({ authenticatedPage: page }) => {
+  test('작은 이미지는 preview-body 가 세로 중앙정렬된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
 
     // 1x1 PNG — 본문보다 훨씬 작아 가운데 정렬 여부가 위치로 드러난다.

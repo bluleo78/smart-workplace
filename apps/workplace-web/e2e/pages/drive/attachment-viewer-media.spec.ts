@@ -1,4 +1,5 @@
 // 통합 첨부 뷰어 영상·오디오(WP-281) — 데스크톱(chromium). 드라이브 묶음에서 실제 webm·mp3 를 열어 브라우저 기본 플레이어로 재생한다.
+// 실제 미디어 디코드·재생·스트리밍 받기(@platform), 영상 키보드 처리(@input), 플레이어 크기(@layout) — 모두 브라우저가 있어야 판정된다(WP-984).
 // 픽스처: e2e/fixtures/sample-10s.webm(VP8+Opus 160×120 10초)·sample-10s.mp3(10초). 재생 불가 = 쓰레기 바이트 .mov
 // (실제 HEVC 는 macOS Chromium 이 하드웨어 디코더로 틀 수 있어 "재생 불가" 를 결정적으로 만들지 못한다).
 
@@ -41,7 +42,7 @@ async function pauseAt(el: Locator, t: number) {
   )
 }
 
-test('직접 연 영상은 자동재생되고 확대 툴바가 없다', async ({ authenticatedPage: page }) => {
+test('직접 연 영상은 자동재생되고 확대 툴바가 없다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
@@ -52,7 +53,7 @@ test('직접 연 영상은 자동재생되고 확대 툴바가 없다', async ({
   await expect(page.getByTestId('viewer-zoom-bar')).toHaveCount(0)
 })
 
-test('넘기면 일시정지(위치 기억) — 넘겨 온 영상·되돌아온 영상은 자동재생하지 않는다', async ({ authenticatedPage: page }) => {
+test('넘기면 일시정지(위치 기억) — 넘겨 온 영상·되돌아온 영상은 자동재생하지 않는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
@@ -74,7 +75,7 @@ test('넘기면 일시정지(위치 기억) — 넘겨 온 영상·되돌아온 
   expect((await state(video)).paused).toBe(true)
 })
 
-test('닫으면 미디어 요소가 정리되고 blob URL 이 해제된다', async ({ authenticatedPage: page }) => {
+test('닫으면 미디어 요소가 정리되고 blob URL 이 해제된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // revokeObjectURL 호출을 기록한다.
   await page.addInitScript(() => {
     const w = window as unknown as { __revoked: string[] }
@@ -97,7 +98,7 @@ test('닫으면 미디어 요소가 정리되고 blob URL 이 해제된다', asy
   await expect.poll(() => page.evaluate(() => (window as unknown as { __revoked: string[] }).__revoked)).toContain(src)
 })
 
-test('받는 동안 % 진행률을 보이고 다 받으면 플레이어로 바뀐다', async ({ authenticatedPage: page }) => {
+test('받는 동안 % 진행률을 보이고 다 받으면 플레이어로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'slow.webm', { delayMs: 1500 })], { spaceId: SPACE_ID })
   await openViewer(page, 'slow.webm')
   const bar = page.getByRole('progressbar', { name: 'slow.webm 받는 중' })
@@ -110,7 +111,7 @@ test('받는 동안 % 진행률을 보이고 다 받으면 플레이어로 바�
   await expect(page.getByTestId('media-status-live')).toHaveText('slow.webm 재생 준비됨')
 })
 
-test('받는 중에 넘기면 받던 요청을 끊는다', async ({ authenticatedPage: page }) => {
+test('받는 중에 넘기면 받던 요청을 끊는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'slow-a.webm', { delayMs: 4000 }), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
   const failed: string[] = []
   page.on('requestfailed', (r) => {
@@ -123,7 +124,7 @@ test('받는 중에 넘기면 받던 요청을 끊는다', async ({ authenticate
   await expect.poll(() => failed.length).toBeGreaterThan(0)
 })
 
-test('10MB 초과 영상은 먼저 확인을 받고, 미리보기를 누르면 받아서 재생한다', async ({ authenticatedPage: page }) => {
+test('10MB 초과 영상은 먼저 확인을 받고, 미리보기를 누르면 받아서 재생한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'big.webm', { sizeBytes: 11 * 1024 * 1024 })], { spaceId: SPACE_ID })
   const contentRequests: string[] = []
   page.on('request', (r) => {
@@ -142,7 +143,7 @@ test('10MB 초과 영상은 먼저 확인을 받고, 미리보기를 누르면 �
   expect(contentRequests.length).toBeGreaterThan(0)
 })
 
-test('재생할 수 없는 영상은 미지원 화면과 다운로드로 바뀐다', async ({ authenticatedPage: page }) => {
+test('재생할 수 없는 영상은 미지원 화면과 다운로드로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [BROKEN], { spaceId: SPACE_ID })
   await openViewer(page, 'broken.mov')
   const notice = page.getByTestId('preview-unsupported')
@@ -156,7 +157,7 @@ test('재생할 수 없는 영상은 미지원 화면과 다운로드로 바뀐�
   expect(n.y).toBeGreaterThan(b.y + 40)
 })
 
-test('오디오는 큰 아이콘·이름·기본 플레이어로 재생된다', async ({ authenticatedPage: page }) => {
+test('오디오는 큰 아이콘·이름·기본 플레이어로 재생된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [audioFile(82, 'voice.mp3')], { spaceId: SPACE_ID })
   await openViewer(page, 'voice.mp3')
   const view = page.getByTestId('media-audio-view')
@@ -168,7 +169,7 @@ test('오디오는 큰 아이콘·이름·기본 플레이어로 재생된다', 
   await expect(page.getByTestId('viewer-zoom-bar')).toHaveCount(0)
 })
 
-test('자동재생이 거부되면 가운데 재생 버튼으로 폴백한다', async ({ authenticatedPage: page }) => {
+test('자동재생이 거부되면 가운데 재생 버튼으로 폴백한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // 플래그가 켜진 동안 play() 를 NotAllowedError 로 거부한다(iOS 비동기 play 거부 흉내).
   await page.addInitScript(() => {
     const w = window as unknown as { __blockPlay: boolean }
@@ -194,7 +195,7 @@ test('자동재생이 거부되면 가운데 재생 버튼으로 폴백한다', 
   await expect(play).toHaveCount(0)
 })
 
-test('오디오 자동재생이 거부되면 버튼을 겹쳐 더하지 않고 짧은 안내만 보인다(기본 플레이어 재생 버튼이 있으므로)', async ({ authenticatedPage: page }) => {
+test('오디오 자동재생이 거부되면 버튼을 겹쳐 더하지 않고 짧은 안내만 보인다(기본 플레이어 재생 버튼이 있으므로)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await page.addInitScript(() => {
     HTMLMediaElement.prototype.play = () => Promise.reject(new DOMException('blocked', 'NotAllowedError'))
   })
@@ -210,7 +211,7 @@ test('오디오 자동재생이 거부되면 버튼을 겹쳐 더하지 않고 �
   expect(h.y).toBeGreaterThanOrEqual(a.y + a.height)
 })
 
-test('영상 요소는 맞춤 상자와 같은 크기(변형 없음) — 기본 컨트롤이 영상 폭 전체에 걸친다', async ({ authenticatedPage: page }) => {
+test('영상 요소는 맞춤 상자와 같은 크기(변형 없음) — 기본 컨트롤이 영상 폭 전체에 걸친다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
@@ -229,7 +230,7 @@ test('영상 요소는 맞춤 상자와 같은 크기(변형 없음) — 기본 
   expect(Math.abs(m.h - m.eh)).toBeLessThanOrEqual(1)
 })
 
-test.describe('키보드(스펙 §5.3 #6·#7)', () => {
+test.describe('키보드(스펙 §5.3 #6·#7)', { tag: '@input' }, () => {
   test('←/→ 는 영상 포커스면 5초 탐색(한 번만), 그 밖이면 파일 넘김', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
     await openViewer(page, 'clip-a.webm')

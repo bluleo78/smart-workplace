@@ -1,6 +1,6 @@
 // #739: 드라이브 원본 유실(blob missing) 파일 가시화 E2E.
-// 정상 파일과 available:false 파일이 섞인 목록에서 배지·클릭 차단·오버플로 메뉴 비활성을 검증한다.
-// 행 작업 비활성 판정 규칙의 경우의 수는 src/lib/driveRowActions.test.ts 가 맡고, 여기선 그 판정이 실제 버튼·메뉴에 닿는지 한 번만 본다(WP-413).
+// 브라우저가 있어야 판정되는 「원본 유실」 배지 글자 대비(@layout)만 남긴다.
+// 배지·클릭 차단·인라인/⋯ 비활성은 src/pages/drive/driveRows.test.tsx, 판정 규칙의 경우의 수는 src/lib/driveRowActions.test.ts 가 지킨다(WP-413, WP-984).
 import type { Page } from '@playwright/test'
 
 import { createFile, createSpace, personalSpace } from '../../factories/drive.factory'
@@ -38,85 +38,10 @@ function stubItems(page: Page, files: unknown[]) {
   )
 }
 
-test('정상 파일 행 — 배지 없음, 클릭 시 미리보기 모달이 열린다', async ({ authenticatedPage: page }) => {
-  const file = createFile({ id: 20, name: 'ok.txt', category: 'TEXT', available: true })
-  await stubSpaces(page)
-  await stubItems(page, [file])
-  // 썸네일(TEXT 는 미제공 → 404 허용)
-  await page.route(
-    (url) => url.pathname === `/api/v1/drive/files/${file.id}/thumbnail`,
-    (route) => route.fulfill({ status: 404, body: '' }),
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/drive/files/${file.id}/content`,
-    (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'hello' }),
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/drive/files/${file.id}/summary`,
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ summary: null, status: 'PENDING' }),
-      }),
-  )
-  await page.route(
-    (url) => url.pathname === `/api/v1/drive/files/${file.id}/backlinks`,
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-  )
-
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('drive-page')).toBeVisible()
-
-  await expect(page.getByTestId('missing-blob-badge')).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'ok.txt' }).click()
-  await expect(page.getByTestId('preview-body')).toBeVisible()
-})
-
-test('유실 파일 행 — "원본 유실" 배지 노출, 클릭 시 모달 대신 안내 문구', async ({
-  authenticatedPage: page,
-}) => {
-  const file = createFile({ id: 21, name: 'lost.txt', category: 'TEXT', available: false })
-  await stubSpaces(page)
-  await stubItems(page, [file])
-
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('drive-page')).toBeVisible()
-
-  await expect(page.getByTestId('missing-blob-badge')).toBeVisible()
-  await expect(page.getByTestId('missing-blob-badge')).toHaveText('원본 유실')
-
-  await page.getByRole('button', { name: 'lost.txt' }).click()
-  await expect(page.getByTestId('preview-body')).toHaveCount(0)
-  await expect(page.getByText('이 파일의 원본이 유실되어 열거나 내려받을 수 없습니다.')).toBeVisible()
-})
-
-test('유실 파일의 오버플로 메뉴 — 다운로드 항목 disabled', async ({ authenticatedPage: page }) => {
-  const file = createFile({ id: 22, name: 'lost2.txt', category: 'TEXT', available: false })
-  await stubSpaces(page)
-  await stubItems(page, [file])
-
-  await page.goto(`/drive/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('drive-page')).toBeVisible()
-
-  const row = page.getByRole('listitem').filter({ hasText: 'lost2.txt' })
-  await row.hover()
-  // 인라인 "다운로드" 버튼도 disabled 상태여야 한다(#739: 유실 파일은 다운로드 차단).
-  await expect(row.getByRole('button', { name: 'lost2.txt 다운로드' })).toBeDisabled()
-  await expect(row.getByRole('button', { name: 'lost2.txt 공유 링크' })).toBeDisabled()
-
-  // ⋯ 더보기 안의 "복사"도 disabled — 복제할 바이트가 없어 서버가 404(유실)를 반환하므로(#739).
-  // "이동"은 메타데이터만 바꾸므로 유실 파일에도 허용된다.
-  await row.getByRole('button', { name: 'lost2.txt 더보기' }).click()
-  await expect(page.getByRole('menuitem', { name: '복사' })).toBeDisabled()
-  await expect(page.getByRole('menuitem', { name: '이동' })).toBeEnabled()
-})
-
 // WP-303: 경고 배지(Badge warning) 글자가 옅은 앰버 배경 위 앰버 글자라 라이트에서 1.5:1 이던 회귀.
 // 작은 글자(text-xs)이므로 WCAG AA 4.5:1 이상을 라이트·다크 모두에서 실측으로 지킨다.
 for (const theme of ['light', 'dark'] as const) {
-  test(`"원본 유실" 경고 배지 글자 대비가 AA(4.5:1) 이상이다 — ${theme} (WP-303)`, async ({
+  test(`"원본 유실" 경고 배지 글자 대비가 AA(4.5:1) 이상이다 — ${theme} (WP-303)`, { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await withTheme(page, theme)
