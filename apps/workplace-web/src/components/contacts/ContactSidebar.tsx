@@ -1,5 +1,4 @@
 import { Star, Users, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -12,7 +11,6 @@ import {
 } from '@/components/overlay/select'
 import { Button } from '@/components/ui/button'
 import { useContactFacets } from '@/hooks/queries/useContactFacets'
-import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -29,12 +27,12 @@ const TYPE_FILTERS: { value: ContactTypeFilter; label: string }[] = [
 ]
 
 /**
- * 연락처 2차 사이드바. 검색·타입필터는 URL searchParams(q·type)로 ContactsPage 와 공유.
- * 그룹 트리는 후속 이슈.
+ * 연락처 2차 사이드바 — 「어디를 볼지」만 고른다. 타입 보기·그룹은 URL searchParams(type·group)로 ContactsPage 와 공유.
+ * 전체·멤버·외부·즐겨찾기와 조직도·내 그룹은 하나의 「보기」 목록이라 하나를 누르면 그것만 선택된다(WP-976, §B-1).
+ * 검색창은 페이지 헤더(ContactsPage)로 옮겼다 — 사이드바는 보기 선택, 검색은 그 보기 안에서 거르기.
  */
 export function ContactSidebar() {
   const [params, setParams] = useSearchParams()
-  const q = params.get('q') ?? ''
   const type = (params.get('type') as ContactTypeFilter) ?? 'ALL'
   const groupParam = params.get('group')
   // 외부 탭일 때만 조직·직책 distinct 옵션 fetch(드롭다운). 그 외 탭은 enabled=false 로 미요청.
@@ -59,24 +57,15 @@ export function ContactSidebar() {
     )
   }
 
-  // 정수 검증을 거친 그룹 ID(비정수는 null) — ContactsPage 와 동일 기준이라야 검색·필터 잠금과 그룹 뷰 표시가 일치한다.
+  // 정수 검증을 거친 그룹 ID(비정수는 null) — ContactsPage 와 동일 기준이라야 선택 표시와 그룹 뷰 표시가 일치한다.
   const selectedGroupId = parseGroupId(groupParam)
-  const selectGroup = (id: number | null) =>
-    patch({ group: id == null ? null : String(id) })
-
-  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다.
-  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
-  const [qDraft, setQDraft] = useState(q)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setQDraft(q)
-  }, [q])
-  const debouncedQDraft = useDebounceValue(qDraft, 300)
-  useEffect(() => {
-    if (debouncedQDraft === q) return
-    patch({ q: debouncedQDraft || null })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQDraft])
+  // 그룹으로 이동하면 이전 보기(타입·외부 고급 필터)는 저절로 풀린다 — 범위 칩 × 로 그룹을 풀었을 때
+  // 예전 「외부 + 조직」 필터가 되살아나지 않게 함께 지운다. 검색어(q)는 보기를 바꿔도 이어 간다(WP-976).
+  // 이미 보고 있는 그룹을 다시 누르면 아무것도 바꾸지 않는다 — patch 가 ?contact 를 지워 열린 상세가 닫히지 않게.
+  const selectGroup = (id: number | null) => {
+    if (id != null && id === selectedGroupId) return
+    patch({ group: id == null ? null : String(id), type: null, organization: null, title: null })
+  }
 
   return (
     <aside
@@ -90,42 +79,31 @@ export function ContactSidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {/* 검색 */}
-        <input
-          type="search"
-          data-testid="contact-search"
-          value={qDraft}
-          onChange={(e) => setQDraft(e.target.value)}
-          disabled={selectedGroupId != null}
-          placeholder="이름·이메일 검색"
-          className="mb-4 w-full rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
-        />
-
         {/* 타입 퀵필터 — ALL/MEMBER/EXTERNAL/FAVORITE */}
         <nav className="space-y-1">
         {TYPE_FILTERS.map((f) => {
-          // 조직도·내 그룹을 고른 동안엔 퀵필터가 꺼져(목록이 그룹 구성원) 어느 것도 현재 항목이 아니다 —
-          // 꺼진 「전체」가 선택 막대·배경과 aria-current 를 달고 있어 그룹과 둘 다 선택된 것처럼 보였다(WP-898).
+          // 조직도·내 그룹을 고른 동안엔 그룹이 현재 보기라 퀵필터는 어느 것도 현재 항목이 아니다(WP-898).
+          // 잠그지는 않는다 — 누르면 그 보기로 바로 이동하고 그룹 선택은 저절로 풀린다(WP-976).
           const current = selectedGroupId == null && type === f.value
           return (
           <button
             key={f.value}
             type="button"
             data-testid={`contact-filter-${f.value}`}
-            disabled={selectedGroupId != null}
-            aria-current={current ? 'true' : undefined}
+            aria-current={current ? 'page' : undefined}
             // 모바일 시트에서 고르면 시트를 닫아 바뀐 목록을 보여 준다(WP-578). 단 '외부'는 시트 안에
-            // 조직·직책 필터가 이어 나타나므로 둔다. 검색·조직/직책 필터도 시트 안에서 이어 입력하므로 닫지 않는다.
+            // 조직·직책 필터가 이어 나타나므로 둔다(조직/직책 필터도 시트 안에서 이어 고르므로 닫지 않는다).
             data-sheet-dismiss={f.value === 'EXTERNAL' ? undefined : true}
+            // 그룹을 보고 있었다면 그 선택을 함께 푼다(group: null) — 하나를 누르면 그것만 선택(§B-1).
             onClick={() =>
               patch(
                 f.value === 'EXTERNAL'
-                  ? { type: f.value }
-                  : { type: f.value, organization: null, title: null },
+                  ? { type: f.value, group: null }
+                  : { type: f.value, group: null, organization: null, title: null },
               )
             }
             className={cn(
-              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50',
+              'flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors',
               current
                 ? SELECTED_NAV_CLASS
                 : 'text-muted-foreground hover:bg-accent/50',

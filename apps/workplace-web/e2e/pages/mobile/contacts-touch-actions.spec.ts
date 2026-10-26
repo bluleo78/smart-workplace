@@ -103,14 +103,13 @@ test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨
 })
 
 // WP-578: 시트 안 타입 필터·그룹은 링크가 아닌 버튼이라 골라도 시트가 남아 바뀐 목록을 덮었다 — 고르면 닫혀야 한다.
-// 검색 입력처럼 시트 안에서 이어 가는 동작은 닫지 않는다.
-test('☰ 시트 — 검색 입력·외부 필터는 시트를 두고(조직·직책 필터가 이어 나옴), 다른 타입 필터를 고르면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
+// 외부 필터처럼 시트 안에서 이어 가는 동작은 닫지 않는다. 검색창은 헤더 🔍 로 옮겨 시트에 없다(WP-976).
+test('☰ 시트 — 외부 필터는 시트를 두고(조직·직책 필터가 이어 나옴), 다른 타입 필터를 고르면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
   await stubBase(page)
   await page.goto('/contacts')
   await openSidebar(page)
   const sheet = page.getByTestId('mobile-sidebar-sheet')
-  await sheet.getByTestId('contact-search').fill('김')
-  await expect(sheet).toBeVisible()
+  await expect(sheet.getByTestId('contact-search')).toHaveCount(0)
   await sheet.getByTestId('contact-filter-EXTERNAL').click()
   await expect(page).toHaveURL(/type=EXTERNAL/)
   await expect(sheet.getByTestId('contact-advanced-filter')).toBeVisible()
@@ -127,4 +126,26 @@ test('☰ 시트 — 그룹을 고르면 시트가 닫힌다', async ({ authenti
   await sheet.getByTestId('group-node-20').click()
   await expect(page).toHaveURL(/group=20/)
   await expect(sheet).toBeHidden()
+})
+
+// WP-976 — 모바일 검색은 헤더 🔍 로 편다. 펼치면 입력칸에 바로 초점이 가고, 한글을 이어 쳐도 조합이 끊기지 않으며
+// URL q 는 완성된 글자로 반영된다(WP-974 방식). 「취소」는 검색어를 비우고 접는다. 초점·IME 는 브라우저에서만 판정된다.
+test('헤더 🔍 → 입력칸 초점 → 한글 연속 입력이 끊기지 않고, 「취소」로 접힌다 (WP-976)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubBase(page, makePage([member({ id: 1, name: '김멤버' })]))
+  await page.goto('/contacts?group=10')
+  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await page.getByTestId('contact-search-open').click()
+  const input = page.getByTestId('contact-search')
+  await expect(input).toBeFocused()
+  await expect(page.getByTestId('contact-search-scope')).toBeVisible()
+  // pressSequentially — 키 입력마다 input 이벤트가 나가 URL 왕복이 조합을 끊던 결함(WP-974)을 재현한다.
+  await input.pressSequentially('이개발', { delay: 30 })
+  await expect(input).toHaveValue('이개발')
+  await expect(page).toHaveURL(/q=%EC%9D%B4%EA%B0%9C%EB%B0%9C/)
+  await expect(page.getByTestId('group-member-MEMBER-2')).toBeVisible()
+
+  await page.getByTestId('contact-search-cancel').click()
+  await expect(page.getByTestId('contact-mobile-search')).toHaveCount(0)
+  await expect(page).not.toHaveURL(/q=/)
+  await expect(page.getByTestId('contact-search-open')).toBeVisible()
 })
