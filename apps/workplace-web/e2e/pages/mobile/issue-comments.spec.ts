@@ -1,4 +1,6 @@
 // 모바일 이슈 코멘트 수정·삭제(WP-223) — hover 아이콘 대신 항상 보이는 ⋯(44px) → 액션 시트 → 인라인 수정 / 삭제 확인창.
+// 브라우저가 있어야 판정되는 ⋯ 44px·Tiptap 인라인 수정(@input)과 카드 폭(@layout)만 남긴다.
+// 삭제 확인창(취소 유지·확인 DELETE)·남의 코멘트 ⋯ 없음은 페이지 테스트 src/pages/mobile/mobileIssueComments.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import type { IssueCommentResponse } from '../../../src/types/issue';
@@ -60,7 +62,7 @@ async function setup(page: Page, initial: IssueCommentResponse[]) {
 const mine = (over: Partial<IssueCommentResponse> = {}) =>
   createComment({ id: 10, issueId: ISSUE_ID, authorId: ME_ID, body: '내 코멘트 원본', ...over });
 
-test('내 코멘트 — ⋯ 는 44px 이상 · 수정 → 저장 → PATCH 와 본문 갱신', async ({ authenticatedPage: page }) => {
+test('내 코멘트 — ⋯ 는 44px 이상 · 수정 → 저장 → PATCH 와 본문 갱신', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const { patches } = await setup(page, [mine()]);
   const more = page.getByTestId('issue-comment-more-10');
   await expect(more).toBeVisible();
@@ -85,32 +87,8 @@ test('내 코멘트 — ⋯ 는 44px 이상 · 수정 → 저장 → PATCH 와 �
   await expect(page.getByTestId('issue-comment-edit-input')).toBeHidden();
 });
 
-test('내 코멘트 — 삭제는 확인창에서 취소하면 유지, 확인하면 DELETE 후 사라진다', async ({ authenticatedPage: page }) => {
-  const { deletes } = await setup(page, [mine()]);
-  const sheet = page.getByTestId('issue-comment-sheet');
-  const dialog = page.getByRole('alertdialog');
-
-  await page.getByTestId('issue-comment-more-10').click();
-  await sheet.getByTestId('mobile-action-delete').click();
-  await expect(sheet).toBeHidden();
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: '취소' }).click();
-  await expect(dialog).toBeHidden();
-  expect(deletes()).toHaveLength(0);
-  await expect(page.getByText('내 코멘트 원본')).toBeVisible();
-
-  await page.getByTestId('issue-comment-more-10').click();
-  await sheet.getByTestId('mobile-action-delete').click();
-  await expect(sheet).toBeHidden();
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: '삭제' }).click();
-  await expect(dialog).toBeHidden();
-  await expect.poll(deletes).toEqual([10]);
-  await expect(page.getByText('내 코멘트 원본')).toBeHidden();
-});
-
 // WP-228 — 공백 없는 긴 URL 은 카드 폭에서 줄바꿈되고, 긴 작성자명은 말줄임되어 날짜가 한 줄로 남는다.
-test('긴 URL·긴 작성자명 코멘트도 카드 폭 안에 머문다', async ({ authenticatedPage: page }) => {
+test('긴 URL·긴 작성자명 코멘트도 카드 폭 안에 머문다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const LONG_URL = `https://drive.example.com/share/${'a1b2c3d4e5'.repeat(12)}?ref=${'x'.repeat(40)}`;
   const LONG_NAME = '외부협력사 프로젝트 매니저 홍길동(주식회사아주긴회사이름테크놀로지솔루션즈)';
   await setup(page, [
@@ -136,7 +114,7 @@ test('긴 URL·긴 작성자명 코멘트도 카드 폭 안에 머문다', async
 });
 
 // WP-254 — AI 코멘트 마크다운(제목·체크리스트·표·긴 URL)도 휴대폰 카드 폭 안에 머문다.
-test('AGENT 마크다운 코멘트 — 체크리스트·표·긴 URL 이 카드 폭을 넘지 않는다', async ({ authenticatedPage: page }) => {
+test('AGENT 마크다운 코멘트 — 체크리스트·표·긴 URL 이 카드 폭을 넘지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const LONG_URL = `https://ci.example.com/runs/${'9f8e7d6c5b'.repeat(10)}`;
   const body = [
     '## 배포 전 점검 결과 보고',

@@ -30,7 +30,7 @@ async function playedThenPaused(el: Locator) {
 /** 바가 숨겨졌는가(inert). */
 const topBar = (page: Page) => page.getByTestId('viewer-top-bar')
 
-test('영상은 하단 액션 바 위 영역에 맞춰 놓이고 확대 툴바가 없다', async ({ authenticatedPage: page }) => {
+test('영상은 하단 액션 바 위 영역에 맞춰 놓이고 확대 툴바가 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
@@ -46,7 +46,7 @@ test('영상은 하단 액션 바 위 영역에 맞춰 놓이고 확대 툴바�
   await expect(page.getByTestId('viewer-zoom-bar')).toHaveCount(0)
 })
 
-test('영상 위 탭은 바를 숨기지 않고, 영상 밖 여백 탭은 바를 토글한다', async ({ authenticatedPage: page }) => {
+test('영상 위 탭은 바를 숨기지 않고, 영상 밖 여백 탭은 바를 토글한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
@@ -67,7 +67,7 @@ test('영상 위 탭은 바를 숨기지 않고, 영상 밖 여백 탭은 바를
   await expect(topBar(page)).toHaveAttribute('inert', '')
 })
 
-test('재생 막대 구역(영상 아래 48px)에서 가로로 끌면 넘기지 않고, 영상 위쪽에서 끌면 넘긴다', async ({ authenticatedPage: page }) => {
+test('재생 막대 구역(영상 아래 48px)에서 가로로 끌면 넘기지 않고, 영상 위쪽에서 끌면 넘긴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
@@ -91,7 +91,7 @@ test('재생 막대 구역(영상 아래 48px)에서 가로로 끌면 넘기지 
   expect((await media(video)).paused).toBe(true)
 })
 
-test('오디오는 어디를 탭해도 바를 숨기지 않는다', async ({ authenticatedPage: page }) => {
+test('오디오는 어디를 탭해도 바를 숨기지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [audioFile(82, 'voice.mp3')], { spaceId: SPACE_ID })
   await openViewer(page, 'voice.mp3')
   const audio = page.getByTestId('media-audio')
@@ -107,7 +107,7 @@ test('오디오는 어디를 탭해도 바를 숨기지 않는다', async ({ aut
   await expect(topBar(page)).not.toHaveAttribute('inert', '')
 })
 
-test('영상 재생이 시작되고 3초 뒤 바가 자동으로 숨는다', async ({ authenticatedPage: page }) => {
+test('영상 재생이 시작되고 3초 뒤 바가 자동으로 숨는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
   const video = page.getByTestId('media-video')
@@ -121,7 +121,7 @@ test('영상 재생이 시작되고 3초 뒤 바가 자동으로 숨는다', asy
   await expect(topBar(page)).not.toHaveAttribute('inert', '')
 })
 
-test('가로 모드에서도 오디오는 바가 보인다(탭으로 되살릴 수 없으므로 숨기지 않음)', async ({ authenticatedPage: page }) => {
+test('가로 모드에서도 오디오는 바가 보인다(탭으로 되살릴 수 없으므로 숨기지 않음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 844, height: 390 })
   await stubDriveFiles(page, [audioFile(82, 'voice.mp3')], { spaceId: SPACE_ID })
   await openViewer(page, 'voice.mp3')
@@ -131,7 +131,7 @@ test('가로 모드에서도 오디오는 바가 보인다(탭으로 되살릴 �
   await expect(topBar(page).getByRole('button', { name: '닫기' })).toBeVisible()
 })
 
-test('재생할 수 없는 영상은 미디어로 다루지 않는다 — 무대가 문서 규칙(manipulation)', async ({ authenticatedPage: page }) => {
+test('재생할 수 없는 영상은 미디어로 다루지 않는다 — 무대가 문서 규칙(manipulation)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDriveFiles(page, [{ id: 89, name: 'broken.mov', mimeType: 'video/quicktime', body: Buffer.from('garbage bytes, not a movie') }], {
     spaceId: SPACE_ID,
   })
@@ -140,7 +140,7 @@ test('재생할 수 없는 영상은 미디어로 다루지 않는다 — 무대
   await expect(page.getByTestId('viewer-stage')).toHaveAttribute('data-viewer-stage', 'manipulation')
 })
 
-test('가로 모드 — 넘침 없이 영상이 화면 안에 들어온다(영상 높이 비율 기록)', async ({ authenticatedPage: page }) => {
+test('가로 모드 — 넘침 없이 영상이 화면 안에 들어온다(영상 높이 비율 기록)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 844, height: 390 })
   await stubDriveFiles(page, [videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'clip-a.webm')
@@ -162,7 +162,7 @@ test('가로 모드 — 넘침 없이 영상이 화면 안에 들어온다(영�
 })
 
 for (const width of [360, 390]) {
-  test(`폭 ${width}px — 영상 요소가 맞춤 상자와 같고(변형 없음) ‹ › 가 영상을 덮지 않는다`, async ({ authenticatedPage: page }) => {
+  test(`폭 ${width}px — 영상 요소가 맞춤 상자와 같고(변형 없음) ‹ › 가 영상을 덮지 않는다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width, height: 780 })
     await stubDriveFiles(page, [videoFile(80, 'clip-a.webm'), videoFile(81, 'clip-b.webm')], { spaceId: SPACE_ID })
     await openViewer(page, 'clip-a.webm')
@@ -188,7 +188,7 @@ for (const width of [360, 390]) {
   })
 }
 
-test('오디오도 ‹ › 가 플레이어를 덮지 않는다', async ({ authenticatedPage: page }) => {
+test('오디오도 ‹ › 가 플레이어를 덮지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 360, height: 780 })
   await stubDriveFiles(page, [audioFile(82, 'voice.mp3'), videoFile(80, 'clip-a.webm')], { spaceId: SPACE_ID })
   await openViewer(page, 'voice.mp3')

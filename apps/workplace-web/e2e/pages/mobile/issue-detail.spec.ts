@@ -1,10 +1,14 @@
 // 모바일 이슈 상세(WP-196) — 제목 아래 속성 칩 · 「＋ 속성」 시트 · 첨부/하위 태스크 · 하단 코멘트 입력/편집 바.
+// 브라우저가 있어야 판정되는 것만 남긴다 — 칩 줄 위치·넘침·말줄임·팝오버 위치·키보드 위 하단 바(@layout),
+// 포커스 유지·IME·파일 선택(@input), 상태 칩 → PATCH 대표 배선(@wiring).
+// 칩 문구·조건부 렌더·시트 payload·비멤버 안내·＋ 속성 시트 구성·편집 바 저장/취소는
+// 페이지 테스트 src/pages/mobile/mobileIssueDetail.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import type { IssueDetailResponse, IssueResponse } from '../../../src/types/issue';
 import { createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
-import { makeEpicType, makeSubtaskType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
+import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
 import { statusFieldsOf } from '../../factories/projectStatus.factory';
 import { pressMacChromeImeEnter } from '../../fixtures/ime';
@@ -90,7 +94,7 @@ async function openDetail(page: Page) {
 }
 
 test.describe('속성 칩', () => {
-  test('제목 바로 아래 칩 줄 — 상태·담당자·우선순위·마감·에픽·＋ 속성, 가로 넘침 없음', async ({ authenticatedPage: page }) => {
+  test('제목 바로 아래 칩 줄 — 상태·담당자·우선순위·마감·에픽·＋ 속성, 가로 넘침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockDetail(page, { parent: { number: 50, title: EPIC.title, type: makeEpicType() }, dueDate: '2026-10-20' });
     await openDetail(page);
     const chips = page.getByTestId('mobile-prop-chips');
@@ -109,18 +113,7 @@ test.describe('속성 칩', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('마감 지난 미완료 이슈는 마감 칩이 경고 톤 + 「· 지남」, 이름에도 「마감 지남」 (WP-649)', async ({ authenticatedPage: page }) => {
-    await mockDetail(page, { dueDate: '2020-01-15' });
-    await openDetail(page);
-    const due = page.getByTestId('mobile-prop-due');
-    await expect(due).toContainText('1월 15일');
-    await expect(due.getByTestId('issue-overdue-badge')).toHaveText('· 지남');
-    await expect(due).toHaveAttribute('aria-label', '마감일: 1월 15일, 마감 지남');
-    await expect(due).toHaveClass(/text-destructive/);
-    await expectNoHorizontalOverflow(page);
-  });
-
-  test('차단됨은 상태 칩에 합쳐지고(별도 칩 없음), 긴 담당자 이름이어도 +N 은 보인다', async ({ authenticatedPage: page }) => {
+  test('차단됨은 상태 칩에 합쳐지고(별도 칩 없음), 긴 담당자 이름이어도 +N 은 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockDetail(page, {
       blocked: true,
       blockedBy: [{ number: 3, title: '선행 작업', status: 'IN_PROGRESS', dueDate: null }] as IssueResponse['blockedBy'],
@@ -143,7 +136,7 @@ test.describe('속성 칩', () => {
   });
 
   // 상태 시트 선택지는 프로젝트 상태(시드 「완료」 id 3, WP-808) — statusId 로 보낸다.
-  test('상태 칩 → 시트에서 완료 → PATCH statusId', async ({ authenticatedPage: page }) => {
+  test('상태 칩 → 시트에서 완료 → PATCH statusId', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page);
     await openDetail(page);
     await page.getByTestId('mobile-prop-status').click();
@@ -152,73 +145,16 @@ test.describe('속성 칩', () => {
     await expect(page.getByTestId('mobile-prop-status')).toContainText('완료');
   });
 
-  test('미완료 선행 이슈가 있으면 완료 전환 전에 확인한다', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page, { blocked: true, blockedBy: [{ number: 3, title: '선행 작업', status: 'IN_PROGRESS', dueDate: null }] as IssueResponse['blockedBy'] });
+  // 달력 날짜 칸은 터치 최소 44px — 실제 폭이라 jsdom 이 잴 수 없다. 우선순위·마감 PATCH 는 페이지 테스트가 본다.
+  test('마감 칩 시트의 달력 날짜 칸은 터치 최소 44px', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await mockDetail(page, { dueDate: '2026-10-20' });
     await openDetail(page);
-    await page.getByTestId('mobile-prop-status').click();
-    await page.getByTestId('picker-option-3').click();
-    await expect(page.getByTestId('status-done-blocked-dialog')).toBeVisible();
-    expect(calls().filter((c) => c.method === 'PATCH')).toHaveLength(0);
-    await page.getByTestId('status-done-blocked-confirm').click();
-    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ statusId: 3 });
-  });
-
-  // WP-725: 해석할 수 없는 마감일(API 로 들어간 +10000-01-01)은 엉뚱한 「1월 1일」 대신 「잘못된 날짜」 — 시트에서 지워 고칠 수 있다.
-  test('해석할 수 없는 마감일은 「잘못된 날짜」로 보이고 시트에서 지울 수 있다', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page, { dueDate: '+10000-01-01' });
-    await openDetail(page);
-    const due = page.getByTestId('mobile-prop-due');
-    await expect(due).toContainText('잘못된 날짜');
-    await due.click();
-    await page.getByTestId('issue-due-sheet-clear').click();
-    await expect.poll(() => calls().some((c) => (c.body as { clearDueDate?: boolean })?.clearDueDate === true)).toBe(true);
-  });
-
-  test('우선순위·마감 칩 — 선택/빠른 선택/지우기가 PATCH 로 반영', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page, { dueDate: '2026-10-20' });
-    await openDetail(page);
-    await page.getByTestId('mobile-prop-priority').click();
-    await page.getByTestId('issue-priority-sheet').getByTestId('picker-option-HIGH').click();
-    await expect.poll(() => calls().some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
-
     await page.getByTestId('mobile-prop-due').click();
-    // 달력 날짜 칸은 터치 최소 44px.
     const day = page.getByTestId('issue-due-sheet').locator('[data-day] button').first();
     expect((await day.boundingBox())!.width).toBeGreaterThanOrEqual(44);
-    await page.getByTestId('issue-due-sheet-today').click();
-    const today = await page.evaluate(() => {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    });
-    await expect.poll(() => calls().some((c) => (c.body as { dueDate?: string })?.dueDate === today)).toBe(true);
-
-    await page.getByTestId('mobile-prop-due').click();
-    await page.getByTestId('issue-due-sheet-clear').click();
-    await expect.poll(() => calls().some((c) => (c.body as { clearDueDate?: boolean })?.clearDueDate === true)).toBe(true);
   });
 
-  test('담당자 칩 → 다중 선택 → 완료 시 한 번에 PUT', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page);
-    await openDetail(page);
-    await page.getByTestId('mobile-prop-assignee').click();
-    const sheet = page.getByTestId('issue-assignee-sheet');
-    // 스크린리더 안내는 받침에 맞는 조사와 사람 단위(명)로 읽힌다(WP-499 — 예전엔 「담당자을」).
-    await expect(sheet.getByText('담당자를 여러 명 고를 수 있습니다.')).toBeAttached();
-    await sheet.getByTestId('multi-option-2').click();
-    expect(calls().filter((c) => c.path.endsWith('/assignees'))).toHaveLength(0); // 닫을 때까지 커밋하지 않음
-    await sheet.getByTestId('issue-assignee-sheet-done').click();
-    await expect.poll(() => calls().find((c) => c.path.endsWith('/assignees'))?.body).toEqual({ userIds: [1, 2] });
-  });
-
-  test('에픽 칩 → 에픽 선택 → PATCH parent', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page);
-    await openDetail(page);
-    await page.getByTestId('mobile-prop-epic').click();
-    await page.getByTestId('issue-epic-sheet').getByTestId('picker-option-50').click();
-    await expect.poll(() => calls().find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentNumber: 50 });
-  });
-
-  test('에픽 시트 완료/전체 숫자는 길이·선택(✓) 여부와 상관없이 오른쪽 끝이 맞는다', async ({ authenticatedPage: page }) => {
+  test('에픽 시트 완료/전체 숫자는 길이·선택(✓) 여부와 상관없이 오른쪽 끝이 맞는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockDetail(page, { parent: { number: 50, title: EPIC.title, type: makeEpicType() } });
     const BIG = createIssue({ id: 51, number: 51, projectKey: KEY, title: '레거시 이관', type: makeEpicType(), childCount: 125, childDoneCount: 10 });
     await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) => {
@@ -235,108 +171,10 @@ test.describe('속성 칩', () => {
     };
     expect(await right(51)).toBeCloseTo(await right(50), 0);
   });
-
-  test('에픽 목록 조회 중엔 「에픽 없음」 아래 「불러오는 중…」 — 응답 후 에픽 옵션으로 바뀐다', async ({ authenticatedPage: page }) => {
-    await mockDetail(page);
-    // 에픽 목록(부모 필터 없는 검색) 응답을 붙잡아 둔다 — 나중에 등록한 route 가 먼저 매칭된다.
-    let release!: () => void;
-    const gate = new Promise<void>((res) => (release = res));
-    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, async (r) => {
-      if (r.request().method() !== 'GET' || new URL(r.request().url()).searchParams.has('parent')) return r.fallback();
-      await gate;
-      return r.fulfill(json(createIssueSearchResponse([EPIC], null)));
-    });
-    await openDetail(page);
-    await page.getByTestId('mobile-prop-epic').click();
-    const sheet = page.getByTestId('issue-epic-sheet');
-    await expect(sheet.getByTestId('picker-option-none')).toBeVisible();
-    await expect(sheet.getByTestId('issue-epic-sheet-loading')).toHaveText('불러오는 중…');
-    await expect(sheet.getByTestId('picker-option-50')).toHaveCount(0);
-    release();
-    await expect(sheet.getByTestId('picker-option-50')).toBeVisible();
-    await expect(sheet.getByTestId('issue-epic-sheet-loading')).toHaveCount(0);
-  });
-
-  test('에픽 이슈에는 에픽 칩이 없다', async ({ authenticatedPage: page }) => {
-    await mockDetail(page, { type: makeEpicType() });
-    await openDetail(page);
-    await expect(page.getByTestId('mobile-prop-status')).toBeVisible();
-    await expect(page.getByTestId('mobile-prop-epic')).toHaveCount(0);
-  });
-
-  test('서브태스크 이슈에는 에픽 칩이 없다', async ({ authenticatedPage: page }) => {
-    await mockDetail(page, { type: makeSubtaskType(), parent: { number: 3, title: '부모 태스크', type: makeTaskType() } });
-    await openDetail(page);
-    await expect(page.getByTestId('mobile-prop-status')).toBeVisible();
-    await expect(page.getByTestId('mobile-prop-epic')).toHaveCount(0);
-  });
-});
-
-// WP-503 — 비멤버에겐 칩이 흐리게만 보여 「기능이 없다」고 받아들였다. 칩 줄 끝 자물쇠 칩 → 팝오버, 시트 맨 위 한 줄 배선만 본다
-// (문구 분기는 projectPermissions.test.ts 의 workflowLockedNotice).
-test('비멤버: 칩 줄 끝 자물쇠를 누르면 이유가 뜨고, ＋ 속성 시트 맨 위에도 같은 안내가 있다', async ({ authenticatedPage: page }) => {
-  await mockDetail(page, {}, '본문 첫 줄', { viewerCanEditContent: true, viewerCanEditWorkflow: false });
-  await openDetail(page);
-  const notice = '이슈 속성(유형·상태·일정 등)은 프로젝트 멤버만 바꿀 수 있어요. 바꿔야 하면 코멘트로 알려 주세요.';
-  const chips = page.getByTestId('mobile-prop-chips');
-  await expect(chips.getByTestId('mobile-prop-status')).toBeDisabled();
-  await chips.getByTestId('issue-workflow-locked-hint').click();
-  await expect(page.getByTestId('issue-workflow-locked-popover')).toHaveText(notice);
-  await expectNoHorizontalOverflow(page);
-  await page.keyboard.press('Escape');
-
-  await page.getByTestId('mobile-prop-more').click();
-  await expect(page.getByTestId('issue-more-props-sheet').getByTestId('issue-workflow-locked-notice')).toHaveText(notice);
 });
 
 test.describe('＋ 속성 시트', () => {
-  // WP-944 — 모바일 ＋ 속성 시트의 보고자도 바꿀 수 있으면 고르기 트리거다(데스크톱 레일과 같은 컴포넌트).
-  test('보고자를 바꿀 수 있으면 시트에서 구성원을 골라 바꾼다', async ({ authenticatedPage: page }) => {
-    await mockDetail(page, {}, '본문 첫 줄', {
-      // 로그인 사용자(id 1)가 아닌 사람이 보고자라 넘기기 확인창 없이 바로 바뀐다.
-      reporter: { id: 2, username: 'dev.kim@iacloud.kr', name: '김개발', kind: 'HUMAN' },
-      viewerCanChangeReporter: true,
-    });
-    let putBody: unknown = null;
-    await page.route((u) => u.pathname === `${BASE}/reporter`, (r) => {
-      putBody = r.request().postDataJSON();
-      return r.fulfill(json({ id: 1, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }));
-    });
-    await openDetail(page);
-    await page.getByTestId('mobile-prop-more').click();
-    const row = page.getByTestId('issue-more-props-sheet').getByTestId('issue-more-props-reporter');
-    await row.getByTestId('reporter-picker-trigger').click();
-    await page.getByTestId('reporter-picker').getByTestId('reporter-option-1').click();
-    await expect.poll(() => putBody).toEqual({ userId: 1 });
-    await expectNoHorizontalOverflow(page);
-  });
-
-  test('모바일에선 하단 레일이 없고, ＋ 속성 시트에 유형·일정·분류·커스텀 필드가 있다(칩과 중복 항목 없음)', async ({ authenticatedPage: page }) => {
-    await mockDetail(page);
-    await openDetail(page);
-    await expect(page.getByTestId('property-rail')).toHaveCount(0);
-    await page.getByTestId('mobile-prop-more').click();
-    const sheet = page.getByTestId('issue-more-props-sheet');
-    await expect(sheet.getByTestId('issue-more-props-type')).toBeVisible();
-    // 보고자(WP-272) — 시트에서 유형 바로 아래 행으로 보인다(상태·담당 그룹은 시트에서 숨겨지므로).
-    const reporterRow = sheet.getByTestId('issue-more-props-reporter');
-    await expect(reporterRow).toContainText('보고자');
-    await expect(reporterRow.getByTestId('issue-reporter')).toContainText('양동희');
-    await expect(reporterRow.getByTestId('issue-reporter-created')).toContainText('생성');
-    const typeBox = await sheet.getByTestId('issue-more-props-type').boundingBox();
-    expect((await reporterRow.boundingBox())!.y).toBeGreaterThan(typeBox!.y);
-    await expect(sheet.getByTestId('property-group-planning')).toBeVisible();
-    await expect(sheet.getByTestId('issue-cycles-section')).toBeVisible();
-    await expect(sheet.getByTestId('issue-milestone-section')).toBeVisible();
-    await expect(sheet.getByTestId('property-group-classification')).toBeVisible();
-    await expect(sheet.getByTestId('property-group-custom-fields')).toBeVisible();
-    // 칩과 겹치는 항목은 시트에 없다.
-    await expect(sheet.getByTestId('issue-status-select')).toHaveCount(0);
-    await expect(sheet.getByTestId('due-date-trigger')).toHaveCount(0);
-    await expect(sheet.getByTestId('issue-parent-slot')).toHaveCount(0);
-  });
-
-  test('시트 안 시작일 팝오버가 시트 위에 화면 안으로 열린다', async ({ authenticatedPage: page }) => {
+  test('시트 안 시작일 팝오버가 시트 위에 화면 안으로 열린다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockDetail(page);
     await openDetail(page);
     await page.getByTestId('mobile-prop-more').click();
@@ -354,35 +192,10 @@ test.describe('＋ 속성 시트', () => {
     });
     expect(onTop).toBe(true);
   });
-
-  test('속성 시트 안 링크로 다른 이슈로 이동하면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
-    await mockDetail(page, { type: makeSubtaskType(), parent: { number: 3, title: '선행 작업', type: makeTaskType() } });
-    // 이동 대상 이슈 3 — 이슈 7 스텁보다 나중에 등록해 우선한다.
-    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues/3`, (r) =>
-      r.fulfill(json(createIssueDetail({
-        summary: createIssue({ id: 3, number: 3, projectKey: KEY, type: makeTaskType(), title: '선행 작업' }),
-        body: '',
-      }))));
-    await openDetail(page);
-    await page.getByTestId('mobile-prop-more').click();
-    const sheet = page.getByTestId('issue-more-props-sheet');
-    await expect(sheet).toBeVisible();
-    await sheet.getByTestId('issue-parent-slot').getByRole('link').click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/3$`));
-    await expect(page.getByTestId('issue-title-heading')).toContainText('선행 작업');
-    await expect(page.getByTestId('issue-more-props-sheet')).toHaveCount(0);
-  });
-
-  test('서브태스크는 시트에 부모 슬롯이 있다', async ({ authenticatedPage: page }) => {
-    await mockDetail(page, { type: makeSubtaskType(), parent: { number: 3, title: '부모 태스크', type: makeTaskType() } });
-    await openDetail(page);
-    await page.getByTestId('mobile-prop-more').click();
-    await expect(page.getByTestId('issue-more-props-sheet').getByTestId('issue-parent-slot')).toBeVisible();
-  });
 });
 
 test.describe('첨부·하위 태스크', () => {
-  test('첨부 버튼은 「＋ 첨부」 하나 → 파일/드라이브 액션 시트', async ({ authenticatedPage: page }) => {
+  test('첨부 버튼은 「＋ 첨부」 하나 → 파일/드라이브 액션 시트', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page);
     await openDetail(page);
     await expect(page.getByTestId('attachment-dropzone')).toHaveCount(0);
@@ -401,7 +214,7 @@ test.describe('첨부·하위 태스크', () => {
     await expect(page.getByText('링크할 파일 선택').first()).toBeVisible();
   });
 
-  test('「＋ 하위 태스크 추가」 탭 → 입력칸 펼침, Enter 로 추가해도 칸·포커스 유지', async ({ authenticatedPage: page }) => {
+  test('「＋ 하위 태스크 추가」 탭 → 입력칸 펼침, Enter 로 추가해도 칸·포커스 유지', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page);
     await openDetail(page);
     await expect(page.getByTestId('child-add-input')).toHaveCount(0);
@@ -425,7 +238,7 @@ test.describe('첨부·하위 태스크', () => {
   });
 
   // WP-653 — 제목을 쓰기 전에 유형부터 누르면 입력칸 blur(relatedTarget 없음)로 폼 전체가 접혀 유형을 고를 수 없었다.
-  test('에픽 「＋ 하위 이슈 추가」 — 제목 전에 유형부터 골라도 칸이 유지되고, 고르면 제목칸으로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('에픽 「＋ 하위 이슈 추가」 — 제목 전에 유형부터 골라도 칸이 유지되고, 고르면 제목칸으로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page, { type: makeEpicType() });
     await openDetail(page);
     await page.getByTestId('child-add-open').click();
@@ -457,7 +270,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await installFakeViewport(page);
   });
 
-  test('코멘트 입력은 화면 하단 — 키보드가 열리면 바로 위로, 헤더는 제자리', async ({ authenticatedPage: page }) => {
+  test('코멘트 입력은 화면 하단 — 키보드가 열리면 바로 위로, 헤더는 제자리', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockDetail(page);
     await openDetail(page);
     const bar = page.getByTestId('mobile-bottom-bar');
@@ -469,7 +282,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     expect((await page.getByTestId('mobile-back').boundingBox())!.y).toBeGreaterThanOrEqual(0);
   });
 
-  test('전송 중 에디터가 한 번도 blur 되지 않고 포커스 유지, 4줄 넘으면 내부 스크롤', async ({ authenticatedPage: page }) => {
+  test('전송 중 에디터가 한 번도 blur 되지 않고 포커스 유지, 4줄 넘으면 내부 스크롤', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page);
     await openDetail(page);
     const editor = page.getByTestId('issue-comment-input');
@@ -499,35 +312,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     expect(Math.abs(h - expected)).toBeLessThanOrEqual(1);
   });
 
-  test('제목 편집 중엔 코멘트 대신 [취소·저장] 바 — 저장은 PATCH 1회', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page);
-    await openDetail(page);
-    await page.getByTestId('issue-title-edit').click();
-    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
-    // 작성창은 언마운트하지 않고 숨긴다(초안 보존).
-    await expect(page.getByTestId('issue-comment-input')).toBeHidden();
-    await page.getByTestId('issue-title-input').fill('새 제목');
-    await page.getByTestId('mobile-edit-save').click();
-    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
-    await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    await expectStays(page, () => calls().filter((c) => c.method === 'PATCH').length, 1, { reach: true });
-    const patches = calls().filter((c) => c.method === 'PATCH');
-    expect(patches[0].body).toMatchObject({ title: '새 제목' });
-  });
-
-  test('제목 편집 중 다른 속성을 바꿔도(요청 중 상태 변화) 편집 바가 사라지지 않는다', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page);
-    await openDetail(page);
-    await page.getByTestId('issue-title-edit').click();
-    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
-    await page.getByTestId('mobile-prop-priority').click();
-    await page.getByTestId('issue-priority-sheet').getByTestId('picker-option-HIGH').click();
-    await expect.poll(() => calls().some((c) => (c.body as { priority?: string })?.priority === 'HIGH')).toBe(true);
-    await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
-    await expect(page.getByTestId('issue-title-input')).toBeVisible();
-  });
-
-  test('긴 제목은 3줄까지 보이고, 편집은 줄바꿈되는 입력칸 — Enter 로 저장', async ({ authenticatedPage: page }) => {
+  test('긴 제목은 3줄까지 보이고, 편집은 줄바꿈되는 입력칸 — Enter 로 저장', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const long = '결제 페이지에서 카드사 점검 시간에 결제를 시도하면 오류 안내 없이 무한 로딩되는 문제를 재현하고 수정하기';
     const calls = await mockDetail(page, { title: long });
     await openDetail(page);
@@ -545,7 +330,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ title: '짧은 제목' });
   });
 
-  test('한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 저장하지 않고, 다음 Enter 에 저장(WP-331)', async ({ authenticatedPage: page }) => {
+  test('한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 저장하지 않고, 다음 Enter 에 저장(WP-331)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const calls = await mockDetail(page);
     await openDetail(page);
     await page.getByTestId('issue-title-edit').click();
@@ -561,30 +346,7 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ title: '새 제목' });
   });
 
-  test('제목 편집 취소는 PATCH 없음', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page);
-    await openDetail(page);
-    await page.getByTestId('issue-title-edit').click();
-    await page.getByTestId('issue-title-input').fill('버릴 제목');
-    await page.getByTestId('mobile-edit-cancel').click();
-    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
-    await expectStays(page, () => calls().filter((c) => c.method === 'PATCH').length, 0);
-  });
-
-  test('본문 편집도 바로 저장 — 본문 아래 저장/취소 버튼은 모바일에 없다', async ({ authenticatedPage: page }) => {
-    const calls = await mockDetail(page);
-    await openDetail(page);
-    await page.getByRole('button', { name: '본문 편집' }).click();
-    await expect(page.getByTestId('issue-body-save')).toHaveCount(0);
-    await page.getByTestId('issue-body-textarea').fill('바뀐 본문');
-    await page.getByTestId('mobile-edit-save').click();
-    await expect.poll(() => calls().find((c) => c.method === 'PATCH')?.body).toMatchObject({ body: '바뀐 본문' });
-    await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
-    await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    await expectStays(page, () => calls().filter((c) => c.method === 'PATCH').length, 1);
-  });
-
-  test('편집 바로 바뀌어도 쓰던 코멘트 초안은 남는다', async ({ authenticatedPage: page }) => {
+  test('편집 바로 바뀌어도 쓰던 코멘트 초안은 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mockDetail(page);
     await openDetail(page);
     await page.getByTestId('issue-comment-input').click();
@@ -595,41 +357,4 @@ test.describe('하단 코멘트 입력·편집 바', () => {
     await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
     await expect(page.getByTestId('issue-comment-input')).toHaveText('쓰다 만 코멘트');
   });
-
-  // 모바일 제목은 blur 저장이 없어 본문을 탭해도 편집이 유지된다 — 두 편집기가 동시에 열린 상태에서
-  // 나중에 연 쪽을 저장하면 바가 먼저 연 쪽으로 넘어가고, 그것까지 끝나야 작성창이 돌아온다.
-  for (const order of ['title→body', 'body→title'] as const) {
-    test(`제목·본문 동시 편집(${order}) — 나중 쪽 저장 후 바가 먼저 쪽을 저장한다`, async ({ authenticatedPage: page }) => {
-      const calls = await mockDetail(page);
-      await openDetail(page);
-      const openTitle = async () => {
-        await page.getByTestId('issue-title-edit').click();
-        await page.getByTestId('issue-title-input').fill('동시 편집 제목');
-      };
-      const openBody = async () => {
-        await page.getByRole('button', { name: '본문 편집' }).click();
-        await page.getByTestId('issue-body-textarea').fill('동시 편집 본문');
-      };
-      const [first, second] = order === 'title→body' ? [openTitle, openBody] : [openBody, openTitle];
-      const [firstField, secondField] = order === 'title→body' ? ['title', 'body'] : ['body', 'title'];
-      await first();
-      await second();
-      const patches = () => calls().filter((c) => c.method === 'PATCH');
-
-      await page.getByTestId('mobile-edit-save').click();
-      await expect.poll(() => patches().length).toBe(1);
-      expect(patches()[0].body).toHaveProperty(secondField);
-      expect(patches()[0].body).not.toHaveProperty(firstField);
-      // 먼저 연 편집기가 아직 편집 중 — 바가 남아 그쪽 저장 경로가 된다.
-      await expect(page.getByTestId('mobile-edit-bar')).toBeVisible();
-      await expect(page.getByTestId('mobile-edit-save')).toBeEnabled();
-      await page.getByTestId('mobile-edit-save').click();
-      await expect.poll(() => patches().length).toBe(2);
-      expect(patches()[1].body).toMatchObject(
-        firstField === 'title' ? { title: '동시 편집 제목' } : { body: '동시 편집 본문' },
-      );
-      await expect(page.getByTestId('mobile-edit-bar')).toHaveCount(0);
-      await expect(page.getByTestId('issue-comment-input')).toBeVisible();
-    });
-  }
 });

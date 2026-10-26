@@ -1,5 +1,7 @@
 // 모바일 개인 프로젝트(WP-221) — 팀과 같은 한 줄 툴바(개인 옵션: 뷰 칩·에픽 없음, 그룹 = 없음·상태·우선순위, 체크리스트/보드)와
 // 전체 화면 작업 상세(Task 8).
+// 브라우저가 있어야 판정되는 전체 화면 레이어·토스트 겹침·입력줄 위치·행 폭과 시스템 뒤로가기만 남긴다. 툴바 구성·그룹 시트·보드 카드 → 상세,
+// 속성 칩 저장(상태·라벨·라벨 만들기·담당자)·제목 편집은 페이지 테스트 src/pages/mobile/personalProject.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import { createChatMessagePage, createChatThread } from '../../factories/chat.factory';
@@ -9,7 +11,6 @@ import { createMember, createProject } from '../../factories/project.factory';
 import { mockApi } from '../../fixtures/api-mock';
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'PME';
 // 실데이터 폭 검증용 긴 제목.
@@ -37,40 +38,8 @@ async function stubPersonal(page: Page) {
   return { patch, putLabels, savedViewRequests };
 }
 
-test.describe('개인 툴바', () => {
-  test('뷰 칩·에픽 칩 없이 필터·그룹·검색·체크리스트 토글, 저장 뷰 조회 없음', async ({ authenticatedPage: page }) => {
-    const { savedViewRequests } = await stubPersonal(page);
-    await page.goto(`/projects/${KEY}`);
-    const bar = page.getByTestId('mobile-issue-toolbar');
-    await expect(bar).toBeVisible();
-    await expect(page.getByTestId('personal-checklist')).toBeVisible();
-    await expect(bar.getByTestId('mobile-chip-view')).toHaveCount(0);
-    await expect(bar.getByTestId('mobile-chip-epic')).toHaveCount(0);
-    await expect(bar.getByTestId('mobile-chip-filter')).toBeVisible();
-    await expect(bar.getByTestId('mobile-chip-group')).toHaveText('그룹: 없음');
-    await expect(bar.getByTestId('mobile-search-open')).toBeVisible();
-    const toggle = bar.getByTestId('mobile-view-toggle');
-    await expect(toggle).toHaveAttribute('aria-label', '보드로 전환');
-    await toggle.tap();
-    await expect(page).toHaveURL(/view=board/);
-    await expect(toggle).toHaveAttribute('aria-label', '체크리스트로 전환');
-    await expectStays(page, savedViewRequests.count, 0);
-    await expectNoHorizontalOverflow(page);
-  });
-
-  // 필터 facet(사이클·유형 없음)은 데스크톱 personal-project-detail E2E 가 같은 facet 목록으로 지킨다 — 여기선 모바일 그룹 시트만.
-  test('그룹 시트 = 없음·상태·우선순위', async ({ authenticatedPage: page }) => {
-    await stubPersonal(page);
-    await page.goto(`/projects/${KEY}`);
-    await page.getByTestId('mobile-chip-group').tap();
-    const group = page.getByTestId('mobile-group-sheet');
-    await expect(group.getByRole('option')).toHaveCount(3);
-    for (const v of ['none', 'status', 'priority']) await expect(group.getByTestId(`picker-option-${v}`)).toBeVisible();
-  });
-});
-
 test.describe('작업 상세(전체 화면)', () => {
-  test('체크리스트 행 탭 → 화면 전체를 덮는 상세, 칩 = 상태·우선순위·마감·담당자·라벨(＋ 속성·에픽 없음)', async ({ authenticatedPage: page }) => {
+  test('체크리스트 행 탭 → 화면 전체를 덮는 상세, 칩 = 상태·우선순위·마감·담당자·라벨(＋ 속성·에픽 없음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubPersonal(page);
     await page.goto(`/projects/${KEY}`);
     await page.getByTestId('personal-task-row-1').tap();
@@ -92,99 +61,7 @@ test.describe('작업 상세(전체 화면)', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('보드 카드 탭도 모달 대신 같은 전체 화면 상세', async ({ authenticatedPage: page }) => {
-    await stubPersonal(page);
-    await page.goto(`/projects/${KEY}?view=board`);
-    await page.getByTestId('issue-card-1').getByRole('link').tap();
-    await expect(page.getByTestId('personal-task-mobile')).toBeVisible();
-    await expect(page.getByTestId('personal-task-modal')).toHaveCount(0);
-  });
-
-  // 상태 시트 선택지는 프로젝트 상태(시드 「완료」 id 3, WP-808) — statusId 로 보낸다.
-  test('상태 칩 → 완료 → PATCH statusId', async ({ authenticatedPage: page }) => {
-    const { patch } = await stubPersonal(page);
-    await page.goto(`/projects/${KEY}?task=1`);
-    await page.getByTestId('mobile-prop-status').tap();
-    const sheet = page.getByTestId('issue-status-sheet');
-    await sheet.getByTestId('picker-option-3').tap();
-    await expect(sheet).toBeHidden();
-    await expect.poll(() => patch.requests.map((r) => r.payload)).toContainEqual(expect.objectContaining({ statusId: 3 }));
-  });
-
-  test('라벨 칩 — 그대로 닫으면 요청 없음, 바꾸고 완료하면 PUT 1회', async ({ authenticatedPage: page }) => {
-    const { putLabels } = await stubPersonal(page);
-    await page.goto(`/projects/${KEY}?task=1`);
-    const sheet = page.getByTestId('issue-label-sheet');
-    await page.getByTestId('mobile-prop-label').tap();
-    // 라벨은 사람이 아니라 「개」로 센다(WP-499).
-    await expect(sheet.getByText('라벨을 여러 개 고를 수 있습니다.')).toBeAttached();
-    await sheet.getByTestId('issue-label-sheet-done').tap();
-    await expect(sheet).toBeHidden();
-    expect(putLabels.requests).toHaveLength(0);
-
-    await page.getByTestId('mobile-prop-label').tap();
-    await sheet.getByTestId('multi-option-2').tap();
-    await sheet.getByTestId('issue-label-sheet-done').tap();
-    await expect(sheet).toBeHidden();
-    await expect.poll(() => putLabels.requests.length).toBe(1);
-    expect(putLabels.requests[0].payload).toEqual({ labelIds: [1, 2] });
-  });
-
-  test('WP-394: 라벨 시트에서 없는 이름 → 만들기 → POST(GRAY) → 체크된 채 추가 → 완료하면 PUT 1회', async ({ authenticatedPage: page }) => {
-    const { putLabels } = await stubPersonal(page);
-    // 나중에 등록한 라우트가 먼저 잡는다 — 만든 라벨이 재조회에도 보이게 GET·POST 를 함께 다룬다.
-    const labels = [...LABELS];
-    const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/labels`);
-    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/labels`, (r) => {
-      if (r.request().method() === 'POST') {
-        const { name } = r.request().postDataJSON() as { name: string };
-        const created = createLabel({ id: 99, name, colorToken: 'GRAY', viewerCanManage: true });
-        labels.push(created);
-        return r.fulfill({ json: created });
-      }
-      return r.fulfill({ json: labels });
-    });
-    await page.goto(`/projects/${KEY}?task=1`);
-    const sheet = page.getByTestId('issue-label-sheet');
-    await page.getByTestId('mobile-prop-label').tap();
-
-    const search = sheet.getByTestId('issue-label-sheet-search');
-    // 정확히 같은 이름이 있으면 만들기가 없다.
-    await search.fill('세금');
-    await expect(sheet.getByTestId('issue-label-sheet-create')).toHaveCount(0);
-    await search.fill('영수증');
-    await expect(sheet.getByText('결과가 없습니다')).toHaveCount(0);
-    await expect(sheet.getByTestId('issue-label-sheet-create')).toHaveText('「영수증」 라벨 만들기');
-    await sheet.getByTestId('issue-label-sheet-create').tap();
-
-    await posts.waitFor();
-    expect(posts.lastBody()).toEqual({ name: '영수증', colorToken: 'GRAY' });
-    await expect(search).toHaveValue('');
-    await expect(sheet.getByTestId('multi-option-99')).toHaveAttribute('aria-selected', 'true');
-
-    await sheet.getByTestId('issue-label-sheet-done').tap();
-    await expect(sheet).toBeHidden();
-    await expect.poll(() => putLabels.requests.length).toBe(1);
-    expect(putLabels.requests[0].payload).toEqual({ labelIds: [1, 99] });
-  });
-
-  test('담당자 칩 — 그대로 완료하면 요청 없음, 바꾸고 완료하면 PUT 1회', async ({ authenticatedPage: page }) => {
-    await stubPersonal(page);
-    const putAssignees = await mockApi(page, 'PUT', `/api/v1/projects/${KEY}/issues/1/assignees`, [], { capture: true });
-    await page.goto(`/projects/${KEY}?task=1`);
-    const sheet = page.getByTestId('issue-assignee-sheet');
-    await page.getByTestId('mobile-prop-assignee').tap();
-    await sheet.getByTestId('issue-assignee-sheet-done').tap();
-    await expect(sheet).toBeHidden();
-    // 동기 확인만으론 늦게 나가는 요청을 놓친다 — 아래 2단계(바꾼 뒤 정확히 1회)가 앞선 무요청을 함께 보증한다.
-    await page.getByTestId('mobile-prop-assignee').tap();
-    await sheet.getByTestId('multi-option-1').tap();
-    await sheet.getByTestId('issue-assignee-sheet-done').tap();
-    await expect(sheet).toBeHidden();
-    await expect.poll(() => putAssignees.requests.length).toBe(1);
-  });
-
-  test('저장 실패 토스트가 전체 화면 레이어 위에 보인다(z-index)', async ({ authenticatedPage: page }) => {
+  test('저장 실패 토스트가 전체 화면 레이어 위에 보인다(z-index)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const { patch } = await stubPersonal(page);
     // 뒤에 등록한 스텁이 우선 — 속성 PATCH 를 500 으로 실패시킨다.
     await mockApi(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`, { message: 'fail' }, { status: 500 });
@@ -212,7 +89,7 @@ test.describe('작업 상세(전체 화면)', () => {
     expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
   });
 
-  test('시스템 뒤로가기·‹ 로 닫힌다 — 800px 에서도 400px 패널 대신 전체 화면', async ({ authenticatedPage: page }) => {
+  test('시스템 뒤로가기·‹ 로 닫힌다 — 800px 에서도 400px 패널 대신 전체 화면', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 800, height: 1000 });
     await stubPersonal(page);
     await page.goto(`/projects/${KEY}`);
@@ -235,31 +112,7 @@ test.describe('작업 상세(전체 화면)', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
   });
 
-  test('제목 편집 — 하단이 [취소·저장] 바로 바뀌고, Esc 는 편집만 취소(레이어 유지), 저장은 PATCH title', async ({ authenticatedPage: page }) => {
-    const { patch } = await stubPersonal(page);
-    await page.goto(`/projects/${KEY}?task=1`);
-    const layer = page.getByTestId('personal-task-mobile');
-    const bottom = layer.getByTestId('personal-task-bottom-bar');
-    await expect(bottom.getByTestId('chat-composer')).toBeVisible();
-
-    await layer.getByTestId('issue-title-edit').tap();
-    await expect(bottom.getByTestId('mobile-edit-bar')).toBeVisible();
-    await expect(bottom.getByTestId('chat-composer')).toBeHidden();
-    await page.keyboard.press('Escape');
-    await expect(layer.getByTestId('issue-title-input')).toHaveCount(0);
-    await expect(layer).toBeVisible();
-    await expect(bottom.getByTestId('chat-composer')).toBeVisible();
-
-    await layer.getByTestId('issue-title-edit').tap();
-    const input = layer.getByTestId('issue-title-input');
-    await input.fill('연말정산 서류 제출');
-    await bottom.getByTestId('mobile-edit-save').tap();
-    await expect.poll(() => patch.requests.map((r) => r.payload)).toContainEqual(expect.objectContaining({ title: '연말정산 서류 제출' }));
-    // Esc 취소 때는 PATCH 가 나가지 않았다 — 저장 1건만(Esc 가 저장을 유발했다면 2건).
-    expect(patch.requests).toHaveLength(1);
-  });
-
-  test('채팅 입력줄은 레이어 맨 아래(본문 스크롤 밖)', async ({ authenticatedPage: page }) => {
+  test('채팅 입력줄은 레이어 맨 아래(본문 스크롤 밖)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubPersonal(page);
     await page.goto(`/projects/${KEY}?task=1`);
     const composer = page.getByTestId('personal-task-bottom-bar').getByTestId('chat-composer');
@@ -271,7 +124,7 @@ test.describe('작업 상세(전체 화면)', () => {
 });
 
 // 개인 목록 모바일 행(WP-918) — 레이블은 1개 + +N, 긴 제목도 7rem(112px) 이상 남고 가로로 넘치지 않는다.
-test('개인 목록 모바일 행 — 레이블 5개면 칩 1개와 +4, 제목 폭 ≥ 112px', async ({ authenticatedPage: page }) => {
+test('개인 목록 모바일 행 — 레이블 5개면 칩 1개와 +4, 제목 폭 ≥ 112px', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubPersonal(page);
   const labels = ['세금', '긴급', '가족', '병원', '보험'].map((name, i) => toLabelSummary(createLabel({ id: i + 1, name })));
   // 뒤에 등록한 스텁이 우선 — 레이블 5개·긴 제목 작업 1건으로 목록을 바꾼다.

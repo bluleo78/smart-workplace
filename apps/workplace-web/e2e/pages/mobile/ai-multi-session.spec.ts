@@ -2,7 +2,7 @@
 import { ask, msg, sessionItem, setupLiveChat, summary, TITLE_A, TITLE_B, TITLE_C } from '../../fixtures/ai-live-chat'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('시트: 다른 대화가 답변 중이면 대화 목록 버튼에 점, 목록엔 상태 문구 (WP-190)', async ({ authenticatedPage: page }) => {
+test('시트: 다른 대화가 답변 중이면 대화 목록 버튼에 점, 목록엔 상태 문구 (WP-190)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const live = await setupLiveChat(page)
   live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
@@ -19,7 +19,7 @@ test('시트: 다른 대화가 답변 중이면 대화 목록 버튼에 점, 목
   await expectNoHorizontalOverflow(page)
 })
 
-test('시트: 다른 대화에 새 답변이 도착하면 점·aria-label·목록 문구가 바뀐다 (WP-190)', async ({ authenticatedPage: page }) => {
+test('시트: 다른 대화에 새 답변이 도착하면 점·aria-label·목록 문구가 바뀐다 (WP-190)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const live = await setupLiveChat(page)
   live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
@@ -37,7 +37,7 @@ test('시트: 다른 대화에 새 답변이 도착하면 점·aria-label·목�
   await expectNoHorizontalOverflow(page)
 })
 
-test('시트: 상한 안내의 [대화 목록 보기]가 시트 목록을 연다 (WP-190)', async ({ authenticatedPage: page }) => {
+test('시트: 상한 안내의 [대화 목록 보기]가 시트 목록을 연다 (WP-190)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const live = await setupLiveChat(page)
   live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })
@@ -57,7 +57,7 @@ test('시트: 상한 안내의 [대화 목록 보기]가 시트 목록을 연다
   await expect(sessionItem(page, TITLE_B)).toBeVisible()
 })
 
-test('시트: 다른 창에서 답변 중이면 짧은 안내를 보이고 보내기를 막는다 (WP-266)', async ({ authenticatedPage: page }) => {
+test('시트: 다른 창에서 답변 중이면 짧은 안내를 보이고 보내기를 막는다 (WP-266)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const live = await setupLiveChat(page)
   live.setSessions([summary('s-a', TITLE_A, 1)])
@@ -75,7 +75,7 @@ test('시트: 다른 창에서 답변 중이면 짧은 안내를 보이고 보�
   await expectNoHorizontalOverflow(page)
 })
 
-test('시트: 답변 중 SSE 가 다시 이어지면 받은 부분 아래에 안내한다 (WP-265)', async ({ authenticatedPage: page }) => {
+test('시트: 답변 중 SSE 가 다시 이어지면 받은 부분 아래에 안내한다 (WP-265)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const live = await setupLiveChat(page)
   live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })

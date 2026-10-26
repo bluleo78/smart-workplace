@@ -1,4 +1,6 @@
 // 모바일 사이클(WP-197) — 2줄 요약(날짜 · 진행%), goal 1줄, 연필·휴지통 대신 ⋯ → 액션 시트, 행 탭 = 그 사이클 이슈 목록.
+// 브라우저가 있어야 판정되는 말줄임·넘침·⋯ 44px 만 남긴다. ⋯ → 삭제(취소·확인 DELETE)와 행 탭 이동은
+// 페이지 테스트 src/pages/mobile/cycles.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import type { CycleProgress, CycleResponse } from '../../../src/types/cycle';
@@ -8,7 +10,6 @@ import { createProject } from '../../factories/project.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
 const now = new Date().toISOString();
@@ -43,7 +44,7 @@ async function setup(page: Page) {
 }
 
 // 시작만/끝만/날짜 없음/이슈 0건 문구 규칙은 cycleMeta.test(cycleMetaText)가 지킨다 — 여기선 2줄째 배선과 모바일 레이아웃만.
-test('2줄째 = 날짜 · 진행, goal 1줄, 진행 막대 숨김, 넘침 없음', async ({ authenticatedPage: page }) => {
+test('2줄째 = 날짜 · 진행, goal 1줄, 진행 막대 숨김, 넘침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   await expect(page.getByTestId('cycle-row-meta-1')).toHaveText('9월 29일 ~ 10월 10일 · 45%');
   await expect(page.getByTestId('cycle-row-1')).toContainText('진행 중'); // 상태는 배지에만
@@ -53,7 +54,7 @@ test('2줄째 = 날짜 · 진행, goal 1줄, 진행 막대 숨김, 넘침 없음
   await expectNoHorizontalOverflow(page);
 });
 
-test('⋯(44px) → 수정 → 기존 사이클 폼이 값 채워 열린다', async ({ authenticatedPage: page }) => {
+test('⋯(44px) → 수정 → 기존 사이클 폼이 값 채워 열린다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   const more = page.getByTestId('cycle-more-1');
   const mb = (await more.boundingBox())!;
@@ -66,32 +67,4 @@ test('⋯(44px) → 수정 → 기존 사이클 폼이 값 채워 열린다', as
   await expect(page.getByTestId('cycle-form-dialog')).toBeVisible();
   await expect(page.getByTestId('cycle-name-input')).toHaveValue(CYCLES[0].name);
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/cycles$`)); // ⋯ 는 행 이동을 일으키지 않는다
-});
-
-test('⋯ → 삭제 → 취소는 유지, 확인은 DELETE', async ({ authenticatedPage: page }) => {
-  const { deletes } = await setup(page);
-  const sheet = page.getByTestId('cycle-sheet');
-  const dialog = page.getByRole('alertdialog');
-
-  await page.getByTestId('cycle-more-2').tap();
-  await sheet.getByTestId('mobile-action-delete').tap();
-  await expect(sheet).toBeHidden();
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: '취소' }).tap();
-  await expect(dialog).toBeHidden();
-  await expectStays(page, deletes.count, 0);
-
-  await page.getByTestId('cycle-more-2').tap();
-  await sheet.getByTestId('mobile-action-delete').tap();
-  await expect(sheet).toBeHidden();
-  await dialog.getByRole('button', { name: '삭제' }).tap();
-  await expect(dialog).toBeHidden();
-  await expect.poll(() => deletes.urls().map((u) => Number(u.pathname.split('/').pop()))).toEqual([2]);
-});
-
-test('행 탭 → 그 사이클로 필터된 이슈 목록', async ({ authenticatedPage: page }) => {
-  await setup(page);
-  await page.getByTestId('cycle-row-1').getByRole('link').tap();
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}\\?`));
-  await expect.poll(() => new URL(page.url()).searchParams.get('cycle')).toBe('1');
 });

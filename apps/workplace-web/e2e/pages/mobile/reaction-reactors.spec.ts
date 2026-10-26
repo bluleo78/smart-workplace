@@ -1,5 +1,6 @@
 // WP-106 모바일 — 반응 칩 길게 누르기 → 반응자 시트(누른 이모지 탭), 손 뗀 뒤 토글 없음.
 // 칩 밖(말풍선) 길게 누르기는 기존 메시지 작업 시트, 칩 짧은 탭은 토글 그대로.
+// 칩 짧은 탭 → 반응 토글은 src/pages/mobile/reactionReactors.test.tsx 가 지킨다(WP-981). 여기엔 길게 누르기(@input)·시트 높이(@layout)만.
 import type { Page } from '@playwright/test'
 
 import { createChannelMember, createMessage, createReaction } from '../../factories/messaging.factory'
@@ -39,7 +40,7 @@ async function setup(page: Page, authorId = 20) {
 }
 
 test.describe('WP-106 반응자 — 모바일 길게 누르기', () => {
-  test('칩을 길게 누르면 반응자 시트가 열리고, 손을 떼도 반응이 토글되지 않는다', async ({ authenticatedPage: page }) => {
+  test('칩을 길게 누르면 반응자 시트가 열리고, 손을 떼도 반응이 토글되지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     const toggles = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG}/reactions`)
     await page.goto('/chat/channels/1')
@@ -59,7 +60,7 @@ test.describe('WP-106 반응자 — 모바일 길게 누르기', () => {
     await expectStays(page, () => toggles.count(), 0, { ms: 300 })
   })
 
-  test('반응자가 많아도 시트가 화면을 넘지 않고, 마지막 행까지 스크롤해 온전히 볼 수 있다', async ({ authenticatedPage: page }) => {
+  test('반응자가 많아도 시트가 화면을 넘지 않고, 마지막 행까지 스크롤해 온전히 볼 수 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     // 👍 반응자를 시트 최대 높이를 넘길 만큼 늘린다(내 행 포함 12행) — 목록이 시트 안에서 스크롤돼야 한다.
     const many = Array.from({ length: 11 }, (_, i) => ({ userId: 100 + i, name: `동료${i + 1}`, kind: 'HUMAN' }))
@@ -84,7 +85,7 @@ test.describe('WP-106 반응자 — 모바일 길게 누르기', () => {
     expect(box.y + box.height - (row.y + row.height)).toBeGreaterThanOrEqual(8)
   })
 
-  test('내 메시지를 수정 중이어도 그 메시지의 칩을 길게 누르면 반응자 시트가 열린다', async ({ authenticatedPage: page }) => {
+  test('내 메시지를 수정 중이어도 그 메시지의 칩을 길게 누르면 반응자 시트가 열린다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     // 수정 중 행은 작업 시트 대상에서 빠지지만(C2), 에디터 밖의 반응 칩은 반응자 조회 대상이다.
     await setup(page, 1)
     await page.goto('/chat/channels/1')
@@ -97,22 +98,11 @@ test.describe('WP-106 반응자 — 모바일 길게 누르기', () => {
     await expect(page.getByTestId('message-action-sheet')).toHaveCount(0)
   })
 
-  test('칩 밖(본문)을 길게 누르면 기존 메시지 작업 시트', async ({ authenticatedPage: page }) => {
+  test('칩 밖(본문)을 길게 누르면 기존 메시지 작업 시트', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     await page.goto('/chat/channels/1')
     await longPress(page, page.getByTestId(`message-body-${MSG}`))
     await expect(page.getByTestId('message-action-sheet')).toBeVisible()
-    await expect(page.getByTestId('reactors-sheet')).toHaveCount(0)
-  })
-
-  test('칩 짧은 탭은 그대로 토글', async ({ authenticatedPage: page }) => {
-    await setup(page)
-    const posts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG}/reactions`)
-    await page.route((u) => u.pathname === `/api/v1/messaging/messages/${MSG}/reactions`, (r) =>
-      r.request().method() === 'POST' ? r.fulfill({ status: 204, body: '' }) : r.fallback())
-    await page.goto('/chat/channels/1')
-    await page.getByTestId(`reaction-pill-${MSG}-🎉`).tap()
-    await expect.poll(() => posts.lastBody<{ emoji: string }>()?.emoji).toBe('🎉')
     await expect(page.getByTestId('reactors-sheet')).toHaveCount(0)
   })
 })

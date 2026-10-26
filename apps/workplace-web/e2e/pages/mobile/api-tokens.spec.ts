@@ -5,7 +5,7 @@ import { expect, expectBodyNoHorizontalOverflow, test } from '../../fixtures/mob
 /** 실제처럼 긴 이름 — 짧은 목데이터로는 폭 넘침이 드러나지 않는다. */
 const LONG_NAME = 'Claude Code 노트북 연동용 개인 토큰 (회사 맥북 프로 16인치)'
 
-test('API 토큰 목록 — 가로 넘침 없이 상태·폐기가 화면 안에, 앞자리·만료는 이름 아래 한 줄로 (WP-617)', async ({
+test('API 토큰 목록 — 가로 넘침 없이 상태·폐기가 화면 안에, 앞자리·만료는 이름 아래 한 줄로 (WP-617)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.route(/\/api\/v1\/users\/me\/api-tokens$/, (route) =>

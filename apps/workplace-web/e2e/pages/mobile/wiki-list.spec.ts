@@ -1,5 +1,7 @@
 // 모바일 노트 목록(WP-178·179·180) — 노트는 "공간 → 페이지" 2단 목록. /wiki 진입 시 공간을 골라 그 페이지 트리를 목록으로 보이고,
 // 공간을 바꿔도 목록(페이지 트리)에 머물며, 페이지만 상세로 연다(이전엔 공간 미정 빈 목록 → 공간 선택 시 "새 페이지 만들기" 빈 상태).
+// 페이지를 열지 않는 공간 기억·사라진 공간 처리는 페이지 테스트 src/pages/mobile/wikiList.test.tsx 가 지킨다(WP-981).
+// 페이지 상세를 여는 시나리오는 본문이 동기화 서버(WebSocket)에 붙어 페이지 테스트로 옮기지 못해 @platform 으로 남는다.
 import type { Page } from '@playwright/test'
 
 import type { WikiPageSummary } from '../../../src/types/wiki'
@@ -65,21 +67,7 @@ async function waitForLastPageRecorded(page: Page) {
     .toBe(true)
 }
 
-/**
- * 마지막 공간 기록이 spaceId 가 될 때까지 대기. 공간 전환은 URL 이 먼저 바뀌고 기록은 레이아웃이 새 공간으로 다시 그려진 뒤(수십~백 ms)
- * 남는다 — URL 확인 직후 새로 열면 기록 전에 떠나 옛 공간으로 복원된다(preview 빌드에서 재현).
- */
-async function waitForLastSpaceRecorded(page: Page, spaceId: number) {
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        Object.entries(localStorage).find(([k]) => k.startsWith('wiki.lastVisitedSpace:'))?.[1] ?? null,
-      ),
-    )
-    .toBe(String(spaceId))
-}
-
-test('기록 없이 노트 진입 → 첫 공간이 선택되고 그 페이지 트리가 목록으로 보인다(탭바 유지)', async ({ authenticatedPage: page }) => {
+test('기록 없이 노트 진입 → 첫 공간이 선택되고 그 페이지 트리가 목록으로 보인다(탭바 유지)', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   await mockWiki(page)
   await page.goto('/wiki')
   await expect(page).toHaveURL(/\/wiki\/spaces\/1$/)
@@ -91,7 +79,7 @@ test('기록 없이 노트 진입 → 첫 공간이 선택되고 그 페이지 �
   await expectNoHorizontalOverflow(page)
 })
 
-test('공간을 바꾸면 목록에 머물러 그 공간의 페이지 트리를 보이고, 페이지는 상세로 열고 뒤로가기로 트리에 돌아온다', async ({
+test('공간을 바꾸면 목록에 머물러 그 공간의 페이지 트리를 보이고, 페이지는 상세로 열고 뒤로가기로 트리에 돌아온다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await mockWiki(page)
@@ -118,7 +106,7 @@ test('공간을 바꾸면 목록에 머물러 그 공간의 페이지 트리를 
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
 })
 
-test('마지막으로 본 페이지가 있으면 노트 진입 시 그 페이지가 아니라 그 페이지가 속한 공간의 목록에서 시작한다', async ({
+test('마지막으로 본 페이지가 있으면 노트 진입 시 그 페이지가 아니라 그 페이지가 속한 공간의 목록에서 시작한다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await mockWiki(page)
@@ -131,7 +119,7 @@ test('마지막으로 본 페이지가 있으면 노트 진입 시 그 페이지
   await expect(page.getByTestId('mobile-module-list').getByTestId('wiki-tree-row-42')).toBeVisible()
 })
 
-test('페이지가 없는 공간은 빈 상태를 보이고, [새 페이지 만들기]로 루트 페이지를 만들어 연다(WP-179)', async ({
+test('페이지가 없는 공간은 빈 상태를 보이고, [새 페이지 만들기]로 루트 페이지를 만들어 연다(WP-179)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const wiki = await mockWiki(page)
@@ -149,7 +137,7 @@ test('페이지가 없는 공간은 빈 상태를 보이고, [새 페이지 만�
   await expect(page.getByTestId('wiki-page-header')).toBeVisible()
 })
 
-test('빈 공간의 [AI 초안으로 시작]은 페이지를 만들고 초안 토픽 입력을 띄운다(WP-179)', async ({ authenticatedPage: page }) => {
+test('빈 공간의 [AI 초안으로 시작]은 페이지를 만들고 초안 토픽 입력을 띄운다(WP-179)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const wiki = await mockWiki(page)
   await page.goto('/wiki/spaces/3')
   await page.getByTestId('wiki-no-pages-ai-draft').click()
@@ -158,34 +146,7 @@ test('빈 공간의 [AI 초안으로 시작]은 페이지를 만들고 초안 �
   await expect(page.getByRole('dialog').getByRole('textbox')).toBeVisible()
 })
 
-test('페이지를 열지 않고 공간만 바꿔도 다음 노트 진입은 그 공간 목록에서 시작한다(WP-180)', async ({ authenticatedPage: page }) => {
-  await mockWiki(page)
-  await page.goto('/wiki')
-  await expect(page).toHaveURL(/\/wiki\/spaces\/1$/)
-  const list = page.getByTestId('mobile-module-list')
-  await list.getByRole('combobox').click()
-  await page.getByRole('option', { name: '팀 위키' }).click()
-  await expect(page).toHaveURL(/\/wiki\/spaces\/2$/)
-  await waitForLastSpaceRecorded(page, 2)
-
-  // 새 문서 로드로 앱 재실행을 대신한다(기록은 localStorage).
-  await page.goto('/wiki')
-  await expect(page).toHaveURL(/\/wiki\/spaces\/2$/)
-  await expect(list.getByTestId('wiki-tree-row-42')).toBeVisible()
-})
-
-test('기억한 공간이 삭제·권한 상실로 사라졌으면 첫 공간 목록에서 시작한다(WP-180)', async ({ authenticatedPage: page }) => {
-  const wiki = await mockWiki(page)
-  await page.goto('/wiki/spaces/2')
-  await expect(page.getByTestId('mobile-module-list').getByTestId('wiki-tree-row-42')).toBeVisible()
-
-  wiki.hidden = [TEAM.id]
-  await page.goto('/wiki')
-  await expect(page).toHaveURL(/\/wiki\/spaces\/1$/)
-  await expect(page.getByTestId('mobile-module-list').getByTestId('wiki-tree-row-101')).toBeVisible()
-})
-
-test('기억한 공간이 사라졌어도 마지막으로 본 페이지가 있으면 그 페이지의 공간 목록에서 시작한다(WP-180)', async ({
+test('기억한 공간이 사라졌어도 마지막으로 본 페이지가 있으면 그 페이지의 공간 목록에서 시작한다(WP-180)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const wiki = await mockWiki(page)

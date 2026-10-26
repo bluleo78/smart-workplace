@@ -1,7 +1,9 @@
 // 모바일 AI 시트(WP-191) — 보던 화면 위 바텀 시트, 진입 버튼 생성 중·완료 표시, 목록 화면 컨텍스트(대화 전환 확인창은 WP-190 에서 제거 — 옮겨도 생성이 이어진다).
+// 브라우저가 있어야 판정되는 것만 남긴다 — 스트리밍 생성 중·완료 표시(@platform), 시트 위치·키보드·애니메이션·겹침(@layout),
+// 끌어 닫기·터치 스크롤(@input). ✦ 칸 열림 상태·보던 탭 강조와 목록 화면 컨텍스트 칩은
+// 페이지 테스트 src/pages/mobile/mobileAiSheet.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
-import { wikiPageSummary, wikiSpace } from '../../factories/wiki.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { mockHomeChatGeneration, mockStreamingHomeChat } from '../../fixtures/home-chat-mock'
 import { expect, expectOnTop, stubChat, test } from '../../fixtures/mobile.fixture'
@@ -14,7 +16,7 @@ function gate() {
   return { p, release }
 }
 
-test('닫힌 탭바 ✦: 생성 중이면 pending, 닫힌 사이 끝나면 완료 점, 열면 해제', async ({ authenticatedPage: page }) => {
+test('닫힌 탭바 ✦: 생성 중이면 pending, 닫힌 사이 끝나면 완료 점, 열면 해제', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const g = gate()
   await mockHomeChatGeneration(page, {
@@ -41,7 +43,7 @@ test('닫힌 탭바 ✦: 생성 중이면 pending, 닫힌 사이 끝나면 완�
   await expect(tab).toHaveAttribute('data-ai-activity', 'idle')
 })
 
-test('헤더 ✦(채팅방)도 같은 표시를 쓴다', async ({ authenticatedPage: page }) => {
+test('헤더 ✦(채팅방)도 같은 표시를 쓴다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const g = gate()
   await mockHomeChatGeneration(page, { gate: g.p, frames: [{ event: 'done', data: { sessionId: 's-2' } }] })
@@ -57,7 +59,7 @@ test('헤더 ✦(채팅방)도 같은 표시를 쓴다', async ({ authenticatedP
   await expect(btn).toHaveAttribute('data-ai-activity', 'done')
 })
 
-test('동작 줄이기: 생성 중에도 회전·반짝임 없이 고정 점', async ({ authenticatedPage: page }) => {
+test('동작 줄이기: 생성 중에도 회전·반짝임 없이 고정 점', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await stubChat(page)
   const g = gate()
@@ -76,7 +78,7 @@ test('동작 줄이기: 생성 중에도 회전·반짝임 없이 고정 점', a
   g.release()
 })
 
-test('동작 줄이기가 아니면 생성 중 캡슐 링은 회전, 아이콘은 반짝인다', async ({ authenticatedPage: page }) => {
+test('동작 줄이기가 아니면 생성 중 캡슐 링은 회전, 아이콘은 반짝인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await stubChat(page)
   const g = gate()
@@ -94,19 +96,7 @@ test('동작 줄이기가 아니면 생성 중 캡슐 링은 회전, 아이콘�
   g.release()
 })
 
-test('AI 를 열어도 보던 탭 강조가 유지되고 AI 칸은 열림 상태만 갖는다', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/chat')
-  await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('mobile-tab-chat')).toHaveAttribute('aria-current', 'page')
-  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByTestId('mobile-tab-ai')).not.toHaveAttribute('aria-current', /.*/)
-  // 다시 누르면 닫힌다(토글).
-  await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('mobile-tab-ai')).toHaveAttribute('aria-expanded', 'false')
-})
-
-test('탭 루트에서 연 시트: 보던 화면이 위로 비치고 탭바는 보이며, × 로 닫으면 ✦ 로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
+test('탭 루트에서 연 시트: 보던 화면이 위로 비치고 탭바는 보이며, × 로 닫으면 ✦ 로 포커스가 돌아온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat')
   const trigger = page.getByTestId('mobile-tab-ai')
@@ -130,7 +120,7 @@ test('탭 루트에서 연 시트: 보던 화면이 위로 비치고 탭바는 �
   await expect(trigger).toBeFocused()
 })
 
-test('시트 닫기: 딤 탭 · 아래로 끌기 · 다른 탭', async ({ authenticatedPage: page }) => {
+test('시트 닫기: 딤 탭 · 아래로 끌기 · 다른 탭', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat')
   const sheet = page.getByTestId('ai-sheet')
@@ -150,7 +140,7 @@ test('시트 닫기: 딤 탭 · 아래로 끌기 · 다른 탭', async ({ authen
   await expect(page).toHaveURL(/\/$/)
 })
 
-test('조금만 끌면 닫히지 않고 제자리로 돌아온다', async ({ authenticatedPage: page }) => {
+test('조금만 끌면 닫히지 않고 제자리로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat')
   await page.getByTestId('mobile-tab-ai').click()
@@ -165,7 +155,7 @@ test('조금만 끌면 닫히지 않고 제자리로 돌아온다', async ({ aut
   await expect.poll(async () => Math.round((await sheet.boundingBox())!.y)).toBe(Math.round(before))
 })
 
-test('채팅방 헤더 ✦ 도 같은 시트를 열고, 탭바가 없으니 하단 안전영역을 시트가 비운다', async ({ authenticatedPage: page }) => {
+test('채팅방 헤더 ✦ 도 같은 시트를 열고, 탭바가 없으니 하단 안전영역을 시트가 비운다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat/channels/1')
   await page.getByTestId('mobile-back-ai').click()
@@ -197,7 +187,7 @@ test.describe('키보드', () => {
     }, [open, px] as const)
   }
 
-  test('키보드가 열리면 시트가 보이는 영역을 채우고(헤더 56px 만 남김) 탭바를 덮는다', async ({ authenticatedPage: page }) => {
+  test('키보드가 열리면 시트가 보이는 영역을 채우고(헤더 56px 만 남김) 탭바를 덮는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubChat(page)
     await page.goto('/chat')
     await page.getByTestId('mobile-tab-ai').click()
@@ -219,7 +209,7 @@ test.describe('키보드', () => {
   // (바깥 대화 영역의 바닥 고정에 끌려 머리말이 위로 숨지 않는다). 넘치는 행은 안내 영역 안에서 스크롤해 닿는다. 입력창은 보이는 영역 안.
   // 336px 는 iPhone 실제 키보드(예측 막대 포함).
   for (const kb of [300, 336]) {
-    test(`키보드(${kb}px)가 열리면 안내 글을 접고 추천 머리말·첫 행이 맨 위에 보이며, 나머지는 스크롤해 닿는다`, async ({ authenticatedPage: page }) => {
+    test(`키보드(${kb}px)가 열리면 안내 글을 접고 추천 머리말·첫 행이 맨 위에 보이며, 나머지는 스크롤해 닿는다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await stubChat(page)
       await page.goto('/chat')
       await page.getByTestId('mobile-tab-ai').click()
@@ -244,7 +234,7 @@ test.describe('키보드', () => {
   }
 })
 
-test('시트 대화 목록의 삭제 확인창도 시트 위에 뜬다', async ({ authenticatedPage: page }) => {
+test('시트 대화 목록의 삭제 확인창도 시트 위에 뜬다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/home/sessions', {
     items: [{ id: 's-del', title: '지울 대화', lastMessageAt: '2026-06-10T00:00:00Z', widgetCount: 0 }],
@@ -264,50 +254,7 @@ test('시트 대화 목록의 삭제 확인창도 시트 위에 뜬다', async (
   await expect(page.getByTestId('ai-sheet')).toBeVisible()
 })
 
-// ── 목록 화면 컨텍스트(WP-191) — 탭 루트 목록에서 연 시트도 "지금 보는 목록" 칩을 보인다.
-for (const [path, label] of [
-  ['/chat', '채팅 목록'],
-  ['/tasks', '작업 목록'],
-  ['/drive', '드라이브 공간 목록'],
-] as const) {
-  test(`${path} 목록에서 연 시트에 화면 참고 칩: ${label}`, async ({ authenticatedPage: page }) => {
-    await stubChat(page)
-    await page.goto(path)
-    await page.getByTestId('mobile-tab-ai').click()
-    await expect(page.getByTestId('ai-sheet').getByTestId('chat-context-chip')).toContainText(label)
-  })
-}
-
-test('홈에서 연 시트에 화면 참고 칩: 홈 대시보드', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  // 위젯 본문은 비워 둔 최소 레이아웃 — 칩은 레이아웃 해석만으로 등록된다.
-  await page.route((u) => u.pathname === '/api/v1/me/dashboard', (r) =>
-    r.request().method() === 'GET' ? r.fulfill({ json: { widgets: [] } }) : r.fallback())
-  await page.goto('/')
-  await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-sheet').getByTestId('chat-context-chip')).toContainText('홈 대시보드')
-})
-
-test('노트 공간 목록에서 연 시트에 화면 참고 칩: 위키 스페이스 이름', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>
-    r.fulfill({ json: [wikiSpace({ id: 1, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })] }))
-  await page.route((u) => u.pathname === '/api/v1/wiki/spaces/1/pages', (r) =>
-    r.fulfill({ json: [wikiPageSummary({ id: 101, title: '개인 메모' })] }))
-  await page.goto('/wiki/spaces/1')
-  await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-sheet').getByTestId('chat-context-chip')).toContainText('위키 스페이스 내 위키')
-})
-
-test('앱 목록에서 연 시트엔 칩이 없다', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/apps')
-  await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-sheet')).toBeVisible()
-  await expect(page.getByTestId('chat-context-chip')).toHaveCount(0)
-})
-
-test('시트 대화 바닥에서 손가락이 살짝 끌렸지만 스크롤되지 않았으면(탭·길게 누르기) 스트리밍을 계속 따라간다 (WP-234)', async ({ authenticatedPage: page }) => {
+test('시트 대화 바닥에서 손가락이 살짝 끌렸지만 스크롤되지 않았으면(탭·길게 누르기) 스트리밍을 계속 따라간다 (WP-234)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 회귀 가드: 아래로 끄는 터치 이동만으로 하단 고정을 푸는데, 터치 슬롭 안의 작은 끌림(탭·길게 누르기)은 스크롤을 일으키지 않아
   // scroll 이벤트가 오지 않고 고정이 풀린 채 남았다 — 이후 응답이 화면 아래로 밀려나 따라가지 않는다.
   await stubChat(page)

@@ -1,6 +1,9 @@
 // 모바일 타임라인(WP-197) — 간트 대신 월별 아젠다: 섹션 순서, 에픽 하위 들여쓰기, 미니 막대·오늘 선, 칩(필터·마일스톤·일정 미정).
 // WP-251 — 에픽 기본 접힘·펼침 유지(데스크톱과 같은 저장소 키), 진행률 배지, 에픽 기간 vs 하위 실제 범위 얇은 막대.
 // WP-247 — 기간 칩·시트와 완료·취소 에픽 상태 표시.
+// 여기엔 화면 배선(@wiring)·기하(들여쓰기·막대·오늘 선·스크롤·가운데 정렬, @layout)·새로고침 뒤 펼침 유지(@platform)만 남긴다.
+// 행 탭 이동·차단 표시·칩/시트 문구·연도 표기·멤버 권한·합성 에픽 진행률·기간/빈 상태 분기·완료·취소 에픽·상태 목록 관문은
+// 페이지 테스트 src/pages/mobile/mobileTimeline.test.tsx 가 지킨다(WP-981).
 import type { Locator, Page } from '@playwright/test';
 
 import type { CycleResponse } from '../../../src/types/cycle';
@@ -9,7 +12,6 @@ import type { MilestoneResponse } from '../../../src/types/milestone';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
 import { createProject } from '../../factories/project.factory';
-import { inServerOrder, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 
@@ -40,11 +42,6 @@ const MILESTONES: MilestoneResponse[] = [
   { id: 2, projectId: 1, name: 'v2 정식 출시', dueDate: '2026-12-20', description: null, createdAt: '', updatedAt: '' },
 ];
 
-// 사이클 팩토리 — 기간 칩 테스트(WP-247)용 CycleResponse.
-function createCycle(o: Partial<CycleResponse>): CycleResponse {
-  return { id: 1, projectId: 1, name: 'GW-1', goal: null, startDate: '2026-09-01', endDate: '2026-09-30', status: 'PLANNED', createdAt: '', updatedAt: '', ...o };
-}
-
 /** period: 기본 'all'(기간 거름 없이 기존 검증 유지), null 이면 period 없이 진입해 기본(활성 사이클) 기간을 쓴다. */
 /** waitAgenda: 기본 true — 진입 뒤 아젠다가 보일 때까지 기다린다. 상태 목록 관문(WP-938)을 검증할 땐 false. */
 async function setup(page: Page, opts: { member?: boolean; query?: string; cycles?: CycleResponse[]; period?: string | null; issues?: IssueResponse[]; milestones?: MilestoneResponse[]; waitAgenda?: boolean } = {}) {
@@ -68,7 +65,7 @@ async function setup(page: Page, opts: { member?: boolean; query?: string; cycle
   if (opts.waitAgenda ?? true) await expect(page.getByTestId('timeline-agenda')).toBeVisible();
 }
 
-test('간트 대신 아젠다 — 월 섹션 오름차순 + 일정 미정 맨 아래, 행 날짜 문구, 넘침 없음', async ({ authenticatedPage: page }) => {
+test('간트 대신 아젠다 — 월 섹션 오름차순 + 일정 미정 맨 아래, 행 날짜 문구, 넘침 없음', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   await expect(page.getByTestId('timeline-gantt')).toHaveCount(0);
   await expect(page.getByTestId('agenda-row-10')).toBeVisible();
@@ -87,7 +84,7 @@ async function expandEpic(page: Page, epicNumber: number) {
   await page.getByTestId(`agenda-toggle-${epicNumber}`).tap();
 }
 
-test('에픽 머리 행 아래 하위가 들여쓰기로 묶이고(월이 달라도), 월 밖 하위 막대도 보인다', async ({ authenticatedPage: page }) => {
+test('에픽 머리 행 아래 하위가 들여쓰기로 묶이고(월이 달라도), 월 밖 하위 막대도 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   await expandEpic(page, 40);
   const oct = page.getByTestId('agenda-month-2026-10');
@@ -112,93 +109,15 @@ test('에픽 머리 행 아래 하위가 들여쓰기로 묶이고(월이 달라
   await expect(page.getByTestId('agenda-month-2026-09').getByTestId('agenda-today')).toHaveCount(0);
 });
 
-test('행 탭 → 이슈 상세', async ({ authenticatedPage: page }) => {
-  await setup(page);
-  await expandEpic(page, 40);
-  await page.getByTestId('agenda-row-42').tap();
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/42$`));
-});
-
-test('차단된 이슈 행에 ⛔ 차단 표시 — 차단 안 된 행에는 없다 (WP-646)', async ({ authenticatedPage: page }) => {
-  await setup(page, { issues: ISSUES.map((i) => (i.number === 10 ? { ...i, blocked: true } : i)) });
-  const marker = page.getByTestId('agenda-row-10').getByTestId('agenda-blocked');
-  await expect(marker).toBeVisible();
-  await expect(marker).toHaveAccessibleName('차단됨');
-  await expect(page.getByTestId('agenda-row-9').getByTestId('agenda-blocked')).toHaveCount(0);
-  // 행 이름(스크린리더가 읽는 버튼 이름)에도 「차단됨」이 들어간다.
-  await expect(page.getByTestId('agenda-row-10')).toHaveAccessibleName(/차단됨/);
-});
-
-test('「일정 미정 N」 칩 → 미정 섹션으로 스크롤, 「마일스톤 N」 칩 → 이름·날짜 시트', async ({ authenticatedPage: page }) => {
+test('「일정 미정 N」 칩 → 미정 섹션으로 스크롤', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   const undated = page.getByTestId('agenda-undated');
   await expect(undated).not.toBeInViewport();
-  const chip = page.getByTestId('agenda-chip-undated');
-  // 날짜 없는 11·12 + 시작일만 있는 13(WP-484).
-  await expect(chip).toHaveText('일정 미정 3');
-  await chip.tap();
+  await page.getByTestId('agenda-chip-undated').tap();
   await expect(undated).toBeInViewport();
-
-  await page.getByTestId('agenda-chip-milestones').tap();
-  const sheet = page.getByTestId('agenda-milestone-sheet');
-  await expect(sheet).toContainText('v2 베타');
-  await expect(sheet).toContainText('11월 1일');
-  await expect(sheet).toContainText('v2 정식 출시');
 });
 
-test('마일스톤 시트 — 올해가 아닌 마감일은 연도까지 보인다 (WP-616)', async ({ authenticatedPage: page }) => {
-  await setup(page, {
-    milestones: [
-      { id: 7, projectId: 1, name: '작년 회고', dueDate: '2025-03-01', description: null, createdAt: '', updatedAt: '' },
-      { id: 8, projectId: 1, name: '올해 베타', dueDate: '2026-11-01', description: null, createdAt: '', updatedAt: '' },
-      { id: 9, projectId: 1, name: '내년 정식', dueDate: '2027-03-01', description: null, createdAt: '', updatedAt: '' },
-    ],
-  });
-  await page.getByTestId('agenda-chip-milestones').tap();
-  const rows = page.getByTestId('agenda-milestone-sheet').locator('li');
-  await expect(rows).toHaveText([/작년 회고\s*2025년 3월 1일/, /올해 베타\s*11월 1일/, /내년 정식\s*2027년 3월 1일/]);
-});
-
-test('이슈 행 — 해를 넘는 기간은 올해가 아닌 쪽에 연도가 붙는다 (WP-678)', async ({ authenticatedPage: page }) => {
-  await setup(page, {
-    issues: [
-      I({ id: 70, number: 70, title: '해를 넘는 이슈', startDate: '2026-12-01', dueDate: '2027-01-05' }),
-      I({ id: 71, number: 71, title: '올해 이슈', startDate: '2026-10-11', dueDate: '2026-10-20' }),
-    ],
-  });
-  await expect(page.getByTestId('agenda-row-70')).toContainText('12월 1일 ~ 2027년 1월 5일');
-  await expect(page.getByTestId('agenda-row-71')).toContainText('10월 11일 ~ 10월 20일');
-});
-
-test('필터 칩 → 필터 시트(활성 수 표시), 0건이면 빈 상태 + 칩 줄 유지', async ({ authenticatedPage: page }) => {
-  await setup(page, { query: '?status=DONE' });
-  await expect(page.getByTestId('timeline-agenda-empty')).toBeVisible();
-  const filter = page.getByTestId('agenda-chip-filter');
-  await expect(filter).toHaveText('필터 1');
-  await filter.tap();
-  const sheet = page.getByTestId('mobile-filter-sheet');
-  await expect(sheet).toBeVisible();
-  await sheet.getByTestId('mobile-filter-clear').tap();
-  await expect.poll(() => new URL(page.url()).searchParams.get('status')).toBeNull();
-  await page.keyboard.press('Escape');
-  await expect(sheet).toBeHidden();
-  await expect(page.getByTestId('agenda-row-10')).toBeVisible();
-});
-
-test('헤더 — 줌·오늘 없음, 멤버면 「마일스톤 추가」(헤더 인라인), 비멤버면 없음', async ({ authenticatedPage: page }) => {
-  await setup(page);
-  await expect(page.getByRole('button', { name: '오늘' })).toHaveCount(0);
-  await expect(page.getByRole('group', { name: '줌 전환' })).toHaveCount(0);
-  await page.getByTestId('milestone-add-button').tap();
-  await expect(page.getByRole('dialog')).toBeVisible();
-});
-
-test('비멤버는 「마일스톤 추가」가 없다', async ({ authenticatedPage: page }) => {
-  await setup(page, { member: false });
-  await expect(page.getByTestId('milestone-add-button')).toHaveCount(0);
-});
-
-test('에픽은 기본 접힘 — 펼침 버튼으로 하위를 펼치고 접으며, 새로고침 후에도 펼침이 유지된다', async ({ authenticatedPage: page }) => {
+test('에픽은 기본 접힘 — 펼침 버튼으로 하위를 펼치고 접으며, 새로고침 후에도 펼침이 유지된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   const toggle = page.getByTestId('agenda-toggle-40');
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -218,22 +137,7 @@ test('에픽은 기본 접힘 — 펼침 버튼으로 하위를 펼치고 접으
   await expect(page.getByTestId('agenda-toggle-10')).toHaveCount(0);
 });
 
-// WP-688: 필터로 에픽이 빠져 하위로 묶음을 합성할 때도 서버 집계(WP-243)처럼 취소 하위를 완료로 센다 — 1/2 가 아니라 2/2.
-test('필터로 에픽이 빠진 합성 에픽도 완료·취소 하위를 완료로 센다', async ({ authenticatedPage: page }) => {
-  const parent = { number: 70, title: '필터로 빠진 에픽', type: makeEpicType() };
-  await setup(page, {
-    query: 'status=CANCELED',
-    issues: [
-      I({ id: 71, number: 71, title: '하위-완료', parent, status: 'DONE', dueDate: '2026-10-10' }),
-      I({ id: 72, number: 72, title: '하위-취소', parent, status: 'CANCELED', dueDate: '2026-10-12' }),
-    ],
-  });
-  const epic = page.getByTestId('agenda-row-70');
-  await expect(epic.getByTestId('agenda-progress').locator('[aria-hidden="true"]')).toHaveText('2/2');
-  await expect(epic.getByTestId('agenda-progress')).toContainText('하위 2개 중 2개 완료');
-});
-
-test('에픽 행 — 제목 옆 진행률 배지, 하위 실제 범위 얇은 막대와 에픽 기간 밖 초과 구간', async ({ authenticatedPage: page }) => {
+test('에픽 행 — 제목 옆 진행률 배지, 하위 실제 범위 얇은 막대와 에픽 기간 밖 초과 구간', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   const epic = page.getByTestId('agenda-row-30');
   await expect(epic.getByTestId('agenda-progress').locator('[aria-hidden="true"]')).toHaveText('1/2');
@@ -256,44 +160,7 @@ test('에픽 행 — 제목 옆 진행률 배지, 하위 실제 범위 얇은 �
   await expectNoHorizontalOverflow(page);
 });
 
-test('기간 칩 — 맨 앞에 활성 사이클 라벨, 시트에서 바꾸면 아젠다가 다시 걸러진다 (WP-247)', async ({ authenticatedPage: page }) => {
-  // 오늘(10/15)이 활성 사이클 GW-2 안에 들도록 10/8~10/21. GW-3 는 예정.
-  const cycles: CycleResponse[] = [
-    createCycle({ id: 1, name: 'GW-2', startDate: '2026-10-08', endDate: '2026-10-21', status: 'ACTIVE' }),
-    createCycle({ id: 2, name: 'GW-3', startDate: '2026-11-01', endDate: '2026-11-14', status: 'PLANNED' }),
-  ];
-  // period 없이 진입 — 기본값은 활성 사이클(GW-2).
-  await setup(page, { cycles, period: null });
-  const chips = page.locator('[data-testid^="agenda-chip-"]');
-  await expect(chips.first()).toHaveAttribute('data-testid', 'agenda-chip-period');
-  await expect(page.getByTestId('agenda-chip-period')).toContainText('GW-2');
-  // 에픽 40(10/1~12/15)이 기간과 겹쳐 11월 하위 41 도 함께 남는다 — 에픽은 기본 접힘이라 펼쳐서 확인(WP-251).
-  await expandEpic(page, 40);
-  await expect(page.getByTestId('agenda-row-41')).toBeVisible();
-  await expect(page.getByTestId('agenda-row-25')).toHaveCount(0); // 10/25 마감 단독 — 기간(10/8~10/21) 밖
-  // 마감일 없는 단독(13, 11/2 시작)은 간트에선 「일정 미정」이라 기간과 무관하게 남는다.
-  await expect(page.getByTestId('agenda-row-13')).toBeVisible();
-  await page.getByTestId('agenda-chip-period').click();
-  const sheet = page.getByTestId('agenda-period-sheet');
-  await sheet.getByTestId('picker-option-all').click();
-  await expect(page).toHaveURL(/period=all/);
-  await expect(page.getByTestId('agenda-row-25')).toBeVisible();
-  // 필터 개수에는 기간이 들어가지 않는다.
-  await expect(page.getByTestId('agenda-chip-filter')).toHaveText('필터');
-  await expectNoHorizontalOverflow(page);
-});
-
-test('응답 0건이면 기본(활성) 기간이어도 기간 문구가 아닌 필터 빈 상태 — 기간이 원인이 아님 (WP-247)', async ({ authenticatedPage: page }) => {
-  // 스텁은 DONE 상태 필터에 0건을 준다. period 없이 진입 → 기본 기간이 걸려 있지만 「전체」로 바꿔도 0건이다.
-  await setup(page, { query: '?status=DONE', period: null });
-  const empty = page.getByTestId('timeline-agenda-empty');
-  await expect(empty).toContainText('표시할 이슈가 없어요');
-  await expect(empty).toContainText('필터를 풀면 더 많은 이슈가 보여요.');
-  await expect(empty).not.toContainText('이 기간에 걸친 이슈가 없어요');
-  await expect(page.getByTestId('agenda-chip-period')).toBeVisible();
-});
-
-test('기간에 걸친 일정 있는 이슈가 없으면 미정 섹션 위에 기간 빈 상태 — 데스크톱과 같은 조건 (WP-247)', async ({ authenticatedPage: page }) => {
+test('기간에 걸친 일정 있는 이슈가 없으면 미정 섹션 위에 기간 빈 상태 — 데스크톱과 같은 조건 (WP-247)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 모든 일정 있는 이슈와 먼 직접 지정 기간 — 일정 미정 이슈(11·12)는 기간과 무관하게 남는다.
   // 시작일만 있는 13 은 마감일이 없어 기간과 무관하게 남고, 모바일에선 시작 월(11월) 섹션에 보이므로 이 검증에서 뺀다.
   await setup(page, { period: 'range:2030-01-01~2030-01-31', issues: ISSUES.filter((i) => i.number !== 13) });
@@ -315,76 +182,6 @@ test('기간에 걸친 일정 있는 이슈가 없으면 미정 섹션 위에 �
   await expect(page.getByTestId('agenda-month-2026-10')).toBeVisible();
 });
 
-test('기간 시트 「직접 지정」 — 날짜 두 칸을 적용하면 URL·칩 라벨이 바뀌고 시트가 닫힌다 (WP-247)', async ({ authenticatedPage: page }) => {
-  await setup(page);
-  await page.getByTestId('agenda-chip-period').click();
-  const sheet = page.getByTestId('agenda-period-sheet');
-  await expect(sheet).toBeVisible();
-  await sheet.getByTestId('period-range-from').fill('2026-10-01');
-  await sheet.getByTestId('period-range-to').fill('2026-10-14');
-  await sheet.getByTestId('period-range-apply').click();
-  await expect(page).toHaveURL(/period=range(:|%3A)2026-10-01(~|%7E)2026-10-14/);
-  await expect(page.getByTestId('agenda-chip-period')).toContainText('10/1–10/14');
-  await expect(sheet).toHaveCount(0);
-  // 기간 밖 단독 이슈(10/25 마감)는 빠진다.
-  await expect(page.getByTestId('agenda-row-25')).toHaveCount(0);
-});
-
-test('완료 에픽은 완료 배지, 「취소」 필터면 취소 에픽이 배지·취소선으로, 옮겨진 하위는 단독 행 (WP-247)', async ({ authenticatedPage: page }) => {
-  await setup(page);
-  await expect(page.getByTestId('agenda-row-80').getByTestId('agenda-status-badge')).toHaveText('완료');
-  await expect(page.getByTestId('agenda-row-80').getByTestId('agenda-bar')).toHaveClass(/bg-success/);
-  await expect(page.getByTestId('agenda-row-90')).toHaveCount(0);
-  await expect(page.getByTestId('agenda-row-91')).toHaveAttribute('data-kind', 'issue');
-  await expect(page.getByTestId('agenda-row-91')).toContainText('← 취소 에픽');
-  // 「취소」 상태 필터 URL 로 다시 진입 — 스텁은 status 를 무시하고 같은 목록을 준다.
-  await page.goto(`/projects/${KEY}/timeline?period=all&status=CANCELED`);
-  const canceled = page.getByTestId('agenda-row-90');
-  await expect(canceled.getByTestId('agenda-status-badge')).toHaveText('취소');
-  await expect(canceled.locator('.line-through')).toBeVisible();
-  await expect(canceled.getByTestId('agenda-bar')).toHaveClass(/bg-muted-foreground/);
-});
-
-// WP-938 — 모바일 아젠다도 상태 목록을 받은 뒤에만 그린다(필터 칩·시트의 「상태」 facet 이 받은 상태 이름을 보인다).
-test('상태 목록을 받기 전엔 아젠다·필터 칩 대신 로딩, 받은 뒤 필터 시트 「상태」에 프로젝트 상태 이름 (WP-938)', async ({ authenticatedPage: page }) => {
-  let release!: () => void;
-  const held = new Promise<void>((r) => (release = r));
-  await page.route(`**/api/v1/projects/${KEY}/statuses`, async (route) => {
-    if (route.request().method() !== 'GET') return route.fallback();
-    await held;
-    return route.fulfill(json(inServerOrder(withCustomStatuses('설계'))));
-  });
-  await setup(page, { waitAgenda: false });
-
-  await expect(page.getByTestId('timeline-page')).toContainText('로딩 중…');
-  await expect(page.getByTestId('timeline-agenda')).toHaveCount(0);
-  await expect(page.getByTestId('agenda-chip-filter')).toHaveCount(0);
-
-  release();
-  await page.getByTestId('agenda-chip-filter').tap();
-  const sheet = page.getByTestId('mobile-filter-sheet');
-  await sheet.getByTestId('add-filter-trigger').tap();
-  await page.getByTestId('add-filter-facet-statusId').tap();
-  await expect(page.locator('[data-testid^="facet-value-statusId-"]')).toHaveText(['할 일', '진행 중', '설계', '완료', '취소']);
-});
-
-test('상태 목록을 불러오지 못하면 아젠다 자리에 다시 시도, 성공 뒤 아젠다가 그려진다 (WP-938)', async ({ authenticatedPage: page }) => {
-  let fail = true;
-  await page.route(`**/api/v1/projects/${KEY}/statuses`, (route) =>
-    route.request().method() === 'GET' && fail ? route.fulfill({ status: 500, json: { status: 500, message: '서버 오류' } }) : route.fallback(),
-  );
-  await setup(page, { waitAgenda: false });
-
-  const error = page.getByTestId('project-statuses-error');
-  await expect(error).toContainText('상태 목록을 불러오지 못했습니다');
-  await expect(page.getByTestId('timeline-agenda')).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  fail = false;
-  await error.getByRole('button', { name: '다시 시도' }).tap();
-  await expect(page.getByTestId('timeline-agenda')).toBeVisible();
-  await expect(error).toHaveCount(0);
-});
-
 // 관문 로딩 문구와 실패 화면 덩어리(아이콘 위 ~ 「다시 시도」 아래)가 본문 자리(timeline-body)의 세로 가운데에서 벗어난 px.
 async function offsetFromBodyCenter(page: Page, top: Locator, bottom: Locator = top) {
   const slot = (await page.getByTestId('timeline-body').boundingBox())!;
@@ -394,7 +191,7 @@ async function offsetFromBodyCenter(page: Page, top: Locator, bottom: Locator = 
 }
 
 // WP-938 디자이너 리뷰 — 로딩 문구에서 실패 화면으로 바뀔 때 덩어리가 위로 튀지 않는다(데스크톱 timeline.spec 과 같은 확인, 모바일 폭).
-test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 세로 가운데에 놓인다 (WP-938)', async ({ authenticatedPage: page }) => {
+test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 세로 가운데에 놓인다 (WP-938)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   let release!: () => void;
   const held = new Promise<void>((r) => (release = r));
   await page.route(`**/api/v1/projects/${KEY}/statuses`, async (route) => {

@@ -1,4 +1,5 @@
 // 모바일 메일 보관·옮기기·삭제(WP-962) — 길게 누르기 시트의 보관·옮기기(메일함 고르기 시트)·삭제, 상세 ⋯ 메뉴의 삭제.
+// 상세 ⋯ 삭제는 닫기가 브라우저 히스토리(useHistoryParam — history.state 키)를 따라 MemoryRouter 페이지 테스트로 옮기지 못해 @platform 으로 남긴다(WP-981).
 // 서버 요청은 실행 취소 토스트가 닫힐 때 나간다. 길게 누르기가 앱 타이머를 쓰므로 가상 시계 대신 실제 시간(토스트 5초)을 기다린다.
 import type { Page } from '@playwright/test'
 
@@ -42,7 +43,7 @@ async function stubMail(page: Page) {
   return trackRequests(page, 'POST', MOVE_PATH)
 }
 
-test('길게 누르기 → 보관 → 바로 빠지고 토스트가 닫히면 ARCHIVE 로 보낸다', async ({ authenticatedPage: page }) => {
+test('길게 누르기 → 보관 → 바로 빠지고 토스트가 닫히면 ARCHIVE 로 보낸다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const moves = await stubMail(page)
   await page.goto('/mail/1')
   // 터치 셸에는 hover 작업 묶음이 없다
@@ -61,7 +62,7 @@ test('길게 누르기 → 보관 → 바로 빠지고 토스트가 닫히면 AR
   expect(moves.lastBody()).toEqual({ messageIds: [10], target: { kind: 'ARCHIVE' } })
 })
 
-test('길게 누르기 → 옮기기 → 메일함 고르기 시트에서 프로젝트 → FOLDER 로 보낸다', async ({ authenticatedPage: page }) => {
+test('길게 누르기 → 옮기기 → 메일함 고르기 시트에서 프로젝트 → FOLDER 로 보낸다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const moves = await stubMail(page)
   await page.goto('/mail/1')
   await longPress(page, page.getByTestId('mail-row-10'))
@@ -80,7 +81,7 @@ test('길게 누르기 → 옮기기 → 메일함 고르기 시트에서 프로
   expect(moves.lastBody()).toEqual({ messageIds: [10], target: { kind: 'FOLDER', folderId: 5 } })
 })
 
-test('상세 ⋯ 메뉴의 삭제 → 목록으로 돌아가고 TRASH 로 보낸다', async ({ authenticatedPage: page }) => {
+test('상세 ⋯ 메뉴의 삭제 → 목록으로 돌아가고 TRASH 로 보낸다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const moves = await stubMail(page)
   await page.goto('/mail/1')
   await page.getByTestId('mail-row-10').click()

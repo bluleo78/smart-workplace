@@ -22,7 +22,7 @@ async function expectInsideTable(table: Locator, target: Locator) {
   expect(a!.x + a!.width).toBeLessThanOrEqual(b!.x + b!.width + 0.5)
 }
 
-test('역할 목록 — 긴 설명이 있어도 표가 화면 안에 들고 삭제 버튼이 보인다', async ({ adminPage: page }) => {
+test('역할 목록 — 긴 설명이 있어도 표가 화면 안에 들고 삭제 버튼이 보인다', { tag: '@layout' }, async ({ adminPage: page }) => {
   await setupAdminAuth(page)
   // 운영과 같은 긴 설명 — 짧은 값으로는 넘침이 재현되지 않는다
   await mockApi(page, 'GET', '/api/v1/roles', [
@@ -51,7 +51,7 @@ test('역할 목록 — 긴 설명이 있어도 표가 화면 안에 들고 삭�
   await expect(row).toContainText('인사 담당')
 })
 
-test('메일 계정 — 긴 이메일·공급자여도 표가 화면 안에 들고 수정·삭제 버튼이 보인다', async ({ adminPage: page }) => {
+test('메일 계정 — 긴 이메일·공급자여도 표가 화면 안에 들고 수정·삭제 버튼이 보인다', { tag: '@layout' }, async ({ adminPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [
     {
       id: 7,

@@ -36,7 +36,7 @@ async function openFilesDrawer(page: Page) {
   await expect(page.getByTestId('drive-space-drawer')).toBeVisible()
 }
 
-test('폴더 3단 진입 → goBack 은 상위 폴더로 한 단계씩, ✕ 는 한 번에 채널로', async ({ authenticatedPage: page }) => {
+test('폴더 3단 진입 → goBack 은 상위 폴더로 한 단계씩, ✕ 는 한 번에 채널로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubFiles(page)
   await page.goto('/chat/channels/1')
   await openFilesDrawer(page)
@@ -57,7 +57,7 @@ test('폴더 3단 진입 → goBack 은 상위 폴더로 한 단계씩, ✕ 는 
   expect(new URL(page.url()).searchParams.get('folderId')).toBeNull()
 })
 
-test('딥링크 ?files=1&filesFolder=102 → ✕ 는 하위 키까지 지우고 채널에 남는다', async ({ authenticatedPage: page }) => {
+test('딥링크 ?files=1&filesFolder=102 → ✕ 는 하위 키까지 지우고 채널에 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubFiles(page)
   await page.goto('/chat/channels/1?files=1&filesFolder=102')
   const drawer = page.getByTestId('drive-space-drawer')
@@ -67,7 +67,7 @@ test('딥링크 ?files=1&filesFolder=102 → ✕ 는 하위 키까지 지우고 
   await expect(page.getByTestId('channel-column')).toBeVisible()
 })
 
-test('전체에서 열기 → 드라이브 풀페이지, goBack 은 드로워가 아니라 채널로', async ({ authenticatedPage: page }) => {
+test('전체에서 열기 → 드라이브 풀페이지, goBack 은 드로워가 아니라 채널로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubFiles(page)
   await page.goto('/chat/channels/1')
   await openFilesDrawer(page)
@@ -81,7 +81,7 @@ test('전체에서 열기 → 드라이브 풀페이지, goBack 은 드로워가
 // 알려진 한계(D2) — "전체에서 열기"는 현재 항목(가장 깊은 폴더)만 드라이브로 replace 한다. 그 아래 쌓인
 // 드로워 폴더 항목들은 남으므로, 폴더 깊이>0 에서 열면 back 이 채널이 아니라 드로워의 상위 폴더로 돌아온다.
 // 드로워 항목을 모두 걷어내려면 비동기 go(-n) 뒤 push 가 필요해 경합이 생기므로 받아들인다. 실제 동작을 고정한다.
-test('전체에서 열기(폴더 2단) → goBack 은 드로워의 상위 폴더로 돌아온다(알려진 한계)', async ({ authenticatedPage: page }) => {
+test('전체에서 열기(폴더 2단) → goBack 은 드로워의 상위 폴더로 돌아온다(알려진 한계)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubFiles(page)
   await page.goto('/chat/channels/1')
   await openFilesDrawer(page)
@@ -102,7 +102,7 @@ test('전체에서 열기(폴더 2단) → goBack 은 드로워의 상위 폴더
 
 // 긴 폴더명 3단 breadcrumb 은 한 줄로 말줄임되고 드로워 헤더 밑으로 잘리지 않는다(390px).
 // 현재 폴더(마지막)가 조상보다 넓게 남고, 전체 이름은 title 로 볼 수 있다.
-test('긴 폴더명 breadcrumb 은 한 줄 말줄임, 가로 넘침 없음, 현재 폴더 우선', async ({ authenticatedPage: page }) => {
+test('긴 폴더명 breadcrumb 은 한 줄 말줄임, 가로 넘침 없음, 현재 폴더 우선', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubFiles(page)
   await page.goto('/chat/channels/1?files=1&filesFolder=103')
   const crumbs = page.getByTestId('drive-space-drawer').getByTestId('drive-breadcrumb')

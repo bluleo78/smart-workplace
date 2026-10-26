@@ -2,6 +2,7 @@
 // - 의존성 행(＋ 속성 시트 안): ⋯(44px) → 액션 시트 「차단 제거」 → DELETE dependencies
 // - 드라이브 링크: 링크 제거 X 상시 노출(44px) → 확인창 → DELETE drive-links/{id}
 // (코멘트 ⋮ → 시트는 issue-comments.spec.ts(WP-223)가 검증한다.)
+// 터치 대상 크기(44px)를 실제 기하로 재야 하므로 @layout 으로 남긴다(WP-981).
 import type { DriveLink } from '../../../src/types/drive';
 import type { IssueLinkSummary } from '../../../src/types/issue';
 import { createChatThread } from '../../factories/chat.factory';
@@ -52,7 +53,7 @@ async function setup(page: import('@playwright/test').Page) {
   return deletes;
 }
 
-test('의존성 행 — ⋯(44px) → 액션 시트 「차단 제거」 → DELETE', async ({ authenticatedPage: page }) => {
+test('의존성 행 — ⋯(44px) → 액션 시트 「차단 제거」 → DELETE', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const deletes = await setup(page);
   await page.getByTestId('mobile-prop-more').click();
   const props = page.getByTestId('issue-more-props-sheet');
@@ -71,7 +72,7 @@ test('의존성 행 — ⋯(44px) → 액션 시트 「차단 제거」 → DELE
   await expect.poll(deletes).toEqual([`${BASE}/dependencies?otherNumber=42&direction=blocks`]);
 });
 
-test('드라이브 링크 — 링크 제거 X 가 상시 보이고(44px) → 확인 → DELETE', async ({ authenticatedPage: page }) => {
+test('드라이브 링크 — 링크 제거 X 가 상시 보이고(44px) → 확인 → DELETE', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const deletes = await setup(page);
   const remove = page.getByTestId('issue-drive-link-remove-501');
   await expect(remove).toBeVisible();

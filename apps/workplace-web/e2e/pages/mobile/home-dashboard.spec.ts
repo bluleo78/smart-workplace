@@ -1,8 +1,10 @@
 // 모바일 홈 대시보드(WP-142) — 기기별 레이아웃·본문형 접기·타일·모바일 편집.
 // mobile 프로젝트(iPhone 13, 390px)로 돈다. /me/dashboard 는 기기별 상태를 흉내 내는 단일 route 로 모킹한다.
+// 브라우저가 있어야 판정되는 터치 대상 크기·말줄임·격자·드래그·키보드 포커스·lg 경계 리사이즈만 남긴다. 접기 저장 직렬화·실패 롤백·
+// 접기 저장 중 편집 막기, 타일 탭 이동, 저장본 정규화, 위젯 추가 안내·count 3, 배지 건수, 타일 축소 조회는
+// 페이지 테스트 src/pages/mobile/homeDashboard.test.tsx 가 지킨다(WP-981).
 import type { Page, Request } from '@playwright/test'
 
-import type { PriorityItemsResponse } from '../../../src/api/priorityItems'
 import type {
   DashboardLayout,
   DashboardWidgetConfig,
@@ -10,15 +12,11 @@ import type {
   MessagingSummary,
 } from '../../../src/types/dashboard'
 import type { NotificationResponse } from '../../../src/types/notification'
-import { member, page as contactPage } from '../../factories/contacts.factory'
-import { createSpace } from '../../factories/drive.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
-import { mailAccount, summary as mailRow } from '../../factories/mail.factory'
-import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 import { bodyOf, trackRequests } from '../../fixtures/requests'
-import { dropDnd, expectStays, resizeAndSettle, startKeyboardDrag } from '../../fixtures/wait'
+import { dropDnd, resizeAndSettle, startKeyboardDrag } from '../../fixtures/wait'
 
 type Device = 'mobile' | 'desktop'
 
@@ -100,7 +98,7 @@ async function stubWidgetData(page: Page, opts: { taskTitle?: string } = {}) {
   await mockApi(page, 'GET', '/api/v1/me/messaging-summary', messaging)
 }
 
-test('홈 조회는 device=mobile 로 나가고 데스크톱 레이아웃 요청은 없다', { tag: '@smoke' }, async ({
+test('홈 조회는 device=mobile 로 나가고 데스크톱 레이아웃 요청은 없다', { tag: ['@wiring', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -112,7 +110,7 @@ test('홈 조회는 device=mobile 로 나가고 데스크톱 레이아웃 요청
   expect(stub.requests().filter((r) => r.method === 'GET').every((r) => r.device === 'mobile')).toBe(true)
 })
 
-test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 저장되지 않고, 원래 폭으로 돌아오면 복원된다 (WP-162)', async ({
+test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 저장되지 않고, 원래 폭으로 돌아오면 복원된다 (WP-162)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -151,7 +149,7 @@ test('편집 중 lg 경계를 넘으면 미저장 초안은 어느 기기에도 
   expect(stub.puts()[0].widgets.find((w) => w.id === 'my_tasks')?.hidden).toBe(true)
 })
 
-test('본문형 ⌃ 접기 → device=mobile PUT 에 collapsed:true, 요약 한 줄 표시, 새로고침 후 유지', async ({
+test('본문형 ⌃ 접기 → device=mobile PUT 에 collapsed:true, 요약 한 줄 표시, 새로고침 후 유지', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -183,103 +181,7 @@ test('본문형 ⌃ 접기 → device=mobile PUT 에 collapsed:true, 요약 한 
   await expectNoHorizontalOverflow(page)
 })
 
-test('⌃ 연타 — PUT 이 직렬로 나가 마지막 상태(펼침)가 저장된다', async ({ authenticatedPage: page }) => {
-  await stubWidgetData(page)
-  let release!: () => void
-  const hold = new Promise<void>((r) => (release = r))
-  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) }, { holdFirstPut: hold })
-  await page.goto('/')
-  const card = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
-  await card.getByTestId('mobile-widget-collapse').click() // 접기 — 첫 PUT 은 응답이 붙잡힌다
-  await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'false')
-  await card.getByTestId('mobile-widget-collapse').click() // 펼치기 — 화면은 즉시(낙관), PUT 은 앞 PUT 뒤로 줄 선다
-  await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
-  // 첫 응답 전 두 번째 PUT 이 나가지 않음 — 직렬화 검증
-  await expectStays(page, () => stub.puts().length, 1, { reach: true })
-  release()
-  await expect.poll(() => stub.puts().length).toBe(2)
-  expect(stub.puts()[0].widgets[0].collapsed).toBe(true)
-  expect(stub.puts()[1].widgets[0].collapsed).toBe(false)
-  // 마지막 토글 완료 후 재조회해도 펼침 — 늦게 온 첫 응답이 최종 상태를 덮어쓰지 않는다.
-  await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
-  await expect(card.getByTestId('dash-mytasks')).toBeVisible()
-  // 서버에 최종 저장된 값도 화면과 같은 펼침이다.
-  await expect.poll(() => stub.stored.mobile.widgets[0].collapsed).toBe(false)
-})
-
-test('첫 접기 저장이 실패해도 그 사이 다시 누른 마지막 상태가 화면·서버에 남는다', async ({
-  authenticatedPage: page,
-}) => {
-  await stubWidgetData(page)
-  let release!: () => void
-  const hold = new Promise<void>((r) => (release = r))
-  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) }, { holdFirstPut: hold, failFirstPut: true })
-  await page.goto('/')
-  const card = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
-  const toggle = card.getByTestId('mobile-widget-collapse')
-  await toggle.click() // 접기 — 첫 PUT 은 붙잡혔다가 500
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await toggle.click() // 펼치기(대기열)
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await toggle.click() // 다시 접기(대기열) — 사용자의 마지막 의도
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  release()
-  await expect(page.getByText('위젯 접기 상태를 저장하지 못했습니다')).toBeVisible()
-  await expect.poll(() => stub.puts().length).toBe(3)
-  // 앞선 실패의 롤백이 뒤에 누른 상태를 덮어쓰지 않는다 — 뒤 PUT 들은 마지막 탭(접힘)을 보낸다.
-  expect(stub.puts()[1].widgets[0].collapsed).toBe(true)
-  expect(stub.puts()[2].widgets[0].collapsed).toBe(true)
-  await expect.poll(() => stub.stored.mobile.widgets[0].collapsed).toBe(true)
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(card.getByTestId('mobile-widget-summary-text')).toHaveText('로그인 버그 재현')
-})
-
-test('접기 저장 실패 → 펼침으로 롤백 + 오류 토스트', async ({ authenticatedPage: page }) => {
-  await stubWidgetData(page)
-  await stubDashboard(page, { mobile: layout(['my_tasks']) }, { putStatus: 500 })
-  await page.goto('/')
-  const card = page.locator('[data-testid="dashboard-widget"][data-widget="my_tasks"]')
-  await card.getByTestId('mobile-widget-collapse').click()
-  await expect(page.getByText('위젯 접기 상태를 저장하지 못했습니다')).toBeVisible()
-  await expect(card.getByTestId('mobile-widget-collapse')).toHaveAttribute('aria-expanded', 'true')
-  await expect(card.getByTestId('dash-mytasks')).toBeVisible()
-})
-
-test('타일 탭 → 앱 경로로 이동(드라이브), AI 우선순위 타일은 최상위 항목으로', async ({
-  authenticatedPage: page,
-}) => {
-  await stubWidgetData(page)
-  await mockApi(page, 'GET', '/api/v1/drive/spaces', [createSpace({ id: 1, name: '디자인팀 공유 자료' })])
-  const priority: PriorityItemsResponse = {
-    items: [
-      { sourceType: 'ISSUE_DUE', sourceId: '7', title: '결제 모듈 환불 API 타임아웃', deepLink: '/projects/WP/issues/7', importanceScore: 90, urgencyScore: 80, reason: '마감 임박' },
-      { sourceType: 'MENTION', sourceId: '3', title: '시안 리뷰 요청', deepLink: '/me/tasks/assigned', importanceScore: 20, urgencyScore: 10, reason: '' },
-    ],
-  } as PriorityItemsResponse
-  await mockApi(page, 'GET', '/api/v1/me/priority-items', priority)
-  await stubDashboard(page, {
-    mobile: layout([
-      { id: 'drv-1', type: 'drive', count: 0, hidden: false, params: {}, label: null },
-      { id: 'priority_quadrant', type: 'priority_quadrant', count: 3, hidden: false },
-    ]),
-  })
-  await page.goto('/')
-  const drive = page.locator('[data-testid="dashboard-widget"][data-widget="drive"]')
-  await expect(drive).toHaveAttribute('data-mobile-kind', 'tile')
-  await expect(drive.getByTestId('mobile-widget-summary-text')).toHaveText('디자인팀 공유 자료')
-  // 타일에는 접기 버튼이 없다.
-  await expect(drive.getByTestId('mobile-widget-collapse')).toHaveCount(0)
-  const prio = page.locator('[data-testid="dashboard-widget"][data-widget="priority_quadrant"]')
-  await expect(prio.getByTestId('mobile-widget-count')).toHaveText('2')
-  await expect(prio.getByTestId('mobile-widget-summary')).toContainText('긴급·중요')
-  await drive.click()
-  await expect(page).toHaveURL(/\/drive$/)
-  await page.goBack()
-  await prio.click()
-  await expect(page).toHaveURL(/\/projects\/WP\/issues\/7$/)
-})
-
-test('긴 제목 — 접힌 요약 한 줄이 말줄임되고 가로 넘침이 없다', async ({ authenticatedPage: page }) => {
+test('긴 제목 — 접힌 요약 한 줄이 말줄임되고 가로 넘침이 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const longTitle = '결제 모듈 환불 API 타임아웃 재현 및 원인 분석 — '.repeat(6)
   await stubWidgetData(page, { taskTitle: longTitle })
   await stubDashboard(page, {
@@ -293,7 +195,7 @@ test('긴 제목 — 접힌 요약 한 줄이 말줄임되고 가로 넘침이 �
   await expectNoHorizontalOverflow(page)
 })
 
-test('모바일 편집 — 컨트롤은 핸들·숨김·설정·삭제만, 저장은 device=mobile PUT 만', async ({
+test('모바일 편집 — 컨트롤은 핸들·숨김·설정·삭제만, 저장은 device=mobile PUT 만', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -339,7 +241,7 @@ test('모바일 편집 — 컨트롤은 핸들·숨김·설정·삭제만, 저�
   expect(stub.requests().every((r) => r.device === 'mobile')).toBe(true)
 })
 
-test('모바일 편집 — 오른쪽 드래그 핸들로 순서를 바꾸면 device=mobile PUT 에 새 순서가 저장된다', async ({
+test('모바일 편집 — 오른쪽 드래그 핸들로 순서를 바꾸면 device=mobile PUT 에 새 순서가 저장된다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -380,7 +282,7 @@ test('모바일 편집 — 오른쪽 드래그 핸들로 순서를 바꾸면 dev
   expect(stub.puts()[0].widgets.every((w) => w.collapsed === true)).toBe(true)
 })
 
-test('모바일 편집 — 드래그 핸들에서 Space·↓·Space 로 순서를 바꾸고, 스크린리더 안내는 위젯 이름으로 읽는다 (WP-641)', async ({
+test('모바일 편집 — 드래그 핸들에서 Space·↓·Space 로 순서를 바꾸고, 스크린리더 안내는 위젯 이름으로 읽는다 (WP-641)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -414,7 +316,7 @@ test('모바일 편집 — 드래그 핸들에서 Space·↓·Space 로 순서�
   expect(stub.puts()[0].widgets.map((w) => w.id)).toEqual(['unread_mail', 'my_tasks'])
 })
 
-test('모바일 편집 — 위젯 설정은 팝오버 대신 바텀시트로 열리고, 적용한 이름이 device=mobile PUT 에 저장된다 (WP-642)', async ({
+test('모바일 편집 — 위젯 설정은 팝오버 대신 바텀시트로 열리고, 적용한 이름이 device=mobile PUT 에 저장된다 (WP-642)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -451,26 +353,7 @@ test('모바일 편집 — 위젯 설정은 팝오버 대신 바텀시트로 열
   expect(stub.puts()[0].widgets.find((w) => w.id === 'il-1')?.label).toBe('내 담당 이슈')
 })
 
-test('collapsed 필드 없는 저장본은 펼침으로, 미등록 위젯은 건너뛰고 렌더된다', async ({
-  authenticatedPage: page,
-}) => {
-  await stubWidgetData(page)
-  await stubDashboard(page, {
-    mobile: {
-      widgets: [
-        { id: 'unknown_x', type: 'unknown_x', count: 3, hidden: false },
-        { id: 'my_tasks', type: 'my_tasks', count: 3, hidden: false },
-      ],
-    },
-  })
-  await page.goto('/')
-  await expect(page.getByTestId('dashboard-widget')).toHaveCount(1)
-  const card = page.locator('[data-widget="my_tasks"]')
-  await expect(card).toHaveAttribute('data-collapsed', 'false')
-  await expect(card.getByTestId('dash-mytasks')).toBeVisible()
-})
-
-test('요약 — KPI 3열(3+2)·라벨 한 줄, 안쪽 카드 테두리 없음, 가로 넘침 없음', async ({
+test('요약 — KPI 3열(3+2)·라벨 한 줄, 안쪽 카드 테두리 없음, 가로 넘침 없음', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -491,7 +374,7 @@ test('요약 — KPI 3열(3+2)·라벨 한 줄, 안쪽 카드 테두리 없음, 
   await expectNoHorizontalOverflow(page)
 })
 
-test('요약 — AI 메일 분류 안내의 「켜기」는 한 줄로 남고 문구가 줄어든다(WP-603)', async ({
+test('요약 — AI 메일 분류 안내의 「켜기」는 한 줄로 남고 문구가 줄어든다(WP-603)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page) // classificationActive=false → 안내 표시
@@ -507,7 +390,7 @@ test('요약 — AI 메일 분류 안내의 「켜기」는 한 줄로 남고 �
   await expectNoHorizontalOverflow(page)
 })
 
-test('빠른 액션 — 모바일은 버튼 2열 격자', async ({ authenticatedPage: page }) => {
+test('빠른 액션 — 모바일은 버튼 2열 격자', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubWidgetData(page)
   await stubDashboard(page, { mobile: layout(['quick_actions']) })
   await page.goto('/')
@@ -520,28 +403,7 @@ test('빠른 액션 — 모바일은 버튼 2열 격자', async ({ authenticated
   await expectNoHorizontalOverflow(page)
 })
 
-test('모바일 위젯 추가 — 타일형에는 안내가 붙고, 추가는 모바일 레이아웃(count 3)에만 저장된다', async ({
-  authenticatedPage: page,
-}) => {
-  await stubWidgetData(page)
-  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) })
-  await page.goto('/')
-  await page.getByTestId('dashboard-edit-toggle').click()
-  await page.getByTestId('dashboard-add-widget-open').click()
-  const modal = page.getByTestId('add-widget-modal')
-  const card = (type: string) => modal.locator(`[data-testid="add-widget-card"][data-widget-type="${type}"]`)
-  await expect(card('drive').getByTestId('add-widget-mobile-tile-note')).toHaveText('모바일에서는 한 줄 타일로 표시')
-  await expect(card('priority_quadrant').getByTestId('add-widget-mobile-tile-note')).toBeVisible()
-  await expect(card('calendar_today').getByTestId('add-widget-mobile-tile-note')).toHaveCount(0)
-  await card('calendar_today').click()
-  await modal.getByTestId('add-widget-confirm').click()
-  await page.getByTestId('dashboard-edit-save').click()
-  await expect.poll(() => stub.puts().length).toBe(1)
-  expect(stub.puts()[0].device).toBe('mobile')
-  expect(stub.puts()[0].widgets.find((w) => w.type === 'calendar_today')?.count).toBe(3)
-})
-
-test('모바일 위젯 추가 — 낮은 화면(393×659)에서도 모달 안을 스크롤해 「+ 위젯 추가」를 누를 수 있다 (WP-648)', async ({
+test('모바일 위젯 추가 — 낮은 화면(393×659)에서도 모달 안을 스크롤해 「+ 위젯 추가」를 누를 수 있다 (WP-648)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.setViewportSize({ width: 393, height: 659 })
@@ -567,25 +429,7 @@ test('모바일 위젯 추가 — 낮은 화면(393×659)에서도 모달 안을
   expect(stub.puts()[0].widgets.some((w) => w.type === 'calendar_today')).toBe(true)
 })
 
-test('접기 저장이 진행 중인 동안 편집 진입이 막혀 접기 PUT 이 편집 저장을 덮어쓰지 않는다', async ({
-  authenticatedPage: page,
-}) => {
-  await stubWidgetData(page)
-  let release!: () => void
-  const hold = new Promise<void>((r) => (release = r))
-  const stub = await stubDashboard(page, { mobile: layout(['my_tasks']) }, { holdFirstPut: hold })
-  await page.goto('/')
-  const editToggle = page.getByTestId('dashboard-edit-toggle')
-  await expect(editToggle).toBeEnabled()
-  await page.locator('[data-widget="my_tasks"]').getByTestId('mobile-widget-collapse').click()
-  // 접기 PUT 이 붙잡혀 있는 동안 편집 진입 불가.
-  await expect(editToggle).toBeDisabled()
-  release()
-  await expect.poll(() => stub.puts().length).toBe(1)
-  await expect(editToggle).toBeEnabled()
-})
-
-test('키보드로 ⌃/⌄ 를 눌러도 버튼 포커스가 유지되고 aria-expanded 가 바뀐다', async ({
+test('키보드로 ⌃/⌄ 를 눌러도 버튼 포커스가 유지되고 aria-expanded 가 바뀐다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await stubWidgetData(page)
@@ -604,51 +448,8 @@ test('키보드로 ⌃/⌄ 를 눌러도 버튼 포커스가 유지되고 aria-e
   await expect(card.getByTestId('dash-mytasks')).toBeVisible()
 })
 
-test('알림 배지는 첫 페이지가 아닌 전체 안 읽음 수(unread-count)를 보인다', async ({
-  authenticatedPage: page,
-}) => {
-  await stubWidgetData(page)
-  const notif: NotificationResponse = {
-    id: 1,
-    type: 'ASSIGNED',
-    actorId: 2,
-    actorName: '양동희',
-    actorKind: 'HUMAN',
-    issueId: 1,
-    projectKey: 'WP',
-    issueNumber: 7,
-    issueTitle: '리뷰 요청 이슈',
-    commentId: null,
-    eventId: null,
-    eventTitle: null,
-    eventStartsAt: null,
-    read: false,
-    createdAt: '2026-06-16T00:00:00Z',
-  }
-  await mockApi(page, 'GET', '/api/v1/notifications', [notif])
-  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 37 })
-  await stubDashboard(page, {
-    mobile: layout([{ id: 'notifications', type: 'notifications', count: 3, hidden: false, collapsed: true }]),
-  })
-  await page.goto('/')
-  await expect(page.locator('[data-widget="notifications"]').getByTestId('mobile-widget-count')).toHaveText('37')
-})
-
-test('이슈 목록 타일 — 다음 페이지가 있으면 건수 배지에 + 를 붙인다', async ({ authenticatedPage: page }) => {
-  await stubWidgetData(page)
-  const items = [1, 2].map((n) => createIssue({ id: n, projectKey: 'WP', number: n, title: `이슈 ${n}` }))
-  await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse(items, 'next-cursor'))
-  await stubDashboard(page, {
-    mobile: layout([
-      { id: 'il-1', type: 'issue_list', count: 0, hidden: false, params: { assignee: 'me' }, label: null },
-    ]),
-  })
-  await page.goto('/')
-  await expect(page.locator('[data-widget-id="il-1"]').getByTestId('mobile-widget-count')).toHaveText('2+')
-})
-
 // WP-258 — 같은 이슈 멘션은 모바일 요약 위젯에서도 한 줄 + 건수로 묶이고, 긴 제목이 건수·시각을 밀어내지 않는다.
-test('요약 — 같은 이슈 멘션 여러 건은 한 줄(멘션 N · 시각), 긴 제목은 말줄임·가로 넘침 없음', async ({
+test('요약 — 같은 이슈 멘션 여러 건은 한 줄(멘션 N · 시각), 긴 제목은 말줄임·가로 넘침 없음', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   const LONG = '결제 모듈 리팩터링 후 정산 배치가 이중 집계되는 문제 조사 및 재발 방지 대책 수립'
@@ -675,48 +476,4 @@ test('요약 — 같은 이슈 멘션 여러 건은 한 줄(멘션 N · 시각),
   const focusBox = (await focus.boundingBox())!
   expect(metaBox.x + metaBox.width).toBeLessThanOrEqual(focusBox.x + focusBox.width)
   await expectNoHorizontalOverflow(page)
-})
-
-test('타일 요약은 필요한 만큼만 조회한다 — 프로젝트 size·연락처 limit 5, 메일 limit 1, 요약 문구는 그대로 (WP-160)', async ({
-  authenticatedPage: page,
-}) => {
-  await stubWidgetData(page)
-  const projectNames = ['플랫폼 인프라 현대화', '고객 콘솔 리디자인', '모바일 앱 v2']
-  await mockApi(page, 'GET', '/api/v1/projects', {
-    content: projectNames.map((name, i) => createProject({ id: i + 1, key: `P${i + 1}`, name })),
-    page: 0,
-    size: 5,
-    totalElements: projectNames.length,
-    totalPages: 1,
-  })
-  await mockApi(page, 'GET', '/api/v1/contacts', contactPage([member({ name: '김철수' }), member({ id: 2, name: '이영희' })]))
-  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ id: 1 })])
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [
-    mailRow({ id: 11, fromName: '홍길동', subject: '분기 보고서 검토 요청' }),
-  ])
-  const projectReqs = trackRequests(page, 'GET', '/api/v1/projects')
-  const contactReqs = trackRequests(page, 'GET', '/api/v1/contacts')
-  const mailReqs = trackRequests(page, 'GET', '/api/v1/mail/accounts/1/messages')
-  await stubDashboard(page, {
-    mobile: layout([
-      { id: 'pj-1', type: 'projects', count: 0, hidden: false, params: {}, label: null },
-      { id: 'ct-1', type: 'contacts', count: 0, hidden: false, params: {}, label: null },
-      { id: 'ml-1', type: 'mail_list', count: 0, hidden: false, params: {}, label: null },
-    ]),
-  })
-  await page.goto('/')
-
-  const tile = (id: string) => page.locator(`[data-testid="dashboard-widget"][data-widget-id="${id}"]`)
-  await expect(tile('pj-1').getByTestId('mobile-widget-summary-text')).toHaveText(projectNames.join(' · '))
-  await expect(tile('ct-1').getByTestId('mobile-widget-summary-text')).toHaveText('김철수 · 이영희')
-  await expect(tile('ml-1').getByTestId('mobile-widget-summary-text')).toHaveText('홍길동 · 분기 보고서 검토 요청')
-
-  // 요청은 모두 축소 크기로만 나간다(위젯 기본 크기 — 프로젝트 20건·연락처 서버 기본 30·메일 서버 기본 — 요청 없음).
-  const params = (reqs: ReturnType<typeof trackRequests>) => reqs.requests().map((r) => new URL(r.url()).searchParams)
-  expect(params(projectReqs).length).toBeGreaterThan(0)
-  expect(params(projectReqs).every((q) => q.get('size') === '5')).toBe(true)
-  expect(params(contactReqs).length).toBeGreaterThan(0)
-  expect(params(contactReqs).every((q) => q.get('limit') === '5')).toBe(true)
-  expect(params(mailReqs).length).toBeGreaterThan(0)
-  expect(params(mailReqs).every((q) => q.get('limit') === '1' && q.get('folder') === 'INBOX')).toBe(true)
 })

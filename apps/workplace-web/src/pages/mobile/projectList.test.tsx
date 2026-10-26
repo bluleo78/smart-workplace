@@ -1,0 +1,54 @@
+// 모바일 프로젝트 목록(WP-197) — 페이지 테스트(WP-981).
+// 보조줄 문구 분기(OPEN 「접수함」·이슈 0건 「이슈 없음」)·개인 프로젝트 별 없음·행 탭 이동은 브라우저 없이 판정되므로
+// e2e/pages/mobile/project-list.spec.ts 에서 옮겼다. 행 높이·말줄임·별 44px 같은 기하는 그 E2E 가 지킨다.
+import { screen, waitFor, within } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
+import { expect, test } from 'vitest'
+
+import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { mockViewport } from '@/test/viewport'
+
+import { createProject } from '../../../e2e/factories/project.factory'
+
+// 모바일 셸(iPhone 13 폭·터치) — 첫 renderPage 전에 한 번.
+mockViewport()
+
+const PROJECTS = [
+  createProject({ id: 1, key: 'WEB', name: '고객 포털 리뉴얼', type: 'TEAM', issueTotal: 12, issueDone: 5 }),
+  createProject({ id: 2, key: 'OPN', name: '고객 요청 접수', type: 'OPEN', issueTotal: 0, issueDone: 0 }),
+  createProject({ id: 3, key: 'EMP', name: '빈 팀 프로젝트', type: 'TEAM', issueTotal: 0, issueDone: 0 }),
+  createProject({ id: 4, key: 'PME', name: '개인 작업', type: 'PERSONAL', isDefault: true, issueTotal: 3, issueDone: 1 }),
+]
+
+const handlers = [
+  http.get('/api/v1/projects', () =>
+    HttpResponse.json({ content: PROJECTS, page: 0, size: 20, totalElements: PROJECTS.length, totalPages: 1 }),
+  ),
+]
+
+test('보조줄 — 팀은 키·%·개수, OPEN 은 「접수함」(이슈 0건이어도), 이슈 0건 팀은 「이슈 없음」, 개인은 별 없음', async () => {
+  renderPage('/projects', { handlers })
+  // 진행률 42% = 5/12 반올림 — 보조줄 조합이 바뀌면 깨진다.
+  expect(await screen.findByTestId('project-row-meta-WEB', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent(
+    /WEB\s*·\s*42%\s*·\s*12개/,
+  )
+  expect(screen.getByTestId('project-row-meta-OPN')).toHaveTextContent(/OPN\s*·\s*접수함/)
+  expect(screen.getByTestId('project-row-meta-EMP')).toHaveTextContent(/EMP\s*·\s*이슈 없음/)
+  expect(screen.getByTestId('fav-toggle-WEB')).toBeInTheDocument()
+  expect(screen.queryByTestId('fav-toggle-PME')).not.toBeInTheDocument()
+})
+
+test('행(이름 영역)을 누르면 그 프로젝트 상세로 이동한다', async () => {
+  const { user, location } = renderPage('/projects', {
+    handlers: [
+      ...handlers,
+      // 도착한 상세가 부르는 프로젝트 조회·이슈 목록 — 이동만 보므로 빈 값.
+      http.get('/api/v1/projects/EMP', () => HttpResponse.json(PROJECTS[2])),
+      http.get('/api/v1/projects/EMP/issues', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
+    ],
+  })
+  const row = await screen.findByTestId('project-row-EMP', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await user.click(within(row).getByRole('link'))
+  // 상세 페이지는 lazy 청크라 첫 이동은 모듈을 불러오는 동안(전환 중) 주소가 늦게 바뀐다.
+  await waitFor(() => expect(location()).toBe('/projects/EMP'), { timeout: PAGE_LOAD_TIMEOUT })
+})

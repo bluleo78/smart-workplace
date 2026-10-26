@@ -3,7 +3,7 @@ import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.
 import { mockSharedMemory, openSharedMemory, sharedItem, sharedSpace } from '../../fixtures/shared-memory-mock'
 import { stableBox } from '../../fixtures/wait'
 
-test('공간은 선택 상자로 고르고, 화면이 넘치지 않고 아이콘·버튼이 터치 크기다', async ({ authenticatedPage: page }) => {
+test('공간은 선택 상자로 고르고, 화면이 넘치지 않고 아이콘·버튼이 터치 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const WP = sharedSpace({})
   const NOTE = sharedSpace({ type: 'WIKI_SPACE', id: 3, key: null, name: '개발팀 노트', label: '개발팀 노트' })
   await mockSharedMemory(page, {

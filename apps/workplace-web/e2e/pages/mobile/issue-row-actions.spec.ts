@@ -1,4 +1,6 @@
 // 모바일 이슈 행·카드 길게 누르기(WP-193) — 체크박스·드래그 대신 액션 시트로 선택·에픽 지정·상태 변경.
+// 여기엔 길게 누르기 입력(@input)과 선택 바·선택 행 표시 기하(@layout)만 남긴다. 시트의 상태·에픽 payload,
+// 「선택」/「선택 해제」 라벨, ✕ 뒤 탭 이동, 목록 행이 드래그 소스가 아님은 src/pages/mobile/issueRowActions.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -44,7 +46,7 @@ test.describe('이슈 행 길게 누르기', () => {
     await stubChat(page);
   });
 
-  test('길게 누르면 액션 시트가 뜨고 상세로 이동하지 않는다, 체크박스는 없다', async ({ authenticatedPage: page }) => {
+  test('길게 누르면 액션 시트가 뜨고 상세로 이동하지 않는다, 체크박스는 없다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await expect(page.getByTestId('select-issue-21')).toHaveCount(0);
@@ -57,26 +59,6 @@ test.describe('이슈 행 길게 누르기', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  // 상태 시트 선택지는 프로젝트 상태(시드 id 1~4, WP-808) — statusId 로 보낸다.
-  test('상태 변경 → 시트에서 진행 중 선택 → PATCH statusId', async ({ authenticatedPage: page }) => {
-    const calls = await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
-    await page.getByTestId('mobile-action-status').click();
-    await expect(page.getByTestId('issue-status-picker')).toBeVisible();
-    await page.getByTestId('picker-option-2').click();
-    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/status'))?.body).toEqual({ statusId: 2 });
-  });
-
-  test('에픽 지정 → 에픽 선택 → PATCH parent', async ({ authenticatedPage: page }) => {
-    const calls = await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
-    await page.getByTestId('mobile-action-epic').click();
-    await expect(page.getByTestId('issue-epic-picker')).toBeVisible();
-    await page.getByTestId('picker-option-10').click();
-    await expect.poll(() => calls().find((c) => c.path.endsWith('/issues/21/parent'))?.body).toEqual({ parentNumber: 10 });
-  });
 });
 
 test.describe('모바일 선택 모드', () => {
@@ -84,7 +66,7 @@ test.describe('모바일 선택 모드', () => {
     await stubChat(page);
   });
 
-  test('선택 → 탭으로 추가 선택(이동 없음) → 하단 바 → 일괄 상태 변경 → 종료', async ({ authenticatedPage: page }) => {
+  test('선택 → 탭으로 추가 선택(이동 없음) → 하단 바 → 일괄 상태 변경 → 종료', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const calls = await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await longPressWithMouse(page, page.getByTestId('issue-row-21'));
@@ -117,37 +99,6 @@ test.describe('모바일 선택 모드', () => {
     await expect(bar).toHaveCount(0);
   });
 
-  test('✕ 버튼(선택 해제)으로 선택 모드를 끝내면 탭이 다시 상세로 이동한다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
-    await page.getByTestId('mobile-action-select').click();
-    // 상태 「완료」와 혼동되지 않게 텍스트 대신 ✕ 아이콘 + aria-label.
-    await expect(page.getByTestId('bulk-clear')).toHaveAttribute('aria-label', '선택 해제');
-    await page.getByTestId('bulk-clear').click();
-    await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
-    await page.getByTestId('issue-row-22').getByText('환불 콜백 재시도 로직 추가').click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/22$`));
-  });
-});
-
-test.describe('모바일 선택 토글 라벨', () => {
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    await stubChat(page);
-  });
-
-  test('이미 선택된 행을 길게 누르면 「선택 해제」, 누르면 선택이 풀린다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
-    await expect(page.getByTestId('mobile-action-select')).toHaveText('선택');
-    await page.getByTestId('mobile-action-select').click();
-    await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('1개 선택');
-    await longPressWithMouse(page, page.getByTestId('issue-row-21'));
-    await expect(page.getByTestId('mobile-action-select')).toHaveText('선택 해제');
-    await page.getByTestId('mobile-action-select').click();
-    await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
-  });
 });
 
 test.describe('모바일 보드 카드', () => {
@@ -155,7 +106,7 @@ test.describe('모바일 보드 카드', () => {
     await stubChat(page);
   });
 
-  test('카드를 길게 누르면 상태 변경·에픽 지정 시트(선택 없음), 이동·드래그 없음', async ({ authenticatedPage: page }) => {
+  test('카드를 길게 누르면 상태 변경·에픽 지정 시트(선택 없음), 이동·드래그 없음', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const calls = await mock(page);
     await page.goto(`/projects/${KEY}?view=board`);
     const card = page.getByTestId('issue-card-21');
@@ -173,14 +124,8 @@ test.describe('모바일 보드 카드', () => {
     await expect(page.getByTestId('issue-card-drag-overlay')).toHaveCount(0);
   });
 
-  test('모바일 목록 행은 드래그 소스가 아니다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await expect(page.getByTestId('issue-row-21')).not.toHaveAttribute('aria-roledescription', /.+/);
-  });
-
   // WP-273: 비멤버도 「링크 복사」가 있어 시트는 뜨지만, 변경 항목(상태·에픽)은 없다.
-  test('비멤버 카드는 짧게 탭하면 상세로 이동하고, 길게 누르면 링크 복사만 있는 시트가 뜬다', async ({ authenticatedPage: page }) => {
+  test('비멤버 카드는 짧게 탭하면 상세로 이동하고, 길게 누르면 링크 복사만 있는 시트가 뜬다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mock(page, { member: false });
     await page.goto(`/projects/${KEY}?view=board`);
     await expect(page.getByTestId('issue-card-21')).toBeVisible();

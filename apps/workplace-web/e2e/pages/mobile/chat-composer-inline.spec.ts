@@ -18,7 +18,7 @@ async function expectOneRow(plus: Locator, input: Locator, send: Locator) {
   for (const b of [p, i, s]) expect(Math.round(b!.height)).toBe(44)
 }
 
-test('팀 채팅: 한 줄 입력창 + ＋ 바텀시트 → 사진 보관함 → 업로드 칩', async ({ authenticatedPage: page }) => {
+test('팀 채팅: 한 줄 입력창 + ＋ 바텀시트 → 사진 보관함 → 업로드 칩', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   const uploads = trackRequests(page, 'ANY', '/api/v1/messaging/channels/1/attachments')
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/attachments', (r) =>
@@ -49,7 +49,7 @@ test('팀 채팅: 한 줄 입력창 + ＋ 바텀시트 → 사진 보관함 → 
   expect(uploads.count()).toBe(1)
 })
 
-test('이슈 채팅: 한 줄 입력창 + ＋ 바텀시트', async ({ authenticatedPage: page }) => {
+test('이슈 채팅: 한 줄 입력창 + ＋ 바텀시트', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubIssue(page)
   await page.goto(`/projects/${KEY}/issues/1?chat=1`)
   const plus = page.getByTestId('chat-composer-attach-button')

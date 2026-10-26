@@ -7,7 +7,7 @@ import { stableBox } from '../../fixtures/wait'
 
 const C = { correlationId: 'corr-a', sessionId: 's-a' }
 
-test('되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌리고 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+test('되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌리고 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const undo = await mockMemoryUndo(page)
   const live = await setupLiveChat(page)
@@ -33,7 +33,7 @@ test('되돌리기 바로 아래 6px 를 탭해도 그 줄을 되돌리고 가�
 })
 
 // 후속 질문 목록이 바로 아래에 있어도 — 마지막 되돌리기 바로 아래 6px 탭은 후속 질문 행이 아니라 되돌리기로 간다.
-test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px 탭은 후속 질문이 아닌 되돌리기다', async ({ authenticatedPage: page }) => {
+test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px 탭은 후속 질문이 아닌 되돌리기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const undo = await mockMemoryUndo(page)
   const live = await setupLiveChat(page)
@@ -61,7 +61,7 @@ test('후속 질문이 아래 있어도 마지막 되돌리기 바로 아래 6px
 })
 
 // 모바일 시트(z-60)가 화면을 덮어도 되돌리기 실패 토스트는 그 위에 보이고, 「설정 열기」 액션을 탭할 수 있다(토스트 층 85, WP-55).
-test('되돌리기 실패 토스트가 AI 시트 위에 보이고 설정 열기를 탭할 수 있다', async ({ authenticatedPage: page }) => {
+test('되돌리기 실패 토스트가 AI 시트 위에 보이고 설정 열기를 탭할 수 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockMemoryUndo(page, [memoryError(409, 'AI_MEMORY_FULL')])
   const live = await setupLiveChat(page)
@@ -89,7 +89,7 @@ test('되돌리기 실패 토스트가 AI 시트 위에 보이고 설정 열기�
 })
 
 // WP-379: 모바일 채팅 목록 화면에서 보낸 질문은 app=MESSAGING, 범위 결과 줄이 좁은 화면에서 넘치지 않는다.
-test('채팅 목록에서 보낸 질문은 app 이 MESSAGING 이고 범위 결과 줄이 넘치지 않는다', async ({ authenticatedPage: page }) => {
+test('채팅 목록에서 보낸 질문은 app 이 MESSAGING 이고 범위 결과 줄이 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const live = await setupLiveChat(page)
   live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })

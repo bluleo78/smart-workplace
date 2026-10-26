@@ -28,7 +28,7 @@ async function stubMail(page: Page) {
   return mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 10 })], { capture: true })
 }
 
-test('☰ 시트에 보관·내 메일함 트리 — 접기는 시트 유지, 메일함을 누르면 시트가 닫히고 그 메일함 목록', async ({ authenticatedPage: page }) => {
+test('☰ 시트에 보관·내 메일함 트리 — 접기는 시트 유지, 메일함을 누르면 시트가 닫히고 그 메일함 목록', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const list = await stubMail(page)
   const syncs = trackRequests(page, 'POST', '/api/v1/mail/accounts/1/folders/6/sync')
   await page.goto('/mail/1')

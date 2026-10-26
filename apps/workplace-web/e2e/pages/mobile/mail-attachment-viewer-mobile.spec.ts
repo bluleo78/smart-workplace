@@ -17,7 +17,7 @@ async function openAttachment(page: Page, id: number) {
   await expect(page.getByTestId('attachment-viewer')).toBeVisible()
 }
 
-test('첨부를 탭하면 전체 화면 뷰어 — 스와이프·‹ 로 넘기고 ⬇ 저장으로 받는다', async ({ authenticatedPage: page }) => {
+test('첨부를 탭하면 전체 화면 뷰어 — 스와이프·‹ 로 넘기고 ⬇ 저장으로 받는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMailWithAttachments(page)
   await openAttachment(page, 6)
   await expect(page.getByTestId('pdf-page-1')).toBeVisible()
@@ -45,7 +45,7 @@ test('첨부를 탭하면 전체 화면 뷰어 — 스와이프·‹ 로 넘기�
   await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
 })
 
-test('뒤로가기는 뷰어만 닫고 메일 상세에 남는다 — 한 번 더 뒤로가면 받은편지함', async ({ authenticatedPage: page }) => {
+test('뒤로가기는 뷰어만 닫고 메일 상세에 남는다 — 한 번 더 뒤로가면 받은편지함', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMailWithAttachments(page)
   await openAttachment(page, 7)
   await expect(page).toHaveURL(/\/mail\/1\?messageId=10&preview=mail%3A7$/)
@@ -60,7 +60,7 @@ test('뒤로가기는 뷰어만 닫고 메일 상세에 남는다 — 한 번 �
   await expect(page.getByTestId('mail-list')).toBeVisible()
 })
 
-test('✕ 로 닫아도 메일 상세에 남고, 상세 ‹ 는 받은편지함으로', async ({ authenticatedPage: page }) => {
+test('✕ 로 닫아도 메일 상세에 남고, 상세 ‹ 는 받은편지함으로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMailWithAttachments(page)
   await openAttachment(page, 6)
 
@@ -74,7 +74,7 @@ test('✕ 로 닫아도 메일 상세에 남고, 상세 ‹ 는 받은편지함�
   await expect(page.getByTestId('mail-list')).toBeVisible()
 })
 
-test('360px 에서 긴 첨부 이름은 한 줄로 앞부분만 말줄임하고 확장자·크기는 보인다', async ({ authenticatedPage: page }) => {
+test('360px 에서 긴 첨부 이름은 한 줄로 앞부분만 말줄임하고 확장자·크기는 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 360, height: 780 })
   await stubMailWithAttachments(page)
   const longName = '2026년 하반기 사업 계획 및 예산 편성 검토 회의 자료 최종본 v12.pdf'
@@ -97,7 +97,7 @@ test('360px 에서 긴 첨부 이름은 한 줄로 앞부분만 말줄임하고 
   await expect(chip.getByText('2.2 MB', { exact: true })).toBeInViewport({ ratio: 1 })
 })
 
-test('모바일에서도 메일 HWP 첨부가 변환 중 → PDF 로 바뀐다', async ({ authenticatedPage: page }) => {
+test('모바일에서도 메일 HWP 첨부가 변환 중 → PDF 로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const name = '2026년 언택트 AI R&D 과제기획 전담반 회의 참석안내.hwp'
   // WP-432 — 변환 대상 첨부는 원본(/content) 대신 변환 PDF 를 폴링한다.
   const contents = await stubMailWithDocAttachments(page, [

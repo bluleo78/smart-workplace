@@ -1,5 +1,8 @@
 // 휴대폰(390px, 터치) 연락처 행 액션(WP-237) — 조직도 노드·내 그룹의 hover 액션은 ⋯ → 모바일 액션 시트로,
 // 안 보이는 즐겨찾기 ★ 는 탭되지 않는다. 내 그룹은 ☰ 사이드바 바텀시트 안에서 액션 시트가 한 겹 더 열린다.
+// 브라우저가 있어야 판정되는 것만 남긴다 — ⋯ 터치 크기(@layout), 숨은 ★ 의 실제 터치 탭 무시(@input).
+// ⋯ → 액션 시트의 항목·요청(하위 그룹 추가·내 그룹 삭제)과 ☰ 시트 닫힘 분기는
+// 페이지 테스트 src/pages/mobile/mobileContactsTouchActions.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
 import { external, member, page as makePage } from '../../factories/contacts.factory'
@@ -25,60 +28,16 @@ async function openSidebar(page: Page) {
   await expect(page.getByTestId('mobile-sidebar-sheet')).toBeVisible()
 }
 
-test('조직도 노드: ⋯ → 액션 시트 → 하위 그룹 추가 → POST parentId', async ({ adminPage: page }) => {
-  const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
+test('내 그룹: 사이드바 시트 안 ⋯ 는 터치 타깃 44px 이상', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubBase(page)
-  await page.route((u) => u.pathname === '/api/v1/user-groups', (r) => {
-    if (r.request().method() !== 'POST') return r.fallback()
-    return r.fulfill({ ...json(sharedDetail({ id: 97, name: '하위팀', parentId: 10, members: [] })), status: 201 })
-  })
-  // 그룹 뷰는 딥링크(?group=10)로 연다 — 사이드바 시트에서 그룹을 골라도 시트가 자동으로 닫히지 않는다(이번 범위 밖).
-  await page.goto('/contacts?group=10')
-  expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
-  await expect(page.getByTestId('org-add-10')).toHaveCount(0)
-
-  await page.getByTestId('org-more-10').tap()
-  const sheet = page.getByTestId('mobile-action-sheet')
-  await expect(sheet).toBeVisible()
-  await expect(sheet.getByTestId('mobile-action-org-edit')).toBeVisible()
-  await expect(sheet.getByTestId('mobile-action-org-delete')).toHaveClass(/text-destructive/)
-  await sheet.getByTestId('mobile-action-org-add').click()
-  await expect(sheet).toBeHidden()
-  await expect(page.getByTestId('group-form-dialog')).toBeVisible()
-  await page.getByTestId('g-name').fill('하위팀')
-  await page.getByTestId('g-save').click()
-  await expect(page.getByTestId('group-form-dialog')).toBeHidden()
-  expect(creates.lastBody()).toMatchObject({ name: '하위팀', visibility: 'SHARED', parentId: 10 })
-})
-
-test('내 그룹: 사이드바 시트 안 ⋯ → 액션 시트 → 삭제 확인 → DELETE', async ({ authenticatedPage: page }) => {
-  const deletes = trackRequests(page, 'DELETE', '/api/v1/user-groups/20')
-  await stubBase(page)
-  await page.route((u) => u.pathname === '/api/v1/user-groups/20', (r) => {
-    if (r.request().method() !== 'DELETE') return r.fallback()
-    return r.fulfill({ status: 204, body: '' })
-  })
   await page.goto('/contacts')
   await openSidebar(page)
-  await expect(page.getByTestId('group-delete-20')).toHaveCount(0)
-  const more = page.getByTestId('group-more-20')
-  const box = (await more.boundingBox())!
+  const box = (await page.getByTestId('group-more-20').boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)
-
-  await more.tap()
-  const sheet = page.getByTestId('mobile-action-sheet')
-  await expect(sheet).toBeVisible()
-  await sheet.getByTestId('mobile-action-group-delete').click()
-  // 바로 지우지 않고 기존 확인 다이얼로그를 거친다.
-  await expect(page.getByTestId('group-delete-confirm')).toBeVisible()
-  expect(deletes.count()).toBe(0)
-  await page.getByTestId('group-delete-confirm-btn').click()
-  await deletes.waitFor()
 })
 
-test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨찾기된 ★ 는 탭으로 해제된다', async ({ authenticatedPage: page }) => {
+test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨찾기된 ★ 는 탭으로 해제된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const favs = trackRequests(page, 'ANY', '/api/v1/contacts/favorites')
   await stubBase(page, makePage([member({ isFavorite: true }), external()]))
   await page.route((u) => u.pathname === '/api/v1/contacts/favorites', (r) => r.fulfill({ status: 204, body: '' }))
@@ -100,31 +59,4 @@ test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨
   const sb = (await shown.boundingBox())!
   await page.touchscreen.tap(sb.x + sb.width / 2, sb.y + sb.height / 2)
   await expect.poll(() => favs.requests().map((r) => r.method())).toEqual(['DELETE'])
-})
-
-// WP-578: 시트 안 타입 필터·그룹은 링크가 아닌 버튼이라 골라도 시트가 남아 바뀐 목록을 덮었다 — 고르면 닫혀야 한다.
-// 검색 입력처럼 시트 안에서 이어 가는 동작은 닫지 않는다.
-test('☰ 시트 — 검색 입력·외부 필터는 시트를 두고(조직·직책 필터가 이어 나옴), 다른 타입 필터를 고르면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
-  await stubBase(page)
-  await page.goto('/contacts')
-  await openSidebar(page)
-  const sheet = page.getByTestId('mobile-sidebar-sheet')
-  await sheet.getByTestId('contact-search').fill('김')
-  await expect(sheet).toBeVisible()
-  await sheet.getByTestId('contact-filter-EXTERNAL').click()
-  await expect(page).toHaveURL(/type=EXTERNAL/)
-  await expect(sheet.getByTestId('contact-advanced-filter')).toBeVisible()
-  await sheet.getByTestId('contact-filter-FAVORITE').click()
-  await expect(page).toHaveURL(/type=FAVORITE/)
-  await expect(sheet).toBeHidden()
-})
-
-test('☰ 시트 — 그룹을 고르면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
-  await stubBase(page)
-  await page.goto('/contacts')
-  await openSidebar(page)
-  const sheet = page.getByTestId('mobile-sidebar-sheet')
-  await sheet.getByTestId('group-node-20').click()
-  await expect(page).toHaveURL(/group=20/)
-  await expect(sheet).toBeHidden()
 })

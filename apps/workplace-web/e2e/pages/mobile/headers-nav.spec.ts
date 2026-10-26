@@ -1,15 +1,16 @@
 // 모바일 헤더·내비게이션 UI/UX 보정(U1, WP-121) — 상세 헤더 병합(한 줄), 헤더 액션 ⋯ 접기,
 // 탭 루트 헤더 규격 통일, 메일 계정 없음 빈 상태, 탭바 활성 폴백·알림 푸시 화면을 고정한다.
+// 여기엔 헤더 기하·글꼴·가로 넘침(@layout), ⋯ 메뉴 바깥 누르기/Esc(@input), 실제 히스토리에 기대는 ‹ 복귀(@platform)만 남긴다.
+// ⋯ 메뉴 항목 구성(보관 채널)·메뉴 삭제 → DELETE·이동, 연락처 생성 payload, 탭바 활성 폴백·알림 고정, 작업 탭 제목,
+// 첨부 모아보기 뒤로가기 바는 src/pages/mobile/headersNav.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
-import { external, externalDetail, member, memberDetail, page as makeContactPage } from '../../factories/contacts.factory'
+import { member, memberDetail, page as makeContactPage } from '../../factories/contacts.factory'
 import { detail as mailDetail, mailAccount, summary as mailSummary } from '../../factories/mail.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
-import { createChannel } from '../../factories/messaging.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
-import { trackRequests } from '../../fixtures/requests'
 import { dismissByOutsideClick } from '../../fixtures/wait'
 
 const KEY = 'WP'
@@ -50,7 +51,7 @@ async function expectSingleMergedHeader(page: Page, headerTestId: string) {
   expect(await title.evaluate((el) => getComputedStyle(el).fontSize)).toBe('17px')
 }
 
-test('이슈 상세: ‹·이슈 키·⋯·✦ 가 한 줄 헤더에 있고 액션은 ⋯ 메뉴에 담긴다', async ({ authenticatedPage: page }) => {
+test('이슈 상세: ‹·이슈 키·⋯·✦ 가 한 줄 헤더에 있고 액션은 ⋯ 메뉴에 담긴다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubIssueDetail(page)
   await page.goto(`/projects/${KEY}/issues/${NUM}`)
   await expectSingleMergedHeader(page, 'page-header')
@@ -65,24 +66,7 @@ test('이슈 상세: ‹·이슈 키·⋯·✦ 가 한 줄 헤더에 있고 액�
   await expectNoHorizontalOverflow(page)
 })
 
-test('이슈 상세: ⋯ → 삭제 → 확인 다이얼로그 → 삭제 API 호출 후 프로젝트로 이동', async ({ authenticatedPage: page }) => {
-  await stubIssueDetail(page)
-  const deletes = trackRequests(page, 'DELETE', `/api/v1/projects/${KEY}/issues/${NUM}`)
-  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues/${NUM}`, (r) =>
-    r.request().method() === 'DELETE' ? r.fulfill({ status: 204, body: '' }) : r.fallback())
-  await page.goto(`/projects/${KEY}/issues/${NUM}`)
-  await page.getByTestId('mobile-header-more').click()
-  await page.getByTestId('issue-delete').click()
-  // 메뉴는 닫히고, 메뉴 항목이 연 다이얼로그는 살아 있다.
-  await expect(page.getByTestId('mobile-header-more-menu')).toBeHidden()
-  const dialog = page.getByRole('alertdialog')
-  await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: '삭제' }).click()
-  await deletes.waitFor()
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`))
-})
-
-test('⋯ 메뉴는 바깥을 누르거나 Esc 로 닫힌다', async ({ authenticatedPage: page }) => {
+test('⋯ 메뉴는 바깥을 누르거나 Esc 로 닫힌다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubIssueDetail(page)
   await page.goto(`/projects/${KEY}/issues/${NUM}`)
   const menu = page.getByTestId('mobile-header-more-menu')
@@ -96,7 +80,7 @@ test('⋯ 메뉴는 바깥을 누르거나 Esc 로 닫힌다', async ({ authenti
   await dismissByOutsideClick(page, menu, { x: 200, y: 500 })
 })
 
-test('프로젝트 상세: ＋ 새 태스크는 인라인, 사이클·타임라인·설정은 ⋯ 메뉴', async ({ authenticatedPage: page }) => {
+test('프로젝트 상세: ＋ 새 태스크는 인라인, 사이클·타임라인·설정은 ⋯ 메뉴', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.goto(`/projects/${KEY}`)
   await expectSingleMergedHeader(page, 'page-header')
@@ -112,7 +96,7 @@ test('프로젝트 상세: ＋ 새 태스크는 인라인, 사이클·타임라�
   await expectNoHorizontalOverflow(page)
 })
 
-test('프로젝트 하위(사이클) 딥링크: ‹ 는 그 프로젝트로 돌아간다(“프로젝트로 돌아가기” 아이콘 대체)', async ({ authenticatedPage: page }) => {
+test('프로젝트 하위(사이클) 딥링크: ‹ 는 그 프로젝트로 돌아간다(“프로젝트로 돌아가기” 아이콘 대체)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.route(`**/api/v1/projects/${KEY}/cycles`, (r) => r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
   await page.route(`**/api/v1/projects/${KEY}/cycles/progress`, (r) => r.fulfill({ json: [] }))
@@ -125,7 +109,7 @@ test('프로젝트 하위(사이클) 딥링크: ‹ 는 그 프로젝트로 돌�
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`))
 })
 
-test('채널 상세: 채널 헤더가 ‹·✦ 를 품은 한 줄 헤더이고, 항목이 파일 하나면 ⋯ 없이 인라인', async ({ authenticatedPage: page }) => {
+test('채널 상세: 채널 헤더가 ‹·✦ 를 품은 한 줄 헤더이고, 항목이 파일 하나면 ⋯ 없이 인라인', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat/channels/1')
   await expectSingleMergedHeader(page, 'channel-header')
@@ -137,29 +121,13 @@ test('채널 상세: 채널 헤더가 ‹·✦ 를 품은 한 줄 헤더이고, 
   await expectNoHorizontalOverflow(page)
 })
 
-// WP-843: 보관된 채널은 이름을 바꿀 수 없다 — ⋯ 메뉴에도 「이름 변경」 없이 「보관 해제」만 남는다.
-test('보관된 채널(OWNER): ⋯ 메뉴에 이름 변경이 없고 보관 해제만 있다', async ({ authenticatedPage: page }) => {
-  await stubChat(page, { channels: [createChannel({ id: 1, name: '보관됨', archived: true, role: 'OWNER', member: true })] })
-  await page.goto('/chat/channels/1')
-  await page.getByTestId('mobile-header-more').click()
-  const menu = page.getByTestId('mobile-header-more-menu')
-  await expect(menu.getByTestId('channel-unarchive-action')).toBeVisible()
-  await expect(menu.getByTestId('channel-rename-action')).toHaveCount(0)
-})
-
-test('설정 상세: 설정 페이지 제목이 병합 헤더 제목이 된다', async ({ authenticatedPage: page }) => {
+test('설정 상세: 설정 페이지 제목이 병합 헤더 제목이 된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.goto('/settings/notifications')
   await expectSingleMergedHeader(page, 'page-header')
   await expect(page.getByTestId('mobile-back-title')).toHaveText('알림')
 })
 
-test('헤더가 없는 상세 화면(드라이브 첨부 모아보기)은 뒤로가기 바(병합 헤더와 같은 규격)를 둔다', async ({ authenticatedPage: page }) => {
-  await page.goto('/drive/attachments')
-  await expect(page.getByTestId('mobile-back')).toHaveCount(1)
-  await expect(page.getByTestId('mobile-back-ai')).toBeVisible()
-})
-
-test('메일 본문: 목록 헤더(업무·동기화) 대신 ‹·메일 제목·✦ 한 줄 헤더, ‹ 로 목록 복귀', async ({ authenticatedPage: page }) => {
+test('메일 본문: 목록 헤더(업무·동기화) 대신 ‹·메일 제목·✦ 한 줄 헤더, ‹ 로 목록 복귀', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [mailSummary()])
   await mockApi(page, 'GET', '/api/v1/mail/messages/10', mailDetail({ subject: '10월 배포 일정 안내' }))
@@ -181,7 +149,7 @@ test('메일 본문: 목록 헤더(업무·동기화) 대신 ‹·메일 제목�
   await expect(page).toHaveURL(/\/mail\/1$/)
 })
 
-test('연락처 상세: 목록 헤더 대신 ‹·연락처 이름·✦ 한 줄 헤더, ‹ 로 목록 복귀', async ({ authenticatedPage: page }) => {
+test('연락처 상세: 목록 헤더 대신 ‹·연락처 이름·✦ 한 줄 헤더, ‹ 로 목록 복귀', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
   await page.route((u) => u.pathname === '/api/v1/contacts/members/1', (r) => r.fulfill({ json: memberDetail() }))
   await page.goto('/contacts')
@@ -197,31 +165,7 @@ test('연락처 상세: 목록 헤더 대신 ‹·연락처 이름·✦ 한 줄 
   await expect(page.getByTestId('page-header')).toContainText('연락처')
 })
 
-test('연락처: 새 외부 연락처는 ＋ 아이콘 하나로 인라인 — 입력 → POST payload → 다이얼로그 닫힘 → 목록 반영', async ({ authenticatedPage: page }) => {
-  await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
-  const creates = trackRequests(page, 'ANY', '/api/v1/contacts/external')
-  await page.route((u) => u.pathname === '/api/v1/contacts/external', (r) =>
-    r.fulfill({ status: 201, json: externalDetail({ id: 200, name: '신규연락처' }) }))
-  await page.goto('/contacts')
-  await expect(page.getByTestId('mobile-header-more')).toHaveCount(0)
-  const create = page.getByTestId('contact-create')
-  await expect(create).toHaveCount(1)
-  await create.click()
-  await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
-  await page.getByTestId('c-name').fill('신규연락처')
-  await page.getByTestId('c-email').fill('new@corp.com')
-  // 저장 뒤 재조회되는 목록엔 신규 행 포함(마지막 등록 라우트 우선).
-  await page.route((u) => u.pathname === '/api/v1/contacts', (r) =>
-    r.fulfill({ json: makeContactPage([member(), external({ id: 200, name: '신규연락처' })]) }))
-  await page.getByTestId('c-save').click()
-  await creates.waitFor()
-  expect(creates.lastBody()).toMatchObject({ name: '신규연락처', email: 'new@corp.com' })
-  await expect(page.getByTestId('external-contact-dialog')).toHaveCount(0)
-  await expect(page.getByTestId('contact-row-EXTERNAL-200')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-})
-
-test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56, 제목 22px bold, ☰ 는 🔔 앞)', async ({ authenticatedPage: page }) => {
+test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56, 제목 22px bold, ☰ 는 🔔 앞)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const measure = async (headerTestId: string) => {
     const header = page.getByTestId(headerTestId)
@@ -257,7 +201,7 @@ test('탭 루트 헤더 규격이 홈·채팅·캘린더에서 같다(높이 56,
   await expectNoHorizontalOverflow(page)
 })
 
-test('메일 계정 없음: "메일" 헤더·🔔 와 가운데 빈 상태, 연결 버튼은 메일 설정으로', async ({ authenticatedPage: page }) => {
+test('메일 계정 없음: "메일" 헤더·🔔 와 가운데 빈 상태, 연결 버튼은 메일 설정으로', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
   await page.goto('/mail')
   const header = page.getByTestId('page-header')
@@ -270,19 +214,7 @@ test('메일 계정 없음: "메일" 헤더·🔔 와 가운데 빈 상태, 연�
   await expect(page).toHaveURL(/\/settings\/mail$/)
 })
 
-test('탭바 활성 폴백: 고정하지 않은 노트에선 앱 탭이 활성, 고정하면 노트 탭이 활성', async ({ authenticatedPage: page }) => {
-  await page.goto('/wiki')
-  await expect(page.getByTestId('mobile-tab-apps')).toHaveAttribute('aria-current', 'page')
-  // WP-877 이전 형식(3칸)으로 저장해도 읽힌다 — 뒤 2칸은 기본 앱으로 채운다.
-  await page.evaluate(() => localStorage.setItem('mobile-tabs', JSON.stringify(['home', 'chat', 'wiki'])))
-  await page.reload()
-  await expect(page.getByTestId('mobile-tab-wiki')).toHaveAttribute('aria-current', 'page')
-  // 넓은 폰에선 채운 뒤 2칸(캘린더·드라이브)까지 보인다.
-  await expect(page.getByTestId('mobile-tab-drive')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-apps')).not.toHaveAttribute('aria-current', 'page')
-})
-
-test('알림(탭 미고정): 🔔 로 여는 푸시 화면 — ‹ 알림 헤더·모두 읽음, 탭바 없음, ‹ 는 이전 화면으로', async ({ authenticatedPage: page }) => {
+test('알림(탭 미고정): 🔔 로 여는 푸시 화면 — ‹ 알림 헤더·모두 읽음, 탭바 없음, ‹ 는 이전 화면으로', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
@@ -299,29 +231,10 @@ test('알림(탭 미고정): 🔔 로 여는 푸시 화면 — ‹ 알림 헤더
   await expect(page).toHaveURL(/\/chat$/)
 })
 
-test('알림 딥링크(탭 미고정): ‹ 는 홈으로', async ({ authenticatedPage: page }) => {
+test('알림 딥링크(탭 미고정): ‹ 는 홈으로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await page.goto('/notifications')
   await page.getByTestId('mobile-back').click()
   await expect(page).toHaveURL(/\/$/)
-})
-
-test('알림을 탭바에 고정하면 탭 루트 — 큰 제목 헤더(모두 읽음 포함)와 탭바', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/notifications', [])
-  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
-  await page.goto('/')
-  await page.evaluate(() => localStorage.setItem('mobile-tabs', JSON.stringify(['home', 'notifications', 'mail'])))
-  await page.goto('/notifications')
-  await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-notifications')).toHaveAttribute('aria-current', 'page')
-  const header = page.getByTestId('mobile-list-header')
-  await expect(header.locator('h1')).toHaveText('알림')
-  await expect(header.getByTestId('inbox-mark-all')).toBeVisible()
-  await expect(page.getByTestId('mobile-back')).toHaveCount(0)
-})
-
-test('작업 탭 루트 제목은 탭 라벨과 같은 "작업"', async ({ authenticatedPage: page }) => {
-  await page.goto('/tasks')
-  await expect(page.getByTestId('mobile-list-header').locator('h1')).toHaveText('작업')
 })

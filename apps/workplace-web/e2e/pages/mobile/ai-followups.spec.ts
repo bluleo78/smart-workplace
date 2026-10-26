@@ -6,7 +6,7 @@ import { stableBox } from '../../fixtures/wait'
 // 390px 시트에서 두 줄로 감길 만한 긴 문구를 섞는다.
 const ITEMS = ['내일 디자인 리뷰 회의 안건과 참석자별 준비물 정리해줘', '참석자 일정 알려줘', 'WP-12 상태 알려줘']
 
-test('후속 질문 행은 44px 이상·14px 글자이고, 탭하면 그 문구로 보내며 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+test('후속 질문 행은 44px 이상·14px 글자이고, 탭하면 그 문구로 보내며 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const live = await setupLiveChat(page)
   live.queueStart({ correlationId: 'corr-a', sessionId: 's-a' })

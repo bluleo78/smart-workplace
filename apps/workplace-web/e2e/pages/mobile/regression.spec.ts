@@ -2,13 +2,14 @@
 // AI 풀스크린·세션 전환·다이얼로그 케이스를 모바일 셸(하단 탭바 AI 탭) 기준으로 옮기고,
 // 전역 부품(메일 작성 도크)이 탭바와 겹치지 않는지 확인한다.
 // 이관 사유: 모바일(<1024px)엔 AI 칩(chat-launcher)·side 모드가 없고 AI 는 탭바 가운데 칸 = AI 시트다(WP-191, 구 풀스크린).
+// 시트 폭·다이얼로그 위 AI 시트(실제 클릭·딤)·작성 도크 겹침·위치만 남긴다. 세션 스위처·캘린더 다이얼로그 칩 없음·⌘K 토글·
+// 비루트 ✦·탭 루트 탭바/🔔 는 페이지 테스트 src/pages/mobile/shellRegression.test.tsx 가 지킨다(WP-981).
 import { calendar, calendarEvent } from '../../factories/calendar.factory'
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
-import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, expectOnTop, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('AI 탭으로 시트를 열고 다른 탭으로도 닫는다 — 탭 루트 시트에도 × 가 있다(구 WP-111 이관, U2-3 → WP-191)', async ({ authenticatedPage: page }) => {
+test('AI 탭으로 시트를 열고 다른 탭으로도 닫는다 — 탭 루트 시트에도 × 가 있다(구 WP-111 이관, U2-3 → WP-191)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
@@ -29,59 +30,7 @@ test('AI 탭으로 시트를 열고 다른 탭으로도 닫는다 — 탭 루트
   await expect(fs).toHaveCount(0)
 })
 
-test('AI 시트: 좌측 세션목록 없이 헤더 드롭다운이 세션 전환을 제공한다 (구 #203 이관)', async ({
-  authenticatedPage: page,
-}) => {
-  await stubChat(page)
-  await mockApi(page, 'GET', '/api/v1/home/sessions', {
-    items: [
-      { id: 's-mob1', title: '모바일 대화 1', lastMessageAt: '2026-06-10T00:00:00Z', widgetCount: 0 },
-      { id: 's-mob2', title: '모바일 대화 2', lastMessageAt: '2026-06-10T01:00:00Z', widgetCount: 0 },
-    ],
-    nextCursor: null,
-  })
-  await mockApi(page, 'GET', '/api/v1/home/sessions/s-mob1/messages', [])
-  await page.goto('/')
-  await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-sheet')).toBeVisible()
-
-  // 시트엔 좌측 세션 목록이 없고, 대신 헤더 스위처가 보인다.
-  await expect(page.getByTestId('ai-fs-sessions')).toHaveCount(0)
-  await expect(page.getByTestId('ai-sheet-session-switcher')).toBeVisible()
-  // 채팅 패널이 전체 폭을 차지해 입력창이 정상 너비를 가진다.
-  const input = await page.getByTestId('chat-input').boundingBox()
-  expect(input!.width).toBeGreaterThan(100)
-
-  // 드롭다운 열기 → 세션 선택 시 메뉴가 닫힌다(#451).
-  await page.getByTestId('ai-sheet-session-switcher').click()
-  // 시트 헤더 스위처는 "대화 목록" 버튼(U3-R4).
-  const menu = page.getByRole('menu', { name: '대화 목록' })
-  await expect(menu).toBeVisible()
-  await menu.getByText('모바일 대화 1').click()
-  await expect(menu).toHaveCount(0)
-  await expectNoHorizontalOverflow(page)
-})
-
-test('캘린더 일정 다이얼로그: 칩·사이드 패널 없이 열리고 Esc 로 닫힌다 (구 ai-screen-context 모바일 케이스 대체)', async ({
-  authenticatedPage: page,
-}) => {
-  // 다이얼로그가 셸 안에서 정상 동작함(칩·사이드 패널 없음, Esc 닫힘)을 확인한다. ⌘K 로 다이얼로그 위에 AI 를 띄우는
-  // 흐름은 아래 "다이얼로그 위 AI 시트" 케이스가 검증한다.
-  const ev = calendarEvent({ id: 42, title: '주간회의' })
-  await mockApi(page, 'GET', '/api/v1/calendars', [calendar()])
-  await mockApi(page, 'GET', '/api/v1/calendar/events', [ev])
-  await mockApi(page, 'GET', '/api/v1/calendar/events/42', ev)
-  await page.goto('/calendar?eventId=42')
-  const dialog = page.getByTestId('calendar-event-dialog')
-  await expect(dialog).toBeVisible()
-  await expect(page.getByTestId('chat-launcher')).toHaveCount(0)
-  await expect(page.getByTestId('ai-side-panel')).toHaveCount(0)
-  await expectNoHorizontalOverflow(page)
-  await page.keyboard.press('Escape')
-  await expect(dialog).toBeHidden()
-})
-
-test('모바일(<lg): ⌘K 로 다이얼로그 위 AI 시트를 열어 입력하고, Esc 로 AI 만 닫으면 다이얼로그로 돌아온다 (구 ai-screen-context 모바일 케이스 복원)', async ({
+test('모바일(<lg): ⌘K 로 다이얼로그 위 AI 시트를 열어 입력하고, Esc 로 AI 만 닫으면 다이얼로그로 돌아온다 (구 ai-screen-context 모바일 케이스 복원)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   const ev = calendarEvent({ id: 42, title: '주간회의' })
@@ -114,24 +63,8 @@ test('모바일(<lg): ⌘K 로 다이얼로그 위 AI 시트를 열어 입력하
   await expectNoHorizontalOverflow(page)
 })
 
-test('모바일(<lg): ⌘K 는 AI 시트를 토글하고 Esc 는 닫는다', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/')
-  // AI 사용 가능 여부가 확정된 뒤(탭바 AI 칸 노출)에 단축키가 등록된다.
-  await expect(page.getByTestId('mobile-tab-ai')).toBeVisible()
-  const fs = page.getByTestId('ai-sheet')
-  await page.keyboard.press('ControlOrMeta+k')
-  await expect(fs).toBeVisible()
-  await page.keyboard.press('ControlOrMeta+k')
-  await expect(fs).toHaveCount(0)
-  await page.keyboard.press('ControlOrMeta+k')
-  await expect(fs).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(fs).toHaveCount(0)
-})
-
 // WP-583: 모바일 작성은 화면 전체 작성 화면이라 탭바를 덮는다 — 탭바가 작성 화면 위로 비치거나 눌리면 안 된다.
-test('메일 작성 화면이 탭바까지 덮는다', async ({ authenticatedPage: page }) => {
+test('메일 작성 화면이 탭바까지 덮는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
   await page.goto('/mail')
@@ -151,7 +84,7 @@ test('메일 작성 화면이 탭바까지 덮는다', async ({ authenticatedPag
   await expectNoHorizontalOverflow(page)
 })
 
-test('탭바가 숨은 메일 본문에서는 작성 도크가 화면 하단에 붙는다', async ({ authenticatedPage: page }) => {
+test('탭바가 숨은 메일 본문에서는 작성 도크가 화면 하단에 붙는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
   await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
@@ -165,29 +98,4 @@ test('탭바가 숨은 메일 본문에서는 작성 도크가 화면 하단에 
   const vh = page.viewportSize()!.height
   // 탭바가 없으면 오프셋 0 — 도크 하단이 뷰포트 하단에 닿는다.
   expect(Math.abs(d.y + d.height - vh)).toBeLessThanOrEqual(1)
-})
-
-test('탭 루트가 아닌 PageHeader 화면(사이클)에도 뒤로가기 바 ✦ 로 AI 시트를 열 수 있다', async ({ authenticatedPage: page }) => {
-  // 탭바가 없는 비루트 화면의 AI 진입점 검증 — 비루트 PageHeader 화면은 모두 ResponsiveModuleLayout 의
-  // 뒤로가기 바(mobile-back-ai) 아래에 있어 별도 헤더 ✦ 가 필요 없다(/calendar 등은 탭 루트라 탭바가 보인다).
-  await page.route('**/api/v1/projects/WP', (r) => r.fulfill({ json: createProject() }))
-  await page.route('**/api/v1/projects/WP/cycles', (r) => r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
-  await page.route('**/api/v1/projects/WP/cycles/progress', (r) => r.fulfill({ json: [] }))
-  await stubChat(page)
-  await page.goto('/projects/WP/cycles')
-  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
-  await expect(page.getByTestId('page-header')).toBeVisible()
-  await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-sheet')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-})
-
-test('캘린더는 탭 루트라 탭바(AI 탭)가 항상 보인다', async ({ authenticatedPage: page }) => {
-  await page.goto('/calendar')
-  await expect(page.getByTestId('mobile-tab-ai')).toBeVisible()
-})
-
-test('탭 루트 헤더에는 🔔 이 보인다', async ({ authenticatedPage: page }) => {
-  await page.goto('/')
-  await expect(page.getByTestId('mobile-bell')).toBeVisible()
 })

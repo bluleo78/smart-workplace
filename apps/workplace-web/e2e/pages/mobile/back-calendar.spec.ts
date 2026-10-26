@@ -29,7 +29,7 @@ async function stubCalendar(page: Page, events: CalendarEvent[]) {
 // 모바일 기본 보기(목록, WP-136)가 아닌 월 보기로 바꿔 둔다(toCalendarMonthView) — 다이얼로그를 닫은 뒤에도 그 보기가 남아 있는지로
 // "리마운트 없이 캘린더에 남았다"를 확인한다(기본 보기를 쓰면 리마운트돼도 같은 화면이라 구분되지 않는다).
 
-test('일정 클릭 → goBack 은 다이얼로그만 닫고 캘린더에 남는다 — 취소도 같은 결과', async ({ authenticatedPage: page }) => {
+test('일정 클릭 → goBack 은 다이얼로그만 닫고 캘린더에 남는다 — 취소도 같은 결과', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page, [calendarEvent({ id: 42, title: LONG_TITLE, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' })])
   await page.goto('/calendar')
   await toCalendarMonthView(page)
@@ -51,7 +51,7 @@ test('일정 클릭 → goBack 은 다이얼로그만 닫고 캘린더에 남는
   await expect(dialog).toBeHidden()
 })
 
-test('딥링크(?eventId) → ESC 는 eventId 만 지우고 캘린더에 남는다', async ({ authenticatedPage: page }) => {
+test('딥링크(?eventId) → ESC 는 eventId 만 지우고 캘린더에 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page, [calendarEvent({ id: 42, title: LONG_TITLE })])
   await page.goto('/calendar?eventId=42')
   const dialog = page.getByTestId('calendar-event-dialog')
@@ -62,7 +62,7 @@ test('딥링크(?eventId) → ESC 는 eventId 만 지우고 캘린더에 남는�
   await expect(dialog).toBeHidden()
 })
 
-test('반복 회차: 범위 선택은 클릭 스냅숏의 회차 날짜로 PATCH 하고, 성공 후 캘린더로 닫힌다', async ({ authenticatedPage: page }) => {
+test('반복 회차: 범위 선택은 클릭 스냅숏의 회차 날짜로 PATCH 하고, 성공 후 캘린더로 닫힌다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const occ = recurringCalendarEvent(5, ['2026-06-15T01:00:00Z', '2026-06-22T01:00:00Z'], { title: '주간 스탠드업' })
   await stubCalendar(page, occ)
   await page.goto('/calendar')
@@ -82,7 +82,7 @@ test('반복 회차: 범위 선택은 클릭 스냅숏의 회차 날짜로 PATCH
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()
 })
 
-test('저장 응답 전에 뒤로 갔으면 늦게 온 저장 완료 닫기가 캘린더를 떠나지 않는다', async ({ authenticatedPage: page }) => {
+test('저장 응답 전에 뒤로 갔으면 늦게 온 저장 완료 닫기가 캘린더를 떠나지 않는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const ev = calendarEvent({ id: 42, title: LONG_TITLE, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' })
   await stubCalendar(page, [ev])
   // PATCH 응답을 붙잡아 두는 라우트(나중에 등록한 라우트가 먼저 매칭된다).
@@ -111,7 +111,7 @@ test('저장 응답 전에 뒤로 갔으면 늦게 온 저장 완료 닫기가 �
   await expect(page.getByTestId('calendar-view-month')).toBeVisible()
 })
 
-test('없는 일정 딥링크(앱 안 push) → 토스트 후 eventId 제거 → 일정 탭 후 goBack·취소 모두 캘린더에 남는다', async ({ authenticatedPage: page }) => {
+test('없는 일정 딥링크(앱 안 push) → 토스트 후 eventId 제거 → 일정 탭 후 goBack·취소 모두 캘린더에 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page, [calendarEvent({ id: 42, title: LONG_TITLE, startsAt: '2026-06-11T01:00:00Z', endsAt: '2026-06-11T02:00:00Z' })])
   // 앱 안 기록을 만든다(/apps → 없는 일정 딥링크 push) — eventId 가 남아 있으면 다음 탭이 replace 되어 닫기 -1 이 /apps 로 빠진다.
   await page.goto('/apps')
@@ -154,7 +154,7 @@ async function pushEventDeepLinkFromApps(page: Page, id: number) {
   await expect(page.getByTestId('calendar-event-dialog')).toBeVisible()
 }
 
-test('바깥에서 연 일정 삭제 → 삭제 확인이 뜨고 확인하면 DELETE 후 닫기 규칙대로 출발 화면으로', async ({ authenticatedPage: page }) => {
+test('바깥에서 연 일정 삭제 → 삭제 확인이 뜨고 확인하면 DELETE 후 닫기 규칙대로 출발 화면으로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page, [calendarEvent({ id: 42, title: LONG_TITLE })])
   await page.route((u) => u.pathname === '/api/v1/calendar/events/42', (r) =>
     r.request().method() === 'DELETE' ? r.fulfill({ status: 204 }) : r.fallback(),
@@ -173,7 +173,7 @@ test('바깥에서 연 일정 삭제 → 삭제 확인이 뜨고 확인하면 DE
   await expect(page).toHaveURL(/\/apps$/)
 })
 
-test('바깥에서 연 반복 회차 수정 → 범위 선택이 뜨고 고르면 회차 PATCH', async ({ authenticatedPage: page }) => {
+test('바깥에서 연 반복 회차 수정 → 범위 선택이 뜨고 고르면 회차 PATCH', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // 단건 조회가 회차(occurrenceDate 포함)를 돌려주도록 스텁 — 2단계(범위 선택) 경로를 바깥 진입에서 검증한다.
   const occ = recurringCalendarEvent(5, ['2026-06-15T01:00:00Z', '2026-06-22T01:00:00Z'], { title: '주간 스탠드업' })
   await stubCalendar(page, occ)
@@ -188,7 +188,7 @@ test('바깥에서 연 반복 회차 수정 → 범위 선택이 뜨고 고르�
   await expect(page).toHaveURL(/\/apps$/)
 })
 
-test('2단계 다이얼로그 취소는 URL 을 건드리지 않고 일정 상세로 돌아간다', async ({ authenticatedPage: page }) => {
+test('2단계 다이얼로그 취소는 URL 을 건드리지 않고 일정 상세로 돌아간다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const occ = recurringCalendarEvent(5, ['2026-06-15T01:00:00Z'], { title: '주간 스탠드업' })
   await stubCalendar(page, occ)
   await pushEventDeepLinkFromApps(page, 5)
@@ -203,7 +203,7 @@ test('2단계 다이얼로그 취소는 URL 을 건드리지 않고 일정 상�
   await expect(page).toHaveURL(/\/calendar\?eventId=5$/)
 })
 
-test('단일 일정 삭제 확인 취소는 일정 상세로 돌아간다(URL 유지)', async ({ authenticatedPage: page }) => {
+test('단일 일정 삭제 확인 취소는 일정 상세로 돌아간다(URL 유지)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page, [calendarEvent({ id: 42, title: LONG_TITLE })])
   await pushEventDeepLinkFromApps(page, 42)
   await page.getByTestId('calendar-form-delete').tap()

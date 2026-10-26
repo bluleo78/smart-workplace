@@ -25,7 +25,7 @@ const presence = (p: Page) => p.getByTestId('wiki-presence')
 
 test.afterEach(() => leaveAllCollabPeers())
 
-test.describe('모바일 노트 접속자', () => {
+test.describe('모바일 노트 접속자', { tag: '@platform' }, () => {
   test('헤더는 아바타 하나와 +N 이고, 누르면 바텀시트에 모두 보인다', async ({ authenticatedPage: a, collabNs }) => {
     await mockWikiPageEditor(a, {
       spaceId: SPACE_ID,
@@ -84,7 +84,7 @@ test.describe('모바일 노트 접속자', () => {
   })
 })
 
-test.describe('모바일 원격 커서', () => {
+test.describe('모바일 원격 커서', { tag: '@platform' }, () => {
   test('원격 캐럿 근처를 탭하면 이름표가 3초 보인다', async ({ authenticatedPage: a, newAuthedPage }) => {
     const opts = { spaceId: SPACE_ID, pageId: 47, title: '회의록', body: '첫 문단\n\n둘째 문단' }
     await mockWikiPageEditor(a, opts)
@@ -126,7 +126,7 @@ test.describe('모바일 원격 커서', () => {
   })
 })
 
-test.describe('모바일 위쪽 삽입 스크롤 고정', () => {
+test.describe('모바일 위쪽 삽입 스크롤 고정', { tag: '@platform' }, () => {
   test('키보드로 입력하는 중 다른 사람이 위쪽에 문단을 넣어도 내 커서와 화면이 그대로이고 이어 친 글자가 같은 자리에 들어간다', async ({
     authenticatedPage: a,
     collabNs,
@@ -159,7 +159,7 @@ test.describe('모바일 위쪽 삽입 스크롤 고정', () => {
   })
 })
 
-test.describe('모바일 화면 회전 읽던 줄 고정', () => {
+test.describe('모바일 화면 회전 읽던 줄 고정', { tag: '@layout' }, () => {
   test('긴 문단 중간을 읽다가 화면 폭이 바뀌어 다시 줄바꿈돼도 읽던 줄이 제자리에 있다', async ({ authenticatedPage: a }) => {
     const long = Array.from({ length: 300 }, (_, i) => `단어${i + 1}`).join(' ')
     const body = [...Array.from({ length: 10 }, (_, i) => `문단 ${i + 1}`), long, ...Array.from({ length: 20 }, (_, i) => `뒤 문단 ${i + 1}`)].join('\n\n')
@@ -201,7 +201,7 @@ test.describe('모바일 화면 회전 읽던 줄 고정', () => {
   })
 })
 
-test.describe('모바일 복귀', () => {
+test.describe('모바일 복귀', { tag: '@platform' }, () => {
   test('2분 넘게 자리를 비운 사이 남이 고쳤으면, 돌아올 때 바로 다시 붙고 토스트로 알리며 바뀐 문단을 잠깐 표시한다', async ({
     authenticatedPage: a,
     newAuthedPage,

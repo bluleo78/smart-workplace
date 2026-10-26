@@ -72,7 +72,7 @@ const MD = (id: number, name = `메모${id}.md`, body = '# 제목\n\n본문'): D
 
 test.describe('모바일 배치', () => {
   for (const width of [360, 390]) {
-    test(`폭 ${width}px — 상단 바(✕·이름·순번·⋯)와 하단 4칸, 가로 넘침 없음`, async ({ authenticatedPage: page }) => {
+    test(`폭 ${width}px — 상단 바(✕·이름·순번·⋯)와 하단 4칸, 가로 넘침 없음`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await page.setViewportSize({ width, height: 800 })
       await stubDriveFiles(page, [IMG(70), IMG(71), MD(72)])
       await openViewer(page, '사진70.png')
@@ -96,7 +96,7 @@ test.describe('모바일 배치', () => {
     })
   }
 
-  test('360px — 긴 파일명은 앞부분만 말줄임되고 확장자는 늘 보인다(넘침 없음)', async ({ authenticatedPage: page }) => {
+  test('360px — 긴 파일명은 앞부분만 말줄임되고 확장자는 늘 보인다(넘침 없음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 360, height: 740 })
     const name = '2026_하반기_사업계획_도입제안서_최종_검토반영본_v3.png'
     await stubDriveFiles(page, [IMG(73, name)])
@@ -118,7 +118,7 @@ test.describe('모바일 배치', () => {
     await expect(page.getByRole('dialog')).toHaveAccessibleName(`${name} 미리보기`)
   })
 
-  test('360px — ⋯ 메뉴 항목은 터치 높이 44px 이상, 메뉴는 화면 끝에서 띄운다', async ({ authenticatedPage: page }) => {
+  test('360px — ⋯ 메뉴 항목은 터치 높이 44px 이상, 메뉴는 화면 끝에서 띄운다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 360, height: 740 })
     await stubDriveFiles(page, [IMG(70)])
     await openViewer(page, '사진70.png')
@@ -132,7 +132,7 @@ test.describe('모바일 배치', () => {
     expect(menu.x + menu.width).toBeLessThanOrEqual(360 - 8 + 0.5)
   })
 
-  test('가로 모드(844×390)도 넘침 없이 전체 화면', async ({ authenticatedPage: page }) => {
+  test('가로 모드(844×390)도 넘침 없이 전체 화면', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 844, height: 390 })
     await stubDriveFiles(page, [IMG(70)])
     await openViewer(page, '사진70.png')
@@ -142,7 +142,7 @@ test.describe('모바일 배치', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 
-  test('넘겨도 하단 칸 위치가 변하지 않는다 — ✨ 가 없는 파일은 그 칸만 비운다', async ({ authenticatedPage: page }) => {
+  test('넘겨도 하단 칸 위치가 변하지 않는다 — ✨ 가 없는 파일은 그 칸만 비운다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [IMG(70), { ...IMG(71), summary: 403 }])
     await openViewer(page, '사진70.png')
     const bar = page.getByTestId('viewer-action-bar')
@@ -158,7 +158,7 @@ test.describe('모바일 배치', () => {
     }
   })
 
-  test('⬇ 저장은 파일을 내려받는다', async ({ authenticatedPage: page }) => {
+  test('⬇ 저장은 파일을 내려받는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(72, 'note.md')])
     await openViewer(page, 'note.md')
     const download = page.waitForEvent('download')
@@ -166,7 +166,7 @@ test.describe('모바일 배치', () => {
     expect((await download).suggestedFilename()).toBe('note.md')
   })
 
-  test('열린 동안 상태바(theme-color)는 뷰어 배경색, 닫으면 원래 색으로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('열린 동안 상태바(theme-color)는 뷰어 배경색, 닫으면 원래 색으로 돌아온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [IMG(70)])
     const color = () => page.locator('meta[name="theme-color"]').getAttribute('content')
     await page.goto(`/drive/spaces/${SPACE_ID}`)
@@ -191,7 +191,7 @@ test.describe('모바일 배치', () => {
 })
 
 test.describe('AI 요약 시트', () => {
-  test('✨ 요약 → 반 높이 다크 시트, ⤢ 펼치기로 거의 전체, 요약 닫기로 닫힘', async ({ authenticatedPage: page }) => {
+  test('✨ 요약 → 반 높이 다크 시트, ⤢ 펼치기로 거의 전체, 요약 닫기로 닫힘', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(80, 'plan.md')])
     await openViewer(page, 'plan.md')
     // 모바일은 저장된 패널 상태와 무관하게 닫힌 채 연다(판정 R10).
@@ -224,7 +224,7 @@ test.describe('AI 요약 시트', () => {
     await expectToggle(slot, false, { textOnly: true })
   })
 
-  test('시트를 열면 포커스가 시트로 가고 아래 액션 바는 inert, 닫으면 ✨ 칸으로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('시트를 열면 포커스가 시트로 가고 아래 액션 바는 inert, 닫으면 ✨ 칸으로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(80, 'plan.md')])
     await openViewer(page, 'plan.md')
     const bar = page.getByTestId('viewer-action-bar')
@@ -243,7 +243,7 @@ test.describe('AI 요약 시트', () => {
     await expect(page.getByTestId('viewer-slot-summary')).toBeFocused()
   })
 
-  test('모바일에서 열고 닫은 상태는 저장하지 않는다 — 데스크톱 마지막 상태를 덮지 않음', async ({ authenticatedPage: page }) => {
+  test('모바일에서 열고 닫은 상태는 저장하지 않는다 — 데스크톱 마지막 상태를 덮지 않음', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(80, 'plan.md')])
     await page.addInitScript(() => localStorage.setItem('attachment-viewer:summary-panel', '1'))
     await openViewer(page, 'plan.md')
@@ -254,7 +254,7 @@ test.describe('AI 요약 시트', () => {
   })
 })
 
-test.describe('AI 요약 시트 — 배치 전환', () => {
+test.describe('AI 요약 시트 — 배치 전환', { tag: '@layout' }, () => {
   test('데스크톱 배치에서 펼친 패널은 모바일 배치로 바뀌어도 시트로 따라오지 않는다(판정 R10)', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [MD(80, 'plan.md')])
     // 데스크톱 마지막 상태 = 펼침.
@@ -272,7 +272,7 @@ test.describe('AI 요약 시트 — 배치 전환', () => {
   })
 })
 
-test.describe('참조된 곳 띠', () => {
+test.describe('참조된 곳 띠', { tag: '@layout' }, () => {
   test('바 위에 띠가 얹혀도 문서 끝줄이 띠에 가려지지 않는다', async ({ authenticatedPage: page }) => {
     // ✨ 불가(403) + 참조 여러 건 → 띠가 하단 바 위에 얹힌다(판정 R11).
     const lines = Array.from({ length: 80 }, (_, i) => `줄 ${i + 1}`).join('\n\n')
@@ -296,7 +296,7 @@ test.describe('참조된 곳 띠', () => {
   })
 })
 
-test.describe('바 숨김과 본문 여백', () => {
+test.describe('바 숨김과 본문 여백', { tag: '@layout' }, () => {
   test('가로 모드(바 기본 숨김) PDF 는 위아래 빈 띠 없이 화면 높이를 다 쓰고, 탭해 바를 보이면 여백이 돌아온다', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 844, height: 390 })
     await stubDriveFiles(page, [{ id: 74, name: 'doc.pdf', mimeType: 'application/pdf', body: PDF }])
@@ -322,7 +322,7 @@ const WIDE_CSV = [
   ...Array.from({ length: 6 }, (_, r) => Array.from({ length: 14 }, (_, k) => `값${r}-${k}`).join(',')),
 ].join('\n')
 
-test.describe('스와이프 넘김', () => {
+test.describe('스와이프 넘김', { tag: '@input' }, () => {
   test('왼쪽으로 폭 25% 넘게 밀면 다음, 오른쪽이면 이전', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [IMG(70), IMG(71), IMG(72)])
     await openViewer(page, '사진70.png')
@@ -429,7 +429,7 @@ test.describe('스와이프 넘김', () => {
   })
 })
 
-test.describe('아래로 닫기·탭 바 토글', () => {
+test.describe('아래로 닫기·탭 바 토글', { tag: '@input' }, () => {
   test('원래 크기 이미지에서 아래로 쓸면 닫히고 URL 의 preview 도 사라진다', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [IMG(70)])
     await openViewer(page, '사진70.png')
@@ -556,7 +556,7 @@ test.describe('아래로 닫기·탭 바 토글', () => {
   })
 })
 
-test.describe('핀치·두 번 탭 확대', () => {
+test.describe('핀치·두 번 탭 확대', { tag: '@input' }, () => {
   test('이미지 두 번 탭 = 2배(탭 지점 기준), 다시 두 번 탭 = 맞춤 — 바는 토글되지 않는다', async ({ authenticatedPage: page }) => {
     await stubDriveFiles(page, [IMG(70)])
     await openViewer(page, '사진70.png')
@@ -802,7 +802,7 @@ async function stubWebShare(page: Page, mode: 'ok' | 'abort' = 'ok', opts: { sta
 }
 const shared = (page: Page) => page.evaluate(() => (window as unknown as { __shared: unknown[] }).__shared)
 
-test.describe('공유·저장', () => {
+test.describe('공유·저장', { tag: '@platform' }, () => {
   test('blob 이 오기 전엔 "받는 중" 비활성, 오면 공유 시트에 그 파일을 넘긴다', async ({ authenticatedPage: page }) => {
     await stubWebShare(page)
     await stubDriveFiles(page, [{ ...IMG(70, 'site.png'), delayMs: 1500 }])

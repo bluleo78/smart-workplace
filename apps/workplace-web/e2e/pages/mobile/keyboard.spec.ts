@@ -78,7 +78,7 @@ async function openMailSidebar(page: Page): Promise<Locator> {
   return sheet
 }
 
-test('키보드가 열리면 셸이 보이는 높이로 줄어 헤더는 제자리, 입력창은 키보드 바로 위에 남는다', async ({ authenticatedPage: page }) => {
+test('키보드가 열리면 셸이 보이는 높이로 줄어 헤더는 제자리, 입력창은 키보드 바로 위에 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   await page.goto('/chat/channels/1')
   const shell = page.getByTestId('mobile-shell')
@@ -104,7 +104,7 @@ test('키보드가 열리면 셸이 보이는 높이로 줄어 헤더는 제자�
   await expect.poll(async () => (await shell.boundingBox())?.height).toBe(innerHeight)
 })
 
-test('iOS 가 보이는 영역을 아래로 옮겨도(offsetTop>0) 셸이 그 위치를 따라가 헤더가 보이는 영역 맨 위에 남는다', async ({ authenticatedPage: page }) => {
+test('iOS 가 보이는 영역을 아래로 옮겨도(offsetTop>0) 셸이 그 위치를 따라가 헤더가 보이는 영역 맨 위에 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   await page.goto('/chat/channels/1')
   const shell = page.getByTestId('mobile-shell')
@@ -123,7 +123,7 @@ test('iOS 가 보이는 영역을 아래로 옮겨도(offsetTop>0) 셸이 그 �
 // 키보드로 보지 않는 경우(임계값 미만·핀치 줌·편집 포커스 없음)는 useVisualViewport.test(detectKeyboard)가 지킨다.
 
 // 셸 밖(portal)에 그려지는 fixed 요소 — 셸 높이와 무관하므로 index.css·도크가 :root 의 키보드 값으로 보이는 영역 안에 둔다.
-test('키보드가 열리면 다이얼로그가 보이는 영역 안(키보드 위)에 들어온다', async ({ authenticatedPage: page }) => {
+test('키보드가 열리면 다이얼로그가 보이는 영역 안(키보드 위)에 들어온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
   await page.goto('/settings/mail')
   await page.getByTestId('page-header').getByTestId('mail-add-trigger').click()
@@ -138,7 +138,7 @@ test('키보드가 열리면 다이얼로그가 보이는 영역 안(키보드 �
   }).toBe(true)
 })
 
-test('키보드가 열리면 하단 시트가 키보드 바로 위로 올라온다', async ({ authenticatedPage: page }) => {
+test('키보드가 열리면 하단 시트가 키보드 바로 위로 올라온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const sheet = await openMailSidebar(page)
   await focusTemporaryInput(sheet)
   const visible = await setKeyboard(page, true)
@@ -150,7 +150,7 @@ test('키보드가 열리면 하단 시트가 키보드 바로 위로 올라온�
 })
 
 // WP-583: 모바일 작성 화면은 화면 전체 — 키보드가 열리면 그 위까지만 차지하고, 서식 버튼이 키보드 바로 위에 붙는다.
-test('키보드가 열리면 메일 작성 화면이 키보드 위에 들어오고 서식 버튼이 키보드 바로 위에 붙는다', async ({ authenticatedPage: page }) => {
+test('키보드가 열리면 메일 작성 화면이 키보드 위에 들어오고 서식 버튼이 키보드 바로 위에 붙는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const sheet = await openMailSidebar(page)
   await sheet.getByTestId('mail-compose-new').click()
   const dock = page.getByTestId('mail-compose-dock')
@@ -171,7 +171,7 @@ test('키보드가 열리면 메일 작성 화면이 키보드 위에 들어오�
   expect(send.y + send.height).toBeLessThan(visible)
 })
 
-test('홈 화면 앱처럼 innerHeight 도 키보드와 함께 줄어도 키보드 열림으로 판정한다(지금까지 본 최대 높이 기준)', async ({ authenticatedPage: page }) => {
+test('홈 화면 앱처럼 innerHeight 도 키보드와 함께 줄어도 키보드 열림으로 판정한다(지금까지 본 최대 높이 기준)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   await page.goto('/chat/channels/1')
   await page.getByTestId('message-composer-input').click()
@@ -186,7 +186,7 @@ test('홈 화면 앱처럼 innerHeight 도 키보드와 함께 줄어도 키보�
   await expect(page.locator('html')).toHaveAttribute('data-keyboard-open', 'true')
 })
 
-test('목록 바닥을 보던 중 키보드가 열려 목록이 줄어도 바닥(최신 메시지)에 그대로 붙어 있다', async ({ authenticatedPage: page }) => {
+test('목록 바닥을 보던 중 키보드가 열려 목록이 줄어도 바닥(최신 메시지)에 그대로 붙어 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   // 스크롤이 생기도록 메시지를 넉넉히 — 나중에 등록한 라우트가 우선한다.
   const items = Array.from({ length: 40 }, (_, i) =>

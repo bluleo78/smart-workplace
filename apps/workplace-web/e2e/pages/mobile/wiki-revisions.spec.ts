@@ -49,7 +49,7 @@ async function openNote(p: Page, role: 'OWNER' | 'VIEWER' = 'OWNER') {
 test.afterEach(() => leaveAllCollabPeers())
 
 test.describe('모바일 노트 버전 기록', () => {
-  test('⋯ → 전체화면 목록 → 판 탭 → 전체화면 미리보기·하단 복원, 뒤로가기는 미리보기 → 목록 → 노트', async ({ authenticatedPage: a }) => {
+  test('⋯ → 전체화면 목록 → 판 탭 → 전체화면 미리보기·하단 복원, 뒤로가기는 미리보기 → 목록 → 노트', { tag: '@platform' }, async ({ authenticatedPage: a }) => {
     await openNote(a)
     await openHistory(a)
 
@@ -116,7 +116,7 @@ test.describe('모바일 노트 버전 기록', () => {
     await expect(a.getByTestId('wiki-editor-scroll')).not.toHaveAttribute('inert', /.*/)
   })
 
-  test('‹ 도 시스템 뒤로가기와 같다 — 미리보기 → 목록 → 노트', async ({ authenticatedPage: a }) => {
+  test('‹ 도 시스템 뒤로가기와 같다 — 미리보기 → 목록 → 노트', { tag: '@platform' }, async ({ authenticatedPage: a }) => {
     await openNote(a)
     await openHistory(a)
     await revItem(a, 4).tap()
@@ -141,7 +141,7 @@ test.describe('모바일 노트 버전 기록', () => {
     await expect(titleInput).not.toBeFocused()
   })
 
-  test('미리보기 주소로 바로 들어와도 ‹ 는 노트 안에서 목록 → 노트로 닫는다', async ({ authenticatedPage: a }) => {
+  test('미리보기 주소로 바로 들어와도 ‹ 는 노트 안에서 목록 → 노트로 닫는다', { tag: '@platform' }, async ({ authenticatedPage: a }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE })
     await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: DETAILS })
     await a.clock.install({ time: NOW })
@@ -158,7 +158,7 @@ test.describe('모바일 노트 버전 기록', () => {
     await expect(a.locator('.ProseMirror')).toContainText('Yjs 로 간다')
   })
 
-  test('복원하면 토스트 후 목록까지 닫혀 노트로 돌아가고, 본문이 그 판으로 바뀐다', async ({ authenticatedPage: a, collabNs }) => {
+  test('복원하면 토스트 후 목록까지 닫혀 노트로 돌아가고, 본문이 그 판으로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: a, collabNs }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE })
     const { restores } = await mockWikiRevisions(a, {
       pageId: PAGE_ID,
@@ -187,7 +187,7 @@ test.describe('모바일 노트 버전 기록', () => {
     expect(await readCollabMarkdown(collabNs, PAGE_ID)).toContain('아직 정하지 않았다.')
   })
 
-  test('뷰어는 미리보기는 보지만 하단 복원 버튼이 없다', async ({ authenticatedPage: a }) => {
+  test('뷰어는 미리보기는 보지만 하단 복원 버튼이 없다', { tag: '@platform' }, async ({ authenticatedPage: a }) => {
     await openNote(a, 'VIEWER')
     await openHistory(a)
     await revItem(a, 5).tap()
@@ -197,7 +197,7 @@ test.describe('모바일 노트 버전 기록', () => {
     await expectNoHorizontalOverflow(a)
   })
 
-  test('복귀 토스트 "변경 보기"는 전체화면 미리보기로 최신 판을 변경 표시로 연다', async ({ authenticatedPage: a, newAuthedPage, collabNs }) => {
+  test('복귀 토스트 "변경 보기"는 전체화면 미리보기로 최신 판을 변경 표시로 연다', { tag: '@platform' }, async ({ authenticatedPage: a, newAuthedPage, collabNs }) => {
     const opts = { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE }
     await mockWikiPageEditor(a, opts)
     await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: DETAILS })

@@ -1,5 +1,7 @@
 // 모바일 보드(WP-195) — 상태 탭 + 한 컬럼, 카드 2줄 레이아웃, 탭·스와이프 전환, boardTab URL 유지.
 // 탭은 프로젝트 상태(WP-808) — 기본 스텁(auth.fixture)의 시드 상태 할 일 1·진행 중 2·완료 3·취소 4.
+// 브라우저가 있어야 판정되는 카드·탭 기하, 스와이프·길게 누르기, 스크롤 위치만 남긴다. 탭↔패널 aria 연결, boardTab 주소 반영·복귀,
+// 예전 범주 링크 정규화, 상태 필터로 탭 숨김, 그룹 보드 탭 안 섹션, 개인 보드 탭 3개는 페이지 테스트 src/pages/mobile/board.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -56,7 +58,7 @@ test.describe('모바일 보드 카드', () => {
     await stubChat(page);
   });
 
-  test('긴 제목은 최대 2줄, ID 는 한 줄로 메타 줄에 — 카드는 화면 폭을 거의 다 쓴다', async ({ authenticatedPage: page }) => {
+  test('긴 제목은 최대 2줄, ID 는 한 줄로 메타 줄에 — 카드는 화면 폭을 거의 다 쓴다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&boardTab=1&group=none`);
     const card = page.getByTestId('issue-card-21');
@@ -92,7 +94,7 @@ test.describe('모바일 보드 상태 탭', () => {
     await stubChat(page);
   });
 
-  test('탭 4개와 개수, 기본은 진행 중 — 선택 탭 카드만 보인다', async ({ authenticatedPage: page }) => {
+  test('탭 4개와 개수, 기본은 진행 중 — 선택 탭 카드만 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page, { moreStatus: 'TODO' });
     await page.goto(`/projects/${KEY}?view=board&group=none`);
     for (const s of [1, 2, 3, 4]) await expect(page.getByTestId(`board-tab-${s}`)).toBeVisible();
@@ -108,42 +110,7 @@ test.describe('모바일 보드 상태 탭', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  // WP-841 — 탭이 가리키는 패널(aria-controls)이 실제로 있어야 스크린리더가 탭과 카드 목록을 잇는다.
-  test('선택 탭의 aria-controls 가 그 탭으로 이름 붙은 tabpanel(카드 목록)을 가리키고, 탭을 바꾸면 따라간다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=1`);
-    // 탭은 시드 상태 id — 할 일 1·완료 3.
-    for (const [statusId, card] of [[1, 'issue-card-21'], [3, 'issue-card-31']] as const) {
-      if (statusId === 3) await page.getByTestId('board-tab-3').click();
-      const tab = page.getByTestId(`board-tab-${statusId}`);
-      await expect(tab).toHaveAttribute('aria-selected', 'true');
-      const panel = page.locator(`[id="${await tab.getAttribute('aria-controls')}"]`);
-      await expect(panel).toHaveAttribute('role', 'tabpanel');
-      await expect(panel).toHaveAttribute('aria-labelledby', (await tab.getAttribute('id'))!);
-      await expect(panel.getByTestId(card)).toBeVisible();
-    }
-  });
-
-  test('탭을 누르면 전환되고 URL boardTab 으로 유지(새로고침 복귀)', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none`);
-    await page.getByTestId('board-tab-3').click();
-    await expect(page).toHaveURL(/boardTab=3/);
-    await expect(page.getByTestId('issue-card-31')).toBeVisible();
-    await page.reload();
-    await expect(page.getByTestId('board-tab-3')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('issue-card-31')).toBeVisible();
-  });
-
-  test('예전 범주 링크(boardTab=DONE)는 그 범주 첫 상태 탭으로 열리고 URL 이 statusId 로 바뀐다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=DONE`);
-    await expect(page.getByTestId('board-tab-3')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('issue-card-31')).toBeVisible();
-    await expect(page).toHaveURL(/boardTab=3(&|$)/);
-  });
-
-  test('기본 탭은 첫 로드 후 URL 에 고정 — 마지막 진행 중 카드를 완료로 옮겨도 탭이 튀지 않는다', async ({ authenticatedPage: page }) => {
+  test('기본 탭은 첫 로드 후 URL 에 고정 — 마지막 진행 중 카드를 완료로 옮겨도 탭이 튀지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&group=none`);
     await expect(page).toHaveURL(/boardTab=2/);
@@ -155,7 +122,7 @@ test.describe('모바일 보드 상태 탭', () => {
     await expect(page.getByTestId('board-tab-2')).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('좌우 스와이프로 이웃 탭 전환, 끝에서는 그대로, 스와이프 후 상세로 이동하지 않는다', async ({ authenticatedPage: page }) => {
+  test('좌우 스와이프로 이웃 탭 전환, 끝에서는 그대로, 스와이프 후 상세로 이동하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=1`);
     await expect(page.getByTestId('issue-card-21')).toBeVisible();
@@ -171,19 +138,7 @@ test.describe('모바일 보드 상태 탭', () => {
     await expect(page.getByTestId('board-tab-1')).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('상태 필터로 제외된 탭은 숨기고, 필터를 바꿔도 선택 탭은 유지된다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none&status=TODO,DONE&boardTab=3`);
-    await expect(page.getByTestId('board-tab-2')).toHaveCount(0);
-    await expect(page.getByTestId('board-tab-3')).toHaveAttribute('aria-selected', 'true');
-    // 검색어 입력 = writeFilters 경로
-    await page.getByTestId('mobile-search-open').click();
-    await page.getByTestId('mobile-search-input').fill('영수증');
-    await expect(page).toHaveURL(/q=/);
-    await expect(page).toHaveURL(/boardTab=3/);
-  });
-
-  test('탭을 바꾸면 목록 스크롤이 맨 위로', async ({ authenticatedPage: page }) => {
+  test('탭을 바꾸면 목록 스크롤이 맨 위로', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const many = Array.from({ length: 30 }, (_, i) => createIssue({ id: 500 + i, number: 500 + i, projectKey: KEY, title: `대량 할 일 ${i}`, type: makeTaskType(), status: 'TODO' }));
     await mock(page, { issues: [...many, PROG] });
     await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=1`);
@@ -198,19 +153,7 @@ test.describe('모바일 그룹·개인 보드', () => {
     await stubChat(page);
   });
 
-  test('우선순위 그룹 보드도 상태 탭 — 탭 안에 그룹 섹션', async ({ authenticatedPage: page }) => {
-    const hi = createIssue({ id: 61, number: 61, projectKey: KEY, title: '높음 할 일', type: makeTaskType(), status: 'TODO', priority: 'HIGH' });
-    const lo = createIssue({ id: 62, number: 62, projectKey: KEY, title: '낮음 할 일', type: makeTaskType(), status: 'TODO', priority: 'LOW' });
-    await mock(page, { issues: [hi, lo, PROG] });
-    await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=1`);
-    await expect(page.getByTestId('board-tab-count-1')).toHaveText('2');
-    await expect(page.getByTestId('board-group-1-HIGH')).toContainText('높음 할 일');
-    await expect(page.getByTestId('board-group-1-LOW')).toContainText('낮음 할 일');
-    await expect(page.getByTestId('issue-card-1047')).toHaveCount(0);
-    await expectNoHorizontalOverflow(page);
-  });
-
-  test('그룹 보드의 빈 탭도 통일된 빈 상태 — 이슈 추가 버튼 44px 이상', async ({ authenticatedPage: page }) => {
+  test('그룹 보드의 빈 탭도 통일된 빈 상태 — 이슈 추가 버튼 44px 이상', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const hi = createIssue({ id: 61, number: 61, projectKey: KEY, title: '높음 할 일', type: makeTaskType(), status: 'TODO', priority: 'HIGH' });
     await mock(page, { issues: [hi] });
     await page.goto(`/projects/${KEY}?view=board&group=priority&boardTab=4`);
@@ -219,17 +162,6 @@ test.describe('모바일 그룹·개인 보드', () => {
     expect(box!.height).toBeGreaterThanOrEqual(44);
   });
 
-  test('개인 프로젝트 보드는 탭 3개(취소 없음)', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'PERSONAL', viewerIsMember: true }))));
-    await page.goto(`/projects/${KEY}?view=board`);
-    await expect(page.getByTestId('board-tab-1')).toBeVisible();
-    await expect(page.getByTestId('board-tab-3')).toBeVisible();
-    await expect(page.getByTestId('board-tab-4')).toHaveCount(0);
-    // 개인 보드는 상태 편집이 없고(⋯ 없음) 상태가 범주와 1:1 이라 범주 색 띠도 없다.
-    await expect(page.getByTestId('board-tab-menu')).toHaveCount(0);
-    await expect(page.getByTestId('board-tab-band-1')).toHaveCount(0);
-  });
 });
 
 // WP-606 — 모바일 보드도 빈 완료·취소 탭에서 활성 사이클 밖 종료 이슈를 숨겼다고 알린다.
@@ -238,7 +170,7 @@ test.describe('모바일 보드 종료 이슈 숨김 안내', () => {
     await stubChat(page);
   });
 
-  test('빈 취소 탭은 숨김 안내와 44px 「완료 모두 보기」를 보이고, 누르면 탭을 유지한 채 숨김을 해제한다', async ({ authenticatedPage: page }) => {
+  test('빈 취소 탭은 숨김 안내와 44px 「완료 모두 보기」를 보이고, 누르면 탭을 유지한 채 숨김을 해제한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?view=board&boardTab=4&group=none`);
     const empty = page.getByTestId('board-col-empty-4');

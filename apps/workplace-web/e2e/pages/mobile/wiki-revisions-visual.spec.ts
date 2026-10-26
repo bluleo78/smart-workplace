@@ -26,7 +26,7 @@ test.afterEach(() => leaveAllCollabPeers())
 const previewLayer = (p: Page) => p.getByTestId('wiki-revision-mobile-preview')
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`모바일 버전 기록 실데이터 ${scheme} — 목록 · 미리보기(변경 표시 켬/끔) · 어제 판 · 하단 복원`, async ({ authenticatedPage: a }) => {
+  test(`모바일 버전 기록 실데이터 ${scheme} — 목록 · 미리보기(변경 표시 켬/끔) · 어제 판 · 하단 복원`, { tag: '@layout' }, async ({ authenticatedPage: a }) => {
     const tag = `mobile-390-${scheme}`
     await a.emulateMedia({ colorScheme: scheme })
     await mockWikiPageEditor(a, { spaceId: REVISION_SPACE_ID, pageId: LONG_PAGE_ID, title: LONG_TITLE, body: LONG_LIVE })

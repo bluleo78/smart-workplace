@@ -1,11 +1,13 @@
 // WP-135 — 모바일 채팅 목록 행: 마지막 메시지 미리보기·시간·미리보기 굵게 강조.
+// 굵기·정렬·말줄임처럼 실제 레이아웃이 필요한 것(@layout)만 남긴다. 셀프 DM 미리보기 「나: 」 접두는
+// 페이지 테스트 src/pages/mobile/chatListPreview.test.tsx 가 지킨다(WP-971).
 import { expect, test } from '../../fixtures/auth.fixture'
 import { createChannel, createDm, createDmParticipant, createLastMessage } from '../../factories/messaging.factory'
 import { expectNoHorizontalOverflow, stubChat } from '../../fixtures/mobile.fixture'
 
 const ME = 1 // auth.fixture 의 로그인 사용자 id (createUser 기본 id = 1)
 
-test('미리보기·시간이 보이고 미읽음 행은 굵다', async ({ authenticatedPage: page }) => {
+test('미리보기·시간이 보이고 미읽음 행은 굵다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page, {
     channels: [
       createChannel({ id: 1, name: 'general', unreadCount: 3,
@@ -49,7 +51,7 @@ test('미리보기·시간이 보이고 미읽음 행은 굵다', async ({ authe
   await expectNoHorizontalOverflow(page)
 })
 
-test('긴 데이터 말줄임 — 이름·미리보기는 잘리고 시간·배지는 보인다', async ({ authenticatedPage: page }) => {
+test('긴 데이터 말줄임 — 이름·미리보기는 잘리고 시간·배지는 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const longName = 'smart-workplace-모바일-개선-태스크포스-2026-하반기-로드맵-정리'
   const longPreview = '가'.repeat(120)
   await stubChat(page, {
@@ -68,13 +70,4 @@ test('긴 데이터 말줄임 — 이름·미리보기는 잘리고 시간·배�
   expect(await overflowed('conv-name-1')).toBe(true) // 말줄임 적용(잘림)
   expect(await overflowed('conv-preview-1')).toBe(true)
   await expectNoHorizontalOverflow(page)
-})
-
-test('셀프 DM 미리보기 — 나뿐인 DM 의 마지막 메시지를 "나: " 로', async ({ authenticatedPage: page }) => {
-  await stubChat(page, {
-    dms: [createDm({ id: 20, participants: [createDmParticipant({ userId: ME, name: '나' })],
-      lastMessage: createLastMessage({ authorId: ME, preview: '메모: 우유 사기' }) })],
-  })
-  await page.goto('/chat')
-  await expect(page.getByTestId('mobile-module-list').getByTestId('conv-preview-self')).toHaveText('나: 메모: 우유 사기')
 })

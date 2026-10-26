@@ -1,5 +1,7 @@
 // 모바일 뒤로가기 히스토리 — 채팅 스레드(?thread)(WP-207).
 // 채널 안 "답글"도 push 라 시스템 뒤로가기가 스레드만 닫는다. 모바일은 스레드를 전체폭으로(채널 컬럼 숨김) 보인다.
+// 브라우저가 있어야 판정되는 폭·시스템 뒤로가기만 남긴다. 딥링크 ?thread 의 ‹ 닫기·루트 없는 ?thread 에서 채널 유지는
+// 페이지 테스트 src/pages/mobile/backThread.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
 import { createMessage, createThreadInboxItem } from '../../factories/messaging.factory'
@@ -19,7 +21,7 @@ async function stubThread(page: Page) {
   await page.route((u) => u.pathname === '/api/v1/messaging/messages/10/thread/read', (r) => r.fulfill({ status: 204, body: '' }))
 }
 
-test('답글 → 전체폭 스레드, goBack 은 스레드만 닫고 채널에 남는다 — ‹ 도 같은 결과', async ({ authenticatedPage: page }) => {
+test('답글 → 전체폭 스레드, goBack 은 스레드만 닫고 채널에 남는다 — ‹ 도 같은 결과', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubThread(page)
   await page.goto('/chat/channels/1')
   await page.getByTestId('message-thread-link-10').tap()
@@ -46,17 +48,7 @@ test('답글 → 전체폭 스레드, goBack 은 스레드만 닫고 채널에 �
   await expect(panel).toHaveCount(0)
 })
 
-test('딥링크(푸시 알림 콜드 진입) ?thread → ‹ 는 thread 만 지우고 채널에 남는다', async ({ authenticatedPage: page }) => {
-  await stubThread(page)
-  await page.goto('/chat/channels/1?thread=10')
-  const panel = page.getByTestId('thread-panel')
-  await expect(panel).toBeVisible()
-  await panel.getByTestId('mobile-back').tap()
-  await expect(page).toHaveURL(/\/chat\/channels\/1$/)
-  await expect(page.getByTestId('channel-column')).toBeVisible()
-})
-
-test('스레드 인박스 → 스레드: ‹ 와 goBack 이 모두 인박스로 돌아간다', async ({ authenticatedPage: page }) => {
+test('스레드 인박스 → 스레드: ‹ 와 goBack 이 모두 인박스로 돌아간다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubThread(page)
   const item = createThreadInboxItem({
     channelName: '모바일-개편',
@@ -79,15 +71,7 @@ test('스레드 인박스 → 스레드: ‹ 와 goBack 이 모두 인박스로 
   await expect(page).toHaveURL(/\/chat\/threads\/inbox$/)
 })
 
-test('루트를 못 찾는 ?thread 는 채널을 숨기지 않는다(빈 전체폭 화면 방지)', async ({ authenticatedPage: page }) => {
-  await stubThread(page)
-  await page.goto('/chat/channels/1?thread=999')
-  await expect(page.getByTestId('thread-panel')).toHaveCount(0)
-  await expect(page.getByTestId('channel-column')).toBeVisible()
-  await expect(page.getByTestId('message-body-10')).toBeVisible()
-})
-
-test('데스크톱(≥1024px)은 채널 옆 w-96 패널 그대로', async ({ authenticatedPage: page }) => {
+test('데스크톱(≥1024px)은 채널 옆 w-96 패널 그대로', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await stubThread(page)
   await page.goto('/chat/channels/1?thread=10')

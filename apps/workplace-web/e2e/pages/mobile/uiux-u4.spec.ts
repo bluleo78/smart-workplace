@@ -1,5 +1,7 @@
 // 모바일 U4 — main 신규 기능(#884 좌/우 말풍선·#885 출발 화면 복귀·새 메시지 인라인 검색)의 모바일 셸 적응.
 // H1 길게 누르기 작업 시트 · H2 이슈 채팅 드로워 URL·헤더 · M1~M5 · L1.
+// 삭제된 메시지 시트의 이모지 줄 없음(WP-665)은 src/pages/mobile/uiuxU4.test.tsx 가 지킨다(WP-981). 나머지는 길게 누르기·키 입력(@input),
+// 터치 크기·가로 넘침(@layout), 실제 히스토리 뒤로가기(@platform)라 E2E 에 남는다.
 import type { Page } from '@playwright/test'
 
 import { createChatMessage } from '../../factories/chat.factory'
@@ -10,7 +12,7 @@ import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
 test.describe('H1 메시지 길게 누르기 작업 시트', () => {
-  test('터치 셸에선 툴바를 그리지 않고, 탭은 시트를 열지 않는다(멘션 칩 탭 포함)', async ({ authenticatedPage: page }) => {
+  test('터치 셸에선 툴바를 그리지 않고, 탭은 시트를 열지 않는다(멘션 칩 탭 포함)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
     // 길게 누르기 판정 타이머(450ms)를 가상 시계로 넘긴다
     await page.clock.install()
@@ -28,7 +30,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await expect(page.getByTestId('message-10')).toHaveCSS('user-select', 'none')
   })
 
-  test('타인 메시지: 이모지 줄 + 스레드·복사(수정·삭제 없음), 이모지를 누르면 반응이 붙는다', async ({ authenticatedPage: page }) => {
+  test('타인 메시지: 이모지 줄 + 스레드·복사(수정·삭제 없음), 이모지를 누르면 반응이 붙는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
     const reactions = trackRequests(page, 'POST', '/api/v1/messaging/messages/10/reactions')
     await page.route((u) => u.pathname === '/api/v1/messaging/messages/10/reactions', (r) =>
@@ -57,27 +59,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     expect((await page.getByTestId('reaction-pill-10-👍').boundingBox())!.height).toBeGreaterThanOrEqual(32)
   })
 
-  // WP-665: 삭제된 메시지엔 새 리액션을 달 수 없다 — 길게 누르기 시트에 이모지 줄이 없다(스레드 작업은 남는다).
-  test('삭제된 메시지를 길게 누르면 이모지 줄 없이 작업만 보인다 (WP-665)', async ({ authenticatedPage: page }) => {
-    await stubChat(page)
-    const deleted = createMessage({
-      id: 30, channelId: 1, authorId: 20, authorName: '동료', body: '(삭제됨)', deleted: true, replyCount: 1,
-      createdAt: '2026-09-30T03:00:00Z',
-    })
-    await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) =>
-      r.request().method() === 'GET' ? r.fulfill(json({ items: [deleted], nextCursor: null, hasMore: false })) : r.fallback())
-    await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/members', (r) =>
-      r.request().method() === 'GET' ? r.fulfill(json([])) : r.fallback())
-    await page.goto('/chat/channels/1')
-    await longPress(page, page.getByTestId('message-body-30'))
-
-    const sheet = page.getByTestId('message-action-sheet')
-    await expect(sheet.getByTestId('message-action-thread')).toBeVisible()
-    await expect(sheet.getByTestId('message-action-react-👍')).toHaveCount(0)
-    await expect(sheet.getByTestId('message-action-react-more')).toHaveCount(0)
-  })
-
-  test('답글 링크 위에서 길게 누르면 시트만 열리고 스레드는 열리지 않는다(발동 뒤 click 억제)', async ({ authenticatedPage: page }) => {
+  test('답글 링크 위에서 길게 누르면 시트만 열리고 스레드는 열리지 않는다(발동 뒤 click 억제)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
     await page.goto('/chat/channels/1')
     await longPress(page, page.getByTestId('message-thread-link-10'))
@@ -90,7 +72,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
     await expect(page.getByTestId('thread-panel')).toBeVisible()
   })
 
-  test('본인 메시지: 수정은 인라인 에디터, 삭제는 실행 취소 토스트(취소하면 DELETE 없음)', async ({ authenticatedPage: page }) => {
+  test('본인 메시지: 수정은 인라인 에디터, 삭제는 실행 취소 토스트(취소하면 DELETE 없음)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubChannelMessages(page)
     const deletes = trackRequests(page, 'DELETE', '/api/v1/messaging/messages/11')
     await page.route((u) => u.pathname === '/api/v1/messaging/messages/11', (r) =>
@@ -121,7 +103,7 @@ test.describe('H1 메시지 길게 누르기 작업 시트', () => {
 })
 
 test.describe('H2·M5 이슈 채팅', () => {
-  test('M5: 채팅은 ⋯ 밖 44px 아이콘(미읽음 빨간 점), ⋯ 에는 구독·삭제만', async ({ authenticatedPage: page }) => {
+  test('M5: 채팅은 ⋯ 밖 44px 아이콘(미읽음 빨간 점), ⋯ 에는 구독·삭제만', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubIssue(page, { unread: true })
     await page.goto(`/projects/${KEY}/issues/1`)
     const header = page.getByTestId('page-header')
@@ -141,7 +123,7 @@ test.describe('H2·M5 이슈 채팅', () => {
     await expect(page.getByTestId('issue-chat-open')).toHaveCount(1)
   })
 
-  test('H2: 열면 ?chat=1, 시스템 뒤로가기는 드로워만 닫고 상세에 머문다. 헤더는 ‹ + MOB-1 채팅(기본 X 없음)', async ({ authenticatedPage: page }) => {
+  test('H2: 열면 ?chat=1, 시스템 뒤로가기는 드로워만 닫고 상세에 머문다. 헤더는 ‹ + MOB-1 채팅(기본 X 없음)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubIssue(page)
     await page.goto(`/projects/${KEY}/issues/1`)
     await page.getByTestId('issue-chat-open').tap()
@@ -166,7 +148,7 @@ test.describe('H2·M5 이슈 채팅', () => {
     await expect(page).toHaveURL(DETAIL)
   })
 
-  test('H2: ?chat=1 딥링크는 드로워가 열린 채 진입, ‹ 는 파라미터만 지우고 상세에 남는다', async ({ authenticatedPage: page }) => {
+  test('H2: ?chat=1 딥링크는 드로워가 열린 채 진입, ‹ 는 파라미터만 지우고 상세에 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubIssue(page)
     await page.goto(`/projects/${KEY}/issues/1?chat=1`)
     const drawer = page.getByTestId('issue-chat-drawer')
@@ -176,7 +158,7 @@ test.describe('H2·M5 이슈 채팅', () => {
     await expect(page).toHaveURL(DETAIL)
   })
 
-  test('H1(이슈 채팅): 본인 메시지 길게 누르기 → 복사·수정·삭제(이모지 줄 없음), 타인 메시지는 복사만', async ({ authenticatedPage: page }) => {
+  test('H1(이슈 채팅): 본인 메시지 길게 누르기 → 복사·수정·삭제(이모지 줄 없음), 타인 메시지는 복사만', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubIssue(page)
     await page.goto(`/projects/${KEY}/issues/1?chat=1`)
     await expect(page.getByTestId('chat-message-body-502')).toBeVisible()
@@ -232,7 +214,7 @@ async function stubNewMessage(page: Page) {
 }
 
 test.describe('M1~M4 새 메시지·입력', () => {
-  test('M1: 헤더 제목은 "새 메시지"(모듈 제목 "채팅" 바 대신), 본문 라벨은 화면에서 숨김', async ({ authenticatedPage: page }) => {
+  test('M1: 헤더 제목은 "새 메시지"(모듈 제목 "채팅" 바 대신), 본문 라벨은 화면에서 숨김', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubNewMessage(page)
     await page.goto('/chat/new')
     await expect(page.getByTestId('mobile-back-title')).toHaveText('새 메시지')
@@ -244,7 +226,7 @@ test.describe('M1~M4 새 메시지·입력', () => {
     await expectNoHorizontalOverflow(page)
   })
 
-  test('M3: 받는 사람 탭·후보 행은 44px, 이메일 아이디에 @ 를 덧붙이지 않는다', async ({ authenticatedPage: page }) => {
+  test('M3: 받는 사람 탭·후보 행은 44px, 이메일 아이디에 @ 를 덧붙이지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubNewMessage(page)
     await page.goto('/chat/new')
     await page.getByTestId('new-message-recipient-input').fill('밥')
@@ -258,7 +240,7 @@ test.describe('M1~M4 새 메시지·입력', () => {
     }
   })
 
-  test('M2·M4: Enter 는 줄바꿈, 보내기 버튼만 전송 → DM 으로 replace 이동(뒤로가기로 빈 작성 화면에 돌아오지 않음)', async ({ authenticatedPage: page }) => {
+  test('M2·M4: Enter 는 줄바꿈, 보내기 버튼만 전송 → DM 으로 replace 이동(뒤로가기로 빈 작성 화면에 돌아오지 않음)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const sends = await stubNewMessage(page)
     await page.goto('/chat/new')
     await page.getByTestId('new-message-recipient-input').fill('밥')
@@ -280,7 +262,7 @@ test.describe('M1~M4 새 메시지·입력', () => {
     expect(await page.evaluate(() => history.length)).toBe(lengthBefore)
   })
 
-  test('M4: 이슈 채팅 입력 안내는 "메시지를 입력하세요"(Shift+Enter 안내 없음), Enter 는 줄바꿈', async ({ authenticatedPage: page }) => {
+  test('M4: 이슈 채팅 입력 안내는 "메시지를 입력하세요"(Shift+Enter 안내 없음), Enter 는 줄바꿈', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubIssue(page)
     const posts = trackRequests(page, 'POST', '/api/v1/chat/threads/100/messages')
     await page.route('**/api/v1/chat/threads/100/messages', (r) => {

@@ -3,7 +3,7 @@ import { mockStarterSuggestions } from '../../fixtures/ai-suggestions-mock'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('시트의 빈 대화에 추천이 보이고 행은 44px 이상, 탭하면 그 문구로 보낸다', async ({ authenticatedPage: page }) => {
+test('시트의 빈 대화에 추천이 보이고 행은 44px 이상, 탭하면 그 문구로 보낸다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockStarterSuggestions(page, { replies: [{ items: [], enabled: true }] })
   const chat = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-m' } }] })
@@ -23,7 +23,7 @@ test('시트의 빈 대화에 추천이 보이고 행은 44px 이상, 탭하면 
 // UI 리뷰 #2 — 390px 시트에서도 40자 문구가 말줄임 없이 두 줄로 감겨 끝까지 보이고, 행은 44px 이상을 지킨다.
 const LONG40 = '지난주 디자인 리뷰 회의록에서 결정된 사항과 담당자별 할일 모두 정리해줘'
 
-test('시트에서 40자 추천은 두 줄로 감겨 끝까지 보인다', async ({ authenticatedPage: page }) => {
+test('시트에서 40자 추천은 두 줄로 감겨 끝까지 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   expect([...LONG40].length).toBe(40)
   await stubChat(page)
   await mockStarterSuggestions(page, { replies: [{ items: [LONG40, '오늘 일정 알려줘', '내 이슈 알려줘', '안 읽은 메일 알려줘'], enabled: true }] })

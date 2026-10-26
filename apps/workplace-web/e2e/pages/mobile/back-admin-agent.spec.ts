@@ -1,4 +1,6 @@
 // 모바일 뒤로가기 히스토리 — 관리자 에이전트 상세 시트(?agent)(WP-209).
+// 브라우저 뒤로가기(goBack)가 시트만 닫는지(@platform)만 남긴다. 딥링크 닫기·없는 에이전트 안내는
+// 페이지 테스트 src/pages/mobile/backAdminAgent.test.tsx 가 지킨다(WP-971).
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/mobile.fixture'
@@ -25,7 +27,7 @@ async function stubAgents(page: Page) {
     r.fulfill({ json: { agentUserId: null, agentName: null, hasActiveToken: false, model: null, thinkingDepth: null } }))
 }
 
-test('행 → 시트: goBack 은 시트만 닫고 에이전트 관리에 남는다 — ESC 도 같은 결과', async ({ adminPage: page }) => {
+test('행 → 시트: goBack 은 시트만 닫고 에이전트 관리에 남는다 — ESC 도 같은 결과', { tag: '@platform' }, async ({ adminPage: page }) => {
   await stubAgents(page)
   await page.goto('/settings/agents')
   await page.getByTestId('agent-row-100').tap()
@@ -42,20 +44,4 @@ test('행 → 시트: goBack 은 시트만 닫고 에이전트 관리에 남는�
   await page.keyboard.press('Escape')
   await expect(page).toHaveURL(/\/settings\/agents$/)
   await expect(drawer).toHaveCount(0)
-})
-
-test('딥링크(?agent) → 닫기는 에이전트 관리에 남는다', async ({ adminPage: page }) => {
-  await stubAgents(page)
-  await page.goto('/settings/agents?agent=100')
-  await expect(page.getByTestId('agent-detail-drawer')).toBeVisible()
-  await page.getByTestId('agent-detail-drawer').getByRole('button', { name: '닫기' }).tap()
-  await expect(page).toHaveURL(/\/settings\/agents$/)
-})
-
-test('없는 에이전트 딥링크는 찾을 수 없음 시트를 보이고 닫힌다', async ({ adminPage: page }) => {
-  await stubAgents(page)
-  await page.goto('/settings/agents?agent=999')
-  await expect(page.getByTestId('agent-detail-notfound')).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(page).toHaveURL(/\/settings\/agents$/)
 })

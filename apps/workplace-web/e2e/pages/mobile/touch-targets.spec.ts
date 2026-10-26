@@ -11,7 +11,7 @@ import { mockApi } from '../../fixtures/api-mock'
 import { stubChannelMessages } from '../../fixtures/mobile-chat'
 import { expect, expectTouchTarget, test } from '../../fixtures/mobile.fixture'
 
-test('홈 — 메일 분류 안내의 「닫기」·「켜기」와 위젯 머리말 링크', async ({ authenticatedPage: page }) => {
+test('홈 — 메일 분류 안내의 「닫기」·「켜기」와 위젯 머리말 링크', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
   await mockApi(page, 'GET', '/api/v1/me/issues', createIssueSearchResponse([createIssue({ id: 7, number: 7 })]))
   const mail: MailSummary = { unreadCount: 2, needsReplyCount: 0, classificationActive: false, recent: [] }
@@ -42,14 +42,14 @@ test('홈 — 메일 분류 안내의 「닫기」·「켜기」와 위젯 머�
   await expectTouchTarget(page.getByRole('link', { name: /내 작업/ }).first())
 })
 
-test('드라이브 — 「공간」 머리말의 「팀 공간 만들기」', async ({ authenticatedPage: page }) => {
+test('드라이브 — 「공간」 머리말의 「팀 공간 만들기」', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: [personalSpace(), createSpace()] }) : r.fallback())
   await page.goto('/drive')
   await expectTouchTarget(page.getByRole('button', { name: '팀 공간 만들기' }))
 })
 
-test('캘린더 시트 — 「캘린더 추가」와 캘린더 표시 체크박스', async ({ authenticatedPage: page }) => {
+test('캘린더 시트 — 「캘린더 추가」와 캘린더 표시 체크박스', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-13T10:00:00'))
   await page.route((u) => u.pathname === '/api/v1/calendars', (r) =>
     r.fulfill({ json: [calendar({ id: 1, name: '기본' })] }))
@@ -65,7 +65,7 @@ test('캘린더 시트 — 「캘린더 추가」와 캘린더 표시 체크박�
   await expectTouchTarget(sheet.getByTestId('calendar-layer-invited'))
 })
 
-test('설정 > 에이전트 — 「개인 비서 표시」 스위치', async ({ adminPage: page }) => {
+test('설정 > 에이전트 — 「개인 비서 표시」 스위치', { tag: '@layout' }, async ({ adminPage: page }) => {
   const agents: AgentResponse[] = []
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: agents }) : r.fallback())
@@ -75,14 +75,14 @@ test('설정 > 에이전트 — 「개인 비서 표시」 스위치', async ({ 
   await expectTouchTarget(page.getByTestId('include-personal-toggle'))
 })
 
-test('설정 > 역할 상세 — 권한 체크박스(테두리 있는 16px)', async ({ adminPage: page }) => {
+test('설정 > 역할 상세 — 권한 체크박스(테두리 있는 16px)', { tag: '@layout' }, async ({ adminPage: page }) => {
   await setupAdminAuth(page)
   await setupRoleDetailMocks(page, 3, false)
   await page.goto('/settings/roles/3')
   await expectTouchTarget(page.locator('[id^="perm-"]').first())
 })
 
-test('채널 — 메시지 밑 「답글 N개」 스레드 링크', async ({ authenticatedPage: page }) => {
+test('채널 — 메시지 밑 「답글 N개」 스레드 링크', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   await page.goto('/chat/channels/1')
   // 위 본문의 멘션 칩 탭이 이 링크로 옮겨지지 않게(uiux-u4 H1) 숨은 영역 대신 버튼 자체가 24px 다.

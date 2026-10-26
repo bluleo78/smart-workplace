@@ -1,4 +1,8 @@
-// 모바일 이슈 목록 2줄 행(WP-194) — 긴 제목 가시성·메타 한 줄·에픽 메타 생략 규칙.
+// 모바일 이슈 목록 2줄 행(WP-194)·툴바·에픽 시트 E2E.
+// 브라우저가 있어야 판정되는 것만 남긴다 — 폭·줄 수·터치 크기·팝오버 위치(@layout), 검색창 포커스(@input),
+// 히스토리 표식·시트를 닫고 상세로 가는 히스토리 이동(@platform), 목록 진입 대표 흐름(@wiring).
+// 행 메타 규칙(에픽 메타 생략·높음만 표시), 그룹·필터·뷰·에픽 시트의 URL 반영·칩 라벨, 저장 뷰 POST·PATCH payload,
+// 권한별 버튼(비멤버·남의 공유 뷰), 종료된 에픽 구역·검색은 페이지 테스트 src/pages/mobile/issueList.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -6,7 +10,6 @@ import { makeEpicType, makeTaskType, systemTypes } from '../../factories/issueTy
 import { createProject } from '../../factories/project.factory';
 import { serverEpicFilter } from '../../fixtures/epic-search';
 import { expect, expectNoHorizontalOverflow, historyMarks, stubChat, test } from '../../fixtures/mobile.fixture';
-import { trackRequests } from '../../fixtures/requests';
 import { expectSelectedRow } from '../../fixtures/selection';
 import type { IssueResponse } from '../../../src/types/issue';
 
@@ -41,11 +44,6 @@ const SUB = createIssue({
   parent: { number: 40, title: '스토리 부모', type: { ...makeTaskType(), name: 'STORY' } },
 });
 
-// 뷰 시트 테스트용 저장 뷰 — 필드는 src/types/savedView.ts 에 맞춘다.
-const MY_BUG_VIEW = {
-  id: 5, name: '내 버그', query: 'status=TODO&group=none', visibility: 'PRIVATE', ownerId: 1,
-  mine: true, pinned: false, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
-};
 
 // 종료된 에픽(WP-245) — 에픽 조회에 status=DONE,CANCELED 가 오면 돌려주는 목록. 번호는 진행 중 EPICS 와 겹치지 않게 52·53.
 const CLOSED_EPICS = [
@@ -81,7 +79,7 @@ test.describe('모바일 이슈 목록 2줄 행', () => {
     await stubChat(page);
   });
 
-  test('2줄 행 — 긴 제목이 보이고 메타 줄은 한 줄, 가로 스크롤 없음', async ({ authenticatedPage: page }) => {
+  test('2줄 행 — 긴 제목이 보이고 메타 줄은 한 줄, 가로 스크롤 없음', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     const title = page.getByTestId('issue-row-21-title');
@@ -100,7 +98,7 @@ test.describe('모바일 이슈 목록 2줄 행', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('긴 제목은 목록 폭 안에서 줄바꿈된다 — 오른쪽으로 잘리지 않음', async ({ authenticatedPage: page }) => {
+  test('긴 제목은 목록 폭 안에서 줄바꿈된다 — 오른쪽으로 잘리지 않음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     const title = page.getByTestId('issue-row-21-title');
@@ -114,19 +112,6 @@ test.describe('모바일 이슈 목록 2줄 행', () => {
     expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     expect(await scroll.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   });
-
-  // 두 경로(그룹 「에픽」·특정 에픽 필터)를 한 테스트에서 본다 — 페이지 셋업 1회로 줄였다(WP-412).
-  test('그룹 「에픽」 안의 행과 특정 에픽으로 필터된 목록은 에픽 메타를 생략한다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=epic`);
-    await expect(page.getByTestId('list-group-epic-30')).toBeVisible();
-    await expect(page.getByTestId('issue-row-21')).toBeVisible(); // 양성 대조 — 행은 렌더됨
-    await expect(page.getByTestId('issue-row-21-epic')).toHaveCount(0);
-
-    await page.goto(`/projects/${KEY}?group=none&parent=30`);
-    await expect(page.getByTestId('issue-row-21')).toBeVisible();
-    await expect(page.getByTestId('issue-row-21-epic')).toHaveCount(0);
-  });
 });
 
 test.describe('모바일 툴바', () => {
@@ -134,7 +119,7 @@ test.describe('모바일 툴바', () => {
     await stubChat(page);
   });
 
-  test('첫 화면 — 툴바 한 줄, 데스크톱 칩 바 없음, 첫 행이 위쪽에 보인다', async ({ authenticatedPage: page }) => {
+  test('첫 화면 — 툴바 한 줄, 데스크톱 칩 바 없음, 첫 행이 위쪽에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}`);
     const toolbar = page.getByTestId('mobile-issue-toolbar');
@@ -147,7 +132,7 @@ test.describe('모바일 툴바', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('검색 — 줄 전체가 검색창으로, 취소해도 검색어 유지 + 점 표시', async ({ authenticatedPage: page }) => {
+  test('검색 — 줄 전체가 검색창으로, 취소해도 검색어 유지 + 점 표시', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}`);
     await page.getByTestId('mobile-search-open').click();
@@ -163,57 +148,7 @@ test.describe('모바일 툴바', () => {
     await expect(page.getByTestId('mobile-search-input')).toHaveValue('환불');
   });
 
-  test('검색 모드를 오갔다 와도 선택한 저장 뷰가 유지된다(칩 라벨·WP-221 회귀)', async ({ authenticatedPage: page }) => {
-    await mock(page, { views: [MY_BUG_VIEW] });
-    await page.goto(`/projects/${KEY}`);
-    await page.getByTestId('mobile-chip-view').click();
-    await page.getByTestId('mobile-view-option-5').click();
-    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
-    await expect(page.getByTestId('mobile-chip-view')).toHaveText('내 버그');
-    await page.getByTestId('mobile-search-open').click();
-    await page.getByTestId('mobile-search-input').fill('환불');
-    await expect(page).toHaveURL(/q=%ED%99%98%EB%B6%88/);
-    await page.getByTestId('mobile-search-cancel').click();
-    // 검색어가 붙어 조건이 달라져도 선택한 뷰 이름을 유지한다(뷰 업데이트 대상 보존).
-    await expect(page.getByTestId('mobile-chip-view')).toHaveText('내 버그');
-  });
-
-  test('그룹 시트 — 에픽으로 묶기', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}`);
-    const chip = page.getByTestId('mobile-chip-group');
-    await expect(chip).toHaveText('그룹: 없음');
-    await chip.click();
-    await expect(page.getByTestId('mobile-group-sheet')).toBeVisible();
-    await page.getByTestId('picker-option-epic').click();
-    await expect(page).toHaveURL(/group=epic/);
-    await expect(chip).toHaveText('그룹: 에픽');
-    await expect(page.getByTestId('list-group-epic-30')).toBeVisible();
-  });
-
-  test('필터 시트 — ＋ 필터로 상태 추가, 칩 개수, 전체 해제', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}`);
-    await page.getByTestId('mobile-chip-filter').click();
-    const sheet = page.getByTestId('mobile-filter-sheet');
-    await expect(sheet).toBeVisible();
-    await sheet.getByRole('button', { name: /필터/ }).click();
-    await page.getByTestId('add-filter-facet-status').click();
-    await page.getByRole('checkbox', { name: '진행 중' }).click();
-    await expect(page).toHaveURL(/status=IN_PROGRESS/);
-    // 팝오버 → 시트 순서로 닫는다(Escape 는 가장 위 레이어부터 닫힌다).
-    // 팝오버 퇴장 애니메이션 동안엔 그 레이어가 Escape 를 받으므로, 사라진 뒤에 두 번째 Escape 를 보낸다.
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('add-filter-facet-status')).toBeHidden();
-    await page.keyboard.press('Escape');
-    await expect(sheet).toBeHidden();
-    await expect(page.getByTestId('mobile-chip-filter')).toHaveText('필터 1');
-    await page.getByTestId('mobile-chip-filter').click();
-    await page.getByTestId('mobile-filter-clear').click();
-    await expect(page).not.toHaveURL(/status=/);
-  });
-
-  test('필터 시트 — 필터 없으면 안내 문구, ＋ 필터 팝오버는 아래로 열려 시트 제목을 가리지 않는다', async ({ authenticatedPage: page }) => {
+  test('필터 시트 — 필터 없으면 안내 문구, ＋ 필터 팝오버는 아래로 열려 시트 제목을 가리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}`);
     await page.getByTestId('mobile-chip-filter').click();
@@ -229,64 +164,6 @@ test.describe('모바일 툴바', () => {
     expect(fb.y).toBeGreaterThanOrEqual(tb.y + tb.height);
     await expect(sheet.getByRole('heading', { name: '필터' })).toBeInViewport();
   });
-
-  test('뷰 시트 — 저장 뷰 적용, 완료 모두 보기 토글', async ({ authenticatedPage: page }) => {
-    await mock(page, { views: [MY_BUG_VIEW] });
-    await page.goto(`/projects/${KEY}`);
-    const chip = page.getByTestId('mobile-chip-view');
-    await expect(chip).toHaveText('전체');
-    await chip.click();
-    await expect(page.getByTestId('mobile-view-sheet')).toBeVisible();
-    await page.getByTestId('mobile-view-option-5').click();
-    await expect(page).toHaveURL(/status=TODO/);
-    await expect(chip).toHaveText('내 버그');
-    // 상태 필터가 있는 뷰는 종료 이슈 숨김을 이미 해제한다(#876) — 토글은 켜진 채 비활성.
-    await chip.click();
-    const closedToggle = page.getByTestId('mobile-view-closed-toggle');
-    await expect(closedToggle).toBeDisabled();
-    await expect(closedToggle).toHaveAttribute('aria-checked', 'true');
-    // 「전체」로 돌아가 토글을 켜면 closed=all — 토글은 시트를 닫지 않는다.
-    await page.getByTestId('mobile-view-option-all').click();
-    await expect(chip).toHaveText('전체');
-    await chip.click();
-    await closedToggle.click();
-    await expect(page).toHaveURL(/closed=all/);
-    await expect(page.getByTestId('mobile-view-sheet')).toBeVisible();
-  });
-
-  // WP-741 — OPEN 비멤버는 저장된 뷰를 쓸 수 없다(서버 멤버 전용): 목록을 요청하지 않고 시트에 저장 행도 없다.
-  test('뷰 시트 — OPEN 비멤버는 저장된 뷰를 요청하지 않고 「뷰 저장」 행이 없다', async ({ authenticatedPage: page }) => {
-    let savedViewRequests = 0;
-    page.on('request', (r) => {
-      if (new URL(r.url()).pathname === `/api/v1/projects/${KEY}/saved-views`) savedViewRequests += 1;
-    });
-    await mock(page);
-    await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill(json(createProject({ key: KEY, type: 'OPEN', viewerIsMember: false }))));
-    await page.goto(`/projects/${KEY}`);
-    await page.getByTestId('mobile-chip-view').click();
-    await expect(page.getByTestId('mobile-view-sheet')).toBeVisible();
-    await expect(page.getByTestId('mobile-view-option-all')).toBeVisible();
-    await expect(page.getByTestId('mobile-view-save')).toHaveCount(0);
-    expect(savedViewRequests).toBe(0);
-  });
-
-  test('저장된 에픽 패널 열림 상태가 있어도 모바일에선 패널을 그리지 않는다', async ({ authenticatedPage: page }) => {
-    await page.addInitScript(() => localStorage.setItem('epicSidePanel.open.WP', 'true'));
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await expect(page.getByTestId('issue-row-21-title')).toBeVisible();
-    await expect(page.getByTestId('epic-side-panel')).toHaveCount(0);
-    expect((await page.getByTestId('issue-row-21-title').boundingBox())!.width).toBeGreaterThan(200);
-  });
-
-  test('목록/보드 토글 — 보드로 전환', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}`);
-    const toggle = page.getByTestId('mobile-view-toggle');
-    await expect(toggle).toHaveAttribute('aria-label', '보드로 전환');
-    await toggle.click();
-    await expect(page).toHaveURL(/view=board/);
-  });
 });
 
 test.describe('모바일 에픽 시트', () => {
@@ -294,25 +171,7 @@ test.describe('모바일 에픽 시트', () => {
     await stubChat(page);
   });
 
-  test('에픽 선택 → parent 필터 + 칩 라벨, ✕ 로 해제', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    const sheet = page.getByTestId('mobile-epic-sheet');
-    await expect(sheet).toBeVisible();
-    await expect(page.getByTestId('picker-option-all')).toBeVisible();
-    await expect(page.getByTestId('picker-option-unassigned')).toBeVisible();
-    await expect(page.getByTestId('picker-option-epic-30')).toContainText('1/4');
-    await page.getByTestId('picker-option-epic-30').click();
-    await expect(sheet).toBeHidden();
-    await expect(page).toHaveURL(/parent=30/);
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('결제 안정화');
-    await page.getByTestId('mobile-chip-epic-clear').click();
-    await expect(page).not.toHaveURL(/parent=/);
-    await expect(page.getByTestId('mobile-chip-epic')).toHaveText('◆ 에픽');
-  });
-
-  test('에픽 행 끝 「›」 — 시트를 닫고 필터 없이 에픽 상세로 이동, 전체·미할당 행엔 없음 (WP-227)', async ({ authenticatedPage: page }) => {
+  test('에픽 행 끝 「›」 — 시트를 닫고 필터 없이 에픽 상세로 이동, 전체·미할당 행엔 없음 (WP-227)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await page.getByTestId('mobile-chip-epic').click();
@@ -334,20 +193,7 @@ test.describe('모바일 에픽 시트', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/issues/30$`));
   });
 
-  test('이미 선택된 에픽을 다시 눌러도 필터가 유지된다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    await page.getByTestId('picker-option-epic-30').click();
-    await expect(page).toHaveURL(/parent=30/);
-    await page.getByTestId('mobile-chip-epic').click();
-    await page.getByTestId('picker-option-epic-30').click();
-    await expect(page.getByTestId('mobile-epic-sheet')).toBeHidden();
-    await expect(page).toHaveURL(/parent=30/);
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('결제 안정화');
-  });
-
-  test('진행 바는 숫자 길이·선택(✓) 여부와 상관없이 줄마다 같은 자리에 선다', async ({ authenticatedPage: page }) => {
+  test('진행 바는 숫자 길이·선택(✓) 여부와 상관없이 줄마다 같은 자리에 선다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     // 30 을 선택해 둔다 — 선택된 줄에만 ✓ 가 붙어도 바가 밀리지 않아야 한다.
     await page.goto(`/projects/${KEY}?group=none&parent=30`);
@@ -362,7 +208,7 @@ test.describe('모바일 에픽 시트', () => {
     await expectSelectedRow(sheet.getByTestId('picker-option-epic-30').locator('..'), sheet.getByTestId('picker-option-epic-12').locator('..'));
   });
 
-  test('에픽 칩 ✕ 터치 영역은 32×32 이상, 툴바 높이는 그대로', async ({ authenticatedPage: page }) => {
+  test('에픽 칩 ✕ 터치 영역은 32×32 이상, 툴바 높이는 그대로', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none&parent=30`);
     const box = (await page.getByTestId('mobile-chip-epic-clear').boundingBox())!;
@@ -371,249 +217,29 @@ test.describe('모바일 에픽 시트', () => {
     expect((await page.getByTestId('mobile-issue-toolbar').boundingBox())!.height).toBeLessThanOrEqual(52);
   });
 
-  test('에픽 범위만 걸린 상태에서 뷰 시트 「전체」 를 눌러도 에픽 필터가 유지된다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none&parent=30`);
-    // 에픽 범위만 걸리면 뷰 칩은 「전체」 — 판정 규칙(에픽 외 조건이 더해지면 「사용자 조건」)은 issueFacetFilters.test 가 지킨다.
-    await expect(page.getByTestId('mobile-chip-view')).toHaveText('전체');
-    await page.getByTestId('mobile-chip-view').click();
-    await page.getByTestId('mobile-view-option-all').click();
-    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
-    await expect(page).toHaveURL(/parent=30/);
-  });
-
-  test('뷰 저장 — 시트가 닫히고 다이얼로그에서 저장하면 현재 조건으로 POST, 이후 화면이 눌린다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    type ViewBody = { name?: string; query?: string };
-    const creates = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/saved-views`);
-    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views`, (r) => {
-      if (r.request().method() !== 'POST') return r.fallback();
-      const body = r.request().postDataJSON() as ViewBody;
-      return r.fulfill(json({ ...MY_BUG_VIEW, id: 9, name: body.name, query: body.query }));
-    });
-    await page.goto(`/projects/${KEY}?group=none&status=TODO`);
-    await page.getByTestId('mobile-chip-view').click();
-    await page.getByTestId('mobile-view-save').click();
-    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
-    await expect(page.getByTestId('save-view-name')).toBeVisible();
-    await page.getByTestId('save-view-name').fill('내 할 일');
-    await page.getByTestId('save-view-submit').click();
-    await expect(page.getByTestId('save-view-name')).toBeHidden();
-    const body = creates.lastBody<ViewBody>()!;
-    expect(body.name).toBe('내 할 일');
-    expect(body.query).toContain('status=TODO');
-    // 시트·다이얼로그 전환 뒤에도 body 가 잠기지 않고 화면이 눌린다.
-    expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
-    await page.getByTestId('mobile-chip-filter').click();
-    await expect(page.getByTestId('mobile-filter-sheet')).toBeVisible();
-  });
-
-  test('공유 뷰 업데이트 — 확인 후 PATCH 로 새 조건 저장, 이후 화면이 눌린다', async ({ authenticatedPage: page }) => {
-    const shared = { ...MY_BUG_VIEW, id: 7, name: '팀 뷰', query: 'priority=HIGH&group=none', visibility: 'SHARED' };
-    await mock(page, { views: [shared] });
-    const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/saved-views/7`);
-    await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/saved-views/7`, (r) => {
-      if (r.request().method() !== 'PATCH') return r.fallback();
-      const patch = r.request().postDataJSON() as { query?: string };
-      return r.fulfill(json({ ...shared, query: patch.query }));
-    });
-    await page.goto(`/projects/${KEY}?${shared.query}`);
-    await expect(page.getByTestId('mobile-chip-view')).toHaveText('팀 뷰');
-    // 필터(상태)를 하나 더 얹어 dirty 로 만든다.
-    await page.getByTestId('mobile-chip-filter').click();
-    const filterSheet = page.getByTestId('mobile-filter-sheet');
-    await filterSheet.getByTestId('add-filter-trigger').click();
-    await page.getByTestId('add-filter-facet-status').click();
-    await page.getByRole('checkbox', { name: '진행 중' }).click();
-    await expect(page).toHaveURL(/status=IN_PROGRESS/);
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('add-filter-facet-status')).toBeHidden();
-    await page.keyboard.press('Escape');
-    await expect(filterSheet).toBeHidden();
-    await page.getByTestId('mobile-chip-view').click();
-    await page.getByTestId('mobile-view-update').click();
-    await expect(page.getByTestId('mobile-view-sheet')).toBeHidden();
-    await expect(page.getByTestId('update-view-confirm')).toBeVisible();
-    await page.getByTestId('update-view-confirm').click();
-    await expect(page.getByTestId('update-view-confirm')).toBeHidden();
-    expect(patches.count()).toBe(1);
-    expect(patches.lastBody<{ query?: string }>()!.query).toContain('status=IN_PROGRESS');
-    expect(await page.evaluate(() => document.body.style.pointerEvents)).not.toBe('none');
-    await page.getByTestId('mobile-chip-filter').click();
-    await expect(page.getByTestId('mobile-filter-sheet')).toBeVisible();
-  });
-
-  // WP-654 — 남이 만든 공유 뷰는 고쳐 쓸 수 없다(서버 403). 조건을 바꿔도 「뷰 업데이트」 없이 「새 뷰로 저장」만 보인다.
-  test('남의 공유 뷰를 고치면 「뷰 업데이트」 없이 「새 뷰로 저장」만 보인다', async ({ authenticatedPage: page }) => {
-    const shared = { ...MY_BUG_VIEW, id: 8, name: '남의 팀 뷰', query: 'priority=HIGH&group=none', visibility: 'SHARED', ownerId: 99, mine: false };
-    await mock(page, { views: [shared] });
-    await page.goto(`/projects/${KEY}?${shared.query}`);
-    await expect(page.getByTestId('mobile-chip-view')).toHaveText('남의 팀 뷰');
-    await page.getByTestId('mobile-chip-filter').click();
-    const filterSheet = page.getByTestId('mobile-filter-sheet');
-    await filterSheet.getByTestId('add-filter-trigger').click();
-    await page.getByTestId('add-filter-facet-status').click();
-    await page.getByRole('checkbox', { name: '진행 중' }).click();
-    await expect(page).toHaveURL(/status=IN_PROGRESS/);
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('add-filter-facet-status')).toBeHidden();
-    await page.keyboard.press('Escape');
-    await expect(filterSheet).toBeHidden();
-    await page.getByTestId('mobile-chip-view').click();
-    await expect(page.getByTestId('mobile-view-save')).toBeEnabled();
-    await expect(page.getByTestId('mobile-view-update')).toHaveCount(0);
-  });
-
-  test('에픽 미할당 선택 → topLevel 필터', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    await page.getByTestId('picker-option-unassigned').click();
-    await expect(page).toHaveURL(/topLevel=true/);
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('에픽 미할당');
-  });
-
-  test('멤버는 시트에서 에픽 만들기 → 생성 다이얼로그, 비멤버는 버튼 없음', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    await page.getByTestId('mobile-epic-create').click();
-    await expect(page.getByTestId('mobile-epic-sheet')).toBeHidden();
-    await expect(page.getByRole('dialog')).toBeVisible();
-  });
-
-  test('에픽 만들기 시트를 취소로 닫으면(닫기 = 언마운트) 히스토리 표식이 남지 않는다(WP-222)', async ({ authenticatedPage: page }) => {
+  test('에픽 만들기 시트를 취소로 닫으면(닫기 = 언마운트) 히스토리 표식이 남지 않는다(WP-222)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await mock(page);
     await page.goto(`/projects/${KEY}?group=none`);
     await page.getByTestId('mobile-chip-epic').click();
     await page.getByTestId('mobile-epic-create').click();
     const sheet = page.getByTestId('issue-create-sheet');
     await expect(sheet).toBeVisible();
-    const usr = () => historyMarks(page);
     await expect.poll(() => historyMarks(page)).toContain('issueCreate');
     await page.getByTestId('issue-create-cancel').click();
     await expect(sheet).toHaveCount(0);
     await expect.poll(() => historyMarks(page)).not.toContain('issueCreate');
   });
 
-  test('비멤버에겐 에픽 만들기 버튼이 없다', async ({ authenticatedPage: page }) => {
-    await mock(page, { member: false });
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    await expect(page.getByTestId('mobile-epic-sheet')).toBeVisible();
-    await expect(page.getByTestId('mobile-epic-create')).toHaveCount(0);
-  });
-
-  test('에픽 시트 맨 아래 「종료된 에픽」 을 펼쳐 종료 에픽으로 필터하고, URL 진입 시 칩에 제목이 보인다 (WP-245)', async ({ authenticatedPage: page }) => {
+  // 종료 구역 펼침·필터·URL 진입 라벨은 src/pages/mobile/issueList.test.tsx 가 지킨다. 여기선 「›」 이동만 —
+  // 시트가 쌓은 히스토리 항목을 되돌린 뒤 상세로 push 하는 흐름이라 실제 브라우저 히스토리에서만 판정된다.
+  test('종료된 에픽 행 끝 「›」 — 시트를 닫고 그 에픽 상세로 이동한다 (WP-245)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await mock(page, { closedEpics: CLOSED_EPICS });
-    await page.goto(`/projects/${KEY}?group=none`);
+    await page.goto(`/projects/${KEY}?group=none&parent=52`);
     await page.getByTestId('mobile-chip-epic').click();
-    const sheet = page.getByTestId('mobile-epic-sheet');
-    const toggle = sheet.getByTestId('mobile-epic-closed-toggle');
-    await expect(toggle).toContainText('종료된 에픽');
-    await expect(toggle).toContainText('2');
-    await expect(sheet.getByTestId('mobile-epic-closed-52')).not.toBeAttached();
-    await toggle.click();
-    await expect(sheet.getByTestId('mobile-epic-closed-52')).toContainText('완료');
-    await expect(sheet.getByTestId('mobile-epic-closed-53')).toContainText('취소');
-    await sheet.getByTestId('mobile-epic-closed-52').click();
-    await expect(sheet).toBeHidden();
-    await expect(page).toHaveURL(/parent=52/);
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('팀 채팅 1차');
-
-    // 새로고침(URL 진입) — 칩 라벨이 번호가 아닌 제목, 시트를 열면 구역이 펼쳐져 선택이 보인다.
-    await page.reload();
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('팀 채팅 1차');
-    await page.getByTestId('mobile-chip-epic').click();
-    await expect(page.getByTestId('mobile-epic-closed-toggle')).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.getByTestId('mobile-epic-closed-52')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('mobile-epic-closed-53')).toBeVisible();
 
     // 「›」 = 시트 닫고 상세
     await page.getByTestId('mobile-epic-closed-53-detail').click();
     await expect(page).toHaveURL(/\/issues\/53$/);
-  });
-
-  test('진행 중 사이클에 할당된 종료 에픽은 진행 중 에픽 아래 종료 배지와 함께 보이고, 종료된 에픽 구역에서는 빠진다 (WP-389)', async ({ authenticatedPage: page }) => {
-    // 52(완료)만 진행 중 사이클 소속 — 종료 에픽 조회는 서버처럼 52·53 을 모두 돌려준다.
-    await mock(page, { closedEpics: CLOSED_EPICS, activeCycle: [52] });
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    const sheet = page.getByTestId('mobile-epic-sheet');
-    const option = sheet.getByTestId('picker-option-epic-52');
-    await expect(option).toBeVisible();
-    await expect(option.getByTestId('closed-status-badge')).toHaveText('완료');
-    // 종료 구역에는 사이클 밖의 53 만 남는다.
-    await expect(sheet.getByTestId('mobile-epic-closed-toggle')).toContainText('1');
-    await sheet.getByTestId('mobile-epic-closed-toggle').click();
-    await expect(sheet.getByTestId('mobile-epic-closed-53')).toBeVisible();
-    await expect(sheet.getByTestId('mobile-epic-closed-52')).not.toBeAttached();
-
-    await option.click();
-    await expect(sheet).toBeHidden();
-    await expect(page).toHaveURL(/parent=52/);
-    // URL 진입(새로고침)에도 칩 라벨은 번호가 아닌 제목.
-    await page.reload();
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('팀 채팅 1차');
-  });
-
-  test('목록에 없는 에픽 번호로 진입하면 칩에 번호를 표시한다', async ({ authenticatedPage: page }) => {
-    await mock(page);
-    await page.goto(`/projects/${KEY}?group=none&parent=99`);
-    await expect(page.getByTestId('mobile-chip-epic')).toContainText('에픽 #99');
-  });
-
-  test('에픽 시트 검색: 활성 에픽엔 매칭되지 않고 종료 에픽만 매칭되면 그 종료 구역을 펼쳐 보여주고, 선택 후 재열 시 검색창이 비어 있다 (WP-245 I2·I3)', async ({ authenticatedPage: page }) => {
-    // 활성 에픽 9개 + 종료 에픽 2개 — 검색창이 나타난다(epics.length > 8).
-    const manyEpics = Array.from({ length: 9 }, (_, i) =>
-      createIssue({ id: 10 + i, number: 10 + i, projectKey: KEY, title: `진행 에픽 ${i + 1}`, type: makeEpicType() })
-    );
-    await mock(page, { epics: manyEpics, closedEpics: CLOSED_EPICS });
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    const sheet = page.getByTestId('mobile-epic-sheet');
-    const search = sheet.getByTestId('mobile-epic-sheet-search');
-    await expect(search).toBeVisible();
-
-    // 검색어 — 활성 에픽과 고정 옵션(전체·미할당)과 겹치지 않고, 종료 에픽 중 하나만 매칭.
-    const keyword = '팀 채팅';
-    await search.fill(keyword);
-
-    // 「결과가 없습니다」 가 아니라 종료 구역이 펼쳐 보인다.
-    await expect(sheet).not.toContainText('결과가 없습니다');
-    await expect(sheet.getByTestId('mobile-epic-closed-toggle')).toHaveAttribute('aria-expanded', 'true');
-    // 매칭된 종료 에픽 52 가 보인다.
-    await expect(sheet.getByTestId('mobile-epic-closed-52')).toBeVisible();
-
-    // 종료 에픽 선택 — ctx.close() 를 쓰므로 검색창이 맑혀진다(I3).
-    await sheet.getByTestId('mobile-epic-closed-52').click();
-    await expect(sheet).toBeHidden();
-    await expect(page).toHaveURL(/parent=52/);
-
-    // 다시 열기 — 검색창이 비어 있다 (시트 컴포넌트가 q 상태를 유지).
-    await page.getByTestId('mobile-chip-epic').click();
-    await expect(search).toHaveValue('');
-  });
-
-  test('활성 에픽이 2개 + 종료 에픽 8개 = 10개일 때 검색창이 보인다 (WP-245)', async ({ authenticatedPage: page }) => {
-    // 활성 에픽 2개 + 종료 에픽 8개 — 합계 10개 > 8이므로 검색창 표시
-    const fewEpics = Array.from({ length: 2 }, (_, i) =>
-      createIssue({ id: 10 + i, number: 10 + i, projectKey: KEY, title: `에픽 ${i + 1}`, type: makeEpicType() })
-    );
-    const manyClosedEpics = Array.from({ length: 8 }, (_, i) =>
-      createIssue({ id: 52 + i, number: 52 + i, projectKey: KEY, title: `종료 에픽 ${i + 1}`, type: makeEpicType(), status: 'DONE' })
-    );
-    await mock(page, { epics: fewEpics, closedEpics: manyClosedEpics });
-    await page.goto(`/projects/${KEY}?group=none`);
-    await page.getByTestId('mobile-chip-epic').click();
-    const sheet = page.getByTestId('mobile-epic-sheet');
-    const search = sheet.getByTestId('mobile-epic-sheet-search');
-
-    // 검색창이 보인다 (2 + 8 > 8)
-    await expect(search).toBeVisible();
-
-    // 종료 에픽 중 하나로 검색 — 매칭되면 펼쳐 보인다
-    await search.fill('종료 에픽 3');
-    await expect(sheet.getByTestId('mobile-epic-closed-toggle')).toHaveAttribute('aria-expanded', 'true');
-    await expect(sheet.getByTestId('mobile-epic-closed-54')).toBeVisible();
   });
 });

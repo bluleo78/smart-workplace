@@ -6,7 +6,7 @@ import { trackRequests } from '../../fixtures/requests'
 
 const EVIDENCE = process.env.WP101_EVIDENCE_DIR
 
-test('팀 채팅: 서식 줄이 입력 줄 위에 한 줄로 나오고, 버튼으로 굵게·목록을 쓴다', async ({ authenticatedPage: page }) => {
+test('팀 채팅: 서식 줄이 입력 줄 위에 한 줄로 나오고, 버튼으로 굵게·목록을 쓴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   const sends = trackRequests(page, 'POST', '/api/v1/messaging/channels/1/messages')
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) =>
@@ -46,7 +46,7 @@ test('팀 채팅: 서식 줄이 입력 줄 위에 한 줄로 나오고, 버튼�
   await expect.poll(() => sends.bodies().map((b) => (b as { body: string }).body)).toEqual(['**공지**\n\n- 하나\n- 둘'])
 })
 
-test('이슈 채팅: 서식 줄이 입력 줄 위에 나온다', async ({ authenticatedPage: page }) => {
+test('이슈 채팅: 서식 줄이 입력 줄 위에 나온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubIssue(page)
   await page.goto(`/projects/${KEY}/issues/1?chat=1`)
   await page.getByTestId('chat-composer-input').tap()

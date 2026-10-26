@@ -46,7 +46,7 @@ async function mock(page: import('@playwright/test').Page) {
 }
 
 
-test('필터 목록 → 이슈 상세 → ‹ 는 필터가 유지된 목록으로 되감는다', async ({ authenticatedPage: page }) => {
+test('필터 목록 → 이슈 상세 → ‹ 는 필터가 유지된 목록으로 되감는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page);
   await mock(page);
   await page.goto(`/projects/${KEY}?priority=HIGH`);
@@ -61,7 +61,7 @@ test('필터 목록 → 이슈 상세 → ‹ 는 필터가 유지된 목록으�
   await expect(page).toHaveURL(DETAIL_URL(8));
 });
 
-test('딥링크로 연 이슈 상세의 ‹ 는 프로젝트 화면으로 간다', async ({ authenticatedPage: page }) => {
+test('딥링크로 연 이슈 상세의 ‹ 는 프로젝트 화면으로 간다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page);
   await mock(page);
   await page.goto(`/projects/${KEY}/issues/8`);

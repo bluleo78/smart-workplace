@@ -6,7 +6,7 @@ import { createPageResponse } from '../../fixtures/api-mock'
 import { createAuditLog } from '../../factories/admin.factory'
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 
-test('감사 로그는 모바일에서 가로로 넘치지 않고, 숨긴 열은 상세 다이얼로그에서 보인다', async ({ adminPage: page }) => {
+test('감사 로그는 모바일에서 가로로 넘치지 않고, 숨긴 열은 상세 다이얼로그에서 보인다', { tag: '@layout' }, async ({ adminPage: page }) => {
   await setupAdminAuth(page)
   await page.route(
     (url) => url.pathname === '/api/v1/admin/audit-logs',
@@ -58,7 +58,7 @@ test('감사 로그는 모바일에서 가로로 넘치지 않고, 숨긴 열은
 })
 
 // WP-639: 운영과 같은 실데이터(긴 아이디·긴 액션)에서도 시간이 두 줄(날짜/시각)을 넘지 않고, 「결과」 배지가 표 안에 있다.
-test('긴 아이디·긴 액션 행도 시간은 두 줄, 결과 배지는 표 안에 보인다', async ({ adminPage: page }) => {
+test('긴 아이디·긴 액션 행도 시간은 두 줄, 결과 배지는 표 안에 보인다', { tag: '@layout' }, async ({ adminPage: page }) => {
   await setupAdminAuth(page)
   await page.route(
     (url) => url.pathname === '/api/v1/admin/audit-logs',

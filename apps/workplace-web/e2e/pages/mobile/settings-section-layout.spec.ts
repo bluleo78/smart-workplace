@@ -13,14 +13,14 @@ import { installPushManagerStub, mockPushApis } from '../../fixtures/push-mock'
 const LONG_EMAIL = 'very.long.account.name.for.layout.check@subsidiary.example-company.co.kr'
 const LONG_NAME = '김수한무거북이와두루미삼천갑자동방삭치치카포사리사리센타'
 
-test('프로필: 세로 스택 + 가로 넘침 없음', async ({ authenticatedPage: page }) => {
+test('프로필: 세로 스택 + 가로 넘침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.goto('/settings/profile')
   await expect(settingsSection(page, '프로필 정보')).toBeVisible()
   await expectStacked(settingsSection(page, '프로필 정보'))
   await expectNoHorizontalOverflow(page)
 })
 
-test('AI 비서: 세로 스택 + 가로 넘침 없음', async ({ authenticatedPage: page }) => {
+test('AI 비서: 세로 스택 + 가로 넘침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [memoryItem(1, { content: '가'.repeat(300) })])
   await page.goto('/settings/assistant')
   await expectStacked(settingsSection(page, '메모리'))
@@ -29,7 +29,7 @@ test('AI 비서: 세로 스택 + 가로 넘침 없음', async ({ authenticatedPa
 
 test.describe('알림', () => {
   test.use({ serviceWorkers: 'allow' })
-  test('알림: 세로 스택 + 가로 넘침 없음', async ({ authenticatedPage: page, context }) => {
+  test('알림: 세로 스택 + 가로 넘침 없음', { tag: '@layout' }, async ({ authenticatedPage: page, context }) => {
     await context.grantPermissions(['notifications'])
     await installPushManagerStub(page)
     await mockPushApis(page)
@@ -52,7 +52,7 @@ test.describe('알림', () => {
   })
 })
 
-test('사용자 상세: 긴 아이디·이메일·역할 설명도 본문이 가로로 넘치지 않는다', async ({ adminPage: page }) => {
+test('사용자 상세: 긴 아이디·이메일·역할 설명도 본문이 가로로 넘치지 않는다', { tag: '@layout' }, async ({ adminPage: page }) => {
   await setupAdminAuth(page)
   await mockApi(page, 'GET', '/api/v1/users/1', createUserDetail({ id: 1, name: LONG_NAME, username: LONG_EMAIL, email: LONG_EMAIL }))
   await mockApi(page, 'GET', '/api/v1/roles', [
@@ -69,7 +69,7 @@ test('사용자 상세: 긴 아이디·이메일·역할 설명도 본문이 가
   await expect(page.getByRole('button', { name: '목록으로 돌아가기' })).toHaveCount(0)
 })
 
-test('프로젝트 설정: 긴 이름·이메일 멤버도 본문이 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+test('프로젝트 설정: 긴 이름·이메일 멤버도 본문이 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockProjectSettings(page, [
     createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' }),
     createMember({ userId: 2, username: LONG_EMAIL, name: LONG_NAME, role: 'MEMBER' }),

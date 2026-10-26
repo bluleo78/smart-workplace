@@ -1,5 +1,7 @@
 // 모바일 메일 작성(WP-583) — 데스크톱용 작은 도크를 줄인 모양 대신, 다른 메일 앱처럼 처음부터 화면 전체 작성 화면.
 // 상단 바 [✕ 닫기] 제목(새 메일/회신/전달) … [➤ 보내기], 최소화·확대 없음, 서식 버튼은 화면 맨 아래.
+// 브라우저가 있어야 판정되는 것만 남긴다 — 화면 전체 덮기·서식 줄·칩·44px(@layout), 시스템 뒤로가기(@platform), 발송 배선 1건(@wiring).
+// 회신·전달 제목, 빈 작성 ✕ 즉시 닫기, 받는사람만 고친 ✕ 임시저장은 페이지 테스트 src/pages/mobile/mailComposeMobile.test.tsx 가 지킨다(WP-971).
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
@@ -27,7 +29,7 @@ async function expectFullScreen(page: Page) {
   expect(Math.round(box.height)).toBe(vp.height)
 }
 
-test('편지쓰기 → 화면 전체 새 메일 화면, 상단 보내기로 발송하면 닫힌다', async ({ authenticatedPage: page }) => {
+test('편지쓰기 → 화면 전체 새 메일 화면, 상단 보내기로 발송하면 닫힌다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   const sends = trackRequests(page, 'ANY', '/api/v1/mail/accounts/1/send')
   await page.route(
     (url) => url.pathname === '/api/v1/mail/accounts/1/send',
@@ -71,20 +73,7 @@ test('편지쓰기 → 화면 전체 새 메일 화면, 상단 보내기로 발�
   await expect(dock).toHaveCount(0)
 })
 
-test('회신은 제목이 「회신」, 쓴 내용이 없으면 ✕ 로 바로 닫는다', async ({ authenticatedPage: page }) => {
-  await openInbox(page)
-  await page.getByTestId('mail-row-10').click()
-  await page.getByTestId('mail-reply').click()
-  await expectFullScreen(page)
-  const dock = page.getByTestId('mail-compose-dock')
-  await expect(dock.getByRole('heading', { name: '회신' })).toBeVisible()
-  // 인용된 원문은 그대로 붙는다.
-  await expect(dock.getByTestId('mail-compose-quote')).toBeVisible()
-  await page.getByTestId('mail-compose-close').click()
-  await expect(dock).toHaveCount(0)
-})
-
-test('쓴 내용이 없으면 시스템 뒤로가기는 묻지 않고 작성 화면만 닫고 보던 메일에 머문다', async ({ authenticatedPage: page }) => {
+test('쓴 내용이 없으면 시스템 뒤로가기는 묻지 않고 작성 화면만 닫고 보던 메일에 머문다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await openInbox(page)
   await page.getByTestId('mail-row-10').click()
   const url = page.url()
@@ -96,7 +85,7 @@ test('쓴 내용이 없으면 시스템 뒤로가기는 묻지 않고 작성 화
   await expect(page.getByTestId('mail-reply')).toBeVisible()
 })
 
-test('쓴 내용이 있으면 시스템 뒤로가기는 묻지 않고 임시저장한 뒤 닫고 보던 메일에 머문다(WP-577)', async ({ authenticatedPage: page }) => {
+test('쓴 내용이 있으면 시스템 뒤로가기는 묻지 않고 임시저장한 뒤 닫고 보던 메일에 머문다(WP-577)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await openInbox(page)
   await page.getByTestId('mail-row-10').click()
   const url = page.url()
@@ -118,29 +107,7 @@ test('쓴 내용이 있으면 시스템 뒤로가기는 묻지 않고 임시저�
   expect(await page.evaluate(() => JSON.stringify(history.state?.usr ?? null))).not.toContain('mailCompose')
 })
 
-test('받는사람만 고쳐도 쓴 내용으로 본다 — ✕ 가 임시저장한다', async ({ authenticatedPage: page }) => {
-  await openInbox(page)
-  await page.getByTestId('mail-row-10').click()
-  const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
-  await page.getByTestId('mail-reply').click()
-  // 답장이 채운 받는사람은 칩이다(WP-945) — 빼고 다른 주소를 넣는다.
-  await page.getByRole('button', { name: 'alice@example.com 빼기' }).click()
-  await page.getByTestId('mail-compose-to').fill('other@test.local')
-  await page.getByTestId('mail-compose-close').click()
-  await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
-  await draftPosts.waitFor()
-  expect(draftPosts.lastBody()).toMatchObject({ to: ['other@test.local'] })
-})
-
-test('전달은 제목이 「전달」이다', async ({ authenticatedPage: page }) => {
-  await openInbox(page)
-  await page.getByTestId('mail-row-10').click()
-  await page.getByTestId('mail-forward').click()
-  await expectFullScreen(page)
-  await expect(page.getByTestId('mail-compose-dock').getByRole('heading', { name: '전달' })).toBeVisible()
-})
-
-test('서식 버튼은 화면 맨 아래에 붙는다', async ({ authenticatedPage: page }) => {
+test('서식 버튼은 화면 맨 아래에 붙는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await openInbox(page)
   await page.getByTestId('mail-row-10').click()
   await page.getByTestId('mail-reply').click()
@@ -159,7 +126,7 @@ test('서식 버튼은 화면 맨 아래에 붙는다', async ({ authenticatedPa
 })
 
 // WP-574 — 모바일 첨부: 상단 바 📎(기본 글자색) → 업로드 중엔 보내기 잠김 + 칩 위 이유 한 줄 → 완료 후 attachmentIds 로 발송.
-test('상단 바 📎 로 첨부하면 칩이 본문 아래(서식 줄 위)에 보이고, 다 올라가야 보내기가 열려 attachmentIds 로 보낸다', async ({ authenticatedPage: page }) => {
+test('상단 바 📎 로 첨부하면 칩이 본문 아래(서식 줄 위)에 보이고, 다 올라가야 보내기가 열려 attachmentIds 로 보낸다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   let release: (() => void) | undefined
   await page.route(
     (u) => u.pathname === '/api/v1/mail/compose-attachments',
@@ -215,7 +182,7 @@ test('상단 바 📎 로 첨부하면 칩이 본문 아래(서식 줄 위)에 �
 })
 
 // WP-576 — 모바일 새 메일 AI 초안: 하단 서식 툴바 「AI로 쓰기」 → 지시 → 상단 보내기가 생성 중엔 막히고, 끝나면 본문·제목이 채워진다.
-test('새 메일 AI 초안 — 하단 툴바에서 열어 생성하면 본문·제목이 채워진다', async ({ authenticatedPage: page }) => {
+test('새 메일 AI 초안 — 하단 툴바에서 열어 생성하면 본문·제목이 채워진다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ aiEnabled: true })])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
   const drafts = trackRequests(page, 'POST', '/api/v1/mail/accounts/1/compose-draft')
@@ -256,7 +223,7 @@ test('새 메일 AI 초안 — 하단 툴바에서 열어 생성하면 본문·�
 })
 
 // UI 리뷰 — 모바일 잠금 이유는 보내기 가까이(상단 바 바로 아래) 한 줄, 꺼진 보내기는 켜진 색과 구분, 칩 ✕·다시 시도·참조/숨은참조·탭은 44px.
-test('첨부 때문에 보내기가 잠기면 상단 바 바로 아래 상태 줄로 알리고, 칩·탭·참조 버튼은 44px 터치 크기다', async ({ authenticatedPage: page }) => {
+test('첨부 때문에 보내기가 잠기면 상단 바 바로 아래 상태 줄로 알리고, 칩·탭·참조 버튼은 44px 터치 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const held: import('@playwright/test').Route[] = []
   await page.route((u) => u.pathname === '/api/v1/mail/compose-attachments', (route) => {
     held.push(route)

@@ -3,7 +3,7 @@ import { expect, test } from '../../fixtures/mobile.fixture'
 import { mockWikiMoveTree } from '../../fixtures/wiki-move-mock'
 
 
-test('휴대폰 — ⋯ 시트의 「이동…」에서 위치를 누르면 바로 옮긴다', async ({ authenticatedPage: page }) => {
+test('휴대폰 — ⋯ 시트의 「이동…」에서 위치를 누르면 바로 옮긴다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   const moves = await mockWikiMoveTree(page)
   await page.goto('/wiki/spaces/1')
   const list = page.getByTestId('mobile-module-list')

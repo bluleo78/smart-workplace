@@ -5,7 +5,7 @@ import { stableBox } from '../../fixtures/wait'
 
 test.use({ timezoneId: 'Asia/Seoul' })
 
-test('기록은 바텀시트로 열리고 넘치지 않으며 되돌리기·기록 보기가 터치 크기다', async ({ authenticatedPage: page }) => {
+test('기록은 바텀시트로 열리고 넘치지 않으며 되돌리기·기록 보기가 터치 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-15T03:00:00Z'))
   await mockAiMemories(page, [memoryItem(2)])
   const m = await mockMemoryChanges(page, [
@@ -47,7 +47,7 @@ test('기록은 바텀시트로 열리고 넘치지 않으며 되돌리기·기�
   await expect(sheet.getByTestId('memory-log-item').first().getByTestId('memory-log-undone')).toBeFocused()
 })
 
-test('바텀시트에서도 첫 묶음 실패는 이유 문구와 터치 크기 다시 시도로 보이고, 다시 시도하면 목록이 된다', async ({ authenticatedPage: page }) => {
+test('바텀시트에서도 첫 묶음 실패는 이유 문구와 터치 크기 다시 시도로 보이고, 다시 시도하면 목록이 된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-15T03:00:00Z'))
   const m = await mockMemoryChanges(page, [[memoryChange(1)]])
   // 기록 목록(size=30)을 실패시킨다(앱의 자동 재시도까지 모두) — 안내 줄 횟수(size=1)는 목에 맡기고, 다시 시도 직전에 푼다.

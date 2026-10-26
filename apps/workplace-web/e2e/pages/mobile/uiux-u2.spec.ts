@@ -1,5 +1,8 @@
 // 모바일 UI/UX 보정 U2(WP-121) — 앱 목록 길게 누르기(스크림·들림·코치마크·📌 배지), 탭 편집 헤더,
 // AI 탭 캡슐·풀스크린 입력, 목록 밀도, 캘린더 도구 줄, 노트 헤더 병합, ⋯ 메뉴 키보드, 알림 푸시 화면을 고정한다.
+// 브라우저가 있어야 판정되는 것(길게 누르기·키보드 탐색 @input, 크기·겹침·계산 스타일 @layout, 새로고침 뒤 유지 @platform,
+// 앱 목록 → 알림 → ‹ 흐름 @flow)만 남긴다. 📌 배지 교체 메뉴·탭 편집 꽉 참 안내·저장 반영·‹ 복귀는
+// 페이지 테스트 src/pages/mobile/uiuxU2.test.tsx, 상세 ✦ AI 시트(탭바 없음·× 닫기)는 src/pages/mobile/moduleLayout.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiSpace } from '../../../src/types/wiki'
@@ -17,7 +20,7 @@ async function longPress(page: Page, testId: string) {
   await page.mouse.up()
 }
 
-test('앱 길게 누르기: 스크림이 깔리고 누른 칸이 들리며, 메뉴는 칸(이름 포함) 바로 아래에 뜬다', async ({ authenticatedPage: page }) => {
+test('앱 길게 누르기: 스크림이 깔리고 누른 칸이 들리며, 메뉴는 칸(이름 포함) 바로 아래에 뜬다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
   const tile = page.getByTestId('apps-app-drive')
@@ -54,7 +57,7 @@ test('앱 길게 누르기: 스크림이 깔리고 누른 칸이 들리며, 메�
   await expect(page).toHaveURL(/\/apps$/)
 })
 
-test('앱 칸: iOS 콜아웃·텍스트 선택 억제 스타일', async ({ authenticatedPage: page }) => {
+test('앱 칸: iOS 콜아웃·텍스트 선택 억제 스타일', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
   const tile = page.getByTestId('apps-app-calendar')
@@ -63,7 +66,7 @@ test('앱 칸: iOS 콜아웃·텍스트 선택 억제 스타일', async ({ authe
   await expect(tile).toHaveClass(/\[-webkit-touch-callout:none\]/)
 })
 
-test('코치마크 "길게 눌러 탭바에 고정" 은 처음 한 번만 — 새로고침하면 사라지고, 닫기로 즉시 숨길 수 있다', async ({ authenticatedPage: page }) => {
+test('코치마크 "길게 눌러 탭바에 고정" 은 처음 한 번만 — 새로고침하면 사라지고, 닫기로 즉시 숨길 수 있다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
   const coach = page.getByTestId('apps-coach')
@@ -78,59 +81,26 @@ test('코치마크 "길게 눌러 탭바에 고정" 은 처음 한 번만 — �
   await expect(page.getByTestId('apps-edit-tabs')).toBeVisible()
 })
 
-test('📌 배지를 누르면 길게 누르기와 같은 메뉴가 열린다(고정 앱 = 교체 메뉴)', async ({ authenticatedPage: page }) => {
+test('📌 배지는 28px 이상 누를 수 있는 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
-  const badge = page.getByTestId('apps-pinned-chat')
-  const bb = (await badge.boundingBox())!
+  const bb = (await page.getByTestId('apps-pinned-chat').boundingBox())!
   expect(bb.width).toBeGreaterThanOrEqual(28)
-  await badge.click()
-  await expect(page.getByTestId('apps-menu')).toBeVisible()
-  await expect(page.getByTestId('apps-swap')).toBeVisible()
-  await expect(page.getByTestId('apps-scrim')).toBeVisible()
-  // 배지 탭은 앱으로 이동하지 않는다.
-  await expect(page).toHaveURL(/\/apps$/)
-  await page.getByTestId('apps-swap').click()
-  await page.getByTestId('apps-swap-to-tasks').click()
-  await expect(page.getByText('작업을 탭바에 고정했어요')).toBeVisible()
-  await expect(page.getByTestId('mobile-tab-tasks')).toBeVisible()
 })
 
-test('탭 편집: ‹·제목·[저장] 한 줄 헤더(탭바 없음), 꽉 참 안내, 44×44 편집 버튼, ‹ 는 앱 목록으로', async ({ authenticatedPage: page }) => {
+test('탭 편집: 저장이 한 줄 헤더 안에 있고, ↑·↓·−·＋ 편집 버튼이 44×44 이상이며 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
-  await page.goto('/apps')
-  await page.getByTestId('apps-edit-tabs').click()
-  await expect(page).toHaveURL(/\/apps\/tabs$/)
-  const header = page.getByTestId('tab-edit-header')
-  await expect(header.getByTestId('mobile-back-title')).toHaveText('탭바 순서 편집')
-  // 저장은 헤더 안(스크롤 영역 밖).
-  await expect(header.getByTestId('tab-edit-save')).toBeVisible()
-  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
-  // 칸이 다 차 있으면 이유를 먼저 알려주고 ＋ 는 비활성.
-  await expect(page.getByTestId('tab-edit-full-hint')).toHaveText('탭바가 꽉 찼어요 — 하나를 빼면 추가할 수 있어요')
-  await expect(page.getByTestId('tab-edit-add-tasks')).toBeDisabled()
+  await page.goto('/apps/tabs')
+  await expect(page.getByTestId('tab-edit-header').getByTestId('tab-edit-save')).toBeVisible()
   for (const id of ['tab-edit-up-1', 'tab-edit-down-1', 'tab-edit-remove-1', 'tab-edit-add-tasks']) {
     const b = (await page.getByTestId(id).boundingBox())!
     expect(b.width).toBeGreaterThanOrEqual(44)
     expect(b.height).toBeGreaterThanOrEqual(44)
   }
-  // 하나 빼면 안내가 사라지고 저장은 비활성(칸이 덜 참).
-  await page.getByTestId('tab-edit-remove-2').click()
-  await expect(page.getByTestId('tab-edit-full-hint')).toHaveCount(0)
-  await expect(page.getByTestId('tab-edit-save')).toBeDisabled()
-  await page.getByTestId('tab-edit-add-wiki').click()
-  await expect(page.getByTestId('tab-edit-full-hint')).toBeVisible()
   await expectNoHorizontalOverflow(page)
-  await header.getByTestId('tab-edit-save').click()
-  await expect(page).toHaveURL(/\/apps$/)
-  await expect(page.getByTestId('mobile-tab-wiki')).toBeVisible()
-  // ‹ 는 앱 목록으로(딥링크 진입에서도).
-  await page.goto('/apps/tabs')
-  await page.getByTestId('mobile-back').click()
-  await expect(page).toHaveURL(/\/apps$/)
 })
 
-test('AI 탭 캡슐: 닫힘 = 옅은 틴트(그라데이션 없음), 열림 = 그라데이션', async ({ authenticatedPage: page }) => {
+test('AI 탭 캡슐: 닫힘 = 옅은 틴트(그라데이션 없음), 열림 = 그라데이션', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   const capsule = page.getByTestId('mobile-tab-ai-capsule')
@@ -143,7 +113,7 @@ test('AI 탭 캡슐: 닫힘 = 옅은 틴트(그라데이션 없음), 열림 = �
 })
 
 // WP-191: 탭 루트 시트에도 × 가 있다(구 U2-3 "× 없음" 대체) — × 와 탭 전환 모두 닫기.
-test('모바일 AI 시트(탭 루트): × 있음·⌘K 힌트 없음·40px 원형 보내기, 탭 전환으로도 닫힌다', async ({ authenticatedPage: page }) => {
+test('모바일 AI 시트(탭 루트): × 있음·⌘K 힌트 없음·40px 원형 보내기, 탭 전환으로도 닫힌다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
@@ -167,17 +137,7 @@ test('모바일 AI 시트(탭 루트): × 있음·⌘K 힌트 없음·40px 원�
   await expect(page).toHaveURL(/\/chat$/)
 })
 
-test('상세 화면에서 ✦ 로 연 AI 는 탭바가 없으므로 × 로 닫는다', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/chat/channels/1')
-  await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-sheet')).toBeVisible()
-  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
-  await page.getByTestId('ai-panel-close').click()
-  await expect(page.getByTestId('ai-sheet')).toHaveCount(0)
-})
-
-test('목록 밀도(/chat): 행 44~56px·본문색, 섹션 머리말 ≤36px, 머리말 아이콘 터치 영역 확장, 미읽음 행 굵게', async ({ authenticatedPage: page }) => {
+test('목록 밀도(/chat): 행 44~56px·본문색, 섹션 머리말 ≤36px, 머리말 아이콘 터치 영역 확장, 미읽음 행 굵게', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page, { unread: 3 })
   await page.goto('/chat')
   const list = page.getByTestId('mobile-module-list')
@@ -205,7 +165,7 @@ test('목록 밀도(/chat): 행 44~56px·본문색, 섹션 머리말 ≤36px, �
   await expectNoHorizontalOverflow(page)
 })
 
-test('목록 밀도(/tasks·/settings): 행 44~56px, 설정 행만 끝에 › 셰브런', async ({ authenticatedPage: page }) => {
+test('목록 밀도(/tasks·/settings): 행 44~56px, 설정 행만 끝에 › 셰브런', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.goto('/tasks')
   const rows = page.getByTestId('mobile-module-list').locator('nav a')
   await expect(rows.first()).toBeVisible()
@@ -224,7 +184,7 @@ test('목록 밀도(/tasks·/settings): 행 44~56px, 설정 행만 끝에 › �
   await expectNoHorizontalOverflow(page)
 })
 
-test('캘린더: 헤더엔 제목만(잘림 없음), 도구 줄의 오늘·‹·› 는 44×44 이상이고 뷰 전환 select 가 동작', async ({ authenticatedPage: page }) => {
+test('캘린더: 헤더엔 제목만(잘림 없음), 도구 줄의 오늘·‹·› 는 44×44 이상이고 뷰 전환 select 가 동작', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 오늘 = 2027-01 — 월 보기에서 지난해 12월로 가면 가장 긴 제목('2026년 12월' + ▾, WP-136: 다른 해면 'yyyy년 M월')이 된다.
   await page.clock.setFixedTime(new Date('2027-01-15T10:00:00'))
   await mockApi(page, 'GET', '/api/v1/calendars', [])
@@ -259,7 +219,7 @@ test('캘린더: 헤더엔 제목만(잘림 없음), 도구 줄의 오늘·‹·
   await expectNoHorizontalOverflow(page)
 })
 
-test('연락처: 헤더 주 액션은 ＋ 아이콘 하나(aria-label "새 외부 연락처")', async ({ authenticatedPage: page }) => {
+test('연락처: 헤더 주 액션은 ＋ 아이콘 하나(aria-label "새 외부 연락처")', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
   await page.goto('/contacts')
   const create = page.getByTestId('contact-create')
@@ -269,7 +229,7 @@ test('연락처: 헤더 주 액션은 ＋ 아이콘 하나(aria-label "새 외�
   expect(b.width).toBeGreaterThanOrEqual(44)
 })
 
-test('알림: 앱 목록의 🔔 로 열면 탭바 없는 푸시 화면, 알림을 고정하면 탭바가 있다', async ({ authenticatedPage: page }) => {
+test('알림: 앱 목록의 🔔 로 열면 탭바 없는 푸시 화면, 알림을 고정하면 탭바가 있다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
@@ -291,7 +251,7 @@ const WIKI_PAGE: WikiPageDetail = {
   updatedBy: 1, updatedAt: '2026-06-01T00:00:00Z', aiLastUsedAt: null, aiLastAction: null,
 }
 
-test('노트 페이지: ‹·페이지 제목·⋯·✦ 가 한 줄 헤더(레이아웃 뒤로가기 바와 두 줄로 쌓이지 않음)', async ({ authenticatedPage: page }) => {
+test('노트 페이지: ‹·페이지 제목·⋯·✦ 가 한 줄 헤더(레이아웃 뒤로가기 바와 두 줄로 쌓이지 않음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) => r.fulfill({ json: [SPACE] }))
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces/1/pages', (r) =>
     r.fulfill({ json: [{ id: 100, parentId: null, title: WIKI_PAGE.title, position: 0, aiLastUsedAt: null }] }))
@@ -314,7 +274,7 @@ test('노트 페이지: ‹·페이지 제목·⋯·✦ 가 한 줄 헤더(레�
   await expectNoHorizontalOverflow(page)
 })
 
-test('⋯ 메뉴 키보드: 열면 첫 항목 포커스, ↓↑ 로 이동, Esc 로 닫고 ⋯ 로 포커스 복귀', async ({ authenticatedPage: page }) => {
+test('⋯ 메뉴 키보드: 열면 첫 항목 포커스, ↓↑ 로 이동, Esc 로 닫고 ⋯ 로 포커스 복귀', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await page.route('**/api/v1/projects/WP', (r) => r.fulfill({ json: createProject() }))
   await page.goto('/projects/WP')
   const trigger = page.getByTestId('mobile-header-more')

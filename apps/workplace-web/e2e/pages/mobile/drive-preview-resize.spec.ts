@@ -26,7 +26,7 @@ async function stubDrive(page: Page) {
 }
 
 for (const width of [360, 390]) {
-  test(`폭 ${width}px — 미리보기가 전체 화면을 채우고 가로 넘침이 없다`, async ({ authenticatedPage: page }) => {
+  test(`폭 ${width}px — 미리보기가 전체 화면을 채우고 가로 넘침이 없다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width, height: 800 })
     await stubDrive(page)
     await page.goto(`/drive/spaces/${SPACE_ID}`)

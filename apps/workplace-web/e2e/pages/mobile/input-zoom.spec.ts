@@ -3,7 +3,7 @@
 import { stubChannelMessages } from '../../fixtures/mobile-chat'
 import { expect, test } from '../../fixtures/mobile.fixture'
 
-test('채널 메시지 입력창(contenteditable)은 터치 기기에서 16px 이상 — 포커스 시 iOS 자동 확대 방지', async ({ authenticatedPage: page }) => {
+test('채널 메시지 입력창(contenteditable)은 터치 기기에서 16px 이상 — 포커스 시 iOS 자동 확대 방지', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   await page.goto('/chat/channels/1')
   const input = page.getByTestId('message-composer-input')

@@ -1,6 +1,6 @@
 // AI 위임 작업 에픽 묶음(WP-375) 모킹 데이터 — 데스크톱·모바일 spec 과 캡처가 함께 쓴다.
 // 서버가 묶음 단위로 정렬해 준 순서 그대로: WP-412 묶음(에픽 자신 행 + 413·414·415), WP-420 묶음(에픽 행 없음, 421·422), 단독 430·431.
-import { agentWorker, createAgentWork, humanWorker, minutesAgo } from '../factories/agentWork.factory'
+import { createAgentWork, humanWorker, minutesAgo } from '../factories/agentWork.factory'
 import { createIssue } from '../factories/issue.factory'
 import { makeEpicType, makeSubtaskType } from '../factories/issueType.factory'
 import type { AiTaskGroup, IssueResponse } from '../../src/types/issue'

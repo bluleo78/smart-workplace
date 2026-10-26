@@ -2,6 +2,8 @@
 // 헤더 「10월 ▾」 미니 달력으로 날짜 이동, ☰ 시트는 [새 일정]+캘린더 토글만, 월·주·일 본문 좌우 스와이프.
 // 오늘 = 2026-10-13(화) 08:40 KST 고정. 일정 API 는 요청 범위(from/to)와 겹치는 일정만 돌려주는 메모리 스텁이라
 // 화면에 보이는 것은 실제로 보낸 요청 범위의 결과다(청크 범위·미니 달력 범위가 틀리면 행이 빠진다).
+// 초대받은 일정 표기·상세, 이슈 마감 행·이동, 진행 중 일정 묶음·순서, 월 보기 → 목록 시작일, 마감 조회 실패 다시 시도는
+// 페이지 테스트 src/pages/mobile/calendarAgenda.test.tsx 가 지킨다(WP-981). 여기는 스크롤·센티널·기하·스와이프·포커스·시간 흐름.
 import type { Page } from '@playwright/test'
 
 import type { CalendarEvent } from '../../../src/types/calendar'
@@ -130,7 +132,7 @@ async function swipe(page: Page, dx: number, yRatio = 0.6, settleMs?: number) {
   await touchDrag(page, { x: cx - dx / 2, y }, { x: cx + dx / 2, y }, { settleMs })
 }
 
-test('① ② 진입 — 목록이 기본, 오늘부터 날짜별 묶음·건수, 첫 요청은 오늘 00:00 부터 30일 하나뿐', async ({ authenticatedPage: page }) => {
+test('① ② 진입 — 목록이 기본, 오늘부터 날짜별 묶음·건수, 첫 요청은 오늘 00:00 부터 30일 하나뿐', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -173,7 +175,7 @@ test('① ② 진입 — 목록이 기본, 오늘부터 날짜별 묶음·건수
   await expectNoHorizontalOverflow(page)
 })
 
-test('③ 목록 끝까지 스크롤하면 다음 30일을 요청해 그 일정을 이어 보여 주고, 헤더 월이 맨 위 묶음을 따라간다', async ({ authenticatedPage: page }) => {
+test('③ 목록 끝까지 스크롤하면 다음 30일을 요청해 그 일정을 이어 보여 주고, 헤더 월이 맨 위 묶음을 따라간다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -193,7 +195,7 @@ test('③ 목록 끝까지 스크롤하면 다음 30일을 요청해 그 일정�
   await expect(page.getByTestId('calendar-title')).toHaveText('10월')
 })
 
-test('회귀 — 이슈 마감이 일정보다 늦게 [] 로 와도 첫 로드부터 헤더 월이 스크롤을 따라간다(접근성 이름 포함)', async ({ authenticatedPage: page }) => {
+test('회귀 — 이슈 마감이 일정보다 늦게 [] 로 와도 첫 로드부터 헤더 월이 스크롤을 따라간다(접근성 이름 포함)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page, { issues: [], issuesDelayMs: 800 })
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -206,7 +208,7 @@ test('회귀 — 이슈 마감이 일정보다 늦게 [] 로 와도 첫 로드�
   expect(requests).toEqual([CHUNK1])
 })
 
-test('④ 헤더 제목 탭 → 미니 달력(점·달 넘김) → 날짜 선택 → 접히고 목록이 그 날부터 다시', async ({ authenticatedPage: page }) => {
+test('④ 헤더 제목 탭 → 미니 달력(점·달 넘김) → 날짜 선택 → 접히고 목록이 그 날부터 다시', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -289,7 +291,7 @@ test('④ 헤더 제목 탭 → 미니 달력(점·달 넘김) → 날짜 선택
   await expectNoHorizontalOverflow(page)
 })
 
-test('⑤ 월 보기로 바꾸면 ‹ › 가 돌아오고, 좌우 스와이프로 달이 바뀐다 — 스와이프 뒤에도 일정 탭은 열린다', async ({ authenticatedPage: page }) => {
+test('⑤ 월 보기로 바꾸면 ‹ › 가 돌아오고, 좌우 스와이프로 달이 바뀐다 — 스와이프 뒤에도 일정 탭은 열린다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
   await expect(agendaList(page).getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
@@ -324,7 +326,7 @@ test('⑤ 월 보기로 바꾸면 ‹ › 가 돌아오고, 좌우 스와이프�
   await expect(page.getByTestId('calendar-form-title')).toHaveValue('11월 하순 회고')
 })
 
-test('⑤-2 주 보기 — 시간 그리드(자체 세로 스크롤) 위에서 터치로 좌우 스와이프해도 다음·이전 주로 넘어간다', async ({ authenticatedPage: page }) => {
+test('⑤-2 주 보기 — 시간 그리드(자체 세로 스크롤) 위에서 터치로 좌우 스와이프해도 다음·이전 주로 넘어간다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
   await expect(agendaList(page).getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
@@ -348,7 +350,7 @@ test('⑤-2 주 보기 — 시간 그리드(자체 세로 스크롤) 위에서 �
   await expect(page.getByTestId('calendar-title')).toHaveText('10월')
 })
 
-test('미니 달력 접근성 — 제목 이름은 달 그대로, 펼침 상태·설명, 닫히면 포커스가 제목으로, Esc 로 접힘, 본문 이동에 패널 달이 따라간다', async ({ authenticatedPage: page }) => {
+test('미니 달력 접근성 — 제목 이름은 달 그대로, 펼침 상태·설명, 닫히면 포커스가 제목으로, Esc 로 접힘, 본문 이동에 패널 달이 따라간다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')
   await expect(agendaList(page).getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
@@ -399,7 +401,7 @@ test('미니 달력 접근성 — 제목 이름은 달 그대로, 펼침 상태�
   await expect(mini).toContainText('2026년 10월')
 })
 
-test('목록 재진입 — 월 보기에 갔다 오면 불러 둔 뒤 청크 없이 첫 청크부터 다시 보인다', async ({ authenticatedPage: page }) => {
+test('목록 재진입 — 월 보기에 갔다 오면 불러 둔 뒤 청크 없이 첫 청크부터 다시 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -422,7 +424,7 @@ test('목록 재진입 — 월 보기에 갔다 오면 불러 둔 뒤 청크 없
   expect(requests.filter((r) => r.from === CHUNK2.from).length).toBe(1)
 })
 
-test('⑥ ☰ 시트 — 미니 달력 없이 [새 일정]과 캘린더 토글, 토글을 끄면 목록에서 그 캘린더 일정이 빠진다', async ({ authenticatedPage: page }) => {
+test('⑥ ☰ 시트 — 미니 달력 없이 [새 일정]과 캘린더 토글, 토글을 끄면 목록에서 그 캘린더 일정이 빠진다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -470,7 +472,7 @@ for (const { name, act, dialog } of [
   { name: '⋯ 편집', act: ['calendar-menu-1', 'calendar-edit-1'], dialog: 'calendar-edit-dialog' },
   { name: '⋯ 모든 일정 삭제', act: ['calendar-menu-1', 'calendar-reset-1'], dialog: 'calendar-reset-confirm' },
 ]) {
-  test(`☰ 시트 [${name}] — 시트가 닫히고 다이얼로그만 남으며, 닫은 뒤 화면을 계속 쓸 수 있다`, async ({ authenticatedPage: page }) => {
+  test(`☰ 시트 [${name}] — 시트가 닫히고 다이얼로그만 남으며, 닫은 뒤 화면을 계속 쓸 수 있다`, { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubCalendar(page)
     await page.goto('/calendar')
     await page.getByTestId('mobile-sidebar-trigger').click()
@@ -490,7 +492,7 @@ for (const { name, act, dialog } of [
   })
 }
 
-test('⑦ [오늘] — 멀리 스크롤했거나 다른 날로 옮겼어도 오늘 묶음부터 맨 위로, 뒤 청크는 버린다', async ({ authenticatedPage: page }) => {
+test('⑦ [오늘] — 멀리 스크롤했거나 다른 날로 옮겼어도 오늘 묶음부터 맨 위로, 뒤 청크는 버린다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -521,7 +523,7 @@ test('⑦ [오늘] — 멀리 스크롤했거나 다른 날로 옮겼어도 오�
   await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-13')
 })
 
-test('⑧ 행 탭 → 일정 다이얼로그(그 일정), 닫으면 목록 그대로', async ({ authenticatedPage: page }) => {
+test('⑧ 행 탭 → 일정 다이얼로그(그 일정), 닫으면 목록 그대로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -535,7 +537,7 @@ test('⑧ 행 탭 → 일정 다이얼로그(그 일정), 닫으면 목록 그�
   await expect(list.getByTestId('calendar-event-2')).toBeVisible()
 })
 
-test('⑧-1 일정 다이얼로그 — 시작·종료 칸은 한 줄씩 전체 폭이라 시각까지 보인다(WP-635)', async ({ authenticatedPage: page }) => {
+test('⑧-1 일정 다이얼로그 — 시작·종료 칸은 한 줄씩 전체 폭이라 시각까지 보인다(WP-635)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubCalendar(page)
   await page.goto('/calendar')
   await agendaList(page).getByTestId('calendar-event-2').tap()
@@ -552,7 +554,7 @@ test('⑧-1 일정 다이얼로그 — 시작·종료 칸은 한 줄씩 전체 �
   await expectNoHorizontalOverflow(page)
 })
 
-test('⑧-3 일정 다이얼로그 — 아이콘 줄 폼은 390px 에서 반복 세부 칸·색 팝오버까지 펼쳐도 가로로 넘치지 않는다', async ({
+test('⑧-3 일정 다이얼로그 — 아이콘 줄 폼은 390px 에서 반복 세부 칸·색 팝오버까지 펼쳐도 가로로 넘치지 않는다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubCalendar(page)
@@ -611,7 +613,7 @@ test('⑧-3 일정 다이얼로그 — 아이콘 줄 폼은 390px 에서 반복 
   await expectNoHorizontalOverflow(page)
 })
 
-test.describe('390×664 — 낮은 화면', () => {
+test.describe('390×664 — 낮은 화면', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 390, height: 664 } })
 
   test('⑧-4 일정 다이얼로그 — 탭바 위 가운데, 끝까지 내리면 수정이 탭바 위, 아래쪽 알림·캘린더 선택 창도 탭바 위(WP-806)', async ({
@@ -640,126 +642,7 @@ test.describe('390×664 — 낮은 화면', () => {
   })
 })
 
-test('⑧-2 초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력칸 없는 상세 보기·캘린더 칩 「초대받은 일정」·반복은 문장으로(WP-604·WP-708)', async ({
-  authenticatedPage: page,
-}) => {
-  // 다른 사람(주최자) 캘린더(id 99, 이름 「기본」)의 매주 반복 일정에 초대받았다.
-  const invited = calendarEvent({
-    id: 50,
-    title: '주간 회의',
-    startsAt: kst('2026-10-13', '11:00'),
-    endsAt: kst('2026-10-13', '12:00'),
-    calendarId: 99,
-    calendarName: '기본',
-    myRole: 'ATTENDEE',
-    recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1;COUNT=5',
-  })
-  await stubCalendar(page, { events: [...baseEvents(), invited] })
-  await page.goto('/calendar')
-  const row = agendaList(page).getByTestId('calendar-event-50')
-  // 주최자 캘린더 이름(「기본」)이 아니라 사이드바 범례와 같은 「초대받은 일정」.
-  await expect(row).toContainText('초대받은 일정')
-  await expect(row).not.toContainText('기본')
-  await row.tap()
-  const dialog = page.getByTestId('calendar-event-dialog')
-  // 다이얼로그 제목은 일정 제목, 캘린더는 칩으로 「초대받은 일정」(WP-708).
-  await expect(dialog.getByRole('heading', { name: '주간 회의' })).toBeVisible()
-  await expect(dialog.getByTestId('event-detail-calendar')).toHaveText('초대받은 일정')
-  // 시간은 휴대폰에서 날짜·시각 두 줄, 반복은 입력칸 대신 문장으로.
-  await expect(dialog.getByTestId('event-detail-time')).toContainText('10월 13일 (화)')
-  await expect(dialog.getByTestId('event-detail-time')).toContainText('오전 11:00 – 오후 12:00')
-  await expect(dialog.getByTestId('event-detail-recurrence')).toHaveText('매주 화요일 · 5회')
-  // 입력칸이 없으니 열자마자 숫자 칸 포커스(휴대폰 숫자 키보드)가 생길 수 없다(WP-604).
-  await expect(dialog.locator('input, textarea, select')).toHaveCount(0)
-  await expectNoHorizontalOverflow(page)
-})
-
-test('⑨ 이슈 마감 행 — ⚑ 마감·이슈 키, 탭하면 이슈 상세로', async ({ authenticatedPage: page }) => {
-  await stubCalendar(page)
-  await page.goto('/calendar')
-  const row = agendaList(page).getByTestId('calendar-issue-due-7')
-  await expect(row).toContainText('마감')
-  await expect(row).toContainText('WP-136 모바일 캘린더 일정 목록')
-  await expect(row).toContainText('이슈 마감 · WP-136')
-  // 마감은 그 날(10/14) 묶음 안 — 종일 일정 다음.
-  await expect(agendaList(page).getByTestId('calendar-agenda-day-2026-10-14')).toContainText('2건')
-  await row.tap()
-  await expect(page).toHaveURL(/\/projects\/WP\/issues\/136$/)
-})
-
-// 시작일 전에 시작해 이어지는 일정(WP-136 A1) — 10/11~10/16 종일 학회(동기화 UTC 자정, 끝 배타 10/17)·어제 밤부터 오늘 09:00 까지의 점검.
-// 끝이 정확히 오늘 자정인 일정(시간·종일)은 오늘 묶음에 들어오지 않는다.
-function ongoingEvents(): CalendarEvent[] {
-  return [
-    calendarEvent({ id: 400, title: '추계 학회', allDay: true, startsAt: '2026-10-11T00:00:00Z', endsAt: '2026-10-17T00:00:00Z' }),
-    calendarEvent({ id: 401, title: '야간 배포 점검', startsAt: kst('2026-10-12', '22:00'), endsAt: kst('2026-10-13', '09:00') }),
-    calendarEvent({ id: 402, title: '어제 밤 끝난 회의', startsAt: kst('2026-10-12', '22:00'), endsAt: kst('2026-10-13', '00:00') }),
-    calendarEvent({ id: 403, title: '어제 종일', allDay: true, startsAt: '2026-10-12T00:00:00Z', endsAt: '2026-10-13T00:00:00Z' }),
-  ]
-}
-
-test('진행 중 일정 — 어제 시작한 여러 날 일정이 오늘(시작일) 묶음 맨 앞에 끝 날짜와 함께 보이고, 미니 달력으로 고른 날에도 보인다', async ({ authenticatedPage: page }) => {
-  await stubCalendar(page, { events: [...baseEvents(), ...ongoingEvents()] })
-  await page.goto('/calendar')
-  const list = agendaList(page)
-  const today = list.locator('[data-day-key="2026-10-13"]')
-
-  // 오늘 묶음 = 이어지는 일정 2건 + 오늘 일정 3건. 끝이 정확히 오늘 자정인 일정은 없다. 어제 묶음은 만들지 않는다.
-  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('5건')
-  await expect(list.getByTestId('calendar-event-402')).toHaveCount(0)
-  await expect(list.getByTestId('calendar-event-403')).toHaveCount(0)
-  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-13')
-  // 순서 — 이어지는 일정이 종일 그룹 자리(맨 앞, 제목순) → 그 날 시간 일정.
-  const order = await today.locator('[data-testid^="calendar-event-"]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.testid))
-  expect(order).toEqual(['calendar-event-401', 'calendar-event-400', 'calendar-event-1', 'calendar-event-2', 'calendar-event-3'])
-  // 시간 칸 — 종일은 "종일 / ~10/16"(마지막 날), 시간 일정은 "시작 날짜 / ~끝 시각(오늘 안에 끝남)".
-  await expect(list.getByRole('button', { name: /^종일\s+~10\/16\s*,\s*추계 학회/ })).toBeVisible()
-  await expect(list.getByRole('button', { name: /^10\/12\s+~09:00\s*,\s*야간 배포 점검/ })).toBeVisible()
-  // 지금 선은 여전히 오늘 시간 일정 사이(끝난 07:00 다음, 09:30 앞) — 이어지는 일정이 선을 맨 위로 끌어올리지 않는다.
-  const afterNow = await list.getByTestId('calendar-agenda-now').evaluate((el) => (el.nextElementSibling as HTMLElement).dataset.testid)
-  expect(afterNow).toBe('calendar-event-2')
-
-  // 미니 달력으로 학회 기간 중 날(10/16)을 고르면 그 날 묶음 맨 앞에 학회가 보인다(시간 일정 점검은 이미 끝나 없다).
-  await page.getByTestId('calendar-title-toggle').click()
-  await page.getByTestId('calendar-mobile-mini').getByRole('button', { name: '2026년 10월 16일 금요일' }).click()
-  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-16')
-  const oct16 = list.locator('[data-day-key="2026-10-16"]')
-  await expect(oct16.locator('[data-testid^="calendar-event-"]').first()).toHaveAttribute('data-testid', 'calendar-event-400')
-  await expect(oct16.getByTestId('calendar-event-400')).toContainText('~10/16')
-  await expect(list.getByTestId('calendar-event-401')).toHaveCount(0)
-  // 다른 날 묶음엔 다시 나오지 않는다(시작일 묶음 한 번만).
-  await expect(list.getByTestId('calendar-event-400')).toHaveCount(1)
-})
-
-test('월 보기에서 다른 달로 넘긴 뒤 목록으로 바꾸면 그 달 1일부터, 이번 달이면 오늘부터 보인다', async ({ authenticatedPage: page }) => {
-  const requests = await stubCalendar(page)
-  await page.goto('/calendar')
-  const list = agendaList(page)
-  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toBeVisible()
-  const select = page.getByTestId('calendar-view-select')
-
-  // 월 보기 › › → 12월(anchor 12/13). 목록으로 → 12/1 부터 조회해 12/5 일정이 첫 묶음(12/13 부터면 숨는다).
-  await select.selectOption('month')
-  await page.getByTestId('calendar-next').click()
-  await page.getByTestId('calendar-next').click()
-  await expect(page.getByTestId('calendar-title')).toHaveText('12월')
-  await select.selectOption('agenda')
-  await expect.poll(() => requests).toContainEqual({ from: '2026-11-30T15:00:00.000Z', to: '2026-12-30T15:00:00.000Z' })
-  await expect(list.getByTestId('calendar-event-301')).toContainText('12월 초 점검')
-  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-12-05')
-  await expect(page.getByTestId('calendar-title')).toHaveText('12월')
-
-  // 다시 월 보기에서 이번 달(10월)로 돌아와 목록 → 10/1 이 아니라 오늘부터.
-  await select.selectOption('month')
-  await page.getByTestId('calendar-prev').click()
-  await page.getByTestId('calendar-prev').click()
-  await expect(page.getByTestId('calendar-title')).toHaveText('10월')
-  await select.selectOption('agenda')
-  await expect(list.locator('[data-day-key]').first()).toHaveAttribute('data-day-key', '2026-10-13')
-  await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toContainText('오늘 · 10월 13일 (화)')
-})
-
-test('열어 둔 채 시간이 흐르면 지금 선이 따라가고, 자정을 넘기면 목록이 새 오늘부터 다시 시작한다', async ({ authenticatedPage: page }) => {
+test('열어 둔 채 시간이 흐르면 지금 선이 따라가고, 자정을 넘기면 목록이 새 오늘부터 다시 시작한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page, { runningClock: true })
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -788,7 +671,7 @@ test('열어 둔 채 시간이 흐르면 지금 선이 따라가고, 자정을 �
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
 })
 
-test('자정을 넘길 때 목록을 아래로 읽는 중이면 그대로 두고(오늘 강조만 옮김), 화면에 돌아오면 새 오늘부터 다시', async ({ authenticatedPage: page }) => {
+test('자정을 넘길 때 목록을 아래로 읽는 중이면 그대로 두고(오늘 강조만 옮김), 화면에 돌아오면 새 오늘부터 다시', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page, { runningClock: true })
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -817,7 +700,7 @@ test('자정을 넘길 때 목록을 아래로 읽는 중이면 그대로 두고
   await expect(list.getByTestId('calendar-agenda-day-2026-10-13')).toHaveCount(0)
 })
 
-test('자정에 따라가지 않은 뒤 미니 달력으로 지난 오늘을 직접 고르면, 화면에 돌아와도 그 날을 그대로 둔다', async ({ authenticatedPage: page }) => {
+test('자정에 따라가지 않은 뒤 미니 달력으로 지난 오늘을 직접 고르면, 화면에 돌아와도 그 날을 그대로 둔다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page, { runningClock: true })
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -847,7 +730,7 @@ test('자정에 따라가지 않은 뒤 미니 달력으로 지난 오늘을 직
   expect(requests).not.toContainEqual({ from: '2026-10-13T15:00:00.000Z', to: '2026-11-12T15:00:00.000Z' })
 })
 
-test('목록에서 다음 달까지 내린 뒤 월 보기로 바꾸면 헤더가 보여 주던 달(목록 시작 달이 아니라)이 열린다', async ({ authenticatedPage: page }) => {
+test('목록에서 다음 달까지 내린 뒤 월 보기로 바꾸면 헤더가 보여 주던 달(목록 시작 달이 아니라)이 열린다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page)
   await page.goto('/calendar')
   const list = agendaList(page)
@@ -864,24 +747,7 @@ test('목록에서 다음 달까지 내린 뒤 월 보기로 바꾸면 헤더가
   await expect(page.getByTestId('calendar-view-month').getByText('11월 하순 회고')).toBeVisible()
 })
 
-test('이슈 마감 조회가 실패해도 일정은 보이고, 하단 다시 시도 줄로 마감까지 되살린다', async ({ authenticatedPage: page }) => {
-  let failDues = true
-  await stubCalendar(page, { failDues: () => failDues })
-  await page.goto('/calendar')
-  const list = agendaList(page)
-  const retry = list.getByRole('button', { name: '일부 일정을 불러오지 못했습니다 — 다시 시도' })
-  await expect(retry).toBeVisible()
-  // 일정 행은 그대로, 마감 행만 빠져 있다.
-  await expect(list.getByTestId('calendar-event-2')).toBeVisible()
-  await expect(list.getByTestId('calendar-issue-due-7')).toHaveCount(0)
-
-  failDues = false
-  await retry.click()
-  await expect(list.getByTestId('calendar-issue-due-7')).toBeVisible()
-  await expect(retry).toHaveCount(0)
-})
-
-test('일정이 없으면 90일(빈 청크 3개)에서 자동 불러오기를 멈추고 "다음 30일 더 보기" 로 한 청크씩', async ({ authenticatedPage: page }) => {
+test('일정이 없으면 90일(빈 청크 3개)에서 자동 불러오기를 멈추고 "다음 30일 더 보기" 로 한 청크씩', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const requests = await stubCalendar(page, { events: [], issues: [] })
   await page.goto('/calendar')
   const list = agendaList(page)

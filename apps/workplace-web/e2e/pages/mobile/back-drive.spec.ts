@@ -26,7 +26,7 @@ async function stubDrive(page: Page) {
   await page.route('**/api/v1/drive/spaces/*/trash', (r) => r.fulfill({ json: makeTrashList() }))
 }
 
-test('미리보기: goBack 은 모달만 닫고 드라이브에 남는다 — 닫기(ESC)도 같은 결과', async ({ authenticatedPage: page }) => {
+test('미리보기: goBack 은 모달만 닫고 드라이브에 남는다 — 닫기(ESC)도 같은 결과', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDrive(page)
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   await page.getByRole('button', { name: LONG_NAME, exact: true }).tap()
@@ -44,7 +44,7 @@ test('미리보기: goBack 은 모달만 닫고 드라이브에 남는다 — �
   await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}$`))
 })
 
-test('미리보기 딥링크 → 닫기는 드라이브에 남는다', async ({ authenticatedPage: page }) => {
+test('미리보기 딥링크 → 닫기는 드라이브에 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDrive(page)
   await page.goto(`/drive/spaces/${SPACE_ID}?preview=70`)
   await expect(page.getByTestId('preview-body')).toBeVisible()
@@ -53,7 +53,7 @@ test('미리보기 딥링크 → 닫기는 드라이브에 남는다', async ({ 
   await expect(page.getByTestId('drive-page')).toBeVisible()
 })
 
-test('없는 preview id 딥링크는 찾을 수 없음 안내를 보이고 닫힌다', async ({ authenticatedPage: page }) => {
+test('없는 preview id 딥링크는 찾을 수 없음 안내를 보이고 닫힌다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDrive(page)
   await page.goto(`/drive/spaces/${SPACE_ID}?preview=999`)
   await expect(page.getByTestId('preview-not-found')).toBeVisible()
@@ -61,7 +61,7 @@ test('없는 preview id 딥링크는 찾을 수 없음 안내를 보이고 닫�
   await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}$`))
 })
 
-test('휴지통: goBack 은 휴지통 뷰만 닫는다 — ← 드라이브 도 같은 결과, 딥링크도 드라이브에 남는다', async ({ authenticatedPage: page }) => {
+test('휴지통: goBack 은 휴지통 뷰만 닫는다 — ← 드라이브 도 같은 결과, 딥링크도 드라이브에 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubDrive(page)
   await page.goto(`/drive/spaces/${SPACE_ID}`)
   // 모바일 PageHeader 는 actions 를 ⋯ 메뉴에 담는다.
@@ -82,7 +82,7 @@ test('휴지통: goBack 은 휴지통 뷰만 닫는다 — ← 드라이브 도 
   await expect(page.getByTestId('trash-view')).toHaveCount(0)
 })
 
-test('첨부 모아보기 미리보기: goBack 은 모달만 닫는다', async ({ authenticatedPage: page }) => {
+test('첨부 모아보기 미리보기: goBack 은 모달만 닫는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await page.route('**/api/v1/drive/spaces', (r) => r.fulfill({ json: [{ id: 1, name: '내 드라이브', type: 'PERSONAL' }] }))
   await page.route('**/api/v1/drive/attachments**', (r) =>
     r.fulfill({

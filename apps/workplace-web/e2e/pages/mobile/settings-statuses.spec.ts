@@ -1,4 +1,6 @@
 // 프로젝트 설정 「상태」 섹션 — 모바일(WP-809). 손잡이 대신 ⋯ 시트의 위로/아래로 이동, 삭제 창·긴 이름의 가로 넘침.
+// 여기엔 삭제 창·긴 이름 행의 기하(@layout)만 남긴다 — ⋯ 시트 이동 payload·순서 반영과 범주 경계 비활성은
+// src/pages/mobile/settingsStatuses.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
 import type { ProjectStatus } from '../../../src/types/projectStatus'
@@ -33,51 +35,7 @@ async function setup(page: Page) {
   return mock
 }
 
-async function rowIds(page: Page, category: string): Promise<number[]> {
-  const ids = await page
-    .getByTestId(`status-category-${category}`)
-    .locator('[data-testid^="status-row-"]')
-    .evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')!))
-  return ids.map((t) => Number(t.replace('status-row-', '')))
-}
-
-test('손잡이 없이 ⋯ 시트의 위로/아래로 이동으로 순서를 바꾼다', async ({ authenticatedPage: page }) => {
-  const mock = await setup(page)
-  // 터치 끌기는 스크롤과 충돌해 손잡이를 그리지 않는다.
-  await expect(page.locator('[data-testid^="status-drag-"]')).toHaveCount(0)
-  await page.getByTestId('status-menu-13').click()
-  const sheet = page.getByTestId('status-row-sheet')
-  await expect(sheet).toBeVisible()
-  await sheet.getByTestId('mobile-action-status-move-up').click()
-  await mock.orders.waitFor()
-  expect(mock.orders.lastBody()).toEqual({ category: 'IN_PROGRESS', statusIds: [2, 13, 12] })
-  await expect.poll(() => rowIds(page, 'IN_PROGRESS')).toEqual([2, 13, 12])
-
-  await page.getByTestId('status-menu-2').click()
-  await page.getByTestId('status-row-sheet').getByTestId('mobile-action-status-move-down').click()
-  await mock.orders.waitFor(2)
-  expect(mock.orders.lastBody()).toEqual({ category: 'IN_PROGRESS', statusIds: [13, 2, 12] })
-})
-
-test('범주 경계에서는 이동 항목이 비활성', async ({ authenticatedPage: page }) => {
-  await setup(page)
-  // 범주 첫 상태 — 위로 비활성, 아래로 가능.
-  await page.getByTestId('status-menu-2').click()
-  let sheet = page.getByTestId('status-row-sheet')
-  await expect(sheet.getByTestId('mobile-action-status-move-up')).toBeDisabled()
-  await expect(sheet.getByTestId('mobile-action-status-move-down')).toBeEnabled()
-  await page.keyboard.press('Escape')
-  await expect(sheet).toHaveCount(0)
-  // 범주 하나뿐인 상태 — 위·아래·삭제 모두 비활성, 삭제 이유가 보인다.
-  await page.getByTestId('status-menu-3').click()
-  sheet = page.getByTestId('status-row-sheet')
-  await expect(sheet.getByTestId('mobile-action-status-move-up')).toBeDisabled()
-  await expect(sheet.getByTestId('mobile-action-status-move-down')).toBeDisabled()
-  await expect(sheet.getByTestId('mobile-action-status-delete')).toBeDisabled()
-  await expect(sheet).toContainText('범주의 마지막 상태는 지울 수 없어요')
-})
-
-test('삭제 창이 모바일 폭에서 넘치지 않는다', async ({ authenticatedPage: page }) => {
+test('삭제 창이 모바일 폭에서 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page)
   await page.getByTestId('status-menu-12').click()
   await page.getByTestId('status-row-sheet').getByTestId('mobile-action-status-delete').click()
@@ -104,7 +62,7 @@ test('삭제 창이 모바일 폭에서 넘치지 않는다', async ({ authentic
   await expectNoHorizontalOverflow(page)
 })
 
-test('30자 이름 행이 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+test('30자 이름 행이 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page)
   for (const id of [12, 13]) {
     const row = page.getByTestId(`status-row-${id}`)

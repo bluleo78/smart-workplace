@@ -16,7 +16,7 @@ async function open(page: Page, body: string, role: 'OWNER' | 'VIEWER' = 'OWNER'
 }
 
 test.describe('모바일 노트 링크 시트', () => {
-  test('링크를 누르면 시트가 뜨고(버블 없음), 링크 열기는 새 탭(opener 차단)으로 연다', async ({ authenticatedPage: page }) => {
+  test('링크를 누르면 시트가 뜨고(버블 없음), 링크 열기는 새 탭(opener 차단)으로 연다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await page.context().route(`${LINK_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>spec</p>' }))
     await open(page, `[설계 문서](${LINK_URL}) 참고.`)
     await page.locator('.ProseMirror a', { hasText: '설계 문서' }).tap()
@@ -41,7 +41,7 @@ test.describe('모바일 노트 링크 시트', () => {
     await expect(sheet).toHaveCount(0)
   })
 
-  test('링크 고치기 → 주소 입력 시트(지금 주소가 채워짐, 16px)에서 바꾼 주소가 저장된다', async ({ authenticatedPage: page }) => {
+  test('링크 고치기 → 주소 입력 시트(지금 주소가 채워짐, 16px)에서 바꾼 주소가 저장된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await open(page, `[설계 문서](${LINK_URL}) 참고.`)
     await page.locator('.ProseMirror a', { hasText: '설계 문서' }).tap()
     await page.getByTestId('wiki-link-sheet-edit').tap()
@@ -74,7 +74,7 @@ test.describe('모바일 노트 링크 시트', () => {
     await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('[설계 문서](https://example.com/v2) 참고.')
   })
 
-  test('링크 해제는 글자를 남기고 링크만 푼다', async ({ authenticatedPage: page }) => {
+  test('링크 해제는 글자를 남기고 링크만 푼다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await open(page, `앞 [설계 문서](${LINK_URL}) 뒤`)
     await page.locator('.ProseMirror a', { hasText: '설계 문서' }).tap()
     const unlink = page.getByTestId('wiki-link-sheet-unlink')
@@ -87,7 +87,7 @@ test.describe('모바일 노트 링크 시트', () => {
     await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('앞 설계 문서 뒤')
   })
 
-  test('글자를 고르고 선택 툴바 🔗 를 누르면 주소 입력 시트로 링크를 건다', async ({ authenticatedPage: page }) => {
+  test('글자를 고르고 선택 툴바 🔗 를 누르면 주소 입력 시트로 링크를 건다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await open(page, '자세한 내용은 설계 문서 참고.')
     // DOM 선택으로 "설계 문서" 를 고른다 — ProseMirror 는 selectionchange 로 따라간다.
     await page.locator('.ProseMirror').evaluate((root) => {
@@ -114,7 +114,7 @@ test.describe('모바일 노트 링크 시트', () => {
     await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe(`자세한 내용은 [설계 문서](${LINK_URL}) 참고.`)
   })
 
-  test('긴 주소는 시트에서 줄바꿈돼 전부 보이고 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
+  test('긴 주소는 시트에서 줄바꿈돼 전부 보이고 가로로 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const long = `https://example.com/${'very-long-path-segment/'.repeat(8)}end?query=${'x'.repeat(40)}`
     await open(page, `[긴 링크](${long}) 뒤`)
     await page.locator('.ProseMirror a', { hasText: '긴 링크' }).tap()
@@ -127,7 +127,7 @@ test.describe('모바일 노트 링크 시트', () => {
     await expectNoHorizontalOverflow(page)
   })
 
-  test('보기 전용에선 시트 없이 링크가 그대로 새 탭으로 열린다', async ({ authenticatedPage: page }) => {
+  test('보기 전용에선 시트 없이 링크가 그대로 새 탭으로 열린다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await page.context().route(`${LINK_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>spec</p>' }))
     await open(page, `[설계 문서](${LINK_URL})`, 'VIEWER')
     const popupPromise = page.context().waitForEvent('page')

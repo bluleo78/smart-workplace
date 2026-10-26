@@ -17,7 +17,7 @@ async function expectViewerOnTop(page: Page) {
   await expectOnTop(page, page.getByTestId('viewer-top-bar').getByRole('button', { name: '닫기' }), VIEWER)
 }
 
-test('팀 채팅: 썸네일 탭 → 전체 화면 뷰어, 스와이프·‹ 로 넘기고 ⬇ 저장, 뒤로가기는 뷰어만 닫는다', async ({ authenticatedPage: page }) => {
+test('팀 채팅: 썸네일 탭 → 전체 화면 뷰어, 스와이프·‹ 로 넘기고 ⬇ 저장, 뒤로가기는 뷰어만 닫는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubTeamChatAttachments(page)
   await page.goto('/chat/channels/1')
   await page.getByTestId('attachment-image-open-801').tap()
@@ -55,7 +55,7 @@ test('팀 채팅: 썸네일 탭 → 전체 화면 뷰어, 스와이프·‹ 로 
   await expect(page.getByTestId('message-list').first()).toBeVisible()
 })
 
-test('팀 채팅: 첨부 위에서 길게 누르면 작업 시트만 열리고 뷰어는 열리지 않는다(발동 뒤 click 억제)', async ({ authenticatedPage: page }) => {
+test('팀 채팅: 첨부 위에서 길게 누르면 작업 시트만 열리고 뷰어는 열리지 않는다(발동 뒤 click 억제)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubTeamChatAttachments(page)
   await page.goto('/chat/channels/1')
   await longPress(page, page.getByTestId('attachment-image-open-801'))
@@ -69,7 +69,7 @@ test('팀 채팅: 첨부 위에서 길게 누르면 작업 시트만 열리고 �
   await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
 })
 
-test('팀 채팅 스레드: 스레드 안 카드 탭 → 뷰어 하나, 뒤로가기는 뷰어만 닫고 ?thread 는 남는다', async ({ authenticatedPage: page }) => {
+test('팀 채팅 스레드: 스레드 안 카드 탭 → 뷰어 하나, 뒤로가기는 뷰어만 닫고 ?thread 는 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubTeamChatAttachments(page)
   await page.goto('/chat/channels/1')
   await page.getByTestId('message-thread-link-10').tap()
@@ -86,7 +86,7 @@ test('팀 채팅 스레드: 스레드 안 카드 탭 → 뷰어 하나, 뒤로�
   await expect(panel).toBeVisible()
 })
 
-test('이슈 채팅 드로워: 카드 탭 → 드로워 위 뷰어(‹ › ✕ ⬇ 조작), 뒤로가기는 뷰어만 닫고 ?chat=1 은 남는다', async ({ authenticatedPage: page }) => {
+test('이슈 채팅 드로워: 카드 탭 → 드로워 위 뷰어(‹ › ✕ ⬇ 조작), 뒤로가기는 뷰어만 닫고 ?chat=1 은 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubIssueChatAttachments(page)
   await page.goto(`/projects/${KEY}/issues/1`)
   await page.getByTestId('issue-chat-open').tap()
@@ -130,7 +130,7 @@ test('이슈 채팅 드로워: 카드 탭 → 드로워 위 뷰어(‹ › ✕ �
   await expect(bar.locator('[data-slot-id="drive"]')).toHaveAttribute('data-state', 'empty')
 })
 
-test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가기는 뷰어만 닫고 시트는 남는다', async ({ authenticatedPage: page }) => {
+test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가기는 뷰어만 닫고 시트는 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubHomeChatAttachments(page)
   await page.goto('/chat')
   await page.getByTestId('mobile-tab-ai').click()
@@ -170,7 +170,7 @@ test('AI 시트: 복원한 대화 썸네일 탭 → 시트 위 뷰어, 뒤로가
   await expect(turn.getByTestId('attachment-card-78')).toBeFocused()
 })
 
-test('이슈 채팅: 첨부 위에서 길게 누르면 작업 시트만 열리고 뷰어는 열리지 않는다', async ({ authenticatedPage: page }) => {
+test('이슈 채팅: 첨부 위에서 길게 누르면 작업 시트만 열리고 뷰어는 열리지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubIssueChatAttachments(page)
   await page.goto(`/projects/${KEY}/issues/1?chat=1`)
   await longPress(page, page.getByTestId('attachment-card-802'))
@@ -178,7 +178,7 @@ test('이슈 채팅: 첨부 위에서 길게 누르면 작업 시트만 열리�
   await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
 })
 
-test('AI 시트 위 뷰어에서 받기 실패 토스트가 뷰어 위에 보인다', async ({ authenticatedPage: page }) => {
+test('AI 시트 위 뷰어에서 받기 실패 토스트가 뷰어 위에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubHomeChatAttachments(page)
   // 78(PDF) 원본을 받지 못하게 한다 — 미리보기 실패 화면의 다운로드도 다시 받으러 가서 실패한다(나중 라우트 우선).
   await page.route((u) => u.pathname === '/api/v1/home/sessions/s-v/attachments/78/content', (r) => r.fulfill({ status: 500, body: '' }))
@@ -208,7 +208,7 @@ test('AI 시트 위 뷰어에서 받기 실패 토스트가 뷰어 위에 보인
   await expectOnTop(page, toast, '[data-sonner-toast]')
 })
 
-test('터치 대상 — 파일·링크 카드와 썸네일은 44px 이상', async ({ authenticatedPage: page }) => {
+test('터치 대상 — 파일·링크 카드와 썸네일은 44px 이상', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubTeamChatAttachments(page)
   await page.goto('/chat/channels/1')
   for (const id of ['attachment-card-802', 'message-drive-link-70', 'attachment-card-803', 'attachment-image-open-801']) {

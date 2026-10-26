@@ -1,38 +1,14 @@
 // 모바일 셸 최종 리뷰 보정(WP-121) — 탭바가 숨은 탭 루트 상세의 AI 진입점, /settings 막다른 길,
 // 캘린더 헤더 과밀, 탭 재탭 스크롤, ai-mode 비영속, 데스크톱 인박스 → 모바일 전환, 알림 제목 중복을 고정한다.
+// 브라우저가 있어야 판정되는 것만 남긴다 — 실제 브라우저 기록 -1 로 돌아가는 ‹(@platform), 헤더 폭·재탭 스크롤·리사이즈(@layout).
+// 상세 바 ✦ AI 진입점·설정 딥링크 ‹ 대상·ai-mode 비영속·알림 제목 중복은 페이지 테스트
+// src/pages/mobile/mobileFinalReview.test.tsx 가 지킨다(WP-981).
 import { createChannel, createDm } from '../../factories/messaging.factory'
-import { member, memberDetail, page as makeContactPage } from '../../factories/contacts.factory'
-import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test, toCalendarMonthView } from '../../fixtures/mobile.fixture'
 import { resizeAndSettle } from '../../fixtures/wait'
 
-test('메일 본문(탭바 숨김)에서도 ✦ 로 AI 시트를 연다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
-  await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail())
-  await page.goto('/mail/1')
-  await page.getByTestId('mail-row-10').click()
-  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
-  await expect(page.getByTestId('mail-back')).toBeVisible()
-  await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-sheet')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-})
-
-test('연락처 상세(탭바 숨김)에서도 ✦ 로 AI 시트를 연다', async ({ authenticatedPage: page }) => {
-  await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
-  await page.route((u) => u.pathname === '/api/v1/contacts/members/1', (r) => r.fulfill({ json: memberDetail() }))
-  await page.goto('/contacts')
-  await page.getByTestId('contact-row-MEMBER-1').click()
-  await expect(page.getByTestId('mobile-tabbar')).toHaveCount(0)
-  await expect(page.getByTestId('contact-back')).toBeVisible()
-  await page.getByTestId('mobile-back-ai').click()
-  await expect(page.getByTestId('ai-sheet')).toBeVisible()
-  await expectNoHorizontalOverflow(page)
-})
-
-test('설정: 앱 → 설정 → ‹ 는 앱 목록으로 돌아간다', async ({ authenticatedPage: page }) => {
+test('설정: 앱 → 설정 → ‹ 는 앱 목록으로 돌아간다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
   await page.getByTestId('apps-app-settings').click()
@@ -45,17 +21,7 @@ test('설정: 앱 → 설정 → ‹ 는 앱 목록으로 돌아간다', async (
   await expect(page).toHaveURL(/\/apps$/)
 })
 
-test('설정 딥링크: /settings/notifications → ‹ → /settings → ‹ → /apps', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/settings/notifications')
-  await page.getByTestId('mobile-back').click()
-  await expect(page).toHaveURL(/\/settings$/)
-  await expect(page.getByTestId('settings-sidebar')).toBeVisible()
-  await page.getByTestId('mobile-back').click()
-  await expect(page).toHaveURL(/\/apps$/)
-})
-
-test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하다', async ({ authenticatedPage: page }) => {
+test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 모바일 제목은 같은 해면 'M월', 다른 해면 'yyyy년 M월'(WP-136 — 「10월 ▾」 버튼, ▾ 는 아이콘).
   // 가장 긴 제목('yyyy년 12월' + ▾)을 만들려고 오늘을 2027-01 로 두고 월 보기에서 지난해 12월로 이동한다 — 실행 월과 무관.
   await page.clock.setFixedTime(new Date('2027-01-15T10:00:00'))
@@ -87,7 +53,7 @@ test('캘린더 헤더: 390px 에서 제목이 읽히고 뷰 전환이 가능하
   await expectNoHorizontalOverflow(page)
 })
 
-test('같은 탭 재탭 시 실제 스크롤 컨테이너가 맨 위로 돌아간다', async ({ authenticatedPage: page }) => {
+test('같은 탭 재탭 시 실제 스크롤 컨테이너가 맨 위로 돌아간다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 긴 채널 목록 — 목록 영역이 스크롤되도록 충분히 많이.
   const channels = Array.from({ length: 40 }, (_, i) => createChannel({ id: i + 1, name: `채널-${i + 1}` }))
   await page.route((u) => u.pathname === '/api/v1/messaging/channels', (r) =>
@@ -103,15 +69,7 @@ test('같은 탭 재탭 시 실제 스크롤 컨테이너가 맨 위로 돌아�
   await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0)
 })
 
-test('모바일에서 AI 를 열어도 ai-mode 를 영속하지 않는다(데스크톱 ⌘K 기본값 보존)', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/')
-  await page.getByTestId('mobile-tab-ai').click()
-  await expect(page.getByTestId('ai-sheet')).toBeVisible()
-  expect(await page.evaluate(() => localStorage.getItem('ai-mode'))).toBeNull()
-})
-
-test('데스크톱 인박스 Popover 를 연 채 좁히면 닫기만 하고 알림 화면으로 이동하지 않는다', async ({ authenticatedPage: page }) => {
+test('데스크톱 인박스 Popover 를 연 채 좁히면 닫기만 하고 알림 화면으로 이동하지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
@@ -125,11 +83,3 @@ test('데스크톱 인박스 Popover 를 연 채 좁히면 닫기만 하고 알�
   await expect(page).toHaveURL(/\/chat$/)
 })
 
-test('알림 화면: 제목 "알림" 은 한 번만 보이고 모두 읽음은 남는다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/notifications', [])
-  await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
-  await page.goto('/notifications')
-  await expect(page.getByTestId('inbox-mark-all')).toBeVisible()
-  await expect(page.getByText('알림', { exact: true })).toHaveCount(1)
-  await expectNoHorizontalOverflow(page)
-})

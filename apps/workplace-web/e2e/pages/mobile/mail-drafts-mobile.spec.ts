@@ -13,7 +13,7 @@ test.beforeEach(async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [])
 })
 
-test('☰ 시트의 임시보관함(개수) → 목록 → 행을 누르면 화면 전체 작성, 고친 뒤 뒤로가기는 저장하고 목록으로', async ({ authenticatedPage: page }) => {
+test('☰ 시트의 임시보관함(개수) → 목록 → 행을 누르면 화면 전체 작성, 고친 뒤 뒤로가기는 저장하고 목록으로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const server = await mockDraftServer(page, [draftDetail({ id: 7, subject: '모바일 임시저장', bodyHtml: '<p>쓰다 만 본문</p>' })], { 7: '쓰다 만 본문' })
   await page.goto('/mail/1')
   await page.getByTestId('mobile-sidebar-trigger').click()
@@ -61,7 +61,7 @@ test('☰ 시트의 임시보관함(개수) → 목록 → 행을 누르면 화�
   expect(server.puts.count()).toBe(1)
 })
 
-test('긴 저장 안내(충돌)는 상단 바 아이콘 위로 넘치지 않고 글만 말줄임 — 「다시 불러오기」는 그대로 보인다', async ({ authenticatedPage: page }) => {
+test('긴 저장 안내(충돌)는 상단 바 아이콘 위로 넘치지 않고 글만 말줄임 — 「다시 불러오기」는 그대로 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const server = await mockDraftServer(page, [draftDetail({ id: 7, mode: 'reply', subject: 'Re: 예산안' })])
   await page.goto('/mail/1?folder=drafts')
   await page.getByTestId('mail-draft-row-7').click()
@@ -88,7 +88,7 @@ test('긴 저장 안내(충돌)는 상단 바 아이콘 위로 넘치지 않고 
   expect(hit).toBe('mail-compose-discard')
 })
 
-test('저장 검증 오류는 모바일에선 원인만 빨간 글씨로 잘리지 않게 보이고, 낭독·title 에는 전체 문구가 남는다', async ({ authenticatedPage: page }) => {
+test('저장 검증 오류는 모바일에선 원인만 빨간 글씨로 잘리지 않게 보이고, 낭독·title 에는 전체 문구가 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockDraftServer(page)
   await page.route(
     (u) => u.pathname === '/api/v1/mail/drafts',
@@ -116,7 +116,7 @@ test('저장 검증 오류는 모바일에선 원인만 빨간 글씨로 잘리�
   await expect(status.locator('span.sr-only')).toHaveText(/저장하지 못했어요/)
 })
 
-test('🗑 버리기는 상단 바 📎 왼쪽 44px — 누르면 DELETE 하고 「되돌리기」로 다시 연다', async ({ authenticatedPage: page }) => {
+test('🗑 버리기는 상단 바 📎 왼쪽 44px — 누르면 DELETE 하고 「되돌리기」로 다시 연다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const server = await mockDraftServer(page)
   await page.goto('/mail/1')
   await page.getByTestId('mobile-sidebar-trigger').click()

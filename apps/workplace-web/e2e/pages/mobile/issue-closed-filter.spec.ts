@@ -1,4 +1,6 @@
-// 모바일 필터 시트 — 「＋ 필터」에 「완료일」 항목이 보이고 프리셋을 고를 수 있다 (WP-873).
+// 모바일 필터 시트 — 「＋ 필터」 목록·「기간 직접 지정」 달력이 짧은 휴대폰에서 잘리지 않는다 (WP-873, WP-932).
+// 실제 기하(상자 끝·안쪽 스크롤·elementFromPoint)를 재므로 모두 @layout 이다. 완료일 항목·프리셋 → URL·칩 라벨은
+// 페이지 테스트 src/pages/mobile/issueClosedFilter.test.tsx 가 지킨다(WP-981).
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture';
@@ -7,35 +9,10 @@ const KEY = 'WP';
 
 test.use({ timezoneId: 'Asia/Seoul' });
 
-test('필터 시트 — 「＋ 필터」 목록에 완료일이 1건 있고 프리셋을 고르면 칩이 생긴다', async ({ authenticatedPage: page }) => {
-  await stubChat(page);
-  await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
-  await page.route(`**/api/v1/projects/${KEY}`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject()) }),
-  );
-  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) =>
-    r.request().method() === 'GET'
-      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse([createIssue({ number: 7 })], null)) })
-      : r.fallback(),
-  );
-  await page.goto(`/projects/${KEY}`);
-  await page.getByTestId('mobile-chip-filter').click();
-  const sheet = page.getByTestId('mobile-filter-sheet');
-  await expect(sheet).toBeVisible();
-  await sheet.getByTestId('add-filter-trigger').click();
-
-  await expect(page.getByTestId('add-filter-facet-closedIn')).toHaveCount(1);
-  await expect(page.getByTestId('add-filter-facet-closedIn')).toHaveText('완료일');
-  await page.getByTestId('add-filter-facet-closedIn').click();
-  await page.getByTestId('facet-value-closedIn-last-week').click();
-  await expect(page).toHaveURL(/closedIn=last-week/);
-  await expect(sheet.getByTestId('filter-chip-closedIn')).toHaveText('완료일:지난 주 (10/12–10/18)');
-});
-
 // 무엇을: 좁은 높이(iPhone 13 뷰포트 390×664)에서 「＋ 필터」 목록이 화면 아래끝에 붙지 않고(모서리가 시트 끝에 잘리지 않고)
 //        마지막 항목 「완료일」 까지 목록 안 스크롤로 닿아 온전히 보이는지.
 // 왜: 목록이 화면 아래끝까지 늘어나 둥근 모서리가 잘렸고, 「완료일」 이 접힌 아래에 있었다(WP-873 캡처).
-test('필터 시트 — 「＋ 필터」 목록은 화면 아래끝과 떨어져 있고, 목록 안을 스크롤하면 「완료일」 이 잘리지 않고 보인다', async ({
+test('필터 시트 — 「＋ 필터」 목록은 화면 아래끝과 떨어져 있고, 목록 안을 스크롤하면 「완료일」 이 잘리지 않고 보인다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubChat(page);
@@ -80,7 +57,7 @@ test('필터 시트 — 「＋ 필터」 목록은 화면 아래끝과 떨어져
 // 무엇을: 짧은 휴대폰(390×664)에서 「기간 직접 지정」 달력을 열면 「취소」·「적용」 줄과 달력 전체가 스크롤 없이 화면·목록 상자 안에 보이는지.
 // 왜: 달력(약 350px)이 「＋ 필터」 아래 남은 높이(약 240px)보다 커서 「적용」 까지 목록 안을 스크롤해야 했다(WP-873).
 //     「적용」 줄을 붙여 둔 뒤에도 달력이 두 주만 보이고 나머지는 안을 스크롤해야 해 시트를 높였다(WP-932).
-test('필터 시트 — 「기간 직접 지정」 달력을 열면 달력 전체와 「적용」 이 스크롤 없이 보인다(390×664)', async ({ authenticatedPage: page }) => {
+test('필터 시트 — 「기간 직접 지정」 달력을 열면 달력 전체와 「적용」 이 스크롤 없이 보인다(390×664)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page);
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
   await page.route(`**/api/v1/projects/${KEY}`, (r) =>
@@ -133,7 +110,7 @@ test('필터 시트 — 「기간 직접 지정」 달력을 열면 달력 전�
 
 // 무엇을: 필터 칩이 쌓여 「＋ 필터」 가 아래로 밀려도(우선순위·완료일 칩 2개) 6주짜리 달력이 안쪽 스크롤 없이 들어가는지(390×664).
 // 왜: 시트 전체 최소 높이만 올리면 칩만큼 「＋ 필터」 아래 공간이 줄어 달력 안을 다시 스크롤해야 했다(WP-932).
-test('필터 시트 — 칩이 쌓여도 「기간 직접 지정」 달력이 안쪽 스크롤 없이 들어간다(390×664)', async ({ authenticatedPage: page }) => {
+test('필터 시트 — 칩이 쌓여도 「기간 직접 지정」 달력이 안쪽 스크롤 없이 들어간다(390×664)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page);
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
   await page.route(`**/api/v1/projects/${KEY}`, (r) =>
@@ -167,7 +144,7 @@ test('필터 시트 — 칩이 쌓여도 「기간 직접 지정」 달력이 �
 
 // 무엇을: 필터 시트에서 이미 걸린 완료일 칩을 눌러 「기간 직접 지정」 을 열어도 짧은 휴대폰(390×664)에서 「적용」 이 화면 안에 보이는지.
 // 왜: 칩 편집 팝오버는 「＋ 필터」 와 달리 높이 상한·안쪽 스크롤이 없어, 달력이 남은 높이보다 크면 「적용」 이 화면 밖으로 나갔다.
-test('필터 시트 — 완료일 칩 편집에서 「기간 직접 지정」 을 열어도 「적용」 이 화면 안에 보인다(390×664)', async ({ authenticatedPage: page }) => {
+test('필터 시트 — 완료일 칩 편집에서 「기간 직접 지정」 을 열어도 「적용」 이 화면 안에 보인다(390×664)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page);
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
   await page.route(`**/api/v1/projects/${KEY}`, (r) =>

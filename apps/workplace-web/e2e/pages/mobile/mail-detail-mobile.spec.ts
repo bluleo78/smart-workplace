@@ -1,11 +1,12 @@
 // 모바일 메일 상세 공간 개선(WP-400) — 첫 화면에 본문이 보이도록 메타를 접고 액션을 하단 고정 바·⋯ 메뉴로 옮긴 배치.
-// 요약 접힘·「AI 요약 보기」, 수신자 한 줄 요약, 스크롤 제목 페이드, ⋯ 메뉴(안 읽음·AI 이슈·원본 배경), 하단 바 4버튼·기하를 본다.
+// 여기엔 브라우저가 있어야 판정되는 것만 남긴다 — 스크롤 제목 페이드·메일 바꿈 시 스크롤 초기화, 하단 바·첨부 칩 기하, 다크 원본 배경(@layout).
+// AI 요약 접힘·「AI 요약 보기」, 수신자 문구·펼침, 조회 중·실패·다시 시도, ⋯ 메뉴 항목과 안 읽음·AI 이슈 요청, 하단 바 버튼 구성과
+// 답장·전체답장·전달·AI 답장 작성 화면은 src/pages/mobile/mailDetailMobile.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expectTheme, withTheme } from '../../fixtures/contrast'
-import { expectRecipientChips, recipientChipValues } from '../../fixtures/mailRecipients'
 import { expect, stubChat, test } from '../../fixtures/mobile.fixture'
 
 const SUBJECT = '[공유] 4분기 통합 플랫폼 고도화 프로젝트 주간 진행 현황 및 다음 주 릴리스 일정 조율 요청'
@@ -65,78 +66,17 @@ async function openMail(page: Page, id: number) {
 
 const titleOpacity = (page: Page) => page.getByTestId('mobile-back-title').evaluate((el) => getComputedStyle(el).opacity)
 
-test('AI 요약은 첫 줄 미리보기로 접혀 있고, 탭하면 펼치고 다시 탭하면 접는다', async ({ authenticatedPage: page }) => {
-  await stubMail(page)
-  await page.goto('/mail/1')
-  await openMail(page, 10)
-  const card = page.getByTestId('mail-ai-summary')
-  await expect(card).toHaveJSProperty('open', false)
-  // 접힌 동안엔 첫 불릿(기호 뗌)만 한 줄로 — 나머지 불릿은 보이지 않는다.
-  await expect(card.locator('summary')).toContainText('나에게: 김민수 팀장이')
-  await expect(card.getByText(/핵심: 결제/)).toBeHidden()
-  await card.locator('summary').click()
-  await expect(card).toHaveJSProperty('open', true)
-  await expect(card.getByText(/핵심: 결제/)).toBeVisible()
-  await card.locator('summary').click()
-  await expect(card).toHaveJSProperty('open', false)
-})
-
-test('「AI 요약 보기」로 만든 요약은 펼친 채 보이고, 다른 메일을 갔다 오면 접혀 있다', async ({ authenticatedPage: page }) => {
-  await stubMail(page)
-  // 생성 전엔 SKIPPED, 생성 뒤 조회는 만든 요약을 돌려준다(서버 저장 흉내).
-  let generated = false
-  await page.route((u) => u.pathname === '/api/v1/mail/messages/11/summary', (route) => {
-    const method = route.request().method()
-    if (method === 'POST') generated = true
-    return route.fulfill({
-      json: generated ? { summary: '• 핵심: 서버 점검 안내 자동 메일이에요.\n• 참고: 조치할 일은 없어요.', status: 'DONE' } : { summary: null, status: 'SKIPPED' },
-    })
-  })
-  await page.goto('/mail/1')
-  await openMail(page, 11)
-  const button = page.getByTestId('mail-ai-summary-generate')
-  await expect(button).toHaveText('AI 요약 보기')
-  const post = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/mail/messages/11/summary')
-  await button.click()
-  await post
-  const card = page.getByTestId('mail-ai-summary')
-  await expect(card).toHaveJSProperty('open', true)
-  await expect(card.getByText(/조치할 일은 없어요/)).toBeVisible()
-
-  // 다른 메일을 열었다가 돌아오면 다른 요약과 같이 접힌 채.
-  await page.getByTestId('mobile-back').click()
-  await openMail(page, 10)
-  await page.getByTestId('mobile-back').click()
-  await openMail(page, 11)
-  await expect(page.getByTestId('mail-ai-summary')).toHaveJSProperty('open', false)
-  await expect(page.getByTestId('mail-ai-summary').locator('summary')).toContainText('핵심: 서버 점검 안내')
-})
-
-test('수신자는 「받는사람 첫 사람 외 N명 · 참조 N명」 한 줄이고, 탭하면 전체 목록을 펼치고 다시 탭하면 접는다', async ({ authenticatedPage: page }) => {
+// 수신자 문구·펼침 목록은 페이지 테스트가 지킨다 — 여기선 한 줄 요약도 손가락으로 누를 만한 높이인지만 잰다.
+test('수신자 한 줄 요약은 44px 이상의 터치 높이', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await page.goto('/mail/1')
   await openMail(page, 10)
   const toggle = page.getByTestId('mail-recipients-toggle')
   await expect(toggle).toHaveText('받는사람 양동희 외 2명 · 참조 7명')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByTestId('mail-recipients-full')).toHaveCount(0)
-  // 한 줄 요약이라도 손가락으로 누를 만한 높이.
   expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-
-  await toggle.click()
-  const full = page.getByTestId('mail-recipients-full')
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(full.getByText('이서연 <seoyeon.lee@example.com>')).toBeVisible()
-  await expect(full.getByText('최지우 <jiwoo.choi@example.com>')).toBeVisible()
-  // 이름 없는 주소는 주소 그대로.
-  await expect(full.getByText('qa-lead@example.com', { exact: true })).toBeVisible()
-  await expect(full.locator('li')).toHaveCount(10)
-
-  await toggle.click()
-  await expect(full).toHaveCount(0)
 })
 
-test('상단바 제목은 처음엔 숨어 있다가, 본문 위 큰 제목이 스크롤로 사라지면 나타난다', async ({ authenticatedPage: page }) => {
+test('상단바 제목은 처음엔 숨어 있다가, 본문 위 큰 제목이 스크롤로 사라지면 나타난다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await page.goto('/mail/1')
   await openMail(page, 10)
@@ -157,7 +97,7 @@ test('상단바 제목은 처음엔 숨어 있다가, 본문 위 큰 제목이 �
   await expect.poll(() => titleOpacity(page)).toBe('0')
 })
 
-test('다른 메일을 열면 수신자 펼침·상단바 제목·스크롤 위치가 앞 메일에서 이어지지 않는다', async ({ authenticatedPage: page }) => {
+test('다른 메일을 열면 수신자 펼침·상단바 제목·스크롤 위치가 앞 메일에서 이어지지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await page.goto('/mail/1')
   await openMail(page, 10)
@@ -179,80 +119,7 @@ test('다른 메일을 열면 수신자 펼침·상단바 제목·스크롤 위�
   expect(await page.getByTestId('mail-detail-scroll').evaluate((el) => el.scrollTop)).toBe(0)
 })
 
-test.describe('조회 중·실패 화면', () => {
-  test('응답을 기다리는 동안에도 상단바(‹)가 있고, 응답이 오면 상세가 그려진다', async ({ authenticatedPage: page }) => {
-    await stubMail(page)
-    // 상세 응답을 붙잡아 두었다가 단언 뒤에 풀어 준다.
-    let release!: () => void
-    const held = new Promise<void>((r) => (release = r))
-    await page.route((u) => u.pathname === '/api/v1/mail/messages/10', async (route) => {
-      await held
-      await route.fallback()
-    })
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-10').click()
-    await expect(page.getByText('불러오는 중…')).toBeVisible()
-    await expect(page.getByTestId('mail-back').getByTestId('mobile-back')).toBeVisible()
-    release()
-    await expect(page.getByTestId('mail-detail')).toBeVisible()
-    await expect(page.getByRole('heading', { level: 2, name: SUBJECT })).toBeVisible()
-  })
-
-  test('조회 실패(500) 화면에도 ‹ 가 있어 목록으로 돌아가고, 「다시 시도」가 성공하면 상세로 바뀐다', async ({ authenticatedPage: page }) => {
-    await stubMail(page)
-    // 실패를 켜 둔 동안만 500 — 「다시 시도」 직전에 끈다(자동 재시도 횟수에 기대지 않게).
-    let failing = true
-    await page.route((u) => u.pathname === '/api/v1/mail/messages/10', (route) =>
-      failing && route.request().method() === 'GET'
-        ? route.fulfill({ status: 500, json: { message: 'boom' } })
-        : route.fallback())
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-10').click()
-    await expect(page.getByText('메일을 불러오지 못했습니다')).toBeVisible()
-    const back = page.getByTestId('mail-back').getByTestId('mobile-back')
-    await expect(back).toBeVisible()
-    await back.click()
-    await expect(page.getByTestId('mail-list')).toBeVisible()
-    await expect(page.getByText('메일을 불러오지 못했습니다')).toHaveCount(0)
-
-    await page.getByTestId('mail-row-10').click()
-    await expect(page.getByText('메일을 불러오지 못했습니다')).toBeVisible()
-    failing = false
-    await page.getByRole('button', { name: '다시 시도' }).click()
-    await expect(page.getByTestId('mail-detail')).toBeVisible()
-    await expect(page.getByRole('heading', { level: 2, name: SUBJECT })).toBeVisible()
-    await expect(page.getByTestId('mail-mobile-action-bar')).toBeVisible()
-  })
-})
-
-test('AI 사용 계정: 「안 읽음」은 ⋯ 메뉴 안에 있고, 누르면 안 읽음 API 후 목록으로 돌아가 안 읽음 표시가 붙는다', async ({ authenticatedPage: page }) => {
-  await stubMail(page)
-  const unread = await mockApi(page, 'POST', '/api/v1/mail/messages/10/unread', null, { capture: true })
-  // 목록은 안 읽음 요청 뒤에만 10 을 안 읽음으로 돌려준다(서버 반영 흉내) — 처음부터 안 읽음 표시가 있어 단언이 헛돌지 않게.
-  await page.route((u) => u.pathname === '/api/v1/mail/accounts/1/messages', (route) =>
-    route.fulfill({
-      json: [summary({ id: 10, seen: unread.requests.length === 0, subject: SUBJECT, fromName: '김민수', fromAddress: 'minsu.kim@example.com' })],
-    }))
-  await page.goto('/mail/1')
-  await expect(page.getByTestId('mail-unread-bar-10')).toHaveCount(0)
-  await openMail(page, 10)
-  const bar = page.getByTestId('mail-back')
-  // 헤더에 글자 버튼으로 나와 있지 않다 — 메뉴를 열어야 보인다.
-  await expect(bar.getByTestId('mobile-header-inline-action')).toHaveCount(0)
-  await expect(bar.getByTestId('mobile-mark-unread')).toBeHidden()
-  await bar.getByTestId('mobile-header-more').click()
-  const menu = bar.getByTestId('mobile-header-more-menu')
-  await expect(menu).toBeVisible()
-  // 라이트 테마라 원본 배경 토글은 없다 — 안 읽음, AI로 이슈 만들기, 삭제(WP-962, 맨 아래). 보관 메일함 목록이 없어 보관·옮기기는 없다.
-  await expect(menu.getByRole('menuitem')).toHaveText(['안 읽음', 'AI로 이슈 만들기', '삭제'])
-  await menu.getByTestId('mobile-mark-unread').click()
-  await unread.waitForRequest()
-  await expect(page.getByTestId('mail-detail')).toHaveCount(0)
-  await expect(page.getByTestId('mail-list')).toBeVisible()
-  await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
-})
-
-test('다크: ⋯ 메뉴의 「원본 배경으로 보기」는 체크 항목 — 켜면 본문이 원본 흰 배경으로, 메뉴에 체크가 남는다', async ({ authenticatedPage: page }) => {
+test('다크: ⋯ 메뉴의 「원본 배경으로 보기」는 체크 항목 — 켜면 본문이 원본 흰 배경으로, 메뉴에 체크가 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await withTheme(page, 'dark')
   await stubMail(page)
   await page.goto('/mail/1')
@@ -280,75 +147,7 @@ test('다크: ⋯ 메뉴의 「원본 배경으로 보기」는 체크 항목 �
   await expect.poll(bg).not.toBe('rgb(255, 255, 255)')
 })
 
-test('⋯ 메뉴의 「AI로 이슈 만들기」 → 이슈 초안 API 후 사전채움된 이슈 만들기 창', async ({ authenticatedPage: page }) => {
-  await stubMail(page)
-  const draft = await mockApi(page, 'POST', '/api/v1/mail/messages/10/issue-draft', {
-    title: '릴리스 체크리스트 검토',
-    body: '- 금요일까지 회신',
-    priority: 'HIGH',
-    suggestedProjectKey: 'FIN',
-    candidateProjects: [{ key: 'FIN', name: '재무' }],
-  }, { capture: true })
-  await mockApi(page, 'GET', '/api/v1/projects/FIN/members', [
-    { userId: 1, username: 'me', name: '나', kind: 'HUMAN', role: 'OWNER', createdAt: null },
-  ])
-  await page.goto('/mail/1')
-  await openMail(page, 10)
-  const bar = page.getByTestId('mail-back')
-  await bar.getByTestId('mobile-header-more').click()
-  await bar.getByTestId('mail-ai-issue').click()
-  await draft.waitForRequest()
-  await expect(page.getByTestId('mail-to-issue-dialog')).toBeVisible()
-  await expect(page.getByTestId('issue-draft-title')).toHaveValue('릴리스 체크리스트 검토')
-})
-
-test.describe('하단 고정 바', () => {
-  test('답장·전체답장·전달·AI 답장이 각각 알맞게 채운 작성 화면을 연다', async ({ authenticatedPage: page }) => {
-    await stubMail(page)
-    const replyDraft = await mockApi(page, 'POST', '/api/v1/mail/messages/10/reply-draft', { draftBody: 'AI가 쓴 회신 초안' }, { capture: true })
-    await page.goto('/mail/1')
-    await openMail(page, 10)
-    const actions = page.getByTestId('mail-mobile-action-bar')
-    const dock = page.getByTestId('mail-compose-dock')
-    const close = async () => {
-      await page.getByTestId('mail-compose-close').click()
-      await expect(dock).toHaveCount(0)
-    }
-
-    // 답장 — 보낸 사람에게, Re: 제목, 인용문.
-    await actions.getByTestId('mail-reply').click()
-    await expect(dock.getByRole('heading', { name: '회신' })).toBeVisible()
-    await expectRecipientChips(page, 'to', ['minsu.kim@example.com'])
-    await expect(page.getByTestId('mail-compose-subject')).toHaveValue(`Re: ${SUBJECT}`)
-    await expect(dock.getByTestId('mail-compose-quote')).toBeVisible()
-    await close()
-
-    // 전체답장 — 받는사람·참조 중 나를 뺀 나머지가 참조로.
-    await actions.getByTestId('mail-reply-all').click()
-    await expectRecipientChips(page, 'to', ['minsu.kim@example.com'])
-    // 참조는 칩으로 보인다(WP-945) — 칩 값을 이어 붙여 사람이 들었는지 본다.
-    const ccText = () => recipientChipValues(page, 'cc').then((v) => v.join(', '))
-    await expect.poll(ccText).toMatch(/seoyeon\.lee@example\.com/)
-    await expect.poll(ccText).toMatch(/qa-lead@example\.com/)
-    expect(await ccText()).not.toMatch(/me@example\.com/)
-    await close()
-
-    // 전달 — 받는사람 빈 칸, Fwd: 제목.
-    await actions.getByTestId('mail-forward').click()
-    await expect(dock.getByRole('heading', { name: '전달' })).toBeVisible()
-    await expect(page.getByTestId('mail-compose-to')).toHaveValue('')
-    await expectRecipientChips(page, 'to', [])
-    await expect(page.getByTestId('mail-compose-subject')).toHaveValue(`Fwd: ${SUBJECT}`)
-    await close()
-
-    // AI 답장 — 초안 API 결과가 본문에 채워진 회신.
-    await expect(actions.getByTestId('mail-ai-reply-draft')).toHaveText('AI 답장')
-    await actions.getByTestId('mail-ai-reply-draft').click()
-    await replyDraft.waitForRequest()
-    await expect(page.getByTestId('mail-composer-body')).toContainText('AI가 쓴 회신 초안')
-    await expectRecipientChips(page, 'to', ['minsu.kim@example.com'])
-  })
-
+test.describe('하단 고정 바', { tag: '@layout' }, () => {
   test('한 줄 4버튼·44px 이상이고, 끝까지 스크롤해도 본문 마지막 줄이 바에 가리지 않는다', async ({ authenticatedPage: page }) => {
     await stubMail(page)
     await page.goto('/mail/1')
@@ -385,21 +184,10 @@ test.describe('하단 고정 바', () => {
     expect(lastBottom).toBeLessThanOrEqual(bar.y)
   })
 
-  // WP-962 부터 받은편지함 메일은 「삭제」도 메뉴에 있어 항목이 둘 — ⋯ 메뉴로 묶인다(항목 하나일 때만 헤더에 바로 둔다, U3-R7).
-  test('AI 미사용 계정: 하단 바는 3버튼, ⋯ 메뉴는 안 읽음·삭제', async ({ authenticatedPage: page }) => {
-    await stubMail(page, { aiEnabled: false })
-    await page.goto('/mail/1')
-    await openMail(page, 11)
-    await expect(page.getByTestId('mail-mobile-action-bar').getByRole('button')).toHaveText(['답장', '전체답장', '전달'])
-    const bar = page.getByTestId('mail-back')
-    await expect(bar.getByTestId('mobile-header-inline-action')).toHaveCount(0)
-    await bar.getByTestId('mobile-header-more').click()
-    await expect(bar.getByTestId('mobile-header-more-menu').getByRole('menuitem')).toHaveText(['안 읽음', '삭제'])
-  })
 })
 
 // UI 리뷰 — 첨부가 첫 화면을 차지하지 않게 모바일 상세에선 가로로 스크롤되는 한 줄 작은 칩(데스크톱은 그대로 줄바꿈).
-test('첨부는 가로로 스크롤되는 한 줄 작은 칩이고, 칩은 44px 터치 영역을 갖는다', async ({ authenticatedPage: page }) => {
+test('첨부는 가로로 스크롤되는 한 줄 작은 칩이고, 칩은 44px 터치 영역을 갖는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await mockApi(page, 'GET', '/api/v1/mail/messages/11', detail({
     id: 11, seen: true, subject: '자동 발송 알림', fromName: '알림봇', fromAddress: 'noreply@example.com',

@@ -1,5 +1,9 @@
 // 모바일 드라이브 행 액션(WP-216) — 2줄 행, 행마다 ⋮ → 액션 시트, 길게 누르기 → 다중 선택 모드 + 하단 일괄 작업 바.
 // 데스크톱 호버 액션은 터치로 열 수 없어(WP-207/208) 모바일에선 이 경로가 유일한 진입점이다.
+// 브라우저가 있어야 판정되는 것만 남긴다 — 길게 누르기·선택 범위·포커스(@input), 다운로드·업로드 진행(@platform),
+// ⋮·하단 바 위치(@layout), 공간 화면 배선 1건(@wiring). 공유·삭제·폴더 이름 변경 요청, 원본 유실·보관 공간 비활성,
+// 행 탭 미리보기 주소는 페이지 테스트 src/pages/mobile/driveRowActions.test.tsx(휴대폰)·
+// src/pages/mobile/driveRowActionsTablet.test.tsx(터치 태블릿 체크박스 선택)가 지킨다(WP-971).
 import type { Locator, Page } from '@playwright/test'
 
 import { createFile, createFolder, createSpace, personalSpace } from '../../factories/drive.factory'
@@ -26,7 +30,7 @@ async function stubDrive(page: Page, { archived = false } = {}) {
 }
 
 test.describe('모바일 드라이브 행 액션', () => {
-  test('행은 이름 + 크기·수정일 둘째 줄 — 열 헤더·체크박스 없이 ⋮ 만 보인다', async ({ authenticatedPage: page }) => {
+  test('행은 이름 + 크기·수정일 둘째 줄 — 열 헤더·체크박스 없이 ⋮ 만 보인다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     const row = page.getByTestId('drive-row-file-70')
@@ -43,7 +47,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     expect(more.height).toBeGreaterThanOrEqual(44)
   })
 
-  test('파일 ⋮ → 시트에서 다운로드하면 다운로드 요청이 나간다', async ({ authenticatedPage: page }) => {
+  test('파일 ⋮ → 시트에서 다운로드하면 다운로드 요청이 나간다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     await page.route('**/api/v1/drive/files/70/download', (r) =>
       r.fulfill({ status: 200, contentType: 'application/pdf', body: 'x' }))
@@ -63,59 +67,11 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(sheet).toBeHidden()
   })
 
-  test('파일 ⋮ → 공유 링크는 공유 모달, 삭제는 확인 후 DELETE', async ({ authenticatedPage: page }) => {
-    await stubDrive(page)
-    await page.route('**/api/v1/drive/files/70/share-links', (r) => r.fulfill(json([])))
-    const deletes = trackRequests(page, 'DELETE', '/api/v1/drive/files/70')
-    await page.route('**/api/v1/drive/files/70', (r) =>
-      r.request().method() === 'DELETE' ? r.fulfill({ status: 204 }) : r.fallback())
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-
-    await page.getByTestId('drive-row-more-file-70').tap()
-    await page.getByTestId('mobile-action-share').tap()
-    await expect(page.getByTestId('share-link-modal')).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(page.getByTestId('share-link-modal')).toBeHidden()
-
-    await page.getByTestId('drive-row-more-file-70').tap()
-    await page.getByTestId('mobile-action-delete').tap()
-    await page.getByTestId('drive-confirm-confirm').tap()
-    await deletes.waitFor()
-  })
-
-  test('폴더 ⋮ → 이름 변경은 새 이름으로 PATCH', async ({ authenticatedPage: page }) => {
-    await stubDrive(page)
-    const patches = trackRequests(page, 'PATCH', '/api/v1/drive/folders/10')
-    await page.route('**/api/v1/drive/folders/10', (r) =>
-      r.request().method() === 'PATCH' ? r.fulfill(json({ ...FOLDER, name: '계약 자료' })) : r.fallback())
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByTestId('drive-row-more-folder-10').tap()
-    const sheet = page.getByTestId('drive-row-sheet')
-    await expect(sheet.getByTestId('mobile-action-download')).toHaveCount(0)
-    await sheet.getByTestId('mobile-action-rename').tap()
-    await expect(page.getByTestId('folder-name-input')).toHaveValue(FOLDER.name)
-    await page.getByTestId('folder-name-input').fill('계약 자료')
-    await page.getByTestId('folder-name-confirm').tap()
-    await expect.poll(() => patches.lastBody()).toEqual({ name: '계약 자료' })
-  })
-
-  test('원본 유실 파일은 다운로드·공유·복사가 비활성, 보관된 공간은 쓰기 작업이 비활성', async ({ authenticatedPage: page }) => {
-    await stubDrive(page)
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByTestId('drive-row-more-file-71').tap()
-    const sheet = page.getByTestId('drive-row-sheet')
-    await expect(sheet.getByTestId('mobile-action-download')).toBeDisabled()
-    await expect(sheet.getByTestId('mobile-action-share')).toBeDisabled()
-    await expect(sheet.getByTestId('mobile-action-copy')).toBeDisabled()
-    await expect(sheet.getByTestId('mobile-action-move')).toBeEnabled()
-    await expect(sheet.getByTestId('mobile-action-delete')).toBeEnabled()
-  })
-
   // 이름 변경 칸의 선택 범위 — 파일 이름은 확장자(.pdf) 앞까지 선택된 채 열려야 한다.
   const STEM_SELECTION = [0, LONG_FILE.length - '.pdf'.length]
   const selectionOf = (input: Locator) => input.evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])
 
-  test('파일 ⋮ → 이름 변경 — 확장자 앞까지 선택된 다이얼로그에서 바꾸면 PATCH 가 나간다(WP-335)', async ({ authenticatedPage: page }) => {
+  test('파일 ⋮ → 이름 변경 — 확장자 앞까지 선택된 다이얼로그에서 바꾸면 PATCH 가 나간다(WP-335)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     const patches = trackRequests(page, 'PATCH', '/api/v1/drive/files/70')
     await page.route('**/api/v1/drive/files/70', (r) =>
@@ -149,7 +105,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     return input
   }
 
-  test('이름 변경 — 열자마자 치기 시작해도 뒤늦게 다시 거는 선택이 친 글자를 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
+  test('이름 변경 — 열자마자 치기 시작해도 뒤늦게 다시 거는 선택이 친 글자를 덮어쓰지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const input = await openRenameWithPausedClock(page)
     await page.keyboard.type('도')
     await page.clock.runFor(1000) // 멈췄던 타이머·프레임이 한꺼번에 돌아도
@@ -158,7 +114,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(input).toHaveValue('도입제안서.pdf')
   })
 
-  test('이름 변경 — 열자마자 옮긴 커서도 뒤늦게 처음 선택으로 되돌아가지 않는다', async ({ authenticatedPage: page }) => {
+  test('이름 변경 — 열자마자 옮긴 커서도 뒤늦게 처음 선택으로 되돌아가지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const input = await openRenameWithPausedClock(page)
     await page.keyboard.press('End')
     await page.clock.runFor(1000)
@@ -167,7 +123,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(input).toHaveValue(`${LONG_FILE}x`)
   })
 
-  test('이름 변경 — 고치다 취소하고 다시 열면 원래 이름이 확장자 앞까지 선택된 채로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('이름 변경 — 고치다 취소하고 다시 열면 원래 이름이 확장자 앞까지 선택된 채로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const input = await openRenameWithPausedClock(page)
     await page.keyboard.type('도입')
     await page.getByRole('button', { name: '취소' }).tap()
@@ -179,17 +135,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     expect(await selectionOf(input)).toEqual(STEM_SELECTION)
   })
 
-  test('보관된 공간 — 폴더 시트의 쓰기 작업이 모두 비활성', async ({ authenticatedPage: page }) => {
-    await stubDrive(page, { archived: true })
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await expect(page.getByTestId('drive-readonly-banner')).toBeVisible()
-    await page.getByTestId('drive-row-more-folder-10').tap()
-    for (const key of ['rename', 'move', 'copy', 'delete']) {
-      await expect(page.getByTestId(`mobile-action-${key}`)).toBeDisabled()
-    }
-  })
-
-  test('길게 누르면 선택 모드 — 탭은 선택 토글(미리보기 안 열림), 하단 바로 일괄 삭제, ✕ 로 종료', async ({ authenticatedPage: page }) => {
+  test('길게 누르면 선택 모드 — 탭은 선택 토글(미리보기 안 열림), 하단 바로 일괄 삭제, ✕ 로 종료', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     const bulkDeletes = trackRequests(page, 'DELETE', `/api/v1/drive/spaces/${SPACE_ID}/items`)
     await page.route(`**/api/v1/drive/spaces/${SPACE_ID}/items`, (r) =>
@@ -228,16 +174,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(page.getByTestId('drive-row-more-file-70')).toBeVisible()
   })
 
-  test('선택 모드가 아니면 행 탭은 그대로 미리보기를 연다', async ({ authenticatedPage: page }) => {
-    await stubDrive(page)
-    await page.route('**/api/v1/drive/files/70/content', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/pdf', body: 'x' }))
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByRole('button', { name: LONG_FILE, exact: true }).tap()
-    await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}\\?preview=70$`))
-  })
-
-  test('선택 모드에서 체크박스를 직접 탭해도 표시와 선택 수가 함께 바뀐다', async ({ authenticatedPage: page }) => {
+  test('선택 모드에서 체크박스를 직접 탭해도 표시와 선택 수가 함께 바뀐다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     await page.goto(`/drive/spaces/${SPACE_ID}`)
     await longPress(page, page.getByTestId('drive-row-file-70'))
@@ -254,7 +191,7 @@ test.describe('모바일 드라이브 행 액션', () => {
     await expect(bar).toContainText('1개 선택')
   })
 
-  test('채널 파일 드로워에서도 ⋮ 시트와 선택 모드 하단 바가 화면 안에 보인다', async ({ authenticatedPage: page }) => {
+  test('채널 파일 드로워에서도 ⋮ 시트와 선택 모드 하단 바가 화면 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const CH_SPACE = 8800
     await stubChannelMessages(page)
     await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/drive-space', (r) =>
@@ -287,7 +224,7 @@ test.describe('모바일 드라이브 행 액션', () => {
 test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
   test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
 
-  test('파일 행은 hover 묶음 없이 ⋯ 만 — 드롭다운의 다운로드가 다운로드 요청을 보낸다', async ({ authenticatedPage: page }) => {
+  test('파일 행은 hover 묶음 없이 ⋯ 만 — 드롭다운의 다운로드가 다운로드 요청을 보낸다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     await page.route('**/api/v1/drive/files/70/download', (r) =>
       r.fulfill({ status: 200, contentType: 'application/pdf', body: 'x' }))
@@ -317,7 +254,7 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
     await expect(menu).toBeHidden()
   })
 
-  test('폴더 행 ⋯ → 이름 변경 PATCH, 삭제는 확인 후 DELETE', async ({ authenticatedPage: page }) => {
+  test('폴더 행 ⋯ → 이름 변경 PATCH, 삭제는 확인 후 DELETE', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubDrive(page)
     const patches = trackRequests(page, 'PATCH', '/api/v1/drive/folders/10')
     const deletes = trackRequests(page, 'DELETE', '/api/v1/drive/folders/10')
@@ -346,22 +283,10 @@ test.describe('드라이브 행 액션 — 터치 태블릿(≥1024px)', () => {
     await page.getByTestId('drive-confirm-confirm').tap()
     await deletes.waitFor()
   })
-
-  test('체크박스로 선택해도 ⋯ 는 남고, 행 탭은 미리보기를 연다(길게 누르기 선택 모드 없음)', async ({ authenticatedPage: page }) => {
-    await stubDrive(page)
-    await page.route('**/api/v1/drive/files/70/content', (r) =>
-      r.fulfill({ status: 200, contentType: 'application/pdf', body: 'x' }))
-    await page.goto(`/drive/spaces/${SPACE_ID}`)
-    await page.getByTestId('select-folder-10').tap()
-    await expect(page.getByTestId('bulk-toolbar')).toContainText('선택 1개')
-    await expect(page.getByTestId('drive-row-more-file-70')).toBeVisible()
-    await page.getByRole('button', { name: LONG_FILE, exact: true }).tap()
-    await expect(page).toHaveURL(new RegExp(`/drive/spaces/${SPACE_ID}\\?preview=70$`))
-  })
 })
 
 // WP-643: 모바일은 헤더 업로드 버튼이 ⋯ 메뉴 안이라, 업로드 중 진행률·취소를 목록 위 진행 줄로 보인다.
-test('모바일 단일 파일 업로드 — 목록 위에 진행률(%)과 취소가 보이고, 끝나면 사라진다', async ({ authenticatedPage: page }) => {
+test('모바일 단일 파일 업로드 — 목록 위에 진행률(%)과 취소가 보이고, 끝나면 사라진다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // 라우트 가로채기에선 실제 전송 진행 이벤트가 한 번에 끝나므로 업로드 XHR 에 42% 진행 이벤트를 직접 흘린다.
   await page.addInitScript(() => {
     const send = XMLHttpRequest.prototype.send

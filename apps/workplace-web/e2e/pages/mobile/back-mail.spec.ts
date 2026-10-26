@@ -25,7 +25,7 @@ async function stubMail(page: Page, extraRows = 0) {
   for (const m of filler) await mockApi(page, 'GET', `/api/v1/mail/messages/${m.id}`, detail({ id: m.id, subject: m.subject }))
 }
 
-test('goBack 은 상세만 닫고 받은편지함에 남는다 — ‹ 도 같은 결과', async ({ authenticatedPage: page }) => {
+test('goBack 은 상세만 닫고 받은편지함에 남는다 — ‹ 도 같은 결과', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await page.goto('/mail/1')
   await page.getByTestId('mail-row-10').click()
@@ -45,7 +45,7 @@ test('goBack 은 상세만 닫고 받은편지함에 남는다 — ‹ 도 같�
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible()
 })
 
-test('‹ 를 같은 틱에 두 번 눌러도 한 번만 닫힌다(앱 밖으로 빠지지 않음)', async ({ authenticatedPage: page }) => {
+test('‹ 를 같은 틱에 두 번 눌러도 한 번만 닫힌다(앱 밖으로 빠지지 않음)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await page.goto('/mail/1')
   await page.getByTestId('mail-row-10').click()
@@ -59,7 +59,7 @@ test('‹ 를 같은 틱에 두 번 눌러도 한 번만 닫힌다(앱 밖으로
   await expect(page.getByTestId('mail-list')).toBeVisible()
 })
 
-test('딥링크(?messageId) 진입 후 ‹ → 같은 모듈 목록(앱 밖으로 나가지 않음)', async ({ authenticatedPage: page }) => {
+test('딥링크(?messageId) 진입 후 ‹ → 같은 모듈 목록(앱 밖으로 나가지 않음)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await page.goto('/mail/1?messageId=11')
   await expect(page.getByTestId('mail-detail')).toContainText(LONG_SUBJECT)
@@ -68,7 +68,7 @@ test('딥링크(?messageId) 진입 후 ‹ → 같은 모듈 목록(앱 밖으�
   await expect(page.getByTestId('mail-list')).toBeVisible()
 })
 
-test('홈 위젯 → 메일: ‹ 와 goBack 이 모두 홈으로 돌아간다', async ({ authenticatedPage: page }) => {
+test('홈 위젯 → 메일: ‹ 와 goBack 이 모두 홈으로 돌아간다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   // unread_mail 은 본문형 위젯 — collapsed:false 면 행(dash-mail-row)이 보인다.
   const layout: DashboardLayout = { widgets: [{ id: 'unread_mail', type: 'unread_mail', count: 3, hidden: false, collapsed: false }] }
@@ -88,7 +88,7 @@ test('홈 위젯 → 메일: ‹ 와 goBack 이 모두 홈으로 돌아간다', 
   await expect.poll(() => new URL(page.url()).pathname).toBe('/')
 })
 
-test('데스크톱 2단: 같은 행 재클릭·행 전환 후 goBack 1회로 선택 해제', async ({ authenticatedPage: page }) => {
+test('데스크톱 2단: 같은 행 재클릭·행 전환 후 goBack 1회로 선택 해제', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await stubMail(page)
   await page.goto('/mail/1')
@@ -101,7 +101,7 @@ test('데스크톱 2단: 같은 행 재클릭·행 전환 후 goBack 1회로 선
   await expect(page.getByTestId('mail-detail-empty')).toBeVisible()
 })
 
-test('상세를 닫으면 목록 스크롤 위치가 유지된다', async ({ authenticatedPage: page }) => {
+test('상세를 닫으면 목록 스크롤 위치가 유지된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubMail(page, 40)
   await page.goto('/mail/1')
   const scroller = page.getByTestId('mail-list-scroll')
@@ -118,7 +118,7 @@ test('상세를 닫으면 목록 스크롤 위치가 유지된다', async ({ aut
 // iOS PWA 는 앱 전환 스냅숏을 찍을 때 테마를 라이트↔다크로 잠깐 뒤집는다 → 다크 변환 본문이 다시 만들어진다.
 // 같은 iframe 의 srcDoc 을 바꾸면 iframe 안 이동이라 상위 창 기록에 칸이 쌓여, ‹(go -1)가 그 칸만 되돌리고
 // 화면은 그대로였다(닫기 가드까지 잠겨 먹통). 본문이 다시 그려져도 기록이 늘지 않고 ‹ 한 번에 목록으로 가야 한다.
-test('HTML 본문이 다시 그려져도(테마 전환) 기록이 늘지 않고 ‹ 한 번에 목록으로 간다', async ({ authenticatedPage: page }) => {
+test('HTML 본문이 다시 그려져도(테마 전환) 기록이 늘지 않고 ‹ 한 번에 목록으로 간다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await mockApi(page, 'GET', '/api/v1/mail/messages/10', detail({ bodyText: null, bodyHtml: '<p style="color:#000">본문</p>' }))
   await page.goto('/mail/1')

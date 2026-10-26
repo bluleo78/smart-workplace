@@ -1,4 +1,7 @@
 // 모바일 이슈 생성(WP-196) — 전체 화면 시트, 헤더 [취소·새 이슈·생성], 제목 → 설명(자동 확장), 칩 줄은 키보드 바로 위, 작성 중 닫기 확인.
+// 브라우저가 있어야 판정되는 것만 남긴다 — 시트 크기·자라는 입력칸·칩 줄 스크롤(@layout), IME·포커스 복귀·스와이프(@input),
+// 시스템 back·히스토리 표식(@platform), 대표 생성 흐름 1건(@wiring). 설명 상한 오류·버림 확인·칩 속성 payload·하위 태스크 전환·
+// ✦ AI 제안·개인 프로젝트 칩 구성은 페이지 테스트 src/pages/mobile/issueCreate.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -43,7 +46,7 @@ async function openSheet(page: Page) {
 }
 
 test.describe('생성 시트', () => {
-  test('전체 화면, 제목 자동 포커스, 제목 없으면 생성 비활성 → 입력 후 생성', async ({ authenticatedPage: page }) => {
+  test('전체 화면, 제목 자동 포커스, 제목 없으면 생성 비활성 → 입력 후 생성', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     const posts = await mockCreate(page);
     const sheet = await openSheet(page);
     const vp = page.viewportSize()!;
@@ -60,7 +63,7 @@ test.describe('생성 시트', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('설명은 내용에 따라 자라고 최소 3줄', async ({ authenticatedPage: page }) => {
+  test('설명은 내용에 따라 자라고 최소 3줄', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const body = page.getByTestId('issue-create-body');
@@ -70,20 +73,7 @@ test.describe('생성 시트', () => {
     await expect.poll(async () => (await body.boundingBox())!.height).toBeGreaterThan(h0 + 48);
   });
 
-  // WP-929: 설명 상한(WP-885 이후 50000자) 초과로 생성하면 아무 반응 없이 멈추던 것 — 설명 아래 오류를 그리고 POST 는 보내지 않는다.
-  test('설명이 50000자를 넘으면 오류 문구가 보이고 생성 요청은 나가지 않는다', async ({ authenticatedPage: page }) => {
-    const posts = await mockCreate(page);
-    await openSheet(page);
-    await page.getByTestId('issue-create-title').fill('긴 설명');
-    const body = page.getByTestId('issue-create-body');
-    await body.fill('가'.repeat(50001));
-    await page.getByTestId('issue-create-submit').click();
-    await expect(page.locator('#issue-create-body-error')).toHaveText('본문은 50000자 이하여야 합니다');
-    await expect(body).toHaveAttribute('aria-invalid', 'true');
-    expect(posts.bodies()).toHaveLength(0);
-  });
-
-  test('제목은 길면 줄바꿈되며 자라고, Enter 는 줄바꿈 대신 설명으로 이동', async ({ authenticatedPage: page }) => {
+  test('제목은 길면 줄바꿈되며 자라고, Enter 는 줄바꿈 대신 설명으로 이동', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const title = page.getByTestId('issue-create-title');
@@ -95,7 +85,7 @@ test.describe('생성 시트', () => {
     expect(await title.inputValue()).not.toContain('\n');
   });
 
-  test('한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 설명으로 넘어가지 않고, 다음 Enter 에 이동(WP-331)', async ({ authenticatedPage: page }) => {
+  test('한글 IME — 조합 Enter 와 확정 직후 꼬리 Enter 로는 설명으로 넘어가지 않고, 다음 Enter 에 이동(WP-331)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const title = page.getByTestId('issue-create-title');
@@ -108,7 +98,7 @@ test.describe('생성 시트', () => {
     await expect(page.getByTestId('issue-create-body')).toBeFocused();
   });
 
-  test('모바일 키보드처럼 조합을 끝내며 Enter 를 한 번만 보내면 바로 설명으로 이동(WP-331 회귀 방지)', async ({ authenticatedPage: page }) => {
+  test('모바일 키보드처럼 조합을 끝내며 Enter 를 한 번만 보내면 바로 설명으로 이동(WP-331 회귀 방지)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const title = page.getByTestId('issue-create-title');
@@ -118,33 +108,7 @@ test.describe('생성 시트', () => {
     await expect(title).toHaveValue('결제 오류');
   });
 
-  test('내용이 있으면 취소·Esc 모두 버림 확인 — 계속 작성/버리기', async ({ authenticatedPage: page }) => {
-    await mockCreate(page);
-    const sheet = await openSheet(page);
-    await page.getByTestId('issue-create-title').fill('작성 중');
-    await page.getByTestId('issue-create-cancel').click();
-    const dlg = page.getByTestId('issue-create-discard-dialog');
-    await expect(dlg).toContainText('작성 중인 내용을 버릴까요?');
-    await page.getByTestId('issue-create-discard-keep').click();
-    // 확인창 닫힘 애니메이션(200ms) 중엔 그 레이어가 Esc 를 먼저 받으므로 완전히 사라진 뒤 Esc 를 누른다
-    await expect(dlg).toBeHidden();
-    await expect(sheet).toBeVisible();
-    await expect(page.getByTestId('issue-create-title')).toHaveValue('작성 중');
-    await page.keyboard.press('Escape');
-    await expect(dlg).toBeVisible();
-    await page.getByTestId('issue-create-discard-confirm').click();
-    await expect(sheet).toHaveCount(0);
-  });
-
-  test('비어 있으면 취소는 바로 닫힌다', async ({ authenticatedPage: page }) => {
-    await mockCreate(page);
-    const sheet = await openSheet(page);
-    await page.getByTestId('issue-create-cancel').click();
-    await expect(sheet).toHaveCount(0);
-    await expect(page.getByTestId('issue-create-discard-dialog')).toHaveCount(0);
-  });
-
-  test('빈 시트에서 시스템 back 하면 시트만 닫히고 페이지는 그대로(WP-222)', async ({ authenticatedPage: page }) => {
+  test('빈 시트에서 시스템 back 하면 시트만 닫히고 페이지는 그대로(WP-222)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     const sheet = await openSheet(page);
     await page.goBack();
@@ -153,7 +117,7 @@ test.describe('생성 시트', () => {
     await expect(page.getByTestId('mobile-new-issue')).toBeVisible();
   });
 
-  test('내용이 있으면 back 은 버림 확인 — 계속 작성 후 다시 back, 버리기로 닫힘(WP-222)', async ({ authenticatedPage: page }) => {
+  test('내용이 있으면 back 은 버림 확인 — 계속 작성 후 다시 back, 버리기로 닫힘(WP-222)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     const sheet = await openSheet(page);
     const title = page.getByTestId('issue-create-title');
@@ -174,7 +138,7 @@ test.describe('생성 시트', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
   });
 
-  test('취소로 닫은 뒤엔 표식이 남지 않아 back 한 번에 이전 페이지로 간다(WP-222)', async ({ authenticatedPage: page }) => {
+  test('취소로 닫은 뒤엔 표식이 남지 않아 back 한 번에 이전 페이지로 간다(WP-222)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await page.goto('/');
     const sheet = await openSheet(page);
@@ -187,7 +151,7 @@ test.describe('생성 시트', () => {
     await expect(page).not.toHaveURL(new RegExp(`/projects/${KEY}`));
   });
 
-  test('키보드가 열리면 헤더는 맨 위, 칩 줄은 키보드 바로 위', async ({ authenticatedPage: page }) => {
+  test('키보드가 열리면 헤더는 맨 위, 칩 줄은 키보드 바로 위', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await installFakeViewport(page);
     const sheet = await openSheet(page);
@@ -199,7 +163,7 @@ test.describe('생성 시트', () => {
 });
 
 test.describe('생성 칩 줄', () => {
-  test('칩 줄은 가로 스크롤 한 줄, 페이지 넘침 없음', async ({ authenticatedPage: page }) => {
+  test('칩 줄은 가로 스크롤 한 줄, 페이지 넘침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const row = page.getByTestId('issue-create-chips');
@@ -213,7 +177,7 @@ test.describe('생성 칩 줄', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('칩 줄을 끝까지 밀어도 긴 에픽 칩 제목이 보인다(페이드에 덮이지 않음)', async ({ authenticatedPage: page }) => {
+  test('칩 줄을 끝까지 밀어도 긴 에픽 칩 제목이 보인다(페이드에 덮이지 않음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     await page.getByTestId('create-chip-epic').click();
@@ -231,7 +195,7 @@ test.describe('생성 칩 줄', () => {
     expect(eb.x + eb.width).toBeLessThanOrEqual(sb.x + sb.width - 32 + 1);
   });
 
-  test('칩 탭 → 키보드 내림(포커스 해제) → 시트 → 선택 후 제목 칸 포커스 복귀', async ({ authenticatedPage: page }) => {
+  test('칩 탭 → 키보드 내림(포커스 해제) → 시트 → 선택 후 제목 칸 포커스 복귀', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const posts = await mockCreate(page);
     await openSheet(page);
     const title = page.getByTestId('issue-create-title');
@@ -249,36 +213,7 @@ test.describe('생성 칩 줄', () => {
     expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ priority: 'HIGH' });
   });
 
-  test('담당자·마감·에픽·시작일이 페이로드에 실린다', async ({ authenticatedPage: page }) => {
-    const posts = await mockCreate(page);
-    await openSheet(page);
-    await page.getByTestId('issue-create-title').fill('속성 많은 이슈');
-    await page.getByTestId('create-chip-assignee').click();
-    await page.getByTestId('multi-option-2').click();
-    await page.getByTestId('create-assignee-sheet-done').click();
-    await expect(page.getByTestId('create-chip-assignee')).toContainText('김개발');
-    await page.getByTestId('create-chip-due').click();
-    await page.getByTestId('create-due-sheet-tomorrow').click();
-    await page.getByTestId('create-chip-epic').click();
-    await page.getByTestId('create-epic-sheet').getByTestId('picker-option-50').click();
-    await expect(page.getByTestId('create-chip-epic')).toContainText('결제 개편 에픽');
-    const title = page.getByTestId('issue-create-title');
-    await title.focus();
-    await page.getByTestId('create-chip-more').click();
-    await page.getByTestId('mobile-action-start').click();
-    // ⋯ → 시작일: 날짜 시트가 떠 있는 동안 제목은 포커스 없음(시트·키보드 동시 금지), 고른 뒤 제목으로 복귀.
-    await expect(page.getByTestId('create-start-sheet')).toBeVisible();
-    await expect(title).not.toBeFocused();
-    await page.getByTestId('create-start-sheet-today').click();
-    await expect(title).toBeFocused();
-    await page.getByTestId('issue-create-submit').click();
-    await expect.poll(posts.count).toBe(1);
-    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ assigneeIds: [2], parentNumber: 50 });
-    expect(posts.bodies<Record<string, unknown>>()[0].dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(posts.bodies<Record<string, unknown>>()[0].startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-
-  test('⋯ 시트를 액션 없이 닫으면 제목 칸으로 포커스 복귀', async ({ authenticatedPage: page }) => {
+  test('⋯ 시트를 액션 없이 닫으면 제목 칸으로 포커스 복귀', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const title = page.getByTestId('issue-create-title');
@@ -292,44 +227,7 @@ test.describe('생성 칩 줄', () => {
     await expect(page.getByTestId('issue-create-sheet')).toBeVisible();
   });
 
-  test('에픽을 고른 뒤 유형을 하위 태스크로 바꾸면 에픽은 빠지고 상위 번호 입력이 생긴다', async ({ authenticatedPage: page }) => {
-    const posts = await mockCreate(page);
-    await openSheet(page);
-    await page.getByTestId('issue-create-title').fill('하위 작업');
-    await page.getByTestId('create-chip-epic').click();
-    await page.getByTestId('picker-option-50').click();
-    await page.getByTestId('create-chip-type').click();
-    // systemTypes() 의 SUBTASK = id 5, 라벨 = getIssueTypeLabel('SUBTASK')(「하위 태스크」).
-    await page.getByTestId('create-type-sheet').getByRole('option', { name: '하위 태스크' }).click();
-    await expect(page.getByTestId('create-chip-type')).toContainText('하위 태스크');
-    await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
-    // 하위 태스크를 고르는 즉시 상위 번호 입력이 보인다(⋯ 를 거치지 않아도) — 포커스는 훔치지 않는다.
-    const parent = page.getByTestId('create-parent-number');
-    await expect(parent).toBeVisible();
-    await expect(parent).not.toBeFocused();
-    // ⋯ → 상위 이슈 번호 는 이미 보이는 입력칸으로 포커스만 옮긴다.
-    await page.getByTestId('create-chip-more').click();
-    await page.getByTestId('mobile-action-parent').click();
-    await expect(parent).toBeFocused();
-    await parent.fill('7');
-    await page.getByTestId('issue-create-submit').click();
-    await expect.poll(posts.count).toBe(1);
-    expect(posts.bodies<Record<string, unknown>>()[0]).toMatchObject({ parentNumber: 7, typeId: 5 });
-  });
-
-  test('✦ AI 제안 — 유형·우선순위 반영, 이유 표시, 제목 포커스 유지', async ({ authenticatedPage: page }) => {
-    await mockCreate(page);
-    await openSheet(page);
-    const title = page.getByTestId('issue-create-title');
-    await title.fill('결제 버튼 누르면 500 오류');
-    await page.getByTestId('create-chip-ai').click();
-    await expect(page.getByTestId('create-chip-priority')).toContainText('높음');
-    await expect(page.getByTestId('create-chip-type')).toContainText('버그');
-    await expect(page.getByTestId('create-ai-reason')).toContainText('버그');
-    await expect(title).toBeFocused();
-  });
-
-  test('칩 위에서 시작한 가로 스와이프는 제목 포커스를 빼앗지 않고, 이후 칩 탭은 정상 복귀', async ({ authenticatedPage: page }) => {
+  test('칩 위에서 시작한 가로 스와이프는 제목 포커스를 빼앗지 않고, 이후 칩 탭은 정상 복귀', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mockCreate(page);
     await openSheet(page);
     const title = page.getByTestId('issue-create-title');
@@ -356,24 +254,5 @@ test.describe('생성 칩 줄', () => {
     await page.getByTestId('create-priority-sheet').getByTestId('picker-option-LOW').click();
     await expect(title).toBeFocused();
     await expect(priority).toContainText('낮음');
-  });
-
-  test('개인 프로젝트는 유형·에픽 칩이 없다', async ({ authenticatedPage: page }) => {
-    const PKEY = 'PME';
-    await stubChat(page);
-    await page.route(`**/api/v1/projects/${PKEY}`, (r) => r.fulfill(json(createProject({ id: 7, key: PKEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }))));
-    await page.route((u) => u.pathname === `/api/v1/projects/${PKEY}/types`, (r) => r.fulfill(json(systemTypes())));
-    await page.route((u) => u.pathname === `/api/v1/projects/${PKEY}/members`, (r) => r.fulfill(json([])));
-    await page.route((u) => u.pathname === `/api/v1/projects/${PKEY}/issues`, (r) => r.fulfill(json(createIssueSearchResponse([], null))));
-    for (const p of [`/api/v1/projects/${PKEY}/labels`, `/api/v1/projects/${PKEY}/cycles`, `/api/v1/projects/${PKEY}/saved-views`]) {
-      await page.route((u) => u.pathname === p, (r) => r.fulfill(json([])));
-    }
-    await page.goto(`/projects/${PKEY}`);
-    // 빈 개인 목록은 본문에도 「빠른 추가」(personal-empty-create, WP-914)가 있어 머리말의 버튼으로 좁힌다.
-    await page.getByTestId('page-header').getByRole('button', { name: '빠른 추가', exact: true }).click();
-    await expect(page.getByTestId('issue-create-sheet')).toBeVisible();
-    await expect(page.getByTestId('create-chip-priority')).toBeVisible();
-    await expect(page.getByTestId('create-chip-type')).toHaveCount(0);
-    await expect(page.getByTestId('create-chip-epic')).toHaveCount(0);
   });
 });

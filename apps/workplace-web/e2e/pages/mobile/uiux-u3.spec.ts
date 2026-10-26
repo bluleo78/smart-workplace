@@ -1,12 +1,13 @@
 // 모바일 UI/UX 마감 U3(WP-121) — 코드 리뷰(C1–C3)·UI/UX 재검토(R1–R14) 반영을 고정한다.
 // 노트 AI 표식·AI 작성 메뉴, ⋯ 메뉴(포털 키 이벤트·한 항목 인라인·menuitem·포커스), 뒤로가기 바 규격, 탭 루트 헤더 구분선,
 // AI 탭 루트 헤더, 이슈 ⋯ 문구·색, 📌 터치 영역, 탭 편집 저장 조건, 캘린더 도구 줄, 빈 상태 규격, 메일 ☰, 연락처 구분선, 목록 머리말.
+// ⋯ 를 남기는 화면(이슈 상세·메일 검색)·탭 편집 [저장] 활성 조건·메일 계정 없음의 ☰ 없음은 페이지 테스트
+// src/pages/mobile/uiuxU3.test.tsx 가 지킨다(WP-981). 노트 AI 작성 메뉴는 편집 가능 여부가 동기화 서버 연결에 달려 @platform 으로 남는다.
 import type { Locator, Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiRole, WikiSpace } from '../../../src/types/wiki'
 import { member, page as makeContactPage } from '../../factories/contacts.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
-import { mailAccount, summary } from '../../factories/mail.factory'
 import { createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { tokenColor } from '../../fixtures/contrast'
@@ -54,7 +55,7 @@ async function stubWiki(page: Page, role: WikiRole = 'OWNER') {
   await page.route((u) => u.pathname === '/api/v1/wiki/pages/100', (r) => r.fulfill({ json: WIKI_PAGE }))
 }
 
-test('C1·R1 노트: "AI 생성" 표식이 메뉴 없이 제목 뒤에 보이고, 헤더 AI 아이콘은 ✦ 하나(AI ▾ 없음)', async ({ authenticatedPage: page }) => {
+test('C1·R1 노트: "AI 생성" 표식이 메뉴 없이 제목 뒤에 보이고, 헤더 AI 아이콘은 ✦ 하나(AI ▾ 없음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubWiki(page)
   await page.goto('/wiki/spaces/1/pages/100')
   const header = page.getByTestId('wiki-page-header')
@@ -75,7 +76,7 @@ test('C1·R1 노트: "AI 생성" 표식이 메뉴 없이 제목 뒤에 보이고
   await expectNoHorizontalOverflow(page)
 })
 
-test('R1 노트: 페이지 ⋯ 메뉴 맨 위 "AI 작성" 묶음 — 편집 권한이면 활성, 읽기 전용이면 사유가 글자로', async ({ authenticatedPage: page }) => {
+test('R1 노트: 페이지 ⋯ 메뉴 맨 위 "AI 작성" 묶음 — 편집 권한이면 활성, 읽기 전용이면 사유가 글자로', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubWiki(page)
   await page.goto('/wiki/spaces/1/pages/100')
   await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
@@ -90,7 +91,7 @@ test('R1 노트: 페이지 ⋯ 메뉴 맨 위 "AI 작성" 묶음 — 편집 권�
   await expect(page.getByTestId('wiki-menu-source')).toBeVisible()
 })
 
-test('R1 노트(읽기 전용): AI 작성 항목은 비활성, 사유는 흐리지 않은 글자로 보인다', async ({ authenticatedPage: page }) => {
+test('R1 노트(읽기 전용): AI 작성 항목은 비활성, 사유는 흐리지 않은 글자로 보인다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubWiki(page, 'VIEWER')
   await page.goto('/wiki/spaces/1/pages/100')
   await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
@@ -100,7 +101,7 @@ test('R1 노트(읽기 전용): AI 작성 항목은 비활성, 사유는 흐리�
   await expect(page.getByTestId('wiki-ai-header-draft')).toHaveAttribute('data-disabled', '')
 })
 
-test('C2 ⋯ 메뉴 항목이 연 다이얼로그 안의 ↓ 키는 메뉴가 가로채지 않는다(preventDefault 없음)', async ({ authenticatedPage: page }) => {
+test('C2 ⋯ 메뉴 항목이 연 다이얼로그 안의 ↓ 키는 메뉴가 가로채지 않는다(preventDefault 없음)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubIssueDetail(page)
   await page.goto(`/projects/${KEY}/issues/${NUM}`)
   await page.getByTestId('mobile-header-more').click()
@@ -114,7 +115,7 @@ test('C2 ⋯ 메뉴 항목이 연 다이얼로그 안의 ↓ 키는 메뉴가 �
   expect(notPrevented).toBe(true)
 })
 
-test('C3·R13 프로젝트 ⋯: 항목은 링크 하나씩(버튼 중첩 없음)·role=menuitem, 탭으로 열면 첫 항목에 포커스하지 않는다', async ({ authenticatedPage: page }) => {
+test('C3·R13 프로젝트 ⋯: 항목은 링크 하나씩(버튼 중첩 없음)·role=menuitem, 탭으로 열면 첫 항목에 포커스하지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.goto(`/projects/${KEY}`)
   await page.getByTestId('mobile-header-more').click()
@@ -137,7 +138,7 @@ test('C3·R13 프로젝트 ⋯: 항목은 링크 하나씩(버튼 중첩 없음)
   await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/settings$`))
 })
 
-test('R2 헤더 없는 화면(/settings 목록)의 뒤로가기 바는 병합 상세 헤더와 같은 규격(56px·17px semibold h1)', async ({ authenticatedPage: page }) => {
+test('R2 헤더 없는 화면(/settings 목록)의 뒤로가기 바는 병합 상세 헤더와 같은 규격(56px·17px semibold h1)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.goto('/settings')
   const title = page.getByTestId('mobile-back-title')
   await expect(title).toBeVisible()
@@ -149,7 +150,7 @@ test('R2 헤더 없는 화면(/settings 목록)의 뒤로가기 바는 병합 �
   await expect(bar.getByTestId('mobile-back-ai')).toBeVisible()
 })
 
-test('R3 탭 루트 헤더는 하단 구분선이 없다(PageHeader 탭 루트 = MobileListHeader)', async ({ authenticatedPage: page }) => {
+test('R3 탭 루트 헤더는 하단 구분선이 없다(PageHeader 탭 루트 = MobileListHeader)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   const home = page.getByTestId('canvas-header')
@@ -162,7 +163,7 @@ test('R3 탭 루트 헤더는 하단 구분선이 없다(PageHeader 탭 루트 =
 })
 
 // WP-191: 탭 루트 큰 제목 헤더(ai-fs-root-header) 대신 시트 헤더 — "AI" 제목 + [대화 목록 ▾][＋][×].
-test('R4 탭바에서 연 AI 시트: "AI" 제목 + [대화 목록 ▾][＋] 44px, × 하나, 입력 포커스 링은 AI 보라', async ({ authenticatedPage: page }) => {
+test('R4 탭바에서 연 AI 시트: "AI" 제목 + [대화 목록 ▾][＋] 44px, × 하나, 입력 포커스 링은 AI 보라', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/')
   await page.getByTestId('mobile-tab-ai').click()
@@ -187,7 +188,7 @@ test('R4 탭바에서 연 AI 시트: "AI" 제목 + [대화 목록 ▾][＋] 44px
   await expectNoHorizontalOverflow(page)
 })
 
-test('R6 이슈 ⋯: 삭제는 빨간 글자, 구독 항목은 "구독하기" / "구독 중 · n명"', async ({ authenticatedPage: page }) => {
+test('R6 이슈 ⋯: 삭제는 빨간 글자, 구독 항목은 "구독하기" / "구독 중 · n명"', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubIssueDetail(page)
   await page.goto(`/projects/${KEY}/issues/${NUM}`)
   await page.getByTestId('mobile-header-more').click()
@@ -207,7 +208,7 @@ test('R6 이슈 ⋯: 삭제는 빨간 글자, 구독 항목은 "구독하기" / 
   expect(look.fontWeight).not.toBe('600')
 })
 
-test('R6 이슈 ⋯(구독 중): "구독 중 · n명"', async ({ authenticatedPage: page }) => {
+test('R6 이슈 ⋯(구독 중): "구독 중 · n명"', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // authenticatedPage 사용자 id 는 1 — 구독자 목록에 넣으면 구독 중.
   await stubIssueDetail(page, [{ userId: 1 }, { userId: 7 }])
   await page.goto(`/projects/${KEY}/issues/${NUM}`)
@@ -220,7 +221,7 @@ test('R6 이슈 ⋯(구독 중): "구독 중 · n명"', async ({ authenticatedPa
   expect(look).toEqual({ color: primary, fontWeight: '600' })
 })
 
-test('R7 ⋯ 에 담길 항목이 하나뿐이면 ⋯ 없이 헤더에 바로 둔다(메일 설정 "계정 추가")', async ({ authenticatedPage: page }) => {
+test('R7 ⋯ 에 담길 항목이 하나뿐이면 ⋯ 없이 헤더에 바로 둔다(메일 설정 "계정 추가")', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
   await page.goto('/settings/mail')
   const header = page.getByTestId('page-header')
@@ -236,21 +237,7 @@ test('R7 ⋯ 에 담길 항목이 하나뿐이면 ⋯ 없이 헤더에 바로 �
   await expectNoHorizontalOverflow(page)
 })
 
-test('R7 여러 항목·검색 입력 메뉴는 그대로 ⋯/🔍 로 남는다(이슈 상세·메일)', async ({ authenticatedPage: page }) => {
-  await stubIssueDetail(page)
-  await page.goto(`/projects/${KEY}/issues/${NUM}`)
-  await expect(page.getByTestId('mobile-header-more')).toBeVisible()
-  // 메일: 메뉴 내용이 검색 입력 하나 — 입력은 인라인 대상이 아니므로 🔍 트리거가 남는다.
-  await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
-  await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary()])
-  await page.goto('/mail')
-  const search = page.getByTestId('mobile-header-more')
-  await expect(search).toHaveAccessibleName('메일 검색')
-  await search.click()
-  await expect(page.getByTestId('mobile-header-more-menu').locator('input')).toBeVisible()
-})
-
-test('R1 노트: AI 작성 실행 중에는 헤더에 생성 중 스피너가 남는다(AI ▾ 가 메뉴로 들어간 뒤에도)', async ({ authenticatedPage: page }) => {
+test('R1 노트: AI 작성 실행 중에는 헤더에 생성 중 스피너가 남는다(AI ▾ 가 메뉴로 들어간 뒤에도)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubWiki(page)
   // 응답을 끝내지 않아 생성 중 상태를 유지한다.
   await page.route('**/api/v1/wiki/pages/*/ai', () => {})
@@ -262,7 +249,7 @@ test('R1 노트: AI 작성 실행 중에는 헤더에 생성 중 스피너가 �
   await expect(header.getByTestId('wiki-ai-header-busy')).toBeVisible()
 })
 
-test('R8 📌 배지 터치 영역은 44px — 위·오른쪽으로만 넓어지고 아이콘(앱 열기) 영역은 가리지 않는다', async ({ authenticatedPage: page }) => {
+test('R8 📌 배지 터치 영역은 44px — 위·오른쪽으로만 넓어지고 아이콘(앱 열기) 영역은 가리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
   const badge = page.getByTestId('apps-pinned-chat')
@@ -285,22 +272,8 @@ test('R8 📌 배지 터치 영역은 44px — 위·오른쪽으로만 넓어지
   await expectNoHorizontalOverflow(page)
 })
 
-test('R9 탭 편집: ✦ 없음, [저장]은 바뀐 것이 있을 때만 활성(되돌리면 다시 비활성)', async ({ authenticatedPage: page }) => {
-  await stubChat(page)
-  await page.goto('/apps/tabs')
-  const header = page.getByTestId('tab-edit-header')
-  await expect(header).toBeVisible()
-  await expect(page.getByTestId('mobile-back-ai')).toHaveCount(0)
-  const save = header.getByTestId('tab-edit-save')
-  await expect(save).toBeDisabled()
-  await page.getByTestId('tab-edit-down-0').click()
-  await expect(save).toBeEnabled()
-  await page.getByTestId('tab-edit-up-1').click()
-  await expect(save).toBeDisabled()
-})
-
 // WP-846: 키보드로 위로·아래로·빼기·추가를 눌러도 초점이 body 로 사라지지 않고, 바뀐 내용을 라이브 영역으로 알린다.
-test('탭 편집: 경계로 옮기기·빼기·추가 뒤에도 초점이 이어지고 바뀐 내용을 알린다', async ({ authenticatedPage: page }) => {
+test('탭 편집: 경계로 옮기기·빼기·추가 뒤에도 초점이 이어지고 바뀐 내용을 알린다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 3칸 편집 기준 시나리오 — 좁은 폰(390pt 미만)은 3칸을 고른다(WP-877).
   await page.setViewportSize({ width: 375, height: 667 })
   await stubChat(page)
@@ -342,7 +315,7 @@ test('탭 편집: 경계로 옮기기·빼기·추가 뒤에도 초점이 이어
   await expect(live).toContainText('3번째 칸에 추가했습니다')
 })
 
-test('R10 캘린더 도구 줄: ‹ › 도 [오늘]·보기 선택과 같은 테두리 버튼(≥44px)', async ({ authenticatedPage: page }) => {
+test('R10 캘린더 도구 줄: ‹ › 도 [오늘]·보기 선택과 같은 테두리 버튼(≥44px)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/calendars', [])
   await page.goto('/calendar')
   const toolbar = page.getByTestId('calendar-mobile-toolbar')
@@ -376,7 +349,7 @@ async function expectEmptyStateSpec(page: Page, testId: string) {
   return areaMid - contentMid
 }
 
-test('R11 빈 상태 규격 공유: 알림 없음·메일 계정 없음이 같은 크기·같은 위치(가운데보다 살짝 위)', async ({ authenticatedPage: page }) => {
+test('R11 빈 상태 규격 공유: 알림 없음·메일 계정 없음이 같은 크기·같은 위치(가운데보다 살짝 위)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/notifications', [])
   await mockApi(page, 'GET', '/api/v1/notifications/unread-count', { count: 0 })
   await page.goto('/notifications')
@@ -388,15 +361,7 @@ test('R11 빈 상태 규격 공유: 알림 없음·메일 계정 없음이 같�
   expect(Math.abs(a - b)).toBeLessThanOrEqual(40)
 })
 
-test('R12 메일 계정 없음: ☰(폴더 시트) 트리거를 두지 않는다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
-  await page.goto('/mail')
-  await expect(page.getByTestId('mail-empty-accounts')).toBeVisible()
-  await expect(page.getByTestId('mobile-sidebar-trigger')).toHaveCount(0)
-  await expect(page.getByTestId('page-header').getByTestId('mobile-bell')).toBeVisible()
-})
-
-test('R14 연락처 목록: 전체폭 목록 끝에 우측 구분선이 없다', async ({ authenticatedPage: page }) => {
+test('R14 연락처 목록: 전체폭 목록 끝에 우측 구분선이 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: makeContactPage([member()]) }))
   await page.goto('/contacts')
   const list = page.getByTestId('contact-list')
@@ -404,7 +369,7 @@ test('R14 연락처 목록: 전체폭 목록 끝에 우측 구분선이 없다',
   expect(await list.evaluate((el) => getComputedStyle(el).borderRightWidth)).toBe('0px')
 })
 
-test('R5 목록 머리말: 노트 "페이지"·드라이브 "공간" 이 채팅 "채널" 과 같은 왼쪽 선, ＋ 는 본문색 16px 급', async ({ authenticatedPage: page }) => {
+test('R5 목록 머리말: 노트 "페이지"·드라이브 "공간" 이 채팅 "채널" 과 같은 왼쪽 선, ＋ 는 본문색 16px 급', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/chat')
   const list = page.getByTestId('mobile-module-list')

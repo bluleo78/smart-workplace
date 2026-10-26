@@ -26,7 +26,7 @@ async function stubPersonal(page: Page) {
   await mockApi(page, 'GET', `/api/v1/chat/threads/${thread.threadId}/messages`, createChatMessagePage([]))
 }
 
-test('행 → 전체 화면: goBack 은 상세만 닫고 개인작업에 남는다 — ‹ 도 같은 결과', async ({ authenticatedPage: page }) => {
+test('행 → 전체 화면: goBack 은 상세만 닫고 개인작업에 남는다 — ‹ 도 같은 결과', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubPersonal(page)
   await page.goto(`/projects/${KEY}`)
   await page.getByTestId('personal-task-row-1').tap()
@@ -46,7 +46,7 @@ test('행 → 전체 화면: goBack 은 상세만 닫고 개인작업에 남는�
   await expect(panel).toHaveCount(0)
 })
 
-test('보드 카드 → 상세: ESC 는 보드로 돌아가고 task 가 URL 에 남지 않는다', async ({ authenticatedPage: page }) => {
+test('보드 카드 → 상세: ESC 는 보드로 돌아가고 task 가 URL 에 남지 않는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubPersonal(page)
   await page.goto(`/projects/${KEY}?view=board`)
   await page.getByTestId('issue-card-1').getByRole('link').tap()
@@ -58,7 +58,7 @@ test('보드 카드 → 상세: ESC 는 보드로 돌아가고 task 가 URL 에 
   await expect(modal).toHaveCount(0)
 })
 
-test('딥링크(?task) → ‹ 는 task 만 지우고 개인작업에 남는다', async ({ authenticatedPage: page }) => {
+test('딥링크(?task) → ‹ 는 task 만 지우고 개인작업에 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await stubPersonal(page)
   await page.goto(`/projects/${KEY}?task=1`)
   await expect(page.getByTestId('personal-task-mobile')).toBeVisible()

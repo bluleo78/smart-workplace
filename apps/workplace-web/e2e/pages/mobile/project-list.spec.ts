@@ -1,4 +1,6 @@
 // 모바일 프로젝트 목록(WP-197) — 64px 한 줄 행: 배지 32 · 이름(말줄임) / 키 · 진행 바 · % · 개수, 오른쪽 별 44px.
+// 브라우저가 있어야 판정되는 기하(행 높이·말줄임·별 44px)만 남긴다. 보조줄 문구 분기(접수함·이슈 없음)·개인 별 없음·행 탭 이동은
+// 페이지 테스트 src/pages/mobile/projectList.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test';
 
 import { createProject } from '../../factories/project.factory';
@@ -22,7 +24,7 @@ async function setup(page: Page) {
   await expect(page.getByTestId('project-row-WEB')).toBeVisible();
 }
 
-test('행 높이 ≈ 64px, 긴 이름 말줄임, 보조줄 = 키 · % · 개수, 가로 넘침 없음', async ({ authenticatedPage: page }) => {
+test('행 높이 ≈ 64px, 긴 이름 말줄임, 보조줄 = 키 · % · 개수, 가로 넘침 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   const row = page.getByTestId('project-row-WEB');
   const box = (await row.boundingBox())!;
@@ -36,14 +38,7 @@ test('행 높이 ≈ 64px, 긴 이름 말줄임, 보조줄 = 키 · % · 개수,
   await expectNoHorizontalOverflow(page);
 });
 
-test('OPEN 은 「접수함」(이슈 0건이어도), 이슈 0건 팀은 「이슈 없음」, 개인은 별 없음', async ({ authenticatedPage: page }) => {
-  await setup(page);
-  await expect(page.getByTestId('project-row-meta-OPN')).toHaveText(/OPN\s*·\s*접수함/);
-  await expect(page.getByTestId('project-row-meta-EMP')).toHaveText(/EMP\s*·\s*이슈 없음/);
-  await expect(page.getByTestId('fav-toggle-PME')).toHaveCount(0);
-});
-
-test('별 버튼 44px — 탭하면 즐겨찾기 그룹으로 이동하고 행 이동은 일어나지 않는다', async ({ authenticatedPage: page }) => {
+test('별 버튼 44px — 탭하면 즐겨찾기 그룹으로 이동하고 행 이동은 일어나지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setup(page);
   const star = page.getByTestId('fav-toggle-WEB');
   const sb = (await star.boundingBox())!;
@@ -53,10 +48,4 @@ test('별 버튼 44px — 탭하면 즐겨찾기 그룹으로 이동하고 행 �
   await expect(star).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('fav-group')).toBeVisible();
   await expect(page).toHaveURL(/\/projects$/);
-});
-
-test('행(이름 영역) 탭 → 프로젝트 상세로 이동', async ({ authenticatedPage: page }) => {
-  await setup(page);
-  await page.getByTestId('project-row-EMP').getByRole('link').tap();
-  await expect(page).toHaveURL(/\/projects\/EMP$/);
 });

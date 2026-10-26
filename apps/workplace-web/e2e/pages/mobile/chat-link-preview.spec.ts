@@ -4,7 +4,7 @@ import { LONG_TITLE, stubLinkPreviewChannel } from '../../fixtures/link-preview-
 import { longPress } from '../../fixtures/mobile-chat'
 import { expectNoHorizontalOverflow } from '../../fixtures/mobile.fixture'
 
-test('카드는 이미지가 위·글이 아래, 화면 폭을 넘지 않는다', async ({ authenticatedPage: page }) => {
+test('카드는 이미지가 위·글이 아래, 화면 폭을 넘지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const { images } = await stubLinkPreviewChannel(page)
   await page.goto('/chat/channels/1')
 
@@ -27,7 +27,7 @@ test('카드는 이미지가 위·글이 아래, 화면 폭을 넘지 않는다'
   await expectNoHorizontalOverflow(page)
 })
 
-test('작성자는 길게 누르기 시트의 「미리보기 지우기」로 지운다 — 링크 위에서 눌러도 새 탭이 열리지 않는다', async ({ authenticatedPage: page }) => {
+test('작성자는 길게 누르기 시트의 「미리보기 지우기」로 지운다 — 링크 위에서 눌러도 새 탭이 열리지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const { dismisses } = await stubLinkPreviewChannel(page, { padNewer: 8 })
   await page.goto('/chat/channels/1')
   await expect(page.getByTestId('link-preview-11-0')).toBeVisible()
@@ -46,7 +46,7 @@ test('작성자는 길게 누르기 시트의 「미리보기 지우기」로 �
   expect(popups).toBe(0)
 })
 
-test('타인 메시지의 시트엔 「미리보기 지우기」가 없다', async ({ authenticatedPage: page }) => {
+test('타인 메시지의 시트엔 「미리보기 지우기」가 없다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubLinkPreviewChannel(page)
   await page.goto('/chat/channels/1')
   await expect(page.getByTestId('link-preview-10-0')).toBeVisible()

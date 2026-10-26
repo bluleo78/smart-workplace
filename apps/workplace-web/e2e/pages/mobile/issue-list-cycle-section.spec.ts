@@ -51,7 +51,7 @@ async function rightEdge(page: Page, testId: string): Promise<number> {
 }
 
 for (const width of [390, 700]) {
-  test(`모바일 ${width}px — 사이클 구간 헤더·「더 보기」·빈 문구가 구간 오른쪽 끝을 넘지 않는다`, async ({ authenticatedPage: page }) => {
+  test(`모바일 ${width}px — 사이클 구간 헤더·「더 보기」·빈 문구가 구간 오른쪽 끝을 넘지 않는다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width, height: 800 });
     await stubChat(page);
     await mock(page);

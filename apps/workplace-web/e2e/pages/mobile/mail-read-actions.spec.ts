@@ -1,4 +1,5 @@
 // 모바일 메일 읽음 조작(WP-187) — 상세 헤더 바 "안 읽음", 터치 셸에서 행 hover 토글 미렌더. WP-214: 첫 열람 읽음 요청.
+// 상세 바 「안 읽음」은 닫기가 브라우저 히스토리(useHistoryParam)를 따라 페이지 테스트로 옮기지 못해 @platform 으로 남긴다(WP-981).
 import type { Page } from '@playwright/test'
 
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
@@ -20,7 +21,7 @@ async function stubMail(page: Page) {
   return { counts, det }
 }
 
-test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복귀, mail SSE 뒤에도 다시 읽음 처리하지 않음', async ({ authenticatedPage: page }) => {
+test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복귀, mail SSE 뒤에도 다시 읽음 처리하지 않음', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const { counts, det } = await stubMail(page)
   // 안읽음 뒤 서버 mail 변경 프레임이 와도 다시 읽음 처리되지 않아야 한다(Review Focus 4, WP-214).
   const events = await mockGatedEvents(page)
@@ -55,7 +56,7 @@ test('모바일 상세 바의 안읽음 → 안읽음 API 후 목록으로 복�
   await expect(page.getByTestId('mail-unread-bar-10')).toBeVisible()
 })
 
-test('행 길게 누르기 → 메뉴의 읽음으로 표시 → 읽음 API, 상세는 열리지 않음', async ({ authenticatedPage: page }) => {
+test('행 길게 누르기 → 메뉴의 읽음으로 표시 → 읽음 API, 상세는 열리지 않음', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
   await page.goto('/mail/1')
@@ -73,7 +74,7 @@ test('행 길게 누르기 → 메뉴의 읽음으로 표시 → 읽음 API, 상
   await expect(page.getByTestId('mail-detail')).toHaveCount(0)
 })
 
-test('모바일 모두 읽음 다이얼로그 — 폭을 채운 세로 버튼, 확인이 위', async ({ authenticatedPage: page }) => {
+test('모바일 모두 읽음 다이얼로그 — 폭을 채운 세로 버튼, 확인이 위', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   // 실사용처럼 "N분 전 동기화됨"(가장 짧은 "동기화 안 됨"보다 김)이 있어도 툴바가 넘치지 않는지 본다.
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount({ lastSyncedAt: new Date(Date.now() - 12 * 60_000).toISOString() })])
@@ -99,7 +100,7 @@ test('모바일 모두 읽음 다이얼로그 — 폭을 채운 세로 버튼, �
   expect(confirm!.width).toBeGreaterThan(dialog!.width * 0.7)
 })
 
-test.describe('360px 툴바 — 동기화 진행률이 보여도 넘치지 않음', () => {
+test.describe('360px 툴바 — 동기화 진행률이 보여도 넘치지 않음', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 360, height: 780 } })
 
   test('모두 읽음(아이콘)이 화면 안에 있고 44px 터치 영역, 다이얼로그를 닫아도 화면이 옆으로 밀리지 않음', async ({ authenticatedPage: page }) => {
@@ -142,7 +143,7 @@ test.describe('360px 툴바 — 동기화 진행률이 보여도 넘치지 않�
   })
 })
 
-test('행 길게 누르기 → 답장 — 상세는 읽음 처리 없이 받고, 안 읽은 메일이면 읽음 요청을 따로 보낸다(WP-214)', async ({ authenticatedPage: page }) => {
+test('행 길게 누르기 → 답장 — 상세는 읽음 처리 없이 받고, 안 읽은 메일이면 읽음 요청을 따로 보낸다(WP-214)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const { det } = await stubMail(page)
   const read = await mockApi(page, 'POST', '/api/v1/mail/messages/10/read', null, { capture: true })
   await page.goto('/mail/1')

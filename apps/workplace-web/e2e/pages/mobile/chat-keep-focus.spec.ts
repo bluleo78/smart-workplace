@@ -26,7 +26,7 @@ async function expectFocusKept(page: Page, input: Locator) {
   expect(await page.evaluate(() => (window as unknown as BlurWindow).__blurs)).toBe(0)
 }
 
-test('팀 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ authenticatedPage: page }) => {
+test('팀 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChannelMessages(page)
   const sends = trackRequests(page, 'POST', '/api/v1/messaging/channels/1/messages')
   await page.route((u) => u.pathname === '/api/v1/messaging/channels/1/messages', (r) => {
@@ -46,7 +46,7 @@ test('팀 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ 
   await expectFocusKept(page, input)
 })
 
-test('이슈 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ authenticatedPage: page }) => {
+test('이슈 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubIssue(page)
   const posts = trackRequests(page, 'POST', '/api/v1/chat/threads/100/messages')
   await page.route('**/api/v1/chat/threads/100/messages', (r) => {
@@ -65,7 +65,7 @@ test('이슈 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async 
   await expectFocusKept(page, input)
 })
 
-test('AI 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', async ({ authenticatedPage: page }) => {
+test('AI 채팅: 보내기 탭 뒤에도 입력창 포커스 유지', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await mockHomeChatGeneration(page, { frames: [{ event: 'delta', data: { text: '네' } }, { event: 'done', data: { sessionId: 's-1' } }] })
   await page.goto('/chat')

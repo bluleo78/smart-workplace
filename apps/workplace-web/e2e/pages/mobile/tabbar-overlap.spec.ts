@@ -36,7 +36,7 @@ async function placeAboveTabBar(page: Page, trigger: Locator, gap: number) {
 test.describe('390×664 — 낮은 화면', () => {
   test.use({ viewport: { width: 390, height: 664 } })
 
-  test('연락처 — 새 외부 연락처 창은 탭바 위 가운데, 끝까지 내리면 저장이 탭바 위, 공개 범위 선택 창도 탭바 위', async ({
+  test('연락처 — 새 외부 연락처 창은 탭바 위 가운데, 끝까지 내리면 저장이 탭바 위, 공개 범위 선택 창도 탭바 위', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await page.route((u) => u.pathname === '/api/v1/contacts', (r) => r.fulfill({ json: contactsPage([]) }))
@@ -61,7 +61,7 @@ test.describe('390×664 — 낮은 화면', () => {
     await expect(page.getByTestId('c-visibility')).toHaveText('공유')
   })
 
-  test('연락처 — 키보드가 열려도(탭바는 키보드 바로 위에 남는다) 새 외부 연락처 창은 탭바 위 가운데, 저장도 탭바 위', async ({
+  test('연락처 — 키보드가 열려도(탭바는 키보드 바로 위에 남는다) 새 외부 연락처 창은 탭바 위 가운데, 저장도 탭바 위', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     // 헤드리스엔 가상 키보드가 없어 visualViewport 를 가짜로 바꿔 키보드를 흉내 낸다(keyboard.spec 과 같은 방식) — goto 전에 설치.
@@ -84,7 +84,7 @@ test.describe('390×664 — 낮은 화면', () => {
     await expectAboveTabBar(page, page.getByTestId('c-save'))
   })
 
-  test('자체 스크롤 창은 스크롤이 한 겹이고 닫기 X 가 제자리 — overflow-hidden 창은 바깥 스크롤을 강제하지 않는다', async ({
+  test('자체 스크롤 창은 스크롤이 한 겹이고 닫기 X 가 제자리 — overflow-hidden 창은 바깥 스크롤을 강제하지 않는다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await stubChat(page)
@@ -127,7 +127,7 @@ test.describe('390×664 — 낮은 화면', () => {
     expect(style.maxHeight).toBeLessThanOrEqual(navTop - 32 + 1)
   })
 
-  test('메일 — 모두 읽음 확인 창(AlertDialog)도 탭바 위 가운데', async ({ authenticatedPage: page }) => {
+  test('메일 — 모두 읽음 확인 창(AlertDialog)도 탭바 위 가운데', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubChat(page)
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
     await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 10, seen: false })])
@@ -141,7 +141,7 @@ test.describe('390×664 — 낮은 화면', () => {
   })
 })
 
-test('메일 임시보관함 — 탭바 바로 위 행의 ⋯ 메뉴는 탭바 밑으로 펼치지 않고 위로 뒤집힌다', async ({ authenticatedPage: page }) => {
+test('메일 임시보관함 — 탭바 바로 위 행의 ⋯ 메뉴는 탭바 밑으로 펼치지 않고 위로 뒤집힌다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/mail/accounts', [mailAccount()])
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [])
   const drafts = Array.from({ length: 20 }, (_, i) => draftDetail({ id: i + 1, subject: `임시저장 ${i + 1}` }))
@@ -160,7 +160,7 @@ test('메일 임시보관함 — 탭바 바로 위 행의 ⋯ 메뉴는 탭바 �
   await expect(page.getByTestId('mail-draft-open-12')).toBeVisible()
 })
 
-test('메일 임시보관함 — 탭바 없는 화면에 갔다가 뒤로 돌아와도(캐시로 바로 그림) ⋯ 메뉴가 탭바를 피한다', async ({
+test('메일 임시보관함 — 탭바 없는 화면에 갔다가 뒤로 돌아와도(캐시로 바로 그림) ⋯ 메뉴가 탭바를 피한다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   // 돌아올 때 목록은 캐시로 탭바와 같은 커밋에 그려진다 — 탭바 높이를 렌더 때 한 번만 읽으면 0(탭바 없던 화면 값)에 머문다.
@@ -182,7 +182,7 @@ test('메일 임시보관함 — 탭바 없는 화면에 갔다가 뒤로 돌아
   await expectAboveTabBar(page, menu)
 })
 
-test('앱 — 새 소식 창은 탭바 위 가운데', async ({ authenticatedPage: page }) => {
+test('앱 — 새 소식 창은 탭바 위 가운데', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
   await page.getByTestId('apps-account').click()

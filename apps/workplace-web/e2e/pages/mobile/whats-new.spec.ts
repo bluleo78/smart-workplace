@@ -2,7 +2,7 @@
 // 노트 픽스처·실행 버전(0.9.0)은 데스크톱 spec(e2e/pages/whats-new.spec.ts)과 같다.
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 
-test('아바타 점 → 계정 시트의 새 소식(v0.9.0) → 창 → 닫으면 점이 사라진다', async ({ authenticatedPage: page }) => {
+test('아바타 점 → 계정 시트의 새 소식(v0.9.0) → 창 → 닫으면 점이 사라진다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.goto('/apps')
   await expect(page.getByTestId('apps-account-avatar-dot')).toBeVisible()

@@ -31,7 +31,7 @@ async function expectNoDeleteInPageMenu(page: Page) {
   await page.keyboard.press('Escape')
 }
 
-test.describe('모바일 노트 동시 편집', () => {
+test.describe('모바일 노트 동시 편집', { tag: '@platform' }, () => {
   test('정상 연결은 점 하나 칩이고, 다른 사람 입력이 실시간으로 들어온다', async ({
     authenticatedPage: a,
     newAuthedPage,

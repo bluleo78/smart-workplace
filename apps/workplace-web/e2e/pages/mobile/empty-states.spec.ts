@@ -5,7 +5,7 @@ import { mockWikiNoSpaces } from '../../fixtures/wiki-mock'
 
 const NEW_SPACE_ID = 5
 
-test('노트: 공간이 없으면 빈 선택 상자 대신 빈 상태가 보이고, [공간 만들기]로 만든 공간으로 이동한다', async ({ authenticatedPage: page }) => {
+test('노트: 공간이 없으면 빈 선택 상자 대신 빈 상태가 보이고, [공간 만들기]로 만든 공간으로 이동한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const posts = await mockWikiNoSpaces(page, NEW_SPACE_ID)
   await page.goto('/wiki')
 
@@ -32,7 +32,7 @@ test('노트: 공간이 없으면 빈 선택 상자 대신 빈 상태가 보이�
   await expect(page.getByTestId('wiki-no-spaces')).toHaveCount(0)
 })
 
-test('드라이브: 모든 공간 행에 아이콘이 있고, 사용량은 목록 맨 아래에 붙는다', async ({ authenticatedPage: page }) => {
+test('드라이브: 모든 공간 행에 아이콘이 있고, 사용량은 목록 맨 아래에 붙는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route((u) => u.pathname === '/api/v1/drive/spaces', (r) => r.fulfill({
     json: [personalSpace({ id: 1 }), createSpace({ id: 2, name: '디자인팀 공유 자료' }), createSpace({ id: 3, name: '2026 하반기 영업 제안서 모음' })],
   }))

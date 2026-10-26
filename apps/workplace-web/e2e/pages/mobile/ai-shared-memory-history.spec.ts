@@ -3,7 +3,7 @@ import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.
 import { mockSharedMemory, openSharedMemory, sharedChange, sharedSpace } from '../../fixtures/shared-memory-mock'
 import { stableBox } from '../../fixtures/wait'
 
-test('기록은 바텀시트로 열리고 넘치지 않으며 되돌리기가 터치 크기다', async ({ authenticatedPage: page }) => {
+test('기록은 바텀시트로 열리고 넘치지 않으며 되돌리기가 터치 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockSharedMemory(page, {
     spaces: [sharedSpace({})],
     changes: { 'PROJECT:12': [sharedChange(3, { memory: { id: 6, content: 'https://example.com/' + 'a'.repeat(200), origin: 'USER_REQUESTED' } })] },

@@ -47,7 +47,7 @@ test.beforeEach(async ({ authenticatedPage: page }) => {
   await expect(page.locator('[data-message-id="105"]')).toBeVisible()
 })
 
-test('긴 안내는 두 줄로 접혀도 잘리지 않는다', async ({ authenticatedPage: page }) => {
+test('긴 안내는 두 줄로 접혀도 잘리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const editor = page.getByTestId('chat-composer').locator('.ProseMirror')
   const empty = editor.locator('p.is-editor-empty')
   await expect(empty).toHaveAttribute('data-placeholder', '답변 입력… 멘션 없이 보내도 코디가 이어받아요')
@@ -61,7 +61,7 @@ test('긴 안내는 두 줄로 접혀도 잘리지 않는다', async ({ authenti
   await page.screenshot({ path: 'test-results/tc/chat-question/composer-hint-375.png' })
 })
 
-test('열린 질문 강조가 모바일에서도 보인다', async ({ authenticatedPage: page }) => {
+test('열린 질문 강조가 모바일에서도 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'open')
   await expect(page.getByTestId('chat-message-question-105')).toHaveText('질문')
   await page.screenshot({ path: 'test-results/tc/chat-question/open-question-375.png' })

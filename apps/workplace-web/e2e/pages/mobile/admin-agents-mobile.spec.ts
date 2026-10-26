@@ -46,7 +46,7 @@ async function stubAgents(page: Page) {
     r.fulfill({ json: { agentUserId: null, agentName: null, hasActiveToken: false, model: null, thinkingDepth: null } }))
 }
 
-test('에이전트 표는 휴대폰 폭 안에 들어오고, 아이디·유형·실행은 이름 아래 줄에 보인다', async ({ adminPage: page }) => {
+test('에이전트 표는 휴대폰 폭 안에 들어오고, 아이디·유형·실행은 이름 아래 줄에 보인다', { tag: '@layout' }, async ({ adminPage: page }) => {
   await stubAgents(page)
   await page.goto('/settings/agents')
   const table = page.getByRole('table', { name: '에이전트 목록' })

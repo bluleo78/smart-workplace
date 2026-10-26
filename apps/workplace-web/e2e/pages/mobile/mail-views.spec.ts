@@ -1,4 +1,5 @@
 // 모바일 메일 보기(WP-186) — 헤더 제목·☰ 시트 하위 분류·탭 배지.
+// 메일 화면 배선 1건(@wiring)만 남긴다 — 탭 배지 숫자는 src/pages/mobile/mailViews.test.tsx 가 지킨다(WP-981).
 import type { Page } from '@playwright/test'
 
 import { mailAccount, summary } from '../../factories/mail.factory'
@@ -16,7 +17,7 @@ async function stubMail(page: Page) {
   await mockApi(page, 'GET', '/api/v1/mail/accounts/1/messages', [summary({ id: 10 })])
 }
 
-test('헤더 제목 = 업무(글자만), ☰ 시트에 하위 분류와 안 읽은 수', async ({ authenticatedPage: page }) => {
+test('헤더 제목 = 업무(글자만), ☰ 시트에 하위 분류와 안 읽은 수', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   await stubMail(page)
   await page.goto('/mail/1')
   const h1 = page.getByTestId('page-header').locator('h1')
@@ -26,10 +27,4 @@ test('헤더 제목 = 업무(글자만), ☰ 시트에 하위 분류와 안 읽�
   const sheet = page.getByTestId('mobile-sidebar-sheet')
   await expect(sheet.getByTestId('mail-filter-category-업무')).toHaveAttribute('aria-current', 'page')
   await expect(sheet.getByTestId('mail-count-category-업무')).toHaveText('2')
-})
-
-test('메일 탭 배지 = 업무 안 읽은 수 합', async ({ authenticatedPage: page }) => {
-  await stubMail(page)
-  await page.goto('/')
-  await expect(page.getByTestId('mobile-tab-badge-mail')).toHaveText('2')
 })

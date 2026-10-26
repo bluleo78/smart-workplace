@@ -1,5 +1,7 @@
 // 모바일 보드 — 프로젝트 상태별 탭·범주 색 띠·현재 탭 ⋯ 바텀시트(이름 변경·이 뒤에 상태 추가) (WP-808).
-// 백엔드 없이 page.route 로 모킹 — 상태 목록은 POST·PATCH 를 반영하는 상태 있는 목으로 둔다(추가·이름 변경 뒤 재조회).
+// 백엔드 없이 page.route 로 모킹. 여기엔 보드 배선(@wiring, 범주 색 띠 계산 스타일 포함)과 터치 크기·넘침·말줄임·탭 스크롤(@layout)만 남긴다.
+// 빈 탭 이슈 추가 statusId·상태 20개 상한·추가/이름 변경 유효성·payload·409·「상태 관리…」 이동·MEMBER ⋯ 숨김·statusId 필터 탭은
+// 페이지 테스트 src/pages/mobile/mobileBoardCustomStatus.test.tsx 가 지킨다(WP-981).
 
 import type { Page } from '@playwright/test';
 
@@ -7,9 +9,7 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../..
 import { createMember, createProject } from '../../factories/project.factory';
 import { inServerOrder, makeProjectStatus, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { mockApi } from '../../fixtures/api-mock';
-import { mockProjectSettings } from '../../fixtures/project-settings-mocks';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
-import { trackRequests } from '../../fixtures/requests';
 import type { IssueResponse } from '../../../src/types/issue';
 import type { ProjectStatus } from '../../../src/types/projectStatus';
 
@@ -81,7 +81,7 @@ async function tabIds(page: Page) {
 }
 
 test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
-  test('탭이 상태 목록을 따르고 범주 색 띠가 있다', async ({ authenticatedPage: page }) => {
+  test('탭이 상태 목록을 따르고 범주 색 띠가 있다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
     await page.goto(`/projects/${KEY}?view=board&group=none`);
 
@@ -108,34 +108,9 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     await expect(page.getByTestId('issue-card-1')).toHaveCount(0);
   });
 
-  test('빈 탭의 「이슈 추가」는 그 탭 상태로 만든다', async ({ authenticatedPage: page }) => {
+  // 터치 크기·iOS 자동 확대 방지 글꼴·포커스만 본다 — 유효성·payload·새 탭 선택은 페이지 테스트가 지킨다.
+  test('⋯ 바텀시트 → 이 뒤에 상태 추가: ⋯·저장은 44px, 이름 입력은 16px 이상이고 바로 포커스', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
-    const creates = trackRequests(page, 'POST', ISSUES_PATH);
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=13`);
-    await page.getByTestId('board-col-add-13').click();
-    await page.getByTestId('issue-create-title').fill('배포 체크리스트');
-    await page.getByTestId('issue-create-submit').click();
-    await expect.poll(() => creates.lastBody<{ statusId?: number }>()?.statusId).toBe(13);
-  });
-
-  test('상태가 20개면 ⋯ 바텀시트의 이 뒤에 상태 추가가 막히고 이유를 보인다', async ({ authenticatedPage: page }) => {
-    // 8개 + 진행 중 12개 = 상한 20개.
-    const extra = Array.from({ length: 12 }, (_, i) =>
-      makeProjectStatus({ id: 100 + i, name: `추가 상태 ${i + 1}`, category: 'IN_PROGRESS', position: 20 + i }),
-    );
-    await stubBoard(page, { statuses: [...boardStatuses(), ...extra] });
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=12`);
-
-    await page.getByTestId('board-tab-menu').click();
-    const item = page.getByTestId('mobile-action-status-add-after');
-    await expect(item).toBeDisabled();
-    await expect(item).toContainText('상태는 프로젝트당 20개까지예요');
-    await expectNoHorizontalOverflow(page);
-  });
-
-  test('⋯ 바텀시트로 이 뒤에 상태를 추가한다', async ({ authenticatedPage: page }) => {
-    const statuses = await stubBoard(page);
-    const posts = trackRequests(page, 'POST', STATUSES_PATH);
     await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=12`);
 
     const menu = page.getByTestId('board-tab-menu');
@@ -143,98 +118,18 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     expect(box.width).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeGreaterThanOrEqual(44);
     await menu.click();
-    const sheet = page.getByTestId('mobile-status-sheet');
-    await expect(sheet).toContainText('리뷰 대기');
-    await expect(sheet).toContainText('진행 중');
     await page.getByTestId('mobile-action-status-add-after').click();
 
     const nameSheet = page.getByTestId('mobile-status-name-sheet');
-    await expect(nameSheet).toContainText('범주 진행 중');
     const input = nameSheet.getByTestId('status-name-input');
     await expect(input).toBeFocused();
     // iOS 자동 확대 방지 — 16px 이상, 저장 버튼은 44px 이상.
     expect(await input.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
     expect((await nameSheet.getByTestId('status-name-submit').boundingBox())!.height).toBeGreaterThanOrEqual(44);
-
-    // 30자 초과는 저장하지 않고 입력 아래 오류.
-    await input.fill('가'.repeat(31));
-    await nameSheet.getByTestId('status-name-submit').click();
-    await expect(nameSheet.getByTestId('status-name-error')).toContainText('30자');
-    expect(posts.count()).toBe(0);
-
-    await input.fill('QA 대기');
-    await nameSheet.getByTestId('status-name-submit').click();
-    await expect.poll(() => posts.lastBody()).toEqual({ name: 'QA 대기', category: 'IN_PROGRESS', afterStatusId: 12 });
-    await expect(nameSheet).toHaveCount(0);
-    // 목이 만든 상태의 id 로 단언한다(id 규칙에 기대지 않게).
-    const created = statuses.find((x) => x.name === 'QA 대기')!;
-    const newTab = page.getByTestId(`board-tab-${created.id}`);
-    await expect(newTab).toContainText('QA 대기');
-    // 상태 목록 재조회가 끝난 뒤 새 탭이 선택되고 탭 줄에 보인다 — 기본 탭 고정이 되돌리지 않는다.
-    await expect(newTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page).toHaveURL(new RegExp(`boardTab=${created.id}(&|$)`));
-    await expect(newTab).toBeInViewport({ ratio: 0.95 });
-    await expect(page.getByTestId('board-tab-header')).toContainText('QA 대기');
   });
 
-  // WP-809 — 시트에서 설정 「상태」 섹션(색·순서·삭제)으로 바로 간다.
-  test('상태 시트의 상태 관리… 는 설정으로 간다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    await mockProjectSettings(page, [createMember({ userId: 1, role: 'OWNER' })], createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }));
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=12`);
 
-    await page.getByTestId('board-tab-menu').click();
-    await page.getByTestId('mobile-action-status-manage').click();
-
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/settings#statuses$`));
-    await expect(page.getByTestId('settings-statuses')).toBeInViewport();
-    await expect(page.getByTestId('status-row-12')).toContainText('리뷰 대기');
-  });
-
-  test('⋯ 바텀시트로 이름을 바꾼다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    const patches = trackRequests(page, 'PATCH', `${STATUSES_PATH}/12`);
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=12`);
-
-    await page.getByTestId('board-tab-menu').click();
-    await page.getByTestId('mobile-action-status-rename').click();
-    const nameSheet = page.getByTestId('mobile-status-name-sheet');
-    const input = nameSheet.getByTestId('status-name-input');
-    await expect(input).toHaveValue('리뷰 대기');
-
-    // 다른 상태와 같은 이름(대소문자·공백 무시)은 그 자리 오류, 시트는 열린 채.
-    await input.fill(' 설계 ');
-    await nameSheet.getByTestId('status-name-submit').click();
-    await expect(nameSheet.getByTestId('status-name-error')).toContainText('이미 존재하는 상태 이름입니다');
-    expect(patches.count()).toBe(0);
-
-    await input.fill('코드 리뷰');
-    await nameSheet.getByTestId('status-name-submit').click();
-    await expect.poll(() => patches.lastBody()).toEqual({ name: '코드 리뷰' });
-    await expect(nameSheet).toHaveCount(0);
-    await expect(page.getByTestId('board-tab-12')).toContainText('코드 리뷰');
-    await expect(page.getByTestId('board-tab-header')).toContainText('코드 리뷰');
-  });
-
-  test('서버가 거절하면(409) 오류를 시트 안에 보이고 입력을 유지한다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    await page.route(`**${STATUSES_PATH}`, (route) =>
-      route.request().method() === 'POST'
-        // 서버 문구는 「…: 이름」 꼴 — 입력기는 409 를 클라이언트 중복 문구로 보인다.
-        ? route.fulfill({ status: 409, json: { status: 409, message: '이미 존재하는 상태 이름입니다: 동시 추가' } })
-        : route.fallback(),
-    );
-    await page.goto(`/projects/${KEY}?view=board&group=none&boardTab=2`);
-    await page.getByTestId('board-tab-menu').click();
-    await page.getByTestId('mobile-action-status-add-after').click();
-    const nameSheet = page.getByTestId('mobile-status-name-sheet');
-    await nameSheet.getByTestId('status-name-input').fill('동시 추가');
-    await nameSheet.getByTestId('status-name-submit').click();
-    await expect(nameSheet.getByTestId('status-name-error')).toHaveText('이미 존재하는 상태 이름입니다');
-    await expect(nameSheet.getByTestId('status-name-input')).toHaveValue('동시 추가');
-  });
-
-  test('MEMBER 는 ⋯ 편집 항목이 없고 헤더 줄에서 긴 이름 전체를 본다', async ({ authenticatedPage: page }) => {
+  test('MEMBER 는 ⋯ 편집 항목이 없고 헤더 줄에서 긴 이름 전체를 본다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const long = '고객사 보안 검토 및 법무 승인 대기 중인 배포 후보군';
     const statuses = [...withCustomStatuses(long), makeProjectStatus({ id: 14, name: '배포 완료', category: 'DONE', position: 5 })];
     await stubBoard(page, { role: 'MEMBER', statuses });
@@ -248,15 +143,7 @@ test.describe('모바일 보드 — 프로젝트 상태 탭(WP-808)', () => {
     await expectNoHorizontalOverflow(page);
   });
 
-  test('「상태」 필터(statusId)로 고른 상태 탭만 보인다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    await page.goto(`/projects/${KEY}?view=board&group=none&statusId=12,3`);
-    await expect.poll(() => tabIds(page)).toEqual([12, 3]);
-    // 진행 중(2)이 숨겨져 진행 중 범주의 보이는 첫 상태가 기본.
-    await expect(page.getByTestId('board-tab-12')).toHaveAttribute('aria-selected', 'true');
-  });
-
-  test('30자 이름 7탭에서도 가로 넘침이 없다', async ({ authenticatedPage: page }) => {
+  test('30자 이름 7탭에서도 가로 넘침이 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const long1 = '고객사 보안 검토 및 법무 승인 대기 중인 배포 후보군';
     const long2 = '운영 반영 전 성능 회귀 측정과 장애 대응 리허설 진행';
     expect([...long1].length).toBe(30);

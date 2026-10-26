@@ -8,7 +8,7 @@ import { trackRequests } from '../../fixtures/requests'
 const KEY = 'WP'
 const REL = `/api/v1/projects/${KEY}/issues/7/relations`
 
-test('＋ 속성 시트의 「관계」 그룹 — 같은 그룹이 보이고, 추가하면 반영되고, ⋯ 메뉴로 지운다', async ({ authenticatedPage: page }) => {
+test('＋ 속성 시트의 「관계」 그룹 — 같은 그룹이 보이고, 추가하면 반영되고, ⋯ 메뉴로 지운다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const server = new IssueRelationServer()
   server.addIssue('WP-7', '모바일 이슈')
   server.addIssue('WP-8', '후속 이슈')

@@ -14,7 +14,7 @@ import { solidPng } from '../../fixtures/png'
 import { trackRequests } from '../../fixtures/requests'
 import type { HomeMessage, HomeSessionPage, HomeUploadedFile } from '../../../src/types/home'
 
-test('AI 시트: ＋ 바텀시트가 시트 위에 뜨고(드라이브 없음) 사진 → 칩 → 첨부만 전송 → 썸네일', async ({ authenticatedPage: page }) => {
+test('AI 시트: ＋ 바텀시트가 시트 위에 뜨고(드라이브 없음) 사진 → 칩 → 첨부만 전송 → 썸네일', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   const uploads = trackRequests(page, 'POST', '/api/v1/home/attachments')
   await page.route((u) => u.pathname === '/api/v1/home/attachments', (r) =>
@@ -51,7 +51,7 @@ test('AI 시트: ＋ 바텀시트가 시트 위에 뜨고(드라이브 없음) �
   await expectNoHorizontalOverflow(page)
 })
 
-test('AI 시트: 새 대화로 옮기면 첨부 초안이 빈다', async ({ authenticatedPage: page }) => {
+test('AI 시트: 새 대화로 옮기면 첨부 초안이 빈다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubChat(page)
   await page.route((u) => u.pathname === '/api/v1/home/attachments', (r) =>
     r.fulfill(json([{ fileId: 9301, originalName: 'memo.txt', mimeType: 'text/plain', sizeBytes: 3 }] satisfies HomeUploadedFile[])))
@@ -66,7 +66,7 @@ test('AI 시트: 새 대화로 옮기면 첨부 초안이 빈다', async ({ auth
   await expect(page.getByTestId('ai-composer-attachments')).toHaveCount(0)
 })
 
-test('AI 시트: 복원한 대화의 썸네일이 스켈레톤보다 크게 늦게 커져도 맨 아래에 붙어 있다', async ({ authenticatedPage: page }) => {
+test('AI 시트: 복원한 대화의 썸네일이 스켈레톤보다 크게 늦게 커져도 맨 아래에 붙어 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 두 썸네일이 연달아 커지면(128px 스켈레톤 → 최대 256px) 브라우저 스크롤 앵커링이 보낸 scroll 이벤트를
   // 다음 성장까지 반영된 높이로 읽어 "사용자가 위로 올렸다"로 오판, 하단 고정이 풀리던 회귀(W15).
   await stubChat(page)
@@ -162,7 +162,7 @@ async function sendImageThenCloseSheet(page: Page) {
   return { respond, starts, thumb, loaded, previewUrl, revoked }
 }
 
-test('AI 시트: 이미지를 보내고 서버가 받기 전에 시트를 닫았다 열어도 보낸 턴의 썸네일이 깨지지 않는다', async ({ authenticatedPage: page }) => {
+test('AI 시트: 이미지를 보내고 서버가 받기 전에 시트를 닫았다 열어도 보낸 턴의 썸네일이 깨지지 않는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // 회귀: 시트를 닫아 입력창(첨부 초안)이 언마운트되면, 방금 전송 스냅숏으로 턴에 넘긴(아직 수락 전) 미리보기 blob URL 까지 해제해
   // 다시 연 시트의 낙관적 턴 썸네일이 깨졌다. 전송에 넘긴 미리보기는 턴 소유라 초안이 해제하지 않아야 한다.
   const { respond, thumb, loaded, previewUrl, revoked } = await sendImageThenCloseSheet(page)
@@ -175,7 +175,7 @@ test('AI 시트: 이미지를 보내고 서버가 받기 전에 시트를 닫았
   expect(await revoked()).toBe(false)
 })
 
-test('AI 시트: 시트를 닫은 사이 전송이 거절되면 턴에서 첨부가 빠지고 넘겼던 미리보기 URL 도 해제된다', async ({ authenticatedPage: page }) => {
+test('AI 시트: 시트를 닫은 사이 전송이 거절되면 턴에서 첨부가 빠지고 넘겼던 미리보기 URL 도 해제된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // 초안이 언마운트돼 미리보기를 돌려받을 곳이 없으므로, 거절이 정해질 때 해제해야 새로고침 전까지 blob 이 남지 않는다.
   const { respond, revoked } = await sendImageThenCloseSheet(page)
   respond('reject')

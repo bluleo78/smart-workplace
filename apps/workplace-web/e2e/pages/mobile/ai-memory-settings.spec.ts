@@ -3,7 +3,7 @@ import { memoryItem, mockAiMemories, openMemorySettings } from '../../fixtures/a
 import { expect, expectNoHorizontalOverflow, test } from '../../fixtures/mobile.fixture'
 import { stableBox } from '../../fixtures/wait'
 
-test('카드가 넘치지 않고 아이콘·버튼이 터치 크기다', async ({ authenticatedPage: page }) => {
+test('카드가 넘치지 않고 아이콘·버튼이 터치 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [
     memoryItem(3, { content: 'https://example.com/' + 'a'.repeat(200) }),
     memoryItem(2, { content: '이슈 목록은 짧은 목록으로 보여 준다' }),
@@ -34,7 +34,7 @@ test('카드가 넘치지 않고 아이콘·버튼이 터치 크기다', async (
 })
 
 // 아이콘 두 개가 오른쪽을 먹어 내용이 11자 폭으로 접히고 날짜가 "2026-10-/12" 로 끊기던 문제 — 내용은 카드 폭 대부분을 쓰고, 날짜는 한 줄이다.
-test('내용이 행 폭 대부분을 쓰고 메타 날짜가 중간에서 끊기지 않는다', async ({ authenticatedPage: page }) => {
+test('내용이 행 폭 대부분을 쓰고 메타 날짜가 중간에서 끊기지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [memoryItem(2, { content: '이슈 목록은 담당자만 붙인 짧은 목록으로 보여 준다', updatedAt: '2026-10-12T12:00:00Z' })])
   await openMemorySettings(page)
   const row = await stableBox(page.getByTestId('ai-memory-row'))
@@ -54,7 +54,7 @@ test('내용이 행 폭 대부분을 쓰고 메타 날짜가 중간에서 끊기
 })
 
 // WP-379: 범위 묶음 소제목·카운트와 범위 고르기가 좁은 화면에서 넘치지 않고 터치 크기다.
-test('범위 묶음과 범위 고르기가 넘치지 않고 터치 크기다', async ({ authenticatedPage: page }) => {
+test('범위 묶음과 범위 고르기가 넘치지 않고 터치 크기다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockAiMemories(page, [
     memoryItem(3, { content: '메신저 대화 요약은 세 줄로 정리해 보여 준다', scope: 'MESSAGING' }),
     memoryItem(2, { content: '답은 존댓말로 한다' }),
@@ -68,7 +68,7 @@ test('범위 묶음과 범위 고르기가 넘치지 않고 터치 크기다', a
 })
 
 // WP-380: 모바일 만료 행 — 링크가 넘치지 않고, 기한 연장은 바텀시트(기한 없음 버튼 없음)에서 고른다.
-test.describe('기한 (WP-380)', () => {
+test.describe('기한 (WP-380)', { tag: '@layout' }, () => {
   test.use({ timezoneId: 'Asia/Seoul' })
 
   test('만료 행의 기한 연장은 바텀시트로 고르고 가로로 넘치지 않는다', async ({ authenticatedPage: page }) => {
@@ -88,7 +88,7 @@ test.describe('기한 (WP-380)', () => {
 })
 
 // WP-383 터치: 막힌 핀(범위 고정 10개)은 호버가 없어 탭하면 토스트로 이유를 알린다. 핀·수정·삭제는 44px, 고정 행도 두 줄을 유지한다.
-test('고정이 가득이면 막힌 핀을 탭할 때 토스트가 뜨고, 핀·수정·삭제는 44px 다', async ({ authenticatedPage: page }) => {
+test('고정이 가득이면 막힌 핀을 탭할 때 토스트가 뜨고, 핀·수정·삭제는 44px 다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const pinnedTen = Array.from({ length: 10 }, (_, i) => memoryItem(20 - i, { pinned: true, content: `고정 ${i}` }))
   await mockAiMemories(page, [...pinnedTen, memoryItem(5, { content: '보통' })])
   await openMemorySettings(page)
