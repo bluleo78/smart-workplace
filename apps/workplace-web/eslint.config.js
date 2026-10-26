@@ -7,6 +7,9 @@ import playwright from 'eslint-plugin-playwright'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
+import requireE2eReasonTag from './eslint-rules/require-e2e-reason-tag.js'
+import untaggedBaseline from './e2e/untagged-baseline.json' with { type: 'json' }
+
 // no-restricted-syntax 항목 — 예외 블록이 일부만 다시 켤 수 있도록 상수로 둔다.
 // 날짜/시간 표시는 공용 포매터(src/lib/formatters.ts)로만 — 화면마다 toLocale* 직접 호출이
 // 난립해 표기 불일치(#617)가 반복됐다. 문서만으로는 재발을 못 막아 린트로 강제한다(#632).
@@ -128,7 +131,10 @@ export default defineConfig([
     files: ['e2e/**/*.ts'],
     extends: [playwright.configs['flat/recommended']],
     languageOptions: { parser: tseslint.parser },
+    plugins: { e2e: { rules: { 'require-reason-tag': requireE2eReasonTag } } },
     rules: {
+      // 테스트마다 브라우저가 필요한 이유 태그 — 이관 전 테스트는 파일별 기준선만큼 허용(WP-971, 규칙 머리 주석).
+      'e2e/require-reason-tag': ['error', { baseline: untaggedBaseline }],
       // 타이밍 의존을 숨기거나 만드는 패턴 — 부재 확인처럼 불가피한 고정 대기는 사유와 함께 disable 주석으로 둔다(WP-82).
       'playwright/no-wait-for-timeout': 'error',
       'playwright/no-wait-for-selector': 'error',

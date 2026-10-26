@@ -41,8 +41,10 @@ export default defineConfig({
           name: 'dom',
           environment: 'jsdom',
           include: ['src/**/*.test.tsx'],
-          // jest-dom 매처·RTL cleanup·jsdom 에 없는 브라우저 API 보강 — 컴포넌트 테스트에만 필요하다.
+          // jest-dom 매처·RTL cleanup·jsdom 에 없는 브라우저 API 보강·MSW — 컴포넌트·페이지 테스트에만 필요하다.
           setupFiles: ['src/test/setup.ts'],
+          // 페이지 테스트(renderPage)는 워커가 페이지 모듈을 처음 불러오는 데만 5~6초가 든다(WP-971) — 기본 5초로는 첫 테스트가 넘친다.
+          testTimeout: 30_000,
         },
       },
     ],
