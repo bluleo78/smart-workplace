@@ -109,6 +109,7 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
   - 주소 이동은 반환값 `location()` 으로 단언한다. 쓰기 요청은 핸들러에서 `request.json()` 을 모아 비교한다
   - 글자 입력은 키 하나하나가 의미 있을 때만 `user.type`(키당 약 25ms), 값만 채우면 `user.paste`·`fireEvent.change`
   - Radix 하위 메뉴는 호버 대신 키보드(포커스 → `{ArrowRight}`)로 연다 — jsdom 은 레이아웃이 없어 호버로 연 하위 메뉴가 포인터를 옮기는 순간 닫힌다
+  - 모바일 화면은 파일 맨 위(첫 `renderPage` 전)에서 `mockViewport()`(`src/test/viewport.ts`, iPhone 13 폭·터치 포인터)를 한 번 부른다 — matchMedia 결과가 파일 안에서 캐시되므로 한 파일은 뷰포트 하나만 쓴다
   - 「같은 틱에 두 번 클릭」 같은 경합은 `fireEvent` 대신 `act(() => { el.dispatchEvent(...); el.dispatchEvent(...) })` — `fireEvent` 는 매번 다시 그려 두 번째 클릭이 disabled 에 막힌다
 - **컴포넌트 테스트(`*.test.tsx` + `renderWithProviders`, WP-413)**: 컴포넌트 하나만 볼 때. QueryClient(재시도 끔)·MemoryRouter·고정 AuthContext·TooltipProvider 로 감싸고 데이터 훅은 `vi.mock` 으로 끊는다(예: `IssueAttachmentStrip.test.tsx`). 훅은 `renderHook`
 
