@@ -358,3 +358,78 @@ test('loop-lock: 인자가 모자라거나 모르는 명령이면 exit 2', () =>
   assert.equal(run('loop-lock', ['acquire']).status, 2);
   assert.equal(run('loop-lock', ['steal', '/x']).status, 2);
 });
+
+// WP-994 work-loop 백그라운드 작업(bg-job) — 진짜 ps 로 띄운 프로세스를 본다(가짜 ps 표를 쓰지 않는다).
+function job(args) {
+  return spawnSync(join(scripts, 'bg-job'), args, { encoding: 'utf8', env: { PATH: process.env.PATH, HOME: home } });
+}
+// 끝날 때까지(running 이 아닐 때까지) 기다린 상태 — 짧은 명령만 띄우므로 몇 초면 끝난다.
+function waitDone(main, key) {
+  for (let i = 0; i < 100; i++) {
+    const s = job(['status', main, key]).stdout.trim();
+    if (s !== 'running') return s;
+    spawnSync('sleep', ['0.1']);
+  }
+  return 'running';
+}
+
+test('bg-job start/status: 작업 폴더에서 명령을 돌려 로그를 남기고, 끝나면 passed·failed <코드>', () => {
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
+  assert.equal(job(['status', main, 'WP-1']).stdout.trim(), 'none');
+  const r = job(['start', main, 'WP-1', work, '--', 'sh', '-c', 'pwd; echo done']);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /^started \d+$/m);
+  assert.equal(waitDone(main, 'WP-1'), 'passed');
+  const log = readFileSync(join(main, '.work-loop', 'state', 'jobs', 'WP-1.log'), 'utf8');
+  assert.match(log, /done/);
+  assert.ok(log.includes(work.split('/').pop()), '작업 폴더에서 돌아야 한다');
+
+  job(['start', main, 'WP-1', work, '--', 'sh', '-c', 'exit 3']);
+  assert.equal(waitDone(main, 'WP-1'), 'failed 3');
+});
+
+test('bg-job start: 돌고 있으면 새로 띄우지 않고 running 으로 exit 1, clear 도 거절하고, stop 은 자식까지 그룹째 끝낸다', () => {
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const work = mkdtempSync(join(tmpdir(), 'gw-work-'));
+  job(['start', main, 'WP-2', work, '--', 'sleep', '5']);
+  assert.equal(job(['status', main, 'WP-2']).stdout.trim(), 'running');
+  const again = job(['start', main, 'WP-2', work, '--', 'true']);
+  assert.equal(again.status, 1);
+  assert.equal(again.stdout.trim(), 'running');
+  assert.equal(job(['clear', main, 'WP-2']).status, 1);
+  // 띄운 셸이 새 프로세스 그룹의 대표다 — stop 이 그룹째 끝내 자식(sleep)도 남지 않는다.
+  const pid = readFileSync(join(main, '.work-loop', 'state', 'jobs', 'WP-2.pid'), 'utf8').split('-')[0];
+  const group = () => spawnSync('ps', ['-axo', 'pgid=']).stdout.toString().split('\n').filter((g) => g.trim() === pid).length;
+  assert.ok(group() >= 2, '띄운 셸과 자식이 같은 새 그룹에 있어야 한다');
+  assert.equal(job(['stop', main, 'WP-2']).stdout.trim(), 'ok');
+  for (let i = 0; i < 50 && group() > 0; i++) spawnSync('sleep', ['0.1']);
+  assert.equal(group(), 0);
+  assert.equal(job(['status', main, 'WP-2']).stdout.trim(), 'none');
+});
+
+test('bg-job status: exit 파일 없이 프로세스가 사라졌거나 pid 가 재사용됐으면 lost, clear 뒤에는 none', () => {
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  const dir = join(main, '.work-loop', 'state', 'jobs');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'WP-3.pid'), '999999-Thu_Oct_15_06_00_00_2026\n');
+  assert.equal(job(['status', main, 'WP-3']).stdout.trim(), 'lost');
+  // 살아 있는 pid(이 테스트 프로세스)라도 시작 시각이 다르면 재사용으로 본다.
+  writeFileSync(join(dir, 'WP-3.pid'), `${process.pid}-Thu_Oct_15_06_00_00_2026\n`);
+  assert.equal(job(['status', main, 'WP-3']).stdout.trim(), 'lost');
+  // 띄울 때 시작 시각을 못 읽어 "<pid>-" 로 남았으면 살아 있는지만 본다.
+  writeFileSync(join(dir, 'WP-3.pid'), `${process.pid}-\n`);
+  assert.equal(job(['status', main, 'WP-3']).stdout.trim(), 'running');
+  writeFileSync(join(dir, 'WP-3.pid'), '999999-\n');
+  assert.equal(job(['status', main, 'WP-3']).stdout.trim(), 'lost');
+  assert.equal(job(['clear', main, 'WP-3']).stdout.trim(), 'ok');
+  assert.equal(job(['status', main, 'WP-3']).stdout.trim(), 'none');
+});
+
+test('bg-job: 이상한 이슈 키·없는 작업 폴더·-- 빠짐·모르는 명령이면 exit 2', () => {
+  const main = mkdtempSync(join(tmpdir(), 'gw-main-'));
+  assert.equal(job(['status', main, '../x']).status, 2);
+  assert.equal(job(['start', main, 'WP-4', join(main, 'nope'), '--', 'true']).status, 2);
+  assert.equal(job(['start', main, 'WP-4', main, 'true']).status, 2);
+  assert.equal(job(['kill', main, 'WP-4']).status, 2);
+});

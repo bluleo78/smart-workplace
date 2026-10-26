@@ -1,0 +1,107 @@
+#!/bin/sh
+# work-loop 백그라운드 작업 — 오래 걸리는 명령(push 게이트 등)을 세션과 떨어뜨려 띄우고, 다음 부르기에서 결과를 본다(WP-994).
+#
+#   bg-job start  <MAIN> <이슈 키> <작업 폴더> -- <명령> [인자…]   # 띄우면 "started <pid>", 이미 돌고 있으면 "running" 으로 exit 1
+#   bg-job status <MAIN> <이슈 키>                                  # running | passed | failed <코드> | lost | none
+#   bg-job clear  <MAIN> <이슈 키>                                  # 끝난 작업의 파일을 지운다 — 돌고 있으면 "running" 으로 exit 1
+#   bg-job stop   <MAIN> <이슈 키>                                  # 돌고 있는 작업을 프로세스 그룹째 끝내고 파일을 지운다 — "ok"
+#
+# 종료 코드: 0 = 성공(status 는 상태와 상관없이 0) · 1 = 이미 실행 중 · 2 = 사용법 오류·파일을 못 씀·띄우지 못함
+#
+# 파일은 MAIN/.work-loop/state/jobs/<이슈 키>.{log,exit,pid}:
+# - log  : 명령의 표준 출력·오류(띄울 때마다 새로 쓴다)
+# - exit : 명령이 끝나면 종료 코드 한 줄 — 임시 파일에 쓰고 mv 해 반쯤 쓴 값을 읽지 않게 한다
+# - pid  : 띄운 셸의 "<pid>-<시작 시각>"(gw_proc_key). pid 는 다시 쓰이므로 시작 시각까지 맞아야 같은 작업으로 본다.
+#          띄울 때 시작 시각을 못 읽었으면 "<pid>-" 로 남기고, 그때는 pid 가 살아 있는지만 본다
+# 작업은 새 세션(setsid — macOS 는 perl POSIX::setsid)으로 띄운다. 부른 Bash 도구·claude 세션의 프로세스 그룹과 떨어져
+# 그쪽이 끝나도 같이 죽지 않고, 띄운 셸이 그룹 대표라 stop 이 명령의 자식(E2E·gradle)까지 함께 끝낸다.
+# exit 가 없고 pid 의 프로세스도 없으면(세션 종료·재부팅으로 죽음) lost 다 — 부르는 쪽이 다시 띄운다.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+usage() {
+  echo "사용법: bg-job start <MAIN> <이슈 키> <작업 폴더> -- <명령…> | status <MAIN> <이슈 키> | clear|stop <MAIN> <이슈 키>" >&2
+  exit 2
+}
+
+[ $# -ge 3 ] || usage
+_bj_cmd=$1 _bj_main=$2 _bj_key=$3
+shift 3
+# 이슈 키는 파일 이름으로 쓰므로 경로 조작을 막는다.
+gw_valid_name "$_bj_key" || usage
+_bj_dir="$_bj_main/.work-loop/state/jobs"
+_bj_base="$_bj_dir/$_bj_key"
+
+# 지금 상태 한 단어(failed 는 코드 포함)를 낸다.
+bj_status() {
+  if [ -f "$_bj_base.exit" ]; then
+    _bj_code=""
+    { IFS= read -r _bj_code || true; } < "$_bj_base.exit"
+    if [ "$_bj_code" = 0 ]; then echo passed; else echo "failed ${_bj_code:-?}"; fi
+    return
+  fi
+  [ -f "$_bj_base.pid" ] || { echo none; return; }
+  _bj_held=""
+  { IFS= read -r _bj_held || true; } < "$_bj_base.pid"
+  _bj_pid=${_bj_held%%-*}
+  case "$_bj_pid" in '' | *[!0-9]*) echo lost; return ;; esac
+  # 살아 있고 시작 시각까지 같아야 내가 띄운 작업이다(pid 재사용이면 lost). 시작 시각을 못 남겼으면 살아 있는지만 본다.
+  if gw_pid_alive "$_bj_pid" && { [ "$_bj_held" = "$_bj_pid-" ] || [ "$(gw_proc_key "$_bj_pid" 2>/dev/null)" = "$_bj_held" ]; }; then
+    echo running
+  else
+    echo lost
+  fi
+}
+
+case "$_bj_cmd" in
+  status)
+    [ $# -eq 0 ] || usage
+    bj_status
+    ;;
+  stop)
+    [ $# -eq 0 ] || usage
+    if [ "$(bj_status)" = running ]; then
+      _bj_held=""
+      { IFS= read -r _bj_held || true; } < "$_bj_base.pid"
+      # 그룹 대표(띄운 셸)의 pid 가 곧 그룹 번호 — 그룹째 끝내 E2E·gradle 자식이 남지 않게 한다.
+      kill -TERM -- "-${_bj_held%%-*}" 2>/dev/null || true
+    fi
+    rm -f "$_bj_base.log" "$_bj_base.exit" "$_bj_base.pid"
+    echo ok
+    ;;
+  clear)
+    [ $# -eq 0 ] || usage
+    [ "$(bj_status)" = running ] && { echo running; exit 1; }
+    rm -f "$_bj_base.log" "$_bj_base.exit" "$_bj_base.pid"
+    echo ok
+    ;;
+  start)
+    _bj_work=${1:-}
+    [ -n "$_bj_work" ] && [ "${2:-}" = -- ] && [ $# -ge 3 ] || usage
+    shift 2
+    [ -d "$_bj_work" ] || { echo "작업 폴더가 없습니다: $_bj_work" >&2; exit 2; }
+    [ "$(bj_status)" = running ] && { echo running; exit 1; }
+    mkdir -p "$_bj_dir" || exit 2
+    rm -f "$_bj_base.exit" "$_bj_base.pid"
+    # nohup + 표준 입력 끊기로 부른 세션(Bash 도구의 셸)이 끝나도 살아남게 한다.
+    # 끝나면 종료 코드를 임시 파일에 쓰고 mv — status 가 빈 exit 파일을 읽지 않게.
+    # 작업 폴더로 못 들어가도 종료 코드(2)를 남긴다 — lost 가 아니라 failed 로 보이게.
+    set -- sh -c 'out=$2; if cd "$1"; then shift 2; "$@"; code=$?; else code=2; fi; echo "$code" > "$out.tmp" && mv -f "$out.tmp" "$out"' \
+      bg-job "$_bj_work" "$_bj_base.exit" "$@"
+    # 새 세션으로 — setsid(1) 이 없으면(macOS) perl 로 setsid(2) 뒤 exec 한다. 둘 다 exec 라 $! 가 곧 띄운 셸이다.
+    if command -v setsid >/dev/null 2>&1; then
+      set -- setsid "$@"
+    else
+      set -- perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV or exit 127' "$@"
+    fi
+    nohup "$@" > "$_bj_base.log" 2>&1 < /dev/null &
+    _bj_pid=$!
+    _bj_k=$(gw_proc_key "$_bj_pid" 2>/dev/null) || _bj_k=""
+    # 아주 짧은 명령은 시작 시각을 읽기 전에 끝날 수 있다 — 그때는 exit 파일이 결과를 말하니 pid 만 남긴다.
+    gw_write_atomic "$_bj_base.pid" "${_bj_k:-$_bj_pid-}" || exit 2
+    echo "started $_bj_pid"
+    ;;
+  *)
+    usage
+    ;;
+esac
