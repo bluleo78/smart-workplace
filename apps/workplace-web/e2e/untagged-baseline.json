@@ -272,7 +272,7 @@
   "e2e/pages/projects/chat.spec.ts": 25,
   "e2e/pages/projects/custom-fields.spec.ts": 8,
   "e2e/pages/projects/cycles.spec.ts": 12,
-  "e2e/pages/projects/dependencies.spec.ts": 6,
+  "e2e/pages/projects/dependencies.spec.ts": 5,
   "e2e/pages/projects/epic-closed-toggle.spec.ts": 4,
   "e2e/pages/projects/epic-dnd.spec.ts": 30,
   "e2e/pages/projects/epic-hierarchy.spec.ts": 3,
