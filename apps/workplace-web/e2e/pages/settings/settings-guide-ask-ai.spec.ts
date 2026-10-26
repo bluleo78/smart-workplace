@@ -1,13 +1,14 @@
 // 설정 가이드 「이 설정에 대해 AI에게 묻기」(WP-414) — 가이드 맨 아래 버튼이 입력창을 채운 채 AI 를 열고,
 // 설정 화면이 등록한 화면 맥락(설정 · 제목 + 가이드 요약 + 화면 값)이 칩·전송 body 에 실린다.
+// AI 를 못 쓰는 워크스페이스면 버튼이 없음은 src/pages/admin/ssoSettings.test.tsx, 사용자 상세·개인 프로젝트 설정의 화면 맥락(대상·ref·종류)은
+// src/pages/settings/settingsGuideScreens.test.tsx, 「묻기」가 문구를 채워 옆 패널을 여는 상태 전환은 src/pages/settings/assistantSettings.test.tsx 로 옮겼다(WP-985).
+// 남은 것: 프리필 포커스·커서(@input), 열 ↔ 버튼 전환·44px(@layout), 팀 프로젝트 설정 끝까지 배선(@wiring), 패널 초안과의 흐름(@flow).
 import type { Page } from '@playwright/test'
 
-import { setupAdminAuth, setupUserDetailMocks } from '../../fixtures/admin.fixture'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { type HomeChatStartBody, mockHomeChatGeneration } from '../../fixtures/home-chat-mock'
 import { mockProjectSettings } from '../../fixtures/project-settings-mocks'
-import { createAdminUserDetail } from '../../factories/auth.factory'
 import { createProject } from '../../factories/project.factory'
 import { settingsGuides } from '../../../src/components/settings-guide/settingsGuides'
 
@@ -26,7 +27,7 @@ async function expectPrefilled(page: Page, value = PROMPT) {
 test.describe('설정 가이드 AI에게 묻기 — 넓은 화면 열', () => {
   test.use({ viewport: { width: 1920, height: 1080 } })
 
-  test('1920 프로필: 열 버튼 → 옆 패널 + 프리필 + 「설정 · 프로필」 칩, 전송 body 에 가이드 요약·이름이 실린다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('1920 프로필: 열 버튼 → 옆 패널 + 프리필 + 「설정 · 프로필」 칩, 전송 body 에 가이드 요약·이름이 실린다', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const chat = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-ask' } }] })
     await page.goto('/settings/profile')
     const aside = page.getByTestId('settings-guide-aside')
@@ -58,40 +59,9 @@ test.describe('설정 가이드 AI에게 묻기 — 넓은 화면 열', () => {
     expect(facts).toContainEqual({ label: '알아두기 1', value: settingsGuides.profile.tips[0] })
   })
 
-  test('AI 를 못 쓰는 워크스페이스면 버튼이 없다', async ({ adminPage: page }) => {
-    // adminPage 사용자는 aiAvailable=false.
-    await setupAdminAuth(page)
-    await mockApi(page, 'GET', '/api/v1/admin/sso', { enabled: true, available: true, passwordlessMemberCount: 0, adminConsentUrl: null })
-    await page.goto('/settings/sso')
-    const aside = page.getByTestId('settings-guide-aside')
-    await expect(aside.getByText(settingsGuides.sso.lead)).toBeVisible()
-    await expect(page.getByTestId('settings-guide-ask-ai')).toHaveCount(0)
-  })
-
-  test('사용자 상세: 대상 맥락(이름·역할·활성)과 username ref 가 실린다', async ({ adminPage: page }) => {
-    const chat = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-ask' } }] })
-    await setupAdminAuth(page)
-    // 이 테스트만 AI 사용 가능 관리자 — 나중에 등록한 목이 먼저 받는다.
-    await mockApi(page, 'GET', '/api/v1/users/me', createAdminUserDetail({ aiAvailable: true }))
-    await setupUserDetailMocks(page, 1)
-    await page.goto('/settings/users/1')
-    await page.getByTestId('settings-guide-aside').getByRole('button', { name: ASK }).click()
-    await expectPrefilled(page)
-    await expect(page.getByTestId('chat-context-chip')).toContainText('사용자 테스트 사용자')
-    await page.getByRole('button', { name: '보내기' }).click()
-    await expect.poll(chat.count).toBe(1)
-    const ctx = chat.bodies<HomeChatStartBody>()[0].screenContext!
-    expect(ctx.view).toBe('설정 · 사용자 상세')
-    expect(ctx.focus).toMatchObject({ type: '사용자', label: '테스트 사용자', refs: { username: 'user1' } })
-    expect(ctx.focus!.facts).toContainEqual({ label: '활성 상태', value: '활성' })
-    expect(ctx.focus!.facts!.find((f) => f.label === '역할')).toBeTruthy()
-  })
-
-  for (const sc of [
-    { name: '팀 프로젝트', type: 'TEAM' as const, view: '설정 · 프로젝트 설정', kind: '팀' },
-    { name: '개인 프로젝트', type: 'PERSONAL' as const, view: '설정 · 개인 프로젝트 설정', kind: '개인' },
-  ]) {
-    test(`${sc.name} 설정: 사이드바 화면 안에서도 설정 맥락(키·이름·종류)이 이긴다`, async ({ authenticatedPage: page }) => {
+  // 개인 프로젝트·사용자 상세의 맥락 값은 settingsGuideScreens.test.tsx 가 본다 — 여기는 실제 라우트(사이드바 화면 안)에서 설정 맥락이 이기고 전송까지 이어지는지 1건.
+  for (const sc of [{ name: '팀 프로젝트', type: 'TEAM' as const, view: '설정 · 프로젝트 설정', kind: '팀' }]) {
+    test(`${sc.name} 설정: 사이드바 화면 안에서도 설정 맥락(키·이름·종류)이 이긴다`, { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
       const chat = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-ask' } }] })
       await mockProjectSettings(page)
       await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ type: sc.type }))
@@ -108,7 +78,7 @@ test.describe('설정 가이드 AI에게 묻기 — 넓은 화면 열', () => {
     })
   }
 
-  test('옆 패널에 쓰던 초안이 있으면 덮지 않고, 시트는 닫힌다', async ({ authenticatedPage: page }) => {
+  test('옆 패널에 쓰던 초안이 있으면 덮지 않고, 시트는 닫힌다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await page.getByTestId('chat-launcher').click()
     const input = page.getByTestId('chat-input')
@@ -131,7 +101,7 @@ test.describe('설정 가이드 AI에게 묻기 — 넓은 화면 열', () => {
 test.describe('설정 가이드 AI에게 묻기 — 좁은 데스크톱 시트', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('1440: 시트 버튼 → 시트가 닫히고, 닫힌 뒤에도 입력창 포커스가 헤더 버튼으로 돌아가지 않는다', async ({ authenticatedPage: page }) => {
+  test('1440: 시트 버튼 → 시트가 닫히고, 닫힌 뒤에도 입력창 포커스가 헤더 버튼으로 돌아가지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await page.getByTestId('settings-guide-button').click()
     const sheet = page.getByTestId('settings-guide-sheet')
@@ -153,7 +123,7 @@ test.describe('설정 가이드 AI에게 묻기 — 좁은 데스크톱 시트',
 test.describe('설정 가이드 AI에게 묻기 — 모바일', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
-  test('390: 하단 시트 버튼 → 시트 닫히고 AI 전체화면 + 프리필', async ({ authenticatedPage: page }) => {
+  test('390: 하단 시트 버튼 → 시트 닫히고 AI 전체화면 + 프리필', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await page.getByTestId('page-header').getByTestId('settings-guide-button').click()
     const sheet = page.getByTestId('settings-guide-mobile-sheet')

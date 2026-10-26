@@ -1,14 +1,12 @@
 // 설정 가이드(WP-399) — 본문 폭이 넉넉하면 오른쪽 sticky 열, 모자라면 헤더 「가이드」 버튼 → 오른쪽 시트, 모바일은 하단 시트.
-import type { BrowserContext, Locator, Page } from '@playwright/test'
+// 폭·sticky·전환(@layout), 새로고침 뒤 접힘 유지·저장소 실패(@platform), 시트 ESC·포커스(@input)만 남는다. 화면마다 자기 가이드가 붙는지·
+// 로딩 중에도 가이드가 있는지는 src/pages/settings/settingsGuideScreens.test.tsx 와 각 화면 테스트(assistantSettings·notificationSettings·
+// admin/ssoSettings)가 지킨다.
+import type { Locator, Page } from '@playwright/test'
 
-import { setupAdminAuth, setupRoleDetailMocks, setupRoleListMocks, setupUserDetailMocks } from '../../fixtures/admin.fixture'
-import { mockAiMemories } from '../../fixtures/ai-memory-mock'
-import { createProject } from '../../factories/project.factory'
-import { mockApi } from '../../fixtures/api-mock'
+import { setupAdminAuth, setupRoleListMocks, setupUserDetailMocks } from '../../fixtures/admin.fixture'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf, expectStacked, settingsSection } from '../../fixtures/layout'
-import { mockProjectSettings } from '../../fixtures/project-settings-mocks'
-import { installPushManagerStub, mockPushApis } from '../../fixtures/push-mock'
 import { settingsGuides } from '../../../src/components/settings-guide/settingsGuides'
 import type { SettingsGuide } from '../../../src/components/settings-guide/types'
 
@@ -41,7 +39,7 @@ async function expectMobileRelatedLink(page: Page, guide: SettingsGuide, what: s
 test.use({ viewport: { width: 1920, height: 1080 } })
 
 test.describe('설정 가이드 — 넓은 화면 열', () => {
-  test('1920: 본문 오른쪽에 280px 가이드 열이 보이고 헤더 버튼은 없다', async ({ authenticatedPage: page }) => {
+  test('1920: 본문 오른쪽에 280px 가이드 열이 보이고 헤더 버튼은 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const aside = page.getByTestId('settings-guide-aside')
     await expect(aside).toBeVisible()
@@ -57,7 +55,7 @@ test.describe('설정 가이드 — 넓은 화면 열', () => {
     expect(Math.abs(title.y + title.height / 2 - (first.y + first.height / 2))).toBeLessThanOrEqual(2)
   })
 
-  test('1920: 본문을 끝까지 내려도 열이 뷰포트 안에 남는다(sticky)', async ({ authenticatedPage: page }) => {
+  test('1920: 본문을 끝까지 내려도 열이 뷰포트 안에 남는다(sticky)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // 높이를 줄여 프로필 본문이 스크롤되게 한다.
     await page.setViewportSize({ width: 1920, height: 500 })
     await page.goto('/settings/profile')
@@ -75,7 +73,7 @@ test.describe('설정 가이드 — 넓은 화면 열', () => {
     expect(a.y + a.height).toBeLessThanOrEqual(500)
   })
 
-  test('짧은 데스크톱(1920×500): 폼을 내리지 않고 열 안에서 스크롤해 「AI에게 묻기」에 닿는다', async ({ authenticatedPage: page }) => {
+  test('짧은 데스크톱(1920×500): 폼을 내리지 않고 열 안에서 스크롤해 「AI에게 묻기」에 닿는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // WP-414: 1440 폭은 열이 아니라 헤더 버튼(시트)이라, 열이 보이는 1920 폭에서 높이를 줄여 「열 > 본문 높이」를 만든다.
     await page.setViewportSize({ width: 1920, height: 500 })
     await page.goto('/settings/profile')
@@ -99,7 +97,7 @@ test.describe('설정 가이드 — 넓은 화면 열', () => {
     expect(b.y + b.height).toBeLessThanOrEqual(asideBox.y + asideBox.height + 1)
   })
 
-  test('1920: 숨기기 → 버튼, 새로고침 후 유지, 버튼은 시트가 아니라 열을 다시 편다', async ({ authenticatedPage: page }) => {
+  test('1920: 숨기기 → 버튼, 새로고침 후 유지, 버튼은 시트가 아니라 열을 다시 편다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await page.getByTestId('settings-guide-hide').click()
     await expect(page.getByTestId('settings-guide-aside')).toHaveCount(0)
@@ -121,7 +119,7 @@ test.describe('설정 가이드 — 넓은 화면 열', () => {
     expect(await stored()).toBe('0')
   })
 
-  test('localStorage 가 실패해도 열이 보이고 숨기기가 동작한다', async ({ authenticatedPage: page }) => {
+  test('localStorage 가 실패해도 열이 보이고 숨기기가 동작한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     // 가이드 접힘 키(settings-guide:collapsed, '1'/'0') 접근만 throw — 읽기 실패면 펼침으로 시작하고 쓰기 실패는 이번 세션 상태만 유지. 다른 키까지 막으면 가이드와 무관한 앱 동작이 깨져 원인 판별이 흐려진다.
     await page.addInitScript(() => {
       const throwFor = (orig: (this: Storage, ...a: string[]) => unknown) =>
@@ -146,7 +144,7 @@ test.describe('설정 가이드 — 넓은 화면 열', () => {
 test.describe('설정 가이드 — 좁은 데스크톱 시트', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('1440: 열 없이 버튼 → 비모달 시트, 시트 연 채 폼 입력, ESC 로 닫고 버튼에 포커스', async ({ authenticatedPage: page }) => {
+  test('1440: 열 없이 버튼 → 비모달 시트, 시트 연 채 폼 입력, ESC 로 닫고 버튼에 포커스', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const button = page.getByTestId('settings-guide-button')
     await expect(button).toBeVisible()
@@ -176,7 +174,7 @@ test.describe('설정 가이드 — 좁은 데스크톱 시트', () => {
     await expect(button).not.toHaveAttribute('aria-controls')
   })
 
-  test('본문 폭 1336 경계: 이상이면 열, 1px 모자라면 버튼', async ({ authenticatedPage: page }) => {
+  test('본문 폭 1336 경계: 이상이면 열, 1px 모자라면 버튼', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const body = page.getByTestId('page-body')
     // 판정은 스크롤 요소 offsetWidth(스크롤바 포함) — 레일·사이드바를 뺀 본문 폭이 정확히 경계가 되도록 뷰포트 폭을 맞춘다.
@@ -195,7 +193,7 @@ test.describe('설정 가이드 — 좁은 데스크톱 시트', () => {
     await expect(page.getByTestId('settings-guide-button')).toBeVisible()
   })
 
-  test('시트를 연 채 넓어지면 시트가 닫히고 열이 보인다', async ({ authenticatedPage: page }) => {
+  test('시트를 연 채 넓어지면 시트가 닫히고 열이 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await page.getByTestId('settings-guide-button').click()
     await expect(page.getByTestId('settings-guide-sheet')).toBeVisible()
@@ -204,7 +202,7 @@ test.describe('설정 가이드 — 좁은 데스크톱 시트', () => {
     await expect(page.getByTestId('settings-guide-sheet')).toHaveCount(0)
   })
 
-  test('회귀: 1024 에서 프로필 정보 섹션은 세로로 쌓인다', async ({ authenticatedPage: page }) => {
+  test('회귀: 1024 에서 프로필 정보 섹션은 세로로 쌓인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1024, height: 900 })
     await page.goto('/settings/profile')
     await expectStacked(settingsSection(page, '프로필 정보'))
@@ -214,140 +212,14 @@ test.describe('설정 가이드 — 좁은 데스크톱 시트', () => {
 test.describe('설정 가이드 — 모바일', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
-  test('390: 헤더 ⓘ → 하단 시트, 관련 화면 링크로 이동하면 시트가 닫힌다', async ({ authenticatedPage: page }) => {
+  test('390: 헤더 ⓘ → 하단 시트, 관련 화면 링크로 이동하면 시트가 닫힌다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await expectMobileRelatedLink(page, profile, '프로필')
   })
 })
 
-// ── 화면별 가이드 연결(Task 2) — 틀 동작은 위에서 프로필로 검증했으니 여기선 화면마다 자기 내용이 붙는지만 본다. ──
-
-/** 화면별 가이드 연결 표 — 화면마다 자기 lead 가 열에 붙는지(absent 는 붙으면 안 되는 다른 가이드). */
-const screens: {
-  name: string
-  admin?: boolean
-  serviceWorkers?: boolean
-  setup: (page: Page, context: BrowserContext) => Promise<unknown>
-  url: string
-  guide: SettingsGuide
-  /** 열을 보기 전에 화면이 다 그려졌는지 확인할 요소. */
-  ready?: (page: Page) => Locator
-  absent?: SettingsGuide
-}[] = [
-  { name: 'AI 비서', setup: (page) => mockAiMemories(page, []), url: '/settings/assistant', guide: settingsGuides.assistant },
-  { name: '프로젝트 설정(사이드바가 있어도)', setup: (page) => mockProjectSettings(page), url: '/projects/WP/settings', guide: settingsGuides.projectSettings },
-  {
-    name: '개인 프로젝트 설정(팀 가이드 아님)',
-    setup: async (page) => {
-      await mockProjectSettings(page)
-      // 나중에 등록한 목이 먼저 받는다 — 같은 WP 를 개인 프로젝트로 바꿔 응답한다.
-      await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ type: 'PERSONAL' }))
-    },
-    url: '/projects/WP/settings',
-    guide: settingsGuides.personalProjectSettings,
-    absent: settingsGuides.projectSettings,
-  },
-  {
-    name: 'SSO',
-    admin: true,
-    setup: async (page) => {
-      await setupAdminAuth(page)
-      await mockApi(page, 'GET', '/api/v1/admin/sso', { enabled: true, available: true, passwordlessMemberCount: 0, adminConsentUrl: null })
-    },
-    url: '/settings/sso',
-    guide: settingsGuides.sso,
-  },
-  {
-    name: '역할 상세',
-    admin: true,
-    setup: async (page) => { await setupAdminAuth(page); await setupRoleDetailMocks(page, 1, false) },
-    url: '/settings/roles/1',
-    guide: settingsGuides.roleDetail,
-    ready: (page) => page.getByRole('textbox', { name: '역할 이름' }),
-  },
-  {
-    name: '사용자 상세',
-    admin: true,
-    setup: async (page) => { await setupAdminAuth(page); await setupUserDetailMocks(page, 1) },
-    url: '/settings/users/1',
-    guide: settingsGuides.userDetail,
-    ready: (page) => settingsSection(page, '역할 할당'),
-  },
-  {
-    name: '알림',
-    serviceWorkers: true,
-    setup: async (page, context) => {
-      await context.grantPermissions(['notifications'])
-      await installPushManagerStub(page)
-      await mockPushApis(page)
-    },
-    url: '/settings/notifications',
-    guide: settingsGuides.notifications,
-  },
-]
-
-test.describe('설정 가이드 — 화면별 내용(1920)', () => {
-  for (const sc of screens) {
-    test.describe(sc.name, () => {
-      if (sc.serviceWorkers) test.use({ serviceWorkers: 'allow' })
-      const run = async (page: Page, context: BrowserContext) => {
-        await sc.setup(page, context)
-        await page.goto(sc.url)
-        if (sc.ready) await expect(sc.ready(page)).toBeVisible()
-        const aside = page.getByTestId('settings-guide-aside')
-        await expect(aside.getByText(sc.guide.lead)).toBeVisible()
-        if (sc.absent) await expect(aside.getByText(sc.absent.lead)).toHaveCount(0)
-      }
-      if (sc.admin) test(`${sc.name}: 열에 자기 가이드가 보인다`, ({ adminPage, context }) => run(adminPage, context))
-      else test(`${sc.name}: 열에 자기 가이드가 보인다`, ({ authenticatedPage, context }) => run(authenticatedPage, context))
-    })
-  }
-})
-
-test.describe('설정 가이드 — 로딩 중에도 가이드', () => {
-  /** 해당 GET 응답을 gate 가 열릴 때까지 붙잡는다 — 먼저 등록한 목(mockApi)으로 넘기므로 응답 본문은 그대로다. */
-  async function holdGet(page: Page, path: string) {
-    let release!: () => void
-    const gate = new Promise<void>((r) => { release = r })
-    await page.route(
-      (url) => url.pathname === path,
-      async (route) => {
-        if (route.request().method() === 'GET') await gate
-        await route.fallback()
-      },
-    )
-    return release
-  }
-
-  test('역할 상세: 데이터가 오기 전(스켈레톤)에도 가이드 열이 보이고, 온 뒤에도 남는다', async ({ adminPage: page }) => {
-    await setupAdminAuth(page)
-    await setupRoleDetailMocks(page, 1, false)
-    const release = await holdGet(page, '/api/v1/roles/1')
-    await page.goto('/settings/roles/1')
-    const lead = page.getByTestId('settings-guide-aside').getByText(settingsGuides.roleDetail.lead)
-    await expect(lead).toBeVisible()
-    await expect(page.getByRole('textbox', { name: '역할 이름' })).toHaveCount(0)
-    release()
-    await expect(page.getByRole('textbox', { name: '역할 이름' })).toBeVisible()
-    await expect(lead).toBeVisible()
-  })
-
-  test('사용자 상세: 데이터가 오기 전(스켈레톤)에도 가이드 열이 보이고, 온 뒤에도 남는다', async ({ adminPage: page }) => {
-    await setupAdminAuth(page)
-    await setupUserDetailMocks(page, 1)
-    const release = await holdGet(page, '/api/v1/users/1')
-    await page.goto('/settings/users/1')
-    const lead = page.getByTestId('settings-guide-aside').getByText(settingsGuides.userDetail.lead)
-    await expect(lead).toBeVisible()
-    await expect(settingsSection(page, '역할 할당')).toHaveCount(0)
-    release()
-    await expect(settingsSection(page, '역할 할당')).toBeVisible()
-    await expect(lead).toBeVisible()
-  })
-})
-
 test.describe('설정 가이드 — AI 옆 패널', () => {
-  test('1920: AI 옆 패널을 열면 열이 버튼으로 바뀌고, 그때 시트는 패널 왼쪽(본문 영역 안)에 뜨며, 닫으면 열이 돌아온다', async ({ authenticatedPage: page }) => {
+  test('1920: AI 옆 패널을 열면 열이 버튼으로 바뀌고, 그때 시트는 패널 왼쪽(본문 영역 안)에 뜨며, 닫으면 열이 돌아온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const aside = page.getByTestId('settings-guide-aside')
     await expect(aside).toBeVisible()
@@ -370,7 +242,7 @@ test.describe('설정 가이드 — AI 옆 패널', () => {
     await expect(button).toHaveCount(0)
   })
 
-  test('1920: 열↔버튼이 바뀌어도(AI 패널 열기·숨기기) 폼이 다시 마운트되지 않는다', async ({ authenticatedPage: page }) => {
+  test('1920: 열↔버튼이 바뀌어도(AI 패널 열기·숨기기) 폼이 다시 마운트되지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await expect(page.getByTestId('settings-guide-aside')).toBeVisible()
     const name = page.locator('#profile-name')
@@ -395,7 +267,7 @@ test.describe('설정 가이드 — AI 옆 패널', () => {
 test.describe('설정 가이드 — 모바일 관리 화면', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
-  test('390: 사용자 상세 가이드의 관련 화면 링크로 이동하면 시트가 닫힌다', async ({ adminPage: page }) => {
+  test('390: 사용자 상세 가이드의 관련 화면 링크로 이동하면 시트가 닫힌다', { tag: '@layout' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page)
     await setupUserDetailMocks(page, 1)
     await setupRoleListMocks(page)

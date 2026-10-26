@@ -2,6 +2,8 @@
 // 외부 공유 스위치(끄기 확인 → PUT)가 실제 API 배선으로 도는지 본다. 서버는 상태를 가진 모킹으로 대신한다 —
 // 해제·정책 변경이 다음 GET 에 반영돼 화면이 서버 응답을 따르는지 확인한다.
 // 표·확인창의 조건부 렌더 경우의 수는 여기서 늘리지 않는다(화면별 실제 배선만).
+// 빈 목록·거르기·가려진 줄 제외·외부 공유 끄기 확인(수·최소 N개·모름·확인 없음)·정책 실패 잠금·500건 안내·재조회 뒤 선택 비우기는
+// src/pages/settings/wikiSharing.test.tsx, 옛 주소 이동·일반 사용자 차단은 src/pages/settings/settingsNav.test.tsx 로 옮겼다(WP-985).
 import type { Page } from '@playwright/test'
 
 import type { WikiShareListItem } from '../../../src/types/wiki'
@@ -84,7 +86,7 @@ async function mockServer(page: Page, server: Server) {
 const rowOf = (page: Page, pageId: number) => page.getByTestId(`wiki-share-row-${pageId}`)
 
 test.describe('설정 › 내 공유', () => {
-  test('내 공유에서 해제하면 확인 후 DELETE 한다', async ({ authenticatedPage: page }) => {
+  test('내 공유에서 해제하면 확인 후 DELETE 한다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     const server: Server = { mine: [...MINE], all: [...ALL], externalShareEnabled: true }
     await mockServer(page, server)
     const deletes = trackRequests(page, 'DELETE', '/api/v1/wiki/pages/12/share')
@@ -114,24 +116,10 @@ test.describe('설정 › 내 공유', () => {
     await expect(rowOf(page, 11)).toBeVisible()
     await expectStays(page, deletes.count, 1)
   })
-
-  test('공유가 없으면 안내를 보인다', async ({ authenticatedPage: page }) => {
-    await page.route((u) => u.pathname === '/api/v1/wiki/shares/mine', (r) => r.fulfill({ json: [] }))
-    await page.goto('/settings/my-shares')
-    await expect(page.getByTestId('wiki-share-table')).toContainText('공유 중인 페이지가 없습니다')
-  })
 })
 
 test.describe('앱 설정 › 노트(노트 공유)', () => {
-  test('옛 주소(/settings/wiki-sharing)는 새 주소로 옮겨 가고 사이드바 「앱 설정 › 노트」가 선택된다', async ({ adminPage: page }) => {
-    await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
-    await page.goto('/settings/wiki-sharing')
-    await expect(page).toHaveURL(/\/settings\/apps\/wiki$/)
-    await expect(page.getByTestId('wiki-sharing-admin-page')).toBeVisible()
-    await expect(page.getByTestId('settings-apps-group').getByRole('link', { name: '노트' })).toHaveAttribute('aria-current', 'page')
-  })
-
-  test('관리자는 여러 개를 골라 일괄 해제한다', async ({ adminPage: page }) => {
+  test('관리자는 여러 개를 골라 일괄 해제한다', { tag: '@wiring' }, async ({ adminPage: page }) => {
     const server: Server = { mine: [...MINE], all: [...ALL], externalShareEnabled: true }
     await mockServer(page, server)
     const revokes = trackRequests(page, 'POST', '/api/v1/admin/wiki/shares/revoke')
@@ -155,206 +143,5 @@ test.describe('앱 설정 › 노트(노트 공유)', () => {
     await expect(rowOf(page, 32)).toBeVisible()
     // 해제된 줄이 사라진 뒤 선택 버튼도 없다.
     await expect(page.getByTestId('wiki-share-table-revoke-selected')).toHaveCount(0)
-  })
-
-  test('거르기(범위·스페이스·검색)가 목록에 반영된다', async ({ adminPage: page }) => {
-    await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
-    await page.goto('/settings/apps/wiki')
-    await expect(page.getByTestId('wiki-share-table').getByRole('row')).toHaveCount(ALL.length + 1)
-
-    // 범위 — 외부 공개만.
-    await page.getByRole('combobox', { name: '범위' }).click()
-    await page.getByRole('option', { name: '외부 공개' }).click()
-    await expect(rowOf(page, 12)).toBeVisible()
-    await expect(rowOf(page, 31)).toBeVisible()
-    await expect(rowOf(page, 11)).toHaveCount(0)
-    await expect(rowOf(page, 32)).toHaveCount(0)
-
-    // 스페이스 — 영업팀만(범위 조건과 함께 적용).
-    await page.getByRole('combobox', { name: '스페이스' }).click()
-    await page.getByRole('option', { name: '영업팀' }).click()
-    await expect(rowOf(page, 31)).toBeVisible()
-    await expect(rowOf(page, 12)).toHaveCount(0)
-
-    // 조건에 맞는 것이 없으면 안내.
-    await page.getByRole('combobox', { name: '범위' }).click()
-    await page.getByRole('option', { name: '지정한 사람' }).click()
-    await expect(page.getByTestId('wiki-share-table')).toContainText('조건에 맞는 공유가 없습니다')
-
-    // 범위·스페이스를 풀고 검색 — 만든 사람 이름으로도 찾는다.
-    await page.getByRole('combobox', { name: '범위' }).click()
-    await page.getByRole('option', { name: '모든 범위' }).click()
-    await page.getByRole('combobox', { name: '스페이스' }).click()
-    await page.getByRole('option', { name: '모든 스페이스' }).click()
-    await page.getByRole('textbox', { name: '공유 찾기' }).fill('박서준')
-    await expect(rowOf(page, 32)).toBeVisible()
-    await expect(rowOf(page, 33)).toBeVisible()
-    await expect(rowOf(page, 11)).toHaveCount(0)
-  })
-
-  test('거르기로 가려진 줄은 일괄 해제에 들어가지 않는다', async ({ adminPage: page }) => {
-    const server: Server = { mine: [], all: [...ALL], externalShareEnabled: true }
-    await mockServer(page, server)
-    const revokes = trackRequests(page, 'POST', '/api/v1/admin/wiki/shares/revoke')
-    await page.goto('/settings/apps/wiki')
-
-    await page.getByRole('checkbox', { name: '고객사 A 킥오프 고르기' }).click()
-    await page.getByRole('checkbox', { name: '분기 OKR 고르기' }).click()
-    await page.getByRole('textbox', { name: '공유 찾기' }).fill('OKR')
-    await expect(rowOf(page, 31)).toHaveCount(0)
-    await page.getByTestId('wiki-share-table-revoke-selected').click()
-    await page.getByTestId('wiki-revoke-shares-dialog').getByRole('button', { name: '해제' }).click()
-    await revokes.waitFor(1)
-    expect(revokes.requests()[0].postDataJSON()).toEqual({ pageIds: [33] })
-  })
-
-  test('외부 공유를 끄면 막히는 수를 알리고 PUT 한다', async ({ adminPage: page }) => {
-    const server: Server = { mine: [], all: [...ALL], externalShareEnabled: true }
-    await mockServer(page, server)
-    const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-
-    await page.goto('/settings/apps/wiki')
-    const sw = page.getByTestId('wiki-external-share-switch')
-    await expect(sw).toBeChecked()
-    await expect(rowOf(page, 31)).toBeVisible()
-
-    await sw.click()
-    const dialog = page.getByTestId('wiki-external-share-off-dialog')
-    // 외부 공개 2개(12·31)가 막히고, 다시 켜도 되살아나지 않는다고 알린다.
-    await expect(dialog).toContainText('2개가 바로 막힙니다')
-    await expect(dialog).toContainText('되살아나지 않')
-    await expectStays(page, puts.count, 0)
-
-    // 취소하면 그대로 켜져 있다.
-    await dialog.getByRole('button', { name: '취소' }).click()
-    await expect(dialog).toBeHidden()
-    await expect(sw).toBeChecked()
-    await expectStays(page, puts.count, 0)
-
-    await sw.click()
-    await page.getByTestId('wiki-external-share-off-dialog').getByRole('button', { name: '끄기' }).click()
-    await puts.waitFor(1)
-    expect(puts.requests()[0].postDataJSON()).toEqual({ externalShareEnabled: false })
-    await expect(sw).not.toBeChecked()
-    // 서버가 지운 외부 공개 공유가 목록에서도 사라진다.
-    await expect(rowOf(page, 31)).toHaveCount(0)
-    await expect(rowOf(page, 12)).toHaveCount(0)
-    await expect(rowOf(page, 11)).toBeVisible()
-
-    // 막을 외부 링크가 없으니 다시 켤 때는 확인 없이 바로 PUT.
-    await sw.click()
-    await puts.waitFor(2)
-    expect(puts.requests()[1].postDataJSON()).toEqual({ externalShareEnabled: true })
-    await expect(page.getByTestId('wiki-external-share-off-dialog')).toHaveCount(0)
-  })
-
-  test('막을 외부 링크가 없으면 확인 없이 바로 끈다', async ({ adminPage: page }) => {
-    const server: Server = { mine: [], all: ALL.filter((i) => i.audience !== 'PUBLIC'), externalShareEnabled: true }
-    await mockServer(page, server)
-    const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/apps/wiki')
-    await expect(rowOf(page, 11)).toBeVisible()
-    await page.getByTestId('wiki-external-share-switch').click()
-    await puts.waitFor(1)
-    expect(puts.requests()[0].postDataJSON()).toEqual({ externalShareEnabled: false })
-    await expect(page.getByTestId('wiki-external-share-off-dialog')).toHaveCount(0)
-  })
-
-  test('이미 만료된 외부 링크만 있으면 막히는 것이 없으니 확인 없이 끈다', async ({ adminPage: page }) => {
-    const expired = share({ pageId: 41, title: '지난 행사 안내', audience: 'PUBLIC', expiresAt: '2020-01-01T00:00:00Z' })
-    await mockServer(page, { mine: [], all: [expired], externalShareEnabled: true })
-    const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/apps/wiki')
-    await expect(rowOf(page, 41)).toContainText('만료됨')
-    await page.getByTestId('wiki-external-share-switch').click()
-    await puts.waitFor(1)
-    expect(puts.requests()[0].postDataJSON()).toEqual({ externalShareEnabled: false })
-    await expect(page.getByTestId('wiki-external-share-off-dialog')).toHaveCount(0)
-  })
-
-  test('목록을 못 불러왔으면 몇 개인지 모른 채로도 끄기 전에 확인을 받는다', async ({ adminPage: page }) => {
-    await mockServer(page, { mine: [], all: [], externalShareEnabled: true })
-    await page.route((u) => u.pathname === '/api/v1/admin/wiki/shares', (r) => r.fulfill({ status: 500, json: { message: '오류' } }))
-    const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/apps/wiki')
-    await expect(page.getByTestId('wiki-share-table')).toContainText('목록을 불러오지 못했습니다')
-    await page.getByTestId('wiki-external-share-switch').click()
-    const dialog = page.getByTestId('wiki-external-share-off-dialog')
-    await expect(dialog).toContainText('외부에 공개된 링크가 모두 바로 막힙니다')
-    await expectStays(page, puts.count, 0)
-  })
-
-  test('외부 공유 설정을 못 불러오면 꺼진 것처럼 보이지 않고 스위치를 잠근다', async ({ adminPage: page }) => {
-    await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
-    await page.route((u) => u.pathname === '/api/v1/admin/wiki/share-policy', (r) => r.fulfill({ status: 500, json: { message: '오류' } }))
-    await page.goto('/settings/apps/wiki')
-    await expect(page.getByTestId('wiki-external-share-error')).toBeVisible()
-    await expect(page.getByTestId('wiki-external-share-switch')).toBeDisabled()
-  })
-
-  test('목록이 500건이면 최신 500건만 보인다고 알린다', async ({ adminPage: page }) => {
-    const many = Array.from({ length: 500 }, (_, i) => share({ pageId: 1000 + i, title: `페이지 ${i}` }))
-    await mockServer(page, { mine: [], all: many, externalShareEnabled: true })
-    await page.goto('/settings/apps/wiki')
-    await expect(page.getByTestId('wiki-share-cap-note')).toContainText('최근 500개')
-  })
-
-  test('목록이 500건으로 잘렸으면 끄기 확인은 정확한 수 대신 「최소 N개」로 알린다', async ({ adminPage: page }) => {
-    const many = Array.from({ length: 500 }, (_, i) =>
-      share({ pageId: 1000 + i, title: `페이지 ${i}`, audience: i < 2 ? 'PUBLIC' : 'WORKSPACE', expiresAt: i < 2 ? FAR : null }),
-    )
-    await mockServer(page, { mine: [], all: many, externalShareEnabled: true })
-    const puts = trackRequests(page, 'PUT', '/api/v1/admin/wiki/share-policy')
-    await page.goto('/settings/apps/wiki')
-    await expect(page.getByTestId('wiki-share-cap-note')).toBeVisible()
-    await page.getByTestId('wiki-external-share-switch').click()
-    const dialog = page.getByTestId('wiki-external-share-off-dialog')
-    await expect(dialog).toContainText('최소 2개')
-    await expect(dialog).not.toContainText('링크 2개가')
-    await expectStays(page, puts.count, 0)
-  })
-
-  test('해제·재조회 뒤 사라진 줄의 선택은 비워진다(같은 줄이 다시 나와도 체크돼 있지 않다)', async ({ adminPage: page }) => {
-    const server: Server = { mine: [], all: [...ALL], externalShareEnabled: true }
-    await mockServer(page, server)
-    await page.goto('/settings/apps/wiki')
-    await page.getByRole('checkbox', { name: '고객사 A 킥오프 고르기' }).click()
-    await expect(page.getByTestId('wiki-share-table-revoke-selected')).toBeVisible()
-
-    // 그 줄을 행 버튼으로 해제 — 줄이 사라진다.
-    await rowOf(page, 31).getByRole('button', { name: '해제' }).click()
-    await page.getByTestId('wiki-revoke-shares-dialog').getByRole('button', { name: '해제' }).click()
-    await expect(rowOf(page, 31)).toHaveCount(0)
-
-    // 같은 페이지가 다시 공유돼 다음 조회에 돌아온다(다른 줄을 해제해 재조회를 일으킨다).
-    server.all = [...server.all, ALL.find((i) => i.pageId === 31)!]
-    await rowOf(page, 32).getByRole('button', { name: '해제' }).click()
-    await page.getByTestId('wiki-revoke-shares-dialog').getByRole('button', { name: '해제' }).click()
-    await expect(rowOf(page, 32)).toHaveCount(0)
-    await expect(rowOf(page, 31)).toBeVisible()
-    await expect(page.getByRole('checkbox', { name: '고객사 A 킥오프 고르기' })).not.toBeChecked()
-    await expect(page.getByTestId('wiki-share-table-revoke-selected')).toHaveCount(0)
-  })
-
-  test('500건 미만이면 안내가 없다', async ({ adminPage: page }) => {
-    await mockServer(page, { mine: [], all: [...ALL], externalShareEnabled: true })
-    await page.goto('/settings/apps/wiki')
-    await expect(rowOf(page, 11)).toBeVisible()
-    await expectStays(page, () => page.getByTestId('wiki-share-cap-note').count(), 0)
-  })
-
-  test('일반 사용자는 관리자 화면에 들어갈 수 없고 사이드바에도 없다', async ({ authenticatedPage: page }) => {
-    await mockServer(page, { mine: [...MINE], all: [...ALL], externalShareEnabled: true })
-    await page.goto('/settings/my-shares')
-    await expect(page.getByTestId('settings-sidebar').getByRole('link', { name: '내 공유' })).toBeVisible()
-    // 「앱 설정」 그룹(노트 포함)은 관리자에게만 보인다.
-    await expect(page.getByTestId('settings-apps-group')).toHaveCount(0)
-
-    // 주소를 직접 쳐도 막힌다 — AdminRoute 가 홈으로 돌려보내고 관리자 화면은 그려지지 않는다(옛 주소도 같다).
-    for (const path of ['/settings/apps/wiki', '/settings/wiki-sharing']) {
-      await page.goto(path)
-      await expect.poll(() => new URL(page.url()).pathname).not.toBe(path)
-      await expect(page.getByTestId('wiki-sharing-admin-page')).toHaveCount(0)
-    }
   })
 })
