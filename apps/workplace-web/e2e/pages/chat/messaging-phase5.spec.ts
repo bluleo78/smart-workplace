@@ -1,12 +1,14 @@
 // messaging Phase 5 E2E — 스레드 답글(패널·replyCount) · 이모지 리액션(토글·payload·pill).
 // 백엔드 없이 page.route() 로 모든 API 모킹. 컴포저는 contenteditable(RichInput/TipTap).
+// 남은 테스트는 답글 입력·수정(@input)과 ?thread= 딥링크의 헤더/스레드 칸 배치(@layout)다.
+// 퀵 반응·삭제 메시지 반응 막힘·토글 취소·연타·SSE 반응·빈 스레드 문구·눌린 칩 토큰은 vitest 로 옮겼다(WP-984):
+// src/pages/chat/messageList.test.tsx · realtime.test.tsx.
 import type { Page } from '@playwright/test'
 
 import {
   createChannel,
   createChannelMember,
   createMessage,
-  createReaction,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf, expectBelowHeader, expectHeaderBottomAt56, expectStartAligned } from '../../fixtures/layout'
@@ -123,7 +125,7 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
   // 1) 스레드: 답글수 링크 클릭 → 패널 → 답글 작성 → payload.parentMessageId 검증 + 패널 표시.
   test(
     '답글을 작성하면 parentMessageId 가 전송되고 스레드 패널에 보인다',
-    { tag: '@smoke' },
+    { tag: ['@input', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const CHANNEL_ID = 500
       const PARENT_ID = 9001
@@ -182,210 +184,11 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     },
   )
 
-  // 2) 리액션: hover → 트리거 클릭 → 팝오버 퀵셋 클릭 → POST payload.emoji 검증 → pill 낙관적 표시.
-  test(
-    '퀵셋 이모지를 누르면 emoji payload 가 전송되고 pill 이 표시된다',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      const CHANNEL_ID = 501
-      const MSG_ID = 9200
-      const channel = createChannel({ id: CHANNEL_ID, name: '리액션채널' })
-      const msg = createMessage({ id: MSG_ID, channelId: CHANNEL_ID, body: '반응해줘' })
-
-      await stubChannelsList(page, [channel])
-      await stubDmsList(page)
-      await stubStream(page)
-      await stubChannelDetail(page, channel)
-      await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-      await stubMessages(page, CHANNEL_ID, [msg])
-
-      const reactionPosts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
-      await page.route(
-        (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
-        (route) => {
-          if (route.request().method() !== 'POST') return route.fallback()
-          return route.fulfill({ status: 204, body: '' })
-        },
-      )
-
-      await page.goto(`/chat/channels/${CHANNEL_ID}`)
-      // group-hover 영역 노출을 위해 hover 필수.
-      await page.getByTestId(`message-${MSG_ID}`).hover()
-      // 이모지 피커 트리거(-react) → 팝오버 → 퀵셋 클릭.
-      await page.getByTestId(`message-${MSG_ID}-react`).click()
-      await page.getByTestId(`message-${MSG_ID}-quick-👍`).click()
-
-      await reactionPosts.waitFor()
-      expect(reactionPosts.lastBody<{ emoji: string }>()?.emoji).toBe('👍')
-      // 낙관적 pill 표시 + count 1.
-      await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeVisible()
-      await expect(page.getByTestId(`reaction-count-${MSG_ID}-👍`)).toHaveText('1')
-    },
-  )
-
-  // WP-665: 삭제된 메시지엔 새 리액션을 달 수 없다(서버 400) — 이모지 피커를 숨기고 남은 칩도 눌리지 않게 한다.
-  test('삭제된 메시지엔 이모지 피커가 없고 남은 반응 칩은 눌리지 않는다 (WP-665)', async ({ authenticatedPage: page }) => {
-    const CHANNEL_ID = 509
-    const MSG_ID = 9250
-    const ALIVE_ID = 9251
-    const channel = createChannel({ id: CHANNEL_ID, name: '삭제채널' })
-    const deleted = createMessage({
-      id: MSG_ID,
-      channelId: CHANNEL_ID,
-      authorId: 2,
-      body: '(삭제됨)',
-      deleted: true,
-      reactions: [createReaction({ emoji: '👍', count: 1, reacted: false })],
-      createdAt: '2026-10-21T01:00:00Z',
-    })
-    const alive = createMessage({ id: ALIVE_ID, channelId: CHANNEL_ID, authorId: 2, body: '살아있는 메시지', createdAt: '2026-10-21T01:05:00Z' })
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [alive, deleted])
-    const posts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    // 살아 있는 메시지엔 피커가 있다(대조군).
-    await page.getByTestId(`message-${ALIVE_ID}`).hover()
-    await expect(page.getByTestId(`message-${ALIVE_ID}-react`)).toBeVisible()
-    // 삭제된 메시지엔 피커가 없고, 남은 칩은 비활성이라 눌러도 요청이 없다.
-    await page.getByTestId(`message-${MSG_ID}`).hover()
-    await expect(page.getByTestId(`message-toolbar-${MSG_ID}`)).toBeVisible()
-    await expect(page.getByTestId(`message-${MSG_ID}-react`)).toHaveCount(0)
-    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeDisabled()
-    expect(posts.count()).toBe(0)
-  })
-
-  // 3) 리액션 토글 off: reacted pill 클릭 → DELETE 호출 + pill 제거.
-  test('이미 누른 리액션을 다시 누르면 DELETE 되고 pill 이 사라진다', async ({
-    authenticatedPage: page,
-  }) => {
-    const CHANNEL_ID = 502
-    const MSG_ID = 9300
-    const channel = createChannel({ id: CHANNEL_ID, name: '토글채널' })
-    const msg = createMessage({
-      id: MSG_ID,
-      channelId: CHANNEL_ID,
-      body: '눌림',
-      reactions: [createReaction({ emoji: '🎉', count: 1, reacted: true })],
-    })
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [msg])
-
-    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
-      (route) => {
-        if (route.request().method() !== 'DELETE') return route.fallback()
-        return route.fulfill({ status: 204, body: '' })
-      },
-    )
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toBeVisible()
-    await page.getByTestId(`reaction-pill-${MSG_ID}-🎉`).click()
-
-    await deletes.waitFor()
-    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toHaveCount(0)
-  })
-
-  // 3.5) 회귀(#702): 같은 이모지를 짧은 시간 안에 연속 클릭해도(더블/트리플 클릭 등)
-  //      클라이언트 캐시 카운트가 클릭 횟수만큼 누적되지 않는다. stale-closure 버그라면
-  //      매 클릭이 클릭 시점 렌더 클로저의 stale reactions 를 참조해 전부 "add" 로 오판,
-  //      카운트가 0→1→2→3 으로 누적된 채 새로고침 전까지 영구 desync 된다.
-  test('리액션을 짧은 시간 안에 연속 클릭해도 카운트가 누적되지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    const CHANNEL_ID = 505
-    const MSG_ID = 9500
-    const channel = createChannel({ id: CHANNEL_ID, name: '연속클릭채널' })
-    const msg = createMessage({ id: MSG_ID, channelId: CHANNEL_ID, body: '연속클릭 테스트' })
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [msg])
-
-    const reactionPosts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
-    const reactionDeletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
-      (route) => {
-        if (route.request().method() === 'POST') {
-          return route.fulfill({ status: 204, body: '' })
-        }
-        if (route.request().method() === 'DELETE') {
-          return route.fulfill({ status: 204, body: '' })
-        }
-        return route.fallback()
-      },
-    )
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-
-    // hover 로 툴바 노출 → 이모지 추가 팝오버 오픈.
-    await page.getByTestId(`message-${MSG_ID}`).hover()
-    await page.getByTestId(`message-${MSG_ID}-react`).click()
-    const quickBtn = page.getByTestId(`message-${MSG_ID}-quick-🎉`)
-    await expect(quickBtn).toBeVisible()
-
-    // 같은 틱 안에서 3연속 클릭(실제 더블/트리플 클릭 재현) — .evaluate() 로 playwright
-    // actionability 대기 없이 동기적으로 3번 click() 을 흘려 렌더 사이 유예 없이 호출한다.
-    await quickBtn.evaluate((el: HTMLElement) => {
-      el.click()
-      el.click()
-      el.click()
-    })
-
-    // add→remove→add 로 alternate 되어 최종 pill 은 count=1 로 남아야 한다.
-    // 누적 버그(stale closure)라면 매 클릭이 add 로 오판되어 count=3 으로 표시된다.
-    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toBeVisible()
-    await expect(page.getByTestId(`reaction-count-${MSG_ID}-🎉`)).toHaveText('1')
-    expect(reactionPosts.count()).toBe(2)
-    expect(reactionDeletes.count()).toBe(1)
-  })
-
-  // 4) SSE 리액션: 타인이 누른 reaction.added 이벤트를 스트림으로 흘리면 pill 이 생긴다.
-  //    userId=2 (≠ ME_ID=1) 이므로 self-echo 가드를 통과해 패치가 적용된다.
-  test('SSE reaction.added 수신 시 pill 이 증가한다', async ({ authenticatedPage: page }) => {
-    const CHANNEL_ID = 503
-    const MSG_ID = 9400
-    const channel = createChannel({ id: CHANNEL_ID, name: 'SSE채널' })
-    const msg = createMessage({ id: MSG_ID, channelId: CHANNEL_ID, body: '실시간' })
-
-    // 스트림 body 로 다른 유저(userId=2)의 reaction.added 이벤트를 흘린다.
-    const sse =
-      `event: messaging.reaction.added\n` +
-      `data: ${JSON.stringify({ channelId: CHANNEL_ID, messageId: MSG_ID, emoji: '🔥', userId: 2 })}\n\n`
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page, sse)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [msg])
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    // 스트림 이벤트 적용 후 pill 등장.
-    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🔥`)).toBeVisible()
-    await expect(page.getByTestId(`reaction-count-${MSG_ID}-🔥`)).toHaveText('1')
-  })
-
   // 6) 회귀: 스레드 패널 내 답글 수정 시 thread 캐시가 갱신돼 UI 에 수정된 본문이 보인다.
   //    useUpdateMessage.onSuccess 가 thread 캐시를 patch 하지 않으면 이 테스트는 FAIL 한다.
   test(
     '스레드 패널에서 내 답글을 수정하면 패널 내 본문이 갱신된다(thread 캐시 패치 회귀)',
+    { tag: '@input' },
     async ({ authenticatedPage: page }) => {
       const CHANNEL_ID = 505
       const PARENT_ID = 9600
@@ -457,108 +260,9 @@ test.describe('messaging Phase 5 — 스레드·리액션', () => {
     },
   )
 
-  // 회귀 #291: 스레드 패널 — 답글 0건 시 빈 상태 메시지("아직 답글이 없어요.") 표시.
-  test('스레드 패널 — 답글이 없을 때 빈 상태 메시지가 표시된다(#291 회귀)', async ({
-    authenticatedPage: page,
-  }) => {
-    const CHANNEL_ID = 511
-    const PARENT_ID = 9800
-    const channel = createChannel({ id: CHANNEL_ID, name: '빈스레드채널' })
-    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '부모글', replyCount: 0 })
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [parent])
-    // 답글 0건 — emptyState 가 렌더돼야 한다.
-    await stubReplies(page, PARENT_ID, [])
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-
-    // replyCount=0 이므로 thread-link 없음 → reply 버튼으로 패널 오픈.
-    await page.getByTestId(`message-${PARENT_ID}`).hover()
-    await page.getByTestId(`message-reply-${PARENT_ID}`).click()
-    await expect(page.getByTestId('thread-panel')).toBeVisible()
-
-    // 빈 상태 안내 메시지가 표시돼야 한다.
-    const panel = page.getByTestId('thread-panel')
-    await expect(panel.getByText('아직 답글이 없어요.')).toBeVisible()
-    await expect(panel.getByText('첫 번째 답글을 남겨보세요.')).toBeVisible()
-  })
-
-  // WP-843: 보관된 채널의 빈 스레드는 답글을 쓸 수 없으니 답글을 권하지 않는다.
-  test('보관된 채널의 빈 스레드 — 「답글이 없습니다」만 보이고 답글을 권하지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    const CHANNEL_ID = 512
-    const PARENT_ID = 9801
-    const channel = createChannel({ id: CHANNEL_ID, name: '보관스레드채널', archived: true })
-    const parent = createMessage({ id: PARENT_ID, channelId: CHANNEL_ID, body: '보관 전 부모글', replyCount: 0 })
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [parent])
-    await stubReplies(page, PARENT_ID, [])
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    await page.getByTestId(`message-${PARENT_ID}`).hover()
-    await page.getByTestId(`message-reply-${PARENT_ID}`).click()
-
-    const panel = page.getByTestId('thread-panel')
-    await expect(panel.getByText('답글이 없습니다.')).toBeVisible()
-    await expect(panel.getByText('이 채널은 보관되었습니다')).toBeVisible()
-    await expect(panel.getByText('첫 번째 답글을 남겨보세요.')).toHaveCount(0)
-  })
-
-  // 회귀 #281: 리액션 활성 pill 이 raw 팔레트(bg-blue-100 등) 대신 시맨틱 토큰(bg-primary/10)을 사용한다.
-  test('활성(reacted=true) 리액션 pill 이 시맨틱 토큰 클래스를 사용한다', async ({
-    authenticatedPage: page,
-  }) => {
-    const CHANNEL_ID = 510
-    const MSG_ID = 9700
-    const channel = createChannel({ id: CHANNEL_ID, name: '리액션토큰채널' })
-    const msg = createMessage({
-      id: MSG_ID,
-      channelId: CHANNEL_ID,
-      body: '리액션 토큰 테스트',
-      reactions: [createReaction({ emoji: '👍', count: 1, reacted: true })],
-    })
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubStream(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-    await stubMessages(page, CHANNEL_ID, [msg])
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-
-    const pill = page.getByTestId(`reaction-pill-${MSG_ID}-👍`)
-    await expect(pill).toBeVisible()
-
-    // aria-pressed 로 활성 상태 확인.
-    await expect(pill).toHaveAttribute('aria-pressed', 'true')
-
-    // 시맨틱 토큰 클래스가 있어야 한다 (다크모드 자동 대응).
-    await expect(pill).toHaveClass(/bg-primary\/10/)
-    await expect(pill).toHaveClass(/text-primary/)
-    await expect(pill).toHaveClass(/border-primary/)
-
-    // raw 팔레트 클래스가 없어야 한다 (#281 회귀 방지).
-    const cls = await pill.getAttribute('class')
-    expect(cls).not.toContain('bg-blue-100')
-    expect(cls).not.toContain('text-blue-700')
-    expect(cls).not.toContain('border-blue-400')
-  })
-
   // 레이아웃 회귀: 채널 헤더는 스레드 칸 위까지 전체 폭으로 덮고, 스레드는 헤더 아래 본문 안 보조 칸이다
   // (스레드 칸이 헤더 옆 화면 맨 위까지 올라가 앱 사이드 패널처럼 보이던 것 방지). ?thread= 딥링크 + ✕ 닫기.
-  test('?thread= 딥링크 — 채널 헤더가 스레드 칸 위까지 덮고 스레드는 헤더 아래 칸, ✕ 로 닫힌다', async ({
+  test('?thread= 딥링크 — 채널 헤더가 스레드 칸 위까지 덮고 스레드는 헤더 아래 칸, ✕ 로 닫힌다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 })

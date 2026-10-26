@@ -1,7 +1,7 @@
 // RichInput 인플라이트 가드 회귀 테스트 (#586).
 // 전송 버튼을 동일 이벤트 루프 틱 내에 3회 연속(프로그래밍적) 클릭해도
 // 메시지 전송 POST 는 정확히 1번만 발생해야 한다.
-// 백엔드 없이 page.route() 로 API 모킹 (messaging-composer-upload.spec.ts 패턴 동일).
+// 입력기(TipTap)에 실제로 글자를 쳐야 해서 E2E 로 남는다(@input). 백엔드 없이 page.route() 로 API 모킹.
 import { createPageResponse } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
@@ -96,7 +96,7 @@ async function stubCommon(page: import('@playwright/test').Page) {
 
 test(
   '채널 메시지 — 전송 버튼 3회 연속 클릭해도 전송 API 는 1번만 호출된다 (#586)',
-  { tag: '@smoke' },
+  { tag: ['@input', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     await stubCommon(page)
 

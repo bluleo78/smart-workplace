@@ -1,6 +1,9 @@
 // 채팅 3곳 첨부 → 통합 첨부 뷰어(WP-279, 데스크톱). 모바일 배치·뒤로가기·길게 누르기는 e2e/pages/mobile/chat-attachment-viewer-mobile.spec.ts.
 // 묶음 = 누른 메시지 한 건의 업로드 + 드라이브 링크(표시 순서), 받기는 뷰어 ⬇.
 // ✨ 는 활성 드라이브 링크만(요약 403 이면 숨김), ☁ 는 업로드만, 메인 AI 채팅은 둘 다 없다. 링크 공유 불가라 "링크 복사"는 없다.
+// 남은 테스트는 다운로드·새로고침(@platform)과 포커스 복원·AI 사이드 패널과의 실제 포인터 상호작용(@input)이다.
+// 삭제된 드라이브 링크 표시·요약 403 시 ✨ 숨김·낡은 열림 표식 정리는 vitest 로 옮겼다(WP-984): src/pages/chat/messageList.test.tsx
+// (이슈 채팅 요약 403 은 같은 공용 뷰어 규칙이라 그 테스트로 갈음한다).
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -66,7 +69,7 @@ async function walkBundle(page: Page) {
 }
 
 test.describe('팀 채팅 첨부 뷰어', () => {
-  test('썸네일을 누르면 뷰어 — 메시지 묶음 안에서 넘기고 ⬇ 로 받는다, Esc 는 뷰어만 닫고 썸네일로 포커스', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('썸네일을 누르면 뷰어 — 메시지 묶음 안에서 넘기고 ⬇ 로 받는다, Esc 는 뷰어만 닫고 썸네일로 포커스', { tag: ['@platform', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const contents = await stubTeamChatAttachments(page)
     await page.goto('/chat/channels/1')
     await expect(page.getByTestId('attachment-image-801')).toBeVisible()
@@ -83,7 +86,7 @@ test.describe('팀 채팅 첨부 뷰어', () => {
     await expect(page.getByTestId('attachment-image-open-801')).toBeFocused()
   })
 
-  test('묶음은 메시지 한 건 — 다른 메시지 첨부는 한 건 묶음, 뒤로가기도 뷰어만 닫고 카드로 포커스', async ({ authenticatedPage: page }) => {
+  test('묶음은 메시지 한 건 — 다른 메시지 첨부는 한 건 묶음, 뒤로가기도 뷰어만 닫고 카드로 포커스', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubTeamChatAttachments(page)
     await page.goto('/chat/channels/1')
     await page.getByTestId('attachment-card-803').click()
@@ -101,7 +104,7 @@ test.describe('팀 채팅 첨부 뷰어', () => {
     await expect(page.getByTestId('attachment-card-803')).toBeFocused()
   })
 
-  test('스레드 패널에서 열어도 뷰어는 하나 — 뒤로가기는 뷰어만 닫고 ?thread 는 남는다', async ({ authenticatedPage: page }) => {
+  test('스레드 패널에서 열어도 뷰어는 하나 — 뒤로가기는 뷰어만 닫고 ?thread 는 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubTeamChatAttachments(page)
     await page.goto('/chat/channels/1')
     await page.getByTestId('message-thread-link-10').click()
@@ -122,30 +125,10 @@ test.describe('팀 채팅 첨부 뷰어', () => {
     await expect(panel.getByTestId('attachment-card-802')).toBeFocused()
   })
 
-  test('원본이 삭제된 드라이브 링크는 목록에서 흐린 이름과 "원본 삭제됨"으로 보인다', async ({ authenticatedPage: page }) => {
-    await stubTeamChatAttachments(page)
-    await page.goto('/chat/channels/1')
-    const gone = page.getByTestId('message-drive-link-71').first()
-    await expect(gone).toHaveAttribute('data-availability', 'DELETED')
-    await expect(gone.getByTestId('message-drive-link-gone-71')).toHaveText('원본 삭제됨')
-    await expect(page.getByTestId('message-drive-link-70').first()).not.toContainText('원본 삭제됨')
-    // 열면 안내만 보인다(다운로드 없음).
-    await gone.click()
-    await expect(page.getByTestId('preview-unavailable')).toBeVisible()
-  })
-
-  test('드라이브 링크 요약이 403 이면 ✨ 를 숨긴다', async ({ authenticatedPage: page }) => {
-    await stubTeamChatAttachments(page, { summary: 'forbidden' })
-    await page.goto('/chat/channels/1')
-    await page.getByTestId('message-drive-link-70').click()
-    await expect(page.getByTestId('preview-body')).toContainText(LINK_TEXT)
-    await expect(page.getByTestId('preview-meta')).toContainText('3 / 4')
-    await expect(viewerOf(page).getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
-  })
 })
 
 test.describe('이슈 채팅 첨부 뷰어', () => {
-  test('카드를 누르면 뷰어 — 묶음 넘김·⬇, Esc·뒤로가기는 뷰어만 닫고 ?chat=1 은 남는다', async ({ authenticatedPage: page }) => {
+  test('카드를 누르면 뷰어 — 묶음 넘김·⬇, Esc·뒤로가기는 뷰어만 닫고 ?chat=1 은 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const contents = await stubIssueChatAttachments(page)
     await page.goto(`/projects/${KEY}/issues/1`)
     await page.getByTestId('issue-chat-open').click()
@@ -170,17 +153,10 @@ test.describe('이슈 채팅 첨부 뷰어', () => {
     await expect(page.getByTestId('attachment-card-803')).toBeFocused()
   })
 
-  test('드라이브 링크 요약이 403 이면 ✨ 를 숨긴다', async ({ authenticatedPage: page }) => {
-    await stubIssueChatAttachments(page, { summary: 'forbidden' })
-    await page.goto(`/projects/${KEY}/issues/1?chat=1`)
-    await page.getByTestId('message-drive-link-70').click()
-    await expect(page.getByTestId('preview-body')).toContainText(LINK_TEXT)
-    await expect(viewerOf(page).getByRole('button', { name: 'AI 요약' })).toHaveCount(0)
-  })
 })
 
 test.describe('메인 AI 채팅 첨부 뷰어', () => {
-  test('복원한 대화의 썸네일 → 턴 묶음 넘김·⬇, ✨·☁ 없음, 뒤로가기는 뷰어만 닫고 패널은 남는다', async ({ authenticatedPage: page }) => {
+  test('복원한 대화의 썸네일 → 턴 묶음 넘김·⬇, ✨·☁ 없음, 뒤로가기는 뷰어만 닫고 패널은 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const contents = await stubHomeChatAttachments(page)
     await page.goto('/')
     await page.getByTestId('chat-launcher').click()
@@ -233,7 +209,7 @@ const liveChatKey = (page: Page, key: string) =>
   page.evaluate((k) => (window.history.state?.usr?.[k] as string | undefined) ?? null, key)
 
 test.describe('채팅 뷰어 히스토리', () => {
-  test('닫은 뒤 앞으로가기·새로고침이면 열림 항목이 그 메시지 묶음으로 다시 열린다', async ({ authenticatedPage: page }) => {
+  test('닫은 뒤 앞으로가기·새로고침이면 열림 항목이 그 메시지 묶음으로 다시 열린다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubTeamChatAttachments(page)
     await page.goto('/chat/channels/1')
     await page.getByTestId('message-drive-link-70').click()
@@ -257,22 +233,9 @@ test.describe('채팅 뷰어 히스토리', () => {
     expect(await liveChatKey(page, 'teamChatPreview')).toBeNull()
   })
 
-  test('그릴 메시지가 없는 낡은 열림 표식은 지운다 — 뷰어 없이 뒤로가기가 헛돌지 않게', async ({ authenticatedPage: page }) => {
-    await stubTeamChatAttachments(page)
-    await page.goto('/chat/channels/1')
-    await expect(page.getByTestId('attachment-image-801')).toBeVisible()
-    // 목록에 없는 메시지(999) 키가 남은 항목을 재현 — 같은 화면 인스턴스가 popstate 로 받는다.
-    await page.evaluate(() => {
-      const st = window.history.state
-      window.history.pushState({ ...st, usr: { ...(st?.usr ?? {}), teamChatPreview: 'msg:999:file:1' } }, '')
-      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
-    })
-    await expect.poll(() => liveChatKey(page, 'teamChatPreview')).toBeNull()
-    await expect(viewerOf(page)).toHaveCount(0)
-  })
 })
 
-test.describe('메인 AI 사이드 패널과 뷰어', () => {
+test.describe('메인 AI 사이드 패널과 뷰어', { tag: '@input' }, () => {
   /** 홈에서 AI 사이드 패널을 열고 첨부 대화(s-v)를 복원한다. */
   async function openRestoredPanel(page: Page, path = '/') {
     await page.goto(path)

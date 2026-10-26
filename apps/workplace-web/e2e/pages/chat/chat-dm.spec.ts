@@ -1,4 +1,7 @@
-// messaging DM E2E — 백엔드 없이 page.route() 모킹.
+// messaging DM E2E — 새 DM 만들기 → 사이드바 → 진입 흐름(@flow), 받는 사람·입력기에 실제로 치는 입력(@input),
+// 선택 행·배지 줄바꿈·헤더 잘림·시작선 정렬(@layout). 백엔드 없이 page.route() 모킹.
+// 정지된 상대 안내·비참여자·목록 오류·7명 상한·DM 아바타는 vitest 로 옮겼다(WP-984):
+// src/pages/chat/dmPage.test.tsx · channelSidebar.test.tsx.
 import type { Page } from '@playwright/test'
 
 import { createDm, createDmParticipant, createMessage } from '../../factories/messaging.factory'
@@ -94,7 +97,7 @@ async function stubMembers(
 }
 
 test.describe('messaging DM', () => {
-  test('새 1:1 DM 생성 → DM 섹션 등장 → 진입', { tag: '@smoke' }, async ({
+  test('새 1:1 DM 생성 → DM 섹션 등장 → 진입', { tag: ['@flow', '@smoke'] }, async ({
     authenticatedPage: page,
   }) => {
     // 초기: DM 없음. 생성 후: DM 1개. POST /messaging/dms 로 find-or-create.
@@ -193,7 +196,7 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('dm-title')).toHaveText('밥')
   })
 
-  test('그룹 DM 생성 → 다중 선택 → payload → 표시명', async ({ authenticatedPage: page }) => {
+  test('그룹 DM 생성 → 다중 선택 → payload → 표시명', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     // 그룹 DM 을 인라인 compose 다중 선택으로 직접 만들고, POST payload·표시명을 검증한다.
     const group = createDm({
       id: 101,
@@ -289,7 +292,7 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('dm-title')).toHaveText('밥, 캐럴')
   })
 
-  test('DM 메시지 전송 → payload 검증 + UI 반영', async ({ authenticatedPage: page }) => {
+  test('DM 메시지 전송 → payload 검증 + UI 반영', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const dm = createDm({ id: 102 })
     await stubLists(page, [dm])
     await stubMessages(page, 102, [])
@@ -318,31 +321,8 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('message-body-5')).toHaveText('안녕 밥')
   })
 
-  test('정지된 상대와의 DM — 헤더에 「비활성」, 입력창 대신 보낼 수 없다는 안내 (WP-723)', async ({
-    authenticatedPage: page,
-  }) => {
-    const dm = createDm({
-      id: 105,
-      participants: [
-        createDmParticipant({ userId: 1, name: '나', active: true }),
-        createDmParticipant({ userId: 2, name: '퇴사자', active: false }),
-      ],
-    })
-    await stubLists(page, [dm])
-    await stubMessages(page, 105, [createMessage({ id: 9, channelId: 105, authorId: 1, body: '퇴사 전 메시지' })])
-    await stubMarkRead(page, 105)
-    await page.goto('/chat/dms/105')
-
-    await expect(page.getByTestId('dm-title')).toHaveText('퇴사자')
-    await expect(page.getByTestId('dm-inactive-badge')).toHaveText('비활성')
-    await expect(page.getByTestId('composer-blocked-notice')).toHaveText('비활성화된 구성원이라 메시지를 보낼 수 없습니다')
-    // 지난 대화는 그대로 읽을 수 있고, 입력창은 없다
-    await expect(page.getByTestId('message-body-9')).toHaveText('퇴사 전 메시지')
-    await expect(page.getByTestId('message-composer-input')).toHaveCount(0)
-  })
-
   // WP-368 — 열린 DM 행만 선택 표시(막대 + bg-selected), 다른 DM·셀프 DM 행엔 없다. 색 차이는 계산된 배경으로 확인.
-  test('사이드바 — 열린 DM 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({ authenticatedPage: page }) => {
+  test('사이드바 — 열린 DM 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const dms = [
       createDm({ id: 102, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' }), createDmParticipant({ userId: 2, name: '밥' })] }),
       createDm({ id: 103, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' }), createDmParticipant({ userId: 3, name: '캐럴' })] }),
@@ -358,7 +338,7 @@ test.describe('messaging DM', () => {
   })
 
   // /chat/dms/self 는 실제 DM id 로 리다이렉트한다 — 그 id 로 열린 셀프 DM 도 「나」 행이 선택·현재 항목이어야 한다(WP-368).
-  test('사이드바 — 셀프 DM 을 실제 id 로 열어도 「나」 행이 선택·aria-current (WP-368)', async ({ authenticatedPage: page }) => {
+  test('사이드바 — 셀프 DM 을 실제 id 로 열어도 「나」 행이 선택·aria-current (WP-368)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const dms = [
       createDm({ id: 101, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' })] }),
       createDm({ id: 102, participants: [createDmParticipant({ userId: 1, name: '테스트 사용자' }), createDmParticipant({ userId: 2, name: '밥' })] }),
@@ -372,96 +352,7 @@ test.describe('messaging DM', () => {
     await expectSelectedRow(self, other, { current: 'page' })
   })
 
-  test('비참여자 직접 진입 → 대화 없음', async ({ authenticatedPage: page }) => {
-    await stubLists(page, []) // 내 DM 목록에 없음
-    await stubMessages(page, 999, [])
-    await page.goto('/chat/dms/999')
-    await expect(page.getByTestId('dm-not-found')).toBeVisible()
-  })
-
-  test('DM 목록 API 오류 → 오류 메시지(미존재 오표시 아님)', async ({
-    authenticatedPage: page,
-  }) => {
-    // /api/v1/messaging/dms 를 500 으로 막아 isError=true 분기 검증.
-    // 실제 버그(#190): isError 미구분 → "대화를 찾을 수 없습니다." 오표시.
-    await page.route(
-      (url) => url.pathname === '/api/v1/messaging/dms',
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({ status: 500, body: 'Internal Server Error' })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === '/api/v1/messaging/channels',
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-          : route.fallback(),
-    )
-    await stubStream(page)
-
-    await page.goto('/chat/dms/100')
-
-    // isError → dm-load-error 표시, dm-not-found 는 표시되지 않아야 함.
-    await expect(page.getByTestId('dm-load-error')).toBeVisible()
-    await expect(page.getByTestId('dm-not-found')).toHaveCount(0)
-    await expect(page.getByText('대화 목록을 불러오지 못했습니다')).toBeVisible()
-  })
-
-  test('참여자 7명 초과 선택 거부(본인 포함 8명 상한)', async ({
-    authenticatedPage: page,
-  }) => {
-    // 후보 8명(ids 2~9) — 7명까지 선택 후 8번째 시도가 무시됨을 검증.
-    // 상한에 도달하면 후보 목록 자리에 안내 문구가 뜨고 더 고를 수 없다. 입력은 disabled 가 아니다 —
-    // 포커스와 Backspace 제거가 살아 있어야 하므로(#883).
-    const candidates = [
-      { id: 2, name: '밥', username: 'bob' },
-      { id: 3, name: '캐럴', username: 'carol' },
-      { id: 4, name: '데이브', username: 'dave' },
-      { id: 5, name: '이브', username: 'eve' },
-      { id: 6, name: '프랭크', username: 'frank' },
-      { id: 7, name: '그레이스', username: 'grace' },
-      { id: 8, name: '하이디', username: 'heidi' },
-    ]
-    const extra = { id: 9, name: '아이반', username: 'ivan', kind: 'HUMAN' }
-    await stubLists(page, [])
-    // MemberSummary 는 id 가 아니라 userId 다 — 로컬 픽스처의 id 를 경계에서 변환한다(#833).
-    await stubMembers(
-      page,
-      [...candidates, extra].map(({ id, name, username }) => ({ userId: id, name, username, kind: 'HUMAN' })),
-    )
-
-    await page.goto('/chat/new')
-    await expect(page.getByTestId('new-message-page')).toBeVisible()
-    // 후보 목록은 select 시 닫히지 않으므로 같은 입력에 이어서 7명을 누적 선택.
-    for (const c of candidates) {
-      await page.getByPlaceholder('이름·아이디·이메일로 검색').fill(c.name)
-      await page.getByTestId(`member-search-row-${c.id}`).click()
-      await expect(page.getByTestId(`recipient-chip-${c.id}`)).toBeVisible()
-    }
-
-    // 8번째(아이반) 시도 — 후보 행 대신 상한 안내가 보이고, Enter 로도 추가되지 않는다.
-    const input = page.getByTestId('new-message-recipient-input')
-    await input.fill(extra.name)
-    await expect(page.getByTestId('recipient-limit-notice')).toHaveText('최대 7명까지 선택할 수 있습니다')
-    await expect(page.getByTestId(`member-search-row-${extra.id}`)).toHaveCount(0)
-    await input.press('Enter')
-
-    // 칩이 여전히 7개 — 8번째 추가 거부 확인.
-    const chips = page.getByTestId('new-message-recipients').locator('[data-testid^="recipient-chip-"]')
-    await expect(chips).toHaveCount(7)
-    await expect(page.getByTestId(`recipient-chip-${extra.id}`)).toHaveCount(0)
-
-    // 입력은 살아 있다 — 검색어를 비우고 Backspace 로 마지막 칩을 지우면 다시 후보를 고를 수 있다.
-    await expect(input).toBeEnabled()
-    await input.fill('')
-    await input.press('Backspace')
-    await expect(chips).toHaveCount(6)
-    await expect(page.getByTestId('recipient-limit-notice')).toHaveCount(0)
-    await expect(page.getByTestId(`member-search-row-${extra.id}`)).toBeVisible()
-  })
-
-  test('받는 사람 입력 — 포커스 이탈·Esc 로 닫히고 재포커스로 다시 열린다 (#883)', async ({
+  test('받는 사람 입력 — 포커스 이탈·Esc 로 닫히고 재포커스로 다시 열린다 (#883)', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     await stubLists(page, [])
@@ -499,7 +390,7 @@ test.describe('messaging DM', () => {
     await expect(list).toBeVisible()
   })
 
-  test('받는 사람 입력 — 키보드만으로 연속 선택·제거 후 Tab 으로 메시지 입력 이동 (#883)', async ({
+  test('받는 사람 입력 — 키보드만으로 연속 선택·제거 후 Tab 으로 메시지 입력 이동 (#883)', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     await stubLists(page, [])
@@ -554,7 +445,7 @@ test.describe('messaging DM', () => {
     await expect(page.getByTestId('message-composer-input')).toBeFocused()
   })
 
-  test('DM 생성 400 → 에러 토스트', async ({ authenticatedPage: page }) => {
+  test('DM 생성 400 → 에러 토스트', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubLists(page, [])
     // 서버가 400 + 한국어 message → handleApiError 가 그 message 를 토스트로 노출.
     await page.route(
@@ -600,60 +491,7 @@ test.describe('messaging DM', () => {
     await expect(page.getByText('자기 자신과는 DM 할 수 없습니다')).toBeVisible()
   })
 
-  test('DM 사이드바 — 각 DM 아이템이 상대 식별 아바타로 시각 구분된다 (#298)', async ({
-    authenticatedPage: page,
-  }) => {
-    // 회귀 방지: 모든 DM 이 동일 MessageSquare 아이콘이던 결함.
-    // self/1:1/AI/그룹 이 각각 상대 식별 아바타(user-avatar-<id>)를 렌더해야 한다.
-    const dms = [
-      createDm({
-        id: 2,
-        participants: [
-          createDmParticipant({ userId: 1, name: '테스트 사용자' }),
-          createDmParticipant({ userId: 2, name: '밥' }),
-        ],
-      }),
-      createDm({
-        id: 3,
-        participants: [
-          createDmParticipant({ userId: 1, name: '테스트 사용자' }),
-          createDmParticipant({ userId: 10, name: 'My AI', kind: 'AGENT' }),
-        ],
-      }),
-      createDm({
-        id: 4,
-        participants: [
-          createDmParticipant({ userId: 1, name: '테스트 사용자' }),
-          createDmParticipant({ userId: 2, name: '밥' }),
-          createDmParticipant({ userId: 3, name: '캐럴' }),
-        ],
-      }),
-    ]
-    await stubLists(page, dms)
-    await page.goto('/chat')
-
-    // self-DM: 본인(id=1) 이니셜 아바타 '테'
-    const selfLink = page.getByTestId('dm-self-link')
-    await expect(selfLink.getByTestId('user-avatar-1')).toHaveText('테')
-
-    // 1:1 DM(상대 id=2): 상대 이니셜 '밥' — self 와 다른 식별 신호
-    const dm2 = page.getByTestId('dm-link-2')
-    await expect(dm2.getByTestId('user-avatar-2')).toHaveText('밥')
-
-    // AI DM(상대 id=10): 상대 아바타 + 에이전트 배지 공존(Bot 마커 중복 없음)
-    const dm3 = page.getByTestId('dm-link-3')
-    await expect(dm3.getByTestId('user-avatar-10')).toBeVisible()
-    await expect(dm3.getByTestId('agent-badge')).toBeVisible()
-
-    // 그룹 DM(대표 상대 id=2): 첫 비-본인 참여자 아바타
-    const dm4 = page.getByTestId('dm-link-4')
-    await expect(dm4.getByTestId('user-avatar-2')).toBeVisible()
-
-    // 더 이상 동일 아이콘이 아님: 사이드바 DM 영역에 MessageSquare(lucide) 아이콘 없음
-    await expect(page.getByTestId('dm-list').locator('svg.lucide-message-square')).toHaveCount(0)
-  })
-
-  test('DM 사이드바 — 참가자 이름이 길어도 에이전트 배지가 줄바꿈되지 않는다 (#711)', async ({
+  test('DM 사이드바 — 참가자 이름이 길어도 에이전트 배지가 줄바꿈되지 않는다 (#711)', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     // 긴 그룹 DM 표시명("양동희2, My AI" 등)이 flex 컨테이너 폭을 압박해도 배지 자체는 항상 한 줄 유지.
@@ -678,7 +516,7 @@ test.describe('messaging DM', () => {
     expect(box!.height).toBeLessThan(20)
   })
 
-  test('DM 헤더 — 상대 이름이 길어도 truncate 적용 + 헤더 높이 고정 (#797)', async ({
+  test('DM 헤더 — 상대 이름이 길어도 truncate 적용 + 헤더 높이 고정 (#797)', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     // 상대 표시명이 매우 길면 <h1> 이 줄바꿈되며 h-14 고정 높이가 깨지던 회귀(#797).
@@ -714,7 +552,7 @@ test.describe('messaging DM', () => {
 
   // 레이아웃 회귀: DM 헤더는 페이지 표준 헤더(Page.Header) — 하단선 56px, 제목·첫 메시지·입력창이 같은 16px 축.
   for (const width of DESKTOP_WIDTHS) {
-    test(`DM 헤더 제목·첫 메시지·입력창이 같은 시작선에 있다 (${width}px)`, async ({ authenticatedPage: page }) => {
+    test(`DM 헤더 제목·첫 메시지·입력창이 같은 시작선에 있다 (${width}px)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await page.setViewportSize({ width, height: 900 })
       const dm = createDm({
         id: 104,

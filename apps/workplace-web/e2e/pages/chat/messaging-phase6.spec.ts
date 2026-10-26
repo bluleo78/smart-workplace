@@ -1,5 +1,6 @@
 // messaging Phase 6 E2E — 메시지 파일 첨부(이미지 인라인 썸네일 · 비이미지 파일 카드 · 첨부만 전송).
 // 백엔드 없이 page.route() 로 모든 API 모킹(레포 전체 E2E 정책 — playwright.config.ts 참조).
+// 남은 테스트는 입력기에 글을 쳐서 첨부와 함께 보내는 흐름이다(@input). 첨부만 보내기는 vitest 로 옮겼다(WP-984): src/pages/chat/channelPage.test.tsx.
 // 첨부 흐름: 파일 input.setInputFiles → 사전 업로드(POST .../attachments) → 전송(POST .../messages, fileIds 동봉)
 //            → 응답 attachments 렌더(이미지는 .../content blob fetch 후 <img>, 비이미지는 카드).
 import type { Page } from '@playwright/test'
@@ -149,7 +150,7 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
   // 1) 이미지 첨부 → pending 칩 → 전송 → 인라인 썸네일(attachment-image-{fileId}) 렌더.
   test(
     '이미지를 첨부해 전송하면 인라인 썸네일이 보인다',
-    { tag: '@smoke' },
+    { tag: ['@input', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const CHANNEL_ID = 600
       const MSG_ID = 9700
@@ -229,86 +230,10 @@ test.describe('messaging Phase 6 — 메시지 파일 첨부', () => {
     },
   )
 
-  // 2) 본문 없이 비이미지(PDF) 첨부만 전송 → 파일 카드(attachment-card-{fileId}) 렌더.
-  test(
-    '본문 없이 파일만 첨부해도 전송되고 파일 카드가 보인다',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      const CHANNEL_ID = 601
-      const MSG_ID = 9710
-      const FILE_ID = 8810
-      const channel = createChannel({ id: CHANNEL_ID, name: '파일채널' })
-
-      await stubChannelsList(page, [channel])
-      await stubDmsList(page)
-      await stubStream(page)
-      await stubChannelDetail(page, channel)
-      await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '나' })])
-      await stubMessages(page, CHANNEL_ID, [])
-      await stubAttachmentUpload(page, CHANNEL_ID, {
-        fileId: FILE_ID,
-        originalName: 'spec.pdf',
-        mimeType: 'application/pdf',
-        sizeBytes: 2048,
-      })
-
-      // POST 메시지 → 카드 렌더용 attachments 응답.
-      const posts = trackRequests(page, 'POST', `/api/v1/messaging/channels/${CHANNEL_ID}/messages`)
-      await page.route(
-        (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-        (route) => {
-          if (route.request().method() !== 'POST') return route.fallback()
-          return route.fulfill({
-            status: 201,
-            contentType: 'application/json',
-            body: JSON.stringify(
-              createMessage({
-                id: MSG_ID,
-                channelId: CHANNEL_ID,
-                authorId: ME_ID,
-                authorName: '나',
-                body: '',
-                attachments: [
-                  {
-                    fileId: FILE_ID,
-                    messageId: MSG_ID,
-                    originalName: 'spec.pdf',
-                    mimeType: 'application/pdf',
-                    sizeBytes: 2048,
-                    attachedById: ME_ID,
-                    attachedByName: '나',
-                    attachedAt: new Date('2026-06-03T00:00:00Z').toISOString(),
-                  },
-                ],
-              }),
-            ),
-          })
-        },
-      )
-
-      await page.goto(`/chat/channels/${CHANNEL_ID}`)
-
-      // PDF 주입 → pending 칩 → 본문 입력 없이 보내기.
-      await page.getByTestId('composer-file-input').setInputFiles({
-        name: 'spec.pdf',
-        mimeType: 'application/pdf',
-        buffer: Buffer.from('%PDF-1.4 hello'),
-      })
-      await expect(page.getByTestId('composer-attachments')).toContainText('spec.pdf')
-      await page.getByTestId('message-composer-submit').click()
-
-      // 본문이 비어도 첨부만으로 전송됐고, 비이미지는 카드로 렌더된다.
-      await expect.poll(() => posts.lastBody()).toMatchObject({ body: '', fileIds: [FILE_ID] })
-      const card = page.getByTestId(`attachment-card-${FILE_ID}`)
-      await expect(card).toBeVisible()
-      await expect(card).toContainText('spec.pdf')
-    },
-  )
-
   // 3) 회귀: 본문 입력 + 이미지 첨부 후 Enter 전송 시 fileIds 가 누락되지 않는다(스테일 클로저 #63 5ba65a6).
   test(
     'Enter 전송 시 본문과 첨부가 함께 실린다(스테일 클로저 회귀)',
-    { tag: '@smoke' },
+    { tag: ['@input', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const CHANNEL_ID = 602
       const MSG_ID = 9720
