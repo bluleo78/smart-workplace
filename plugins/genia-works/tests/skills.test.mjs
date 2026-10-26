@@ -230,27 +230,30 @@ test('process-issue.md: 개발 순서는 PR → PR 리뷰 대기 → 검토 대�
   assert.ok(s10.includes('`nextRunAt` 은 넣지 않는다'));
 });
 
-test('process-issue.md 검토자: 리뷰 → main 포함 확인 → 머지 순서이고 rebase·push 는 하지 않는다 (WP-964)', () => {
+test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순서이고 rebase·push 는 하지 않는다 (WP-964·998)', () => {
   const lead = pi.slice(pi.indexOf('\n### PR 리뷰·머지 (검토자)\n'), pi.indexOf('\n### 막힘\n'));
   assert.ok(lead.length > 100, '검토자 절이 없다');
-  assertBefore(lead, '**리뷰**', '**main 포함 확인**');
-  assertBefore(lead, '**main 포함 확인**', '`gh pr merge');
+  assertBefore(lead, '**리뷰**', '**main 충돌 확인**');
+  assertBefore(lead, '**main 충돌 확인**', '`gh pr merge');
   // 검토자가 브랜치를 고치면 게이트가 두 번 돌고, 충돌을 코드를 모르는 쪽이 푼다.
   assert.ok(!lead.includes('`git rebase origin/main`'), '검토자가 rebase 한다');
   assert.ok(!lead.includes('git push'), '검토자가 push 한다');
-  // 충돌이 없어도 최신 main 을 포함하지 않으면 돌려보낸다 — 머지되는 트리가 게이트를 통과한 트리여야 한다.
-  assert.ok(lead.includes('충돌이 없어도 그렇다'));
+  // 충돌이 날 때만 돌려보낸다 — 낡았다는 이유로 돌려보내면 rebase → 게이트가 끝없이 되풀이된다(WP-998).
+  assert.ok(lead.includes('`git merge-tree --write-tree origin/main HEAD`'));
+  assert.ok(lead.includes('충돌이 없으면 main 이 앞서 있어도 반려하지 않고'));
+  assert.ok(!lead.includes('충돌이 없어도 그렇다'));
   assert.ok(lead.includes("state: 'SCHEDULED', note: 'PR #<번호> 수정 대기'"));
   // 다시 받은 PR 은 지난 리뷰 뒤 달라진 것만 본다.
   assert.ok(lead.includes('`git range-diff <리뷰한 base>..<리뷰한 HEAD> origin/main..HEAD`'));
 });
 
-test('process-issue.md 개발자: main 반영 요청을 받으면 rebase 해 충돌을 모두 풀고, 올리기 직전에 main 포함을 확인한다 (WP-964)', () => {
+test('process-issue.md 개발자: main 과 충돌할 때만 rebase 해 충돌을 모두 풀고, 올리기 직전에 충돌을 확인한다 (WP-964·998)', () => {
   const s7 = section(pi, '\n### 7. 커밋 하나로 합치기\n', '\n### 8. ');
   assert.ok(s7.includes('`git rebase origin/main`'));
   assert.ok(s7.includes('충돌은 내가 모두 푼다'));
   const s9 = section(pi, '\n### 9. PR\n', '\n### 10. ');
-  assert.ok(s9.includes('origin/main 을 포함하지 않으면 7번으로 돌아간다'));
+  assert.ok(s9.includes('origin/main 과 충돌하면 7번으로 돌아간다'));
+  assert.ok(s7.includes('`git merge-tree --write-tree origin/main HEAD`'));
 });
 
 test('SKILL.md: PR 을 두고 기다리는 이슈는 새 글이 있을 때만 고르고, 답하지 않고 넘긴 글을 적어 둔다', () => {
