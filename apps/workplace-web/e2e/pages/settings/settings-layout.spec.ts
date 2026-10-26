@@ -1,26 +1,20 @@
-import { createPageResponse, mockApi } from '../../fixtures/api-mock'
+// 설정 레이아웃 일관성 — 프로필 화면 배선(@wiring)과 목록형 화면의 가로 넘침(@layout).
+// AI 비서 제목은 src/pages/settings/assistantSettings.test.tsx, 메일 계정 제목은 src/pages/settings/mailSettings.test.tsx,
+// 구성원 제목·추가 버튼은 src/pages/settings/settingsNav.test.tsx 가 지킨다.
+import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 
 test.describe('@smoke 설정 레이아웃 일관성', () => {
-  test('프로필 페이지가 공용 PageHeader 를 렌더한다', async ({ authenticatedPage: page }) => {
+  test('프로필 페이지가 공용 PageHeader 를 렌더한다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const header = page.getByTestId('page-header')
     await expect(header).toBeVisible()
     await expect(header).toContainText('프로필')
   })
-  // 페이지 제목은 사이드바 메뉴 라벨과 동일해야 한다(#651)
-  test('AI 비서 페이지가 공용 PageHeader 를 렌더한다', async ({ authenticatedPage: page }) => {
-    await page.goto('/settings/assistant')
-    await expect(page.getByTestId('page-header')).toContainText('AI 비서')
-  })
-  test('메일 계정 페이지가 공용 PageHeader 를 렌더한다', async ({ authenticatedPage: page }) => {
-    await page.goto('/settings/mail')
-    await expect(page.getByTestId('page-header')).toContainText('메일 계정')
-  })
 
   // 메일 계정 — 리스트/스캔 목적 화면이라 구성원/역할/토큰과 동일한 풀폭 목록 레이아웃(#674).
   // 헤더 액션(계정 추가)으로 다이얼로그 오픈 + 계정이 여러 개여도 가로 오버플로가 없어야 한다.
-  test('메일 계정 페이지가 풀폭 목록 + 헤더 액션을 렌더한다(#674)', async ({
+  test('메일 계정 페이지가 풀폭 목록 + 헤더 액션을 렌더한다(#674)', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [
@@ -104,7 +98,7 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
 
   // 긴 폐기 일시 문자열이 상태 컬럼을 밀어내 테이블이 컨테이너 밖으로 넘치고
   // 폐기 버튼이 잘려 보이지 않던 회귀(#655) — Badge + 짧은 날짜 표기로 방지.
-  test('API 토큰 목록이 길어도 페이지가 가로로 넘치지 않고 폐기 버튼이 보인다', async ({
+  test('API 토큰 목록이 길어도 페이지가 가로로 넘치지 않고 폐기 버튼이 보인다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await mockApi(page, 'GET', '/api/v1/users/me/api-tokens', [
@@ -148,14 +142,5 @@ test.describe('@smoke 설정 레이아웃 일관성', () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     )
     expect(overflow).toBeLessThanOrEqual(1)
-  })
-
-  // 구성원 관리 — SettingsPage 전환 후 PageHeader + 액션 버튼 검증
-  test('구성원 페이지가 공용 PageHeader + 액션을 렌더한다', async ({ adminPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/members', createPageResponse([]))
-    await page.goto('/settings/users')
-    await expect(page.getByTestId('page-header')).toContainText('구성원')
-    // 액션 버튼이 PageHeader 로 이동해도 동일 testid 로 노출
-    await expect(page.getByTestId('add-member-button')).toBeVisible()
   })
 })

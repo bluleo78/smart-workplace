@@ -1,4 +1,4 @@
-// 설정 폼 주석 섹션 레이아웃(WP-397) — 1024px 왼쪽 정렬 상한, 헤더 시작선 일치, 본문 768px 기준 2단↔세로 스택.
+// 설정 폼 주석 섹션 레이아웃(WP-397) — 1024px 왼쪽 정렬 상한, 헤더 시작선 일치, 본문 768px 기준 2단↔세로 스택. 모두 실제 기하라 E2E(@layout)다.
 import { setupAdminAuth, setupRoleDetailMocks, setupUserDetailMocks } from '../../fixtures/admin.fixture'
 import { memoryItem, mockAiMemories } from '../../fixtures/ai-memory-mock'
 import { mockApi } from '../../fixtures/api-mock'
@@ -11,7 +11,7 @@ import { installPushManagerStub, mockPushApis } from '../../fixtures/push-mock'
 test.use({ viewport: { width: 1920, height: 1080 } })
 
 test.describe('설정 레이아웃 — 공통 틀', () => {
-  test('목록형(메일 계정)은 전체 폭이고 헤더 제목과 본문 시작선이 같다', async ({ authenticatedPage: page }) => {
+  test('목록형(메일 계정)은 전체 폭이고 헤더 제목과 본문 시작선이 같다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockApi(page, 'GET', '/api/v1/mail/accounts', [])
     await page.goto('/settings/mail')
     const body = page.getByTestId('page-body-content')
@@ -23,7 +23,7 @@ test.describe('설정 레이아웃 — 공통 틀', () => {
     )
   })
 
-  test('폼형(프로필) 본문은 1024px 이하·왼쪽 정렬이다', async ({ authenticatedPage: page }) => {
+  test('폼형(프로필) 본문은 1024px 이하·왼쪽 정렬이다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     const body = page.getByTestId('page-body-content')
     const b = await boxOf(body)
@@ -35,7 +35,7 @@ test.describe('설정 레이아웃 — 공통 틀', () => {
 })
 
 test.describe('설정 레이아웃 — 프로필', () => {
-  test('1920: 섹션이 2단이고 입력은 448px 이하, 시작선이 헤더와 같다', async ({ authenticatedPage: page }) => {
+  test('1920: 섹션이 2단이고 입력은 448px 이하, 시작선이 헤더와 같다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/settings/profile')
     await expectSettingsBodyCapped(page)
     const info = settingsSection(page, '프로필 정보')
@@ -45,7 +45,7 @@ test.describe('설정 레이아웃 — 프로필', () => {
     for (const b of inputs) expect(b.width).toBeLessThanOrEqual(448)
   })
 
-  test('1024: 본문이 768px 미만(712px)이라 세로로 쌓인다', async ({ authenticatedPage: page }) => {
+  test('1024: 본문이 768px 미만(712px)이라 세로로 쌓인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1024, height: 900 })
     await page.goto('/settings/profile')
     await expectStacked(settingsSection(page, '프로필 정보'))
@@ -53,7 +53,7 @@ test.describe('설정 레이아웃 — 프로필', () => {
 })
 
 test.describe('설정 레이아웃 — AI 비서', () => {
-  test('1920: 추천 질문·메모리 섹션이 2단, 토글이 입력 열 오른쪽 끝, 긴 메모리도 넘치지 않는다', async ({ authenticatedPage: page }) => {
+  test('1920: 추천 질문·메모리 섹션이 2단, 토글이 입력 열 오른쪽 끝, 긴 메모리도 넘치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockAiMemories(page, [memoryItem(1, { content: '가'.repeat(300) })])
     await page.goto('/settings/assistant')
     await expectSettingsBodyCapped(page)
@@ -72,7 +72,7 @@ test.describe('설정 레이아웃 — AI 비서', () => {
 
 test.describe('설정 레이아웃 — 알림', () => {
   test.use({ serviceWorkers: 'allow' })
-  test('1920: 이 기기·알림 종류가 2단이고 알림 매트릭스가 입력 열 안에 넘치지 않고 들어간다', async ({ authenticatedPage: page, context }) => {
+  test('1920: 이 기기·알림 종류가 2단이고 알림 매트릭스가 입력 열 안에 넘치지 않고 들어간다', { tag: '@layout' }, async ({ authenticatedPage: page, context }) => {
     await context.grantPermissions(['notifications'])
     await installPushManagerStub(page)
     await mockPushApis(page)
@@ -92,7 +92,7 @@ test.describe('설정 레이아웃 — 알림', () => {
 })
 
 test.describe('설정 레이아웃 — SSO', () => {
-  test('1920: 긴 관리자 동의 링크도 입력 열 안에 있고 스위치는 토글 행이다', async ({ adminPage: page }) => {
+  test('1920: 긴 관리자 동의 링크도 입력 열 안에 있고 스위치는 토글 행이다', { tag: '@layout' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page)
     await mockApi(page, 'GET', '/api/v1/admin/sso', {
       enabled: true,
@@ -112,7 +112,7 @@ test.describe('설정 레이아웃 — SSO', () => {
 })
 
 test.describe('설정 레이아웃 — 단독 토글 행 간격', () => {
-  test('SSO 미가용: 토글 행과 안내 문단 사이가 섹션 간격(16px)과 같다', async ({ adminPage: page }) => {
+  test('SSO 미가용: 토글 행과 안내 문단 사이가 섹션 간격(16px)과 같다', { tag: '@layout' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page)
     await mockApi(page, 'GET', '/api/v1/admin/sso', { enabled: false, available: false, passwordlessMemberCount: 0, adminConsentUrl: null })
     await page.goto('/settings/sso')
@@ -127,7 +127,7 @@ test.describe('설정 레이아웃 — 단독 토글 행 간격', () => {
 })
 
 test.describe('설정 레이아웃 — 관리 상세', () => {
-  test('역할 상세(시스템 역할): 역할 정보·권한 할당이 2단, 이름 입력 448px 이하', async ({ adminPage: page }) => {
+  test('역할 상세(시스템 역할): 역할 정보·권한 할당이 2단, 이름 입력 448px 이하', { tag: '@layout' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page)
     await setupRoleDetailMocks(page, 1, true)
     await page.goto('/settings/roles/1')
@@ -137,7 +137,7 @@ test.describe('설정 레이아웃 — 관리 상세', () => {
     expect((await boxOf(page.getByRole('textbox', { name: '역할 이름' }))).width).toBeLessThanOrEqual(448)
   })
 
-  test('사용자 상세: 기본 정보·활성 상태·역할 할당이 2단', async ({ adminPage: page }) => {
+  test('사용자 상세: 기본 정보·활성 상태·역할 할당이 2단', { tag: '@layout' }, async ({ adminPage: page }) => {
     await setupAdminAuth(page)
     await setupUserDetailMocks(page, 1)
     await page.goto('/settings/users/1')
@@ -152,7 +152,7 @@ test.describe('설정 레이아웃 — 관리 상세', () => {
 })
 
 test.describe('설정 레이아웃 — 프로젝트 설정', () => {
-  test('1920: 시작선 일치·1024 상한(가운데 정렬 아님), 기본 정보·멤버·라벨이 2단', async ({ authenticatedPage: page }) => {
+  test('1920: 시작선 일치·1024 상한(가운데 정렬 아님), 기본 정보·멤버·라벨이 2단', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockProjectSettings(page)
     await page.goto('/projects/WP/settings')
     await expectSettingsBodyCapped(page)
@@ -161,7 +161,7 @@ test.describe('설정 레이아웃 — 프로젝트 설정', () => {
     for (const t of ['기본 정보', '멤버', '라벨', '위험 구역']) await expectSideBySide(settingsSection(page, t))
   })
 
-  test('1920: 인라인 추가 줄(라벨·이슈 유형·필드)의 필드 라벨이 같은 기준선에 선다', async ({ authenticatedPage: page }) => {
+  test('1920: 인라인 추가 줄(라벨·이슈 유형·필드)의 필드 라벨이 같은 기준선에 선다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mockProjectSettings(page)
     await page.goto('/projects/WP/settings')
     // 색상 견본 줄이 입력(h-9)보다 낮으면 items-end 정렬에서 '색상' 라벨이 ~10px 아래로 밀렸다(WP-397 디자인 리뷰).
