@@ -6,7 +6,7 @@ import { openSwControlled } from '../../fixtures/push-mock'
 
 test.use({ serviceWorkers: 'allow' })
 
-test.describe('서비스워커 네비게이션', () => {
+test.describe('서비스워커 네비게이션', { tag: '@platform' }, () => {
   test.skip(process.env.E2E_SERVER !== 'preview', '네비게이션 라우트는 운영 빌드(preview)에서만 등록된다')
 
   test('노트 공유 링크는 SW 앱 셸이 아니라 서버에서 받는다', async ({ authenticatedPage: page }) => {

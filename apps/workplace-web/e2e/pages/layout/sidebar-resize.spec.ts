@@ -1,4 +1,5 @@
 // 앱 왼쪽 목록 폭 조절(WP-878) — 경계선을 끌어 폭을 바꾸고, 앱마다 따로 기억하며, 두 번 누르면 기본 폭으로 돌아간다.
+// 실제 포인터·키보드 입력은 @input, 실제 폭(틀 채움·창 폭 상한·모바일 전체 폭) 측정은 @layout(WP-971).
 // 두 공통 래퍼를 하나씩 본다: 채팅(ResponsiveModuleLayout)·연락처(MobileSidebarSheet). 범위·저장값 해석은 sidebarWidth.test.ts.
 import type { Page } from '@playwright/test'
 
@@ -33,7 +34,7 @@ async function dragHandle(page: Page, dx: number) {
 test.describe('데스크톱', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('경계선을 끌면 목록이 넓어지고, 다시 열어도 그 폭이며 다른 앱 목록 폭은 그대로다 @smoke', async ({ authenticatedPage: page }) => {
+  test('경계선을 끌면 목록이 넓어지고, 다시 열어도 그 폭이며 다른 앱 목록 폭은 그대로다 @smoke', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubChat(page)
     await openApp(page, '/chat')
     // 기본 폭은 예전 고정 폭(w-56)과 같다.
@@ -53,7 +54,7 @@ test.describe('데스크톱', () => {
     expect(await widths(page)).toEqual({ frameW: 224, asideW: 224 })
   })
 
-  test('최소·최대 폭을 넘겨 끌 수 없다', async ({ authenticatedPage: page }) => {
+  test('최소·최대 폭을 넘겨 끌 수 없다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubChat(page)
     await openApp(page, '/chat')
 
@@ -63,7 +64,7 @@ test.describe('데스크톱', () => {
     expect((await widths(page)).frameW).toBe(180)
   })
 
-  test('경계선을 두 번 누르면 기본 폭으로 돌아가고 저장값도 지운다', async ({ authenticatedPage: page }) => {
+  test('경계선을 두 번 누르면 기본 폭으로 돌아가고 저장값도 지운다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openApp(page, '/contacts')
     await dragHandle(page, 80)
     expect((await widths(page)).frameW).toBe(304)
@@ -74,7 +75,7 @@ test.describe('데스크톱', () => {
     expect(await page.evaluate(() => localStorage.getItem('sidebar-width:contacts'))).toBeNull()
   })
 
-  test('Tab 으로 경계선을 잡아 ←→ 로 한 칸씩, Home·End 로 최소·최대 폭으로 바꾼다', async ({ authenticatedPage: page }) => {
+  test('Tab 으로 경계선을 잡아 ←→ 로 한 칸씩, Home·End 로 최소·최대 폭으로 바꾼다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await page.goto('/contacts')
     const handle = page.getByRole('separator', { name: '목록 폭 조절' })
     await handle.focus()
@@ -89,7 +90,7 @@ test.describe('데스크톱', () => {
     expect((await widths(page)).frameW).toBe(180)
   })
 
-  test('움직이지 않은 클릭은 폭을 저장하지 않는다', async ({ authenticatedPage: page }) => {
+  test('움직이지 않은 클릭은 폭을 저장하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openApp(page, '/contacts')
     await page.getByTestId('sidebar-resize-handle').click()
     expect((await widths(page)).frameW).toBe(224)
@@ -99,7 +100,7 @@ test.describe('데스크톱', () => {
   // 8개 앱 목록이 모두 틀을 꽉 채우는지 — 틀은 <aside> 직계 규약에 기대므로 앱마다 배선을 확인한다.
   // 앱 키(widthKey)와 모듈 루트 경로가 같다(/tasks → tasks).
   for (const key of ['tasks', 'chat', 'wiki', 'drive', 'settings', 'mail', 'contacts', 'calendar'] as const) {
-    test(`/${key} 목록은 저장된 폭으로 틀을 채운다`, async ({ authenticatedPage: page }) => {
+    test(`/${key} 목록은 저장된 폭으로 틀을 채운다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await page.addInitScript((k) => localStorage.setItem(`sidebar-width:${k}`, '300'), key)
       await openApp(page, `/${key}`)
       expect(await widths(page)).toEqual({ frameW: 300, asideW: 300 })
@@ -107,7 +108,7 @@ test.describe('데스크톱', () => {
   }
 })
 
-test.describe('좁은 데스크톱 창', () => {
+test.describe('좁은 데스크톱 창', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 1100, height: 800 } })
 
   test('저장 폭이 커도 앱 영역의 40% 를 넘지 않고, 거기서 끌면 보이는 폭부터 줄며 상한 밖으로는 저장하지 않는다', async ({ authenticatedPage: page }) => {
@@ -144,7 +145,7 @@ test.describe('좁은 데스크톱 창', () => {
   })
 })
 
-test.describe('모바일', () => {
+test.describe('모바일', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
   test('모바일 목록에는 폭 조절 손잡이가 없고 목록은 전체 폭이다', async ({ authenticatedPage: page }) => {

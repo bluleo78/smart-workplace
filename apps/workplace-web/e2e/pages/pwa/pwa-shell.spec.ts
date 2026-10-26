@@ -4,7 +4,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 
 test.use({ serviceWorkers: 'allow' })
 
-test.describe('PWA 셸', () => {
+test.describe('PWA 셸', { tag: '@platform' }, () => {
   test('manifest 가 연결되고 앱 정보가 올바르다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await page.goto('/')
     const manifestLink = page.locator('link[rel="manifest"]')

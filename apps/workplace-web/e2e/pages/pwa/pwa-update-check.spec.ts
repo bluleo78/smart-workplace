@@ -8,7 +8,7 @@ import { expect, test } from '../../fixtures/auth.fixture'
 
 test.use({ serviceWorkers: 'allow' })
 
-test.describe('PWA 업데이트 확인', () => {
+test.describe('PWA 업데이트 확인', { tag: '@platform' }, () => {
   test('앱이 다시 화면에 보이면 서비스워커 업데이트를 확인한다', async ({ authenticatedPage: page }) => {
     // 페이지 스크립트보다 먼저 update 를 감싸 호출 횟수를 센다.
     await page.addInitScript(() => {

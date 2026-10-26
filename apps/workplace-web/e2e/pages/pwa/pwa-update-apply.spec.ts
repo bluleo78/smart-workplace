@@ -40,7 +40,7 @@ async function sendControllerChange(page: Page) {
   }
 }
 
-test.describe('PWA 새 버전 적용', () => {
+test.describe('PWA 새 버전 적용', { tag: '@platform' }, () => {
   test('관리 서비스워커가 바뀌면 창을 새로고침한다', async ({ authenticatedPage: page }) => {
     await openControlled(page, '/')
     await expect.poll(() => sendControllerChange(page)).toBe('reloaded')
