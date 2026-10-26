@@ -74,3 +74,11 @@ test('?q 로 펼친 검색 줄은 입력칸을 비워도 접히지 않는다', a
   expect(screen.getByTestId('contact-mobile-search')).toBeInTheDocument()
   expect(screen.queryByTestId('contact-search-open')).not.toBeInTheDocument()
 })
+
+// WP-977 — 모바일 그룹 보기 헤더 「‹ 그룹 이름」. /contacts 는 탭 루트라 하단 탭바의 ✦ 가 남으므로 헤더에 ✦ 를 또 그리지 않는다.
+test('모바일 그룹 보기 헤더에는 ✦ 가 없고 ☰ 시트 버튼이 있다', async () => {
+  renderPage('/contacts?group=10', { handlers })
+  const header = await screen.findByTestId('contact-group-header', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  expect(within(header).queryByTestId('mobile-back-ai')).not.toBeInTheDocument()
+  expect(within(header).getByTestId('mobile-sidebar-trigger')).toHaveAttribute('data-mobile-sidebar-trigger')
+})

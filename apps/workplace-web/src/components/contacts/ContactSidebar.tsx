@@ -41,7 +41,8 @@ export function ContactSidebar() {
   const titleValue = params.get('title') ?? ''
   const hasAdvanced = orgValue !== '' || titleValue !== ''
   // searchParams 의 특정 키만 갱신(나머지 보존).
-  const patch = (next: Record<string, string | null>) => {
+  // replace: 보기 필터(유형·조직·직책)는 이력에 쌓지 않는다. 그룹 이동은 쌓는다(selectGroup) — 모바일 ‹·시스템 뒤로가 그 전 보기로 돌아오게(WP-977).
+  const patch = (next: Record<string, string | null>, replace = true) => {
     setParams(
       (prev) => {
         const sp = new URLSearchParams(prev)
@@ -53,7 +54,7 @@ export function ContactSidebar() {
         }
         return sp
       },
-      { replace: true },
+      { replace },
     )
   }
 
@@ -61,10 +62,11 @@ export function ContactSidebar() {
   const selectedGroupId = parseGroupId(groupParam)
   // 그룹으로 이동하면 이전 보기(타입·외부 고급 필터)는 저절로 풀린다 — 범위 칩 × 로 그룹을 풀었을 때
   // 예전 「외부 + 조직」 필터가 되살아나지 않게 함께 지운다. 검색어(q)는 보기를 바꿔도 이어 간다(WP-976).
-  // 이미 보고 있는 그룹을 다시 누르면 아무것도 바꾸지 않는다 — patch 가 ?contact 를 지워 열린 상세가 닫히지 않게.
+  // 이미 보고 있는 그룹을 다시 누르면 아무것도 바꾸지 않는다 — patch 가 ?contact 를 지워 열린 상세가 닫히지 않게(WP-976).
+  // 다른 그룹으로 옮길 때만 이력에 쌓고, 그룹 해제는 replace 라 ‹ 가 같은 화면으로 돌아오지 않는다(WP-977).
   const selectGroup = (id: number | null) => {
     if (id != null && id === selectedGroupId) return
-    patch({ group: id == null ? null : String(id), type: null, organization: null, title: null })
+    patch({ group: id == null ? null : String(id), type: null, organization: null, title: null }, id == null)
   }
 
   return (
