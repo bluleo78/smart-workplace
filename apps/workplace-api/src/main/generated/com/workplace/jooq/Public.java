@@ -97,6 +97,7 @@ import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectComponent;
+import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectStatus;
@@ -627,6 +628,11 @@ public class Public extends SchemaImpl {
     public final ProjectComponent PROJECT_COMPONENT = ProjectComponent.PROJECT_COMPONENT;
 
     /**
+     * The table <code>public.project_favorite</code>.
+     */
+    public final ProjectFavorite PROJECT_FAVORITE = ProjectFavorite.PROJECT_FAVORITE;
+
+    /**
      * The table <code>public.project_issue_sequence</code>.
      */
     public final ProjectIssueSequence PROJECT_ISSUE_SEQUENCE = ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE;
@@ -942,6 +948,7 @@ public class Public extends SchemaImpl {
             PlatformUserRole.PLATFORM_USER_ROLE,
             Project.PROJECT,
             ProjectComponent.PROJECT_COMPONENT,
+            ProjectFavorite.PROJECT_FAVORITE,
             ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE,
             ProjectMember.PROJECT_MEMBER,
             ProjectStatus.PROJECT_STATUS,

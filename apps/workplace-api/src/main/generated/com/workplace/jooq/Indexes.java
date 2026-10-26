@@ -89,6 +89,7 @@ import com.workplace.jooq.tables.Permission;
 import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectComponent;
+import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectStatus;
@@ -332,6 +333,7 @@ public class Indexes {
     public static final Index IDX_PLATFORM_USER_ROLE_ROLE = Internal.createIndex(DSL.name("idx_platform_user_role_role"), PlatformUserRole.PLATFORM_USER_ROLE, new OrderField[] { PlatformUserRole.PLATFORM_USER_ROLE.PLATFORM_ROLE_ID }, false);
     public static final Index IDX_PROJECT_COMPONENT_ASSIGNEE = Internal.createIndex(DSL.name("idx_project_component_assignee"), ProjectComponent.PROJECT_COMPONENT, new OrderField[] { ProjectComponent.PROJECT_COMPONENT.DEFAULT_ASSIGNEE_ID }, false);
     public static final Index IDX_PROJECT_COMPONENT_TENANT = Internal.createIndex(DSL.name("idx_project_component_tenant"), ProjectComponent.PROJECT_COMPONENT, new OrderField[] { ProjectComponent.PROJECT_COMPONENT.TENANT_ID }, false);
+    public static final Index IDX_PROJECT_FAVORITE_PROJECT = Internal.createIndex(DSL.name("idx_project_favorite_project"), ProjectFavorite.PROJECT_FAVORITE, new OrderField[] { ProjectFavorite.PROJECT_FAVORITE.PROJECT_ID }, false);
     public static final Index IDX_PROJECT_ISSUE_SEQUENCE_TENANT = Internal.createIndex(DSL.name("idx_project_issue_sequence_tenant"), ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE, new OrderField[] { ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE.TENANT_ID }, false);
     public static final Index IDX_PROJECT_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_project_member_tenant"), ProjectMember.PROJECT_MEMBER, new OrderField[] { ProjectMember.PROJECT_MEMBER.TENANT_ID }, false);
     public static final Index IDX_PROJECT_MEMBER_USER = Internal.createIndex(DSL.name("idx_project_member_user"), ProjectMember.PROJECT_MEMBER, new OrderField[] { ProjectMember.PROJECT_MEMBER.USER_ID }, false);
