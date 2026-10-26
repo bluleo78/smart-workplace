@@ -5,10 +5,11 @@
 // IME 조합(@input)·포커스 복원(@input)·긴 제목 줄바꿈(@layout)·버튼 대비(@layout)·history 위치로 출발 목록에 되감기(@platform)는 E2E 에 남는다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeAll, describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { issueBodyDraftKey } from '@/lib/issueBodyDraft'
-import { API, issueDetailScreen, polyfillRadixSelect, projectScreen } from '@/test/kits/projects/projectScreens'
+import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { API, projectScreen } from '@/test/kits/projects/projectScreens'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueResponse } from '@/types/issue'
 
@@ -16,7 +17,6 @@ import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.fac
 import { makeEpicType } from '../../../e2e/factories/issueType.factory'
 import { statusFieldsOf } from '../../../e2e/factories/projectStatus.factory'
 
-beforeAll(polyfillRadixSelect)
 
 const KEY = 'WP'
 const ISSUE = `${API}/projects/${KEY}/issues/1`
@@ -40,7 +40,7 @@ async function openEditable({ patchStatus = 200 }: { patchStatus?: number } = {}
         if (typeof p.body === 'string') state.body = p.body
         return HttpResponse.json(createIssue({ id: 1, number: 1, title: state.title }))
       }),
-      ...issueDetailScreen(KEY, 1, () => createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: state.title }), body: state.body })),
+      ...issueDetailSubHandlers({ key: KEY, number: 1, detail: () => createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: state.title }), body: state.body }) }),
       ...projectScreen(KEY).handlers,
     ],
   })
@@ -220,9 +220,8 @@ describe('삭제 확인 AlertDialog (#161)', () => {
           deletes++
           return new HttpResponse(null, { status: 204 })
         }),
-        ...issueDetailScreen(KEY, 2, () =>
-          createIssueDetail({ summary: createIssue({ id: 2, number: 2, title: '삭제 대상 태스크', ...summary }) }),
-        ),
+        ...issueDetailSubHandlers({ key: KEY, number: 2, detail: () =>
+          createIssueDetail({ summary: createIssue({ id: 2, number: 2, title: '삭제 대상 태스크', ...summary }) }) }),
         ...projectScreen(KEY).handlers,
       ],
     })
@@ -272,7 +271,7 @@ describe('저장 뒤 목록 검색 캐시 무효화 (#175)', () => {
           summary = { ...summary, ...statusFieldsOf(p.statusId) }
           return HttpResponse.json(createIssueDetail({ summary }))
         }),
-        ...issueDetailScreen(KEY, 1, () => createIssueDetail({ summary })),
+        ...issueDetailSubHandlers({ key: KEY, number: 1, detail: () => createIssueDetail({ summary }) }),
         ...screenApi.handlers,
       ],
     })

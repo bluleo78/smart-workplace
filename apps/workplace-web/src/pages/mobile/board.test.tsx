@@ -16,8 +16,6 @@ import { createProject } from '../../../e2e/factories/project.factory'
 import { statusFieldsOf } from '../../../e2e/factories/projectStatus.factory'
 
 mockViewport()
-// jsdom 에는 요소 scrollTo 가 없다 — 탭 전환 때 목록을 맨 위로 올리는 호출(스크롤 위치는 E2E @layout 이 본다).
-if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
 
 const KEY = 'WP'
 const TODO1 = createIssue({ id: 21, number: 21, projectKey: KEY, title: '환불 처리 실패 원인 분석', type: makeTaskType(), status: 'TODO' })

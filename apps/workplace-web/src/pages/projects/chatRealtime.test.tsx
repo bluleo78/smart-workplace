@@ -6,7 +6,8 @@ import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { controllableEvents, issueDetailHandlers } from '@/test/kits/projects/issueDetailEvents'
+import { controllableEvents } from '@/test/kits/projects/issueDetailEvents'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { ChatMessageResponse } from '@/types/chat'
 

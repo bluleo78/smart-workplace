@@ -15,8 +15,6 @@ import { createLabel, toLabelSummary } from '../../../e2e/factories/label.factor
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
 
 mockViewport()
-// jsdom 에는 요소 scrollTo 가 없다 — 보드 탭 전환 때 목록을 맨 위로 올리는 호출(스크롤 위치는 E2E 가 본다).
-if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
 
 const KEY = 'PME'
 const TITLE = '연말정산 증빙서류 정리 및 회사 제출'

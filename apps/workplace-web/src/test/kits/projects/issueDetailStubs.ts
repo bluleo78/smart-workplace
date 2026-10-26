@@ -12,18 +12,8 @@ import type { IssueAttachment } from '@/types/attachment'
 import type { IssueDetailResponse } from '@/types/issue'
 import type { MemberResponse, ProjectResponse } from '@/types/project'
 
-import { createIssue, createIssueDetail } from '../../../../e2e/factories/issue.factory'
+import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
 import { createProject } from '../../../../e2e/factories/project.factory'
-
-// jsdom 에 없는 브라우저 API 의 빈 구현 — 이 도우미를 불러오는 테스트 파일에만 적용된다(공용 setup 은 건드리지 않는다).
-// Radix Select 는 포인터 캡처를, 모바일 탭·목록은 Element.scrollTo 를, 인증 이미지는 objectURL 을 부른다 — 모두 이 테스트들의 관심사가 아니다.
-if (typeof Element !== 'undefined') {
-  if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
-  if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {}
-  if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
-}
-if (typeof URL !== 'undefined' && !URL.createObjectURL) URL.createObjectURL = () => 'blob:fake'
-if (typeof URL !== 'undefined' && !URL.revokeObjectURL) URL.revokeObjectURL = () => {}
 
 /** 기록된 요청 한 건 — body 는 JSON 이면 객체, 아니면(멀티파트 등) 원문 문자열, 없으면 null. */
 export type RecordedRequest = { method: string; path: string; search: URLSearchParams; body: unknown }
@@ -70,6 +60,7 @@ export function recordRequests() {
 
 type IssueDetailOptions = {
   key?: string
+  /** 이슈 번호 — 없으면 detail 의 summary.number(detail 도 없으면 1). */
   number?: number
   /** 상세 응답 — 함수면 요청마다 다시 읽는다(변경 뒤 재조회 반영). */
   detail?: IssueDetailResponse | (() => IssueDetailResponse)
@@ -79,33 +70,54 @@ type IssueDetailOptions = {
   driveLinks?: unknown[] | (() => unknown[])
   /** 드라이브 공간 목록(기본 빈 목록). */
   driveSpaces?: unknown[]
+  /** 테스트 전용 핸들러 — 아래 기본값보다 우선한다. */
+  extra?: RequestHandler[]
 }
 
 const read = <T>(v: T | (() => T)): T => (typeof v === 'function' ? (v as () => T)() : v)
 
-/** 이슈 상세 화면이 부르는 API — E2E mockIssueDetail 과 같은 최소 구성. */
-export function issueDetailHandlers({
+/** 상세의 하위 조회 중 테스트가 값을 주지 않으면 빈 목록으로 답하는 것들 — 상세 화면이 섹션마다 부른다. */
+const EMPTY_DETAIL_SUBS = ['watchers', 'labels', 'children', 'relations', 'dependencies', 'cycles', 'links', 'mail-links']
+
+/**
+ * 이슈 상세 본문과 하위 조회만 — 프로젝트·검색은 다른 도우미(projectScreen 등)가 깔 때 쓴다.
+ * 이슈 상세 목은 여기 하나다(WP-995) — 묶음마다 따로 만든 목(상세 ref·SSE·프로젝트 화면용)을 합쳤다.
+ */
+export function issueDetailSubHandlers({
   key = 'WP',
-  number = 1,
-  detail = createIssueDetail({ summary: createIssue({ projectKey: key, number }) }),
-  project,
-  members = [],
+  number,
+  detail,
   attachments = [],
   driveLinks = [],
-  driveSpaces = [],
-}: IssueDetailOptions = {}): RequestHandler[] {
-  const base = `/api/v1/projects/${key}/issues/${number}`
+}: Pick<IssueDetailOptions, 'key' | 'number' | 'detail' | 'attachments' | 'driveLinks'> = {}): RequestHandler[] {
+  const n = number ?? (detail ? read(detail).summary.number : 1)
+  const body = detail ?? createIssueDetail({ summary: createIssue({ projectKey: key, number: n }) })
+  const base = `/api/v1/projects/${key}/issues/${n}`
   return [
-    http.get(`/api/v1/projects/${key}`, () => HttpResponse.json(createProject({ key, ...project }))),
-    http.get(`/api/v1/projects/${key}/members`, () => HttpResponse.json(members)),
-    http.get(base, () => HttpResponse.json(read(detail))),
-    http.get(`${base}/watchers`, () => HttpResponse.json([])),
-    http.get(`${base}/labels`, () => HttpResponse.json([])),
+    http.get(base, () => HttpResponse.json(read(body))),
     http.get(`${base}/attachments`, () => HttpResponse.json(read(attachments))),
     http.get(`${base}/drive-links`, () => HttpResponse.json(read(driveLinks))),
+    ...EMPTY_DETAIL_SUBS.map((sub) => http.get(`${base}/${sub}`, () => HttpResponse.json([]))),
+  ]
+}
+
+/** 이슈 상세 화면이 부르는 API 전부 — 프로젝트·멤버·상세와 하위 조회·하위 후보 검색·드라이브 공간. extra 가 먼저다. */
+export function issueDetailHandlers({
+  key = 'WP',
+  project,
+  members = [],
+  driveSpaces = [],
+  extra = [],
+  ...detailOptions
+}: IssueDetailOptions = {}): RequestHandler[] {
+  return [
+    ...extra,
+    http.get(`/api/v1/projects/${key}`, () => HttpResponse.json(createProject({ key, ...project }))),
+    http.get(`/api/v1/projects/${key}/members`, () => HttpResponse.json(members)),
+    ...issueDetailSubHandlers({ key, ...detailOptions }),
     http.get('/api/v1/drive/spaces', () => HttpResponse.json(driveSpaces)),
-    // 이슈 생성 다이얼로그·상위 선택이 부르는 목록 — 빈 결과.
-    http.get(`/api/v1/projects/${key}/issues`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
+    // 이슈 생성 다이얼로그·상위 선택·하위 태스크 섹션이 부르는 목록 — 빈 결과.
+    http.get(`/api/v1/projects/${key}/issues`, () => HttpResponse.json(createIssueSearchResponse([], null))),
   ]
 }
 
@@ -113,7 +125,7 @@ export function issueDetailHandlers({
 export async function openIssueDetail(options: IssueDetailOptions & { handlers?: RequestHandler[]; path?: string } = {}) {
   const { handlers = [], path, ...rest } = options
   const key = rest.key ?? 'WP'
-  const number = rest.number ?? 1
+  const number = rest.number ?? (rest.detail ? read(rest.detail).summary.number : 1)
   const view = renderPage(path ?? `/projects/${key}/issues/${number}`, { handlers: [...handlers, ...issueDetailHandlers(rest)] })
   await screen.findByTestId('issue-title-heading', {}, { timeout: PAGE_LOAD_TIMEOUT })
   return view

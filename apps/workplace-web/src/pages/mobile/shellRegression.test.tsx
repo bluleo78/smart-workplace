@@ -6,15 +6,13 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { PAGE_LOAD_TIMEOUT, renderPage, settleHistory } from '@/test/renderPage'
 import { mockViewport } from '@/test/viewport'
 
 import { calendar, calendarEvent } from '../../../e2e/factories/calendar.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 
 mockViewport()
-// jsdom 에는 요소 scrollTo 가 없다 — 캘린더 목록이 세대가 바뀔 때 맨 위로 올리는 호출(스크롤 위치는 E2E 가 본다).
-if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
 
 /** ⌘K — 맥이 아닌 jsdom 에선 Ctrl+K 로 판정된다(ControlOrMeta). */
 const pressCmdK = () => fireEvent.keyDown(document, { key: 'k', code: 'KeyK', ctrlKey: true, metaKey: true })
@@ -64,6 +62,8 @@ test('⌘K 는 AI 시트를 토글하고 Esc 는 닫는다', async () => {
   expect(await screen.findByTestId('ai-sheet')).toBeInTheDocument()
   pressCmdK()
   await waitFor(() => expect(screen.queryByTestId('ai-sheet')).not.toBeInTheDocument())
+  // 닫기는 history.back() — 그 이동이 끝난 뒤 다시 연다(늦게 온 뒤로 가기가 새로 연 시트를 닫지 않게).
+  await settleHistory()
   pressCmdK()
   expect(await screen.findByTestId('ai-sheet')).toBeInTheDocument()
   await user.keyboard('{Escape}')

@@ -19,8 +19,6 @@ import { mailAccount, summary as mailRow } from '../../../e2e/factories/mail.fac
 import { createProject } from '../../../e2e/factories/project.factory'
 
 mockViewport()
-// jsdom 에는 요소 scrollTo 가 없다 — 탭 전환 때 목록을 맨 위로 올리는 호출(스크롤 위치는 E2E @layout 이 본다).
-if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
 
 /** 레이아웃 헬퍼 — 문자열은 모바일 기본 모양(count 3·펼침)으로 정규화. */
 function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {

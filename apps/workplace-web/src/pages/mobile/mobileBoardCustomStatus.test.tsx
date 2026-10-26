@@ -19,9 +19,6 @@ import { inServerOrder, makeProjectStatus, withCustomStatuses } from '../../../e
 // 휴대폰 폭·터치 포인터 — 보드가 모바일 탭 보기로 그려지게 한다.
 mockViewport()
 
-// jsdom 은 요소의 scrollTo 가 없다 — 탭 줄이 선택 탭을 보이게 스크롤하는 호출(스크롤 위치는 E2E @layout 의 관심사)을 빈 구현으로 받는다.
-if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
-
 const KEY = 'WP'
 const ISSUES_PATH = `/api/v1/projects/${KEY}/issues`
 const STATUSES_PATH = `/api/v1/projects/${KEY}/statuses`

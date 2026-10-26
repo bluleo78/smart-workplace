@@ -3,19 +3,13 @@
 // e2e/pages/projects/issue-comment-images.spec.ts 에서 옮겼다. 입력창 안 이미지(붙여넣기·파일 선택·Backspace 삭제)는 E2E(@input)에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeAll, expect, test } from 'vitest'
+import { expect, test } from 'vitest'
 
 import { openIssueDetail } from '@/test/kits/projects/issueDetailStubs'
 
 import { createComment, createIssueDetail } from '../../../e2e/factories/issue.factory'
 
 const IMG_URL = '/api/v1/projects/WP/issue-images/77'
-
-// 본문 이미지는 인증 요청으로 받은 blob 을 objectURL 로 그린다 — jsdom 엔 createObjectURL 이 없어 가짜 URL 을 준다(픽셀 렌더는 관심사가 아니다).
-beforeAll(() => {
-  if (!URL.createObjectURL) URL.createObjectURL = () => 'blob:fake'
-  if (!URL.revokeObjectURL) URL.revokeObjectURL = () => {}
-})
 
 const withImage = () => createComment({ id: 40, issueId: 100, authorId: 1, body: `재현 화면\n![bug.png](${IMG_URL})\n확인 부탁` })
 

@@ -1,39 +1,6 @@
-// 이슈 상세 페이지 테스트 공용 목(WP-980) — 상세 화면이 부르는 부속 조회(구성원·구독·라벨·첨부)를 MSW 로 깐다.
-// E2E 의 setupCommonStubs(activity-timeline·issue-instant-context 등)와 같은 목 집합이다. 앱 셸 기본값(baseHandlers)
-// 위에 얹고, 화면을 검증하는 테스트는 extra 로 같은 경로를 다시 주면 그쪽이 먼저다(MSW 는 앞에 둔 핸들러가 우선).
-import { http, HttpResponse, type RequestHandler } from 'msw'
-
-import type { IssueDetailResponse } from '@/types/issue'
-import type { MemberResponse, ProjectResponse } from '@/types/project'
-
-import { createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
-import { createProject } from '../../../../e2e/factories/project.factory'
-
-type DetailMockOptions = {
-  /** 프로젝트 키 — 기본 WP. */
-  key?: string
-  /** 상세 응답. 함수면 요청마다 다시 부른다(저장 뒤 재조회로 바뀌는 상세). */
-  detail: IssueDetailResponse | (() => IssueDetailResponse)
-  project?: ProjectResponse
-  members?: MemberResponse[]
-  /** 테스트 전용 핸들러 — 아래 기본값보다 우선한다. */
-  extra?: RequestHandler[]
-}
-
-/** 이슈 상세(번호는 detail.summary.number)와 그 부속 조회 핸들러. */
-export function issueDetailHandlers({ key = 'WP', detail, project, members = [], extra = [] }: DetailMockOptions): RequestHandler[] {
-  const read = () => (typeof detail === 'function' ? detail() : detail)
-  const base = `/api/v1/projects/${key}/issues/${read().summary.number}`
-  return [
-    ...extra,
-    http.get(`/api/v1/projects/${key}`, () => HttpResponse.json(project ?? createProject({ key }))),
-    http.get(`/api/v1/projects/${key}/members`, () => HttpResponse.json(members)),
-    http.get(base, () => HttpResponse.json(read())),
-    // 하위 태스크·에픽 후보 검색 — 상세가 부모·자식 목록을 위해 부른다. 기본은 빈 결과.
-    http.get(`/api/v1/projects/${key}/issues`, () => HttpResponse.json(createIssueSearchResponse([], null))),
-    ...['watchers', 'labels', 'attachments'].map((sub) => http.get(`${base}/${sub}`, () => HttpResponse.json([]))),
-  ]
-}
+// 이슈 상세 페이지 테스트의 실시간 도구(WP-980) — 통합 SSE 를 테스트가 프레임을 밀어 넣는 스트림으로 둔다.
+// 상세 화면 조회 목은 issueDetailStubs 의 issueDetailHandlers 하나로 합쳤다(WP-995).
+import { http, HttpResponse } from 'msw'
 
 /**
  * 통합 SSE(/api/v1/events) 를 테스트가 프레임을 밀어 넣을 수 있는 열린 스트림으로 둔다 — E2E 의 mockGatedEvents·pushHeldEvents 자리.

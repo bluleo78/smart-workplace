@@ -5,7 +5,7 @@ import { screen, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { issueDetailHandlers } from '@/test/kits/projects/issueDetailEvents'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'

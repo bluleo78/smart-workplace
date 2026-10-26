@@ -6,8 +6,8 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { chatHandlers, renderPageWithHistory } from '@/test/kits/mobile/chatHistory'
-import { PAGE_LOAD_TIMEOUT, type renderPage } from '@/test/renderPage'
+import { chatHandlers } from '@/test/kits/mobile/chatHistory'
+import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import { mockViewport } from '@/test/viewport'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
@@ -87,7 +87,7 @@ function mailApi(opts: Opts = {}) {
 async function openMail(id: number, opts: Opts = {}) {
   const api = mailApi(opts)
   // 상세 ‹·안 읽음은 히스토리로 닫는다 — 실제 세션 히스토리(BrowserRouter)로 띄운다.
-  const page = renderPageWithHistory('/mail/1', { handlers: api.handlers })
+  const page = renderPage('/mail/1', { handlers: api.handlers })
   await page.user.click(await screen.findByTestId(`mail-row-${id}`, {}, { timeout: PAGE_LOAD_TIMEOUT }))
   return { ...page, api }
 }

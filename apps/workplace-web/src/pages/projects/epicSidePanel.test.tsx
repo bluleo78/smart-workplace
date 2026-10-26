@@ -6,7 +6,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { API, issueDetailScreen, projectScreen } from '@/test/kits/projects/projectScreens'
+import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { API, projectScreen } from '@/test/kits/projects/projectScreens'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueResponse, IssueStatus } from '@/types/issue'
 
@@ -38,7 +39,7 @@ async function openPanel({
     search: (url) => (isEpicSearch(url) ? epicSearch(url) : []),
   })
   // ↗ 로 들어가는 에픽 상세(12) — 이동 뒤 화면이 부르는 조회.
-  const details = [12].flatMap((n) => issueDetailScreen(KEY, n))
+  const details = [12].flatMap((n) => issueDetailSubHandlers({ key: KEY, number: n }))
   const view = renderPage(path, { handlers: [http.get(`${API}/projects/${KEY}/types`, () => HttpResponse.json(types)), ...details, ...api.handlers] })
   const toggle = await screen.findByTestId('epic-panel-toggle', {}, { timeout: PAGE_LOAD_TIMEOUT })
   expect(toggle).toHaveAttribute('aria-pressed', 'false')

@@ -4,7 +4,7 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
-import { issueDetailHandlers } from '@/test/kits/projects/issueDetailEvents'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueDetailResponse, IssueHistoryEntry } from '@/types/issue'
 

@@ -4,9 +4,10 @@
 // 긴 이름 한 줄(@layout)·키보드 구독 뒤 포커스 유지(@input)는 E2E 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
-import { beforeAll, describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
-import { API, type Call, issueDetailScreen, polyfillRadixSelect, projectScreen, toCall } from '@/test/kits/projects/projectScreens'
+import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { API, type Call, projectScreen, toCall } from '@/test/kits/projects/projectScreens'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueDetailResponse, IssueResponse } from '@/types/issue'
 import type { MilestoneResponse } from '@/types/milestone'
@@ -17,7 +18,6 @@ import { makeEpicType, systemTypes } from '../../../e2e/factories/issueType.fact
 import { createAgentMember, createMember } from '../../../e2e/factories/project.factory'
 import { statusFieldsOf, withCustomStatuses } from '../../../e2e/factories/projectStatus.factory'
 
-beforeAll(polyfillRadixSelect)
 
 const KEY = 'WP'
 const ISSUE = `${API}/projects/${KEY}/issues/1`
@@ -41,7 +41,7 @@ async function openDetail(
       ...extra,
       http.get(`${API}/projects/${KEY}/members`, () => HttpResponse.json(members)),
       http.get(`${API}/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
-      ...issueDetailScreen(KEY, 1, () => ref.current),
+      ...issueDetailSubHandlers({ key: KEY, number: 1, detail: () => ref.current }),
       ...projectScreen(KEY, { search }).handlers,
     ],
   })

@@ -14,8 +14,6 @@ import { systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 
 mockViewport()
-// 모바일 보드 탭은 고른 탭으로 가로 스크롤한다 — jsdom 엔 Element.scrollTo 가 없어 빈 구현을 둔다(스크롤 위치는 이 테스트의 관심사가 아니다).
-if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
 
 const KEY = 'PROJ'
 

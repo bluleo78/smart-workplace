@@ -43,23 +43,13 @@ function viewApi(views: SavedViewResponse[]) {
   return { handlers, writes }
 }
 
-/**
- * 브라우저 주소를 라우터 주소에 맞춘다 — renderPage 는 MemoryRouter 라 window.location 이 처음 주소에 머무는데,
- * 목록 화면 일부는 지금 주소를 window.location 으로 읽어(liveSearchParams, WP-955) 다시 쓰므로 그대로 두면 고른 필터가 지워진다.
- * 실제 브라우저에서는 둘이 늘 같다 — 주소가 바뀐 직후마다 맞춘다.
- */
-function syncBrowserUrl(location: string) {
-  window.history.replaceState(window.history.state, '', location)
-}
-
-/** 「+ 필터 › 우선순위 › 값」을 고르고 팝오버를 닫은 뒤, 주소에 값이 들어가면 브라우저 주소도 맞춘다. */
+/** 「+ 필터 › 우선순위 › 값」을 고르고 팝오버를 닫은 뒤, 주소에 값이 들어갈 때까지 기다린다. */
 async function addPriority(user: ReturnType<typeof renderPage>['user'], value: string, location: () => string) {
   await user.click(screen.getByTestId('add-filter-trigger'))
   await user.click(await screen.findByTestId('add-filter-facet-priority'))
   await user.click(await screen.findByTestId(`facet-value-priority-${value}`))
   await user.keyboard('{Escape}')
   await waitFor(() => expect(priorities(location())).toContain(value))
-  syncBrowserUrl(location())
 }
 
 /** 주소의 priority 값(순서 무관). */
