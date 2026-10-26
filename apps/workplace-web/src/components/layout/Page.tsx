@@ -1,6 +1,5 @@
 // 페이지 틀 — 헤더(Page.Header)와 본문(Page.Body)이 같은 여백(16px)·폭 기준을 공유한다.
 // 왜: 헤더·본문 여백/폭을 화면마다 따로 정해 넓은 화면·읽기 폭 화면에서 좌우 축이 어긋났다(이슈 상세 372px 등).
-import { Menu } from 'lucide-react'
 import { createContext, type ReactNode, type Ref, useContext, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
@@ -11,7 +10,7 @@ import { useMobileChrome } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
 import { MobileHeaderMore } from '@/components/mobile/MobileHeaderMore'
-import { useMobileSidebarSheet } from '@/components/mobile/MobileSidebarSheetContext'
+import { MobileSidebarSheetTrigger } from '@/components/mobile/MobileSidebarSheetTrigger'
 import { NotificationBell } from '@/components/mobile/NotificationBell'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -79,6 +78,11 @@ interface PageHeaderProps {
   className?: string
   /** 선택: 제목 앞/대신 오는 위치 표시(이슈 ←+브레드크럼, 위키 경로). 데스크톱 전용 — 모바일은 title 사용. */
   leading?: ReactNode
+  /**
+   * 선택: 좌측 그룹(leading 포함)이 남는 폭을 모두 받게 한다(flex-1). 공용 Breadcrumb 처럼 받은 폭을 재 접기를 정하는 leading 이 켠다(WP-977).
+   * 내용 폭만 차지하면 한 번 접힌 경로가 넓어진 창에서 다시 펼쳐질 때를 알 수 없다. 기존 leading(노트·이슈 경로)은 끄고 둔다 — 그들의 @container 판정 폭이 바뀌지 않게.
+   */
+  leadingGrow?: boolean
   /** 기존 테스트 호환용 testid override(기본 'page-header'). */
   'data-testid'?: string
   /** 모바일 전용: ⋯ 메뉴 밖에 인라인으로 둘 주 액션 하나(보통 ＋ 아이콘 버튼). */
@@ -135,7 +139,6 @@ function MobilePageHeader({
   mobileOnBack,
   'data-testid': testId = 'page-header',
 }: Omit<PageHeaderProps, 'mobile'>) {
-  const sheet = useMobileSidebarSheet()
   // 모바일 상세(ResponsiveModuleLayout 상세 분기) 안이면 등록 → 레이아웃의 뒤로가기 바 대신 이 헤더가 ‹·✦ 를 품는다(U1-1).
   const detail = useMobileDetailHeader(true)
   // 액션을 가로 스크롤 줄로 늘어놓지 않고 ⋯ 로 접어 제목 폭을 지킨다(U1-2).
@@ -146,12 +149,7 @@ function MobilePageHeader({
       {menu != null && menu !== false && (
         <MobileHeaderMore icon={mobileMenuIcon} label={mobileMenuLabel}>{menu}</MobileHeaderMore>
       )}
-      {sheet && !mobileHideSheetTrigger && (
-        <button type="button" data-mobile-sidebar-trigger data-testid="mobile-sidebar-trigger" aria-label="목록 열기" onClick={sheet.openSheet}
-          className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground">
-          <Menu className="h-5 w-5" />
-        </button>
-      )}
+      {!mobileHideSheetTrigger && <MobileSidebarSheetTrigger />}
     </>
   )
   if (detail) {
@@ -187,6 +185,7 @@ function DesktopPageHeader({
   srTitle,
   icon,
   leading,
+  leadingGrow = false,
   meta,
   actions,
   className,
@@ -208,7 +207,8 @@ function DesktopPageHeader({
       <div className={cn('flex w-full min-w-0 items-center justify-between gap-2', pageGutterClass)}>
         {/* AI 칩은 fixed(레일·옆 패널 폭에 따라 이동) — 좌측 그룹이 칩 좌측 경계를 넘지 않게 useAiChipClamp 가 max-width 를 실측해 둔다.
             줄어드는 것은 제목·위치 표시(truncate/min-w-0)이고, icon 슬롯(캘린더 이동 버튼 등)은 shrink-0 로 온전히 남긴다. */}
-        <div ref={leftGroupRef} className="flex min-w-0 items-center gap-2">
+        {/* leadingGrow 면 좌측 그룹이 남는 폭을 모두 받는다(flex-1) — 공용 Breadcrumb 가 그 폭을 재 접을지 정한다(WP-977). 오른쪽 actions 는 shrink-0 이라 위치가 같다. */}
+        <div ref={leftGroupRef} className={cn('flex min-w-0 items-center gap-2', leadingGrow && 'flex-1')}>
           {icon != null && <div className="flex shrink-0 items-center">{icon}</div>}
           {leading}
           {title != null && <h1 className={cn(appTitleTextClass, 'truncate')}>{title}</h1>}

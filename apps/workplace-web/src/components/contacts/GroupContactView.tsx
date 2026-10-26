@@ -95,12 +95,7 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted, 
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="group-contact-view">
-      <div className="flex items-center gap-2 border-b px-4 py-2">
-        <span className="text-sm font-medium">{detail.name}</span>
-        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-          {detail.visibility === 'SHARED' ? '조직도' : '내 그룹'}
-        </span>
-      </div>
+      {/* 그룹 이름·조직도 배지 줄은 두지 않는다 — 위치는 페이지 헤더의 브레드크럼(데스크톱)·「‹ 이름」(모바일)이 보인다(WP-977, §B-1). */}
       <div className="flex-1 overflow-y-auto p-4">
         {sharedSubtree && !searching && (
           <div className="mb-4">
