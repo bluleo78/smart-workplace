@@ -51,6 +51,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -706,9 +707,11 @@ class WikiShareServiceTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.inheritedFrom.pageId").value(rootId))
         .andExpect(jsonPath("$.inheritedFrom.title").value("제품 로드맵"));
 
-    // 만료된 상위 공유는 보이지 않는다.
+    // 만료된 상위 공유는 보이지 않는다 — 만료 판정은 DB now() 와 비교하므로 같은 DB 시계로 당긴다(컨테이너 시계 어긋남 대비).
     dsl.update(WIKI_PAGE_SHARE)
-        .set(WIKI_PAGE_SHARE.EXPIRES_AT, OffsetDateTime.now().minusMinutes(1))
+        .set(
+            WIKI_PAGE_SHARE.EXPIRES_AT,
+            DSL.field("now() - interval '1 minute'", OffsetDateTime.class))
         .where(WIKI_PAGE_SHARE.PAGE_ID.eq(rootId))
         .execute();
     call(get(sharePath(grandchildId)), ownerId).andExpect(jsonPath("$.inheritedFrom").isEmpty());

@@ -698,9 +698,12 @@ class WikiCollabInternalIntegrationTest extends IntegrationTestBase {
         .execute();
   }
 
-  /** DB 시계 기준 minutes 분 전 — 비교 대상 시각을 DB 정밀도·시계로 맞춘다. */
+  /**
+   * 앱(JVM) 시계 기준 minutes 분 전 — 스냅샷 판정({@code WikiCollabDocService})이 {@code OffsetDateTime.now()} 와
+   * 비교하므로 같은 시계로 당긴다. DB now() 로 당기면 컨테이너 VM 시계가 호스트와 어긋날 때(잠자기 뒤 등) 5분 경계를 넘어 판정이 바뀐다.
+   */
   private static Field<OffsetDateTime> minutesAgo(int minutes) {
-    return DSL.field("now() - make_interval(mins => {0})", OffsetDateTime.class, DSL.val(minutes));
+    return DSL.val(OffsetDateTime.now().minusMinutes(minutes));
   }
 
   private OffsetDateTime bodyChangedAt(long pageId) {
