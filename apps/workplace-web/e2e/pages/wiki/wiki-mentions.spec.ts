@@ -2,6 +2,7 @@
 // (a) '@' 입력 → 통합 검색 API 호출(query param) → 후보 렌더 → 선택 시 칩 삽입,
 // (b) 멘션 포함 본문이 동기화 서버 문서(마크다운)에 토큰(<#page:id>·<@id>)으로 저장(입력→저장본, WP-172),
 // (c) 토큰 포함 본문 로드 → 에디터에 칩 렌더(라운드트립) + 무편집 저장 시 본문 토큰 동일성.
+// 백링크 패널(목록·이동·없으면 숨김)은 src/pages/wiki/wikiPage.test.tsx 가 지킨다(WP-983).
 import type {
   IssueResponse,
   IssueSearchResponse,
@@ -241,7 +242,7 @@ async function setupSearchMocks(page: import('@playwright/test').Page) {
 }
 
 test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 선택 시 칩 삽입 + 저장 토큰', {
-  tag: '@smoke',
+  tag: ['@input', '@smoke'],
 }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, { role: 'EDITOR', body: '' })
   const search = await setupSearchMocks(page)
@@ -284,7 +285,7 @@ test('위키 @ 멘션 — 통합 검색 호출 → 후보 렌더 → 페이지 �
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain(`<#page:${WIKI_PAGE.id}>`)
 })
 
-test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집 저장 라운드트립(토큰 동일성)', async ({
+test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집 저장 라운드트립(토큰 동일성)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   // 본문에 유저·페이지 토큰이 텍스트로 들어있는 페이지. 로드 시 칩으로 치환돼야 한다.
@@ -316,7 +317,7 @@ test('위키 @ 멘션 — 토큰 포함 본문 로드 시 칩 렌더 + 무편집
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('담당 <@7> 은 <#page:55> 문서를 본다!')
 })
 
-test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표시(피드백)', async ({
+test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표시(피드백)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   // 모든 검색 API 가 빈 배열/객체를 반환 → 후보 없음 상태를 재현.
@@ -360,7 +361,7 @@ test('위키 @ 멘션 — 검색 결과 없을 때 결과 없음 메시지 표�
   await expect(page.getByTestId('wiki-mention-popover')).toHaveCount(0)
 })
 
-test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(역할 게이트)', async ({
+test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(역할 게이트)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, { role: 'VIEWER', body: '' })
@@ -379,7 +380,7 @@ test('위키 @ 멘션 — VIEWER 는 @ 멘션 피커가 노출되지 않는다(�
 // 칩 노드 attrs 는 {mtype,id} 뿐이라 라우트의 spaceId/projectKey/number 는
 // useWikiMentions 해소 결과(WikiMentionRef)에서 룩업한다(노드 attrs 미추가 결정).
 
-test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이동(해소 spaceId 사용)', async ({
+test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이동(해소 spaceId 사용)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   // PAGE 토큰 본문 + 해소 결과(spaceId=1). 칩 클릭 시 /wiki/spaces/1/pages/55 로 이동해야 한다.
@@ -399,7 +400,7 @@ test('위키 멘션 칩 — PAGE 칩 클릭 시 위키 페이지 경로로 이�
   expect(new URL(page.url()).pathname).toBe(`/wiki/spaces/${SPACE_ID}/pages/55`)
 })
 
-test('위키 멘션 칩 — ISSUE 칩 클릭 시 이슈 상세 경로로 이동(해소 projectKey/number 사용)', async ({
+test('위키 멘션 칩 — ISSUE 칩 클릭 시 이슈 상세 경로로 이동(해소 projectKey/number 사용)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   // ISSUE 토큰 본문 + 해소 결과(projectKey=WP, number=12). /projects/WP/issues/12 로 이동.
@@ -420,40 +421,10 @@ test('위키 멘션 칩 — ISSUE 칩 클릭 시 이슈 상세 경로로 이동(
 
 // ── S4: 백링크 패널 ─────────────────────────────────────────────────────────
 
-test('위키 백링크 패널 — 참조 페이지 칩 렌더 + 클릭 시 출처 페이지로 이동', async ({
-  authenticatedPage: page,
-}) => {
-  // 이 페이지를 참조하는 두 출처 페이지 — 서로 다른 스페이스(1·2)로 둬 "각 백링크 자신의 spaceId 로
-  // 이동" 로직을 실검증한다(현재 페이지 spaceId 하드코딩이면 두 번째 항목에서 깨진다).
-  const OTHER_SPACE_ID = 2
-  const BACKLINKS: WikiBacklink[] = [
-    { pageId: 501, spaceId: SPACE_ID, spaceName: '팀 위키', title: '회의록 2026', updatedAt: '2026-06-10T00:00:00Z' },
-    { pageId: 502, spaceId: OTHER_SPACE_ID, spaceName: '엔지니어링', title: '제품 로드맵', updatedAt: '2026-06-11T00:00:00Z' },
-  ]
-  await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: BACKLINKS })
-  await setupSearchMocks(page)
-
-  await open(page)
-
-  // 패널 + 두 백링크가 셀 단위로 렌더되는지(제목·스페이스명).
-  const panel = page.getByTestId('wiki-backlinks-panel')
-  await expect(panel).toBeVisible()
-  await expect(panel).toContainText('이 페이지를 참조하는 곳')
-  await expect(page.getByTestId('wiki-backlink-501')).toContainText('회의록 2026')
-  await expect(page.getByTestId('wiki-backlink-501')).toContainText('팀 위키')
-  await expect(page.getByTestId('wiki-backlink-502')).toContainText('제품 로드맵')
-  await expect(page.getByTestId('wiki-backlink-502')).toContainText('엔지니어링')
-
-  // 두 번째 백링크 클릭 → 자신의 spaceId(2)/pageId(502)로 이동(현재 페이지 spaceId=1 아님).
-  await page.getByTestId('wiki-backlink-502').click()
-  await page.waitForURL(`**/wiki/spaces/${OTHER_SPACE_ID}/pages/502`)
-  expect(new URL(page.url()).pathname).toBe(`/wiki/spaces/${OTHER_SPACE_ID}/pages/502`)
-})
-
 // ── 팝업 max-height 회귀 (#250) ─────────────────────────────────────────────
 // WikiMentionList 에 max-h-60(240px) 이 적용되어 결과가 많아도 팝업이 뷰포트를 넘지 않는다.
 
-test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으로 스크롤 생성(뷰포트 넘침 방지)', async ({
+test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으로 스크롤 생성(뷰포트 넘침 방지)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   // PER_TYPE=5 제한으로 유저·페이지·이슈 각 5개 = 총 15개 항목 렌더 → 팝업 높이가 240px 초과.
@@ -554,14 +525,3 @@ test('위키 @ 멘션 팝업 — 결과 多 경우 max-height(240px) 적용으�
   expect(hasScroll).toBe(true)
 })
 
-test('위키 백링크 패널 — 백링크가 없으면 패널이 숨겨진다', async ({
-  authenticatedPage: page,
-}) => {
-  // 빈 백링크 → 패널 미노출(절제).
-  await setupWikiMocks(page, { role: 'EDITOR', body: '', backlinks: [] })
-  await setupSearchMocks(page)
-
-  await open(page)
-
-  await expect(page.getByTestId('wiki-backlinks-panel')).toHaveCount(0)
-})

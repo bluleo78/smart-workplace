@@ -59,13 +59,13 @@ async function openNote(page: Page, title: string) {
 test.describe('데스크톱 1440', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('긴 제목이 글자 중간에서 잘리지 않고 여러 줄로 감겨 다 보인다', async ({ authenticatedPage: page }) => {
+  test('긴 제목이 글자 중간에서 잘리지 않고 여러 줄로 감겨 다 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await openNote(page, LONG_TITLE)
     await expect(page.getByTestId('mobile-shell')).toHaveCount(0)
     await expectWrappedWhole(page)
   })
 
-  test('붙여넣은 개행은 공백 하나가 되고 커서는 붙여넣은 자리 뒤에 남으며 한 줄 제목으로 저장된다', async ({
+  test('붙여넣은 개행은 공백 하나가 되고 커서는 붙여넣은 자리 뒤에 남으며 한 줄 제목으로 저장된다', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -84,7 +84,7 @@ test.describe('데스크톱 1440', () => {
     await expect.poll(() => puts.lastBody<{ title: string }>()?.title).toBe('앞가 나!뒤')
   })
 
-  test('한글 조합 중 Enter 는 글자 확정만 하고 본문으로 옮기지 않는다', async ({ authenticatedPage: page }) => {
+  test('한글 조합 중 Enter 는 글자 확정만 하고 본문으로 옮기지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openNote(page, '회의록')
     const field = titleField(page)
     await field.click()
@@ -100,7 +100,7 @@ test.describe('데스크톱 1440', () => {
     await expect(field).toHaveValue('회의록')
   })
 
-  test('macOS Chrome 한글 IME — 조합 Enter 뒤 compositionend 와 함께 오는 조합 아닌 Enter 한 번도 본문으로 옮기지 않는다', async ({
+  test('macOS Chrome 한글 IME — 조합 Enter 뒤 compositionend 와 함께 오는 조합 아닌 Enter 한 번도 본문으로 옮기지 않는다', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     await openNote(page, '회의록')
@@ -114,7 +114,7 @@ test.describe('데스크톱 1440', () => {
     await expect(page.locator('.ProseMirror')).toBeFocused()
   })
 
-  test('개행이 든 채 저장된 제목(API·MCP)도 한 줄로 보이고, 열기만 해서는 저장하지 않는다', async ({ authenticatedPage: page }) => {
+  test('개행이 든 채 저장된 제목(API·MCP)도 한 줄로 보이고, 열기만 해서는 저장하지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const puts = await openNote(page, '첫 줄\r\n둘째 줄\n셋째 줄')
     const field = titleField(page)
     await expect(field).toHaveValue('첫 줄 둘째 줄 셋째 줄')
@@ -124,7 +124,7 @@ test.describe('데스크톱 1440', () => {
     await expectStays(page, () => puts.count(), 0)
   })
 
-  test('다른 곳에서 제목이 길게 바뀌면 새로고침 없이 높이가 늘어 다 보인다', async ({ authenticatedPage: page }) => {
+  test('다른 곳에서 제목이 길게 바뀌면 새로고침 없이 높이가 늘어 다 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const events = await mockGatedEvents(page)
     await openNote(page, '짧은 제목')
     const field = titleField(page)
@@ -149,7 +149,7 @@ test.describe('데스크톱 1440', () => {
   })
 })
 
-test.describe('모바일 390', () => {
+test.describe('모바일 390', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
   test('긴 제목이 글자 중간에서 잘리지 않고 여러 줄로 감겨 다 보인다', async ({ authenticatedPage: page }) => {
@@ -176,7 +176,7 @@ test.describe('모바일 390', () => {
 })
 
 // 시각 검증 스크린샷 — 데스크톱·모바일 × 라이트·다크. 평소 회귀 실행에선 건너뛴다.
-test.describe('시각 검증', () => {
+test.describe('시각 검증', { tag: '@layout' }, () => {
   test.skip(!process.env.WIKI_TITLE_SHOTS, '시각 검증 스크린샷 전용 — WIKI_TITLE_SHOTS 가 있을 때만')
 
   for (const [tag, viewport] of [

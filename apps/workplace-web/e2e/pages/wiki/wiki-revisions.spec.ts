@@ -1,35 +1,15 @@
+// 목록(날짜 묶음·현재 버전·✦·선택 표시·닫기)과 뒤로 가기(미리보기 → 목록 → 노트)는 src/pages/wiki/wikiPage.test.tsx 가 지킨다(WP-983).
+// 여기 남은 것은 라이브 문서(동기화 서버)와 비교·복원하는 시나리오(@platform)다.
 import type { Page } from '@playwright/test'
 
 import { BACKGROUND_DISCONNECT_MS } from '../../../src/lib/collab/collabResume'
 import { expect, test } from '../../fixtures/auth.fixture'
-import {
-  applyCollabMarkdown,
-  changeCollabRole,
-  leaveAllCollabPeers,
-  readCollabMarkdown,
-  setPageVisibility,
-  typeAtEnd,
-} from '../../fixtures/collab'
+import { applyCollabMarkdown, changeCollabRole, leaveAllCollabPeers, readCollabMarkdown, setPageVisibility, typeAtEnd } from '../../fixtures/collab'
 import { KIM } from '../../fixtures/presence'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
 import { expectStays } from '../../fixtures/wait'
 import { mockWikiMentions, mockWikiPageEditor, mockWikiRevisions } from '../../fixtures/wiki-mock'
-import {
-  CHOI,
-  REVISION_DETAILS as DETAILS,
-  REVISION_LIST as LIST,
-  REVISION_LIVE as LIVE,
-  REVISION_NOW as NOW,
-  REVISION_PAGE_ID as PAGE_ID,
-  REVISION_SPACE_ID as SPACE_ID,
-  REVISION_TITLE as TITLE,
-  openRevisionHistory as openHistory,
-  revisionItem as revItem,
-  revisionPagePath as pagePath,
-  revisionPreview as preview,
-  revisionShot as shot,
-} from '../../fixtures/wiki-revisions'
-import { expectSelectedRow } from '../../fixtures/selection'
+import { CHOI, REVISION_DETAILS as DETAILS, REVISION_LIST as LIST, REVISION_LIVE as LIVE, REVISION_NOW as NOW, REVISION_PAGE_ID as PAGE_ID, REVISION_SPACE_ID as SPACE_ID, REVISION_TITLE as TITLE, openRevisionHistory as openHistory, revisionItem as revItem, revisionPagePath as pagePath, revisionPreview as preview, revisionShot as shot } from '../../fixtures/wiki-revisions'
 
 // 노트 버전 기록(WP-282) 데스크톱 — 헤더 ⋯ → 버전 기록 패널, 판 미리보기(변경 표시), 복원, 복귀 토스트 "변경 보기".
 // 버전 기록 API 는 route 목(mockWikiRevisions), 본문 동기화는 테스트 모드 동기화 서버(실서버)다. 데이터는 fixtures/wiki-revisions(모바일 spec 과 공용).
@@ -41,37 +21,7 @@ const bar = (p: Page) => p.getByTestId('wiki-revision-bar')
 
 test.afterEach(() => leaveAllCollabPeers())
 
-test.describe('노트 버전 기록', () => {
-  test('⋯ → 버전 기록은 날짜로 묶은 목록을 보이고, 맨 위는 현재 버전, AI 적용 직전 판은 ✦ 표식이다', async ({ authenticatedPage: a }) => {
-    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE })
-    await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: DETAILS })
-    await a.clock.install({ time: NOW })
-    await a.goto(pagePath)
-    await openHistory(a)
-
-    await expect(a).toHaveURL(/[?&]history=1/)
-    await expect(panel(a).locator('h3')).toHaveText(['오늘', '어제', '10월 5일'])
-    await expect(revItem(a, 'current')).toContainText('현재 버전')
-    await expect(revItem(a, 'current')).toContainText('김철수 외 2명 · 편집 중')
-    await expect(revItem(a, 'current')).toHaveAttribute('aria-current', 'true')
-    await expect(revItem(a, 6)).toContainText('14:32')
-    await expect(revItem(a, 6)).toContainText('이영희 (AI 수정)')
-    await expect(revItem(a, 6).locator('svg.lucide-sparkles')).toBeVisible()
-    await expect(revItem(a, 5)).toContainText('김철수, 박민수')
-    await expect(revItem(a, 3)).toContainText('17:48')
-    await expect(revItem(a, 2)).toContainText('09:12')
-
-    // WP-368 — 선택 줄(aria-current)만 선택 표시(막대 + bg-selected), 다른 줄엔 없다. 판을 고르면 표시가 옮겨 간다.
-    await expectSelectedRow(revItem(a, 'current'), revItem(a, 5))
-    await revItem(a, 5).click()
-    await expect(revItem(a, 5)).toHaveAttribute('aria-current', 'true')
-    await expectSelectedRow(revItem(a, 5), revItem(a, 'current'))
-
-    // ✕ 로 닫으면 패널·쿼리가 사라진다.
-    await a.getByTestId('wiki-revision-panel-close').click()
-    await expect(panel(a)).toHaveCount(0)
-    await expect(a).not.toHaveURL(/history=/)
-  })
+test.describe('노트 버전 기록', { tag: '@platform' }, () => {
 
   test('목록을 연 채 다른 사람이 고치거나 복원하면(wiki.page.updated) 새 판이 생기고 현재 버전이 바뀐다', async ({ authenticatedPage: a }) => {
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE })
@@ -253,28 +203,6 @@ test.describe('노트 버전 기록', () => {
     await expect(b.locator('.ProseMirror')).not.toContainText('Yjs 로 간다')
     await expect(a.locator('.ProseMirror')).toContainText('아직 정하지 않았다.')
     expect(await readCollabMarkdown(collabNs, PAGE_ID)).toContain('아직 정하지 않았다.')
-  })
-
-  test('뒤로가기는 미리보기 → 목록 → 노트 순으로 닫는다', async ({ authenticatedPage: a }) => {
-    await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: LIVE })
-    await mockWikiRevisions(a, { pageId: PAGE_ID, list: LIST, details: DETAILS })
-    await a.clock.install({ time: NOW })
-    await a.goto(pagePath)
-    await openHistory(a)
-    await revItem(a, 5).click()
-    await expect(bar(a)).toBeVisible()
-    await expect(a).toHaveURL(/[?&]rev=5/)
-
-    await a.goBack()
-    await expect(bar(a)).toHaveCount(0)
-    await expect(panel(a)).toBeVisible()
-    await expect(revItem(a, 'current')).toHaveAttribute('aria-current', 'true')
-    await expect(a).toHaveURL(/[?&]history=1/)
-    await expect(a).not.toHaveURL(/rev=/)
-
-    await a.goBack()
-    await expect(panel(a)).toHaveCount(0)
-    await expect(a).toHaveURL(new RegExp(`${pagePath}$`))
   })
 
   test('본문에 커서를 둔 채 미리보기로 들어가도(앞으로 가기) 키 입력이 가려진 노트에 들어가지 않는다', async ({ authenticatedPage: a, collabNs }) => {

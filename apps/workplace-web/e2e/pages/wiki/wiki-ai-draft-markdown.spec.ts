@@ -98,7 +98,7 @@ async function startDraft(page: Page) {
   await page.getByTestId('rename-dialog-confirm').click()
 }
 
-test('노트 AI 초안 — 토큰 경계로 쪼개진 표·굵게·2단 목록이 실제 서식으로 렌더되고 제목 H1 은 빠진다 (WP-255)', async ({
+test('노트 AI 초안 — 토큰 경계로 쪼개진 표·굵게·2단 목록이 실제 서식으로 렌더되고 제목 H1 은 빠진다 (WP-255)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: '' })
@@ -142,7 +142,7 @@ test('노트 AI 초안 — 토큰 경계로 쪼개진 표·굵게·2단 목록�
   expect(saved).not.toContain(`# ${TITLE}`)
 })
 
-test('노트 AI 초안 — 생성 중엔 진행 표시만 보이고 본문엔 부분 결과가 들어가지 않으며, 취소하면 버려진다 (WP-255)', async ({
+test('노트 AI 초안 — 생성 중엔 진행 표시만 보이고 본문엔 부분 결과가 들어가지 않으며, 취소하면 버려진다 (WP-255)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: TITLE, body: '' })

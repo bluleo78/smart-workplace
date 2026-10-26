@@ -28,7 +28,7 @@ async function pastePlainText(page: Page, text: string) {
   }, text)
 }
 
-test('스파이크 — 합성 paste 가 마크다운으로 변환된다', async ({ authenticatedPage: page }) => {
+test('스파이크 — 합성 paste 가 마크다운으로 변환된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setup(page, '')
   await open(page)
 
@@ -38,7 +38,7 @@ test('스파이크 — 합성 paste 가 마크다운으로 변환된다', async 
   await expect(page.locator('.ProseMirror h2')).toHaveText('붙여넣은 제목')
 })
 
-test('마크다운 블록이 서식으로 변환되고 저장본으로 왕복한다', async ({ authenticatedPage: page }) => {
+test('마크다운 블록이 서식으로 변환되고 저장본으로 왕복한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setup(page, '')
   await open(page)
 
@@ -75,7 +75,7 @@ test('마크다운 블록이 서식으로 변환되고 저장본으로 왕복한
 // 예외 분기"(selection 이 codeBlock 안이면 clipboardTextParser/변환 훅 호출 전에 평문으로
 // 단락시키는 동작)다. 즉 코드블록 안까지 마크다운 변환이 침범하는 회귀를 잡는 테스트이며,
 // 메인 스위치(마크다운 붙여넣기 변환 자체)를 지키는 것은 나머지 3건이다.
-test('코드블록 예외 — 코드블록 안에서는 평문으로 남는다', async ({ authenticatedPage: page }) => {
+test('코드블록 예외 — 코드블록 안에서는 평문으로 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 코드블록이 이미 있는 본문에서 시작 — ProseMirror 가 inCode 를 clipboardTextParser 호출
   // 전에 단락시키는지 확인한다(별도 handlePaste 를 짜지 않은 근거).
   await setup(page, '```\n기존 코드\n```')
@@ -90,7 +90,7 @@ test('코드블록 예외 — 코드블록 안에서는 평문으로 남는다',
   await expect(page.locator('.ProseMirror h2')).toHaveCount(0)
 })
 
-test('평문 HTML 은 렌더된다 (수용된 동작 고정)', async ({ authenticatedPage: page }) => {
+test('평문 HTML 은 렌더된다 (수용된 동작 고정)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 의도적으로 이 동작을 고정한다. markdown-it 의 html:true 때문에 평문 HTML 이 렌더되는데,
   // 이를 Markdown.configure({html:false}) 로 "고치면" 기존 페이지에 raw HTML 로 저장된 표(#742
   // 폴백 경로)의 로드가 깨진다. 즉 버그가 아니라 감수한 트레이드오프다 — 이 테스트가 깨지면
@@ -104,7 +104,7 @@ test('평문 HTML 은 렌더된다 (수용된 동작 고정)', async ({ authenti
   await expect(page.locator('.ProseMirror strong')).toHaveText('굵게')
 })
 
-test('마크다운 링크를 붙여넣으면 링크로 들어가고 저장본에 그대로 남는다 (WP-300)', async ({ authenticatedPage: page }) => {
+test('마크다운 링크를 붙여넣으면 링크로 들어가고 저장본에 그대로 남는다 (WP-300)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setup(page, '')
   await open(page)
 
@@ -115,7 +115,7 @@ test('마크다운 링크를 붙여넣으면 링크로 들어가고 저장본에
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toContain('참고: [설계 문서](https://example.com/spec)')
 })
 
-test('맨 URL 을 붙여넣으면 자동 링크가 되지 않고 글자로 남는다 (WP-300)', async ({ authenticatedPage: page }) => {
+test('맨 URL 을 붙여넣으면 자동 링크가 되지 않고 글자로 남는다 (WP-300)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 링크 마크를 들이면서 저장 마크다운이 `<url>` 로 바뀌지 않게 자동 링크(autolink·붙여넣기 규칙)를 껐다.
   await setup(page, '')
   await open(page)
@@ -128,7 +128,7 @@ test('맨 URL 을 붙여넣으면 자동 링크가 되지 않고 글자로 남�
   await expect.poll(() => savedMarkdown(page, PAGE_ID)).toBe('https://example.com/plain')
 })
 
-test('HTML 로 붙여넣은 링크의 공백 든 주소가 인코딩돼 링크로 저장된다 (WP-300)', async ({ authenticatedPage: page }) => {
+test('HTML 로 붙여넣은 링크의 공백 든 주소가 인코딩돼 링크로 저장된다 (WP-300)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 브라우저에서 복사한 링크(text/html)는 markdown-it 을 거치지 않아 주소가 정규화되지 않았다 — 공백이 그대로면
   // 저장본의 [t](a b) 가 링크 문법이 아니라 다음에 열 때 평문이 된다.
   await setup(page, '')
@@ -148,7 +148,7 @@ test('HTML 로 붙여넣은 링크의 공백 든 주소가 인코딩돼 링크�
 
 // WP-314 — 여러 줄 붙여넣기는 줄마다 줄바꿈(hardBreak)으로 남아야 한다. 굵게 바로 뒤 줄바꿈도 마찬가지다.
 // 소프트 줄바꿈을 공백으로 바꾸던 첫 수정은 '첫 줄\n둘째 줄' 을 한 줄로 접었고, 수정 전 main 은 굵게 뒤 줄이 붙었다.
-test('여러 줄과 굵게 뒤 줄바꿈이 붙여넣기 후에도 줄바꿈으로 남는다 (WP-314)', async ({ authenticatedPage: page }) => {
+test('여러 줄과 굵게 뒤 줄바꿈이 붙여넣기 후에도 줄바꿈으로 남는다 (WP-314)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setup(page, '')
   await open(page)
 

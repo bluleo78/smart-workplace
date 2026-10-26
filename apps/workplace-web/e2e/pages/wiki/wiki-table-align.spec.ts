@@ -29,7 +29,7 @@ async function savedDelimiter(page: Page, expected: string): Promise<void> {
     .toBe(expected)
 }
 
-test('툴바 — 가운데 정렬이 그 열 전체에 적용되고 :---: 로 저장된다', { tag: '@smoke' }, async ({
+test('툴바 — 가운데 정렬이 그 열 전체에 적용되고 :---: 로 저장된다', { tag: ['@input', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await open(page, TABLE_MD)
@@ -51,7 +51,7 @@ test('툴바 — 가운데 정렬이 그 열 전체에 적용되고 :---: 로 �
   await savedDelimiter(page, '| --- | --- | --- |')
 })
 
-test('저장된 정렬은 다시 열어도 셀과 툴바 표시에 그대로 남는다', async ({ authenticatedPage: page }) => {
+test('저장된 정렬은 다시 열어도 셀과 툴바 표시에 그대로 남는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await open(page, TABLE_MD.replace('| --- | --- | --- |', '| --- | :---: | ---: |'))
   expect(await columnAligns(page, 1)).toEqual(['center', 'center', 'center'])
   expect(await columnAligns(page, 2)).toEqual(['right', 'right', 'right'])
@@ -62,7 +62,7 @@ test('저장된 정렬은 다시 열어도 셀과 툴바 표시에 그대로 남
   await expect(toolbar.getByTestId('wiki-table-align-left')).toHaveAttribute('aria-pressed', 'false')
 })
 
-test('우클릭 — 여러 열에 걸쳐 고른 셀에 한 번에 오른쪽 정렬', async ({ authenticatedPage: page }) => {
+test('우클릭 — 여러 열에 걸쳐 고른 셀에 한 번에 오른쪽 정렬', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await open(page, TABLE_MD)
   // 서비스 열 → 상태 열로 드래그해 두 열에 걸친 셀 선택을 만든다.
   const from = (await page.locator('.ProseMirror td').filter({ hasText: 'API' }).boundingBox())!

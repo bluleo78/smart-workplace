@@ -1,9 +1,9 @@
 // 노트 사이드바 「이동…」(WP-839) — 끌기 없이 키보드로 페이지를 다른 페이지 하위에 넣는다. 휴대폰은 같은 목록을 선택 시트로.
+// 자기·하위 페이지가 옮길 자리에서 빠지는지는 src/pages/wiki/wikiSidebar.test.tsx 가 지킨다(WP-983). 여기엔 키보드 조작(@input)만 남는다.
 import { expect, test } from '../../fixtures/auth.fixture'
 import { mockWikiMoveTree } from '../../fixtures/wiki-move-mock'
 
-
-test('키보드로 ⋯ → 「이동…」 → 위치를 골라 옮기면 고른 페이지의 맨 아래 하위로 PATCH 한다', async ({ authenticatedPage: page }) => {
+test('키보드로 ⋯ → 「이동…」 → 위치를 골라 옮기면 고른 페이지의 맨 아래 하위로 PATCH 한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const moves = await mockWikiMoveTree(page)
   await page.goto('/wiki/spaces/1')
   const row = page.getByTestId('wiki-tree-row-7')
@@ -34,13 +34,3 @@ test('키보드로 ⋯ → 「이동…」 → 위치를 골라 옮기면 고른
   await expect(dialog).toBeHidden()
 })
 
-test('자기 하위 페이지는 옮길 자리에 없다 — 「회의록」을 옮길 때 그 아래 페이지들은 빠진다', async ({ authenticatedPage: page }) => {
-  await mockWikiMoveTree(page)
-  await page.goto('/wiki/spaces/1')
-  const row = page.getByTestId('wiki-tree-row-1')
-  await row.hover()
-  await row.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '이동…' }).click()
-  const dialog = page.getByTestId('wiki-move-dialog')
-  await expect(dialog.getByRole('option')).toHaveText(['최상위지금 위치', '설계 문서', '노트 동시 편집 설계', '신규 입사자 온보딩 가이드'])
-})

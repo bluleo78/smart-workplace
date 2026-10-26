@@ -47,7 +47,7 @@ async function setup(page: Page) {
     }) }))
 }
 
-test('위키 노트→이슈 — 선택 후 "이슈로 만들기" → confirm payload + 이슈 칩 삽입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('위키 노트→이슈 — 선택 후 "이슈로 만들기" → confirm payload + 이슈 칩 삽입', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
   await setup(page)
   const confirms = trackRequests(page, 'ANY', '/api/v1/actions/confirm')
   await page.route('**/api/v1/actions/confirm', (r) => {
@@ -82,7 +82,7 @@ test('위키 노트→이슈 — 선택 후 "이슈로 만들기" → confirm pa
   await expect(chip).toHaveText('ME-12 회의 준비')
 })
 
-test('위키 노트→이슈 — VIEWER 는 "이슈로 만들기" 미노출', async ({ authenticatedPage: page }) => {
+test('위키 노트→이슈 — VIEWER 는 "이슈로 만들기" 미노출', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 에디터 본문·역할은 동기화 서버 문서에서 온다(WP-172) — 모킹한 상세 본문·스페이스 역할과 같게 시드한다.
   await seedCollabFor(page, PAGE_ID, pageDetail().body, 'VIEWER')
   await page.route((u) => u.pathname === '/api/v1/wiki/spaces', (r) =>

@@ -1,9 +1,9 @@
 // 노트 페이지 헤더 — 브레드크럼 경로 렌더 + 조상 클릭 내비게이션, 헤더 ⋯ 삭제 플로우.
+// 헤더 ⋯ 삭제(DELETE·이동)·AI 배지 유무는 src/pages/wiki/wikiPage.test.tsx 가 지킨다(WP-983). 여기엔 배선(@wiring)과 기하(@layout)만 남는다.
 import type { Locator, Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { trackRequests } from '../../fixtures/requests'
 import { DESKTOP_WIDTHS, columnGaps, expectHeaderBottomAt56 } from '../../fixtures/layout'
 import { measureBox } from '../../fixtures/wait'
 
@@ -110,7 +110,7 @@ function rowOverflow(nav: Locator) {
 
 test(
   '노트 헤더 — 브레드크럼 경로 + 조상 클릭 내비게이션',
-  { tag: '@smoke' },
+  { tag: ['@wiring', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     await setupRoutes(page)
 
@@ -128,50 +128,9 @@ test(
   },
 )
 
-test('노트 헤더 — ⋯ 메뉴 → 페이지 삭제 확인 → DELETE 호출 + 스페이스 루트로 이동', async ({
-  authenticatedPage: page,
-}) => {
-  const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/wiki\/pages\/[^/]+$/)
-  await setupRoutes(page)
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/2`)
-  // 헤더 ⋯ 메뉴 → 페이지 삭제 → 확인 다이얼로그.
-  await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '페이지 삭제' }).click()
-  await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
-
-  await page
-    .getByTestId('wiki-delete-dialog')
-    .getByRole('button', { name: '삭제', exact: true })
-    .click()
-
-  await deletes.waitFor()
-  await expect(page).toHaveURL(/\/wiki\/spaces\/1$/)
-})
-
-// #736: AI 생성 attribution 배지 — 헤더 좌측(브레드크럼 옆)에 AiSignalBadge 노출.
-test('노트 헤더 — AI 생성 이력이 있는 페이지는 브레드크럼 옆에 attribution 배지가 뜬다 (#736)', async ({
-  authenticatedPage: page,
-}) => {
-  await setupRoutes(page, { pageDetail: (id) => withAi(detail(id, '제품 문서')) })
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/1`)
-  await expect(page.getByTestId('wiki-page-ai-attribution-badge')).toBeVisible()
-  await expect(page.getByTestId('wiki-page-ai-attribution-badge')).toContainText('AI 생성 포함')
-})
-
-test('노트 헤더 — AI 이력이 없는 페이지는 attribution 배지가 뜨지 않는다 (#736)', async ({
-  authenticatedPage: page,
-}) => {
-  await setupRoutes(page)
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/1`)
-  await expect(page.getByTestId('wiki-page-header')).toBeVisible()
-  await expect(page.getByTestId('wiki-page-ai-attribution-badge')).toHaveCount(0)
-})
-
 // #830: 제목이 길어 브레드크럼이 truncate 폭 전체를 채워도, 뷰포트 중앙에 fixed 로 떠 있는
 // 전역 AI 어시스턴트 런처(AIChip)와 겹치지 않아야 한다 — Page.Header 좌측 그룹 공통 클램프(useAiChipClamp — 칩 위치 실측) 회귀 검증.
-test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴트 런처와 겹치지 않는다 (#830)', async ({
+test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴트 런처와 겹치지 않는다 (#830)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -195,7 +154,7 @@ test('노트 헤더 — 긴 제목의 브레드크럼이 전역 AI 어시스턴�
 // 페이지 틀(Page) 통합: 헤더 하단선은 사이드바와 한 선, 본문은 읽기 폭(≤768)을 본문 스크롤 영역 가운데에 둔다(WP-793 — 노트만
 // 가운데 정렬 예외. 넓은 화면에서 오른쪽만 크게 비지 않게). 「전체 폭」 페이지의 시작선 정렬은 wiki-full-width.spec 이 본다.
 for (const width of DESKTOP_WIDTHS) {
-  test(`노트 헤더 — 본문 폭 ≤ 768 이고 본문 영역 가운데 @${width}px`, async ({
+  test(`노트 헤더 — 본문 폭 ≤ 768 이고 본문 영역 가운데 @${width}px`, { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await page.setViewportSize({ width, height: 900 })
@@ -213,7 +172,7 @@ for (const width of DESKTOP_WIDTHS) {
 // WP-304: 1024px 부근에선 nav 클램프(#830)로 폭이 ~150px 로 좁아지는데, 모든 경로 항목이 같은 비율로
 // 줄어 현재 페이지 제목까지 0 폭이 되던 회귀 — 현재 제목은 최소 폭을 지키고 조상부터 줄어야 한다.
 for (const width of [1024, 1100, 1280]) {
-  test(`노트 헤더 — ${width}px 에서 긴 경로라도 현재 페이지 제목이 보인다 (WP-304)`, async ({
+  test(`노트 헤더 — ${width}px 에서 긴 경로라도 현재 페이지 제목이 보인다 (WP-304)`, { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await page.setViewportSize({ width, height: 800 })
@@ -262,7 +221,7 @@ for (const width of [1024, 1100, 1280]) {
 
 // WP-304 리뷰: 넓은 단계(≥26rem)에서 조상을 전부 펼치면 깊은 경로가 클램프를 넘어 AI 런처와 겹쳤다 —
 // 가까운 조상 3개까지만 펼치고 나머지는 "…" 메뉴(경로 순서)로 접는다.
-test('노트 헤더 — 1600px·8단 깊은 경로도 nav 를 넘치지 않고 런처와 겹치지 않는다 (WP-304)', async ({
+test('노트 헤더 — 1600px·8단 깊은 경로도 nav 를 넘치지 않고 런처와 겹치지 않는다 (WP-304)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.setViewportSize({ width: 1600, height: 900 })

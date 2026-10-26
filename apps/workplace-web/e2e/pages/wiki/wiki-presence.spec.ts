@@ -30,7 +30,7 @@ const avatar = (p: Page, userId: number) => presence(p).getByTestId(`wiki-presen
 
 test.afterEach(() => leaveAllCollabPeers())
 
-test.describe('노트 접속 알리기', () => {
+test.describe('노트 접속 알리기', { tag: '@platform' }, () => {
   test('노트를 열면 다른 접속자에게 내 이름이 알려지고, pagehide 로 지워진 뒤 다시 붙으면 다시 알리고, 떠나면 사라진다', async ({
     authenticatedPage: a,
     collabNs,
@@ -66,7 +66,7 @@ test.describe('노트 접속 알리기', () => {
   })
 })
 
-test.describe('노트 헤더 접속자', () => {
+test.describe('노트 헤더 접속자', { tag: '@platform' }, () => {
   test('다른 사람이 노트를 열면 헤더에 그 사람 아바타가 보이고, 나가면 사라진다', async ({ authenticatedPage: a, newAuthedPage }) => {
     const opts = { spaceId: SPACE_ID, pageId: 31, title: '회의록', body: '첫 문단' }
     await mockWikiPageEditor(a, opts)
@@ -246,7 +246,7 @@ test.describe('노트 헤더 접속자', () => {
   })
 })
 
-test.describe('노트 원격 커서', () => {
+test.describe('노트 원격 커서', { tag: '@platform' }, () => {
   test('다른 사람 커서가 입력 위치를 따라가고, 이름표는 움직일 때만 3초 보이며 캐럿에 마우스를 올리면 다시 보인다', async ({
     authenticatedPage: a,
     newAuthedPage,
@@ -466,7 +466,7 @@ function gate() {
   return { opened, open }
 }
 
-test.describe('위쪽 삽입 화면 고정', () => {
+test.describe('위쪽 삽입 화면 고정', { tag: '@layout' }, () => {
   test('읽고 있는 동안 다른 사람이 위쪽에 문단을 넣어도 보던 문단이 제자리에 있다', async ({ authenticatedPage: a, collabNs }) => {
     const paras = Array.from({ length: 40 }, (_, i) => `문단 ${i + 1}`)
     const body = paras.join('\n\n')
@@ -616,9 +616,8 @@ test.describe('위쪽 삽입 화면 고정', () => {
   })
 })
 
-
 // 스크롤 영역의 브라우저 앵커링을 끈 뒤(WP-293)에도 화면 위쪽에서 늦게 커지는 것(이미지·AI 요약 카드)이 보던 자리를 밀지 않는다(판정 R6).
-test.describe('위쪽 레이아웃 변화 화면 고정', () => {
+test.describe('위쪽 레이아웃 변화 화면 고정', { tag: '@layout' }, () => {
   const paras = Array.from({ length: 60 }, (_, i) => `문단 ${i + 1}`)
   const IMG = '/api/v1/wiki/attachments/77/content'
   const TALL_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="480"><rect width="300" height="480" fill="#888"/></svg>'
@@ -750,7 +749,7 @@ test.describe('위쪽 레이아웃 변화 화면 고정', () => {
   })
 })
 
-test.describe('노트 재연결', () => {
+test.describe('노트 재연결', { tag: '@platform' }, () => {
   test('네트워크가 돌아왔다는 online 이벤트가 오면 재시도 대기 없이 바로 다시 붙는다', async ({ authenticatedPage: a }) => {
     const sock = await controlCollabSocket(a)
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 70, title: '회의록', body: '첫 문단' })

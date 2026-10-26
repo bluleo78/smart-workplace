@@ -17,7 +17,7 @@ async function setup(page: Page, body: string) {
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '보존 확인', body })
 }
 
-test('편집 모드에선 Ctrl/⌘+클릭으로만 링크를 새 탭에 연다 (WP-300)', async ({ authenticatedPage: page }) => {
+test('편집 모드에선 Ctrl/⌘+클릭으로만 링크를 새 탭에 연다 (WP-300)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   // 실제 외부로 나가지 않게 새 탭 요청을 스텁한다(컨텍스트 라우트 — 새 탭에도 걸린다).
   await page.context().route(`${LINK_URL}**`, (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<p>spec</p>' }))
   await setup(page, `[설계 문서](${LINK_URL}) 참고.`)

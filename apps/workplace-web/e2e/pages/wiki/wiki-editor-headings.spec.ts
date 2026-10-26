@@ -66,7 +66,7 @@ async function setupRoutes(page: Page) {
 // h1/h2/h3 각각 마크다운 입력 → Tiptap 헤딩 변환 → 스타일 검증
 test(
   'WikiEditor — h1 마크다운 입력 후 28px/600 스타일 적용',
-  { tag: '@smoke' },
+  { tag: ['@layout', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     await setupRoutes(page)
     await open(page)
@@ -91,7 +91,7 @@ test(
   },
 )
 
-test('WikiEditor — h2 마크다운 입력 후 24px/600 스타일 적용', async ({ authenticatedPage: page }) => {
+test('WikiEditor — h2 마크다운 입력 후 24px/600 스타일 적용', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupRoutes(page)
   await open(page)
 
@@ -112,7 +112,7 @@ test('WikiEditor — h2 마크다운 입력 후 24px/600 스타일 적용', asyn
   expect(fontWeight).toBe('600')
 })
 
-test('WikiEditor — h3 마크다운 입력 후 18px/600 스타일 적용', async ({ authenticatedPage: page }) => {
+test('WikiEditor — h3 마크다운 입력 후 18px/600 스타일 적용', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupRoutes(page)
   await open(page)
 

@@ -50,7 +50,7 @@ for (const [w, h] of [
     test.describe(`버전 기록 실데이터 ${w}px ${scheme}`, () => {
       test.use({ viewport: { width: w, height: h } })
 
-      test('패널 목록 · AI 판 미리보기(변경 표시 켬/끔) · 어제 판', async ({ authenticatedPage: a }) => {
+      test('패널 목록 · AI 판 미리보기(변경 표시 켬/끔) · 어제 판', { tag: '@layout' }, async ({ authenticatedPage: a }) => {
         const tag = `desktop-${w}-${scheme}`
         await openLongHistory(a, scheme)
         await shot(a, `${tag}-01-panel-list`)

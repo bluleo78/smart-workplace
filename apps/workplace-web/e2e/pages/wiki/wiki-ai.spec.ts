@@ -159,7 +159,7 @@ async function mockWikiAiGeneration(page: Page, opts: { deltas: string[] }) {
   return starts
 }
 
-test('위키 /ai — 슬래시 메뉴 → AI 이어쓰기 → /events 스트림이 에디터에 삽입된다', { tag: '@smoke' }, async ({
+test('위키 /ai — 슬래시 메뉴 → AI 이어쓰기 → /events 스트림이 에디터에 삽입된다', { tag: ['@platform', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -178,7 +178,7 @@ test('위키 /ai — 슬래시 메뉴 → AI 이어쓰기 → /events 스트림�
   await expect(page.locator('.ProseMirror')).toContainText('이어서: 핵심 내용')
 })
 
-test('위키 /ai 슬래시 메뉴 — 매칭 없는 검색어 입력 시 팝오버 유지 + 빈 상태 안내 (#670)', async ({
+test('위키 /ai 슬래시 메뉴 — 매칭 없는 검색어 입력 시 팝오버 유지 + 빈 상태 안내 (#670)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -194,7 +194,7 @@ test('위키 /ai 슬래시 메뉴 — 매칭 없는 검색어 입력 시 팝오�
   await expect(page.getByTestId('wiki-slash-option-continue')).toHaveCount(0)
 })
 
-test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(prompt 포함) 전송', async ({
+test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(prompt 포함) 전송', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'OWNER')
@@ -219,7 +219,7 @@ test('위키 /ai — AI 초안: 토픽 다이얼로그 입력 후 draft payload(
   await expect(page.locator('.ProseMirror')).toContainText('초안: 핵심 내용')
 })
 
-test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성을 취소한다(latest wins)', async ({
+test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성을 취소한다(latest wins)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -281,7 +281,7 @@ test('위키 /ai — 진행 중 생성이 있으면 새 액션이 이전 생성�
 })
 
 // ── 팝업 max-height 회귀 (#250) ─────────────────────────────────────────────
-test('위키 /ai 슬래시 메뉴 — max-height(240px) 클래스 적용으로 뷰포트 넘침 방지', async ({
+test('위키 /ai 슬래시 메뉴 — max-height(240px) 클래스 적용으로 뷰포트 넘침 방지', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -305,7 +305,7 @@ async function typeAndSelectAll(page: Page, text: string) {
   await page.keyboard.press('ControlOrMeta+a')
 }
 
-test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교체', { tag: '@smoke' }, async ({
+test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교체', { tag: ['@input', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -324,7 +324,7 @@ test('위키 변형 — 선택 후 다듬기: polish payload + 선택영역 교�
   await expect(page.locator('.ProseMirror')).not.toContainText('원본 문장')
 })
 
-test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)', async ({
+test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -340,7 +340,7 @@ test('위키 변형 — 톤 드롭다운: rewrite_tone payload(prompt=격식체)
   expect(aiStarts.lastBody<AiStartBody>()?.prompt).toBe('격식체')
 })
 
-test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', async ({ authenticatedPage: page }) => {
+test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'VIEWER')
   const aiCalls = trackRequests(page, 'ANY', AI_START_PATH)
   await page.route('**/api/v1/wiki/pages/*/ai', (route) => {
@@ -358,7 +358,7 @@ test('위키 변형 — VIEWER 는 변형 툴바가 노출되지 않는다', asy
   expect(aiCalls.count()).toBe(0)
 })
 
-test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', async ({ authenticatedPage: page }) => {
+test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'EDITOR')
   await mockWikiAiGeneration(page, { deltas: ['다듬어진 ', '문장'] })
 
@@ -381,7 +381,7 @@ test('위키 변형 — 단일 undo 로 변형 전 원본으로 복원된다', a
   await expect(page.locator('.ProseMirror')).not.toContainText('다듬어진 문장')
 })
 
-test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', async ({ authenticatedPage: page }) => {
+test('위키 /ai — VIEWER 는 슬래시 AI 메뉴가 노출되지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'VIEWER')
 
   const aiCalls = trackRequests(page, 'ANY', AI_START_PATH)
@@ -432,7 +432,7 @@ const LONG_BODY = [
   '3. 간장을 팬 가장자리에 둘러 향을 올리고, 불을 끈 뒤 참기름으로 마무리합니다.',
 ].join('\n')
 
-test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 이어쓰기 액션을 실행한다 (#733)', { tag: '@smoke' }, async ({
+test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 이어쓰기 액션을 실행한다 (#733)', { tag: ['@platform', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
@@ -452,7 +452,7 @@ test('위키 AI 노출 — 헤더 AI 버튼이 상시 보이고 이어쓰기 액
   await expect(page.locator('.ProseMirror')).toContainText('이어서: 집밥 3가지 레시피')
 })
 
-test('위키 AI 노출 — 헤더 AI 초안: 토픽 다이얼로그를 열고 draft 를 전송한다 (#733)', async ({
+test('위키 AI 노출 — 헤더 AI 초안: 토픽 다이얼로그를 열고 draft 를 전송한다 (#733)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'OWNER')
@@ -472,7 +472,7 @@ test('위키 AI 노출 — 헤더 AI 초안: 토픽 다이얼로그를 열고 dr
   expect(aiStarts.lastBody<AiStartBody>()?.prompt).toBe('주간 회고')
 })
 
-test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유가 노출된다 (#733)', async ({
+test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유가 노출된다 (#733)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'VIEWER')
@@ -501,7 +501,7 @@ test('위키 AI 노출 — VIEWER 는 버튼이 숨지 않고 비활성 + 사유
   await expectStays(page, aiCalls.count, 0)
 })
 
-test('위키 AI 노출 — 빈 본문에 placeholder 힌트와 초안 CTA 가 뜨고, 내용이 있으면 사라진다 (#733)', async ({
+test('위키 AI 노출 — 빈 본문에 placeholder 힌트와 초안 CTA 가 뜨고, 내용이 있으면 사라진다 (#733)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -526,7 +526,7 @@ test('위키 AI 노출 — 빈 본문에 placeholder 힌트와 초안 CTA 가 �
   await expect(cta).toHaveCount(0)
 })
 
-test('위키 AI 노출 — VIEWER 는 빈 본문 CTA 가 노출되지 않는다 (#733)', async ({
+test('위키 AI 노출 — VIEWER 는 빈 본문 CTA 가 노출되지 않는다 (#733)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'VIEWER')
@@ -534,7 +534,7 @@ test('위키 AI 노출 — VIEWER 는 빈 본문 CTA 가 노출되지 않는다 
   await expect(page.getByTestId('wiki-ai-empty-cta')).toHaveCount(0)
 })
 
-test('위키 변형 툴바 — 좌측 상단이 아니라 선택영역 바로 위에 렌더된다 (#733 회귀)', async ({
+test('위키 변형 툴바 — 좌측 상단이 아니라 선택영역 바로 위에 렌더된다 (#733 회귀)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
@@ -591,7 +591,7 @@ test('위키 변형 툴바 — 좌측 상단이 아니라 선택영역 바로 �
   expect(box.height).toBeLessThan(60)
 })
 
-test('위키 AI 노출 — 빈 상태 "AI 초안으로 시작" 이 페이지를 만들고 토픽 입력을 띄운다 (#733)', async ({
+test('위키 AI 노출 — 빈 상태 "AI 초안으로 시작" 이 페이지를 만들고 토픽 입력을 띄운다 (#733)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -624,7 +624,7 @@ test('위키 AI 노출 — 빈 상태 "AI 초안으로 시작" 이 페이지를 
   await expect(page.getByRole('dialog').getByRole('textbox')).toBeVisible()
 })
 
-test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 트리거 바로 아래에 열린다 (#733 회귀)', async ({
+test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 트리거 바로 아래에 열린다 (#733 회귀)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
@@ -670,7 +670,7 @@ test('위키 변형 툴바 — 톤 드롭다운이 좌측 상단이 아니라 �
   await expect(page.getByTestId('wiki-ai-tone-격식체')).toHaveCount(0)
 })
 
-test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운이 화면 안에 들어온다 (#733 회귀)', async ({
+test('위키 변형 툴바 — 뷰포트 하단 선택에서도 톤 드롭다운이 화면 안에 들어온다 (#733 회귀)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', LONG_BODY)
@@ -745,7 +745,7 @@ const IMAGE_PNG = Buffer.from(
   'base64',
 )
 
-test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바가 뜨지 않는다 (#772)', async ({
+test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바가 뜨지 않는다 (#772)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', `본문 텍스트\n\n![대체텍스트](${IMAGE_CONTENT_PATH})`)
@@ -776,7 +776,7 @@ test('위키 변형 — 이미지 노드 선택(NodeSelection)에서는 툴바�
   expect(aiCalls.count()).toBe(0)
 })
 
-test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지에서도 정상적으로 툴바가 뜬다 (#772 회귀 방지)', async ({
+test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지에서도 정상적으로 툴바가 뜬다 (#772 회귀 방지)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR', `본문 텍스트\n\n![대체텍스트](${IMAGE_CONTENT_PATH})`)
@@ -799,7 +799,7 @@ test('위키 변형 — 텍스트 선택은 이미지가 함께 있는 페이지
 // 정책(2026-09-08 사람 결정): 메일 컴포저(MailComposer.tsx)에 이미 있는 버튼 세트를 노트
 // 버블 툴바로 이식(굵게/기울임/제목1/제목2/불릿목록/인용) + 슬래시 메뉴에 블록 타입 6종 추가.
 
-test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/새로고침에도 유지된다 (#687)', { tag: '@smoke' }, async ({
+test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/새로고침에도 유지된다 (#687)', { tag: ['@platform', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -829,7 +829,7 @@ test('위키 서식 — 선택 텍스트에 굵게 적용 후 저장/새로고�
   await expect(page.locator('.ProseMirror strong')).toContainText('굵게 만들 문장')
 })
 
-test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바뀐다 (#687)', async ({
+test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바뀐다 (#687)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -843,7 +843,7 @@ test('위키 서식 — 제목1 버튼으로 블록 타입이 heading 으로 바
   await expect(page.locator('.ProseMirror h1')).toContainText('제목이 될 문장')
 })
 
-test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687)', async ({ authenticatedPage: page }) => {
+test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'VIEWER')
 
   await open(page, { readOnly: true })
@@ -855,7 +855,7 @@ test('위키 서식 — VIEWER 는 서식 버튼도 노출되지 않는다 (#687
 
 // WP-225 — BubbleMenu 는 shouldShow 를 마운트 때 한 번만 등록한다. 스페이스 목록(권한)이 에디터보다
 // 늦게 오면 disabled=true 로 굳어 편집 가능해진 뒤에도 툴바가 영영 안 떴다(좁은 화면 스펙의 간헐 실패 원인).
-test('위키 서식 — 스페이스 권한이 에디터보다 늦게 와도 선택하면 툴바가 뜬다 (WP-225)', async ({
+test('위키 서식 — 스페이스 권한이 에디터보다 늦게 와도 선택하면 툴바가 뜬다 (WP-225)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -881,7 +881,7 @@ test('위키 서식 — 스페이스 권한이 에디터보다 늦게 와도 선
   await expect(page.getByTestId('wiki-ai-toolbar')).toBeVisible()
 })
 
-test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼이 잘려서 숨지 않는다 (#687)', async ({
+test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼이 잘려서 숨지 않는다 (#687)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -936,7 +936,7 @@ test('위키 서식 — 좁은 화면에서는 툴바가 줄바꿈되고 버튼�
   }
 })
 
-test('위키 /ai 슬래시 메뉴 — 블록 타입 6종이 서식 섹션에 노출되고 AI 3종과 구분된다 (#687)', async ({
+test('위키 /ai 슬래시 메뉴 — 블록 타입 6종이 서식 섹션에 노출되고 AI 3종과 구분된다 (#687)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -963,7 +963,7 @@ test('위키 /ai 슬래시 메뉴 — 블록 타입 6종이 서식 섹션에 노
   await expect(page.getByTestId('wiki-slash-option-continue')).toBeVisible()
 })
 
-test('위키 /ai 슬래시 메뉴 — 제목1 삽입 시 블록 타입이 heading 으로 바뀐다 (#687)', { tag: '@smoke' }, async ({
+test('위키 /ai 슬래시 메뉴 — 제목1 삽입 시 블록 타입이 heading 으로 바뀐다 (#687)', { tag: ['@input', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -979,7 +979,7 @@ test('위키 /ai 슬래시 메뉴 — 제목1 삽입 시 블록 타입이 headin
   await expect(page.locator('.ProseMirror h1')).toContainText('슬래시로 만든 제목')
 })
 
-test('위키 /ai 슬래시 메뉴 — 화살표 키로 블록 그룹까지 내려가 인용을 삽입한다 (#687, 전역 인덱스 회귀 방지)', async ({
+test('위키 /ai 슬래시 메뉴 — 화살표 키로 블록 그룹까지 내려가 인용을 삽입한다 (#687, 전역 인덱스 회귀 방지)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -1010,7 +1010,7 @@ test('위키 /ai 슬래시 메뉴 — 화살표 키로 블록 그룹까지 내�
   await expect(page.locator('.ProseMirror blockquote')).toContainText('키보드로 만든 인용문')
 })
 
-test('위키 /ai 슬래시 메뉴 — 구분선 삽입 시 hr 이 생성된다 (#687)', async ({ authenticatedPage: page }) => {
+test('위키 /ai 슬래시 메뉴 — 구분선 삽입 시 hr 이 생성된다 (#687)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'EDITOR')
 
   await open(page)
@@ -1043,7 +1043,7 @@ async function expectNotInserted(page: Page, text: string, ms: number) {
   await expectStays(page, async () => (await editor.textContent())?.includes(text) ?? false, false, { ms })
 }
 
-test('위키 AI 적용 — 슬래시 이어쓰기는 ai-apply 의 ack 를 받은 뒤에 넣는다 (WP-323)', async ({ authenticatedPage: page }) => {
+test('위키 AI 적용 — 슬래시 이어쓰기는 ai-apply 의 ack 를 받은 뒤에 넣는다 (WP-323)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'EDITOR')
   const watch = await watchCollabAiApply(page, { ack: 'hold' })
   await mockWikiAiGeneration(page, { deltas: ['확인 후 ', '삽입된 결과'] })
@@ -1068,7 +1068,7 @@ test('위키 AI 적용 — 슬래시 이어쓰기는 ai-apply 의 ack 를 받은
   expect(watch.sent().map((m) => m.type)).toEqual([COLLAB_AI_APPLY_TYPE])
 })
 
-test('위키 AI 적용 — 버블 다듬기도 ai-apply 의 ack 를 받고 선택영역을 바꾼다 (WP-323)', async ({
+test('위키 AI 적용 — 버블 다듬기도 ai-apply 의 ack 를 받고 선택영역을 바꾼다 (WP-323)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
@@ -1087,7 +1087,7 @@ test('위키 AI 적용 — 버블 다듬기도 ai-apply 의 ack 를 받고 선�
   await expect.poll(() => readCollabMarkdown(collabNsOf(page), PAGE_ID)).toContain('다듬은 결과 문장')
 })
 
-test('위키 AI 적용 — 서버 ack 가 오지 않아도 3초 상한 뒤 넣고, 늦은 태그를 ai-cancel 로 지운다 (WP-323)', async ({ authenticatedPage: page }) => {
+test('위키 AI 적용 — 서버 ack 가 오지 않아도 3초 상한 뒤 넣고, 늦은 태그를 ai-cancel 로 지운다 (WP-323)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, 'EDITOR')
   // 서버는 답하지만 브라우저엔 전달하지 않는다 — 옛 동기화 서버·응답 유실과 같다.
   const watch = await watchCollabAiApply(page, { ack: 'drop' })
@@ -1112,7 +1112,7 @@ test('위키 AI 적용 — 서버 ack 가 오지 않아도 3초 상한 뒤 넣�
     ])
 })
 
-test('위키 AI 적용 — ack 를 기다리는 중 ESC 로 취소하면 넣지 않고 ai-cancel 을 보낸다 (WP-323)', async ({
+test('위키 AI 적용 — ack 를 기다리는 중 ESC 로 취소하면 넣지 않고 ai-cancel 을 보낸다 (WP-323)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setupWikiMocks(page, 'EDITOR')
