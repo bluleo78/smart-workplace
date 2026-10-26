@@ -8,13 +8,14 @@
 // 전략: mockHomeChatGeneration(delta 만, done 없음) — POST 는 { correlationId } 즉시 반환,
 //   /events 는 delta 1개만 흘리고 done 은 보내지 않아 chatStream 의 Promise 가 미결(pending)로
 //   남는다 → '중단' 버튼이 계속 노출된 상태를 유지할 수 있다.
+// 브라우저의 fetch 스트림(통합 /events)을 읽는 도중 AbortController 로 끊는 경로라 @platform 으로 남긴다.
 
 import { expect, test } from '../fixtures/auth.fixture';
 import { type HomeChatStartBody, mockHomeChatCancel, mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 
 test(
   'AI 응답 스트리밍 중 중단 버튼 클릭 → 부분 응답 보존 + 입력 재개 + 취소 API 호출',
-  { tag: '@smoke' },
+  { tag: ['@platform', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     const starts = await mockHomeChatGeneration(page, {
       frames: [{ event: 'delta', data: { text: '부분 응답입니다' } }],

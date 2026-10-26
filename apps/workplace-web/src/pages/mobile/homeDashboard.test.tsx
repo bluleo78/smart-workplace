@@ -279,3 +279,14 @@ test('타일 요약은 필요한 만큼만 조회한다 — 프로젝트 size·�
   expect(seen.mail.length).toBeGreaterThan(0)
   expect(seen.mail.every((q) => q.get('limit') === '1' && q.get('folder') === 'INBOX')).toBe(true)
 })
+
+// WP-520 — 모바일 홈도 위젯을 모두 숨기면 빈 캔버스 대신 안내 + 「홈 편집」, 누르면 편집 모드(헤더가 「위젯 추가」 아이콘)로 들어간다.
+// e2e/pages/home.spec.ts 에서 옮겼다(조건부 렌더라 브라우저가 필요 없다).
+test('위젯을 모두 숨기면 빈 상태 안내가 보이고 「홈 편집」으로 편집에 들어간다 (WP-520)', async () => {
+  const dash = dashboard(layout([{ id: 'my_tasks', type: 'my_tasks', count: 3, hidden: true, collapsed: false }]))
+  const { user } = renderPage('/', { handlers: [...widgetData(), ...dash.handler] })
+  const empty = await screen.findByTestId('dashboard-empty', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  expect(empty).toHaveTextContent('보이는 위젯이 없습니다')
+  await user.click(within(empty).getByTestId('dashboard-empty-action'))
+  expect(await screen.findByTestId('dashboard-add-widget-open')).toBeInTheDocument()
+})

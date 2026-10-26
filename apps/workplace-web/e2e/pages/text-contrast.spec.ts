@@ -11,7 +11,8 @@ import { expectTheme, textContrast, withTheme } from '../fixtures/contrast'
 const AA = 4.5
 
 for (const theme of ['light', 'dark'] as const) {
-  test.describe(`${theme}`, () => {
+  // 실제로 칠해진 글자·배경색으로 대비를 잰다 — jsdom 은 CSS 를 계산하지 않아 잴 수 없다(@layout).
+  test.describe(`${theme}`, { tag: '@layout' }, () => {
     test('캘린더 월 보기 — 파랑 일정 칩의 흰 글자', async ({ authenticatedPage: page }) => {
       await withTheme(page, theme)
       await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))

@@ -1,12 +1,12 @@
 // 메인 AI 채팅 첨부 입력창 (WP-234) — 데스크톱 사이드 패널.
-// ＋(드라이브 없음)·붙여넣기·드롭 → 사전 업로드(이미지 축소 포함) → 칩 → 전송 payload 의 fileIds 까지,
-// 첨부만 전송·업로드 중 전송 차단(Enter 포함)·상한 사전 안내·서버 400 문구·대화 전환 시 초안 비움을 검증한다.
+// 브라우저가 있어야 판정되는 것만 남긴다 — ＋ 파일 선택 → 업로드 → 칩 → payload 대표 배선(@wiring), 붙여넣기·드롭·업로드 중 Enter(@input),
+// 캔버스 이미지 축소(@platform), 썸네일 크기·하단 고정·오른쪽 끝 정렬·뷰어 ⬇ 받기(@layout).
+// × 제거·세션 상한·서버 거절(400)·대화 전환·보낸 직후 미리보기·4종 밖 이미지·세션 복원 렌더·글자 수 상한(WP-674)은
+// 화면 테스트 src/components/ai/AIChatPanel.test.tsx 가 지킨다(WP-971).
 import { Buffer } from 'buffer'
 
 import type { Page } from '@playwright/test'
 
-import { PER_SESSION_LIMIT_MSG } from '../../src/lib/homeChatAttachments'
-import type { ErrorResponse } from '../../src/types/auth'
 import type { HomeMessage, HomeSessionPage, HomeUploadedFile } from '../../src/types/home'
 import { createHomeAttachment } from '../factories/homeAttachment.factory'
 import { mockApi } from '../fixtures/api-mock'
@@ -42,21 +42,6 @@ async function stubUpload(page: Page, opts: { hold?: boolean } = {}) {
   return { parts, release }
 }
 
-/** 첨부가 이미 붙은 대화 하나를 세션 목록·메시지로 모킹한다(세션 30개 상한 판정용). */
-async function mockSessionWithAttachments(page: Page, sessionId: string, count: number) {
-  await mockApi(page, 'GET', '/api/v1/home/sessions', {
-    items: [{ id: sessionId, title: '첨부 많은 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
-    nextCursor: null,
-  } satisfies HomeSessionPage)
-  const messages: HomeMessage[] = [
-    {
-      id: 1, role: 'USER', content: '자료 모음', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
-      attachments: Array.from({ length: count }, (_, i) => createHomeAttachment({ fileId: 8000 + i, originalName: `doc-${i}.pdf` })),
-    },
-  ]
-  await mockApi(page, 'GET', `/api/v1/home/sessions/${sessionId}/messages`, messages)
-}
-
 /** 홈에서 AI 사이드 패널을 연다. */
 async function openPanel(page: Page) {
   await page.goto('/')
@@ -81,23 +66,8 @@ async function paste(page: Page, file: { name: string; type: string }, text?: st
   }, { file, text })
 }
 
-/** 입력창 폼에 파일 드롭(dragenter → drop). size 는 파일별 바이트 수. */
-async function drop(page: Page, files: { name: string; type: string; size?: number }[]) {
-  const dt = await page.evaluateHandle((files) => {
-    const d = new DataTransfer()
-    for (const f of files) d.items.add(new File([new Uint8Array(f.size ?? 3)], f.name, { type: f.type }))
-    return d
-  }, files)
-  const form = page.getByTestId('ai-composer')
-  await form.dispatchEvent('dragenter', { dataTransfer: dt })
-  await form.dispatchEvent('drop', { dataTransfer: dt })
-}
-
-/** 오류 토스트(문구 일치). */
-const toast = (page: Page, text: string) => page.locator('[data-sonner-toast]', { hasText: text })
-
 test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
-  test('＋ 메뉴는 파일 첨부만 → 업로드 → 칩 → 전송 payload 에 fileIds', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('＋ 메뉴는 파일 첨부만 → 업로드 → 칩 → 전송 payload 에 fileIds', { tag: ['@wiring', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const upload = await stubUpload(page)
     // 드라이브 링크를 받지 않으므로 AI 채팅은 드라이브 스페이스를 조회하지 않는다.
     const spaces = trackRequests(page, 'GET', '/api/v1/drive/spaces')
@@ -128,7 +98,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     expect(spaces.count()).toBe(0)
   })
 
-  test('스크린샷 붙여넣기 → 첨부만 전송(query 빈 문자열)', async ({ authenticatedPage: page }) => {
+  test('스크린샷 붙여넣기 → 첨부만 전송(query 빈 문자열)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const upload = await stubUpload(page)
     const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-only' } }] })
     await openPanel(page)
@@ -146,7 +116,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await expect.poll(() => starts.lastBody<HomeChatStartBody>()).toMatchObject({ query: '', fileIds: [7000] })
   })
 
-  test('텍스트와 렌더링 이미지가 함께 오는 붙여넣기는 텍스트로 두고 올리지 않는다', async ({ authenticatedPage: page }) => {
+  test('텍스트와 렌더링 이미지가 함께 오는 붙여넣기는 텍스트로 두고 올리지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploads = trackRequests(page, 'POST', UPLOAD)
     await openPanel(page)
     expect(await paste(page, { name: 'render.png', type: 'image/png' }, '표에서 복사한 글')).toBe(false)
@@ -154,7 +124,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await expect(page.getByTestId('ai-composer-attachments')).toHaveCount(0)
   })
 
-  test('파일 드롭 → 오버레이 → 칩', async ({ authenticatedPage: page }) => {
+  test('파일 드롭 → 오버레이 → 칩', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubUpload(page)
     await openPanel(page)
     const dt = await page.evaluateHandle(() => {
@@ -170,7 +140,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await expect(page.getByTestId('ai-composer-attachments')).toContainText('notes.txt')
   })
 
-  test('업로드 중엔 진행 칩이 보이고 보내기 버튼도 Enter 도 막히며, 끝나면 첨부와 함께 전송된다', async ({ authenticatedPage: page }) => {
+  test('업로드 중엔 진행 칩이 보이고 보내기 버튼도 Enter 도 막히며, 끝나면 첨부와 함께 전송된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const upload = await stubUpload(page, { hold: true })
     const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-hold' } }] })
     await openPanel(page)
@@ -198,7 +168,7 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     await expect.poll(() => starts.lastBody<HomeChatStartBody>()).toMatchObject({ query: '같이 보내요', fileIds: [7000] })
   })
 
-  test('큰 PNG 는 긴 변 2048 JPEG 로 줄여 올리고, GIF 는 그대로 올린다', async ({ authenticatedPage: page }) => {
+  test('큰 PNG 는 긴 변 2048 JPEG 로 줄여 올리고, GIF 는 그대로 올린다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const upload = await stubUpload(page)
     await openPanel(page)
     // 3000×1500 PNG 를 브라우저 canvas 로 만든다(단색이라 용량은 작지만 긴 변이 2048 을 넘는다).
@@ -226,259 +196,61 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
     ])
   })
 
-  test('칩 × 로 뺀 파일은 보내지 않고, 그 미리보기 URL 은 해제한다', async ({ authenticatedPage: page }) => {
-    // 미리보기 해제를 관측한다 — 앱 코드가 부르는 URL.revokeObjectURL 을 감싸 인자를 기록한다.
-    await page.addInitScript(() => {
-      const w = window as unknown as { __revoked: string[] }
-      w.__revoked = []
-      const orig = URL.revokeObjectURL.bind(URL)
-      URL.revokeObjectURL = (u: string) => {
-        w.__revoked.push(u)
-        orig(u)
-      }
-    })
-    const revokedCount = () => page.evaluate(() => (window as unknown as { __revoked: string[] }).__revoked.length)
-    await stubUpload(page)
-    const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-rm' } }] })
-    await openPanel(page)
-    await paste(page, { name: 'a.png', type: 'image/png' })
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('a.png')
-    await paste(page, { name: 'b.png', type: 'image/png' })
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('b.png')
-
-    // 다른 코드의 해제와 섞이지 않게 × 전후 증가분만 본다.
-    const before = await revokedCount()
-    await page.getByTestId('ai-composer-attachments').getByRole('listitem').filter({ hasText: 'a.png' })
-      .getByRole('button', { name: '첨부 제거' }).click()
-    await expect(page.getByTestId('ai-composer-attachments')).not.toContainText('a.png')
-    await expect.poll(revokedCount).toBe(before + 1)
-
-    await page.getByTestId('chat-send').click()
-    await expect.poll(() => starts.lastBody<HomeChatStartBody>()).toMatchObject({ query: '', fileIds: [7001] })
-  })
-
-  test('세션에 이미 29개가 있으면 2개 추가는 안내하고 올리지 않는다', async ({ authenticatedPage: page }) => {
-    const uploads = trackRequests(page, 'POST', UPLOAD)
-    await mockSessionWithAttachments(page, 's-full', 29)
-    await openPanel(page)
-    await restoreFirstSession(page)
-    // 복원된 사용자 말풍선 아래에 세션 첨부(마지막 29번째) 카드가 다시 그려진다(PF-C2).
-    await expect(page.getByTestId('chat-turn').first().getByTestId('attachment-card-8028')).toContainText('doc-28.pdf')
-
-    await drop(page, [{ name: 'a.txt', type: 'text/plain' }, { name: 'b.txt', type: 'text/plain' }])
-    await expect(toast(page, PER_SESSION_LIMIT_MSG)).toBeVisible()
-    await expectStays(page, uploads.count, 0)
-  })
-
-  test('서버가 전송을 거절(400)하면 message 를 그대로 보여 주고 칩은 남긴다', async ({ authenticatedPage: page }) => {
-    await stubUpload(page)
-    const reason = '첨부 파일이 만료되었어요. 다시 올려 주세요.'
-    await page.route((u) => u.pathname === '/api/v1/ai/chat', (r) =>
-      r.request().method() === 'POST'
-        ? r.fulfill({
-          status: 400,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 400, error: 'Bad Request', message: reason } satisfies ErrorResponse),
-        })
-        : r.fallback())
-    await openPanel(page)
-    await paste(page, { name: 'old.png', type: 'image/png' })
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('old.png')
-    await page.getByTestId('chat-send').click()
-    await expect(toast(page, reason)).toBeVisible()
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('old.png')
-    // 거절된 낙관적 사용자 턴에는 첨부가 남지 않는다(Task 15 의 첨부 떼기 — 말풍선에서 확인).
-    await expect(page.getByTestId('chat-panel').getByTestId('message-attachments')).toHaveCount(0)
-  })
-
-  test('거절(400)된 전송의 첨부는 대화에 남지 않고, 남은 칩으로 같은 fileIds 를 다시 보낸다', async ({ authenticatedPage: page }) => {
-    await stubUpload(page)
-    await mockSessionWithAttachments(page, 's-retry', 24)
-    // 나중에 등록한 라우트가 먼저 돈다 — 첫 POST 만 400, 이후는 정상 생성 모킹으로 넘긴다.
-    const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-retry' } }] })
-    let rejected = false
-    await page.route((u) => u.pathname === '/api/v1/ai/chat', (r) => {
-      if (r.request().method() !== 'POST' || rejected) return r.fallback()
-      rejected = true
-      return r.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 400, error: 'Bad Request', message: '잠시 후 다시 보내 주세요.' } satisfies ErrorResponse),
-      })
-    })
-    await openPanel(page)
-    await restoreFirstSession(page)
-
-    await drop(page, Array.from({ length: 5 }, (_, i) => ({ name: `r${i}.txt`, type: 'text/plain' })))
-    await expect(page.getByTestId('ai-composer-attachments').getByRole('listitem')).toHaveCount(5)
-    const input = page.getByTestId('chat-input')
-    await input.fill('이 파일들 정리해줘')
-    await page.getByTestId('chat-send').click()
-    await expect(toast(page, '잠시 후 다시 보내 주세요.')).toBeVisible()
-    // 거절되면 입력한 질문도 입력창에 되돌아온다(칩과 함께 그대로 다시 보낼 수 있게).
-    await expect(input).toHaveValue('이 파일들 정리해줘')
-    // 거절된 턴의 말풍선엔 첨부가 없다 — 복원된 첫 턴의 첨부 목록 하나만 있고 r0.txt 카드는 없다.
-    await expect(page.getByTestId('chat-panel').getByTestId('message-attachments')).toHaveCount(1)
-    await expect(page.getByTestId('chat-panel').getByTestId('attachment-card-7000')).toHaveCount(0)
-    // 칩은 그대로 남는다.
-    await expect(page.getByTestId('ai-composer-attachments').getByRole('listitem')).toHaveCount(5)
-
-    // 거절된 턴에서 첨부가 떨어졌는지 — 세션 수(24)에 거절분 5개가 잡혀 있으면 1개 추가가 30개를 넘어 막힌다.
-    // 떨어졌다면 24 + 초안 5 + 1 = 30 이라 올라간다.
-    await paste(page, { name: 'extra.png', type: 'image/png' })
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('extra.png')
-    await expect(toast(page, PER_SESSION_LIMIT_MSG)).toHaveCount(0)
-    await page.getByTestId('ai-composer-attachments').getByRole('listitem').filter({ hasText: 'extra.png' })
-      .getByRole('button', { name: '첨부 제거' }).click()
-    await expect(page.getByTestId('ai-composer-attachments').getByRole('listitem')).toHaveCount(5)
-
-    // 다시 보내면 처음과 같은 fileIds 가 실린다.
-    await page.getByTestId('chat-send').click()
-    await starts.waitFor(2)
-    const [first, second] = starts.bodies<HomeChatStartBody>()
-    expect(first.fileIds).toEqual([7000, 7001, 7002, 7003, 7004])
-    expect(second).toMatchObject({ sessionId: 's-retry', query: '이 파일들 정리해줘', fileIds: first.fileIds })
-    await expect(page.getByTestId('ai-composer-attachments')).toHaveCount(0)
-  })
-
-  test('거절(400)이 늦게 오면 그 사이 새로 입력한 글은 덮어쓰지 않는다', async ({ authenticatedPage: page }) => {
-    await stubUpload(page)
-    let release!: () => void
-    const gate = new Promise<void>((r) => (release = r))
-    await page.route((u) => u.pathname === '/api/v1/ai/chat', async (r) => {
-      if (r.request().method() !== 'POST') return r.fallback()
-      await gate
-      return r.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({ status: 400, error: 'Bad Request', message: '잠시 후 다시 보내 주세요.' } satisfies ErrorResponse),
-      })
-    })
-    await openPanel(page)
-    const input = page.getByTestId('chat-input')
-    await paste(page, { name: 'memo.txt', type: 'text/plain' })
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('memo.txt')
-    await input.fill('처음 질문')
-    await page.getByTestId('chat-send').click()
-    await expect(input).toHaveValue('')
-    await input.fill('새로 쓰는 중')
-    release()
-    await expect(toast(page, '잠시 후 다시 보내 주세요.')).toBeVisible()
-    await expectStays(page, () => input.inputValue(), '새로 쓰는 중')
-  })
-
-  test('새 대화로 옮기면 첨부 초안이 비고, 첫 응답으로 세션 id 가 정해질 땐 비지 않는다', async ({ authenticatedPage: page }) => {
-    await stubUpload(page)
-    let release!: () => void
-    const gate = new Promise<void>((r) => (release = r))
-    await mockHomeChatGeneration(page, {
-      gate,
-      frames: [{ event: 'delta', data: { text: '답했어요' } }, { event: 'done', data: { sessionId: 's-first' } }],
-    })
-    await openPanel(page)
-    await page.getByTestId('chat-input').fill('첫 질문')
-    await page.getByTestId('chat-send').click()
-    // 생성 중에 다음 질문용 첨부를 붙인다.
-    await paste(page, { name: 'next.png', type: 'image/png' })
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('next.png')
-    release()
-    await expect(page.getByTestId('chat-panel')).toContainText('답했어요')
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('next.png')
-
-    await page.getByTestId('chat-new-session').click()
-    await expect(page.getByTestId('ai-composer-attachments')).toHaveCount(0)
-  })
-
-  test('업로드 도중 새 대화로 옮기면 늦게 끝난 파일은 새 대화 초안에 들어오지 않는다', async ({ authenticatedPage: page }) => {
-    const upload = await stubUpload(page, { hold: true })
-    await openPanel(page)
-    await paste(page, { name: 'late.png', type: 'image/png' })
-    await expect(page.getByTestId('ai-composer-uploading-chip')).toContainText('late.png')
-
-    await page.getByTestId('chat-new-session').click()
-    upload.release()
-    // 업로드가 끝나 진행 칩이 사라진 뒤에도 초안 칩은 생기지 않고, 보낼 것이 없어 보내기는 비활성이다.
-    await expect(page.getByTestId('ai-composer-attachments')).toHaveCount(0)
-    await expect(page.getByTestId('chat-send')).toHaveText('보내기')
-    await expect(page.getByTestId('chat-send')).toBeDisabled()
-  })
   // 썸네일 원본 응답용 — 128px 스켈레톤보다 커지는(최대 256px) 실제 크기 PNG 라야 "늦게 커져도 하단 고정"(W15) 경로를 탄다.
   const PNG_TALL = solidPng(600, 900)
 
-  test('보낸 직후(세션 id 없음)에도 이미지는 로컬 미리보기로 보인다', async ({ authenticatedPage: page }) => {
-    await stubUpload(page)
-    const contents = trackRequests(page, 'GET', /\/api\/v1\/home\/sessions\/[^/]+\/attachments\/\d+\/content$/)
-    let release!: () => void
-    const gate = new Promise<void>((r) => (release = r))
-    await mockHomeChatGeneration(page, { gate, frames: [{ event: 'done', data: { sessionId: 's-new' } }] })
+  // 첨부만 보낸 메시지(content "")의 썸네일이 늦게 커져도 하단에 붙어 있고, 카드는 뷰어 ⬇ 로 받는다(다운로드).
+  // content null/"" 두 모양의 렌더(썸네일·카드·말풍선 없음)는 AIChatPanel.test.tsx 가 본다.
+  test('세션 복원: 첨부만 보낸 메시지의 썸네일이 늦게 커져도 맨 아래에 붙어 있고, 카드는 뷰어로 열어 ⬇ 로 받는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+    await mockApi(page, 'GET', '/api/v1/home/sessions', {
+      items: [{ id: 's-r', title: '첨부 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
+      nextCursor: null,
+    } satisfies HomeSessionPage)
+    const messages: HomeMessage[] = [
+      {
+        id: 1, role: 'USER', content: '', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
+        attachments: [
+          createHomeAttachment({ fileId: 77, originalName: 'board.png', mimeType: 'image/png', sizeBytes: 68 }),
+          createHomeAttachment({ fileId: 78, originalName: 'spec.pdf' }),
+        ],
+      },
+      { id: 2, role: 'ASSISTANT', content: '두 파일 모두 확인했어요', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:01Z' },
+    ]
+    await mockApi(page, 'GET', '/api/v1/home/sessions/s-r/messages', messages)
+    await page.route((u) => /^\/api\/v1\/home\/sessions\/s-r\/attachments\/(77|78)\/content$/.test(u.pathname), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: r.request().url().endsWith('/77/content') ? 'image/png' : 'application/pdf',
+        body: r.request().url().endsWith('/77/content') ? PNG_TALL : Buffer.from('%PDF-1.4'),
+      }))
     await openPanel(page)
-    await paste(page, { name: 'shot.png', type: 'image/png' })
-    await expect(page.getByTestId('ai-composer-attachments')).toContainText('shot.png')
-    await page.getByTestId('chat-send').click()
-    const img = page.getByTestId('chat-turn').first().getByTestId('attachment-image-7000')
-    await expect(img).toHaveAttribute('src', /^blob:/)
-    await expect(img).toHaveAttribute('alt', 'shot.png')
-    // WP-279: 세션이 정해지기 전엔 원본 경로가 없어 뷰어로 열 수 없다(누를 수 있는 버튼이 아니다).
-    await expect(page.getByTestId('chat-turn').first().getByTestId('attachment-image-open-7000')).toHaveCount(0)
-    release()
-    // 응답이 끝나 세션이 정해져도 미리보기를 그대로 쓰고 서버 원본을 다시 받지 않는다.
-    await expect(img).toHaveAttribute('src', /^blob:/)
-    await expectStays(page, contents.count, 0)
+    await page.getByTestId('chat-session-switcher').click()
+    await page.getByTestId('chat-session-select').first().click()
+
+    const turns = page.getByTestId('chat-panel').getByTestId('chat-turn')
+    await expect(turns).toHaveCount(2)
+    const userTurn = turns.first()
+    await expect(userTurn.getByTestId('attachment-image-77')).toHaveAttribute('src', /^blob:/)
+    // 스켈레톤(128px)보다 크게 그려졌는지 — 아래 하단 고정 단언이 높이 증가 경로를 검증한다는 전제.
+    await expect.poll(async () => (await userTurn.getByTestId('attachment-image-77').boundingBox())?.height ?? 0).toBeGreaterThan(200)
+    await expect(userTurn.getByTestId('attachment-card-78')).toContainText('spec.pdf')
+    // 첨부만 보낸 턴은 본문 말풍선이 없다.
+    await expect(userTurn.getByTestId('chat-user-bubble')).toHaveCount(0)
+    await expect(page.getByTestId('chat-panel')).toContainText('두 파일 모두 확인했어요')
+    // 썸네일이 늦게 로드돼 높이가 커져도 맨 아래에 붙어 있다(useStickToBottom 의 ResizeObserver).
+    await expect.poll(() => page.getByTestId('chat-scroll').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(2)
+
+    // WP-279: 카드는 바로 받지 않고 통합 뷰어로 연다 — 받기는 뷰어 ⬇.
+    await userTurn.getByTestId('attachment-card-78').click()
+    await expect(page.getByTestId('attachment-viewer')).toHaveAccessibleName('spec.pdf 미리보기')
+    const download = page.waitForEvent('download')
+    await page.getByTestId('preview-download').click()
+    expect((await download).suggestedFilename()).toBe('spec.pdf')
   })
-
-  // 첨부만 보낸 메시지의 content — api 는 "" 로 저장·응답하지만 타입상 null 도 올 수 있어 둘 다 고정한다.
-  for (const emptyContent of [null, ''] as const) {
-    test(`세션 복원: 첨부만 보낸 메시지(content ${JSON.stringify(emptyContent)})도 썸네일·문서 카드로 다시 그리고, 카드는 뷰어로 열어 ⬇ 로 받는다`, async ({ authenticatedPage: page }) => {
-      await mockApi(page, 'GET', '/api/v1/home/sessions', {
-        items: [{ id: 's-r', title: '첨부 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
-        nextCursor: null,
-      } satisfies HomeSessionPage)
-      const messages: HomeMessage[] = [
-        {
-          id: 1, role: 'USER', content: emptyContent, widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
-          attachments: [
-            createHomeAttachment({ fileId: 77, originalName: 'board.png', mimeType: 'image/png', sizeBytes: 68 }),
-            createHomeAttachment({ fileId: 78, originalName: 'spec.pdf' }),
-          ],
-        },
-        { id: 2, role: 'ASSISTANT', content: '두 파일 모두 확인했어요', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:01Z' },
-      ]
-      await mockApi(page, 'GET', '/api/v1/home/sessions/s-r/messages', messages)
-      await page.route((u) => /^\/api\/v1\/home\/sessions\/s-r\/attachments\/(77|78)\/content$/.test(u.pathname), (r) =>
-        r.fulfill({
-          status: 200,
-          contentType: r.request().url().endsWith('/77/content') ? 'image/png' : 'application/pdf',
-          body: r.request().url().endsWith('/77/content') ? PNG_TALL : Buffer.from('%PDF-1.4'),
-        }))
-      await openPanel(page)
-      await page.getByTestId('chat-session-switcher').click()
-      await page.getByTestId('chat-session-select').first().click()
-
-      const turns = page.getByTestId('chat-panel').getByTestId('chat-turn')
-      await expect(turns).toHaveCount(2)
-      const userTurn = turns.first()
-      await expect(userTurn.getByTestId('attachment-image-77')).toHaveAttribute('src', /^blob:/)
-      // 스켈레톤(128px)보다 크게 그려졌는지 — 아래 하단 고정 단언이 높이 증가 경로를 검증한다는 전제.
-      await expect.poll(async () => (await userTurn.getByTestId('attachment-image-77').boundingBox())?.height ?? 0).toBeGreaterThan(200)
-      await expect(userTurn.getByTestId('attachment-card-78')).toContainText('spec.pdf')
-      // 첨부만 보낸 턴은 본문 말풍선이 없다.
-      await expect(userTurn.getByTestId('chat-user-bubble')).toHaveCount(0)
-      await expect(page.getByTestId('chat-panel')).toContainText('두 파일 모두 확인했어요')
-      // 썸네일이 늦게 로드돼 높이가 커져도 맨 아래에 붙어 있다(useStickToBottom 의 ResizeObserver).
-      await expect.poll(() => page.getByTestId('chat-scroll').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThanOrEqual(2)
-
-      // WP-279: 카드는 바로 받지 않고 통합 뷰어로 연다 — 받기는 뷰어 ⬇.
-      await userTurn.getByTestId('attachment-card-78').click()
-      await expect(page.getByTestId('attachment-viewer')).toHaveAccessibleName('spec.pdf 미리보기')
-      const download = page.waitForEvent('download')
-      await page.getByTestId('preview-download').click()
-      expect((await download).suggestedFilename()).toBe('spec.pdf')
-    })
-  }
 
   // 사용자 턴의 오른쪽 끝 정렬 — 썸네일이 말풍선·문서 카드와 같은 x 에서 끝나야 한다(인라인 래퍼 회귀 방지).
   for (const mode of ['side', 'fullscreen'] as const) {
-    test(`세션 복원(${mode}): 이미지 썸네일의 오른쪽 끝이 말풍선·문서 카드와 같다`, async ({ authenticatedPage: page }) => {
+    test(`세션 복원(${mode}): 이미지 썸네일의 오른쪽 끝이 말풍선·문서 카드와 같다`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await mockApi(page, 'GET', '/api/v1/home/sessions', {
         items: [{ id: 's-a', title: '자료 모음', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
         nextCursor: null,
@@ -517,126 +289,4 @@ test.describe('메인 AI 채팅 첨부 입력창 (WP-234)', () => {
       expect(Math.abs(imgRight - (await right('attachment-card-78')))).toBeLessThanOrEqual(1)
     })
   }
-
-  // 4종(jpeg·png·gif·webp) 밖의 image/* — api 는 attachment 로 내리고 ai-agent 도 이미지 블록으로 보내지 않는다.
-  // 웹도 썸네일·새 탭 blob 링크 없이 문서 카드(다운로드)로만 그린다(SVG 를 앱 출처 blob 으로 열면 스크립트가 돈다).
-  const NON_INLINE_IMAGES = [
-    { name: 'logo.svg', type: 'image/svg+xml' },
-    { name: 'IMG_0001.heic', type: 'image/heic' },
-  ] as const
-
-  test('4종 밖 이미지(SVG·HEIC)는 보낸 직후에도 문서 카드로 그리고 로컬 미리보기 blob 을 만들지 않는다', async ({ authenticatedPage: page }) => {
-    // 앱 코드가 만드는 blob URL 의 원본 타입을 기록한다 — SVG·HEIC 파일로는 미리보기를 만들지 않아야 한다.
-    await page.addInitScript(() => {
-      const w = window as unknown as { __blobTypes: string[] }
-      w.__blobTypes = []
-      const orig = URL.createObjectURL.bind(URL)
-      URL.createObjectURL = (o: Blob | MediaSource) => {
-        if (o instanceof Blob) w.__blobTypes.push(o.type)
-        return orig(o)
-      }
-    })
-    await stubUpload(page)
-    const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-svg' } }] })
-    await openPanel(page)
-    for (const f of NON_INLINE_IMAGES) {
-      await paste(page, f)
-      await expect(page.getByTestId('ai-composer-attachments')).toContainText(f.name)
-    }
-    await page.getByTestId('chat-send').click()
-    await expect.poll(() => starts.lastBody<HomeChatStartBody>()).toMatchObject({ query: '', fileIds: [7000, 7001] })
-
-    const atts = page.getByTestId('chat-turn').first().getByTestId('message-attachments')
-    await expect(atts.getByTestId('attachment-card-7000')).toContainText('logo.svg')
-    await expect(atts.getByTestId('attachment-card-7001')).toContainText('IMG_0001.heic')
-    await expect(atts.locator('img')).toHaveCount(0)
-    await expect(atts.locator('a[target="_blank"]')).toHaveCount(0)
-    const blobTypes = await page.evaluate(() => (window as unknown as { __blobTypes: string[] }).__blobTypes)
-    expect(blobTypes.filter((t) => t === 'image/svg+xml' || t === 'image/heic')).toEqual([])
-  })
-
-  test('세션 복원: 4종 밖 이미지(SVG·HEIC)는 원본을 미리 받지 않고 문서 카드로 그리며, 카드는 뷰어로 열어 ⬇ 로 받는다', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/home/sessions', {
-      items: [{ id: 's-v', title: '벡터 대화', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
-      nextCursor: null,
-    } satisfies HomeSessionPage)
-    await mockApi(page, 'GET', '/api/v1/home/sessions/s-v/messages', [
-      {
-        id: 1, role: 'USER', content: '자료 모음', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
-        attachments: NON_INLINE_IMAGES.map((f, i) =>
-          createHomeAttachment({ fileId: 95 + i, originalName: f.name, mimeType: f.type, sizeBytes: 512 })),
-      },
-    ] satisfies HomeMessage[])
-    const contents = trackRequests(page, 'GET', /\/api\/v1\/home\/sessions\/s-v\/attachments\/\d+\/content$/)
-    await page.route((u) => u.pathname === '/api/v1/home/sessions/s-v/attachments/95/content', (r) =>
-      r.fulfill({ status: 200, contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg"/>' }))
-    await openPanel(page)
-    await restoreFirstSession(page)
-
-    const atts = page.getByTestId('chat-turn').first().getByTestId('message-attachments')
-    await expect(atts.getByTestId('attachment-card-95')).toContainText('logo.svg')
-    await expect(atts.getByTestId('attachment-card-96')).toContainText('IMG_0001.heic')
-    await expect(atts.locator('img')).toHaveCount(0)
-    await expect(atts.locator('a[target="_blank"]')).toHaveCount(0)
-    // 썸네일용 원본 요청이 나가지 않는다 — 카드를 눌러 뷰어를 열 때만 받는다.
-    await expectStays(page, contents.count, 0)
-
-    // WP-279: 카드 = 통합 뷰어(서버가 SVG 로 명시한 형식이라 <img> 로만 그린다), 받기는 뷰어 ⬇.
-    await atts.getByTestId('attachment-card-95').click()
-    await expect(page.getByTestId('attachment-viewer')).toHaveAccessibleName('logo.svg 미리보기')
-    const download = page.waitForEvent('download')
-    await page.getByTestId('preview-download').click()
-    expect((await download).suggestedFilename()).toBe('logo.svg')
-  })
-
-  test('세션 복원: 원본을 받지 못하면 썸네일 자리에 안내 문구', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', '/api/v1/home/sessions', {
-      items: [{ id: 's-e', title: '깨진 이미지', lastMessageAt: '2026-10-06T00:00:00Z', widgetCount: 0 }],
-      nextCursor: null,
-    } satisfies HomeSessionPage)
-    await mockApi(page, 'GET', '/api/v1/home/sessions/s-e/messages', [
-      {
-        id: 1, role: 'USER', content: '이거 봐줘', widgets: null, toolCalls: null, createdAt: '2026-10-06T00:00:00Z',
-        attachments: [createHomeAttachment({ fileId: 90, originalName: 'gone.png', mimeType: 'image/png' })],
-      },
-    ] satisfies HomeMessage[])
-    await page.route((u) => u.pathname === '/api/v1/home/sessions/s-e/attachments/90/content', (r) =>
-      r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ status: 404, error: 'Not Found', message: '없음' } satisfies ErrorResponse) }))
-    await openPanel(page)
-    await page.getByTestId('chat-session-switcher').click()
-    await page.getByTestId('chat-session-select').first().click()
-    const userTurn = page.getByTestId('chat-turn').first()
-    await expect(userTurn).toContainText('이미지를 불러올 수 없습니다')
-    await expect(userTurn).toContainText('이거 봐줘')
-    // 본문 말풍선이 위, 첨부가 아래(시안 5-1).
-    const bubble = await userTurn.getByTestId('chat-user-bubble').boundingBox()
-    const atts = await userTurn.getByTestId('message-attachments').boundingBox()
-    expect(bubble!.y + bubble!.height).toBeLessThanOrEqual(atts!.y)
-  })
-
-  test('WP-674: 본문이 10000자를 넘으면 글자 수가 빨갛게 보이고 보내기·Enter 가 막히며, 줄이면 그대로 보낸다', async ({ authenticatedPage: page }) => {
-    const starts = await mockHomeChatGeneration(page, { frames: [{ event: 'done', data: { sessionId: 's-long' } }] })
-    await openPanel(page)
-    const input = page.getByTestId('chat-input')
-    const send = page.getByTestId('chat-send')
-    const count = page.getByTestId('chat-char-count')
-
-    // 상한의 80% 아래에선 카운터를 보이지 않는다.
-    await input.fill('가'.repeat(100))
-    await expect(count).toHaveCount(0)
-
-    await input.fill('가'.repeat(10_001))
-    await expect(count).toHaveText('10001 / 10000')
-    await expect(count).toHaveClass(/text-destructive/)
-    await expect(send).toBeDisabled()
-    await input.press('Enter')
-    await expectStays(page, starts.count, 0)
-
-    // 상한 안으로 줄이면 카운터가 보통 색이 되고 전체 글이 그대로 나간다(잘리지 않는다).
-    await input.fill('가'.repeat(10_000))
-    await expect(count).toHaveText('10000 / 10000')
-    await expect(count).not.toHaveClass(/text-destructive/)
-    await send.click()
-    await expect.poll(() => starts.lastBody<HomeChatStartBody>()?.query.length).toBe(10_000)
-  })
 })

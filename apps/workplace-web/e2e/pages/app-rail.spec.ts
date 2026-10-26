@@ -1,18 +1,21 @@
+// 데스크톱 앱 레일 E2E — 브라우저가 있어야 판정되는 것만 남긴다: 실제 기하·계산된 스타일(@layout), 키보드·호버(@input),
+// 새로고침 뒤 유지(@platform), 홈 진입 배선(@wiring).
+// 항목 순서·링크 이름(aria-label)·펼치기/접기 토글·헤더 구성·안 읽음 배지 수와 이름은
+// 화면 컴포넌트 테스트 src/components/layout/appRail.test.tsx 가 지킨다(WP-971).
 import { createMembership } from '../factories/auth.factory'
 import { createChannel, createDm } from '../factories/messaging.factory'
-import { mockApi } from '../fixtures/api-mock'
 import { expect, test } from '../fixtures/auth.fixture'
 import { expectTheme, tokenColor, withTheme } from '../fixtures/contrast'
 import { stubChat } from '../fixtures/mobile.fixture'
 import { selectionBarStyle } from '../fixtures/selection'
 
-test('홈에 앱 레일이 보이고 상단 GNB는 없다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+test('홈에 앱 레일이 보이고 상단 GNB는 없다', { tag: ['@wiring', '@smoke'] }, async ({ authenticatedPage: page }) => {
   await page.goto('/')
   await expect(page.getByTestId('app-rail')).toBeVisible()
   await expect(page.getByTestId('module-sidebar')).toHaveCount(0)
 })
 
-test('데스크톱에서 앱 레일은 축소 시 아이콘 전용이다(워드마크 숨김, 홈은 모듈 링크로 접근)', async ({
+test('데스크톱에서 앱 레일은 축소 시 아이콘 전용이다(워드마크 숨김, 홈은 모듈 링크로 접근)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
@@ -25,7 +28,7 @@ test('데스크톱에서 앱 레일은 축소 시 아이콘 전용이다(워드�
 })
 
 // WP-815: 「본문 바로가기」 — 첫 Tab 에 보이고, 누르면 레일을 건너뛰어 본문(<main>)으로 포커스가 간다. 평소엔 보이지 않는다.
-test('첫 Tab 은 「본문 바로가기」이고 Enter 로 본문으로 건너뛴다', async ({ authenticatedPage: page }) => {
+test('첫 Tab 은 「본문 바로가기」이고 Enter 로 본문으로 건너뛴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   await expect(page.getByTestId('app-rail')).toBeVisible()
@@ -45,7 +48,7 @@ test('첫 Tab 은 「본문 바로가기」이고 Enter 로 본문으로 건너�
 // 브랜드 케이싱 회귀 가드 — 워드마크 첫 줄은 "Gen:iA" 그대로여야 한다.
 // uppercase 계열 클래스가 다시 붙으면 DOM 텍스트는 그대로라 렌더만 "GEN:IA"로 깨지므로,
 // 실제 계산된 text-transform 까지 함께 단언한다.
-test('앱 레일 — 브랜드 워드마크가 Gen:iA 케이싱을 유지한다', async ({ authenticatedPage: page }) => {
+test('앱 레일 — 브랜드 워드마크가 Gen:iA 케이싱을 유지한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
   const kicker = page.getByTestId('app-rail').getByText('Gen:iA', { exact: true })
@@ -53,39 +56,10 @@ test('앱 레일 — 브랜드 워드마크가 Gen:iA 케이싱을 유지한다'
   await expect(kicker).toHaveCSS('text-transform', 'none')
 })
 
-// LNB 표준화(#98) — 레일 라벨 한글화(대화·드라이브) + 소통 묶음 순서.
-// #99 — '설정' 모듈을 어드민 전용에서 전체 사용자 노출로 전환, 드라이브 다음(끝)에 배치.
-// #477 — 소통 우선 순서: 소통 묶음(대화·메일) 앞에 인접 배치, 작업관리는 그 다음.
-// 연락처는 노트 다음·설정 직전으로 이동(앱 레일 재배치).
-test('앱 레일 — 한글 라벨과 소통 우선 순서(홈·대화·메일·캘린더·작업관리·드라이브·노트·연락처·설정)', async ({
-  authenticatedPage: page,
-}) => {
-  await page.goto('/')
-  // 영문 라벨(Chat/Drive) 제거 — 레일 항목 텍스트가 한글이다.
-  await expect(page.getByTestId('rail-link-/chat')).toContainText('대화')
-  await expect(page.getByTestId('rail-link-/drive')).toContainText('드라이브')
-  // 순서: 홈 · 대화 · 메일 · 캘린더 · 작업 관리 · 드라이브 · 노트 · 연락처 · 설정
-  // (소통 앱 인접 우선, 작업관리는 그 다음, 파일/노트, 연락처는 설정 직전. #477)
-  const order = await page
-    .locator('[data-testid^="rail-link-"]')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(order).toEqual([
-    'rail-link-/',
-    'rail-link-/chat',
-    'rail-link-/mail',
-    'rail-link-/calendar',
-    'rail-link-/projects',
-    'rail-link-/drive',
-    'rail-link-/wiki',
-    'rail-link-/contacts',
-    'rail-link-/settings/profile',
-  ])
-})
-
 // WP-368 — 활성 레일 항목의 막대는 공용 selection-bar 가 그리고, nav-active-indicator 가 CSS 변수(위아래 25% 인셋·다크 그라데이션·glow)만
 // 바꾼다. 변수 정리 전과 같은 모양인지 계산된 ::before 스타일로 고정한다.
 for (const scheme of ['light', 'dark'] as const) {
-  test(`앱 레일 — 활성 항목 막대 모양이 유지된다 (${scheme}, WP-368)`, async ({ authenticatedPage: page }) => {
+  test(`앱 레일 — 활성 항목 막대 모양이 유지된다 (${scheme}, WP-368)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await withTheme(page, scheme)
     await page.goto('/')
     await expectTheme(page, scheme)
@@ -115,7 +89,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
 // #316 — 하단 알림·유저 아이콘 hover 툴팁 미제공. shadcn Tooltip 을 InboxPanel·AppRailUserMenu
 // trigger 에 추가하여 nav 링크와 동일한 패턴으로 맞춤.
-test('앱 레일 하단 — 알림 아이콘 hover 시 툴팁 "알림" 표시 (#316)', async ({
+test('앱 레일 하단 — 알림 아이콘 hover 시 툴팁 "알림" 표시 (#316)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
@@ -125,7 +99,7 @@ test('앱 레일 하단 — 알림 아이콘 hover 시 툴팁 "알림" 표시 (#
   await expect(page.getByRole('tooltip', { name: '알림' })).toBeVisible()
 })
 
-test('앱 레일 하단 — 유저 아이콘 hover 시 툴팁 "내 계정" 표시 (#316)', async ({
+test('앱 레일 하단 — 유저 아이콘 hover 시 툴팁 "내 계정" 표시 (#316)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
@@ -134,7 +108,7 @@ test('앱 레일 하단 — 유저 아이콘 hover 시 툴팁 "내 계정" 표�
   await expect(page.getByRole('tooltip', { name: '내 계정' })).toBeVisible()
 })
 
-test('앱 레일 하단 — 내 아바타는 다른 사람 아바타와 같은 사람 색 토큰 + 이니셜이다 (WP-318)', async ({
+test('앱 레일 하단 — 내 아바타는 다른 사람 아바타와 같은 사람 색 토큰 + 이니셜이다 (WP-318)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
@@ -145,17 +119,15 @@ test('앱 레일 하단 — 내 아바타는 다른 사람 아바타와 같은 �
   await expect(avatar).toHaveCSS('background-color', await tokenColor(page, '--presence-2'))
 })
 
-// #120 — 데스크톱(lg) 레일에서 라벨 span 이 lg:hidden 이라 모듈 링크 8개의 accessible name 이
-// 비어 있던 a11y 결함(WCAG 4.1.2). RailLink<Link> 에 aria-label 부여로 모든 뷰포트에서 이름 보장.
-// 요소 존재가 아니라 "역할 link + 접근 가능한 이름"을 함께 검증한다.
-test('앱 레일 — 데스크톱 모듈 링크 9개가 접근 가능한 이름(역할 link + 이름)을 갖는다 (#120)', async ({
+// #120 — 데스크톱(lg) 레일에서 라벨 span 이 lg:hidden 이라 모듈 링크 9개의 accessible name 이
+// 비어 있던 a11y 결함(WCAG 4.1.2). CSS 로 숨은 글자가 이름에서 빠지는지는 실제 브라우저의 접근성 트리에서만 판정된다(@layout).
+test('앱 레일 — 데스크톱 모듈 링크 9개가 접근 가능한 이름(역할 link + 이름)을 갖는다 (#120)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   // 기본 뷰포트(1280)는 lg → 라벨 span 이 숨겨지는, 버그가 발생하던 바로 그 조건.
   await page.goto('/')
   // 레일의 <nav> 로 스코프 — 헤더의 홈 마크(aria-label="홈")와 이름 충돌을 피한다.
   const nav = page.getByTestId('app-rail').locator('nav')
-  // MODULES 라벨(순서 무관, 이름 존재만 검증). 노트(구 Wiki) 활성 모듈 포함.
   const labels = ['홈', '작업 관리', '대화', '메일', '연락처', '캘린더', '드라이브', '노트', '설정']
   for (const name of labels) {
     await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
@@ -164,34 +136,7 @@ test('앱 레일 — 데스크톱 모듈 링크 9개가 접근 가능한 이름(
   await expect(nav.getByRole('link')).toHaveCount(9)
 })
 
-// #471 — 브랜드 로고/마크 = 확장 토글. 축소: 마크 클릭→펼치기 / 확장: 로고 클릭→접기(별도 버튼 없음).
-test('앱 레일 — 마크 클릭으로 펼치고 로고 클릭으로 접는다 (#471)', async ({
-  authenticatedPage: page,
-}) => {
-  await page.goto('/')
-  // 축소 기본: 마크 토글 버튼 노출(aria-expanded=false), 모듈 라벨·워드마크 숨김.
-  const markToggle = page.getByTestId('rail-toggle')
-  await expect(markToggle).toBeVisible()
-  await expect(markToggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(markToggle).toHaveAttribute('aria-label', '사이드바 펼치기')
-  await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeHidden()
-
-  // 펼치기 → 라벨 + 워드마크("Works") 노출, 로고가 접기 토글로 노출.
-  await markToggle.click()
-  await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeVisible()
-  await expect(page.getByTestId('app-rail').getByText('Works', { exact: true })).toBeVisible()
-  await expect(page.getByTestId('rail-toggle')).toHaveCount(0)
-  const collapse = page.getByTestId('rail-collapse')
-  await expect(collapse).toBeVisible()
-  await expect(collapse).toHaveAttribute('aria-expanded', 'true')
-  await expect(collapse).toHaveAttribute('aria-label', '사이드바 접기')
-
-  // 로고 클릭으로 접기 복귀.
-  await collapse.click()
-  await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeHidden()
-})
-
-test('앱 레일 — 확장 상태가 새로고침 후에도 유지된다(localStorage) (#471)', async ({
+test('앱 레일 — 확장 상태가 새로고침 후에도 유지된다(localStorage) (#471)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await page.goto('/')
@@ -203,22 +148,9 @@ test('앱 레일 — 확장 상태가 새로고침 후에도 유지된다(localS
   await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeVisible()
 })
 
-// #471 — 워크스페이스 스위처는 하단 푸터(알림 위)로 이동했다. 활성 테넌트 없으면 미렌더이므로
-// 위치 회귀는 "헤더에 없음"으로 검증(헤더 = 첫 border-b 블록).
-test('앱 레일 — 헤더엔 브랜드 토글만, 워크스페이스 스위처는 헤더에 없다 (#471)', async ({
-  authenticatedPage: page,
-}) => {
-  await page.goto('/')
-  // 헤더(상단 h-14)에는 rail-toggle 만. workspace-switcher 는 fixture 에서 미렌더(테넌트 없음)지만,
-  // 렌더되더라도 헤더가 아닌 푸터여야 한다 — 구조 회귀 가드로 헤더 내 스위처 부재를 단정.
-  const header = page.getByTestId('app-rail').locator('div.border-b').first()
-  await expect(header.getByTestId('workspace-switcher')).toHaveCount(0)
-  await expect(header.getByTestId('rail-toggle')).toBeVisible()
-})
-
 // WP-198 — 확장 레일(152px)에서 조직명이 80px 1줄 말줄임으로 대부분 잘리던 결함.
 // 확장 시 음절 단위 최대 2줄로 감싸 노출하고, 넘치면 2줄 끝 말줄임 + hover 툴팁으로 전체 이름.
-test('앱 레일 — 확장 시 긴 조직명은 최대 2줄로 감싸고 가로로 넘치지 않으며 툴팁으로 전체 이름을 보인다 (WP-198)', async ({
+test('앱 레일 — 확장 시 긴 조직명은 최대 2줄로 감싸고 가로로 넘치지 않으며 툴팁으로 전체 이름을 보인다 (WP-198)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   const longName = '(주)아이에이클라우드 코리아 기술연구소'
@@ -252,44 +184,28 @@ test('앱 레일 — 확장 시 긴 조직명은 최대 2줄로 감싸고 가로
   await expect(page.getByRole('tooltip', { name: longName })).toBeVisible()
 })
 
-// WP-796 — 데스크톱 레일의 대화·메일 아이콘에 안 읽은 수 배지(모바일 탭바와 같은 집계). 0 이면 숨는다.
-test('앱 레일 — 대화(채널+DM 합)·메일(업무 안 읽음) 배지가 축소·확장 모두 아이콘 위에 보인다', async ({
+// WP-796 — 배지 수·접근 가능한 이름·0 이면 숨김은 appRail.test.tsx 가 본다. 여기서는 펼친 레일(152px)에서
+// 라벨이 실제로 보이고 배지가 아이콘 위에 남으며 레일 밖으로 넘치지 않는지(기하)만 본다.
+test('앱 레일 — 펼치면 라벨이 보이고 대화 배지는 아이콘 위에 남아 레일 밖으로 넘치지 않는다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await stubChat(page, { channels: [createChannel({ id: 1, unreadCount: 2 })], dms: [createDm({ id: 2, unreadCount: 3 })] })
-  await mockApi(page, 'GET', '/api/v1/mail/unread-summary', { workUnread: 4 })
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
 
   const chatBadge = page.getByTestId('rail-badge-/chat')
   await expect(chatBadge).toHaveText('5')
-  await expect(page.getByTestId('rail-badge-/mail')).toHaveText('4')
-  // 배지 없는 앱엔 그리지 않는다.
-  await expect(page.getByTestId('rail-badge-/calendar')).toHaveCount(0)
-  // 축소 레일에서도 라벨 대신 이름에 수가 담긴다.
-  await expect(page.getByTestId('rail-link-/chat')).toHaveAttribute('aria-label', '대화, 읽지 않음 5')
-  await expect(page.getByTestId('rail-link-/mail')).toHaveAttribute('aria-label', '메일, 업무 메일 안 읽음 4')
+  // 축소 상태에선 라벨이 시각적으로 숨는다(max-w-0·opacity-0).
+  await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeHidden()
 
-  // 확장해도 배지는 아이콘 위 그대로 보이고 레일 밖으로 넘치지 않는다.
   await page.getByTestId('rail-toggle').click()
-  await expect(page.getByTestId('rail-link-/chat')).toContainText('대화')
+  await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeVisible()
   await expect(chatBadge).toBeVisible()
   expect(
     await page.getByTestId('app-rail').evaluate((el) => el.scrollWidth <= el.clientWidth),
   ).toBe(true)
-})
 
-test('앱 레일 — 안 읽은 것이 없으면 대화·메일 배지가 없다', async ({ authenticatedPage: page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  // 조회가 끝나기 전의 기본값 0 으로 통과하지 않도록 응답을 받은 뒤 단언한다.
-  const loaded = Promise.all([
-    page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/messaging/channels'),
-    page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/mail/unread-summary'),
-  ])
-  await page.goto('/')
-  await loaded
-  await expect(page.getByTestId('rail-link-/chat')).toBeVisible()
-  await expect(page.getByTestId('rail-badge-/chat')).toHaveCount(0)
-  await expect(page.getByTestId('rail-badge-/mail')).toHaveCount(0)
-  await expect(page.getByTestId('rail-link-/chat')).toHaveAttribute('aria-label', '대화')
+  // 로고로 접으면 라벨이 다시 숨는다.
+  await page.getByTestId('rail-collapse').click()
+  await expect(page.getByTestId('rail-link-/chat').getByText('대화')).toBeHidden()
 })
