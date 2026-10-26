@@ -60,11 +60,17 @@ fi
 # src/pages/ 서브디렉토리 = 도메인. 하드코딩하면 도메인 추가 시 드리프트되므로 동적으로 도출한다.
 WEB_DOMAINS_RE=$(ls -d apps/workplace-web/src/pages/*/ 2>/dev/null | xargs -n1 basename | sort | tr '\n' '|' | sed 's/|$//')
 
+# vitest 전용 파일(*.test.ts(x)·src/test/ 셋업·scripts 의 *.test.mjs)은 위 3.5 단계가 검증하므로 E2E 선택에서 뺀다 (WP-968).
+# 빼지 않으면 src/lib 의 테스트 파일 한 줄 변경도 그래프에서 화면을 못 찾아 ALL → 전체 E2E(35분)로 빠졌다.
+UNIT_TEST_RE='^apps/workplace-web/(src/.*\.test\.(ts|tsx)|src/test/.*|scripts/.*\.test\.mjs)$'
+E2E_CHANGED=$(printf '%s\n' "$CHANGED" | grep -vE "$UNIT_TEST_RE" || true)
+UNIT_TEST_ONLY=$(printf '%s\n' "$CHANGED" | grep -E "$UNIT_TEST_RE" | head -1 || true)
+
 # config/엔트리 변경은 그래프 분석 없이 무조건 전체 E2E (기존 동작 유지)
-CONFIG_FORCE_FULL=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/(src/(main\.tsx|App\.tsx|index\.css|router\.tsx|vite-env\.d\.ts|setupTests\.ts)|(vite|playwright|eslint|postcss|tailwind)\.config\.(ts|js|cjs|mjs)|tsconfig.*\.json|package\.json|e2e/(factories|fixtures)/|scripts/)' 2>/dev/null | head -1 || true)
+CONFIG_FORCE_FULL=$(printf '%s\n' "$E2E_CHANGED" | grep -E '^apps/workplace-web/(src/(main\.tsx|App\.tsx|index\.css|router\.tsx|vite-env\.d\.ts|setupTests\.ts)|(vite|playwright|eslint|postcss|tailwind)\.config\.(ts|js|cjs|mjs)|tsconfig.*\.json|package\.json|e2e/(factories|fixtures)/|scripts/)' 2>/dev/null | head -1 || true)
 
 # components/api/lib/hooks/types 는 의존성 그래프로 영향 도메인만 역추적
-SHARED_GRAPH_FILES=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/src/(components|api|lib|hooks|types)/.*\.(ts|tsx)$' || true)
+SHARED_GRAPH_FILES=$(printf '%s\n' "$E2E_CHANGED" | grep -E '^apps/workplace-web/src/(components|api|lib|hooks|types)/.*\.(ts|tsx)$' || true)
 
 GRAPH_DOMAINS=""
 if [ -n "$SHARED_GRAPH_FILES" ] && [ -z "$PRECOMMIT_DRY_RUN" ]; then
@@ -74,7 +80,7 @@ elif [ -n "$SHARED_GRAPH_FILES" ]; then
   echo "[pre-commit][dry-run] 공유영역 변경 감지 — affected-domains.mjs 로 영향 도메인 계산 예정: $SHARED_GRAPH_FILES"
 fi
 
-WEB_PAGE_CHANGES=$(printf '%s\n' "$CHANGED" | grep -E '^apps/workplace-web/src/pages/' || true)
+WEB_PAGE_CHANGES=$(printf '%s\n' "$E2E_CHANGED" | grep -E '^apps/workplace-web/src/pages/' || true)
 # 도메인 디렉토리 외 페이지(평탄 파일: LoginPage/SignupPage/HomePage 등) → 매핑 모호로 풀 E2E
 NON_DOMAIN_PAGE=$(printf '%s\n' "$WEB_PAGE_CHANGES" | grep -vE "^apps/workplace-web/src/pages/($WEB_DOMAINS_RE)/" || true)
 
@@ -109,6 +115,9 @@ elif [ -n "$WEB_PAGE_CHANGES" ] || [ -n "$GRAPH_DOMAINS" ]; then
     fi
     cd - >/dev/null
   fi
+elif [ -n "$UNIT_TEST_ONLY" ] && [ -z "$(printf '%s\n' "$E2E_CHANGED" | grep -E '^apps/workplace-web/src/' || true)" ]; then
+  # web 소스 쪽 변경이 vitest 전용 파일뿐 — 3.5 단계 vitest 로 충분 (WP-968)
+  echo "[pre-commit] workplace-web 변경이 단위 테스트 파일뿐 — E2E skip (vitest 로 검증)"
 else
   # 6) workplace-web 외 변경 (api 단독 등) — gradle 단계에서 회귀 검증
   echo "[pre-commit] workplace-web 변경 없음 — E2E skip (gradle 단계에서 회귀 검증)"

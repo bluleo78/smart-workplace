@@ -522,7 +522,7 @@ export default function IssueDetailPage() {
   const canDelete = data.viewerCanDelete ?? false;
   // 보고자 바꾸기(WP-944) — 서버 플래그가 참일 때만 레일·모바일 시트의 보고자 필드가 고르기 트리거가 된다.
   const reporterEdit = data.viewerCanChangeReporter
-    ? { projectKey: key, issueNumber: issueNumber, currentUserId: user?.id }
+    ? { projectKey: key, issueNumber: issueNumber, currentUserId: user?.id, isOpenProject: project.data?.type === 'OPEN' }
     : undefined;
   // 워크플로 필드가 권한으로 막혔을 때 안내(WP-503) — 제목 아래 속성 줄 끝엔 짧은 표시(누르면 문구), 모바일 「속성」 시트 맨 위엔 문구 한 줄.
   const lockedNotice = workflowLockedNotice(canEditWorkflow, canEditContent);
