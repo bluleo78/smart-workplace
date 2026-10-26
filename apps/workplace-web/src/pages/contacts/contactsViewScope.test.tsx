@@ -2,14 +2,18 @@
 // 사이드바 항목 바로 이동(그룹 선택이 저절로 풀림·잠금 없음·재클릭 토글 없음), 헤더 검색의 그룹 범위(구성원 안 거르기),
 // 범위 칩 ×·「전체에서 찾기」로 범위 해제는 URL 상태·조건부 렌더라 브라우저 없이 판정된다.
 // 입력 조합(IME)·모바일 🔍 포커스는 E2E(@input)가 지킨다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
 import { member, memberDetail, page } from '../../../e2e/factories/contacts.factory'
 import { sharedDetail, sharedNode, tree } from '../../../e2e/factories/userGroups.factory'
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 const GROUP_NAME = '경영지원본부 재경팀'
 
@@ -106,19 +110,27 @@ test('그룹 보기에서 검색해도 쓰지 않는 통합 목록(/contacts?sea
 })
 
 test('그룹 보기에서 검색하면 그 그룹 구성원 안에서만 거르고, 맞는 사람이 없으면 안내한다', async () => {
-  const { user, location } = renderPage('/contacts?group=10', { handlers: contactsHandlers() })
+  const { location } = renderPage('/contacts?group=10', { handlers: contactsHandlers() })
   await screen.findByTestId('group-member-MEMBER-3', {}, { timeout: PAGE_LOAD_TIMEOUT })
-  await user.type(screen.getByTestId('contact-search'), '회계')
+  // 그룹 구성원은 이미 받아 두고 화면에서 거르므로 남은 기다림은 300ms debounce 뿐이다 — 실제 시간을 기다리면
+  // 전체 실행의 부하에서 waitFor 기본 1초를 넘겨 간헐 실패했다. 페이지가 뜬 뒤 타이머를 가짜로 바꿔 debounce 를 직접 넘긴다.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const search = (value: string) => {
+    fireEvent.change(screen.getByTestId('contact-search'), { target: { value } })
+    act(() => {
+      vi.advanceTimersByTime(300)
+    })
+  }
+  search('회계')
   // 직책(선임 회계 담당)으로 이수정만 남는다 — 통합 목록(이수민)은 섞이지 않는다.
-  await waitFor(() => expect(screen.queryByTestId('group-member-MEMBER-3')).not.toBeInTheDocument())
+  expect(location()).toBe('/contacts?group=10&q=%ED%9A%8C%EA%B3%84')
+  expect(screen.queryByTestId('group-member-MEMBER-3')).not.toBeInTheDocument()
   expect(screen.getByTestId('group-member-MEMBER-2')).toBeInTheDocument()
   expect(screen.getByText('소속 멤버 중 검색 결과 1명')).toBeInTheDocument()
   expect(screen.queryByTestId('org-chart-view')).not.toBeInTheDocument()
-  await waitFor(() => expect(location()).toBe('/contacts?group=10&q=%ED%9A%8C%EA%B3%84'))
 
-  await user.clear(screen.getByTestId('contact-search'))
-  await user.type(screen.getByTestId('contact-search'), '없는사람')
-  expect(await screen.findByTestId('group-members-empty')).toHaveTextContent('소속 멤버 중 「없는사람」 검색 결과가 없습니다')
+  search('없는사람')
+  expect(screen.getByTestId('group-members-empty')).toHaveTextContent('소속 멤버 중 「없는사람」 검색 결과가 없습니다')
 })
 
 test('범위 칩을 누르면 그룹 범위만 풀리고 같은 검색어로 전체 연락처를 찾는다', async () => {

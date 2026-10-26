@@ -215,7 +215,7 @@ export function ContactsPage() {
 
   // 열린 연락처 = URL ?contact(상태의 단일 원천, WP-206). 행 클릭은 push → 시스템 뒤로가기가 상세만 닫는다.
   // 필터(q·type·조직·직책·그룹) 변경은 그 navigate(ContactSidebar.patch·writeQuery·leaveGroup)가 contact 를 함께 지운다 —
-  // 같은 히스토리 항목에서 처리해 리셋 이펙트 경합·이중 항목이 없다.
+  // 같은 히스토리 항목에서 처리해 리셋 이펙트 경합·이중 항목이 없다. 그룹 보기의 검색어 변경만 예외로 상세를 둔다(WP-999 — writeQuery).
   const contactParam = useHistoryParam('contact')
   const selected = decodeContactParam(contactParam.value)
   const selectContact = (sel: ContactSelection) => contactParam.open(encodeContactParam(sel))
@@ -230,24 +230,34 @@ export function ContactsPage() {
   // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
   // 검색창이 사이드바에서 헤더로 옮겨 오며(WP-976) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
   const [qDraft, setQDraft] = useState(search)
+  // 이 페이지가 마지막으로 URL 에 쓴 q — 그 값이 search 로 되돌아올 때는 draft 를 덮지 않는다(WP-999).
+  // URL 을 쓴 순간부터 다시 렌더되기까지 더 친 글자가 있으면, 되돌아온 옛 q 로 덮어 그 글자가 지워졌다.
+  const writtenQ = useRef<string | null>(null)
   useEffect(() => {
-    // 바깥(뒤로 가기·범위 해제 등)에서 q 가 바뀌면 draft 를 맞춘다.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setQDraft(search)
+    // 내 쓰기의 메아리는 한 번만 건너뛴다(그 뒤 바깥에서 같은 값으로 바뀌면 다시 맞춘다).
+    const isEcho = writtenQ.current === search
+    writtenQ.current = null
+    // 바깥(뒤로 가기·앱 레일 이동 등)에서 q 가 바뀌면 draft 를 맞춘다.
+    if (!isEcho) setQDraft(search)
   }, [search])
   const debouncedQDraft = useDebounceValue(qDraft, 300)
-  // q 갱신 — 바뀐 목록에 없는 상세가 남지 않게 열린 상세(?contact)도 같은 항목에서 닫는다(WP-206).
-  const writeQuery = (value: string) =>
+  // q 갱신 — 통합 목록은 바뀐 목록에 없는 상세가 남지 않게 열린 상세(?contact)도 같은 항목에서 닫는다(WP-206).
+  // 그룹 보기는 소속 멤버를 화면에서 거를 뿐이라, 검색어에서 빠진 사람이어도 상세를 그대로 둔다(WP-999) —
+  // 보던 사람을 두고 다른 사람을 찾을 수 있게. 그룹 여부는 렌더 시점 값이 아닌 prev 로 본다(같은 틱의 범위 해제와 경합하지 않게).
+  const writeQuery = (value: string) => {
     setParams(
       (prev) => {
         const sp = new URLSearchParams(prev)
-        sp.delete('contact')
+        // q 가 실제로 바뀔 때만 메아리를 기다린다 — 안 바뀌면 search 가 그대로라 기록이 소비되지 않고 남는다.
+        if ((sp.get('q') ?? '') !== value) writtenQ.current = value
+        if (parseGroupId(sp.get('group')) == null) sp.delete('contact')
         if (value) sp.set('q', value)
         else sp.delete('q')
         return sp
       },
       { replace: true },
     )
+  }
   useEffect(() => {
     if (debouncedQDraft === search) return
     writeQuery(debouncedQDraft)
