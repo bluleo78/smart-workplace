@@ -1,5 +1,5 @@
 // VersionsPage(WP-888) 권한·빈 상태·접기 분기 — OWNER/ADMIN 은 만들기·⋯ 메뉴, 멤버는 읽기 전용, 삭제는 보관된 행만, 비면 안내 문구.
-// 라우트 → 페이지 → API 배선과 요청 payload 는 E2E 가 맡는다(WP-413).
+// 훅을 vi.mock 으로 끊고 분기만 본다(WP-413). 실제 API(MSW)를 지나는 권한·출시 요청은 versionManage.test.tsx, 화면 배선은 E2E(issue-versions.spec.ts)가 맡는다.
 import { fireEvent, screen } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

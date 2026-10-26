@@ -68,7 +68,8 @@ export const shellHandlers = [
   http.get(`${API}/calendars`, () => HttpResponse.json([])),
   http.get(`${API}/messaging/threads/inbox/unread-count`, () => HttpResponse.json({ count: 0 })),
   http.get(`${API}/notification-settings`, () => HttpResponse.json(defaultNotificationSettings())),
-  ...['cycles', 'cycles/progress', 'types', 'milestones', 'labels', 'members', 'saved-views', 'components'].map((sub) =>
+  // versions(WP-888): 이슈 상세·목록 필터·타임라인이 늘 부른다 — 빈 목록이면 칸·필터·레인이 숨는다(E2E setupAuthMocks 와 같음).
+  ...['cycles', 'cycles/progress', 'types', 'milestones', 'labels', 'members', 'saved-views', 'components', 'versions'].map((sub) =>
     http.get(`${API}/projects/:key/${sub}`, () => HttpResponse.json([])),
   ),
   http.get(`${API}/projects/:key/issues/:n/cycles`, () => HttpResponse.json([])),
