@@ -52,7 +52,9 @@ class ChatDeletedMessageEditTest extends IntegrationTestBase {
         threadService.getOrCreate(s.reporterId(), s.projectKey(), s.issueNumber()).threadId();
     var msg = messageService.create(s.reporterId(), threadId, new CreateChatMessageRequest("글"));
     messageService.delete(s.reporterId(), msg.id());
-    OffsetDateTime first = OffsetDateTime.now().minusDays(1);
+    // 마이크로초로 자른다 — DB(timestamptz)는 마이크로초까지만 저장해, 나노초 now() 와 그대로 비교하면 늘 다르다(WP-1004).
+    OffsetDateTime first =
+        OffsetDateTime.now().minusDays(1).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     dsl.update(CHAT_MESSAGE)
         .set(CHAT_MESSAGE.DELETED_AT, first)
         .where(CHAT_MESSAGE.ID.eq(msg.id()))

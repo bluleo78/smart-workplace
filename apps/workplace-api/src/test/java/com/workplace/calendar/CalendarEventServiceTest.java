@@ -139,7 +139,9 @@ class CalendarEventServiceTest extends IntegrationTestBase {
   @Test
   void update_afterAlreadyFired_unrelatedFieldEdit_doesNotRearm() {
     long u = user();
-    OffsetDateTime start = OffsetDateTime.now().plusHours(1);
+    // 초 단위로 자른다 — DB(timestamptz)는 마이크로초까지만 저장해, 나노초 now() 와 그대로 비교하면 늘 다르다(WP-1004).
+    OffsetDateTime start =
+        OffsetDateTime.now().plusHours(1).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
     CalendarEventResponse created =
         service.create(u, reqWithReminder(start, start.plusHours(2), 10));
     assertThat(nextFireOf(created.id())).isEqualTo(start.minusMinutes(10));
