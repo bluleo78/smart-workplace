@@ -93,7 +93,7 @@ describe('의존성', () => {
   })
 
   // WP-869 — 링크 행이 범주 라벨(「진행 중」)만 보여 사용자 정의 상태(「검토 중」)를 알 수 없었다.
-  test('링크 행은 사용자 정의 상태 이름과 그 색 아이콘을 한 번만 보이고, 이름이 없는 옛 응답은 범주 라벨 (WP-869)', async () => {
+  test('링크 행은 상태 이름을 글자 대신 상태 색 아이콘의 이름으로 알리고, 이름이 없는 옛 응답은 범주 라벨 (WP-869·WP-991)', async () => {
     const blockedBy: IssueLinkSummary[] = [
       { number: 5, title: '결제 모듈 환불 처리', status: 'IN_PROGRESS', statusId: 12, statusName: '검토 중', statusColor: 'PURPLE', type: taskType, dueDate: null },
       { number: 6, title: '옛 응답 선행', status: 'DONE', type: taskType, dueDate: null },
@@ -102,14 +102,15 @@ describe('의존성', () => {
     await openRelations(user)
     const row = await screen.findByTestId('issue-link-row-5')
     const status = screen.getByTestId('issue-link-status-5')
-    expect(status).toHaveTextContent(/^검토 중$/)
+    // 한 줄 관계(WP-991) — 상태 이름은 글자로 그리지 않고 아이콘이 이름으로 알린다(툴팁은 IssueLinkRow.test·E2E 가 본다).
+    expect(row).not.toHaveTextContent('검토 중')
     expect(row).not.toHaveTextContent('진행 중')
-    // 아이콘은 상태 색(PURPLE)의 장식 — 범주 색 배지가 따로 붙어 이름이 두 번 보이지 않는다.
-    expect(status.querySelectorAll('svg[aria-hidden="true"].text-purple-700')).toHaveLength(1)
-    expect(within(row).getAllByText('검토 중', { exact: true })).toHaveLength(1)
+    expect(within(status).getByRole('img', { name: '상태: 검토 중' })).toBeInTheDocument()
+    // 아이콘은 사용자 정의 상태 색(PURPLE) — 범주 색이 아니다.
+    expect(status.querySelectorAll('svg.text-purple-700')).toHaveLength(1)
     // 같은 프로젝트 이슈는 키를 「#5」 로 줄인다(WP-887).
     expect(within(row).getByText('#5', { exact: true })).toBeInTheDocument()
-    expect(screen.getByTestId('issue-link-status-6')).toHaveTextContent(/^완료$/)
+    expect(within(screen.getByTestId('issue-link-status-6')).getByRole('img', { name: '상태: 완료' })).toBeInTheDocument()
   })
 
   // #669 — 미완료 선행 이슈의 마감일보다 이른 마감일은 경고만 하고(soft) 저장은 그대로 한다.

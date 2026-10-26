@@ -283,7 +283,8 @@ test.describe('의존성', () => {
   const LONG_LINK_TITLE = '결제 모듈 환불 처리 간헐적 실패 — PG사 웹훅 재시도 시 중복 환불 방지 로직 검토';
 
   // WP-869 — 링크 행이 범주 라벨(「진행 중」)만 보여 사용자 정의 상태(「검토 중」)를 알 수 없었다.
-  test('링크 행은 상태 이름을 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // WP-991 — 관계 줄은 한 줄: [상태 아이콘][유형 아이콘] 키 제목. 상태 이름은 아이콘 툴팁·aria-label 로만.
+  test('링크 행은 한 줄로, 상태 이름은 상태 아이콘 툴팁으로 보인다', { tag: ['@layout', '@input'] }, async ({ authenticatedPage: page }) => {
     const taskType = makeTaskType();
     await setupCommonStubs(page);
     await page.route(
@@ -313,21 +314,27 @@ test.describe('의존성', () => {
     await relationsGroupTrigger(page).click();
     const row = page.getByTestId('issue-link-row-5');
     const status = page.getByTestId('issue-link-status-5');
-    await expect(status).toHaveText('검토 중');
+    // 상태는 아이콘만 — 상태 색(PURPLE)이고 상태 이름(범주 라벨이 아니라 프로젝트 상태 이름)을 aria-label 로 알린다.
+    await expect(status.getByRole('img', { name: '상태: 검토 중' })).toHaveClass(/text-purple-700/);
+    await expect(row).not.toContainText('검토 중');
     await expect(row).not.toContainText('진행 중');
-    // 상태 아이콘은 상태 색(PURPLE) — 이름이 옆에 있으므로 아이콘은 장식(aria-hidden). 범주 색 배지는 없다(색이 둘로 갈리지 않게).
-    await expect(status.locator('svg[aria-hidden="true"].text-purple-700')).toHaveCount(1);
-    await expect(row.getByText('검토 중', { exact: true })).toHaveCount(1); // 상태 이름은 한 번만(배지 중복 없음)
-    await expect(page.getByTestId('issue-link-status-6')).toHaveText('완료');
+    // 구 서버 응답 — 상태 이름이 없으면 범주 라벨.
+    await expect(page.getByTestId('issue-link-status-6').getByRole('img', { name: '상태: 완료' })).toBeVisible();
+    // 마우스를 올리면 상태 이름이 툴팁으로 보인다.
+    await status.hover();
+    await expect(page.getByRole('tooltip')).toHaveText('검토 중');
 
-    // 2줄 구성(WP-809 디자이너 리뷰) — 상태는 제목 아래 줄, KEY 시작선에 맞춰 들여쓰고, 좁은 레일에서도 제목이 행 폭 대부분을 쓴다.
+    // 한 줄 구성 — 상태 아이콘·키·제목이 같은 줄 가운데에 있고, 행이 두 줄로 늘지 않으며, 긴 제목이 남는 폭을 대부분 쓴다.
     const title = await stableBox(row.getByRole('link', { name: LONG_LINK_TITLE }));
     // 같은 프로젝트 이슈는 키를 「#5」 로 줄여 보인다(WP-887).
     const key = await stableBox(row.getByText('#5', { exact: true }));
     const statusBox = await stableBox(status);
     const rowBox = await stableBox(row);
-    expect(statusBox.y).toBeGreaterThanOrEqual(title.y + title.height - 1);
-    expect(Math.abs(statusBox.x - key.x)).toBeLessThanOrEqual(1);
-    expect(title.x + title.width - key.x).toBeGreaterThan((rowBox.width - 24) * 0.75);
+    const mid = (b: { y: number; height: number }) => b.y + b.height / 2;
+    expect(Math.abs(mid(statusBox) - mid(title))).toBeLessThanOrEqual(2);
+    expect(Math.abs(mid(key) - mid(title))).toBeLessThanOrEqual(2);
+    expect(statusBox.x).toBeLessThan(key.x);
+    expect(rowBox.height).toBeLessThan(title.height * 2);
+    expect(title.x + title.width - statusBox.x).toBeGreaterThan((rowBox.width - 24) * 0.75);
   });
 });

@@ -1,0 +1,56 @@
+# PR·main 검사 (WP-993) — 전체 lint·typecheck 와 웹 vitest 를 GitHub 에서 돌린다.
+# main 브랜치 보호의 required status check 로 걸 job 이름은 `verify` 다(바꾸면 보호 설정도 함께 바꾼다).
+# 빠지는 것: 전체 E2E(30분대)·백엔드 JUnit(Testcontainers) — 지금처럼 로컬 pre-push 게이트(scripts/husky/pre-push.sh)가 맡는다.
+#   이 검사는 「머지된 결과에서 lint·타입·단위 테스트가 조용히 깨지는 일」(2026-10-26 main lint)을 막는 몫이다.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# 같은 PR 에 새 커밋이 오면 앞선 실행을 취소한다 — PR 은 마지막 커밋의 결과만 의미가 있다.
+# main push 는 취소하지 않는다 — 커밋마다 결과가 남아야 어느 머지가 main 을 깨뜨렸는지 알 수 있다.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      # pnpm 버전은 루트 package.json 의 packageManager 를 따른다.
+      - uses: pnpm/action-setup@v4
+
+      # Node 24 고정 — Node 26 에서는 웹 vitest 가 window.localStorage 문제로 대량 실패한다.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # 전체 lint 에 workplace-api 의 spotlessCheck(gradle)가 들어 있어 Java 가 필요하다(api 는 Java 21).
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: lint
+        run: pnpm lint
+
+      # turbo 가 typecheck 전에 공유 패키지(mcp-tools-shared 등)를 먼저 빌드한다(^build).
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: web vitest
+        run: pnpm --filter @smart-workplace/workplace-web test
