@@ -40,7 +40,7 @@ async function remoteEditAbove(a: Page, b: Page, text: string) {
 
 const TABLE_MD = ['| 항목 | 담당 |', '| --- | --- |', '| API 설계 | 김 |', '| 배포 | 이 |'].join('\n')
 
-test.describe('동시 편집 중 기존 편집 기능', () => {
+test.describe('동시 편집 중 기존 편집 기능', { tag: '@platform' }, () => {
   test('표 툴바 — 위쪽 원격 입력 뒤에도 툴바가 표에 붙어 있고, 열 추가가 양쪽·저장본에 반영된다', async ({
     authenticatedPage: a,
     newAuthedPage,

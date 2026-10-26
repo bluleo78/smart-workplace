@@ -3,22 +3,15 @@
 // 카드는 제목 아래·본문 위에 놓이고, 요약이 없으면(MISSING) 노트당 한 번 자동 생성한다.
 // 낡음은 요약 캐시의 status 로 그린다 — 본문은 동기화 서버(Yjs)가 파생 저장하며 version 을 올리고(WP-287), 편집기는
 // wiki.page.updated SSE → 페이지 재조회로 새 version 을 알게 되면 캐시를 STALE 로 맞춘다. 제목만 저장은 version 을 올리지 않는다.
+// 문단형·비노출(TOO_SHORT·UNAVAILABLE)·서버 STALE·실패 뒤 다시 시도·노트 이동 격리·AI 불가는 src/components/wiki/WikiSummaryCard.test.tsx,
+// 뷰어도 카드를 보는지는 src/pages/wiki/wikiPage.test.tsx 가 지킨다(WP-983).
 import type { Page } from '@playwright/test'
 import { REVALIDATE_REASON_DELETED } from '@smart-workplace/wiki-editor-schema/collab-protocol'
-import type {
-  WikiPageDetail,
-  WikiPageSummary,
-  WikiPageSummaryState,
-  WikiRole,
-  WikiSpace,
-  WikiSummaryStatus,
-} from '../../../src/types/wiki'
-import { createUser } from '../../factories/auth.factory'
+import type { WikiPageDetail, WikiPageSummary, WikiPageSummaryState, WikiRole, WikiSpace, WikiSummaryStatus } from '../../../src/types/wiki'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { changeCollabRole, collabNsOf, seedCollabFor } from '../../fixtures/collab'
 import { mockGatedEvents } from '../../fixtures/gatedEvents'
-import { expectStays } from '../../fixtures/wait'
 import { wikiEditorOpener } from '../../fixtures/wiki-mock'
 
 const SPACE_ID = 1
@@ -162,7 +155,7 @@ const tooShort = () => state('TOO_SHORT')
 
 const open = wikiEditorOpener(SPACE_ID, PAGE_ID)
 
-test('긴 노트를 열면 자동으로 요약을 만들어 제목 아래·본문 위에 카드로 보여 준다', async ({ authenticatedPage: page }) => {
+test('긴 노트를 열면 자동으로 요약을 만들어 제목 아래·본문 위에 카드로 보여 준다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
   const post = gate()
   const calls = await mockSummary(page, { initial: missing(), post: ready(), hold: post.held })
@@ -185,7 +178,7 @@ test('긴 노트를 열면 자동으로 요약을 만들어 제목 아래·본�
   expect(cardBox!.y + cardBox!.height).toBeLessThanOrEqual(bodyBox!.y)
 })
 
-test('목록형 요약은 목록으로 그려 항목마다 한 줄씩, 긴 항목은 기호 뒤로 들여써 보인다', async ({ authenticatedPage: page }) => {
+test('목록형 요약은 목록으로 그려 항목마다 한 줄씩, 긴 항목은 기호 뒤로 들여써 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
   const items = ['배포를 10/9 로 확정했다.', 'QA 는 수요일까지 마친다.', '롤백 기준은 오류율 2%.']
   await mockSummary(page, { initial: ready(1, items.map((t) => `• ${t}`).join('\n')) })
@@ -206,38 +199,9 @@ test('목록형 요약은 목록으로 그려 항목마다 한 줄씩, 긴 항�
   expect(itemLeft).toBeGreaterThan(listLeft)
 })
 
-test('목록이 아닌 옛 문단형 요약은 원문 그대로 보인다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page)
-  await mockSummary(page, { initial: ready(1, '배포를 10/9 로 확정했다. QA 는 수요일까지 마친다.') })
-  await open(page)
-
-  const text = page.getByTestId('wiki-ai-summary-text')
-  await expect(text).toHaveText('배포를 10/9 로 확정했다. QA 는 수요일까지 마친다.')
-  await expect(text.getByRole('listitem')).toHaveCount(0)
-})
-
-// 카드 비노출 상태 — 짧은 노트(TOO_SHORT)·공용 비서 없음(UNAVAILABLE)은 같은 기대(카드 없음·생성 요청 없음)를 갖는다.
-for (const { status, name } of [
-  { status: 'TOO_SHORT', name: '짧은 노트는 요약 카드를 그리지 않고 생성도 요청하지 않는다' },
-  {
-    status: 'UNAVAILABLE',
-    name: '공용 비서가 없어 요약할 수 없는 노트(UNAVAILABLE)는 카드를 그리지 않고 생성도 요청하지 않는다',
-  },
-] as const) {
-  test(name, async ({ authenticatedPage: page }) => {
-    await setupWikiMocks(page)
-    const calls = await mockSummary(page, { initial: state(status) })
-    await open(page)
-
-    await expect.poll(() => calls.get).toBe(1)
-    await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
-    expect(calls.post).toBe(0)
-  })
-}
-
 // 버전 비교 분기 — 생성 중 저장한 뒤 도착한 요약의 낡음, TOO_SHORT 의 재조회, 같은 버전(제목만 바뀐 알림) 무시 — 는
 // src/hooks/queries/useWikiSummary.test.ts 가 본다(WP-410). 아래는 편집기 → 요약 캐시 → 카드 배선 확인.
-test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하면 새 요약으로 바뀐다', async ({ authenticatedPage: page }) => {
+test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하면 새 요약으로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   const wiki = await setupWikiMocks(page)
   const calls = await mockSummary(page, { initial: ready(1), post: ready(2, '새 요약') })
   await open(page)
@@ -258,34 +222,9 @@ test('저장으로 노트가 바뀌면 낡음 표시가 뜨고 다시 요약하�
   await expect(page.getByTestId('wiki-ai-summary-stale')).toHaveCount(0)
 })
 
-test('서버가 STALE 로 알려 주면 편집기 버전이 같아도 낡음 표시를 보여 준다', async ({ authenticatedPage: page }) => {
-  // 다른 사람이 저장해 서버만 낡음을 아는 상황 — summaryVersion 이 편집기 version(1)과 같아도 status 를 따른다.
-  await setupWikiMocks(page)
-  await mockSummary(page, { initial: { ...ready(1), status: 'STALE', pageVersion: 2 }, post: ready(2, '새 요약') })
-  await open(page)
-
-  await expect(page.getByTestId('wiki-ai-summary')).toContainText('배포를 10/9 로 확정했다.')
-  await expect(page.getByTestId('wiki-ai-summary-stale')).toBeVisible()
-})
-
-test('요약 생성에 실패하면 한 번만 시도하고 다시 시도 버튼을 보여 준다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page)
-  const calls = await mockSummary(page, { initial: missing(), post: 'fail' })
-  await open(page)
-
-  const card = page.getByTestId('wiki-ai-summary')
-  // 실패는 회색 한 줄이 아니라 오류 표시(아이콘 + 문구)로 보여 준다.
-  await expect(page.getByTestId('wiki-ai-summary-failed')).toHaveText('요약하지 못했어요')
-  // 자동 재시도 없음 — 2초 동안 POST 가 1건으로 유지돼야 한다.
-  await expectStays(page, () => calls.post, 1, { ms: 2000 })
-
-  await page.getByTestId('wiki-ai-summary-retry').click()
-  await expect.poll(() => calls.post).toBe(2)
-})
-
 // WP-296 — 지워졌거나 접근을 잃은 노트에서는 요약을 다시 만들 수 없다 — 다시 시도를 거둬 헛된 행동을 권하지 않는다.
 // 실패 문구는 남긴다 — 카드를 접으면 그 높이만큼 본문이 튀어 읽던 자리를 잃는다.
-test('요약 실패 뒤 노트가 삭제되면 다시 시도 버튼을 거두고 카드 높이는 유지한다', async ({ authenticatedPage: page }) => {
+test('요약 실패 뒤 노트가 삭제되면 다시 시도 버튼을 거두고 카드 높이는 유지한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page)
   await mockSummary(page, { initial: missing(), post: 'fail' })
   await open(page)
@@ -297,49 +236,7 @@ test('요약 실패 뒤 노트가 삭제되면 다시 시도 버튼을 거두고
   await expect(page.getByTestId('wiki-ai-summary-failed')).toBeVisible()
 })
 
-test('생성 중 다른 노트로 이동하면 이전 노트의 요약·로딩이 새 노트에 새지 않는다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page)
-  const postA = gate()
-  const callsA = await mockSummary(page, { initial: missing(), post: ready(1, 'A 요약'), hold: postA.held })
-  await mockSummary(page, { initial: tooShort(), pageId: OTHER_ID })
-  await open(page)
-
-  await expect(page.getByTestId('wiki-ai-summary-loading')).toBeVisible()
-  await page.getByTestId(`wiki-tree-row-${OTHER_ID}`).click()
-  await expect(page).toHaveURL(new RegExp(`/pages/${OTHER_ID}$`))
-  await expect(page.getByPlaceholder('제목 없음')).toHaveValue(TITLES[OTHER_ID])
-
-  // 이동을 마친 뒤에야 A 의 POST 를 끝내고, 그 응답이 OTHER 화면에 카드·A 요약으로 새지 않는지 지켜본다.
-  postA.release()
-  await expect.poll(() => callsA.post).toBe(1)
-  await expectStays(page, () => page.getByTestId('wiki-ai-summary').count(), 0, { ms: 2000 })
-  await expect(page.getByText('A 요약')).toHaveCount(0)
-  expect(callsA.post).toBe(1)
-})
-
-test('뷰어도 요약 카드를 본다', async ({ authenticatedPage: page }) => {
-  await setupWikiMocks(page, 'VIEWER')
-  await mockSummary(page, { initial: ready() })
-  await open(page, { readOnly: true })
-
-  await expect(page.getByTestId('wiki-ai-summary')).toContainText('배포를 10/9 로 확정했다.')
-})
-
-test('AI 를 쓸 수 없는 사용자는 요약 조회 자체를 하지 않는다', async ({ authenticatedPage: page }) => {
-  // aiAvailable:false 로 덮어씀 — 픽스처의 true 모킹보다 나중에 등록돼 우선 적용(LIFO).
-  await mockApi(page, 'GET', '/api/v1/users/me', {
-    ...createUser({ aiAvailable: false }),
-    roles: [{ id: 2, name: 'USER', description: '일반 사용자', isSystem: true }],
-  })
-  await setupWikiMocks(page)
-  const calls = await mockSummary(page, { initial: ready() })
-  await open(page)
-
-  await expectStays(page, () => calls.get, 0, { ms: 500 })
-  await expect(page.getByTestId('wiki-ai-summary')).toHaveCount(0)
-})
-
-test('헤더 AI 메뉴·슬래시 메뉴에는 본문 삽입형 AI 요약이 없다', async ({ authenticatedPage: page }) => {
+test('헤더 AI 메뉴·슬래시 메뉴에는 본문 삽입형 AI 요약이 없다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // 요약은 상단 카드로 옮겼으므로 생성 계열은 초안·이어쓰기만 남는다.
   await setupWikiMocks(page, 'EDITOR')
   await mockSummary(page, { initial: tooShort() })

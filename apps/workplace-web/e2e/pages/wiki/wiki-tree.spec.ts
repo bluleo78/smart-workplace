@@ -1,10 +1,10 @@
 // 노트 사이드바 트리 — 하위 페이지 생성(parentId payload) + 접기/펼치기 + 삭제 다이얼로그.
+// 하위 페이지 생성 payload·400 토스트·선택 표시·접기/펼치기·role=group·삭제 확인·하위 경고·AI 배지는 src/pages/wiki/wikiSidebar.test.tsx 가 지킨다(WP-983).
 import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { expectSelectedRow } from '../../fixtures/selection'
 
 /** 페이지 생성 POST 본문. */
 type CreateBody = { parentId: number | null; title: string }
@@ -45,45 +45,7 @@ async function routeCommon(page: Page) {
   )
 }
 
-test('하위 페이지 생성 — ＋ 클릭 시 parentId payload + 트리/내비 반영', async ({ authenticatedPage: page }) => {
-  await routeCommon(page)
-  const state = { created: false }
-  const creates = trackRequests(page, 'POST', `/api/v1/wiki/spaces/${SPACE_ID}/pages`)
-
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
-    const method = r.request().method()
-    if (method === 'GET') {
-      const tree: WikiPageSummary[] = [
-        { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
-      ]
-      if (state.created)
-        tree.push({ id: 2, parentId: 1, title: '제목 없음', position: 0, aiLastUsedAt: null })
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) })
-    }
-    if (method === 'POST') {
-      state.created = true
-      return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(detail(2, '제목 없음', 1)) })
-    }
-    return r.fallback()
-  })
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const row = page.getByTestId('wiki-tree-row-1')
-  await row.hover()
-  await row.getByRole('button', { name: '하위 페이지' }).click()
-
-  await creates.waitFor()
-  expect(creates.lastBody<CreateBody>()?.parentId).toBe(1)
-  // 실제 저장 title 은 빈 문자열이어야 한다 — "제목 없음"은 표시용 폴백일 뿐 초기 상태 값이 아니다(#596).
-  expect(creates.lastBody<CreateBody>()?.title).toBe('')
-  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/2$`))
-  await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
-})
-
-test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙지 않고 입력값만 저장(#596)', async ({
+test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙지 않고 입력값만 저장(#596)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await routeCommon(page)
@@ -119,54 +81,7 @@ test('새 페이지 생성 직후 제목 입력 — placeholder 위에 이어붙
   await expect(titleInput).toHaveValue('탐색 테스트 문서')
 })
 
-// WP-368 — 열린 페이지의 트리 노드만 선택 표시(막대 + bg-selected), 다른 노드엔 없다.
-test('트리 — 열린 페이지 노드만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({ authenticatedPage: page }) => {
-  await routeCommon(page)
-  const tree: WikiPageSummary[] = [
-    { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
-    { id: 2, parentId: 1, title: '기획', position: 0, aiLastUsedAt: null },
-  ]
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
-  )
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/1`)
-  // 선택 표시는 행 안의 제목 버튼이 갖는다. 접기·하위 페이지 추가·메뉴 버튼 이름에도 제목이 들어가므로 exact(WP-923).
-  const picked = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서', exact: true })
-  const other = page.getByTestId('wiki-tree-row-2').getByRole('button', { name: '기획', exact: true })
-  await expectSelectedRow(picked, other, { current: 'page' })
-})
-
-test('접기/펼치기 — 부모 토글 시 자손 숨김/노출', async ({ authenticatedPage: page }) => {
-  await routeCommon(page)
-  const tree: WikiPageSummary[] = [
-    { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
-    { id: 2, parentId: 1, title: '기획', position: 0, aiLastUsedAt: null },
-  ]
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
-  )
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
-  // WP-923: 접기 버튼 이름에 페이지 제목이 들어가고, 펼침 상태는 aria-expanded 로 전한다.
-  const collapse = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서 접기', exact: true })
-  await expect(collapse).toHaveAttribute('aria-expanded', 'true')
-  await collapse.click()
-  await expect(page.getByTestId('wiki-tree-row-2')).toBeHidden()
-  const expand = page.getByTestId('wiki-tree-row-1').getByRole('button', { name: '제품 문서 펼치기', exact: true })
-  await expect(expand).toHaveAttribute('aria-expanded', 'false')
-  await expand.click()
-  await expect(page.getByTestId('wiki-tree-row-2')).toBeVisible()
-})
-
-test('인라인 액션 버튼 — WCAG 2.5.8 최소 24×24px 충족', async ({ authenticatedPage: page }) => {
+test('인라인 액션 버튼 — WCAG 2.5.8 최소 24×24px 충족', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await routeCommon(page)
   const tree: WikiPageSummary[] = [
     { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
@@ -193,181 +108,8 @@ test('인라인 액션 버튼 — WCAG 2.5.8 최소 24×24px 충족', async ({ a
   }
 })
 
-// #801 — dnd-kit useSortable 기본 role="button" 이 실제 button 3개(열기/자식추가/메뉴)를
-// 감싸 무효한 중첩 interactive 구조 + accessible name 뒤섞임을 유발하던 문제 회귀 방지.
-test('트리 행 컨테이너가 role=button 이 아니고, 내부 버튼들의 accessible name이 뒤섞이지 않는다 (#801)', async ({
-  authenticatedPage: page,
-}) => {
-  await routeCommon(page)
-  const tree: WikiPageSummary[] = [{ id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null }]
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) }),
-  )
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const row = page.getByTestId('wiki-tree-row-1')
-  await expect(row).toHaveAttribute('role', 'group')
-  await expect(row).not.toHaveAttribute('role', 'button')
-
-  // 열기(제목) 버튼의 accessible name이 페이지 제목 그대로여야 한다 — 다른 버튼 라벨과 섞이지 않음.
-  await expect(row.getByRole('button', { name: '제품 문서', exact: true })).toBeVisible()
-})
-
-test('삭제 — ⋯ 메뉴 → 다이얼로그 확인 시 DELETE, 취소 시 미호출', async ({ authenticatedPage: page }) => {
-  await routeCommon(page)
-  const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/wiki\/pages\/[^/]+$/)
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([{ id: 1, parentId: null, title: '제품 문서', position: 0 }]),
-    }),
-  )
-  await page.route('**/api/v1/wiki/pages/*', (r) => {
-    if (r.request().method() === 'DELETE') {
-      return r.fulfill({ status: 204, body: '' })
-    }
-    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '제품 문서', null)) })
-  })
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const row = page.getByTestId('wiki-tree-row-1')
-  await row.hover()
-  await row.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '삭제' }).click()
-  await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
-  await page.getByRole('button', { name: '취소' }).click()
-  expect(deletes.count()).toBe(0)
-  await row.hover()
-  await row.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '삭제' }).click()
-  await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제' }).click()
-  await deletes.waitFor()
-})
-
-test('삭제 다이얼로그 — 리프 페이지(하위 없음)에서는 하위 페이지 경고 미표시', async ({ authenticatedPage: page }) => {
-  // 하위 없는 리프 페이지만 존재하는 트리 — hasChildren=false 케이스.
-  await routeCommon(page)
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([{ id: 1, parentId: null, title: '리프 페이지', position: 0 }]),
-    }),
-  )
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '리프 페이지', null)) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const row = page.getByTestId('wiki-tree-row-1')
-  await row.hover()
-  await row.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '삭제' }).click()
-  await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
-  // 하위 페이지가 없으므로 "하위 페이지도 함께 삭제되며" 문구는 표시되지 않아야 한다.
-  await expect(page.getByTestId('wiki-delete-dialog')).not.toContainText('하위 페이지도 함께 삭제되며')
-  await expect(page.getByTestId('wiki-delete-dialog')).toContainText('되돌릴 수 없습니다')
-})
-
-test('삭제 다이얼로그 — 하위 페이지가 있는 부모 페이지에서는 경고 표시', async ({ authenticatedPage: page }) => {
-  // 부모-자식 구조 — 부모(id=1)를 삭제할 때 hasChildren=true 경고가 나타나야 한다.
-  await routeCommon(page)
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        { id: 1, parentId: null, title: '부모 페이지', position: 0 },
-        { id: 2, parentId: 1, title: '자식 페이지', position: 0 },
-      ]),
-    }),
-  )
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, '부모 페이지', null)) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const row = page.getByTestId('wiki-tree-row-1')
-  await row.hover()
-  await row.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '삭제' }).click()
-  await expect(page.getByTestId('wiki-delete-dialog')).toBeVisible()
-  // 하위 페이지가 있으므로 동반 삭제 경고가 표시되어야 한다.
-  await expect(page.getByTestId('wiki-delete-dialog')).toContainText('하위 페이지도 함께 삭제되며')
-})
-
-// #736: AI 생성 attribution 배지 — 사이드바 트리 제목 옆 AiSignalBadge 노출.
-test('사이드바 트리 — AI 생성 이력이 있는 페이지만 제목 옆에 attribution 배지가 뜬다 (#736)', async ({
-  authenticatedPage: page,
-}) => {
-  await routeCommon(page)
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        { id: 1, parentId: null, title: 'AI 이력 있음', position: 0, aiLastUsedAt: '2026-07-20T00:00:00Z' },
-        { id: 2, parentId: null, title: 'AI 이력 없음', position: 1, aiLastUsedAt: null },
-      ] satisfies WikiPageSummary[]),
-    }),
-  )
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(detail(1, 'AI 이력 있음', null)) }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  await expect(page.getByTestId('wiki-tree-ai-badge-1')).toBeVisible()
-  await expect(page.getByTestId('wiki-tree-row-2').getByTestId('wiki-tree-ai-badge-2')).toHaveCount(0)
-})
-
-// #758 생성도 parentId 를 검증하게 되면서 POST 가 400 을 낼 수 있다 — onError 가 없으면 조용히 실패해
-// "＋ 를 눌렀는데 아무 일도 안 일어난다" 로만 보인다. 서버 사유가 토스트로 뜨는지 고정.
-test('하위 페이지 생성 — 400 이면 서버 메시지를 토스트로 보여준다', async ({
-  authenticatedPage: page,
-}) => {
-  await routeCommon(page)
-  await page.route(`**/api/v1/wiki/spaces/${SPACE_ID}/pages`, (r) => {
-    const method = r.request().method()
-    if (method === 'GET') {
-      const tree: WikiPageSummary[] = [
-        { id: 1, parentId: null, title: '제품 문서', position: 0, aiLastUsedAt: null },
-      ]
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree) })
-    }
-    if (method === 'POST') {
-      return r.fulfill({
-        status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          status: 400,
-          message: '다른 공간의 페이지를 부모로 지정할 수 없습니다: page=1',
-        }),
-      })
-    }
-    return r.fallback()
-  })
-  await page.route('**/api/v1/wiki/pages/*', (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(detail(1, '제품 문서', null)),
-    }),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const row = page.getByTestId('wiki-tree-row-1')
-  await row.hover()
-  await row.getByRole('button', { name: '하위 페이지' }).click()
-
-  await expect(page.getByText('다른 공간의 페이지를 부모로 지정할 수 없습니다: page=1')).toBeVisible()
-})
-
 // WP-237: 터치 태블릿(≥1024px, pointer: coarse)은 hover 가 없어 ＋·⋯ 클러스터에 닿지 못했다 → 제목 옆 44px ⋯ 하나로 모아 드롭다운으로 연다.
-test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', () => {
+test.describe('트리 행 액션 — 터치 태블릿(≥1024px)', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true })
 
   test('⋯ 하나가 상시 보이고(＋ 없음, 제목과 안 겹침) 메뉴로 하위 페이지 추가(POST parentId)·삭제(DELETE)', async ({

@@ -11,7 +11,7 @@ import { mockWikiPageEditor, openWikiEditor } from '../../fixtures/wiki-mock'
 const SPACE_ID = 1
 const PAGE_ID = 300
 
-test('마지막 글자 조합 중 Enter — 글자는 남고 다음 줄로 넘어가 이어 쓸 수 있다', async ({ authenticatedPage: page }) => {
+test('마지막 글자 조합 중 Enter — 글자는 남고 다음 줄로 넘어가 이어 쓸 수 있다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: 'IME 페이지', body: '첫 줄', role: 'EDITOR' })
   await openWikiEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID })
   const editor = page.locator('.ProseMirror').first()

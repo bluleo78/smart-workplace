@@ -59,7 +59,7 @@ async function dragRowTo(
 
 test(
   '위키 사이드바 — C 를 A 위로 드래그 → PATCH move {parentId:null, position:0}',
-  { tag: '@smoke' },
+  { tag: ['@input', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     // 스페이스 목록.
     await page.route(
@@ -115,7 +115,7 @@ test(
 // 들여쓰기하면 서버가 400 으로 거부할 이동이 나간다. 단언은 "PATCH 가 안 나간다" 가 아니라
 // "후손을 parentId 로 하는 PATCH 가 없다" — 후손이 배열에서 빠지면 투영은 no-op 이 아니라
 // 남아 있는 이웃 기준의 합법 이동으로 바뀌기 때문이다.
-test('위키 사이드바 — 부모를 자기 자식 아래로 드롭해도 후손을 parentId 로 보내지 않는다', async ({
+test('위키 사이드바 — 부모를 자기 자식 아래로 드롭해도 후손을 parentId 로 보내지 않는다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await page.route(
@@ -182,7 +182,7 @@ test('위키 사이드바 — 부모를 자기 자식 아래로 드롭해도 후
 // #758 서버가 트리를 깨는 이동(자기 자신/후손을 부모로)을 400 으로 거부한다. 사이드바 DnD 는 드래그 중인
 // 노드의 후손을 드롭 대상에서 제외하지 않으므로 사용자가 실제로 그 드롭을 할 수 있다 — onError 가 없으면
 // 트리가 조용히 제자리로 돌아가 "드래그가 먹히지 않는다" 로만 보인다. 서버 메시지가 토스트로 뜨는지 고정.
-test('위키 사이드바 — move 400 이면 서버 메시지를 토스트로 보여준다', async ({
+test('위키 사이드바 — move 400 이면 서버 메시지를 토스트로 보여준다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await page.route(
@@ -238,7 +238,7 @@ test('위키 사이드바 — move 400 이면 서버 메시지를 토스트로 �
 
 // 키보드로 순서를 바꿀 때 스크린리더 안내(WP-838) — dnd-kit 영어 기본 문구(「Draggable item 1 was dropped over droppable area 2」)
 // 대신 페이지 제목·놓을 자리·들어갈 부모를 한국어로 읽고, 사용법(aria-describedby)도 한국어여야 한다.
-test.describe('위키 사이드바 — 키보드 정렬 스크린리더 안내 (WP-838)', () => {
+test.describe('위키 사이드바 — 키보드 정렬 스크린리더 안내 (WP-838)', { tag: '@input' }, () => {
   async function setup(page: import('@playwright/test').Page, pages: WikiPageSummary[], movedId: number) {
     await page.route(
       (url) => url.pathname === '/api/v1/wiki/spaces',

@@ -1,5 +1,6 @@
 // 노트 「전체 폭」(WP-793) — ⋯ 메뉴 스위치로 본문을 읽기 폭(가운데 768px) 대신 화면 폭 전체로 펼치고, 페이지에 저장한다.
 // 누구에게 항목이 보이는지(권한·접근 상실)는 WikiPageHeader.test.tsx 가 보고, 여기선 저장 요청 → 본문 폭 반영 배선을 본다.
+// 저장 거절 → 켜짐 되돌림·사유 안내는 src/pages/wiki/wikiPage.test.tsx 가 지킨다(WP-983). 여기엔 실제 폭(@layout)만 남는다.
 import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail } from '../../../src/types/wiki'
@@ -40,7 +41,7 @@ const columnGaps = (page: Page) => gapsOf(page.getByTestId('page-body-content'),
 
 test.use({ viewport: { width: 1600, height: 900 } })
 
-test('⋯ 「전체 폭」을 켜면 저장되고 본문이 화면 폭으로 펼쳐지며, 다시 열어도 유지된다 @smoke', async ({ authenticatedPage: page }) => {
+test('⋯ 「전체 폭」을 켜면 저장되고 본문이 화면 폭으로 펼쳐지며, 다시 열어도 유지된다 @smoke', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const puts = await setup(page)
   await open(page)
 
@@ -70,7 +71,7 @@ test('⋯ 「전체 폭」을 켜면 저장되고 본문이 화면 폭으로 펼
   expect((await columnGaps(page)).width).toBeGreaterThan(1000)
 })
 
-test('「전체 폭」 페이지에서 끄면 가운데 읽기 폭으로 돌아온다', async ({ authenticatedPage: page }) => {
+test('「전체 폭」 페이지에서 끄면 가운데 읽기 폭으로 돌아온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const puts = await setup(page, { fullWidth: true })
   await open(page)
   expect((await columnGaps(page)).width).toBeGreaterThan(1000)
@@ -85,15 +86,3 @@ test('「전체 폭」 페이지에서 끄면 가운데 읽기 폭으로 돌아�
   await expect.poll(async () => (await columnGaps(page)).width).toBeLessThanOrEqual(768)
 })
 
-test('저장이 거절되면 원래 폭으로 되돌리고 이유를 알린다', async ({ authenticatedPage: page }) => {
-  await setup(page, { putStatus: 403 })
-  await open(page)
-
-  await page.getByTestId('wiki-page-menu').click()
-  const item = page.getByRole('menuitemcheckbox', { name: '전체 폭' })
-  await item.click()
-
-  await expect(page.getByText('편집 권한이 없습니다')).toBeVisible()
-  await expect(item).toHaveAttribute('aria-checked', 'false')
-  expect((await columnGaps(page)).width).toBeLessThanOrEqual(768)
-})

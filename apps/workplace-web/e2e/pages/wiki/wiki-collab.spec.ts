@@ -128,7 +128,7 @@ async function holdUpload(page: Page, pageId: number, fileId: number): Promise<(
 const placeholdersOn = (page: Page) =>
   page.locator('.ProseMirror').evaluate((el) => (el.textContent ?? '').split('이미지 업로드 중').length - 1)
 
-test.describe('노트 동시 편집', () => {
+test.describe('노트 동시 편집', { tag: '@platform' }, () => {
   test('두 사람이 동시에 입력하면 양쪽에 모두 반영된다', async ({ authenticatedPage: a, newAuthedPage, collabNs }) => {
     // 첫 문단은 일부러 줄바꿈될 만큼 길게 — 문단 가운데를 누르는 입력 도우미가 끝이 아닌 중간에 치는 실수를 잡는다.
     const first = `첫 문단 ${'오늘 회의에서 정한 일정과 담당자를 정리한 긴 문장입니다. '.repeat(4).trim()}`
@@ -716,7 +716,7 @@ test.describe('노트 동시 편집', () => {
 // (apply-markdown merge, 기준본 = AI 가 읽은 판)으로 넘긴다. 웹 E2E 는 API 가 모킹이라 그 내부 경로를 직접 부른다(applyCollabMarkdown).
 // 사람이 치고 있는 입력과 AI 수정이 둘 다 남아야 하고(덮어쓰기 금지), AI 가 고친 자리에는 서버가 ✦ 이름표를 약 3초 보인다.
 // 서버 표식은 3초 뒤 사라지므로 표식 단언·스크린샷을 먼저 하고, 본문 단언은 표식이 사라진 뒤에 한다(위젯 글자가 섞이지 않게).
-test.describe('노트 편집 중 AI 본문 병합', () => {
+test.describe('노트 편집 중 AI 본문 병합', { tag: '@platform' }, () => {
   test('편집 중 AI 가 다른 문단을 고쳐도 내 입력과 AI 수정이 함께 남고, AI 가 고친 자리에 ✦ 이름표가 잠깐 보인다', async ({
     authenticatedPage: a,
     collabNs,
@@ -911,7 +911,7 @@ test.describe('노트 편집 중 AI 본문 병합', () => {
 // WP-291 — 내 /ai 생성 중 ✦ 표식(awareness)이 생성이 끝나는 모든 갈래에서 내려가는지 본다. 남으면 상대 화면에 "✦ 내 이름 작성 중" 이
 // 계속 고정된다.
 // (재접속 뒤 표식을 다시 올리는 동작은 provider 가 재연결 때 로컬 awareness 를 다시 보내기도 해서 E2E 로는 가려지지 않는다 — wikiAiPresence.test.ts 가 지킨다.)
-test.describe('노트 /ai 생성 중 ✦ 표식 정리', () => {
+test.describe('노트 /ai 생성 중 ✦ 표식 정리', { tag: '@platform' }, () => {
   const corr = 'corr-presence'
 
   /**

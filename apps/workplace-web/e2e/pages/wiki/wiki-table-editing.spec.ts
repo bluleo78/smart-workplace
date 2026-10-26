@@ -33,7 +33,7 @@ async function savedTableLines(page: Page, until: string): Promise<string[]> {
   return tableLines(await savedMarkdown(page, PAGE_ID))
 }
 
-test('툴바 — 커서가 표 안에 있을 때만 뜨고, 열 추가가 마크다운까지 반영된다', async ({
+test('툴바 — 커서가 표 안에 있을 때만 뜨고, 열 추가가 마크다운까지 반영된다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page, TABLE_MD)
@@ -66,7 +66,7 @@ test('툴바 — 커서가 표 안에 있을 때만 뜨고, 열 추가가 마크
   expect(lines).toHaveLength(4) // 헤더 + 구분 + 본문 2
 })
 
-test('툴바 — 헤더 행에서는 행 삭제가 비활성, 본문 행에서는 활성', async ({
+test('툴바 — 헤더 행에서는 행 삭제가 비활성, 본문 행에서는 활성', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page, TABLE_MD)
@@ -80,7 +80,7 @@ test('툴바 — 헤더 행에서는 행 삭제가 비활성, 본문 행에서�
   await expect(page.getByTestId('wiki-table-cmd-deleteRow')).toBeEnabled()
 })
 
-test('툴바 — 행 삭제가 마크다운에서도 사라진다', async ({ authenticatedPage: page }) => {
+test('툴바 — 행 삭제가 마크다운에서도 사라진다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setup(page, TABLE_MD)
   await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
@@ -96,7 +96,7 @@ test('툴바 — 행 삭제가 마크다운에서도 사라진다', async ({ aut
   expect(lines.join('\n')).not.toContain('API 설계')
 })
 
-test('넓은 표는 본문을 밀지 않고 래퍼 안에서 가로 스크롤된다 (#754)', async ({
+test('넓은 표는 본문을 밀지 않고 래퍼 안에서 가로 스크롤된다 (#754)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   const cols = Array.from({ length: 8 }, (_, i) => `항목 ${i + 1} 상세 설명`)
@@ -132,7 +132,7 @@ test('넓은 표는 본문을 밀지 않고 래퍼 안에서 가로 스크롤된
   expect(box.x + box.width).toBeLessThanOrEqual(vw)
 })
 
-test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', async ({ authenticatedPage: page }) => {
+test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setup(page, TABLE_MD)
   await open(page)
   await expect(page.locator('.ProseMirror table')).toBeVisible()
@@ -147,7 +147,7 @@ test('셀에 파이프를 입력해도 셀이 쪼개지지 않는다 (#755)', as
   expect(lines.join('\n')).not.toContain('<table')
 })
 
-test('단축키 — Ctrl+Alt+아래로 행이 추가되고, 표 밖에서는 아무 일도 없다', async ({
+test('단축키 — Ctrl+Alt+아래로 행이 추가되고, 표 밖에서는 아무 일도 없다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page, `${TABLE_MD}\n\n표 아래 문단.`)
@@ -168,7 +168,7 @@ test('단축키 — Ctrl+Alt+아래로 행이 추가되고, 표 밖에서는 아
   await expect(page.locator('.ProseMirror table tr')).toHaveCount(4)
 })
 
-test('우클릭 메뉴 — 셀에서 열리고 표 밖에서는 열리지 않는다', async ({
+test('우클릭 메뉴 — 셀에서 열리고 표 밖에서는 열리지 않는다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page, `${TABLE_MD}\n\n표 아래 문단.`)
@@ -189,7 +189,7 @@ test('우클릭 메뉴 — 셀에서 열리고 표 밖에서는 열리지 않는
   await expect(page.getByTestId('wiki-table-context-menu')).toHaveCount(0)
 })
 
-test('삽입 → 열 추가 → 저장 → 새로고침해 저장본을 다시 받아도 표가 보존된다', async ({
+test('삽입 → 열 추가 → 저장 → 새로고침해 저장본을 다시 받아도 표가 보존된다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page, '')
@@ -228,7 +228,7 @@ test('삽입 → 열 추가 → 저장 → 새로고침해 저장본을 다시 �
   await expect(t.locator('td').first()).toHaveText('A')
 })
 
-test('뷰어 권한 — 툴바·우클릭 메뉴·단축키 모두 비활성 (스펙 §5)', async ({
+test('뷰어 권한 — 툴바·우클릭 메뉴·단축키 모두 비활성 (스펙 §5)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page, TABLE_MD, 'VIEWER')
@@ -249,7 +249,7 @@ test('뷰어 권한 — 툴바·우클릭 메뉴·단축키 모두 비활성 (�
   await expect(page.locator('.ProseMirror table tr')).toHaveCount(3) // 헤더 + 본문 2, 불변
 })
 
-test('셀 안에서는 슬래시 메뉴에 표 항목이 없다 (중첩 표 직렬화 붕괴 회귀)', async ({
+test('셀 안에서는 슬래시 메뉴에 표 항목이 없다 (중첩 표 직렬화 붕괴 회귀)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   // 재현: 셀 안 → '/' → 그리드로 표 삽입 → 타이핑 → 저장 payload 에 <table 이 섞여 바깥 표까지

@@ -5,6 +5,7 @@
 // 저장되므로 playwright.config 가 띄우는 동기화 서버(테스트 모드) 문서를 savedMarkdown 으로 읽어 확인하고,
 // 제목은 REST(PUT {title, body:null}) 모킹 기록으로 확인한다. 버전 충돌(409)·최신 내용 불러오기 시나리오는
 // 동시 편집 모델에서 사라져 wiki-collab.spec.ts 의 동시 편집 시나리오가 대신한다.
+// 사이드바 삭제·스페이스 선택기·skeleton → 헤더 전환은 src/pages/wiki/wikiSidebar.test.tsx·wikiPage.test.tsx 가 지킨다(WP-983).
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
@@ -44,7 +45,7 @@ function pageDetail(title: string, version: number): WikiPageDetail {
 }
 
 // 빈 상태 — 페이지 미선택 시 DS §2.5 4요소(아이콘+제목+설명+CTA) 표시 + CTA로 페이지 생성 (refs #245)
-test('위키 — 빈 상태: 4요소 표시 + CTA로 새 페이지 생성 후 이동', { tag: '@smoke' }, async ({
+test('위키 — 빈 상태: 4요소 표시 + CTA로 새 페이지 생성 후 이동', { tag: ['@wiring', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   const EMPTY_PAGE_ID = 50
@@ -142,7 +143,7 @@ test('위키 — 빈 상태: 4요소 표시 + CTA로 새 페이지 생성 후 �
   await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/${EMPTY_PAGE_ID}`), { timeout: 5000 })
 })
 
-test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입력·저장·트리 반영', { tag: '@smoke' }, async ({
+test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입력·저장·트리 반영', { tag: ['@platform', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   // 가변 상태: 페이지 생성 여부 + 현재(마지막 저장된) 제목 + version.
@@ -261,7 +262,7 @@ test('위키 — 진입 리다이렉트·새 페이지 생성·제목/본문 입
 
 // 회귀(#786): 제목 입력창에서 Enter 시 아무 반응이 없어(핸들러 부재) 이후 타이핑이
 // 구분자 없이 제목에 이어붙는 결함 — onKeyDown 추가로 본문 에디터에 포커스가 이동해야 한다.
-test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이동(제목 오염 방지)', async ({
+test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이동(제목 오염 방지)', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   const TITLE_ENTER_PAGE_ID = 400
@@ -378,220 +379,13 @@ test('위키 — 제목 입력 중 Enter 시 본문 에디터로 포커스 이�
   await expect.poll(() => savedMarkdown(page, TITLE_ENTER_PAGE_ID)).toBe('본문 내용입니다')
 })
 
-// 삭제 UI — 사이드바 트리 노드 삭제 → 트리에서 사라짐(에러 경로 아님, 단순 동작 → 미태그).
-test('위키 — 사이드바 페이지 삭제: 노드가 트리에서 사라진다', async ({
-  authenticatedPage: page,
-}) => {
-  const DELETE_ID = 200
-
-  // 스페이스 목록.
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([personalSpace()]),
-          })
-        : route.fallback(),
-  )
-
-  // 가변 상태 — DELETE 가 도착하면 트리를 빈 목록으로 전환.
-  const treeState = { deleted: false }
-
-  // 트리 — 삭제 전엔 '삭제 대상' 1건, 삭제 후엔 빈 트리.
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify(
-              treeState.deleted
-                ? []
-                : [{ id: DELETE_ID, parentId: null, title: '삭제 대상', position: 0 } as WikiPageSummary],
-            ),
-          })
-        : route.fallback(),
-  )
-
-  // 페이지 상세 — GET(진입 시) + DELETE(204, 빈 본문).
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${DELETE_ID}`,
-    (route) => {
-      const method = route.request().method()
-      if (method === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            id: DELETE_ID,
-            spaceId: SPACE_ID,
-            parentId: null,
-            title: '삭제 대상',
-            body: '',
-            version: 1,
-            updatedBy: 1,
-            updatedAt: '2026-06-01T00:00:00Z',
-          } as WikiPageDetail),
-        })
-      }
-      if (method === 'DELETE') {
-        treeState.deleted = true
-        return route.fulfill({ status: 204, body: '' })
-      }
-      return route.fallback()
-    },
-  )
-
-  // 1) 스페이스로 진입 → '삭제 대상' 노드 노출 확인.
-  await page.goto(`/wiki/spaces/${SPACE_ID}`)
-  const targetRow = page.getByTestId(`wiki-tree-row-${DELETE_ID}`)
-  await expect(targetRow.getByRole('button', { name: '삭제 대상', exact: true })).toBeVisible()
-
-  // 2) 행 hover → ⋯ 메뉴 → 삭제 → 확인 다이얼로그에서 삭제.
-  await targetRow.hover()
-  await targetRow.getByRole('button', { name: '페이지 메뉴' }).click()
-  await page.getByRole('menuitem', { name: '삭제' }).click()
-  await page.getByTestId('wiki-delete-dialog').getByRole('button', { name: '삭제', exact: true }).click()
-
-  // 3) 삭제 후 트리 refetch → '삭제 대상' 버튼이 사라진다.
-  await expect(page.getByRole('button', { name: '삭제 대상', exact: true })).toHaveCount(0)
-})
-
-// skeleton 로딩 — GET /wiki/pages/:id 응답을 지연시켜 skeleton이 노출됐다가 에디터로 전환됨 검증.
-// (issue #246: 텍스트 "불러오는 중…" 대신 skeleton 컴포넌트를 표시해야 한다)
-test('위키 — 페이지 로딩 중 skeleton이 표시되고 로드 후 에디터로 전환된다', async ({
-  authenticatedPage: page,
-}) => {
-  const SLOW_PAGE_ID = 300
-
-  // 스페이스 목록
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([personalSpace()]),
-          })
-        : route.fallback(),
-  )
-
-  // 트리 — SLOW_PAGE_ID 1건 포함
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/spaces/${SPACE_ID}/pages`,
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([
-              { id: SLOW_PAGE_ID, parentId: null, title: '느린 페이지', position: 0 } as WikiPageSummary,
-            ]),
-          })
-        : route.fallback(),
-  )
-
-  // 페이지 상세 — 테스트가 풀 때까지 응답을 붙잡아 skeleton 노출 시간 확보.
-  let resolveSlowRoute!: () => void
-  const slowRouteReady = new Promise<void>((res) => { resolveSlowRoute = res })
-  await page.route(
-    (url) => url.pathname === `/api/v1/wiki/pages/${SLOW_PAGE_ID}`,
-    async (route) => {
-      if (route.request().method() === 'GET') {
-        await slowRouteReady
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            id: SLOW_PAGE_ID,
-            spaceId: SPACE_ID,
-            parentId: null,
-            title: '느린 페이지',
-            body: '',
-            version: 1,
-            updatedBy: 1,
-            updatedAt: '2026-06-01T00:00:00Z',
-          } as WikiPageDetail),
-        })
-      }
-      return route.fallback()
-    },
-  )
-
-  // 1) 페이지 진입 — API 응답을 붙잡아 두므로 skeleton이 보여야 한다.
-  // 응답을 풀기 전까지 skeleton 이 계속 떠 있으니 짧은 마감을 두지 않는다 — 부하 중 첫 로드가 늦으면 실패하던 원인.
-  void page.goto(`/wiki/spaces/${SPACE_ID}/pages/${SLOW_PAGE_ID}`)
-  await expect(page.getByTestId('wiki-page-skeleton')).toBeVisible()
-
-  // "불러오는 중…" 텍스트는 없어야 한다 (회귀 방지).
-  await expect(page.getByText('불러오는 중…')).toHaveCount(0)
-
-  // 2) API 응답 해제 → skeleton 사라지고 에디터(.ProseMirror) 등장.
-  resolveSlowRoute()
-  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0)
-  await expect(page.locator('.ProseMirror')).toBeVisible()
-})
-
 // 존재하지 않는 페이지(404) 의 에러 상태·「노트 목록으로」 이동은 wiki-last-visited.spec.ts 가 맡는다.
-
-// 회귀: WikiSidebar 스페이스 선택기 — native <select> → shadcn/ui Select (refs #244)
-// native <select>가 쓰이면 role="combobox"가 없고 대신 role 없는 select 요소가 DOM에 존재.
-// shadcn Select가 정상 렌더링되면 SelectTrigger의 role="combobox"가 보여야 한다.
-test('위키 사이드바 — 스페이스 선택기가 shadcn Select로 렌더링되고 값 전환이 동작한다', async ({
-  authenticatedPage: page,
-}) => {
-  const SPACE_A_ID = 1
-  const SPACE_B_ID = 2
-
-  const spaces: WikiSpace[] = [
-    { id: SPACE_A_ID, type: 'PERSONAL', name: '내 노트', ownerId: 1, role: 'OWNER', createdAt: '2026-01-01T00:00:00Z' },
-    { id: SPACE_B_ID, type: 'PERSONAL', name: '두 번째 스페이스', ownerId: 1, role: 'OWNER', createdAt: '2026-01-01T00:00:00Z' },
-  ]
-
-  // 스페이스 목록 모킹
-  await page.route(
-    (url) => url.pathname === '/api/v1/wiki/spaces',
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(spaces) })
-        : route.fallback(),
-  )
-
-  // 트리 빈 응답 (페이지 없음)
-  await page.route(
-    (url) => /^\/api\/v1\/wiki\/spaces\/\d+\/pages$/.test(url.pathname),
-    (route) =>
-      route.request().method() === 'GET'
-        ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
-        : route.fallback(),
-  )
-
-  await page.goto(`/wiki/spaces/${SPACE_A_ID}`)
-
-  // 1) native <select>가 없어야 한다 — shadcn SelectTrigger(role="combobox")로 대체됨
-  await expect(page.locator('select')).toHaveCount(0)
-
-  // 2) shadcn SelectTrigger(role="combobox")가 보여야 한다
-  const trigger = page.getByRole('combobox')
-  await expect(trigger).toBeVisible()
-  await expect(trigger).toContainText('내 노트')
-
-  // 3) 다른 스페이스 선택 → URL이 해당 스페이스로 바뀜
-  await trigger.click()
-  await page.getByRole('option', { name: '두 번째 스페이스' }).click()
-  await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_B_ID}`), { timeout: 3000 })
-})
 
 // WP-121: lg 경계를 넘으면(데스크톱↔모바일 셸) 페이지가 리마운트된다. 예전엔 디바운스 자동저장을 언마운트 때 flush 하고
 // 새 version 으로 다시 띄워야 했지만, 이제 본문은 페이지별로 캐시되는 동기화 세션(WP-172)에 있어 리마운트돼도 입력이
 // 그대로 남고 서버에도 반영된다 — 셸을 오가도 방금 친 글자가 사라지지 않고 이어서 친 글자까지 서버에 남는지 확인한다.
 // (연결이 끊겨 미전송인 채로 리마운트되는 경우는 wiki-collab.spec.ts 가 다룬다.)
-test('위키 — lg 경계 전환(데스크톱→모바일→데스크톱) 리마운트 후에도 입력이 남고 서버에 저장된다', async ({
+test('위키 — lg 경계 전환(데스크톱→모바일→데스크톱) 리마운트 후에도 입력이 남고 서버에 저장된다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await page.route(

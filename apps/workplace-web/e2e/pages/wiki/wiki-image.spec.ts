@@ -25,7 +25,7 @@ const PNG = Buffer.from(
 const setup = (page: Page, body: string) =>
   mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '이미지 테스트', body })
 
-test.describe('노트 본문 이미지', () => {
+test.describe('노트 본문 이미지', { tag: '@platform' }, () => {
   test('본문의 이미지 마크다운이 blob 으로 렌더된다', async ({ authenticatedPage: page }) => {
     await page.route(CONTENT_PATH, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await setup(page, `# 제목\n\n![대체텍스트](${CONTENT_PATH})\n\n본문`)
