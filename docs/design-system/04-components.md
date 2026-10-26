@@ -80,7 +80,7 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 
 > **Page props**: `width`(`'full'`(기본) | `'reading'` | `'settings'` — reading 은 본문을 왼쪽 정렬 `max-w-3xl`(768px)로, settings 는 왼쪽 정렬 `max-w-5xl`(1024px) + `@container`(설정·관리 폼, 주석 섹션이 본문 폭으로 2단↔스택 판정)로 제한, `mx-auto` 금지) · `className` · `data-testid`.
 >
-> **Page.Header props**: `title`(선택, 좌측 제목 — `appTitleTextClass` 무게. 생략 시 제목 영역 미렌더 — 브레드크럼 등 다른 위치 표시자가 있는 페이지에 사용, 예: 드라이브) · `icon`(선택, 제목 앞 아이콘/컨트롤, 데스크톱 전용) · `leading`(선택, 제목 앞/대신 오는 위치 표시 — 이슈 ←+브레드크럼·위키 경로, 데스크톱 전용) · `meta`(선택, 제목 옆 보조 메타) · `actions`(선택, 우측 액션 슬롯) · `className` · `data-testid`(기본 `'page-header'`) · 모바일 전용 `mobilePrimaryAction`/`mobileActions`/`mobileMenuIcon`/`mobileMenuLabel`/`mobileHideSheetTrigger`/`mobileOnBack`. 데스크톱 컨테이너는 `flex h-14 shrink-0 items-center border-b` + 내부 래퍼 `pageGutterClass`(`px-4`)로 2차 사이드바 헤더(`sidebarTitleClass`)·홈 헤더와 한 선 정렬한다. AI 칩이 있으면(`useAiAvailable`) 좌측 그룹을 칩 실측 위치 앞에서 자르는 클램프(`useAiChipClamp`)를 헤더가 직접 적용하므로 화면별 우회 처리는 두지 않는다(위키·드라이브 첨부의 개별 처리 제거됨). `mobile`(`'bar'`(기본) | `'hidden'`) — `'hidden'` 이면 모바일(lg 미만)에서 헤더를 그리지도, 상세 헤더로 등록하지도 않아 모듈 레이아웃의 뒤로가기 바가 남는다(내 작업·AI 위임 작업·드라이브 첨부). 화면에서 `useIsMobile` 로 헤더를 감싸지 않는다.
+> **Page.Header props**: `title`(선택, 좌측 제목 — `appTitleTextClass` 무게. 생략 시 제목 영역 미렌더 — 브레드크럼 등 다른 위치 표시자가 있는 페이지에 사용, 예: 드라이브) · `icon`(선택, 제목 앞 아이콘/컨트롤, 데스크톱 전용) · `leading`(선택, 제목 앞/대신 오는 위치 표시 — 이슈 ←+브레드크럼·위키 경로, 데스크톱 전용. 브레드크럼 규칙은 [05 §B-1](./05-page-patterns.md#b-1-앱-간-공통-탐색-규칙-wp-975)) · `meta`(선택, 제목 옆 보조 메타) · `actions`(선택, 우측 액션 슬롯) · `className` · `data-testid`(기본 `'page-header'`) · 모바일 전용 `mobilePrimaryAction`/`mobileActions`/`mobileMenuIcon`/`mobileMenuLabel`/`mobileHideSheetTrigger`/`mobileOnBack`. 데스크톱 컨테이너는 `flex h-14 shrink-0 items-center border-b` + 내부 래퍼 `pageGutterClass`(`px-4`)로 2차 사이드바 헤더(`sidebarTitleClass`)·홈 헤더와 한 선 정렬한다. AI 칩이 있으면(`useAiAvailable`) 좌측 그룹을 칩 실측 위치 앞에서 자르는 클램프(`useAiChipClamp`)를 헤더가 직접 적용하므로 화면별 우회 처리는 두지 않는다(위키·드라이브 첨부의 개별 처리 제거됨). `mobile`(`'bar'`(기본) | `'hidden'`) — `'hidden'` 이면 모바일(lg 미만)에서 헤더를 그리지도, 상세 헤더로 등록하지도 않아 모듈 레이아웃의 뒤로가기 바가 남는다(내 작업·AI 위임 작업·드라이브 첨부). 화면에서 `useIsMobile` 로 헤더를 감싸지 않는다.
 >
 > **Page.Body props**: `padded`(기본 `true` — 스크롤 영역 `page-body` + 안쪽 `page-body-content`(`px-4 py-4`, reading 이면 `max-w-3xl`). `false` 는 자체 레이아웃 본문(마스터-디테일·그리드·채팅) — 스크롤·여백은 화면이 소유하고 각 행은 `pageGutterClass` 를 쓴다) · `inset`(기본 `true` — `false` 면 스크롤·폭은 그대로 두고 `px-4 py-4` 여백만 비운다. 그룹 띠가 끝까지 닿는 목록 등, 행이 `pageGutterClass` 를 가짐. `className="p-0"` 덮어쓰기 대신 사용) · `scrollRef`(스크롤 컨테이너 ref) · `className`(content 래퍼에 적용) · `data-testid`. 폭은 `Page` 의 `width` 를 컨텍스트로 읽는다.
 >
@@ -173,7 +173,7 @@ Smart Workplace 는 이슈 트래커 + 이슈 컨텍스트 chat + 팀 채팅(mes
 
 ### 3. SearchInput (`search-input.tsx`)
 
-**목적**: 돋보기 아이콘 + 값이 있을 때 나타나는 clear(X) 버튼이 내장된 검색 입력. 목록 페이지 상단 검색 바에 공통 사용.
+**목적**: 돋보기 아이콘 + 값이 있을 때 나타나는 clear(X) 버튼이 내장된 검색 입력. 목록 페이지 상단 검색 바에 공통 사용. 놓는 자리(페이지 헤더 오른쪽 — 2차 사이드바 금지)·범위 칩·draft+디바운스·모바일 🔍 는 [05 §B-1 검색창](./05-page-patterns.md#검색창).
 
 **Props API** (controlled — 일반 input 속성을 상속하지 않는다):
 
@@ -445,6 +445,8 @@ export function cn(...inputs: ClassValue[]) {
 ```
 
 ### 패턴 3. Table Row with Hover Actions
+
+> 마우스 hover 는 데스크톱 전용이다. 터치(coarse pointer)에서는 `TouchRowActionsMenu` 로 ⋯ 를 늘 보이고, 휴대폰은 ⋯ → `MobileActionSheet` 로 연다 — 입력별 규칙은 [05 §B-1 관리 동작](./05-page-patterns.md#관리-동작추가수정삭제).
 
 ```tsx
 <TableRow className="cursor-pointer hover:bg-muted/50 transition-colors group">
