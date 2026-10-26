@@ -1,11 +1,13 @@
-// 드라이브 팀 공간 만들기 대화상자(#582·#696) — 페이지 테스트(WP-971).
+// 드라이브 팀 공간 만들기 대화상자(#582·#696) — 화면 컴포넌트 테스트(WP-971, WP-995).
 // 빈 이름 비활성·연속 클릭 1회 요청·취소 뒤 입력 초기화·409 인라인 에러는 브라우저 없이 판정되므로
 // e2e/pages/drive/drive-space-create.spec.ts 에서 옮겼다. 드라이브 화면 배선은 drive.spec.ts 의 E2E 가 지킨다.
+// 대화상자를 가진 사이드바만 renderScreen 으로 띄운다 — App 전체(renderPage)일 때 11.7초, 지금 6.3초.
 import { act, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { DriveSidebar } from '@/components/drive/DriveSidebar'
+import { renderScreen } from '@/test/renderScreen'
 import type { DriveSpace } from '@/types/drive'
 
 const NEW_SPACE_ID = 9
@@ -20,7 +22,7 @@ const personalSpace: DriveSpace = {
   createdAt: '2026-06-01T00:00:00Z',
 }
 
-/** 사이드바 + 드라이브 화면이 부르는 목록·쿼터·항목. POST 는 테스트마다 따로 준다. */
+/** 사이드바가 부르는 공간 목록·쿼터(공간·항목 조회는 이동한 뒤 화면 몫이라 여기선 쓰이지 않을 수 있다). POST 는 테스트마다 따로 준다. */
 const driveHandlers = (created: { space: DriveSpace | null }) => [
   http.get('/api/v1/drive/quota', () => HttpResponse.json({ usedBytes: 0, quotaBytes: 1024 * 1024 * 1024 })),
   http.get('/api/v1/drive/spaces', () =>
@@ -32,10 +34,10 @@ const driveHandlers = (created: { space: DriveSpace | null }) => [
 ]
 
 /** 드라이브를 열고 「팀 공간 만들기」 대화상자를 띄운다. */
-async function openCreateDialog(extra: Parameters<typeof renderPage>[1] = {}) {
+async function openCreateDialog(extra: NonNullable<Parameters<typeof renderScreen>[1]> = {}) {
   const created: { space: DriveSpace | null } = { space: null }
-  const view = renderPage('/drive', { ...extra, handlers: [...(extra.handlers ?? []), ...driveHandlers(created)] })
-  await view.user.click(await screen.findByRole('button', { name: '팀 공간 만들기' }, { timeout: PAGE_LOAD_TIMEOUT }))
+  const view = renderScreen(<DriveSidebar />, { ...extra, path: '/drive', handlers: [...(extra.handlers ?? []), ...driveHandlers(created)] })
+  await view.user.click(await screen.findByRole('button', { name: '팀 공간 만들기' }))
   await screen.findByTestId('space-name-dialog')
   return { ...view, created }
 }

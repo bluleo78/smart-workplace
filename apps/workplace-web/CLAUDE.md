@@ -101,9 +101,12 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
 ## 단위·페이지 테스트 (vitest)
 
 - 설정: `vitest.config.ts` — 프로젝트 둘. **node**: `src/**/*.test.ts`(DOM 이 필요한 파일만 `// @vitest-environment jsdom`). **dom**: `src/**/*.test.tsx`(jsdom + React Testing Library + MSW, 셋업 `src/test/setup.ts`)
-- pre-commit(web 변경 시)은 **페이지 테스트를 뺀 전체**(`VITEST_SKIP_PAGE_TESTS=1`, 40초 안팎), pre-push 는 **페이지 테스트까지 전체**(3분 안팎)를 돌린다 — 게이트에 없던 동안 3건이 깨진 채 방치됐었다(WP-79). 페이지 테스트는 파일마다 App 전체를 띄워 파일당 10초 안팎이 든다(WP-995)
+- pre-commit(web 변경 시)은 **페이지·화면 테스트(`renderPage`·`renderScreen`)를 뺀 전체**(`VITEST_SKIP_PAGE_TESTS=1`, 40초 안팎), pre-push 는 **전부**(3분 안팎)를 돌린다 — 게이트에 없던 동안 3건이 깨진 채 방치됐었다(WP-79). 페이지·화면 테스트는 파일마다 화면 모듈을 불러와 파일당 수 초~10초가 든다(WP-995)
 - **순수 함수(`*.test.ts`)**: 화면 안의 한 줄짜리 권한·비활성 판정도 순수 함수로 꺼내 지킨다(예: `lib/projectPermissions`·`lib/driveRowActions`·`lib/issueRowMenu`)
-- **페이지 테스트(`*.test.tsx` + `renderPage`, WP-971)**: `renderPage(path, { user, roles, handlers })`(`src/test/renderPage.tsx`)가 실제 라우트 트리(App)·인증(AuthProvider)·토스트를 띄운다 — E2E 의 `authenticatedPage` + `goto` 와 같은 상태. 훅을 `vi.mock` 으로 끊지 않고 **MSW 로 네트워크 계층에서 모킹**한다(`handlers` 에 `http.get(...)` 등). 응답 데이터는 E2E 와 같은 팩토리(`e2e/factories/`)를 쓴다. 예: `src/pages/projects/issueRowMenu.test.tsx`·`src/pages/drive/driveSpaceCreate.test.tsx`
+- **화면 테스트는 `renderScreen` 이 기본이다(WP-995)** — E2E 에서 옮기거나 새로 쓰는 화면 판정은 **그 동작을 가진 가장 작은 컴포넌트**(사이드바·대화상자·섹션·목록)를 `renderScreen(<컴포넌트 />, { path, handlers, auth })`(`src/test/renderScreen.tsx`)로 띄운다. App·인증 부팅·앱 셸을 거치지 않고(고정 AuthContext) 데이터는 MSW 로 준다 — 폼 → payload, 응답 → 화면, 이동 주소(`location()`)를 `renderPage` 와 같은 깊이로 본다. 같은 4건이 `renderPage` 11.7초 → `renderScreen` 6.3초(`src/pages/drive/driveSpaceCreate.test.tsx`). 화면 전체(페이지 컴포넌트)를 띄우면 이득이 20% 안팎으로 줄어드니 작은 단위로 띄운다
+  - **`renderPage` 는 이럴 때만**: 다른 라우트로 이동한 뒤 **그 화면 내용**을 본다, 앱 셸(레일·모바일 탭바·AI 시트·인박스)을 본다, 인증·권한 라우트 가드를 본다, 여러 화면을 넘나든다
+  - **파일을 잘게 나누지 않는다** — 파일마다 화면 모듈을 다시 불러오는 고정 비용(수 초)이 붙는다. 한 컴포넌트·한 화면의 판정은 한 파일에 모은다
+- **페이지 테스트(`*.test.tsx` + `renderPage`, WP-971)**: `renderPage(path, { user, roles, handlers })`(`src/test/renderPage.tsx`)가 실제 라우트 트리(App)·인증(AuthProvider)·토스트를 띄운다 — E2E 의 `authenticatedPage` + `goto` 와 같은 상태. 훅을 `vi.mock` 으로 끊지 않고 **MSW 로 네트워크 계층에서 모킹**한다(`handlers` 에 `http.get(...)` 등). 응답 데이터는 E2E 와 같은 팩토리(`e2e/factories/`)를 쓴다. 예: `src/pages/projects/issueRowMenu.test.tsx`
   - 앱 셸이 늘 부르는 부가 조회는 `src/test/msw/baseHandlers.ts` 가 빈 성공으로 깐다(E2E `setupAuthMocks` 와 같은 목록). **핸들러가 없는 요청은 테스트 실패**다(E2E 의 「모킹 누락은 503」과 같은 원칙) — 화면 데이터(목록·쿼터 등)는 테스트가 준다
   - 첫 `findBy*` 에는 `{ timeout: PAGE_LOAD_TIMEOUT }` — 워커가 페이지 모듈을 처음 불러오는 데 5~6초가 든다. 그 뒤 단언은 기본값
   - 주소 이동은 반환값 `location()` 으로 단언한다. 쓰기 요청은 핸들러에서 `request.json()` 을 모아 비교한다
