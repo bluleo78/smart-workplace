@@ -1,6 +1,8 @@
 // 이슈 목록 사이클 구간 드래그 앤 드롭 E2E (#881) — 행을 다른 구간(진행 중·예정 사이클 / 백로그)으로 끌어 사이클 할당·해제.
 // 규칙: 구간 A→B = A 해제 + B 추가(그 외 사이클 유지), 백로그로 = 출발 사이클만 해제, 백로그에서 = 대상 추가.
 // 서버 이동 규칙을 흉내 내는 목(POST .../cycles/move)이 구간별 이슈 목록을 갱신해, settle 재조회도 이동 결과를 돌려준다.
+// 모두 실제 포인터·키보드 끌기라 브라우저가 필요하다(@input). 비멤버 행이 끌 수 없는 행인지(권한 조건부 렌더)는
+// 페이지 테스트 src/pages/projects/issueListCycleDnd.test.tsx 가 지킨다(WP-971).
 import type { Locator, Page } from '@playwright/test';
 
 import type { CycleResponse } from '../../../src/types/cycle';
@@ -176,7 +178,7 @@ async function clickUndo(page: Page, moves: () => MoveBody[]) {
   }).toPass();
 }
 
-test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
+test.describe('이슈 목록 사이클 구간 드래그 (#881)', { tag: '@input' }, () => {
   test(
     '진행 중 → 접힌 예정 구간 헤더 — 이동 요청·즉시 반영·되돌리기',
     { tag: '@smoke' },
@@ -302,18 +304,6 @@ test.describe('이슈 목록 사이클 구간 드래그 (#881)', () => {
     await expect(page.getByText('서버 오류')).toBeVisible();
     await expect(row(page, 'cycle-1', 12)).toBeVisible();
     await expect(row(page, 'cycle-2', 12)).toHaveCount(0);
-  });
-
-  test('비멤버는 드래그할 수 없다', async ({ authenticatedPage: page }) => {
-    const { moves } = await setup(page, { member: false });
-    await page.goto(`/projects/${KEY}`);
-    const r = row(page, 'cycle-1', 12);
-    await expect(r).toBeVisible();
-    await expect(r).not.toHaveAttribute('aria-roledescription', '드래그 가능한 이슈');
-
-    await dragRowTo(page, r, 'cycle-2');
-    await expectStays(page, moves, []);
-    await expect(page.getByTestId('issue-row-drag-overlay')).toHaveCount(0);
   });
 
   test('키보드 — Space 로 집고 방향키로 사이클 구간을 골라 Space 로 놓기, 제목 링크 Enter 는 상세 이동', async ({ authenticatedPage: page }) => {

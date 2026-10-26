@@ -1,4 +1,4 @@
-// 타임라인 타이포/행 밀도 E2E (#646) — 행 40px, 월 14px/주 12px 위계.
+// 타임라인 타이포/행 밀도 E2E (#646) — 행 40px, 월 14px/주 12px 위계. 실제 렌더 크기·계산된 글꼴을 재므로 모두 @layout(WP-980).
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -56,7 +56,7 @@ function setupStubs(page: Page) {
   ]);
 }
 
-test('간트 행 높이가 40px 로 렌더된다', async ({ authenticatedPage: page }) => {
+test('간트 행 높이가 40px 로 렌더된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
@@ -72,7 +72,7 @@ test('간트 행 높이가 40px 로 렌더된다', async ({ authenticatedPage: p
   expect(Math.round(rowHeight)).toBe(40);
 });
 
-test('시간축 텍스트 위계 — 상단 스케일 14px semibold, 하단 12px', async ({ authenticatedPage: page }) => {
+test('시간축 텍스트 위계 — 상단 스케일 14px semibold, 하단 12px', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
@@ -90,7 +90,7 @@ test('시간축 텍스트 위계 — 상단 스케일 14px semibold, 하단 12px
 // 다크 모드 높이 회귀 — WillowDark 는 .wx-willow-dark-theme 를 붙여, 라이트 전용 선택자
 // (.wx-willow-theme)로는 height:100% 가 걸리지 않아 간트가 콘텐츠(행 개수)만큼만 그려지고
 // 컨테이너 아래가 빈 여백으로 남던 버그. 공통 베이스 .wx-theme 로 타깃해 양 테마 모두 채운다.
-test('다크 모드에서 간트가 컨테이너 높이를 꽉 채운다', async ({ authenticatedPage: page }) => {
+test('다크 모드에서 간트가 컨테이너 높이를 꽉 채운다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // next-themes 저장키('theme')를 로드 전에 dark 로 심어 WillowDark 래퍼로 렌더시킨다.
   await page.addInitScript(() => window.localStorage.setItem('theme', 'dark'));
   await setupStubs(page);

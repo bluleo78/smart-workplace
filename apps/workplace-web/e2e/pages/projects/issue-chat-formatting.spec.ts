@@ -32,7 +32,8 @@ async function stubFormattedIssueChat(page: Page) {
   return trackRequests(page, 'POST', '/api/v1/chat/threads/100/messages');
 }
 
-test.describe('채팅 서식 (WP-101) — 이슈 채팅', () => {
+// 서식 줄 토글·코드 블록 안 Shift+Enter·서식 목록 끝(End)에서 이어 쓰기는 contenteditable 실제 키 입력이라 E2E(@input)로 둔다.
+test.describe('채팅 서식 (WP-101) — 이슈 채팅', { tag: '@input' }, () => {
   test('서식 줄로 기울임·코드 블록을 쓰면 마크다운으로 보내고, 서식 메시지는 서식으로 그린다', async ({ authenticatedPage: page }) => {
     const sends = await stubFormattedIssueChat(page);
     await page.goto(`/projects/${KEY}/issues/1?chat=1`);

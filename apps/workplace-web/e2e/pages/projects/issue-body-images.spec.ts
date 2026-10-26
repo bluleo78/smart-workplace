@@ -1,6 +1,9 @@
-// 이슈 본문 이미지(WP-199) E2E — 붙여넣기·드롭·버튼 업로드와 본문 렌더.
+// 이슈 본문 이미지(WP-199) E2E — 브라우저가 있어야 판정되는 것만 남긴다.
+// 클립보드 붙여넣기·파일 드롭과 업로드 중 막힘·실패 롤백(@input), 인증 blob 이미지의 실제 디코딩·미리보기(@platform),
+// 미리보기를 닫는 키·클릭이 편집으로 번지지 않음(@input).
+// 이미지 버튼 업로드 → 본문 끝 마크다운, 지워진 이미지(404) 대체 문구, 복원된 초안의 업로드 중 토큰 저장 안내는
+// 페이지 테스트 src/pages/projects/issueBodyImages.test.tsx 가 지킨다(WP-980).
 import type { Page } from '@playwright/test'
-import { issueBodyDraftKey } from '../../../src/lib/issueBodyDraft'
 
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -103,7 +106,7 @@ async function setupDetailStubs(page: Page, body: string) {
 }
 
 test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
-  test('붙여넣은 이미지가 업로드되어 본문에 들어가고, 업로드 중에는 등록이 막힌다', async ({ authenticatedPage: page }) => {
+  test('붙여넣은 이미지가 업로드되어 본문에 들어가고, 업로드 중에는 등록이 막힌다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubProjectList(page)
     const upload = await stubUpload(page)
     const creates = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/issues`)
@@ -129,7 +132,7 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
     await expect.poll(() => creates.lastBody<{ body: string }>()?.body).toBe(`![bug.png](${IMG_URL})\n`)
   })
 
-  test('엑셀처럼 텍스트와 이미지가 함께 붙여넣어지면 텍스트만 들어가고 업로드하지 않는다', async ({ authenticatedPage: page }) => {
+  test('엑셀처럼 텍스트와 이미지가 함께 붙여넣어지면 텍스트만 들어가고 업로드하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubProjectList(page)
     const uploads = trackRequests(page, 'ANY', `/api/v1/projects/${KEY}/issue-images`)
     await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => r.fulfill({ status: 500 }))
@@ -147,7 +150,7 @@ test.describe('이슈 본문 이미지 — 생성 다이얼로그', () => {
 })
 
 test.describe('이슈 본문 이미지 — 상세 편집', () => {
-  test('편집 중 드롭한 이미지가 저장 요청 본문에 들어가고, 업로드 중엔 저장·단축키가 막힌다', async ({ authenticatedPage: page }) => {
+  test('편집 중 드롭한 이미지가 저장 요청 본문에 들어가고, 업로드 중엔 저장·단축키가 막힌다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, '기존 본문')
     const upload = await stubUpload(page)
     const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`)
@@ -182,17 +185,7 @@ test.describe('이슈 본문 이미지 — 상세 편집', () => {
 })
 
 test.describe('이슈 본문 이미지 — 편집 UX', () => {
-  test('편집 진입 후 이미지 버튼은 본문 끝에 마크다운을 덧붙인다', async ({ authenticatedPage: page }) => {
-    await setupDetailStubs(page, '기존 본문')
-    const upload = await stubUpload(page)
-    upload.release()
-    await page.goto(`/projects/${KEY}/issues/1`)
-    await page.getByRole('button', { name: '본문 편집' }).click()
-    await page.getByTestId('issue-body-image-input').setInputFiles({ name: 'bug.png', mimeType: 'image/png', buffer: PNG })
-    await expect(page.getByTestId('issue-body-textarea')).toHaveValue(`기존 본문\n![bug.png](${IMG_URL})\n`)
-  })
-
-  test('업로드가 실패하면 삽입했던 줄바꿈까지 되돌려 원문이 그대로 남는다', async ({ authenticatedPage: page }) => {
+  test('업로드가 실패하면 삽입했던 줄바꿈까지 되돌려 원문이 그대로 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, '기존 본문')
     await page.route(`**/api/v1/projects/${KEY}/issue-images`, (r) => r.fulfill({ status: 500, contentType: 'application/json', body: '{}' }))
     await page.goto(`/projects/${KEY}/issues/1`)
@@ -207,7 +200,7 @@ test.describe('이슈 본문 이미지 — 편집 UX', () => {
 })
 
 test.describe('이슈 본문 이미지 — 표시', () => {
-  test('본문 이미지가 인증 blob 으로 로드되고, 클릭하면 편집이 아니라 미리보기가 열린다', async ({ authenticatedPage: page }) => {
+  test('본문 이미지가 인증 blob 으로 로드되고, 클릭하면 편집이 아니라 미리보기가 열린다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, `재현 화면\n\n![bug.png](${IMG_URL})`)
     await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await page.goto(`/projects/${KEY}/issues/1`)
@@ -227,27 +220,7 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await expect(page.getByRole('button', { name: '더 보기' })).toHaveCount(0)
   })
 
-  test('지워졌거나 수거된 이미지는 대체 문구를 보여준다', async ({ authenticatedPage: page }) => {
-    await setupDetailStubs(page, `![gone.png](${IMG_URL})`)
-    await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
-    await page.goto(`/projects/${KEY}/issues/1`)
-    await expect(page.getByText('이미지를 불러올 수 없음')).toBeVisible()
-  })
-
-  test('복원된 초안에 업로드 중 토큰이 남아 있으면 저장 시 안내 토스트를 띄운다', async ({ authenticatedPage: page }) => {
-    await setupDetailStubs(page, '기존 본문')
-    await page.addInitScript(([k, v]) => window.localStorage.setItem(k, v), [
-      issueBodyDraftKey({ userId: 1, tenantId: null }, KEY, 1),
-      '남은 글\n![업로드 중… #1]()',
-    ])
-    await page.goto(`/projects/${KEY}/issues/1`)
-    await page.getByRole('button', { name: '본문 편집' }).click()
-    await page.getByRole('button', { name: '불러오기' }).click()
-    await page.getByTestId('issue-body-save').click()
-    await expect(page.getByText('업로드가 끝나지 않은 이미지가 있습니다')).toBeVisible()
-  })
-
-  test('미리보기를 닫기 버튼·Escape 로 닫거나 뷰어 안쪽을 눌러도 편집 모드로 들어가지 않는다', async ({ authenticatedPage: page }) => {
+  test('미리보기를 닫기 버튼·Escape 로 닫거나 뷰어 안쪽을 눌러도 편집 모드로 들어가지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, `![bug.png](${IMG_URL})`)
     await page.route(`**${IMG_URL}`, (r) => r.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
     await page.goto(`/projects/${KEY}/issues/1`)
@@ -276,7 +249,7 @@ test.describe('이슈 본문 이미지 — 표시', () => {
     await expect(ta).toHaveCount(0)
     await expect(dialog).toBeVisible()
   })
-  test('PDF 같은 비이미지 파일을 드롭하면 토스트로 거부하고 기본 동작을 막아 입력한 글이 유지된다', async ({ authenticatedPage: page }) => {
+  test('PDF 같은 비이미지 파일을 드롭하면 토스트로 거부하고 기본 동작을 막아 입력한 글이 유지된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setupDetailStubs(page, '기존 본문')
     await page.goto(`/projects/${KEY}/issues/1`)
     await page.getByRole('button', { name: '본문 편집' }).click()

@@ -1,7 +1,8 @@
 // OPEN 접수함 통합 플로우 E2E — Task 12 안전망.
-// 무엇을: 비멤버(reporter)가 OPEN 프로젝트에 건의를 제출하고 상세를 여는 전 과정에서
-//          어떤 하위 fetch도 403/오류가 나지 않음을 검증한다("3분기 함정" 안전망).
-//          멤버(처리팀)가 워크플로 상태를 변경할 수 있음도 검증한다.
+// 무엇을: 비멤버(reporter)가 OPEN 프로젝트 이슈 상세를 열 때 라우트 → 상세 → 하위 fetch → 화면이 이어지고
+//          어떤 하위 fetch도 403 이 나지 않음을 검증한다("3분기 함정" 안전망, @wiring).
+// 비멤버·멤버의 편집 게이트(상태·사이클·에픽 연결·삭제·하위 추가)와 보고자 건의의 홈 「내 작업」 노출은
+// 페이지 테스트 src/pages/projects/openProjectFlow.test.tsx 가 지킨다(WP-980).
 // 왜: Tasks 1~11이 완성했지만 "비멤버가 OPEN 이슈 상세를 열 때 프론트가 호출하는
 //     모든 하위 엔드포인트(라벨·워처·첨부·AI 요약·사이클·커스텀 필드)"가 모두
 //     완화(assertReadable)되어 있는지 한 번에 확인한다.
@@ -9,7 +10,6 @@
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
-import { mockApi } from '../../fixtures/api-mock';
 
 const PROJECT_KEY = 'OPNQA';
 const ISSUE_NUMBER = 1;
@@ -134,7 +134,7 @@ async function setupFlowMocks(
 
 test(
   'OPEN 비멤버(reporter): 이슈 상세 진입 시 하위 fetch 전체 정상(403 없음)',
-  { tag: '@smoke' },
+  { tag: ['@wiring', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     // reporter 시나리오: 내용 편집 허용, 워크플로·삭제 불가
     await setupFlowMocks(page, {
@@ -165,23 +165,6 @@ test(
     // 분류 그룹(라벨 섹션)이 DOM에 존재해야 함(기본 접힘이므로 toBeAttached로 확인)
     await expect(page.getByTestId('property-group-classification')).toBeAttached();
 
-    // 비멤버는 상태 select 비활성(워크플로 게이트)
-    await expect(page.getByTestId('issue-status-select')).toBeDisabled();
-
-    // 제목 편집 버튼은 활성(본인 이슈, 내용 편집 허용)
-    await expect(page.getByTestId('issue-title-edit')).toBeEnabled();
-
-    // 삭제 버튼 미표시
-    await expect(page.getByTestId('issue-delete')).not.toBeVisible();
-
-    // 사이클 편집·「에픽 연결」도 워크플로 권한이 없으면 비활성(WP-481 — 저장하면 403 이었다).
-    await expect(page.getByTestId('cycle-picker-trigger')).toBeDisabled();
-    await expect(page.getByTestId('issue-parent-edit')).toBeDisabled();
-
-    // 하위 태스크 추가 칸 미표시 — 부모·유형 지정은 멤버 전용(WP-477, 서버 403)
-    await expect(page.getByTestId('issue-children-section')).toBeVisible();
-    await expect(page.getByTestId('child-add-form')).toHaveCount(0);
-
     // 채팅 버튼이 렌더되어야 함(chat thread fetch 403 → 버튼 자체 미렌더 방지)
     await expect(page.getByTestId('issue-chat-open')).toBeVisible();
 
@@ -194,67 +177,3 @@ test(
     ).toHaveLength(0);
   },
 );
-
-// ─── 시나리오 2: reporter가 건의 작성 후 홈 "내 이슈"에 노출 ──────────────────────
-
-test(
-  'OPEN reporter가 건의를 제출하면 홈 "내 이슈"에 노출된다',
-  { tag: '@smoke' },
-  async ({ authenticatedPage: page }) => {
-    // reporter 건의 이슈(내 담당/보고)가 me/issues 에 포함
-    const myIssue = createIssue({
-      projectKey: PROJECT_KEY,
-      number: ISSUE_NUMBER,
-      title: '다크모드 추가 건의',
-      reporterId: 1,
-    });
-
-    // me/issues + 대시보드 레이아웃 스텁 (auth.fixture 기본값보다 LIFO 우선)
-    await mockApi(page, 'GET', '/api/v1/me/issues', {
-      items: [myIssue],
-      nextCursor: null,
-      hasMore: false,
-    });
-    await mockApi(page, 'GET', '/api/v1/me/dashboard', {
-      widgets: [{ type: 'my_tasks', count: 5, hidden: false }],
-    });
-
-    await page.goto('/');
-
-    // 내 작업 위젯이 보여야 함
-    const widget = page.getByTestId('dash-mytasks');
-    await expect(widget).toBeVisible();
-
-    // 건의 이슈 제목이 위젯에 표시되어야 함
-    await expect(widget).toContainText('다크모드 추가 건의');
-  },
-);
-
-// ─── 시나리오 3: 멤버(처리팀)는 상태 select 활성 ──────────────────────────────────
-
-test(
-  '멤버(처리팀): 이슈 상태 select 활성 — 워크플로 변경 가능',
-  { tag: '@smoke' },
-  async ({ authenticatedPage: page }) => {
-    // 멤버 시나리오: 모든 권한 허용
-    await setupFlowMocks(page, {
-      viewerIsMember: true,
-      viewerCanEditContent: true,
-      viewerCanEditWorkflow: true,
-      viewerCanDelete: true,
-    });
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    // 상태 select 활성(워크플로 게이트 통과)
-    await expect(page.getByTestId('issue-status-select')).toBeEnabled();
-
-    // 제목 편집 버튼 활성
-    await expect(page.getByTestId('issue-title-edit')).toBeEnabled();
-
-    // 삭제 버튼 표시
-    await expect(page.getByTestId('issue-delete')).toBeVisible();
-  },
-);
-
-// 비멤버 보드의 "+ 새 태스크" 버튼 노출은 open-issue-permissions.spec.ts 가 맡는다.

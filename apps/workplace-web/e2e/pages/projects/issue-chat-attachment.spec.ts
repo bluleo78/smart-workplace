@@ -9,14 +9,16 @@
 //   - POST /chat/threads/*/attachments: [{fileId:1,...}] 반환 → pending 칩 노출.
 //   - GET /chat/threads/*/messages: 빈 목록(초기).
 //   - POST /chat/threads/*/messages: 첨부 포함 응답 반환(본문은 trackRequests 로 검증).
+//
+// 실제 파일 선택기(filechooser)로 고른 파일이 업로드되는 흐름이라 @input 으로 남는다.
+// 25MB 초과 사전 거름(WP-848)·드라이브 링크 drive_file.id 전송(#446)은
+// src/pages/projects/issueChatAttachment.test.tsx(vitest 페이지 테스트, WP-980)가 맡는다.
 
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { expectStays } from '../../fixtures/wait';
 import { createChatMember, createChatThread } from '../../factories/chat.factory';
-import { createFile } from '../../factories/drive.factory';
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { MessageAttachment } from '../../../src/types/messaging';
@@ -130,7 +132,7 @@ async function stubIssueChatBase(page: Page) {
 
 test(
   '파일 첨부 버튼 노출 → 업로드 → fileIds 포함 전송 → 첨부 카드 렌더 (#358)',
-  { tag: '@smoke' },
+  { tag: ['@input', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     await stubIssueChatBase(page);
 
@@ -227,212 +229,3 @@ test(
     await expect(page.getByTestId(`attachment-card-${FILE_ID}`)).toContainText('test-file.txt');
   },
 );
-
-// ── 회귀 #446: FolderPickerModal f.fileId(blob ID) → f.id(drive_file PK) 수정 ────────────────
-// 이슈 채팅 — 드라이브 링크 선택 시 driveFileIds 에 drive_file.id(PK) 전달 검증.
-// 수정 전: f.fileId(blob ID) 전달 → 백엔드 drive_file 조회 404.
-// 수정 후: f.id(PK) 전달 → 정상 처리.
-// DriveFile.id(DRIVE_PK=300) ≠ fileId(BLOB_ID=999) 로 명확히 구분해 regression 고정.
-test(
-  '이슈 채팅 드라이브 링크 — 파일 피커에서 선택 시 drive_file.id(PK)가 driveFileIds 에 포함됨 (#446)',
-  async ({ authenticatedPage: page }) => {
-    const PERSONAL_SPACE_ID = 10;
-    // drive_file.id(PK) 와 fileId(blob) 를 의도적으로 다른 값으로 설정 — 회귀 고정.
-    const DRIVE_PK = 300;
-    const BLOB_ID = 999;
-
-    // ── 이슈 상세 공통 스텁 ────────────────────────────────────────────────
-    await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(createProject()),
-      }),
-    );
-    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            createIssueDetail({
-              summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: '드라이브 링크 테스트' }),
-            }),
-          ),
-        }),
-    );
-    for (const sub of ['watchers', 'labels', 'attachments']) {
-      await page.route(
-        (url) =>
-          url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/${sub}`,
-        (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-      );
-    }
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/labels`,
-      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-
-    // ── 드라이브 스페이스 스텁 — PERSONAL 1개 반환 → 드라이브 버튼 활성화 ──
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/spaces',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: PERSONAL_SPACE_ID,
-              type: 'PERSONAL',
-              name: '개인 공간',
-              ownerId: ME_ID,
-              role: 'OWNER',
-              archived: false,
-              createdAt: new Date().toISOString(),
-            },
-          ]),
-        }),
-    );
-
-    // ── FolderPickerModal 스페이스 아이템 — DRIVE_PK ≠ BLOB_ID 파일 1건 ──
-    await page.route(
-      (url) => url.pathname === `/api/v1/drive/spaces/${PERSONAL_SPACE_ID}/items`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({
-                folders: [],
-                files: [
-                  createFile({ id: DRIVE_PK, fileId: BLOB_ID, name: 'report.pdf' }),
-                ],
-              }),
-            })
-          : route.fallback(),
-    );
-
-    // ── 채팅 스레드 스텁 ─────────────────────────────────────────────────
-    const thread = createChatThread({
-      threadId: THREAD_ID,
-      issueId: 1,
-      members: [createChatMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자' })],
-      recentMessages: [],
-    });
-    await page.route(
-      (url) =>
-        url.pathname ===
-        `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/chat/thread`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(thread),
-        }),
-    );
-
-    // ── GET /messages 스텁 (빈 목록) ─────────────────────────────────────
-    await page.route(
-      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback();
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
-        });
-      },
-    );
-
-    // ── POST /messages — payload 캡처 ────────────────────────────────────
-    const creates = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/messages`);
-    await page.route(
-      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
-      (route) => {
-        if (route.request().method() !== 'POST') return route.fallback();
-        return route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            id: 2001,
-            threadId: THREAD_ID,
-            authorId: ME_ID,
-            authorName: '테스트 사용자',
-            authorKind: 'HUMAN',
-            body: '드라이브 링크 메시지',
-            mentions: [],
-            attachments: [],
-            driveLinks: [],
-            createdAt: new Date().toISOString(),
-            editedAt: null,
-            deleted: false,
-          }),
-        });
-      },
-    );
-
-    // ── 미읽음 mark-read 스텁 ──────────────────────────────────────────────
-    await page.route(
-      (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/read`,
-      (route) => route.fulfill({ status: 204 }),
-    );
-
-    // ── 페이지 진입 + 채팅 패널 펼침 ──────────────────────────────────────
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await page.getByTestId('issue-chat-open').click();
-    await expect(page.getByTestId('chat-section')).toBeVisible();
-
-    // ── 검증 1: ＋ 메뉴의 드라이브 링크 항목 활성화 (WP-235) ─────────────────
-    await page.getByTestId('chat-composer-attach-button').click();
-    const driveLinkBtn = page.getByTestId('chat-composer-drive-link-btn');
-    await expect(driveLinkBtn).not.toHaveAttribute('data-disabled');
-
-    // ── 검증 2: 파일 피커 열림 → 파일 클릭 → 드라이브 칩 노출 (drive_file.id 기준) ──
-    // data-testid="file-picker-file-{f.id}" → DRIVE_PK 로 렌더. 수정 전엔 f.fileId(BLOB_ID) 전달.
-    await driveLinkBtn.click();
-    await expect(page.getByTestId('folder-picker')).toBeVisible();
-    await page.getByTestId(`file-picker-file-${DRIVE_PK}`).click();
-
-    // 피커 닫힘 + pending 드라이브 칩 노출 (testid 는 addDrive 에 전달된 ID 기준)
-    await expect(page.getByTestId('folder-picker')).not.toBeVisible();
-    // 핵심 회귀 검증: chip testid 가 DRIVE_PK(300) — BLOB_ID(999)이면 버그 재현
-    await expect(page.getByTestId(`chat-composer-drive-chip-${DRIVE_PK}`)).toBeVisible();
-
-    // ── 검증 3: 전송 → POST payload 에 driveFileIds:[DRIVE_PK] 포함 ────────
-    const input = page.getByTestId('chat-composer-input');
-    await input.click();
-    await page.keyboard.type('드라이브 링크 메시지');
-    await page.getByTestId('chat-composer-submit').click();
-
-    // 핵심 회귀 검증: driveFileIds 에 drive_file.id(PK=300) 전달 — fileId(blob=999) 이면 버그
-    await expect.poll(() => creates.lastBody()).toMatchObject({
-      driveFileIds: [DRIVE_PK],
-    });
-  },
-);
-
-// WP-848: 이슈 챗도 25MB 를 넘는 파일은 고를 때 바로 빼고 이름과 함께 알린다(서버 「유효하지 않은 첨부」까지 가지 않는다).
-test('이슈 챗 — 25MB 를 넘는 파일은 업로드하지 않고 이름과 함께 알린다', async ({ authenticatedPage: page }) => {
-  await stubIssueChatBase(page);
-  const uploads = trackRequests(page, 'POST', `/api/v1/chat/threads/${THREAD_ID}/attachments`);
-  await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-  await page.getByTestId('issue-chat-open').click();
-  await expect(page.getByTestId('chat-section')).toBeVisible();
-
-  await page.getByTestId('chat-composer-attach-button').click();
-  const chooser = page.waitForEvent('filechooser');
-  await page.getByTestId('chat-composer-attach-file').click();
-  await (await chooser).setFiles({
-    name: 'huge.zip',
-    mimeType: 'application/zip',
-    buffer: Buffer.alloc(25 * 1024 * 1024 + 1),
-  });
-
-  await expect(page.getByText('huge.zip는 25MB 한도를 초과합니다')).toBeVisible();
-  await expect(page.getByTestId('chat-composer-attachments')).toHaveCount(0);
-  await expectStays(page, () => uploads.count(), 0);
-});

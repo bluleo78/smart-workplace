@@ -21,7 +21,8 @@ const MSG_ID = 9001;
 
 test(
   '접힘 채팅 패널: 타인 메시지 도착 시 미읽음 배지 표시, 펼치면 사라진다',
-  { tag: '@smoke' },
+  // 실제 SSE 스트림(재연결 포함)으로 같은 created 를 거듭 받아 dedup 을 본다 — @platform(WP-980).
+  { tag: ['@platform', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     // ── 공통 스텁 ─────────────────────────────────────────────────────────
     await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>

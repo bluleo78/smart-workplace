@@ -1,5 +1,6 @@
 // Phase 6b — chat 실시간 SSE E2E.
-// /api/v1/events(통합 SSE #506) 를 canned text/event-stream 본문으로 모킹 → 메시지가 create POST 없이 렌더되는지 검증.
+// TipTap 입력창에 실제로 글자를 쳐서 보내야 하는 self-echo 중복 제거(#37, @input)만 남는다.
+// SSE 프레임(chat.message.created)이 create POST 없이 렌더되는지는 페이지 테스트 src/pages/projects/chatRealtime.test.tsx 가 지킨다(WP-980).
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { mockGatedEvents } from '../../fixtures/gatedEvents';
@@ -50,110 +51,7 @@ async function setupCommonStubs(
   );
 }
 
-async function setupChatStubs(
-  page: import('@playwright/test').Page,
-  thread: ReturnType<typeof createChatThread>,
-  messages: ReturnType<typeof createChatMessage>[],
-) {
-  await page.route(
-    (url) =>
-      url.pathname ===
-      `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/chat/thread`,
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(thread),
-      }),
-  );
-  await page.route(
-    (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: messages, nextCursor: null, hasMore: false }),
-      });
-    },
-  );
-  // POST create — create POST 가 호출되면 테스트가 실패하도록 빈 핸들러 등록.
-  await page.route(
-    (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/messages`,
-    async (route) => {
-      if (route.request().method() !== 'POST') return route.fallback();
-      // SSE 전용 테스트에서는 create POST 가 불려선 안 됨 — 404 로 잡아서 가시적 오류 유발.
-      return route.fulfill({ status: 404 });
-    },
-  );
-  // mark-as-read — 필수 endpoint 모킹.
-  await page.route(
-    (url) => url.pathname === `/api/v1/chat/threads/${THREAD_ID}/read`,
-    (route) => route.fulfill({ status: 204 }),
-  );
-}
-
 test.describe('chat 실시간 SSE', () => {
-  test(
-    'SSE 로 도착한 메시지가 create POST 없이 즉시 렌더된다',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      const detailRef = {
-        current: createIssueDetail({
-          summary: createIssue({ id: 1, number: ISSUE_NUMBER, title: 'SSE 실시간 테스트' }),
-        }),
-      };
-      // 기존 메시지 1건 시드 — SSE 전달 메시지는 id=999(별개).
-      // 무엇을: 드로워를 연 뒤 목록 캐시가 이미 있는 상태에서 SSE 메시지가 upsert 되는지 본다.
-      //         (구 IssueChatPanel 은 recentMessages 로 자동 펼침을 판정해 시드가 필수였다.)
-      const existingMsg = createChatMessage({
-        id: 1,
-        threadId: THREAD_ID,
-        authorId: ME_ID,
-        authorName: '테스트 사용자',
-        authorKind: 'HUMAN',
-        body: '기존 메시지',
-      });
-      const thread = createChatThread({
-        threadId: THREAD_ID,
-        issueId: 1,
-        members: [
-          createChatMember({ userId: ME_ID, username: 'testuser', name: '테스트 사용자' }),
-        ],
-        recentMessages: [existingMsg],
-      });
-
-      await setupCommonStubs(page, detailRef);
-      // 기존 메시지 1건으로 패널 자동 펼침 — SSE 는 추가 메시지(id=999)로 도착.
-      await setupChatStubs(page, thread, [existingMsg]);
-
-      // SSE 스트림 모킹: chat.message.created 프레임 1개.
-      const msg = createChatMessage({
-        id: 999,
-        threadId: THREAD_ID,
-        authorId: ME_ID,
-        authorName: '테스트 사용자',
-        authorKind: 'HUMAN',
-        body: 'SSE 실시간 메시지',
-      });
-      const sseBody =
-        `event: chat.message.created\n` +
-        `data: ${JSON.stringify(msg)}\n\n`;
-
-      const events = await mockGatedEvents(page);
-
-      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-      // 채팅은 드로어로 이동(#558) — 메시지 단언 전 드로어를 연다.
-      await page.getByTestId('issue-chat-open').click();
-      // 드로어가 마운트되고 메시지 GET 이 응답돼 시드 메시지가 보일 때까지 대기 — 캐시 준비 신호. 그 뒤에 프레임 전달.
-      await expect(page.getByText('기존 메시지')).toBeVisible();
-      events.deliver(sseBody);
-
-      // SSE 프레임으로 도착한 메시지가 렌더돼야 한다 (create POST 없이).
-      await expect(page.getByText('SSE 실시간 메시지')).toBeVisible();
-    },
-  );
-
   // #37 회귀 — 본인이 보낸 메시지의 SSE self-echo 가 create POST 응답과 같은 서버 id 를 실어
   // 도착하면, onSuccess dedup 이 없을 때 같은 id 의 행이 2개 생긴다.
   //
@@ -162,7 +60,7 @@ test.describe('chat 실시간 SSE', () => {
   // send → onMutate 가 음수 temp 행 prepend → POST(+600ms) 가 SAVED_ID 로 확정 → onSuccess 가
   // temp→SAVED_ID 매핑. dedup 없으면 [SAVED_ID, SAVED_ID] (2행), dedup 면 [SAVED_ID] (1행).
   // POST-먼저 순서도 dedup 대칭으로 동일 보장.
-  test('본인 메시지 send 시 SSE self-echo 가 와도 행이 1개만 보인다 (중복 제거)', async ({
+  test('본인 메시지 send 시 SSE self-echo 가 와도 행이 1개만 보인다 (중복 제거)', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const SAVED_ID = 1001;

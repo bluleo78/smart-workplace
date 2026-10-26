@@ -1,4 +1,4 @@
-// AI 진행 유령 버블 E2E — SSE 로 chat.message.progress 를 주입 → AiWorkingBubble 렌더 확인 →
+// AI 진행 유령 버블 E2E(@platform) — 실제 SSE 스트림 프레임·재연결·IntersectionObserver 읽음 처리를 브라우저에서 본다. SSE 로 chat.message.progress 를 주입 → AiWorkingBubble 렌더 확인 →
 // chat.message.created 주입 → 유령 버블 사라지고 실제 메시지 표시 확인.
 //
 // 전략:
@@ -29,7 +29,7 @@ const STREAM_ID = 'stream-abc-123';
 
 test(
   'AI 진행 유령 버블 표시 후 완성 메시지로 교체된다',
-  { tag: '@smoke' },
+  { tag: ['@platform', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     // ── 공통 스텁 ─────────────────────────────────────────────────────────
     await page.route(`**/api/v1/projects/${PROJECT_KEY}`, (route) =>
@@ -295,7 +295,7 @@ const progressOf = (threadId: number, streamId: string, phase: string, label = '
   steps: [{ label, status: phase === 'done' ? 'done' : 'running' }],
 });
 
-test('이슈 채팅 — done 뒤 늦게 도착한 진행 이벤트는 유령 버블을 되살리지 않는다', async ({
+test('이슈 채팅 — done 뒤 늦게 도착한 진행 이벤트는 유령 버블을 되살리지 않는다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   // /api/v1/events 는 route 하지 않는다 — auth.fixture 의 열린 SSE 스트림에 pushHeldEvents 로 단계마다 프레임을 밀어 넣어
@@ -356,7 +356,7 @@ test('이슈 채팅 — done 뒤 늦게 도착한 진행 이벤트는 유령 버
   await expectStays(page, () => bubble.count(), 0);
 });
 
-test('이슈 채팅 — AI 작업 중 다른 이슈로 옮기면 이전 이슈의 유령 버블이 따라오지 않는다', async ({
+test('이슈 채팅 — AI 작업 중 다른 이슈로 옮기면 이전 이슈의 유령 버블이 따라오지 않는다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const OTHER_NUMBER = 2;
@@ -421,7 +421,7 @@ test('이슈 채팅 — AI 작업 중 다른 이슈로 옮기면 이전 이슈�
 // WP-418 리뷰 후속 — 이슈별 key 리마운트가 1초 디바운스 대기 중인 읽음 처리를 버리지 않는다.
 // 이슈를 바꾸면 채팅 본문이 언마운트되며 디바운스 타이머도 사라지므로, 언마운트 때 떠나는 스레드의 읽음을 바로 보내야 한다.
 // (flush 가 없으면 최신 메시지까지 본 직후 1초 안에 다른 이슈로 옮길 때 이전 스레드 읽음이 영영 안 간다.)
-test('이슈 채팅 — 최신 메시지를 본 직후 다른 이슈로 옮겨도 이전 스레드 읽음 처리가 전송된다', async ({
+test('이슈 채팅 — 최신 메시지를 본 직후 다른 이슈로 옮겨도 이전 스레드 읽음 처리가 전송된다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const OTHER_NUMBER = 2;

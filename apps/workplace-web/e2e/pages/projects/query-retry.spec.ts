@@ -8,7 +8,8 @@ import { expectStays } from '../../fixtures/wait';
 // 여기서는 정책이 실제 QueryClient 에 꽂혀 있는지(기본 retry 였다면 404 도 재시도) 하나만 본다.
 // 입력→처리→출력 파이프라인: 특정 상태 코드 응답 → useProject 쿼리의 재시도 횟수 → 발생한 HTTP 요청 수.
 
-test.describe('QueryClient 전역 retry 정책', () => {
+// 페이지 테스트(renderPage)는 자체 QueryClient(retry 끔)를 쓰므로 main.tsx 의 실제 QueryClient 배선은 E2E 로만 본다(@wiring).
+test.describe('QueryClient 전역 retry 정책', { tag: '@wiring' }, () => {
   // 404(클라이언트 오류)는 재시도하지 않고 단 1회 요청 후 즉시 오류 표시.
   test('404 응답은 재시도하지 않는다 (요청 1회)', async ({ authenticatedPage: page }) => {
     const capture = await mockApi(

@@ -1,6 +1,9 @@
+// 프로젝트 핵심 흐름 E2E — 프로젝트 생성 → 이슈 생성 → 상태 변경 → 코멘트로 여러 화면을 잇는다(@flow).
+// 빈 상태·목록 오류·403·삭제 뒤 이동·설정 설명 검증은 src/pages/projects/projectListPage.test.tsx,
+// 상태 변경 토스트·이력 라벨은 src/pages/projects/issueDetailFields.test.tsx 페이지 테스트가 지킨다(WP-971).
 import { createPageResponse, mockApi } from '../../fixtures/api-mock';
 import { expect, test } from '../../fixtures/auth.fixture';
-import { createMember, createProject } from '../../factories/project.factory';
+import { createProject } from '../../factories/project.factory';
 import {
   createComment,
   createIssue,
@@ -12,7 +15,7 @@ import {
 // 프로젝트 생성 → 이슈 생성 → 상태 변경 → 코멘트 작성.
 test(
   '프로젝트 생성 → 이슈 생성 → 상태 변경 → 코멘트',
-  { tag: '@smoke' },
+  { tag: ['@flow', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     // 0. 빈 목록 (Playwright page.route 는 LIFO — 나중에 등록한 라우트가 먼저 매칭)
     await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([createProject()]));
@@ -94,183 +97,3 @@ test(
     ).toBeVisible();
   },
 );
-
-// non-smoke: 빈 상태 — 아이콘+제목+설명+CTA 4요소 노출 (refs #296)
-test('프로젝트 없을 때 빈 상태 UI 4요소가 모두 표시된다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/projects', createPageResponse([]));
-
-  await page.goto('/projects');
-
-  // 빈 상태 컨테이너
-  const emptyState = page.getByTestId('projects-empty');
-  await expect(emptyState).toBeVisible();
-
-  // 제목 + 설명 텍스트
-  await expect(emptyState.getByText('아직 프로젝트가 없어요')).toBeVisible();
-  await expect(emptyState.getByText('팀원과 함께 작업할 프로젝트를 만들어 보세요.')).toBeVisible();
-
-  // CTA 버튼 클릭 시 생성 모달 열림 (입력→처리→출력 파이프라인)
-  await emptyState.getByRole('button', { name: '새 프로젝트 만들기' }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-});
-
-// non-smoke: 프로젝트 목록 API 실패 시 오류 메시지·재시도 버튼 노출 (refs #189)
-test('프로젝트 목록 API 실패 시 오류 메시지와 재시도 버튼이 표시된다', async ({ authenticatedPage: page }) => {
-  // QueryClient 전역 retry: 1 → 자동 재시도 1회 포함, 첫 2번은 500으로 isError 유도,
-  // 3번째(수동 "다시 시도" 클릭)는 200으로 복구 확인
-  let attempt = 0;
-  await page.route(
-    (url) => url.pathname === '/api/v1/projects',
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      attempt++;
-      if (attempt <= 2) {
-        return route.fulfill({ status: 500, contentType: 'application/json',
-          body: JSON.stringify({ message: 'Internal Server Error' }) });
-      }
-      // 수동 재시도 요청: 정상 응답
-      return route.fulfill({ status: 200, contentType: 'application/json',
-        body: JSON.stringify(createPageResponse([createProject()])) });
-    },
-  );
-
-  await page.goto('/projects');
-
-  // 오류 메시지와 재시도 버튼 표시 확인 (retry: 1 자동 재시도 소진 후 isError 노출)
-  await expect(page.getByText('프로젝트 목록을 불러오지 못했습니다.')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('button', { name: '다시 시도' })).toBeVisible();
-
-  // 재시도 클릭 → 정상 목록 표시
-  await page.getByRole('button', { name: '다시 시도' }).click();
-  await expect(page.getByText('프로젝트 목록을 불러오지 못했습니다.')).not.toBeVisible();
-  await expect(page.getByRole('main').getByRole('link', { name: /Workplace/ }).first()).toBeVisible();
-});
-
-// non-smoke: 비멤버 프로젝트 접근 시 403 → 에러 메시지 노출
-test('비멤버 프로젝트 접근 시 권한 거부 메시지 노출', async ({ authenticatedPage: page }) => {
-  await mockApi(
-    page, 'GET', '/api/v1/projects/SECRET',
-    { status: 403, error: 'Forbidden', message: '프로젝트 멤버가 아닙니다',
-      errors: null, timestamp: new Date().toISOString(), path: '/api/v1/projects/SECRET' },
-    { status: 403 },
-  );
-
-  await page.goto('/projects/SECRET');
-  await expect(page.getByText('프로젝트를 불러올 수 없습니다')).toBeVisible();
-});
-
-// non-smoke: PATCH 후 활동 타임라인에 변경 항목 한국어 라벨로 노출
-test('상태 변경 시 활동 타임라인에 한국어 라벨로 노출', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject());
-
-  const after = createIssueDetail({
-    summary: createIssue({ status: 'IN_PROGRESS' }),
-    history: [{
-      id: 1, actorId: 1, actorName: 'Tester', actorKind: 'HUMAN', eventType: 'STATUS_CHANGED',
-      fromValue: 'TODO', toValue: 'IN_PROGRESS', createdAt: new Date().toISOString(),
-    }],
-  });
-  let fetchCount = 0;
-  await page.route('**/api/v1/projects/WP/issues/1', (route) => {
-    if (route.request().method() === 'GET') {
-      const body = fetchCount++ === 0 ? createIssueDetail() : after;
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(after) });
-  });
-
-  await page.goto('/projects/WP/issues/1');
-  await page.getByRole('combobox', { name: '상태' }).click();
-  await page.getByRole('option', { name: '진행 중' }).click();
-  // 활동 섹션은 '이력' 탭 안에 있으므로 탭 클릭 후 타임라인 확인 (Task 3 — #343)
-  await page.getByRole('tab', { name: /이력/ }).click();
-  await expect(page.getByText('상태 변경')).toBeVisible();
-  await expect(page.getByText(/할 일\s*→\s*진행 중/)).toBeVisible();
-});
-
-// non-smoke: 프로젝트 삭제 후 목록에서 사라짐
-test('프로젝트 삭제 후 목록에서 사라진다', async ({ authenticatedPage: page }) => {
-  // 받침 없는 이름 — 토스트 조사가 「가」로 붙는지 본다(WP-647).
-  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ name: '결제 테스트 프로젝트' }));
-  await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember()]);
-
-  let deleted = false;
-  await page.route(
-    (url) => url.pathname === '/api/v1/projects',
-    (route) => {
-      if (route.request().method() === 'GET') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(createPageResponse(deleted ? [] : [createProject()])),
-        });
-      }
-      return route.fallback();
-    },
-  );
-  await page.route(
-    (url) => url.pathname === '/api/v1/projects/WP',
-    (route) => {
-      if (route.request().method() === 'DELETE') {
-        deleted = true;
-        return route.fulfill({ status: 204 });
-      }
-      return route.fallback();
-    },
-  );
-
-  await page.goto('/projects/WP/settings');
-  await page.getByTestId('project-delete').click();
-  // shadcn AlertDialog가 열리면 확인 버튼을 클릭 (#139 window.confirm 대체).
-  await expect(page.getByRole('alertdialog')).toBeVisible();
-  await page.getByRole('button', { name: '삭제' }).last().click();
-  // 삭제 토스트에 프로젝트명 포함 확인 (refs #323)
-  await expect(page.getByText('프로젝트 "결제 테스트 프로젝트"가 삭제되었습니다')).toBeVisible();
-  await expect(page).toHaveURL(/\/projects$/);
-  // 빈 상태 empty state: 아이콘+제목+설명+CTA 4요소 확인
-  await expect(page.getByTestId('projects-empty')).toBeVisible();
-  await expect(page.getByText('아직 프로젝트가 없어요')).toBeVisible();
-});
-
-// non-smoke: 이슈 필드 변경 시 토스트 메시지에 대상 명시 (refs #323)
-test('이슈 필드 변경 시 "이슈 필드가 업데이트되었습니다" 토스트 표시', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject());
-  await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember()]);
-  await mockApi(page, 'GET', '/api/v1/projects/WP/issues/1', createIssueDetail());
-  await mockApi(
-    page, 'PATCH', '/api/v1/projects/WP/issues/1',
-    createIssueDetail({ summary: createIssue({ status: 'IN_PROGRESS' }) }),
-  );
-
-  await page.goto('/projects/WP/issues/1');
-  await expect(page.getByTestId('page-header')).toBeVisible();
-
-  // 상태 드롭다운 변경 → PATCH 트리거 → 토스트 확인
-  await page.getByRole('combobox', { name: '상태' }).click();
-  await page.getByRole('option', { name: '진행 중' }).click();
-
-  await expect(page.getByText('이슈 필드가 업데이트되었습니다')).toBeVisible();
-});
-
-// WP-929: 설명 2000자 초과로 저장하면 아무 반응 없이 멈추던 것 — 검증 오류를 칸 아래에 그리고 PATCH 는 보내지 않는다.
-test('프로젝트 설정 — 설명이 2000자를 넘으면 오류 문구가 보이고 저장 요청은 나가지 않는다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/projects/WP', createProject());
-  await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember()]);
-  let patchRequests = 0;
-  await page.route(
-    (url) => url.pathname === '/api/v1/projects/WP',
-    (route) => {
-      if (route.request().method() === 'PATCH') patchRequests += 1;
-      return route.fallback();
-    },
-  );
-
-  await page.goto('/projects/WP/settings');
-  const desc = page.locator('#settings-desc');
-  await desc.fill('가'.repeat(2001));
-  await page.getByRole('button', { name: '저장' }).click();
-  await expect(page.locator('#settings-desc-error')).toHaveText('설명은 2000자 이하여야 합니다');
-  await expect(desc).toHaveAttribute('aria-invalid', 'true');
-  await expect(desc).toHaveAttribute('aria-describedby', 'settings-desc-error');
-  expect(patchRequests).toBe(0);
-});

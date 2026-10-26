@@ -1,6 +1,8 @@
 // WP-373 — 이슈 챗 질문 표시 E2E.
 // 열린 질문(주황 강조 + 「질문」, 질문한 AI 가 INPUT_REQUIRED)·답변됨(「질문 ✓ 답변됨」)·AI 작업 상태 변경으로 바뀌는 상태·AI 번호 목록 간격을 검증한다.
 // 백엔드 없이 page.route 로 모킹하고, SSE 는 mockGatedEvents 로 프레임 1개를 주입한다. 시각은 시드로 고정한다.
+// 판정 태그: SSE 프레임 주입(@platform), 스크린샷·목록 간격(@layout), 드로워 닫기 → 담당자 변경 → 다시 열기(@flow).
+// 이슈 채팅 드로워(TipTap 작성창)는 jsdom 에서 열리지 않고, 질문 상태 판정 자체는 questionState.test.ts 가 본다.
 
 import type { Page } from '@playwright/test';
 
@@ -129,7 +131,7 @@ async function openDrawer(page: Page) {
 const frame = (msg: unknown) => `event: chat.message.created\ndata: ${JSON.stringify(msg)}\n\n`;
 
 test.describe('이슈 챗 질문 표시', () => {
-  test('열린 질문은 주황 강조와 「질문」 태그, 답이 달린 질문은 「질문 ✓ 답변됨」', async ({
+  test('열린 질문은 주황 강조와 「질문」 태그, 답이 달린 질문은 「질문 ✓ 답변됨」', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await setup(page);
@@ -149,7 +151,7 @@ test.describe('이슈 챗 질문 표시', () => {
     await page.screenshot({ path: 'test-results/tc/chat-question/drawer-1280-dark.png' });
   });
 
-  test('사람 답으로 AI 가 작업 중으로 돌아오면 열린 질문이 답변됨으로 바뀐다', async ({ authenticatedPage: page }) => {
+  test('사람 답으로 AI 가 작업 중으로 돌아오면 열린 질문이 답변됨으로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const { workRef } = await setup(page);
     const events = await mockGatedEvents(page);
     await openDrawer(page);
@@ -177,7 +179,7 @@ test.describe('이슈 챗 질문 표시', () => {
     await expect(page.locator('[data-message-id="105"]')).toHaveAttribute('data-question', 'answered');
   });
 
-  test('SSE 로 온 새 질문은 오자마자 강조된다', async ({ authenticatedPage: page }) => {
+  test('SSE 로 온 새 질문은 오자마자 강조된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await setup(page);
     const events = await mockGatedEvents(page);
     await openDrawer(page);
@@ -189,7 +191,7 @@ test.describe('이슈 챗 질문 표시', () => {
   });
 
   // WP-391: 질문 글은 실시간으로 먼저 오고 이슈(작업 상태)는 그 뒤 다시 받는다 — 그 사이 작업 상태가 질문 전(WORKING)이어도 「답변됨」으로 깜빡이지 않는다.
-  test('작업 상태가 아직 질문 전 값이면 새 질문은 답변됨으로 깜빡이지 않고 열린 질문이다', async ({ authenticatedPage: page }) => {
+  test('작업 상태가 아직 질문 전 값이면 새 질문은 답변됨으로 깜빡이지 않고 열린 질문이다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const { workRef } = await setup(page);
     // 105 의 답을 받아 작업 중으로 돌아온 뒤(01:05:30)의 상태 — 105 는 답변됨.
     workRef.state = 'WORKING';
@@ -207,7 +209,7 @@ test.describe('이슈 챗 질문 표시', () => {
   });
 
   // WP-391: 이슈 리페치가 실패하면 쿼리는 옛 데이터(답변 대기)를 들고 있다 — 그 사이 답이 달렸을 수 있어 열림·답변됨 어느 쪽도 단정하지 않는다.
-  test('이슈를 다시 받지 못하면 질문을 무채색 「질문」으로 두고 주황 강조를 하지 않는다', async ({ authenticatedPage: page }) => {
+  test('이슈를 다시 받지 못하면 질문을 무채색 「질문」으로 두고 주황 강조를 하지 않는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const { workRef } = await setup(page);
     const events = await mockGatedEvents(page);
     await openDrawer(page);
@@ -228,7 +230,7 @@ test.describe('이슈 챗 질문 표시', () => {
     await page.screenshot({ path: 'test-results/tc/chat-question/unknown-1280-light.png' });
   });
 
-  test('AI 메시지의 번호 목록은 항목 사이가 벌어지지 않는다', async ({ authenticatedPage: page }) => {
+  test('AI 메시지의 번호 목록은 항목 사이가 벌어지지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setup(page);
     await openDrawer(page);
 
@@ -244,7 +246,7 @@ test.describe('이슈 챗 질문 표시', () => {
     const emptyLine = (page: Page) =>
       page.getByTestId('chat-composer').locator('.ProseMirror p.is-editor-empty');
 
-    test('담당자를 바꿔 스레드가 다시 오면 열린 작성창 안내도 바뀐다', async ({ authenticatedPage: page }) => {
+    test('담당자를 바꿔 스레드가 다시 오면 열린 작성창 안내도 바뀐다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
       const { agentRef } = await setup(page, { externalAgent: KODI });
       // 담당자 교체 PUT — 성공하면 서버가 다음 스레드 응답에서 externalAgent 를 null 로 돌려준다.
       await page.route(
@@ -280,7 +282,7 @@ test.describe('이슈 챗 질문 표시', () => {
       await expect(emptyLine(page)).not.toHaveAttribute('data-placeholder', /이어받아요/);
     });
 
-    test('열려 있는 작성창은 다시 만들어지지 않고도 스레드 응답이 바뀌면 안내가 바뀐다', async ({
+    test('열려 있는 작성창은 다시 만들어지지 않고도 스레드 응답이 바뀌면 안내가 바뀐다', { tag: '@platform' }, async ({
       authenticatedPage: page,
     }) => {
       const { agentRef } = await setup(page, { externalAgent: KODI });

@@ -1,5 +1,6 @@
 // 타임라인 에픽 기간 E2E — 에픽 막대가 에픽에 설정한 기간으로 그려지고(WP-248),
 // 그 아래 얇은 막대로 하위 이슈 실제 범위·에픽 기간 초과 구간이 보이는지(WP-249) 검증한다.
+// 막대 위치·폭·::after 계산 스타일(@layout)과 막대 드래그 저장(@input)이라 전부 E2E 에 남는다.
 import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -72,7 +73,7 @@ function thinBar(bar: Locator) {
   });
 }
 
-test('에픽 막대·그리드 시작일이 에픽에 설정한 기간으로 표시된다 (WP-248)', async ({ authenticatedPage: page }) => {
+test('에픽 막대·그리드 시작일이 에픽에 설정한 기간으로 표시된다 (WP-248)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline?period=all`);
   // 그리드 시작일 = 에픽 시작일(하위 최소 시작 07-06 이 아님). 표기는 다른 목록과 같은 연-월-일(WP-633 — 예전 일-월-연 「01-07-2026」)
@@ -88,7 +89,7 @@ test('에픽 막대·그리드 시작일이 에픽에 설정한 기간으로 표
   expectDays(epic.width, 31, perDay);
 });
 
-test('에픽 막대 아래 얇은 막대가 하위 실제 범위를 그리고 넘친 구간만 빨강이다 (WP-249)', async ({
+test('에픽 막대 아래 얇은 막대가 하위 실제 범위를 그리고 넘친 구간만 빨강이다 (WP-249)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupStubs(page);
@@ -115,7 +116,7 @@ test('에픽 막대 아래 얇은 막대가 하위 실제 범위를 그리고 �
   expect(thin.background).toContain(destructive);
 });
 
-test('에픽 자체 기간이 없으면 막대는 하위 롤업이고 얇은 막대는 그리지 않는다', async ({ authenticatedPage: page }) => {
+test('에픽 자체 기간이 없으면 막대는 하위 롤업이고 얇은 막대는 그리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.goto(`/projects/${KEY}/timeline?period=all`);
   await expect(page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: '기간 없는 에픽' })).toContainText(
@@ -127,7 +128,7 @@ test('에픽 자체 기간이 없으면 막대는 하위 롤업이고 얇은 막
   expect((await thinBar(bar)).content).toBe('none');
 });
 
-test('하위 막대를 드래그해 저장해도 에픽 막대는 에픽 기간을 유지한다', async ({ authenticatedPage: page }) => {
+test('하위 막대를 드래그해 저장해도 에픽 막대는 에픽 기간을 유지한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const list = issues();
   await setupStubs(page, list);
   const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/41`);
@@ -168,7 +169,7 @@ async function dragChild41(page: Page, days: number) {
   await page.mouse.up();
 }
 
-test('하위 마감일만 바뀌어 얇은 막대 시작이 그대로여도 폭·초과 구간이 갱신된다', async ({ authenticatedPage: page }) => {
+test('하위 마감일만 바뀌어 얇은 막대 시작이 그대로여도 폭·초과 구간이 갱신된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const list = issues();
   await setupStubs(page, list);
   // 42(07-27~08-04) 의 끝 리사이즈 대신, 41 을 08-10 까지 늘린 것처럼 재조회 응답을 바꾼다 — 시작(07-06)은 그대로.
@@ -187,7 +188,7 @@ test('하위 마감일만 바뀌어 얇은 막대 시작이 그대로여도 폭�
   await expect.poll(() => bar.evaluate((el) => el.style.getPropertyValue('--rollup-in-end'))).toMatch(/^72\.2/);
 });
 
-test('날짜 있는 하위가 없어지면 얇은 막대가 사라진다', async ({ authenticatedPage: page }) => {
+test('날짜 있는 하위가 없어지면 얇은 막대가 사라진다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const list = issues();
   await setupStubs(page, list);
   await page.route(`**/api/v1/projects/${KEY}/issues/41`, (route) => {
@@ -205,7 +206,7 @@ test('날짜 있는 하위가 없어지면 얇은 막대가 사라진다', async
   expect((await thinBar(bar)).content).toBe('none');
 });
 
-test('하위 막대 저장이 실패해도 하위·에픽 막대가 원래 자리로 돌아온다', async ({ authenticatedPage: page }) => {
+test('하위 막대 저장이 실패해도 하위·에픽 막대가 원래 자리로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   await page.route(`**/api/v1/projects/${KEY}/issues/41`, (route) =>
     route.request().method() === 'PATCH'

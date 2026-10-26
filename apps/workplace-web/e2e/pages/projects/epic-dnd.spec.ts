@@ -115,7 +115,8 @@ async function dragTo(page: Page, sourceTestId: string, targetTestId: string) {
   await dropDnd(page);
 }
 
-test.describe('이슈 → 에픽 드래그 앤 드롭', () => {
+// 드래그(포인터·dnd-kit 키보드 센서)는 실제 레이아웃 좌표가 있어야 동작한다 — 전부 E2E(@input).
+test.describe('이슈 → 에픽 드래그 앤 드롭', { tag: '@input' }, () => {
   test('보드: A 소속 카드를 에픽 B 로 옮기면 PATCH parentNumber=B, 카드 배지 B', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, {
       issues: [createIssue({ id: 1, number: 1, title: '카드', status: 'TODO', parent: parentOf(EPIC_A) })],

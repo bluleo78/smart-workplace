@@ -48,7 +48,7 @@ const firstPage = Array.from({ length: 3 }, (_, i) =>
 );
 const secondPage = [createIssue({ id: 99, number: 99, title: '두 번째 묶음' })];
 
-test('프로젝트 이슈 목록: 다음 페이지 실패 시 받은 행은 두고 다시 시도로 이어 붙인다', async ({
+test('프로젝트 이슈 목록: 다음 페이지 실패 시 받은 행은 두고 다시 시도로 이어 붙인다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
@@ -70,7 +70,7 @@ test('프로젝트 이슈 목록: 다음 페이지 실패 시 받은 행은 두�
   await expect(page.getByTestId('issue-list-more')).toHaveCount(0);
 });
 
-test('내 작업(할당) 목록: 다음 페이지 실패 시 받은 행은 두고 다시 시도로 이어 붙인다', async ({
+test('내 작업(할당) 목록: 다음 페이지 실패 시 받은 행은 두고 다시 시도로 이어 붙인다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   const stub = await stubCursorPagesFailingUntilAllowed(page, '/api/v1/me/issues', firstPage, secondPage);

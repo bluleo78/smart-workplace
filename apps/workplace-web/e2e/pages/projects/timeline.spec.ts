@@ -1,4 +1,7 @@
-// 타임라인 페이지 E2E — 프로젝트 홈 진입, 이슈/사이클/마일스톤 렌더, 줌 토글.
+// 타임라인 페이지 E2E — 간트 렌더 배선(@wiring)과 브라우저가 있어야 판정되는 것만 남긴다:
+// 막대·오늘선·사이클 이름표·스케일 칸의 기하와 스크롤(@layout), 막대 끌기(@input).
+// 진입 이동·일정 미정 배치 payload·줌 토글·필터(facet·URL)·상태 목록 관문(로딩·실패·다시 시도)은
+// 페이지 테스트 src/pages/projects/timeline.test.tsx 가 지킨다(WP-971, WP-980).
 import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -6,7 +9,6 @@ import { trackRequests } from '../../fixtures/requests';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
-import { inServerOrder, withCustomStatuses } from '../../factories/projectStatus.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 import { expectToggle } from '../../fixtures/selection';
@@ -92,15 +94,7 @@ function setupTimelineStubs(page: Page) {
   ]);
 }
 
-test('프로젝트 홈 헤더에서 타임라인 진입', async ({ authenticatedPage: page }) => {
-  await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}`);
-  await page.getByRole('link', { name: '타임라인' }).click();
-  await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/timeline`));
-  await expect(page.getByTestId('timeline-page')).toBeVisible();
-});
-
-test('간트 영역이 컨텐츠 컨테이너 높이를 꽉 채운다 (Willow 테마 래퍼 height:auto 회귀 방지)', async ({
+test('간트 영역이 컨텐츠 컨테이너 높이를 꽉 채운다 (Willow 테마 래퍼 height:auto 회귀 방지)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupTimelineStubs(page);
@@ -117,7 +111,7 @@ test('간트 영역이 컨텐츠 컨테이너 높이를 꽉 채운다 (Willow �
   expect(Math.abs((rootBox?.height ?? 0) - (chartBox?.height ?? 0))).toBeLessThan(4);
 });
 
-test('이슈 막대·사이클 밴드·오늘선 렌더', async ({ authenticatedPage: page }) => {
+test('이슈 막대·사이클 밴드·오늘선 렌더', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   await page.goto(`/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
@@ -130,7 +124,7 @@ test('이슈 막대·사이클 밴드·오늘선 렌더', async ({ authenticated
   await expect(page.getByTestId('timeline-today-line')).toBeVisible();
 });
 
-test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', async ({ authenticatedPage: page }) => {
+test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }),
   );
@@ -185,7 +179,7 @@ test('이슈 막대가 상태별로 다른 색으로 렌더된다 (#639)', async
   expect(todoBg).not.toBe(doneBg);
 });
 
-test('막대 드래그 이동 시 startDate+dueDate PATCH', async ({ authenticatedPage: page }) => {
+test('막대 드래그 이동 시 startDate+dueDate PATCH', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`);
   await page.route(`**/api/v1/projects/${KEY}/issues/1`, (route) => {
@@ -213,7 +207,7 @@ test('막대 드래그 이동 시 startDate+dueDate PATCH', async ({ authenticat
   });
 });
 
-test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', async ({ authenticatedPage: page }) => {
+test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   const issueSearches = trackRequests(
     page,
@@ -259,7 +253,7 @@ test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', async ({ authen
   await issueSearches.waitFor(initialRefetchCount + 1);
 });
 
-test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => {
+test('비멤버는 드래그 비활성', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   // setupTimelineStubs 이후 등록한 라우트가 우선 매칭되므로, viewerIsMember:false 오버라이드가 적용된다.
   await page.route(`**/api/v1/projects/${KEY}`, (route) => {
@@ -289,7 +283,7 @@ test('비멤버는 드래그 비활성', async ({ authenticatedPage: page }) => 
   await expectStays(page, patches.count, 0);
 });
 
-test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page }) => {
+test('의존 화살표 렌더 (표시 전용)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupTimelineStubs(page);
   // 기간 이슈(1)→마감일만 이슈(2) 엣지 — 양끝 모두 막대가 있어 렌더 대상.
   await page.route(`**/api/v1/projects/${KEY}/issue-dependencies`, (route) => {
@@ -350,7 +344,7 @@ test('의존 화살표 렌더 (표시 전용)', async ({ authenticatedPage: page
 
 // #669 — 의존성 순서와 실제 일정이 모순되는 링크(후행 마감일 < 선행 마감일)는 destructive 톤으로
 // 강조된다. 정상 링크(선행이 먼저 끝남)는 강조되지 않아야 대조가 성립한다.
-test('일정 모순 의존성 링크가 destructive 색으로 강조된다', async ({ authenticatedPage: page }) => {
+test('일정 모순 의존성 링크가 destructive 색으로 강조된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.route(`**/api/v1/projects/${KEY}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createProject({ key: KEY })) }),
   );
@@ -407,111 +401,9 @@ test('일정 모순 의존성 링크가 destructive 색으로 강조된다', asy
   expect(finalStrokes.filter((s) => s !== 'var(--destructive)').length).toBe(1);
 });
 
-test('일정 미정 섹션 — 접이식 + 배치', async ({ authenticatedPage: page }) => {
-  await setupTimelineStubs(page);
-  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
-    if (route.request().method() !== 'GET') return route.fallback();
-    const issues = [
-      createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' }),
-      createIssue({ number: 5, title: '미정 이슈A' }),
-      // WP-483: 시작일만 있는 미정 이슈 — 배치해도 시작일은 지키고 마감일만 채운다.
-      createIssue({ number: 6, title: '미정 이슈B', startDate: '2026-07-20' }),
-    ];
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(createIssueSearchResponse(issues)),
-    });
-  });
-  const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/5`);
-  await page.route(`**/api/v1/projects/${KEY}/issues/5`, (route) => {
-    if (route.request().method() === 'PATCH') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(createIssue({ number: 5, title: '미정 이슈A' })),
-      });
-    }
-    return route.fallback();
-  });
-  await page.goto(`/projects/${KEY}/timeline`);
-  const section = page.getByTestId('unscheduled-section');
-  await expect(section.getByText('일정 미정 (2)')).toBeVisible();
-  // 접힘 상태 — 행이 아직 노출되지 않는다.
-  await expect(page.getByTestId('unscheduled-row-5')).not.toBeVisible();
-  await section.locator('summary').click();
-  await expect(page.getByTestId('unscheduled-row-5')).toBeVisible();
-  await expect(page.getByTestId('unscheduled-row-6')).toBeVisible();
-  await page.getByTestId('unscheduled-schedule-5').click();
-  await patches.waitFor();
-  const body = patches.lastBody<{ startDate: string; dueDate: string }>()!;
-  expect(body.startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  expect(body.dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  const diffDays =
-    (new Date(body.dueDate).getTime() - new Date(body.startDate).getTime()) / (1000 * 60 * 60 * 24);
-  expect(diffDays).toBe(7);
-
-  // WP-483: 시작일이 있으면 그 시작일을 건드리지 않고(PATCH 에 startDate 없음) 시작일 +7일을 마감으로.
-  const patches6 = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/6`);
-  await page.route(`**/api/v1/projects/${KEY}/issues/6`, (route) => {
-    if (route.request().method() === 'PATCH') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(createIssue({ number: 6, title: '미정 이슈B', startDate: '2026-07-20', dueDate: '2026-07-27' })),
-      });
-    }
-    return route.fallback();
-  });
-  await page.getByTestId('unscheduled-schedule-6').click();
-  await patches6.waitFor();
-  expect(patches6.lastBody()).toEqual({ dueDate: '2026-07-27' });
-});
-
-test('주/월 줌 토글', async ({ authenticatedPage: page }) => {
-  await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
-  const weekButton = page.getByRole('button', { name: '주' });
-  const monthButton = page.getByRole('button', { name: '월' });
-  await expect(weekButton).toHaveAttribute('aria-pressed', 'true');
-  await expect(monthButton).toHaveAttribute('aria-pressed', 'false');
-  // WP-368 — 켜진 줌 버튼만 TOGGLE_ON(primary 테두리·글자), 전환하면 표시도 따라 옮겨 간다.
-  await expectToggle(weekButton, true);
-  await expectToggle(monthButton, false);
-  await monthButton.click();
-  await expect(monthButton).toHaveAttribute('aria-pressed', 'true');
-  await expect(weekButton).toHaveAttribute('aria-pressed', 'false');
-  await expectToggle(monthButton, true);
-  await expectToggle(weekButton, false);
-});
-
-test('담당자는 아바타 스택, 라벨/마일스톤은 facet 으로 노출된다 (#638, #647)', async ({ authenticatedPage: page }) => {
-  await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
-
-  // 담당자는 아바타 스택 필터로 대체 — facet 목록에서는 제외된다 (#647).
-  await expect(page.getByTestId('assignee-avatar-2')).toBeVisible();
-  await page.getByTestId('add-filter-trigger').click();
-  await expect(page.getByTestId('add-filter-facet-assignee')).toHaveCount(0);
-  await expect(page.getByTestId('add-filter-facet-label')).toBeVisible();
-  await expect(page.getByTestId('add-filter-facet-milestone')).toBeVisible();
-});
-
-test('마일스톤 facet 선택 시 URL 파라미터에 반영된다 (#638)', async ({ authenticatedPage: page }) => {
-  await setupTimelineStubs(page);
-  await page.goto(`/projects/${KEY}/timeline`);
-
-  await page.getByTestId('add-filter-trigger').click();
-  await page.getByTestId('add-filter-facet-milestone').click();
-  const milestoneOption = page.getByTestId('facet-value-milestone-1');
-  await expect(milestoneOption).toContainText('v1 출시');
-  await milestoneOption.click();
-  await expect(page).toHaveURL(/milestone=1/);
-});
-
 // WP-486 — 1024 폭에서는 차트가 좁아 처음 열면 이른 이슈 쪽(차트 시작)만 보이고 오늘선·사이클 구간이 화면 밖이었다.
 // 처음 열 때 조회 기간 시작(기본은 활성 사이클)으로 스크롤해 오늘선과 사이클 구간이 차트 안에 보인다.
-test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다', async ({ authenticatedPage: page }) => {
+test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크롤돼 오늘선이 차트 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z')); // 오늘 = 활성 사이클(7/1~7/14) 안
   await setupTimelineStubs(page);
@@ -543,7 +435,7 @@ test('1024 폭에서 처음 열면 조회 기간(활성 사이클)으로 스크�
 
 // WP-489 — 기간이 겹치는 사이클 이름표가 서로 겹치고, 차트 왼쪽으로 지난 사이클 이름표가 왼쪽 표 위까지 그려지던 문제.
 // 겹치는 사이클은 줄을 나눠 쌓고, 이름표는 차트 영역 안에서만 그린다(차트 왼쪽 끝에 붙고 잘린다).
-test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 왼쪽 밖(표 영역)으로 넘지 않는다', async ({ authenticatedPage: page }) => {
+test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 왼쪽 밖(표 영역)으로 넘지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-19T03:00:00Z'));
   await setupTimelineStubs(page);
   const now = new Date().toISOString();
@@ -596,7 +488,7 @@ test('겹치는 사이클 이름표는 줄을 나눠 겹치지 않고, 차트 �
 
 // WP-595 — 기간이 아주 긴 이슈(1900~2099) 하나가 간트 축을 200년으로 늘려, 처음 열 때도 「오늘」을 눌러도 2005년 근처가 보였다.
 // 축 범위를 조회 기간 앞뒤로 자르므로 오늘선이 차트 안에 보이고, 긴 이슈 막대는 잘린 채 남는다.
-test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 오늘선이 차트 안에 보인다', async ({ authenticatedPage: page }) => {
+test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 오늘선이 차트 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z')); // 오늘 = 스텁의 활성 사이클(7/1~7/14) 안
   await setupTimelineStubs(page);
   await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
@@ -633,7 +525,7 @@ test('기간이 아주 긴 이슈가 있어도 처음 열 때·「오늘」 뒤 
 
 // WP-938 — 스크롤 요청을 날짜로만 넘겨, 이미 요청한 날짜(「오늘」을 한 번 누른 뒤 등)를 다시 요청하면 상태가 그대로라
 // 스크롤하지 않았다. 차트를 옆으로 밀어 둔 뒤 「오늘」을 다시 누르면 매번 오늘선이 차트 안으로 돌아온다.
-test('「오늘」을 다시 눌러도(같은 날짜) 옆으로 밀어 둔 차트가 오늘로 돌아온다', async ({ authenticatedPage: page }) => {
+test('「오늘」을 다시 눌러도(같은 날짜) 옆으로 밀어 둔 차트가 오늘로 돌아온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z'));
   await setupTimelineStubs(page);
@@ -673,7 +565,7 @@ test('「오늘」을 다시 눌러도(같은 날짜) 옆으로 밀어 둔 차�
 
 // WP-605 — 주 보기 위쪽 월 칸이 축 시작에서 멀어질수록 밀려(21개월에 3달) 오늘(10월) 위에 「7월」이 적혔다.
 // 위쪽 행을 주 경계에 맞춘 달로 그리므로, 오늘선 위 월 칸이 실제 달이고 월 칸 경계가 주 칸 경계와 겹친다.
-test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 월 칸 경계가 주 칸 경계와 맞는다', async ({ authenticatedPage: page }) => {
+test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 월 칸 경계가 주 칸 경계와 맞는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-10-20T03:00:00Z'));
   await setupTimelineStubs(page);
   await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
@@ -719,7 +611,7 @@ test('주 보기 — 축이 길어도 오늘선 위 월 칸이 실제 달이고 
 });
 
 // WP-889 — 「일」 보기: 위 행은 달·아래 행은 날짜·요일, 주말 음영, 막대 끌기는 하루 단위, 고른 보기 단위는 다시 열어도 남는다.
-test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 끌기, 보기 단위 기억', async ({ authenticatedPage: page }) => {
+test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 끌기, 보기 단위 기억', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z')); // 오늘 = 7/8(수)
   await setupTimelineStubs(page);
   const patches = trackRequests(page, 'PATCH', `/api/v1/projects/${KEY}/issues/1`);
@@ -783,59 +675,8 @@ test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 �
   await expectToggle(page.getByRole('button', { name: '일', exact: true }), true);
 });
 
-// WP-938 — 타임라인도 목록·보드(WP-870)처럼 상태 목록을 받은 뒤에만 본문(간트·필터 바)을 그린다.
-// 받기 전에 그리면 「상태」 facet 이 비어 고를 값이 없고, 취소 범주 판단이 빈 목록으로 돌았다.
+// WP-938 — 상태 목록 관문(받기 전 로딩·실패 다시 시도)의 동작은 timeline.test.tsx, 여기선 그 화면의 세로 위치만 본다.
 const STATUSES_PATH = `/api/v1/projects/${KEY}/statuses`;
-
-test('상태 목록을 받기 전엔 로딩만 보이고, 받은 뒤 간트와 프로젝트 상태 이름의 「상태」 필터가 그려진다 (WP-938)', async ({
-  authenticatedPage: page,
-}) => {
-  await setupTimelineStubs(page);
-  // 상태 목록 응답을 붙잡아 둔다 — 풀기 전까지 본문이 그려지지 않아야 한다.
-  let release!: () => void;
-  const held = new Promise<void>((r) => (release = r));
-  await page.route(`**${STATUSES_PATH}`, async (route) => {
-    if (route.request().method() !== 'GET') return route.fallback();
-    await held;
-    return route.fulfill({ json: inServerOrder(withCustomStatuses('설계')) });
-  });
-  await page.goto(`/projects/${KEY}/timeline`);
-
-  // 헤더는 관문 밖이라 바로 보이고, 본문은 로딩 문구뿐 — 간트·필터 바가 없다.
-  await expect(page.getByRole('heading', { name: '타임라인' })).toBeVisible();
-  await expect(page.getByTestId('timeline-page')).toContainText('로딩 중…');
-  await expectStays(page, () => page.getByTestId('add-filter-trigger').count(), 0);
-  await expect(page.getByTestId('timeline-gantt')).toHaveCount(0);
-
-  release();
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
-  await page.getByTestId('add-filter-trigger').click();
-  await page.getByTestId('add-filter-facet-statusId').click();
-  await expect(page.locator('[data-testid^="facet-value-statusId-"]')).toHaveText(['할 일', '진행 중', '설계', '완료', '취소']);
-});
-
-test('상태 목록을 불러오지 못하면 타임라인이 다시 시도를 보이고, 다시 시도 성공 뒤 간트가 그려진다 (WP-938)', async ({
-  authenticatedPage: page,
-}) => {
-  await setupTimelineStubs(page);
-  // 500 — 전역 재시도 정책이 한 번 더 부르므로 다시 시도를 누르기 전까지 계속 실패시킨다(board-custom-status 와 같은 방식).
-  let fail = true;
-  await page.route(`**${STATUSES_PATH}`, (route) =>
-    route.request().method() === 'GET' && fail
-      ? route.fulfill({ status: 500, json: { status: 500, message: '서버 오류' } })
-      : route.fallback(),
-  );
-  await page.goto(`/projects/${KEY}/timeline`);
-
-  const error = page.getByTestId('project-statuses-error');
-  await expect(error).toContainText('상태 목록을 불러오지 못했습니다');
-  await expect(error).toContainText('타임라인을 그릴 수 없습니다');
-  await expect(page.getByTestId('timeline-gantt')).toHaveCount(0);
-  fail = false;
-  await error.getByRole('button', { name: '다시 시도' }).click();
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
-  await expect(error).toHaveCount(0);
-});
 
 // 관문 로딩 문구와 실패 화면 덩어리(아이콘 위 ~ 「다시 시도」 아래)가 본문 자리(timeline-body)의 세로 가운데에서 벗어난 px.
 async function offsetFromBodyCenter(page: Page, top: Locator, bottom: Locator = top) {
@@ -847,7 +688,7 @@ async function offsetFromBodyCenter(page: Page, top: Locator, bottom: Locator = 
 
 // WP-938 디자이너 리뷰 — 실패 화면 감싸개가 flex 가 아니어서 ResourceErrorState 가 60vh 상자로 줄어, 로딩 문구(본문 가운데)에서
 // 실패 화면으로 바뀔 때 덩어리가 위로 약 150px 튀었다. 로딩 문구와 실패 화면이 같은 본문 자리의 세로 가운데에 놓인다.
-test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 세로 가운데에 놓인다 (WP-938)', async ({ authenticatedPage: page }) => {
+test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 세로 가운데에 놓인다 (WP-938)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await setupTimelineStubs(page);
   let release!: () => void;
@@ -871,7 +712,7 @@ test('상태 목록 로딩 문구와 실패 화면이 본문 자리의 같은 �
 
 // WP-889 — 보기 단위를 바꾸면 보던 날짜(차트 가운데)가 그대로 가운데에 남는다. 전에는 가로 스크롤 px 만 남아 일 보기로 바꾸면
 // 몇 달 뒤가, 월 보기로 바꾸면 축 끝이 보였다.
-test('보기 단위를 바꿔도 차트 가운데 보던 날짜가 가운데에 남는다', async ({ authenticatedPage: page }) => {
+test('보기 단위를 바꿔도 차트 가운데 보던 날짜가 가운데에 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z'));
   await setupTimelineStubs(page);
   // 「전체」 기간에 1월·12월 이슈 — 축이 1년 가까이 퍼져 어느 보기에서도 가로 스크롤이 생긴다.

@@ -1,6 +1,8 @@
 // 이슈 목록 「사이클」 그룹 E2E (#878) — Jira 백로그 방식 구간(진행 중 → 예정 → 백로그).
-// 기본값 결정(사이클 유무·group=none·저장 뷰 하위호환), 구간별 요청 파라미터(필터·종료 이슈 스코프),
-// 접힘/펼침 지연 요청, M:N 중복 표시와 선택 공유, 일괄 작업을 page.route 목으로 검증한다.
+// 남는 것: 기본 사이클 그룹 진입(@wiring — 구간 순서·배지·D-N·진행률), 스크롤해 체크해도 일괄 바가 보임(@layout),
+// 구간 끝이 화면에 들어올 때의 자동 로드/「더 보기」(@layout, IntersectionObserver).
+// 구간별 요청 파라미터, 접힘/펼침 지연 요청, 그룹 전환·저장 뷰 하위호환, M:N 선택 공유·일괄 작업, 로딩·빈 구간 문구는
+// 페이지 테스트 src/pages/projects/issueListCycleGroup.test.tsx 가 지킨다(WP-980).
 import type { Page } from '@playwright/test';
 
 import type { CycleProgress, CycleResponse } from '../../../src/types/cycle';
@@ -10,7 +12,6 @@ import { createIssue, createIssueSearchResponse } from '../../factories/issue.fa
 import { createMember, createProject } from '../../factories/project.factory';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
-import { expectToggleLook } from '../../fixtures/selection';
 import { expectStays } from '../../fixtures/wait';
 
 const KEY = 'WP';
@@ -162,7 +163,7 @@ const section = (page: Page, key: string) => page.getByTestId(`list-cycle-sectio
 test.describe('이슈 목록 사이클 그룹 (#878)', () => {
   test(
     '사이클이 있는 프로젝트는 기본 사이클 그룹 — 진행 중(시작일순) → 예정 → 백로그, 완료 제외, 진행 중 강조·D-N',
-    { tag: '@smoke' },
+    { tag: ['@wiring', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const requests = await setup(page);
       await page.goto(`/projects/${KEY}`);
@@ -217,157 +218,8 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     },
   );
 
-  test('구간별 요청 파라미터 — 사이클 구간은 종료 이슈 포함, 백로그는 cycle=null + 미종료 스코프', async ({
-    authenticatedPage: page,
-  }) => {
-    const requests = await setup(page);
-    await page.goto(`/projects/${KEY}`);
-    await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
-
-    const backlog = requests().find((p) => p.get('cycle') === 'null');
-    expect(backlog?.get('hideInactiveClosed')).toBe('true');
-    expect(backlog?.get('excludeEpics')).toBe('true');
-    expect(backlog?.get('excludeSubtasks')).toBe('true');
-    expect(backlog?.get('status')).toBeNull();
-
-    const active = requests().find((p) => p.get('cycle') === '1');
-    expect(active?.get('hideInactiveClosed')).toBeNull();
-    expect(active?.get('excludeEpics')).toBe('true');
-    expect(active?.get('excludeSubtasks')).toBe('true');
-  });
-
-  test('예정 구간은 접혀 있고 펼칠 때 요청한다 — 빈 구간은 하위 이슈 안내', async ({ authenticatedPage: page }) => {
-    const requests = await setup(page);
-    await page.goto(`/projects/${KEY}`);
-    await expect(section(page, 'backlog').getByTestId('issue-row-41')).toBeVisible();
-    expect(requests().some((p) => p.get('cycle') === '3')).toBe(false);
-
-    const req = page.waitForRequest(
-      (r) => r.url().includes(ISSUES_PATH) && new URL(r.url()).searchParams.get('cycle') === '3',
-    );
-    await page.getByTestId('list-cycle-toggle-cycle-3').click();
-    await req;
-    await expect(page.getByTestId('list-cycle-toggle-cycle-3')).toHaveAttribute('aria-expanded', 'true');
-    await expect(section(page, 'cycle-3').getByTestId('issue-row-31')).toBeVisible();
-
-    // 다시 접으면 행이 사라진다.
-    await page.getByTestId('list-cycle-toggle-cycle-3').click();
-    await expect(section(page, 'cycle-3').getByTestId('issue-row-31')).toHaveCount(0);
-
-    // 상위 작업 0행 + 진행률 total 2 → 하위 이슈 안내.
-    await page.getByTestId('list-cycle-toggle-cycle-4').click();
-    await expect(page.getByTestId('list-cycle-empty-cycle-4')).toHaveText(
-      '표시할 상위 작업이 없습니다 (하위 이슈 2건 포함)',
-    );
-  });
-
-  test('그룹 메뉴에서 없음 ↔ 사이클 전환이 URL 에 반영된다', async ({ authenticatedPage: page }) => {
-    await setup(page);
-    await page.goto(`/projects/${KEY}`);
-    await expect(section(page, 'backlog')).toBeVisible();
-
-    await page.getByTestId('group-by-trigger').click();
-    await page.getByTestId('group-by-none').click();
-    await expect(page).toHaveURL(/group=none/);
-    await expect(page.getByTestId('issue-row-90')).toBeVisible();
-    await expect(section(page, 'backlog')).toHaveCount(0);
-
-    await page.getByTestId('group-by-trigger').click();
-    await page.getByTestId('group-by-cycle').click();
-    await expect(page).toHaveURL(/group=cycle/);
-    await expect(section(page, 'backlog')).toBeVisible();
-  });
-
-  test('group 없는 저장 뷰를 적용하면 그룹 없음(평면)으로 열리고 칩이 활성', async ({ authenticatedPage: page }) => {
-    await setup(page, {
-      savedViews: [
-        {
-          id: 7, name: '높은 우선순위', query: 'priority=HIGH', visibility: 'PRIVATE',
-          ownerId: 1, mine: true, pinned: false, createdAt: '', updatedAt: '',
-        },
-      ],
-    });
-    await page.goto(`/projects/${KEY}`);
-    await expect(section(page, 'backlog')).toBeVisible();
-
-    await page.getByTestId('view-chip-7').click();
-    await expect(page).toHaveURL(/group=none/);
-    await expect(page).toHaveURL(/priority=HIGH/);
-    await expect(page.getByTestId('issue-row-90')).toBeVisible();
-    await expect(page.locator('[data-testid^="list-cycle-section-"]')).toHaveCount(0);
-    await expect(page.getByTestId('view-chip-7')).toHaveClass(/font-medium/);
-    // WP-368 — 활성 칩은 TOGGLE_ON 모양(primary 테두리·글자), 비활성 「전체」 칩엔 없다.
-    await expectToggleLook(page.getByTestId('view-chip-7'), true);
-    await expectToggleLook(page.getByTestId('view-chip-all'), false);
-    // 적용 직후는 저장된 뷰와 일치 — 「뷰 업데이트」가 뜨지 않는다.
-    await expect(page.getByTestId('update-view-button')).toHaveCount(0);
-  });
-
-  test('기본 사이클 그룹 화면을 저장하면 group=cycle 이 명시 저장된다', async ({ authenticatedPage: page }) => {
-    await setup(page);
-    await page.goto(`/projects/${KEY}?priority=HIGH`);
-    await expect(section(page, 'backlog')).toBeVisible();
-
-    const posted = page.waitForRequest(
-      (r) => r.url().endsWith(`/projects/${KEY}/saved-views`) && r.method() === 'POST',
-    );
-    await page.getByTestId('save-view-button').click();
-    await page.getByTestId('save-view-name').fill('사이클 HIGH');
-    await page.getByTestId('save-view-submit').click();
-    const query = new URLSearchParams(((await posted).postDataJSON() as { query: string }).query);
-    expect(query.get('group')).toBe('cycle');
-    expect(query.get('priority')).toBe('HIGH');
-  });
-
-  test('M:N — 두 사이클에 속한 이슈는 두 구간 모두에 보이고 선택 상태를 공유한다 + 일괄 상태 변경', async ({
-    authenticatedPage: page,
-  }) => {
-    await setup(page);
-    const statusPatches = trackRequests(page, 'PATCH', /\/api\/v1\/projects\/WP\/issues\/\d+\/status$/);
-    await page.route(
-      (url) => /\/api\/v1\/projects\/WP\/issues\/\d+\/status$/.test(url.pathname),
-      async (route) => {
-        if (route.request().method() !== 'PATCH') return route.fallback();
-        const number = Number(route.request().url().match(/issues\/(\d+)\/status/)?.[1]);
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(createIssue({ number, status: 'DONE' })),
-        });
-      },
-    );
-    // 진행률 재조회 카운트 — 일괄 작업 후 구간 헤더 진행률도 갱신돼야 한다.
-    const progressGets = trackRequests(page, 'GET', `/api/v1/projects/${KEY}/cycles/progress`);
-    await page.goto(`/projects/${KEY}`);
-
-    const inActive = section(page, 'cycle-1').getByTestId('select-issue-11');
-    const inHotfix = section(page, 'cycle-2').getByTestId('select-issue-11');
-    await expect(inActive).toBeVisible();
-    await expect(inHotfix).toBeVisible();
-
-    await inActive.check();
-    await expect(inHotfix).toBeChecked();
-    await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('선택 1개');
-
-    // 다른 구간 선택을 더한다. 구간 헤더엔 체크박스가 없다 — 사이클은 이슈가 아니라 이슈 선택으로 오인되지 않게(#881).
-    await section(page, 'cycle-2').getByTestId('select-issue-21').check();
-    await expect(page.getByTestId('list-cycle-header-backlog').getByRole('checkbox')).toHaveCount(0);
-    await section(page, 'backlog').getByTestId('select-issue-41').check();
-    await expect(page.getByTestId('issue-bulk-toolbar')).toContainText('선택 3개');
-    // 체크박스 클릭이 상세 이동을 일으키지 않는다.
-    await expect(page).toHaveURL(new RegExp(`/projects/${KEY}$`));
-
-    const progressBefore = progressGets.count();
-    await page.getByTestId('bulk-status-trigger').click();
-    // 기본 4상태(auth.fixture) 중 「완료」(id 3).
-    await page.getByTestId('bulk-status-option-3').click();
-    await expect.poll(() => statusPatches.urls().map((u) => Number(u.pathname.match(/issues\/(\d+)\/status/)?.[1])).sort()).toEqual([11, 21, 41]);
-    await expect(page.getByTestId('issue-bulk-toolbar')).toHaveCount(0);
-    await progressGets.waitFor(progressBefore + 1);
-  });
-
   // WP-485 — 목록 아래쪽에서 체크해도 일괄 작업 바가 보인다(스크롤 영역 위쪽에 붙음). 예전엔 바가 화면 위쪽 밖에 남았다.
-  test('아래로 스크롤해 체크해도 일괄 작업 바가 화면 안에 보인다', async ({ authenticatedPage: page }) => {
+  test('아래로 스크롤해 체크해도 일괄 작업 바가 화면 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1440, height: 420 })
     await setup(page)
     await page.goto(`/projects/${KEY}`)
@@ -381,63 +233,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(bar).toBeInViewport()
   })
 
-  test('로딩 중엔 평면 목록을 띄우지 않고 스켈레톤을 보인다', async ({ authenticatedPage: page }) => {
-    const requests = await setup(page);
-    // 사이클 목록 응답을 늦춰 판정 보류 상태를 만든다.
-    let release: () => void = () => {};
-    const gate = new Promise<void>((r) => (release = r));
-    await page.route(`**/api/v1/projects/${KEY}/cycles`, async (route) => {
-      await gate;
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CYCLES) });
-    });
-    await page.goto(`/projects/${KEY}`);
-    await expect(page.getByTestId('issue-list-pending')).toBeVisible();
-    await expect(page.getByTestId('issue-row-90')).toHaveCount(0);
-    release();
-    await expect(section(page, 'backlog')).toBeVisible();
-    expect(requests().every((p) => p.has('cycle'))).toBe(true);
-  });
-  test('백로그 = 진행 중·예정 사이클 밖 — 완료 사이클에만 속한 미완료 이슈도 백로그 요청(cycle=null)으로 뜬다', async ({
-    authenticatedPage: page,
-  }) => {
-    const requests = await setup(page);
-    // 완료 사이클(스프린트 11)에만 속했던 미완료 이슈 — 서버가 cycle=null 로 돌려주는 백로그 결과.
-    await page.route(
-      (url) => url.pathname === ISSUES_PATH && url.searchParams.get('cycle') === 'null',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(
-            createIssueSearchResponse([createIssue({ id: 52, number: 52, title: '끝난 스프린트에서 넘어온 작업' })], null),
-          ),
-        }),
-    );
-    await page.goto(`/projects/${KEY}`);
-    await expect(section(page, 'backlog').getByTestId('issue-row-52')).toContainText('끝난 스프린트에서 넘어온 작업');
-    // 완료 사이클 구간은 여전히 없다.
-    await expect(section(page, 'cycle-5')).toHaveCount(0);
-    expect(requests().some((p) => p.get('cycle') === '5')).toBe(false);
-  });
-
-  test('빈 백로그 문구는 새 정의(진행 중·예정 사이클 밖)를 따른다', async ({ authenticatedPage: page }) => {
-    await setup(page);
-    await page.route(
-      (url) => url.pathname === ISSUES_PATH && url.searchParams.get('cycle') === 'null',
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(createIssueSearchResponse([], null)),
-        }),
-    );
-    await page.goto(`/projects/${KEY}`);
-    await expect(page.getByTestId('list-cycle-empty-backlog')).toHaveText(
-      '진행 중·예정 사이클에 없는 미완료 이슈가 없습니다',
-    );
-  });
-
-  test('위 사이클 구간은 「더 보기」를 눌러야 다음 페이지를 불러오고, 마지막(백로그) 구간만 자동 로드한다 (WP-876)', async ({
+  test('위 사이클 구간은 「더 보기」를 눌러야 다음 페이지를 불러오고, 마지막(백로그) 구간만 자동 로드한다 (WP-876)', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     const requests = await setup(page);
@@ -466,7 +262,7 @@ test.describe('이슈 목록 사이클 그룹 (#878)', () => {
     await expect(section(page, 'backlog').getByTestId('issue-row-409')).toBeVisible();
   });
 
-  test('아래 구간이 모두 접혀 있으면 펼친 마지막 사이클 구간이 자동 로드한다 (WP-876)', async ({ authenticatedPage: page }) => {
+  test('아래 구간이 모두 접혀 있으면 펼친 마지막 사이클 구간이 자동 로드한다 (WP-876)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setup(page);
     await mockPagedSections(page);
     await page.goto(`/projects/${KEY}`);

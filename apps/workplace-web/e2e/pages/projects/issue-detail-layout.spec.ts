@@ -1,11 +1,10 @@
-// 이슈 상세 레이아웃 — 속성 레일 3그룹 접기/펼침 + 첨부 본문 이동 E2E 테스트 (#343).
-// 무엇을: property-group-classification 기본 접힘·배지 + 첨부가 본문 스트립으로 이동 검증.
-// Task 4: 채팅 접기 패널 자동 토글 + 3구역 flex 레이아웃.
+// 이슈 상세 레이아웃 E2E(#343) — 브라우저가 있어야 판정되는 것만 남긴다.
+// 남는 것: 본문 탭 배선(@wiring), 탭 전환 뒤 코멘트 초안 유지(@input), 채팅 드로워 Esc 닫기(history, @platform),
+//          폭별 세로 스택·가로 배치·AI 패널 넘침(@layout).
+// 속성 그룹 접힘·배지, 보고자 표시·바꾸기·넘기기 확인, 첨부 스트립·드라이브 공간 1회 조회, 브레드크럼 이동, 본문 container 클래스,
+// beforeunload 경고는 페이지 테스트 src/pages/projects/issueDetailLayout.test.tsx 가 지킨다(WP-980).
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { trackRequests } from '../../fixtures/requests';
-import { expectStays } from '../../fixtures/wait';
-import { createAttachment } from '../../factories/attachment.factory';
 import { createChatMessage, createChatThread } from '../../factories/chat.factory';
 import {
   createComment,
@@ -14,7 +13,6 @@ import {
   createIssueDetail,
 } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
-import type { IssueAttachment } from '../../../src/types/attachment';
 import type { ChatMessageResponse, ChatThreadResponse } from '../../../src/types/chat';
 import type {
   IssueCommentResponse,
@@ -22,7 +20,6 @@ import type {
   IssueHistoryEntry,
   IssueResponse,
 } from '../../../src/types/issue';
-import type { LabelSummary } from '../../../src/types/label';
 import type { UserSummary } from '../../../src/types/user';
 
 const PROJECT_KEY = 'PROJ';
@@ -117,25 +114,6 @@ async function mockIssueDetail(
   );
 }
 
-// 첨부 목록 API 스텁 — mockIssueDetail 이후 호출해 attachments 응답을 override.
-// 무엇을: mockIssueDetail 이 attachments→[] 로 스텁하는 것을 실제 목록으로 교체.
-// 왜: Playwright 은 마지막 등록 route 가 우선하므로 mockIssueDetail 후 이걸 등록하면 덮어씀.
-async function mockAttachmentList(
-  page: import('@playwright/test').Page,
-  items: IssueAttachment[],
-) {
-  await page.route(
-    (url) =>
-      url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/attachments`,
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(items),
-      }),
-  );
-}
-
 // chat thread endpoint 모킹.
 // 무엇을: IssueChatButton·IssueChatSection 이 호출하는 thread GET 과 messages GET 엔드포인트를 stub.
 // 왜: recentMessages 를 제어해 패널 자동 펼침/접힘 동작을 결정론적으로 검증하기 위해.
@@ -173,237 +151,13 @@ async function mockChatThread(
   );
 }
 
-test.describe('이슈 상세 레이아웃 — 속성 레일 3그룹', () => {
-  test(
-    '분류·관계 그룹은 기본 접힘이고 개수 배지를 보여준다',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      const labels: LabelSummary[] = [{ id: 1, name: 'bug', colorToken: 'RED' }];
-      await mockIssueDetail(page, { labels });
-      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-      // 상태·담당 그룹: 기본 펼침 → 상태 셀렉트 보임
-      await expect(page.getByTestId('property-group-status-people')).toBeVisible();
-      await expect(page.getByTestId('issue-status-select')).toBeVisible();
-
-      // 분류·관계 그룹: 기본 접힘 → 라벨 영역 숨김 + 배지 표시
-      const classGroup = page.getByTestId('property-group-classification');
-      await expect(classGroup).toBeVisible();
-      await expect(page.getByTestId('issue-labels')).toBeHidden();
-      await expect(classGroup.getByTestId('property-group-badge')).toHaveText('1');
-
-      // 헤더 클릭 → 펼침 → 라벨 보임
-      await classGroup.getByRole('button', { name: /분류/ }).click();
-      await expect(page.getByTestId('issue-labels')).toBeVisible();
-    },
-  );
-
-  // WP-272 — 보고자는 상태·담당 그룹에서 담당자 아래에 읽기 전용으로 보인다(이름 · 생성일).
-  test('상태·담당 그룹 담당자 아래에 보고자 이름과 생성일이 보인다', async ({ authenticatedPage: page }) => {
-    // 정오 UTC — UTC-11 ~ UTC+11 어느 타임존에서도 10월 3일로 표시된다.
-    await mockIssueDetail(page, {
-      createdAt: '2026-10-03T12:00:00Z',
-      reporter: { id: 5, username: 'kim', name: '김보고', kind: 'HUMAN' },
-    });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    const group = page.getByTestId('property-group-status-people');
-    const reporter = group.getByTestId('issue-reporter');
-    await expect(reporter).toContainText('김보고');
-    await expect(reporter.getByTestId('issue-reporter-created')).toHaveText('· 10월 3일 생성');
-    // 읽기 전용 — 편집 트리거(버튼)가 아니다.
-    await expect(reporter.getByRole('button')).toHaveCount(0);
-    // 담당자 필드보다 아래에 놓인다.
-    const assigneeBox = await group.getByTestId('assignee-picker-trigger').boundingBox();
-    const reporterBox = await reporter.boundingBox();
-    expect(reporterBox!.y).toBeGreaterThan(assigneeBox!.y);
-  });
-
-  // WP-944 — 바꿀 수 있는 사람(OWNER·ADMIN·지금 보고자)에게 보고자는 고르기 트리거다. 후보는 활성 사람 구성원(AI·지금 보고자 제외).
-  test('보고자를 바꿀 수 있으면 구성원을 골라 PUT 으로 바꾼다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page, {
-      reporter: { id: 5, username: 'kim', name: '김보고', kind: 'HUMAN' },
-      viewerCanChangeReporter: true,
-    });
-    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          { userId: 5, username: 'kim', name: '김보고', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
-          { userId: 7, username: 'lee', name: '이새보고', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
-          { userId: 9, username: 'bot', name: '이슈 에이전트', kind: 'AGENT', role: 'MEMBER', createdAt: null },
-          { userId: 8, username: 'off', name: '정지된분', kind: 'HUMAN', role: 'MEMBER', createdAt: null, active: false },
-        ]),
-      }),
-    );
-    let putBody: unknown = null;
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/reporter`,
-      (route) => {
-        putBody = route.request().postDataJSON();
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ id: 7, username: 'lee', name: '이새보고', kind: 'HUMAN' }),
-        });
-      },
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    await page.getByTestId('reporter-picker-trigger').click();
-    const picker = page.getByTestId('reporter-picker');
-    await expect(picker.getByTestId('reporter-option-7')).toBeVisible();
-    // AI·비활성·지금 보고자는 후보가 아니다.
-    await expect(picker.getByTestId('reporter-option-9')).toHaveCount(0);
-    await expect(picker.getByTestId('reporter-option-8')).toHaveCount(0);
-    await expect(picker.getByTestId('reporter-option-5')).toHaveCount(0);
-    await picker.getByTestId('reporter-option-7').click();
-
-    await expect.poll(() => putBody).toEqual({ userId: 7 });
-    await expect(page.getByText('보고자를 바꿨습니다')).toBeVisible();
-    // 다른 사람이 바꿀 때는 넘기기 확인창이 없다.
-    await expect(page.getByTestId('reporter-handover-confirm')).toHaveCount(0);
-  });
-
-  test('지금 보고자가 스스로 넘기면 확인창을 거친다 — 취소하면 바꾸지 않는다', async ({ authenticatedPage: page }) => {
-    // 로그인 사용자(id 1, testuser)가 보고자다.
-    await mockIssueDetail(page, {
-      reporter: { id: 1, username: 'testuser', name: '테스트', kind: 'HUMAN' },
-      viewerCanChangeReporter: true,
-    });
-    await page.route(`**/api/v1/projects/${PROJECT_KEY}/members`, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([
-          { userId: 1, username: 'testuser', name: '테스트', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
-          { userId: 7, username: 'lee', name: '이새보고', kind: 'HUMAN', role: 'MEMBER', createdAt: null },
-        ]),
-      }),
-    );
-    const puts: unknown[] = [];
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}/reporter`,
-      (route) => {
-        puts.push(route.request().postDataJSON());
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ id: 7, username: 'lee', name: '이새보고', kind: 'HUMAN' }),
-        });
-      },
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    await page.getByTestId('reporter-picker-trigger').click();
-    await page.getByTestId('reporter-option-7').click();
-    const confirm = page.getByTestId('reporter-handover-confirm');
-    await expect(confirm).toContainText('보고자를 이새보고님에게 넘길까요?');
-    await confirm.getByRole('button', { name: '취소' }).click();
-    await expect(confirm).toHaveCount(0);
-    expect(puts).toEqual([]);
-
-    await page.getByTestId('reporter-picker-trigger').click();
-    await page.getByTestId('reporter-option-7').click();
-    await page.getByTestId('reporter-handover-confirm-ok').click();
-    await expect.poll(() => puts).toEqual([{ userId: 7 }]);
-  });
-
-  test('AI(AGENT)가 만든 이슈는 보고자 아바타에 에이전트 표식이 붙는다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page, {
-      reporter: { id: 9, username: 'issue-agent', name: '이슈 에이전트', kind: 'AGENT' },
-    });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    const reporter = page.getByTestId('issue-reporter');
-    await expect(reporter).toContainText('이슈 에이전트');
-    await expect(reporter.getByLabel('이슈 에이전트 (에이전트)')).toBeVisible();
-  });
-
-  test('보고자 정보를 찾지 못하면 「알 수 없음」으로 표시한다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page, { reporter: null });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    await expect(page.getByTestId('issue-reporter')).toContainText('알 수 없음');
-  });
-
-  test('구버전 서버라 reporter 필드가 없으면 보고자 행을 숨긴다', async ({ authenticatedPage: page }) => {
-    // 롤링 배포 중 구 API 응답 — reporter 키 자체가 없다(「알 수 없음」으로 오해하게 하지 않는다).
-    await mockIssueDetail(page, { reporter: undefined });
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    await expect(page.getByTestId('issue-status-select')).toBeVisible();
-    await expect(page.getByTestId('issue-reporter')).toHaveCount(0);
-    await expect(page.getByTestId('property-group-status-people')).not.toContainText('보고자');
-  });
-
-  // #798 — useAttachmentDraft(이슈 채팅 컴포저)와 IssueAttachmentStrip이 동시 마운트되면서
-  // 각각 raw axios로 /api/v1/drive/spaces 를 호출해 중복 요청이 나가던 회귀 방지.
-  // 공용 useDriveSpaces() 훅(TanStack Query)으로 통일되어 queryKey 공유 시 1회로 dedup 되어야 한다.
-  test('드라이브 스페이스 조회가 중복 호출되지 않는다 (#798)', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page, { attachmentCount: 0 });
-    await mockAttachmentList(page, []);
-    const spaceFetches = trackRequests(page, 'ANY', '/api/v1/drive/spaces');
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/spaces',
-      (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-    );
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-    await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
-    // 채팅 컴포저(useAttachmentDraft)는 드로워 안에서 늦게 마운트된다 — 마운트된 뒤에 창을 열어야 그 중복 호출을 본다.
-    await page.getByTestId('issue-chat-open').click();
-    await expect(page.getByTestId('chat-composer-input')).toBeVisible();
-    await expectStays(page, spaceFetches.count, 1, { reach: true });
-  });
-
-  test('첨부는 본문 설명 아래 스트립으로 표시되고 사이드바엔 없다', async ({
-    authenticatedPage: page,
-  }) => {
-    await mockIssueDetail(page, { attachmentCount: 2 });
-    await mockAttachmentList(page, [
-      createAttachment({ fileId: 1, originalName: 'spec.pdf', mimeType: 'application/pdf', sizeBytes: 1234, attachedById: 9 }),
-      createAttachment({ fileId: 2, originalName: 'shot.png', mimeType: 'image/png', sizeBytes: 5678, attachedById: 9 }),
-    ]);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    const strip = page.getByTestId('issue-attachment-strip');
-    await expect(strip).toBeVisible();
-    await expect(strip.getByText('spec.pdf')).toBeVisible();
-    // 사이드바(속성 레일)에 첨부 섹션이 없다
-    await expect(page.getByTestId('property-rail').getByText('첨부')).toHaveCount(0);
-  });
-
-  test('첨부가 0개인 스트립에서는 "첨부가 없습니다" 텍스트가 숨겨지고 드롭존만 표시된다', async ({
-    authenticatedPage: page,
-  }) => {
-    // 무엇을: attachmentCount=0, 빈 목록 → "첨부가 없습니다" 텍스트는 strip 모드에서 숨김 (drop-zone만 표시).
-    // 왜: strip 레이아웃에서 빈 상태 텍스트는 불필요 — drop-zone 이 목적을 대신.
-    await mockIssueDetail(page, { attachmentCount: 0 });
-    await mockAttachmentList(page, []);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    const strip = page.getByTestId('issue-attachment-strip');
-    await expect(strip).toBeVisible();
-
-    // strip 내에서 "첨부가 없습니다" 텍스트는 보이지 않아야 함
-    await expect(strip.getByText('첨부가 없습니다')).toHaveCount(0);
-
-    // drop-zone 은 여전히 보여야 함
-    const dropzone = strip.getByTestId('attachment-dropzone');
-    await expect(dropzone).toBeVisible();
-    await expect(dropzone).toContainText('파일을 드롭하거나 클릭해 첨부');
-  });
-});
-
 // 이슈 본문 탭 — 코멘트/활동 분리 (Task 3, #343).
 // 무엇을: 기본 탭이 코멘트이고 활동 탭 클릭 시 타임라인 표시, 사이드바엔 활동 헤딩 없음 검증.
 // 왜: 활동 로그를 사이드바에서 본문 탭으로 이동해 속성 접근 방해 해소.
 test.describe('이슈 본문 탭 (코멘트/활동)', () => {
   test(
     '본문 탭: 코멘트 기본, 활동 탭 클릭 시 타임라인 표시·사이드바엔 활동 없음',
-    { tag: '@smoke' },
+    { tag: ['@wiring', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       await mockIssueDetail(page, {
         comments: [createComment({ id: 1, body: '첫 코멘트', authorName: '홍길동' })],
@@ -427,7 +181,7 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
     },
   );
 
-  test('코멘트 탭 초안이 활동 탭 전환 후에도 유지된다', async ({ authenticatedPage: page }) => {
+  test('코멘트 탭 초안이 활동 탭 전환 후에도 유지된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     // 무엇을: 코멘트 작성 중 활동 탭 전환 후 코멘트 탭 복귀 시 초안 유지 검증.
     // 왜: Radix TabsContent 는 기본 unmount → 초안 소실. forceMount 수정의 회귀 방지.
     await mockIssueDetail(page, {});
@@ -453,7 +207,8 @@ test.describe('이슈 본문 탭 (코멘트/활동)', () => {
 test.describe('이슈 채팅 드로워', () => {
   test(
     '헤더 채팅 버튼 → 드로워 열림, Esc 로 닫힘',
-    { tag: '@smoke' },
+    // 닫기는 ?chat=1 을 브라우저 history 로 되돌린다(useHistoryParam — history.state 키·idx) — jsdom·MemoryRouter 로는 재현되지 않는다.
+    { tag: ['@platform', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       await mockIssueDetail(page, {});
       await mockChatThread(page, {
@@ -478,31 +233,11 @@ test.describe('이슈 채팅 드로워', () => {
   );
 });
 
-// 프로젝트로 돌아가기 — 헤더 브레드크럼의 프로젝트 크럼.
-// 무엇을: 브레드크럼 프로젝트 링크가 /projects/:key 로 이동하는지 검증(이슈 상세→목록 복귀 경로 부재 회귀 방지).
-test.describe('프로젝트로 돌아가기', () => {
-  test(
-    '브레드크럼 프로젝트 링크 클릭 → 프로젝트 홈으로 이동',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      await mockIssueDetail(page, {});
-      await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-      const nav = page.getByRole('navigation', { name: '이슈 경로' });
-      const projectLink = nav.getByRole('link', { name: 'Workplace' });
-      await expect(projectLink).toBeVisible();
-      await projectLink.click();
-
-      await expect(page).toHaveURL(`/projects/${PROJECT_KEY}`);
-    },
-  );
-});
-
 // 반응형 레이아웃 — 데스크톱 최소폭(1024px)에서 세로 스택 검증 (Task 5, #343).
 // 무엇을: 1024px 뷰포트에서 본문 스트립·속성 레일이 모두 보임을 확인(채팅은 드로워라 행에서 제외).
 // 왜: 2구역 flex 레이아웃이 컨테이너 1032px 미만에서 flex-col 스택으로 무너지지 않는지 회귀 방지.
 test.describe('반응형 레이아웃 (데스크톱 최소폭)', () => {
-  test('컨테이너가 1032px 미만인 데스크톱 폭(1024px)에서 본문·레일이 세로로 쌓인다', async ({ authenticatedPage: page }) => {
+  test('컨테이너가 1032px 미만인 데스크톱 폭(1024px)에서 본문·레일이 세로로 쌓인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // 의존: 뷰포트 1024px − 앱 사이드바 폭 < 1032px(@container 분기점) 이라 세로 스택 구간이다.
     // 800px 는 모바일(<1024px, WP-192)이라 하단 레일이 없고 「＋ 속성」 시트를 쓰므로(WP-196) 쓸 수 없다.
     await page.setViewportSize({ width: 1024, height: 900 });
@@ -535,7 +270,7 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
 
   test(
     '1280px + AI 사이드패널 열림: 세로 스택 + 가로 오버플로우 없음',
-    { tag: '@smoke' },
+    { tag: ['@layout', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
       await mockIssueDetail(page, {});
@@ -555,7 +290,7 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
     },
   );
 
-  test('넓은 화면(1700px) no-AI: 2구역 가로 배치(row) 유지', async ({ authenticatedPage: page }) => {
+  test('넓은 화면(1700px) no-AI: 2구역 가로 배치(row) 유지', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // 컨테이너가 충분히 넓으면(≥1032px) 본문+레일 가로 배치 유지 — 항상-스택 회귀 방지.
     await page.setViewportSize({ width: 1700, height: 900 });
     await mockIssueDetail(page, {});
@@ -565,51 +300,5 @@ test.describe('AI 사이드패널 + 2구역 레이아웃 (#354)', () => {
 
     // 첫 렌더 직후 배치가 자리 잡을 때까지 다시 잰다(WP-225).
     await expect.poll(async () => (await rowProbe(page)).flexDir).toBe('row');
-  });
-
-  test('본문 컨테이너는 중앙정렬 max-width 없이 전체폭을 사용한다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    const heading = page.getByTestId('issue-title-heading');
-    await expect(heading).toBeVisible();
-    // Tailwind `container` 유틸은 브레이크포인트별 max-width 를 강제한다 — 전체화면 전환 후
-    // 본문을 감싸는 조상 요소 중 어떤 것도 이 클래스를 갖지 않아야 한다.
-    const hasContainerClass = await heading.evaluate((el) => {
-      let node: HTMLElement | null = el.parentElement;
-      while (node) {
-        if (node.classList.contains('container')) return true;
-        node = node.parentElement;
-      }
-      return false;
-    });
-    expect(hasContainerClass).toBe(false);
-  });
-});
-
-test.describe('InlineEditableBody 새로고침 유실 경고 (#823)', () => {
-  // 켜짐 조건(편집 중·draft≠원본)은 src/lib/issueDraft.test.ts, 리스너 등록·해제는 useUnsavedChangesWarning.test.tsx 가
-  // 맡는다(WP-413). 여기서는 본문 편집 → 경고 켜짐 → 취소 → 해제의 실제 배선 한 줄기만 본다.
-  // 실제 beforeunload 확인창은 headless 브라우저가 표시하지 않으므로, window 에 이벤트를
-  // 직접 dispatch 해 리스너가 등록돼 preventDefault() 를 호출하는지로 검증한다 (#620 과 동일 기법).
-  async function dispatchBeforeUnload(page: import('@playwright/test').Page) {
-    return page.evaluate(() => {
-      const event = new Event('beforeunload', { cancelable: true });
-      window.dispatchEvent(event);
-      return event.defaultPrevented;
-    });
-  }
-
-  test('취소하면 beforeunload 경고가 해제된다', async ({ authenticatedPage: page }) => {
-    await mockIssueDetail(page);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
-
-    await page.getByRole('button', { name: '본문 편집' }).click();
-    const textarea = page.getByTestId('issue-body-textarea');
-    await textarea.fill('취소될 변경사항');
-    expect(await dispatchBeforeUnload(page)).toBe(true);
-
-    await page.getByTestId('issue-body-cancel').click();
-    expect(await dispatchBeforeUnload(page)).toBe(false);
   });
 });

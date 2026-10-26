@@ -1,9 +1,9 @@
 // Phase 4b 의존성 도메인 E2E — WP-887 부터 차단은 「관계」 그룹의 「＋ 관계 추가」 창에서 건다(저장은 그대로 의존성 API).
 // 시나리오 1 (smoke): 상세 진입 → 관계 추가 창에서 「차단 중」 + 이슈 찾기 → POST payload 검증
 //   → 「차단 중」 묶음에 행 노출 → X 클릭으로 제거 → DELETE 쿼리 검증 → 행 제거 확인.
-// 시나리오 2: POST 응답이 409(DEPENDENCY_CYCLE) → 토스트 노출 + 창이 열린 채 고른 이슈 유지.
-//   (옛 번호 입력 칸의 번호 검사(WP-470·618·852)는 찾기 목록에서 고르는 방식이 되며 사라졌다 — 없는 번호는 목록에 나오지 않는다.)
-// 시나리오 3 (#312): 의존성 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
+// 시나리오 2 (#312): 의존성 행 삭제 버튼 hover-reveal·키보드 포커스(@input). 시나리오 3: 좁은 레일의 링크 행 2줄 배치(@layout).
+// 409(DEPENDENCY_CYCLE) 토스트·창 유지, 링크 행 상태 이름(WP-869), 이른 마감일 경고(#669), 완료 전환 확인창(#827)은
+// 페이지 테스트 src/pages/projects/dependencies.test.tsx 가 지킨다(WP-971).
 
 import type { Page, Route } from '@playwright/test';
 
@@ -95,7 +95,7 @@ async function pickBlockingTarget(page: Page, label: string, query: string, numb
 test.describe('의존성', () => {
   test(
     '관계 추가 창에서 차단 중 추가 → POST payload + 행 노출 → 제거 → DELETE + 행 사라짐',
-    { tag: '@smoke' },
+    { tag: ['@wiring', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const taskType = makeTaskType();
       // 서버 상태 mock — 현재 issue#1 의 blocks 리스트. mutation 마다 누적/제거.
@@ -211,83 +211,9 @@ test.describe('의존성', () => {
     },
   );
 
-  test('사이클 시도 → 409 토스트 + 창 유지 + 고른 이슈 보전', async ({
-    authenticatedPage: page,
-  }) => {
-    const taskType = makeTaskType();
-
-    await setupCommonStubs(page);
-
-    // 이슈 상세 — 정적 응답 (blocks 비어있음).
-    await page.route(
-      (url) => url.pathname === `${ISSUES_BASE}/1`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(createIssueDetail({
-            summary: {
-              ...createIssue({ id: 1, number: 1, title: 'task A' }),
-              type: taskType,
-              blockedBy: [],
-              blocks: [],
-              blocked: false,
-            },
-            body: '',
-          })),
-        }),
-    );
-
-    // POST → 409 DEPENDENCY_CYCLE.
-    let posts = 0;
-    await page.route(
-      (url) => url.pathname === `${ISSUES_BASE}/1/dependencies`,
-      (route: Route) => {
-        if (route.request().method() === 'POST') {
-          posts += 1;
-          return route.fulfill({
-            status: 409,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              code: 'DEPENDENCY_CYCLE',
-              message: '의존성 사이클이 발생합니다',
-            }),
-          });
-        }
-        return route.continue();
-      },
-    );
-
-    await stubLookup(page, [{ projectKey: KEY, number: 7, title: '이슈 7', status: 'TODO', type: taskType }]);
-
-    await page.goto(`/projects/${KEY}/issues/1`);
-    await relationsGroupTrigger(page).click();
-
-    // 「차단됨 (선행 필요)」 + #7 — 고르기 전엔 추가 버튼이 꺼져 있다(요청 없음).
-    await page.getByTestId('issue-relation-add').click();
-    await expect(page.getByTestId('issue-relation-submit')).toBeDisabled();
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('issue-relation-dialog')).toHaveCount(0);
-    await pickBlockingTarget(page, '차단됨 (선행 필요)', '#7', 7);
-    expect(posts).toBe(0);
-    await page.getByTestId('issue-relation-submit').click();
-
-    // 토스트 — 백엔드 메시지 노출.
-    await expect(page.getByText('의존성 사이클이 발생합니다')).toBeVisible();
-    expect(posts).toBe(1);
-
-    // 창 유지 + 고른 이슈 보전 — 다시 누를 수 있다.
-    await expect(page.getByTestId('issue-relation-dialog')).toBeVisible();
-    await expect(page.getByTestId('issue-relation-selected')).toContainText('#7');
-    await expect(page.getByTestId('issue-relation-submit')).toBeEnabled();
-
-    // 행은 추가되지 않음.
-    await expect(page.getByTestId('issue-link-row-7')).toHaveCount(0);
-  });
-
   // #312 — 의존성 행 삭제 버튼 hover-reveal 패턴 회귀 테스트.
   // WP-468 — 숨김은 투명도로만 한다: 키보드(Tab)로도 닿고, 포커스를 받으면 보이며 Enter 로 제거된다.
-  test('의존성 행 삭제 버튼은 hover·키보드 포커스 때만 보이고 키보드로 제거할 수 있다', async ({
+  test('의존성 행 삭제 버튼은 hover·키보드 포커스 때만 보이고 키보드로 제거할 수 있다', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const taskType = makeTaskType();
@@ -357,7 +283,7 @@ test.describe('의존성', () => {
   const LONG_LINK_TITLE = '결제 모듈 환불 처리 간헐적 실패 — PG사 웹훅 재시도 시 중복 환불 방지 로직 검토';
 
   // WP-869 — 링크 행이 범주 라벨(「진행 중」)만 보여 사용자 정의 상태(「검토 중」)를 알 수 없었다.
-  test('링크 행은 상태 이름을 보인다', async ({ authenticatedPage: page }) => {
+  test('링크 행은 상태 이름을 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const taskType = makeTaskType();
     await setupCommonStubs(page);
     await page.route(
@@ -403,193 +329,5 @@ test.describe('의존성', () => {
     expect(statusBox.y).toBeGreaterThanOrEqual(title.y + title.height - 1);
     expect(Math.abs(statusBox.x - key.x)).toBeLessThanOrEqual(1);
     expect(title.x + title.width - key.x).toBeGreaterThan((rowBox.width - 24) * 0.75);
-  });
-
-  // #669 — 미완료 선행(blockedBy) 이슈의 마감일보다 이른 날짜를 시작일/마감일에 선택하면
-  // 인라인 경고가 뜨지만, 저장(PATCH)은 그대로 진행되어야 한다(soft 경고 정책, 결정 코멘트 참조).
-  test('선행 이슈 마감일보다 이른 마감일 선택 시 인라인 경고 노출 + 저장은 성공', async ({
-    authenticatedPage: page,
-  }) => {
-    const taskType = makeTaskType();
-    // 다음 달 1일 — ISO 문자열 비교로 이번 달의 어떤 날짜보다도 항상 늦다(월경계 안전).
-    const nextMonth = new Date();
-    nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
-    const blockerDueDate = nextMonth.toISOString().slice(0, 10);
-    const blockingLink: IssueLinkSummary = {
-      number: 21,
-      title: '결제 모듈 환불 처리 간헐적 실패',
-      status: 'IN_PROGRESS', // 미완료 — 경고 대상.
-      type: taskType,
-      dueDate: blockerDueDate,
-    };
-
-    await setupCommonStubs(page);
-
-    let currentDueDate: string | null = null;
-    const patches = trackRequests(page, 'PATCH', `${ISSUES_BASE}/1`);
-
-    await page.route(
-      (url) => url.pathname === `${ISSUES_BASE}/1`,
-      (route) => {
-        if (route.request().method() === 'PATCH') {
-          const payload = route.request().postDataJSON() as Record<string, unknown>;
-          if (typeof payload.dueDate === 'string') currentDueDate = payload.dueDate;
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              ...createIssue({ id: 1, number: 1, title: 'task A', dueDate: currentDueDate }),
-              type: taskType,
-            }),
-          });
-        }
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            summary: {
-              ...createIssue({ id: 1, number: 1, title: 'task A', dueDate: currentDueDate }),
-              type: taskType,
-              blockedBy: [blockingLink],
-              blocks: [],
-              blocked: true,
-            },
-            body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-            viewerCanEditWorkflow: true,
-            viewerCanEditContent: true,
-            viewerCanDelete: true,
-          }),
-        });
-      },
-    );
-
-    await page.goto(`/projects/${KEY}/issues/1`);
-
-    // 마감일 없음 → 경고 없음.
-    await expect(page.getByTestId('due-date-warning')).toHaveCount(0);
-
-    // 마감일 피커 — 이번 달 10일 선택(선행 이슈 마감일은 다음 달이라 항상 더 이름).
-    await page.getByTestId('due-date-trigger').click();
-    await expect(page.getByTestId('due-date-popover')).toBeVisible();
-    const day10 = page
-      .locator('[data-testid="due-date-popover"] [data-slot="calendar"] button[data-day]', { hasText: '10' })
-      .first();
-    await day10.click();
-
-    // PATCH 는 그대로 나가고(차단 없음), 인라인 경고가 노출된다.
-    await patches.waitFor();
-    expect(typeof patches.bodies<Record<string, unknown>>()[0].dueDate).toBe('string');
-    await expect(page.getByTestId('due-date-warning')).toBeVisible();
-    await expect(page.getByTestId('due-date-warning')).toContainText(blockerDueDate);
-
-    // 새로고침(서버 재조회) 후에도 저장된 값이 유지 — "저장은 성공" 이 실제로 영속됐음을 단언.
-    await page.reload();
-    await expect(page.getByTestId('due-date-trigger')).toContainText('10일');
-    await expect(page.getByTestId('due-date-warning')).toBeVisible();
-  });
-
-  // #827 — 미완료 선행(blockedBy) 이슈가 있는 상태에서 '완료'로 전환하면 확인 다이얼로그가 뜬다.
-  // 취소하면 PATCH 가 나가지 않고 상태 유지, 확인하면 그대로 PATCH (서버 차단 없음 — soft 경고 정책).
-  test('미완료 선행 이슈가 있을 때 완료 전환 → 확인 다이얼로그 / 취소 시 미변경 / 확인 시 PATCH', async ({
-    authenticatedPage: page,
-  }) => {
-    const taskType = makeTaskType();
-    const activeBlocker: IssueLinkSummary = {
-      number: 21,
-      title: '결제 모듈 환불 처리 간헐적 실패',
-      status: 'IN_PROGRESS', // 미완료 — 다이얼로그 대상.
-      type: taskType,
-      dueDate: null,
-    };
-    const doneBlocker: IssueLinkSummary = {
-      number: 22,
-      title: '이미 끝난 선행',
-      status: 'DONE', // 완료 — 목록에서 제외돼야 함.
-      type: taskType,
-      dueDate: null,
-    };
-
-    await setupCommonStubs(page);
-
-    let currentStatus: 'TODO' | 'DONE' = 'TODO';
-    const patches = trackRequests(page, 'PATCH', `${ISSUES_BASE}/1`);
-
-    await page.route(
-      (url) => url.pathname === `${ISSUES_BASE}/1`,
-      (route) => {
-        if (route.request().method() === 'PATCH') {
-          const payload = route.request().postDataJSON() as Record<string, unknown>;
-          // 상태 선택은 프로젝트 상태 id 를 보낸다(WP-808) — 시드 「완료」 id 3.
-          if (payload.statusId === 3) currentStatus = 'DONE';
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({
-              ...createIssue({ id: 1, number: 1, title: 'task A', status: currentStatus }),
-              type: taskType,
-            }),
-          });
-        }
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            summary: {
-              ...createIssue({ id: 1, number: 1, title: 'task A', status: currentStatus }),
-              type: taskType,
-              blockedBy: [activeBlocker, doneBlocker],
-              blocks: [],
-              blocked: currentStatus !== 'DONE',
-            },
-            body: '',
-            comments: [],
-            history: [],
-            attachments: [],
-            viewerCanEditWorkflow: true,
-            viewerCanEditContent: true,
-            viewerCanDelete: true,
-          }),
-        });
-      },
-    );
-
-    await page.goto(`/projects/${KEY}/issues/1`);
-    const statusSelect = page.getByTestId('issue-status-select');
-    await expect(statusSelect).toContainText('할 일');
-
-    // 1) 완료 선택 → 다이얼로그 노출, PATCH 는 아직 안 나감. 미완료 선행 1건만 목록에 표시.
-    await statusSelect.click();
-    await page.getByRole('option', { name: '완료' }).click();
-    const dialog = page.getByTestId('status-done-blocked-dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('선행 이슈 1건이 아직 완료되지 않았습니다');
-    await expect(page.getByTestId('status-done-blocked-list')).toContainText(`${KEY}-21`);
-    await expect(page.getByTestId('status-done-blocked-list')).not.toContainText(`${KEY}-22`);
-    expect(patches.count()).toBe(0);
-
-    // 2) 취소 → 다이얼로그 닫힘, 상태 유지, PATCH 없음.
-    await page.getByTestId('status-done-blocked-cancel').click();
-    await expect(dialog).toHaveCount(0);
-    await expect(statusSelect).toContainText('할 일');
-    expect(patches.count()).toBe(0);
-
-    // 3) 다시 완료 선택 → 확인 → PATCH statusId=3(완료) 전송 + UI 반영.
-    await statusSelect.click();
-    await page.getByRole('option', { name: '완료' }).click();
-    await expect(dialog).toBeVisible();
-    await page.getByTestId('status-done-blocked-confirm').click();
-    await expect.poll(patches.count).toBe(1);
-    expect(patches.bodies<{ statusId?: number }>()[0].statusId).toBe(3);
-    await expect(statusSelect).toContainText('완료');
-
-    // 4) 진행 중 → 완료가 아닌 전환(예: 취소)은 다이얼로그 없이 즉시 PATCH.
-    await statusSelect.click();
-    await page.getByRole('option', { name: '취소' }).click();
-    await expect.poll(patches.count).toBe(2);
-    expect(patches.bodies<{ statusId?: number }>()[1].statusId).toBe(4);
-    await expect(page.getByTestId('status-done-blocked-dialog')).toHaveCount(0);
   });
 });

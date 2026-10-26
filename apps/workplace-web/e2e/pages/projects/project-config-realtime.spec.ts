@@ -8,7 +8,8 @@ import { createMember, createProject } from '../../factories/project.factory';
 
 const KEY = 'WP';
 
-test.describe('프로젝트 설정 변경 실시간 반영 (WP-60)', () => {
+// 실제 SSE 스트림(/api/v1/events)으로 resource.changed 를 받아 재조회하는 경로라 E2E 에 남는다(@platform).
+test.describe('프로젝트 설정 변경 실시간 반영 (WP-60)', { tag: '@platform' }, () => {
   test('라벨 생성 — 설정 라벨 목록에 새 라벨이 나타난다', async ({ authenticatedPage: page }) => {
     let labels = [createLabel({ id: 1, name: '기존 라벨' })];
     await page.route(`**/api/v1/projects/${KEY}`, (route) =>

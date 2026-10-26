@@ -1,6 +1,7 @@
 // 이슈 라벨 선택기에서 없는 라벨을 그 자리에서 만들기(WP-394) E2E.
-// 시나리오: 검색어와 이름이 정확히 같은 라벨이 없으면 「만들기」 행 → POST /labels(GRAY) → 새 라벨이 체크된 채 목록에 추가
-// → 팝오버를 닫으면 기존 라벨과 함께 PUT 한 번. 정확 일치(대소문자 구분)·Enter·한글 조합 중 Enter·생성 실패도 확인한다.
+// 브라우저 입력이 있어야 판정되는 한글 조합 중 Enter(IME, @input)만 남긴다 — 조합 확정용 Enter 로는 만들지 않는다.
+// 만들기 → POST(GRAY) → 체크 → 닫으면 PUT 한 번, 40자 제한, 빠른 두 번 클릭, Enter 로 만들기·일부 겹침 Enter 무시, 생성 실패는
+// 페이지 테스트 src/pages/projects/labelInlineCreate.test.tsx 가 지킨다(WP-980).
 
 import type { Page } from '@playwright/test';
 
@@ -89,66 +90,7 @@ async function openPicker(page: Page) {
 }
 
 test.describe('이슈 라벨 즉석 만들기', () => {
-  test('없는 이름 → 만들기 → POST(GRAY) → 체크된 채 추가 → 닫으면 PUT 한 번', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
-    await stubIssueWithLabels(page);
-    const posts = trackRequests(page, 'POST', LABELS_PATH);
-    const puts = trackRequests(page, 'PUT', ISSUE_LABELS_PATH);
-    const picker = await openPicker(page);
-
-    await picker.getByLabel('라벨 검색').fill('  severity:major ');
-    // 결과 없음 대신 만들기 행 — 앞뒤 공백은 뺀 이름으로 보인다.
-    await expect(picker.getByText('결과 없음')).toHaveCount(0);
-    const create = picker.getByTestId('label-create-option');
-    await expect(create).toHaveText('「severity:major」 라벨 만들기');
-    await create.click();
-
-    await posts.waitFor();
-    expect(posts.lastBody()).toEqual({ name: 'severity:major', colorToken: 'GRAY' });
-    // 새 라벨이 목록에 체크된 채 나타나고 검색어는 비워진다.
-    await expect(picker.getByLabel('severity:major')).toBeChecked();
-    await expect(picker.getByLabel('라벨 검색')).toHaveValue('');
-    await expect(picker.getByTestId('label-create-option')).toHaveCount(0);
-
-    await page.keyboard.press('Escape');
-    await puts.waitFor();
-    expect(puts.lastBody()).toEqual({ labelIds: [1, 99] });
-    expect(puts.count()).toBe(1);
-  });
-
-  // WP-850: 검색어가 곧 새 라벨 이름이라 설정 화면 폼처럼 40자에서 입력이 멈춘다 — 41자를 넣어도 40자로 만든다.
-  test('라벨 이름은 40자에서 입력이 멈추고, 그 이름 그대로 만든다', async ({ authenticatedPage: page }) => {
-    await stubIssueWithLabels(page);
-    const posts = trackRequests(page, 'POST', LABELS_PATH);
-    const picker = await openPicker(page);
-    const search = picker.getByLabel('라벨 검색');
-
-    await search.pressSequentially('가'.repeat(41));
-    await expect(search).toHaveValue('가'.repeat(40));
-    await search.press('Enter');
-    await posts.waitFor();
-    expect(posts.lastBody()).toEqual({ name: '가'.repeat(40), colorToken: 'GRAY' });
-  });
-
-  // WP-458: 두 번 클릭은 다시 그리기 전에 들어와 isPending 으로는 못 막는다 — 요청 한 번, 만든 라벨은 체크된 채 부착.
-  test('만들기를 빠르게 두 번 눌러도 POST 는 한 번이고 만든 라벨이 이슈에 붙는다', async ({ authenticatedPage: page }) => {
-    await stubIssueWithLabels(page);
-    const posts = trackRequests(page, 'POST', LABELS_PATH);
-    const puts = trackRequests(page, 'PUT', ISSUE_LABELS_PATH);
-    const picker = await openPicker(page);
-
-    await picker.getByLabel('라벨 검색').fill('infra');
-    await picker.getByTestId('label-create-option').dblclick();
-
-    await posts.waitFor();
-    await expect(picker.getByLabel('infra')).toBeChecked();
-    expect(posts.count()).toBe(1);
-
-    await page.keyboard.press('Escape');
-    await puts.waitFor();
-    expect(puts.lastBody()).toEqual({ labelIds: [1, 99] });
-  });
-
-  test('Enter 로 만들고, 한글 조합 중 Enter 는 만들지 않는다', async ({ authenticatedPage: page }) => {
+  test('한글 조합 중 Enter 는 만들지 않고, 조합이 끝난 Enter 로 만든다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubIssueWithLabels(page);
     const posts = trackRequests(page, 'POST', LABELS_PATH);
     const picker = await openPicker(page);
@@ -167,30 +109,5 @@ test.describe('이슈 라벨 즉석 만들기', () => {
     expect(posts.lastBody()).toEqual({ name: '긴급', colorToken: 'GRAY' });
     await expect(picker.getByLabel('긴급')).toBeChecked();
     expect(posts.count()).toBe(1);
-
-    // 일부만 겹치는 라벨이 보이는 중이면(「sev」로 severity:minor 를 찾는 중) Enter 로 새로 만들지 않는다 — 만들기 행 클릭만.
-    await search.fill('sev');
-    await expect(picker.getByTestId('label-option-2')).toBeVisible();
-    await search.press('Enter');
-    await expect(picker.getByTestId('label-create-option')).toHaveText('「sev」 라벨 만들기');
-    await expect(search).toHaveValue('sev');
-    expect(posts.count()).toBe(1);
-  });
-
-  test('만들기가 실패하면 오류를 알리고 검색어를 남기며, 닫아도 라벨을 바꾸지 않는다', async ({ authenticatedPage: page }) => {
-    await stubIssueWithLabels(page, { createStatus: 403 });
-    const puts = trackRequests(page, 'PUT', ISSUE_LABELS_PATH);
-    const picker = await openPicker(page);
-
-    await picker.getByLabel('라벨 검색').fill('ai-fix');
-    await picker.getByTestId('label-create-option').click();
-
-    await expect(page.getByText('프로젝트 멤버가 아닙니다')).toBeVisible();
-    await expect(picker.getByLabel('라벨 검색')).toHaveValue('ai-fix');
-    await expect(picker.getByTestId('label-create-option')).toBeEnabled();
-
-    await page.keyboard.press('Escape');
-    await expect(picker).toBeHidden();
-    expect(puts.count()).toBe(0);
   });
 });

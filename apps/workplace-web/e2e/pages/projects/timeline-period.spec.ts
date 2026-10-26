@@ -59,8 +59,11 @@ async function setupStubs(
 
 const gridRow = (page: Page, text: string) => page.locator('.timeline-gantt-root .wx-grid .wx-row', { hasText: text });
 
+// 데스크톱 타임라인은 SVAR 간트가 실제 레이아웃으로 그려야 뜬다(jsdom 에서는 간트가 렌더 중 예외로 깨져 기간 선택기·필터 바까지 볼 수 없다) —
+// 그래서 간트 위의 기간 선택·빈 상태도 E2E 에 남긴다(@layout). 기간 해석·거르기 규칙은 timelineData.test.ts(resolvePeriod 등)가 본다.
 test.describe('타임라인 조회 기간 (WP-247)', () => {
-  test('기본은 활성 사이클 — 그 기간에 걸친 에픽·이슈만 보이고 일정 미정은 남는다', async ({ authenticatedPage: page }) => {
+  // 타임라인 화면 배선 — 라우트 → 이슈·사이클 API → 간트 행.
+  test('기본은 활성 사이클 — 그 기간에 걸친 에픽·이슈만 보이고 일정 미정은 남는다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page);
     await page.goto(`/projects/${KEY}/timeline`);
     await expect(gridRow(page, '이번 에픽')).toBeVisible();
@@ -69,7 +72,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(page.getByTestId('unscheduled-section')).toContainText('미정 단독');
   });
 
-  test('상태 필터를 바꿔도 period 가 URL 에 남는다', async ({ authenticatedPage: page }) => {
+  test('상태 필터를 바꿔도 period 가 URL 에 남는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page);
     await page.goto(`/projects/${KEY}/timeline?period=cycle-1`);
     await expect(gridRow(page, '지난 에픽')).toBeVisible();
@@ -79,7 +82,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(page).toHaveURL(/period=cycle-1/);
   });
 
-  test('사이클 응답 전에는 거르지 않은 목록을 비추지 않는다', async ({ authenticatedPage: page }) => {
+  test('사이클 응답 전에는 거르지 않은 목록을 비추지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page, { cycleDelayMs: 1500 });
     await page.goto(`/projects/${KEY}/timeline`);
     await expect(page.getByTestId('timeline-period-loading')).toBeVisible();
@@ -89,7 +92,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(gridRow(page, '지난 에픽')).toHaveCount(0);
   });
 
-  test('드롭다운 — 라벨이 늘 보이고, 다른 사이클·이번 분기·전체를 고르면 URL·목록이 바뀐다', async ({ authenticatedPage: page }) => {
+  test('드롭다운 — 라벨이 늘 보이고, 다른 사이클·이번 분기·전체를 고르면 URL·목록이 바뀐다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page);
     await page.goto(`/projects/${KEY}/timeline`);
     const trigger = page.getByTestId('timeline-period-trigger');
@@ -127,7 +130,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(page).not.toHaveURL(/period=/);
   });
 
-  test('직접 지정 — 시작 > 종료면 적용할 수 없고, 적용하면 range 로 저장된다', async ({ authenticatedPage: page }) => {
+  test('직접 지정 — 시작 > 종료면 적용할 수 없고, 적용하면 range 로 저장된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page);
     await page.goto(`/projects/${KEY}/timeline`);
     await page.getByTestId('timeline-period-trigger').click();
@@ -143,7 +146,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(gridRow(page, '지난 에픽')).toBeVisible();
   });
 
-  test('활성 사이클이 없으면 대체 기간 라벨과 안내 툴팁', async ({ authenticatedPage: page }) => {
+  test('활성 사이클이 없으면 대체 기간 라벨과 안내 툴팁', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page, {
       cycles: [cycle({ id: 3, name: 'GW-3', status: 'PLANNED', startDate: '2026-10-15', endDate: '2026-10-28' })],
     });
@@ -157,7 +160,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(page.getByTestId('timeline-period-option-cycle-3')).toContainText('GW-3 (예정)');
   });
 
-  test('응답이 0건이면(필터·새 프로젝트) 기본 기간이어도 기간 빈 상태를 띄우지 않는다 — 기간이 원인이 아님', async ({ authenticatedPage: page }) => {
+  test('응답이 0건이면(필터·새 프로젝트) 기본 기간이어도 기간 빈 상태를 띄우지 않는다 — 기간이 원인이 아님', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page, { issueList: [] });
     await page.goto(`/projects/${KEY}/timeline`);
     await expect(page.getByTestId('timeline-period-trigger')).toContainText('GW-2');
@@ -165,7 +168,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
     await expect(page.getByTestId('timeline-period-empty')).toHaveCount(0);
   });
 
-  test('기간에 걸친 이슈가 없으면 빈 상태 문구', async ({ authenticatedPage: page }) => {
+  test('기간에 걸친 이슈가 없으면 빈 상태 문구', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupStubs(page);
     await page.goto(`/projects/${KEY}/timeline?period=range:2025-01-01~2025-01-31`);
     await expect(page.getByTestId('timeline-period-empty')).toContainText('이 기간에 걸친 이슈가 없어요');
@@ -178,7 +181,7 @@ test.describe('타임라인 조회 기간 (WP-247)', () => {
   });
 });
 
-test.describe('타임라인 완료·취소 에픽 표시 (WP-247)', () => {
+test.describe('타임라인 완료·취소 에픽 표시 (WP-247)', { tag: '@layout' }, () => {
   async function setup(page: Page, list: IssueResponse[], query = '?period=all') {
     await setupStubs(page);
     await page.unroute(`**/api/v1/projects/${KEY}/issues?*`);

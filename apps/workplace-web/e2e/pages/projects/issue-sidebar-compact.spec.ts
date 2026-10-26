@@ -1,5 +1,7 @@
 // 좁은 데스크톱 창(1280px 미만)에서 작업 관리 사이드바를 아이콘 줄로 접는다(WP-506 B안).
 // 이름은 숨기되 링크의 접근 가능한 이름은 남고, 마우스를 올리면 Tooltip 으로 보인다. 넓은 창은 예전과 같다(폭 조절 틀).
+// 실제 폭(56·224px)·창 넓히기(@layout)와 호버 Tooltip(@input)만 남긴다. 접힘 분기·링크 이름/주소/선택 표시·「내 작업」 이동·
+// 아이콘 「새 프로젝트」 생성 창은 페이지 테스트 src/pages/projects/issueSidebarCompact.test.tsx 가 지킨다(WP-971).
 import type { ProjectResponse } from '../../../src/types/project'
 import { expect, test } from '../../fixtures/auth.fixture'
 
@@ -38,7 +40,7 @@ test.beforeEach(async ({ authenticatedPage: page }) => {
 test.describe('좁은 데스크톱 창(1100px)', () => {
   test.use({ viewport: { width: 1100, height: 800 } })
 
-  test('사이드바가 56px 아이콘 줄로 접히고 폭 조절 손잡이가 없다', async ({ authenticatedPage: page }) => {
+  test('사이드바가 56px 아이콘 줄로 접히고 폭 조절 손잡이가 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.goto('/projects')
     const sidebar = page.getByTestId('issue-sidebar')
     await expect(sidebar).toHaveAttribute('data-compact', 'true')
@@ -48,7 +50,7 @@ test.describe('좁은 데스크톱 창(1100px)', () => {
     await expect(sidebar.getByText('프로젝트', { exact: true })).toHaveCount(0)
   })
 
-  test('이름은 숨겨도 링크 이름은 남고, 마우스를 올리면 Tooltip 으로 보이며 누르면 이동한다', async ({ authenticatedPage: page }) => {
+  test('이름은 숨겨도 링크 이름은 남고, 마우스를 올리면 Tooltip 으로 보이며 누르면 이동한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await page.goto('/projects')
     const sidebar = page.getByTestId('issue-sidebar')
     const myTasks = sidebar.getByRole('link', { name: '내 작업' })
@@ -80,15 +82,9 @@ test.describe('좁은 데스크톱 창(1100px)', () => {
     await myTasks.click()
     await expect(page).toHaveURL(/\/me\/tasks\/assigned$/)
   })
-
-  test('새 프로젝트 버튼도 아이콘으로 남아 생성 창을 연다', async ({ authenticatedPage: page }) => {
-    await page.goto('/projects')
-    await page.getByTestId('issue-sidebar').getByRole('button', { name: '새 프로젝트' }).click()
-    await expect(page.getByRole('dialog')).toBeVisible()
-  })
 })
 
-test('창을 1280px 이상으로 넓히면 예전처럼 펼친 사이드바(224px·폭 조절)로 돌아온다', async ({ authenticatedPage: page }) => {
+test('창을 1280px 이상으로 넓히면 예전처럼 펼친 사이드바(224px·폭 조절)로 돌아온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1100, height: 800 })
   await page.goto('/projects')
   await expect(page.getByTestId('issue-sidebar')).toHaveAttribute('data-compact', 'true')

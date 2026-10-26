@@ -1,6 +1,8 @@
 // 이슈 상세 "이전 화면으로 돌아가기" E2E — 헤더 ← 버튼과 ESC 로 상세 진입 직전 화면에 복귀(#885).
-// 무엇을: 필터가 걸린 목록 URL 그대로 복귀, 이슈 간 이동을 건너뛴 복귀, 출발 화면이 없을 때의 기본 목적지,
-//        ESC 가 편집 취소·오버레이 닫기와 충돌하지 않는지 검증.
+// 복귀 지점은 브라우저 history.state 의 위치(idx)로 되감아 찾는다(useIssueOrigin) — MemoryRouter 에는 없어 E2E 에 남긴다(@platform).
+// 목록 → 상세 → ← 의 배선(@wiring), 편집 종료 뒤 포커스 복원·오버레이/작성창이 있을 때의 ESC(@input), 넓은 화면 헤더 정렬(@layout)도 여기서 본다.
+// 제목 편집 ESC 가 편집만 취소하고 상세에 머무는 것은 src/pages/projects/issueDetailEdit.test.tsx 가 지킨다(WP-971).
+// 되감기 거리 계산(backDeltaToOrigin)은 src/lib/issueOrigin.test.ts 가 본다.
 import { expect, test } from '../../fixtures/auth.fixture';
 import { createChatThread } from '../../factories/chat.factory';
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../factories/issue.factory';
@@ -63,7 +65,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await mock(page);
   });
 
-  test('← 버튼 → 필터가 유지된 목록으로 복귀하고 히스토리를 쌓지 않는다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('← 버튼 → 필터가 유지된 목록으로 복귀하고 히스토리를 쌓지 않는다', { tag: ['@wiring', '@smoke'] }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     // WP-814: 탭 제목은 열린 이슈(키-번호 제목), 목록으로 돌아가면 「이슈 · {프로젝트}」.
     await expect(page).toHaveTitle('WP-8 비밀번호 재설정 메일 · Gen:iA Works');
@@ -77,7 +79,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(DETAIL_URL(8));
   });
 
-  test('상세에서 상위 이슈로 건너간 뒤에도 ← 한 번에 출발한 목록으로 복귀한다', async ({ authenticatedPage: page }) => {
+  test('상세에서 상위 이슈로 건너간 뒤에도 ← 한 번에 출발한 목록으로 복귀한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.getByTestId('breadcrumb-parent-7').click();
     await expect(page).toHaveURL(DETAIL_URL(7));
@@ -86,7 +88,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(FILTERED_LIST_URL);
   });
 
-  test('브라우저 뒤로·앞으로 이동 후에도 ← 는 출발한 목록으로 복귀한다', async ({ authenticatedPage: page }) => {
+  test('브라우저 뒤로·앞으로 이동 후에도 ← 는 출발한 목록으로 복귀한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.goBack();
     await expect(page).toHaveURL(FILTERED_LIST_URL);
@@ -97,7 +99,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(FILTERED_LIST_URL);
   });
 
-  test('직접 진입(출발 화면 없음) → ← 는 상세를 교체해 프로젝트 화면으로 간다(뒤로가기로 상세에 돌아오지 않음)', async ({ authenticatedPage: page }) => {
+  test('직접 진입(출발 화면 없음) → ← 는 상세를 교체해 프로젝트 화면으로 간다(뒤로가기로 상세에 돌아오지 않음)', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await page.goto(`/projects/${KEY}/issues/8`);
     const lengthBefore = await page.evaluate(() => history.length);
 
@@ -107,25 +109,15 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     expect(await page.evaluate(() => history.length)).toBe(lengthBefore);
   });
 
-  test('ESC → 목록으로 복귀한다', async ({ authenticatedPage: page }) => {
+  test('ESC → 목록으로 복귀한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
 
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(FILTERED_LIST_URL);
   });
 
-  test('제목 편집 중 ESC 는 편집만 취소하고 상세에 머문다', async ({ authenticatedPage: page }) => {
-    await openDetailFromFilteredList(page);
-    await page.getByTestId('issue-title-edit').click();
-    await page.getByTestId('issue-title-input').fill('바꾸다 만 제목');
-
-    await page.keyboard.press('Escape');
-    await expect(page.getByTestId('issue-title-input')).toHaveCount(0);
-    await expect(page).toHaveURL(DETAIL_URL(8));
-  });
-
   // WP-813: 인라인 편집을 끝내면 포커스가 body 로 빠지지 않고 편집을 시작한 컨트롤로 돌아온다 — 다음 Tab 이 화면 처음부터 시작하지 않게.
-  test('제목 편집을 Esc 로 취소하면 포커스가 「제목 편집」 버튼으로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('제목 편집을 Esc 로 취소하면 포커스가 「제목 편집」 버튼으로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.getByTestId('issue-title-edit').focus();
     await page.keyboard.press('Enter');
@@ -136,7 +128,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page.getByTestId('issue-title-edit')).toBeFocused();
   });
 
-  test('제목을 Enter 로 저장해도 포커스가 「제목 편집」 버튼으로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('제목을 Enter 로 저장해도 포커스가 「제목 편집」 버튼으로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.route(`**/api/v1/projects/${KEY}/issues/8`, (route) =>
       route.request().method() === 'PATCH'
@@ -151,7 +143,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page.getByTestId('issue-title-edit')).toBeFocused();
   });
 
-  test('본문 편집을 Esc 로 취소하면 포커스가 본문 영역으로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('본문 편집을 Esc 로 취소하면 포커스가 본문 영역으로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     const view = page.getByRole('button', { name: '본문 편집' });
     await view.focus();
@@ -163,7 +155,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(DETAIL_URL(8));
   });
 
-  test('쓰다 만 코멘트가 있으면 포커스가 밖에 있어도 ESC 로 이탈하지 않는다', async ({ authenticatedPage: page }) => {
+  test('쓰다 만 코멘트가 있으면 포커스가 밖에 있어도 ESC 로 이탈하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.getByTestId('issue-comment-input').fill('작성 중인 코멘트');
     await page.getByTestId('breadcrumb-current').click(); // 작성창 밖으로 포커스 이동
@@ -173,7 +165,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(DETAIL_URL(8));
   });
 
-  test('AI 패널이 열려 있으면 ESC 는 패널만 닫고, 다음 ESC 가 목록으로 복귀시킨다', async ({ authenticatedPage: page }) => {
+  test('AI 패널이 열려 있으면 ESC 는 패널만 닫고, 다음 ESC 가 목록으로 복귀시킨다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.keyboard.press('ControlOrMeta+k');
     await expect(page.getByTestId('ai-side-panel')).toBeVisible();
@@ -187,7 +179,7 @@ test.describe('이슈 상세 — 이전 화면으로 돌아가기', () => {
     await expect(page).toHaveURL(FILTERED_LIST_URL);
   });
 
-  test('채팅 드로워가 열려 있으면 ESC 는 드로워만 닫고, 다음 ESC 가 목록으로 복귀시킨다', async ({ authenticatedPage: page }) => {
+  test('채팅 드로워가 열려 있으면 ESC 는 드로워만 닫고, 다음 ESC 가 목록으로 복귀시킨다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await openDetailFromFilteredList(page);
     await page.getByTestId('issue-chat-open').click();
     await expect(page.getByTestId('issue-chat-drawer')).toBeVisible();
@@ -207,7 +199,7 @@ for (const width of DESKTOP_WIDTHS) {
   test.describe(`이슈 상세 헤더 — 넓은 화면 정렬 @${width}px`, () => {
     test.use({ viewport: { width, height: 1200 } });
 
-    test('← 버튼은 제목과 같은 x 에서 시작하고 헤더는 본문 전체폭을 쓴다', async ({ authenticatedPage: page }) => {
+    test('← 버튼은 제목과 같은 x 에서 시작하고 헤더는 본문 전체폭을 쓴다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
       await mock(page);
       await page.goto(`/projects/${KEY}/issues/8`);
       // 둘 다 페이지 여백(pageGutterClass, 16px) 축 — ← 버튼 박스의 왼쪽 끝과 제목 왼쪽 끝이 같아야 한다(반올림 오차만 허용).

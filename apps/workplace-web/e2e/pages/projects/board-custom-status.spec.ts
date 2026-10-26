@@ -1,5 +1,9 @@
 // 데스크톱 보드 — 프로젝트 상태 목록 컬럼·statusId DnD·범주 띠 ＋·헤더 ⋯ (WP-808).
 // 백엔드 없이 page.route 로 모킹 — 상태 목록은 POST·PATCH 를 반영하는 상태 있는 목으로 둔다(추가·이름 변경 뒤 재조회).
+// 브라우저가 있어야 판정되는 것만 남긴다 — 컬럼 배선(@wiring)·띠 폭/＋ 위치·편집 중 헤더 높이(@layout)·포커스 복원·IME·카드 끌기(@input)·
+// 설정 상태 섹션으로 넘어가기(@flow). 상태 색 클래스·＋/⋯ 추가 payload·상태 필터 조회·상태 목록 오류와 다시 시도·20개 상한·
+// 409/30자 오류·컬럼에서 이슈 추가 중 상태 삭제(WP-936)·역할/개인 프로젝트별 진입점·「완료 모두 보기」는
+// 페이지 테스트 src/pages/projects/boardCustomStatus.test.tsx 가 지킨다(WP-971).
 
 import type { Page } from '@playwright/test';
 
@@ -82,7 +86,7 @@ async function dragCardTo(page: Page, cardTestId: string, columnTestId: string) 
 }
 
 test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
-  test('상태 목록대로 컬럼을 그리고 컬럼마다 statusId 로 조회한다', async ({ authenticatedPage: page }) => {
+  test('상태 목록대로 컬럼을 그리고 컬럼마다 statusId 로 조회한다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
     const searches = trackRequests(page, 'GET', ISSUES_PATH);
     await stubBoard(page, { issues: [createIssue({ id: 1, number: 1, title: '리뷰할 것', statusId: 12, statusName: '리뷰 대기', status: 'IN_PROGRESS' })] });
     await page.goto(`/projects/${KEY}?view=board`);
@@ -108,52 +112,7 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     expect(prog.width / todo.width).toBeGreaterThan(3.5);
   });
 
-  test('상태 색이 컬럼 헤더 아이콘에 반영된다', async ({ authenticatedPage: page }) => {
-    // 「리뷰 대기」만 PURPLE — 나머지는 범주 기본 색이라 지금까지의 범주 시맨틱 색을 그대로 쓴다(WP-809).
-    const statuses = await stubBoard(page);
-    statuses.find((s) => s.id === 12)!.color = 'PURPLE';
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    // 헤더 아이콘 = 상태 이름 칸 바로 앞 svg(장식). 컬럼 안 카드 아이콘과 섞이지 않게 이름 span 의 형제로 좁힌다.
-    const headerIcon = (id: number, name: string) =>
-      page.getByTestId(`board-col-${id}`).locator(`span:has(> span[title="${name}"]) > svg`);
-    await expect(headerIcon(12, '리뷰 대기')).toHaveClass(/text-purple-700/);
-    await expect(headerIcon(12, '리뷰 대기')).toHaveClass(/dark:text-purple-300/);
-    // 기본 색(BLUE) 진행 중 상태는 범주 색(text-primary) 그대로.
-    await expect(headerIcon(11, '설계')).toHaveClass(/text-primary/);
-    await expect(headerIcon(11, '설계')).not.toHaveClass(/text-blue-700/);
-  });
-
-  test('범주 띠 ＋ 로 진행 중 맨 뒤에 상태를 추가한다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    const posts = trackRequests(page, 'POST', STATUSES_PATH);
-    const searches = trackRequests(page, 'GET', ISSUES_PATH);
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await page.getByTestId('board-band-add-IN_PROGRESS').click();
-    await page.getByTestId('status-name-input').fill('QA 대기');
-    await page.getByTestId('status-name-input').press('Enter');
-
-    await expect.poll(() => posts.lastBody()).toEqual({ name: 'QA 대기', category: 'IN_PROGRESS' });
-    await expect(page.getByTestId('board-col-28')).toContainText('QA 대기');
-    await expect(page.getByTestId('status-name-input')).toHaveCount(0);
-    // 새 컬럼은 자기 상태 id 로 조회한다.
-    await expect.poll(() => searches.urls().some((u) => u.searchParams.get('statusId') === '28')).toBe(true);
-  });
-
-  test('「상태」 필터(statusId)로 고른 컬럼만 조회한다', async ({ authenticatedPage: page }) => {
-    const searches = trackRequests(page, 'GET', ISSUES_PATH);
-    await stubBoard(page, { issues: [createIssue({ id: 1, number: 1, title: '리뷰할 것', statusId: 12, statusName: '리뷰 대기', status: 'IN_PROGRESS' })] });
-    await page.goto(`/projects/${KEY}?view=board&statusId=12`);
-
-    await expect(page.getByTestId('board-col-12').getByTestId('issue-card-1')).toBeVisible();
-    // 다른 컬럼은 그대로 보이지만(빈 열) 조회하지 않는다.
-    await expect(page.getByTestId('board-col-empty-2')).toBeVisible();
-    await expectStays(page, () => searches.urls().filter((u) => u.searchParams.get('statusId') !== '12').length, 0);
-    expect(searches.count()).toBeGreaterThan(0);
-  });
-
-  test('띠가 화면보다 넓어도 그 범주의 ＋ 는 보이는 오른쪽 끝에 붙어 있다', async ({ authenticatedPage: page }) => {
+  test('띠가 화면보다 넓어도 그 범주의 ＋ 는 보이는 오른쪽 끝에 붙어 있다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await stubBoard(page);
     await page.goto(`/projects/${KEY}?view=board`);
@@ -168,68 +127,8 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     expect(plus.x + plus.width).toBeLessThanOrEqual(scroller.x + scroller.width + 1);
   });
 
-  test('상태 목록을 불러오지 못하면 프로젝트 화면이 다시 시도를 보이고, 다시 시도 성공 뒤 보드가 그려진다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    // 500 — 전역 재시도 정책(shouldRetryQuery)이 한 번 더 부르므로 다시 시도를 누르기 전까지 계속 실패시킨다(WP-870).
-    let fail = true;
-    await page.route(`**${STATUSES_PATH}`, (route) =>
-      route.request().method() === 'GET' && fail ? route.fulfill({ status: 500, json: { status: 500, message: '서버 오류' } }) : route.fallback(),
-    );
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    // 프로젝트 화면이 오류를 보이고, 보드는 상태 목록 없이 그리지 않는다.
-    const error = page.getByTestId('project-statuses-error');
-    await expect(error).toContainText('상태 목록을 불러오지 못했습니다');
-    await expect(page.getByTestId('board-scroll')).toHaveCount(0);
-    fail = false;
-    await error.getByRole('button', { name: '다시 시도' }).click();
-    await expect(page.getByTestId('board-col-12')).toBeVisible();
-    await expect(error).toHaveCount(0);
-  });
-
-  test('헤더 ⋯ 이 뒤에 상태 추가는 afterStatusId 를 보낸다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    const posts = trackRequests(page, 'POST', STATUSES_PATH);
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await page.getByTestId('board-col-menu-2').click();
-    await page.getByRole('menuitem', { name: '이 뒤에 상태 추가' }).click();
-    await page.getByTestId('status-name-input').fill('QA 대기');
-    await page.getByTestId('status-name-input').press('Enter');
-
-    await expect.poll(() => posts.lastBody<{ afterStatusId?: number }>()?.afterStatusId).toBe(2);
-    expect(posts.lastBody()).toEqual({ name: 'QA 대기', category: 'IN_PROGRESS', afterStatusId: 2 });
-  });
-
-  test('상태가 20개면 헤더 ⋯ 이 뒤에 상태 추가가 막히고 이유를 보인다', async ({ authenticatedPage: page }) => {
-    const statuses = await stubBoard(page);
-    // 8개 + 진행 중 12개 = 상한 20개.
-    for (let i = 0; i < 12; i++) statuses.push(makeProjectStatus({ id: 100 + i, name: `추가 상태 ${i + 1}`, category: 'IN_PROGRESS', position: 20 + i }));
-    const posts = trackRequests(page, 'POST', STATUSES_PATH);
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await page.getByTestId('board-col-menu-2').click();
-    const item = page.getByRole('menuitem', { name: /이 뒤에 상태 추가/ });
-    await expect(item).toHaveAttribute('aria-disabled', 'true');
-    // 이유는 흐려지는 항목 밖에 또렷하게 두고 aria-describedby 로 잇는다(WP-809 디자이너 리뷰).
-    const reason = page.getByTestId('board-col-add-after-reason');
-    await expect(reason).toHaveText('상태는 프로젝트당 20개까지예요');
-    await expect(item).toHaveAttribute('aria-describedby', (await reason.getAttribute('id'))!);
-    // 같은 보드의 다른 진입점은 그대로다 — 막힌 것은 추가뿐.
-    await expect(page.getByRole('menuitem', { name: '이름 변경' })).not.toHaveAttribute('aria-disabled', 'true');
-    await page.keyboard.press('Escape');
-
-    // 범주 띠 ＋ 도 같은 상한 — 막히고, 감싼 칸에 포커스하면 같은 이유가 툴팁으로 뜬다.
-    for (const category of ['TODO', 'IN_PROGRESS', 'DONE', 'CANCELED']) {
-      await expect(page.getByTestId(`board-band-add-${category}`)).toBeDisabled();
-    }
-    await page.getByTestId('board-band-add-limit-TODO').focus();
-    await expect(page.getByRole('tooltip')).toHaveText('상태는 프로젝트당 20개까지예요');
-    expect(posts.count()).toBe(0);
-  });
-
   // WP-809 — 보드에서 상태를 더 고치려면(색·순서·삭제) 설정 「상태」 섹션으로 바로 간다.
-  test('헤더 ⋯ 상태 관리… 는 설정 상태 섹션으로 간다', async ({ authenticatedPage: page }) => {
+  test('헤더 ⋯ 상태 관리… 는 설정 상태 섹션으로 간다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
     // 설정 화면 진입 목(라벨·유형·필드·상태별 이슈 수) — 상태 목록은 stubBoard 목이 그대로 준다.
     await mockProjectSettings(page);
@@ -243,7 +142,7 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await expect(page.getByTestId('status-row-12')).toContainText('리뷰 대기');
   });
 
-  test('헤더 ⋯ 이름 변경은 인라인 편집으로 PATCH 한다', async ({ authenticatedPage: page }) => {
+  test('헤더 ⋯ 이름 변경은 인라인 편집으로 PATCH 하고 포커스가 ⋯ 로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
     const patches = trackRequests(page, 'PATCH', `${STATUSES_PATH}/2`);
     await page.goto(`/projects/${KEY}?view=board`);
@@ -263,7 +162,7 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await expect(page.getByTestId('board-col-menu-2')).toBeFocused();
   });
 
-  test('키보드로 연 편집기를 Esc 로 닫으면 포커스가 연 버튼(⋯·＋)으로 돌아온다', async ({ authenticatedPage: page }) => {
+  test('키보드로 연 편집기를 Esc 로 닫으면 포커스가 연 버튼(⋯·＋)으로 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
     await page.goto(`/projects/${KEY}?view=board`);
     const menu = page.getByTestId('board-col-menu-2');
@@ -293,7 +192,7 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await expect(plus).toBeFocused();
   });
 
-  test('헤더 이름 편집은 헤더 높이를 바꾸지 않고, 바깥을 누르면 저장 없이 닫힌다', async ({ authenticatedPage: page }) => {
+  test('헤더 이름 편집은 헤더 높이를 바꾸지 않고, 바깥을 누르면 저장 없이 닫힌다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
     const patches = trackRequests(page, 'PATCH', `${STATUSES_PATH}/2`);
     await page.goto(`/projects/${KEY}?view=board`);
@@ -314,28 +213,7 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     expect(patches.count()).toBe(0);
   });
 
-  test('중복 이름은 그 자리에 오류를 보인다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    // 다른 사람이 방금 같은 이름을 만든 경우 — 화면 목록엔 없어 서버가 409 로 거절한다.
-    await page.route(`**${STATUSES_PATH}`, (route) =>
-      route.request().method() === 'POST'
-        ? route.fulfill({ status: 409, json: { status: 409, message: '이미 존재하는 상태 이름입니다: 검토 중' } })
-        : route.fallback(),
-    );
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await page.getByTestId('board-band-add-IN_PROGRESS').click();
-    await page.getByTestId('status-name-input').fill('검토 중');
-    await page.getByTestId('status-name-input').press('Enter');
-
-    // 서버 409 는 클라이언트 중복 검사와 같은 문구로 보인다(이름은 바로 위 입력에 있다).
-    await expect(page.getByTestId('status-name-error')).toHaveText('이미 존재하는 상태 이름입니다');
-    // 입력은 그대로 남고 포커스가 돌아와 바로 고칠 수 있다.
-    await expect(page.getByTestId('status-name-input')).toHaveValue('검토 중');
-    await expect(page.getByTestId('status-name-input')).toBeFocused();
-  });
-
-  test('한글 조합 중 Enter 는 저장하지 않고, 확정 뒤 Enter 로 저장한다', async ({ authenticatedPage: page }) => {
+  test('한글 조합 중 Enter 는 저장하지 않고, 확정 뒤 Enter 로 저장한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubBoard(page);
     const posts = trackRequests(page, 'POST', STATUSES_PATH);
     await page.goto(`/projects/${KEY}?view=board`);
@@ -351,21 +229,8 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
     await expect.poll(() => posts.lastBody()).toEqual({ name: '검토', category: 'IN_PROGRESS' });
   });
 
-  test('31자 이름은 저장하지 않고 오류를 보인다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    const posts = trackRequests(page, 'POST', STATUSES_PATH);
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await page.getByTestId('board-band-add-TODO').click();
-    await page.getByTestId('status-name-input').fill('가'.repeat(31));
-    await page.getByTestId('status-name-input').press('Enter');
-
-    await expect(page.getByTestId('status-name-error')).toHaveText('상태 이름은 30자 이하로 입력해 주세요');
-    await expectStays(page, posts.count, 0);
-  });
-
   // 끄는 동안 오른쪽에 떠오르는 에픽 패널(드롭 대상 아님)이 4번째 컬럼을 가리지 않도록 넓은 화면에서 끈다.
-  test.describe('카드 끌어 놓기', () => {
+  test.describe('카드 끌어 놓기', { tag: '@input' }, () => {
     test.use({ viewport: { width: 1920, height: 1000 } });
 
     test('카드를 새 컬럼으로 끌면 statusId 로 PATCH 한다', async ({ authenticatedPage: page }) => {
@@ -431,101 +296,6 @@ test.describe('보드 — 프로젝트 상태 컬럼(WP-808)', () => {
         await expect(page.getByTestId('board-col-1').getByTestId('issue-card-1')).toBeVisible();
       });
     }
-  });
-
-  test.describe('컬럼에서 이슈 추가', () => {
-    test.use({ viewport: { width: 1920, height: 1000 } });
-
-    // 409 STATUS_DELETED(확인 뒤 삭제 경합)·400 STATUS_NOT_FOUND(요청 전에 이미 삭제) 둘 다 같은 흐름이다.
-    // 다이얼로그엔 상태 고르기가 없으므로 서버 문구(「다른 상태를 골라 주세요」) 대신 다시 만들면 무엇이 되는지 알린다.
-    for (const gone of [
-      { status: 409, code: 'STATUS_DELETED', message: '상태가 방금 삭제됐어요. 다른 상태를 골라 주세요.' },
-      { status: 400, code: 'STATUS_NOT_FOUND', message: '상태를 찾을 수 없어요. 다른 상태를 골라 주세요.' },
-    ]) {
-      test(`컬럼 상태가 없어져 ${gone.status} ${gone.code} 면 결과 안내를 보이고 상태 목록을 다시 받아, 다시 누르면 statusId 없이 만든다(WP-936)`, async ({ authenticatedPage: page }) => {
-        const statuses = await stubBoard(page);
-        // 다른 사람이 「리뷰 대기」(12)를 막 지운 상황 — 첫 POST 는 거절되고 이후 상태 목록에서 빠진다. 다음 POST 는 성공.
-        const posted: Record<string, unknown>[] = [];
-        await page.route(
-          (url) => url.pathname === ISSUES_PATH,
-          async (route) => {
-            if (route.request().method() !== 'POST') return route.fallback();
-            posted.push(route.request().postDataJSON() as Record<string, unknown>);
-            if (posted.length === 1) {
-              statuses.splice(statuses.findIndex((s) => s.id === 12), 1);
-              return route.fulfill({
-                status: gone.status,
-                json: { status: gone.status, message: gone.message, errors: { code: gone.code } },
-              });
-            }
-            return route.fulfill({ status: 201, json: createIssue({ id: 9, number: 9, title: '새 이슈', status: 'TODO' }) });
-          },
-        );
-        const statusGets = trackRequests(page, 'GET', STATUSES_PATH);
-        await page.goto(`/projects/${KEY}?view=board`);
-        await expect(page.getByTestId('board-col-12')).toBeVisible();
-        const before = statusGets.count();
-
-        await page.getByTestId('board-col-add-12').click();
-        const dialog = page.getByRole('dialog');
-        await expect(dialog.getByTestId('create-status-note')).toHaveText('상태: 리뷰 대기');
-        await dialog.getByLabel('제목').fill('지워진 상태에서 연 이슈');
-        await dialog.getByRole('button', { name: '생성' }).click();
-
-        await expect(page.getByText("상태가 방금 삭제됐어요. 다시 만들면 '할 일'로 만들어져요.")).toBeVisible();
-        await expect(page.getByText(gone.message)).toHaveCount(0);
-        await statusGets.waitFor(before + 1);
-        await expect(page.getByTestId('board-col-12')).toHaveCount(0);
-        expect(posted[0]?.statusId).toBe(12);
-        // 다이얼로그는 입력을 지닌 채 남고, 지워진 상태 안내는 사라진다.
-        await expect(dialog.getByTestId('create-status-note')).toHaveCount(0);
-
-        await dialog.getByRole('button', { name: '생성' }).click();
-        await expect.poll(() => posted.length).toBe(2);
-        expect(posted[1]?.statusId).toBeUndefined();
-        expect(posted[1]?.title).toBe('지워진 상태에서 연 이슈');
-        await expect(dialog).toBeHidden();
-      });
-    }
-  });
-
-  test('MEMBER 에게는 ＋와 ⋯ 편집 항목이 없다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page, { role: 'MEMBER' });
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await expect(page.getByTestId('board-col-2')).toBeVisible();
-    // 범주 띠는 누구에게나 보이지만 ＋ 는 없다.
-    await expect(page.getByTestId('board-band-IN_PROGRESS')).toBeVisible();
-    await expect(page.locator('[data-testid^="board-band-add-"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid^="board-col-menu-"]')).toHaveCount(0);
-  });
-
-  test('개인 프로젝트 보드는 3컬럼이고 편집 진입점이 없다', async ({ authenticatedPage: page }) => {
-    await mockApi(page, 'GET', `/api/v1/projects/${KEY}`, createProject({ type: 'PERSONAL', isDefault: true }));
-    await mockApi(page, 'GET', `/api/v1/projects/${KEY}/members`, [createMember({ userId: 1, role: 'OWNER' })]);
-    await mockApi(page, 'GET', ISSUES_PATH, createIssueSearchResponse([]));
-    for (const p of ['labels', 'cycles', 'types']) await mockApi(page, 'GET', `/api/v1/projects/${KEY}/${p}`, []);
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await expect(page.getByTestId('board-col-1')).toBeVisible();
-    await expect(page.getByTestId('board-col-2')).toBeVisible();
-    await expect(page.getByTestId('board-col-3')).toBeVisible();
-    // 취소 범주 컬럼은 없다.
-    await expect(page.locator('[data-testid^="board-col-"][data-status-id]')).toHaveCount(3);
-    // 범주 띠 자체를 숨긴다(편집이 없고 컬럼이 범주와 1:1).
-    await expect(page.locator('[data-testid^="board-band-"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid^="board-col-menu-"]')).toHaveCount(0);
-  });
-
-  test('완료 범주의 모든 컬럼에 「완료 모두 보기」 안내가 붙는다', async ({ authenticatedPage: page }) => {
-    await stubBoard(page);
-    await page.goto(`/projects/${KEY}?view=board`);
-
-    await expect(page.getByTestId('board-col-show-closed-3')).toBeVisible();
-    await expect(page.getByTestId('board-col-show-closed-14')).toBeVisible();
-    await expect(page.getByTestId('board-col-show-closed-4')).toBeVisible();
-    await expect(page.getByTestId('board-col-show-closed-1')).toHaveCount(0);
-    await expect(page.getByTestId('board-col-show-closed-12')).toHaveCount(0);
   });
 });
 

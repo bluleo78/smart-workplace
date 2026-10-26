@@ -1,4 +1,5 @@
-// 이슈 코멘트 이미지(WP-362) E2E — 입력창 안 이미지(붙여넣기·버튼·업로드 실패), 목록 표시·뷰어, 수정 복원·삭제 안내.
+// 이슈 코멘트 이미지(WP-362) E2E — 실제 편집기 입력(붙여넣기·파일 선택·썸네일 선택 뒤 Backspace)이 필요한 것만 남긴다(@input).
+// 목록 이미지 → 뷰어 열림, 삭제 확인창의 이미지 수 안내는 페이지 테스트 src/pages/projects/issueCommentImages.test.tsx 가 지킨다(WP-980).
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -83,7 +84,7 @@ async function stubCreate(page: Page, detailRef: { current: IssueDetailResponse 
   )
 }
 
-test.describe('코멘트 작성창 — 입력창 안 이미지 (WP-362)', () => {
+test.describe('코멘트 작성창 — 입력창 안 이미지 (WP-362)', { tag: '@input' }, () => {
   test('글 중간에 붙여넣은 이미지가 그 자리에 들어가고, 업로드 중엔 작성이 막히며, 등록하면 그 자리에 보인다', async ({ authenticatedPage: page }) => {
     const detailRef = { current: createIssueDetail({ comments: [] }) }
     await setupIssueStubs(page, detailRef)
@@ -159,7 +160,7 @@ test.describe('코멘트 작성창 — 입력창 안 이미지 (WP-362)', () => 
   })
 })
 
-test.describe('코멘트 작성창 — 붙여넣기 예외 (WP-362)', () => {
+test.describe('코멘트 작성창 — 붙여넣기 예외 (WP-362)', { tag: '@input' }, () => {
   test('웹 페이지 내용을 붙여넣으면 글만 들어가고 외부 이미지는 코멘트에 넣지 않는다', async ({ authenticatedPage: page }) => {
     const detailRef = { current: createIssueDetail({ comments: [] }) }
     await setupIssueStubs(page, detailRef)
@@ -181,19 +182,9 @@ test.describe('코멘트 작성창 — 붙여넣기 예외 (WP-362)', () => {
   })
 })
 
-test.describe('코멘트 이미지 — 목록·수정·삭제 (WP-362)', () => {
+test.describe('코멘트 이미지 — 수정 편집기 (WP-362)', { tag: '@input' }, () => {
   const withImage = (): IssueCommentResponse =>
     createComment({ id: 40, issueId: ISSUE_ID, authorId: ME_ID, body: `재현 화면\n![bug.png](${IMG_URL})\n확인 부탁` })
-
-  test('이미지를 누르면 뷰어로 크게 열린다', async ({ authenticatedPage: page }) => {
-    const detailRef = { current: createIssueDetail({ comments: [withImage()] }) }
-    await setupIssueStubs(page, detailRef)
-
-    await page.goto(`/projects/${KEY}/issues/${ISSUE_NUMBER}`)
-    const item = page.locator('section[aria-label="코멘트"] ul li').first()
-    await item.getByRole('img', { name: 'bug.png' }).click()
-    await expect(page.getByRole('dialog')).toBeVisible()
-  })
 
   test('수정하면 이미지가 원래 자리에 썸네일로 돌아오고, 지우고 저장하면 본문에서 빠진다', async ({ authenticatedPage: page }) => {
     const mine = withImage()
@@ -230,21 +221,5 @@ test.describe('코멘트 이미지 — 목록·수정·삭제 (WP-362)', () => {
 
     await expect.poll(patches.count).toBe(1)
     expect(patches.bodies<{ body: string }>()[0].body).toBe('재현 화면\n\n확인 부탁')
-  })
-
-  test('삭제 확인창이 함께 지워질 이미지 수를 알려 준다', async ({ authenticatedPage: page }) => {
-    const detailRef = { current: createIssueDetail({ comments: [withImage()] }) }
-    await setupIssueStubs(page, detailRef)
-
-    await page.goto(`/projects/${KEY}/issues/${ISSUE_NUMBER}`)
-    const item = page.locator('section[aria-label="코멘트"] ul li').first()
-    await item.hover()
-    await item.getByRole('button', { name: '코멘트 삭제' }).click()
-
-    const dialog = page.getByRole('alertdialog')
-    await expect(dialog).toContainText('이미지 1개도 본문이나 다른 코멘트에서 쓰지 않으면 함께 삭제됩니다')
-    // 미리보기는 이미지 URL 대신 [이미지] 로 줄여 보여 준다.
-    await expect(dialog).toContainText('[이미지]')
-    await expect(dialog).not.toContainText('issue-images')
   })
 })

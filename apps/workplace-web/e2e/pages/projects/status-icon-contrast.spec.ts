@@ -13,7 +13,8 @@ const KEY = 'WP'
 const UI_ICON = 3
 
 for (const theme of ['light', 'dark'] as const) {
-  test.describe(`${theme}`, () => {
+  // 실제로 칠해진 색으로 대비를 재는 시각 검사라 브라우저가 필요하다(@layout).
+  test.describe(`${theme}`, { tag: '@layout' }, () => {
     test('설정 상태 행 — 할 일 아이콘', async ({ authenticatedPage: page }) => {
       await withTheme(page, theme)
       await mockProjectSettings(page, [createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' })])

@@ -1,7 +1,8 @@
-// 이슈 첨부 E2E.
-// - 정상 업로드/삭제 happy path (smoke)
-// - 25MB 초과 파일은 클라이언트 사전 검증에서 토스트 + POST 차단
-
+// 이슈 첨부 E2E — 브라우저가 있어야 판정되는 것만 남긴다.
+// 남는 것: 다운로드·PDF/이미지 렌더·실시간 재조회(SSE)·닫기로 ?preview 지우기(history)(@platform), ‹ › 키보드 넘기기·포커스 복귀(@input),
+//          드라이브 하위 폴더로 여는 두 화면 흐름(@flow).
+// 업로드·삭제·25MB/10개 한도·스피너·버튼 이름·권한별 삭제, HWP 미지원·휴지통·삭제된 링크·요약 403·요약 패널·⋯·드라이브로 가져오기,
+// 없는 첨부 딥링크 안내는 페이지 테스트 src/pages/projects/attachments.test.tsx 가 지킨다(WP-980).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +16,6 @@ import { createFile, createFolder, createSpace } from '../../factories/drive.fac
 import { createIssue, createIssueDetail } from '../../factories/issue.factory';
 import { createProject } from '../../factories/project.factory';
 import type { IssueAttachment } from '../../../src/types/attachment';
-import { expectToggle } from '../../fixtures/selection';
 
 const PROJECT_KEY = 'WP';
 // ESM 컨텍스트: __dirname 대신 이 스펙 파일 기준 디렉토리. 실제 PDF 바이트는 공용 픽스처를 쓴다(pdf.js 가 그려야 하므로).
@@ -98,320 +98,6 @@ async function setupCommonStubs(
   );
 }
 
-test.describe('이슈 첨부', () => {
-  test(
-    '드롭존으로 파일 업로드 → 목록 갱신 → 삭제 → 빈 상태',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      // 가변 첨부 저장소 — GET 은 이 배열, POST 는 누적, DELETE 는 제거.
-      let store: IssueAttachment[] = [];
-
-      await setupCommonStubs(page, 0);
-
-      const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
-      const deletes = trackRequests(page, 'DELETE', /^\/api\/v1\/projects\/WP\/issues\/1\/attachments\/\d+$/);
-
-      await page.route(
-        (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
-        (route) => {
-          const method = route.request().method();
-          if (method === 'GET') {
-            return route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify(store),
-            });
-          }
-          if (method === 'POST') {
-            const added = createAttachment({
-              fileId: 9001 + store.length,
-              originalName: 'spec.pdf',
-              sizeBytes: 1024,
-              mimeType: 'application/pdf',
-              attachedById: 1,
-            });
-            store = [...store, added];
-            return route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify([added]),
-            });
-          }
-          return route.fallback();
-        },
-      );
-
-      await page.route(
-        (url) =>
-          /\/api\/v1\/projects\/WP\/issues\/1\/attachments\/\d+$/.test(url.pathname),
-        (route) => {
-          if (route.request().method() !== 'DELETE') return route.fallback();
-          const m = route.request().url().match(/attachments\/(\d+)$/);
-          const fileId = m ? Number(m[1]) : -1;
-          store = store.filter((a) => a.fileId !== fileId);
-          return route.fulfill({ status: 204, body: '' });
-        },
-      );
-
-      await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-      const dropzone = page.getByTestId('attachment-dropzone');
-      await expect(dropzone).toBeVisible();
-      await expect(dropzone).toContainText('파일을 드롭하거나 클릭해 첨부');
-      // Task #343: 첨부가 본문 스트립으로 이동 → strip 모드에서는 빈 상태 텍스트 미표시 (드롭존만).
-      // 오직 드롭존이 보여야 함 — 첨부가 없습니다 텍스트는 strip 에서 숨김.
-      await expect(page.getByTestId('issue-attachment-strip')).toBeVisible();
-
-      // 숨겨진 input 으로 파일 주입 — 클릭 핸들러 우회.
-      await dropzone.locator('input[type=file]').setInputFiles({
-        name: 'spec.pdf',
-        mimeType: 'application/pdf',
-        buffer: Buffer.from('hello-attachment'),
-      });
-
-      // 성공 토스트 + 목록 1행 — 토스트가 보이면 mutation 이 onSuccess 까지 도달.
-      await expect(page.getByText('1개 첨부를 추가했습니다')).toBeVisible();
-      expect(posts.count()).toBe(1);
-      await expect(page.getByTestId('attachment-list')).toBeVisible();
-      const row = page.getByTestId('attachment-row-9001');
-      await expect(row).toBeVisible();
-      await expect(row).toContainText('spec.pdf');
-
-      // 삭제 → AlertDialog 확인 → 빈 상태 (#148: window.confirm → shadcn AlertDialog).
-      // WP-203: 삭제 버튼은 hover 없이 항상 보인다.
-      await row.getByRole('button', { name: 'spec.pdf 삭제' }).click();
-      // AlertDialog 가 뜨고 삭제 버튼 클릭으로 확인.
-      await expect(page.getByTestId('attachment-delete-dialog')).toBeVisible();
-      await page.getByTestId('attachment-delete-confirm').click();
-      await expect(page.getByText('첨부를 삭제했습니다')).toBeVisible();
-      expect(deletes.count()).toBe(1);
-      // Task #343: 첨부가 본문 스트립으로 이동 → strip 모드에서는 빈 상태 텍스트 미표시.
-      // 오직 드롭존만 표시됨.
-      const strip = page.getByTestId('issue-attachment-strip');
-      await expect(strip.getByTestId('attachment-dropzone')).toBeVisible();
-      // 삭제된 칩(attachment-row-9001)이 실제로 DOM 에서 사라졌는지 검증.
-      // getByText('첨부가 없습니다')는 strip 모드에서 항상 0이라 삭제 여부를 증명하지 못함.
-      await expect(strip.getByTestId('attachment-row-9001')).toHaveCount(0);
-    },
-  );
-
-  test('25MB 초과 파일은 클라이언트 사전 검증으로 토스트 + POST 미발생', async ({
-    authenticatedPage: page,
-  }) => {
-    await setupCommonStubs(page, 0);
-
-    const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
-      (route) => {
-        const method = route.request().method();
-        if (method === 'GET') {
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: '[]',
-          });
-        }
-        if (method === 'POST') {
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: '[]',
-          });
-        }
-        return route.fallback();
-      },
-    );
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    const dropzone = page.getByTestId('attachment-dropzone');
-    await expect(dropzone).toBeVisible();
-
-    // 26MB 버퍼 — 한도(25MB) 초과.
-    const oversized = Buffer.alloc(26 * 1024 * 1024, 0);
-    await dropzone.locator('input[type=file]').setInputFiles({
-      name: 'huge.bin',
-      mimeType: 'application/octet-stream',
-      buffer: oversized,
-    });
-
-    await expect(page.getByText('huge.bin는 25MB 한도를 초과합니다')).toBeVisible();
-    // 사전 검증 통과 파일이 없으므로 POST 가 발생하지 않아야 한다.
-    await expectStays(page, posts.count, 0);
-  });
-
-  test('이슈당 첨부 한도(10개) 초과 시 올바른 조사 포함 토스트 표시', async ({
-    authenticatedPage: page,
-  }) => {
-    // attachmentCount=9 → currentCount=9. 2개 업로드 시 첫 번째(9+0<10)는 수락, 두 번째(9+1=10)는 한도 초과.
-    await setupCommonStubs(page, 9);
-
-    const posts = trackRequests(page, 'POST', `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`);
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
-      (route) => {
-        const method = route.request().method();
-        if (method === 'GET') {
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: '[]',
-          });
-        }
-        if (method === 'POST') {
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([createAttachment({ fileId: 9999, originalName: 'first.pdf' })]),
-          });
-        }
-        return route.fallback();
-      },
-    );
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    const dropzone = page.getByTestId('attachment-dropzone');
-    await expect(dropzone).toBeVisible();
-
-    // 2개 동시 업로드 — 첫 번째는 통과, 두 번째는 한도 초과 토스트.
-    // 'test.pdf' 마지막 글자 'f'는 영문 → 받침 없음 → eulReul='를'.
-    await dropzone.locator('input[type=file]').setInputFiles([
-      { name: 'first.pdf', mimeType: 'application/pdf', buffer: Buffer.from('a') },
-      { name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from('b') },
-    ]);
-
-    await expect(
-      page.getByText('이슈당 첨부 한도(10개)를 초과하여 test.pdf를 건너뜁니다'),
-    ).toBeVisible();
-    // 첫 번째 파일만 POST 발생해야 한다.
-    await expectStays(page, posts.count, 1, { reach: true });
-  });
-
-  // #782 — 업로드 pending 동안 드롭존에 스피너(Loader2 + animate-spin) 표시 회귀 테스트.
-  test('업로드 중에는 드롭존에 스피너가 표시된다', async ({ authenticatedPage: page }) => {
-    await setupCommonStubs(page, 0);
-
-    // POST 응답을 의도적으로 지연 — pending 상태에서 스피너를 관찰할 시간 확보.
-    let resolvePost: (() => void) | undefined;
-    const postGate = new Promise<void>((resolve) => {
-      resolvePost = resolve;
-    });
-
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
-      async (route) => {
-        const method = route.request().method();
-        if (method === 'GET') {
-          return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-        }
-        if (method === 'POST') {
-          await postGate;
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify([createAttachment({ fileId: 9101, originalName: 'slow.pdf' })]),
-          });
-        }
-        return route.fallback();
-      },
-    );
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    const dropzone = page.getByTestId('attachment-dropzone');
-    await expect(dropzone).toBeVisible();
-
-    await dropzone.locator('input[type=file]').setInputFiles({
-      name: 'slow.pdf',
-      mimeType: 'application/pdf',
-      buffer: Buffer.from('slow-upload'),
-    });
-
-    // pending 동안: 텍스트가 '업로드 중…' 이고 회전 스피너 아이콘이 렌더된다.
-    await expect(dropzone).toContainText('업로드 중…');
-    await expect(dropzone.locator('svg.animate-spin')).toBeVisible();
-
-    // 응답 해제 → 업로드 완료 후 스피너가 사라진다.
-    resolvePost?.();
-    await expect(page.getByText('1개 첨부를 추가했습니다')).toBeVisible();
-    await expect(dropzone.locator('svg.animate-spin')).toHaveCount(0);
-  });
-
-  // #783 — 여러 첨부의 삭제 버튼 접근성 이름이 파일명별로 달라야 함 회귀 테스트.
-  test('여러 첨부가 있을 때 삭제 버튼 접근성 이름이 파일명별로 다르다', async ({
-    authenticatedPage: page,
-  }) => {
-    await setupCommonStubs(page, 2);
-
-    const attachments = [
-      createAttachment({ fileId: 8101, originalName: 'alpha.pdf', mimeType: 'application/pdf' }),
-      createAttachment({ fileId: 8102, originalName: 'beta.png', mimeType: 'image/png' }),
-    ];
-
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback();
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify(attachments),
-        });
-      },
-    );
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    const rowAlpha = page.getByTestId('attachment-row-8101');
-    const rowBeta = page.getByTestId('attachment-row-8102');
-    await expect(rowAlpha).toBeVisible();
-    await expect(rowBeta).toBeVisible();
-
-    // WP-203: 삭제 버튼은 항상 노출된다(hover-reveal 폐지).
-    await expect(rowAlpha.getByRole('button', { name: 'alpha.pdf 삭제' })).toHaveCount(1);
-    await expect(rowBeta.getByRole('button', { name: 'beta.png 삭제' })).toHaveCount(1);
-    // 각 삭제 버튼의 접근성 이름은 자기 파일명을 포함해 서로 달라야 한다.
-    await expect(rowAlpha.getByRole('button', { name: 'beta.png 삭제' })).toHaveCount(0);
-    await expect(rowBeta.getByRole('button', { name: 'alpha.pdf 삭제' })).toHaveCount(0);
-    // 정적 문자열 '첨부 삭제' 로는 더 이상 매치되지 않아야 한다(파일명 누락 회귀 방지).
-    await expect(page.getByRole('button', { name: '첨부 삭제', exact: true })).toHaveCount(0);
-  });
-
-  // WP-203 — 다운로드·삭제 아이콘은 hover 없이 항상 보이고(휴대폰·키보드 접근), 삭제는 권한 있는 첨부에만.
-  test('첨부 칩의 다운로드·삭제 버튼은 hover 없이 보이고 남의 첨부에는 삭제가 없다', async ({
-    authenticatedPage: page,
-  }) => {
-    await setupCommonStubs(page, 2);
-
-    // 현재 사용자 id=1, 프로젝트 OWNER 아님 → 내 첨부만 삭제 가능.
-    const mine = createAttachment({ fileId: 8001, originalName: 'mine.pdf', attachedById: 1 });
-    const others = createAttachment({ fileId: 8002, originalName: 'others.pdf', attachedById: 2 });
-
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments`,
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback();
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([mine, others]),
-        });
-      },
-    );
-
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    const mineRow = page.getByTestId('attachment-row-8001');
-    const othersRow = page.getByTestId('attachment-row-8002');
-    await expect(mineRow.getByRole('button', { name: 'mine.pdf 다운로드' })).toBeVisible();
-    await expect(mineRow.getByRole('button', { name: 'mine.pdf 삭제' })).toBeVisible();
-    await expect(othersRow.getByRole('button', { name: 'others.pdf 다운로드' })).toBeVisible();
-    await expect(othersRow.getByRole('button', { name: 'others.pdf 삭제' })).toHaveCount(0);
-  });
-});
-
 // WP-203 — 이슈 첨부 프리뷰: 파일명 클릭은 다운로드가 아니라 공용 프리뷰 모달을 연다.
 test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
   const CONTENT = (fileId: number) =>
@@ -451,7 +137,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
 
   test(
     '이미지 첨부 파일명을 클릭하면 프리뷰 모달에 이미지가 보이고 모달에서 다운로드할 수 있다',
-    { tag: '@smoke' },
+    { tag: ['@platform', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const requested = await stubAttachments(
         page,
@@ -474,7 +160,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     },
   );
 
-  test('PDF 첨부는 실제 PDF 바이트면 뷰어로, PDF 로 위장한 HTML 이면 오류로 표시된다', async ({
+  test('PDF 첨부는 실제 PDF 바이트면 뷰어로, PDF 로 위장한 HTML 이면 오류로 표시된다', { tag: '@platform' }, async ({
     authenticatedPage: page,
   }) => {
     await stubAttachments(
@@ -501,7 +187,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await expect(body.locator('iframe')).toHaveCount(0);
   });
 
-  test('미리 볼 수 없는 형식은 안내와 함께 모달에서 다운로드할 수 있다', async ({
+  test('미리 볼 수 없는 형식은 안내와 함께 모달에서 다운로드할 수 있다', { tag: '@platform' }, async ({
     authenticatedPage: page,
   }) => {
     const requested = await stubAttachments(
@@ -522,27 +208,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     expect((await download).suggestedFilename()).toBe('build.zip');
   });
 
-  test('이슈 첨부 HWP 는 지금처럼 미리 볼 수 없고 변환을 요청하지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    // WP-431: 변환 미리보기는 드라이브만 — 이슈 첨부는 미지원 안내 그대로, /preview 도 묻지 않는다.
-    const previews = trackRequests(page, 'ANY', (url) => url.pathname.endsWith('/preview'));
-    const name = '2026년 언택트 AI R&D 과제기획 전담반 회의 참석안내.hwp';
-    const requested = await stubAttachments(
-      page,
-      [createAttachment({ fileId: 7302, originalName: name, mimeType: 'application/x-hwp' })],
-      { 7302: { contentType: 'application/x-hwp', body: Buffer.from('HWP Document File') } },
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    await page.getByRole('button', { name: `${name} 미리보기` }).click();
-    await expect(page.getByTestId('preview-body')).toContainText('이 형식은 미리 볼 수 없어요');
-    await expect(page.getByTestId('preview-converting')).toHaveCount(0);
-    await expectStays(page, previews.count, 0);
-    expect(requested[7302]).toBeUndefined();
-  });
-
-  test('10MB 를 넘는 첨부는 크기를 보여주고, 미리보기를 누를 때만 내려받는다', async ({
+  test('10MB 를 넘는 첨부는 크기를 보여주고, 미리보기를 누를 때만 내려받는다', { tag: '@platform' }, async ({
     authenticatedPage: page,
   }) => {
     const size = 12 * 1024 * 1024;
@@ -569,7 +235,7 @@ test.describe('이슈 첨부 프리뷰 (WP-203)', () => {
     await expect(confirm).toHaveCount(0);
   });
 
-  test('칩의 다운로드 아이콘은 모달 없이 바로 내려받는다', async ({ authenticatedPage: page }) => {
+  test('칩의 다운로드 아이콘은 모달 없이 바로 내려받는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubAttachments(
       page,
       [createAttachment({ fileId: 7501, originalName: 'spec.pdf', mimeType: 'application/pdf' })],
@@ -648,7 +314,7 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     }
   }
 
-  test('이미지·PDF·드라이브 링크 3건을 → 로 넘긴다', async ({ authenticatedPage: page }) => {
+  test('이미지·PDF·드라이브 링크 3건을 → 로 넘긴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubBundle(
       page,
       [
@@ -683,59 +349,7 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByRole('button', { name: '다음 파일' })).toHaveCount(0);
   });
 
-  test('드라이브 링크 원본이 휴지통이면 사용할 수 없음 안내만 보이고 다운로드는 없다', async ({
-    authenticatedPage: page,
-  }) => {
-    await stubBundle(page, [], [driveLink(602, { name: 'gone.txt', availability: 'TRASHED' })]);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-
-    await page.getByRole('button', { name: 'gone.txt 미리보기' }).click();
-    await expect(page.getByTestId('preview-unavailable')).toBeVisible();
-    await expect(page.getByTestId('preview-download')).toHaveCount(0);
-  });
-
-  test('원본이 삭제된 드라이브 링크 행에는 다운로드 아이콘이 없다(활성 링크에만 있다)', async ({ authenticatedPage: page }) => {
-    await stubBundle(page, [], [driveLink(606, { name: 'deleted.txt', availability: 'DELETED' }), driveLink(607, { name: 'alive.txt' })]);
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-    await expect(page.getByRole('button', { name: 'alive.txt 다운로드' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'deleted.txt 미리보기' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'deleted.txt 다운로드' })).toHaveCount(0);
-  });
-
-  test('이슈 드라이브 링크의 요약이 403 이면 ✨ 버튼이 없다', async ({ authenticatedPage: page }) => {
-    await stubBundle(page, [], [driveLink(603)]);
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/files/603/summary',
-      (route) => route.fulfill({ status: 403, json: { message: 'forbidden' } }),
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-    await page.getByRole('button', { name: 'linked-603.txt 미리보기' }).click();
-    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
-    await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0);
-  });
-
-  test('이슈 드라이브 링크는 ✨ 로 요약 패널을 열고, ⋯ 에 드라이브에서 열기가 있다', async ({ authenticatedPage: page }) => {
-    await stubBundle(page, [], [driveLink(604)]);
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/files/604/summary',
-      (route) => route.fulfill({ json: { summary: '링크 요약', status: 'DONE' } }),
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-    await page.getByRole('button', { name: 'linked-604.txt 미리보기' }).click();
-    // 이슈에서 열면 기본 접힘(defaultPanelOpen 없음).
-    await expect(page.getByTestId('preview-body')).toContainText('LINKED-BODY');
-    await expect(page.getByTestId('viewer-side-panel')).toHaveCount(0);
-    // WP-368 — ✨ 요약 토글(ghost)은 패널이 열리면 aria-pressed·TOGGLE_ON 표시가 붙는다.
-    const summaryToggle = page.getByRole('button', { name: 'AI 요약' });
-    await expectToggle(summaryToggle, false);
-    await summaryToggle.click();
-    await expectToggle(summaryToggle, true);
-    await expect(page.getByTestId('viewer-side-panel').getByTestId('drive-summary-card')).toContainText('링크 요약');
-    await page.getByRole('button', { name: '더 보기' }).click();
-    await expect(page.getByRole('menuitem', { name: '드라이브에서 열기' })).toBeVisible();
-  });
-
-  test('⋯ 드라이브에서 열기는 하위 폴더에 있는 링크 파일을 그 폴더에서 미리보기로 연다', async ({ authenticatedPage: page }) => {
+  test('⋯ 드라이브에서 열기는 하위 폴더에 있는 링크 파일을 그 폴더에서 미리보기로 연다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
     // 링크 응답에는 폴더 id 가 없다 — 공간 이름 검색으로 폴더(5)를 찾아 ?folderId=5&preview=605 로 가야 한다.
     await stubBundle(page, [], [driveLink(605, { name: 'deep.txt' })]);
     const searches = trackRequests(page, 'GET', '/api/v1/drive/spaces/1/search');
@@ -776,54 +390,7 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByTestId('preview-not-found')).toHaveCount(0);
   });
 
-  test('드라이브 링크 조회가 실패해도 없는 첨부 딥링크는 찾을 수 없음 안내로 끝난다', async ({ authenticatedPage: page }) => {
-    await stubBundle(page, [], []);
-    // 나중 등록이 우선 — 링크 목록만 403(재시도 없음).
-    await page.route(
-      (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/drive-links`,
-      (route) => route.fulfill({ status: 403, json: { message: 'forbidden' } }),
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1?preview=drive:999`);
-    await expect(page.getByTestId('preview-not-found')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page).not.toHaveURL(/preview=/);
-  });
-
-  test('업로드 첨부는 ✨ 없이 ☁ 와 ⋯ 를 보여 주고 ☁ 로 드라이브에 가져온다', async ({ authenticatedPage: page }) => {
-    await stubBundle(page, [createAttachment({ fileId: 7701, originalName: 'up.txt', mimeType: 'text/plain' })], []);
-    await page.route(
-      (url) => url.pathname === '/api/v1/projects/WP/issues/1/attachments/7701/content',
-      (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'UP' }),
-    );
-    // 개인 공간·폴더 목록·임포트 — setupCommonStubs 의 빈 공간 목록보다 나중에 등록해 우선한다.
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/spaces',
-      (route) =>
-        route.fulfill({
-          json: [{ id: 1, type: 'PERSONAL', name: '내 드라이브', ownerId: 1, role: 'OWNER', archived: false, createdAt: '2026-06-01T00:00:00Z' }],
-        }),
-    );
-    await page.route(
-      (url) => url.pathname === '/api/v1/drive/spaces/1/items',
-      (route) => route.fulfill({ json: { folders: [], files: [] } }),
-    );
-    const imports = trackRequests(page, 'POST', /\/api\/v1\/drive\/spaces\/1\/import-attachment$/);
-    await page.route(/\/api\/v1\/drive\/spaces\/1\/import-attachment$/, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
-    );
-    await page.goto(`/projects/${PROJECT_KEY}/issues/1`);
-    await page.getByRole('button', { name: 'up.txt 미리보기' }).click();
-    await expect(page.getByTestId('preview-body')).toContainText('UP');
-    await expect(page.getByRole('button', { name: 'AI 요약' })).toHaveCount(0);
-    await page.getByRole('button', { name: '더 보기' }).click();
-    await expect(page.getByRole('menuitem', { name: '링크 복사' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: '드라이브로 가져오기' }).click();
-    await expect(page.getByTestId('folder-picker')).toBeVisible();
-    await page.getByTestId('folder-picker').getByTestId('folder-picker-confirm').click();
-    await expect.poll(() => imports.count()).toBe(1);
-  });
-  test('열린 첨부가 실시간 재조회로 목록에서 빠져도 뷰어는 그 파일을 1건으로 유지한다', async ({ authenticatedPage: page }) => {
+  test('열린 첨부가 실시간 재조회로 목록에서 빠져도 뷰어는 그 파일을 1건으로 유지한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const a = createAttachment({ fileId: 7801, originalName: 'keep.txt', mimeType: 'text/plain' });
     const b = createAttachment({ fileId: 7802, originalName: 'other.txt', mimeType: 'text/plain' });
     await stubBundle(page, [a, b], []);
@@ -862,7 +429,7 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page).toHaveURL(/preview=file(%3A|:)7801/);
   });
 
-  test('목록이 비는 재조회 뒤에도 뷰어가 다시 마운트되지 않아 확대 배율이 유지된다', async ({ authenticatedPage: page }) => {
+  test('목록이 비는 재조회 뒤에도 뷰어가 다시 마운트되지 않아 확대 배율이 유지된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const img = createAttachment({ fileId: 7811, originalName: 'zoom.png', mimeType: 'image/png' });
     await stubBundle(page, [img], []);
     let list: IssueAttachment[] = [img];
@@ -897,7 +464,8 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page.getByRole('button', { name: '맞춤' })).toHaveText('150%');
   });
 
-  test('삭제된 첨부 딥링크는 찾을 수 없음 안내를 보이고 닫으면 ?preview 가 지워진다', async ({ authenticatedPage: page }) => {
+  // 안내 표시는 페이지 테스트가, 닫기(Esc)로 ?preview 를 지우는 것은 브라우저 history(useHistoryParam)라 여기서 본다.
+  test('삭제된 첨부 딥링크는 찾을 수 없음 안내를 보이고 닫으면 ?preview 가 지워진다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubBundle(page, [createAttachment({ fileId: 7901, originalName: 'live.txt', mimeType: 'text/plain' })], []);
     await page.goto(`/projects/${PROJECT_KEY}/issues/1?preview=file:999`);
     await expect(page.getByTestId('preview-not-found')).toBeVisible();
@@ -907,7 +475,7 @@ test.describe('이슈 첨부 뷰어 묶음 (WP-277)', () => {
     await expect(page).not.toHaveURL(/preview=/);
   });
 
-  test('뷰어를 닫으면 연 첨부 버튼으로 포커스가 돌아온다', async ({ authenticatedPage: page }) => {
+  test('뷰어를 닫으면 연 첨부 버튼으로 포커스가 돌아온다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubBundle(page, [createAttachment({ fileId: 7951, originalName: 'focus.txt', mimeType: 'text/plain' })], []);
     await page.route(
       (url) => url.pathname === `/api/v1/projects/${PROJECT_KEY}/issues/1/attachments/7951/content`,

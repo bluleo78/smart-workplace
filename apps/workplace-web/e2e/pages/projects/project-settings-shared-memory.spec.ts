@@ -1,4 +1,7 @@
 // WP-386 프로젝트 설정의 한 줄 링크 「공용 AI 메모리 n개 · 관리」 — 팀·공개 프로젝트만, 누르면 그 공간이 고른 설정 화면.
+// 링크 → AI 비서 설정으로 넘어가는 흐름(@flow)과 받는 동안 자리를 잡아 아래 섹션이 밀리지 않는지(@layout)만 남긴다.
+// 개인 프로젝트에는 링크가 없다는 조건부 렌더·링크 주소는 페이지 테스트
+// src/pages/projects/projectSettingsSharedMemory.test.tsx 가 지킨다(WP-971).
 import { createMember, createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -6,7 +9,7 @@ import { mockMyAssistantStatus } from '../../fixtures/my-assistant-mock'
 import { mockSharedMemory, sharedItem, sharedSpace } from '../../fixtures/shared-memory-mock'
 import { gate } from '../../fixtures/wait'
 
-test('팀 프로젝트 설정에 공용 메모리 개수 링크가 있고 누르면 그 공간이 고른 공용 탭으로 간다', async ({ authenticatedPage: page }) => {
+test('팀 프로젝트 설정에 공용 메모리 개수 링크가 있고 누르면 그 공간이 고른 공용 탭으로 간다', { tag: '@flow' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ id: 12, key: 'WP', type: 'TEAM' }))
   await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember({ userId: 1 })])
   await mockSharedMemory(page, { spaces: [sharedSpace({})], items: { 'PROJECT:12': [sharedItem(1), sharedItem(2), sharedItem(3)] } })
@@ -20,16 +23,7 @@ test('팀 프로젝트 설정에 공용 메모리 개수 링크가 있고 누르
   await expect(page.getByTestId('shared-space-title')).toHaveText('Smart Workplace(WP)')
 })
 
-test('개인 프로젝트에는 링크가 없다', async ({ authenticatedPage: page }) => {
-  await mockApi(page, 'GET', '/api/v1/projects/PABC', createProject({ id: 30, key: 'PABC', type: 'PERSONAL' }))
-  await mockApi(page, 'GET', '/api/v1/projects/PABC/members', [createMember({ userId: 1 })])
-  await mockSharedMemory(page, { spaces: [sharedSpace({})] })
-  await page.goto('/projects/PABC/settings')
-  await expect(page.getByRole('heading', { name: '프로젝트 설정' })).toBeVisible()
-  await expect(page.getByTestId('shared-memory-link')).toHaveCount(0)
-})
-
-test('공간 목록을 받는 동안 AI 메모리 섹션 자리를 미리 잡아 아래 섹션이 밀리지 않는다', async ({ authenticatedPage: page }) => {
+test('공간 목록을 받는 동안 AI 메모리 섹션 자리를 미리 잡아 아래 섹션이 밀리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await mockApi(page, 'GET', '/api/v1/projects/WP', createProject({ id: 12, key: 'WP', type: 'TEAM' }))
   await mockApi(page, 'GET', '/api/v1/projects/WP/members', [createMember({ userId: 1 })])
   await mockSharedMemory(page, { spaces: [sharedSpace({})], items: { 'PROJECT:12': [sharedItem(1)] } })

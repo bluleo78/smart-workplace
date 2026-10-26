@@ -1,8 +1,8 @@
 // 프로젝트 목록 소정리 E2E (WP-919) — 데스크톱 행·헤더 모양을 다른 이슈 목록과 맞춘 것을 고정한다.
 // - ID 헤더 글자가 키 글자(유형 아이콘 뒤) 시작과 같은 x 에 온다 — 평면 목록·사이클 구간 목록 각각.
-// - 체크박스로 고른 데스크톱 행은 모바일 선택 모드와 같은 다중 선택 배경(bg-primary/10)을 가진다.
-// - 빈 값은 —, 마감은 올해 「M월 D일」·다른 해 「YYYY. M. D」(시계 고정).
 // - 1024px(데스크톱 하한)에서 우선순위·마감 칸이 보인다 — 죽은 640px(sm) 규칙을 지운 뒤에도 같다.
+// 실제 글자 위치·폭이 필요한 것만 남긴다(@layout). 다중 선택 배경(bg-primary/10)과 빈 값 —·마감 날짜 표기는
+// 페이지 테스트 src/pages/projects/issueListRowPolish.test.tsx 가 지킨다(WP-971).
 import type { Locator, Page } from '@playwright/test';
 
 import type { CycleProgress, CycleResponse } from '../../../src/types/cycle';
@@ -81,7 +81,7 @@ async function idHeadOffset(page: Page): Promise<number> {
   return Math.abs((await textLeft(head)) - (await textLeft(key)));
 }
 
-test.describe('프로젝트 목록 소정리 (WP-919)', () => {
+test.describe('프로젝트 목록 소정리 (WP-919)', { tag: '@layout' }, () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
   test('평면 목록 — ID 헤더 글자가 키 글자와 2px 이내로 맞는다', async ({ authenticatedPage: page }) => {
@@ -95,28 +95,6 @@ test.describe('프로젝트 목록 소정리 (WP-919)', () => {
     await page.goto(`/projects/${KEY}`);
     await expect(page.getByTestId('list-cycle-section-cycle-1')).toBeVisible();
     expect(await idHeadOffset(page)).toBeLessThanOrEqual(2);
-  });
-
-  test('체크박스로 고른 데스크톱 행에 다중 선택 배경(bg-primary/10)이 붙는다', async ({ authenticatedPage: page }) => {
-    await setup(page);
-    await page.goto(`/projects/${KEY}`);
-    const row = page.getByTestId('issue-row-11');
-    await expect(row).not.toHaveClass(/bg-primary\/10/);
-    await page.getByTestId('select-issue-11').check();
-    await expect(row).toHaveClass(/bg-primary\/10/);
-    await page.getByTestId('select-issue-11').uncheck();
-    await expect(row).not.toHaveClass(/bg-primary\/10/);
-  });
-
-  test('마감 없는 행의 마감·담당자 칸은 —, 올해 마감은 「10월 25일」·다른 해는 「2027. 1. 5」', async ({
-    authenticatedPage: page,
-  }) => {
-    await setup(page);
-    await page.goto(`/projects/${KEY}`);
-    await expect(page.getByTestId('issue-row-13-due')).toHaveText('—');
-    await expect(page.getByTestId('issue-row-13-assignee')).toHaveText('—');
-    await expect(page.getByTestId('issue-row-11-due')).toHaveText('10월 25일');
-    await expect(page.getByTestId('issue-row-12-due')).toHaveText('2027. 1. 5');
   });
 
   test('1024px 에서도 우선순위·마감 칸이 보인다', async ({ authenticatedPage: page }) => {

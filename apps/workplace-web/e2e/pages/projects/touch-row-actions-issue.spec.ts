@@ -3,6 +3,7 @@
 // - 드라이브 링크: 링크 제거 X 상시 노출(44px) → 확인창 → DELETE drive-links/{id}
 // - 뷰 칩 ⋯: 상시 노출(44px) → 삭제 → 확인창 → DELETE saved-views/{id}
 // - 코멘트: hover 아이콘 대신 ⋯(44px) → DropdownMenu(휴대폰 시트 대신 — 다른 태블릿 행 메뉴와 일관) → 삭제 확인 → DELETE comments/{id}
+// 판정 태그(WP-980): 실제 터치 영역(boundingBox ≥44px)을 재는 줄은 @layout, 메뉴 언마운트 뒤 body pointer-events 잠금이 풀리는지는 @input.
 // 마우스 데스크톱 hover 동작은 기존 spec(dependencies / saved-views / issue-comments / drive-cross-link)이 회귀를 지킨다.
 import type { Locator, Page } from '@playwright/test';
 
@@ -78,7 +79,7 @@ async function expectTouchTarget(loc: Locator) {
 test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션', () => {
   test.use({ viewport: { width: 1180, height: 820 }, hasTouch: true, isMobile: true });
 
-  test('의존성 행 — hover X 대신 ⋯ → 메뉴 「차단 제거」 → DELETE', async ({ authenticatedPage: page }) => {
+  test('의존성 행 — hover X 대신 ⋯ → 메뉴 「차단 제거」 → DELETE', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const deletes = await setupIssue(page);
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
     // 관계 그룹(옛 의존성)은 기본 접힘 — 펼쳐야 섹션이 마운트된다(#343). 이름 옆 배지 수·「관계 추가」 버튼과 구분되게 앵커로.
@@ -94,7 +95,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await expect.poll(deletes).toEqual([`${BASE}/dependencies?otherNumber=42&direction=blocks`]);
   });
 
-  test('드라이브 링크 — 링크 제거 X 가 상시 보이고(44px) → 확인 → DELETE', async ({ authenticatedPage: page }) => {
+  test('드라이브 링크 — 링크 제거 X 가 상시 보이고(44px) → 확인 → DELETE', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const deletes = await setupIssue(page);
     await expect(page.getByTestId('issue-drive-link-501')).toBeVisible();
     const remove = page.getByTestId('issue-drive-link-remove-501');
@@ -105,7 +106,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await expect.poll(deletes).toEqual([`${BASE}/drive-links/501`]);
   });
 
-  test('내 코멘트 — hover 아이콘 대신 ⋯ → 드롭다운 → 삭제 확인 → DELETE', async ({ authenticatedPage: page }) => {
+  test('내 코멘트 — hover 아이콘 대신 ⋯ → 드롭다운 → 삭제 확인 → DELETE', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const deletes = await setupIssue(page, [
       createComment({ id: 10, issueId: ISSUE_ID, authorId: ME_ID, body: '내 코멘트 원본' }),
     ]);
@@ -127,7 +128,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await expect.poll(deletes).toEqual(['/api/v1/issues/7/comments/10']);
   });
 
-  test('내 코멘트 — ⋯ → 수정을 고르면 메뉴가 언마운트돼도 잠금 없이 편집기로 전환', async ({ authenticatedPage: page }) => {
+  test('내 코멘트 — ⋯ → 수정을 고르면 메뉴가 언마운트돼도 잠금 없이 편집기로 전환', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setupIssue(page, [
       createComment({ id: 10, issueId: ISSUE_ID, authorId: ME_ID, body: '내 코멘트 원본' }),
     ]);
@@ -142,7 +143,7 @@ test.describe('터치 태블릿(≥1024px) — 이슈 상세·뷰 칩 행 액션
     await expect(page.getByTestId('issue-comment-more-10')).toBeVisible();
   });
 
-  test('뷰 칩 ⋯ — 상시 보이고(44px) → 삭제 → 확인 → DELETE', async ({ authenticatedPage: page }) => {
+  test('뷰 칩 ⋯ — 상시 보이고(44px) → 삭제 → 확인 → DELETE', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const view: SavedViewResponse = {
       id: 1, name: '내 HIGH', query: 'priority=HIGH', visibility: 'PRIVATE',
       ownerId: ME_ID, mine: true, pinned: false, createdAt: '', updatedAt: '',
