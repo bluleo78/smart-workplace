@@ -13,9 +13,6 @@ import type { WikiPageSummary } from '@/types/wiki'
 import { wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
 
 mockViewport()
-// Radix Select 는 포인터 캡처 API 를 부른다 — jsdom 에는 없다.
-if (!Element.prototype.hasPointerCapture) Element.prototype.hasPointerCapture = () => false
-if (!Element.prototype.releasePointerCapture) Element.prototype.releasePointerCapture = () => {}
 
 const PERSONAL = wikiSpace({ id: 1, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })
 const TEAM = wikiSpace({ id: 2, type: 'TEAM', name: '팀 위키', role: 'OWNER' })

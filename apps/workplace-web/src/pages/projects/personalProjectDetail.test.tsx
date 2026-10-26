@@ -5,7 +5,7 @@
 // 스크롤·무한 로드·글자 변환(@layout)은 E2E 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { beforeAll, describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueResponse } from '@/types/issue'
@@ -93,12 +93,6 @@ async function open(path: string, api: ReturnType<typeof personalApi>, waitForTe
   await screen.findByTestId(waitForTestId, {}, { timeout: PAGE_LOAD_TIMEOUT })
   return view
 }
-
-// Radix Select(그룹 기준) 가 포인터로 열 때 부른다 — jsdom 에 없다.
-beforeAll(() => {
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.releasePointerCapture ??= () => {}
-})
 
 /** 주소의 쿼리 파라미터. */
 const paramsOf = (location: string) => new URL(location, 'http://x').searchParams

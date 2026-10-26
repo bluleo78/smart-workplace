@@ -6,7 +6,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { issueDetailHandlers } from '@/test/kits/projects/issueDetailEvents'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueAiContext, IssueDetailResponse } from '@/types/issue'
 
@@ -19,7 +19,7 @@ const detailWith = (aiContext: IssueAiContext) => createIssueDetail({ summary: c
 const EMPTY: IssueAiContext = { summary: null, nextAction: null, generatedAt: null, blockers: [] }
 
 /** 상세를 띄우고 현황 카드가 보일 때까지 기다린다. */
-async function open(detail: IssueDetailResponse | (() => IssueDetailResponse), extra: Parameters<typeof issueDetailHandlers>[0]['extra'] = []) {
+async function open(detail: IssueDetailResponse | (() => IssueDetailResponse), extra: NonNullable<Parameters<typeof issueDetailHandlers>[0]>['extra'] = []) {
   const view = renderPage(URL, { handlers: issueDetailHandlers({ key: KEY, detail, extra }) })
   const card = await screen.findByTestId('issue-instant-context', {}, { timeout: PAGE_LOAD_TIMEOUT })
   return { ...view, card }

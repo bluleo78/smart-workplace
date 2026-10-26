@@ -6,7 +6,8 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { API, issueDetailScreen, projectScreen } from '@/test/kits/projects/projectScreens'
+import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { API, projectScreen } from '@/test/kits/projects/projectScreens'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { ProjectResponse } from '@/types/project'
 
@@ -219,7 +220,7 @@ describe('리소스 로드 실패 화면 (#787)', () => {
   // 프로젝트 자체 접근 불가인 이슈 경로 — 같은 패턴(아이콘은 FileQuestionMark).
   test('접근할 수 없는 프로젝트의 이슈 경로도 같은 오류 화면을 보이고 목록으로 돌아갈 수 있다', async () => {
     const { user, location, container } = renderPage('/projects/NOPROJECT999/issues/1', {
-      handlers: [notFound('NOPROJECT999'), ...issueDetailScreen('NOPROJECT999', 1)],
+      handlers: [notFound('NOPROJECT999'), ...issueDetailSubHandlers({ key: 'NOPROJECT999', number: 1 })],
     })
     expect(await screen.findByText('프로젝트를 불러올 수 없습니다', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(screen.getByText('요청한 프로젝트가 존재하지 않거나 접근 권한이 없습니다.')).toBeInTheDocument()

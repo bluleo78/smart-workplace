@@ -2,10 +2,10 @@
 // 각 테스트는 보려는 응답(검색 결과·상세·쓰기)을 이 핸들러보다 앞에 두어 덮어쓴다(MSW 는 앞선 핸들러가 먼저 잡는다).
 import { http, HttpResponse } from 'msw'
 
-import type { IssueDetailResponse, IssueResponse } from '@/types/issue'
+import type { IssueResponse } from '@/types/issue'
 import type { ProjectResponse } from '@/types/project'
 
-import { createIssueDetail, createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
+import { createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
 import { createProject } from '../../../../e2e/factories/project.factory'
 
 export const API = '/api/v1'
@@ -50,26 +50,4 @@ export function projectScreen(
   const lastBodySearch = (epicTypeId?: number) =>
     [...searches].reverse().find((u) => epicTypeId == null || u.searchParams.get('type') !== String(epicTypeId))
   return { handlers, searches, lastBodySearch }
-}
-
-/**
- * 이슈 상세 화면 조회 — 상세(가변 getter)와 상세가 함께 부르는 부가 조회(watchers·labels·attachments·children 등).
- * 하위 목록 검색(parent=n)은 projectScreen 의 검색이 맡는다.
- */
-export function issueDetailScreen(key: string, number: number, detail: () => IssueDetailResponse = () => createIssueDetail()) {
-  const base = `${API}/projects/${key}/issues/${number}`
-  return [
-    http.get(base, () => HttpResponse.json(detail())),
-    ...['watchers', 'labels', 'attachments', 'children', 'drive-links', 'relations', 'dependencies', 'cycles', 'links', 'mail-links'].map((sub) =>
-      http.get(`${base}/${sub}`, () => HttpResponse.json([])),
-    ),
-  ]
-}
-
-/** Radix Select 는 포인터 캡처·scrollIntoView 를 부른다 — jsdom 미구현이라 빈 구현으로 보강한다(beforeAll 에서 부른다). */
-export function polyfillRadixSelect() {
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => {}
-  Element.prototype.releasePointerCapture ??= () => {}
-  Element.prototype.scrollIntoView ??= () => {}
 }

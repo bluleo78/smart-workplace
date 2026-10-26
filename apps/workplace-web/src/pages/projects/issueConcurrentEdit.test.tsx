@@ -7,7 +7,8 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { DETAIL_API, DETAIL_PATH, detailHandlers, detailRefOf, ISSUE_NUMBER, KEY } from '@/test/kits/projects/issueDetailRef'
+import { DETAIL_API, DETAIL_PATH, detailRefOf, ISSUE_NUMBER, KEY } from '@/test/kits/projects/issueDetailRef'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
@@ -29,7 +30,7 @@ function versionedServer(refetchDelayMs = 0) {
       body: server.body,
     })
   // 로그인 사용자를 멤버로 — 상태 같은 워크플로 필드도 편집할 수 있게.
-  const base = detailHandlers(detailRefOf(), [createMember()]).filter((h) => !h.info.header.endsWith(DETAIL_API))
+  const base = issueDetailHandlers({ detail: detailRefOf().current, members: [createMember()] }).filter((h) => !h.info.header.endsWith(DETAIL_API))
   const handlers = [
     http.get(DETAIL_API, async () => {
       server.gets += 1

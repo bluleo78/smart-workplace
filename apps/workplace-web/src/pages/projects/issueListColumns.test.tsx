@@ -73,16 +73,8 @@ function open(path: string, { cycles = [] as CycleResponse[], views = [] as Save
       }),
     ],
   })
-  currentLocation = view.location
   return { ...view, requests, views }
 }
-
-/**
- * 열 바꾸기는 렌더 때 params 가 아니라 지금 주소(window.location)로 URL 열 여부를 가른다(WP-955, BrowserRouter 전제).
- * 페이지 테스트는 MemoryRouter 라 window.location 이 첫 주소에 머문다 — 열 메뉴를 누르기 전에 라우터 주소를 창 주소에 맞춘다.
- */
-let currentLocation: () => string = () => '/'
-const syncWindowUrl = () => window.history.replaceState(window.history.state, '', currentLocation())
 
 /** 보이는 헤더 문구(스크린리더 전용 상태·우선순위·작업은 뺀다)를 순서대로. */
 function visibleHeaders(scope: Element) {
@@ -167,7 +159,6 @@ type User = ReturnType<typeof renderPage>['user']
 
 /** 열 메뉴에서 한 항목을 토글하고 닫는다(메뉴는 고른 뒤에도 열려 있다). */
 async function toggleColumn(user: User, key: string) {
-  syncWindowUrl()
   await user.click(screen.getByTestId('issue-column-picker'))
   await user.click(await screen.findByTestId(`issue-column-option-${key}`))
   await user.keyboard('{Escape}')
@@ -176,7 +167,6 @@ async function toggleColumn(user: User, key: string) {
 
 /** 필터 바에서 facet 값 하나를 고른다. */
 async function addFilter(user: User, facet: string, value: string) {
-  syncWindowUrl()
   await user.click(screen.getByTestId('add-filter-trigger'))
   await user.click(await screen.findByTestId(`add-filter-facet-${facet}`))
   await user.click(await screen.findByTestId(`facet-value-${facet}-${value}`))
@@ -185,7 +175,6 @@ async function addFilter(user: User, facet: string, value: string) {
 
 /** 뷰 저장 대화상자 — 이름을 넣고(열 담기 선택) 저장한다. */
 async function saveView(user: User, name: string, { includeColumns = false } = {}) {
-  syncWindowUrl()
   await user.click(screen.getByTestId('save-view-button'))
   const nameInput = await screen.findByTestId('save-view-name')
   if (includeColumns) await user.click(screen.getByTestId('save-view-include-columns'))
@@ -221,8 +210,6 @@ describe('열 고르기 메뉴·완료일 자동 열 (WP-270)', () => {
     await addFilter(user, 'priority', 'HIGH')
     await waitFor(() => expect(location()).toMatch(/priority=HIGH/))
     await headersEq(['ID', '제목', '담당자', '마감', '보고자'])
-
-    syncWindowUrl()
     await user.click(screen.getByTestId('issue-column-picker'))
     await user.click(await screen.findByTestId('issue-column-reset'))
     await headersEq(['ID', '제목', '담당자', '마감'])
@@ -270,8 +257,6 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
     await toggleColumn(user, 'reporter')
     await headersEq(['ID', '제목', '담당자', '마감', '보고자'])
-
-    syncWindowUrl()
     await user.click(screen.getByTestId('save-view-button'))
     expect(await screen.findByTestId('save-view-include-columns')).not.toBeChecked()
     expect(screen.getByTestId('save-view-columns-hint')).toHaveTextContent(/^\(우선순위·담당자·마감·보고자\)$/)
@@ -301,8 +286,6 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
     await toggleColumn(user, 'reporter')
     await headersEq(['ID', '제목', '담당자', '마감', '완료일', '보고자'])
-
-    syncWindowUrl()
     await user.click(screen.getByTestId('save-view-button'))
     // 힌트는 고른 열만 — 완료일 필터로 자동으로 붙은 열은 저장 대상이 아니다.
     expect(await screen.findByTestId('save-view-columns-hint')).toHaveTextContent(/^\(우선순위·담당자·마감·보고자\)$/)
@@ -319,7 +302,6 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
 
     // 개인 열을 기본으로 되돌린 뒤 뷰를 열면 뷰에 담긴 열로 보인다.
     await user.click(screen.getByTestId('view-chip-all'))
-    syncWindowUrl()
     await user.click(screen.getByTestId('issue-column-picker'))
     await user.click(await screen.findByTestId('issue-column-reset'))
     await headersEq(['ID', '제목', '담당자', '마감'])
@@ -331,7 +313,6 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
 
     // 열만 바꿔도 이 뷰는 「수정됨」 → 「뷰 업데이트」가 새 열을 저장한다.
     await toggleColumn(user, 'milestone')
-    syncWindowUrl()
     await user.click(await screen.findByTestId('update-view-button'))
     await waitFor(() => expect(requests.last('PATCH', `/api/v1/projects/${KEY}/saved-views/1`)?.body).toBeTruthy())
     const updated = new URLSearchParams((requests.last('PATCH', `/api/v1/projects/${KEY}/saved-views/1`)!.body as { query: string }).query)
@@ -370,8 +351,6 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     await user.click(screen.getByTestId('view-chip-1'))
     await waitFor(() => expect(params(location()).get('cols')).toBe('assignee,milestone'))
     await headersEq(['ID', '제목', '담당자', '마일스톤'])
-
-    syncWindowUrl()
     await user.click(screen.getByTestId('issue-column-picker'))
     await user.click(await screen.findByTestId('issue-column-reset'))
     await waitFor(() => expect(params(location()).get('cols')).toBe('priority,assignee,due'))
@@ -451,7 +430,6 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     expect(params(location()).has('cols')).toBe(false)
 
     await addFilter(user, 'priority', 'MID')
-    syncWindowUrl()
     await user.click(await screen.findByTestId('update-view-button'))
     await waitFor(() => expect(requests.last('PATCH', `/api/v1/projects/${KEY}/saved-views/1`)?.body).toBeTruthy())
     expect(new URLSearchParams((requests.last('PATCH', `/api/v1/projects/${KEY}/saved-views/1`)!.body as { query: string }).query).get('cols')).toBe(
@@ -474,7 +452,6 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     await user.click(screen.getByTestId('view-chip-1'))
     await headersEq(['ID', '제목', '담당자', '마일스톤'])
     await addFilter(user, 'priority', 'MID')
-    syncWindowUrl()
     await user.click(screen.getByTestId('save-view-button'))
     expect(await screen.findByTestId('save-view-include-columns')).not.toBeChecked()
     fireEvent.change(screen.getByTestId('save-view-name'), { target: { value: '높음·중간' } })

@@ -2,20 +2,13 @@
 // 미완료 선행 확인 다이얼로그(#827)가 범주로 판정되는지 지킨다. PATCH 배선은 E2E(issue-list 상세 상태 선택)가 맡는다.
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import type { IssueLinkSummary } from '../../../types/issue'
 import type { ProjectStatus } from '../../../types/projectStatus'
 import { IssueStatusSelect } from './IssueStatusSelect'
-
-// Radix Select 는 포인터 캡처 API 를 부른다 — jsdom 미구현이라 빈 구현으로 보강한다.
-beforeAll(() => {
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => {}
-  Element.prototype.releasePointerCapture ??= () => {}
-})
 
 const statuses: ProjectStatus[] = [
   { id: 1, name: '할 일', category: 'TODO', position: 0 },

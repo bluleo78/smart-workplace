@@ -7,7 +7,8 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, describe, expect, test } from 'vitest'
 
 import { issueBodyDraftKey } from '@/lib/issueBodyDraft'
-import { DETAIL_PATH, detailHandlers, detailRefOf, KEY } from '@/test/kits/projects/issueDetailRef'
+import { DETAIL_PATH, detailRefOf, KEY } from '@/test/kits/projects/issueDetailRef'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
@@ -17,7 +18,7 @@ const IMG_URL = `/api/v1/projects/${KEY}/issue-images/77`
 /** 본문을 정해 상세를 연다. */
 function openDetail(body: string, handlers: RequestHandler[] = []) {
   const ref = detailRefOf({ summary: createIssue({ id: 1, number: 1, title: '본문 이미지 대상' }), body })
-  return renderPage(DETAIL_PATH, { handlers: [...handlers, ...detailHandlers(ref)] })
+  return renderPage(DETAIL_PATH, { handlers: [...handlers, ...issueDetailHandlers({ detail: () => ref.current })] })
 }
 
 afterEach(() => window.localStorage.clear())

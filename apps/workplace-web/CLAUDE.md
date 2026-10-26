@@ -84,7 +84,7 @@ src/
 | 권한·역할·조건부 렌더(보인다/안 보인다/비활성) | 페이지·컴포넌트 테스트 |
 | 유효성 검사가 UI 오류로 보임 | 페이지·컴포넌트 테스트 |
 | 빈 화면·로딩·실패 상태, 배지·칩·라벨 문구 | 페이지·컴포넌트 테스트 |
-| 저장 뒤 목록 갱신(캐시 무효화), URL 상태·이동 | 페이지·컴포넌트 테스트(MemoryRouter) |
+| 저장 뒤 목록 갱신(캐시 무효화), URL 상태·이동·뒤로 가기, history 로 닫는 시트·상세 | 페이지 테스트(jsdom 세션 히스토리) |
 
 **애매하면**: 「jsdom 에서 이 단언이 거짓으로 통과하거나 잴 수 없는가?」 그렇다면 E2E, 아니면 vitest.
 
@@ -107,6 +107,9 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
   - 앱 셸이 늘 부르는 부가 조회는 `src/test/msw/baseHandlers.ts` 가 빈 성공으로 깐다(E2E `setupAuthMocks` 와 같은 목록). **핸들러가 없는 요청은 테스트 실패**다(E2E 의 「모킹 누락은 503」과 같은 원칙) — 화면 데이터(목록·쿼터 등)는 테스트가 준다
   - 첫 `findBy*` 에는 `{ timeout: PAGE_LOAD_TIMEOUT }` — 워커가 페이지 모듈을 처음 불러오는 데 5~6초가 든다. 그 뒤 단언은 기본값
   - 주소 이동은 반환값 `location()` 으로 단언한다. 쓰기 요청은 핸들러에서 `request.json()` 을 모아 비교한다
+  - 라우터는 jsdom 의 실제 세션 히스토리를 쓴다(BrowserRouter, WP-995) — `window.location`·`history.state`·뒤로 가기가 브라우저처럼 움직인다. `history.back()` 으로 닫는 화면을 닫은 직후 다시 열 때는 `await settleHistory()`(jsdom 이 이동을 타이머 몇 개에 걸쳐 끝낸다). 테스트 사이 정리는 `setup.ts` 가 한다
+  - jsdom 에 없는 `Element.scrollTo`·포인터 캡처·`URL.createObjectURL` 은 `setup.ts` 가 빈 구현으로 깐다 — 테스트 파일에서 다시 넣지 않는다. 캔버스는 전역으로 넣지 않는다(간트는 `test/kits/projects/timeline.ts` 의 `stubCanvas`)
+  - 이슈 상세 화면 목은 `test/kits/projects/issueDetailStubs.ts` 의 `issueDetailHandlers`(프로젝트·멤버·상세·하위 조회 전부)·`issueDetailSubHandlers`(상세·하위 조회만) 하나다
   - 글자 입력은 키 하나하나가 의미 있을 때만 `user.type`(키당 약 25ms), 값만 채우면 `user.paste`·`fireEvent.change`
   - Radix 하위 메뉴는 호버 대신 키보드(포커스 → `{ArrowRight}`)로 연다 — jsdom 은 레이아웃이 없어 호버로 연 하위 메뉴가 포인터를 옮기는 순간 닫힌다
   - 모바일 화면은 파일 맨 위(첫 `renderPage` 전)에서 `mockViewport()`(`src/test/viewport.ts`, iPhone 13 폭·터치 포인터)를 한 번 부른다 — matchMedia 결과가 파일 안에서 캐시되므로 한 파일은 뷰포트 하나만 쓴다

@@ -5,7 +5,7 @@
 // 범주 마지막 상태의 삭제 비활성은 StatusManagement.test.tsx 가 이미 지킨다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
-import { beforeAll, describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { ProjectResponse } from '@/types/project'
@@ -13,13 +13,6 @@ import type { ProjectStatus, StatusDeletionImpact } from '@/types/projectStatus'
 
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import { inServerOrder } from '../../../e2e/factories/projectStatus.factory'
-
-// Radix Select(옮길 상태)는 포인터 캡처 API 를 부른다 — jsdom 미구현이라 빈 구현으로 보강한다.
-beforeAll(() => {
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => {}
-  Element.prototype.releasePointerCapture ??= () => {}
-})
 
 const API = '/api/v1/projects/WP'
 

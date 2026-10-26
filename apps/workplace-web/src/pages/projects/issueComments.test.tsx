@@ -7,7 +7,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { DETAIL_PATH, detailHandlers, type DetailRef,detailRefOf, ISSUE_ID, ME_ID, setRichText } from '@/test/kits/projects/issueDetailRef'
+import { DETAIL_PATH, type DetailRef, detailRefOf, ISSUE_ID, ME_ID, setRichText } from '@/test/kits/projects/issueDetailRef'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueCommentResponse } from '@/types/issue'
 
@@ -46,7 +47,7 @@ function commentWrites(ref: DetailRef, calls: Call[]) {
 async function open(comments: IssueCommentResponse[] = [], members = [] as ReturnType<typeof createMember>[]) {
   const ref = detailRefOf({ comments })
   const calls: Call[] = []
-  const view = renderPage(DETAIL_PATH, { handlers: [...detailHandlers(ref, members), ...commentWrites(ref, calls)] })
+  const view = renderPage(DETAIL_PATH, { handlers: [...issueDetailHandlers({ detail: () => ref.current, members }), ...commentWrites(ref, calls)] })
   const input = await screen.findByTestId('issue-comment-input', {}, { timeout: PAGE_LOAD_TIMEOUT })
   return { ...view, ref, calls, input }
 }

@@ -3,20 +3,13 @@
 // e2e/pages/issue-versions.spec.ts 에서 옮겼다. 훅을 끊지 않고 MSW 로 실제 api → 훅 → 화면을 지난다
 // (훅을 vi.mock 한 분기 테스트는 VersionsPage.test.tsx·VersionReleaseDialog.test.tsx).
 import { act, screen, waitFor, within } from '@testing-library/react'
-import { beforeAll, describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 
 import { memberKeys } from '@/hooks/queries/useProjectMembers'
 import { BASE, KEY, OWNER_MEMBERS, PLAIN_MEMBERS, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
 import { createVersion } from '../../../../e2e/factories/version.factory'
-
-// Radix Select 는 포인터 캡처 API 를 부른다 — jsdom 미구현이라 빈 구현으로 보강한다.
-beforeAll(() => {
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => {}
-  Element.prototype.releasePointerCapture ??= () => {}
-})
 
 /** 버전 상세(1)를 열고 출시 대화상자를 띄운다 — 끝나지 않은 이슈 수가 와서 선택지가 보인 뒤를 돌려준다. */
 async function openRelease(opts: VersionApiOptions) {

@@ -7,7 +7,8 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { DETAIL_PATH, detailHandlers, type DetailRef,detailRefOf, ISSUE_ID, ME_ID, setRichText } from '@/test/kits/projects/issueDetailRef'
+import { DETAIL_PATH, type DetailRef, detailRefOf, ISSUE_ID, ME_ID, setRichText } from '@/test/kits/projects/issueDetailRef'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueCommentResponse, IssueDetailResponse } from '@/types/issue'
 
@@ -57,7 +58,7 @@ async function open(comments: IssueCommentResponse[], opts: Opts = {}) {
     return new HttpResponse(null, { status: 204 })
   }
   const handlers = [
-    ...detailHandlers(ref),
+    ...issueDetailHandlers({ detail: () => ref.current }),
     http.post(REACTIONS, write),
     http.delete(REACTIONS, write),
     http.get(`${REACTIONS}/users`, ({ request, params }) => {

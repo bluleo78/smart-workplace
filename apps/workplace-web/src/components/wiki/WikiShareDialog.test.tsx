@@ -41,11 +41,7 @@ vi.mock('@/pages/projects/components/MemberSearchPopover', () => ({
   ),
 }))
 
-// jsdom 에는 포인터 캡처가 없어 Radix Select 가 열리다 던진다.
 beforeEach(() => {
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => {}
-  Element.prototype.releasePointerCapture ??= () => {}
   save.mockReset()
   regenerate.mockReset()
   revoke.mockReset()

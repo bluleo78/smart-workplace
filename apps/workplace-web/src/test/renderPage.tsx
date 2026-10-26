@@ -6,7 +6,7 @@ import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RequestHandler } from 'msw'
 import { useEffect } from 'react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { BrowserRouter, useLocation } from 'react-router-dom'
 
 import App from '@/App'
 import { Toaster } from '@/components/ui/sonner'
@@ -17,6 +17,8 @@ import type { RoleResponse } from '@/types/role'
 import { createUser } from '../../e2e/factories/auth.factory'
 import { authHandlers, MOCK_USER_ROLE, shellHandlers } from './msw/baseHandlers'
 import { server } from './msw/server'
+
+export { settleHistory } from './history'
 
 /**
  * 첫 화면을 기다리는 시간 — 워커가 페이지 모듈 그래프를 처음 변환·불러올 때(프로젝트 화면 약 5~6초) 기본 1초로는 모자란다.
@@ -48,6 +50,9 @@ export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handl
   server.use(...handlers, ...authHandlers(user ?? createUser({ aiAvailable: true }), roles), ...shellHandlers)
   // AuthProvider 는 이 표식이 있을 때만 refresh 로 세션을 되살린다(E2E 의 hasSession 주입과 같음).
   window.localStorage.setItem('hasSession', '1')
+  // 라우터는 jsdom 의 실제 세션 히스토리(window.history)를 쓴다(WP-995) — MemoryRouter 는 window.history 를 건드리지 않아
+  // history.state 로 「앱 안에서 연 항목」을 알아보는 닫기(useHistoryParam·useIssueOrigin)·뒤로 가기·window.location 을 읽는
+  // 코드가 jsdom 에서 무동작이었다. 시작 주소는 현재 항목을 바꿔 둔다 — state 가 비어 있어 라우터는 이 항목을 첫 항목(idx 0)으로 본다.
   window.history.replaceState(null, '', path)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },
@@ -58,13 +63,13 @@ export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handl
   }
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
+      <BrowserRouter>
         <AuthProvider>
           <App />
         </AuthProvider>
         <LocationProbe onChange={onLocation} />
         <Toaster />
-      </MemoryRouter>
+      </BrowserRouter>
     </QueryClientProvider>,
   )
   return { ...view, user: userEvent.setup(), queryClient, location: () => current }

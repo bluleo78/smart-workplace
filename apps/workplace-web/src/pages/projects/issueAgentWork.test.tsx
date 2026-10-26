@@ -5,7 +5,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { issueDetailHandlers } from '@/test/kits/projects/issueDetailEvents'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { AgentWorkView } from '@/types/issue'
 

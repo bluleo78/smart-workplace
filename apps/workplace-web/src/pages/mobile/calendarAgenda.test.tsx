@@ -17,8 +17,6 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../..
 import { createProject } from '../../../e2e/factories/project.factory'
 
 mockViewport()
-// jsdom 에는 요소 scrollTo 가 없다 — 세대가 바뀔 때 목록을 맨 위로 올리는 호출(스크롤 위치는 E2E @layout 이 본다).
-if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {}
 
 const NOW = new Date('2026-10-12T23:40:00Z') // 2026-10-13 08:40 KST
 // 시계만 고정한다(타이머는 실제) — MSW·RTL 대기는 그대로 돈다.
