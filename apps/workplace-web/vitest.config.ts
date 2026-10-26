@@ -10,13 +10,13 @@ import { defineConfig } from 'vitest/config';
 import { appVersionDefine } from '../../scripts/vite-app-version.mjs'
 
 /**
- * 페이지 테스트(renderPage — App 전체를 띄움) 파일 목록. 파일마다 앱 모듈을 불러오고 첫 화면을 띄우는 데 10초 안팎이 들어
- * 120여 개가 vitest 전체를 40초에서 3분으로 늘렸다(WP-995). pre-commit 은 VITEST_SKIP_PAGE_TESTS=1 로 이들을 빼고 돌고,
- * 전체(페이지 테스트 포함)는 pre-push 가 돌린다.
+ * 페이지·화면 테스트(renderPage — App 전체, renderScreen — 화면 컴포넌트를 MSW 와 함께) 파일 목록. 파일마다 화면 모듈을 불러오는 데
+ * 수 초(renderScreen)~10초 안팎(renderPage)이 들어 120여 개가 vitest 전체를 40초에서 3분으로 늘렸다(WP-995). pre-commit 은
+ * VITEST_SKIP_PAGE_TESTS=1 로 이들을 빼고 돌고, 전체(페이지·화면 테스트 포함)는 pre-push 가 돌린다.
  */
 function pageTestFiles(): string[] {
   const files = fs.globSync('src/**/*.test.tsx', { cwd: __dirname })
-  return files.filter((f) => /\brenderPage|@\/test\/kits\//.test(fs.readFileSync(path.join(__dirname, f), 'utf8')))
+  return files.filter((f) => /\brender(Page|Screen)\b|@\/test\/kits\//.test(fs.readFileSync(path.join(__dirname, f), 'utf8')))
 }
 const skipPageTests = process.env.VITEST_SKIP_PAGE_TESTS === '1'
 
