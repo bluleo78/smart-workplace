@@ -2,7 +2,7 @@
 // 데스크톱 속성 레일(상태·담당 그룹 담당자 아래, 세로 배치)과 모바일 ＋ 속성 시트(유형 아래, 가로 배치)가 공유한다.
 // 바꿀 수 있는 사람(프로젝트 OWNER·ADMIN·지금 보고자, WP-944)에게는 담당자 필드처럼 값이 편집 트리거가 되고, 고르면 바로 바꾼다.
 // 그 밖에는 읽기 전용 텍스트다.
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import {
@@ -20,10 +20,9 @@ import { labelWithValue } from '@/lib/labelWithValue';
 
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useChangeIssueReporter } from '../../../hooks/queries/useChangeIssueReporter';
-import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
+import { useReporterCandidates } from '../../../hooks/queries/useReporterCandidates';
 import { formatDateMonthDay, formatDateTimeMinute } from '../../../lib/formatters';
-import { reporterCandidates } from '../../../lib/reporterCandidates';
-import type { MemberResponse } from '../../../types/project';
+import type { ReporterOption } from '../../../lib/reporterCandidates';
 import type { UserSummary } from '../../../types/user';
 
 const LABEL_CLASS = 'text-xs font-medium text-muted-foreground';
@@ -34,6 +33,8 @@ export interface ReporterEdit {
   issueNumber: number;
   /** 로그인한 사람 — 지금 보고자가 스스로 넘길 때만 확인창을 띄운다. */
   currentUserId: number | undefined;
+  /** 오픈(공개) 프로젝트면 프로젝트 구성원이 아니어도 워크스페이스 전체에서 후보를 찾는다(WP-967). */
+  isOpenProject: boolean;
 }
 
 export function IssueReporterField({
@@ -112,20 +113,22 @@ function ReporterPicker({
   layout: 'rail' | 'sheet';
   children: React.ReactNode;
 }) {
-  const members = useProjectMembers(edit.projectKey);
   const change = useChangeIssueReporter(edit.projectKey, edit.issueNumber);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [handOver, setHandOver] = useState<MemberResponse | null>(null);
+  const [handOver, setHandOver] = useState<ReporterOption | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return reporterCandidates(members.data, reporter?.id).filter((m) =>
-      `${m.name} ${m.username}`.toLowerCase().includes(q),
-    );
-  }, [members.data, search, reporter?.id]);
+  // 오픈 프로젝트: 구성원이 아니어도 볼 수 있는 사람 전부가 후보라 워크스페이스 디렉터리를 검색한다(WP-967).
+  // 그 밖(비공개·개인): 지금처럼 프로젝트 구성원만 — 두 소스·필터링 방식은 훅 하나가 가린다.
+  const { data: filtered, status } = useReporterCandidates(
+    edit.projectKey,
+    edit.isOpenProject,
+    search,
+    reporter?.id,
+    open,
+  );
 
-  function pick(m: MemberResponse) {
+  function pick(m: ReporterOption) {
     setOpen(false);
     // 본인이 넘기면 확인 — 넘긴 뒤에는 보고자 권한(내용 수정·삭제·보고자 바꾸기)이 새 보고자에게 간다.
     if (reporter && reporter.id === edit.currentUserId) {
@@ -168,22 +171,30 @@ function ReporterPicker({
             aria-label="멤버 검색"
           />
           <div className="max-h-64 space-y-1 overflow-y-auto">
-            {filtered.map((m) => (
-              <button
-                key={m.userId}
-                type="button"
-                // 이름·아이디 한 줄 말줄임 — 담당자 픽커와 같은 규칙(WP-461).
-                className="flex w-full min-w-0 items-center gap-2 rounded p-1 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-                data-testid={`reporter-option-${m.userId}`}
-                title={`${m.name} @${m.username}`}
-                onClick={() => pick(m)}
-              >
-                <UserAvatar user={{ id: m.userId, username: m.username, name: m.name }} size="xs" />
-                <span className="min-w-0 truncate text-sm">{m.name}</span>
-                <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
-              </button>
-            ))}
-            {filtered.length === 0 && <p className="py-2 text-center text-xs text-muted-foreground">결과 없음</p>}
+            {/* 로딩·실패 동안은 목록을 숨긴다 — 「결과 없음」으로 오해하거나 옛 검색어 결과를 고르지 않게(WP-967). */}
+            {status === 'loading' ? (
+              <p className="py-2 text-center text-xs text-muted-foreground">검색 중…</p>
+            ) : status === 'error' ? (
+              <p className="py-2 text-center text-xs text-muted-foreground">검색에 실패했습니다</p>
+            ) : filtered.length === 0 ? (
+              <p className="py-2 text-center text-xs text-muted-foreground">결과 없음</p>
+            ) : (
+              filtered.map((m) => (
+                <button
+                  key={m.userId}
+                  type="button"
+                  // 이름·아이디 한 줄 말줄임 — 담당자 픽커와 같은 규칙(WP-461).
+                  className="flex w-full min-w-0 items-center gap-2 rounded p-1 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                  data-testid={`reporter-option-${m.userId}`}
+                  title={`${m.name} @${m.username}`}
+                  onClick={() => pick(m)}
+                >
+                  <UserAvatar user={{ id: m.userId, username: m.username, name: m.name }} size="xs" />
+                  <span className="min-w-0 truncate text-sm">{m.name}</span>
+                  <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
+                </button>
+              ))
+            )}
           </div>
         </PopoverContent>
       </Popover>
