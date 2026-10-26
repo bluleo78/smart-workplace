@@ -62,3 +62,6 @@ export const PLUGIN_DEFAULT_SERVER_URL = 'https://genia-works.iacloud.kr/mcp';
 export function needsServerUrlSetting(endpoint: string): boolean {
   return endpoint.replace(/\/+$/, '') !== PLUGIN_DEFAULT_SERVER_URL;
 }
+
+// WP-993 시험: 일부러 lint 오류(미사용 변수) — 머지 거절 확인용, 머지하지 않음
+const wp993Unused = 1
