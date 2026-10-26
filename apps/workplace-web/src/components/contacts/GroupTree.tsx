@@ -72,8 +72,9 @@ function TreeNode({ node, depth, selectedId, onSelect, editable, onEdit, onDelet
         <button
           type="button"
           data-testid={`group-node-${node.id}`}
-          // 다시 누르면 해제되는 필터라 aria-current 가 아닌 aria-pressed(그룹 멤버 행과 같은 규칙).
-          aria-pressed={selectedId === node.id}
+          // 사이드바 「보기」 항목이라 누르면 그 그룹으로 이동하고 현재 위치를 aria-current 로 알린다(WP-976, §B-1).
+          // 예전엔 다시 누르면 해제되는 토글(aria-pressed)이었다 — 빠져나오는 길이 안 보여 토글을 없앴다.
+          aria-current={selectedId === node.id ? 'page' : undefined}
           // 모바일 시트에서 그룹을 고르면 시트를 닫아 그 그룹 목록을 보여 준다(WP-578). 그룹 추가·수정·삭제 버튼엔 달지 않는다 —
           // 그 다이얼로그는 이 컴포넌트(시트) 안에 있어 시트를 닫으면 함께 사라진다.
           data-sheet-dismiss
@@ -153,8 +154,9 @@ export function GroupTree({ selectedId, onSelect }: Props) {
   // 편집 대상(항상 개인 그룹)의 자손은 상위 그룹 후보에서 제외 — 선택 시 백엔드가 항상 400(사이클) 거부.
   const personalParentOptions = parentGroupOptions(data?.personal ?? [], editTarget?.id ?? null)
 
-  // 같은 노드를 다시 클릭하면 선택 해제(통합 목록 복원).
-  const handleSelect = (id: number) => onSelect(selectedId === id ? null : id)
+  // 누르면 그 그룹으로 이동만 한다 — 같은 노드를 다시 눌러도 해제하지 않는다(WP-976, §B-1 「사이드바 선택」).
+  // 빠져나오기는 다른 보기(전체·멤버 등)나 다른 그룹을 누르거나 검색창 범위 칩 × 로 한다.
+  const handleSelect = (id: number) => onSelect(id)
 
   // 편집은 직속 멤버가 필요 → 상세를 가져와 폼에 전달
   const openEdit = async (node: UserGroupNode) => {

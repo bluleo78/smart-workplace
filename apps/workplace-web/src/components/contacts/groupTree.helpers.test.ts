@@ -2,9 +2,9 @@
 // contacts/contacts(비정수 group 파라미터)를 대체한다.
 import { describe, expect, it } from 'vitest'
 
-import type { UserGroupNode } from '@/types/userGroup'
+import type { UserGroupMemberSummary, UserGroupNode } from '@/types/userGroup'
 
-import { collectDescendantIds, parentGroupOptions, parseGroupId } from './groupTree.helpers'
+import { collectDescendantIds, filterGroupMembers, parentGroupOptions, parseGroupId } from './groupTree.helpers'
 
 const node = (id: number, name: string, children: UserGroupNode[] = [], parentId: number | null = null): UserGroupNode => ({
   id, code: null, name, parentId, ownerId: null, visibility: 'SHARED', sortOrder: 0, children,
@@ -43,5 +43,39 @@ describe('parseGroupId', () => {
     expect(parseGroupId('-1')).toBeNull()
     expect(parseGroupId('')).toBeNull()
     expect(parseGroupId(null)).toBeNull()
+  })
+})
+
+// 그룹 보기 안 검색(WP-976) — 직속 구성원을 이름·이메일·직책·조직으로 거른다.
+describe('filterGroupMembers', () => {
+  const m = (name: string, extra: Partial<UserGroupMemberSummary> = {}): UserGroupMemberSummary => ({
+    targetType: 'MEMBER', targetId: name.length, name, email: null, title: null, organization: null, ...extra,
+  })
+  const members = [
+    m('김재경', { email: 'jaekyung.kim@example.com', title: '재경팀장' }),
+    m('이수정', { email: 'Sujung.Lee@example.com' }),
+    m('임가람', { organization: '삼정회계법인' }),
+  ]
+
+  it('빈 검색어·공백만이면 그대로 돌려준다', () => {
+    expect(filterGroupMembers(members, '')).toBe(members)
+    expect(filterGroupMembers(members, '   ')).toBe(members)
+  })
+
+  it('이름 부분 일치로 거른다', () => {
+    expect(filterGroupMembers(members, '수정').map((x) => x.name)).toEqual(['이수정'])
+  })
+
+  it('이메일은 대소문자를 무시한다', () => {
+    expect(filterGroupMembers(members, 'sujung.lee').map((x) => x.name)).toEqual(['이수정'])
+  })
+
+  it('직책·조직으로도 찾는다', () => {
+    expect(filterGroupMembers(members, '팀장').map((x) => x.name)).toEqual(['김재경'])
+    expect(filterGroupMembers(members, '회계법인').map((x) => x.name)).toEqual(['임가람'])
+  })
+
+  it('맞는 사람이 없으면 빈 목록', () => {
+    expect(filterGroupMembers(members, '없는사람')).toEqual([])
   })
 })

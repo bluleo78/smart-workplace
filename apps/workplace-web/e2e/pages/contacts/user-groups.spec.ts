@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test'
 import { personalDetail, personalNode, sharedDetail, sharedNode, tree } from '../../factories/userGroups.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { trackRequests } from '../../fixtures/requests'
-import { expectPressed, expectSelectedRow } from '../../fixtures/selection'
+import { expectCurrent, expectSelectedRow } from '../../fixtures/selection'
 
 // GET /api/v1/user-groups → 트리(기본: 공유 1개 + 개인 1개)
 async function stubTree(page: Page, body = tree()) {
@@ -52,8 +52,8 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: '@smoke'
   await expect(page.getByTestId('org-chart-view')).toBeVisible()
   await expect(page.getByTestId('group-member-MEMBER-2')).toContainText('이개발')
 
-  // 같은 노드 재클릭 → 선택 해제, 통합 목록(빈 상태) 복원
-  await page.getByTestId('group-node-10').click()
+  // 사이드바 「전체」를 누르면 그룹 선택이 저절로 풀리고 통합 목록(빈 상태)이 돌아온다(WP-976 — 같은 노드 재클릭 토글 없음).
+  await page.getByTestId('contact-filter-ALL').click()
   await expect(page.getByTestId('org-chart-view')).toBeHidden()
   await expect(page.getByTestId('contact-empty')).toBeVisible()
 })
@@ -79,12 +79,12 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async ({ authent
   await page.getByTestId('group-node-10').click()
   await expect(page.getByTestId('org-chart-view')).toBeVisible()
   await expectSelectedRow(row10, row20)
-  // 다시 누르면 해제되는 필터 토글이라 aria-pressed 로 알린다(멤버 행과 같은 규칙).
-  await expectPressed(page.getByTestId('group-node-10'), page.getByTestId('group-node-20'))
+  // 사이드바 「보기」 항목이라 현재 위치를 aria-current="page" 로 알린다(WP-976 — 토글이 아니다).
+  await expectCurrent(page.getByTestId('group-node-10'), page.getByTestId('group-node-20'), 'page')
   // 개인 그룹으로 옮기면 선택 표시가 따라가고, 멤버 행은 고르기 전엔 선택 표시가 없다.
   await page.getByTestId('group-node-20').click()
   await expectSelectedRow(row20, row10)
-  await expectPressed(page.getByTestId('group-node-20'), page.getByTestId('group-node-10'))
+  await expectCurrent(page.getByTestId('group-node-20'), page.getByTestId('group-node-10'), 'page')
   const member = page.getByTestId('group-member-MEMBER-1')
   await expect(member).toHaveAttribute('aria-pressed', 'false')
   await expect(member).not.toHaveClass(/bg-selected/)
@@ -94,27 +94,29 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async ({ authent
   await expect(member).toHaveClass(/selection-bar/)
 })
 
-// WP-898 — 그룹을 고른 동안 꺼진 타입 퀵필터(「전체」)는 선택 표시도 aria-current 도 없고, 그룹을 풀면 「전체」가 다시 현재 항목이다.
-test('그룹을 고르면 꺼진 「전체」 퀵필터는 현재 항목으로 표시·안내되지 않는다 (WP-898)', async ({ authenticatedPage: page }) => {
+// WP-898·WP-976 — 그룹을 고른 동안 타입 퀵필터(「전체」)는 현재 항목이 아니지만 잠기지 않고, 누르면 그룹 선택이 풀리며 「전체」가 현재 항목이 된다.
+test('그룹을 고르면 「전체」는 현재 항목이 아니되 잠기지 않고, 누르면 그룹을 떠난다 (WP-898·WP-976)', async ({ authenticatedPage: page }) => {
   await stubContacts(page)
   await stubTree(page)
   await stubDetail(page)
   await page.goto('/contacts')
   const all = page.getByTestId('contact-filter-ALL')
-  await expect(all).toHaveAttribute('aria-current', 'true')
+  await expect(all).toHaveAttribute('aria-current', 'page')
   await expect(all).toHaveClass(/bg-selected/)
 
   await page.getByTestId('group-node-10').click()
   await expect(page.getByTestId('org-chart-view')).toBeVisible()
-  await expect(all).toBeDisabled()
+  await expect(all).toBeEnabled()
   await expect(all).not.toHaveAttribute('aria-current')
   await expect(all).not.toHaveClass(/bg-selected/)
   await expect(page.locator('[data-testid^="contact-filter-"][aria-current]')).toHaveCount(0)
 
-  // 같은 노드를 다시 눌러 풀면 「전체」가 돌아온다.
-  await page.getByTestId('group-node-10').click()
-  await expect(all).toHaveAttribute('aria-current', 'true')
+  // 「전체」를 누르면 그룹 선택이 풀리고 「전체」가 돌아온다.
+  await all.click()
+  await expect(page.getByTestId('org-chart-view')).toBeHidden()
+  await expect(all).toHaveAttribute('aria-current', 'page')
   await expect(all).toHaveClass(/bg-selected/)
+  await expect(page.getByTestId('group-node-10')).not.toHaveAttribute('aria-current')
 })
 
 // WP-923: 행마다 반복되는 접기·수정·삭제 버튼은 이름에 그룹 이름을 넣어 스크린리더가 어느 그룹의 버튼인지 구분한다.
