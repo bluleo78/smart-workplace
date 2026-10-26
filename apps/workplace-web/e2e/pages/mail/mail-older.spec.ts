@@ -1,4 +1,6 @@
 // 메일 목록 이어 보기 E2E(WP-965) — 끝까지 내리면 로컬 다음 페이지(커서)를 잇고, 로컬이 바닥나면 받은편지함·보낸편지함은 서버에서 이전 메일을 더 가져온다.
+// 실제 스크롤로 끝 감시 줄이 보이는 순간을 재는 흐름만 남긴다(@layout). 짧은 목록의 서버 가져오기(SENT·빈 목록)·다른 분류 보기 제외·
+// 실패 뒤 다시 시도는 src/pages/mail/mailSidebar.test.tsx(vitest, WP-984)가 지킨다.
 import type { Page } from '@playwright/test'
 
 import type { EmailMessageSummary, MailOlderResult, MailUnreadCounts } from '../../../src/types/mailMessage'
@@ -39,7 +41,7 @@ async function scrollToEnd(page: Page) {
 }
 
 test.describe('메일 목록 이어 보기(WP-965)', () => {
-  test('받은편지함 — 끝까지 내리면 다음 페이지(커서)를 잇고, 로컬이 바닥나면 서버에서 이전 메일을 가져와 붙인 뒤 「더 이전 메일 없음」', async ({ authenticatedPage: page }) => {
+  test('받은편지함 — 끝까지 내리면 다음 페이지(커서)를 잇고, 로컬이 바닥나면 서버에서 이전 메일을 가져와 붙인 뒤 「더 이전 메일 없음」', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubBase(page)
     let olderLoaded = false
     // 첫 페이지 50통(1000~951), 그다음(beforeId=951) 10통 — 서버에서 가져온 뒤에는 5통(940~936)이 더 붙는다.
@@ -85,73 +87,4 @@ test.describe('메일 목록 이어 보기(WP-965)', () => {
     await expectStays(page, olders.count, 1)
   })
 
-  test('보낸편지함 — 짧은 목록은 끝이 바로 보여 서버 보낸편지함 이전 메일을 가져온다', async ({ authenticatedPage: page }) => {
-    await stubBase(page)
-    await mockApi(page, 'GET', LIST, rows(1000, 999))
-    const olders = trackRequests(page, 'POST', OLDER)
-
-    await page.goto('/mail/1?folder=sent')
-
-    await expect(page.getByTestId('mail-row-999')).toBeVisible()
-    await olders.waitFor(1)
-    expect(olders.lastUrl()?.searchParams.get('folder')).toBe('SENT')
-    await expect(page.getByTestId('mail-list-no-older')).toBeVisible()
-  })
-
-  test('최근 범위에 보낸 메일이 하나도 없어도 빈 목록에서 이전 메일을 가져온다', async ({ authenticatedPage: page }) => {
-    await stubBase(page)
-    let loaded = false
-    await page.route(
-      (u) => u.pathname === LIST,
-      (route) => route.fulfill({ json: loaded ? [row(500)] : [] }),
-    )
-    await page.route(
-      (u) => u.pathname === OLDER,
-      (route) => {
-        loaded = true
-        return route.fulfill({ json: olderResult({ fetched: 1, saved: 1, hasMore: false }) })
-      },
-    )
-
-    await page.goto('/mail/1?folder=sent')
-
-    await expect(page.getByTestId('mail-row-500')).toBeVisible()
-    await expect(page.getByTestId('mail-list-no-older')).toBeVisible()
-  })
-
-  test('다른 분류 보기에서는 서버에서 가져오지 않는다(검색·안 읽은 메일만 제외는 vitest mailListPages)', async ({ authenticatedPage: page }) => {
-    await stubBase(page)
-    await mockApi(page, 'GET', LIST, rows(1000, 999))
-    const olders = trackRequests(page, 'POST', OLDER)
-
-    await page.goto('/mail/1?category=개인')
-    await expect(page.getByTestId('mail-row-999')).toBeVisible()
-    await expectStays(page, olders.count, 0)
-    await expect(page.getByTestId('mail-list-no-older')).toHaveCount(0)
-  })
-
-  test('가져오기에 실패하면 목록 끝에 「다시 시도」 — 누르면 다시 부른다', async ({ authenticatedPage: page }) => {
-    await stubBase(page)
-    await mockApi(page, 'GET', LIST, rows(1000, 999))
-    let fail = true
-    await page.route(
-      (u) => u.pathname === OLDER,
-      (route) =>
-        fail
-          ? route.fulfill({ status: 502, json: { message: '메일 서버에 연결하지 못했습니다' } })
-          : route.fulfill({ json: olderResult() }),
-    )
-    const olders = trackRequests(page, 'POST', OLDER)
-
-    await page.goto('/mail/1')
-    const error = page.getByTestId('mail-list-end').getByRole('button', { name: '이전 메일을 가져오지 못했습니다 — 다시 시도' })
-    await expect(error).toBeVisible()
-    // 실패한 뒤에는 스스로 다시 부르지 않는다.
-    await expectStays(page, olders.count, 1)
-
-    fail = false
-    await error.click()
-    await expect(page.getByTestId('mail-list-no-older')).toBeVisible()
-    expect(olders.count()).toBe(2)
-  })
 })

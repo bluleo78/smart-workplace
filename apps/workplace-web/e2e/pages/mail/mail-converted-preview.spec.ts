@@ -1,6 +1,8 @@
 // 메일 첨부 문서 변환 미리보기(WP-432, 데스크톱) — HWP 등 변환 대상 첨부는 원본 대신 서버 변환 PDF(/mail/attachments/{id}/preview)를 폴링해 그린다.
 // 변환 완료·변환 중 → 완료·영구 실패(원본 다운로드)·일시 실패 후 다시 시도·404(오류 vs 미지원).
 // 모바일 배선 1건은 e2e/pages/mobile/mail-attachment-viewer-mobile.spec.ts.
+// 변환 PDF 그리기·원본 다운로드가 걸린 흐름만 남긴다(@platform). 404 의 오류/미지원 구분은
+// src/pages/mail/mailDetailExtras.test.tsx(vitest, WP-984)가 지킨다.
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../../fixtures/auth.fixture'
@@ -36,7 +38,7 @@ async function expectConvertedPdf(page: Page) {
 }
 
 test.describe('메일 첨부 문서 변환 미리보기', () => {
-  test('변환이 끝난 HWP 첨부는 바로 PDF 로 보이고 원본은 받지 않는다', async ({ authenticatedPage: page }) => {
+  test('변환이 끝난 HWP 첨부는 바로 PDF 로 보이고 원본은 받지 않는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const req = await stubHwp(page, 40, [{ status: 200 }])
     await openViewer(page, 40)
     await expectConvertedPdf(page)
@@ -46,7 +48,7 @@ test.describe('메일 첨부 문서 변환 미리보기', () => {
     await expectStays(page, req.content.count, 0)
   })
 
-  test('변환 중이면 진행 화면을 보이다가 끝나면 PDF 로 바뀐다', async ({ authenticatedPage: page }) => {
+  test('변환 중이면 진행 화면을 보이다가 끝나면 PDF 로 바뀐다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const req = await stubHwp(page, 41, [{ status: 202 }, { status: 202 }, { status: 200 }])
     await openViewer(page, 41)
     const converting = page.getByTestId('preview-converting')
@@ -61,7 +63,7 @@ test.describe('메일 첨부 문서 변환 미리보기', () => {
     await expectStays(page, req.content.count, 0)
   })
 
-  test('영구 실패면 안내와 원본 다운로드', async ({ authenticatedPage: page }) => {
+  test('영구 실패면 안내와 원본 다운로드', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const req = await stubHwp(page, 42, [{ status: 422, code: 'CONVERT_FAILED', transient: false }])
     await openViewer(page, 42)
     const failed = page.getByTestId('preview-convert-failed')
@@ -76,7 +78,7 @@ test.describe('메일 첨부 문서 변환 미리보기', () => {
     expect(req.content.urls().map((u) => u.pathname)).toEqual(['/api/v1/mail/attachments/42/content'])
   })
 
-  test('일시 실패에서 다시 시도하면 start=true 로 다시 요청해 PDF 를 보인다', async ({ authenticatedPage: page }) => {
+  test('일시 실패에서 다시 시도하면 start=true 로 다시 요청해 PDF 를 보인다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     const req = await stubHwp(page, 43, [{ status: 422, code: 'BUSY', transient: true }, { status: 200 }])
     await openViewer(page, 43)
     const failed = page.getByTestId('preview-convert-failed')
@@ -93,24 +95,4 @@ test.describe('메일 첨부 문서 변환 미리보기', () => {
     await expectStays(page, req.content.count, 0)
   })
 
-  test('NOT_APPLICABLE 이 아닌 404(남의 첨부·없음)는 미지원 안내가 아니라 오류 화면', async ({ authenticatedPage: page }) => {
-    const req = await stubHwp(page, 44, [{ status: 404, notApplicable: false }])
-    await openViewer(page, 44)
-    const error = page.getByTestId('preview-error')
-    await expect(error).toContainText('미리보기를 불러오지 못했습니다.')
-    await expect(page.getByTestId('preview-unsupported')).toHaveCount(0)
-    await expect(page.getByTestId('preview-converting')).toHaveCount(0)
-    // 다시 시도는 새 시도(start=true)로 다시 묻는다.
-    const before = req.preview.count()
-    await error.getByRole('button', { name: '다시 시도' }).click()
-    await expect.poll(() => req.preview.count()).toBeGreaterThan(before)
-    expect(req.preview.urls().at(-1)?.searchParams.get('start')).toBe('true')
-  })
-
-  test('NOT_APPLICABLE 404(변환 꺼짐·레거시 첨부)는 기존 미지원 안내', async ({ authenticatedPage: page }) => {
-    await stubHwp(page, 45, [{ status: 404, notApplicable: true }])
-    await openViewer(page, 45)
-    await expect(page.getByTestId('preview-unsupported')).toBeVisible()
-    await expect(page.getByTestId('preview-error')).toHaveCount(0)
-  })
 })

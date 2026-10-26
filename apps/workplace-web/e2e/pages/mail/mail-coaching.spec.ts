@@ -1,8 +1,10 @@
 // 초안 코칭 E2E — 작성 도크 "AI 검토" 탭. 백엔드 없이 page.route 모킹.
+// 미리보기 문단 여백·다크 색(@layout), 단축키·본문 지우기로 바뀌는 판정(@input)만 남긴다.
+// 노트·개선본·교체·요청에 인용문 없음·빈 초안 비활성·503 안내는 src/pages/mail/mailCompose.test.tsx(vitest, WP-984)가 지킨다.
 import { detail, mailAccount, summary } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { expectThinScrollbar, retryOnNavigation } from '../../fixtures/wait'
+import { retryOnNavigation } from '../../fixtures/wait'
 
 test.describe('메일 초안 코칭', () => {
   test.beforeEach(async ({ authenticatedPage: page }) => {
@@ -20,36 +22,9 @@ test.describe('메일 초안 코칭', () => {
         }) }))
   })
 
-  // 도크 오픈 → AI 검토 탭 → 노트 + 개선본 렌더 → 개선본으로 교체
-  test('AI 검토 탭 → 노트·개선본 → 개선본으로 교체', async ({ authenticatedPage: page }) => {
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-7').click()
-    // 답장으로 작성 도크 오픈
-    await page.getByTestId('mail-reply').click()
-    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
-
-    // 본문에 초안 입력 (ProseMirror contenteditable — fill 대신 click + type)
-    const body = page.getByTestId('mail-composer-body')
-    await body.click()
-    await page.keyboard.type('자료 빨리 보내주세요')
-
-    // AI 검토 탭
-    await page.getByTestId('mail-review-tab').click()
-    await expect(page.getByTestId('mail-coaching-note')).toContainText('명령조가 강해요')
-    // 개선본은 sandboxed iframe 내부에 렌더되므로 frameLocator 로 접근.
-    const improvedFrame = page.frameLocator('[data-testid="mail-coaching-improved"]')
-    await expect(improvedFrame.locator('body')).toContainText('다듬은 개선본입니다')
-    // WP-275: 개선본 iframe 도 공용 격리 프레임 — 슬림 스크롤바가 주입된다.
-    await expectThinScrollbar(improvedFrame)
-
-    // 개선본으로 교체 → 본문 반영
-    await page.getByTestId('mail-coaching-apply').click()
-    await expect(page.getByTestId('mail-composer-body')).toContainText('다듬은 개선본입니다')
-  })
-
   // WP-404 — 빈 줄(빈 <p></p>)이 든 개선본: 미리보기는 에디터와 같은 문단 규칙(여백 0)으로 그리고,
   // 교체하면 빈 단락이 그대로 에디터에 남아 미리보기에서 본 줄 간격이 유지된다. 요청엔 초안 HTML 이 실린다.
-  test('빈 줄 개선본 → 미리보기 문단 여백 0 · 교체 후 빈 단락 유지 (WP-404)', async ({ authenticatedPage: page }) => {
+  test('빈 줄 개선본 → 미리보기 문단 여백 0 · 교체 후 빈 단락 유지 (WP-404)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const improved = '<p>안녕하세요.</p><p></p><p>자료 부탁드립니다.</p><p></p><p>감사합니다.</p>'
     let payload: { bodyHtml?: string } | null = null
     await page.route((u) => u.pathname === '/api/v1/mail/draft-coaching', (route) => {
@@ -89,7 +64,7 @@ test.describe('메일 초안 코칭', () => {
   })
 
   // WP-404 — 다크 테마에선 개선본 미리보기도 받은 메일 본문처럼 테마색(어두운 배경·밝은 글자)으로 바뀐다.
-  test('다크 테마 → 개선본 미리보기도 테마색 (WP-404)', async ({ authenticatedPage: page }) => {
+  test('다크 테마 → 개선본 미리보기도 테마색 (WP-404)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.emulateMedia({ colorScheme: 'dark' })
     await page.goto('/mail/1')
     await page.getByTestId('mail-compose-new').click()
@@ -108,7 +83,7 @@ test.describe('메일 초안 코칭', () => {
   })
 
   // WP-404 — 재검토 판정은 HTML 기준: 글자는 그대로 두고 굵게만 바꿔도 다시 검토한다(이전 개선본으로 교체하면 굵게가 사라짐).
-  test('서식만 바꿔도 다시 검토한다 (WP-404)', async ({ authenticatedPage: page }) => {
+  test('서식만 바꿔도 다시 검토한다 (WP-404)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const sent: string[] = []
     await page.route((u) => u.pathname === '/api/v1/mail/draft-coaching', (route) => {
       sent.push((route.request().postDataJSON() as { bodyHtml: string }).bodyHtml)
@@ -131,19 +106,9 @@ test.describe('메일 초안 코칭', () => {
     expect(sent[1]).toBe('<p><strong>자료 부탁</strong></p>')
   })
 
-  // 빈 초안에서는 AI 검토 탭 비활성. 판별자는 hasBody 단독(#765) — 새 메일로
-  // "본문이 비어 있는" 상태를 재현한다.
-  test('빈 초안 → AI 검토 비활성', async ({ authenticatedPage: page }) => {
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-compose-new').click()
-    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
-    await expect(page.getByTestId('mail-compose-quote')).toHaveCount(0)
-    await expect(page.getByTestId('mail-review-tab')).toBeDisabled()
-  })
-
   // #765 — 코칭 payload 에는 인용문이 실리지 않으므로(§6) 답장에 인용문이 남아 있어도
   // 본문을 비우면 검토할 초안이 없다. 게이트가 "인용문만 있어도 활성" 으로 풀리는 회귀를 막는다.
-  test('본문을 비우면 인용문이 남아 있어도 AI 검토는 비활성 (#765)', async ({ authenticatedPage: page }) => {
+  test('본문을 비우면 인용문이 남아 있어도 AI 검토는 비활성 (#765)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-7').click()
     await page.getByTestId('mail-reply').click()
@@ -159,28 +124,4 @@ test.describe('메일 초안 코칭', () => {
     await expect(page.getByTestId('mail-review-tab')).toBeDisabled()
   })
 
-  // AI 비서 꺼짐(503) — 서버 친화적 메시지가 인-탭 안내로 표시되는지 검증
-  test('AI off(503) → 서버 메시지 인-탭 안내', async ({ authenticatedPage: page }) => {
-    // beforeEach 의 draft-coaching mock 을 503 으로 덮어쓴다.
-    await page.route((u) => u.pathname === '/api/v1/mail/draft-coaching',
-      (route) => route.fulfill({
-        status: 503,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: '이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.' }),
-      }))
-
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-7').click()
-    await page.getByTestId('mail-reply').click()
-    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
-
-    const body = page.getByTestId('mail-composer-body')
-    await body.click()
-    await page.keyboard.type('AI 꺼진 상태 테스트')
-
-    // AI 검토 탭 클릭 → 503 응답 → 인-탭 에러 메시지 확인
-    await page.getByTestId('mail-review-tab').click()
-    await expect(page.getByTestId('mail-coaching-error'))
-      .toContainText('이 계정은 AI 비서가 꺼져 있어요. 계정 설정에서 켜주세요.')
-  })
 })

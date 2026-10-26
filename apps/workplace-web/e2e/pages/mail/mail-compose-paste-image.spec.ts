@@ -1,5 +1,7 @@
-// 메일 작성창 화면 캡처 붙여넣기(WP-947) E2E — Ctrl/Cmd+V 한 클립보드 이미지가 본문 그 자리에 들어가고(작성창 업로드로 올림),
-// 보낼 때 본문 src 가 cid: 로 바뀌어 그 업로드가 attachmentIds·inlineUploads 로 실리는지. 백엔드 없이 page.route 모킹.
+// 메일 작성창 화면 캡처 붙여넣기(WP-947) E2E — 실제 Ctrl/Cmd+V(클립보드 이벤트)와 실행 취소·다시 실행 단축키(@input)만 남긴다:
+// 붙인 이미지가 본문 그 자리에 실제로 그려지고(blob 디코드), 보낼 때 cid: 로 바뀌어 attachmentIds·inlineUploads 로 실리는지.
+// 붙여넣기 뒤 업로드 실패 처리·올리는 중 발송 막기·발송 payload 는 src/pages/mail/mailComposeAttachments.test.tsx 도 지킨다(WP-984).
+// 백엔드 없이 page.route 모킹.
 import type { Page, Route } from '@playwright/test'
 
 import type { ComposeAttachmentUpload, MailSendRequest } from '../../../src/types/mailMessage'
@@ -48,7 +50,7 @@ test.describe('메일 작성창 화면 캡처 붙여넣기 (WP-947)', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
   }
 
-  test('붙여 넣은 캡처가 본문에 보이고, 보낼 때 cid 인라인 이미지로 실린다(칩은 생기지 않는다)', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('붙여 넣은 캡처가 본문에 보이고, 보낼 때 cid 인라인 이미지로 실린다(칩은 생기지 않는다)', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
     // 업로드를 붙잡아 두어 자리표시(올리는 중)와 그동안 보내기 막힘을 본다.
     const held: Route[] = []
     await page.route((u) => u.pathname === UPLOAD_PATH, (route) => {
@@ -93,7 +95,7 @@ test.describe('메일 작성창 화면 캡처 붙여넣기 (WP-947)', () => {
     expect(body.inlineUploads).toEqual([{ attachmentId: 701, contentId: 'pasted-701@genia-works' }])
   })
 
-  test('올린 뒤 실행 취소·다시 실행해도 그림으로 돌아오고 「올리는 중」에 갇히지 않는다', async ({ authenticatedPage: page }) => {
+  test('올린 뒤 실행 취소·다시 실행해도 그림으로 돌아오고 「올리는 중」에 갇히지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await page.route(
       (u) => u.pathname === UPLOAD_PATH,
       (route) => route.fulfill({ status: 201, json: uploaded(701) }),
@@ -124,14 +126,4 @@ test.describe('메일 작성창 화면 캡처 붙여넣기 (WP-947)', () => {
     ])
   })
 
-  test('업로드가 실패하면 자리표시를 지우고 서버 문구를 알린다', async ({ authenticatedPage: page }) => {
-    await page.route(
-      (u) => u.pathname === UPLOAD_PATH,
-      (route) => route.fulfill({ status: 413, json: { status: 413, message: '파일이 너무 커요' } }),
-    )
-    await openNew(page)
-    await pasteImage(page)
-    await expect(page.getByText('파일이 너무 커요')).toBeVisible()
-    await expect(page.getByTestId('mail-body-image')).toHaveCount(0)
-  })
 })
