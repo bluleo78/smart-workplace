@@ -17,3 +17,9 @@ export function reporterCandidates<T extends ReporterCandidateLike>(
     (m) => m.kind !== 'AGENT' && !isInactiveMember(m) && m.userId !== currentReporterId,
   );
 }
+
+/** 후보 한 명 — 프로젝트 멤버든(비공개) 워크스페이스 디렉터리 결과든(오픈 프로젝트, WP-967) 고르기·표시에 필요한 만큼만. */
+export interface ReporterOption extends ReporterCandidateLike {
+  username: string;
+  name: string;
+}
