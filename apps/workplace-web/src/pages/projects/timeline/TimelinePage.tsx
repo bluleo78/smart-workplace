@@ -2,7 +2,7 @@
 // 의존 화살표(표시 전용)+일정 미정 섹션(Task 10) 렌더. URL: /projects/:key/timeline
 import { format } from 'date-fns';
 import { ArrowLeft, Diamond } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { Page } from '@/components/layout/Page';
@@ -11,6 +11,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
 
+import { useFetchAllPages } from '../../../hooks/queries/useFetchAllPages';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProject } from '../../../hooks/queries/useProjects';
@@ -69,10 +70,8 @@ export default function TimelinePage() {
   // 조회 기간(WP-247) — 화면 거름은 상태 필터의 「취소」 포함 여부와 함께 간트·아젠다에 넘긴다(조회 자체는 전량 그대로).
   const periodCtl = useTimelinePeriod(key);
 
-  // 이슈 전량이 필요한 화면이라 hasNextPage 동안 자동으로 다음 페이지를 페치한다.
-  useEffect(() => {
-    if (search.hasNextPage && !search.isFetchingNextPage) void search.fetchNextPage();
-  }, [search.hasNextPage, search.isFetchingNextPage, search]);
+  // 이슈 전량이 필요한 화면이라 남은 페이지를 끝까지 차례로 받는다(WP-996 — 빠른 응답에도 멈추지 않는다).
+  useFetchAllPages(search);
 
   const issues = useMemo(() => (search.data?.pages ?? []).flatMap((p) => p.items), [search.data]);
   // 모바일 = 아젠다(WP-197), 데스크톱 = 간트 본문(TimelineGanttBody) — 간트 전용 조회·계산은 그 본문 안에서만 돈다.

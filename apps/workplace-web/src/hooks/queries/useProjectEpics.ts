@@ -1,10 +1,10 @@
 // 프로젝트 에픽 목록 조회 — 에픽 패널·선택 칩·이동 메뉴와 프로젝트 페이지(드래그 전 미리 데우기)가 같은 캐시를 공유한다.
 // 백엔드 변경 없이 type=EPIC 검색(topLevel, 상태 필터, 100건)을 재사용한다.
 // 패널 위쪽 목록(usePanelEpics)은 진행 중 에픽 + 진행 중 사이클에 할당된 종료 에픽, 선택 칩·이동 메뉴(useProjectEpics)는 그중 진행 중 에픽만.
-import { useEffect } from 'react';
 
 import { isClosedStatus } from '../../lib/issueGrouping';
 import type { IssueFilters } from '../../types/issue';
+import { useFetchAllPages } from './useFetchAllPages';
 import { useIssueSearch } from './useIssueSearch';
 import { useIssueTypes } from './useIssueTypes';
 
@@ -77,11 +77,8 @@ export function useClosedEpics(projectKey: string, enabled = true) {
   const { epics, epicSearch } = useEpicList(projectKey, CLOSED_EPIC_STATUSES, enabled);
   const panel = usePanelEpics(projectKey, enabled);
   // 종료 에픽은 계속 쌓여 100건을 넘을 수 있다 — 개수·자동 펼침·칩 라벨이 맞도록 전량을 받는다.
-  // 쿼리 객체 전체가 아니라 페이지 상태만 의존해 상태 변화마다 이펙트가 다시 돌지 않게 한다.
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = epicSearch;
-  useEffect(() => {
-    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // 빠른 응답에도 멈추지 않게 응답마다 다시 판정한다(WP-996).
+  useFetchAllPages(epicSearch, enabled);
   if (panel.loading) return { epics: [] };
   const shownAbove = new Set(panel.epics.map((e) => e.number));
   return { epics: epics.filter((e) => !shownAbove.has(e.number)) };
