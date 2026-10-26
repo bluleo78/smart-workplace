@@ -1,4 +1,6 @@
 // WP-106 반응자 확인(데스크톱) — 칩 호버 카드 요약(지연 로딩) · 모두 보기 다이얼로그(이모지 탭) · 나 중복 없음.
+// 남은 테스트는 호버 카드·키보드 포커스·탭 같은 실제 입력이다(@input). 반응 없을 때 버튼 없음·칩 토글·닫힌 다이얼로그가
+// 저절로 다시 열리지 않음은 vitest 로 옮겼다(WP-984): src/pages/chat/messageList.test.tsx.
 // 백엔드 없이 page.route() 로 API 모킹.
 import type { Page } from '@playwright/test'
 
@@ -9,7 +11,6 @@ import {
   createReaction,
 } from '../../factories/messaging.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { pushHeldEvents } from '../../fixtures/gatedEvents'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays, stableBox } from '../../fixtures/wait'
 
@@ -147,7 +148,7 @@ async function setup(
 }
 
 test.describe('WP-106 반응자 확인 — 데스크톱', () => {
-  test('칩에 마우스를 올리면 그때 반응자를 불러와 요약을 보여준다', async ({ authenticatedPage: page }) => {
+  test('칩에 마우스를 올리면 그때 반응자를 불러와 요약을 보여준다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     const gets = trackRequests(page, 'GET', `/api/v1/messaging/messages/${MSG_ID}/reactions/users`)
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
@@ -171,7 +172,7 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(page.getByTestId(`reaction-hover-summary-${MSG_ID}`)).toHaveText('이영희, 박지훈이 반응했습니다')
   })
 
-  test('모두 보기 → 누른 이모지 탭이 선택된 다이얼로그, 나는 한 번만, 탭 전환', async ({ authenticatedPage: page }) => {
+  test('모두 보기 → 누른 이모지 탭이 선택된 다이얼로그, 나는 한 번만, 탭 전환', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     await page.getByTestId(`reaction-pill-${MSG_ID}-👍`).hover()
@@ -193,7 +194,7 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(dialog.locator('[data-testid^="reactor-row-"]')).toHaveCount(2)
   })
 
-  test('반응자 조회가 실패하면 호버 카드에 스켈레톤 대신 실패 문구를 보여준다', async ({ authenticatedPage: page }) => {
+  test('반응자 조회가 실패하면 호버 카드에 스켈레톤 대신 실패 문구를 보여준다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     // 나중에 등록한 route 가 먼저 매칭된다 — setup 의 성공 stub 을 403 으로 덮는다(4xx 는 재시도하지 않음).
     await page.route(
@@ -209,7 +210,7 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(page.getByTestId(`reaction-hover-all-${MSG_ID}`)).toBeVisible()
   })
 
-  test('키보드만으로 툴바의 반응한 사람 보기 버튼에 도달해 전체 목록을 연다', async ({ authenticatedPage: page }) => {
+  test('키보드만으로 툴바의 반응한 사람 보기 버튼에 도달해 전체 목록을 연다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setup(page)
     await page.goto(`/chat/channels/${CHANNEL_ID}`)
     const toolbar = page.getByTestId(`message-toolbar-${MSG_ID}`)
@@ -230,18 +231,7 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await expect(dialog.locator('[data-testid^="reactor-row-"]')).toHaveCount(5)
   })
 
-  test('반응이 없는 메시지의 툴바엔 반응한 사람 보기 버튼이 없다', async ({ authenticatedPage: page }) => {
-    await setup(page)
-    // 반응 없는 같은 id 메시지로 히스토리 stub 을 덮는다.
-    await stubMessages(page, CHANNEL_ID, [
-      createMessage({ id: MSG_ID, channelId: CHANNEL_ID, authorId: 2, authorName: '김민수', body: '반응 없음', reactions: [] }),
-    ])
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    await expect(page.getByTestId(`message-toolbar-${MSG_ID}`)).toHaveCount(1)
-    await expect(page.getByTestId(`message-reactors-${MSG_ID}`)).toHaveCount(0)
-  })
-
-  test('내 반응만 있던 칩을 키보드로 취소하면 포커스가 다음 칩, 칩이 없으면 「이모지 추가」로 간다 (WP-830)', async ({
+  test('내 반응만 있던 칩을 키보드로 취소하면 포커스가 다음 칩, 칩이 없으면 「이모지 추가」로 간다 (WP-830)', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     // 내 반응만 있는 칩 둘 — 하나씩 취소하면 칩이 차례로 사라진다.
@@ -271,67 +261,6 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
     await deletes.waitFor(2)
   })
 
-  test('칩 클릭은 여전히 토글이다(호버 카드가 있어도)', async ({ authenticatedPage: page }) => {
-    await setup(page)
-    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
-      (route) => (route.request().method() === 'DELETE' ? route.fulfill({ status: 204, body: '' }) : route.fallback()),
-    )
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    await page.getByTestId(`reaction-pill-${MSG_ID}-👍`).click()
-    await deletes.waitFor()
-    await expect(page.getByTestId(`reaction-count-${MSG_ID}-👍`)).toHaveText('4')
-  })
-
-  test('열린 동안 마지막 반응이 사라져 닫힌 다이얼로그는 나중에 반응이 달려도 저절로 다시 열리지 않는다', async ({
-    authenticatedPage: page,
-  }) => {
-    const channel = createChannel({ id: CHANNEL_ID, name: '반응자채널' })
-    const msg = createMessage({
-      id: MSG_ID,
-      channelId: CHANNEL_ID,
-      authorId: 2,
-      authorName: '김민수',
-      body: '배포 끝났습니다',
-      reactions: [createReaction({ emoji: '🎉', count: 1, reacted: false })],
-    })
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, CHANNEL_ID, [createChannelMember({ userId: ME_ID, name: '양동희' })])
-    await stubMessages(page, CHANNEL_ID, [msg])
-    await stubReactors(page, { '🎉': [{ userId: 3, name: '이영희' }] })
-    const posts = trackRequests(page, 'POST', `/api/v1/messaging/messages/${MSG_ID}/reactions`)
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/messages/${MSG_ID}/reactions`,
-      (route) => (route.request().method() === 'POST' ? route.fulfill({ status: 204, body: '' }) : route.fallback()),
-    )
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`)
-    await page.getByTestId(`reaction-pill-${MSG_ID}-🎉`).hover()
-    await page.getByTestId(`reaction-hover-all-${MSG_ID}`).click()
-    const dialog = page.getByTestId('reactors-dialog')
-    await expect(dialog).toBeVisible()
-
-    // 다른 사람(3)이 마지막 반응을 거두면 반응이 0 이 되어 다이얼로그가 닫힌다.
-    // 연결을 끊지 않고 이벤트를 밀어 넣는다 — 응답을 보류하는 mockGatedEvents 는 '연결 안 됨'이라 재연결 배너가 화면을 민다.
-    await pushHeldEvents(
-      page,
-      `event: messaging.reaction.removed\n` +
-        `data: ${JSON.stringify({ channelId: CHANNEL_ID, messageId: MSG_ID, emoji: '🎉', userId: 3 })}\n\n`,
-    )
-    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-🎉`)).toHaveCount(0)
-    await expect(dialog).toHaveCount(0)
-
-    // 이후 같은 메시지에 반응이 다시 달려도 사용자가 열기 전에는 닫혀 있어야 한다.
-    await page.getByTestId(`message-${MSG_ID}`).hover()
-    await page.getByTestId(`message-${MSG_ID}-react`).click()
-    await page.getByTestId(`message-${MSG_ID}-quick-👍`).click()
-    await posts.waitFor()
-    await expect(page.getByTestId(`reaction-pill-${MSG_ID}-👍`)).toBeVisible()
-    await expectStays(page, () => dialog.count(), 0)
-  })
 })
 
 // 넓은 화면의 터치 기기(태블릿 가로·터치 노트북)는 터치 셸이 아니라 호버 카드·길게 누르기 시트가 없다 —
@@ -339,7 +268,7 @@ test.describe('WP-106 반응자 확인 — 데스크톱', () => {
 test.describe('WP-106 반응자 확인 — 넓은 터치 기기(터치 셸 아님)', () => {
   test.use({ hasTouch: true, viewport: { width: 1280, height: 800 } })
 
-  test('행을 탭해 툴바를 드러내고 반응한 사람 보기를 탭하면 전체 목록 다이얼로그가 열린다', async ({
+  test('행을 탭해 툴바를 드러내고 반응한 사람 보기를 탭하면 전체 목록 다이얼로그가 열린다', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     await setup(page)

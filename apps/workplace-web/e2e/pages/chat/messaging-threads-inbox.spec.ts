@@ -1,4 +1,5 @@
-// #65 2단계 E2E — 사이드바 스레드 뱃지 · 인박스 카드 목록 · 카드 클릭 → 채널+스레드 패널.
+// #65 2단계 E2E — 사이드바 스레드 뱃지 · 인박스 카드 목록 · 카드 클릭 → 채널+스레드 패널(@flow), 무한 스크롤·시작선 정렬(@layout).
+// 빈 인박스 상태는 vitest 로 옮겼다(WP-984): src/pages/chat/channelSidebar.test.tsx.
 import type { Page } from '@playwright/test'
 
 import {
@@ -103,7 +104,7 @@ async function stubReplies(page: Page, parentId: number, items: ReturnType<typeo
 
 test(
   '사이드바 스레드 뱃지 + 인박스 카드 → 채널 스레드 패널 오픈',
-  { tag: '@smoke' },
+  { tag: ['@flow', '@smoke'] },
   async ({ authenticatedPage: page }) => {
     const CHANNEL_ID = 900
     const ROOT_ID = 9500
@@ -165,22 +166,8 @@ test(
   },
 )
 
-test('미읽음 스레드가 없으면 빈 상태가 보인다', async ({ authenticatedPage: page }) => {
-  const channel = createChannel({ id: 901, name: '빈채널' })
-  await stubChannelsList(page, [channel])
-  await stubDmsList(page)
-  await stubStream(page)
-  await stubInboxCount(page, 0)
-  await stubInbox(page, [])
-
-  await page.goto('/chat/threads/inbox')
-  await expect(page.getByTestId('threads-inbox-page')).toBeVisible()
-  await expect(page.getByTestId('sidebar-threads-badge')).toHaveCount(0)
-  await expect(page.getByText('새 스레드 답글이 없어요')).toBeVisible()
-})
-
 // WP-182: '더 보기' 버튼 대신 목록 끝에 닿으면 다음 묶음(cursor)을 자동으로 이어 붙인다.
-test('스레드 인박스는 끝까지 스크롤하면 다음 묶음을 자동으로 불러온다', async ({ authenticatedPage: page }) => {
+test('스레드 인박스는 끝까지 스크롤하면 다음 묶음을 자동으로 불러온다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await stubChannelsList(page, [createChannel({ id: 902, name: '긴채널' })])
   await stubDmsList(page)
   await stubStream(page)
@@ -211,7 +198,7 @@ test('스레드 인박스는 끝까지 스크롤하면 다음 묶음을 자동�
 
 // 레이아웃 회귀: 스레드 인박스는 읽기 폭(reading) 페이지 — 헤더 아이콘과 첫 카드가 같은 시작선, 목록은 왼쪽 정렬 768px 이하.
 for (const width of DESKTOP_WIDTHS) {
-  test(`스레드 인박스 — 헤더 아이콘·첫 카드 시작선 일치, 목록 폭 768 이하 (${width}px)`, async ({ authenticatedPage: page }) => {
+  test(`스레드 인박스 — 헤더 아이콘·첫 카드 시작선 일치, 목록 폭 768 이하 (${width}px)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width, height: 900 })
     await stubChannelsList(page, [createChannel({ id: 903, name: '정렬채널' })])
     await stubDmsList(page)

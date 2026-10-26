@@ -1,5 +1,7 @@
 // messaging Phase 4 E2E — 멘션 전송 · 인라인 수정/삭제 · 사이드바 unread 배지.
 // 백엔드 없이 page.route() 로 모든 API 모킹. 컴포저는 contenteditable(RichInput/TipTap).
+// 남은 테스트는 에디터에 치기·키보드·토스트 호버/스와이프 같은 실제 입력이다(@input).
+// 삭제 실행 취소와 읽음 이벤트로 사라지는 미읽음 배지는 vitest 로 옮겼다(WP-984): src/pages/chat/messageList.test.tsx · realtime.test.tsx.
 import type { Page } from '@playwright/test'
 
 import {
@@ -139,7 +141,7 @@ async function clickDelete(page: Page, msgId: number) {
 
 test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
   // 1) 멘션: @ 입력 → 후보 선택 → 전송 → 멘션 칩 렌더 + payload <@id> 검증.
-  test('멘션을 골라 전송하면 멘션 칩이 렌더된다', async ({ authenticatedPage: page }) => {
+  test('멘션을 골라 전송하면 멘션 칩이 렌더된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const CHANNEL_ID = 200
     const channel = createChannel({ id: CHANNEL_ID, name: '멘션채널', member: true })
     await stubChannelsList(page, [channel])
@@ -195,7 +197,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
   })
 
   // 2) 수정/삭제: 본인 메시지 hover → 수정 인라인 에디터 저장(수정됨) → 삭제((삭제됨)).
-  test('본인 메시지를 수정하면 수정됨, 삭제하면 (삭제됨) 으로 바뀐다', async ({
+  test('본인 메시지를 수정하면 수정됨, 삭제하면 (삭제됨) 으로 바뀐다', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const CHANNEL_ID = 201
@@ -284,7 +286,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
   })
 
   // WP-832: 키보드로 지운 메시지가 「(삭제됨)」으로 다시 그려지며 삭제 버튼이 사라져 포커스가 body 로 빠졌다 — 그 메시지 행으로 잇는다.
-  test('키보드로 메시지를 지우면 (삭제됨) 이 된 그 메시지 행이 포커스를 받는다', async ({ authenticatedPage: page }) => {
+  test('키보드로 메시지를 지우면 (삭제됨) 이 된 그 메시지 행이 포커스를 받는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const MSG_ID = await setupUndoChannel(page, 214, 830)
     // 툴바는 opacity 토글이라 키보드 포커스로도 닿는다 — 삭제 버튼에 포커스를 두고 Enter.
     await page.getByTestId(`message-delete-${MSG_ID}`).focus()
@@ -295,22 +297,9 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await expect(page.getByTestId(`message-${MSG_ID}`)).toBeFocused()
   })
 
-  // 2-0) #125 — 삭제 클릭 후 '실행 취소' 를 누르면 DELETE 가 호출되지 않고 메시지가 보존된다.
-  test('삭제 후 실행 취소를 누르면 메시지가 삭제되지 않는다', async ({ authenticatedPage: page }) => {
-    const MSG_ID = await setupUndoChannel(page, 209, 850)
-    const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}`)
-    await clickDelete(page, MSG_ID)
-
-    await page.getByRole('button', { name: '실행 취소' }).click()
-    await expect(page.getByText('메시지를 삭제했습니다')).toBeHidden()
-    await page.clock.runFor(UNDO_DELETE_DELAY_MS + 1000)
-    await expectStays(page, deletes.count, 0, { ms: 200 })
-    await expect(page.getByTestId(`message-body-${MSG_ID}`)).toHaveText('살아남을 메시지')
-  })
-
   // WP-238 — 삭제 시점은 토스트가 정한다. 토스트에 마우스를 올려 카운트다운이 멈춘 동안에는 지연 시간이 지나도
   // 삭제하지 않고, 그 뒤에 누른 '실행 취소'도 실제로 반영된다(예전엔 독립 타이머가 먼저 DELETE 를 보내 버렸다).
-  test('토스트에 마우스를 올려 둔 동안엔 삭제되지 않고 실행 취소가 반영된다', async ({ authenticatedPage: page }) => {
+  test('토스트에 마우스를 올려 둔 동안엔 삭제되지 않고 실행 취소가 반영된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const MSG_ID = await setupUndoChannel(page, 210, 851)
     const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}`)
     await clickDelete(page, MSG_ID)
@@ -330,7 +319,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
   })
 
   // WP-238 — 토스트를 밀어서 닫으면 '취소 안 함'으로 보고 지연 시간을 기다리지 않고 바로 삭제한다.
-  test('토스트를 밀어서 닫으면 바로 삭제된다', async ({ authenticatedPage: page }) => {
+  test('토스트를 밀어서 닫으면 바로 삭제된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const MSG_ID = await setupUndoChannel(page, 211, 852)
     const deletes = trackRequests(page, 'DELETE', `/api/v1/messaging/messages/${MSG_ID}`)
     await clickDelete(page, MSG_ID)
@@ -355,7 +344,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
 
   // 2-1) #124 회귀 — 수정 실패(PATCH 500) 시 에디터가 강제로 닫히지 않고 입력 내용을 보존해야 한다.
   // (예전 버그: setEditingId(null) 이 mutate() 직후 동기 호출되어 성공/실패 무관하게 에디터 닫힘)
-  test('수정 실패(500) 시 에디터 유지 + 수정 내용 보존 + 재시도 성공', async ({
+  test('수정 실패(500) 시 에디터 유지 + 수정 내용 보존 + 재시도 성공', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const CHANNEL_ID = 203
@@ -439,7 +428,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
 
   // 2-2) #151 회귀 — 인라인 편집에서 내용을 모두 지우면 저장 버튼이 비활성화돼야 한다.
   // (예전 버그: disableWhenEmpty prop 미전달로 빈 내용에도 저장 버튼이 활성화)
-  test('인라인 편집 — 내용을 모두 지우면 저장 버튼이 비활성화된다', async ({
+  test('인라인 편집 — 내용을 모두 지우면 저장 버튼이 비활성화된다', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const CHANNEL_ID = 204
@@ -484,7 +473,7 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
   })
 
   // WP-513: 수정 편집기도 작성 입력창처럼 4000자를 넘으면 카운터가 보이고 저장이 막힌다(서버 400 토스트 대신).
-  test('인라인 편집 — 4000자를 넘기면 카운터가 뜨고 저장 버튼이 비활성화된다', async ({
+  test('인라인 편집 — 4000자를 넘기면 카운터가 뜨고 저장 버튼이 비활성화된다', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const CHANNEL_ID = 205
@@ -516,58 +505,4 @@ test.describe('messaging Phase 4 — 멘션·수정/삭제·unread', () => {
     await expectStays(page, patches.count, 0)
   })
 
-  // 3) unread 배지: 사이드바에 unread>0 배지 → SSE read 이벤트(본인) 로 목록 invalidate
-  //    → 재조회가 unreadCount:0 반환 → 배지 사라짐.
-  //    레이스 회피: SSE read 이벤트를 mount 즉시 흘리지 않고, 배지가 화면에 뜬 것을 확인한
-  //    뒤 테스트가 트리거(window 플래그)를 세팅하면 그때 스트림이 read 이벤트를 fulfill 한다.
-  test('사이드바 unread 배지가 읽음 처리 후 사라진다', async ({ authenticatedPage: page }) => {
-    const CHANNEL_ID = 202
-    // /messaging/channels 호출 카운터 — 1번째는 unread=3, 이후는 0.
-    let listCalls = 0
-    await page.route(
-      (url) => url.pathname === '/api/v1/messaging/channels',
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback()
-        listCalls += 1
-        const unreadCount = listCalls === 1 ? 3 : 0
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            createChannel({ id: CHANNEL_ID, name: '안읽음채널', member: true, unreadCount }),
-          ]),
-        })
-      },
-    )
-    await stubDmsList(page)
-
-    // 스트림 — 테스트가 window.__emitRead 플래그를 세팅할 때까지 대기 후 본인 read 이벤트 fulfill.
-    // 이로써 "배지 노출 → read → 배지 사라짐" 순서가 결정적으로 보장된다.
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      async (route) => {
-        await page.waitForFunction(() => (window as unknown as { __emitRead?: boolean }).__emitRead === true)
-        return route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body:
-            `event: messaging.message.read\n` +
-            `data: ${JSON.stringify({ channelId: CHANNEL_ID, userId: ME_ID, lastReadMessageId: 999 })}\n\n`,
-        })
-      },
-    )
-
-    await page.goto('/chat')
-
-    // 1) 초기 목록(call 1) → unread 배지 노출.
-    await expect(page.getByTestId(`channel-unread-${CHANNEL_ID}`)).toBeVisible()
-    await expect(page.getByTestId(`channel-unread-${CHANNEL_ID}`)).toHaveText('3')
-
-    // 2) 트리거 세팅 → 스트림이 read 이벤트 fulfill → invalidate → 재조회(call 2, unread=0) → 배지 사라짐.
-    await page.evaluate(() => {
-      ;(window as unknown as { __emitRead?: boolean }).__emitRead = true
-    })
-    await expect(page.getByTestId(`channel-unread-${CHANNEL_ID}`)).toHaveCount(0)
-  })
 })

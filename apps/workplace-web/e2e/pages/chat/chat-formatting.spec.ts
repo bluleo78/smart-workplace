@@ -1,7 +1,7 @@
 // 채팅 서식(WP-101) — 팀 채팅 데스크톱.
 // 「Aa」 로 서식 도구 줄을 열고 버튼·단축키·마크다운 입력 규칙으로 쓴 서식이 전송 payload 의 마크다운 본문이 되는지,
-// 서버가 준 마크다운 본문이 <strong>·<u>·목록·코드 블록으로 그려지고 예전 평문 메시지는 예전처럼 보이는지,
-// 서식 메시지를 수정하면 서식이 복원되고 그대로 저장되는지 검증한다.
+// 서식 메시지를 수정하면 서식이 복원되고 그대로 저장되는지 검증한다 — 모두 에디터에 실제로 치는 입력이다(@input).
+// 서버가 준 마크다운 본문의 렌더(서식·예전 평문)는 vitest 로 옮겼다(WP-984): src/pages/chat/messageList.test.tsx.
 import type { Page } from '@playwright/test'
 
 import { createChannelMember, createMessage } from '../../factories/messaging.factory'
@@ -9,8 +9,6 @@ import { expect, test } from '../../fixtures/auth.fixture'
 import { stubChat } from '../../fixtures/mobile.fixture'
 import { json } from '../../fixtures/mobile-chat'
 import { trackRequests } from '../../fixtures/requests'
-
-const EVIDENCE = process.env.WP101_EVIDENCE_DIR
 
 /** 채널 1 — 본인(1)의 서식 메시지 31, 동료(20)의 예전 평문 메시지 30. */
 async function stubChannel(page: Page) {
@@ -43,7 +41,7 @@ async function stubChannel(page: Page) {
   return trackRequests(page, 'POST', '/api/v1/messaging/channels/1/messages')
 }
 
-test.describe('채팅 서식 (WP-101) — 팀 채팅', () => {
+test.describe('채팅 서식 (WP-101) — 팀 채팅', { tag: '@input' }, () => {
   test('서식 도구 줄 버튼으로 굵게·밑줄·목록을 쓰면 마크다운 본문으로 보낸다', async ({ authenticatedPage: page }) => {
     const sends = await stubChannel(page)
     await page.goto('/chat/channels/1')
@@ -147,34 +145,6 @@ test.describe('채팅 서식 (WP-101) — 팀 채팅', () => {
     await expect(input).toBeFocused()
     await page.keyboard.press('Enter')
     await expect.poll(() => sends.bodies().map((b) => (b as { body: string }).body)).toEqual(['설계 [문서](https://docs.example.com/a_b)'])
-  })
-
-  test('서식 메시지는 서식으로, 예전 평문 메시지는 예전처럼 그린다', async ({ authenticatedPage: page }) => {
-    await stubChannel(page)
-    await page.goto('/chat/channels/1')
-    const fmt = page.getByTestId('message-body-31')
-    await expect(fmt.locator('strong')).toHaveText('배포')
-    await expect(fmt.locator('u')).toHaveText('금요일')
-    await expect(fmt.locator('del')).toHaveText('목요일')
-    await expect(fmt.locator('del')).toHaveCSS('text-decoration-line', 'line-through')
-    await expect(fmt.locator('code').first()).toHaveText('v1.2')
-    await expect(fmt.locator('ul > li')).toHaveText(['빌드', '검증'])
-    await expect(fmt.locator('pre')).toHaveText('kubectl rollout status')
-
-    const legacy = page.getByTestId('message-body-30')
-    // 들여쓰기·줄바꿈·밑줄 문자·#·URL 괄호는 글자 그대로(코드 블록·제목·기울임 아님).
-    await expect(legacy).toContainText('예전 메시지\n    들여쓴 줄 a_b 2*3 #해시')
-    await expect(legacy.locator('pre, h1, em, strong')).toHaveCount(0)
-    // `- ` 로 시작한 줄은 이제 목록으로 보인다(글자는 그대로). 바로 다음 줄은 마크다운 규칙대로 그 항목에 이어진다.
-    await expect(legacy.locator('ul > li')).toHaveText([/^이건 목록으로 보인다\s+https:\/\/a\.com\/x_\(y\)$/])
-    await expect(legacy.getByTestId('chat-link')).toHaveAttribute('href', 'https://a.com/x_(y)')
-
-    if (EVIDENCE) {
-      await page.getByTestId('message-composer-input').click()
-      await page.getByTestId('message-composer-input-format').click()
-      await page.keyboard.type('**굵게** 미리 보기')
-      await page.screenshot({ path: `${EVIDENCE}/e2e-desktop.png` })
-    }
   })
 
   test('서식 메시지를 수정하면 서식이 복원되고, 고친 그대로 저장된다', async ({ authenticatedPage: page }) => {
