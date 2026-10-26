@@ -45,7 +45,8 @@ function auth(jwt: string) {
 
 // ── 테스트 그룹 ──────────────────────────────────────────────
 
-test.describe('M365 참석자 라이브 스모크', () => {
+// 실제 API 서버·M365 Graph 연결을 쓰는 라이브 검증이라 @platform(외부 연결) — 브라우저 없이 옮길 수 없다.
+test.describe('M365 참석자 라이브 스모크', { tag: '@platform' }, () => {
   test.skip(!LIVE, 'M365_LIVE=1 환경변수가 없으면 스킵')
   test.describe.configure({ mode: 'serial' })
 

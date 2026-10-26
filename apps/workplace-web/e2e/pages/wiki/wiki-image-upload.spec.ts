@@ -129,7 +129,7 @@ async function dropImageFile(page: Page) {
 }
 
 test.describe('노트 본문 이미지 업로드', () => {
-  test('붙여넣기 업로드 성공 시 이미지가 blob 으로 렌더된다', async ({ authenticatedPage: page }) => {
+  test('붙여넣기 업로드 성공 시 이미지가 blob 으로 렌더된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
     await open(page)
@@ -144,7 +144,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(img).toHaveAttribute('src', /^blob:/)
   })
 
-  test('저장본 마크다운에 원본 API 경로가 담긴다', async ({ authenticatedPage: page }) => {
+  test('저장본 마크다운에 원본 API 경로가 담긴다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
     await open(page)
@@ -159,7 +159,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     expect(await savedMarkdown(page, PAGE_ID)).not.toContain('blob:')
   })
 
-  test('업로드 실패 시 자리표시자가 사라지고 에러 토스트가 뜬다', async ({ authenticatedPage: page }) => {
+  test('업로드 실패 시 자리표시자가 사라지고 에러 토스트가 뜬다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubUpload(page, 500)
     await setup(page, '')
     await open(page)
@@ -175,7 +175,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(page.locator('.ProseMirror')).not.toContainText('업로드 중')
   })
 
-  test('거부된 형식(SVG)은 업로드 요청 없이 토스트만 뜬다', async ({ authenticatedPage: page }) => {
+  test('거부된 형식(SVG)은 업로드 요청 없이 토스트만 뜬다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploads = trackRequests(page, 'POST', `/api/v1/wiki/pages/${PAGE_ID}/attachments`)
     await stubUpload(page, 201)
     await setup(page, '')
@@ -189,7 +189,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(page.getByTestId('wiki-image')).toHaveCount(0)
   })
 
-  test('혼합 붙여넣기(텍스트+이미지)는 텍스트를 보존하면서 이미지도 업로드한다', async ({ authenticatedPage: page }) => {
+  test('혼합 붙여넣기(텍스트+이미지)는 텍스트를 보존하면서 이미지도 업로드한다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
     await open(page)
@@ -207,7 +207,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(img).toHaveAttribute('src', /^blob:/)
   })
 
-  test('드래그드롭 업로드 성공 시 이미지가 blob 으로 렌더된다', async ({ authenticatedPage: page }) => {
+  test('드래그드롭 업로드 성공 시 이미지가 blob 으로 렌더된다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
     await open(page)
@@ -219,7 +219,7 @@ test.describe('노트 본문 이미지 업로드', () => {
     await expect(img).toHaveAttribute('src', /^blob:/)
   })
 
-  test('슬래시 메뉴 이미지 항목 → 파일 선택 → 삽입', async ({ authenticatedPage: page }) => {
+  test('슬래시 메뉴 이미지 항목 → 파일 선택 → 삽입', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubUpload(page, 201)
     await setup(page, '')
     await open(page)

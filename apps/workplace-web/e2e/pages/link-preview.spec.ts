@@ -11,7 +11,8 @@ async function readMetas(page: Page, html: string) {
     page.locator(`meta[property="${key}"], meta[name="${key}"]`).evaluateAll((els) => els.map((e) => e.getAttribute('content')))
 }
 
-test.describe('링크 미리보기 메타 (WP-894)', () => {
+// 서버가 실제로 내주는 원문 HTML·정적 이미지를 받아 본다 — 브라우저·서버 없이는 판정할 수 없다(@platform).
+test.describe('링크 미리보기 메타 (WP-894)', { tag: '@platform' }, () => {
   test('로그인 없이 받은 깊은 링크 HTML 에 사이트 공통 미리보기 메타가 있고, 문구는 앱 설치 정보(manifest)와 같다', { tag: '@smoke' }, async ({ page, request }) => {
     // 미리보기 봇처럼 쿠키·토큰 없이 이슈 깊은 링크를 받는다 — SPA 라 모든 경로가 같은 index.html 이다.
     const res = await request.get('/projects/WP/issues/1')

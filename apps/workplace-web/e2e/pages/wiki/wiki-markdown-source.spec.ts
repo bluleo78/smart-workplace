@@ -1,4 +1,5 @@
 // 노트 마크다운 소스 보기·내보내기 E2E (#753).
+// 읽기 전용에게도 소스 보기가 있는지는 src/pages/wiki/wikiPage.test.tsx 가 지킨다(WP-983). 여기엔 동기화된 본문·클립보드·다운로드(@platform)만 남는다.
 import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail } from '../../../src/types/wiki'
@@ -38,7 +39,7 @@ async function setup(page: Page, opts: { role?: 'OWNER' | 'VIEWER'; title?: stri
   })
 }
 
-test('메뉴에서 마크다운 소스를 열면 현재 본문 원문이 보인다', async ({ authenticatedPage: page }) => {
+test('메뉴에서 마크다운 소스를 열면 현재 본문 원문이 보인다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await setup(page)
   await open(page)
 
@@ -77,7 +78,7 @@ test('메뉴에서 마크다운 소스를 열면 현재 본문 원문이 보인�
   await expect(dialog.locator('textarea, input, [contenteditable="true"]')).toHaveCount(0)
 })
 
-test('복사 버튼이 마크다운을 클립보드에 넣는다', async ({ authenticatedPage: page }) => {
+test('복사 버튼이 마크다운을 클립보드에 넣는다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   // page.context() 로 잡는다 — authenticatedPage 가 어느 컨텍스트에 속하는지에 의존하지 않는다.
   // (auth.fixture 는 현재 기본 page 픽스처를 그대로 쓰지만, 나중에 newContext 로 바뀌어도 안전하다.)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -94,7 +95,7 @@ test('복사 버튼이 마크다운을 클립보드에 넣는다', async ({ auth
 })
 
 // WP-836: 다른 복사 버튼처럼 Clipboard API 가 없으면(비보안 컨텍스트) execCommand 대체 경로로 복사한다 — 예전엔 곧바로 실패했다.
-test('Clipboard API 가 없으면 대체 경로로 마크다운을 복사한다', async ({ authenticatedPage: page }) => {
+test('Clipboard API 가 없으면 대체 경로로 마크다운을 복사한다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await withoutClipboardApi(page, true)
   await setup(page)
   await open(page)
@@ -110,7 +111,7 @@ test('Clipboard API 가 없으면 대체 경로로 마크다운을 복사한다'
   await expect(page.getByTestId('wiki-source-copy')).toBeFocused()
 })
 
-test('.md 다운로드가 새니타이즈된 파일명으로 저장된다', async ({ authenticatedPage: page }) => {
+test('.md 다운로드가 새니타이즈된 파일명으로 저장된다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await setup(page, { title: '2026/1분기 지표' })
   await open(page)
 
@@ -125,28 +126,3 @@ test('.md 다운로드가 새니타이즈된 파일명으로 저장된다', asyn
   expect(download.suggestedFilename()).toBe('2026_1분기 지표.md')
 })
 
-test('편집 권한이 없어도 소스 보기가 노출된다', async ({ authenticatedPage: page }) => {
-  await setup(page, { role: 'VIEWER' })
-  await open(page, { readOnly: true })
-
-  // 대조군 — VIEWER 목킹이 실제로 WikiEditor 의 role 판정까지 도달했는지 먼저 증명한다.
-  // 이게 없으면 오버플로 메뉴가 원래 무조건 렌더되기 때문에 아래 단언이 항상 통과하는
-  // 무의미한 테스트가 된다(권한과 무관하게 참).
-  const ai = page.getByTestId('wiki-ai-header-button')
-  await expect(ai).toHaveAttribute('aria-disabled', 'true')
-  await ai.hover()
-  // 'denied' 사유여야 한다 — 'loading'(권한 확인 중) 과 구분되어야 role 이 반영된 것이다.
-  // Radix Tooltip 이 텍스트 노드를 중복 렌더링하는 특성 때문에 toHaveText 대신
-  // toContainText 사용 — wiki-ai.spec.ts 의 동일 locator 검증과 같은 패턴.
-  await expect(page.getByTestId('wiki-ai-header-reason')).toContainText(
-    '읽기 전용 권한이라 AI 작성을 사용할 수 없습니다',
-  )
-
-  // 본단언 — 그 상태에서도 소스 보기는 노출된다.
-  // 주의(범위): 이 테스트가 보장하는 건 "마크다운 소스" 항목 한정이다. 같은 오버플로
-  // 메뉴의 페이지 삭제 항목도 VIEWER 에게 노출되는데, 그건 이 스펙 범위 밖의 별개
-  // 선행 결함(권한 갭)이다 — 나중에 그 갭을 고치면서 "소스 보기까지 게이팅해야 하나"로
-  // 오판하지 않도록 여기 명시해 둔다. 삭제 항목에 대한 단언은 의도적으로 없다.
-  await page.getByTestId('wiki-page-header').getByRole('button', { name: '페이지 메뉴' }).click()
-  await expect(page.getByTestId('wiki-menu-source')).toBeVisible()
-})

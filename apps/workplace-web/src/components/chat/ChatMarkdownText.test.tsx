@@ -101,6 +101,16 @@ describe('ChatMarkdownText — 서식', () => {
     expect(el.textContent).toBe('문서 위험');
   });
 
+  // WP-874: 평문 URL 은 새 탭 링크 — 끝의 짝 없는 `)` 와 `.` 은 문장부호로 보고 링크에서 뺀다(이슈 챗·팀 채팅 공용, E2E 이슈 챗 링크에서 옮김).
+  it('평문 URL 자동 링크 — 끝 문장부호는 링크 밖', () => {
+    const el = renderNew('참고: https://example.com/spec?id=7). 끝');
+    const link = el.querySelector('[data-testid="chat-link"]');
+    expect(link?.textContent).toBe('https://example.com/spec?id=7');
+    expect(link?.getAttribute('href')).toBe('https://example.com/spec?id=7');
+    expect(link?.getAttribute('target')).toBe('_blank');
+    expect(el.textContent).toBe('참고: https://example.com/spec?id=7). 끝');
+  });
+
   it('굵게 안 URL·멘션', () => {
     const el = renderNew('**https://a.com/x** **<@7>**');
     expect(el.querySelector('strong a')?.getAttribute('href')).toBe('https://a.com/x');

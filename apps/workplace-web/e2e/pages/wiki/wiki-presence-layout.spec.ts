@@ -17,7 +17,7 @@ const presence = (p: Page) => p.getByTestId('wiki-presence')
 test.afterEach(() => leaveAllCollabPeers())
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`8명·긴 이름 — 헤더·팝오버·이름표가 넘치거나 겹치지 않고 대비를 지킨다 (${theme})`, async ({
+  test(`8명·긴 이름 — 헤더·팝오버·이름표가 넘치거나 겹치지 않고 대비를 지킨다 (${theme})`, { tag: '@layout' }, async ({
     authenticatedPage: a,
     newAuthedPage,
     collabNs,

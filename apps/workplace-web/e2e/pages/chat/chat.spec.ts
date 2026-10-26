@@ -1,4 +1,7 @@
-// messaging 채팅 E2E — 히스토리 렌더 / SSE 수신 / 메시지 전송 3가지 시나리오.
+// messaging 채팅 E2E — 채널 진입 배선(@wiring), 입력기에 실제로 글자를 치는 전송·IME·한도·실패 보존(@input),
+// 선택 행 배경·긴 이름 배지·첫 미읽음 스크롤(@layout).
+// 브라우저 없이 판정되는 SSE 수신·재연결 배너·LNB 헤더·전환 클래스·미읽음 구분선 순서는 vitest 로 옮겼다(WP-984):
+// src/pages/chat/realtime.test.tsx · channelSidebar.test.tsx · messageList.test.tsx.
 // 백엔드 없이 page.route() 로 모든 API 모킹.
 
 import { expect, test } from '../../fixtures/auth.fixture';
@@ -86,8 +89,8 @@ async function setupChannelStubs(
 
 test.describe('messaging 채팅 E2E', () => {
   test(
-    '@smoke 채널 진입 → 히스토리 렌더',
-    { tag: '@smoke' },
+    '채널 진입 → 히스토리 렌더',
+    { tag: ['@wiring', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const channel = createChannel({ id: CHANNEL_ID, member: true });
       const historyMsg = createMessage({ id: 10, channelId: CHANNEL_ID, body: '기존 메시지' });
@@ -114,7 +117,7 @@ test.describe('messaging 채팅 E2E', () => {
   );
 
   // WP-368 — 열린 채널 행만 선택 표시(막대 + bg-selected + 앞 아이콘 primary), 다른 채널 행엔 없다.
-  test('사이드바 — 열린 채널 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', async ({ authenticatedPage: page }) => {
+  test('사이드바 — 열린 채널 행만 bg-selected·selection-bar 를 갖는다 (WP-368)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const open = createChannel({ id: CHANNEL_ID, name: 'general', member: true });
     const other = createChannel({ id: 2, name: 'random', member: true });
     await setupChannelStubs(page, [open, other], `:\n\n`);
@@ -134,43 +137,7 @@ test.describe('messaging 채팅 E2E', () => {
     expect(await iconColor(openLink)).not.toBe(await iconColor(otherLink));
   });
 
-  test('SSE 로 도착한 메시지가 POST 없이 렌더된다', async ({ authenticatedPage: page }) => {
-    const channel = createChannel({ id: CHANNEL_ID, member: true });
-    const sseMsg = createMessage({ id: 999, channelId: CHANNEL_ID, body: 'SSE 실시간' });
-    const sseBody =
-      `event: messaging.message.created\n` +
-      `data: ${JSON.stringify(sseMsg)}\n\n`;
-
-    await setupChannelStubs(page, [channel], sseBody);
-
-    // GET messages — 빈 목록 (SSE 로만 도착해야 함)
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-      (route) => {
-        if (route.request().method() !== 'GET') return route.fallback();
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
-        });
-      },
-    );
-
-    // POST messages — SSE 전용 테스트에서 POST 가 불려서는 안 됨 → 404 로 가시적 오류 유발
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-      (route) => {
-        if (route.request().method() !== 'POST') return route.fallback();
-        return route.fulfill({ status: 404 });
-      },
-    );
-
-    await page.goto(`/chat/channels/${CHANNEL_ID}`);
-
-    await expect(page.getByText('SSE 실시간')).toBeVisible();
-  });
-
-  test('메시지 입력 → POST payload 검증 → optimistic 렌더', async ({
+  test('메시지 입력 → POST payload 검증 → optimistic 렌더', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
@@ -194,7 +161,7 @@ test.describe('messaging 채팅 E2E', () => {
 
   // WP-333 — macOS Chrome 은 한글 마지막 글자 조합 중 Enter 에 "확정(DOM 변경) → compositionend → Enter" 를 한 번에 보낸다.
   // 확정 글자가 문서에 반영되기 전에 전송하면 마지막 글자("작")가 빠지거나 조합 중 글자("자")로 나간다.
-  test('한글 조합을 끝내는 Enter 로 전송해도 마지막 글자까지 보낸다 (Mac Chrome 순서)', async ({
+  test('한글 조합을 끝내는 Enter 로 전송해도 마지막 글자까지 보낸다 (Mac Chrome 순서)', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
@@ -215,7 +182,7 @@ test.describe('messaging 채팅 E2E', () => {
   });
 
   // 팀 채팅도 이슈 채팅(#357)과 같은 RichInput — Shift+Enter 는 줄바꿈, Enter 는 전송이어야 한다.
-  test('Shift+Enter 줄바꿈 → Enter 전송 시 POST body 에 \\n 포함', async ({
+  test('Shift+Enter 줄바꿈 → Enter 전송 시 POST body 에 \\n 포함', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
@@ -237,7 +204,7 @@ test.describe('messaging 채팅 E2E', () => {
 
 // MessageComposer 4000자 한도 프론트엔드 검증 (#165)
 // page.evaluate 로 4001자를 TipTap 에 삽입 후 전송 버튼 비활성화 + POST 차단을 검증한다.
-test.describe('MessageComposer 4000자 한도 검증', () => {
+test.describe('MessageComposer 4000자 한도 검증', { tag: '@input' }, () => {
   // 채널 스텁 + GET messages 스텁 공통 setup.
   async function setupForLimit(page: import('@playwright/test').Page) {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
@@ -334,7 +301,7 @@ test.describe('MessageComposer 4000자 한도 검증', () => {
 
 // 메시지 전송 실패 시 입력 텍스트 보존 (#169)
 // POST 가 503 으로 실패할 때 입력창 텍스트가 사라지지 않아야 한다(clearOnSubmit 성공 시에만).
-test.describe('MessageComposer 전송 실패 입력 보존', () => {
+test.describe('MessageComposer 전송 실패 입력 보존', { tag: '@input' }, () => {
   test('메시지 POST 503 실패 → 입력창 텍스트 보존', async ({ authenticatedPage: page }) => {
     const channel = createChannel({ id: CHANNEL_ID, member: true });
     await setupChannelStubs(page, [channel], `:\n\n`);
@@ -374,150 +341,8 @@ test.describe('MessageComposer 전송 실패 입력 보존', () => {
   });
 });
 
-// SSE 재연결 배너(#167) — 스트림이 끊긴 경우 배너가 표시된다.
-test('SSE 끊김 시 재연결 배너가 표시된다 (#167)', async ({ authenticatedPage: page }) => {
-  const channel = createChannel({ id: CHANNEL_ID, member: true });
-
-  // 채널 목록 모킹
-  await page.route(
-    (url) => url.pathname === '/api/v1/messaging/channels',
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([channel]),
-      });
-    },
-  );
-  await page.route(
-    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}`,
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(channel),
-      });
-    },
-  );
-  await page.route(
-    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
-      });
-    },
-  );
-
-  // 통합 SSE 스트림 503 — isConnected=false 유지 → 배너 항상 보임 (#506)
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    (route) => route.fulfill({ status: 503 }),
-  );
-
-  await page.goto(`/chat/channels/${CHANNEL_ID}`);
-
-  // SSE 연결 실패 시 배너가 표시되어야 한다
-  await expect(page.getByTestId('chat-reconnecting-banner')).toBeVisible();
-  // 배너 텍스트 및 ARIA 속성 검증
-  await expect(page.getByTestId('chat-reconnecting-banner')).toHaveAttribute('role', 'status');
-  await expect(page.getByTestId('chat-reconnecting-banner')).toContainText('실시간 연결 중');
-});
-
-// 정상 진입 시 깜빡임 방지(messaging SSE 셸 hoist + 낙관적·지연 표시) — 유예(800ms) 안에 연결되면 배너가 떠선 안 된다.
-test('정상 연결(유예 내)에는 재연결 배너가 깜빡이지 않는다', async ({
-  authenticatedPage: page,
-}) => {
-  const channel = createChannel({ id: CHANNEL_ID, member: true });
-
-  await page.route(
-    (url) => url.pathname === '/api/v1/messaging/channels',
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify([channel]),
-      });
-    },
-  );
-  await page.route(
-    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}`,
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(channel),
-      });
-    },
-  );
-  await page.route(
-    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/messages`,
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback();
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
-      });
-    },
-  );
-
-  // 통합 SSE 스트림을 유예(800ms) 미만인 500ms 지연 후 정상(200) 응답 → 정상 연결로 간주돼야 한다 (#506).
-  await page.route(
-    (url) => url.pathname === '/api/v1/events',
-    async (route) => {
-      await new Promise((r) => setTimeout(r, 500));
-      return route.fulfill({
-        status: 200,
-        contentType: 'text/event-stream',
-        headers: { 'cache-control': 'no-cache' },
-        body: `:\n\n`,
-      });
-    },
-  );
-
-  await page.goto(`/chat/channels/${CHANNEL_ID}`);
-
-  // 연결 성립 전(아직 isConnected=false)인 300ms 시점 표본 — 유예 내라 배너가 떠선 안 된다.
-  // isVisible() 는 즉시 평가(자동 대기 없음)이므로 "현재 숨김"을 정확히 검증한다.
-  // (구버전: 마운트~연결 사이 !isConnected 로 항상 표시 → 이 시점 visible → 실패)
-  // eslint-disable-next-line playwright/no-wait-for-timeout -- 연결 성립 전(300ms) 시점에 배너가 없음을 표본 확인(부재 확인)
-  await page.waitForTimeout(300);
-  // toBeHidden 은 숨겨질 때까지 기다려 "그 시점 표시" 회귀를 놓치므로 즉시 평가를 유지한다 (WP-225).
-  // eslint-disable-next-line playwright/prefer-web-first-assertions -- 시점 표본 검증이라 자동 대기 단언은 의미를 약화
-  expect(await page.getByTestId('chat-reconnecting-banner').isVisible()).toBe(false);
-});
-
-// LNB 표준화(#98) — 대화 사이드바가 표준 셸(레일과 동일 아이콘+이름 타이틀 헤더)을 갖춘다.
-test('대화 사이드바 — 표준 LNB 타이틀 헤더', async ({ authenticatedPage: page }) => {
-  await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true })], `:\n\n`);
-  await page.goto(`/chat/channels/${CHANNEL_ID}`);
-  const sidebar = page.getByTestId('channel-sidebar');
-  await expect(sidebar).toBeVisible();
-  // h-14 앱 타이틀 헤더에 "대화"(레일 라벨과 동일) 노출
-  await expect(sidebar.getByText('대화', { exact: true })).toBeVisible();
-});
-
-// #297 — 채널·DM 링크 hover 배경 전환이 즉시(0ms) 일어나지 않도록 transition-colors 보유.
-test('대화 사이드바 — 채널·DM 링크에 transition-colors 적용', async ({ authenticatedPage: page }) => {
-  await setupChannelStubs(page, [createChannel({ id: CHANNEL_ID, member: true })], `:\n\n`);
-  await page.goto(`/chat/channels/${CHANNEL_ID}`);
-  // 채널 링크 — hover 페이드를 위한 transition-colors 유틸리티가 className 에 포함되어야 한다
-  await expect(page.getByTestId(`channel-link-${CHANNEL_ID}`)).toHaveClass(/transition-colors/);
-  // WP-135: 미리보기 행은 모바일 전용 — 데스크톱 사이드바엔 없다.
-  await expect(page.getByTestId(`conv-preview-${CHANNEL_ID}`)).toHaveCount(0);
-  // self-DM("나") 링크도 동일 DM 목록 패턴 → 동일하게 적용
-  await expect(page.getByTestId('dm-self-link')).toHaveClass(/transition-colors/);
-});
-
 // 회귀 — 긴 채널명 옆 미읽음 배지(99+)가 이름에 밀려 찌그러지지 않는다(배지 shrink-0).
-test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어들지 않는다', async ({ authenticatedPage: page }) => {
+test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어들지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const longName = 'smart-workplace-모바일-개선-태스크포스-2026-하반기-로드맵'
   await setupChannelStubs(
     page,
@@ -536,7 +361,7 @@ test('대화 사이드바 — 긴 채널명이어도 미읽음 배지가 줄어�
 
 // 진입 시 첫 미읽음(구분선)으로 스크롤 — 30개 메시지(id 1~30), watermark=10 이면
 // 구분선이 뷰포트 안에 보여야 하고(맨 아래가 아님) 메시지 30개가 모두 로드된다.
-test('진입 시 첫 미읽음(구분선)으로 스크롤된다', async ({ authenticatedPage: page }) => {
+test('진입 시 첫 미읽음(구분선)으로 스크롤된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 미읽음(id>10)은 남(authorId=2)이 보낸 메시지여야 구분선이 뜬다 — 내 메시지는 미읽음 제외(#491).
   const many = Array.from({ length: 30 }, (_, i) => createMessage({ id: i + 1, channelId: 78, authorId: 2, createdAt: new Date(Date.UTC(2026, 5, 1, 0, i)).toISOString() }))
   const channel = createChannel({ id: 78, lastReadMessageId: 10 })
@@ -560,47 +385,4 @@ test('진입 시 첫 미읽음(구분선)으로 스크롤된다', async ({ authe
   // 구분선(id=11 앞)이 로드 직후 뷰포트 안에 보여야 한다(맨 아래로 가지 않음).
   const divider = page.getByTestId('unread-divider')
   await expect(divider).toBeInViewport()
-})
-
-// 미읽음 구분선(#unread-divider) — watermark=2 이면 id=3 메시지 바로 앞에 구분선이 렌더된다.
-test('미읽음 구분선이 첫 미읽음 메시지 앞에 렌더된다', async ({ authenticatedPage: page }) => {
-  // 채널 상세 watermark=2, 메시지 id 1~4 → 구분선은 id=3 앞.
-  const channel = createChannel({ id: 77, lastReadMessageId: 2 })
-
-  await setupChannelStubs(page, [channel], `:\n\n`)
-
-  await page.route(
-    (url) => url.pathname === '/api/v1/messaging/channels/77/messages',
-    (route) => {
-      if (route.request().method() !== 'GET') return route.fallback()
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          // MessageList 는 DESC 수신 후 reverse() 로 오래된 메시지를 위에 렌더한다.
-          // 미읽음(id 3,4)은 남(authorId=2)이 보낸 메시지여야 구분선이 뜬다 — 내 메시지는 미읽음 제외(#491).
-          items: [
-            createMessage({ id: 4, channelId: 77, authorId: 2, createdAt: '2026-06-01T04:00:00Z' }),
-            createMessage({ id: 3, channelId: 77, authorId: 2, createdAt: '2026-06-01T03:00:00Z' }),
-            createMessage({ id: 2, channelId: 77, createdAt: '2026-06-01T02:00:00Z' }),
-            createMessage({ id: 1, channelId: 77, createdAt: '2026-06-01T01:00:00Z' }),
-          ],
-          nextCursor: null,
-          hasMore: false,
-        }),
-      })
-    },
-  )
-
-  await page.goto('/chat/channels/77')
-
-  const divider = page.getByTestId('unread-divider')
-  await expect(divider).toBeVisible()
-
-  // 구분선의 Y 가 message-2 아래, message-3 위.
-  const yDivider = (await divider.boundingBox())!.y
-  const y2 = (await page.getByTestId('message-2').boundingBox())!.y
-  const y3 = (await page.getByTestId('message-3').boundingBox())!.y
-  expect(y2).toBeLessThan(yDivider)
-  expect(yDivider).toBeLessThan(y3)
 })

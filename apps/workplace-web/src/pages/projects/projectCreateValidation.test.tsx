@@ -2,7 +2,9 @@
 // 한국어 오류 문구·공백 이름 차단·aria-invalid/aria-describedby 연결·409 를 key 칸 오류로 보이기는
 // 브라우저 없이 판정되므로 e2e/pages/projects/project-create-validation.spec.ts 에서 옮겼다(그 spec 은 지웠다).
 // 프로젝트 목록 화면 배선은 e2e/pages/projects/project-list.spec.ts 의 @wiring 이 지킨다.
-import { screen, waitFor } from '@testing-library/react'
+// 닫았다 다시 열면 입력이 남지 않음(#178)과 비밀번호 관리자 메뉴 클릭에 닫히지 않음(WP-96)은
+// e2e/pages/dialog-state-reset.spec.ts · dialog-password-manager.spec.ts 에서 옮겼다(WP-982).
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
@@ -97,4 +99,43 @@ test('삭제된 프로젝트의 key(409)면 서버 문구가 토스트가 아닌
   // key 를 고치면 서버 오류가 사라진다(다시 검증).
   await fill(user, /^key \(예: WP\)/, 'NEWKEY')
   await waitFor(() => expect(input).not.toHaveAttribute('aria-invalid', 'true'))
+})
+
+// #178 — 닫혀 있는 동안 폼 상태가 남아 다시 열면 이전 입력이 보이던 결함.
+test('Escape 로 닫고 다시 열면 key·이름 입력이 비어 있다 (#178)', async () => {
+  const { user } = await openCreateDialog()
+  await fill(user, /^key \(예: WP\)/, 'MYKEY')
+  await fill(user, /^이름/, '내 프로젝트')
+  expect(screen.getByLabelText(/^key \(예: WP\)/)).toHaveValue('MYKEY')
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 프로젝트' })).not.toBeInTheDocument())
+  await user.click(screen.getByRole('button', { name: '+ 새 프로젝트' }))
+  await screen.findByRole('dialog', { name: '새 프로젝트' })
+  expect(screen.getByLabelText(/^key \(예: WP\)/)).toHaveValue('')
+  expect(screen.getByLabelText(/^이름/)).toHaveValue('')
+})
+
+// WP-96 — 1Password 등은 자동완성 메뉴를 body 직속 커스텀 엘리먼트(shadow root)로 주입한다. 그 메뉴를 누르는 것은 대화상자 바깥
+// pointerdown 이지만 닫으면 안 된다. 진짜 바깥(오버레이)을 누르면 여전히 닫힌다 — 같은 화면에서 양성 대조로 본다.
+test('비밀번호 관리자 메뉴를 눌러도 대화상자가 닫히지 않고, 오버레이를 누르면 닫힌다 (WP-96)', async () => {
+  await openCreateDialog()
+  const host = document.createElement('com-1password-menu')
+  const button = document.createElement('button')
+  button.textContent = '1Password로 채우기'
+  host.attachShadow({ mode: 'open' }).appendChild(button)
+  document.body.appendChild(host)
+  // Radix 는 열린 직후 다음 틱에 바깥 pointerdown 리스너를 건다.
+  await new Promise((r) => setTimeout(r, 0))
+  try {
+    // shadow root 안 버튼 — 문서 리스너에는 host 로 리타깃돼 도착한다(composed).
+    fireEvent.pointerDown(button, { composed: true })
+    fireEvent.click(button, { composed: true })
+    expect(screen.getByRole('dialog', { name: '새 프로젝트' })).toBeInTheDocument()
+
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement
+    fireEvent.pointerDown(overlay)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 프로젝트' })).not.toBeInTheDocument())
+  } finally {
+    host.remove()
+  }
 })

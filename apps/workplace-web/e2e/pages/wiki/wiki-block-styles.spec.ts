@@ -107,7 +107,7 @@ const BLOCK_BODY = [
   '```',
 ].join('\n')
 
-test('노트 에디터 — 불릿/번호 목록 마커와 들여쓰기가 렌더된다 (#738)', async ({ authenticatedPage: page }) => {
+test('노트 에디터 — 불릿/번호 목록 마커와 들여쓰기가 렌더된다 (#738)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, BLOCK_BODY)
   await open(page)
   const ul = page.locator('.ProseMirror ul').first()
@@ -136,7 +136,7 @@ test('노트 에디터 — 불릿/번호 목록 마커와 들여쓰기가 렌더
   expect(nestedIndent).toBeGreaterThan(topIndent)
 })
 
-test('노트 에디터 — 코드블록에 배경/보더가 렌더된다 (#738)', async ({ authenticatedPage: page }) => {
+test('노트 에디터 — 코드블록에 배경/보더가 렌더된다 (#738)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupWikiMocks(page, BLOCK_BODY)
   await open(page)
   const pre = page.locator('.ProseMirror pre').first()

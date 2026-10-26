@@ -2,6 +2,8 @@
 // 위젯을 렌더하는지 검증한다. done 이벤트가 위젯을 늦게(전체 처리 완료 후) 주더라도,
 // tool 이벤트만으로 위젯이 떠야 한다. 격리 전략: done.widgets 를 비워두고 tool 이벤트로만
 // 위젯을 전달 → 위젯이 보이면 점진 경로(tool 이벤트)로 온 것임이 증명된다.
+// 챗 도크 → 생성 스트림 → 위젯의 대표 배선(@wiring)이다. 위젯별 본문(채널·연락처·드라이브 목록·상세·빈 상태·필터 쿼리)은
+// 화면 테스트 src/pages/home/homeWidgetChat.test.tsx 가 지킨다(WP-971 — home-widget-channels·contacts·drive.spec.ts 에서 옮김).
 
 import { calendarEvent } from '../factories/calendar.factory';
 import { expect, test } from '../fixtures/auth.fixture';
@@ -10,7 +12,7 @@ import { mockHomeChatGeneration } from '../fixtures/home-chat-mock';
 test.describe('#461 홈 챗 도크 위젯 점진 렌더', () => {
   test(
     'show_calendar tool 이벤트 도착 즉시 위젯을 렌더한다(done 위젯 없이)',
-    { tag: '@smoke' },
+    { tag: ['@wiring', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       // tool(start)로 show_calendar 가 도착하고 done.widgets 는 빈 배열.
       // 점진 렌더가 동작하면 tool 이벤트만으로 캘린더 위젯이 떠야 한다.

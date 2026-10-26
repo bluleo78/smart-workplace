@@ -1,6 +1,7 @@
 // /settings/users — '구분' 컬럼의 AGENT/HUMAN 시각 일관성 회귀 (#287).
 // 같은 컬럼에서 AGENT 는 배지, HUMAN 은 옅은 텍스트로 표시되던 불일치를 수정 →
-// HUMAN 도 Badge('일반') 로 통일됐는지 검증한다.
+// HUMAN 도 Badge('일반') 로 통일됐는지 검증한다. 구성원 목록 화면의 대표 배선(@wiring)이기도 하다 —
+// 구성원 추가 대화상자·보조 줄·다음 페이지 다시 시도는 src/pages/admin/userList.test.tsx 가 지킨다(WP-966).
 
 import type { Page } from '@playwright/test';
 
@@ -32,7 +33,7 @@ async function setupPage(page: Page) {
 }
 
 test.describe('UserListPage 구분 컬럼 일관성 (#287)', () => {
-  test('AGENT 와 HUMAN 모두 배지로 표시된다', async ({ adminPage: page }) => {
+  test('AGENT 와 HUMAN 모두 배지로 표시된다', { tag: '@wiring' }, async ({ adminPage: page }) => {
     await setupPage(page);
 
     // AGENT 행: 기존 AgentBadge(아이콘 배지) 유지

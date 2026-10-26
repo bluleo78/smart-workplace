@@ -23,7 +23,7 @@ const TABLE_MD = [
 const setup = (page: Page, body: string) =>
   mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: PAGE_ID, title: '분기 지표', body })
 
-test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: page }) => {
+test('표 렌더 + 마크다운 라운드트립', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
   await setup(page, TABLE_MD)
   await open(page)
 
@@ -56,7 +56,7 @@ test('표 렌더 + 마크다운 라운드트립', async ({ authenticatedPage: pa
   expect(md).toMatch(/\|\s*---/)
 })
 
-test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드트립 (#748)', async ({
+test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드트립 (#748)', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   // 빈 본문에서 시작 — 삽입 결과만 검증하도록 기존 표와 섞이지 않게 한다.
@@ -104,7 +104,7 @@ test('슬래시 메뉴에서 표 삽입 + 삽입 경로 마크다운 라운드�
   expect(delimiter.split('---')).toHaveLength(5) // 4열
 })
 
-test('그리드 피커 — 방향키로 크기를 바꾸고 Enter 로 삽입, Escape 로 목록 복귀', async ({
+test('그리드 피커 — 방향키로 크기를 바꾸고 Enter 로 삽입, Escape 로 목록 복귀', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page, '')

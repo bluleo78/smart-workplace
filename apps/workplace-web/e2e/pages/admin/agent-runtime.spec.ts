@@ -1,6 +1,7 @@
 // /settings/agents — 에이전트 실행 방식(내부·외부) E2E (WP-371).
-// 시나리오: INTERNAL→EXTERNAL 전환 시 외부 연결 카드 노출 + AI 연결 숨김, 409 메시지 노출,
-// 공통 비서 비활성+사유, 목록 실행 배지·키 사용 시각, 375px 모바일 가로 넘침 없음.
+// 남는 것: 외부로 바꾼 뒤 「아이디 복사」가 실제 클립보드에 들어간다(@platform, UI 리뷰용 데스크톱 스크린샷 포함),
+// 375px 모바일에서 드로어가 가로로 넘치지 않는다(@layout).
+// 실행 배지·키 사용 시각, 외부 연결 카드 명령 문구, 409 사유, 공통 비서 잠금은 src/pages/admin/agentManagement.test.tsx 가 지킨다(WP-966).
 // 스크린샷은 test-results/exploratory/wp-371-agent-runtime/<timestamp>/screenshots/ 에 저장한다.
 
 import path from 'node:path';
@@ -8,7 +9,6 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
-import { expectedMcpEndpoint } from '../../fixtures/mcp';
 import type { AgentResponse } from '../../../src/types/agent';
 
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-');
@@ -46,8 +46,8 @@ function makeAgents(): AgentResponse[] {
   ];
 }
 
-// 모킹: 목록(상태 보존) + runtime PUT(409 옵션) + 키 목록 + 부수 API.
-async function setup(page: Page, opts: { runtimeConflict?: string } = {}) {
+// 모킹: 목록(상태 보존) + runtime PUT + 키 목록 + 부수 API.
+async function setup(page: Page) {
   let agents = makeAgents();
   await page.route(/\/api\/v1\/admin\/agents(\?.*)?$/, (route) =>
     route.request().method() === 'GET'
@@ -55,13 +55,6 @@ async function setup(page: Page, opts: { runtimeConflict?: string } = {}) {
       : route.fallback(),
   );
   await page.route(/\/api\/v1\/admin\/agents\/\d+\/runtime$/, (route) => {
-    if (opts.runtimeConflict) {
-      return route.fulfill({
-        status: 409,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: opts.runtimeConflict }),
-      });
-    }
     const id = Number(route.request().url().match(/agents\/(\d+)\/runtime/)![1]);
     const { runtime } = route.request().postDataJSON() as { runtime: AgentResponse['runtime'] };
     agents = agents.map((a) => (a.id === id ? { ...a, runtime } : a));
@@ -98,91 +91,32 @@ async function setup(page: Page, opts: { runtimeConflict?: string } = {}) {
 const shot = (page: Page, name: string) => page.screenshot({ path: path.join(SHOT_DIR, `${name}.png`) });
 
 test.describe('/settings/agents 실행 방식', () => {
-  test('목록에 실행 배지와 키 사용 시각을 보인다', async ({ adminPage: page }) => {
-    await setup(page);
-    await page.goto('/settings/agents');
-    await expect(page.getByTestId('agent-runtime-cell-100')).toContainText('내부');
-    await expect(page.getByTestId('agent-runtime-cell-101')).toContainText('외부');
-    await expect(page.getByTestId('agent-key-status-101')).toHaveText('키 사용 5분 전');
-    await expect(page.getByTestId('agent-key-status-102')).toHaveText('키 미사용');
-    await expect(page.getByTestId('agent-key-status-100')).toHaveCount(0);
-  });
-
-  test('내부 → 외부 전환 시 외부 연결 카드가 보이고 AI 연결이 숨겨진다', async ({ adminPage: page }) => {
+  test('외부로 바꾸면 아이디 복사가 클립보드에 들어간다', { tag: '@platform' }, async ({ adminPage: page }) => {
     await setup(page);
     await page.goto('/settings/agents');
     await page.getByTestId('agent-row-100').click();
     await expect(page.getByTestId('agent-connection-section')).toBeVisible();
-    await expect(page.getByTestId('external-connect-card')).toHaveCount(0);
     await shot(page, 'drawer-internal-desktop');
 
     await page.getByTestId('agent-runtime-EXTERNAL').click();
     await expect(page.getByTestId('external-connect-card')).toBeVisible();
-    await expect(page.getByTestId('agent-connection-section')).toHaveCount(0);
-    // ② 플러그인 설치 ③ 이 AI 등록 ④ 이 AI로 일하기(WP-378) — 키·토큰이 든 명령은 없다.
-    const origin = new URL(page.url()).origin;
-    await expect(page.getByTestId('plugin-install-command')).toHaveText(
-      `/plugin marketplace add ${origin}/claude/marketplace.json\n/plugin install genia-works@genia-works`,
-    );
-    // dev·preview 서버는 운영 기본 주소가 아니므로 ② 에 서버 주소 바꾸기 안내가 보인다(dev 는 MCP 6090, preview 는 접속 origin).
-    await expect(page.getByTestId('plugin-server-url-step')).toBeVisible();
-    await expect(page.getByTestId('plugin-server-url')).toHaveText(expectedMcpEndpoint(origin));
-    await expect(page.getByTestId('agent-login-command')).toHaveText('/genia-works:login');
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.getByTestId('agent-username-copy').click();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('ai-dev');
-    await expect(page.getByTestId('agent-switch-command')).toHaveText('/genia-works:as ai-dev');
-    await expect(page.getByTestId('agent-launch-as-command')).toHaveText('GENIA_WORKS_AS=ai-dev claude');
-    // ⑤ 자동으로 이슈 처리(WP-376) — work-loop 시작 명령 두 줄과 이슈 하나만 맡기는 안내.
-    await expect(page.getByTestId('agent-work-loop-launch-command')).toHaveText(
-      'GENIA_WORKS_AS=ai-dev claude --permission-mode bypassPermissions',
-    );
-    await expect(page.getByTestId('agent-work-loop-start-command')).toHaveText('/loop /genia-works:work-loop <프로젝트 키>');
-    await expect(page.getByTestId('agent-work-loop')).toContainText('/genia-works:work-on');
-    // 아이디 복사 토스트가 ⑤ 위를 덮으므로 사라질 때까지 기다린 뒤, 드로어 내부 스크롤로 접힌 ⑤ 를 보이게 하고 ⑤ 영역만 찍는다.
+
+    // UI 리뷰용 스크린샷 — 아이디 복사 토스트가 ⑤ 위를 덮으므로 사라질 때까지 기다린 뒤, 드로어 내부 스크롤로 ⑤ 를 보이게 하고 찍는다.
     await expect(page.locator('[data-sonner-toast]')).toHaveCount(0, { timeout: 15_000 });
     await page.getByTestId('agent-work-loop').scrollIntoViewIfNeeded();
     await page
       .getByTestId('agent-work-loop')
       .screenshot({ path: path.join(SHOT_DIR, 'external-connect-card-work-loop-desktop.png') });
-    // 다른 방법(접힘) — 펼쳐야 키를 직접 넘기는 명령이 보인다.
-    await expect(page.getByTestId('agent-fallback-command')).toHaveCount(0);
     await page.getByTestId('agent-fallback').click();
-    await expect(page.getByTestId('agent-fallback-command')).toHaveText('GENIA_WORKS_TOKEN=<발급한 키> claude');
-    await expect(page.getByPlaceholder('label (예: 맥북)')).toBeVisible();
     await shot(page, 'drawer-external-desktop');
     // 드로어는 내부 스크롤이라 뷰포트 캡처로는 ②·③ 이 잘린다 — 연결 카드만 따로 저장해 UI 리뷰에 쓴다.
     await page.getByTestId('external-connect-card').screenshot({ path: path.join(SHOT_DIR, 'external-connect-card-desktop.png') });
-
-    // 키 발급 다이얼로그에는 로그인 안내만 있고 평문 키가 든 명령은 없다.
-    await page.getByTestId('key-issue-form').getByRole('button', { name: '키 발급' }).click();
-    const keyDialog = page.getByTestId('agent-key-issue-dialog');
-    await expect(keyDialog.getByTestId('agent-key-login-guide')).toContainText('/genia-works:login');
-    await expect(keyDialog.getByTestId('agent-key-login-guide')).toContainText('ai-dev');
-    await expect(keyDialog).not.toContainText('GENIA_WORKS_TOKEN=ak_');
-    await expect(keyDialog.getByRole('button', { name: '키 복사' })).toBeVisible();
   });
 
-  test('409 사유를 서버 메시지로 보여준다', async ({ adminPage: page }) => {
-    await setup(page, { runtimeConflict: '공통 비서로 지정된 AI는 외부로 바꿀 수 없습니다' });
-    await page.goto('/settings/agents');
-    await page.getByTestId('agent-row-100').click();
-    await page.getByTestId('agent-runtime-EXTERNAL').click();
-    await expect(page.getByText('공통 비서로 지정된 AI는 외부로 바꿀 수 없습니다')).toBeVisible();
-    await expect(page.getByTestId('external-connect-card')).toHaveCount(0);
-  });
-
-  test('공통 비서는 실행 방식이 비활성화되고 사유가 보인다', async ({ adminPage: page }) => {
-    await setup(page);
-    await page.goto('/settings/agents');
-    await page.getByTestId('agent-row-103').click();
-    await expect(page.getByTestId('agent-runtime-EXTERNAL')).toBeDisabled();
-    await expect(page.getByTestId('agent-runtime-INTERNAL')).toBeDisabled();
-    await expect(page.getByTestId('agent-runtime-description')).toContainText('비서 지정을 먼저 해제하세요');
-    await shot(page, 'drawer-workspace-disabled-desktop');
-  });
-
-  test.describe('모바일 375px', () => {
+  test.describe('모바일 375px', { tag: '@layout' }, () => {
     test.use({ viewport: { width: 375, height: 800 } });
 
     test('드로어가 가로로 넘치지 않는다', async ({ adminPage: page }) => {

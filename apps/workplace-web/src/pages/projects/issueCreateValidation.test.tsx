@@ -2,6 +2,8 @@
 // 공백뿐인 제목이 인라인 오류로 막히고 서버로 가지 않는지, 입력 중 켜진 beforeunload 경고가 닫으면 꺼지는지는
 // 브라우저 없이 판정되므로 e2e/pages/projects/issue-create-validation.spec.ts 에서 옮겼다(그 spec 은 지웠다).
 // 검증 규칙 자체(trim·200자 경계)는 src/lib/validations/issue.test.ts, 경고 켜짐 조건은 src/lib/issueDraft.test.ts 가 맡는다.
+// 닫았다 다시 열면 입력·오류가 남지 않음(#178)·제목 칸 필수 표시(*)·제출 중 「생성 중…」(#131)은
+// e2e/pages/dialog-state-reset.spec.ts · required-field-indicators.spec.ts · submit-loading-state.spec.ts 에서 옮겼다(WP-982).
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
@@ -14,24 +16,24 @@ import { createProject } from '../../../e2e/factories/project.factory'
 
 const KEY = 'WP'
 
-/** 프로젝트·이슈 목록·유형 — 생성 POST 는 횟수만 센다(400 으로 돌려 실수로 나가도 화면이 닫히지 않게). */
-function projectHandlers(posts: { count: number }) {
+/** 프로젝트·이슈 목록·유형 — 생성 POST 는 횟수만 센다(400 으로 돌려 실수로 나가도 화면이 닫히지 않게). post 를 주면 그 응답을 쓴다. */
+function projectHandlers(posts: { count: number }, post?: Parameters<typeof http.post>[1]) {
   return [
     http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
     http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
     http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
     http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json(createIssueSearchResponse([createIssue({ title: '기존 이슈' })]))),
-    http.post(`/api/v1/projects/${KEY}/issues`, () => {
+    http.post(`/api/v1/projects/${KEY}/issues`, (info) => {
       posts.count++
-      return HttpResponse.json({}, { status: 400 })
+      return post ? post(info) : HttpResponse.json({}, { status: 400 })
     }),
   ]
 }
 
 /** 목록을 열고 「+ 새 태스크」로 대화상자를 띄운다. */
-async function openCreateDialog() {
+async function openCreateDialog(post?: Parameters<typeof http.post>[1]) {
   const posts = { count: 0 }
-  const view = renderPage(`/projects/${KEY}`, { handlers: projectHandlers(posts) })
+  const view = renderPage(`/projects/${KEY}`, { handlers: projectHandlers(posts, post) })
   await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: PAGE_LOAD_TIMEOUT }))
   await screen.findByRole('dialog', { name: '새 이슈' })
   return { ...view, posts }
@@ -61,4 +63,65 @@ test('제목을 쓰면 beforeunload 경고가 켜지고, 대화상자를 닫으�
   await user.click(screen.getByRole('button', { name: '취소' }))
   await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 이슈' })).not.toBeInTheDocument())
   expect(dispatchBeforeUnload()).toBe(false)
+})
+
+/** 「+ 새 태스크」로 대화상자를 다시 연다. */
+async function reopen(user: Awaited<ReturnType<typeof openCreateDialog>>['user']) {
+  await user.click(screen.getByRole('button', { name: '+ 새 태스크' }))
+  return screen.findByRole('dialog', { name: '새 이슈' })
+}
+
+/** 대화상자가 닫힐 때까지 기다린다. */
+async function closed() {
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '새 이슈' })).not.toBeInTheDocument())
+}
+
+// #178 — 닫혀 있는 동안 폼 상태가 남아 다시 열면 이전 입력·오류가 보이던 결함. Escape·취소 두 닫기 경로를 한 화면에서 이어 본다
+// (테스트마다 앱을 띄우면 2초 넘게 들어 한 번 띄운 화면에서 이어 간다). 제목 라벨의 필수 표시(*)도 함께 본다.
+test('Escape·취소로 닫고 다시 열면 입력값·유효성 오류가 남지 않고, 제목 라벨엔 필수 표시(*)가 있다 (#178)', async () => {
+  const { user } = await openCreateDialog()
+  // 필수 칸 표시 — FormField 의 required 가 라벨 끝에 붉은 별표(text-destructive *)를 그린다.
+  const label = document.querySelector('label[for="issue-title"]') as HTMLElement
+  expect(label.querySelector('span.text-destructive')).toHaveTextContent('*')
+
+  // Escape — 입력값.
+  await user.click(screen.getByLabelText(/^제목/))
+  await user.paste('테스트 제목')
+  expect(screen.getByLabelText(/^제목/)).toHaveValue('테스트 제목')
+  await user.keyboard('{Escape}')
+  await closed()
+  await reopen(user)
+  expect(screen.getByLabelText(/^제목/)).toHaveValue('')
+
+  // Escape — 유효성 오류.
+  await user.click(screen.getByRole('button', { name: '생성' }))
+  expect(await screen.findByText('제목은 필수입니다')).toBeInTheDocument()
+  await user.keyboard('{Escape}')
+  await closed()
+  await reopen(user)
+  expect(screen.queryByText('제목은 필수입니다')).not.toBeInTheDocument()
+
+  // 취소 — 입력값.
+  await user.click(screen.getByLabelText(/^제목/))
+  await user.paste('임시 제목')
+  await user.click(screen.getByRole('button', { name: '취소' }))
+  await closed()
+  await reopen(user)
+  expect(screen.getByLabelText(/^제목/)).toHaveValue('')
+})
+
+// #131 — 응답을 기다리는 동안 버튼이 「생성 중…」으로 바뀌고 비활성이라 두 번 누를 수 없다.
+test('제출 중에는 버튼이 「생성 중…」 이고 비활성이다 (#131)', async () => {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => (release = resolve))
+  const { user } = await openCreateDialog(async () => {
+    await held
+    return HttpResponse.json(createIssue({ title: '새 이슈' }), { status: 201 })
+  })
+  await user.click(screen.getByLabelText(/^제목/))
+  await user.paste('새 이슈')
+  await user.click(screen.getByRole('button', { name: '생성' }))
+  expect(await screen.findByRole('button', { name: '생성 중…' })).toBeDisabled()
+  release()
+  await closed()
 })

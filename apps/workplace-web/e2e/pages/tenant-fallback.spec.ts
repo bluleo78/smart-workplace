@@ -3,6 +3,7 @@
 //  - 남은 소속 1개 → 그 테넌트 토큰, 그 외 → tenant-less 토큰.
 // 웹은 401 → refresh 결과 토큰의 tenant 클레임을 보관된 활성 테넌트와 비교해, 바뀌었으면 원래 요청을 재시도하지 않고
 // 전체 리로드(이전 테넌트 캐시 정리) → 초기화가 새 토큰 기준으로 선택 카드(tenant-less) 또는 새 테넌트 진입을 한다.
+// 전체 리로드(문서 요청)와 리로드 뒤 localStorage·세션 유지를 실제 브라우저에서 봐야 하므로 모두 @platform 이다(WP-971).
 // 401 유발: 활성 테넌트가 "죽는" 순간을 흉내 내려고 스위처가 여는 GET /auth/memberships 를 한 번만 401 로 돌려준다.
 import type { Page } from '@playwright/test'
 
@@ -104,7 +105,7 @@ function expectNoRetryWithNewToken(
   expect(before.filter((e) => e.kind === 'api' && e.auth === `Bearer ${afterToken}`)).toEqual([])
 }
 
-test('다중 소속 사용자의 쓰던 워크스페이스가 사라지고 refresh 가 tenant-less 면 로그인 폼이 아니라 워크스페이스 선택 카드로 간다', async ({
+test('다중 소속 사용자의 쓰던 워크스페이스가 사라지고 refresh 가 tenant-less 면 로그인 폼이 아니라 워크스페이스 선택 카드로 간다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const tenant = await setupDyingTenant(page, fakeJwt(), [GLOBEX, INITECH])
@@ -133,7 +134,7 @@ test('다중 소속 사용자의 쓰던 워크스페이스가 사라지고 refre
   expect(await page.evaluate(() => window.localStorage.getItem('hasSession'))).not.toBeNull()
 })
 
-test('쓰던 워크스페이스가 사라지고 refresh 가 남은 한 워크스페이스 토큰을 주면 그 워크스페이스로 이어 간다', async ({
+test('쓰던 워크스페이스가 사라지고 refresh 가 남은 한 워크스페이스 토큰을 주면 그 워크스페이스로 이어 간다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const tenant = await setupDyingTenant(page, fakeJwt(GLOBEX.tenantId), [GLOBEX])
@@ -161,7 +162,7 @@ test('쓰던 워크스페이스가 사라지고 refresh 가 남은 한 워크스
   await expect(page.getByText(SWITCHED_TOAST)).toBeVisible()
 })
 
-test('다중 탭: 다른 탭이 이미 보관값을 새 워크스페이스로 바꿔 놨어도 이 탭은 메모리 토큰 기준으로 바뀜을 알아채 리로드한다', async ({
+test('다중 탭: 다른 탭이 이미 보관값을 새 워크스페이스로 바꿔 놨어도 이 탭은 메모리 토큰 기준으로 바뀜을 알아채 리로드한다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const tenant = await setupDyingTenant(page, fakeJwt(GLOBEX.tenantId), [GLOBEX])
@@ -181,7 +182,7 @@ test('다중 탭: 다른 탭이 이미 보관값을 새 워크스페이스로 �
   await expect(page.getByText(SWITCHED_TOAST)).toBeVisible()
 })
 
-test('남은 워크스페이스가 없으면 refresh 쿠키를 폐기(logout)하고 로그인 폼에 무소속 안내를 띄운다', async ({
+test('남은 워크스페이스가 없으면 refresh 쿠키를 폐기(logout)하고 로그인 폼에 무소속 안내를 띄운다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const tenant = await setupDyingTenant(page, fakeJwt(), [])
@@ -201,7 +202,7 @@ test('남은 워크스페이스가 없으면 refresh 쿠키를 폐기(logout)하
   expect(await page.evaluate(() => window.localStorage.getItem('hasSession'))).toBeNull()
 })
 
-test('새 토큰의 워크스페이스가 선택 가능 목록에 없으면 활성 표시 없이 진입하지 않고 선택 카드로 보낸다', async ({
+test('새 토큰의 워크스페이스가 선택 가능 목록에 없으면 활성 표시 없이 진입하지 않고 선택 카드로 보낸다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   // 토큰은 40 을 가리키지만 목록에는 없다(경합 등) — tenant-scoped 토큰으로 이름 없는 진입 대신 선택으로.

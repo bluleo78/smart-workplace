@@ -103,13 +103,13 @@ async function stubMessages(
   )
 }
 
-test.describe('@smoke messaging phase7 AI 멤버', () => {
+test.describe('messaging phase7 AI 멤버', () => {
   // 채널 @멘션 자동완성에 비멤버 AGENT 노출 + 멘션 전송 검증.
   // useMentionAgents 가 GET /api/v1/members?kind=AGENT 로 AGENT 를 조회하고,
   // ChannelPage 에서 채널 멤버 ∪ AGENT 를 합쳐 MentionList 에 전달하는 흐름을 e2e 검증.
   test(
     '채널 멘션 자동완성에 비멤버 AGENT 노출 + 멘션 전송',
-    { tag: '@smoke' },
+    { tag: ['@input', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const CHANNEL_ID = 5
       const channel = createChannel({ id: CHANNEL_ID, name: '개발', memberCount: 1 })

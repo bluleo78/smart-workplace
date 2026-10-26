@@ -61,7 +61,7 @@ async function deliverRemoteTitle(page: Page, server: FakeServer, events: { deli
   await refetch
 }
 
-test('위키 — 제목 입력 중이 아닐 때 다른 곳에서 제목을 바꾸면 내 헤더 제목이 새로고침 없이 바뀐다', async ({
+test('위키 — 제목 입력 중이 아닐 때 다른 곳에서 제목을 바꾸면 내 헤더 제목이 새로고침 없이 바뀐다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   const server: FakeServer = { title: '원래 제목' }
@@ -90,7 +90,7 @@ test('위키 — 제목 입력 중이 아닐 때 다른 곳에서 제목을 바�
   expect(gets.count()).toBeGreaterThanOrEqual(2)
 })
 
-test('위키 — 제목 입력란에 포커스가 있는 동안엔 원격 제목이 덮지 않고, 포커스를 떠나면 반영된다', async ({
+test('위키 — 제목 입력란에 포커스가 있는 동안엔 원격 제목이 덮지 않고, 포커스를 떠나면 반영된다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
   const server: FakeServer = { title: '원래 제목' }

@@ -1,10 +1,8 @@
-// messaging 메시지 본문 기본기 E2E — 연속 그룹핑·아바타·타임스탬프·하단 고정 검증.
+// messaging 메시지 본문 E2E — 실제 화면에서만 잴 수 있는 것: 아바타 색(계산된 색)·하단 고정·말풍선 좌우 배치·툴바 위치/잘림·
+// 긴 문자열 줄바꿈·터치 타깃·번호 목록 간격(@layout), 키보드 포커스·탭·호버로 드러나는 툴바/시각(@input).
 // 백엔드 없이 page.route() 로 API 모킹.
-// 검증 범위:
-//   - 같은 작성자 연속 메시지 → 하나의 그룹(첫 줄만 헤더+아바타 노출, 후속 줄 숨김)
-//   - 다른 작성자/간격 초과 메시지 → 새 그룹 시작
-//   - 페이지 진입 시 최신 메시지가 viewport 안에 보임(stick-to-bottom)
-//   - @멘션 칩 시맨틱 토큰 적용 확인 (#258 회귀 방지)
+// AGENT 새 그룹·봇 배지, 멘션 칩 토큰(타인·본인 말풍선), AI 마크다운/사람 원문 렌더는 vitest 로 옮겼다(WP-984):
+// src/pages/chat/messageList.test.tsx.
 import type { Page } from '@playwright/test'
 
 import { createPageResponse } from '../../fixtures/api-mock'
@@ -172,7 +170,7 @@ test.describe('messaging 메시지 본문 기본기', () => {
     await expect(page.getByTestId('message-list')).toBeVisible()
   })
 
-  test('사람 아바타는 노트 접속자와 같은 색 토큰을 칠한다 (WP-318)', async ({ authenticatedPage: page }) => {
+  test('사람 아바타는 노트 접속자와 같은 색 토큰을 칠한다 (WP-318)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // userId 10 → presenceColorIndex 3. 같은 사람이 노트 커서·아바타와 같은 --presence-3 바탕 + --presence-foreground 글자여야 한다.
     const avatar = page.getByTestId('chat-avatar-10')
     await expect(avatar).toHaveClass(/bg-presence/)
@@ -181,156 +179,10 @@ test.describe('messaging 메시지 본문 기본기', () => {
   })
 
   test(
-    'AGENT 메시지는 새 그룹 시작 + 봇 배지 노출',
-    { tag: '@smoke' },
-    async ({ authenticatedPage: page }) => {
-      // message-3: 작성자 변경 → 새 그룹.
-      await expect(page.getByTestId('message-3')).toHaveAttribute('data-group-start', 'true')
-
-      // AGENT 아바타 봇 배지(chat-avatar-agent-99) 노출.
-      const agentBadge = page.getByTestId('chat-avatar-agent-99')
-      await expect(agentBadge).toBeVisible()
-
-      // #301 회귀: ChatAvatar AGENT 배지가 ai-accent 시맨틱 토큰 클래스를 사용해야 한다 (raw 팔레트 금지).
-      await expect(agentBadge).toHaveClass(/bg-ai-accent/)
-      await expect(agentBadge).not.toHaveClass(/bg-purple-600/)
-    },
-  )
-
-  test(
     '페이지 진입 시 최신 메시지(message-3)가 viewport 안에 보임 — stick-to-bottom',
+    { tag: '@layout' },
     async ({ authenticatedPage: page }) => {
       await expect(page.getByTestId('message-3')).toBeInViewport()
-    },
-  )
-})
-
-// ── @멘션 칩 시맨틱 토큰 회귀 (#258) ─────────────────────────────────────────────
-// raw 팔레트(bg-blue-100, text-blue-700 등)가 다시 사용되면 이 테스트가 실패한다.
-
-const MENTION_CHANNEL_ID = 701
-
-test.describe('@멘션 칩 시맨틱 토큰', () => {
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    const channel = createChannel({ id: MENTION_CHANNEL_ID, name: '멘션테스트', memberCount: 2 })
-
-    // HUMAN(id=10) 과 AGENT(id=99) 를 동시에 @멘션하는 메시지
-    const mentionMsg = createMessage({
-      id: 10,
-      channelId: MENTION_CHANNEL_ID,
-      // 타인 메시지 — 본인 말풍선 안 칩은 별도 스타일(bg-background)이라 기존 칩 토큰은 타인 행에서 검증한다(#884).
-      authorId: 5,
-      authorName: '다른사람',
-      authorKind: 'HUMAN',
-      body: '안녕 <@10> <@99>',
-      mentions: [
-        { id: 10, username: 'bluleo78', name: '양동희', kind: 'HUMAN' },
-        { id: 99, username: 'myai', name: 'My AI', kind: 'AGENT' },
-      ],
-      createdAt: '2026-06-16T00:00:00',
-    })
-
-    await page.route(
-      (url) => url.pathname === '/api/v1/messaging/channels',
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([channel]) })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === '/api/v1/messaging/dms',
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === '/api/v1/events',
-      (route) =>
-        route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: ':\n\n' }),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(channel) })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}/members`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify([
-                createChannelMember({ userId: 1, name: 'me', kind: 'HUMAN' }),
-                createChannelMember({ userId: 10, name: '양동희', kind: 'HUMAN' }),
-                createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
-              ]),
-            })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}/messages`,
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify({ items: [mentionMsg], nextCursor: null, hasMore: false }),
-            })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === `/api/v1/messaging/channels/${MENTION_CHANNEL_ID}/read`,
-      (route) =>
-        route.request().method() === 'POST'
-          ? route.fulfill({ status: 204, contentType: 'application/json', body: '' })
-          : route.fallback(),
-    )
-    await page.route(
-      (url) => url.pathname === '/api/v1/members',
-      (route) =>
-        route.request().method() === 'GET'
-          ? route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: JSON.stringify(createPageResponse([], { size: 100 })),
-            })
-          : route.fallback(),
-    )
-
-    await page.goto(`/chat/channels/${MENTION_CHANNEL_ID}`)
-    await expect(page.getByTestId('message-list')).toBeVisible()
-  })
-
-  test(
-    'HUMAN @멘션 칩은 시맨틱 토큰(bg-accent text-accent-foreground)을 사용한다 — raw 팔레트 금지 (#258)',
-    async ({ authenticatedPage: page }) => {
-      const chip = page.getByTestId('mention-chip-10')
-      await expect(chip).toBeVisible()
-      // 시맨틱 토큰 클래스 존재 확인
-      await expect(chip).toHaveClass(/bg-accent/)
-      await expect(chip).toHaveClass(/text-accent-foreground/)
-      // raw 팔레트 클래스 사용 금지
-      const className = await chip.getAttribute('class') ?? ''
-      expect(className).not.toContain('bg-blue-')
-      expect(className).not.toContain('text-blue-')
-    },
-  )
-
-  test(
-    'AGENT @멘션 칩은 시맨틱 토큰(bg-primary/15 text-primary)을 사용한다 — raw 팔레트 금지 (#258)',
-    async ({ authenticatedPage: page }) => {
-      const chip = page.getByTestId('mention-chip-99')
-      await expect(chip).toBeVisible()
-      // 시맨틱 토큰 클래스 존재 확인
-      await expect(chip).toHaveClass(/text-primary/)
-      // raw 팔레트 클래스 사용 금지
-      const className = await chip.getAttribute('class') ?? ''
-      expect(className).not.toContain('bg-purple-')
-      expect(className).not.toContain('text-purple-')
     },
   )
 })
@@ -443,7 +295,7 @@ test.describe('메시지 좌/우 분리', () => {
 
   test(
     '본인 메시지는 우측 말풍선 — 아바타·이름 없음',
-    { tag: '@smoke' },
+    { tag: ['@layout', '@smoke'] },
     async ({ authenticatedPage: page }) => {
       const ownRow = page.getByTestId('message-30')
       await expect(ownRow).toHaveAttribute('data-own', 'true')
@@ -461,7 +313,7 @@ test.describe('메시지 좌/우 분리', () => {
     },
   )
 
-  test('타인·AGENT 메시지는 좌측 평문 — 아바타·이름 표시, 말풍선 없음', async ({ authenticatedPage: page }) => {
+  test('타인·AGENT 메시지는 좌측 평문 — 아바타·이름 표시, 말풍선 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const peerRow = page.getByTestId('message-31')
     await expect(peerRow).toHaveAttribute('data-own', 'false')
     await expect(peerRow).not.toHaveClass(/justify-end/)
@@ -479,7 +331,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect(body.x).toBeLessThan(list.x + 100)
   })
 
-  test('내 묶음 첫 말풍선 — 시각 항상 표시, 툴바는 시각 왼쪽이고 말풍선과 겹치지 않는다', async ({ authenticatedPage: page }) => {
+  test('내 묶음 첫 말풍선 — 시각 항상 표시, 툴바는 시각 왼쪽이고 말풍선과 겹치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // 회귀 3: 본인 메시지에도 시각이 보인다(호버 없이).
     await expect(page.getByTestId('message-time-30')).toBeVisible()
     await expect(page.getByTestId('message-time-30')).toHaveCSS('opacity', '1')
@@ -496,7 +348,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect(toolbar.y + toolbar.height).toBeLessThanOrEqual(body.y + 0.5)
   })
 
-  test('내 후속 말풍선 — 호버 시각은 왼쪽 옆, 툴바는 말풍선 위, 호버 전후 말풍선 위치 불변', async ({ authenticatedPage: page }) => {
+  test('내 후속 말풍선 — 호버 시각은 왼쪽 옆, 툴바는 말풍선 위, 호버 전후 말풍선 위치 불변', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const hoverTime = page.getByTestId('message-hovertime-33')
     const before = await box(page, 'message-body-33')
     await expect(hoverTime).toHaveCSS('opacity', '0')
@@ -518,7 +370,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect(time.height).toBeLessThan(30)
   })
 
-  test('공백 없는 긴 문자열도 말풍선 안에서 줄바꿈 — 가로 스크롤 없음', async ({ authenticatedPage: page }) => {
+  test('공백 없는 긴 문자열도 말풍선 안에서 줄바꿈 — 가로 스크롤 없음', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const list = await box(page, 'message-list')
     const body = await box(page, 'message-body-33')
     // 말풍선은 목록 폭의 75% 를 넘지 않는다.
@@ -526,7 +378,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect(await hasHorizontalOverflow(page, 'message-list')).toBe(false)
   })
 
-  test('첨부만 있는 본인 메시지 — 빈 말풍선을 그리지 않고 첨부는 오른쪽, 긴 파일명은 카드 안에서 잘린다', async ({ authenticatedPage: page }) => {
+  test('첨부만 있는 본인 메시지 — 빈 말풍선을 그리지 않고 첨부는 오른쪽, 긴 파일명은 카드 안에서 잘린다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId('message-body-35')).toHaveCount(0)
     // 카드가 본인 컬럼(목록 폭의 75%, lg 미만은 85% — U4-L1)을 넘거나 목록 왼쪽 밖으로 잘리지 않고 오른쪽 끝에 붙는다.
     const assertCardInside = async () => {
@@ -548,7 +400,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect((await stableBox(size, '48 KB')).height).toBeLessThan(24)
   })
 
-  test('목록 맨 위 메시지의 툴바가 목록 영역 밖으로 잘리지 않는다', async ({ authenticatedPage: page }) => {
+  test('목록 맨 위 메시지의 툴바가 목록 영역 밖으로 잘리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // 목록을 맨 위로 올린 상태에서, 툴바 위 끝이 스크롤 영역의 위 끝보다 아래에 있어야 한다.
     // (scrollIntoViewIfNeeded 는 행 top 을 스크롤 영역 top 에 딱 붙여 상단 패딩이 사라지므로 scrollTop=0 으로 직접 올린다.)
     await page.getByTestId('message-scroll-area').evaluate((el) => { el.scrollTop = 0 })
@@ -559,7 +411,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect(toolbar.y).toBeGreaterThanOrEqual(await scrollViewportTop(page, 'message-list'))
   })
 
-  test('스크롤 영역 위 끝에 걸린 메시지의 툴바는 아래로 뒤집혀 잘리지 않는다', async ({ authenticatedPage: page }) => {
+  test('스크롤 영역 위 끝에 걸린 메시지의 툴바는 아래로 뒤집혀 잘리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     // 목록이 스크롤되도록 창 높이를 줄인다. 입력창이 한 줄(WP-235)이라 목록 영역이 그만큼 커져,
     // 행 33 을 위 끝까지 올릴 스크롤 여유가 남도록 370px 로 둔다.
     await page.setViewportSize({ width: 1280, height: 370 })
@@ -614,7 +466,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect(back.toolbarTop).toBeLessThan(back.bodyTop)
   })
 
-  test('상대 메시지 툴바 — 반응만 있고 수정·삭제는 없다', async ({ authenticatedPage: page }) => {
+  test('상대 메시지 툴바 — 반응만 있고 수정·삭제는 없다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.getByTestId('message-31').hover()
     await expect(page.getByTestId('message-toolbar-31')).toHaveCSS('opacity', '1')
     await expect(page.getByTestId('message-31-react')).toBeVisible()
@@ -628,7 +480,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect((await box(page, 'message-edit-30')).height).toBe(24)
   })
 
-  test('반응 칩은 메시지와 같은 쪽으로 정렬된다', async ({ authenticatedPage: page }) => {
+  test('반응 칩은 메시지와 같은 쪽으로 정렬된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId('reaction-bar-33')).toHaveClass(/justify-end/)
     await expect(page.getByTestId('reaction-bar-31')).not.toHaveClass(/justify-end/)
     // 본인: 칩의 오른쪽 끝이 말풍선 오른쪽 끝과 맞는다.
@@ -641,19 +493,7 @@ test.describe('메시지 좌/우 분리', () => {
     expect(Math.abs(peerPill.x - peerBody.x)).toBeLessThan(1)
   })
 
-  test('본인 말풍선 안 멘션 칩은 배경과 구분되고, 타인 메시지 칩은 기존 스타일 유지', async ({ authenticatedPage: page }) => {
-    const ownBody = page.getByTestId('message-body-36')
-    await expect(ownBody.getByTestId('mention-chip-99')).toHaveClass(/bg-background/)
-    await expect(ownBody.getByTestId('mention-chip-20')).toHaveClass(/bg-background/)
-    // 본인 말풍선의 wrap-anywhere 로 칩이 '@' 와 이름 사이에서 끊기지 않게 한다.
-    await expect(ownBody.getByTestId('mention-chip-99')).toHaveClass(/whitespace-nowrap/)
-    await expect(ownBody.getByTestId('mention-chip-20')).toHaveClass(/whitespace-nowrap/)
-    const peerBody = page.getByTestId('message-body-37')
-    await expect(peerBody.getByTestId('mention-chip-99')).toHaveClass(/bg-primary\/15/)
-    await expect(peerBody.getByTestId('mention-chip-99')).not.toHaveClass(/bg-background/)
-  })
-
-  test('수정됨 표시는 말풍선 안, 삭제된 본인 메시지는 우측 점선 말풍선', async ({ authenticatedPage: page }) => {
+  test('수정됨 표시는 말풍선 안, 삭제된 본인 메시지는 우측 점선 말풍선', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await expect(page.getByTestId('message-body-33').getByTestId('message-edited-33')).toHaveText('(수정됨)')
     // wrap-anywhere 말풍선에서도 '(수정됨)' 이 낱말 중간에서 끊기지 않는다.
     // 불변식은 white-space:nowrap 이고, 실제 한 줄 높이는 대표 폭 두 곳에서만 확인한다.
@@ -678,7 +518,7 @@ test.describe('메시지 좌/우 분리', () => {
     await expect(page.getByTestId('message-delete-34')).toHaveCount(0)
   })
 
-  test('본인 메시지 수정 중에는 전폭 에디터로 바뀐다', async ({ authenticatedPage: page }) => {
+  test('본인 메시지 수정 중에는 전폭 에디터로 바뀐다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await page.getByTestId('message-30').hover()
     await page.getByTestId('message-edit-30').click()
     const list = await box(page, 'message-list')
@@ -689,7 +529,7 @@ test.describe('메시지 좌/우 분리', () => {
   })
 
   // #809 — hover 없이 키보드 포커스만으로 버튼에 도달할 수 있어야 한다.
-  test('본인 메시지 툴바 — hover 없이 키보드 포커스만으로 접근 가능하다 (#809)', async ({ authenticatedPage: page }) => {
+  test('본인 메시지 툴바 — hover 없이 키보드 포커스만으로 접근 가능하다 (#809)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const toolbar = page.getByTestId('message-toolbar-33')
     const editButton = toolbar.getByRole('button', { name: '수정' })
     // WP-940 — 긴 본문은 20자 미리보기로 잘려 이름에 붙는다.
@@ -708,7 +548,7 @@ const THREAD_CHANNEL_ID = 704
 const THREAD_PARENT_ID = 8800
 
 test.describe('메시지 좌/우 분리 — 스레드 패널(384px)', () => {
-  test('본인 부모·답글이 패널 안에 갇히고, 툴바가 잘리거나 페이지가 밀리지 않는다', async ({ authenticatedPage: page }) => {
+  test('본인 부모·답글이 패널 안에 갇히고, 툴바가 잘리거나 페이지가 밀리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const channel = createChannel({ id: THREAD_CHANNEL_ID, name: '스레드정렬', memberCount: 2 })
     const parent = createMessage({
       id: THREAD_PARENT_ID, channelId: THREAD_CHANNEL_ID, authorId: 1, authorName: 'me', authorKind: 'HUMAN',
@@ -813,7 +653,7 @@ test.describe('메시지 좌/우 분리 — 터치', () => {
   // hover 가 없는 터치 입력에서는 탭으로 툴바를 드러낸다.
   test.use({ hasTouch: true })
 
-  test('메시지를 탭하면 툴바가 보이고, 다른 곳을 탭하면 닫힌다', async ({ authenticatedPage: page }) => {
+  test('메시지를 탭하면 툴바가 보이고, 다른 곳을 탭하면 닫힌다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await setupSplitChannel(page)
     const peerRow = page.getByTestId('message-31')
     await expect(peerRow).not.toHaveAttribute('data-tap-active', 'true')
@@ -835,7 +675,7 @@ test.describe('메시지 좌/우 분리 — 터치', () => {
     await expect(page.getByTestId('message-30')).not.toHaveAttribute('data-tap-active', 'true')
   })
 
-  test('터치 기기에서는 툴바 버튼이 44px 터치 타깃이다', async ({ authenticatedPage: page }) => {
+  test('터치 기기에서는 툴바 버튼이 44px 터치 타깃이다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setupSplitChannel(page)
     // 에뮬레이션이 coarse 포인터로 잡히지 않으면 아래 크기 단언이 의미가 없으므로 먼저 확인한다.
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
@@ -853,7 +693,7 @@ test.describe('메시지 좌/우 분리 — 터치', () => {
 const HOVERTIME_CHANNEL_ID = 703
 
 test.describe('후속 줄 hover 시각', () => {
-  test('컴팩트 24h 포맷 + 호버 전 opacity 0 → 호버 시 1 (행 높이 불변)', async ({
+  test('컴팩트 24h 포맷 + 호버 전 opacity 0 → 호버 시 1 (행 높이 불변)', { tag: '@input' }, async ({
     authenticatedPage: page,
   }) => {
     const channel = createChannel({ id: HOVERTIME_CHANNEL_ID, name: '시각테스트', memberCount: 2 })
@@ -902,86 +742,12 @@ test.describe('후속 줄 hover 시각', () => {
   })
 })
 
-// ── #356: AI(에이전트) 메시지 마크다운 렌더링 ─────────────────────────────────────
-// AI 버블만 마크다운(##, **, 리스트)을 파싱 렌더하고, 사람 메시지는 원시 텍스트 그대로 유지.
-
-const MD_CHANNEL_ID = 702
-
-test.describe('#356 AI 메시지 마크다운 렌더링', () => {
-  test.beforeEach(async ({ authenticatedPage: page }) => {
-    const channel = createChannel({ id: MD_CHANNEL_ID, name: '마크다운테스트', memberCount: 2 })
-
-    // AGENT(id 50): 마크다운 본문 / HUMAN(id 51): 마크다운 기호가 든 본문(원시 유지 기대)
-    const mdMessages = [
-      createMessage({
-        id: 50,
-        channelId: MD_CHANNEL_ID,
-        authorId: 99,
-        authorName: 'My AI',
-        authorKind: 'AGENT',
-        body: '## 보고서 제목\n\n- 항목 하나\n- 항목 둘\n\n**중요** 강조',
-        createdAt: '2026-06-06T03:00:00',
-      }),
-      createMessage({
-        id: 51,
-        channelId: MD_CHANNEL_ID,
-        authorId: 10,
-        authorName: 'bluleo78',
-        authorKind: 'HUMAN',
-        body: '## 사람 메시지는 ** 그대로',
-        createdAt: '2026-06-06T03:05:00',
-      }),
-    ]
-
-    await stubChannelsList(page, [channel])
-    await stubDmsList(page)
-    await stubChannelDetail(page, channel)
-    await stubMembers(page, MD_CHANNEL_ID, [
-      createChannelMember({ userId: 10, name: 'bluleo78', kind: 'HUMAN' }),
-      createChannelMember({ userId: 99, name: 'My AI', kind: 'AGENT' }),
-    ])
-    await stubMessages(page, MD_CHANNEL_ID, [...mdMessages].reverse())
-    await stubMarkRead(page, MD_CHANNEL_ID)
-    await stubUsers(page)
-
-    await page.goto(`/chat/channels/${MD_CHANNEL_ID}`)
-    await expect(page.getByTestId('message-list')).toBeVisible()
-  })
-
-  test('AGENT 메시지는 마크다운으로 렌더(heading/list/strong), 원시 기호 미노출', async ({
-    authenticatedPage: page,
-  }) => {
-    const body = page.getByTestId('message-body-50')
-    // 마크다운 컨테이너 존재
-    await expect(body.getByTestId('markdown-content')).toBeVisible()
-    // ## → heading 요소로 렌더
-    await expect(body.getByRole('heading', { name: '보고서 제목' })).toBeVisible()
-    // - 항목 → 리스트 아이템
-    await expect(body.locator('li', { hasText: '항목 하나' })).toBeVisible()
-    // ** 강조 → strong 요소
-    await expect(body.locator('strong', { hasText: '중요' })).toBeVisible()
-    // 원시 마크다운 기호(##, **)는 그대로 노출되지 않아야 함
-    await expect(body).not.toContainText('##')
-    await expect(body).not.toContainText('**')
-  })
-
-  test('사람(HUMAN) 메시지는 마크다운을 파싱하지 않고 원시 텍스트 유지', async ({
-    authenticatedPage: page,
-  }) => {
-    const body = page.getByTestId('message-body-51')
-    // 마크다운 렌더 컨테이너가 없어야 함
-    await expect(body.getByTestId('markdown-content')).toHaveCount(0)
-    // 원시 기호가 그대로 보임
-    await expect(body).toContainText('## 사람 메시지는 ** 그대로')
-  })
-})
-
 // ── AI 메시지 번호 목록 간격 (WP-373) ────────────────────────────────────────────
 // 바깥 whitespace-pre-wrap 이 마크다운 블록 사이 개행을 빈 줄로 그려 번호 목록이 벌어지던 결함 회귀 방지.
 
 const LIST_CHANNEL_ID = 702
 
-test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 않는다', async ({ authenticatedPage: page }) => {
+test('팀 채팅 AI 메시지의 번호 목록은 항목 사이가 벌어지지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   const channel = createChannel({ id: LIST_CHANNEL_ID, name: '목록', memberCount: 2 })
   await stubChannelsList(page, [channel])
   await stubDmsList(page)

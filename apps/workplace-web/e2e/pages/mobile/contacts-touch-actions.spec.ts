@@ -60,3 +60,25 @@ test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨
   await page.touchscreen.tap(sb.x + sb.width / 2, sb.y + sb.height / 2)
   await expect.poll(() => favs.requests().map((r) => r.method())).toEqual(['DELETE'])
 })
+
+// WP-976 — 모바일 검색은 헤더 🔍 로 편다. 펼치면 입력칸에 바로 초점이 가고, 한글을 이어 쳐도 조합이 끊기지 않으며
+// URL q 는 완성된 글자로 반영된다(WP-974 방식). 「취소」는 검색어를 비우고 접는다. 초점·IME 는 브라우저에서만 판정된다.
+test('헤더 🔍 → 입력칸 초점 → 한글 연속 입력이 끊기지 않고, 「취소」로 접힌다 (WP-976)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stubBase(page, makePage([member({ id: 1, name: '김멤버' })]))
+  await page.goto('/contacts?group=10')
+  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await page.getByTestId('contact-search-open').click()
+  const input = page.getByTestId('contact-search')
+  await expect(input).toBeFocused()
+  await expect(page.getByTestId('contact-search-scope')).toBeVisible()
+  // pressSequentially — 키 입력마다 input 이벤트가 나가 URL 왕복이 조합을 끊던 결함(WP-974)을 재현한다.
+  await input.pressSequentially('이개발', { delay: 30 })
+  await expect(input).toHaveValue('이개발')
+  await expect(page).toHaveURL(/q=%EC%9D%B4%EA%B0%9C%EB%B0%9C/)
+  await expect(page.getByTestId('group-member-MEMBER-2')).toBeVisible()
+
+  await page.getByTestId('contact-search-cancel').click()
+  await expect(page.getByTestId('contact-mobile-search')).toHaveCount(0)
+  await expect(page).not.toHaveURL(/q=/)
+  await expect(page.getByTestId('contact-search-open')).toBeVisible()
+})

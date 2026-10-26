@@ -12,7 +12,7 @@ import { DESKTOP_WIDTHS, boxOf, expectHeaderBottomAt56, expectStartAligned } fro
 import { measureBox } from '../../fixtures/wait'
 
 for (const width of DESKTOP_WIDTHS) {
-  test.describe(`Page 정렬 @${width}px`, () => {
+  test.describe(`Page 정렬 @${width}px`, { tag: '@layout' }, () => {
     test.use({ viewport: { width, height: 1000 } })
 
     test('프로젝트 목록(full) — 헤더 제목과 목록이 같은 x', async ({ authenticatedPage: page }) => {
@@ -82,7 +82,7 @@ for (const width of DESKTOP_WIDTHS) {
 
 // 메일·연락처·캘린더·홈(마스터-디테일·그리드 본문) — Page 틀로 옮긴 뒤에도 헤더와 본문 행이 같은 16px 축.
 for (const width of DESKTOP_WIDTHS) {
-  test.describe(`Page 정렬(메일·연락처·캘린더·홈) @${width}px`, () => {
+  test.describe(`Page 정렬(메일·연락처·캘린더·홈) @${width}px`, { tag: '@layout' }, () => {
     test.use({ viewport: { width, height: 1000 } })
 
     test('메일 — 헤더 제목과 첫 메일 행 내용이 같은 x', async ({ authenticatedPage: page }) => {
@@ -158,7 +158,7 @@ async function gotoLongProject(page: Page) {
   await page.goto('/projects/WP')
 }
 
-test.describe('긴 제목도 AI 칩과 겹치지 않고 남는 자리까지 보인다', () => {
+test.describe('긴 제목도 AI 칩과 겹치지 않고 남는 자리까지 보인다', { tag: '@layout' }, () => {
   test('1440 — 레일 펼침(152px)', async ({ authenticatedPage: page }) => {
     await page.addInitScript(() => window.localStorage.setItem('app-rail-expanded', 'true'))
     await page.setViewportSize({ width: 1440, height: 900 })
@@ -188,7 +188,7 @@ test.describe('긴 제목도 AI 칩과 겹치지 않고 남는 자리까지 보�
 })
 
 // 캘린더 @1024 — 헤더 icon 슬롯의 이동 컨트롤(오늘·‹·›)은 줄지 않고 모두 보이며 칩과 겹치지 않는다(제목이 먼저 잘린다).
-test('캘린더 1024 — 오늘·이전·다음 버튼이 다 보이고 AI 칩과 겹치지 않는다', async ({ authenticatedPage: page }) => {
+test('캘린더 1024 — 오늘·이전·다음 버튼이 다 보이고 AI 칩과 겹치지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await page.setViewportSize({ width: 1024, height: 800 })
   await mockApi(page, 'GET', '/api/v1/calendar/events', [])
   await page.goto('/calendar')

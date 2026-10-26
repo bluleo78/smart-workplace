@@ -22,7 +22,7 @@ async function stubSpaces(page: Page) {
   )
 }
 
-test.describe('드라이브 폴더 업로드', () => {
+test.describe('드라이브 폴더 업로드', { tag: '@input' }, () => {
   test('폴더 드롭 시 resolveFolder + uploadFile 을 호출한다', async ({ authenticatedPage: page }) => {
     await stubSpaces(page)
     // 항목 목록 — 드롭 후 reload 시 재조회된다.

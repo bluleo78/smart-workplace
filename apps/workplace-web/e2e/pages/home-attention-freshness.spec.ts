@@ -1,6 +1,7 @@
 // 홈 합성 위젯 신선도 회귀 — 이슈 마감일을 변경하면 "오늘 마감" KPI 가 즉시 갱신되어야 한다.
 // (useUpdateIssue 가 ['my-issue-dues'] 를 무효화하지 않으면, SPA 내 복귀 시 위젯이 stale 한 채로 남는다.)
 // 입력(마감일 지우기 PATCH) → 처리(my-issue-dues 무효화) → 출력(KPI 0건) 전 파이프라인 검증.
+// 홈 → 이슈 상세 → 뒤로 가기로 홈에 돌아오는 여러 화면 흐름이라 @flow 로 남긴다(WP-971).
 import type { Page } from '@playwright/test'
 
 import { expect, test } from '../fixtures/auth.fixture'
@@ -92,7 +93,7 @@ async function setup(page: Page) {
   await mockApi(page, 'GET', '/api/v1/me/dashboard', layout(['synthesis', 'my_tasks']))
 }
 
-test('합성 신선도 — 마감일을 지우면 "오늘 마감" KPI 가 즉시 0건이 된다 (my-issue-dues 무효화)', async ({
+test('합성 신선도 — 마감일을 지우면 "오늘 마감" KPI 가 즉시 0건이 된다 (my-issue-dues 무효화)', { tag: '@flow' }, async ({
   authenticatedPage: page,
 }) => {
   await setup(page)

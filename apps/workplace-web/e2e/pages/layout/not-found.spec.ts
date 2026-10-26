@@ -6,7 +6,7 @@ import { openSwControlled } from '../../fixtures/push-mock'
 import { trackRequests } from '../../fixtures/requests'
 import { expectStays } from '../../fixtures/wait'
 
-test('없는 주소는 새 버전 확인 없이 404 를 보이고 홈으로 갈 수 있다', async ({ authenticatedPage: page }) => {
+test('없는 주소는 새 버전 확인 없이 404 를 보이고 홈으로 갈 수 있다', { tag: '@wiring' }, async ({ authenticatedPage: page }) => {
   const versionChecks = trackRequests(page, 'GET', '/version.json')
 
   await page.goto('/no-such-page')
@@ -22,7 +22,7 @@ test('없는 주소는 새 버전 확인 없이 404 를 보이고 홈으로 갈 
   await expect(page).toHaveURL(/\/$/)
 })
 
-test.describe('SW 관리를 받는 앱', () => {
+test.describe('SW 관리를 받는 앱', { tag: '@platform' }, () => {
   test.use({ serviceWorkers: 'allow' })
   test.skip(process.env.E2E_SERVER !== 'preview', '네비게이션을 앱 셸로 여는 SW 는 운영 빌드(preview)에서만 동작한다')
 

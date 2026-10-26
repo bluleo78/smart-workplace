@@ -59,7 +59,7 @@ test.describe('메일 받는사람 자동완성 (WP-945)', () => {
     )
   })
 
-  test('주소 일부로 최근·구성원·주소록 후보를 찾아 키보드·마우스로 고르면 칩이 되고, 발송에는 칩 순서대로 실린다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('주소 일부로 최근·구성원·주소록 후보를 찾아 키보드·마우스로 고르면 칩이 되고, 발송에는 칩 순서대로 실린다', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const { recent, contacts } = await mockSuggestions(page)
     const sends = trackRequests(page, 'POST', '/api/v1/mail/accounts/1/send')
     await mockApi(page, 'POST', '/api/v1/mail/accounts/1/send', { localMessageId: 10, messageId: 'x@test.local' })
@@ -135,7 +135,7 @@ test.describe('메일 받는사람 자동완성 (WP-945)', () => {
     ])
   })
 
-  test('Esc 는 후보만 닫고 쓰던 글자는 남기며, 칸을 떠나면 쓰던 주소가 칩으로 굳는다 — 참조 칸도 같은 후보를 쓴다', async ({ authenticatedPage: page }) => {
+  test('Esc 는 후보만 닫고 쓰던 글자는 남기며, 칸을 떠나면 쓰던 주소가 칩으로 굳는다 — 참조 칸도 같은 후보를 쓴다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await mockSuggestions(page)
     await openCompose(page)
     await page.getByRole('button', { name: '참조/숨은참조' }).click()

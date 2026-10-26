@@ -1,5 +1,7 @@
 // 메일 첨부 → 통합 첨부 뷰어(WP-280, 데스크톱). 모바일 배치·뒤로가기는 e2e/pages/mobile/mail-attachment-viewer-mobile.spec.ts.
 // 묶음 = 한 메일의 목록 첨부(본문 인라인 이미지 제외), 다운로드는 뷰어 ⬇, ✨·☁·⋯ 없음.
+// 남은 것: PDF 렌더·다운로드(@platform), 닫은 뒤 포커스 복원(@input), 오류 토스트가 뷰어 위에 쌓이는지(@layout).
+// 딥링크·찾을 수 없음 안내·열 때만 받기·다른 메일 주소·조회 실패 ?preview 는 src/pages/mail/mailDetailExtras.test.tsx(vitest, WP-984)가 지킨다.
 import { expect, test } from '../../fixtures/auth.fixture'
 import { detail } from '../../factories/mail.factory'
 import { mockApi } from '../../fixtures/api-mock'
@@ -7,7 +9,7 @@ import { MEMO_TEXT, stubMailWithAttachments } from '../../fixtures/mail-viewer-m
 import { trackRequests } from '../../fixtures/requests'
 
 test.describe('메일 첨부 뷰어', () => {
-  test('상세에서 첨부를 열고 묶음 안에서 넘긴 뒤 ⬇ 로 받는다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('상세에서 첨부를 열고 묶음 안에서 넘긴 뒤 ⬇ 로 받는다', { tag: ['@platform', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const contents = await stubMailWithAttachments(page)
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-10').click()
@@ -52,7 +54,7 @@ test.describe('메일 첨부 뷰어', () => {
     await expect(page.getByTestId('preview-meta')).toContainText('1 / 2')
   })
 
-  test('Esc·뒤로가기는 뷰어만 닫고 메일 상세는 남는다', async ({ authenticatedPage: page }) => {
+  test('Esc·뒤로가기는 뷰어만 닫고 메일 상세는 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await stubMailWithAttachments(page)
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-10').click()
@@ -76,31 +78,7 @@ test.describe('메일 첨부 뷰어', () => {
     await expect(page.getByTestId('mail-attachment-open-7')).toBeFocused()
   })
 
-  test('딥링크 — 있는 첨부는 바로 열리고, 이 메일에 없는 첨부는 찾을 수 없음 안내', async ({ authenticatedPage: page }) => {
-    await stubMailWithAttachments(page)
-    await page.goto('/mail/1?messageId=10&preview=mail:7')
-    await expect(page.getByTestId('preview-body')).toContainText(MEMO_TEXT)
-    await expect(page.getByTestId('preview-meta')).toContainText('2 / 2')
-
-    await page.goto('/mail/1?messageId=10&preview=mail:99')
-    await expect(page.getByTestId('preview-not-found')).toBeVisible()
-    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
-  })
-
-  test('칩을 그리기만 해서는 첨부를 받지 않는다 — 열 때만 받는다', async ({ authenticatedPage: page }) => {
-    const contents = await stubMailWithAttachments(page)
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-10').click()
-    await expect(page.getByTestId('mail-attachment-open-6')).toBeVisible()
-    // 인라인 이미지(5) 치환 조회만 나간다.
-    await expect.poll(() => contents.urls().map((u) => u.pathname)).toEqual(['/api/v1/mail/attachments/5/content'])
-
-    await page.getByTestId('mail-attachment-open-7').click()
-    await expect(page.getByTestId('preview-body')).toContainText(MEMO_TEXT)
-    expect(contents.urls().map((u) => u.pathname)).toContain('/api/v1/mail/attachments/7/content')
-  })
-
-  test('메일 클라이언트가 octet-stream·빈 형식으로 보낸 PDF·Markdown 도 파일명으로 미리 본다', async ({ authenticatedPage: page }) => {
+  test('메일 클라이언트가 octet-stream·빈 형식으로 보낸 PDF·Markdown 도 파일명으로 미리 본다', { tag: '@platform' }, async ({ authenticatedPage: page }) => {
     await stubMailWithAttachments(page)
     await page.goto('/mail/1')
     await page.getByTestId('mail-row-12').click()
@@ -115,37 +93,7 @@ test.describe('메일 첨부 뷰어', () => {
     await expect(page.getByTestId('preview-body')).not.toContainText('미리 볼 수 없어요')
   })
 
-  test('다른 메일 URL 로 바뀌면 앞 메일 첨부를 계속 보여 주지 않고 찾을 수 없음 안내', async ({ authenticatedPage: page }) => {
-    await stubMailWithAttachments(page)
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-10').click()
-    await page.getByTestId('mail-attachment-open-6').click()
-    await expect(page.getByTestId('pdf-page-1')).toBeVisible()
-
-    // 손으로 고친 URL(메일만 11 로 바꾸고 ?preview 는 그대로)을 앱 안 내비게이션으로 재현 — 새로고침 없이 같은 화면 인스턴스가 받는다.
-    await page.evaluate(() => {
-      window.history.pushState(window.history.state, '', '/mail/1?messageId=11&preview=mail:6')
-      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
-    })
-    await expect(page.getByTestId('preview-not-found')).toBeVisible()
-    await expect(page.getByTestId('attachment-viewer')).toHaveCount(0)
-  })
-
-  test('메일 없이·메일 조회 실패로 남은 ?preview 는 찾을 수 없음 안내 후 닫으면 지운다', async ({ authenticatedPage: page }) => {
-    await stubMailWithAttachments(page)
-    await page.goto('/mail/1?preview=mail:7')
-    await expect(page.getByTestId('preview-not-found')).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(page.getByTestId('preview-not-found')).toHaveCount(0)
-    await expect(page).toHaveURL(/\/mail\/1$/)
-
-    await mockApi(page, 'GET', '/api/v1/mail/messages/13', { message: '없음' }, { status: 404 })
-    await page.goto('/mail/1?messageId=13&preview=mail:7')
-    await expect(page.getByText('메일을 불러오지 못했습니다')).toBeVisible()
-    await expect(page.getByTestId('preview-not-found')).toBeVisible()
-  })
-
-  test('다운로드가 실패하면 토스트로 알리고, 받는 중 연타는 한 번만 요청한다', async ({ authenticatedPage: page }) => {
+  test('다운로드가 실패하면 토스트로 알리고, 받는 중 연타는 한 번만 요청한다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubMailWithAttachments(page)
     // 미리보기가 없는 형식(zip)이라 ⬇ 가 서버에서 다시 받는다 — 그 요청이 500.
     await mockApi(page, 'GET', '/api/v1/mail/messages/14', detail({

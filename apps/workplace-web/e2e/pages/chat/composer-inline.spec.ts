@@ -58,7 +58,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     await expect(page.getByTestId('message-composer')).toBeVisible()
   })
 
-  test('＋·입력칸·보내기가 한 행이고, 여러 줄이면 입력칸만 늘고 버튼은 하단 정렬', async ({ authenticatedPage: page }) => {
+  test('＋·입력칸·보내기가 한 행이고, 여러 줄이면 입력칸만 늘고 버튼은 하단 정렬', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const plus = page.getByTestId('composer-attach-button')
     const input = page.getByTestId('message-composer-input')
     const send = page.getByTestId('message-composer-submit')
@@ -85,7 +85,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     expect(Math.abs(s3.height - s1.height)).toBeLessThanOrEqual(1)
   })
 
-  test('＋ 팝오버에서 파일 첨부 → 사전 업로드 → 칩 → 전송 payload 에 fileIds', async ({ authenticatedPage: page }) => {
+  test('＋ 팝오버에서 파일 첨부 → 사전 업로드 → 칩 → 전송 payload 에 fileIds', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploaded = await stubUpload(page)
     const sends = await stubSend(page)
     await page.getByTestId('composer-attach-button').click()
@@ -105,7 +105,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
       .toEqual([{ body: '첨부 확인 부탁드려요', fileIds: [9000] }])
   })
 
-  test('스크린샷 붙여넣기 → 본문 대신 첨부 칩', async ({ authenticatedPage: page }) => {
+  test('스크린샷 붙여넣기 → 본문 대신 첨부 칩', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploaded = await stubUpload(page)
     const input = page.getByTestId('message-composer-input')
     await input.click()
@@ -115,7 +115,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     await expect(input).toHaveText('')
   })
 
-  test('텍스트와 렌더링 이미지가 함께 오는 붙여넣기(워드·엑셀)는 텍스트로 들어가고 업로드하지 않는다', async ({ authenticatedPage: page }) => {
+  test('텍스트와 렌더링 이미지가 함께 오는 붙여넣기(워드·엑셀)는 텍스트로 들어가고 업로드하지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploaded = await stubUpload(page)
     const input = page.getByTestId('message-composer-input')
     await input.click()
@@ -125,7 +125,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     expect(uploaded).toEqual([])
   })
 
-  test('업로드가 겹치면 먼저 끝난 쪽이 아니라 모두 끝나야 전송이 열린다', async ({ authenticatedPage: page }) => {
+  test('업로드가 겹치면 먼저 끝난 쪽이 아니라 모두 끝나야 전송이 열린다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     // 첫 업로드(드롭한 큰 파일)는 테스트가 풀어 줄 때까지 붙잡고, 두 번째(붙여넣은 스크린샷)는 바로 응답한다.
     let releaseFirst!: () => void
     let calls = 0
@@ -158,7 +158,7 @@ test.describe('채팅 입력창 한 줄 레이아웃 (WP-235)', () => {
     await expect(send).toBeEnabled()
   })
 
-  test('파일을 끌어오면 드롭 오버레이, 놓으면 업로드 → 칩', async ({ authenticatedPage: page }) => {
+  test('파일을 끌어오면 드롭 오버레이, 놓으면 업로드 → 칩', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploaded = await stubUpload(page)
     const composer = page.getByTestId('message-composer')
     const dt = await page.evaluateHandle(() => {

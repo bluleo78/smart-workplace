@@ -1,5 +1,6 @@
 // 월 뷰 오버플로 — 셀 높이만큼 이벤트를 채우고 넘칠 때만 +N 표시.
 // 기존엔 셀 높이와 무관하게 무조건 3개 고정 → 큰 화면에서 공간 낭비 + 과도한 +N.
+// 셀 높이 측정·잘림은 jsdom 이 잴 수 없어 모두 @layout(WP-966).
 import type { CalendarEvent } from '../../../src/types/calendar'
 import { calendarEvent } from '../../factories/calendar.factory'
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory'
@@ -21,6 +22,7 @@ function crowdedDay(day = '2026-06-10', count = 10): CalendarEvent[] {
 
 test(
   '큰 화면 — 셀 높이만큼 3개 초과로 채워진다 (하드캡 회귀 방지)',
+  { tag: '@layout' },
   async ({ authenticatedPage: page }) => {
     // 세로로 긴 뷰포트 → 셀이 높아져 4개 이상 들어갈 공간 확보
     await page.setViewportSize({ width: 1280, height: 1600 })
@@ -44,7 +46,7 @@ test(
   },
 )
 
-test('작은 화면 — 넘치는 만큼 +N 이 정확히 표시된다', async ({ authenticatedPage: page }) => {
+test('작은 화면 — 넘치는 만큼 +N 이 정확히 표시된다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   // 세로가 짧은 뷰포트 → 셀이 낮아 일부만 보이고 나머지는 +N
   await page.setViewportSize({ width: 1280, height: 640 })
   await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
@@ -72,6 +74,7 @@ test('작은 화면 — 넘치는 만큼 +N 이 정확히 표시된다', async (
 
 test(
   '이벤트가 셀을 채워도 마감 이슈 마커가 잘리지 않는다 (마커 공간 예약)',
+  { tag: '@layout' },
   async ({ authenticatedPage: page }) => {
     // 큰 화면 + 같은 날 이벤트 9건 + 마감 이슈 1건. 마커 예약이 없으면
     // 이벤트가 셀을 꽉 채워 마커가 overflow-hidden 밖으로 밀려 사라진다.

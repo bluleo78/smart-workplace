@@ -1,11 +1,12 @@
 // 노트 앱 "마지막으로 본 노트" 복원 E2E — /wiki 진입(앱 레일·새로고침) 시 직전 페이지를 열고,
 // 삭제(404)·권한 상실(403)이면 기록을 지운 뒤 기본 화면(첫 스페이스)으로 이동한다.
 // 기록은 localStorage(사용자·테넌트 스코프 키)에 남으므로 새 문서 로드(goto)로 새로고침·재로그인을 대신한다.
+// 404/403 기록 정리·500 기록 유지·다른 사용자 키·에러 화면 「노트 목록으로」는 src/pages/wiki/wikiPage.test.tsx 가 지킨다(WP-983).
+// 여기엔 앱 레일로 돌아오는 흐름(@flow)과 새로고침 뒤 유지(@platform)만 남는다.
 import type { Page } from '@playwright/test'
 
 import type { WikiPageDetail, WikiPageSummary, WikiSpace } from '../../../src/types/wiki'
 import { expect, test } from '../../fixtures/auth.fixture'
-import { trackRequests } from '../../fixtures/requests'
 
 const PERSONAL_SPACE_ID = 1
 const TEAM_SPACE_ID = 2
@@ -98,9 +99,8 @@ function lastVisitedEntries(page: Page): Promise<[string, string][]> {
 }
 
 const pageUrl = new RegExp(`/wiki/spaces/${TEAM_SPACE_ID}/pages/${PAGE_ID}$`)
-const defaultUrl = new RegExp(`/wiki/spaces/${PERSONAL_SPACE_ID}$`)
 
-test('다른 앱에 갔다가 앱 레일로 노트에 돌아오면 직전에 보던 노트가 열린다', { tag: '@smoke' }, async ({
+test('다른 앱에 갔다가 앱 레일로 노트에 돌아오면 직전에 보던 노트가 열린다', { tag: ['@flow', '@smoke'] }, async ({
   authenticatedPage: page,
 }) => {
   await mockWiki(page)
@@ -115,7 +115,7 @@ test('다른 앱에 갔다가 앱 레일로 노트에 돌아오면 직전에 보
   await expect(page.getByText(PAGE_TITLE).first()).toBeVisible()
 })
 
-test('새로고침(새 문서 로드) 후 /wiki 진입 시에도 마지막으로 본 노트가 유지된다', async ({
+test('새로고침(새 문서 로드) 후 /wiki 진입 시에도 마지막으로 본 노트가 유지된다', { tag: '@platform' }, async ({
   authenticatedPage: page,
 }) => {
   await mockWiki(page)
@@ -126,73 +126,3 @@ test('새로고침(새 문서 로드) 후 /wiki 진입 시에도 마지막으로
   await expect(page.getByText(PAGE_TITLE).first()).toBeVisible()
 })
 
-for (const status of [404, 403]) {
-  test(`마지막으로 본 노트가 ${status === 404 ? '삭제' : '권한 상실'}(${status})되면 기록을 지우고 기본 화면으로 간다`, async ({
-    authenticatedPage: page,
-  }) => {
-    const wiki = await mockWiki(page)
-    await visitPage(page)
-
-    wiki.pageStatus = status
-    await page.goto('/wiki')
-    await expect(page).toHaveURL(defaultUrl)
-    await expect(page.getByTestId('wiki-empty-state')).toBeVisible()
-    await expect.poll(() => lastVisitedEntries(page)).toHaveLength(0)
-
-    // 다음 진입도 곧바로 기본 화면 — 죽은 페이지를 다시 조회하지 않는다.
-    await page.goto('/wiki')
-    await expect(page).toHaveURL(defaultUrl)
-  })
-}
-
-test('보던 노트가 삭제돼 에러 화면이 뜨면 「노트 목록으로」가 같은 노트로 되돌아오지 않는다', async ({
-  authenticatedPage: page,
-}) => {
-  const wiki = await mockWiki(page)
-  await visitPage(page)
-
-  wiki.pageStatus = 404
-  await page.goto(`/wiki/spaces/${TEAM_SPACE_ID}/pages/${PAGE_ID}`)
-  // skeleton 에 갇히지 않고 ResourceErrorState(제목+설명+버튼)가 뜬다 — useWikiPage 가 404 를 isError 로 노출해야 한다.
-  await expect(page.getByText('페이지를 불러올 수 없습니다')).toBeVisible({ timeout: 10000 })
-  await expect(page.getByTestId('wiki-page-skeleton')).toHaveCount(0)
-  await expect(page.getByText('요청한 노트 페이지가 존재하지 않거나 접근 권한이 없습니다.')).toBeVisible()
-  await page.getByRole('button', { name: '노트 목록으로' }).click()
-  await expect(page).toHaveURL(defaultUrl)
-  await expect.poll(() => lastVisitedEntries(page)).toHaveLength(0)
-})
-
-test('일시 오류(500)면 기본 화면으로 가되 기록은 유지해 다음 진입에 다시 복원한다', async ({
-  authenticatedPage: page,
-}) => {
-  const wiki = await mockWiki(page)
-  await visitPage(page)
-
-  wiki.pageStatus = 500
-  await page.goto('/wiki')
-  await expect(page).toHaveURL(defaultUrl)
-  expect(await lastVisitedEntries(page)).toHaveLength(1)
-
-  wiki.pageStatus = 200
-  await page.goto('/wiki')
-  await expect(page).toHaveURL(pageUrl)
-})
-
-test('다른 사용자 키로 남은 기록은 복원하지 않는다', async ({ authenticatedPage: page }) => {
-  await mockWiki(page)
-  const key = await visitPage(page)
-
-  // 같은 브라우저를 쓴 다른 사용자(id=99)의 기록으로 옮겨 둔다.
-  await page.evaluate(
-    ([from, to]) => {
-      localStorage.setItem(to, localStorage.getItem(from) ?? '')
-      localStorage.removeItem(from)
-    },
-    [key, key.replace(`${KEY_PREFIX}1:`, `${KEY_PREFIX}99:`)],
-  )
-  const pageRequests = trackRequests(page, 'ANY', `/api/v1/wiki/pages/${PAGE_ID}`)
-
-  await page.goto('/wiki')
-  await expect(page).toHaveURL(defaultUrl)
-  expect(pageRequests.count()).toBe(0)
-})
