@@ -148,6 +148,7 @@
   "e2e/pages/mail/mail-folders.spec.ts": 8,
   "e2e/pages/mail/mail-inbox.spec.ts": 34,
   "e2e/pages/mail/mail-move.spec.ts": 9,
+  "e2e/pages/mail/mail-older.spec.ts": 5,
   "e2e/pages/mail/mail-quote.spec.ts": 13,
   "e2e/pages/mail/mail-read-actions.spec.ts": 20,
   "e2e/pages/mail/mail-recipient-autocomplete.spec.ts": 2,
