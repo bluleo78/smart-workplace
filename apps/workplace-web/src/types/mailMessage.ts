@@ -20,6 +20,24 @@ export interface EmailMessageSummary {
   categoryPending: boolean;
 }
 
+/** WP-965 목록 다음 페이지 커서 — 앞 페이지 마지막 행의 receivedAt·id(서버 정렬 키). */
+export interface MailListCursor {
+  receivedAt: string | null;
+  id: number;
+}
+
+/**
+ * WP-965 받은편지함·보낸편지함 이전 메일 더 가져오기 결과 — 백엔드 MailOlderResult 와 1:1.
+ * running=true 면 같은 폴더를 이미 가져오는 중이라 이번 요청은 아무것도 하지 않았다(hasMore=true). hasMore=false 면 「더 이전 메일 없음」.
+ */
+export interface MailOlderResult {
+  running: boolean;
+  fetched: number;
+  saved: number;
+  syncedSince: string | null;
+  hasMore: boolean;
+}
+
 /** 첨부 메타(바이너리 미저장 — 다운로드는 후속). */
 export interface EmailAttachmentMeta {
   id: number;

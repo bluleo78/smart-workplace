@@ -126,6 +126,19 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
         ? route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
         : route.fallback(),
   )
+  // WP-965: 메일 목록(받은편지함 전체·업무·보낸편지함)을 끝까지 내리면 서버에서 이전 메일을 더 가져온다 — 짧은 목록은 바로 끝이 보여 곧장 부른다.
+  // 기본은 「더 없음」으로 응답해 목록 끝에 「더 이전 메일 없음」만 보이게 한다. 이어 받기를 검증하는 spec 은 나중에 등록(LIFO 우선).
+  await page.route(
+    (url) => /^\/api\/v1\/mail\/accounts\/\d+\/messages\/older$/.test(url.pathname),
+    (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ running: false, fetched: 0, saved: 0, syncedSince: null, hasMore: false }),
+          })
+        : route.fallback(),
+  )
   // 고정 홈 대시보드(Dashboard)가 "/" 마운트 시 레이아웃·위젯 데이터를 페치한다.
   // 모든 인증 테스트가 결국 "/" 에 착지하므로 빈 기본 스텁을 깔아 백엔드 프록시(ECONNREFUSED) 누수를 막는다.
   // 대시보드를 검증하는 spec 은 더 구체적 응답을 나중에 등록 → LIFO 로 그쪽이 우선한다.

@@ -13,6 +13,8 @@ import type {
   MailDraftCoaching,
   MailFolder,
   MailIssueDraft,
+  MailListCursor,
+  MailOlderResult,
   MailSendRequest,
   MailSyncResult,
   MailSyncStatus,
@@ -76,6 +78,19 @@ export async function listMailFolders(accountId: number): Promise<MailServerFold
   return data;
 }
 
+/**
+ * WP-965 받은편지함(INBOX)·보낸편지함(SENT) 이전 메일 더 가져오기 — 가져온 경계 앞 90일을 서버에서 받는다.
+ * 목록을 끝까지 내렸는데 로컬 메일이 바닥났을 때 부른다.
+ */
+export async function fetchOlderMail(accountId: number, folder: MailFolder): Promise<MailOlderResult> {
+  const { data } = await client.post<MailOlderResult>(
+    `/mail/accounts/${accountId}/messages/older`,
+    null,
+    { params: { folder } },
+  );
+  return data;
+}
+
 /** WP-961 서버 메일함 한 개 가져오기. older=true 면 이미 가져온 기간 앞의 90일을 더 받는다(false 도 명시해 보낸다). */
 export async function syncMailFolder(accountId: number, folderId: number, older: boolean): Promise<MailFolderSyncResult> {
   const { data } = await client.post<MailFolderSyncResult>(
@@ -90,6 +105,7 @@ export async function syncMailFolder(accountId: number, folderId: number, older:
  * 계정의 메시지 목록(폴더 스코프, 최신순, 선택 검색어·unread·category·needsReply 필터).
  * limit 은 최신 N건만 받을 때(모바일 홈 타일 요약 등, WP-160) — 생략하면 서버 기본 건수.
  * folderId(WP-961)가 있으면 그 서버 메일함 — 서버가 folder·분류·회신필요를 무시하므로 아예 보내지 않는다.
+ * before(WP-965)가 있으면 그 행 다음 페이지 — receivedAt 은 서버가 준 문자열을 그대로 넘긴다(마이크로초까지 맞아야 경계 행이 빠지지 않는다).
  */
 export async function listMessages(
   accountId: number,
@@ -100,6 +116,7 @@ export async function listMessages(
   needsReply?: boolean,
   limit?: number,
   folderId?: number | null,
+  before?: MailListCursor | null,
 ): Promise<EmailMessageSummary[]> {
   const scope = folderId != null
     ? { folderId }
@@ -119,6 +136,7 @@ export async function listMessages(
         // #469: unread=true 면 안 읽은 메일만.
         ...(unread ? { unread: true } : {}),
         ...(limit ? { limit } : {}),
+        ...(before ? { beforeId: before.id, ...(before.receivedAt ? { beforeAt: before.receivedAt } : {}) } : {}),
       },
     },
   );

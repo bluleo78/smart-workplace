@@ -5,6 +5,7 @@ import static java.util.stream.Collectors.toMap;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailFolderResponse;
 import com.workplace.mail.dto.MailFolderSyncResult;
+import com.workplace.mail.dto.MailOlderResult;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.exception.EmailAccountNotFoundException;
@@ -17,14 +18,19 @@ import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailFolderRepository.FolderTarget;
 import com.workplace.mail.repository.EmailFolderRepository.ServerFolderRow;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.ImapMailFetcher;
 import com.workplace.mail.service.MailFetcher;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -127,6 +133,85 @@ public class MailFolderService {
     } finally {
       syncGuard.finish(accountId, folderId);
     }
+  }
+
+  /**
+   * 받은편지함(folder=INBOX)·보낸편지함(folder=SENT, 동기화한 서버 보낸편지함)의 이전 메일을 더 가져온다(WP-965 — 목록을 끝까지 내렸을 때).
+   * 경계({@link #withBoundary})의 앞 90일을 받아 경계를 옮기고, 새 경계 앞에 서버 메일이 더 있는지 돌려준다. 전체 기간 일괄 동기화는 하지
+   * 않는다(대용량 계정 시간·Graph 호출 한도).
+   *
+   * <p>같은 폴더를 이미 가져오는 중이면(스크롤 연타·여러 창) {@link MailFolderSyncGuard} 가 막고 running=true. 아직 가져올 수 없을
+   * 때도(받은편지함 첫 동기화 전, IMAP UIDVALIDITY 변경) running=true — 「더 없음」으로 굳지 않고 화면이 잠시 뒤 다시 묻는다. 서버 보낸편지함
+   * 행이 없으면(서버에 보낸편지함이 없거나 로컬 예약 이름과 겹침) 가져올 것이 없어 hasMore=false. 새 메일이 들어오면 같은 트랜잭션 안에서 계정 단위 변경
+   * 알림을 보낸다. 서버 오류는 {@link MailSyncException}(502).
+   */
+  public MailOlderResult fetchOlder(long userId, long accountId, String folder) {
+    if (!"INBOX".equals(folder) && !EmailFolderRepository.LOCAL_SENT.equals(folder)) {
+      throw new MailValidationException("받은편지함·보낸편지함만 이전 메일을 더 가져올 수 있습니다");
+    }
+    EmailAccountResponse account =
+        txTemplate.execute(
+            status ->
+                accountRepo
+                    .findByIdAndUser(userId, accountId)
+                    .orElseThrow(() -> new EmailAccountNotFoundException(accountId)));
+    MailFetcher fetcher = fetchers.get(account.provider());
+    if (fetcher == null) {
+      throw new MailSyncException("지원하지 않는 메일 공급자: " + account.provider());
+    }
+    boolean wholeInbox = fetcher.firstSyncTakesWholeInbox();
+    FolderTarget target =
+        txTemplate.execute(status -> withBoundary(accountId, folder, wholeInbox).orElse(null));
+    if (target == null) {
+      // 받은편지함 행이 없으면 첫 동기화 전(곧 생긴다), 보낸편지함 행이 없으면 가져올 서버 보낸편지함이 없다
+      boolean inbox = "INBOX".equals(folder);
+      return new MailOlderResult(inbox, 0, 0, null, inbox);
+    }
+    if (!syncGuard.tryStart(accountId, target.id())) {
+      return new MailOlderResult(true, 0, 0, null, true);
+    }
+    try {
+      MailFetcher.OlderFetch r = fetcher.fetchOlderBefore(userId, accountId, account, target);
+      if (r.result().changed()) {
+        // 트랜잭션 밖 발행은 유실되므로 안에서 보낸다(syncFolder 와 같은 패턴). 시스템 발화라 actor 없음.
+        txTemplate.executeWithoutResult(
+            status -> notifier.mailChanged(userId, accountId, null, null));
+      }
+      return new MailOlderResult(
+          !r.ready(), r.result().fetched(), r.result().saved(), r.syncedSince(), r.hasMore());
+    } finally {
+      syncGuard.finish(accountId, target.id());
+    }
+  }
+
+  /**
+   * 받은편지함·서버 보낸편지함 대상에 이전 메일 경계를 채운다(트랜잭션 안). 폴더 행이 없으면 empty. 경계는 저장된 synced_since(첫 동기화가 기록한다),
+   * 없으면(기록 전부터 동기화해 온 폴더) 지금까지 가져온 범위의 시작이다 — 첫 동기화가 받은편지함 전체를 받는 공급자(Graph)의 받은편지함은 가장 오래된 로컬 메일
+   * 시각, 그 밖은 폴더를 만든 시각 − 첫 동기화 기간({@link ImapMailFetcher#INITIAL_WINDOW_DAYS}일). 후자에서 가장 오래된 로컬 메일을
+   * 쓰지 않는 까닭: 다른 앱에서 받은편지함으로 되돌린 옛 메일 한 통이 경계를 끌어당기면 그 사이 메일을 영영 건너뛴다.
+   */
+  private Optional<FolderTarget> withBoundary(long accountId, String folder, boolean wholeInbox) {
+    return folderRepo
+        .findMailboxTarget(accountId, folder)
+        .map(
+            t -> {
+              if (t.syncedSince() != null) {
+                return t;
+              }
+              Optional<Instant> oldest =
+                  wholeInbox && "INBOX".equals(folder)
+                      ? messageRepo.oldestReceivedAt(accountId, t.id())
+                      : Optional.empty();
+              Instant boundary =
+                  oldest.orElseGet(
+                      () ->
+                          folderRepo
+                              .createdAt(t.id())
+                              .map(OffsetDateTime::toInstant)
+                              .orElseGet(Instant::now)
+                              .minus(ImapMailFetcher.INITIAL_WINDOW_DAYS, ChronoUnit.DAYS));
+              return t.withSyncedSince(boundary.atOffset(ZoneOffset.UTC));
+            });
   }
 
   /** 계정의 메일함을 짧은 트랜잭션으로 읽는다. 없으면 404. */

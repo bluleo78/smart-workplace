@@ -13,6 +13,7 @@ import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState'
 import { Button } from '@/components/ui/button'
+import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
@@ -28,6 +29,7 @@ import { hasOpenMark, parseId } from '@/lib/historyParam'
 import { forwardAttachments } from '@/lib/mailComposeAttachments'
 import { folderRangeDays } from '@/lib/mailFolders'
 import { markSeenInKept, mergeKeptRows, withOpenRow } from '@/lib/mailKeepRows'
+import { serverOlderFolder } from '@/lib/mailListPages'
 import { formatReceivedAt } from '@/lib/mailListTime'
 import { type MailMoveAvailability, mailMoveAvailability, type MailMoveTargetOption, mailMoveTargets, mailMoveToastMessage } from '@/lib/mailMoveActions'
 import { scheduleMailMove, useMailMoveHidden } from '@/lib/mailMoveQueue'
@@ -50,6 +52,7 @@ import { splitName } from '../../components/viewer/viewerNav'
 import { mailMessageKeys } from '../../hooks/queries/mailMessageKeys'
 import { useMailAccounts } from '../../hooks/queries/useMailAccounts'
 import {
+  useFetchOlderMail,
   useGenerateMailSummary,
   useInlineMailHtml,
   useIssueDraft,
@@ -994,7 +997,10 @@ function MailInbox() {
   // 탭 제목 — 「{폴더} · 메일」(WP-814). 계정이 없으면(연결 안내 화면) 폴더가 없으니 「메일」만.
   useDocumentTitle([(accounts?.length ?? 0) > 0 && view.title, '메일'])
 
-  const { data: fetchedMessages, isLoading, isError, refetch: refetchMessages } = useMailMessages(
+  const {
+    data: fetchedMessages, isLoading, isError, refetch: refetchMessages,
+    fetchNextPage, hasNextPage, isFetchingNextPage, isFetchNextPageError, isFetching: listFetching,
+  } = useMailMessages(
     accountIdNum, folderParam, search, view.unreadOnly, view.apiCategory, view.kind === 'needsReply',
     { folderId: view.folderId },
   )
@@ -1158,6 +1164,55 @@ function MailInbox() {
       },
     )
   }
+  // WP-965 목록 이어 보기 — 끝까지 내리면 로컬 다음 페이지, 로컬이 바닥나면 받은편지함(전체·업무)·보낸편지함은 서버에서 이전 90일을 더 가져온다.
+  // 서버에 더 없음·실패는 계정·폴더 키별로 기억한다 — 다른 계정·폴더로 옮기면 그 키의 기록이 없어 처음부터 다시 본다.
+  const olderFolder = serverOlderFolder(view, search)
+  const olderKey = `${accountIdNum ?? ''}|${olderFolder ?? ''}`
+  const [olderEnded, setOlderEnded] = useState<Record<string, 'done' | 'failed'>>({})
+  const olderStatus = olderEnded[olderKey]
+  const olderMail = useFetchOlderMail(accountIdNum)
+  const fetchOlderMail = (key: string) => {
+    if (olderFolder == null || olderMail.isPending) return
+    olderMail.mutate(olderFolder, {
+      onSuccess: (r) => { if (!r.hasMore) setOlderEnded((m) => ({ ...m, [key]: 'done' })) },
+      onError: () => setOlderEnded((m) => ({ ...m, [key]: 'failed' })),
+    })
+  }
+  // 목록 스크롤 칸 — 공용 푸터 sentinel 의 root(미리 부르기 여유가 스크롤 칸 클리핑에 먹히지 않게, useLoadMoreSentinel).
+  const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)
+  // 공용 목록 끝 푸터(LoadMoreFooter) 어댑터 — 로컬 다음 페이지가 있으면 그것을, 없으면 서버 이전 메일을 「다음 페이지」로 본다(캘린더 목록과 같은 방식).
+  const olderFailed = !hasNextPage && olderStatus === 'failed'
+  const footerQuery = {
+    hasNextPage: !!hasNextPage || (olderFolder != null && olderStatus !== 'done'),
+    isFetching: listFetching || olderMail.isPending,
+    isFetchNextPageError: hasNextPage ? isFetchNextPageError : olderFailed,
+    isFetchingNextPage: isFetchingNextPage || olderMail.isPending,
+    fetchNextPage: () => {
+      if (hasNextPage) return fetchNextPage({ cancelRefetch: false })
+      // 실패 뒤 다시 시도 — 실패 기록을 지우고 다시 부른다(자동 로드는 실패 동안 멈춰 있다).
+      if (olderFailed) {
+        setOlderEnded((m) => {
+          const next = { ...m }
+          delete next[olderKey]
+          return next
+        })
+      }
+      fetchOlderMail(olderKey)
+    },
+  }
+  const listEnd = (
+    <>
+      <LoadMoreFooter
+        query={footerQuery}
+        root={listScrollEl}
+        errorLabel={olderFailed ? '이전 메일을 가져오지 못했습니다 — 다시 시도' : undefined}
+        data-testid="mail-list-end"
+      />
+      {olderFolder != null && olderStatus === 'done' && !hasNextPage && (
+        <div data-testid="mail-list-no-older" className="py-3 text-center text-xs text-muted-foreground">더 이전 메일 없음</div>
+      )}
+    </>
+  )
   const { openCompose } = useMailCompose()
   const replyDraft = useReplyDraft()
   // #520 AI 이슈 초안 — 버튼 클릭 시 모달 오픈 후 초안 로드.
@@ -1575,16 +1630,20 @@ function MailInbox() {
                 <p className="text-sm font-medium">이 분류에 해당하는 메일이 없어요.</p>
               </div>
             ) : (
-              <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
-                {search
-                  ? '검색 결과가 없습니다'
-                  : folderParam === 'SENT'
-                    ? '보낸 메일이 없습니다.'
-                    : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
-              </div>
+              <>
+                <div data-testid="mail-list-empty" className="p-6 text-sm text-muted-foreground">
+                  {search
+                    ? '검색 결과가 없습니다'
+                    : folderParam === 'SENT'
+                      ? '보낸 메일이 없습니다.'
+                      : '받은 메일이 없습니다. 동기화를 눌러보세요.'}
+                </div>
+                {/* WP-965 최근 범위에 메일이 없어도 그 이전 메일은 서버에 있을 수 있다 — 빈 목록에서도 이어 받는다. */}
+                {olderFolder != null && listEnd}
+              </>
             )
           ) : (
-            <div data-testid="mail-list-scroll" className="flex-1 overflow-y-auto" {...longPress}>
+            <div ref={setListScrollEl} data-testid="mail-list-scroll" className="flex-1 overflow-y-auto" {...longPress}>
               {messages.map((m) => (
                 <MessageRow
                   key={m.id}
@@ -1600,6 +1659,7 @@ function MailInbox() {
                   moveActions={touchShell ? null : moveActionsFor(m.id)}
                 />
               ))}
+              {listEnd}
             </div>
           )}
         </div>

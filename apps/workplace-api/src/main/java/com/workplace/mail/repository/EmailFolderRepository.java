@@ -299,11 +299,41 @@ public class EmailFolderRepository {
     public FolderSyncState syncState() {
       return new FolderSyncState(id, uidValidity, lastSeenUid);
     }
+
+    /** 경계만 바꾼 사본(WP-965 — 저장된 경계가 없을 때 호출자가 정한 경계를 담는다). */
+    public FolderTarget withSyncedSince(OffsetDateTime since) {
+      return new FolderTarget(
+          id, name, remoteId, role, selectable, uidValidity, lastSeenUid, since, folderSyncedAt);
+    }
   }
 
   /** 계정의 폴더 한 개를 동기화 대상으로 읽는다(WP-960). 다른 계정의 폴더면 empty. */
   public Optional<FolderTarget> findTarget(long accountId, long folderId) {
     return selectTarget(EMAIL_FOLDER.ID.eq(folderId).and(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId)));
+  }
+
+  /**
+   * 받은편지함·서버 보낸편지함의 동기화 대상(WP-965 — 이전 메일 더 가져오기). folder 가 INBOX 면 받은편지함 행, SENT 면 동기화한 서버 보낸편지함
+   * 행(server_sent, WP-950 — 앱 발송 기록 SENT 행이 아니다). 아직 동기화하지 않아 행이 없으면 empty.
+   */
+  public Optional<FolderTarget> findMailboxTarget(long accountId, String folder) {
+    org.jooq.Condition which =
+        LOCAL_SENT.equals(folder)
+            ? EMAIL_FOLDER.SERVER_SENT.isTrue()
+            : EMAIL_FOLDER
+                .NAME
+                .eq("INBOX")
+                .and(EMAIL_FOLDER.SERVER_SENT.isFalse())
+                .and(EMAIL_FOLDER.ROLE.isNull());
+    return selectTarget(EMAIL_FOLDER.ACCOUNT_ID.eq(accountId).and(which));
+  }
+
+  /** 폴더 행을 만든 시각(WP-965 — 첫 동기화 범위의 기준). 없는 폴더면 empty. */
+  public Optional<OffsetDateTime> createdAt(long folderId) {
+    return dsl.select(EMAIL_FOLDER.CREATED_AT)
+        .from(EMAIL_FOLDER)
+        .where(EMAIL_FOLDER.ID.eq(folderId))
+        .fetchOptional(EMAIL_FOLDER.CREATED_AT);
   }
 
   /**

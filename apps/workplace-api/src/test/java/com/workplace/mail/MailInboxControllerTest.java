@@ -329,4 +329,88 @@ class MailInboxControllerTest extends IntegrationTestBase {
                 .header("Authorization", "Bearer " + otherToken))
         .andExpect(status().isNotFound());
   }
+
+  /**
+   * WP-965: 목록 커서 — 앞 페이지 마지막 행의 receivedAt·id 를 beforeAt·beforeId 로 넘기면 그 다음 행부터 온다(JSON 의
+   * receivedAt 문자열을 그대로 넘겨도 마이크로초까지 맞는다).
+   */
+  @Test
+  void messages_beforeCursor_returnsNextPage() throws Exception {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "cursor-" + System.nanoTime() + "@test.local");
+    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long newest = seedMessage(accountId, inbox, true, null);
+    long middle = seedMessage(accountId, inbox, true, null);
+    long oldest = seedMessage(accountId, inbox, true, null);
+    // 수신 시각을 마이크로초 단위로 벌려 둔다(최신 → 오래된 순)
+    setReceivedAt(newest, "2026-10-20T10:00:00.123456Z");
+    setReceivedAt(middle, "2026-10-19T10:00:00.654321Z");
+    setReceivedAt(oldest, "2026-10-18T10:00:00.000001Z");
+    String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
+
+    String firstPage =
+        mvc.perform(
+                get("/api/v1/mail/accounts/{a}/messages", accountId)
+                    .param("limit", "1")
+                    .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].id").value(newest))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    String receivedAt = com.jayway.jsonpath.JsonPath.read(firstPage, "$[0].receivedAt");
+
+    mvc.perform(
+            get("/api/v1/mail/accounts/{a}/messages", accountId)
+                .param("limit", "5")
+                .param("beforeAt", receivedAt)
+                .param("beforeId", String.valueOf(newest))
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(2))
+        .andExpect(jsonPath("$[0].id").value(middle))
+        .andExpect(jsonPath("$[1].id").value(oldest));
+  }
+
+  /**
+   * WP-965: 이전 메일 더 가져오기 — 받은편지함·보낸편지함만(그 밖은 400), 남의 계정은 404, 아직 동기화 전이면 받지 않고 running(잠시 뒤 다시).
+   */
+  @Test
+  void fetchOlder_validatesFolderAndOwner() throws Exception {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "older-" + System.nanoTime() + "@test.local");
+    String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
+    long otherId = TestFixtures.createHuman(dsl);
+    String otherToken = jwtTokenProvider.generateAccessToken(otherId, "user-" + otherId);
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/messages/older", accountId)
+                .param("folder", "INBOX")
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.running").value(true))
+        .andExpect(jsonPath("$.saved").value(0))
+        .andExpect(jsonPath("$.hasMore").value(true));
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/messages/older", accountId)
+                .param("folder", "Projects")
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isBadRequest());
+
+    mvc.perform(
+            post("/api/v1/mail/accounts/{a}/messages/older", accountId)
+                .param("folder", "SENT")
+                .header("Authorization", "Bearer " + otherToken))
+        .andExpect(status().isNotFound());
+  }
+
+  private void setReceivedAt(long messageId, String at) {
+    dsl.update(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE)
+        .set(
+            com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.RECEIVED_AT,
+            java.time.OffsetDateTime.parse(at))
+        .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(messageId))
+        .execute();
+  }
 }

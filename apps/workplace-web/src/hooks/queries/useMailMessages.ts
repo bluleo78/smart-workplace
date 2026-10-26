@@ -1,13 +1,14 @@
 // 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
-import { type QueryClient, queryOptions, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type InfiniteData, type QueryClient, queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { coachDraft, fetchMailAttachmentDataUri, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMailFolders, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, sendMail, syncMailbox, syncMailFolder } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, fetchOlderMail, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMailFolders, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, sendMail, syncMailbox, syncMailFolder } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
-import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
+import { MAIL_PAGE_SIZE, type MailListCache, mapMailListCache, nextMailCursor } from '../../lib/mailListPages';
+import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailListCursor, MailOlderResult, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
 import { invalidateMailDrafts } from './mailDraftKeys';
 import { mailMessageKeys } from './mailMessageKeys';
 
@@ -26,6 +27,8 @@ function invalidateMailCounts(qc: QueryClient) {
 /**
  * 계정의 메시지 목록(폴더·검색어·unread·category·needsReply 필터). accountId 가 없으면 비활성.
  * options.folderId(WP-961) — 서버 메일함(보관·내 메일함) 보기. 있으면 서버가 folder·분류·회신필요를 무시한다.
+ * WP-965: {@link MAIL_PAGE_SIZE}통씩 페이지로 받는다 — 끝까지 내리면 fetchNextPage 로 다음 페이지를 잇는다(커서 = 앞 페이지 마지막 행).
+ * data 는 페이지를 이어 붙인 배열이라 쓰는 쪽은 예전처럼 한 목록으로 본다. 주기 재조회는 받은 페이지를 모두 차례로 다시 받으며 커서를 새로 잡는다.
  */
 export function useMailMessages(
   accountId: number | undefined,
@@ -37,14 +40,59 @@ export function useMailMessages(
   options?: { enabled?: boolean; folderId?: number | null },
 ) {
   const folderId = options?.folderId ?? null;
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: mailMessageKeys.list(accountId ?? 0, folder, query, unread, category, needsReply, folderId),
-    queryFn: () =>
+    queryFn: ({ pageParam }) =>
       listMessages(accountId as number, folder, query || undefined, unread,
-                   category || undefined, needsReply, undefined, folderId),
+                   category || undefined, needsReply, MAIL_PAGE_SIZE, folderId, pageParam),
+    initialPageParam: null as MailListCursor | null,
+    getNextPageParam: (lastPage) => nextMailCursor(lastPage),
+    select: selectFlatPages,
     enabled: (options?.enabled ?? true) && !!accountId,
-    refetchInterval: 60_000,       // 백그라운드 자동 동기화로 들어온 새 메일을 주기 반영
+    // 백그라운드 자동 동기화로 들어온 새 메일을 주기 반영. 재조회는 받은 페이지를 모두 차례로 다시 받으므로 깊이 내린 목록은 주기 재조회를 멈춘다 —
+    // 새 메일은 SSE(mail 변경 알림)·포커스 재조회가 목록을 다시 받게 한다.
+    refetchInterval: (q) => ((q.state.data?.pages.length ?? 0) > POLL_MAX_PAGES ? false : 60_000),
     refetchOnWindowFocus: true,
+  });
+}
+
+/** 페이지를 이어 붙인 목록 — 모듈 수준이라 참조가 고정돼 데이터가 같으면 TanStack 이 select 를 다시 돌리지 않는다(selectSeen 과 같은 까닭). */
+function selectFlatPages(data: InfiniteData<EmailMessageSummary[], MailListCursor | null>): EmailMessageSummary[] {
+  return data.pages.flat();
+}
+
+/** 60초 주기 재조회를 하는 최대 페이지 수 — 넘게 내린 목록은 주기 재조회를 멈춘다(재조회 한 번에 페이지 수만큼 요청이 나간다). */
+const POLL_MAX_PAGES = 3;
+
+/** 이미 가져오는 중(running)일 때 다시 부르기 전 기다리는 시간 — 그사이 목록 끝 표시는 「가져오는 중」으로 남는다. */
+const OLDER_RUNNING_WAIT_MS = 3_000;
+
+/**
+ * WP-965 받은편지함·보낸편지함 이전 메일 더 가져오기 — 목록을 끝까지 내려 로컬이 바닥났을 때 부른다.
+ * 새로 넣은 메일이 있으면 그 계정 목록을 다시 받은 뒤에 끝난다 — 끝난 직후 목록 끝이 아직 보여도 옛 목록으로 한 번 더 부르지 않게.
+ * 같은 폴더를 이미 가져오는 중이거나 아직 가져올 수 없으면(running — 첫 동기화 전 등) 잠시 기다렸다 끝나 화면이 곧바로 다시 부르지 않게 한다.
+ * 실패는 화면이 목록 끝에 「다시 시도」로 보인다(토스트 없음).
+ */
+export function useFetchOlderMail(accountId: number | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (folder: MailFolder) => {
+      const refreshList = () => qc.invalidateQueries({ queryKey: ['mail-messages', accountId] });
+      let result: MailOlderResult;
+      try {
+        result = await fetchOlderMail(accountId as number, folder);
+      } catch (e) {
+        // 실패해도 서버가 그 전에 받은 메일이 있을 수 있다(더 있는지 확인만 실패) — 목록을 다시 받아 보이게 한다.
+        await refreshList();
+        throw e;
+      }
+      if (result.running) {
+        await new Promise((resolve) => setTimeout(resolve, OLDER_RUNNING_WAIT_MS));
+      } else if (result.saved > 0) {
+        await refreshList();
+      }
+      return result;
+    },
   });
 }
 
@@ -144,9 +192,10 @@ export function useToggleRead() {
       // 진행 중이던 목록 조회(취소할 재조회·첫 조회)가 있으면 완료 뒤 다시 받아야 한다.
       if (qc.isFetching({ queryKey: ['mail-messages'] }) > 0) listsNeedRefresh = true;
       await qc.cancelQueries({ queryKey: ['mail-messages'], predicate: (q) => q.state.data !== undefined });
-      const snapshot = qc.getQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'] });
-      qc.setQueriesData<EmailMessageSummary[]>({ queryKey: ['mail-messages'], exact: false }, (old) =>
-        old?.map((m) => (m.id === id ? { ...m, seen } : m)),
+      const snapshot = qc.getQueriesData<MailListCache>({ queryKey: ['mail-messages'] });
+      // WP-965: 목록은 페이지 묶음, 최신 N건은 배열 — 두 모양 모두 바꾼다.
+      qc.setQueriesData<MailListCache>({ queryKey: ['mail-messages'], exact: false }, (old) =>
+        mapMailListCache(old, (m) => (m.id === id ? { ...m, seen } : m)),
       );
       return { snapshot };
     },

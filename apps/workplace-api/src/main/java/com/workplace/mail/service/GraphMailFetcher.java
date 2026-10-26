@@ -7,6 +7,7 @@ import com.workplace.mail.dto.ParsedMessage;
 import com.workplace.mail.exception.MailSyncException;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailFolderRepository;
+import com.workplace.mail.repository.EmailFolderRepository.FolderSyncState;
 import com.workplace.mail.repository.EmailFolderRepository.FolderTarget;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.graph.GraphDeltaPage;
@@ -16,6 +17,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -127,24 +129,45 @@ public class GraphMailFetcher implements MailFetcher {
   }
 
   /**
-   * 서버 보낸편지함(Sent Items) delta 동기화(WP-950, best-effort). 저장된 deltaLink 가 없으면 최근 {@value
-   * #SENT_INITIAL_WINDOW_DAYS}일 필터를 건 초기 delta 로 시작한다. 실패는 경고 로그 후 null — 만료된 deltaLink(410 등)로 매번
-   * 같은 실패를 되풀이하지 않게 커서를 지워 다음 동기화가 첫 범위부터 다시 시작한다(이미 있는 메일은 UPSERT 라 중복되지 않는다).
+   * 서버 보낸편지함(Sent Items) delta 동기화(WP-950, best-effort). 저장된 deltaLink 가 없으면 기간 필터를 건 초기 delta 로
+   * 시작한다 — 경계 (synced_since)가 있으면 그 경계부터(WP-965 — 이어 받은 옛 보낸 메일의 읽음·삭제도 delta 로 받게, 메일함과 같다), 없으면
+   * 최근 {@value #SENT_INITIAL_WINDOW_DAYS}일로 시작하고 그 시작을 경계로 기록한다(이전 메일 더 가져오기가 그 앞부터 잇는다). 실패는 경고 로그
+   * 후 null — 만료된 deltaLink(410 등)로 매번 같은 실패를 되풀이하지 않게 커서를 지워 다음 동기화가 첫 범위부터 다시 시작한다(이미 있는 메일은
+   * UPSERT 라 중복되지 않는다).
    */
   private MailSyncResult syncSent(long accountId, String token) {
     Long sentFolderId = null;
     try {
-      sentFolderId =
+      FolderSyncState sent =
           txTemplate
               .execute(s -> folderRepo.ensureServerSentFolder(accountId, SENT_FOLDER))
-              .orElseThrow()
-              .id();
+              .orElseThrow();
+      sentFolderId = sent.id();
       long folderId = sentFolderId;
-      String url =
+      String deltaLink = txTemplate.execute(s -> folderRepo.getDeltaLink(folderId)).orElse(null);
+      if (deltaLink != null) {
+        return runDelta(accountId, folderId, token, deltaLink);
+      }
+      OffsetDateTime stored =
           txTemplate
-              .execute(s -> folderRepo.getDeltaLink(folderId))
-              .orElseGet(() -> initialSentDeltaUrl(Instant.now()));
-      return runDelta(accountId, folderId, token, url);
+              .execute(
+                  s -> folderRepo.findMailboxTarget(accountId, EmailFolderRepository.LOCAL_SENT))
+              .map(FolderTarget::syncedSince)
+              .orElse(null);
+      Instant start =
+          stored != null
+              ? stored.toInstant().truncatedTo(ChronoUnit.SECONDS)
+              : Instant.now()
+                  .minus(SENT_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS)
+                  .truncatedTo(ChronoUnit.SECONDS);
+      MailSyncResult result =
+          runDelta(accountId, folderId, token, folderDeltaUrl(SENT_FOLDER, start));
+      if (stored == null) {
+        OffsetDateTime boundary = start.atOffset(ZoneOffset.UTC);
+        txTemplate.executeWithoutResult(
+            s -> folderRepo.markFolderSynced(folderId, boundary, OffsetDateTime.now()));
+      }
+      return result;
     } catch (Exception e) {
       log.warn("M365 보낸편지함 동기화 실패(받은편지함은 완료): accountId={} {}", accountId, e.toString());
       if (sentFolderId != null) {
@@ -153,16 +176,6 @@ public class GraphMailFetcher implements MailFetcher {
       }
       return null;
     }
-  }
-
-  /**
-   * 보낸편지함 첫 delta URL(WP-950) — 최근 {@value #SENT_INITIAL_WINDOW_DAYS}일만. 이후 동기화는 저장된 deltaLink 를
-   * 따른다.
-   */
-  static String initialSentDeltaUrl(Instant now) {
-    return folderDeltaUrl(
-        SENT_FOLDER,
-        now.minus(SENT_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS).truncatedTo(ChronoUnit.SECONDS));
   }
 
   /**
@@ -178,7 +191,7 @@ public class GraphMailFetcher implements MailFetcher {
       boolean older) {
     String token = tokenService.getAccessToken(userId, accountId);
     if (older && folder.syncedSince() != null) {
-      return fetchOlder(accountId, folder, token);
+      return fetchOlder(accountId, folder, folder.remoteId(), token, true).result();
     }
     String deltaLink = txTemplate.execute(s -> folderRepo.getDeltaLink(folder.id())).orElse(null);
     Instant since = null; // 이번에 처음 정하는 경계(첫 동기화일 때만)
@@ -232,19 +245,63 @@ public class GraphMailFetcher implements MailFetcher {
         + OLDER_PAGE_SIZE;
   }
 
+  /** 새 경계 앞에 메일이 더 있는지 보는 URL(WP-965) — id 하나만. */
+  static String folderHasOlderUrl(String folderRemoteId, Instant before) {
+    return "/me/mailFolders/"
+        + folderRemoteId
+        + "/messages?$select=id&$top=1&$filter=receivedDateTime%20lt%20"
+        + before;
+  }
+
+  /**
+   * 받은편지함·서버 보낸편지함의 이전 메일 더 가져오기(WP-965). 메일함의 이전 메일 더 가져오기와 같은 목록 페이징을 쓰되 받은편지함 delta 커서는 지우지
+   * 않고(기간 필터가 없어 지우면 받은편지함 전체를 다시 받는다), 끝나면 새 경계 앞에 메일이 더 있는지 한 건만 물어본다. remoteId 가 없으면 폴더 이름으로 연다
+   * — 받은편지함(INBOX)은 well-known {@code inbox}, 서버 보낸편지함은 이름이 곧 well-known {@code sentitems}. 더 있는지
+   * 확인만 실패하면 받은 결과는 그대로 두고 hasMore=true 로 본다.
+   */
+  @Override
+  public OlderFetch fetchOlderBefore(
+      long userId, long accountId, EmailAccountResponse account, FolderTarget folder) {
+    if (folder.syncedSince() == null) {
+      return OlderFetch.notReady();
+    }
+    boolean inbox = "INBOX".equals(folder.name());
+    String remote = Objects.requireNonNullElse(folder.remoteId(), inbox ? "inbox" : folder.name());
+    String token = tokenService.getAccessToken(userId, accountId);
+    // 받은편지함 delta 는 기간 필터가 없어 그대로, 보낸편지함 delta 는 지워 새 경계부터 다시 시작(MailFetcher#fetchOlderBefore)
+    OlderFetch fetched = fetchOlder(accountId, folder, remote, token, !inbox);
+    GraphDeltaPage probe;
+    try {
+      probe =
+          graphApiClient.get(
+              token, folderHasOlderUrl(remote, fetched.syncedSince()), GraphDeltaPage.class);
+    } catch (Exception e) {
+      // 받기·경계 이동은 끝났다 — 오류로 돌려 화면이 「다시 시도」를 보이게 한다. 더 있다고 짐작하면 확인이 계속 실패할 때 화면이 끝없이 거슬러 받는다.
+      throw new MailSyncException("M365 이전 메일이 더 있는지 확인하지 못했습니다", e);
+    }
+    boolean hasMore = probe != null && probe.value() != null && !probe.value().isEmpty();
+    return new OlderFetch(fetched.result(), fetched.syncedSince(), hasMore, true);
+  }
+
+  @Override
+  public boolean firstSyncTakesWholeInbox() {
+    return true; // 받은편지함 첫 delta 는 기간 필터 없이 전체를 받는다(클래스 주석 「슬라이스1 알려진 한계」)
+  }
+
   /**
    * 이전 메일 더 가져오기(WP-960) — [synced_since − 90일, synced_since) 수신분을 messages 목록으로 받아 upsert
-   * 한다(nextLink 페이징). 끝나면 synced_since 를 범위 시작으로 옮기고 deltaLink 를 지운다 — 다음 폴더 동기화가 새 경계로 delta 를
-   * 처음부터 다시 시작해 옛 메일의 변화(읽음·삭제·이동)도 받는다.
+   * 한다(nextLink 페이징). 끝나면 synced_since 를 범위 시작으로 옮긴다. resetDelta 면 deltaLink 도 지운다 — 다음 폴더 동기화가 새
+   * 경계로 delta 를 처음부터 다시 시작해 옛 메일의 변화(읽음·삭제·이동)도 받는다(메일함). hasMore 는 확인하지 않는다(false).
    */
-  private MailSyncResult fetchOlder(long accountId, FolderTarget folder, String token) {
+  private OlderFetch fetchOlder(
+      long accountId, FolderTarget folder, String remoteId, String token, boolean resetDelta) {
     Instant to = folder.syncedSince().toInstant().truncatedTo(ChronoUnit.SECONDS);
     Instant from = to.minus(FOLDER_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
     int fetched = 0;
     int saved = 0;
     int seenChanged = 0;
     try {
-      String url = folderOlderUrl(folder.remoteId(), from, to);
+      String url = folderOlderUrl(remoteId, from, to);
       while (url != null) {
         GraphDeltaPage page = graphApiClient.get(token, url, GraphDeltaPage.class);
         if (page == null || page.value() == null) {
@@ -272,9 +329,11 @@ public class GraphMailFetcher implements MailFetcher {
           folderRepo.markFolderSynced(folder.id(), newSince, OffsetDateTime.now());
           // delta 는 옛 경계로 필터가 걸려 있어 방금 받은 옛 메일의 읽음·삭제·이동을 알려 주지 않는다. 커서를 지워 다음 동기화가 새 경계로
           // delta 를 처음부터 다시 시작하게 한다(upsert 가 멱등이라 중복 없음, 필터 delta 는 문서상 최대 5000건).
-          folderRepo.setDeltaLink(folder.id(), null);
+          if (resetDelta) {
+            folderRepo.setDeltaLink(folder.id(), null);
+          }
         });
-    return new MailSyncResult(fetched, saved, seenChanged, 0);
+    return new OlderFetch(new MailSyncResult(fetched, saved, seenChanged, 0), from, false, true);
   }
 
   /** 메시지 한 건 UPSERT — 기존 메시지는 seen 만 서버 isRead 로 갱신(WP-148). isRead 가 응답에 없으면 읽음 상태를 건드리지 않는다. */

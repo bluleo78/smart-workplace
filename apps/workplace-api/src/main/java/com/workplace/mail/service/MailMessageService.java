@@ -6,6 +6,7 @@ import com.workplace.mail.dto.BodyTarget;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
+import com.workplace.mail.dto.MailListCursor;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
@@ -102,10 +103,7 @@ public class MailMessageService {
     return list(userId, accountId, folder, null, query, unread, category, needsReply, limit);
   }
 
-  /**
-   * WP-960: folderId(서버 메일함)를 받는 목록. folderId 가 있으면 계정의 메일함인지 확인하고(아니면 404) 그 메일함 이름으로 같은 보기 조건을 쓴다
-   * — 분류·회신필요는 받은편지함 전용이라 무시한다. 없으면 folder 이름(기본 INBOX) 그대로.
-   */
+  /** WP-960: folderId(서버 메일함)를 받는 목록의 첫 페이지(커서 없음). */
   @Transactional(readOnly = true)
   public List<EmailMessageSummary> list(
       long userId,
@@ -117,17 +115,44 @@ public class MailMessageService {
       String category,
       boolean needsReply,
       int limit) {
+    return list(
+        userId, accountId, folder, folderId, query, unread, category, needsReply, null, limit);
+  }
+
+  /**
+   * WP-960: folderId(서버 메일함)를 받는 목록. folderId 가 있으면 계정의 메일함인지 확인하고(아니면 404) 그 메일함 이름으로 같은 보기 조건을 쓴다
+   * — 분류·회신필요는 받은편지함 전용이라 무시한다. 없으면 folder 이름(기본 INBOX) 그대로. cursor 가 있으면 그 행 다음 페이지(WP-965).
+   */
+  @Transactional(readOnly = true)
+  public List<EmailMessageSummary> list(
+      long userId,
+      long accountId,
+      String folder,
+      Long folderId,
+      String query,
+      boolean unread,
+      String category,
+      boolean needsReply,
+      MailListCursor cursor,
+      int limit) {
     accountRepo
         .findByIdAndUser(userId, accountId)
         .orElseThrow(() -> new EmailAccountNotFoundException(accountId));
     int effective = limit <= 0 ? DEFAULT_LIMIT : Math.min(limit, MAX_LIMIT);
     if (folderId != null) {
       return messageRepo.listByAccount(
-          accountId, folderName(accountId, folderId), query, unread, null, false, effective);
+          accountId,
+          folderName(accountId, folderId),
+          query,
+          unread,
+          null,
+          false,
+          cursor,
+          effective);
     }
     String folderName = (folder == null || folder.isBlank()) ? "INBOX" : folder;
     return messageRepo.listByAccount(
-        accountId, folderName, query, unread, category, needsReply, effective);
+        accountId, folderName, query, unread, category, needsReply, cursor, effective);
   }
 
   /** WP-960: 계정의 메일함 이름(서버 키). 계정에 없는 메일함이면 404. 호출자 트랜잭션 안에서 부른다. */

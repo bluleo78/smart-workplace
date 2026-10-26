@@ -17,6 +17,7 @@ import com.workplace.mail.dto.ContentSource;
 import com.workplace.mail.dto.EmailAttachmentMeta;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
+import com.workplace.mail.dto.MailListCursor;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.OutgoingMail;
 import com.workplace.mail.dto.ParsedMessage;
@@ -492,6 +493,17 @@ public class EmailMessageRepository {
         .or(EMAIL_FOLDER.SERVER_SENT.isTrue().and(notAppSentCopy()));
   }
 
+  /** 폴더에서 가장 오래된 수신 시각(WP-965 — 이전 메일 더 가져오기 경계가 없을 때). 메일이 없으면 empty. */
+  public Optional<Instant> oldestReceivedAt(long accountId, long folderId) {
+    OffsetDateTime oldest =
+        dsl.select(DSL.min(EMAIL_MESSAGE.RECEIVED_AT))
+            .from(EMAIL_MESSAGE)
+            .where(EMAIL_MESSAGE.ACCOUNT_ID.eq(accountId))
+            .and(EMAIL_MESSAGE.FOLDER_ID.eq(folderId))
+            .fetchOne(0, OffsetDateTime.class);
+    return Optional.ofNullable(oldest).map(OffsetDateTime::toInstant);
+  }
+
   /** 기존 호출 호환(받은편지함). 폴더 미지정은 INBOX 로 스코프. */
   public List<EmailMessageSummary> listByAccount(long accountId, String query, int limit) {
     return listByAccount(accountId, "INBOX", query, limit);
@@ -558,9 +570,36 @@ public class EmailMessageRepository {
     return where;
   }
 
+  /** 커서 없이 첫 페이지(기존 호출 호환). */
+  public List<EmailMessageSummary> listByAccount(
+      long accountId,
+      String folderName,
+      String query,
+      boolean unreadOnly,
+      String category,
+      boolean needsReply,
+      int limit) {
+    return listByAccount(
+        accountId, folderName, query, unreadOnly, category, needsReply, null, limit);
+  }
+
+  /** 정렬(received_at DESC NULLS LAST, id DESC)에서 커서 행 뒤에 오는 행의 조건(WP-965). */
+  static Condition afterCursor(MailListCursor c) {
+    if (c.receivedAt() == null) {
+      return EMAIL_MESSAGE.RECEIVED_AT.isNull().and(EMAIL_MESSAGE.ID.lt(c.id()));
+    }
+    OffsetDateTime at = c.receivedAt().atOffset(ZoneOffset.UTC);
+    return EMAIL_MESSAGE
+        .RECEIVED_AT
+        .lt(at)
+        .or(EMAIL_MESSAGE.RECEIVED_AT.eq(at).and(EMAIL_MESSAGE.ID.lt(c.id())))
+        .or(EMAIL_MESSAGE.RECEIVED_AT.isNull());
+  }
+
   /**
    * P2: 계정 + 폴더 스코프 목록(최신순, 본문 제외). category/needsReply 필터 추가. 회신필요는 단일 술어 needsReplyCondition().
    * query 가 있으면 제목/보낸사람/스니펫 부분일치. unreadOnly=true 면 seen=false(안 읽은) 메일만 반환한다. 소유 검증은 호출 측에서 수행.
+   * cursor 가 있으면 그 행 다음부터(WP-965 — 끝까지 내리며 이어 보기).
    *
    * <p>Task6: subject·snippet SELECT 를 email_content 로 전환. 검색 WHERE 는 Task8 에서 전환(현재 email_message
    * 컬럼 유지).
@@ -572,8 +611,12 @@ public class EmailMessageRepository {
       boolean unreadOnly,
       String category,
       boolean needsReply,
+      MailListCursor cursor,
       int limit) {
     Condition where = viewCondition(accountId, folderName, query, unreadOnly, category, needsReply);
+    if (cursor != null) {
+      where = where.and(afterCursor(cursor));
+    }
     return dsl.select(
             EMAIL_MESSAGE.ID,
             EMAIL_MESSAGE.ACCOUNT_ID,

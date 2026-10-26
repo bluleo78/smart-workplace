@@ -61,8 +61,8 @@ public class ImapMailFetcher implements MailFetcher {
   /** 받은편지함 폴더 이름. 서버 보낸편지함은 서버 이름 그대로 동기화한다(WP-950, ImapSentFolderLocator). */
   private static final String INBOX = "INBOX";
 
-  /** 첫 동기화 시 가져올 최근 기간(일) — 받은편지함·서버 보낸편지함(WP-950) 같음. */
-  static final int INITIAL_WINDOW_DAYS = 7;
+  /** 첫 동기화 시 가져올 최근 기간(일) — 받은편지함·서버 보낸편지함(WP-950) 같음. 이전 메일 경계(WP-965)도 이 기간을 쓴다. */
+  public static final int INITIAL_WINDOW_DAYS = 7;
 
   /** 읽음 상태 재조회 기간(일) — 이 기간 안의 기존 메일만 서버 FLAGS 를 다시 본다(WP-148). */
   static final int SEEN_SYNC_WINDOW_DAYS = 14;
@@ -120,13 +120,7 @@ public class ImapMailFetcher implements MailFetcher {
   @Override
   public MailSyncResult fetchNewMessages(
       long userId, long accountId, EmailAccountResponse account) {
-    String password =
-        txTemplate.execute(
-            status ->
-                accountRepo
-                    .findEncryptedPassword(userId, accountId)
-                    .map(encryption::decrypt)
-                    .orElseThrow(() -> new EmailAccountNotFoundException(accountId)));
+    String password = password(userId, accountId);
     EmailFolderRepository.FolderSyncState folder =
         txTemplate.execute(status -> folderRepo.ensureFolder(accountId, INBOX));
 
@@ -134,7 +128,11 @@ public class ImapMailFetcher implements MailFetcher {
     MailSyncResult result;
     try {
       Instant since = Instant.now().minus(INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
-      result = fetchMetadata(account, accountId, password, folder, INBOX, since).result();
+      result =
+          recordFirstSync(
+              folder.id(),
+              since,
+              fetchMetadata(account, accountId, password, folder, INBOX, since));
     } catch (MessagingException e) {
       throw new MailSyncException("받은편지함 동기화에 실패했습니다", e);
     }
@@ -182,7 +180,31 @@ public class ImapMailFetcher implements MailFetcher {
       return null;
     }
     Instant since = Instant.now().minus(INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
-    return fetchMetadata(account, accountId, password, state, name, since).result();
+    return recordFirstSync(
+        state.id(), since, fetchMetadata(account, accountId, password, state, name, since));
+  }
+
+  /**
+   * 받은편지함·서버 보낸편지함 첫 동기화(UIDVALIDITY 변경으로 다시 받기 포함)였으면 받은 범위의 시작을 경계(synced_since)로 기록한다(WP-965 —
+   * 이전 메일 더 가져오기가 이 경계 앞부터 잇는다). 증분 동기화면 경계를 그대로 둔다.
+   */
+  private MailSyncResult recordFirstSync(long folderId, Instant since, FetchOutcome outcome) {
+    if (outcome.firstSync()) {
+      OffsetDateTime boundary = since.atOffset(ZoneOffset.UTC);
+      txTemplate.executeWithoutResult(
+          status -> folderRepo.markFolderSynced(folderId, boundary, OffsetDateTime.now()));
+    }
+    return outcome.result();
+  }
+
+  /** 계정 IMAP 비밀번호를 짧은 트랜잭션으로 읽어 복호화한다. 내 계정이 아니면 404. */
+  private String password(long userId, long accountId) {
+    return txTemplate.execute(
+        status ->
+            accountRepo
+                .findEncryptedPassword(userId, accountId)
+                .map(encryption::decrypt)
+                .orElseThrow(() -> new EmailAccountNotFoundException(accountId)));
   }
 
   /**
@@ -213,18 +235,12 @@ public class ImapMailFetcher implements MailFetcher {
       EmailAccountResponse account,
       FolderTarget folder,
       boolean older) {
-    String password =
-        txTemplate.execute(
-            status ->
-                accountRepo
-                    .findEncryptedPassword(userId, accountId)
-                    .map(encryption::decrypt)
-                    .orElseThrow(() -> new EmailAccountNotFoundException(accountId)));
+    String password = password(userId, accountId);
     try {
       if (older && folder.syncedSince() != null && folder.uidValidity() != null) {
-        Optional<MailSyncResult> olderResult = fetchOlder(account, accountId, password, folder);
+        Optional<OlderFetch> olderResult = fetchOlder(account, accountId, password, folder, false);
         if (olderResult.isPresent()) {
-          return olderResult.get();
+          return olderResult.get().result();
         }
         // UIDVALIDITY 가 바뀌어 저장된 UID 를 믿을 수 없다 — 아래 일반 동기화가 폐기·다시 받기를 맡는다.
       }
@@ -251,15 +267,21 @@ public class ImapMailFetcher implements MailFetcher {
    *
    * <p>IMAP SEARCH 의 날짜 비교(SINCE·BEFORE)는 날 단위라 경계일 메일이 앞뒤 범위에 함께 걸릴 수 있다 — 넣기는 멱등이라 문제없다.
    *
+   * @param probeMore 같은 세션에서 새 경계 앞에 메일이 더 있는지도 확인할지(WP-965 받은편지함·보낸편지함). 아니면 hasMore=false
    * @return UIDVALIDITY 가 바뀌었으면 empty(저장된 메일을 믿을 수 없어 일반 동기화로 넘긴다)
    */
-  private Optional<MailSyncResult> fetchOlder(
-      EmailAccountResponse account, long accountId, String password, FolderTarget folder)
+  private Optional<OlderFetch> fetchOlder(
+      EmailAccountResponse account,
+      long accountId,
+      String password,
+      FolderTarget folder,
+      boolean probeMore)
       throws MessagingException {
     Instant to = folder.syncedSince().toInstant();
     Instant from = to.minus(FOLDER_INITIAL_WINDOW_DAYS, ChronoUnit.DAYS);
     List<ParsedMessage> parsedList = new ArrayList<>();
     int fetched = 0;
+    boolean hasMore = false;
     Store store = null;
     Folder box = null;
     try {
@@ -288,6 +310,10 @@ public class ImapMailFetcher implements MailFetcher {
           log.warn("메일 메타 파싱 중 건너뜀 (uid={}): {}", uid, e.toString());
         }
       }
+      if (probeMore) {
+        // 새 경계 앞 메일이 하나라도 있는지 — SEARCH 는 번호만 돌려줘 메타를 받지 않는다
+        hasMore = box.search(new ReceivedDateTerm(ComparisonTerm.LT, Date.from(from))).length > 0;
+      }
     } finally {
       closeQuietly(box, store);
     }
@@ -295,7 +321,27 @@ public class ImapMailFetcher implements MailFetcher {
     OffsetDateTime newSince = from.atOffset(ZoneOffset.UTC);
     txTemplate.executeWithoutResult(
         status -> folderRepo.markFolderSynced(folder.id(), newSince, OffsetDateTime.now()));
-    return Optional.of(new MailSyncResult(fetched, saved, 0, 0));
+    return Optional.of(
+        new OlderFetch(new MailSyncResult(fetched, saved, 0, 0), from, hasMore, true));
+  }
+
+  /**
+   * 받은편지함·서버 보낸편지함의 이전 메일 더 가져오기(WP-965). 메일함의 「이전 메일 더 가져오기」({@link #fetchOlder})를 같은 세션의 더 있는지
+   * 확인과 함께 쓴다. 아직 첫 동기화 전(UIDVALIDITY 없음)이거나 UIDVALIDITY 가 바뀌었으면 받지 않고 ready=false — 정기 동기화가 폐기·다시
+   * 받기를 맡는다.
+   */
+  @Override
+  public OlderFetch fetchOlderBefore(
+      long userId, long accountId, EmailAccountResponse account, FolderTarget folder) {
+    if (folder.uidValidity() == null || folder.syncedSince() == null) {
+      return OlderFetch.notReady();
+    }
+    String password = password(userId, accountId);
+    try {
+      return fetchOlder(account, accountId, password, folder, true).orElseGet(OlderFetch::notReady);
+    } catch (MessagingException e) {
+      throw new MailSyncException("이전 메일을 가져오지 못했습니다", e);
+    }
   }
 
   /** 파싱한 메타를 메시지별 짧은 트랜잭션으로 넣고 새로 들어간 수를 돌려준다. 개별 저장 실패는 격리한다(실패해도 진행 — 커서는 호출자가 관리). */

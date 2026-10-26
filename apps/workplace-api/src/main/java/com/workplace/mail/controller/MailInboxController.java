@@ -8,8 +8,10 @@ import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
 import com.workplace.mail.dto.MailFolderResponse;
 import com.workplace.mail.dto.MailFolderSyncResult;
+import com.workplace.mail.dto.MailListCursor;
 import com.workplace.mail.dto.MailMoveRequest;
 import com.workplace.mail.dto.MailMoveResponse;
+import com.workplace.mail.dto.MailOlderResult;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.MailSyncStatus;
 import com.workplace.mail.dto.MailUnreadCounts;
@@ -26,6 +28,7 @@ import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.move.MailMoveService;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
@@ -103,7 +106,11 @@ public class MailInboxController {
     return moveService.move(callerId, accountId, req);
   }
 
-  /** 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit). */
+  /**
+   * 계정의 메시지 목록(폴더 INBOX/SENT, 최신순, 선택 검색어 query, #466 unread, P2 category/needsReply, limit).
+   * WP-965: beforeId(와 beforeAt)가 있으면 그 행 다음 페이지 — 앞 페이지 마지막 행의 id·receivedAt 을 그대로 넘긴다(receivedAt
+   * 이 없는 행이면 beforeAt 생략).
+   */
   @GetMapping("/accounts/{accountId}/messages")
   public List<EmailMessageSummary> messages(
       @AuthenticationPrincipal Long callerId,
@@ -114,9 +121,25 @@ public class MailInboxController {
       @RequestParam(required = false, defaultValue = "false") boolean unread,
       @RequestParam(required = false) String category, // P2: 분류 필터(업무/개인/알림/프로모션/뉴스레터)
       @RequestParam(required = false, defaultValue = "false") boolean needsReply, // P2: 회신필요 필터
+      @RequestParam(required = false) Instant beforeAt, // WP-965: 다음 페이지 커서 — 마지막 행 수신 시각
+      @RequestParam(required = false) Long beforeId, // WP-965: 다음 페이지 커서 — 마지막 행 id
       @RequestParam(required = false, defaultValue = "0") int limit) {
+    MailListCursor cursor = beforeId == null ? null : new MailListCursor(beforeAt, beforeId);
     return messageService.list(
-        callerId, accountId, folder, folderId, query, unread, category, needsReply, limit);
+        callerId, accountId, folder, folderId, query, unread, category, needsReply, cursor, limit);
+  }
+
+  /**
+   * WP-965 받은편지함(folder=INBOX)·보낸편지함(folder=SENT)의 이전 메일 더 가져오기 — 목록을 끝까지 내렸을 때 화면이 부른다. 가져온 경계 앞
+   * 90일을 서버에서 받고, 그 앞에 더 있는지(hasMore)를 돌려준다. 같은 폴더를 이미 가져오는 중이면 running=true. 서버 I/O 동안 DB 연결을 잡지
+   * 않게 트랜잭션을 걸지 않는다(서비스가 짧은 트랜잭션으로 나눈다).
+   */
+  @PostMapping("/accounts/{accountId}/messages/older")
+  public MailOlderResult fetchOlder(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long accountId,
+      @RequestParam(defaultValue = "INBOX") String folder) {
+    return folderService.fetchOlder(callerId, accountId, folder);
   }
 
   /** P2: 사이드바용 계정단위 회신필요 건수. */
