@@ -476,7 +476,7 @@ test('분류(개인) 0건 → 중립 빈 상태만 보인다', async () => {
 
 // ── AI 요약 카드(mail.spec) ─────────────────────────────────────────────
 
-async function openFirstMail(aiEnabled: boolean, summaryHandler: Parameters<typeof renderMail>[1] extends infer O ? NonNullable<O>['handlers'] : never) {
+async function openFirstMail(aiEnabled: boolean, summaryHandler: NonNullable<Parameters<typeof renderMail>[1]>['handlers']) {
   const view = renderMail('/mail/1', {
     accounts: [mailAccount({ aiEnabled })],
     messages: [summary()],

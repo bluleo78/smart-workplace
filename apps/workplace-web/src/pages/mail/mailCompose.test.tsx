@@ -33,7 +33,6 @@ const draftPosts = () =>
     HttpResponse.json({ id: 77, version: 1, updatedAt: '2026-10-21T01:00:00Z' }),
   )
 const chips = (field: 'to' | 'cc') => screen.queryAllByTestId(`mail-compose-${field}-chip`).map((el) => el.getAttribute('data-value'))
-const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
 
 /** 본문 에디터에 글을 쓴다 — 클릭으로 초점을 두고 키를 친다(ProseMirror 가 입력을 문서로 읽는다). */
 async function typeBody(user: ReturnType<typeof renderMail>['user'], text: string) {

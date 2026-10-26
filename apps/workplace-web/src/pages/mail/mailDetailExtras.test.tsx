@@ -27,7 +27,7 @@ const draftHandler = (draft: object) => http.post('/api/v1/mail/messages/7/issue
 const membersHandler = (members: object[] = []) => http.get('/api/v1/projects/:key/members', () => HttpResponse.json(members))
 
 /** 7번 메일을 열고 「AI 이슈 생성」 대화상자를 띄운다. */
-async function openIssueDialog(handlers: Parameters<typeof renderMail>[1] extends infer O ? NonNullable<O>['handlers'] : never, linked?: () => string | null) {
+async function openIssueDialog(handlers: NonNullable<Parameters<typeof renderMail>[1]>['handlers'], linked?: () => string | null) {
   const view = renderMail('/mail/1', { accounts: [mailAccount({ aiEnabled: true })], handlers: [...(handlers ?? []), ...issueHandlers(linked)] })
   await view.user.click(await screen.findByTestId('mail-row-7'))
   await screen.findByTestId('mail-detail')
@@ -275,7 +275,7 @@ function hwpHandlers(id: number, preview: () => Response) {
   }
 }
 
-async function openHwp(id: number, handlers: Parameters<typeof renderMail>[1] extends infer O ? NonNullable<O>['handlers'] : never) {
+async function openHwp(id: number, handlers: NonNullable<Parameters<typeof renderMail>[1]>['handlers']) {
   const view = renderMail('/mail/1', { handlers })
   await view.user.click(await screen.findByTestId('mail-row-13'))
   await view.user.click(await screen.findByTestId(`mail-attachment-open-${id}`))

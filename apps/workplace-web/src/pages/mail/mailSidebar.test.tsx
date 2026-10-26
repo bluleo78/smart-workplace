@@ -22,7 +22,10 @@ beforeEach(() => {
   vi.stubGlobal(
     'IntersectionObserver',
     class {
-      constructor(private cb: IntersectionObserverCallback) {}
+      private cb: IntersectionObserverCallback
+      constructor(cb: IntersectionObserverCallback) {
+        this.cb = cb
+      }
       private timer: ReturnType<typeof setTimeout> | undefined
       observe(el: Element) {
         // 브라우저처럼 다음 프레임에 첫 교차를 알린다 — 그 전에 끊기면(disconnect) 알리지 않는다.

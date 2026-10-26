@@ -1,5 +1,7 @@
-// 메일 작성창 파일 첨부(WP-574) E2E — 📎 선택·끌어다 놓기 → 바로 업로드(칩) → 발송 payload 의 attachmentIds/forwardAttachmentIds.
-// 백엔드 없이 page.route 모킹. 업로드 응답을 붙잡아 두었다가 풀어 진행 칩 → 완료를 확인한다.
+// 메일 작성창 파일 첨부(WP-574) E2E — 실제 브라우저가 필요한 것만 남긴다: 파일 선택 창 → multipart 업로드 → 발송(@input·@smoke),
+// 끌어다 놓기(창 전체 안내·최소화 창·같은 틱 두 번 놓기, @input), 작은 창 고정 줄 기하(sticky·「+N개」 한 줄 접기, @layout).
+// 칩 상태·보내기 잠금·합계·한도·다시 시도·전달 첨부·업로드 취소·✕ 임시저장·발송 400·보낸 메일 첨부 목록은
+// src/pages/mail/mailComposeAttachments.test.tsx(화면 테스트)가 지킨다(WP-984). 백엔드 없이 page.route 모킹.
 import type { Page, Route } from '@playwright/test'
 
 import type { ComposeAttachmentUpload, MailSendRequest } from '../../../src/types/mailMessage'
@@ -44,24 +46,6 @@ async function mockSend(page: Page) {
   return sends
 }
 
-/**
- * 숨은 파일 입력에 큰 파일을 넣는다. 내용은 몇 바이트이고 size 만 덮어쓴다 — 앱은 한도·합계를 file.size 로만 판정하므로 동작은 같고,
- * 실제로 수십 MB 를 올리면 page.route 가 가로챌 때 본문이 통째로 CDP 를 건너와 부하가 걸린 전체 회귀에서 10초를 넘긴다.
- */
-async function addLargeFile(page: Page, name: string, size: number, type = 'video/mp4') {
-  await page.getByTestId('mail-compose-file-input').evaluate(
-    (input, f) => {
-      const file = new File([f.name], f.name, { type: f.type })
-      Object.defineProperty(file, 'size', { value: f.size })
-      const dt = new DataTransfer()
-      dt.items.add(file)
-      ;(input as HTMLInputElement).files = dt.files
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-    },
-    { name, size, type },
-  )
-}
-
 /** 칩 상태 목록(화면 순서). */
 function chipStatuses(page: Page) {
   return page
@@ -102,7 +86,7 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
   }
 
-  test('📎 로 고른 파일을 multipart 로 올리고, 올리는 동안 보내기가 잠겼다가 완료 칩이 되면 attachmentIds 로 발송한다', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
+  test('📎 로 고른 파일을 multipart 로 올리고, 올리는 동안 보내기가 잠겼다가 완료 칩이 되면 attachmentIds 로 발송한다', { tag: ['@input', '@smoke'] }, async ({ authenticatedPage: page }) => {
     const uploads = await holdUploads(page)
     const uploadReqs = trackRequests(page, 'POST', UPLOAD_PATH)
     const sends = await mockSend(page)
@@ -151,7 +135,7 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     await expect(page.getByTestId('mail-compose-dock')).toBeHidden()
   })
 
-  test('본문 에디터 위로 파일을 끌어 오면 창 전체에 안내가 뜨고, 놓으면 에디터에 들어가지 않고 첨부로 올라간다', async ({ authenticatedPage: page }) => {
+  test('본문 에디터 위로 파일을 끌어 오면 창 전체에 안내가 뜨고, 놓으면 에디터에 들어가지 않고 첨부로 올라간다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploads = await holdUploads(page)
     const uploadReqs = trackRequests(page, 'POST', UPLOAD_PATH)
     await openNew(page)
@@ -177,7 +161,7 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     await expect(page.getByTestId('mail-composer-body')).toHaveText('본문')
   })
 
-  test('최소화한 창에 파일을 놓으면 작은 창으로 펼쳐 칩을 보여 준다', async ({ authenticatedPage: page }) => {
+  test('최소화한 창에 파일을 놓으면 작은 창으로 펼쳐 칩을 보여 준다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     const uploads = await holdUploads(page)
     await openNew(page)
     await page.getByTestId('mail-compose-minimize').click()
@@ -191,114 +175,12 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     expect(await chipStatuses(page)).toEqual(['done'])
   })
 
-  test('전달은 원본 첨부가 칩으로 들어 있고, 하나를 빼면 forwardAttachmentIds 에서도 빠진다', async ({ authenticatedPage: page }) => {
-    await page.route(
-      (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) => route.fulfill({ json: [summary({ id: 5, subject: '자료 공유' })] }),
-    )
-    await mockApi(
-      page,
-      'GET',
-      '/api/v1/mail/messages/5',
-      detail({
-        id: 5,
-        subject: '자료 공유',
-        bodyText: '자료 첨부합니다',
-        bodyHtml: null,
-        attachments: [
-          { id: 31, filename: '사업계획.pptx', contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', sizeBytes: 3 * MB, contentId: null },
-          { id: 32, filename: '예산안.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', sizeBytes: 512 * 1024, contentId: null },
-          { id: 33, filename: '회의록.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', sizeBytes: 96 * 1024, contentId: null },
-        ],
-      }),
-    )
-    const sends = await mockSend(page)
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-5').click()
-    await page.getByTestId('mail-forward').click()
-
-    const chips = page.getByTestId('mail-compose-attachments')
-    // 작은 창 고정 줄은 칩을 한 줄로 접으므로(넘친 칩은 보조기술에서도 숨김) 칩 요소로 센다.
-    await expect(chips.locator('li')).toHaveText([/사업계획\.pptx/, /예산안\.xlsx/, /회의록\.docx/])
-    await expect(page.getByTestId('mail-compose-attachments-total')).toHaveText('첨부 3개 · 3.6 MB / 25 MB')
-
-    await page.getByRole('button', { name: '예산안.xlsx 첨부 빼기' }).click()
-    await expect(chips.locator('li')).toHaveCount(2)
-
-    await page.getByTestId('mail-compose-to').fill('rcpt@test.local')
-    await page.getByTestId('mail-compose-send').click()
-    await sends.waitFor()
-    const body = sends.lastBody<MailSendRequest>()!
-    expect(body.forwardAttachmentIds).toEqual([31, 33])
-    expect(body.attachmentIds).toEqual([])
-  })
-
-  test('25MB 를 넘는 파일은 올리지 않고 실패 칩으로 보내기를 잠그며, 빼면 풀린다', async ({ authenticatedPage: page }) => {
-    const uploadReqs = trackRequests(page, 'POST', UPLOAD_PATH)
-    await openNew(page)
-    await addLargeFile(page, '현장영상.mp4', 26 * MB)
-
-    const chip = page.locator('[data-testid^="mail-compose-attachment-"][data-status]').first()
-    await expect(chip).toHaveAttribute('data-status', 'error')
-    await expect(chip).toContainText('25MB를 넘어요')
-    // 다시 올려도 같은 결과라 다시 시도는 없다.
-    await expect(chip.getByTestId('mail-compose-attachment-retry')).toHaveCount(0)
-    await expect(page.getByTestId('mail-compose-send')).toBeDisabled()
-    await expect(page.getByTestId('mail-compose-send-blocked')).toHaveText(/빼거나 다시 시도/)
-    expect(uploadReqs.count()).toBe(0)
-
-    await chip.getByTestId('mail-compose-attachment-remove').click()
-    await expect(page.getByTestId('mail-compose-attachments')).toHaveCount(0)
-    await expect(page.getByTestId('mail-compose-send')).toBeEnabled()
-  })
-
-  test('서버가 실패하면 실패 칩에 다시 시도가 붙고, 다시 시도가 성공하면 보낼 수 있다', async ({ authenticatedPage: page }) => {
-    const uploads = await holdUploads(page)
-    await openNew(page)
-    await page.getByTestId('mail-compose-file-input').setInputFiles({ name: '도면.dwg', mimeType: 'application/octet-stream', buffer: Buffer.from('DWG') })
-    await uploads.respond(0, 500, { message: 'storage error' })
-
-    const chip = page.locator('[data-testid^="mail-compose-attachment-"][data-status]').first()
-    await expect(chip).toHaveAttribute('data-status', 'error')
-    await expect(chip).toContainText('올리지 못했어요')
-    await expect(page.getByTestId('mail-compose-send')).toBeDisabled()
-
-    await chip.getByTestId('mail-compose-attachment-retry').click()
-    await expect(chip).toHaveAttribute('data-status', 'uploading')
-    await uploads.respond(1, 201, uploaded(801, '도면.dwg', 3, 'application/octet-stream'))
-    await expect(chip).toHaveAttribute('data-status', 'done')
-    await expect(page.getByTestId('mail-compose-send')).toBeEnabled()
-  })
-
-  test('실패한 동안 다른 파일이 붙어 합계 여유가 줄었으면, 다시 시도는 올리지 않고 한도 초과 칩이 된다', async ({ authenticatedPage: page }) => {
-    const uploads = await holdUploads(page)
-    const uploadReqs = trackRequests(page, 'POST', UPLOAD_PATH)
-    await openNew(page)
-    // 10MB 실패(합계에서 빠짐) → 20MB 완료 → 실패 칩을 다시 올리면 30MB 라 한도(25MB)를 넘는다.
-    await addLargeFile(page, '영상1.mp4', 10 * MB)
-    await uploads.respond(0, 500, { message: 'storage error' })
-    const first = page.locator('[data-testid^="mail-compose-attachment-"][data-status]').first()
-    await expect(first).toHaveAttribute('data-status', 'error')
-    await addLargeFile(page, '영상2.mp4', 20 * MB)
-    await uploads.respond(1, 201, uploaded(811, '영상2.mp4', 20 * MB, 'video/mp4'))
-    await expect.poll(() => chipStatuses(page)).toEqual(['error', 'done'])
-
-    await first.getByTestId('mail-compose-attachment-retry').click()
-    await expect(first).toContainText('25MB를 넘어요')
-    await expect(first).toHaveAttribute('data-status', 'error')
-    await expect(first.getByTestId('mail-compose-attachment-retry')).toHaveCount(0)
-    // 다시 올리지 않았다 — 업로드 요청은 처음 두 번뿐.
-    expect(uploadReqs.count()).toBe(2)
-    // 실패 칩은 개수·합계에서 빠지고 따로 센다.
-    await expect(page.getByTestId('mail-compose-attachments-total')).toHaveText('첨부 1개 · 실패 1 · 20.0 MB / 25 MB')
-  })
-
-  test('리렌더 전에 파일을 연달아 두 번 놓아도 합계 상한을 넘겨 붙이지 않는다', async ({ authenticatedPage: page }) => {
+  test('리렌더 전에 파일을 연달아 두 번 놓아도 합계 상한을 넘겨 붙이지 않는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
     await holdUploads(page)
     const uploadReqs = trackRequests(page, 'POST', UPLOAD_PATH)
     await openNew(page)
     // 같은 스크립트 안에서 dragenter→drop 을 두 번 — 사이에 React 가 다시 그리지 못한다. 20MB + 20MB 는 25MB 를 넘는다.
-    // 크기만 큰 파일(addLargeFile 과 같은 이유).
+    // 크기만 큰 파일 — 앱은 한도·합계를 file.size 로만 판정하므로 내용은 몇 바이트로 두고 size 만 덮어쓴다.
     await page.getByTestId('mail-compose-dock').evaluate((dock, size) => {
       for (const name of ['영상A.mp4', '영상B.mp4']) {
         const file = new File([name], name, { type: 'video/mp4' })
@@ -316,118 +198,7 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     await expect.poll(() => uploadReqs.count()).toBe(1)
   })
 
-  test('전달 인용문의 본문 이미지도 합계에 들어가고, 인용문을 지우면 빠진다', async ({ authenticatedPage: page }) => {
-    const uploads = await holdUploads(page)
-    await page.route(
-      (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) => route.fulfill({ json: [summary({ id: 5, subject: '로고 시안' })] }),
-    )
-    await mockApi(
-      page,
-      'GET',
-      '/api/v1/mail/messages/5',
-      detail({
-        id: 5,
-        subject: '로고 시안',
-        bodyText: null,
-        bodyHtml: '<p>시안입니다.</p><img src="cid:logo.png">',
-        attachments: [
-          // 본문에 박힌 이미지(3MB) — 칩이 아니라 인용문이 cid 로 다시 붙인다.
-          { id: 21, filename: 'logo.png', contentType: 'image/png', sizeBytes: 3 * MB, contentId: null },
-          { id: 22, filename: '설명.pdf', contentType: 'application/pdf', sizeBytes: 100, contentId: null },
-        ],
-      }),
-    )
-    await page.route(
-      (u) => u.pathname === '/api/v1/mail/attachments/21/content',
-      (route) => route.fulfill({ status: 200, headers: { 'content-type': 'image/png' }, body: Buffer.from('PNG') }),
-    )
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-row-5').click()
-    await page.getByTestId('mail-forward').click()
-
-    // 칩은 설명.pdf 하나지만 합계는 본문 이미지 3MB 까지 — 칩에 없는 크기임을 알린다.
-    const total = page.getByTestId('mail-compose-attachments-total')
-    await expect(page.getByTestId('mail-compose-attachments').getByRole('listitem')).toHaveCount(1)
-    await expect(total).toHaveText('첨부 1개 · 3.0 MB / 25 MB · 본문 이미지 3.0 MB 포함')
-
-    // 칩만 세면 들어갈 23MB 가 본문 이미지까지 더하면 넘는다 — 올리지 않고 한도 초과 칩.
-    await addLargeFile(page, '영상.mp4', 23 * MB)
-    const over = page.locator('[data-testid^="mail-compose-attachment-upload-"]')
-    await expect(over).toHaveAttribute('data-status', 'error')
-    await expect(over).toContainText('25MB를 넘어요')
-    await over.getByTestId('mail-compose-attachment-remove').click()
-
-    // 인용문을 지우면 본문 이미지도 안 나가므로 합계에서 빠지고, 같은 파일이 들어간다.
-    await page.getByTestId('mail-compose-quote-remove').click()
-    await expect(total).toHaveText('첨부 1개 · 100 B / 25 MB')
-    await addLargeFile(page, '영상.mp4', 23 * MB)
-    await expect(page.locator('[data-testid^="mail-compose-attachment-upload-"]')).toHaveAttribute('data-status', 'uploading')
-    await expect.poll(() => uploads.held.length).toBe(1)
-  })
-
-  test('서버가 4xx 로 거절한 업로드는 서버 문구를 보이고 다시 시도를 달지 않는다', async ({ authenticatedPage: page }) => {
-    const uploads = await holdUploads(page)
-    await openNew(page)
-    await page.getByTestId('mail-compose-file-input').setInputFiles({ name: '큰파일.zip', mimeType: 'application/zip', buffer: Buffer.from('ZIP') })
-    await uploads.respond(0, 400, { status: 400, message: '파일 하나는 25MB까지 올릴 수 있어요' })
-
-    const chip = page.locator('[data-testid^="mail-compose-attachment-"][data-status]').first()
-    await expect(chip).toHaveAttribute('data-status', 'error')
-    await expect(chip).toContainText('파일 하나는 25MB까지 올릴 수 있어요')
-    await expect(chip.getByTestId('mail-compose-attachment-retry')).toHaveCount(0)
-  })
-
-  test('올리는 중에 ✕ 를 누르면 업로드 요청을 취소하고 칩이 사라진다', async ({ authenticatedPage: page }) => {
-    await holdUploads(page) // 응답하지 않는다 — 계속 올리는 중.
-    const failed: string[] = []
-    page.on('requestfailed', (r) => {
-      if (new URL(r.url()).pathname === UPLOAD_PATH) failed.push(r.failure()?.errorText ?? '')
-    })
-    await openNew(page)
-    await page.getByTestId('mail-compose-file-input').setInputFiles({ name: '사진.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('JPG') })
-    const chip = page.locator('[data-testid^="mail-compose-attachment-"][data-status]').first()
-    await expect(chip).toHaveAttribute('data-status', 'uploading')
-
-    await page.getByRole('button', { name: '사진.jpg 첨부 빼기' }).click()
-    await expect(page.getByTestId('mail-compose-attachments')).toHaveCount(0)
-    await expect.poll(() => failed).toEqual([expect.stringContaining('ABORTED')])
-    await expect(page.getByTestId('mail-compose-send')).toBeEnabled()
-  })
-
-  test('첨부만 붙인 상태에서 ✕ 를 누르면 묻지 않고 그 첨부와 함께 임시저장한다(WP-577)', async ({ authenticatedPage: page }) => {
-    const uploads = await holdUploads(page)
-    const draftPosts = trackRequests(page, 'POST', '/api/v1/mail/drafts')
-    await openNew(page)
-    await page.getByTestId('mail-compose-file-input').setInputFiles({ name: 'a.pdf', mimeType: 'application/pdf', buffer: Buffer.from('A') })
-    await uploads.respond(0, 201, uploaded(901, 'a.pdf', 1))
-    expect(await chipStatuses(page)).toEqual(['done'])
-
-    await page.getByTestId('mail-compose-close').click()
-    await expect(page.getByTestId('mail-compose-dock')).toHaveCount(0)
-    await draftPosts.waitFor()
-    expect(draftPosts.lastBody()).toMatchObject({ attachmentIds: [901], forwardAttachmentIds: [] })
-    await expect(page.getByText('임시보관함에 저장했어요')).toBeVisible()
-  })
-
-  test('발송을 서버가 400 으로 거절하면 그 문구를 보여 주고 작성창과 첨부를 그대로 둔다', async ({ authenticatedPage: page }) => {
-    const uploads = await holdUploads(page)
-    await page.route(
-      (u) => u.pathname === SEND_PATH,
-      (route) => route.fulfill({ status: 400, json: { status: 400, message: '첨부 파일이 만료됐어요. 다시 올려 주세요.' } }),
-    )
-    await openNew(page)
-    await page.getByTestId('mail-compose-to').fill('rcpt@test.local')
-    await page.getByTestId('mail-compose-file-input').setInputFiles({ name: 'b.pdf', mimeType: 'application/pdf', buffer: Buffer.from('B') })
-    await uploads.respond(0, 201, uploaded(902, 'b.pdf', 1))
-    await page.getByTestId('mail-compose-send').click()
-
-    await expect(page.getByText('첨부 파일이 만료됐어요. 다시 올려 주세요.')).toBeVisible()
-    await expect(page.getByTestId('mail-compose-dock')).toBeVisible()
-    expect(await chipStatuses(page)).toEqual(['done'])
-  })
-
-  test('작은 창에서 긴 전달 인용으로 본문이 스크롤돼도 첨부 칩과 보내기 줄은 창 아래에 고정돼 보인다', async ({ authenticatedPage: page }) => {
+  test('작은 창에서 긴 전달 인용으로 본문이 스크롤돼도 첨부 칩과 보내기 줄은 창 아래에 고정돼 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const longText = Array.from({ length: 80 }, (_, i) => `원문 ${i + 1}번째 줄`).join('\n')
     await page.route(
       (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
@@ -479,7 +250,7 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     }
   })
 
-  test('작은 창 고정 줄은 칩을 한 줄만 보이고, 「+N개」로 펼치고 「접기」로 다시 접는다', async ({ authenticatedPage: page }) => {
+  test('작은 창 고정 줄은 칩을 한 줄만 보이고, 「+N개」로 펼치고 「접기」로 다시 접는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     const uploads = await holdUploads(page)
     await page.setViewportSize({ width: 1280, height: 800 })
     await openNew(page)
@@ -524,39 +295,4 @@ test.describe('메일 작성창 파일 첨부 (WP-574)', () => {
     await expect(more).toHaveText(`+${6 - shown}개`)
   })
 
-  test('보낸편지함 상세도 보낸 메일의 첨부 목록을 보여 준다', async ({ authenticatedPage: page }) => {
-    await page.route(
-      (u) => u.pathname === '/api/v1/mail/accounts/1/messages',
-      (route) =>
-        route.fulfill({
-          json:
-            new URL(route.request().url()).searchParams.get('folder') === 'SENT'
-              ? [summary({ id: 8, subject: '보낸 자료', seen: true })]
-              : [],
-        }),
-    )
-    await mockApi(
-      page,
-      'GET',
-      '/api/v1/mail/messages/8',
-      detail({
-        id: 8,
-        subject: '보낸 자료',
-        bodyText: '첨부 보냅니다',
-        bodyHtml: null,
-        attachments: [
-          { id: 51, filename: '견적서.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', sizeBytes: 820 * 1024, contentId: null },
-          { id: 52, filename: '현장사진.jpg', contentType: 'image/jpeg', sizeBytes: 2 * MB, contentId: null },
-        ],
-      }),
-    )
-    await page.goto('/mail/1')
-    await page.getByTestId('mail-folder-sent').click()
-    await page.getByTestId('mail-row-8').click()
-
-    const list = page.getByTestId('mail-attachments')
-    await expect(list.getByRole('listitem')).toHaveCount(2)
-    await expect(page.getByTestId('mail-attachment-name-51')).toHaveText('견적서.xlsx')
-    await expect(page.getByTestId('mail-attachment-open-52')).toContainText('2.0 MB')
-  })
 })
