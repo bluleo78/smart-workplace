@@ -1,4 +1,5 @@
 import { Star, Users, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -11,6 +12,7 @@ import {
 } from '@/components/overlay/select'
 import { Button } from '@/components/ui/button'
 import { useContactFacets } from '@/hooks/queries/useContactFacets'
+import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { SELECTED_NAV_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -40,11 +42,6 @@ export function ContactSidebar() {
   const orgValue = params.get('organization') ?? ''
   const titleValue = params.get('title') ?? ''
   const hasAdvanced = orgValue !== '' || titleValue !== ''
-  // 정수 검증을 거친 그룹 ID(비정수는 null) — ContactsPage 와 동일 기준이라야 검색·필터 잠금과 그룹 뷰 표시가 일치한다.
-  const selectedGroupId = parseGroupId(groupParam)
-  const selectGroup = (id: number | null) =>
-    patch({ group: id == null ? null : String(id) })
-
   // searchParams 의 특정 키만 갱신(나머지 보존).
   const patch = (next: Record<string, string | null>) => {
     setParams(
@@ -62,6 +59,25 @@ export function ContactSidebar() {
     )
   }
 
+  // 정수 검증을 거친 그룹 ID(비정수는 null) — ContactsPage 와 동일 기준이라야 검색·필터 잠금과 그룹 뷰 표시가 일치한다.
+  const selectedGroupId = parseGroupId(groupParam)
+  const selectGroup = (id: number | null) =>
+    patch({ group: id == null ? null : String(id) })
+
+  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다.
+  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
+  const [qDraft, setQDraft] = useState(q)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQDraft(q)
+  }, [q])
+  const debouncedQDraft = useDebounceValue(qDraft, 300)
+  useEffect(() => {
+    if (debouncedQDraft === q) return
+    patch({ q: debouncedQDraft || null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQDraft])
+
   return (
     <aside
       data-testid="contact-sidebar"
@@ -78,8 +94,8 @@ export function ContactSidebar() {
         <input
           type="search"
           data-testid="contact-search"
-          value={q}
-          onChange={(e) => patch({ q: e.target.value })}
+          value={qDraft}
+          onChange={(e) => setQDraft(e.target.value)}
           disabled={selectedGroupId != null}
           placeholder="이름·이메일 검색"
           className="mb-4 w-full rounded-md border bg-background px-3 py-2 text-sm disabled:opacity-50"
