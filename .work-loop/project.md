@@ -60,6 +60,19 @@ pnpm test:full   # web vitest → web E2E 전체(preview) → admin E2E → api 
 - `test:full` 은 저장소 전역 락을 잡는다 — 다른 세션의 게이트가 돌고 있으면 기다린다. 락 파일을 지우거나 그 프로세스를 끝내지 않는다.
 - 병렬·부하에서만 깨지는 테스트는 제외하지 말고 원인을 고친다(시간 단언·실시간 데드라인을 없애 결정적으로).
 
+### 오래 걸리는 작업 (`process-issue.md` 「오래 걸리는 작업」·9번)
+
+work-loop 는 아래 명령을 기다리지 않고 이슈 워크트리에서 백그라운드로 돌린다. 예상 시간은 `nextRunAt` 을 잡는 기준이다(대략값 — 락 대기는 빠져 있다).
+
+| 명령 | 예상 시간 |
+|---|---|
+| `pnpm test:full`(push 게이트) | 45분 |
+| `E2E_SERVER=preview pnpm test:e2e`(웹 E2E 전체, `apps/workplace-web`) | 35분 |
+| `./gradlew test`(api 전체, `apps/workplace-api`) | 10분 |
+
+- **push 게이트 미리 돌리기(9번)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/verified-trees.sh && is_verified "$(git rev-parse "HEAD^{tree}")"'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. pre-push 와 같은 함수다).
+- 한 번에 `test:full` 하나만 돈다(전역 락). 다른 이슈의 게이트를 띄우면 락을 기다리느라 그만큼 늦게 끝난다.
+
 ## 4. 격리 라이브 스택 (`process-issue.md` 8·10번)
 
 ```sh

@@ -280,3 +280,20 @@ test('SKILL.md: AI 담당자가 여럿이면 멘션된 AI 만 반응하고 나�
   assert.ok(line.includes('멘션된 AI 만 반응하고'));
   assert.ok(line.includes('「답하지 않고 넘긴 글」'));
 });
+
+// WP-994 오래 걸리는 작업 — 빠지면 push 게이트 동안 루프가 다른 일을 못 하거나, 끝난 게이트 결과를 이어 받지 못한다.
+test('process-issue.md: 오래 걸리는 작업은 bg-job 으로 띄우고 notes 에 적은 뒤 SCHEDULED 로 양보하고, 이어 받기에서 상태별로 갈린다 (WP-994)', () => {
+  const text = workLoop('process-issue.md');
+  assertBefore(text, '\n### 오래 걸리는 작업 (백그라운드)\n', '\n### 막힘\n');
+  assertBefore(text, '1. **띄우기**', '2. **적기**');
+  assertBefore(text, '2. **적기**', '3. **양보**');
+  for (const s of ['`running`', '`passed`', '`failed <코드>`', '`lost`']) assert.ok(text.includes(s), `이어 받기에 ${s} 갈래가 없다`);
+  // 9번 push 게이트를 백그라운드로 먼저 돌린다.
+  assertBefore(text, '**push 게이트는 백그라운드로 먼저 돌린다**', '`git push --force-with-lease -u origin <브랜치>`');
+});
+
+test('SKILL.md: 백그라운드 작업 대기로 양보하면 같은 부르기에서 다른 후보를 고른다 (WP-994)', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('**예외 — 백그라운드 작업 대기로 양보했을 때**'));
+  assert.ok(text.includes('이번 부르기에서 이미 고른 이슈는 다시 고르지 않는다'));
+});
