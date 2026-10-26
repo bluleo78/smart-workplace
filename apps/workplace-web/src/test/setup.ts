@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 
 import { afterAll, afterEach } from 'vitest'
 
+import { memoryStorage } from './memoryStorage'
 import { server, unhandledRequests } from './msw/server'
 
 // ResizeObserver — Radix Popper(Popover·DropdownMenu)·cmdk 가 마운트 시 생성한다. 크기 측정은 테스트 관심사가 아니라 빈 구현.
@@ -48,6 +49,14 @@ if (!globalThis.IntersectionObserver) {
       return []
     }
   } as unknown as typeof IntersectionObserver
+}
+
+// localStorage·sessionStorage — Node 25+ 의 실험적 전역 Web Storage 가 jsdom 것을 가리고, --localstorage-file 없이는
+// 메서드가 없는 빈 객체라 clear()·getItem() 이 터진다. 실행하는 Node 버전과 무관하게 같은 결과가 나오도록 인메모리로 세운다.
+for (const name of ['localStorage', 'sessionStorage'] as const) {
+  if (typeof globalThis[name]?.clear !== 'function') {
+    Object.defineProperty(globalThis, name, { value: memoryStorage(), configurable: true, writable: true })
+  }
 }
 
 // MSW(WP-971) — 페이지 테스트가 API 를 네트워크 계층에서 모킹한다. 처리하지 못한 요청은 모아 두었다가
