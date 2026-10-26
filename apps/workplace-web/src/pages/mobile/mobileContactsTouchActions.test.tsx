@@ -82,12 +82,12 @@ test('내 그룹: 사이드바 시트 안 ⋯ → 액션 시트 → 삭제 확�
   await waitFor(() => expect(deletes).toBe(1))
 })
 
-// WP-578 — 시트 안 타입 필터·그룹은 버튼이라 골라도 시트가 남아 바뀐 목록을 덮었다. 검색·외부 필터(조직·직책 필터가 이어 나옴)는 남긴다.
-test('☰ 시트 — 검색 입력·외부 필터는 시트를 두고, 다른 타입 필터를 고르면 시트가 닫힌다', async () => {
+// WP-578 — 시트 안 타입 필터·그룹은 버튼이라 골라도 시트가 남아 바뀐 목록을 덮었다. 외부 필터(조직·직책 필터가 이어 나옴)는 남긴다.
+// 검색창은 헤더 🔍 로 옮겨 시트에 없다(WP-976).
+test('☰ 시트 — 외부 필터는 시트를 두고, 다른 타입 필터를 고르면 시트가 닫힌다', async () => {
   const { user, location } = renderPage('/contacts', { handlers: baseHandlers })
   const sheet = await openSidebar(user)
-  await user.type(within(sheet).getByTestId('contact-search'), '김')
-  expect(screen.getByTestId('mobile-sidebar-sheet')).toBeInTheDocument()
+  expect(within(sheet).queryByTestId('contact-search')).not.toBeInTheDocument()
   await user.click(within(sheet).getByTestId('contact-filter-EXTERNAL'))
   await waitFor(() => expect(location()).toMatch(/type=EXTERNAL/))
   expect(await within(screen.getByTestId('mobile-sidebar-sheet')).findByTestId('contact-advanced-filter')).toBeInTheDocument()

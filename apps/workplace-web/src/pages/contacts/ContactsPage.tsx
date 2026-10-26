@@ -1,14 +1,17 @@
-import { Plus, Star } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Plus, Search, Star, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { Page } from '@/components/layout/Page'
+import { mobileRootHeaderClass } from '@/components/mobile/headerClass'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
+import { SearchInput } from '@/components/ui/search-input'
+import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
@@ -141,10 +144,34 @@ function useContactsScreenContext(input: {
   })
   useRegisterAiScreenContext(ctx)
   // 열린 연락처 이름(목록 행 → 상세 응답 순) — 페이지가 모바일 상세 헤더 제목으로 재사용한다.
-  return name
+  // 그룹 이름은 검색창 범위 칩 문구로 재사용한다(트리 탐색을 한 번만).
+  return { name, groupName }
 }
 
-/** 통합 연락처 목록 + 마스터-디테일. 검색·타입은 URL searchParams 와 공유(ContactSidebar). */
+/**
+ * 검색 범위 칩 — 그룹 보기에서 검색창 앞에 「재경팀 ×」로 지금 어디 안에서 거르는지 보인다(WP-976, §B-1 「범위」).
+ * 누르면(× 포함) 그룹 범위를 풀고 같은 검색어로 전체 연락처를 찾는다. 긴 그룹 이름은 말줄임해 입력칸 폭을 지킨다.
+ */
+function SearchScopeChip({ name, onClear, className }: { name: string; onClear: () => void; className?: string }) {
+  return (
+    <button
+      type="button"
+      data-testid="contact-search-scope"
+      aria-label={`${name} 범위 해제 — 전체에서 찾기`}
+      title={name}
+      onClick={onClear}
+      className={cn(
+        'inline-flex h-7 min-w-0 shrink-0 items-center gap-1 rounded-full border bg-muted pl-2.5 pr-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent',
+        className,
+      )}
+    >
+      <span className="truncate">{name}</span>
+      <X className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    </button>
+  )
+}
+
+/** 통합 연락처 목록 + 마스터-디테일. 보기(type·group)는 ContactSidebar 와 URL searchParams 로 공유하고, 검색(q)은 이 페이지 헤더가 쓴다(WP-976). */
 export function ContactsPage() {
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
@@ -155,7 +182,7 @@ export function ContactsPage() {
   const groupId = parseGroupId(groupParam)
 
   // 열린 연락처 = URL ?contact(상태의 단일 원천, WP-206). 행 클릭은 push → 시스템 뒤로가기가 상세만 닫는다.
-  // 필터(q·type·조직·직책·그룹) 변경은 그 navigate(ContactSidebar.patch·clearGroupSelection)가 contact 를 함께 지운다 —
+  // 필터(q·type·조직·직책·그룹) 변경은 그 navigate(ContactSidebar.patch·writeQuery·leaveGroup)가 contact 를 함께 지운다 —
   // 같은 히스토리 항목에서 처리해 리셋 이펙트 경합·이중 항목이 없다.
   const contactParam = useHistoryParam('contact')
   const selected = decodeContactParam(contactParam.value)
@@ -167,14 +194,75 @@ export function ContactsPage() {
   // 모바일에서 상세가 열리면 목록 헤더("연락처"·＋·☰·🔔) 대신 상세 헤더 한 줄만 둔다(U1-1).
   const showListChrome = !(isMobile && selected != null)
 
-  // 보던 조직도 그룹이 삭제되면 URL group 파라미터 제거 → 통합 목록 복귀(열린 상세도 함께 닫는다).
-  const clearGroupSelection = () => {
-    const next = new URLSearchParams(params)
-    next.delete('group')
-    next.delete('contact')
-    setParams(next, { replace: true })
+  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다(history replace).
+  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
+  // 검색창이 사이드바에서 헤더로 옮겨 오며(WP-976) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
+  const [qDraft, setQDraft] = useState(search)
+  useEffect(() => {
+    // 바깥(뒤로 가기·범위 해제 등)에서 q 가 바뀌면 draft 를 맞춘다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setQDraft(search)
+  }, [search])
+  const debouncedQDraft = useDebounceValue(qDraft, 300)
+  // q 갱신 — 바뀐 목록에 없는 상세가 남지 않게 열린 상세(?contact)도 같은 항목에서 닫는다(WP-206).
+  const writeQuery = (value: string) =>
+    setParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev)
+        sp.delete('contact')
+        if (value) sp.set('q', value)
+        else sp.delete('q')
+        return sp
+      },
+      { replace: true },
+    )
+  useEffect(() => {
+    if (debouncedQDraft === search) return
+    writeQuery(debouncedQDraft)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQDraft])
+
+  // 모바일 검색 펼침 — 헤더 🔍 로 연다. 검색어가 남아 있으면(링크·뒤로 가기로 ?q 진입) 숨은 필터가 없게 늘 펼친다.
+  // ?q 로 펼친 것도 「열림」으로 기록해야 입력칸 X 로 지웠을 때 줄이 사라지며 키보드가 닫히지 않는다.
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(() => search !== '')
+  useEffect(() => {
+    if (search !== '') setMobileSearchOpen(true)
+  }, [search])
+  const mobileSearchVisible = mobileSearchOpen || qDraft !== ''
+  const mobileSearchRef = useRef<HTMLDivElement>(null)
+  // 🔍 로 연 때만 초점을 준다 — ?q 진입으로 펼칠 때 키보드가 저절로 올라오지 않게.
+  const focusMobileSearch = useRef(false)
+  const openMobileSearch = () => {
+    focusMobileSearch.current = true
+    setMobileSearchOpen(true)
   }
-  const contactsQuery = useContacts(search, type, organization, title)
+  useEffect(() => {
+    if (!mobileSearchOpen || !focusMobileSearch.current) return
+    focusMobileSearch.current = false
+    mobileSearchRef.current?.querySelector('input')?.focus()
+  }, [mobileSearchOpen])
+  // 「취소」 — 검색어를 비우고 접는다(debounce 를 기다리지 않고 바로 URL 에서도 지운다).
+  const cancelMobileSearch = () => {
+    setQDraft('')
+    writeQuery('')
+    setMobileSearchOpen(false)
+  }
+
+  // 그룹 보기 떠나기 — 범위 칩 ×·「전체에서 찾기」(그룹만 풀고 검색어는 남겨 전체에서 같은 말로 찾는다)와
+  // 보던 그룹(또는 조상)이 삭제됐을 때 통합 목록 복귀가 같은 동작이다. 열린 상세도 함께 닫는다.
+  const leaveGroup = () =>
+    setParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev)
+        sp.delete('group')
+        sp.delete('contact')
+        return sp
+      },
+      { replace: true },
+    )
+
+  // 그룹 보기의 검색은 GroupContactView 가 소속 멤버 안에서 거른다 — 통합 목록 조회는 쓰지 않으니 끈다.
+  const contactsQuery = useContacts(search, type, organization, title, { enabled: groupId == null })
   // 오류 화면은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
   const { data, isLoading, isLoadingError, refetch, hasNextPage } = contactsQuery
   // 목록 스크롤 요소 — 무한 스크롤 sentinel 의 root(WP-182). 콜백 ref 라 마운트 후 재부착된다.
@@ -183,7 +271,7 @@ export function ContactsPage() {
   const items = data?.pages.flatMap((p) => p.items) ?? []
 
   // 모바일 상세 헤더 제목 = 열린 연락처 이름(채팅·노트와 같은 "‹ 항목 이름" 규칙).
-  const detailName = useContactsScreenContext({
+  const { name: detailName, groupName } = useContactsScreenContext({
     q: search,
     type,
     organization,
@@ -195,22 +283,54 @@ export function ContactsPage() {
     hasMore: !!hasNextPage,
   })
 
+  // 검색 칸 — [그룹 범위 칩] [입력]. 데스크톱 헤더 actions 와 모바일 펼친 줄이 폭만 달리해 같이 쓴다.
+  const searchField = ({ chipClass, inputClass }: { chipClass: string; inputClass: string }) => (
+    <>
+      {groupId != null && <SearchScopeChip name={groupName ?? '그룹'} onClear={leaveGroup} className={chipClass} />}
+      <SearchInput
+        value={qDraft}
+        onChange={setQDraft}
+        placeholder={groupId != null ? '이 그룹에서 검색' : '이름·이메일 검색'}
+        aria-label="연락처 검색"
+        inputTestId="contact-search"
+        className={inputClass}
+      />
+    </>
+  )
+
   return (
     <>
       <Page>
         {/* 전폭 헤더 — 연락처 제목 + 새 외부 연락처 버튼(그룹·일반 공통). 모바일 상세가 열리면 숨김 — 상세 헤더 한 줄만(U1-1) */}
-        {showListChrome && (
+        {showListChrome && isMobile && mobileSearchVisible ? (
+          // 모바일 검색 펼침 — 헤더 자리를 [범위 칩][입력][취소] 한 줄로 바꾼다(§B-1 「모바일」: ⋯·☰ 안에 넣지 않는다).
+          <div ref={mobileSearchRef} data-testid="contact-mobile-search" className={cn('relative z-[45] bg-background', mobileRootHeaderClass, 'gap-2 pr-2')}>
+            {searchField({ chipClass: 'max-w-[10rem]', inputClass: 'min-w-0 max-w-none' })}
+            <Button type="button" variant="ghost" size="sm" data-testid="contact-search-cancel" onClick={cancelMobileSearch} className="shrink-0 px-2">
+              취소
+            </Button>
+          </div>
+        ) : showListChrome && (
           <Page.Header
             title="연락처"
             actions={
-              /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
-              <Button data-testid="contact-create" onClick={() => setCreateOpen(true)}>
-                새 외부 연락처
-              </Button>
+              <>
+                {/* 검색 — 지금 보는 목록을 거르므로 헤더 오른쪽(§B-1 「검색창」). 그룹 보기면 범위 칩을 앞에 둔다. */}
+                <div className="flex min-w-0 items-center gap-2">
+                  {searchField({ chipClass: 'max-w-48', inputClass: 'w-64 flex-none' })}
+                </div>
+                {/* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */}
+                <Button data-testid="contact-create" onClick={() => setCreateOpen(true)}>
+                  새 외부 연락처
+                </Button>
+              </>
             }
-            // 모바일: 같은 액션을 ＋ 아이콘으로 인라인(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
+            // 모바일: 🔍(검색 펼침)과 ＋ 를 인라인 아이콘으로(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
             mobilePrimaryAction={
-              <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
+              <>
+                <HeaderIconAction label="검색" tone="default" data-testid="contact-search-open" onClick={openMobileSearch}><Search /></HeaderIconAction>
+                <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
+              </>
             }
             mobileActions={null}
           />
@@ -231,7 +351,9 @@ export function ContactsPage() {
                 groupId={groupId}
                 selected={selected}
                 onSelect={selectContact}
-                onGroupDeleted={clearGroupSelection}
+                onGroupDeleted={leaveGroup}
+                search={search}
+                onSearchAll={leaveGroup}
               />
             ) : isLoading ? (
               <div className="p-6 text-sm text-muted-foreground">불러오는 중…</div>

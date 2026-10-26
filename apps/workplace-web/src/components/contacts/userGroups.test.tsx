@@ -44,7 +44,8 @@ async function saveName(user: ReturnType<typeof renderContacts>['user'], name: s
 
 // ── 선택 표시·퀵필터·버튼 이름 ─────────────────────────────────────────────
 
-// WP-368 — 고른 그룹 노드 행만 선택 표시(막대 + bg-selected)와 aria-pressed, 다른 그룹으로 옮기면 따라간다. 개인 그룹 멤버 행도 같은 규칙.
+// WP-368 — 고른 그룹 노드 행만 선택 표시(막대 + bg-selected), 다른 그룹으로 옮기면 따라간다. 개인 그룹 멤버 행도 같은 규칙.
+// 그룹 노드는 사이드바 「보기」 항목이라 현재 위치를 aria-current="page" 로 알린다(WP-976 — 토글이 아니다).
 test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async () => {
   const { user } = await open('/contacts', [
     ...base(),
@@ -61,15 +62,15 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async () => {
   expect(await screen.findByTestId('org-chart-view')).toBeInTheDocument()
   expect(row10).toHaveClass('bg-selected', 'selection-bar')
   expect(row20).not.toHaveClass('bg-selected')
-  expect(node10).toHaveAttribute('aria-pressed', 'true')
-  expect(node20).toHaveAttribute('aria-pressed', 'false')
+  expect(node10).toHaveAttribute('aria-current', 'page')
+  expect(node20).not.toHaveAttribute('aria-current')
 
   await user.click(node20)
   const memberRow = await screen.findByTestId('group-member-MEMBER-1')
   expect(row20).toHaveClass('bg-selected', 'selection-bar')
   expect(row10).not.toHaveClass('bg-selected')
-  expect(node20).toHaveAttribute('aria-pressed', 'true')
-  expect(node10).toHaveAttribute('aria-pressed', 'false')
+  expect(node20).toHaveAttribute('aria-current', 'page')
+  expect(node10).not.toHaveAttribute('aria-current')
   expect(memberRow).toHaveAttribute('aria-pressed', 'false')
   expect(memberRow).not.toHaveClass('bg-selected')
   await user.click(memberRow)
@@ -77,23 +78,25 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async () => {
   expect(screen.getByTestId('group-member-MEMBER-1')).toHaveClass('bg-selected', 'selection-bar')
 })
 
-// WP-898 — 그룹을 고른 동안 꺼진 「전체」 퀵필터는 선택 표시·aria-current 가 없고, 그룹을 풀면(같은 노드 재클릭) 다시 현재 항목이다.
-test('그룹을 고르면 꺼진 「전체」 퀵필터는 현재 항목으로 표시·안내되지 않는다 (WP-898)', async () => {
+// WP-898·WP-976 — 그룹을 고른 동안 「전체」 퀵필터는 현재 항목이 아니지만 잠기지 않고, 누르면 그룹 선택이 풀리며 「전체」가 현재 항목이 된다.
+test('그룹을 고르면 「전체」는 현재 항목이 아니되 잠기지 않고, 누르면 그룹을 떠난다 (WP-898·WP-976)', async () => {
   const { user, location } = await open('/contacts', base())
   const all = screen.getByTestId('contact-filter-ALL')
-  expect(all).toHaveAttribute('aria-current', 'true')
+  expect(all).toHaveAttribute('aria-current', 'page')
   expect(all).toHaveClass('bg-selected')
 
   await user.click(screen.getByTestId('group-node-10'))
   await screen.findByTestId('org-chart-view')
-  expect(all).toBeDisabled()
+  expect(all).toBeEnabled()
   expect(all).not.toHaveAttribute('aria-current')
   expect(all).not.toHaveClass('bg-selected')
   expect(screen.getByTestId('contact-sidebar').querySelectorAll('[data-testid^="contact-filter-"][aria-current]')).toHaveLength(0)
 
-  await user.click(screen.getByTestId('group-node-10'))
-  await waitFor(() => expect(all).toHaveAttribute('aria-current', 'true'))
+  await user.click(all)
+  await waitFor(() => expect(screen.queryByTestId('org-chart-view')).not.toBeInTheDocument())
+  expect(all).toHaveAttribute('aria-current', 'page')
   expect(all).toHaveClass('bg-selected')
+  expect(screen.getByTestId('group-node-10')).not.toHaveAttribute('aria-current')
   expect(location()).toBe('/contacts')
 })
 

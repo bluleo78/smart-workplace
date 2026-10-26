@@ -3,11 +3,16 @@
 // 렌더 트리 정리(cleanup)는 RTL 이 전역 afterEach(vitest globals: true)에 스스로 건다.
 import '@testing-library/jest-dom/vitest'
 
+import { configure } from '@testing-library/react'
 import { afterAll, afterEach, beforeEach } from 'vitest'
 
 import { settleHistory } from './history'
 import { memoryStorage } from './memoryStorage'
 import { server, unhandledRequests } from './msw/server'
+
+// findBy*·waitFor 기본 대기 1초는 전체 실행(파일 수백 개가 코어를 나눠 씀)에서 화면 테스트가 첫 렌더·MSW 응답을 받기에 빠듯해,
+// 혼자 돌리면 통과하는 테스트가 전체 실행에서만 가끔 실패했다(WP-966). 통과하는 테스트는 기다린 만큼만 쓰므로 느려지지 않는다.
+configure({ asyncUtilTimeout: 5_000 })
 
 // ResizeObserver — Radix Popper(Popover·DropdownMenu)·cmdk 가 마운트 시 생성한다. 크기 측정은 테스트 관심사가 아니라 빈 구현.
 if (!globalThis.ResizeObserver) {

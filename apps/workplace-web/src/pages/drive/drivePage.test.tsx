@@ -209,14 +209,18 @@ describe('AI Overview 시간 초과', () => {
   // #681: SSE 유실로 done/error 가 오지 않으면 클라이언트 타임아웃(125초) 뒤 카드가 오류 상태로 바뀐다.
   // 125초 경계 자체는 src/api/overviewStream.test.ts 가 보고, 여기선 타임아웃 → 카드 오류 배선만 본다(시계는 가짜로 흘린다).
   test('done/error 가 오지 않으면 시간 초과 오류를 보인다', async () => {
-    const { user } = await openDrive({ folders: [], files: [] }, {
+    const cancels: string[] = []
+    const { user, unmount } = await openDrive({ folders: [], files: [] }, {
       handlers: [
         http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [] })),
         http.get(`${API}/search`, () =>
           HttpResponse.json({ hits: [{ driveFileId: 20, fileId: 500, spaceId: SPACE_ID, spaceName: '팀 공간', name: '기획서.txt', mimeType: 'text/plain', snippet: '핵심', score: 1 }], semantic: false }),
         ),
         http.get(`${API}/search-overview`, () => HttpResponse.json({ correlationId: 'corr-lost-sse' })),
-        http.delete(`${API}/search-overview/:id`, () => HttpResponse.json({})),
+        http.delete(`${API}/search-overview/:id`, ({ params }) => {
+          cancels.push(String(params.id))
+          return HttpResponse.json({})
+        }),
       ],
     })
     await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
@@ -230,6 +234,10 @@ describe('AI Overview 시간 초과', () => {
       await vi.advanceTimersByTimeAsync(130_000)
     })
     await waitFor(() => expect(screen.getByTestId('drive-overview-card')).toHaveTextContent('생성 시간이 초과되었습니다.'))
+    // 화면이 내려가며 보내는 생성 취소(DELETE)를 이 테스트 안에서 받아 낸다 — 공통 정리(핸들러 초기화) 뒤에 도착하면
+    // 처리되지 않은 요청으로 다음 테스트를 실패시켰다(전체 실행에서만 가끔).
+    unmount()
+    await waitFor(() => expect(cancels).toContain('corr-lost-sse'))
   })
 })
 

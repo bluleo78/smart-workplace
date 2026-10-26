@@ -1,3 +1,4 @@
+import { Search } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -12,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import type { ContactSelection } from '@/hooks/queries/useContactDetail'
 import { useUserGroupDetail } from '@/hooks/queries/useUserGroupDetail'
 import { useDeleteUserGroup } from '@/hooks/queries/useUserGroupMutations'
@@ -22,7 +24,7 @@ import { cn } from '@/lib/utils'
 import type { UserGroupDetail, UserGroupNode } from '@/types/userGroup'
 
 import { GroupForm } from './GroupForm'
-import { findNode, parentGroupOptions } from './groupTree.helpers'
+import { filterGroupMembers, findNode, parentGroupOptions } from './groupTree.helpers'
 import { OrgChartView } from './OrgChartView'
 
 interface Props {
@@ -31,10 +33,14 @@ interface Props {
   onSelect: (sel: ContactSelection) => void
   /** 현재 보고 있는 그룹(또는 그 조상)이 삭제됐을 때 상위에서 선택 해제. */
   onGroupDeleted?: () => void
+  /** 헤더 검색어(URL q). 있으면 이 그룹 직속 구성원 안에서만 거른다(WP-976, §B-1 「범위」). */
+  search?: string
+  /** 「전체에서 찾기」 — 그룹 범위를 풀고 같은 검색어로 전체 연락처를 찾는다(범위 칩 × 와 같은 동작). */
+  onSearchAll?: () => void
 }
 
 /** 그룹 선택 시 우측 뷰. 공유=조직도 서브트리+직속 멤버, 개인=직속 멤버 목록. */
-export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }: Props) {
+export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted, search = '', onSearchAll }: Props) {
   const { data: detail, isLoading, isError } = useUserGroupDetail(groupId)
   const { data: tree } = useUserGroups()
   const { isAdmin } = useAuth()
@@ -83,6 +89,9 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }
 
   const sharedSubtree =
     detail.visibility === 'SHARED' && tree ? findNode(tree.shared, groupId) : null
+  // 검색 중이면 그 그룹 구성원 안에서 거른 결과만 보인다 — 조직도 카드는 결과를 밀어내므로 검색 동안 숨긴다(WP-976 결정).
+  const searching = search.trim() !== ''
+  const members = searching ? filterGroupMembers(detail.members, search) : detail.members
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="group-contact-view">
@@ -93,7 +102,7 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }
         </span>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        {sharedSubtree && (
+        {sharedSubtree && !searching && (
           <div className="mb-4">
             <OrgChartView
               node={sharedSubtree}
@@ -104,14 +113,16 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }
             />
           </div>
         )}
-        <div className="text-xs font-semibold text-muted-foreground">소속 멤버</div>
-        {detail.members.length === 0 ? (
+        <div className="text-xs font-semibold text-muted-foreground">
+          {searching ? `소속 멤버 중 검색 결과 ${members.length}명` : '소속 멤버'}
+        </div>
+        {members.length === 0 ? (
           <div data-testid="group-members-empty" className="py-4 text-sm text-muted-foreground">
-            소속 멤버가 없습니다
+            {searching ? `소속 멤버 중 「${search.trim()}」 검색 결과가 없습니다` : '소속 멤버가 없습니다'}
           </div>
         ) : (
           <div className="mt-2 divide-y rounded-md border">
-            {detail.members.map((m) => {
+            {members.map((m) => {
               const active = selected?.type === m.targetType && selected?.id === m.targetId
               return (
                 <button
@@ -146,6 +157,20 @@ export function GroupContactView({ groupId, selected, onSelect, onGroupDeleted }
               )
             })}
           </div>
+        )}
+        {/* 검색 결과 아래 범위 해제 — 그룹 밖에 있는 사람을 찾으려면 같은 검색어로 전체에서 다시 찾는다(§B-1 「범위」). */}
+        {searching && onSearchAll && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-testid="group-search-all"
+            onClick={onSearchAll}
+            className="mt-3 text-muted-foreground"
+          >
+            <Search className="h-3.5 w-3.5" />
+            전체에서 「{search.trim()}」 찾기
+          </Button>
         )}
       </div>
       {/* SHARED 그룹 편집 폼 — admin 전용 */}
