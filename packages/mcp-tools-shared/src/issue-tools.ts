@@ -34,6 +34,7 @@ import {
   linkIssuesInput,
   editCommentInput,
   getIssueChatInput,
+  addIssueChatInput,
   getIssueDetailInput,
   removeIssueRelationInput,
   reportAgentWorkInput,
@@ -398,7 +399,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       hints: { destructive: false, idempotent: false },
       description:
         'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking, AUTH_REQUIRED if you need ' +
-        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, SCHEDULED yield until nextRunAt (none = resume after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
+        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, WAITING on another person or AI (note what), SCHEDULED yield until nextRunAt (none = after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
         'work. message posts to issue chat (@username mentions and notifies); fileIds attach staged files.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
@@ -443,6 +444,23 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
             truncated: page.truncated ? true : undefined,
           }),
         );
+      },
+    },
+    {
+      name: 'add_issue_chat',
+      app: 'issue',
+      kind: 'write',
+      hints: { destructive: false, idempotent: false },
+      description:
+        'Posts to an issue (이슈) chat without changing work state (replies, answers to @mentions); any issue you can write to. ' +
+        '@username mentions notify. State changes: report_agent_work.',
+      inputSchema: addIssueChatInput,
+      async handler(args) {
+        const { issueKey, body } = addIssueChatInput.parse(args);
+        // WP-719: 담당이 아닌 이슈에서 멘션받은 질문에 물은 곳(이슈 챗)에서 답한다 — @username 은 report_agent_work 처럼 멘션 토큰으로 바꾼다.
+        const [threadId, text] = await Promise.all([client.getIssueChatThreadId(issueKey), linkMentions(client, body)]);
+        await client.addIssueChatMessage(threadId, text);
+        return 'ok';
       },
     },
     {

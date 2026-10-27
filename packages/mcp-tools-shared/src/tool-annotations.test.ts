@@ -12,6 +12,7 @@ const R = null;
 const EXPECTED: Record<string, readonly [kind: string, destructive: boolean | null, idempotent: boolean | null, openWorld: boolean | null]> = {
   add_channel_message: ['write', false, false, false],
   add_comment: ['write', false, false, false],
+  add_issue_chat: ['write', false, false, false],
   add_contact_favorite: ['write', false, true, false],
   link_issues: ['write', true, true, false],
   add_issue_relation: ['write', false, true, false],

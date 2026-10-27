@@ -441,9 +441,16 @@ export async function resolveCycleFilter(
  * reporter 만 준 "내가 만든" 조회에 담당 조건이 끼면 교집합이 되어 결과가 줄어든다.
  * ai-agent·workplace-mcp 의 list_issues 가 같은 규칙을 쓰도록 공유한다.
  */
-export function defaultListAssignee(p: { assignee?: string; reporter?: string; watching?: boolean; parent?: string }): string | undefined {
+export function defaultListAssignee(p: {
+  assignee?: string;
+  reporter?: string;
+  watching?: boolean;
+  parent?: string;
+  mentionsMe?: boolean;
+}): string | undefined {
   // WP-176: "any" 는 담당자 조건 없음 — 기본값 "me" 를 끄고 프로젝트 전체 이슈를 대상으로 한다.
   if (p.assignee?.trim().toLowerCase() === 'any') return undefined;
   // WP-356: 워치 중 이슈·특정 부모의 하위 이슈는 담당자와 무관한 질문이다 — 기본 "me" 가 끼면 내 담당분만 남는다.
-  return p.assignee ?? (p.reporter || p.watching || p.parent ? undefined : 'me');
+  // WP-719: 나를 멘션한 이슈도 담당이 아닌 이슈에서 받은 지시를 찾는 조회라 같다.
+  return p.assignee ?? (p.reporter || p.watching || p.parent || p.mentionsMe ? undefined : 'me');
 }

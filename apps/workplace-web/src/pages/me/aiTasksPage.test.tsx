@@ -228,7 +228,7 @@ describe('AI 위임 작업 표', () => {
     const { user, location, seen } = renderAiTasks('/me/ai-tasks', DONE_ROWS, createAiTaskCounts({ all: 6, done: 4 }))
     await screen.findByTestId('ai-row-501')
     const chipIds = [...screen.getByTestId('ai-quick-chips').querySelectorAll('button')].map((e) => e.getAttribute('data-testid'))
-    expect(chipIds).toEqual(['ai-quick-all', 'ai-quick-inputRequired', 'ai-quick-review', 'ai-quick-blocked', 'ai-quick-working', 'ai-quick-scheduled', 'ai-quick-done'])
+    expect(chipIds).toEqual(['ai-quick-all', 'ai-quick-inputRequired', 'ai-quick-review', 'ai-quick-blocked', 'ai-quick-working', 'ai-quick-waiting', 'ai-quick-scheduled', 'ai-quick-done'])
     expect(screen.getByTestId('ai-quick-scheduled')).toHaveTextContent('다음 회차 대기')
     expect(screen.getByTestId('ai-quick-done')).toHaveTextContent('완료')
     expect(screen.getByTestId('ai-quick-count-done')).toHaveTextContent(/^4$/)

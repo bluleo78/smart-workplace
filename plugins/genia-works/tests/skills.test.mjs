@@ -51,13 +51,13 @@ test('SKILL.md 의 후보 표에 SCHEDULED 행이 nextRunAt 기준으로 있다'
 });
 
 test('SKILL.md 순서에서 시각이 지난 다음 회차 대기가 우선순위보다 먼저다', () => {
-  assertBefore(workLoop('SKILL.md'), '③ `nextRunAt` 이 지난 다음 회차 대기', '④ 우선순위');
+  assertBefore(workLoop('SKILL.md'), '④ `nextRunAt` 이 지난 다음 회차 대기', '⑤ 우선순위');
 });
 
 test('SKILL.md 다음 확인에서 미뤄 둔 후보(시각 없는 대기)는 남은 후보로 세지 않는다', () => {
   // 시각 없는 대기 하나만 남았을 때 1분마다 깨어나 헛도는 것을 막는다.
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('`nextRunAt` 이 없는 다음 회차 대기(PR 을 두고 기다리는 이슈는 빼고)'));
+  assert.ok(text.includes('**미뤄 둔 후보**: `nextRunAt` 이 없는 다음 회차 대기다'));
   assert.ok(text.includes('미뤄 둔 후보(3번)는 「남은 후보」로 세지 않는다'));
 });
 
@@ -111,6 +111,35 @@ test('SKILL.md 이슈 챗 글의 받는 사람은 participants 에서 골라 @us
   assert.ok(text.includes('모두에게 하는 진행 보고에는 멘션하지 않는다'));
 });
 
+// WP-719 담당 밖 이슈의 멘션 — 프로젝트 범위로 찾아, 맥락을 읽고 물은 곳에 답만 한다(구현·작업 보고 없음, 작업 지시는 담당 지정 요청).
+test('SKILL.md 담당 밖 이슈의 멘션은 프로젝트 범위로 찾아 맥락을 읽고 물은 곳에 답만 한다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes("`list_issues({ projectKey, mentionsMe: true, status: 'TODO,IN_PROGRESS' })`"));
+  assert.ok(text.includes('② 멘션받은 담당 밖 이슈'));
+  assert.ok(text.includes('구현하지 않고 답만 한다'));
+  assert.ok(text.includes('**맥락부터 모두 읽는다**'));
+  assert.ok(text.includes('댓글에서 받은 말에는 `add_comment` 로 답한다(물은 곳에 답한다)'));
+  assert.ok(text.includes('3. **물은 곳에 답한다**'));
+  assert.ok(text.includes('「맡으려면 담당자로 지정해 주세요」'));
+  assert.ok(text.includes('추측으로 답하지 않는다'));
+  assert.ok(text.includes('**이 세션의 프로젝트만 다룬다**'));
+});
+
+// WP-719 이슈 챗 글 도구 구분 — 상태가 바뀌면 report_agent_work, 말만 하면 add_issue_chat.
+test('SKILL.md 이슈 챗 글은 상태 변화 여부로 report_agent_work 와 add_issue_chat 을 고른다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('**이슈 챗 글은 목적으로 도구를 고른다**'));
+  assert.ok(text.includes('상태 변화 없이 말만 하면'));
+});
+
+// WP-719 댓글도 새 글 — pendingForMe 가 댓글을 세므로 새 글은 이슈 챗과 댓글 둘 다에서 읽고, 넘긴 글 기록은 시각으로 남긴다.
+test('새 글은 이슈 챗과 댓글 둘 다에서 읽고, 답하지 않고 넘긴 글은 작성 시각으로 적는다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('「글」은 이슈 챗 글과 댓글 둘 다다'));
+  assert.ok(text.includes('작성 시각(`createdAt`)을 `MAIN/.work-loop/state/seen/<이슈 키>` 에 적는다'));
+  assert.ok(workLoop('process-issue.md').includes('댓글은 `get_issue_detail` 의 `comments`'));
+});
+
 // WP-516 근거 첨부 — 로컬 경로만 적으면 다른 환경의 사람은 결함 화면·시안·검증 스크린샷을 볼 수 없다.
 test('SKILL.md 근거 이미지·파일은 첨부로 올리고, 이슈 설명은 이슈에·질문·보고 근거는 그 글에 붙인다', () => {
   const text = workLoop('SKILL.md');
@@ -155,7 +184,67 @@ test('SKILL.md 3번: 고를 후보가 없을 때만 대기열에서 최대 하�
   assert.ok(s3.includes('`AI_ALREADY_ASSIGNED`'));
   assert.ok(s3.includes('최대 하나'));
   // 미뤄 둔 후보까지 없을 때만 가져간다 — 가져오기 단계가 「할 일 없음」 결론보다 먼저 나와야 한다.
-  assertBefore(s3, '`claim_issue(', '가져간 이슈가 없으면 「할 일 없음」으로 끝낸다');
+  assertBefore(s3, '`claim_issue(', '가져간 이슈가 없으면(WIP 상한에 걸린 때도) 「할 일 없음」이다');
+});
+
+// WP-1010 기다리는 동안 다른 일 — WIP 상한, 할 일 없을 때 확인할 것(이슈는 만들지 않음), 오래 처리한 부르기의 대기열 다시 읽기.
+test('SKILL.md 3번: 기다리는 이슈가 3개 이상이면 대기열에서 가져오지 않는다(WIP 상한)', () => {
+  assert.ok(s3.includes('**WIP 상한**: 기다리는 이슈가 3개 이상이면 가져오지 않고'));
+  assert.ok(s3.includes('기다리는 이슈 = 내 행이 대기 중(`WAITING`)·답변 필요·인증 필요인 이슈'));
+  assertBefore(s3, '**WIP 상한**', '`claim_issue(');
+});
+
+test('SKILL.md 3번: 할 일이 없으면 내가 개발한 열린 PR 과 저장소 점검을 확인하고, 이슈는 새로 만들지 않는다', () => {
+  assert.ok(s3.includes('**할 일 없음** — 끝내기 전에 아래를 확인한다. 이슈를 새로 만들지는 않는다.'));
+  assert.ok(s3.includes('본문 첫 줄이 `개발: <내 username>` 인 PR 만 본다'));
+  assert.ok(s3.includes('`statusCheckRollup` 에 `FAILURE`'));
+  assert.ok(s3.includes('`mergeable` 이 `CONFLICTING`'));
+  assert.ok(s3.includes('「할 일 없을 때」 절이 있으면 그대로 한다'));
+  // 검토자가 GitHub 에서만 머지·변경 요청을 하면 이슈 챗 새 글이 없어 대기 중이 영영 풀리지 않는다.
+  assert.ok(s3.includes('statusCheckRollup,reviewDecision'));
+  assert.ok(s3.includes('`gh pr view <번호> --json state`'));
+});
+
+// 0.1.17 이하가 PR 대기를 시각 없는 SCHEDULED 로 남겼다 — 올린 뒤에도 미뤄 둔 후보로 매번 다시 고르지 않고 대기 중처럼 다룬다.
+test('SKILL.md 3번: 옛 플러그인이 남긴 시각 없는 PR 대기 행은 대기 중처럼 다룬다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('플러그인 0.1.17 이하가 PR 대기를 이렇게 남겼다)은 어디서나 대기 중으로 본다'));
+});
+
+test('SKILL.md 5번: 대기열을 읽은 지 10분이 넘은 부르기는 다시 읽고, 오류로 멈췄으면 다시 읽지 않는다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('대기열을 읽은 지 10분이 안 됐으면 다시 읽지 않는다'));
+  assert.ok(text.includes('10분이 넘었으면(이슈 하나를 오래 처리한 부르기) 다시 읽는다'));
+  assert.ok(text.includes('오류(`CLAIM_AGENT_ONLY`·권한·연결 등)로 멈췄으면 다시 읽지 않고 20~30분이다'));
+  assert.ok(!text.includes('이번 부르기에서 이미 대기열을 읽었으면 다시 읽지 않는다'));
+});
+
+test('SKILL.md 5번: 기다림별 다음 일 표가 백그라운드 양보·상대 대기 각각의 다음 동작을 정한다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('| 이번 부르기가 멈춘 지점 | 다른 후보가 있음 | 대기열에 가져갈 일만 있음 | 아무것도 없음 |'));
+  assert.ok(text.includes('| 백그라운드 작업에 양보(작업 중, 4번 예외) | 같은 부르기에서 다음 후보 |'));
+  assert.ok(text.includes('| 대기 중(PR 리뷰·수정, 다른 AI·사람의 답), 답변·인증 필요 | 1분 안팎 |'));
+});
+
+// WP-1024 상태 구분 — 남의 차례는 대기 중, 내 일이 도는 백그라운드는 작업 중(끝날 시각), 시각 예약만 다음 회차 대기.
+test('SKILL.md·process-issue.md: 남의 차례는 대기 중, 백그라운드는 작업 중, 시각 예약만 다음 회차 대기로 보고한다', () => {
+  const text = workLoop('SKILL.md');
+  const p = workLoop('process-issue.md');
+  assert.ok(text.includes('**다른 사람·AI 의 차례를 기다리면 대기 중(`WAITING`)이다**'));
+  assert.ok(text.includes('작업 중(`WORKING`, note 에 끝날 시각)으로 둔 채 다른 이슈를 처리한다'));
+  assert.ok(text.includes('notes 의 `끝날 시각` 이 지났을 때만 고른다'));
+  assert.ok(p.includes("내 일이 도는 중이라 작업 중 그대로 둔다 — `report_agent_work({ issueKey, state: 'WORKING'"));
+  assert.ok(!p.includes("state: 'SCHEDULED', nextRunAt: '<시작 + project.md"));
+  assert.ok(readFileSync(new URL('work-on/SKILL.md', skillsDir), 'utf8').includes("`state: 'WAITING'` + note 에 무엇·누구"));
+});
+
+test('process-issue.md: 오래 걸리는 테스트·push 는 포그라운드로 기다리지 않고, 거듭 사라진 작업만 예외다', () => {
+  const p = workLoop('process-issue.md');
+  assert.ok(p.includes('그 명령이 아래 「오래 걸리는 작업」에 해당하면 기다리지 않고 백그라운드로 띄운다'));
+  assert.ok(p.includes('테스트를 다시 돌린다(6번처럼 오래 걸리면 백그라운드로)'));
+  assert.ok(p.includes('기록 방법이 없는 저장소면 이 push 를 「오래 걸리는 작업」으로 띄운다'));
+  assert.ok(!p.includes('여기서 게이트가 돈다'));
+  assert.ok(p.includes('기다리며 돌리는 유일한 예외다'));
 });
 
 test('SKILL.md 3번: 목록과 가져가기 사이에 대기열을 떠난 이슈(ISSUE_CLOSED 포함)는 다음 후보로 넘어간다', () => {
@@ -234,8 +323,9 @@ test('process-issue.md: 개발 순서는 PR → PR 리뷰 대기 → 검토 대�
   assert.ok(!pi.includes('merge-ready'), 'merge-ready 가 남아 있다');
   // 리뷰를 기다리는 동안 REVIEW 로 올리면 main 에 없는 코드로 사람에게 검토 요청 알림이 간다.
   const s10 = section(pi, '\n### 10. PR 리뷰 대기\n', '\n### 11. ');
-  assert.ok(s10.includes("state: 'SCHEDULED', note: 'PR #<번호> 리뷰 대기'"));
-  assert.ok(s10.includes('`nextRunAt` 은 넣지 않는다'));
+  // WP-1024: 리뷰를 기다리는 동안은 검토자 차례 — 대기 중(WAITING)으로 두고 note 에 누구를 기다리는지 적는다.
+  assert.ok(s10.includes("state: 'WAITING', note: 'PR #<번호> 리뷰 — <검토자 이름>'"));
+  assert.ok(!s10.includes("state: 'SCHEDULED'"));
 });
 
 test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순서이고 rebase·push 는 하지 않는다 (WP-964·998)', () => {
@@ -250,7 +340,7 @@ test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순�
   assert.ok(lead.includes('`git merge-tree --write-tree origin/main HEAD`'));
   assert.ok(lead.includes('충돌이 없으면 main 이 앞서 있어도 반려하지 않고'));
   assert.ok(!lead.includes('충돌이 없어도 그렇다'));
-  assert.ok(lead.includes("state: 'SCHEDULED', note: 'PR #<번호> 수정 대기'"));
+  assert.ok(lead.includes("state: 'WAITING', note: 'PR #<번호> 수정 — <개발자 이름>'"));
   // 다시 받은 PR 은 지난 리뷰 뒤 달라진 것만 본다.
   assert.ok(lead.includes('`git range-diff <리뷰한 base>..<리뷰한 HEAD> origin/main..HEAD`'));
 });
@@ -264,9 +354,9 @@ test('process-issue.md 개발자: main 과 충돌할 때만 rebase 해 충돌을
   assert.ok(s7.includes('`git merge-tree --write-tree origin/main HEAD`'));
 });
 
-test('SKILL.md: PR 을 두고 기다리는 이슈는 새 글이 있을 때만 고르고, 답하지 않고 넘긴 글을 적어 둔다', () => {
+test('SKILL.md: 대기 중(PR 을 두고 기다리는 이슈 등)은 새 글이 있을 때만 고르고, 답하지 않고 넘긴 글을 적어 둔다', () => {
   const text = workLoop('SKILL.md');
-  assert.match(text, /^\|[^\n]*SCHEDULED[^\n]*「PR 리뷰 대기」·「PR 수정 대기」[^\n]*\|\s*$/m);
+  assert.match(text, /^\| 대기 중\(WAITING\) \| 새 글이 있을 때만[^\n]*\|\s*$/m);
   // pendingForMe 는 내가 글을 남겨야 풀린다 — 적어 두지 않으면 AI 끼리 답을 주고받거나 같은 이슈를 매번 다시 고른다.
   assert.ok(text.includes('`MAIN/.work-loop/state/seen/<이슈 키>`'));
 });

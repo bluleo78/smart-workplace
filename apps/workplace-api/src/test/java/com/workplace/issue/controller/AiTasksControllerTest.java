@@ -199,14 +199,16 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   // ---------------------------------------------------------------- 정렬·필터
 
+  /** 급한 순 — 답변 필요·검토 필요·막힘·작업 중·대기 중(WP-1024)·다음 회차 대기·일시 중지. */
   @Test
-  void 급한순_정렬_답변필요_검토필요_막힘_작업중_다음회차대기_일시중지() throws Exception {
+  void sortsByUrgency_inputReviewBlockedWorkingWaitingScheduledPaused() throws Exception {
     // 일부러 급한 순과 다른 순서로 만든다. 작업 기록 없는 AI 담당 이슈(none)는 목록 밖(WP-396).
     long none = issue("none", me);
     assign(none, agent);
     work(issue("paused", other), me, "PAUSED");
     work(issue("working", other), me, "WORKING");
     work(issue("scheduled", other), me, "SCHEDULED");
+    work(issue("waiting", other), me, "WAITING");
     work(issue("blocked", other), me, "BLOCKED");
     work(issue("review", other), me, "REVIEW");
     work(issue("inputRequired", other), me, "INPUT_REQUIRED");
@@ -216,7 +218,19 @@ class AiTasksControllerTest extends IntegrationTestBase {
     items.forEach(
         it -> states.add(it.has("agentWork") ? it.at("/agentWork/0/state").asText() : null));
     assertThat(states)
-        .containsExactly("INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "SCHEDULED", "PAUSED");
+        .containsExactly(
+            "INPUT_REQUIRED", "REVIEW", "BLOCKED", "WORKING", "WAITING", "SCHEDULED", "PAUSED");
+  }
+
+  /** WP-1024: 대기 중 칩 — 건수에 잡히고 agentState=WAITING 으로 목록이 걸러진다(미완료에도 포함, 다음 회차 대기와 따로 센다). */
+  @Test
+  void waitingChip_countsAndFiltersByAgentState() throws Exception {
+    work(issue("waiting", other), me, "WAITING");
+    work(issue("scheduled", other), me, "SCHEDULED");
+
+    assertThat(counts("/api/v1/me/ai-tasks/counts")).isEqualTo(counts(2, 0, 0, 0, 0, 1, 1, 0));
+    assertThat(titles(getJson("/api/v1/me/ai-tasks?agentState=WAITING")))
+        .containsExactly("waiting");
   }
 
   /** WP-450: 다음 회차 대기 칩 — 건수에 잡히고 agentState=SCHEDULED 로 목록이 걸러진다(미완료에도 포함). */
@@ -1105,12 +1119,26 @@ class AiTasksControllerTest extends IntegrationTestBase {
 
   private static Map<String, Integer> counts(
       int all, int inputRequired, int review, int blocked, int working, int scheduled, int done) {
+    return counts(all, inputRequired, review, blocked, working, 0, scheduled, done);
+  }
+
+  /** 대기 중(WP-1024)까지 담은 기대 건수 맵 — 응답 필드 순서(…·작업 중·대기 중·다음 회차 대기·완료). */
+  private static Map<String, Integer> counts(
+      int all,
+      int inputRequired,
+      int review,
+      int blocked,
+      int working,
+      int waiting,
+      int scheduled,
+      int done) {
     return Map.of(
         "all", all,
         "inputRequired", inputRequired,
         "review", review,
         "blocked", blocked,
         "working", working,
+        "waiting", waiting,
         "scheduled", scheduled,
         "done", done);
   }

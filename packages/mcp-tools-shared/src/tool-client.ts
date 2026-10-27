@@ -113,8 +113,9 @@ export type IssueListQuery = Record<string, string | number | boolean>;
 /**
  * AI 작업 보고 입력 상태 목록(WP-377, A2A 1.0 어휘) — 단일 정의. zod 스키마(`schemas.ts`)와 아래 타입이 모두 여기서 나온다.
  * 뒤 네 값(COMPLETED·FAILED·CANCELED·REJECTED)은 종료 상태라 보고하면 작업 기록이 끝난다.
- * SCHEDULED(다음 회차 대기, WP-450)는 `nextRunAt` 을 함께 보낼 수 있는 유일한 상태다.
- * 조회 뷰에는 진행 중 상태 8종(여기 입력의 앞 7종 + SUBMITTED=시작 전)만 나온다.
+ * SCHEDULED(다음 회차 대기, WP-450)는 `nextRunAt` 을 함께 보낼 수 있는 유일한 상태다. WAITING(대기 중, WP-1024)은 다른 사람·AI 의 차례를
+ * 기다리는 상태 — 무엇을 기다리는지는 note 에 적는다.
+ * 조회 뷰에는 진행 중 상태 9종(여기 입력의 앞 8종 + SUBMITTED=시작 전)만 나온다.
  */
 export const AGENT_WORK_STATE_INPUTS = [
   'WORKING',
@@ -123,6 +124,7 @@ export const AGENT_WORK_STATE_INPUTS = [
   'BLOCKED',
   'PAUSED',
   'REVIEW',
+  'WAITING',
   'SCHEDULED',
   'COMPLETED',
   'FAILED',
@@ -202,6 +204,8 @@ export interface IssueToolClient
     threadId: number,
     q: { after?: number; limit?: number },
   ): Promise<{ items: Record<string, unknown>[]; nextCursor?: string | null; hasMore: boolean; truncated?: boolean }>;
+  /** POST /chat/threads/{id}/messages — 이슈 챗에 글을 남긴다(WP-719). 쓰기 권한은 댓글과 같고, 처음 쓰면 서버가 대화에 참여시킨다. */
+  addIssueChatMessage(threadId: number, body: string): Promise<void>;
   /** 이슈 상세 — 백엔드 raw JSON 반환(정규화는 도구 핸들러가 normalizeIssueDetail 로 수행). */
   getIssueDetail(issueKey: string): Promise<unknown>;
   /** 이슈 생성 — 생성 응답 raw 반환. */

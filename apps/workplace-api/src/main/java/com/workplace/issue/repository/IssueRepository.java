@@ -7,6 +7,7 @@ import static com.workplace.jooq.Tables.CHAT_THREAD;
 import static com.workplace.jooq.Tables.CYCLE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.ISSUE_COMMENT;
 import static com.workplace.jooq.Tables.ISSUE_COMPONENT;
 import static com.workplace.jooq.Tables.ISSUE_CYCLE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
@@ -23,6 +24,7 @@ import static org.jooq.impl.DSL.row;
 import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.global.util.LikePatternUtils;
+import com.workplace.global.util.MentionParser;
 import com.workplace.issue.dto.ChecklistCursor;
 import com.workplace.issue.dto.ChecklistOrder;
 import com.workplace.issue.dto.IssueRow;
@@ -48,6 +50,7 @@ import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
+import org.jooq.JSONB;
 import org.jooq.Record;
 import org.jooq.SelectField;
 import org.jooq.SortField;
@@ -628,6 +631,7 @@ public class IssueRepository {
     where = where.and(dateRangeCondition(query));
     where = where.and(watcherCondition(query));
     where = where.and(pendingForCondition(query));
+    where = where.and(mentionedCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     where = where.and(componentCondition(query));
@@ -921,32 +925,112 @@ public class IssueRepository {
   }
 
   /**
-   * 새 글 필터(WP-373) — 단일/횡단 검색 공용. 이슈 스레드에 삭제되지 않은 다른 사람의 글 m 이 있고, 그 뒤(created_at, id 순서 —
-   * afterMine·after 와 같은 정렬)에 이 사용자의 삭제되지 않은 글이 없으면 해당. 이 사용자가 쓴 적이 없으면 NOT EXISTS 가 참이라 다른 사람 글이
-   * 하나라도 있을 때 해당한다. created_at 이 같아도 id 로 순서가 정해지도록 행 비교를 쓴다. 마지막 글은
-   * idx_chat_message_thread_created(thread_id, created_at DESC, id DESC)로 찾는다.
+   * 새 글 필터(WP-373·WP-719) — 단일/횡단 검색 공용. 이슈에 삭제되지 않은 다른 사람의 글(이슈 챗 글 또는 댓글)이 있고, 그 뒤에 이 사용자의 삭제되지
+   * 않은 글(챗 글 또는 댓글)이 없으면 해당. 댓글로 지시하거나 댓글로 답해도 챗 글과 같게 센다 — 담당 AI 가 댓글로 온 지시를 놓치지 않게 하려는 것(WP-719).
+   * 이 사용자가 담당자면 담당이 된 때보다 앞선 글은 세지 않는다 — 가져온 이슈의 옛 댓글처럼 맡기 전부터 있던 글이, 맡은 AI 가 글을 쓸 때까지 줄곧 「새 글」로
+   * 잡히지 않게. 담당이 아니고 쓴 적도 없으면 다른 사람 글이 하나라도 있을 때 해당한다.
    */
   private Condition pendingForCondition(IssueSearchQuery query) {
     Long uid = query.pendingForUserId();
-    if (uid == null) return noCondition();
-    var mine = CHAT_MESSAGE.as("pending_mine");
+    return uid == null ? noCondition() : unansweredPostCondition(uid, false);
+  }
+
+  /**
+   * 멘션 필터(WP-719) — 담당과 상관없이, 이 사용자를 멘션한 다른 사람의 글(이슈 챗 글의 mentions 또는 댓글 본문의 {@code <@id>})이 있고 그
+   * 뒤에 이 사용자의 글이 없는 이슈만. 담당이 아닌 이슈에서 받은 지시를 외부 AI 가 찾게 하려는 것 — 알림 읽음 상태(사용자 단위라 같은 AI 키로 도는 세션끼리
+   * 공유된다) 대신 원본 글에서 계산한다.
+   */
+  private Condition mentionedCondition(IssueSearchQuery query) {
+    Long uid = query.mentionedUserId();
+    return uid == null ? noCondition() : unansweredPostCondition(uid, true);
+  }
+
+  /**
+   * 「내 마지막 글 뒤에 남의 글이 있다」 조건 — 이슈 챗 글과 댓글을 한 순서((created_at, 종류, id) 행 비교)로 본다. 같은 표 안에서는
+   * created_at 이 같아도 id 로 순서가 정해지고(afterMine·after 와 같은 정렬), 챗 글과 댓글이 같은 시각이면 댓글을 뒤로 본다.
+   * mentionedOnly 면 남의 글 중 이 사용자를 멘션한 글만 센다.
+   */
+  private Condition unansweredPostCondition(long uid, boolean mentionedOnly) {
+    // 멘션 여부는 남의 글 쪽에서 멘션 필터일 때만 계산한다 — 새 글 필터·내 글 쪽은 쓰지 않는다.
+    Table<?> other = issuePosts("pending_other", uid, mentionedOnly);
+    Table<?> mine = issuePosts("pending_mine", uid, false);
+    Condition otherPost = other.field(POST_AUTHOR).ne(uid);
+    if (mentionedOnly) {
+      otherPost = otherPost.and(other.field(POST_MENTIONED).isTrue());
+    } else {
+      // 담당이 된 때(issue_assignee.created_at) 이전의 글은 새 글이 아니다 — 담당이 아니면 행이 없어 조건이 늘 참.
+      otherPost =
+          otherPost.andNotExists(
+              selectOne()
+                  .from(ISSUE_ASSIGNEE)
+                  .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(ISSUE.ID))
+                  .and(ISSUE_ASSIGNEE.USER_ID.eq(uid))
+                  .and(ISSUE_ASSIGNEE.CREATED_AT.ge(other.field(POST_AT))));
+    }
     return exists(
         selectOne()
-            .from(CHAT_THREAD)
-            .join(CHAT_MESSAGE)
-            .on(CHAT_MESSAGE.THREAD_ID.eq(CHAT_THREAD.ID))
-            .where(CHAT_THREAD.ISSUE_ID.eq(ISSUE.ID))
-            .and(CHAT_MESSAGE.DELETED_AT.isNull())
-            .and(CHAT_MESSAGE.AUTHOR_ID.ne(uid))
+            .from(other)
+            .where(otherPost)
             .andNotExists(
                 selectOne()
                     .from(mine)
-                    .where(mine.THREAD_ID.eq(CHAT_THREAD.ID))
-                    .and(mine.AUTHOR_ID.eq(uid))
-                    .and(mine.DELETED_AT.isNull())
+                    .where(mine.field(POST_AUTHOR).eq(uid))
                     .and(
-                        row(mine.CREATED_AT, mine.ID)
-                            .gt(row(CHAT_MESSAGE.CREATED_AT, CHAT_MESSAGE.ID)))));
+                        row(mine.field(POST_AT), mine.field(POST_KIND), mine.field(POST_ID))
+                            .gt(
+                                row(
+                                    other.field(POST_AT),
+                                    other.field(POST_KIND),
+                                    other.field(POST_ID))))));
+  }
+
+  // 이슈 글 파생 테이블의 열 — 이슈 챗 글과 댓글을 같은 모양으로 맞춘다(WP-719).
+  private static final Field<OffsetDateTime> POST_AT =
+      DSL.field(DSL.name("at"), OffsetDateTime.class);
+  private static final Field<Integer> POST_KIND = DSL.field(DSL.name("kind"), Integer.class);
+  private static final Field<Long> POST_ID = DSL.field(DSL.name("id"), Long.class);
+  private static final Field<Long> POST_AUTHOR = DSL.field(DSL.name("author"), Long.class);
+  private static final Field<Boolean> POST_MENTIONED =
+      DSL.field(DSL.name("mentioned"), Boolean.class);
+
+  /**
+   * 바깥 이슈(ISSUE.ID)의 삭제되지 않은 이슈 챗 글(종류 0)과 댓글(종류 1)을 한 테이블로 모은다. mentioned 는 withMention 일 때만 그 글이
+   * uid 를 멘션했는지(챗 글은 저장된 mentions 배열, 댓글은 본문의 {@code <@id>} 토큰 — 댓글은 멘션을 따로 저장하지 않고 알림 때 본문에서
+   * 읽는다)이고, 아니면 늘 false 다(쓰지 않는 검사를 줄인다).
+   */
+  private Table<?> issuePosts(String alias, long uid, boolean withMention) {
+    Field<Boolean> chatMention =
+        withMention
+            ? DSL.field(
+                DSL.condition(
+                    "{0} @> {1}", CHAT_MESSAGE.MENTIONS, DSL.val(JSONB.valueOf("[" + uid + "]"))))
+            : DSL.inline(false);
+    Field<Boolean> commentMention =
+        withMention
+            ? DSL.field(ISSUE_COMMENT.BODY.contains(MentionParser.token(uid)))
+            : DSL.inline(false);
+    return DSL.select(
+            CHAT_MESSAGE.CREATED_AT.as(POST_AT.getName()),
+            DSL.inline(0).as(POST_KIND.getName()),
+            CHAT_MESSAGE.ID.as(POST_ID.getName()),
+            CHAT_MESSAGE.AUTHOR_ID.as(POST_AUTHOR.getName()),
+            chatMention.as(POST_MENTIONED.getName()))
+        .from(CHAT_MESSAGE)
+        .join(CHAT_THREAD)
+        .on(CHAT_MESSAGE.THREAD_ID.eq(CHAT_THREAD.ID))
+        .where(CHAT_THREAD.ISSUE_ID.eq(ISSUE.ID))
+        .and(CHAT_MESSAGE.DELETED_AT.isNull())
+        .unionAll(
+            DSL.select(
+                    ISSUE_COMMENT.CREATED_AT,
+                    DSL.inline(1),
+                    ISSUE_COMMENT.ID,
+                    ISSUE_COMMENT.AUTHOR_ID,
+                    commentMention)
+                .from(ISSUE_COMMENT)
+                .where(ISSUE_COMMENT.ISSUE_ID.eq(ISSUE.ID))
+                .and(ISSUE_COMMENT.DELETED_AT.isNull()))
+        .asTable(alias);
   }
 
   /** 날짜 범위 필터의 하루 경계 기준 — AI 비서가 "이번 주"를 Asia/Seoul 로 계산하므로 같은 기준으로 자른다(WP-307). */
@@ -1207,6 +1291,7 @@ public class IssueRepository {
     where = where.and(dateRangeCondition(query));
     where = where.and(watcherCondition(query));
     where = where.and(pendingForCondition(query));
+    where = where.and(mentionedCondition(query));
     where = where.and(labelGroupsCondition(query.labelIdGroups()));
     where = where.and(cycleCondition(query));
     where = where.and(componentCondition(query));

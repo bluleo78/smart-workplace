@@ -12,10 +12,15 @@ import { AGENT_TOOL_NAME_MAX_LENGTH, PLUGIN_TOOL_PREFIX, SHARED_TOOL_NAME_MAX_LE
  * 16,700 → 16,900: 2026-10-25 WP-933 구성요소 인자(list_issues component·create_issue/update_issue components·get_project components, 도구 수는 그대로)와
  *   main 에 먼저 들어온 WP-944 보고자 변경 인자(update_issue reporter)로 늘어 상향했다(2026-10-25 사용자 승인).
  * 16,900 → 17,000: 2026-10-26 WP-888 버전 인자(list_issues fixVersion·affectsVersion, create_issue/update_issue fixVersions·affectsVersions, get_project versions — 도구 수는 그대로)로 늘어 상향했다(2026-10-26 사용자 승인).
+ * 17,000 → 17,200, 앱당 18 → 19: 2026-10-27 WP-719 담당 밖 이슈의 멘션에 이슈 챗으로 답하는 도구(add_issue_chat)와 list_issues mentionsMe 로
+ *   늘어 상향했다(2026-10-27 사용자 승인).
  */
-const DEFINITION_TOKEN_CAP = 17_000;
-/** 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인). */
-const APP_TOOL_CAP = 18;
+const DEFINITION_TOKEN_CAP = 17_200;
+/**
+ * 앱당 도구 수 상한. 사용자 결정(2026-10-13). 15 → 16: WP-800(2026-10-22 사용자 승인). 16 → 18: WP-887 관계 도구 2종(2026-10-24 사용자 승인).
+ * 18 → 19: WP-719 add_issue_chat(2026-10-27 사용자 승인).
+ */
+const APP_TOOL_CAP = 19;
 
 // 도구 구성 시점에는 클라이언트 메서드를 부르지 않으므로 빈 객체로 충분하다.
 const tools = buildSharedTools({} as unknown as SharedToolClient);
