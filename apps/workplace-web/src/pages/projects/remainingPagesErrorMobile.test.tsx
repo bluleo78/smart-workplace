@@ -4,11 +4,11 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { MOBILE_MEDIA_QUERY } from '@/lib/mobile/breakpoint'
+import { closedEpicHandlers, failingSecondPage } from '@/test/msw/remainingPagesHandlers'
 import { KEY, versionApi } from '@/test/msw/versionHandlers'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
-import { closedEpicHandlers, failingSecondPage } from './remainingPages.handlers'
 
 // 모바일 폭으로 판정되게 한다 — mediaQueryStore 가 처음 쓸 때 캐시하므로 렌더 전에(beforeEach). 진짜 matchMedia 는 모듈에서 한 번만 잡는다.
 const realMatchMedia = window.matchMedia.bind(window)

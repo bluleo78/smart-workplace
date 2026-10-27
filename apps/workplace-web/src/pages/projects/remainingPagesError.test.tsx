@@ -4,10 +4,9 @@
 import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
+import { closedEpicHandlers } from '@/test/msw/remainingPagesHandlers'
 import { KEY, versionApi } from '@/test/msw/versionHandlers'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
-
-import { closedEpicHandlers } from './remainingPages.handlers'
 
 describe('에픽 패널 「종료된 에픽」 — 다음 페이지 실패 (WP-1007)', () => {
   test('접혀 있어도 안내가 보이고, 다시 시도로 나머지를 받으면 개수가 늘고 안내가 사라진다', async () => {
