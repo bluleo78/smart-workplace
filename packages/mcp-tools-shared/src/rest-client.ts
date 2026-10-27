@@ -228,6 +228,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
       const data = (await http.get(`/chat/threads/${threadId}/messages`, { params })).data;
       return { items: data?.items ?? [], nextCursor: data?.nextCursor, hasMore: !!data?.hasMore, truncated: data?.truncated === true ? true : undefined };
     },
+    async addIssueChatMessage(threadId, body) {
+      await http.post(`/chat/threads/${threadId}/messages`, { body });
+    },
     async getIssueDetail(issueKey) {
       return (await http.get(issue(issueKey))).data;
     },

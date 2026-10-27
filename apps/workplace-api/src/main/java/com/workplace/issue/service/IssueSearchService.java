@@ -489,8 +489,11 @@ public class IssueSearchService {
     // Phase 4c — fieldId / fieldValue. fieldId 가 숫자가 아니면 null 로 무시 (필터 미적용).
     // WP-356 — watching=true 면 호출자가 워치 중인 이슈만. 다른 사용자의 워치 목록은 열지 않는다(값은 true 만 받는다).
     Long watcherId = "true".equalsIgnoreCase(p.get("watching")) ? callerId : null;
-    // WP-373 — pendingForMe=true 면 호출자의 마지막 이슈 챗 글 이후 다른 사람이 글을 남긴 이슈만(값은 true 만 받는다).
+    // WP-373·WP-719 — pendingForMe=true 면 호출자의 마지막 글(이슈 챗 글·댓글) 이후 다른 사람이 글·댓글을 남긴 이슈만(값은 true 만
+    // 받는다).
     Long pendingForUserId = "true".equalsIgnoreCase(p.get("pendingForMe")) ? callerId : null;
+    // WP-719 — mentionsMe=true 면 호출자의 마지막 글 이후 호출자를 멘션한 다른 사람 글이 있는 이슈만. 다른 사용자 기준으로는 열지 않는다.
+    Long mentionedUserId = "true".equalsIgnoreCase(p.get("mentionsMe")) ? callerId : null;
 
     Long fieldId = null;
     String fieldValue = trimToNull(p.get("fieldValue"));
@@ -540,7 +543,8 @@ public class IssueSearchService {
         fixVersionIds,
         fixVersionNone,
         affectsVersionIds,
-        affectsVersionNone);
+        affectsVersionNone,
+        mentionedUserId);
   }
 
   private static LocalDate parseDate(String s) {

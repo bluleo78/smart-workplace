@@ -6,6 +6,7 @@ exports[`buildUserTools > 노출 도구 이름·kind 스냅샷 1`] = `
   "add_channel_message:write",
   "add_comment:write",
   "add_contact_favorite:write",
+  "add_issue_chat:write",
   "add_issue_relation:write",
   "add_project_member:write",
   "add_user_group_member:write",

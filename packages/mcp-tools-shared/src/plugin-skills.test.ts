@@ -70,9 +70,10 @@ describeSkillTools('work-done', {
 // WP-453: 담당을 바꾼 이유를 남기는 댓글(add_comment). WP-455: 맡길 AI 를 설명으로 고르는 구성원 찾기(search_members).
 // WP-516: 근거 이미지·파일을 올려(upload_file) 결함 이슈(create_issue)나 질문·보고 글(report_agent_work)에 fileIds 로 붙인다.
 // WP-800: 할 일이 없으면 대기열 라벨 이슈(list_issues label)를 가져가고(claim_issue), 넘길 때는 AI 대신 라벨(labels)을 붙인다.
+// WP-719: 담당 밖 이슈의 멘션(list_issues mentionsMe)에 물은 곳에서 답한다(add_issue_chat).
 describeSkillTools('work-loop', {
   get_member: ['username'],
-  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'reporter', 'createdFrom', 'createdTo', 'q', 'label'],
+  list_issues: ['projectKey', 'assignee', 'status', 'parent', 'pendingForMe', 'mentionsMe', 'reporter', 'createdFrom', 'createdTo', 'q', 'label'],
   report_agent_work: ['issueKey', 'state', 'note', 'message', 'stepsDone', 'stepsTotal', 'nextRunAt', 'fileIds'],
   get_issue_chat: ['issueKey', 'after'],
   update_issue: ['issueKey', 'assignees', 'status', 'labels'],
@@ -82,4 +83,5 @@ describeSkillTools('work-loop', {
   add_comment: ['issueKey', 'body'],
   search_members: ['kind'],
   claim_issue: ['issueKey', 'queueLabel'],
+  add_issue_chat: ['issueKey', 'body'],
 });

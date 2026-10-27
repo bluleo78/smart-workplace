@@ -18,6 +18,7 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   add_comment: { label: '코멘트 작성', icon: '💬' },
   report_agent_work: { label: 'AI 작업 보고', icon: '🤖' },
   get_issue_chat: { label: '이슈 챗 읽기', icon: '💬' },
+  add_issue_chat: { label: '이슈 챗 글쓰기', icon: '💬' },
   update_comment: { label: '코멘트 수정', icon: '✏️' },
   link_issues: { label: '이슈 의존관계', icon: '🔗' }, // WP-812: add_issue_dependency·remove_issue_dependency 통합(linked)
   add_issue_relation: { label: '이슈 관계 추가', icon: '🔗' }, // WP-887: 관련·중복·복제·원인 등(차단 제외)·외부 링크

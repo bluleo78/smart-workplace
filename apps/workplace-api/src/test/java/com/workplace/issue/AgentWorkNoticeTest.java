@@ -140,6 +140,25 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
     assertStays(humanId, AI_QUESTION, 0);
   }
 
+  /**
+   * WP-1024: 대기 중(WAITING)은 다른 쪽 차례라 사람의 「답변 필요」·검토 요청 알림을 만들지 않는다 — 받는 사람을 멘션했으면 그 사람에게 멘션 알림만 간다.
+   */
+  @Test
+  void waiting_notifiesMentionedOnly_noNeedsInput() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING")));
+    assertOk(
+        putReport(
+            akToken,
+            TOOL,
+            Map.of(
+                "state", "WAITING", "note", "PR 리뷰 대기", "message", "<@" + otherId + "> 리뷰 부탁해요")));
+
+    awaitCount(otherId, MENTION, 1);
+    assertStays(humanId, AI_QUESTION, 0);
+    assertStays(humanId, REVIEW_REQUESTED, 0);
+    assertStays(otherId, AI_QUESTION, 0);
+  }
+
   /** 막힘 + 멘션 — 관계자와 멘션된 사람 모두 「답변 필요」 1건씩, 멘션 알림은 따로 없다. */
   @Test
   void blocked_mention_mergedIntoNeedsInput() {

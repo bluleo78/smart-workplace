@@ -290,10 +290,23 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     assertThat(w.note()).isNull();
   }
 
+  /**
+   * 모르는 상태는 거절한다 — WP-377 때 없앤 옛 이름 ENDED 로 확인한다. 같은 때 없앤 옛 WAITING(지금의 INPUT_REQUIRED)은 배포된 적이 없어
+   * WP-1024 에서 「대기 중」으로 다시 쓴다.
+   */
   @Test
-  void 구_상태명_WAITING_은_받지_않음() {
-    assertThat(putReport(patToken, TOOL, Map.of("state", "WAITING")).getStatusCode())
+  void unknownState_rejected_legacyEnded() {
+    assertThat(putReport(patToken, TOOL, Map.of("state", "ENDED")).getStatusCode())
         .isEqualTo(HttpStatus.BAD_REQUEST);
+  }
+
+  /** WP-1024: 대기 중(WAITING) 보고를 받고 note 를 남긴다. */
+  @Test
+  void waiting_accepted_withNote() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "WAITING", "note", "PR #12 리뷰 — AI 팀장")));
+    var w = activeWork(issueId, agentId).orElseThrow();
+    assertThat(w.state()).isEqualTo("WAITING");
+    assertThat(w.note()).isEqualTo("PR #12 리뷰 — AI 팀장");
   }
 
   @Test

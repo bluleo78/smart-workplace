@@ -11,6 +11,9 @@ export const AGENT_STATE_LABEL: Record<AgentWorkState | 'NOT_STARTED', string> =
   BLOCKED: '막힘',
   WORKING: '작업 중',
   PAUSED: '일시 중지',
+  // 다른 사람·AI 의 차례를 기다리는 작업(WP-1024 — PR 리뷰·수정, 다른 AI 의 답 등, 무엇인지는 note). 사람이 할 일이 아니라 흐린 윤곽.
+  // 「답변 필요」(사람이 결정)와 섞이지 않게 「답」을 넣지 않는다.
+  WAITING: '대기 중',
   // 양보 후 예정 시각 뒤 이어서 하는 작업(WP-450) — 사람이 할 일이 없어 톤은 흐린 윤곽(일시 중지와 같음).
   SCHEDULED: '다음 회차 대기',
   SUBMITTED: '시작 전',

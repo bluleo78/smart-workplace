@@ -6,6 +6,7 @@ exports[`buildSharedTools > 도구별 kind 스냅샷 1`] = `
   "add_channel_message": "write",
   "add_comment": "write",
   "add_contact_favorite": "write",
+  "add_issue_chat": "write",
   "add_issue_relation": "write",
   "add_project_member": "write",
   "add_user_group_member": "write",
@@ -222,6 +223,28 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
       },
+      "type": "object",
+    },
+  },
+  {
+    "name": "add_issue_chat",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "minLength": 1,
+          "type": "string",
+        },
+        "issueKey": {
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "issueKey",
+        "body",
+      ],
       "type": "object",
     },
   },
@@ -1686,7 +1709,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "assignee": {
-          "description": "CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent is set",
+          "description": "CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent/mentionsMe",
           "type": "string",
         },
         "blocked": {
@@ -1713,7 +1736,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "cycle": {
-          "description": "CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names and "active" need projectKey",
+          "description": "CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names/"active" need projectKey",
           "type": "string",
         },
         "dueFrom": {
@@ -1734,6 +1757,10 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "description": "Label names CSV; all must match",
           "type": "string",
         },
+        "mentionsMe": {
+          "description": "Others @mentioned me since my last post",
+          "type": "boolean",
+        },
         "milestone": {
           "description": "Milestone names CSV, any match; needs projectKey",
           "type": "string",
@@ -1743,7 +1770,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "pendingForMe": {
-          "description": "Only issues with chat posts by others after my last",
+          "description": "Others posted or commented since my last post",
           "type": "boolean",
         },
         "priority": {
@@ -2516,6 +2543,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "BLOCKED",
             "PAUSED",
             "REVIEW",
+            "WAITING",
             "SCHEDULED",
             "COMPLETED",
             "FAILED",

@@ -227,21 +227,23 @@ export const listIssuesInput = z.object({
     .string()
     .optional()
     .describe(
-      'CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent is set',
+      'CSV of "me", "null" (unassigned), "any" or usernames; default "me" unless reporter/watching/parent/mentionsMe',
     ),
   cycle: z
     .string()
     .optional()
     .describe(
-      'CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names and "active" need projectKey',
+      'CSV, any match: cycle (사이클) names, "active", "none", "backlog" (no active/planned cycle); names/"active" need projectKey',
     ),
   // WP-356: 아래 넷은 핸들러가 서버 쿼리로 바꾼다(마일스톤 이름→id, 부모 키→번호+projectKey, 필드 이름→fieldId+JSON 값, 워치=호출자).
   milestone: z.string().optional().describe('Milestone names CSV, any match; needs projectKey'),
   parent: z.string().optional().describe('Only children of this issue key'),
   field: z.string().optional().describe('"name=value" custom field match (not MULTI_SELECT); needs projectKey'),
   watching: z.boolean().optional().describe('Only issues I watch'),
-  // WP-373: 서버 pendingForMe 필터로 바꿔 보낸다 — 내 마지막 이슈 챗 글 뒤에 남의 글이 온 이슈.
-  pendingForMe: z.boolean().optional().describe('Only issues with chat posts by others after my last'),
+  // WP-373·WP-719: 서버 pendingForMe 필터로 바꿔 보낸다 — 내 마지막 글(이슈 챗 글·댓글) 뒤에 남의 글·댓글이 온 이슈.
+  pendingForMe: z.boolean().optional().describe('Others posted or commented since my last post'),
+  // WP-719: 담당과 무관하게 내 마지막 글 뒤에 나를 멘션한 남의 글이 있는 이슈 — 담당이 아닌 이슈에서 받은 지시를 찾는다.
+  mentionsMe: z.boolean().optional().describe('Others @mentioned me since my last post'),
 });
 
 /** get_issue_chat 입력(WP-373). after 는 이전 응답의 next(메시지 id). 생략하면 내 마지막 글 이후 새 글 + 직전 맥락. */
@@ -250,3 +252,9 @@ export const getIssueChatInput = z.object({
   after: z.number().int().positive().optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });
+
+/**
+ * add_issue_chat 입력(WP-719) — 담당이 아니어도 이슈 챗에 글을 남긴다(멘션받은 질문에 물은 곳에서 답하기). 길이 상한은 두지 않는다 —
+ * @username 이 <@id> 로 바뀌며 길이가 달라지므로 변환 뒤 본문을 서버(@Size 4000)가 검증한다(report_agent_work message 와 같다).
+ */
+export const addIssueChatInput = z.object({ issueKey: z.string().min(1), body: z.string().min(1) });

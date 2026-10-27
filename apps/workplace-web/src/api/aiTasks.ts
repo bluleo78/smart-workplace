@@ -10,6 +10,8 @@ export interface AiTaskCounts {
   // 막힘 + 인증 필요 합.
   blocked: number
   working: number
+  // 대기 중 — 다른 사람·AI 의 차례를 기다리는 작업(WP-1024).
+  waiting: number
   // 다음 회차 대기 — AI 가 양보하고 예정 시각 뒤 이어서 할 작업(WP-450).
   scheduled: number
   // 완료 — 진행 중 작업 없이 종료 작업만 있는 이슈(WP-396).

@@ -12,8 +12,9 @@ import java.util.List;
  * reporterIds 는 OR 결합 — 이슈를 만든 사람(reporter_id 직접 컬럼) 필터. 비어 있으면 미적용. cycleIds 는 OR 결합 — 지정된 사이클 중
  * 하나라도 연결된 이슈만 매칭하며, includeNoOpenCycle·includeNoCycle 과 OR 결합되어 "지정 사이클 또는 백로그(진행 중·예정 사이클 밖) 또는
  * 사이클 미할당" 을 표현한다. milestoneIds 는 OR 결합 — issue.milestone_id 직접 컬럼 매칭(M:N 아님). 비어 있으면 미적용.
- * watcherId 가 있으면 그 사용자가 워치 중인 이슈만(WP-356). pendingForUserId 가 있으면 그 사용자의 마지막 이슈 챗 글 이후 다른 사람 글이 있는
- * 이슈만(WP-373). statusIds 는 OR 결합 — 프로젝트 상태(project_status) id 중 하나와 일치하는 이슈만(WP-807).
+ * watcherId 가 있으면 그 사용자가 워치 중인 이슈만(WP-356). pendingForUserId 가 있으면 그 사용자의 마지막 글(이슈 챗 글·댓글) 이후 다른 사람
+ * 글(챗 글·댓글)이 있는 이슈만(WP-373·WP-719). mentionedUserId 가 있으면 그 사용자를 멘션한 다른 사람 글이 마지막 글 이후에 있는
+ * 이슈만(WP-719). statusIds 는 OR 결합 — 프로젝트 상태(project_status) id 중 하나와 일치하는 이슈만(WP-807).
  * statuses(범주)와는 AND. componentIds·componentNone 은 OR 결합 — 지정 구성요소 중 하나라도 붙은 이슈 또는 구성요소가 없는
  * 이슈(WP-933).
  */
@@ -64,8 +65,8 @@ public record IssueSearchQuery(
     LocalDate createdTo,
     // 워치 필터(WP-356) — 이 사용자가 워치 중인 이슈만. watching=true 면 호출자 id. null 이면 미적용.
     Long watcherId,
-    // 새 글 필터(WP-373) — 이 사용자의 마지막 이슈 챗 글 이후 다른 사람이 글을 남긴 이슈만. pendingForMe=true 면 호출자 id. null 이면
-    // 미적용.
+    // 새 글 필터(WP-373·WP-719) — 이 사용자의 마지막 글(이슈 챗 글·댓글) 이후 다른 사람이 글·댓글을 남긴 이슈만. pendingForMe=true 면
+    // 호출자 id. null 이면 미적용.
     Long pendingForUserId,
     // 개별 상태 필터(WP-807) — statusId·statusName 을 해석한 프로젝트 상태 id 합집합, OR 결합. 비어 있으면 미적용.
     List<Long> statusIds,
@@ -79,7 +80,10 @@ public record IssueSearchQuery(
     boolean fixVersionNone,
     // 영향 버전 필터(WP-888) — 같은 규약, 종류만 AFFECTS. 수정 버전 필터와는 AND.
     List<Long> affectsVersionIds,
-    boolean affectsVersionNone) {
+    boolean affectsVersionNone,
+    // 멘션 필터(WP-719) — 이 사용자의 마지막 글 이후 이 사용자를 멘션한 다른 사람 글이 있는 이슈만. mentionsMe=true 면 호출자 id. null 이면
+    // 미적용.
+    Long mentionedUserId) {
 
   /** 버전 필터 없는 33-인자 호환 생성자 — 버전 필터를 쓰지 않는 호출부용. */
   public IssueSearchQuery(
@@ -153,7 +157,8 @@ public record IssueSearchQuery(
         null,
         false,
         null,
-        false);
+        false,
+        null);
   }
 
   /** 구성요소 필터 없는 31-인자 호환 생성자 — 구성요소 필터를 쓰지 않는 호출부용. */

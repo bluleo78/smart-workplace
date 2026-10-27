@@ -71,6 +71,7 @@ function mockClient(): IssueToolClient {
     getIssueDriveLinks: vi.fn().mockResolvedValue([]),
     getIssueChatThreadId: vi.fn().mockResolvedValue(55),
     getIssueChatThread: vi.fn().mockResolvedValue({ threadId: 55, members: [] }),
+    addIssueChatMessage: vi.fn().mockResolvedValue(undefined),
     searchMembers: vi.fn().mockResolvedValue([]),
     listIssueChatMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     getProjectFields: vi.fn().mockResolvedValue([
@@ -91,11 +92,12 @@ function mockClient(): IssueToolClient {
 }
 
 describe('buildSharedIssueTools', () => {
-  it('정확히 12종을 반환한다', () => {
+  it('정확히 13종을 반환한다', () => {
     const names = buildSharedIssueTools(mockClient()).map((t) => t.name).sort();
     expect(names).toEqual(
       [
         'add_comment',
+        'add_issue_chat',
         'link_issues',
         'add_issue_relation',
         'claim_issue',
@@ -237,16 +239,14 @@ describe('buildSharedIssueTools', () => {
       expect(out).toEqual({ ended: true });
     });
 
-    it('A2A 상태 11종을 받고 옛 WAITING·ENDED 는 거절한다', async () => {
+    it('상태 12종(대기 중 WAITING 포함, WP-1024)을 받고 옛 ENDED 는 거절한다', async () => {
       const c = mockClient();
-      for (const state of ['WORKING', 'INPUT_REQUIRED', 'AUTH_REQUIRED', 'BLOCKED', 'PAUSED', 'REVIEW', 'SCHEDULED', 'COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']) {
+      for (const state of ['WORKING', 'INPUT_REQUIRED', 'AUTH_REQUIRED', 'BLOCKED', 'PAUSED', 'REVIEW', 'WAITING', 'SCHEDULED', 'COMPLETED', 'FAILED', 'CANCELED', 'REJECTED']) {
         await reportTool(c).handler({ issueKey: 'WP-12', state });
       }
-      expect(c.reportAgentWork).toHaveBeenCalledTimes(11);
-      for (const state of ['WAITING', 'ENDED']) {
-        await expect(reportTool(c).handler({ issueKey: 'WP-12', state })).rejects.toThrow();
-      }
-      expect(c.reportAgentWork).toHaveBeenCalledTimes(11);
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(12);
+      await expect(reportTool(c).handler({ issueKey: 'WP-12', state: 'ENDED' })).rejects.toThrow();
+      expect(c.reportAgentWork).toHaveBeenCalledTimes(12);
     });
 
     it('SCHEDULED 보고는 nextRunAt 을 그대로 넘기고 응답 시각은 KST 로 바꾼다', async () => {
@@ -1039,6 +1039,27 @@ describe('buildSharedIssueTools', () => {
     await expect(t.handler({ issueKey: 'WP-1', otherIssueKey: 'WP-2', direction: 'blocks' })).rejects.toThrow();
     expect(c.addIssueDependency).not.toHaveBeenCalled();
     expect(c.removeIssueDependency).not.toHaveBeenCalled();
+  });
+});
+
+describe('add_issue_chat (WP-719)', () => {
+  const chatTool = (c: IssueToolClient) => buildSharedIssueTools(c).find((x) => x.name === 'add_issue_chat')!;
+
+  it('이슈 키로 스레드를 찾아 글을 남기고 @username 을 멘션 토큰으로 바꾼다', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockImplementation(async ({ search }) =>
+      [{ userId: 7, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' }].filter((m) => m.username.includes(String(search))),
+    );
+    const out = await chatTool(c).handler({ issueKey: 'WP-1', body: '@dh.yang@iacloud.kr 원인은 X 입니다' });
+    expect(c.getIssueChatThreadId).toHaveBeenCalledWith('WP-1');
+    expect(c.addIssueChatMessage).toHaveBeenCalledWith(55, '<@7> 원인은 X 입니다');
+    expect(resultText(out)).toBe('ok');
+  });
+
+  it('빈 본문은 보내기 전에 거절한다', async () => {
+    const c = mockClient();
+    await expect(chatTool(c).handler({ issueKey: 'WP-1', body: '' })).rejects.toThrow();
+    expect(c.addIssueChatMessage).not.toHaveBeenCalled();
   });
 });
 

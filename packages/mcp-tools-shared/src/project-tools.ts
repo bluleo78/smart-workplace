@@ -324,13 +324,13 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: 'issue',
       kind: 'read',
       description:
-        'Lists issues (이슈) as {items, hasMore?, nextCursor?} (size default 30). If hasMore, pass nextCursor as cursor with the same filters, or say ' +
-        'the list is partial; a next page may be empty. due/closed/created From-To: yyyy-MM-dd, inclusive, closed/created in KST; for finished ' +
-        'work add status=DONE (closed ranges also match CANCELED). Unknown names fail. Items: issueKey, main fields, parent, children, blocked, ' +
-        'agentWork (dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
+        'Lists issues (이슈) as {items, hasMore?, nextCursor?} (size default 30). If hasMore, pass nextCursor as cursor with the same filters or ' +
+        'say the list is partial. due/closed/created From-To: yyyy-MM-dd, inclusive, closed/created in KST; for finished ' +
+        'work add status=DONE (closed ranges also match CANCELED). Items: issueKey, main fields, parent, children, blocked, ' +
+        'agentWork (empty keys omitted); body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
-        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, ...p } = listIssuesInput.parse(args);
+        const { priority, size, cycle: cycleCsv, milestone: milestoneCsv, fixVersion: fixVersionCsv, affectsVersion: affectsVersionCsv, parent, field, watching, pendingForMe, mentionsMe, ...p } = listIssuesInput.parse(args);
         // WP-356: 부모는 이슈 키로 받는다 — 서버 parent 는 프로젝트 안의 번호라 키의 프로젝트로 범위를 고정한다(없으면 모든 프로젝트의 같은 번호가 걸린다).
         let projectKey = p.projectKey;
         let parentNumber: number | undefined;
@@ -342,7 +342,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
           projectKey = key.projectKey;
           parentNumber = key.number;
         }
-        const assignee = defaultListAssignee({ ...p, watching, parent });
+        const assignee = defaultListAssignee({ ...p, watching, parent, mentionsMe });
         // WP-807: status CSV 의 범주는 서버 status, 그 밖의 값은 statusName 으로 나눈다 — 이름 해석(모르는 이름 400 + 사용 가능 목록)은 서버가 한다.
         // projectKey 가 없으면 서버가 볼 수 있는 모든 프로젝트의 같은 이름 상태를 OR 로 맞춘다.
         const statusTokens = p.status ? splitStatusTokens(p.status) : undefined;
@@ -376,6 +376,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
             ...fieldFilter,
             watching: watching || undefined,
             pendingForMe: pendingForMe || undefined,
+            mentionsMe: mentionsMe || undefined,
           }).filter((e): e is [string, string | number | boolean] => e[1] !== undefined),
         );
         if (priority?.length) query.priority = priority.join(',');

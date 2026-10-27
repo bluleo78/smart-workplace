@@ -21,6 +21,11 @@ public final class MentionParser {
   // 자릿수 상한(18)으로 bigint 범위를 넘는 토큰 차단 — Long.parseLong overflow(500) 방지.
   private static final Pattern P = Pattern.compile("<@(\\d{1,18})>");
 
+  /** 사용자 id 의 멘션 토큰({@code <@id>}) — 토큰 형식을 이 클래스 한 곳에 둔다(본문 검색 등 SQL 쪽도 이것으로 만든다, WP-719). */
+  public static String token(long id) {
+    return "<@" + id + ">";
+  }
+
   public static List<Long> parse(String body) {
     if (body == null || body.isEmpty()) return List.of();
     Matcher m = P.matcher(body);

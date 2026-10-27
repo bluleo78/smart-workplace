@@ -289,6 +289,12 @@ describe('list_issues', () => {
     expect(issueQuery(c)).toStrictEqual({ pendingForMe: true, assignee: 'me', size: 30 });
   });
 
+  it('mentionsMe 를 서버 쿼리로 넘기고 담당 밖 이슈도 보도록 기본 assignee=me 를 붙이지 않는다 (WP-719)', async () => {
+    const c = mockClient();
+    await tool(c, 'list_issues').handler({ projectKey: 'WP', mentionsMe: true });
+    expect(issueQuery(c)).toStrictEqual({ projectKey: 'WP', mentionsMe: true, size: 30 });
+  });
+
   it('assignee·reporter 모두 생략 시 assignee=me, 기본 size 30, undefined 필드는 쿼리에 없다', async () => {
     const c = mockClient();
     await tool(c, 'list_issues').handler({ status: 'TODO' });

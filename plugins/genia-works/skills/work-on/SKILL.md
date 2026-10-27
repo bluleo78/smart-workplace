@@ -16,12 +16,13 @@ description: Use when the user asks you to work on a genia-works issue (e.g. "WP
    - 맡은 뒤 `report_agent_work({ issueKey, state: 'WORKING', note: '<맡은 항목 요약>' })` 로 되돌린다.
 4. 작업 중 규칙
    - 사용자에게 질문하기 **직전** `state: 'INPUT_REQUIRED'`, note 에 질문 한 줄.
-   - 질문한 뒤에는 `get_issue_chat({ issueKey })`(after 생략)으로 내 마지막 글 이후 새 글을 읽어 답을 확인한다. 더 있으면 응답의 `next` 를 `after` 로 넘긴다. 첨부는 `read_file({ source: 'issue_chat', issueKey, messageId, attachmentId })`.
+   - 질문한 뒤에는 `get_issue_chat({ issueKey })`(after 생략)으로 내 마지막 글 이후 새 글을 읽어 답을 확인한다. 답이 댓글로 올 수도 있다 — `get_issue_detail` 의 `comments` 도 본다. 더 있으면 응답의 `next` 를 `after` 로 넘긴다. 첨부는 `read_file({ source: 'issue_chat', issueKey, messageId, attachmentId })`.
    - 여러 이슈를 돌며 답을 기다릴 때는 `list_issues({ pendingForMe: true })` 로 새 글이 온 이슈만 고른다.
    - 인증·권한이 필요해 진행할 수 없으면 `state: 'AUTH_REQUIRED'`, note 에 필요한 것 한 줄(예: 어떤 토큰·권한).
    - 할 일 목록을 세우거나 바뀌면 `stepsDone`/`stepsTotal` 갱신, 큰 단계마다 note 갱신. `stepsDone` 은 항상 `stepsTotal` 과 함께 보낸다(`stepsDone` 만 보내면 서버가 거부한다).
    - 막히면 `state: 'BLOCKED'` + note 에 이유.
    - 사용자가 멈추라고 하면 `state: 'PAUSED'`.
+   - 다른 사람·AI 의 차례를 기다리면(리뷰를 맡김, 다른 AI 에게 물음) `state: 'WAITING'` + note 에 무엇·누구(예: `PR #12 리뷰 — AI 팀장`). 답변 필요는 사람이 결정해야 할 때만 쓴다(사람의 할 일·질문 알림이 된다). 상대의 글이 오면 `WORKING` 으로 되돌려 이어 한다.
    - 다른 일에 양보하고 정한 시각 이후에 이어 하려면 `state: 'SCHEDULED'` + `nextRunAt`(ISO 시각, 오프셋이 없으면 KST). 시각은 보낼 때마다 다시 넣는다 — 빼면 지워져 「다른 일 다음에 이어서」가 된다. 이어 할 때는 `WORKING` 으로 보고한다(다른 쓰기로는 다음 회차 대기가 풀리지 않는다).
    - 사용자가 답하거나 필요한 인증·권한을 받아 다시 진행할 수 있게 되면 바로 `report_agent_work({ issueKey, state: 'WORKING', note: '<이어서 할 일 한 줄, 예: A안으로 진행>' })` 로 작업 중으로 되돌린다(작업 쓰기(본문·상태·코멘트·첨부)를 하기 전까지는 "답변 필요"·"인증 필요" 로 남고(라벨·담당자·우선순위 같은 정리는 상태를 바꾸지 않는다), 특히 인증 필요는 사용자 답 글로도 풀리지 않는다). 새 note 를 함께 보내야 한다 — 없으면 앞의 note 가 지워져 빈 채로 남는다. 답을 읽고 되돌릴 때는 `message` 로 받은 답을 한 줄로 확인해 남긴다(예: 「1, 2번을 맡았어요」) — 내 글이 남아야 그 이슈가 `pendingForMe` 에서 빠진다.
    - 질문·보고에 시안·스크린샷 같은 파일이 필요하면 `upload_file` 로 올린 `fileId` 를 그 호출의 `fileIds` 로 붙인다(`message` 가 있어야 붙는다). 로컬 경로만 적으면 다른 환경의 사람은 볼 수 없다.

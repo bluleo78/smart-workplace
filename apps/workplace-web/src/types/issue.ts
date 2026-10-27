@@ -46,8 +46,8 @@ export interface IssueLinkSummary {
   statusColor?: string | null;
 }
 
-// AI 에이전트 작업 상태 — 서버 AgentWorkState 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED·SCHEDULED) (WP-377·WP-450).
-// 진행 상태 8종은 어디서나 내려오고, 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 AI 위임 작업 「완료」 보기의
+// AI 에이전트 작업 상태 — 서버 AgentWorkState 와 1:1, A2A 1.0 어휘 + 플랫폼 확장(REVIEW·BLOCKED·PAUSED·WAITING·SCHEDULED) (WP-377·WP-450·WP-1024).
+// 진행 상태 9종은 어디서나 내려오고, 종료 상태(COMPLETED·FAILED·CANCELED·REJECTED)는 AI 위임 작업 「완료」 보기의
 // 대표 작업(진행 중 작업이 없는 이슈의 가장 최근 종료 1건)으로만 내려온다(WP-396).
 export type AgentWorkState =
   | 'SUBMITTED'
@@ -57,6 +57,7 @@ export type AgentWorkState =
   | 'REVIEW'
   | 'BLOCKED'
   | 'PAUSED'
+  | 'WAITING'
   | 'SCHEDULED'
   | 'COMPLETED'
   | 'FAILED'

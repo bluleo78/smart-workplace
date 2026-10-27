@@ -114,6 +114,18 @@ class AgentWorkAutoStartTest extends AgentWorkTestSupport {
     assertThat(w.tool()).isEqualTo("cursor");
   }
 
+  /**
+   * WP-1024: 대기 중(WAITING)도 이슈 쓰기로 작업 중으로 되돌리지 않는다 — 상대를 기다리는 사이의 쓰기(답·PR 링크)로 무엇을 기다리는지가 사라지지 않게.
+   */
+  @Test
+  void waiting_keepsState_onMcpWrite() {
+    seedActive(issueId, humanId, "WAITING");
+    assertOk(patch(patToken, Map.of("title", "진행"), "cursor"));
+    var w = activeWork(issueId, humanId).orElseThrow();
+    assertThat(w.state()).isEqualTo("WAITING");
+    assertThat(w.tool()).isEqualTo("cursor");
+  }
+
   @Test
   void 경고없는_쓰기는_updated_at_갱신() {
     var seeded = OffsetDateTime.now().minusHours(3);

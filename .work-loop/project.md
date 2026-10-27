@@ -137,7 +137,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 - **CI(GitHub Actions, WP-993)**: PR(main 대상)·main push 마다 `.github/workflows/ci.yml` 의 `verify`(전체 `pnpm lint`·`pnpm typecheck`·웹 vitest)가 돈다. `main` 브랜치 보호가 `verify` 를 required check 로 건다 — 최신 main 포함 요구(strict)는 끈다(충돌 없는 낡은 브랜치도 머지 — WP-998), PR 필수는 아니고 관리자 직접 push 는 막지 않는다.
   - 검토자는 머지 전에 `gh pr checks <번호>` 로 `verify` 통과를 확인한다(진행 중이면 기다리고, 실패면 실패한 단계·로그 요지를 적어 반려한다).
   - 머지는 **`--admin` 없이** `gh pr merge --merge …` 로만 한다. AI 들이 관리자 계정을 함께 쓰므로 `--admin` 을 붙이면 보호가 뚫린다 — 어떤 경우에도 붙이지 않는다(거절되면 이유를 보고 고치거나 BLOCKED).
-  - main push 의 CI 가 실패하면(`gh run list --branch main --workflow CI --limit 5`) 다음 확인 때 알아채고, 깨뜨린 커밋의 이슈 챗(없으면 담당자에게)으로 실패 단계·로그 요지를 알린다.
+  - main push 의 CI 실패는 9절 「할 일 없을 때」에서 확인해 알린다.
 - 검토자는 PR 이 더한 E2E 마다 판정 태그가 그 테스트에 맞는지 본다 — 태그가 붙어 있어도 실제로는 payload·권한·문구만 보는 테스트면 vitest 로 옮기라고 반려한다(2절 「웹 테스트를 어디에 쓰나」).
 - 마이그레이션(`db/migration/`)이 든 PR 을 rebase 하면 버전 번호(`V<n>__`)가 origin/main 의 마지막보다 큰지 다시 보고, 겹치면 올린 뒤 `./gradlew generateJooq` 결과를 함께 커밋한다.
 
@@ -146,3 +146,7 @@ LIVE_STACK_NAME=work-loop scripts/live-stack.sh down                 # 이 이�
 개발한 PR 을 리뷰·머지하는 AI 팀장(`SKILL.md` 「검토자」). 비어 있으면 PR 을 사람이 리뷰·머지한다.
 
 - username: `teamleader@iacloud.kr`(AI 팀장)
+
+## 9. 할 일 없을 때 (`SKILL.md` 3번 「할 일 없음」)
+
+- **main CI 실패**: `gh run list --branch main --workflow CI --limit 5` 에서 가장 최근 실행이 실패면, 깨뜨린 커밋(실행의 `headSha`) 제목의 이슈 키로 그 이슈 챗에 실패 단계·로그 요지(`gh run view <id> --log-failed` 끝부분)를 알린다(상태가 바뀌지 않으니 `add_issue_chat`). 이슈 키가 없으면 실행 끝 요약에만 적는다. 이미 같은 실행을 알렸으면(그 이슈 챗에 실행 id 가 있으면) 다시 알리지 않는다. 내 이슈면 고친다 — 그 이슈를 이번 부르기의 이슈로 골라 처리한다.

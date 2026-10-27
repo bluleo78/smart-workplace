@@ -6,16 +6,19 @@ import { AGENT_STATE_LABEL, TERMINAL_AGENT_STATES } from '@/lib/agentWork'
 import { meFacetParams } from '../meFacetParams'
 
 /**
- * 빠른 필터 칩이 다루는 값(URL `state`) — AI 진행 상태 칩 다섯(답변·검토·막힘·작업 중·다음 회차 대기) + 완료(DONE, WP-396). state 가 없으면 「미완료」(진행 중 작업이 있는 이슈 전부).
- * 일시 중지·시작 전은 칩이 없어 URL 로 와도 무시한다(옛 값 WAITING 포함).
+ * 빠른 필터 칩이 다루는 값(URL `state`) — AI 진행 상태 칩 여섯(답변·검토·막힘·작업 중·대기 중·다음 회차 대기) + 완료(DONE, WP-396). state 가 없으면 「미완료」(진행 중 작업이 있는 이슈 전부).
+ * 일시 중지·시작 전은 칩이 없어 URL 로 와도 무시한다.
  */
-export type QuickState = 'INPUT_REQUIRED' | 'REVIEW' | 'BLOCKED' | 'WORKING' | 'SCHEDULED' | 'DONE'
+export type QuickState = 'INPUT_REQUIRED' | 'REVIEW' | 'BLOCKED' | 'WORKING' | 'WAITING' | 'SCHEDULED' | 'DONE'
 
-/** 칩 순서 — (미완료) 다음 내가 움직여야 하는 상태(답변·검토) 먼저, 다음 회차 대기는 작업 중 바로 뒤(AI 가 알아서 이어가는 상태), 완료는 미완료와 배타인 별도 보기라 맨 끝. */
-export const QUICK_STATES: QuickState[] = ['INPUT_REQUIRED', 'REVIEW', 'BLOCKED', 'WORKING', 'SCHEDULED', 'DONE']
+/**
+ * 칩 순서 — (미완료) 다음 내가 움직여야 하는 상태(답변·검토) 먼저, 작업 중 뒤에 AI 가 사람 손 없이 이어 가는 대기 중(WP-1024)·다음 회차 대기,
+ * 완료는 미완료와 배타인 별도 보기라 맨 끝.
+ */
+export const QUICK_STATES: QuickState[] = ['INPUT_REQUIRED', 'REVIEW', 'BLOCKED', 'WORKING', 'WAITING', 'SCHEDULED', 'DONE']
 
 /** 칩 건수 키 — /me/ai-tasks/counts 응답 필드명(칩 testid 에도 쓴다). */
-export type QuickCountKey = 'inputRequired' | 'review' | 'blocked' | 'working' | 'scheduled' | 'done'
+export type QuickCountKey = 'inputRequired' | 'review' | 'blocked' | 'working' | 'waiting' | 'scheduled' | 'done'
 
 /**
  * 칩별 표시·서버 대응 — label 은 칩 글자, countKey 는 건수 필드, agentState 는 목록 요청의 쉼표 구분 상태.
@@ -27,6 +30,7 @@ export const QUICK_STATE_META: Record<QuickState, { label: string; countKey: Qui
   REVIEW: { label: AGENT_STATE_LABEL.REVIEW, countKey: 'review', agentState: 'REVIEW' },
   BLOCKED: { label: AGENT_STATE_LABEL.BLOCKED, countKey: 'blocked', agentState: 'BLOCKED,AUTH_REQUIRED' },
   WORKING: { label: AGENT_STATE_LABEL.WORKING, countKey: 'working', agentState: 'WORKING' },
+  WAITING: { label: AGENT_STATE_LABEL.WAITING, countKey: 'waiting', agentState: 'WAITING' },
   SCHEDULED: { label: AGENT_STATE_LABEL.SCHEDULED, countKey: 'scheduled', agentState: 'SCHEDULED' },
   DONE: { label: AGENT_STATE_LABEL.COMPLETED, countKey: 'done', agentState: TERMINAL_AGENT_STATES.join(',') },
 }
