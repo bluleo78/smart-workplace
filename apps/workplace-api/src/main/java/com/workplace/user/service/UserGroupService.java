@@ -12,6 +12,7 @@ import com.workplace.user.dto.UserGroupTreeResponse;
 import com.workplace.user.exception.InvalidUserGroupException;
 import com.workplace.user.exception.UserGroupForbiddenException;
 import com.workplace.user.exception.UserGroupNotFoundException;
+import com.workplace.user.outbound.DepartmentMembersReduced;
 import com.workplace.user.repository.UserGroupRepository;
 import com.workplace.user.repository.UserGroupRepository.FlatGroup;
 import com.workplace.user.repository.UserGroupRepository.GroupMemberRow;
@@ -22,9 +23,13 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +44,7 @@ public class UserGroupService {
 
   private final UserGroupRepository repo;
   private final PermissionChecker permissionChecker;
+  private final ApplicationEventPublisher publisher;
 
   /** 공유 조직도 + 호출자 개인 그룹 트리. */
   @Transactional(readOnly = true)
@@ -214,6 +220,10 @@ public class UserGroupService {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + name);
     }
     requireUniqueCode(g.visibility(), code, id);
+    // 다른 상위 부서 아래로 옮기면(최상위로 포함) 옛 상위 부서의 구성원이 줄어든다 — 노트 부서 공유가 열린 화면을 다시 판정하게 알린다(WP-1042).
+    if (!Objects.equals(parentId, g.parentId())) {
+      publishMembersReduced(g, ancestorIds(g.parentId()));
+    }
     repo.update(id, name, parentId, code, sortOrder);
     return toDetail(
         callerId, repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
@@ -222,7 +232,11 @@ public class UserGroupService {
   /** 그룹 삭제(서브트리·멤버십 캐스케이드). */
   @Transactional
   public void delete(long callerId, long id) {
-    validateDeletable(callerId, id);
+    FlatGroup g = requireWritable(callerId, id);
+    // 지울 부서·하위 부서와 그 상위 부서의 구성원이 줄어든다. 부서를 대상으로 한 공유 행은 지우면 사라지므로 지우기 전에 알린다(WP-1042).
+    Set<Long> affected = new LinkedHashSet<>(ancestorIds(g.parentId()));
+    affected.addAll(subtreeRanks(repo.findAccessible(treeOwner(g, callerId)), id).keySet());
+    publishMembersReduced(g, affected);
     repo.delete(id);
   }
 
@@ -271,11 +285,36 @@ public class UserGroupService {
       throw new InvalidUserGroupException(
           "알 수 없는 대상 종류입니다: " + targetType + " (MEMBER 또는 EXTERNAL)");
     }
-    requireWritable(callerId, id);
+    FlatGroup g = requireWritable(callerId, id);
+    if ("MEMBER".equals(targetType)) {
+      // 뺀 부서와 그 상위 부서는 하위 부서 구성원까지 열린다 — 이 사람이 다른 소속이 없으면 부서 공유 접근을 잃는다(WP-1042).
+      Set<Long> affected = new LinkedHashSet<>(ancestorIds(g.parentId()));
+      affected.add(id);
+      publishMembersReduced(g, affected);
+    }
     repo.removeMember(id, targetType, targetId);
   }
 
   // --- 내부 헬퍼 ---
+
+  /** parentId 부터 위로 올라가는 상위 부서 id(가까운 순). 사이클이 있어도 한 번씩만. */
+  private List<Long> ancestorIds(Long parentId) {
+    List<Long> out = new ArrayList<>();
+    for (Long cur = parentId; cur != null && !out.contains(cur); ) {
+      out.add(cur);
+      cur = repo.findById(cur).map(FlatGroup::parentId).orElse(null);
+    }
+    return out;
+  }
+
+  /** 조직도 부서(SHARED)의 구성원이 줄었음을 알린다 — 개인 그룹은 노트 공유 대상이 아니므로 알리지 않는다. */
+  private void publishMembersReduced(FlatGroup g, Collection<Long> groupIds) {
+    if (!"SHARED".equals(g.visibility()) || groupIds.isEmpty()) {
+      return;
+    }
+    publisher.publishEvent(
+        new DepartmentMembersReduced(TenantContext.require(), List.copyOf(groupIds)));
+  }
 
   /** 쓰기 권한 판정 — 미존재→404, PERSONAL 비소유자(비-admin)→404, SHARED 비-manage(비-admin)→403. */
   private FlatGroup requireWritable(long callerId, long id) {
