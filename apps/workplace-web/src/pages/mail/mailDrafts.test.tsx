@@ -8,10 +8,10 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { renderMail } from '@/test/kits/mail/testkit-b4'
 import type { MailDraftDetail, MailDraftSaveRequest, MailDraftSummary } from '@/types/mailDraft'
 
 import { detail, draftDetail, summary } from '../../../e2e/factories/mail.factory'
-import { renderMail } from './testkit-b4'
 
 const DEBOUNCE = 1500
 const SEND_PATH = '/api/v1/mail/accounts/1/send'

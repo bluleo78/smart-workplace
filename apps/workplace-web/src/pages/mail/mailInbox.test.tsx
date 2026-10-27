@@ -7,10 +7,10 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { record, renderMail, unreadCounts } from '@/test/kits/mail/testkit-b4'
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail, unreadCounts } from './testkit-b4'
 
 const LIST = '/api/v1/mail/accounts/1/messages'
 

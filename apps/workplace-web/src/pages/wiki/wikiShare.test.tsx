@@ -9,11 +9,11 @@ import { Route, Routes, useParams } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { WikiSharePublicViewContext } from '@/components/wiki/wikiSharePublicView'
+import { attachSilentCollab,editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
 import { renderScreen } from '@/test/renderScreen'
 import type { WikiPublicShare, WikiShareAccessRequestResult, WikiShareResolved } from '@/types/wiki'
 
 import { wikiPageDetail, wikiPageSummary } from '../../../e2e/factories/wiki.factory'
-import { attachSilentCollab,editorSideHandlers } from './testkit-b3-msw'
 import { WikiOpenPage } from './WikiOpenPage'
 import { WikiPublicSharePage } from './WikiPublicSharePage'
 import { WikiSharePage } from './WikiSharePage'

@@ -7,11 +7,11 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { record, renderMail, unreadCounts } from '@/test/kits/mail/testkit-b4'
 import type { MailFolderSyncResult, MailServerFolder } from '@/types/mailFolder'
 import type { EmailMessageSummary, MailOlderResult } from '@/types/mailMessage'
 
 import { mailAccount, mailServerFolder, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail, unreadCounts } from './testkit-b4'
 
 const LIST = '/api/v1/mail/accounts/1/messages'
 const OLDER = '/api/v1/mail/accounts/1/messages/older'

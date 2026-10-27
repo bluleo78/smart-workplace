@@ -1,4 +1,4 @@
-/* eslint-disable react-refresh/only-export-components -- 테스트 전용 도구라 HMR 대상이 아니다(화면 컴포넌트와 MSW 핸들러를 한 파일에서 낸다). */
+ 
 // 팀 채팅 화면 테스트 공용 도구(WP-966 웨이브 3 b5) — e2e/pages/chat/* 에서 옮긴 판정이 같이 쓴다.
 // App·인증 부팅·앱 셸(레일·AI 패널)을 거치지 않고 채팅 라우트(사이드바 레이아웃 + 채널·DM·스레드 인박스 화면)만
 // renderScreen 으로 띄운다. 실시간 SSE 는 앱 셸(AppLayout)이 구독하므로, 같은 구독(useEventStream)과 연결 상태 컨텍스트만
@@ -27,7 +27,7 @@ import type {
   MessageResponse,
 } from "@/types/messaging";
 
-import { createPageResponse } from "../../../e2e/fixtures/api-mock";
+import { createPageResponse } from "../../../../e2e/fixtures/api-mock";
 
 export const API = "/api/v1";
 export const ME_ID = 1;

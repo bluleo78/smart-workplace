@@ -7,10 +7,10 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { API, renderChat } from '@/test/kits/chat/testkit-b5'
 import { testAuthValue } from '@/test/renderWithProviders'
 
 import { createChannel, createDm, createDmParticipant } from '../../../e2e/factories/messaging.factory'
-import { API, renderChat } from './testkit-b5'
 
 const auth = { user: { ...testAuthValue.user!, name: '테스트 사용자' } }
 

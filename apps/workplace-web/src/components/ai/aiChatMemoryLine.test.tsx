@@ -6,8 +6,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 
-import type { MemoryBlock } from '@/types/home'
-
 import {
   aiPreferences,
   ask,
@@ -23,7 +21,8 @@ import {
   summary,
   TITLE_A,
   TITLE_B,
-} from './testkit-b2a'
+} from '@/test/kits/ai/testkit-b2a'
+import type { MemoryBlock } from '@/types/home'
 
 const C = { correlationId: 'corr-a', sessionId: 's-a' }
 const lines = () => screen.queryAllByTestId('chat-memory-result')

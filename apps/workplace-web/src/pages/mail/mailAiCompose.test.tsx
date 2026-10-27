@@ -7,10 +7,10 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 import type { ComposeDraftResult } from '@/types/mailMessage'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail } from './testkit-b4'
 
 const DRAFT_PATH = '/api/v1/mail/accounts/1/compose-draft'
 const INSTRUCTION = '다음 주 회의를 목요일로 옮기자고 요청'

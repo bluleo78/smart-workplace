@@ -9,6 +9,7 @@ import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { withAppProviders } from '@/test/kits/appProviders'
+import { attachSilentCollab,editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
@@ -16,7 +17,6 @@ import type { WikiPageShare, WikiPageShareState, WikiShareResolved } from '@/typ
 
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
 import { WikiModuleRoutes } from './testkit-b3'
-import { attachSilentCollab,editorSideHandlers } from './testkit-b3-msw'
 import { WikiSharePage } from './WikiSharePage'
 
 mockViewport()

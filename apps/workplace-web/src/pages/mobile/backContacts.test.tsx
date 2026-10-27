@@ -7,12 +7,12 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
 import { ContactModuleLayout } from '@/components/contacts/ContactModuleLayout'
+import { emptyTree } from '@/test/kits/contacts/testkit-b8'
 import { contactHandlers } from '@/test/kits/mobile/contacts'
 import { renderMobileModule } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { ContactsPage } from '../contacts/ContactsPage'
-import { emptyTree } from '../contacts/testkit-b8'
 
 /** /contacts 화면(모듈 레이아웃 + 목록·상세) — 모바일 헤더가 AI 버튼(useAssistant)을 읽어 AppLayout 상태 Provider 와 함께 띄운다. */
 function renderContacts(path: string) {

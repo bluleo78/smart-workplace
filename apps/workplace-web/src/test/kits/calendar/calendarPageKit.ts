@@ -13,8 +13,8 @@ import { renderScreen } from '@/test/renderScreen'
 import type { Calendar, CalendarEvent } from '@/types/calendar'
 import type { IssueResponse } from '@/types/issue'
 
-import { calendar, calendarEvent } from '../../../e2e/factories/calendar.factory'
-import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { calendar, calendarEvent } from '../../../../e2e/factories/calendar.factory'
+import { createIssue, createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
 
 /** E2E 와 같은 「지금」 — 2026-06-10 12:00 KST(수). 월 보기가 2026년 6월을 그린다. */
 export const NOW = new Date('2026-06-10T03:00:00Z')

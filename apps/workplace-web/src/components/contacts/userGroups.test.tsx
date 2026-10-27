@@ -8,7 +8,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
 
 import type { AuthContextValue } from '@/hooks/auth-context-value'
-import { ADMIN, record, type Recorded, renderContacts } from '@/pages/contacts/testkit-b8'
+import { ADMIN, record, type Recorded, renderContacts } from '@/test/kits/contacts/testkit-b8'
 
 import { page as makePage } from '../../../e2e/factories/contacts.factory'
 import {

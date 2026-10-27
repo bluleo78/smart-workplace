@@ -5,9 +5,8 @@
 import { screen, waitFor } from '@testing-library/react'
 import { expect, test } from 'vitest'
 
+import { emptyTree, renderContacts } from '@/test/kits/contacts/testkit-b8'
 import { contactHandlers } from '@/test/kits/mobile/contacts'
-
-import { emptyTree, renderContacts } from '../contacts/testkit-b8'
 
 // 필터를 바꾸면 이전 필터 결과에서 고른 상세는 더 이상 유효하지 않으므로 contact 키를 지우고 빈 상세로 돌아간다.
 test('딥링크 상세에서 필터를 바꾸면 contact 키가 함께 지워진다', async () => {

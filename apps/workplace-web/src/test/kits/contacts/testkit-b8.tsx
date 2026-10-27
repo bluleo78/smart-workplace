@@ -6,9 +6,8 @@ import { Route, Routes } from 'react-router-dom'
 
 import { ContactModuleLayout } from '@/components/contacts/ContactModuleLayout'
 import type { AuthContextValue } from '@/hooks/auth-context-value'
+import { ContactsPage } from '@/pages/contacts/ContactsPage'
 import { renderScreen } from '@/test/renderScreen'
-
-import { ContactsPage } from './ContactsPage'
 
 /** 요청 본문·주소를 모으는 기록기 — 쓰기 요청 payload 와 목록 쿼리를 단언할 때 쓴다. */
 export type Recorded = { url: URL; body: unknown }

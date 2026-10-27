@@ -7,8 +7,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { card, cardById, catalog, headerLink, issues, layout, notification, order, renderDashboard } from '@/test/kits/home/dashboardKit-b1'
+
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
-import { card, cardById, catalog, headerLink, issues, layout, notification, order, renderDashboard } from './dashboardKit-b1'
 
 /** 컴포넌트와 같은 로컬 오늘 키(yyyy-MM-dd). */
 function todayKey(): string {

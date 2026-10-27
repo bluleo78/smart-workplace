@@ -7,8 +7,9 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { record, renderMail } from '@/test/kits/mail/testkit-b4'
+
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail } from './testkit-b4'
 
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
 

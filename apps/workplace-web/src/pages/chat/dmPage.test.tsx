@@ -8,11 +8,11 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { API, renderChat } from '@/test/kits/chat/testkit-b5'
 import { testAuthValue } from '@/test/renderWithProviders'
 import type { DmResponse } from '@/types/messaging'
 
 import { createChannel, createDm, createDmParticipant, createMessage } from '../../../e2e/factories/messaging.factory'
-import { API, renderChat } from './testkit-b5'
 
 const MY_NAME = '테스트 사용자'
 /** E2E 의 로그인 사용자와 같은 이름 — 셀프 DM 라벨 「테스트 사용자 (나)」를 그대로 단언한다. */

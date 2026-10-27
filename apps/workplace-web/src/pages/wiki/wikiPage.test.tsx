@@ -10,6 +10,7 @@ import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { wikiLastVisitedKey,writeWikiLastVisited } from '@/lib/wikiLastVisited'
+import { attachSilentCollab,editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
 import { renderScreen } from '@/test/renderScreen'
 import type {
   WikiBacklink,
@@ -24,7 +25,6 @@ import type {
 
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
 import { WikiModuleRoutes } from './testkit-b3'
-import { attachSilentCollab,editorSideHandlers } from './testkit-b3-msw'
 
 const PERSONAL = wikiSpace({ id: 1, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })
 

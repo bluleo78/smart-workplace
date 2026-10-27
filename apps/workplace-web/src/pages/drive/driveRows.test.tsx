@@ -10,12 +10,12 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import type { renderScreen } from '@/test/renderScreen'
 import type { DriveFile, DriveFolder, DriveSpace } from '@/types/drive'
 
 import { createFile, createFolder, createSpace, createVersion, personalSpace } from '../../../e2e/factories/drive.factory'
-import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from './testkit-b6'
 
 const SPACE_ID = 1
 
