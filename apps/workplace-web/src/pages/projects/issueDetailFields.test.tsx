@@ -342,9 +342,10 @@ describe('에픽 계층', () => {
         body: '',
       })
     const { user } = await openDetail(detail(), {
-      search: (url) => (url.searchParams.get('parent') === '1' ? children : []),
       extra: [
         http.get(ISSUE, () => HttpResponse.json(detail())),
+        // 에픽 하위는 하위 목록 API 로 받는다(WP-1038).
+        http.get(`${ISSUE}/children`, () => HttpResponse.json({ items: children, hiddenCount: 0 })),
         http.post(`${API}/projects/${KEY}/issues`, async ({ request }) => {
           const p = (await request.json()) as { title: string; typeId: number; parentNumber: number }
           posts.push(p)
@@ -372,7 +373,7 @@ describe('에픽 계층', () => {
   test('완료 에픽 상세는 하위 추가 입력 대신 「다시 열면 추가할 수 있습니다」 안내를 보인다', async () => {
     const child = createIssue({ id: 2, number: 2, title: '끝난 하위', status: 'DONE', parent: { number: 1, title: '끝난 에픽', type: epicType } })
     await openDetail(detailWith({ title: '끝난 에픽', status: 'DONE', type: epicType, childCount: 1, childDoneCount: 1 }), {
-      search: (url) => (url.searchParams.get('parent') === '1' ? [child] : []),
+      extra: [http.get(`${ISSUE}/children`, () => HttpResponse.json({ items: [child], hiddenCount: 0 }))],
     })
     expect(await screen.findByTestId('child-row-2')).toBeInTheDocument()
     expect(screen.getByTestId('child-add-done-epic-hint')).toHaveTextContent(

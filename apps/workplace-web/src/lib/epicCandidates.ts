@@ -48,3 +48,19 @@ export function matchEpicCandidates<T extends EpicCandidateSource>(
     .slice(0, limit)
     .map((x) => x.e)
 }
+
+/**
+ * 관계 찾기 결과에서 다른 프로젝트 에픽만 남긴다(WP-1039). 유형·열린 상태·같은 프로젝트 제외는 서버가 상한 전에 이미 걸렀다
+ * (type=EPIC·openOnly·excludeFrom) — 같은 프로젝트 에픽은 받아 둔 목록(위쪽 후보)이 맡으므로 겹치지 않게 지키는 최소 거름만 둔다.
+ */
+export function otherProjectEpics<T extends { projectKey: string }>(items: readonly T[], projectKey: string): T[] {
+  return items.filter((i) => i.projectKey !== projectKey)
+}
+
+/**
+ * 다른 프로젝트 에픽을 찾을 검색어인가(WP-1039) — 번호만 친 입력(12·#12)은 같은 프로젝트 번호 지정이라 묻지 않는다.
+ * 키(PLAN-3)·제목 조각처럼 번호가 아닌 글자만 찾는다.
+ */
+export function isOtherProjectEpicQuery(text: string): boolean {
+  return text.trim() !== '' && parseIssueNumberQuery(text) == null
+}

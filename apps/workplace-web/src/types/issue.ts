@@ -35,6 +35,13 @@ export interface ParentRef {
   hidden?: boolean;
 }
 
+// 이슈(주로 에픽)의 활성 하위 목록 응답(WP-1038) — 다른 프로젝트 하위는 각자 projectKey 를 싣는다.
+// 조회자가 읽을 수 없는 프로젝트의 하위는 items 에서 빠지고 hiddenCount 로만 센다(진행률 childCount 는 모두 센다).
+export interface EpicChildrenResponse {
+  items: IssueResponse[];
+  hiddenCount: number;
+}
+
 // 의존성 응답에 임베드되는 이슈 요약 (Phase 4b).
 // blockedBy/blocks 양쪽에서 동일 모양으로 사용된다.
 export interface IssueLinkSummary {
@@ -374,8 +381,10 @@ export interface CreateIssueRequest {
   assigneeIds?: number[] | null;
   // 이슈 유형 id — 생략 시 백엔드가 TASK 로 fallback.
   typeId?: number | null;
-  // SUBTASK 일 때만 부모 number 동봉 (Phase 4a). 비SUBTASK 에 동봉하면 400.
+  // 같은 프로젝트 부모 number — SUBTASK 의 부모 태스크, 일반 이슈의 상위 에픽(Phase 4a). EPIC 에 동봉하면 400.
   parentNumber?: number | null;
+  // 다른 프로젝트 에픽을 상위 에픽으로 둘 때의 부모 키(예: PLAN-3, WP-1038) — 일반 이슈만. parentNumber 와 함께 보내지 않는다.
+  parentKey?: string;
   // 타임라인 간트 뷰 시작일 (#620).
   startDate?: string;
   // 처음 상태(WP-464) — 보드 컬럼의 「이슈 추가」가 그 컬럼 상태로 만든다. 생략 시 할 일. 할 일 외 지정은 멤버 전용.

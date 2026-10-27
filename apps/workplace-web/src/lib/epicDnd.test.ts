@@ -86,6 +86,18 @@ describe('epicDropState', () => {
     expect(epicDropState(issue('TASK', null), target(11, 'CANCELED'))).toBe('blocked');
   });
   it('이미 속한 종료 에픽 → current (WP-389)', () => expect(epicDropState(issue('TASK', 11), target(11, 'DONE'))).toBe('current'));
+  // WP-1039 패널 에픽은 이 프로젝트(P) 에픽 — 부모가 다른 프로젝트 에픽 CLA-10 이면 번호가 같은 #10 도 놓을 수 있는 대상이다.
+  it('다른 프로젝트 에픽 부모 + 같은 번호 이 프로젝트 에픽 → allowed (WP-1039)', () => {
+    const cross = mk({ number: 5, type: t('TASK'), parent: { number: 10, title: 'C', type: t('EPIC'), projectKey: 'CLA' } });
+    expect(epicDropState(cross, target(10))).toBe('allowed');
+    // 부모 키가 자기 프로젝트 키면 같은 에픽이다.
+    const own = mk({ number: 5, type: t('TASK'), parent: { number: 10, title: 'C', type: t('EPIC'), projectKey: 'P' } });
+    expect(epicDropState(own, target(10))).toBe('current');
+  });
+  it('가려진 부모 → 미할당도 allowed (WP-1039)', () => {
+    const hidden = mk({ number: 5, type: t('TASK'), parent: { number: 0, title: null as never, type: null as never, hidden: true } });
+    expect(epicDropState(hidden, null)).toBe('allowed');
+  });
 });
 
 describe('isEpicDropData', () => {

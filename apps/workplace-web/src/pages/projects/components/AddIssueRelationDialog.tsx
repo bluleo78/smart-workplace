@@ -38,6 +38,7 @@ import { cn } from '@/lib/utils';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useAddIssueDependency } from '../../../hooks/queries/useIssueDependencies';
 import {
+  LOOKUP_DEBOUNCE_MS,
   useAddIssueExternalLink,
   useAddIssueRelation,
   useIssueLookup,
@@ -52,8 +53,6 @@ import type {
 } from '../../../types/issue';
 import { IssueStatusBadge } from './IssueStatusBadge';
 
-/** 찾기 입력 디바운스 — 글자마다 묻지 않게(관계 대상 찾기는 최대 20건). */
-const LOOKUP_DEBOUNCE_MS = 250;
 /** 서버 상한과 같은 길이 — 넘기면 보내기 전에 막는다. */
 const MAX_URL = 2000;
 const MAX_KEY = 50;

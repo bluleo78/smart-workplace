@@ -75,7 +75,7 @@ export type IssueDetailOptions = {
 const read = <T>(v: T | (() => T)): T => (typeof v === 'function' ? (v as () => T)() : v)
 
 /** 상세의 하위 조회 중 테스트가 값을 주지 않으면 빈 목록으로 답하는 것들 — 상세 화면이 섹션마다 부른다. */
-const EMPTY_DETAIL_SUBS = ['watchers', 'labels', 'children', 'relations', 'dependencies', 'cycles', 'links', 'mail-links']
+const EMPTY_DETAIL_SUBS = ['watchers', 'labels', 'relations', 'dependencies', 'cycles', 'links', 'mail-links']
 
 /** 상세 이슈 번호 — number 가 없으면 detail 의 summary.number(detail 도 없으면 1). */
 export function detailNumberOf({ number, detail }: Pick<IssueDetailOptions, 'number' | 'detail'>): number {
@@ -101,6 +101,10 @@ export function issueDetailSubHandlers({
     http.get(`${base}/attachments`, () => HttpResponse.json(read(attachments))),
     http.get(`${base}/drive-links`, () => HttpResponse.json(read(driveLinks))),
     ...EMPTY_DETAIL_SUBS.map((sub) => http.get(`${base}/${sub}`, () => HttpResponse.json([]))),
+    // 에픽 하위 목록(WP-1038) — 목록이 아니라 { items, hiddenCount } 모양이다.
+    http.get(`${base}/children`, () => HttpResponse.json({ items: [], hiddenCount: 0 })),
+    // 상위 에픽 고르기의 다른 프로젝트 에픽 찾기(WP-1039) — 기본은 결과 없음.
+    http.get('/api/v1/issues/lookup', () => HttpResponse.json([])),
   ]
 }
 

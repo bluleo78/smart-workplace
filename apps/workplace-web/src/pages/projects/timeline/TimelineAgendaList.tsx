@@ -10,6 +10,7 @@ import { MobileEmptyState } from '@/components/mobile/MobileEmptyState';
 import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
 import { Button } from '@/components/ui/button';
 import { epicDotClass } from '@/lib/epicColor';
+import { formatIssueKey } from '@/lib/issueKey';
 import { labelFg } from '@/lib/labelColors';
 import { cn } from '@/lib/utils';
 
@@ -18,7 +19,7 @@ import type { IssueResponse } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
 import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
 import { MobileFilterSheet } from '../components/mobile/MobileFilterSheet';
-import { type AgendaRow, buildAgendaSections, epicGroupKey } from './timelineData';
+import { type AgendaRow, buildAgendaSections } from './timelineData';
 import { TimelineStatusBadge } from './TimelineStatusBadge';
 import type { TimelineVersionMarker, TimelineViewOptions } from './timelineTypes';
 import { useTimelineExpanded } from './useTimelineExpanded';
@@ -61,7 +62,8 @@ export function TimelineAgendaList({
   onOpenVersion?: (id: number) => void;
   /** 첫 로드·자동 다음 페이지 페치 중 — 이 동안은 빈 상태를 띄우지 않는다(깜빡임 방지). */
   loading: boolean;
-  onOpenIssue: (issueNumber: number) => void;
+  /** 행 클릭 → 이슈 상세. projectKey 는 다른 프로젝트 에픽 머리 행(WP-1039)일 때만. */
+  onOpenIssue: (issueNumber: number, projectKey?: string) => void;
   view: TimelineViewOptions;
   periodChip?: ReactNode;
   /** 기간 빈 상태의 「전체 기간 보기」 — 기간을 전체로 바꾼다. */
@@ -75,7 +77,6 @@ export function TimelineAgendaList({
   // 「일정 미정 N」 = 미정 섹션의 마감일 없는 이슈 수(시작일만 있는 이슈 포함, WP-484) — 접힌 에픽의 하위도 센다(행이 숨어도 일정이 없는 건 같다).
   const undatedCount = sections.find((s) => s.key === 'undated')?.rows.filter((r) => !r.due).length ?? 0;
   const { isOpen, toggle } = useTimelineExpanded(projectKey);
-  const groupKeyOf = (epicNumber: number | null) => (epicNumber == null ? null : epicGroupKey(epicNumber));
   const isEmpty = !loading && sections.length === 0;
   // 기간 빈 상태(WP-247) — 데스크톱(timeline-period-empty)과 같은 조건: 기간이 걸렸고 날짜 있는 섹션이 하나도 없으면.
   // 일정 미정 이슈는 기간과 무관하게 남으므로, 미정 섹션이 있으면 그 위에 안내를 두고 미정 섹션은 그대로 보인다.
@@ -163,16 +164,19 @@ export function TimelineAgendaList({
               <ul>
                 {sec.rows.map((r) => {
                   // 접힌 에픽의 하위 행은 그리지 않는다.
-                  if (r.kind === 'child' && !isOpen(groupKeyOf(r.epicNumber))) return null;
+                  // 접힘은 묶음 키(groupKey)로 — 다른 프로젝트 에픽(WP-1039)과 번호가 같은 이 프로젝트 에픽이 함께 접히지 않게.
+                  if (r.kind === 'child' && !isOpen(r.groupKey)) return null;
                   const hasToggle = r.kind === 'epic' && r.hasChildren;
-                  const open = isOpen(groupKeyOf(r.issueNumber));
+                  const open = isOpen(r.groupKey);
+                  // 다른 프로젝트 에픽 머리 행은 키를 붙여 같은 번호의 이 프로젝트 이슈 행과 구분한다.
+                  const rowId = r.projectKey ? formatIssueKey(r.projectKey, r.issueNumber) : String(r.issueNumber);
                   return (
-                    <li key={r.issueNumber} className="relative">
+                    <li key={r.kind === 'epic' ? (r.groupKey ?? rowId) : rowId} className="relative">
                       <button
                         type="button"
-                        data-testid={`agenda-row-${r.issueNumber}`}
+                        data-testid={`agenda-row-${rowId}`}
                         data-kind={r.kind}
-                        onClick={() => onOpenIssue(r.issueNumber)}
+                        onClick={() => onOpenIssue(r.issueNumber, r.projectKey)}
                         // 왼쪽 펼침 버튼 자리(44px)만큼 모든 행을 같이 들인다. 하위는 제목·날짜 글자만 한 단 더 들이고 막대는
                         // 들이지 않는다 — 모든 행이 같은 월 트랙을 써야 날짜 위치·오늘 선이 행 사이에서 세로로 맞는다.
                         className="flex min-h-11 w-full flex-col gap-1.5 border-b py-2.5 pr-4 pl-11 text-left active:bg-accent"
@@ -250,10 +254,10 @@ export function TimelineAgendaList({
                       {hasToggle && (
                         <button
                           type="button"
-                          data-testid={`agenda-toggle-${r.issueNumber}`}
+                          data-testid={`agenda-toggle-${rowId}`}
                           aria-expanded={open}
                           aria-label={`${r.title} 하위 이슈 ${open ? '접기' : '펼치기'}`}
-                          onClick={() => toggle(epicGroupKey(r.issueNumber), !open)}
+                          onClick={() => r.groupKey && toggle(r.groupKey, !open)}
                           className="absolute top-0 left-0 flex size-11 items-center justify-center text-muted-foreground active:bg-accent"
                         >
                           <ChevronDown className={cn('size-4 transition-transform', !open && '-rotate-90')} aria-hidden />

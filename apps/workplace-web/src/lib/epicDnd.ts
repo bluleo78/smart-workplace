@@ -17,6 +17,7 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import type { IssueResponse, ParentRef } from '../types/issue';
 import { boardDropStatusId } from './boardLaneDrop';
 import { isClosedStatus, statusLabel } from './issueGrouping';
+import { isSameParent } from './parentRef';
 
 // 뷰포트 좌표(dnd-kit 이 Coordinates 타입을 export 하지 않음).
 type Coordinates = { x: number; y: number };
@@ -127,11 +128,11 @@ export type EpicDropState = 'idle' | 'allowed' | 'current' | 'blocked';
 // 드래그 중인 이슈 기준 한 대상(에픽, null=미할당)의 상태.
 // current(이미 그 에픽/이미 미할당)는 놓아도 변화가 없으므로 드롭을 비활성화한다.
 // 종료된 에픽(패널 위쪽의 진행 중 사이클 소속, WP-389)은 드롭 대상이 아니다(WP-245) — 이미 소속이면 current 가 우선.
+// 패널 에픽은 이 프로젝트 에픽이라, 부모가 다른 프로젝트 에픽(CLA-5)이면 번호가 같은 #5 도 current 가 아니다 — 프로젝트까지 비교한다(WP-1039).
 export function epicDropState(active: IssueResponse | null, target: ParentRef | null): EpicDropState {
   if (!active) return 'idle';
   if (epicDragBlockReason(active) != null) return 'blocked';
-  const current = active.parent?.number ?? null;
-  if (current === (target?.number ?? null)) return 'current';
+  if (isSameParent(active.parent, target, active.projectKey)) return 'current';
   return target?.status && isClosedStatus(target.status) ? 'blocked' : 'allowed';
 }
 

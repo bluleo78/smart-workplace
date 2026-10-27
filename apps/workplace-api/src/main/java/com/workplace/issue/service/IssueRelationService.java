@@ -347,9 +347,17 @@ public class IssueRelationService {
    *
    * <p>q 가 키 꼴({@code WPV-28})이면 키 정확 일치, 번호 꼴({@code #12})이면 그 번호({@code from} 프로젝트의 것이 맨 앞), 그 밖엔
    * 제목 부분 일치(대소문자 무시). 키·번호로 못 찾으면 제목으로 다시 찾는다. 최신 수정순 최대 20건, q 가 비면 빈 목록.
+   *
+   * <p>type·openOnly·excludeFrom 은 다른 프로젝트 에픽 고르기(WP-1039)가 쓰는 선택 거름으로, SQL 에서 상한 전에 건다 — 화면에서 거르면
+   * 다른 유형·같은 프로젝트 이슈가 20건을 채워 에픽이 밀려난다.
+   *
+   * @param type 유형 이름(대소문자 무시, 예: EPIC). 비면 모든 유형
+   * @param openOnly 참이면 완료·취소 범주 이슈를 뺀다
+   * @param excludeFrom 참이면 {@code from} 프로젝트 이슈를 뺀다(같은 프로젝트 에픽은 화면이 따로 받아 둔다)
    */
   @Transactional(readOnly = true)
-  public List<IssueLookupItem> lookup(long callerId, String q, String from) {
+  public List<IssueLookupItem> lookup(
+      long callerId, String q, String from, String type, boolean openOnly, boolean excludeFrom) {
     if (q == null || q.isBlank()) {
       return List.of();
     }
@@ -358,7 +366,10 @@ public class IssueRelationService {
         new IssueRelationRepository.LookupScope(
             callerId,
             permissionChecker.userHasRole(callerId, "ADMIN"),
-            personalFrom(callerId, from));
+            personalFrom(callerId, from),
+            type == null || type.isBlank() ? null : type.trim(),
+            openOnly,
+            excludeFrom ? normalizeKey(from) : null);
     Optional<IssueKey> key = IssueKeys.parse(query);
     if (key.isPresent()) {
       List<IssueLookupItem> byKey =

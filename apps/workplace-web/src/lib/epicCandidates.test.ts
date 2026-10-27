@@ -1,7 +1,7 @@
 // 상위 에픽 후보 거르기(WP-1018) — 제목 일부·번호로 찾고, 번호 일치·제목 접두를 앞에 둔다.
 import { describe, expect, test } from 'vitest'
 
-import { matchEpicCandidates, parseIssueNumberQuery } from './epicCandidates'
+import { isOtherProjectEpicQuery, matchEpicCandidates, otherProjectEpics, parseIssueNumberQuery } from './epicCandidates'
 
 const EPICS = [
   { number: 3, title: '로그인 개편' },
@@ -54,5 +54,24 @@ describe('matchEpicCandidates', () => {
   test('맞는 에픽이 없으면 빈 목록, 상한을 넘으면 자른다', () => {
     expect(numbers('없는 제목')).toEqual([])
     expect(numbers('', 2)).toEqual([3, 12])
+  })
+})
+
+// WP-1039 다른 프로젝트 에픽 후보 — 유형·상태는 서버가 거르고, 화면은 같은 프로젝트 행만 뺀다.
+describe('otherProjectEpics', () => {
+  test('같은 프로젝트 행은 뺀다', () => {
+    const items = [
+      { projectKey: 'WP', number: 1 },
+      { projectKey: 'PLAN', number: 3 },
+    ]
+    expect(otherProjectEpics(items, 'WP').map((i) => `${i.projectKey}-${i.number}`)).toEqual(['PLAN-3'])
+  })
+
+  test('번호만 친 입력은 다른 프로젝트를 찾지 않는다 — 키·제목만', () => {
+    expect(isOtherProjectEpicQuery('12')).toBe(false)
+    expect(isOtherProjectEpicQuery(' #12 ')).toBe(false)
+    expect(isOtherProjectEpicQuery('')).toBe(false)
+    expect(isOtherProjectEpicQuery('PLAN-3')).toBe(true)
+    expect(isOtherProjectEpicQuery('계획')).toBe(true)
   })
 })

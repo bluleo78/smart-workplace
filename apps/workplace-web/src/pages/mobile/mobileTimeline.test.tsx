@@ -113,6 +113,24 @@ describe('모바일 타임라인 — 행', () => {
     await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues/42`))
   })
 
+  // WP-1039 — 다른 프로젝트 에픽 PLAN-40 의 하위는 이 프로젝트 에픽 #40 과 따로 「PLAN-40 …」 머리 행 아래 묶이고,
+  // 머리 행을 누르면 그 프로젝트 에픽으로, 펼침도 따로 움직인다.
+  test('다른 프로젝트 에픽 하위는 키가 붙은 머리 행 아래 따로 묶이고, 머리 행은 그 프로젝트 에픽으로 간다', async () => {
+    const crossRef = { number: 40, title: '기획 에픽', type: makeEpicType(), projectKey: 'PLAN' }
+    const { user, location } = await open({
+      issues: [...ISSUES, I({ id: 43, number: 43, title: '다른 팀 에픽 하위', parent: crossRef, startDate: '2026-10-06', dueDate: '2026-10-09' })],
+    })
+    const head = screen.getByTestId('agenda-row-PLAN-40')
+    expect(head).toHaveTextContent('PLAN-40 기획 에픽')
+    // 펼치기 전엔 어느 하위도 안 보이고, 다른 프로젝트 묶음을 펼쳐도 이 프로젝트 #40 의 하위는 그대로 접혀 있다.
+    expect(screen.queryByTestId('agenda-row-43')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('agenda-toggle-PLAN-40'))
+    expect(await screen.findByTestId('agenda-row-43')).toHaveTextContent('다른 팀 에픽 하위')
+    expect(screen.queryByTestId('agenda-row-42')).not.toBeInTheDocument()
+    await user.click(head)
+    await waitFor(() => expect(location()).toBe('/projects/PLAN/issues/40'))
+  })
+
   // WP-646 — 차단된 이슈 행에만 ⛔ 표시, 행 접근 이름에도 「차단됨」.
   test('차단된 이슈 행에 ⛔ 차단 표시 — 차단 안 된 행에는 없다', async () => {
     await open({ issues: ISSUES.map((i) => (i.number === 10 ? { ...i, blocked: true } : i)) })

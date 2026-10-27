@@ -52,7 +52,7 @@ export function IssueParentSlot({
         <IssueParentPicker
           projectKey={projectKey}
           issueNumber={issueNumber}
-          currentParentNumber={parent?.number ?? null}
+          currentParent={parent}
           isSubtask={isSubtask}
           onClose={() => setEditing(false)}
         />

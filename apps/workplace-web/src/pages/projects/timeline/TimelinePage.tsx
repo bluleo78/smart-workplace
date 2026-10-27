@@ -220,7 +220,8 @@ export default function TimelinePage() {
                 versions={versionMarkers}
                 onOpenVersion={(id) => navigate(`/projects/${key}/versions/${id}`)}
                 loading={issuesLoading}
-                onOpenIssue={(n) => navigate(`/projects/${key}/issues/${n}`)}
+                // 다른 프로젝트 에픽 머리 행(WP-1039)은 그 프로젝트 에픽으로 간다.
+                onOpenIssue={(n, projectKey) => navigate(`/projects/${projectKey ?? key}/issues/${n}`)}
                 view={view}
                 onShowAllPeriods={() => changePeriod({ kind: 'all' })}
                 periodChip={<TimelinePeriodChip param={periodCtl.param} period={periodCtl.period} cycles={periodCtl.cycles} onChange={changePeriod} />}

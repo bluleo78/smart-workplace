@@ -17,6 +17,7 @@ import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.CreateIssueTypeRequest;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -27,6 +28,7 @@ import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.service.IssueRelationService;
 import com.workplace.issue.service.IssueService;
+import com.workplace.issue.service.IssueTypeService;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -71,6 +73,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberRepository memberRepository;
   @Autowired IssueService issueService;
+  @Autowired IssueTypeService issueTypeService;
   @Autowired ApplicationEvents events;
   @Autowired IssueRelationService relationService;
   @Autowired IssueHistoryRepository historyRepository;
@@ -570,6 +573,70 @@ class IssueRelationApiTest extends IntegrationTestBase {
     assertThat(keys(lookup(reader, num))).containsExactly(wp + "-" + byNumberShape);
   }
 
+  /**
+   * WP-1039 유형·열린 상태 거름 — 상한(20건) 전에 SQL 로 건다. 제목이 맞는 태스크 21건이 더 최근이어도 type=EPIC 이면 에픽이 나오고,
+   * openOnly 면 완료·취소 에픽은 빠진다. 거름 없는 기존 찾기는 그대로(태스크로 20건이 차 에픽이 밀려난다).
+   */
+  @Test
+  void lookupFiltersByTypeAndOpenBeforeLimit() throws Exception {
+    String token = "EP" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+    int openEpic = newEpic(bob, wpv, wpvId, "열린 에픽 " + token);
+    int doneEpic = newEpic(bob, wpv, wpvId, "끝난 에픽 " + token);
+    int canceledEpic = newEpic(bob, wpv, wpvId, "취소 에픽 " + token);
+    closeIssue(issueId(wpvId, doneEpic), "DONE");
+    closeIssue(issueId(wpvId, canceledEpic), "CANCELED");
+    // 에픽보다 나중에 만든(더 최근 수정) 태스크 21건 — 거름 없는 찾기는 이것들로 20건이 찬다.
+    for (int i = 0; i < 21; i++) {
+      newIssue(bob, wpv, "태스크 " + token + " " + i);
+    }
+    String epicKey = wpv + "-" + openEpic;
+    assertThat(keys(lookup(reader, token, wp))).hasSize(20).doesNotContain(epicKey);
+
+    // type=EPIC(대소문자 무시) — 태스크는 빠지고 에픽 셋이 모두 나온다.
+    assertThat(keys(lookupFiltered(reader, token, wp, "epic", false)))
+        .containsExactlyInAnyOrder(epicKey, wpv + "-" + doneEpic, wpv + "-" + canceledEpic);
+    // openOnly — 완료·취소 에픽은 빠진다.
+    assertThat(keys(lookupFiltered(reader, token, wp, "EPIC", true))).containsExactly(epicKey);
+    // 키로 찾아도 같은 거름이 걸린다 — 끝난 에픽 키는 openOnly 에서 빈 결과(제목 대체 찾기에도 걸리지 않는다).
+    assertThat(lookupFiltered(reader, wpv + "-" + doneEpic, wp, "EPIC", true)).isEmpty();
+
+    // excludeFrom — from(wp) 프로젝트의 더 최근 열린 에픽 20건이 상한을 채워도, 빼고 찾으면 다른 프로젝트 에픽이 남는다.
+    for (int i = 0; i < 20; i++) {
+      newEpic(alice, wp, wpId, "같은 프로젝트 에픽 " + token + " " + i);
+    }
+    assertThat(keys(lookupFiltered(reader, token, wp, "EPIC", true)))
+        .hasSize(20)
+        .doesNotContain(epicKey);
+    assertThat(keys(lookupFiltered(reader, token, wp, "EPIC", true, true)))
+        .containsExactly(epicKey);
+  }
+
+  @Test
+  void lookupTypeFilterIgnoresCase() throws Exception {
+    // 대문자로 저장되지 않은 사용자 유형(Spike)도 소문자·대문자 type 으로 찾는다 — 이름 비교는 대소문자 무시.
+    String token = "SP" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+    long spikeTypeId =
+        issueTypeService
+            .create(bob, wpv, new CreateIssueTypeRequest("Spike", "GRAY", "Circle"))
+            .id();
+    int spike =
+        issueService
+            .create(
+                bob,
+                wpv,
+                new CreateIssueRequest(
+                    "스파이크 " + token, null, null, null, null, spikeTypeId, null, null))
+            .number();
+    newIssue(bob, wpv, "태스크 " + token);
+    String spikeKey = wpv + "-" + spike;
+    assertThat(keys(lookupFiltered(reader, token, wp, "spike", false))).containsExactly(spikeKey);
+    assertThat(keys(lookupFiltered(reader, token, wp, "SPIKE", false))).containsExactly(spikeKey);
+    // 시스템 유형(TASK 로 저장)도 소문자로 찾는다.
+    assertThat(keys(lookupFiltered(reader, token, wp, "task", false)))
+        .hasSize(1)
+        .doesNotContain(spikeKey);
+  }
+
   // ── 도우미 ─────────────────────────────────────────────────────────────────────────────
 
   private void assertNoNotificationEvents() {
@@ -608,6 +675,22 @@ class IssueRelationApiTest extends IntegrationTestBase {
         .number();
   }
 
+  /** 그 프로젝트의 EPIC 유형으로 이슈를 만든다(유형은 프로젝트마다 따로다). */
+  private int newEpic(long caller, String projectKey, long projectId, String title) {
+    long epicTypeId =
+        ((Number)
+                dsl.fetchValue(
+                    "SELECT id FROM issue_type_def WHERE project_id = ? AND name = 'EPIC'",
+                    projectId))
+            .longValue();
+    return issueService
+        .create(
+            caller,
+            projectKey,
+            new CreateIssueRequest(title, null, null, null, null, epicTypeId, null, null))
+        .number();
+  }
+
   private long issueId(long projectId, int number) {
     return dsl.select(ISSUE.ID)
         .from(ISSUE)
@@ -630,6 +713,17 @@ class IssueRelationApiTest extends IntegrationTestBase {
 
   private void setProjectType(long projectId, String type) {
     dsl.execute("UPDATE project SET type = ? WHERE id = ?", type, projectId);
+  }
+
+  /** 그 이슈를 범주의 첫 프로젝트 상태로 바꾼다 — 상태는 (status_id, 범주) 복합 FK 라 둘을 함께 맞춘다. */
+  private void closeIssue(long issueId, String category) {
+    dsl.execute(
+        "UPDATE issue i SET status = ?, status_id = (SELECT ps.id FROM project_status ps"
+            + " WHERE ps.project_id = i.project_id AND ps.category = ? ORDER BY ps.position LIMIT 1)"
+            + " WHERE i.id = ?",
+        category,
+        category,
+        issueId);
   }
 
   private void softDelete(long issueId) {
@@ -701,6 +795,27 @@ class IssueRelationApiTest extends IntegrationTestBase {
   private JsonNode lookup(long caller, String q, String from) throws Exception {
     return json(
         call(get("/api/v1/issues/lookup").param("q", q).param("from", from), caller)
+            .andExpect(status().isOk()));
+  }
+
+  /** 유형·열린 상태 거름을 붙인 찾기(WP-1039). */
+  private JsonNode lookupFiltered(long caller, String q, String from, String type, boolean openOnly)
+      throws Exception {
+    return lookupFiltered(caller, q, from, type, openOnly, false);
+  }
+
+  private JsonNode lookupFiltered(
+      long caller, String q, String from, String type, boolean openOnly, boolean excludeFrom)
+      throws Exception {
+    return json(
+        call(
+                get("/api/v1/issues/lookup")
+                    .param("q", q)
+                    .param("from", from)
+                    .param("type", type)
+                    .param("openOnly", String.valueOf(openOnly))
+                    .param("excludeFrom", String.valueOf(excludeFrom)),
+                caller)
             .andExpect(status().isOk()));
   }
 

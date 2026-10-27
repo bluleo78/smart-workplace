@@ -95,6 +95,8 @@ function detailApi({ over = {}, detailOver = {}, epicList, extra = [] }: Opts = 
     }),
     http.get(`${BASE}/chat/thread`, () => HttpResponse.json(createChatThread({ threadId: 999, recentMessages: [] }))),
     ...['watchers', 'labels', 'attachments', 'drive-links'].map((s) => http.get(`${BASE}/${s}`, () => HttpResponse.json([]))),
+    // 에픽 하위 목록(WP-1038) — 에픽 이슈 상세가 부른다.
+    http.get(`${BASE}/children`, () => HttpResponse.json({ items: [], hiddenCount: 0 })),
     http.get('/api/v1/issues/7/comments', () => HttpResponse.json([])),
     http.get('/api/v1/drive/spaces', () => HttpResponse.json([{ id: 1, type: 'PERSONAL', name: '내 드라이브' }])),
   ]
@@ -256,6 +258,55 @@ describe('속성 칩 — 시트 → 요청', () => {
     release()
     expect(await within(sheet).findByTestId('picker-option-50')).toBeInTheDocument()
     expect(within(sheet).queryByTestId('issue-epic-sheet-loading')).not.toBeInTheDocument()
+  })
+
+  // WP-1039 부모가 다른 프로젝트 에픽 CLA-50 이면 이 프로젝트 #50 줄에 체크하지 않고, #50 을 고르면 바꾼다.
+  // 시트 검색어로 다른 프로젝트 에픽을 찾아 고르면 PATCH /parent { parentKey }.
+  test('다른 프로젝트 에픽 부모 — 같은 번호 줄에 체크가 없고, 검색으로 찾은 다른 프로젝트 에픽은 parentKey 로 연결한다', async () => {
+    const lookups: string[] = []
+    const { user, calls } = await open({
+      over: { parent: { number: 50, title: '다른 팀 에픽', type: makeEpicType(), projectKey: 'CLA' } },
+      extra: [
+        http.get('/api/v1/issues/lookup', ({ request }) => {
+          lookups.push(new URL(request.url).search)
+          return HttpResponse.json([
+            { projectKey: 'WP', number: 50, title: '결제 같은 프로젝트', status: 'TODO', type: makeEpicType() },
+            { projectKey: 'PLAN', number: 3, title: '분기 계획', status: 'TODO', type: makeEpicType() },
+            // 지금 부모 — 찾기에 걸려도 「다른 프로젝트」 줄로 보이지 않는다(데스크톱 피커와 같다).
+            { projectKey: 'CLA', number: 50, title: '다른 팀 에픽', status: 'TODO', type: makeEpicType() },
+          ])
+        }),
+      ],
+    })
+    await user.click(screen.getByTestId('mobile-prop-epic'))
+    const sheet = await screen.findByTestId('issue-epic-sheet')
+    expect(await within(sheet).findByTestId('picker-option-50')).toHaveAttribute('aria-selected', 'false')
+    expect(within(sheet).getByTestId('picker-option-none')).toHaveAttribute('aria-selected', 'false')
+
+    // 첫 글자부터 디바운스가 걸린다 — 「계」→「계획」을 잇달아 치면 마지막 검색어로 한 번만 묻는다(첫 글자로 바로 묻지 않는다).
+    const search = within(sheet).getByTestId('issue-epic-sheet-search')
+    fireEvent.change(search, { target: { value: '계' } })
+    fireEvent.change(search, { target: { value: '계획' } })
+    const other = await within(sheet).findByTestId('picker-other-epic-PLAN-3')
+    expect(lookups.map((q) => new URLSearchParams(q).get('q'))).toEqual(['계획'])
+    expect(new URLSearchParams(lookups[0]).get('excludeFrom')).toBe('true')
+    expect(other).toHaveTextContent('PLAN-3분기 계획')
+    // 같은 프로젝트 에픽은 찾기 결과에서 빠진다(위 목록이 맡는다).
+    expect(within(sheet).queryByTestId('picker-other-epic-WP-50')).not.toBeInTheDocument()
+    expect(within(sheet).queryByTestId('picker-other-epic-CLA-50')).not.toBeInTheDocument()
+    expect(lookups.at(-1)).toContain('from=WP')
+    await user.click(other)
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentKey: 'PLAN-3' }))
+  })
+
+  test('다른 프로젝트 에픽 부모에서 같은 번호의 이 프로젝트 에픽을 고르면 { parentNumber } 로 바꾼다 (WP-1039)', async () => {
+    const { user, calls } = await open({
+      over: { parent: { number: 50, title: '다른 팀 에픽', type: makeEpicType(), projectKey: 'CLA' } },
+      extra: [http.get('/api/v1/issues/lookup', () => HttpResponse.json([]))],
+    })
+    await user.click(screen.getByTestId('mobile-prop-epic'))
+    await user.click(await within(await screen.findByTestId('issue-epic-sheet')).findByTestId('picker-option-50'))
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentNumber: 50 }))
   })
 })
 

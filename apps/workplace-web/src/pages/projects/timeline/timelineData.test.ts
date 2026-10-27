@@ -570,7 +570,7 @@ describe('buildAgendaSections', () => {
       TODAY,
     );
     const row = (n: number) => s.flatMap((x) => x.rows).find((r) => r.issueNumber === n)!;
-    expect([row(40).epicNumber, row(41).epicNumber, row(9).epicNumber]).toEqual([40, 40, null]);
+    expect([row(40).groupKey, row(41).groupKey, row(9).groupKey]).toEqual(['epic-40', 'epic-40', null]);
     expect(row(40).progress).toEqual({ done: 1, total: 3 });
     expect(row(60).progress).toEqual({ done: 1, total: 1 }); // 합성 에픽은 보이는 하위 기준
     expect(row(41).progress).toBeNull();
@@ -1118,5 +1118,72 @@ describe('레인 마커 이름 순서 (WP-1027)', () => {
   it('마일스톤도 마감일 → 이름(숫자 값) → id 순으로 준다', () => {
     const m = (id: number, name: string, dueDate: string): MilestoneResponse => ({ id, projectId: 1, name, dueDate, description: null, createdAt: '', updatedAt: '' });
     expect(milestonesToMarkers([m(1, '2차 점검', '2026-08-02'), m(2, '10차 점검', '2026-08-01'), m(3, '9차 점검', '2026-08-01')]).map((x) => x.id)).toEqual([3, 2, 1]);
+  });
+});
+
+// WP-1039 다른 프로젝트 에픽 부모 — 같은 번호의 이 프로젝트 에픽과 합치지 않고 (키, 번호) 묶음으로, 제목에 키를 붙인다.
+describe('타임라인 — 다른 프로젝트 에픽 묶음 (WP-1039)', () => {
+  const crossRef = (number: number, title: string, projectKey: string, status?: IssueStatus) => ({ ...parentRef(number, title, status), projectKey });
+
+  it('간트: 이 프로젝트 에픽 #40 과 PLAN-40 하위를 따로 묶고, 다른 프로젝트 묶음은 뒤에 키와 함께 둔다', () => {
+    const own = issue({ number: 40, title: '이 프로젝트 에픽', type: EPIC_TYPE });
+    const ownKid = issue({ number: 41, parent: parentRef(40, '이 프로젝트 에픽'), dueDate: '2026-07-05' });
+    const crossKid = issue({ number: 42, parent: crossRef(40, '기획 에픽', 'PLAN'), dueDate: '2026-07-08', status: 'DONE' });
+    const crossKid2 = issue({ number: 43, parent: crossRef(40, '기획 에픽', 'PLAN') });
+    // 가려진 부모는 묶을 에픽을 알 수 없어 「에픽 없음」으로.
+    const hiddenKid = issue({ number: 44, parent: { number: 0, title: null as never, type: null as never, hidden: true }, dueDate: '2026-07-09' });
+    const { groups } = groupTimelineIssues([own, ownKid, crossKid, crossKid2, hiddenKid]);
+    expect(groups.map((g) => [g.key, g.epicNumber, g.epicProjectKey, g.title])).toEqual([
+      ['epic-40', 40, undefined, '이 프로젝트 에픽'],
+      ['epic-PLAN-40', 40, 'PLAN', 'PLAN-40 기획 에픽'],
+      ['no-epic', null, undefined, '에픽 없음'],
+    ]);
+    const cross = groups[1];
+    expect(cross.bars.map((b) => b.issueNumber)).toEqual([42]);
+    expect(cross.undatedChildren.map((i) => i.number)).toEqual([43]);
+    // 다른 프로젝트 에픽은 응답에 없어 보이는 하위 기준 진행률.
+    expect([cross.done, cross.total]).toEqual([1, 2]);
+    expect(groups[0].bars.map((b) => b.issueNumber)).toEqual([41]);
+    expect(groups[2].bars.map((b) => b.issueNumber)).toEqual([44]);
+  });
+
+  it('조회 기간 거름도 다른 프로젝트 묶음 단위로 — 묶음 롤업이 기간에 걸치면 하위가 함께 남는다', () => {
+    const period = { from: '2026-10-01', to: '2026-10-31', label: '10월', fallbackNote: null };
+    const kept = prepareTimelineIssues(
+      [
+        issue({ number: 1, parent: crossRef(7, '기획', 'PLAN'), dueDate: '2026-10-10' }),
+        issue({ number: 2, parent: crossRef(7, '기획', 'PLAN') }),
+        // 같은 번호의 이 프로젝트 에픽 묶음은 기간 밖이라 빠진다 — 다른 프로젝트 묶음에 끌려 남지 않는다.
+        issue({ number: 3, parent: parentRef(7, '이 프로젝트'), dueDate: '2026-08-10' }),
+      ],
+      { period },
+    );
+    expect(kept.map((i) => i.number)).toEqual([1, 2]);
+  });
+
+  it('취소된 다른 프로젝트 에픽의 할 일 하위는 「에픽 없음」으로 옮기고 원래 에픽 제목을 싣는다', () => {
+    const kept = prepareTimelineIssues([issue({ number: 5, parent: crossRef(7, '취소된 기획', 'PLAN', 'CANCELED') })]);
+    expect(kept[0]).toMatchObject({ number: 5, parent: null, formerEpicTitle: '취소된 기획' });
+  });
+
+  it('아젠다: 다른 프로젝트 에픽 머리 행은 projectKey·묶음 키를 싣고, 하위는 그 묶음 키로 접힌다', () => {
+    const s = buildAgendaSections(
+      [
+        issue({ number: 40, title: '이 프로젝트', type: EPIC_TYPE, dueDate: '2026-10-20' }),
+        issue({ number: 41, parent: parentRef(40, '이 프로젝트'), dueDate: '2026-10-05' }),
+        issue({ number: 42, parent: crossRef(40, '기획 에픽', 'PLAN'), dueDate: '2026-10-08' }),
+      ],
+      new Date(2026, 9, 15),
+    );
+    const rows = s.flatMap((x) => x.rows).map((r) => [r.kind, r.issueNumber, r.groupKey, r.projectKey, r.title]);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        ['epic', 40, 'epic-40', undefined, '이 프로젝트'],
+        ['child', 41, 'epic-40', undefined, '이슈'],
+        ['epic', 40, 'epic-PLAN-40', 'PLAN', 'PLAN-40 기획 에픽'],
+        ['child', 42, 'epic-PLAN-40', undefined, '이슈'],
+      ]),
+    );
+    expect(rows).toHaveLength(4);
   });
 });

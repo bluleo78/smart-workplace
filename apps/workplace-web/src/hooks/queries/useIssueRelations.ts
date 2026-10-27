@@ -4,23 +4,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { issueRelationsApi } from '../../api/issueRelations';
+import { type IssueLookupFilter, issueRelationsApi } from '../../api/issueRelations';
 import { handleApiError } from '../../lib/api-error';
 import type { AddIssueRelationRequest, SaveIssueExternalLinkRequest } from '../../types/issue';
 import { issueKeys } from './useIssues';
 
-/** 찾기 결과 캐시 키 — 같은 검색어·출발 프로젝트면 다시 묻지 않는다. */
-const lookupKey = (q: string, from: string) => ['issue-lookup', from, q] as const;
+/** 찾기 입력 디바운스 — 관계 추가 창·상위 에픽 고르기가 같은 간격으로 묻는다(글자마다 묻지 않게). */
+export const LOOKUP_DEBOUNCE_MS = 250;
+
+/** 찾기 결과 캐시 키 — 같은 검색어·출발 프로젝트·거름이면 다시 묻지 않는다(거름 없으면 null). */
+const lookupKey = (q: string, from: string, filter?: IssueLookupFilter) =>
+  ['issue-lookup', from, q, filter ?? null] as const;
 
 /**
  * 관계 대상 찾기 — 키(WPV-28)·번호(#12)·제목. q 는 호출 측이 디바운스해서 넘긴다. 빈 검색어는 묻지 않는다.
  * 결과엔 현재 이슈 자신도 섞일 수 있어 호출 측이 거른다.
  */
-export function useIssueLookup(q: string, from: string, enabled = true) {
+export function useIssueLookup(q: string, from: string, enabled = true, filter?: IssueLookupFilter) {
   const query = q.trim();
   return useQuery({
-    queryKey: lookupKey(query, from),
-    queryFn: () => issueRelationsApi.lookup(query, from),
+    // 거름이 다르면 결과가 달라 캐시를 나눈다.
+    queryKey: lookupKey(query, from, filter),
+    queryFn: () => issueRelationsApi.lookup(query, from, filter),
     enabled: enabled && query.length > 0,
     staleTime: 30 * 1000,
   });

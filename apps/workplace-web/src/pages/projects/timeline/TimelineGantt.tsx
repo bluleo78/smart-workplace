@@ -87,7 +87,8 @@ export interface TimelineGanttProps {
   period?: { from: string; to: string } | null
   /** 막대 이동/리사이즈 저장. 실패하면 reject 해야 간트가 서버 상태로 되돌린다(아래 saveFailures 참조). */
   onBarChange: (issueNumber: number, change: { startDate: string; dueDate: string }) => Promise<unknown>
-  onBarClick: (issueNumber: number) => void
+  /** 막대·행 클릭 → 이슈 상세로. projectKey 는 다른 프로젝트 에픽 그룹 행(WP-1039)일 때만 — 없으면 이 프로젝트. */
+  onBarClick: (issueNumber: number, projectKey?: string) => void
   onMilestoneClick: (id: number, anchorRect: DOMRect) => void
   /** 버전 칩 클릭 → 버전 상세로 이동(레인 빈 곳 클릭은 동작 없음). */
   onVersionClick?: (id: number) => void
@@ -933,7 +934,7 @@ export function TimelineGantt({
               if (isGroupTaskId(ev.id)) {
                 const key = groupKeyFromTaskId(ev.id)
                 const group = groups.find((g) => g.key === key)
-                if (group?.epicNumber != null) onBarClick(group.epicNumber)
+                if (group?.epicNumber != null) onBarClick(group.epicNumber, group.epicProjectKey)
                 return
               }
               // 미정 하위 행(undated-{번호}) 클릭 → 해당 이슈 상세로 이동.
