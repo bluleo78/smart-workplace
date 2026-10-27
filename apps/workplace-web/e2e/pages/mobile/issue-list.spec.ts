@@ -148,21 +148,23 @@ test.describe('모바일 툴바', () => {
     await expect(page.getByTestId('mobile-search-input')).toHaveValue('환불');
   });
 
-  test('필터 시트 — 필터 없으면 안내 문구, ＋ 필터 팝오버는 아래로 열려 시트 제목을 가리지 않는다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  // WP-1020 — 툴바 아래 빠른 필터 칩 줄은 넘치면 가로로 스크롤되고(세로로 꺾이지 않음), 걸린 칩은 맨 앞이라 늘 화면 안에 보인다.
+  test('빠른 필터 칩 줄 — 한 줄 가로 스크롤, 걸린 칩은 맨 앞에서 화면 안에 보인다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await mock(page);
-    await page.goto(`/projects/${KEY}`);
-    await page.getByTestId('mobile-chip-filter').click();
-    const sheet = page.getByTestId('mobile-filter-sheet');
-    await expect(sheet.getByTestId('mobile-filter-empty')).toHaveText('적용된 필터 없음');
-    const trigger = sheet.getByTestId('add-filter-trigger');
-    await trigger.click();
-    const first = page.getByTestId('add-filter-facet-status');
-    await expect(first).toBeVisible();
-    const tb = (await trigger.boundingBox())!;
-    const fb = (await first.boundingBox())!;
-    // 팝오버 첫 항목이 트리거 아래에 있다(위로 뒤집혀 시트 제목을 덮지 않음).
-    expect(fb.y).toBeGreaterThanOrEqual(tb.y + tb.height);
-    await expect(sheet.getByRole('heading', { name: '필터' })).toBeInViewport();
+    await page.goto(`/projects/${KEY}?priority=HIGH`);
+    const row = page.getByTestId('mobile-quick-filter-row');
+    const applied = page.getByTestId('mobile-quick-filter-priority');
+    await expect(applied).toHaveAttribute('data-active', 'true');
+    await expect(applied).toBeInViewport({ ratio: 1 });
+    // 칩은 모두 한 줄 — 첫 칩과 마지막(「더 보기」) 칩의 세로 위치가 같고, 줄은 가로로 넘친다.
+    const more = page.getByTestId('mobile-quick-filter-more');
+    const [a, m] = [(await applied.boundingBox())!, (await more.boundingBox())!];
+    expect(Math.abs(a.y - m.y)).toBeLessThanOrEqual(1);
+    const overflow = await row.evaluate((el) => {
+      const scroller = el.firstElementChild as HTMLElement;
+      return scroller.scrollWidth > scroller.clientWidth;
+    });
+    expect(overflow).toBe(true);
   });
 });
 

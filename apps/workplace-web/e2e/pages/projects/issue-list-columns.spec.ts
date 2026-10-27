@@ -224,8 +224,7 @@ test.describe('이슈 목록 열 고르기 — 개인 저장 (WP-270)', { tag: '
     expect(new URL(page.url()).searchParams.has('cols')).toBe(false);
 
     // 필터를 바꿔도 열은 그대로.
-    await page.getByTestId('add-filter-trigger').click();
-    await page.getByTestId('add-filter-facet-priority').click();
+    await page.getByTestId('quick-filter-priority-trigger').click();
     await page.getByTestId('facet-value-priority-HIGH').click();
     await page.keyboard.press('Escape');
     await expect(page).toHaveURL(/priority=HIGH/);

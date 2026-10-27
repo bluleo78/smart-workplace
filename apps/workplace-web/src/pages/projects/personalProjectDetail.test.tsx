@@ -11,6 +11,7 @@ import { describe, expect, test } from 'vitest'
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import { PersonalProjectDetail } from '@/pages/projects/personal/PersonalProjectDetail'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueResponse } from '@/types/issue'
@@ -434,17 +435,21 @@ describe('편집·완료 토글', () => {
 })
 
 describe('툴바 — 검색·필터·그룹 → URL·요청 파라미터', () => {
-  // 개인 ＋필터는 상태/우선순위/라벨만 — 사이클·유형(팀 전용)과 완료일 기간(WP-873, 종료 이슈 옵트아웃)은 없다.
-  test('＋필터 facet 은 상태/우선순위/라벨만 노출(사이클·유형·완료일 부재)', async () => {
+  // 개인 필터는 상태/우선순위/라벨 등만 — 사이클·유형(팀 전용)과 완료일 기간(WP-873, 종료 이슈 옵트아웃)은 없다.
+  // 빠른 필터 칩(WP-1020)은 상태·우선순위만 바로 보이고, 상태 범주·라벨·담당자는 「더 보기」에 있다.
+  test('개인 칩은 상태·우선순위, 「더 보기」엔 상태 범주·라벨·담당자(사이클·유형·완료일 부재)', async () => {
     const api = personalApi()
     const { user } = await open(`/projects/${KEY}`, api, 'personal-checklist')
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    expect(await screen.findByTestId('add-filter-facet-status')).toBeInTheDocument()
-    expect(screen.getByTestId('add-filter-facet-priority')).toBeInTheDocument()
-    expect(screen.getByTestId('add-filter-facet-label')).toBeInTheDocument()
-    expect(screen.queryByTestId('add-filter-facet-cycle')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('add-filter-facet-type')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('add-filter-facet-closedIn')).not.toBeInTheDocument()
+    const chips = Array.from(within(await screen.findByTestId('quick-filter-bar')).getAllByTestId(/^quick-filter-\w+-trigger$/))
+    expect(chips.map((c) => c.dataset.testid)).toEqual(['quick-filter-statusId-trigger', 'quick-filter-priority-trigger'])
+    await user.click(screen.getByTestId('quick-filter-more'))
+    expect(await screen.findByTestId('quick-filter-more-facet-status')).toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-more-facet-label')).toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-more-facet-assignee')).toBeInTheDocument()
+    for (const key of ['cycle', 'type', 'closedIn']) {
+      expect(screen.queryByTestId(`quick-filter-more-facet-${key}`)).not.toBeInTheDocument()
+      expect(screen.queryByTestId(`quick-filter-${key}`)).not.toBeInTheDocument()
+    }
   })
 
   // 검색 입력 → (디바운스) URL ?q= → 목록 API q 파라미터.
@@ -464,10 +469,9 @@ describe('툴바 — 검색·필터·그룹 → URL·요청 파라미터', () =>
       createIssue({ id: 2, projectKey: KEY, number: 2, title: '완료작업', status: 'DONE', dueDate: null }),
     ])
     const { user, location } = await open(`/projects/${KEY}`, api, 'personal-task-row-1')
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-status'))
+    await openQuickFacet(user, 'status')
     await user.click(await screen.findByTestId('facet-value-status-TODO'))
-    expect(await screen.findByTestId('filter-chip-status')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('quick-filter-status')).toHaveAttribute('data-active', 'true'))
     await user.keyboard('{Escape}')
     await waitFor(() => expect(paramsOf(location()).get('status')).toBe('TODO'))
     await waitFor(() => expect(api.searches.some((s) => s.get('status') === 'TODO')).toBe(true))

@@ -185,8 +185,9 @@ test.describe('프로젝트 버전 (WP-888)', () => {
       await expect(page.getByTestId('issue-row-1')).toBeVisible();
       expect(searches.lastUrl()?.searchParams.has('fixVersion')).toBe(false);
 
-      await page.getByTestId('add-filter-trigger').click();
-      await page.getByTestId('add-filter-facet-fixVersion').click();
+      // 수정 버전은 빠른 필터 「더 보기」 소속(WP-1020).
+      await page.getByTestId('quick-filter-more').click();
+      await page.getByTestId('quick-filter-more-facet-fixVersion').click();
       await expect(page.getByTestId('facet-value-fixVersion-1')).toContainText('1.0.0');
       await page.getByTestId('facet-value-fixVersion-1').click();
       await page.getByTestId('facet-value-fixVersion-2').click();
@@ -194,7 +195,7 @@ test.describe('프로젝트 버전 (WP-888)', () => {
 
       await expect(page).toHaveURL(/fixVersion=1(%2C|,)2/);
       await expect.poll(() => searches.lastUrl()?.searchParams.get('fixVersion')).toBe('1,2');
-      await expect(page.getByTestId('filter-chip-fixVersion')).toBeVisible();
+      await expect(page.getByTestId('quick-filter-fixVersion')).toHaveAttribute('data-active', 'true');
 
       // 새로고침해도 URL 의 필터가 그대로 요청에 실린다 — 새로고침 뒤에 나간 요청만 본다(이전 요청이 남아 거짓 통과하지 않게).
       const before = searches.count();
@@ -204,13 +205,13 @@ test.describe('프로젝트 버전 (WP-888)', () => {
       await page.reload();
       expect(new URL((await reloaded).url()).searchParams.get('fixVersion')).toBe('1,2');
       expect(searches.count()).toBeGreaterThan(before);
-      await expect(page.getByTestId('filter-chip-fixVersion')).toBeVisible();
+      await expect(page.getByTestId('quick-filter-fixVersion')).toHaveAttribute('data-active', 'true');
 
       // 둘을 풀고 「수정 버전 없음」 → none.
-      await page.getByTestId('filter-chip-fixVersion-remove').click();
+      await page.getByTestId('quick-filter-fixVersion-remove').click();
       await expect(page).not.toHaveURL(/fixVersion=/);
-      await page.getByTestId('add-filter-trigger').click();
-      await page.getByTestId('add-filter-facet-fixVersion').click();
+      await page.getByTestId('quick-filter-more').click();
+      await page.getByTestId('quick-filter-more-facet-fixVersion').click();
       await page.getByTestId('facet-value-fixVersion-none').click();
       await page.keyboard.press('Escape');
       await expect(page).toHaveURL(/fixVersion=none/);

@@ -10,6 +10,7 @@ import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueSearchResponse } from '@/types/issue'
 
@@ -109,17 +110,16 @@ describe('내 작업 탭', () => {
     const { user, location, seen } = renderMyTasks('/me/tasks/assigned')
     await screen.findByTestId('assigned-row-52')
     expect(seen.at(-1)?.get('status')).toBeNull()
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-status'))
+    await openQuickFacet(user, 'status')
     await user.click(await screen.findByTestId('facet-value-status-IN_PROGRESS'))
     await waitFor(() => expect(seen.at(-1)?.get('status')).toBe('IN_PROGRESS'))
     expect(seen.at(-1)?.get('assignee')).toBe('me')
     expect(location()).toMatch(/^\/me\/tasks\/assigned\?/)
-    expect(screen.getByTestId('filter-chip-status')).toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-status')).toHaveAttribute('data-active', 'true')
     await user.keyboard('{Escape}')
-    await user.click(screen.getByTestId('filter-chip-status-remove'))
+    await user.click(screen.getByTestId('quick-filter-status-remove'))
     await waitFor(() => expect(search(location()).has('status')).toBe(false))
-    expect(screen.queryByTestId('filter-chip-status')).not.toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-status')).not.toHaveAttribute('data-active')
   })
 
   // #294: 상태·우선순위는 텍스트 배지가 아니라 아이콘(role=img + aria-label).

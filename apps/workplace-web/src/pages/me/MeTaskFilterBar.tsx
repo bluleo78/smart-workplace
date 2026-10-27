@@ -5,7 +5,7 @@
 // 독립적으로 status/priority 만 query 로 읽고 쓴다.
 import { useSearchParams } from 'react-router-dom';
 
-import { type FacetDef, FacetFilter, type FilterValue } from '@/components/filter';
+import { type FacetDef, type FilterValue, QuickFilterBar } from '@/components/filter';
 import { ShowAllClosedToggle } from '@/components/issue/ShowAllClosedToggle';
 
 import { parseFilters } from '../../lib/issueFilters';
@@ -19,6 +19,9 @@ const STATUS_OPTIONS = [
   { value: 'DONE', label: '완료' },
   { value: 'CANCELED', label: '취소' },
 ];
+
+// 빠른 필터 칩(WP-1020) — 이 화면의 facet 은 둘뿐이라 둘 다 칩으로 바로 보이고 「더 보기」·칩 고정 메뉴는 없다.
+const ME_QUICK_CHIPS: readonly string[] = ['status', 'priority'];
 
 /** showClosedToggle — 「완료 모두 보기」 토글 노출(할당 탭만, WP-916). 내가 만든 탭은 만든 이력이라 완료를 숨기지 않는다. */
 export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle?: boolean }) {
@@ -63,7 +66,7 @@ export function MeTaskFilterBar({ showClosedToggle = false }: { showClosedToggle
 
   return (
     <div className="flex flex-wrap items-center gap-2 py-1" data-testid="me-task-filter-bar">
-      <FacetFilter facets={facets} value={filterValue} onChange={handleFilterChange} />
+      <QuickFilterBar facets={facets} value={filterValue} onChange={handleFilterChange} defaultChips={ME_QUICK_CHIPS} />
       {/* 모양·문구는 프로젝트 목록 IssueFilterBar 의 토글과 같다. */}
       {showClosedToggle && (
         <ShowAllClosedToggle

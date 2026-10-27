@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest'
 
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import type { ScreenUser } from '@/test/renderScreen'
 import type { IssueResponse } from '@/types/issue'
 
@@ -28,11 +29,8 @@ function openList(
   return { ...view, api, lastSearch: () => api.searches.at(-1) }
 }
 
-/** 「+ 필터」 → facet 을 연다. */
-async function openFacet(user: ScreenUser, facet: string) {
-  await user.click(await screen.findByTestId('add-filter-trigger'))
-  await user.click(await screen.findByTestId(`add-filter-facet-${facet}`))
-}
+/** 빠른 필터 칩(또는 「더 보기」) → facet 값 목록을 연다(WP-1020). */
+const openFacet = (user: ScreenUser, facet: string) => openQuickFacet(user, facet)
 
 const customStatuses = () => http.get(`${API}/projects/${KEY}/statuses`, () => HttpResponse.json(withCustomStatuses('대기', '검토 중')))
 
@@ -180,9 +178,9 @@ describe('사용자 정의 상태 (WP-808)', () => {
   // 「상태」(statusId) facet 은 프로젝트 상태 이름 순서, 고르면 statusId=12 만 싣고 칩 「상태: 검토 중」.
   test('「상태」 필터에서 「검토 중」을 고르면 statusId=12 로 검색하고 칩이 생긴다', async () => {
     const { user, lastSearch, location } = openList([createIssue({ number: 7 })], { extra: [customStatuses()] })
-    await user.click(await screen.findByTestId('add-filter-trigger'))
-    expect(await screen.findByTestId('add-filter-facet-statusId')).toHaveTextContent(/^상태$/)
-    await user.click(screen.getByTestId('add-filter-facet-statusId'))
+    // 「상태」는 기본 칩 — 칩을 한 번 누르면 값 목록이 열린다(WP-1020).
+    expect(await screen.findByTestId('quick-filter-statusId-trigger')).toHaveTextContent(/^상태$/)
+    await user.click(screen.getByTestId('quick-filter-statusId-trigger'))
     const options = await screen.findAllByTestId(/^facet-value-statusId-/)
     expect(options.map((o) => o.textContent)).toEqual(['할 일', '진행 중', '대기', '검토 중', '완료', '취소'])
     expect(screen.getByTestId('facet-value-statusId-12').querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
@@ -190,7 +188,8 @@ describe('사용자 정의 상태 (WP-808)', () => {
     await waitFor(() => expect(location()).toMatch(/statusId=12/))
     await waitFor(() => expect(lastSearch()?.searchParams.get('statusId')).toBe('12'))
     expect(lastSearch()?.searchParams.get('status')).toBeNull()
-    const chip = await screen.findByTestId('filter-chip-statusId')
+    const chip = await screen.findByTestId('quick-filter-statusId')
+    await waitFor(() => expect(chip).toHaveAttribute('data-active', 'true'))
     expect(chip).toHaveTextContent('상태:')
     expect(chip).toHaveTextContent('검토 중')
   })
@@ -198,9 +197,10 @@ describe('사용자 정의 상태 (WP-808)', () => {
   // 「상태 범주」 facet 은 기존 status 파라미터를 쓴다.
   test('「상태 범주」 필터는 status=IN_PROGRESS 로 검색한다(statusId 없음)', async () => {
     const { user, lastSearch } = openList([createIssue({ number: 7 })], { extra: [customStatuses()] })
-    await user.click(await screen.findByTestId('add-filter-trigger'))
-    expect(await screen.findByTestId('add-filter-facet-status')).toHaveTextContent(/^상태 범주$/)
-    await user.click(screen.getByTestId('add-filter-facet-status'))
+    // 「상태 범주」는 「더 보기」 소속(WP-1020).
+    await user.click(await screen.findByTestId('quick-filter-more'))
+    expect(await screen.findByTestId('quick-filter-more-facet-status')).toHaveTextContent(/^상태 범주$/)
+    await user.click(screen.getByTestId('quick-filter-more-facet-status'))
     await user.click(await screen.findByTestId('facet-value-status-IN_PROGRESS'))
     await waitFor(() => expect(lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS'))
     expect(lastSearch()?.searchParams.get('statusId')).toBeNull()
@@ -209,17 +209,18 @@ describe('사용자 정의 상태 (WP-808)', () => {
   // 예전 ?status= 링크는 상태 범주 칩으로, 둘 다 있으면 칩 둘·파라미터 둘(서버 AND).
   test('예전 ?status= 링크는 상태 범주 칩으로 열리고, statusId 와 함께면 칩·파라미터가 둘 다 실린다', async () => {
     const first = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?status=IN_PROGRESS`, extra: [customStatuses()] })
-    const category = await screen.findByTestId('filter-chip-status')
+    // 「더 보기」 소속인 상태 범주도 값이 걸리면 칩으로 꺼내 보인다(WP-1020). 「상태」 칩은 걸리지 않은 채.
+    const category = await screen.findByTestId('quick-filter-status')
     expect(category).toHaveTextContent('상태 범주:')
     expect(category).toHaveTextContent('진행 중')
-    expect(screen.queryByTestId('filter-chip-statusId')).not.toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-statusId')).not.toHaveAttribute('data-active')
     await waitFor(() => expect(first.lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS'))
     expect(first.lastSearch()?.searchParams.get('statusId')).toBeNull()
     first.unmount()
 
     const both = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?status=IN_PROGRESS&statusId=12`, extra: [customStatuses()] })
-    await waitFor(() => expect(screen.getByTestId('filter-chip-statusId')).toHaveTextContent('검토 중'))
-    expect(screen.getByTestId('filter-chip-status')).toHaveTextContent('진행 중')
+    await waitFor(() => expect(screen.getByTestId('quick-filter-statusId')).toHaveTextContent('검토 중'))
+    expect(screen.getByTestId('quick-filter-status')).toHaveTextContent('진행 중')
     await waitFor(() => expect(both.lastSearch()?.searchParams.get('statusId')).toBe('12'))
     expect(both.lastSearch()?.searchParams.get('status')).toBe('IN_PROGRESS')
   })
@@ -266,7 +267,7 @@ describe('사용자 정의 상태 (WP-808)', () => {
         }),
       ],
     })
-    await screen.findByTestId('add-filter-trigger')
+    await screen.findByTestId('quick-filter-more')
     await waitFor(() => expect(hits).toBeGreaterThan(0))
     await new Promise((r) => setTimeout(r, 300))
     expect(screen.queryByTestId('issue-list-scroll')).not.toBeInTheDocument()

@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
+import { openMobileQuickFacet } from '@/test/kits/projects/quickFilter'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 
@@ -190,23 +191,52 @@ describe('모바일 이슈 목록 — 툴바', () => {
     expect(await screen.findByTestId('list-group-epic-30')).toBeInTheDocument()
   })
 
-  test('필터 시트 — 빈 안내, ＋ 필터로 상태 추가 → status 쿼리·칩 개수, 전체 해제로 지운다', async () => {
+  // WP-1020 — 툴바의 「필터 N」 칩 대신 두 번째 줄의 빠른 필터 칩. 칩(또는 「더 보기」) → 시트에서 체크하면 바로 반영되고,
+  // 「완료 · 결과 보기」로 닫으면 걸린 칩이 맨 앞에 파랗게 요약된다. 「필터 지우기」로 다 푼다.
+  test('빠른 필터 칩 줄 — 더 보기 › 상태 범주에서 진행 중 → 즉시 status 쿼리, 걸린 칩이 맨 앞, 필터 지우기로 지운다', async () => {
     const { user, location } = await open('')
-    await user.click(screen.getByTestId('mobile-chip-filter'))
-    const sheet = await screen.findByTestId('mobile-filter-sheet')
-    expect(within(sheet).getByTestId('mobile-filter-empty')).toHaveTextContent('적용된 필터 없음')
-    await user.click(within(sheet).getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-status'))
-    await user.click(await screen.findByRole('checkbox', { name: '진행 중' }))
+    expect(screen.queryByTestId('mobile-chip-filter')).not.toBeInTheDocument()
+    const row = screen.getByTestId('mobile-quick-filter-row')
+    // 팀 기본 칩 순서 — 담당자·상태·유형·라벨·우선순위, 그 뒤 「더 보기」.
+    const keys = () => within(row).getAllByTestId(/^mobile-quick-filter-[A-Za-z]+$/).map((el) => el.dataset.testid)
+    expect(keys()).toEqual(['mobile-quick-filter-assignee', 'mobile-quick-filter-statusId', 'mobile-quick-filter-type', 'mobile-quick-filter-label', 'mobile-quick-filter-priority', 'mobile-quick-filter-more'])
+    const sheet = await openMobileQuickFacet(user, 'status')
+    await user.click(within(sheet).getByRole('checkbox', { name: '진행 중' }))
+    // 시트를 닫기 전에 이미 반영된다(즉시 적용).
     await waitFor(() => expect(params(location).get('status')).toBe('IN_PROGRESS'))
-    await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByTestId('add-filter-facet-status')).not.toBeInTheDocument())
-    await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByTestId('mobile-filter-sheet')).not.toBeInTheDocument())
-    expect(screen.getByTestId('mobile-chip-filter')).toHaveTextContent('필터 1')
-    await user.click(screen.getByTestId('mobile-chip-filter'))
-    await user.click(await screen.findByTestId('mobile-filter-clear'))
+    expect(screen.getByTestId('mobile-quick-filter-sheet')).toBeInTheDocument()
+    await user.click(within(sheet).getByTestId('mobile-quick-filter-done'))
+    await waitFor(() => expect(screen.queryByTestId('mobile-quick-filter-sheet')).not.toBeInTheDocument())
+    // 걸린 칩은 맨 앞으로 — 가로 스크롤 줄이 넘쳐도 보인다.
+    expect(keys()[0]).toBe('mobile-quick-filter-status')
+    expect(screen.getByTestId('mobile-quick-filter-status')).toHaveTextContent('상태 범주: 진행 중')
+    await user.click(screen.getByTestId('mobile-quick-filter-clear-all'))
     await waitFor(() => expect(params(location).has('status')).toBe(false))
+    expect(screen.queryByTestId('mobile-quick-filter-status')).not.toBeInTheDocument()
+  })
+
+  // WP-1020 — 시트 행은 48px 이상(min-h-12), 「더 보기」 시트에서 칩을 고정하면 줄에 바로 생기고, 걸린 칩의 × 는 그 칩만 비운다.
+  test('빠른 필터 칩 줄 — 더 보기 시트에서 칩 고정, 값 시트 행은 48px, 걸린 칩 × 로 해제', async () => {
+    const { user, location } = await open('')
+    await user.click(screen.getByTestId('mobile-quick-filter-more'))
+    const more = await screen.findByTestId('mobile-quick-filter-sheet')
+    expect(within(more).getByTestId('mobile-quick-filter-more-facet-status')).toHaveClass('min-h-12')
+    await user.click(within(more).getByRole('checkbox', { name: '상태 범주 칩으로 보이기' }))
+    // 고정한 칩이 줄에 바로 생긴다(값 없이).
+    expect(await screen.findByTestId('mobile-quick-filter-status')).not.toHaveAttribute('data-active')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('mobile-quick-filter-sheet')).not.toBeInTheDocument())
+
+    const sheet = await openMobileQuickFacet(user, 'status')
+    expect(within(sheet).getByTestId('facet-value-status-TODO')).toHaveClass('min-h-12')
+    await user.click(within(sheet).getByRole('checkbox', { name: '할 일' }))
+    await waitFor(() => expect(params(location).get('status')).toBe('TODO'))
+    await user.click(within(sheet).getByTestId('mobile-quick-filter-done'))
+    await waitFor(() => expect(screen.queryByTestId('mobile-quick-filter-sheet')).not.toBeInTheDocument())
+    await user.click(screen.getByTestId('mobile-quick-filter-status-remove'))
+    await waitFor(() => expect(params(location).has('status')).toBe(false))
+    // 고정한 칩이라 값을 비워도 줄에 남는다.
+    expect(screen.getByTestId('mobile-quick-filter-status')).not.toHaveAttribute('data-active')
   })
 
   test('뷰 시트 — 저장 뷰 적용, 상태 필터 뷰에선 완료 토글이 켜진 채 비활성, 「전체」에서 켜면 closed=all 이고 시트는 남는다', async () => {
@@ -329,22 +359,17 @@ describe('모바일 이슈 목록 — 저장 뷰 쓰기', () => {
     expect(String(api.writes[0].body.query)).toContain('status=TODO')
     // 시트 → 다이얼로그 전환 뒤에도 body 에 pointer-events 잠금이 남지 않는다.
     await waitFor(() => expect(document.body.style.pointerEvents).not.toBe('none'))
-    await user.click(screen.getByTestId('mobile-chip-filter'))
-    expect(await screen.findByTestId('mobile-filter-sheet')).toBeInTheDocument()
+    await user.click(screen.getByTestId('mobile-quick-filter-more'))
+    expect(await screen.findByTestId('mobile-quick-filter-sheet')).toBeInTheDocument()
   })
 
-  /** 필터 시트에서 상태 「진행 중」을 더해 저장 뷰와 다른(dirty) 조건을 만든다. */
+  /** 빠른 필터 칩 줄에서 상태 범주 「진행 중」을 더해 저장 뷰와 다른(dirty) 조건을 만든다. */
   async function addInProgressFilter(user: ReturnType<typeof renderMobileRoute>['user'], location: () => string) {
-    await user.click(screen.getByTestId('mobile-chip-filter'))
-    const sheet = await screen.findByTestId('mobile-filter-sheet')
-    await user.click(within(sheet).getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-status'))
-    await user.click(await screen.findByRole('checkbox', { name: '진행 중' }))
+    const sheet = await openMobileQuickFacet(user, 'status')
+    await user.click(within(sheet).getByRole('checkbox', { name: '진행 중' }))
     await waitFor(() => expect(params(location).get('status')).toBe('IN_PROGRESS'))
-    await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByTestId('add-filter-facet-status')).not.toBeInTheDocument())
-    await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByTestId('mobile-filter-sheet')).not.toBeInTheDocument())
+    await user.click(within(sheet).getByTestId('mobile-quick-filter-done'))
+    await waitFor(() => expect(screen.queryByTestId('mobile-quick-filter-sheet')).not.toBeInTheDocument())
   }
 
   test('공유 뷰 업데이트 — 확인 후 PATCH 로 새 조건 저장, 이후 body 잠금이 풀린다', async () => {

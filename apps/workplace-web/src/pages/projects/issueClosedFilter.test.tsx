@@ -9,6 +9,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
@@ -47,15 +48,14 @@ async function open(query = '') {
 
 type User = ReturnType<typeof renderProjectScreen>['user']
 
-/** 「＋ 필터 › 완료일」 까지 연다. */
+/** 「더 보기 › 완료일」 까지 연다(WP-1020 — 완료일은 「더 보기」 소속). */
 async function openClosedFacet(user: User) {
-  await user.click(screen.getByTestId('add-filter-trigger'))
-  await user.click(await screen.findByTestId('add-filter-facet-closedIn'))
+  await openQuickFacet(user, 'closedIn')
 }
 
 /** 열린 칩 편집 팝오버 — 칩의 첫 버튼(값 편집)을 누른다. */
 async function openChip(user: User) {
-  await user.click(within(screen.getByTestId('filter-chip-closedIn')).getAllByRole('button')[0])
+  await user.click(within(screen.getByTestId('quick-filter-closedIn')).getAllByRole('button')[0])
 }
 
 describe('이슈 목록 — 완료일 기간 필터', () => {
@@ -68,7 +68,7 @@ describe('이슈 목록 — 완료일 기간 필터', () => {
     await user.click(lastWeek)
 
     await waitFor(() => expect(closedIn()).toBe('last-week'))
-    expect(await screen.findByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:지난 주 \(10\/12–10\/18\)$/)
+    expect(await screen.findByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 지난 주 \(10\/12–10\/18\)$/)
     await waitFor(() => expect(last().searchParams.get('closedFrom')).toBe('2026-10-12'))
     expect(last().searchParams.get('closedTo')).toBe('2026-10-18')
     // 완료일 범위를 걸면 종료 이슈 숨김은 풀린다.
@@ -77,23 +77,23 @@ describe('이슈 목록 — 완료일 기간 필터', () => {
     // 단일 선택 — 다른 프리셋을 고르면 대체된다(값은 1개, 이전 체크 해제).
     await user.click(screen.getByTestId('facet-value-closedIn-this-month'))
     await waitFor(() => expect(closedIn()).toBe('this-month'))
-    expect(screen.getByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:이번 달 \(10\/1–10\/23\)$/)
+    expect(screen.getByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 이번 달 \(10\/1–10\/23\)$/)
     expect(within(screen.getByTestId('facet-value-closedIn-last-week')).getByRole('checkbox')).not.toBeChecked()
     expect(within(screen.getByTestId('facet-value-closedIn-this-month')).getByRole('checkbox')).toBeChecked()
     await waitFor(() => expect(last().searchParams.get('closedFrom')).toBe('2026-10-01'))
 
     // 같은 프리셋을 다시 누르면 해제.
     await user.click(screen.getByTestId('facet-value-closedIn-this-month'))
-    await waitFor(() => expect(screen.queryByTestId('filter-chip-closedIn')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByTestId('quick-filter-closedIn')).not.toBeInTheDocument())
     expect(closedIn()).toBeNull()
   })
 
   test('칩 ✕ 로 해제하면 URL·요청에서 완료일 범위가 사라진다', async () => {
     const { user, last, closedIn } = await open('closedIn=today')
     await waitFor(() => expect(last().searchParams.get('closedFrom')).toBe('2026-10-23'))
-    expect(screen.getByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:오늘 \(10\/23\)$/)
-    await user.click(screen.getByTestId('filter-chip-closedIn-remove'))
-    await waitFor(() => expect(screen.queryByTestId('filter-chip-closedIn')).not.toBeInTheDocument())
+    expect(screen.getByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 오늘 \(10\/23\)$/)
+    await user.click(screen.getByTestId('quick-filter-closedIn-remove'))
+    await waitFor(() => expect(screen.queryByTestId('quick-filter-closedIn')).not.toBeInTheDocument())
     expect(closedIn()).toBeNull()
     await waitFor(() => expect(last().searchParams.has('closedFrom')).toBe(false))
     expect(last().searchParams.has('closedTo')).toBe(false)
@@ -115,7 +115,7 @@ describe('이슈 목록 — 완료일 기간 필터', () => {
     await user.click(screen.getByTestId('date-range-apply'))
 
     await waitFor(() => expect(closedIn()).toBe('2026-10-01~2026-10-10'))
-    expect(await screen.findByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:10\/1–10\/10$/)
+    expect(await screen.findByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 10\/1–10\/10$/)
     await waitFor(() => expect(last().searchParams.get('closedFrom')).toBe('2026-10-01'))
     expect(last().searchParams.get('closedTo')).toBe('2026-10-10')
     expect(last().searchParams.has('hideInactiveClosed')).toBe(false)
@@ -141,14 +141,14 @@ describe('이슈 목록 — 완료일 기간 필터', () => {
     await user.click(screen.getByTestId('date-range-apply'))
 
     await waitFor(() => expect(closedIn()).toBe('2026-10-05~2026-10-05'))
-    expect(await screen.findByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:10\/5$/)
+    expect(await screen.findByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 10\/5$/)
     await waitFor(() => expect(last().searchParams.get('closedTo')).toBe('2026-10-05'))
   })
 
   test('「기간 직접 지정」 패널 요약이 칩과 같은 표기(연도 포함)를 쓴다', async () => {
     // 지난해에 걸친 범위 — 칩은 「2025/12/29–1/4」. 같은 범위로 패널을 열면 요약도 같아야 한다.
     const { user } = await open('closedIn=2025-12-29~2026-01-04')
-    expect(screen.getByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:2025\/12\/29–1\/4$/)
+    expect(screen.getByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 2025\/12\/29–1\/4$/)
     await openChip(user)
     await user.click(await screen.findByTestId('closed-range-open'))
     expect(await screen.findByTestId('date-range-summary')).toHaveTextContent(/^2025\/12\/29–1\/4$/)
@@ -156,10 +156,10 @@ describe('이슈 목록 — 완료일 기간 필터', () => {
 
   test('직접 지정으로 만든 칩을 열어 프리셋으로 바꾸면 대체된다', async () => {
     const { user, closedIn } = await open('closedIn=2026-10-01~2026-10-10')
-    expect(screen.getByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:10\/1–10\/10$/)
+    expect(screen.getByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 10\/1–10\/10$/)
     await openChip(user)
     await user.click(await screen.findByTestId('facet-value-closedIn-last-month'))
     await waitFor(() => expect(closedIn()).toBe('last-month'))
-    expect(screen.getByTestId('filter-chip-closedIn')).toHaveTextContent(/^완료일:지난 달 \(9\/1–9\/30\)$/)
+    expect(screen.getByTestId('quick-filter-closedIn')).toHaveTextContent(/^완료일: 지난 달 \(9\/1–9\/30\)$/)
   })
 })

@@ -3,7 +3,7 @@
 
 import { LayoutGrid, List } from 'lucide-react';
 
-import { FacetFilter } from '@/components/filter';
+import { QuickFilterBar } from '@/components/filter';
 import { ShowAllClosedToggle } from '@/components/issue/ShowAllClosedToggle';
 import {
   Select,
@@ -39,7 +39,7 @@ export function IssueFilterBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2 py-2">
-      {/* 왼쪽 묶음 — 검색·필터 칩·「초기화」. 「초기화」는 「＋ 필터」 와 한 덩어리라 줄이 넘쳐도 혼자 떨어지지 않는다(WP-931).
+      {/* 왼쪽 묶음 — 검색·빠른 필터 칩(WP-1020)·「필터 지우기」. 「필터 지우기」는 「더 보기」와 한 덩어리라 줄이 넘쳐도 혼자 떨어지지 않는다(WP-931).
           내용 폭만큼 자리를 잡아(grow·기본 basis auto), 한 줄에 다 안 들어가면 오른쪽 묶음이 아랫줄로 내려간다. */}
       <div className="flex min-w-0 grow flex-wrap items-center gap-2" data-testid="issue-filter-main">
         <Input
@@ -52,15 +52,24 @@ export function IssueFilterBar({
           aria-label="태스크 검색"
         />
 
-        <FacetFilter
+        {/* 빠른 필터 칩 — 자주 쓰는 facet 은 칩으로 바로, 나머지는 「더 보기」(WP-1020). 칩 고정·숨김은 화면·사용자별로 기억한다. */}
+        <QuickFilterBar
           facets={c.facets}
           value={c.filterValue}
           onChange={c.onFilterChange}
+          defaultChips={c.quickChips}
+          storageKey={c.quickFilterStorageKey}
           trailing={
+            // 「필터 지우기」 — 예전 「초기화」와 같은 범위(검색어 포함 필터 전부, view·group·열 구성은 유지).
             c.hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={c.reset}>
-                초기화
-              </Button>
+              <button
+                type="button"
+                onClick={c.reset}
+                data-testid="quick-filter-clear-all"
+                className="h-8 px-1.5 text-sm font-medium whitespace-nowrap text-primary hover:underline"
+              >
+                필터 지우기
+              </button>
             )
           }
         />

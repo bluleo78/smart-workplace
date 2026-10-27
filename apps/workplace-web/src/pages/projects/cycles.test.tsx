@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 
 import { CyclePickerPopover } from '@/components/cycle/CyclePickerPopover'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { renderRouteScreen, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { server } from '@/test/msw/server'
 import { renderScreen } from '@/test/renderScreen'
@@ -257,10 +258,10 @@ describe('사이클 필터 — 이슈 목록', () => {
         }),
       ],
     })
-    await user.click(await screen.findByTestId('add-filter-trigger', {}, { timeout: SCREEN_LOAD_TIMEOUT }))
-    await user.click(await screen.findByTestId('add-filter-facet-cycle'))
+    await screen.findByTestId('quick-filter-bar', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    await openQuickFacet(user, 'cycle')
     await user.click(await screen.findByTestId('facet-value-cycle-1'))
-    expect(await screen.findByTestId('filter-chip-cycle')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('quick-filter-cycle')).toHaveAttribute('data-active', 'true'))
     await waitFor(() => expect(searches.some((u) => u.searchParams.get('cycle') === '1')).toBe(true))
     expect(new URLSearchParams(location().split('?')[1]).get('cycle')).toBe('1')
   })

@@ -1,5 +1,5 @@
-// 이슈 목록 「＋ 필터 › 완료일」 기간 필터 E2E (WP-873).
-// 브라우저 기하가 있어야 판정되는 것만 남긴다(@layout) — 「기간 직접 지정」 달력이 팝오버 안에 다 들어가는지, 긴 칩을 걸어도 「초기화」가 제자리인지.
+// 이슈 목록 「더 보기 › 완료일」 기간 필터 E2E (WP-873, WP-1020 빠른 필터 칩).
+// 브라우저 기하가 있어야 판정되는 것만 남긴다(@layout) — 「기간 직접 지정」 달력이 팝오버 안에 다 들어가는지, 긴 칩을 걸어도 「필터 지우기」가 제자리인지.
 // 프리셋 선택(단일)·교체·해제, 달력 적용, 칩 표기가 URL(closedIn)·검색 요청(closedFrom/closedTo)·칩 문구로 이어지는지는
 // 페이지 테스트 src/pages/projects/issueClosedFilter.test.tsx 가 지킨다(WP-971).
 // 현재 시각은 page.clock 으로 2026-10-23(금) 15:00 KST 에 고정 — 「지난 주」는 10/12(월)~10/18(일).
@@ -34,10 +34,10 @@ async function setup(page: import('@playwright/test').Page) {
   return searches;
 }
 
-// 「＋ 필터 › 완료일」 까지 열어 둔다.
+// 「더 보기 › 완료일」 까지 열어 둔다(완료일은 빠른 필터 「더 보기」 소속, WP-1020).
 async function openClosedFacet(page: import('@playwright/test').Page) {
-  await page.getByTestId('add-filter-trigger').click();
-  await page.getByTestId('add-filter-facet-closedIn').click();
+  await page.getByTestId('quick-filter-more').click();
+  await page.getByTestId('quick-filter-more-facet-closedIn').click();
 }
 
 // 「기간 직접 지정」 달력의 「취소」·「적용」이 팝오버 안에 온전히 보이는가 — 클릭 전에 본다(클릭은 스크롤해 버려 잘림을 가린다).
@@ -60,7 +60,7 @@ async function expectApplyFullyVisible(page: import('@playwright/test').Page) {
 }
 
 test.describe('이슈 목록 — 완료일 기간 필터', () => {
-  test('「기간 직접 지정」 달력은 팝오버 안에 다 들어간다 — 「＋ 필터」와 칩 편집 모두 취소·적용이 잘리지 않는다', { tag: '@layout' }, async ({
+  test('「기간 직접 지정」 달력은 팝오버 안에 다 들어간다 — 「더 보기」와 칩 편집 모두 취소·적용이 잘리지 않는다', { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await setup(page);
@@ -80,16 +80,16 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
 
     // 칩 편집 팝오버 — 같은 목록·달력을 쓴다.
     await page.goto(`/projects/${KEY}?closedIn=2026-10-01~2026-10-10`);
-    await page.getByTestId('filter-chip-closedIn').getByRole('button').first().click();
+    await page.getByTestId('quick-filter-closedIn-trigger').click();
     await page.getByTestId('closed-range-open').click();
     await expect(page.getByTestId('date-range-panel')).toBeVisible();
     await expectApplyFullyVisible(page);
   });
 
-  // 무엇을: 완료일 칩처럼 긴 칩을 걸어도 「초기화」 가 「＋ 필터」 바로 옆에 붙고, 검색창·칩과 같은 줄에 있는지 — 1280·1024, 칩 1개·2개.
+  // 무엇을: 완료일 칩처럼 긴 칩을 걸어도 「필터 지우기」 가 「더 보기」 바로 옆에 붙어 있는지 — 1280·1024, 칩 1개·2개.
   // 왜: 「초기화」 가 막대 맨 끝(뷰 전환 뒤)에 있어, 1280 폭에서 완료일 칩만 걸어도 줄이 넘쳐 그것만 아랫줄 왼쪽으로 떨어졌다(WP-931).
-  //     고치는 중에 1024 폭에서 검색창 / 칩 / 「＋ 필터」·「초기화」 가 세 줄로 갈라진 적도 있다 — 넘치면 보기 설정 묶음이 내려가야 한다.
-  test('필터 줄 — 긴 칩을 걸어도 「초기화」 는 「＋ 필터」 옆, 검색창과 같은 줄에 있다(1280·1024)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  //     빠른 필터 칩(WP-1020)은 기본 칩이 다섯 개라 좁은 폭에선 칩 줄이 꺾일 수 있다 — 그래도 「필터 지우기」 는 「더 보기」 와 한 덩어리다.
+  test('필터 줄 — 긴 칩을 걸어도 「필터 지우기」 는 「더 보기」 바로 옆에 있다(1280·1024)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await setup(page);
     const main = page.getByTestId('issue-filter-main');
     const centerY = (b: { y: number; height: number }) => b.y + b.height / 2;
@@ -102,17 +102,14 @@ test.describe('이슈 목록 — 완료일 기간 필터', () => {
       await page.setViewportSize({ width, height: 800 });
       await page.goto(`/projects/${KEY}?${query}`);
       await expect(page.getByTestId('issue-row-7')).toBeVisible();
-      const [r, add, q] = await Promise.all([
-        main.getByRole('button', { name: '초기화' }).boundingBox(),
-        main.getByTestId('add-filter-trigger').boundingBox(),
-        main.getByRole('textbox', { name: '태스크 검색' }).boundingBox(),
+      const [r, add] = await Promise.all([
+        main.getByRole('button', { name: '필터 지우기' }).boundingBox(),
+        main.getByTestId('quick-filter-more').boundingBox(),
       ]);
-      // 같은 줄(세로 가운데가 같다)이고, 「＋ 필터」 바로 오른쪽이다.
+      // 같은 줄(세로 가운데가 같다)이고, 「더 보기」 바로 오른쪽이다.
       expect(Math.abs(centerY(r!) - centerY(add!))).toBeLessThanOrEqual(2);
       expect(r!.x).toBeGreaterThan(add!.x + add!.width);
       expect(r!.x - (add!.x + add!.width)).toBeLessThanOrEqual(16);
-      // 검색창도 같은 줄이다.
-      expect(Math.abs(centerY(q!) - centerY(r!))).toBeLessThanOrEqual(2);
     }
   });
 });

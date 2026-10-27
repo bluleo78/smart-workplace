@@ -85,7 +85,12 @@ test('개인 툴바 — 뷰·에픽 칩 없이 필터·그룹·검색·체크리
   expect(await screen.findByTestId('personal-checklist')).toBeInTheDocument()
   expect(within(bar).queryByTestId('mobile-chip-view')).not.toBeInTheDocument()
   expect(within(bar).queryByTestId('mobile-chip-epic')).not.toBeInTheDocument()
-  expect(within(bar).getByTestId('mobile-chip-filter')).toBeInTheDocument()
+  // 필터는 툴바 아래 빠른 필터 칩 줄(WP-1020) — 개인은 상태·우선순위만 칩, 나머지는 「더 보기」.
+  expect(within(bar).queryByTestId('mobile-chip-filter')).not.toBeInTheDocument()
+  expect(screen.getByTestId('mobile-quick-filter-statusId')).toBeInTheDocument()
+  expect(screen.getByTestId('mobile-quick-filter-priority')).toBeInTheDocument()
+  expect(screen.queryByTestId('mobile-quick-filter-label')).not.toBeInTheDocument()
+  expect(screen.getByTestId('mobile-quick-filter-more')).toBeInTheDocument()
   expect(within(bar).getByTestId('mobile-chip-group')).toHaveTextContent('그룹: 없음')
   expect(within(bar).getByTestId('mobile-search-open')).toBeInTheDocument()
   const toggle = within(bar).getByTestId('mobile-view-toggle')

@@ -12,7 +12,7 @@ export function countActiveFacets(filterValue: Record<string, FacetValue[] | und
   return Object.entries(filterValue).filter(([k, v]) => (v?.length ?? 0) > 0 || (k === 'assignee' && includeUnassigned)).length
 }
 
-/** facet 값만 비운 필터 — 모바일 필터 시트 「전체 해제」. 검색어·완료 보기·에픽 범위는 유지하고 담당자 미지정·완료일 기간·「구성요소 없음」·버전 필터도 함께 푼다. */
+/** facet 값만 비운 필터 — 모바일 빠른 필터 칩 줄 「필터 지우기」(WP-1020). 검색어·완료 보기·에픽 범위는 유지하고 담당자 미지정·완료일 기간·「구성요소 없음」·버전 필터도 함께 푼다. */
 export function clearFacetFilters(filters: IssueFilters): IssueFilters {
   return { ...filters, statuses: [], statusIds: [], priorities: [], labelIds: [], cycleIds: [], componentIds: [], componentNone: false, fixVersionIds: [], fixVersionNone: false, affectsVersionIds: [], affectsVersionNone: false, typeIds: [], assigneeIds: [], includeUnassigned: false, closedIn: null }
 }

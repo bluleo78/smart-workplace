@@ -18,6 +18,7 @@ import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { projectScreen } from '@/test/kits/projects/projectScreens'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { renderScreen } from '@/test/renderScreen'
 import type { ComponentResponse } from '@/types/component'
@@ -359,9 +360,10 @@ describe('이슈 목록 — 구성요소 필터·열', () => {
   async function expectVisibility(user: ReturnType<typeof renderIssueDetailScreen>['user'], shown: boolean) {
     const check = (id: string) =>
       shown ? expect(screen.getByTestId(id)).toBeInTheDocument() : expect(screen.queryByTestId(id)).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    await screen.findByTestId('add-filter-facet-priority')
-    check('add-filter-facet-component')
+    // 구성요소 facet 은 「더 보기」 소속(WP-1020).
+    await user.click(screen.getByTestId('quick-filter-more'))
+    await screen.findByTestId('quick-filter-more-facet-status')
+    check('quick-filter-more-facet-component')
     await user.keyboard('{Escape}')
     await user.click(screen.getByTestId('issue-column-picker'))
     await screen.findByTestId('issue-column-option-assignee')
@@ -396,8 +398,7 @@ describe('이슈 목록 — 구성요소 필터·열', () => {
     const { user, location, searches } = await openList(comps, { components: comps.slice(0, 3).map(toComponentSummary) })
     expect(searches().at(-1)?.searchParams.has('component')).toBe(false)
 
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-component'))
+    await openQuickFacet(user, 'component')
     // 다른 facet 처럼 이슈 수는 보이지 않는다.
     expect(await screen.findByTestId('facet-value-component-1')).toHaveTextContent(/^Compute$/)
     const order = Array.from(
@@ -409,12 +410,11 @@ describe('이슈 목록 — 구성요소 필터·열', () => {
     await user.keyboard('{Escape}')
     await waitFor(() => expect(location()).toMatch(/component=1(%2C|,)2/))
     await waitFor(() => expect(searches().at(-1)?.searchParams.get('component')).toBe('1,2'))
-    expect(screen.getByTestId('filter-chip-component')).toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-component')).toHaveAttribute('data-active', 'true')
 
-    await user.click(screen.getByTestId('filter-chip-component-remove'))
+    await user.click(screen.getByTestId('quick-filter-component-remove'))
     await waitFor(() => expect(location()).not.toMatch(/component=/))
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-component'))
+    await openQuickFacet(user, 'component')
     await user.click(await screen.findByTestId('facet-value-component-none'))
     await user.keyboard('{Escape}')
     await waitFor(() => expect(location()).toMatch(/component=none/))
@@ -441,6 +441,6 @@ describe('이슈 목록 — 구성요소 필터·열', () => {
     )
     expect(searches().length).toBeGreaterThan(0)
     expect(searches().every((u) => u.searchParams.get('component') === '1,2')).toBe(true)
-    expect(await screen.findByTestId('filter-chip-component')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('quick-filter-component')).toHaveAttribute('data-active', 'true'))
   })
 })

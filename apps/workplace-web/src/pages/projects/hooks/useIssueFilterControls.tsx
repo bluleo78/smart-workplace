@@ -5,7 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-import type { FacetDef, FilterValue } from '@/components/filter';
+import { type FacetDef, type FilterValue, QUICK_FILTER_STORAGE_PREFIX } from '@/components/filter';
 
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
@@ -17,6 +17,7 @@ import { useLabels } from '../../../hooks/queries/useLabels';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useVersions } from '../../../hooks/queries/useVersions';
+import { useAuth } from '../../../hooks/useAuth';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
 import { useSearchDraft } from '../../../hooks/useSearchDraft';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
@@ -37,6 +38,7 @@ import type {
   IssueView,
 } from '../../../types/issue';
 import { ClosedRangeExtra } from '../components/ClosedRangeExtra';
+import { assigneeFacetValue, assigneeFilterFromFacet, buildAssigneeFacet } from './assigneeFacet';
 import { buildComponentFacet, componentFacetValue, componentFilterFromFacet } from './componentFacet';
 import { buildStatusFacets } from './statusFacets';
 import { buildVersionFacet, versionFacetValue, versionFilterFromFacet } from './versionFacet';
@@ -49,6 +51,10 @@ const GROUP_OPTIONS: { value: IssueGroupBy | null; label: string }[] = [
   ...(Object.entries(ISSUE_GROUP_BY_LABEL) as [IssueGroupBy, string][]).map(([value, label]) => ({ value, label })),
 ];
 
+// 빠른 필터 칩 기본 목록(WP-1020) — 팀 목록은 자주 쓰는 다섯 개를 칩으로 바로 보이고 나머지(상태 범주·사이클·완료일·구성요소·버전)는 「더 보기」.
+// 「상태」는 프로젝트 상태(statusId) facet 이다 — 「상태 범주」(status)는 덜 쓰여 「더 보기」로 간다.
+export const TEAM_QUICK_CHIPS: readonly string[] = ['assignee', 'statusId', 'type', 'label', 'priority'];
+
 // 개인 프로젝트 등에서 일부 컨트롤을 숨기거나 라벨을 바꾸기 위한 옵션. 기본값 = 팀 전체 동작.
 export interface IssueFilterBarOptions {
   showCycle?: boolean; // 기본 true
@@ -59,6 +65,8 @@ export interface IssueFilterBarOptions {
   groupOptions?: { value: IssueGroupBy | null; label: string }[]; // 기본 GROUP_OPTIONS
   listLabel?: string; // 뷰토글의 'list' 버튼 접근성 라벨. 기본 '리스트'
   listIcon?: LucideIcon; // 뷰토글의 'list' 버튼 아이콘. 기본 List(목록). 개인=ListChecks(체크리스트)
+  quickChips?: readonly string[]; // 빠른 필터 기본 칩(facet key, 순서대로). 기본 TEAM_QUICK_CHIPS — 개인 = 상태·우선순위
+  quickFilterScreen?: string; // 칩 고정·숨김 저장 키의 화면 이름. 기본 'project-issues' — 개인 화면은 따로 기억한다
 }
 
 
@@ -83,6 +91,8 @@ export interface IssueFilterControls {
   closedHidingOverridden: boolean;
   toggleShowAllClosed: () => void;
   clearFacets: () => void; // q·view·group 유지, facet 값만 비움
+  quickChips: readonly string[]; // 빠른 필터 기본 칩
+  quickFilterStorageKey: string | undefined; // 칩 고정·숨김 저장 키(화면·사용자별). 로그인 정보가 없으면 undefined(기억 안 함)
 }
 
 export function useIssueFilterControls(
@@ -94,6 +104,12 @@ export function useIssueFilterControls(
   const showClosedToggle = options?.showClosedToggle ?? true;
   const showClosedFilter = options?.showClosedFilter ?? true;
   const groupOptions = options?.groupOptions ?? GROUP_OPTIONS;
+  const quickChips = options?.quickChips ?? TEAM_QUICK_CHIPS;
+  // 칩 고정·숨김은 화면·사용자별로 기억한다 — 한 브라우저를 여러 계정이 써도 서로 섞이지 않게 사용자 id 를 키에 넣는다.
+  const { user } = useAuth();
+  const meId = user?.id ?? null;
+  const quickFilterStorageKey =
+    meId == null ? undefined : `${QUICK_FILTER_STORAGE_PREFIX}${options?.quickFilterScreen ?? 'project-issues'}:${meId}`;
   const [params, setParams] = useSearchParams();
   // params 는 URL(search)이 바뀔 때만 새 객체 — 파싱 결과를 메모해 아래 filterValue 메모가 매 렌더 깨지지 않게 한다.
   const filters = useMemo(() => parseFilters(params), [params]);
@@ -159,7 +175,7 @@ export function useIssueFilterControls(
   // 명시 필터가 이미 종료 이슈 숨김을 해제했는지 — 토글 표시 상태에 반영(#876).
   const closedHidingOverridden = overridesClosedHiding(filters);
 
-  // 적용된 필터가 하나라도 있을 때만 초기화 버튼을 노출 — 평소엔 숨겨 툴바를 깔끔하게.
+  // 적용된 필터(검색어 포함)가 하나라도 있을 때만 데스크톱 「필터 지우기」를 노출 — 평소엔 숨겨 툴바를 깔끔하게.
   const hasActiveFilters =
     filters.q !== '' ||
     filters.statuses.length > 0 ||
@@ -192,7 +208,8 @@ export function useIssueFilterControls(
       fixVersion: versionFacetValue(filters.fixVersionIds, filters.fixVersionNone),
       affectsVersion: versionFacetValue(filters.affectsVersionIds, filters.affectsVersionNone),
       type: filters.typeIds,
-      assignee: filters.assigneeIds,
+      // 담당자 — id 와 「미지정」('none', URL assignee=null)을 한 facet 값으로(WP-1020).
+      assignee: assigneeFacetValue(filters.assigneeIds, filters.includeUnassigned),
       // 완료일 기간은 토큰 하나(프리셋 또는 'from~to') — 단일 선택 facet.
       closedIn: filters.closedIn ? [filters.closedIn] : [],
     }),
@@ -256,16 +273,10 @@ export function useIssueFilterControls(
             buildVersionFacet('affects', versions.data ?? [], affectsVersionFilterActive),
           ].filter((f): f is FacetDef => f !== null)
         : []),
-      // 담당자 facet — 프로젝트 멤버 목록을 옵션으로 사용. (#363)
-      {
-        key: 'assignee',
-        label: '담당자',
-        options: (members.data ?? []).map((m) => ({
-          value: m.userId,
-          label: m.name,
-        })),
-      } satisfies FacetDef,
-      ...(showCycle
+      // 담당자 facet — 프로젝트 멤버 목록을 옵션으로 사용(#363). 맨 위 「나」·「미지정」(WP-1020).
+      buildAssigneeFacet(members.data ?? [], meId),
+      // 사이클 facet — 사이클이 하나도 없으면 고를 게 없어 넣지 않는다(걸린 필터가 있으면 풀 수 있게 남긴다, WP-1020).
+      ...(showCycle && ((cycles.data?.length ?? 0) > 0 || filters.cycleIds.length > 0)
         ? [
             {
               key: 'cycle',
@@ -310,7 +321,7 @@ export function useIssueFilterControls(
           ]
         : []),
     ],
-    [projectStatuses, labels.data, components.data, componentFilterActive, versions.data, fixVersionFilterActive, affectsVersionFilterActive, members.data, cycles.data, types.data, showCycle, showType, showClosedFilter, todayNoon],
+    [projectStatuses, labels.data, components.data, componentFilterActive, versions.data, fixVersionFilterActive, affectsVersionFilterActive, members.data, meId, cycles.data, filters.cycleIds.length, types.data, showCycle, showType, showClosedFilter, todayNoon],
   );
 
   // FilterValue → URL filters. 숫자 facet 값은 number 로 왕복(DOM stringify 금지).
@@ -331,8 +342,8 @@ export function useIssueFilterControls(
         affectsVersionIds: affectsVersion.ids,
         affectsVersionNone: affectsVersion.none,
         typeIds: (next.type ?? []) as number[],
-        // 담당자 필터 — 숫자 id 배열로 왕복. (#363)
-        assigneeIds: (next.assignee ?? []) as number[],
+        // 담당자 필터 — 숫자 id 배열로 왕복(#363), 「미지정」은 includeUnassigned 로 나눈다(WP-1020).
+        ...assigneeFilterFromFacet(next.assignee),
         // 완료일 기간 — 단일 값(토큰)으로 왕복. 비면 null.
         closedIn: next.closedIn?.[0] != null ? String(next.closedIn[0]) : null,
       },
@@ -341,8 +352,8 @@ export function useIssueFilterControls(
     );
   }
 
-  // 활성 facet 수(q 제외) — 모바일 필터 버튼 배지용.
-  // 담당자 「미지정」(includeUnassigned)은 filterValue 에 안 담기므로 담당자 facet 이 활성인 것으로 한 번만 센다.
+  // 활성 facet 수(q 제외) — 모바일 칩 줄 「필터 지우기」 노출 판정.
+  // 담당자 「미지정」은 assignee facet 값('none')에 담기므로 담당자 facet 하나로 센다.
   const activeFilterCount = countActiveFacets(filterValue, filters.includeUnassigned);
 
   // 「완료 모두 보기」 토글 — 데스크톱 버튼과 모바일 뷰 시트가 공유.
@@ -350,7 +361,7 @@ export function useIssueFilterControls(
     writeFilters({ ...filters, showAllClosed: !filters.showAllClosed }, view, groupParam);
   }
 
-  // facet 값만 비운다 — 모바일 필터 시트 「전체 해제」. 검색어·view·group·에픽 범위는 유지.
+  // facet 값만 비운다 — 모바일 칩 줄 「필터 지우기」(검색은 툴바 🔍 가 따로 보이므로 남긴다). 검색어·view·group·에픽 범위는 유지.
   function clearFacets() {
     writeFilters(clearFacetFilters(filters), view, groupParam);
   }
@@ -375,5 +386,7 @@ export function useIssueFilterControls(
     closedHidingOverridden,
     toggleShowAllClosed,
     clearFacets,
+    quickChips,
+    quickFilterStorageKey,
   };
 }

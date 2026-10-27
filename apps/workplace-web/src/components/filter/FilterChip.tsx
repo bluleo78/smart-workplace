@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 
+import { summarizeFacet } from './facetSummary';
 import { FacetValueList } from './FacetValueList';
 import type { FacetDef, FacetValue } from './types';
 
@@ -18,17 +19,8 @@ export function FilterChip({
   onToggle: (value: FacetValue) => void;
   onClear: () => void;
 }) {
-  // 값 요약: 첫 선택값의 render/label + 나머지 개수.
-  // 옵션 목록에서 찾지 못하면(삭제된 라벨/제외된 담당자 등) 원시 ID를 노출하는 대신
-  // "(알 수 없음)" 플레이스홀더를 흐림 처리로 표시해 유효하지 않은 필터임을 알린다 (#609).
-  const firstOpt = facet.options.find((o) => o.value === selected[0]);
-  // options 에 없어도 facet 이 값 문구를 줄 수 있다(직접 지정한 기간 등) — 그땐 알 수 없는 값이 아니다.
-  const customLabel = firstOpt || selected.length === 0 ? undefined : facet.valueLabel?.(selected[0]);
-  const isUnresolved = selected.length > 0 && !firstOpt && !customLabel;
-  const extra = selected.length - 1;
-  // AND 결합 facet(라벨)이 2개 이상 선택된 경우에만 의미가 갈린다 — "모두 포함" 명시로
-  // 다른 facet(OR)과 다른 시맨틱임을 드러낸다 (#626 사람 결정: 동작은 AND 유지, 표기만 추가).
-  const isAndCombine = facet.combineMode === 'and' && extra > 0;
+  // 값 요약: 첫 선택값의 render/label + 나머지 개수. 옵션에 없는 값은 「(알 수 없음)」(#609), AND 결합은 「모두 포함」(#626).
+  const { firstOpt, isUnresolved, extra, isAndCombine, text } = summarizeFacet(facet, selected);
 
   return (
     <div
@@ -46,7 +38,7 @@ export function FilterChip({
             <span className="text-muted-foreground">{facet.label}:</span>
             {firstOpt?.render ?? (
               <span className={isUnresolved ? 'italic text-muted-foreground' : undefined}>
-                {firstOpt?.label ?? customLabel ?? (isUnresolved ? '(알 수 없음)' : selected[0])}
+                {text}
               </span>
             )}
             {extra > 0 &&

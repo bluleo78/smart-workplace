@@ -13,6 +13,7 @@ import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { BASE, KEY, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
 import { renderScreen } from '@/test/renderScreen'
@@ -64,9 +65,10 @@ async function expectListVisibility(opts: VersionApiOptions, shown: boolean) {
   await versionsServed(api)
   expect(screen.getByRole('link', { name: '버전' })).toBeInTheDocument()
 
-  await user.click(screen.getByTestId('add-filter-trigger'))
-  await screen.findByTestId('add-filter-facet-priority')
-  for (const id of ['add-filter-facet-fixVersion', 'add-filter-facet-affectsVersion']) {
+  // 버전 facet 은 「더 보기」 소속(WP-1020) — 있으면 목록에 보이고, 없으면 빠진다.
+  await user.click(screen.getByTestId('quick-filter-more'))
+  await screen.findByTestId('quick-filter-more-facet-status')
+  for (const id of ['quick-filter-more-facet-fixVersion', 'quick-filter-more-facet-affectsVersion']) {
     if (shown) expect(screen.getByTestId(id)).toBeInTheDocument()
     else expect(screen.queryByTestId(id)).not.toBeInTheDocument()
   }
@@ -106,8 +108,7 @@ describe('버전 노출 — 이슈 상세·목록', () => {
     })
     const { user } = renderList(api)
     await screen.findByTestId('issue-row-1')
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-fixVersion'))
+    await openQuickFacet(user, 'fixVersion')
     await screen.findByTestId('facet-group-fixVersion-보관됨')
 
     // 문서 순서 — 사용 중 값 → 보관됨 머리글 → 보관 버전 둘(붙은 것·안 붙은 것 모두).

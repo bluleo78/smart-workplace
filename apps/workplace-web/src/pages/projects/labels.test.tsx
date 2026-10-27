@@ -10,6 +10,7 @@ import { describe, expect, test } from 'vitest'
 import { IssueFilterBar } from '@/pages/projects/components/IssueFilterBar'
 import { LabelManagement } from '@/pages/projects/components/LabelManagement'
 import ProjectSettingsPage from '@/pages/projects/ProjectSettingsPage'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { ColorToken, LabelResponse } from '@/types/label'
@@ -221,19 +222,17 @@ describe('라벨 — 목록 필터 칩', () => {
     const a = createLabel({ name: '라벨A', colorToken: 'RED' })
     const b = createLabel({ name: '라벨B', colorToken: 'BLUE' })
     const { user, location } = renderFilterBar('/projects/WP', [a, b])
-    await user.click(screen.getByTestId('add-filter-trigger'))
-    await user.click(await screen.findByTestId('add-filter-facet-label'))
+    await openQuickFacet(user, 'label')
     expect(await screen.findByTestId('facet-value-label-and-hint')).toHaveTextContent('모두 가진')
 
     await user.click(screen.getByTestId(`facet-value-label-${a.id}`))
-    const chip = await screen.findByTestId('filter-chip-label')
+    const chip = await screen.findByTestId('quick-filter-label')
     expect(chip).not.toHaveTextContent('모두 포함')
 
     await user.click(screen.getByTestId(`facet-value-label-${b.id}`))
-    await waitFor(() => expect(screen.getByTestId('filter-chip-label')).toHaveTextContent('외 1'))
-    const chip2 = screen.getByTestId('filter-chip-label')
+    await waitFor(() => expect(screen.getByTestId('quick-filter-label')).toHaveTextContent('외 1'))
+    const chip2 = screen.getByTestId('quick-filter-label')
     expect(chip2).toHaveTextContent('모두 포함')
-    expect(screen.getByTestId('filter-chip-label-and')).toBeInTheDocument()
     expect(chip2.getAttribute('title')).toMatch(/모두 가진/)
     const label = new URLSearchParams(location().split('?')[1]).get('label')
     expect(label?.split(',').map(Number).sort()).toEqual([a.id, b.id].sort())
@@ -242,7 +241,7 @@ describe('라벨 — 목록 필터 칩', () => {
   // #609 — 지워진 라벨 id 를 가리키는 URL 필터는 원시 id 대신 「알 수 없음」.
   test('삭제된 라벨을 가리키는 필터는 플레이스홀더를 보인다', async () => {
     const { user } = renderFilterBar('/projects/WP?label=99999', [createLabel({ id: 7, name: '남은라벨' })])
-    const chip = await screen.findByTestId('filter-chip-label')
+    const chip = await screen.findByTestId('quick-filter-label')
     // 칩을 열어 라벨 목록이 들어온 뒤에 본다 — 목록이 오기 전에는 어떤 값이든 플레이스홀더라 판정이 비어 버린다.
     await user.click(within(chip).getAllByRole('button')[0])
     expect(await screen.findByText('남은라벨')).toBeInTheDocument()
