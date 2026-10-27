@@ -105,7 +105,7 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
 - **순수 함수(`*.test.ts`)**: 화면 안의 한 줄짜리 권한·비활성 판정도 순수 함수로 꺼내 지킨다(예: `lib/projectPermissions`·`lib/driveRowActions`·`lib/issueRowMenu`)
 - **페이지 테스트(`*.test.tsx` + `renderPage`, WP-971)**: `renderPage(path, { user, roles, handlers })`(`src/test/renderPage.tsx`)가 실제 라우트 트리(App)·인증(AuthProvider)·토스트를 띄운다 — E2E 의 `authenticatedPage` + `goto` 와 같은 상태. 훅을 `vi.mock` 으로 끊지 않고 **MSW 로 네트워크 계층에서 모킹**한다(`handlers` 에 `http.get(...)` 등). 응답 데이터는 E2E 와 같은 팩토리(`e2e/factories/`)를 쓴다. 예: `src/pages/projects/issueRowMenu.test.tsx`·`src/pages/drive/driveSpaceCreate.test.tsx`
   - 앱 셸이 늘 부르는 부가 조회는 `src/test/msw/baseHandlers.ts` 가 빈 성공으로 깐다(E2E `setupAuthMocks` 와 같은 목록). **핸들러가 없는 요청은 테스트 실패**다(E2E 의 「모킹 누락은 503」과 같은 원칙) — 화면 데이터(목록·쿼터 등)는 테스트가 준다
-  - 첫 `findBy*` 에는 `{ timeout: PAGE_LOAD_TIMEOUT }` — 워커가 페이지 모듈을 처음 불러오는 데 5~6초가 든다. 그 뒤 단언은 기본값
+  - 첫 `findBy*` 에는 `{ timeout: PAGE_LOAD_TIMEOUT }`(45초) — 워커가 페이지 모듈을 처음 불러오는 데 5~6초, 부하가 크면 20초 넘게 든다. 그 뒤 단언은 따로 주지 않는다 — `renderPage` 가 그 테스트의 RTL 기본 대기를 5초(`PAGE_ASYNC_TIMEOUT`)로 늘려 두어 부하 속 「요청 → 다시 그리기」도 기다린다(WP-1006)
   - 주소 이동은 반환값 `location()` 으로 단언한다. 쓰기 요청은 핸들러에서 `request.json()` 을 모아 비교한다
   - 글자 입력은 키 하나하나가 의미 있을 때만 `user.type`(키당 약 25ms), 값만 채우면 `user.paste`·`fireEvent.change`
   - Radix 하위 메뉴는 호버 대신 키보드(포커스 → `{ArrowRight}`)로 연다 — jsdom 은 레이아웃이 없어 호버로 연 하위 메뉴가 포인터를 옮기는 순간 닫힌다
