@@ -114,8 +114,8 @@ export const viewUrl = (base: string, page?: number) => `${base}/view${page !== 
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
 const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
 
-/** 프로젝트 메타 종류 → REST 경로 조각(WP-356). 서버 컨트롤러 /projects/{key}/labels·milestones·cycles. */
-const META_PATH: Record<ProjectMetaKind, string> = { label: 'labels', milestone: 'milestones', cycle: 'cycles' };
+/** 프로젝트 메타 종류 → REST 경로 조각(WP-356, 버전 WP-1005). 서버 컨트롤러 /projects/{key}/labels·milestones·cycles·versions. */
+const META_PATH: Record<ProjectMetaKind, string> = { label: 'labels', milestone: 'milestones', cycle: 'cycles', version: 'versions' };
 
 /** 인증된 HTTP 인스턴스로 공유 도구 클라이언트를 만든다. */
 export function createSharedToolClient(http: HttpLike): SharedToolClient {
@@ -139,15 +139,19 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
    * 되풀이하지 않게. 실패한 요청은 캐시에서 빼 다음 호출이 다시 시도한다.
    */
   const threadIds = new Map<string, Promise<number>>();
-  const issueChatThreadId = (issueKey: string): Promise<number> => {
-    let p = threadIds.get(issueKey);
-    if (!p) {
-      p = http.get(`${issue(issueKey)}/chat/thread`).then((r) => r.data.threadId as number);
-      threadIds.set(issueKey, p);
-      p.catch(() => threadIds.delete(issueKey));
+  /** GET .../chat/thread 한 번 — 받은 스레드 id 로 캐시를 채운다(실패한 요청은 캐시에서 빼 다음 호출이 다시 시도). 참여자(members)는 바뀌므로 캐시하지 않는다(WP-1009). */
+  const fetchIssueChatThread = (issueKey: string) => {
+    const req = http.get(`${issue(issueKey)}/chat/thread`).then((r) => r.data as { threadId: number; members?: Record<string, unknown>[] });
+    // 스레드 id 는 바뀌지 않으므로 캐시가 비었을 때만 채운다 — 캐시된 id 를 대기 중인 요청으로 덮거나, 그 요청이 실패해 지우지 않게.
+    if (!threadIds.has(issueKey)) {
+      const id = req.then((d) => d.threadId);
+      threadIds.set(issueKey, id);
+      id.catch(() => threadIds.delete(issueKey));
     }
-    return p;
+    return req;
   };
+  const issueChatThreadId = (issueKey: string): Promise<number> =>
+    threadIds.get(issueKey) ?? fetchIssueChatThread(issueKey).then((d) => d.threadId);
 
   return {
     // ── 프로젝트·이슈 ──
@@ -187,6 +191,12 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async updateProjectMeta(key, kind, id, body) {
       return (await http.patch(`${project(key)}/${META_PATH[kind]}/${id}`, body)).data;
     },
+    async releaseProjectVersion(key, id) {
+      return (await http.post(`${project(key)}/versions/${id}/release`, {})).data;
+    },
+    async unreleaseProjectVersion(key, id) {
+      return (await http.post(`${project(key)}/versions/${id}/unrelease`, {})).data;
+    },
     async getMe() {
       // 호출자 신원 — PAT 는 소유자, Internal+X-On-Behalf-Of 는 대리 대상이 된다(담당자 "me" 치환·토큰 검증).
       return (await http.get('/auth/me')).data;
@@ -207,6 +217,10 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async getIssueChatThreadId(issueKey) {
       return issueChatThreadId(issueKey);
+    },
+    async getIssueChatThread(issueKey) {
+      const data = await fetchIssueChatThread(issueKey);
+      return { threadId: data.threadId, members: data.members ?? [] };
     },
     async listIssueChatMessages(threadId, { after, limit }) {
       // after 가 없으면 서버가 내 마지막 글 기준(afterMine)으로 고른다 — 새 글과 직전 맥락을 한 번에 받는다(WP-373).

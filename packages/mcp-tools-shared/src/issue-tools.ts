@@ -38,7 +38,7 @@ import {
   updateIssueInput,
   watchIssueInput,
 } from './schemas.js';
-import { resolveMentionTokens } from './messaging-tools.js';
+import { linkMentions, resolveMentionTokens } from './messaging-tools.js';
 import type { IssueRelationTypeRow, IssueRow, IssueToolClient } from './tool-client.js';
 
 /** 첨부 텍스트 추출 상태 → {status, totalChars?, reason?} — truncated·reasonCode 같은 내부 값은 AI 에 필요 없어 뺀다. */
@@ -201,8 +201,8 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       description:
         'Creates an issue (이슈) in projectKey and returns it. type, milestone, cycles, components and assignees (usernames, "me" = caller) are names ' +
         'from get_project; unknown ones fail before creating, listing allowed values. labels are names too, but unknown label names are ' +
-        'created (gray) and listed in createdLabels. fileIds attach staged files. New assignees are notified; an assigned AI agent starts working, ' +
-        'except one whose agentRuntime is INTERNAL — it does not react to anything another AI does (assigning, comments, status).',
+        'created (gray) and listed in createdLabels. fileIds attach staged files. New assignees are notified; an assigned AI agent starts working ' +
+        '(not agentRuntime INTERNAL ones, which ignore other AIs\' actions).',
       inputSchema: createIssueInput,
       async handler(args) {
         const { projectKey, type, assignees, parent, labels, components, fixVersions, affectsVersions, milestone, cycles, ...rest } = createIssueInput.parse(args);
@@ -267,7 +267,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         'reporter (username) changes the reporter: project OWNER/ADMIN or the current reporter only, humans only. ' +
         'Names (type, milestone, cycles, components, fields) come from get_project; unknown ones fail before any write. Unknown label names are created ' +
         '(gray) and listed in createdLabels. fileIds attach staged files. Then each part saves on its own: {ok, results, createdLabels?}; an unknown status name fails results.content (listing valid ones) and nothing else is written. Status/priority changes notify ' +
-        'assignees and watchers, new assignees too. An AI whose agentRuntime is INTERNAL does not react to anything another AI does (assigning, comments, status).',
+        'assignees and watchers, new assignees too. agentRuntime INTERNAL AIs ignore other AIs\' actions (assigning, comments, status).',
       inputSchema: updateIssueInput,
       async handler(args) {
         const { issueKey, status, type, parent, assignees, reporter, labels, components, fixVersions, affectsVersions, milestone, cycles, fields, driveFileId, fileIds, ...rest } = updateIssueInput.parse(args);
@@ -374,12 +374,16 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking the user, AUTH_REQUIRED if you need ' +
-        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, SCHEDULED yield until nextRunAt (resend each time; none = resume after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
-        'work. message posts to issue chat; fileIds attach staged files to it.',
+        'Reports work on your assigned issue (이슈) at start/on change: INPUT_REQUIRED before asking, AUTH_REQUIRED if you need ' +
+        'credentials/permission, REVIEW done awaiting review, BLOCKED + why, SCHEDULED yield until nextRunAt (none = resume after other work), PAUSED if told to stop; COMPLETED/FAILED/CANCELED/REJECTED end the ' +
+        'work. message posts to issue chat (@username mentions and notifies); fileIds attach staged files.',
       inputSchema: reportAgentWorkInput,
       async handler(args) {
         const { issueKey, nextRunAt, ...rest } = reportAgentWorkInput.parse(args);
+        // WP-1009: 이슈챗 글의 @username 을 멘션 토큰으로 바꾼다 — 팀 채팅(add_channel_message)과 같은 변환. 서버는 <@id> 토큰만 멘션으로
+        // 읽는데 AI 는 숫자 id 를 모르므로(#833) 도구가 맡는다. 멘션된 사람은 알림을 받고, 멘션된 AI 는 챗 스레드에 참여한다.
+        // note 를 안 보내면 서버가 첫 줄로 채우며 토큰을 @이름으로 되돌린다(AgentWorkReportService.noteFor).
+        if (rest.message !== undefined) rest.message = await linkMentions(client, rest.message);
         // 오프셋 없는 시각은 서버가 못 읽어 캘린더 도구처럼 +09:00 로 보정해 보낸다.
         const body = nextRunAt === undefined ? rest : { ...rest, nextRunAt: normalizeTimezone(nextRunAt) };
         const { work, ended } = await client.reportAgentWork(issueKey, body);
@@ -393,15 +397,22 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'read',
       description:
         'Reads an issue (이슈) chat oldest first. Without after: my latest post, the 5 before it and everything after ' +
-        '(all recent if I never posted). Pass next as after for more. question:true = an AI asked and waits. ' +
-        'Attachments: read_file source issue_chat.',
+        '(else all recent), plus participants. Pass next as after for more. question:true = an AI asked and waits. Attachments: read_file source issue_chat.',
       inputSchema: getIssueChatInput,
       async handler(args) {
         const { issueKey, after, limit } = getIssueChatInput.parse(args);
-        const threadId = await client.getIssueChatThreadId(issueKey);
-        const page = await client.listIssueChatMessages(threadId, { after, limit: limit ?? 30 });
+        // WP-1009: 처음 읽을 때(after 없음)만 현재 참여자를 함께 준다 — 이어 읽기는 캐시된 스레드 id 로 메시지만 받는다.
+        // 메시지 목록은 스레드 id 만 있으면 되므로 참여자 조회와 함께 띄운다(id 가 캐시돼 있으면 기다리지 않는다). 캐시가 비었으면
+        // getIssueChatThread 가 먼저 불려 그 요청으로 캐시를 채우고 getIssueChatThreadId 가 같은 요청을 기다린다 — GET 은 한 번(순서를 바꾸지 말 것).
+        const [thread, page] = await Promise.all([
+          // 참여자는 덧붙이는 정보라 조회가 실패해도 메시지는 돌려준다.
+          after === undefined ? client.getIssueChatThread(issueKey).catch(() => undefined) : undefined,
+          client.getIssueChatThreadId(issueKey).then((id) => client.listIssueChatMessages(id, { after, limit: limit ?? 30 })),
+        ]);
         return JSON.stringify(
           dropEmpty({
+            // 숫자 사용자 id·읽음 위치는 빼고 사람은 username 으로만 가리킨다(#833).
+            participants: toPeopleView(thread?.members),
             messages: page.items.map(toIssueChatMessageView),
             hasMore: page.hasMore,
             next: page.hasMore && page.nextCursor ? Number(page.nextCursor) : undefined,

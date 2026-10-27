@@ -2,12 +2,14 @@
 // 쿼리 파라미터·URL 동기화·배지/라벨 문구·조건부 렌더·생성 payload 는 브라우저 없이 판정되므로
 // e2e/pages/projects/board.spec.ts 에서 옮겼다. 드래그·호버·키보드 놓기 포커스(@input), 폭·스크롤·무한 스크롤(@layout),
 // 보드 대표 진입(@wiring)은 E2E 에 남는다.
+// 화면 테스트(WP-1002) — 필터 바·뷰 전환·보드·만들기 대화상자가 한 화면이라 프로젝트 상세 화면만 renderProjectScreen 으로 띄운다(App·앱 셸 없이).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { API, bodyOf, columnStatusOf, ISSUES, issueSearch, KEY, projectMeta } from '@/test/kits/projects/listBoard'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueResponse } from '@/types/issue'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
@@ -15,18 +17,18 @@ import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/i
 /** 프로젝트 메타 + 이슈 검색(respond). 검색 URL 은 search.urls 에 쌓인다. */
 function open(path: string, respond: Parameters<typeof issueSearch>[0] = () => [], extra: ReturnType<typeof http.get>[] = []) {
   const search = issueSearch(respond)
-  const page = renderPage(path, {
+  const page = renderProjectScreen(path, {
     handlers: [...extra, ...projectMeta(), http.get(`${API}/projects/${KEY}/views`, () => HttpResponse.json([])), search.handler],
   })
   return { ...page, search }
 }
 
 /** 첫 화면(필터 바)이 뜰 때까지. */
-const searchBox = () => screen.findByLabelText('태스크 검색', {}, { timeout: PAGE_LOAD_TIMEOUT })
-const firstCard = (n: number) => screen.findByTestId(`issue-card-${n}`, {}, { timeout: PAGE_LOAD_TIMEOUT })
+const searchBox = () => screen.findByLabelText('태스크 검색', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+const firstCard = (n: number) => screen.findByTestId(`issue-card-${n}`, {}, { timeout: SCREEN_LOAD_TIMEOUT })
 
 /** 상태 facet 에서 값을 고른다(「＋ 필터」 → 상태 범주 → 값). */
-async function pickStatus(user: ReturnType<typeof renderPage>['user'], ...values: string[]) {
+async function pickStatus(user: ReturnType<typeof renderProjectScreen>['user'], ...values: string[]) {
   await user.click(screen.getByTestId('add-filter-trigger'))
   await user.click(await screen.findByTestId('add-filter-facet-status'))
   for (const v of values) await user.click(await screen.findByTestId(`facet-value-status-${v}`))
@@ -43,6 +45,8 @@ describe('목록 검색·필터·뷰 전환', () => {
 
     // 입력 상한(maxLength) — 붙여넣은 9000자가 200자로 잘리고 그대로 요청된다.
     await user.clear(box)
+    // 지운 검색어가 debounce 뒤 URL 로 반영(q 제거)되기를 기다린다 — 붙여넣은 뒤에 도착하면 URL → 입력 동기화가 칸을 비웠다(부하 시).
+    await waitFor(() => expect(location()).not.toMatch(/q=/))
     await user.click(box)
     await user.paste('a'.repeat(9000))
     expect(box).toHaveValue('a'.repeat(200))
@@ -171,7 +175,7 @@ describe('보드 빈 열·열 쿼리', () => {
       return HttpResponse.json(createIssue({ id: 9, number: 9, title: '새 이슈', status: 'DONE' }), { status: 201 })
     })
     const { user } = open(`/projects/${KEY}?view=board`, () => [], [create])
-    await user.click(await screen.findByTestId('board-col-add-3', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('board-col-add-3', {}, { timeout: SCREEN_LOAD_TIMEOUT }))
     let dialog = within(await screen.findByRole('dialog'))
     expect(dialog.getByTestId('create-status-note')).toHaveTextContent('상태: 완료')
     await user.click(dialog.getByLabelText(/^제목/))
@@ -238,7 +242,7 @@ describe('종료 이슈 숨김 (#876)', () => {
   // 숨김 해제 판정(overridesClosedHiding)은 issueFilters.test.ts 가 맡는다 — 여기선 요청·토글 UI 반영을 본다.
   test('목록에서 상태 필터를 명시하면 숨김 파라미터를 보내지 않고 토글이 눌린 채 비활성화된다', async () => {
     const { search } = open(`/projects/${KEY}?status=DONE`, () => [createIssue({ id: 1, number: 7 })])
-    const toggle = await screen.findByTestId('show-all-closed-toggle', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const toggle = await screen.findByTestId('show-all-closed-toggle', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     await waitFor(() => expect(search.last()?.searchParams.get('status')).toBe('DONE'))
     expect(search.last()!.searchParams.get('hideInactiveClosed')).toBeNull()
     expect(toggle).toBeDisabled()
@@ -255,7 +259,7 @@ describe('종료 이슈 숨김 (#876)', () => {
         ...(showAll ? [createIssue({ id: 2, number: 8, title: '지난 사이클에 끝난 작업', status: 'DONE' })] : []),
       ].filter((i) => !status || i.status === status)
     })
-    const doneEmpty = await screen.findByTestId('board-col-empty-3', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const doneEmpty = await screen.findByTestId('board-col-empty-3', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     expect(doneEmpty).toHaveTextContent('활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다')
     expect(screen.getByTestId('board-col-empty-4')).toHaveTextContent('활성 사이클 밖에서 끝난 이슈는')
     // 숨기지 않는 열은 기존 안내 그대로.
@@ -275,7 +279,7 @@ describe('종료 이슈 숨김 (#876)', () => {
     const { user, location } = open(`/projects/${KEY}`, (url) =>
       url.searchParams.get('hideInactiveClosed') == null ? [createIssue({ id: 2, number: 8, title: '지난 사이클에 끝난 작업', status: 'DONE' })] : [],
     )
-    expect(await screen.findByTestId('empty-no-issues', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent(
+    expect(await screen.findByTestId('empty-no-issues', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toHaveTextContent(
       '활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다',
     )
     await user.click(screen.getByTestId('empty-show-closed'))

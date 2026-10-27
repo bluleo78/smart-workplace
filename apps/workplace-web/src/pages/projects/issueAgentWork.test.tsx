@@ -2,11 +2,13 @@
 // 레일 「AI 진행」 행의 서버 순서·상태 배지·최근 보고·에이전트 유형·진행률·마지막 보고, 질문 카드와 「채팅에서 답하기」(?chat=1 + 드로워),
 // 작업 없음·인증 필요·시작 전·다음 회차 대기 문구는 응답 → 문구로 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-agent-work.spec.ts 에서 옮겼다. 레일·질문 카드의 위치와 한 줄·말줄임 없음(@layout)은 E2E 에 남는다.
+// 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { AgentWorkView } from '@/types/issue'
 
 import { agentWorker as aki, createAgentWork, humanWorker as human, KST_1430, twoWorks } from '../../../e2e/factories/agentWork.factory'
@@ -17,8 +19,8 @@ const URL = '/projects/WP/issues/12'
 /** WP-12 상세에 agentWork 를 싣고 띄운다 — 담당자 그룹이 그려질 때까지 기다린다. */
 async function open(agentWork: AgentWorkView[] | undefined, assignees = [human, aki]) {
   const summary = createIssue({ number: 12, title: '로그인 버그 수정', status: 'IN_PROGRESS', priority: 'HIGH', assignees, ...(agentWork ? { agentWork } : {}) })
-  const view = renderPage(URL, { handlers: issueDetailHandlers({ detail: createIssueDetail({ summary }) }) })
-  await screen.findByTestId('property-group-status-people', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderIssueDetailScreen(URL, { handlers: issueDetailHandlers({ detail: createIssueDetail({ summary }) }) })
+  await screen.findByTestId('property-group-status-people', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return view
 }
 

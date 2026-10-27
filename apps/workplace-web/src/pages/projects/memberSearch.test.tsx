@@ -1,13 +1,18 @@
 // 프로젝트 설정 멤버 관리 — 표 헤더·역할 한국어, 추가 검색 picker(#31·#734), 제거 확인창(#139·WP-488), 행 hover 클래스(#308),
-// MEMBER 읽기 전용(WP-479) — 페이지 테스트(WP-980). 검색 쿼리(kind·search)·POST payload·후보 정렬·비활성 제외·조건부 렌더는
+// MEMBER 읽기 전용(WP-479) — 화면 테스트(WP-980, WP-1002 에서 멤버 섹션만 띄우게 바꿈). 검색 쿼리(kind·search)·POST payload·후보 정렬·비활성 제외·조건부 렌더는
 // 브라우저 없이 판정되므로 e2e/pages/projects/member-search.spec.ts 에서 옮겼다.
 // 그 spec 에는 설정 화면 배선(@wiring)과 키보드로 제거한 뒤 초점 이동(WP-891, @input)이 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
+import { MemberManagement } from '@/pages/projects/components/MemberManagement'
+import ProjectSettingsPage from '@/pages/projects/ProjectSettingsPage'
 import { projectSettingsHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import type { ScreenUser } from '@/test/renderScreen'
+import { renderScreen } from '@/test/renderScreen'
 import type { MemberSummary } from '@/types/member'
 
 import { createProject } from '../../../e2e/factories/project.factory'
@@ -31,43 +36,59 @@ const ME_OWNER: StubMember = { userId: 1, username: 'me', name: 'Me', role: 'OWN
 const withMeAsOwner = (members: StubMember[]) => (members.some((m) => m.userId === 1) ? members : [ME_OWNER, ...members])
 
 /**
- * 설정 화면 + 사용자 검색. 검색은 백엔드처럼 kind 로 먼저 좁히고(ALL 이면 전체), search 가 비면 전체를 준다(#734).
+ * 설정 화면 API + 사용자 검색. 검색은 백엔드처럼 kind 로 먼저 좁히고(ALL 이면 전체), search 가 비면 전체를 준다(#734).
  * POST·DELETE 는 멤버 목록을 고쳐 재조회에 반영한다.
  */
-function openSettings(initial: StubMember[], { personal = false } = {}) {
+function settingsApi(initial: StubMember[], { personal = false } = {}) {
   const ref = { current: initial }
   const project = createProject({ key: KEY, name: 'WP', type: personal ? 'PERSONAL' : 'TEAM' })
-  const view = renderPage(`/projects/${KEY}/settings`, {
-    handlers: [
-      http.get('/api/v1/members', ({ request }) => {
-        const url = new URL(request.url)
-        const q = url.searchParams.get('search') ?? ''
-        const kind = url.searchParams.get('kind') ?? 'HUMAN'
-        const matched = [HUMAN1, HUMAN2, INACTIVE, AGENT1]
-          .filter((u) => kind === 'ALL' || u.kind === kind)
-          .filter((u) => q.trim().length < 1 || u.username.includes(q) || u.name.toLowerCase().includes(q.toLowerCase()) || (u.email ?? '').includes(q))
-        return HttpResponse.json({ content: matched, page: 0, size: 20, totalElements: matched.length, totalPages: 1 })
-      }),
-      http.post(MEMBERS_PATH, async ({ request }) => {
-        const { userId, role } = (await request.json()) as { userId: number; role: string }
-        const u = [HUMAN1, HUMAN2, AGENT1].find((x) => x.userId === userId)!
-        ref.current = [...ref.current, { userId, username: u.username, name: u.name, role }]
-        return HttpResponse.json({}, { status: 201 })
-      }),
-      http.delete(`${MEMBERS_PATH}/:id`, ({ params }) => {
-        ref.current = ref.current.filter((m) => m.userId !== Number(params.id))
-        return new HttpResponse(null, { status: 204 })
-      }),
-      http.get(`${MEMBERS_PATH}/:id/assigned-issue-count`, () => HttpResponse.json({ count: 2 })),
-      ...projectSettingsHandlers(project, () => withMeAsOwner(ref.current)),
-    ],
-  })
-  return { ...view, ref }
+  const handlers = [
+    http.get('/api/v1/members', ({ request }) => {
+      const url = new URL(request.url)
+      const q = url.searchParams.get('search') ?? ''
+      const kind = url.searchParams.get('kind') ?? 'HUMAN'
+      const matched = [HUMAN1, HUMAN2, INACTIVE, AGENT1]
+        .filter((u) => kind === 'ALL' || u.kind === kind)
+        .filter((u) => q.trim().length < 1 || u.username.includes(q) || u.name.toLowerCase().includes(q.toLowerCase()) || (u.email ?? '').includes(q))
+      return HttpResponse.json({ content: matched, page: 0, size: 20, totalElements: matched.length, totalPages: 1 })
+    }),
+    http.post(MEMBERS_PATH, async ({ request }) => {
+      const { userId, role } = (await request.json()) as { userId: number; role: string }
+      const u = [HUMAN1, HUMAN2, AGENT1].find((x) => x.userId === userId)!
+      ref.current = [...ref.current, { userId, username: u.username, name: u.name, role }]
+      return HttpResponse.json({}, { status: 201 })
+    }),
+    http.delete(`${MEMBERS_PATH}/:id`, ({ params }) => {
+      ref.current = ref.current.filter((m) => m.userId !== Number(params.id))
+      return new HttpResponse(null, { status: 204 })
+    }),
+    http.get(`${MEMBERS_PATH}/:id/assigned-issue-count`, () => HttpResponse.json({ count: 2 })),
+    ...projectSettingsHandlers(project, () => withMeAsOwner(ref.current)),
+  ]
+  return { handlers, ref }
+}
+
+/** 설정의 「멤버」 섹션(MemberManagement)만 띄운다 — 보는 사람은 OWNER(설정 화면이 canManage 로 넘기는 값). */
+function openSettings(initial: StubMember[]) {
+  const api = settingsApi(initial)
+  const view = renderScreen(<MemberManagement projectKey={KEY} canManage />, { path: `/projects/${KEY}/settings`, handlers: api.handlers })
+  return { ...view, ref: api.ref }
+}
+
+/** 설정 화면 전체를 띄운다 — 멤버 섹션 밖(이름·저장·프로젝트 삭제·읽기 전용 안내)의 권한 분기를 볼 때. */
+function openSettingsPage(initial: StubMember[]) {
+  const api = settingsApi(initial)
+  return renderScreen(
+    <Routes>
+      <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
+    </Routes>,
+    { path: `/projects/${KEY}/settings`, handlers: [...api.handlers, ...shellHandlers] },
+  )
 }
 
 /** 멤버 추가 picker 를 열고 검색어를 넣는다(빈 문자열이면 넣지 않는다). */
-async function openPicker(user: ReturnType<typeof renderPage>['user'], query = '') {
-  await user.click(await screen.findByTestId('member-add-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+async function openPicker(user: ScreenUser, query = '') {
+  await user.click(await screen.findByTestId('member-add-trigger'))
   const popover = await screen.findByTestId('member-search-popover')
   if (query) {
     await user.click(within(popover).getByPlaceholderText('이름·아이디·이메일로 검색'))
@@ -80,7 +101,7 @@ describe('멤버 표·역할 한국어 (#140·#158)', () => {
   test('역할 드롭다운(추가·행)이 한국어 옵션만 보인다', async () => {
     const { user } = openSettings([ME_OWNER, { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' }])
     // 멤버 추가 역할 선택.
-    await screen.findByTestId('member-add-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('member-add-trigger')
     await user.click(document.getElementById('new-member-role')!)
     let listbox = await screen.findByRole('listbox')
     expect(within(listbox).getByRole('option', { name: '멤버' })).toBeInTheDocument()
@@ -104,7 +125,7 @@ describe('멤버 표·역할 한국어 (#140·#158)', () => {
   // #308 — 클릭 가능한 행의 시각 피드백 클래스.
   test('멤버 표 행에 hover 스타일 클래스가 붙는다', async () => {
     openSettings([ME_OWNER, { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' }])
-    await screen.findByTestId('member-remove-2', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('member-remove-2')
     const firstRow = within(screen.getByRole('table')).getAllByRole('row')[1]
     expect(firstRow).toHaveClass('hover:bg-accent/50', 'transition-colors')
   })
@@ -185,7 +206,7 @@ describe('멤버 제거 확인창 (#139·WP-488)', () => {
   test('제거 → 확인창, 취소하면 DELETE 가 없다', async () => {
     const requests = recordRequests()
     const { user } = openSettings([ME_OWNER, { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' }])
-    await user.click(await screen.findByTestId('member-remove-2', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('member-remove-2'))
     expect(await screen.findByRole('alertdialog')).toHaveTextContent('멤버 제거')
     await user.click(screen.getByRole('button', { name: '취소' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
@@ -195,7 +216,7 @@ describe('멤버 제거 확인창 (#139·WP-488)', () => {
   test('확인창이 담당 이슈 수를 알리고, 제거를 누르면 DELETE + 토스트', async () => {
     const requests = recordRequests()
     const { user } = openSettings([ME_OWNER, { userId: 2, username: 'alice', name: 'Alice', role: 'MEMBER' }])
-    await user.click(await screen.findByTestId('member-remove-2', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('member-remove-2'))
     expect(await screen.findByTestId('delete-impact')).toHaveTextContent('담당 중인 이슈 2개에서 담당자가 해제됩니다.')
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '제거' }))
     await waitFor(() => expect(requests.count('DELETE', `${MEMBERS_PATH}/2`)).toBe(1))
@@ -205,11 +226,11 @@ describe('멤버 제거 확인창 (#139·WP-488)', () => {
 
 // WP-479 — OWNER 가 아닌 MEMBER 에게는 소유자 전용 조작을 보이지 않는다(예전엔 눌러야 403 이 났다).
 test('MEMBER 로 연 프로젝트 설정은 소유자 전용 조작을 숨기고 읽기 전용 안내를 보인다', async () => {
-  openSettings([
+  openSettingsPage([
     { userId: 1, username: 'me', name: 'Me', role: 'MEMBER' },
     { userId: 2, username: 'boss', name: 'Boss', role: 'OWNER' },
   ])
-  expect(await screen.findByTestId('project-settings-readonly', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  expect(await screen.findByTestId('project-settings-readonly')).toBeInTheDocument()
   expect(document.getElementById('settings-name')).toBeDisabled()
   expect(screen.queryByRole('button', { name: '저장' })).not.toBeInTheDocument()
   expect(screen.queryByTestId('member-add-trigger')).not.toBeInTheDocument()

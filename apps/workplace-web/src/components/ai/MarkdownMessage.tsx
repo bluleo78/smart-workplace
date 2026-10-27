@@ -3,6 +3,8 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import { Link, useInRouterContext, useLocation } from 'react-router-dom'
 import remarkGfm from 'remark-gfm'
 
+import { mentionSeg, parseMessageSegments, type RenderMention } from '@/components/mentions/parseMessageSegments'
+import type { MentionUser } from '@/components/mentions/types'
 import { chatLinkSessionId, isInternalHref, withChatParam } from '@/lib/aiChatLink'
 import { cn } from '@/lib/utils'
 
@@ -13,7 +15,7 @@ const BLOCK_TAGS = new Set([
   'p', 'ul', 'ol', 'li', 'blockquote', 'pre', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'div', 'section', 'details', 'summary', 'dl', 'dt', 'dd',
 ])
-type HastNode = { type: string; tagName?: string; value?: string; children?: HastNode[] }
+type HastNode = { type: string; tagName?: string; value?: string; properties?: Record<string, unknown>; children?: HastNode[] }
 const isBlock = (n: HastNode | undefined) => n?.type === 'element' && BLOCK_TAGS.has(n.tagName ?? '')
 
 /**
@@ -37,6 +39,27 @@ function stripLayoutWhitespace(node: HastNode) {
   node.children.forEach(stripLayoutWhitespace)
 }
 const REHYPE_PLUGINS = [() => stripLayoutWhitespace]
+
+/**
+ * 멘션 토큰 <@id> 를 칩 자리(전용 요소 mention[data-mention-id])로 나눈다(WP-1009) — AI 글도 사람 글처럼 멘션을 칩으로 보이게. 칩은 호출자가
+ * 그린다(renderMention). 코드(code·pre) 안의 토큰은 글자 그대로 둔다. `<@id>` 는 CommonMark 의 HTML·자동 링크가 아니라 글자 노드로 남는다.
+ */
+function splitMentionTokens(node: HastNode) {
+  if (node.tagName === 'code' || node.tagName === 'pre' || !node.children) return
+  node.children = node.children.flatMap((c) => {
+    if (c.type !== 'text' || !c.value?.includes('<@')) {
+      splitMentionTokens(c)
+      return [c]
+    }
+    // 토큰 나누기는 사람 글과 같은 parseMessageSegments — 이름은 칩을 그릴 때 mentions 로 찾는다.
+    return parseMessageSegments(c.value, []).map((seg): HastNode =>
+      seg.type === 'text'
+        ? { type: 'text', value: seg.value }
+        : { type: 'element', tagName: 'mention', properties: { dataMentionId: seg.id }, children: [] },
+    )
+  })
+}
+const MENTION_REHYPE_PLUGINS = [...REHYPE_PLUGINS, () => splitMentionTokens]
 
 /** 목록 클래스 — 체크리스트(contains-task-list)면 불릿 없이 얕게, 아니면 지정한 불릿 스타일. */
 function listClass(className: string | undefined, marker: string): string {
@@ -165,30 +188,54 @@ export function MarkdownMessage({
   renderImage,
   internalLinks,
   onPageLink,
+  renderLink,
+  mentions,
+  renderMention,
 }: {
   children: string
   className?: string
   renderImage?: (props: { src?: string; alt?: string }) => ReactNode
+  /** WP-1009: 채팅의 AI 글 — 멘션 토큰 <@id> 를 사람 글과 같은 칩으로 그린다(이름·종류는 mentions). 없으면 토큰을 다루지 않는다. */
+  mentions?: MentionUser[]
+  renderMention?: RenderMention
   /** WP-384: AI 답 — 같은 출처 상대 경로를 같은 탭 라우터 링크로(AIChatPanel 이 켠다). 다른 호출자는 이전처럼 모두 새 탭. */
   internalLinks?: boolean
   /** WP-384: 답 안 다른 화면 링크로 이동하기 직전 — 전체 화면 AI 를 내린다(AIChatPanel). */
   onPageLink?: () => void
+  /** WP-1015: 호출자가 특정 링크를 다른 요소로 그린다(이슈 코멘트의 멘션 칩) — undefined 를 돌려주면 기본 링크로 그린다. */
+  renderLink?: (href: string | undefined, children: ReactNode) => ReactNode | undefined
 }) {
+  const mentionById = useMemo(() => new Map((mentions ?? []).map((m) => [m.id, m])), [mentions])
   const components = useMemo<Components>(() => {
     const withImage: Components = renderImage
       ? { ...BASE_COMPONENTS, img: ({ src, alt }) => renderImage({ src: typeof src === 'string' ? src : undefined, alt }) }
       : BASE_COMPONENTS
-    return internalLinks
-      ? { ...withImage, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
+    // mention 은 splitMentionTokens 가 만든 전용 요소라 Components 의 HTML 태그 목록에 없다.
+    const withMentions: Components = renderMention
+      ? ({
+          ...withImage,
+          mention: ({ node }: { node?: { properties?: Record<string, unknown> } }) =>
+            renderMention(mentionSeg(mentionById, Number(node?.properties?.dataMentionId)), 'm'),
+        } as Components)
       : withImage
-  }, [renderImage, internalLinks, onPageLink])
+    const withLinks: Components = internalLinks
+      ? { ...withMentions, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
+      : withMentions
+    if (!renderLink) return withLinks
+    const baseLink = withLinks.a as (props: { href?: string; children?: ReactNode }) => ReactNode
+    return { ...withLinks, a: ({ href, children: c }) => renderLink(href, c) ?? baseLink({ href, children: c }) }
+  }, [renderImage, internalLinks, onPageLink, renderLink, mentionById, renderMention])
   return (
     <div
       data-testid="markdown-content"
       // whitespace-normal: 호출자 말풍선의 pre-wrap 을 끊는다. 줄바꿈 보존은 p·li 가 직접 맡고, 블록 사이 포맷용 개행은 stripLayoutWhitespace 가 지운다.
       className={cn('space-y-2 whitespace-normal break-words text-sm [overflow-wrap:anywhere]', className)}
     >
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} rehypePlugins={REHYPE_PLUGINS} components={components}>
+      <ReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={renderMention && children.includes('<@') ? MENTION_REHYPE_PLUGINS : REHYPE_PLUGINS}
+        components={components}
+      >
         {children}
       </ReactMarkdown>
     </div>

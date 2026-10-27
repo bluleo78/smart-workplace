@@ -4,25 +4,21 @@
 // 검증 규칙 자체(trim·200자 경계)는 src/lib/validations/issue.test.ts, 경고 켜짐 조건은 src/lib/issueDraft.test.ts 가 맡는다.
 // 닫았다 다시 열면 입력·오류가 남지 않음(#178)·제목 칸 필수 표시(*)·제출 중 「생성 중…」(#131)은
 // e2e/pages/dialog-state-reset.spec.ts · required-field-indicators.spec.ts · submit-loading-state.spec.ts 에서 옮겼다(WP-982).
+// 화면 컴포넌트 테스트(WP-1002) — 목록 화면 대신 만들기 대화상자와 그것을 여는 「+ 새 태스크」만 띄운다(issueCreateDialogScreen).
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderCreateDialog } from '@/test/kits/projects/issueCreateDialogScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 
-import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
-import { systemTypes } from '../../../e2e/factories/issueType.factory'
-import { createProject } from '../../../e2e/factories/project.factory'
+import { createIssue } from '../../../e2e/factories/issue.factory'
 
 const KEY = 'WP'
 
-/** 프로젝트·이슈 목록·유형 — 생성 POST 는 횟수만 센다(400 으로 돌려 실수로 나가도 화면이 닫히지 않게). post 를 주면 그 응답을 쓴다. */
+/** 생성 POST — 횟수만 센다(400 으로 돌려 실수로 나가도 화면이 닫히지 않게). post 를 주면 그 응답을 쓴다. */
 function projectHandlers(posts: { count: number }, post?: Parameters<typeof http.post>[1]) {
   return [
-    http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
-    http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
-    http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
-    http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json(createIssueSearchResponse([createIssue({ title: '기존 이슈' })]))),
     http.post(`/api/v1/projects/${KEY}/issues`, (info) => {
       posts.count++
       return post ? post(info) : HttpResponse.json({}, { status: 400 })
@@ -30,11 +26,11 @@ function projectHandlers(posts: { count: number }, post?: Parameters<typeof http
   ]
 }
 
-/** 목록을 열고 「+ 새 태스크」로 대화상자를 띄운다. */
+/** 「+ 새 태스크」로 대화상자를 띄운다(목록 화면 대신 버튼과 대화상자만 — issueCreateDialogScreen). */
 async function openCreateDialog(post?: Parameters<typeof http.post>[1]) {
   const posts = { count: 0 }
-  const view = renderPage(`/projects/${KEY}`, { handlers: projectHandlers(posts, post) })
-  await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: PAGE_LOAD_TIMEOUT }))
+  const view = renderCreateDialog(KEY, projectHandlers(posts, post))
+  await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: SCREEN_LOAD_TIMEOUT }))
   await screen.findByRole('dialog', { name: '새 이슈' })
   return { ...view, posts }
 }

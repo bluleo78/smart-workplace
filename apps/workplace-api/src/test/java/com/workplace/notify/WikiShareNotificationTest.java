@@ -264,12 +264,45 @@ class WikiShareNotificationTest extends IntegrationTestBase {
     assertVisibleIffEntryOpens(ownerId, true);
   }
 
+  /**
+   * 하위 페이지 알림도 같은 규칙(WP-987) — 상위 공유(지정한 사람, 하위 포함)로 보이던 하위 노트 알림은, 그 하위가 「상위 공유에서 제외」되거나 따로 공유를 켜면
+   * 숨고 입구도 열지 않는다. 제외를 풀거나 따로 켠 공유를 해제하면 다시 보인다.
+   */
+  @Test
+  void child_notification_follows_exclusion_and_own_share() throws Exception {
+    dispatcher.onWikiSharedWithPeople(
+        new WikiSharedWithPeopleEvent(1L, childId, ownerId, List.of(listedId), null));
+    savePeople(rootId, true, List.of(listedId));
+    assertVisibleIffEntryOpens(listedId, childId, true);
+
+    call(put("/api/v1/wiki/pages/" + childId + "/share/exclusion"), ownerId)
+        .andExpect(status().isNoContent());
+    assertVisibleIffEntryOpens(listedId, childId, false);
+
+    call(delete("/api/v1/wiki/pages/" + childId + "/share/exclusion"), ownerId)
+        .andExpect(status().isNoContent());
+    assertVisibleIffEntryOpens(listedId, childId, true);
+
+    // 하위가 따로 켠 공유가 우선 — 그 공유에 지정되지 않았으면 상위 공유로는 열리지 않는다.
+    savePeople(childId, false, List.of(otherListedId));
+    assertVisibleIffEntryOpens(listedId, childId, false);
+    call(delete("/api/v1/wiki/pages/" + childId + "/share"), ownerId)
+        .andExpect(status().isNoContent());
+    assertVisibleIffEntryOpens(listedId, childId, true);
+  }
+
   /** 받는 사람의 rootId 알림이 목록에 보이는지와 입구가 열어 주는지가 같고, 그 값이 expected 인지. */
   private void assertVisibleIffEntryOpens(long userId, boolean expected) throws Exception {
+    assertVisibleIffEntryOpens(userId, rootId, expected);
+  }
+
+  /** 받는 사람의 pageId 알림이 목록에 보이는지와 입구가 열어 주는지가 같고, 그 값이 expected 인지. */
+  private void assertVisibleIffEntryOpens(long userId, long pageId, boolean expected)
+      throws Exception {
     boolean visible =
         notifications.listRecent(userId, 20, 0).stream()
-            .anyMatch(n -> Long.valueOf(rootId).equals(n.wikiPageId()));
-    int entryStatus = call(get(entry(rootId)), userId).andReturn().getResponse().getStatus();
+            .anyMatch(n -> Long.valueOf(pageId).equals(n.wikiPageId()));
+    int entryStatus = call(get(entry(pageId)), userId).andReturn().getResponse().getStatus();
     assertThat(entryStatus == 200).as("entry 가 열어 주는가").isEqualTo(visible);
     assertThat(visible).as("알림이 보이는가").isEqualTo(expected);
   }

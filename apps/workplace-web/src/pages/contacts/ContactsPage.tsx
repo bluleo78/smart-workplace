@@ -3,17 +3,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
+import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
 import { mobileRootHeaderClass } from '@/components/mobile/headerClass'
 import { HeaderIconAction } from '@/components/mobile/HeaderIconAction'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
+import { MobileSidebarSheetTrigger } from '@/components/mobile/MobileSidebarSheetTrigger'
+import { useMobileBack } from '@/components/mobile/useMobileBack'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
-import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
@@ -22,7 +25,7 @@ import { cn } from '@/lib/utils'
 import { ContactDetailPanel } from '../../components/contacts/ContactDetailPanel'
 import { ExternalContactFormDialog } from '../../components/contacts/ExternalContactFormDialog'
 import { GroupContactView } from '../../components/contacts/GroupContactView'
-import { findNode, parseGroupId } from '../../components/contacts/groupTree.helpers'
+import { findGroupPath, findNode, parseGroupId } from '../../components/contacts/groupTree.helpers'
 import type { ContactSelection } from '../../hooks/queries/useContactDetail'
 import { useContactDetail } from '../../hooks/queries/useContactDetail'
 import { useContacts } from '../../hooks/queries/useContacts'
@@ -149,6 +152,35 @@ function useContactsScreenContext(input: {
 }
 
 /**
+ * 그룹 보기의 위치 — 시작점(조직도·내 그룹)과 최상위 조상부터 현재 그룹까지의 경로, 각 단계로 가는 주소(WP-977, §B-1 「브레드크럼」).
+ * 단계 주소는 지금 쿼리에서 group 만 바꾸고 열린 상세(contact)는 닫는다 — 검색어(q)는 보기를 바꿔도 이어 간다(WP-976).
+ * 트리가 아직 없거나 그룹을 찾지 못하면 path 는 null 이고, 호출부는 예전 「연락처」 제목으로 둔다.
+ */
+function useGroupLocation(groupId: number | null, params: URLSearchParams) {
+  const tree = useUserGroups().data
+  const groupUrl = (id: number | null) => {
+    const sp = new URLSearchParams(params)
+    sp.delete('contact')
+    if (id == null) sp.delete('group')
+    else sp.set('group', String(id))
+    const qs = sp.toString()
+    return qs ? `/contacts?${qs}` : '/contacts'
+  }
+  if (groupId == null || !tree) return { items: null, parentUrl: groupUrl(null) }
+  const shared = findGroupPath(tree.shared, groupId)
+  const path = shared ?? findGroupPath(tree.personal, groupId)
+  if (!path) return { items: null, parentUrl: groupUrl(null) }
+  // 시작점은 조직 루트 — 공유 트리면 「조직도」, 개인 트리면 「내 그룹」. 둘 다 따로 열리는 화면이 없어 링크가 아닌 글자로 둔다(내가 정한 것).
+  const items: BreadcrumbItem[] = [
+    { key: 'root', label: shared ? '조직도' : '내 그룹', testId: 'contact-breadcrumb-root' },
+    ...path.map((n) => ({ key: n.id, label: n.name, title: n.name, to: groupUrl(n.id), testId: `contact-breadcrumb-${n.id}` })),
+  ]
+  // 모바일 ‹ 가 돌아갈 기록이 없을 때 갈 곳 — 상위 조직, 최상위 그룹이면 그룹 보기를 푼 연락처 목록.
+  const parentUrl = groupUrl(path.length >= 2 ? path[path.length - 2].id : null)
+  return { items, parentUrl }
+}
+
+/**
  * 검색 범위 칩 — 그룹 보기에서 검색창 앞에 「재경팀 ×」로 지금 어디 안에서 거르는지 보인다(WP-976, §B-1 「범위」).
  * 누르면(× 포함) 그룹 범위를 풀고 같은 검색어로 전체 연락처를 찾는다. 긴 그룹 이름은 말줄임해 입력칸 폭을 지킨다.
  */
@@ -183,7 +215,7 @@ export function ContactsPage() {
 
   // 열린 연락처 = URL ?contact(상태의 단일 원천, WP-206). 행 클릭은 push → 시스템 뒤로가기가 상세만 닫는다.
   // 필터(q·type·조직·직책·그룹) 변경은 그 navigate(ContactSidebar.patch·writeQuery·leaveGroup)가 contact 를 함께 지운다 —
-  // 같은 히스토리 항목에서 처리해 리셋 이펙트 경합·이중 항목이 없다.
+  // 같은 히스토리 항목에서 처리해 리셋 이펙트 경합·이중 항목이 없다. 그룹 보기의 검색어 변경만 예외로 상세를 둔다(WP-999 — writeQuery).
   const contactParam = useHistoryParam('contact')
   const selected = decodeContactParam(contactParam.value)
   const selectContact = (sel: ContactSelection) => contactParam.open(encodeContactParam(sel))
@@ -194,33 +226,25 @@ export function ContactsPage() {
   // 모바일에서 상세가 열리면 목록 헤더("연락처"·＋·☰·🔔) 대신 상세 헤더 한 줄만 둔다(U1-1).
   const showListChrome = !(isMobile && selected != null)
 
-  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다(history replace).
-  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
-  // 검색창이 사이드바에서 헤더로 옮겨 오며(WP-976) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
-  const [qDraft, setQDraft] = useState(search)
-  useEffect(() => {
-    // 바깥(뒤로 가기·범위 해제 등)에서 q 가 바뀌면 draft 를 맞춘다.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setQDraft(search)
-  }, [search])
-  const debouncedQDraft = useDebounceValue(qDraft, 300)
-  // q 갱신 — 바뀐 목록에 없는 상세가 남지 않게 열린 상세(?contact)도 같은 항목에서 닫는다(WP-206).
+  // q 갱신 — 통합 목록은 바뀐 목록에 없는 상세가 남지 않게 열린 상세(?contact)도 같은 항목에서 닫는다(WP-206).
+  // 그룹 보기는 소속 멤버를 화면에서 거를 뿐이라, 검색어에서 빠진 사람이어도 상세를 그대로 둔다(WP-999) —
+  // 보던 사람을 두고 다른 사람을 찾을 수 있게. 그룹 여부는 렌더 시점 값이 아닌 prev 로 본다(같은 틱의 범위 해제와 경합하지 않게).
   const writeQuery = (value: string) =>
     setParams(
       (prev) => {
         const sp = new URLSearchParams(prev)
-        sp.delete('contact')
+        if (parseGroupId(sp.get('group')) == null) sp.delete('contact')
         if (value) sp.set('q', value)
         else sp.delete('q')
         return sp
       },
       { replace: true },
     )
-  useEffect(() => {
-    if (debouncedQDraft === search) return
-    writeQuery(debouncedQDraft)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQDraft])
+  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다(history replace).
+  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
+  // 검색창이 사이드바에서 헤더로 옮겨 오며(WP-976) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
+  // 내가 쓴 q 가 되돌아올 때 draft 를 덮지 않는 것(WP-999)은 공용 훅이 맡는다(WP-1003).
+  const { draft: qDraft, setDraft: setQDraft, commit: commitQuery } = useSearchDraft(search, writeQuery)
 
   // 모바일 검색 펼침 — 헤더 🔍 로 연다. 검색어가 남아 있으면(링크·뒤로 가기로 ?q 진입) 숨은 필터가 없게 늘 펼친다.
   // ?q 로 펼친 것도 「열림」으로 기록해야 입력칸 X 로 지웠을 때 줄이 사라지며 키보드가 닫히지 않는다.
@@ -243,8 +267,7 @@ export function ContactsPage() {
   }, [mobileSearchOpen])
   // 「취소」 — 검색어를 비우고 접는다(debounce 를 기다리지 않고 바로 URL 에서도 지운다).
   const cancelMobileSearch = () => {
-    setQDraft('')
-    writeQuery('')
+    commitQuery('')
     setMobileSearchOpen(false)
   }
 
@@ -269,6 +292,11 @@ export function ContactsPage() {
   const [listScrollEl, setListScrollEl] = useState<HTMLDivElement | null>(null)
 
   const items = data?.pages.flatMap((p) => p.items) ?? []
+
+  // 그룹 보기의 위치 — 데스크톱 헤더 브레드크럼, 모바일 「‹ 그룹 이름」 헤더의 ‹ 대체 경로(WP-977).
+  const groupLocation = useGroupLocation(groupId, params)
+  // ‹ = 기록상 뒤로(시스템 뒤로와 같은 곳). 링크로 바로 들어와 기록이 없을 때만 상위 조직으로(§B-1 「모바일 헤더와 ‹」).
+  const groupBack = useMobileBack(groupLocation.parentUrl)
 
   // 모바일 상세 헤더 제목 = 열린 연락처 이름(채팅·노트와 같은 "‹ 항목 이름" 규칙).
   const { name: detailName, groupName } = useContactsScreenContext({
@@ -310,9 +338,29 @@ export function ContactsPage() {
               취소
             </Button>
           </div>
+        ) : showListChrome && isMobile && groupId != null ? (
+          // 모바일 그룹 보기 — 「‹ 그룹 이름」 한 줄(경로 전체는 넣지 않는다, §B-1). 우측은 목록 헤더와 같은 🔍·＋·☰.
+          <MobileDetailBar
+            data-testid="contact-group-header"
+            title={groupName ?? '그룹'}
+            onBack={groupBack}
+            // /contacts 는 탭 루트라 하단 탭바의 ✦ 가 남는다 — 헤더에 또 그리지 않는다.
+            showAi={false}
+            trailing={
+              <>
+                <HeaderIconAction label="검색" tone="default" data-testid="contact-search-open" onClick={openMobileSearch}><Search /></HeaderIconAction>
+                <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
+                <MobileSidebarSheetTrigger />
+              </>
+            }
+          />
         ) : showListChrome && (
           <Page.Header
-            title="연락처"
+            // 그룹 보기면 경로가 곧 제목 — 제목 자리(leading)에 브레드크럼을 두고 title 은 비운다(§B-1). 경로를 아직 모르면 예전 제목.
+            title={groupLocation.items ? undefined : '연락처'}
+            srTitle={groupName ?? undefined}
+            leadingGrow
+            leading={groupLocation.items && <Breadcrumb items={groupLocation.items} aria-label="조직 경로" data-testid="contact-breadcrumb" />}
             actions={
               <>
                 {/* 검색 — 지금 보는 목록을 거르므로 헤더 오른쪽(§B-1 「검색창」). 그룹 보기면 범위 칩을 앞에 둔다. */}
@@ -351,7 +399,6 @@ export function ContactsPage() {
                 groupId={groupId}
                 selected={selected}
                 onSelect={selectContact}
-                onGroupDeleted={leaveGroup}
                 search={search}
                 onSearchAll={leaveGroup}
               />
@@ -392,7 +439,8 @@ export function ContactsPage() {
             data-testid="contact-detail"
           >
             {/* 모바일 상세 헤더 — ‹·연락처 이름·✦ 한 줄(탭바가 숨으므로 ✦ 포함). URL 이 탭 루트라 레이아웃 상세 분기 대신 직접 그린다. */}
-            {isMobile && <MobileDetailBar data-testid="contact-back" title={detailName} onBack={contactParam.close} />}
+            {/* 상세가 열렸을 때만 그린다 — 숨긴 채 늘 두면 그룹 보기 헤더의 ‹(mobile-back)와 testid 가 겹친다(WP-977). */}
+            {isMobile && selected != null && <MobileDetailBar data-testid="contact-back" title={detailName} onBack={contactParam.close} />}
             <ContactDetailPanel selected={selected} onDeleted={contactParam.close} onClose={contactParam.close} />
           </div>
         </Page.Body>

@@ -292,15 +292,23 @@ describe('이슈', () => {
     addIssueRelation: vi.fn().mockResolvedValue([]),
     getProjectTypes: vi.fn().mockResolvedValue([]),
     getProjectMembers: vi.fn().mockResolvedValue([]),
+    // WP-1009: 서버 ChatThreadResponse.members(ChatMemberResponse — userId·lastReadMessageId·joinedAt) 그대로.
+    getIssueChatThreadId: vi.fn().mockResolvedValue(55),
+    getIssueChatThread: vi.fn().mockResolvedValue({
+      threadId: 55,
+      members: [{ userId: 9, username: 'alice', name: '앨리스', kind: 'HUMAN', lastReadMessageId: 3, joinedAt: 't' }],
+    }),
+    listIssueChatMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
   };
   const tools = buildSharedIssueTools(client as never) as never as Parameters<typeof find>[0];
 
-  it('get_issue_detail·create_issue·link_issues·add_issue_relation 응답에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
+  it('get_issue_detail·create_issue·link_issues·add_issue_relation·get_issue_chat 응답에 숫자 사용자 ID 도 <@id> 토큰도 없다', async () => {
     for (const [name, args] of [
       ['get_issue_detail', { issueKey: 'WP-12' }],
       ['create_issue', { projectKey: 'WP', title: 'T' }],
       ['link_issues', { issueKey: 'WP-12', otherIssueKey: 'WP-13', direction: 'blocks', linked: true }],
       ['add_issue_relation', { issueKey: 'WP-12', type: 'RELATES', otherIssueKey: 'AB-7' }],
+      ['get_issue_chat', { issueKey: 'WP-12' }],
     ] as const) {
       expect(userIdLeaks(out(await find(tools, name).handler(args))), name).toEqual([]);
     }
@@ -417,6 +425,8 @@ describe('프로젝트', () => {
     updateProject: vi.fn().mockResolvedValue(project),
     createProjectMeta: vi.fn().mockResolvedValue({ id: 6, projectId: 3, name: 'bug', colorToken: 'RED', createdAt: 't', updatedAt: 't' }),
     updateProjectMeta: vi.fn().mockResolvedValue({ id: 5, projectId: 3, name: 'S2', goal: null, status: 'ACTIVE', createdAt: 't', updatedAt: 't' }),
+    releaseProjectVersion: vi.fn().mockResolvedValue({}),
+    unreleaseProjectVersion: vi.fn().mockResolvedValue({}),
     searchMembers: vi.fn(),
   };
   const tools = buildProjectTools(client as never) as never as Parameters<typeof find>[0];

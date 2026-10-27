@@ -143,6 +143,16 @@ class AgentWorkControllerTest extends AgentWorkTestSupport {
     assertThat(lastEvent().note()).isEqualTo("마무리했습니다");
   }
 
+  /** note 미지정이면 message 첫 줄이 note 가 되는데, 멘션 토큰(<@id>)은 @이름으로 바꿔 숫자 id 가 note 에 남지 않는다(WP-1009). */
+  @Test
+  void note_미지정_message_첫줄의_멘션_토큰은_이름으로() {
+    putReport(
+        akToken,
+        TOOL,
+        Map.of("state", "REVIEW", "message", "<@" + humanId + "> 검토 부탁해요 <@999999999>\n세부"));
+    assertThat(lastWork().note()).isEqualTo("@aw-human 검토 부탁해요 @사용자");
+  }
+
   /** note 빈 문자열은 일반 보고처럼 지운다. */
   @Test
   void 종료상태_보고의_빈_note_는_note_를_지움() {

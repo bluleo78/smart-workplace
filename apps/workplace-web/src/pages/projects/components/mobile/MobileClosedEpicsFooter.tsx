@@ -5,6 +5,7 @@
 import { Check, ChevronRight } from 'lucide-react';
 
 import { MOBILE_SHEET_ROW } from '@/components/mobile/MobileSheetShell';
+import { RemainingPagesError } from '@/components/RemainingPagesError';
 import { closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,7 @@ import { ClosedStatusBadge } from '../../../../components/issues/ClosedStatusBad
 import type { IssueResponse } from '../../../../types/issue';
 
 export function MobileClosedEpicsFooter({
-  epics, searching, open, selectedNumber, onToggle, onSelect, onOpenDetail, close,
+  epics, searching, open, selectedNumber, onToggle, onSelect, onOpenDetail, close, loadError = false, onRetry,
 }: {
   /** 보여 줄 종료 에픽 — 검색 중이면 검색어로 거른 목록(비어 있지 않음). */
   epics: IssueResponse[];
@@ -26,6 +27,9 @@ export function MobileClosedEpicsFooter({
   onSelect: (epicNumber: number) => void;
   onOpenDetail: (epicNumber: number) => void;
   close: () => void;
+  /** 남은 종료 에픽 페이지를 못 받았다(WP-1007) — 개수·목록이 일부라 접혀 있어도 안내와 다시 시도를 보인다. */
+  loadError?: boolean;
+  onRetry?: () => void;
 }) {
   const expanded = searching || open;
 
@@ -44,6 +48,10 @@ export function MobileClosedEpicsFooter({
         <span className="flex-1">종료된 에픽</span>
         <span>{epics.length}</span>
       </button>
+      {/* 터치 — 데스크톱보다 큰 글자·여백(시트 행 좌우 여백과 맞춤). */}
+      {loadError && onRetry && (
+        <RemainingPagesError message="나머지 종료 에픽을 불러오지 못했습니다." onRetry={onRetry} className="px-4 py-3 text-sm" data-testid="mobile-epic-closed-load-error" />
+      )}
       {expanded &&
         epics.map((ep) => {
           const selected = selectedNumber === ep.number;

@@ -159,24 +159,29 @@ public class WikiShareAccess {
       String role, OffsetDateTime shareExpiresAt, WikiShareGrant maskingGrant) {}
 
   /**
-   * 알림에서 노트로 들어갈 때 어디로 보낼지(WP-579) — 멤버면 노트 주소(spaceId), 아니면 지정한 사람으로 들어 있는 공유가 이 페이지를 지금 덮을 때 그
-   * 공유의 <b>현재</b> 토큰(공유 주소 {@code /wiki/share/{token}/pages/{pageId}} 를 만드는 데 쓴다). 둘 다 아니면 없는 페이지와
-   * 같은 404 — 페이지 존재를 지정한 사람이 아닌 사람에게 알려 주지 않고, 토큰은 지정 대상에게만 돌려준다(워크스페이스 전체·외부 링크의 토큰을 페이지 id 로 캐낼 수
-   * 없게).
+   * 노트로 들어갈 때 어디로 보낼지(WP-579) — 멤버면 노트 주소(spaceId), 아니면 이 페이지를 지금 덮는 공유의 <b>현재</b> 토큰(공유 주소 {@code
+   * /wiki/share/{token}/pages/{pageId}} 를 만드는 데 쓴다). 둘 다 아니면 없는 페이지와 같은 404.
    *
-   * <p>토큰마다 {@link #decide} 로 다시 판정해 열리지 않는 것(정책이 꺼진 외부 링크 등)은 건너뛴다.
+   * <ul>
+   *   <li>알림(withWorkspace=false): 지정한 사람으로 들어 있는 공유만 — 토큰은 지정 대상에게만 돌려준다.
+   *   <li>노트 주소로 연 비멤버(withWorkspace=true, WP-987): 워크스페이스 전체 공유도 — 하위 페이지의 노트 주소를 받은 비멤버가 그 페이지를
+   *       덮는 공유 보기로 바로 옮겨 열게. 워크스페이스 멤버 누구나 열 수 있는 공유라 그 범위 안 페이지는 토큰을 몰라도 이 경로로 열린다(결정: 추천안 그대로).
+   *       외부 공개 공유의 토큰은 어느 경로로도 돌려주지 않는다.
+   * </ul>
    *
-   * @throws WikiPageNotFoundException 없는 페이지·멤버도 지정 대상도 아님
+   * <p>토큰마다 {@link #decide} 로 다시 판정해 열리지 않는 것(상속이 멈춘 하위·정책이 꺼진 외부 링크 등)은 건너뛴다.
+   *
+   * @throws WikiPageNotFoundException 없는 페이지·멤버도 공유 대상도 아님
    */
   @Transactional(readOnly = true)
-  public WikiPageEntryResponse entry(long pageId, long userId) {
+  public WikiPageEntryResponse entry(long pageId, long userId, boolean withWorkspace) {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     if (members.findRole(spaceId, userId).isPresent()) {
       return new WikiPageEntryResponse(spaceId, true, null);
     }
     List<Long> ancestors = pages.ancestorIdsInclusive(pageId);
-    for (String token : shares.findListedCoveringTokens(pageId, userId, ancestors)) {
+    for (String token : shares.findCoveringTokens(pageId, userId, ancestors, withWorkspace)) {
       if (decide(pageId, userId, token).grant() != null) {
         return new WikiPageEntryResponse(spaceId, false, token);
       }
@@ -186,7 +191,7 @@ public class WikiShareAccess {
 
   /**
    * pageIds 중 이 공유의 지금 범위 안에 있는 페이지 — 멘션 가림이 범위 안 페이지의 제목을 보일 때 쓴다. 규칙은 {@link #inScope} 와 같다(하위
-   * 포함이면 지금 서브트리). 공유의 범위 설정은 판정 때 grant 에 실려 온 값을 쓴다(공유 행을 다시 읽지 않는다).
+   * 포함이면 상속이 멈추는 곳에서 내려가지 않는 지금 서브트리). 공유의 범위 설정은 판정 때 grant 에 실려 온 값을 쓴다(공유 행을 다시 읽지 않는다).
    */
   @Transactional(readOnly = true)
   public List<Long> coveredAmong(WikiShareGrant grant, Collection<Long> pageIds) {
@@ -194,8 +199,8 @@ public class WikiShareAccess {
     if (!grant.includeChildren()) {
       return pageIds.stream().distinct().filter(pid -> pid == root).toList();
     }
-    // 하위 포함이면 공유 서브트리를 한 번만 구해 교집합 — 페이지마다 조상 체인을 묻던 N+1 을 없앤다(판정은 inScope 와 같다: 지금 트리 기준).
-    Set<Long> subtree = new HashSet<>(pages.subtreeIdsInclusive(root));
+    // 하위 포함이면 공유가 덮는 서브트리를 한 번만 구해 교집합 — 페이지마다 조상 체인을 묻던 N+1 을 없앤다(판정은 inScope 와 같다: 지금 트리 기준).
+    Set<Long> subtree = new HashSet<>(shares.coveredSubtree(root));
     return pageIds.stream().distinct().filter(subtree::contains).toList();
   }
 
@@ -269,12 +274,15 @@ public class WikiShareAccess {
         null);
   }
 
-  /** 공유 범위 — 하위 포함이면 지금 조상 체인(자기 포함)에 공유 페이지가 있는지, 아니면 공유 페이지 자신인지. 이동이 즉시 반영된다. */
+  /**
+   * 공유 범위 — 공유 페이지 자신이거나, 하위 포함이면 지금 조상 체인(자기 포함)에 공유 페이지가 있고 그 사이에 상속이 멈추는 페이지가 없는지(WP-987 — 상위 공유
+   * 제외 표시, 따로 켠 공유). 이동·제외·하위 공유 변경이 즉시 반영된다.
+   */
   private boolean inScope(ShareRow s, long pageId) {
     if (s.pageId() == pageId) {
       return true;
     }
-    return s.includeChildren() && pages.ancestorIdsInclusive(pageId).contains(s.pageId());
+    return s.includeChildren() && shares.isCoveredBy(s.pageId(), pageId);
   }
 
   private static boolean isBlank(String token) {

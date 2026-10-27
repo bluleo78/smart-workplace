@@ -112,6 +112,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "eslint-plugin-simple-import-sort": "^12.1.1",
     "globals": "^16.5.0",
+    "happy-dom": "20.14.5",
     "jsdom": "^30.0.0",
     "madge": "^8.0.0",
     "msw": "^2.14.6",

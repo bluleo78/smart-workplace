@@ -7,12 +7,12 @@
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
-import { countApiImages, splitApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
+import { countApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
 import { RichInput } from '@/components/mentions/RichInput';
 import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
@@ -46,10 +46,13 @@ import { IssueCommentComposer } from './IssueCommentComposer';
 // 마크다운 특수문자 — 멘션 이름에 섞여 있으면 강조·링크 등으로 해석되지 않게 백슬래시로 이스케이프한다.
 const MD_SPECIAL = /[\\`*_[\]<>#|~]/g;
 
-/** AGENT 코멘트용 — <@id> 토큰을 '@이름' 평문으로 바꾼다(마크다운이 토큰을 해석하지 못해 원문이 노출되므로). 미해결 id 는 '@알 수 없음'. */
+/** 멘션 칩이 될 링크의 href 접두 — 마크다운이 해석하지 못하는 <@id> 토큰을 `[@이름](#comment-mention-<id>)` 로 바꿔 renderLink 가 칩으로 그린다. */
+const MENTION_HREF = '#comment-mention-';
+
+/** 코멘트 본문의 <@id> 토큰을 마크다운 링크로 바꾼다(WP-1015) — 미해결 id 는 '@알 수 없음'. 이름의 마크다운 특수문자는 이스케이프. */
 function mentionsToMarkdown(body: string, users: MentionUser[]): string {
   return parseMessageSegments(body, users)
-    .map((seg) => (seg.type === 'text' ? seg.value : `@${seg.name.replace(MD_SPECIAL, '\\$&')}`))
+    .map((seg) => (seg.type === 'text' ? seg.value : `[@${seg.name.replace(MD_SPECIAL, '\\$&')}](${MENTION_HREF}${seg.id})`))
     .join('');
 }
 
@@ -144,6 +147,23 @@ function CommentItem({
   const renderImage = useCallback(
     (p: { src?: string; alt?: string }) => <IssueBodyImage projectKey={projectKey} {...p} />,
     [projectKey],
+  );
+  // 멘션 링크(`#comment-mention-<id>`) → 이슈 채팅과 같은 칩 — AI 는 AI 색, 사람은 중립색(#785, #208). 그 밖의 링크는 기본 렌더.
+  const renderMentionLink = useCallback(
+    (href: string | undefined, children: ReactNode) => {
+      if (!href?.startsWith(MENTION_HREF)) return undefined;
+      const id = href.slice(MENTION_HREF.length);
+      const kind = mentionUsers.find((u) => String(u.id) === id)?.kind;
+      return (
+        <span
+          data-testid={`comment-mention-chip-${id}`}
+          className={`rounded px-1 font-medium ${kind === 'AGENT' ? 'bg-ai-accent-subtle text-ai-accent' : 'bg-muted text-foreground'}`}
+        >
+          {children}
+        </span>
+      );
+    },
+    [mentionUsers],
   );
 
   return (
@@ -262,46 +282,17 @@ function CommentItem({
             imageUpload={(file) => uploadIssueImage(projectKey, file)}
           />
         </div>
-      ) : isAgent ? (
-        /* WP-254: AI(에이전트) 코멘트는 체크리스트·제목·표 등 마크다운을 쓰므로 MarkdownMessage 로 렌더
-           (이슈 채팅 ChatMessageRow 와 동일 패턴 — 사람 코멘트는 아래 멘션 칩 평문 유지). 원시 HTML 은 여전히 비허용.
+      ) : (
+        /* WP-254·WP-1015: 사람·AI 코멘트 모두 마크다운(제목·굵게·목록·표·코드·링크)으로 렌더 — 웹 입력과 MCP·API 원문이 같은 모습이다
+           (이슈 채팅 ChatMessageRow 와 동일 패턴). 원시 HTML 은 여전히 비허용. 한 줄 개행은 p 의 pre-wrap 이 보존하므로 평문 코멘트는 이전과 같게 보인다.
            whitespace-pre-wrap 은 빼야 한다 — 블록 사이 개행 텍스트 노드가 빈 줄로 보인다(p 가 자체로 줄바꿈 보존). */
         <MarkdownMessage
           className="mt-1 leading-6 text-foreground"
           renderImage={renderImage}
+          renderLink={renderMentionLink}
         >
           {mentionsToMarkdown(comment.body, mentionUsers)}
         </MarkdownMessage>
-      ) : (
-        /* 디자인 시스템 body-secondary 적용 — text-sm(14px) · leading-6 · text-foreground (#344) */
-        /* 같은 페이지의 이슈 채팅(ChatMessageRow)과 동일한 멘션 칩 스타일로 <@id> 토큰을 렌더 (#785, #208) */
-        /* [overflow-wrap:anywhere] — 공백 없는 긴 URL·단어도 카드 폭에서 줄바꿈(WP-228). */
-        <div className="whitespace-pre-wrap mt-1 text-sm leading-6 text-foreground [overflow-wrap:anywhere]">
-          {parseMessageSegments(comment.body, mentionUsers).map((seg, i) =>
-            seg.type === 'text' ? (
-              // WP-362: 글 속 이미지 마크다운은 넣은 자리에 본문 이미지와 같은 렌더러로(클릭 시 뷰어).
-              splitApiImages(seg.value, projectKey).map((part, j) =>
-                part.type === 'text' ? (
-                  <span key={`${i}-${j}`}>{part.value}</span>
-                ) : (
-                  <IssueBodyImage key={`${i}-${j}`} projectKey={projectKey} src={part.src} alt={part.alt} />
-                ),
-              )
-            ) : (
-              <span
-                key={i}
-                data-testid={`comment-mention-chip-${seg.id}`}
-                className={`rounded px-1 font-medium ${
-                  seg.kind === 'AGENT'
-                    ? 'bg-ai-accent-subtle text-ai-accent'
-                    : 'bg-muted text-foreground'
-                }`}
-              >
-                @{seg.name}
-              </span>
-            ),
-          )}
-        </div>
       )}
 
       {/* 이모지 반응(WP-504) — 본문 아래 칩 줄. 편집 중엔 숨긴다(편집창 아래 칩·버튼이 섞이지 않게). */}

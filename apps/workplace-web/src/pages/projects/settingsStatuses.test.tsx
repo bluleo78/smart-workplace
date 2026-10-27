@@ -3,11 +3,15 @@
 // 브라우저 없이 판정되므로 e2e/pages/projects/settings-statuses.spec.ts 에서 옮겼다(요청 payload·쿼리는 MSW 로 본다).
 // 끌기·키보드 집기·⋯ 메뉴 키보드 탐색(@input), #statuses 스크롤(@layout), 대표 목록 렌더(@wiring)는 E2E 에 남는다.
 // 범주 마지막 상태의 삭제 비활성은 StatusManagement.test.tsx 가 이미 지킨다.
+// 역할(멤버 목록)·개인 프로젝트에 따른 섹션 분기가 설정 화면에 있어 ProjectSettingsPage 만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import ProjectSettingsPage from '@/pages/projects/ProjectSettingsPage'
+import { atRoute } from '@/test/kits/projects/atRoute'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { renderScreen } from '@/test/renderScreen'
 import type { ProjectResponse } from '@/types/project'
 import type { ProjectStatus, StatusDeletionImpact } from '@/types/projectStatus'
 
@@ -15,6 +19,13 @@ import { createMember, createProject } from '../../../e2e/factories/project.fact
 import { inServerOrder } from '../../../e2e/factories/projectStatus.factory'
 
 const API = '/api/v1/projects/WP'
+
+/** 설정 화면만 띄운다 — 화면이 부르는 부가 조회(라벨·유형 등)는 shellHandlers 의 빈 기본값이 받는다. */
+const renderSettings = (handlers: RequestHandler[]) =>
+  renderScreen(atRoute('/projects/:key/settings', <ProjectSettingsPage />), {
+    path: '/projects/WP/settings',
+    handlers: [...handlers, ...shellHandlers],
+  })
 
 /** 상태 6개 — 할 일 2 · 진행 중 2 · 완료 1 · 취소 1. 서버 position 은 범주 순서대로. */
 function statuses(): ProjectStatus[] {
@@ -97,8 +108,8 @@ function settingsApi({ role = 'OWNER', project = createProject(), impact, orderS
 /** 설정 화면을 열고 상태 행이 뜰 때까지 기다린다. */
 async function open(opts: Opts = {}) {
   const api = settingsApi(opts)
-  const view = renderPage('/projects/WP/settings', { handlers: [...(opts.extra ?? []), ...api.handlers] })
-  await screen.findByTestId('status-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderSettings([...(opts.extra ?? []), ...api.handlers])
+  await screen.findByTestId('status-row-1')
   return { ...view, calls: api.calls }
 }
 
@@ -107,7 +118,7 @@ const rowIds = (category: string) =>
     Number(el.getAttribute('data-testid')!.replace('status-row-', '')),
   )
 
-async function openMenu(user: ReturnType<typeof renderPage>['user'], id: number) {
+async function openMenu(user: ReturnType<typeof renderScreen>['user'], id: number) {
   await user.click(screen.getByTestId(`status-menu-${id}`))
   return screen.findByRole('menu')
 }
@@ -204,13 +215,11 @@ describe('설정 상태 — 권한·상태', () => {
   test('목록을 못 받으면 다시 시도를 보이고 추가를 내밀지 않는다', async () => {
     let fail = true
     const api = settingsApi()
-    const { user } = renderPage('/projects/WP/settings', {
-      handlers: [
-        http.get(`${API}/statuses`, () => (fail ? HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }) : undefined)),
-        ...api.handlers,
-      ],
-    })
-    const error = await screen.findByTestId('settings-statuses-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderSettings([
+      http.get(`${API}/statuses`, () => (fail ? HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }) : undefined)),
+      ...api.handlers,
+    ])
+    const error = await screen.findByTestId('settings-statuses-error')
     expect(error).toHaveTextContent('상태 목록을 불러오지 못했습니다')
     const section = screen.getByTestId('settings-statuses')
     expect(section.querySelector('[data-testid^="status-add-"]')).toBeNull()
@@ -225,21 +234,21 @@ describe('설정 상태 — 권한·상태', () => {
   // 개인 프로젝트에는 상태 섹션이 없다.
   test('개인 프로젝트는 상태 섹션이 없다', async () => {
     const api = settingsApi({ project: createProject({ type: 'PERSONAL' }) })
-    renderPage('/projects/WP/settings', { handlers: api.handlers })
-    expect(await screen.findByRole('heading', { name: '라벨' }, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    renderSettings(api.handlers)
+    expect(await screen.findByRole('heading', { name: '라벨' })).toBeInTheDocument()
     expect(screen.queryByTestId('settings-statuses')).not.toBeInTheDocument()
   })
 })
 
 describe('설정 상태 — 삭제 창', () => {
   /** ⋯ → 삭제로 삭제 창을 연다. */
-  async function openDelete(user: ReturnType<typeof renderPage>['user'], id: number) {
+  async function openDelete(user: ReturnType<typeof renderScreen>['user'], id: number) {
     await openMenu(user, id)
     await user.click(screen.getByRole('menuitem', { name: '삭제' }))
     return screen.findByTestId('status-delete-dialog')
   }
   /** 옮길 상태 Select 에서 이름이 name 으로 시작하는 항목을 고른다. */
-  async function pickTarget(user: ReturnType<typeof renderPage>['user'], dialog: HTMLElement, name: RegExp) {
+  async function pickTarget(user: ReturnType<typeof renderScreen>['user'], dialog: HTMLElement, name: RegExp) {
     await user.click(within(dialog).getByTestId('status-move-target'))
     await user.click(await screen.findByRole('option', { name }))
   }

@@ -21,7 +21,7 @@ function renderHeader(
       aiState="ready"
       aiBusy={false}
       aiAttributed={false}
-      onNavigate={() => {}}
+      pagePath={(id: number) => `/wiki/spaces/1/pages/${id}`}
       onAiAction={() => {}}
       onDelete={() => {}}
       canDelete

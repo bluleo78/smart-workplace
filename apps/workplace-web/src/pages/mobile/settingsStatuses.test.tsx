@@ -1,16 +1,18 @@
 // 프로젝트 설정 「상태」 섹션 — 모바일(WP-809) 페이지 테스트(WP-981).
 // 손잡이 대신 ⋯ 시트의 위로/아래로 이동이 보내는 순서 payload·화면 순서 반영, 범주 경계의 비활성 항목과 삭제 불가 이유는
 // 브라우저 없이 판정되므로 e2e/pages/mobile/settings-statuses.spec.ts 에서 옮겼다. 삭제 창·긴 이름 행의 기하(@layout)는 E2E 에 남는다.
+// 동작은 설정 화면의 상태 관리 섹션(StatusManagement)이 모두 가지므로 그 섹션만 renderScreen 으로 띄운다 —
+// 편집 권한(canEdit)은 설정 화면이 팀 프로젝트 OWNER 에게 주는 값(true)을 그대로 준다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
 import type { ProjectStatus } from '@/types/projectStatus'
 
-import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import { inServerOrder } from '../../../e2e/factories/projectStatus.factory'
+import { StatusManagement } from '../projects/components/status/StatusManagement'
 
 mockViewport()
 
@@ -27,15 +29,13 @@ function statuses(): ProjectStatus[] {
   ]
 }
 
-/** 설정 화면 — 상태 목록은 서버처럼 순서 변경을 반영해 재조회에 돌려준다. 순서 변경 본문은 orders 에 쌓는다. */
+/** 상태 관리 섹션 — 상태 목록은 서버처럼 순서 변경을 반영해 재조회에 돌려준다. 순서 변경 본문은 orders 에 쌓는다. */
 async function open() {
   let list = inServerOrder(statuses())
   const orders: unknown[] = []
-  const page = renderPage('/projects/WP/settings', {
+  const page = renderScreen(<StatusManagement projectKey="WP" canEdit />, {
+    path: '/projects/WP/settings',
     handlers: [
-      http.get(BASE, () => HttpResponse.json(createProject())),
-      http.get(`${BASE}/members`, () => HttpResponse.json([createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' })])),
-      http.get(`${BASE}/fields`, () => HttpResponse.json([])),
       http.get(`${BASE}/issues/group-counts`, () =>
         HttpResponse.json({ groupBy: 'statusId', groups: Object.entries({ 1: 4, 2: 1204, 12: 3, 13: 0, 3: 9, 4: 1 }).map(([key, count]) => ({ key, count })) })),
       http.get(`${BASE}/statuses`, () => HttpResponse.json(list)),
@@ -48,7 +48,7 @@ async function open() {
       }),
     ],
   })
-  await screen.findByTestId('status-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('status-row-1')
   return { ...page, orders }
 }
 

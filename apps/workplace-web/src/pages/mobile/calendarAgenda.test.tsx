@@ -2,19 +2,22 @@
 // 초대받은 일정 표기·상세 보기, 이슈 마감 행과 이동, 진행 중(여러 날) 일정 묶음·순서, 월 보기에서 옮긴 달로 목록 시작,
 // 이슈 마감 조회 실패의 다시 시도 줄은 요청 범위·문구·조건부 렌더라 e2e/pages/mobile/calendar-agenda.spec.ts 에서 옮겼다.
 // 스크롤로 이어 불러오기(빈 90일 자동 멈춤 포함 — 끝 센티널 교차가 필요)·헤더 월 따라가기·스와이프·기하·포커스·시간 흐름은 그 E2E 가 지킨다.
+// 앱 셸을 보지 않으므로 캘린더 모듈 레이아웃과 화면만 renderScreen 으로 띄운다(WP-1002).
 // 오늘 = 2026-10-13(화) 08:40 KST 고정(vitest 는 TZ=Asia/Seoul). 일정 API 는 요청 범위(from/to)와 겹치는 일정만 돌려준다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { Route, Routes } from 'react-router-dom'
 import { afterAll, beforeAll, expect, test, vi } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { CalendarModuleLayout } from '@/components/calendar/CalendarModuleLayout'
+import { renderMobileScreen } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { CalendarEvent } from '@/types/calendar'
 import type { IssueResponse } from '@/types/issue'
 
 import { calendar, calendarEvent } from '../../../e2e/factories/calendar.factory'
-import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
-import { createProject } from '../../../e2e/factories/project.factory'
+import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { CalendarPage } from '../calendar/CalendarPage'
 
 mockViewport()
 
@@ -73,6 +76,19 @@ function stubCalendar(opts: { events?: CalendarEvent[]; issues?: IssueResponse[]
   return { requests, handlers }
 }
 
+/** /calendar 를 모듈 레이아웃과 함께 띄운다 — 다른 주소로 이동하면 빈 화면(이동은 location() 으로 본다). */
+function openCalendar(handlers: ReturnType<typeof stubCalendar>['handlers']) {
+  return renderMobileScreen(
+    <Routes>
+      <Route element={<CalendarModuleLayout />}>
+        <Route path="/calendar" element={<CalendarPage />} />
+      </Route>
+      <Route path="*" element={null} />
+    </Routes>,
+    { path: '/calendar', handlers },
+  )
+}
+
 const list = () => screen.getByTestId('calendar-view-agenda')
 const firstDayKey = () => list().querySelector<HTMLElement>('[data-day-key]')?.dataset.dayKey
 
@@ -82,8 +98,8 @@ test('초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력
     calendarId: 99, calendarName: '기본', myRole: 'ATTENDEE', recurrenceRule: 'FREQ=WEEKLY;INTERVAL=1;COUNT=5',
   })
   const cal = stubCalendar({ events: [...baseEvents(), invited] })
-  const { user } = renderPage('/calendar', { handlers: cal.handlers })
-  const row = await screen.findByTestId('calendar-event-50', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = openCalendar(cal.handlers)
+  const row = await screen.findByTestId('calendar-event-50')
   // 주최자 캘린더 이름(「기본」)이 아니라 사이드바 범례와 같은 「초대받은 일정」.
   expect(row).toHaveTextContent('초대받은 일정')
   expect(row).not.toHaveTextContent('기본')
@@ -100,23 +116,16 @@ test('초대받은 일정 — 목록은 「초대받은 일정」, 창은 입력
 
 test('이슈 마감 행 — ⚑ 마감·이슈 키, 그 날 묶음 건수에 들어가고, 누르면 이슈 상세로', async () => {
   const cal = stubCalendar()
-  const { user, location } = renderPage('/calendar', {
-    handlers: [
-      ...cal.handlers,
-      // 도착한 이슈 상세의 최소 응답 — 이동만 본다.
-      http.get('/api/v1/projects/WP', () => HttpResponse.json(createProject({ key: 'WP' }))),
-      http.get('/api/v1/projects/WP/issues/136', () => HttpResponse.json(createIssueDetail({ summary: DUE_ISSUE }))),
-      http.get('/api/v1/projects/WP/issues/136/*', () => HttpResponse.json([])),
-    ],
-  })
-  const row = await screen.findByTestId('calendar-issue-due-7', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  // 이슈 상세 화면은 띄우지 않는다 — 이동 주소만 본다.
+  const { user, location } = openCalendar(cal.handlers)
+  const row = await screen.findByTestId('calendar-issue-due-7')
   expect(row).toHaveTextContent('마감')
   expect(row).toHaveTextContent('WP-136 모바일 캘린더 일정 목록')
   expect(row).toHaveTextContent('이슈 마감 · WP-136')
   // 마감은 그 날(10/14) 묶음 안 — 종일 일정과 함께 2건.
   expect(screen.getByTestId('calendar-agenda-day-2026-10-14')).toHaveTextContent('2건')
   await user.click(row)
-  await waitFor(() => expect(location()).toBe('/projects/WP/issues/136'), { timeout: PAGE_LOAD_TIMEOUT })
+  await waitFor(() => expect(location()).toBe('/projects/WP/issues/136'))
 })
 
 test('진행 중 일정 — 어제 시작한 여러 날 일정이 오늘 묶음 맨 앞에 끝 날짜와 함께, 미니 달력으로 고른 날에도 보인다', async () => {
@@ -127,8 +136,8 @@ test('진행 중 일정 — 어제 시작한 여러 날 일정이 오늘 묶음 
     calendarEvent({ id: 403, title: '어제 종일', allDay: true, startsAt: '2026-10-12T00:00:00Z', endsAt: '2026-10-13T00:00:00Z' }),
   ]
   const cal = stubCalendar({ events: [...baseEvents(), ...ongoing] })
-  const { user } = renderPage('/calendar', { handlers: cal.handlers })
-  const todayHead = await screen.findByTestId('calendar-agenda-day-2026-10-13', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = openCalendar(cal.handlers)
+  const todayHead = await screen.findByTestId('calendar-agenda-day-2026-10-13')
   // 오늘 묶음 = 이어지는 일정 2건 + 오늘 일정 3건. 끝이 정확히 오늘 자정인 일정·어제 묶음은 없다.
   await waitFor(() => expect(todayHead).toHaveTextContent('5건'))
   expect(screen.queryByTestId('calendar-event-402')).not.toBeInTheDocument()
@@ -156,8 +165,8 @@ test('진행 중 일정 — 어제 시작한 여러 날 일정이 오늘 묶음 
 
 test('월 보기에서 다른 달로 넘긴 뒤 목록으로 바꾸면 그 달 1일부터, 이번 달이면 오늘부터 보인다', async () => {
   const cal = stubCalendar()
-  const { user } = renderPage('/calendar', { handlers: cal.handlers })
-  await screen.findByTestId('calendar-agenda-day-2026-10-13', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = openCalendar(cal.handlers)
+  await screen.findByTestId('calendar-agenda-day-2026-10-13')
   const select = () => screen.getByTestId('calendar-view-select')
 
   // 월 보기 › › → 12월. 목록으로 → 12/1 부터 조회해 12/5 일정이 첫 묶음(12/13 부터면 숨는다).
@@ -184,8 +193,8 @@ test('월 보기에서 다른 달로 넘긴 뒤 목록으로 바꾸면 그 달 1
 test('이슈 마감 조회가 실패해도 일정은 보이고, 하단 다시 시도 줄로 마감까지 되살린다', async () => {
   let failDues = true
   const cal = stubCalendar({ failDues: () => failDues })
-  const { user } = renderPage('/calendar', { handlers: cal.handlers })
-  const retry = await screen.findByRole('button', { name: '일부 일정을 불러오지 못했습니다 — 다시 시도' }, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = openCalendar(cal.handlers)
+  const retry = await screen.findByRole('button', { name: '일부 일정을 불러오지 못했습니다 — 다시 시도' })
   // 일정 행은 그대로, 마감 행만 빠져 있다.
   expect(screen.getByTestId('calendar-event-2')).toBeInTheDocument()
   expect(screen.queryByTestId('calendar-issue-due-7')).not.toBeInTheDocument()

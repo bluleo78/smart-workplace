@@ -97,6 +97,7 @@ import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectComponent;
+import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectStatus;
@@ -129,6 +130,7 @@ import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
 import com.workplace.jooq.tables.WikiPageShare;
 import com.workplace.jooq.tables.WikiPageShareEvent;
+import com.workplace.jooq.tables.WikiPageShareExclusion;
 import com.workplace.jooq.tables.WikiPageShareMember;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
@@ -627,6 +629,11 @@ public class Public extends SchemaImpl {
     public final ProjectComponent PROJECT_COMPONENT = ProjectComponent.PROJECT_COMPONENT;
 
     /**
+     * The table <code>public.project_favorite</code>.
+     */
+    public final ProjectFavorite PROJECT_FAVORITE = ProjectFavorite.PROJECT_FAVORITE;
+
+    /**
      * The table <code>public.project_issue_sequence</code>.
      */
     public final ProjectIssueSequence PROJECT_ISSUE_SEQUENCE = ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE;
@@ -787,6 +794,11 @@ public class Public extends SchemaImpl {
     public final WikiPageShareEvent WIKI_PAGE_SHARE_EVENT = WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT;
 
     /**
+     * The table <code>public.wiki_page_share_exclusion</code>.
+     */
+    public final WikiPageShareExclusion WIKI_PAGE_SHARE_EXCLUSION = WikiPageShareExclusion.WIKI_PAGE_SHARE_EXCLUSION;
+
+    /**
      * The table <code>public.wiki_page_share_member</code>.
      */
     public final WikiPageShareMember WIKI_PAGE_SHARE_MEMBER = WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER;
@@ -942,6 +954,7 @@ public class Public extends SchemaImpl {
             PlatformUserRole.PLATFORM_USER_ROLE,
             Project.PROJECT,
             ProjectComponent.PROJECT_COMPONENT,
+            ProjectFavorite.PROJECT_FAVORITE,
             ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE,
             ProjectMember.PROJECT_MEMBER,
             ProjectStatus.PROJECT_STATUS,
@@ -974,6 +987,7 @@ public class Public extends SchemaImpl {
             WikiPageDoc.WIKI_PAGE_DOC,
             WikiPageShare.WIKI_PAGE_SHARE,
             WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT,
+            WikiPageShareExclusion.WIKI_PAGE_SHARE_EXCLUSION,
             WikiPageShareMember.WIKI_PAGE_SHARE_MEMBER,
             WikiReference.WIKI_REFERENCE,
             WikiRevision.WIKI_REVISION,

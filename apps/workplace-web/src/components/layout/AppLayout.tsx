@@ -6,16 +6,14 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
 import { AIChip } from '@/components/ai/AIChip'
-import { AIFullscreen } from '@/components/ai/AIFullscreen'
-import { AISidePanel } from '@/components/ai/AISidePanel'
-import { MobileAiSheet } from '@/components/ai/MobileAiSheet'
+import { LazyAIFullscreen, LazyAISidePanel, LazyMobileAiSheet } from '@/components/ai/LazyAiSurfaces'
 import { AiScreenContextProvider } from '@/components/ai/screen-context/AiScreenContextProvider'
 import { DashboardEditDraftProvider } from '@/components/home/dashboard/DashboardEditDraftContext'
 import { AppRail } from '@/components/layout/AppRail'
 import { InboxProvider } from '@/components/layout/InboxContext'
 import { MAIN_CONTENT_ID, SkipToMainLink } from '@/components/layout/SkipToMainLink'
+import { LazyMailComposeDock } from '@/components/mail/LazyMailComposeDock'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
-import { MailComposeDock } from '@/components/mail/MailComposeDock'
 import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
 import { MobileShell } from '@/components/mobile/MobileShell'
 import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
@@ -90,7 +88,7 @@ export function AppLayout() {
                 {isMobile ? (
                   // WP-54 표식 유지 — display:contents 로 레이아웃 영향 없이 페이지 영역 컨테이너 역할.
                   <div data-ai-page-root className="contents">
-                    <MobileShell overlay={aiAvailable ? <MobileAiSheet /> : null}>
+                    <MobileShell overlay={aiAvailable ? <LazyMobileAiSheet /> : null}>
                       <Outlet />
                     </MobileShell>
                   </div>
@@ -108,10 +106,10 @@ export function AppLayout() {
                     >
                       <Outlet />
                       {/* 풀스크린 — main 의 absolute inset-0 자식 → 콘텐츠 영역만 덮음(AppRail 미포함). 비서 있을 때만. */}
-                      {aiAvailable && <AIFullscreen />}
+                      {aiAvailable && <LazyAIFullscreen />}
                     </main>
                     {/* 사이드 패널 — flex 형제로 본문을 밀어냄(reflow). mode!=='side' 면 null. 비서 있을 때만. */}
-                    {aiAvailable && <AISidePanel />}
+                    {aiAvailable && <LazyAISidePanel />}
                   </div>
                 )}
               </MessagingConnectionContext.Provider>
@@ -119,8 +117,8 @@ export function AppLayout() {
             </InboxProvider>
             {/* AI 칩 — fixed 상단 중앙, 데스크톱 전용(모바일은 탭바 가운데 AI 가 대신한다). 비서 있을 때만. */}
             {aiAvailable && !isMobile && <AIChip />}
-            {/* 메일 작성 도크 — fixed, 앱 전역. draft 없으면 null. AI 모드(전체화면이면 크게 보기를 접는다)를 읽으므로 AI 공급자 안. */}
-            <MailComposeDock />
+            {/* 메일 작성 도크 — fixed, 앱 전역. 처음 작성을 열 때 불러온다(WP-970). draft 없으면 null. AI 모드(전체화면이면 크게 보기를 접는다)를 읽으므로 AI 공급자 안. */}
+            <LazyMailComposeDock />
           </AiScreenContextProvider>
         </AIAssistantProvider>
       </ChatSessionProvider>

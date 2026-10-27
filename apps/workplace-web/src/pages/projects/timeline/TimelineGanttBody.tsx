@@ -38,6 +38,7 @@ export function TimelineGanttBody({
   zoom,
   scrollRequest,
   readOnly,
+  canEditMilestones,
   onMilestoneClick,
   onLaneClick,
   view,
@@ -56,9 +57,11 @@ export function TimelineGanttBody({
   zoom: TimelineZoom;
   scrollRequest: TimelineScrollRequest | undefined;
   readOnly: boolean;
+  /** 마일스톤 추가·수정·삭제 가능 여부(WP-1008 — 프로젝트 OWNER·ADMIN). 아니면 레인 클릭·칩 클릭이 아무것도 열지 않는다. */
+  canEditMilestones: boolean;
   /** 다이아몬드 클릭 — 편집 팝오버 상태는 TimelinePage 가 든다. */
   onMilestoneClick: (milestone: MilestoneResponse, anchorRect: DOMRect) => void;
-  /** 빈 레인 클릭 — 해당 날짜로 마일스톤 생성 다이얼로그(읽기 전용 판단은 여기서). */
+  /** 빈 레인 클릭 — 해당 날짜로 마일스톤 생성 다이얼로그. */
   onLaneClick: (date: string) => void;
   view: TimelineViewOptions;
   periodPicker?: ReactNode;
@@ -121,6 +124,7 @@ export function TimelineGanttBody({
             dependencies={renderableDependencies}
             zoom={zoom}
             readOnly={readOnly}
+            canEditMilestones={canEditMilestones}
             scrollRequest={scrollRequest}
             period={view.period}
             onBarChange={(issueNumber, change) =>
@@ -134,10 +138,8 @@ export function TimelineGanttBody({
               const target = milestones?.find((m) => m.id === id);
               if (target) onMilestoneClick(target, anchorRect);
             }}
-            onLaneClick={(date) => {
-              if (readOnly) return;
-              onLaneClick(date);
-            }}
+            // 권한 판단(canEditMilestones)은 TimelineGantt 가 레인·인라인 클릭 모두에서 한다.
+            onLaneClick={(date) => onLaneClick(date)}
           />
         )}
       </div>

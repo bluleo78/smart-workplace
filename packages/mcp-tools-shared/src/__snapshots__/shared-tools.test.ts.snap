@@ -934,6 +934,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "label",
             "milestone",
             "cycle",
+            "version",
           ],
           "type": "string",
         },
@@ -944,6 +945,16 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "projectKey": {
           "minLength": 1,
           "type": "string",
+        },
+        "releaseDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
         },
         "startDate": {
           "anyOf": [
@@ -958,11 +969,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "status": {
           "anyOf": [
             {
-              "enum": [
-                "PLANNED",
-                "ACTIVE",
-                "COMPLETED",
-              ],
               "type": "string",
             },
             {
@@ -2485,7 +2491,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "message": {
-          "maxLength": 4000,
           "minLength": 1,
           "type": "string",
         },
@@ -3229,6 +3234,16 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "archived": {
+          "anyOf": [
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "color": {
           "anyOf": [
             {
@@ -3284,6 +3299,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
             "label",
             "milestone",
             "cycle",
+            "version",
           ],
           "type": "string",
         },
@@ -3306,6 +3322,16 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "minLength": 1,
           "type": "string",
         },
+        "releaseDate": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "startDate": {
           "anyOf": [
             {
@@ -3319,11 +3345,6 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
         "status": {
           "anyOf": [
             {
-              "enum": [
-                "PLANNED",
-                "ACTIVE",
-                "COMPLETED",
-              ],
               "type": "string",
             },
             {

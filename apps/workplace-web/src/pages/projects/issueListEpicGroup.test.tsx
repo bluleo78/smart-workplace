@@ -1,4 +1,4 @@
-// 이슈 목록 「에픽」 그룹·그룹 헤더 접기·에픽 칩 숨김(WP-194) — 페이지 테스트(WP-980).
+// 이슈 목록 「에픽」 그룹·그룹 헤더 접기·에픽 칩 숨김(WP-194) — 화면 테스트(WP-980, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 그룹 셀렉트 → URL group=epic → 섹션 렌더, 헤더 접기/펼치기(aria-expanded), 에픽 필터·그룹 안 칩 숨김은 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-list-epic-group.spec.ts 에서 옮겼다. 그 spec 에는 무한 스크롤 sentinel(뷰포트 교차)·칩 폭(@layout)이 남는다.
 // 버킷 순서·「에픽 없음」 배치는 issueGrouping.test.ts 가 맡는다.
@@ -6,7 +6,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 
 import { issueListHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, makeSubtaskType } from '../../../e2e/factories/issueType.factory'
@@ -24,11 +24,11 @@ const ISSUES = [
 ]
 
 const open = (query: string) =>
-  renderPage(`/projects/${KEY}?${query}`, { handlers: issueListHandlers({ issues: () => createIssueSearchResponse(ISSUES) }) })
+  renderProjectScreen(`/projects/${KEY}?${query}`, { handlers: issueListHandlers({ issues: () => createIssueSearchResponse(ISSUES) }) })
 
 test('그룹 셀렉트에서 에픽 선택 → URL group=epic + 에픽 섹션 헤더 렌더', async () => {
   const { user, location } = open('group=none')
-  await user.click(await screen.findByTestId('group-by-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  await user.click(await screen.findByTestId('group-by-trigger'))
   await user.click(await screen.findByTestId('group-by-epic'))
   await waitFor(() => expect(location()).toMatch(/group=epic/))
   expect(within(await screen.findByTestId('list-group-epic-30')).getByTestId('issue-row-1')).toBeInTheDocument()
@@ -37,7 +37,7 @@ test('그룹 셀렉트에서 에픽 선택 → URL group=epic + 에픽 섹션 �
 
 test('그룹 헤더 클릭으로 그 그룹만 접고 펼친다', async () => {
   const { user } = open('group=epic')
-  const toggle = await screen.findByTestId('list-group-toggle-epic-30', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const toggle = await screen.findByTestId('list-group-toggle-epic-30')
   expect(screen.getByTestId('issue-row-1')).toBeInTheDocument()
   expect(toggle).toHaveAttribute('aria-expanded', 'true')
   await user.click(toggle)
@@ -54,7 +54,7 @@ test('그룹 헤더 클릭으로 그 그룹만 접고 펼친다', async () => {
 test('특정 에픽 필터 / 에픽 그룹 안에선 에픽 칩을 숨기고, 비에픽(STORY) 부모 칩은 유지한다', async () => {
   // 양성 대조 — 그룹 없음에선 에픽 행에 칩이 보인다.
   let view = open('group=none')
-  expect(await screen.findByTestId('issue-row-1-parent', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  expect(await screen.findByTestId('issue-row-1-parent')).toBeInTheDocument()
   expect(screen.getByTestId('issue-row-5-parent')).toBeInTheDocument()
   view.unmount()
 

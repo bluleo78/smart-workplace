@@ -1,4 +1,4 @@
-// 이슈 불러오기 실패 상태(WP-858) — 페이지 테스트(WP-980).
+// 이슈 불러오기 실패 상태(WP-858) — 화면 테스트(WP-980, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 이슈 검색이 실패하면 빈 상태 대신 「이슈를 불러오지 못했습니다」+다시 시도를 보이고, 다시 시도가 재요청해 결과를 그리는지(목록·보드·사이클 그룹),
 // 정수가 아닌 id 토큰(label=1.5)을 서버로 보내지 않는지 본다. 4xx/5xx → 안내·다시 시도라 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-load-error.spec.ts 에서 옮겼다. 다시 시도 동안 초점을 지키는지(WP-893)는 E2E(@input)에 남는다.
@@ -7,7 +7,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { API, fail, issueSearch, KEY, projectMeta } from '@/test/kits/projects/listBoard'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
 
@@ -28,9 +28,9 @@ function mockSearch(failing: () => boolean, extra: (url: URL) => Response | null
 describe('이슈 불러오기 실패 상태 (WP-858)', () => {
   test('목록: 검색이 500 이면 빈 상태가 아니라 실패 안내, 다시 시도하면 이슈가 보인다', async () => {
     let failing = true
-    const { user } = renderPage(`/projects/${KEY}`, { handlers: mockSearch(() => failing).handlers })
+    const { user } = renderProjectScreen(`/projects/${KEY}`, { handlers: mockSearch(() => failing).handlers })
 
-    const error = await screen.findByTestId('issue-load-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const error = await screen.findByTestId('issue-load-error')
     expect(error).toHaveTextContent('이슈를 불러오지 못했습니다')
     expect(screen.queryByTestId('empty-no-issues')).not.toBeInTheDocument()
     expect(screen.queryByTestId('empty-filter')).not.toBeInTheDocument()
@@ -47,9 +47,9 @@ describe('이슈 불러오기 실패 상태 (WP-858)', () => {
       () => false,
       (url) => (url.searchParams.has('q') ? fail(400, '잘못된 조건') : null),
     )
-    const { user, location } = renderPage(`/projects/${KEY}?q=broken`, { handlers })
+    const { user, location } = renderProjectScreen(`/projects/${KEY}?q=broken`, { handlers })
 
-    await waitFor(() => expect(screen.getByTestId('issue-load-error')).toHaveTextContent('필터를 초기화해 보세요'), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(screen.getByTestId('issue-load-error')).toHaveTextContent('필터를 초기화해 보세요'))
     expect(screen.queryByTestId('issue-load-error-retry')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('issue-load-reset-filter'))
 
@@ -59,9 +59,9 @@ describe('이슈 불러오기 실패 상태 (WP-858)', () => {
 
   test('보드: 열 검색이 500 이면 보드 전체에 실패 안내, 다시 시도하면 카드가 보인다', async () => {
     let failing = true
-    const { user } = renderPage(`/projects/${KEY}?view=board`, { handlers: mockSearch(() => failing).handlers })
+    const { user } = renderProjectScreen(`/projects/${KEY}?view=board`, { handlers: mockSearch(() => failing).handlers })
 
-    await screen.findByTestId('issue-load-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-load-error')
     expect(screen.queryByTestId('board-col-1')).not.toBeInTheDocument()
 
     failing = false
@@ -76,9 +76,9 @@ describe('이슈 불러오기 실패 상태 (WP-858)', () => {
       ...mockSearch(() => false).handlers,
       http.get(`${API}/projects/${KEY}/cycles`, () => (failing ? fail() : HttpResponse.json([]))),
     ]
-    const { user } = renderPage(`/projects/${KEY}?group=cycle`, { handlers })
+    const { user } = renderProjectScreen(`/projects/${KEY}?group=cycle`, { handlers })
 
-    await screen.findByTestId('issue-load-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-load-error')
     expect(screen.queryByTestId('issue-cycle-grouped-list')).not.toBeInTheDocument()
 
     failing = false
@@ -89,9 +89,9 @@ describe('이슈 불러오기 실패 상태 (WP-858)', () => {
 
   test('정수가 아닌 라벨 id(label=1.5)는 서버로 보내지 않고 이슈를 그대로 보인다', async () => {
     const { search, handlers } = mockSearch(() => false)
-    renderPage(`/projects/${KEY}?label=1.5`, { handlers })
+    renderProjectScreen(`/projects/${KEY}?label=1.5`, { handlers })
 
-    expect(await screen.findByTestId('issue-row-7', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByTestId('issue-row-7')).toBeInTheDocument()
     expect(search.urls.length).toBeGreaterThan(0)
     expect(search.urls.every((u) => !u.searchParams.has('label'))).toBe(true)
   })

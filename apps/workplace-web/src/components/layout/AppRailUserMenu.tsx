@@ -2,6 +2,7 @@
 // 앱 레일 하단의 유저 메뉴 — 프로필/테마 토글/로그아웃.
 // 아이콘 레일이므로 데스크톱(lg)은 아바타만, 모바일 드로어는 아바타+이름.
 import { LogOut, Moon, Sparkles, Sun, User as UserIcon } from 'lucide-react'
+import { lazy, Suspense, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import {
@@ -14,13 +15,15 @@ import {
 } from '@/components/overlay/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useWhatsNew } from '@/components/whats-new/useWhatsNew'
-import { WhatsNewDialog } from '@/components/whats-new/WhatsNewDialog'
 import { WhatsNewDot } from '@/components/whats-new/WhatsNewDot'
 import { useAuth } from '@/hooks/useAuth'
 import { useSignOut } from '@/hooks/useSignOut'
 import { useThemeToggle } from '@/hooks/useThemeToggle'
 import { presenceStyle } from '@/lib/collab/presence'
 import { cn, displayNameOf, initialOf } from '@/lib/utils'
+
+// 새 소식 창은 처음 열 때 불러온다(WP-970) — 릴리스 노트 마크다운 렌더러(react-markdown·remark)가 앱 첫 부팅에 실리지 않게.
+const WhatsNewDialog = lazy(() => import('@/components/whats-new/WhatsNewDialog').then((m) => ({ default: m.WhatsNewDialog })))
 
 export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
   const navigate = useNavigate()
@@ -30,6 +33,9 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
   const handleLogout = useSignOut()
   // 새 소식 — 안 읽음 점(아바타·항목)과 릴리스 노트 창(WP-439).
   const whatsNew = useWhatsNew()
+  // 한 번 연 창은 계속 마운트해 둔다 — 닫힘 전환이 예전과 같게.
+  const [whatsNewMounted, setWhatsNewMounted] = useState(false)
+  if (whatsNew.open && !whatsNewMounted) setWhatsNewMounted(true)
 
   return (
     <DropdownMenu>
@@ -108,10 +114,11 @@ export function AppRailUserMenu({ expanded = false }: { expanded?: boolean }) {
         </DropdownMenuItem>
       </DropdownMenuContent>
       {/* 창은 메뉴 항목이 아니라 DropdownMenu 의 형제 자리에 둔다(DOM 을 만들지 않는 루트라 포털로 뜬다) — 항목 선택으로 메뉴가 닫혀도 창은 유지된다. */}
-      <WhatsNewDialog
-        open={whatsNew.open}
-        onOpenChange={whatsNew.setOpen}
-      />
+      {whatsNewMounted && (
+        <Suspense fallback={null}>
+          <WhatsNewDialog open={whatsNew.open} onOpenChange={whatsNew.setOpen} />
+        </Suspense>
+      )}
     </DropdownMenu>
   )
 }

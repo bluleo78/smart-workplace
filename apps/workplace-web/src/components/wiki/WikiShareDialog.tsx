@@ -1,4 +1,4 @@
-import { ChevronDown, Info, Link2, RefreshCw, UserPlus, X } from 'lucide-react'
+import { ChevronDown, Copy, Info, Link2, RefreshCw, UserPlus, X } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -46,7 +46,10 @@ import {
 } from './wikiShare'
 
 /** 확인을 받는 동작 — 넓히는 변경(외부·범위·편집)과, 이미 연 사람을 끊는 재발급·해제. */
-type Pending = { kind: ShareWidening; next: WikiPageShareRequest } | { kind: 'regenerate' | 'revoke' }
+type Pending =
+  | { kind: ShareWidening; next: WikiPageShareRequest }
+  | { kind: 'regenerate' | 'revoke' }
+  | { kind: 'includePublic'; targetPageId: number }
 
 /** 확인 창 문구 — 무엇이 바뀌고 누가 영향을 받는지 한 문장으로. */
 const CONFIRM_COPY: Record<Pending['kind'], { title: string; body: string; action: string; destructive?: boolean }> = {
@@ -76,6 +79,23 @@ const CONFIRM_COPY: Record<Pending['kind'], { title: string; body: string; actio
     action: '해제',
     destructive: true,
   },
+  // 외부 공개 공유에서 제외를 풀면 그 하위가 로그인 없이 열린다(WP-987) — 외부 공개와 같은 무게로 확인을 받는다.
+  includePublic: {
+    title: '외부 공개에 다시 포함할까요?',
+    body: '제외를 풀면 이 페이지와 하위를 링크가 있는 사람이 로그인 없이 볼 수 있게 됩니다(보기만).',
+    action: '포함',
+  },
+}
+
+/** 상위 공유를 받는 페이지가 자기 공유를 해제할 때의 문구(WP-987) — 막히는 것은 이 페이지의 링크뿐이고, 상위 링크로는 다시 열린다. */
+const REVOKE_INHERITED_BODY =
+  '이 페이지의 링크가 바로 막히고, 그 링크로 보고 있던 사람도 화면이 닫힙니다. 이 페이지와 하위는 다시 상위 공유의 설정대로 열립니다.'
+
+/** 상속받은 공유의 범위 한 줄(WP-987) — 「열 수 있는 사람」 선택지와 같은 말. */
+const AUDIENCE_SUMMARY: Record<WikiShareAudience, string> = {
+  WORKSPACE: '워크스페이스 멤버 누구나',
+  PEOPLE: '지정한 사람만',
+  PUBLIC: '링크가 있는 누구나(외부)',
 }
 
 /** 만료 선택지 — 지금 값(정해진 날짜)은 「YYYY-MM-DD까지」로 따로 보인다. */
@@ -123,7 +143,7 @@ export function WikiShareDialog({
   const stateQuery = useWikiPageShare(pageId, open)
   const state = stateQuery.data
   const share = state?.share ?? null
-  const { save, regenerate, revoke, decide } = useWikiShareMutations(pageId, spaceId)
+  const { save, regenerate, revoke, decide, exclusion } = useWikiShareMutations(pageId, spaceId)
   const [historyOpen, setHistoryOpen] = useState(false)
   const events = useWikiShareEvents(pageId, open && historyOpen)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -132,6 +152,19 @@ export function WikiShareDialog({
   const [message, setMessage] = useState('')
   const [pending, setPending] = useState<Pending | null>(null)
   const busy = save.isPending || regenerate.isPending || revoke.isPending
+
+  /** 상위 공유 제외 켜기·풀기(WP-987) — targetPageId 는 이 페이지(하위 창) 또는 제외를 풀 하위(상위 창). */
+  const setExcluded = (targetPageId: number, excluded: boolean) =>
+    exclusion.mutate(
+      { targetPageId, excluded },
+      { onError: (e) => handleApiError(e, excluded ? '상위 공유에서 제외하지 못했습니다' : '제외를 풀지 못했습니다') },
+    )
+
+  /** 제외 풀기 — 풀면 외부 공개 공유에 들어가는 경우에만 확인부터(parentAudience = 그 하위를 다시 덮을 공유의 범위). */
+  const liftExclusion = (targetPageId: number, parentAudience: WikiShareAudience | undefined) => {
+    if (parentAudience === 'PUBLIC') setPending({ kind: 'includePublic', targetPageId })
+    else setExcluded(targetPageId, false)
+  }
 
   const apply = (next: WikiPageShareRequest) =>
     save.mutate(next, { onError: (e) => handleApiError(e, '공유 설정을 바꾸지 못했습니다') })
@@ -184,6 +217,8 @@ export function WikiShareDialog({
         onSuccess: () => toast.success('공유를 해제했습니다'),
         onError: (e) => handleApiError(e, '공유를 해제하지 못했습니다'),
       })
+    } else if (p.kind === 'includePublic') {
+      setExcluded(p.targetPageId, false)
     } else if ('next' in p) {
       apply(p.next)
     }
@@ -193,9 +228,12 @@ export function WikiShareDialog({
     if (share) await copyShareLink(share.token)
   }
 
-  const copy = pending ? CONFIRM_COPY[pending.kind] : null
   const isPublic = share?.audience === 'PUBLIC'
   const inherited = state?.inheritedFrom ?? null
+  const revokeCopy =
+    inherited && !state?.excludedFromParent ? { ...CONFIRM_COPY.revoke, body: REVOKE_INHERITED_BODY } : CONFIRM_COPY.revoke
+  const copy = pending ? (pending.kind === 'revoke' ? revokeCopy : CONFIRM_COPY[pending.kind]) : null
+  const excluded = state?.excludedPages ?? []
 
   return (
     <>
@@ -206,25 +244,61 @@ export function WikiShareDialog({
             <DialogDescription className="truncate">{pageTitle || '제목 없음'}</DialogDescription>
           </DialogHeader>
 
-          {/* 상위 페이지 공유(하위 포함)로 이미 링크에 보이는 페이지 — 그 공유에서 바꾸라고 안내한다. */}
+          {/* 상위 페이지 공유(하위 포함)에서 받은 권한(WP-987) — 범위·권한, 이 페이지를 바로 여는 링크, 상위 공유에서 제외.
+              이 페이지가 따로 공유를 켜면 그 설정이 상위보다 우선한다(아래 「링크로 공유」). */}
           {inherited && (
-            <div className="flex items-start gap-2 rounded-md border px-3 py-2 text-xs" data-testid="wiki-share-inherited">
-              <Link2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <p className="min-w-0 flex-1 text-muted-foreground">
-                <span className="font-medium text-foreground">「{inherited.title}」</span> 공유에 하위 페이지로 포함되어
-                {inherited.audience === 'PUBLIC' ? ' 외부 링크로도' : ' 링크로'} 보입니다.
-              </p>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-xs"
-                onClick={() => {
-                  onOpenChange(false)
-                  onOpenPage(inherited.pageId)
-                }}
-              >
-                그 페이지로
-              </Button>
+            <div className="space-y-2 rounded-md border px-3 py-2.5 text-xs" data-testid="wiki-share-inherited">
+              <p className="font-medium text-foreground">상위 공유에서 받은 권한</p>
+              <div className="flex items-start gap-2">
+                <Link2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <p className="min-w-0 flex-1 text-muted-foreground" data-testid="wiki-share-inherited-summary">
+                  <span className="font-medium text-foreground">「{inherited.title}」</span> 공유 ·{' '}
+                  {AUDIENCE_SUMMARY[inherited.audience]} · {inherited.permission === 'EDIT' ? '편집 가능' : '보기만'}
+                </p>
+              </div>
+              {share || state?.excludedFromParent ? (
+                <p className="text-muted-foreground" data-testid="wiki-share-inherited-overridden">
+                  {share
+                    ? '이 페이지는 따로 켠 공유를 따릅니다 — 상위 공유 링크로는 열리지 않습니다.'
+                    : '상위 공유에서 제외되어 상위 공유 링크로는 이 페이지와 하위가 열리지 않습니다.'}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {!share && !state?.excludedFromParent && (
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => void copyShareLink(inherited.token, pageId)}
+                    data-testid="wiki-share-inherited-copy"
+                  >
+                    <Copy className="size-3.5" aria-hidden="true" />
+                    이 페이지 링크 복사
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    onOpenChange(false)
+                    onOpenPage(inherited.pageId)
+                  }}
+                >
+                  그 페이지로
+                </Button>
+              </div>
+              <div className="flex items-center gap-2 pt-0.5">
+                <Checkbox
+                  id="wiki-share-exclude"
+                  data-testid="wiki-share-exclude"
+                  checked={state?.excludedFromParent ?? false}
+                  disabled={exclusion.isPending}
+                  onCheckedChange={(v) => (v === true ? setExcluded(pageId, true) : liftExclusion(pageId, inherited.audience))}
+                />
+                <Label htmlFor="wiki-share-exclude" className="text-xs font-normal">
+                  이 페이지와 하위는 상위 공유에서 제외
+                </Label>
+              </div>
             </div>
           )}
 
@@ -269,11 +343,14 @@ export function WikiShareDialog({
             <div className="min-w-0">
               <Label htmlFor="wiki-share-switch" className="text-sm font-medium">
                 링크로 공유
+                {inherited && <span className="ml-1 font-normal text-muted-foreground">(이 페이지만 따로)</span>}
               </Label>
-              <p className="mt-0.5 text-xs text-muted-foreground">
+              <p className="mt-0.5 text-xs text-muted-foreground" data-testid="wiki-share-switch-hint">
                 {share
                   ? '스페이스 멤버가 아니어도 링크를 받은 사람은 이 페이지를 열 수 있습니다.'
-                  : '지금은 스페이스 멤버만 이 페이지를 볼 수 있습니다.'}
+                  : inherited
+                    ? '켜면 이 페이지의 범위·권한이 상위 공유보다 우선합니다.'
+                    : '지금은 스페이스 멤버만 이 페이지를 볼 수 있습니다.'}
               </p>
             </div>
             <BusySwitch
@@ -448,11 +525,33 @@ export function WikiShareDialog({
                 />
                 <div>
                   <Label htmlFor="wiki-share-children" className="text-sm font-normal">
-                    하위 페이지도 함께 공유{childCount > 0 && ` (지금 ${childCount}개)`}
+                    하위 페이지도 함께 공유
+                    {childCount > 0 &&
+                      ` (지금 ${childCount}개${share.includeChildren && excluded.length > 0 ? `, 제외 ${excluded.length}개` : ''})`}
                   </Label>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     이 페이지 아래로 옮겨 넣은 페이지도 함께 보이고, 밖으로 옮긴 페이지는 더 이상 보이지 않습니다.
                   </p>
+                  {/* 하위 창에서 「상위 공유에서 제외」한 페이지 — 여기서 바로 풀 수 있다(WP-987). */}
+                  {share.includeChildren && excluded.length > 0 && (
+                    <ul className="mt-1.5 space-y-1" data-testid="wiki-share-excluded">
+                      {excluded.map((p) => (
+                        <li key={p.pageId} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="min-w-0 truncate">제외: {p.title || '제목 없음'}</span>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-auto shrink-0 p-0 text-xs"
+                            disabled={exclusion.isPending}
+                            onClick={() => liftExclusion(p.pageId, share?.audience)}
+                            data-testid={`wiki-share-excluded-lift-${p.pageId}`}
+                          >
+                            제외 풀기
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
 

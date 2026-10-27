@@ -3,13 +3,15 @@
 // 새로고침 경고(beforeunload)·AGENT 마크다운 렌더는 브라우저 없이 판정되므로 e2e/pages/projects/issue-comments.spec.ts 에서 옮겼다.
 // RichInput(TipTap) 의 키 입력은 jsdom 이 브라우저처럼 처리하지 못해 편집기 명령(setRichText)으로 값을 채운다 —
 // 실제 타이핑·@ 자동완성·자동 포커스 위치·키보드 삭제 뒤 포커스 이동은 E2E(@input)가, 작성 → POST → 목록 갱신 배선은 E2E(@wiring)가 지킨다.
+// 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { DETAIL_PATH, type DetailRef, detailRefOf, ISSUE_ID, ME_ID, setRichText } from '@/test/kits/projects/issueDetailRef'
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueCommentResponse } from '@/types/issue'
 
 import { createAgentComment, createComment } from '../../../e2e/factories/issue.factory'
@@ -47,8 +49,8 @@ function commentWrites(ref: DetailRef, calls: Call[]) {
 async function open(comments: IssueCommentResponse[] = [], members = [] as ReturnType<typeof createMember>[]) {
   const ref = detailRefOf({ comments })
   const calls: Call[] = []
-  const view = renderPage(DETAIL_PATH, { handlers: [...issueDetailHandlers({ detail: () => ref.current, members }), ...commentWrites(ref, calls)] })
-  const input = await screen.findByTestId('issue-comment-input', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderIssueDetailScreen(DETAIL_PATH, { handlers: [...issueDetailHandlers({ detail: () => ref.current, members }), ...commentWrites(ref, calls)] })
+  const input = await screen.findByTestId('issue-comment-input', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...view, ref, calls, input }
 }
 
@@ -146,7 +148,8 @@ describe('코멘트 표시 (#320·#344)', () => {
     const item = commentItems()[0]
     expect(item.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
     expect(item.textContent).not.toMatch(/\d{1,2}:\d{2}:\d{2}/)
-    const bodyDiv = body.closest('div.whitespace-pre-wrap')
+    const bodyDiv = within(item).getByTestId('markdown-content')
+    expect(bodyDiv).toContainElement(body)
     expect(bodyDiv).toHaveClass('text-sm', 'leading-6', 'text-foreground')
   })
 })
@@ -206,13 +209,12 @@ describe('AGENT 코멘트 마크다운 렌더 (WP-254)', () => {
     expect(md.querySelector('b')).toBeNull()
   })
 
-  test('사람 코멘트는 마크다운을 해석하지 않고 평문 그대로 둔다', async () => {
-    await open([createComment({ id: 31, issueId: ISSUE_ID, authorId: 2, authorName: '김개발', body: '**굵게 아님**\n- [ ] 체크 아님' })])
-    await screen.findByText(/굵게 아님/)
+  test('사람 코멘트도 마크다운으로 — 굵게·체크리스트가 서식대로 보인다 (WP-1015)', async () => {
+    await open([createComment({ id: 31, issueId: ISSUE_ID, authorId: 2, authorName: '김개발', body: '**굵게**\n\n- [ ] 체크' })])
+    await screen.findByText('굵게')
     const item = commentItems()[0]
-    expect(item).toHaveTextContent('**굵게 아님**')
-    expect(item).toHaveTextContent('- [ ] 체크 아님')
-    expect(within(item).queryByTestId('markdown-content')).not.toBeInTheDocument()
-    expect(within(item).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(item).getByTestId('markdown-content').querySelector('strong')).toHaveTextContent('굵게')
+    expect(item).not.toHaveTextContent('**')
+    expect(within(item).getAllByRole('checkbox')).toHaveLength(1)
   })
 })

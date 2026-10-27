@@ -73,7 +73,9 @@ export const wikiApi = {
   getMentions: (pageId: number, shareToken?: string) =>
     client.get<WikiMentionRef[]>(`/wiki/pages/${pageId}/mentions`, { headers: shareHeaders(shareToken) }),
   // 알림에서 노트를 열 때 갈 곳(WP-579) — 멤버면 노트 주소, 공유 대상이면 지금 토큰. 둘 다 아니면 404.
-  getPageEntry: (pageId: number) => client.get<WikiPageEntry>(`/wiki/pages/${pageId}/entry`),
+  // link: 노트 주소로 연 비멤버(WP-987) — 워크스페이스 전체 공유도 보고 토큰을 받는다. 알림은 지정한 사람 공유만(link 없음).
+  getPageEntry: (pageId: number, link = false) =>
+    client.get<WikiPageEntry>(`/wiki/pages/${pageId}/entry`, link ? { params: { link: true } } : undefined),
   // 이 페이지를 참조하는 다른 페이지 목록(백링크).
   getBacklinks: (pageId: number) =>
     client.get<WikiBacklinksResponse>(`/wiki/pages/${pageId}/backlinks`),
@@ -122,6 +124,9 @@ export const wikiApi = {
     client.put<WikiPageShare>(`/wiki/pages/${pageId}/share`, req),
   regenerateShare: (pageId: number) => client.post<WikiPageShare>(`/wiki/pages/${pageId}/share/regenerate`),
   deleteShare: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}/share`),
+  // 「이 페이지와 하위는 상위 공유에서 제외」 켜기·풀기(WP-987) — 상위 공유 창의 「제외 풀기」도 하위 페이지 id 로 부른다.
+  excludeFromParentShare: (pageId: number) => client.put<void>(`/wiki/pages/${pageId}/share/exclusion`),
+  includeInParentShare: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}/share/exclusion`),
   listShareEvents: (pageId: number) => client.get<WikiShareEvent[]>(`/wiki/pages/${pageId}/share/events`),
   // 스페이스에서 공유 중인 페이지 목록.
   listSharedPages: (spaceId: number) => client.get<WikiSharedPageItem[]>(`/wiki/spaces/${spaceId}/shares`),

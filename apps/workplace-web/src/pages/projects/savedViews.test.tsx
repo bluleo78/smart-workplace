@@ -1,14 +1,20 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 저장된 뷰(칩 줄·저장 다이얼로그) — 페이지 테스트(WP-971).
 // 뷰 저장 버튼 활성 조건, POST/PATCH payload(쿼리 유지), 칩 적용 → URL, 삭제 확인·취소, 이름 검증(빈 값·60자),
 // 같은 조건 뷰 단일 활성(WP-473), 예전 status 조건 복원(WP-808), 소유자 모더레이션 권한(WP-655)은
 // 브라우저 없이 판정되므로 e2e/pages/projects/saved-views.spec.ts 에서 옮겼다.
 // 호버 때만 보이는 ⋯(@input)과 긴 이름 칩 말줄임 폭(@layout)은 E2E 에 남는다.
+// 칩 줄·필터 바·목록 검색이 한 화면이라 프로젝트 화면(ProjectDetailPage)만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
+import { atRoute } from '@/test/kits/projects/atRoute'
 import { API, type Call, projectScreen, toCall } from '@/test/kits/projects/projectScreens'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { renderScreen } from '@/test/renderScreen'
 import type { SavedViewResponse } from '@/types/savedView'
 
 const KEY = 'WP'
@@ -35,7 +41,8 @@ async function openWithViews(initial: SavedViewResponse[], { path = `/projects/$
   const views = [...initial]
   const calls: Call[] = []
   const api = projectScreen(KEY)
-  const page = renderPage(path, {
+  const page = renderScreen(atRoute('/projects/:key', <ProjectDetailPage />), {
+    path,
     handlers: [
       ...extra,
       http.get(VIEWS, () => HttpResponse.json(views)),
@@ -59,14 +66,15 @@ async function openWithViews(initial: SavedViewResponse[], { path = `/projects/$
         return HttpResponse.json(views[i])
       }),
       ...api.handlers,
+      ...shellHandlers,
     ],
   })
-  await screen.findByTestId('save-view-button', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('save-view-button')
   return { ...page, calls, api }
 }
 
 /** 우선순위 높음 필터를 건다(＋필터 → 우선순위 → 높음). */
-async function applyHighPriority(user: ReturnType<typeof renderPage>['user'], location: () => string) {
+async function applyHighPriority(user: ReturnType<typeof renderScreen>['user'], location: () => string) {
   await user.click(screen.getByTestId('add-filter-trigger'))
   await user.click(await screen.findByTestId('add-filter-facet-priority'))
   await user.click(await screen.findByTestId('facet-value-priority-HIGH'))
@@ -75,7 +83,7 @@ async function applyHighPriority(user: ReturnType<typeof renderPage>['user'], lo
 }
 
 /** 칩의 ⋯ 메뉴를 연다(호버 노출은 E2E 가 본다 — 여기서는 메뉴 버튼을 바로 누른다). */
-async function openChipMenu(user: ReturnType<typeof renderPage>['user'], id: number) {
+async function openChipMenu(user: ReturnType<typeof renderScreen>['user'], id: number) {
   await user.click(await screen.findByTestId(`view-chip-menu-${id}`))
 }
 

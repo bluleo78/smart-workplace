@@ -176,10 +176,18 @@ export interface IssueRelationTypeClient {
   listIssueRelationTypes(): Promise<IssueRelationTypeRow[]>;
 }
 
-/** 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다. */
-export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, IssueRelationTypeClient {
+/**
+ * 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다.
+ * 구성원 검색(searchMembers)은 report_agent_work 가 글의 @username 을 멘션으로 바꾸는 데 쓴다(WP-1009).
+ */
+export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, IssueRelationTypeClient, Pick<MemberToolClient, 'searchMembers'> {
   /** GET .../chat/thread — 이슈 챗 스레드 id(없으면 서버가 만든다, WP-373). */
   getIssueChatThreadId(issueKey: string): Promise<number>;
+  /**
+   * GET .../chat/thread 를 캐시 없이 — 스레드 id 와 현재 참여자(members, 서버 ChatMemberResponse 원형)(WP-1009). 참여자는 바뀌므로
+   * 캐시하지 않고, 받은 스레드 id 는 getIssueChatThreadId 캐시에 넣는다.
+   */
+  getIssueChatThread(issueKey: string): Promise<{ threadId: number; members: Record<string, unknown>[] }>;
   /**
    * GET /chat/threads/{id}/messages — after 가 있으면 그 뒤를, 없으면 afterMine(내 마지막 글 직전 5개 + 그 뒤)을 오름차순으로(WP-373).
    * 래퍼({ items, nextCursor, hasMore })를 그대로 둔다. nextCursor 는 hasMore 일 때 마지막 메시지 id 문자열.
@@ -818,10 +826,14 @@ export interface ProjectToolClient extends ProjectMetaClient, IssueRelationTypeC
   createProjectMeta(projectKey: string, kind: ProjectMetaKind, body: Record<string, unknown>): Promise<unknown>;
   /** PATCH /projects/{key}/{kind}/{id} — 서버는 본문 전체로 덮어쓴다(생략=비움). 병합은 핸들러가 한다(WP-356). */
   updateProjectMeta(projectKey: string, kind: ProjectMetaKind, id: number, body: Record<string, unknown>): Promise<unknown>;
+  /** POST /projects/{key}/versions/{id}/release — 버전 출시(WP-1005). 출시일은 본문 > 기존 출시 예정일 > 오늘 순. OWNER 만. */
+  releaseProjectVersion(projectKey: string, id: number): Promise<unknown>;
+  /** POST /projects/{key}/versions/{id}/unrelease — 출시 취소(WP-1005). 출시일은 남는다. OWNER 만. */
+  unreleaseProjectVersion(projectKey: string, id: number): Promise<unknown>;
 }
 
-/** 프로젝트 메타 종류(WP-356) — create_project_meta·update_project_meta 의 kind. */
-export type ProjectMetaKind = 'label' | 'milestone' | 'cycle';
+/** 프로젝트 메타 종류(WP-356, 버전 WP-1005) — create_project_meta·update_project_meta 의 kind. */
+export type ProjectMetaKind = 'label' | 'milestone' | 'cycle' | 'version';
 
 /** 프로젝트 생성 요청 본문 — 서버 CreateProjectRequest 와 1:1(key 는 PERSONAL 이면 서버가 무시하고 자동 생성). */
 export interface CreateProjectBody {

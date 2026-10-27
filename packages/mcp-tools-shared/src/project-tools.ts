@@ -55,13 +55,13 @@ export const addProjectMemberInput = z.object({
 const LABEL_COLORS = ['GRAY', 'RED', 'ORANGE', 'YELLOW', 'GREEN', 'TEAL', 'CYAN', 'BLUE', 'INDIGO', 'PURPLE', 'PINK', 'BROWN'] as const;
 
 /**
- * 프로젝트 메타(라벨·마일스톤·사이클) 생성 입력(WP-356). kind 별로 다른 필드를 판별 유니온 대신 평평한 선택 필드로 받는다 —
+ * 프로젝트 메타(라벨·마일스톤·사이클·버전) 생성 입력(WP-356, 버전 WP-1005). kind 별로 다른 필드를 판별 유니온 대신 평평한 선택 필드로 받는다 —
  * 최상위가 z.object 여야 하고(서버 레이어가 .shape 를 꺼낸다) 유니온은 정의 크기가 커진다. kind 에 맞지 않는 필드는 핸들러가 쓰기 전에 거부한다.
  * 길이·날짜 형식은 서버(@Size·LocalDate)가 검증해 오류 사유를 돌려주므로 정의 크기를 아끼려 여기서 되풀이하지 않는다.
  */
 export const createProjectMetaInput = z.object({
   projectKey: z.string().min(1),
-  kind: z.enum(['label', 'milestone', 'cycle']),
+  kind: z.enum(['label', 'milestone', 'cycle', 'version']),
   name: z.string().trim().min(1),
   // 모델은 쓰지 않는 인자를 null 로 채워 보내기도 한다(WP-346) — kind 별 선택 필드는 null 도 생략으로 받는다(정의에는 null 갈래가 보이지 않는다).
   // 색 12종을 enum 으로 실으면 두 도구 정의가 각각 ~40토큰 커진다 — 문자열로 받고 핸들러가 허용 목록을 담아 거부한다(#841 패턴).
@@ -71,7 +71,9 @@ export const createProjectMetaInput = z.object({
   goal: nullAsOmitted(z.string()),
   startDate: nullAsOmitted(z.string()),
   endDate: nullAsOmitted(z.string()),
-  status: nullAsOmitted(z.enum(['PLANNED', 'ACTIVE', 'COMPLETED'])),
+  // 사이클 PLANNED·ACTIVE·COMPLETED, 버전 RELEASED·UNRELEASED(WP-1005) — enum 으로 실으면 두 도구 정의가 커져 문자열로 받고 핸들러가 kind 별 값을 거른다.
+  status: nullAsOmitted(z.string()),
+  releaseDate: nullAsOmitted(z.string()),
 });
 
 /**
@@ -80,6 +82,8 @@ export const createProjectMetaInput = z.object({
  */
 export const updateProjectMetaInput = createProjectMetaInput.extend({
   newName: nullAsOmitted(z.string().trim().min(1)),
+  // 버전 전용(WP-1005) — 보관은 출시 상태를 건드리지 않아 복원(false)하면 이전 상태로 돌아간다. 만들 때는 받지 않아 생성 정의에는 싣지 않는다.
+  archived: nullAsOmitted(z.boolean()),
 });
 
 /** kind 별로 받는 필드 — 나머지를 주면 쓰기 전에 거부한다(조용히 버리면 모델이 반영됐다고 오해한다). */
@@ -87,8 +91,14 @@ const META_FIELDS: Record<ProjectMetaKind, readonly string[]> = {
   label: ['color'],
   milestone: ['dueDate', 'description'],
   cycle: ['goal', 'startDate', 'endDate', 'status'],
+  version: ['description', 'startDate', 'releaseDate', 'status', 'archived'],
 };
-const META_KIND_LABEL: Record<ProjectMetaKind, string> = { label: '라벨', milestone: '마일스톤', cycle: '사이클' };
+/** 만들 때 받는 필드 — 버전은 출시 상태·보관을 만든 뒤에 바꾼다(처음부터 출시·보관으로 만들지 않는다). 나머지는 수정과 같다. */
+const META_CREATE_FIELDS: Record<ProjectMetaKind, readonly string[]> = { ...META_FIELDS, version: ['description', 'startDate', 'releaseDate'] };
+const META_KIND_LABEL: Record<ProjectMetaKind, string> = { label: '라벨', milestone: '마일스톤', cycle: '사이클', version: '버전' };
+/** kind 별로 받는 status 값 — 버전만 출시 상태다(WP-1005). */
+const VERSION_STATUSES = ['RELEASED', 'UNRELEASED'] as const;
+const CYCLE_STATUSES = ['PLANNED', 'ACTIVE', 'COMPLETED'] as const;
 
 /**
  * 라벨 색 검증 — 서버 오류("허용되지 않은 색상 토큰")는 허용 값을 알려주지 않아 쓰기 전에 목록과 함께 거부한다. 대소문자는 맞춰 준다.
@@ -103,12 +113,20 @@ function labelColor(color: string | undefined): string | undefined {
   return upper;
 }
 
-/** kind 에 없는 필드를 준 경우 throw. */
-function assertMetaFields(kind: ProjectMetaKind, given: Record<string, unknown>) {
-  const allowed = META_FIELDS[kind];
+/** kind 에 없는 필드를 준 경우 throw. 만들기(create)는 버전의 status·archived 를 받지 않는다. status 값이 kind 에 맞는지도 본다. */
+function assertMetaFields(kind: ProjectMetaKind, given: Record<string, unknown>, op: 'create' | 'update') {
+  const allowed = (op === 'create' ? META_CREATE_FIELDS : META_FIELDS)[kind];
   const extra = Object.keys(given).filter((k) => given[k] !== undefined && !allowed.includes(k));
   if (extra.length) {
     throw new Error(`${META_KIND_LABEL[kind]}에는 ${extra.join(', ')} 를 지정할 수 없습니다. 쓸 수 있는 필드: name, ${allowed.join(', ')}`);
+  }
+  const status = given.status as string | undefined;
+  if (status !== undefined && !(kind === 'version' ? VERSION_STATUSES : CYCLE_STATUSES).includes(status as never)) {
+    throw new Error(
+      kind === 'version' || kind === 'cycle'
+        ? `${META_KIND_LABEL[kind]}의 status 는 ${(kind === 'version' ? VERSION_STATUSES : CYCLE_STATUSES).join(' | ')} 중 하나입니다(받은 값: ${status}).`
+        : `${META_KIND_LABEL[kind]}에는 status 를 지정할 수 없습니다.`,
+    );
   }
 }
 
@@ -122,10 +140,40 @@ function blankAs(fields: Record<string, unknown>, blank: null | undefined): Reco
   return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v === '' ? blank : v]));
 }
 
-/** 메타 응답(LabelResponse·MilestoneResponse·CycleResponse) → LLM 뷰. 숫자 id·projectId·시각은 빼고 색 토큰은 입력 이름(color)으로 부른다. */
+/** 메타 응답(LabelResponse·MilestoneResponse·CycleResponse·VersionResponse) → LLM 뷰. 숫자 id·projectId·시각은 빼고 색 토큰은 입력 이름(color)으로 부른다. */
 function toProjectMetaView(kind: ProjectMetaKind, raw: Record<string, unknown>) {
   const { colorToken, ...rest } = omitKeys(raw, 'id', 'projectId', 'createdAt', 'updatedAt');
   return dropEmpty({ kind, ...rest, color: colorToken });
+}
+
+/**
+ * 버전 수정(WP-1005) — 서버 PATCH 는 준 필드만 바꾸고(비우기는 clearX 플래그), 출시·출시 취소는 별도 엔드포인트다.
+ * 그래서 다른 kind 처럼 전체 본문을 합치지 않고: ① 준 필드가 있으면 PATCH ② status 가 지금과 다르면 출시/출시 취소를 부른다 ③ 결과를 다시 읽어 돌려준다.
+ * 이미 출시된 버전에 RELEASED 를 다시 주면 부르지 않는다 — 출시 처리가 출시 시각을 갱신하므로 반복 호출이 같은 결과가 되게 한다.
+ * 순서가 PATCH → 출시라서 releaseDate 를 함께 주면 그 날짜로 출시된다.
+ */
+async function updateVersion(
+  client: ProjectToolClient,
+  projectKey: string,
+  name: string,
+  given: { newName?: string; description?: string; startDate?: string; releaseDate?: string; status?: string; archived?: boolean },
+) {
+  const current = rowByName(await client.getProjectVersions(projectKey), name, META_KIND_LABEL.version);
+  const patch: Record<string, unknown> = {};
+  if (given.newName !== undefined) patch.name = given.newName;
+  // 설명·날짜는 빈 문자열이면 비우기(서버 clearX 플래그), 값이면 교체.
+  for (const [field, clear] of [['description', 'clearDescription'], ['startDate', 'clearStartDate'], ['releaseDate', 'clearReleaseDate']] as const) {
+    if (given[field] === undefined) continue;
+    if (given[field] === '') patch[clear] = true;
+    else patch[field] = given[field];
+  }
+  if (given.archived !== undefined) patch.archived = given.archived;
+  if (Object.keys(patch).length > 0) await client.updateProjectMeta(projectKey, 'version', current.id, patch);
+  if (given.status === 'RELEASED' && current.status !== 'RELEASED') await client.releaseProjectVersion(projectKey, current.id);
+  if (given.status === 'UNRELEASED' && current.status !== 'UNRELEASED') await client.unreleaseProjectVersion(projectKey, current.id);
+  const rows = await client.getProjectVersions(projectKey);
+  const updated = rows.find((r) => r.id === current.id) ?? { ...current, ...patch };
+  return toProjectMetaView('version', updated as unknown as Record<string, unknown>);
 }
 
 /** 생성 입력 → 서버 본문. 확인 카드 실행기(project.create_project)와 POST /projects 가 같은 CreateProjectRequest 로 받는다. */
@@ -208,7 +256,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'read',
       description:
         'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items: projectKey, name, type, issue counts, viewerIsMember. ' +
-        'If hasMore, pass nextPage as page to continue, or say the list is partial.',
+        'If hasMore, pass nextPage as page, or say the list is partial.',
       inputSchema: listProjectsInput,
       async handler(args) {
         const { page, size } = listProjectsInput.parse(args);
@@ -221,8 +269,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components (assignee, archived), versions, milestones (with dueDate), cycles (status, ' +
-        'dates), fields (custom fields, with options), statuses, members (username, name, role), relationTypes (issue link types: code?, name, outwardLabel, inwardLabel?, externalOnly).',
+        'Returns a project (프로젝트) plus the names issue writes accept: issueTypes, labels, components (assignee, archived), versions, milestones (dueDate), cycles (status, ' +
+        'dates), fields (custom, with options), statuses, members (username, name, role), relationTypes (issue link types).',
       inputSchema: projectKeyInput,
       async handler(args) {
         const { projectKey } = projectKeyInput.parse(args);
@@ -278,7 +326,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       description:
         'Lists issues (이슈) as {items, hasMore?, nextCursor?} (size default 30). If hasMore, pass nextCursor as cursor with the same filters, or say ' +
         'the list is partial; a next page may be empty. due/closed/created From-To: yyyy-MM-dd, inclusive, closed/created in KST; for finished ' +
-        'work add status=DONE (closed ranges also match CANCELED). Unknown names fail, listing allowed values. Items: issueKey, main fields, parent, children, blocked, ' +
+        'work add status=DONE (closed ranges also match CANCELED). Unknown names fail. Items: issueKey, main fields, parent, children, blocked, ' +
         'agentWork (dates +09:00, empty keys omitted); body/comments: get_issue_detail.',
       inputSchema: listIssuesInput,
       async handler(args) {
@@ -344,7 +392,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Changes a project name and/or description; omitted fields stay (description:null clears it). Project OWNER only.',
+        'Changes a project name and/or description; omitted stays (description:null clears). Project OWNER only.',
       inputSchema: updateProjectInput,
       async handler(args) {
         const { projectKey, name, description } = updateProjectInput.parse(args);
@@ -365,7 +413,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       hints: { destructive: false, idempotent: false },
       description:
         'Creates a project (프로젝트) with me as OWNER (needs project write permission). projectKey is the issue key prefix. ' +
-        'type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key auto-assigned, so each call creates another). ' +
+        'type: TEAM (default), OPEN (visible to all, for intake) or PERSONAL (only me; key auto-assigned, each call creates another). ' +
         'Nobody is notified.',
       inputSchema: createProjectInput,
       async handler(args) {
@@ -381,7 +429,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       hints: { destructive: false, idempotent: false },
       description:
         'Adds an active member (username from search_members) to a project as MEMBER; project OWNER only. Fails if already a member or for a ' +
-        'PERSONAL project (AI agents only). Not notified.',
+        'PERSONAL project (AI agents only). No notice.',
       inputSchema: addProjectMemberInput,
       async handler(args) {
         const { projectKey, username } = addProjectMemberInput.parse(args);
@@ -401,13 +449,13 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // 새 항목을 추가만 한다. 같은 이름이면 서버가 409(이름 중복)라 같은 호출을 되풀이해도 같은 결과가 아니다 — 비멱등. 알림 없음.
       hints: { destructive: false, idempotent: false },
       description:
-        'Creates a label, milestone or cycle (라벨·마일스톤·사이클) by kind. Per kind (other fields rejected): label color (default GRAY); ' +
-        'milestone dueDate (required), description; cycle goal, startDate, endDate, status (default PLANNED). Dates yyyy-MM-dd. Labels and ' +
-        'milestones need any project member, cycles project OWNER.',
+        'Creates a label, milestone, cycle or version (라벨·마일스톤·사이클·버전) by kind. Per kind (other fields rejected): label color (default GRAY); ' +
+        'milestone dueDate (required), description; cycle goal, startDate, endDate, status PLANNED|ACTIVE|COMPLETED (default PLANNED); version description, startDate, ' +
+        'releaseDate. Dates yyyy-MM-dd. Labels: any member; others: OWNER or ADMIN.',
       inputSchema: createProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, color, ...rest } = omitNulls(createProjectMetaInput.parse(args));
-        assertMetaFields(kind, { color, ...rest });
+        assertMetaFields(kind, { color, ...rest }, 'create');
         if (kind === 'milestone' && !rest.dueDate) throw new Error('마일스톤은 dueDate(yyyy-MM-dd)가 필요합니다.');
         // 서버 라벨 요청은 colorToken 이 필수다 — 색을 안 주면(빈 문자열 포함) 웹 기본값과 같은 GRAY. 다른 필드도 빈 문자열은 생략과 같다.
         const body = kind === 'label' ? { name, colorToken: labelColor(color) ?? DEFAULT_LABEL_COLOR } : { name, ...blankAs(rest, undefined) };
@@ -421,13 +469,14 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       // 기존 값을 덮어쓴다(이름·기한·기간 등) — 같은 입력을 다시 보내도 결과가 같다.
       hints: { destructive: true, idempotent: true },
       description:
-        'Changes a label, milestone or cycle found by kind and current name (from get_project); newName renames. Only given fields change ' +
-        '(per kind as in create_project_meta); "" clears description, goal or dates. Labels: project OWNER or whoever created the label; ' +
-        'milestones and cycles: same roles as creating.',
+        'Changes a label, milestone, cycle or version found by kind and current name (from get_project); newName renames. Only given fields change ' +
+        '(fields as in create_project_meta); "" clears description, goal or dates. Version: status RELEASED|UNRELEASED releases or cancels ' +
+        'the release (no-op if already), archived archives. Labels: project OWNER or the label\'s creator; others: as creating.',
       inputSchema: updateProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, newName, color, ...rest } = omitNulls(updateProjectMetaInput.parse(args));
-        assertMetaFields(kind, { color, ...rest });
+        assertMetaFields(kind, { color, ...rest }, 'update');
+        if (kind === 'version') return JSON.stringify(await updateVersion(client, projectKey, name, { newName, ...rest }));
         // 서버 PATCH 는 본문 전체로 덮어쓴다(빠진 설명·기간은 비워진다) — 지금 값을 읽어 준 필드만 바꾼 전체 본문을 보낸다.
         const rows = (
           kind === 'label'

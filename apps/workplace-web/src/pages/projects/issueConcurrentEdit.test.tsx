@@ -3,13 +3,15 @@
 // 성공하는지는 브라우저 없이 판정되므로 e2e/pages/projects/issue-concurrent-edit.spec.ts 에서 옮겼다(그 spec 은 지웠다).
 // MSW 스텁 서버가 version 을 추적한다: PATCH 의 version 이 현재와 다르면 409, 같으면 반영하고 version+1.
 // 이슈 상세 화면의 라우트 → API → 화면 배선은 다른 상세 E2E(@wiring)가 지킨다.
+// 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { DETAIL_API, DETAIL_PATH, detailRefOf, ISSUE_NUMBER, KEY } from '@/test/kits/projects/issueDetailRef'
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { appEventStream, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { createMember } from '../../../e2e/factories/project.factory'
@@ -60,15 +62,15 @@ function versionedServer(refetchDelayMs = 0) {
 }
 
 /** 상세를 열고 제목이 뜰 때까지 기다린다. */
-async function open(refetchDelayMs = 0, extra: Parameters<typeof renderPage>[1] = {}) {
+async function open(refetchDelayMs = 0, extra: Parameters<typeof renderIssueDetailScreen>[1] = {}) {
   const { server, handlers } = versionedServer(refetchDelayMs)
-  const view = renderPage(DETAIL_PATH, { handlers: [...(extra.handlers ?? []), ...handlers] })
-  await within(await screen.findByTestId('issue-title-heading', {}, { timeout: PAGE_LOAD_TIMEOUT })).findByText('원본 제목')
+  const view = renderIssueDetailScreen(DETAIL_PATH, { ...extra, handlers: [...(extra.handlers ?? []), ...handlers] })
+  await within(await screen.findByTestId('issue-title-heading', {}, { timeout: SCREEN_LOAD_TIMEOUT })).findByText('원본 제목')
   return { ...view, server }
 }
 
 /** 제목을 인라인 편집해 Enter 로 저장한다. */
-async function editTitle(user: ReturnType<typeof renderPage>['user'], title: string) {
+async function editTitle(user: ReturnType<typeof renderIssueDetailScreen>['user'], title: string) {
   await user.click(screen.getByRole('button', { name: '제목 편집' }))
   const input = await screen.findByTestId('issue-title-input')
   fireEvent.change(input, { target: { value: title } })
@@ -128,7 +130,7 @@ describe('이슈 동시 편집 충돌 감지 (#611) — 제목', () => {
       })
       return new HttpResponse(stream, { headers: { 'Content-Type': 'text/event-stream' } })
     })
-    const { user, server } = await open(0, { handlers: [events] })
+    const { user, server } = await open(0, { handlers: [events], extra: appEventStream() })
 
     await user.click(screen.getByRole('button', { name: '제목 편집' }))
     await screen.findByTestId('issue-title-input')
@@ -150,7 +152,7 @@ describe('이슈 동시 편집 충돌 감지 (#611) — 제목', () => {
 
 describe('이슈 동시 편집 충돌 감지 (#611) — 본문', () => {
   /** 본문 편집을 열고 textarea 에 값을 넣는다. */
-  async function editBody(user: ReturnType<typeof renderPage>['user'], text: string) {
+  async function editBody(user: ReturnType<typeof renderIssueDetailScreen>['user'], text: string) {
     await user.click(await screen.findByRole('button', { name: '본문 편집' }))
     const textarea = await screen.findByTestId('issue-body-textarea')
     fireEvent.change(textarea, { target: { value: text } })

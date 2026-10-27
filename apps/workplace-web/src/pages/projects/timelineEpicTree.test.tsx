@@ -2,14 +2,18 @@
 // 그리드 행 구성(에픽 그룹·진행률·에픽 없음 롤업·SUBTASK 제외)·접기/펼치기와 localStorage 저장·복원·그룹 행 클릭 이동·
 // 미정 하위의 자리(에픽 아래 행, 일정 미정 섹션 아님)·#656 크래시·상태색 주입(접미사 충돌)은 SVAR 그리드 DOM 과 JS 로 판정되므로
 // e2e/pages/projects/timeline-epic-tree.spec.ts 에서 옮겼다. CSS 로 숨기는 막대(요약·미정 막대)의 보임 여부는 E2E(@layout)에 남는다.
+// 타임라인 화면(TimelinePage)만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002). 상세 이동은 주소(location())로만 본다.
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { http, HttpResponse, type RequestHandler } from 'msw'
+import type { RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { API, KEY, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import TimelinePage from '@/pages/projects/timeline/TimelinePage'
+import { atRoute } from '@/test/kits/projects/atRoute'
+import { KEY, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { renderScreen } from '@/test/renderScreen'
 
-import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
+import { createIssue } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, makeSubtaskType } from '../../../e2e/factories/issueType.factory'
 
 stubCanvas()
@@ -39,8 +43,11 @@ function toggleGroup(title: string) {
 
 async function open(issues = TREE, extra: RequestHandler[] = []) {
   const api = timelineApi({ issues })
-  const view = renderPage(`/projects/${KEY}/timeline?period=all`, { handlers: [...extra, ...api.handlers] })
-  await screen.findByTestId('timeline-gantt', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+    path: `/projects/${KEY}/timeline?period=all`,
+    handlers: [...extra, ...api.handlers, ...shellHandlers],
+  })
+  await screen.findByTestId('timeline-gantt')
   await waitFor(() => expect(grid()).toBeTruthy())
   return view
 }
@@ -84,16 +91,12 @@ describe('타임라인 에픽 트리', () => {
     expect(screen.queryByTestId('unscheduled-row-42')).not.toBeInTheDocument()
   })
 
-  // 에픽 그룹 행을 누르면 그 에픽 상세로 간다. 이동은 전환이라 상세 화면 모듈을 처음 불러올 때까지 기다린다.
+  // 에픽 그룹 행을 누르면 그 에픽 상세로 간다 — 이동한 주소만 본다(상세 화면은 그리지 않는다).
   test('에픽 그룹 행 클릭 → 에픽 이슈 상세', async () => {
-    // 도착한 상세 화면이 부르는 조회 — 이동만 보므로 빈 응답.
-    const { location } = await open(TREE, [
-      http.get(`${API}/issues/40`, () => HttpResponse.json(createIssueDetail({ summary: TREE[0] }))),
-      http.get(`${API}/issues/40/:sub`, () => HttpResponse.json([])),
-    ])
+    const { location } = await open(TREE)
     await waitFor(() => expect(rowOf('온보딩 개편')).toBeTruthy())
     fireEvent.click(rowOf('온보딩 개편')!.querySelector('[data-col-id=":start"]')!, { detail: 1 })
-    await waitFor(() => expect(location()).toMatch(new RegExp(`^/projects/${KEY}/issues/40`)), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toMatch(new RegExp(`^/projects/${KEY}/issues/40`)))
   })
 
   // #656 — 하위가 모두 미정인 에픽만 있어도(자식 없는 summary) 펼칠 때 SVAR 트리 빌더가 크래시하지 않는다.

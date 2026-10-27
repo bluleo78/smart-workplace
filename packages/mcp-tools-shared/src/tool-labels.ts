@@ -30,8 +30,8 @@ export const TOOL_LABELS: Readonly<Record<string, ToolLabel>> = {
   update_project: { label: '프로젝트 수정', icon: '✏️' },
   create_project: { label: '프로젝트 생성', icon: '🗂️' },
   add_project_member: { label: '프로젝트 멤버 추가', icon: '👥' },
-  create_project_meta: { label: '라벨·마일스톤·사이클 생성', icon: '🏷️' },
-  update_project_meta: { label: '라벨·마일스톤·사이클 수정', icon: '✏️' },
+  create_project_meta: { label: '라벨·마일스톤·사이클·버전 생성', icon: '🏷️' },
+  update_project_meta: { label: '라벨·마일스톤·사이클·버전 수정', icon: '✏️' },
   // 노트
   search_wiki: { label: '노트 검색', icon: '🔍' },
   list_wiki_spaces: { label: '노트 공간 조회', icon: '📚' },

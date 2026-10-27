@@ -2,12 +2,14 @@
 // 문구·늦음 일수·조건부 표시는 브라우저 없이 판정되므로 e2e/pages/projects/issue-closed-date.spec.ts 에서 옮겼다.
 // 타임존은 vitest 설정(TZ=Asia/Seoul)으로, 현재 시각은 Date 만 가짜 시계로 고정한다(2026-10-23 서울 15:00, 금요일).
 // 모바일 폭(칩 줄·목록 메타·모바일 보드 탭)은 issueClosedDateMobile.test.tsx 가 본다.
+// 화면 테스트(WP-1002) — 이슈 상세·보드는 그 화면만 renderScreen 으로 띄운다(App·앱 셸 없이). 완료 줄이 레일에 한 번만 보이는지까지 보려 상세는 화면 단위다.
 import { screen, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { openIssueDetail } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { openIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueResponse } from '@/types/issue'
 
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
@@ -26,7 +28,7 @@ const DONE_LATE = { status: 'DONE', statusId: 3, statusName: '완료', closedAt:
 
 /** 이 요약으로 이슈 상세를 연다. */
 function openDetail(overrides: Partial<IssueResponse>) {
-  return openIssueDetail({ key: KEY, detail: createIssueDetail({ summary: { ...createIssue({ projectKey: KEY }), ...overrides } }) })
+  return openIssueDetailScreen({ key: KEY, detail: createIssueDetail({ summary: { ...createIssue({ projectKey: KEY }), ...overrides } }) })
 }
 
 describe('이슈 상세 — 상태 아래 완료 줄', () => {
@@ -89,8 +91,8 @@ function boardHandlers(issues: IssueResponse[] = BOARD_ISSUES) {
 
 describe('보드 카드 — 종료 이슈는 완료일', () => {
   test('완료는 「✓ 날짜」+늦음, 취소는 「⊘ 날짜」, closedAt 없으면 마감 그대로', async () => {
-    renderPage(`/projects/${KEY}?view=board`, { handlers: boardHandlers() })
-    const doneClosed = await screen.findByTestId('issue-card-1-closed', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    renderProjectScreen(`/projects/${KEY}?view=board`, { handlers: boardHandlers() })
+    const doneClosed = await screen.findByTestId('issue-card-1-closed', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     expect(doneClosed).toHaveTextContent('✓ 10월 23일')
     expect(doneClosed).toHaveTextContent('+2일')
     // 스크린리더용 구분어(sr-only) — 「10월 23일 +2일」 이 붙어 읽히지 않는다.

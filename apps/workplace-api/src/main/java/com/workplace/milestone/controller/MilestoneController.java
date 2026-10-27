@@ -19,7 +19,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 프로젝트 스코프 마일스톤 CRUD 컨트롤러. 멤버십 검증은 서비스 레이어(ProjectAccessGuard). */
+/**
+ * 프로젝트 스코프 마일스톤 CRUD 컨트롤러. 변경은 버전처럼 {@code project:manage} 로 걸고, 실제 판정(프로젝트 OWNER)은 서비스
+ * 레이어(ProjectAccessGuard)가 한다(WP-1008).
+ */
 @RestController
 @RequestMapping("/api/v1/projects/{key}/milestones")
 @RequiredArgsConstructor
@@ -35,9 +38,9 @@ public class MilestoneController {
     return ResponseEntity.ok(milestoneService.list((Long) auth.getPrincipal(), key));
   }
 
-  /** 신규 마일스톤 생성 — 멤버 권한. */
+  /** 신규 마일스톤 생성 — OWNER 권한. */
   @PostMapping
-  @RequirePermission("milestone:manage")
+  @RequirePermission("project:manage")
   public ResponseEntity<MilestoneResponse> create(
       Authentication auth,
       @PathVariable String key,
@@ -46,9 +49,9 @@ public class MilestoneController {
         .body(milestoneService.create((Long) auth.getPrincipal(), key, req));
   }
 
-  /** 마일스톤 수정 — 멤버 권한. */
+  /** 마일스톤 수정 — OWNER 권한. */
   @PatchMapping("/{milestoneId}")
-  @RequirePermission("milestone:manage")
+  @RequirePermission("project:manage")
   public ResponseEntity<MilestoneResponse> update(
       Authentication auth,
       @PathVariable String key,
@@ -58,9 +61,9 @@ public class MilestoneController {
         milestoneService.update((Long) auth.getPrincipal(), key, milestoneId, req));
   }
 
-  /** 마일스톤 삭제 — 멤버 권한. */
+  /** 마일스톤 삭제 — OWNER 권한. */
   @DeleteMapping("/{milestoneId}")
-  @RequirePermission("milestone:manage")
+  @RequirePermission("project:manage")
   public ResponseEntity<Void> delete(
       Authentication auth, @PathVariable String key, @PathVariable Long milestoneId) {
     milestoneService.delete((Long) auth.getPrincipal(), key, milestoneId);

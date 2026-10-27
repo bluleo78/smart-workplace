@@ -3,13 +3,15 @@
 // 전체 화면 세션 transcript·위임 진행 버블·확인 카드 승인/거부·델타 누적 렌더·세션 선택 뒤 드롭다운 닫힘·
 // 레일 이동 시 전체 화면 강등(#454)·aiAvailable 게이트는 브라우저 없이 판정되므로 e2e/pages/global-chat.spec.ts 에서 옮겼다.
 // 그 spec 에는 기하(치수·겹침·넘침·스크롤 고정)와 대표 배선 1건만 남는다.
-// renderPage 를 쓰는 이유: 칩·사이드 패널·전체 화면·통합 SSE 구독(useEventStream)·aiAvailable 게이트가 모두 앱 셸(AppLayout)에 있고,
-// 레일 이동(#454)은 다른 라우트로 넘어간 뒤 AI 모드를 본다 — 컴포넌트 하나로 띄우면 셸의 조립 자체를 검증하지 못한다.
+// 칩·사이드 패널·전체 화면·통합 SSE 구독은 앱 셸의 AI 조립만 renderScreen 으로 띄운다(test/kits/ai/c-aiShell, WP-1002).
+// 셸 자체를 보는 것 — ⌘K 단축키(AppLayout 이 aiAvailable 로 켠다)·레일 이동(#454)·aiAvailable 게이트 — 만 맨 아래 describe 에서 renderPage 로 띄운다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
-import { beforeEach, expect, test } from 'vitest'
+import { http, HttpResponse, type RequestHandler } from 'msw'
+import { beforeEach, describe, expect, test } from 'vitest'
 
 import { chatStreams } from '@/lib/ai/chatStreams'
+import ProjectListPage from '@/pages/projects/ProjectListPage'
+import { renderAiShell } from '@/test/kits/ai/aiShell'
 import { controllableEvents } from '@/test/kits/projects/issueDetailEvents'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { HomeMessage, HomeSessionPage } from '@/types/home'
@@ -58,15 +60,25 @@ const proposal = (id: number, summary: string) => ({
 // 대화 저장소(chatStreams)는 모듈 전역이라 파일 안에서 앞 테스트의 턴이 남는다 — 새로고침한 것처럼 매번 새 대화에서 시작한다.
 beforeEach(() => chatStreams.newConversation())
 
-/** 앱을 띄우고 칩이 보일 때까지 기다린다. */
-async function openApp(path = '/', handlers: Parameters<typeof renderPage>[1] = {}) {
-  const view = renderPage(path, handlers)
+/**
+ * AI 표면을 띄우고 칩이 보일 때까지 기다린다. /projects 는 본문에 프로젝트 목록을 두고, 홈(/)은 본문을 비운다
+ * (AI 조립은 홈 여부를 보지 않는다 — 홈 대시보드는 이 판정들의 관심사가 아니다).
+ */
+async function openApp(path = '/', { handlers = [] }: { handlers?: RequestHandler[] } = {}) {
+  const view = renderAiShell({ path, handlers, page: path === '/projects' ? <ProjectListPage /> : null })
+  const chip = await screen.findByTestId('chat-launcher')
+  return { ...view, chip }
+}
+
+/** 앱 셸 전체(App·인증·레일)를 띄우고 칩이 보일 때까지 기다린다 — 셸 자체를 보는 판정만 쓴다. */
+async function openShell(path = '/') {
+  const view = renderPage(path)
   const chip = await screen.findByTestId('chat-launcher', {}, { timeout: PAGE_LOAD_TIMEOUT })
   return { ...view, chip }
 }
 
 /** 칩을 눌러 사이드 패널을 열고 질의를 보낸다. */
-async function sendFromSide(user: ReturnType<typeof renderPage>['user'], chip: HTMLElement, query: string) {
+async function sendFromSide(user: ReturnType<typeof renderAiShell>['user'], chip: HTMLElement, query: string) {
   await user.click(chip)
   fireEvent.change(await screen.findByTestId('chat-input'), { target: { value: query } })
   await user.click(screen.getByRole('button', { name: '보내기' }))
@@ -76,7 +88,8 @@ async function sendFromSide(user: ReturnType<typeof renderPage>['user'], chip: H
 test('입력이 비어 있으면 보내기 버튼이 비활성이고, 글자가 있으면 활성이다', async () => {
   const { user, chip } = await openApp()
   await user.click(chip)
-  const send = screen.getByRole('button', { name: '보내기' })
+  // 패널 본체는 열 때 불러온다(WP-970) — 나타나기를 기다린다.
+  const send = await screen.findByRole('button', { name: '보내기' })
   expect(send).toBeDisabled()
   fireEvent.change(screen.getByTestId('chat-input'), { target: { value: '안녕' } })
   expect(send).toBeEnabled()
@@ -185,15 +198,6 @@ test('칩 클릭이 closed→side→fullscreen→closed 로 순환한다', async
   await waitFor(() => expect(screen.queryByTestId('ai-fullscreen')).not.toBeInTheDocument())
   expect(screen.queryByTestId('ai-side-panel')).not.toBeInTheDocument()
   expect(chip).toHaveAttribute('data-mode', 'closed')
-})
-
-// 전역 단축키 — ⌘K 는 닫힌 패널을 side 로 열고, Esc 는 닫는다(AIAssistantProvider 의 window keydown).
-test('⌘K 로 사이드 패널이 열리고 Esc 로 닫힌다', async () => {
-  await openApp()
-  fireEvent.keyDown(window, { key: 'k', metaKey: true })
-  expect(await screen.findByTestId('ai-side-panel')).toBeInTheDocument()
-  fireEvent.keyDown(window, { key: 'Escape' })
-  await waitFor(() => expect(screen.queryByTestId('ai-side-panel')).not.toBeInTheDocument())
 })
 
 // 헤더 모드 버튼(WP-111) — 사이드 ↔ 전체 화면 전환, 눌린 상태(aria-pressed), 전체 화면에서도 같은 닫기 버튼.
@@ -346,33 +350,44 @@ test('사이드 패널 세션 스위처에서 세션을 고르면 드롭다운�
   expect(screen.getByTestId('chat-session-title')).toHaveTextContent('대화 A')
 })
 
-// #454 — 레일로 앱을 바꾸면 전체 화면 AI 는 side 로 강등되고(새 앱이 가려지지 않게), side 는 그대로 둔다.
-test('레일로 앱을 바꾸면 전체 화면 AI 는 사이드 패널로 내려간다 (#454)', async () => {
-  const { user, chip, location } = await openApp()
-  await user.click(chip)
-  await user.click(chip)
-  await screen.findByTestId('ai-fullscreen')
-  await user.click(screen.getByTestId('rail-link-/projects'))
-  await waitFor(() => expect(location()).toMatch(/^\/projects/))
-  expect(await screen.findByTestId('ai-side-panel')).toBeInTheDocument()
-  expect(screen.queryByTestId('ai-fullscreen')).not.toBeInTheDocument()
-})
+describe('앱 셸 — 단축키·레일·aiAvailable 게이트 (renderPage)', () => {
+  // 전역 단축키 — ⌘K 는 닫힌 패널을 side 로 열고, Esc 는 닫는다(AIAssistantProvider 의 window keydown).
+  test('⌘K 로 사이드 패널이 열리고 Esc 로 닫힌다', async () => {
+    await openShell()
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    expect(await screen.findByTestId('ai-side-panel')).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByTestId('ai-side-panel')).not.toBeInTheDocument())
+  })
 
-test('레일로 앱을 바꿔도 사이드 모드는 그대로다 (#454 회귀가드)', async () => {
-  const { user, chip, location } = await openApp()
-  await user.click(chip)
-  await screen.findByTestId('ai-side-panel')
-  await user.click(screen.getByTestId('rail-link-/projects'))
-  await waitFor(() => expect(location()).toMatch(/^\/projects/))
-  // 이동 직후 한 틱 더 — 모드가 잘못 바뀐다면 이 사이에 반영된다.
-  await act(async () => {})
-  expect(screen.getByTestId('ai-side-panel')).toBeInTheDocument()
-  expect(screen.queryByTestId('ai-fullscreen')).not.toBeInTheDocument()
-})
+  // #454 — 레일로 앱을 바꾸면 전체 화면 AI 는 side 로 강등되고(새 앱이 가려지지 않게), side 는 그대로 둔다.
+  test('레일로 앱을 바꾸면 전체 화면 AI 는 사이드 패널로 내려간다 (#454)', async () => {
+    const { user, chip, location } = await openShell()
+    await user.click(chip)
+    await user.click(chip)
+    await screen.findByTestId('ai-fullscreen')
+    await user.click(screen.getByTestId('rail-link-/projects'))
+    await waitFor(() => expect(location()).toMatch(/^\/projects/))
+    expect(await screen.findByTestId('ai-side-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-fullscreen')).not.toBeInTheDocument()
+  })
 
-// aiAvailable 게이트 — 비서가 없으면 셸이 AI 칩을 그리지 않는다(사이드·전체 화면도 마찬가지).
-test('aiAvailable=false 이면 AI 칩이 그려지지 않는다', async () => {
-  renderPage('/', { user: createUser({ aiAvailable: false }) })
-  await screen.findByTestId('rail-link-/projects', {}, { timeout: PAGE_LOAD_TIMEOUT })
-  expect(screen.queryByTestId('chat-launcher')).not.toBeInTheDocument()
+  test('레일로 앱을 바꿔도 사이드 모드는 그대로다 (#454 회귀가드)', async () => {
+    const { user, chip, location } = await openShell()
+    await user.click(chip)
+    await screen.findByTestId('ai-side-panel')
+    await user.click(screen.getByTestId('rail-link-/projects'))
+    await waitFor(() => expect(location()).toMatch(/^\/projects/))
+    // 이동 직후 한 틱 더 — 모드가 잘못 바뀐다면 이 사이에 반영된다.
+    await act(async () => {})
+    expect(screen.getByTestId('ai-side-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('ai-fullscreen')).not.toBeInTheDocument()
+  })
+
+  // aiAvailable 게이트 — 비서가 없으면 셸이 AI 칩을 그리지 않는다(사이드·전체 화면도 마찬가지).
+  test('aiAvailable=false 이면 AI 칩이 그려지지 않는다', async () => {
+    renderPage('/', { user: createUser({ aiAvailable: false }) })
+    await screen.findByTestId('rail-link-/projects', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    expect(screen.queryByTestId('chat-launcher')).not.toBeInTheDocument()
+  })
 })

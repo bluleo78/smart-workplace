@@ -78,6 +78,7 @@ public final class TenantPurgePlan {
           PROJECT_VERSION, // issue_version 이 지워진 뒤(WP-888)
           ISSUE_FIELD_DEF,
           PROJECT_MEMBER,
+          PROJECT_FAVORITE, // 사용자별 프로젝트 즐겨찾기(WP-1001) — project 보다 먼저
           PROJECT_ISSUE_SEQUENCE,
           ISSUE_RELATION_TYPE, // 관계·외부 링크가 모두 지워진 뒤(type_id RESTRICT)
           ISSUE_TYPE_DEF,
@@ -115,6 +116,7 @@ public final class TenantPurgePlan {
           WIKI_PAGE_SHARE_EVENT,
           WIKI_PAGE_SHARE_MEMBER,
           WIKI_PAGE_SHARE,
+          WIKI_PAGE_SHARE_EXCLUSION, // 상위 공유 제외 표시(WP-987) — wiki_page 보다 먼저
           WIKI_REFERENCE,
           WIKI_PAGE_ATTACHMENT,
           WIKI_PAGE_BODY_HISTORY,

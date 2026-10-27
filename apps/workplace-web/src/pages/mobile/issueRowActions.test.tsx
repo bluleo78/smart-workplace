@@ -2,16 +2,18 @@
 // 시트에서 고른 상태·에픽의 요청 payload, 「선택」/「선택 해제」 라벨 토글, 선택 해제(✕) 뒤 탭 이동, 목록 행이 드래그 소스가 아님은
 // 브라우저 없이 판정되므로 e2e/pages/mobile/issue-row-actions.spec.ts 에서 옮겼다. 시트는 길게 누르기와 같은 시트를
 // 행의 ⋯ 로 연다 — 길게 누르기 입력 자체(@input)와 선택 바 기하(@layout)는 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 이슈 목록 화면(ProjectDetailPage)만 renderScreen 으로 띄운다 — 행을 눌러 가는 상세는 그리지 않고 이동 주소만 본다(WP-1002).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 mockViewport()
 
@@ -50,8 +52,8 @@ function issueApi() {
 /** 목록(group=none)을 열고 첫 행이 뜰 때까지 기다린다. */
 async function open() {
   const api = issueApi()
-  const page = renderPage(`/projects/${KEY}?group=none`, { handlers: api.handlers })
-  await screen.findByTestId('issue-row-21', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
+  await screen.findByTestId('issue-row-21')
   return { ...page, api }
 }
 
@@ -120,6 +122,6 @@ describe('모바일 선택 모드', () => {
     await waitFor(() => expect(screen.queryByTestId('issue-bulk-toolbar')).not.toBeInTheDocument())
     await user.click(within(screen.getByTestId('issue-row-22')).getByText(OTHER.title))
     // 상세 화면은 지연 로딩 — 라우터가 전환(transition)으로 모듈을 받은 뒤에야 주소가 바뀐다.
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues/22`), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues/22`))
   })
 })

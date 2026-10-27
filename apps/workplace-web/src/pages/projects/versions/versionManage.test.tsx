@@ -2,20 +2,28 @@
 // 출시 대화상자의 선택 → release 요청 본문(moveUnresolvedTo 유무), 멤버의 읽기 전용 화면은 브라우저 없이 판정되므로
 // e2e/pages/issue-versions.spec.ts 에서 옮겼다. 훅을 끊지 않고 MSW 로 실제 api → 훅 → 화면을 지난다
 // (훅을 vi.mock 한 분기 테스트는 VersionsPage.test.tsx·VersionReleaseDialog.test.tsx).
-import { act, screen, waitFor, within } from '@testing-library/react'
+// 버전 상세·목록 화면만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
-import { memberKeys } from '@/hooks/queries/useProjectMembers'
+import VersionDetailPage from '@/pages/projects/versions/VersionDetailPage'
+import VersionsPage from '@/pages/projects/versions/VersionsPage'
+import { atRoute } from '@/test/kits/projects/atRoute'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { settleMembers } from '@/test/msw/projectMetaHandlers'
 import { BASE, KEY, OWNER_MEMBERS, PLAIN_MEMBERS, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 
 import { createVersion } from '../../../../e2e/factories/version.factory'
 
 /** 버전 상세(1)를 열고 출시 대화상자를 띄운다 — 끝나지 않은 이슈 수가 와서 선택지가 보인 뒤를 돌려준다. */
 async function openRelease(opts: VersionApiOptions) {
   const api = versionApi({ count: { fix: 3, affects: 0, unresolvedFix: 2 }, ...opts })
-  const view = renderPage(`/projects/${KEY}/versions/1`, { handlers: api.handlers })
-  await view.user.click(await screen.findByTestId('version-release', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const view = renderScreen(atRoute('/projects/:key/versions/:versionId', <VersionDetailPage />), {
+    path: `/projects/${KEY}/versions/1`,
+    handlers: [...api.handlers, ...shellHandlers],
+  })
+  await view.user.click(await screen.findByTestId('version-release'))
   const dialog = await screen.findByTestId('version-release-dialog')
   expect(await within(dialog).findByTestId('version-release-unresolved')).toHaveTextContent('2건')
   return { ...view, api, dialog }
@@ -66,11 +74,12 @@ describe('버전 목록 — 관리 권한', () => {
   /** 같은 데이터로 목록을 열고 행이 그려지고 구성원 응답이 나간 뒤를 돌려준다 — 그 전의 「없음」 은 권한 판정 전이라 의미가 없다. */
   async function openList(members: VersionApiOptions['members']) {
     const api = versionApi({ versions: [createVersion({ id: 1, name: '1.0.0', releaseDate: '2026-12-01' })], members })
-    const view = renderPage(`/projects/${KEY}/versions`, { handlers: api.handlers })
-    expect(await screen.findByTestId('version-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('1.0.0')
-    // 구성원 응답이 캐시에 들어가고(권한 판정 입력) 그 결과로 다시 그려질 때까지 기다린다.
-    await waitFor(() => expect(view.queryClient.getQueryState(memberKeys.all(KEY))?.status).toBe('success'))
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    const view = renderScreen(atRoute('/projects/:key/versions', <VersionsPage />), {
+      path: `/projects/${KEY}/versions`,
+      handlers: [...api.handlers, ...shellHandlers],
+    })
+    expect(await screen.findByTestId('version-row-1')).toHaveTextContent('1.0.0')
+    await settleMembers(view)
     return view
   }
 

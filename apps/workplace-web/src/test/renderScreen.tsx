@@ -3,7 +3,7 @@
 // 거치지 않고(고정 AuthContext) 컴포넌트만 그려, 같은 단언이 절반 가까이 빨라진다(driveSpaceCreate: 11.7초 → 6.3초).
 // 데이터 훅은 끊지 않고 MSW 로 네트워크 계층에서 모킹한다 — 폼 → payload, 응답 → 화면, 이동 주소를 renderPage 와 같은 깊이로 본다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render } from '@testing-library/react'
+import { configure, render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RequestHandler } from 'msw'
 import { type ReactElement, useEffect } from 'react'
@@ -13,6 +13,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 
+import { PAGE_ASYNC_TIMEOUT } from './asyncTimeout'
 import { server } from './msw/server'
 import { testAuthValue } from './renderWithProviders'
 
@@ -37,6 +38,8 @@ function LocationProbe({ onChange }: { onChange: (location: string) => void }) {
  * 반환값의 user 는 userEvent 인스턴스, location() 은 지금 주소다. 모듈을 정적으로 불러오므로 첫 findBy* 에 긴 timeout 이 필요 없다.
  */
 export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth }: RenderScreenOptions = {}) {
+  // 화면 테스트도 renderPage 처럼 비동기 대기를 늘린다(WP-1006) — 되돌리기는 setup.ts afterEach.
+  configure({ asyncUtilTimeout: PAGE_ASYNC_TIMEOUT })
   server.use(...handlers)
   window.history.replaceState(null, '', path)
   const queryClient = new QueryClient({
@@ -59,3 +62,6 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
   )
   return { ...view, user: userEvent.setup(), queryClient, location: () => current }
 }
+
+/** renderScreen 이 돌려주는 userEvent 인스턴스 타입 — 테스트 안 도우미 함수의 인자 타입으로 쓴다. */
+export type ScreenUser = ReturnType<typeof renderScreen>['user']

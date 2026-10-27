@@ -3,14 +3,28 @@
 // 보관 버전은 필터의 「보관됨」 묶음에 놓이는 것은 조건부 렌더라 브라우저 없이 판정되므로 e2e/pages/issue-versions.spec.ts 에서 옮겼다.
 // 「없다」 단언은 데이터가 오기 전에도 참이라, 버전 응답이 나간 뒤 같은 화면의 양성 기준점을 확인하고 판정한다.
 // 숨김·노출은 같은 판정 함수(expectVersionVisibility)를 써서 숨김 단언이 선택자 오타로 거짓 통과하지 않게 한다.
+// 이슈 상세·프로젝트 목록·타임라인 화면을 각각 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import IssueDetailPage from '@/pages/projects/IssueDetailPage'
+import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
+import TimelinePage from '@/pages/projects/timeline/TimelinePage'
+import { atRoute } from '@/test/kits/projects/atRoute'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { BASE, KEY, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 
 import { createVersion, toVersionSummary } from '../../../e2e/factories/version.factory'
+
+/** 프로젝트 목록 화면만 띄운다 — 화면이 부르는 부가 조회는 shellHandlers 의 빈 기본값이 받는다. */
+const renderList = (api: ReturnType<typeof versionApi>) =>
+  renderScreen(atRoute('/projects/:key', <ProjectDetailPage />), {
+    path: `/projects/${KEY}?group=none`,
+    handlers: [...api.handlers, ...shellHandlers],
+  })
 
 /** 버전 응답이 실제로 나갔는지 기다린다 — 그 전의 「없음」 은 의미가 없다. */
 async function versionsServed(api: ReturnType<typeof versionApi>) {
@@ -20,8 +34,17 @@ async function versionsServed(api: ReturnType<typeof versionApi>) {
 /** 이슈 상세 — 수정·영향 버전 두 줄. 같은 속성 레일의 담당자 칸이 그려진 뒤에 본다. */
 async function expectDetailVisibility(opts: VersionApiOptions, shown: boolean) {
   const api = versionApi(opts)
-  const view = renderPage(`/projects/${KEY}/issues/1`, { handlers: api.handlers })
-  await screen.findByTestId('property-group-status-people', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  // 이슈 상세는 AI 패널 모드(useAssistant)를 읽는다 — AppLayout 과 같은 Provider 로 감싼다.
+  const detail = (
+    <AIAssistantProvider hotkeysEnabled={false}>
+      <IssueDetailPage />
+    </AIAssistantProvider>
+  )
+  const view = renderScreen(atRoute('/projects/:key/issues/:number', detail), {
+    path: `/projects/${KEY}/issues/1`,
+    handlers: [...api.handlers, ...shellHandlers],
+  })
+  await screen.findByTestId('property-group-status-people')
   await versionsServed(api)
   if (shown) {
     expect(await screen.findByTestId('issue-fix-versions-field')).toBeInTheDocument()
@@ -36,8 +59,8 @@ async function expectDetailVisibility(opts: VersionApiOptions, shown: boolean) {
 /** 목록 — 필터 후보·열 후보·머리 링크. 머리의 「버전」 링크는 버전이 없어도 늘 보인다(만들 곳이 있어야 한다). */
 async function expectListVisibility(opts: VersionApiOptions, shown: boolean) {
   const api = versionApi(opts)
-  const { user } = renderPage(`/projects/${KEY}?group=none`, { handlers: api.handlers })
-  await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = renderList(api)
+  await screen.findByTestId('issue-row-1')
   await versionsServed(api)
   expect(screen.getByRole('link', { name: '버전' })).toBeInTheDocument()
 
@@ -81,8 +104,8 @@ describe('버전 노출 — 이슈 상세·목록', () => {
       versions: [active, attachedArchived, otherArchived],
       issue: { fixVersions: [toVersionSummary(attachedArchived)], affectsVersions: [] },
     })
-    const { user } = renderPage(`/projects/${KEY}?group=none`, { handlers: api.handlers })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderList(api)
+    await screen.findByTestId('issue-row-1')
     await user.click(screen.getByTestId('add-filter-trigger'))
     await user.click(await screen.findByTestId('add-filter-facet-fixVersion'))
     await screen.findByTestId('facet-group-fixVersion-보관됨')
@@ -122,10 +145,11 @@ describe('버전 노출 — 타임라인 레인', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-07-08T03:00:00Z'))
     const api = versionApi({ ...opts, issue: { startDate: '2026-07-01', dueDate: '2026-07-14' } })
-    renderPage(`/projects/${KEY}/timeline?period=all`, {
-      handlers: [http.get(`${BASE}/issue-dependencies`, () => HttpResponse.json([])), ...api.handlers],
+    renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+      path: `/projects/${KEY}/timeline?period=all`,
+      handlers: [http.get(`${BASE}/issue-dependencies`, () => HttpResponse.json([])), ...api.handlers, ...shellHandlers],
     })
-    await screen.findByTestId('timeline-gantt', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('timeline-gantt')
     await versionsServed(api)
     return api
   }

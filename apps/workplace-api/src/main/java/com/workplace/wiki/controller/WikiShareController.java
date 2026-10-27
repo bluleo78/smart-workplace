@@ -60,6 +60,22 @@ public class WikiShareController {
     return ResponseEntity.noContent().build();
   }
 
+  /** 「이 페이지와 하위는 상위 공유에서 제외」 켜기(204, 멱등, WP-987). */
+  @PutMapping("/exclusion")
+  public ResponseEntity<Void> exclude(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
+    shareService.setExcluded(callerId, pageId, true);
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 상위 공유 제외 풀기(204, 멱등, WP-987) — 상위 공유 창의 「제외 풀기」도 이것을 부른다(하위 페이지 id 로). */
+  @DeleteMapping("/exclusion")
+  public ResponseEntity<Void> include(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
+    shareService.setExcluded(callerId, pageId, false);
+    return ResponseEntity.noContent().build();
+  }
+
   /** 공유 기록(최신순 200건). */
   @GetMapping("/events")
   public ResponseEntity<List<WikiShareEventResponse>> events(

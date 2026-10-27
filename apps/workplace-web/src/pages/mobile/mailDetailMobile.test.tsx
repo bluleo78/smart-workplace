@@ -2,12 +2,13 @@
 // AI 요약 접힘·펼침과 「AI 요약 보기」, 수신자 한 줄 요약·펼침, 조회 중·실패·다시 시도, ⋯ 메뉴 항목(안 읽음·AI 이슈·삭제)과 그 요청,
 // 하단 바 버튼 구성(AI 사용 여부)과 답장·전체답장·전달·AI 답장이 채우는 작성 화면은 브라우저 없이 판정되므로
 // e2e/pages/mobile/mail-detail-mobile.spec.ts 에서 옮겼다. 스크롤 제목 페이드·스크롤 초기화·하단 바·첨부 칩 기하·다크 원본 배경(@layout)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 메일 모듈과 작성 도크만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { chatHandlers } from '@/test/kits/mobile/chatHistory'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileMail } from '@/test/kits/mobile/mobileMail'
 import { mockViewport } from '@/test/viewport'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
@@ -87,13 +88,13 @@ function mailApi(opts: Opts = {}) {
 async function openMail(id: number, opts: Opts = {}) {
   const api = mailApi(opts)
   // 상세 ‹·안 읽음은 히스토리로 닫는다 — 실제 세션 히스토리(BrowserRouter)로 띄운다.
-  const page = renderPage('/mail/1', { handlers: api.handlers })
-  await page.user.click(await screen.findByTestId(`mail-row-${id}`, {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const page = renderMobileMail('/mail/1', { handlers: api.handlers })
+  await page.user.click(await screen.findByTestId(`mail-row-${id}`))
   return { ...page, api }
 }
 
 /** 상세 헤더 ‹ 로 목록에 돌아가 다른 메일을 연다. */
-async function reopen(user: ReturnType<typeof renderPage>['user'], id: number) {
+async function reopen(user: ReturnType<typeof renderMobileMail>['user'], id: number) {
   await user.click(within(screen.getByTestId('mail-back')).getByTestId('mobile-back'))
   // ‹ 는 history.back — popstate 가 와서 상세가 닫힌 뒤에 목록을 누른다(목록은 상세 뒤에 늘 그려져 있다).
   await waitFor(() => expect(screen.queryByTestId('mail-back')).not.toBeInTheDocument())

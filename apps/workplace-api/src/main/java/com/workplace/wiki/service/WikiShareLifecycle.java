@@ -150,13 +150,22 @@ public class WikiShareLifecycle {
         "MEMBERSHIP");
   }
 
-  /** 부모(포함)의 조상 체인에 걸린 하위 포함 공유의 루트 페이지. 최상위(부모 없음)면 비어 있다. */
+  /**
+   * 부모(포함)를 지금 덮는 하위 포함 공유의 루트 페이지 — 부모 자신의 공유이거나, 부모까지 상속이 멈추지 않는(제외 표시·따로 켠 공유가 없는) 조상의
+   * 공유다(WP-987, {@link WikiShareRepository#isCoveredBy}). 조상 체인에 걸렸어도 중간에서 멈춘 공유는 이 부모 아래로 옮긴 페이지를
+   * 덮지 않는다. 최상위(부모 없음)면 비어 있다.
+   */
   private Set<Long> includingRootsAbove(Long parentId) {
     if (parentId == null) {
       return Set.of();
     }
-    return new LinkedHashSet<>(
-        shares.findIncludingChildrenRoots(pages.ancestorIdsInclusive(parentId)));
+    Set<Long> roots = new LinkedHashSet<>();
+    for (long root : shares.findIncludingChildrenRoots(pages.ancestorIdsInclusive(parentId))) {
+      if (root == parentId || shares.isCoveredBy(root, parentId)) {
+        roots.add(root);
+      }
+    }
+    return roots;
   }
 
   /** 공유 루트 페이지의 기록에 이동 한 줄 — detail 에 옮긴 페이지 id·제목을 함께 싣는다(웹은 text 를 보인다). */

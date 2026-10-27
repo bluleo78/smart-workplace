@@ -2,19 +2,35 @@
 // ⋮ 시트의 공유·삭제·이름 변경 요청, 원본 유실·보관된 공간의 비활성 판정, 선택 모드 밖 행 탭의 미리보기 주소는
 // 브라우저 없이 판정되므로 e2e/pages/mobile/drive-row-actions.spec.ts 에서 옮겼다.
 // 길게 누르기·선택 범위·포커스(@input), 다운로드·업로드 진행(@platform), ⋮ 위치·하단 바 위치(@layout)는 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 드라이브 모듈 레이아웃과 공간 화면만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
+import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { DriveModuleLayout } from '@/components/drive/DriveModuleLayout'
+import { renderMobileScreen } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { createFile, createFolder, createSpace, personalSpace } from '../../../e2e/factories/drive.factory'
+import { DrivePage } from '../drive/DrivePage'
 
-// 모바일(iPhone 13·터치) — 파일 안 첫 renderPage 전에 한 번.
+// 모바일(iPhone 13·터치) — 파일 안 첫 렌더 전에 한 번.
 mockViewport()
 
 const SPACE_ID = 1
+
+/** 드라이브 공간 화면을 모듈 레이아웃과 함께 띄운다. */
+function renderDrive(handlers: RequestHandler[]) {
+  return renderMobileScreen(
+    <Routes>
+      <Route element={<DriveModuleLayout />}>
+        <Route path="/drive/spaces/:spaceId" element={<DrivePage />} />
+      </Route>
+    </Routes>,
+    { path: `/drive/spaces/${SPACE_ID}`, handlers },
+  )
+}
 const LONG_FILE = '2026_하반기_스마트워크플레이스_도입제안서_최종_검토반영_v3_고객사송부본.pdf'
 const FOLDER = createFolder({ id: 10, name: '고객사별 견적 및 계약 검토 자료' })
 const FILE = createFile({ id: 70, name: LONG_FILE, mimeType: 'application/pdf', category: 'PDF', sizeBytes: 4_400_000 })
@@ -54,8 +70,8 @@ function driveApi({ archived = false } = {}) {
 /** 공간을 열고 파일 행이 뜰 때까지 기다린다. */
 async function open(opts: { archived?: boolean } = {}) {
   const api = driveApi(opts)
-  const page = renderPage(`/drive/spaces/${SPACE_ID}`, { handlers: api.handlers })
-  await screen.findByTestId('drive-row-file-70', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const page = renderDrive(api.handlers)
+  await screen.findByTestId('drive-row-file-70')
   return { ...page, api }
 }
 

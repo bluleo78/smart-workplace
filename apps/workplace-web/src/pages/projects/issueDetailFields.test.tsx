@@ -2,13 +2,15 @@
 // 피커 선택 → PATCH/PUT/POST payload, 응답 → 화면 반영, 실패 토스트, 조건부 렌더(비활성 구성원·AGENT 배지·완료 에픽 안내)는
 // 브라우저 없이 판정되므로 e2e/pages/projects/{assignees,watch,issue-start-date-milestone,epic-hierarchy,projects,issue-list}.spec.ts 에서 옮겼다.
 // 긴 이름 한 줄(@layout)·키보드 구독 뒤 포커스 유지(@input)는 E2E 에 남는다.
+// 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { API, type Call, projectScreen, toCall } from '@/test/kits/projects/projectScreens'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueDetailResponse, IssueResponse } from '@/types/issue'
 import type { MilestoneResponse } from '@/types/milestone'
 import type { UserSummary } from '@/types/user'
@@ -36,7 +38,7 @@ async function openDetail(
 ) {
   const ref = { current: detail }
   const calls: Call[] = []
-  const view = renderPage(`/projects/${KEY}/issues/1`, {
+  const view = renderIssueDetailScreen(`/projects/${KEY}/issues/1`, {
     handlers: [
       ...extra,
       http.get(`${API}/projects/${KEY}/members`, () => HttpResponse.json(members)),
@@ -45,7 +47,7 @@ async function openDetail(
       ...projectScreen(KEY, { search }).handlers,
     ],
   })
-  await screen.findByTestId('issue-title-heading', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('issue-title-heading', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...view, ref, calls }
 }
 

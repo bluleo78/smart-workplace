@@ -1,4 +1,4 @@
-// 개인 그룹 생성/편집 다이얼로그 + 멤버 통합 검색 피커.
+// 그룹 생성/편집 다이얼로그(개인 그룹·조직도 공유) + 멤버 통합 검색 피커.
 import { zodResolver } from '@hookform/resolvers/zod'
 import axios from 'axios'
 import { useEffect, useState } from 'react'

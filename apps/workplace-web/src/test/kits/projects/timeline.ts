@@ -10,7 +10,7 @@ import type { MilestoneResponse } from '@/types/milestone'
 import type { MemberResponse } from '@/types/project'
 
 import { createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
-import { createProject } from '../../../../e2e/factories/project.factory'
+import { createMember, createProject } from '../../../../e2e/factories/project.factory'
 
 export const KEY = 'WP'
 export const API = `/api/v1/projects/${KEY}`
@@ -71,7 +71,8 @@ export function timelineApi(opts: TimelineApiOptions = {}) {
   const searches: URL[] = []
   const handlers: RequestHandler[] = [
     http.get(API, () => HttpResponse.json(createProject({ key: KEY, viewerIsMember: opts.viewerIsMember ?? true }))),
-    http.get(`${API}/members`, () => HttpResponse.json(opts.members ?? [])),
+    // 마일스톤 관리는 프로젝트 OWNER 만(WP-1008) — 멤버로 보는 기본 시나리오는 로그인 사용자(id 1)를 OWNER 로 둔다.
+    http.get(`${API}/members`, () => HttpResponse.json(opts.members ?? ((opts.viewerIsMember ?? true) ? [createMember({ userId: 1, role: 'OWNER' })] : []))),
     http.get(`${API}/issues`, ({ request }) => {
       searches.push(new URL(request.url))
       return HttpResponse.json(createIssueSearchResponse(opts.issues ?? []))

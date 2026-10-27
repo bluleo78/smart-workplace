@@ -1,4 +1,6 @@
-// 프로젝트 만들기 대화상자 유효성 검사(#177·WP-465·WP-466·WP-692) — 페이지 테스트(WP-971).
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
+// 프로젝트 만들기 대화상자 유효성 검사(#177·WP-465·WP-466·WP-692) — 화면 테스트(WP-971, WP-1002 에서 대화상자만 띄우게 바꿈).
 // 한국어 오류 문구·공백 이름 차단·aria-invalid/aria-describedby 연결·409 를 key 칸 오류로 보이기는
 // 브라우저 없이 판정되므로 e2e/pages/projects/project-create-validation.spec.ts 에서 옮겼다(그 spec 은 지웠다).
 // 프로젝트 목록 화면 배선은 e2e/pages/projects/project-list.spec.ts 의 @wiring 이 지킨다.
@@ -6,25 +8,39 @@
 // e2e/pages/dialog-state-reset.spec.ts · dialog-password-manager.spec.ts 에서 옮겼다(WP-982).
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { useState } from 'react'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { Button } from '@/components/ui/button'
+import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
+import { renderScreen } from '@/test/renderScreen'
 
 import { createProject } from '../../../e2e/factories/project.factory'
 import { createPageResponse } from '../../../e2e/fixtures/api-mock'
 
-/** 목록을 열고 「+ 새 프로젝트」 대화상자를 띄운다. POST 는 테스트가 준다(없으면 테스트 실패 — 요청이 나가면 안 되는 테스트). */
+/** 프로젝트 목록의 「+ 새 프로젝트」 버튼과 대화상자만 둔 자리 — 목록 화면과 같이 버튼이 open 을 켜고 대화상자가 끈다. */
+function CreateDialogHost() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>+ 새 프로젝트</Button>
+      <ProjectCreateDialog open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
+/** 「+ 새 프로젝트」 대화상자를 띄운다. POST 는 테스트가 준다(없으면 테스트 실패 — 요청이 나가면 안 되는 테스트). */
 async function openCreateDialog(post?: Parameters<typeof http.post>[1]) {
   const handlers = [http.get('/api/v1/projects', () => HttpResponse.json(createPageResponse([createProject()])))]
   if (post) handlers.push(http.post('/api/v1/projects', post))
-  const view = renderPage('/projects', { handlers })
-  await view.user.click(await screen.findByRole('button', { name: '+ 새 프로젝트' }, { timeout: PAGE_LOAD_TIMEOUT }))
+  const view = renderScreen(<CreateDialogHost />, { path: '/projects', handlers })
+  await view.user.click(await screen.findByRole('button', { name: '+ 새 프로젝트' }))
   await screen.findByRole('dialog', { name: '새 프로젝트' })
   return view
 }
 
 /** 입력칸 값 채우기 — 글자 하나하나는 의미가 없어 붙여넣기로 채운다. 필수 칸 라벨 끝의 별표 때문에 라벨은 앞부분으로 찾는다. */
-async function fill(user: ReturnType<typeof renderPage>['user'], label: RegExp, value: string) {
+async function fill(user: ReturnType<typeof renderScreen>['user'], label: RegExp, value: string) {
   const input = screen.getByLabelText(label)
   await user.clear(input)
   await user.click(input)

@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 스페이스 「공유 중인 페이지」 목록(WP-579) — 줄 요약·페이지 열기, 링크 복사(토큰이 있을 때만).
 // 서버는 EDITOR 미만 호출자에게 token 을 null 로 준다 — 그때는 복사 버튼을 두지 않는다. 목록 열기 배선은 E2E(wiki-share-owner).
 import { screen, within } from '@testing-library/react'

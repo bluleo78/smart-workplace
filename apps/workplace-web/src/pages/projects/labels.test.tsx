@@ -1,17 +1,23 @@
-// 라벨 — 페이지 테스트(WP-971, WP-980).
+// 라벨 — 화면 테스트(WP-971, WP-980, WP-1002 에서 라벨 섹션·필터 바만 띄우게 바꿈).
 // 설정 화면의 라벨 권한(WP-394)·편집(#160, WP-660)·삭제와 영향 안내(#148, WP-488)·행 hover 클래스(#308)·헤더 복귀(#667),
 // 목록 화면의 라벨 필터 칩(AND 표기 #626, 삭제된 라벨 #609)은 브라우저 없이 판정되므로 e2e/pages/projects/labels.spec.ts 에서 옮겼다.
 // 설정에서 만든 라벨을 목록 필터에 적용하는 여러 화면 흐름(@flow)은 E2E 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
+import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { IssueFilterBar } from '@/pages/projects/components/IssueFilterBar'
+import { LabelManagement } from '@/pages/projects/components/LabelManagement'
+import ProjectSettingsPage from '@/pages/projects/ProjectSettingsPage'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { renderScreen } from '@/test/renderScreen'
 import type { ColorToken, LabelResponse } from '@/types/label'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createLabel } from '../../../e2e/factories/label.factory'
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
+import { seedStatuses } from '../../../e2e/factories/projectStatus.factory'
 
 const API = '/api/v1/projects/WP'
 type Call = { method: string; path: string; body: unknown }
@@ -57,6 +63,30 @@ function listApi(labels: LabelResponse[]) {
   ]
 }
 
+/**
+ * 설정 화면의 「라벨」 섹션(LabelManagement)만 띄운다 — 설정 화면이 주는 것과 같은 props:
+ * 멤버면 추가 가능(canCreate), OWNER 여부는 role 로. 수정·삭제 버튼은 라벨의 viewerCanManage 가 정한다.
+ */
+function renderLabels(api: ReturnType<typeof settingsApi>, role: 'OWNER' | 'MEMBER' = 'OWNER') {
+  return renderScreen(<LabelManagement projectKey="WP" canCreate isOwner={role === 'OWNER'} />, {
+    path: '/projects/WP/settings',
+    handlers: api.handlers,
+  })
+}
+
+/** 목록 화면의 필터 바(IssueFilterBar)만 띄운다 — 칩·facet 은 URL 을 읽고 쓴다. */
+function renderFilterBar(path: string, labels: LabelResponse[]) {
+  return renderScreen(<IssueFilterBar projectKey="WP" />, {
+    path,
+    handlers: [
+      ...listApi(labels),
+      // facet 후보 조회 — 이 테스트에선 라벨만 있고 나머지는 비어 있다(상태는 시드).
+      http.get(`${API}/statuses`, () => HttpResponse.json(seedStatuses())),
+      ...['members', 'types', 'cycles', 'components', 'versions'].map((sub) => http.get(`${API}/${sub}`, () => HttpResponse.json([]))),
+    ],
+  })
+}
+
 describe('라벨 — 설정 화면', () => {
   // WP-394 — 일반 멤버도 라벨을 추가하고(GRAY 기본), 수정·삭제 버튼은 viewerCanManage 라벨에만 보인다.
   test('멤버도 추가하고, 수정·삭제는 손댈 수 있는 라벨에만 보인다', async () => {
@@ -65,8 +95,8 @@ describe('라벨 — 설정 화면', () => {
       createLabel({ id: 2, name: '내라벨', colorToken: 'BLUE', viewerCanManage: true }),
     ]
     const api = settingsApi(labels, 'MEMBER')
-    const { user } = renderPage('/projects/WP/settings', { handlers: api.handlers })
-    const form = await screen.findByTestId('label-create-form', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderLabels(api, 'MEMBER')
+    const form = await screen.findByTestId('label-create-form')
     expect(await screen.findByTestId('label-row-1')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '남의라벨 편집' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '남의라벨 삭제' })).not.toBeInTheDocument()
@@ -94,8 +124,8 @@ describe('라벨 — 설정 화면', () => {
         return HttpResponse.json(label)
       }),
     ])
-    const { user } = renderPage('/projects/WP/settings', { handlers: api.handlers })
-    const row = await screen.findByTestId(`label-row-${label.id}`, {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderLabels(api)
+    const row = await screen.findByTestId(`label-row-${label.id}`)
     await user.click(within(row).getByRole('button', { name: '원래이름 편집' }))
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toHaveTextContent('라벨 편집')
@@ -132,8 +162,8 @@ describe('라벨 — 설정 화면', () => {
         return new HttpResponse(null, { status: 204 })
       }),
     ])
-    const { user } = renderPage('/projects/WP/settings', { handlers: api.handlers })
-    const row = await screen.findByTestId(`label-row-${label.id}`, {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderLabels(api)
+    const row = await screen.findByTestId(`label-row-${label.id}`)
     await user.click(within(row).getByRole('button', { name: '삭제대상 삭제' }))
     const alert = await screen.findByRole('alertdialog')
     expect(await within(alert).findByTestId('delete-impact')).toHaveTextContent('이 라벨이 붙은 이슈 3개에서 라벨이 빠집니다.')
@@ -153,8 +183,8 @@ describe('라벨 — 설정 화면', () => {
         return HttpResponse.json({ count: 0 })
       }),
     ])
-    const { user } = renderPage('/projects/WP/settings', { handlers: api.handlers })
-    const row = await screen.findByTestId(`label-row-${label.id}`, {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderLabels(api)
+    const row = await screen.findByTestId(`label-row-${label.id}`)
     await user.click(within(row).getByRole('button', { name: '빈라벨 삭제' }))
     expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
     await waitFor(() => expect(counted).toBeGreaterThan(0))
@@ -164,19 +194,24 @@ describe('라벨 — 설정 화면', () => {
   // #308 — 라벨 행은 클릭 가능 행의 hover 피드백 클래스를 갖는다.
   test('라벨 행에 hover 스타일 클래스가 붙는다', async () => {
     const label = createLabel({ name: 'hover-test', colorToken: 'BLUE' })
-    renderPage('/projects/WP/settings', { handlers: settingsApi([label]).handlers })
-    const row = await screen.findByTestId(`label-row-${label.id}`, {}, { timeout: PAGE_LOAD_TIMEOUT })
+    renderLabels(settingsApi([label]))
+    const row = await screen.findByTestId(`label-row-${label.id}`)
     expect(row).toHaveClass('hover:bg-accent/50', 'transition-colors')
   })
 
   // #667 — 설정 화면 헤더에 프로젝트 키와 「프로젝트로 돌아가기」, 누르면 프로젝트 홈.
   test('헤더의 프로젝트 복귀 버튼', async () => {
-    const { user, location } = renderPage('/projects/WP/settings', { handlers: [...settingsApi([]).handlers, ...listApi([])] })
-    const header = await screen.findByTestId('page-header', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    // 헤더는 설정 화면(ProjectSettingsPage) 것이라 화면 전체를 띄운다. 섹션들이 부르는 부가 조회는 셸 기본값이 받는다.
+    const { user, location } = renderScreen(
+      <Routes>
+        <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
+      </Routes>,
+      { path: '/projects/WP/settings', handlers: [...settingsApi([]).handlers, ...shellHandlers] },
+    )
+    const header = await screen.findByTestId('page-header')
     await waitFor(() => expect(header).toHaveTextContent('WP'))
     await user.click(within(header).getByRole('button', { name: '프로젝트로 돌아가기' }))
-    // 이동은 전환(startTransition)이라 프로젝트 화면 모듈을 처음 불러올 때까지 주소가 바뀌지 않는다 — 첫 화면 대기 시간을 준다.
-    await waitFor(() => expect(location()).toBe('/projects/WP'), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe('/projects/WP'))
   })
 })
 
@@ -185,8 +220,7 @@ describe('라벨 — 목록 필터 칩', () => {
   test('라벨 2개 이상이면 AND(모두 포함) 표기', async () => {
     const a = createLabel({ name: '라벨A', colorToken: 'RED' })
     const b = createLabel({ name: '라벨B', colorToken: 'BLUE' })
-    const { user, location } = renderPage('/projects/WP', { handlers: listApi([a, b]) })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user, location } = renderFilterBar('/projects/WP', [a, b])
     await user.click(screen.getByTestId('add-filter-trigger'))
     await user.click(await screen.findByTestId('add-filter-facet-label'))
     expect(await screen.findByTestId('facet-value-label-and-hint')).toHaveTextContent('모두 가진')
@@ -207,8 +241,11 @@ describe('라벨 — 목록 필터 칩', () => {
 
   // #609 — 지워진 라벨 id 를 가리키는 URL 필터는 원시 id 대신 「알 수 없음」.
   test('삭제된 라벨을 가리키는 필터는 플레이스홀더를 보인다', async () => {
-    renderPage('/projects/WP?label=99999', { handlers: listApi([]) })
-    const chip = await screen.findByTestId('filter-chip-label', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderFilterBar('/projects/WP?label=99999', [createLabel({ id: 7, name: '남은라벨' })])
+    const chip = await screen.findByTestId('filter-chip-label')
+    // 칩을 열어 라벨 목록이 들어온 뒤에 본다 — 목록이 오기 전에는 어떤 값이든 플레이스홀더라 판정이 비어 버린다.
+    await user.click(within(chip).getAllByRole('button')[0])
+    expect(await screen.findByText('남은라벨')).toBeInTheDocument()
     expect(chip).toHaveTextContent('알 수 없음')
     expect(chip).not.toHaveTextContent('99999')
   })

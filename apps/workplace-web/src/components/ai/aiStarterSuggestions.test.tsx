@@ -3,15 +3,19 @@
 // enabled:false·응답 대기 중 전송·이력 읽는 중 숨김·동시 답변 상한 비활성은 브라우저 없이 판정되므로 e2e/pages/ai-starter-suggestions.spec.ts 에서,
 // 채팅 시작 요청의 space(프로젝트 키·화면 정보 제외 시에도 유지·공간 없는 화면엔 없음)는 e2e/pages/ai-shared-memory-space.spec.ts 에서 옮겼다.
 // E2E 에 남은 것: 호버·키보드 포커스로 교체를 미루는 것(@input), 줄바꿈·가운데 배치·safe center(@layout).
-// AI 패널은 앱 셸이 SSE 구독과 함께 띄우므로 renderPage 로 연다(testkit-b2a).
+// AI 패널은 앱 셸의 AI 조립(SSE 구독·칩·옆 패널)만 renderScreen 으로 띄운다(test/kits/ai/c-aiShell, WP-1002) — 앱 레일·인증 부팅은 건너뛴다.
+// 본문에는 원래 화면(프로젝트 목록·이슈 상세)을 그대로 두어 화면 참고·공간 판정이 같은 화면 컨텍스트를 지난다.
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { RequestHandler } from 'msw'
 import { beforeEach, describe, expect, test } from 'vitest'
 
 import { chatStreams } from '@/lib/ai/chatStreams'
 import { clearStarterStorage, STARTER_STORAGE_PREFIX } from '@/lib/ai/starterStorage'
+import IssueDetailPage from '@/pages/projects/IssueDetailPage'
+import ProjectListPage from '@/pages/projects/ProjectListPage'
+import { openAiPanel } from '@/test/kits/ai/aiShell'
+import { atRoute } from '@/test/kits/projects/atRoute'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import {
@@ -21,7 +25,6 @@ import {
   homeChatGeneration,
   liveChat,
   msg,
-  openChatPanel,
   openSession,
   sendButton,
   settle,
@@ -49,13 +52,15 @@ const issueHandlers = () =>
     detail: createIssueDetail({ summary: createIssue({ number: 12, title: '로그인 버그 수정', status: 'IN_PROGRESS', priority: 'HIGH' }) }),
   })
 
+/** 프로젝트 목록(/projects, 공간 없는 화면)을 띄우고 AI 패널을 연다. */
+const openChatPanel = (handlers: RequestHandler[]) => openAiPanel(handlers, { path: '/projects', page: <ProjectListPage /> })
+
 /** 이슈 상세를 열고 AI 패널을 연다. */
-async function openOnIssue(handlers: RequestHandler[]) {
-  const view = renderPage(ISSUE_PATH, { handlers: [...handlers, ...issueHandlers()] })
-  await view.user.click(await screen.findByTestId('chat-launcher', {}, { timeout: PAGE_LOAD_TIMEOUT }))
-  await screen.findByTestId('chat-panel')
-  return view
-}
+const openOnIssue = (handlers: RequestHandler[]) =>
+  openAiPanel([...handlers, ...issueHandlers()], {
+    path: ISSUE_PATH,
+    page: atRoute('/projects/:key/issues/:number', <IssueDetailPage />),
+  })
 
 /**
  * 새로고침 흉내 — 화면을 내리고 모듈 전역 저장소(채팅 스트림·추천 앞단 메모리)를 비운 뒤 localStorage 는 그대로 둔다.

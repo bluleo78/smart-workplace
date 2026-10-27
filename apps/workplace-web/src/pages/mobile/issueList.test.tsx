@@ -1,11 +1,12 @@
 // 모바일 이슈 목록 — 툴바 시트(그룹·필터·뷰·에픽)와 행 메타 규칙의 페이지 테스트(WP-981).
 // 시트에서 고른 값이 URL(쿼리)·칩 라벨·저장 뷰 payload 로 가는지, 권한별로 버튼이 보이는지는 브라우저 없이 판정되므로
 // e2e/pages/mobile/issue-list.spec.ts 에서 옮겼다. 폭·줄 수·터치 크기(@layout)·검색창 포커스(@input)·히스토리 표식(@platform)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 이슈 목록 화면(ProjectDetailPage)만 renderScreen 으로 띄운다 — 행을 눌러 가는 상세는 그리지 않고 이동 주소만 본다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 
@@ -13,8 +14,9 @@ import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/i
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { serverEpicFilter } from '../../../e2e/fixtures/epic-search'
+import ProjectDetailPage from '../projects/ProjectDetailPage'
 
-// 이 파일은 iPhone 13 폭·터치 포인터 — matchMedia 결과가 파일 안에서 캐시되므로 첫 renderPage 전에 한 번 부른다.
+// 이 파일은 iPhone 13 폭·터치 포인터 — matchMedia 결과가 파일 안에서 캐시되므로 첫 렌더 전에 한 번 부른다.
 mockViewport()
 
 const KEY = 'WP'
@@ -103,8 +105,8 @@ function issueApi(opts: MockOpts = {}) {
 /** 목록을 열고 첫 행이 뜰 때까지 기다린다. */
 async function open(query = 'group=none', opts: MockOpts = {}) {
   const api = issueApi(opts)
-  const page = renderPage(`/projects/${KEY}${query ? `?${query}` : ''}`, { handlers: api.handlers })
-  await screen.findByTestId('mobile-issue-toolbar', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}${query ? `?${query}` : ''}`, handlers: api.handlers })
+  await screen.findByTestId('mobile-issue-toolbar')
   return { ...page, api }
 }
 
@@ -331,7 +333,7 @@ describe('모바일 이슈 목록 — 저장 뷰 쓰기', () => {
   })
 
   /** 필터 시트에서 상태 「진행 중」을 더해 저장 뷰와 다른(dirty) 조건을 만든다. */
-  async function addInProgressFilter(user: ReturnType<typeof renderPage>['user'], location: () => string) {
+  async function addInProgressFilter(user: ReturnType<typeof renderMobileRoute>['user'], location: () => string) {
     await user.click(screen.getByTestId('mobile-chip-filter'))
     const sheet = await screen.findByTestId('mobile-filter-sheet')
     await user.click(within(sheet).getByTestId('add-filter-trigger'))

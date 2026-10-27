@@ -7,7 +7,8 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { openIssueDetail, recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 import { expectSubtaskBadges, subtaskBadgeChildren, TASK_SUMMARY } from '@/test/kits/projects/subtasks'
 
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'

@@ -236,6 +236,8 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
   // 화면이 아는 역할로 정한 편집 가능 여부(= /ai 사용 가능) — 실제 편집 가능 여부는 아래 동기화 세션이 최종 판정한다.
   const roleCanEdit = role != null && isEditRole(role)
   // 공유 창을 둘 수 있는 사람(WP-579) — 스페이스 EDITOR 이상만. VIEWER 는 서버가 공유 설정·기록을 403 으로 막으므로 버튼도 조회도 없다.
+  const spaceName = share ? undefined : spaces?.find((s) => s.id === spaceId)?.name
+  const spaceCrumb = spaceName != null ? { name: spaceName, to: `/wiki/spaces/${spaceId}` } : undefined
   const canShare = canManageShare(spaces?.find((s) => s.id === spaceId)?.role, share != null)
   // 주소의 ?share=1 표시를 지운다(기록을 남기지 않게 replace) — 창을 못 여는 사람이 들어왔거나 창을 닫을 때.
   const clearShareParam = useCallback(() => {
@@ -987,7 +989,9 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         aiState={previewing ? 'previewing' : aiState}
         aiBusy={aiBusy}
         aiAttributed={page.aiLastUsedAt != null}
-        onNavigate={(id) => navigate(pagePath(id))}
+        pagePath={pagePath}
+        // 경로 시작점 = 공간(§B-1, WP-979). 공유 링크 화면은 공간을 모르므로 공유한 맨 위 페이지부터 보인다.
+        spaceCrumb={spaceCrumb}
         onAiAction={onHeaderAiAction}
         onDelete={() => setConfirmDelete(true)}
         // 읽기 전용(VIEWER·서버가 강등)이면 삭제 항목을 감춘다(WP-602) — 편집 게이트와 같은 readOnly 를 따른다.

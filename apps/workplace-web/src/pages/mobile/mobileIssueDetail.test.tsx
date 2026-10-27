@@ -2,11 +2,12 @@
 // 속성 칩의 문구·접근 이름·조건부 렌더, 칩 시트에서 고른 값의 PATCH/PUT payload, ＋ 속성 시트 구성·권한 안내,
 // 제목·본문 편집 바의 저장/취소 요청 횟수는 브라우저 없이 판정되므로 e2e/pages/mobile/issue-detail.spec.ts 에서 옮겼다.
 // 칩 줄 위치·넘침·말줄임·팝오버 위치·키보드 위 하단 바(@layout), 포커스 유지·IME·파일 선택(@input)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 이슈 상세 화면만 renderScreen 으로 띄운다(WP-1002).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueDetailResponse, IssueResponse } from '@/types/issue'
 
@@ -15,6 +16,7 @@ import { createIssue, createIssueDetail, createIssueSearchResponse } from '../..
 import { makeEpicType, makeSubtaskType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { statusFieldsOf } from '../../../e2e/factories/projectStatus.factory'
+import IssueDetailPage from '../projects/IssueDetailPage'
 
 // 휴대폰 폭·터치 포인터 — 모바일 상세(칩 줄·시트)로 그려지게 한다. 파일 안 첫 렌더 전에 한 번.
 mockViewport()
@@ -38,7 +40,7 @@ type Opts = {
   detailOver?: Partial<IssueDetailResponse>
   /** 에픽 목록(부모 필터 없는 검색) 응답 — 지연·교체용. */
   epicList?: () => Promise<IssueResponse[]> | IssueResponse[]
-  extra?: Parameters<typeof renderPage>[1] extends infer O ? (O extends { handlers?: infer H } ? H : never) : never
+  extra?: RequestHandler[]
 }
 
 /**
@@ -102,8 +104,8 @@ function detailApi({ over = {}, detailOver = {}, epicList, extra = [] }: Opts = 
 /** 상세를 열고 제목이 뜰 때까지 기다린다. */
 async function open(opts: Opts = {}) {
   const api = detailApi(opts)
-  const view = renderPage(`/projects/${KEY}/issues/7`, { handlers: api.handlers })
-  await screen.findByTestId('issue-title-heading', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, { path: `/projects/${KEY}/issues/7`, handlers: api.handlers })
+  await screen.findByTestId('issue-title-heading')
   await screen.findByTestId('mobile-prop-chips')
   const patches = () => api.calls.filter((c) => c.method === 'PATCH')
   return { ...view, calls: api.calls, patches }

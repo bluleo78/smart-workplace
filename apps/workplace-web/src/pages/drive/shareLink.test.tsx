@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 드라이브 공유 링크 — 공유 창(ShareLinkModal)과 공개 받기 화면(/s/:token, ShareLinkPage) 화면 컴포넌트 테스트(WP-971, WP-984).
 // 생성 payload·랜딩 URL·폐기 반영, 닫기/취소 라벨, 만료일·비밀번호 유효성(요청 차단), 만료일 표시 형식,
 // 받기 화면의 비밀번호 인코딩 헤더·401/410 안내·홈 링크는 브라우저 없이 판정되므로 e2e/pages/drive/drive-share-link.spec.ts 에서 옮겼다.

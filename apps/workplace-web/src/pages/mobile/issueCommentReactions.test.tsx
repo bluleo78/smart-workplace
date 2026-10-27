@@ -1,11 +1,12 @@
 // 이슈 코멘트 이모지 반응 — 모바일·터치(WP-504) — 페이지 테스트(WP-981).
 // ＋ → 하단 시트(빠른 6종·더보기 40종) → 반응 추가 payload·칩 반영, 작성 권한이 없으면 ＋ 가 없다는 것은 요청·조건부 렌더라
 // e2e/pages/mobile/issue-comment-reactions.spec.ts 에서 옮겼다. ＋ 상시 노출(불투명도·높이)·포커스 복귀·길게 누르기·칩 줄바꿈은 그 E2E 가 지킨다.
+// 앱 셸을 보지 않으므로 이슈 상세 화면만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueCommentResponse, IssueDetailResponse } from '@/types/issue'
 
@@ -13,6 +14,7 @@ import { createChatThread } from '../../../e2e/factories/chat.factory'
 import { createComment, createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import IssueDetailPage from '../projects/IssueDetailPage'
 
 mockViewport()
 
@@ -65,8 +67,8 @@ const other = (over: Partial<IssueCommentResponse> = {}) =>
 
 test('＋ 를 누르면 팝오버가 아닌 하단 시트(빠른 6종)가 열리고, 고른 반응이 POST {emoji} 로 나가 칩이 켜진다 — 더보기는 40종', async () => {
   const h = handlers([other()])
-  const { user } = renderPage(`/projects/${KEY}/issues/7`, { handlers: h.list })
-  await user.click(await screen.findByTestId('comment-reaction-add-31', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const { user } = renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, { path: `/projects/${KEY}/issues/7`, handlers: h.list })
+  await user.click(await screen.findByTestId('comment-reaction-add-31'))
   const sheet = await screen.findByTestId('comment-reaction-sheet-31')
   expect(screen.queryByTestId('comment-reaction-popover-31')).not.toBeInTheDocument()
   for (const e of ['👍', '❤️', '😄', '🎉', '😢', '🙏']) expect(within(sheet).getByTestId(`comment-reaction-quick-31-${e}`)).toBeInTheDocument()
@@ -88,7 +90,7 @@ test('＋ 를 누르면 팝오버가 아닌 하단 시트(빠른 6종)가 열리
 
 test('코멘트 작성 권한이 없으면 ＋ 가 없고 칩은 보인다', async () => {
   const h = handlers([other({ reactions: [{ emoji: '👍', count: 2, reacted: false }] })], { viewerCanEditContent: false })
-  renderPage(`/projects/${KEY}/issues/7`, { handlers: h.list })
-  expect(await screen.findByTestId('comment-reaction-pill-31-👍', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, { path: `/projects/${KEY}/issues/7`, handlers: h.list })
+  expect(await screen.findByTestId('comment-reaction-pill-31-👍')).toBeInTheDocument()
   expect(document.querySelectorAll('[data-testid^="comment-reaction-add-"]')).toHaveLength(0)
 })

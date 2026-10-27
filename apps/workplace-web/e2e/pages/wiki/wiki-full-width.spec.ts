@@ -64,7 +64,8 @@ test('⋯ 「전체 폭」을 켜면 저장되고 본문이 화면 폭으로 펼
 
   await page.keyboard.press('Escape')
   // 전체 폭이면 본문 시작선이 헤더 경로와 같은 축으로 돌아온다.
-  await expectStartAligned(page.getByTestId('wiki-breadcrumb-current'), page.getByPlaceholder('제목 없음'))
+  // 경로 줄(첫 ol)의 시작 — 경로는 공간부터라 현재 항목이 맨 앞이 아니다(WP-979).
+  await expectStartAligned(page.getByTestId('wiki-breadcrumb').locator('ol').first(), page.getByPlaceholder('제목 없음'))
 
   // 다시 열어도(서버 값) 넓게 그린다.
   await open(page, { reload: true })

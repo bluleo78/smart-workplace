@@ -2,17 +2,19 @@
 // 작업자별 칩 문구·순서, 「AI 진행」 시트 내용(상태·질문·진행·마지막 보고·도구), 질문 카드 「채팅에서 답하기」 → ?chat=1 드로워는
 // 브라우저 없이 판정되므로 e2e/pages/mobile/issue-agent-work.spec.ts 에서 옮겼다.
 // 칩·카드 위치·버튼 줄바꿈·최근 보고 잘림 없음(@layout)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 이슈 상세 화면만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { agentWorker as aki, humanWorker as human, twoWorks } from '../../../e2e/factories/agentWork.factory'
 import { createChatThread } from '../../../e2e/factories/chat.factory'
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import IssueDetailPage from '../projects/IssueDetailPage'
 
 // 휴대폰 폭·터치 포인터 — 모바일 상세(칩 줄·시트)로 그려지게 한다.
 mockViewport()
@@ -23,7 +25,8 @@ const QUESTION = '테스트 DB 를 공용으로 쓸까요, 이슈별로 따로 �
 /** WP-12 상세에 두 작업자(아키 답변 필요 · 양동희 작업 중)를 싣는다 — E2E mockAgentWorkDetail 과 같은 응답. */
 async function open() {
   const summary = createIssue({ number: 12, title: '로그인 버그 수정', status: 'IN_PROGRESS', priority: 'HIGH', assignees: [human, aki], agentWork: twoWorks(QUESTION) })
-  const view = renderPage('/projects/WP/issues/12', {
+  const view = renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, {
+    path: '/projects/WP/issues/12',
     handlers: [
       http.get('/api/v1/projects/WP', () => HttpResponse.json(createProject())),
       http.get(BASE, () => HttpResponse.json(createIssueDetail({ summary }))),
@@ -35,7 +38,7 @@ async function open() {
       http.get(`/api/v1/issues/${summary.id}/comments`, () => HttpResponse.json([])),
     ],
   })
-  await screen.findByTestId('agent-work-chip-9', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('agent-work-chip-9')
   return view
 }
 

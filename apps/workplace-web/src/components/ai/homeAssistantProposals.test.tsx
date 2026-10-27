@@ -3,15 +3,16 @@
 // 이미 처리된 카드(409) 사유, 세션 복원 시 결과 줄·미처리 카드 복원, done 전에 온 카드 봉투의 sessionId 로 세션 확정은
 // 브라우저 없이 판정되므로 e2e/pages/home-assistant-multi-action.spec.ts·home-assistant-proposal-failure.spec.ts 에서 옮겼다.
 // 그 spec 들에는 대표 배선(@wiring, 일부 승인·일부 거부)과 좁은 패널에서 긴 사유가 넘치지 않는지(@layout)만 남는다.
-// renderPage 를 쓰는 이유: 칩·사이드 패널·통합 SSE 구독(useEventStream)·세션 스위처가 모두 앱 셸(AppLayout)에 있어
-// 컴포넌트 하나로는 「질문 → SSE 카드 → 승인 API → 결과 줄」 조립을 띄울 수 없다.
+// 칩·사이드 패널·통합 SSE 구독(useEventStream)·세션 스위처는 AppLayout 의 AI 조립이라, 그 조립만 renderScreen 으로 띄운다
+// (test/kits/ai/c-aiShell, WP-1002) — 「질문 → SSE 카드 → 승인 API → 결과 줄」 을 실제 파서·훅으로 지나되 앱 레일·인증 부팅은 건너뛴다.
+// 홈 본문(대시보드)은 이 판정들의 관심사가 아니라 그리지 않는다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
 import { beforeEach, expect, test } from 'vitest'
 
 import { chatStreams } from '@/lib/ai/chatStreams'
+import { renderAiShell } from '@/test/kits/ai/aiShell'
 import { controllableEvents } from '@/test/kits/projects/issueDetailEvents'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { HomeMessage } from '@/types/home'
 
 type Frame = { event: string; data: Record<string, unknown> }
@@ -78,9 +79,9 @@ function homeAssistant(opts: { frames?: Frame[]; reply?: (id: number, op: 'confi
 beforeEach(() => chatStreams.newConversation())
 
 /** 홈을 띄우고 칩으로 패널을 연 뒤 query 를 보낸다. */
-async function openAndAsk(handlers: NonNullable<Parameters<typeof renderPage>[1]>['handlers'], query: string) {
-  const view = renderPage('/', { handlers })
-  await view.user.click(await screen.findByTestId('chat-launcher', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+async function openAndAsk(handlers: RequestHandler[], query: string) {
+  const view = renderAiShell({ path: '/', handlers })
+  await view.user.click(await screen.findByTestId('chat-launcher'))
   fireEvent.change(await screen.findByTestId('chat-input'), { target: { value: query } })
   await view.user.click(screen.getByRole('button', { name: '보내기' }))
   return view
@@ -176,7 +177,8 @@ test('세션 복원 — 결과 줄과 미처리 카드가 함께 복원된다', 
     { id: 2, role: 'ASSISTANT', content: '두 건을 제안했어요.', widgets: null, toolCalls: null, createdAt: '2026-09-23T00:00:01Z' },
     { id: 3, role: 'ACTION_FAILED', content: '승인 실패: 월간 회의 삭제 — 사유: 일정을 찾을 수 없습니다', widgets: null, toolCalls: null, createdAt: '2026-09-23T00:00:02Z' },
   ]
-  const { user } = renderPage('/', {
+  const { user } = renderAiShell({
+    path: '/',
     handlers: [
       http.get('/api/v1/home/sessions', () =>
         HttpResponse.json({ items: [{ id: 's-rest', title: '회의 정리', lastMessageAt: '2026-09-23T00:00:00Z', widgetCount: 0 }], nextCursor: null })),
@@ -184,7 +186,7 @@ test('세션 복원 — 결과 줄과 미처리 카드가 함께 복원된다', 
       http.get('/api/v1/home/sessions/s-rest/proposals', () => HttpResponse.json([proposal(41, '주간 회의 삭제')])),
     ],
   })
-  await user.click(await screen.findByTestId('chat-launcher', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  await user.click(await screen.findByTestId('chat-launcher'))
   await user.click(await screen.findByTestId('chat-session-switcher'))
   await user.click((await screen.findAllByTestId('chat-session-select'))[0])
   const result = await screen.findByTestId('action-result')

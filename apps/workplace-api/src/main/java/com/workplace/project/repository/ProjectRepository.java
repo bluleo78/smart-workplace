@@ -61,6 +61,23 @@ public class ProjectRepository {
         .fetchMap(PROJECT.ID, PROJECT.NAME);
   }
 
+  /**
+   * id 목록 → 활성 프로젝트 row 를 한 번에 읽는다(soft-deleted 제외). 주어진 id 순서를 지키고 없는 id 는 건너뛴다 — 프로젝트 즐겨찾기
+   * 목록(WP-1001)이 즐겨찾기한 순서대로 행마다 따로 읽지 않게 한다.
+   */
+  public List<ProjectRow> findActiveByIdsInOrder(List<Long> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    java.util.Map<Long, ProjectRow> byId =
+        dsl
+            .selectFrom(PROJECT)
+            .where(PROJECT.ID.in(ids).and(PROJECT.DELETED_AT.isNull()))
+            .fetch()
+            .stream()
+            .map(this::mapToRow)
+            .collect(java.util.stream.Collectors.toMap(ProjectRow::id, r -> r));
+    return ids.stream().map(byId::get).filter(java.util.Objects::nonNull).toList();
+  }
+
   /** key 로 활성 프로젝트 조회 (soft-deleted 제외). */
   public Optional<ProjectRow> findByKey(String key) {
     return dsl.select(

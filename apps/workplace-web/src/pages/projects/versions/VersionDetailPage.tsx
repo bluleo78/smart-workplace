@@ -14,6 +14,7 @@ import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useVersionIssues, useVersions, type VersionIssueKind } from '../../../hooks/queries/useVersions';
+import { useCanManageProject } from '../../../hooks/useCanManageProject';
 import { buildVersionDetailContext } from '../../../lib/aiScreenContext/builders/version';
 import { kstDateKey } from '../../../lib/formatters';
 import {
@@ -28,7 +29,6 @@ import type { IssueResponse } from '../../../types/issue';
 import { IssueStatusBadge } from '../components/IssueStatusBadge';
 import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
 import { useVersionActions } from './useVersionActions';
-import { useVersionPermissions } from './useVersionPermissions';
 import { VersionFormDialog } from './VersionFormDialog';
 import { VersionProgressBar } from './VersionProgressBar';
 import { VersionReleaseDialog } from './VersionReleaseDialog';
@@ -38,7 +38,7 @@ export default function VersionDetailPage() {
   const { key = '', versionId = '' } = useParams();
   const id = Number(versionId);
   const navigate = useNavigate();
-  const { project, canManage } = useVersionPermissions(key);
+  const { project, canManage } = useCanManageProject(key);
   const versions = useVersions(key);
   const types = useIssueTypes(key);
   const fixIssues = useVersionIssues(key, 'fixVersion', id);

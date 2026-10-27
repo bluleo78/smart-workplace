@@ -1,4 +1,4 @@
-// 이슈 목록 「사이클」 그룹(#878) — 페이지 테스트(WP-980).
+// 이슈 목록 「사이클」 그룹(#878) — 화면 테스트(WP-980, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 구간별 요청 파라미터, 접힘/펼침 지연 요청, 그룹 전환·저장 뷰 하위호환, M:N 중복 표시와 선택 공유·일괄 작업, 로딩·빈 구간 문구는
 // 브라우저 없이 판정되므로 e2e/pages/projects/issue-list-cycle-group.spec.ts 에서 옮겼다.
 // 기본 사이클 그룹 진입(@wiring)·스크롤해 체크해도 일괄 바가 보임(@layout)·구간 끝 자동 로드(@layout)는 E2E 에 남는다.
@@ -7,7 +7,8 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { API, bodyOf, expectToggleLook, issueSearch, KEY, projectMeta } from '@/test/kits/projects/listBoard'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import type { ScreenUser } from '@/test/renderScreen'
 import type { CycleProgress, CycleResponse } from '@/types/cycle'
 import type { IssueResponse } from '@/types/issue'
 import type { SavedViewResponse } from '@/types/savedView'
@@ -103,15 +104,15 @@ const section = (key: string) => screen.getByTestId(`list-cycle-section-${key}`)
 
 async function open(path = `/projects/${KEY}`, opts: Options = {}) {
   const api = setup(opts)
-  const page = renderPage(path, { handlers: api.handlers })
-  await waitFor(() => expect(within(section('backlog')).getAllByTestId(/^issue-row-/).length).toBeGreaterThan(0), { timeout: PAGE_LOAD_TIMEOUT })
+  const page = renderProjectScreen(path, { handlers: api.handlers })
+  await waitFor(() => expect(within(section('backlog')).getAllByTestId(/^issue-row-/).length).toBeGreaterThan(0))
   return { ...page, api }
 }
 
 /**
  * 그룹 셀렉트(Radix Select)에서 값을 고른다 — jsdom 은 포인터 캡처가 없어 마우스로 열면 던지므로 키보드로 열고 고른다.
  */
-async function chooseGroup(user: ReturnType<typeof renderPage>['user'], value: string) {
+async function chooseGroup(user: ScreenUser, value: string) {
   screen.getByTestId('group-by-trigger').focus()
   await user.keyboard('{Enter}')
   ;(await screen.findByTestId(`group-by-${value}`)).focus()
@@ -223,8 +224,8 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
     let release: () => void = () => {}
     const cyclesGate = new Promise<void>((r) => (release = r))
     const api = setup({ cyclesGate })
-    renderPage(`/projects/${KEY}`, { handlers: api.handlers })
-    expect(await screen.findByTestId('issue-list-pending', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    renderProjectScreen(`/projects/${KEY}`, { handlers: api.handlers })
+    expect(await screen.findByTestId('issue-list-pending')).toBeInTheDocument()
     expect(screen.queryByTestId('issue-row-90')).not.toBeInTheDocument()
     release()
     expect(await screen.findByTestId('list-cycle-section-backlog')).toBeInTheDocument()
@@ -243,8 +244,8 @@ describe('이슈 목록 사이클 그룹 (#878)', () => {
 
   test('빈 백로그 문구는 새 정의(진행 중·예정 사이클 밖)를 따른다', async () => {
     const api = setup({ backlog: [] })
-    renderPage(`/projects/${KEY}`, { handlers: api.handlers })
-    expect(await screen.findByTestId('list-cycle-empty-backlog', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent(
+    renderProjectScreen(`/projects/${KEY}`, { handlers: api.handlers })
+    expect(await screen.findByTestId('list-cycle-empty-backlog')).toHaveTextContent(
       '진행 중·예정 사이클에 없는 미완료 이슈가 없습니다',
     )
   })

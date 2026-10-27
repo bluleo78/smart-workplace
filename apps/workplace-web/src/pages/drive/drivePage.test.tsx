@@ -516,16 +516,22 @@ describe('휴지통', () => {
 })
 
 describe('머리말·주소', () => {
-  // 페이지 제목은 화면에 없고(스크린리더용 숨은 h1), 경로(드라이브 / 문서 / 2026)가 유일한 위치 표시 — 쓰기 버튼은 보인다.
+  // 페이지 제목은 화면에 없고(스크린리더용 숨은 h1), 경로(팀 공간 / 문서 / 2026)가 유일한 위치 표시 — 쓰기 버튼은 보인다.
+  // 경로는 헤더 왼쪽 한 줄, 시작점은 공간 이름(앱 이름 「드라이브」는 넣지 않는다, WP-979 §B-1).
   test('folderId 로 들어오면 숨은 h1 과 폴더 이름 경로, 새 폴더·업로드 버튼을 보인다', async () => {
     await openDrive({ folders: [], files: [] }, {
       search: '?folderId=10',
-      handlers: [http.get(`${API}/folders/10/path`, () => HttpResponse.json([{ id: 5, name: '문서' }, { id: 10, name: '2026' }]))],
+      handlers: [
+        http.get(`${API}/folders/10/path`, () => HttpResponse.json([{ id: 5, name: '문서' }, { id: 10, name: '2026' }])),
+        // 경로 시작점은 공간 이름 — 공간 한 건 조회(GET /drive/spaces/{id})로 받는다.
+        http.get(`${API}/spaces/${SPACE_ID}`, () => HttpResponse.json(createSpace())),
+      ],
     })
     const h1 = screen.getByRole('heading', { level: 1 })
     expect(h1).toHaveClass('sr-only')
     expect(h1.textContent).toMatch(/^드라이브/)
-    expect(screen.getByTestId('drive-root')).toHaveTextContent('드라이브')
+    expect(within(screen.getByTestId('page-header')).getByTestId('drive-breadcrumb')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('drive-root')).toHaveTextContent('팀 공간'))
     expect(await screen.findByTestId('drive-crumb-5')).toHaveTextContent('문서')
     expect(screen.getByTestId('drive-crumb-10')).toHaveTextContent('2026')
     expect(screen.getByTestId('drive-new-folder')).toBeInTheDocument()

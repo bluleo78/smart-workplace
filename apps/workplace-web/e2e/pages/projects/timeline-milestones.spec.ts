@@ -6,7 +6,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 
@@ -49,6 +49,12 @@ function setupStubs(
       if (route.request().method() !== 'GET') return route.fallback();
       const cycles: CycleResponse[] = [];
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cycles) });
+    }),
+    // 마일스톤 편집은 프로젝트 OWNER 만(WP-1008) — 멤버로 보는 기본 시나리오는 로그인 사용자(id 1)를 OWNER 로 둔다.
+    page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const members = viewerIsMember ? [createMember({ userId: 1, role: 'OWNER' })] : [];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(members) });
     }),
     page.route(`**/api/v1/projects/${KEY}/milestones`, (route) => {
       if (route.request().method() !== 'GET') return route.fallback();

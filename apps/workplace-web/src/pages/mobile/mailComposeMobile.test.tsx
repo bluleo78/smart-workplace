@@ -2,16 +2,17 @@
 // 회신·전달 제목, 쓴 내용이 없을 때 ✕ 가 바로 닫는 것, 받는사람만 고쳐도 ✕ 가 임시저장하는 것은
 // 브라우저 없이 판정되므로 e2e/pages/mobile/mail-compose-mobile.spec.ts 에서 옮겼다.
 // 화면 전체 덮기·서식 줄 위치·44px(@layout), 시스템 뒤로가기(@platform), 발송 배선 1건(@wiring)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 메일 모듈과 작성 도크만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileMail } from '@/test/kits/mobile/mobileMail'
 import { mockViewport } from '@/test/viewport'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
 
-// 모바일(iPhone 13·터치) — 파일 안 첫 renderPage 전에 한 번.
+// 모바일(iPhone 13·터치) — 파일 안 첫 렌더 전에 한 번.
 mockViewport()
 
 /** 받은편지함·메일 10 상세 — 임시저장 POST 본문은 drafts 에 쌓는다. */
@@ -38,8 +39,8 @@ function mailApi() {
 /** 받은편지함에서 메일 10 을 열고 회신/전달 버튼이 뜰 때까지 기다린다. */
 async function openMail() {
   const api = mailApi()
-  const page = renderPage('/mail/1', { handlers: api.handlers })
-  await page.user.click(await screen.findByTestId('mail-row-10', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const page = renderMobileMail('/mail/1', { handlers: api.handlers })
+  await page.user.click(await screen.findByTestId('mail-row-10'))
   await screen.findByTestId('mail-reply')
   return { ...page, api }
 }

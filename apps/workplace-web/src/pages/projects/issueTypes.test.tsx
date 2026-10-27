@@ -1,4 +1,4 @@
-// 이슈 유형 — 새 이슈 다이얼로그 유형 드롭다운·검증, 설정의 유형 편집·삭제 이름 — 페이지 테스트(WP-980).
+// 이슈 유형 — 새 이슈 다이얼로그 유형 드롭다운·검증, 설정의 유형 편집·삭제 이름 — 화면 테스트(WP-980, WP-1002 에서 다이얼로그·설정 섹션만 띄우게 바꿈).
 // 한국어 라벨(#126·#641), 부모 번호·본문 길이 zod 검증이 UI 오류로 보이고 요청이 안 나가는지(#159·WP-906·WP-929),
 // 로딩 중 Select controlled 경고(#364), 유형 편집 PATCH·409 인라인 오류(#160·WP-660), 삭제 버튼 접근 이름(#779)은
 // 브라우저 없이 판정되므로 e2e/pages/projects/issue-types.spec.ts 에서 옮겼다.
@@ -7,31 +7,45 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test, vi } from 'vitest'
 
-import { issueListHandlers, projectSettingsHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { IssueCreateDialog } from '@/pages/projects/components/IssueCreateDialog'
+import { IssueTypeManagement } from '@/pages/projects/components/IssueTypeManagement'
+import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import type { ScreenUser } from '@/test/renderScreen'
+import { renderScreen } from '@/test/renderScreen'
 
-import { createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeIssueType, systemTypes } from '../../../e2e/factories/issueType.factory'
-import { createMember, createProject } from '../../../e2e/factories/project.factory'
+import { createProject } from '../../../e2e/factories/project.factory'
+import { seedStatuses } from '../../../e2e/factories/projectStatus.factory'
 
 const KEY = 'WP'
 
-/** 프로젝트 화면을 열고 「+ 새 태스크」 다이얼로그를 띄운다. */
+/** 새 이슈 다이얼로그(IssueCreateDialog)만 연 채로 띄운다 — 프로젝트 화면 「+ 새 태스크」가 여는 것과 같은 props. */
+function renderCreateDialog(handlers: RequestHandler[]) {
+  return renderScreen(<IssueCreateDialog projectKey={KEY} open onOpenChange={() => {}} />, { path: `/projects/${KEY}`, handlers })
+}
+
+/** 다이얼로그가 부르는 조회 — 유형(테스트가 주거나 시스템 유형)과 프로젝트·상태. */
+const dialogLookups = [
+  http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
+  http.get(`/api/v1/projects/${KEY}/statuses`, () => HttpResponse.json(seedStatuses())),
+  // 선택 칸 후보(구성요소 등) — 이 테스트에선 비어 있다.
+  ...['components'].map((sub) => http.get(`/api/v1/projects/${KEY}/${sub}`, () => HttpResponse.json([]))),
+]
+
+/** 새 이슈 다이얼로그를 띄우고 그 dialog 요소를 돌려준다. */
 async function openCreateDialog(extra: RequestHandler[] = []) {
   const requests = recordRequests()
-  const view = renderPage(`/projects/${KEY}`, {
-    handlers: [
-      ...(extra ?? []),
-      ...issueListHandlers({ issues: () => createIssueSearchResponse([]), extra: { types: systemTypes() } }),
-    ],
-  })
-  await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: PAGE_LOAD_TIMEOUT }))
+  const view = renderCreateDialog([
+    ...(extra ?? []),
+    http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
+    ...dialogLookups,
+  ])
   const dialog = await screen.findByRole('dialog')
   return { ...view, dialog, requests }
 }
 
 /** 유형 셀렉트를 열어 그 이름의 항목을 고른다. */
-async function pickType(user: ReturnType<typeof renderPage>['user'], name: string) {
+async function pickType(user: ScreenUser, name: string) {
   await user.click(screen.getByTestId('create-type-select'))
   await user.click((await screen.findAllByRole('option', { name }))[0])
 }
@@ -107,17 +121,14 @@ describe('새 이슈 다이얼로그 — 유형', () => {
     const warns = vi.spyOn(console, 'warn')
     let release!: () => void
     const gate = new Promise<void>((r) => (release = r))
-    const view = renderPage(`/projects/${KEY}`, {
-      handlers: [
-        http.get(`/api/v1/projects/${KEY}/types`, async () => {
-          await gate
-          await delay(0)
-          return HttpResponse.json(systemTypes())
-        }),
-        ...issueListHandlers({ issues: () => createIssueSearchResponse([]) }),
-      ],
-    })
-    await view.user.click(await screen.findByRole('button', { name: '+ 새 태스크' }, { timeout: PAGE_LOAD_TIMEOUT }))
+    renderCreateDialog([
+      http.get(`/api/v1/projects/${KEY}/types`, async () => {
+        await gate
+        await delay(0)
+        return HttpResponse.json(systemTypes())
+      }),
+      ...dialogLookups,
+    ])
     expect(await screen.findByTestId('create-type-select')).toBeInTheDocument()
     act(() => release())
     await waitFor(() => expect(screen.getByTestId('create-type-select')).toHaveTextContent('태스크'))
@@ -131,13 +142,14 @@ describe('새 이슈 다이얼로그 — 유형', () => {
 })
 
 describe('설정 — 이슈 유형 관리', () => {
-  const OWNER = [createMember({ userId: 1, username: 'me', name: 'Me', role: 'OWNER' })]
+  /** 설정의 「이슈 유형」 섹션(IssueTypeManagement)만 띄운다 — 보는 사람은 OWNER(편집·삭제 가능). */
+  const renderTypes = (handlers: RequestHandler[]) =>
+    renderScreen(<IssueTypeManagement projectKey={KEY} isOwner />, { path: `/projects/${KEY}/settings`, handlers })
 
   test('유형 편집 — 이름·색상·아이콘을 함께 PATCH, 이름이 겹치면(409) 창을 연 채 인라인 오류 (#160·WP-660)', async () => {
     const custom = makeIssueType({ id: 99, name: '원래유형', colorToken: 'GREEN', icon: 'Circle', isSystem: false })
     const updates: unknown[] = []
-    const { user } = renderPage(`/projects/${KEY}/settings`, {
-      handlers: [
+    const { user } = renderTypes([
         http.all(`/api/v1/projects/${KEY}/types/99`, async ({ request }) => {
           const body = (await request.json()) as { name: string }
           updates.push(body)
@@ -146,10 +158,9 @@ describe('설정 — 이슈 유형 관리', () => {
           Object.assign(custom, body)
           return HttpResponse.json(custom)
         }),
-        ...projectSettingsHandlers(createProject({ key: KEY }), OWNER, { types: () => [custom] }),
-      ],
-    })
-    const row = await screen.findByTestId('issue-type-row-99', {}, { timeout: PAGE_LOAD_TIMEOUT })
+      http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json([custom])),
+    ])
+    const row = await screen.findByTestId('issue-type-row-99')
     await user.click(within(row).getByRole('button', { name: '원래유형 편집' }))
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toHaveTextContent('이슈 유형 편집')
@@ -175,8 +186,8 @@ describe('설정 — 이슈 유형 관리', () => {
   test('삭제 버튼 접근 이름이 유형별로 구분된다 (#779)', async () => {
     const a = makeIssueType({ id: 91, name: '디자인', colorToken: 'PURPLE', icon: 'Star', isSystem: false })
     const b = makeIssueType({ id: 92, name: '리서치', colorToken: 'GREEN', icon: 'Circle', isSystem: false })
-    renderPage(`/projects/${KEY}/settings`, { handlers: projectSettingsHandlers(createProject({ key: KEY }), OWNER, { types: [a, b] }) })
-    const rowA = await screen.findByTestId('issue-type-row-91', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    renderTypes([http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json([a, b]))])
+    const rowA = await screen.findByTestId('issue-type-row-91')
     expect(within(rowA).getByRole('button', { name: '디자인 삭제' })).toBeInTheDocument()
     expect(within(screen.getByTestId('issue-type-row-92')).getByRole('button', { name: '리서치 삭제' })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '디자인 삭제' })).toHaveLength(1)

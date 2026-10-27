@@ -2,18 +2,22 @@
 // 설정 화면의 필드 목록(한국어 타입 라벨·옵션 칩·필드별 삭제 이름)·삭제 확인·편집 PATCH 와 409 문구,
 // 이슈 상세의 NUMBER 안전 범위 거부·DATE 선택/지우기 payload 는 브라우저 없이 판정되므로
 // e2e/pages/projects/custom-fields.spec.ts 에서 옮겼다. 설정에서 필드 추가 → 이슈 상세에서 값 입력으로 이어지는 흐름(@flow)은 E2E 에 남는다.
+// 화면 컴포넌트 테스트(WP-1002) — 설정은 커스텀 필드 관리 섹션(CustomFieldManagement), 이슈 상세는 속성 레일의 커스텀 필드 섹션
+// (CustomFieldsSection)만 renderScreen 으로 띄운다. 섹션 값은 상세 화면이 넘기는 것과 같은 상세 응답의 summary.customFields 다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { server } from '@/test/msw/server'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 import type { FieldType,IssueFieldDef } from '@/types/customField'
 import type { IssueDetailResponse } from '@/types/issue'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
-import { makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
-import { createMember, createProject } from '../../../e2e/factories/project.factory'
+import { makeTaskType } from '../../../e2e/factories/issueType.factory'
+import { CustomFieldManagement } from './components/CustomFieldManagement'
+import { CustomFieldsSection } from './components/CustomFieldsSection'
 
 const KEY = 'WP'
 const FIELDS = `/api/v1/projects/${KEY}/fields`
@@ -29,42 +33,34 @@ const fieldDef = (over: Partial<IssueFieldDef> & Pick<IssueFieldDef, 'id' | 'nam
   ...over,
 })
 
-/** 프로젝트·멤버(나는 OWNER)·라벨 — 설정과 상세가 함께 부른다. */
-const projectHandlers = () => [
-  http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ id: 1, key: KEY }))),
-  http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, role: 'OWNER' })])),
-]
-
-/** 설정 화면 — fields 는 매 GET 마다 읽는다(쓰기 핸들러가 바꾸면 재조회에 반영). 필드는 1개 이상 준다. */
+/** 설정의 커스텀 필드 섹션(나는 OWNER — 관리 가능) — fields 는 매 GET 마다 읽는다(쓰기 핸들러가 바꾸면 재조회에 반영). 필드는 1개 이상 준다. */
 async function openSettings(fields: { current: IssueFieldDef[] }) {
-  const view = renderPage(`/projects/${KEY}/settings`, {
-    handlers: [
-      ...projectHandlers(),
-      http.get(FIELDS, () => HttpResponse.json(fields.current)),
-      http.get(`/api/v1/projects/${KEY}/issues/group-counts`, () => HttpResponse.json({ groupBy: 'statusId', groups: [] })),
-    ],
+  const view = renderScreen(<CustomFieldManagement projectKey={KEY} isOwner />, {
+    path: `/projects/${KEY}/settings`,
+    handlers: [http.get(FIELDS, () => HttpResponse.json(fields.current))],
   })
   // 추가 폼은 목록보다 먼저 뜬다 — 첫 필드 행까지 기다린다.
-  await screen.findByTestId(`custom-field-row-${fields.current[0].id}`, {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId(`custom-field-row-${fields.current[0].id}`, {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return view
 }
 
 type FieldValue = { defId: number; name: string; type: FieldType; value: unknown }
 
-/** 이슈 상세 — 필드 값 PUT 을 서버처럼 반영하고 본문을 puts 에 모은다. 커스텀 필드 그룹을 펼친 채 돌려준다. */
+/**
+ * 이슈 상세의 커스텀 필드 섹션 — 필드 값 PUT 을 서버처럼 반영하고 본문을 puts 에 모은다.
+ * 섹션 값(current)은 상세 응답의 summary.customFields 그대로다(상세 화면이 레일에 넘기는 값).
+ */
 async function openIssue(def: IssueFieldDef, initial: FieldValue[] = []) {
   const puts: Array<{ values: Array<{ defId: number; value: unknown }> }> = []
   const writes: string[] = []
   let summary = { ...createIssue({ id: 1, number: 1, title: 't' }), type: makeTaskType(), customFields: initial }
   const detail = (): IssueDetailResponse => createIssueDetail({ summary, body: '' })
-  const view = renderPage(`/projects/${KEY}/issues/1`, {
+  const view = renderScreen(<CustomFieldsSection projectKey={KEY} issueNumber={1} current={detail().summary.customFields} />, {
+    path: `/projects/${KEY}/issues/1`,
     handlers: [
-      ...projectHandlers(),
-      http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
       http.get(FIELDS, () => HttpResponse.json([def])),
+      // 저장 뒤 상세 재조회(무효화) — 서버처럼 바뀐 값을 돌려준다.
       http.get(ISSUE, () => HttpResponse.json(detail())),
-      ...['watchers', 'labels', 'attachments', 'children'].map((sub) => http.get(`${ISSUE}/${sub}`, () => HttpResponse.json([]))),
-      http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
       http.all(`${ISSUE}/fields`, async ({ request }) => {
         writes.push(request.method)
         const body = (await request.json()) as (typeof puts)[number]
@@ -79,9 +75,7 @@ async function openIssue(def: IssueFieldDef, initial: FieldValue[] = []) {
       }),
     ],
   })
-  // 커스텀 필드 그룹은 기본 접힘 — 펼쳐야 섹션이 마운트된다(#343).
-  await view.user.click(await screen.findByRole('button', { name: /커스텀 필드/ }, { timeout: PAGE_LOAD_TIMEOUT }))
-  await screen.findByTestId('custom-fields-section')
+  await screen.findByTestId('custom-fields-section', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...view, puts, writes }
 }
 

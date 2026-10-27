@@ -33,6 +33,7 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
   private static final String REVIEW_REQUESTED = "AI_REVIEW_REQUESTED";
   private static final String WORK_FAILED = "AI_WORK_FAILED";
   private static final String AI_QUESTION = "AI_QUESTION";
+  private static final String MENTION = "ISSUE_CHAT_MENTION";
 
   @Autowired NotificationSettingRepository settingRepository;
   @Autowired NotificationService notificationService;
@@ -80,6 +81,101 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
     assertOk(putReport(akToken, TOOL, Map.of("state", "REVIEW")));
 
     awaitCount(humanId, REVIEW_REQUESTED, 2);
+  }
+
+  // ------------------------------------------------------------------ 보고 글의 멘션 — 보고 하나 = 사람당
+  // 1건(WP-1009)
+
+  /** 검토 요청을 받는 사람을 글에서 멘션해도 검토 요청 1건만 — 멘션 알림을 따로 만들지 않는다. */
+  @Test
+  void review_mentioningAssigner_onlyReviewRequested() {
+    assertOk(
+        putReport(
+            akToken, TOOL, Map.of("state", "REVIEW", "message", "<@" + humanId + "> 리뷰 부탁해요")));
+
+    awaitCount(humanId, REVIEW_REQUESTED, 1);
+    assertStays(humanId, MENTION, 0);
+  }
+
+  /** 검토 요청을 꺼 둔 대리인을 멘션해도 같은 보고가 멘션 알림으로 새어 들어가지 않는다(코멘트 알림과 같은 규칙). */
+  @Test
+  void review_mentioningAssignerWhoMutedReview_getsNothing() {
+    inTenantRun(
+        () ->
+            settingRepository.upsertCell(
+                humanId,
+                NotificationSettingItem.ISSUE_AI_REVIEW_REQUESTED,
+                NotificationActor.AGENT,
+                false));
+
+    assertOk(
+        putReport(
+            akToken, TOOL, Map.of("state", "REVIEW", "message", "<@" + humanId + "> 리뷰 부탁해요")));
+
+    assertStays(humanId, REVIEW_REQUESTED, 0);
+    assertStays(humanId, MENTION, 0);
+  }
+
+  /** 검토 요청을 받지 않는 다른 사람을 멘션하면 그 사람은 멘션 알림을 받는다. */
+  @Test
+  void review_mentioningOther_otherGetsMention() {
+    assertOk(
+        putReport(akToken, TOOL, Map.of("state", "REVIEW", "message", "<@" + otherId + "> 참고")));
+
+    awaitCount(humanId, REVIEW_REQUESTED, 1);
+    awaitCount(otherId, MENTION, 1);
+    assertThat(ofType(otherId, MENTION).get(0).actorId()).isEqualTo(agentId);
+    assertStays(humanId, MENTION, 0);
+  }
+
+  /** 알릴 상태 변화가 없는 진행 보고 — 멘션된 사람만 멘션 알림, 멘션이 없으면 아무 알림도 없다. */
+  @Test
+  void working_mention_notifiesMentionedOnly() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING", "message", "진행 중")));
+    assertOk(
+        putReport(akToken, TOOL, Map.of("state", "WORKING", "message", "<@" + otherId + "> 확인")));
+
+    awaitCount(otherId, MENTION, 1);
+    assertStays(humanId, MENTION, 0);
+    assertStays(humanId, AI_QUESTION, 0);
+  }
+
+  /** 막힘 + 멘션 — 관계자와 멘션된 사람 모두 「답변 필요」 1건씩, 멘션 알림은 따로 없다. */
+  @Test
+  void blocked_mention_mergedIntoNeedsInput() {
+    assertOk(
+        putReport(
+            akToken,
+            TOOL,
+            Map.of("state", "BLOCKED", "message", "<@" + humanId + "> <@" + otherId + "> 막혔어요")));
+
+    awaitCount(humanId, AI_QUESTION, 1);
+    awaitCount(otherId, AI_QUESTION, 1);
+    assertStays(humanId, MENTION, 0);
+    assertStays(otherId, MENTION, 0);
+  }
+
+  /** 실패를 받는 사람을 멘션해도 실패 알림 1건만. */
+  @Test
+  void failed_mentioningAssigner_onlyWorkFailed() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING")));
+    assertOk(
+        putReport(akToken, TOOL, Map.of("state", "FAILED", "message", "<@" + humanId + "> 실패했어요")));
+
+    awaitCount(humanId, WORK_FAILED, 1);
+    assertStays(humanId, MENTION, 0);
+  }
+
+  /** 사람이 자기 도구로 보고해도 글의 멘션은 알린다(상태 알림은 AI 작업자만). */
+  @Test
+  void humanWorker_mention_notifiesMentioned() {
+    assertOk(
+        putReport(
+            patToken, TOOL, Map.of("state", "REVIEW", "message", "<@" + otherId + "> 봐 주세요")));
+
+    awaitCount(otherId, MENTION, 1);
+    assertThat(ofType(otherId, MENTION).get(0).actorId()).isEqualTo(humanId);
+    assertStays(otherId, REVIEW_REQUESTED, 0);
   }
 
   // ------------------------------------------------------------------ 실패·거절

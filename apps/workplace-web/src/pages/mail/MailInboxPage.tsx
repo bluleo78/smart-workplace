@@ -8,6 +8,7 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
+import { Breadcrumb } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
@@ -23,6 +24,7 @@ import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { useMarkReadOnOpen } from '@/hooks/useMarkReadOnOpen'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
+import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { handleApiError } from '@/lib/api-error'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
@@ -37,7 +39,7 @@ import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
 import { firstSummaryLine } from '@/lib/mailSummary'
-import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
+import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { SELECTED_BG_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -946,28 +948,18 @@ function MailInbox() {
   const search = params.get('q') ?? ''
   // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(및 그 값을 쓰는 useMailMessages 쿼리)은
   // 300ms debounce 후에만 갱신해 키 입력마다 목록 API 가 재요청되지 않게 한다(#814).
-  // IssueFilterBar 의 q debounce 패턴과 동일.
-  const [searchDraft, setSearchDraft] = useState(search)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSearchDraft(search)
-  }, [search])
-  useEffect(() => {
-    if (searchDraft === search) return
-    const t = setTimeout(() => {
-      setParams(
-        (prev) => {
-          const sp = new URLSearchParams(prev)
-          if (searchDraft) sp.set('q', searchDraft)
-          else sp.delete('q')
-          return sp
-        },
-        { replace: true },
-      )
-    }, 300)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchDraft])
+  // 내가 쓴 q 가 되돌아올 때 더 친 글자를 덮지 않는 것까지 연락처·이슈 필터와 같은 공용 훅이 맡는다(WP-1003).
+  const { draft: searchDraft, setDraft: setSearchDraft } = useSearchDraft(search, (value) =>
+    setParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev)
+        if (value) sp.set('q', value)
+        else sp.delete('q')
+        return sp
+      },
+      { replace: true },
+    ),
+  )
   // 열린 메일 = URL ?messageId(상태의 단일 원천, WP-206). 행 클릭은 push 라 시스템 뒤로가기가 상세만 닫는다.
   // 홈 위젯 딥링크(#447)·푸시 알림도 같은 키 — 마운트 1회 읽기가 아니라 URL 실시간 파생이라 forward 재열림도 자연스럽다.
   // MAIL_DETAIL_PARAM: 다른 메일로 바꿀 때 앞 메일의 첨부 뷰어 키(?preview, WP-280)도 함께 지운다.
@@ -992,6 +984,7 @@ function MailInbox() {
   // WP-961 서버 메일함(보관·내 메일함) — ?box 보기의 제목·경로·안 읽은 수·가져온 시각.
   const { data: folders } = useMailFolders(accountIdNum)
   const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId'), folders })
+  const crumbItems = mailBreadcrumbItems(view, Number(accountId), params, search !== '')
   const folderView = view.kind === 'folder'
   const currentFolder = folderView ? folders?.find((f) => f.id === view.folderId) : undefined
   // 탭 제목 — 「{폴더} · 메일」(WP-814). 계정이 없으면(연결 안내 화면) 폴더가 없으니 「메일」만.
@@ -1114,7 +1107,7 @@ function MailInbox() {
   const startMarkAll = async () => {
     if (accountIdNum == null) return
     // 검색 중이면 건수는 검색 결과만 센다 — 표시 이름에도 검색어를 붙여 보기 전체로 오해하지 않게 한다.
-    const label = view.breadcrumb.join(' › ') + (markAllScope.query ? ` · "${markAllScope.query}"` : '')
+    const label = mailBreadcrumbText(view) + (markAllScope.query ? ` · "${markAllScope.query}"` : '')
     const captured = { key: markAllKey, scope: markAllScope, label }
     try {
       const r = await getViewUnreadCount(accountIdNum, captured.scope)
@@ -1325,8 +1318,8 @@ function MailInbox() {
     accountId: accountIdNum ?? null,
     accountEmail,
     folder: folderParam,
-    // WP-961 서버 메일함 보기 — 경로 이름(보관·내 메일함 › …). 메일함 목록 전이면 이름 없이 「메일함」(받은편지함으로 싣지 않게).
-    serverFolder: folderView ? (currentFolder ? view.breadcrumb.join(' › ') : '메일함') : null,
+    // WP-961 서버 메일함 보기 — 경로 이름(보관·프로젝트 › 견적 — 사이드바 구역 이름 「내 메일함」은 넣지 않는다, WP-979). 메일함 목록 전이면 이름 없이 「메일함」(받은편지함으로 싣지 않게).
+    serverFolder: folderView ? (currentFolder ? mailBreadcrumbText(view) : '메일함') : null,
     q: search,
     category: view.apiCategory || null,
     needsReply: view.kind === 'needsReply',
@@ -1426,24 +1419,11 @@ function MailInbox() {
       {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
       {showListChrome && (
         <Page.Header
-          title={
-            isMobile ? (
-              view.title
-            ) : (
-              // 데스크톱: 계층 구분자 "›" 를 작고 흐리게(스크린리더는 구분자를 읽지 않고 항목만 읽는다). 상위 항목은 흐린 색.
-              view.breadcrumb.map((seg, i) => (
-                // 경로에 같은 이름이 겹칠 수 있어(내 메일함 › 프로젝트 › 프로젝트) 위치를 키에 넣는다.
-                <span key={`${i}:${seg}`} className={i < view.breadcrumb.length - 1 ? 'font-medium text-muted-foreground' : undefined}>
-                  {i > 0 && (
-                    <span aria-hidden className="mx-1.5 text-muted-foreground">
-                      ›
-                    </span>
-                  )}
-                  {seg}
-                </span>
-              ))
-            )
-          }
+          // 모바일은 「현재 이름」 한 줄(§B-1 「모바일 헤더」), 데스크톱은 제목 자리에 경로(공용 Breadcrumb, WP-979).
+          title={isMobile ? view.title : undefined}
+          srTitle={isMobile ? undefined : view.title}
+          leadingGrow={!isMobile}
+          leading={<Breadcrumb items={crumbItems} aria-label="메일함 경로" data-testid="mail-breadcrumb" />}
           actions={
             <>
               <input

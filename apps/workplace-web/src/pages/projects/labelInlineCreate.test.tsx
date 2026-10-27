@@ -1,4 +1,4 @@
-// 이슈 라벨 선택기에서 없는 라벨을 그 자리에서 만들기(WP-394) — 페이지 테스트(WP-980).
+// 이슈 라벨 선택기에서 없는 라벨을 그 자리에서 만들기(WP-394) — 화면 테스트(WP-980, WP-1002 에서 라벨 선택기만 띄우게 바꿈).
 // 만들기 행 → POST(GRAY) → 체크된 채 추가 → 닫으면 PUT 한 번, 40자 제한(WP-850), 빠른 두 번 클릭 1회 요청(WP-458),
 // Enter 로 만들기·일부 겹침 중 Enter 무시, 생성 실패 안내는 요청·문구로 브라우저 없이 판정되므로
 // e2e/pages/projects/label-inline-create.spec.ts 에서 옮겼다. 한글 조합 중 Enter(IME, @input)는 E2E 에 남는다.
@@ -6,20 +6,18 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover'
+import { renderScreen } from '@/test/renderScreen'
 import type { LabelResponse } from '@/types/label'
 
-import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { createLabel, toLabelSummary } from '../../../e2e/factories/label.factory'
-import { createMember } from '../../../e2e/factories/project.factory'
 
 const KEY = 'WP'
 const LABELS = `/api/v1/projects/${KEY}/labels`
 const ISSUE_LABELS = `/api/v1/projects/${KEY}/issues/1/labels`
 
 /**
- * 이슈 상세 + 라벨 목록 목. 보는 사람(id 1)은 일반 MEMBER — 멤버도 라벨을 만들 수 있어야 한다.
+ * 이슈 #1 의 라벨 선택기(LabelPickerPopover)만 띄운다 — 이슈 상세 「분류」 그룹이 그리는 것과 같은 props(현재 라벨 bug, 편집 가능).
  * createStatus 가 있으면 POST /labels 를 그 상태로 실패시킨다. 만든 라벨은 목록에 쌓여 재조회에도 보인다.
  */
 async function openPicker({ createStatus }: { createStatus?: number } = {}) {
@@ -27,32 +25,25 @@ async function openPicker({ createStatus }: { createStatus?: number } = {}) {
   const labels: LabelResponse[] = [bug, createLabel({ id: 2, name: 'severity:minor', colorToken: 'YELLOW' })]
   const posts: unknown[] = []
   const puts: unknown[] = []
-  const detail = createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: '로그인 오류', labels: [toLabelSummary(bug)] }) })
-  const view = renderPage(`/projects/${KEY}/issues/1`, {
-    handlers: issueDetailHandlers({
-      key: KEY,
-      detail,
-      members: [createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'MEMBER' })],
-      extra: [
-        http.get(LABELS, () => HttpResponse.json(labels)),
-        http.post(LABELS, async ({ request }) => {
-          const body = (await request.json()) as { name: string; colorToken: 'GRAY' }
-          posts.push(body)
-          if (createStatus) return HttpResponse.json({ message: '프로젝트 멤버가 아닙니다' }, { status: createStatus })
-          const created = createLabel({ id: 99, name: body.name, colorToken: body.colorToken, viewerCanManage: true })
-          labels.push(created)
-          return HttpResponse.json(created)
-        }),
-        http.put(ISSUE_LABELS, async ({ request }) => {
-          puts.push(await request.json())
-          return HttpResponse.json([])
-        }),
-      ],
-    }),
+  const view = renderScreen(<LabelPickerPopover projectKey={KEY} issueNumber={1} current={[toLabelSummary(bug)]} />, {
+    path: `/projects/${KEY}/issues/1`,
+    handlers: [
+      http.get(LABELS, () => HttpResponse.json(labels)),
+      http.post(LABELS, async ({ request }) => {
+        const body = (await request.json()) as { name: string; colorToken: 'GRAY' }
+        posts.push(body)
+        if (createStatus) return HttpResponse.json({ message: '프로젝트 멤버가 아닙니다' }, { status: createStatus })
+        const created = createLabel({ id: 99, name: body.name, colorToken: body.colorToken, viewerCanManage: true })
+        labels.push(created)
+        return HttpResponse.json(created)
+      }),
+      http.put(ISSUE_LABELS, async ({ request }) => {
+        puts.push(await request.json())
+        return HttpResponse.json([])
+      }),
+    ],
   })
-  // 접혀 있는 「분류」 그룹을 펼치고 라벨 선택기를 연다 — 목록이 뜬 뒤에만 만들기를 판단한다.
-  const group = await screen.findByTestId('property-group-classification', {}, { timeout: PAGE_LOAD_TIMEOUT })
-  await view.user.click(within(group).getByRole('button', { name: /분류/ }))
+  // 라벨 선택기를 연다 — 목록이 뜬 뒤에만 만들기를 판단한다.
   await view.user.click(screen.getByTestId('label-picker-trigger'))
   const picker = await screen.findByTestId('label-picker')
   await within(picker).findByTestId('label-option-1')

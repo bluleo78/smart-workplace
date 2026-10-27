@@ -62,6 +62,7 @@ import com.workplace.jooq.tables.PlatformRole.PlatformRolePath;
 import com.workplace.jooq.tables.PlatformUserRole.PlatformUserRolePath;
 import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
+import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.PushSubscription.PushSubscriptionPath;
@@ -83,6 +84,7 @@ import com.workplace.jooq.tables.UserRole.UserRolePath;
 import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
 import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
+import com.workplace.jooq.tables.WikiPageShareExclusion.WikiPageShareExclusionPath;
 import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
 import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
@@ -1113,6 +1115,19 @@ public class User extends TableImpl<UserRecord> {
         return _projectComponentDefaultAssigneeIdFkey;
     }
 
+    private transient ProjectFavoritePath _projectFavorite;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_favorite</code> table
+     */
+    public ProjectFavoritePath projectFavorite() {
+        if (_projectFavorite == null)
+            _projectFavorite = new ProjectFavoritePath(this, null, Keys.PROJECT_FAVORITE__PROJECT_FAVORITE_USER_ID_FKEY.getInverseKey());
+
+        return _projectFavorite;
+    }
+
     private transient ProjectMemberPath _projectMember;
 
     /**
@@ -1388,6 +1403,19 @@ public class User extends TableImpl<UserRecord> {
             _wikiPageShareEvent = new WikiPageShareEventPath(this, null, Keys.WIKI_PAGE_SHARE_EVENT__WIKI_PAGE_SHARE_EVENT_ACTOR_ID_FKEY.getInverseKey());
 
         return _wikiPageShareEvent;
+    }
+
+    private transient WikiPageShareExclusionPath _wikiPageShareExclusion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_exclusion</code> table
+     */
+    public WikiPageShareExclusionPath wikiPageShareExclusion() {
+        if (_wikiPageShareExclusion == null)
+            _wikiPageShareExclusion = new WikiPageShareExclusionPath(this, null, Keys.WIKI_PAGE_SHARE_EXCLUSION__WIKI_PAGE_SHARE_EXCLUSION_CREATED_BY_FKEY.getInverseKey());
+
+        return _wikiPageShareExclusion;
     }
 
     private transient WikiPageShareMemberPath _wikiPageShareMemberAddedByFkey;

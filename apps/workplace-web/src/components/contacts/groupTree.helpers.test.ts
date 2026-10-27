@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { UserGroupMemberSummary, UserGroupNode } from '@/types/userGroup'
 
-import { collectDescendantIds, filterGroupMembers, parentGroupOptions, parseGroupId } from './groupTree.helpers'
+import { collectDescendantIds, filterGroupMembers, findGroupPath, parentGroupOptions, parseGroupId } from './groupTree.helpers'
 
 const node = (id: number, name: string, children: UserGroupNode[] = [], parentId: number | null = null): UserGroupNode => ({
   id, code: null, name, parentId, ownerId: null, visibility: 'SHARED', sortOrder: 0, children,
@@ -77,5 +77,17 @@ describe('filterGroupMembers', () => {
 
   it('맞는 사람이 없으면 빈 목록', () => {
     expect(filterGroupMembers(members, '없는사람')).toEqual([])
+  })
+})
+
+describe('findGroupPath (WP-977)', () => {
+  it('최상위 조상부터 자기까지 순서로 돌려준다', () => {
+    expect(findGroupPath(TREE, 12)?.map((n) => n.id)).toEqual([10, 11, 12])
+  })
+  it('최상위 그룹이면 자기 하나', () => {
+    expect(findGroupPath(TREE, 15)?.map((n) => n.id)).toEqual([15])
+  })
+  it('없는 그룹이면 null', () => {
+    expect(findGroupPath(TREE, 99)).toBeNull()
   })
 })

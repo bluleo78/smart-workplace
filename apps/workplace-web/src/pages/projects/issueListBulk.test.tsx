@@ -1,12 +1,14 @@
 // 팀 리스트 뷰 일괄 작업(#606) — 페이지 테스트(WP-980).
 // 체크박스 다중 선택 + 일괄 툴바(상태 변경·담당자 지정·삭제)의 선택 개수·요청 payload·부분 실패·토스트는
 // 브라우저 없이 판정되므로 e2e/pages/projects/issue-list-bulk.spec.ts 에서 모두 옮겼다(그 spec 은 지웠다).
+// 화면 테스트(WP-1002) — 필터 바·목록/보드·툴바가 한 화면의 URL 상태를 나눠 써 프로젝트 상세 화면만 renderProjectScreen 으로 띄운다(App·앱 셸 없이).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { API, bodyOf, type Call, ISSUES, issueSearch, KEY, projectMeta } from '@/test/kits/projects/listBoard'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
 import { createMember } from '../../../e2e/factories/project.factory'
@@ -34,8 +36,8 @@ function setup(issues: Issue[], write: (call: Call, num: number) => Response | u
 
 async function open(issues: Issue[], write?: Parameters<typeof setup>[1], extra: RequestHandler[] = []) {
   const api = setup(issues, write)
-  const page = renderPage(`/projects/${KEY}`, { handlers: [...extra, ...api.handlers] })
-  await screen.findByTestId(`issue-row-${issues[0].number}`, {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const page = renderProjectScreen(`/projects/${KEY}`, { handlers: [...extra, ...api.handlers] })
+  await screen.findByTestId(`issue-row-${issues[0].number}`, {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...page, api }
 }
 
@@ -45,7 +47,7 @@ const toolbar = () => screen.getByTestId('issue-bulk-toolbar')
 const byNumber = (calls: Call[]) =>
   calls.map((c) => ({ number: Number(c.path.match(/issues\/(\d+)/)?.[1]), body: c.body })).sort((a, b) => a.number - b.number)
 
-async function selectBoth(user: ReturnType<typeof renderPage>['user']) {
+async function selectBoth(user: ReturnType<typeof renderProjectScreen>['user']) {
   await user.click(screen.getByTestId('select-issue-7'))
   await user.click(screen.getByTestId('select-issue-8'))
 }

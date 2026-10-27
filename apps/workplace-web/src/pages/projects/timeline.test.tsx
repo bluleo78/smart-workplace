@@ -2,12 +2,18 @@
 // 진입 이동·일정 미정 배치 payload·줌 토글·필터(아바타 스택·facet → URL·검색 쿼리)·상태 목록 관문(로딩·실패·다시 시도)은
 // 브라우저 없이 판정되므로 e2e/pages/projects/timeline.spec.ts·timeline-avatar-filter.spec.ts 에서 옮겼다.
 // 간트 막대 기하·끌기·스크롤·오늘선 위치는 E2E(@layout·@input)에 남는다.
+// 타임라인 화면(TimelinePage)만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
+// 프로젝트 홈 헤더 링크로 타임라인 화면에 들어가는 1건만 라우트 트리가 필요해 renderPage 로 남긴다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import TimelinePage from '@/pages/projects/timeline/TimelinePage'
+import { atRoute } from '@/test/kits/projects/atRoute'
 import { API, cycle, KEY, milestone, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
+import { shellHandlers } from '@/test/msw/baseHandlers'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
 import { createMember } from '../../../e2e/factories/project.factory'
@@ -28,10 +34,15 @@ function defaultApi(over: Parameters<typeof timelineApi>[0] = {}) {
   return timelineApi({ issues: ISSUES, members: MEMBERS, cycles: [cycle({})], milestones: [milestone({})], ...over })
 }
 
+/** 타임라인 화면만 띄운다 — 화면이 부르는 부가 조회는 shellHandlers 의 빈 기본값이 받는다. */
+function renderTimeline(path: string, handlers: NonNullable<Parameters<typeof renderScreen>[1]>['handlers'] = []) {
+  return renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), { path, handlers: [...handlers, ...shellHandlers] })
+}
+
 /** 간트가 그려질 때까지 기다린다. */
-async function openTimeline(path = `/projects/${KEY}/timeline`, api = defaultApi(), extra: Parameters<typeof renderPage>[1] = {}) {
-  const view = renderPage(path, { ...extra, handlers: [...(extra.handlers ?? []), ...api.handlers] })
-  await screen.findByTestId('timeline-gantt', {}, { timeout: PAGE_LOAD_TIMEOUT })
+async function openTimeline(path = `/projects/${KEY}/timeline`, api = defaultApi(), extra: { handlers?: Parameters<typeof renderTimeline>[1] } = {}) {
+  const view = renderTimeline(path, [...(extra.handlers ?? []), ...api.handlers])
+  await screen.findByTestId('timeline-gantt')
   return { ...view, api }
 }
 
@@ -44,7 +55,7 @@ function expectToggle(el: HTMLElement, on: boolean) {
   }
 }
 
-describe('타임라인 — 진입·줌', () => {
+describe('타임라인 — 진입 (라우트 트리)', () => {
   // 프로젝트 홈 헤더의 「타임라인」 링크가 타임라인 라우트로 이어지는지.
   test('프로젝트 홈 헤더의 타임라인 링크로 들어간다', async () => {
     const api = defaultApi()
@@ -55,7 +66,9 @@ describe('타임라인 — 진입·줌', () => {
     expect(await screen.findByTestId('timeline-page', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(location()).toMatch(new RegExp(`^/projects/${KEY}/timeline`))
   })
+})
 
+describe('타임라인 — 줌', () => {
   // 줌 버튼은 켜진 것 하나만 TOGGLE_ON(WP-368) — 기본 「주」, 「월」을 누르면 표시가 옮겨 간다.
   test('주/월 줌 토글 — 켜진 버튼만 눌림 표시', async () => {
     const { user } = await openTimeline()
@@ -178,16 +191,14 @@ describe('타임라인 — 상태 목록 관문 (WP-938)', () => {
     let release!: () => void
     const held = new Promise<void>((r) => (release = r))
     const api = defaultApi()
-    const { user } = renderPage(`/projects/${KEY}/timeline`, {
-      handlers: [
-        http.get(`${API}/statuses`, async () => {
-          await held
-          return HttpResponse.json(inServerOrder(withCustomStatuses('설계')))
-        }),
-        ...api.handlers,
-      ],
-    })
-    expect(await screen.findByRole('heading', { name: '타임라인' }, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    const { user } = renderTimeline(`/projects/${KEY}/timeline`, [
+      http.get(`${API}/statuses`, async () => {
+        await held
+        return HttpResponse.json(inServerOrder(withCustomStatuses('설계')))
+      }),
+      ...api.handlers,
+    ])
+    expect(await screen.findByRole('heading', { name: '타임라인' })).toBeInTheDocument()
     expect(await screen.findByText('로딩 중…')).toBeInTheDocument()
     expect(screen.queryByTestId('add-filter-trigger')).not.toBeInTheDocument()
     expect(screen.queryByTestId('timeline-gantt')).not.toBeInTheDocument()
@@ -211,15 +222,13 @@ describe('타임라인 — 상태 목록 관문 (WP-938)', () => {
   test('상태 목록 실패 → 다시 시도 → 간트', async () => {
     let fail = true
     const api = defaultApi()
-    const { user } = renderPage(`/projects/${KEY}/timeline`, {
-      handlers: [
-        http.get(`${API}/statuses`, () =>
-          fail ? HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }) : HttpResponse.json(inServerOrder(withCustomStatuses())),
-        ),
-        ...api.handlers,
-      ],
-    })
-    const error = await screen.findByTestId('project-statuses-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderTimeline(`/projects/${KEY}/timeline`, [
+      http.get(`${API}/statuses`, () =>
+        fail ? HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }) : HttpResponse.json(inServerOrder(withCustomStatuses())),
+      ),
+      ...api.handlers,
+    ])
+    const error = await screen.findByTestId('project-statuses-error')
     expect(error).toHaveTextContent('상태 목록을 불러오지 못했습니다')
     expect(error).toHaveTextContent('타임라인을 그릴 수 없습니다')
     expect(screen.queryByTestId('timeline-gantt')).not.toBeInTheDocument()

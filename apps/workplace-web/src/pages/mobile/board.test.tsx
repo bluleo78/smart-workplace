@@ -2,11 +2,12 @@
 // 탭↔패널 aria 연결, 탭 전환의 boardTab 주소 반영·주소로 복귀, 예전 범주 링크(boardTab=DONE) 정규화, 상태 필터로 탭 숨김·필터 변경에도 탭 유지,
 // 그룹 보드의 탭 안 그룹 섹션, 개인 보드 탭 3개는 주소·조건부 렌더라 e2e/pages/mobile/board.spec.ts 에서 옮겼다.
 // 카드 2줄·탭 44px·스와이프·길게 누르기·스크롤 맨 위 같은 기하·입력은 그 E2E 가 지킨다.
+// 앱 셸을 보지 않으므로 이슈 목록·보드 화면(ProjectDetailPage)만 renderScreen 으로 띄운다(WP-1002).
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 
@@ -14,6 +15,7 @@ import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/i
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { statusFieldsOf } from '../../../e2e/factories/projectStatus.factory'
+import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 mockViewport()
 
@@ -43,11 +45,15 @@ function handlers({ issues = [TODO1, TODO2, PROG, DONE1], type = 'TEAM' as 'TEAM
   ]
 }
 
+/** 이슈 목록·보드 화면을 path 로 띄운다. */
+const openBoard = (path: string, h: ReturnType<typeof handlers>) =>
+  renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path, handlers: h })
+
 const tab = (statusId: number) => screen.getByTestId(`board-tab-${statusId}`)
 
 test('선택 탭의 aria-controls 가 그 탭으로 이름 붙은 tabpanel(카드 목록)을 가리키고, 탭을 바꾸면 따라간다', async () => {
-  const { user } = renderPage(`/projects/${KEY}?view=board&group=none&boardTab=1`, { handlers: handlers() })
-  await screen.findByTestId('issue-card-21', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = openBoard(`/projects/${KEY}?view=board&group=none&boardTab=1`, handlers())
+  await screen.findByTestId('issue-card-21')
   for (const [statusId, card] of [[1, 'issue-card-21'], [3, 'issue-card-31']] as const) {
     if (statusId === 3) await user.click(tab(3))
     await waitFor(() => expect(tab(statusId)).toHaveAttribute('aria-selected', 'true'))
@@ -59,9 +65,9 @@ test('선택 탭의 aria-controls 가 그 탭으로 이름 붙은 tabpanel(카�
 })
 
 test('탭을 누르면 전환되고 주소 boardTab 에 남으며, 그 주소로 다시 열면 같은 탭이다', async () => {
-  const first = renderPage(`/projects/${KEY}?view=board&group=none`, { handlers: handlers() })
+  const first = openBoard(`/projects/${KEY}?view=board&group=none`, handlers())
   // 기본 탭은 진행 중(2) — 그 카드만 보인다.
-  expect(await screen.findByTestId('issue-card-1047', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  expect(await screen.findByTestId('issue-card-1047')).toBeInTheDocument()
   expect(tab(2)).toHaveAttribute('aria-selected', 'true')
   expect(screen.queryByTestId('issue-card-21')).not.toBeInTheDocument()
   await first.user.click(tab(3))
@@ -71,21 +77,21 @@ test('탭을 누르면 전환되고 주소 boardTab 에 남으며, 그 주소로
   first.unmount()
 
   // 새로고침 = 같은 주소로 새로 띄우기.
-  renderPage(url, { handlers: handlers() })
-  expect(await screen.findByTestId('issue-card-31', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  openBoard(url, handlers())
+  expect(await screen.findByTestId('issue-card-31')).toBeInTheDocument()
   expect(tab(3)).toHaveAttribute('aria-selected', 'true')
 })
 
 test('예전 범주 링크(boardTab=DONE)는 그 범주 첫 상태 탭으로 열리고 주소가 statusId 로 바뀐다', async () => {
-  const { location } = renderPage(`/projects/${KEY}?view=board&group=none&boardTab=DONE`, { handlers: handlers() })
-  expect(await screen.findByTestId('issue-card-31', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  const { location } = openBoard(`/projects/${KEY}?view=board&group=none&boardTab=DONE`, handlers())
+  expect(await screen.findByTestId('issue-card-31')).toBeInTheDocument()
   expect(tab(3)).toHaveAttribute('aria-selected', 'true')
   await waitFor(() => expect(location()).toMatch(/boardTab=3(&|$)/))
 })
 
 test('상태 필터로 제외된 탭은 숨기고, 검색어로 필터를 바꿔도 선택 탭은 유지된다', async () => {
-  const { user, location } = renderPage(`/projects/${KEY}?view=board&group=none&status=TODO,DONE&boardTab=3`, { handlers: handlers() })
-  expect(await screen.findByTestId('issue-card-31', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  const { user, location } = openBoard(`/projects/${KEY}?view=board&group=none&status=TODO,DONE&boardTab=3`, handlers())
+  expect(await screen.findByTestId('issue-card-31')).toBeInTheDocument()
   expect(screen.queryByTestId('board-tab-2')).not.toBeInTheDocument()
   expect(tab(3)).toHaveAttribute('aria-selected', 'true')
   // 검색어 입력 = writeFilters 경로.
@@ -98,16 +104,16 @@ test('상태 필터로 제외된 탭은 숨기고, 검색어로 필터를 바꿔
 test('우선순위 그룹 보드도 상태 탭 — 탭 건수와 탭 안 그룹 섹션, 다른 상태 카드는 없다', async () => {
   const hi = createIssue({ id: 61, number: 61, projectKey: KEY, title: '높음 할 일', type: makeTaskType(), status: 'TODO', priority: 'HIGH' })
   const lo = createIssue({ id: 62, number: 62, projectKey: KEY, title: '낮음 할 일', type: makeTaskType(), status: 'TODO', priority: 'LOW' })
-  renderPage(`/projects/${KEY}?view=board&group=priority&boardTab=1`, { handlers: handlers({ issues: [hi, lo, PROG] }) })
-  expect(await screen.findByTestId('board-group-1-HIGH', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('높음 할 일')
+  openBoard(`/projects/${KEY}?view=board&group=priority&boardTab=1`, handlers({ issues: [hi, lo, PROG] }))
+  expect(await screen.findByTestId('board-group-1-HIGH')).toHaveTextContent('높음 할 일')
   expect(screen.getByTestId('board-group-1-LOW')).toHaveTextContent('낮음 할 일')
   await waitFor(() => expect(screen.getByTestId('board-tab-count-1')).toHaveTextContent('2'))
   expect(screen.queryByTestId('issue-card-1047')).not.toBeInTheDocument()
 })
 
 test('개인 프로젝트 보드는 탭 3개(취소 없음)이고 상태 편집 ⋯·범주 색 띠가 없다', async () => {
-  renderPage(`/projects/${KEY}?view=board`, { handlers: handlers({ type: 'PERSONAL' }) })
-  expect(await screen.findByTestId('board-tab-1', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+  openBoard(`/projects/${KEY}?view=board`, handlers({ type: 'PERSONAL' }))
+  expect(await screen.findByTestId('board-tab-1')).toBeInTheDocument()
   expect(tab(3)).toBeInTheDocument()
   expect(screen.queryByTestId('board-tab-4')).not.toBeInTheDocument()
   expect(screen.queryByTestId('board-tab-menu')).not.toBeInTheDocument()

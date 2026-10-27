@@ -14,7 +14,7 @@ export interface MailContextInput {
    */
   folder: 'INBOX' | 'SENT' | 'DRAFTS';
   /**
-   * WP-961 서버 메일함(보관·내 메일함) 보기의 경로 이름(예: 「내 메일함 › 프로젝트」). 있으면 folder 대신 이 이름을 쓰고 refs 에 folder 를 싣지 않는다
+   * WP-961 서버 메일함(보관·내 메일함) 보기의 경로 이름(예: 「프로젝트 › 견적」). 있으면 folder 대신 이 이름을 쓰고 refs 에 folder 를 싣지 않는다
    * — list_mail 은 서버 메일함 인자가 없어 INBOX 를 실으면 AI 가 받은편지함을 읽는다.
    */
   serverFolder?: string | null;

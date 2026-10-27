@@ -20,6 +20,10 @@ Claude 세션에서 `/release prepare` — 범위 수집·버전 제안(`deploy/
 
 노트만 바뀐 push 와 태그 push 는 pre-push 회귀를 건너뛴다(`scripts/husky/pre-push.sh`). 코드 머지는 워크트리에서 머지 전에 `pnpm test:full` 을 통과시켜 두면, 같은 트리의 main push 에서 회귀를 다시 돌지 않는다.
 
+### WP 버전 연동 (WP-1005)
+
+태그를 push 한 뒤 `/release` 스킬이 genia-works MCP 로 WP 프로젝트에 버전 `vX.Y.Z` 를 만들고(`create_project_meta kind: version`, 이미 있으면 생략) 이번 노트에 담은 이슈의 수정 버전(`update_issue fixVersions`)에 붙인다. 운영 반영 뒤 이슈를 완료할 때 `update_project_meta kind: version status: RELEASED` 로 출시 처리한다. 잘못 출시했으면 `status: UNRELEASED`(자동 롤백 없음). 버전 만들기·출시는 WP 프로젝트 OWNER 권한이라 OWNER 세션에서 한다. 개인 토큰·환경변수(`GENIA_WORKS_*`)는 쓰지 않는다.
+
 ## ② 빌드 — GitLab CI (`.gitlab-ci.yml`)
 
 `vX.Y.Z` 태그 push 에서만 돈다(main push 에는 파이프라인 없음 — pre-push 가 이미 회귀를 돌렸다).

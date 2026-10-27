@@ -2,21 +2,23 @@
 // 접기 저장의 직렬화·실패 롤백·실패 뒤 마지막 의도 보존, 접기 저장 중 편집 진입 막기, 타일 탭 이동, 저장본 정규화(collapsed 없음·미등록 위젯),
 // 위젯 추가 안내·count 3 저장, 배지 건수(전체 안 읽음·다음 페이지 +), 타일 요약 축소 조회는 요청·조건부 렌더라
 // e2e/pages/mobile/home-dashboard.spec.ts 에서 옮겼다. 터치 대상 크기·말줄임·격자·드래그·키보드 포커스·lg 경계 리사이즈는 그 E2E 가 지킨다.
+// 앱 셸을 보지 않으므로 홈 화면만 renderScreen 으로 띄운다 — 타일 탭 뒤 도착 화면은 그리지 않고 이동 주소만 본다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
 
 import type { PriorityItemsResponse } from '@/api/priorityItems'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { DashboardLayout, DashboardWidgetConfig, MailSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
 
 import { member, page as contactPage } from '../../../e2e/factories/contacts.factory'
 import { createSpace } from '../../../e2e/factories/drive.factory'
-import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { mailAccount, summary as mailRow } from '../../../e2e/factories/mail.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import HomePage from '../HomePage'
 
 mockViewport()
 
@@ -67,9 +69,9 @@ const widget = (type: string) => document.querySelector<HTMLElement>(`[data-test
 const widgetById = (id: string) => document.querySelector<HTMLElement>(`[data-testid="dashboard-widget"][data-widget-id="${id}"]`)
 
 /** 홈을 띄우고 첫 위젯이 그려질 때까지 기다린다. */
-async function openHome(handlers: NonNullable<Parameters<typeof renderPage>[1]>['handlers']) {
-  const view = renderPage('/', { handlers })
-  await screen.findAllByTestId('dashboard-widget', {}, { timeout: PAGE_LOAD_TIMEOUT })
+async function openHome(handlers: RequestHandler[]) {
+  const view = renderMobileRoute('/', <HomePage />, { handlers })
+  await screen.findAllByTestId('dashboard-widget')
   return view
 }
 
@@ -147,15 +149,13 @@ test('타일 — 드라이브 타일은 요약 한 줄·접기 없음, 누르면
     ...widgetData(),
     ...dash.handler,
     http.get('/api/v1/drive/spaces', () => HttpResponse.json([createSpace({ id: 1, name: '디자인팀 공유 자료' })])),
-    // 도착한 드라이브 화면이 부르는 쿼터 — 이동만 본다.
-    http.get('/api/v1/drive/quota', () => HttpResponse.json({ usedBytes: 0, quotaBytes: 1024 })),
   ])
   const drive = () => widget('drive')!
   expect(drive()).toHaveAttribute('data-mobile-kind', 'tile')
   await waitFor(() => expect(within(drive()).getByTestId('mobile-widget-summary-text')).toHaveTextContent('디자인팀 공유 자료'))
   expect(within(drive()).queryByTestId('mobile-widget-collapse')).not.toBeInTheDocument()
   await user.click(drive())
-  await waitFor(() => expect(location()).toBe('/drive'), { timeout: PAGE_LOAD_TIMEOUT })
+  await waitFor(() => expect(location()).toBe('/drive'))
 })
 
 test('타일 — AI 우선순위 타일은 건수·「긴급·중요」 요약을 보이고, 누르면 최상위 항목으로 간다', async () => {
@@ -170,17 +170,13 @@ test('타일 — AI 우선순위 타일은 건수·「긴급·중요」 요약�
     ...widgetData(),
     ...dash.handler,
     http.get('/api/v1/me/priority-items', () => HttpResponse.json(priority)),
-    // 도착한 이슈 상세가 부르는 조회 — 이동만 보므로 최소 응답.
-    http.get('/api/v1/projects/WP', () => HttpResponse.json(createProject({ key: 'WP' }))),
-    http.get('/api/v1/projects/WP/issues/7', () => HttpResponse.json(createIssueDetail({ summary: createIssue({ id: 7, number: 7, projectKey: 'WP' }) }))),
-    http.get('/api/v1/projects/WP/issues/7/*', () => HttpResponse.json([])),
   ])
   // 카드는 저장본이 바뀌면 다시 그려지므로 매번 새로 찾는다.
   const prio = () => widget('priority_quadrant')!
   await waitFor(() => expect(within(prio()).getByTestId('mobile-widget-count')).toHaveTextContent('2'))
   expect(within(prio()).getByTestId('mobile-widget-summary')).toHaveTextContent('긴급·중요')
   await user.click(prio())
-  await waitFor(() => expect(location()).toBe('/projects/WP/issues/7'), { timeout: PAGE_LOAD_TIMEOUT })
+  await waitFor(() => expect(location()).toBe('/projects/WP/issues/7'))
 })
 
 test('collapsed 필드 없는 저장본은 펼침으로, 미등록 위젯은 건너뛰고 렌더된다', async () => {
@@ -284,8 +280,8 @@ test('타일 요약은 필요한 만큼만 조회한다 — 프로젝트 size·�
 // e2e/pages/home.spec.ts 에서 옮겼다(조건부 렌더라 브라우저가 필요 없다).
 test('위젯을 모두 숨기면 빈 상태 안내가 보이고 「홈 편집」으로 편집에 들어간다 (WP-520)', async () => {
   const dash = dashboard(layout([{ id: 'my_tasks', type: 'my_tasks', count: 3, hidden: true, collapsed: false }]))
-  const { user } = renderPage('/', { handlers: [...widgetData(), ...dash.handler] })
-  const empty = await screen.findByTestId('dashboard-empty', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = renderMobileRoute('/', <HomePage />, { handlers: [...widgetData(), ...dash.handler] })
+  const empty = await screen.findByTestId('dashboard-empty')
   expect(empty).toHaveTextContent('보이는 위젯이 없습니다')
   await user.click(within(empty).getByTestId('dashboard-empty-action'))
   expect(await screen.findByTestId('dashboard-add-widget-open')).toBeInTheDocument()

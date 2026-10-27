@@ -3,13 +3,15 @@
 // 수정 중 칩 숨김·수정 뒤 유지, 반응자 호버 카드·전체 보기 다이얼로그는 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-comment-reactions.spec.ts 에서 옮겼다. 호버 때만 드러나는 😊+·상시 ＋ 의 투명도와
 // 키보드 반응 뒤 포커스 이동(WP-830)은 E2E(@input)에 남는다.
+// 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { DETAIL_PATH, type DetailRef, detailRefOf, ISSUE_ID, ME_ID, setRichText } from '@/test/kits/projects/issueDetailRef'
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueCommentResponse, IssueDetailResponse } from '@/types/issue'
 
 import { createAgentComment, createComment } from '../../../e2e/factories/issue.factory'
@@ -73,8 +75,8 @@ async function open(comments: IssueCommentResponse[], opts: Opts = {}) {
       return HttpResponse.json(ref.current.comments.find((c) => c.id === Number(params.id)))
     }),
   ]
-  const view = renderPage(DETAIL_PATH, { handlers })
-  await screen.findByText(comments[0].body, {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderIssueDetailScreen(DETAIL_PATH, { handlers })
+  await screen.findByText(comments[0].body, {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...view, ref, calls }
 }
 

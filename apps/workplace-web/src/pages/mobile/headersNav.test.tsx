@@ -2,11 +2,17 @@
 // ⋯ 메뉴 항목 구성(권한·보관), 메뉴에서 연 삭제·생성의 요청 payload 와 이동, 탭바 활성 폴백·고정(저장된 탭 설정에 따른 조건부 렌더),
 // 탭 루트 제목은 브라우저 없이 판정되므로 e2e/pages/mobile/headers-nav.spec.ts 에서 옮겼다.
 // 병합 헤더 높이·제목 폭·글꼴·가로 넘침(@layout), ⋯ 메뉴 바깥 누르기/Esc 닫기(@input), 히스토리에 기대는 ‹ 복귀(@platform)는 E2E 에 남는다.
+// 탭바를 보는 판정(「탭바·탭 루트」의 탭 활성·고정)만 앱 셸이 필요해 renderPage 로 띄우고, 나머지(⋯ 메뉴·뒤로가기 바·연락처 ＋·작업 루트 제목)는
+// 그 화면 또는 모듈 레이아웃만 renderScreen 으로 띄운다 — 이동은 도착 화면을 그리지 않고 주소만 본다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { ContactModuleLayout } from '@/components/contacts/ContactModuleLayout'
+import { DriveModuleLayout } from '@/components/drive/DriveModuleLayout'
+import { IssueModuleLayout } from '@/components/issue/IssueModuleLayout'
 import { chatHandlers } from '@/test/kits/mobile/chatHistory'
+import { renderMobileModule, renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import { mockViewport } from '@/test/viewport'
 
@@ -14,6 +20,10 @@ import { external, externalDetail, member, page as contactPage } from '../../../
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { createChannel } from '../../../e2e/factories/messaging.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import ChannelPage from '../chat/ChannelPage'
+import { ContactsPage } from '../contacts/ContactsPage'
+import { DriveAttachmentsView } from '../drive/DriveAttachmentsView'
+import IssueDetailPage from '../projects/IssueDetailPage'
 
 mockViewport()
 
@@ -24,7 +34,8 @@ describe('⋯ 메뉴', () => {
   test('이슈 상세: ⋯ → 삭제 → 확인 → DELETE 후 프로젝트로 이동', async () => {
     const deletes: string[] = []
     const base = `/api/v1/projects/${KEY}/issues/${NUM}`
-    const { user, location } = renderPage(`/projects/${KEY}/issues/${NUM}`, {
+    const { user, location } = renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, {
+      path: `/projects/${KEY}/issues/${NUM}`,
       handlers: [
         http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
         http.get(base, () =>
@@ -38,7 +49,7 @@ describe('⋯ 메뉴', () => {
         http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
       ],
     })
-    await user.click(await screen.findByTestId('mobile-header-more', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('mobile-header-more'))
     // 삭제(파괴적)·구독은 인라인이 아니라 ⋯ 메뉴 안에 있다.
     const menu = await screen.findByTestId('mobile-header-more-menu')
     expect(within(menu).getByTestId('watch-toggle')).toBeInTheDocument()
@@ -49,19 +60,20 @@ describe('⋯ 메뉴', () => {
     expect(screen.getByTestId('mobile-header-more')).toHaveAttribute('aria-expanded', 'false')
     await user.click(within(dialog).getByRole('button', { name: '삭제' }))
     await waitFor(() => expect(deletes).toEqual([base]))
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`))
   })
 
   // WP-843: 보관된 채널은 이름을 바꿀 수 없다 — ⋯ 메뉴에도 「이름 변경」 없이 「보관 해제」만 남는다.
   test('보관된 채널(OWNER): ⋯ 메뉴에 이름 변경이 없고 보관 해제만 있다', async () => {
-    const { user } = renderPage('/chat/channels/1', {
+    const { user } = renderMobileRoute('/chat/channels/:id', <ChannelPage />, {
+      path: '/chat/channels/1',
       handlers: [
         ...chatHandlers({ channels: [createChannel({ id: 1, name: '보관됨', archived: true, role: 'OWNER', member: true })] }),
         http.get('/api/v1/messaging/channels/1/messages', () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
         http.get('/api/v1/messaging/channels/1/members', () => HttpResponse.json([])),
       ],
     })
-    await user.click(await screen.findByTestId('mobile-header-more', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('mobile-header-more'))
     const menu = await screen.findByTestId('mobile-header-more-menu')
     expect(within(menu).getByTestId('channel-unarchive-action')).toBeInTheDocument()
     expect(within(menu).queryByTestId('channel-rename-action')).not.toBeInTheDocument()
@@ -70,16 +82,18 @@ describe('⋯ 메뉴', () => {
 
 describe('헤더 없는 상세·연락처', () => {
   test('헤더가 없는 상세 화면(드라이브 첨부 모아보기)은 뒤로가기 바(‹·✦)를 하나 둔다', async () => {
-    renderPage('/drive/attachments', {
+    renderMobileModule(<DriveModuleLayout />, [['/drive/attachments', <DriveAttachmentsView />]], {
+      path: '/drive/attachments',
       handlers: [http.get('/api/v1/drive/attachments', () => HttpResponse.json({ items: [], nextCursor: null }))],
     })
-    expect(await screen.findByTestId('mobile-back-ai', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByTestId('mobile-back-ai')).toBeInTheDocument()
     expect(screen.getAllByTestId('mobile-back')).toHaveLength(1)
   })
 
   test('연락처: 새 외부 연락처는 ⋯ 없이 ＋ 하나 — 입력 → POST payload → 다이얼로그 닫힘 → 목록 반영', async () => {
     const creates: unknown[] = []
-    const { user } = renderPage('/contacts', {
+    const { user } = renderMobileModule(<ContactModuleLayout />, [['/contacts', <ContactsPage />]], {
+      path: '/contacts',
       handlers: [
         http.get('/api/v1/contacts', () =>
           HttpResponse.json(contactPage(creates.length ? [member(), external({ id: 200, name: '신규연락처' })] : [member()])),
@@ -90,7 +104,7 @@ describe('헤더 없는 상세·연락처', () => {
         }),
       ],
     })
-    await user.click(await screen.findByTestId('contact-create', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('contact-create'))
     expect(screen.queryByTestId('mobile-header-more')).not.toBeInTheDocument()
     await screen.findByTestId('external-contact-dialog')
     await user.type(screen.getByTestId('c-name'), '신규연락처')
@@ -129,8 +143,9 @@ describe('탭바·탭 루트', () => {
   })
 
   test('작업 탭 루트 제목은 탭 라벨과 같은 "작업"', async () => {
-    renderPage('/tasks')
-    const header = await screen.findByTestId('mobile-list-header', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    // 작업 루트 목록·큰 제목은 탭바가 아니라 작업 모듈 레이아웃이 그린다.
+    renderMobileModule(<IssueModuleLayout />, [['/tasks', <></>]], { path: '/tasks' })
+    const header = await screen.findByTestId('mobile-list-header')
     expect(within(header).getByRole('heading', { level: 1 })).toHaveTextContent('작업')
   })
 })

@@ -6,7 +6,8 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { issueChatHandlers, openIssueDetail, recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { issueChatHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import type { ChatMessageResponse, ChatThreadResponse } from '@/types/chat'
 

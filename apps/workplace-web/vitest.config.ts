@@ -51,13 +51,20 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'dom',
-          environment: 'jsdom',
+          environment: 'happy-dom',
+          // 문서 속 <link>·<script> 를 실제로 내려받지 않는다 — 화면 테스트는 스타일·외부 스크립트 없이 DOM 만 본다(WP-1002).
+          environmentOptions: {
+            happyDOM: {
+              settings: { disableCSSFileLoading: true, disableJavaScriptFileLoading: true, handleDisabledFileLoadingAsSuccess: true },
+            },
+          },
           include: ['src/**/*.test.tsx'],
           exclude: skipPageTests ? pageTestFiles() : [],
           // jest-dom 매처·RTL cleanup·jsdom 에 없는 브라우저 API 보강·MSW — 컴포넌트·페이지 테스트에만 필요하다.
           setupFiles: ['src/test/setup.ts'],
           // 페이지 테스트(renderPage)는 워커가 페이지 모듈을 처음 불러오는 데만 5~6초가 든다(WP-971) — 기본 5초로는 첫 테스트가 넘친다.
-          testTimeout: 30_000,
+          // 부하가 크면 그 변환이 20초를 넘으므로(WP-1006) 첫 화면 대기(PAGE_LOAD_TIMEOUT 45초)와 뒤 단언이 들어가게 60초.
+          testTimeout: 60_000,
         },
       },
     ],

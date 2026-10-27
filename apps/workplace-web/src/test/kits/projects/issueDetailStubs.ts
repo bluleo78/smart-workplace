@@ -2,12 +2,10 @@
 // E2E 의 mockIssueDetail·setupStubs 와 같은 구성을 MSW 핸들러로 깐다 — 화면 데이터(상세·첨부·드라이브 링크·멤버)는
 // 테스트가 넘기고, 이슈 상세가 늘 부르는 부가 조회(watchers·labels·attachments·drive-links)는 빈 성공으로 채운다.
 // 요청 기록(recordRequests)은 MSW 이벤트로 모든 요청을 남겨 payload·쿼리·횟수를 단언하게 한다(E2E trackRequests 와 같은 역할).
-import { screen } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { onTestFinished } from 'vitest'
 
 import { server } from '@/test/msw/server'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { IssueAttachment } from '@/types/attachment'
 import type { IssueDetailResponse } from '@/types/issue'
 import type { MemberResponse, ProjectResponse } from '@/types/project'
@@ -58,7 +56,7 @@ export function recordRequests() {
   }
 }
 
-type IssueDetailOptions = {
+export type IssueDetailOptions = {
   key?: string
   /** 이슈 번호 — 없으면 detail 의 summary.number(detail 도 없으면 1). */
   number?: number
@@ -79,6 +77,11 @@ const read = <T>(v: T | (() => T)): T => (typeof v === 'function' ? (v as () => 
 /** 상세의 하위 조회 중 테스트가 값을 주지 않으면 빈 목록으로 답하는 것들 — 상세 화면이 섹션마다 부른다. */
 const EMPTY_DETAIL_SUBS = ['watchers', 'labels', 'children', 'relations', 'dependencies', 'cycles', 'links', 'mail-links']
 
+/** 상세 이슈 번호 — number 가 없으면 detail 의 summary.number(detail 도 없으면 1). */
+export function detailNumberOf({ number, detail }: Pick<IssueDetailOptions, 'number' | 'detail'>): number {
+  return number ?? (detail ? read(detail).summary.number : 1)
+}
+
 /**
  * 이슈 상세 본문과 하위 조회만 — 프로젝트·검색은 다른 도우미(projectScreen 등)가 깔 때 쓴다.
  * 이슈 상세 목은 여기 하나다(WP-995) — 묶음마다 따로 만든 목(상세 ref·SSE·프로젝트 화면용)을 합쳤다.
@@ -90,7 +93,7 @@ export function issueDetailSubHandlers({
   attachments = [],
   driveLinks = [],
 }: Pick<IssueDetailOptions, 'key' | 'number' | 'detail' | 'attachments' | 'driveLinks'> = {}): RequestHandler[] {
-  const n = number ?? (detail ? read(detail).summary.number : 1)
+  const n = detailNumberOf({ number, detail })
   const body = detail ?? createIssueDetail({ summary: createIssue({ projectKey: key, number: n }) })
   const base = `/api/v1/projects/${key}/issues/${n}`
   return [
@@ -121,15 +124,6 @@ export function issueDetailHandlers({
   ]
 }
 
-/** 이슈 상세를 열고 제목이 뜰 때까지 기다린다. extra 핸들러는 기본보다 우선한다. */
-export async function openIssueDetail(options: IssueDetailOptions & { handlers?: RequestHandler[]; path?: string } = {}) {
-  const { handlers = [], path, ...rest } = options
-  const key = rest.key ?? 'WP'
-  const number = rest.number ?? (rest.detail ? read(rest.detail).summary.number : 1)
-  const view = renderPage(path ?? `/projects/${key}/issues/${number}`, { handlers: [...handlers, ...issueDetailHandlers(rest)] })
-  await screen.findByTestId('issue-title-heading', {}, { timeout: PAGE_LOAD_TIMEOUT })
-  return view
-}
 
 /** JSON 응답 축약. */
 export const json = (body: unknown, status = 200) => HttpResponse.json(body as never, { status })

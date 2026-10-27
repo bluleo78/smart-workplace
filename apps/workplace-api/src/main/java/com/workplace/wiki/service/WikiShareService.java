@@ -83,7 +83,10 @@ public class WikiShareService {
   private final ApplicationEventPublisher publisher;
   private final ObjectMapper objectMapper;
 
-  /** 공유 창 상태 — 이 페이지 공유, 외부 공유 허용, 상위 공유 포함 여부, 대기 중 접근 요청. EDITOR 이상. */
+  /**
+   * 공유 창 상태 — 이 페이지 공유, 외부 공유 허용, 상속받는 상위 공유, 대기 중 접근 요청, 상위 공유 제외 표시와 이 공유에서 제외된 하위(WP-987).
+   * EDITOR 이상.
+   */
   @Transactional(readOnly = true)
   public WikiPageShareStateResponse state(long callerId, long pageId) {
     requireEditor(callerId, pageId);
@@ -92,7 +95,49 @@ public class WikiShareService {
         share == null ? null : toResponse(share),
         shares.isExternalShareEnabled(TenantContext.require(), PolicyLock.NONE),
         shares.findNearestIncludingAncestor(pageId).orElse(null),
-        share == null ? List.of() : shares.listPendingRequests(pageId));
+        share == null ? List.of() : shares.listPendingRequests(pageId),
+        shares.isExcluded(pageId),
+        share != null && share.includeChildren() ? shares.listExcludedUnder(pageId) : List.of());
+  }
+
+  /**
+   * 「이 페이지와 하위는 상위 공유에서 제외」를 켜고 끈다(WP-987) — 멱등. 켜면 이 페이지와 서브트리가 그 위의 하위 포함 공유로 더는 열리지 않고(이 페이지가 따로
+   * 켠 공유는 그대로), 끄면 다시 상속받는다. 바뀌었으면 상속받던(받을) 상위 공유의 기록에 남긴다 — 상위 공유 창의 「공유 기록」에서 누가 언제 뺐는지 보이게. 켜는
+   * 것은 접근이 줄어드는 변경이라 서브트리의 공유 연결을 다시 판정하게 한다. 끄는 것은 공유를 넓히는 변경이라 저장처럼 잠금과 함께 권한을 본다. EDITOR 이상.
+   */
+  @Transactional
+  public void setExcluded(long callerId, long pageId, boolean excluded) {
+    lockEditor(callerId, pageId);
+    boolean changed =
+        excluded ? shares.insertExclusion(pageId, callerId) : shares.deleteExclusion(pageId);
+    if (!changed) {
+      return;
+    }
+    shares
+        .findNearestIncludingAncestor(pageId)
+        .ifPresent(
+            parent ->
+                shares.insertEvent(
+                    parent.pageId(),
+                    callerId,
+                    excluded ? "CHILD_EXCLUDED" : "CHILD_INCLUDED",
+                    detail(
+                        Map.of(
+                            "text",
+                            "「"
+                                + titleOf(pageId)
+                                + (excluded ? "」을(를) 이 공유에서 제외했습니다" : "」의 제외를 풀었습니다"),
+                            "childPageId",
+                            pageId))));
+    if (excluded) {
+      publishAccessChanged(pages.subtreeIdsInclusive(pageId));
+    }
+  }
+
+  /** 기록 문구의 페이지 제목 — 비었으면 「제목 없음」. */
+  private String titleOf(long pageId) {
+    String t = pages.findTitle(pageId).orElse(null);
+    return t == null || t.isBlank() ? "제목 없음" : t.strip();
   }
 
   /**
@@ -113,6 +158,11 @@ public class WikiShareService {
 
     ShareDetail before = shares.findByPageForUpdate(pageId).orElse(null);
     requireFutureExpiry(before, next);
+    // 상위 하위 포함 공유가 지금 이 페이지를 덮는가 — 따로 켜면 이 페이지부터 상위 공유 대신 이 공유를 따른다(WP-987, 하위 설정이 우선).
+    boolean inheritedBefore =
+        before == null
+            && !shares.isExcluded(pageId)
+            && shares.findNearestIncludingAncestor(pageId).isPresent();
     if (before == null
         && shares.insertIfAbsent(
             pageId,
@@ -124,6 +174,10 @@ public class WikiShareService {
             next.expiresAt(),
             callerId)) {
       recordCreated(callerId, pageId, spaceId, next);
+      if (inheritedBefore) {
+        // 상위 링크로 이 서브트리를 열던 연결은 이제 이 공유로 다시 판정해야 한다(상위 링크로는 더 열리지 않는다).
+        publishAccessChanged(pages.subtreeIdsInclusive(pageId));
+      }
       ShareDetail created = shares.findByPage(pageId).orElseThrow();
       if ("PEOPLE".equals(next.audience())) {
         changePeople(

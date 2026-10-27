@@ -75,5 +75,19 @@ export function useWikiShareMutations(pageId: number, spaceId: number) {
     // 이미 처리됐거나 권한이 바뀐 요청이면 실패한다 — 목록을 다시 받아 사라진 요청을 치운다.
     onError: refetchState,
   })
-  return { save, regenerate, revoke, decide }
+  // 상위 공유 제외 켜기·풀기(WP-987) — targetPageId 는 표시를 바꿀 하위 페이지(하위 창에서는 자기, 상위 창의 「제외 풀기」는 그 하위).
+  // 상위·하위 창 상태와 상위 공유의 기록·공유 화면 목록이 함께 바뀌므로 공유 관련 쿼리를 모두 다시 받는다.
+  const exclusion = useMutation({
+    mutationFn: ({ targetPageId, excluded }: { targetPageId: number; excluded: boolean }) =>
+      excluded ? wikiApi.excludeFromParentShare(targetPageId) : wikiApi.includeInParentShare(targetPageId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['wiki', 'share'] })
+      void qc.invalidateQueries({ queryKey: ['wiki', 'shareEvents'] })
+      void qc.invalidateQueries({ queryKey: wikiKeys.sharedPages(spaceId) })
+      // 열려 있는 공유 보기의 페이지 목록도 바뀐다(제외된 하위가 빠지거나 돌아온다).
+      void qc.invalidateQueries({ queryKey: ['wiki', 'shareLink'] })
+    },
+    onError: refetchState,
+  })
+  return { save, regenerate, revoke, decide, exclusion }
 }

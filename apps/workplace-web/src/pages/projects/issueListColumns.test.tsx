@@ -1,4 +1,4 @@
-// 이슈 목록 열 고르기(WP-270) — 페이지 테스트(WP-980).
+// 이슈 목록 열 고르기(WP-270) — 화면 테스트(WP-980, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // URL cols → 평면·사이클 구간 헤더와 셀(완료일·보고자·사이클·커스텀 필드), 빈 cols·기본 열, 그룹 헤더 colSpan, 완료일 필터의 자동 열,
 // 저장된 뷰가 열을 담는지·「수정됨」 비교·뷰 업데이트 PATCH·URL cols 전환, 보드의 「열」 버튼 없음은 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-list-columns.spec.ts 에서 옮겼다. 그 spec 에는 폭·가로 스크롤·sticky·말줄임(@layout)과
@@ -8,7 +8,8 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { issueListHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import type { ScreenUser } from '@/test/renderScreen'
 import type { IssueFieldDef } from '@/types/customField'
 import type { CycleResponse } from '@/types/cycle'
 import type { IssueResponse } from '@/types/issue'
@@ -52,7 +53,7 @@ function savedView(id: number, name: string, query: string): SavedViewResponse {
 /** 목록 화면을 연다 — 사이클 유무에 따라 기본 그룹이 달라진다. 저장된 뷰는 서버 상태 배열을 GET/POST/PATCH 가 공유한다. */
 function open(path: string, { cycles = [] as CycleResponse[], views = [] as SavedViewResponse[] } = {}) {
   const requests = recordRequests()
-  const view = renderPage(path, {
+  const view = renderProjectScreen(path, {
     handlers: [
       http.post(`/api/v1/projects/${KEY}/saved-views`, async ({ request }) => {
         const body = (await request.json()) as SavedViewResponse
@@ -108,14 +109,14 @@ const EXPECTED_HEADERS = ['ID', '제목', '담당자', '마감', '완료일', '�
 describe('이슈 목록 열 정의 (WP-270)', () => {
   test('평면 목록 — URL cols 의 선택 열이 정해진 순서로 헤더·셀에 보인다', async () => {
     open(`/projects/${KEY}?group=none&cols=${COLS}`)
-    const row = await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const row = await screen.findByTestId('issue-row-1')
     await waitFor(() => expect(visibleHeaders(thead())).toEqual(EXPECTED_HEADERS))
     expectSelectedCells(row)
   })
 
   test('사이클 구간 목록 — 상단 열 이름 행과 구간 표가 같은 열 정의(같은 칸 수)를 쓴다', async () => {
     open(`/projects/${KEY}?cols=${COLS}`, { cycles: [CYCLE] })
-    const section = await screen.findByTestId('list-cycle-section-cycle-3', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const section = await screen.findByTestId('list-cycle-section-cycle-3')
     const row = await within(section).findByTestId('issue-row-1')
     const head = screen.getByTestId('list-cycle-column-head')
     await waitFor(() => expect(visibleHeaders(head)).toEqual(EXPECTED_HEADERS))
@@ -127,7 +128,7 @@ describe('이슈 목록 열 정의 (WP-270)', () => {
 
   test('그룹 목록(group=status)에서 선택 열이 늘면 그룹 헤더 colSpan 이 헤더 칸 수와 같다', async () => {
     open(`/projects/${KEY}?group=status&cols=${COLS}`)
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     const ths = thead().querySelectorAll('th')
     expect(ths).toHaveLength(12)
     const groupCell = document.querySelector('tbody[data-testid^="list-group-"] > tr td')!
@@ -136,7 +137,7 @@ describe('이슈 목록 열 정의 (WP-270)', () => {
 
   test('cols= (빈 값)이면 선택 열이 모두 꺼진다 — 우선순위·담당자·마감 없음', async () => {
     open(`/projects/${KEY}?group=none&cols=`)
-    const row = await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const row = await screen.findByTestId('issue-row-1')
     await waitFor(() => expect(visibleHeaders(thead())).toEqual(['ID', '제목']))
     expect([...thead().querySelectorAll('th')].some((th) => th.textContent?.includes('우선순위'))).toBe(false)
     expect(within(row).queryByTestId('issue-row-1-due')).not.toBeInTheDocument()
@@ -145,7 +146,7 @@ describe('이슈 목록 열 정의 (WP-270)', () => {
 
   test('cols 가 없으면 기본 열 — 우선순위(sr-only)·ID·제목·담당자·마감, 날짜는 연도 생략 + 정확한 값 툴팁', async () => {
     open(`/projects/${KEY}?group=none`)
-    const row = await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const row = await screen.findByTestId('issue-row-1')
     await waitFor(() => expect(visibleHeaders(thead())).toEqual(['ID', '제목', '담당자', '마감']))
     expect([...thead().querySelectorAll('th .sr-only')].filter((el) => el.textContent?.includes('우선순위'))).toHaveLength(1)
     expect(within(row).getByLabelText('우선순위 높음')).toBeInTheDocument()
@@ -155,7 +156,7 @@ describe('이슈 목록 열 정의 (WP-270)', () => {
   })
 })
 
-type User = ReturnType<typeof renderPage>['user']
+type User = ScreenUser
 
 /** 열 메뉴에서 한 항목을 토글하고 닫는다(메뉴는 고른 뒤에도 열려 있다). */
 async function toggleColumn(user: User, key: string) {
@@ -193,7 +194,7 @@ const headersEq = (expected: string[]) => waitFor(() => expect(visibleHeaders(th
 describe('열 고르기 메뉴·완료일 자동 열 (WP-270)', () => {
   test('「열」 메뉴 — 체크 상태·커스텀 필드 후보, 고른 뒤에도 열림, URL 엔 cols 없음, 필터를 바꿔도 유지, 「기본 열로 되돌리기」', async () => {
     const { user, location } = open(`/projects/${KEY}?group=none`)
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await user.click(screen.getByTestId('issue-column-picker'))
     expect(await screen.findByTestId('issue-column-menu')).toHaveTextContent('표시할 열')
     expect(screen.getByTestId('issue-column-option-assignee')).toHaveAttribute('aria-checked', 'true')
@@ -217,7 +218,7 @@ describe('열 고르기 메뉴·완료일 자동 열 (WP-270)', () => {
 
   test('완료일 필터 「지난 주」를 걸면 완료일 열이 자동으로 보이고 메뉴엔 「필터로 켜짐」(비활성), 풀면 사라진다', async () => {
     const { user, location } = open(`/projects/${KEY}?group=none`)
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     expect(screen.queryByTestId('issue-row-1-closed')).not.toBeInTheDocument()
     await addFilter(user, 'closedIn', 'last-week')
     await waitFor(() => expect(location()).toMatch(/closedIn=last-week/))
@@ -244,7 +245,7 @@ describe('열 고르기 메뉴·완료일 자동 열 (WP-270)', () => {
 
   test('보드 뷰에선 「열」 버튼이 없다', async () => {
     const { user, location } = open(`/projects/${KEY}?group=none`)
-    expect(await screen.findByTestId('issue-column-picker', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByTestId('issue-column-picker')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '보드' }))
     await waitFor(() => expect(location()).toMatch(/view=board/))
     expect(screen.queryByTestId('issue-column-picker')).not.toBeInTheDocument()
@@ -254,7 +255,7 @@ describe('열 고르기 메뉴·완료일 자동 열 (WP-270)', () => {
 describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
   test('「현재 열 구성도 함께 저장」은 기본 꺼짐 — POST query 에 cols 가 없고, 그 뷰를 열면 각자 개인 열로 보인다', async () => {
     const { user, location, requests } = open(`/projects/${KEY}?group=none&priority=HIGH`)
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await toggleColumn(user, 'reporter')
     await headersEq(['ID', '제목', '담당자', '마감', '보고자'])
     await user.click(screen.getByTestId('save-view-button'))
@@ -283,7 +284,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
 
   test('열을 담아 저장하면 POST query 에 고른 열(자동 완료일 열 제외)이 실리고, 열만 바꿔도 「뷰 업데이트」로 새 열을 PATCH 한다', async () => {
     const { user, location, requests } = open(`/projects/${KEY}?group=none&priority=HIGH&closedIn=last-week`)
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await toggleColumn(user, 'reporter')
     await headersEq(['ID', '제목', '담당자', '마감', '완료일', '보고자'])
     await user.click(screen.getByTestId('save-view-button'))
@@ -324,7 +325,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
 
   test('cols 없는 예전 뷰 — 열면 개인 열로 보이고, 열을 바꿔도 「뷰 업데이트」(수정됨)가 뜨지 않는다', async () => {
     const { user, location } = open(`/projects/${KEY}?group=none`, { views: [savedView(1, '높음', 'priority=HIGH&group=none')] })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await toggleColumn(user, 'reporter')
     await headersEq(['ID', '제목', '담당자', '마감', '보고자'])
     await user.click(screen.getByTestId('view-chip-1'))
@@ -345,7 +346,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     const { user, location } = open(`/projects/${KEY}?group=none`, {
       views: [savedView(1, '마일스톤 보기', 'priority=HIGH&group=none&cols=assignee,milestone'), savedView(2, '중간', 'priority=MID&group=none')],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await toggleColumn(user, 'reporter')
     await headersEq(['ID', '제목', '담당자', '마감', '보고자'])
     await user.click(screen.getByTestId('view-chip-1'))
@@ -369,7 +370,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     const { user, location, requests } = open(`/projects/${KEY}?group=none`, {
       views: [savedView(1, '높음', 'priority=HIGH&group=none'), savedView(2, '높음 + 열', 'priority=HIGH&group=none&cols=assignee,milestone')],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await user.click(screen.getByTestId('view-chip-2'))
     await waitFor(() => expect(pressed('view-chip-2')).toBe('true'))
     expect(pressed('view-chip-1')).toBe('false')
@@ -385,7 +386,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     const { user, location } = open(`/projects/${KEY}?group=none`, {
       views: [savedView(1, '마일스톤 보기', 'priority=HIGH&group=none&cols=assignee,milestone')],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await user.click(screen.getByTestId('view-chip-1'))
     await waitFor(() => expect(params(location()).get('cols')).toBe('assignee,milestone'))
     await headersEq(['ID', '제목', '담당자', '마일스톤'])
@@ -403,7 +404,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
 
   test('열을 담아 새 뷰를 저장하면 URL 에도 그 열이 실린다 — 바로 열을 바꿔도 「뷰 업데이트」가 뜨고 개인 열 저장값은 그대로', async () => {
     const { user, location } = open(`/projects/${KEY}?group=none&priority=HIGH`)
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await toggleColumn(user, 'reporter')
     await headersEq(['ID', '제목', '담당자', '마감', '보고자'])
     const personal = personalColumnsStorage()
@@ -425,7 +426,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
       // 기본 열을 담은 뷰 — 개인 열이 기본이면 URL cols 없이도 일치해 활성이 된다.
       views: [savedView(1, '높음', 'priority=HIGH&group=none&cols=priority,assignee,due')],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await waitFor(() => expect(pressed('view-chip-1')).toBe('true'))
     expect(params(location()).has('cols')).toBe(false)
 
@@ -448,7 +449,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     const { user, location, requests } = open(`/projects/${KEY}?group=none`, {
       views: [savedView(1, '마일스톤 보기', 'priority=HIGH&group=none&cols=assignee,milestone')],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await user.click(screen.getByTestId('view-chip-1'))
     await headersEq(['ID', '제목', '담당자', '마일스톤'])
     await addFilter(user, 'priority', 'MID')
@@ -468,7 +469,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
     const { user, location } = open(`/projects/${KEY}?group=none`, {
       views: [savedView(1, '마일스톤 보기', 'priority=HIGH&group=none&cols=assignee,milestone')],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await user.click(screen.getByTestId('view-chip-1'))
     await waitFor(() => expect(pressed('view-chip-1')).toBe('true'))
     await toggleColumn(user, 'reporter')
@@ -489,7 +490,7 @@ describe('저장된 뷰와 열 (WP-270, 스펙 4.7)', () => {
         savedView(2, '중간', 'priority=MID&group=none'),
       ],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1')
     await user.click(screen.getByTestId('view-chip-1'))
     await waitFor(() => expect(params(location()).get('cols')).toBe('assignee,milestone'))
     await user.click(screen.getByTestId('view-chip-menu-2'))

@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 드라이브 사이드바(DriveSidebar) — 화면 컴포넌트 테스트(WP-971, WP-995, WP-984).
 // 팀 공간 만들기 대화상자(#582·#696): 빈 이름 비활성·연속 클릭 1회 요청·취소 뒤 입력 초기화·409 인라인 에러·만든 공간이 목록에 보임
 // — e2e/pages/drive/drive-space-create.spec.ts·drive.spec.ts 에서 옮겼다.

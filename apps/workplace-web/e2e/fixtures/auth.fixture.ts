@@ -1,4 +1,4 @@
-import { type BrowserContext, type Page, test as base } from '@playwright/test'
+import { type BrowserContext, type Page, test as base, type TestInfo } from '@playwright/test'
 
 import type { TokenResponse, UserResponse } from '../../src/types/auth'
 import type { RoleResponse } from '../../src/types/role'
@@ -7,7 +7,8 @@ import { defaultNotificationSettings } from '../factories/notificationSettings.f
 import { defaultRelationTypes } from '../factories/issueRelation.factory'
 import { seedStatuses } from '../factories/projectStatus.factory'
 import { mockApi } from './api-mock'
-import { collabTestToken, injectCollabNamespace } from './collab'
+import { beginReusedTest, endReusedTest, REUSE_APP, type ReuseHolder, reusedSlot, reuseSlotFixture, setReusedStorage, slotOfContext } from './reuse-app'
+import { collabTestToken, injectCollabNamespace, useCollabNamespaceForReusedPage } from './collab'
 import { stubDraftsDefault } from './mail-drafts-mock'
 
 // 인증 모킹 fixture.
@@ -36,30 +37,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // "설정 열기")는 먼저 style[data-test-toast-passthrough] 를 제거한다.
   // 단, 이 규칙이 있으면 elementFromPoint 히트테스트에서 에러 토스트가 빠지므로 "토스트가 X 를 가리지 않는다"를
   // 히트테스트로 단언하는 spec 은 먼저 style[data-test-toast-passthrough] 를 제거해야 한다.
-  await page.addInitScript(() => {
-    const css = `*, *::before, *::after {
-      transition-duration: 0s !important;
-      transition-delay: 0s !important;
-      animation-duration: 0s !important;
-      animation-delay: 0s !important;
-      scroll-behavior: auto !important;
-    }`
-    // 토스트 포인터 통과 규칙은 별도 style 로 둔다 — 토스트가 버튼을 가리는지 히트테스트로 검증하는 spec 이
-    // 이 태그만 제거하고 실제 화면과 같은 조건에서 단언할 수 있게 한다(drive.spec.ts #715).
-    const toastCss = `[data-sonner-toast][data-type="error"] { pointer-events: none !important; }`
-    const inject = () => {
-      const style = document.createElement('style')
-      style.setAttribute('data-test-no-animation', '')
-      style.textContent = css
-      document.head.appendChild(style)
-      const toastStyle = document.createElement('style')
-      toastStyle.setAttribute('data-test-toast-passthrough', '')
-      toastStyle.textContent = toastCss
-      document.head.appendChild(toastStyle)
-    }
-    if (document.head) inject()
-    else document.addEventListener('DOMContentLoaded', inject)
-  })
+  if (!reusedSlot(page)) await installPageInitScripts(page)
+  await mockProjectFavorites(page)
   await mockApi(page, 'POST', '/api/v1/auth/refresh', token)
   await mockApi(page, 'POST', '/api/v1/auth/login', token)
   await mockApi(page, 'GET', '/api/v1/users/me', { ...user, roles })
@@ -268,6 +247,42 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
       body: '',
     }),
   )
+  // 인증 컨텍스트가 마운트 시점에 hasSession 플래그를 보고 refresh 를 시도하므로
+  // 미리 스토리지에 플래그를 심는다. 이어 쓰는 page(WP-1002)는 앱을 다시 띄울 때 넣는다.
+  if (reusedSlot(page)) setReusedStorage(page, 'hasSession', '1')
+  else await page.addInitScript(() => window.localStorage.setItem('hasSession', '1'))
+}
+
+
+/**
+ * 문서를 열 때마다 도는 공통 시작 스크립트 — 애니메이션 끄기·에러 토스트 포인터 통과, SSE 열린 스트림 래퍼.
+ * 이어 쓰는 page(WP-1002)는 워커당 한 번만 깐다(문서를 새로 열지 않으므로 다시 깔 필요가 없다).
+ */
+async function installPageInitScripts(page: Page) {
+  await page.addInitScript(() => {
+    const css = `*, *::before, *::after {
+      transition-duration: 0s !important;
+      transition-delay: 0s !important;
+      animation-duration: 0s !important;
+      animation-delay: 0s !important;
+      scroll-behavior: auto !important;
+    }`
+    // 토스트 포인터 통과 규칙은 별도 style 로 둔다 — 토스트가 버튼을 가리는지 히트테스트로 검증하는 spec 이
+    // 이 태그만 제거하고 실제 화면과 같은 조건에서 단언할 수 있게 한다(drive.spec.ts #715).
+    const toastCss = `[data-sonner-toast][data-type="error"] { pointer-events: none !important; }`
+    const inject = () => {
+      const style = document.createElement('style')
+      style.setAttribute('data-test-no-animation', '')
+      style.textContent = css
+      document.head.appendChild(style)
+      const toastStyle = document.createElement('style')
+      toastStyle.setAttribute('data-test-toast-passthrough', '')
+      toastStyle.textContent = toastCss
+      document.head.appendChild(toastStyle)
+    }
+    if (document.head) inject()
+    else document.addEventListener('DOMContentLoaded', inject)
+  })
   await page.addInitScript((holdHeader) => {
     const origFetch = window.fetch.bind(window)
     window.fetch = async (input, init) => {
@@ -296,9 +311,32 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
       return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers })
     }
   }, SSE_HOLD_HEADER)
-  // 인증 컨텍스트가 마운트 시점에 hasSession 플래그를 보고 refresh 를 시도하므로
-  // 미리 스토리지에 플래그를 심는다.
-  await page.addInitScript(() => window.localStorage.setItem('hasSession', '1'))
+}
+
+/**
+ * 프로젝트 즐겨찾기(WP-1001) 목 — 라우트라 이어 쓰는 page(WP-1002)도 테스트마다 다시 깔아야 해서 시작 스크립트와 따로 둔다.
+ */
+async function mockProjectFavorites(page: Page) {
+  // 서버처럼 상태를 가진 목. 테스트(페이지)마다 새 집합이라 테스트 사이에 새지 않는다.
+  // 예전처럼 localStorage(project-favorites:<userId>:<tenantId>)에 심은 즐겨찾기는 앱의 이관 경로로 이 집합에 들어온다.
+  const projectFavorites = new Set<string>()
+  const favoritesBody = () => JSON.stringify({ projectKeys: [...projectFavorites] })
+  await page.route('**/api/v1/me/project-favorites**', async (route) => {
+    const req = route.request()
+    const url = new URL(req.url())
+    const rest = decodeURIComponent(url.pathname.replace(/^.*\/me\/project-favorites\/?/, ''))
+    if (req.method() === 'GET' && rest === '') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: favoritesBody() })
+    }
+    if (req.method() === 'POST' && rest === 'import') {
+      for (const k of (req.postDataJSON() as { projectKeys: string[] }).projectKeys) projectFavorites.add(k)
+      return route.fulfill({ status: 200, contentType: 'application/json', body: favoritesBody() })
+    }
+    if (req.method() === 'PUT' && rest) projectFavorites.add(rest)
+    else if (req.method() === 'DELETE' && rest) projectFavorites.delete(rest)
+    else return route.fallback()
+    return route.fulfill({ status: 204, body: '' })
+  })
 }
 
 type AuthFixtures = {
@@ -317,15 +355,48 @@ type AuthFixtures = {
   newAuthedPage: (opts?: { user?: Partial<UserResponse> }) => Promise<Page>
 }
 
-export const test = base.extend<AuthFixtures>({
+/** 테스트마다 고유한 동기화 문서 네임스페이스 — 문서 이름 규칙([^/]+)에 맞게 '/' 등은 '-' 로 바꾼다. */
+function collabNsName(testInfo: TestInfo): string {
+  return `${testInfo.project.name}-${testInfo.testId}-r${testInfo.retry}-${testInfo.repeatEachIndex}`.replace(/[^\w-]/g, '-')
+}
+
+/**
+ * page·context 를 워커 안에서 이어 쓴다(WP-1002, 기본 켬, 상세는 reuse-app.ts).
+ * 브라우저 설정은 Playwright 기본 page 와 같은 option fixture 에서 읽는다 — 파일의 test.use(뷰포트·터치 등)가 그대로 먹는다.
+ * E2E_REUSE_APP=0 이면 Playwright 기본(테스트마다 새 컨텍스트) 그대로다.
+ */
+const withReuse = REUSE_APP
+  ? base.extend<object, { _reuseSlot: ReuseHolder }>({
+      _reuseSlot: [reuseSlotFixture(installPageInitScripts), { scope: 'worker' }],
+      context: async ({ _reuseSlot, contextOptions, baseURL, viewport, hasTouch, isMobile, deviceScaleFactor, userAgent, locale, timezoneId, colorScheme, serviceWorkers, permissions, geolocation, offline, extraHTTPHeaders, javaScriptEnabled, storageState }, use) => {
+        const options = { ...contextOptions, baseURL, viewport, hasTouch, isMobile, deviceScaleFactor, userAgent, locale, timezoneId, colorScheme, serviceWorkers, permissions, geolocation, offline, extraHTTPHeaders, javaScriptEnabled, storageState }
+        await use((await _reuseSlot.get(options)).context)
+      },
+      page: async ({ _reuseSlot, context }, use, testInfo) => {
+        const slot = slotOfContext(context)!
+        await beginReusedTest(slot)
+        await use(slot.page)
+        await endReusedTest(slot, testInfo, _reuseSlot.discard)
+      },
+    })
+  : base
+
+export const test = withReuse.extend<AuthFixtures>({
   // auto — 노트를 열지 않는 테스트도 비용이 initScript 1개뿐이고, 노트를 여는 모든 spec 이 따로 요청하지 않아도 격리된다.
   // 문서 이름 규칙([^/]+)에 맞게 '/' 등은 '-' 로 바꾼다. 프로젝트·재시도까지 넣어 재시도가 이전 시도의 편집을 이어받지 않게 한다.
   collabNs: [
-    async ({ context }, use, testInfo) => {
-      const ns = `${testInfo.project.name}-${testInfo.testId}-r${testInfo.retry}-${testInfo.repeatEachIndex}`.replace(/[^\w-]/g, '-')
-      await injectCollabNamespace(context, ns)
-      await use(ns)
-    },
+    // 이어 쓰는 page(WP-1002)는 컨텍스트를 테스트끼리 같이 쓰므로 시작 스크립트 대신 앱을 다시 띄울 때 넣는다.
+    REUSE_APP
+      ? async ({ page }, use, testInfo) => {
+          const ns = collabNsName(testInfo)
+          useCollabNamespaceForReusedPage(page, ns, (key, value) => setReusedStorage(page, key, value))
+          await use(ns)
+        }
+      : async ({ context }, use, testInfo) => {
+          const ns = collabNsName(testInfo)
+          await injectCollabNamespace(context, ns)
+          await use(ns)
+        },
     { auto: true },
   ],
   newAuthedPage: async ({ browser, collabNs }, use) => {

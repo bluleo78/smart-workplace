@@ -1,4 +1,4 @@
-// 저장 뷰 그룹 기준(#58·WP-472) — 페이지 테스트(WP-980).
+// 저장 뷰 그룹 기준(#58·WP-472) — 화면 테스트(WP-980, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 우선순위 그룹 섹션 배치·빈 그룹 숨김, 서버 그룹 총계와 같은 필터로 센 요청(쿼리), 그룹 셀렉터 → URL,
 // 뷰 저장 POST query 의 group 은 브라우저 없이 판정되므로 e2e/pages/projects/saved-view-group-by.spec.ts 에서 옮겼다(그 spec 은 모두 옮겨 지웠다).
 import { screen, waitFor, within } from '@testing-library/react'
@@ -6,7 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
 import { issueListHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 
@@ -17,8 +17,8 @@ test('우선순위 그룹 목록 — 그룹 섹션별 행 배치 + 헤더 라벨
     createIssue({ id: 1, number: 1, title: 'High one', priority: 'HIGH' }),
     createIssue({ id: 2, number: 2, title: 'Low one', priority: 'LOW' }),
   ]
-  renderPage(`/projects/${KEY}?group=priority`, { handlers: issueListHandlers({ issues: () => createIssueSearchResponse(issues) }) })
-  const high = await screen.findByTestId('list-group-HIGH', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  renderProjectScreen(`/projects/${KEY}?group=priority`, { handlers: issueListHandlers({ issues: () => createIssueSearchResponse(issues) }) })
+  const high = await screen.findByTestId('list-group-HIGH')
   expect(within(high).getByTestId('issue-row-1')).toBeInTheDocument()
   expect(within(screen.getByTestId('list-group-LOW')).getByTestId('issue-row-2')).toBeInTheDocument()
   expect(high).toHaveTextContent('높음')
@@ -32,7 +32,7 @@ test('그룹 헤더 수는 서버 그룹 총계이고, 목록과 같은 필터�
     createIssue({ id: 1, number: 1, title: 'Todo one', status: 'TODO' }),
     createIssue({ id: 2, number: 2, title: 'Todo two', status: 'TODO' }),
   ]
-  renderPage(`/projects/${KEY}?group=status&q=todo`, {
+  renderProjectScreen(`/projects/${KEY}?group=status&q=todo`, {
     handlers: [
       http.get(`/api/v1/projects/${KEY}/issues/group-counts`, () =>
         // 상태 그룹 총계는 프로젝트 상태(statusId)별 — 시드 「할 일」 id 1, 「완료」 id 3 (WP-808).
@@ -41,7 +41,7 @@ test('그룹 헤더 수는 서버 그룹 총계이고, 목록과 같은 필터�
       ...issueListHandlers({ issues: () => createIssueSearchResponse(issues, 'c1') }),
     ],
   })
-  expect(await screen.findByTestId('list-group-count-1', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent(/^32$/)
+  expect(await screen.findByTestId('list-group-count-1')).toHaveTextContent(/^32$/)
   const counts = requests.last('GET', `/api/v1/projects/${KEY}/issues/group-counts`)!
   expect(counts.search.get('groupBy')).toBe('statusId')
   expect(counts.search.get('q')).toBe('todo')
@@ -50,8 +50,8 @@ test('그룹 헤더 수는 서버 그룹 총계이고, 목록과 같은 필터�
 })
 
 test('그룹 셀렉터 → URL group 동기화(view 유지), 「없음」은 group=none 을 명시한다 (#878)', async () => {
-  const { user, location } = renderPage(`/projects/${KEY}?view=board`, { handlers: issueListHandlers({ issues: () => createIssueSearchResponse([]) }) })
-  await user.click(await screen.findByTestId('group-by-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const { user, location } = renderProjectScreen(`/projects/${KEY}?view=board`, { handlers: issueListHandlers({ issues: () => createIssueSearchResponse([]) }) })
+  await user.click(await screen.findByTestId('group-by-trigger'))
   await user.click(await screen.findByTestId('group-by-assignee'))
   await waitFor(() => expect(location()).toMatch(/group=assignee/))
   expect(location()).toMatch(/view=board/)
@@ -65,7 +65,7 @@ test('그룹 셀렉터 → URL group 동기화(view 유지), 「없음」은 gro
 
 test('group 설정 상태에서 뷰 저장 → POST query 에 group 이 실린다', async () => {
   const posts: { query: string; name: string }[] = []
-  const { user } = renderPage(`/projects/${KEY}?group=assignee`, {
+  const { user } = renderProjectScreen(`/projects/${KEY}?group=assignee`, {
     handlers: [
       http.post(`/api/v1/projects/${KEY}/saved-views`, async ({ request }) => {
         const body = (await request.json()) as { query: string; name: string }
@@ -78,7 +78,7 @@ test('group 설정 상태에서 뷰 저장 → POST query 에 group 이 실린�
       ...issueListHandlers({ issues: () => createIssueSearchResponse([]) }),
     ],
   })
-  await user.click(await screen.findByTestId('save-view-button', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  await user.click(await screen.findByTestId('save-view-button'))
   await user.click(await screen.findByTestId('save-view-name'))
   await user.paste('담당자 그룹')
   await user.click(screen.getByTestId('save-view-submit'))
