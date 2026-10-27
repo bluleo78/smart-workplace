@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest'
 
 import { API, bodyOf, columnStatusOf, ISSUES, issueSearch, KEY, projectMeta } from '@/test/kits/projects/listBoard'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueResponse } from '@/types/issue'
 
@@ -29,8 +30,7 @@ const firstCard = (n: number) => screen.findByTestId(`issue-card-${n}`, {}, { ti
 
 /** 상태 facet 에서 값을 고른다(「＋ 필터」 → 상태 범주 → 값). */
 async function pickStatus(user: ReturnType<typeof renderProjectScreen>['user'], ...values: string[]) {
-  await user.click(screen.getByTestId('add-filter-trigger'))
-  await user.click(await screen.findByTestId('add-filter-facet-status'))
+  await openQuickFacet(user, 'status')
   for (const v of values) await user.click(await screen.findByTestId(`facet-value-status-${v}`))
 }
 
@@ -57,13 +57,13 @@ describe('목록 검색·필터·뷰 전환', () => {
     const { user, search, location } = open(`/projects/${KEY}`)
     await searchBox()
     await pickStatus(user, 'IN_PROGRESS')
-    expect(await screen.findByTestId('filter-chip-status')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('quick-filter-status')).toHaveAttribute('data-active', 'true'))
     await user.keyboard('{Escape}')
 
     await waitFor(() => expect(location()).toMatch(/status=IN_PROGRESS/))
     await waitFor(() => expect(search.urls.some((u) => u.searchParams.get('status') === 'IN_PROGRESS')).toBe(true))
 
-    await user.click(screen.getByTestId('filter-chip-status-remove'))
+    await user.click(screen.getByTestId('quick-filter-status-remove'))
     await waitFor(() => expect(location()).not.toMatch(/status=IN_PROGRESS/))
   })
 
@@ -73,7 +73,7 @@ describe('목록 검색·필터·뷰 전환', () => {
     await searchBox()
     await pickStatus(user, 'TODO', 'IN_PROGRESS')
     await user.keyboard('{Escape}')
-    const chip = within(await screen.findByTestId('filter-chip-status')).getAllByRole('button')[0]
+    const chip = within(await screen.findByTestId('quick-filter-status')).getAllByRole('button')[0]
     // 범주 facet 의 칩 prefix 는 「상태 범주」다(WP-808 — 개별 「상태」 facet 과 분리).
     // jsdom 은 flex 항목 사이에 공백을 넣지 않아 사이 공백만 느슨하게 본다 — 아이콘 aria-label(「상태: 할 일」)이 끼면 실패한다.
     expect(chip).toHaveAccessibleName(/^상태 범주:\s*할 일\s*\+1$/)

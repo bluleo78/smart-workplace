@@ -1,5 +1,6 @@
 // 모바일 이슈 목록 한 줄 툴바(WP-194) — 데스크톱 ViewChipBar+IssueFilterBar(4줄로 꺾여 화면 40%)를 대체.
-// 왼쪽: 가로 스크롤 칩 [뷰 ▾][◆ 에픽][필터 N][그룹: X] (오른쪽 페이드), 오른쪽 고정: 🔍 · 목록/보드 토글.
+// 왼쪽: 가로 스크롤 칩 [뷰 ▾][◆ 에픽][그룹: X] (오른쪽 페이드), 오른쪽 고정: 🔍 · 목록/보드 토글.
+// 그 아래 두 번째 줄 = 빠른 필터 칩 줄(WP-1020, MobileQuickFilterRow) — 예전 툴바의 「필터 N」 칩·필터 시트를 대신한다.
 // 🔍 를 누르면 줄 전체가 검색창+「취소」로 바뀐다 — 취소는 줄만 닫고 검색어(URL q)는 유지, 🔍 에 점으로 표시.
 // 개인 프로젝트(WP-221)는 options(데스크톱 IssueFilterBar 와 같은 IssueFilterBarOptions)·showViewChip=false 로 재사용한다.
 import { ChevronDown, LayoutGrid, List, Search } from 'lucide-react';
@@ -14,8 +15,8 @@ import { ISSUE_GROUP_BY_LABEL } from '../../../../lib/issueGrouping';
 import type { IssueGroupBy } from '../../../../types/issue';
 import { type IssueFilterBarOptions, type IssueFilterControls, useIssueFilterControls } from '../../hooks/useIssueFilterControls';
 import { type SavedViewState, useSavedViewState } from '../../hooks/useSavedViewState';
-import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
-import { MobileFilterSheet } from './MobileFilterSheet';
+import { HIDE_SCROLLBAR, MOBILE_CHIP } from './chipStyles';
+import { MobileQuickFilterRow } from './MobileQuickFilterRow';
 import { MobileViewSheet } from './MobileViewSheet';
 
 type ToolbarProps = {
@@ -46,15 +47,15 @@ function ToolbarBody({
 }: Omit<ToolbarProps, 'showViewChip'> & { sv?: SavedViewState }) {
   const c = useIssueFilterControls(projectKey, options);
   const [searching, setSearching] = useState(false);
-  const [sheet, setSheet] = useState<'filter' | 'group' | null>(null);
+  const [groupOpen, setGroupOpen] = useState(false);
   // 목록 쪽 토글 — 팀 = 「목록」(List), 개인 = 「체크리스트」(ListChecks). 데스크톱 listLabel 기본 '리스트' 와 달리 options.listLabel 이 없으면 모바일 문구는 기존 「목록」.
   const listLabel = options?.listLabel ?? '목록';
   const ListIcon = options?.listIcon ?? List;
   const groupLabel = c.groupBy ? ISSUE_GROUP_BY_LABEL[c.groupBy] : '없음';
 
-  // 검색 모드 — 칩 줄을 통째로 검색창으로 교체한다(좁은 폭에서 칩과 입력칸을 같이 두지 않는다).
-  if (searching) {
-    return (
+  // 검색 모드 — 첫 줄을 통째로 검색창으로 교체한다(좁은 폭에서 칩과 입력칸을 같이 두지 않는다).
+  // 빠른 필터 칩 줄은 검색 중에도 그대로 둔다 — 검색어와 필터를 함께 좁혀 가며 볼 수 있게.
+  const toolbar = searching ? (
       <div className="flex h-12 items-center gap-2" data-testid="mobile-issue-toolbar">
         <Input
           autoFocus
@@ -76,10 +77,7 @@ function ToolbarBody({
           취소
         </button>
       </div>
-    );
-  }
-
-  return (
+  ) : (
     <div className="flex h-12 items-center gap-1" data-testid="mobile-issue-toolbar">
       {/* 칩 줄 — 넘치면 가로 스크롤, 오른쪽 끝 페이드로 더 있음을 알린다. */}
       <div className="relative min-w-0 flex-1">
@@ -87,15 +85,7 @@ function ToolbarBody({
           {/* 저장 뷰 칩 — sv 를 받은 팀 툴바만. */}
           {sv && <MobileViewChip projectKey={projectKey} controls={c} sv={sv} />}
           {epicSlot}
-          <button
-            type="button"
-            className={cn(MOBILE_CHIP, c.activeFilterCount > 0 && MOBILE_CHIP_ACTIVE)}
-            onClick={() => setSheet('filter')}
-            data-testid="mobile-chip-filter"
-          >
-            필터{c.activeFilterCount > 0 && ` ${c.activeFilterCount}`}
-          </button>
-          <button type="button" className={MOBILE_CHIP} onClick={() => setSheet('group')} data-testid="mobile-chip-group">
+          <button type="button" className={MOBILE_CHIP} onClick={() => setGroupOpen(true)} data-testid="mobile-chip-group">
             그룹: {groupLabel}
           </button>
         </div>
@@ -129,16 +119,22 @@ function ToolbarBody({
         {c.view === 'list' ? <ListIcon className="size-5" /> : <LayoutGrid className="size-5" />}
       </button>
 
-      <MobileFilterSheet open={sheet === 'filter'} onClose={() => setSheet(null)} controls={c} />
       <MobilePickerSheet
-        open={sheet === 'group'}
-        onClose={() => setSheet(null)}
+        open={groupOpen}
+        onClose={() => setGroupOpen(false)}
         title="그룹 기준"
         testId="mobile-group-sheet"
         options={c.visibleGroupOptions.map((o) => ({ value: o.value ?? 'none', label: o.label }))}
         value={c.groupBy ?? 'none'}
         onSelect={(v) => c.setGroupBy(v === 'none' ? null : (v as IssueGroupBy))}
       />
+    </div>
+  );
+
+  return (
+    <div>
+      {toolbar}
+      <MobileQuickFilterRow controls={c} />
     </div>
   );
 }

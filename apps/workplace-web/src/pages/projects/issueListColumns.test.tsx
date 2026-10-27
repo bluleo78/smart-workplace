@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { issueListHandlers, recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import type { ScreenUser } from '@/test/renderScreen'
 import type { IssueFieldDef } from '@/types/customField'
 import type { CycleResponse } from '@/types/cycle'
@@ -168,8 +169,7 @@ async function toggleColumn(user: User, key: string) {
 
 /** 필터 바에서 facet 값 하나를 고른다. */
 async function addFilter(user: User, facet: string, value: string) {
-  await user.click(screen.getByTestId('add-filter-trigger'))
-  await user.click(await screen.findByTestId(`add-filter-facet-${facet}`))
+  await openQuickFacet(user, facet)
   await user.click(await screen.findByTestId(`facet-value-${facet}-${value}`))
   await user.keyboard('{Escape}')
 }
@@ -235,7 +235,7 @@ describe('열 고르기 메뉴·완료일 자동 열 (WP-270)', () => {
     // 자동 열은 URL 에 남지 않는다.
     expect(params(location()).has('cols')).toBe(false)
 
-    await user.click(screen.getByTestId('filter-chip-closedIn-remove'))
+    await user.click(screen.getByTestId('quick-filter-closedIn-remove'))
     await waitFor(() => expect(location()).not.toMatch(/closedIn=/))
     await headersEq(['ID', '제목', '담당자', '마감'])
     await user.click(screen.getByTestId('issue-column-picker'))

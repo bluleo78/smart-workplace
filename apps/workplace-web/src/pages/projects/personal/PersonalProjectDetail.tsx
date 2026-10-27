@@ -37,6 +37,9 @@ const PERSONAL_FILTER_OPTIONS: IssueFilterBarOptions = {
   showColumnPicker: false,
   listLabel: '체크리스트',
   listIcon: ListChecks,
+  // 빠른 필터 칩(WP-1020) — 개인 체크리스트는 상태·우선순위만 칩으로, 나머지(상태 범주·라벨·담당자)는 「더 보기」. 칩 설정은 팀 목록과 따로 기억한다.
+  quickChips: ['statusId', 'priority'],
+  quickFilterScreen: 'personal-issues',
   groupOptions: [
     { value: null, label: '없음' },
     { value: 'status', label: '상태' },

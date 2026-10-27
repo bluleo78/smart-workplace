@@ -208,12 +208,12 @@ test.describe('태스크 보드/검색', () => {
     );
 
     await page.goto(`/projects/${PROJECT_KEY}`);
-    await page.getByTestId('add-filter-trigger').click();
-    await page.getByTestId('add-filter-facet-status').click();
+    await page.getByTestId('quick-filter-more').click();
+    await page.getByTestId('quick-filter-more-facet-status').click();
     await page.getByTestId('facet-value-status-IN_PROGRESS').click();
-    await expect(page.getByTestId('filter-chip-status')).toBeVisible();
+    await expect(page.getByTestId('quick-filter-status')).toHaveAttribute('data-active', 'true');
 
-    const removeBtn = page.getByTestId('filter-chip-status-remove');
+    const removeBtn = page.getByTestId('quick-filter-status-remove');
     const box = await removeBtn.boundingBox();
     expect(box).not.toBeNull();
     // 터치 타겟 최소 24×24 px 보장 (WCAG 2.5.8 — #253 회귀 방지)

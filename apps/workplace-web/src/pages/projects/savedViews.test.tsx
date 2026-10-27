@@ -13,6 +13,7 @@ import { describe, expect, test } from 'vitest'
 import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
 import { atRoute } from '@/test/kits/projects/atRoute'
 import { API, type Call, projectScreen, toCall } from '@/test/kits/projects/projectScreens'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { SavedViewResponse } from '@/types/savedView'
@@ -75,8 +76,7 @@ async function openWithViews(initial: SavedViewResponse[], { path = `/projects/$
 
 /** 우선순위 높음 필터를 건다(＋필터 → 우선순위 → 높음). */
 async function applyHighPriority(user: ReturnType<typeof renderScreen>['user'], location: () => string) {
-  await user.click(screen.getByTestId('add-filter-trigger'))
-  await user.click(await screen.findByTestId('add-filter-facet-priority'))
+  await openQuickFacet(user, 'priority')
   await user.click(await screen.findByTestId('facet-value-priority-HIGH'))
   await user.keyboard('{Escape}')
   await waitFor(() => expect(location()).toMatch(/priority=HIGH/))
@@ -230,10 +230,10 @@ describe('뷰 적용', () => {
     const { user, location, api } = await openWithViews([view(1, '진행 중 보기', { query: 'status=IN_PROGRESS' })])
     await user.click(await screen.findByTestId('view-chip-1'))
     await waitFor(() => expect(location()).toMatch(/status=IN_PROGRESS/))
-    const chip = await screen.findByTestId('filter-chip-status')
+    const chip = await screen.findByTestId('quick-filter-status')
     expect(chip).toHaveTextContent('상태 범주:')
     expect(chip).toHaveTextContent('진행 중')
-    expect(screen.queryByTestId('filter-chip-statusId')).not.toBeInTheDocument()
+    expect(screen.getByTestId('quick-filter-statusId')).not.toHaveAttribute('data-active')
     await waitFor(() => expect(api.searches.at(-1)?.searchParams.get('status')).toBe('IN_PROGRESS'))
     expect(api.searches.at(-1)?.searchParams.get('statusId')).toBeNull()
   })

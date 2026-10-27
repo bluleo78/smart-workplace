@@ -41,15 +41,16 @@ test('개인 프로젝트는 전용 셸과 팀 툴바(개인 옵션)를 렌더�
   // 기본은 체크리스트 — 보드 컬럼은 없음.
   await expect(page.getByTestId('personal-checklist')).toBeVisible();
   await expect(page.getByTestId('board-col-1')).toHaveCount(0);
-  // 개인 전용 — ＋필터 facet 목록에 상태/우선순위/라벨만 노출, 사이클·유형(팀 전용)은 부재.
-  await page.getByTestId('add-filter-trigger').click();
-  await expect(page.getByTestId('add-filter-facet-status')).toBeVisible();
-  await expect(page.getByTestId('add-filter-facet-priority')).toBeVisible();
-  await expect(page.getByTestId('add-filter-facet-label')).toBeVisible();
-  await expect(page.getByTestId('add-filter-facet-cycle')).toHaveCount(0);
-  await expect(page.getByTestId('add-filter-facet-type')).toHaveCount(0);
+  // 개인 전용 — 빠른 필터 칩은 상태·우선순위, 「더 보기」에 상태 범주·라벨, 사이클·유형(팀 전용)은 부재(WP-1020).
+  await expect(page.getByTestId('quick-filter-statusId-trigger')).toBeVisible();
+  await expect(page.getByTestId('quick-filter-priority-trigger')).toBeVisible();
+  await page.getByTestId('quick-filter-more').click();
+  await expect(page.getByTestId('quick-filter-more-facet-status')).toBeVisible();
+  await expect(page.getByTestId('quick-filter-more-facet-label')).toBeVisible();
+  await expect(page.getByTestId('quick-filter-more-facet-cycle')).toHaveCount(0);
+  await expect(page.getByTestId('quick-filter-more-facet-type')).toHaveCount(0);
   // 완료일 기간 필터(WP-873)는 종료 이슈 기능을 옵트아웃한 개인 화면에 없다 — 팀 목록엔 있다(issue-closed-filter.spec).
-  await expect(page.getByTestId('add-filter-facet-closedIn')).toHaveCount(0);
+  await expect(page.getByTestId('quick-filter-more-facet-closedIn')).toHaveCount(0);
 });
 
 // 패널 진입 공통 — 단건 + chat 모킹. number 기본값=1.

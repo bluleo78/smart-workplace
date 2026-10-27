@@ -8,6 +8,7 @@ import { describe, expect, test } from 'vitest'
 
 import { IssueFilterBar } from '@/pages/projects/components/IssueFilterBar'
 import { ViewChipBar } from '@/pages/projects/components/ViewChipBar'
+import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { renderScreen } from '@/test/renderScreen'
 import type { SavedViewResponse } from '@/types/savedView'
 
@@ -70,8 +71,7 @@ const toolbarLookups = [
 
 /** 「+ 필터 › 우선순위 › 값」을 고르고 팝오버를 닫은 뒤, 주소에 값이 들어갈 때까지 기다린다. */
 async function addPriority(user: ReturnType<typeof renderScreen>['user'], value: string, location: () => string) {
-  await user.click(screen.getByTestId('add-filter-trigger'))
-  await user.click(await screen.findByTestId('add-filter-facet-priority'))
+  await openQuickFacet(user, 'priority')
   await user.click(await screen.findByTestId(`facet-value-priority-${value}`))
   await user.keyboard('{Escape}')
   await waitFor(() => expect(priorities(location())).toContain(value))
@@ -86,7 +86,7 @@ describe('저장된 뷰 갱신', () => {
     const api = viewApi(views)
     const first = renderToolbar(`/projects/${KEY}`, api.handlers)
     const { user, location } = first
-    await screen.findByTestId('add-filter-trigger')
+    await screen.findByTestId('quick-filter-bar')
 
     // 1) 필터(HIGH) 적용 후 뷰 저장 → POST.
     await addPriority(user, 'HIGH', location)
