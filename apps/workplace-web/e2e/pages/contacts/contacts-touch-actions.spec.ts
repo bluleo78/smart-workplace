@@ -34,7 +34,7 @@ test('조직도 노드: hover 아이콘 대신 ⋯ 이 44px 터치 크기로 보
   await page.goto('/contacts')
   await expectCoarse(page)
   await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
 
   // coarse 에선 hover 아이콘 묶음을 렌더하지 않고 ⋯ 하나가 손가락 크기(44px 이상)로 선다.
   await expect(page.getByTestId('org-edit-10')).toHaveCount(0)

@@ -5,7 +5,7 @@
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CircleCheckBig, Inbox, Plus } from 'lucide-react';
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { cn } from '@/lib/utils';
 
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
+import { useFetchAllPages } from '../../../hooks/queries/useFetchAllPages';
 import {
   type BoardColumnQuery,
   columnFilters,
@@ -126,12 +127,9 @@ function IssueBoardViewInner({
 
   // 그룹 보드는 컬럼(그룹)이 페이지 순서와 무관하게 동적으로 생기므로 컬럼별 스크롤 로드가 불가 →
   // 마지막 페이지까지 순차로 모두 받는다(기존 200건 상한 + "필터로 좁혀주세요" 대체).
-  // 다음 페이지 요청이 실패하면 멈춘다 — 안 그러면 isFetching 해제가 effect 를 다시 돌려 무한 재요청한다.
-  const { hasNextPage: groupHasNext, isFetching: groupFetching, isFetchNextPageError: groupNextError, fetchNextPage } =
-    groupQuery;
-  useEffect(() => {
-    if (grouped && groupHasNext && !groupFetching && !groupNextError) void fetchNextPage();
-  }, [grouped, groupHasNext, groupFetching, groupNextError, fetchNextPage]);
+  // 다음 페이지 요청이 실패하면 멈추고(아래 「다시 시도」), 응답이 올 때마다 다시 판정한다(WP-996 — useFetchAllPages).
+  const { hasNextPage: groupHasNext, isFetchNextPageError: groupNextError, fetchNextPage } = groupQuery;
+  useFetchAllPages(groupQuery, grouped);
 
   // 응답 모양이 예상과 다른 경우(p.items 누락) flatMap 이 [undefined] 를 만들지 못하게 방어.
   // 상태 보드는 모든 컬럼 쿼리를 합친 뒤 id 로 중복 제거하고 아래 byStatusId 에서 it.statusId 로 다시 나눈다 —

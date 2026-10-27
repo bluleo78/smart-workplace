@@ -59,7 +59,7 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async () => {
   const row10 = node10.parentElement!
   const row20 = node20.parentElement!
   await user.click(node10)
-  expect(await screen.findByTestId('org-chart-view')).toBeInTheDocument()
+  expect(await screen.findByTestId('group-contact-view')).toBeInTheDocument()
   expect(row10).toHaveClass('bg-selected', 'selection-bar')
   expect(row20).not.toHaveClass('bg-selected')
   expect(node10).toHaveAttribute('aria-current', 'page')
@@ -86,14 +86,14 @@ test('그룹을 고르면 「전체」는 현재 항목이 아니되 잠기지 �
   expect(all).toHaveClass('bg-selected')
 
   await user.click(screen.getByTestId('group-node-10'))
-  await screen.findByTestId('org-chart-view')
+  await screen.findByTestId('group-contact-view')
   expect(all).toBeEnabled()
   expect(all).not.toHaveAttribute('aria-current')
   expect(all).not.toHaveClass('bg-selected')
   expect(screen.getByTestId('contact-sidebar').querySelectorAll('[data-testid^="contact-filter-"][aria-current]')).toHaveLength(0)
 
   await user.click(all)
-  await waitFor(() => expect(screen.queryByTestId('org-chart-view')).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByTestId('group-contact-view')).not.toBeInTheDocument())
   expect(all).toHaveAttribute('aria-current', 'page')
   expect(all).toHaveClass('bg-selected')
   expect(screen.getByTestId('group-node-10')).not.toHaveAttribute('aria-current')
@@ -170,7 +170,7 @@ test('비-admin: 조직도 헤더 + 버튼과 노드 편집 액션이 없다', a
   const { user } = await open('/contacts', base())
   expect(screen.queryByTestId('org-create')).not.toBeInTheDocument()
   await user.click(screen.getByTestId('group-node-10'))
-  await screen.findByTestId('org-chart-view')
+  await screen.findByTestId('group-contact-view')
   expect(screen.queryByTestId('org-add-10')).not.toBeInTheDocument()
   expect(screen.queryByTestId('org-edit-10')).not.toBeInTheDocument()
   expect(screen.queryByTestId('org-delete-10')).not.toBeInTheDocument()
@@ -254,7 +254,7 @@ test('admin: 조직도 노드 삭제 — 확인 뒤 DELETE, 선택 해제', asyn
   expect(deletes).toBe(0)
   await user.click(within(confirm).getByTestId('org-delete-confirm-btn'))
   await waitFor(() => expect(deletes).toBe(1))
-  await waitFor(() => expect(screen.queryByTestId('org-chart-view')).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByTestId('group-contact-view')).not.toBeInTheDocument())
   expect(location()).toBe('/contacts')
 })
 
@@ -285,7 +285,7 @@ test('admin: 조직도 노드 삭제 실패(409) 시 서버 메시지 토스트'
   await user.click(within(await screen.findByTestId('org-delete-confirm')).getByTestId('org-delete-confirm-btn'))
   expect(await screen.findByText('삭제할 수 없습니다')).toBeInTheDocument()
   // 실패했으니 보던 그룹은 그대로다.
-  expect(screen.getByTestId('org-chart-view')).toBeInTheDocument()
+  expect(screen.getByTestId('group-contact-view')).toBeInTheDocument()
 })
 
 // #803 — 이름 중복(400 「이미 존재하는 그룹 이름입니다」)은 토스트에 더해 이름 칸 인라인 오류로 보이고 창이 남는다.

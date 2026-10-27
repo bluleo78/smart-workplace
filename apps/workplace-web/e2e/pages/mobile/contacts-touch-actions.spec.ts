@@ -66,7 +66,7 @@ test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨
 test('헤더 🔍 → 입력칸 초점 → 한글 연속 입력이 끊기지 않고, 「취소」로 접힌다 (WP-976)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubBase(page, makePage([member({ id: 1, name: '김멤버' })]))
   await page.goto('/contacts?group=10')
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
   await page.getByTestId('contact-search-open').click()
   const input = page.getByTestId('contact-search')
   await expect(input).toBeFocused()

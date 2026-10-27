@@ -108,7 +108,7 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
   - **파일을 잘게 나누지 않는다** — 파일마다 화면 모듈을 다시 불러오는 고정 비용(수 초)이 붙는다. 한 컴포넌트·한 화면의 판정은 한 파일에 모은다
 - **페이지 테스트(`*.test.tsx` + `renderPage`, WP-971)**: `renderPage(path, { user, roles, handlers })`(`src/test/renderPage.tsx`)가 실제 라우트 트리(App)·인증(AuthProvider)·토스트를 띄운다 — E2E 의 `authenticatedPage` + `goto` 와 같은 상태. 훅을 `vi.mock` 으로 끊지 않고 **MSW 로 네트워크 계층에서 모킹**한다(`handlers` 에 `http.get(...)` 등). 응답 데이터는 E2E 와 같은 팩토리(`e2e/factories/`)를 쓴다. 예: `src/pages/projects/issueRowMenu.test.tsx`
   - 앱 셸이 늘 부르는 부가 조회는 `src/test/msw/baseHandlers.ts` 가 빈 성공으로 깐다(E2E `setupAuthMocks` 와 같은 목록). **핸들러가 없는 요청은 테스트 실패**다(E2E 의 「모킹 누락은 503」과 같은 원칙) — 화면 데이터(목록·쿼터 등)는 테스트가 준다
-  - 첫 `findBy*` 에는 `{ timeout: PAGE_LOAD_TIMEOUT }` — 워커가 페이지 모듈을 처음 불러오는 데 5~6초가 든다. 그 뒤 단언은 기본값
+  - 첫 `findBy*` 에는 `{ timeout: PAGE_LOAD_TIMEOUT }`(45초) — 워커가 페이지 모듈을 처음 불러오는 데 5~6초, 부하가 크면 20초 넘게 든다. 그 뒤 단언은 따로 주지 않는다 — `renderPage` 가 그 테스트의 RTL 기본 대기를 5초(`PAGE_ASYNC_TIMEOUT`)로 늘려 두어 부하 속 「요청 → 다시 그리기」도 기다린다(WP-1006)
   - 주소 이동은 반환값 `location()` 으로 단언한다. 쓰기 요청은 핸들러에서 `request.json()` 을 모아 비교한다
   - 라우터는 jsdom 의 실제 세션 히스토리를 쓴다(BrowserRouter, WP-995) — `window.location`·`history.state`·뒤로 가기가 브라우저처럼 움직인다. `history.back()` 으로 닫는 화면을 닫은 직후 다시 열 때는 `await settleHistory()`(jsdom 이 이동을 타이머 몇 개에 걸쳐 끝낸다). 테스트 사이 정리는 `setup.ts` 가 한다
   - jsdom 에 없는 `Element.scrollTo`·포인터 캡처·`URL.createObjectURL` 은 `setup.ts` 가 빈 구현으로 깐다 — 테스트 파일에서 다시 넣지 않는다. 캔버스는 전역으로 넣지 않는다(간트는 `test/kits/projects/timeline.ts` 의 `stubCanvas`)

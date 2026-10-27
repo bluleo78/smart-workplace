@@ -310,6 +310,26 @@ async function installPageInitScripts(page: Page) {
       return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers })
     }
   }, SSE_HOLD_HEADER)
+  // 프로젝트 즐겨찾기(WP-1001) — 서버처럼 상태를 가진 목. 테스트(페이지)마다 새 집합이라 테스트 사이에 새지 않는다.
+  // 예전처럼 localStorage(project-favorites:<userId>:<tenantId>)에 심은 즐겨찾기는 앱의 이관 경로로 이 집합에 들어온다.
+  const projectFavorites = new Set<string>()
+  const favoritesBody = () => JSON.stringify({ projectKeys: [...projectFavorites] })
+  await page.route('**/api/v1/me/project-favorites**', async (route) => {
+    const req = route.request()
+    const url = new URL(req.url())
+    const rest = decodeURIComponent(url.pathname.replace(/^.*\/me\/project-favorites\/?/, ''))
+    if (req.method() === 'GET' && rest === '') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: favoritesBody() })
+    }
+    if (req.method() === 'POST' && rest === 'import') {
+      for (const k of (req.postDataJSON() as { projectKeys: string[] }).projectKeys) projectFavorites.add(k)
+      return route.fulfill({ status: 200, contentType: 'application/json', body: favoritesBody() })
+    }
+    if (req.method() === 'PUT' && rest) projectFavorites.add(rest)
+    else if (req.method() === 'DELETE' && rest) projectFavorites.delete(rest)
+    else return route.fallback()
+    return route.fulfill({ status: 204, body: '' })
+  })
 }
 
 type AuthFixtures = {

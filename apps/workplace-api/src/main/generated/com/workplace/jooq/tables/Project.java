@@ -15,6 +15,7 @@ import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
 import com.workplace.jooq.tables.Label.LabelPath;
 import com.workplace.jooq.tables.Milestone.MilestonePath;
 import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
+import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
@@ -346,6 +347,19 @@ public class Project extends TableImpl<ProjectRecord> {
             _projectComponent = new ProjectComponentPath(this, null, Keys.PROJECT_COMPONENT__PROJECT_COMPONENT_PROJECT_ID_FKEY.getInverseKey());
 
         return _projectComponent;
+    }
+
+    private transient ProjectFavoritePath _projectFavorite;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_favorite</code> table
+     */
+    public ProjectFavoritePath projectFavorite() {
+        if (_projectFavorite == null)
+            _projectFavorite = new ProjectFavoritePath(this, null, Keys.PROJECT_FAVORITE__PROJECT_FAVORITE_PROJECT_ID_FKEY.getInverseKey());
+
+        return _projectFavorite;
     }
 
     private transient ProjectIssueSequencePath _projectIssueSequence;

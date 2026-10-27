@@ -8,7 +8,7 @@ import { parseArgs } from 'node:util';
 import { main as realChecklist } from '../checklist.mjs';
 import { defaultExec } from '../lib/build.mjs';
 import { VERSION_ENDPOINTS, main, ttyConfirm } from '../release.mjs';
-import { REPO, SHA, baseManifest, catalog, fakeDigest, makeTmp } from './helpers.mjs';
+import { REPO, SHA, baseManifest, catalog, fakeDigest, fakeTracker, makeTmp } from './helpers.mjs';
 
 const CTX = 'iacloud-prod-public';
 const NS = 'smart-workplace';
@@ -170,7 +170,7 @@ function clusterViolations(cmd, args, { ctx, ns }) {
  * exec 는 감싸서 모든 helm·kubectl 호출의 클러스터 명시를 검사한다 — 기대값은 argv 의 --context·--namespace(없으면 기본값)이고,
  * run() 이 끝나면(성공·실패 모두) 위반이 없어야 한다. 던지지 않고 모으는 이유: CLI 가 exec 오류를 삼키는 경로(Secret 점검·프록시·tolerate 등)에서도 위반이 사라지지 않게.
  */
-function cli(argv, { exec, download = async () => baseManifest(), checklist = fakeChecklist(), answer = true, confirmThrows = false } = {}) {
+function cli(argv, { exec, download = async () => baseManifest(), checklist = fakeChecklist(), answer = true, confirmThrows = false, tracker = null } = {}) {
   const tmp = tmpDir('release-cli-test-');
   const logs = [];
   const out = [];
@@ -189,7 +189,7 @@ function cli(argv, { exec, download = async () => baseManifest(), checklist = fa
   };
   const run = async () => {
     try {
-      return await main(argv, { repoRoot: REPO, exec: checkedExec, download, confirm, log: (l) => logs.push(String(l)), stdout: (s) => out.push(String(s)), tmpdir: tmp, checklist });
+      return await main(argv, { repoRoot: REPO, exec: checkedExec, download, confirm, log: (l) => logs.push(String(l)), stdout: (s) => out.push(String(s)), tmpdir: tmp, checklist, tracker });
     } finally {
       assert.deepEqual(violations, [], '모든 helm·kubectl 호출은 컨텍스트·네임스페이스를 명시한다');
     }
@@ -1114,4 +1114,58 @@ test('C9: VERSION_ENDPOINTS 의 서비스 이름·포트가 차트의 서비스 
     assert.match(yaml, new RegExp(`^\\s+- port: ${ep.port}$`, 'm'), `${ep.service}: port ${ep.port}`);
   }
   assert.deepEqual(VERSION_ENDPOINTS.map((e) => e.service).sort(), ['admin', 'api', 'web']);
+});
+
+// ---------------------------------------------------------------- WP 버전 연동 (WP-1005)
+
+test('deploy: 반영 확인이 끝나면 WP 버전 v<x.y.z> 를 출시로 바꾼다', async () => {
+  const tracker = fakeTracker({ versions: [{ id: 7, name: 'v0.9.0', status: 'UNRELEASED' }] });
+  const t = deployCli(['--yes'], { withBase: true, tracker });
+  await t.run();
+  assert.deepEqual(tracker.calls.filter((c) => c[0] === 'release'), [['release', 7]]);
+  assert.match(t.logs.join('\n'), /반영 완료[\s\S]*트래커: v0\.9\.0 출시/);
+});
+
+test('deploy: 트래커가 실패해도(권한 등) 반영은 성공으로 끝나고 경고만 남긴다', async () => {
+  const tracker = { ...fakeTracker(), listVersions: async () => { throw new Error('GET /versions → HTTP 403'); } };
+  const t = deployCli(['--yes'], { withBase: true, tracker });
+  assert.deepEqual(await t.run(), { version: '0.9.0', previous: '0.8.5' });
+  assert.match(t.logs.join('\n'), /경고: 트래커 출시 처리 실패 — 릴리스는 계속한다 \(GET \/versions → HTTP 403\)/);
+});
+
+test('deploy: 반영이 실패하면 출시로 바꾸지 않는다', async () => {
+  const tracker = fakeTracker({ versions: [{ id: 7, name: 'v0.9.0', status: 'UNRELEASED' }] });
+  const historyAfter = [...HIST_BASE, { revision: 12, status: 'failed', description: 'Upgrade failed' }];
+  const t = deployCli(['--yes'], { release: { failUpgrade: true, historyAfter }, tracker });
+  await assert.rejects(t.run(), /helm upgrade 실패/);
+  assert.equal(tracker.calls.length, 0);
+});
+
+test('rollback: 떠난 릴리스(0.9.0)는 출시 취소, 돌아간 릴리스(0.8.5)는 출시로 맞춘다', async () => {
+  const tracker = fakeTracker({ versions: [{ id: 1, name: 'v0.8.5', status: 'RELEASED' }, { id: 2, name: 'v0.9.0', status: 'RELEASED' }] });
+  const t = cli(['rollback', '--yes'], { exec: makeRelease({ history: HIST_ROLLBACK, values: VALUES_ROLLBACK }), tracker });
+  await t.run();
+  assert.deepEqual(tracker.calls.filter((c) => c[0] === 'release' || c[0] === 'unrelease'), [['unrelease', 2]], '0.8.5 는 이미 출시라 건드리지 않는다');
+  assert.equal(tracker.versions[1].status, 'UNRELEASED');
+});
+
+test('rollback: 실패한 반영에서 복구하면 실패한 시도의 버전은 건드리지 않는다(예전에 출시된 버전일 수 있다)', async () => {
+  const tracker = fakeTracker({ versions: [{ id: 1, name: 'v0.8.5', status: 'RELEASED' }, { id: 2, name: 'v0.9.0', status: 'RELEASED' }] });
+  const t = cli(['rollback', '--yes'], { exec: makeRelease({ history: HIST_FAILED, values: VALUES_FAILED }), tracker });
+  await t.run();
+  assert.ok(!tracker.calls.some((c) => c[0] === 'release' || c[0] === 'unrelease'));
+  assert.equal(tracker.versions[1].status, 'RELEASED');
+});
+
+test('rollback: 되돌리기를 되돌리면(0.8.5 → 0.9.0) 옛 릴리스는 출시 취소하지 않고 새 릴리스를 다시 출시로', async () => {
+  const history = [
+    { revision: 10, status: 'superseded', description: 'Upgrade complete' },
+    { revision: 11, status: 'superseded', description: 'Upgrade complete' },
+    { revision: 12, status: 'deployed', description: 'Rollback to 10' },
+  ];
+  const values = { ...VALUES_ROLLBACK, 12: { release: { version: '0.8.5', commit: 'b'.repeat(40) } }, 10: { release: { version: '0.8.0', commit: 'a'.repeat(40) } }, 11: { release: { version: '0.9.0', commit: SHA } } };
+  const tracker = fakeTracker({ versions: [{ id: 1, name: 'v0.8.5', status: 'RELEASED' }, { id: 2, name: 'v0.9.0', status: 'UNRELEASED' }] });
+  const t = cli(['rollback', '--yes'], { exec: makeRelease({ history, values }), tracker });
+  await t.run();
+  assert.deepEqual(tracker.calls.filter((c) => c[0] === 'release' || c[0] === 'unrelease'), [['release', 2]]);
 });

@@ -3,7 +3,7 @@
 // 렌더 트리 정리(cleanup)는 RTL 이 전역 afterEach(vitest globals: true)에 스스로 건다.
 import '@testing-library/jest-dom/vitest'
 
-import { cleanup, configure } from '@testing-library/react'
+import { cleanup, configure, getConfig } from '@testing-library/react'
 import * as React from 'react'
 import { afterAll, afterEach, beforeEach } from 'vitest'
 
@@ -99,7 +99,10 @@ server.listen({
 })
 // 테스트가 가짜 타이머를 켠 채 끝나도 아래 정리가 멈추지 않게 진짜 setTimeout 을 잡아 둔다.
 const realSetTimeout = globalThis.setTimeout
+// renderPage 가 늘린 비동기 대기(WP-1006)를 테스트마다 RTL 기본값으로 되돌린다 — 같은 워커의 다음 컴포넌트 테스트에 새지 않게.
+const DEFAULT_ASYNC_TIMEOUT = getConfig().asyncUtilTimeout
 afterEach(async () => {
+  configure({ asyncUtilTimeout: DEFAULT_ASYNC_TIMEOUT })
   // 화면을 핸들러 초기화보다 먼저 내린다 — RTL 의 자동 cleanup 은 이 afterEach 뒤에 돌아, 그 사이 아직 떠 있는 화면이 보낸
   // 조회(SSE·대화·공간 목록)와 내려가며 보내는 요청(임시저장·취소)이 이미 비운 핸들러에 걸려, 부하가 큰 전체 실행에서
   // 다음 테스트를 「핸들러 없는 요청」으로 실패시켰다(WP-1002). 내린 뒤 한 틱 기다려 그 요청이 이 테스트의 핸들러로 처리되게 한다.

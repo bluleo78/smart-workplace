@@ -53,7 +53,7 @@ test('조직도 노드: ⋯ → 액션 시트 → 하위 그룹 추가 → POST 
       }),
     ],
   })
-  await screen.findByTestId('org-chart-view')
+  await screen.findByTestId('group-contact-view')
   expect(screen.queryByTestId('org-add-10')).not.toBeInTheDocument()
   await user.click(await screen.findByTestId('org-more-10'))
   const sheet = await screen.findByTestId('mobile-action-sheet')

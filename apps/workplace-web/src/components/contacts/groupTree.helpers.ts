@@ -2,7 +2,7 @@
 import type { UserGroupMemberSummary, UserGroupNode } from '@/types/userGroup'
 
 /** 트리를 평면 {id,name} 목록으로(부모 셀렉트 후보). depth 만큼 전각 공백 들여쓰기. */
-export function flattenGroups(nodes: UserGroupNode[]): { id: number; name: string }[] {
+function flattenGroups(nodes: UserGroupNode[]): { id: number; name: string }[] {
   const out: { id: number; name: string }[] = []
   const walk = (ns: UserGroupNode[], depth: number) => {
     for (const n of ns) {
@@ -73,4 +73,17 @@ export function filterGroupMembers(members: UserGroupMemberSummary[], query: str
   return members.filter((m) =>
     [m.name, m.email, m.title, m.organization].some((v) => v != null && v.toLowerCase().includes(q)),
   )
+}
+
+/**
+ * 그룹의 경로 — 최상위 조상부터 그 그룹까지(자기 포함). 없으면 null.
+ * 연락처 조직도 화면의 브레드크럼(`조직도 › 경영전략실 › 재경팀`)과 모바일 ‹ 의 상위 조직 판정에 쓴다(WP-977).
+ */
+export function findGroupPath(nodes: UserGroupNode[], id: number): UserGroupNode[] | null {
+  for (const n of nodes) {
+    if (n.id === id) return [n]
+    const sub = findGroupPath(n.children, id)
+    if (sub) return [n, ...sub]
+  }
+  return null
 }

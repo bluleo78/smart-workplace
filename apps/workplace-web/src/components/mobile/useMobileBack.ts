@@ -5,12 +5,16 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { currentHistoryIdx } from '@/lib/historyParam'
 import { resolveBackTarget } from '@/lib/mobile/routes'
 
-export function useMobileBack() {
+/**
+ * fallback: 돌아갈 기록이 없을 때(딥링크) 모듈 루트 대신 갈 경로상 한 단계 위 주소.
+ * 같은 경로 안에서 쿼리로 위치가 갈리는 화면(연락처 조직도 ?group=…)은 모듈 루트로 가면 상위가 아닌 첫 화면이 되므로 넘긴다(WP-977, §B-1).
+ */
+export function useMobileBack(fallback?: string) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   return () => {
     const target = resolveBackTarget(pathname, currentHistoryIdx())
     if (target === -1) navigate(-1)
-    else navigate(target as string, { replace: true })
+    else navigate(fallback ?? (target as string), { replace: true })
   }
 }

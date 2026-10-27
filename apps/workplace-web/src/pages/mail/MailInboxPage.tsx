@@ -23,6 +23,7 @@ import { useMailDarkHtml } from '@/hooks/useMailDarkHtml'
 import { useMarkReadOnOpen } from '@/hooks/useMarkReadOnOpen'
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress'
 import { useMessageSheet } from '@/hooks/useMessageSheet'
+import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { handleApiError } from '@/lib/api-error'
 import { formatDateTime, formatFileSize, formatRelativeTime } from '@/lib/formatters'
 import { hasOpenMark, parseId } from '@/lib/historyParam'
@@ -946,28 +947,18 @@ function MailInbox() {
   const search = params.get('q') ?? ''
   // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(및 그 값을 쓰는 useMailMessages 쿼리)은
   // 300ms debounce 후에만 갱신해 키 입력마다 목록 API 가 재요청되지 않게 한다(#814).
-  // IssueFilterBar 의 q debounce 패턴과 동일.
-  const [searchDraft, setSearchDraft] = useState(search)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSearchDraft(search)
-  }, [search])
-  useEffect(() => {
-    if (searchDraft === search) return
-    const t = setTimeout(() => {
-      setParams(
-        (prev) => {
-          const sp = new URLSearchParams(prev)
-          if (searchDraft) sp.set('q', searchDraft)
-          else sp.delete('q')
-          return sp
-        },
-        { replace: true },
-      )
-    }, 300)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchDraft])
+  // 내가 쓴 q 가 되돌아올 때 더 친 글자를 덮지 않는 것까지 연락처·이슈 필터와 같은 공용 훅이 맡는다(WP-1003).
+  const { draft: searchDraft, setDraft: setSearchDraft } = useSearchDraft(search, (value) =>
+    setParams(
+      (prev) => {
+        const sp = new URLSearchParams(prev)
+        if (value) sp.set('q', value)
+        else sp.delete('q')
+        return sp
+      },
+      { replace: true },
+    ),
+  )
   // 열린 메일 = URL ?messageId(상태의 단일 원천, WP-206). 행 클릭은 push 라 시스템 뒤로가기가 상세만 닫는다.
   // 홈 위젯 딥링크(#447)·푸시 알림도 같은 키 — 마운트 1회 읽기가 아니라 URL 실시간 파생이라 forward 재열림도 자연스럽다.
   // MAIL_DETAIL_PARAM: 다른 메일로 바꿀 때 앞 메일의 첨부 뷰어 키(?preview, WP-280)도 함께 지운다.

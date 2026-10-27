@@ -144,7 +144,7 @@ export function IssueSidebar({ compact = false }: { compact?: boolean }) {
   // 보고, 링크도 NavLink 대신 Link + 직접 계산한 aria-current 로 그린다(NavLink 는 자체 판정으로 aria-current 를 붙인다).
   const location = useLocation()
 
-  // 즐겨찾기(localStorage) — 사이드바 팀 프로젝트 목록은 즐겨찾기한 것만 노출한다.
+  // 즐겨찾기(서버 저장, WP-1001) — 사이드바 팀 프로젝트 목록은 즐겨찾기한 것만 노출한다.
   const { isFav } = useProjectFavorites()
 
   // 프로젝트를 개인(PERSONAL)/팀(TEAM)으로 분리. 개인은 항상 노출, 팀은 즐겨찾기만.

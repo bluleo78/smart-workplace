@@ -86,6 +86,15 @@ export const shellHandlers = [
   http.get(`${API}/messaging/channels`, () => HttpResponse.json([])),
   http.get(`${API}/messaging/dms`, () => HttpResponse.json([])),
   http.get(`${API}/me/pinned-views`, () => HttpResponse.json([])),
+  // 프로젝트 즐겨찾기(WP-1001) — 기본은 빈 목록. 추가·해제는 성공만 돌려주고, 이관은 받은 key 를 그대로 돌려준다.
+  // 토글 뒤 재조회까지 보는 테스트는 상태를 가진 핸들러를 server.use 로 다시 건다.
+  http.get(`${API}/me/project-favorites`, () => HttpResponse.json({ projectKeys: [] })),
+  http.put(`${API}/me/project-favorites/:key`, () => new HttpResponse(null, { status: 204 })),
+  http.delete(`${API}/me/project-favorites/:key`, () => new HttpResponse(null, { status: 204 })),
+  http.post(`${API}/me/project-favorites/import`, async ({ request }) => {
+    const body = (await request.json()) as { projectKeys: string[] }
+    return HttpResponse.json({ projectKeys: [...new Set(body.projectKeys)] })
+  }),
   http.get(`${API}/issue-relation-types`, () => HttpResponse.json(defaultRelationTypes())),
   http.get(`${API}/home/sessions`, () => HttpResponse.json({ items: [], nextCursor: null })),
   http.get(`${API}/home/sessions/:id/proposals`, () => HttpResponse.json([])),

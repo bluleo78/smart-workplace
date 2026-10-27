@@ -49,12 +49,12 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: ['@wirin
   await page.goto('/contacts')
   await expect(page.getByTestId('group-node-10')).toBeVisible()
   await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
   await expect(page.getByTestId('group-member-MEMBER-2')).toContainText('이개발')
 
   // 사이드바 「전체」를 누르면 그룹 선택이 저절로 풀리고 통합 목록(빈 상태)이 돌아온다(WP-976 — 같은 노드 재클릭 토글 없음).
   await page.getByTestId('contact-filter-ALL').click()
-  await expect(page.getByTestId('org-chart-view')).toBeHidden()
+  await expect(page.getByTestId('group-contact-view')).toBeHidden()
   await expect(page.getByTestId('contact-empty')).toBeVisible()
 })
 
