@@ -5,7 +5,7 @@
 // 타임라인 화면(TimelinePage)만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import TimelinePage from '@/pages/projects/timeline/TimelinePage'
 import { atRoute } from '@/test/kits/projects/atRoute'
@@ -13,6 +13,7 @@ import { API, KEY, milestone, stubCanvas, timelineApi } from '@/test/kits/projec
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { MilestoneResponse } from '@/types/milestone'
+import type { MemberResponse } from '@/types/project'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
 
@@ -70,6 +71,65 @@ describe('타임라인 마일스톤 — 레인·생성', () => {
     expect(await screen.findByTestId('milestone-chip-1')).toHaveTextContent('v1 출시')
     expect(screen.getByTestId('milestone-vline-1')).toBeInTheDocument()
     expect(document.querySelector('.timeline-gantt-root .wx-bar.wx-milestone')).toBeNull()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /**
+   * 마감일이 같은 마일스톤 둘(2026-08-01)로 타임라인을 연다. 날짜 문구(formatListDueDate)는 올해면 연도를 빼므로 오늘을
+   * 2026 년으로 고정한다 — 날짜만 가짜로 둔다(타이머까지 가짜면 MSW·userEvent 가 멈춘다).
+   */
+  function openSameDay(members?: MemberResponse[]) {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-08T03:00:00Z'))
+    const api = timelineApi({
+      ...(members ? { members } : {}),
+      milestones: [milestone({ id: 1, name: '베타', dueDate: '2026-08-01' }), milestone({ id: 2, name: '출시', dueDate: '2026-08-01' })],
+      issues: [createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-01', dueDate: '2026-07-05' })],
+    })
+    return renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+      path: `/projects/${KEY}/timeline?period=all`,
+      handlers: [...api.handlers, ...shellHandlers],
+    })
+  }
+
+  // 같은 마감일 마일스톤도 칩 하나로 묶는다(WP-1027) — 목록에서 고르면 그 마일스톤 편집 팝오버가 열리고, 레인 생성으로 새지 않는다.
+  test('마감일이 같은 마일스톤은 칩 하나로 묶고, 목록에서 고르면 그 마일스톤을 편집한다', async () => {
+    const { user } = openSameDay()
+    const group = await screen.findByTestId('milestone-chip-group-2026-08-01')
+    expect(group).toHaveAccessibleName('출시 +1, 8월 1일 · 마일스톤 2개')
+    expect(screen.queryByTestId('milestone-chip-1')).not.toBeInTheDocument()
+    await user.click(group)
+    await user.click(await screen.findByRole('menuitem', { name: '출시' }))
+    expect(await screen.findByTestId('milestone-popover-name-input')).toHaveValue('출시')
+    expect(screen.queryByTestId('milestone-form-dialog')).not.toBeInTheDocument()
+  })
+
+  // 키보드로 목록을 열어 고르면 포커스는 칩으로 돌아온다(PR #930 리뷰) — 편집 팝오버는 포커스를 가져가지 않아,
+  // 막으면 <body> 로 빠져 키보드 사용자가 제자리를 잃었다. 팝오버는 그대로 열려 있다.
+  test('키보드로 묶음 목록에서 고르면 편집 팝오버가 열리고 포커스는 칩으로 돌아온다', async () => {
+    const { user } = openSameDay()
+    const group = await screen.findByTestId('milestone-chip-group-2026-08-01')
+    group.focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('menuitem', { name: '베타' })
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    expect(await screen.findByTestId('milestone-popover-name-input')).toHaveValue('출시')
+    await waitFor(() => expect(document.activeElement).toBe(group))
+    expect(screen.getByTestId('milestone-edit-popover')).toBeInTheDocument()
+  })
+
+  // 관리 권한이 없어도 묶음 칩은 목록을 열어 그 날짜의 이름을 모두 볼 수 있다 — 항목은 고를 수 없다(WP-1008 비활성과 같은 뜻).
+  test('관리 권한이 없으면 묶음 목록은 열리지만 항목은 비활성이다', async () => {
+    const { user } = openSameDay([])
+    await user.click(await screen.findByTestId('milestone-chip-group-2026-08-01'))
+    const items = await screen.findAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['베타', '출시'])
+    for (const item of items) expect(item).toHaveAttribute('aria-disabled', 'true')
+    await user.click(items[1])
+    expect(screen.queryByTestId('milestone-edit-popover')).not.toBeInTheDocument()
   })
 
   // 툴바 「마일스톤 추가」 → 이름·마감일 → POST payload, 저장 뒤 창이 닫힌다.
