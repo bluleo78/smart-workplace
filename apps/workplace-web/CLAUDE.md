@@ -18,6 +18,7 @@ pnpm test             # vitest 단위·페이지·컴포넌트 테스트 (src/**
 pnpm e2e:tag-baseline # E2E 판정 태그 기준선(e2e/untagged-baseline.json) 갱신 — 이관 뒤 낮출 때
 pnpm test:e2e         # Playwright E2E (Vite dev 자동 기동)
 E2E_SERVER=preview pnpm test:e2e  # 빌드 결과물 서빙 (전체 스위트용)
+E2E_REUSE_APP=0 pnpm test:e2e    # 앱 이어 쓰기 끄기 — 기본은 워커가 문서를 이어 쓰고 테스트마다 앱만 다시 띄운다(WP-1002, e2e/fixtures/reuse-app.ts)
 pnpm test:e2e:ui      # Playwright UI 모드
 pnpm test:e2e:headed  # 브라우저 창 띄우고 실행
 ```

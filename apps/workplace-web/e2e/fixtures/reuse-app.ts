@@ -1,4 +1,5 @@
-// 워커 안에서 문서를 이어 쓰는 E2E page(WP-1002) — E2E_REUSE_APP=1 일 때만 켠다.
+// 워커 안에서 문서를 이어 쓰는 E2E page(WP-1002) — 기본으로 켠다. 예전처럼 테스트마다 새 컨텍스트로 돌리려면 E2E_REUSE_APP=0.
+// 전체 E2E(preview·워커 3) 같은 조건 비교: 끔 1,013초·테스트 합 47.6분 → 켬 759초·34.2분, 실패 0 — 0 은 이어 쓰기 탓인지 가릴 때 쓴다.
 // 왜: 테스트마다 새 컨텍스트에서 page.goto 로 앱을 처음 열면 번들 해석·실행·첫 렌더에 약 0.4초가 든다(전체의 약 20%).
 // 같은 워커의 다음 테스트는 문서를 그대로 두고 앱(React 트리)만 처음부터 다시 띄운다(main.tsx 의 __e2eRemount) —
 // 쿼리 캐시·인증·화면 상태·localStorage 는 테스트마다 처음 상태다.
@@ -8,7 +9,7 @@
 // 문서를 새로 열고, 끝나면 그 컨텍스트를 버려 다음 테스트에 남지 않는다.
 import type { BrowserContext, BrowserContextOptions, Page, PlaywrightWorkerArgs, TestInfo } from '@playwright/test'
 
-export const REUSE_APP = process.env.E2E_REUSE_APP === '1'
+export const REUSE_APP = process.env.E2E_REUSE_APP !== '0'
 
 /** 다시 띄울 때 localStorage 로 줄 값을 쿠키로 넘기는 이름 — 문서를 새로 여는 첫 goto 에서 시작 스크립트가 읽는다. */
 const STORAGE_COOKIE = '__e2e_ls'

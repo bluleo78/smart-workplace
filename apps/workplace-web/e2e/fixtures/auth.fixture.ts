@@ -361,9 +361,9 @@ function collabNsName(testInfo: TestInfo): string {
 }
 
 /**
- * E2E_REUSE_APP=1 이면 page·context 를 워커 안에서 이어 쓴다(WP-1002, 상세는 reuse-app.ts).
+ * page·context 를 워커 안에서 이어 쓴다(WP-1002, 기본 켬, 상세는 reuse-app.ts).
  * 브라우저 설정은 Playwright 기본 page 와 같은 option fixture 에서 읽는다 — 파일의 test.use(뷰포트·터치 등)가 그대로 먹는다.
- * 꺼져 있으면 Playwright 기본(테스트마다 새 컨텍스트) 그대로다.
+ * E2E_REUSE_APP=0 이면 Playwright 기본(테스트마다 새 컨텍스트) 그대로다.
  */
 const withReuse = REUSE_APP
   ? base.extend<object, { _reuseSlot: ReuseHolder }>({
