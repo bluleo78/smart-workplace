@@ -145,6 +145,15 @@ export async function injectCollabNamespace(context: BrowserContext, ns: string)
   await context.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [COLLAB_NS_STORAGE_KEY, ns] as const)
 }
 
+/**
+ * 이어 쓰는 page(WP-1002)의 네임스페이스 — 컨텍스트를 테스트끼리 같이 쓰므로 시작 스크립트 대신
+ * 앱을 다시 띄울 때 localStorage 로 넣는다(setStorage). 이 테스트 동안 collabNsOf 가 이 값을 돌려준다.
+ */
+export function useCollabNamespaceForReusedPage(page: Page, ns: string, setStorage: (key: string, value: string) => void): void {
+  nsByContext.set(page.context(), ns)
+  setStorage(COLLAB_NS_STORAGE_KEY, ns)
+}
+
 /** 이 page 가 쓰는 네임스페이스. auth.fixture 를 거치지 않은 컨텍스트면 빈 문자열(네임스페이스 없음). */
 export function collabNsOf(page: Page): string {
   return nsByContext.get(page.context()) ?? ''

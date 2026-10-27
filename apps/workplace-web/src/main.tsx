@@ -32,7 +32,8 @@ const queryClient = new QueryClient({
   },
 })
 
-createRoot(document.getElementById('root')!).render(
+/** 앱 트리 — 처음 띄울 때와 E2E 의 다시 띄우기(아래)가 같은 트리를 쓴다. */
+const appTree = (
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <QueryClientProvider client={queryClient}>
@@ -52,5 +53,39 @@ createRoot(document.getElementById('root')!).render(
         </BrowserRouter>
       </QueryClientProvider>
     </ThemeProvider>
-  </StrictMode>,
+  </StrictMode>
 )
+
+const rootElement = document.getElementById('root')!
+let root = createRoot(rootElement)
+root.render(appTree)
+
+// E2E 전용 — 페이지를 새로 열지 않고 React 앱만 처음부터 다시 띄운다(WP-1002).
+// 테스트마다 page.goto 로 문서를 새로 열면 번들 해석·실행에 약 0.4초가 든다. 같은 워커의 다음 테스트는 문서를 그대로 두고
+// 트리를 내렸다 다시 올려 쿼리 캐시·인증·화면 상태를 처음 상태로 돌린다. E2E fixture 가 페이지 시작 스크립트로
+// __E2E_REUSE_APP__ 를 켤 때만 생기고, 운영에서는 이 값이 없어 아무 일도 하지 않는다.
+type E2EWindow = Window & {
+  __E2E_REUSE_APP__?: boolean
+  __e2eRemount?: (path: string, storage: Record<string, string> | null) => void
+}
+const e2eWindow = window as E2EWindow
+if (e2eWindow.__E2E_REUSE_APP__) {
+  e2eWindow.__e2eRemount = (path, storage) => {
+    root.unmount()
+    queryClient.clear()
+    // storage 가 있으면 새 테스트의 시작이다 — 저장소를 비우고 시작 값을 넣는다. null 이면 같은 테스트 안의 다시 열기(새로고침과 같다)라 둔다.
+    if (storage) {
+      window.localStorage.clear()
+      window.sessionStorage.clear()
+      for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value)
+    }
+    // 모달·스크롤 잠금이 body·html 에 남긴 흔적을 지운다(언마운트 정리가 비동기로 늦게 도는 경우 대비).
+    document.body.removeAttribute('style')
+    document.body.removeAttribute('data-scroll-locked')
+    for (const el of Array.from(document.body.children)) if (el !== rootElement && el.tagName !== 'SCRIPT') el.remove()
+    window.history.replaceState(null, '', path)
+    window.scrollTo(0, 0)
+    root = createRoot(rootElement)
+    root.render(appTree)
+  }
+}
