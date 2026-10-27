@@ -16,7 +16,7 @@
    **구성요소는 라벨과 달리 가져오기가 만들어 주지 않는다.** 이관 스크립트가 먼저 일반 API(`POST /api/v1/projects/{projectKey}/components`, 프로젝트 소유자 또는 관리자)로 필요한 구성요소를 담당자와 함께 만들어 두고, 이슈에서는 `componentNames` 로 이름만 적는다. 이미 보관한 구성요소도 이름으로 연결할 수 있다.
    **버전도 가져오기가 만들어 주지 않는다.** 이슈를 가져오기 전에 이관 스크립트가 버전 API 로 먼저 만든다(개인 토큰, 프로젝트 소유자 또는 관리자): `POST /api/v1/projects/{projectKey}/versions`(이름·설명·시작일·출시 예정일). 이미 출시된 것은 이어서 `POST .../versions/{id}/release` 로 출시하고(출시 날짜는 본문 `releaseDate` 로 줄 수 있고, 없으면 만들 때의 출시 예정일, 그것도 없으면 오늘이 된다), Jira 에서 지금은 지워져 **이력에만 이름이 남은 버전**은 `PATCH .../versions/{id}` 에 `{"archived": true}` 로 **보관된 버전**으로 만들어 둔다. 보관·출시된 버전도 가져오기는 이름으로 연결할 수 있다.
 3. **이슈마다** 「그 이슈의 첨부·이미지 업로드 → 가져오기」를 번갈아 한다(아래 「업로드」).
-4. **에픽(부모) 먼저**, 하위 이슈는 나중에. 하위에서 `parentNumber` 로 부모 번호를 건다.
+4. **에픽(부모) 먼저**, 하위 이슈는 나중에. 하위에서 같은 프로젝트 부모는 `parentNumber` 로 번호를, **다른 프로젝트의 에픽**은 `parentKey` 로 키(예: `PLAN-12`)를 건다. 다른 프로젝트 에픽이면 그 프로젝트 이슈를 먼저 가져와 둔다.
 5. **이슈를 전부 가져온 뒤** 관계를 한 번에 넣는다(아래 「관계·외부 링크」). 관계는 양쪽 이슈가 이미 있어야 걸 수 있다.
 
 ## 업로드
@@ -41,6 +41,7 @@
 | `sourceKey` | 원본 키(100자, 예 `CLIM-17`). 프로젝트 안에서 고유 — 재시도 판별용. |
 | `title` / `body` | 제목 200자, 본문 50,000자(마크다운). |
 | `typeId`, `statusId` 또는 `status`(상태 분류), `priority`, `startDate`, `dueDate`(`YYYY-MM-DD`), `parentNumber`, `milestoneId`, `labelIds`, `labelNames`, `cycleIds` | 일반 이슈 생성과 같은 뜻·검증. |
+| `parentKey` | 부모 이슈 **키**(64자, 예 `PLAN-12`). **다른 프로젝트의 에픽**을 부모로 둘 때 쓴다. 같은 프로젝트 키면 `parentNumber` 와 같고, 둘 다 주면 같은 이슈를 가리켜야 한다(아니면 400). 규칙은 일반 생성과 같다 — 부모는 **에픽**이어야 하고, 하위 태스크·에픽은 다른 프로젝트 부모를 둘 수 없으며, 어느 한쪽이라도 개인 프로젝트면 안 된다. 없는 키·키 꼴이 아닌 값은 400(「부모로 지정한 이슈를 찾을 수 없습니다」 등, 아래 「오류 응답」의 검증 메시지). 완료 에픽 아래 미완료 하위 규칙은 `parentNumber` 처럼 가져오기에서 풀어 준다. 에픽 쪽 프로젝트 화면에도 갱신 신호가 한 번 간다. |
 | `componentNames` | 연결할 구성요소 **이름** 100개까지. 이 프로젝트에 이미 있는 구성요소여야 하고(**대소문자 무시**, 앞뒤 공백은 지운다) **보관된 구성요소도 허용**한다(지난 기록). 없는 이름이 하나라도 있으면 400 `IMPORT_UNKNOWN_COMPONENTS` 이고 이슈를 만들기 전에 거절한다. 같은 구성요소를 대소문자만 다르게 여러 번 적어도 한 번만 붙는다. 가져오기는 **구성요소 담당자 자동 지정을 하지 않는다** — 담당자는 `assignees` 로 준 사람뿐이고 비워 두면 담당자 없이 들어간다. |
 | `fixVersionNames` | 이 이슈의 **수정 버전** 이름 100개까지. 이 프로젝트에 이미 있는 버전이어야 하고(**대소문자 무시**, 앞뒤 공백은 지운다) **보관·출시된 버전도 허용**한다(지난 기록). 없는 이름이 하나라도 있으면 400 `IMPORT_UNKNOWN_VERSIONS` 이고 이슈를 만들기 전에 거절한다(`affectsVersionNames` 의 없는 이름과 합쳐 알린다). 같은 버전을 대소문자만 다르게 여러 번 적어도 한 번만 붙는다. 가져오기는 버전 변경 알림을 내지 않는다. |
 | `affectsVersionNames` | 이 이슈의 **영향 버전** 이름 100개까지. 규칙은 `fixVersionNames` 와 같다. |
@@ -206,9 +207,60 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 | Problem/Incident — A causes B | `CAUSES` | A(원인) |
 | Blocks — A blocks B | `BLOCKS` | A(차단하는 쪽) |
 
-- **다른 프로젝트 에픽이 부모**(`parent` 가 CL 등 Works 에 없는 프로젝트의 에픽)이면 `parentNumber` 로 걸 수 없다 — 그 이슈의 `externalLinks` 에 `{"type":"PARENT_EPIC","url":"https://<사이트>/browse/<키>","key":"<키>","title":"…"}` 로 넣는다.
+- **다른 프로젝트 에픽이 부모**이고 그 에픽이 **이미 Works 에 있으면**(먼저 가져온 이관 프로젝트 등) `parentKey` 로 바로 건다.
+- 그 에픽이 **아직 Works 에 없으면**(CL 등 옮기지 않았거나 나중에 옮길 프로젝트) 그 이슈의 `externalLinks` 에 `{"type":"PARENT_EPIC","url":"https://<사이트>/browse/<키>","key":"<키>","title":"…"}` 로 넣어 두고, 에픽을 옮긴 뒤 아래 「부모 에픽 링크 변환」으로 실제 부모로 바꾼다.
 - **Works 로 옮기지 않는 프로젝트(CL·TECH·INFRA 등)로 가는 링크**는 관계가 아니라 외부 링크다 — 유형은 위 표대로 정하고 `url` 은 `https://<사이트>/browse/<키>`.
 - Works 로 옮기는 프로젝트끼리(예: CLIM ↔ 다른 이관 프로젝트)는 두 프로젝트의 이슈를 모두 가져온 뒤 `toKey` 로 관계 일괄을 부른다.
+
+### 부모 에픽 링크 변환 `POST /api/v1/admin/issues/parent-epic-links/convert`
+
+예전 이관에서 다른 프로젝트 에픽 부모를 `PARENT_EPIC` 외부 링크로 남긴 것을 **실제 부모 관계로 한 번에 바꾼다.** 가져오기와 같이 **워크스페이스 관리자(사람)만** 쓸 수 있다(아니면 403 `IMPORT_ADMIN_ONLY`).
+
+본문:
+
+```json
+{ "projectKey": "CLIM", "dryRun": true, "limit": 500, "afterLinkId": null }
+```
+
+- `projectKey`(선택): 이 프로젝트 이슈(자식)에 달린 링크만 본다. 없으면 워크스페이스 전체. 없는 키는 404, 개인 프로젝트는 400 `IMPORT_PERSONAL_PROJECT`.
+- `dryRun`(**필수**): `true` 면 판정만 돌려주고 아무것도 쓰지 않는다. 먼저 `true` 로 결과를 확인한 뒤 `false` 로 바꾼다. 빠지면 400.
+- `limit`(1~500, 기본 500): 링크 id 순으로 이만큼 본다.
+- `afterLinkId`(선택, 0 이상): 이 링크 id 보다 **큰** 링크부터 본다. 없으면 처음부터. 앞 응답의 `nextAfterLinkId` 를 그대로 넘긴다.
+
+지운 프로젝트의 이슈에 달린 링크는 보지 않는다. 에픽 찾기 — 링크의 `key`(없으면 `url` 의 `/browse/` 뒤)를 ① 그 값을 `sourceKey` 로 가져온 활성 이슈가 워크스페이스에 **하나뿐이면** 그 이슈로 ② 없으면 Works 이슈 키(예 `PLAN-12`)로 읽어 찾는다. 규칙은 일반 부모 지정과 같고, 링크마다 판정이 하나 붙는다.
+
+| 판정 | 뜻 | 바꾸면 |
+|---|---|---|
+| `CONVERT` | 부모로 붙일 수 있다 | 부모 지정 + 링크 삭제 |
+| `SKIP_HAS_PARENT` | 자식에 이미 부모가 있다 | 그대로 |
+| `NOT_FOUND` | 원본 키·Works 키 어느 쪽으로도 에픽이 없다(아직 안 옮김·삭제·지운 프로젝트), 또는 관리자도 읽을 수 없는 프로젝트(남의 개인 프로젝트)의 에픽이다 — 키는 싣지 않는다 | 그대로 |
+| `AMBIGUOUS` | 같은 원본 키로 가져온 이슈가 여럿이다 | 그대로 |
+| `NOT_EPIC` | 찾은 이슈가 에픽이 아니다 | 그대로 |
+| `PERSONAL` | 자식(또는 관리자 본인의 개인 프로젝트 에픽)이 개인 프로젝트에 있고 둘이 다른 프로젝트다 | 그대로 |
+| `SUBTASK` | 자식이 하위 태스크다 | 그대로 |
+| `EPIC_CHILD` | 자식이 에픽이다(에픽은 부모를 가질 수 없다) | 그대로 |
+| `DONE_EPIC_OPEN_CHILD` | 완료 에픽 아래에 미완료 자식을 넣게 된다 — 에픽을 다시 열거나 자식을 끝낸 뒤 다시 돌린다 | 그대로 |
+| `CHANGED` | (`dryRun: false` 에서만) 판정 뒤 쓰기 전에 바뀌었다 — 자식이 지워졌거나, 에픽이 완료·삭제됐거나, 에픽 프로젝트가 지워짐 등. 다시 돌리면 바뀐 상태로 다시 판정한다 | 그대로 |
+
+응답(200):
+
+```json
+{
+  "dryRun": true,
+  "scanned": 3,
+  "counts": { "CONVERT": 1, "SKIP_HAS_PARENT": 0, "NOT_FOUND": 1, "AMBIGUOUS": 0, "NOT_EPIC": 1, "PERSONAL": 0, "SUBTASK": 0, "EPIC_CHILD": 0, "DONE_EPIC_OPEN_CHILD": 0, "CHANGED": 0 },
+  "rows": [
+    { "linkId": 41, "childKey": "CLIM-17", "extKey": "CL-12", "outcome": "CONVERT", "parentKey": "CL-12" },
+    { "linkId": 42, "childKey": "CLIM-18", "extKey": "CL-99", "outcome": "NOT_FOUND", "parentKey": null },
+    { "linkId": 43, "childKey": "CLIM-19", "extKey": "CL-20", "outcome": "NOT_EPIC", "parentKey": "CL-20" }
+  ],
+  "nextAfterLinkId": null
+}
+```
+
+- `dryRun: false` 면 `CONVERT` 줄마다 부모를 붙이고 부모 변경 이력(행위자 = 호출한 관리자)을 남긴 뒤 링크를 지운다. 자식·에픽 양쪽 프로젝트에 화면 갱신 신호가 가고, **워처 알림·AI 작업은 만들지 않는다.** 실행마다 감사 로그(`ISSUE_PARENT_EPIC_LINKS_CONVERTED`, 판정별 건수) 한 건.
+- `nextAfterLinkId`: 뒤에 볼 링크가 더 있으면 이번에 본 마지막 링크 id, 더 없으면 `null`. 바꾸지 못한 링크는 지워지지 않아 다음 호출에도 같은 자리에 남으므로, **커서 없이 되풀이하면 앞쪽의 바꿀 수 없는 링크만 계속 본다.** 끝까지 돌리려면 `nextAfterLinkId` 를 다음 요청의 `afterLinkId` 로 넘기며 `null` 이 될 때까지 부른다(`dryRun` 도 같은 방식으로 훑는다).
+- 요청 하나가 한 트랜잭션이다. 바꾼 링크는 지워지므로 같은 요청을 되풀이해도 안전하다 — 남는 것은 바꾸지 못한 줄뿐이다. 판정과 쓰기 사이에 한 줄이 바뀌면(동시 수정) 그 줄만 `CHANGED`(그사이 부모가 생겼으면 `SKIP_HAS_PARENT`)로 남고 나머지 줄은 그대로 바뀐다 — 배치 전체가 되돌려지지 않는다.
 
 ## 오류 응답
 
@@ -246,7 +298,7 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 - 대소문자만 다른 라벨(Compute/compute 등 6쌍)은 Works 에서 다른 라벨이 된다 — 미리 합친다.
 - Jira 구성요소 12개는 이슈를 가져오기 **전에** 일반 API 로 Works 구성요소(이름·담당자)로 만든다. 이름은 Works 에서 대소문자를 무시하고 유일해야 한다. 이슈에서는 Jira 구성요소 이름을 `componentNames` 에, 변경 이력은 `COMPONENTS_CHANGED` 로 옮긴다. 가져오기는 구성요소 담당자를 이슈 담당자로 붙이지 않으므로 담당자는 Jira 담당자를 `assignees` 로 보낸다.
 - Jira 버전(Fix Version/s·Affects Version/s)은 이슈를 가져오기 **전에** 버전 API 로 Works 버전으로 만든다. 이름은 Works 에서 대소문자를 무시하고 유일해야 한다. Jira 에서 출시된 버전은 만든 뒤 출시하고, **이력에만 이름이 남은(지금은 지워진) 버전**은 보관된 버전으로 만들어 둔다. 이슈에서는 Fix Version/s 를 `fixVersionNames` 에, Affects Version/s 를 `affectsVersionNames` 에 이름으로 적고, 변경 이력은 `FIX_VERSIONS_CHANGED`·`AFFECTS_VERSIONS_CHANGED` 로 옮긴다.
-- 다른 프로젝트(CL) 에픽이 부모인 62건은 `parentNumber` 로 걸 수 없다 — `PARENT_EPIC` 외부 링크로(위 「관계·외부 링크」).
+- 다른 프로젝트(CL) 에픽이 부모인 62건은 `parentNumber` 로 걸 수 없다 — CL 에픽이 이미 Works 에 있으면 `parentKey` 로, 아니면 `PARENT_EPIC` 외부 링크로 넣고 나중에 「부모 에픽 링크 변환」으로 바꾼다(위 「관계·외부 링크」).
 - 본문의 `CLIM-n` 링크(773개)는 Works 프로젝트 키를 `CLIM` 으로 두면 번호 보존으로 그대로 맞는다.
 - 커넥터가 주는 주석 HTML 을 그대로 보내면 5만 자를 넘는 댓글이 있다(CLIM-16·14) — 마크다운으로 바꿔 보낸다.
 - 멘션은 Jira 계정 id → Works username 으로 바꾼다. 가져오기는 멘션 알림을 내지 않는다.

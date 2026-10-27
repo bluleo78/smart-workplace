@@ -5,6 +5,7 @@
 import { closedRangeLabel } from '@/lib/closedRange';
 import { ISSUE_GROUP_BY_LABEL, ISSUE_PRIORITY_LABEL, ISSUE_STATUS_LABEL, priorityLabel, statusLabel } from '@/lib/issueGrouping';
 import { ownLookup } from '@/lib/ownLookup';
+import { parentIssueKey, parentTitleLabel } from '@/lib/parentRef';
 import { MY_TASKS_TAB_LABEL } from '@/pages/me/myTasksTabs';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 import type { IssueFilters, IssueGroupBy, IssueResponse, IssueView } from '@/types/issue';
@@ -43,7 +44,8 @@ export function buildIssueDetailContext({ projectKey, issue }: { projectKey: str
         ['수정 버전', (issue.fixVersions ?? []).map((v) => v.name).join(', ')],
         ['영향 버전', (issue.affectsVersions ?? []).map((v) => v.name).join(', ')],
         ['마감', issue.dueDate],
-        ['상위 이슈', issue.parent ? `${projectKey}-${issue.parent.number} ${issue.parent.title}` : null],
+        // WP-1038 부모는 다른 프로젝트 에픽일 수 있어 부모의 프로젝트 키로. 가려진 부모는 키·제목 없이 문구만.
+        ['상위 이슈', issue.parent ? `${parentIssueKey(issue.parent, projectKey) ?? ''} ${parentTitleLabel(issue.parent)}`.trim() : null],
         ['차단됨', issue.blocked],
       ]),
     },

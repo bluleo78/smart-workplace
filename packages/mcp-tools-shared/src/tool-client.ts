@@ -98,7 +98,8 @@ export interface IssueRow {
   fixVersions?: { name?: string; [key: string]: unknown }[] | null;
   affectsVersions?: { name?: string; [key: string]: unknown }[] | null;
   milestoneName?: string | null;
-  parent?: { number?: number; title?: string; status?: string; [key: string]: unknown } | null;
+  // WP-1038 부모는 다른 프로젝트 에픽일 수 있어 projectKey 를 싣고, 조회자가 읽을 수 없으면 hidden=true(번호·제목 없음).
+  parent?: { number?: number; title?: string; status?: string; projectKey?: string; hidden?: boolean; [key: string]: unknown } | null;
   childCount?: number;
   childDoneCount?: number;
   blocked?: boolean;
@@ -212,9 +213,13 @@ export interface IssueToolClient
   createIssue(projectKey: string, body: Record<string, unknown>): Promise<unknown>;
   /** 내용/상태/우선순위/날짜 PATCH. */
   updateIssueContent(issueKey: string, body: Record<string, unknown>): Promise<unknown>;
-  /** 유형 변경 — parentNumber 를 주면 같은 요청에서 부모도 바꾼다(WP-745: SUBTASK 로 바꿀 때 부모가 필수). */
-  setIssueType(issueKey: string, typeId: number, parentNumber?: number): Promise<void>;
-  setIssueParent(issueKey: string, parentNumber: number | null): Promise<void>;
+  /**
+   * 유형 변경 — parent 를 주면 같은 요청에서 부모도 바꾼다(WP-745: SUBTASK 로 바꿀 때 부모가 필수).
+   * parent 는 같은 프로젝트 부모 번호(number) 또는 다른 프로젝트 에픽 키(string, WP-1038).
+   */
+  setIssueType(issueKey: string, typeId: number, parent?: number | string): Promise<void>;
+  /** 부모 지정 — 같은 프로젝트 번호(number)·다른 프로젝트 에픽 키(string, WP-1038), null 이면 해제. */
+  setIssueParent(issueKey: string, parent: number | string | null): Promise<void>;
   replaceIssueAssignees(issueKey: string, assigneeIds: number[]): Promise<unknown>;
   /** PUT .../reporter — 보고자 바꾸기(WP-944). */
   changeIssueReporter(issueKey: string, userId: number): Promise<void>;

@@ -8,6 +8,7 @@ import { Fragment, useState } from 'react';
 import { MobileDateSheet } from '@/components/mobile/MobileDateSheet';
 import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
+import { parentTitleLabel } from '@/lib/parentRef';
 import { cn } from '@/lib/utils';
 
 import { IssueStatusIcon } from '../../../../components/issues/IssueStatusIcon';
@@ -99,7 +100,8 @@ export function IssueMobilePropertyChips({
   const assigneeMore = issue.assignees.length > 1 ? `+${issue.assignees.length - 1}` : null;
   // 해석할 수 없는 마감일(API 로 들어간 +10000-01-01 등)은 엉뚱한 월·일 대신 「잘못된 날짜」(WP-725)
   const dueText = issue.dueDate ? (parseValidDateKey(issue.dueDate) ? formatDateMonthDay(issue.dueDate) : '잘못된 날짜') : '마감 없음';
-  const epicText = issue.parent ? issue.parent.title : '에픽 없음';
+  // WP-1038 가려진 부모(다른 프로젝트 비공개 에픽)는 제목이 없어 문구로.
+  const epicText = issue.parent ? parentTitleLabel(issue.parent) : '에픽 없음';
   // 속성별 칩 — 내용은 기존 그대로, 렌더 순서만 fields 가 정한다.
   const renderChip = (f: MobilePropField): React.ReactNode => {
     switch (f) {

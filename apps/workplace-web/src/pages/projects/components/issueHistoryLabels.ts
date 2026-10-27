@@ -3,6 +3,7 @@
 // 이력 행 고유 규칙(값 없음 → '없음')만 여기서 더한다.
 import { priorityLabel, statusLabel } from '@/lib/issueGrouping';
 import { relatedIssueKey } from '@/lib/issueRelations';
+import { HIDDEN_PARENT_LABEL } from '@/lib/parentRef';
 import { directionParticle } from '@/lib/utils';
 
 /** 상태 이력 값 → 표시명. null/빈 값은 '없음'. */
@@ -23,22 +24,32 @@ export function historyPriorityLabel(v: string | null): string {
   return v ? priorityLabel(v) : '없음';
 }
 
-/** PARENT_CHANGED 페이로드의 부모 한쪽 — 서버가 번호·제목만 보낸다. */
-type ParentRef = { number: number; title?: string | null } | null | undefined;
+/**
+ * PARENT_CHANGED 페이로드의 부모 한쪽 — 번호·제목, 다른 프로젝트 에픽이면 프로젝트 키(WP-1038). 조회자가 그 프로젝트를 읽을 수 없으면 서버가
+ * {hidden:true} 로 가린다.
+ */
+type ParentRef = { number?: number; title?: string | null; projectKey?: string | null; hidden?: boolean } | null | undefined;
+
+/** 부모 키 — 이력의 프로젝트 키(다른 프로젝트 에픽), 없으면(같은 프로젝트·옛 이력) 이 프로젝트 키. 가려졌으면 null. */
+function parentKeyOf(ref: NonNullable<ParentRef>, projectKey: string): string | null {
+  if (ref.hidden) return null;
+  return `${ref.projectKey ?? projectKey}-${ref.number}`;
+}
 
 /**
  * 부모 이슈 표기 — 「제목」(키). 제목에 띄어쓰기가 있어도 문장과 구분되게 따옴표로 감싸고 키를 붙인다(WP-862).
- * 부모는 늘 같은 프로젝트 이슈라 키는 이 프로젝트 키로 만든다. 제목이 비면 키만.
+ * 키는 부모의 프로젝트 키로 만든다(WP-1038 — 다른 프로젝트 에픽). 가려진 부모는 「볼 수 없는 에픽」, 제목이 비면 키만.
  */
 function parentLabel(ref: NonNullable<ParentRef>, projectKey: string): string {
-  const key = `${projectKey}-${ref.number}`;
+  const key = parentKeyOf(ref, projectKey);
+  if (key == null) return HIDDEN_PARENT_LABEL;
   return ref.title ? `「${ref.title}」(${key})` : key;
 }
 
 /**
- * PARENT_CHANGED 이력 문구(WP-862) — toValue 는 {from:{number,title}|null, to:{number,title}|null} JSON.
+ * PARENT_CHANGED 이력 문구(WP-862) — toValue 는 {from:{number,title,projectKey?}|{hidden:true}|null, to:…} JSON.
  * 설정 「부모를 「A」(RX-1)으로 설정」·해제 「부모 「A」(RX-1) 해제」·변경 「「A」(RX-1) → 「B」(RX-2)」.
- * 조사는 괄호 앞 제목(없으면 키)의 받침으로 고른다. 파싱 실패 시 원문.
+ * 조사는 괄호 앞 제목(없으면 키·가린 문구)의 받침으로 고른다. 파싱 실패 시 원문.
  */
 export function formatParentChanged(toValue: string | null, projectKey: string): string {
   if (!toValue) return '부모 변경';
@@ -49,7 +60,7 @@ export function formatParentChanged(toValue: string | null, projectKey: string):
     if (to == null && from == null) return '부모 변경';
     if (to == null) return `부모 ${parentLabel(from!, projectKey)} 해제`;
     if (from == null) {
-      const particle = directionParticle(to.title || `${projectKey}-${to.number}`);
+      const particle = directionParticle((!to.hidden && to.title) || parentKeyOf(to, projectKey) || HIDDEN_PARENT_LABEL);
       return `부모를 ${parentLabel(to, projectKey)}${particle} 설정`;
     }
     return `${parentLabel(from, projectKey)} → ${parentLabel(to, projectKey)}`;

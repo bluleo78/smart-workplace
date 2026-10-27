@@ -3,6 +3,7 @@ package com.workplace.issue.service;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 
 import com.workplace.issue.dto.IssueHistoryEventType;
+import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.ProjectStatusRow;
 import com.workplace.issue.dto.StatusDeletionImpact;
@@ -11,16 +12,20 @@ import com.workplace.issue.exception.InvalidStatusForProjectException;
 import com.workplace.issue.exception.StatusLastInCategoryException;
 import com.workplace.issue.exception.StatusMoveTargetRequiredException;
 import com.workplace.issue.exception.StatusNotFoundException;
+import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueRepository.MigratedIssue;
 import com.workplace.issue.repository.ProjectStatusRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.outbound.ProjectChangeNotifier;
+import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.view.repository.SavedViewRepository;
 import com.workplace.view.service.SavedViewQueries;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +55,11 @@ public class ProjectStatusDeletionService {
   private final ProjectAccessGuard accessGuard;
   private final ProjectChangeNotifier changeNotifier;
   private final ProjectStatusAudit audit;
+
+  /** WP-1038 다른 프로젝트 에픽을 되돌렸으면 그 프로젝트의 이슈 화면을 갱신한다. */
+  private final IssueChangeNotifier issueChangeNotifier;
+
+  private final ProjectRepository projectRepository;
 
   /**
    * 삭제 영향 — 삭제 확인 창이 버튼 문구(이슈 N개)·옮길 상태 필수 여부·저장된 뷰 안내·에픽 차단 경고를 고르는 근거. 프로젝트를 볼 수 있으면 조회할 수 있다(삭제
@@ -207,6 +217,9 @@ public class ProjectStatusDeletionService {
   /**
    * 옮긴 활성 이슈의 부모 중 완료 범주 에픽을 진행 중 기본 상태로 조용히 되돌리고 STATUS_CHANGED 이력을 남긴다. 함께 옮겨진 에픽은 이미 이전 대상 범주라
    * 빼고, 휴지통 이슈는 하위로 세지 않으므로(미완료 판정이 활성만 본다) 그 부모는 다시 열지 않는다.
+   *
+   * <p>WP-1038 에픽은 다른 프로젝트에 있을 수 있다 — 상태는 프로젝트마다 다르므로 에픽을 프로젝트별로 묶어 각 프로젝트의 진행 중 기본 상태로 되돌린다. 이
+   * 프로젝트의 이전은 조용하지만, 다른 프로젝트 에픽은 그 프로젝트 화면이 이 삭제를 모르므로 이슈 실시간 무효화를 낸다.
    */
   private void reopenDoneEpics(Long callerId, ProjectRow project, List<MigratedIssue> migrated) {
     var migratedIds = new HashSet<Long>();
@@ -219,18 +232,37 @@ public class ProjectStatusDeletionService {
     }
     Map<Long, String> epics = issueRepository.findDoneEpicStatusNames(parentIds);
     if (epics.isEmpty()) return;
-    var inProgress =
-        statusRepository
-            .findDefault(project.id(), IssueStatuses.IN_PROGRESS)
-            .orElseThrow(() -> new IllegalStateException("진행 중 범주의 상태가 없습니다"));
-    issueRepository.reopenQuietly(epics.keySet(), IssueStatuses.IN_PROGRESS, inProgress.id());
-    epics.forEach(
-        (epicId, fromName) ->
+    // 에픽을 프로젝트별로 묶는다(입력 순서 유지).
+    Map<Long, List<IssueRow>> epicsByProject = new LinkedHashMap<>();
+    for (IssueRow epic : issueRepository.findByIds(epics.keySet())) {
+      epicsByProject.computeIfAbsent(epic.projectId(), k -> new ArrayList<>()).add(epic);
+    }
+    epicsByProject.forEach(
+        (projectId, rows) -> {
+          var inProgress =
+              statusRepository
+                  .findDefault(projectId, IssueStatuses.IN_PROGRESS)
+                  .orElseThrow(() -> new IllegalStateException("진행 중 범주의 상태가 없습니다"));
+          issueRepository.reopenQuietly(
+              rows.stream().map(IssueRow::id).toList(), IssueStatuses.IN_PROGRESS, inProgress.id());
+          for (IssueRow epic : rows) {
             historyRepository.insert(
-                epicId,
+                epic.id(),
                 callerId,
                 IssueHistoryEventType.STATUS_CHANGED.name(),
-                fromName,
-                inProgress.name()));
+                epics.get(epic.id()),
+                inProgress.name());
+          }
+          if (!projectId.equals(project.id())) {
+            projectRepository
+                .findById(projectId)
+                .ifPresent(
+                    p ->
+                        rows.forEach(
+                            epic ->
+                                issueChangeNotifier.updatedWithoutTouch(
+                                    p, epic.number(), epic.id(), callerId)));
+          }
+        });
   }
 }

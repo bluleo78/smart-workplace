@@ -47,7 +47,7 @@ Smart Workplace 의 **모듈러 모놀리스 백엔드**. identity(인증·권�
 | `global` | SecurityConfig, JwtAuthenticationFilter, GlobalExceptionHandler, `@RequirePermission`, 공통 DTO, EncryptionService(AES-256-GCM) |
 | `home` | 홈 대시보드 집계 — 내 이슈·워치·활동 |
 | `project` | 프로젝트 CRUD·멤버·권한·custom field |
-| `issue` | 이슈 CRUD·상태/우선순위/유형·subtask·의존성·관계(관련·중복·복제·원인, 다른 프로젝트 포함)·외부 링크(Jira 등 URL)·다중 assignee·이벤트 발행 · 관계 유형 관리(`/admin/issue-relation-types`, `issue_relation_type:manage`) · 관리자 전용 가져오기(`/import/issues`·외부 링크 포함, 모두 가져온 뒤 `/import/relations` 관계 일괄, 사용법 docs/integrations/issue-import-api.md) |
+| `issue` | 이슈 CRUD·상태/우선순위/유형·subtask·의존성·관계(관련·중복·복제·원인, 다른 프로젝트 포함)·외부 링크(Jira 등 URL)·다중 assignee·이벤트 발행 · 관계 유형 관리(`/admin/issue-relation-types`, `issue_relation_type:manage`) · 관리자 전용 가져오기(`/import/issues`·외부 링크 포함, 모두 가져온 뒤 `/import/relations` 관계 일괄, 이관 때 남긴 PARENT_EPIC 외부 링크를 부모로 바꾸는 `/admin/issues/parent-epic-links/convert`, 사용법 docs/integrations/issue-import-api.md) |
 | `label` | 라벨 CRUD·이슈 라벨링 |
 | `watcher` | 이슈 워처(구독) |
 | `view` | Saved View — 필터 조건 저장·공유 |

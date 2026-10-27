@@ -19,6 +19,10 @@ describe('countCascadedChildren (WP-482)', () => {
   it('부모와 함께 선택된 하위는 두 번 세지 않는다', () => {
     expect(countCascadedChildren([issue(1, 2), issue(10, 0, 1)])).toBe(1);
   });
+  it('에픽의 하위는 지워지지 않으므로 세지 않는다 (WP-1038)', () => {
+    const epic = { ...issue(5, 4), type: { id: 2, name: 'EPIC' } } as unknown as IssueResponse;
+    expect(countCascadedChildren([epic, issue(1, 2)])).toBe(2);
+  });
   it('캐시에 없는 이슈는 0 으로 본다', () => {
     expect(countCascadedChildren([undefined, issue(2, 3)])).toBe(3);
   });

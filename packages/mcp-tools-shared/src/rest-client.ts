@@ -114,6 +114,9 @@ export const viewUrl = (base: string, page?: number) => `${base}/view${page !== 
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
 const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
 
+/** 부모 지정 본문(WP-1038) — 같은 프로젝트 번호면 { parentNumber }, 다른 프로젝트 에픽 키면 { parentKey }. */
+const parentBody = (parent: number | string) => (typeof parent === 'number' ? { parentNumber: parent } : { parentKey: parent });
+
 /** 프로젝트 메타 종류 → REST 경로 조각(WP-356, 버전 WP-1005). 서버 컨트롤러 /projects/{key}/labels·milestones·cycles·versions. */
 const META_PATH: Record<ProjectMetaKind, string> = { label: 'labels', milestone: 'milestones', cycle: 'cycles', version: 'versions' };
 
@@ -240,11 +243,11 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async updateIssueContent(issueKey, body) {
       return (await http.patch(issue(issueKey), body)).data;
     },
-    async setIssueType(issueKey, typeId, parentNumber) {
-      await http.patch(`${issue(issueKey)}/type`, parentNumber === undefined ? { typeId } : { typeId, parentNumber });
+    async setIssueType(issueKey, typeId, parent) {
+      await http.patch(`${issue(issueKey)}/type`, parent === undefined ? { typeId } : { typeId, ...parentBody(parent) });
     },
-    async setIssueParent(issueKey, parentNumber) {
-      await http.patch(`${issue(issueKey)}/parent`, { parentNumber });
+    async setIssueParent(issueKey, parent) {
+      await http.patch(`${issue(issueKey)}/parent`, parent === null ? { parentNumber: null } : parentBody(parent));
     },
     async replaceIssueAssignees(issueKey, userIds) {
       return (await http.put(`${issue(issueKey)}/assignees`, { userIds })).data;

@@ -2006,12 +2006,22 @@ describe('#856 propose 도구', () => {
     expect(pub.sink).toHaveLength(0);
   });
 
-  it('propose_delete_issue → key·number 로 매핑하고 하위 이슈 연쇄 삭제를 summary 에 보인다', async () => {
+  it('propose_delete_issue → key·number 로 매핑하고 일반 이슈의 하위 이슈 연쇄 삭제를 summary 에 보인다', async () => {
     const c = client();
-    c.sc.getIssueDetail.mockResolvedValue({ summary: { title: '에픽', childCount: 3 } });
-    const { sink } = await run(c, 'propose_delete_issue', { issueKey: 'WP-12', summary: '에픽 삭제' });
+    c.sc.getIssueDetail.mockResolvedValue({ summary: { title: '태스크', childCount: 3, type: { name: 'TASK' } } });
+    const { sink } = await run(c, 'propose_delete_issue', { issueKey: 'WP-12', summary: '태스크 삭제' });
     expect(sink[0]).toMatchObject({ actionType: 'issue.delete', params: { key: 'WP', number: 12 } });
     expect(sink[0].summary).toContain('하위 이슈 3건도 함께 삭제');
+  });
+
+  // WP-1038: 에픽을 지우면 하위는 남고 에픽 연결만 풀린다 — 카드가 「함께 삭제」로 잘못 안내하지 않아야 한다.
+  it('propose_delete_issue → 에픽이면 하위 이슈는 지워지지 않고 에픽 연결만 풀린다고 summary 에 보인다', async () => {
+    const c = client();
+    c.sc.getIssueDetail.mockResolvedValue({ summary: { title: '에픽', childCount: 3, type: { name: 'EPIC' } } });
+    const { sink } = await run(c, 'propose_delete_issue', { issueKey: 'WP-12', summary: '에픽 삭제' });
+    expect(sink[0]).toMatchObject({ actionType: 'issue.delete', params: { key: 'WP', number: 12 } });
+    expect(sink[0].summary).toContain('하위 이슈 3건은 지워지지 않고 에픽 연결만 풀립니다');
+    expect(sink[0].summary).not.toContain('함께 삭제');
   });
 
   it('propose_delete_comment → issueKey 를 key·number 로, commentId 는 그대로', async () => {

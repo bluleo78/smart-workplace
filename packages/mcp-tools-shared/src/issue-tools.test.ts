@@ -725,24 +725,36 @@ describe('buildSharedIssueTools', () => {
     }
   });
 
-  it('create_issue 는 다른 프로젝트의 부모 키를 이슈를 만들기 전에 거부한다', async () => {
+  it('WP-1038: create_issue 는 다른 프로젝트의 부모 키를 parentKey 로, 같은 프로젝트는 parentNumber 로 보낸다', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'create_issue')!;
-    await expect(t.handler({ projectKey: 'WP', title: '하위', parent: 'AB-7' })).rejects.toThrow('같은 프로젝트(WP)');
-    expect(c.createIssue).not.toHaveBeenCalled();
+    await t.handler({ projectKey: 'WP', title: '하위', parent: 'ab-7' });
+    const body = vi.mocked(c.createIssue).mock.calls[0][1] as Record<string, unknown>;
+    expect(body.parentKey).toBe('AB-7'); // 대문자로 맞춘 키
+    expect(body.parentNumber).toBeUndefined();
+    await t.handler({ projectKey: 'WP', title: '하위', parent: 'WP-7' });
+    const same = vi.mocked(c.createIssue).mock.calls[1][1] as Record<string, unknown>;
+    expect(same.parentNumber).toBe(7);
+    expect(same.parentKey).toBeUndefined();
     await expect(t.handler({ projectKey: 'WP', title: '하위', parent: 7 })).rejects.toThrow(); // 번호만은 더 이상 받지 않는다
   });
 
-  it('update_issue 의 parent 는 이슈 키(설정)·null(해제), 다른 프로젝트 키는 아무것도 쓰기 전에 거부한다', async () => {
+  it('update_issue 의 parent 는 같은 프로젝트면 번호, 다른 프로젝트(에픽)면 키, null 은 해제로 보낸다 (WP-1038)', async () => {
     const c = mockClient();
     const t = buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
     await t.handler({ issueKey: 'WP-12', parent: 'WP-3' });
     expect(c.setIssueParent).toHaveBeenLastCalledWith('WP-12', 3);
     await t.handler({ issueKey: 'WP-12', parent: null });
     expect(c.setIssueParent).toHaveBeenLastCalledWith('WP-12', null);
+    await t.handler({ issueKey: 'WP-12', parent: 'AB-3' });
+    expect(c.setIssueParent).toHaveBeenLastCalledWith('WP-12', 'AB-3');
+    // 유형과 함께 바꾸면 유형 요청 하나에 다른 프로젝트 키를 싣는다.
+    await t.handler({ issueKey: 'WP-12', type: 'BUG', parent: 'AB-3' });
+    expect(c.setIssueType).toHaveBeenLastCalledWith('WP-12', 2, 'AB-3');
+    // 키 꼴이 아니면 아무것도 쓰기 전에 거부한다.
     vi.mocked(c.setIssueParent).mockClear();
     vi.mocked(c.updateIssueContent).mockClear();
-    await expect(t.handler({ issueKey: 'WP-12', title: '수정', parent: 'AB-3' })).rejects.toThrow('같은 프로젝트(WP)');
+    await expect(t.handler({ issueKey: 'WP-12', title: '수정', parent: 'not-a-key' })).rejects.toThrow();
     expect(c.updateIssueContent).not.toHaveBeenCalled();
     expect(c.setIssueParent).not.toHaveBeenCalled();
   });

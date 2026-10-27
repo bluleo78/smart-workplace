@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { copyText } from '@/lib/copyText';
 import { epicTypeSummary } from '@/lib/epicColor';
+import { parentTitleLabel } from '@/lib/parentRef';
 
 import { findIssueInSearchCache } from '../../../hooks/queries/issueSearchCache';
 import { useBulkAssign, useBulkDeleteIssues, useBulkUpdatePriority, useBulkUpdateStatus } from '../../../hooks/queries/useBulkIssueActions';
@@ -239,7 +240,7 @@ export function useIssueRowActions({
                 (pendingDelete?.numbers ?? []).map((n) => findIssueInSearchCache(qc, projectKey, n)),
               ),
             )
-          // 에픽이면 「하위 이슈(태스크·버그 등)」로 알린다(WP-469). 하위가 없으면 기본 문구.
+          // 에픽이면 하위 이슈가 남고 에픽 연결만 풀린다고 알린다(WP-469·WP-1038). 하위가 없으면 기본 문구.
           : (issueDeleteChildrenWarning(pendingDelete?.issue.type?.name, deleteChildren, pendingDelete?.issue.title) ?? undefined)
       }
     />
@@ -289,7 +290,7 @@ export function useIssueRowActions({
         items.status && statuses.length > 0 && { key: 'status', label: '상태', icon: <CircleDot />, hint: issue.statusName, onSelect: () => toSheet('status') },
         items.assignee && { key: 'assignee', label: '담당자', icon: <UserRound />, hint: assigneeNames, onSelect: () => toSheet('assignee') },
         items.priority && { key: 'priority', label: '우선순위', icon: <SignalHigh />, hint: ISSUE_PRIORITY_LABEL[issue.priority], onSelect: () => toSheet('priority') },
-        items.epic && { key: 'epic', label: '에픽', icon: <Layers />, hint: issue.parent?.title ?? '없음', onSelect: () => toSheet('epic') },
+        items.epic && { key: 'epic', label: '에픽', icon: <Layers />, hint: issue.parent ? parentTitleLabel(issue.parent) : '없음', onSelect: () => toSheet('epic') },
         // AI 멤버가 하나면 바로 맡기고, 여럿이면 고르는 시트로.
         items.ai && { key: 'ai', label: 'AI에게 맡기기', icon: <Bot />, ai: true, onSelect: () => (agents.length === 1 ? delegate(agents[0]) : toSheet('ai')) },
         { key: 'copy-link', label: '링크 복사', icon: <Link2 />, onSelect: copyLink },

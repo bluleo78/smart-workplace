@@ -5,6 +5,7 @@ import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarMonth
 
 import { CLOSED_ISSUE_STATUSES } from '@/lib/closedHiding';
 import { epicColorToken } from '@/lib/epicColor';
+import { isOwnProjectEpicParent } from '@/lib/issueGrouping';
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
@@ -215,7 +216,7 @@ function epicOwnRange(epic: Pick<IssueResponse, 'startDate' | 'dueDate'>): DateS
  * (서버가 부모 요약 유형 색에 에픽 색을 싣는다). 간트 막대와 모바일 아젠다가 같은 규칙을 쓴다.
  */
 function groupColorToken(epic: IssueResponse | null | undefined, kids: IssueResponse[]): string | undefined {
-  return epic ? epicColorToken(epic) : kids[0]?.parent?.type.colorToken;
+  return epic ? epicColorToken(epic) : kids[0]?.parent?.type?.colorToken;
 }
 
 /**
@@ -267,7 +268,7 @@ export function prepareTimelineIssues(
     if (i.type?.name === 'SUBTASK') continue;
     // 취소 에픽 하위 판정 — 응답의 취소 에픽 우선, 필터로 에픽 행이 빠졌으면 하위의 parent.status 로 판단한다(WP-247).
     const canceledParent =
-      i.parent?.type.name === 'EPIC'
+      isOwnProjectEpicParent(i)
         ? (canceledEpics.get(i.parent.number) ?? (i.parent.status === 'CANCELED' ? i.parent.title : undefined))
         : undefined;
     if (canceledParent !== undefined) {
@@ -284,7 +285,7 @@ export function prepareTimelineIssues(
   // 에픽 번호 → 하위(응답에 에픽이 없는 합성 묶음 포함).
   const kidsOf = new Map<number, TimelineIssue[]>();
   for (const i of byStatus) {
-    if (i.type?.name !== 'EPIC' && i.parent?.type.name === 'EPIC') {
+    if (i.type?.name !== 'EPIC' && isOwnProjectEpicParent(i)) {
       const list = kidsOf.get(i.parent.number) ?? [];
       list.push(i);
       kidsOf.set(i.parent.number, list);
@@ -305,7 +306,7 @@ export function prepareTimelineIssues(
   }
   return byStatus.filter((i) => {
     if (i.type?.name === 'EPIC') return visibleEpics.has(i.number);
-    if (i.parent?.type.name === 'EPIC') return visibleEpics.has(i.parent.number);
+    if (isOwnProjectEpicParent(i)) return visibleEpics.has(i.parent.number);
     // 마감일 없는 이슈는 간트에서 「일정 미정」(막대는 dueDate 필수) — 기간과 무관하게 남긴다.
     if (!i.dueDate) return true;
     return overlaps(spanOf(i.startDate, i.dueDate)!, period);
@@ -333,7 +334,7 @@ export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewO
   const looseIssues: TimelineIssue[] = [];
   for (const issue of active) {
     if (issue.type?.name === 'EPIC') continue;
-    if (issue.parent?.type.name === 'EPIC') {
+    if (isOwnProjectEpicParent(issue)) {
       const list = children.get(issue.parent.number) ?? [];
       list.push(issue);
       children.set(issue.parent.number, list);
@@ -503,7 +504,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
   const loose: TimelineIssue[] = [];
   for (const i of active) {
     if (i.type?.name === 'EPIC') continue;
-    if (i.parent?.type.name === 'EPIC') {
+    if (isOwnProjectEpicParent(i)) {
       // 매번 배열을 복사하지 않고 같은 배열에 push(groupTimelineIssues 와 같은 방식).
       const list = children.get(i.parent.number) ?? [];
       list.push(i);

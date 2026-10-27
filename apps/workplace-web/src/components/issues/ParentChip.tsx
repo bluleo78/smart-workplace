@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 
 import { ISSUE_TYPE_ICONS } from '../../lib/issueTypeIcons';
 import { LABEL_COLORS } from '../../lib/labelColors';
+import { HIDDEN_PARENT_LABEL, parentIssueKey, parentIssuePath } from '../../lib/parentRef';
 import { cn } from '../../lib/utils';
 import type { ParentRef } from '../../types/issue';
 import type { ColorToken } from '../../types/label';
@@ -29,28 +30,33 @@ export function ParentChip({
   titleClassName?: string;
 }) {
   // 색상·아이콘은 부모 유형에서 파생 — 하드코딩 hex 없이 디자인시스템 색상 토큰만 사용.
-  const colors = LABEL_COLORS[parent.type.colorToken as ColorToken] ?? LABEL_COLORS.GRAY;
-  const Icon = ISSUE_TYPE_ICONS[parent.type.icon] ?? ISSUE_TYPE_ICONS.Circle;
-  const title = `${projectKey}-${parent.number} · ${parent.title}`;
+  // WP-1038 부모 키·경로는 부모의 프로젝트 키로 만든다(다른 프로젝트 에픽). 가려진 부모는 유형·키 없이 회색 「볼 수 없는 에픽」, 링크 없음.
+  const issueKey = parentIssueKey(parent, projectKey);
+  const path = parentIssuePath(parent, projectKey);
+  const label = issueKey == null ? HIDDEN_PARENT_LABEL : parent.title;
+  const colors = LABEL_COLORS[parent.type?.colorToken as ColorToken] ?? LABEL_COLORS.GRAY;
+  const Icon = (parent.type && ISSUE_TYPE_ICONS[parent.type.icon]) ?? ISSUE_TYPE_ICONS.Circle;
+  const title = issueKey == null ? HIDDEN_PARENT_LABEL : `${issueKey} · ${parent.title}`;
   const content = (
     <>
       <Icon className="h-3 w-3 shrink-0" />
-      {showKey && (
-        <span className="shrink-0 font-mono">
-          {projectKey}-{parent.number}
-        </span>
-      )}
-      <span className={cn('truncate', titleClassName)}>{parent.title}</span>
+      {showKey && issueKey != null && <span className="shrink-0 font-mono">{issueKey}</span>}
+      <span className={cn('truncate', titleClassName)}>{label}</span>
     </>
   );
   // row 변형 칩은 줄어든다(min-w-0 shrink) — 칩이 제목을 밀어내지 않게, 제목은 min-w-[8rem] 을 보장(WP-194).
   // 오른쪽 정렬(ml-auto)은 호출처가 정한다 — 이슈 행은 레이블과 한 묶음으로 민다(WP-505).
-  if (variant === 'card') {
+  if (variant === 'card' || path == null) {
     return (
       <span
-        data-testid={`issue-card-${issueNumber}-epic`}
+        data-testid={variant === 'card' ? `issue-card-${issueNumber}-epic` : `issue-row-${issueNumber}-parent`}
         title={title}
-        className={`inline-flex min-w-0 max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-xs ${colors.bg} ${colors.text}`}
+        className={cn(
+          'inline-flex min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs',
+          variant === 'card' ? 'max-w-full' : 'max-w-[12rem] shrink font-normal',
+          colors.bg,
+          colors.text,
+        )}
       >
         {content}
       </span>
@@ -58,7 +64,7 @@ export function ParentChip({
   }
   return (
     <Link
-      to={`/projects/${projectKey}/issues/${parent.number}`}
+      to={path}
       onClick={(e) => e.stopPropagation()}
       data-testid={`issue-row-${issueNumber}-parent`}
       title={title}

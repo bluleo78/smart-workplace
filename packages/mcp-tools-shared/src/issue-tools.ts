@@ -73,16 +73,16 @@ function toIssueChatMessageView(m: Record<string, unknown>) {
 }
 
 /**
- * 부모 이슈 키(WP-12) → 서버용 이슈 번호. 서버는 부모를 같은 프로젝트의 번호(parentNumber)로만 받는다 —
- * 다른 프로젝트 키가 오면 번호만 떼어 쓰면 엉뚱한 이슈가 부모가 되므로 호출 전에 막는다(WP-353).
+ * 부모 이슈 키(WP-12) → 서버로 보낼 부모 지정. 같은 프로젝트면 번호(parentNumber), 다른 프로젝트면 정규화한 이슈 키(parentKey)다.
+ * WP-353 까지는 같은 프로젝트만 받아 다른 키를 막았지만, WP-1038 부터 일반 이슈는 다른 프로젝트 에픽을 부모로 둘 수 있어 키 그대로 넘긴다
+ * (번호만 떼어 쓰면 엉뚱한 같은 프로젝트 이슈가 부모가 되므로 키로 보낸다). 에픽 여부·읽기 권한·개인 프로젝트 규칙은 서버가 본다.
  * 키를 이슈 도구의 다른 입력(issueKey·otherIssueKey)과 같은 표기로 받아 "parent 만 번호"인 불일치를 없앤 것이다.
  */
-function parentNumberOf(parentKey: string, projectKey: string): number {
+function parentRefOf(parentKey: string, projectKey: string): number | string {
   const { projectKey: parentProject, number } = parseIssueKey(parentKey);
-  if (parentProject !== projectKey) {
-    throw new Error(`부모 이슈는 같은 프로젝트(${projectKey})의 이슈여야 합니다: ${parentKey}`);
-  }
-  return number;
+  // 프로젝트 키는 대문자다 — 소문자로 써도 같은 프로젝트면 번호로, 다른 프로젝트면 대문자 키로 보낸다.
+  const upper = parentProject.toUpperCase();
+  return upper === projectKey.toUpperCase() ? number : `${upper}-${number}`;
 }
 
 /**
@@ -232,7 +232,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         const { projectKey, type, assignees, parent, labels, components, fixVersions, affectsVersions, milestone, cycles, ...rest } = createIssueInput.parse(args);
         // 리졸브(이름→ID)를 create 이전에 수행 — 실패 시 이슈를 만들지 않고 throw. 서로 독립 조회라 병렬로 보낸다.
         // WP-356: 라벨·마일스톤·사이클도 서버가 생성과 같은 트랜잭션에서 붙인다 — 생성 후 update_issue 를 따로 부르지 않아도 된다.
-        const parentNumber = parent != null ? parentNumberOf(parent, projectKey) : undefined;
+        const parentRef = parent != null ? parentRefOf(parent, projectKey) : undefined;
         const [typeId, assigneeIds, milestoneId, cycleIds, existingLabels, existingComponents, existingVersions] = await Promise.all([
           type ? resolveTypeId(client, projectKey, type) : undefined,
           assignees ? resolveAssigneeIds(client, projectKey, assignees) : undefined,
@@ -254,7 +254,9 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
           ...rest,
           typeId,
           assigneeIds,
-          parentNumber,
+          // WP-1038 같은 프로젝트 부모는 번호, 다른 프로젝트 에픽은 키로 보낸다.
+          parentNumber: typeof parentRef === 'number' ? parentRef : undefined,
+          parentKey: typeof parentRef === 'string' ? parentRef : undefined,
           labelIds: labelPart?.ids,
           labelNames: labelPart?.created,
           componentIds,
@@ -300,7 +302,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         // 1) 리졸브를 쓰기 이전에 모두 수행 — 하나라도 실패하면 아무것도 쓰지 않고 throw.
         //    서로 독립 조회라 병렬로 보낸다. 부모 키 → 번호 변환(같은 프로젝트 검사)도 여기서 한다.
         //    WP-356: 커스텀 필드는 이름 → 정의를 찾고 값 모양·선택지까지 확인한다(서버 검증과 같다, null 은 비우기).
-        const parentNumber = parent === undefined || parent === null ? parent : parentNumberOf(parent, projectKey);
+        const parentRef = parent === undefined || parent === null ? parent : parentRefOf(parent, projectKey);
         const fieldEntries = fields ? Object.entries(fields) : [];
         //    WP-870: status 는 범주면 { status }, 프로젝트 상태 이름이면 { statusName } — 이름은 서버가 해석하고 모르면 content 가 400 으로 실패한다.
         const statusPatch = status !== undefined ? resolveStatusPatch(status) : undefined;
@@ -367,12 +369,12 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
         }
         // WP-745: 유형과 부모를 함께 바꾸면 한 요청으로 보낸다 — SUBTASK 로 바꾸는 순간 부모가 있어야 해서,
         // 유형·부모를 따로 보내면 순서와 상관없이 한쪽이 거절된다. 결과는 type·parent 둘 다에 같은 값으로 싣는다.
-        if (typeId !== undefined && typeof parentNumber === 'number') {
-          await run('type', () => client.setIssueType(issueKey, typeId, parentNumber));
+        if (typeId !== undefined && parentRef != null) {
+          await run('type', () => client.setIssueType(issueKey, typeId, parentRef));
           results.parent = results.type;
         } else {
           if (typeId !== undefined) await run('type', () => client.setIssueType(issueKey, typeId));
-          if (parentNumber !== undefined) await run('parent', () => client.setIssueParent(issueKey, parentNumber));
+          if (parentRef !== undefined) await run('parent', () => client.setIssueParent(issueKey, parentRef));
         }
         if (assigneeIds !== undefined) {
           await run('assignees', () => client.replaceIssueAssignees(issueKey, assigneeIds));

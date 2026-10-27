@@ -56,6 +56,20 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenCalledWith('/projects/A%20B');
   });
 
+  it('WP-1038: setIssueParent·setIssueType 은 번호면 parentNumber, 키면 parentKey, null 이면 해제로 보낸다', async () => {
+    const { http, client } = mockHttp();
+    await client.setIssueParent('WP-12', 3);
+    expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/parent', { parentNumber: 3 });
+    await client.setIssueParent('WP-12', 'AB-3');
+    expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/parent', { parentKey: 'AB-3' });
+    await client.setIssueParent('WP-12', null);
+    expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/parent', { parentNumber: null });
+    await client.setIssueType('WP-12', 2, 'AB-3');
+    expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/type', { typeId: 2, parentKey: 'AB-3' });
+    await client.setIssueType('WP-12', 2);
+    expect(http.patch).toHaveBeenLastCalledWith('/projects/WP/issues/12/type', { typeId: 2 });
+  });
+
   it('updateIssueContent 는 이슈 경로로 PATCH', async () => {
     const { http, client } = mockHttp();
     await client.updateIssueContent('WP-12', { title: 't' });

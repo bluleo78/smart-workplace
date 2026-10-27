@@ -94,6 +94,15 @@ public class ProjectAccessGuard {
     return projectRepository.findById(projectId).map(p -> canRead(p, userId)).orElse(false);
   }
 
+  /**
+   * 출력 가림용 읽기 판정(WP-1038) — 조회자가 있으면 {@link #canRead(ProjectRow, Long)}, 없으면(null — 특정 조회자 없는 출력)
+   * OPEN 만. 다른 프로젝트 부모 요약 가림(ParentRefReader)과 관계·부모 이력 가림(IssueRelationService)이 같은 규칙을 쓰게 한 곳에
+   * 둔다.
+   */
+  public boolean canReadForViewer(ProjectRow project, Long viewerId) {
+    return viewerId == null ? "OPEN".equals(project.type()) : canRead(project, viewerId);
+  }
+
   /** {@link #canRead(long, Long)} 의 행 버전 — 이미 프로젝트 행을 가진 호출부가 같은 행을 다시 읽지 않게 한다. */
   public boolean canRead(ProjectRow project, Long userId) {
     return isReadable(project, userId);

@@ -499,6 +499,59 @@ class ProjectStatusDeletionTest extends IntegrationTestBase {
   }
 
   @Test
+  void 다른프로젝트의_완료에픽은_그_프로젝트의_진행중_상태로_다시열린다() {
+    // WP-1038 — 이 프로젝트 하위가 다른 프로젝트 에픽 아래 있으면, 그 에픽은 에픽 프로젝트의 진행 중 기본 상태로 되돌아가야 한다(상태는 프로젝트마다 다르다).
+    ProjectResponse other = newProject(owner, "SDX");
+    long otherEpicType = typeRepository.findByProjectAndName(other.id(), "EPIC").orElseThrow().id();
+    var e =
+        issueService.create(
+            owner,
+            other.key(),
+            new CreateIssueRequest("e", null, null, null, null, otherEpicType, null, null));
+    var c =
+        issueService.create(
+            owner,
+            project.key(),
+            new CreateIssueRequest(
+                "c",
+                null,
+                null,
+                null,
+                List.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                deployed,
+                null,
+                other.key() + "-" + e.number()));
+    issueService.updateStatus(owner, other.key(), e.number(), "DONE");
+    events.clear();
+
+    delete(deployed, inProgress);
+
+    long otherInProgress =
+        statusService.list(owner, other.key()).stream()
+            .filter(s -> s.name().equals("진행 중"))
+            .findFirst()
+            .orElseThrow()
+            .id();
+    assertThat(issueRow(c.id()).get(ISSUE.STATUS)).isEqualTo("IN_PROGRESS");
+    assertThat(issueRow(e.id()).get(ISSUE.STATUS)).isEqualTo("IN_PROGRESS");
+    assertThat(issueRow(e.id()).get(ISSUE.STATUS_ID)).isEqualTo(otherInProgress);
+    assertThat(otherInProgress).isNotEqualTo(inProgress);
+    assertThat(history(e.id(), "STATUS_CHANGED")).last().isEqualTo("완료→진행 중");
+    // 다른 프로젝트 화면은 이 삭제를 모르므로 그 에픽의 이슈 무효화를 받는다.
+    assertThat(events.stream(com.workplace.global.realtime.ResourceChangedEvent.class))
+        .anyMatch(ev -> ev.scopeId() == other.id() && ev.ids().contains(e.id()));
+  }
+
+  @Test
   void 완료범주끼리_이전은_완료에픽을_그대로_둔다() {
     var e = epic(review);
     child(e, deployed);

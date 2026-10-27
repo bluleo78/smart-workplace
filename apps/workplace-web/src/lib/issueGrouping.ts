@@ -9,9 +9,11 @@ import {
   type IssuePriority,
   type IssueResponse,
   type IssueStatus,
+  type ParentRef,
 } from '../types/issue';
 import type { ProjectStatus } from '../types/projectStatus';
 import { ownLookup } from './ownLookup';
+import { HIDDEN_PARENT_LABEL, isHiddenParent, parentProjectKey } from './parentRef';
 
 // 하나의 그룹 — key 는 React key·data-testid·droppable id 에 사용, label 은 헤더 표시.
 export interface IssueGroup {
@@ -107,8 +109,20 @@ const PRIORITY_ORDER: { key: string; label: string }[] = toOrder(ISSUE_PRIORITY_
 
 // 부모가 에픽인지 — 에픽은 별도 플래그가 없고 유형 이름이 'EPIC' 인 이슈다(useProjectEpics 와 같은 기준).
 // SUBTASK 의 부모(STORY 등)는 에픽이 아니므로 그룹·행 메타의 ◆ 에픽 표시에서 제외한다.
+// WP-1038 조회자가 읽을 수 없는 부모(hidden)는 유형이 없지만, 다른 프로젝트 부모는 에픽만 될 수 있어 에픽으로 본다.
 export function isEpicParent(issue: IssueResponse): boolean {
-  return issue.parent?.type.name === 'EPIC';
+  return issue.parent?.type?.name === 'EPIC' || isHiddenParent(issue.parent);
+}
+
+/**
+ * 부모가 같은 프로젝트의 에픽인가(WP-1038) — 에픽 번호로 묶는 화면(타임라인)이 다른 프로젝트 에픽(PLAN-3)을 같은 번호의 자기 프로젝트 에픽(WP-3)과
+ * 합치지 않게 한다. 다른 프로젝트·가려진 부모는 그 화면에서 에픽 없음으로 둔다(다른 프로젝트 에픽 표시는 WP-1039).
+ */
+export function isOwnProjectEpicParent<T extends Pick<IssueResponse, 'parent' | 'projectKey'>>(
+  issue: T,
+): issue is T & { parent: ParentRef } {
+  const p = issue.parent;
+  return p != null && !isHiddenParent(p) && p.type?.name === 'EPIC' && parentProjectKey(p, issue.projectKey) === issue.projectKey;
 }
 
 /**
@@ -142,22 +156,35 @@ export function groupIssues(
   }
   // epic — 에픽 번호 오름차순 버킷, 에픽이 아닌 부모·부모 없음은 마지막 「에픽 없음」.
   // 개수는 로드된 행 기준(무한 스크롤로 증가) — 상태/우선순위 그룹과 같은 방식(별도 집계 API 없음).
+  // WP-1038 에픽은 다른 프로젝트에 있을 수 있어 (프로젝트 키, 번호)로 묶는다 — PLAN-3 과 WP-3 이 합쳐지지 않게. 같은 프로젝트 에픽의 그룹 key 는
+  // 예전 그대로 `epic-{번호}`, 다른 프로젝트는 `epic-{키}-{번호}`, 가려진 에픽은 한 묶음 `epic-hidden`(「볼 수 없는 에픽」). 순서는 같은 프로젝트 에픽
+  // (번호순) → 다른 프로젝트 에픽(키·번호순) → 볼 수 없는 에픽.
   if (groupBy === 'epic') {
-    const byEpic = new Map<number, IssueGroup>();
+    const byEpic = new Map<string, { rank: [number, string, number]; group: IssueGroup }>();
     const none: IssueResponse[] = [];
     for (const it of issues) {
       if (!it.parent || !isEpicParent(it)) {
         none.push(it);
         continue;
       }
-      let g = byEpic.get(it.parent.number);
-      if (!g) {
-        g = { key: `epic-${it.parent.number}`, label: it.parent.title, issues: [] };
-        byEpic.set(it.parent.number, g);
+      const p = it.parent;
+      const hidden = isHiddenParent(p);
+      const pk = parentProjectKey(p, it.projectKey);
+      const own = !hidden && pk === it.projectKey;
+      const key = hidden ? 'epic-hidden' : own ? `epic-${p.number}` : `epic-${pk}-${p.number}`;
+      let entry = byEpic.get(key);
+      if (!entry) {
+        entry = {
+          rank: hidden ? [2, '', 0] : own ? [0, '', p.number] : [1, pk, p.number],
+          group: { key, label: hidden ? HIDDEN_PARENT_LABEL : p.title, issues: [] },
+        };
+        byEpic.set(key, entry);
       }
-      g.issues.push(it);
+      entry.group.issues.push(it);
     }
-    const groups = [...byEpic.entries()].sort(([a], [b]) => a - b).map(([, g]) => g);
+    const groups = [...byEpic.values()]
+      .sort((a, b) => a.rank[0] - b.rank[0] || a.rank[1].localeCompare(b.rank[1]) || a.rank[2] - b.rank[2])
+      .map((e) => e.group);
     if (none.length > 0) groups.push({ key: 'no-epic', label: '에픽 없음', issues: none });
     return groups;
   }

@@ -254,11 +254,11 @@ describe('삭제 확인 AlertDialog (#161)', () => {
     expect(within(dialog).getByText('이 태스크에는 하위 태스크가 3개 있습니다. 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.')).toBeInTheDocument()
   })
 
-  // WP-469: 에픽은 「에픽 삭제」·「하위 이슈(태스크·버그 등)도 함께 삭제」로 알린다.
+  // WP-469: 에픽은 「에픽 삭제」로 알리고, WP-1038 부터 하위 이슈는 지우지 않고 에픽 연결만 푼다고 알린다.
   test('에픽 삭제 확인창은 에픽 문구와 하위 이슈 경고를 보인다', async () => {
     const { dialog } = await openDeletable({ childCount: 2, type: makeEpicType() })
     expect(within(dialog).getByRole('heading', { name: '에픽 삭제' })).toBeInTheDocument()
-    expect(dialog).toHaveTextContent('이 에픽에는 하위 이슈가 2개 있습니다. 하위 이슈(태스크·버그 등)도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.')
+    expect(dialog).toHaveTextContent('이 에픽에는 하위 이슈가 2개 있습니다. 하위 이슈는 지워지지 않고 에픽 연결만 풀립니다. 이 작업은 되돌릴 수 없습니다.')
   })
 })
 

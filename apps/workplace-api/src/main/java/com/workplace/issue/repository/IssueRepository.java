@@ -278,6 +278,50 @@ public class IssueRepository {
         ISSUE, ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.IMPORT_SOURCE_KEY.eq(sourceKey)));
   }
 
+  /**
+   * 원본 키로 가져온 활성 이슈 — 워크스페이스 전체에서(RLS 가 현재 테넌트로 한정) 찾는다(WP-1038 부모 에픽 링크 변환). 원본 키는 프로젝트 안에서만 유일해
+   * 여러 건일 수 있으므로 max 건까지 돌려 호출자가 「모호함」을 가른다.
+   */
+  public List<IssueRow> findActiveByImportSourceKey(String sourceKey, int max) {
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE_WITH_STATUS)
+        .where(
+            ISSUE
+                .IMPORT_SOURCE_KEY
+                .eq(sourceKey)
+                .and(ISSUE.DELETED_AT.isNull())
+                // 지운 프로젝트의 이슈는 에픽 후보가 아니다(프로젝트 삭제는 이슈를 따로 지우지 않는다).
+                .and(
+                    exists(
+                        selectOne()
+                            .from(PROJECT)
+                            .where(
+                                PROJECT.ID.eq(ISSUE.PROJECT_ID).and(PROJECT.DELETED_AT.isNull())))))
+        .orderBy(ISSUE.ID)
+        .limit(max)
+        .fetch(this::mapToRow);
+  }
+
+  /**
+   * 「최상위」(topLevel·에픽 미할당) 조건 — 부모가 없거나, 부모가 다른 프로젝트에 있다(WP-1038). 다른 프로젝트 에픽 아래 이슈는 자기 프로젝트 화면에 그
+   * 에픽이 없어 묶일 곳이 없으므로 최상위로 보여 준다.
+   */
+  private static Condition topLevelCondition() {
+    var parent = ISSUE.as("tl_parent");
+    return ISSUE
+        .PARENT_ISSUE_ID
+        .isNull()
+        .or(
+            exists(
+                selectOne()
+                    .from(parent)
+                    .where(
+                        parent
+                            .ID
+                            .eq(ISSUE.PARENT_ISSUE_ID)
+                            .and(parent.PROJECT_ID.ne(ISSUE.PROJECT_ID)))));
+  }
+
   /** projectId + number 로 활성 이슈 조회. */
   public Optional<IssueRow> findByProjectAndNumber(Long projectId, int number) {
     return dsl.select(ROW_FIELDS)
@@ -671,7 +715,7 @@ public class IssueRepository {
       where = where.and(ISSUE.PARENT_ISSUE_ID.eq(parentId));
     } else {
       if (Boolean.TRUE.equals(query.topLevel())) {
-        where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
+        where = where.and(topLevelCondition());
       }
       // 유형 이름 기준 제외 — SUBTASK 는 부모 해제된 고아(parent_issue_id IS NULL)까지 함께 차단되고(에픽 직속
       // 자식 등 비SUBTASK 는 유지), EPIC 은 보드·목록 기본 뷰에서 숨긴다(에픽 패널·타임라인이 담당).
@@ -1315,7 +1359,7 @@ public class IssueRepository {
     }
     // 횡단 경로에서는 parentNumber 로 프로젝트를 특정할 수 없어 지원하지 않는다(무시). topLevel 만 지원.
     if (Boolean.TRUE.equals(query.topLevel())) {
-      where = where.and(ISSUE.PARENT_ISSUE_ID.isNull());
+      where = where.and(topLevelCondition());
     }
     // blocked=true: 활성 차단자(미완료, 미삭제)가 존재하는 이슈만. 자기참조 회피를 위해 blocker self-alias 사용.
     // 대상 이슈 자신이 이미 DONE/CANCELED 면 차단자가 남아있어도 blocked=false 로 취급한다 (#826).
@@ -1387,20 +1431,97 @@ public class IssueRepository {
   }
 
   /**
-   * 부모의 활성 자식 중 미완료(DONE/CANCELED 가 아닌) 이슈 번호 목록 조회. EPIC → DONE 전이 차단 검증용(#710). 자식 유형과
-   * 무관하게(SUBTASK 뿐 아니라 TASK 등 전체) 모두 집계한다 — 보드 카드의 SUBTASK 전용 진행률 표시와는 별개 기준.
+   * 부모의 활성 자식 행 전부(다른 프로젝트 자식 포함, WP-1038) — 프로젝트·번호 순. 에픽 하위 목록 화면이 조회자 권한으로 거른 뒤 목록 응답으로 조립한다.
    */
-  public List<Integer> findIncompleteChildNumbers(Long parentId) {
-    return dsl.select(ISSUE.NUMBER)
+  public List<IssueRow> findActiveChildren(Long parentId) {
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE_WITH_STATUS)
+        .where(ISSUE.PARENT_ISSUE_ID.eq(parentId).and(ISSUE.DELETED_AT.isNull()))
+        .orderBy(ISSUE.PROJECT_ID.asc(), ISSUE.NUMBER.asc())
+        .fetch(this::mapToRow);
+  }
+
+  /** 미완료 하위 한 건의 위치(WP-1038) — 하위가 다른 프로젝트일 수 있어 키를 만들 프로젝트 키와 읽기 판정용 id 를 함께 싣는다. */
+  public record ChildKey(long projectId, String projectKey, int number) {
+    public String issueKey() {
+      return projectKey + "-" + number;
+    }
+  }
+
+  /**
+   * 부모의 활성 하위 중 미완료(DONE/CANCELED 가 아닌) 이슈를 프로젝트 키와 함께 — EPIC → DONE 전이 차단 검증용(#710). 하위 유형과
+   * 무관하게(SUBTASK 뿐 아니라 TASK 등 전체) 모두 센다(보드 카드의 SUBTASK 전용 진행률과는 별개 기준). 하위는 다른 프로젝트에 있을 수 있어 차단
+   * 메시지가 하위마다 자기 프로젝트 키로 적게 한다(WP-1038). 프로젝트·번호 순.
+   */
+  public List<ChildKey> findIncompleteChildKeys(Long parentId) {
+    return dsl.select(ISSUE.PROJECT_ID, PROJECT.KEY, ISSUE.NUMBER)
         .from(ISSUE)
+        .join(PROJECT)
+        .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
         .where(
             ISSUE
                 .PARENT_ISSUE_ID
                 .eq(parentId)
                 .and(ISSUE.DELETED_AT.isNull())
                 .and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED)))
-        .orderBy(ISSUE.NUMBER)
-        .fetch(ISSUE.NUMBER);
+        .orderBy(ISSUE.PROJECT_ID, ISSUE.NUMBER)
+        .fetch(r -> new ChildKey(r.value1(), r.value2(), r.value3()));
+  }
+
+  /**
+   * 부모의 활성 자식을 id 순으로 쓰기 잠금하며 읽는다(WP-1038 에픽 삭제의 하위 떼어내기). 잠근 뒤 행을 다시 보므로 그 사이 다른 부모로 옮겨진 하위는 빠진다.
+   * 에픽 행을 먼저 잠근 호출부가 부른다 — 「부모 → 하위」 잠금 순서(WP-771)를 지킨다.
+   */
+  public List<IssueRow> lockActiveChildren(Long parentId) {
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE_WITH_STATUS)
+        .where(ISSUE.PARENT_ISSUE_ID.eq(parentId).and(ISSUE.DELETED_AT.isNull()))
+        .orderBy(ISSUE.ID.asc())
+        .forNoKeyUpdate()
+        .of(ISSUE)
+        .fetch(this::mapToRow);
+  }
+
+  /**
+   * 이 프로젝트와 다른 프로젝트 사이에 걸린 부모 관계의 활성 하위를 id 순으로 쓰기 잠금하며 읽는다(WP-1038 프로젝트 삭제). 두 방향 모두 — 다른 프로젝트 하위가
+   * 이 프로젝트 에픽을 가리키는 것과, 이 프로젝트 하위가 다른 프로젝트 에픽을 가리키는 것. id 순으로 잠가 동시 삭제끼리 교착하지 않게 한다.
+   */
+  public List<IssueRow> lockCrossProjectChildren(long projectId) {
+    var p = ISSUE.as("xp_parent");
+    Condition underThisProject =
+        ISSUE
+            .PROJECT_ID
+            .ne(projectId)
+            .and(
+                ISSUE.PARENT_ISSUE_ID.in(
+                    DSL.select(p.ID).from(p).where(p.PROJECT_ID.eq(projectId))));
+    Condition underOtherProject =
+        ISSUE
+            .PROJECT_ID
+            .eq(projectId)
+            .and(
+                ISSUE.PARENT_ISSUE_ID.in(
+                    DSL.select(p.ID).from(p).where(p.PROJECT_ID.ne(projectId))));
+    return dsl.select(ROW_FIELDS)
+        .from(ISSUE_WITH_STATUS)
+        .where(ISSUE.DELETED_AT.isNull().and(underThisProject.or(underOtherProject)))
+        .orderBy(ISSUE.ID.asc())
+        .forNoKeyUpdate()
+        .of(ISSUE)
+        .fetch(this::mapToRow);
+  }
+
+  /**
+   * 이슈들의 부모를 한 번에 뗀다(WP-1038 에픽·프로젝트 삭제). {@link #updateParent} 와 같이 updated_at 만 맞추고 version 은 두지
+   * 않는다.
+   */
+  public void clearParents(Collection<Long> ids) {
+    if (ids == null || ids.isEmpty()) return;
+    dsl.update(ISSUE)
+        .setNull(ISSUE.PARENT_ISSUE_ID)
+        .set(ISSUE.UPDATED_AT, OffsetDateTime.now())
+        .where(ISSUE.ID.in(ids))
+        .execute();
   }
 
   /**
@@ -1454,7 +1575,7 @@ public class IssueRepository {
   /**
    * 이 상태의 활성 에픽 중, 이 상태가 아닌 미완료(종료 범주가 아닌) 활성 하위가 있는 에픽 수(WP-809). 이 상태를 완료 범주로 옮기면 그 에픽들이 미완료 하위를
    * 둔 채 완료되므로 삭제를 막는 근거다. 같은 상태의 하위는 함께 옮겨져 같이 완료되므로 세지 않는다. 미완료 판정은 {@link
-   * #findIncompleteChildNumbers} 와 같다(하위 유형 무관).
+   * #findIncompleteChildKeys} 와 같다(하위 유형 무관).
    */
   public int countEpicsWithIncompleteChildrenOutside(long projectId, long statusId) {
     var child = ISSUE.as("child");
@@ -1523,8 +1644,8 @@ public class IssueRepository {
   }
 
   /**
-   * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row(번호·제목·상태)와 부모 type 을 함께 fetch. 부모가 없는 id 는 결과
-   * 맵에서 제외된다.
+   * N+1 회피 — 자식 id 집합 → 부모 요약. self-alias 로 부모 row(번호·제목·상태)와 부모 type·프로젝트 키를 함께 fetch. 부모가 없는 id 는
+   * 결과 맵에서 제외된다. 조회자 권한은 보지 않는다 — 다른 프로젝트 부모의 가림은 호출부가 {@code ParentRefReader} 로 한다(WP-1038).
    */
   public Map<Long, ParentRef> findParentRefsByIssueIds(List<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
@@ -1541,15 +1662,20 @@ public class IssueRepository {
                 ISSUE_TYPE_DEF.NAME,
                 ISSUE_TYPE_DEF.COLOR_TOKEN,
                 ISSUE_TYPE_DEF.ICON,
-                p.EPIC_COLOR))
+                p.EPIC_COLOR,
+                p.PROJECT_ID,
+                PROJECT.KEY))
         // 부모의 사용자 정의 상태 이름·색(WP-869) — 별칭 p 기준 공용 LEFT JOIN(WP-937)
+        // 부모 프로젝트 키(WP-1038) — 에픽 부모는 다른 프로젝트에 있을 수 있어 키를 함께 읽는다. 삭제된 프로젝트도 키는 남아 있어 그냥 JOIN.
         .from(
             IssueStatusProjection.leftJoin(
                 ISSUE
                     .join(p)
                     .on(p.ID.eq(ISSUE.PARENT_ISSUE_ID))
                     .join(ISSUE_TYPE_DEF)
-                    .on(ISSUE_TYPE_DEF.ID.eq(p.TYPE_ID)),
+                    .on(ISSUE_TYPE_DEF.ID.eq(p.TYPE_ID))
+                    .join(PROJECT)
+                    .on(PROJECT.ID.eq(p.PROJECT_ID)),
                 p))
         .where(ISSUE.ID.in(issueIds).and(ISSUE.PARENT_ISSUE_ID.isNotNull()))
         .fetch()
@@ -1572,7 +1698,10 @@ public class IssueRepository {
                         r.get(p.STATUS),
                         r.get(p.STATUS_ID),
                         r.get(STATUS_NAME),
-                        r.get(STATUS_COLOR))));
+                        r.get(STATUS_COLOR),
+                        r.get(PROJECT.KEY),
+                        false,
+                        r.get(p.PROJECT_ID))));
     return result;
   }
 

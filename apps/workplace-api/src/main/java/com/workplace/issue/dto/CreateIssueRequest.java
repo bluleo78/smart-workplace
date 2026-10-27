@@ -26,6 +26,8 @@ import java.util.List;
  * <p>WP-807: statusId 는 처음 프로젝트 상태 — status(범주)보다 우선한다. 범주만 오면 그 범주의 기본 상태로 만든다.
  *
  * <p>WP-933: componentIds 는 붙일 구성요소 — 담당자(assigneeIds)가 비어 있으면 서버가 목록 순서로 처음 유효한 구성요소 담당자를 붙인다.
+ *
+ * <p>WP-1038: parentKey 는 부모 이슈 키 — 일반 이슈가 다른 프로젝트 에픽을 부모로 둘 때 쓴다(하위 태스크·개인 프로젝트는 불가).
  */
 public record CreateIssueRequest(
     @NotBlank(message = "이슈 제목을 입력해 주세요") @Size(max = 200) String title,
@@ -47,7 +49,47 @@ public record CreateIssueRequest(
     Long statusId,
     // WP-933 구성요소 — 같은 프로젝트의 사용 중(보관 안 됨) 구성요소만, 구성원만 지정할 수 있다. 담당자 없이 만들면 고른 구성요소 담당자가
     // 자동으로 붙는다. 원소 null 은 400.
-    @Size(max = 100) List<@NotNull Long> componentIds) {
+    @Size(max = 100) List<@NotNull Long> componentIds,
+    // WP-1038 부모 이슈 키(예: PLAN-12) — 다른 프로젝트의 에픽을 부모로 둘 때 쓴다. parentNumber 와 함께 오면 같은 이슈여야 한다.
+    @Size(max = 64) String parentKey) {
+
+  /** WP-1038 이전의 16-인자 호환 생성자 — 부모 키 없이(같은 프로젝트 번호로만) 만든다(가져오기·기존 테스트가 그대로 쓴다). */
+  public CreateIssueRequest(
+      String title,
+      String body,
+      String priority,
+      LocalDate dueDate,
+      List<Long> assigneeIds,
+      Long typeId,
+      Integer parentNumber,
+      LocalDate startDate,
+      List<Long> labelIds,
+      Long milestoneId,
+      List<Long> cycleIds,
+      List<String> labelNames,
+      List<Long> fileIds,
+      String status,
+      Long statusId,
+      List<Long> componentIds) {
+    this(
+        title,
+        body,
+        priority,
+        dueDate,
+        assigneeIds,
+        typeId,
+        parentNumber,
+        startDate,
+        labelIds,
+        milestoneId,
+        cycleIds,
+        labelNames,
+        fileIds,
+        status,
+        statusId,
+        componentIds,
+        null);
+  }
 
   /** WP-933 이전의 15-인자 호환 생성자 — 구성요소 없이 만든다(메일 승격·가져오기·기존 테스트가 그대로 쓴다). */
   public CreateIssueRequest(

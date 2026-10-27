@@ -40,6 +40,7 @@ import com.workplace.issue.service.IssueSearchService;
 import com.workplace.issue.service.IssueService;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.project.dto.CreateProjectRequest;
+import com.workplace.project.dto.ProjectResponse;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.watcher.outbound.WatcherDomainEvents.WatcherAddedEvent;
@@ -278,6 +279,63 @@ class IssueImportTest extends IssueImportTestSupport {
     assertThat(row.getStatus()).isEqualTo("TODO");
     assertThat(row.getImportedBy()).isEqualTo(admin);
     assertThat(row.getImportedAt()).isNotNull();
+  }
+
+  /** 소유자가 가진 다른 팀 프로젝트 하나(WP-1038 다른 프로젝트 에픽 부모용). 관리자는 멤버가 아니어도 ADMIN 우회로 읽을 수 있다. */
+  private ProjectResponse otherTeamProject() {
+    String otherKey =
+        "IO" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+    return projectService.create(owner, new CreateProjectRequest(otherKey, "다른 프로젝트", "x"));
+  }
+
+  /** 그 프로젝트에 유형 이름의 이슈를 하나 만든다. */
+  private IssueResponse createIn(ProjectResponse p, String typeName, String title) {
+    long typeId = typeRepository.findByProjectAndName(p.id(), typeName).orElseThrow().id();
+    return issueService.create(
+        owner, p.key(), new CreateIssueRequest(title, null, null, null, null, typeId, null, null));
+  }
+
+  @Test
+  void parentKey_otherProjectEpic_setsParent() throws Exception {
+    ProjectResponse other = otherTeamProject();
+    IssueResponse epic = createIn(other, "EPIC", "다른 프로젝트 에픽");
+
+    Map<String, Object> child = body("다른 에픽의 하위");
+    child.put("parentKey", other.key() + "-" + epic.number());
+    int childNumber = numberOf(importAs(admin, child).andExpect(status().isCreated()));
+
+    assertThat(
+            dsl.select(ISSUE.PARENT_ISSUE_ID)
+                .from(ISSUE)
+                .where(ISSUE.ID.eq(issueId(childNumber)))
+                .fetchOne(ISSUE.PARENT_ISSUE_ID))
+        .isEqualTo(epic.id());
+  }
+
+  @Test
+  void parentKey_otherProjectNonEpic_400_nothingWritten() throws Exception {
+    ProjectResponse other = otherTeamProject();
+    IssueResponse task = createIn(other, "TASK", "다른 프로젝트 작업");
+
+    Map<String, Object> child = body("에픽 아닌 부모");
+    child.put("parentKey", other.key() + "-" + task.number());
+    importAs(admin, child).andExpect(status().isBadRequest());
+    assertThat(issueCount()).isZero();
+  }
+
+  @Test
+  void parentKey_unknownOrMalformed_400() throws Exception {
+    Map<String, Object> missing = body("없는 부모");
+    missing.put(
+        "parentKey", "NOPE" + UUID.randomUUID().toString().substring(0, 4).toUpperCase() + "-1");
+    importAs(admin, missing)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("부모로 지정한 이슈를 찾을 수 없습니다"));
+
+    Map<String, Object> malformed = body("틀린 키");
+    malformed.put("parentKey", "not a key");
+    importAs(admin, malformed).andExpect(status().isBadRequest());
+    assertThat(issueCount()).isZero();
   }
 
   @Test

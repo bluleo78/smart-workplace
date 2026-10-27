@@ -29,6 +29,10 @@ export interface ParentRef {
   statusId?: number;
   statusName?: string;
   statusColor?: string | null;
+  // 부모의 프로젝트 키(WP-1038) — 에픽 부모는 다른 프로젝트에 있을 수 있다. 구 응답·같은 프로젝트면 없을 수 있어 자식 키로 대신한다.
+  projectKey?: string | null;
+  // 조회자가 읽을 수 없는 프로젝트의 부모(WP-1038) — 번호 0·제목 없음으로 존재만 알린다. 링크·키를 만들지 않는다.
+  hidden?: boolean;
 }
 
 // 의존성 응답에 임베드되는 이슈 요약 (Phase 4b).

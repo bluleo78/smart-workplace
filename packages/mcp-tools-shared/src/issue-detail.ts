@@ -94,7 +94,8 @@ export interface IssueDetail {
   fixVersions: string[];
   affectsVersions: string[];
   milestone: string | null;
-  parent: { issueKey: string; title: string; status: string | null; statusName?: string } | null;
+  // WP-1038 읽을 수 없는 프로젝트의 부모는 { hidden: true } 로 존재만 알린다.
+  parent: { issueKey: string; title: string; status: string | null; statusName?: string } | { hidden: true } | null;
   /** 하위 이슈 진행률(없으면 null). 목록은 list_issues(projectKey, q 등)로. */
   children: { total: number; done: number } | null;
   blockedBy: IssueLinkView[];

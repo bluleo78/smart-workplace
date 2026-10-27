@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useLongPressCapture } from '@/hooks/useLongPressCapture';
+import { HIDDEN_PARENT_LABEL, parentIssueKey } from '@/lib/parentRef';
 
 import { ComponentChips } from '../../../components/components/ComponentChip';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
@@ -186,7 +187,7 @@ export function IssueCard({
               className="shrink-0 whitespace-nowrap font-mono"
               data-testid={`issue-card-${issue.number}-parent`}
             >
-              └ {projectKey}-{issue.parent.number}
+              └ {parentIssueKey(issue.parent, projectKey) ?? HIDDEN_PARENT_LABEL}
             </span>
           )}
           <span
