@@ -119,8 +119,8 @@ public class UserGroupRepository {
 
   /**
    * 여러 그룹의 직속 멤버를 한 번에, 속한 그룹 id 와 함께(WP-1000). 거르는 술어는 {@link #findMembers} 와 같다(MEMBER 는 현재 테넌트
-   * ACTIVE 멤버십 + 활성 HUMAN, EXTERNAL 은 호출자가 읽을 수 있는 것만). needle 이 있으면 이름·이메일·직책·조직 중 하나에 대소문자 무시 부분
-   * 일치하는 사람만 DB 에서 거른다(와일드카드 문자는 글자 그대로). 이름 오름차순.
+   * ACTIVE 멤버십 + 활성 HUMAN, EXTERNAL 은 호출자가 읽을 수 있는 것만). needle 이 있으면 대소문자 무시 부분 일치하는 사람만 DB 에서
+   * 거른다(와일드카드 문자는 글자 그대로) — MEMBER 는 이름·이메일·직책, EXTERNAL 은 거기에 조직까지(구성원에는 조직 열이 없다). 이름 오름차순.
    */
   public List<GroupMemberRow> findMembersIn(
       long tenantId, long callerId, boolean admin, Collection<Long> groupIds, String needle) {
