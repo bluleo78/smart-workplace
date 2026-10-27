@@ -15,6 +15,7 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 
 import type { IssueResponse, ParentRef } from '../types/issue';
+import { boardDropStatusId } from './boardLaneDrop';
 import { isClosedStatus, statusLabel } from './issueGrouping';
 
 // 뷰포트 좌표(dnd-kit 이 Coordinates 타입을 export 하지 않음).
@@ -31,6 +32,17 @@ const isEpicPanelId = (id: UniqueIdentifier) => String(id).startsWith('epic-');
 const isEpicItemId = (id: UniqueIdentifier) => isEpicPanelId(id) && id !== EPIC_PANEL_ZONE_ID;
 // 보드 상태 컬럼 droppable(col-{status}).
 const isBoardColumnId = (id: UniqueIdentifier) => String(id).startsWith('col-');
+// 스윔레인 레인 키(WP-1021) — 레인 칸·레인 카드 droppable data 의 lane. 레인 밖 대상(상태 컬럼·에픽·사이클)은 undefined.
+const laneOf = (data: unknown): string | undefined => {
+  const lane = (data as { lane?: unknown } | undefined)?.lane;
+  return typeof lane === 'string' ? lane : undefined;
+};
+// 끌고 있는 레인 카드(activeLane)에게 다른 레인 대상인지 — 키보드로는 자기 레인 칸·카드와 레인 없는 대상(에픽 패널 등)만 고른다.
+// 다른 레인에 놓아도 아무 일이 없으므로(boardLaneDrop), 방향키가 다른 레인으로 새면 키보드 사용자는 자기 레인의 칸에 닿지 못한다.
+const inForeignLane = (activeLane: string | undefined, data: unknown) => {
+  const lane = laneOf(data);
+  return activeLane !== undefined && lane !== undefined && lane !== activeLane;
+};
 // 에픽 항목 드롭 대상 id.
 export const epicDropId = (n: number) => `epic-${n}`;
 
@@ -52,6 +64,8 @@ export type IssueDragData = {
   status?: string;
   // 보드 상태 드롭(WP-808) — 출발 프로젝트 상태. 같은 컬럼에 놓으면 변경하지 않는다.
   statusId?: number;
+  // 그룹 보드 스윔레인(WP-1021) — 카드가 놓인 레인(그룹 키). 같은 레인 칸에만 상태를 바꾼다(boardLaneDrop). 상태 보드 카드는 없다.
+  lane?: string;
   cycleSection?: CycleSectionRef;
 };
 
@@ -124,6 +138,7 @@ export function epicDropState(active: IssueResponse | null, target: ParentRef | 
 // 충돌 판정.
 // - 키보드(포인터 좌표 없음): 좌상단이 정확히 겹치는 대상(방향키로 고른 대상), 없으면 가장 가까운 대상(closestCorners).
 //   패널 영역 존·목록 스크롤로 완전히 가려진 에픽은 제외 — 드래그 시작 직후 보이지 않는 에픽이 가장 가깝다고 over 가 되지 않게.
+//   스윔레인 카드는 다른 레인 대상도 제외(WP-1021).
 // - 포인터가 에픽 패널 위(존 포함)면 에픽 항목 히트만 — 비허용 항목·배너·여백이면 빈 결과(no-op).
 //   (disabled droppable 은 후보에서 빠지므로, 존이 없으면 패널 아래 보드 카드/컬럼이 잡혀 상태가 바뀐다.)
 // - 스크롤로 가려진 에픽 항목 히트는 먼저 버린다 — 사각형이 잘리지 않아 「전체 이슈」·배너·푸터 위에서도 잡혀
@@ -131,6 +146,8 @@ export function epicDropState(active: IssueResponse | null, target: ParentRef | 
 //   아래 카드/컬럼 드롭을 빈 결과로 삼키지 않는다.
 // - 그 외 pointerWithin 결과. 비었을 때 보드 컬럼 틈 폴백(#774)은 포인터가 보드 컬럼 영역 안일 때만 —
 //   패널과 보드 사이 틈에 놓으면 아무 일도 없어야 한다(#881: 틈에서 이웃 대상으로 오인 이동).
+//   스윔레인 칸(WP-1021)은 포인터가 그 칸의 세로 범위(레인의 칸 줄) 안일 때만 세고, 후보도 그 레인으로 좁힌다 —
+//   레인 머리·레인 사이 틈에 놓으면 이웃 칸으로 오인해 상태가 바뀌지 않게 아무 일도 없다.
 export const issueCollision: CollisionDetection = (args) => {
   const p = args.pointerCoordinates;
   if (!p) {
@@ -147,8 +164,12 @@ export const issueCollision: CollisionDetection = (args) => {
       }
       return r.bottom <= c.top || r.top >= c.bottom;
     };
+    const activeLane = laneOf(args.active.data.current);
     const candidates = args.droppableContainers.filter(
-      (c) => c.id !== EPIC_PANEL_ZONE_ID && !(isEpicItemId(c.id) && hiddenInClip(c.data.current, args.droppableRects.get(c.id))),
+      (c) =>
+        c.id !== EPIC_PANEL_ZONE_ID &&
+        !(isEpicItemId(c.id) && hiddenInClip(c.data.current, args.droppableRects.get(c.id))) &&
+        !inForeignLane(activeLane, c.data.current),
     );
     // 키보드 좌표 계산기는 고른 대상의 좌상단으로 옮긴다 — 좌상단이 정확히 겹치는 대상이 있으면 그것이 고른 대상이다.
     // 왜: 떠 있는 패널의 에픽 항목이 CANCELED 컬럼 위에 겹쳐, 카드 크기 사각형과의 모서리 거리로는 키 큰 컬럼보다
@@ -173,11 +194,18 @@ export const issueCollision: CollisionDetection = (args) => {
   if (hits.some((h) => isEpicPanelId(h.id))) return hits.filter((h) => isEpicItemId(h.id));
   if (hits.length > 0) return hits;
   // 보드 컬럼 전체를 감싸는 사각형(합집합)을 한 번의 순회로 구한다.
+  // 레인 칸은 포인터 y 가 그 칸 안일 때만 — 그 레인(rowLane)이 폴백 후보 범위가 된다.
   const cols = { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
   let hasCol = false;
+  let rowLane: string | undefined;
   for (const c of args.droppableContainers) {
     const r = isBoardColumnId(c.id) ? args.droppableRects.get(c.id) : undefined;
     if (r == null) continue;
+    const lane = laneOf(c.data.current);
+    if (lane !== undefined) {
+      if (p.y < r.top || p.y > r.bottom) continue;
+      rowLane = lane;
+    }
     hasCol = true;
     cols.left = Math.min(cols.left, r.left);
     cols.right = Math.max(cols.right, r.right);
@@ -187,7 +215,9 @@ export const issueCollision: CollisionDetection = (args) => {
   if (!hasCol || !pointInRect(p, cols)) return [];
   return closestCorners({
     ...args,
-    droppableContainers: args.droppableContainers.filter((c) => !isEpicPanelId(c.id)),
+    droppableContainers: args.droppableContainers.filter(
+      (c) => !isEpicPanelId(c.id) && (rowLane === undefined || laneOf(c.data.current) === rowLane),
+    ),
   });
 };
 
@@ -220,19 +250,25 @@ export const issueKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) 
 // 보드 카드 — 기존 sortableKeyboardCoordinates.
 // - ←/→ 는 에픽 항목·패널 존을 후보에서 뺀다: 떠 있는 패널이 CANCELED 컬럼을 덮어 →가 에픽으로 새면
 //   키보드 사용자가 CANCELED 로 상태를 못 바꾼다(기존 키보드 상태 변경 회귀). ↑/↓ 는 에픽을 남겨 패널에 닿게 한다.
+// - 스윔레인 카드(WP-1021)는 방향 무관하게 다른 레인 칸·카드를 후보에서 뺀다 — 키 큰 레인의 아래쪽 카드에서 → 를 누르면
+//   모서리 거리로는 다음 레인의 칸이 자기 레인 칸보다 가까워 다른 레인으로 새고, 거기 놓아도 아무 일이 없다.
 // - 결과가 에픽 항목이면(교차 컨테이너라 오프셋 0 → 좌표=항목 좌상단) 가려진 경우 그 항목을 드러낸다(revealTarget).
 const cardKeyboardCoordinates: KeyboardCoordinateGetter = (event, args) => {
   const { droppableContainers, droppableRects } = args.context;
-  if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
-    // sortableKeyboardCoordinates 는 getEnabled()·get(id) 만 쓴다 — Map 을 상속한 객체는 Map 메서드가 수신자 검사로
-    // 깨지므로 두 메서드만 가진 얇은 래퍼로 후보를 거른다.
-    const boardOnly = {
-      getEnabled: () => droppableContainers.getEnabled().filter((c) => !isEpicPanelId(c.id)),
-      get: (id: UniqueIdentifier) => droppableContainers.get(id),
-    } as unknown as typeof droppableContainers;
-    return sortableKeyboardCoordinates(event, { ...args, context: { ...args.context, droppableContainers: boardOnly } });
-  }
-  const next = sortableKeyboardCoordinates(event, args);
+  const horizontal = event.code === 'ArrowLeft' || event.code === 'ArrowRight';
+  const activeLane = laneOf(args.context.active?.data.current);
+  // sortableKeyboardCoordinates 는 getEnabled()·get(id) 만 쓴다 — Map 을 상속한 객체는 Map 메서드가 수신자 검사로
+  // 깨지므로 두 메서드만 가진 얇은 래퍼로 후보를 거른다.
+  const filtered = {
+    getEnabled: () =>
+      droppableContainers
+        .getEnabled()
+        .filter((c) => !(horizontal && isEpicPanelId(c.id)) && !inForeignLane(activeLane, c.data.current)),
+    get: (id: UniqueIdentifier) => droppableContainers.get(id),
+  } as unknown as typeof droppableContainers;
+  const narrowed = { ...args, context: { ...args.context, droppableContainers: filtered } };
+  if (horizontal) return sortableKeyboardCoordinates(event, narrowed);
+  const next = sortableKeyboardCoordinates(event, narrowed);
   if (!next) return next;
   const epicTarget = droppableContainers.getEnabled().find((c) => {
     const r = isEpicItemId(c.id) ? droppableRects.get(c.id) : undefined;
@@ -287,7 +323,11 @@ export function issueDndAnnouncements(projectKey: string): Announcements {
     onDragStart: ({ active }) => `${key(active)} 이슈를 집었습니다.`,
     onDragOver: ({ active, over }) => {
       const target = describeDropTarget(over, projectKey);
-      return target ? `${key(active)} 이슈가 ${target} 위에 있습니다.` : `${key(active)} 이슈가 놓을 대상 밖에 있습니다.`;
+      if (!target) return `${key(active)} 이슈가 놓을 대상 밖에 있습니다.`;
+      // 그룹 보드 스윔레인(WP-1021) — 포인터로는 다른 레인 칸·카드도 걸리지만 화면은 강조하지 않고 놓아도 무시된다.
+      // 들리는 안내가 화면·결과와 같도록 에픽 패널처럼 놓을 수 없는 곳으로 읽는다.
+      const foreign = inForeignLane(laneOf(active.data.current), over?.data.current);
+      return `${key(active)} 이슈가 ${target}${foreign ? '(놓을 수 없는 곳)' : ''} 위에 있습니다.`;
     },
     onDragEnd: ({ active, over }) => {
       const target = describeDropTarget(over, projectKey);
@@ -295,7 +335,11 @@ export function issueDndAnnouncements(projectKey: string): Announcements {
       const fromSection = (active.data.current as IssueDragData | undefined)?.cycleSection;
       const sameSection =
         fromSection != null && isCycleDropData(over?.data.current) && sameCycleSection(fromSection, over.data.current.cycleSection);
-      return target && over?.data.current?.zone !== true && !sameSection
+      // 그룹 보드 스윔레인(WP-1021) — 레인 칸·카드(lane 키)에 놓았는데 바꿀 상태가 없으면(다른 레인·같은 상태) 무시된다.
+      const src = active.data.current as IssueDragData | undefined;
+      const ignoredLane =
+        src?.lane != null && over?.data.current?.lane !== undefined && boardDropStatusId(src, over.data.current) === null;
+      return target && over?.data.current?.zone !== true && !sameSection && !ignoredLane
         ? `${key(active)} 이슈를 ${target}에 놓았습니다.`
         : `${key(active)} 이슈를 놓았습니다. 변경 사항이 없습니다.`;
     },

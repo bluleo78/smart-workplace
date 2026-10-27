@@ -1,10 +1,10 @@
 // 칸반 보드 — @dnd-kit. 컬럼은 프로젝트 상태 목록 하나에 하나(WP-808), 위에 범주 띠(할 일·진행 중·완료·취소)를 둔다.
 // 상태 보드는 컬럼(statusId)마다 독립 무한 쿼리(useIssueBoardColumns)로 각 컬럼 끝까지 스크롤하며 이어 받는다(#875).
-// 담당자·우선순위 그룹 보드는 그룹이 동적이라 단일 쿼리로 마지막 페이지까지 순차 로드한다.
+// 담당자·우선순위·에픽 그룹 보드는 그룹이 동적이라 단일 쿼리로 마지막 페이지까지 순차 로드하고, 그룹 레인 × 상태 열 스윔레인으로 그린다(WP-1021).
 
 import { type DragEndEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CircleCheckBig, Inbox, Plus } from 'lucide-react';
+import { Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -25,10 +25,11 @@ import {
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useStatusEditing } from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
+import { boardDropStatusId, laneCellTestId, laneTestId } from '../../../lib/boardLaneDrop';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
 import { withBoardTab } from '../../../lib/issueFilters';
-import { groupIssues, type IssueGroup } from '../../../lib/issueGrouping';
+import { groupIssues } from '../../../lib/issueGrouping';
 import { categorySpans } from '../../../lib/projectStatuses';
 import { failedWithoutData } from '../../../lib/queryFailure';
 import type {
@@ -43,7 +44,10 @@ import { useIssueRowActions } from '../hooks/useIssueRowActions';
 import { useKeyboardDropFocus } from '../hooks/useKeyboardDropFocus';
 import { BoardCategoryBand } from './board/BoardCategoryBand';
 import { BoardColumnHeaderMenu } from './board/BoardColumnHeaderMenu';
+import { boardTrackStyle } from './board/boardGrid';
+import { BoardSwimlanes } from './board/BoardSwimlanes';
 import { MobileStatusSheet } from './board/MobileStatusSheet';
+import { ShowAllClosedButton } from './board/ShowAllClosedButton';
 import { StatusNameEditor } from './board/StatusNameEditor';
 import { IssueCard } from './IssueCard';
 import { IssueCardMenuContext } from './issueCardMenuContext';
@@ -156,26 +160,25 @@ function IssueBoardViewInner({
     byStatusId[it.statusId]?.push(it);
   }
 
+  // 상태 드롭 — 상태 보드·그룹 보드 스윔레인(WP-1021) 공용. 바꿀 상태는 boardDropStatusId 하나로 정한다:
+  // 카드·컬럼·레인 칸 data 의 statusId 와 레인(lane)으로 판정 — 상태 보드는 레인이 없고, 스윔레인은 같은 레인일 때만 바꾼다.
   function handleDragEnd(e: DragEndEvent) {
     // 비멤버·모바일은 드래그 상태 변경 불가 — drag 이벤트 무시.
     if (!canDragStatus) return;
-    const { active, over } = e;
-    if (!over) return;
-    const src = active.data.current as IssueDragData | undefined;
-    // drop 대상이 카드면 카드의 statusId, 컬럼이면 컬럼 data(droppable id col-{statusId} 는 예비).
-    const overId = over.data.current?.statusId;
-    const targetId =
-      typeof overId === 'number'
-        ? overId
-        : typeof over.id === 'string' && over.id.startsWith('col-')
-          ? Number(over.id.slice('col-'.length))
-          : undefined;
+    const src = e.active.data.current as IssueDragData | undefined;
+    const targetId = boardDropStatusId(src, e.over?.data.current);
     const target = columns.find((s) => s.id === targetId);
     const issueNumber = src?.issueNumber;
-    if (!src || !target || !issueNumber || src.statusId === target.id) return;
+    if (!src || !target || !issueNumber) return;
     // 고른 상태를 통째로 넘긴다 — 범주(종료 안내 토스트·아이콘)와 상태 id·이름(카드 이름 즉시 갱신).
     updateStatus.mutate({ number: issueNumber, to: target });
-    if (e.activatorEvent instanceof KeyboardEvent) focusKeyboardDrop({ number: issueNumber, column: target.id });
+    if (!(e.activatorEvent instanceof KeyboardEvent)) return;
+    // 키보드 놓기 포커스(WP-837) — 스윔레인은 놓은 칸과 그 레인 안에서 카드를 찾는다(다중 담당자 이슈는 레인마다 사본이 있다).
+    focusKeyboardDrop(
+      src.lane
+        ? { number: issueNumber, cellTestId: laneCellTestId(src.lane, target.id), laneTestId: laneTestId(src.lane) }
+        : { number: issueNumber, column: target.id },
+    );
   }
 
   // 순차 로드 상태 문구(그룹 보드) — 데스크톱 BoardScroll footer(mt-3)와 모바일 탭 컬럼(gap 이 간격을 맡아 여백 없음)이 같은 마크업을 쓴다.
@@ -291,7 +294,8 @@ function IssueBoardViewInner({
     );
   }
 
-  // group 이 상태/없음이 아니면(담당자·우선순위) 동적 읽기전용 그룹 컬럼을 렌더한다.
+  // group 이 상태/없음이 아니면(담당자·우선순위·에픽) 그룹마다 가로 레인, 열은 프로젝트 상태인 스윔레인을 그린다(WP-1021).
+  // 레인 안에서 다른 상태 칸으로 끌면 상태만 바뀌고, 다른 레인으로는 옮기지 않는다. 범주 띠·상태 편집은 그룹 보드에 두지 않는다.
   // 상태 그룹/그룹 없음은 기존 드래그-상태변경 보드를 그대로 유지한다 (#58).
   if (grouped) {
     // 개인 3컬럼 보드에서 우선순위 그룹 시 CANCELED 누출 방지 — 제외 범주 이슈는 그룹 전에 제거.
@@ -302,14 +306,23 @@ function IssueBoardViewInner({
     const groups = groupIssues(visibleIssues, groupBy);
     return (
       <IssueCardMenuContext.Provider value={cardMenu}>
-      <BoardScroll
-        footer={groupFooter('mt-3')}
-      >
-        {groups.map((g) => (
-          <ReadOnlyColumn key={g.key} group={g} projectKey={projectKey} cardTo={cardTo} showType={showType} onOpenCreate={onOpenCreate} dragDisabled={!canDragStatus} onLongPress={onCardLongPress} />
-        ))}
-      </BoardScroll>
-      {cardActions.sheets}
+        {/* 레인 드롭도 상태 보드와 같은 handleDragEnd — 다른 레인 칸·카드는 boardDropStatusId 가 무시한다. */}
+        <BoardStatusDropMonitor onDragEnd={handleDragEnd} />
+        <BoardScroll footer={groupFooter('mt-3')}>
+          <BoardSwimlanes
+            columns={columns}
+            groups={groups}
+            issues={visibleIssues}
+            pending={groupQuery.isPending}
+            projectKey={projectKey}
+            cardTo={cardTo}
+            showType={showType}
+            dragDisabled={!canDragStatus}
+            onLongPress={onCardLongPress}
+            showAllClosedFor={showAllClosedFor}
+          />
+        </BoardScroll>
+        {cardActions.sheets}
       </IssueCardMenuContext.Provider>
     );
   }
@@ -383,8 +396,8 @@ export function IssueBoardView(props: IssueBoardViewProps) {
   );
 }
 
-// 상태 보드 전용 — 공용 provider 의 드롭 이벤트를 구독해 컬럼/카드 대상일 때만 상태를 바꾼다.
-// 그룹 보드에는 두지 않는다: 다른 그룹 카드 위에 놓았을 때 그 카드의 status 로 바뀌면 안 되므로.
+// 공용 provider 의 드롭 이벤트를 구독해 상태 컬럼·레인 칸·카드 대상일 때만 상태를 바꾼다(handleDragEnd).
+// 그룹 보드(스윔레인)에도 둔다 — 다른 레인 카드·칸에 놓았을 때 그 status 로 바뀌지 않는 것은 boardDropStatusId 가 맡는다(WP-1021).
 function BoardStatusDropMonitor({ onDragEnd }: { onDragEnd: (e: DragEndEvent) => void }) {
   useDndMonitor({ onDragEnd });
   return null;
@@ -398,9 +411,9 @@ const BoardScrollRootContext = createContext<Element | null>(null);
 //     컬럼 min-width + 가로 스크롤로 식별성 보존(넓은 폭은 flex-1 로 4-up 유지).
 //     세로 스크롤도 같은 컨테이너가 맡아야 가로 스크롤바가 콘텐츠 끝이 아닌 영역 하단에 늘 보이고,
 //     컬럼 헤더 sticky 가 이 컨테이너 기준으로 붙는다. 행은 min-h-full 로 컬럼(드롭 영역)을 영역 높이까지 늘린다.
-//     상태 보드·그룹 보드가 같은 구조를 쓴다.
+//     상태 보드·그룹 보드가 같은 컨테이너를 쓴다 — 그룹 보드(columnCount 없음)는 스윔레인(BoardSwimlanes)이 같은 트랙 규칙의 그리드를 직접 그린다.
 //     columnCount 가 있으면(상태 보드) 범주 띠 줄 + 컬럼 줄의 그리드 — 띠 칸이 걸친 컬럼 폭(gap 포함)과 정확히 맞고 함께 가로 스크롤된다.
-//     컬럼 트랙은 minmax(240px, 1fr) 로 예전 flex-1 + min-w-[240px] 과 같은 폭 규칙이다.
+//     컬럼 트랙은 boardTrackStyle(minmax(240px, 1fr)) — 예전 flex-1 + min-w-[240px] 과 같은 폭 규칙, 스윔레인도 같은 규칙을 쓴다.
 //     band=false(개인 보드)면 띠 줄 없이 컬럼 줄 하나다.
 function BoardScroll({
   children,
@@ -420,7 +433,7 @@ function BoardScroll({
         {columnCount ? (
           <div
             className={cn('grid min-h-full gap-x-3', band ? 'grid-rows-[auto_1fr]' : 'grid-rows-[1fr]')}
-            style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(240px, 1fr))` }}
+            style={boardTrackStyle(columnCount)}
           >
             {children}
           </div>
@@ -598,17 +611,6 @@ function ColumnLoadMore({ testKey, query }: { testKey: number; query: BoardColum
   );
 }
 
-// 빈 완료·취소 열의 「완료 모두 보기」(WP-606) — 필터 바 토글과 같은 상태(closed=all)를 켠다. 데스크톱·모바일 공용.
-// testKey — 컬럼·탭의 statusId(데스크톱·모바일 공통).
-function ShowAllClosedButton({ testKey, onClick, className }: { testKey: number; onClick: () => void; className?: string }) {
-  return (
-    <Button size="sm" variant="outline" className={className} onClick={onClick} data-testid={`board-col-show-closed-${testKey}`}>
-      <CircleCheckBig className="h-4 w-4" />
-      완료 모두 보기
-    </Button>
-  );
-}
-
 // 모바일 보드 빈 상태(WP-195) — 상태 컬럼·그룹 보드 탭이 같은 모양을 쓰도록 통일.
 // 추가 버튼은 터치 타깃 44px(h-11) 확보, onOpenCreate 가 있을 때만 노출.
 function MobileBoardEmpty({
@@ -717,7 +719,7 @@ function MobileGroupedColumn({
       {groupIssues(issues, groupBy)
         .filter((g) => g.issues.length > 0)
         .map((g) => (
-          // 탭이 상태를 드러내므로 카드 showStatus 는 기본(끔) 그대로 둔다.
+          // 탭이 상태를 드러내므로 카드에 상태 아이콘을 두지 않는다.
           <section key={g.key} aria-label={g.label} data-testid={`board-group-${status.id}-${g.key}`} className="flex flex-col gap-2">
             <h3 className="flex items-center gap-1.5 px-3 text-xs font-semibold text-muted-foreground">
               <span>{g.label}</span>
@@ -731,69 +733,5 @@ function MobileGroupedColumn({
       {issues.length === 0 && !pending && <MobileBoardEmpty status={status.id} onOpenCreate={onOpenCreate} onShowAllClosed={onShowAllClosed} />}
       {footer}
     </div>
-  );
-}
-
-// 담당자/우선순위 그룹 보드의 컬럼 — DnD 없는 읽기전용 (이슈는 *렌더*만 요구) (#58).
-// 비-상태 그룹(담당자·우선순위)은 컬럼 헤더가 상태를 드러내지 않으므로 카드에 showStatus=true 로 상태 아이콘을 표시한다.
-function ReadOnlyColumn({
-  group,
-  projectKey,
-  cardTo,
-  showType = true,
-  onOpenCreate,
-  dragDisabled = false,
-  onLongPress,
-}: {
-  group: IssueGroup;
-  projectKey: string;
-  // 카드 링크 대상 빌더 — 부모에서 thread.
-  cardTo?: (issue: IssueResponse) => string;
-  // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
-  showType?: boolean;
-  // 빈 컬럼 CTA 콜백 — 제공 시 "이슈 추가" 버튼 표시.
-  onOpenCreate?: (statusId?: number) => void;
-  // 비멤버는 카드 드래그 차단.
-  dragDisabled?: boolean;
-  onLongPress?: (issue: IssueResponse) => void;
-}) {
-  return (
-    <section
-      aria-label={`${group.label} 컬럼`}
-      data-testid={`board-col-${group.key}`}
-      className="rounded-md border p-2 min-h-[200px] min-w-[240px] flex-1"
-    >
-      <header className={COLUMN_HEADER_CLASS}>
-        <span>{group.label}</span>
-        <span>{group.issues.length}</span>
-      </header>
-      {group.issues.length === 0 ? (
-        /* 빈 그룹 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
-        <div
-          className="flex flex-col items-center justify-center py-8 gap-3 text-center"
-          data-testid={`board-col-empty-${group.key}`}
-        >
-          <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
-            <p className="text-xs text-muted-foreground">드래그하거나 새 이슈를 추가하세요</p>
-          </div>
-          {/* 그룹(담당자·우선순위) 컬럼은 상태가 아니라 기본(할 일)으로 만든다. */}
-          {onOpenCreate && (
-            <Button size="sm" variant="ghost" onClick={() => onOpenCreate()} data-testid={`board-col-add-${group.key}`}>
-              <Plus className="h-4 w-4" />
-              이슈 추가
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {group.issues.map((it) => (
-            // dragScope: 다중 담당자 이슈는 여러 그룹 컬럼에 보이므로 컬럼별로 드래그 id 를 구분한다.
-            <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} showStatus dragDisabled={dragDisabled} dragScope={group.key} onLongPress={onLongPress} />
-          ))}
-        </div>
-      )}
-    </section>
   );
 }

@@ -788,8 +788,8 @@ test.describe('종료 이슈 숨김 (#876)', () => {
   });
 });
 
-// 회귀 가드: 그룹 보드는 읽기전용이라 다른 그룹 카드 위에 놓아도 그 카드의 status 로 바뀌면 안 된다.
-// (공용 DndContext 이관 후에도 그룹 보드에 상태 드롭 모니터가 붙지 않는지 확인)
+// 회귀 가드: 그룹 보드(스윔레인, WP-1021)에서 다른 레인 카드 위에 놓아도 그 카드의 status 로 바뀌면 안 된다.
+// (그룹 보드에도 BoardStatusDropMonitor 가 붙으므로, 다른 레인을 막는 것은 boardDropStatusId 의 레인 비교뿐이다 — 그 비교가 다른 레인을 무시하는지 확인)
 test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아도 상태가 바뀌지 않는다', { tag: '@input' }, async ({
   authenticatedPage: page,
 }) => {
@@ -826,6 +826,138 @@ test('담당자 그룹 보드에서 카드를 다른 그룹 카드 위에 놓아
   await dropDnd(page);
   await expectStays(page, statusPatches.count, 0);
 });
+
+// WP-1021 — 그룹 보드 스윔레인: 같은 레인의 다른 상태 칸에 놓으면 상태만 바뀌고(PATCH statusId), 다른 레인 칸에 놓으면 아무 일도 없다.
+// 다중 담당자 이슈는 두 레인에 같은 카드가 있다 — 잡은 레인 기준으로 판정하고, 키보드 놓기 포커스도 그 레인 안의 사본으로 간다.
+test.describe('담당자 그룹 스윔레인 (WP-1021)', { tag: '@input' }, () => {
+  const alice = { id: 1, username: 'alice', name: 'Alice', kind: 'HUMAN' as const };
+  const bob = { id: 2, username: 'bob', name: 'Bob', kind: 'HUMAN' as const };
+
+  // 기본: 1 = Alice·Bob 할 일(두 레인), 2 = Bob 완료. PATCH 는 서버처럼 statusId 를 범주·이름까지 반영한다(fail 이면 500).
+  async function setupLaneBoard(
+    page: import('@playwright/test').Page,
+    opts: { fail?: boolean; issues?: IssueResponse[] } = {},
+  ) {
+    await stubProjectMeta(page);
+    let issues: IssueResponse[] = opts.issues ?? [
+      createIssue({ id: 1, number: 1, title: 'A', status: 'TODO', assignees: [alice, bob] }),
+      createIssue({ id: 2, number: 2, title: 'B', status: 'DONE', assignees: [bob] }),
+    ];
+    await routeIssueSearch(page, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) }),
+    );
+    const patches = trackRequests(page, 'PATCH', /\/issues\/\d+\/status$/);
+    await page.route(/\/issues\/\d+\/status$/, (route) => {
+      if (opts.fail) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"상태를 바꾸지 못했습니다(테스트)"}' });
+      const n = Number(new URL(route.request().url()).pathname.split('/').at(-2));
+      const { statusId } = route.request().postDataJSON() as { statusId: number };
+      issues = issues.map((i) => (i.number === n ? { ...i, ...statusFieldsOf(statusId) } : i));
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(createIssueDetail({ summary: issues.find((i) => i.number === n)!, body: null, comments: [], history: [] })),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_KEY}?view=board&group=assignee`);
+    return patches;
+  }
+
+  test('포인터 — 같은 레인 다른 상태 칸은 PATCH status, 다른 레인 칸은 무시', async ({ authenticatedPage: page }) => {
+    const patches = await setupLaneBoard(page);
+    const aliceTodo = page.getByTestId('board-lane-u-1-col-1').getByTestId('issue-card-1');
+    await expect(aliceTodo).toBeVisible();
+    await expect(page.getByTestId('board-lane-u-2-col-1').getByTestId('issue-card-1')).toBeVisible();
+
+    // 1) Alice 레인의 카드를 Bob 레인의 빈 「진행 중」 칸에 놓는다 — 드래그가 실제로 시작됐는지(흐림·고스트) 확인해 헛통과를 막는다.
+    //    다른 레인 칸은 드롭 강조도 켜지지 않는다.
+    const foreign = page.getByTestId('board-lane-u-2-col-2');
+    await aliceTodo.hover();
+    await page.mouse.down();
+    await page.mouse.move(0, 0);
+    const fb = (await foreign.boundingBox())!;
+    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2, { steps: 10 });
+    await expect(aliceTodo).toHaveCSS('opacity', '0.4');
+    await expect(page.getByTestId('issue-card-drag-overlay')).toBeVisible();
+    await expect(foreign).not.toHaveClass(/bg-accent/);
+    await dropDnd(page);
+    await expectStays(page, patches.count, 0);
+    await expect(page.getByTestId('board-lane-u-1-col-1').getByTestId('issue-card-1')).toBeVisible();
+
+    // 2) Bob 레인 사본을 자기 레인 머리 줄(「진행 중」 열 위치)에 놓아도 아무 일도 없다 — 보드 칸 영역 안이라 예전엔 칸 틈 폴백이
+    //    바로 아래 자기 레인 「진행 중」 칸으로 오인해 상태를 바꿨다.
+    const bobTodo = page.getByTestId('board-lane-u-2-col-1').getByTestId('issue-card-1');
+    const bobHead = page.getByTestId('board-lane-toggle-u-2');
+    const own = page.getByTestId('board-lane-u-1-col-2');
+    const ob = (await own.boundingBox())!;
+    await bobTodo.hover();
+    await page.mouse.down();
+    await page.mouse.move(0, 0);
+    const hb = (await bobHead.boundingBox())!;
+    await page.mouse.move(ob.x + ob.width / 2, hb.y + hb.height / 2, { steps: 10 });
+    await expect(bobTodo).toHaveCSS('opacity', '0.4');
+    await dropDnd(page);
+    await expectStays(page, patches.count, 0);
+
+    // 3) 같은 카드를 자기 레인(Alice)의 「진행 중」 칸에 놓으면 상태만 바뀐다 — 두 레인 모두 진행 중 칸으로 옮겨 간다.
+    await aliceTodo.hover();
+    await page.mouse.down();
+    await page.mouse.move(0, 0);
+    await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2, { steps: 10 });
+    await expect(own).toHaveClass(/bg-accent\/30/);
+    await dropDnd(page);
+    await expect.poll(() => patches.bodies()).toEqual([{ statusId: 2 }]);
+    expect(patches.urls().map((u) => u.pathname)).toEqual([`${ISSUES_PATH}/1/status`]);
+    await expect(page.getByTestId('board-lane-u-1-col-2').getByTestId('issue-card-1')).toBeVisible();
+    await expect(page.getByTestId('board-lane-u-2-col-2').getByTestId('issue-card-1')).toBeVisible();
+  });
+
+  // → 가 같은 레인의 오른쪽 칸으로 가 상태만 바꾸고(WP-837 처럼) 포커스가 놓은 칸의 그 카드에 남는다.
+  // 둘째 레인(Bob) 사본을 옮긴다 — 문서 첫 사본(Alice 레인)이 아니라 놓은 칸 안의 사본으로 포커스가 가야 한다.
+  test('키보드 — 같은 레인 오른쪽 칸에 놓으면 PATCH status, 포커스는 놓은 칸의 카드', async ({ authenticatedPage: page }) => {
+    const patches = await setupLaneBoard(page);
+    // 라이브 영역이 놓은 칸을 「Bob · 진행 중」 으로 읽어야 한다 — 다른 레인(Alice) 칸으로 새면 여기서 걸린다.
+    await keyboardMoveRight(page.getByTestId('board-lane-u-2-col-1').getByTestId('issue-card-1'), 'Bob · 진행 중');
+    await expect.poll(() => patches.bodies()).toEqual([{ statusId: 2 }]);
+    const moved = page.getByTestId('board-lane-u-2-col-2').getByTestId('issue-card-1');
+    await expect(moved).toBeFocused();
+    // 서버 응답 뒤 다시 조회해도 포커스가 유지된다.
+    await expect(page.getByText('상태를 변경했습니다', { exact: true })).toBeVisible();
+    await expect(moved).toBeFocused();
+  });
+
+  // 상태 변경이 실패해 카드가 원래 칸으로 돌아가면, 놓은 칸엔 카드가 없다 — 문서 첫 사본(Alice 레인)이 아니라 같은 레인의 사본으로.
+  test('키보드 — 실패로 원래 칸에 되돌아가도 포커스는 같은 레인의 그 카드', async ({ authenticatedPage: page }) => {
+    const patches = await setupLaneBoard(page, { fail: true });
+    await keyboardMoveRight(page.getByTestId('board-lane-u-2-col-1').getByTestId('issue-card-1'), 'Bob · 진행 중');
+    await expect.poll(patches.count).toBe(1);
+    await expect(page.getByText('상태를 바꾸지 못했습니다(테스트)')).toBeVisible();
+    await expect(page.getByTestId('board-lane-u-2-col-1').getByTestId('issue-card-1')).toBeFocused();
+  });
+
+  // 키 큰 레인의 아래쪽 카드 — 모서리 거리로는 아래 레인의 칸이 더 가까워도 → 는 자기 레인의 오른쪽 칸으로 간다.
+  test('키보드 — 키 큰 레인 아래쪽 카드의 → 는 아래 레인으로 새지 않는다', async ({ authenticatedPage: page }) => {
+    const tall = Array.from({ length: 6 }, (_, i) =>
+      createIssue({ id: 10 + i, number: 10 + i, title: `할 일 ${i}`, status: 'TODO', assignees: [alice] }),
+    );
+    const patches = await setupLaneBoard(page, {
+      issues: [...tall, createIssue({ id: 30, number: 30, title: '밥 진행', status: 'IN_PROGRESS', assignees: [bob] })],
+    });
+    await keyboardMoveRight(page.getByTestId('board-lane-u-1-col-1').getByTestId('issue-card-15'), 'Alice · 진행 중');
+    await expect.poll(() => patches.bodies()).toEqual([{ statusId: 2 }]);
+    await expect(page.getByTestId('board-lane-u-1-col-2').getByTestId('issue-card-15')).toBeFocused();
+  });
+});
+
+// 카드를 Space(집기) → →(오른쪽 열) → Space(놓기). 집은 뒤 센서가 방향키 리스너를 붙일 때까지 기다리고(startKeyboardDrag —
+// 부하에서 바로 누른 방향키는 버려진다), 이동·놓기는 스크린리더 안내(dnd-kit 라이브 영역)로 기다린다. 상태 보드·스윔레인(WP-1021) 공용.
+async function keyboardMoveRight(card: import('@playwright/test').Locator, toLabel: string) {
+  const live = card.page().locator('[id^="DndLiveRegion"]');
+  await startKeyboardDrag(card, () => expect(live).toContainText('이슈'));
+  await card.page().keyboard.press('ArrowRight');
+  await expect(live).toContainText(toLabel);
+  await card.page().keyboard.press('Space');
+  await expect(live).toContainText('놓았습니다');
+}
 
 // 키보드로 다른 열에 놓은 카드의 포커스(WP-837) — 상태가 바뀐 카드는 새 열에 새로 그려져 원래 요소가 지워지므로,
 // 포커스가 body 로 빠지지 않고 옮긴 카드(숨겨지면 놓은 열, 실패로 되돌아가면 원래 열의 그 카드)에 남아야 한다.
@@ -864,16 +996,6 @@ test.describe('보드 키보드 놓기 뒤 포커스 (WP-837)', { tag: '@input' 
     return patches;
   }
 
-  // 카드를 Space(집기) → →(오른쪽 열) → Space(놓기). 집은 뒤 센서가 방향키 리스너를 붙일 때까지 기다리고(startKeyboardDrag —
-  // 부하에서 바로 누른 방향키는 버려진다), 이동·놓기는 스크린리더 안내(dnd-kit 라이브 영역)로 기다린다.
-  async function keyboardMoveRight(card: import('@playwright/test').Locator, toLabel: string) {
-    const live = card.page().locator('[id^="DndLiveRegion"]');
-    await startKeyboardDrag(card, () => expect(live).toContainText('이슈'));
-    await card.page().keyboard.press('ArrowRight');
-    await expect(live).toContainText(toLabel);
-    await card.page().keyboard.press('Space');
-    await expect(live).toContainText('놓았습니다');
-  }
 
   test('다른 열에 놓으면 새 열의 그 카드에 포커스가 남아 이어서 다시 옮길 수 있다', async ({ authenticatedPage: page }) => {
     const patches = await setupKeyboardBoard(page);
