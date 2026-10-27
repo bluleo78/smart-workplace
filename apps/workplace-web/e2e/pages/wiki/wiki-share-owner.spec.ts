@@ -90,6 +90,8 @@ async function mockOwnerShare(
         externalShareEnabled: server.externalShareEnabled,
         inheritedFrom: null,
         accessRequests: server.accessRequests,
+        excludedFromParent: false,
+        excludedPages: [],
       }
       return r.fulfill({ json: state })
     }
@@ -151,7 +153,7 @@ test.describe('노트 공유 — 공유하는 쪽', () => {
     await expect.poll(() => puts.lastBody()).toEqual({
       audience: 'WORKSPACE',
       permission: 'VIEW',
-      includeChildren: false,
+      includeChildren: true, // 기본은 하위 포함(WP-987)
       userIds: [],
       expiresAt: null,
     })

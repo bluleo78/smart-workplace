@@ -423,7 +423,7 @@ test.describe('노트 알림 진입 — /wiki/open/:pageId', () => {
 
   test('멤버의 접근 요청 알림은 노트를 열고 공유 창을 띄운다', async ({ authenticatedPage: page }) => {
     await mockWikiPageEditor(page, { spaceId: SPACE_ID, pageId: CHILD, title: '하반기 계획', body: CHILD_BODY })
-    const state: WikiPageShareState = { share: null, externalShareEnabled: true, inheritedFrom: null, accessRequests: [] }
+    const state: WikiPageShareState = { share: null, externalShareEnabled: true, inheritedFrom: null, accessRequests: [], excludedFromParent: false, excludedPages: [] }
     await page.route((u) => u.pathname === `/api/v1/wiki/pages/${CHILD}/share`, (r) => r.fulfill({ json: state }))
     await mockEntry(page, CHILD, { spaceId: SPACE_ID, member: true, shareToken: null })
     await page.goto(`/wiki/open/${CHILD}?share=1`)

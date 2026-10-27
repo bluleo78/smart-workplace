@@ -193,8 +193,22 @@ export interface WikiShareAccessRequest {
 export interface WikiPageShareState {
   share: WikiPageShare | null
   externalShareEnabled: boolean
-  inheritedFrom: { pageId: number; title: string; audience: WikiShareAudience } | null
+  /**
+   * 이 페이지가 상속받는 상위 페이지의 하위 포함 공유(WP-987) — 이 페이지가 제외 표시를 달았어도 온다(제외 체크를 풀 수 있게).
+   * token 은 상위 공유의 지금 토큰 — 「이 페이지 링크 복사」가 `/wiki/share/<token>/pages/<이 페이지>` 를 만든다.
+   */
+  inheritedFrom: {
+    pageId: number
+    title: string
+    audience: WikiShareAudience
+    permission: WikiSharePermission
+    token: string
+  } | null
   accessRequests: WikiShareAccessRequest[]
+  /** 이 페이지에 「이 페이지와 하위는 상위 공유에서 제외」 표시가 있는지(WP-987). */
+  excludedFromParent: boolean
+  /** 이 페이지의 하위 포함 공유에서 제외된 하위 페이지(WP-987) — 「제외: … [제외 풀기]」. */
+  excludedPages: { pageId: number; title: string }[]
 }
 
 /** 공유 설정을 만들거나 바꾸는 요청 — PUT 은 없으면 만들고 있으면 덮어쓴다(토큰은 유지). */
@@ -222,6 +236,8 @@ export type WikiShareEventType =
   | 'REVOKED_BY_POLICY'
   | 'REVOKED_BY_ADMIN'
   | 'PAGE_MOVED_IN'
+  | 'CHILD_EXCLUDED'
+  | 'CHILD_INCLUDED'
   | 'PAGE_MOVED_OUT'
   | 'ACCESS_REQUESTED'
   | 'ACCESS_APPROVED'

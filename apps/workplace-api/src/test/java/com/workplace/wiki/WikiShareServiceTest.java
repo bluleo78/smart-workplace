@@ -700,9 +700,12 @@ class WikiShareServiceTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.inheritedFrom.audience").value("PUBLIC"));
     call(get(sharePath(rootId)), ownerId).andExpect(jsonPath("$.inheritedFrom").isEmpty());
 
-    // 가까운 상위가 하위 미포함이 되면 그 위로.
+    // 가까운 상위가 따로 켠 공유를 하위 미포함으로 바꾸면 거기서 멈춘다 — 하위의 설정이 상위보다 우선이라(WP-987) 루트 공유로 넘어가지 않는다.
     call(save(childId, "WORKSPACE", "VIEW", false, List.of(), null), ownerId)
         .andExpect(status().isOk());
+    call(get(sharePath(grandchildId)), ownerId).andExpect(jsonPath("$.inheritedFrom").isEmpty());
+    // 그 공유를 해제하면 다시 루트에서 상속.
+    call(delete(sharePath(childId)), ownerId).andExpect(status().isNoContent());
     call(get(sharePath(grandchildId)), ownerId)
         .andExpect(jsonPath("$.inheritedFrom.pageId").value(rootId))
         .andExpect(jsonPath("$.inheritedFrom.title").value("제품 로드맵"));
