@@ -67,6 +67,9 @@ import { WikiTreeRow } from './WikiTreeRow'
 // 들여쓰기 1단계 폭(px). 투영(projection) 시 가로 오프셋을 이 값으로 나눠 depth 변화를 계산한다.
 const INDENT = 16
 
+// 다른 스페이스로 옮길 때 새 부모의 맨 아래를 뜻하는 position — 서버가 범위를 넘으면 맨 끝으로 맞춘다.
+const MOVE_TO_END = 1_000_000
+
 // Select 하단 "새 스페이스" 항목의 sentinel value — 실제 스페이스 id 와 충돌하지 않는 문자열.
 // 선택되어도 Select 는 controlled(value={spaceId}) 라 표시 값이 바뀌지 않는다.
 const CREATE_SENTINEL = '__create__'
@@ -593,13 +596,30 @@ export function WikiSidebar() {
         onConfirm={() => spaceId != null && deleteSpace.mutate(spaceId)}
       />
       <WikiMovePageDialog
+        spaceId={spaceId ?? 0}
+        spaces={spaces}
         pages={pages ?? []}
         pageId={moveTarget}
         onClose={() => setMoveTarget(null)}
-        onPick={(parentId) => {
+        onPick={(parentId, targetSpaceId) => {
           const target = moveTarget
           setMoveTarget(null)
           if (target == null) return
+          // 다른 스페이스로(WP-988) — 경고는 대화상자에서 이미 보였다. 새 부모의 맨 아래로 보내고(서버가 범위를 넘으면 끝으로 맞춘다)
+          // 끝나면 새 주소로 따라간다(예전 주소도 열면 새 주소로 연결되지만 한 번 덜 거친다).
+          if (targetSpaceId !== spaceId) {
+            movePage.mutate(
+              { pageId: target, parentId, position: MOVE_TO_END, targetSpaceId },
+              {
+                onSuccess: () => {
+                  const name = spaces?.find((s) => s.id === targetSpaceId)?.name ?? '다른 스페이스'
+                  toast.success(`「${name}」 스페이스로 옮겼습니다`)
+                  navigate(`/wiki/spaces/${targetSpaceId}/pages/${target}`)
+                },
+              },
+            )
+            return
+          }
           // 고른 페이지의 맨 아래 하위로 — 펼쳐 둬야 옮긴 페이지가 바로 보인다.
           if (parentId != null) setCollapsed((prev) => (prev.has(parentId) ? new Set([...prev].filter((v) => v !== parentId)) : prev))
           const title = pages?.find((p) => p.id === target)?.title ?? ''

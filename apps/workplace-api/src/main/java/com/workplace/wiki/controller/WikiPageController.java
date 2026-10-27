@@ -7,6 +7,7 @@ import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiBacklinksResponse;
 import com.workplace.wiki.dto.WikiMentionRef;
+import com.workplace.wiki.dto.WikiMovePreviewResponse;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageEntryResponse;
 import com.workplace.wiki.dto.WikiRevisionDetail;
@@ -162,6 +163,18 @@ public class WikiPageController {
       @PathVariable("id") long pageId,
       @PathVariable("version") int version) {
     return ResponseEntity.ok(revisionService.restore(callerId, pageId, version));
+  }
+
+  /**
+   * 다른 스페이스로 옮기기 전의 영향(WP-988) — 함께 옮겨 가는 페이지 수, 더는 볼 수 없게 되는 멤버 수, 옮겨 가는·해제되는 링크 공유. 원본·대상 스페이스 모두
+   * EDITOR 이상.
+   */
+  @GetMapping("/{id}/move-preview")
+  public ResponseEntity<WikiMovePreviewResponse> movePreview(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestParam("targetSpaceId") long targetSpaceId) {
+    return ResponseEntity.ok(pageService.movePreview(callerId, pageId, targetSpaceId));
   }
 
   @PatchMapping("/{id}/move")

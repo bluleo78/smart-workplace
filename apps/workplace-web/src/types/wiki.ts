@@ -334,3 +334,23 @@ export interface WikiShareForbiddenError {
 export interface WikiShareAccessRequestResult {
   status: 'PENDING' | 'DENIED' | 'NOT_NEEDED'
 }
+
+/** 옮기기 미리보기에 나오는 공유 루트 페이지. */
+export interface WikiMoveSharedPage {
+  pageId: number
+  title: string
+}
+
+/** 다른 스페이스로 옮기기 미리보기(WP-988) — 옮기면 무엇이 바뀌는지 대화상자에 경고로 보인다. */
+export interface WikiMovePreview {
+  /** 함께 옮겨지는 페이지 수(하위 포함). */
+  pageCount: number
+  /** 옮기면 접근을 잃는 원본 스페이스 멤버 수(대상 스페이스 멤버가 아닌 사람). */
+  lostMemberCount: number
+  /** 옮기면 새로 볼 수 있게 되는 대상 스페이스 멤버 수(노출 범위가 넓어짐). */
+  gainedMemberCount: number
+  /** 같은 링크로 따라가는 공유. */
+  keptShares: WikiMoveSharedPage[]
+  /** 공유한 사람이 대상 스페이스 편집자가 아니라 해제되는 공유. */
+  revokedShares: WikiMoveSharedPage[]
+}

@@ -1,8 +1,9 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { wikiApi } from '../../api/wiki'
+import { subtreeIds } from '../../components/wiki/wikiMoveTargets'
 import { handleApiError } from '../../lib/api-error'
-import type { WikiPageDetail, WikiShareResolved, WikiSpace } from '../../types/wiki'
+import type { WikiMovePreview, WikiPageDetail, WikiPageSummary, WikiShareResolved, WikiSpace } from '../../types/wiki'
 import { dropInactiveWikiPage, wikiKeys, wikiPageKey } from './wikiKeys'
 
 export function useCreatePage(spaceId: number) {
@@ -89,16 +90,51 @@ export function useMovePage(spaceId: number) {
       pageId,
       parentId,
       position,
+      targetSpaceId,
     }: {
       pageId: number
       parentId: number | null
       position: number
-    }) => wikiApi.movePage(pageId, parentId, position).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) }),
+      /** 다른 스페이스로 옮길 때만(WP-988). */
+      targetSpaceId?: number
+    }) => wikiApi.movePage(pageId, parentId, position, targetSpaceId).then((r) => r.data),
+    onSuccess: (_, { pageId, targetSpaceId }) => {
+      if (targetSpaceId == null) {
+        qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
+        return
+      }
+      // 옮긴 서브트리 id 는 원본 트리를 다시 받기 전에(무효화 전에) 구한다.
+      const moved = subtreeIds(qc.getQueryData<WikiPageSummary[]>(wikiKeys.tree(spaceId)) ?? [], pageId)
+      qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
+      // 스페이스를 넘은 이동(WP-988) — 캐시된 서브트리 상세의 spaceId 를 먼저 새 스페이스로 바꾼다. 낡은 상세가 남으면 새 주소로 간 화면이
+      // 「옛 주소 → 새 주소」 연결(WikiPageView)을 거꾸로 타 옛 스페이스로 튀었다가 재조회 뒤 돌아온다(하위 페이지를 열 때도 같다).
+      qc.setQueriesData<WikiPageDetail>({ queryKey: ['wiki', 'page'] }, (old) =>
+        old && moved.has(old.id) ? { ...old, spaceId: targetSpaceId } : old,
+      )
+      // 두 스페이스의 트리·공유 중 목록, 옮긴 페이지들, 스페이스 목록(쪽수)을 다시 받는다.
+      qc.invalidateQueries({ queryKey: wikiKeys.tree(targetSpaceId) })
+      qc.invalidateQueries({ queryKey: wikiKeys.sharedPages(spaceId) })
+      qc.invalidateQueries({ queryKey: wikiKeys.sharedPages(targetSpaceId) })
+      qc.invalidateQueries({ queryKey: ['wiki', 'page'], predicate: (q) => moved.has(q.queryKey[2] as number) })
+      qc.invalidateQueries({ queryKey: wikiKeys.spaces() })
+    },
     // #758: 서버가 자기 자신/후손을 부모로 지정하는 이동을 400 으로 거부한다. 사이드바 DnD 는
     // 드래그 중인 노드의 후손을 드롭 대상에서 빼지 않으므로 사용자가 실제로 그 드롭을 할 수 있다 —
     // onError 가 없으면 트리가 조용히 제자리로 돌아가 "드래그가 먹히지 않는다" 로만 보인다.
     onError: (e) => handleApiError(e, '페이지를 이동할 수 없습니다'),
+  })
+}
+
+/**
+ * 다른 스페이스로 옮기기 미리보기(WP-988) — 대화상자에서 대상 스페이스를 골랐을 때만 부른다(targetSpaceId 가 null 이면 끔).
+ * 옮기기 직전의 사실이라 캐시하지 않는다(gcTime 0).
+ */
+export function useWikiMovePreview(pageId: number | null, targetSpaceId: number | null) {
+  return useQuery<WikiMovePreview>({
+    queryKey: wikiKeys.movePreview(pageId ?? 0, targetSpaceId ?? 0),
+    queryFn: () => wikiApi.getMovePreview(pageId as number, targetSpaceId as number).then((r) => r.data),
+    enabled: pageId != null && targetSpaceId != null,
+    gcTime: 0,
   })
 }
 

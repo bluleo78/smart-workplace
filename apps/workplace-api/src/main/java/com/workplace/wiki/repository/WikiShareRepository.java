@@ -850,6 +850,27 @@ public class WikiShareRepository {
     return lockInPageOrder(where);
   }
 
+  /** 이 페이지들의 공유를 잠그지 않고 읽는다 — 스페이스 이동 미리보기(WP-988). page_id 순. */
+  public List<ShareDetail> findByPages(Collection<Long> pageIds) {
+    if (pageIds.isEmpty()) {
+      return List.of();
+    }
+    return selectDetail(WIKI_PAGE_SHARE.PAGE_ID.in(pageIds))
+        .orderBy(WIKI_PAGE_SHARE.PAGE_ID.asc())
+        .fetch(WikiShareRepository::toDetail);
+  }
+
+  /** 이 페이지들의 공유가 속한 스페이스를 바꾼다(WP-988 — 페이지가 다른 스페이스로 옮겨 갈 때 공유 행도 함께 따라간다). 토큰·지정 대상은 그대로다. */
+  public void updateSpace(Collection<Long> pageIds, long spaceId) {
+    if (pageIds.isEmpty()) {
+      return;
+    }
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(WIKI_PAGE_SHARE.SPACE_ID, spaceId)
+        .where(WIKI_PAGE_SHARE.PAGE_ID.in(pageIds))
+        .execute();
+  }
+
   /** 이 페이지들의 공유를 잠그고 읽는다 — 페이지 삭제로 함께 사라질 공유(감사 대상). 다른 해제 경로와 같은 page_id 순. */
   public List<ShareDetail> findByPagesForUpdate(Collection<Long> pageIds) {
     if (pageIds.isEmpty()) {

@@ -8,6 +8,7 @@ import {
   countLivePublicShares,
   expiryAfterDays,
   isShareExpired,
+  shareMoveAcrossImpact,
   shareMoveImpact,
   shareScopeLabel,
   shareWidening,
@@ -67,6 +68,22 @@ describe('treeShareMarks — 트리 공유 표시', () => {
   it('사이클이 있어도 멈춘다', () => {
     const marks = treeShareMarks([node(1, 2), node(2, 1)])
     expect(marks.size).toBe(0)
+  })
+})
+
+describe('shareMoveAcrossImpact — 다른 스페이스로 이동(WP-988)', () => {
+  const source = [node(1, null, own('WORKSPACE', true), '로드맵'), node(2, 1)]
+  const target = [node(7, null, own('PUBLIC', true), '공개'), node(8, 7), node(9, null)]
+
+  it('원본에서 덮던 공유는 빠지고 대상에서 새 부모를 덮는 공유에 들어간다', () => {
+    const r = shareMoveAcrossImpact(source, 2, target, 8)
+    expect(r.leaving.map((s) => s.pageId)).toEqual([1])
+    expect(r.entering).toEqual([{ pageId: 7, title: '공개', audience: 'PUBLIC' }])
+  })
+
+  it('공유가 없는 자리로 옮기면 새로 들어가는 공유가 없다', () => {
+    expect(shareMoveAcrossImpact(source, 2, target, 9).entering).toEqual([])
+    expect(shareMoveAcrossImpact(source, 2, target, null).entering).toEqual([])
   })
 })
 
