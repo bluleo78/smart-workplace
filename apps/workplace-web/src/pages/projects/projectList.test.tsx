@@ -1,8 +1,6 @@
 // 프로젝트 목록(모니터링 리스트) — 화면 테스트(WP-971, WP-1002 에서 작업 모듈 레이아웃·목록 화면만 띄우게 바꿈).
-// 배지·유형 칩, 즐겨찾기 핀·사용자별 저장 키(WP-701), 행 클릭 이동, 빈 상태, 여러 페이지 이어 받기·이름순(WP-863)은
+// 배지·유형 칩, 즐겨찾기 핀·서버 저장(WP-1001), 예전 브라우저 저장 값 무시(WP-701), 행 클릭 이동, 빈 상태, 여러 페이지 이어 받기·이름순(WP-863)은
 // 브라우저 없이 판정되므로 e2e/pages/projects/project-list.spec.ts 에서 옮겼다. 그 spec 에는 목록 API → 행 배선 1건(@wiring)이 남는다.
-// 주의: useProjectFavorites 는 키별 스냅샷을 모듈 안에 캐시하므로(localStorage 는 테스트마다 비워져도 캐시는 남는다)
-// 남의 키를 미리 심어 두는 WP-701 테스트는 파일 맨 앞에 둔다 — 앞 테스트가 같은 키를 이미 읽어 캐시했다면 심은 값을 보지 않아 거짓으로 통과한다.
 import { screen, waitFor, within } from '@testing-library/react'
 import type { RequestHandler } from 'msw'
 import { http, HttpResponse } from 'msw'
@@ -11,6 +9,7 @@ import { describe, expect, test } from 'vitest'
 
 import { IssueModuleLayout } from '@/components/issue/IssueModuleLayout'
 import ProjectListPage from '@/pages/projects/ProjectListPage'
+import { projectFavoriteHandlers } from '@/test/kits/projects/projectFavorites'
 import { renderScreen } from '@/test/renderScreen'
 
 import { createProject } from '../../../e2e/factories/project.factory'
@@ -24,22 +23,22 @@ const projects = [
 
 /**
  * /projects 를 작업 모듈 레이아웃(사이드바)과 목록 화면만으로 띄운다 — 즐겨찾기는 사이드바에도 반영되므로 둘 다 둔다.
- * 행을 눌러 가는 상세는 띄우지 않고 주소로 본다. 화면이 부르는 조회는 프로젝트 목록과 고정한 뷰(사이드바)다.
+ * 행을 눌러 가는 상세는 띄우지 않고 주소로 본다. 화면이 부르는 조회는 프로젝트 목록·즐겨찾기(서버, WP-1001)·고정한 뷰(사이드바)다.
  */
-function renderProjects(handlers: RequestHandler[]) {
+function renderProjects(handlers: RequestHandler[], favorites = projectFavoriteHandlers()) {
   return renderScreen(
     <Routes>
       <Route element={<IssueModuleLayout />}>
         <Route path="/projects" element={<ProjectListPage />} />
       </Route>
     </Routes>,
-    { path: '/projects', handlers: [...handlers, http.get('/api/v1/me/pinned-views', () => HttpResponse.json([]))] },
+    { path: '/projects', handlers: [...handlers, ...favorites.handlers, http.get('/api/v1/me/pinned-views', () => HttpResponse.json([]))] },
   )
 }
 
 /** 목록을 연다 — 기본은 세 프로젝트 한 페이지. */
-async function open(list = projects) {
-  return renderProjects([http.get('/api/v1/projects', () => HttpResponse.json(createPageResponse(list)))])
+async function open(list = projects, favorites = projectFavoriteHandlers()) {
+  return renderProjects([http.get('/api/v1/projects', () => HttpResponse.json(createPageResponse(list)))], favorites)
 }
 
 describe('프로젝트 목록', () => {
@@ -73,16 +72,18 @@ describe('프로젝트 목록', () => {
     await waitFor(() => expect(location()).toMatch(/^\/projects\/EX(\?|$)/))
   })
 
-  test('즐겨찾기를 켜면 핀 그룹이 생기고 사용자별 키(project-favorites:1:…)에만 저장된다', async () => {
-    const { user } = await open()
+  // WP-1001 — 즐겨찾기는 서버에 저장한다(브라우저 저장소에는 쓰지 않는다). 다시 조회해도 남는다.
+  test('즐겨찾기를 켜면 핀 그룹이 생기고 서버에 저장되며 브라우저 저장소에는 쓰지 않는다 (WP-1001)', async () => {
+    const favorites = projectFavoriteHandlers()
+    const { user, queryClient } = await open(projects, favorites)
     await user.click(await screen.findByTestId('fav-toggle-DONE1'))
     expect(await screen.findByTestId('fav-group')).toBeInTheDocument()
-    const stored = Object.keys(localStorage)
-      .filter((k) => k.startsWith('project-favorites'))
-      .map((k) => [k, localStorage.getItem(k)])
-    expect(stored).toHaveLength(1)
-    expect(stored[0][0]).toMatch(/^project-favorites:1:/)
-    expect(stored[0][1]).toContain('DONE1')
+    await waitFor(() => expect(favorites.requests).toEqual(['PUT DONE1']))
+    expect(favorites.keys()).toEqual(['DONE1'])
+    expect(Object.keys(localStorage).filter((k) => k.startsWith('project-favorites'))).toEqual([])
+    // 서버에 남아 있어 다시 조회해도 핀된다(새로고침과 같다).
+    await queryClient.invalidateQueries()
+    await waitFor(() => expect(screen.getByTestId('fav-toggle-DONE1')).toHaveAttribute('aria-pressed', 'true'))
   })
 
   // WP-863 — 첫 페이지(20개)만 받아 21번째부터 목록·이름순 정렬·즐겨찾기에서 사라졌다. 끝 페이지까지 이어 받는다.

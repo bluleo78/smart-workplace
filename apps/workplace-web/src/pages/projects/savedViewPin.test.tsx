@@ -8,6 +8,7 @@ import { expect, test } from 'vitest'
 
 import { IssueSidebar } from '@/components/issue/IssueSidebar'
 import { ViewChipBar } from '@/pages/projects/components/ViewChipBar'
+import { projectFavoriteHandlers } from '@/test/kits/projects/projectFavorites'
 import { renderScreen } from '@/test/renderScreen'
 import type { PinnedSavedViewResponse, SavedViewResponse } from '@/types/savedView'
 
@@ -45,6 +46,7 @@ test('고정된 뷰를 삭제하면 상단 칩과 사이드바 「고정된 뷰�
           deleted = true
           return new HttpResponse(null, { status: 204 })
         }),
+        ...projectFavoriteHandlers().handlers,
         http.get('/api/v1/me/pinned-views', () => HttpResponse.json(deleted ? [] : [pinnedView])),
         // 칩 막대가 기본 그룹(사이클 유무)을 정하려 부른다 — 사이클 없음.
         http.get(`/api/v1/projects/${KEY}/cycles`, () => HttpResponse.json([])),

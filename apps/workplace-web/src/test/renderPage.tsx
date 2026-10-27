@@ -25,6 +25,7 @@ import type { UserResponse } from '@/types/auth'
 import type { RoleResponse } from '@/types/role'
 
 import { createUser } from '../../e2e/factories/auth.factory'
+import { PAGE_ASYNC_TIMEOUT } from './asyncTimeout'
 import { authHandlers, MOCK_USER_ROLE, shellHandlers } from './msw/baseHandlers'
 import { server } from './msw/server'
 
@@ -37,11 +38,7 @@ export { settleHistory } from './history'
  */
 export const PAGE_LOAD_TIMEOUT = 45_000
 
-/**
- * 페이지 테스트에서 첫 화면 뒤 단언(요청 → 응답 → 다시 그리기)의 기본 대기 — RTL 기본 1초는 부하가 크면 넘친다(WP-1006).
- * 조건이 맞으면 바로 끝나므로 통과하는 테스트는 느려지지 않고, 진짜 실패만 이만큼 늦게 알린다. renderPage 가 켜고 setup 의 afterEach 가 되돌린다.
- */
-export const PAGE_ASYNC_TIMEOUT = 5_000
+export { PAGE_ASYNC_TIMEOUT }
 
 type RenderPageOptions = {
   /** 로그인 사용자 — 기본은 AI 사용 가능한 일반 사용자(id 1, E2E authenticatedPage 와 같음). */

@@ -11,10 +11,6 @@ import { settleHistory } from './history'
 import { memoryStorage } from './memoryStorage'
 import { server, unhandledRequests } from './msw/server'
 
-// findBy*·waitFor 기본 대기 1초는 전체 실행(파일 수백 개가 코어를 나눠 씀)에서 화면 테스트가 첫 렌더·MSW 응답을 받기에 빠듯해,
-// 혼자 돌리면 통과하는 테스트가 전체 실행에서만 가끔 실패했다(WP-966). 통과하는 테스트는 기다린 만큼만 쓰므로 느려지지 않는다.
-configure({ asyncUtilTimeout: 5_000 })
-
 // React 19 개발 빌드는 JSX 요소를 만들 때마다 owner stack 용으로 Error 를 만들어 호출 스택을 잡는다(1초에 1만 개까지, 렌더마다 초기화).
 // 화면 테스트에서는 이것이 CPU 의 1할 남짓을 먹었다(issueListColumns 프로파일: jsx·jsxDEV 자체 시간 7.8초/65초, WP-1002).
 // owner stack 은 React 경고 메시지의 컴포넌트 스택에만 쓰여 테스트 판정과 무관하므로, 계수기를 상한에 묶어 늘 생략하게 한다.

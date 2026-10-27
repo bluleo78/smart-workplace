@@ -11,6 +11,7 @@ import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import ProjectListPage from '@/pages/projects/ProjectListPage'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { projectFavoriteHandlers } from '@/test/kits/projects/projectFavorites'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
@@ -22,6 +23,7 @@ test('프로젝트 목록: 헤더 바에 제목 "프로젝트"(h1) + 새 프로�
   renderScreen(<ProjectListPage />, {
     path: '/projects',
     handlers: [
+      ...projectFavoriteHandlers().handlers,
       http.get('/api/v1/projects', () =>
         HttpResponse.json({ content: [createProject({ key: 'EX', name: '예제' })], page: 0, size: 20, totalElements: 1, totalPages: 1 }),
       ),

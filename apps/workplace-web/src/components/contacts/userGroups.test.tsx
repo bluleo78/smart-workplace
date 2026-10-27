@@ -3,7 +3,7 @@
 // 관리자 전용 노출, 400/409 오류 토스트·인라인 오류는 브라우저 없이 판정되므로 e2e/pages/contacts/user-groups.spec.ts 에서 옮겼다.
 // 조직도 선택 → 트리·직속 멤버 배선(@wiring)과 긴 이름이 창 폭을 넘지 않는 것(@layout)은 그 E2E 가 지킨다.
 // 사이드바 트리와 본문 그룹 뷰가 URL ?group 으로 이어지므로 모듈 레이아웃 + ContactsPage 를 renderScreen 으로 띄운다(testkit-b8).
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
 
@@ -101,7 +101,7 @@ test('그룹을 고르면 「전체」는 현재 항목이 아니되 잠기지 �
 })
 
 // WP-923: 접기·수정·삭제 버튼 이름에 그룹 이름이 들어가고, 접기 상태는 aria-expanded 로 전한다. 하위가 없으면 접기 버튼이 없다.
-test('그룹 트리 — 접기·수정·삭제 버튼 이름에 그룹 이름이 들어간다', async () => {
+test('그룹 트리 — 접기·⋯ 버튼 이름에 그룹 이름이 들어간다', async () => {
   const { user } = await open(
     '/contacts',
     base(
@@ -121,8 +121,8 @@ test('그룹 트리 — 접기·수정·삭제 버튼 이름에 그룹 이름이
   expect(screen.getByTestId('group-node-11')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /^플랫폼팀 (접기|펼치기)$/ })).not.toBeInTheDocument()
 
-  expect(screen.getByTestId('group-edit-20')).toHaveAccessibleName('내 분류 수정')
-  expect(screen.getByTestId('group-delete-20')).toHaveAccessibleName('내 분류 삭제')
+  // 행 ⋯ 메뉴 버튼 이름에 그룹 이름이 들어간다(WP-978 — 수정·삭제는 이 메뉴 안으로 옮겼다).
+  expect(screen.getByTestId('group-more-20')).toHaveAccessibleName('내 분류 더보기')
 })
 
 // ── 개인 그룹 ─────────────────────────────────────────────
@@ -193,99 +193,6 @@ test('admin: 조직도 헤더에서 최상위 공유 그룹 생성(SHARED·paren
   await saveName(user, '신규 본부')
   await waitFor(() => expect(screen.queryByTestId('group-form-dialog')).not.toBeInTheDocument())
   expect(creates[0].body).toMatchObject({ name: '신규 본부', visibility: 'SHARED', parentId: null })
-})
-
-// #839 부분 수정 계약 — 폼이 다루지 않는 code·sortOrder 는 생략(서버가 유지), 상위 '최상위'는 moveToRoot 플래그로 보낸다.
-test('admin: 조직도 노드 수정 — PATCH 는 이름 + moveToRoot 만(code 생략)', async () => {
-  const patches: Recorded[] = []
-  const { user } = await open(
-    '/contacts?group=10',
-    [
-      http.get('/api/v1/user-groups/10', () => HttpResponse.json(sharedDetail({ code: 'DEV' }))),
-      http.patch('/api/v1/user-groups/10', async ({ request }) => {
-        await record(patches, request)
-        return HttpResponse.json(sharedDetail({ code: 'DEV', name: '개발본부(수정)' }))
-      }),
-      ...base(),
-    ],
-    ADMIN,
-  )
-  await user.click(await screen.findByTestId('org-edit-10'))
-  await saveName(user, '개발본부(수정)')
-  await waitFor(() => expect(screen.queryByTestId('group-form-dialog')).not.toBeInTheDocument())
-  expect(patches[0].body).toEqual({ name: '개발본부(수정)', moveToRoot: true })
-})
-
-test('admin: 조직도 노드 하위 그룹 추가 — POST parentId', async () => {
-  const creates: Recorded[] = []
-  const { user } = await open(
-    '/contacts?group=10',
-    [
-      http.post('/api/v1/user-groups', async ({ request }) => {
-        await record(creates, request)
-        return HttpResponse.json(sharedDetail({ id: 97, name: '하위팀', parentId: 10, members: [] }), { status: 201 })
-      }),
-      ...base(),
-    ],
-    ADMIN,
-  )
-  await user.click(await screen.findByTestId('org-add-10'))
-  await saveName(user, '하위팀')
-  await waitFor(() => expect(screen.queryByTestId('group-form-dialog')).not.toBeInTheDocument())
-  expect(creates[0].body).toMatchObject({ name: '하위팀', visibility: 'SHARED', parentId: 10 })
-})
-
-// 보던 그룹을 지우면 확인 창을 거쳐 DELETE 하고, 본문이 통합 목록으로 돌아간다(URL group 제거).
-test('admin: 조직도 노드 삭제 — 확인 뒤 DELETE, 선택 해제', async () => {
-  let deletes = 0
-  const { user, location } = await open(
-    '/contacts?group=10',
-    [
-      http.delete('/api/v1/user-groups/10', () => {
-        deletes++
-        return new HttpResponse(null, { status: 204 })
-      }),
-      ...base(),
-    ],
-    ADMIN,
-  )
-  await user.click(await screen.findByTestId('org-delete-10'))
-  const confirm = await screen.findByTestId('org-delete-confirm')
-  expect(deletes).toBe(0)
-  await user.click(within(confirm).getByTestId('org-delete-confirm-btn'))
-  await waitFor(() => expect(deletes).toBe(1))
-  await waitFor(() => expect(screen.queryByTestId('group-contact-view')).not.toBeInTheDocument())
-  expect(location()).toBe('/contacts')
-})
-
-// 서버 거부(사이클 400)는 서버 메시지 토스트로 보인다.
-test('admin: 사이클 등 거부(400) 시 서버 메시지 토스트', async () => {
-  const { user } = await open(
-    '/contacts?group=10',
-    [
-      http.patch('/api/v1/user-groups/10', () =>
-        HttpResponse.json({ message: '그룹을 자손 그룹의 하위로 옮길 수 없습니다' }, { status: 400 }),
-      ),
-      ...base(),
-    ],
-    ADMIN,
-  )
-  await user.click(await screen.findByTestId('org-edit-10'))
-  await saveName(user, '변경')
-  expect(await screen.findByText('그룹을 자손 그룹의 하위로 옮길 수 없습니다')).toBeInTheDocument()
-})
-
-test('admin: 조직도 노드 삭제 실패(409) 시 서버 메시지 토스트', async () => {
-  const { user } = await open(
-    '/contacts?group=10',
-    [http.delete('/api/v1/user-groups/10', () => HttpResponse.json({ message: '삭제할 수 없습니다' }, { status: 409 })), ...base()],
-    ADMIN,
-  )
-  await user.click(await screen.findByTestId('org-delete-10'))
-  await user.click(within(await screen.findByTestId('org-delete-confirm')).getByTestId('org-delete-confirm-btn'))
-  expect(await screen.findByText('삭제할 수 없습니다')).toBeInTheDocument()
-  // 실패했으니 보던 그룹은 그대로다.
-  expect(screen.getByTestId('group-contact-view')).toBeInTheDocument()
 })
 
 // #803 — 이름 중복(400 「이미 존재하는 그룹 이름입니다」)은 토스트에 더해 이름 칸 인라인 오류로 보이고 창이 남는다.

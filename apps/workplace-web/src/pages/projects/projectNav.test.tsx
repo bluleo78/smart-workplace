@@ -5,13 +5,14 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { IssueSidebar } from '@/components/issue/IssueSidebar'
+import { projectFavoriteHandlers } from '@/test/kits/projects/projectFavorites'
 import { renderScreen } from '@/test/renderScreen'
 
 import { createProject } from '../../../e2e/factories/project.factory'
 
 /** 작업 모듈 사이드바만 띄운다 — 사이드바가 부르는 조회는 전체 프로젝트·고정한 뷰다. */
 const renderSidebar = (path: string) =>
-  renderScreen(<IssueSidebar />, { path, handlers: [projectList, http.get('/api/v1/me/pinned-views', () => HttpResponse.json([]))] })
+  renderScreen(<IssueSidebar />, { path, handlers: [projectList, ...projectFavoriteHandlers().handlers, http.get('/api/v1/me/pinned-views', () => HttpResponse.json([]))] })
 
 const projectList = http.get('/api/v1/projects', () =>
   HttpResponse.json({ content: [createProject({ key: 'EX', name: '예제', type: 'TEAM' })], page: 0, size: 20, totalElements: 1, totalPages: 1 }),

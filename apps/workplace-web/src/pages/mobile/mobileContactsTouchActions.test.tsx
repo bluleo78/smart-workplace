@@ -40,8 +40,9 @@ async function openSidebar(user: ReturnType<typeof renderContacts>['user']) {
   return screen.findByTestId('mobile-sidebar-sheet')
 }
 
-// 관리자의 조직도 노드 — hover 「＋」 대신 ⋯ 가 액션 시트를 열고, 하위 그룹 추가는 그 노드를 parentId 로 보낸다.
-test('조직도 노드: ⋯ → 액션 시트 → 하위 그룹 추가 → POST parentId', async () => {
+// 관리자의 조직도 — 관리 동작은 ☰ 시트 안 사이드바 행 ⋯ 가 액션 시트를 열고(WP-978), 하위 조직 추가는 그 노드를 parentId 로 보낸다.
+// 창을 열고 닫아도 ☰ 시트는 남아 이어서 관리할 수 있다.
+test('조직도: ☰ 시트 안 행 ⋯ → 액션 시트 → 하위 조직 추가 → POST parentId, 창을 닫아도 ☰ 시트는 남는다', async () => {
   const creates: unknown[] = []
   const { user } = renderContacts('/contacts?group=10', {
     auth: ADMIN,
@@ -54,7 +55,9 @@ test('조직도 노드: ⋯ → 액션 시트 → 하위 그룹 추가 → POST 
     ],
   })
   await screen.findByTestId('group-contact-view')
-  expect(screen.queryByTestId('org-add-10')).not.toBeInTheDocument()
+  // 그룹 보기 가운데에는 관리 동작이 없다 — 사이드바(☰ 시트) 조직도 행에 있다.
+  expect(screen.queryByTestId('org-more-10')).not.toBeInTheDocument()
+  await openSidebar(user)
   await user.click(await screen.findByTestId('org-more-10'))
   const sheet = await screen.findByTestId('mobile-action-sheet')
   expect(within(sheet).getByTestId('mobile-action-org-edit')).toBeInTheDocument()
@@ -66,6 +69,7 @@ test('조직도 노드: ⋯ → 액션 시트 → 하위 그룹 추가 → POST 
   await user.click(screen.getByTestId('g-save'))
   await waitFor(() => expect(screen.queryByTestId('group-form-dialog')).not.toBeInTheDocument())
   expect(creates.at(-1)).toMatchObject({ name: '하위팀', visibility: 'SHARED', parentId: 10 })
+  expect(screen.getByTestId('mobile-sidebar-sheet')).toBeInTheDocument()
 })
 
 // 내 그룹 — 사이드바 시트 안 ⋯ → 액션 시트 → 기존 삭제 확인창을 거쳐야 DELETE.
