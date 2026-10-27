@@ -2,7 +2,7 @@
 // URL 의 SearchParams 가 단일 source of truth — 내부 state 는 q 입력 debounce 버퍼뿐.
 
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import type { FacetDef, FilterValue } from '@/components/filter';
@@ -18,6 +18,7 @@ import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useVersions } from '../../../hooks/queries/useVersions';
 import { useIssueGroupBy } from '../../../hooks/useIssueGroupBy';
+import { useSearchDraft } from '../../../hooks/useSearchDraft';
 import { CLOSED_PRESETS, closedRangeLabel } from '../../../lib/closedRange';
 import { kstDateKey } from '../../../lib/formatters';
 import { clearFacetFilters, countActiveFacets } from '../../../lib/issueFacetFilters';
@@ -100,7 +101,6 @@ export function useIssueFilterControls(
   // groupParam = URL 원값(부재/none/값) — 필터를 다시 쓸 때 그대로 보존해야 명시한 「없음」이 기본값으로 되돌지 않는다.
   // groupBy = 실제 적용 중인 그룹(사이클 기본값 반영) — 셀렉트 표시용.
   const { raw: groupParam, groupBy } = useIssueGroupBy(projectKey, showCycle);
-  const [qDraft, setQDraft] = useState(filters.q);
   const labels = useLabels(projectKey);
   // 구성요소(WP-933) — 사용 중인 것이 있을 때만 facet 이 생긴다. 개인 화면(showType=false)은 구성요소가 없어 요청하지 않는다.
   const components = useComponents(projectKey, { enabled: showType });
@@ -115,22 +115,12 @@ export function useIssueFilterControls(
   // 프로젝트 상태(표시 순서) — 「상태」 facet 옵션. 로딩 중엔 빈 배열이라 고를 값이 없다.
   const projectStatuses = useProjectStatusList(projectKey);
 
-  // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 동기화한다.
-  // 외부 소스(URL)→로컬 draft 동기화는 의도된 effect 패턴이라 규칙을 명시 해제한다.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setQDraft(filters.q);
-  }, [filters.q]);
-
-  // 검색어는 300ms debounce 후 URL 에 반영 — 매 키 입력마다 네트워크 호출을 막는다.
-  useEffect(() => {
-    if (qDraft === filters.q) return;
-    const t = setTimeout(() => {
-      writeFilters({ ...filters, q: qDraft }, view, groupParam);
-    }, 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qDraft]);
+  // 검색어 draft — 300ms debounce 후 URL 에 반영해 매 키 입력마다 네트워크 호출을 막는다.
+  // URL 의 q 가 외부 변경(예: 초기화 버튼)으로 바뀌면 입력값을 맞추고, 내가 쓴 q 가 되돌아올 때는
+  // 그 사이 더 친 글자를 덮지 않는다 — 연락처·메일과 같은 공용 훅(WP-1003). 쓰는 순간의 최신 필터·view·group 에 q 만 바꾼다.
+  const { draft: qDraft, setDraft: setQDraft } = useSearchDraft(filters.q, (q) =>
+    writeFilters({ ...filters, q }, view, groupParam),
+  );
 
   // view·groupBy 는 IssueFilters 와 분리된 URL 키 — 필터 변경 시에도 함께 보존해야 한다.
   function writeFilters(
