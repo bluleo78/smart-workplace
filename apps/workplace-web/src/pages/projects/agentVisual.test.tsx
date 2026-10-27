@@ -35,7 +35,9 @@ test('AGENT 코멘트는 USER 와 시각적으로 구분된다 — data-agent·A
   expect(agentItem.className).toMatch(/border-ai-accent/)
   expect(agentItem.className).not.toMatch(/border-blue-500/)
   const badge = within(agentItem).getByText('AI', { exact: true })
-  expect(badge).toHaveClass('bg-ai-accent-subtle', 'text-ai-accent')
+  // 배지는 AI 변형(WP-1034 — AI 옅은 색 머리 띠 위에서도 테두리로 모양이 보인다).
+  expect(badge).toHaveAttribute('data-variant', 'ai')
+  expect(badge).toHaveClass('text-ai-accent')
   expect(badge.className).not.toMatch(/bg-blue-100/)
 })
 

@@ -102,8 +102,8 @@ test('긴 URL·긴 작성자명 코멘트도 카드 폭 안에 머문다', { tag
   const cardBox = (await card.boundingBox())!;
   expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(vw);
 
-  // 날짜는 한 줄(text-sm 줄 높이 20px — 꺾이면 40px) + 카드 오른쪽 안.
-  const date = card.locator('span', { hasText: /^· / });
+  // 날짜는 한 줄(text-xs 줄 높이 16px — 꺾이면 32px) + 카드 오른쪽 안.
+  const date = card.getByTestId('issue-comment-time-21');
   const dateBox = (await date.boundingBox())!;
   expect(dateBox.height).toBeLessThan(28);
   expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
