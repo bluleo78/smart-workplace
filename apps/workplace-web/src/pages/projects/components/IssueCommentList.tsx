@@ -11,6 +11,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
+import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
 import { countApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
 import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
@@ -28,6 +29,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { useListFocusRescue } from '@/hooks/useListFocusRescue';
 import { useMessageListLongPress } from '@/hooks/useMessageListLongPress';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
+import { cn } from '@/lib/utils';
 
 import { uploadIssueImage } from '../../../api/issueImages';
 import { commentReactorSource } from '../../../hooks/queries/commentReactorSource';
@@ -170,31 +172,37 @@ function CommentItem({
   return (
     <li
       ref={itemRef}
-      className={[
-        // min-w-0 — 카드가 flex/grid 자식일 때 긴 내용이 카드 폭을 밀어내지 않게(WP-228).
-        'relative group min-w-0 border rounded p-3',
-        isAgent ? 'border-ai-accent/50 bg-ai-accent-subtle/40' : '',
-      ].join(' ')}
+      // min-w-0 — 카드가 flex/grid 자식일 때 긴 내용이 카드 폭을 밀어내지 않게(WP-228).
+      // 머리 띠 카드(WP-1034) — overflow-hidden 은 쓰지 않는다: 터치 ⋯(44px)의 위쪽 탭 영역·초점 링이 카드 가장자리에서 잘린다(띠는 rounded-t-md 로 둥글린다).
+      className={cn('relative group min-w-0 rounded-md border bg-card', isAgent && 'border-ai-accent/50')}
       data-agent={isAgent ? 'true' : undefined}
       // 목록의 길게 누르기 위임(useMessageListLongPress)이 칩이 속한 코멘트를 찾는 표식(WP-504).
       data-message-id={comment.id}
     >
-      {/* 헤더: 작성자 + 날짜 + (본인 코멘트) 수정·삭제 버튼 */}
-      <div className="flex items-center justify-between gap-1">
+      {/* 머리 띠: 아바타 + 굵은 작성자 + 날짜 + (본인 코멘트) 수정·삭제(WP-1034) — 같은 사람이 연달아 써도 띠마다 끊긴다. 모바일은 여백만 줄인다. */}
+      <div
+        data-testid={`issue-comment-header-${comment.id}`}
+        className={cn(
+          'flex items-center justify-between gap-1 rounded-t-md border-b px-2.5 py-1 md:px-3 md:py-1.5',
+          isAgent ? 'border-ai-accent/30 bg-ai-accent-subtle' : 'bg-muted/60',
+        )}
+      >
         {/* 긴 작성자명이 날짜·⋯ 를 밀어내지 않게 — 래퍼가 남은 폭만 쓰고(min-w-0 flex-1) 이름만 말줄임,
-            AI 배지·날짜는 줄지도 꺾이지도 않는다(WP-228). */}
-        <div className="text-sm text-muted-foreground flex min-w-0 flex-1 items-center gap-1">
-          <span className="min-w-0 truncate">{comment.authorName}</span>
+            아바타·AI 배지·날짜는 줄지도 꺾이지도 않는다(WP-228). */}
+        <div className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+          {/* 이슈 채팅 머리 줄과 같은 ChatAvatar — 이니셜·사람 색·AI 봇 표식, 이름이 옆에 있어 장식(aria-hidden)이다. */}
+          <ChatAvatar userId={comment.authorId} name={comment.authorName} kind={comment.authorKind} className="size-6 text-xs" />
+          <span className="min-w-0 truncate font-semibold text-foreground">{comment.authorName}</span>
           {isAgent && (
-            <Badge
-              variant="secondary"
-              className="shrink-0 bg-ai-accent-subtle text-ai-accent"
-            >
+            // AI 배지 변형(테두리 있음) + 카드 바탕 — AI 옅은 색 띠 위에서도 배지 모양이 묻히지 않는다.
+            <Badge variant="ai" className="shrink-0 bg-card">
               AI
             </Badge>
           )}
           {/* parseUtcDate 를 내장한 formatDateTimeMinute 로 UTC→로컬 변환 + 분 단위 표시 (#320) */}
-          <span className="shrink-0 whitespace-nowrap">· {formatDateTimeMinute(comment.createdAt)}</span>
+          <span data-testid={`issue-comment-time-${comment.id}`} className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+            {formatDateTimeMinute(comment.createdAt)}
+          </span>
         </div>
 
         {/* 헤더 오른쪽 hover 액션 — 반응 추가(반응 없는 코멘트) + 본인 HUMAN 코멘트의 수정·삭제(터치는 ⋯ 메뉴) */}
@@ -263,8 +271,8 @@ function CommentItem({
       )}
 
       {/* 본문: 편집 모드면 인라인 RichInput(@멘션), 아니면 멘션 칩 포함 텍스트 */}
-      {editing ? (
-        <div className="mt-2">
+      <div className="px-2.5 py-1.5 md:px-3 md:py-2">
+        {editing ? (
           <RichInput
             ariaLabel="코멘트 수정"
             members={mentionCandidates}
@@ -282,32 +290,32 @@ function CommentItem({
             // WP-362: 기존 이미지는 원래 자리에 썸네일로 복원되고, 새로 붙여넣을 수도 있다.
             imageUpload={(file) => uploadIssueImage(projectKey, file)}
           />
-        </div>
-      ) : (
-        /* WP-254·WP-1015: 사람·AI 코멘트 모두 마크다운(제목·굵게·목록·표·코드·링크)으로 렌더 — 웹 입력과 MCP·API 원문이 같은 모습이다
-           (이슈 채팅 ChatMessageRow 와 동일 패턴). 원시 HTML 은 여전히 비허용. 한 줄 개행은 p 의 pre-wrap 이 보존하므로 평문 코멘트는 이전과 같게 보인다.
-           whitespace-pre-wrap 은 빼야 한다 — 블록 사이 개행 텍스트 노드가 빈 줄로 보인다(p 가 자체로 줄바꿈 보존). */
-        <MarkdownMessage
-          className="mt-1 leading-6 text-foreground"
-          renderImage={renderImage}
-          renderLink={renderMentionLink}
-        >
-          {mentionsToMarkdown(comment.body, mentionUsers)}
-        </MarkdownMessage>
-      )}
+        ) : (
+          /* WP-254·WP-1015: 사람·AI 코멘트 모두 마크다운(제목·굵게·목록·표·코드·링크)으로 렌더 — 웹 입력과 MCP·API 원문이 같은 모습이다
+             (이슈 채팅 ChatMessageRow 와 동일 패턴). 원시 HTML 은 여전히 비허용. 한 줄 개행은 p 의 pre-wrap 이 보존하므로 평문 코멘트는 이전과 같게 보인다.
+             whitespace-pre-wrap 은 빼야 한다 — 블록 사이 개행 텍스트 노드가 빈 줄로 보인다(p 가 자체로 줄바꿈 보존). */
+          <MarkdownMessage
+            className="leading-6 text-foreground"
+            renderImage={renderImage}
+            renderLink={renderMentionLink}
+          >
+            {mentionsToMarkdown(comment.body, mentionUsers)}
+          </MarkdownMessage>
+        )}
 
-      {/* 이모지 반응(WP-504) — 본문 아래 칩 줄. 편집 중엔 숨긴다(편집창 아래 칩·버튼이 섞이지 않게). */}
-      {!editing && (
-        <CommentReactions
-          comment={comment}
-          issueId={issueId}
-          canReact={canReact}
-          touch={touch}
-          currentUserId={currentUserId}
-          onOpenReactors={onOpenReactors}
-          onToggle={toggleReaction}
-        />
-      )}
+        {/* 이모지 반응(WP-504) — 본문 아래 칩 줄. 편집 중엔 숨긴다(편집창 아래 칩·버튼이 섞이지 않게). */}
+        {!editing && (
+          <CommentReactions
+            comment={comment}
+            issueId={issueId}
+            canReact={canReact}
+            touch={touch}
+            currentUserId={currentUserId}
+            onOpenReactors={onOpenReactors}
+            onToggle={toggleReaction}
+          />
+        )}
+      </div>
     </li>
   );
 }
@@ -400,7 +408,7 @@ export function IssueCommentList({
 
   // "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거).
   const list = (
-    <ul key="list" ref={listRef} className="space-y-2" role="list" {...longPress}>
+    <ul key="list" ref={listRef} className="space-y-3" role="list" {...longPress}>
       {orderActivity(comments, order).map((c) => (
         <CommentItem
           key={c.id}

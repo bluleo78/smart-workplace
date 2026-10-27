@@ -8,6 +8,7 @@ import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { createAgentComment, createComment } from '../../../../e2e/factories/issue.factory'
 import type { ActivityOrder } from '../../../lib/activityOrder'
+import { formatDateTimeMinute } from '../../../lib/formatters'
 import { IssueCommentList } from './IssueCommentList'
 
 vi.mock('../../../hooks/queries/useProjectMembers', () => ({
@@ -92,6 +93,40 @@ describe('IssueCommentList — 코멘트 마크다운 렌더 (WP-1015)', () => {
   it('멤버 목록에 없는 멘션은 「알 수 없음」 칩으로 그린다', () => {
     renderList([createComment({ id: 1, authorId: 2, body: '<@555> 확인' })])
     expect(screen.getByTestId('comment-mention-chip-555')).toHaveTextContent('@알 수 없음')
+  })
+})
+
+// ─── 코멘트 머리 띠(WP-1034) ────────────────────────────────────────────
+// 코멘트가 여러 개 쌓여도 어디까지가 한 코멘트인지·누가 썼는지 보이게 — 코멘트마다 아바타·굵은 이름·시각이 든 머리 띠를 둔다.
+
+describe('코멘트 머리 띠 (WP-1034)', () => {
+  it('코멘트마다 머리 띠에 아바타·굵은 작성자 이름·작성 시각이 있다 — 같은 사람이 연달아 써도 각각', () => {
+    const at = '2026-10-27T00:12:00Z'
+    renderList([
+      createComment({ id: 1, authorId: 7, authorName: '박철순', body: '첫 번째', createdAt: at }),
+      createComment({ id: 2, authorId: 7, authorName: '박철순', body: '두 번째', createdAt: at }),
+    ])
+
+    for (const id of [1, 2]) {
+      const header = screen.getByTestId(`issue-comment-header-${id}`)
+      expect(within(header).getByTestId('chat-avatar-7')).toHaveTextContent('박')
+      expect(within(header).getByText('박철순')).toBeInTheDocument()
+      expect(within(header).getByTestId(`issue-comment-time-${id}`)).toHaveTextContent(formatDateTimeMinute(at))
+      // 본문은 띠 밖(같은 코멘트 카드 안)에 있다.
+      expect(header).not.toHaveTextContent(id === 1 ? '첫 번째' : '두 번째')
+    }
+    const [first, second] = screen.getAllByRole('listitem')
+    expect(within(first).getByText('첫 번째')).toBeInTheDocument()
+    expect(within(second).getByText('두 번째')).toBeInTheDocument()
+    expect(within(first).queryByText('두 번째')).toBeNull()
+  })
+
+  it('AI 코멘트는 머리 띠에 AI 봇 표식 아바타와 AI 배지가 있다', () => {
+    renderList([createAgentComment({ id: 5 })])
+
+    const header = screen.getByTestId('issue-comment-header-5')
+    expect(within(header).getByTestId('chat-avatar-agent-99')).toBeInTheDocument()
+    expect(within(header).getByText('AI')).toHaveAttribute('data-variant', 'ai')
   })
 })
 
