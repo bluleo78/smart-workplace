@@ -5,12 +5,14 @@ import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiShareRepository;
 import com.workplace.wiki.repository.WikiShareRepository.ShareDetail;
+import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -24,6 +26,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * <ul>
  *   <li>페이지 이동 — 하위 포함 공유는 「지금 위치 기준」이라, 공유 루트 밖으로 옮긴 페이지는 그 순간 공유에서 빠지고 안으로 옮긴 페이지는 들어간다. 그 공유의
  *       기록에 PAGE_MOVED_OUT·PAGE_MOVED_IN 을 남기고, 빠진 쪽은 재검증해 공유로 열린 화면을 닫는다.
+ *   <li>다른 스페이스로 이동(WP-988) — 서브트리의 공유는 토큰 그대로 함께 옮겨 가되, 만든 사람이 대상 스페이스 편집자가 아니면 해제한다. 옛 위치를 덮던 상위
+ *       공유에서는 빠지고(PAGE_MOVED_OUT) 새 위치를 덮는 상위 공유에는 들어간다(PAGE_MOVED_IN).
  *   <li>공유한 사람이 편집 권한을 잃음(스페이스에서 내보내짐·보기로 강등) — 그 스페이스에서 그 사람이 만든 공유를 해제한다. 워크스페이스에서 정지되면 모든 스페이스의
  *       것을 해제한다(REVOKED_BY_MEMBERSHIP, 감사 reason MEMBERSHIP).
  *   <li>페이지·스페이스 삭제 — 공유 행은 CASCADE 로 사라지므로 지우기 전에 공유마다 감사(reason PAGE_DELETED)만 남긴다. 공유 기록은 페이지에
@@ -42,13 +46,14 @@ public class WikiShareLifecycle {
 
   private final WikiShareRepository shares;
   private final WikiPageRepository pages;
+  private final WikiSpaceMemberRepository members;
   private final WikiShareService shareService;
 
   /**
    * 페이지를 옮긴 뒤(같은 트랜잭션) — 옮기기 전후 부모의 조상 체인에 걸린 하위 포함 공유를 비교한다. 옮긴 페이지 자신과 그 하위의 공유는 함께 옮겨 가므로 비교에 들지
    * 않는다. 부모가 그대로면(같은 부모 안 순서 변경)이나 그 스페이스에 하위 포함 공유가 없으면 아무것도 하지 않는다(대부분의 이동은 조상 체인을 훑지 않고 끝난다).
    *
-   * @param spaceId 옮긴 페이지의 스페이스(이동은 같은 스페이스 안에서만 된다)
+   * @param spaceId 옮긴 페이지의 스페이스(같은 스페이스 안 이동 — 다른 스페이스로 옮길 때는 {@link #afterSpaceMove})
    * @param actorId 옮긴 사람 — 이동 기록의 행위자
    */
   @Transactional(propagation = Propagation.MANDATORY)
@@ -56,12 +61,26 @@ public class WikiShareLifecycle {
     if (Objects.equals(oldParentId, newParentId) || !shares.existsIncludingChildren(spaceId)) {
       return;
     }
+    if (recordCoverageChange(pageId, oldParentId, newParentId, actorId)) {
+      // 빠진 공유로 옮긴 서브트리를 열어 둔 화면을 다시 판정하게 한다.
+      shareService.publishAccessChanged(pages.subtreeIdsInclusive(pageId));
+    }
+  }
+
+  /**
+   * 옮기기 전후 부모를 덮는 하위 포함 공유를 비교해, 빠진 공유에는 PAGE_MOVED_OUT, 새로 덮는 공유에는 PAGE_MOVED_IN 을 남긴다. 같은 스페이스 안
+   * 이동과 다른 스페이스로의 이동(WP-988 — 두 조상 체인이 겹치지 않아 옛 공유는 모두 빠지고 새 공유는 모두 들어온다)이 함께 쓴다.
+   *
+   * @return 빠진 공유가 있었는지 — 있으면 공유로 열린 화면을 다시 판정해야 한다
+   */
+  private boolean recordCoverageChange(
+      long pageId, Long oldParentId, Long newParentId, long actorId) {
     Set<Long> before = includingRootsAbove(oldParentId);
     Set<Long> after = includingRootsAbove(newParentId);
     List<Long> movedOut = before.stream().filter(id -> !after.contains(id)).toList();
     List<Long> movedIn = after.stream().filter(id -> !before.contains(id)).toList();
     if (movedOut.isEmpty() && movedIn.isEmpty()) {
-      return;
+      return false;
     }
     String title =
         pages.findTitle(pageId).filter(t -> !t.isBlank()).orElse(WikiPublicShareService.UNTITLED);
@@ -83,10 +102,69 @@ public class WikiShareLifecycle {
                 pageId,
                 title,
                 "「" + title + "」 페이지를 공유 범위 안으로 옮겼습니다"));
-    if (!movedOut.isEmpty()) {
-      // 빠진 공유로 옮긴 서브트리를 열어 둔 화면을 다시 판정하게 한다.
-      shareService.publishAccessChanged(pages.subtreeIdsInclusive(pageId));
-    }
+    return !movedOut.isEmpty();
+  }
+
+  /** 다른 스페이스로 옮길 때 서브트리 공유의 처리 갈래 — 함께 옮겨 가는 것과 옮기며 해제되는 것. */
+  public record SpaceMoveShares(List<ShareDetail> kept, List<ShareDetail> revoked) {}
+
+  /**
+   * 서브트리의 공유를 나눈다(WP-988) — 만든 사람이 대상 스페이스의 편집자 이상이면 옮겨 가고, 아니면(멤버 아님·보기 전용) 해제한다. 지금의 「만든 사람이 편집
+   * 권한을 잃으면 자동 해제」 규칙과 같다. lock 이면 공유 행을 page_id 순으로 잠가 읽는다(이동 본 처리), 아니면 잠그지 않는다(미리보기).
+   */
+  public SpaceMoveShares splitSharesForSpaceMove(
+      List<Long> subtreeIds, long targetSpaceId, boolean lock) {
+    List<ShareDetail> all =
+        lock ? shares.findByPagesForUpdate(subtreeIds) : shares.findByPages(subtreeIds);
+    // 만든 사람들의 대상 스페이스 역할을 한 번에 읽는다(공유마다 조회하지 않게).
+    Map<Long, String> roles =
+        members.findRoles(
+            targetSpaceId, all.stream().map(ShareDetail::createdBy).collect(Collectors.toSet()));
+    Map<Boolean, List<ShareDetail>> byKept =
+        all.stream()
+            .collect(
+                Collectors.partitioningBy(
+                    s -> {
+                      String role = roles.get(s.createdBy());
+                      return role != null && WikiPermissions.atLeast(role, "EDITOR");
+                    }));
+    return new SpaceMoveShares(byKept.get(true), byKept.get(false));
+  }
+
+  /**
+   * 스페이스 이동 직전(같은 트랜잭션) — 옮기면서 해제될 공유를 해제한다. 해제 기록·감사의 스페이스는 옮기기 전 스페이스로 남도록 서브트리의 스페이스를 바꾸기
+   * <b>전에</b> 부른다.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void beforeSpaceMove(List<Long> subtreeIds, long targetSpaceId, long actorId) {
+    SpaceMoveShares split = splitSharesForSpaceMove(subtreeIds, targetSpaceId, true);
+    shareService.revokeAll(
+        actorId,
+        split.revoked(),
+        "REVOKED_BY_MEMBERSHIP",
+        "공유한 사람이 옮겨 간 스페이스의 편집 권한이 없어 공유가 해제되었습니다",
+        "MEMBERSHIP");
+  }
+
+  /**
+   * 스페이스 이동 직후(같은 트랜잭션, 페이지의 스페이스·부모를 바꾼 뒤) — 남은 공유 행의 스페이스를 따라 옮기고, 옛 위치를 덮던 상위 하위 포함 공유에는
+   * PAGE_MOVED_OUT, 새 위치를 덮는 상위 공유에는 PAGE_MOVED_IN 을 남긴다. 열린 연결의 재검증은 호출자의
+   * WikiPageSpaceChangedEvent 가 서브트리의 모든 연결(공유 연결 포함)로 한 번에 한다.
+   *
+   * @param oldParentId 옮기기 전 부모(옛 스페이스의 페이지, 없으면 null)
+   * @param newParentId 새 부모(새 스페이스의 페이지, 없으면 null)
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void afterSpaceMove(
+      long newSpaceId,
+      long pageId,
+      List<Long> subtreeIds,
+      Long oldParentId,
+      Long newParentId,
+      long actorId) {
+    shares.updateSpace(subtreeIds, newSpaceId);
+    // 옛 위치의 조상 체인은 옮긴 서브트리와 상관없이 그대로 — 옮긴 뒤에 읽어도 같다. 재검증은 호출자의 WikiPageSpaceChangedEvent 가 한다.
+    recordCoverageChange(pageId, oldParentId, newParentId, actorId);
   }
 
   /**

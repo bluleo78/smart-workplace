@@ -7,6 +7,7 @@ import type {
   WikiBacklinksResponse,
   WikiMember,
   WikiMentionRef,
+  WikiMovePreview,
   WikiPageDetail,
   WikiPageEntry,
   WikiPageShare,
@@ -65,8 +66,12 @@ export const wikiApi = {
   // 「전체 폭」만 저장(WP-793) — title·body:null 은 서버 계약상 "유지". 공유 화면(편집 링크)도 제목처럼 바꿀 수 있다.
   savePageFullWidth: (pageId: number, fullWidth: boolean, shareToken?: string) =>
     client.put<WikiPageDetail>(`/wiki/pages/${pageId}`, { title: null, body: null, fullWidth }, { headers: shareHeaders(shareToken) }),
-  movePage: (pageId: number, parentId: number | null, position: number) =>
-    client.patch<void>(`/wiki/pages/${pageId}/move`, { parentId, position }),
+  // targetSpaceId: 다른 스페이스로 옮길 때만(WP-988) — 없으면 같은 스페이스 안 이동이다.
+  movePage: (pageId: number, parentId: number | null, position: number, targetSpaceId?: number) =>
+    client.patch<void>(`/wiki/pages/${pageId}/move`, { parentId, position, targetSpaceId }),
+  // 다른 스페이스로 옮기기 전 영향 미리보기(WP-988).
+  getMovePreview: (pageId: number, targetSpaceId: number) =>
+    client.get<WikiMovePreview>(`/wiki/pages/${pageId}/move-preview`, { params: { targetSpaceId } }),
   deletePage: (pageId: number) => client.delete<void>(`/wiki/pages/${pageId}`),
 
   // 본문 멘션 토큰을 라벨/링크 정보로 해소 — 칩 렌더용. 공유 화면이면 볼 수 없는 대상은 inaccessible 로 온다.

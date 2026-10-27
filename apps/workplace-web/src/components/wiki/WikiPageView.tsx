@@ -125,6 +125,8 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     /** 페이지 콘텐츠 형태를 미러하는 skeleton — DS §2.5 */
     return <WikiPageSkeleton testId="wiki-page-skeleton" />
   }
+  // 다른 스페이스로 옮겨진 노트의 예전 주소(WP-988) — 옮긴 스페이스 주소로 연결한다. 옛 스페이스 사이드바에 남지 않게.
+  if (page.spaceId !== spaceId) return <Navigate to={`/wiki/spaces/${page.spaceId}/pages/${page.id}`} replace />
   return <WikiEditor key={page.id} page={page} spaceId={spaceId} />
 }
 

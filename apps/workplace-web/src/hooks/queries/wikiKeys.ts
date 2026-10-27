@@ -19,6 +19,8 @@ export const wikiKeys = {
   shareEvents: (pageId: number) => ['wiki', 'shareEvents', pageId] as const,
   sharedPages: (spaceId: number) => ['wiki', 'sharedPages', spaceId] as const,
   shareLink: (token: string) => ['wiki', 'shareLink', token] as const,
+  // 다른 스페이스로 옮기기 미리보기(WP-988) — 옮기기 직전의 사실이라 캐시하지 않고 쓴다.
+  movePreview: (pageId: number, targetSpaceId: number) => ['wiki', 'movePreview', pageId, targetSpaceId] as const,
   // 알림에서 연 노트의 입구 판정(멤버·공유 대상) — /wiki/open/:pageId.
   entry: (pageId: number) => ['wiki', 'entry', pageId] as const,
   myShares: () => ['wiki', 'myShares'] as const,

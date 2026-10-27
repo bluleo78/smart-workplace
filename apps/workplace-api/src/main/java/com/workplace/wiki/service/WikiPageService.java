@@ -7,6 +7,8 @@ import com.workplace.wiki.dto.MovePageRequest;
 import com.workplace.wiki.dto.RevisionReason;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiAiAction;
+import com.workplace.wiki.dto.WikiMovePreviewResponse;
+import com.workplace.wiki.dto.WikiMovePreviewResponse.SharedPage;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
@@ -23,15 +25,21 @@ import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageCreatedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageDeletedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageMovedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageSpaceChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageUpdatedEvent;
 import com.workplace.wiki.repository.WikiBodyHistoryRepository;
 import com.workplace.wiki.repository.WikiPageDocRepository.RevisionBasis;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiRevisionRepository;
+import com.workplace.wiki.repository.WikiShareRepository.ShareDetail;
+import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -51,6 +59,7 @@ public class WikiPageService {
   // WP-289 AI 병합 기준본 — 읽은 판·쓴 판을 기록한다.
   private final WikiBodyHistoryRepository bodies;
   private final WikiPermissions perms;
+  private final WikiSpaceMemberRepository spaceMembers;
   // WP-579 공유 링크(X-Wiki-Share-Token) 판정 — 페이지 조회·제목 저장이 멤버 역할과 공유 역할 중 높은 쪽으로 판정한다.
   private final WikiShareAccess shareAccess;
   private final WikiBodyEffects bodyEffects;
@@ -464,33 +473,125 @@ public class WikiPageService {
     pages.recordAiUsage(pageId, action.wire(), Instant.now().atOffset(java.time.ZoneOffset.UTC));
   }
 
-  /** 트리 이동(parent/position 변경) + 형제 재배열로 타이 제거. EDITOR 이상. */
+  /**
+   * 트리 이동(parent/position 변경) + 형제 재배열로 타이 제거. EDITOR 이상. targetSpaceId 가 지금 스페이스와 다르면 다른 스페이스로
+   * 옮긴다(WP-988 — 대상 스페이스도 EDITOR 이상).
+   */
   @Transactional
   public void move(long callerId, long pageId, MovePageRequest req) {
     long spaceId =
         pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     perms.requireRole(spaceId, callerId, "EDITOR");
+    if (req.targetSpaceId() != null && !req.targetSpaceId().equals(spaceId)) {
+      moveAcrossSpaces(callerId, pageId, spaceId, req);
+      return;
+    }
     // #758: 사이클 검사와 UPDATE 사이의 check-then-act 간극을 공간 단위 어드바이저리 락으로 닫는다 —
     // 락 없이는 "X 를 Y 밑으로" 와 "Y 를 X 밑으로" 가 동시에 통과해 되돌릴 수 없는 사이클이 남는다.
     pages.lockSpaceTree(spaceId);
+    requireStillInSpace(pageId, spaceId);
     requireMovable(pageId, spaceId, req.parentId());
     // WP-579: 옮기기 전 부모 — 하위 포함 공유 범위에서 빠지는지·들어가는지를 비교한다.
     Long oldParentId = pages.findParentId(pageId);
     // 부모 변경을 먼저 반영(같은 부모면 no-op 수준).
     pages.move(pageId, req.parentId(), req.position());
-    // 새 부모의 형제들을 현재 순서로 가져와 이동 노드를 목표 인덱스에 삽입 후 0..n 재부여(타이 제거).
     // requireMovable 이 통과했으므로 (spaceId, req.parentId()) 는 같은 공간에 속한다 — 가드가 없으면 다른 공간의
     // 부모를 지정했을 때 이 쌍이 어긋나 형제 목록이 비고 재배열이 조용히 아무것도 하지 않는다.
-    java.util.List<Long> ids = pages.childIdsOrdered(spaceId, req.parentId());
+    reorderSiblings(spaceId, req.parentId(), pageId, req.position());
+    shareLifecycle.onMoved(spaceId, pageId, oldParentId, req.parentId(), callerId);
+    // #724: 트리 이동을 스페이스 멤버에게 알려 사이드바 트리가 재조회되도록 한다.
+    publisher.publishEvent(new WikiPageMovedEvent(spaceId, pageId, callerId, Instant.now()));
+  }
+
+  /**
+   * 락을 잡은 뒤 페이지가 아직 그 스페이스에 있는지 다시 본다(WP-988). 스페이스는 락 전에 읽었으므로, 그 사이 다른 요청이 페이지를 다른 스페이스로 옮겼으면 엉뚱한
+   * 스페이스의 락·권한으로 진행하게 된다(새 스페이스 페이지가 옛 스페이스 부모에 매달리는 등) — 409 로 돌려보내 다시 시도하게 한다.
+   */
+  private void requireStillInSpace(long pageId, long spaceId) {
+    long current =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    if (current != spaceId) {
+      throw new WikiConflictException(pageId);
+    }
+  }
+
+  /** 새 부모의 형제들을 현재 순서로 가져와 이동 노드를 목표 인덱스에 삽입 후 0..n 재부여(타이 제거). */
+  private void reorderSiblings(long spaceId, Long parentId, long pageId, int position) {
+    java.util.List<Long> ids = pages.childIdsOrdered(spaceId, parentId);
     ids.remove(Long.valueOf(pageId)); // 박싱 remove(Object) — 인덱스 remove 아님
-    int idx = Math.max(0, Math.min(req.position(), ids.size()));
+    int idx = Math.max(0, Math.min(position, ids.size()));
     ids.add(idx, pageId);
     for (int i = 0; i < ids.size(); i++) {
       pages.setPosition(ids.get(i), i);
     }
-    shareLifecycle.onMoved(spaceId, pageId, oldParentId, req.parentId(), callerId);
-    // #724: 트리 이동을 스페이스 멤버에게 알려 사이드바 트리가 재조회되도록 한다.
-    publisher.publishEvent(new WikiPageMovedEvent(spaceId, pageId, callerId, Instant.now()));
+  }
+
+  /**
+   * 페이지를 하위 페이지와 함께 다른 스페이스로 옮긴다(WP-988). 페이지 id 를 그대로 두어 판 기록·첨부·멘션·백링크가 모두 따라가고, 링크 공유는 토큰 그대로 함께
+   * 옮기되 만든 사람이 대상 스페이스 편집자가 아니면 해제한다. 원본·대상 스페이스 모두 EDITOR 이상(원본은 호출자가 이미 확인했다).
+   */
+  private void moveAcrossSpaces(
+      long callerId, long pageId, long sourceSpaceId, MovePageRequest req) {
+    long targetSpaceId = req.targetSpaceId();
+    // 대상에서 멤버가 아니면 NotFound(존재 은닉), 보기 전용이면 Forbidden.
+    perms.requireRole(targetSpaceId, callerId, "EDITOR");
+    // 두 스페이스의 트리 락을 id 순으로 잡는다 — 서로 반대 방향으로 옮기는 두 요청이 서로를 기다리는 교착을 막는다.
+    pages.lockSpaceTree(Math.min(sourceSpaceId, targetSpaceId));
+    pages.lockSpaceTree(Math.max(sourceSpaceId, targetSpaceId));
+    requireStillInSpace(pageId, sourceSpaceId);
+    // 새 부모는 대상 스페이스의 페이지여야 한다. 옮길 서브트리는 원본 스페이스에 있으니 사이클은 생길 수 없다.
+    if (req.parentId() != null) {
+      requireParentInSpace(targetSpaceId, req.parentId());
+    }
+    List<Long> subtree = pages.subtreeIdsInclusive(pageId);
+    Long oldParentId = pages.findParentId(pageId);
+    // 옮기면서 해제될 공유는 스페이스를 바꾸기 전에 해제한다 — 기록·감사의 스페이스가 옛 스페이스로 남는다.
+    shareLifecycle.beforeSpaceMove(subtree, targetSpaceId, callerId);
+    pages.moveToSpace(subtree, targetSpaceId);
+    pages.move(pageId, req.parentId(), req.position());
+    reorderSiblings(targetSpaceId, req.parentId(), pageId, req.position());
+    shareLifecycle.afterSpaceMove(
+        targetSpaceId, pageId, subtree, oldParentId, req.parentId(), callerId);
+    // 열린 동기화 연결을 다시 판정한다 — 옛 스페이스에만 있던 사람은 접근을 잃는다.
+    publisher.publishEvent(new WikiPageSpaceChangedEvent(TenantContext.require(), subtree));
+    // 양쪽 스페이스 멤버의 사이드바 트리가 다시 그려지게 한다(옛 쪽은 빠지고 새 쪽은 들어온다).
+    Instant now = Instant.now();
+    publisher.publishEvent(new WikiPageMovedEvent(sourceSpaceId, pageId, callerId, now));
+    publisher.publishEvent(new WikiPageMovedEvent(targetSpaceId, pageId, callerId, now));
+  }
+
+  /**
+   * 다른 스페이스로 옮기기 전의 영향(WP-988) — 함께 옮겨 가는 페이지 수, 더는 볼 수 없게 되는 멤버 수, 함께 옮겨 가는·해제되는 링크 공유. 원본·대상 스페이스
+   * 모두 EDITOR 이상이어야 볼 수 있다(옮길 수 없는 사람에게 상대 스페이스의 멤버 수를 알려 주지 않는다).
+   */
+  @Transactional(readOnly = true)
+  public WikiMovePreviewResponse movePreview(long callerId, long pageId, long targetSpaceId) {
+    long sourceSpaceId =
+        pages.findSpaceId(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    perms.requireRole(sourceSpaceId, callerId, "EDITOR");
+    perms.requireRole(targetSpaceId, callerId, "EDITOR");
+    List<Long> subtree = pages.subtreeIdsInclusive(pageId);
+    if (sourceSpaceId == targetSpaceId) {
+      // 같은 스페이스 안 이동은 공유를 해제하지 않는다(move 의 같은 스페이스 경로) — 미리보기도 영향 없음으로 맞춘다.
+      return new WikiMovePreviewResponse(subtree.size(), 0, 0, List.of(), List.of());
+    }
+    int lost = spaceMembers.countMissingFrom(sourceSpaceId, targetSpaceId);
+    int gained = spaceMembers.countMissingFrom(targetSpaceId, sourceSpaceId);
+    WikiShareLifecycle.SpaceMoveShares split =
+        shareLifecycle.splitSharesForSpaceMove(subtree, targetSpaceId, false);
+    Map<Long, String> titles =
+        pages.findTitles(
+            Stream.concat(split.kept().stream(), split.revoked().stream())
+                .map(ShareDetail::pageId)
+                .toList());
+    Function<ShareDetail, SharedPage> toPage =
+        share -> new SharedPage(share.pageId(), titles.getOrDefault(share.pageId(), ""));
+    return new WikiMovePreviewResponse(
+        subtree.size(),
+        lost,
+        gained,
+        split.kept().stream().map(toPage).toList(),
+        split.revoked().stream().map(toPage).toList());
   }
 
   /**

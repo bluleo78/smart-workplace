@@ -9,10 +9,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 
-import type { CoveringShare } from './wikiShare'
-
-/** 공유 한 줄 — 외부 공개면 그렇다고 분명히 적는다. */
-const shareName = (s: CoveringShare) => `「${s.title}」 ${s.audience === 'PUBLIC' ? '외부 공개 링크' : '공유 링크'}`
+import { type CoveringShare,coveringShareName as shareName } from './wikiShare'
 
 /**
  * 하위 포함 공유 안팎으로 페이지를 옮기기 전 확인(WP-579) — 공유 범위는 지금 트리 위치로 정해지므로

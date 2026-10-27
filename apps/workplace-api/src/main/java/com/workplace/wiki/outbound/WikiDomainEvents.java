@@ -44,6 +44,12 @@ public final class WikiDomainEvents {
       long tenantId, long spaceId, List<Long> pageIds, Instant occurredAt) {}
 
   /**
+   * 페이지(서브트리)가 다른 스페이스로 옮겨 갔다(WP-988) — 동기화 서버가 그 페이지들의 열린 연결을 모두 다시 판정해, 새 스페이스 멤버가 아닌 사람의 연결을 권한
+   * 회수(4403)로 닫는다. pageIds 는 옮긴 서브트리 전체. tenantId 는 발행 시점에 담는다(비동기 리스너는 요청의 TenantContext 를 못 본다).
+   */
+  public record WikiPageSpaceChangedEvent(long tenantId, List<Long> pageIds) {}
+
+  /**
    * 공유 링크로 열 수 있는 범위가 줄었다(WP-579) — 해제·재발급·대상 축소·사람 제외·권한 축소·만료 앞당김. 커밋 뒤 동기화 서버가 이 페이지들의 열린 연결을 다시
    * 판정해, 공유로 붙은 연결 중 이제 열 수 없는 것을 권한 회수(4403)로 닫는다(멤버로 붙은 연결은 공유 변경으로 권한이 바뀌지 않아 대상이 아니다). pageIds
    * 는 바뀌기 전 공유가 덮던 페이지 — 하위 포함이었으면 지금 서브트리 전체, 여러 공유를 함께 해제했으면(스페이스를 가로질러도) 그 합집합. 재검증은 페이지로만 연결을

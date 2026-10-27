@@ -5,7 +5,9 @@ import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
 import com.workplace.wiki.dto.WikiMemberResponse;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -34,6 +36,18 @@ public class WikiSpaceMemberRepository {
         .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
         .and(WIKI_SPACE_MEMBER.USER_ID.eq(userId))
         .fetchOptional(WIKI_SPACE_MEMBER.ROLE);
+  }
+
+  /** 여러 사람의 그 스페이스 역할을 한 번에 읽는다 — 멤버가 아닌 사람은 빠진다(WP-988 스페이스 이동의 공유 유지 판정). */
+  public Map<Long, String> findRoles(long spaceId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) {
+      return Map.of();
+    }
+    return dsl.select(WIKI_SPACE_MEMBER.USER_ID, WIKI_SPACE_MEMBER.ROLE)
+        .from(WIKI_SPACE_MEMBER)
+        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
+        .and(WIKI_SPACE_MEMBER.USER_ID.in(userIds))
+        .fetchMap(WIKI_SPACE_MEMBER.USER_ID, WIKI_SPACE_MEMBER.ROLE);
   }
 
   /**
@@ -103,6 +117,22 @@ public class WikiSpaceMemberRepository {
         .from(WIKI_SPACE_MEMBER)
         .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
         .fetch(WIKI_SPACE_MEMBER.USER_ID);
+  }
+
+  /**
+   * 원본 스페이스 멤버 중 대상 스페이스 멤버가 아닌 사람 수(WP-988) — 페이지를 옮기면 그 사람들은 멤버 자격으로는 더 볼 수 없다. 공유 링크로 보는 것은 따로
+   * 판정된다. 인자를 뒤집으면(대상 기준) 옮긴 뒤 새로 보게 되는 사람 수가 된다.
+   */
+  public int countMissingFrom(long sourceSpaceId, long targetSpaceId) {
+    return dsl.fetchCount(
+        dsl.select(WIKI_SPACE_MEMBER.USER_ID)
+            .from(WIKI_SPACE_MEMBER)
+            .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(sourceSpaceId))
+            .and(
+                WIKI_SPACE_MEMBER.USER_ID.notIn(
+                    dsl.select(WIKI_SPACE_MEMBER.USER_ID)
+                        .from(WIKI_SPACE_MEMBER)
+                        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(targetSpaceId)))));
   }
 
   public List<WikiMemberResponse> listMembers(long spaceId) {

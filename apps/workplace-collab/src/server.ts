@@ -806,6 +806,8 @@ export function createCollabServer(cfg: CollabConfig, deps: CollabDeps = {}): Co
     }
     const readOnly = !isCollabEditRole(who.role)
     c.role = who.role
+    // 페이지가 다른 스페이스로 옮겨 갔으면(WP-988) 새 판정의 스페이스로 바꾼다 — 그대로 두면 이후 새 스페이스 기준 재검증(멤버 제거·강등)이 이 연결을 못 찾는다.
+    c.spaceId = who.spaceId
     if (conn.readOnly !== readOnly) {
       conn.readOnly = readOnly
       conn.sendStateless(JSON.stringify({ type: COLLAB_ROLE_CHANGED_TYPE, role: who.role }))

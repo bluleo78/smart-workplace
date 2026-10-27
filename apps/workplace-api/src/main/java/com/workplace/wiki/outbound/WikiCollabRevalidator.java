@@ -4,6 +4,7 @@ import com.workplace.user.outbound.AgentDeleted;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.wiki.outbound.CollabClient.RevalidateRequest;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageSpaceChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiShareAccessChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
 import lombok.RequiredArgsConstructor;
@@ -72,6 +73,16 @@ public class WikiCollabRevalidator {
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onShareAccessChanged(WikiShareAccessChangedEvent e) {
     send(RevalidateRequest.sharedConnections(e.tenantId(), e.pageIds()));
+  }
+
+  /**
+   * 페이지(서브트리)가 다른 스페이스로 옮겨 갔다(WP-988) — 그 페이지들의 열린 연결을 모두 다시 판정한다. 멤버로 붙은 연결도 대상이다: 옛 스페이스에만 있던 사람은
+   * 접근을 잃고, 새 스페이스 멤버는 새 판정으로 이어진다. 사유는 없음(접근을 잃은 연결은 권한 회수 4403 — 삭제가 아니다).
+   */
+  @Async("wikiCollabRevalidateExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onPageSpaceChanged(WikiPageSpaceChangedEvent e) {
+    send(new RevalidateRequest(e.tenantId(), null, e.pageIds(), null));
   }
 
   private void send(RevalidateRequest r) {

@@ -148,6 +148,27 @@ export function shareMoveImpact(
   }
 }
 
+/**
+ * 다른 스페이스로 옮길 때의 공유 범위 변화(WP-988) — 원본 트리에서 지금 위치를 덮던 하위 포함 공유는 모두 빠지고(leaving), 대상 트리에서 새 부모를
+ * 덮는 하위 포함 공유에는 새로 들어간다(entering). 두 스페이스의 공유는 겹치지 않는다.
+ */
+export function shareMoveAcrossImpact(
+  sourcePages: TreeNode[],
+  pageId: number,
+  targetPages: TreeNode[],
+  newParentId: number | null,
+): { leaving: CoveringShare[]; entering: CoveringShare[] } {
+  const source = new Map(sourcePages.map((p) => [p.id, p]))
+  return {
+    leaving: coveringFrom(source, source.get(pageId)?.parentId ?? null),
+    entering: coveringFrom(new Map(targetPages.map((p) => [p.id, p])), newParentId),
+  }
+}
+
+/** 이동 경고의 공유 한 줄 이름 — 외부 공개면 그렇다고 분명히 적는다. */
+export const coveringShareName = (s: CoveringShare) =>
+  `「${s.title || '제목 없음'}」 ${s.audience === 'PUBLIC' ? '외부 공개 링크' : '공유 링크'}`
+
 /** 트리에서 pageId 아래 페이지 수(손자까지). 사이클이 있어도 한 번씩만 센다. */
 export function countDescendants(pages: Pick<WikiPageSummary, 'id' | 'parentId'>[], pageId: number): number {
   const byParent = new Map<number, number[]>()

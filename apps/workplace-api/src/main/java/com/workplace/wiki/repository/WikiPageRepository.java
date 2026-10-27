@@ -13,7 +13,9 @@ import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.dto.WikiTreeShare;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
@@ -474,6 +476,28 @@ public class WikiPageRepository {
         .set(WIKI_PAGE.POSITION, position)
         .where(WIKI_PAGE.ID.eq(pageId))
         .execute();
+  }
+
+  /**
+   * 서브트리 전체의 스페이스를 바꾼다(WP-988 — 스페이스 사이 이동). 페이지 id 는 그대로라 판 기록·첨부·멘션·백링크는 id 에 묶인 채 함께 따라간다.
+   * 부모·순서는 호출자가 {@link #move} 로 따로 정한다.
+   */
+  public void moveToSpace(Collection<Long> pageIds, long spaceId) {
+    dsl.update(WIKI_PAGE)
+        .set(WIKI_PAGE.SPACE_ID, spaceId)
+        .where(WIKI_PAGE.ID.in(pageIds))
+        .execute();
+  }
+
+  /** 페이지 제목 일괄 조회 — 이동 미리보기가 공유 목록에 제목을 붙인다. 없는 id 는 빠진다. */
+  public Map<Long, String> findTitles(Collection<Long> pageIds) {
+    if (pageIds.isEmpty()) {
+      return Map.of();
+    }
+    return dsl.select(WIKI_PAGE.ID, WIKI_PAGE.TITLE)
+        .from(WIKI_PAGE)
+        .where(WIKI_PAGE.ID.in(pageIds))
+        .fetchMap(WIKI_PAGE.ID, WIKI_PAGE.TITLE);
   }
 
   /** 같은 부모(공간 스코프)의 자식 id 들을 position,id 순으로 — 재배열 기준 순서. */

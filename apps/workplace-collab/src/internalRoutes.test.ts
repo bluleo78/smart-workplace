@@ -1235,6 +1235,19 @@ describe('internal routes', () => {
       expect(other.disconnects).toEqual([])
     })
 
+    it('follows a page moved to another space — a later revalidate scoped to the new space reaches the connection (WP-988)', async () => {
+      const a = connect('editor-token')
+      await synced(a)
+      // 페이지를 스페이스 2 → 3 으로 옮김 — API 가 옮긴 페이지들로 재검증을 부르고, 새 판정은 스페이스 3 이다(여전히 멤버라 연결 유지).
+      api.page(1, { tenantId: TENANT, body: BODY, version: 1, spaceId: 3 })
+      expect((await postInternal('/internal/docs/revalidate', { tenantId: TENANT, pageIds: [1] })).status).toBe(204)
+      expect(a.disconnects).toEqual([])
+      // 그 뒤 새 스페이스에서 멤버 제거 — 스페이스 3 기준 재검증이 이 연결을 찾아 닫아야 한다.
+      api.token('editor-token', { userId: 5, name: '양동희', role: 'EDITOR', tenantId: TENANT, member: false })
+      expect((await postInternal('/internal/docs/revalidate', { tenantId: TENANT, spaceId: 3, userId: 5 })).status).toBe(204)
+      await expect.poll(() => a.disconnects.map((d) => d.code), ARRIVAL).toContain(CLOSE_FORBIDDEN.code)
+    })
+
     it('keeps connections when the access check itself fails (API error)', async () => {
       const a = connect('editor-token')
       const observer = connect('editor2-token')
