@@ -439,7 +439,8 @@ describe('첨부 뷰어 (WP-279)', () => {
   test('드라이브 링크 요약이 403 이면 AI 요약 버튼을 숨긴다', async () => {
     const { user } = open('forbidden')
     await user.click(await screen.findByTestId('message-drive-link-70'))
-    expect(await screen.findByTestId('preview-body')).toHaveTextContent(LINK_TEXT)
+    // 본문 칸은 뷰어와 함께 바로 생기고 텍스트는 콘텐츠 응답으로 채워진다 — 요소가 아니라 내용을 기다린다(WP-1032).
+    await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent(LINK_TEXT))
     expect(screen.getByTestId('preview-meta')).toHaveTextContent('3 / 4')
     await new Promise((r) => setTimeout(r, 200))
     expect(within(screen.getByTestId('attachment-viewer')).queryByRole('button', { name: 'AI 요약' })).not.toBeInTheDocument()

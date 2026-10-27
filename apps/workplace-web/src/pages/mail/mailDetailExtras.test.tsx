@@ -202,7 +202,8 @@ function viewerHandlers() {
 
 test('딥링크 — 있는 첨부(텍스트)는 바로 열려 2 / 2 로 보이고, 이 메일에 없는 첨부는 찾을 수 없음 안내', async () => {
   const first = renderMail('/mail/1?messageId=10&preview=mail:7', { handlers: viewerHandlers().handlers })
-  expect(await screen.findByTestId('preview-body', {}, { timeout: 5000 })).toHaveTextContent(MEMO_TEXT)
+  // 본문 칸(preview-body)은 뷰어가 열리면 바로 생기고 텍스트는 별도 콘텐츠 요청으로 채워진다 — 요소가 아니라 내용을 기다린다(WP-1032).
+  await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent(MEMO_TEXT), { timeout: 5000 })
   expect(screen.getByTestId('preview-meta')).toHaveTextContent('2 / 2')
   first.unmount()
   renderMail('/mail/1?messageId=10&preview=mail:99', { handlers: viewerHandlers().handlers })
@@ -218,7 +219,8 @@ test('칩을 그리기만 해서는 첨부를 받지 않는다 — 인라인 이
   expect(screen.queryByTestId('mail-attachment-open-5')).not.toBeInTheDocument()
   await waitFor(() => expect(contents.calls.map((c) => c.url.pathname)).toEqual(['/api/v1/mail/attachments/5/content']))
   await user.click(screen.getByTestId('mail-attachment-open-7'))
-  expect(await screen.findByTestId('preview-body', {}, { timeout: 5000 })).toHaveTextContent(MEMO_TEXT)
+  // 본문 칸(preview-body)은 뷰어가 열리면 바로 생기고 텍스트는 별도 콘텐츠 요청으로 채워진다 — 요소가 아니라 내용을 기다린다(WP-1032).
+  await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent(MEMO_TEXT), { timeout: 5000 })
   expect(contents.calls.map((c) => c.url.pathname)).toContain('/api/v1/mail/attachments/7/content')
 })
 
@@ -226,7 +228,8 @@ test('다른 메일 주소로 바뀌면(?preview 그대로) 앞 메일 첨부를
   const { user } = renderMail('/mail/1', { handlers: viewerHandlers().handlers })
   await user.click(await screen.findByTestId('mail-row-10'))
   await user.click(await screen.findByTestId('mail-attachment-open-7'))
-  expect(await screen.findByTestId('preview-body', {}, { timeout: 5000 })).toHaveTextContent(MEMO_TEXT)
+  // 본문 칸(preview-body)은 뷰어가 열리면 바로 생기고 텍스트는 별도 콘텐츠 요청으로 채워진다 — 요소가 아니라 내용을 기다린다(WP-1032).
+  await waitFor(() => expect(screen.getByTestId('preview-body')).toHaveTextContent(MEMO_TEXT), { timeout: 5000 })
   // 손으로 고친 URL(메일만 11 로 바꾼)을 앱 안 내비게이션으로 재현 — 새로고침 없이 같은 화면 인스턴스가 받는다.
   act(() => {
     window.history.pushState(window.history.state, '', '/mail/1?messageId=11&preview=mail:7')
