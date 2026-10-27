@@ -313,6 +313,62 @@ describe('add_channel_message @username → <@userId> 멘션 변환', () => {
     await linkMentions(c, body);
     expect(c.searchMembers).toHaveBeenCalledTimes(20);
   });
+
+  // WP-1030: 후보 정규식이 공백에서 끊겨 `@AI 개발자1` 은 `@AI` 만 후보였다 — 첫 단어로 찾고 이름 전체를 긴 것부터 맞춘다.
+  describe('공백 든 표시 이름(WP-1030)', () => {
+    const agent = (name: string, username: string, userId: number): MemberRow => ({ userId, username, name, kind: 'AGENT', active: true });
+    const dev1 = agent('AI 개발자1', 'developer1', 11);
+    const dev10 = agent('AI 개발자10', 'developer10', 20);
+    const link = (body: string, members: MemberRow[]) => {
+      const c = mockClient();
+      c.searchMembers = searchLike(members);
+      return linkMentions(c, body);
+    };
+
+    it('이름 전체를 한 멘션으로 바꾸고 뒤 문장·호칭·조사는 원문에 남긴다', async () => {
+      expect(await post('@AI 개발자1 확인 부탁', [dev1, dev10])).toBe('<@11> 확인 부탁');
+      expect(await link('@AI 개발자1님 확인', [dev1, dev10])).toBe('<@11>님 확인');
+      expect(await link('@AI 개발자1에게 전달', [dev1])).toBe('<@11>에게 전달');
+      expect(await link('끝에 @AI 개발자1.', [dev1])).toBe('끝에 <@11>.');
+    });
+
+    it('@이름(username) 표기는 같은 username 괄호까지 삼키고, 다른 괄호는 남긴다', async () => {
+      expect(await link('@AI 개발자1(developer1) 확인', [dev1, dev10])).toBe('<@11> 확인');
+      expect(await link('@AI 개발자1(팀장) 확인', [dev1])).toBe('<@11>(팀장) 확인');
+    });
+
+    it('긴 이름부터 맞춰 "AI 개발자10" 과 "AI 개발자1" 을 섞지 않는다', async () => {
+      expect(await link('@AI 개발자10 와 @AI 개발자1 확인', [dev1, dev10])).toBe('<@20> 와 <@11> 확인');
+      // 없는 더 긴 이름(…12)은 짧은 이름의 일부로 묶지 않는다.
+      expect(await link('@AI 개발자12 확인', [dev1, dev10])).toBe('@AI 개발자12 확인');
+    });
+
+    it('동명이인이면 그대로 두되 괄호 username 이 있으면 그 사람이다', async () => {
+      const twin = agent('AI 개발자1', 'developer1b', 12);
+      expect(await link('@AI 개발자1 확인', [dev1, twin])).toBe('@AI 개발자1 확인');
+      expect(await link('@AI 개발자1(developer1b) 확인', [dev1, twin])).toBe('<@12> 확인');
+    });
+
+    it('맞는 이름이 없으면 그대로 두고, 첫 단어가 username 이면 기존처럼 그것만 바꾼다', async () => {
+      expect(await link('@AI 디자이너 확인', [dev1])).toBe('@AI 디자이너 확인');
+      // 첫 단어가 username 이어도 이어진 글이 공백 든 이름 전체와 맞으면 긴 쪽(이름 전체)이 이긴다.
+      const team = agent('kim.cs 확인팀', 'team', 9);
+      expect(await link('@kim.cs 확인 부탁', [member('kim.cs', 42), team])).toBe('<@42> 확인 부탁');
+      expect(await link('@kim.cs 확인팀 부탁', [member('kim.cs', 42), team])).toBe('<@9> 부탁');
+      expect(await link('@kim.cs 와 @kim.cs', [member('kim.cs', 42), dev1])).toBe('<@42> 와 <@42>');
+    });
+
+    it('코드 안의 공백 든 이름은 바꾸지 않는다', async () => {
+      expect(await link('`@AI 개발자1` 은 코드, @AI 개발자1 은 멘션', [dev1])).toBe('`@AI 개발자1` 은 코드, <@11> 은 멘션');
+    });
+
+    it('update_channel_message 도 같은 변환을 거친다', async () => {
+      const c = mockClient();
+      c.searchMembers = searchLike([dev1, dev10]);
+      await tool(c, 'update_channel_message').handler({ messageId: 40, body: '@AI 개발자10 확인' }).catch(() => undefined);
+      expect(c.updateChannelMessage).toHaveBeenCalledWith(40, '<@20> 확인');
+    });
+  });
 });
 
 describe('채널·DM 쓰기 (#855)', () => {
