@@ -37,8 +37,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
@@ -102,13 +102,13 @@ class HomeChatSharedMemoryTest extends IntegrationTestBase {
   void seed() {
     when(assistantResolver.resolve(anyLong()))
         .thenReturn(new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000));
+    // 프로젝트 키는 영문 대문자만 받는다. UUID 에서 영문자만 골라 자르면 영문자가 5개 미만인 UUID 에서
+    // 깨지므로(드물게, 부하와 무관하게 실패), 무작위 대문자 5개를 직접 만든다.
     key =
         "H"
-            + UUID.randomUUID()
-                .toString()
-                .replaceAll("[^A-Za-z]", "")
-                .toUpperCase()
-                .substring(0, 5);
+            + ThreadLocalRandom.current()
+                .ints(5, 'A', 'Z' + 1)
+                .collect(StringBuilder::new, StringBuilder::appendCodePoint, StringBuilder::append);
     owner = newUser();
     member = newUser();
     projectId = inTx(() -> SharedMemoryFixtures.project(projectService, owner, key, "TEAM").id());
