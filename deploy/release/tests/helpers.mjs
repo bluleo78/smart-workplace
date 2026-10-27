@@ -99,36 +99,3 @@ export function answerAbandoned(line, abandoned) {
   if (line.startsWith('show ') && line.endsWith(`:${ABANDONED_FILE}`)) return { stdout: JSON.stringify({ versions: abandoned }) };
   return undefined;
 }
-
-/**
- * 메모리에 버전·이슈를 두는 가짜 트래커 — 서버처럼 이름 중복을 거절하고, 수정 버전 교체는 집합 교체로 반영한다.
- * failIssues 의 번호는 조회가 404 로 실패한다.
- */
-export function fakeTracker({ versions = [], issues = {}, failIssues = [] } = {}) {
-  const calls = [];
-  let nextId = 100;
-  const t = {
-    project: 'WP',
-    versions,
-    issues,
-    calls,
-    listVersions: async () => (calls.push(['list']), versions),
-    createVersion: async (body) => {
-      calls.push(['create', body]);
-      if (versions.some((v) => v.name === body.name)) throw new Error('POST /versions → HTTP 400 이미 있는 버전 이름입니다');
-      const row = { id: nextId++, name: body.name, status: 'UNRELEASED' };
-      versions.push(row);
-      return row;
-    },
-    releaseVersion: async (id) => (calls.push(['release', id]), Object.assign(versions.find((v) => v.id === id), { status: 'RELEASED' })),
-    unreleaseVersion: async (id) => (calls.push(['unrelease', id]), Object.assign(versions.find((v) => v.id === id), { status: 'UNRELEASED' })),
-    getIssue: async (n) => {
-      calls.push(['get', n]);
-      if (failIssues.includes(n)) throw new Error(`GET /issues/${n} → HTTP 404`);
-      // 실제 이슈 상세 응답처럼 summary 아래에 둔다.
-      return { summary: { fixVersions: (issues[n] ?? []).map((id) => ({ id })) } };
-    },
-    replaceFixVersions: async (n, ids) => (calls.push(['put', n, ids]), (issues[n] = ids)),
-  };
-  return t;
-}

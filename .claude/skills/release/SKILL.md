@@ -59,7 +59,6 @@ git push origin v0.9.0
 git push --no-verify gitlab v0.9.0      # GitLab 파이프라인 시작
 ```
 
-- 태그 push 뒤 WP 프로젝트 버전을 맞춘다(WP-1005): `node deploy/release/tracker.mjs attach 0.9.0` — 버전 `v0.9.0` 을 만들고(없을 때만) 이번 범위의 이슈(제목·`Refs:` 의 WP 키, 내부 변경 포함)에 수정 버전으로 붙인다. `GENIA_WORKS_API_URL`·`GENIA_WORKS_RELEASE_TOKEN` 이 없으면 안내만 하고 넘어가므로, 그 경우 사용자에게 「설정 뒤 같은 명령을 다시 돌리면 된다」고 알린다. 실패(권한 등)해도 릴리스는 계속한다 — 경고를 그대로 전한다. 출시 처리는 반영 때 `release.mjs deploy` 가 한다.
 - 끝나면 GitLab 파이프라인 주소와 다음 단계(사람이 체크리스트 확인 → `node deploy/release/release.mjs deploy 0.9.0`)를 알려 주고, 워크트리·`release/next` 브랜치를 지운다.
 
 ## 빌드가 실패했을 때

@@ -21,8 +21,6 @@
 // 위치 인자는 엄격하다: deploy 는 정확히 1개(버전), rollback·status 는 0개 — 입력과 다른 동작이 실행되지 않게 남는 인자는 helm·kubectl 호출 전에 거부한다.
 // helm 자신의 stdout(릴리스 요약 등)은 stderr 로 보낸다 — 위 stdout 계약(체크리스트·상태 표 전용)을 지킨다.
 // 필요 환경: 매니페스트를 GitLab 패키지에서 받을 때 CI_API_V4_URL · CI_PROJECT_ID · GITLAB_TOKEN. deploy --manifest <파일> 이면 필요 없다.
-// WP 버전 연동(WP-1005, 선택): GENIA_WORKS_API_URL · GENIA_WORKS_RELEASE_TOKEN 이 있으면 deploy 성공 뒤 WP 버전 v<x.y.z> 를 출시로,
-//          rollback 뒤 돌아간 릴리스는 출시로·떠난 (더 새) 릴리스는 출시 취소로 바꾼다. 없거나 실패해도 반영·롤백은 그대로 성공한다(경고만).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir as osTmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -36,7 +34,6 @@ import { isMainModule, tolerate, withTempDir } from './lib/cli.mjs';
 import { checkDigests, currentRelease, hasWarnings, imageValues, parseVersionResponse, renderStatus, revisionModel, rollbackPlan, runningDigests } from './lib/deploy.mjs';
 import { downloadManifest } from './lib/manifest-store.mjs';
 import { compareVersions, parseVersion } from './lib/semver.mjs';
-import { bestEffort, setReleased, trackerFromEnv } from './lib/tracker.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const RELEASE_NAME = 'smart-workplace';
@@ -361,7 +358,6 @@ async function deploy({ positionals, values, ctx }) {
       throw new Error(`반영 확인 실패 (${failures.length}건):\n  - ${failures.join('\n  - ')}\n자동 롤백은 하지 않았다. 판단 뒤 되돌리려면: ${cmd('rollback')}`);
     }
     log(`\n릴리스 ${version} 반영 완료`);
-    await bestEffort({ tracker: ctx.tracker, log, what: '출시 처리' }, (t) => setReleased(t, { version, released: true, log }));
     return { version, previous: current };
   });
 }
@@ -437,23 +433,7 @@ async function rollback({ values, ctx }) {
   if (!values.yes && !(await confirm(`${confirmPrefix}리비전 ${target.revision} 로 롤백할까?`))) throw new Error('사용자가 롤백을 중단했다');
   tools.helmLive(['rollback', RELEASE_NAME, String(target.revision), '--wait', '--timeout', HELM_TIMEOUT]);
   log(`\n리비전 ${target.revision} 로 롤백했다. 확인: ${cmd('status')}`);
-  // 토글이면 떠나는 쪽 = 지금 운영(deployed). 복구·대체(실패한 시도에서 돌아옴)는 떠나는 쪽이 운영된 적이 없어 출시 취소하지 않는다
-  // — deploy 는 반영 확인 뒤에만 출시로 바꾸므로 실패한 시도는 트래커를 바꾸지 않았고, 그 버전이 예전에 출시된 버전일 수도 있다.
-  await syncTrackerAfterRollback({ leaving: plan.kind === 'toggle' ? releaseOf(deployed) : null, target: targetRelease, ctx });
   return { target: target.revision };
-}
-
-/**
- * 롤백 뒤 WP 버전 상태를 운영에 맞춘다(WP-1005) — 돌아간 릴리스는 출시로, 떠난 릴리스는 그보다 새 릴리스일 때만 출시 취소.
- * 되돌리기를 되돌려(토글) 옛 릴리스를 떠나는 경우 그 옛 릴리스는 실제로 출시됐던 버전이라 출시 취소하지 않는다. 모르는 쪽(전환 이전)은 건너뛴다.
- */
-async function syncTrackerAfterRollback({ leaving, target, ctx }) {
-  const { tracker, log } = ctx;
-  const from = leaving?.version ?? null;
-  const to = target?.version ?? null;
-  const newer = from !== null && to !== null && parseVersion(from) && parseVersion(to) ? compareVersions(from, to) > 0 : from !== null && from !== to;
-  if (newer) await bestEffort({ tracker, log, what: '출시 취소' }, (t) => setReleased(t, { version: from, released: false, log }));
-  if (to !== null) await bestEffort({ tracker, log, what: '출시 처리' }, (t) => setReleased(t, { version: to, released: true, log }));
 }
 
 /**
@@ -532,7 +512,7 @@ async function status({ values, ctx }) {
  * CLI 본체. 외부 의존(exec·다운로드·확인 질문·로그·stdout·임시 디렉터리·체크리스트)을 주입받아 테스트가 helm·kubectl·git·네트워크 없이 흐름을 검증한다.
  * 실패·거부는 throw 한다(진입점이 `오류: …` 를 찍고 종료 코드 1 로 끝낸다).
  */
-export async function main(argv, { repoRoot = REPO_ROOT, exec = defaultExec, download = downloadManifest, confirm = ttyConfirm, log = console.error, stdout = (s) => process.stdout.write(s), tmpdir = osTmpdir(), checklist = checklistMain, tracker = trackerFromEnv() } = {}) {
+export async function main(argv, { repoRoot = REPO_ROOT, exec = defaultExec, download = downloadManifest, confirm = ttyConfirm, log = console.error, stdout = (s) => process.stdout.write(s), tmpdir = osTmpdir(), checklist = checklistMain } = {}) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -557,7 +537,7 @@ export async function main(argv, { repoRoot = REPO_ROOT, exec = defaultExec, dow
   const tools = makeClusterTools({ exec, context, namespace });
   /** 안내 문구에 넣을 이 도구의 명령 — 같은 클러스터를 가리키도록 --context·--namespace 를 항상 붙인다. */
   const cmd = (name) => `${SELF} ${name} --context ${context} --namespace ${namespace}`;
-  const ctx = { repoRoot, exec, download, confirm, log, stdout, tmpdir, tools, checklist, tracker, context, namespace, cmd };
+  const ctx = { repoRoot, exec, download, confirm, log, stdout, tmpdir, tools, checklist, context, namespace, cmd };
   switch (command) {
     case 'deploy':
       return deploy({ positionals: rest, values, ctx });
