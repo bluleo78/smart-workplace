@@ -1,18 +1,27 @@
 // 노트 공유 링크 화면 — 외부 보기(로그인 없음)·받는 사람 공유 화면의 실패 갈래·알림 입구(/wiki/open/:pageId) 화면 테스트(WP-971, WP-995, WP-983).
 // 외부 보기의 응답 → 화면(트리·본문·가린 멘션·링크), 하위 이동의 ?pageId 질의, 만료·하위만 닫힘·해제·일시 오류·로그인 필요(401) 안내,
 // 받는 사람 화면의 외부 보기 전환(409 PUBLIC)·일시 실패(5xx)·접근 요청, 알림 입구의 갈 곳 판정은 브라우저 없이 판정되므로
-// wiki-share-public · wiki-share-view 에서 옮겼다. 이미지 실제 로드·전체 폭 기하·robots.txt·동기화 서버 연결·워크스페이스 전환 새로고침은 E2E 에 남는다.
+// wiki-share-public · wiki-share-view 에서 옮겼다. 공유 창의 「사람·팀 추가」(WP-1023 — 사람·조직도 부서·내 그룹 검색과 저장 payload)도 여기서 본다. 이미지 실제 로드·전체 폭 기하·robots.txt·동기화 서버 연결·워크스페이스 전환 새로고침은 E2E 에 남는다.
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { useState } from 'react'
 import { Route, Routes, useParams } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
+import { WikiShareDialog } from '@/components/wiki/WikiShareDialog'
 import { WikiSharePublicViewContext } from '@/components/wiki/wikiSharePublicView'
 import { attachSilentCollab,editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
-import { renderScreen } from '@/test/renderScreen'
-import type { WikiPublicShare, WikiShareAccessRequestResult, WikiShareResolved } from '@/types/wiki'
+import { renderScreen, type ScreenUser } from '@/test/renderScreen'
+import type { UserGroupDetail, UserGroupNode, UserGroupTree } from '@/types/userGroup'
+import type {
+  WikiPageShare,
+  WikiPageShareRequest,
+  WikiPublicShare,
+  WikiShareAccessRequestResult,
+  WikiShareResolved,
+} from '@/types/wiki'
 
+import { createMember } from '../../../e2e/factories/auth.factory'
 import { wikiPageDetail, wikiPageSummary } from '../../../e2e/factories/wiki.factory'
 import { WikiOpenPage } from './WikiOpenPage'
 import { WikiPublicSharePage } from './WikiPublicSharePage'
@@ -368,5 +377,307 @@ describe('노트 알림 진입 — /wiki/open/:pageId', () => {
     openEntry(() => HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }))
     expect(await screen.findByTestId('wiki-open-load-error')).toHaveTextContent('노트를 불러오지 못했습니다')
     expect(screen.queryByTestId('wiki-open-unavailable')).not.toBeInTheDocument()
+  })
+})
+
+// ── 공유 창 「사람·팀 추가」(WP-1023) ─────────────────────────────────────
+// 사람·조직도 부서·내 그룹을 한 검색에서 섹션으로 고르고, 부서는 부서 행으로(groupIds), 내 그룹은 지금 사람 구성원을 지정한 사람으로 펼쳐(userIds)
+// 저장한다. 실제 공유 창(WikiShareDialog)을 MSW 로 띄워 검색 질의·PUT payload·응답 → 화면(부서 행·토스트)을 본다.
+
+const SHARE_PAGE = 5
+const PEOPLE_NAMES: Record<number, string> = { 3: '박서준', 7: '김민지', 8: '이도윤' }
+/** 조직도(SHARED) 부서 이름·사람 수 — PUT 응답의 groups 를 만든다. 백엔드(12)는 개발팀(10)의 하위 부서. */
+const DEPTS: Record<number, { name: string; memberCount: number }> = {
+  10: { name: '개발팀', memberCount: 3 },
+  12: { name: '백엔드', memberCount: 1 },
+  20: { name: '디자인팀', memberCount: 2 },
+}
+const GROUP_TREE: UserGroupTree = {
+  shared: [
+    groupNode(10, '개발팀', 'SHARED', [groupNode(12, '백엔드', 'SHARED')]),
+    groupNode(20, '디자인팀', 'SHARED'),
+  ],
+  // 내 그룹 — 개발 스터디(30) 아래에 하위 그룹 스터디-A(31).
+  personal: [groupNode(30, '개발 스터디', 'PERSONAL', [groupNode(31, '스터디-A', 'PERSONAL')])],
+}
+
+function groupNode(id: number, name: string, visibility: UserGroupNode['visibility'], children: UserGroupNode[] = []): UserGroupNode {
+  return { id, code: null, name, parentId: null, ownerId: visibility === 'PERSONAL' ? 1 : null, visibility, sortOrder: 0, children }
+}
+
+/** 요청 → 서버가 저장해 돌려줄 공유(사람 이름·부서 이름과 사람 수를 채운다). groupIds 를 보내지 않으면 지금 부서를 그대로 둔다(서버와 같은 규칙). */
+function savedShare(req: WikiPageShareRequest, prev: WikiPageShare): WikiPageShare {
+  const groupIds = req.groupIds ?? prev.groups.map((g) => g.groupId)
+  return {
+    ...prev,
+    audience: req.audience,
+    permission: req.permission,
+    people: req.userIds.map((userId) => ({ userId, name: PEOPLE_NAMES[userId] ?? `사용자${userId}` })),
+    groups: groupIds.map((groupId) => ({ groupId, ...DEPTS[groupId] })),
+  }
+}
+
+/**
+ * 지정한 사람 공유 하나를 가진 공유 창을 띄운다 — 받은 PUT 본문과 사람 검색어를 모은다. groupMembers 는 그룹 id 별 상세의 구성원(없으면 빈 목록),
+ * detailGate 를 주면 그룹 상세 응답이 그 약속이 풀릴 때까지 기다린다(구성원을 받는 사이의 다른 추가를 재현). firstPutGate 를 주면 첫 PUT 이
+ * 본문을 받은 뒤 그 약속이 풀릴 때까지 응답하지 않는다(저장이 끝나기 전에 잇달아 더하기를 재현).
+ */
+function openShareDialog(
+  initial: Partial<WikiPageShare> = {},
+  groupMembers: Record<number, UserGroupDetail['members']> = {},
+  detailGate?: Promise<void>,
+  firstPutGate?: Promise<void>,
+) {
+  const puts: WikiPageShareRequest[] = []
+  const searches: string[] = []
+  let current: WikiPageShare = {
+    pageId: SHARE_PAGE, token: 'wsh_dialog', audience: 'PEOPLE', permission: 'VIEW', includeChildren: false,
+    people: [{ userId: 3, name: '박서준' }], groups: [], createdBy: { userId: 1, name: '나' },
+    createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z', expiresAt: null, lastAccessedAt: null, viewCount: 0,
+    ...initial,
+  }
+  const view = renderScreen(
+    <WikiShareDialog open onOpenChange={() => {}} pageId={SHARE_PAGE} spaceId={1} pageTitle="로드맵" childCount={0} onOpenPage={() => {}} />,
+    {
+      handlers: [
+        http.get(`/api/v1/wiki/pages/${SHARE_PAGE}/share`, () =>
+          HttpResponse.json({ share: current, externalShareEnabled: true, inheritedFrom: null, accessRequests: [], excludedFromParent: false, excludedPages: [] }),
+        ),
+        http.put(`/api/v1/wiki/pages/${SHARE_PAGE}/share`, async ({ request }) => {
+          const body = (await request.json()) as WikiPageShareRequest
+          puts.push(body)
+          if (firstPutGate && puts.length === 1) await firstPutGate
+          current = savedShare(body, current)
+          return HttpResponse.json(current)
+        }),
+        http.get('/api/v1/members', ({ request }) => {
+          const search = new URL(request.url).searchParams.get('search') ?? ''
+          searches.push(search)
+          // 「김」으로 찾으면 김민지(7), 검색어가 없으면 두 사람, 그 밖엔 없음.
+          const all = [createMember({ userId: 7, username: 'minji', name: '김민지' }), createMember({ userId: 8, username: 'doyun', name: '이도윤' })]
+          const content = search === '' ? all : all.filter((m) => m.name.includes(search))
+          return HttpResponse.json({ content, page: 0, size: 20, totalElements: content.length, totalPages: 1 })
+        }),
+        http.get('/api/v1/user-groups', () => HttpResponse.json(GROUP_TREE)),
+        http.get('/api/v1/user-groups/:id', async ({ params }) => {
+          const id = Number(params.id)
+          if (detailGate) await detailGate
+          return HttpResponse.json({ ...groupNode(id, `그룹${id}`, 'PERSONAL'), members: groupMembers[id] ?? [] } satisfies UserGroupDetail)
+        }),
+      ],
+    },
+  )
+  return { ...view, puts, searches }
+}
+
+const memberRow = (targetId: number, targetType: 'MEMBER' | 'EXTERNAL' = 'MEMBER') => ({
+  targetType, targetId, name: `m${targetId}`, email: null, title: null, organization: null,
+})
+
+/** 「사람·팀 추가」를 열고 검색창을 돌려준다. */
+async function openPicker(user: ScreenUser) {
+  await user.click(await screen.findByTestId('wiki-share-add-person'))
+  // 팝오버는 모달 대화상자 밖(포털)에 그려져 접근성 트리에서 aria-hidden 으로 보일 수 있어 이름표로 찾는다.
+  return screen.findByLabelText('사람·팀 검색')
+}
+
+describe('노트 공유 창 — 사람·팀 추가(WP-1023)', () => {
+  test('검색은 사람·조직도·내 그룹을 섹션으로 보이고, 검색어로 사람은 서버에 묻고 그룹은 이름·상위 부서로 거른다', async () => {
+    const { user, searches } = openShareDialog()
+    const input = await openPicker(user)
+    const departments = await screen.findByTestId('share-target-departments')
+    expect(within(departments).getByText('조직도')).toBeInTheDocument()
+    expect(within(screen.getByTestId('share-target-personal-groups')).getByText('내 그룹')).toBeInTheDocument()
+    expect(within(await screen.findByTestId('share-target-people')).getByText('사람')).toBeInTheDocument()
+    // 하위 부서는 상위 부서 경로와 함께 보인다.
+    expect(within(screen.getByTestId('share-target-department-12')).getByText('개발팀')).toBeInTheDocument()
+
+    await user.type(input, '김')
+    await waitFor(() => expect(searches).toContain('김'))
+    expect(await screen.findByTestId('share-target-person-7')).toHaveTextContent('김민지')
+    await waitFor(() => expect(screen.queryByTestId('share-target-person-8')).not.toBeInTheDocument())
+    // 「김」에 맞는 그룹이 없어 그룹 섹션은 그리지 않는다.
+    expect(screen.queryByTestId('share-target-departments')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-personal-groups')).not.toBeInTheDocument()
+
+    // 「개발」 — 개발팀·그 하위 백엔드(경로로)·내 그룹 개발 스터디가 남고 디자인팀은 빠진다.
+    await user.clear(input)
+    await user.type(input, '개발')
+    expect(await screen.findByTestId('share-target-department-10')).toBeInTheDocument()
+    expect(screen.getByTestId('share-target-department-12')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-department-20')).not.toBeInTheDocument()
+    expect(screen.getByTestId('share-target-personal-group-30')).toBeInTheDocument()
+  })
+
+  test('조직도 부서를 고르면 groupIds 에 더해 저장하고(사람은 그대로) 부서 행을 「이름 · N명」으로 보인다 — 키보드(Enter)로도 고른다', async () => {
+    const { user, puts } = openShareDialog()
+    const input = await openPicker(user)
+    await user.type(input, '디자인')
+    await screen.findByTestId('share-target-department-20')
+    await waitFor(() => expect(screen.queryByTestId('share-target-department-10')).not.toBeInTheDocument())
+    // 사람 검색(debounce 뒤 서버 질의)이 「디자인」에 맞는 사람이 없다고 답해 사람 섹션이 사라져도, 선택은 남은 첫 후보(디자인팀)로 옮겨 Enter 로 바로 고른다.
+    await waitFor(() => expect(screen.queryByTestId('share-target-people')).not.toBeInTheDocument())
+    await user.keyboard('{Enter}')
+
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0]).toMatchObject({ audience: 'PEOPLE', userIds: [3], groupIds: [20], notify: { message: null } })
+    expect(await screen.findByTestId('wiki-share-group-20')).toHaveTextContent('디자인팀 · 2명')
+    // 이미 지정한 부서는 검색에서 고를 수 없다.
+    await user.clear(input)
+    await user.type(input, '디자인')
+    expect(await screen.findByTestId('share-target-department-20')).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  test('내 그룹을 고르면 사람 구성원만 지정한 사람으로 펼쳐(이미 있는 사람 제외) 저장하고 몇 명을 더했는지 알린다 — 부서 행은 남지 않는다', async () => {
+    const { user, puts } = openShareDialog({ groups: [{ groupId: 10, name: '개발팀', memberCount: 3 }] }, {
+      30: [memberRow(3), memberRow(7), memberRow(8), memberRow(99, 'EXTERNAL')],
+    })
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-personal-group-30'))
+
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0].userIds).toEqual([3, 7, 8])
+    // 부서는 지금 값 그대로 보낸다 — 내 그룹은 대상으로 남지 않는다.
+    expect(puts[0].groupIds).toEqual([10])
+    expect(await screen.findByText('개발 스터디에서 2명 추가 (이미 있는 1명 제외)')).toBeInTheDocument()
+    const people = screen.getByTestId('wiki-share-people')
+    expect(within(people).getByText('김민지')).toBeInTheDocument()
+    expect(within(people).getByText('이도윤')).toBeInTheDocument()
+    expect(within(people).queryByText(/개발 스터디/)).not.toBeInTheDocument()
+  })
+
+  test('내 그룹의 사람이 모두 이미 있으면 저장하지 않고 알린다', async () => {
+    const { user, puts } = openShareDialog({}, { 30: [memberRow(3)] })
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-personal-group-30'))
+    expect(await screen.findByText('개발 스터디의 1명은 이미 모두 있습니다')).toBeInTheDocument()
+    expect(puts).toHaveLength(0)
+  })
+
+  test('부서 행의 빼기를 누르면 그 부서만 빼고(사람은 그대로) 저장하며 행이 사라진다', async () => {
+    const { user, puts } = openShareDialog({
+      groups: [{ groupId: 10, name: '개발팀', memberCount: 3 }, { groupId: 20, name: '디자인팀', memberCount: 2 }],
+    })
+    expect(await screen.findByTestId('wiki-share-group-10')).toHaveTextContent('개발팀 · 3명')
+    await user.click(screen.getByRole('button', { name: '개발팀 빼기' }))
+
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0]).toMatchObject({ userIds: [3], groupIds: [20] })
+    expect(puts[0].notify).toBeUndefined()
+    await waitFor(() => expect(screen.queryByTestId('wiki-share-group-10')).not.toBeInTheDocument())
+    expect(screen.getByTestId('wiki-share-group-20')).toBeInTheDocument()
+  })
+
+  test('내 그룹은 하위 그룹도 경로와 함께 보이고, 고르면 하위 그룹 구성원까지 펼쳐 중복 없이 더한다', async () => {
+    const { user, puts } = openShareDialog({}, { 30: [memberRow(7)], 31: [memberRow(7), memberRow(8)] })
+    await openPicker(user)
+    const sub = await screen.findByTestId('share-target-personal-group-31')
+    expect(sub).toHaveTextContent('스터디-A')
+    expect(sub).toHaveTextContent('개발 스터디')
+    await user.click(screen.getByTestId('share-target-personal-group-30'))
+
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0].userIds).toEqual([3, 7, 8])
+    expect(await screen.findByText('개발 스터디에서 2명 추가')).toBeInTheDocument()
+  })
+
+  test('내 그룹을 펼칠 때 공유하는 나와 공유를 만든 사람은 더하지도 세지도 않는다', async () => {
+    // 로그인 사용자는 1(renderScreen 기본), 공유를 만든 사람은 2.
+    const { user, puts } = openShareDialog({ createdBy: { userId: 2, name: '최공유' } }, {
+      30: [memberRow(1), memberRow(2), memberRow(3), memberRow(8)],
+    })
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-personal-group-30'))
+
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0].userIds).toEqual([3, 8])
+    expect(await screen.findByText('개발 스터디에서 1명 추가 (이미 있는 1명 제외)')).toBeInTheDocument()
+  })
+
+  test('내 그룹 구성원을 받는 사이 사람을 더해도, 펼친 저장은 그 사람을 지우지 않고 함께 보낸다', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const { user, puts } = openShareDialog({}, { 30: [memberRow(8)] }, gate)
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-personal-group-30'))
+    // 구성원 응답이 오기 전에 김민지(7)를 더한다.
+    await user.click(await screen.findByTestId('share-target-person-7'))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0].userIds).toEqual([3, 7])
+
+    act(() => release())
+    await waitFor(() => expect(puts).toHaveLength(2))
+    expect(puts[1].userIds).toEqual([3, 7, 8])
+    const people = screen.getByTestId('wiki-share-people')
+    await waitFor(() => expect(within(people).getByText('이도윤')).toBeInTheDocument())
+    expect(within(people).getByText('김민지')).toBeInTheDocument()
+  })
+
+  test('첫 부서의 저장이 끝나기 전에 다른 부서를 고르면, 두 번째 저장은 첫 저장이 끝난 뒤 두 부서를 함께 보낸다(먼저 고른 부서가 지워지지 않는다)', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const { user, puts } = openShareDialog({}, {}, undefined, gate)
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-department-10'))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    // 첫 PUT 이 응답하기 전에 디자인팀(20)을 고른다 — 앞 저장이 끝날 때까지 보내지 않는다.
+    await user.click(screen.getByTestId('share-target-department-20'))
+    expect(puts).toHaveLength(1)
+
+    act(() => release())
+    await waitFor(() => expect(puts).toHaveLength(2))
+    expect(puts[0].groupIds).toEqual([10])
+    expect(puts[1].groupIds).toEqual([10, 20])
+    expect(puts[1].userIds).toEqual([3])
+    expect(await screen.findByTestId('wiki-share-group-20')).toBeInTheDocument()
+    expect(screen.getByTestId('wiki-share-group-10')).toBeInTheDocument()
+  })
+
+  test('사람을 더한 저장이 끝나기 전에 다른 사람을 더해도 두 사람이 모두 남는다', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const { user, puts } = openShareDialog({}, {}, undefined, gate)
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-person-7'))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    await user.click(screen.getByTestId('share-target-person-8'))
+
+    act(() => release())
+    await waitFor(() => expect(puts).toHaveLength(2))
+    expect(puts[0].userIds).toEqual([3, 7])
+    expect(puts[1].userIds).toEqual([3, 7, 8])
+    const people = screen.getByTestId('wiki-share-people')
+    await waitFor(() => expect(within(people).getByText('이도윤')).toBeInTheDocument())
+    expect(within(people).getByText('김민지')).toBeInTheDocument()
+  })
+
+  test('내 그룹을 펼친 저장이 끝나기 전에 사람을 더해도, 펼쳐 넣은 사람이 지워지지 않는다', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const { user, puts } = openShareDialog({}, { 30: [memberRow(8)] }, undefined, gate)
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-personal-group-30'))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0].userIds).toEqual([3, 8])
+    // 펼친 저장(PUT)이 응답하기 전에 김민지(7)를 더한다.
+    await user.click(screen.getByTestId('share-target-person-7'))
+
+    act(() => release())
+    await waitFor(() => expect(puts).toHaveLength(2))
+    expect(puts[1].userIds).toEqual([3, 8, 7])
+    const people = screen.getByTestId('wiki-share-people')
+    await waitFor(() => expect(within(people).getByText('김민지')).toBeInTheDocument())
+    expect(within(people).getByText('이도윤')).toBeInTheDocument()
+  })
+
+  test('상위 부서가 이미 대상이면 그 하위 부서는 고를 수 없고 「상위 부서에 포함됨」으로 보인다', async () => {
+    const { user } = openShareDialog({ groups: [{ groupId: 10, name: '개발팀', memberCount: 3 }] })
+    await openPicker(user)
+    const backend = await screen.findByTestId('share-target-department-12')
+    expect(backend).toHaveAttribute('aria-disabled', 'true')
+    expect(backend).toHaveTextContent('상위 부서에 포함됨')
+    expect(screen.getByTestId('share-target-department-10')).toHaveTextContent('(이미 추가됨)')
+    // 다른 부서는 그대로 고를 수 있다.
+    expect(screen.getByTestId('share-target-department-20')).not.toHaveAttribute('aria-disabled', 'true')
   })
 })

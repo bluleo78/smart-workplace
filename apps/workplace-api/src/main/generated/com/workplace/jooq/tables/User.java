@@ -85,6 +85,7 @@ import com.workplace.jooq.tables.WikiPageAttachment.WikiPageAttachmentPath;
 import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
 import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
 import com.workplace.jooq.tables.WikiPageShareExclusion.WikiPageShareExclusionPath;
+import com.workplace.jooq.tables.WikiPageShareGroup.WikiPageShareGroupPath;
 import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
 import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
@@ -1416,6 +1417,19 @@ public class User extends TableImpl<UserRecord> {
             _wikiPageShareExclusion = new WikiPageShareExclusionPath(this, null, Keys.WIKI_PAGE_SHARE_EXCLUSION__WIKI_PAGE_SHARE_EXCLUSION_CREATED_BY_FKEY.getInverseKey());
 
         return _wikiPageShareExclusion;
+    }
+
+    private transient WikiPageShareGroupPath _wikiPageShareGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_group</code> table
+     */
+    public WikiPageShareGroupPath wikiPageShareGroup() {
+        if (_wikiPageShareGroup == null)
+            _wikiPageShareGroup = new WikiPageShareGroupPath(this, null, Keys.WIKI_PAGE_SHARE_GROUP__WIKI_PAGE_SHARE_GROUP_ADDED_BY_FKEY.getInverseKey());
+
+        return _wikiPageShareGroup;
     }
 
     private transient WikiPageShareMemberPath _wikiPageShareMemberAddedByFkey;

@@ -7,6 +7,7 @@ import java.time.OffsetDateTime;
  * WikiSharedPageItem} + 스페이스·토큰)과 필드 이름이 같다.
  *
  * @param peopleCount 지정한 사람 수(PEOPLE 이 아니면 0)
+ * @param groupCount 지정한 조직도 부서 수(PEOPLE 이 아니면 0, WP-1023)
  * @param createdBy 공유한 사람
  * @param expiresAt 만료 시각(null 이면 무기한)
  * @param lastAccessedAt 링크가 마지막으로 열린 시각(없으면 null)
@@ -20,6 +21,7 @@ public record WikiShareListItemResponse(
     String permission,
     boolean includeChildren,
     int peopleCount,
+    int groupCount,
     WikiSharePerson createdBy,
     OffsetDateTime updatedAt,
     OffsetDateTime expiresAt,
@@ -38,6 +40,7 @@ public record WikiShareListItemResponse(
         permission,
         includeChildren,
         peopleCount,
+        groupCount,
         createdBy,
         updatedAt,
         expiresAt,

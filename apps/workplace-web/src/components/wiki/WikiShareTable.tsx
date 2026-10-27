@@ -199,7 +199,7 @@ export function WikiShareTable({
                       외부 공개
                     </Badge>
                   ) : (
-                    <span className="text-sm">{shareScopeLabel(i.audience, i.permission, i.peopleCount)}</span>
+                    <span className="text-sm">{shareScopeLabel(i.audience, i.permission, i.peopleCount, i.groupCount)}</span>
                   )}
                 </TableCell>
                 {showCreator && <TableCell className="hidden md:table-cell">{i.createdBy.name}</TableCell>}

@@ -13,6 +13,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 
+import com.workplace.global.share.WikiShareTargets;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import java.time.OffsetDateTime;
@@ -341,14 +342,18 @@ public class NotificationRepository {
   /**
    * 노트 공유 알림이면 받는 사람이 그 노트를 지금도 열 수 있어야 한다(WP-579, WP-491·517 과 같은 방식으로 못 열면 목록·안읽음 수에서 뺀다) — 지정에서
    * 빠지거나 공유가 해제·만료돼도 예전 알림이 노트의 현재(바뀐) 제목을 계속 보여 주지 않게 한다. 열 수 있는 경우: 노트 스페이스의 멤버이거나, 이 노트를 지금
-   * 덮는(자기 공유 또는 하위 포함 조상 공유) 만료 전 공유에 받는 사람이 지정한 사람으로 들어 있다. 조상 공유는 그 사이(노트 포함)에 상속이 멈추는 페이지(상위 공유
-   * 제외 표시·따로 켠 공유, WP-987)가 없을 때만 덮는다 — {@code WikiShareAccess} 의 범위 판정과 같은 규칙.
+   * 덮는(자기 공유 또는 하위 포함 조상 공유) 만료 전 공유에 받는 사람이 지정한 사람으로 들어 있거나, 지정한 조직도 부서(하위 부서 포함)의 구성원이다(WP-1023).
+   * 조상 공유는 그 사이(노트 포함)에 상속이 멈추는 페이지(상위 공유 제외 표시·따로 켠 공유, WP-987)가 없을 때만 덮는다 — {@code
+   * WikiShareAccess} 의 범위 판정과 같은 규칙.
    *
    * <p>알림을 누르면 가는 입구({@code WikiShareAccess#entry} — 멤버 또는 {@code
    * WikiShareRepository#findCoveringTokens} 가 찾은 지정 공유 토큰)와 <b>같은 규칙</b>이어야 한다. 워크스페이스 전체 공유는 입구가
    * 토큰을 주지 않으므로(토큰을 페이지 id 로 캐낼 수 없게) 여기서도 열 수 있음으로 보지 않는다 — 보이는데 누르면 「열 수 없음」이 되지 않게. 지정 목록은 대상이
    * PEOPLE 이 아니게 되면 비워진다. 둘이 같은지는 WikiShareNotificationTest.notification_visibility_matches_entry 가
-   * 지킨다. 조상 체인은 자기 포함 재귀로 구해 이동도 즉시 반영한다. 쿼리는 NOTIFICATION 을 별칭 없이 써야 한다.
+   * 지킨다. 조상 체인은 자기 포함 재귀로 구해 이동도 즉시 반영한다. 대상 판정(지정한 사람·지정한 부서 구성원, WP-1023)은 공용 {@link
+   * WikiShareTargets#listedOn} 을 그대로 끼워 쓴다 — 입구({@code WikiShareRepository})와 같은 조건이라 갈라지지 않고,
+   * notify 가 wiki 패키지를 import 하지 않는다. 그 안의 「내 부서와 그 상위 부서」 부분 질의는 바깥 행을 보지 않아 목록 조회당 한 번만 계산된다. 쿼리는
+   * NOTIFICATION 을 별칭 없이 써야 한다.
    */
   private static Condition wikiReadableByRecipient(long recipientId) {
     return NOTIFICATION
@@ -362,7 +367,7 @@ public class NotificationRepository {
                   where wp.id = notification.wiki_page_id
                     and (
                       exists (select 1 from wiki_space_member m
-                              where m.space_id = wp.space_id and m.user_id = ?)
+                              where m.space_id = wp.space_id and m.user_id = {0})
                       or exists (
                         with recursive chain(id, parent_id, depth) as (
                           select id, parent_id, 0 from wiki_page where id = notification.wiki_page_id
@@ -374,8 +379,7 @@ public class NotificationRepository {
                         join chain sc on sc.id = s.page_id
                         where (sc.depth = 0 or s.include_children)
                           and (s.expires_at is null or s.expires_at > now())
-                          and exists (select 1 from wiki_page_share_member sm
-                                      where sm.share_id = s.id and sm.user_id = ?)
+                          and {1}
                           and not exists (
                             select 1 from chain b
                             where b.depth < sc.depth
@@ -388,7 +392,9 @@ public class NotificationRepository {
                 )
                 """,
                 DSL.val(recipientId),
-                DSL.val(recipientId)));
+                // 대상 판정(지정한 사람·지정한 부서 구성원)은 입구 판정과 같은 한 규칙(WP-1023) — 별칭 s 의 공유 id 열과 받는 사람 값.
+                WikiShareTargets.listedOn(
+                    DSL.field(DSL.name("s", "id"), Long.class), DSL.val(recipientId))));
   }
 
   /**

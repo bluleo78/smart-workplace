@@ -24,6 +24,7 @@ const item = (over: Partial<WikiSharedPageItem> = {}): WikiSharedPageItem => ({
   permission: 'VIEW',
   includeChildren: true,
   peopleCount: 0,
+  groupCount: 0,
   createdBy: { userId: 2, name: '김민지' },
   updatedAt: '2026-10-20T01:00:00Z',
   expiresAt: null,

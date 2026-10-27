@@ -1,13 +1,19 @@
 // 노트 공유 순수 판정(WP-579) — 넓히는 변경·트리 공유 표시·이동 영향·하위 수·만료·공유 창 권한.
+// WP-1023 — 범위 요약의 부서 수, 사람·팀 검색의 그룹 평면화·거르기, 내 그룹을 사람으로 펼치기와 안내 문구.
 import { describe, expect, it } from 'vitest'
 
+import type { UserGroupNode } from '../../types/userGroup'
 import type { WikiShareAudience, WikiTreeShare } from '../../types/wiki'
 import {
+  addGroupMembers,
   blockedShareNotice,
   canManageShare,
   countDescendants,
   countLivePublicShares,
   expiryAfterDays,
+  filterGroupOptions,
+  flattenGroupTree,
+  groupExpansionMessage,
   hasShareMoveImpact,
   isShareExpired,
   shareMoveAcrossImpact,
@@ -214,6 +220,11 @@ describe('shareScopeLabel·wikiShareUrl', () => {
     expect(shareScopeLabel('PEOPLE', 'EDIT', 3)).toBe('3명 · 편집')
     expect(shareScopeLabel('PUBLIC', 'VIEW', 0)).toBe('외부 공개 · 보기')
   })
+  it('지정한 부서가 있으면 함께 센다(WP-1023)', () => {
+    expect(shareScopeLabel('PEOPLE', 'VIEW', 3, 1)).toBe('3명, 부서 1개 · 보기')
+    expect(shareScopeLabel('PEOPLE', 'EDIT', 0, 2)).toBe('부서 2개 · 편집')
+    expect(shareScopeLabel('PEOPLE', 'VIEW', 0, 0)).toBe('0명 · 보기')
+  })
   it('링크 주소', () => {
     expect(wikiShareUrl('wsh_abc', 'https://x.test')).toBe('https://x.test/wiki/share/wsh_abc')
   })
@@ -236,5 +247,44 @@ describe('isShareExpired·countLivePublicShares — 외부 공유를 끄면 막�
     ]
     expect(countLivePublicShares(items, now)).toBe(2)
     expect(countLivePublicShares([], now)).toBe(0)
+  })
+})
+
+describe('사람·팀 추가(WP-1023)', () => {
+  const g = (id: number, name: string, children: UserGroupNode[] = []): UserGroupNode => ({
+    id, code: null, name, parentId: null, ownerId: null, visibility: 'SHARED', sortOrder: 0, children,
+  })
+  const tree = [g(1, '본부', [g(2, '개발팀', [g(3, 'Backend')]), g(4, '디자인팀')]), g(5, '영업팀')]
+
+  it('그룹 트리를 위에서 아래 순서로 펴고 상위 이름을 경로로 붙인다', () => {
+    expect(flattenGroupTree(tree)).toEqual([
+      { id: 1, name: '본부', path: '', ancestorIds: [], subtreeIds: [1, 2, 3, 4] },
+      { id: 2, name: '개발팀', path: '본부', ancestorIds: [1], subtreeIds: [2, 3] },
+      { id: 3, name: 'Backend', path: '본부 › 개발팀', ancestorIds: [1, 2], subtreeIds: [3] },
+      { id: 4, name: '디자인팀', path: '본부', ancestorIds: [1], subtreeIds: [4] },
+      { id: 5, name: '영업팀', path: '', ancestorIds: [], subtreeIds: [5] },
+    ])
+  })
+
+  it('검색어는 이름이나 상위 경로에서 대소문자 없이 찾고, 빈 검색어면 모두', () => {
+    const all = flattenGroupTree(tree)
+    expect(filterGroupOptions(all, '개발').map((o) => o.id)).toEqual([2, 3])
+    expect(filterGroupOptions(all, 'backend').map((o) => o.id)).toEqual([3])
+    expect(filterGroupOptions(all, '  ')).toHaveLength(5)
+  })
+
+  it('내 그룹 구성원 중 아직 없는 사람만 뒤에 더하고 더한 수·뺀 수를 센다(구성원 중복은 한 번)', () => {
+    expect(addGroupMembers([3, 5], [5, 7, 8, 7])).toEqual({ userIds: [3, 5, 7, 8], added: 2, skipped: 1 })
+    expect(addGroupMembers([3], [3])).toEqual({ userIds: [3], added: 0, skipped: 1 })
+    expect(addGroupMembers([], [])).toEqual({ userIds: [], added: 0, skipped: 0 })
+    // 빼는 사람(나·공유를 만든 사람)은 더하지도 이미 있는 수로 세지도 않는다.
+    expect(addGroupMembers([3], [1, 3, 9], [1, 3])).toEqual({ userIds: [3, 9], added: 1, skipped: 0 })
+  })
+
+  it('펼친 뒤 안내 문구', () => {
+    expect(groupExpansionMessage('개발 스터디', 3, 1)).toBe('개발 스터디에서 3명 추가 (이미 있는 1명 제외)')
+    expect(groupExpansionMessage('개발 스터디', 2, 0)).toBe('개발 스터디에서 2명 추가')
+    expect(groupExpansionMessage('개발 스터디', 0, 2)).toBe('개발 스터디의 2명은 이미 모두 있습니다')
+    expect(groupExpansionMessage('개발 스터디', 0, 0)).toBe('개발 스터디에 추가할 사람이 없습니다')
   })
 })

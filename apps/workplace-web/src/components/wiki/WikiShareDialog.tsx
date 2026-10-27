@@ -1,5 +1,6 @@
-import { ChevronDown, Copy, Info, Link2, RefreshCw, UserPlus, X } from 'lucide-react'
-import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, Copy, Info, Link2, RefreshCw, UserPlus, Users, X } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { BusySwitch } from '@/components/BusySwitch'
@@ -30,16 +31,28 @@ import { Label } from '@/components/ui/label'
 import { handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatMonthDayClock } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
-import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
 
+import { userGroupsApi } from '../../api/userGroups'
 import { useWikiPageShare, useWikiShareEvents, useWikiShareMutations } from '../../hooks/queries/useWikiShare'
-import type { WikiPageShare, WikiPageShareRequest, WikiShareAudience, WikiSharePermission } from '../../types/wiki'
+import { wikiKeys } from '../../hooks/queries/wikiKeys'
+import { useAuth } from '../../hooks/useAuth'
+import type {
+  WikiPageShare,
+  WikiPageShareRequest,
+  WikiPageShareState,
+  WikiShareAudience,
+  WikiSharePermission,
+} from '../../types/wiki'
 import { WIKI_SHARE_MESSAGE_MAX } from '../../types/wiki'
+import { ShareTargetSearchPopover } from './ShareTargetSearchPopover'
 import {
+  addGroupMembers,
   copyShareLink,
   DEFAULT_SHARE,
   expiryAfterDays,
+  groupExpansionMessage,
   PUBLIC_DEFAULT_EXPIRY_DAYS,
+  type ShareGroupOption,
   type ShareWidening,
   shareWidening,
   wikiShareUrl,
@@ -113,8 +126,15 @@ function toRequest(share: WikiPageShare): WikiPageShareRequest {
     permission: share.permission,
     includeChildren: share.includeChildren,
     userIds: share.people.map((p) => p.userId),
+    // 지정한 부서도 늘 함께 보낸다(WP-1023) — 덮어쓰는 PUT 이라 다른 설정을 바꿀 때 부서가 그대로 남게.
+    groupIds: share.groups.map((g) => g.groupId),
     expiresAt: share.expiresAt,
   }
+}
+
+/** 목록 끝에 id 하나 더하기 — 이미 있으면 그대로(같은 대상을 잇달아 두 번 골라도 한 번만 들어간다). */
+function addUnique(ids: number[], id: number): number[] {
+  return ids.includes(id) ? ids : [...ids, id]
 }
 
 /**
@@ -166,8 +186,38 @@ export function WikiShareDialog({
     else setExcluded(targetPageId, false)
   }
 
-  const apply = (next: WikiPageShareRequest) =>
-    save.mutate(next, { onError: (e) => handleApiError(e, '공유 설정을 바꾸지 못했습니다') })
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  // 이 창의 공유 바꾸기 차례(WP-1023) — 마지막으로 올린 바꾸기가 끝나면 풀리는 약속. 저장은 덮어쓰는 PUT 이라, 앞 저장이 끝나기 전에 다음
+  // 추가(부서 A 뒤 부서 B 등)가 그때 화면의 공유로 요청을 만들면 앞에서 더한 대상이 지워진다. 그래서 모든 바꾸기를 여기에 하나씩 잇는다. 이벤트 처리에서만 읽고 쓴다.
+  const settledSaves = useRef<Promise<void>>(Promise.resolve())
+
+  /**
+   * 바꾸기 하나를 차례에 올린다 — 부르는 순간(동기로) 지금까지의 차례 뒤에 이어 두므로, 앞 바꾸기를 기다리는 사이 새로 시작된 바꾸기도 빠짐없이 이 뒤에
+   * 선다. step 이 실패해도 다음 차례는 이어진다(오류는 step 안에서 알린다).
+   */
+  const inTurn = (step: () => Promise<void> | void) => {
+    settledSaves.current = settledSaves.current.then(step).catch(() => undefined)
+  }
+
+  /** 차례가 온 때의 최신 공유 — 앞 저장의 응답이 캐시에 반영된 값(화면의 share 는 다시 그리기 전이면 옛 값일 수 있다). */
+  const latestShare = () => qc.getQueryData<WikiPageShareState>(wikiKeys.share(pageId))?.share ?? null
+
+  /**
+   * 설정 저장(차례 안에서 부른다) — 끝날 때까지 기다리고, 실패하면 알린다. onSuccess 는 저장된 뒤 할 일(안내 등). mutate 의 호출별 콜백은
+   * 다음 호출이 오거나 화면이 사라지면 불리지 않을 수 있어, 차례가 멈추지 않게 mutateAsync 로 끝을 기다린다.
+   */
+  const saveNow = async (next: WikiPageShareRequest, onSuccess?: () => void) => {
+    try {
+      await save.mutateAsync(next)
+      onSuccess?.()
+    } catch (e) {
+      handleApiError(e, '공유 설정을 바꾸지 못했습니다')
+    }
+  }
+
+  /** 설정 그대로 저장 — 확인을 받은 변경·공유 켜기. 앞 바꾸기가 끝난 뒤 보낸다. */
+  const apply = (next: WikiPageShareRequest) => inTurn(() => saveNow(next))
 
   /** 접근 요청 승인·거절 — 실패하면 알린다(이미 처리됐거나 권한이 바뀐 경우). */
   const decideRequest = (requestId: number, approve: boolean) =>
@@ -176,15 +226,20 @@ export function WikiShareDialog({
       { onError: (e) => handleApiError(e, approve ? '접근 요청을 승인하지 못했습니다' : '접근 요청을 거절하지 못했습니다') },
     )
 
-  /** 설정 한 가지 바꾸기 — 넓히는 변경이면 확인부터. */
-  const change = (patch: Partial<WikiPageShareRequest>) => {
-    if (!share) return
-    const prev = toRequest(share)
-    const next = { ...prev, ...patch }
-    const widening = shareWidening(prev, next)
-    if (widening) setPending({ kind: widening, next })
-    else apply(next)
-  }
+  /**
+   * 설정 한 가지 바꾸기 — 차례가 오면 그때의 최신 공유에 이 바꾸기만 얹어 요청을 만든다(앞 저장에서 더한 사람·부서가 남게). patch 를 함수로 주면
+   * 최신 공유를 받아 바꿀 값을 정한다(사람·부서 더하기·빼기). 넓히는 변경이면 확인부터. 그 사이 공유가 해제됐으면 하지 않는다.
+   */
+  const change = (patch: Partial<WikiPageShareRequest> | ((latest: WikiPageShare) => Partial<WikiPageShareRequest>)) =>
+    inTurn(async () => {
+      const latest = latestShare()
+      if (!latest) return
+      const prev = toRequest(latest)
+      const next = { ...prev, ...(typeof patch === 'function' ? patch(latest) : patch) }
+      const widening = shareWidening(prev, next)
+      if (widening) setPending({ kind: widening, next })
+      else await saveNow(next)
+    })
 
   /** 열 수 있는 사람 바꾸기 — 외부로 가면 보기만·이 페이지만·30일 만료로 맞춘다(무기한·하위 포함은 직접 다시 고른다). */
   const changeAudience = (audience: WikiShareAudience) =>
@@ -194,12 +249,53 @@ export function WikiShareDialog({
         : { audience },
     )
 
-  /** 사람 추가 — 알림을 켜 두었으면 메시지와 함께 보낸다. */
+  /** 추가할 때 함께 보낼 알림 — 알림을 켜 두었으면 메시지(선택)와 함께, 끄면 싣지 않는다. */
+  const notifyPayload = () => (notify ? { message: message.trim() || null } : undefined)
+
+  /** 사람 추가 — 알림을 켜 두었으면 메시지와 함께 보낸다. 차례가 온 때의 사람 목록에 더한다(이미 있으면 그대로). */
   const addPerson = (userId: number) => {
+    const notifyWith = notifyPayload()
+    change((latest) => ({ userIds: addUnique(latest.people.map((p) => p.userId), userId), notify: notifyWith }))
+  }
+
+  /** 조직도 부서 추가(WP-1023) — 부서 행으로 저장한다. 그 부서와 하위 부서의 구성원은 열 때마다 다시 판정돼 나중에 들어온 사람도 열 수 있다. */
+  const addDepartment = (group: ShareGroupOption) => {
+    const notifyWith = notifyPayload()
+    change((latest) => ({ groupIds: addUnique(latest.groups.map((g) => g.groupId), group.id), notify: notifyWith }))
+  }
+
+  /**
+   * 내 그룹 추가(WP-1023) — 그룹을 대상으로 남기지 않고 그룹과 하위 그룹의 지금 사람 구성원을 지정한 사람으로 펼쳐 더한다(이미 있는 사람은 빼고,
+   * 공유하는 나와 공유를 만든 사람은 이미 열 수 있어 더하지도 세지도 않는다). 구성원은 그룹마다 상세에서 받는다(서버가 이 워크스페이스의 활성 사람만 준다 —
+   * 외부 연락처는 사람이 아니라 뺀다). 구성원을 받은 뒤 차례에 올려, 앞 바꾸기가 끝난 때의 최신 공유에 더한다. 더할 사람이 없으면 저장하지 않고 알린다.
+   */
+  const addPersonalGroup = async (group: ShareGroupOption) => {
     if (!share) return
-    change({
-      userIds: [...share.people.map((p) => p.userId), userId],
-      notify: notify ? { message: message.trim() || null } : undefined,
+    const notifyWith = notifyPayload()
+    let memberIds: number[]
+    try {
+      const details = await Promise.all(group.subtreeIds.map((id) => userGroupsApi.detail(id).then((r) => r.data)))
+      memberIds = details.flatMap((d) => d.members.filter((m) => m.targetType === 'MEMBER').map((m) => m.targetId))
+    } catch (e) {
+      handleApiError(e, '그룹 구성원을 불러오지 못했습니다')
+      return
+    }
+    inTurn(async () => {
+      const latest = latestShare()
+      // 받는 사이 공유가 해제됐거나 지정한 사람 공유가 아니게 됐으면 더할 곳이 없다.
+      if (!latest || latest.audience !== 'PEOPLE') return
+      const { userIds, added, skipped } = addGroupMembers(
+        latest.people.map((p) => p.userId),
+        memberIds,
+        [user?.id, latest.createdBy.userId].filter((id): id is number => id != null),
+      )
+      const text = groupExpansionMessage(group.name, added, skipped)
+      if (added === 0) {
+        toast.info(text)
+        return
+      }
+      // 사람 추가는 넓히는 변경이 아니라(직접 고른 사람) 확인 없이 저장하고, 저장된 뒤에 몇 명을 더했는지 알린다.
+      await saveNow({ ...toRequest(latest), userIds, notify: notifyWith }, () => toast.success(text))
     })
   }
 
@@ -445,13 +541,47 @@ export function WikiShareDialog({
                 </Select>
               </div>
 
-              {/* 지정한 사람 — 고른 사람만 링크를 열 수 있다. 비어 있으면 아무도 못 연다는 것을 분명히 한다. */}
+              {/* 지정한 사람·부서 — 고른 사람과 고른 부서(하위 부서 포함)의 구성원만 링크를 열 수 있다. 비어 있으면 아무도 못 연다는 것을 분명히 한다. */}
               {share.audience === 'PEOPLE' && (
                 <div className="space-y-2 rounded-md border p-3" data-testid="wiki-share-people">
-                  {share.people.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">아직 지정한 사람이 없어 아무도 링크를 열 수 없습니다.</p>
+                  {share.people.length === 0 && share.groups.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">아직 지정한 사람·부서가 없어 아무도 링크를 열 수 없습니다.</p>
                   ) : (
                     <ul className="space-y-1">
+                      {/* 지정한 조직도 부서(WP-1023) — 한 줄로 이름과 지금 열 수 있는 사람 수(하위 부서 포함). 구성원이 바뀌면 열 수 있는 사람도 바뀐다. */}
+                      {share.groups.map((g) => (
+                        <li
+                          key={`g${g.groupId}`}
+                          className="flex items-center justify-between gap-2 text-sm"
+                          data-testid={`wiki-share-group-${g.groupId}`}
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span
+                              aria-hidden="true"
+                              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+                            >
+                              <Users className="size-3.5" />
+                            </span>
+                            <span className="truncate">
+                              {g.name} · {g.memberCount}명
+                            </span>
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-muted-foreground"
+                            aria-label={`${g.name} 빼기`}
+                            disabled={busy}
+                            onClick={() =>
+                              change((latest) => ({
+                                groupIds: latest.groups.filter((x) => x.groupId !== g.groupId).map((x) => x.groupId),
+                              }))
+                            }
+                          >
+                            <X aria-hidden="true" />
+                          </Button>
+                        </li>
+                      ))}
                       {share.people.map((p) => (
                         <li key={p.userId} className="flex items-center justify-between gap-2 text-sm">
                           <span className="flex min-w-0 items-center gap-2">
@@ -469,7 +599,11 @@ export function WikiShareDialog({
                             className="size-7 text-muted-foreground"
                             aria-label={`${p.name} 빼기`}
                             disabled={busy}
-                            onClick={() => change({ userIds: share.people.filter((x) => x.userId !== p.userId).map((x) => x.userId) })}
+                            onClick={() =>
+                              change((latest) => ({
+                                userIds: latest.people.filter((x) => x.userId !== p.userId).map((x) => x.userId),
+                              }))
+                            }
                           >
                             <X aria-hidden="true" />
                           </Button>
@@ -478,15 +612,19 @@ export function WikiShareDialog({
                     </ul>
                   )}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <MemberSearchPopover
+                    {/* 사람·조직도 부서·내 그룹을 한 검색에서 고른다(WP-1023). */}
+                    <ShareTargetSearchPopover
                       open={pickerOpen}
                       onOpenChange={setPickerOpen}
-                      existingMemberIds={new Set(share.people.map((p) => p.userId))}
-                      onSelect={(u) => addPerson(u.id)}
+                      existingUserIds={new Set(share.people.map((p) => p.userId))}
+                      existingGroupIds={new Set(share.groups.map((g) => g.groupId))}
+                      onSelectPerson={(u) => addPerson(u.id)}
+                      onSelectDepartment={addDepartment}
+                      onSelectPersonalGroup={(g) => void addPersonalGroup(g)}
                       trigger={
                         <Button variant="outline" size="sm" disabled={busy} data-testid="wiki-share-add-person">
                           <UserPlus aria-hidden="true" />
-                          사람 추가
+                          사람·팀 추가
                         </Button>
                       }
                     />

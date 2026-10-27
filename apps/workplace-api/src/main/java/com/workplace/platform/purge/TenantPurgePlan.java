@@ -115,6 +115,7 @@ public final class TenantPurgePlan {
           WIKI_SHARE_ACCESS_REQUEST,
           WIKI_PAGE_SHARE_EVENT,
           WIKI_PAGE_SHARE_MEMBER,
+          WIKI_PAGE_SHARE_GROUP, // 공유 대상 조직도 부서(WP-1023) — wiki_page_share·user_group 보다 먼저
           WIKI_PAGE_SHARE,
           WIKI_PAGE_SHARE_EXCLUSION, // 상위 공유 제외 표시(WP-987) — wiki_page 보다 먼저
           WIKI_REFERENCE,

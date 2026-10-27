@@ -22,7 +22,7 @@ const FAR = '2099-01-01T00:00:00Z'
 
 function share(over: Partial<WikiShareListItem> & Pick<WikiShareListItem, 'pageId' | 'title'>): WikiShareListItem {
   return {
-    audience: 'WORKSPACE', permission: 'VIEW', includeChildren: false, peopleCount: 0, createdBy: ME,
+    audience: 'WORKSPACE', permission: 'VIEW', includeChildren: false, peopleCount: 0, groupCount: 0, createdBy: ME,
     updatedAt: '2026-10-20T00:00:00Z', expiresAt: null, lastAccessedAt: null, viewCount: 0,
     spaceId: 1, spaceName: '내 노트', token: `wsh_${over.pageId}`, ...over,
   }

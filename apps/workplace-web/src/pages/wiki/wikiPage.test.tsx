@@ -398,6 +398,7 @@ const existingShare = (over: Partial<WikiPageShare> = {}): WikiPageShare => ({
   permission: 'VIEW',
   includeChildren: false,
   people: [],
+  groups: [],
   createdBy: { userId: 1, name: '나' },
   createdAt: '2026-10-20T00:00:00Z',
   updatedAt: '2026-10-20T00:00:00Z',
@@ -481,7 +482,7 @@ describe('노트 공유 — 공유하는 쪽', () => {
     await user.click(within(confirm).getByRole('button', { name: '외부 공개' }))
     await waitFor(() =>
       expect(calls.filter((c) => c.method === 'PUT').map((c) => c.body)).toEqual([
-        { audience: 'PUBLIC', permission: 'VIEW', includeChildren: false, userIds: [], expiresAt: '2026-11-20T03:00:00.000Z' },
+        { audience: 'PUBLIC', permission: 'VIEW', includeChildren: false, userIds: [], groupIds: [], expiresAt: '2026-11-20T03:00:00.000Z' },
       ]),
     )
     await waitFor(() => expect(within(dialog).getByTestId('wiki-share-permission')).toBeDisabled())

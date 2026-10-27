@@ -110,6 +110,7 @@ import com.workplace.jooq.tables.WikiPageDoc.WikiPageDocPath;
 import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
 import com.workplace.jooq.tables.WikiPageShareEvent.WikiPageShareEventPath;
 import com.workplace.jooq.tables.WikiPageShareExclusion.WikiPageShareExclusionPath;
+import com.workplace.jooq.tables.WikiPageShareGroup.WikiPageShareGroupPath;
 import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
 import com.workplace.jooq.tables.WikiReference.WikiReferencePath;
 import com.workplace.jooq.tables.WikiRevision.WikiRevisionPath;
@@ -1625,6 +1626,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _wikiPageShareExclusion = new WikiPageShareExclusionPath(this, null, Keys.WIKI_PAGE_SHARE_EXCLUSION__WIKI_PAGE_SHARE_EXCLUSION_TENANT_ID_FKEY.getInverseKey());
 
         return _wikiPageShareExclusion;
+    }
+
+    private transient WikiPageShareGroupPath _wikiPageShareGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_group</code> table
+     */
+    public WikiPageShareGroupPath wikiPageShareGroup() {
+        if (_wikiPageShareGroup == null)
+            _wikiPageShareGroup = new WikiPageShareGroupPath(this, null, Keys.WIKI_PAGE_SHARE_GROUP__WIKI_PAGE_SHARE_GROUP_TENANT_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareGroup;
     }
 
     private transient WikiPageShareMemberPath _wikiPageShareMember;

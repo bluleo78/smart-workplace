@@ -641,7 +641,7 @@ class WikiShareServiceTest extends IntegrationTestBase {
                               ownerId,
                               rootId,
                               new WikiPageShareRequest(
-                                  "PEOPLE", "VIEW", false, List.of(p1), null, null));
+                                  "PEOPLE", "VIEW", false, List.of(p1), null, null, null));
                           reshared.countDown();
                           RowLockWaits.awaitQuietly(release); // 커밋을 붙잡아 둔다
                         });

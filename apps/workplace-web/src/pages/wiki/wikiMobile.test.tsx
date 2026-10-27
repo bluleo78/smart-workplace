@@ -65,7 +65,7 @@ describe('휴대폰 — 없는 공간·잘못된 주소', () => {
 describe('휴대폰 — 공유', () => {
   test('헤더 공유 버튼 대신 「공유 중」 표식과 ⋯ 메뉴 항목으로 공유 창을 연다', async () => {
     const share: WikiPageShare = {
-      pageId: 101, token: 'wsh_owner1', audience: 'WORKSPACE', permission: 'VIEW', includeChildren: false, people: [],
+      pageId: 101, token: 'wsh_owner1', audience: 'WORKSPACE', permission: 'VIEW', includeChildren: false, people: [], groups: [],
       createdBy: { userId: 1, name: '나' }, createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z',
       expiresAt: null, lastAccessedAt: null, viewCount: 0,
     }

@@ -11,6 +11,8 @@ import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.UserGroupMember.UserGroupMemberPath;
+import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
+import com.workplace.jooq.tables.WikiPageShareGroup.WikiPageShareGroupPath;
 import com.workplace.jooq.tables.records.UserGroupRecord;
 
 import java.time.OffsetDateTime;
@@ -244,6 +246,27 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
             _userGroupMember = new UserGroupMemberPath(this, null, Keys.USER_GROUP_MEMBER__USER_GROUP_MEMBER_GROUP_ID_FKEY.getInverseKey());
 
         return _userGroupMember;
+    }
+
+    private transient WikiPageShareGroupPath _wikiPageShareGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_group</code> table
+     */
+    public WikiPageShareGroupPath wikiPageShareGroup() {
+        if (_wikiPageShareGroup == null)
+            _wikiPageShareGroup = new WikiPageShareGroupPath(this, null, Keys.WIKI_PAGE_SHARE_GROUP__WIKI_PAGE_SHARE_GROUP_GROUP_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareGroup;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.wiki_page_share</code> table
+     */
+    public WikiPageSharePath wikiPageShare() {
+        return wikiPageShareGroup().wikiPageShare();
     }
 
     @Override

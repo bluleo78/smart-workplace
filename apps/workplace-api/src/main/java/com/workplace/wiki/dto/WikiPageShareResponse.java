@@ -8,6 +8,7 @@ import java.util.List;
  * 복사할 수 있게 그대로 준다(편집자에게만 보이는 응답).
  *
  * @param people audience=PEOPLE 일 때 지정한 사람(그 밖에는 빈 목록)
+ * @param groups audience=PEOPLE 일 때 지정한 조직도 부서와 부서마다 지금 열 수 있는 사람 수(그 밖에는 빈 목록, WP-1023)
  * @param expiresAt 만료 시각(null 이면 무기한)
  * @param lastAccessedAt 링크가 마지막으로 열린 시각(없으면 null)
  * @param viewCount 링크로 연 횟수
@@ -19,6 +20,7 @@ public record WikiPageShareResponse(
     String permission,
     boolean includeChildren,
     List<WikiSharePerson> people,
+    List<WikiShareGroup> groups,
     WikiSharePerson createdBy,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt,
