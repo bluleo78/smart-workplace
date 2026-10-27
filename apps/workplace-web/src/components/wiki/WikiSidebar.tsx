@@ -57,7 +57,7 @@ import { WikiMoveShareDialog } from './WikiMoveShareDialog'
 import { lastChildPosition } from './wikiMoveTargets'
 import { WikiNoPages } from './WikiNoPages'
 import { WikiNoSpaces } from './WikiNoSpaces'
-import { shareMoveImpact, treeShareMarks } from './wikiShare'
+import { hasShareMoveImpact, shareMoveImpact, treeShareMarks } from './wikiShare'
 import { WikiSharedPagesDialog } from './WikiSharedPagesDialog'
 import { WikiSpaceMemberDialog } from './WikiSpaceMemberDialog'
 import { canEditWikiSpace, isWikiSpaceUnavailable } from './wikiSpaceUnavailable'
@@ -384,7 +384,8 @@ export function WikiSidebar() {
   // 링크로 보이는 것이 바뀌므로 먼저 묻는다(WP-579).
   function requestMove(move: { pageId: number; parentId: number | null; position: number }, title: string) {
     const impact = shareMoveImpact(pages ?? [], move.pageId, move.parentId)
-    if (impact.leaving.length > 0 || impact.entering.length > 0) {
+    // 제외된 페이지(WP-1031)는 범위가 그대로여도 새 위치 공유로 열리지 않는다고 알리기 위해 확인 창을 연다.
+    if (hasShareMoveImpact(impact)) {
       setMoveConfirm({ move, impact, title })
       return
     }

@@ -55,6 +55,34 @@ test('「이동…」에서 다른 스페이스의 페이지 아래를 고르면
   await waitFor(() => expect(view.location()).toBe('/wiki/spaces/2/pages/10'))
 })
 
+test('같은 스페이스에서 상위 공유에서 제외된 노트를 다른 하위 포함 공유 아래로 옮기면 열리지 않는다고 확인받고 옮긴다(WP-1031)', async () => {
+  const moves: unknown[] = []
+  // 9(하위 포함 공유) 아래의 10 은 제외 표시가 있다 — 11(하위 포함 공유) 아래로 옮겨도 11 의 링크로는 열리지 않는다.
+  // 앞에 둔 핸들러가 먼저 맞는다 — 기본 트리 핸들러보다 앞에 둔다.
+  const tree = [
+    wikiPageSummary({ id: 9, parentId: null, position: 0, title: '로드맵', share: { audience: 'WORKSPACE', includeChildren: true } }),
+    wikiPageSummary({ id: 10, parentId: 9, position: 0, title: '옮길 문서', shareExcluded: true }),
+    wikiPageSummary({ id: 11, parentId: null, position: 1, title: '공개 문서', share: { audience: 'PUBLIC', includeChildren: true } }),
+  ]
+  const handlers = [http.get('/api/v1/wiki/spaces/1/pages', () => HttpResponse.json(tree)), ...baseHandlers(moves)]
+  const view = renderPage('/wiki/spaces/1', { handlers })
+  const row = await screen.findByTestId('wiki-tree-row-10', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await view.user.click(within(row).getByRole('button', { name: /페이지 메뉴/ }))
+  await view.user.click(await screen.findByRole('menuitem', { name: '이동…' }))
+  await view.user.click(await screen.findByTestId('wiki-move-option-11'))
+  await view.user.click(screen.getByTestId('wiki-move-confirm'))
+
+  const confirm = await screen.findByTestId('wiki-move-share-dialog')
+  expect(within(confirm).getByTestId('wiki-move-share-blocked')).toHaveTextContent(
+    '상위 공유에서 제외돼 있어 새 위치의 「공개 문서」 외부 공개 링크로는 열리지 않습니다.',
+  )
+  expect(confirm).not.toHaveTextContent('새로 보이게 됩니다')
+  // 확인 전에는 옮기지 않는다.
+  expect(moves).toEqual([])
+  await view.user.click(within(confirm).getByRole('button', { name: '옮기기' }))
+  await waitFor(() => expect(moves).toEqual([expect.objectContaining({ parentId: 11 })]))
+})
+
 test('옮겨진 노트의 예전 스페이스 주소를 열면 노트의 실제 스페이스 주소로 연결된다', async () => {
   const view = renderPage('/wiki/spaces/1/pages/10', { handlers: baseHandlers([], 2) })
   await waitFor(() => expect(view.location()).toBe('/wiki/spaces/2/pages/10'), { timeout: PAGE_LOAD_TIMEOUT })

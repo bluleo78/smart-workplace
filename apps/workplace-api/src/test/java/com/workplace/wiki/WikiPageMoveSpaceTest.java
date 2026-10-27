@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -207,6 +208,31 @@ class WikiPageMoveSpaceTest extends IntegrationTestBase {
         .isEqualTo(targetId);
     assertThat(dsl.fetchCount(WIKI_PAGE_SHARE, WIKI_PAGE_SHARE.PAGE_ID.eq(childId))).isZero();
     assertThat(eventCount(childId, "REVOKED_BY_MEMBERSHIP")).isEqualTo(1);
+  }
+
+  /**
+   * 상위 공유에서 제외된 페이지(WP-987)를 다른 스페이스의 하위 포함 공유 아래로 옮겨도 그 공유에 「들어옴」이, 옛 상위 공유에 「나감」이 남지 않는다(WP-1031)
+   * — 제외 표시는 페이지를 따라 옮겨 가 새 공유로도 열리지 않고, 옛 공유도 원래 덮지 않았다. 제외 표시가 없는 페이지는 그대로 양쪽에 남는다.
+   */
+  @Test
+  void excluded_page_moved_across_spaces_records_nothing() throws Exception {
+    share(ownerId, rootId);
+    share(ownerId, targetParentId);
+    call(put("/api/v1/wiki/pages/" + childId + "/share/exclusion"), ownerId)
+        .andExpect(status().isNoContent());
+
+    move(ownerId, childId, targetParentId, targetId).andExpect(status().isNoContent());
+
+    assertThat(spaceOf(childId)).isEqualTo(targetId);
+    assertThat(eventCount(targetParentId, "PAGE_MOVED_IN")).isZero();
+    assertThat(eventCount(rootId, "PAGE_MOVED_OUT")).isZero();
+
+    // 대조군 — 제외 표시가 없는 하위는 옛 공유에서 빠지고 새 공유에 들어온다.
+    long plainId = page(sourceId, rootId, "제외 안 한 하위");
+    move(ownerId, plainId, targetParentId, targetId).andExpect(status().isNoContent());
+
+    assertThat(eventCount(targetParentId, "PAGE_MOVED_IN")).isEqualTo(1);
+    assertThat(eventCount(rootId, "PAGE_MOVED_OUT")).isEqualTo(1);
   }
 
   /** 미리보기: 쪽수·접근을 잃는 멤버 수·유지/해제 공유 목록. 대상 편집 권한이 없으면 거절. */

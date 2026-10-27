@@ -216,6 +216,35 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     assertThat(text(in.get(0))).contains("옮길 메모");
   }
 
+  /**
+   * 상위 공유에서 제외된 페이지(WP-987)를 다른 하위 포함 공유 아래로 옮겨도 그 공유에 「들어옴」이 남지 않는다(WP-1031) — 제외 표시가 페이지를 따라 옮겨 가
+   * 새 공유 링크로 열리지 않는다. 옛 공유도 원래 덮지 않았으므로 「나감」도, 재검증도 없다. 제외 표시가 없는 페이지를 같은 자리로 옮기면 그대로
+   * PAGE_MOVED_IN.
+   */
+  @Test
+  void excluded_page_moved_under_other_share_records_nothing() throws Exception {
+    saveShare(editorId, rootId, "WORKSPACE", "VIEW", true);
+    saveShare(editorId, outsideId, "WORKSPACE", "VIEW", true);
+    call(put("/api/v1/wiki/pages/" + childId + "/share/exclusion"), editorId)
+        .andExpect(status().isNoContent());
+    appEvents.clear();
+
+    move(ownerId, childId, outsideId);
+
+    assertThat(events(outsideId, "PAGE_MOVED_IN")).isEmpty();
+    assertThat(events(rootId, "PAGE_MOVED_OUT")).isEmpty();
+    assertThat(accessChanged()).isEmpty();
+
+    // 대조군 — 제외 표시가 없는 페이지는 같은 공유 아래로 옮기면 「들어옴」이 남는다.
+    long plainId = page(spaceId, rootId, "제외 안 한 메모");
+    move(ownerId, plainId, outsideId);
+
+    List<WikiPageShareEventRecord> in = events(outsideId, "PAGE_MOVED_IN");
+    assertThat(in).hasSize(1);
+    assertThat(text(in.get(0))).contains("제외 안 한 메모");
+    assertThat(events(rootId, "PAGE_MOVED_OUT")).hasSize(1);
+  }
+
   // ── 공유한 사람이 떠날 때 ──────────────────────────────────────────────────
 
   /**

@@ -84,6 +84,8 @@ export function useWikiShareMutations(pageId: number, spaceId: number) {
       void qc.invalidateQueries({ queryKey: ['wiki', 'share'] })
       void qc.invalidateQueries({ queryKey: ['wiki', 'shareEvents'] })
       void qc.invalidateQueries({ queryKey: wikiKeys.sharedPages(spaceId) })
+      // 트리 행의 shareExcluded(WP-1031)가 바뀐다 — 이동 경고·트리 공유 표시가 옛 값으로 판단하지 않게 트리도 다시 받는다.
+      void qc.invalidateQueries({ queryKey: wikiKeys.tree(spaceId) })
       // 열려 있는 공유 보기의 페이지 목록도 바뀐다(제외된 하위가 빠지거나 돌아온다).
       void qc.invalidateQueries({ queryKey: ['wiki', 'shareLink'] })
     },

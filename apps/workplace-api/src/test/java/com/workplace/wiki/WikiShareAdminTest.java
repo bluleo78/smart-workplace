@@ -119,6 +119,30 @@ class WikiShareAdminTest extends IntegrationTestBase {
     assertThat(share.has("token")).isFalse();
   }
 
+  /**
+   * 트리 행의 shareExcluded 는 그 페이지 자신에 상위 공유 제외 표시(WP-987)가 있을 때만 true(WP-1031) — 이동 경고가 제외된 페이지를 「새
+   * 위치의 공유 링크로 보이게 된다」고 말하지 않게 한다. 제외를 풀면 다시 false.
+   */
+  @Test
+  void tree_marks_share_exclusion() throws Exception {
+    saveShare(ownerId, rootId, "WORKSPACE", "VIEW", true);
+    JsonNode before = json(call(get(pagesPath(spaceId)), viewerId).andExpect(status().isOk()));
+    assertThat(row(before, childId).get("shareExcluded").asBoolean()).isFalse();
+
+    call(put("/api/v1/wiki/pages/" + childId + "/share/exclusion"), ownerId)
+        .andExpect(status().isNoContent());
+
+    JsonNode after = json(call(get(pagesPath(spaceId)), viewerId).andExpect(status().isOk()));
+    assertThat(row(after, childId).get("shareExcluded").asBoolean()).isTrue();
+    // 제외 표시는 그 페이지에만 실린다 — 공유 루트는 false.
+    assertThat(row(after, rootId).get("shareExcluded").asBoolean()).isFalse();
+
+    call(delete("/api/v1/wiki/pages/" + childId + "/share/exclusion"), ownerId)
+        .andExpect(status().isNoContent());
+    JsonNode cleared = json(call(get(pagesPath(spaceId)), viewerId).andExpect(status().isOk()));
+    assertThat(row(cleared, childId).get("shareExcluded").asBoolean()).isFalse();
+  }
+
   /** 페이지 상세의 shared 는 이 페이지 자신이 공유 중일 때만 true, 해제하면 false. */
   @Test
   void detail_shared_flag() throws Exception {

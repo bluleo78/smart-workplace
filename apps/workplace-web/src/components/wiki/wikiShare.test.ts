@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest'
 
 import type { WikiShareAudience, WikiTreeShare } from '../../types/wiki'
 import {
+  blockedShareNotice,
   canManageShare,
   countDescendants,
   countLivePublicShares,
   expiryAfterDays,
+  hasShareMoveImpact,
   isShareExpired,
   shareMoveAcrossImpact,
   shareMoveImpact,
@@ -22,6 +24,11 @@ const node = (id: number, parentId: number | null, share: WikiTreeShare | null =
   parentId,
   title,
   share,
+})
+/** 상위 공유 제외 표시(WP-987)가 있는 트리 한 줄(WP-1031). */
+const excluded = (id: number, parentId: number | null, share: WikiTreeShare | null = null, title = `p${id}`) => ({
+  ...node(id, parentId, share, title),
+  shareExcluded: true,
 })
 const own = (audience: WikiShareAudience = 'WORKSPACE', includeChildren = true): WikiTreeShare => ({ audience, includeChildren })
 
@@ -65,6 +72,14 @@ describe('treeShareMarks — 트리 공유 표시', () => {
     expect(marks.get(2)).toBe('own')
   })
 
+  it('상위 공유에서 제외된 페이지와 그 하위는 inherited 가 아니다 — 제외된 페이지 자신의 하위 포함 공유는 그 아래에 번진다(WP-1031)', () => {
+    const marks = treeShareMarks([node(1, null, own()), excluded(2, 1), node(3, 2), excluded(4, 1, own()), node(5, 4)])
+    expect(marks.has(2)).toBe(false)
+    expect(marks.has(3)).toBe(false)
+    expect(marks.get(4)).toBe('own')
+    expect(marks.get(5)).toBe('inherited')
+  })
+
   it('사이클이 있어도 멈춘다', () => {
     const marks = treeShareMarks([node(1, 2), node(2, 1)])
     expect(marks.size).toBe(0)
@@ -79,6 +94,13 @@ describe('shareMoveAcrossImpact — 다른 스페이스로 이동(WP-988)', () =
     const r = shareMoveAcrossImpact(source, 2, target, 8)
     expect(r.leaving.map((s) => s.pageId)).toEqual([1])
     expect(r.entering).toEqual([{ pageId: 7, title: '공개', audience: 'PUBLIC' }])
+  })
+
+  it('상위 공유에서 제외된 페이지는 빠지거나 들어가지 않고, 새 위치 공유는 blocked 로 알린다(WP-1031)', () => {
+    const src = [node(1, null, own('WORKSPACE', true), '로드맵'), excluded(2, 1)]
+    const r = shareMoveAcrossImpact(src, 2, target, 8)
+    expect(r).toEqual({ leaving: [], entering: [], blocked: [{ pageId: 7, title: '공개', audience: 'PUBLIC' }] })
+    expect(hasShareMoveImpact(r)).toBe(true)
   })
 
   it('공유가 없는 자리로 옮기면 새로 들어가는 공유가 없다', () => {
@@ -104,11 +126,11 @@ describe('shareMoveImpact — 하위 포함 공유 안팎 이동', () => {
 
   it('같은 공유 안에서 위치만 바꾸면 영향이 없다', () => {
     const t = [...tree, node(5, 1)]
-    expect(shareMoveImpact(t, 5, 2)).toEqual({ leaving: [], entering: [] })
+    expect(shareMoveImpact(t, 5, 2)).toEqual({ leaving: [], entering: [], blocked: [] })
   })
 
   it('공유 루트 자신을 옮겨도 자기 공유는 따라가므로 빈 결과다', () => {
-    expect(shareMoveImpact(tree, 1, 3)).toEqual({ leaving: [], entering: [] })
+    expect(shareMoveImpact(tree, 1, 3)).toEqual({ leaving: [], entering: [], blocked: [] })
   })
 
   it('공유 루트 자신을 다른 하위 포함 공유 안으로 옮기면 새 공유만 entering 이다', () => {
@@ -119,6 +141,38 @@ describe('shareMoveImpact — 하위 포함 공유 안팎 이동', () => {
 
   it('사이클 트리에서도 끝난다', () => {
     expect(() => shareMoveImpact([node(1, 2), node(2, 1)], 1, 2)).not.toThrow()
+  })
+
+  it('상위 공유에서 제외된 페이지를 다른 하위 포함 공유 아래로 옮기면 entering 이 아니라 blocked 다(WP-1031)', () => {
+    const t = [node(1, null, own('WORKSPACE', true), '로드맵'), excluded(2, 1), node(4, null, own('PUBLIC', true), '공개')]
+    const r = shareMoveImpact(t, 2, 4)
+    expect(r).toEqual({ leaving: [], entering: [], blocked: [{ pageId: 4, title: '공개', audience: 'PUBLIC' }] })
+    expect(hasShareMoveImpact(r)).toBe(true)
+  })
+
+  it('제외 표시가 없으면 같은 이동이 그대로 leaving·entering 이다', () => {
+    const t = [node(1, null, own('WORKSPACE', true), '로드맵'), node(2, 1), node(4, null, own('PUBLIC', true), '공개')]
+    const r = shareMoveImpact(t, 2, 4)
+    expect(r.leaving.map((s) => s.pageId)).toEqual([1])
+    expect(r.entering.map((s) => s.pageId)).toEqual([4])
+    expect(r.blocked).toEqual([])
+  })
+
+  it('제외된 조상 아래로 옮기면 그 위의 공유는 새로 덮지 않는다 — 조상 체인이 제외 표시에서 멈춘다(WP-1031)', () => {
+    const t = [node(1, null, own('WORKSPACE', true), '로드맵'), excluded(2, 1), node(3, null)]
+    expect(shareMoveImpact(t, 3, 2)).toEqual({ leaving: [], entering: [], blocked: [] })
+    expect(hasShareMoveImpact(shareMoveImpact(t, 3, 2))).toBe(false)
+  })
+})
+
+describe('blockedShareNotice — 제외된 페이지의 새 위치 공유 안내(WP-1031)', () => {
+  it('새로 보이게 된다 대신 열리지 않는다고 적는다', () => {
+    expect(blockedShareNotice({ pageId: 4, title: '공개', audience: 'PUBLIC' })).toBe(
+      '상위 공유에서 제외돼 있어 새 위치의 「공개」 외부 공개 링크로는 열리지 않습니다.',
+    )
+    expect(blockedShareNotice({ pageId: 5, title: '', audience: 'WORKSPACE' })).toBe(
+      '상위 공유에서 제외돼 있어 새 위치의 「제목 없음」 공유 링크로는 열리지 않습니다.',
+    )
   })
 })
 

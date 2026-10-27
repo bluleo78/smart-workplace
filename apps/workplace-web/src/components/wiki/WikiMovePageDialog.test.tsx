@@ -31,12 +31,12 @@ const space = (id: number, name: string, role: WikiSpace['role']): WikiSpace =>
 
 const spaces = [space(1, '제품팀', 'OWNER'), space(2, '디자인팀', 'EDITOR'), space(3, '읽기전용', 'VIEWER')]
 
-function renderDialog(onPick = vi.fn()) {
+function renderDialog(onPick = vi.fn(), pages: WikiPageSummary[] = [page(10, '옮길 문서'), page(11, '다른 문서')]) {
   renderWithProviders(
     <WikiMovePageDialog
       spaceId={1}
       spaces={spaces}
-      pages={[page(10, '옮길 문서'), page(11, '다른 문서')]}
+      pages={pages}
       pageId={10}
       onClose={() => {}}
       onPick={onPick}
@@ -140,6 +140,27 @@ describe('WikiMovePageDialog 다른 스페이스', () => {
     expect(await screen.findByTestId('wiki-move-space-warning')).toHaveTextContent('「공개 문서」 외부 공개 링크로 새로 보이게 됩니다')
     await userEvent.click(screen.getByTestId('wiki-move-option-22'))
     expect(screen.getByTestId('wiki-move-space-warning')).not.toHaveTextContent('새로 보이게 됩니다')
+  })
+
+  it('상위 공유에서 제외된 페이지는 새 위치 공유로 「새로 보이게 됩니다」 대신 열리지 않는다고 알린다(WP-1031)', async () => {
+    trees.value = {
+      2: [page(20, '공개 문서', null, { audience: 'PUBLIC', includeChildren: true } as WikiPageSummary['share']), page(21, '공개 하위', 20)],
+    }
+    renderDialog(vi.fn(), [
+      page(9, '로드맵', null, { audience: 'WORKSPACE', includeChildren: true } as WikiPageSummary['share']),
+      { ...page(10, '옮길 문서', 9), shareExcluded: true },
+      page(11, '다른 문서'),
+    ])
+    await userEvent.click(screen.getByTestId('wiki-move-space'))
+    await userEvent.click(await screen.findByRole('option', { name: '디자인팀' }))
+    await userEvent.click(screen.getByTestId('wiki-move-option-21'))
+    const warning = await screen.findByTestId('wiki-move-space-warning')
+    expect(within(warning).getByTestId('wiki-move-share-blocked')).toHaveTextContent(
+      '상위 공유에서 제외돼 있어 새 위치의 「공개 문서」 외부 공개 링크로는 열리지 않습니다.',
+    )
+    expect(warning).not.toHaveTextContent('새로 보이게 됩니다')
+    // 원래 덮이지 않았으므로 옛 위치 공유에서 「더 이상 보이지 않습니다」도 없다.
+    expect(warning).not.toHaveTextContent('더 이상 보이지 않습니다')
   })
 
   it('같은 스페이스 안 이동은 지금 스페이스 id 로 넘긴다', async () => {

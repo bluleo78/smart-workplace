@@ -652,7 +652,8 @@ public class WikiShareRepository {
                     r.get(WIKI_PAGE.TITLE),
                     r.get(WIKI_PAGE.POSITION),
                     r.get(WIKI_PAGE.AI_LAST_USED_AT),
-                    null));
+                    null,
+                    false));
   }
 
   /**

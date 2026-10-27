@@ -3,6 +3,7 @@ package com.workplace.wiki.repository;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_BODY_HISTORY;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE;
+import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EXCLUSION;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
@@ -57,9 +58,16 @@ public class WikiPageRepository {
 
   /**
    * 공간의 전체 페이지(경량, 본문 제외) — 클라이언트 트리 구성용. 페이지 자신의 공유(WP-579)를 LEFT JOIN 으로 함께 싣는다(페이지당 공유는 하나라 행이
-   * 늘지 않는다). 만료된 공유도 싣는다 — 공유 창이 보여 주는 상태와 트리 표시가 어긋나지 않게.
+   * 늘지 않는다). 만료된 공유도 싣는다 — 공유 창이 보여 주는 상태와 트리 표시가 어긋나지 않게. 상위 공유 제외 표시(WP-987)도 EXISTS 로 함께
+   * 싣는다(WP-1031 — 이동 경고가 제외된 페이지·조상에서 상속을 멈추게).
    */
   public List<WikiPageSummary> listBySpace(long spaceId) {
+    Field<Boolean> excluded =
+        DSL.field(
+            DSL.exists(
+                DSL.selectOne()
+                    .from(WIKI_PAGE_SHARE_EXCLUSION)
+                    .where(WIKI_PAGE_SHARE_EXCLUSION.PAGE_ID.eq(WIKI_PAGE.ID))));
     return dsl.select(
             WIKI_PAGE.ID,
             WIKI_PAGE.PARENT_ID,
@@ -67,7 +75,8 @@ public class WikiPageRepository {
             WIKI_PAGE.POSITION,
             WIKI_PAGE.AI_LAST_USED_AT,
             WIKI_PAGE_SHARE.AUDIENCE,
-            WIKI_PAGE_SHARE.INCLUDE_CHILDREN)
+            WIKI_PAGE_SHARE.INCLUDE_CHILDREN,
+            excluded)
         .from(WIKI_PAGE)
         .leftJoin(WIKI_PAGE_SHARE)
         .on(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))
@@ -85,7 +94,8 @@ public class WikiPageRepository {
                         ? null
                         : new WikiTreeShare(
                             r.get(WIKI_PAGE_SHARE.AUDIENCE),
-                            r.get(WIKI_PAGE_SHARE.INCLUDE_CHILDREN))));
+                            r.get(WIKI_PAGE_SHARE.INCLUDE_CHILDREN)),
+                    Boolean.TRUE.equals(r.get(excluded))));
   }
 
   /**
