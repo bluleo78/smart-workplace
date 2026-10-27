@@ -8,6 +8,7 @@ import { expect, test } from 'vitest'
 
 import { WikiModuleLayout } from '@/components/wiki/WikiModuleLayout'
 import { renderMobileModule } from '@/test/kits/mobile/mobileScreen'
+import { attachSilentCollab, editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
 import { mockViewport } from '@/test/viewport'
 
 import { wikiPageDetail, wikiPageSummary, wikiSpace } from '../../../e2e/factories/wiki.factory'
@@ -26,12 +27,17 @@ const renderWiki = (path: string, options: Parameters<typeof renderMobileModule>
 const SPACE = wikiSpace({ id: 1, type: 'PERSONAL', name: '내 위키', role: 'OWNER' })
 const TITLE = '긴 제목의 개인 메모 페이지가 한 줄을 넘어가는 경우'
 
-/** 공간 1개·페이지 1개 트리 — 생성 본문·삭제 경로를 모은다. */
+/**
+ * 공간 1개·페이지 1개 트리 — 생성 본문·삭제 경로를 모은다. 하위 페이지를 만들면 새 페이지 에디터로 넘어가 동기화 서버(/collab)와
+ * 접속 토큰(refresh)을 부르므로, 다른 노트 화면 테스트처럼 받기만 하는 동기화·에디터 부가 응답을 깐다.
+ */
 function open() {
   const creates: unknown[] = []
   const deletes: string[] = []
+  attachSilentCollab()
   const page = renderWiki('/wiki/spaces/1', {
     handlers: [
+      ...editorSideHandlers,
       http.get('/api/v1/wiki/spaces', () => HttpResponse.json([SPACE])),
       http.get('/api/v1/wiki/spaces/1/pages', () => HttpResponse.json([wikiPageSummary({ id: 101, title: TITLE })])),
       http.post('/api/v1/wiki/spaces/1/pages', async ({ request }) => {
