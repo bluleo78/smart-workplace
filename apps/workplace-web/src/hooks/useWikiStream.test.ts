@@ -37,6 +37,21 @@ describe('handleWikiEvent', () => {
     expect(qc.getQueryData(wikiKeys.page(8))).toEqual({ id: 8 })
   })
 
+  // 다른 스페이스로 옮기면 하위의 spaceId 도 바뀐다(WP-988) — 하위를 열어 둔 다른 사람 화면이 옛 스페이스에 남지 않게 하위 상세도 다시 받는다.
+  it('이동 이벤트는 캐시된 트리에서 찾은 하위 페이지 상세까지 낡음 처리한다', () => {
+    const qc = new QueryClient()
+    qc.setQueryData(wikiKeys.tree(1), [
+      { id: 7, parentId: null },
+      { id: 8, parentId: 7 },
+      { id: 9, parentId: 8 },
+      { id: 10, parentId: null },
+    ])
+    for (const id of [7, 8, 9, 10]) qc.setQueryData(wikiKeys.page(id), { id, spaceId: 1 })
+    handleWikiEvent(qc, 'wiki.page.moved', { spaceId: 2, pageId: 7 })
+    expect([7, 8, 9].map((id) => qc.getQueryState(wikiKeys.page(id))?.isInvalidated)).toEqual([true, true, true])
+    expect(qc.getQueryState(wikiKeys.page(10))?.isInvalidated).toBe(false)
+  })
+
   it('수정 이벤트는 페이지 캐시를 지우지 않는다', () => {
     const qc = new QueryClient()
     qc.setQueryData(wikiKeys.page(7), { id: 7 })

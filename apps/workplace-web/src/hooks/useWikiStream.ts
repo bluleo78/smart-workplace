@@ -6,6 +6,8 @@
 
 import type { QueryClient } from '@tanstack/react-query';
 
+import { subtreeIds } from '../components/wiki/wikiMoveTargets';
+import type { WikiPageSummary } from '../types/wiki';
 import { dropInactiveWikiPage, wikiKeys } from './queries/wikiKeys';
 
 interface WikiPagePayload {
@@ -51,9 +53,25 @@ function invalidateRevisionsThrottled(qc: QueryClient, pageId: number) {
   else state.timer = setTimeout(invalidate, wait)
 }
 
+/**
+ * 옮긴 페이지의 하위 상세까지 다시 받는다(WP-988) — 다른 스페이스로 옮기면 하위 페이지의 spaceId 도 바뀌는데, 이벤트는 옮긴 루트만 알린다.
+ * 하위를 열어 둔 다른 사람의 화면이 낡은 spaceId 로 옛 스페이스 문맥에 남지 않게, 캐시된 트리(트리 무효화 전 — 아직 옛 모양)에서
+ * 루트의 서브트리를 찾아 그 상세들을 무효화한다. 다시 받은 상세의 spaceId 가 바뀌면 페이지 화면이 새 주소로 옮긴다.
+ */
+function invalidateMovedSubtree(qc: QueryClient, pageId: number) {
+  const moved = new Set<number>();
+  for (const [, pages] of qc.getQueriesData<WikiPageSummary[]>({ queryKey: ['wiki', 'tree'] })) {
+    if (pages?.some((x) => x.id === pageId)) subtreeIds(pages, pageId).forEach((id) => moved.add(id));
+  }
+  moved.delete(pageId); // 루트는 아래 공통 무효화가 한다.
+  if (moved.size === 0) return;
+  qc.invalidateQueries({ queryKey: ['wiki', 'page'], predicate: (q) => moved.has(q.queryKey[2] as number) });
+}
+
 export function handleWikiEvent(qc: QueryClient, eventName: string, data: unknown) {
   if (!INVALIDATING_EVENTS.has(eventName)) return;
   const p = data as WikiPagePayload;
+  if (eventName === 'wiki.page.moved' && typeof p?.pageId === 'number') invalidateMovedSubtree(qc, p.pageId);
   // 스페이스 트리(사이드바) — 생성·삭제·이동·제목변경 모두 트리에 영향.
   if (typeof p?.spaceId === 'number' && Number.isFinite(p.spaceId)) {
     qc.invalidateQueries({ queryKey: wikiKeys.tree(p.spaceId) });
