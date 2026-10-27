@@ -11,11 +11,11 @@ import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
 import { DrivePage } from '@/pages/drive/DrivePage'
+import { API, renderChat } from '@/test/kits/chat/testkit-b5'
 import { renderScreen } from '@/test/renderScreen'
 import type { ChannelResponse, MessageProposal, MessageResponse } from '@/types/messaging'
 
 import { createChannel, createChannelMember, createMessage, createReaction } from '../../../e2e/factories/messaging.factory'
-import { API, renderChat } from './testkit-b5'
 
 /** 채널 하나를 연다 — 목록·상세가 같은 채널, 메시지는 messages. */
 function openChannel(channel: ChannelResponse, opts: Omit<NonNullable<Parameters<typeof renderChat>[1]>, 'channels'> = {}) {

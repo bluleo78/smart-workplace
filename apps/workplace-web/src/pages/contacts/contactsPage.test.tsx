@@ -8,6 +8,8 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { emptyTree, record, type Recorded, renderContacts } from '@/test/kits/contacts/testkit-b8'
+
 import {
   external,
   externalDetail,
@@ -16,7 +18,6 @@ import {
   page as makePage,
 } from '../../../e2e/factories/contacts.factory'
 import type { ContactSummary } from '../../types/contact'
-import { emptyTree, record, type Recorded, renderContacts } from './testkit-b8'
 
 /** 목록 요청 기록 + search·type·favorite·organization·title 로 거르는 목록 GET(E2E stubList 와 같은 규칙). 첫 멤버는 즐겨찾기. */
 function listHandler(lists: Recorded[], base: () => ContactSummary[] = () => [member({ isFavorite: true }), external()]) {

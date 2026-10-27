@@ -12,11 +12,11 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { setAccessToken } from '@/api/client'
 import { UNDO_DELETE_DELAY_MS } from '@/lib/deleteWithUndo'
 import { resetMailMoveQueueForTest } from '@/lib/mailMoveQueue'
+import { record, renderMail, unreadCounts } from '@/test/kits/mail/testkit-b4'
 import type { MailMoveRequest, MailMoveResponse, MailServerFolder } from '@/types/mailFolder'
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
 import { detail, mailServerFolder, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail, unreadCounts } from './testkit-b4'
 
 afterEach(() => {
   vi.useRealTimers()

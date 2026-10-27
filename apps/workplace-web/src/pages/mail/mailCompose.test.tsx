@@ -10,9 +10,9 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { SANDBOX_HEAD } from '@/lib/sandboxedHtml'
+import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail } from './testkit-b4'
 
 afterEach(() => {
   vi.restoreAllMocks()

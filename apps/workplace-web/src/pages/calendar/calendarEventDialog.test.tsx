@@ -11,8 +11,9 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import { describe, expect, test } from 'vitest'
 
+import { fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
+
 import { calendarEvent, recurringCalendarEvent } from '../../../e2e/factories/calendar.factory'
-import { fixClock, renderCalendar } from './calendarPageKit'
 
 fixClock()
 

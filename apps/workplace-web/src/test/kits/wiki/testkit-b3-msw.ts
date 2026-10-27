@@ -3,7 +3,7 @@ import { http, HttpResponse, ws } from 'msw'
 
 import { server } from '@/test/msw/server'
 
-import { createTokenResponse } from '../../../e2e/factories/auth.factory'
+import { createTokenResponse } from '../../../../e2e/factories/auth.factory'
 
 /**
  * 에디터가 붙는 동기화 서버(/collab WebSocket)를 받기만 하고 아무것도 보내지 않는다 — 본문 동기화는 E2E(@platform) 몫이고,

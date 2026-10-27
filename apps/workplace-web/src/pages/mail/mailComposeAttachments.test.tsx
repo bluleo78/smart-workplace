@@ -9,10 +9,10 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 import type { ComposeAttachmentUpload } from '@/types/mailMessage'
 
 import { detail, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail } from './testkit-b4'
 
 const UPLOAD_PATH = '/api/v1/mail/compose-attachments'
 const MB = 1024 * 1024

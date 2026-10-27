@@ -10,12 +10,12 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from '@/test/kits/drive/testkit-b6'
 import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
 import { testAuthValue } from '@/test/renderWithProviders'
 import type { DriveFile } from '@/types/drive'
 
 import { createFile } from '../../../e2e/factories/drive.factory'
-import { API, driveBaseHandlers, fileSideHandlers, renderDrivePage } from './testkit-b6'
 
 const SPACE_ID = 1
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

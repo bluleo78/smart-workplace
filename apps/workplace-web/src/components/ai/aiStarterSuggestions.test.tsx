@@ -14,10 +14,6 @@ import { clearStarterStorage, STARTER_STORAGE_PREFIX } from '@/lib/ai/starterSto
 import IssueDetailPage from '@/pages/projects/IssueDetailPage'
 import ProjectListPage from '@/pages/projects/ProjectListPage'
 import { openAiPanel } from '@/test/kits/ai/aiShell'
-import { atRoute } from '@/test/kits/projects/atRoute'
-import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-
-import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import {
   aiPreferences,
   fillInput,
@@ -31,7 +27,11 @@ import {
   starterSuggestions,
   summary,
   TITLE_A,
-} from './testkit-b2a'
+} from '@/test/kits/ai/testkit-b2a'
+import { atRoute } from '@/test/kits/projects/atRoute'
+import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
+
+import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 
 const GENERAL = ['오늘 일정 요약해줘', '나를 멘션한 메시지 정리해줘', '내 작업 우선순위 정리해줘', '답장이 필요한 메일 알려줘']
 const AI = ['3분기 매출 보고서 진행 알려줘', '오늘 오후 회의 안건 정리해줘', '어제 받은 메일 중 급한 것 알려줘', '내 리뷰 대기 이슈 보여줘']

@@ -7,10 +7,10 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { calendarHandlers, capture, pinNow, renderCalendarPage } from '@/test/kits/calendar/testkit-b8'
 import type { CalendarEvent, CalendarTag, TagFeed } from '@/types/calendar'
 
 import { calendar, calendarEvent } from '../../../e2e/factories/calendar.factory'
-import { calendarHandlers, capture, pinNow, renderCalendarPage } from './testkit-b8'
 
 beforeEach(pinNow)
 afterEach(() => vi.useRealTimers())

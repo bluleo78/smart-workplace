@@ -15,7 +15,7 @@ import type { DashboardLayout, DashboardWidgetConfig, MailSummary, MessagingSumm
 import type { ChannelResponse } from '@/types/messaging'
 import type { NotificationResponse } from '@/types/notification'
 
-import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { createIssue, createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
 
 /** 저장 레이아웃 — 문자열은 {id=type, count 5, 보임} 으로 정규화. 순서가 곧 렌더 순서. */
 export function layout(widgets: (string | DashboardWidgetConfig)[]): DashboardLayout {

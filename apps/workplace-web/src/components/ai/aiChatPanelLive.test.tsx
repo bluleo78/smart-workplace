@@ -11,10 +11,6 @@ import { expect, test } from 'vitest'
 
 import ProjectListPage from '@/pages/projects/ProjectListPage'
 import { openAiPanel, renderAiShell } from '@/test/kits/ai/aiShell'
-import { server } from '@/test/msw/server'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
-import type { HomeMessage, HomeSessionPage } from '@/types/home'
-
 import {
   aiPreferences,
   ask,
@@ -30,7 +26,10 @@ import {
   TITLE_A,
   TITLE_B,
   TITLE_C,
-} from './testkit-b2a'
+} from '@/test/kits/ai/testkit-b2a'
+import { server } from '@/test/msw/server'
+import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import type { HomeMessage, HomeSessionPage } from '@/types/home'
 
 const A = { correlationId: 'corr-a', sessionId: 's-a' }
 const B = { correlationId: 'corr-b', sessionId: 's-b' }

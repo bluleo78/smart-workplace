@@ -10,11 +10,11 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { API, chatEvents, renderChat } from '@/test/kits/chat/testkit-b5'
 import type { DriveLink } from '@/types/drive'
 import type { ChannelResponse, MessageAttachment, MessageResponse } from '@/types/messaging'
 
 import { createChannel, createChannelMember, createLinkPreview, createMessage, createReaction } from '../../../e2e/factories/messaging.factory'
-import { API, chatEvents, renderChat } from './testkit-b5'
 
 /** 채널 하나를 연다 — 메시지는 서버처럼 최신이 앞(DESC)으로 준다. */
 function openChannel(channel: ChannelResponse, messages: MessageResponse[], opts: Omit<NonNullable<Parameters<typeof renderChat>[1]>, 'channels' | 'messages'> = {}) {

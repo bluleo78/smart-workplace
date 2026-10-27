@@ -7,11 +7,11 @@ import { act, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 import { testAuthValue } from '@/test/renderWithProviders'
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
 import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
-import { record, renderMail } from './testkit-b4'
 
 afterEach(() => {
   vi.restoreAllMocks()

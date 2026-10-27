@@ -9,12 +9,12 @@ import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
 import { MailComposeProvider } from '@/components/mail/MailComposeContext'
 import { MailComposeDock } from '@/components/mail/MailComposeDock'
 import { MailModuleLayout } from '@/components/mail/MailModuleLayout'
+import { MailInboxPage } from '@/pages/mail/MailInboxPage'
 import { renderScreen } from '@/test/renderScreen'
 import type { MailAccountResponse } from '@/types/mailAccount'
 import type { EmailMessageSummary } from '@/types/mailMessage'
 
-import { mailAccount } from '../../../e2e/factories/mail.factory'
-import { MailInboxPage } from './MailInboxPage'
+import { mailAccount } from '../../../../e2e/factories/mail.factory'
 
 const API = '/api/v1'
 

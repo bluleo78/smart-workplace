@@ -15,10 +15,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { setAccessToken } from '@/api/client'
 import { useEventStream } from '@/hooks/useEventStream'
 import { CalendarPage } from '@/pages/calendar/CalendarPage'
+import { dueIssue, fixClock, renderCalendar } from '@/test/kits/calendar/calendarPageKit'
 import { controllableEvents, resourceChangedFrame } from '@/test/kits/projects/issueDetailEvents'
 
 import { calendar, calendarEvent, recurringCalendarEvent } from '../../../e2e/factories/calendar.factory'
-import { dueIssue, fixClock, renderCalendar } from './calendarPageKit'
 
 fixClock()
 

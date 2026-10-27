@@ -5,9 +5,8 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
+import { card, cardById, catalog, layout, order, renderDashboard } from '@/test/kits/home/dashboardKit-b1'
 import type { DashboardWidgetConfig } from '@/types/dashboard'
-
-import { card, cardById, catalog, layout, order, renderDashboard } from './dashboardKit-b1'
 
 afterEach(() => {
   vi.useRealTimers()

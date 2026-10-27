@@ -7,10 +7,10 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { API, chatEvents, renderChat } from '@/test/kits/chat/testkit-b5'
 import type { ChannelCatchupResponse, ChannelResponse, MessageResponse } from '@/types/messaging'
 
 import { createChannel, createDm, createMessage } from '../../../e2e/factories/messaging.factory'
-import { API, chatEvents, renderChat } from './testkit-b5'
 
 const CHANNEL_ID = 1
 const DM_ID = 100

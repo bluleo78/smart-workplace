@@ -11,11 +11,11 @@ import { describe, expect, test } from 'vitest'
 
 import { ChatModuleLayout } from '@/components/chat/ChatModuleLayout'
 import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
+import { API, chatBaseHandlers, chatEvents, renderChat } from '@/test/kits/chat/testkit-b5'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import { renderScreen } from '@/test/renderScreen'
 
 import { createChannel, createChannelMember, createDm, createMessage } from '../../../e2e/factories/messaging.factory'
-import { API, chatBaseHandlers, chatEvents, renderChat } from './testkit-b5'
 
 const AGENT_ID = 99
 const agentHandlers = [

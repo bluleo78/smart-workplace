@@ -11,7 +11,7 @@ import { DrivePage } from '@/pages/drive/DrivePage'
 import { renderScreen } from '@/test/renderScreen'
 import type { DriveFile, DriveFolder, DriveSpace } from '@/types/drive'
 
-import { createSpace, personalSpace } from '../../../e2e/factories/drive.factory'
+import { createSpace, personalSpace } from '../../../../e2e/factories/drive.factory'
 
 export const API = '/api/v1/drive'
 

@@ -6,7 +6,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { ADMIN, record, type Recorded, renderContacts } from '@/pages/contacts/testkit-b8'
+import { ADMIN, record, type Recorded, renderContacts } from '@/test/kits/contacts/testkit-b8'
 import { mockViewport } from '@/test/viewport'
 
 import { page as makePage } from '../../../e2e/factories/contacts.factory'
