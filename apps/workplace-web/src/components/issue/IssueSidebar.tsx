@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useAllProjects } from '@/hooks/queries/useProjects'
 import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
-import { queriesEqualIgnoringView, savedViewQueryToParams } from '@/lib/savedViewQuery'
+import { queriesEqualIgnoringView, type SavedViewLinkState, savedViewQueryToParams } from '@/lib/savedViewQuery'
 import { cn } from '@/lib/utils'
 
 /** compact 에서 아이콘을 칸 가운데에 두는 클래스 — 링크·제목 헤더가 함께 쓴다. */
@@ -50,6 +50,7 @@ function SidebarItem({
   tip,
   trailing,
   active,
+  state,
   testId,
 }: {
   compact: boolean
@@ -60,6 +61,8 @@ function SidebarItem({
   tip?: string
   trailing?: string
   active?: boolean
+  /** 링크 이동에 실어 보낼 history state — 고정 뷰는 연 뷰 id 를 넘긴다(SavedViewLinkState, WP-1022). */
+  state?: unknown
   testId?: string
 }) {
   const classFor = (isActive: boolean) => cn(sidebarLinkClass({ isActive }), compact && COMPACT_CENTER)
@@ -77,7 +80,7 @@ function SidebarItem({
           {content}
         </SidebarNavLink>
       ) : (
-        <Link to={to} data-testid={testId} className={classFor(active)} aria-current={active ? 'page' : undefined}>
+        <Link to={to} state={state} data-testid={testId} className={classFor(active)} aria-current={active ? 'page' : undefined}>
           {content}
         </Link>
       )}
@@ -180,6 +183,8 @@ export function IssueSidebar({ compact = false }: { compact?: boolean }) {
                 compact={compact}
                 // group 없는 (사이클 그룹 도입 전) 저장 뷰는 group=none 을 붙여 예전처럼 평면 목록으로 연다(#878).
                 to={`/projects/${v.projectKey}?${savedViewQueryToParams(v.query).toString()}`}
+                // 연 뷰를 「고른 뷰」로 — 주소만으로는 칩을 누른 것과 구분되지 않아, 이슈 화면에 있을 때 누르면 고른 뷰로 잡히지 않았다(WP-1022).
+                state={{ savedViewId: v.id } satisfies SavedViewLinkState}
                 testId={`pinned-view-${v.id}`}
                 active={
                   location.pathname === `/projects/${v.projectKey}` &&

@@ -72,6 +72,33 @@ export function normalizeIssueQueryIgnoringViewAndGroup(query: string): string {
   return filtersToParams(parseFilters(params), 'list', null).toString();
 }
 
+/** 쿼리에 필터가 하나도 없는가(view·group·cols 만) — 「전체」 판정, 필터 없는 저장 뷰 판정(WP-1022). */
+export function queryHasNoFilters(query: string): boolean {
+  return normalizeIssueQueryIgnoringViewAndGroup(query) === '';
+}
+
+/**
+ * 필터 없는 저장 뷰가 주소만 보고 저절로 켜져도 되는가 — 그룹(없음 아님)이나 열 구성을 담았을 때만(WP-1022).
+ * 보드 전용·그룹 없음 뷰(#599)는 「전체」에서 그룹 「없음」만 골라도 같아져 저절로 켜지면 안 된다. 그런 뷰는 칩을 눌러 고른 동안만 켜진다.
+ */
+export function savedViewShowsDisplayChoice(query: string): boolean {
+  return savedGroup(new URLSearchParams(query)) !== 'none' || savedViewHasColumns(query);
+}
+
+/**
+ * 저장 뷰를 링크로 열 때 함께 넘기는 history state(WP-1022) — 사이드바 고정 뷰처럼 주소만 바꾸는 링크도
+ * 칩을 누른 것과 같이 그 뷰를 「고른 뷰」로 잡게 한다. 주소만으로는 우연히 같아진 화면과 구분되지 않는다.
+ */
+export interface SavedViewLinkState {
+  savedViewId: number;
+}
+
+/** location.state 에서 연 저장 뷰 id 를 꺼낸다 — 다른 모양이면 null. */
+export function linkedSavedViewId(state: unknown): number | null {
+  const id = (state as Partial<SavedViewLinkState> | null)?.savedViewId;
+  return typeof id === 'number' ? id : null;
+}
+
 // ─── 열을 담은 저장 뷰(WP-270) ───────────────────────────────────────────────
 // 저장된 뷰는 저장 창에서 「현재 열 구성도 함께 저장」을 켰을 때만 cols 를 담는다(사용자 결정, 스펙 4.7).
 // 담은 뷰는 연 사람 모두 그 열로 보고 열만 바꿔도 「수정됨」이 된다. 안 담은 뷰는 각자 개인 열로 보고 열은 비교하지 않는다.

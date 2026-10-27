@@ -1,6 +1,6 @@
 // 모바일 「뷰 ▾」 시트(WP-194) — 저장된 뷰 목록 + 「완료 모두 보기」 + 「현재 조건으로 뷰 저장/업데이트」.
 // 뷰 상태·dirty 판정은 데스크톱 ViewChipBar 와 같은 useSavedViewState 를 쓴다. 뷰 수정·삭제·고정은 데스크톱 전용.
-import { Check, Plus, RefreshCw, Star, Users } from 'lucide-react';
+import { Check, Plus, RefreshCw, Star, Undo2, Users } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 
 import { MOBILE_SHEET_ROW as ROW, MobileSheetShell } from '@/components/mobile/MobileSheetShell';
@@ -126,6 +126,16 @@ export function MobileViewSheet({
               )}
               <button type="button" data-testid="mobile-view-save" onClick={openSave} className={ROW}>
                 새 뷰로 저장
+              </button>
+              {/* 되돌리기 — 고친 조건을 버리고 저장된 뷰로 다시 연다(그 뷰를 다시 고른 것과 같다, WP-1022). */}
+              <button
+                type="button"
+                data-testid="mobile-view-revert"
+                onClick={() => pick(() => saved.apply(activeView))}
+                className={ROW}
+              >
+                <Undo2 aria-hidden="true" />
+                되돌리기
               </button>
             </>
           ) : (
