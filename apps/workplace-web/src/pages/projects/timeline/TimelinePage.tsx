@@ -5,13 +5,15 @@ import { ArrowLeft, Diamond } from 'lucide-react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { Page } from '@/components/layout/Page';
+import { Page, pageGutterClass } from '@/components/layout/Page';
+import { RemainingPagesError } from '@/components/RemainingPagesError';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { TOGGLE_ON_CLASS } from '@/lib/selectionStyles';
+import { cn } from '@/lib/utils';
 
-import { useFetchAllPages } from '../../../hooks/queries/useFetchAllPages';
+import { remainingPagesFailed, useFetchAllPages } from '../../../hooks/queries/useFetchAllPages';
 import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
 import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProject } from '../../../hooks/queries/useProjects';
@@ -72,6 +74,8 @@ export default function TimelinePage() {
 
   // 이슈 전량이 필요한 화면이라 남은 페이지를 끝까지 차례로 받는다(WP-996 — 빠른 응답에도 멈추지 않는다).
   useFetchAllPages(search);
+  // 다음 페이지가 실패하면 자동 로드가 멈춰 받은 이슈만 그려진다 — 본문 위에 안내·다시 시도를 둔다(WP-1007).
+  const nextPageFailed = remainingPagesFailed(search);
 
   const issues = useMemo(() => (search.data?.pages ?? []).flatMap((p) => p.items), [search.data]);
   // 모바일 = 아젠다(WP-197), 데스크톱 = 간트 본문(TimelineGanttBody) — 간트 전용 조회·계산은 그 본문 안에서만 돈다.
@@ -95,7 +99,8 @@ export default function TimelinePage() {
   );
 
   // 첫 로드·자동 다음 페이지 페치 중 — 간트·아젠다 모두 이 동안 빈 상태를 띄우지 않는다.
-  const issuesLoading = search.isLoading || search.isFetchingNextPage || search.hasNextPage === true;
+  // 실패해 멈췄으면 더는 불러오는 중이 아니다 — 계속 로딩으로 두면 빈 상태 안내가 영영 가려진다.
+  const issuesLoading = search.isLoading || search.isFetchingNextPage || (search.hasNextPage === true && !nextPageFailed);
   // 처음 열 때 한 번 오늘·조회 기간 쪽으로 스크롤한다(WP-486) — 간트는 가장 이른 막대부터 그려져 좁은 폭(1024)에선
   // 오늘선·사이클 구간이 화면 밖이었다. 기간(사이클)이 풀리고 이슈를 다 받은 뒤에만 정한다. 렌더 중 상태 조정(effect 아님).
   if (scrollRequest === undefined && periodCtl.ready && !issuesLoading) {
@@ -182,6 +187,14 @@ export default function TimelinePage() {
       />
       {/* 본문은 자체 레이아웃(padded=false) — 간트는 필터 줄·간트·일정 미정 섹션이 각자 pageGutterClass 로 헤더 축에 맞춘다. */}
       <Page.Body padded={false} className="flex-col overflow-hidden" data-testid="timeline-body">
+        {nextPageFailed && (
+          <RemainingPagesError
+            message="나머지 이슈를 불러오지 못했습니다. 일부 이슈만 보입니다."
+            onRetry={() => void search.fetchNextPage()}
+            className={cn('shrink-0 border-b py-2 pointer-coarse:text-sm', pageGutterClass)}
+            data-testid="timeline-load-error"
+          />
+        )}
         {/* 간트·아젠다(필터 바·필터 시트 포함)는 상태 목록을 받은 뒤에만 그린다(WP-938) — 받기 전에 그리면 「상태」 facet 이 비고
             취소 범주 판단이 빈 목록으로 돌았다. 목록·보드(WP-870)와 같은 관문 — 받기 전엔 로딩, 실패면 다시 시도. 헤더는 관문 밖. */}
         <ProjectStatusesGate

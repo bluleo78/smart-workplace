@@ -123,6 +123,8 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
               onSelect={(n) => select({ kind: 'epic', number: n })}
               onOpenDetail={(n) => navigate(`/projects/${projectKey}/issues/${n}`)}
               close={close}
+              loadError={closed.loadError}
+              onRetry={closed.retry}
             />
           );
         }}

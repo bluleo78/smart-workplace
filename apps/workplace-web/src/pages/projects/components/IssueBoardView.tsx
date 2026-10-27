@@ -8,6 +8,7 @@ import { CircleCheckBig, Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { RemainingPagesError } from '@/components/RemainingPagesError';
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -186,12 +187,7 @@ function IssueBoardViewInner({
         </p>
       )}
       {groupNextError && (
-        <p className={cn('text-xs text-destructive', spacing)} data-testid="board-load-error">
-          나머지 이슈를 불러오지 못했습니다.{' '}
-          <button type="button" className="underline" onClick={() => void fetchNextPage()}>
-            다시 시도
-          </button>
-        </p>
+        <RemainingPagesError message="나머지 이슈를 불러오지 못했습니다." onRetry={() => void fetchNextPage()} className={spacing} data-testid="board-load-error" />
       )}
     </>
   );
