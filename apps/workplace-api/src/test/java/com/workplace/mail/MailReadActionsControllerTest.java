@@ -253,7 +253,8 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
     long[] box = TestFixtures.seedMailbox(dsl, "ra7-" + System.nanoTime() + "@test.local");
     long a = fetched(box[1], box[2], "업무", false);
     long b = fetched(box[1], box[2], "업무", false);
-    String asOf = OffsetDateTime.now().plusMinutes(5).toString();
+    // asOf 는 DB 적재 시각(created_at, DB now())과 견주므로 DB 시계(dbNow)로 둔다 — 앱 시계면 시계 차이(부하 시 VM 지연)에 뒤집힌다.
+    String asOf = dbNow().toString();
 
     mvc.perform(
             post("/api/v1/mail/accounts/{a}/messages/mark-all-read", box[1])

@@ -51,6 +51,14 @@ public class WikiRevisionRepository {
         > 0;
   }
 
+  /**
+   * 버전 기록 시간 규칙의 「지금」 — DB 시계(now()). 규칙이 견주는 시각(리비전 적재 created_at, 꺼진 경로의 wiki_page.updated_at)이
+   * DB 시계로 찍히므로 같은 시계로 재야 API·DB 서버 시계 차이만큼 5분·30분 경계가 밀리지 않는다.
+   */
+  public OffsetDateTime dbNow() {
+    return dsl.select(org.jooq.impl.DSL.currentOffsetDateTime()).fetchOne(0, OffsetDateTime.class);
+  }
+
   /** 페이지의 가장 최근 리비전 적재 시각. 리비전이 없으면 empty. */
   public Optional<OffsetDateTime> latestCreatedAt(long pageId) {
     return dsl.select(org.jooq.impl.DSL.max(WIKI_REVISION.CREATED_AT))

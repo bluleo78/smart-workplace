@@ -9,6 +9,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -37,8 +38,18 @@ public class WikiBodyHistoryRepository {
 
   private final DSLContext dsl;
 
-  /** 기준본 한 행. submittedBody 는 읽기만 기록된 판이면 null. */
-  public record BaseRow(String body, String submittedBody, OffsetDateTime readAt) {}
+  /**
+   * 기준본 한 행. submittedBody 는 읽기만 기록된 판이면 null. fresh = {@link #TTL} 안에 읽은 판인지 — read_at 이 DB now()
+   * 로 찍히므로 조회하면서 DB 시계로 판정한다(앱 시계와 견주면 시계 차이만큼 만료 경계가 밀린다, WP-1033).
+   */
+  public record BaseRow(String body, String submittedBody, OffsetDateTime readAt, boolean fresh) {}
+
+  /** DB 시계 기준 「지금 − d」 — read_at 과 같은 시계(now())로 경계를 잡는다(WP-1033). */
+  private static Field<OffsetDateTime> dbNowMinus(Duration d) {
+    return DSL.field(
+        "now() - make_interval(secs => {0})",
+        OffsetDateTime.class, DSL.val((double) d.toSeconds()));
+  }
 
   /**
    * 직전 갱신이 {@link #REFRESH_THROTTLE} 보다 오래됐다 — 다시 읽기·위임 저장 기록이 이미 있는 행의 read_at 을 갱신하는 조건(UPSERT 의
@@ -46,7 +57,8 @@ public class WikiBodyHistoryRepository {
    * 패키지 공개.
    */
   static Condition readAtStale() {
-    return WIKI_PAGE_BODY_HISTORY.READ_AT.lt(OffsetDateTime.now().minus(REFRESH_THROTTLE));
+    // read_at 은 DB now() 로 찍히므로 경계도 DB 시계로 — 앱 시계면 DB 시계가 1분만 늦어도 방금 기록한 행이 「오래됨」으로 보인다.
+    return WIKI_PAGE_BODY_HISTORY.READ_AT.lt(dbNowMinus(REFRESH_THROTTLE));
   }
 
   /**
@@ -88,7 +100,8 @@ public class WikiBodyHistoryRepository {
     return dsl.select(
             WIKI_PAGE_BODY_HISTORY.BODY,
             WIKI_PAGE_BODY_HISTORY.SUBMITTED_BODY,
-            WIKI_PAGE_BODY_HISTORY.READ_AT)
+            WIKI_PAGE_BODY_HISTORY.READ_AT,
+            DSL.field(WIKI_PAGE_BODY_HISTORY.READ_AT.gt(dbNowMinus(TTL))))
         .from(WIKI_PAGE_BODY_HISTORY)
         .where(
             WIKI_PAGE_BODY_HISTORY
@@ -100,14 +113,15 @@ public class WikiBodyHistoryRepository {
                 new BaseRow(
                     r.get(WIKI_PAGE_BODY_HISTORY.BODY),
                     r.get(WIKI_PAGE_BODY_HISTORY.SUBMITTED_BODY),
-                    r.get(WIKI_PAGE_BODY_HISTORY.READ_AT)));
+                    r.get(WIKI_PAGE_BODY_HISTORY.READ_AT),
+                    Boolean.TRUE.equals(r.get(3, Boolean.class))));
   }
 
   /** 현재 테넌트의 만료 행 삭제 — 단 페이지의 현재 version 행은 남긴다. 삭제 수. */
   public int deleteExpired(Duration ttl) {
-    OffsetDateTime cutoff = OffsetDateTime.now().minus(ttl);
+    // read_at 과 같은 DB 시계로 자른다(WP-1033).
     return dsl.deleteFrom(WIKI_PAGE_BODY_HISTORY)
-        .where(WIKI_PAGE_BODY_HISTORY.READ_AT.lt(cutoff))
+        .where(WIKI_PAGE_BODY_HISTORY.READ_AT.lt(dbNowMinus(ttl)))
         .andNotExists(
             dsl.selectOne()
                 .from(WIKI_PAGE)

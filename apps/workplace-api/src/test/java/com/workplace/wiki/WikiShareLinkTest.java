@@ -584,8 +584,9 @@ class WikiShareLinkTest extends IntegrationTestBase {
     call(delete(sharePath(rootId)), ownerId).andExpect(status().isNoContent());
     String again = savePeople(rootId, "PEOPLE", "VIEW", false, List.of(listedId));
     // 한 테스트 트랜잭션 안이라 DB now()(만든 시각)가 고정된다 — 거절보다 뒤에 만든 공유로 시각을 옮겨 「새 공유」를 만든다.
+    // 거절·요청 시각과 같은 DB 시계(clock_timestamp)로 옮긴다 — 앱 시계면 시계 차이만큼 순서가 뒤집힐 수 있다.
     dsl.update(WIKI_PAGE_SHARE)
-        .set(WIKI_PAGE_SHARE.CREATED_AT, OffsetDateTime.now().plusMinutes(1))
+        .set(WIKI_PAGE_SHARE.CREATED_AT, DSL.field("clock_timestamp()", OffsetDateTime.class))
         .where(WIKI_PAGE_SHARE.PAGE_ID.eq(rootId))
         .execute();
 

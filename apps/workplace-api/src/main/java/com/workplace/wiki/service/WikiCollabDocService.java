@@ -90,7 +90,9 @@ public class WikiCollabDocService {
     }
     // 버전 기록 스냅샷(스펙 §6.1, 판정 R1): AI·복원 적용은 항상, 사람 편집은 5분 넘게 조용했다가 다시 시작될 때와 연속 편집 30분마다.
     // 스냅샷은 "바뀌기 직전" 판 — 그 판을 만든 편집자(마지막 스냅샷 이후 누적)를 함께 남기고 누적을 이번 저장 편집자로 다시 시작한다.
-    OffsetDateTime now = OffsetDateTime.now();
+    // 판정 시각은 DB 시계 — 견주는 리비전 적재 시각(created_at 기본값)이 DB now() 라 앱 시계와 섞으면 시계 차이만큼 경계가 밀린다.
+    // 이 값을 body_changed_at 으로도 남겨 다음 판정이 같은 시계끼리 비교하게 한다.
+    OffsetDateTime now = revisions.dbNow();
     WikiPageDocRepository.RevisionBasis basis = docs.revisionBasis(pageId);
     RevisionReason reason =
         req.snapshot()

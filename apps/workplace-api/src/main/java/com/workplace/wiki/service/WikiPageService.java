@@ -320,8 +320,8 @@ public class WikiPageService {
       throw WikiBaseExpiredException.newerThanCurrent(pageId, version, current.version());
     }
     Optional<WikiBodyHistoryRepository.BaseRow> row = bodies.find(pageId, version);
-    OffsetDateTime cutoff = OffsetDateTime.now().minus(WikiBodyHistoryRepository.TTL);
-    if (row.isPresent() && (isCurrent || row.get().readAt().isAfter(cutoff))) {
+    // 1시간 만료는 조회에서 DB 시계로 판정한 fresh 로 본다 — read_at 이 DB now() 로 찍혀 앱 시계와 견주면 시계 차이만큼 밀린다(WP-1033).
+    if (row.isPresent() && (isCurrent || row.get().fresh())) {
       return new MergeBase(row.get().body(), row.get().submittedBody());
     }
     if (isCurrent) {
@@ -431,8 +431,10 @@ public class WikiPageService {
     RevisionReason reason =
         forcedReason != null
             ? forcedReason
+            // 기준 시각 updated_at·리비전 created_at 모두 DB now() 로 찍히므로 판정도 DB 시계로 잰다(앱 시계면 시계 차이만큼 5분 경계가
+            // 밀린다).
             : WikiCollabDocService.timedReason(
-                OffsetDateTime.now(),
+                revisions.dbNow(),
                 current.updatedAt(),
                 () -> revisions.latestCreatedAt(current.id()));
     if (reason != null) {
