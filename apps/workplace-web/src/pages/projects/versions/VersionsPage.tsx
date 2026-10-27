@@ -12,12 +12,12 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { cn } from '@/lib/utils';
 
 import { useVersions } from '../../../hooks/queries/useVersions';
+import { useCanManageProject } from '../../../hooks/useCanManageProject';
 import { EMPTY_GLYPH, kstDateKey } from '../../../lib/formatters';
 import { versionDateText, versionDueState } from '../../../lib/versions';
 import type { VersionResponse } from '../../../types/version';
 import { ProjectUnavailableState } from '../components/ProjectUnavailableState';
 import { useVersionActions } from './useVersionActions';
-import { useVersionPermissions } from './useVersionPermissions';
 import { VersionDeleteDialog } from './VersionDeleteDialog';
 import { VersionFormDialog } from './VersionFormDialog';
 import { VersionProgressBar } from './VersionProgressBar';
@@ -31,7 +31,7 @@ export default function VersionsPage() {
   const { key = '' } = useParams();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const { project, canManage } = useVersionPermissions(key);
+  const { project, canManage } = useCanManageProject(key);
   const versions = useVersions(key);
   const actions = useVersionActions(key);
   useDocumentTitle(['버전', project.data?.name]);

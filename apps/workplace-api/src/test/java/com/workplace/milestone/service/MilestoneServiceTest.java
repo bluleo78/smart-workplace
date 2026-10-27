@@ -16,6 +16,7 @@ import com.workplace.milestone.exception.MilestoneNameDuplicatedException;
 import com.workplace.milestone.exception.MilestoneNotFoundException;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
+import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
@@ -28,7 +29,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
-/** MilestoneService 통합 테스트 — 멤버 가드, 이름 중복/프로젝트 격리, 이슈 milestone_id ON DELETE SET NULL, RLS 격리. */
+/**
+ * MilestoneService 통합 테스트 — OWNER 가드(WP-1008), 이름 중복/프로젝트 격리, 이슈 milestone_id ON DELETE SET NULL,
+ * RLS 격리.
+ */
 @Transactional
 class MilestoneServiceTest extends IntegrationTestBase {
 
@@ -69,7 +73,7 @@ class MilestoneServiceTest extends IntegrationTestBase {
   }
 
   @Test
-  void member_can_create_and_list_milestone() {
+  void owner_can_create_and_list_milestone() {
     Long owner = createUser("o");
     ProjectResponse p = newProject(owner, "MA");
 
@@ -114,6 +118,23 @@ class MilestoneServiceTest extends IntegrationTestBase {
 
     assertThatThrownBy(() -> milestoneService.create(stranger, p.key(), req("스프린트")))
         .isInstanceOf(ProjectNotFoundException.class);
+  }
+
+  /** WP-1008 — OWNER 가 아닌 멤버는 만들기·수정·삭제가 모두 거부된다(버전·사이클과 같은 규칙). */
+  @Test
+  void non_owner_member_cannot_create_update_or_delete() {
+    Long owner = createUser("o3m");
+    Long member = createUser("m3m");
+    ProjectResponse p = newProject(owner, "MCM");
+    memberRepository.insert(p.id(), member, "MEMBER");
+    var created = milestoneService.create(owner, p.key(), req("대상"));
+
+    assertThatThrownBy(() -> milestoneService.create(member, p.key(), req("멤버 것")))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThatThrownBy(() -> milestoneService.update(member, p.key(), created.id(), req("수정")))
+        .isInstanceOf(ProjectAccessDeniedException.class);
+    assertThatThrownBy(() -> milestoneService.delete(member, p.key(), created.id()))
+        .isInstanceOf(ProjectAccessDeniedException.class);
   }
 
   @Test

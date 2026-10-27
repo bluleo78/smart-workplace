@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 import type { CycleProgress, CycleResponse } from '../../../src/types/cycle';
 import { createIssueSearchResponse } from '../../factories/issue.factory';
 import { systemTypes } from '../../factories/issueType.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
 import { trackRequests } from '../../fixtures/requests';
@@ -36,7 +36,9 @@ async function setup(page: Page) {
   // 행 탭 후 도착하는 프로젝트 상세의 최소 스텁 — 미스텁 요청이 프록시로 새지 않게.
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/issues`, (r) => r.fulfill(json(createIssueSearchResponse([], null))));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/types`, (r) => r.fulfill(json(systemTypes())));
-  await page.route((u) => [`/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`, `/api/v1/projects/${KEY}/milestones`, `/api/v1/projects/${KEY}/saved-views`].includes(u.pathname), (r) => r.fulfill(json([])));
+  // 사이클 수정·삭제는 프로젝트 OWNER 만 보인다(WP-1008) — 로그인 사용자(id 1)를 OWNER 로 둔다.
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/members`, (r) => r.fulfill(json([createMember({ userId: 1, role: 'OWNER' })])));
+  await page.route((u) => [`/api/v1/projects/${KEY}/labels`, `/api/v1/projects/${KEY}/milestones`, `/api/v1/projects/${KEY}/saved-views`].includes(u.pathname), (r) => r.fulfill(json([])));
   await page.goto(`/projects/${KEY}/cycles`);
   await expect(page.getByTestId('cycle-row-1')).toBeVisible();
   return { deletes };

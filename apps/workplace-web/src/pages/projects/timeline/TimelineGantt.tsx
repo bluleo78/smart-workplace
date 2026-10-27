@@ -70,6 +70,8 @@ export interface TimelineGanttProps {
   zoom: TimelineZoom
   /** 비멤버 조회 전용 모드 — 드래그/리사이즈/링크 편집 전면 비활성 */
   readOnly: boolean
+  /** 마일스톤 추가·수정·삭제 가능 여부(WP-1008 — 프로젝트 OWNER·ADMIN) — 아니면 레인 클릭(생성)·칩 클릭(편집 팝오버)을 막는다. */
+  canEditMilestones: boolean
   /** [오늘] 버튼 등에서 특정 날짜로 스크롤 이동 — 요청마다 새 객체(seq)라 같은 날짜를 다시 눌러도 스크롤한다(WP-938). */
   scrollRequest?: TimelineScrollRequest
   /** 조회 기간(WP-595) — 간트 축을 이 기간 앞뒤로 자르는 기준. null/없음이면 「전체」라 오늘 기준. */
@@ -233,6 +235,7 @@ export function TimelineGantt({
   dependencies,
   zoom,
   readOnly,
+  canEditMilestones,
   scrollRequest,
   period,
   onBarChange,
@@ -706,20 +709,20 @@ export function TimelineGantt({
     return format(new Date(scales.start.getTime() + offsetX * msPerPixel), 'yyyy-MM-dd')
   }
 
-  // 마일스톤 레인 빈곳 클릭 → 생성 다이얼로그(레인 클릭 경로). readOnly 에서는 비활성.
+  // 마일스톤 레인 빈곳 클릭 → 생성 다이얼로그(레인 클릭 경로). 마일스톤 관리 권한이 없으면 비활성.
   const handleLaneClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (readOnly) return
+    if (!canEditMilestones) return
     const date = dateFromClientX(event.clientX)
     if (date) onLaneClick(date, (event.target as HTMLElement).getBoundingClientRect())
   }
 
   // 눈금 빈 레인 클릭(인라인 생성) 은 SVAR 액션에 대응 항목이 없어(스파이크 노트 확인)
   // 스크롤 컨테이너(`.wx-chart`, 스파이크 노트의 셀렉터)에 네이티브 클릭 리스너를 붙여
-  // 클릭 좌표 → 날짜를 직접 계산한다. readOnly 에서는 인라인 생성을 막는다.
+  // 클릭 좌표 → 날짜를 직접 계산한다. 마일스톤 관리 권한이 없으면 인라인 생성을 막는다.
   useEffect(() => {
     const container = containerRef.current
     const api = apiRef.current
-    if (!container || !api || readOnly) return
+    if (!container || !api || !canEditMilestones) return
     const scroller = container.querySelector<HTMLElement>('.wx-chart')
     if (!scroller) return
     const handleClick = (event: MouseEvent) => {
@@ -730,7 +733,7 @@ export function TimelineGantt({
     }
     scroller.addEventListener('click', handleClick)
     return () => scroller.removeEventListener('click', handleClick)
-  }, [onLaneClick, readOnly])
+  }, [onLaneClick, canEditMilestones])
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -759,10 +762,11 @@ export function TimelineGantt({
               else milestoneChipRefs.current.delete(m.id)
             }}
             data-testid={`milestone-chip-${m.id}`}
+            // 관리 권한이 없으면 누를 것이 없는 버튼으로 남기지 않는다 — 포커스·스크린리더에서 빠지게 비활성(WP-1008).
+            disabled={!canEditMilestones}
             className="bg-primary text-primary-foreground absolute top-1 flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs font-medium"
             onClick={(e) => {
               e.stopPropagation() // 레인 빈곳 클릭(생성)과 분리 — 칩 클릭은 편집 팝오버만 연다.
-              if (readOnly) return // readOnly 에서는 칩 클릭도 편집 팝오버를 열지 않는다.
               onMilestoneClick(m.id, e.currentTarget.getBoundingClientRect())
             }}
           >

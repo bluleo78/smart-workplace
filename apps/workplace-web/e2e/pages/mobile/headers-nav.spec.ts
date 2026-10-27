@@ -6,7 +6,7 @@ import { external, externalDetail, member, memberDetail, page as makeContactPage
 import { detail as mailDetail, mailAccount, summary as mailSummary } from '../../factories/mail.factory'
 import { createIssue, createIssueDetail } from '../../factories/issue.factory'
 import { createChannel } from '../../factories/messaging.factory'
-import { createProject } from '../../factories/project.factory'
+import { createMember, createProject } from '../../factories/project.factory'
 import { mockApi } from '../../fixtures/api-mock'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import { trackRequests } from '../../fixtures/requests'
@@ -116,6 +116,8 @@ test('프로젝트 하위(사이클) 딥링크: ‹ 는 그 프로젝트로 돌�
   await page.route(`**/api/v1/projects/${KEY}`, (r) => r.fulfill({ json: createProject() }))
   await page.route(`**/api/v1/projects/${KEY}/cycles`, (r) => r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fallback())
   await page.route(`**/api/v1/projects/${KEY}/cycles/progress`, (r) => r.fulfill({ json: [] }))
+  // 「새 사이클」은 프로젝트 OWNER 만 보인다(WP-1008).
+  await page.route(`**/api/v1/projects/${KEY}/members`, (r) => r.fulfill({ json: [createMember({ userId: 1, role: 'OWNER' })] }))
   await page.goto(`/projects/${KEY}/cycles`)
   await expectSingleMergedHeader(page, 'page-header')
   // 병합 헤더에선 페이지 icon(←) 을 그리지 않아 뒤로가기가 두 개가 되지 않는다.

@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 
@@ -48,6 +48,12 @@ function setupStubs(
       if (route.request().method() !== 'GET') return route.fallback();
       const cycles: CycleResponse[] = [];
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(cycles) });
+    }),
+    // 마일스톤 편집은 프로젝트 OWNER 만(WP-1008) — 멤버로 보는 기본 시나리오는 로그인 사용자(id 1)를 OWNER 로 둔다.
+    page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      const members = viewerIsMember ? [createMember({ userId: 1, role: 'OWNER' })] : [];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(members) });
     }),
     page.route(`**/api/v1/projects/${KEY}/milestones`, (route) => {
       if (route.request().method() !== 'GET') return route.fallback();
@@ -380,10 +386,11 @@ test('readOnly(비멤버) — 칩 편집·레인 클릭 생성이 비활성', as
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('readOnly(비멤버) — 마일스톤 칩 클릭 시 편집 팝오버가 열리지 않는다', async ({ authenticatedPage: page }) => {
+test('readOnly(비멤버) — 마일스톤 칩이 비활성이라 편집 팝오버가 열리지 않는다', async ({ authenticatedPage: page }) => {
   await setupStubs(page, { viewerIsMember: false });
   await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await page.getByTestId('milestone-chip-1').click();
+  // 관리 권한이 없으면 칩은 비활성 버튼이다(WP-1008) — 누를 수 없어 팝오버가 뜨지 않는다.
+  await expect(page.getByTestId('milestone-chip-1')).toBeDisabled();
   const popover = page.getByRole('dialog').or(page.getByTestId('milestone-edit-popover'));
   await expect(popover).toHaveCount(0);
 });

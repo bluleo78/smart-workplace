@@ -50,8 +50,9 @@ public class TenantProvisioningService {
   /**
    * AGENT 역할(개인 비서 기본 역할)에 부여할 permission code — USER 의 업무 권한에서 관리성 권한({@code project:manage} 프로젝트
    * 삭제·멤버관리·스키마변경, {@code milestone:manage})을 뺀 집합 (#278) + 구성원 디렉터리 조회 {@code member:read} (#833).
-   * 업무별 에이전트는 관리자가 별도 역할을 부여한다. AI 에게 주는 권한이라 USER 에서 파생하지 않고 명시 목록으로 둔다 — USER 에 권한이 늘어도 AGENT 로
-   * 자동 전파되지 않게 하기 위함.
+   * {@code cycle:manage}·{@code milestone:manage} 는 WP-1008 부터 어느 엔드포인트도 검사하지 않는다(마일스톤·사이클 변경은 버전처럼
+   * {@code project:manage} + 프로젝트 OWNER) — 롤링 배포 호환을 위해 시드에는 남기고 정리는 다음 배포에서 한다. 업무별 에이전트는 관리자가 별도
+   * 역할을 부여한다. AI 에게 주는 권한이라 USER 에서 파생하지 않고 명시 목록으로 둔다 — USER 에 권한이 늘어도 AGENT 로 자동 전파되지 않게 하기 위함.
    *
    * <p>{@code member:read} 는 AI 가 사람 이름으로 구성원을 찾아 userId 를 확정하는 경로(search_members)에 필요하다. 이것이 없으면
    * 연락처 목록이 유일한 사람 검색 경로가 되어 연락처 id 를 userId 로 오용하게 된다. 조회 전용이며, 역할변경·활성토글은 확인 카드가 사람의 권한으로 실행하므로
