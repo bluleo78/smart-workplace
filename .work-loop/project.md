@@ -27,6 +27,8 @@ pnpm --filter @smart-workplace/mcp-tools-shared build   # dist 는 git 무시라
 | `apps/workplace-worker/` | `cd apps/workplace-worker && uv run pytest -q` |
 | `plugins/genia-works/` | `pnpm test:plugin` · mod(`hooks/`)를 바꿨으면 `claude plugin test plugins/genia-works` |
 | `scripts/live-stack.sh` | `sh scripts/live-stack.test.sh` |
+| `scripts/*.mjs` | `pnpm test:scripts` |
+| `.dockerignore`·앱 `tsconfig*.json`·`src/test/` 를 옮기거나 테스트 도우미를 새로 둠 | `pnpm typecheck:image`(.dockerignore 를 뺀 복사본에서 web·admin·collab tsc, 1분 안팎) |
 | 문서(`*.md`·`docs/`)만 | 테스트 없음 |
 
 - JS·TS 를 바꿨으면 `pnpm lint`·`pnpm typecheck` 도 돌린다.
@@ -53,7 +55,7 @@ payload·쿼리·4xx/5xx 메시지·권한/조건부 렌더·유효성·빈/로�
 
 ```sh
 pnpm lint && pnpm typecheck && pnpm test:plugin
-pnpm test:full   # web vitest → web E2E 전체(preview) → admin E2E → api gradle 전체. push 게이트와 같다(10분 이상)
+pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전체(preview) → admin E2E → api gradle 전체. push 게이트와 같다(10분 이상)
 ```
 
 - 통과하면 그 커밋 트리를 「검증 완료」로 기록해, 같은 트리(스쿼시·`--no-ff` 머지 결과가 같을 때)를 push 할 때 pre-push 가 회귀를 다시 돌지 않는다 — 커밋한 상태에서 돌려야 기록된다.
