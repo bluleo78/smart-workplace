@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { MailServerFolder } from '@/types/mailFolder'
 import type { MailUnreadCounts } from '@/types/mailMessage'
 
-import { mailViewHref, resolveMailView, unreadCountForView } from './mailView'
+import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from './mailView'
 
 const p = (q: string) => new URLSearchParams(q)
 /** 서버 메일함 한 개(기본: 열 수 있는 USER 최상위). */
@@ -15,13 +15,13 @@ const mailServerFolder = (o: Partial<MailServerFolder> & { id: number }): MailSe
 describe('resolveMailView', () => {
   it('기본 = 업무(API 에 업무 전달)', () => {
     const v = resolveMailView(p(''), true)
-    expect(v).toMatchObject({ kind: 'work', apiCategory: '업무', activeCategory: '업무', title: '업무', breadcrumb: ['받은편지함', '업무'], unreadToggleVisible: true })
+    expect(v).toMatchObject({ kind: 'work', apiCategory: '업무', activeCategory: '업무', title: '업무', breadcrumb: [{ label: '받은편지함', to: 'all' }, { label: '업무' }], unreadToggleVisible: true })
   })
   it('?category=업무 도 같은 보기(옛 링크 호환)', () => {
     expect(resolveMailView(p('category=업무'), true).kind).toBe('work')
   })
   it('?category=all = 전체(API category 없음)', () => {
-    expect(resolveMailView(p('category=all'), true)).toMatchObject({ kind: 'all', apiCategory: '', activeCategory: null, title: '받은편지함', breadcrumb: ['받은편지함'] })
+    expect(resolveMailView(p('category=all'), true)).toMatchObject({ kind: 'all', apiCategory: '', activeCategory: null, title: '받은편지함', breadcrumb: [{ label: '받은편지함' }] })
   })
   it('개별 분류', () => {
     expect(resolveMailView(p('category=개인'), true)).toMatchObject({ kind: 'category', apiCategory: '개인', activeCategory: '개인', title: '개인' })
@@ -56,7 +56,7 @@ describe('resolveMailView', () => {
   // WP-577 임시보관함 — 앱 서버 임시저장 목록. 분류·안 읽음 토글이 없고, 다른 보기와 key 가 겹치지 않는다.
   it('임시보관함 — 분류·토글 없음, 제목 임시보관함', () => {
     expect(resolveMailView(p('folder=drafts&category=개인&unread=true'), true)).toMatchObject({
-      kind: 'drafts', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '임시보관함', breadcrumb: ['임시보관함'], key: 'drafts',
+      kind: 'drafts', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '임시보관함', breadcrumb: [{ label: '임시보관함' }], key: 'drafts',
     })
     expect(resolveMailView(p('folder=drafts&messageId=55'), true).kind).toBe('drafts')
   })
@@ -100,11 +100,16 @@ describe('서버 메일함 보기', () => {
   it('?box=6 = folder 보기 — 분류·회신필요 없음, 토글 보임, 경로 breadcrumb', () => {
     expect(resolveMailView(p('box=6&category=개인&needsReply=true'), true, { folders })).toMatchObject({
       kind: 'folder', folderId: 6, apiCategory: '', activeCategory: null, unreadToggleVisible: true,
-      title: '견적', breadcrumb: ['내 메일함', '프로젝트', '견적'],
+      // 사이드바 구역 이름 「내 메일함」은 장소가 아니라 경로에 넣지 않는다 — 상위 메일함은 그 메일함으로 가는 링크(WP-979).
+      title: '견적', breadcrumb: [{ label: '프로젝트', to: { folderId: 5 } }, { label: '견적' }],
     })
   })
+  it('열 수 없는 묶음 메일함은 경로에 글자로만 남는다(링크 없음)', () => {
+    const nested = [...folders, mailServerFolder({ id: 8, displayName: '묶음', selectable: false }), mailServerFolder({ id: 9, displayName: '하위', parentId: 8 })]
+    expect(resolveMailView(p('box=9'), true, { folders: nested }).breadcrumb).toEqual([{ label: '묶음' }, { label: '하위' }])
+  })
   it('보관은 서버 이름과 무관하게 「보관」', () => {
-    expect(resolveMailView(p('box=1'), true, { folders })).toMatchObject({ kind: 'folder', title: '보관', breadcrumb: ['보관'] })
+    expect(resolveMailView(p('box=1'), true, { folders })).toMatchObject({ kind: 'folder', title: '보관', breadcrumb: [{ label: '보관' }] })
   })
   it('목록 로딩 전 — 자리표시 제목, key 는 목록과 무관(id 기반)', () => {
     const before = resolveMailView(p('box=6'), true)
@@ -138,5 +143,40 @@ describe('서버 메일함 보기', () => {
     expect(unreadCountForView(resolveMailView(p('box=5'), true), counts, folders)).toBe(0)
     expect(unreadCountForView(resolveMailView(p('box=6'), true), counts, folders)).toBeNull()
     expect(unreadCountForView(resolveMailView(p('box=1'), true), counts)).toBeNull()
+  })
+})
+
+// WP-979 데스크톱 헤더 경로 항목 — 상위 단계는 링크, 검색 중이면 「검색 결과」 모드를 마지막에.
+describe('mailBreadcrumbItems', () => {
+  const folders: MailServerFolder[] = [
+    mailServerFolder({ id: 5, displayName: '프로젝트' }),
+    mailServerFolder({ id: 6, displayName: '견적', parentId: 5 }),
+  ]
+  const items = (q: string, searching: boolean) =>
+    mailBreadcrumbItems(resolveMailView(p(q), true, { folders }), 3, p(q), searching)
+
+  it('메일함 — 상위 메일함은 그 메일함 링크(안 읽음 토글 유지), 현재는 링크 없음', () => {
+    expect(items('box=6&unread=true', false)).toEqual([
+      { key: 0, label: '프로젝트', title: '프로젝트', to: '/mail/3?box=5&unread=true' },
+      { key: 1, label: '견적', title: '견적', to: undefined },
+    ])
+  })
+  it('분류 보기 — 받은편지함은 전체 보기 링크', () => {
+    expect(items('category=개인', false).map((c) => [c.label, c.to])).toEqual([['받은편지함', '/mail/3?category=all'], ['개인', undefined]])
+  })
+  it('검색 중 — 검색한 메일함은 검색어·열린 메일을 지운 그 보기 링크, 마지막은 「검색 결과」', () => {
+    const got = items('box=6&unread=true&q=견적&messageId=9', true)
+    expect(got.map((c) => [c.label, c.to])).toEqual([
+      ['프로젝트', '/mail/3?box=5&unread=true'],
+      ['견적', '/mail/3?box=6&unread=true'],
+      ['검색 결과', undefined],
+    ])
+    expect(got[2].testId).toBe('mail-breadcrumb-search')
+  })
+  it('검색 중 기본 보기 — 쿼리가 없으면 계정 주소로', () => {
+    expect(items('q=a', true).map((c) => c.to)).toEqual(['/mail/3?category=all', '/mail/3', undefined])
+  })
+  it('mailBreadcrumbText — 같은 순서의 한 줄 글자', () => {
+    expect(mailBreadcrumbText(resolveMailView(p('box=6'), true, { folders }))).toBe('프로젝트 › 견적')
   })
 })

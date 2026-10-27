@@ -504,6 +504,10 @@ test('휴지통 — 복원 실패(500) 시 에러 토스트를 표시한다', as
 
 test('드라이브 헤더와 폴더명 breadcrumb', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
   await stubSpaces(page)
+  // 경로 시작점은 공간 이름 — 공간 한 건 조회(GET /drive/spaces/{id})로 받는다.
+  await page.route((url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}`, (route) =>
+    route.request().method() === 'GET' ? route.fulfill({ json: createSpace() }) : route.fallback(),
+  )
   // 항목 목록 — folderId=10 진입 시 빈 목록
   await page.route(
     (url) => url.pathname === `/api/v1/drive/spaces/${SPACE_ID}/items`,
@@ -526,9 +530,9 @@ test('드라이브 헤더와 폴더명 breadcrumb', { tag: '@smoke' }, async ({ 
   const headerTitle = page.getByTestId('page-header').getByRole('heading', { level: 1 })
   await expect(headerTitle).toHaveClass(/\bsr-only\b/)
   await expect(headerTitle).toHaveText(/^드라이브/)
-  // 브레드크럼이 유일한 위치 표시자 — 루트 버튼에 "드라이브" 노출.
-  await expect(page.getByTestId('drive-root')).toBeVisible()
-  await expect(page.getByTestId('drive-root')).toHaveText('드라이브')
+  // 브레드크럼이 유일한 위치 표시자 — 헤더 왼쪽 한 줄, 시작점은 공간 이름(앱 이름 「드라이브」는 넣지 않는다, WP-979 §B-1).
+  await expect(page.getByTestId('page-header').getByTestId('drive-breadcrumb')).toBeVisible()
+  await expect(page.getByTestId('drive-root')).toHaveText('팀 공간')
   await expect(page.getByTestId('drive-crumb-5')).toHaveText('문서')
   await expect(page.getByTestId('drive-crumb-10')).toHaveText('2026')
   await expect(page.getByTestId('drive-new-folder')).toBeVisible()

@@ -162,9 +162,11 @@ test.describe('서버 메일함 보기(WP-961)', () => {
     await expect.poll(() => list.requests.length).toBeGreaterThan(listCalls)
     expect(syncs.count()).toBe(1)
 
-    // 제목 경로·탭 제목, AI 배지 없음, 동기화(계정) 버튼 대신 메일함 새로 고침.
-    const h1 = page.getByTestId('page-header').locator('h1')
-    await expect(h1).toHaveText(/내 메일함\s*›\s*프로젝트\s*›\s*견적/)
+    // 헤더 경로·탭 제목, AI 배지 없음, 동기화(계정) 버튼 대신 메일함 새로 고침.
+    // 경로는 최상위 메일함부터 — 사이드바 구역 이름 「내 메일함」은 넣지 않는다(WP-979 §B-1).
+    // 보이는 줄(첫 ol)만 본다 — 같은 nav 안의 접기 판정용 측정 사본(숨김)이 글자를 한 벌 더 갖는다.
+    await expect(page.getByTestId('mail-breadcrumb').locator('ol').first()).toHaveText(/^프로젝트\s*견적$/)
+    await expect(page.getByTestId('page-header').locator('h1')).toHaveText('견적')
     await expect(page).toHaveTitle(/^견적 · 메일/)
     await expect(page.getByTestId('mail-row-10')).toBeVisible()
     await expect(page.getByTestId('mail-badge-category-10')).toHaveCount(0)
@@ -237,7 +239,8 @@ test.describe('서버 메일함 보기(WP-961)', () => {
     expect(countReq.searchParams.get('folderId')).toBe('5')
     expect(countReq.searchParams.has('category')).toBe(false)
     const dlg = page.getByTestId('mail-mark-all-dialog')
-    await expect(dlg).toContainText('내 메일함 › 프로젝트')
+    await expect(dlg).toContainText('프로젝트')
+    await expect(dlg).not.toContainText('내 메일함')
     await expect(dlg).toContainText('3통')
     await page.getByTestId('mail-mark-all-confirm').click()
     const req = await run.waitForRequest()

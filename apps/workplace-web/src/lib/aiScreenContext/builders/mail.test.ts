@@ -15,8 +15,8 @@ describe('buildMailContext', () => {
 
   // WP-961 서버 메일함 보기 — list_mail 에 메일함 인자가 없어 folder 를 싣지 않고 경로 이름만.
   it('서버 메일함 — 경로 이름 라벨, refs 에 folder 없음', () => {
-    expect(buildMailContext({ ...base, serverFolder: '내 메일함 › 프로젝트' }).scope).toEqual({
-      label: 'me@x.com · 내 메일함 › 프로젝트',
+    expect(buildMailContext({ ...base, serverFolder: '프로젝트 › 견적' }).scope).toEqual({
+      label: 'me@x.com · 프로젝트 › 견적',
       refs: { accountId: '3' },
       count: 12,
     });

@@ -4,10 +4,10 @@
 // 하위 이슈(SUBTASK)면 부모 크럼이 한 단계 더 끼어든다 — 나중에 에픽 등 상위 레벨이 생기면
 // 이 nav 는 그대로 두고 크럼 배열 앞에 한 단계를 추가하면 된다.
 
-import { ArrowLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 
+import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb';
 import { Page } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/useIsMobile';
@@ -23,6 +23,18 @@ import type { IssueTypeSummary } from '../../../types/issueType';
 function BreadcrumbTypeIcon({ type }: { type: IssueTypeSummary }) {
   const Icon = ISSUE_TYPE_ICONS[type.icon] ?? ISSUE_TYPE_ICONS.Circle;
   return <Icon className="h-3.5 w-3.5 shrink-0" aria-label={getIssueTypeLabel(type.name)} />;
+}
+
+/** 경로의 이슈 단계 이름 — 타입 아이콘 + 키(WP-8). 링크 글자와 같은 줄에서 아이콘이 가운데 맞게 inline-flex. */
+function IssueCrumbLabel({ type, projectKey, number }: { type: IssueTypeSummary | null; projectKey: string; number: number }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {type && <BreadcrumbTypeIcon type={type} />}
+      <span className="font-mono">
+        {projectKey}-{number}
+      </span>
+    </span>
+  );
 }
 
 export function IssueBreadcrumbHeader({
@@ -72,10 +84,28 @@ export function IssueBreadcrumbHeader({
       />
     );
   }
+  // 경로 단계: 프로젝트 › (부모 이슈) › 현재 이슈. 이슈 단계는 타입 아이콘 + 키로 보인다.
+  const items: BreadcrumbItem[] = [
+    { key: 'project', label: projectName, title: projectName, to: `/projects/${projectKey}` },
+    ...(parent
+      ? [{
+          key: `parent-${parent.number}`,
+          label: <IssueCrumbLabel type={parent.type} projectKey={projectKey} number={parent.number} />,
+          to: `/projects/${projectKey}/issues/${parent.number}`,
+          testId: `breadcrumb-parent-${parent.number}`,
+        }]
+      : []),
+    {
+      key: 'current',
+      label: <IssueCrumbLabel type={type} projectKey={projectKey} number={number} />,
+      testId: 'breadcrumb-current',
+    },
+  ];
   // 데스크톱: 공용 Page.Header 의 leading 슬롯에 ← + 브레드크럼을 둔다 — 자체 header/container 를 두면
   // 넓은 화면에서 헤더만 가운데로 몰려 본문 제목과 372px 어긋났다. 여백·AI 칩 클램프는 Page.Header 가 소유.
   return (
     <Page.Header
+      leadingGrow
       leading={
         <>
           {/* ← 는 "경로"가 아니라 동작이므로 nav 밖에 둔다. 고정폭(shrink-0)이라 크럼 길이에 흔들리지 않는다. */}
@@ -89,39 +119,8 @@ export function IssueBreadcrumbHeader({
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <nav aria-label="이슈 경로" className="flex min-w-0 items-center gap-1.5 text-sm">
-            <Link
-              to={`/projects/${projectKey}`}
-              className="truncate text-muted-foreground hover:text-foreground"
-            >
-              {projectName}
-            </Link>
-            {parent && (
-              <>
-                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-                <Link
-                  to={`/projects/${projectKey}/issues/${parent.number}`}
-                  className="inline-flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
-                  data-testid={`breadcrumb-parent-${parent.number}`}
-                >
-                  <BreadcrumbTypeIcon type={parent.type} />
-                  <span className="font-mono">
-                    {projectKey}-{parent.number}
-                  </span>
-                </Link>
-              </>
-            )}
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-            <span
-              className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground"
-              data-testid="breadcrumb-current"
-            >
-              {type && <BreadcrumbTypeIcon type={type} />}
-              <span className="font-mono">
-                {projectKey}-{number}
-              </span>
-            </span>
-          </nav>
+          {/* 경로는 공용 Breadcrumb(§B-1) — 구분자·무게·접기를 다른 앱과 같게 한다(WP-979). 프로젝트가 시작점이다. */}
+          <Breadcrumb items={items} aria-label="이슈 경로" data-testid="issue-breadcrumb" />
         </>
       }
       actions={actions}
