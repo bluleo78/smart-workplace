@@ -20,3 +20,11 @@ export function useFetchAllPages(query: PagedQuery, enabled = true) {
     // dataUpdatedAt 은 판정에 쓰지 않지만, 응답이 올 때마다 다시 판정하려고 의존성에 둔다.
   }, [enabled, hasNextPage, isFetching, isFetchNextPageError, fetchNextPage, dataUpdatedAt]);
 }
+
+/**
+ * 다음 페이지가 실패해 자동 로드가 멈췄는가(WP-1007) — 화면이 RemainingPagesError 로 「일부만 보임 + 다시 시도」를 알릴 때 쓴다.
+ * 다시 시도로 요청 중이면 거둔다(그동안은 화면의 로딩 표시가 대신한다).
+ */
+export function remainingPagesFailed(query: Pick<InfiniteQueryObserverResult, 'isFetchNextPageError' | 'isFetchingNextPage'>) {
+  return query.isFetchNextPageError && !query.isFetchingNextPage;
+}

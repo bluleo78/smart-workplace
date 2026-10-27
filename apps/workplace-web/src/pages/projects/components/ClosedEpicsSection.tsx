@@ -5,6 +5,7 @@ import { ArrowUpRight, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { RemainingPagesError } from '@/components/RemainingPagesError';
 import { CLOSED_EPIC_DIM, closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
@@ -15,8 +16,12 @@ import type { IssueResponse } from '../../../types/issue';
 
 // epics: 종료 에픽 목록 — 패널이 useClosedEpics 로 한 번 받아 에픽 필터(WP-390)와 함께 쓴다.
 export function ClosedEpicsSection({
-  projectKey, epics, selectedEpic, onSelect, hidden = false,
-}: { projectKey: string; epics: IssueResponse[]; selectedEpic: number | null; onSelect: (epicNumber: number) => void; hidden?: boolean }) {
+  projectKey, epics, selectedEpic, onSelect, hidden = false, loadError = false, onRetry,
+}: {
+  projectKey: string; epics: IssueResponse[]; selectedEpic: number | null; onSelect: (epicNumber: number) => void; hidden?: boolean;
+  // 남은 종료 에픽 페이지를 못 받았다(WP-1007) — 개수·목록이 일부라 접혀 있어도 안내와 다시 시도를 보인다.
+  loadError?: boolean; onRetry?: () => void;
+}) {
   const [toggled, setToggled] = useState<boolean | null>(null);
   const autoOpen = selectedEpic != null && epics.some((e) => e.number === selectedEpic);
   const open = toggled ?? autoOpen;
@@ -36,6 +41,9 @@ export function ClosedEpicsSection({
         <span className="flex-1 text-left">종료된 에픽</span>
         <span>{epics.length}</span>
       </button>
+      {loadError && onRetry && (
+        <RemainingPagesError message="나머지 종료 에픽을 불러오지 못했습니다." onRetry={onRetry} className="px-2 py-1" data-testid="epic-closed-load-error" />
+      )}
       {open && (
         <div className="mt-1 space-y-1">
           {epics.map((ep) => {

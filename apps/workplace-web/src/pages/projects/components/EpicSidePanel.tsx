@@ -43,7 +43,8 @@ export function EpicSidePanel({
   projectKey, canCreateIssue = false, floating = false,
 }: { projectKey: string; canCreateIssue?: boolean; floating?: boolean }) {
   // 종료된 에픽(WP-245) — 아래 구역 목록이자, 에픽 필터가 「완료 모두 보기」를 켜고 끌 기준(WP-390). 한 번만 조회해 함께 쓴다.
-  const closedEpics = useClosedEpics(projectKey).epics;
+  const closed = useClosedEpics(projectKey);
+  const closedEpics = closed.epics;
   // 에픽 필터 범위(URL parent/topLevel) 읽기·쓰기는 훅이 맡는다 — 다른 필터·뷰·group 원값 보존 포함.
   const { choice, select } = useEpicFilter(projectKey, closedEpics);
   // 「에픽 미할당」 = 부모 없는(topLevel) 비EPIC 이슈. 유형 필터와 독립.
@@ -173,6 +174,8 @@ export function EpicSidePanel({
           selectedEpic={selectedEpic}
           onSelect={(n) => select({ kind: 'epic', number: n })}
           hidden={!!activeIssue || loading}
+          loadError={closed.loadError}
+          onRetry={closed.retry}
         />
       </div>
 
