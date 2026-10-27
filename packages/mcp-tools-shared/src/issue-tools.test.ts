@@ -217,6 +217,18 @@ describe('buildSharedIssueTools', () => {
       });
     });
 
+    it('message 의 공백 든 표시 이름 멘션(@AI 개발자1)도 이름 전체를 <@id> 로 바꾼다(WP-1030)', async () => {
+      const c = mockClient();
+      vi.mocked(c.searchMembers).mockImplementation(async ({ search }) =>
+        [
+          { userId: 11, username: 'developer1', name: 'AI 개발자1', kind: 'AGENT' },
+          { userId: 20, username: 'developer10', name: 'AI 개발자10', kind: 'AGENT' },
+        ].filter((m) => m.username.includes(String(search)) || m.name.includes(String(search))),
+      );
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'REVIEW', message: '@AI 개발자1님 리뷰 부탁, @AI 개발자10(developer10) 참고' });
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'REVIEW', message: '<@11>님 리뷰 부탁, <@20> 참고' });
+    });
+
     it('message 길이는 도구가 막지 않는다 — 멘션을 바꾼 뒤 글에 거는 서버 @Size 에 맡긴다', async () => {
       const c = mockClient();
       await reportTool(c).handler({ issueKey: 'WP-12', state: 'WORKING', message: 'x'.repeat(4001) });

@@ -38,11 +38,44 @@ function candidateNames(token: string): string[] {
   return names;
 }
 
+/** 해석된 멘션 대상 — id·username 과, 토큰 중 식별자에 해당하는 앞부분 길이(나머지 조사는 원문 그대로 남긴다). */
+type MentionHit = { id: number; username: string; length: number };
+/** 후보 토큰 하나의 해석 결과 — 공백 든 표시 이름 후보(WP-1030)와 토큰 하나로 정해진 대상(없으면 undefined). */
+type MentionResolution = { spaced: MemberRow[]; single: MentionHit | undefined };
+
+// 이름 바로 뒤 `(username)` — 목록 출력 표기(@이름(username), WP-353)를 공백 든 이름에도 따라 쓴 경우다.
+const PAREN_USERNAME = /^\(([\p{L}\p{N}._+@-]+)\)/u;
+// 이름 뒤에 ASCII 단어 문자가 이어지면 더 긴 토큰의 일부다(@AI 개발자12 를 "AI 개발자1" 로 묶지 않는다). 한글 조사(님·에게)는 허용한다.
+// 웹 입력창의 평문 멘션 변환(convertPlaintextMentions)과 같은 경계다.
+const NAME_CONTINUES = /^\w/;
+
+/**
+ * 공백 든 표시 이름 멘션(`@AI 개발자1`, WP-1030) — 후보 토큰(`AI`) 자리에서 본문이 이어서 그 이름 전체로 쓰였는지 본다.
+ * 정규식 후보는 공백에서 끊기므로(`@AI`) 첫 단어로 찾은 구성원 중 이름이 "<첫 단어> " 로 시작하는 사람을 긴 이름부터 맞춰 본다 —
+ * "AI 개발자10" 이 있으면 `@AI 개발자10` 을 "AI 개발자1" 로 잘못 묶지 않는다. 맞은 이름이 동명이인이면 뒤따르는 `(username)` 으로만
+ * 가리고, 못 가리면 멘션하지 않는다(null — 원문 유지, 더 짧은 이름이나 첫 단어로 되돌아가지 않는다). 맞는 이름이 없으면 undefined.
+ * 반환 end 는 바꿔 쓸 원문 구간의 끝(이름 + 같은 username 괄호까지).
+ */
+function matchSpacedName(spaced: MemberRow[], body: string, at: number): { id: number; end: number } | null | undefined {
+  for (const name of new Set(spaced.map((m) => m.name))) {
+    const nameEnd = at + name.length;
+    if (!body.startsWith(name, at) || NAME_CONTINUES.test(body.slice(nameEnd))) continue;
+    const same = spaced.filter((m) => m.name === name);
+    const paren = PAREN_USERNAME.exec(body.slice(nameEnd));
+    const byParen = paren ? same.find((m) => m.username === paren[1]) : undefined;
+    if (byParen) return { id: byParen.userId, end: nameEnd + paren![0].length };
+    return same.length === 1 ? { id: same[0].userId, end: nameEnd } : null;
+  }
+  return undefined;
+}
+
 /**
  * 본문의 `@username` 을 멘션 토큰 `<@userId>` 로 바꾼다(#844). 서버 멘션 파서는 숫자 id 토큰만 인식하는데,
  * LLM 표면은 username 만 다루므로(#833) 변환을 도구가 맡는다. 모델이 조회를 건너뛰고 표시 이름(@김철수)을
  * 쓰는 경우도 있어, username 정확일치가 없으면 표시 이름이 정확히 한 명과 일치할 때만 멘션한다(동명이인은 그대로).
  * 목록 출력의 표기를 따라 `@이름(username)` 으로 쓴 경우에는 괄호 안 username 을 먼저 정확일치로 해석한다(동명이인이어도 username 이 가린다).
+ * 표시 이름에 공백이 있으면(`@AI 개발자1`, WP-1030) 이름 전체를 긴 것부터 맞춰 한 멘션으로 바꾼다(matchSpacedName).
+ * 팀 채팅(add_channel_message·update_channel_message)과 이슈챗(report_agent_work 의 message)이 함께 쓴다.
  */
 export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers'>, body: string): Promise<string> {
   // 같은 (이름, 괄호) 쌍은 한 번만 해석한다 — `@김민수(a)` 와 `@김민수(b)` 는 서로 다른 후보다.
@@ -53,39 +86,63 @@ export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers
     if (!inCode(code, m.index)) candidates.set(keyOf(m[2], m[3]), { raw: m[2], paren: m[3] });
   }
   if (candidates.size === 0) return body;
-  // 후보 → 멘션 대상 id + 식별자에 해당하는 앞부분 길이(나머지 조사는 원문 그대로 남긴다).
   const entries = await Promise.all(
-    [...candidates].slice(0, MAX_MENTIONS).map(async ([key, { raw: token, paren }]) => {
+    [...candidates].slice(0, MAX_MENTIONS).map(async ([key, { raw: token, paren }]): Promise<[string, MentionResolution]> => {
       // 후보는 긴 것부터(토큰 전체 → 조사를 한 겹씩 뗀 형태). 가장 짧은 후보로 한 번만 검색하면
       // 부분일치라 더 긴 후보도 결과에 포함된다.
       const names = candidateNames(token);
       // 괄호 안 username 이 정확히 일치하면 그 구성원이 답이다 — 이름이 같은 사람이 여럿이어도 가려진다.
       // 이름 부분의 길이는 표시 이름·username 과 맞는 후보를 찾고, 없으면 토큰 전체를 이름으로 본다.
+      // 괄호가 토큰에 바로 붙었으면 뒤에 공백 든 이름이 이어질 수 없어 spaced 는 비운다.
       if (paren) {
         const byParen = (await searchMembersByTerm(client, paren, false).catch(() => [])).find((m) => m.username === paren);
         if (byParen) {
           const length = names.find((n) => n === byParen.name || n === byParen.username)?.length ?? token.length;
-          return [key, { id: byParen.userId, username: byParen.username, length }] as const;
+          return [key, { spaced: [], single: { id: byParen.userId, username: byParen.username, length } }];
         }
       }
       // 조회 실패는 멘션 없이 원문 게시로 강등 — 메시지 작성 자체를 막지 않는다.
       const rows = await searchMembersByTerm(client, names.at(-1)!, false).catch(() => []);
+      // 공백 든 이름 후보 — 토큰(조사를 떼지 않은 첫 단어) 뒤에 공백이 오는 이름. 긴 이름부터 맞춰 보도록 정렬한다.
+      const spaced = paren
+        ? []
+        : rows.filter((m) => m.name.startsWith(token) && /^\s/.test(m.name.slice(token.length))).sort((a, b) => b.name.length - a.name.length);
+      let single: MentionHit | undefined;
       for (const name of names) {
         const byName = rows.filter((m) => m.name === name);
         const hit = rows.find((m) => m.username === name) ?? (byName.length === 1 ? byName[0] : undefined);
-        if (hit) return [key, { id: hit.userId, username: hit.username, length: name.length }] as const;
+        if (hit) {
+          single = { id: hit.userId, username: hit.username, length: name.length };
+          break;
+        }
       }
-      return undefined;
+      return [key, { spaced, single }];
     }),
   );
-  const resolved = new Map(entries.filter((e) => e !== undefined));
-  return body.replace(MENTION_CANDIDATE, (all, lead: string, raw: string, paren: string | undefined, offset: number) => {
+  const resolved = new Map(entries);
+  // 공백 든 이름은 정규식 일치 범위를 넘어 원문을 삼키므로 String.replace 대신 앞에서부터 이어 붙인다. cursor 는 이미 바꿔 쓴 원문의 끝.
+  let out = '';
+  let cursor = 0;
+  for (const m of body.matchAll(MENTION_CANDIDATE)) {
+    const [all, lead, raw, paren] = m;
     const hit = resolved.get(keyOf(raw, paren));
-    if (!hit || inCode(code, offset)) return all;
+    if (!hit || m.index < cursor || inCode(code, m.index)) continue;
+    const at = m.index + lead.length + 1; // '@' 다음 — 이름이 시작하는 자리.
+    const spaced = matchSpacedName(hit.spaced, body, at);
+    if (spaced === null) continue; // 공백 든 이름이 맞았지만 동명이인 — 원문 그대로 둔다.
+    if (spaced) {
+      out += `${body.slice(cursor, m.index)}${lead}<@${spaced.id}>`;
+      cursor = spaced.end;
+      continue;
+    }
+    const { single } = hit;
+    if (!single) continue;
     // `@김민수(minsu)` 처럼 해석된 username 이 괄호로 따라오면 중복 표기라 지운다(다른 값이면 원문 괄호를 살린다).
-    const rest = paren === undefined || paren === hit.username ? '' : `(${paren})`;
-    return `${lead}<@${hit.id}>${raw.slice(hit.length)}${rest}`;
-  });
+    const rest = paren === undefined || paren === single.username ? '' : `(${paren})`;
+    out += `${body.slice(cursor, m.index)}${lead}<@${single.id}>${raw.slice(single.length)}${rest}`;
+    cursor = m.index + all.length;
+  }
+  return out + body.slice(cursor);
 }
 
 export const listChannelMessagesInput = z.object({
