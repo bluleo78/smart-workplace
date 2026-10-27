@@ -244,8 +244,10 @@ class WikiShareNotificationTest extends IntegrationTestBase {
     assertVisibleIffEntryOpens(listedId, false);
 
     savePeople(rootId, false, List.of(listedId));
+    // 하루 전으로 만료 — 만료 판정은 DB now() 와 비교하므로, 앱 시계 기준 1분 전이면 테스트 DB(VM) 시계가 1분 넘게 늦을 때 아직
+    // 유효로 보여 부하 속에서만 실패했다(v0.9.26 push 게이트). 두 시계가 얼마나 어긋나도 만료로 보이게 넉넉히 둔다.
     dsl.update(WIKI_PAGE_SHARE)
-        .set(WIKI_PAGE_SHARE.EXPIRES_AT, OffsetDateTime.now().minusMinutes(1))
+        .set(WIKI_PAGE_SHARE.EXPIRES_AT, OffsetDateTime.now().minusDays(1))
         .where(WIKI_PAGE_SHARE.PAGE_ID.eq(rootId))
         .execute();
     assertVisibleIffEntryOpens(listedId, false);
