@@ -345,7 +345,7 @@ test.describe('IssueCommentList 코멘트 본문 디자인 시스템 body-second
       await expect(page.locator('text=디자인 시스템 body-secondary 테스트').first()).toBeVisible();
 
       // 코멘트 본문 div — body-secondary 규격(text-sm·leading-6·text-foreground) 준수 여부
-      const commentBody = page.locator('section[aria-label="코멘트"] ul li').first().locator('div.whitespace-pre-wrap');
+      const commentBody = page.locator('section[aria-label="코멘트"] ul li').first().getByTestId('markdown-content');
       await expect(commentBody).toHaveClass(/text-sm/);
       await expect(commentBody).toHaveClass(/leading-6/);
       await expect(commentBody).toHaveClass(/text-foreground/);
@@ -676,16 +676,15 @@ test.describe('AGENT 코멘트 마크다운 렌더 (WP-254)', () => {
     await expect(md.locator('b')).toHaveCount(0);
   });
 
-  test('사람 코멘트는 마크다운을 해석하지 않고 평문 그대로 둔다', async ({ authenticatedPage: page }) => {
-    const human = createComment({ id: 31, issueId: ISSUE_ID, authorId: 2, authorName: '김개발', body: '**굵게 아님**\n- [ ] 체크 아님' });
+  test('사람 코멘트도 마크다운으로 — 굵게·체크리스트가 서식대로 보인다 (WP-1015)', async ({ authenticatedPage: page }) => {
+    const human = createComment({ id: 31, issueId: ISSUE_ID, authorId: 2, authorName: '김개발', body: '**굵게**\n\n- [ ] 체크' });
     const detailRef = { current: createIssueDetail({ comments: [human] }) };
     await setupIssueStubs(page, detailRef);
 
     await page.goto(`/projects/${PROJECT_KEY}/issues/${ISSUE_NUMBER}`);
     const item = page.locator('section[aria-label="코멘트"] ul li').first();
-    await expect(item).toContainText('**굵게 아님**');
-    await expect(item).toContainText('- [ ] 체크 아님');
-    await expect(item.getByTestId('markdown-content')).toHaveCount(0);
-    await expect(item.locator('input[type="checkbox"]')).toHaveCount(0);
+    await expect(item.getByTestId('markdown-content').locator('strong')).toHaveText('굵게');
+    await expect(item).not.toContainText('**');
+    await expect(item.locator('input[type="checkbox"]')).toHaveCount(1);
   });
 });

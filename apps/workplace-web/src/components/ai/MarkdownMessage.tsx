@@ -165,6 +165,7 @@ export function MarkdownMessage({
   renderImage,
   internalLinks,
   onPageLink,
+  renderLink,
 }: {
   children: string
   className?: string
@@ -173,15 +174,20 @@ export function MarkdownMessage({
   internalLinks?: boolean
   /** WP-384: 답 안 다른 화면 링크로 이동하기 직전 — 전체 화면 AI 를 내린다(AIChatPanel). */
   onPageLink?: () => void
+  /** WP-1015: 호출자가 특정 링크를 다른 요소로 그린다(이슈 코멘트의 멘션 칩) — undefined 를 돌려주면 기본 링크로 그린다. */
+  renderLink?: (href: string | undefined, children: ReactNode) => ReactNode | undefined
 }) {
   const components = useMemo<Components>(() => {
     const withImage: Components = renderImage
       ? { ...BASE_COMPONENTS, img: ({ src, alt }) => renderImage({ src: typeof src === 'string' ? src : undefined, alt }) }
       : BASE_COMPONENTS
-    return internalLinks
+    const withLinks: Components = internalLinks
       ? { ...withImage, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
       : withImage
-  }, [renderImage, internalLinks, onPageLink])
+    if (!renderLink) return withLinks
+    const baseLink = withLinks.a as (props: { href?: string; children?: ReactNode }) => ReactNode
+    return { ...withLinks, a: ({ href, children: c }) => renderLink(href, c) ?? baseLink({ href, children: c }) }
+  }, [renderImage, internalLinks, onPageLink, renderLink])
   return (
     <div
       data-testid="markdown-content"
