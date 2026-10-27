@@ -2,10 +2,10 @@
 // 출시 대화상자의 선택 → release 요청 본문(moveUnresolvedTo 유무), 멤버의 읽기 전용 화면은 브라우저 없이 판정되므로
 // e2e/pages/issue-versions.spec.ts 에서 옮겼다. 훅을 끊지 않고 MSW 로 실제 api → 훅 → 화면을 지난다
 // (훅을 vi.mock 한 분기 테스트는 VersionsPage.test.tsx·VersionReleaseDialog.test.tsx).
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { beforeAll, describe, expect, test } from 'vitest'
 
-import { memberKeys } from '@/hooks/queries/useProjectMembers'
+import { settleMembers } from '@/test/msw/projectMetaHandlers'
 import { BASE, KEY, OWNER_MEMBERS, PLAIN_MEMBERS, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 
@@ -75,9 +75,7 @@ describe('버전 목록 — 관리 권한', () => {
     const api = versionApi({ versions: [createVersion({ id: 1, name: '1.0.0', releaseDate: '2026-12-01' })], members })
     const view = renderPage(`/projects/${KEY}/versions`, { handlers: api.handlers })
     expect(await screen.findByTestId('version-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('1.0.0')
-    // 구성원 응답이 캐시에 들어가고(권한 판정 입력) 그 결과로 다시 그려질 때까지 기다린다.
-    await waitFor(() => expect(view.queryClient.getQueryState(memberKeys.all(KEY))?.status).toBe('success'))
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    await settleMembers(view)
     return view
   }
 

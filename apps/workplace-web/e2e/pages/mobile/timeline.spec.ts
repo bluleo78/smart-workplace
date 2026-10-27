@@ -8,7 +8,7 @@ import type { IssueResponse } from '../../../src/types/issue';
 import type { MilestoneResponse } from '../../../src/types/milestone';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { makeEpicType } from '../../factories/issueType.factory';
-import { createProject } from '../../factories/project.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import { inServerOrder, withCustomStatuses } from '../../factories/projectStatus.factory';
 import { json } from '../../fixtures/mobile-chat';
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture';
@@ -58,7 +58,9 @@ async function setup(page: Page, opts: { member?: boolean; query?: string; cycle
   });
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/milestones`, (r) => r.fulfill(json(opts.milestones ?? MILESTONES)));
   await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/cycles`, (r) => r.fulfill(json(opts.cycles ?? [])));
-  await page.route((u) => [`/api/v1/projects/${KEY}/issue-dependencies`, `/api/v1/projects/${KEY}/members`, `/api/v1/projects/${KEY}/labels`].includes(u.pathname), (r) => r.fulfill(json([])));
+  // 마일스톤 추가는 프로젝트 OWNER 만(WP-1008) — 멤버 시나리오는 로그인 사용자(id 1)를 OWNER 로 둔다.
+  await page.route((u) => u.pathname === `/api/v1/projects/${KEY}/members`, (r) => r.fulfill(json((opts.member ?? true) ? [createMember({ userId: 1, role: 'OWNER' })] : [])));
+  await page.route((u) => [`/api/v1/projects/${KEY}/issue-dependencies`, `/api/v1/projects/${KEY}/labels`].includes(u.pathname), (r) => r.fulfill(json([])));
   // 기간 필터 고정(WP-247) — 기본 period=all 을 쿼리에 덧붙인다(null 이면 붙이지 않음).
   const params = new URLSearchParams((opts.query ?? '').replace(/^\?/, ''));
   const period = opts.period === undefined ? 'all' : opts.period;
@@ -185,7 +187,7 @@ test('필터 칩 → 필터 시트(활성 수 표시), 0건이면 빈 상태 + �
   await expect(page.getByTestId('agenda-row-10')).toBeVisible();
 });
 
-test('헤더 — 줌·오늘 없음, 멤버면 「마일스톤 추가」(헤더 인라인), 비멤버면 없음', async ({ authenticatedPage: page }) => {
+test('헤더 — 줌·오늘 없음, OWNER 면 「마일스톤 추가」(헤더 인라인), 비멤버면 없음', async ({ authenticatedPage: page }) => {
   await setup(page);
   await expect(page.getByRole('button', { name: '오늘' })).toHaveCount(0);
   await expect(page.getByRole('group', { name: '줌 전환' })).toHaveCount(0);

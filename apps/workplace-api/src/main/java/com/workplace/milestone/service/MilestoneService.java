@@ -19,8 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 마일스톤 CRUD 서비스. 조회는 프로젝트 읽기 권한(assertReadable), 변경은 멤버 권한(assertMember) — 사이클의 OWNER 가드보다 완화된
- * 스펙(누구나 멤버면 마일스톤 관리 가능).
+ * 마일스톤 CRUD 서비스. 조회는 프로젝트 읽기 권한(assertReadable), 변경은 프로젝트 OWNER 만(assertWithRole OWNER) — 버전·사이클과
+ * 같은 규칙으로 맞춘다(WP-1008). 예전에는 멤버면 누구나 바꿀 수 있었다.
  */
 @Service
 @Transactional
@@ -40,9 +40,9 @@ public class MilestoneService {
         .toList();
   }
 
-  /** 멤버 — 신규 마일스톤 생성. */
+  /** OWNER — 신규 마일스톤 생성. */
   public MilestoneResponse create(Long callerId, String projectKey, CreateMilestoneRequest req) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     String name = req.name().trim();
     try {
       var row = milestoneRepository.insert(project.id(), name, req.dueDate(), req.description());
@@ -54,10 +54,10 @@ public class MilestoneService {
     }
   }
 
-  /** 멤버 — 마일스톤 수정. */
+  /** OWNER — 마일스톤 수정. */
   public MilestoneResponse update(
       Long callerId, String projectKey, Long milestoneId, CreateMilestoneRequest req) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     loadInProject(milestoneId, project.id());
     String name = req.name().trim();
     try {
@@ -74,9 +74,9 @@ public class MilestoneService {
             .orElseThrow(() -> new MilestoneNotFoundException(milestoneId)));
   }
 
-  /** 멤버 — 마일스톤 삭제(issue.milestone_id ON DELETE SET NULL). */
+  /** OWNER — 마일스톤 삭제(issue.milestone_id ON DELETE SET NULL). */
   public void delete(Long callerId, String projectKey, Long milestoneId) {
-    var project = accessGuard.assertMember(projectKey, callerId);
+    var project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     loadInProject(milestoneId, project.id());
     milestoneRepository.deleteById(milestoneId);
     changeNotifier.changed(

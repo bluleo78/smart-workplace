@@ -451,7 +451,7 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       description:
         'Creates a label, milestone, cycle or version (라벨·마일스톤·사이클·버전) by kind. Per kind (other fields rejected): label color (default GRAY); ' +
         'milestone dueDate (required), description; cycle goal, startDate, endDate, status PLANNED|ACTIVE|COMPLETED (default PLANNED); version description, startDate, ' +
-        'releaseDate. Dates yyyy-MM-dd. Labels, milestones: any member; cycles, versions: OWNER.',
+        'releaseDate. Dates yyyy-MM-dd. Labels: any member; others: OWNER or ADMIN.',
       inputSchema: createProjectMetaInput,
       async handler(args) {
         const { projectKey, kind, name, color, ...rest } = omitNulls(createProjectMetaInput.parse(args));

@@ -19,6 +19,7 @@ import { useMilestones } from '../../../hooks/queries/useMilestones';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useVersions } from '../../../hooks/queries/useVersions';
+import { useCanManageProject } from '../../../hooks/useCanManageProject';
 import { parseFilters } from '../../../lib/issueFilters';
 import type { IssueFilters } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
@@ -81,6 +82,8 @@ export default function TimelinePage() {
   // 모바일 = 아젠다(WP-197), 데스크톱 = 간트 본문(TimelineGanttBody) — 간트 전용 조회·계산은 그 본문 안에서만 돈다.
   const isMobile = useIsMobile();
   const readOnly = !(project.data?.viewerIsMember ?? false);
+  // 마일스톤 추가·수정·삭제는 버전·사이클처럼 프로젝트 OWNER(·ADMIN)만(WP-1008) — 이슈 막대 편집(멤버)과 따로 판정한다.
+  const { canManage: canManageMilestones } = useCanManageProject(key);
   // 기간을 바꾸면 간트를 새 기간 시작일로 옮긴다 — 새 기간이 화면 밖일 수 있어서. 전체(null)면 그대로.
   const changePeriod = (p: PeriodParam) => {
     periodCtl.setParam(p);
@@ -124,9 +127,9 @@ export default function TimelinePage() {
           </Button>
         }
         title="타임라인"
-        // 모바일: 줌·「오늘」은 아젠다에 의미가 없어 숨기고, 멤버만 「마일스톤 추가」(항목 1개라 헤더에 인라인 — U3-R7).
+        // 모바일: 줌·「오늘」은 아젠다에 의미가 없어 숨기고, OWNER 만 「마일스톤 추가」(항목 1개라 헤더에 인라인 — U3-R7).
         mobileActions={
-          readOnly ? null : (
+          canManageMilestones && (
             <Button variant="ghost" size="sm" data-testid="milestone-add-button" onClick={() => setMilestoneDialogState({})}>
               <Diamond aria-hidden />
               마일스톤 추가
@@ -171,7 +174,7 @@ export default function TimelinePage() {
             >
               오늘
             </Button>
-            {!readOnly && (
+            {canManageMilestones && (
               <Button
                 variant="outline"
                 size="sm"
@@ -231,6 +234,7 @@ export default function TimelinePage() {
                 onVersionClick={(id) => navigate(`/projects/${key}/versions/${id}`)}
                 zoom={zoom}
                 readOnly={readOnly}
+                canEditMilestones={canManageMilestones}
                 scrollRequest={scrollRequest}
                 onMilestoneClick={(milestone, anchorRect) => setMilestoneEditState({ milestone, anchorRect })}
                 onLaneClick={(date) => setMilestoneDialogState({ defaultDueDate: date })}
