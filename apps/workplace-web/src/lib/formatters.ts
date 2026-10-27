@@ -49,7 +49,8 @@ export function formatDateShort(dateStr: string | null | undefined): string {
  * null/undefined/무효 입력 → '-'.
  */
 export function formatDateTimeLocale(dateStr: string | null | undefined): string {
-  return formatLocaleOrDash(dateStr, (d) => d.toLocaleString('ko-KR'));
+  // 오전/오후를 ICU 에 맡기지 않고 같은 표기로 직접 조립한다(WP-1029 — ICU 78 은 ko-KR 에도 「PM」).
+  return formatLocaleOrDash(dateStr, (d) => `${localDotDate(d)} ${koClockLabel(d.getHours(), d.getMinutes(), { sec: d.getSeconds() })}`);
 }
 
 /**
@@ -267,7 +268,9 @@ export function formatCellValue(value: unknown, dataType?: string): string {
   }
 
   if (dataType === 'TIMESTAMP' || ISO_DATETIME_RE.test(str)) {
-    return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(str));
+    // "2026. 7. 5. 오후 2:30" — 오전/오후는 ICU 에 맡기지 않는다(WP-1029).
+    const d = new Date(str);
+    return `${localDotDate(d)} ${koClockLabel(d.getHours(), d.getMinutes())}`;
   }
 
   if (str.length > 200) {
@@ -431,15 +434,15 @@ export function formatDuration(startedAt: string, completedAt: string | null): s
 /**
  * 메시지 거품용 시각 — `오전/오후 H:mm` (KST). 채팅 타임스탬프에 사용.
  * parseUtcDate 로 서버 LocalDateTime(UTC) 을 정확히 파싱하고, timeZone 을 Asia/Seoul 로 고정해
- * CI 로케일/타임존에 비의존하도록 한다.
+ * CI 로케일/타임존에 비의존하도록 한다. 오전/오후도 ICU 에 맡기지 않고 직접 붙인다 —
+ * Node 24(ICU 78)는 ko-KR 오전/오후를 「AM/PM」으로 낸다(WP-1029).
  */
 export function formatClockTime(dateStr: string | null | undefined): string {
   if (!dateStr) return '-';
   const d = parseUtcDate(dateStr);
   if (Number.isNaN(d.getTime())) return '-';
-  return new Intl.DateTimeFormat('ko-KR', {
-    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Seoul',
-  }).format(d);
+  const t = kstParts(d);
+  return koClockLabel(t.h, t.min);
 }
 
 /**
@@ -469,9 +472,10 @@ export function formatLocalClockTime24(dateStr: string | null | undefined): stri
  * 시각 2자리 12시간제 — "오후 02:30" (브라우저 로컬 타임존, #828).
  * 시(時)가 zero-pad 되어 폭이 일정 — 캘린더 타임그리드/아젠다, 메일 목록(오늘 수신)용.
  * `formatClockTime`("오후 2:30", Asia/Seoul 고정)과 달리 zero-pad·로컬 타임존. null/undefined/무효 입력 → '-'.
+ * 오전/오후는 ICU 에 맡기지 않고 직접 붙인다(WP-1029 — ICU 78 은 ko-KR 에도 「AM/PM」).
  */
 export function formatClockTimePadded(dateStr: string | null | undefined): string {
-  return formatLocaleOrDash(dateStr, (d) => d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }));
+  return formatLocaleOrDash(dateStr, (d) => koClockLabel(d.getHours(), d.getMinutes(), { padHour: true }));
 }
 
 /**
@@ -518,10 +522,7 @@ export function formatListTime(at: string, now: Date = new Date()): string {
   if (Number.isNaN(date.getTime())) return ''
   const t = kstParts(date)
   const rel = kstDayRelative(t, now)
-  if (rel === 'today') {
-    const { meridiem, clock } = meridiemClock(t.h, t.min)
-    return `${meridiem} ${clock}`
-  }
+  if (rel === 'today') return koClockLabel(t.h, t.min)
   if (rel === 'yesterday') return '어제'
   if (t.y === kstParts(now).y) return `${t.m}월 ${t.d}일`
   return `${t.y}. ${t.m}. ${t.d}.`
@@ -559,8 +560,28 @@ export function formatLocalDateWithWeekday(d: Date, now: Date = new Date()): str
 
 /** 시(0~23)·분 → 오전/오후와 12시간제 "3:00" 부분. 정오는 오후 12시, 자정은 오전 12시. */
 function meridiemClock(h: number, min: number): { meridiem: '오전' | '오후'; clock: string } {
-  const h12 = h % 12 === 0 ? 12 : h % 12
-  return { meridiem: h < 12 ? '오전' : '오후', clock: `${h12}:${String(min).padStart(2, '0')}` }
+  return { meridiem: h < 12 ? '오전' : '오후', clock: `${hour12(h)}:${String(min).padStart(2, '0')}` }
+}
+
+/** 0~23시 → 12시간제 시(1~12). */
+function hour12(h: number): number {
+  return h % 12 === 0 ? 12 : h % 12
+}
+
+/**
+ * 시·분(·초) → 「오전 9:05」「오후 02:30」「오후 2:30:00」. 오전/오후 시각 표기는 모두 여기서 만든다 —
+ * Intl/toLocale* 의 ko-KR 오전/오후는 런타임 ICU 에 따라 「AM/PM」이 된다(small-icu, Node 24·ICU 78 — WP-1029).
+ * padHour: 시를 2자리로(폭이 일정한 목록). sec: 초까지(예전 toLocaleString 표기 유지).
+ */
+function koClockLabel(h: number, min: number, opts: { padHour?: boolean; sec?: number } = {}): string {
+  const hh = opts.padHour ? String(hour12(h)).padStart(2, '0') : String(hour12(h))
+  const ss = opts.sec == null ? '' : `:${String(opts.sec).padStart(2, '0')}`
+  return `${h < 12 ? '오전' : '오후'} ${hh}:${String(min).padStart(2, '0')}${ss}`
+}
+
+/** 로컬 날짜 → "2026. 7. 5."(ko-KR 기본 날짜 표기와 같은 모양). */
+function localDotDate(d: Date): string {
+  return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`
 }
 
 /** 로컬 시각의 오전/오후와 "3:00" 부분 — 일정 시간 범위에서 끝 시각의 오전/오후를 생략할 수 있게 나눠 준다(WP-708). */
