@@ -14,9 +14,9 @@ import { useMobileBack } from '@/components/mobile/useMobileBack'
 import { Button } from '@/components/ui/button'
 import { LoadMoreFooter } from '@/components/ui/load-more-footer'
 import { SearchInput } from '@/components/ui/search-input'
-import { useDebounceValue } from '@/hooks/useDebounceValue'
 import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
@@ -226,30 +226,13 @@ export function ContactsPage() {
   // 모바일에서 상세가 열리면 목록 헤더("연락처"·＋·☰·🔔) 대신 상세 헤더 한 줄만 둔다(U1-1).
   const showListChrome = !(isMobile && selected != null)
 
-  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다(history replace).
-  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
-  // 검색창이 사이드바에서 헤더로 옮겨 오며(WP-976) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
-  const [qDraft, setQDraft] = useState(search)
-  // 이 페이지가 마지막으로 URL 에 쓴 q — 그 값이 search 로 되돌아올 때는 draft 를 덮지 않는다(WP-999).
-  // URL 을 쓴 순간부터 다시 렌더되기까지 더 친 글자가 있으면, 되돌아온 옛 q 로 덮어 그 글자가 지워졌다.
-  const writtenQ = useRef<string | null>(null)
-  useEffect(() => {
-    // 내 쓰기의 메아리는 한 번만 건너뛴다(그 뒤 바깥에서 같은 값으로 바뀌면 다시 맞춘다).
-    const isEcho = writtenQ.current === search
-    writtenQ.current = null
-    // 바깥(뒤로 가기·앱 레일 이동 등)에서 q 가 바뀌면 draft 를 맞춘다.
-    if (!isEcho) setQDraft(search)
-  }, [search])
-  const debouncedQDraft = useDebounceValue(qDraft, 300)
   // q 갱신 — 통합 목록은 바뀐 목록에 없는 상세가 남지 않게 열린 상세(?contact)도 같은 항목에서 닫는다(WP-206).
   // 그룹 보기는 소속 멤버를 화면에서 거를 뿐이라, 검색어에서 빠진 사람이어도 상세를 그대로 둔다(WP-999) —
   // 보던 사람을 두고 다른 사람을 찾을 수 있게. 그룹 여부는 렌더 시점 값이 아닌 prev 로 본다(같은 틱의 범위 해제와 경합하지 않게).
-  const writeQuery = (value: string) => {
+  const writeQuery = (value: string) =>
     setParams(
       (prev) => {
         const sp = new URLSearchParams(prev)
-        // q 가 실제로 바뀔 때만 메아리를 기다린다 — 안 바뀌면 search 가 그대로라 기록이 소비되지 않고 남는다.
-        if ((sp.get('q') ?? '') !== value) writtenQ.current = value
         if (parseGroupId(sp.get('group')) == null) sp.delete('contact')
         if (value) sp.set('q', value)
         else sp.delete('q')
@@ -257,12 +240,11 @@ export function ContactsPage() {
       },
       { replace: true },
     )
-  }
-  useEffect(() => {
-    if (debouncedQDraft === search) return
-    writeQuery(debouncedQDraft)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQDraft])
+  // 검색 입력 draft — 타이핑은 즉시 반영하되 URL(q)은 300ms debounce 후에만 갱신한다(history replace).
+  // q 가 URL 에 직접 묶여 있으면 키 입력마다 라우터 이동을 거쳐 값이 되돌아오며 한글 IME 조합이 끊긴다(WP-974).
+  // 검색창이 사이드바에서 헤더로 옮겨 오며(WP-976) 이 로직도 함께 옮겼다 — q 를 쓰는 곳은 여기 한 곳뿐이다.
+  // 내가 쓴 q 가 되돌아올 때 draft 를 덮지 않는 것(WP-999)은 공용 훅이 맡는다(WP-1003).
+  const { draft: qDraft, setDraft: setQDraft, commit: commitQuery } = useSearchDraft(search, writeQuery)
 
   // 모바일 검색 펼침 — 헤더 🔍 로 연다. 검색어가 남아 있으면(링크·뒤로 가기로 ?q 진입) 숨은 필터가 없게 늘 펼친다.
   // ?q 로 펼친 것도 「열림」으로 기록해야 입력칸 X 로 지웠을 때 줄이 사라지며 키보드가 닫히지 않는다.
@@ -285,8 +267,7 @@ export function ContactsPage() {
   }, [mobileSearchOpen])
   // 「취소」 — 검색어를 비우고 접는다(debounce 를 기다리지 않고 바로 URL 에서도 지운다).
   const cancelMobileSearch = () => {
-    setQDraft('')
-    writeQuery('')
+    commitQuery('')
     setMobileSearchOpen(false)
   }
 

@@ -32,7 +32,7 @@ const handlers = [
   http.get('/api/v1/contacts/members/2', () => HttpResponse.json(memberDetail({ id: 2, name: '이수정' }))),
 ]
 
-test('debounce 로 q 를 쓰는 사이에 더 친 글자는 되돌아온 옛 q 로 지워지지 않는다', async () => {
+test('debounce 로 q 를 쓰는 사이에 더 친 글자가 남는다', async () => {
   const { location } = renderPage('/contacts', { handlers })
   const input = await screen.findByTestId('contact-search', {}, { timeout: PAGE_LOAD_TIMEOUT })
   // 페이지가 뜬 뒤에만 setTimeout 을 가짜로 바꿔 debounce 가 끝나는 순간을 정확히 잡는다.
