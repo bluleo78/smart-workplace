@@ -25,7 +25,7 @@ import { useWikiMovePreview } from '../../hooks/queries/useWikiMutations'
 import { useWikiTree } from '../../hooks/queries/useWikiTree'
 import type { WikiMovePreview, WikiPageSummary, WikiSpace } from '../../types/wiki'
 import { moveTargets } from './wikiMoveTargets'
-import { type CoveringShare, coveringShareName, shareMoveAcrossImpact } from './wikiShare'
+import { blockedShareNotice, coveringShareName, shareMoveAcrossImpact, type ShareMoveImpact } from './wikiShare'
 
 // 들여쓰기 1단계 폭(px) — 사이드바 트리와 같은 값.
 const INDENT = 16
@@ -279,7 +279,7 @@ function MoveSpaceWarning({
   shareImpact,
 }: {
   preview: WikiMovePreview
-  shareImpact: { leaving: CoveringShare[]; entering: CoveringShare[] } | null
+  shareImpact: ShareMoveImpact | null
 }) {
   const names = (list: { title: string }[]) => list.map((p) => `「${p.title || '제목 없음'}」`).join(', ')
   return (
@@ -309,6 +309,12 @@ function MoveSpaceWarning({
         {shareImpact?.entering.map((s) => (
           <li key={`in-${s.pageId}`} className={s.audience === 'PUBLIC' ? 'font-medium' : undefined}>
             {coveringShareName(s)}로 새로 보이게 됩니다.
+          </li>
+        ))}
+        {/* 상위 공유에서 제외된 페이지(WP-1031) — 새 위치의 공유로도 열리지 않는다. */}
+        {shareImpact?.blocked.map((s) => (
+          <li key={`blocked-${s.pageId}`} data-testid="wiki-move-share-blocked">
+            {blockedShareNotice(s)}
           </li>
         ))}
       </ul>

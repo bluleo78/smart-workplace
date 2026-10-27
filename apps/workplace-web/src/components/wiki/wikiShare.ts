@@ -92,7 +92,7 @@ export function countLivePublicShares(items: Pick<WikiShareListItem, 'audience' 
   return items.filter((i) => i.audience === 'PUBLIC' && !isShareExpired(i.expiresAt, now)).length
 }
 
-type TreeNode = Pick<WikiPageSummary, 'id' | 'parentId' | 'title' | 'share'>
+type TreeNode = Pick<WikiPageSummary, 'id' | 'parentId' | 'title' | 'share' | 'shareExcluded'>
 
 /** 하위 포함 공유의 루트 — 이동 경고 문구용. */
 export interface CoveringShare {
@@ -101,7 +101,11 @@ export interface CoveringShare {
   audience: WikiShareAudience
 }
 
-/** parentId 부터 위로 올라가며 하위 포함 공유를 모은다(가까운 것부터). 사이클이 있어도 한 번씩만. */
+/**
+ * parentId 부터 위로 올라가며 하위 포함 공유를 모은다(가까운 것부터). 사이클이 있어도 한 번씩만.
+ * 상위 공유 제외 표시(WP-987)가 있는 페이지에서 멈춘다(WP-1031) — 그 페이지 자신의 하위 포함 공유는 모으되, 그 위의 공유는 그 페이지 아래를
+ * 덮지 않는다. 서버 stopsInheritance 는 자기 공유가 있는 페이지에서도 멈추지만 여기서는 제외 표시만 본다(이 이슈 범위 밖 — 남은 위험).
+ */
 function coveringFrom(byId: Map<number, TreeNode>, parentId: number | null): CoveringShare[] {
   const out: CoveringShare[] = []
   const seen = new Set<number>()
@@ -109,65 +113,93 @@ function coveringFrom(byId: Map<number, TreeNode>, parentId: number | null): Cov
     seen.add(id)
     const p = byId.get(id)
     if (p?.share?.includeChildren) out.push({ pageId: p.id, title: p.title, audience: p.share.audience })
+    if (p?.shareExcluded) break
   }
   return out
+}
+
+/**
+ * 이동 영향 — leaving: 옮기면 빠지는 하위 포함 공유, entering: 새로 덮는 공유, blocked: 새 위치를 덮지만 옮길 페이지가 상위 공유에서
+ * 제외돼 있어(WP-1031) 그 링크로는 열리지 않는 공유. 제외된 페이지는 옮기기 전에도 덮이지 않았으므로 leaving·entering 은 비어 있다.
+ */
+export interface ShareMoveImpact {
+  leaving: CoveringShare[]
+  entering: CoveringShare[]
+  blocked: CoveringShare[]
+}
+
+/** 옮길 페이지에 제외 표시가 있으면 어느 쪽 공유로도 열리지 않는다 — 새로 덮을 공유는 blocked 로만 알린다(서버도 이동 기록을 남기지 않는다). */
+function impactOf(excluded: boolean, leaving: CoveringShare[], entering: CoveringShare[]): ShareMoveImpact {
+  return excluded ? { leaving: [], entering: [], blocked: entering } : { leaving, entering, blocked: [] }
+}
+
+/** 이동 경고를 보여야 하는지 — 빠지거나 들어가는 공유, 또는 제외돼 열리지 않는 새 위치 공유가 하나라도 있으면. */
+export function hasShareMoveImpact(impact: ShareMoveImpact): boolean {
+  return impact.leaving.length > 0 || impact.entering.length > 0 || impact.blocked.length > 0
 }
 
 /** 트리 행 공유 표시 — 자기 공유(own), 상위 페이지 공유(하위 포함)에 포함(inherited). 없으면 맵에 없다. */
 export type TreeShareMark = 'own' | 'inherited'
 
-/** 트리 전체의 공유 표시를 한 번에 — 행마다 조상을 다시 훑지 않게 맵으로 돌려준다. */
+/**
+ * 트리 전체의 공유 표시를 한 번에 — 행마다 조상을 다시 훑지 않게 맵으로 돌려준다. 상위 공유에서 제외된 페이지(WP-987)와 그 하위는 위의
+ * 공유로 열리지 않으므로 inherited 로 표시하지 않는다(WP-1031, coveringFrom 이 제외 표시에서 멈춘다).
+ */
 export function treeShareMarks(pages: TreeNode[]): Map<number, TreeShareMark> {
   const byId = new Map(pages.map((p) => [p.id, p]))
   const marks = new Map<number, TreeShareMark>()
   for (const p of pages) {
     if (p.share) marks.set(p.id, 'own')
-    else if (coveringFrom(byId, p.parentId).length > 0) marks.set(p.id, 'inherited')
+    else if (!p.shareExcluded && coveringFrom(byId, p.parentId).length > 0) marks.set(p.id, 'inherited')
   }
   return marks
 }
 
 /**
  * 페이지를 newParentId 아래로 옮기면 어떤 하위 포함 공유에서 빠지고(leaving) 새로 들어가는지(entering) — 하나라도 있으면 옮기기 전에 확인한다.
- * 공유 범위는 지금 위치로 정해지므로 옮기는 순간 링크로 보이던 페이지가 사라지거나 새로 보이게 된다.
+ * 공유 범위는 지금 위치로 정해지므로 옮기는 순간 링크로 보이던 페이지가 사라지거나 새로 보이게 된다. 옮길 페이지가 상위 공유에서 제외돼 있으면
+ * 새 위치의 공유로도 열리지 않으므로 blocked 로 알린다(WP-1031).
  */
-export function shareMoveImpact(
-  pages: TreeNode[],
-  pageId: number,
-  newParentId: number | null,
-): { leaving: CoveringShare[]; entering: CoveringShare[] } {
+export function shareMoveImpact(pages: TreeNode[], pageId: number, newParentId: number | null): ShareMoveImpact {
   const byId = new Map(pages.map((p) => [p.id, p]))
   const before = coveringFrom(byId, byId.get(pageId)?.parentId ?? null)
   const after = coveringFrom(byId, newParentId)
   const ids = (xs: CoveringShare[]) => new Set(xs.map((x) => x.pageId))
   const beforeIds = ids(before)
   const afterIds = ids(after)
-  return {
-    leaving: before.filter((x) => !afterIds.has(x.pageId)),
-    entering: after.filter((x) => !beforeIds.has(x.pageId)),
-  }
+  return impactOf(
+    byId.get(pageId)?.shareExcluded === true,
+    before.filter((x) => !afterIds.has(x.pageId)),
+    after.filter((x) => !beforeIds.has(x.pageId)),
+  )
 }
 
 /**
  * 다른 스페이스로 옮길 때의 공유 범위 변화(WP-988) — 원본 트리에서 지금 위치를 덮던 하위 포함 공유는 모두 빠지고(leaving), 대상 트리에서 새 부모를
- * 덮는 하위 포함 공유에는 새로 들어간다(entering). 두 스페이스의 공유는 겹치지 않는다.
+ * 덮는 하위 포함 공유에는 새로 들어간다(entering). 두 스페이스의 공유는 겹치지 않는다. 제외 표시는 페이지를 따라 옮겨 가므로 제외된 페이지는
+ * blocked 로 알린다(WP-1031).
  */
 export function shareMoveAcrossImpact(
   sourcePages: TreeNode[],
   pageId: number,
   targetPages: TreeNode[],
   newParentId: number | null,
-): { leaving: CoveringShare[]; entering: CoveringShare[] } {
+): ShareMoveImpact {
   const source = new Map(sourcePages.map((p) => [p.id, p]))
-  return {
-    leaving: coveringFrom(source, source.get(pageId)?.parentId ?? null),
-    entering: coveringFrom(new Map(targetPages.map((p) => [p.id, p])), newParentId),
-  }
+  return impactOf(
+    source.get(pageId)?.shareExcluded === true,
+    coveringFrom(source, source.get(pageId)?.parentId ?? null),
+    coveringFrom(new Map(targetPages.map((p) => [p.id, p])), newParentId),
+  )
 }
 
 /** 이동 경고의 공유 한 줄 이름 — 외부 공개면 그렇다고 분명히 적는다. */
 export const coveringShareName = (s: CoveringShare) =>
   `「${s.title || '제목 없음'}」 ${s.audience === 'PUBLIC' ? '외부 공개 링크' : '공유 링크'}`
+
+/** 제외된 페이지를 옮길 때 새 위치 공유 한 줄(WP-1031) — 「새로 보이게 됩니다」 대신 열리지 않는다고 알린다. */
+export const blockedShareNotice = (s: CoveringShare) =>
+  `상위 공유에서 제외돼 있어 새 위치의 ${coveringShareName(s)}로는 열리지 않습니다.`
 
 /** 트리에서 pageId 아래 페이지 수(손자까지). 사이클이 있어도 한 번씩만 센다. */
 export function countDescendants(pages: Pick<WikiPageSummary, 'id' | 'parentId'>[], pageId: number): number {

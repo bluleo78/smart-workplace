@@ -27,6 +27,8 @@ export interface WikiPageSummary {
   aiLastUsedAt: string | null
   // WP-579: 이 페이지 자신의 공유(없으면 null) — 사이드바 트리 공유 아이콘과, 하위 포함 공유 안팎으로 옮길 때 경고에 쓴다.
   share?: WikiTreeShare | null
+  // WP-1031: 이 페이지에 상위 공유 제외 표시(WP-987)가 있는지 — 있으면 그 위의 하위 포함 공유로 열리지 않는다. 이동 경고가 상속을 여기서 멈춘다.
+  shareExcluded?: boolean
 }
 
 /** 트리에 실린 공유 요약(WP-579). */

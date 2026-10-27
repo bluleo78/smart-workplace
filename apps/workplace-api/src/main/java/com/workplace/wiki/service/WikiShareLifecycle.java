@@ -69,7 +69,8 @@ public class WikiShareLifecycle {
 
   /**
    * 옮기기 전후 부모를 덮는 하위 포함 공유를 비교해, 빠진 공유에는 PAGE_MOVED_OUT, 새로 덮는 공유에는 PAGE_MOVED_IN 을 남긴다. 같은 스페이스 안
-   * 이동과 다른 스페이스로의 이동(WP-988 — 두 조상 체인이 겹치지 않아 옛 공유는 모두 빠지고 새 공유는 모두 들어온다)이 함께 쓴다.
+   * 이동과 다른 스페이스로의 이동(WP-988 — 두 조상 체인이 겹치지 않아 옛 공유는 모두 빠지고 새 공유는 모두 들어온다)이 함께 쓴다. 옮긴 페이지가 상위 공유에서
+   * 제외돼 있으면 어느 쪽도 덮지 않으므로 아무것도 남기지 않는다(WP-1031).
    *
    * @return 빠진 공유가 있었는지 — 있으면 공유로 열린 화면을 다시 판정해야 한다
    */
@@ -80,6 +81,13 @@ public class WikiShareLifecycle {
     List<Long> movedOut = before.stream().filter(id -> !after.contains(id)).toList();
     List<Long> movedIn = after.stream().filter(id -> !before.contains(id)).toList();
     if (movedOut.isEmpty() && movedIn.isEmpty()) {
+      return false;
+    }
+    // 옮긴 페이지 자신에 상위 공유 제외 표시가 있으면(WP-987) 그 위의 어떤 하위 포함 공유로도 열리지 않는다 — 표시는 페이지를 따라
+    // 옮겨 가므로 옮기기 전에도 옛 공유에 덮이지 않았고 옮긴 뒤에도 새 공유에 덮이지 않는다. 그래서 「들어옴」·「나감」 모두 남기지 않고,
+    // 빠진 공유로 열려 있던 화면도 없으니 재검증도 하지 않는다(WP-1031). 조상 쪽 제외는 includingRootsAbove 가 이미 걸러 낸다.
+    // 대부분의 이동은 위에서 끝나므로 제외 표시 조회는 공유 범위가 바뀔 때만 한다.
+    if (shares.isExcluded(pageId)) {
       return false;
     }
     String title =
