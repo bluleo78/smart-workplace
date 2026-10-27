@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { cursorPageView, dropEmpty, omitKeys, reactionSummary, truncatedView } from './compact.js';
 import type { SharedTool } from './mcp-tool.js';
-import { findMemberByUsername, requireActiveMember, searchMembersByTerm } from './member-tools.js';
+import { findMemberByUsername, MEMBER_SEARCH_PAGE_SIZE, requireActiveMember, searchMembersByTerm } from './member-tools.js';
 import { stagedFileIdsInput } from './schemas.js';
 import { nullAsOmitted } from './tool-definitions.js';
 import type { MemberRow, MemberToolClient, MessagingToolClient } from './tool-client.js';
@@ -48,6 +48,11 @@ const PAREN_USERNAME = /^\(([\p{L}\p{N}._+@-]+)\)/u;
 // 이름 뒤에 ASCII 단어 문자가 이어지면 더 긴 토큰의 일부다(@AI 개발자12 를 "AI 개발자1" 로 묶지 않는다). 한글 조사(님·에게)는 허용한다.
 // 웹 입력창의 평문 멘션 변환(convertPlaintextMentions)과 같은 경계다.
 const NAME_CONTINUES = /^\w/;
+// 후보 토큰 뒤에 공백을 두고 이어지는 다음 단어(WP-1041) — `@AI 개발자1` 의 "개발자1". 후보 정규식과 같은 문자 집합이되 @ 는 빼
+// 다음 멘션(`@a @b`)을 구절로 묶지 않는다. 마침표로 끝나지 않아 문장 끝 마침표는 단어에 넣지 않는다.
+const NEXT_WORD = /^(\s+)([\p{L}\p{N}._+-]*[\p{L}\p{N}_+-])/u;
+// 토큰 하나당 구절 재검색 상한 — 같은 첫 단어 뒤에 서로 다른 단어가 여럿 와도(@AI 개발자1 … @AI 리뷰어) 요청 수를 묶어 둔다.
+const MAX_PHRASES_PER_MENTION = 3;
 
 /**
  * 공백 든 표시 이름 멘션(`@AI 개발자1`, WP-1030) — 후보 토큰(`AI`) 자리에서 본문이 이어서 그 이름 전체로 쓰였는지 본다.
@@ -81,13 +86,20 @@ export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers
   // 같은 (이름, 괄호) 쌍은 한 번만 해석한다 — `@김민수(a)` 와 `@김민수(b)` 는 서로 다른 후보다.
   const keyOf = (raw: string, paren: string | undefined) => `${raw}\u0000${paren ?? ''}`;
   const code = [...body.matchAll(CODE_SPAN)].map((m): [number, number] => [m.index, m.index + m[0].length]);
-  const candidates = new Map<string, { raw: string; paren: string | undefined }>();
+  const candidates = new Map<string, { raw: string; paren: string | undefined; phrases: Set<string> }>();
   for (const m of body.matchAll(MENTION_CANDIDATE)) {
-    if (!inCode(code, m.index)) candidates.set(keyOf(m[2], m[3]), { raw: m[2], paren: m[3] });
+    if (inCode(code, m.index)) continue;
+    const key = keyOf(m[2], m[3]);
+    const entry = candidates.get(key) ?? { raw: m[2], paren: m[3], phrases: new Set<string>() };
+    candidates.set(key, entry);
+    // 토큰 뒤 "공백 + 다음 단어" 를 두 단어 구절로 모은다(WP-1041) — 첫 단어 검색이 첫 페이지를 채워 공백 든 이름이 밀려났을 때 다시 찾는다.
+    // 다음 단어의 호칭·조사는 떼어(개발자1님 → 개발자1) 부분일치 검색이 이름 전체를 잡게 한다. 괄호가 붙은 토큰은 공백 든 이름을 보지 않는다.
+    const next = m[3] ? null : NEXT_WORD.exec(body.slice(m.index + m[0].length));
+    if (next) entry.phrases.add(`${m[2]}${next[1]}${candidateNames(next[2]).at(-1)}`);
   }
   if (candidates.size === 0) return body;
   const entries = await Promise.all(
-    [...candidates].slice(0, MAX_MENTIONS).map(async ([key, { raw: token, paren }]): Promise<[string, MentionResolution]> => {
+    [...candidates].slice(0, MAX_MENTIONS).map(async ([key, { raw: token, paren, phrases }]): Promise<[string, MentionResolution]> => {
       // 후보는 긴 것부터(토큰 전체 → 조사를 한 겹씩 뗀 형태). 가장 짧은 후보로 한 번만 검색하면
       // 부분일치라 더 긴 후보도 결과에 포함된다.
       const names = candidateNames(token);
@@ -102,7 +114,16 @@ export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers
         }
       }
       // 조회 실패는 멘션 없이 원문 게시로 강등 — 메시지 작성 자체를 막지 않는다.
-      const rows = await searchMembersByTerm(client, names.at(-1)!, false).catch(() => []);
+      let rows = await searchMembersByTerm(client, names.at(-1)!, false).catch(() => []);
+      // 첫 단어(`AI`)는 kai·daisy·*mail* 처럼 부분일치하는 사람이 많아 첫 페이지가 차면 `AI 개발자1` 이 밀려날 수 있다(WP-1041).
+      // 페이지가 찼을 때만 뒤따른 두 단어 구절로 다시 찾아(더 좁아 상한에 덜 걸린다) userId 기준으로 합친다. 실패한 구절은 빈 결과로 강등.
+      if (!paren && rows.length >= MEMBER_SEARCH_PAGE_SIZE && phrases.size > 0) {
+        const extra = await Promise.all(
+          [...phrases].slice(0, MAX_PHRASES_PER_MENTION).map((p) => searchMembersByTerm(client, p, false).catch(() => [])),
+        );
+        const seen = new Set(rows.map((m) => m.userId));
+        rows = [...rows, ...extra.flat().filter((m) => !seen.has(m.userId) && seen.add(m.userId))];
+      }
       // 공백 든 이름 후보 — 토큰(조사를 떼지 않은 첫 단어) 뒤에 공백이 오는 이름. 긴 이름부터 맞춰 보도록 정렬한다.
       const spaced = paren
         ? []

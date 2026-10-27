@@ -48,6 +48,9 @@ export function toContactView(item: ContactRow) {
   return item.type === 'MEMBER' ? { ...base, username: item.username ?? null } : { ...base, externalId: item.id };
 }
 
+/** 구성원 검색 한 페이지 크기 — 결과가 이만큼 차면 뒤에 더 있을 수 있다(linkMentions 의 구절 재검색 판정, WP-1041). */
+export const MEMBER_SEARCH_PAGE_SIZE = 50;
+
 /**
  * 구성원 부분일치 검색(테넌트 스코프). 서버가 정확일치 행을 맨 앞에 정렬하므로(#844) 같은 조각을 가진 사람이 많아도
  * 정확일치 대상은 첫 페이지에 들어온다 — 호출측은 이 결과에서 정확일치만 골라 쓴다.
@@ -57,7 +60,7 @@ export function searchMembersByTerm(
   term: string,
   includeInactive: boolean,
 ): Promise<MemberRow[]> {
-  return client.searchMembers({ search: term, kind: 'ALL', includeInactive, page: 0, size: 50 });
+  return client.searchMembers({ search: term, kind: 'ALL', includeInactive, page: 0, size: MEMBER_SEARCH_PAGE_SIZE });
 }
 
 /** username → 구성원. username 은 전역 UNIQUE 라 정확일치가 곧 유일 매치다. 조회가 테넌트 스코프라 찾히면 곧 현재 테넌트 구성원이다. */

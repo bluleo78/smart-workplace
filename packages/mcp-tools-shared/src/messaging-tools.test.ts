@@ -362,6 +362,50 @@ describe('add_channel_message @username → <@userId> 멘션 변환', () => {
       expect(await link('`@AI 개발자1` 은 코드, @AI 개발자1 은 멘션', [dev1])).toBe('`@AI 개발자1` 은 코드, <@11> 은 멘션');
     });
 
+    // WP-1041: 첫 단어(`AI`)는 kai·daisy·*mail* 등에도 부분일치해 첫 페이지(50명)가 차면 대상이 밀려난다 — 두 단어 구절로 한 번 더 찾는다.
+    describe('첫 단어 검색이 첫 페이지를 채울 때(WP-1041)', () => {
+      const fillers = Array.from({ length: 60 }, (_, i) => member(`kai${i}`, 1000 + i));
+      // 서버처럼 대소문자 무시 부분일치 + 페이지 크기만큼 자른다. 무관한 행이 앞에 와 대상을 밀어낸다.
+      const pagedSearch = (members: MemberRow[]) =>
+        vi.fn(async (p: MemberSearchParams) => {
+          const q = (p.search ?? '').toLowerCase();
+          return members.filter((m) => m.username.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)).slice(0, p.size);
+        });
+      const linkPaged = async (body: string, members: MemberRow[]) => {
+        const c = mockClient();
+        c.searchMembers = pagedSearch(members);
+        return { out: await linkMentions(c, body), searches: vi.mocked(c.searchMembers).mock.calls.map(([q]) => q.search) };
+      };
+
+      it('두 단어 구절 검색으로 공백 든 이름을 찾아 멘션한다', async () => {
+        const { out, searches } = await linkPaged('@AI 개발자1 확인 부탁', [...fillers, dev1]);
+        expect(out).toBe('<@11> 확인 부탁');
+        expect(searches).toEqual(['AI', 'AI 개발자1']);
+      });
+
+      it('구절의 호칭·조사는 떼고 찾으며, 긴 이름 우선·동명이인 규칙은 그대로다', async () => {
+        expect((await linkPaged('@AI 개발자1님 확인', [...fillers, dev1, dev10])).out).toBe('<@11>님 확인');
+        expect((await linkPaged('@AI 개발자10 와 @AI 개발자1 확인', [...fillers, dev1, dev10])).out).toBe('<@20> 와 <@11> 확인');
+        const twin = agent('AI 개발자1', 'developer1b', 12);
+        expect((await linkPaged('@AI 개발자1 확인', [...fillers, dev1, twin])).out).toBe('@AI 개발자1 확인');
+      });
+
+      it('첫 페이지가 차지 않으면 추가 검색을 하지 않는다', async () => {
+        const { out, searches } = await linkPaged('@AI 개발자1 확인', [dev1]);
+        expect(out).toBe('<@11> 확인');
+        expect(searches).toEqual(['AI']);
+      });
+
+      it('구절 검색이 실패해도 원문 그대로 둔다', async () => {
+        const c = mockClient();
+        c.searchMembers = vi.fn(async (p: MemberSearchParams) => {
+          if (p.search === 'AI') return fillers.slice(0, 50);
+          throw new Error('boom');
+        });
+        expect(await linkMentions(c, '@AI 개발자1 확인')).toBe('@AI 개발자1 확인');
+      });
+    });
+
     it('update_channel_message 도 같은 변환을 거친다', async () => {
       const c = mockClient();
       c.searchMembers = searchLike([dev1, dev10]);
