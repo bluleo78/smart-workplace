@@ -261,7 +261,9 @@ public class WikiShareLifecycle {
   /**
    * 부모(포함)를 지금 덮는 하위 포함 공유의 루트 페이지 — 부모 자신의 공유이거나, 부모까지 상속이 멈추지 않는(제외 표시·따로 켠 공유가 없는) 조상의
    * 공유다(WP-987, {@link WikiShareRepository#isCoveredBy}). 조상 체인에 걸렸어도 중간에서 멈춘 공유는 이 부모 아래로 옮긴 페이지를
-   * 덮지 않는다. 최상위(부모 없음)면 비어 있다.
+   * 덮지 않는다. 만료된 공유는 접근 판정처럼 아무것도 덮지 않으므로 루트로 세지 않는다(WP-1044, {@link
+   * WikiShareRepository#findIncludingChildrenRoots}) — 중간의 만료된 자기 공유는 상속도 멈추지 않으므로 그 위의 살아 있는 공유는
+   * 그대로 덮는다. 최상위(부모 없음)면 비어 있다.
    */
   private Set<Long> includingRootsAbove(Long parentId) {
     if (parentId == null) {

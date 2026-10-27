@@ -181,6 +181,8 @@ export function stopsInheritance(p: Pick<TreeNode, 'share' | 'shareExcluded'>): 
  * parentId 부터 위로 올라가며 하위 포함 공유를 모은다(가까운 것부터). 사이클이 있어도 한 번씩만.
  * 상속이 멈추는 페이지({@link stopsInheritance})에서 멈춘다(WP-1031·WP-1043) — 그 페이지 자신의 하위 포함 공유는 모으되, 그 위의 공유는 그 페이지
  * 아래를 덮지 않는다. 서버 접근 판정(stopsInheritance)과 같은 규칙이다.
+ * 만료된 하위 포함 공유는 모으지 않는다(WP-1044) — 서버 접근 판정은 만료된 공유로 어떤 페이지도 열지 않는다. 만료된 자기 공유는 상속도 멈추지 않으므로
+ * 그 위로 계속 올라가 살아 있는 공유를 찾는다.
  */
 function coveringFrom(byId: Map<number, TreeNode>, parentId: number | null): CoveringShare[] {
   const out: CoveringShare[] = []
@@ -188,7 +190,7 @@ function coveringFrom(byId: Map<number, TreeNode>, parentId: number | null): Cov
   for (let id = parentId; id != null && !seen.has(id); id = byId.get(id)?.parentId ?? null) {
     seen.add(id)
     const p = byId.get(id)
-    if (p?.share?.includeChildren) out.push({ pageId: p.id, title: p.title, audience: p.share.audience })
+    if (p?.share?.includeChildren && p.share.expired !== true) out.push({ pageId: p.id, title: p.title, audience: p.share.audience })
     if (p && stopsInheritance(p)) break
   }
   return out
