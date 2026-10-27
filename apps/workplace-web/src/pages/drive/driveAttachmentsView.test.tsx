@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 첨부 모아보기(/drive/attachments, DriveAttachmentsView) — 화면 컴포넌트 테스트(WP-971, WP-984).
 // 출처 그룹·접기, 이슈/채널 첨부에 없는 작업, 다운로드·미리보기 콘텐츠 경로(downloadUrl), 출처 필터 source·빈 화면,
 // 「내 드라이브에 저장」 import payload, 미리보기 묶음(같은 출처 안에서만 ‹ ›)·딥링크(없음·예전 숫자·조회 실패)는 브라우저 없이 판정되므로

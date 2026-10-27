@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 새 이슈 다이얼로그 시작일·마감일 — 페이지 테스트(WP-971).
 // 시작일 → POST payload, 시작 > 마감 차단, 5자리 연도 범위 안내(WP-900)는 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-start-date-milestone.spec.ts 에서 옮겼다. 날짜 칸 폭(WP-463, @layout)은 E2E 에 남는다.

@@ -83,7 +83,8 @@ test('카탈로그 위젯 헤더 — 필터 없으면 모듈 루트, 필터는 �
     await waitFor(() => expect(headerLink(id)).toHaveAttribute('href', href))
   }
   await user.click(headerLink('w-contacts')!)
-  expect(location()).toBe('/contacts?q=%EA%B9%80&type=MEMBER')
+  // 이동은 라우터가 다음 렌더에서 알리므로 기다린다(부하에서 클릭 직후 바로 읽으면 이전 주소였다).
+  await waitFor(() => expect(location()).toBe('/contacts?q=%EA%B9%80&type=MEMBER'))
 })
 
 // WP-518 — 서버는 'all' 을 username 으로 보고 400 을 내므로 담당자 조건이 빠져야 한다. 다른 필터는 그대로.

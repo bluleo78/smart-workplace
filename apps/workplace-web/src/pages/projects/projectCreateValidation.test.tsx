@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 프로젝트 만들기 대화상자 유효성 검사(#177·WP-465·WP-466·WP-692) — 화면 테스트(WP-971, WP-1002 에서 대화상자만 띄우게 바꿈).
 // 한국어 오류 문구·공백 이름 차단·aria-invalid/aria-describedby 연결·409 를 key 칸 오류로 보이기는
 // 브라우저 없이 판정되므로 e2e/pages/projects/project-create-validation.spec.ts 에서 옮겼다(그 spec 은 지웠다).

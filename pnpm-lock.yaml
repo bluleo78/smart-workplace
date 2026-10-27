@@ -712,6 +712,9 @@ importers:
       globals:
         specifier: ^16.5.0
         version: 16.5.0
+      happy-dom:
+        specifier: 20.14.5
+        version: 20.14.5
       jsdom:
         specifier: ^30.0.0
         version: 30.0.0(@noble/hashes@1.8.0)
@@ -10881,7 +10884,7 @@ snapshots:
 
   '@types/ws@8.18.2':
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
 
   '@typescript-eslint/eslint-plugin@8.59.4(@typescript-eslint/parser@8.59.4(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.4(jiti@2.7.0))(typescript@5.9.3)':
     dependencies:
@@ -11342,7 +11345,7 @@ snapshots:
 
   buffer-image-size@0.6.4:
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
 
   buffer@5.7.1:
     dependencies:
@@ -12465,7 +12468,7 @@ snapshots:
 
   happy-dom@20.14.5:
     dependencies:
-      '@types/node': 24.12.4
+      '@types/node': 22.19.19
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.2
       buffer-image-size: 0.6.4

@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// happy-dom(화면 테스트 기본, WP-1002)과 날짜 칸·글자 수 제한·포커스 이동 처리가 달라 이 파일은 jsdom 에서 돈다.
 // 캘린더 일정 만들기·수정·삭제와 일정 폼 — 화면 컴포넌트 테스트(WP-966, WP-995).
 // 브라우저 없이 판정되는 아래 동작을 e2e/pages/calendar/calendar.spec.ts 에서 옮겼다:
 // - 만들기·수정·삭제(확인 대화상자·destructive 버튼)·반복 회차 범위 선택의 payload·쿼리, 저장 중 잠금·같은 틱 연속 클릭 1회
