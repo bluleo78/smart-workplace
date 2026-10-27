@@ -100,27 +100,29 @@ class PermissionServiceTest extends IntegrationTestBase {
   // =========================================================================
 
   /**
-   * Flyway seed 권한 32개가 모두 반환되어야 한다(V2 10개 + V5 신규 4개 + V7·V20·V26 각 1개 + V31 연락처 3개에 이후 추가분 —
-   * 마이그레이션별 내역은 아래 assert 주석).
+   * Flyway seed 권한 30개가 모두 반환되어야 한다(V2 10개 + V5 신규 4개 + V7·V20·V26 각 1개 + V31 연락처 3개에 이후 추가분, V226
+   * 가 지운 2개를 뺌 — 마이그레이션별 내역은 아래 assert 주석). V26 cycle:manage·V120 milestone:manage 는 더했다가 V226 가
+   * 지웠다.
    */
   @Test
   void getAllPermissions_returnAllSeedPermissions() {
     List<PermissionResponse> result = permissionService.getAllPermissions();
 
     assertThat(result)
-        .hasSize(32); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage, V132 member:read,
-    // V138 sso:manage, V195 wiki_share:manage, V214 issue_relation_type:manage 추가 → 32
-    // V20 저장된 뷰 권한 + V26 사이클 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
+        .hasSize(30); // V42 audit:read, V70 platform:* 4종, V120 milestone:manage, V132 member:read,
+    // V138 sso:manage, V195 wiki_share:manage, V214 issue_relation_type:manage 추가 → 32,
+    // V226 가 쓰지 않는 사이클·마일스톤 관리 코드 2개를 지움(WP-1025) → 30
+    // V20 저장된 뷰 권한 + V31 연락처 권한 + V39 캘린더 권한이 시드에 포함되는지 함께 확인.
     assertThat(result)
         .extracting(PermissionResponse::code)
         .contains(
             "savedview:manage",
-            "cycle:manage",
             "contact:read",
             "contact:write",
             "user-group:manage",
             "calendar:read",
-            "calendar:write");
+            "calendar:write")
+        .doesNotContain("cycle:manage", "milestone:manage");
   }
 
   /** 반환 목록은 id 오름차순으로 정렬되어야 한다. */

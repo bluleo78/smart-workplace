@@ -19,8 +19,8 @@ public class TenantProvisioningService {
   private final PlatformTenantRepository platformTenantRepository;
 
   /**
-   * USER 역할(일반 구성원)에 부여할 permission code — tenant#1 USER 가 마이그레이션(V2·V6·V31·V33·V120·V132 등)으로 누적한
-   * 업무 권한 집합과 동일하다.
+   * USER 역할(일반 구성원)에 부여할 permission code — tenant#1 USER 가 마이그레이션(V2·V6·V31·V33·V120·V132 등)으로 누적하고
+   * V226 가 쓰지 않게 된 사이클·마일스톤 관리 권한 코드를 지운(WP-1025) 업무 권한 집합과 동일하다.
    *
    * <p>WP-104: 예전에는 V2 기준 self 권한만 시드해서 신규 테넌트의 일반 구성원은 연락처·프로젝트·이슈·캘린더 API 가 전부 403 이었다. 일반 구성원이
    * 실제로 일할 수 있어야 하므로 tenant#1 USER 와 같은 집합을 준다. 기존 테넌트는 V139 가 보충한다. 계정 관리 권한({@code
@@ -37,8 +37,6 @@ public class TenantProvisioningService {
           "issue:write",
           "label:manage",
           "savedview:manage",
-          "cycle:manage",
-          "milestone:manage",
           "contact:read",
           "contact:write",
           "calendar:read",
@@ -49,17 +47,17 @@ public class TenantProvisioningService {
 
   /**
    * AGENT 역할(개인 비서 기본 역할)에 부여할 permission code — USER 의 업무 권한에서 관리성 권한({@code project:manage} 프로젝트
-   * 삭제·멤버관리·스키마변경, {@code milestone:manage})을 뺀 집합 (#278) + 구성원 디렉터리 조회 {@code member:read} (#833).
-   * {@code cycle:manage}·{@code milestone:manage} 는 WP-1008 부터 어느 엔드포인트도 검사하지 않는다(마일스톤·사이클 변경은 버전처럼
-   * {@code project:manage} + 프로젝트 OWNER) — 롤링 배포 호환을 위해 시드에는 남기고 정리는 다음 배포에서 한다. 업무별 에이전트는 관리자가 별도
-   * 역할을 부여한다. AI 에게 주는 권한이라 USER 에서 파생하지 않고 명시 목록으로 둔다 — USER 에 권한이 늘어도 AGENT 로 자동 전파되지 않게 하기 위함.
+   * 삭제·멤버관리·스키마변경)을 뺀 집합 (#278) + 구성원 디렉터리 조회 {@code member:read} (#833). 마일스톤·사이클 변경은 WP-1008 부터
+   * 버전처럼 {@code project:manage} + 프로젝트 OWNER 로 판정하고, 쓰지 않게 된 사이클·마일스톤 관리 권한 코드는 V226 가
+   * 지웠다(WP-1025). 업무별 에이전트는 관리자가 별도 역할을 부여한다. AI 에게 주는 권한이라 USER 에서 파생하지 않고 명시 목록으로 둔다 — USER 에 권한이
+   * 늘어도 AGENT 로 자동 전파되지 않게 하기 위함.
    *
    * <p>{@code member:read} 는 AI 가 사람 이름으로 구성원을 찾아 userId 를 확정하는 경로(search_members)에 필요하다. 이것이 없으면
    * 연락처 목록이 유일한 사람 검색 경로가 되어 연락처 id 를 userId 로 오용하게 된다. 조회 전용이며, 역할변경·활성토글은 확인 카드가 사람의 권한으로 실행하므로
    * AGENT 에 쓰기 권한을 주지 않는다.
    *
-   * <p>마이그레이션 V75 + V132 의 시드 코드 집합과 동일하게 유지해야 한다 — {@code NewTenantProvisioningTest} 가 tenant#1
-   * AGENT 와의 집합 일치를 검증한다.
+   * <p>마이그레이션 V75 + V132 − V226 의 시드 코드 집합과 동일하게 유지해야 한다 — {@code NewTenantProvisioningTest} 가
+   * tenant#1 AGENT 와의 집합 일치를 검증한다.
    */
   private static final List<String> AGENT_ROLE_PERMISSION_CODES =
       List.of(
@@ -68,7 +66,6 @@ public class TenantProvisioningService {
           "issue:write",
           "label:manage",
           "savedview:manage",
-          "cycle:manage",
           "contact:read",
           "contact:write",
           "calendar:read",
