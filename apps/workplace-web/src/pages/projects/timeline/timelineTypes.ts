@@ -55,6 +55,8 @@ export interface DateSpan {
 export interface TimelineEpicGroup {
   key: string;
   epicNumber: number | null;
+  /** 다른 프로젝트 에픽 묶음(WP-1039)의 프로젝트 키 — 그룹 행을 누르면 그 프로젝트 에픽으로 간다. 이 프로젝트 에픽·no-epic 은 없음. */
+  epicProjectKey?: string;
   title: string;
   /** 에픽 상태 — 완료·취소 막대 표시용(WP-247). 응답에 에픽이 없는 합성 그룹·no-epic 은 null. */
   status: IssueStatus | null;

@@ -133,7 +133,8 @@ export function TimelineGanttBody({
                 data: { startDate: change.startDate, dueDate: change.dueDate },
               })
             }
-            onBarClick={(issueNumber) => navigate(`/projects/${key}/issues/${issueNumber}`)}
+            // 다른 프로젝트 에픽 그룹 행(WP-1039)은 그 프로젝트 에픽으로 간다.
+            onBarClick={(issueNumber, projectKey) => navigate(`/projects/${projectKey ?? key}/issues/${issueNumber}`)}
             onMilestoneClick={(id, anchorRect) => {
               const target = milestones?.find((m) => m.id === id);
               if (target) onMilestoneClick(target, anchorRect);

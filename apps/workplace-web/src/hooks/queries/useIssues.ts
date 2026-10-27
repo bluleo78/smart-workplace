@@ -12,8 +12,12 @@ import { refreshStatusesIfGone } from './useProjectStatuses';
 export const issueKeys = {
   all: ['issues'] as const,
   search: (projectKey: string) => ['issues', 'search', projectKey] as const,
+  /** 한 프로젝트의 모든 이슈 상세 접두사 — 프로젝트 단위로 상세를 무효화할 때. */
+  details: (projectKey: string) => [...issueKeys.all, projectKey, 'detail'] as const,
   detail: (projectKey: string, number: number) =>
-    [...issueKeys.all, projectKey, 'detail', number] as const,
+    [...issueKeys.details(projectKey), number] as const,
+  // 이슈 하나의 하위 목록 접두사(WP-1039) — search 접두 아래라 프로젝트 검색 무효화에 함께 갱신된다. 화면은 에픽/하위 태스크 구분을 덧붙인다.
+  children: (projectKey: string, number: number) => [...issueKeys.search(projectKey), 'children', number] as const,
   // 코멘트 하나의 반응자 목록 접두사(WP-504) — useReactors 가 이모지를 덧붙인다. 토글·SSE 가 이 접두사로 무효화.
   commentReactors: (commentId: number) => [...issueKeys.all, 'comment-reactors', commentId] as const,
 };

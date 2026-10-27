@@ -25,6 +25,7 @@ import { UserAvatar } from '../../../components/users/UserAvatar';
 import { assigneeCandidates } from '../../../lib/assigneeCandidates';
 import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { type RowMenuItems, toSummary } from '../../../lib/issueRowMenu';
+import { isSameParent } from '../../../lib/parentRef';
 import type { IssuePriority, IssueResponse } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
 import type { ProjectStatus } from '../../../types/projectStatus';
@@ -186,8 +187,9 @@ export function IssueRowMenu({
               {epicsLoading && (
                 <DropdownMenuItem disabled data-testid="row-menu-epic-loading">불러오는 중…</DropdownMenuItem>
               )}
+              {/* 체크는 프로젝트까지 비교한다 — 부모가 다른 프로젝트 에픽(CLA-5)이면 이 프로젝트 에픽 #5 에 체크하지 않는다(WP-1039). */}
               {epics.map((e) => (
-                <DropdownMenuCheckboxItem key={e.number} checked={cur?.parent?.number === e.number} onSelect={() => onEpic(e)} data-testid={`row-menu-epic-${e.number}`}>
+                <DropdownMenuCheckboxItem key={e.number} checked={cur != null && cur.parent != null && isSameParent(cur.parent, e, cur.projectKey)} onSelect={() => onEpic(e)} data-testid={`row-menu-epic-${e.number}`}>
                   <EpicColorDot epic={e} />
                   <span className="min-w-0 flex-1 truncate">{e.title}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">{e.childDoneCount}/{e.childCount}</span>

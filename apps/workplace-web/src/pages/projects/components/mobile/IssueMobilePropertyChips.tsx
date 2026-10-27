@@ -70,7 +70,8 @@ export function IssueMobilePropertyChips({
   const [epicsWanted, setEpicsWanted] = useState(false);
   const { epics, loading: epicsLoading } = useProjectEpics(projectKey, showEpic && epicsWanted);
   const assignees = useUpdateIssueAssignees(projectKey, issue.number);
-  const parent = useUpdateIssueParent(projectKey, issue.number);
+  // 지금 부모를 넘겨 다른 프로젝트 에픽에서 옮길 때 그 에픽의 진행률·하위 목록도 갱신한다(WP-1039).
+  const parent = useUpdateIssueParent(projectKey, issue.number, issue.parent);
   const blockers = incompleteBlockers(issue.blockedBy ?? []);
   const disabled = !canEditWorkflow || updatePending;
   const close = () => setSheet(null);
@@ -250,10 +251,11 @@ export function IssueMobilePropertyChips({
           onClose={close}
           epics={epics}
           loading={epicsLoading}
-          value={issue.parent?.number ?? null}
-          onSelect={(to) => {
-            if (to !== (issue.parent?.number ?? null)) parent.mutate(to);
-          }}
+          // 다른 프로젝트·가려진 부모면 이 프로젝트 에픽 줄 어디에도 체크하지 않는다(WP-1039). 같은 에픽을 다시 고르면 시트가 부르지 않는다.
+          value={issue.parent}
+          // 다른 프로젝트 에픽도 찾아 연결한다(WP-1039) — 서버엔 그 키(parentKey)로 보낸다.
+          projectKey={projectKey}
+          onSelect={(to) => parent.mutate(to)}
         />
       )}
     </>

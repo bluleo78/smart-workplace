@@ -5,7 +5,9 @@ import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarMonth
 
 import { CLOSED_ISSUE_STATUSES } from '@/lib/closedHiding';
 import { epicColorToken } from '@/lib/epicColor';
-import { isOwnProjectEpicParent } from '@/lib/issueGrouping';
+import { compareEpicGroups, epicGroupKey, epicGroupOf,type EpicGroupRef } from '@/lib/epicGroup';
+import { formatIssueKey } from '@/lib/issueKey';
+import { isHiddenParent } from '@/lib/parentRef';
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
@@ -166,14 +168,56 @@ export function rollupOverlay(
 
 const NO_EPIC_KEY = 'no-epic';
 
-/** 에픽 그룹 키 — 간트 그룹(TimelineEpicGroup.key)과 펼침 상태 저장(useTimelineExpanded)이 같은 형식을 쓴다. */
-export const epicGroupKey = (epicNumber: number) => `epic-${epicNumber}`;
+/**
+ * 이슈의 부모 에픽 묶음(WP-1039) — 같은 프로젝트 에픽은 번호로, 다른 프로젝트 에픽은 (키, 번호)로 묶는다(이슈 목록 에픽 그룹과 같은 키·순서, epicGroup).
+ * 가려진 부모(볼 수 없는 에픽)는 번호·키가 없어 타임라인에선 묶지 않으므로 null(「에픽 없음」), 에픽이 아닌 부모도 null.
+ */
+function timelineEpicOf(i: Pick<IssueResponse, 'parent' | 'projectKey'>): EpicGroupRef | null {
+  const p = i.parent;
+  if (p == null || isHiddenParent(p) || p.type?.name !== 'EPIC') return null;
+  return epicGroupOf(p, i.projectKey);
+}
+
+/** 그룹 제목 — 다른 프로젝트 에픽은 어느 프로젝트 에픽인지 알 수 있게 키를 앞에 붙인다(WP-1039). */
+const epicTitleOf = (ref: EpicGroupRef, title: string) => (ref.projectKey ? `${formatIssueKey(ref.projectKey, ref.number)} ${title}` : title);
+
+/**
+ * 이슈를 에픽 묶음으로 나눈다 — 간트(groupTimelineIssues)·모바일 아젠다(buildAgendaSections)·기간 거름(prepareTimelineIssues)이 같은 규칙을 쓴다.
+ * 응답의 에픽(늘 이 프로젝트 에픽)은 자기 묶음을, 하위는 부모 에픽 묶음에 든다. 응답에 에픽 행이 없는 묶음(필터로 빠진 에픽·다른 프로젝트 에픽,
+ * WP-1039)은 하위의 부모 요약으로 합성한다. refs 는 처음 만난 순서(응답 에픽 → 하위로만 보이는 묶음), 에픽 없는 이슈는 loose.
+ */
+function bucketByEpic<T extends TimelineIssue>(issues: T[]) {
+  const epicByKey = new Map<string, T>();
+  const refs = new Map<string, EpicGroupRef>();
+  for (const e of issues) {
+    if (e.type?.name !== 'EPIC') continue;
+    const ref = epicGroupOf({ number: e.number }, e.projectKey);
+    epicByKey.set(ref.key, e);
+    refs.set(ref.key, ref);
+  }
+  const children = new Map<string, T[]>();
+  const loose: T[] = [];
+  for (const i of issues) {
+    if (i.type?.name === 'EPIC') continue;
+    const ref = timelineEpicOf(i);
+    if (!ref) {
+      loose.push(i);
+      continue;
+    }
+    // 매번 배열을 복사하지 않고 같은 배열에 push.
+    const list = children.get(ref.key) ?? [];
+    list.push(i);
+    children.set(ref.key, list);
+    if (!refs.has(ref.key)) refs.set(ref.key, ref);
+  }
+  return { epicByKey, refs, children, loose };
+}
 
 /** IssueResponse → TimelineBar 변환 (dueDate 필수 — 호출부가 사전에 필터링). */
 function toBar(issue: TimelineIssue): TimelineBar {
   return {
     issueNumber: issue.number,
-    issueKey: `${issue.projectKey}-${issue.number}`,
+    issueKey: formatIssueKey(issue.projectKey, issue.number),
     title: issue.title,
     start: issue.startDate,
     due: issue.dueDate!,
@@ -261,15 +305,16 @@ export function prepareTimelineIssues(
   { includeCanceled = false, period = null }: TimelineViewOptions = {},
 ): TimelineIssue[] {
   const canceledEpics = new Map(
-    issues.filter((i) => i.type?.name === 'EPIC' && i.status === 'CANCELED').map((i) => [i.number, i.title]),
+    issues.filter((i) => i.type?.name === 'EPIC' && i.status === 'CANCELED').map((i) => [epicGroupKey(i.number), i.title]),
   );
   const byStatus: TimelineIssue[] = [];
   for (const i of issues) {
     if (i.type?.name === 'SUBTASK') continue;
-    // 취소 에픽 하위 판정 — 응답의 취소 에픽 우선, 필터로 에픽 행이 빠졌으면 하위의 parent.status 로 판단한다(WP-247).
+    // 취소 에픽 하위 판정 — 응답의 취소 에픽 우선, 필터로 에픽 행이 빠졌으면(다른 프로젝트 에픽은 늘) 하위의 parent.status 로 판단한다(WP-247).
+    const ref = timelineEpicOf(i);
     const canceledParent =
-      isOwnProjectEpicParent(i)
-        ? (canceledEpics.get(i.parent.number) ?? (i.parent.status === 'CANCELED' ? i.parent.title : undefined))
+      ref && i.parent
+        ? (canceledEpics.get(ref.key) ?? (i.parent.status === 'CANCELED' ? i.parent.title : undefined))
         : undefined;
     if (canceledParent !== undefined) {
       if (i.status === 'TODO' || i.status === 'IN_PROGRESS') byStatus.push({ ...i, parent: null, formerEpicTitle: canceledParent });
@@ -282,19 +327,11 @@ export function prepareTimelineIssues(
   }
   if (!period) return byStatus;
 
-  // 에픽 번호 → 하위(응답에 에픽이 없는 합성 묶음 포함).
-  const kidsOf = new Map<number, TimelineIssue[]>();
-  for (const i of byStatus) {
-    if (i.type?.name !== 'EPIC' && isOwnProjectEpicParent(i)) {
-      const list = kidsOf.get(i.parent.number) ?? [];
-      list.push(i);
-      kidsOf.set(i.parent.number, list);
-    }
-  }
-  const epicByNumber = new Map(byStatus.filter((i) => i.type?.name === 'EPIC').map((e) => [e.number, e]));
-  const visibleEpics = new Set<number>();
-  for (const num of new Set([...epicByNumber.keys(), ...kidsOf.keys()])) {
-    const epic = epicByNumber.get(num);
+  // 에픽 묶음 키 → 에픽·하위(응답에 에픽이 없는 합성 묶음·다른 프로젝트 에픽 묶음 포함).
+  const { epicByKey, refs, children: kidsOf } = bucketByEpic(byStatus);
+  const visibleEpics = new Set<string>();
+  for (const num of refs.keys()) {
+    const epic = epicByKey.get(num);
     // 에픽 기간 = 간트 막대(groupTimelineIssues 의 range)와 같은 정의 — 막대는 기간 안인데 거름에서 빠지는 어긋남을 막는다(WP-247 코멘트, WP-248).
     // 여기에 마감일 있는 하위 롤업(간트 rollupRange — WP-249 얇은 막대와 같은 정의)을 더해 range ∪ rollup 과 겹치면 보인다 —
     // 에픽 기간이 지났어도 남은 하위가 조회 기간에 걸치면 보이게. 마감일 없는 하위는 간트에 막대가 없어 판단에 넣지 않는다.
@@ -305,8 +342,9 @@ export function prepareTimelineIssues(
     if (undated || (own && overlaps(own, period)) || (rollup && overlaps(rollup, period))) visibleEpics.add(num);
   }
   return byStatus.filter((i) => {
-    if (i.type?.name === 'EPIC') return visibleEpics.has(i.number);
-    if (isOwnProjectEpicParent(i)) return visibleEpics.has(i.parent.number);
+    if (i.type?.name === 'EPIC') return visibleEpics.has(epicGroupKey(i.number));
+    const ref = timelineEpicOf(i);
+    if (ref) return visibleEpics.has(ref.key);
     // 마감일 없는 이슈는 간트에서 「일정 미정」(막대는 dueDate 필수) — 기간과 무관하게 남긴다.
     if (!i.dueDate) return true;
     return overlaps(spanOf(i.startDate, i.dueDate)!, period);
@@ -328,29 +366,18 @@ export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewO
 } {
   const active = prepareTimelineIssues(issues, opts);
 
-  const epics = active.filter((i) => i.type?.name === 'EPIC');
-  const epicByNumber = new Map(epics.map((e) => [e.number, e]));
-  const children = new Map<number, TimelineIssue[]>(); // epicNumber → 하위
-  const looseIssues: TimelineIssue[] = [];
-  for (const issue of active) {
-    if (issue.type?.name === 'EPIC') continue;
-    if (isOwnProjectEpicParent(issue)) {
-      const list = children.get(issue.parent.number) ?? [];
-      list.push(issue);
-      children.set(issue.parent.number, list);
-    } else {
-      looseIssues.push(issue);
-    }
-  }
+  // 묶음 키 → 에픽·하위·묶음 참조. 다른 프로젝트 에픽(WP-1039)은 응답에 에픽 행이 없어 하위의 부모 요약으로 합성한다.
+  const { epicByKey, refs, children, loose: looseIssues } = bucketByEpic(active);
 
   const groups: TimelineEpicGroup[] = [];
   const unscheduled: IssueResponse[] = [];
 
-  // 에픽 그룹 — 응답에 있는 에픽 + 하위만 보이는 합성 에픽을 번호 오름차순으로.
-  const epicNumbers = [...new Set([...epicByNumber.keys(), ...children.keys()])].sort((a, b) => a - b);
-  for (const num of epicNumbers) {
-    const epic = epicByNumber.get(num) ?? null;
-    const kids = children.get(num) ?? [];
+  // 에픽 그룹 — 응답에 있는 에픽 + 하위만 보이는 합성 에픽을 번호 오름차순으로, 다른 프로젝트 에픽 묶음은 그 뒤(키·번호순).
+  const epicRefs = [...refs.values()].sort(compareEpicGroups);
+  for (const ref of epicRefs) {
+    const num = ref.number;
+    const epic = epicByKey.get(ref.key) ?? null;
+    const kids = children.get(ref.key) ?? [];
     const bars = kids.filter((k) => k.dueDate).map(toBar);
     // 미정 하위는 "일정 미정" 섹션이 아니라 소속 에픽 아래 행으로 노출한다(중복 없음).
     const undatedChildren = kids.filter((k) => !k.dueDate);
@@ -367,9 +394,10 @@ export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewO
     if (!epic && kids.length === 0) continue;
 
     groups.push({
-      key: epicGroupKey(num),
+      key: ref.key,
       epicNumber: num,
-      title: epic?.title ?? kids[0]?.parent?.title ?? `#${num}`,
+      ...(ref.projectKey ? { epicProjectKey: ref.projectKey } : {}),
+      title: epicTitleOf(ref, epic?.title ?? kids[0]?.parent?.title ?? `#${num}`),
       // 합성 그룹(응답에 에픽 없음)은 하위가 실어 온 부모 상태로 — 「취소」 필터로 남은 취소 에픽 하위 묶음도 취소 표시가 되게(WP-247).
       status: epic?.status ?? kids[0]?.parent?.status ?? null,
       colorToken: groupColorToken(epic, kids),
@@ -426,8 +454,10 @@ export interface AgendaRow {
   blocked: boolean;
   /** 섹션 월 안 막대 위치(0~1 비율, 월 밖은 0/1 로 잘림). 날짜가 하나도 없으면 null. */
   bar: { left: number; right: number } | null;
-  /** 소속 에픽 번호 — epic 행은 자기 번호, child 는 부모 에픽, issue 는 null. 접기(WP-251)에 쓴다. */
-  epicNumber: number | null;
+  /** 소속 에픽 묶음 키(epicGroupKey) — epic·child 행은 그 묶음, issue 는 null. 접기(WP-251)에 쓴다 — 다른 프로젝트 에픽(WP-1039)과 번호가 겹쳐도 갈린다. */
+  groupKey: string | null;
+  /** 다른 프로젝트 에픽 머리 행(WP-1039)의 프로젝트 키 — 누르면 그 프로젝트 이슈로 간다. 그 밖의 행은 없음(이 프로젝트). */
+  projectKey?: string;
   /** 에픽 행 색 토큰(WP-1017) — 머리 글자·막대 색. 그 밖의 행은 없음. */
   colorToken?: string;
   /** 에픽 행 진행률(완료/전체, epicProgress). 그 밖의 행은 null. */
@@ -499,32 +529,20 @@ function byBasis(a: { basis: string | null; number: number }, b: { basis: string
 /** 이슈 → 모바일 아젠다 섹션(월 오름차순, 「일정 미정」 맨 뒤). today 는 오늘 선 위치에만 쓴다. */
 export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: TimelineViewOptions = {}): AgendaSection[] {
   const active = prepareTimelineIssues(issues, opts);
-  const epicByNumber = new Map(active.filter((i) => i.type?.name === 'EPIC').map((e) => [e.number, e]));
-  const children = new Map<number, TimelineIssue[]>();
-  const loose: TimelineIssue[] = [];
-  for (const i of active) {
-    if (i.type?.name === 'EPIC') continue;
-    if (isOwnProjectEpicParent(i)) {
-      // 매번 배열을 복사하지 않고 같은 배열에 push(groupTimelineIssues 와 같은 방식).
-      const list = children.get(i.parent.number) ?? [];
-      list.push(i);
-      children.set(i.parent.number, list);
-    } else {
-      loose.push(i);
-    }
-  }
+  // 묶음 키 → 에픽·하위·묶음 참조 — 다른 프로젝트 에픽 묶음(WP-1039)은 하위의 부모 요약으로 합성한다(groupTimelineIssues 와 같은 규칙).
+  const { epicByKey, refs, children, loose } = bucketByEpic(active);
 
   // 막대는 섹션 월이 정해진 뒤 계산하므로, 그 전엔 날짜 구간만 들고 있는다(rollupSpan/insideSpan).
   type Item = Omit<AgendaRow, 'bar' | 'rollup'> & { rollupSpan?: DateSpan; insideSpan?: DateSpan | null };
   // 블록 = 섹션에 함께 들어가는 행 묶음(에픽 머리 + 하위, 또는 단독 이슈). 블록 기준일로 섹션·순서를 정한다.
   const blocks: { basis: string | null; number: number; items: Item[] }[] = [];
-  const toItem = (i: TimelineIssue, kind: AgendaRow['kind'], epicNumber: number | null): Item => ({
+  const toItem = (i: TimelineIssue, kind: AgendaRow['kind'], groupKey: string | null): Item => ({
     issueNumber: i.number,
     title: i.title,
     kind,
     start: i.startDate,
     due: i.dueDate,
-    epicNumber,
+    groupKey,
     progress: null,
     hasChildren: false,
     status: i.status,
@@ -532,16 +550,19 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
     ...(i.formerEpicTitle ? { formerEpicTitle: i.formerEpicTitle } : {}),
   });
 
-  for (const num of new Set([...epicByNumber.keys(), ...children.keys()])) {
-    const epic = epicByNumber.get(num);
-    const kids = (children.get(num) ?? []).map((k) => ({ basis: basisOf(k), number: k.number, k })).sort(byBasis);
+  for (const ref of refs.values()) {
+    const num = ref.number;
+    const epic = epicByKey.get(ref.key);
+    const kids = (children.get(ref.key) ?? []).map((k) => ({ basis: basisOf(k), number: k.number, k })).sort(byBasis);
     const kidBases = kids.map((x) => x.basis).filter((b): b is string => b != null); // byBasis 정렬이라 이미 오름차순
     // 하위 실제 범위 = 마감일 있는 하위 날짜 전체의 최소 ~ 최대(시작 > 마감인 잘못된 데이터도 뒤집히지 않는다).
     // 시작일만 있는 하위는 간트처럼 에픽 기간에 넣지 않는다(WP-484).
     const kidSpan = childDateSpan(kids.filter((x) => x.k.dueDate).map((x) => x.k));
     const own = epic ? basisOf(epic) : null;
     const epicRow = {
-      epicNumber: num,
+      groupKey: ref.key,
+      // 다른 프로젝트 에픽 머리 행(WP-1039)은 그 프로젝트로 잇는다.
+      ...(ref.projectKey ? { projectKey: ref.projectKey } : {}),
       progress: epicProgress(epic, kids.map((x) => x.k)),
       hasChildren: kids.length > 0,
       colorToken: groupColorToken(epic, kids.map((x) => x.k)),
@@ -549,7 +570,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
     // 에픽 자기 날짜가 있으면 그대로, 없으면(또는 응답에 에픽이 없으면) 하위 롤업으로 머리 행 날짜·막대를 만든다.
     let head: Item;
     if (epic && own) {
-      head = { ...toItem(epic, 'epic', num), ...epicRow };
+      head = { ...toItem(epic, 'epic', ref.key), ...epicRow };
       // 에픽 자체 기간 vs 하위 실제 범위 — 얇은 막대와 기간 안쪽 구간(WP-251). 기준은 데스크톱 간트와 같다.
       const ownRange = epicOwnRange(epic);
       if (ownRange && kidSpan) {
@@ -559,7 +580,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
     } else {
       head = {
         issueNumber: num,
-        title: epic?.title ?? kids[0]?.k.parent?.title ?? `#${num}`,
+        title: epicTitleOf(ref, epic?.title ?? kids[0]?.k.parent?.title ?? `#${num}`),
         kind: 'epic',
         // 합성 머리 행은 하위가 실어 온 부모 상태(없으면 TODO) — 간트 합성 그룹과 같은 규칙.
         status: epic?.status ?? kids[0]?.k.parent?.status ?? 'TODO',
@@ -569,7 +590,7 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
         ...epicRow,
       };
     }
-    blocks.push({ basis: own ?? kidBases[0] ?? null, number: num, items: [head, ...kids.map((x) => toItem(x.k, 'child', num))] });
+    blocks.push({ basis: own ?? kidBases[0] ?? null, number: num, items: [head, ...kids.map((x) => toItem(x.k, 'child', ref.key))] });
   }
   for (const i of loose) blocks.push({ basis: basisOf(i), number: i.number, items: [toItem(i, 'issue', null)] });
   blocks.sort(byBasis);

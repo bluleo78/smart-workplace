@@ -25,14 +25,19 @@ public class IssueLookupController {
 
   /**
    * 최대 20건, 최신 수정순. q 가 비면 빈 목록. from 은 현재 이슈의 프로젝트 키 — 개인 프로젝트면 그 프로젝트 안에서만, 아니면 읽을 수 있는 비개인 프로젝트
-   * 전부에서 찾는다(걸 수 없는 이슈를 제안하지 않게).
+   * 전부에서 찾는다(걸 수 없는 이슈를 제안하지 않게). type(유형 이름, 예: EPIC)·openOnly(완료·취소 제외)·excludeFrom(from 프로젝트
+   * 제외)은 상한 전에 거는 선택 거름이다 — 상위 에픽 고르기가 다른 프로젝트의 열린 에픽만 찾을 때 쓴다(WP-1039).
    */
   @GetMapping("/lookup")
   @RequirePermission("project:read")
   public ResponseEntity<List<IssueLookupItem>> lookup(
       Authentication auth,
       @RequestParam(required = false) String q,
-      @RequestParam(required = false) String from) {
-    return ResponseEntity.ok(relationService.lookup((Long) auth.getPrincipal(), q, from));
+      @RequestParam(required = false) String from,
+      @RequestParam(required = false) String type,
+      @RequestParam(defaultValue = "false") boolean openOnly,
+      @RequestParam(defaultValue = "false") boolean excludeFrom) {
+    return ResponseEntity.ok(
+        relationService.lookup((Long) auth.getPrincipal(), q, from, type, openOnly, excludeFrom));
   }
 }

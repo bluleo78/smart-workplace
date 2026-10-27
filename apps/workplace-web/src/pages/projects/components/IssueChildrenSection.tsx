@@ -3,6 +3,8 @@
 // parentTypeName === 'EPIC' 이면 추가 폼에 유형 선택(SUBTASK/EPIC 제외)이 노출되고,
 // 그 외(일반 이슈)는 기존처럼 SUBTASK 고정 추가 폼을 사용한다.
 // 자식 조회는 부모 number 필터로 별도 search 호출 (cache key 분리).
+// 에픽 하위는 다른 프로젝트에도 있을 수 있어(WP-1038) 하위 목록 API(/children)로 받는다 — 다른 프로젝트 하위는 자기 키로 보이고 그 프로젝트로
+// 이어지며, 조회자가 읽을 수 없는 하위는 「볼 수 없는 하위 N건」 한 줄로만 센다(WP-1039). 일반 이슈의 하위 태스크는 같은 프로젝트라 예전 검색 그대로.
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
@@ -24,11 +26,13 @@ import { keepFocusProps } from '@/lib/keepFocus';
 
 import { issuesApi, searchIssues } from '../../../api/issues';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
+import { issueKeys } from '../../../hooks/queries/useIssues';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
 import { useProject } from '../../../hooks/queries/useProjects';
 import { useIsMobile } from '../../../hooks/useIsMobile';
 import { handleApiError } from '../../../lib/api-error';
 import { isClosedStatus } from '../../../lib/issueGrouping';
+import { formatIssueKey } from '../../../lib/issueKey';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
 import type { IssueResponse } from '../../../types/issue';
@@ -73,11 +77,13 @@ export function IssueChildrenSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEpicParent, epicChildTypes.length]);
 
-  // 자식 검색 — search API 의 parent 필터 활용. 페이지 사이즈는 100 (1단계 트리 한계).
+  // 자식 조회 — 에픽은 하위 목록 API(다른 프로젝트 하위 포함), 그 밖은 search API 의 parent 필터(페이지 사이즈 100, 1단계 트리 한계).
+  // 두 응답을 { items, hiddenCount } 한 모양으로 맞춘다. 키는 search 접두라 하위 추가·부모 변경의 검색 무효화에 함께 갱신된다.
   const children = useQuery({
-    queryKey: ['issues', 'search', projectKey, 'children', parentNumber],
-    queryFn: () =>
-      searchIssues(
+    queryKey: [...issueKeys.children(projectKey, parentNumber), isEpicParent ? 'epic' : 'subtask'],
+    queryFn: async (): Promise<{ items: IssueResponse[]; hiddenCount: number }> => {
+      if (isEpicParent) return issuesApi.children(projectKey, parentNumber);
+      const res = await searchIssues(
         projectKey,
         {
           q: '',
@@ -108,12 +114,16 @@ export function IssueChildrenSection({
         },
         null,
         100,
-      ),
+      );
+      return { items: res.items ?? [], hiddenCount: 0 };
+    },
     enabled: !!projectKey && Number.isFinite(parentNumber),
   });
 
   // 생성 시간 오름차순 정렬 — 신규 항목이 최상단에 끼어드는 역방향 UX 방지 (refs #166).
   const items: IssueResponse[] = sortChildrenByCreatedAt(children.data?.items ?? []);
+  // 읽을 수 없는 프로젝트의 하위 수 — 진행률(childCount)은 이것까지 세므로 목록 아래 한 줄로 수를 맞춘다.
+  const hiddenCount = children.data?.hiddenCount ?? 0;
   const [newTitle, setNewTitle] = useState('');
   // 모바일(WP-196): 「＋ 하위 태스크 추가」 탭으로 입력칸을 펼치는 연속 입력 UX. 데스크톱은 입력칸이 항상 보인다.
   const isMobile = useIsMobile();
@@ -192,22 +202,31 @@ export function IssueChildrenSection({
             다시 시도
           </button>
         </p>
-      ) : items.length === 0 ? null : (
+      ) : items.length === 0 && hiddenCount === 0 ? null : (
         <ul className="space-y-1">
           {items.map((it) => {
             // 행당 배지는 최대 1개(WP-374) — 열린 행에 AI 배지(진행·시작 전·위임)가 있으면 상태배지 대신 그것,
             // 그 외(끝난 행·AI 관여 없는 열린 행)는 상태배지. 할 일/진행 중 구분은 진행률 바로 알 수 없어 남긴다.
             const showAi = !isClosedStatus(it.status) && delegationState(it) !== null;
+            // 다른 프로젝트 하위(WP-1039) — 자기 프로젝트 키로 잇고, 같은 번호의 이 프로젝트 이슈와 헷갈리지 않게 키를 앞에 보인다.
+            const childKey = it.projectKey || projectKey;
+            const otherProject = childKey !== projectKey;
+            const issueKey = formatIssueKey(childKey, it.number);
             return (
               <li
                 key={it.id}
                 className="flex items-center gap-2 rounded px-1 text-sm hover:bg-accent/50"
-                data-testid={`child-row-${it.number}`}
+                data-testid={otherProject ? `child-row-${issueKey}` : `child-row-${it.number}`}
               >
                 <span className="text-muted-foreground">└</span>
                 {it.type && <IssueTypeBadge type={it.type} size="sm" iconOnly />}
+                {otherProject && (
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums" data-testid="child-row-key">
+                    {issueKey}
+                  </span>
+                )}
                 <Link
-                  to={`/projects/${projectKey}/issues/${it.number}`}
+                  to={`/projects/${childKey}/issues/${it.number}`}
                   className="flex-1 truncate hover:underline"
                 >
                   {it.title}
@@ -216,6 +235,13 @@ export function IssueChildrenSection({
               </li>
             );
           })}
+          {/* 읽을 수 없는 프로젝트의 하위 — 제목·키 없이 수만(서버가 싣지 않는다). */}
+          {hiddenCount > 0 && (
+            <li className="flex items-center gap-2 px-1 text-sm text-muted-foreground" data-testid="child-hidden-count">
+              <span>└</span>
+              볼 수 없는 하위 {hiddenCount}건
+            </li>
+          )}
         </ul>
       )}
 

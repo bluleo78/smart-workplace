@@ -18,7 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { copyText } from '@/lib/copyText';
 import { epicTypeSummary } from '@/lib/epicColor';
-import { parentTitleLabel } from '@/lib/parentRef';
+import { isSameParent, parentTitleLabel } from '@/lib/parentRef';
 
 import { findIssueInSearchCache } from '../../../hooks/queries/issueSearchCache';
 import { useBulkAssign, useBulkDeleteIssues, useBulkUpdatePriority, useBulkUpdateStatus } from '../../../hooks/queries/useBulkIssueActions';
@@ -41,10 +41,9 @@ import type { MemberResponse } from '../../../types/project';
 import type { ProjectStatus } from '../../../types/projectStatus';
 import type { UserSummary } from '../../../types/user';
 import { IssueRowMenu, type RowMenuTarget } from '../components/IssueRowMenu';
+import { epicFromSheetValue, epicSheetValue, NO_EPIC_SHEET_OPTION } from '../components/mobile/epicSheetValue';
 import { statusPickerOptions } from './statusFacets';
 
-// 「에픽 없음」 선택지 값 — 에픽 번호(양의 정수)와 겹치지 않는 문자열.
-const NO_EPIC = 'none';
 
 type MobileSheet = 'actions' | 'status' | 'epic' | 'priority' | 'assignee' | 'ai';
 // 데스크톱 메뉴와 모바일 시트는 동시에 열리지 않으므로 한 상태로 둔다. assigneeIds 는 메뉴가 열린 동안의 담당자(토글 반영).
@@ -203,7 +202,8 @@ export function useIssueRowActions({
     if (!issue) return;
     // 유형 색은 에픽 색으로(WP-1017) — 낙관적 반영 동안의 부모 칩도 서버 응답과 같은 색이 되게.
     const to = target && target.type ? { number: target.number, title: target.title, type: epicTypeSummary(target)! } : null;
-    if ((to?.number ?? null) !== (issue.parent?.number ?? null)) moveEpic.mutate({ issue, to });
+    // 프로젝트까지 비교 — 다른 프로젝트 에픽(CLA-5) 부모에서 이 프로젝트 에픽 #5 로 옮기는 것도 변경이다(WP-1039).
+    if (!isSameParent(issue.parent, to, issue.projectKey)) moveEpic.mutate({ issue, to });
   };
   const linkOf = (i: IssueResponse) => new URL(linkFor?.(i) ?? `/projects/${projectKey}/issues/${i.number}`, window.location.href).href;
   const copy = async (text: string, what: string) => {
@@ -352,12 +352,16 @@ export function useIssueRowActions({
         onClose={close}
         title="에픽 지정"
         searchable={epics.length > 8}
-        value={issue ? String(issue.parent?.number ?? NO_EPIC) : null}
+        // 부모가 다른 프로젝트·가려진 에픽이면 목록(이 프로젝트 에픽)의 어느 줄도 체크하지 않는다(WP-1039).
+        value={issue ? epicSheetValue(issue.parent, issue.projectKey) : null}
         options={[
-          { value: NO_EPIC, label: '에픽 없음' },
+          NO_EPIC_SHEET_OPTION,
           ...epics.map((e) => ({ value: String(e.number), label: e.title, icon: <EpicColorDot epic={e} />, hint: `${e.childDoneCount}/${e.childCount}` })),
         ]}
-        onSelect={(v) => changeEpic(v === NO_EPIC ? null : (epics.find((e) => String(e.number) === v) ?? null))}
+        onSelect={(v) => {
+          const n = epicFromSheetValue(v);
+          changeEpic(n == null ? null : (epics.find((e) => e.number === n) ?? null));
+        }}
       />
       <MobilePickerSheet
         testId="issue-ai-picker"

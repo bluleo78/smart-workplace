@@ -13,7 +13,7 @@ import { useIssueImageUpload } from '../../../hooks/useIssueImageUpload';
 import { useUnsavedChangesWarning } from '../../../hooks/useUnsavedChangesWarning';
 import { handleApiError } from '../../../lib/api-error';
 import { hasActiveComponents } from '../../../lib/issueComponents';
-import { resolveParentNumber } from '../../../lib/issueCreateParent';
+import { type CreateEpicChoice, resolveCreateParent } from '../../../lib/issueCreateParent';
 import { hasIssueDraftContent } from '../../../lib/issueDraft';
 import { isIntakeOnly } from '../../../lib/projectPermissions';
 import { defaultStatusOf } from '../../../lib/projectStatuses';
@@ -46,8 +46,8 @@ export function useIssueCreateForm({
   const componentList = components.data ?? [];
   const showComponents = !intakeOnly && hasActiveComponents(componentList);
   const [componentIds, setComponentIds] = useState<number[]>([]);
-  // 모바일 에픽 칩 값(R8) — 폼 스키마 밖 별도 상태. 일반 이슈의 parentNumber 로 송신되고, EPIC·SUBTASK 유형이면 해제된다.
-  const [epicNumber, setEpicNumber] = useState<number | null>(null);
+  // 모바일 에픽 칩 값(R8) — 폼 스키마 밖 별도 상태. 일반 이슈의 부모로 송신되고(다른 프로젝트 에픽은 parentKey, WP-1039), EPIC·SUBTASK 유형이면 해제된다.
+  const [epic, setEpic] = useState<CreateEpicChoice | null>(null);
   const form = useForm<CreateIssueFormData>({
     resolver: zodResolver(createIssueSchema),
     defaultValues: { priority: 'MID' },
@@ -69,7 +69,7 @@ export function useIssueCreateForm({
     if (!open) return;
     reset({ priority: 'MID' });
     setClassifyReason(null); // AI 제안 이유 초기화
-    setEpicNumber(null); // 에픽 칩 선택 초기화
+    setEpic(null); // 에픽 칩 선택 초기화
     setComponentIds([]); // 구성요소 선택 초기화
   }, [open, reset]);
 
@@ -96,7 +96,7 @@ export function useIssueCreateForm({
 
   // 유형이 EPIC/SUBTASK 로 바뀌면 에픽 해제 — 남은 값이 parentNumber 로 새면 백엔드가 400.
   useEffect(() => {
-    if (isEpicSelected || isSubtaskSelected) setEpicNumber(null);
+    if (isEpicSelected || isSubtaskSelected) setEpic(null);
   }, [isEpicSelected, isSubtaskSelected]);
 
   // 새로고침 시 입력값 유실 방지 (#620) — 모달이 열려 있고 제목/본문 중 하나라도
@@ -147,12 +147,14 @@ export function useIssueCreateForm({
       // 넘겨받은 상태가 지금 목록에 없으면(삭제돼 409 STATUS_DELETED·400 STATUS_NOT_FOUND 뒤 목록을 다시 받음, WP-936) 빼고 보낸다 — 서버가 할 일 기본
       // 상태로 만든다. 그대로 실으면 다시 눌러도 같은 409 만 되풀이한다. 목록을 아직 모르면(빈 배열) 넘겨받은 값을 그대로 싣는다.
       statusId: initialStatus?.id ?? (statuses.length === 0 ? initialStatusId : undefined),
-      // SUBTASK=부모 태스크 번호, 일반 이슈=모바일 에픽 칩(R8, 백엔드는 일반 이슈 부모로 EPIC 만 허용), EPIC=부모 불가.
-      parentNumber: resolveParentNumber({
+      // SUBTASK=부모 태스크 번호, 일반 이슈=모바일 에픽 칩(R8, 백엔드는 일반 이슈 부모로 EPIC 만 허용 — 다른 프로젝트 에픽은 parentKey), EPIC=부모 불가.
+      // 결과에 parentNumber 가 늘 있어 폼 값(...data)을 덮어쓴다.
+      ...resolveCreateParent({
         isSubtask: isSubtaskSelected,
         isEpic: isEpicSelected,
         formParentNumber: data.parentNumber,
-        epicNumber,
+        epic,
+        projectKey,
       }),
       // 고른 구성요소 — 칸이 보일 때만(구성원·사용 중 구성요소 있음). 담당자를 비워 두면 서버가 구성요소 담당자를 자동으로 붙인다.
       componentIds: showComponents && componentIds.length > 0 ? componentIds : undefined,
@@ -183,7 +185,7 @@ export function useIssueCreateForm({
     // 버튼 비활성 = 생성 요청 중 또는 이미지 업로드 중. 「생성 중…」 문구는 실제 생성 요청 중일 때만(isCreating) — 업로드 중엔 「생성」 유지.
     isSubmitting: create.isPending || images.isUploading,
     isCreating: create.isPending,
-    hasContent, epicNumber, setEpicNumber,
+    hasContent, epic, setEpic,
     // 구성요소(WP-933) — 칸 노출 여부·목록(보관 포함)·고른 id.
     showComponents, componentList, componentIds, setComponentIds,
   };

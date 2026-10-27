@@ -38,6 +38,10 @@ function projectApi(key = KEY, project = createProject({ key }), list = [EPIC]) 
       posts.push((await request.json()) as Record<string, unknown>)
       return HttpResponse.json(createIssue({ id: 99, number: 99, projectKey: key, title: 'new' }))
     }),
+    // 에픽 시트 검색어로 다른 프로젝트 에픽 찾기(WP-1039) — PLAN-3 에픽 하나.
+    http.get('/api/v1/issues/lookup', () =>
+      HttpResponse.json([{ projectKey: 'PLAN', number: 3, title: '분기 계획', status: 'TODO', type: makeEpicType() }]),
+    ),
     http.post(`/api/v1/projects/${key}/issues/ai-classify`, () =>
       HttpResponse.json({ type: 'BUG', priority: 'HIGH', reason: '오류 재현 절차가 있어 버그로 분류', labels: [] }),
     ),
@@ -121,6 +125,20 @@ describe('모바일 이슈 생성 시트', () => {
     expect(api.posts[0].dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(api.posts[0].startDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     await waitFor(() => expect(screen.queryByTestId('issue-create-sheet')).not.toBeInTheDocument())
+  })
+
+  test('에픽 시트에서 다른 프로젝트 에픽을 찾아 고르면 칩에 키·제목이 보이고 payload 에 parentKey 로 실린다 (WP-1039)', async () => {
+    const { user, api } = await openSheet()
+    fireEvent.change(screen.getByTestId('issue-create-title'), { target: { value: '다른 팀 에픽 하위' } })
+    await user.click(screen.getByTestId('create-chip-epic'))
+    const sheet = await screen.findByTestId('create-epic-sheet')
+    fireEvent.change(within(sheet).getByTestId('create-epic-sheet-search'), { target: { value: '분기' } })
+    await user.click(await within(sheet).findByTestId('picker-other-epic-PLAN-3'))
+    await waitFor(() => expect(screen.getByTestId('create-chip-epic')).toHaveTextContent('PLAN-3 분기 계획'))
+    await user.click(screen.getByTestId('issue-create-submit'))
+    await waitFor(() => expect(api.posts).toHaveLength(1))
+    expect(api.posts[0]).toMatchObject({ title: '다른 팀 에픽 하위', parentKey: 'PLAN-3' })
+    expect(api.posts[0]).not.toHaveProperty('parentNumber')
   })
 
   test('에픽을 고른 뒤 유형을 하위 태스크로 바꾸면 에픽은 빠지고 상위 번호 입력이 생겨 payload 에 실린다', async () => {

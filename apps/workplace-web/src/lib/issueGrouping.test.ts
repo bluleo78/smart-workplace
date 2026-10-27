@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ISSUE_PRIORITIES, type IssueResponse } from '../types/issue';
 import type { ProjectStatus } from '../types/projectStatus';
 import {
-  groupCountsByKey, groupIssues, isOwnProjectEpicParent, ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, priorityLabel, priorityRank, statusLabel, toIssuePriority,
+  groupCountsByKey, groupIssues, ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, priorityLabel, priorityRank, statusLabel, toIssuePriority,
 } from './issueGrouping';
 
 // 필수 필드가 많은 IssueResponse 를 최소 오버라이드로 생성하는 테스트 팩토리.
@@ -223,13 +223,6 @@ describe('groupIssues - epic', () => {
       ['epic-hidden', '볼 수 없는 에픽', [3]],
       ['no-epic', '에픽 없음', [4]],
     ]);
-  });
-
-  it('isOwnProjectEpicParent 는 같은 프로젝트 에픽만 참 (WP-1038)', () => {
-    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: ep(3, 'A') }))).toBe(true);
-    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: { ...ep(3, 'A'), projectKey: 'WP' } }))).toBe(true);
-    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: { ...ep(3, 'A'), projectKey: 'PLAN' } }))).toBe(false);
-    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: { number: 0, title: '', type: null, hidden: true } as never }))).toBe(false);
   });
 
   it('에픽 없는 이슈가 없으면 「에픽 없음」 버킷을 만들지 않는다', () => {

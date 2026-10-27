@@ -17,12 +17,14 @@ import { useProjectEpics } from '../../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../../hooks/queries/useProjectMembers';
 import { formatDateMonthDay } from '../../../../lib/formatters';
 import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/issueGrouping';
+import { formatIssueKey } from '../../../../lib/issueKey';
 import { ISSUE_TYPE_ICONS } from '../../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../../lib/issueTypeLabels';
 import { labelWithValue } from '../../../../lib/labelWithValue';
 import type { IssuePriority } from '../../../../types/issue';
 import type { useIssueCreateForm } from '../../hooks/useIssueCreateForm';
 import { MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from './chipStyles';
+import { epicSheetValue } from './epicSheetValue';
 import { memberOptions } from './issuePropOptions';
 import { ComponentPickerSheet, EpicPickerSheet } from './issuePropSheets';
 
@@ -38,7 +40,7 @@ export function CreateIssueChips({
   /** ⋯ → 「상위 이슈 번호」 — 본문 영역의 (항상 보이는) 인라인 입력으로 포커스를 옮긴다(시트 안 입력칸은 원칙 ③ 위반이라 두지 않음). */
   onFocusParent: () => void;
 }) {
-  const { form, types, selectedType, isEpicSelected, isSubtaskSelected, classify, handleClassify, epicNumber, setEpicNumber } = f;
+  const { form, types, selectedType, isEpicSelected, isSubtaskSelected, classify, handleClassify, epic: epicChoice, setEpic } = f;
   // 구성요소(WP-933) — 구성원이고 사용 중 구성요소가 있을 때만 칩을 둔다.
   const { showComponents, componentList, componentIds, setComponentIds } = f;
   const { watch, setValue } = form;
@@ -59,7 +61,10 @@ export function CreateIssueChips({
   const startDate = watch('startDate') || null;
   const memberList = members.data ?? [];
   const firstAssignee = memberList.find((m) => m.userId === assigneeIds[0]);
-  const epic = epics.find((e) => e.number === epicNumber);
+  // 같은 프로젝트 에픽은 목록에서 제목을 찾고, 다른 프로젝트 에픽(WP-1039)은 고를 때 실은 키·제목을 쓴다.
+  // 시트와 같은 판정(epicSheetValue) — 이 프로젝트 에픽이면 그 번호 값, 없음·다른 프로젝트면 번호가 아니라 목록에서 찾지 못한다.
+  const ownEpicValue = epicSheetValue(epicChoice, projectKey);
+  const epic = epics.find((e) => String(e.number) === ownEpicValue);
   // 칩에 그리는 값 글자 — aria-label 이 칩 안 글자를 덮어쓰므로 고른 값은 접근 이름에도 같은 문자열로 붙인다(WP-853).
   // 고르기 전에는 칩이 속성 이름(유형·담당자·마감·에픽)만 보여 주므로 값을 붙이지 않는다.
   const typeText = selectedType ? getIssueTypeLabel(selectedType.name) : null;
@@ -68,7 +73,11 @@ export function CreateIssueChips({
     ? `${firstAssignee.name}${assigneeIds.length > 1 ? ` +${assigneeIds.length - 1}` : ''}`
     : null;
   const dueText = dueDate ? formatDateMonthDay(dueDate) : null;
-  const epicText = epic ? epic.title : null;
+  const epicText = epic
+    ? epic.title
+    : epicChoice?.projectKey
+      ? `${formatIssueKey(epicChoice.projectKey, epicChoice.number)} ${epicChoice.title ?? ''}`.trim()
+      : null;
   // 구성요소 칩 글자 — 첫 이름 + 「+N」(담당자 칩과 같은 모양).
   const firstComponent = componentList.find((c) => c.id === componentIds[0]);
   const componentText = firstComponent
@@ -192,8 +201,8 @@ export function CreateIssueChips({
                 <Diamond className="size-4 shrink-0 text-ai-accent" aria-hidden />
                 <span className="max-w-40 truncate">{epicText ?? '에픽'}</span>
               </>,
-              epicNumber != null,
-              epicNumber == null,
+              epicChoice != null,
+              epicChoice == null,
             )}
         </div>
         <div className="flex shrink-0 items-center gap-2 border-l py-2 pr-4 pl-2">
@@ -292,8 +301,11 @@ export function CreateIssueChips({
           onClose={closeSheet}
           epics={epics}
           loading={epicsLoading}
-          value={epicNumber}
-          onSelect={setEpicNumber}
+          // 다른 프로젝트 에픽을 골랐으면 이 프로젝트 줄 어디에도 체크하지 않는다.
+          value={epicChoice}
+          // 다른 프로젝트 에픽도 찾아 고른다(WP-1039) — 생성 요청에 parentKey 로 실린다(키·제목은 칩 글자로도 쓴다).
+          projectKey={projectKey}
+          onSelect={setEpic}
         />
       )}
       <MobileActionSheet
