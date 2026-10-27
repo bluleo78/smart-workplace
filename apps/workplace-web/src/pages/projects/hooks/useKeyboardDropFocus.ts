@@ -5,20 +5,26 @@ import { useEffect, useState } from 'react';
 
 import { focusRow } from '@/hooks/useListFocusRescue';
 
-/** 키보드로 옮긴 카드(이슈 번호)와 놓은 열 — column 은 열 testid 의 키(프로젝트 상태 보드는 상태 id, WP-808). */
-interface KeyboardDrop {
-  number: number;
-  column: string | number;
-}
+/**
+ * 키보드로 옮긴 카드(이슈 번호)와 놓은 열 — column 은 열 testid 의 키(프로젝트 상태 보드는 상태 id → board-col-<id>, WP-808).
+ * 그룹 보드 스윔레인 칸(WP-1021)은 testid 가 board-col- 꼴이 아니라 cellTestId 로 칸 testid 전체를, laneTestId 로 그 레인을 준다.
+ */
+export type KeyboardDrop = { number: number } & ({ column: string | number } | { cellTestId: string; laneTestId: string });
 
 const cardSelector = (number: number) => `[data-testid="issue-card-${number}"]`;
-const columnSelector = (column: string | number) => `[data-testid="board-col-${column}"]`;
+const columnSelector = (drop: KeyboardDrop) =>
+  `[data-testid="${'cellTestId' in drop ? drop.cellTestId : `board-col-${drop.column}`}"]`;
+// 카드를 찾는 범위 — 스윔레인은 그 레인 안(다중 담당자 이슈는 레인마다 같은 카드가 있다), 상태 보드는 문서 전체.
+const cardScope = (drop: KeyboardDrop): ParentNode | null =>
+  'laneTestId' in drop ? document.querySelector(`[data-testid="${drop.laneTestId}"]`) : document;
 
 /**
  * 돌려준 함수를 키보드 상태 드롭 때 부른다. 그 뒤 다시 그려질 때마다, 포커스가 빠져 있거나 놓은 열에 맡겨 둔 상태면:
  * - 카드가 보이면(새 열, 또는 실패로 되돌아간 원래 열) 그 카드로,
  * - 카드가 없으면 놓은 열로 옮긴다 — 종료 이슈 숨김(WP-606)으로 사라졌거나, 드롭 뒤 재조회에서 원래 열 응답이 새 열 응답보다
  *   먼저 와 잠깐 어느 열에도 없는 때다. 뒤의 경우 카드가 다시 나타나면 열에서 카드로 옮긴다.
+ * 카드는 놓은 열 안의 것을 먼저, 없으면(실패로 되돌아감) 같은 레인 안에서 찾는다 — 다중 담당자 이슈는 스윔레인 여러 곳에 같은 카드가
+ * 있어(WP-1021) 문서 첫 사본이 다른 레인일 수 있다.
  * 사용자가 카드·열 밖으로 포커스를 옮기면 잊는다 — 그 뒤 카드가 사라져도 포커스를 빼앗지 않는다.
  */
 export function useKeyboardDropFocus() {
@@ -28,7 +34,7 @@ export function useKeyboardDropFocus() {
     if (!drop) return;
     const onFocusIn = (e: FocusEvent) => {
       const t = e.target;
-      if (t instanceof Element && (t.matches(cardSelector(drop.number)) || t.matches(columnSelector(drop.column)))) return;
+      if (t instanceof Element && (t.matches(cardSelector(drop.number)) || t.matches(columnSelector(drop)))) return;
       setDrop(null);
     };
     document.addEventListener('focusin', onFocusIn);
@@ -42,10 +48,12 @@ export function useKeyboardDropFocus() {
   useEffect(() => {
     if (!drop) return;
     const active = document.activeElement;
-    const column = document.querySelector<HTMLElement>(columnSelector(drop.column));
+    const column = document.querySelector<HTMLElement>(columnSelector(drop));
     const lost = active === null || active === document.body || !active.isConnected;
     if (!lost && active !== column) return;
-    const card = document.querySelector<HTMLElement>(cardSelector(drop.number));
+    const card =
+      column?.querySelector<HTMLElement>(cardSelector(drop.number)) ??
+      cardScope(drop)?.querySelector<HTMLElement>(cardSelector(drop.number));
     if (card) card.focus();
     else if (column && active !== column) focusRow(column);
   });

@@ -237,6 +237,115 @@ describe('보드 빈 열·열 쿼리', () => {
   })
 })
 
+// WP-1021 — 그룹 보드는 그룹마다 가로 레인, 열은 프로젝트 상태(스윔레인). 끌어 놓기(같은 레인만 상태 변경)는 E2E(@input)가 본다.
+describe('그룹 보드 스윔레인 (WP-1021)', () => {
+  const alice = { id: 1, username: 'alice', name: 'Alice', kind: 'HUMAN' as const }
+  const bob = { id: 2, username: 'bob', name: 'Bob', kind: 'HUMAN' as const }
+  // 1 = Alice 할 일, 2 = Alice·Bob 진행 중(두 레인), 3 = Bob 완료.
+  const issues = () => [
+    createIssue({ id: 1, number: 1, title: '앨리스 할 일', status: 'TODO', assignees: [alice] }),
+    createIssue({ id: 2, number: 2, title: '같이 진행', status: 'IN_PROGRESS', assignees: [alice, bob] }),
+    createIssue({ id: 3, number: 3, title: '밥 완료', status: 'DONE', assignees: [bob] }),
+  ]
+  const cell = (lane: string, statusId: number) => screen.getByTestId(`board-lane-${lane}-col-${statusId}`)
+
+  test('담당자마다 레인, 카드는 제 상태 칸에 놓이고 다중 담당자 이슈는 두 레인에 모두 보인다', async () => {
+    open(`/projects/${KEY}?view=board&group=assignee`, () => issues())
+    await firstCard(3)
+    // 레인 순서 = groupIssues(이름순) — Alice, Bob.
+    const lanes = screen.getAllByTestId(/^board-lane-u-\d+$/)
+    expect(lanes.map((l) => l.getAttribute('data-testid'))).toEqual(['board-lane-u-1', 'board-lane-u-2'])
+    expect(lanes[0]).toHaveAccessibleName('Alice 레인')
+    expect(within(cell('u-1', 1)).getByTestId('issue-card-1')).toHaveTextContent('앨리스 할 일')
+    expect(within(cell('u-1', 2)).getByTestId('issue-card-2')).toBeInTheDocument()
+    expect(within(cell('u-2', 2)).getByTestId('issue-card-2')).toBeInTheDocument()
+    expect(within(cell('u-2', 3)).getByTestId('issue-card-3')).toBeInTheDocument()
+    // 다른 칸으로 새지 않는다 — 빈 칸은 비어 있다(「이슈 추가」 CTA 없음).
+    expect(cell('u-1', 3)).toBeEmptyDOMElement()
+    expect(within(cell('u-2', 1)).queryByTestId('issue-card-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId(/^board-col-add-/)).not.toBeInTheDocument()
+    // 칸이 상태를 보이므로 카드엔 상태 아이콘이 없다.
+    expect(within(cell('u-1', 1)).queryByRole('img', { name: /^상태:/ })).not.toBeInTheDocument()
+    // 레인 개수는 그 레인 이슈 수.
+    expect(screen.getByTestId('board-lane-count-u-1')).toHaveTextContent(/^2$/)
+    expect(screen.getByTestId('board-lane-count-u-2')).toHaveTextContent(/^2$/)
+  })
+
+  test('상태 머리줄은 프로젝트 상태 순서대로, 개수는 레인 합이 아니라 고유 이슈 수', async () => {
+    open(`/projects/${KEY}?view=board&group=assignee`, () => issues())
+    await firstCard(3)
+    const heads = screen.getAllByTestId(/^board-lane-head-\d+$/)
+    expect(heads.map((h) => h.textContent)).toEqual(['할 일1', '진행 중1', '완료1', '취소0'])
+    // 진행 중 이슈 2 는 두 레인에 보여도 머리줄엔 한 번만 센다.
+    expect(screen.getByTestId('board-lane-head-count-2')).toHaveTextContent(/^1$/)
+    // 그룹 보드엔 범주 띠·상태 편집이 없다.
+    expect(screen.queryByTestId(/^board-band-/)).not.toBeInTheDocument()
+  })
+
+  test('레인 접기 → 칸 대신 상태별 요약(0건 상태 생략), 다시 펼치면 칸이 돌아온다', async () => {
+    const { user } = open(`/projects/${KEY}?view=board&group=assignee`, () => issues())
+    await firstCard(3)
+    const toggle = screen.getByTestId('board-lane-toggle-u-1')
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(toggle).toHaveAccessibleName('Alice 레인 접기')
+    expect(screen.queryByTestId('board-lane-summary-u-1')).not.toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(toggle).toHaveAccessibleName('Alice 레인 펼치기')
+    expect(screen.getByTestId('board-lane-summary-u-1')).toHaveTextContent(/^할 일 1 · 진행 중 1$/)
+    expect(screen.queryByTestId('board-lane-u-1-col-1')).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('board-lane-u-1')).queryByTestId('issue-card-1')).not.toBeInTheDocument()
+    // 다른 레인은 그대로 펼쳐져 있다.
+    expect(within(cell('u-2', 2)).getByTestId('issue-card-2')).toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(within(cell('u-1', 1)).getByTestId('issue-card-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('board-lane-summary-u-1')).not.toBeInTheDocument()
+  })
+
+  // WP-606 — 기본 범위는 종료 이슈를 숨겨 레인마다 완료·취소 칸이 빈다. 안내는 레인마다가 아니라 열마다 한 번(머리줄 아래).
+  test('빈 완료·취소 열은 머리줄 아래 한 번만 숨김 안내와 「완료 모두 보기」를 보이고, 누르면 숨김을 해제한다', async () => {
+    const { user, location } = open(`/projects/${KEY}?view=board&group=assignee`, (url) => {
+      const showAll = url.searchParams.get('hideInactiveClosed') == null
+      return [
+        createIssue({ id: 1, number: 7, title: '진행 중 작업', status: 'IN_PROGRESS', assignees: [alice] }),
+        // 활성 사이클에서 끝난 이슈는 숨김 범위에서도 보인다 — 완료 열이 비지 않아 안내가 없다.
+        createIssue({ id: 3, number: 9, title: '이번 사이클 완료', status: 'DONE', assignees: [bob] }),
+        ...(showAll ? [createIssue({ id: 2, number: 8, title: '지난 사이클에 취소된 작업', status: 'CANCELED', assignees: [alice] })] : []),
+      ]
+    })
+    await firstCard(9)
+    const note = screen.getByTestId('board-lane-closed-note-4')
+    expect(note).toHaveTextContent('활성 사이클 밖에서 끝난 이슈는 이 화면에서 숨겨집니다')
+    // 비지 않은 완료 열·숨기지 않는 열엔 없고, 레인(두 개) 안에 되풀이하지 않는다 — 버튼은 열마다 하나.
+    expect(screen.queryByTestId('board-lane-closed-note-3')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('board-lane-closed-note-1')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('board-col-show-closed-4')).toHaveLength(1)
+    expect(within(screen.getByTestId('board-lane-u-1')).queryByText(/끝난 이슈는/)).not.toBeInTheDocument()
+
+    await user.click(within(note).getByTestId('board-col-show-closed-4'))
+    await waitFor(() => expect(location()).toMatch(/closed=all/))
+    expect(location()).toMatch(/group=assignee/)
+    expect(within(await screen.findByTestId('board-lane-u-1-col-4')).getByTestId('issue-card-8')).toBeInTheDocument()
+    expect(screen.queryByTestId(/^board-lane-closed-note-/)).not.toBeInTheDocument()
+  })
+
+  test('개인 보드처럼 종료 숨김이 없는 그룹 보드엔 숨김 안내가 없다', async () => {
+    open(`/projects/${KEY}?view=board&group=assignee&closed=all`, () => issues())
+    await firstCard(3)
+    expect(screen.queryByTestId(/^board-lane-closed-note-/)).not.toBeInTheDocument()
+  })
+
+  test('이슈가 없으면 레인 대신 빈 안내를 보인다', async () => {
+    open(`/projects/${KEY}?view=board&group=priority`, () => [])
+    expect(await screen.findByTestId('board-lanes-empty', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toHaveTextContent('이슈 없음')
+    // 우선순위는 늘 네 그룹이 오지만 이슈가 하나도 없으면 레인 대신 빈 안내만 둔다(머리줄은 남는다).
+    expect(screen.queryAllByTestId(/^board-lane-(?!head|closed-note)/)).toHaveLength(0)
+    expect(screen.getByTestId('board-lane-head-1')).toBeInTheDocument()
+  })
+})
+
 // #876 — 활성 사이클 밖 종료(완료·취소) 이슈 숨김 + 「완료 모두 보기」.
 describe('종료 이슈 숨김 (#876)', () => {
   // 숨김 해제 판정(overridesClosedHiding)은 issueFilters.test.ts 가 맡는다 — 여기선 요청·토글 UI 반영을 본다.

@@ -13,7 +13,6 @@ import { useLongPressCapture } from '@/hooks/useLongPressCapture';
 
 import { ComponentChips } from '../../../components/components/ComponentChip';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
-import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
@@ -34,7 +33,6 @@ export function IssueCard({
   asOverlay = false,
   to,
   showType = true,
-  showStatus = false,
   dragDisabled = false,
   dragScope,
   onLongPress,
@@ -48,8 +46,6 @@ export function IssueCard({
   to?: string;
   // 유형 아이콘 표시(기본 true). 개인 보드는 TASK 고정이라 false 로 숨김.
   showType?: boolean;
-  // 상태 아이콘 표시(기본 false). 비-상태 그룹(담당자/우선순위) 컬럼에서만 true — 컬럼이 상태를 안 드러내므로.
-  showStatus?: boolean;
   // 비멤버는 드래그 자체를 막는다(상태·에픽 모두 서버 assertMember 대상).
   dragDisabled?: boolean;
   // 한 이슈가 여러 컬럼에 보일 때(담당자 그룹의 다중 담당자) 드래그 id 를 컬럼별로 구분하는 범위 키.
@@ -78,7 +74,8 @@ export function IssueCard({
   const sortable = useSortable({
     id: dragScope ? `issue-${dragScope}-${issue.id}` : `issue-${issue.id}`,
     // issueNumber/status/statusId: 보드 상태 드롭용(카드 위에 놓으면 그 카드의 statusId 컬럼), issue/source/showType: 에픽 드롭·오버레이용(IssueDragData).
-    data: { issueNumber: issue.number, status: issue.status, statusId: issue.statusId, issue, source: 'card', showType } satisfies IssueDragData,
+    // lane: 그룹 보드 스윔레인(WP-1021) — 범위 키가 곧 레인이라, 같은 레인 칸·카드에 놓았을 때만 상태를 바꾼다(boardLaneDrop).
+    data: { issueNumber: issue.number, status: issue.status, statusId: issue.statusId, lane: dragScope, issue, source: 'card', showType } satisfies IssueDragData,
     disabled: asOverlay || dragDisabled,
   });
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -159,14 +156,13 @@ export function IssueCard({
       )}
 
       {/* 모바일 본문(WP-195) — 드래그 고스트(asOverlay)는 데스크톱 본문 그대로. */}
-      {mobileBody && <MobileCardBody issue={issue} projectKey={projectKey} showStatus={showStatus} showType={showType} onOpenMenu={onOpenMenu} />}
+      {mobileBody && <MobileCardBody issue={issue} projectKey={projectKey} showType={showType} onOpenMenu={onOpenMenu} />}
       {!mobileBody && (
         <>
       {/* 데스크톱 본문(WP-460 시안 C) — 모바일 카드와 같은 구성: 제목은 카드 폭 전체에서 최대 2줄, 키는 아래 메타 줄(nowrap).
           예전엔 키·제목이 한 줄을 나눠 써서 좁은 컬럼에서 키가 「PLAT-/9」 로 꺾이고 제목은 앞 몇 글자만 남았다. */}
       <div className="flex min-w-0 items-start justify-between gap-2">
         <span className="flex min-w-0 items-start gap-1 font-medium">
-          {showStatus && <IssueStatusIcon status={issue.status} name={issue.statusName} color={issue.statusColor} className="mt-0.5 h-4 w-4 shrink-0" />}
           {showType && issue.type && (
             <span className="mt-0.5 shrink-0">
               <IssueTypeBadge type={issue.type} size="sm" iconOnly />
@@ -294,13 +290,11 @@ export function IssueCard({
 function MobileCardBody({
   issue,
   projectKey,
-  showStatus,
   showType,
   onOpenMenu,
 }: {
   issue: IssueResponse;
   projectKey: string;
-  showStatus: boolean;
   showType: boolean;
   /** 「⋯」 → 액션 시트(WP-273 시안 M1). 전면 링크 위로 올려(z-10) 탭이 상세 이동으로 새지 않게 한다. */
   onOpenMenu?: OpenRowMenu;
@@ -308,7 +302,6 @@ function MobileCardBody({
   return (
     <>
       <div className={`flex min-w-0 items-start gap-1.5${issue.blocked ? ' pr-5' : ''}`}>
-        {showStatus && <IssueStatusIcon status={issue.status} name={issue.statusName} color={issue.statusColor} className="mt-0.5 h-4 w-4 shrink-0" />}
         {showType && issue.type && (
           <span className="mt-0.5 shrink-0">
             <IssueTypeBadge type={issue.type} size="sm" iconOnly />

@@ -193,6 +193,57 @@ describe('issueKeyboardCoordinates — 보드 카드(sortable)', () => {
   });
 });
 
+// 스윔레인(WP-1021) — 키 큰 레인 u-1(y 100~900) 아래에 레인 u-2(y 940~). 열 간격 252px.
+describe('스윔레인 — 다른 레인으로 새지 않는다 (WP-1021)', () => {
+  const laneCell = (lane: string, statusId: number, r: ClientRect) =>
+    drop(`col-lane-${lane}-${statusId}`, { lane, statusId, label: `${lane} · ${statusId}` }, r, true);
+  const own2 = laneCell('u-1', 2, rect(252, 100, 240, 800));
+  const own1 = laneCell('u-1', 1, rect(0, 100, 240, 800));
+  const foreign1 = laneCell('u-2', 1, rect(0, 940, 240, 200));
+  const foreign2 = laneCell('u-2', 2, rect(252, 940, 240, 200));
+  // u-1 의 할 일 칸 아래쪽 카드 — 모서리 거리로는 아래 레인 u-2 의 진행 중 칸이 자기 레인 진행 중 칸보다 가깝다.
+  const cardRect = rect(8, 800, 224, 60);
+  const card = drop(
+    'issue-u-1-5',
+    { lane: 'u-1', statusId: 1, sortable: { containerId: 'c-u-1-1', index: 0, items: [] } },
+    cardRect,
+    true,
+  );
+  const all = [card, own1, own2, foreign1, foreign2];
+
+  it('키보드 → 는 자기 레인의 오른쪽 칸으로 간다', () => {
+    expect(keyboard('ArrowRight', all, card, own1.id as string, cardRect)).toEqual({ x: 252, y: 100 });
+  });
+  it('키보드 ↓ 는 아래 레인 칸으로 가지 않는다', () => {
+    expect(keyboard('ArrowDown', all, card, own1.id as string, cardRect)).toBeUndefined();
+  });
+  it('키보드 충돌 판정(정확히 겹치는 대상 없음)도 다른 레인 칸을 고르지 않는다', () => {
+    const result = issueCollision({
+      active: { id: card.id, data: card.data, rect: { current: { initial: null, translated: null } } },
+      collisionRect: rect(252, 860, 224, 60),
+      droppableRects: new Map<UniqueIdentifier, ClientRect>(all.map((c) => [c.id, c.rect.current!])),
+      droppableContainers: [own1, own2, foreign1, foreign2],
+      pointerCoordinates: null,
+    } as never);
+    expect(ids(result)[0]).toBe('col-lane-u-1-2');
+  });
+
+  // 포인터 틈 폴백 — 칸 사이 틈은 그 줄(레인)의 칸으로, 레인 머리·레인 사이 틈은 아무 일도 없다.
+  it('포인터가 같은 줄의 칸 사이 틈이면 그 레인 칸이 대상', () => {
+    expect(ids(collide([own1, own2, foreign1, foreign2], { x: 246, y: 500 }))[0]).toMatch(/^col-lane-u-1-/);
+    // 줄 아래 끝 — 모서리 거리로는 아래 레인 칸이 더 가까워도 그 줄의 레인 안에서만 고른다.
+    expect(ids(collide([own1, own2, foreign1, foreign2], { x: 246, y: 895 }))[0]).toMatch(/^col-lane-u-1-/);
+  });
+  it('포인터가 레인 사이(아래 레인 머리) 틈이면 빈 결과 — 이웃 칸으로 오인해 상태를 바꾸지 않는다', () => {
+    expect(ids(collide([own1, own2, foreign1, foreign2], { x: 300, y: 920 }))).toEqual([]);
+  });
+  it('상태 보드 컬럼(레인 없음) 틈 폴백은 그대로', () => {
+    const c1 = drop('col-1', { statusId: 1, label: '할 일' }, rect(0, 100, 240, 800));
+    const c2 = drop('col-2', { statusId: 2, label: '진행 중' }, rect(252, 100, 240, 800));
+    expect(ids(collide([c1, c2], { x: 246, y: 500 })).length).toBeGreaterThan(0);
+  });
+});
+
 describe('issueKeyboardCoordinates — 목록 행', () => {
   const row = drop('issue-row-1', {}, rect(0, 0, 10, 10));
   // 목록 보이는 영역 y 200~500(중앙 350).
@@ -319,6 +370,31 @@ describe('스크린리더 안내', () => {
     expect(a.onDragEnd({ active, over: over({ cycleSection: s1 }) })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
     const s2 = { cycle: { id: 2, name: 'S2', status: 'ACTIVE' }, queryKey: ['other'] };
     expect(a.onDragEnd({ active, over: over({ cycleSection: s2 }) })).toBe('WP-3 이슈를 사이클 「S2」에 놓았습니다.');
+  });
+  it('스윔레인 — 다른 레인·같은 상태 칸에 놓으면 변경 없음, 같은 레인 다른 상태 칸은 놓았다고 읽는다(WP-1021)', () => {
+    const a = issueDndAnnouncements('WP');
+    const active = { data: { current: { issue: mk({ number: 3 }), source: 'card', lane: 'u-1', statusId: 1 } } } as never;
+    expect(a.onDragEnd({ active, over: over({ lane: 'u-2', statusId: 2, label: 'Bob · 진행 중' }) })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
+    expect(a.onDragEnd({ active, over: over({ lane: 'u-1', statusId: 1, label: 'Alice · 할 일' }) })).toBe('WP-3 이슈를 놓았습니다. 변경 사항이 없습니다.');
+    expect(a.onDragEnd({ active, over: over({ lane: 'u-1', statusId: 2, label: 'Alice · 진행 중' }) })).toBe('WP-3 이슈를 「Alice · 진행 중」 컬럼에 놓았습니다.');
+    // 레인 카드로 에픽에 놓는 것은 그대로 놓았다고 읽는다.
+    expect(a.onDragEnd({ active, over: over({ epic: { number: 1, title: 'E' } }) })).toBe('WP-3 이슈를 에픽 「E」에 놓았습니다.');
+  });
+  it('스윔레인 — 끄는 동안 다른 레인 칸·카드는 놓을 수 없는 곳으로, 같은 레인 칸은 대상으로 읽는다(WP-1021)', () => {
+    const a = issueDndAnnouncements('WP');
+    const active = { data: { current: { issue: mk({ number: 3 }), source: 'card', lane: 'u-1', statusId: 1 } } } as never;
+    expect(a.onDragOver({ active, over: over({ lane: 'u-2', statusId: 3, label: 'Bob · 완료' }) })).toBe(
+      'WP-3 이슈가 「Bob · 완료」 컬럼(놓을 수 없는 곳) 위에 있습니다.',
+    );
+    expect(a.onDragOver({ active, over: over({ lane: 'u-2', issue: mk({ number: 9, status: 'DONE' }) }) })).toMatch(
+      /^WP-3 이슈가 WP-9 카드\(.+\)\(놓을 수 없는 곳\) 위에 있습니다\.$/,
+    );
+    expect(a.onDragOver({ active, over: over({ lane: 'u-1', statusId: 1, label: 'Alice · 할 일' }) })).toBe(
+      'WP-3 이슈가 「Alice · 할 일」 컬럼 위에 있습니다.',
+    );
+    expect(a.onDragOver({ active, over: over({ lane: 'u-1', statusId: 2, label: 'Alice · 진행 중' }) })).toBe(
+      'WP-3 이슈가 「Alice · 진행 중」 컬럼 위에 있습니다.',
+    );
   });
 });
 

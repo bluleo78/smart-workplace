@@ -599,11 +599,11 @@ test.describe('이슈 → 에픽 드래그 앤 드롭', { tag: '@input' }, () =>
     await dropDnd(page);
   });
 
-  test('보드 담당자 그룹: 여러 컬럼에 보이는 카드는 잡은 사본만 끌리고 고스트는 포인터 옆', async ({ authenticatedPage: page }) => {
+  test('보드 담당자 그룹: 여러 레인에 보이는 카드는 잡은 사본만 끌리고 고스트는 포인터 옆', async ({ authenticatedPage: page }) => {
     const { patches } = await setup(page, { issues: [twoAssignees()], panelOpen: true });
     await page.goto(`/projects/${PROJECT_KEY}?view=board&group=assignee`);
-    const first = page.getByTestId('board-col-u-1').getByTestId('issue-card-1');
-    const second = page.getByTestId('board-col-u-2').getByTestId('issue-card-1');
+    const first = page.getByTestId('board-lane-u-1').getByTestId('issue-card-1');
+    const second = page.getByTestId('board-lane-u-2').getByTestId('issue-card-1');
     await expect(first).toBeVisible();
     await expect(second).toBeVisible();
     const box = (await first.boundingBox())!;

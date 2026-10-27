@@ -169,14 +169,28 @@ describe('뷰 토글·목록/보드 표시', () => {
     expect(screen.queryByTestId('issue-card-4')).not.toBeInTheDocument()
   })
 
-  // 우선순위로 묶은 보드에서도 취소 이슈가 HIGH 컬럼으로 새지 않는다(개인 3컬럼 보드 규칙).
-  test('보드+우선순위 그룹 — CANCELED 이슈는 어떤 우선순위 컬럼에도 없다', async () => {
+  // 우선순위로 묶은 보드에서도 취소 이슈가 HIGH 레인으로 새지 않는다(개인 3컬럼 보드 규칙).
+  // 그룹 보드는 스윔레인(WP-1021) — 열은 개인 보드 상태 열과 같은 3개(취소 열 없음).
+  test('보드+우선순위 그룹 — 스윔레인 열은 취소 없는 3상태이고 CANCELED 이슈는 어떤 레인에도 없다', async () => {
     const api = personalApi([
       createIssue({ id: 1, projectKey: KEY, number: 1, title: '높음활성', status: 'TODO', priority: 'HIGH' }),
       createIssue({ id: 2, projectKey: KEY, number: 2, title: '높음취소', status: 'CANCELED', priority: 'HIGH' }),
+      createIssue({ id: 3, projectKey: KEY, number: 3, title: '낮음완료', status: 'DONE', priority: 'LOW' }),
     ])
     await open(`/projects/${KEY}?view=board&group=priority`, api, 'issue-card-1')
     expect(screen.queryByTestId('issue-card-2')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId(/^board-lane-head-\d+$/).map((h) => h.dataset.testid)).toEqual([
+      'board-lane-head-1',
+      'board-lane-head-2',
+      'board-lane-head-3',
+    ])
+    expect(screen.queryByTestId('board-lane-HIGH-col-4')).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('board-lane-HIGH-col-1')).getByTestId('issue-card-1')).toBeInTheDocument()
+    expect(within(screen.getByTestId('board-lane-LOW-col-3')).getByTestId('issue-card-3')).toBeInTheDocument()
+    // 취소 이슈는 레인 개수에도 들지 않는다. 이슈 없는 우선순위(중간)도 레인은 남는다(0건, 빈 칸).
+    expect(screen.getByTestId('board-lane-count-HIGH')).toHaveTextContent(/^1$/)
+    expect(screen.getByTestId('board-lane-count-MID')).toHaveTextContent(/^0$/)
+    expect(screen.getByTestId('board-lane-MID-col-1')).toBeEmptyDOMElement()
   })
 
   // 우선순위는 막대(data-priority)로, 라벨은 칩으로, 지난 마감은 짧은 날짜 + 경고색으로 그린다. 문구 규칙은 personalDue 단위 테스트.
