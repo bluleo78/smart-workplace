@@ -21,11 +21,13 @@ import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageMovedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageSpaceChangedEvent;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSpaceService;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -139,6 +141,16 @@ class WikiPageMoveSpaceTest extends IntegrationTestBase {
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
         .fetchOne(WIKI_PAGE.SPACE_ID);
+  }
+
+  /** 공유를 만료시킨다 — 만료 시각을 DB 시계로 1시간 전에 둔다(만료 판정이 DB now() 다). 공유 저장 API 는 지난 시각을 받지 않아 행을 직접 고친다. */
+  private void expireShare(long pageId) {
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(
+            WIKI_PAGE_SHARE.EXPIRES_AT,
+            DSL.field("now() - interval '1 hour'", OffsetDateTime.class))
+        .where(WIKI_PAGE_SHARE.PAGE_ID.eq(pageId))
+        .execute();
   }
 
   private int eventCount(long pageId, String type) {
@@ -263,6 +275,36 @@ class WikiPageMoveSpaceTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(WIKI_PAGE_SHARE, WIKI_PAGE_SHARE.PAGE_ID.eq(revokedId))).isZero();
     assertThat(eventCount(rootId, "PAGE_MOVED_OUT")).isZero();
     assertThat(eventCount(targetParentId, "PAGE_MOVED_IN")).isEqualTo(1);
+  }
+
+  /**
+   * 만료된 하위 포함 공유는 아무것도 덮지 않는다(WP-1044) — 만료된 옛 공유 아래에서 만료된 새 공유 아래로 다른 스페이스로 옮겨도 「나감」·「들어옴」이 없다.
+   * 대조군: 살아 있는 공유끼리는 그대로 양쪽에 남는다.
+   */
+  @Test
+  void expired_including_shares_record_nothing_across_spaces() throws Exception {
+    share(ownerId, rootId);
+    share(ownerId, targetParentId);
+    expireShare(rootId);
+    expireShare(targetParentId);
+
+    move(ownerId, childId, targetParentId, targetId).andExpect(status().isNoContent());
+
+    assertThat(spaceOf(childId)).isEqualTo(targetId);
+    assertThat(eventCount(rootId, "PAGE_MOVED_OUT")).isZero();
+    assertThat(eventCount(targetParentId, "PAGE_MOVED_IN")).isZero();
+
+    // 대조군 — 살아 있는 하위 포함 공유끼리 옮기면 양쪽에 남는다.
+    long liveRootId = page(sourceId, null, "살아 있는 원본 공유");
+    long liveChildId = page(sourceId, liveRootId, "살아 있는 공유 하위");
+    long liveTargetId = page(targetId, null, "살아 있는 대상 공유");
+    share(ownerId, liveRootId);
+    share(ownerId, liveTargetId);
+
+    move(ownerId, liveChildId, liveTargetId, targetId).andExpect(status().isNoContent());
+
+    assertThat(eventCount(liveRootId, "PAGE_MOVED_OUT")).isEqualTo(1);
+    assertThat(eventCount(liveTargetId, "PAGE_MOVED_IN")).isEqualTo(1);
   }
 
   /** 미리보기: 쪽수·접근을 잃는 멤버 수·유지/해제 공유 목록. 대상 편집 권한이 없으면 거절. */

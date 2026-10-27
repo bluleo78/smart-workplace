@@ -1064,18 +1064,23 @@ public class WikiShareRepository {
   }
 
   /**
-   * 이 스페이스에 하위 포함 공유가 하나라도 있는지(만료 무관) — 페이지 이동이 공유 범위를 비교할 필요가 있는지 먼저 본다. 만료 여부를 보지 않는 것은 {@link
-   * #findIncludingChildrenRoots} 와 같다.
+   * 이 스페이스에 만료 전 하위 포함 공유가 하나라도 있는지 — 페이지 이동이 공유 범위를 비교할 필요가 있는지 먼저 본다. 만료된 공유를 빼는 것은 {@link
+   * #findIncludingChildrenRoots} 와 같다(WP-1044).
    */
   public boolean existsIncludingChildren(long spaceId) {
     return dsl.fetchExists(
         WIKI_PAGE_SHARE,
-        WIKI_PAGE_SHARE.SPACE_ID.eq(spaceId).and(WIKI_PAGE_SHARE.INCLUDE_CHILDREN.isTrue()));
+        WIKI_PAGE_SHARE
+            .SPACE_ID
+            .eq(spaceId)
+            .and(WIKI_PAGE_SHARE.INCLUDE_CHILDREN.isTrue())
+            .and(notExpired()));
   }
 
   /**
-   * 이 페이지들 중 하위 포함 공유가 걸린 페이지(공유 루트) id — 페이지 이동 전후의 조상 체인에 넘겨, 옮긴 페이지를 덮던·덮게 될 공유를 찾는다. 만료 여부는 보지
-   * 않는다(이동 기록은 공유 창의 이력이라 만료된 공유에도 남긴다).
+   * 이 페이지들 중 만료 전 하위 포함 공유가 걸린 페이지(공유 루트) id — 페이지 이동 전후의 조상 체인에 넘겨, 옮긴 페이지를 덮던·덮게 될 공유를 찾는다. 만료된
+   * 공유는 빼낸다(WP-1044) — 접근 판정(토큰 판정 {@link #notExpired})이 만료된 공유로는 어떤 페이지도 열지 않으므로, 그 아래로 옮기거나 밖으로
+   * 꺼내도 열리는 범위가 바뀌지 않는다. 그래서 그 공유에는 들어옴·나감을 남기지 않고 재검증도 하지 않는다. 만료 판정은 같은 DB 시계다.
    */
   public List<Long> findIncludingChildrenRoots(Collection<Long> pageIds) {
     if (pageIds.isEmpty()) {
@@ -1085,6 +1090,7 @@ public class WikiShareRepository {
         .from(WIKI_PAGE_SHARE)
         .where(WIKI_PAGE_SHARE.PAGE_ID.in(pageIds))
         .and(WIKI_PAGE_SHARE.INCLUDE_CHILDREN.isTrue())
+        .and(notExpired())
         .orderBy(WIKI_PAGE_SHARE.PAGE_ID.asc())
         .fetch(WIKI_PAGE_SHARE.PAGE_ID);
   }

@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -214,6 +215,52 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     move(ownerId, outsideId, childId);
 
     assertThat(events(rootId, "PAGE_MOVED_IN")).hasSize(1);
+  }
+
+  /**
+   * 만료된 하위 포함 공유는 아무것도 덮지 않는다(WP-1044) — 접근 판정이 만료된 공유로 열지 않으므로, 그 아래로 옮겨도 PAGE_MOVED_IN, 밖으로 꺼내도
+   * PAGE_MOVED_OUT·재검증이 없다. 같은 스페이스의 살아 있는 하위 포함 공유(대조군)는 그대로 둘 다 남는다 — 그 공유가 있어 이동이 공유 범위 비교까지 간다.
+   */
+  @Test
+  void expired_including_share_records_no_move_in_or_out() throws Exception {
+    saveShare(editorId, rootId, "WORKSPACE", "VIEW", true);
+    long liveRootId = page(spaceId, null, "살아 있는 공유");
+    saveShare(editorId, liveRootId, "WORKSPACE", "VIEW", true);
+    expireShare(rootId);
+    appEvents.clear();
+
+    // 만료된 공유 아래로 옮긴다 — 「들어옴」 없음.
+    move(ownerId, outsideId, childId);
+    assertThat(events(rootId, "PAGE_MOVED_IN")).isEmpty();
+
+    // 만료된 공유 아래에서 꺼낸다 — 「나감」도 재검증도 없다.
+    move(ownerId, childId, null);
+    assertThat(events(rootId, "PAGE_MOVED_OUT")).isEmpty();
+    assertThat(accessChanged()).isEmpty();
+
+    // 대조군 — 살아 있는 공유 아래로 옮기면 「들어옴」, 꺼내면 「나감」과 재검증.
+    move(ownerId, childId, liveRootId);
+    assertThat(events(liveRootId, "PAGE_MOVED_IN")).hasSize(1);
+    move(ownerId, childId, null);
+    assertThat(events(liveRootId, "PAGE_MOVED_OUT")).hasSize(1);
+    assertThat(accessChanged()).hasSize(1);
+  }
+
+  /**
+   * 살아 있는 하위 포함 공유 아래의 만료된 하위 포함 공유는 상속을 멈추지 않는다(WP-1044·WP-1043) — 그 아래로 옮기면 만료된 공유에는 남지 않고 바깥 살아
+   * 있는 공유에 PAGE_MOVED_IN 이 남는다.
+   */
+  @Test
+  void expired_nested_including_share_lets_outer_live_share_record() throws Exception {
+    saveShare(editorId, rootId, "WORKSPACE", "VIEW", true);
+    saveShare(editorId, childId, "WORKSPACE", "VIEW", true);
+    expireShare(childId);
+    appEvents.clear();
+
+    move(ownerId, outsideId, childId);
+
+    assertThat(events(rootId, "PAGE_MOVED_IN")).hasSize(1);
+    assertThat(events(childId, "PAGE_MOVED_IN")).isEmpty();
   }
 
   /**
@@ -637,6 +684,19 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
   /** 이 사람의 노트 스페이스 멤버 행 수(개인·팀 모두). */
   private int memberCount(long userId) {
     return dsl.fetchCount(WIKI_SPACE_MEMBER, WIKI_SPACE_MEMBER.USER_ID.eq(userId));
+  }
+
+  /**
+   * 공유를 만료시킨다 — 만료 시각을 DB 시계로 1시간 전에 둔다(접근 판정·이동 기록의 만료 판정이 DB now() 라 같은 시계로 맞춘다). 공유 저장 API 는 지난
+   * 시각을 받지 않으므로 행을 직접 고친다.
+   */
+  private void expireShare(long pageId) {
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(
+            WIKI_PAGE_SHARE.EXPIRES_AT,
+            DSL.field("now() - interval '1 hour'", OffsetDateTime.class))
+        .where(WIKI_PAGE_SHARE.PAGE_ID.eq(pageId))
+        .execute();
   }
 
   private int shareCount(long pageId) {

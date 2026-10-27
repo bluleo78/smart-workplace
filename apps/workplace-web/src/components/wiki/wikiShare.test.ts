@@ -82,6 +82,57 @@ describe('treeShareMarks — 만료된 자기 공유(WP-1043)', () => {
   })
 })
 
+/** 만료된 하위 포함 공유(WP-1044) — 서버 접근 판정은 만료된 공유로 열지 않으므로 덮는 공유로 세지 않는다. */
+const expiredShare = (audience: WikiShareAudience = 'WORKSPACE'): WikiTreeShare => ({ ...own(audience, true), expired: true })
+
+describe('만료된 하위 포함 공유는 덮지 않는다(WP-1044)', () => {
+  it('트리: 만료된 하위 포함 공유 아래는 inherited 가 아니고, 살아 있는 공유 아래는 inherited 다', () => {
+    const marks = treeShareMarks([node(1, null, expiredShare()), node(2, 1), node(3, 2), node(4, null, own()), node(5, 4)])
+    expect(marks.get(1)).toBe('own')
+    expect(marks.has(2)).toBe(false)
+    expect(marks.has(3)).toBe(false)
+    expect(marks.get(5)).toBe('inherited')
+  })
+
+  it('트리: 살아 있는 공유 아래의 만료된 하위 포함 공유는 상속을 멈추지 않아 그 아래는 바깥 공유로 inherited 다', () => {
+    const marks = treeShareMarks([node(1, null, own()), node(2, 1, expiredShare()), node(3, 2)])
+    expect(marks.get(2)).toBe('inherited')
+    expect(marks.get(3)).toBe('inherited')
+  })
+
+  it('같은 스페이스: 만료된 공유 아래로 옮겨도 entering 이 없고, 살아 있는 공유 아래로는 entering 이다', () => {
+    const t = [node(1, null, expiredShare(), '만료'), node(2, 1), node(3, null), node(4, null, own(), '살아 있음')]
+    expect(shareMoveImpact(t, 3, 2)).toEqual({ leaving: [], entering: [], blocked: [] })
+    expect(hasShareMoveImpact(shareMoveImpact(t, 3, 2))).toBe(false)
+    expect(shareMoveImpact(t, 3, 4).entering.map((s) => s.pageId)).toEqual([4])
+  })
+
+  it('같은 스페이스: 만료된 공유 아래에서 꺼내도 leaving 이 없고, 살아 있는 공유 아래에서 꺼내면 leaving 이다', () => {
+    const t = [node(1, null, expiredShare(), '만료'), node(2, 1), node(3, null), node(4, null, own(), '살아 있음'), node(5, 4)]
+    expect(shareMoveImpact(t, 2, 3)).toEqual({ leaving: [], entering: [], blocked: [] })
+    expect(shareMoveImpact(t, 5, 3).leaving.map((s) => s.pageId)).toEqual([4])
+  })
+
+  it('같은 스페이스: 살아 있는 공유 아래의 만료된 공유 아래로 옮기면 바깥 살아 있는 공유만 entering 이다', () => {
+    const t = [node(1, null, own(), '바깥'), node(2, 1, expiredShare(), '만료'), node(3, null)]
+    expect(shareMoveImpact(t, 3, 2).entering.map((s) => s.pageId)).toEqual([1])
+  })
+
+  it('제외된 페이지를 만료된 공유 아래로 옮기면 blocked 도 없다', () => {
+    const t = [node(1, null, own(), '로드맵'), excluded(2, 1), node(4, null, expiredShare(), '만료')]
+    expect(shareMoveImpact(t, 2, 4)).toEqual({ leaving: [], entering: [], blocked: [] })
+  })
+
+  it('다른 스페이스: 만료된 공유에서 빠지거나 만료된 공유에 들어가는 것으로 세지 않는다', () => {
+    const src = [node(1, null, expiredShare(), '만료'), node(2, 1)]
+    const target = [node(7, null, expiredShare('PUBLIC'), '만료 공개'), node(8, 7), node(9, null, own('PUBLIC'), '공개'), node(10, 9)]
+    expect(shareMoveAcrossImpact(src, 2, target, 8)).toEqual({ leaving: [], entering: [], blocked: [] })
+    expect(shareMoveAcrossImpact(src, 2, target, 10).entering).toEqual([{ pageId: 9, title: '공개', audience: 'PUBLIC' }])
+    const live = [node(1, null, own(), '로드맵'), node(2, 1)]
+    expect(shareMoveAcrossImpact(live, 2, target, 8).leaving.map((s) => s.pageId)).toEqual([1])
+  })
+})
+
 describe('treeShareMarks — 트리 공유 표시', () => {
   it('자기 공유는 own, 하위 포함 공유 아래는 손자까지 inherited, 그 밖은 표시 없음', () => {
     const marks = treeShareMarks([node(1, null, own()), node(2, 1), node(3, 2), node(4, null)])
