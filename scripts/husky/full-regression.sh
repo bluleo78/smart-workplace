@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# 전체 회귀(web vitest → web E2E 전체 → admin E2E → api gradle test) — pre-push 가 부르고, 워크트리에서 머지 전에 직접 돌려도 된다(`pnpm test:full`).
+# 전체 회귀(이미지 입력 타입 검사 → web vitest → web E2E 전체 → admin E2E → api gradle test) — pre-push 가 부르고, 워크트리에서 머지 전에 직접 돌려도 된다(`pnpm test:full`).
 # 끝까지 통과하면 지금 커밋의 트리 해시를 「검증 완료 트리」로 기록한다 (WP-446).
 #   같은 트리(스쿼시·--no-ff 머지해도 트리는 같다)를 push 할 때 pre-push 가 회귀를 다시 돌지 않는다.
 #   회귀는 작업 트리를 검사하므로, 추적 파일이 커밋과 같고 커밋하지 않은 코드 파일(noncode.sh 규칙 밖의 추적 안 된 파일)이 없을 때만 기록한다.
@@ -36,6 +36,9 @@ else
   . "$HOOK_DIR/test-lock.sh"
   run_locked sh -c '
     set -e
+    # 이미지 빌드와 같은 입력(.dockerignore 로 테스트 파일·src/test/ 를 뺌)으로 web·admin·collab 타입 검사(1분 안팎, WP-1026).
+    # 테스트 아닌 파일이 src/test/ 를 import 하면 로컬·CI typecheck 는 통과하고 이미지 빌드만 깨진다(v0.9.24) — PR 전에 잡는다.
+    node scripts/image-typecheck.mjs
     # web 단위·페이지 테스트(vitest 전체, 3분 안팎) — E2E 보다 먼저 돌려 순수 로직 회귀를 빠르게 실패시킨다 (WP-79).
     # 페이지 테스트는 pre-commit 이 빼고 돌므로 여기가 유일한 게이트다 (WP-995)
     (cd apps/workplace-web && pnpm test)

@@ -1,5 +1,7 @@
 # PR·main 검사 (WP-993) — 전체 lint·typecheck 와 웹 vitest 를 GitHub 에서 돌린다.
 # main 브랜치 보호의 required status check 로 걸 job 이름은 `verify` 다(바꾸면 보호 설정도 함께 바꾼다).
+# 이미지 빌드 입력 타입 검사(WP-1026): .dockerignore 가 테스트 파일·src/test/ 를 뺀 복사본에서 web·admin·collab 의 tsc 를 다시 돌린다.
+#   테스트 아닌 파일이 src/test/ 를 import 하면 위 typecheck 는 통과하고 이미지 빌드만 깨지기 때문이다(v0.9.24).
 # 빠지는 것: 전체 E2E(30분대)·백엔드 JUnit(Testcontainers) — 지금처럼 로컬 pre-push 게이트(scripts/husky/pre-push.sh)가 맡는다.
 #   이 검사는 「머지된 결과에서 lint·타입·단위 테스트가 조용히 깨지는 일」(2026-10-26 main lint)을 막는 몫이다.
 name: CI
@@ -54,3 +56,11 @@ jobs:
 
       - name: web vitest
         run: pnpm --filter @smart-workplace/workplace-web test
+
+      # 루트 scripts/ 의 node:test(.dockerignore 해석 등) — 아래 이미지 입력 검사가 기대는 로직을 먼저 본다.
+      - name: scripts test
+        run: pnpm test:scripts
+
+      # 이미지 빌드와 같은 입력(.dockerignore 반영)으로 타입 검사 — 원본 작업 트리는 건드리지 않고 임시 복사본에서 돈다(WP-1026).
+      - name: image typecheck
+        run: pnpm typecheck:image
