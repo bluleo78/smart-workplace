@@ -178,9 +178,15 @@ export interface IssueRelationTypeClient {
 
 /**
  * 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다.
- * 구성원 검색(searchMembers)은 report_agent_work 가 글의 @username 을 멘션으로 바꾸는 데 쓴다(WP-1009).
+ * 구성원 검색(searchMembers)은 report_agent_work 가 글의 @username 을 멘션으로 바꾸는 데(WP-1009), update_issue 의 보고자를
+ * 오픈 프로젝트의 비멤버로 넓혀 찾는 데(WP-1012) 쓴다. 프로젝트 조회(getProject)는 update_issue 가 보고자 프로젝트의 유형(OPEN)을 보려고 쓴다.
  */
-export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, IssueRelationTypeClient, Pick<MemberToolClient, 'searchMembers'> {
+export interface IssueToolClient
+  extends ProjectMetaClient,
+    CurrentUserClient,
+    IssueRelationTypeClient,
+    Pick<MemberToolClient, 'searchMembers'>,
+    Pick<ProjectToolClient, 'getProject'> {
   /** GET .../chat/thread — 이슈 챗 스레드 id(없으면 서버가 만든다, WP-373). */
   getIssueChatThreadId(issueKey: string): Promise<number>;
   /**
