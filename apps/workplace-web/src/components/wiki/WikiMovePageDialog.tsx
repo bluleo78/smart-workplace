@@ -159,9 +159,16 @@ function MoveDialogBody({
   const shareImpact = useMemo(
     () =>
       cross && selected != null
-        ? shareMoveAcrossImpact(sourcePages, pageId, targetTree.data ?? [], selected === ROOT ? null : Number(selected))
+        ? shareMoveAcrossImpact(
+            sourcePages,
+            pageId,
+            targetTree.data ?? [],
+            selected === ROOT ? null : Number(selected),
+            // 옮기며 해제되는 자기 공유는 옮긴 뒤에는 없다 — 새 위치의 공유로 열리는지 판정에 반영한다.
+            preview.data?.revokedShares.map((r) => r.pageId),
+          )
         : null,
-    [cross, selected, sourcePages, pageId, targetTree.data],
+    [cross, selected, sourcePages, pageId, targetTree.data, preview.data],
   )
   /** 고른 값(ROOT 또는 페이지 id) → 새 부모 id 로 바꿔 대상 스페이스와 함께 넘긴다. */
   const pick = (value: string) => onPick(value === ROOT ? null : Number(value), targetSpaceId)
@@ -311,7 +318,7 @@ function MoveSpaceWarning({
             {coveringShareName(s)}로 새로 보이게 됩니다.
           </li>
         ))}
-        {/* 상위 공유에서 제외된 페이지(WP-1031) — 새 위치의 공유로도 열리지 않는다. */}
+        {/* 상위 공유에서 제외됐거나 자기 공유가 살아 있는 페이지(WP-1031·WP-1043) — 새 위치의 공유로도 열리지 않는다. */}
         {shareImpact?.blocked.map((s) => (
           <li key={`blocked-${s.pageId}`} data-testid="wiki-move-share-blocked">
             {blockedShareNotice(s)}

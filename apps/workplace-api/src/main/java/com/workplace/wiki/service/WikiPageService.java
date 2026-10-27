@@ -551,12 +551,13 @@ public class WikiPageService {
     List<Long> subtree = pages.subtreeIdsInclusive(pageId);
     Long oldParentId = pages.findParentId(pageId);
     // 옮기면서 해제될 공유는 스페이스를 바꾸기 전에 해제한다 — 기록·감사의 스페이스가 옛 스페이스로 남는다.
-    shareLifecycle.beforeSpaceMove(subtree, targetSpaceId, callerId);
+    boolean stoppedBefore =
+        shareLifecycle.beforeSpaceMove(pageId, subtree, targetSpaceId, callerId);
     pages.moveToSpace(subtree, targetSpaceId);
     pages.move(pageId, req.parentId(), req.position());
     reorderSiblings(targetSpaceId, req.parentId(), pageId, req.position());
     shareLifecycle.afterSpaceMove(
-        targetSpaceId, pageId, subtree, oldParentId, req.parentId(), callerId);
+        targetSpaceId, pageId, subtree, oldParentId, req.parentId(), callerId, stoppedBefore);
     // 열린 동기화 연결을 다시 판정한다 — 옛 스페이스에만 있던 사람은 접근을 잃는다.
     publisher.publishEvent(new WikiPageSpaceChangedEvent(TenantContext.require(), subtree));
     // 양쪽 스페이스 멤버의 사이드바 트리가 다시 그려지게 한다(옛 쪽은 빠지고 새 쪽은 들어온다).

@@ -28,6 +28,7 @@ import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiShareAccess;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -141,6 +142,25 @@ class WikiShareAdminTest extends IntegrationTestBase {
         .andExpect(status().isNoContent());
     JsonNode cleared = json(call(get(pagesPath(spaceId)), viewerId).andExpect(status().isOk()));
     assertThat(row(cleared, childId).get("shareExcluded").asBoolean()).isFalse();
+  }
+
+  /**
+   * 트리 행 share.expired 는 자기 공유의 만료 시각이 지났을 때만 true(WP-1043) — 웹이 만료된 자기 공유를 상속을 멈추는 것으로 세지 않게 한다.
+   * 판정은 DB 시계다.
+   */
+  @Test
+  void tree_marks_expired_own_share() throws Exception {
+    saveShare(ownerId, rootId, "WORKSPACE", "VIEW", true);
+    JsonNode live = json(call(get(pagesPath(spaceId)), viewerId).andExpect(status().isOk()));
+    assertThat(row(live, rootId).get("share").get("expired").asBoolean()).isFalse();
+
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(WIKI_PAGE_SHARE.EXPIRES_AT, OffsetDateTime.now().minusHours(1))
+        .where(WIKI_PAGE_SHARE.PAGE_ID.eq(rootId))
+        .execute();
+
+    JsonNode expired = json(call(get(pagesPath(spaceId)), viewerId).andExpect(status().isOk()));
+    assertThat(row(expired, rootId).get("share").get("expired").asBoolean()).isTrue();
   }
 
   /** 페이지 상세의 shared 는 이 페이지 자신이 공유 중일 때만 true, 해제하면 false. */

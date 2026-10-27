@@ -235,6 +235,36 @@ class WikiPageMoveSpaceTest extends IntegrationTestBase {
     assertThat(eventCount(rootId, "PAGE_MOVED_OUT")).isEqualTo(1);
   }
 
+  /**
+   * 자기 공유가 살아 있는 페이지를 다른 스페이스의 하위 포함 공유 아래로 옮길 때(WP-1043) — 상속을 멈추는지는 옮기기 전과 뒤를 나눠 본다. 공유가 따라가면(만든
+   * 사람이 대상 편집자) 전후 모두 멈추므로 어느 쪽에도 기록이 없다. 만든 사람이 대상 편집자가 아니라 해제되면 옮기기 전에는 멈췄고(옛 공유는 원래 덮지 않았다 —
+   * 「나감」 없음) 옮긴 뒤에는 멈추지 않는다(새 공유가 덮는다 — 「들어옴」).
+   */
+  @Test
+  void own_share_page_moved_across_spaces_judges_before_and_after() throws Exception {
+    share(ownerId, rootId);
+    share(ownerId, targetParentId);
+    // 공유가 따라가는 경우 — 만든 사람(owner)이 대상 편집자 이상이다.
+    long keptId = page(sourceId, rootId, "공유 유지 하위");
+    share(ownerId, keptId);
+
+    move(ownerId, keptId, targetParentId, targetId).andExpect(status().isNoContent());
+
+    assertThat(dsl.fetchCount(WIKI_PAGE_SHARE, WIKI_PAGE_SHARE.PAGE_ID.eq(keptId))).isEqualTo(1);
+    assertThat(eventCount(rootId, "PAGE_MOVED_OUT")).isZero();
+    assertThat(eventCount(targetParentId, "PAGE_MOVED_IN")).isZero();
+
+    // 해제되는 경우 — 만든 사람(sourceOnly)이 대상 스페이스 멤버가 아니다.
+    long revokedId = page(sourceId, rootId, "공유 해제 하위");
+    share(sourceOnlyId, revokedId);
+
+    move(ownerId, revokedId, targetParentId, targetId).andExpect(status().isNoContent());
+
+    assertThat(dsl.fetchCount(WIKI_PAGE_SHARE, WIKI_PAGE_SHARE.PAGE_ID.eq(revokedId))).isZero();
+    assertThat(eventCount(rootId, "PAGE_MOVED_OUT")).isZero();
+    assertThat(eventCount(targetParentId, "PAGE_MOVED_IN")).isEqualTo(1);
+  }
+
   /** 미리보기: 쪽수·접근을 잃는 멤버 수·유지/해제 공유 목록. 대상 편집 권한이 없으면 거절. */
   @Test
   void preview_reports_effects() throws Exception {
