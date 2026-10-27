@@ -15,7 +15,7 @@ import static org.mockito.Mockito.when;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
@@ -27,13 +27,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** 인박스 알림 커밋 → 수신자 기기로 푸시 게이트웨이 호출까지 배선 검증. 커밋이 필요해 비-@Transactional + 수동 정리. */
-class InboxPushDeliveryTest extends IntegrationTestBase {
+class InboxPushDeliveryTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean PushGateway gateway;
+  @Autowired PushGateway gateway;
   @Autowired DSLContext dsl;
   @Autowired NotificationService service;
   @Autowired PushSubscriptionRepository subs;

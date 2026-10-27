@@ -22,7 +22,7 @@ import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailReadSyncDispatcher;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -37,7 +37,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
@@ -51,7 +50,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *
  * <p>비동기 검증: 호출 여부는 Mockito 내장 {@code timeout(ms)}, 상태 변화·리스너 종료는 Awaitility 로 최대 5초 대기한다.
  */
-class MailReadSyncFlowTest extends IntegrationTestBase {
+class MailReadSyncFlowTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired MailMessageService messageService;
@@ -66,10 +65,10 @@ class MailReadSyncFlowTest extends IntegrationTestBase {
   Executor mailReadSyncExecutor;
 
   /** Graph HTTP 호출 차단 + 호출 검증 대상. */
-  @MockitoBean GraphApiClient graphApiClient;
+  @Autowired GraphApiClient graphApiClient;
 
   /** 실제 token 교환 차단 — FAKE_TOKEN 을 반환하도록 stubbing. */
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphTokenService graphTokenService;
 
   private Long seededUser;
   private Long seededAccount;

@@ -30,7 +30,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -48,7 +48,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * 클래스-레벨 @Transactional 롤백과 격리되지 않는다. 따라서 이 테스트는 @Transactional 없이(non-Tx) 동작하고, 커밋된 row
  * 를 @AfterEach 에서 직접 회수한다.
  */
-class MessagingProposalProjectRoutingTest extends IntegrationTestBase {
+class MessagingProposalProjectRoutingTest extends ExternalClientMockedTestBase {
 
   @Autowired MessagingProposalService proposalService;
   @Autowired IssueService issueService;

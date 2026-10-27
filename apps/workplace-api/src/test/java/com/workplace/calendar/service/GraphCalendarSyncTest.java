@@ -23,7 +23,7 @@ import com.workplace.mail.outbound.GraphCalendarClient.GraphCalendar;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphDateTime;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEvent;
 import com.workplace.mail.service.GraphTokenService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -36,7 +36,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -45,10 +44,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>실제 Graph API 호출 없이 {@link GraphCalendarClient}·{@link GraphTokenService}를 @MockitoBean 으로
  * 스텁한다. TDD: 종일 이벤트 end-exclusive 보정, UTC 매핑, 빈 제목 폴백 시나리오를 검증한다.
  */
-class GraphCalendarSyncTest extends IntegrationTestBase {
+class GraphCalendarSyncTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean GraphCalendarClient graphCalendarClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphCalendarClient graphCalendarClient;
+  @Autowired GraphTokenService graphTokenService;
 
   @Autowired CalendarSyncService syncService;
   @Autowired ExternalCalendarRepository extRepo;

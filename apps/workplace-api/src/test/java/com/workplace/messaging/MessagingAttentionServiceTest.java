@@ -19,7 +19,7 @@ import com.workplace.messaging.repository.ConversationAttentionRepository;
 import com.workplace.messaging.repository.MessageRepository;
 import com.workplace.messaging.repository.MessagingClassifyWatermarkRepository;
 import com.workplace.messaging.service.MessagingAttentionService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,7 +28,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -36,11 +35,11 @@ import org.springframework.transaction.annotation.Transactional;
  * 검증.
  */
 @Transactional
-class MessagingAttentionServiceTest extends IntegrationTestBase {
+class MessagingAttentionServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired MessagingAttentionService svc;
-  @MockitoBean AiAgentMessagingClient aiClient;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AiAgentMessagingClient aiClient;
+  @Autowired AssistantResolver assistantResolver;
   @Autowired ConversationAttentionRepository attnRepo;
   @Autowired MessagingClassifyWatermarkRepository wmRepo;
   @Autowired MessageRepository messageRepo;

@@ -11,7 +11,7 @@ import static org.mockito.Mockito.clearInvocations;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import com.workplace.support.TestFixtures;
@@ -29,21 +29,20 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-64 통합 — 위키 스페이스 멤버·첨부 변경 → AFTER_COMMIT resource.changed 수신자 검증. AFTER_COMMIT 발화를 위해
  * 클래스에 @Transactional 을 붙이지 않는다.
  */
 @DisplayName("위키 변경 → resource.changed fan-out 통합")
-class WikiResourceChangedIntegrationTest extends IntegrationTestBase {
+class WikiResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
   private static final byte[] PNG_MAGIC = {
     (byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0
   };
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient;
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient;
 
   @Autowired DSLContext dsl;
   @Autowired WikiSpaceService spaceService;

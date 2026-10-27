@@ -10,13 +10,12 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -31,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
  * aiEnabled=false 라 분류 경로는 타지 않으며, mailClient 는 @MockitoBean 으로 실호출을 차단한다.
  */
 @Transactional
-class MailBackfillServiceTest extends IntegrationTestBase {
+class MailBackfillServiceTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -47,7 +46,7 @@ class MailBackfillServiceTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** ai-agent 실호출 차단(분류 경로 방어 — 계정 aiEnabled=false 라 호출되지 않지만 안전망). */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 메타 전용 동기화로 남은 누락 본문 2건을 backfillNow 가 모두 보충하는지 검증. */
   @Test

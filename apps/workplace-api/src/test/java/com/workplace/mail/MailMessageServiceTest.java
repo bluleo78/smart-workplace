@@ -16,7 +16,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.activation.DataHandler;
 import jakarta.mail.Message;
@@ -28,7 +28,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,7 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Transactional
 @RecordApplicationEvents
-class MailMessageServiceTest extends IntegrationTestBase {
+class MailMessageServiceTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -58,7 +57,7 @@ class MailMessageServiceTest extends IntegrationTestBase {
   @Autowired ApplicationEvents events;
 
   /** ai-agent 실호출 차단. */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 상세 조회 시 본문 미적재면 OnDemand 로 IMAP 에서 적재 후 반환한다. */
   @Test

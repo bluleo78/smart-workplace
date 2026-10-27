@@ -28,14 +28,13 @@ import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -47,7 +46,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 세션 기본 테넌트(1)와 다른 fixture 테넌트에 커밋해, {@link DriveFileService#readText} 의
  * {@code @Transactional(readOnly = true)} 가 빠지면 RLS 로 red 가 되게 한다.
  */
-class DriveFileTextTest extends IntegrationTestBase {
+class DriveFileTextTest extends ExternalClientMockedTestBase {
 
   private static final String FIXTURE_TENANT_SLUG = "drive-text-rls-fixture-tenant";
 
@@ -58,7 +57,7 @@ class DriveFileTextTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwtTokenProvider;
 
   /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·쪽수 보충을 검증한다. */
-  @MockitoBean WorkerRenderClient worker;
+  @Autowired WorkerRenderClient worker;
 
   // @AfterEach 정리용 — 시드에서 채운다.
   private Long tid2;

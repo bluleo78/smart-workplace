@@ -23,7 +23,7 @@ import com.workplace.file.storage.FileStore;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.nio.file.Files;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -32,7 +32,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * #358: 이슈 채팅 첨부 업로드→바인딩→하이드레이션 통합 검증.
@@ -42,7 +41,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>FilePathBuilder 는 TenantContext 를 읽어 경로를 생성하므로 @BeforeEach 에서 테넌트(1) 를 설정하고 @AfterEach 에서
  * 해제한다.
  */
-class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
+class ChatMessageAttachmentIntegrationTest extends ExternalClientMockedTestBase {
 
   @Autowired ChatMessageService chatMessageService;
   @Autowired ChatMessageAttachmentService attachmentService;
@@ -53,8 +52,8 @@ class ChatMessageAttachmentIntegrationTest extends IntegrationTestBase {
   @Autowired StagedUploadService stagedUploadService;
 
   // SSE / ai-agent 외부 호출 차단 — 실제 네트워크 없이 테스트 가능.
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean AiAgentEventClient aiAgentEventClient;
+  @Autowired SseRegistry sseRegistry;
+  @Autowired AiAgentEventClient aiAgentEventClient;
 
   /** FilePathBuilder 가 TenantContext 를 필요로 하므로 테스트 실행 전 테넌트(1) 세팅. */
   @BeforeEach

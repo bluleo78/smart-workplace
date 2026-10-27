@@ -3,6 +3,10 @@ server:
   port: 0
 
 spring:
+  # 테스트 컨텍스트(약 160개 기동)마다 그 테스트가 쓰지 않는 빈까지 만들지 않게 생성을 미룬다(WP-1028, 전체 525→452초).
+  # 모든 빈의 기동 실패는 WorkplaceApplicationTests 가 이 값을 꺼서 따로 확인한다.
+  main:
+    lazy-initialization: true
   datasource:
     # 실제로는 Testcontainers 가 런타임에 @DynamicPropertySource(IntegrationTestBase) 로 URL 을 오버라이드한다.
     # 아래 5435 URL 은 컨테이너 기동 없이 로드될 때를 대비한 fallback 이다. IntegrationTestBase 를

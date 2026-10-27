@@ -14,13 +14,12 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailBodyFetcher;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -30,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
  * fetchBody 가 실제로 본문을 내려받아 채우는지(그리고 멱등/분류) 를 그대로 검증할 수 있다.
  */
 @Transactional
-class MailBodyFetcherTest extends IntegrationTestBase {
+class MailBodyFetcherTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -46,10 +45,10 @@ class MailBodyFetcherTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** ai-agent 실호출 차단. */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 비서 해석 — 본문 적재 경로는 비서를 보지 않는다(WP-149). 컨텍스트 공유용 mock. */
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AssistantResolver assistantResolver;
 
   @Test
   void fetchBody_본문적재_및_캐시() {

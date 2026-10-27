@@ -13,7 +13,7 @@ import com.workplace.contacts.dto.UpdateExternalContactRequest;
 import com.workplace.contacts.service.ContactService;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -25,13 +25,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** WP-64 통합 — 연락처·즐겨찾기 변경 → AFTER_COMMIT resource.changed 수신자 검증(커밋 필요, @Transactional 없음). */
 @DisplayName("연락처 변경 → resource.changed fan-out 통합")
-class ContactResourceChangedIntegrationTest extends IntegrationTestBase {
+class ContactResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired ContactService service;

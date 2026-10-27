@@ -20,7 +20,19 @@ public final class PostgresTestContainer {
           .withUsername("app")
           .withPassword("app")
           // 다수 @SpringBootTest 컨텍스트 캐시 × Hikari 풀 누적으로 인한 too many clients 방지.
-          .withCommand("postgres", "-c", "max_connections=200");
+          // 테스트 DB 는 매 실행 버리므로 내구성 쓰기(fsync·WAL 전체 페이지)를 끄고 데이터 폴더를 메모리(tmpfs)에 둔다(WP-1028)
+          // — 마이그레이션·테스트 쓰기가 디스크 동기화를 기다리지 않는다.
+          .withTmpFs(java.util.Map.of("/var/lib/postgresql", "rw"))
+          .withCommand(
+              "postgres",
+              "-c",
+              "max_connections=200",
+              "-c",
+              "fsync=off",
+              "-c",
+              "synchronous_commit=off",
+              "-c",
+              "full_page_writes=off");
 
   static {
     // docker-java 기본 API 협상(1.32)을 OrbStack 등 모던 데몬이 거부 → 1.41 로 고정.

@@ -9,18 +9,21 @@ import static org.awaitility.Awaitility.await;
 import com.workplace.calendar.dto.CalendarEventRequest;
 import com.workplace.calendar.service.CalendarEventService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.support.AsyncPools;
 import com.workplace.support.IntegrationTestBase;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 /**
  * 참석자 초대 및 RSVP 변경 시 알림이 생성되는지 통합 검증. AFTER_COMMIT 이벤트를 경유하므로 @Transactional 미사용 — 외부 트랜잭션 내에서는
@@ -31,6 +34,11 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired CalendarEventService service;
+
+  // 알림은 커밋 뒤 이 풀에서 만들어진다 — 「알림 없음」은 풀이 빈 뒤 센다(고정 500ms 대기 대신, WP-1028).
+  @Autowired
+  @Qualifier("notifyEventExecutor")
+  Executor notifyEventExecutor;
 
   private final List<Long> createdEventIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();
@@ -134,8 +142,8 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
     long eventId = service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(agent))).id();
     createdEventIds.add(eventId);
 
-    // 비동기 처리 시간 충분히 대기 후 알림 없음 확인
-    Thread.sleep(500);
+    // 알림 풀이 받은 일을 다 마친 뒤 알림 없음 확인
+    AsyncPools.awaitIdle(notifyEventExecutor);
     assertThat(notifCount(agent, eventId, "CALENDAR_INVITED")).isEqualTo(0);
   }
 
@@ -171,7 +179,7 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
     // 같은 사람을 다시 초대(API·MCP update_event 경로) — 참석자 행은 그대로라 알림도 없어야 한다.
     service.inviteAttendees(org, eventId, List.of(guest));
 
-    Thread.sleep(500);
+    AsyncPools.awaitIdle(notifyEventExecutor);
     assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(1);
     assertThat(service.get(guest, eventId).myRsvpStatus()).isEqualTo("ACCEPTED");
   }
@@ -204,7 +212,7 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
     // → 이미 ORGANIZER/ACCEPTED 이므로 ACCEPTED 로 RSVP 갱신
     service.respondRsvp(org, eventId, "ACCEPTED");
 
-    Thread.sleep(500);
+    AsyncPools.awaitIdle(notifyEventExecutor);
     // 주최자 == actor → self-notify 없음
     assertThat(notifCount(org, eventId, "CALENDAR_RSVP_CHANGED")).isEqualTo(0);
   }
@@ -223,8 +231,8 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
         service.create(org, newReq("미팅", NOW, NOW.plusHours(1), List.of(guest)), false).id();
     createdEventIds.add(eventId);
 
-    // 비동기 처리 시간 충분히 대기 후 알림 없음 확인
-    Thread.sleep(500);
+    // 알림 풀이 받은 일을 다 마친 뒤 알림 없음 확인
+    AsyncPools.awaitIdle(notifyEventExecutor);
     assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(0);
     assertThat(isAttendee(eventId, guest)).isTrue();
   }
@@ -254,7 +262,7 @@ class CalendarAttendeeNotifyTest extends IntegrationTestBase {
 
     service.inviteAttendees(org, eventId, List.of(guest), false);
 
-    Thread.sleep(500);
+    AsyncPools.awaitIdle(notifyEventExecutor);
     assertThat(notifCount(guest, eventId, "CALENDAR_INVITED")).isEqualTo(0);
     assertThat(isAttendee(eventId, guest)).isTrue();
   }

@@ -12,7 +12,7 @@ import com.workplace.chat.service.ChatFixtures;
 import com.workplace.chat.service.ChatThreadService;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -32,13 +31,13 @@ import org.springframework.test.web.servlet.MockMvc;
  * 수신은 {@link ChatSseFanOutTest} 와 동일하게 {@link SseRegistry} 를 mock 으로 가로채 fanOut 호출을 단언한다(실 스트림 소비
  * 대신).
  */
-class ChatProgressIntegrationTest extends IntegrationTestBase {
+class ChatProgressIntegrationTest extends ExternalClientMockedTestBase {
 
   /** 운영 application-test.yml 의 workplace.ai-agent.internal-token 값. */
   private static final String INTERNAL_TOKEN = "test-token";
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
   @Autowired MockMvc mockMvc;
   @Autowired ChatThreadService threadService;
   @Autowired ChatThreadMemberRepository memberRepo;

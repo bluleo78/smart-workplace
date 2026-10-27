@@ -13,7 +13,7 @@ import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -21,14 +21,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * #358 Task7: 채팅 메시지에 드라이브 파일 링크 후, 파일 백링크에 CHAT_MESSAGE 소스가 노출되는지 검증.
  *
  * <p>비-Tx 통합 테스트 — 서비스가 자체 트랜잭션을 커밋해야 backlinks 조회 가능. fixture 데이터는 @AfterEach 에서 정리.
  */
-class ChatDriveBacklinkIntegrationTest extends IntegrationTestBase {
+class ChatDriveBacklinkIntegrationTest extends ExternalClientMockedTestBase {
 
   @Autowired ChatMessageService chatMessageService;
   @Autowired ChatThreadService threadService;
@@ -39,8 +38,8 @@ class ChatDriveBacklinkIntegrationTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
 
   // SSE / ai-agent 외부 호출 차단
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean AiAgentEventClient aiAgentEventClient;
+  @Autowired SseRegistry sseRegistry;
+  @Autowired AiAgentEventClient aiAgentEventClient;
 
   /** 드라이브 RLS 는 TenantContext 가 필요하다. */
   @BeforeEach

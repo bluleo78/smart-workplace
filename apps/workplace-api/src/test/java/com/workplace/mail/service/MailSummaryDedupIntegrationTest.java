@@ -18,13 +18,12 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages.AnalyzeContentResult;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 머지 게이트(advisor): 같은 테넌트 두 계정이 동일 메일(공유 content)을 받았을 때, ③ 원본 분석(원본별 1회)을 두 계정에 구동해도 LLM 호출은 정확히
@@ -33,15 +32,15 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>실 entry point({@code summarizeRecentUnreadNow}, 스케줄러가 호출하는 동기 본체)를 구동한다 — repo 직접호출 금지. 외부
  * 경계(LLM 클라이언트·비서 해석)만 mock. non-@Transactional: 서비스가 자체 txTemplate 트랜잭션을 열어 seed 가 커밋돼 보여야 한다.
  */
-class MailSummaryDedupIntegrationTest extends IntegrationTestBase {
+class MailSummaryDedupIntegrationTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
   @Autowired EmailMessageRepository messageRepo;
   @Autowired MailSummaryBackfillService backfill;
 
-  @MockitoBean AiAgentMailClient mailClient;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AiAgentMailClient mailClient;
+  @Autowired AssistantResolver assistantResolver;
 
   private Long userId, accA, accB, fldA, fldB, contentId, envA, envB;
 

@@ -15,7 +15,7 @@ import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -24,13 +24,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 /** 이슈 첨부 백필 SPI 통합 테스트(WP-244) — 추출 행이 없는 첨부만 id 순으로 limit 건 반환. 클래스 트랜잭션 롤백으로 격리. */
 @Transactional
-class IssueAttachmentExtractionBackfillTest extends IntegrationTestBase {
+class IssueAttachmentExtractionBackfillTest extends ExternalClientMockedTestBase {
 
   private static final long TEST_TENANT_ID = 1L;
 
@@ -39,7 +38,7 @@ class IssueAttachmentExtractionBackfillTest extends IntegrationTestBase {
   @Autowired IssueAttachmentExtractionBackfill source;
   @Autowired IssueRepository issueRepository;
   @Autowired ProjectService projectService;
-  @MockitoBean WorkerClient workerClient;
+  @Autowired WorkerClient workerClient;
 
   private Long ownerId;
   private String projectKey;

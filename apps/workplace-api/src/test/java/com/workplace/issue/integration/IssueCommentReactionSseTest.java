@@ -17,7 +17,7 @@ import com.workplace.issue.service.IssueCommentReactionService;
 import com.workplace.issue.service.IssueTypeService;
 import com.workplace.issue.service.OpenScenario;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.util.Collection;
 import java.util.List;
@@ -28,7 +28,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -38,10 +37,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * SseRegistry 를 mock 으로 가로채 watcher 에게 {@code issue.comment_reactions_changed} 가 가는지, watcher 가 아닌
  * 반응자는 받지 않는지(반응은 watcher 로 등록하지 않는다), 알림이 생기지 않는지 확인한다. 커밋된 시드는 @AfterEach 에서 이 테스트가 만든 것만 지운다.
  */
-class IssueCommentReactionSseTest extends IntegrationTestBase {
+class IssueCommentReactionSseTest extends ExternalClientMockedTestBase {
 
   /** 실제 SSE 연결 없이 fan-out 호출을 캡처한다. */
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired IssueCommentReactionService reactionService;

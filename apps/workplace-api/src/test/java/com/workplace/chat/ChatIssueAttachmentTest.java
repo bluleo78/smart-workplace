@@ -32,7 +32,7 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.service.IssueAttachmentService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -43,7 +43,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -53,7 +52,7 @@ import org.springframework.web.multipart.MultipartFile;
  * WP-244: 이슈 챗 스레드 경유 이슈 첨부 조회. 실제 운영처럼 ai-agent 가 {@code Internal + X-On-Behalf-Of} 로, 역할·프로젝트 멤버십
  * 없이 스레드 멤버이기만 한 AGENT 신원으로 비공개(TEAM) 프로젝트 이슈의 첨부 목록·텍스트·원본을 읽을 수 있는지 HTTP 로 검증한다.
  */
-class ChatIssueAttachmentTest extends IntegrationTestBase {
+class ChatIssueAttachmentTest extends ExternalClientMockedTestBase {
 
   /** application-test.yml 의 workplace.ai-agent.internal-token 값. */
   private static final String INTERNAL_TOKEN = "test-token";
@@ -71,11 +70,11 @@ class ChatIssueAttachmentTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired TransactionTemplate tx;
 
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean AiAgentEventClient aiAgentEventClient;
+  @Autowired SseRegistry sseRegistry;
+  @Autowired AiAgentEventClient aiAgentEventClient;
 
   /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
-  @MockitoBean WorkerRenderClient worker;
+  @Autowired WorkerRenderClient worker;
 
   private final List<Long> agentIds = new ArrayList<>();
 

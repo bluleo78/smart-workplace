@@ -25,7 +25,7 @@ import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.fileai.service.FileExtractionRowWriter;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.exception.WikiAttachmentNotFoundException;
 import com.workplace.wiki.exception.WikiSpaceNotFoundException;
@@ -41,7 +41,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,7 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 페이지에 바인딩하고 공용 행 작성기로 추출 행을 만들어 검증한다.
  */
 @Transactional
-class WikiAttachmentTextTest extends IntegrationTestBase {
+class WikiAttachmentTextTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
@@ -65,7 +64,7 @@ class WikiAttachmentTextTest extends IntegrationTestBase {
   @Autowired FileExtractionRowWriter rowWriter;
 
   /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
-  @MockitoBean WorkerRenderClient worker;
+  @Autowired WorkerRenderClient worker;
 
   /** PNG 매직바이트 + 채움 — ImageSniffer 판정용 16바이트. */
   private static final byte[] PNG = {

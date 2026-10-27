@@ -13,7 +13,7 @@ import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.service.NotificationService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Collection;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -22,13 +22,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** WP-64 통합 — 알림 읽음 → 수신자 본인에게만 resource.changed. 읽을 것이 0건이면 발행하지 않는다(커밋 필요). */
 @DisplayName("알림 읽음 → resource.changed 통합")
-class NotificationReadResourceChangedIntegrationTest extends IntegrationTestBase {
+class NotificationReadResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired NotificationService service;
   @Autowired ChatFixtures fx;

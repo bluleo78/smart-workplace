@@ -15,7 +15,7 @@ import com.workplace.chat.service.ChatThreadService;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.function.Supplier;
 import org.jooq.DSLContext;
@@ -24,11 +24,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** WP-242: 이슈 챗 첨부 — MIME 정규화, 바인딩 시 추출 요청, 하이드레이션 extraction, 구간 읽기. */
-class ChatMessageAttachmentTextTest extends IntegrationTestBase {
+class ChatMessageAttachmentTextTest extends ExternalClientMockedTestBase {
 
   @Autowired ChatMessageService chatMessageService;
   @Autowired ChatMessageAttachmentService attachmentService;
@@ -37,8 +36,8 @@ class ChatMessageAttachmentTextTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired TransactionTemplate tx;
 
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean AiAgentEventClient aiAgentEventClient;
+  @Autowired SseRegistry sseRegistry;
+  @Autowired AiAgentEventClient aiAgentEventClient;
 
   @BeforeEach
   void setTenant() {

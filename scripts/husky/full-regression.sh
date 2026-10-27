@@ -53,8 +53,10 @@ else
     node scripts/e2e-flaky-record.mjs "$REPORT_JSON" "$FLAKY_LOG" || true
     [ "$e2e_status" -eq 0 ] || exit "$e2e_status"
     (cd apps/workplace-admin && pnpm test:e2e)
-    # 게이트는 통과/실패만 필요 — test 의 finalizedBy 로 매번 도는 JaCoCo 리포트 생성은 제외 (WP-76)
-    cd apps/workplace-api && ./gradlew test -x generateJooq -x jacocoTestReport --build-cache --configuration-cache
+    # 게이트는 통과/실패만 필요 — test 의 finalizedBy 로 매번 도는 JaCoCo 리포트 생성은 제외 (WP-76),
+    # 리포트를 안 만드니 계측 에이전트도 끈다(-PnoCoverage, WP-1028). 이 단계는 앞 단계가 끝난 뒤 혼자 돌므로
+    # 포크를 기본 2 보다 하나 늘린다(-PtestForks=3, 452→376초)
+    cd apps/workplace-api && ./gradlew test -PnoCoverage -PtestForks=3 -x generateJooq -x jacocoTestReport --build-cache --configuration-cache
   '
 fi
 

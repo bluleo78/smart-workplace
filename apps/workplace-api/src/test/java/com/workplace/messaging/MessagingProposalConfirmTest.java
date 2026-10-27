@@ -24,7 +24,7 @@ import com.workplace.messaging.service.MessagingProposalService;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,7 +42,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>non-@Transactional — PersonalProjectProvisioner.ensureDefaultPersonal 은 REQUIRES_NEW 에서 실제
  * 커밋하므로 클래스-레벨 롤백과 격리되지 않는다. 커밋된 row 는 @AfterEach 에서 직접 회수한다.
  */
-class MessagingProposalConfirmTest extends IntegrationTestBase {
+class MessagingProposalConfirmTest extends ExternalClientMockedTestBase {
 
   @Autowired MessagingProposalService proposalService;
   @Autowired IssueService issueService;

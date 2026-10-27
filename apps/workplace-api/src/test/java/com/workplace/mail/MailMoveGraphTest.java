@@ -27,7 +27,7 @@ import com.workplace.mail.service.graph.GraphMessage;
 import com.workplace.mail.service.graph.GraphMessage.EmailAddress;
 import com.workplace.mail.service.graph.GraphMessage.Recipient;
 import com.workplace.mail.service.move.MailMoveService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,7 +37,6 @@ import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -46,7 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 본다.
  */
 @Transactional
-class MailMoveGraphTest extends IntegrationTestBase {
+class MailMoveGraphTest extends ExternalClientMockedTestBase {
 
   private static final String TOKEN = "FAKE_TOKEN";
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -56,8 +55,8 @@ class MailMoveGraphTest extends IntegrationTestBase {
   @Autowired MailFolderService folderService;
   @Autowired EmailFolderRepository folderRepo;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   /** 보낸 batch 요청 묶음(호출 순서대로). */
   private final List<List<GraphBatchRequest>> batches = new ArrayList<>();

@@ -24,7 +24,7 @@ import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.PersonalProjectProvisioner;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -44,7 +44,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  *
  * <p>tenant 는 TenantContext(ThreadLocal) 로 주입 — REQUIRES_NEW 서브 트랜잭션 doBegin 에서 GUC 재설정에 사용.
  */
-class MessagingProposalServiceTest extends IntegrationTestBase {
+class MessagingProposalServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired MessagingProposalService proposalService;
   @Autowired MessageService messageService;

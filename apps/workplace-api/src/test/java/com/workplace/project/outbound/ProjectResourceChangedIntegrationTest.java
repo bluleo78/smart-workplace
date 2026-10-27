@@ -25,7 +25,7 @@ import com.workplace.milestone.service.MilestoneService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.version.dto.CreateVersionRequest;
 import com.workplace.version.dto.UpdateVersionRequest;
@@ -43,7 +43,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -52,10 +51,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 클래스에 @Transactional 을 붙이지 않는다.
  */
 @DisplayName("프로젝트 설정 변경 → resource.changed fan-out 통합")
-class ProjectResourceChangedIntegrationTest extends IntegrationTestBase {
+class ProjectResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
 
   @Autowired DSLContext dsl;
   @Autowired PlatformTransactionManager txManager;

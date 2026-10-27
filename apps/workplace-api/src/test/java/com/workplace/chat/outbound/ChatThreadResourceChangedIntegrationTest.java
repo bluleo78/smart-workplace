@@ -9,7 +9,7 @@ import com.workplace.chat.service.ChatThreadService;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import java.util.Collection;
 import org.junit.jupiter.api.AfterEach;
@@ -17,14 +17,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** WP-64 통합 — 이슈 채팅 멤버 추가·나가기 → 프로젝트 멤버(+나간 본인)에게 resource.changed (커밋 필요). */
 @DisplayName("이슈 채팅 멤버 변경 → resource.changed 통합")
-class ChatThreadResourceChangedIntegrationTest extends IntegrationTestBase {
+class ChatThreadResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient;
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient;
 
   @Autowired ChatMembershipService membershipService;
   @Autowired ChatThreadService threadService;

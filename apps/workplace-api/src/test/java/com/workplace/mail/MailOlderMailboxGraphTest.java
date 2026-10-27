@@ -24,7 +24,7 @@ import com.workplace.mail.service.graph.GraphMessage;
 import com.workplace.mail.service.graph.GraphMessage.EmailAddress;
 import com.workplace.mail.service.graph.GraphMessage.Recipient;
 import com.workplace.mail.service.graph.GraphMessageMapper;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.net.URI;
 import java.time.Instant;
@@ -35,7 +35,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -44,7 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 본다.
  */
 @Transactional
-class MailOlderMailboxGraphTest extends IntegrationTestBase {
+class MailOlderMailboxGraphTest extends ExternalClientMockedTestBase {
 
   private static final String TOKEN = "FAKE_TOKEN";
   private static final String SELECT =
@@ -58,8 +57,8 @@ class MailOlderMailboxGraphTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired GraphMailFetcher graphMailFetcher;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   private GraphMessage message(String id, String subject, String received) {
     return new GraphMessage(

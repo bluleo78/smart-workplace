@@ -18,8 +18,8 @@ import com.workplace.messaging.dto.LinkPreviewResponse;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.FixtureHttpFetcherConfig;
-import com.workplace.support.IntegrationTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -31,16 +31,15 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-874: URL 든 메시지 작성 → 커밋 뒤 비동기 가져오기(고정 응답 가져오기) → 미리보기 저장 → {@code
  * messaging.message.link-previews} fan-out 이 {@code messaging.message.created} 뒤에 나가는지. 비-Tx(커밋 필요)
  * — 만든 user 를 추적해 채널(CASCADE)+user 회수.
  */
-class LinkPreviewAsyncPipelineTest extends IntegrationTestBase {
+class LinkPreviewAsyncPipelineTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired ChannelService channelService;

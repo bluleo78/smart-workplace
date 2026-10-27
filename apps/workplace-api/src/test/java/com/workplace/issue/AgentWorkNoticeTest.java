@@ -10,11 +10,14 @@ import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationSettingItem;
 import com.workplace.notify.repository.NotificationSettingRepository;
 import com.workplace.notify.service.NotificationService;
+import com.workplace.support.AsyncPools;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 /**
  * AI 작업 상태 알림(WP-913) 통합 테스트 — 실제 HTTP 로 report_agent_work(PUT /agent-work)를 부르고, 커밋 뒤 비동기로 만들어지는
@@ -37,6 +40,10 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
 
   @Autowired NotificationSettingRepository settingRepository;
   @Autowired NotificationService notificationService;
+
+  @Autowired
+  @Qualifier("notifyEventExecutor")
+  Executor notifyEventExecutor;
 
   /** 알림 행 — 상태 이름(status_name)도 읽어 AI 작업 상태가 그 칸에 새지 않았는지 본다. */
   record Row(String type, Long actorId, String agentWorkState, String statusName) {}
@@ -447,12 +454,11 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
   }
 
   /**
-   * 개수가 한동안 그대로인지 — 「더 생기지 않음」은 비동기라 일정 시간 지켜볼 수밖에 없다(고정 대기를 피할 수 없는 부재 확인). 800ms 동안 계속 같아야 통과한다.
+   * 개수가 그대로인지 — 보고의 AFTER_COMMIT 핸들러는 응답 전에 알림 일을 notify 풀에 넣으므로, 풀이 받은 일을 모두 마친 뒤 세면 생길 알림은 이미
+   * 생겼다. 800ms 고정 관찰(29곳, 클래스 31초 중 약 23초)을 풀이 빌 때까지의 대기로 바꿨다(WP-1028).
    */
   private void assertStays(long recipientId, String type, int expected) {
-    await()
-        .during(Duration.ofMillis(800))
-        .atMost(Duration.ofSeconds(3))
-        .until(() -> ofType(recipientId, type).size() == expected);
+    AsyncPools.awaitIdle(notifyEventExecutor);
+    assertThat(ofType(recipientId, type)).hasSize(expected);
   }
 }

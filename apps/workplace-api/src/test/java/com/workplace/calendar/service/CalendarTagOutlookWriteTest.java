@@ -37,7 +37,7 @@ import com.workplace.mail.outbound.GraphCalendarClient.GraphEvent;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEventCategoryState;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphRecipient;
 import com.workplace.mail.service.GraphTokenService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
@@ -48,7 +48,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -56,10 +55,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 모킹한다. 써 넣기는 Graph HTTP 를 트랜잭션 밖에서 하므로 테스트도 @Transactional 이 아니다(그러면 가드가 막는다) — 정리는
  * cleanupInTenant.
  */
-class CalendarTagOutlookWriteTest extends IntegrationTestBase {
+class CalendarTagOutlookWriteTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean GraphCalendarClient graphCalendarClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphCalendarClient graphCalendarClient;
+  @Autowired GraphTokenService graphTokenService;
 
   @Autowired CalendarSyncService syncService;
   @Autowired CalendarTagService tagService;

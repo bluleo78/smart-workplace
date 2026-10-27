@@ -26,7 +26,7 @@ import com.workplace.mail.repository.EmailMessageRepository.DueSeenPushAccount;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailReadSyncDispatcher;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -51,7 +51,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -68,7 +67,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 시드는 @AfterEach 에서 계정 CASCADE 로 지운다. 공유 test DB 이므로 단언은 이 테스트가 시드한 계정·메일로 한정한다. 재시도 배치 전체
  * 순회({@code retryAllTenants})는 다른 테스트 클래스의 시드까지 건드리므로 부르지 않고, 배치가 쓰는 계정 조회와 계정 단위 디스패치를 각각 검증한다.
  */
-class MailReadSyncOrderingTest extends IntegrationTestBase {
+class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired MailMessageService messageService;
@@ -82,9 +81,9 @@ class MailReadSyncOrderingTest extends IntegrationTestBase {
   Executor mailReadSyncExecutor;
 
   /** Graph HTTP 차단 — 테스트마다 "서버" 동작을 스텁한다. */
-  @MockitoBean GraphApiClient graphApiClient;
+  @Autowired GraphApiClient graphApiClient;
 
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphTokenService graphTokenService;
 
   private Long seededUser;
   private Long seededAccount;
