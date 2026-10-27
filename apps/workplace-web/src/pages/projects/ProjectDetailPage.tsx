@@ -40,6 +40,7 @@ import { MobileIssueToolbar } from './components/mobile/MobileIssueToolbar';
 import { ProjectStatusesGate } from './components/ProjectStatusesGate';
 import { ViewChipBar } from './components/ViewChipBar';
 import { useIssueListColumns } from './hooks/useIssueListColumns';
+import { useRememberedIssueQuery } from './hooks/useRememberedIssueQuery';
 import { PersonalProjectDetail } from './personal/PersonalProjectDetail';
 
 // 프로젝트 홈 — 태스크 필터/뷰 영역 + 새 태스크 생성. URL: /projects/:key
@@ -55,11 +56,13 @@ export default function ProjectDetailPage() {
     setOpen(true);
   };
   const project = useProject(key);
+  // 필터·보기·그룹 기억(WP-1035) — 주소에 조건이 없으면 지난번 조건으로 되살린다. 개인 프로젝트 화면도 같은 주소라 분기 전에 부른다.
+  const restoring = useRememberedIssueQuery(key, project.data != null);
   const isMobile = useIsMobile();
   // 탭 제목 — 「이슈 · {프로젝트}」(WP-814).
   useDocumentTitle(['이슈', project.data?.name]);
 
-  if (project.isLoading)
+  if (project.isLoading || restoring)
     return <p className="w-full p-6 text-muted-foreground">로딩 중…</p>;
   if (project.error)
     return (
