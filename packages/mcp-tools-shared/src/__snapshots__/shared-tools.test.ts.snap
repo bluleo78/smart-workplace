@@ -762,7 +762,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
           "type": "string",
         },
         "parent": {
-          "description": "Parent issue key, same project",
+          "description": "Parent issue key (same project, or an EPIC in another project)",
           "minLength": 1,
           "type": "string",
         },
@@ -3184,7 +3184,7 @@ exports[`buildSharedTools > 도구별 입력 JSON 스키마 스냅샷 1`] = `
               "type": "null",
             },
           ],
-          "description": "Parent issue key, same project; null clears",
+          "description": "Parent issue key (same project, or an EPIC in another project); null clears",
         },
         "priority": {
           "enum": [

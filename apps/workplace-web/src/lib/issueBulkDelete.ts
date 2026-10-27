@@ -1,16 +1,21 @@
 // 이슈 일괄 삭제 확인 문구(WP-482) — 목록 툴바(IssueBulkActions)·행 메뉴 다중 선택(useIssueRowActions)이 같은 문구를 쓴다.
 // 왜: 부모를 지우면 서버가 하위 태스크도 함께 지우는데, 일괄 삭제 확인창만 그 사실을 알리지 않았다(단건 확인창은 알린다).
 import type { IssueResponse } from '../types/issue';
+import { parentProjectKey } from './parentRef';
 
 /**
  * 선택한 이슈를 지우면 함께 지워지는 하위 이슈 수. 선택한 이슈의 childCount 합에서, 이미 선택에 든 하위(부모도 선택됨)는 뺀다 —
  * 두 번 세지 않게. 캐시에 없는 이슈(undefined)는 알 수 없으므로 0 으로 본다.
+ * WP-1038 에픽은 지워도 하위를 지우지 않고 연결만 풀므로 세지 않는다 — 일반 이슈의 하위 태스크만 함께 지워진다.
  */
 export function countCascadedChildren(issues: Array<IssueResponse | undefined>): number {
-  const present = issues.filter((i): i is IssueResponse => i != null);
+  const present = issues.filter((i): i is IssueResponse => i != null && i.type?.name !== 'EPIC');
   const selected = new Set(present.map((i) => i.number));
   const childTotal = present.reduce((sum, i) => sum + (i.childCount ?? 0), 0);
-  const alsoSelected = present.filter((i) => i.parent != null && selected.has(i.parent.number)).length;
+  // 하위 태스크는 늘 부모와 같은 프로젝트다 — 다른 프로젝트 부모(에픽)는 같은 번호여도 선택한 이슈가 아니다.
+  const alsoSelected = present.filter(
+    (i) => i.parent != null && parentProjectKey(i.parent, i.projectKey) === i.projectKey && selected.has(i.parent.number),
+  ).length;
   return Math.max(0, childTotal - alsoSelected);
 }
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ISSUE_PRIORITIES, type IssueResponse } from '../types/issue';
 import type { ProjectStatus } from '../types/projectStatus';
 import {
-  groupCountsByKey, groupIssues, ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, priorityLabel, priorityRank, statusLabel, toIssuePriority,
+  groupCountsByKey, groupIssues, isOwnProjectEpicParent, ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS, priorityLabel, priorityRank, statusLabel, toIssuePriority,
 } from './issueGrouping';
 
 // 필수 필드가 많은 IssueResponse 를 최소 오버라이드로 생성하는 테스트 팩토리.
@@ -204,6 +204,32 @@ describe('groupIssues - epic', () => {
   it('에픽이 아닌 부모(STORY)는 「에픽 없음」으로 간다', () => {
     const groups = groupIssues([mk({ id: 5, number: 5, parent: { number: 7, title: '스토리', type: STORY_TYPE } })], 'epic');
     expect(groups).toEqual([{ key: 'no-epic', label: '에픽 없음', issues: [expect.objectContaining({ number: 5 })] }]);
+  });
+
+  // WP-1038 에픽은 다른 프로젝트에 있을 수 있다 — 번호가 같아도(PLAN-3 / WP-3) 다른 묶음, 가려진 에픽은 「볼 수 없는 에픽」 한 묶음.
+  it('다른 프로젝트 에픽은 (키, 번호)로 따로 묶고, 가려진 에픽은 마지막 에픽 묶음으로', () => {
+    const groups = groupIssues(
+      [
+        mk({ id: 1, number: 1, projectKey: 'WP', parent: { ...ep(3, 'WP 에픽'), projectKey: 'WP' } }),
+        mk({ id: 2, number: 2, projectKey: 'WP', parent: { ...ep(3, '기획 에픽'), projectKey: 'PLAN' } }),
+        mk({ id: 3, number: 3, projectKey: 'WP', parent: { number: 0, title: '', type: null, hidden: true } as never }),
+        mk({ id: 4, number: 4, projectKey: 'WP', parent: null }),
+      ],
+      'epic',
+    );
+    expect(groups.map((g) => [g.key, g.label, g.issues.map((i) => i.number)])).toEqual([
+      ['epic-3', 'WP 에픽', [1]],
+      ['epic-PLAN-3', '기획 에픽', [2]],
+      ['epic-hidden', '볼 수 없는 에픽', [3]],
+      ['no-epic', '에픽 없음', [4]],
+    ]);
+  });
+
+  it('isOwnProjectEpicParent 는 같은 프로젝트 에픽만 참 (WP-1038)', () => {
+    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: ep(3, 'A') }))).toBe(true);
+    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: { ...ep(3, 'A'), projectKey: 'WP' } }))).toBe(true);
+    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: { ...ep(3, 'A'), projectKey: 'PLAN' } }))).toBe(false);
+    expect(isOwnProjectEpicParent(mk({ projectKey: 'WP', parent: { number: 0, title: '', type: null, hidden: true } as never }))).toBe(false);
   });
 
   it('에픽 없는 이슈가 없으면 「에픽 없음」 버킷을 만들지 않는다', () => {

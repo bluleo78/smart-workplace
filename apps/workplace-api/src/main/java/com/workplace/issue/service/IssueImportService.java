@@ -145,7 +145,7 @@ public class IssueImportService {
             true);
     OffsetDateTime closedAt = resolveClosedAt(req, plan.status().category());
     // 부모가 지금도 살아 있는지 공유 잠금으로 다시 본다(WP-759, 일반 생성과 같음). 완료 에픽 규칙은 가져오기라 다시 보지 않는다.
-    issueService.lockParentForShare(plan);
+    IssueRow parent = issueService.lockParentForShare(plan);
 
     // 6) 원본 키 — 같은 원본을 두 번 가져오지 않는다(시간 초과 뒤 재시도가 이슈를 두 번 만들지 않게). 앞뒤 공백은 다듬고 빈 값은 없는 것으로.
     //    여기는 이미 커밋된 가져오기를 빨리 거르는 길이고, 아직 커밋 전인 같은 원본은 번호를 잡은 뒤(7) 다시 본다.
@@ -225,6 +225,8 @@ public class IssueImportService {
 
     // 10) 화면 갱신 한 번(AI 터치 없음)과 감사 로그.
     changeNotifier.imported(project, number, row.id(), callerId);
+    // WP-1038 다른 프로젝트 에픽 아래로 가져왔으면 그 에픽 프로젝트 화면도 갱신한다(하위 수·진행률). 같은 프로젝트면 위 한 번으로 끝.
+    issueService.notifyParentProject(project, parent, callerId);
     String issueKey = project.key() + "-" + number;
     auditLogService.log(
         callerId,
@@ -701,7 +703,10 @@ public class IssueImportService {
     return resolved;
   }
 
-  /** 가져오기 요청을 일반 생성 요청 모양으로 — 검증(planCreate)을 공유하려는 것. 첨부는 가져오기가 원 첨부자·시각으로 따로 넣으므로 비운다. */
+  /**
+   * 가져오기 요청을 일반 생성 요청 모양으로 — 검증(planCreate)을 공유하려는 것. 첨부는 가져오기가 원 첨부자·시각으로 따로 넣으므로 비운다. 부모
+   * 키(WP-1038)도 그대로 넘겨 다른 프로젝트 에픽 부모를 일반 생성과 같은 규칙으로 검증한다.
+   */
   private static CreateIssueRequest toCreateRequest(
       ImportIssueRequest req, List<Long> assigneeIds, List<Long> componentIds) {
     return new CreateIssueRequest(
@@ -720,7 +725,8 @@ public class IssueImportService {
         null,
         req.status(),
         req.statusId(),
-        componentIds);
+        componentIds,
+        req.parentKey());
   }
 
   /**

@@ -300,7 +300,8 @@ public class IssueHistoryRecorder {
 
   /**
    * 부모 변경/해제 한 건을 기록. from/to 는 null 가능 (설정/해제/교체 모두). diff 0 호출은 서비스에서 사전 차단. payload JSON 의 to 값은
-   * type 정보 제외 — 렌더링은 응답의 parent.type 으로 처리한다.
+   * type 정보 제외 — 렌더링은 응답의 parent.type 으로 처리한다. 부모 프로젝트 키(projectKey)도 남긴다(WP-1038) — 에픽이 다른 프로젝트일 수
+   * 있어 키를 만들고, 조회자가 그 프로젝트를 읽을 수 없으면 이력 조회 때 가린다(IssueRelationService.redactHistory).
    */
   public void recordParentChanged(
       Long actorId,
@@ -308,10 +309,20 @@ public class IssueHistoryRecorder {
       com.workplace.issue.dto.ParentRef from,
       com.workplace.issue.dto.ParentRef to) {
     Map<String, Object> body = new HashMap<>();
-    body.put("from", from == null ? null : Map.of("number", from.number(), "title", from.title()));
-    body.put("to", to == null ? null : Map.of("number", to.number(), "title", to.title()));
+    body.put("from", parentPayload(from));
+    body.put("to", parentPayload(to));
     String payload = toJson(body);
     historyRepository.insert(issueId, actorId, "PARENT_CHANGED", null, payload);
+  }
+
+  /** 부모 변경 이력의 한쪽 값 — 번호·제목, 아는 경우 프로젝트 키. null 이면 null(부모 없음). */
+  private static Map<String, Object> parentPayload(com.workplace.issue.dto.ParentRef ref) {
+    if (ref == null) return null;
+    Map<String, Object> m = new HashMap<>();
+    m.put("number", ref.number());
+    m.put("title", ref.title());
+    if (ref.projectKey() != null) m.put("projectKey", ref.projectKey());
+    return m;
   }
 
   /**

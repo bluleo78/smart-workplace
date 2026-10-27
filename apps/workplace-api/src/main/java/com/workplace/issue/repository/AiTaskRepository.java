@@ -352,12 +352,15 @@ public class AiTaskRepository {
     var parent = ISSUE.as("ai_parent");
     var parentType = ISSUE_TYPE_DEF.as("ai_parent_type");
     // 묶음 키·에픽 번호 — 자기가 에픽이면 자기, 부모가 에픽이면 부모, 그 밖은 자기 id(에픽 번호 없음 → ELSE 생략으로 NULL).
+    // 묶음은 프로젝트 머리 아래에 그려지고 에픽 번호를 같은 프로젝트로 읽으므로, 다른 프로젝트 에픽(WP-1038)의 하위는 묶지 않고 단독 행으로 둔다.
+    var sameProjectEpicParent =
+        parentType.NAME.eq(EPIC).and(parent.PROJECT_ID.eq(ISSUE.PROJECT_ID));
     Field<Long> groupKey =
         when(selfType.NAME.eq(EPIC), ISSUE.ID)
-            .when(parentType.NAME.eq(EPIC), ISSUE.PARENT_ISSUE_ID)
+            .when(sameProjectEpicParent, ISSUE.PARENT_ISSUE_ID)
             .otherwise(ISSUE.ID);
     Field<Integer> epicNumber =
-        when(selfType.NAME.eq(EPIC), ISSUE.NUMBER).when(parentType.NAME.eq(EPIC), parent.NUMBER);
+        when(selfType.NAME.eq(EPIC), ISSUE.NUMBER).when(sameProjectEpicParent, parent.NUMBER);
 
     // 1단: 필터를 통과한 행의 기본 정렬 키·묶음 키·프로젝트.
     Table<?> base =

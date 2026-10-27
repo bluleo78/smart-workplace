@@ -14,6 +14,13 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { ISSUE_TYPE_ICONS } from '../../../lib/issueTypeIcons';
 import { getIssueTypeLabel } from '../../../lib/issueTypeLabels';
+import {
+  HIDDEN_PARENT_LABEL,
+  isHiddenParent,
+  parentIssueKey,
+  parentIssuePath,
+  parentProjectKey,
+} from '../../../lib/parentRef';
 import type { ParentRef } from '../../../types/issue';
 import type { IssueTypeSummary } from '../../../types/issueType';
 
@@ -87,14 +94,17 @@ export function IssueBreadcrumbHeader({
   // 경로 단계: 프로젝트 › (부모 이슈) › 현재 이슈. 이슈 단계는 타입 아이콘 + 키로 보인다.
   const items: BreadcrumbItem[] = [
     { key: 'project', label: projectName, title: projectName, to: `/projects/${projectKey}` },
-    ...(parent
-      ? [{
-          key: `parent-${parent.number}`,
-          label: <IssueCrumbLabel type={parent.type} projectKey={projectKey} number={parent.number} />,
-          to: `/projects/${projectKey}/issues/${parent.number}`,
-          testId: `breadcrumb-parent-${parent.number}`,
-        }]
-      : []),
+    // WP-1038 부모는 다른 프로젝트 에픽일 수 있어 부모의 프로젝트 키로 키·경로를 만든다. 가려진 부모는 링크 없이 「볼 수 없는 에픽」.
+    ...(parent && isHiddenParent(parent)
+      ? [{ key: 'parent-hidden', label: HIDDEN_PARENT_LABEL, testId: 'breadcrumb-parent-hidden' }]
+      : parent
+        ? [{
+            key: `parent-${parentIssueKey(parent, projectKey)}`,
+            label: <IssueCrumbLabel type={parent.type} projectKey={parentProjectKey(parent, projectKey)} number={parent.number} />,
+            to: parentIssuePath(parent, projectKey) ?? undefined,
+            testId: `breadcrumb-parent-${parent.number}`,
+          }]
+        : []),
     {
       key: 'current',
       label: <IssueCrumbLabel type={type} projectKey={projectKey} number={number} />,

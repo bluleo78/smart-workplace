@@ -35,7 +35,7 @@ import { IssueLoadErrorState } from './IssueLoadErrorState';
 
 /** 에픽 그룹 헤더 ◆ 글자색 — 그룹 첫 이슈의 부모(=그 에픽) 유형 색 토큰(배경 없는 글자용 fg). */
 function epicGroupColor(first: IssueResponse | undefined): string {
-  return labelFg(first?.parent?.type.colorToken);
+  return labelFg(first?.parent?.type?.colorToken);
 }
 
 export function IssueListView({

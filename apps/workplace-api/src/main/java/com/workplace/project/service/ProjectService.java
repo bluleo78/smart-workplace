@@ -14,6 +14,7 @@ import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.EpicChildDetacher;
 import com.workplace.issue.service.IssueHistoryRecorder;
 import com.workplace.issue.service.IssueTypeService;
 import com.workplace.project.dto.AddMemberRequest;
@@ -62,6 +63,9 @@ public class ProjectService {
   private final AgentWorkRepository agentWorkRepository;
   private final MembershipGuard membershipGuard;
   private final ProjectChangeNotifier changeNotifier;
+
+  /** WP-1038 프로젝트 삭제 때 다른 프로젝트와 걸린 에픽 부모 관계를 뗀다. */
+  private final EpicChildDetacher epicChildDetacher;
 
   /**
    * 프로젝트 생성. typeOrDefault() 가 PERSONAL 이면 개인 프로젝트(key 자동 생성) 경로, TEAM/OPEN 이면 공유 프로젝트 경로. 공유
@@ -211,9 +215,18 @@ public class ProjectService {
     return ProjectResponse.from(updated, true);
   }
 
-  /** 프로젝트 soft-delete. OWNER 권한 필요. */
+  /**
+   * 프로젝트 soft-delete. OWNER 권한 필요. WP-1038 — 지우기 전에 다른 프로젝트와 걸린 에픽 부모 관계를 두 방향 모두 뗀다(이력·알림 포함). 지운
+   * 프로젝트의 에픽을 가리키는 남의 하위가 사라진 에픽에 묶여 있거나, 지운 프로젝트 이슈가 남의 에픽 진행률에 계속 세지지 않게 한다.
+   */
   public void softDelete(Long callerId, String projectKey) {
     ProjectRow project = checkDeletable(callerId, projectKey);
+    // 프로젝트 행을 먼저 쓰기 잠금한다 — 이 프로젝트 에픽에 다른 프로젝트 하위를 붙이는 요청(프로젝트 공유 잠금)과 차례를 세워, 떼기 뒤에 커밋된 하위가 지운
+    // 프로젝트 에픽에 묶여 남지 않게 한다. 그사이 다른 요청이 지웠으면 없는 프로젝트다.
+    if (!projectRepository.lockForUpdate(project.id())) {
+      throw new ProjectNotFoundException(projectKey);
+    }
+    epicChildDetacher.detachCrossProject(callerId, project.id());
     projectRepository.softDelete(project.id());
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_PROJECT, OP_DELETED, project, project.id(), callerId);

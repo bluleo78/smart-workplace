@@ -34,6 +34,16 @@ describe('historyStatusLabel / historyPriorityLabel', () => {
 describe('formatParentChanged', () => {
   const json = (from: unknown, to: unknown) => JSON.stringify({ from, to });
 
+  // WP-1038 다른 프로젝트 에픽은 이력의 projectKey 로 키를 만들고, 가려진 부모는 「볼 수 없는 에픽」.
+  it('다른 프로젝트 부모는 이력의 프로젝트 키로, 가려진 부모는 「볼 수 없는 에픽」으로 쓴다', () => {
+    expect(formatParentChanged(json(null, { number: 3, title: '기획', projectKey: 'PLAN' }), 'RX')).toBe('부모를 「기획」(PLAN-3)으로 설정');
+    expect(formatParentChanged(json({ hidden: true }, null), 'RX')).toBe('부모 볼 수 없는 에픽 해제');
+    expect(formatParentChanged(json({ hidden: true }, { number: 2, title: '로그인', projectKey: 'RX' }), 'RX')).toBe(
+      '볼 수 없는 에픽 → 「로그인」(RX-2)',
+    );
+    expect(formatParentChanged(json(null, { hidden: true }), 'RX')).toBe('부모를 볼 수 없는 에픽으로 설정');
+  });
+
   it('설정은 받침에 맞는 조사와 따옴표·키로 쓴다', () => {
     expect(formatParentChanged(json(null, { number: 68, title: 'r76 에픽' }), 'RX')).toBe('부모를 「r76 에픽」(RX-68)으로 설정');
     expect(formatParentChanged(json(null, { number: 3, title: '로그인 개선' }), 'RX')).toBe('부모를 「로그인 개선」(RX-3)으로 설정');

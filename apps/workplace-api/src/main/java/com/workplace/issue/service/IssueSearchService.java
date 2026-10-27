@@ -7,6 +7,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.AiTaskProject;
 import com.workplace.issue.dto.ChecklistCursor;
 import com.workplace.issue.dto.ChecklistOrder;
+import com.workplace.issue.dto.EpicChildrenResponse;
 import com.workplace.issue.dto.IssueCursor;
 import com.workplace.issue.dto.IssueGroupCountsResponse;
 import com.workplace.issue.dto.IssueResponse;
@@ -17,6 +18,7 @@ import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.MeGroupedCursor;
 import com.workplace.issue.dto.MeIssueGrouping;
 import com.workplace.issue.exception.InvalidCursorException;
+import com.workplace.issue.exception.IssueNotFoundException;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueAttachmentRepository;
 import com.workplace.issue.repository.IssueCycleRepository;
@@ -77,6 +79,8 @@ public class IssueSearchService {
   // WP-933: 목록 항목에 붙은 구성요소를 싣는다.
   private final com.workplace.component.repository.ComponentRepository componentRepository;
   private final VersionRepository versionRepository;
+  // WP-1038: 다른 프로젝트 에픽 부모를 조회자 권한으로 가린다.
+  private final ParentRefReader parentRefReader;
 
   /** 그룹별 총계를 낼 수 있는 기준(WP-472) — 에픽·사이클 그룹은 구간별로 따로 불러오거나 필터가 없어 대상이 아니다. */
   private static final java.util.Set<String> COUNTABLE_GROUPS =
@@ -121,7 +125,7 @@ public class IssueSearchService {
 
     var rows = issueRepository.search(project.id(), query);
     // 단일 프로젝트 검색이므로 projectId 무시하고 상수 key 사용.
-    return assemble(rows, query, pid -> project.key());
+    return assemble(callerId, rows, query, pid -> project.key());
   }
 
   /**
@@ -144,7 +148,7 @@ public class IssueSearchService {
 
     List<ChecklistRow> sorted = issueRepository.searchChecklist(projectId, query, order, cursor);
     List<IssueRow> rows = sorted.stream().map(ChecklistRow::row).toList();
-    var items = assembleItems(rows, pid -> projectKey);
+    var items = assembleItems(callerId, rows, pid -> projectKey);
     String nextCursor = null;
     boolean hasMore = false;
     if (!sorted.isEmpty() && sorted.size() >= query.size()) {
@@ -175,7 +179,7 @@ public class IssueSearchService {
     // projectId → key 일괄 해석(횡단이므로 여러 프로젝트). distinct 후 한 번에.
     var keyById =
         projectRepository.keysByIds(rows.stream().map(IssueRow::projectId).distinct().toList());
-    return assemble(rows, query, pid -> keyById.getOrDefault(pid, ""));
+    return assemble(callerId, rows, query, pid -> keyById.getOrDefault(pid, ""));
   }
 
   /**
@@ -206,7 +210,7 @@ public class IssueSearchService {
             hideClosed,
             cursor,
             query.size());
-    return groupedPageOf(grouped, query.size());
+    return groupedPageOf(callerId, grouped, query.size());
   }
 
   /**
@@ -225,7 +229,7 @@ public class IssueSearchService {
       var rows = issueRepository.findReadableWatchedBy(callerId, cursor, clamped);
       var keyById =
           projectRepository.keysByIds(rows.stream().map(IssueRow::projectId).distinct().toList());
-      var items = assembleItems(rows, pid -> keyById.getOrDefault(pid, ""));
+      var items = assembleItems(callerId, rows, pid -> keyById.getOrDefault(pid, ""));
       return pageOf(items, rows, clamped);
     }
     MeGroupedCursor cursor = trimmed == null ? null : MeGroupedCursor.decode(trimmed);
@@ -235,19 +239,19 @@ public class IssueSearchService {
     List<GroupedRow> grouped =
         groupedRepository.search(
             issueRepository.watchedReadableCondition(callerId), grouping, false, cursor, clamped);
-    return groupedPageOf(grouped, clamped);
+    return groupedPageOf(callerId, grouped, clamped);
   }
 
   /**
    * 묶음 정렬 행 → 응답. 항목을 조립하고 각 행에 프로젝트 이름·묶음 건수(projectGroup)를 싣는다 — 건수는 커서 앞에서 세므로 어느 페이지에서 받아도 같다.
    * 마지막 행의 정렬 키가 다음 커서({@link MeGroupedCursor}).
    */
-  private IssueSearchResponse groupedPageOf(List<GroupedRow> grouped, int size) {
+  private IssueSearchResponse groupedPageOf(Long viewerId, List<GroupedRow> grouped, int size) {
     List<IssueRow> rows = grouped.stream().map(GroupedRow::row).toList();
     List<Long> projectIds = rows.stream().map(IssueRow::projectId).distinct().toList();
     var keyById = projectRepository.keysByIds(projectIds);
     var nameById = projectRepository.namesByIds(projectIds);
-    var items = assembleItems(rows, pid -> keyById.getOrDefault(pid, ""));
+    var items = assembleItems(viewerId, rows, pid -> keyById.getOrDefault(pid, ""));
 
     List<IssueResponse> withGroups = new ArrayList<>(items.size());
     for (int i = 0; i < items.size(); i++) {
@@ -266,21 +270,51 @@ public class IssueSearchService {
     return new IssueSearchResponse(withGroups, nextCursor, hasMore);
   }
 
+  /**
+   * 이슈의 활성 하위 목록(WP-1038) — 다른 프로젝트 하위까지. 이슈를 읽을 수 있어야 하고(없거나 못 읽으면 404), 하위는 조회자가 그 프로젝트를 읽을 수 있을
+   * 때만 싣고 나머지는 hiddenCount 로 센다. 이 이슈와 같은 프로젝트 하위는 늘 읽을 수 있다. 항목 모양은 목록과 같다({@link
+   * #assembleItems}).
+   */
+  public EpicChildrenResponse children(Long callerId, String projectKey, int number) {
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    var parent =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    var visibility = parentRefReader.forViewer(callerId);
+    List<IssueRow> readable = new ArrayList<>();
+    int hidden = 0;
+    for (IssueRow child : issueRepository.findActiveChildren(parent.id())) {
+      if (child.projectId().equals(project.id()) || visibility.canRead(child.projectId())) {
+        readable.add(child);
+      } else {
+        hidden++;
+      }
+    }
+    var keyById =
+        projectRepository.keysByIds(readable.stream().map(IssueRow::projectId).distinct().toList());
+    return new EpicChildrenResponse(
+        assembleItems(callerId, readable, pid -> keyById.getOrDefault(pid, "")), hidden);
+  }
+
   /** rows → IssueSearchResponse 조립. 항목 조립은 {@link #assembleItems} 에 맡기고 여기선 커서만 계산한다. */
   private IssueSearchResponse assemble(
+      Long viewerId,
       List<IssueRow> rows,
       IssueSearchQuery query,
       java.util.function.LongFunction<String> keyResolver) {
-    var items = assembleItems(rows, keyResolver);
+    var items = assembleItems(viewerId, rows, keyResolver);
     return pageOf(items, rows, query.size());
   }
 
   /**
    * rows → IssueResponse 목록 조립(라벨·첨부·담당자·유형·부모·의존성·필드·AI 작업 일괄 조회). projectKey 는 row 마다 keyResolver
    * 로 해석(횡단 검색 대응). 다른 목록 조회(AI 진행 목록 등)도 같은 응답 모양을 쓰도록 공개한다.
+   *
+   * @param viewerId 조회자 — 다른 프로젝트 에픽 부모를 읽을 수 없으면 부모 요약을 가린다(WP-1038)
    */
   public List<IssueResponse> assembleItems(
-      List<IssueRow> rows, java.util.function.LongFunction<String> keyResolver) {
+      Long viewerId, List<IssueRow> rows, java.util.function.LongFunction<String> keyResolver) {
     List<Long> issueIds = rows.stream().map(IssueRow::id).toList();
     Map<Long, List<LabelSummary>> labelsByIssue =
         issueLabelRepository.findLabelsByIssueIds(issueIds);
@@ -293,7 +327,9 @@ public class IssueSearchService {
     List<Long> typeIdsToFetch = rows.stream().map(IssueRow::typeId).distinct().toList();
     Map<Long, IssueTypeSummary> typesById = typeRepository.findByIds(typeIdsToFetch);
     // Phase 4a — 부모 ref + 자식 카운트 batch (N+1 회피).
-    var parentRefByChild = issueRepository.findParentRefsByIssueIds(issueIds);
+    // WP-1038 — 다른 프로젝트 에픽 부모는 조회자가 그 프로젝트를 읽을 수 있을 때만 그대로 싣는다.
+    var parentRefByChild =
+        parentRefReader.redact(viewerId, rows, issueRepository.findParentRefsByIssueIds(issueIds));
     var childCountByParent = issueRepository.countChildrenByParentIds(issueIds);
     var childDoneCountByParent = issueRepository.countDoneChildrenByParentIds(issueIds);
     // Phase 4b — 의존성 batch (blockedBy / blocks / blocked 플래그) (N+1 회피).

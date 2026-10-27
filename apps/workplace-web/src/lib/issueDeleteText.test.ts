@@ -9,10 +9,11 @@ describe('issueDeleteText (WP-469)', () => {
     expect(issueDeleteEntityName(undefined)).toBe('태스크');
   });
 
-  it('에픽은 하위 이슈(태스크·버그 등)가 함께 지워진다고 알린다', () => {
+  it('에픽은 하위 이슈가 지워지지 않고 에픽 연결만 풀린다고 알린다 (WP-1038)', () => {
     expect(issueDeleteChildrenWarning('EPIC', 2)).toBe(
-      '이 에픽에는 하위 이슈가 2개 있습니다. 하위 이슈(태스크·버그 등)도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
+      '이 에픽에는 하위 이슈가 2개 있습니다. 하위 이슈는 지워지지 않고 에픽 연결만 풀립니다. 이 작업은 되돌릴 수 없습니다.',
     );
+    expect(issueDeleteChildrenWarning('EPIC', 2)).not.toContain('함께 삭제');
     expect(issueDeleteChildrenWarning('EPIC', 1, '로그인 개편')).toContain('「로그인 개편」에는 하위 이슈가 1개');
   });
 

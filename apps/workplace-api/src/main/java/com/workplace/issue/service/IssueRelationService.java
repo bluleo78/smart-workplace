@@ -235,8 +235,9 @@ public class IssueRelationService {
   }
 
   /**
-   * 관계 이력(RELATION_*)의 상대 정보를 조회자가 읽을 수 없으면 {@code {"hidden":true}} 로 바꾼다 — 유형 id·말은 남긴다. 다른 이력은
-   * 그대로. 상대 프로젝트 키가 이제 없으면(삭제·키 변경) 가린다(fail-closed). 읽기 검사는 키별로 한 번.
+   * 관계 이력(RELATION_*)의 상대 정보를 조회자가 읽을 수 없으면 {@code {"hidden":true}} 로 바꾼다 — 유형 id·말은 남긴다. 부모 변경
+   * 이력(PARENT_CHANGED)도 다른 프로젝트 에픽 쪽을 같은 규칙으로 가린다(WP-1038). 다른 이력은 그대로. 상대 프로젝트 키가 이제 없으면(삭제·키 변경)
+   * 가린다(fail-closed). 읽기 검사는 키별로 한 번.
    *
    * @param viewerId 조회자. null 이면 특정 조회자가 없는 출력(AI 요약 입력 — 그 이슈를 읽는 모든 사람이 보는 결과)이라 다른 프로젝트 중 OPEN 만
    *     보인다
@@ -248,8 +249,52 @@ public class IssueRelationService {
     Map<String, Boolean> readableByKey = new HashMap<>();
     readableByKey.put(issueProject.key(), true);
     return history.stream()
-        .map(h -> isRelationEvent(h) ? redactRelationEntry(h, viewerId, readableByKey) : h)
+        .map(
+            h -> {
+              if (isRelationEvent(h)) return redactRelationEntry(h, viewerId, readableByKey);
+              if (IssueHistoryEventType.PARENT_CHANGED.name().equals(h.eventType())) {
+                return redactParentEntry(h, viewerId, readableByKey);
+              }
+              return h;
+            })
         .toList();
+  }
+
+  /**
+   * 부모 변경 이력 한 건(WP-1038) — from/to 에 실린 부모 프로젝트 키를 조회자가 읽을 수 없으면 그쪽을 {@code {"hidden":true}} 로
+   * 바꾼다. 키가 없는 값(WP-1038 이전 이력 — 그때는 같은 프로젝트 부모만 있었다)은 그대로 둔다. 읽을 수 없는 JSON 도 그대로(가릴 키를 알 수 없고, 예전
+   * 이력은 같은 프로젝트뿐이다).
+   */
+  private IssueHistoryEntryResponse redactParentEntry(
+      IssueHistoryEntryResponse h, Long viewerId, Map<String, Boolean> readableByKey) {
+    if (h.toValue() == null) return h;
+    ObjectNode payload;
+    try {
+      if (!(objectMapper.readTree(h.toValue()) instanceof ObjectNode o)) return h;
+      payload = o;
+    } catch (Exception e) {
+      return h;
+    }
+    boolean changed = false;
+    for (String side : List.of("from", "to")) {
+      JsonNode keyNode = payload.path(side).path("projectKey");
+      if (keyNode.isTextual()
+          && !readableByKey.computeIfAbsent(keyNode.asText(), k -> canReadKey(k, viewerId))) {
+        payload.set(side, objectMapper.createObjectNode().put("hidden", true));
+        changed = true;
+      }
+    }
+    if (!changed) return h;
+    return new IssueHistoryEntryResponse(
+        h.id(),
+        h.actorId(),
+        h.actorName(),
+        h.actorKind(),
+        h.eventType(),
+        h.fromValue(),
+        payload.toString(),
+        h.createdAt(),
+        h.actorUsername());
   }
 
   private static boolean isRelationEvent(IssueHistoryEntryResponse h) {
@@ -285,11 +330,11 @@ public class IssueRelationService {
         h.actorUsername());
   }
 
-  /** 프로젝트 키를 조회자가 읽을 수 있는가 — 조회자가 없으면(null) OPEN 만. */
+  /** 프로젝트 키를 조회자가 읽을 수 있는가 — 규칙은 {@link ProjectAccessGuard#canReadForViewer}(부모 요약 가림과 같은 한 곳). */
   private boolean canReadKey(String projectKey, Long viewerId) {
     return projectRepository
         .findByKey(projectKey)
-        .map(p -> viewerId == null ? "OPEN".equals(p.type()) : accessGuard.canRead(p, viewerId))
+        .map(p -> accessGuard.canReadForViewer(p, viewerId))
         .orElse(false);
   }
 

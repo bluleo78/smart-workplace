@@ -56,7 +56,8 @@ public class AiTaskSearchService {
     // assembleItems 는 입력 순서를 보존한다 — rows 와 같은 인덱스로 묶음 정보를 붙인다.
     var items =
         withEndedWork(
-            issueSearchService.assembleItems(issueRows, pid -> keyById.getOrDefault(pid, "")),
+            issueSearchService.assembleItems(
+                callerId, issueRows, pid -> keyById.getOrDefault(pid, "")),
             rows);
 
     // 에픽 묶음의 하위 진행(└ n/m) — 에픽 행이 이 페이지에 없어도 머리에 그릴 수 있게 묶음 키(에픽 id)로 한 번에 센다.

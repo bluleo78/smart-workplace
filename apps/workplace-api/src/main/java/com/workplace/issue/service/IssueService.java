@@ -23,8 +23,10 @@ import com.workplace.issue.dto.IssuePriorities;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.issue.dto.IssueTypeRow;
 import com.workplace.issue.dto.IssueTypeSummary;
 import com.workplace.issue.dto.ParentRef;
+import com.workplace.issue.dto.ParentTarget;
 import com.workplace.issue.dto.ProjectStatusRow;
 import com.workplace.issue.dto.UpdateIssueRequest;
 import com.workplace.issue.exception.EpicCannotHaveParentException;
@@ -67,6 +69,7 @@ import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
+import com.workplace.project.repository.ProjectRepository;
 import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.dto.AssigneeInfo;
 import com.workplace.user.repository.UserRepository;
@@ -79,7 +82,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -154,6 +156,15 @@ public class IssueService {
   private final IssueComponentRepository issueComponentRepository;
 
   private final VersionRepository versionRepository;
+
+  /** WP-1038 다른 프로젝트 에픽 부모 — 부모 프로젝트 해석(키·id), 연쇄 재오픈·실시간 알림의 에픽 프로젝트. */
+  private final ProjectRepository projectRepository;
+
+  /** WP-1038 조회자가 읽을 수 없는 프로젝트의 부모 요약 가림. */
+  private final ParentRefReader parentRefReader;
+
+  /** WP-1038 에픽 삭제 때 하위를 지우지 않고 뗀다. */
+  private final EpicChildDetacher epicChildDetacher;
 
   /** 해석된 프로젝트 상태(WP-807) — 이슈에 쓸 상태 id·범주·이름·색(WP-870, 생성 응답을 재조회 없이 채운다). */
   record ResolvedStatus(long id, String category, String name, String color) {
@@ -259,6 +270,8 @@ public class IssueService {
     if (req.fileIds() != null && !req.fileIds().isEmpty()) {
       issueAttachmentService.attachStaged(project, row.id(), callerId, req.fileIds());
     }
+    // WP-1038 다른 프로젝트 에픽 아래에 만들었으면 그 에픽 프로젝트도 갱신한다(에픽 하위 수·진행률).
+    notifyParentProject(project, parent, callerId);
     return finishCreate(callerId, project, row, number, assigneeIds, assignees, plan.components());
   }
 
@@ -312,6 +325,16 @@ public class IssueService {
    */
   IssueRow lockParentForShare(CreateIssuePlan plan) {
     if (plan.parentIssueId() == null) return null;
+    // WP-1038 다른 프로젝트 에픽이면 그 프로젝트 행을 먼저 공유 잠금한다 — 프로젝트 삭제(행 쓰기 잠금 → 하위 떼기)와 차례를 세워, 지워진 프로젝트 에픽
+    // 아래에 새 이슈가 남지 않게 한다. 잠금 순서는 삭제와 같이 프로젝트 → 이슈다.
+    issueRepository
+        .findById(plan.parentIssueId())
+        .filter(p -> !p.projectId().equals(plan.project().id()))
+        .ifPresent(
+            p ->
+                projectRepository
+                    .findByIdForShare(p.projectId())
+                    .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다")));
     return issueRepository
         .findActiveByIdForShare(plan.parentIssueId())
         .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
@@ -516,29 +539,19 @@ public class IssueService {
 
     // 3) parent 검증 — SUBTASK 는 비-EPIC 비-SUBTASK 부모 필수, 일반 이슈는 EPIC 부모만 선택 가능,
     //    EPIC 은 부모를 가질 수 없음(최상위 컨테이너). (Phase 4a + EPIC 계층 확장)
+    //    WP-1038 parentKey 로 다른 프로젝트 에픽을 부모로 둘 수 있다 — 규칙은 resolveParent 한 곳.
     Long parentIssueId = null;
     boolean isSubtask = "SUBTASK".equals(typeRow.name());
     boolean isEpic = "EPIC".equals(typeRow.name());
-    if (req.parentNumber() != null) {
+    ParentTarget parentTarget = ParentTarget.of(req.parentNumber(), req.parentKey(), project.key());
+    if (parentTarget != null) {
       if (isEpic) throw new EpicCannotHaveParentException();
-      var parent =
-          issueRepository
-              .findByProjectAndNumber(project.id(), req.parentNumber())
-              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
-      var parentType =
-          typeRepository
-              .findById(parent.typeId())
-              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
-      boolean parentIsSubtask = "SUBTASK".equals(parentType.name());
-      boolean parentIsEpic = "EPIC".equals(parentType.name());
-      if (isSubtask) {
-        if (parentIsSubtask) throw new ParentCannotBeSubtaskException();
-        if (parentIsEpic) throw new SubtaskParentCannotBeEpicException();
-      } else if (!parentIsEpic) {
-        throw new ParentNotAllowedException();
-      }
-      if (!importing) requireOpenChildAllowed(parent, parentIsEpic, status.category());
-      parentIssueId = parent.id();
+      // 생성은 사전검증과 공유해 잠그지 않는다 — 실행 경로가 lockParentForShare 로 다시 읽는다.
+      parentIssueId =
+          resolveParent(
+                  callerId, project, null, isSubtask, parentTarget, status.category(), !importing)
+              .row()
+              .id();
     } else if (isSubtask) {
       throw new SubtaskParentRequiredException();
     }
@@ -627,7 +640,12 @@ public class IssueService {
             .orElse(false)) {
       return true;
     }
-    if (req.startDate() != null || req.dueDate() != null || req.parentNumber() != null) return true;
+    if (req.startDate() != null
+        || req.dueDate() != null
+        || req.parentNumber() != null
+        || (req.parentKey() != null && !req.parentKey().isBlank())) {
+      return true;
+    }
     if (req.assigneeIds() != null && !req.assigneeIds().isEmpty()) return true;
     return req.typeId() != null
         && typeRepository
@@ -802,10 +820,15 @@ public class IssueService {
     var history =
         relationService.redactHistory(callerId, project, historyRepository.findByIssue(row.id()));
     // Phase 4a — 부모/자식 트리 정보. SUBTASK 면 parent 채움, 비SUBTASK 면 자식 집계.
+    // WP-1038 다른 프로젝트 에픽 부모는 조회자가 그 프로젝트를 읽을 수 없으면 가린다. 하위 수는 프로젝트와 무관하게 모두 센다.
     var parentRef =
         row.parentIssueId() == null
             ? null
-            : issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id());
+            : parentRefReader
+                .forViewer(callerId)
+                .redact(
+                    issueRepository.findParentRefsByIssueIds(List.of(row.id())).get(row.id()),
+                    row.projectId());
     int childCount =
         issueRepository.countChildrenByParentIds(List.of(row.id())).getOrDefault(row.id(), 0);
     int childDoneCount =
@@ -915,8 +938,25 @@ public class IssueService {
     // status/statusId 만 보므로, 바꾸지 않으면 이름으로 지정한 상태가 명시적 상태 변경으로 취급되지 않는다.
     // 상태 id 지정이면 그 상태 행을 한 번만 읽어(이름으로 찾았으면 그 행 그대로) 잠금 순서 판정과 아래 상태 해석에 함께 쓴다(WP-807).
     RequestedStatus named = resolveStatusName(callerId, projectKey, project, rawReq);
-    UpdateIssueRequest req = named.req();
-    Optional<ProjectStatusRow> requestedStatus = named.status();
+    applyUpdate(callerId, project, projectKey, number, named.req(), named.status(), true);
+    return get(callerId, projectKey, number);
+  }
+
+  /**
+   * 수정 본체 — 잠금·권한·검증·쓰기·이벤트·이력·알림과 완료 에픽 연쇄 재오픈(WP-689)까지. {@link #update} 와 연쇄 재오픈이 함께 쓴다.
+   *
+   * @param enforcePermission false 는 연쇄 재오픈 전용(WP-1038) — 하위를 다시 연 쓰기의 결과로 완료 에픽을 진행 중으로 되돌리는 것이라,
+   *     에픽이 다른 프로젝트에 있고 호출자가 그 프로젝트를 읽기만 할 수 있어도 막지 않는다(막으면 하위 재오픈이 403 으로 실패하거나 완료 에픽 아래 미완료 하위가
+   *     남는다). 다른 경로에서 false 로 부르지 않는다
+   */
+  private void applyUpdate(
+      Long callerId,
+      ProjectRow project,
+      String projectKey,
+      int number,
+      UpdateIssueRequest req,
+      Optional<ProjectStatusRow> requestedStatus,
+      boolean enforcePermission) {
     lockParentIfReopening(project, number, req, requestedStatus);
     // #611 읽은 값에 요청 필드를 병합해 전 컬럼을 다시 쓰므로 행을 잠가 동시 수정이 서로를 되돌리지 않게 한다.
     var before =
@@ -928,7 +968,7 @@ public class IssueService {
     //   - 비멤버는 먼저 assertContentWritable 로 내용 편집 자격(=OPEN reporter 본인)을 강제한다(아니면 403).
     //   - 워크플로 필드(상태/우선순위/마감일)는 절대 비멤버에게 열리지 않는다 — touchesWorkflow 면 403.
     //   - updateStatus() 는 update() 를 호출하므로 비멤버 reporter 의 상태 변경도 여기서 자동 차단된다.
-    boolean fullEdit = accessGuard.isMemberOrAdmin(project, callerId);
+    boolean fullEdit = !enforcePermission || accessGuard.isMemberOrAdmin(project, callerId);
     if (!fullEdit) {
       accessGuard.assertContentWritable(project, before.reporterId(), callerId);
       boolean touchesWorkflow =
@@ -996,15 +1036,10 @@ public class IssueService {
     if (IssueStatuses.DONE.equals(newStatus) && !IssueStatuses.DONE.equals(before.status())) {
       var beforeType = typeRepository.findById(before.typeId()).orElseThrow();
       if ("EPIC".equals(beforeType.name())) {
-        var incompleteChildNumbers = issueRepository.findIncompleteChildNumbers(before.id());
-        if (!incompleteChildNumbers.isEmpty()) {
+        var incompleteChildren = issueRepository.findIncompleteChildKeys(before.id());
+        if (!incompleteChildren.isEmpty()) {
           throw new EpicHasIncompleteChildrenException(
-              "미완료 하위 이슈가 %d건 있어 완료로 변경할 수 없습니다: %s"
-                  .formatted(
-                      incompleteChildNumbers.size(),
-                      incompleteChildNumbers.stream()
-                          .map(n -> project.key() + "-" + n)
-                          .collect(Collectors.joining(", "))));
+              incompleteChildrenMessage(callerId, project, incompleteChildren));
         }
       }
     }
@@ -1092,17 +1127,48 @@ public class IssueService {
           project, number, before.id(), callerId, req.status() != null || req.statusId() != null);
     }
     // WP-689 완료(DONE) 에픽의 하위가 다시 열리면 에픽도 진행 중으로 되돌린다 — 완료 에픽 아래 미완료 하위가 남지 않게.
-    // 같은 update 경로로 바꿔 상태 이력·이벤트·실시간 무효화를 그대로 남긴다(에픽은 부모가 없어 더 올라가지 않는다).
+    // 같은 수정 본체로 바꿔 상태 이력·이벤트·실시간 무효화를 그대로 남긴다(에픽은 부모가 없어 더 올라가지 않는다).
+    // WP-1038 에픽은 다른 프로젝트일 수 있다 — 그 에픽 프로젝트의 진행 중 상태로, 권한 검사 없이(하위 재오픈의 연쇄) 되돌린다.
     if (wasClosed && !nowClosed && before.parentIssueId() != null) {
       var parent = issueRepository.findById(before.parentIssueId()).orElseThrow();
       // 범주 「진행 중」으로 보내면 resolveStatus 가 그 범주 기본 상태로 옮긴다(사용자 정의 완료 상태 「배포됨」 에픽도 같다, WP-807).
       if (IssueStatuses.DONE.equals(parent.status())
           && "EPIC".equals(typeRepository.findById(parent.typeId()).orElseThrow().name())) {
-        updateStatus(callerId, projectKey, parent.number(), IssueStatuses.IN_PROGRESS);
+        ProjectRow epicProject =
+            parent.projectId().equals(project.id())
+                ? project
+                : projectRepository.findById(parent.projectId()).orElseThrow();
+        applyUpdate(
+            callerId,
+            epicProject,
+            epicProject.key(),
+            parent.number(),
+            UpdateIssueRequest.statusOnly(IssueStatuses.IN_PROGRESS, null, null),
+            Optional.empty(),
+            false);
       }
     }
+  }
 
-    return get(callerId, projectKey, number);
+  /**
+   * 에픽 완료 차단 메시지(#710) — 미완료 하위를 각자의 프로젝트 키로 적는다(WP-1038). 호출자가 읽을 수 없는 프로젝트의 하위는 키를 적지 않고 「외
+   * N건」으로만 센다(비공개 프로젝트 이슈 키가 새지 않게). 건수는 모든 하위를 센다.
+   */
+  private String incompleteChildrenMessage(
+      Long callerId, ProjectRow epicProject, List<IssueRepository.ChildKey> children) {
+    var visibility = parentRefReader.forViewer(callerId);
+    List<String> keys =
+        children.stream()
+            .filter(c -> c.projectId() == epicProject.id() || visibility.canRead(c.projectId()))
+            .map(IssueRepository.ChildKey::issueKey)
+            .toList();
+    int hidden = children.size() - keys.size();
+    String listed = String.join(", ", keys);
+    if (hidden > 0) {
+      listed =
+          keys.isEmpty() ? "보이지 않는 이슈 %d건".formatted(hidden) : listed + " 외 %d건".formatted(hidden);
+    }
+    return "미완료 하위 이슈가 %d건 있어 완료로 변경할 수 없습니다: %s".formatted(children.size(), listed);
   }
 
   /**
@@ -1207,7 +1273,22 @@ public class IssueService {
    */
   public IssueDetailResponse setType(
       Long callerId, String projectKey, int number, Long newTypeId, Integer parentNumber) {
+    return setType(callerId, projectKey, number, newTypeId, parentNumber, null);
+  }
+
+  /**
+   * {@link #setType(Long, String, int, Long, Integer)} 에 부모 키(WP-1038)를 더한 것 — parentKey 로 다른 프로젝트
+   * 에픽을 부모로 함께 지정할 수 있다(일반 이슈만). parentNumber·parentKey 가 모두 null 이면 부모를 함께 지정하지 않는다.
+   */
+  public IssueDetailResponse setType(
+      Long callerId,
+      String projectKey,
+      int number,
+      Long newTypeId,
+      Integer parentNumber,
+      String parentKey) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    ParentTarget parentTarget = ParentTarget.of(parentNumber, parentKey, project.key());
     // 행을 잠근 채 읽는다(setParent 와 같은 이유).
     var issue =
         issueRepository
@@ -1223,20 +1304,21 @@ public class IssueService {
       throw new com.workplace.issue.exception.PersonalProjectTypeFixedException();
     }
     if (newType.id().equals(issue.typeId())) {
-      return parentNumber == null
+      return parentTarget == null
           ? get(callerId, projectKey, number)
-          : setParent(callerId, projectKey, number, parentNumber);
+          : setParent(callerId, projectKey, number, parentNumber, parentKey);
     }
     var oldType = typeRepository.findById(issue.typeId()).orElseThrow();
     boolean newIsSubtask = "SUBTASK".equals(newType.name());
 
     // 함께 온 부모는 새 유형 규칙으로 검증한다(EPIC 은 부모를 가질 수 없다). 그러면 기존 부모의 해제·유지 판정은 필요 없다.
     ResolvedParent newParent = null;
-    if (parentNumber != null) {
+    if (parentTarget != null) {
       if ("EPIC".equals(newType.name())) {
         throw new EpicCannotHaveParentException();
       }
-      newParent = resolveNewParent(project, issue, newIsSubtask, parentNumber);
+      newParent =
+          resolveParent(callerId, project, issue, newIsSubtask, parentTarget, issue.status(), true);
     } else if (newIsSubtask && issue.parentIssueId() == null) {
       // 부모 없는 하위 태스크를 만들지 않는다 — 생성과 같은 규칙(WP-745).
       throw new SubtaskParentRequiredException();
@@ -1287,16 +1369,28 @@ public class IssueService {
       }
     }
 
+    // WP-1038 부모가 바뀌면 다른 프로젝트 에픽(옛·새)의 프로젝트도 갱신한다 — 에픽 하위 수·진행률이 바뀐다.
+    // 옛 부모 행은 부모가 실제로 바뀔 때만 읽는다(유형만 바꾸는 흔한 경로에서 조회를 아낀다).
+    boolean parentChanges =
+        releasesParent
+            || (newParent != null && !newParent.row().id().equals(issue.parentIssueId()));
+    IssueRow oldParentRow =
+        !parentChanges || issue.parentIssueId() == null
+            ? null
+            : issueRepository.findById(issue.parentIssueId()).orElse(null);
     if (releasesParent) {
       issueRepository.updateParent(issue.id(), null);
-      historyRecorder.recordParentChanged(callerId, issue.id(), currentParentRef(issue), null);
-    } else if (newParent != null && !newParent.row().id().equals(issue.parentIssueId())) {
+      historyRecorder.recordParentChanged(callerId, issue.id(), parentRefOf(oldParentRow), null);
+      notifyParentProject(project, oldParentRow, callerId);
+    } else if (parentChanges) {
       issueRepository.updateParent(issue.id(), newParent.row().id());
       historyRecorder.recordParentChanged(
           callerId,
           issue.id(),
-          currentParentRef(issue),
-          toParentRef(newParent.row(), newParent.type()));
+          parentRefOf(oldParentRow),
+          toParentRef(newParent.row(), newParent.type(), newParent.project().key()));
+      notifyParentProject(project, oldParentRow, callerId);
+      notifyParentProject(project, newParent.row(), callerId);
     }
 
     issueRepository.updateType(issue.id(), newType.id());
@@ -1347,17 +1441,26 @@ public class IssueService {
   public void softDelete(Long callerId, String projectKey, int number) {
     var target = checkDeletable(callerId, projectKey, number);
     // 지울 행을 잠근다(WP-759) — 이 이슈 아래로 부모를 지정하거나 하위를 만드는 요청은 새 부모를 공유 잠금으로 읽으므로, 삭제가 커밋될 때까지
-    // 기다렸다가 거절되고, 먼저 잠근 쪽이 있으면 삭제가 기다렸다가 새로 붙은 하위까지 함께 지운다.
+    // 기다렸다가 거절되고, 먼저 잠근 쪽이 있으면 삭제가 기다렸다가 새로 붙은 하위까지 함께 처리한다(에픽이면 떼고, 일반 이슈면 하위 태스크를 지운다).
     var row =
         issueRepository
             .findByProjectAndNumberForUpdate(target.project().id(), number)
             .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
-    // Phase 4a — 부모 자체와 활성 자식들에 동일 timestamp 로 cascade soft-delete.
-    // 자식 id 는 softDeleteChildren 호출 전에 수집해야 한다 (삭제 후엔 DELETED_AT 필터로 목록이 비어버림).
-    var childIds = issueRepository.findActiveChildIds(row.id());
     var now = Instant.now();
-    issueRepository.softDelete(row.id(), now);
-    issueRepository.softDeleteChildren(row.id(), now);
+    List<Long> childIds;
+    if ("EPIC".equals(typeRepository.findById(row.typeId()).orElseThrow().name())) {
+      // WP-1038 에픽을 지워도 하위는 지우지 않고 뗀다 — 하위가 다른 프로젝트에 있을 수 있어(남의 프로젝트 이슈를 지우면 안 된다) 같은 프로젝트 하위도
+      // 같은 규칙으로 둔다. 에픽이 아직 활성일 때(이력의 from 을 만들 수 있게) 떼고 나서 지운다.
+      epicChildDetacher.detachChildrenOfDeletedEpic(callerId, row);
+      childIds = List.of();
+      issueRepository.softDelete(row.id(), now);
+    } else {
+      // Phase 4a — 일반 이슈는 부모 자체와 활성 하위 태스크에 동일 timestamp 로 cascade soft-delete.
+      // 자식 id 는 softDeleteChildren 호출 전에 수집해야 한다 (삭제 후엔 DELETED_AT 필터로 목록이 비어버림).
+      childIds = issueRepository.findActiveChildIds(row.id());
+      issueRepository.softDelete(row.id(), now);
+      issueRepository.softDeleteChildren(row.id(), now);
+    }
     // 이슈(부모+자식) 삭제 시 연결된 드라이브 ref 정리 (source_id 는 비-FK 이므로 명시적 purge 필요)
     driveLinkService.purgeSource("ISSUE", row.id());
     driveLinkService.purgeSources("ISSUE", childIds);
@@ -1426,7 +1529,17 @@ public class IssueService {
    */
   public IssueDetailResponse setParent(
       Long callerId, String projectKey, int number, Integer newParentNumber) {
+    return setParent(callerId, projectKey, number, newParentNumber, null);
+  }
+
+  /**
+   * {@link #setParent(Long, String, int, Integer)} 에 부모 키(WP-1038)를 더한 것 — parentKey 로 다른 프로젝트 에픽을
+   * 부모로 둘 수 있다(일반 이슈만, 개인 프로젝트 불가, 호출자가 에픽 프로젝트를 읽을 수 있어야 함). 둘 다 null 이면 해제.
+   */
+  public IssueDetailResponse setParent(
+      Long callerId, String projectKey, int number, Integer newParentNumber, String newParentKey) {
     var project = accessGuard.assertMember(projectKey, callerId);
+    ParentTarget target = ParentTarget.of(newParentNumber, newParentKey, project.key());
     // 행을 잠근 채 읽는다 — 동시 부모·유형 변경이 옛 부모로 검증·이력(from)을 남기지 않게 한다.
     var row =
         issueRepository
@@ -1440,15 +1553,17 @@ public class IssueService {
     }
 
     // 하위 태스크의 부모는 뗄 수 없다 — 다른 부모로 바꾸는 것만 된다(WP-745).
-    if (isSubtask && newParentNumber == null) {
+    if (isSubtask && target == null) {
       throw new SubtaskParentRequiredException();
     }
     Long newParentId = null;
     ParentRef newRef = null;
-    if (newParentNumber != null) {
-      var resolved = resolveNewParent(project, row, isSubtask, newParentNumber);
-      newParentId = resolved.row().id();
-      newRef = toParentRef(resolved.row(), resolved.type());
+    IssueRow newParentRow = null;
+    if (target != null) {
+      var resolved = resolveParent(callerId, project, row, isSubtask, target, row.status(), true);
+      newParentRow = resolved.row();
+      newParentId = newParentRow.id();
+      newRef = toParentRef(newParentRow, resolved.type(), resolved.project().key());
     }
 
     Long currentParentId = row.parentIssueId();
@@ -1456,18 +1571,51 @@ public class IssueService {
       return get(callerId, projectKey, number);
     }
 
-    ParentRef oldRef = null;
-    if (currentParentId != null) {
-      var oldParent = issueRepository.findById(currentParentId).orElseThrow();
-      var oldParentType = typeRepository.findById(oldParent.typeId()).orElseThrow();
-      oldRef = toParentRef(oldParent, oldParentType);
-    }
+    IssueRow oldParent =
+        currentParentId == null ? null : issueRepository.findById(currentParentId).orElseThrow();
+    // 이미 읽은 옛 부모 행으로 이력의 from 을 만든다(같은 행을 다시 읽지 않게).
+    ParentRef oldRef = parentRefOf(oldParent);
 
     issueRepository.updateParent(row.id(), newParentId);
     historyRecorder.recordParentChanged(callerId, row.id(), oldRef, newRef);
     // 부모 변경은 정리성 쓰기 — AI 작업을 시작·터치하지 않는다(WP-425).
     changeNotifier.updatedWithoutTouch(project, number, row.id(), callerId);
+    // WP-1038 다른 프로젝트 에픽(옛·새)의 프로젝트도 갱신한다 — 에픽 하위 수·진행률이 바뀐다.
+    notifyParentProject(project, oldParent, callerId);
+    notifyParentProject(project, newParentRow, callerId);
     return get(callerId, projectKey, number);
+  }
+
+  /**
+   * 부모 에픽 외부 링크 변환(WP-1038) 한 건 — 부모가 없는 이슈에 target 에픽을 부모로 붙인다. 관리자 일괄 변환({@link
+   * ParentEpicLinkConversionService})만 부르며, 호출자는 이미 사람 관리자로 확인됐고 줄별 판정도 마쳤다. 규칙은 {@link
+   * #resolveParent} 로 다시 본다(판정과 쓰기 사이에 바뀐 경우를 막는 마지막 확인). 권한은 관리자 우회라 프로젝트 멤버 확인을 하지 않는다.
+   *
+   * <p>setParent 와 같이 부모 변경 이력을 남기고 양쪽 프로젝트 화면을 갱신하지만, 정리성 쓰기라 워처 알림·AI 작업은 건드리지 않는다.
+   *
+   * @return 붙였으면 true. 그사이 이슈가 지워졌거나 부모가 생겼으면 false(아무것도 쓰지 않는다)
+   */
+  boolean attachParentFromLink(
+      Long callerId, ProjectRow childProject, int childNumber, ParentTarget target) {
+    // 행을 잠근 채 읽는다(setParent 와 같은 이유) — 같은 순간의 부모 지정과 겹쳐 이력 from 이 어긋나지 않게.
+    var row =
+        issueRepository
+            .findByProjectAndNumberForUpdate(childProject.id(), childNumber)
+            .orElse(null);
+    if (row == null || row.parentIssueId() != null) return false;
+    boolean isSubtask =
+        "SUBTASK".equals(typeRepository.findById(row.typeId()).orElseThrow().name());
+    var resolved =
+        resolveParent(callerId, childProject, row, isSubtask, target, row.status(), true);
+    issueRepository.updateParent(row.id(), resolved.row().id());
+    historyRecorder.recordParentChanged(
+        callerId,
+        row.id(),
+        null,
+        toParentRef(resolved.row(), resolved.type(), resolved.project().key()));
+    changeNotifier.updatedWithoutTouch(childProject, childNumber, row.id(), callerId);
+    notifyParentProject(childProject, resolved.row(), callerId);
+    return true;
   }
 
   /**
@@ -1476,61 +1624,185 @@ public class IssueService {
    */
   private static void requireOpenChildAllowed(
       IssueRow parent, boolean parentIsEpic, String childStatus) {
-    if (parentIsEpic
-        && IssueStatuses.DONE.equals(parent.status())
-        && !IssueStatuses.CLOSED.contains(childStatus)) {
-      throw new InvalidParentException("완료된 에픽에는 미완료 하위 이슈를 넣을 수 없습니다. 에픽을 먼저 다시 열어 주세요");
+    if (parentIsEpic && isDoneEpicWithOpenChild(parent, childStatus)) {
+      throw ParentViolation.DONE_EPIC_OPEN_CHILD.toException();
     }
   }
 
-  /** 검증을 마친 새 부모 — 행과 유형. */
-  private record ResolvedParent(IssueRow row, com.workplace.issue.dto.IssueTypeRow type) {}
+  /**
+   * 부모 규칙 위반(WP-1038) — 규칙 판정을 {@link #checkParentRules} 한 곳에 두고, 일반 경로(resolveParent)는 예외로, 부모 에픽
+   * 링크 변환(ParentEpicLinkConversionService)은 줄별 판정으로 바꾼다. 둘이 같은 판정을 써서 dryRun 과 실제 변환이 어긋나지 않는다.
+   */
+  enum ParentViolation {
+    /** 어느 한쪽이 개인 프로젝트인데 프로젝트가 다르다. */
+    PERSONAL,
+    /** 하위 태스크의 부모가 다른 프로젝트에 있다. */
+    SUBTASK_CROSS_PROJECT,
+    /** 하위 태스크의 부모가 하위 태스크다. */
+    SUBTASK_PARENT_SUBTASK,
+    /** 하위 태스크의 부모가 에픽이다. */
+    SUBTASK_PARENT_EPIC,
+    /** 일반 이슈의 부모가 에픽이 아니다(다른 프로젝트 부모 포함). */
+    NOT_EPIC,
+    /** 완료 에픽 아래에 미완료 하위를 넣게 된다(WP-689). */
+    DONE_EPIC_OPEN_CHILD;
+
+    /** 일반 경로가 던지는 예외 — 예전 메시지·예외 유형 그대로. */
+    RuntimeException toException() {
+      return switch (this) {
+        case PERSONAL -> new InvalidParentException("개인 프로젝트는 다른 프로젝트와 부모 관계를 맺을 수 없습니다");
+        case SUBTASK_CROSS_PROJECT -> new InvalidParentException("하위 태스크의 부모는 같은 프로젝트 이슈여야 합니다");
+        case SUBTASK_PARENT_SUBTASK -> new ParentCannotBeSubtaskException();
+        case SUBTASK_PARENT_EPIC -> new SubtaskParentCannotBeEpicException();
+        case NOT_EPIC -> new ParentNotAllowedException();
+        case DONE_EPIC_OPEN_CHILD ->
+            new InvalidParentException("완료된 에픽에는 미완료 하위 이슈를 넣을 수 없습니다. 에픽을 먼저 다시 열어 주세요");
+      };
+    }
+  }
 
   /**
-   * newParentNumber 의 이슈를 row 의 부모로 둘 수 있는지 검증한다(setParent·setType 공통). SUBTASK 는 비-EPIC 비-SUBTASK
-   * 부모만, 일반 이슈는 EPIC 부모만. 완료 에픽에는 미완료 하위를 넣지 않는다(WP-689).
+   * 찾아 둔 부모를 자식의 부모로 둘 수 있는지 판정한다(예외 없이) — 위반이 없으면 null. 순서: ② 다른 프로젝트인데 어느 한쪽이 개인 프로젝트 ③ 하위 태스크는
+   * 같은 프로젝트 부모만 ④ 다른 프로젝트 부모는 에픽만 — 같은 프로젝트는 하위 태스크면 비-에픽 비-하위 태스크, 일반 이슈면 에픽 ⑤ 완료 에픽 아래 미완료 하위 금지.
+   * 부모를 찾을 수 없음·읽을 수 없음(①)과 자기 자신은 부모를 찾는 쪽이 가른다.
+   *
+   * @param childProject 자식의 프로젝트
+   * @param childStatus 자식의 상태 범주
+   * @param checkOpenChild false 면 ⑤ 를 건너뛴다(가져오기)
    */
-  private ResolvedParent resolveNewParent(
-      ProjectRow project, IssueRow row, boolean isSubtask, int newParentNumber) {
-    if (newParentNumber == row.number()) throw new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다");
+  static ParentViolation checkParentRules(
+      ProjectRow childProject,
+      boolean isSubtask,
+      String childStatus,
+      IssueRow parent,
+      IssueTypeRow parentType,
+      ProjectRow parentProject,
+      boolean checkOpenChild) {
+    boolean cross = !parentProject.id().equals(childProject.id());
+    boolean parentIsSubtask = "SUBTASK".equals(parentType.name());
+    boolean parentIsEpic = "EPIC".equals(parentType.name());
+    if (cross) {
+      // ② 개인 프로젝트는 비공개라 다른 프로젝트와 부모 관계를 맺지 않는다(관계 WP-887 과 같은 규칙).
+      if (childProject.isPersonal() || parentProject.isPersonal()) return ParentViolation.PERSONAL;
+      // ③ 하위 태스크는 부모 이슈의 일부라 같은 프로젝트에 둔다.
+      if (isSubtask) return ParentViolation.SUBTASK_CROSS_PROJECT;
+      // ④ 다른 프로젝트 부모는 에픽만.
+      if (!parentIsEpic) return ParentViolation.NOT_EPIC;
+    } else if (isSubtask) {
+      if (parentIsSubtask) return ParentViolation.SUBTASK_PARENT_SUBTASK;
+      if (parentIsEpic) return ParentViolation.SUBTASK_PARENT_EPIC;
+    } else if (!parentIsEpic) {
+      return ParentViolation.NOT_EPIC;
+    }
+    // ⑤ 완료 에픽 아래 미완료 하위 금지 — 다른 프로젝트 하위도 같다.
+    if (checkOpenChild && parentIsEpic && isDoneEpicWithOpenChild(parent, childStatus)) {
+      return ParentViolation.DONE_EPIC_OPEN_CHILD;
+    }
+    return null;
+  }
+
+  /** 완료(DONE) 에픽 아래 미완료 하위가 되는가(WP-689) — 취소 에픽·이미 끝난 하위는 아니다. */
+  private static boolean isDoneEpicWithOpenChild(IssueRow epic, String childStatus) {
+    return IssueStatuses.DONE.equals(epic.status()) && !IssueStatuses.CLOSED.contains(childStatus);
+  }
+
+  /** 검증을 마친 새 부모 — 행·유형과 부모가 속한 프로젝트(같은 프로젝트면 자식의 프로젝트, WP-1038). */
+  private record ResolvedParent(IssueRow row, IssueTypeRow type, ProjectRow project) {}
+
+  /**
+   * target 의 이슈를 부모로 둘 수 있는지 검증한다 — 생성(planCreate)·setParent·setType 공통(WP-1038 에서 하나로 합침). SUBTASK
+   * 는 비-EPIC 비-SUBTASK 부모만, 일반 이슈는 EPIC 부모만. 완료 에픽에는 미완료 하위를 넣지 않는다(WP-689).
+   *
+   * <p>다른 프로젝트 부모(WP-1038)는 다음 순서로 거른다 — ① 부모 프로젝트·이슈가 없거나 호출자가 그 프로젝트를 읽을 수 없으면 「찾을 수 없습니다」(존재를
+   * 드러내지 않는다) ② 어느 한쪽이라도 개인 프로젝트면 거절 ③ 하위 태스크는 같은 프로젝트 부모만 ④ 부모가 에픽이 아니면 {@link
+   * ParentNotAllowedException} ⑤ 완료 에픽 규칙. 같은 프로젝트 부모의 동작은 예전과 같다.
+   *
+   * @param row 부모를 바꿀 이슈(행 잠금을 쥔 채). 생성이면 null — 사전검증과 공유해 잠그지 않는다(실행 경로가 lockParentForShare 로 다시
+   *     읽는다)
+   * @param childStatus 자식의 상태 범주 — 완료 에픽 규칙 판정
+   * @param checkOpenChild false 면 완료 에픽 규칙을 건너뛴다(가져오기)
+   */
+  private ResolvedParent resolveParent(
+      Long callerId,
+      ProjectRow project,
+      IssueRow row,
+      boolean isSubtask,
+      ParentTarget target,
+      String childStatus,
+      boolean checkOpenChild) {
+    boolean cross = target.crossProject();
+    if (!cross && row != null && target.number() == row.number()) {
+      throw new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다");
+    }
+    // ① 부모 프로젝트 — 없거나(삭제 포함) 읽을 수 없으면 이슈가 없는 것과 같은 400 으로 가린다. 쓰기 경로(row 있음)는 그 프로젝트 행을 공유 잠금해
+    // 프로젝트 삭제와 차례를 세운다(삭제가 먼저면 커밋 뒤 「찾을 수 없습니다」). 생성은 사전검증과 공유해 잠그지 않고 lockParentForShare 가 잠근다.
+    ProjectRow parentProject = project;
+    if (cross) {
+      parentProject =
+          (row == null
+                  ? projectRepository.findByKey(target.projectKey())
+                  : projectRepository.findByKeyForShare(target.projectKey()))
+              .filter(p -> accessGuard.canRead(p, callerId))
+              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+    }
     // 새 부모는 공유 잠금으로 읽는다(WP-759) — 그 부모를 지우는 중이면 삭제 커밋을 기다렸다 「찾을 수 없습니다」. 이미 지금 부모면 잠그지 않는다:
-    // 그 부모의 삭제는 이 행(이미 잠금)을 하위로 함께 지우려 기다리므로, 여기서 부모를 또 기다리면 서로 기다리게 된다.
+    // 그 부모의 삭제는 이 행(이미 잠금)을 하위로 함께 처리하려 기다리므로, 여기서 부모를 또 기다리면 서로 기다리게 된다. 생성(row=null)은 잠그지 않는다.
+    final long parentProjectId = parentProject.id();
     boolean alreadyParent =
-        row.parentIssueId() != null
+        row != null
+            && row.parentIssueId() != null
             && issueRepository
                 .findById(row.parentIssueId())
-                .map(p -> p.number() == newParentNumber)
+                .map(p -> p.projectId() == parentProjectId && p.number() == target.number())
                 .orElse(false);
     var newParent =
-        (alreadyParent
-                ? issueRepository.findByProjectAndNumber(project.id(), newParentNumber)
-                : issueRepository.findByProjectAndNumberForShare(project.id(), newParentNumber))
+        (row == null || alreadyParent
+                ? issueRepository.findByProjectAndNumber(parentProjectId, target.number())
+                : issueRepository.findByProjectAndNumberForShare(parentProjectId, target.number()))
             .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
     var newParentType =
         typeRepository
             .findById(newParent.typeId())
             .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
-    boolean newParentIsSubtask = "SUBTASK".equals(newParentType.name());
-    boolean newParentIsEpic = "EPIC".equals(newParentType.name());
-    if (isSubtask) {
-      if (newParentIsSubtask) throw new ParentCannotBeSubtaskException();
-      if (newParentIsEpic) throw new SubtaskParentCannotBeEpicException();
-    } else if (!newParentIsEpic) {
-      throw new ParentNotAllowedException();
-    }
-    requireOpenChildAllowed(newParent, newParentIsEpic, row.status());
-    return new ResolvedParent(newParent, newParentType);
+    // ②~⑤ 규칙은 checkParentRules 한 곳 — 부모 에픽 링크 변환도 같은 판정을 쓴다.
+    ParentViolation violation =
+        checkParentRules(
+            project,
+            isSubtask,
+            childStatus,
+            newParent,
+            newParentType,
+            parentProject,
+            checkOpenChild);
+    if (violation != null) throw violation.toException();
+    return new ResolvedParent(newParent, newParentType, parentProject);
   }
 
-  /** row 의 지금 부모 참조(이력의 from) — 부모가 없으면 null. */
-  private ParentRef currentParentRef(IssueRow row) {
-    if (row.parentIssueId() == null) return null;
-    var parent = issueRepository.findById(row.parentIssueId()).orElseThrow();
-    return toParentRef(parent, typeRepository.findById(parent.typeId()).orElseThrow());
+  /**
+   * 부모가 자식과 다른 프로젝트면 그 부모(에픽) 프로젝트에 실시간 무효화를 낸다(WP-1038) — 에픽의 하위 수·진행률이 바뀌었다. 같은 프로젝트·부모 없음이면 아무것도
+   * 하지 않는다(자식 쪽 알림이 같은 프로젝트를 이미 갱신한다). 정리성 쓰기라 AI 작업을 건드리지 않는다. 가져오기·부모 링크 변환도 쓴다.
+   */
+  void notifyParentProject(ProjectRow childProject, IssueRow parent, Long callerId) {
+    if (parent == null || parent.projectId().equals(childProject.id())) return;
+    projectRepository
+        .findById(parent.projectId())
+        .ifPresent(
+            p -> changeNotifier.updatedWithoutTouch(p, parent.number(), parent.id(), callerId));
   }
 
-  /** 부모 이슈 행·유형 행 → 응답·이력용 부모 요약(번호·제목·유형·상태, WP-247). 상위 변경 경로 세 곳이 같은 모양으로 만든다. */
-  private static ParentRef toParentRef(IssueRow parent, com.workplace.issue.dto.IssueTypeRow type) {
+  /** 이미 읽은 부모 행 → 이력의 from 용 부모 참조 — null 이면 null. 부모 프로젝트 키를 함께 싣는다(WP-1038). */
+  private ParentRef parentRefOf(IssueRow parent) {
+    if (parent == null) return null;
+    String parentKey =
+        projectRepository.findById(parent.projectId()).map(ProjectRow::key).orElse(null);
+    return toParentRef(parent, typeRepository.findById(parent.typeId()).orElseThrow(), parentKey);
+  }
+
+  /**
+   * 부모 이슈 행·유형 행 → 응답·이력용 부모 요약(번호·제목·유형·상태, WP-247). 상위 변경 경로와 에픽 하위 떼기(EpicChildDetacher)가 같은
+   * 모양으로 만든다. projectKey 는 부모의 프로젝트 키(WP-1038, 모르면 null).
+   */
+  static ParentRef toParentRef(IssueRow parent, IssueTypeRow type, String projectKey) {
     return new ParentRef(
         parent.number(),
         parent.title(),
@@ -1544,6 +1816,9 @@ public class IssueService {
         // 부모의 사용자 정의 상태(WP-869) — findById 가 ISSUE_WITH_STATUS 조인으로 채운 값
         parent.statusId(),
         parent.statusName(),
-        parent.statusColor());
+        parent.statusColor(),
+        projectKey,
+        false,
+        parent.projectId());
   }
 }

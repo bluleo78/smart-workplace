@@ -62,10 +62,77 @@ public record ImportIssueRequest(
     @Size(max = 1000, message = "변경 이력은 1000개 이하여야 합니다.")
         List<@NotNull(message = "변경 이력 항목은 비울 수 없습니다.") @Valid HistoryEntry> history,
     @Size(max = 50, message = "외부 링크는 50개 이하여야 합니다.")
-        List<@NotNull(message = "외부 링크 항목은 비울 수 없습니다.") @Valid ExternalLink> externalLinks) {
+        List<@NotNull(message = "외부 링크 항목은 비울 수 없습니다.") @Valid ExternalLink> externalLinks,
+    // WP-1038 부모 이슈 키(예: PLAN-12) — 다른 프로젝트의 에픽을 부모로 둘 때 쓴다. 같은 프로젝트 부모는 parentNumber 로도 된다(둘 다
+    // 오면 같은 이슈여야 한다). 규칙은 일반 생성과 같다(하위 태스크·개인 프로젝트 불가, 부모는 에픽).
+    @Size(max = 64, message = "부모 이슈 키는 64자 이하여야 합니다.") String parentKey) {
 
   /** 가져오기 한 번에 붙일 수 있는 첨부 상한 — 요청 검증(@Size)과 첨부 서비스가 같은 값을 쓴다. */
   public static final int MAX_ATTACHMENTS = 50;
+
+  /** WP-1038 이전의 호환 생성자 — 부모 키 없이(같은 프로젝트 번호로만) 만든다(기존 테스트가 그대로 쓴다). */
+  public ImportIssueRequest(
+      Integer number,
+      String sourceKey,
+      String title,
+      String body,
+      Long typeId,
+      Long statusId,
+      String status,
+      String priority,
+      LocalDate startDate,
+      LocalDate dueDate,
+      Integer parentNumber,
+      Long milestoneId,
+      List<Long> labelIds,
+      List<String> labelNames,
+      List<String> componentNames,
+      List<String> fixVersionNames,
+      List<String> affectsVersionNames,
+      List<Long> cycleIds,
+      List<FieldValueInput> fields,
+      String reporter,
+      List<String> assignees,
+      List<String> watchers,
+      OffsetDateTime createdAt,
+      OffsetDateTime updatedAt,
+      OffsetDateTime closedAt,
+      List<Attachment> attachments,
+      List<Comment> comments,
+      List<HistoryEntry> history,
+      List<ExternalLink> externalLinks) {
+    this(
+        number,
+        sourceKey,
+        title,
+        body,
+        typeId,
+        statusId,
+        status,
+        priority,
+        startDate,
+        dueDate,
+        parentNumber,
+        milestoneId,
+        labelIds,
+        labelNames,
+        componentNames,
+        fixVersionNames,
+        affectsVersionNames,
+        cycleIds,
+        fields,
+        reporter,
+        assignees,
+        watchers,
+        createdAt,
+        updatedAt,
+        closedAt,
+        attachments,
+        comments,
+        history,
+        externalLinks,
+        null);
+  }
 
   /** 이미 업로드된 파일을 원 첨부자·원 시각으로 붙인다. */
   public record Attachment(

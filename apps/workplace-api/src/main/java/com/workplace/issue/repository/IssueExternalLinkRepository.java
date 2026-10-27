@@ -1,6 +1,8 @@
 package com.workplace.issue.repository;
 
+import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_EXTERNAL_LINK;
+import static com.workplace.jooq.Tables.PROJECT;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -100,6 +102,31 @@ public class IssueExternalLinkRepository {
         .set(ISSUE_EXTERNAL_LINK.UPDATED_AT, OffsetDateTime.now())
         .where(ISSUE_EXTERNAL_LINK.ID.eq(id))
         .execute();
+  }
+
+  /**
+   * 한 유형의 외부 링크를 링크 id 순으로 limit 건 — 삭제되지 않은 이슈의 것만(WP-1038 부모 에픽 링크 변환). projectId 가 있으면 그 프로젝트
+   * 이슈의 링크만 본다.
+   */
+  public List<LinkRow> findByTypeOnActiveIssues(long typeId, Long projectId, int limit) {
+    // 지운 프로젝트의 이슈도 거른다(프로젝트 삭제는 이슈를 따로 지우지 않는다).
+    var cond =
+        ISSUE_EXTERNAL_LINK
+            .TYPE_ID
+            .eq(typeId)
+            .and(ISSUE.DELETED_AT.isNull())
+            .and(PROJECT.DELETED_AT.isNull());
+    if (projectId != null) cond = cond.and(ISSUE.PROJECT_ID.eq(projectId));
+    return dsl.select(ISSUE_EXTERNAL_LINK.fields())
+        .from(ISSUE_EXTERNAL_LINK)
+        .join(ISSUE)
+        .on(ISSUE.ID.eq(ISSUE_EXTERNAL_LINK.ISSUE_ID))
+        .join(PROJECT)
+        .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+        .where(cond)
+        .orderBy(ISSUE_EXTERNAL_LINK.ID)
+        .limit(limit)
+        .fetch(IssueExternalLinkRepository::toRow);
   }
 
   /** 지운 행 수(0 이면 이미 없음 → 이력·신호를 내지 않는다). */

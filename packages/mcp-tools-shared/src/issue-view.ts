@@ -64,13 +64,19 @@ export function versionNames(versions: unknown): string[] {
   return labelNames(versions);
 }
 
-/** 부모 요약(ParentRef: number·title·status) → issueKey 로 가리키는 뷰. 부모는 같은 프로젝트라 projectKey 를 빌린다. 키를 못 만들면 null. */
+/**
+ * 부모 요약(ParentRef: number·title·status·projectKey) → issueKey 로 가리키는 뷰. 부모는 다른 프로젝트 에픽일 수 있어(WP-1038)
+ * 응답의 projectKey 를 먼저 쓰고, 없으면(구 API) 자식의 projectKey 를 빌린다. 조회자가 읽을 수 없는 프로젝트의 부모는 서버가 hidden 으로
+ * 가리므로 { hidden: true } 로 「부모가 있지만 볼 수 없음」만 알린다. 키를 못 만들면 null.
+ */
 export function toParentView(
   parent: unknown,
   projectKey: unknown,
-): { issueKey: string; title: string; status: string | null; statusName?: string } | null {
+): { issueKey: string; title: string; status: string | null; statusName?: string } | { hidden: true } | null {
   const p = parent as Raw | null | undefined;
-  const issueKey = formatIssueKey(projectKey as string | undefined, p?.number as number | undefined);
+  if (p?.hidden === true) return { hidden: true };
+  const parentProject = typeof p?.projectKey === 'string' && p.projectKey ? p.projectKey : projectKey;
+  const issueKey = formatIssueKey(parentProject as string | undefined, p?.number as number | undefined);
   if (!p || !issueKey) return null;
   return { issueKey, title: String(p.title ?? ''), status: (p.status as string | undefined) ?? null, ...statusNameOf(p) };
 }

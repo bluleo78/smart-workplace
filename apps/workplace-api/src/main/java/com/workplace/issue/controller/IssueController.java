@@ -2,6 +2,7 @@ package com.workplace.issue.controller;
 
 import com.workplace.global.security.RequirePermission;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.EpicChildrenResponse;
 import com.workplace.issue.dto.IssueAiClassifyResponse;
 import com.workplace.issue.dto.IssueAiContext;
 import com.workplace.issue.dto.IssueDetailResponse;
@@ -73,6 +74,17 @@ public class IssueController {
     return ResponseEntity.ok(issueService.get((Long) auth.getPrincipal(), key, number));
   }
 
+  /**
+   * 이슈의 활성 하위 목록(WP-1038) — 다른 프로젝트 하위까지 모은다. 조회자가 읽을 수 있는 하위만 싣고 나머지는 hiddenCount 로 센다. 같은 프로젝트
+   * 목록(parentNumber 필터)으로는 다른 프로젝트 하위를 볼 수 없어 따로 둔다.
+   */
+  @GetMapping("/{number}/children")
+  @RequirePermission("project:read")
+  public ResponseEntity<EpicChildrenResponse> children(
+      Authentication auth, @PathVariable String key, @PathVariable int number) {
+    return ResponseEntity.ok(issueSearchService.children((Long) auth.getPrincipal(), key, number));
+  }
+
   /** 이슈 부분 수정. */
   @PatchMapping("/{number}")
   @RequirePermission("issue:write")
@@ -106,9 +118,18 @@ public class IssueController {
 
   /**
    * 유형 변경 본문. typeId 필수. parentNumber 를 주면 유형과 부모를 한 번에 바꾼다 — 하위 태스크로 바꿀 때 부모를 함께 고르는 데 쓴다(WP-745).
+   * parentKey 는 다른 프로젝트 에픽을 부모로 둘 때 쓴다(WP-1038).
    */
   public record UpdateTypeRequest(
-      @jakarta.validation.constraints.NotNull Long typeId, Integer parentNumber) {}
+      @jakarta.validation.constraints.NotNull Long typeId,
+      Integer parentNumber,
+      @jakarta.validation.constraints.Size(max = 64) String parentKey) {
+
+    /** 부모 키 없이 받는 기존 호환 생성자. */
+    public UpdateTypeRequest(Long typeId, Integer parentNumber) {
+      this(typeId, parentNumber, null);
+    }
+  }
 
   /** 이슈 유형 변경 — 같은 프로젝트의 유형만 허용. */
   @PatchMapping("/{number}/type")
@@ -120,7 +141,12 @@ public class IssueController {
       @Valid @RequestBody UpdateTypeRequest req) {
     return ResponseEntity.ok(
         issueService.setType(
-            (Long) auth.getPrincipal(), key, number, req.typeId(), req.parentNumber()));
+            (Long) auth.getPrincipal(),
+            key,
+            number,
+            req.typeId(),
+            req.parentNumber(),
+            req.parentKey()));
   }
 
   /** 이슈 soft-delete. reporter 또는 OWNER 만 가능. */

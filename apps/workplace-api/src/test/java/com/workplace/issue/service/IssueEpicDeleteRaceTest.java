@@ -37,8 +37,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>삭제는 「에픽과 그때의 하위」를 soft-delete 하는데, 부모 지정·하위 생성은 부모가 살아 있는지 확인만 하고 잠그지 않아 삭제 직후 커밋되면 지워진 에픽을
  * 부모로 가리킨 채 남았다(외래 키는 soft-delete 라 통과). 이제 삭제는 에픽 행을 잠그고, 부모 지정·하위 생성은 새 부모를 공유 잠금으로 다시 읽는다 — 삭제가
- * 먼저면 나중 요청은 「부모를 찾을 수 없습니다」, 부모 지정이 먼저면 삭제가 그 하위까지 함께 지운다. 먼저 요청을 트랜잭션을 연 채(커밋 전) 멈춰 두고 나중 요청을 보내
- * 결정적으로 만든다.
+ * 먼저면 나중 요청은 「부모를 찾을 수 없습니다」, 부모 지정이 먼저면 삭제가 기다렸다가 새로 붙은 하위까지 뗀다(WP-1038 — 에픽 삭제는 하위를 지우지 않고 부모만
+ * 뗀다). 먼저 요청을 트랜잭션을 연 채(커밋 전) 멈춰 두고 나중 요청을 보내 결정적으로 만든다.
  */
 class IssueEpicDeleteRaceTest extends IntegrationTestBase {
 
@@ -109,7 +109,7 @@ class IssueEpicDeleteRaceTest extends IntegrationTestBase {
   }
 
   @Test
-  void 부모_지정이_먼저면_에픽_삭제가_그_하위까지_함께_지운다() throws Exception {
+  void 부모_지정이_먼저면_에픽_삭제가_새로_붙은_하위까지_뗀다() throws Exception {
     Object r =
         race(
             () -> issueService.setParent(owner, key, task, epic),
@@ -120,6 +120,15 @@ class IssueEpicDeleteRaceTest extends IntegrationTestBase {
 
     assertThat(r).isEqualTo("deleted");
     assertThat(liveIssuesPointingAtDeletedParent()).isZero();
+    // 하위는 지워지지 않고 부모만 떨어진 채 남는다(WP-1038).
+    var taskRow =
+        baseDsl
+            .select(ISSUE.PARENT_ISSUE_ID, ISSUE.DELETED_AT)
+            .from(ISSUE)
+            .where(ISSUE.PROJECT_ID.eq(projectId).and(ISSUE.NUMBER.eq(task)))
+            .fetchOne();
+    assertThat(taskRow.get(ISSUE.DELETED_AT)).isNull();
+    assertThat(taskRow.get(ISSUE.PARENT_ISSUE_ID)).isNull();
   }
 
   /** 지워진 이슈를 부모로 가리키는 살아 있는 이슈 수. */

@@ -98,6 +98,20 @@ describe('normalizeIssueDetail', () => {
     expect(d.assignees).toEqual([{ username: 'alice', name: 'Alice', kind: 'HUMAN' }]);
   });
 
+  // WP-1038: 부모는 다른 프로젝트 에픽일 수 있어 응답의 projectKey 로 키를 만들고, 읽을 수 없는 부모는 { hidden: true } 만 준다.
+  it('다른 프로젝트 부모는 부모의 projectKey 로, 가려진 부모는 hidden 으로 준다', () => {
+    const cross = normalizeIssueDetail({
+      ...raw,
+      summary: { ...raw.summary, projectKey: 'WP', parent: { number: 5, title: '기획 에픽', status: 'TODO', projectKey: 'PLAN', hidden: false } },
+    });
+    expect(cross.parent).toEqual({ issueKey: 'PLAN-5', title: '기획 에픽', status: 'TODO' });
+    const hidden = normalizeIssueDetail({
+      ...raw,
+      summary: { ...raw.summary, projectKey: 'WP', parent: { number: 0, title: null, status: null, projectKey: null, hidden: true } },
+    });
+    expect(hidden.parent).toEqual({ hidden: true });
+  });
+
   // WP-869: 부모·링크 요약에 상태 이름이 오면 함께 준다(색·id 는 싣지 않는다). 구 API(이름 없음)면 키가 없다.
   it('부모·링크의 상태 이름(statusName)을 함께 준다', () => {
     const d = normalizeIssueDetail({

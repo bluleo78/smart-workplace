@@ -54,7 +54,7 @@ export const createIssueInput = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   type: z.string().optional(), // 유형 이름(예: BUG) → typeId 리졸브
   assignees: z.array(z.string()).optional(), // username[] → assigneeIds 리졸브
-  parent: z.string().min(1).describe('Parent issue key, same project').optional(), // 부모 이슈 키(WP-12, SUBTASK) — 같은 프로젝트의 이슈여야 한다. 핸들러가 서버용 번호로 옮긴다(#833, WP-353)
+  parent: z.string().min(1).describe('Parent issue key (same project, or an EPIC in another project)').optional(), // 부모 이슈 키(WP-12) — 같은 프로젝트면 번호로, 다른 프로젝트 에픽이면 키로 서버에 보낸다(#833, WP-353, WP-1038)
   // WP-356: 라벨·마일스톤·사이클 이름 → id. 서버가 생성과 같은 트랜잭션에서 붙인다(생성 후 update_issue 를 따로 부를 필요 없음).
   labels: z.array(z.string()).optional(),
   components: z.array(z.string()).optional(), // WP-933: 구성요소 이름[] → componentIds (없는 이름은 만들지 않고 실패)
@@ -78,7 +78,7 @@ export const updateIssueInput = z.object({
   clearDueDate: z.boolean().optional(),
   clearStartDate: z.boolean().optional(),
   type: z.string().optional(), // 유형 이름 → typeId
-  parent: z.string().min(1).nullable().describe('Parent issue key, same project; null clears').optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 같은 프로젝트만(WP-353)
+  parent: z.string().min(1).nullable().describe('Parent issue key (same project, or an EPIC in another project); null clears').optional(), // 이슈 키(WP-12)=설정, null=해제, 생략=변경없음. 다른 프로젝트는 에픽만(WP-1038)
   assignees: z.array(z.string()).optional(), // username[] → 집합 교체
   // WP-944: 보고자 username(me=호출자) → PUT .../reporter. 프로젝트 OWNER·ADMIN·지금 보고자만, 사람만 — 서버가 거절하면 results.reporter 실패.
   reporter: z.string().min(1).optional(),

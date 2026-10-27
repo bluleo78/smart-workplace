@@ -10,6 +10,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.springframework.stereotype.Repository;
@@ -93,6 +94,52 @@ public class ProjectRepository {
         .from(PROJECT)
         .where(PROJECT.KEY.eq(key).and(PROJECT.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
+  }
+
+  /**
+   * key 로 활성 프로젝트를 공유 잠금하며 조회(WP-1038) — 다른 프로젝트 에픽을 부모로 붙이는 쓰기가 그 에픽 프로젝트의 삭제와 차례를 세운다. 삭제가 먼저 행을
+   * 잠갔으면 커밋을 기다렸다가, 다시 본 행이 삭제돼 있어 빈 값이 된다(PostgreSQL 은 잠금 대기 뒤 조건을 다시 평가한다). 쓰기 트랜잭션 안에서만 부른다.
+   */
+  public Optional<ProjectRow> findByKeyForShare(String key) {
+    return findActiveForShare(PROJECT.KEY.eq(key));
+  }
+
+  /** {@link #findByKeyForShare} 의 id 판 — 생성 실행 경로가 부모 이슈의 프로젝트를 잠글 때 쓴다(WP-1038). */
+  public Optional<ProjectRow> findByIdForShare(Long id) {
+    return findActiveForShare(PROJECT.ID.eq(id));
+  }
+
+  /** 조건에 맞는 활성 프로젝트를 공유 잠금하며 조회 — key·id 판 공용(WP-1038). */
+  private Optional<ProjectRow> findActiveForShare(Condition condition) {
+    return dsl.select(
+            PROJECT.ID,
+            PROJECT.KEY,
+            PROJECT.NAME,
+            PROJECT.DESCRIPTION,
+            PROJECT.OWNER_ID,
+            PROJECT.TYPE,
+            PROJECT.IS_DEFAULT,
+            PROJECT.CREATED_AT,
+            PROJECT.UPDATED_AT)
+        .from(PROJECT)
+        .where(condition.and(PROJECT.DELETED_AT.isNull()))
+        .forShare()
+        .fetchOptional(this::mapToRow);
+  }
+
+  /**
+   * 활성 프로젝트 행을 쓰기 잠금한다(WP-1038 프로젝트 삭제) — 이 프로젝트 에픽에 하위를 붙이는 요청(프로젝트 공유 잠금)이 삭제 커밋까지 기다리게 하고, 먼저 잠근
+   * 요청이 있으면 그것이 끝난 뒤에 다른 프로젝트 하위를 떼어 새로 붙은 하위까지 함께 뗀다.
+   *
+   * @return 잠갔으면 true, 그사이 지워졌으면 false
+   */
+  public boolean lockForUpdate(long id) {
+    return dsl.select(PROJECT.ID)
+        .from(PROJECT)
+        .where(PROJECT.ID.eq(id).and(PROJECT.DELETED_AT.isNull()))
+        .forUpdate()
+        .fetchOptional()
+        .isPresent();
   }
 
   /** id 로 활성 프로젝트 조회 (soft-deleted 제외). */
