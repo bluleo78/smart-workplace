@@ -21,6 +21,7 @@ export function IssueCommentComposer({
   issueId,
   editorMaxHeightClass,
   inlineSubmit,
+  onPosted,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -29,6 +30,8 @@ export function IssueCommentComposer({
   editorMaxHeightClass?: string;
   /** 에디터 옆 아이콘 전송 버튼 한 줄 레이아웃(모바일 하단, 전송 탭이 키보드를 내리지 않음). RichInput 으로 그대로 전달. */
   inlineSubmit?: boolean;
+  /** 작성에 성공한 코멘트 id — 모바일 하단 작성창은 이것으로 목록의 새 코멘트까지 스크롤한다(WP-1016). */
+  onPosted?: (commentId: number) => void;
 }) {
   const create = useCreateComment(projectKey, issueNumber, issueId);
 
@@ -55,8 +58,9 @@ export function IssueCommentComposer({
   // 제출 → API 호출 → 성공 시 clearOnSubmit 이 입력창을 비움 + 토스트, 실패 시 입력 보존(reject) + 공통 에러 핸들러.
   const handleSubmit = async (body: string): Promise<void> => {
     try {
-      await create.mutateAsync({ body });
+      const created = await create.mutateAsync({ body });
       suppressNextChangeRef.current = true;
+      onPosted?.(created.id);
       toast.success('코멘트를 작성했습니다');
     } catch (e) {
       handleApiError(e, '코멘트 작성에 실패했습니다');
