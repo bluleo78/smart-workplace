@@ -119,8 +119,8 @@ public class ProjectRepository {
   }
 
   /**
-   * 조건에 맞는 활성 프로젝트를 공유 잠금하며 조회 — key·id 판 공용(WP-1038). 칸은 {@link #ROW_FIELDS} 를 쓴다 — 칸을 따로 적었다가
-   * 같은 날 머지된 연결 저장소 칸(WP-1011)이 빠져 mapToRow 가 실패했다(WP-1045).
+   * 조건에 맞는 활성 프로젝트를 공유 잠금하며 조회 — key·id 판 공용(WP-1038). 칸은 {@link #ROW_FIELDS} 를 쓴다 — 칸을 따로 적었다가 같은
+   * 날 머지된 연결 저장소 칸(WP-1011)이 빠져 mapToRow 가 실패했다(WP-1045).
    */
   private Optional<ProjectRow> findActiveForShare(Condition condition) {
     return dsl.select(ROW_FIELDS)
