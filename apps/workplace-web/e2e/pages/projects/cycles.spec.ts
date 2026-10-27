@@ -3,27 +3,11 @@
 // 페이지 테스트 src/pages/projects/cycles.test.tsx 가 지킨다(WP-971).
 import { expect, test } from '../../fixtures/auth.fixture';
 import { expectStays } from '../../fixtures/wait';
-import { createProject } from '../../factories/project.factory';
+import { createCycle } from '../../factories/cycle.factory';
+import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleProgress, CycleResponse } from '../../../src/types/cycle';
 
 const KEY = 'WP';
-
-// 테스트용 사이클 팩토리.
-function createCycle(overrides: Partial<CycleResponse> = {}): CycleResponse {
-  const now = new Date().toISOString();
-  return {
-    id: 1,
-    projectId: 1,
-    name: '스프린트 1',
-    goal: null,
-    startDate: null,
-    endDate: null,
-    status: 'ACTIVE',
-    createdAt: now,
-    updatedAt: now,
-    ...overrides,
-  };
-}
 
 // 사이클 페이지 공통 스텁 — project·cycles·progress 를 mock.
 async function setupCyclesPageStubs(
@@ -59,6 +43,18 @@ async function setupCyclesPageStubs(
 }
 
 test.describe('사이클 관리', () => {
+  // 새 사이클·수정·삭제는 프로젝트 OWNER 만 보인다(WP-1008) — 로그인 사용자(id 1)를 OWNER 로 둔다.
+  test.beforeEach(async ({ authenticatedPage: page }) => {
+    await page.route(`**/api/v1/projects/${KEY}/members`, (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' })]),
+      });
+    });
+  });
+
   test(
     '목록 + 진행바 렌더 — ACTIVE 사이클과 1/4 완료(25%) 진행바 표시',
     { tag: ['@wiring', '@smoke'] },

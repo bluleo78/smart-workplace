@@ -76,11 +76,16 @@ public class WikiPageController {
         hydrationService.resolveMentions(callerId, src.page().body(), src.maskingGrant()));
   }
 
-  /** 알림을 누른 사람이 어디로 갈지(WP-579) — 멤버면 노트, 지정한 공유 대상이면 지금 토큰의 공유 화면. 둘 다 아니거나 없는 페이지는 404. */
+  /**
+   * 노트로 들어갈 사람이 어디로 갈지(WP-579) — 멤버면 노트, 이 페이지를 덮는 공유 대상이면 지금 토큰의 공유 화면. 둘 다 아니거나 없는 페이지는 404. 알림은
+   * 지정한 사람 공유만 보고, {@code link=true}(노트 주소로 연 비멤버, WP-987)면 워크스페이스 전체 공유도 본다.
+   */
   @GetMapping("/{id}/entry")
   public ResponseEntity<WikiPageEntryResponse> entry(
-      @AuthenticationPrincipal Long callerId, @PathVariable("id") long pageId) {
-    return ResponseEntity.ok(shareAccess.entry(pageId, callerId));
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long pageId,
+      @RequestParam(name = "link", defaultValue = "false") boolean link) {
+    return ResponseEntity.ok(shareAccess.entry(pageId, callerId, link));
   }
 
   /** 이 페이지를 참조하는 source 페이지(백링크). get() 으로 VIEWER 가드 후 가시 source 만 반환. */

@@ -61,7 +61,13 @@ test('카탈로그 위젯 헤더 — 필터 없으면 모듈 루트, 필터는 �
       catalog('w-calendar', 'calendar', { range: 'week' }),
       catalog('w-wiki', 'wiki', { query: '온보딩' }),
     ]),
-    { handlers: [http.get('/api/v1/contacts', () => HttpResponse.json({ items: [], total: 0 }))] },
+    {
+      handlers: [
+        http.get('/api/v1/contacts', () => HttpResponse.json({ items: [], total: 0 })),
+        // 노트 위젯 본문은 스페이스 목록을 읽는다 — 부하에서 늦게 그려지면 테스트 끝 무렵에 요청이 나간다.
+        http.get('/api/v1/wiki/spaces', () => HttpResponse.json([])),
+      ],
+    },
   )
   const expected: Record<string, string> = {
     'w-projects': '/projects',

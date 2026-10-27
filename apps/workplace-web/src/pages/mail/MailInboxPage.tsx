@@ -8,6 +8,7 @@ import { AiContent } from '@/components/ai/AiContent'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { AiSummarySkeleton } from '@/components/ai/AiSummarySkeleton'
 import { MessageActionSheet, type MessageSheetAction } from '@/components/chat/MessageActionSheet'
+import { Breadcrumb } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
@@ -38,7 +39,7 @@ import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
 import { firstSummaryLine } from '@/lib/mailSummary'
-import { mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
+import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { SELECTED_BG_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
 import { cn } from '@/lib/utils'
 
@@ -983,6 +984,7 @@ function MailInbox() {
   // WP-961 서버 메일함(보관·내 메일함) — ?box 보기의 제목·경로·안 읽은 수·가져온 시각.
   const { data: folders } = useMailFolders(accountIdNum)
   const view = resolveMailView(params, classificationActive, { inAppSelection: hasOpenMark(location.state, 'messageId'), folders })
+  const crumbItems = mailBreadcrumbItems(view, Number(accountId), params, search !== '')
   const folderView = view.kind === 'folder'
   const currentFolder = folderView ? folders?.find((f) => f.id === view.folderId) : undefined
   // 탭 제목 — 「{폴더} · 메일」(WP-814). 계정이 없으면(연결 안내 화면) 폴더가 없으니 「메일」만.
@@ -1105,7 +1107,7 @@ function MailInbox() {
   const startMarkAll = async () => {
     if (accountIdNum == null) return
     // 검색 중이면 건수는 검색 결과만 센다 — 표시 이름에도 검색어를 붙여 보기 전체로 오해하지 않게 한다.
-    const label = view.breadcrumb.join(' › ') + (markAllScope.query ? ` · "${markAllScope.query}"` : '')
+    const label = mailBreadcrumbText(view) + (markAllScope.query ? ` · "${markAllScope.query}"` : '')
     const captured = { key: markAllKey, scope: markAllScope, label }
     try {
       const r = await getViewUnreadCount(accountIdNum, captured.scope)
@@ -1316,8 +1318,8 @@ function MailInbox() {
     accountId: accountIdNum ?? null,
     accountEmail,
     folder: folderParam,
-    // WP-961 서버 메일함 보기 — 경로 이름(보관·내 메일함 › …). 메일함 목록 전이면 이름 없이 「메일함」(받은편지함으로 싣지 않게).
-    serverFolder: folderView ? (currentFolder ? view.breadcrumb.join(' › ') : '메일함') : null,
+    // WP-961 서버 메일함 보기 — 경로 이름(보관·프로젝트 › 견적 — 사이드바 구역 이름 「내 메일함」은 넣지 않는다, WP-979). 메일함 목록 전이면 이름 없이 「메일함」(받은편지함으로 싣지 않게).
+    serverFolder: folderView ? (currentFolder ? mailBreadcrumbText(view) : '메일함') : null,
     q: search,
     category: view.apiCategory || null,
     needsReply: view.kind === 'needsReply',
@@ -1417,24 +1419,11 @@ function MailInbox() {
       {/* 전폭 헤더 — 폴더명 + 동기화(받은편지함) + 검색. 기존 목록 툴바 대체. */}
       {showListChrome && (
         <Page.Header
-          title={
-            isMobile ? (
-              view.title
-            ) : (
-              // 데스크톱: 계층 구분자 "›" 를 작고 흐리게(스크린리더는 구분자를 읽지 않고 항목만 읽는다). 상위 항목은 흐린 색.
-              view.breadcrumb.map((seg, i) => (
-                // 경로에 같은 이름이 겹칠 수 있어(내 메일함 › 프로젝트 › 프로젝트) 위치를 키에 넣는다.
-                <span key={`${i}:${seg}`} className={i < view.breadcrumb.length - 1 ? 'font-medium text-muted-foreground' : undefined}>
-                  {i > 0 && (
-                    <span aria-hidden className="mx-1.5 text-muted-foreground">
-                      ›
-                    </span>
-                  )}
-                  {seg}
-                </span>
-              ))
-            )
-          }
+          // 모바일은 「현재 이름」 한 줄(§B-1 「모바일 헤더」), 데스크톱은 제목 자리에 경로(공용 Breadcrumb, WP-979).
+          title={isMobile ? view.title : undefined}
+          srTitle={isMobile ? undefined : view.title}
+          leadingGrow={!isMobile}
+          leading={<Breadcrumb items={crumbItems} aria-label="메일함 경로" data-testid="mail-breadcrumb" />}
           actions={
             <>
               <input

@@ -69,7 +69,7 @@ describe('휴대폰 — 공유', () => {
       createdBy: { userId: 1, name: '나' }, createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z',
       expiresAt: null, lastAccessedAt: null, viewCount: 0,
     }
-    const state: WikiPageShareState = { share, externalShareEnabled: true, inheritedFrom: null, accessRequests: [] }
+    const state: WikiPageShareState = { share, externalShareEnabled: true, inheritedFrom: null, accessRequests: [], excludedFromParent: false, excludedPages: [] }
     attachSilentCollab()
     const { user } = renderModule('/wiki/spaces/9/pages/101', [
         ...editorSideHandlers,

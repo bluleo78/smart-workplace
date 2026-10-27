@@ -16,7 +16,7 @@ import type { MilestoneResponse } from '@/types/milestone'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType } from '../../../e2e/factories/issueType.factory'
-import { createProject } from '../../../e2e/factories/project.factory'
+import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import { inServerOrder, withCustomStatuses } from '../../../e2e/factories/projectStatus.factory'
 import TimelinePage from '../projects/timeline/TimelinePage'
 
@@ -84,6 +84,8 @@ function handlers(opts: Opts) {
       const status = new URL(request.url).searchParams.get('status') ?? ''
       return HttpResponse.json(createIssueSearchResponse(status.includes('DONE') ? [] : (opts.issues ?? ISSUES), null))
     }),
+    // 마일스톤 추가는 프로젝트 OWNER 만(WP-1008) — 멤버 시나리오는 로그인 사용자(id 1)를 OWNER 로 둔다.
+    http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json((opts.member ?? true) ? [createMember({ userId: 1, role: 'OWNER' })] : [])),
     http.get(`/api/v1/projects/${KEY}/milestones`, () => HttpResponse.json(opts.milestones ?? MILESTONES)),
     http.get(`/api/v1/projects/${KEY}/cycles`, () => HttpResponse.json(opts.cycles ?? [])),
     http.get(`/api/v1/projects/${KEY}/issue-dependencies`, () => HttpResponse.json([])),

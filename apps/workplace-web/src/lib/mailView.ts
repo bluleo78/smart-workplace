@@ -1,10 +1,11 @@
 // 메일 보기 해석(WP-186) — URL 파라미터를 "지금 무엇을 보는가"로 한 번만 해석한다.
 // 사이드바 활성 표시·헤더 제목·툴바 토글·목록 API 파라미터가 모두 이 결과만 써서 화면마다 기준이 어긋나지 않게 한다.
 // 원칙: "업무"는 어디서나 업무 + 미분류(백엔드 workViewCondition), AI 분류가 꺼진 계정은 받은편지함 = 전체.
+import type { BreadcrumbItem } from '@/components/layout/breadcrumb.helpers'
 import type { MailServerFolder } from '@/types/mailFolder'
 import { MAIL_CATEGORIES, type MailCategory, type MailUnreadCounts } from '@/types/mailMessage'
 
-import { ARCHIVE_LABEL, folderNamePath } from './mailFolders'
+import { ARCHIVE_LABEL, folderAncestorIds } from './mailFolders'
 
 // drafts(WP-577) — 앱 서버 임시보관함. IMAP 폴더가 아니라 메시지 목록 API 를 쓰지 않는다.
 // folder(WP-961) — 서버의 보관·내 메일함 하나(?box=<메일함 id>). 목록·안 읽은 수·모두 읽음 API 에 folderId 로 보낸다.
@@ -13,6 +14,15 @@ export type MailViewKind = 'work' | 'all' | 'category' | 'needsReply' | 'sent' |
 /** 서버 메일함 보기 URL 파라미터 — ?folder=sent|drafts(고정 메일함)와 겹치지 않게 따로 둔다. */
 export const MAIL_BOX_PARAM = 'box'
 
+/**
+ * 경로 한 단계(WP-979) — 데스크톱 헤더 브레드크럼. to 가 있으면 그 보기로 가는 링크가 된다(mailViewHref 의 view 값).
+ * 현재(마지막) 단계와 열 수 없는 메일함(묶음)은 to 가 없다.
+ */
+export interface MailCrumb {
+  label: string
+  to?: 'all' | { folderId: number }
+}
+
 export interface MailView {
   kind: MailViewKind
   apiCategory: string
@@ -20,7 +30,7 @@ export interface MailView {
   unreadOnly: boolean
   unreadToggleVisible: boolean
   title: string
-  breadcrumb: string[]
+  breadcrumb: MailCrumb[]
   key: string
   /** 서버 메일함 보기일 때만 그 메일함 id — 그 외 null. */
   folderId: number | null
@@ -43,26 +53,33 @@ export function resolveMailView(
 ): MailView {
   const unread = params.get('unread') === 'true'
   if (params.get('folder') === 'sent') {
-    return { kind: 'sent', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '보낸편지함', breadcrumb: ['보낸편지함'], key: 'sent', folderId: null }
+    return { kind: 'sent', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '보낸편지함', breadcrumb: [{ label: '보낸편지함' }], key: 'sent', folderId: null }
   }
   if (params.get('folder') === 'drafts') {
-    return { kind: 'drafts', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '임시보관함', breadcrumb: ['임시보관함'], key: 'drafts', folderId: null }
+    return { kind: 'drafts', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '임시보관함', breadcrumb: [{ label: '임시보관함' }], key: 'drafts', folderId: null }
   }
   // 서버 메일함 — 딥링크 판정보다 먼저 본다(?box=5&messageId=9 는 그 메일함에서 연 메일). 분류·회신필요는 쓰지 않는다.
   const boxId = Number(params.get(MAIL_BOX_PARAM))
   if (Number.isInteger(boxId) && boxId > 0) {
     // 제목·경로는 메일함 목록이 오면 채운다. key 는 이름·목록 로딩과 무관하게 id 로만 — 바뀌면 유지 행이 비워진다.
     const f = opts.folders?.find((x) => x.id === boxId)
-    const path = opts.folders ? folderNamePath(opts.folders, boxId) : []
     const title = f ? (f.role === 'ARCHIVE' ? ARCHIVE_LABEL : f.displayName) : '메일함'
-    const breadcrumb = f?.role === 'ARCHIVE' ? [ARCHIVE_LABEL] : ['내 메일함', ...(path.length ? path : [title])]
+    // 경로는 최상위 메일함부터(§B-1 「시작점」 = 메일함). 사이드바 구역 이름 「내 메일함」은 장소가 아니라 넣지 않는다(WP-979).
+    // 조상 메일함은 그 메일함으로 가는 링크 — 열 수 없는 묶음(selectable=false)은 글자로만 둔다.
+    const ancestors: MailCrumb[] = f && f.role !== 'ARCHIVE' && opts.folders
+      ? [...folderAncestorIds(opts.folders, boxId)].reverse().map((id) => {
+          const a = opts.folders!.find((x) => x.id === id)!
+          return a.selectable ? { label: a.displayName, to: { folderId: id } } : { label: a.displayName }
+        })
+      : []
+    const breadcrumb: MailCrumb[] = [...ancestors, { label: title }]
     return {
       kind: 'folder', apiCategory: '', activeCategory: null, unreadOnly: unread, unreadToggleVisible: true,
       title, breadcrumb, key: `folder:${boxId}:${unread}`, folderId: boxId,
     }
   }
   if (params.get('needsReply') === 'true') {
-    return { kind: 'needsReply', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '회신필요', breadcrumb: ['회신필요'], key: 'needsReply', folderId: null }
+    return { kind: 'needsReply', apiCategory: '', activeCategory: null, unreadOnly: false, unreadToggleVisible: false, title: '회신필요', breadcrumb: [{ label: '회신필요' }], key: 'needsReply', folderId: null }
   }
   const raw = params.get('category')
   // 딥링크(?messageId=N, category 없음)는 홈 위젯·알림 등 외부 진입이라 메일의 분류를 알 수 없다 → 전체 보기로 열어
@@ -71,12 +88,44 @@ export function resolveMailView(
   const deepLink = raw == null && Number(params.get('messageId')) > 0 && !opts.inAppSelection
   const base = { unreadOnly: unread, unreadToggleVisible: true, folderId: null }
   if (!classificationActive || raw === 'all' || deepLink) {
-    return { ...base, kind: 'all', apiCategory: '', activeCategory: null, title: INBOX, breadcrumb: [INBOX], key: `all:${unread}` }
+    return { ...base, kind: 'all', apiCategory: '', activeCategory: null, title: INBOX, breadcrumb: [{ label: INBOX }], key: `all:${unread}` }
   }
   if (isCategory(raw) && raw !== '업무') {
-    return { ...base, kind: 'category', apiCategory: raw, activeCategory: raw, title: raw, breadcrumb: [INBOX, raw], key: `cat:${raw}:${unread}` }
+    return { ...base, kind: 'category', apiCategory: raw, activeCategory: raw, title: raw, breadcrumb: [{ label: INBOX, to: 'all' }, { label: raw }], key: `cat:${raw}:${unread}` }
   }
-  return { ...base, kind: 'work', apiCategory: '업무', activeCategory: '업무', title: '업무', breadcrumb: [INBOX, '업무'], key: `work:${unread}` }
+  return { ...base, kind: 'work', apiCategory: '업무', activeCategory: '업무', title: '업무', breadcrumb: [{ label: INBOX, to: 'all' }, { label: '업무' }], key: `work:${unread}` }
+}
+
+/** 경로를 한 줄 글자로(모두 읽음 확인·AI 화면 맥락) — 데스크톱 헤더와 같은 순서. */
+export function mailBreadcrumbText(view: Pick<MailView, 'breadcrumb'>): string {
+  return view.breadcrumb.map((c) => c.label).join(' › ')
+}
+
+/**
+ * 데스크톱 헤더 경로 항목(§B-1, WP-979) — 상위 단계는 그 보기로 가는 링크.
+ * 검색 중이면 「검색 결과」 모드를 마지막에 두고, 검색한 보기는 검색어·열린 메일을 지운 그 보기로 가는 링크가 된다
+ * (어디서 찾았는지와 돌아갈 곳이 함께 보인다). params 는 지금 URL 쿼리 — 안 읽음 토글 등 보기 상태를 그대로 남긴다.
+ */
+export function mailBreadcrumbItems(
+  view: Pick<MailView, 'breadcrumb' | 'unreadOnly'>,
+  accountId: number,
+  params: URLSearchParams,
+  searching: boolean,
+): BreadcrumbItem[] {
+  const items: BreadcrumbItem[] = view.breadcrumb.map((c, i) => ({
+    key: i,
+    label: c.label,
+    title: c.label,
+    to: c.to != null ? mailViewHref(accountId, c.to, view.unreadOnly) : undefined,
+  }))
+  if (!searching || items.length === 0) return items
+  const scope = new URLSearchParams(params)
+  scope.delete('q')
+  scope.delete('messageId')
+  const qs = scope.toString()
+  items[items.length - 1] = { ...items[items.length - 1], to: qs ? `/mail/${accountId}?${qs}` : `/mail/${accountId}` }
+  items.push({ key: 'search', label: '검색 결과', testId: 'mail-breadcrumb-search' })
+  return items
 }
 
 /** 보기 링크 — 업무(기본)는 쿼리 없이, 그 외는 category, 서버 메일함은 ?box=<id>. 토글 상태는 유지한다. */

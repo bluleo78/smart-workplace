@@ -1,5 +1,5 @@
 // 연락처 그룹 보기 브레드크럼 — 폭 부족 접기(WP-977, 05-page-patterns §B-1 「브레드크럼」·「접기」).
-// 항목 수(시작점 포함 4단계)로는 접히지 않는 경로가 1024px 에서 헤더 폭이 모자라 「…」로 접히는지,
+// 항목 수(시작점 포함 4단계)로는 접히지 않는 경로가 1024px 에서 헤더 폭이 모자라 「…」로 접히는지(아주 좁으면 시작점까지 — WP-979),
 // 접힌 경로가 오른쪽 검색 범위 칩·검색창과 겹치지 않는지는 실제 레이아웃 폭이 있어야 판정된다(@layout).
 // 경로 렌더·링크 이동·시작점 문구는 페이지 테스트(src/pages/contacts/contactsBreadcrumb.test.tsx)가 지킨다.
 import type { Page } from '@playwright/test'
@@ -51,9 +51,9 @@ test('1024px 에서 긴 경로는 가운데가 「…」로 접히고 검색 범
 
   const crumb = page.getByTestId('contact-breadcrumb')
   const more = page.getByTestId('breadcrumb-more')
-  // 폭 부족으로 접힌다 — 시작점·「…」·현재만 남고 조상 링크는 보이지 않는다.
+  // 폭 부족으로 접힌다 — 1024px 의 헤더 왼쪽(120px 안팎)에선 시작점까지 접어 「… › 현재」만 남는다(§B-1 「접기」, WP-979).
+  // 시작점을 남기면 현재 팀 이름이 0 폭이 되던 것을 막는다.
   await expect(more).toBeVisible()
-  await expect(page.getByTestId('contact-breadcrumb-root')).toBeVisible()
   await expect(page.getByTestId(`contact-breadcrumb-12`)).toBeVisible()
   await expect(crumb.getByRole('link')).toHaveCount(0)
 
@@ -67,14 +67,15 @@ test('1024px 에서 긴 경로는 가운데가 「…」로 접히고 검색 범
       measureBox(scope),
       measureBox(search),
     ])
-    // 현재 항목(말줄임될 수 있음)은 nav 안에 머문다.
+    // 현재 항목(말줄임될 수 있음)은 몇 글자라도 보이고(56px 이상) nav 안에 머문다.
+    expect(current.width, '현재 항목 폭').toBeGreaterThanOrEqual(56)
     expect(current.x + current.width, '현재 항목 우측 ≤ nav 우측').toBeLessThanOrEqual(nav.x + nav.width + 0.5)
     // 경로는 범위 칩·검색창 앞에서 끝난다.
     expect(nav.x + nav.width, 'nav 우측 ≤ 범위 칩 좌측').toBeLessThanOrEqual(chip.x)
     expect(nav.x + nav.width, 'nav 우측 ≤ 검색창 좌측').toBeLessThanOrEqual(input.x)
   }).toPass()
 
-  // 「…」 메뉴는 접힌 조상을 위에서 아래 순서로 보인다.
+  // 「…」 메뉴는 접힌 단계(시작점 포함)를 위에서 아래 순서로 보인다.
   await more.click()
-  await expect(page.getByRole('menuitem')).toHaveText([L1, L2])
+  await expect(page.getByRole('menuitem')).toHaveText(['조직도', L1, L2])
 })

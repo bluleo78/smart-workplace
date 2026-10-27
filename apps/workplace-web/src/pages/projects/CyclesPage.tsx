@@ -1,4 +1,4 @@
-// 프로젝트 사이클 관리 — 목록 + 진행 막대 + 생성/수정/삭제.
+// 프로젝트 사이클 관리 — 목록 + 진행 막대 + 생성/수정/삭제. 생성·수정·삭제는 프로젝트 OWNER(·ADMIN)만 보인다(WP-1008 — 서버 가드와 같다).
 import { ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -15,7 +15,7 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { CycleFormDialog } from '../../components/cycle/CycleFormDialog';
 import { CycleProgressBar } from '../../components/cycle/CycleProgressBar';
 import { useCycleProgress, useCycles, useDeleteCycle } from '../../hooks/queries/useCycles';
-import { useProject } from '../../hooks/queries/useProjects';
+import { useCanManageProject } from '../../hooks/useCanManageProject';
 import { cycleMetaText } from '../../lib/cycleMeta';
 import { deletionImpactNote } from '../../lib/deletionImpact';
 import type { CycleProgress, CycleResponse } from '../../types/cycle';
@@ -25,7 +25,8 @@ import { ProjectUnavailableState } from './components/ProjectUnavailableState';
 export default function CyclesPage() {
   const { key = '' } = useParams();
   const navigate = useNavigate();
-  const project = useProject(key);
+  // 버전·마일스톤과 같은 관리 판정 — 아니면 목록·진행만 보이고 새 사이클·수정·삭제·⋯ 는 숨긴다.
+  const { project, canManage } = useCanManageProject(key);
   const cycles = useCycles(key);
   // 탭 제목 — 「사이클 · {프로젝트}」(WP-814).
   useDocumentTitle(['사이클', project.data?.name]);
@@ -36,6 +37,11 @@ export default function CyclesPage() {
   const isMobile = useIsMobile();
   // 모바일 ⋯ 시트 대상 사이클(WP-197) — 시트·삭제 확인은 페이지에 하나만 두고 CycleMobileActions 가 그린다.
   const [sheetCycle, setSheetCycle] = useState<CycleResponse | null>(null);
+  // 새 사이클 — 데스크톱 헤더 버튼과 모바일 ＋ 가 같은 폼을 연다.
+  const openNew = () => {
+    setEditing(undefined);
+    setOpen(true);
+  };
 
   const progressById = useMemo(() => {
     const m = new Map<number, CycleProgress>();
@@ -63,30 +69,28 @@ export default function CyclesPage() {
         meta={<span className="text-muted-foreground">{project.data?.key}</span>}
         actions={
           /* 헤더 주 액션 — size 미지정(default). 04-components §E 규정(#744/#747). */
-          <Button
-            onClick={() => {
-              setEditing(undefined);
-              setOpen(true);
-            }}
-            data-testid="cycle-new"
-          >
-            {/* mr-1·h-4 w-4 제거 — 간격은 Button cva 의 gap 이, 크기는 같은 cva 의
-                [&_svg:not([class*='size-'])]:size-4 가 담당한다. */}
-            <Plus /> 새 사이클
-          </Button>
+          canManage && (
+            <Button
+              onClick={openNew}
+              data-testid="cycle-new"
+            >
+              {/* mr-1·h-4 w-4 제거 — 간격은 Button cva 의 gap 이, 크기는 같은 cva 의
+                  [&_svg:not([class*='size-'])]:size-4 가 담당한다. */}
+              <Plus /> 새 사이클
+            </Button>
+          )
         }
         // 모바일: 단일 주 액션은 ⋯ 로 접지 않고 ＋ 아이콘으로 인라인(같은 testid — actions 는 모바일에서 렌더 안 함).
         mobilePrimaryAction={
-          <HeaderIconAction
-            label="새 사이클"
-            data-testid="cycle-new"
-            onClick={() => {
-              setEditing(undefined);
-              setOpen(true);
-            }}
-          >
-            <Plus />
-          </HeaderIconAction>
+          canManage && (
+            <HeaderIconAction
+              label="새 사이클"
+              data-testid="cycle-new"
+              onClick={openNew}
+            >
+              <Plus />
+            </HeaderIconAction>
+          )
         }
         mobileActions={null}
       />
@@ -99,7 +103,7 @@ export default function CyclesPage() {
               projectKey={key}
               cycle={c}
               progress={progressById.get(c.id)}
-              onMore={() => setSheetCycle(c)}
+              onMore={canManage ? () => setSheetCycle(c) : undefined}
             />
           ) : (
             <li key={c.id} className="rounded border p-4" data-testid={`cycle-row-${c.id}`}>
@@ -118,37 +122,39 @@ export default function CyclesPage() {
                     </p>
                   )}
                 </div>
-                <div className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    // 행마다 같은 「수정」이면 스크린리더가 어느 사이클의 버튼인지 알 수 없어 이름을 넣는다(WP-923).
-                    aria-label={`${c.name} 수정`}
-                    onClick={() => {
-                      setEditing(c);
-                      setOpen(true);
-                    }}
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  {/* 삭제 확인 — shadcn AlertDialog로 교체 (#145) */}
-                  <DeleteConfirmDialog
-                    entityName="사이클"
-                    itemName={c.name}
-                    impact={deletionImpactNote('cycle', progressById.get(c.id)?.total)}
-                    onConfirm={() => del.mutate(c.id)}
-                    trigger={
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`${c.name} 삭제`}
-                        data-testid={`cycle-delete-${c.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    }
-                  />
-                </div>
+                {canManage && (
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      // 행마다 같은 「수정」이면 스크린리더가 어느 사이클의 버튼인지 알 수 없어 이름을 넣는다(WP-923).
+                      aria-label={`${c.name} 수정`}
+                      onClick={() => {
+                        setEditing(c);
+                        setOpen(true);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    {/* 삭제 확인 — shadcn AlertDialog로 교체 (#145) */}
+                    <DeleteConfirmDialog
+                      entityName="사이클"
+                      itemName={c.name}
+                      impact={deletionImpactNote('cycle', progressById.get(c.id)?.total)}
+                      onConfirm={() => del.mutate(c.id)}
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`${c.name} 삭제`}
+                          data-testid={`cycle-delete-${c.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      }
+                    />
+                  </div>
+                )}
               </div>
               <div className="mt-3">
                 <CycleProgressBar
@@ -193,7 +199,8 @@ function CycleRowMobile({
   projectKey: string;
   cycle: CycleResponse;
   progress: CycleProgress | undefined;
-  onMore: () => void;
+  /** ⋯ 시트 열기 — 관리 권한이 없으면 없고 ⋯ 버튼도 그리지 않는다(WP-1008). */
+  onMore?: () => void;
 }) {
   return (
     <li className="flex items-start rounded border" data-testid={`cycle-row-${c.id}`}>
@@ -210,15 +217,17 @@ function CycleRowMobile({
         {c.goal && <span className="mt-0.5 block truncate text-xs text-muted-foreground">{c.goal}</span>}
       </Link>
       {/* ⋯ — 터치 행 트리거와 같은 44px 규격(TOUCH_ROW_TRIGGER). 아이콘은 세로 ⋮ 유지. */}
-      <button
-        type="button"
-        aria-label={`${c.name} 더보기`}
-        data-testid={`cycle-more-${c.id}`}
-        onClick={onMore}
-        className={TOUCH_ROW_TRIGGER}
-      >
-        <MoreHorizontal className="size-5" aria-hidden />
-      </button>
+      {onMore && (
+        <button
+          type="button"
+          aria-label={`${c.name} 더보기`}
+          data-testid={`cycle-more-${c.id}`}
+          onClick={onMore}
+          className={TOUCH_ROW_TRIGGER}
+        >
+          <MoreHorizontal className="size-5" aria-hidden />
+        </button>
+      )}
     </li>
   );
 }

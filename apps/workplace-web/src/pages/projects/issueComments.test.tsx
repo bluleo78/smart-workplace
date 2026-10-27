@@ -148,7 +148,8 @@ describe('코멘트 표시 (#320·#344)', () => {
     const item = commentItems()[0]
     expect(item.textContent).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)
     expect(item.textContent).not.toMatch(/\d{1,2}:\d{2}:\d{2}/)
-    const bodyDiv = body.closest('div.whitespace-pre-wrap')
+    const bodyDiv = within(item).getByTestId('markdown-content')
+    expect(bodyDiv).toContainElement(body)
     expect(bodyDiv).toHaveClass('text-sm', 'leading-6', 'text-foreground')
   })
 })
@@ -208,13 +209,12 @@ describe('AGENT 코멘트 마크다운 렌더 (WP-254)', () => {
     expect(md.querySelector('b')).toBeNull()
   })
 
-  test('사람 코멘트는 마크다운을 해석하지 않고 평문 그대로 둔다', async () => {
-    await open([createComment({ id: 31, issueId: ISSUE_ID, authorId: 2, authorName: '김개발', body: '**굵게 아님**\n- [ ] 체크 아님' })])
-    await screen.findByText(/굵게 아님/)
+  test('사람 코멘트도 마크다운으로 — 굵게·체크리스트가 서식대로 보인다 (WP-1015)', async () => {
+    await open([createComment({ id: 31, issueId: ISSUE_ID, authorId: 2, authorName: '김개발', body: '**굵게**\n\n- [ ] 체크' })])
+    await screen.findByText('굵게')
     const item = commentItems()[0]
-    expect(item).toHaveTextContent('**굵게 아님**')
-    expect(item).toHaveTextContent('- [ ] 체크 아님')
-    expect(within(item).queryByTestId('markdown-content')).not.toBeInTheDocument()
-    expect(within(item).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(item).getByTestId('markdown-content').querySelector('strong')).toHaveTextContent('굵게')
+    expect(item).not.toHaveTextContent('**')
+    expect(within(item).getAllByRole('checkbox')).toHaveLength(1)
   })
 })

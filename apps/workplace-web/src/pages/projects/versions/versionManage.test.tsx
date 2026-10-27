@@ -3,14 +3,14 @@
 // e2e/pages/issue-versions.spec.ts 에서 옮겼다. 훅을 끊지 않고 MSW 로 실제 api → 훅 → 화면을 지난다
 // (훅을 vi.mock 한 분기 테스트는 VersionsPage.test.tsx·VersionReleaseDialog.test.tsx).
 // 버전 상세·목록 화면만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
-import { memberKeys } from '@/hooks/queries/useProjectMembers'
 import VersionDetailPage from '@/pages/projects/versions/VersionDetailPage'
 import VersionsPage from '@/pages/projects/versions/VersionsPage'
 import { atRoute } from '@/test/kits/projects/atRoute'
 import { shellHandlers } from '@/test/msw/baseHandlers'
+import { settleMembers } from '@/test/msw/projectMetaHandlers'
 import { BASE, KEY, OWNER_MEMBERS, PLAIN_MEMBERS, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
@@ -79,9 +79,7 @@ describe('버전 목록 — 관리 권한', () => {
       handlers: [...api.handlers, ...shellHandlers],
     })
     expect(await screen.findByTestId('version-row-1')).toHaveTextContent('1.0.0')
-    // 구성원 응답이 캐시에 들어가고(권한 판정 입력) 그 결과로 다시 그려질 때까지 기다린다.
-    await waitFor(() => expect(view.queryClient.getQueryState(memberKeys.all(KEY))?.status).toBe('success'))
-    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    await settleMembers(view)
     return view
   }
 

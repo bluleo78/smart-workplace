@@ -81,9 +81,7 @@ public class WikiShareLinkService {
 
     shares.recordView(share.id());
     List<Long> covered =
-        share.includeChildren()
-            ? pages.subtreeIdsInclusive(share.pageId())
-            : List.of(share.pageId());
+        share.includeChildren() ? shares.coveredSubtree(share.pageId()) : List.of(share.pageId());
     String sharerName =
         users.findNamesByIds(List.of(share.createdBy())).getOrDefault(share.createdBy(), "");
     return new WikiShareResolvedResponse(

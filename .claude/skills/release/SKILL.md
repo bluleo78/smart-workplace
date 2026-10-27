@@ -59,7 +59,10 @@ git push origin v0.9.0
 git push --no-verify gitlab v0.9.0      # GitLab 파이프라인 시작
 ```
 
-- 태그 push 뒤 WP 프로젝트 버전을 맞춘다(WP-1005): `node deploy/release/tracker.mjs attach 0.9.0` — 버전 `v0.9.0` 을 만들고(없을 때만) 이번 범위의 이슈(제목·`Refs:` 의 WP 키, 내부 변경 포함)에 수정 버전으로 붙인다. `GENIA_WORKS_API_URL`·`GENIA_WORKS_RELEASE_TOKEN` 이 없으면 안내만 하고 넘어가므로, 그 경우 사용자에게 「설정 뒤 같은 명령을 다시 돌리면 된다」고 알린다. 실패(권한 등)해도 릴리스는 계속한다 — 경고를 그대로 전한다. 출시 처리는 반영 때 `release.mjs deploy` 가 한다.
+- **WP 버전 등록**(태그 push 뒤, genia-works MCP — 토큰·환경변수 없이 내 세션 신원으로 한다):
+  1. `get_project({projectKey:'WP'})` 의 `versions` 에 `vX.Y.Z` 가 없을 때만 `create_project_meta({projectKey:'WP', kind:'version', name:'vX.Y.Z', releaseDate:'<예정일>'})`. (버전 만들기는 프로젝트 OWNER 만 된다 — 403 이면 멈추고 사람에게 알린다.)
+  2. 이번 릴리스 노트에 담은 WP 이슈마다 `update_issue({issueKey, fixVersions:[…기존 수정 버전, 'vX.Y.Z']})` — `fixVersions` 는 통째로 바꾸는 집합이라 `get_issue_detail` 의 기존 값을 먼저 합친다.
+  3. 운영 반영(`release.mjs deploy`)이 끝나고 이슈를 완료 처리할 때 `update_project_meta({projectKey:'WP', kind:'version', name:'vX.Y.Z', status:'RELEASED'})`. 잘못 출시했으면 `status:'UNRELEASED'`(자동 롤백은 없다).
 - 끝나면 GitLab 파이프라인 주소와 다음 단계(사람이 체크리스트 확인 → `node deploy/release/release.mjs deploy 0.9.0`)를 알려 주고, 워크트리·`release/next` 브랜치를 지운다.
 
 ## 빌드가 실패했을 때

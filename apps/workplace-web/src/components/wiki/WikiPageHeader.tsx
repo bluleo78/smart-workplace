@@ -1,9 +1,10 @@
-import { ChevronDown, ChevronRight, FileCode, History, Link2, Loader2, MoreHorizontal, MoveHorizontal, Trash2 } from 'lucide-react'
+import { ChevronDown, FileCode, History, Link2, Loader2, MoreHorizontal, MoveHorizontal, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { aiSignalBadgeClass } from '@/components/ai/aiMarker'
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
+import { Breadcrumb, type BreadcrumbItem } from '@/components/layout/Breadcrumb'
 import { Page } from '@/components/layout/Page'
 import { MobileDetailBar } from '@/components/mobile/MobileDetailBar'
 import { useMobileDetailHeader } from '@/components/mobile/MobileDetailContext'
@@ -24,12 +25,6 @@ import { cn } from '@/lib/utils'
 import { isAccessLost, isTerminalStatus, type SyncStatus } from '../../lib/collab/collabStatus'
 import { GENERATE_ACTIONS, type GenerateActionKey } from './wikiAiActions'
 import { WikiSyncStatusChip } from './WikiSyncStatusChip'
-
-/** 넓은 단계에서 펼쳐 보이는 가까운 조상 최대 개수 — 그 위는 "…" 메뉴로 접는다(깊은 경로 넘침 방지, WP-304). */
-const WIDE_MAX_ANCESTORS = 3
-
-/** 브레드크럼 구분 화살표. */
-const crumbSep = <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
 
 /**
  * AI 사용 가능 상태 3분기 — 예전엔 boolean(canUseAi) 하나였고 false 면 메뉴 자체를 숨겨서
@@ -59,7 +54,8 @@ export function WikiPageHeader({
   aiState,
   aiBusy,
   aiAttributed,
-  onNavigate,
+  pagePath,
+  spaceCrumb,
   onAiAction,
   onDelete,
   canDelete,
@@ -81,7 +77,10 @@ export function WikiPageHeader({
   // #736: 이 페이지에 AI 생성 이력이 있는지 — 우측 AI 액션 버튼(기능 트리거)과는 별개로 좌측
   // 브레드크럼 옆에 콘텐츠 출처 신호를 노출한다(중첩 판정은 설계 문서 §5 참고).
   aiAttributed: boolean
-  onNavigate: (pageId: number) => void
+  /** 같은 노트 안 페이지 주소 — 경로의 조상 항목이 이 주소로 가는 링크가 된다(공유 화면이면 공유 링크 안 주소). */
+  pagePath: (pageId: number) => string
+  /** 경로 시작점인 공간(§B-1 「시작점」, WP-979). 공유 링크 화면은 공간을 볼 수 없어 넘기지 않는다 — 공유한 맨 위 페이지가 시작점이다. */
+  spaceCrumb?: { name: string; to: string }
   onAiAction: (action: GenerateActionKey) => void
   onDelete: () => void
   /** 페이지를 지울 수 있는지(WP-602) — 읽기 전용(VIEWER)이면 「페이지 삭제」를 감춘다(눌러도 403). */
@@ -115,9 +114,16 @@ export function WikiPageHeader({
   const detail = useMobileDetailHeader(isMobile)
   // 툴팁 사유는 권한/로딩 사유만 노출(생성 중은 버튼 라벨이 "생성 중…"으로 이미 자명).
   const disabledReason = aiState === 'ready' ? null : AI_DISABLED_REASON[aiState]
-  // 브레드크럼 = 조상들 + 현재 페이지(마지막). 조상은 폭 단계에 따라 "…" 메뉴로 접힌다(WP-304).
-  const ancestors = crumbs.slice(0, -1)
+  // 브레드크럼 = (공간) + 조상들 + 현재 페이지(마지막). 현재는 모바일 제목·숨은 h1 에도 쓴다.
   const current = crumbs.at(-1)
+  const breadcrumbItems: BreadcrumbItem[] = [
+    ...(spaceCrumb ? [{ key: 'space', label: spaceCrumb.name, title: spaceCrumb.name, to: spaceCrumb.to, testId: 'wiki-breadcrumb-space' }] : []),
+    ...crumbs.map((c, i) =>
+      i === crumbs.length - 1
+        ? { key: c.id, label: c.title, title: c.title, testId: 'wiki-breadcrumb-current' }
+        : { key: c.id, label: c.title, title: c.title, to: pagePath(c.id), testId: 'wiki-breadcrumb-ancestor' },
+    ),
+  ]
 
   /**
    * AI 버튼 본체. 아이콘 간격은 Button cva 가 자동 적용하므로 gap 유틸을 직접 붙이지 않는다
@@ -373,105 +379,25 @@ export function WikiPageHeader({
   return (
     <Page.Header
       data-testid="wiki-page-header"
+      leadingGrow
       // 본문 제목은 편집 칸(textarea)이라 제목 요소가 아니다 — 스크린리더 제목 이동용으로 노트 제목을 숨은 h1 로 둔다(WP-816).
       srTitle={current ? current.title || '제목 없음' : '노트'}
       leading={
-        /*
-          WP-304: 클램프 때문에 1024px 부근에선 nav 가 ~150px 뿐인데, 예전엔 모든 경로 항목이 같은 비율로 줄어
-          현재 제목까지 0 폭이 됐다. nav 를 컨테이너(@container/crumbs)로 두고 "실제 nav 폭" 기준 3단으로 접는다.
-            - 좁음(<17rem, 1024~1100px): 조상 전부 "…" 메뉴로 접고, AI 배지는 "✨ AI" 로 줄인다.
-            - 중간(17~26rem, 1280~1440px): 바로 위 부모만 남기고 그 위 조상은 "…" 메뉴로.
-            - 넓음(≥26rem): 가까운 조상 최대 3개까지 표시, 그 위는 "…" 메뉴로 — 아주 깊은 경로도 클램프를 넘지 않게.
-          현재 제목은 어느 단계든 min-w-14(56px) + 줄임표로 남는다. 숨긴 조상은 "…" 메뉴(전체 경로 순서)로 이동 가능.
-          container-type 은 내용 기반 너비를 0 으로 만들어 Page.Header 좌측 그룹(내용 폭)까지 0 이 되므로,
-          w-screen 으로 넉넉한 기준 폭을 주고 min-w-0 으로 줄인다 — 실제 폭은 헤더 남는 폭·AI 칩 클램프가 정한다.
-        */
-        <nav className="@container/crumbs w-screen min-w-0" aria-label="페이지 경로">
-          {/* overflow-hidden: 어떤 깊이·글꼴에서도 경로가 nav 밖(런처 쪽)으로 새지 않게 하는 안전망.
-              py-1 -my-1 은 포커스 링이 위아래로 잘리지 않을 여유. */}
-          <div className="-my-1 flex min-w-0 items-center gap-1 overflow-hidden py-1 text-sm">
-            {ancestors.length > 0 && (
-              <span
-                className={cn(
-                  'hidden shrink-0 items-center gap-1 @max-[17rem]/crumbs:flex',
-                  ancestors.length > 1 && '@min-[17rem]/crumbs:@max-[26rem]/crumbs:flex',
-                  ancestors.length > WIDE_MAX_ANCESTORS && '@min-[26rem]/crumbs:flex',
-                )}
-              >
-                <DropdownMenu>
-                  {/* 24px 이상(터치는 44px) 히트 영역 — 좁음 단계 예산(152px) 안에서 제목 min-w-14 와 함께 맞춘다. */}
-                  <DropdownMenuTrigger
-                    aria-label="상위 경로 보기"
-                    data-testid="wiki-breadcrumb-ellipsis"
-                    className="flex min-h-6 min-w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                  >
-                    <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-                  </DropdownMenuTrigger>
-                  {/* 접힌 조상은 단계마다 다르므로(메뉴는 portal 이라 컨테이너 쿼리 밖) 전체 조상을 경로 순서로 나열한다. */}
-                  <DropdownMenuContent align="start" className="max-w-72">
-                    {ancestors.map((c) => (
-                      <DropdownMenuItem key={c.id} onSelect={() => onNavigate(c.id)}>
-                        <span className="truncate">{c.title}</span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                {/* 좁음 단계에선 "…" 바로 뒤가 현재 제목이라 화살표를 빼 제목 폭을 번다. */}
-                <span className="contents @max-[17rem]/crumbs:hidden">{crumbSep}</span>
-              </span>
-            )}
-            {ancestors.map((c, i) => {
-              // 현재 페이지에서의 거리(0 = 바로 위 부모) — 가까운 조상일수록 넓은 단계에서 남는다.
-              const dist = ancestors.length - 1 - i
-              return (
-                // 조상 항목 + 뒤따르는 화살표를 한 묶음으로 숨겨 화살표만 남는 일이 없게 한다.
-                <span
-                  key={c.id}
-                  data-testid="wiki-breadcrumb-ancestor"
-                  className={cn(
-                    'flex min-w-12 shrink-[10] items-center gap-1',
-                    dist === 0
-                      ? '@max-[17rem]/crumbs:hidden'
-                      : dist < WIDE_MAX_ANCESTORS
-                        ? '@max-[26rem]/crumbs:hidden'
-                        : 'hidden',
-                  )}
-                >
-                  <button
-                    type="button"
-                    title={c.title}
-                    onClick={() => onNavigate(c.id)}
-                    className="min-w-0 truncate text-muted-foreground hover:text-foreground"
-                  >
-                    {c.title}
-                  </button>
-                  {crumbSep}
-                </span>
-              )
-            })}
-            {current && (
-              <span
-                title={current.title}
-                data-testid="wiki-breadcrumb-current"
-                className="min-w-14 truncate font-semibold text-foreground"
-              >
-                {current.title}
-              </span>
-            )}
-            {/* #736: 콘텐츠 출처 신호 — 우측 AI 액션 버튼(기능 트리거)과는 다른 클러스터에 둔다.
-                좁음 단계에선 "✨ AI" 만 보이고 나머지 글자는 스크린리더용으로만 남긴다(WP-304). */}
-            {aiAttributed && (
-              <AiSignalBadge
-                variant="info"
-                reason="AI가 생성한 콘텐츠를 포함합니다"
-                data-testid="wiki-page-ai-attribution-badge"
-                className="ml-1 shrink-0 @max-[17rem]/crumbs:ml-0"
-              >
-                AI<span className="@max-[17rem]/crumbs:sr-only"> 생성 포함</span>
+        // 경로는 공용 Breadcrumb(§B-1, WP-979) — 시작점은 공간, 마지막은 현재 페이지. 4단계를 넘거나 폭이 모자라면
+        // 시작·현재만 남기고 가운데를 「…」 메뉴로 접는다(예전 노트 전용 3단 컨테이너 접기를 대신한다).
+        // AI 생성 표식(#736)은 경로 바로 뒤(trailing)에 둔다 — 우측 AI 액션 버튼(기능 트리거)과는 다른 클러스터. 접기 판정이 그 폭까지 센다.
+        <Breadcrumb
+          items={breadcrumbItems}
+          aria-label="페이지 경로"
+          data-testid="wiki-breadcrumb"
+          trailing={
+            aiAttributed ? (
+              <AiSignalBadge variant="info" reason="AI가 생성한 콘텐츠를 포함합니다" data-testid="wiki-page-ai-attribution-badge">
+                AI<span className="sr-only"> 생성 포함</span>
               </AiSignalBadge>
-            )}
-          </div>
-        </nav>
+            ) : undefined
+          }
+        />
       }
       actions={
         <>

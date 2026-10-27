@@ -88,6 +88,10 @@ function openLastVisited(path: string, pageStatus = 200) {
           ? HttpResponse.json(wikiPageDetail({ id: LAST_ID, spaceId: 2, title: LAST_TITLE }))
           : HttpResponse.json({ status: pageStatus, message: '페이지를 열 수 없습니다' }, { status: pageStatus })
       }),
+      // 404 면 덮는 공유가 있는지 입구 판정을 묻는다(WP-987) — 같은 상태로 답해 공유 없음(안내 화면)으로 둔다.
+      http.get(`/api/v1/wiki/pages/${LAST_ID}/entry`, () =>
+        HttpResponse.json({ status: pageStatus, message: '페이지를 열 수 없습니다' }, { status: pageStatus === 200 ? 404 : pageStatus }),
+      ),
     ],
   })
   return { ...view, pageGets }
@@ -424,7 +428,7 @@ function openShareOwner(server: ServerShare, { role = 'OWNER' as WikiRole, path 
     handlers: [
       http.get(sharePath, async ({ request }) => {
         await record(request)
-        const state: WikiPageShareState = { share: server.share, externalShareEnabled: true, inheritedFrom: null, accessRequests: server.accessRequests }
+        const state: WikiPageShareState = { share: server.share, externalShareEnabled: true, inheritedFrom: null, accessRequests: server.accessRequests, excludedFromParent: false, excludedPages: [] }
         return HttpResponse.json(state)
       }),
       http.put(sharePath, async ({ request }) => {

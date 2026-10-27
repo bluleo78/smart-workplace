@@ -18,7 +18,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 프로젝트 스코프 사이클 CRUD 컨트롤러. OWNER 검증은 서비스 레이어. */
+/**
+ * 프로젝트 스코프 사이클 CRUD 컨트롤러. 변경은 버전처럼 {@code project:manage} 로 걸고, 실제 판정(프로젝트 OWNER)은 서비스 레이어가
+ * 한다(WP-1008).
+ */
 @RestController
 @RequestMapping("/api/v1/projects/{key}/cycles")
 @RequiredArgsConstructor
@@ -35,7 +38,7 @@ public class CycleController {
 
   /** 신규 사이클 생성 — OWNER 권한. */
   @PostMapping
-  @RequirePermission("cycle:manage")
+  @RequirePermission("project:manage")
   public ResponseEntity<CycleResponse> create(
       Authentication auth, @PathVariable String key, @Valid @RequestBody CreateCycleRequest req) {
     return ResponseEntity.ok(cycleService.create((Long) auth.getPrincipal(), key, req));
@@ -43,7 +46,7 @@ public class CycleController {
 
   /** 사이클 수정 — OWNER 권한. */
   @PatchMapping("/{cycleId}")
-  @RequirePermission("cycle:manage")
+  @RequirePermission("project:manage")
   public ResponseEntity<CycleResponse> update(
       Authentication auth,
       @PathVariable String key,
@@ -54,7 +57,7 @@ public class CycleController {
 
   /** 사이클 삭제 — OWNER 권한. */
   @DeleteMapping("/{cycleId}")
-  @RequirePermission("cycle:manage")
+  @RequirePermission("project:manage")
   public ResponseEntity<Void> delete(
       Authentication auth, @PathVariable String key, @PathVariable Long cycleId) {
     cycleService.delete((Long) auth.getPrincipal(), key, cycleId);

@@ -4,7 +4,7 @@
 
 import { isClosedStatus } from '../../lib/issueGrouping';
 import type { IssueFilters } from '../../types/issue';
-import { useFetchAllPages } from './useFetchAllPages';
+import { remainingPagesFailed, useFetchAllPages } from './useFetchAllPages';
 import { useIssueSearch } from './useIssueSearch';
 import { useIssueTypes } from './useIssueTypes';
 
@@ -79,7 +79,10 @@ export function useClosedEpics(projectKey: string, enabled = true) {
   // 종료 에픽은 계속 쌓여 100건을 넘을 수 있다 — 개수·자동 펼침·칩 라벨이 맞도록 전량을 받는다.
   // 빠른 응답에도 멈추지 않게 응답마다 다시 판정한다(WP-996).
   useFetchAllPages(epicSearch, enabled);
-  if (panel.loading) return { epics: [] };
+  // 다음 페이지가 실패하면 자동 로드가 멈춰 일부만 남는다 — 구역이 안내·다시 시도를 보이게 알린다(WP-1007).
+  const loadError = remainingPagesFailed(epicSearch);
+  const retry = () => void epicSearch.fetchNextPage();
+  if (panel.loading) return { epics: [], loadError: false, retry };
   const shownAbove = new Set(panel.epics.map((e) => e.number));
-  return { epics: epics.filter((e) => !shownAbove.has(e.number)) };
+  return { epics: epics.filter((e) => !shownAbove.has(e.number)), loadError, retry };
 }

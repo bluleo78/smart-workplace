@@ -16,7 +16,7 @@ import { renderScreen } from '@/test/renderScreen'
 import type { CycleProgress, CycleResponse, CycleSummary } from '@/types/cycle'
 
 import { createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
-import { createProject } from '../../../e2e/factories/project.factory'
+import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import CyclesPage from './CyclesPage'
 
 const KEY = 'WP'
@@ -38,6 +38,8 @@ async function openCycles(cycles: { current: CycleResponse[] }, progress: CycleP
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
       http.get(CYCLES, () => HttpResponse.json(cycles.current)),
       http.get(`${CYCLES}/progress`, () => HttpResponse.json(progress)),
+      // 새 사이클·수정·삭제는 프로젝트 OWNER 만 보인다(WP-1008) — 로그인 사용자(id 1)를 OWNER 로 둔다.
+      http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, role: 'OWNER' })])),
     ],
   })
   await screen.findByTestId('page-header', {}, { timeout: SCREEN_LOAD_TIMEOUT })

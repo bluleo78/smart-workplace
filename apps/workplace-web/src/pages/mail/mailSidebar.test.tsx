@@ -229,7 +229,10 @@ test('메일함 클릭 → folderId 로만 목록, 열 때 가져오기(older=fa
   await waitFor(() => expect(list.calls.length).toBeGreaterThan(listCalls))
   expect(syncs.calls).toHaveLength(1)
 
-  expect(screen.getByTestId('page-header').querySelector('h1')!.textContent).toMatch(/내 메일함\s*›\s*프로젝트\s*›\s*견적/)
+  // 경로는 최상위 메일함부터 — 사이드바 구역 이름 「내 메일함」은 넣지 않는다(WP-979 §B-1).
+  // 보이는 줄(첫 ol)만 본다 — 같은 nav 안의 접기 판정용 측정 사본(숨김)이 글자를 한 벌 더 갖는다.
+  expect(screen.getByTestId('mail-breadcrumb').querySelector('ol')!.textContent).toMatch(/^프로젝트\s*견적$/)
+  expect(screen.getByTestId('page-header').querySelector('h1')!.textContent).toBe('견적')
   await waitFor(() => expect(document.title).toMatch(/^견적 · 메일/))
   expect(screen.getByTestId('mail-row-10')).toBeInTheDocument()
   for (const id of ['mail-badge-category-10', 'mail-badge-needsreply-10', 'mail-badge-pending-10', 'mail-sync']) {
@@ -296,7 +299,8 @@ test('메일함 모두 읽음 — 건수 조회·실행 모두 folderId 범위(�
   expect(count.last().url.searchParams.get('folderId')).toBe('5')
   expect(count.last().url.searchParams.has('category')).toBe(false)
   const dlg = await screen.findByTestId('mail-mark-all-dialog')
-  expect(dlg).toHaveTextContent('내 메일함 › 프로젝트')
+  expect(dlg).toHaveTextContent('프로젝트')
+  expect(dlg).not.toHaveTextContent('내 메일함')
   expect(dlg).toHaveTextContent('3통')
   await user.click(screen.getByTestId('mail-mark-all-confirm'))
   await waitFor(() => expect(run.calls).toHaveLength(1))

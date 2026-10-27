@@ -10,7 +10,7 @@ import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { CycleProgress, CycleResponse } from '@/types/cycle'
 
-import { createProject } from '../../../e2e/factories/project.factory'
+import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import CyclesPage from '../projects/CyclesPage'
 
 mockViewport()
@@ -32,6 +32,8 @@ function handlers(deletes: number[]) {
     http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
     http.get(`/api/v1/projects/${KEY}/cycles`, () => HttpResponse.json(CYCLES)),
     http.get(`/api/v1/projects/${KEY}/cycles/progress`, () => HttpResponse.json(PROGRESS)),
+    // 수정·삭제(⋯)는 프로젝트 OWNER 만 보인다(WP-1008) — 로그인 사용자(id 1)를 OWNER 로 둔다.
+    http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, role: 'OWNER' })])),
     http.delete(`/api/v1/projects/${KEY}/cycles/:id`, ({ params }) => {
       deletes.push(Number(params.id))
       return new HttpResponse(null, { status: 204 })
