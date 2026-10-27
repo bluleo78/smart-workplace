@@ -1,33 +1,46 @@
 // useRememberedIssueQuery(WP-1035) — 프로젝트 이슈 화면의 필터·보기·그룹 기억과 되살리기 규칙을 지킨다.
 // 무엇을: 주소에 조건이 없을 때만 되살림·주소 조건 우선과 기억 갱신·화면 안에서 조건을 모두 지우면 기억도 지움·
-//        같은 프로젝트 링크로 다시 들어오면 되살림·프로젝트·사용자별 분리·목록 열과 다른 쿼리는 기억하지 않음.
+//        같은 프로젝트 링크로 다시 들어오면 되살림·앱의 다른 replace(AI 대화 링크·모바일 뒤로 가기)로 들어와도 되살림·
+//        프로젝트·사용자별 분리·목록 열과 다른 쿼리는 기억하지 않음.
 // 왜: 조건은 URL 이 단일 원본이라, 되살리기가 주소의 조건을 덮으면 공유 링크·에픽 링크가 엉뚱한 조건으로 열린다.
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { MemoryRouter, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { AiChatDeepLink } from '@/components/ai/AiChatDeepLink'
+import { useMobileBack } from '@/components/mobile/useMobileBack'
 import { AuthContext } from '@/hooks/auth-context-value'
 import { memoryStorage } from '@/test/memoryStorage'
 import { testAuthValue } from '@/test/renderWithProviders'
 
 import { rememberedIssueQuery, useRememberedIssueQuery } from './useRememberedIssueQuery'
 
+// AI 대화 링크가 기대는 패널·대화 세션 — 열기 동작은 이 테스트의 관심 밖이라 끊는다.
+vi.mock('@/components/ai/AIAssistantContext', () => ({ useAssistant: () => ({ mode: 'side', open: vi.fn() }) }))
+vi.mock('@/hooks/chat-session-context', () => ({
+  useChatSessionContext: () => ({ openSession: vi.fn(() => Promise.resolve('ok')) }),
+}))
+
 // 테스트 사용자(id 1)·워크스페이스(1)의 저장 키 — userScopedKey 규칙 `<base>:<userId>:<tenantId>`.
 const keyOf = (project: string) => `issue-list-query:${project}:1:1`
 
-function renderAt(url: string, project = 'WP', enabled = true) {
+/** @param withDeepLink 앱 셸(AppLayout)처럼 AI 대화 링크 처리기를 함께 띄운다 — 화면보다 바깥이라 effect 가 화면 뒤에 돈다. */
+function renderAt(url: string, project = 'WP', enabled = true, withDeepLink = false) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <AuthContext.Provider value={testAuthValue}>
-      <MemoryRouter initialEntries={[url]}>{children}</MemoryRouter>
+      <MemoryRouter initialEntries={[url]}>
+        {children}
+        {withDeepLink && <AiChatDeepLink />}
+      </MemoryRouter>
     </AuthContext.Provider>
   )
   return renderHook(
-    ({ p }: { p: string }) => {
-      const restoring = useRememberedIssueQuery(p, enabled)
+    ({ p, on }: { p: string; on: boolean }) => {
+      const restoring = useRememberedIssueQuery(p, on)
       return { restoring, location: useLocation(), setParams: useSearchParams()[1], navigate: useNavigate() }
     },
-    { wrapper, initialProps: { p: project } },
+    { wrapper, initialProps: { p: project, on: enabled } },
   )
 }
 
@@ -113,5 +126,60 @@ describe('useRememberedIssueQuery', () => {
     localStorage.setItem(keyOf('WP'), 'priority=NOPE&label=abc')
     const { result } = renderAt('/projects/WP')
     expect(result.current.location.search).toBe('')
+  })
+
+  describe('앱의 다른 replace 로 조건 없이 들어와도 지우지 않고 되살린다', () => {
+    const AI_CHAT = '/projects/WP?aiChat=11111111-1111-1111-1111-111111111111'
+
+    it('AI 대화 링크 — 프로젝트를 불러오는 동안 aiChat 이 replace 로 지워진 뒤', () => {
+      localStorage.setItem(keyOf('WP'), 'view=board&priority=HIGH')
+      const { result, rerender } = renderAt(AI_CHAT, 'WP', false, true)
+      expect(result.current.location.search).toBe('')
+      rerender({ p: 'WP', on: true })
+      expect(result.current.location.search).toBe('?view=board&priority=HIGH')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('view=board&priority=HIGH')
+    })
+
+    it('AI 대화 링크 — 프로젝트가 캐시에 있어 되살리기와 aiChat 지우기가 같은 커밋에 돌 때', () => {
+      localStorage.setItem(keyOf('WP'), 'view=board&priority=HIGH')
+      const { result } = renderAt(AI_CHAT, 'WP', true, true)
+      const s = searchOf(result)
+      expect(s.get('aiChat')).toBeNull()
+      expect(s.get('view')).toBe('board')
+      expect(s.get('priority')).toBe('HIGH')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('view=board&priority=HIGH')
+    })
+
+    it('모바일 뒤로 가기 — 딥링크로 연 이슈 상세에서 ‹ 로 프로젝트에 replace 이동', () => {
+      localStorage.setItem(keyOf('WP'), 'view=board&priority=HIGH')
+      // 실제 라우트처럼 목록과 상세가 다른 화면이라, 뒤로 가면 목록 화면이 새로 붙는다.
+      function List() {
+        useRememberedIssueQuery('WP', true)
+        return <p data-testid="search">{useLocation().search}</p>
+      }
+      function Detail() {
+        const back = useMobileBack()
+        return <button onClick={back}>뒤로</button>
+      }
+      render(
+        <AuthContext.Provider value={testAuthValue}>
+          <MemoryRouter initialEntries={['/projects/WP/issues/5']}>
+            <Routes>
+              <Route path="/projects/:key" element={<List />} />
+              <Route path="/projects/:key/issues/:number" element={<Detail />} />
+            </Routes>
+          </MemoryRouter>
+        </AuthContext.Provider>,
+      )
+      act(() => screen.getByRole('button', { name: '뒤로' }).click())
+      expect(screen.getByTestId('search').textContent).toBe('?view=board&priority=HIGH')
+      expect(localStorage.getItem(keyOf('WP'))).toBe('view=board&priority=HIGH')
+    })
+
+    it('조건이 있던 화면이라도 다른 쿼리만 replace 로 바뀌면 기억은 그대로다', () => {
+      const { result } = renderAt('/projects/WP?priority=HIGH')
+      act(() => result.current.setParams((prev) => { prev.set('aiChat', 'x'); return prev }, { replace: true }))
+      expect(localStorage.getItem(keyOf('WP'))).toBe('priority=HIGH')
+    })
   })
 })

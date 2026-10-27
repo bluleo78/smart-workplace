@@ -7,7 +7,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@/hooks/useAuth'
 import { liveSearchParams } from '@/lib/historyParam'
-import { safeLocalStorage } from '@/lib/safeLocalStorage'
+import { readStored, writeStored } from '@/lib/storageWithFallback'
 import { userScopedKey } from '@/lib/userScopedKey'
 
 import { useCustomFields } from '../../../hooks/queries/useCustomFields'
@@ -26,9 +26,6 @@ const STORAGE_BASE = 'issue-list-columns'
 
 // 같은 탭의 구독자 — 저장값을 바꾸면 모두 다시 읽는다(같은 탭 변경엔 storage 이벤트가 뜨지 않는다).
 const listeners = new Set<() => void>()
-// 저장소에 쓰지 못했을 때(사생활 보호 모드 등)만 쓰는 이 탭 한정 값 — 쓰기에 성공하면 비운다.
-// 평소엔 비어 있어 스냅샷이 언제나 localStorage 원문이다(문자열이라 값 비교로 충분 — 캐시 불필요).
-const memoryFallback = new Map<string, string | null>()
 
 function subscribe(cb: () => void): () => void {
   listeners.add(cb)
@@ -43,27 +40,9 @@ function subscribe(cb: () => void): () => void {
   }
 }
 
-/** 저장 원문(JSON 문자열) — 없거나 읽을 수 없으면 null. */
-function readRaw(storageKey: string): string | null {
-  if (memoryFallback.has(storageKey)) return memoryFallback.get(storageKey) ?? null
-  try {
-    return safeLocalStorage()?.getItem(storageKey) ?? null
-  } catch {
-    return null
-  }
-}
-
-/** 원문을 쓰거나(null 이면 지우고) 구독자에게 알린다. 저장소가 막혔으면 이 탭에서만 기억한다. */
+/** 원문을 쓰거나(null 이면 지우고) 구독자에게 알린다. 저장소가 막혔으면 이 탭에서만 기억한다(storageWithFallback). */
 function writeRaw(storageKey: string, value: string | null): void {
-  try {
-    const storage = safeLocalStorage()
-    if (!storage) throw new Error('no storage')
-    if (value === null) storage.removeItem(storageKey)
-    else storage.setItem(storageKey, value)
-    memoryFallback.delete(storageKey)
-  } catch {
-    memoryFallback.set(storageKey, value)
-  }
+  writeStored(storageKey, value)
   listeners.forEach((l) => l())
 }
 
@@ -110,7 +89,7 @@ export function useIssueListColumns(projectKey: string, closedFilterActive: bool
     : null
   const raw = useSyncExternalStore(
     subscribe,
-    () => (storageKey ? readRaw(storageKey) : null),
+    () => (storageKey ? readStored(storageKey) : null),
     () => null,
   )
   const [params, setParams] = useSearchParams()
