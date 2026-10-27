@@ -6,6 +6,7 @@ import com.workplace.user.dto.AddMemberRequest;
 import com.workplace.user.dto.CreateUserGroupRequest;
 import com.workplace.user.dto.UpdateUserGroupRequest;
 import com.workplace.user.dto.UserGroupDetail;
+import com.workplace.user.dto.UserGroupMemberHit;
 import com.workplace.user.dto.UserGroupNode;
 import com.workplace.user.dto.UserGroupTreeResponse;
 import com.workplace.user.exception.InvalidUserGroupException;
@@ -13,15 +14,16 @@ import com.workplace.user.exception.UserGroupForbiddenException;
 import com.workplace.user.exception.UserGroupNotFoundException;
 import com.workplace.user.repository.UserGroupRepository;
 import com.workplace.user.repository.UserGroupRepository.FlatGroup;
+import com.workplace.user.repository.UserGroupRepository.GroupMemberRow;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Deque;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,13 +52,91 @@ public class UserGroupService {
   /** 그룹 상세 + 직속 멤버. PERSONAL 비소유자는 404. */
   @Transactional(readOnly = true)
   public UserGroupDetail getDetail(long callerId, long id) {
+    return toDetail(callerId, requireReadable(callerId, id));
+  }
+
+  /** 볼 수 있는 그룹을 읽는다 — 남의 개인 그룹은 관리자가 아니면 없는 것처럼 404(존재 은닉). */
+  private FlatGroup requireReadable(long callerId, long id) {
     FlatGroup g = repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id));
     if ("PERSONAL".equals(g.visibility())
         && (g.ownerId() == null || g.ownerId() != callerId)
         && !permissionChecker.userHasRole(callerId, "ADMIN")) {
       throw new UserGroupNotFoundException(id); // 존재 은닉
     }
-    return toDetail(callerId, g);
+    return g;
+  }
+
+  /**
+   * 그룹과 그 하위 조직 전체에서 구성원을 찾는다(WP-1000) — 상위 조직(경영지원본부)에서 검색해도 하위 팀(재경팀) 사람이 나오게. 이름·이메일·직책·조직 중 하나에
+   * 대소문자 무시 부분 일치(DB 에서 거른다, 빈 검색어면 모두). 한 사람이 여러 하위 조직에 있으면 찾은 그룹에 가장 가까운(얕은) 소속 하나만, 그 소속까지의 경로와
+   * 함께 돌려준다. 이름 오름차순.
+   */
+  @Transactional(readOnly = true)
+  public List<UserGroupMemberHit> searchMembers(long callerId, long id, String q) {
+    FlatGroup root = requireReadable(callerId, id);
+    Map<Long, FlatGroup> byId = new HashMap<>();
+    for (FlatGroup g : repo.findAccessible(treeOwner(root, callerId))) {
+      byId.put(g.id(), g);
+    }
+    // 그룹 id → 너비 우선 순번(작을수록 찾은 그룹에 가까운 소속). 키는 찾을 범위다.
+    Map<Long, Integer> depthRank = subtreeRanks(byId.values(), id);
+    Map<String, GroupMemberRow> nearest = new LinkedHashMap<>();
+    for (GroupMemberRow r :
+        repo.findMembersIn(
+            TenantContext.require(),
+            callerId,
+            permissionChecker.userHasRole(callerId, "ADMIN"),
+            depthRank.keySet(),
+            q == null ? null : q.trim())) {
+      // 이름순으로 온 행에서 같은 사람은 찾은 그룹에 가까운 소속을 남긴다(자리는 처음 본 곳 그대로 — 이름순 유지).
+      nearest.merge(
+          r.member().targetType() + ":" + r.member().targetId(),
+          r,
+          (a, b) -> depthRank.get(b.groupId()) < depthRank.get(a.groupId()) ? b : a);
+    }
+    return nearest.values().stream()
+        .map(r -> UserGroupMemberHit.of(r.groupId(), pathFrom(byId, id, r.groupId()), r.member()))
+        .toList();
+  }
+
+  /** 찾은 그룹(fromId)부터 속한 그룹까지의 이름 — 직속이면 빈 목록. 부모를 따라 올라가 뒤집는다. */
+  private static List<String> pathFrom(Map<Long, FlatGroup> byId, long fromId, long groupId) {
+    if (groupId == fromId) {
+      return List.of();
+    }
+    Deque<String> names = new ArrayDeque<>();
+    for (FlatGroup g = byId.get(groupId); g != null; g = byId.get(g.parentId())) {
+      names.push(g.name());
+      if (g.id() == fromId) {
+        break;
+      }
+    }
+    return List.copyOf(names);
+  }
+
+  /**
+   * 그룹의 하위를 볼 트리의 주인 — 개인 그룹이면 그 주인, 공유 그룹이면 호출자. 개인 그룹의 하위는 같은 주인의 개인 그룹뿐이라(validateParent) 관리자가
+   * 남의 개인 그룹을 다룰 때도 주인 트리로 봐야 자손을 놓치지 않는다(WP-677).
+   */
+  private static long treeOwner(FlatGroup g, long callerId) {
+    return g.ownerId() != null ? g.ownerId() : callerId;
+  }
+
+  /** id 그룹과 자손의 너비 우선 순번(자기 0 — 작을수록 가까운 소속). 순서를 지키는 맵이다. */
+  private static Map<Long, Integer> subtreeRanks(Collection<FlatGroup> groups, long id) {
+    Map<Long, List<Long>> childrenByParent = new LinkedHashMap<>();
+    for (FlatGroup g : groups) {
+      childrenByParent.computeIfAbsent(g.parentId(), k -> new ArrayList<>()).add(g.id());
+    }
+    Map<Long, Integer> ranks = new LinkedHashMap<>();
+    ranks.put(id, 0);
+    List<Long> order = new ArrayList<>(List.of(id));
+    for (int i = 0; i < order.size(); i++) {
+      for (Long child : childrenByParent.getOrDefault(order.get(i), List.of())) {
+        if (ranks.putIfAbsent(child, ranks.size()) == null) order.add(child);
+      }
+    }
+    return ranks;
   }
 
   /**
@@ -124,8 +204,8 @@ public class UserGroupService {
       }
       // 자손·부모는 호출자가 아니라 이 그룹 주인 기준으로 본다(WP-677) — 관리자가 남의 개인 그룹을 옮길 때 관리자 트리에는 그 자손이 없어
       // 순환을 놓쳤고, 「부모 주인 == 호출자」만 봐 남의 그룹을 관리자 개인 그룹 밑으로 옮겨 양쪽 트리에서 사라지게 했다.
-      long viewerId = g.ownerId() != null ? g.ownerId() : callerId;
-      if (descendants(viewerId, id).contains(req.parentId())) {
+      if (subtreeRanks(repo.findAccessible(treeOwner(g, callerId)), id)
+          .containsKey(req.parentId())) {
         throw new InvalidUserGroupException("그룹을 자손 그룹의 하위로 옮길 수 없습니다");
       }
       validateParent(g.ownerId(), g.visibility(), req.parentId());
@@ -234,24 +314,6 @@ public class UserGroupService {
         && (parent.ownerId() == null || !parent.ownerId().equals(ownerId))) {
       throw new InvalidUserGroupException("같은 사람의 개인 그룹 밑으로만 옮길 수 있습니다");
     }
-  }
-
-  /** id 그룹의 모든 자손 id 집합(접근 가능한 평면 트리 기준). */
-  private Set<Long> descendants(long callerId, long id) {
-    Map<Long, List<Long>> childrenByParent = new LinkedHashMap<>();
-    for (FlatGroup g : repo.findAccessible(callerId)) {
-      childrenByParent.computeIfAbsent(g.parentId(), k -> new ArrayList<>()).add(g.id());
-    }
-    Set<Long> result = new HashSet<>();
-    Deque<Long> stack = new ArrayDeque<>();
-    stack.push(id);
-    while (!stack.isEmpty()) {
-      Long cur = stack.pop();
-      for (Long child : childrenByParent.getOrDefault(cur, List.of())) {
-        if (result.add(child)) stack.push(child);
-      }
-    }
-    return result;
   }
 
   /** 평면 목록에서 특정 visibility 의 트리(루트 리스트) 조립. sort_order→name 정렬. */

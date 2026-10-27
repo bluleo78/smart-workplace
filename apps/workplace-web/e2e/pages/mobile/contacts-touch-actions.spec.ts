@@ -21,6 +21,9 @@ async function stubBase(page: Page, contacts = makePage([])) {
     r.request().method() === 'GET' ? r.fulfill(json(sharedDetail())) : r.fallback())
   await page.route((u) => u.pathname === '/api/v1/user-groups/20', (r) =>
     r.request().method() === 'GET' ? r.fulfill(json(personalDetail())) : r.fallback())
+  // 그룹 보기 검색(하위 조직 포함, WP-1000) — 그룹 10 의 구성원을 그룹 id 와 함께 돌려준다.
+  await page.route((u) => u.pathname === '/api/v1/user-groups/10/members/search', (r) =>
+    r.fulfill(json(sharedDetail().members.map((m) => ({ ...m, groupId: 10, groupPath: [] })))))
 }
 
 async function openSidebar(page: Page) {
@@ -62,8 +65,8 @@ test('즐겨찾기 ★: 안 보이는 ★ 는 탭해도 요청이 없고, 즐겨
 })
 
 // WP-976 — 모바일 검색은 헤더 🔍 로 편다. 펼치면 입력칸에 바로 초점이 가고, 한글을 이어 쳐도 조합이 끊기지 않으며
-// URL q 는 완성된 글자로 반영된다(WP-974 방식). 「취소」는 검색어를 비우고 접는다. 초점·IME 는 브라우저에서만 판정된다.
-test('헤더 🔍 → 입력칸 초점 → 한글 연속 입력이 끊기지 않고, 「취소」로 접힌다 (WP-976)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+// URL q 는 완성된 글자로 반영된다(WP-974 방식). 「닫기」는 검색어를 둔 채 접는다(WP-1000). 초점·IME 는 브라우저에서만 판정된다.
+test('헤더 🔍 → 입력칸 초점 → 한글 연속 입력이 끊기지 않고, 「닫기」로 접힌다 (WP-976)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubBase(page, makePage([member({ id: 1, name: '김멤버' })]))
   await page.goto('/contacts?group=10')
   await expect(page.getByTestId('group-contact-view')).toBeVisible()
@@ -77,8 +80,9 @@ test('헤더 🔍 → 입력칸 초점 → 한글 연속 입력이 끊기지 않
   await expect(page).toHaveURL(/q=%EC%9D%B4%EA%B0%9C%EB%B0%9C/)
   await expect(page.getByTestId('group-member-MEMBER-2')).toBeVisible()
 
-  await page.getByTestId('contact-search-cancel').click()
+  await page.getByTestId('contact-search-close').click()
   await expect(page.getByTestId('contact-mobile-search')).toHaveCount(0)
-  await expect(page).not.toHaveURL(/q=/)
-  await expect(page.getByTestId('contact-search-open')).toBeVisible()
+  // 검색어는 남고, 접힌 헤더의 검색어 칩이 걸러진 상태를 보인다.
+  await expect(page).toHaveURL(/q=%EC%9D%B4%EA%B0%9C%EB%B0%9C/)
+  await expect(page.getByTestId('contact-search-chip')).toHaveText('이개발')
 })

@@ -5,6 +5,7 @@ import type {
   GroupMemberType,
   UpdateUserGroupRequest,
   UserGroupDetail,
+  UserGroupMemberHit,
   UserGroupTree,
 } from '../types/userGroup'
 import { client } from './client'
@@ -12,6 +13,9 @@ import { client } from './client'
 export const userGroupsApi = {
   tree: () => client.get<UserGroupTree>('/user-groups'),
   detail: (id: number) => client.get<UserGroupDetail>(`/user-groups/${id}`),
+  /** 그룹과 하위 조직 전체에서 구성원 찾기(WP-1000). */
+  searchMembers: (id: number, q: string) =>
+    client.get<UserGroupMemberHit[]>(`/user-groups/${id}/members/search`, { params: { q } }),
   create: (body: CreateUserGroupRequest) => client.post<UserGroupDetail>('/user-groups', body),
   update: (id: number, body: UpdateUserGroupRequest) =>
     client.patch<UserGroupDetail>(`/user-groups/${id}`, body),

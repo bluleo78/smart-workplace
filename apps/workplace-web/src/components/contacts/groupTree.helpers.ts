@@ -1,5 +1,5 @@
 // 그룹 트리 보조 함수 — 컴포넌트 파일에서 분리(react-refresh/only-export-components 준수).
-import type { UserGroupMemberSummary, UserGroupNode } from '@/types/userGroup'
+import type { UserGroupNode } from '@/types/userGroup'
 
 /** 트리를 평면 {id,name} 목록으로(부모 셀렉트 후보). depth 만큼 전각 공백 들여쓰기. */
 function flattenGroups(nodes: UserGroupNode[]): { id: number; name: string }[] {
@@ -59,20 +59,6 @@ export function parentGroupOptions(nodes: UserGroupNode[], editTargetId: number 
   const target = editTargetId != null ? findNode(nodes, editTargetId) : null
   const descendantIds = target ? collectDescendantIds(target) : new Set<number>()
   return flattenGroups(nodes).filter((o) => !descendantIds.has(o.id))
-}
-
-/**
- * 그룹 보기에서 검색할 때 그 그룹 직속 구성원만 거른다(WP-976, 05-page-patterns §B-1 「범위」).
- * 연락처 목록 API(/contacts)에는 그룹 조건이 없고 그룹 상세(/user-groups/{id})는 검색을 받지 않아,
- * 이미 받아 둔 구성원 목록을 클라이언트에서 거른다 — 이름·이메일·직책·조직 중 하나에 대소문자 무시 부분 일치.
- * 빈 검색어(공백만 포함)는 거르지 않고 그대로 돌려준다.
- */
-export function filterGroupMembers(members: UserGroupMemberSummary[], query: string): UserGroupMemberSummary[] {
-  const q = query.trim().toLowerCase()
-  if (q === '') return members
-  return members.filter((m) =>
-    [m.name, m.email, m.title, m.organization].some((v) => v != null && v.toLowerCase().includes(q)),
-  )
 }
 
 /**

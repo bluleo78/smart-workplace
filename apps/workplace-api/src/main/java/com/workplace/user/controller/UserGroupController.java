@@ -5,9 +5,11 @@ import com.workplace.user.dto.AddMemberRequest;
 import com.workplace.user.dto.CreateUserGroupRequest;
 import com.workplace.user.dto.UpdateUserGroupRequest;
 import com.workplace.user.dto.UserGroupDetail;
+import com.workplace.user.dto.UserGroupMemberHit;
 import com.workplace.user.dto.UserGroupTreeResponse;
 import com.workplace.user.service.UserGroupService;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -43,6 +46,18 @@ public class UserGroupController {
   public ResponseEntity<UserGroupDetail> detail(
       @AuthenticationPrincipal Long callerId, @PathVariable("id") long id) {
     return ResponseEntity.ok(service.getDetail(callerId, id));
+  }
+
+  /**
+   * 그룹과 하위 조직 전체에서 구성원 찾기(WP-1000) — 연락처 조직도에서 상위 조직을 보며 검색할 때. 각 행에 그 사람이 속한 그룹 id 를 싣는다. q 가 비면
+   * 하위 조직 포함 전체.
+   */
+  @GetMapping("/{id}/members/search")
+  public ResponseEntity<List<UserGroupMemberHit>> searchMembers(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long id,
+      @RequestParam(value = "q", required = false) String q) {
+    return ResponseEntity.ok(service.searchMembers(callerId, id, q));
   }
 
   /** 그룹 생성. */

@@ -20,7 +20,7 @@ import { useSearchDraft } from '@/hooks/useSearchDraft'
 import { buildContactsContext } from '@/lib/aiScreenContext/builders/contacts'
 import { decodeContactParam, encodeContactParam } from '@/lib/contactParam'
 import { SELECTED_SURFACE_CLASS } from '@/lib/selectionStyles'
-import { cn } from '@/lib/utils'
+import { andParticle, cn } from '@/lib/utils'
 
 import { ContactDetailPanel } from '../../components/contacts/ContactDetailPanel'
 import { ExternalContactFormDialog } from '../../components/contacts/ExternalContactFormDialog'
@@ -203,6 +203,32 @@ function SearchScopeChip({ name, onClear, className }: { name: string; onClear: 
   )
 }
 
+/**
+ * 모바일 헤더의 검색 버튼(WP-1000) — 검색 줄을 「닫기」로 접어도 검색어는 남으므로, 그때는 🔍 대신 검색어 칩(🔍 김)으로 걸러진 상태임을 보인다.
+ * 누르면 검색 줄을 다시 편다. 검색어가 없으면 예전처럼 🔍 아이콘 하나.
+ */
+function MobileSearchButton({ query, onOpen }: { query: string; onOpen: () => void }) {
+  if (query === '') {
+    return (
+      <HeaderIconAction label="검색" tone="default" data-testid="contact-search-open" onClick={onOpen}>
+        <Search />
+      </HeaderIconAction>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-testid="contact-search-open"
+      aria-label={`검색어 「${query}」 — 검색 열기`}
+      onClick={onOpen}
+      className="inline-flex h-8 min-w-0 max-w-[7rem] shrink items-center gap-1 rounded-full border bg-muted px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+    >
+      <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span data-testid="contact-search-chip" className="truncate">{query}</span>
+    </button>
+  )
+}
+
 /** 통합 연락처 목록 + 마스터-디테일. 보기(type·group)는 ContactSidebar 와 URL searchParams 로 공유하고, 검색(q)은 이 페이지 헤더가 쓴다(WP-976). */
 export function ContactsPage() {
   const [params, setParams] = useSearchParams()
@@ -246,13 +272,10 @@ export function ContactsPage() {
   // 내가 쓴 q 가 되돌아올 때 draft 를 덮지 않는 것(WP-999)은 공용 훅이 맡는다(WP-1003).
   const { draft: qDraft, setDraft: setQDraft, commit: commitQuery } = useSearchDraft(search, writeQuery)
 
-  // 모바일 검색 펼침 — 헤더 🔍 로 연다. 검색어가 남아 있으면(링크·뒤로 가기로 ?q 진입) 숨은 필터가 없게 늘 펼친다.
-  // ?q 로 펼친 것도 「열림」으로 기록해야 입력칸 X 로 지웠을 때 줄이 사라지며 키보드가 닫히지 않는다.
+  // 모바일 검색 펼침 — 헤더 🔍 로 연다. 링크·뒤로 가기로 ?q 를 들고 들어오면 펼친 채 시작한다.
+  // 「닫기」로 접으면 검색어를 둔 채 접힌다(WP-1000) — 헤더의 검색어 칩이 걸러진 상태를 보이고, ☰ 로 보기를 바꿔도 같은 검색어로 거른다.
+  // 입력칸 X 로 지워도 줄은 펼친 채 둔다(키보드가 닫히지 않게).
   const [mobileSearchOpen, setMobileSearchOpen] = useState(() => search !== '')
-  useEffect(() => {
-    if (search !== '') setMobileSearchOpen(true)
-  }, [search])
-  const mobileSearchVisible = mobileSearchOpen || qDraft !== ''
   const mobileSearchRef = useRef<HTMLDivElement>(null)
   // 🔍 로 연 때만 초점을 준다 — ?q 진입으로 펼칠 때 키보드가 저절로 올라오지 않게.
   const focusMobileSearch = useRef(false)
@@ -265,9 +288,10 @@ export function ContactsPage() {
     focusMobileSearch.current = false
     mobileSearchRef.current?.querySelector('input')?.focus()
   }, [mobileSearchOpen])
-  // 「취소」 — 검색어를 비우고 접는다(debounce 를 기다리지 않고 바로 URL 에서도 지운다).
-  const cancelMobileSearch = () => {
-    commitQuery('')
+  // 「닫기」 — 검색 줄만 접고 검색어는 둔다(WP-1000). 아직 debounce 중인 입력은 바로 URL 에 써서 접힌 헤더의 칩과 목록이 같은 검색어를 보게 한다.
+  const closeMobileSearch = () => {
+    // 공백만 친 검색어는 검색이 아니다 — 빈 칩이 남지 않게 다듬어 쓴다.
+    commitQuery(qDraft.trim())
     setMobileSearchOpen(false)
   }
 
@@ -311,14 +335,17 @@ export function ContactsPage() {
     hasMore: !!hasNextPage,
   })
 
+  // 범위 칩·검색 안내에 쓰는 그룹 이름 — 트리를 받기 전에는 「그룹」.
+  const scopeName = groupName ?? '그룹'
   // 검색 칸 — [그룹 범위 칩] [입력]. 데스크톱 헤더 actions 와 모바일 펼친 줄이 폭만 달리해 같이 쓴다.
   const searchField = ({ chipClass, inputClass }: { chipClass: string; inputClass: string }) => (
     <>
-      {groupId != null && <SearchScopeChip name={groupName ?? '그룹'} onClear={leaveGroup} className={chipClass} />}
+      {groupId != null && <SearchScopeChip name={scopeName} onClear={leaveGroup} className={chipClass} />}
       <SearchInput
         value={qDraft}
         onChange={setQDraft}
-        placeholder={groupId != null ? '이 그룹에서 검색' : '이름·이메일 검색'}
+        // 그룹 보기 검색은 하위 조직까지 찾는다(WP-1000) — 범위가 드러나게 「경영지원본부와 하위 조직에서 검색」.
+        placeholder={groupId != null ? `${scopeName}${andParticle(scopeName)} 하위 조직에서 검색` : '이름·이메일 검색'}
         aria-label="연락처 검색"
         inputTestId="contact-search"
         className={inputClass}
@@ -330,12 +357,12 @@ export function ContactsPage() {
     <>
       <Page>
         {/* 전폭 헤더 — 연락처 제목 + 새 외부 연락처 버튼(그룹·일반 공통). 모바일 상세가 열리면 숨김 — 상세 헤더 한 줄만(U1-1) */}
-        {showListChrome && isMobile && mobileSearchVisible ? (
-          // 모바일 검색 펼침 — 헤더 자리를 [범위 칩][입력][취소] 한 줄로 바꾼다(§B-1 「모바일」: ⋯·☰ 안에 넣지 않는다).
+        {showListChrome && isMobile && mobileSearchOpen ? (
+          // 모바일 검색 펼침 — 헤더 자리를 [범위 칩][입력][닫기] 한 줄로 바꾼다(§B-1 「모바일」: ⋯·☰ 안에 넣지 않는다).
           <div ref={mobileSearchRef} data-testid="contact-mobile-search" className={cn('relative z-[45] bg-background', mobileRootHeaderClass, 'gap-2 pr-2')}>
             {searchField({ chipClass: 'max-w-[10rem]', inputClass: 'min-w-0 max-w-none' })}
-            <Button type="button" variant="ghost" size="sm" data-testid="contact-search-cancel" onClick={cancelMobileSearch} className="shrink-0 px-2">
-              취소
+            <Button type="button" variant="ghost" size="sm" data-testid="contact-search-close" onClick={closeMobileSearch} className="shrink-0 px-2">
+              닫기
             </Button>
           </div>
         ) : showListChrome && isMobile && groupId != null ? (
@@ -348,7 +375,7 @@ export function ContactsPage() {
             showAi={false}
             trailing={
               <>
-                <HeaderIconAction label="검색" tone="default" data-testid="contact-search-open" onClick={openMobileSearch}><Search /></HeaderIconAction>
+                <MobileSearchButton query={search} onOpen={openMobileSearch} />
                 <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
                 <MobileSidebarSheetTrigger />
               </>
@@ -376,7 +403,7 @@ export function ContactsPage() {
             // 모바일: 🔍(검색 펼침)과 ＋ 를 인라인 아이콘으로(⋯ 없음) — testid 를 공유하므로 actions 는 모바일에서 렌더되지 않게 null.
             mobilePrimaryAction={
               <>
-                <HeaderIconAction label="검색" tone="default" data-testid="contact-search-open" onClick={openMobileSearch}><Search /></HeaderIconAction>
+                <MobileSearchButton query={search} onOpen={openMobileSearch} />
                 <HeaderIconAction label="새 외부 연락처" data-testid="contact-create" onClick={() => setCreateOpen(true)}><Plus /></HeaderIconAction>
               </>
             }
