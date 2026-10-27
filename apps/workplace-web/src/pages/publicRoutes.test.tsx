@@ -205,7 +205,8 @@ describe('알림 탭 진입점 /push-open', () => {
       auth: { activeTenant: T1 },
     })
     expect(await screen.findByText('해당 워크스페이스에 접근할 수 없습니다')).toBeInTheDocument()
-    expect(location()).toBe('/')
+    // 안내 토스트 뒤에 홈 이동이 한 박자 늦게 반영된다 — 부하가 크면 바로 읽은 주소가 아직 /push-open 이었다.
+    await waitFor(() => expect(location()).toBe('/'))
   })
 
   // 같은 origin 상대경로만 — 알림 payload 의 url 로 외부 사이트에 보내지 않는다.

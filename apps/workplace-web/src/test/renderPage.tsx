@@ -1,6 +1,16 @@
 // 페이지 테스트(*.test.tsx) 렌더 도우미(WP-971) — 실제 라우트 트리(App)·인증(AuthProvider)·토스트를 그대로 띄운다.
 // renderWithProviders 는 고정 AuthContext 와 vi.mock 한 훅으로 컴포넌트 하나를 보지만, 여기서는 앱 부팅부터
 // refresh → /users/me → 라우트 → 페이지 → API 를 MSW 응답으로 지나 E2E 의 setupAuthMocks + goto 와 같은 상태가 된다.
+// 앱이 열 때 불러오는(lazy, WP-970) 전역 UI — AI 패널·메일 작성 도크·새 소식·프로젝트 만들기. 운영 번들에서는 첫 부팅을 줄이려고
+// 나눴지만, 테스트 워커는 처음 여는 순간 그 모듈 트리를 변환·불러오느라 전체 실행 부하에서 5초 대기를 넘겼다. 페이지 테스트는
+// 예전처럼 App 과 함께 미리 불러 둔다(lazy 는 한 틱 뒤 바로 풀린다 — 여는 단언은 findBy* 로 기다린다).
+import '@/components/ai/AIFullscreen'
+import '@/components/ai/AISidePanel'
+import '@/components/ai/MobileAiSheet'
+import '@/components/mail/MailComposeDock'
+import '@/components/whats-new/WhatsNewDialog'
+import '@/pages/projects/components/ProjectCreateDialog'
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'

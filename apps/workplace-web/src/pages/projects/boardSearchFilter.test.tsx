@@ -43,6 +43,8 @@ describe('목록 검색·필터·뷰 전환', () => {
 
     // 입력 상한(maxLength) — 붙여넣은 9000자가 200자로 잘리고 그대로 요청된다.
     await user.clear(box)
+    // 지운 검색어가 debounce 뒤 URL 로 반영(q 제거)되기를 기다린다 — 붙여넣은 뒤에 도착하면 URL → 입력 동기화가 칸을 비웠다(부하 시).
+    await waitFor(() => expect(location()).not.toMatch(/q=/))
     await user.click(box)
     await user.paste('a'.repeat(9000))
     expect(box).toHaveValue('a'.repeat(200))

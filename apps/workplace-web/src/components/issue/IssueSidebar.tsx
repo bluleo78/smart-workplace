@@ -2,7 +2,7 @@
 // 좁은 데스크톱 창에선 compact(아이콘 줄, 56px)로 그린다(WP-506) — 이름은 숨기고 마우스를 올리면 Tooltip 으로 보인다.
 // compact 분기는 아래 SidebarItem(항목)·SidebarSection(섹션 머리말) 두 곳에만 둔다.
 import { LayoutGrid, LayoutList, ListChecks, Plus, Sparkles, Star } from 'lucide-react'
-import { type ReactElement, type ReactNode, useState } from 'react'
+import { lazy, type ReactElement, type ReactNode, Suspense, useState } from 'react'
 import { Link, NavLink, type NavLinkProps, useLocation } from 'react-router-dom'
 
 import { sidebarLinkClass, sidebarTitleClass } from '@/components/layout/sidebar-link'
@@ -13,7 +13,6 @@ import { useMyPinnedViews } from '@/hooks/queries/useSavedViews'
 import { useProjectFavorites } from '@/hooks/useProjectFavorites'
 import { queriesEqualIgnoringView, savedViewQueryToParams } from '@/lib/savedViewQuery'
 import { cn } from '@/lib/utils'
-import { ProjectCreateDialog } from '@/pages/projects/components/ProjectCreateDialog'
 
 /** compact 에서 아이콘을 칸 가운데에 두는 클래스 — 링크·제목 헤더가 함께 쓴다. */
 const COMPACT_CENTER = 'justify-center px-0'
@@ -125,9 +124,17 @@ function SidebarSection({
   )
 }
 
+// 프로젝트 생성 다이얼로그는 처음 열 때 불러온다(WP-970) — 폼 검증(zod·react-hook-form)이 이슈 화면 첫 부팅에 실리지 않게.
+const ProjectCreateDialog = lazy(() =>
+  import('@/pages/projects/components/ProjectCreateDialog').then((m) => ({ default: m.ProjectCreateDialog })),
+)
+
 export function IssueSidebar({ compact = false }: { compact?: boolean }) {
   // 프로젝트 생성 다이얼로그 열림 상태 — 섹션 헤더 + 버튼이 트리거한다.
   const [createOpen, setCreateOpen] = useState(false)
+  // 한 번 연 다이얼로그는 계속 마운트해 둔다 — 닫힘 전환·폼 초기화가 예전과 같게.
+  const [createMounted, setCreateMounted] = useState(false)
+  if (createOpen && !createMounted) setCreateMounted(true)
   // 프로젝트 목록은 PageResponse<ProjectResponse> 형태 — data.content 로 접근한다.
   const projects = useAllProjects()
   // 사용자가 고정한 뷰 — 프로젝트 교차 빠른 접근(사이드바 상단 노출).
@@ -249,7 +256,11 @@ export function IssueSidebar({ compact = false }: { compact?: boolean }) {
       </div>
     </aside>
     {/* 프로젝트 생성 다이얼로그 — aside 형제로 렌더해 z-index 스택 충돌 방지 */}
-    <ProjectCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+    {createMounted && (
+      <Suspense fallback={null}>
+        <ProjectCreateDialog open={createOpen} onOpenChange={setCreateOpen} />
+      </Suspense>
+    )}
     </TooltipProvider>
   )
 }

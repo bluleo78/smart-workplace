@@ -186,7 +186,8 @@ describe('공통 — 이슈 상세', () => {
     // 사이드 → 풀스크린 전환(같은 AI 칩을 한 번 더 누른다).
     await view.user.click(screen.getByTestId('chat-launcher'))
     await waitFor(() => expect(screen.getByTestId('chat-launcher')).toHaveAttribute('data-mode', 'fullscreen'))
-    expect(screen.getByTestId('ai-fullscreen')).toBeInTheDocument()
+    // 풀스크린 본체는 열 때 불러온다(WP-970) — 나타나기를 기다린다.
+    expect(await screen.findByTestId('ai-fullscreen')).toBeInTheDocument()
     await chipHas('WP-12')
     expect((await send(view, '이거')).screenContext?.focus?.refs).toEqual({ issueKey: 'WP-12' })
   })

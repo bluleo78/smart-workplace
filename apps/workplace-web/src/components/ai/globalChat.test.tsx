@@ -76,7 +76,8 @@ async function sendFromSide(user: ReturnType<typeof renderPage>['user'], chip: H
 test('입력이 비어 있으면 보내기 버튼이 비활성이고, 글자가 있으면 활성이다', async () => {
   const { user, chip } = await openApp()
   await user.click(chip)
-  const send = screen.getByRole('button', { name: '보내기' })
+  // 패널 본체는 열 때 불러온다(WP-970) — 나타나기를 기다린다.
+  const send = await screen.findByRole('button', { name: '보내기' })
   expect(send).toBeDisabled()
   fireEvent.change(screen.getByTestId('chat-input'), { target: { value: '안녕' } })
   expect(send).toBeEnabled()
