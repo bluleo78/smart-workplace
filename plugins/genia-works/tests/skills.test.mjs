@@ -162,7 +162,8 @@ const section = (text, from, to) => {
 };
 
 // 3번(후보 고르기) 본문 — 대기열 가져오기 테스트들이 함께 쓴다.
-const s3 = section(workLoop('SKILL.md'), '\n### 3. 후보 고르기\n', '\n### 4. ');
+const workLoopSkill = workLoop('SKILL.md');
+const s3 = section(workLoopSkill, '\n### 3. 후보 고르기\n', '\n### 4. ');
 // 한 줄을 찾는다 — 없으면 빈 문자열로 넘어가 뒤 단언이 엉뚱하게 실패하지 않게 여기서 바로 알린다.
 function lineWith(text, needle) {
   const line = text.split('\n').find((l) => l.includes(needle));
@@ -184,14 +185,25 @@ test('SKILL.md 3번: 고를 후보가 없을 때만 대기열에서 최대 하�
   assert.ok(s3.includes('`AI_ALREADY_ASSIGNED`'));
   assert.ok(s3.includes('최대 하나'));
   // 미뤄 둔 후보까지 없을 때만 가져간다 — 가져오기 단계가 「할 일 없음」 결론보다 먼저 나와야 한다.
-  assertBefore(s3, '`claim_issue(', '가져간 이슈가 없으면(WIP 상한에 걸린 때도) 「할 일 없음」이다');
+  assertBefore(s3, '`claim_issue(', '가져간 이슈가 없으면(동시 진행 상한에 걸린 때도) 「할 일 없음」이다');
 });
 
-// WP-1010 기다리는 동안 다른 일 — WIP 상한, 할 일 없을 때 확인할 것(이슈는 만들지 않음), 오래 처리한 부르기의 대기열 다시 읽기.
-test('SKILL.md 3번: 기다리는 이슈가 3개 이상이면 대기열에서 가져오지 않는다(WIP 상한)', () => {
-  assert.ok(s3.includes('**WIP 상한**: 기다리는 이슈가 3개 이상이면 가져오지 않고'));
-  assert.ok(s3.includes('기다리는 이슈 = 내 행이 대기 중(`WAITING`)·답변 필요·인증 필요인 이슈'));
-  assertBefore(s3, '**WIP 상한**', '`claim_issue(');
+// WP-1040 동시 진행 상한 — AI 한 명당 맡은 프로젝트를 모두 합쳐 3개. 넘으면 새 작업·대기열 가져가기만 막는다.
+test('SKILL.md 3번: 내 이슈 목록 하나(프로젝트 키 없이)로 고르기와 동시 진행 세기를 함께 한다 (WP-1040)', () => {
+  assert.ok(s3.includes("`list_issues({ assignee: 'me', status: 'TODO,IN_PROGRESS', size: 100 })`"));
+  assert.ok(s3.includes('`issueKey` 가 `<프로젝트 키>-` 로 시작'));
+  assert.ok(workLoopSkill.includes('예외는 3번에서 내 이슈 목록을 읽어 「동시 진행 상한」을 셀 때뿐이다'));
+});
+
+test('SKILL.md 3번: 세는 상태와 빼는 것, 막는 범위가 정해져 있다 (WP-1040)', () => {
+  assert.ok(s3.includes('**동시 진행 상한(3개)**'));
+  for (const anchor of ['`stale`', '열린 하위가 있는 부모는 뺀다', '①~④ 는 그대로 고르므로', '지시한 이슈(「본문 지시」)의 하위는 막지 않는다', '「동시 진행 3개(<진행 중 키들>) — 시작하지 않은 이슈 n개(<키들>)」']) {
+    assert.ok(s3.includes(anchor), anchor);
+  }
+  assertBefore(s3, '**동시 진행 상한(3개)**', '**대기열에서 가져오기**');
+  assertBefore(s3, '**동시 진행 상한**(위)에 걸리면 가져오지 않고', '`claim_issue(');
+  // 옛 WIP 상한(기다리는 이슈만, 대기열만)은 남지 않는다.
+  assert.ok(!workLoopSkill.includes('WIP 상한'));
 });
 
 test('SKILL.md 3번: 할 일이 없으면 내가 개발한 열린 PR 과 저장소 점검을 확인하고, 이슈는 새로 만들지 않는다', () => {
