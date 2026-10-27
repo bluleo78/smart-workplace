@@ -2,7 +2,10 @@ package com.workplace.project.dto;
 
 import java.time.Instant;
 
-/** 리포지토리 → 서비스 전달용 내부 row. 외부 응답에는 {@link ProjectResponse} 사용. */
+/**
+ * 리포지토리 → 서비스 전달용 내부 row. 외부 응답에는 {@link ProjectResponse} 사용. repositoryUrl·repositoryBranch 는 연결된
+ * 저장소(WP-1011, 없으면 null).
+ */
 public record ProjectRow(
     Long id,
     String key,
@@ -12,7 +15,9 @@ public record ProjectRow(
     String type,
     boolean isDefault,
     Instant createdAt,
-    Instant updatedAt) {
+    Instant updatedAt,
+    String repositoryUrl,
+    String repositoryBranch) {
 
   /** 개인 프로젝트인가 — 소유자만 보고, 다른 프로젝트와 관계를 맺지 않으며, 가져오기 대상이 아니다. */
   public boolean isPersonal() {

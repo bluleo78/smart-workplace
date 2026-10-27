@@ -568,3 +568,63 @@ test('gw-events: 한 세션에 하나만 — 이미 돌고 있으면 아무 줄 
     srv.close();
   }
 });
+
+// ---------------------------------------------------------------- start-agent 도우미 (WP-1011)
+
+test('gw-whoami: 세션 신원 이름만 내고, 내 토큰(me)·없음이면 아무것도 내지 않고 1', () => {
+  assert.equal(run('gw-whoami', [], { env: { GENIA_WORKS_AS: 'ai-dev' } }).stdout, 'ai-dev\n');
+  const none = run('gw-whoami');
+  assert.equal(none.status, 1);
+  assert.equal(none.stdout, '');
+  assert.equal(run('gw-whoami', [], { env: { GENIA_WORKS_AS: 'me' } }).status, 1);
+});
+
+/** 가짜 tmux 로 agent-window 를 부른다 — 상태 파일·호출 기록을 돌려준다. */
+function agentWindow(args, state) {
+  const tmuxState = join(home, 'tmux-state');
+  const log = join(home, 'tmux-log');
+  if (state !== undefined) writeFileSync(tmuxState, state);
+  const r = run('agent-window', args, {
+    env: { GW_TMUX: join(here, 'fake-tmux'), FAKE_TMUX_STATE: tmuxState, FAKE_TMUX_LOG: log },
+  });
+  const read = (f) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
+  return { ...r, state: read(tmuxState), log: read(log) };
+}
+
+test('agent-window: 세션이 없으면 만들고 창을 띄운다 — 명령 인자는 공백·한글도 그대로', () => {
+  const r = agentWindow(['kodi', 'WP', '/home/kodi/repos/WP', 'env', 'GENIA_WORKS_AS=kodi', 'claude', '/loop /genia-works:work-loop WP --queue "AI 개발팀"'], '');
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, 'started kodi\n');
+  assert.equal(r.state, 'kodi:home\nkodi:WP\n');
+  assert.match(r.log, /^new-window\t-d\t-t\t=kodi:\t-n\tWP\t-c\t\/home\/kodi\/repos\/WP\tenv\tPATH=[^\t]+\tenv\tGENIA_WORKS_AS=kodi\tclaude\t\/loop \/genia-works:work-loop WP --queue "AI 개발팀"$/m);
+});
+
+test('agent-window: 같은 이름의 창이 있으면 건드리지 않고 exists', () => {
+  const r = agentWindow(['kodi', 'WP', '/x', 'claude'], 'kodi:home\nkodi:WP\n');
+  assert.equal(r.stdout, 'exists kodi\n');
+  assert.equal(r.state, 'kodi:home\nkodi:WP\n');
+  assert.doesNotMatch(r.log, /new-window|new-session/);
+});
+
+test('agent-window: 세션은 있고 창이 없으면 그 세션에 창만 더한다', () => {
+  const r = agentWindow(['kodi', 'HR', '/x', 'claude'], 'kodi:home\nkodi:WP\n');
+  assert.equal(r.stdout, 'started kodi\n');
+  assert.equal(r.state, 'kodi:home\nkodi:WP\nkodi:HR\n');
+  assert.doesNotMatch(r.log, /new-session/);
+});
+
+test('agent-window: 신원 이름의 . 은 tmux 처럼 _ 로 바꿔 — 다시 불러도 같은 세션을 찾아 exists', () => {
+  const first = agentWindow(['dev.kodi', 'WP', '/x', 'claude'], '');
+  assert.equal(first.stdout, 'started dev_kodi\n');
+  assert.equal(first.state, 'dev_kodi:home\ndev_kodi:WP\n');
+  const again = agentWindow(['dev.kodi', 'WP', '/x', 'claude'], first.state);
+  assert.equal(again.stdout, 'exists dev_kodi\n');
+  // 기록 파일은 두 호출이 함께 쓴다 — 두 번째 호출이 남긴 줄만 본다.
+  assert.doesNotMatch(again.log.slice(first.log.length), /new-session|new-window/);
+});
+
+test('agent-window: tmux 가 없으면 no-tmux 로 3', () => {
+  const r = run('agent-window', ['kodi', 'WP', '/x', 'claude'], { env: { GW_TMUX: '/nonexistent/tmux' } });
+  assert.equal(r.status, 3);
+  assert.equal(r.stdout, 'no-tmux\n');
+});

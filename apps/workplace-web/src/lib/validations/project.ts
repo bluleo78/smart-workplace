@@ -38,3 +38,33 @@ export const updateProjectSchema = z.object({
   description: z.string().max(2000, '설명은 2000자 이하여야 합니다').optional(),
 });
 export type UpdateProjectFormData = z.infer<typeof updateProjectSchema>;
+
+/**
+ * 연결된 저장소(WP-1011) — AI 가 clone 할 주소(https·ssh·사용자@호스트:경로)와 기본 브랜치. 둘 다 비워 둘 수 있다(개발이 아닌 프로젝트).
+ * AI 컴퓨터가 셸로 clone 하므로 호스트·경로 글자만 받는다($ ; | ` 같은 셸 글자 금지) — 서버 UpdateProjectRequest 와 같은 규칙.
+ * https 주소의 「아이디:토큰@」도 막는다(프로젝트를 보는 모두에게 보이고, 접근은 AI 컴퓨터의 git 자격 증명으로 한다). http:// 는 받지 않는다.
+ * 브랜치는 git 브랜치 이름으로 쓸 수 있는 것만(clone --branch 가 거절할 .. // 끝의 / .lock 도), 비우면 저장소의 기본 브랜치.
+ */
+const REPOSITORY_URL_CREDENTIALS_RE = /^https:\/\/[^/]*@/;
+const REPOSITORY_URL_RE =
+  /^(https:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?\/|ssh:\/\/([A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?\/|[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*:)[A-Za-z0-9._~/][A-Za-z0-9._~/-]*$/;
+const REPOSITORY_BRANCH_RE = /^(?![-/.])(?!.*(\.\.|\/\/|\/\.))(?!.*([/.]|\.lock)$)[A-Za-z0-9._/-]+$/;
+
+export const projectRepositorySchema = z.object({
+  repositoryUrl: z
+    .string()
+    .trim()
+    .max(500, '저장소 주소는 500자 이하여야 합니다')
+    // 폼은 칸마다 첫 오류만 보여 준다(zodResolver 기본) — 아이디·토큰 안내가 형식 안내보다 먼저.
+    .refine((v) => !REPOSITORY_URL_CREDENTIALS_RE.test(v), '주소에 아이디·토큰은 넣지 않아요 — AI 컴퓨터의 git 자격 증명으로 접근해요')
+    .refine((v) => v === '' || REPOSITORY_URL_RE.test(v), 'https://, ssh:// 또는 사용자@호스트:경로 형식의 저장소 주소를 입력하세요'),
+  repositoryBranch: z
+    .string()
+    .trim()
+    .max(100, '브랜치 이름은 100자 이하여야 합니다')
+    .refine(
+      (v) => v === '' || REPOSITORY_BRANCH_RE.test(v),
+      '브랜치 이름에는 영문·숫자·. _ / - 만 쓸 수 있고, .. · // 나 끝의 / · .lock 은 안 돼요',
+    ),
+});
+export type ProjectRepositoryFormData = z.infer<typeof projectRepositorySchema>;

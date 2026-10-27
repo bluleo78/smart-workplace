@@ -24,6 +24,11 @@ export interface ProjectResponse {
   // 현재 로그인 사용자가 이 프로젝트의 멤버(MEMBER/OWNER) 또는 ADMIN 인지 — 서버 계산 플래그.
   // 보드 drag-to-change-status, 이슈 생성 버튼 노출 게이트에 사용. 재파생 금지.
   viewerIsMember: boolean;
+  // 실제 멤버 역할(OWNER/MEMBER, 아니면 null) — viewerIsMember 와 달리 ADMIN 우회가 없다(WP-1011, 외부 AI 가 맡을 프로젝트 고르기).
+  viewerRole?: 'OWNER' | 'MEMBER' | null;
+  // 연결된 저장소(WP-1011) — AI 가 이 프로젝트의 이슈를 처리할 때 쓰는 코드 저장소 주소·기본 브랜치. 없으면 null.
+  repositoryUrl?: string | null;
+  repositoryBranch?: string | null;
 }
 
 export type ProjectMemberRole = 'OWNER' | 'MEMBER';
@@ -50,9 +55,12 @@ export interface CreateProjectRequest {
   type?: ProjectType;
 }
 
+/** 부분 수정 — 보낸 칸만 바뀐다. 저장소 칸은 빈 문자열이면 지운다(WP-1011). */
 export interface UpdateProjectRequest {
-  name: string;
+  name?: string;
   description?: string;
+  repositoryUrl?: string;
+  repositoryBranch?: string;
 }
 
 export interface AddMemberRequest {

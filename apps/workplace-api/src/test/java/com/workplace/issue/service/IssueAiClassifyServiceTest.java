@@ -45,7 +45,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
   void classify_팀프로젝트_정상분류() {
     // given
     ProjectRow project =
-        new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null);
+        new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
     when(accessGuard.assertIssueCreatable("TEST", 1L)).thenReturn(project);
     when(labelRepository.findByProject(10L))
         .thenReturn(
@@ -72,7 +72,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
   void classify_어시스턴트없음_422() {
     // given
     ProjectRow project =
-        new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null);
+        new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
     when(accessGuard.assertIssueCreatable("TEST", 1L)).thenReturn(project);
     when(labelRepository.findByProject(10L)).thenReturn(List.of());
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
@@ -86,7 +86,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
   void classify_개인프로젝트_type_null() {
     // given — 개인 프로젝트: ownerId=1, type="PERSONAL"
     ProjectRow project =
-        new ProjectRow(11L, "PERSONAL", "개인", null, 1L, "PERSONAL", false, null, null);
+        new ProjectRow(11L, "PERSONAL", "개인", null, 1L, "PERSONAL", false, null, null, null, null);
     when(accessGuard.assertIssueCreatable("PERSONAL", 1L)).thenReturn(project);
     when(labelRepository.findByProject(11L)).thenReturn(List.of());
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
@@ -122,7 +122,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
   @Test
   void classify_우선순위_5단계는_그대로() {
     ProjectRow project =
-        new ProjectRow(12L, "PRI", "우선순위 프로젝트", null, 1L, "TEAM", false, null, null);
+        new ProjectRow(12L, "PRI", "우선순위 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
     when(accessGuard.assertIssueCreatable("PRI", 1L)).thenReturn(project);
     when(labelRepository.findByProject(12L)).thenReturn(List.of());
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
@@ -144,7 +144,7 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
   @Test
   void classify_본문은_2만자까지만_보내고_표식을_붙인다() {
     ProjectRow project =
-        new ProjectRow(13L, "LONG", "긴 본문 프로젝트", null, 1L, "TEAM", false, null, null);
+        new ProjectRow(13L, "LONG", "긴 본문 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
     when(accessGuard.assertIssueCreatable("LONG", 1L)).thenReturn(project);
     when(labelRepository.findByProject(13L)).thenReturn(List.of());
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);

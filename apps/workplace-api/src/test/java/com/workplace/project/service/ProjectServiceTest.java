@@ -567,7 +567,8 @@ class ProjectServiceTest extends IntegrationTestBase {
     projectService.create(ownerId, new CreateProjectRequest(key, "원래이름", "원래설명"));
 
     ProjectResponse updated =
-        projectService.update(ownerId, key, new UpdateProjectRequest("새이름", null, null));
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null));
 
     assertThat(updated.name()).isEqualTo("새이름");
     assertThat(updated.description()).isEqualTo("원래설명");
@@ -580,13 +581,44 @@ class ProjectServiceTest extends IntegrationTestBase {
     projectService.create(ownerId, new CreateProjectRequest(key, "이름", "설명"));
 
     ProjectResponse described =
-        projectService.update(ownerId, key, new UpdateProjectRequest(null, "새설명", null));
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest(null, "새설명", null, null, null));
     assertThat(described.name()).isEqualTo("이름");
     assertThat(described.description()).isEqualTo("새설명");
 
     ProjectResponse cleared =
-        projectService.update(ownerId, key, new UpdateProjectRequest(null, null, true));
+        projectService.update(ownerId, key, new UpdateProjectRequest(null, null, true, null, null));
     assertThat(cleared.name()).isEqualTo("이름");
     assertThat(cleared.description()).isNull();
+  }
+
+  /** WP-1011 — 연결된 저장소는 보낸 칸만 바뀌고(이름·설명 그대로), 빈 문자열로 보내면 지워진다. 다른 칸만 고쳐도 남아 있다. */
+  @Test
+  void update_repository_setKeepAndClear() {
+    String key = uniqueKey("PR");
+    projectService.create(ownerId, new CreateProjectRequest(key, "이름", "설명"));
+
+    ProjectResponse linked =
+        projectService.update(
+            ownerId,
+            key,
+            new UpdateProjectRequest(
+                null, null, null, " https://github.com/acme/app.git ", "develop"));
+    assertThat(linked.repositoryUrl()).isEqualTo("https://github.com/acme/app.git");
+    assertThat(linked.repositoryBranch()).isEqualTo("develop");
+    assertThat(linked.name()).isEqualTo("이름");
+    assertThat(linked.description()).isEqualTo("설명");
+
+    ProjectResponse renamed =
+        projectService.update(
+            ownerId, key, new UpdateProjectRequest("새이름", null, null, null, null));
+    assertThat(renamed.repositoryUrl()).isEqualTo("https://github.com/acme/app.git");
+    assertThat(projectService.get(ownerId, key).repositoryBranch()).isEqualTo("develop");
+
+    // 주소만 지워도 브랜치가 함께 지워진다 — 다음에 다른 저장소를 연결할 때 옛 브랜치가 따라붙지 않게.
+    ProjectResponse cleared =
+        projectService.update(ownerId, key, new UpdateProjectRequest(null, null, null, "", null));
+    assertThat(cleared.repositoryUrl()).isNull();
+    assertThat(cleared.repositoryBranch()).isNull();
   }
 }

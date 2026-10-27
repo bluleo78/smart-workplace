@@ -21,7 +21,8 @@ class IssueChangeNotifierTest {
     var publisher = mock(ApplicationEventPublisher.class);
     var notifier = new IssueChangeNotifier(publisher);
     var project =
-        new ProjectRow(7L, "EX", "예제", null, 1L, "TEAM", false, Instant.now(), Instant.now());
+        new ProjectRow(
+            7L, "EX", "예제", null, 1L, "TEAM", false, Instant.now(), Instant.now(), null, null);
 
     notifier.deleted(project, 21, 39L, 1L);
 
@@ -42,7 +43,8 @@ class IssueChangeNotifierTest {
     var publisher = mock(ApplicationEventPublisher.class);
     var notifier = new IssueChangeNotifier(publisher);
     var project =
-        new ProjectRow(7L, "EX", "예제", null, 1L, "OPEN", false, Instant.now(), Instant.now());
+        new ProjectRow(
+            7L, "EX", "예제", null, 1L, "OPEN", false, Instant.now(), Instant.now(), null, null);
 
     notifier.created(project, 21, 39L, 5L);
     notifier.updated(project, 21, 39L, null);

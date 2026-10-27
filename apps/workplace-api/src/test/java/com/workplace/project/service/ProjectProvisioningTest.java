@@ -128,6 +128,36 @@ class ProjectProvisioningTest extends IntegrationTestBase {
     assertThat(result.content().stream().anyMatch(p -> p.key().equals(key))).isTrue();
   }
 
+  /**
+   * WP-1011 — viewerIsMember 는 ADMIN 우회까지 true 지만 viewerRole 은 실제 멤버 역할만 준다(외부 AI 가 「내가 속한 프로젝트」를
+   * 고를 때 쓴다). 목록·단건 모두.
+   */
+  @Test
+  void viewerRole_isActualMembership_whenAdminSeesOthersProject() {
+    Long admin = createUser("admin");
+    Long creator = createUser("creator");
+    String key = uniqueKey("VR");
+    projectService.create(creator, new CreateProjectRequest(key, "By Creator", null));
+    grantRole(admin, "ADMIN");
+
+    ProjectResponse asAdmin =
+        projectService.queryProjects(admin, 0, 50).content().stream()
+            .filter(p -> p.key().equals(key))
+            .findFirst()
+            .orElseThrow();
+    assertThat(asAdmin.viewerIsMember()).isTrue();
+    assertThat(asAdmin.viewerRole()).isNull();
+    assertThat(projectService.get(admin, key).viewerRole()).isNull();
+
+    ProjectResponse asCreator =
+        projectService.queryProjects(creator, 0, 50).content().stream()
+            .filter(p -> p.key().equals(key))
+            .findFirst()
+            .orElseThrow();
+    assertThat(asCreator.viewerRole()).isEqualTo("OWNER");
+    assertThat(projectService.get(creator, key).viewerRole()).isEqualTo("OWNER");
+  }
+
   @Test
   void list_callerIsNotMember_excludesProject() {
     Long ownerId = createUser("owner");

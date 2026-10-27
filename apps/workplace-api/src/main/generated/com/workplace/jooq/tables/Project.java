@@ -132,6 +132,16 @@ public class Project extends TableImpl<ProjectRecord> {
      */
     public final TableField<ProjectRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.project.repository_url</code>.
+     */
+    public final TableField<ProjectRecord, String> REPOSITORY_URL = createField(DSL.name("repository_url"), SQLDataType.VARCHAR(500), this, "");
+
+    /**
+     * The column <code>public.project.repository_branch</code>.
+     */
+    public final TableField<ProjectRecord, String> REPOSITORY_BRANCH = createField(DSL.name("repository_branch"), SQLDataType.VARCHAR(100), this, "");
+
     private Project(Name alias, Table<ProjectRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

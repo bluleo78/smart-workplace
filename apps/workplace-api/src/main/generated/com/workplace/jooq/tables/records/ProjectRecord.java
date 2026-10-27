@@ -174,6 +174,34 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
         return (Long) get(10);
     }
 
+    /**
+     * Setter for <code>public.project.repository_url</code>.
+     */
+    public void setRepositoryUrl(String value) {
+        set(11, value);
+    }
+
+    /**
+     * Getter for <code>public.project.repository_url</code>.
+     */
+    public String getRepositoryUrl() {
+        return (String) get(11);
+    }
+
+    /**
+     * Setter for <code>public.project.repository_branch</code>.
+     */
+    public void setRepositoryBranch(String value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.project.repository_branch</code>.
+     */
+    public String getRepositoryBranch() {
+        return (String) get(12);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -197,7 +225,7 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
     /**
      * Create a detached, initialised ProjectRecord
      */
-    public ProjectRecord(Long id, String key, String name, String description, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, String type, Boolean isDefault, Long tenantId) {
+    public ProjectRecord(Long id, String key, String name, String description, Long ownerId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime deletedAt, String type, Boolean isDefault, Long tenantId, String repositoryUrl, String repositoryBranch) {
         super(Project.PROJECT);
 
         setId(id);
@@ -211,6 +239,8 @@ public class ProjectRecord extends UpdatableRecordImpl<ProjectRecord> {
         setType(type);
         setIsDefault(isDefault);
         setTenantId(tenantId);
+        setRepositoryUrl(repositoryUrl);
+        setRepositoryBranch(repositoryBranch);
         resetChangedOnNotNull();
     }
 }

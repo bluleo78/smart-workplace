@@ -1,0 +1,9 @@
+#!/bin/sh
+# 이 세션의 신원 이름(로컬 키 이름 — 세션 선택 > GENIA_WORKS_AS)을 한 줄로 낸다. 내 토큰(me)·없음이면 아무것도 내지 않고 1.
+# start-agent 가 프로젝트마다 띄우는 세션에 같은 신원(GENIA_WORKS_AS=<이름>)을 넘길 때 쓴다(WP-1011). 키 값은 내지 않는다.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+name=$(gw_identity)
+[ -n "$name" ] || exit 1
+printf '%s\n' "$name"

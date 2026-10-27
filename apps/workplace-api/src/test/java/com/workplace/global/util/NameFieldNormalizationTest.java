@@ -67,7 +67,7 @@ class NameFieldNormalizationTest {
               r -> ((CreateProjectRequest) r).name()),
           new Case(
               "프로젝트 이름 바꾸기",
-              n -> new UpdateProjectRequest(n, null, null),
+              n -> new UpdateProjectRequest(n, null, null, null, null),
               r -> ((UpdateProjectRequest) r).name()),
           new Case(
               "사이클",

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.springframework.stereotype.Repository;
 
@@ -20,6 +21,21 @@ import org.springframework.stereotype.Repository;
 public class ProjectRepository {
 
   private final DSLContext dsl;
+
+  /** {@link #mapToRow} 가 읽는 칸 — 프로젝트 행을 읽는 조회가 모두 같은 목록을 쓴다(칸을 더할 때 한 곳만 고치게). */
+  private static final List<Field<?>> ROW_FIELDS =
+      List.of(
+          PROJECT.ID,
+          PROJECT.KEY,
+          PROJECT.NAME,
+          PROJECT.DESCRIPTION,
+          PROJECT.OWNER_ID,
+          PROJECT.TYPE,
+          PROJECT.IS_DEFAULT,
+          PROJECT.CREATED_AT,
+          PROJECT.UPDATED_AT,
+          PROJECT.REPOSITORY_URL,
+          PROJECT.REPOSITORY_BRANCH);
 
   /** 공통 매핑: SELECT 결과 → {@link ProjectRow}. OffsetDateTime → Instant 변환. */
   private ProjectRow mapToRow(Record r) {
@@ -34,7 +50,9 @@ public class ProjectRepository {
         r.get(PROJECT.TYPE),
         Boolean.TRUE.equals(r.get(PROJECT.IS_DEFAULT)),
         created != null ? created.toInstant() : null,
-        updated != null ? updated.toInstant() : null);
+        updated != null ? updated.toInstant() : null,
+        r.get(PROJECT.REPOSITORY_URL),
+        r.get(PROJECT.REPOSITORY_BRANCH));
   }
 
   /**
@@ -80,16 +98,7 @@ public class ProjectRepository {
 
   /** key 로 활성 프로젝트 조회 (soft-deleted 제외). */
   public Optional<ProjectRow> findByKey(String key) {
-    return dsl.select(
-            PROJECT.ID,
-            PROJECT.KEY,
-            PROJECT.NAME,
-            PROJECT.DESCRIPTION,
-            PROJECT.OWNER_ID,
-            PROJECT.TYPE,
-            PROJECT.IS_DEFAULT,
-            PROJECT.CREATED_AT,
-            PROJECT.UPDATED_AT)
+    return dsl.select(ROW_FIELDS)
         .from(PROJECT)
         .where(PROJECT.KEY.eq(key).and(PROJECT.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
@@ -97,16 +106,7 @@ public class ProjectRepository {
 
   /** id 로 활성 프로젝트 조회 (soft-deleted 제외). */
   public Optional<ProjectRow> findById(Long id) {
-    return dsl.select(
-            PROJECT.ID,
-            PROJECT.KEY,
-            PROJECT.NAME,
-            PROJECT.DESCRIPTION,
-            PROJECT.OWNER_ID,
-            PROJECT.TYPE,
-            PROJECT.IS_DEFAULT,
-            PROJECT.CREATED_AT,
-            PROJECT.UPDATED_AT)
+    return dsl.select(ROW_FIELDS)
         .from(PROJECT)
         .where(PROJECT.ID.eq(id).and(PROJECT.DELETED_AT.isNull()))
         .fetchOptional(this::mapToRow);
@@ -150,16 +150,7 @@ public class ProjectRepository {
    */
   public List<ProjectRow> findAllForUser(Long userId, boolean isAdmin, int page, int size) {
     if (isAdmin) {
-      return dsl.select(
-              PROJECT.ID,
-              PROJECT.KEY,
-              PROJECT.NAME,
-              PROJECT.DESCRIPTION,
-              PROJECT.OWNER_ID,
-              PROJECT.TYPE,
-              PROJECT.IS_DEFAULT,
-              PROJECT.CREATED_AT,
-              PROJECT.UPDATED_AT)
+      return dsl.select(ROW_FIELDS)
           .from(PROJECT)
           .where(adminVisibleCondition(userId))
           .orderBy(PROJECT.UPDATED_AT.desc(), PROJECT.ID.desc())
@@ -168,16 +159,7 @@ public class ProjectRepository {
           .fetch(this::mapToRow);
     }
     // JOIN 제거 → EXISTS(멤버) OR OPEN 조건으로 교체: 중복 행 없이 OPEN 프로젝트도 포함
-    return dsl.select(
-            PROJECT.ID,
-            PROJECT.KEY,
-            PROJECT.NAME,
-            PROJECT.DESCRIPTION,
-            PROJECT.OWNER_ID,
-            PROJECT.TYPE,
-            PROJECT.IS_DEFAULT,
-            PROJECT.CREATED_AT,
-            PROJECT.UPDATED_AT)
+    return dsl.select(ROW_FIELDS)
         .from(PROJECT)
         .where(memberVisibleCondition(userId))
         .orderBy(PROJECT.UPDATED_AT.desc(), PROJECT.ID.desc())
@@ -203,16 +185,7 @@ public class ProjectRepository {
 
   /** 소유자의 기본 개인 프로젝트(있으면). */
   public Optional<ProjectRow> findDefaultPersonal(Long ownerId) {
-    return dsl.select(
-            PROJECT.ID,
-            PROJECT.KEY,
-            PROJECT.NAME,
-            PROJECT.DESCRIPTION,
-            PROJECT.OWNER_ID,
-            PROJECT.TYPE,
-            PROJECT.IS_DEFAULT,
-            PROJECT.CREATED_AT,
-            PROJECT.UPDATED_AT)
+    return dsl.select(ROW_FIELDS)
         .from(PROJECT)
         .where(
             PROJECT
@@ -234,32 +207,36 @@ public class ProjectRepository {
         .set(PROJECT.OWNER_ID, ownerId)
         .set(PROJECT.TYPE, type)
         .set(PROJECT.IS_DEFAULT, isDefault)
-        .returning(
-            PROJECT.ID,
-            PROJECT.KEY,
-            PROJECT.NAME,
-            PROJECT.DESCRIPTION,
-            PROJECT.OWNER_ID,
-            PROJECT.TYPE,
-            PROJECT.IS_DEFAULT,
-            PROJECT.CREATED_AT,
-            PROJECT.UPDATED_AT)
+        .returning(ROW_FIELDS)
         .fetchOptional()
         .map(this::mapToRow)
         .orElseThrow(() -> new IllegalStateException("INSERT RETURNING 결과 없음"));
   }
 
   /**
-   * name/description 부분 갱신(#858). null 인 필드는 건드리지 않고, clearDescription 이면 설명을 NULL 로 비운다.
-   * updated_at = now() 는 항상 갱신.
+   * name/description 부분 갱신(#858). null 인 필드는 건드리지 않고, clearDescription 이면 설명을 NULL 로 비운다. 저장소
+   * 주소·브랜치 (WP-1011)는 빈 문자열이면 지운다(요청 DTO 가 공백을 다듬어 넘긴다). updated_at = now() 는 항상 갱신.
    */
-  public void update(Long id, String name, String description, boolean clearDescription) {
+  public void update(
+      Long id,
+      String name,
+      String description,
+      boolean clearDescription,
+      String repositoryUrl,
+      String repositoryBranch) {
     var step = dsl.update(PROJECT).set(PROJECT.UPDATED_AT, OffsetDateTime.now());
     if (name != null) step = step.set(PROJECT.NAME, name);
     if (clearDescription) {
       step = step.set(PROJECT.DESCRIPTION, (String) null);
     } else if (description != null) {
       step = step.set(PROJECT.DESCRIPTION, description);
+    }
+    if (repositoryUrl != null) {
+      step = step.set(PROJECT.REPOSITORY_URL, repositoryUrl.isEmpty() ? null : repositoryUrl);
+    }
+    if (repositoryBranch != null) {
+      step =
+          step.set(PROJECT.REPOSITORY_BRANCH, repositoryBranch.isEmpty() ? null : repositoryBranch);
     }
     step.where(PROJECT.ID.eq(id)).execute();
   }

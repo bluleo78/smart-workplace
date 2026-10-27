@@ -255,7 +255,8 @@ export function buildProjectTools(client: ProjectToolClient & Pick<MemberToolCli
       app: ['project', 'issue'],
       kind: 'read',
       description:
-        'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items: projectKey, name, type, issue counts, viewerIsMember. ' +
+        'Lists projects (프로젝트) I can access as {items, total, hasMore?, nextPage?}; items: projectKey, name, type, issue counts, ' +
+        'viewerIsMember (also ADMIN), viewerRole (if member), repositoryUrl/Branch (if linked). ' +
         'If hasMore, pass nextPage as page, or say the list is partial.',
       inputSchema: listProjectsInput,
       async handler(args) {

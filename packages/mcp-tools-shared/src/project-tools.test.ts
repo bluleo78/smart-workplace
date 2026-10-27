@@ -51,6 +51,25 @@ describe('list_projects', () => {
     expect(JSON.parse(resultText(out))).toEqual({ items: [{ projectKey: 'WP' }], total: 1 });
   });
 
+  it('WP-1011: 연결된 저장소(주소·기본 브랜치)·내 멤버 역할을 그대로 싣고, 없으면(null) 뺀다 — start-agent 가 맡을 프로젝트를 고르는 근거', async () => {
+    const c = mockClient();
+    vi.mocked(c.listProjects).mockResolvedValue({
+      items: [
+        { key: 'WP', viewerIsMember: true, viewerRole: 'MEMBER', repositoryUrl: 'https://github.com/acme/wp.git', repositoryBranch: 'main' },
+        { key: 'HR', viewerIsMember: true, viewerRole: null, repositoryUrl: null, repositoryBranch: null },
+      ],
+      total: 2,
+      hasMore: false,
+      page: 0,
+    });
+    const out = JSON.parse(resultText(await tool(c, 'list_projects').handler({})));
+    expect(out.items).toEqual([
+      { projectKey: 'WP', viewerIsMember: true, viewerRole: 'MEMBER', repositoryUrl: 'https://github.com/acme/wp.git', repositoryBranch: 'main' },
+      // 관리자라 viewerIsMember 는 true 지만 멤버가 아니다 — viewerRole 이 없다
+      { projectKey: 'HR', viewerIsMember: true },
+    ]);
+  });
+
   it('page/size 지정 시 그대로 전달', async () => {
     const c = mockClient();
     await tool(c, 'list_projects').handler({ page: 2, size: 10 });

@@ -39,7 +39,7 @@ public class PersonalProjectProvisioner {
     // PERSONAL 프로젝트 — EPIC 제외 5종 시드.
     issueTypeService.seedSystemTypes(row.id(), false);
     // 생성자는 항상 OWNER — viewerIsMember=true
-    return ProjectResponse.from(row, true);
+    return ProjectResponse.from(row, true, "OWNER");
   }
 
   /** "P" + base36(userId) 기반, 충돌 시 접미사 부여. VARCHAR(10) 한도 준수. */

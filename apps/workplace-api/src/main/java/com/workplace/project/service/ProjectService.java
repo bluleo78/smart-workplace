@@ -85,7 +85,7 @@ public class ProjectService {
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_PROJECT, OP_CREATED, row, row.id(), callerId);
     // 생성자는 항상 OWNER — viewerIsMember=true
-    return ProjectResponse.from(row, true);
+    return ProjectResponse.from(row, true, "OWNER");
   }
 
   /**
@@ -175,9 +175,15 @@ public class ProjectService {
                   // 목록은 findAllForUser 가 이미 "멤버이거나 OPEN" 행만 반환.
                   // OPEN 비멤버는 목록에는 노출되지 않으므로 여기 도달한 행은 멤버로 간주해도 무방.
                   // 단, ADMIN 은 전체를 보므로 isMemberOrAdmin 으로 정확히 계산.
-                  boolean isMember = accessGuard.isMemberOrAdmin(row, callerId);
+                  String role = memberRole(row, callerId);
                   return ProjectResponse.from(
-                      row, issueTotal, done, memberCount, topNames, isMember);
+                      row,
+                      issueTotal,
+                      done,
+                      memberCount,
+                      topNames,
+                      viewerIsMember(row, role, isAdmin),
+                      role);
                 })
             .toList();
 
@@ -190,8 +196,22 @@ public class ProjectService {
   public ProjectResponse get(Long callerId, String projectKey) {
     ProjectRow project = accessGuard.assertReadable(projectKey, callerId);
     // viewerIsMember: 멤버 여부를 서버에서 계산해 프론트 재파생 방지.
-    boolean isMember = accessGuard.isMemberOrAdmin(project, callerId);
-    return ProjectResponse.from(project, isMember);
+    String role = memberRole(project, callerId);
+    boolean isAdmin = permissionChecker.userHasRole(callerId, "ADMIN");
+    return ProjectResponse.from(project, viewerIsMember(project, role, isAdmin), role);
+  }
+
+  /** 호출자의 실제 멤버 역할(OWNER/MEMBER, 아니면 null) — 응답 viewerRole(WP-1011). ADMIN 우회 없이 멤버 행 한 번만 본다. */
+  private String memberRole(ProjectRow project, Long callerId) {
+    return memberRepository.find(project.id(), callerId).map(MemberRow::role).orElse(null);
+  }
+
+  /**
+   * 응답 viewerIsMember — 멤버이거나 ADMIN(개인 프로젝트 제외, {@link ProjectAccessGuard#isMemberOrAdmin} 과 같은
+   * 규칙). 이미 읽은 역할·ADMIN 여부로 계산해 목록 항목마다 멤버 행을 다시 읽지 않는다.
+   */
+  private static boolean viewerIsMember(ProjectRow project, String role, boolean isAdmin) {
+    return role != null || (isAdmin && !project.isPersonal());
   }
 
   /**
@@ -200,15 +220,20 @@ public class ProjectService {
   public ProjectResponse update(Long callerId, String projectKey, UpdateProjectRequest req) {
     ProjectRow project = accessGuard.assertWithRole(projectKey, callerId, "OWNER");
     projectRepository.update(
-        project.id(), req.name(), req.description(), Boolean.TRUE.equals(req.clearDescription()));
+        project.id(),
+        req.name(),
+        req.description(),
+        Boolean.TRUE.equals(req.clearDescription()),
+        req.repositoryUrl(),
+        req.repositoryBranch());
     ProjectRow updated =
         projectRepository
             .findById(project.id())
             .orElseThrow(() -> new ProjectNotFoundException(projectKey));
     changeNotifier.changed(
         ProjectChangeNotifier.RESOURCE_PROJECT, OP_UPDATED, updated, updated.id(), callerId);
-    // update 는 OWNER 만 가능 — 업데이트 성공 시 항상 멤버.
-    return ProjectResponse.from(updated, true);
+    // update 는 OWNER(또는 ADMIN 우회)만 가능 — 업데이트 성공 시 항상 viewerIsMember. 역할은 실제 멤버 행으로.
+    return ProjectResponse.from(updated, true, memberRole(updated, callerId));
   }
 
   /** 프로젝트 soft-delete. OWNER 권한 필요. */

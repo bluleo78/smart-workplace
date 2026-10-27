@@ -2,7 +2,7 @@
 // 빈 상태·목록 오류와 다시 시도·403/404 오류 화면·생성 payload(팀/공개/개인)·key 유효성·설정 검증·삭제 뒤 이동은
 // 브라우저 없이 판정되므로 e2e/pages/projects/{projects,personal-projects,open-project-create,resource-error-state}.spec.ts 에서 옮겼다.
 // 프로젝트 생성 → 이슈 생성 → 상태 변경 → 코멘트로 이어지는 화면 흐름(@flow)은 projects.spec.ts 의 E2E 가 지킨다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import type { RequestHandler } from 'msw'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
@@ -212,11 +212,71 @@ describe('프로젝트 설정', () => {
     await user.clear(desc)
     await user.click(desc)
     await user.paste('가'.repeat(2001))
-    await user.click(screen.getByRole('button', { name: '저장' }))
+    // 기본 정보 폼의 저장 — 연결된 저장소 섹션(WP-1011)에도 저장 버튼이 있다.
+    await user.click(within(desc.closest('form')!).getByRole('button', { name: '저장' }))
     await waitFor(() => expect(document.querySelector('#settings-desc-error')).toHaveTextContent('설명은 2000자 이하여야 합니다'))
     expect(desc).toHaveAttribute('aria-invalid', 'true')
     expect(desc).toHaveAttribute('aria-describedby', 'settings-desc-error')
     expect(patches).toBe(0)
+  })
+
+  // WP-1011: 연결된 저장소를 저장해 프로젝트를 다시 받아도, 이름·설명이 그대로면 기본 정보에 쓰던 입력은 남는다.
+  test('기본 정보를 고치던 중 연결된 저장소를 저장해도 고치던 이름이 지워지지 않는다', async () => {
+    let project = createProject({ name: '원래 이름' })
+    const { user } = renderProjects('/projects/WP/settings', {
+      handlers: [
+        http.get(`${API}/projects/WP`, () => HttpResponse.json(project)),
+        http.patch(`${API}/projects/WP`, async ({ request }) => {
+          project = { ...project, ...((await request.json()) as Partial<ProjectResponse>) }
+          return HttpResponse.json(project)
+        }),
+        ...settingsHandlers(project),
+      ],
+    })
+    const name = await screen.findByDisplayValue('원래 이름')
+    await user.clear(name)
+    await user.type(name, '고치는 중')
+
+    const repo = screen.getByTestId('project-repository')
+    await user.type(within(repo).getByLabelText('저장소 주소'), 'https://github.com/acme/app.git')
+    await user.click(within(repo).getByRole('button', { name: '저장' }))
+    expect(await screen.findByText('연결된 저장소를 저장했습니다')).toBeInTheDocument()
+
+    // 다시 받은 프로젝트(저장소 주소가 든)가 화면에 들어온 뒤에도 이름 칸은 쓰던 값이다.
+    await waitFor(() => expect(within(repo).getByRole('button', { name: '저장' })).toBeDisabled())
+    expect(name).toHaveValue('고치는 중')
+  })
+
+  // WP-1011: 설정 화면은 프로젝트를 옮겨도 그대로 떠 있다 — 한 번 본(캐시에 있는) 프로젝트로 돌아가면 데이터가 바로 들어와,
+  // 이름·설명·저장소가 같으면 폼을 다시 맞추지 않아 쓰던 입력이 그 프로젝트로 넘어갔다.
+  test('이미 본 다른 프로젝트 설정으로 옮기면 저장하지 않은 이름·저장소 입력이 그 프로젝트로 넘어가지 않는다', async () => {
+    const a = createProject({ id: 1, key: 'WP', name: '같은 이름', description: '같은 설명' })
+    const b = createProject({ id: 2, key: 'HR', name: '같은 이름', description: '같은 설명' })
+    const { user, location } = renderProjects('/projects/HR/settings', {
+      handlers: [...settingsHandlers(a), ...settingsHandlers(b)],
+    })
+    const go = async (path: string) => {
+      act(() => {
+        window.history.pushState(null, '', path)
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await waitFor(() => expect(location()).toBe(path))
+    }
+    await screen.findByDisplayValue('같은 이름')
+    await go('/projects/WP/settings')
+    await screen.findByDisplayValue('같은 설명')
+
+    const name = await screen.findByDisplayValue('같은 이름')
+    await user.clear(name)
+    await user.type(name, 'WP 에서 고치는 중')
+    await user.type(within(screen.getByTestId('project-repository')).getByLabelText('저장소 주소'), 'https://github.com/acme/a.git')
+
+    await go('/projects/HR/settings')
+    await waitFor(() => expect(screen.getByDisplayValue('같은 이름')).toBeInTheDocument())
+    expect(screen.queryByDisplayValue('WP 에서 고치는 중')).not.toBeInTheDocument()
+    const repo = screen.getByTestId('project-repository')
+    expect(within(repo).getByLabelText('저장소 주소')).toHaveValue('')
+    expect(within(repo).getByRole('button', { name: '저장' })).toBeDisabled()
   })
 
   // 삭제 확인 → DELETE → 토스트(받침 없는 이름은 「가」, WP-647) → /projects 로 이동해 빈 상태가 보인다.

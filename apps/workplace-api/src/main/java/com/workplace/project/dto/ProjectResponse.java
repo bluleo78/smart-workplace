@@ -18,11 +18,15 @@ public record ProjectResponse(
     int issueDone, // DONE 개수
     int memberCount, // 멤버 수(멤버 없으면 소유자 1명으로 폴백)
     List<String> memberNames, // 상위 3명 이름(프론트가 이니셜·해시색 도출)
-    boolean viewerIsMember) { // 현재 요청자가 멤버(MEMBER/OWNER) 또는 ADMIN 인지 — 보드 DnD·생성 버튼 게이트
+    boolean viewerIsMember, // 현재 요청자가 멤버(MEMBER/OWNER) 또는 ADMIN 인지 — 보드 DnD·생성 버튼 게이트
+    String
+        viewerRole, // 현재 요청자의 실제 멤버 역할(OWNER/MEMBER, 아니면 null) — ADMIN 우회 없이 「내가 속한 프로젝트」(WP-1011)
+    String repositoryUrl, // 연결된 저장소 주소(WP-1011) — AI 가 이 프로젝트 이슈를 처리할 때 clone. 없으면 null
+    String repositoryBranch) { // 연결된 저장소의 기본 브랜치 — 없으면 저장소의 기본 브랜치
 
-  /** 집계 없는 단건 응답(상세/생성 등) — 카운트 0/빈값. viewerIsMember 는 호출자가 명시적으로 지정. */
-  public static ProjectResponse from(ProjectRow row, boolean viewerIsMember) {
-    return from(row, 0, 0, 0, List.of(), viewerIsMember);
+  /** 집계 없는 단건 응답(상세/생성 등) — 카운트 0/빈값. viewerIsMember·viewerRole 은 호출자가 명시적으로 지정. */
+  public static ProjectResponse from(ProjectRow row, boolean viewerIsMember, String viewerRole) {
+    return from(row, 0, 0, 0, List.of(), viewerIsMember, viewerRole);
   }
 
   /** 목록 응답 — 이슈 진행률/멤버 집계 포함. */
@@ -32,7 +36,8 @@ public record ProjectResponse(
       int issueDone,
       int memberCount,
       List<String> memberNames,
-      boolean viewerIsMember) {
+      boolean viewerIsMember,
+      String viewerRole) {
     return new ProjectResponse(
         row.id(),
         row.key(),
@@ -47,6 +52,9 @@ public record ProjectResponse(
         issueDone,
         memberCount,
         memberNames,
-        viewerIsMember);
+        viewerIsMember,
+        viewerRole,
+        row.repositoryUrl(),
+        row.repositoryBranch());
   }
 }

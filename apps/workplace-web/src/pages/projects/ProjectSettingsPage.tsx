@@ -39,6 +39,7 @@ import { IssueTypeManagement } from './components/IssueTypeManagement';
 import { LabelManagement } from './components/LabelManagement';
 import { MemberManagement } from './components/MemberManagement';
 import { ProjectUnavailableState } from './components/ProjectUnavailableState';
+import { RepositorySettings } from './components/RepositorySettings';
 import { StatusManagement } from './components/status/StatusManagement';
 
 /** WP-414: AI 화면 맥락에 싣는 프로젝트 종류 표시 문구. */
@@ -70,15 +71,17 @@ export default function ProjectSettingsPage() {
     resolver: zodResolver(updateProjectSchema),
   });
 
-  // 프로젝트 데이터 로드되면 폼 초기값 세팅
+  // 이름·설명을 받으면(저장 뒤 포함) 폼 초기값 세팅 — 객체가 아니라 두 값에 묶는다. 다른 섹션(연결된 저장소, WP-1011)을
+  // 저장해 프로젝트를 다시 받아도 이름·설명이 그대로면 쓰던 입력을 지우지 않게.
+  const savedKey = project.data?.key;
+  const savedName = project.data?.name;
+  const savedDescription = project.data?.description;
   useEffect(() => {
-    if (project.data) {
-      reset({
-        name: project.data.name,
-        description: project.data.description ?? '',
-      });
+    if (savedName !== undefined) {
+      reset({ name: savedName, description: savedDescription ?? '' });
     }
-  }, [project.data, reset]);
+    // 키도 묶는다 — 이름·설명이 같은 다른 프로젝트로 옮겨 가도 쓰던 입력이 그 프로젝트로 넘어가지 않게.
+  }, [savedKey, savedName, savedDescription, reset]);
 
   const onSubmit = async (data: UpdateProjectFormData) => {
     try {
@@ -193,6 +196,10 @@ export default function ProjectSettingsPage() {
               )}
             </form>
           </SettingsSection>
+
+          {/* 연결된 저장소(WP-1011) — AI 가 이슈를 처리할 코드 저장소. 기본 정보와 같은 권한으로 고친다. */}
+          {/* key — 다른 프로젝트로 옮기면 새로 띄워, 저장하지 않은 입력이 그 프로젝트로 넘어가지 않게(둘 다 빈 저장소면 값이 같아 맞추지 않는다). */}
+          {project.data && <RepositorySettings key={project.data.key} project={project.data} canManage={canManage} />}
 
           {/* WP-386: 공용 AI 메모리 — 설정 › AI 비서 › 메모리 「공용 메모리」에서 관리(개인 프로젝트는 공유 대상이 아니라 숨김). */}
           {!isPersonal && project.data && <SharedMemoryLink projectId={project.data.id} />}
