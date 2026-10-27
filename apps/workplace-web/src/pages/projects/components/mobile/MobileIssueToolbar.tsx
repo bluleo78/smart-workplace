@@ -154,6 +154,12 @@ function MobileViewChip({ projectKey, controls, sv }: { projectKey: string; cont
     <>
       <button type="button" className={cn(MOBILE_CHIP, 'font-medium')} onClick={() => setOpen(true)} data-testid="mobile-chip-view">
         <span className="max-w-[8rem] truncate">{viewName}</span>
+        {/* 고른 뷰의 조건을 바꿨으면 이름 뒤에 「수정됨」 — 저장본과 달라졌음을 보인다(WP-1022). */}
+        {sv.isViewDirty && (
+          <span className="shrink-0 text-xs font-normal text-muted-foreground" data-testid="mobile-chip-view-modified">
+            · 수정됨
+          </span>
+        )}
         <ChevronDown className="size-3.5" aria-hidden="true" />
       </button>
       <MobileViewSheet open={open} onClose={() => setOpen(false)} projectKey={projectKey} controls={controls} saved={sv} />

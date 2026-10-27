@@ -1,5 +1,5 @@
 // 뷰 칩 바 — [전체] + 저장된 뷰 칩 + ＋뷰 저장. 칩 클릭 시 필터 복원.
-import { PanelLeft, Pencil, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react'
+import { PanelLeft, Pencil, Plus, RefreshCw, Star, Trash2, Undo2, Users } from 'lucide-react'
 import { useState } from 'react'
 
 import {
@@ -58,6 +58,7 @@ export function ViewChipBar({
       <button
         type="button"
         data-testid="view-chip-all"
+        aria-pressed={s.isAllActive}
         onClick={s.applyAll}
         className={cn(
           'rounded-full border px-3 py-1 text-sm',
@@ -89,6 +90,12 @@ export function ViewChipBar({
               <span data-testid={`view-chip-name-${v.id}`} className="max-w-60 truncate" title={v.name}>
                 {v.name}
               </span>
+              {/* 고른 뷰의 조건을 바꿨으면 칩은 켜 둔 채 「수정됨」을 붙인다 — 저장본과 달라졌음을 보인다(WP-1022). */}
+              {s.isViewModified(v) && (
+                <span data-testid={`view-chip-modified-${v.id}`} className="shrink-0 text-xs font-normal opacity-80">
+                  · 수정됨
+                </span>
+              )}
             </button>
             {canDelete && (
               <DropdownMenu>
@@ -160,6 +167,15 @@ export function ViewChipBar({
               className="flex items-center gap-1 rounded-full border border-dashed px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50"
             >
               <Plus className="h-3.5 w-3.5" /> 새 뷰로 저장
+            </button>
+            {/* 되돌리기 — 고친 조건을 버리고 저장된 뷰로 다시 연다(그 칩을 다시 누른 것과 같다, WP-1022). */}
+            <button
+              type="button"
+              data-testid="revert-view-button"
+              onClick={() => s.apply(activeView)}
+              className="flex items-center gap-1 rounded-full px-3 py-1 text-sm text-muted-foreground hover:bg-accent/50"
+            >
+              <Undo2 className="h-3.5 w-3.5" /> 되돌리기
             </button>
           </div>
         ) : (
