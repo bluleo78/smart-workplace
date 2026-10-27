@@ -417,6 +417,8 @@ export default function IssueDetailPage() {
   const isWatching = !!watchers.data?.some((w) => w.userId === user?.id);
   // 모바일 ⋯ 메뉴 항목 문구 — 메뉴 안에선 동작("구독하기")·상태("구독 중 · n명")를 글자로 풀어 쓴다(U3-R6). 데스크톱은 기존 버튼 그대로.
   const isMobile = useIsMobile();
+  // 모바일 하단 작성창으로 방금 쓴 코멘트 id — 활동 목록이 그 코멘트까지 스크롤한 뒤 비운다(WP-1016).
+  const [postedCommentId, setPostedCommentId] = useState<number | null>(null);
   // 모바일 하단 편집 바(WP-196) — 제목·본문은 동시에 편집 중일 수 있다(모바일 제목은 blur 저장이 없어 본문을 탭해도 편집 유지).
   // 그래서 편집기별 슬롯을 따로 두고, 마지막에 편집을 시작한 쪽 컨트롤을 보여주되 그쪽이 끝나면 남은 편집기로 넘어간다.
   // 한 슬롯만 쓰면 먼저 끝난 쪽의 cleanup(null)이 다른 편집기의 저장·취소 경로까지 지워버린다.
@@ -848,6 +850,8 @@ export default function IssueDetailPage() {
                 history={history}
                 canReact={canEditContent}
                 hideComposer={isMobile}
+                scrollToCommentId={postedCommentId}
+                onScrolledToComment={() => setPostedCommentId(null)}
               />
             </div>
             {/* 채팅은 헤더 버튼 → 드로워(IssueChatDrawer)로 분리(구 인라인 패널 제거). */}
@@ -872,6 +876,7 @@ export default function IssueDetailPage() {
               // 정확히 4줄 — lh 단위는 에디터 자신의 줄 높이(터치 16px 글꼴 기준)라 4lh + py-2(1rem) + 테두리 2px = 4줄 + 여백.
               editorMaxHeightClass="max-h-[calc(4lh+1rem+2px)]"
               inlineSubmit
+              onPosted={setPostedCommentId}
             />
           </div>
         </div>

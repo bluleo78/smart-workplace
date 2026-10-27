@@ -1,11 +1,13 @@
 // IssueCommentList — 코멘트 본문 마크다운 렌더(WP-1015). 사람·AI 코멘트 모두 같은 모습으로 서식이 보이고,
 // 멘션 칩·평문 줄바꿈·원시 HTML 비허용은 그대로다. 이슈 상세 배선은 issue-comments E2E 가 맡는다.
+// 모바일 최신순에서 내가 쓴 새 코멘트로 스크롤하는 것(WP-1016)도 여기서 본다.
 import { screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { renderWithProviders } from '@/test/renderWithProviders'
 
 import { createAgentComment, createComment } from '../../../../e2e/factories/issue.factory'
+import type { ActivityOrder } from '../../../lib/activityOrder'
 import { IssueCommentList } from './IssueCommentList'
 
 vi.mock('../../../hooks/queries/useProjectMembers', () => ({
@@ -90,5 +92,73 @@ describe('IssueCommentList — 코멘트 마크다운 렌더 (WP-1015)', () => {
   it('멤버 목록에 없는 멘션은 「알 수 없음」 칩으로 그린다', () => {
     renderList([createComment({ id: 1, authorId: 2, body: '<@555> 확인' })])
     expect(screen.getByTestId('comment-mention-chip-555')).toHaveTextContent('@알 수 없음')
+  })
+})
+
+// ─── 방금 쓴 코멘트로 스크롤(WP-1016 리뷰) ────────────────────────────────────────────
+// 모바일은 작성창이 화면 하단에 따로 있어(hideComposer) 목록에 붙은 새 코멘트가 스크롤하지 않으면 보이지 않는다.
+// 스크롤은 작성 성공이 알려 준 id(scrollToCommentId)로만 한다 — 다른 곳에서 온 코멘트는 읽던 자리를 빼앗지 않는다.
+
+const OLD = [1, 2].map((n) => createComment({ id: n, body: `코멘트 ${n}`, authorId: 2, authorName: '다른 사람' }))
+
+function setupMobile(order: ActivityOrder = 'newest') {
+  const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+  const onScrolled = vi.fn()
+  const list = (comments: ReturnType<typeof createComment>[], scrollToCommentId: number | null) => (
+    <IssueCommentList
+      projectKey="WP"
+      issueNumber={1}
+      issueId={100}
+      comments={comments}
+      canReact
+      hideComposer
+      order={order}
+      scrollToCommentId={scrollToCommentId}
+      onScrolledToComment={onScrolled}
+    />
+  )
+  const view = renderWithProviders(list(OLD, null))
+  return { scroll, onScrolled, show: (comments: ReturnType<typeof createComment>[], id: number | null) => view.rerender(list(comments, id)) }
+}
+
+/** 스크롤한 요소들의 코멘트 id. */
+const scrolledIds = (scroll: { mock: { contexts: unknown[] } }) =>
+  scroll.mock.contexts.map((el) => (el as HTMLElement).dataset.messageId)
+
+const MINE = createComment({ id: 3, body: '새 코멘트', authorId: 1 })
+
+describe('방금 쓴 코멘트로 스크롤', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('작성한 id 의 코멘트가 다시 받은 목록에 나타나면 그 코멘트를 가운데로 스크롤하고 끝났다고 알린다', () => {
+    const { scroll, onScrolled, show } = setupMobile()
+    // 작성 직후 — 목록을 다시 받기 전에는 행이 없어 기다린다.
+    show(OLD, 3)
+    expect(scroll).not.toHaveBeenCalled()
+    show([...OLD, MINE], 3)
+    expect(scrolledIds(scroll)).toEqual(['3'])
+    expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' })
+    expect(onScrolled).toHaveBeenCalledTimes(1)
+  })
+
+  it('오래된 순(새 코멘트가 목록 맨 끝)에서도 스크롤한다', () => {
+    const { scroll, show } = setupMobile('oldest')
+    show([...OLD, MINE], 3)
+    expect(scrolledIds(scroll)).toEqual(['3'])
+  })
+
+  it('작성 알림 없이 붙은 코멘트(다른 탭·AI·실시간 갱신)는 내 것이어도 스크롤하지 않는다', () => {
+    const { scroll, show } = setupMobile()
+    show([...OLD, MINE, createComment({ id: 4, body: '남의 코멘트', authorId: 2 })], null)
+    expect(scroll).not.toHaveBeenCalled()
+  })
+
+  it('움직임 줄이기 설정이면 애니메이션 없이 옮긴다', () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) => ({ matches: query.includes('reduce'), media: query }) as MediaQueryList,
+    )
+    const { scroll, show } = setupMobile()
+    show([...OLD, MINE], 3)
+    expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: 'auto' })
   })
 })

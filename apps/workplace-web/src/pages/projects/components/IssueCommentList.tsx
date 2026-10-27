@@ -7,7 +7,7 @@
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { type ReactNode, useCallback, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
@@ -35,6 +35,7 @@ import { useDeleteComment, useUpdateComment } from '../../../hooks/queries/useIs
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useToggleCommentReaction } from '../../../hooks/queries/useToggleCommentReaction';
 import { useAuth } from '../../../hooks/useAuth';
+import { type ActivityOrder, DEFAULT_ACTIVITY_ORDER, orderActivity } from '../../../lib/activityOrder';
 import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import { commentOverLimitMessage, ISSUE_BODY_MAX_LENGTH } from '../../../lib/validations/issue';
@@ -311,8 +312,9 @@ function CommentItem({
   );
 }
 
-// 코멘트 목록을 시간순으로 표시하고, 하단 폼에서 신규 코멘트를 추가.
-/** 코멘트를 모두 지웠을 때 포커스를 받을 작성칸 — 데스크톱은 목록 아래, 모바일(WP-196)은 화면 하단 줄에 하나만 그려진다. */
+// 코멘트 목록을 고른 순서(WP-1016)로 표시하고, 작성창에서 신규 코멘트를 추가.
+// 작성창은 새 코멘트가 붙는 쪽에 둔다 — 오래된 순이면 목록 아래, 최신순이면 목록 위(새 글이 작성창 바로 옆에 붙어 스크롤이 필요 없다).
+/** 코멘트를 모두 지웠을 때 포커스를 받을 작성칸 — 데스크톱은 목록 위·아래, 모바일(WP-196)은 화면 하단 줄에 하나만 그려진다. */
 function commentComposerInput(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-testid="issue-comment-input"]');
 }
@@ -324,6 +326,9 @@ export function IssueCommentList({
   comments,
   canReact,
   hideComposer = false,
+  order = DEFAULT_ACTIVITY_ORDER,
+  scrollToCommentId = null,
+  onScrolledToComment,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -333,6 +338,12 @@ export function IssueCommentList({
   canReact: boolean;
   /** 모바일(WP-196)은 작성창을 화면 하단 줄에 따로 두므로 목록 아래 작성창을 뺀다(testid 중복 방지). */
   hideComposer?: boolean;
+  /** 보이는 순서(WP-1016) — comments 는 늘 오래된 순으로 받는다. */
+  order?: ActivityOrder;
+  /** 모바일 하단 작성창으로 방금 쓴 코멘트 id — 목록에 나타나면 그리로 스크롤한다(WP-1016). */
+  scrollToCommentId?: number | null;
+  /** scrollToCommentId 로 스크롤을 마쳤다 — 부모가 id 를 비운다(같은 코멘트로 다시 스크롤하지 않게). */
+  onScrolledToComment?: () => void;
 }) {
   const { user } = useAuth();
   const currentUserId = user?.id ?? 0;
@@ -358,6 +369,20 @@ export function IssueCommentList({
   // 코멘트를 키보드로 지우면 행이 빠지며 포커스가 body 로 빠졌다 — 같은 자리에 온 코멘트로, 다 지웠으면 작성칸으로 잇는다(WP-832).
   const listRef = useListFocusRescue(comments, commentComposerInput);
 
+  // 방금 쓴 코멘트로 스크롤(WP-1016 리뷰) — 모바일 작성창은 화면 하단에 고정이라, 새 코멘트가 목록 어디에 붙든
+  // (최신순 맨 위·오래된 순 맨 끝) 읽던 자리에서는 올라갔는지 보이지 않는다. 작성 성공이 알려 준 id 로만 움직인다 —
+  // 다른 곳(다른 탭·AI)에서 온 코멘트는 읽던 자리를 빼앗지 않는다. 다시 받은 목록에 아직 없으면 다음 갱신에서 다시 본다.
+  // 가운데로 맞춰 상단 고정 헤더·하단 작성창에 가리지 않게 하고, 움직임 줄이기 설정이면 바로 옮긴다.
+  const sectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (scrollToCommentId == null) return;
+    const row = sectionRef.current?.querySelector(`[data-message-id="${scrollToCommentId}"]`);
+    if (!row) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    row.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+    onScrolledToComment?.();
+  }, [scrollToCommentId, comments, onScrolledToComment]);
+
   // 프로젝트 멤버 = RichInput @ 자동완성 후보이자, 본문 <@id> 토큰의 이름/종류 역매핑 소스.
   const membersQuery = useProjectMembers(projectKey);
   const mentionCandidates: MentionCandidate[] = membersQuery.data ?? [];
@@ -367,31 +392,42 @@ export function IssueCommentList({
     kind: m.kind,
   }));
 
+  const composer = !hideComposer && (
+    <div key="composer" className="space-y-2">
+      <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} />
+    </div>
+  );
+
+  // "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거).
+  const list = (
+    <ul key="list" ref={listRef} className="space-y-2" role="list" {...longPress}>
+      {orderActivity(comments, order).map((c) => (
+        <CommentItem
+          key={c.id}
+          comment={c}
+          // 본인 HUMAN 코멘트만 수정·삭제 가능
+          isOwn={c.authorKind === 'HUMAN' && user != null && c.authorId === user.id}
+          projectKey={projectKey}
+          issueNumber={issueNumber}
+          issueId={issueId}
+          mentionUsers={mentionUsers}
+          mentionCandidates={mentionCandidates}
+          canReact={canReact}
+          touch={touch}
+          currentUserId={currentUserId}
+          onOpenReactors={(emoji) => openReactors(c.id, emoji)}
+        />
+      ))}
+      {comments.length === 0 && (
+        <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
+      )}
+    </ul>
+  );
+
   return (
-    <section aria-label="코멘트" className="space-y-3">
-      {/* "코멘트" 레이블 제거 — 상위 탭(코멘트)이 이미 맥락 제공(중복 제거). */}
-      <ul ref={listRef} className="space-y-2" role="list" {...longPress}>
-        {comments.map((c) => (
-          <CommentItem
-            key={c.id}
-            comment={c}
-            // 본인 HUMAN 코멘트만 수정·삭제 가능
-            isOwn={c.authorKind === 'HUMAN' && user != null && c.authorId === user.id}
-            projectKey={projectKey}
-            issueNumber={issueNumber}
-            issueId={issueId}
-            mentionUsers={mentionUsers}
-            mentionCandidates={mentionCandidates}
-            canReact={canReact}
-            touch={touch}
-            currentUserId={currentUserId}
-            onOpenReactors={(emoji) => openReactors(c.id, emoji)}
-          />
-        ))}
-        {comments.length === 0 && (
-          <li className="text-muted-foreground text-sm">코멘트가 없습니다</li>
-        )}
-      </ul>
+    <section ref={sectionRef} aria-label="코멘트" className="space-y-3">
+      {/* 순서를 바꿔도 작성창·목록을 키로 옮기기만 한다 — 다시 마운트하면 쓰던 초안이 날아간다. */}
+      {order === 'newest' ? [composer, list] : [list, composer]}
       <ReactorsOverlay
         target={reactorsComment && { id: reactorsComment.id, reactions: reactorsComment.reactions ?? [] }}
         // 대상이 없으면 패널을 그리지 않아 조회도 없다 — id 0 은 자리 채움.
@@ -404,11 +440,6 @@ export function IssueCommentList({
         meName={user?.name ?? '나'}
         description="이 코멘트에 반응한 사람"
       />
-      {!hideComposer && (
-        <div className="space-y-2">
-          <IssueCommentComposer projectKey={projectKey} issueNumber={issueNumber} issueId={issueId} />
-        </div>
-      )}
     </section>
   );
 }

@@ -24,6 +24,7 @@ import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 
+import { type ActivityOrder, DEFAULT_ACTIVITY_ORDER, orderActivity } from '../../../lib/activityOrder';
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import type { IssueHistoryEntry, IssueHistoryEventType } from '../../../types/issue';
 import {
@@ -163,14 +164,17 @@ function formatCustomFieldChanged(toValue: string | null): string {
 // 접기 기본값: 최근 5건만 표시. "이전 N건 더 보기" 토글로 전체 펼침 (#341).
 const MAX_VISIBLE = 5;
 
-// 이력 항목을 시간순으로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
+// 이력 항목을 고른 순서(WP-1016)로 ol 로 렌더. fromValue/toValue 가 null 이면 '없음' 으로 표시.
 export function IssueActivityTimeline({
   entries,
   projectKey,
+  order = DEFAULT_ACTIVITY_ORDER,
 }: {
   entries: IssueHistoryEntry[];
   /** 부모 이력의 키(RX-68) 표기용(부모는 늘 같은 프로젝트, WP-862)·관계 상대가 같은 프로젝트인지 가르는 기준(WP-887). */
   projectKey: string;
+  /** 보이는 순서(WP-1016) — entries 는 늘 오래된 순으로 받는다. */
+  order?: ActivityOrder;
 }) {
   // showAll: 전체 보기 여부. 기본은 최근 MAX_VISIBLE 건만 표시.
   const [showAll, setShowAll] = useState(false);
@@ -179,23 +183,27 @@ export function IssueActivityTimeline({
     return <p className="text-muted-foreground text-sm">변경 이력 없음</p>;
   }
 
-  // 최신 항목이 마지막에 있으므로 slice(-MAX_VISIBLE)로 최근 항목 추출
-  const visible = showAll ? entries : entries.slice(-MAX_VISIBLE);
+  // 접어도 늘 최근 MAX_VISIBLE 건이 보인다 — 오래된 순이면 끝에서, 최신순이면 앞에서 자른다.
+  const newestFirst = order === 'newest';
+  const ordered = orderActivity(entries, order);
+  const visible = showAll ? ordered : newestFirst ? ordered.slice(0, MAX_VISIBLE) : ordered.slice(-MAX_VISIBLE);
   const hiddenCount = entries.length - MAX_VISIBLE;
+
+  // 더 오래된 항목을 펼치는 버튼 — 그 항목이 들어올 쪽에 둔다(오래된 순이면 목록 위, 최신순이면 목록 아래).
+  const showMoreButton = !showAll && hiddenCount > 0 && (
+    <button
+      type="button"
+      onClick={() => setShowAll(true)}
+      className="text-muted-foreground hover:text-foreground w-full text-center text-xs underline-offset-2 hover:underline"
+      aria-label={`이전 ${hiddenCount}건 활동 더 보기`}
+    >
+      이전 {hiddenCount}건 더 보기
+    </button>
+  );
 
   return (
     <div className="space-y-2" data-testid="issue-activity-timeline">
-      {/* MAX_VISIBLE 초과 시 "이전 N건 더 보기" 토글 버튼 — 상단 배치로 더 오래된 항목 접기 */}
-      {!showAll && hiddenCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowAll(true)}
-          className="text-muted-foreground hover:text-foreground w-full text-center text-xs underline-offset-2 hover:underline"
-          aria-label={`이전 ${hiddenCount}건 활동 더 보기`}
-        >
-          이전 {hiddenCount}건 더 보기
-        </button>
-      )}
+      {!newestFirst && showMoreButton}
       <ol className="space-y-2 text-sm" role="list" aria-label="활동 타임라인">
         {visible.map((e) => {
         const isAgent = e.actorKind === 'AGENT';
@@ -283,6 +291,7 @@ export function IssueActivityTimeline({
         );
       })}
     </ol>
+      {newestFirst && showMoreButton}
       {/* 전체 펼친 상태에서 "접기" 버튼 — 다시 최근 N건으로 축소 */}
       {showAll && hiddenCount > 0 && (
         <button
