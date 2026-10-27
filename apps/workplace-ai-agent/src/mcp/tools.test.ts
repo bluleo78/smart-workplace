@@ -71,6 +71,8 @@ function sharedMock(): MockedShared {
     getProjectStatuses: vi.fn().mockResolvedValue([]),
     createProjectMeta: vi.fn().mockResolvedValue({}),
     updateProjectMeta: vi.fn().mockResolvedValue({}),
+    releaseProjectVersion: vi.fn().mockResolvedValue({}),
+    unreleaseProjectVersion: vi.fn().mockResolvedValue({}),
     updateProject: vi.fn().mockResolvedValue({}),
     createProject: vi.fn().mockResolvedValue({}),
     addProjectMember: vi.fn().mockResolvedValue({ userId: 0, username: '' }),

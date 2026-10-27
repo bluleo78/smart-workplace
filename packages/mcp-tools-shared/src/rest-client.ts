@@ -114,8 +114,8 @@ export const viewUrl = (base: string, page?: number) => `${base}/view${page !== 
 /** 외부 연락처 force 쿼리 — 서버 기본값이 false 라 true 일 때만 붙인다(미지정과 같은 요청이 되도록). */
 const forceParams = (force?: boolean) => (force ? { params: { force } } : undefined);
 
-/** 프로젝트 메타 종류 → REST 경로 조각(WP-356). 서버 컨트롤러 /projects/{key}/labels·milestones·cycles. */
-const META_PATH: Record<ProjectMetaKind, string> = { label: 'labels', milestone: 'milestones', cycle: 'cycles' };
+/** 프로젝트 메타 종류 → REST 경로 조각(WP-356, 버전 WP-1005). 서버 컨트롤러 /projects/{key}/labels·milestones·cycles·versions. */
+const META_PATH: Record<ProjectMetaKind, string> = { label: 'labels', milestone: 'milestones', cycle: 'cycles', version: 'versions' };
 
 /** 인증된 HTTP 인스턴스로 공유 도구 클라이언트를 만든다. */
 export function createSharedToolClient(http: HttpLike): SharedToolClient {
@@ -186,6 +186,12 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     },
     async updateProjectMeta(key, kind, id, body) {
       return (await http.patch(`${project(key)}/${META_PATH[kind]}/${id}`, body)).data;
+    },
+    async releaseProjectVersion(key, id) {
+      return (await http.post(`${project(key)}/versions/${id}/release`, {})).data;
+    },
+    async unreleaseProjectVersion(key, id) {
+      return (await http.post(`${project(key)}/versions/${id}/unrelease`, {})).data;
     },
     async getMe() {
       // 호출자 신원 — PAT 는 소유자, Internal+X-On-Behalf-Of 는 대리 대상이 된다(담당자 "me" 치환·토큰 검증).

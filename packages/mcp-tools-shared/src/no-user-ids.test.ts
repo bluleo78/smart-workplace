@@ -417,6 +417,8 @@ describe('프로젝트', () => {
     updateProject: vi.fn().mockResolvedValue(project),
     createProjectMeta: vi.fn().mockResolvedValue({ id: 6, projectId: 3, name: 'bug', colorToken: 'RED', createdAt: 't', updatedAt: 't' }),
     updateProjectMeta: vi.fn().mockResolvedValue({ id: 5, projectId: 3, name: 'S2', goal: null, status: 'ACTIVE', createdAt: 't', updatedAt: 't' }),
+    releaseProjectVersion: vi.fn().mockResolvedValue({}),
+    unreleaseProjectVersion: vi.fn().mockResolvedValue({}),
     searchMembers: vi.fn(),
   };
   const tools = buildProjectTools(client as never) as never as Parameters<typeof find>[0];
