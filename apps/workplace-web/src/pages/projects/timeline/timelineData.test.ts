@@ -15,9 +15,11 @@ import {
   filterRenderableDependencies,
   formatPeriodSpan,
   ganttAxisBounds,
+  groupLaneChipsByDate,
   groupTimelineIssues,
   initialScrollDate,
   isWeekend,
+  laneGroupLabelParts,
   milestonesToMarkers,
   parsePeriodParam,
   parseTimelineZoom,
@@ -1073,5 +1075,48 @@ describe('versionsToMarkers', () => {
   it('표시할 버전이 없으면 빈 배열(레인을 그리지 않는다)', () => {
     expect(versionsToMarkers([])).toEqual([]);
     expect(versionsToMarkers([v(1, 'x', 'ARCHIVED', '2026-01-01'), v(2, 'y', 'UNRELEASED', null)])).toEqual([]);
+  });
+});
+
+describe('groupLaneChipsByDate (WP-1027)', () => {
+  it('같은 날짜는 한 묶음으로, 순서는 입력(날짜순) 그대로 둔다', () => {
+    const items = [
+      { id: 1, date: '2026-10-20' },
+      { id: 2, date: '2026-10-27' },
+      { id: 3, date: '2026-10-27' },
+      { id: 4, date: '2026-10-28' },
+    ];
+    expect(groupLaneChipsByDate(items, (i) => i.date)).toEqual([
+      { date: '2026-10-20', items: [items[0]] },
+      { date: '2026-10-27', items: [items[1], items[2]] },
+      { date: '2026-10-28', items: [items[3]] },
+    ]);
+  });
+
+  it('빈 목록은 빈 묶음', () => {
+    expect(groupLaneChipsByDate([], () => '')).toEqual([]);
+  });
+});
+
+describe('laneGroupLabelParts (WP-1027)', () => {
+  it('하나는 이름만, 여럿은 늘 마지막 이름과 나머지 개수', () => {
+    expect(laneGroupLabelParts(['v0.9.23'])).toEqual({ name: 'v0.9.23', rest: '' });
+    expect(laneGroupLabelParts(['v0.9.23', 'v0.9.25'])).toEqual({ name: 'v0.9.25', rest: '+1' });
+    expect(laneGroupLabelParts(['v0.9.23', 'v0.9.24', 'v0.9.25'])).toEqual({ name: 'v0.9.25', rest: '+2' });
+  });
+});
+
+describe('레인 마커 이름 순서 (WP-1027)', () => {
+  it('같은 날 이름은 숫자를 값으로 비교해 v0.9.9 가 v0.9.10 앞에 온다 — 묶음 칩 대표(마지막)가 새 버전이 되게', () => {
+    const versions = [
+      { id: 1, name: 'v0.9.10', releaseDate: '2026-10-27', status: 'RELEASED' as const },
+      { id: 2, name: 'v0.9.9', releaseDate: '2026-10-27', status: 'RELEASED' as const },
+    ];
+    expect(versionsToMarkers(versions).map((v) => v.name)).toEqual(['v0.9.9', 'v0.9.10']);
+  });
+
+  it('마일스톤도 마감일 → 이름(숫자 값) → id 순으로 준다', () => {
+    const m = (id: number, name: string, dueDate: string): MilestoneResponse => ({ id, projectId: 1, name, dueDate, description: null, createdAt: '', updatedAt: '' });
+    expect(milestonesToMarkers([m(1, '2차 점검', '2026-08-02'), m(2, '10차 점검', '2026-08-01'), m(3, '9차 점검', '2026-08-01')]).map((x) => x.id)).toEqual([3, 2, 1]);
   });
 });

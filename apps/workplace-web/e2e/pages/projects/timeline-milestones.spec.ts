@@ -125,6 +125,40 @@ test('차트 왼쪽 밖의 마일스톤은 칩·점선을 그리드 위에 그�
   expect((await page.getByTestId('milestone-chip-3').boundingBox())!.x).toBeGreaterThanOrEqual(chartLeft - 1);
 });
 
+// WP-1027: 같은 마감일 칩을 옆으로 밀어 뒤 칩이 다른 날에 있는 것처럼 보였다 — 같은 날짜는 칩 하나가 그 점선 위에 선다.
+// 날짜가 다른 칩이 가까우면 지금처럼 겹치지 않게 오른쪽으로 민다.
+test('같은 마감일 마일스톤은 묶음 칩 하나가 그 날짜 점선 가운데에 서고, 다음 날 칩은 겹치지 않게 밀린다', { tag: '@layout' }, async ({
+  authenticatedPage: page,
+}) => {
+  await setupStubs(page, {
+    milestones: [
+      { id: 1, projectId: 1, name: '베타', dueDate: isoFromToday(7), description: null, createdAt: '', updatedAt: '' },
+      { id: 2, projectId: 1, name: '출시', dueDate: isoFromToday(7), description: null, createdAt: '', updatedAt: '' },
+      { id: 3, projectId: 1, name: '다음 날 마일스톤', dueDate: isoFromToday(8), description: null, createdAt: '', updatedAt: '' },
+    ],
+  });
+  await page.route(`**/api/v1/projects/${KEY}/issues?*`, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    const issues = [createIssue({ number: 1, title: '이번 주 이슈', startDate: isoFromToday(-1), dueDate: isoFromToday(3) })];
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
+  });
+  await page.goto(`/projects/${KEY}/timeline`);
+  const group = page.getByTestId(`milestone-chip-group-${isoFromToday(7)}`);
+  await expect(group).toBeVisible();
+  await expect(group).toHaveAccessibleName(/^출시 \+1,/);
+
+  // 두 마일스톤의 점선은 같은 X — 묶음 칩의 가운데가 그 X 에 맞는다(밀리지 않음).
+  const line1 = (await page.getByTestId('milestone-vline-1').boundingBox())!;
+  const line2 = (await page.getByTestId('milestone-vline-2').boundingBox())!;
+  expect(Math.abs(line1.x - line2.x)).toBeLessThan(1);
+  const chip = (await group.boundingBox())!;
+  expect(Math.abs(chip.x + chip.width / 2 - line1.x)).toBeLessThan(2);
+
+  // 하루 뒤 칩은 묶음 칩과 겹치지 않는다(기존 밀어 놓기 규칙).
+  const next = (await page.getByTestId('milestone-chip-3').boundingBox())!;
+  expect(next.x).toBeGreaterThanOrEqual(chip.x + chip.width);
+});
+
 test('레인 빈 곳 클릭 → 클릭 좌표 날짜가 채워진 생성 다이얼로그', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
   await setupStubs(page);
   const posts = trackRequests(page, 'POST', `/api/v1/projects/${KEY}/milestones`);

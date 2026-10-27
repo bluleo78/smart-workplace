@@ -15,15 +15,24 @@ import {
 import { addDays, format, parseISO } from 'date-fns'
 import { Diamond, Triangle } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
 
-import { formatDateKey } from '@/lib/formatters'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/overlay/dropdown-menu'
+import { formatDateKey, formatListDueDate } from '@/lib/formatters'
 import type { IssueStatus } from '@/types/issue'
 
 import {
   dayCellLabel,
   ganttAxisBounds,
+  groupLaneChipsByDate,
   isWeekend,
+  laneGroupLabelParts,
   rollupOverlay,
   weekMonthAdd,
   weekMonthDiff,
@@ -249,15 +258,20 @@ export function TimelineGantt({
   const todayLineRef = useRef<HTMLDivElement | null>(null)
   const cycleBandLabelRefs = useRef(new Map<number, HTMLDivElement>())
   // 마일스톤 레인 칩/세로 점선 DOM 참조(#648) — SVAR task 가 아니라 별도 오버레이라 자체 ref 맵으로 관리한다.
-  const milestoneChipRefs = useRef(new Map<number, HTMLButtonElement>())
+  // 칩은 같은 날짜끼리 하나로 묶어 날짜(yyyy-MM-dd)로, 점선은 항목 id 로 찾는다(WP-1027).
+  const milestoneChipRefs = useRef(new Map<string, HTMLButtonElement>())
   const milestoneVlineRefs = useRef(new Map<number, HTMLDivElement>())
   // 마일스톤 레인과 그 아래 차트의 그리드/차트 경계선을 잇는 구분선 — 레인이 별도 sibling div라
   // SVAR 내부 구분선이 이 행 높이에서는 그려지지 않아 시각적으로 끊겨 보이는 문제를 보정한다.
   const milestoneDividerRef = useRef<HTMLDivElement | null>(null)
   // 버전 레인(WP-888) — 마일스톤 레인과 같은 방식의 칩/세로 점선/구분선 참조.
-  const versionChipRefs = useRef(new Map<number, HTMLButtonElement>())
+  const versionChipRefs = useRef(new Map<string, HTMLButtonElement>())
   const versionVlineRefs = useRef(new Map<number, HTMLDivElement>())
   const versionDividerRef = useRef<HTMLDivElement | null>(null)
+  // 같은 날짜 칩 묶음(WP-1027) — 같은 날짜를 옆으로 밀면 뒤 칩이 다른 날짜로 읽히므로 날짜마다 칩 하나로 그린다.
+  // 입력은 milestonesToMarkers·versionsToMarkers 가 이미 날짜 → 이름 → id 순으로 준다.
+  const milestoneGroups = useMemo(() => groupLaneChipsByDate(milestones, (m) => m.dueDate), [milestones])
+  const versionGroups = useMemo(() => groupLaneChipsByDate(versions, (v) => v.date), [versions])
   // onToggleGroup 최신 참조 — api.on 구독 콜백이 stale closure 를 잡지 않도록.
   // 렌더 중 ref 갱신은 React Compiler 가 금지하므로(react-hooks/refs) 이펙트에서 갱신한다.
   const onToggleGroupRef = useRef(onToggleGroup)
@@ -494,9 +508,11 @@ export function TimelineGantt({
     const bandLefts = new Map<number, { left: number; width: number }>()
     // 마일스톤 오버레이 좌표(#648) — 마감일 오름차순으로 마감일 정확한 X 와 칩 폭을 둔다. vline 은 늘 이 X,
     // 칩은 스크롤 뒤 겹치거나 차트 왼쪽에 걸리면 우측으로 밀어 배치한다(applyTransform).
-    const milestoneLayout: { id: number; x: number; width: number }[] = []
+    // 같은 날짜는 칩 하나(date)로 묶여 있어 밀리는 것은 날짜가 다른 칩뿐이다(WP-1027). ids 는 그 날짜의 점선들.
+    type LaneLayout = { date: string; ids: number[]; x: number; width: number }[]
+    const milestoneLayout: LaneLayout = []
     // 버전 오버레이 좌표(WP-888) — 마일스톤과 같은 배치 규칙(placeLaneChips)을 쓴다.
-    const versionLayout: { id: number; x: number; width: number }[] = []
+    const versionLayout: LaneLayout = []
 
     const recompute = () => {
       const chartScales = api.getState()._scales
@@ -538,17 +554,20 @@ export function TimelineGantt({
         const width = baseLeft + toOffset(parseISO(band.endDate)) - left
         bandLefts.set(band.id, { left, width })
       }
-      milestoneLayout.length = 0
-      for (const m of [...milestones].sort((a, b) => a.dueDate.localeCompare(b.dueDate))) {
-        const width = milestoneChipRefs.current.get(m.id)?.offsetWidth ?? 0
-        milestoneLayout.push({ id: m.id, x: baseLeft + toOffset(parseISO(m.dueDate)), width })
+      const fillLayout = (
+        layout: LaneLayout,
+        groups: { date: string; items: { id: number }[] }[],
+        chipRefs: Map<string, HTMLButtonElement>,
+      ) => {
+        layout.length = 0
+        for (const { date, items } of groups) {
+          const width = chipRefs.get(date)?.offsetWidth ?? 0
+          layout.push({ date, ids: items.map((item) => item.id), x: baseLeft + toOffset(parseISO(date)), width })
+        }
       }
-      versionLayout.length = 0
-      // versionsToMarkers 가 이미 날짜순(이름·id 동률 해소)으로 준다 — 다시 정렬하지 않는다.
-      for (const v of versions) {
-        const width = versionChipRefs.current.get(v.id)?.offsetWidth ?? 0
-        versionLayout.push({ id: v.id, x: baseLeft + toOffset(parseISO(v.date)), width })
-      }
+      // 묶음은 이미 날짜순이다(milestoneGroups·versionGroups) — 다시 정렬하지 않는다.
+      fillLayout(milestoneLayout, milestoneGroups, milestoneChipRefs.current)
+      fillLayout(versionLayout, versionGroups, versionChipRefs.current)
       applyTransform()
     }
 
@@ -576,20 +595,21 @@ export function TimelineGantt({
       // 마감일 오름차순으로 훑으며 직전 칩과 겹치면 그 우측 +4px 로 밀어 배치(간단한 충돌 회피).
       // 버전 레인도 같은 규칙을 쓴다(WP-888).
       const placeLaneChips = (
-        layout: { id: number; x: number; width: number }[],
-        chipRefs: Map<number, HTMLButtonElement>,
+        layout: LaneLayout,
+        chipRefs: Map<string, HTMLButtonElement>,
         vlineRefs: Map<number, HTMLDivElement>,
       ) => {
         let prevRight = -Infinity
-        for (const { id, x, width } of layout) {
+        for (const { date, ids, x, width } of layout) {
           const lineX = x - scrollLeft
           const visible = lineX >= chartLeft
-          const vline = vlineRefs.get(id)
-          if (vline) {
+          for (const id of ids) {
+            const vline = vlineRefs.get(id)
+            if (!vline) continue
             vline.style.visibility = visible ? '' : 'hidden'
             vline.style.transform = `translateX(${lineX}px)`
           }
-          const chip = chipRefs.get(id)
+          const chip = chipRefs.get(date)
           if (!chip) continue
           chip.style.visibility = visible ? '' : 'hidden'
           if (!visible) continue
@@ -605,7 +625,7 @@ export function TimelineGantt({
     recompute()
     scroller.addEventListener('scroll', applyTransform)
     return () => scroller.removeEventListener('scroll', applyTransform)
-  }, [cycles, zoom, tasks, milestones, versions])
+  }, [cycles, zoom, tasks, milestoneGroups, versionGroups])
 
   // 이슈 막대 상태별 색상(#639) — SVAR 는 task 필드 기반 className/style 주입 API 가 없어(스파이크 노트),
   // 렌더된 `.wx-bar` DOM 노드에 직접 CSS 변수를 주입한다. `--wx-gantt-task-color`(기본 배경)와
@@ -753,26 +773,18 @@ export function TimelineGantt({
           data-testid="milestone-lane-divider"
           className="border-border pointer-events-none absolute inset-y-0 w-0 border-l"
         />
-        {milestones.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            ref={(el) => {
-              if (el) milestoneChipRefs.current.set(m.id, el)
-              else milestoneChipRefs.current.delete(m.id)
-            }}
-            data-testid={`milestone-chip-${m.id}`}
+        {milestoneGroups.map((group) => (
+          <LaneGroupChip
+            key={group.date}
+            kind="milestone"
+            group={group}
+            chipRefs={milestoneChipRefs}
             // 관리 권한이 없으면 누를 것이 없는 버튼으로 남기지 않는다 — 포커스·스크린리더에서 빠지게 비활성(WP-1008).
             disabled={!canEditMilestones}
             className="bg-primary text-primary-foreground absolute top-1 flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs font-medium"
-            onClick={(e) => {
-              e.stopPropagation() // 레인 빈곳 클릭(생성)과 분리 — 칩 클릭은 편집 팝오버만 연다.
-              onMilestoneClick(m.id, e.currentTarget.getBoundingClientRect())
-            }}
-          >
-            <Diamond className="h-3 w-3" aria-hidden="true" />
-            <span className="max-w-40 truncate">{m.name}</span>
-          </button>
+            icon={<Diamond className="h-3 w-3" aria-hidden="true" />}
+            onPick={onMilestoneClick}
+          />
         ))}
       </div>
       {/* 버전 레인(WP-888) — 마일스톤 레인 아래 별도 스트립. 마일스톤과 다른 색(info 토큰)의 ▲ 칩 + 세로 점선.
@@ -790,26 +802,23 @@ export function TimelineGantt({
             data-testid="version-lane-divider"
             className="border-border pointer-events-none absolute inset-y-0 w-0 border-l"
           />
-          {versions.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              ref={(el) => {
-                if (el) versionChipRefs.current.set(v.id, el)
-                else versionChipRefs.current.delete(v.id)
-              }}
-              data-testid={`version-chip-${v.id}`}
-              // 출시됨은 채우지 않은 테두리 칩으로 미출시와 구분한다.
+          {versionGroups.map((group) => (
+            <LaneGroupChip
+              key={group.date}
+              kind="version"
+              group={group}
+              chipRefs={versionChipRefs}
+              // 출시됨은 채우지 않은 테두리 칩으로 미출시와 구분한다 — 묶음은 모두 출시됨일 때만 테두리 칩.
               className={
-                v.status === 'RELEASED'
+                group.items.every((v) => v.status === 'RELEASED')
                   ? 'border-info text-info bg-background absolute top-1 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium'
                   : 'bg-info text-info-foreground border-info absolute top-1 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium'
               }
-              onClick={() => onVersionClick?.(v.id)}
-            >
-              <Triangle className="h-3 w-3" aria-hidden="true" />
-              <span className="max-w-40 truncate">{v.name}</span>
-            </button>
+              icon={<Triangle className="h-3 w-3" aria-hidden="true" />}
+              // 묶음에 출시됨·미출시가 섞일 수 있어 목록 항목마다 상태를 적는다.
+              itemNote={(v) => (v.status === 'RELEASED' ? '출시됨' : '미출시')}
+              onPick={(id) => onVersionClick?.(id)}
+            />
           ))}
         </div>
       )}
@@ -926,5 +935,113 @@ export function TimelineGantt({
         </ThemeWrapper>
       </div>
     </div>
+  )
+}
+
+/** 레인 칩 한 개가 그리는 묶음 — 같은 날짜의 마일스톤 또는 버전(WP-1027). */
+interface LaneGroupChipProps<T extends { id: number; name: string }> {
+  kind: 'milestone' | 'version'
+  group: { date: string; items: T[] }
+  /** 배치 effect 가 날짜로 칩을 찾아 옮긴다 — 마운트·언마운트 때 등록·해제. */
+  chipRefs: RefObject<Map<string, HTMLButtonElement>>
+  /** 고를 권한이 없을 때 — 하나짜리 칩은 비활성, 묶음은 목록은 열어 이름을 보되 항목을 비활성으로 둔다. */
+  disabled?: boolean
+  className: string
+  icon: ReactNode
+  /** 목록 항목 옆에 덧붙일 말(버전의 출시 상태 등). */
+  itemNote?: (item: T) => string
+  /** 항목 하나를 골랐을 때 — 마일스톤은 편집 팝오버(칩 위치 기준), 버전은 상세 이동. */
+  onPick: (id: number, rect: DOMRect) => void
+}
+
+/**
+ * 마일스톤·버전 레인 칩(WP-1027) — 그 날짜 점선 위에 하나만 그린다. 항목이 하나면 누르면 바로 그 항목으로 가고,
+ * 여럿이면 마지막 이름에 나머지 개수(「c +2」)를 보이고 누르면 그 날짜의 목록이 열려 하나를 고른다.
+ * 테스트 id 는 하나일 때 기존(`milestone-chip-<id>`)을 지키고, 묶음은 `<kind>-chip-group-<날짜>` 다.
+ */
+function LaneGroupChip<T extends { id: number; name: string }>({
+  kind,
+  group,
+  chipRefs,
+  disabled,
+  className,
+  icon,
+  itemNote,
+  onPick,
+}: LaneGroupChipProps<T>) {
+  // 목록이 닫히면(고름·Esc·바깥 클릭 모두) 포커스는 Radix 기본대로 칩으로 돌아간다 — 하나짜리 칩을 눌러 편집 팝오버를 연
+  // 때와 같은 자리다. 편집 팝오버는 포커스를 가져가지 않아, 막으면 키보드 사용자의 포커스가 <body> 로 빠졌다(PR #930 리뷰).
+  const chipRef = useRef<HTMLButtonElement | null>(null)
+  const [first] = group.items
+  const kindLabel = kind === 'milestone' ? '마일스톤' : '버전'
+  const setRef = (el: HTMLButtonElement | null) => {
+    chipRef.current = el
+    if (el) chipRefs.current.set(group.date, el)
+    else chipRefs.current.delete(group.date)
+  }
+  if (group.items.length === 1) {
+    return (
+      <button
+        type="button"
+        ref={setRef}
+        data-testid={`${kind}-chip-${first.id}`}
+        disabled={disabled}
+        className={className}
+        onClick={(e) => {
+          e.stopPropagation() // 레인 빈곳 클릭(마일스톤 생성)과 분리 — 칩 클릭은 그 항목만 연다.
+          onPick(first.id, e.currentTarget.getBoundingClientRect())
+        }}
+      >
+        {icon}
+        <span className="max-w-40 truncate">{first.name}</span>
+      </button>
+    )
+  }
+  const names = group.items.map((item) => item.name)
+  const label = laneGroupLabelParts(names)
+  const summary = `${formatListDueDate(group.date)} · ${kindLabel} ${names.length}개`
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          ref={setRef}
+          data-testid={`${kind}-chip-group-${group.date}`}
+          // 접근 이름은 보이는 문구로 시작한다(음성 조작이 「출시 +1」로 부를 수 있게) — 날짜·개수는 뒤에 덧붙인다.
+          aria-label={`${label.name} ${label.rest}, ${summary}`}
+          className={className}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {icon}
+          <span className="max-w-40 truncate">{label.name}</span>
+          {/* 이름이 길어 말줄임돼도 묶음임이 보이게 「+N」은 따로 둔다. */}
+          <span className="shrink-0">{label.rest}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        // 메뉴는 포털이지만 React 이벤트는 레인까지 올라간다 — 레인 빈곳 클릭(마일스톤 생성)으로 새지 않게 막는다.
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DropdownMenuLabel className="text-muted-foreground text-xs">{summary}</DropdownMenuLabel>
+        {group.items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            data-testid={`${kind}-chip-item-${item.id}`}
+            disabled={disabled}
+            onSelect={() => {
+              // 칩이 다시 그려져 위치를 모르면 팝오버를 화면 구석에 띄우지 않고 고르기를 접는다.
+              const rect = chipRef.current?.getBoundingClientRect()
+              if (!rect) return
+              onPick(item.id, rect)
+            }}
+          >
+            {icon}
+            <span className="truncate">{item.name}</span>
+            {itemNote && <span className="text-muted-foreground ml-auto pl-3 text-xs">{itemNote(item)}</span>}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

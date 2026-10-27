@@ -145,13 +145,13 @@ describe('버전 노출 — 타임라인 레인', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-07-08T03:00:00Z'))
     const api = versionApi({ ...opts, issue: { startDate: '2026-07-01', dueDate: '2026-07-14' } })
-    renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+    const { user } = renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
       path: `/projects/${KEY}/timeline?period=all`,
       handlers: [http.get(`${BASE}/issue-dependencies`, () => HttpResponse.json([])), ...api.handlers, ...shellHandlers],
     })
     await screen.findByTestId('timeline-gantt')
     await versionsServed(api)
-    return api
+    return { api, user }
   }
 
   test('출시일이 있는 보관 안 된 버전만 레인에 칩으로 그린다 — 보관·출시일 없음은 빠진다', async () => {
@@ -166,6 +166,34 @@ describe('버전 노출 — 타임라인 레인', () => {
     expect(within(lane).getByTestId('version-chip-1')).toHaveTextContent('1.0.0')
     expect(within(lane).queryByTestId('version-chip-2')).not.toBeInTheDocument()
     expect(within(lane).queryByTestId('version-chip-3')).not.toBeInTheDocument()
+  })
+
+  // 같은 출시일 버전을 옆으로 밀면 뒤 버전이 다른 날에 출시된 것처럼 읽혔다(WP-1027) — 그 날짜 칩 하나로 묶는다.
+  test('출시일이 같은 버전은 칩 하나로 묶고, 누르면 그 날짜 목록에서 골라 버전 상세로 간다', async () => {
+    const { user } = await openTimeline({
+      versions: [
+        createVersion({ id: 1, name: 'v0.9.23', releaseDate: '2026-07-10', status: 'RELEASED' }),
+        createVersion({ id: 2, name: 'v0.9.25', releaseDate: '2026-07-10', status: 'RELEASED' }),
+        createVersion({ id: 3, name: 'v0.9.26', releaseDate: '2026-07-12' }),
+      ],
+    })
+    const lane = await screen.findByTestId('version-lane')
+    const group = within(lane).getByTestId('version-chip-group-2026-07-10')
+    // 보이는 문구로 시작하는 접근 이름 — 날짜·개수는 뒤에 붙는다.
+    expect(group).toHaveAccessibleName('v0.9.25 +1, 7월 10일 · 버전 2개')
+    // 묶인 버전은 따로 칩을 그리지 않고, 날짜가 다른 버전은 제 칩 그대로다. 점선은 버전마다 남는다(같은 X).
+    expect(within(lane).queryByTestId('version-chip-1')).not.toBeInTheDocument()
+    expect(within(lane).queryByTestId('version-chip-2')).not.toBeInTheDocument()
+    expect(within(lane).getByTestId('version-chip-3')).toHaveTextContent('v0.9.26')
+    expect(screen.getByTestId('version-vline-1')).toBeInTheDocument()
+    expect(screen.getByTestId('version-vline-2')).toBeInTheDocument()
+
+    await user.click(group)
+    const menu = await screen.findByRole('menu')
+    // 목록은 이름순(숫자 값)이고 항목마다 출시 상태를 적는다.
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['v0.9.23출시됨', 'v0.9.25출시됨'])
+    await user.click(within(menu).getByRole('menuitem', { name: /v0\.9\.25/ }))
+    await waitFor(() => expect(window.location.pathname).toBe(`/projects/${KEY}/versions/2`))
   })
 
   test('버전이 없으면 간트는 그려도 버전 레인은 없다', async () => {

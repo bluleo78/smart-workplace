@@ -32,9 +32,19 @@ export function cyclesToBands(cycles: CycleResponse[]): TimelineCycleBand[] {
     .map((c) => ({ id: c.id, name: c.name, startDate: c.startDate, endDate: c.endDate }));
 }
 
-/** 마일스톤 목록을 간트 마커로 변환. */
+/**
+ * 이름 순서(WP-1027) — 숫자를 값으로 비교해 v0.9.9 < v0.9.10. 같은 날짜 묶음 칩이 마지막 이름을 대표로 보이므로
+ * 버전·마일스톤 레인이 같은 규칙을 쓴다.
+ */
+function compareLaneName(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true });
+}
+
+/** 마일스톤 목록을 간트 마커로 변환 — 마감일 오름차순(같은 날은 이름·id)으로 돌려 레인 배치·묶음이 결정적이게 한다(WP-1027). */
 export function milestonesToMarkers(milestones: MilestoneResponse[]): TimelineMilestoneMarker[] {
-  return milestones.map((m) => ({ id: m.id, name: m.name, dueDate: m.dueDate }));
+  return milestones
+    .map((m) => ({ id: m.id, name: m.name, dueDate: m.dueDate }))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate) || compareLaneName(a.name, b.name) || a.id - b.id);
 }
 
 /**
@@ -49,7 +59,46 @@ export function versionsToMarkers(
     if (!v.releaseDate || v.status === 'ARCHIVED') continue;
     out.push({ id: v.id, name: v.name, date: v.releaseDate, status: v.status });
   }
-  return out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name) || a.id - b.id);
+  return out.sort((a, b) => a.date.localeCompare(b.date) || compareLaneName(a.name, b.name) || a.id - b.id);
+}
+
+/** 레인 칩 묶음(WP-1027) — 같은 날짜의 마일스톤·버전을 칩 하나로 그리기 위한 단위. */
+export interface LaneChipGroup<T> {
+  /** 묶음 날짜 yyyy-MM-dd — 칩·점선의 X 와 키. */
+  date: string;
+  /** 그 날짜의 항목들(입력 순서 유지). */
+  items: T[];
+}
+
+/**
+ * 날짜가 같은 항목을 하나로 묶는다(WP-1027) — 같은 날짜 칩을 겹침 피하기로 옆으로 밀면 뒤 칩이 다른 날짜에 있는 것처럼
+ * 읽히므로, 같은 날짜는 칩 하나(그 날짜 점선 위)로 그린다. 입력이 날짜순이면 묶음도 날짜순이다.
+ */
+export function groupLaneChipsByDate<T>(items: T[], dateOf: (item: T) => string): LaneChipGroup<T>[] {
+  const groups: LaneChipGroup<T>[] = [];
+  const byDate = new Map<string, LaneChipGroup<T>>();
+  for (const item of items) {
+    const date = dateOf(item);
+    let group = byDate.get(date);
+    if (!group) {
+      group = { date, items: [] };
+      byDate.set(date, group);
+      groups.push(group);
+    }
+    group.items.push(item);
+  }
+  return groups;
+}
+
+/**
+ * 묶음 칩 문구(WP-1027) — 하나면 그 이름, 여럿이면 마지막 이름에 나머지 개수(「v0.9.25 +1」, 「v0.9.25 +2」).
+ * 대표 이름과 「+N」을 나눠 돌려 칩이 이름만 말줄임하고 「+N」은 늘 보이게 한다.
+ * 칩 폭이 항목 수와 상관없이 짧게 유지되도록 늘 이름 하나만 보인다(사용자 결정). 마지막을 보이는 것은 같은 날 이름순
+ * (숫자 값 비교 — compareLaneName)으로 가장 뒤(대개 가장 새 버전)가 대표이기 때문이다. 전체 이름은 칩을 누른 목록에 있다.
+ */
+export function laneGroupLabelParts(names: string[]): { name: string; rest: string } {
+  if (names.length <= 1) return { name: names[0] ?? '', rest: '' };
+  return { name: names[names.length - 1], rest: `+${names.length - 1}` };
 }
 
 /**
