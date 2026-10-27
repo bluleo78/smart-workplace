@@ -35,3 +35,8 @@ export async function downloadViewerItem(item: ViewerItem, blob?: Blob | null): 
     inFlight.delete(key)
   }
 }
+
+/** E2E 앱 다시 띄우기 전용 — 앞 테스트가 잡아 둔 재저장 막기(1초)가 다음 테스트의 같은 파일 다운로드를 무시하지 않게 비운다. */
+export function resetDownloadInFlightForTest() {
+  inFlight.clear()
+}

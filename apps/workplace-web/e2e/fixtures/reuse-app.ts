@@ -24,9 +24,15 @@ type Slot = {
   storage: Record<string, string>
   /** 이번 테스트에서 이미 goto 했는가 — 두 번째부터는 새로고침처럼 저장소를 그대로 두고 앱만 다시 띄운다. */
   navigated: boolean
+  /** 이번 테스트의 앱을 다시 띄우기로 열었는가 — 이 문서의 히스토리에는 앞 테스트들의 항목이 남아 있다. */
+  remounted: boolean
   /** 이번 테스트가 단 page 이벤트 리스너 — 끝나면 뗀다. */
   listeners: Array<[string, (...args: unknown[]) => void]>
   viewport: { width: number; height: number } | null
+  /** 터치 기기 컨텍스트인가(hasTouch) — 호버 자리 비우기를 건너뛰고 핀치 확대를 되돌린다. */
+  hasTouch: boolean
+  /** 서비스워커를 켠 컨텍스트인가 — 등록된 워커가 다음 테스트로 새므로 늘 새로 연다. */
+  serviceWorkers: boolean
 }
 
 /** 워커 안 집계 — 앱만 다시 띄운 수·문서를 새로 연 수(워커가 끝날 때 한 줄 남겨 이어 쓰기가 실제로 먹는지 본다). */
@@ -52,7 +58,7 @@ export function setReusedStorage(page: Page, key: string, value: string) {
 }
 
 // 문서 시작부터 손대는 API — 부르면 이번 테스트는 더럽힘.
-const DIRTY_PAGE_METHODS = ['addInitScript', 'exposeFunction', 'exposeBinding', 'emulateMedia', 'setExtraHTTPHeaders'] as const
+const DIRTY_PAGE_METHODS = ['addInitScript', 'exposeFunction', 'exposeBinding', 'emulateMedia', 'setExtraHTTPHeaders', 'routeWebSocket'] as const
 const DIRTY_CLOCK_METHODS = ['install', 'setFixedTime', 'setSystemTime', 'fastForward', 'runFor', 'pauseAt', 'resume'] as const
 const DIRTY_CONTEXT_METHODS = [
   'addInitScript',
@@ -62,6 +68,7 @@ const DIRTY_CONTEXT_METHODS = [
   'clearPermissions',
   'route',
   'routeFromHAR',
+  'routeWebSocket',
   'setOffline',
   'setGeolocation',
   'setExtraHTTPHeaders',
@@ -82,7 +89,7 @@ async function createSlot(
   const use = options
   const context = await browser.newContext(options)
   const page = await context.newPage()
-  const slot: Slot = { context, page, booted: false, dirty: false, storage: {}, navigated: false, listeners: [], viewport: page.viewportSize() }
+  const slot: Slot = { context, page, booted: false, dirty: false, storage: {}, navigated: false, remounted: false, listeners: [], viewport: page.viewportSize(), hasTouch: !!options.hasTouch, serviceWorkers: options.serviceWorkers === 'allow' }
   slotByPage.set(page, slot)
   slotByContext.set(context, slot)
 
@@ -92,7 +99,8 @@ async function createSlot(
     const raw = document.cookie.split('; ').find((c) => c.startsWith(cookieName + '='))
     if (!raw) return
     document.cookie = `${cookieName}=; path=/; max-age=0`
-    window.localStorage.clear()
+    // 비우지는 않는다 — 시작 스크립트끼리의 순서는 정해져 있지 않아, 여기서 비우면 테스트가 단 시작 스크립트의 값까지 지울 수 있다.
+    // 앞 테스트의 저장소는 goto 가 이동 전에 비운다.
     const values = JSON.parse(decodeURIComponent(raw.slice(cookieName.length + 1))) as Record<string, string>
     for (const [key, value] of Object.entries(values)) window.localStorage.setItem(key, value)
   }, STORAGE_COOKIE)
@@ -132,20 +140,40 @@ async function createSlot(
     if (slot.booted && !slot.dirty && sameOrigin && !page.url().startsWith('about:')) {
       await page.evaluate(
         ([path, storage]) =>
-          (window as unknown as { __e2eRemount: (p: string, s: Record<string, string> | null) => void }).__e2eRemount(path, storage),
+          (window as unknown as { __e2eRemount: (p: string, s: Record<string, string> | null) => Promise<void> }).__e2eRemount(path, storage),
         [target.pathname + target.search + target.hash, slot.navigated ? null : slot.storage] as const,
       )
       slot.navigated = true
+      slot.remounted = true
       stats.remount++
       return null
     }
     // 테스트의 첫 이동일 때만 저장소 시작 값을 넘긴다 — 두 번째부터는 새로고침처럼 저장소를 그대로 둔다.
+    // 앞 테스트가 이 출처에 남긴 저장소는 이동 전에 비운다(새 탭이면 비어 있다).
+    if (!slot.navigated && slot.booted && page.url().startsWith(target.origin)) {
+      await page.evaluate(() => {
+        window.localStorage.clear()
+        window.sessionStorage.clear()
+      })
+    }
     if (!slot.navigated) await addCookies([{ name: STORAGE_COOKIE, value: encodeURIComponent(JSON.stringify(slot.storage)), url: target.origin }])
     stats.fresh++
     const response = await originalGoto(url, options)
     if (sameOrigin) slot.booted = true
     slot.navigated = true
     return response
+  }
+
+  // goBack — 다시 띄운 앱의 첫 항목(라우터 idx 0)에서 뒤로 가면 새 탭은 about:blank 로 나가지만, 이어 쓰는 문서는
+  // 앞 테스트의 마지막 주소로 간다. 새 탭과 같게 about:blank 로 보내고, 문서가 바뀌었으니 끝나면 컨텍스트를 버린다.
+  const originalGoBack = page.goBack.bind(page)
+  page.goBack = async (options) => {
+    if (slot.remounted && (await page.evaluate(() => (history.state as { idx?: number } | null)?.idx === 0))) {
+      slot.dirty = true
+      await originalGoto('about:blank')
+      return null
+    }
+    return originalGoBack(options)
   }
   return slot
 }
@@ -190,12 +218,24 @@ export type ReuseHolder = {
 export async function beginReusedTest(slot: Slot) {
   slot.dirty = false
   slot.navigated = false
+  slot.remounted = false
   slot.storage = {}
   slot.listeners = []
   await slot.page.unrouteAll({ behavior: 'ignoreErrors' })
   // 앞 테스트가 마우스를 올려 둔 자리를 비운다 — 앱을 다시 띄워도 마우스가 이미 그 요소 위에 있으면 브라우저가 호버 이벤트를
   // 새로 내지 않아, 「올리면 나타난다」류 단언이 새 문서에서 어긋난다.
-  await slot.page.mouse.move(0, 0)
+  // 터치 기기에는 호버가 없고, 새로 만든 탭은 비울 자리가 없다 — 이때 마우스를 움직이면 오히려 포인터 이벤트가 생긴다.
+  if (slot.booted && !slot.hasTouch) await slot.page.mouse.move(0, 0)
+  // 브라우저는 마지막 입력이 마우스였는지 키보드였는지를 문서가 바뀌어도 기억해, 스크립트로 준 초점의 :focus-visible 이 달라진다.
+  // 새 탭은 키보드 쪽으로 본다 — 아무 동작에도 묶이지 않은 키를 한 번 눌러 같은 상태로 돌린다.
+  if (slot.booted) await slot.page.keyboard.press('F9')
+  // 앞 테스트가 핀치·두 번 탭으로 확대한 배율은 문서를 다시 그려도 남는다 — 새 탭처럼 1배로 되돌린다.
+  if (slot.booted && slot.hasTouch) {
+    const cdp = await slot.page.context().newCDPSession(slot.page)
+    await cdp.send('Emulation.resetPageScaleFactor').finally(() => cdp.detach())
+  }
+  // 서비스워커를 켠 테스트는 등록이 남아 다음 테스트의 요청을 가로채므로 늘 새로 열고 끝나면 버린다.
+  if (slot.serviceWorkers) slot.dirty = true
   if (slot.viewport) {
     const now = slot.page.viewportSize()
     if (!now || now.width !== slot.viewport.width || now.height !== slot.viewport.height) await slot.page.setViewportSize(slot.viewport)
@@ -210,6 +250,14 @@ export async function endReusedTest(slot: Slot, testInfo: TestInfo, discard: (sl
   if (slot.dirty || failed || slot.page.isClosed()) {
     await discard(slot)
     return
+  }
+  // 라우트를 걷기 전에 앱을 내린다 — 언마운트 정리가 보내는 요청(채팅 읽음 처리 등)이 이 테스트의 목에서 끝나고,
+  // 다음 테스트의 요청 추적에 섞이지 않는다. 짧은 지연은 정리가 건 0초 타이머까지 돌게 한다.
+  if (slot.booted) {
+    await slot.page.evaluate(async () => {
+      ;(window as { __e2eUnmount?: () => void }).__e2eUnmount?.()
+      await new Promise((r) => setTimeout(r, 50))
+    }).catch(() => {}) // 앱 밖 주소(about:blank 등)면 내릴 앱이 없다
   }
   await slot.page.unrouteAll({ behavior: 'ignoreErrors' })
 }

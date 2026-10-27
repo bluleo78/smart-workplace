@@ -38,6 +38,7 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   // 단, 이 규칙이 있으면 elementFromPoint 히트테스트에서 에러 토스트가 빠지므로 "토스트가 X 를 가리지 않는다"를
   // 히트테스트로 단언하는 spec 은 먼저 style[data-test-toast-passthrough] 를 제거해야 한다.
   if (!reusedSlot(page)) await installPageInitScripts(page)
+  await mockProjectFavorites(page)
   await mockApi(page, 'POST', '/api/v1/auth/refresh', token)
   await mockApi(page, 'POST', '/api/v1/auth/login', token)
   await mockApi(page, 'GET', '/api/v1/users/me', { ...user, roles })
@@ -310,7 +311,13 @@ async function installPageInitScripts(page: Page) {
       return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers })
     }
   }, SSE_HOLD_HEADER)
-  // 프로젝트 즐겨찾기(WP-1001) — 서버처럼 상태를 가진 목. 테스트(페이지)마다 새 집합이라 테스트 사이에 새지 않는다.
+}
+
+/**
+ * 프로젝트 즐겨찾기(WP-1001) 목 — 라우트라 이어 쓰는 page(WP-1002)도 테스트마다 다시 깔아야 해서 시작 스크립트와 따로 둔다.
+ */
+async function mockProjectFavorites(page: Page) {
+  // 서버처럼 상태를 가진 목. 테스트(페이지)마다 새 집합이라 테스트 사이에 새지 않는다.
   // 예전처럼 localStorage(project-favorites:<userId>:<tenantId>)에 심은 즐겨찾기는 앱의 이관 경로로 이 집합에 들어온다.
   const projectFavorites = new Set<string>()
   const favoritesBody = () => JSON.stringify({ projectKeys: [...projectFavorites] })
