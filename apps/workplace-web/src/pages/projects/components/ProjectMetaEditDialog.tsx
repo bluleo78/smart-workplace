@@ -30,15 +30,21 @@ export function ColorTokenPicker({
   onChange,
   ariaLabel,
   testIdPrefix,
+  className,
+  swatchClassName,
 }: {
   value: ColorToken;
   onChange: (tok: ColorToken) => void;
   ariaLabel: string;
   testIdPrefix?: string;
+  /** 견본 줄 배치를 바꿀 때(예: 에픽 색 팝오버의 6열 격자, WP-1017). 기본은 입력 높이에 맞춘 한 줄 흐름. */
+  className?: string;
+  /** 견본 크기를 바꿀 때(예: 터치 기기에서 크게, WP-1017). */
+  swatchClassName?: string;
 }) {
   return (
     // 견본 줄을 입력(h-9) 높이에 맞춰야 items-end 정렬에서 '색상' 라벨이 '이름' 라벨과 같은 줄에 선다(WP-397).
-    <div role="group" aria-label={ariaLabel} className="flex min-h-9 items-center gap-1 flex-wrap">
+    <div role="group" aria-label={ariaLabel} className={cn('flex min-h-9 items-center gap-1 flex-wrap', className)}>
       {COLOR_TOKENS.map((tok) => (
         <button
           key={tok}
@@ -48,7 +54,7 @@ export function ColorTokenPicker({
           aria-label={COLOR_TOKEN_LABELS[tok]}
           title={COLOR_TOKEN_LABELS[tok]}
           aria-pressed={value === tok}
-          className={cn('h-6 w-6 rounded-full', LABEL_COLORS[tok].dot, value === tok && 'ring-2 ring-foreground')}
+          className={cn('h-6 w-6 rounded-full', LABEL_COLORS[tok].dot, value === tok && 'ring-2 ring-foreground', swatchClassName)}
           data-testid={testIdPrefix && `${testIdPrefix}${tok}`}
         />
       ))}

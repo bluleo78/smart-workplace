@@ -4,6 +4,7 @@
 import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarMonths, endOfQuarter, format, getDaysInMonth, isValid, parseISO, startOfMonth, startOfQuarter, startOfWeek, subMonths } from 'date-fns';
 
 import { CLOSED_ISSUE_STATUSES } from '@/lib/closedHiding';
+import { epicColorToken } from '@/lib/epicColor';
 import type { CycleResponse } from '@/types/cycle';
 import type { IssueResponse, IssueStatus } from '@/types/issue';
 import type { MilestoneResponse } from '@/types/milestone';
@@ -161,6 +162,14 @@ function epicOwnRange(epic: Pick<IssueResponse, 'startDate' | 'dueDate'>): DateS
 }
 
 /**
+ * 에픽 묶음 색 토큰(WP-1017) — 응답에 에픽이 있으면 그 에픽 색(없으면 유형 색), 필터로 에픽 행이 빠진 합성 묶음은 하위가 실어 온 부모 요약 색
+ * (서버가 부모 요약 유형 색에 에픽 색을 싣는다). 간트 막대와 모바일 아젠다가 같은 규칙을 쓴다.
+ */
+function groupColorToken(epic: IssueResponse | null | undefined, kids: IssueResponse[]): string | undefined {
+  return epic ? epicColorToken(epic) : kids[0]?.parent?.type.colorToken;
+}
+
+/**
  * 에픽 진행률 — 응답에 에픽이 있으면 서버 집계, 필터로 빠져 합성한 에픽이면 보이는 하위 기준. 간트·아젠다 공용.
  * 합성 쪽도 서버 집계(WP-243)처럼 완료·취소 하위를 완료로 센다 — DONE 만 세면 같은 에픽이 이슈 상세 2/2, 타임라인 1/2 로 갈렸다(WP-688).
  */
@@ -313,6 +322,7 @@ export function groupTimelineIssues(issues: IssueResponse[], opts: TimelineViewO
       title: epic?.title ?? kids[0]?.parent?.title ?? `#${num}`,
       // 합성 그룹(응답에 에픽 없음)은 하위가 실어 온 부모 상태로 — 「취소」 필터로 남은 취소 에픽 하위 묶음도 취소 표시가 되게(WP-247).
       status: epic?.status ?? kids[0]?.parent?.status ?? null,
+      colorToken: groupColorToken(epic, kids),
       ...epicProgress(epic, kids),
       range,
       rollup,
@@ -368,6 +378,8 @@ export interface AgendaRow {
   bar: { left: number; right: number } | null;
   /** 소속 에픽 번호 — epic 행은 자기 번호, child 는 부모 에픽, issue 는 null. 접기(WP-251)에 쓴다. */
   epicNumber: number | null;
+  /** 에픽 행 색 토큰(WP-1017) — 머리 글자·막대 색. 그 밖의 행은 없음. */
+  colorToken?: string;
   /** 에픽 행 진행률(완료/전체, epicProgress). 그 밖의 행은 null. */
   progress: { done: number; total: number } | null;
   /** 에픽 행에 하위 행이 있는지 — 펼침 버튼 표시 여부. 그 밖의 행은 false. */
@@ -478,7 +490,12 @@ export function buildAgendaSections(issues: IssueResponse[], today: Date, opts: 
     // 시작일만 있는 하위는 간트처럼 에픽 기간에 넣지 않는다(WP-484).
     const kidSpan = childDateSpan(kids.filter((x) => x.k.dueDate).map((x) => x.k));
     const own = epic ? basisOf(epic) : null;
-    const epicRow = { epicNumber: num, progress: epicProgress(epic, kids.map((x) => x.k)), hasChildren: kids.length > 0 };
+    const epicRow = {
+      epicNumber: num,
+      progress: epicProgress(epic, kids.map((x) => x.k)),
+      hasChildren: kids.length > 0,
+      colorToken: groupColorToken(epic, kids.map((x) => x.k)),
+    };
     // 에픽 자기 날짜가 있으면 그대로, 없으면(또는 응답에 에픽이 없으면) 하위 롤업으로 머리 행 날짜·막대를 만든다.
     let head: Item;
     if (epic && own) {

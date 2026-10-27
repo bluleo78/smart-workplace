@@ -216,6 +216,11 @@ public class Issue extends TableImpl<IssueRecord> {
      */
     public final TableField<IssueRecord, String> IMPORT_SOURCE_KEY = createField(DSL.name("import_source_key"), SQLDataType.VARCHAR(100), this, "");
 
+    /**
+     * The column <code>public.issue.epic_color</code>.
+     */
+    public final TableField<IssueRecord, String> EPIC_COLOR = createField(DSL.name("epic_color"), SQLDataType.VARCHAR(16), this, "");
+
     private Issue(Name alias, Table<IssueRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

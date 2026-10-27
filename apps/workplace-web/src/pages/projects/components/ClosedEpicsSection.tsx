@@ -11,7 +11,7 @@ import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../components/issues/ClosedStatusBadge';
-import { presenceStyle } from '../../../lib/collab/presence';
+import { epicColorToken, epicDotClass } from '../../../lib/epicColor';
 import type { IssueResponse } from '../../../types/issue';
 
 // epics: 종료 에픽 목록 — 패널이 useClosedEpics 로 한 번 받아 에픽 필터(WP-390)와 함께 쓴다.
@@ -62,7 +62,7 @@ export function ClosedEpicsSection({
                 >
                   {/* 흐림은 제목·색점에만 — 배지는 또렷하게 둬 상태를 읽을 수 있게 한다. */}
                   <span className="flex items-center gap-2">
-                    <span className={cn('h-2 w-2 shrink-0 rounded-full bg-presence', CLOSED_EPIC_DIM)} style={presenceStyle(ep.number)} aria-hidden="true" />
+                    <span className={cn('h-2 w-2 shrink-0 rounded-full', epicDotClass(epicColorToken(ep)), CLOSED_EPIC_DIM)} aria-hidden="true" />
                     <span
                       className={cn('min-w-0 flex-1 truncate', closedEpicTitleClass(ep.status, selected))}
                       title={ep.title}

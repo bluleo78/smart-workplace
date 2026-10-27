@@ -80,6 +80,83 @@
   display: none;
 }
 
+/* 에픽 색(WP-1017) — 에픽마다 정한 색 토큰(data-epic-color)으로 요약 막대·얇은 막대(기간 안쪽)를 칠한다. --epic 만 바꾸면 위 두 규칙이 따라간다.
+   색은 라벨 색점(LABEL_COLORS.dot)과 같은 단계라 목록·패널의 ● 와 같은 색으로 보인다. 완료·취소 에픽(data-epic-status)은 :not 으로 빼 아래 상태 규칙이 그대로 칠한다.
+   막대 위 글자: 500 단계 밝은 색은 흰 글자 대비가 모자라(노랑 ~1.9:1) 어두운 글자를 쓴다 — 라이트는 foreground, 다크는 background(둘 다 어두운 톤).
+   어두운 갈색(amber-700)만 밝은 글자. */
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='GRAY']:not([data-epic-status]) {
+  --epic: var(--color-slate-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='RED']:not([data-epic-status]) {
+  --epic: var(--color-red-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='ORANGE']:not([data-epic-status]) {
+  --epic: var(--color-orange-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='YELLOW']:not([data-epic-status]) {
+  --epic: var(--color-yellow-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='GREEN']:not([data-epic-status]) {
+  --epic: var(--color-green-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='TEAL']:not([data-epic-status]) {
+  --epic: var(--color-teal-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='CYAN']:not([data-epic-status]) {
+  --epic: var(--color-cyan-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='BLUE']:not([data-epic-status]) {
+  --epic: var(--color-blue-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='INDIGO']:not([data-epic-status]) {
+  --epic: var(--color-indigo-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='PURPLE']:not([data-epic-status]) {
+  --epic: var(--color-purple-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='PINK']:not([data-epic-status]) {
+  --epic: var(--color-pink-500);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='BROWN']:not([data-epic-status]) {
+  --epic: var(--color-amber-700);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='GRAY']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='RED']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='ORANGE']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='YELLOW']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='GREEN']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='TEAL']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='CYAN']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='BLUE']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='INDIGO']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='PURPLE']:not([data-epic-status]),
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='PINK']:not([data-epic-status]) {
+  --wx-gantt-summary-font-color: var(--foreground);
+  color: var(--foreground);
+}
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='GRAY']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='RED']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='ORANGE']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='YELLOW']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='GREEN']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='TEAL']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='CYAN']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='BLUE']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='INDIGO']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='PURPLE']:not([data-epic-status]),
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='PINK']:not([data-epic-status]) {
+  --wx-gantt-summary-font-color: var(--background);
+  color: var(--background);
+}
+.timeline-gantt-root .wx-bar.wx-summary[data-epic-color='BROWN']:not([data-epic-status]) {
+  --wx-gantt-summary-font-color: var(--background);
+  color: var(--background);
+}
+.dark .timeline-gantt-root .wx-bar.wx-summary[data-epic-color='BROWN']:not([data-epic-status]) {
+  --wx-gantt-summary-font-color: var(--foreground);
+  color: var(--foreground);
+}
+
 /* 완료 에픽(WP-247) — 요약 막대를 완료 색으로. 얇은 막대의 기간 안쪽 구간도 같은 계열로 맞춘다. */
 .timeline-gantt-root .wx-bar.wx-summary[data-epic-status='DONE'] {
   --wx-gantt-summary-color: var(--success);

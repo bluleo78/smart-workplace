@@ -7,6 +7,7 @@ import { Bot, Check, CheckSquare, CircleDot, Layers, Link2, SignalHigh, Trash2, 
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { EpicColorDot } from '@/components/issues/EpicColorDot';
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
@@ -16,6 +17,7 @@ import { UserAvatar } from '@/components/users/UserAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { copyText } from '@/lib/copyText';
+import { epicTypeSummary } from '@/lib/epicColor';
 
 import { findIssueInSearchCache } from '../../../hooks/queries/issueSearchCache';
 import { useBulkAssign, useBulkDeleteIssues, useBulkUpdatePriority, useBulkUpdateStatus } from '../../../hooks/queries/useBulkIssueActions';
@@ -198,7 +200,8 @@ export function useIssueRowActions({
   };
   const changeEpic = (target: IssueResponse | null) => {
     if (!issue) return;
-    const to = target && target.type ? { number: target.number, title: target.title, type: target.type } : null;
+    // 유형 색은 에픽 색으로(WP-1017) — 낙관적 반영 동안의 부모 칩도 서버 응답과 같은 색이 되게.
+    const to = target && target.type ? { number: target.number, title: target.title, type: epicTypeSummary(target)! } : null;
     if ((to?.number ?? null) !== (issue.parent?.number ?? null)) moveEpic.mutate({ issue, to });
   };
   const linkOf = (i: IssueResponse) => new URL(linkFor?.(i) ?? `/projects/${projectKey}/issues/${i.number}`, window.location.href).href;
@@ -351,7 +354,7 @@ export function useIssueRowActions({
         value={issue ? String(issue.parent?.number ?? NO_EPIC) : null}
         options={[
           { value: NO_EPIC, label: '에픽 없음' },
-          ...epics.map((e) => ({ value: String(e.number), label: e.title, hint: `${e.childDoneCount}/${e.childCount}` })),
+          ...epics.map((e) => ({ value: String(e.number), label: e.title, icon: <EpicColorDot epic={e} />, hint: `${e.childDoneCount}/${e.childCount}` })),
         ]}
         onSelect={(v) => changeEpic(v === NO_EPIC ? null : (epics.find((e) => String(e.number) === v) ?? null))}
       />

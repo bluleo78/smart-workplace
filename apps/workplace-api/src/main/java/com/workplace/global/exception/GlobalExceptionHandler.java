@@ -1731,6 +1731,14 @@ public class GlobalExceptionHandler {
         .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
   }
 
+  /** 에픽이 아닌 이슈에 에픽 색 지정 — 400(WP-1017). */
+  @ExceptionHandler(com.workplace.issue.exception.NotAnEpicException.class)
+  public ResponseEntity<ErrorResponse> handleNotAnEpic(
+      com.workplace.issue.exception.NotAnEpicException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), null, request));
+  }
+
   /** SUBTASK 의 부모로 EPIC 지정 — 2단계 초과 계층 금지. 400. */
   @ExceptionHandler(SubtaskParentCannotBeEpicException.class)
   public ResponseEntity<ErrorResponse> handleSubtaskParentCannotBeEpic(

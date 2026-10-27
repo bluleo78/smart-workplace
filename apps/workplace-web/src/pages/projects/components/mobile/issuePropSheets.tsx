@@ -1,5 +1,6 @@
 // 모바일 이슈 속성 공용 시트(WP-196) — 상세 칩(IssueMobilePropertyChips)과 생성 칩(CreateIssueChips)이 같은 에픽 선택 시트를 쓴다.
 // 구성요소 다중 선택 시트(WP-933)도 여기 둔다.
+import { EpicColorDot } from '@/components/issues/EpicColorDot';
 import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 
@@ -10,7 +11,9 @@ import type { IssueResponse } from '../../../../types/issue';
 // 「에픽 없음」 옵션 값 — 시트 안에서만 쓰고 밖으로는 null 로 주고받는다.
 const NO_EPIC = 'none';
 
-type EpicOption = Pick<IssueResponse, 'number' | 'title' | 'childDoneCount' | 'childCount'>;
+// 색점(WP-1017)용 epicColor·type 은 선택 — 없으면 회색 점.
+type EpicOption = Pick<IssueResponse, 'number' | 'title' | 'childDoneCount' | 'childCount'> &
+  Partial<Pick<IssueResponse, 'epicColor' | 'type'>>;
 
 /**
  * 에픽 단일 선택 시트 — 「에픽 없음」 + 에픽 목록(오른쪽에 완료/전체 하위 수). 에픽이 8개를 넘으면 검색창을 띄운다.
@@ -44,6 +47,7 @@ export function EpicPickerSheet({
         ...epics.map((e) => ({
           value: String(e.number),
           label: e.title,
+          icon: <EpicColorDot epic={e} />,
           hint: <span className="inline-block min-w-[7ch] text-right tabular-nums">{e.childDoneCount}/{e.childCount}</span>,
         })),
       ]}

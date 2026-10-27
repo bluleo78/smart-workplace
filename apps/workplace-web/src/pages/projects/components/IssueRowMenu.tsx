@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu';
 
+import { EpicColorDot } from '../../../components/issues/EpicColorDot';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { AgentBadge } from '../../../components/users/AgentBadge';
@@ -187,6 +188,7 @@ export function IssueRowMenu({
               )}
               {epics.map((e) => (
                 <DropdownMenuCheckboxItem key={e.number} checked={cur?.parent?.number === e.number} onSelect={() => onEpic(e)} data-testid={`row-menu-epic-${e.number}`}>
+                  <EpicColorDot epic={e} />
                   <span className="min-w-0 flex-1 truncate">{e.title}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">{e.childDoneCount}/{e.childCount}</span>
                 </DropdownMenuCheckboxItem>

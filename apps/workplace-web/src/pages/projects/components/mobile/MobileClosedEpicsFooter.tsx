@@ -4,9 +4,10 @@
 // 선택·「›」 는 시트가 넘겨 준 close 로 닫는다 — 검색어까지 함께 비워 다음에 열 때 걸러진 목록이 남지 않게.
 import { Check, ChevronRight } from 'lucide-react';
 
+import { EpicColorDot } from '@/components/issues/EpicColorDot';
 import { MOBILE_SHEET_ROW } from '@/components/mobile/MobileSheetShell';
 import { RemainingPagesError } from '@/components/RemainingPagesError';
-import { closedEpicTitleClass } from '@/lib/closedEpicStyles';
+import { CLOSED_EPIC_DIM, closedEpicTitleClass } from '@/lib/closedEpicStyles';
 import { SELECTED_ROW_CLASS } from '@/lib/selectionStyles';
 import { cn } from '@/lib/utils';
 
@@ -69,6 +70,7 @@ export function MobileClosedEpicsFooter({
                 }}
                 className={cn(MOBILE_SHEET_ROW, 'min-w-0 flex-1')}
               >
+                <EpicColorDot epic={ep} className={CLOSED_EPIC_DIM} />
                 <span className={cn('min-w-0 flex-1 truncate', closedEpicTitleClass(ep.status, selected))}>
                   {ep.title}
                 </span>

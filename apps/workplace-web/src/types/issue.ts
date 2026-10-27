@@ -139,6 +139,9 @@ export interface IssueResponse {
   // 붙은 수정 버전·영향 버전(WP-888, 목록 순서) — 구버전 서버 응답엔 없어 optional(읽을 때 `?? []`).
   fixVersions?: VersionSummary[];
   affectsVersions?: VersionSummary[];
+  // 에픽 색 토큰(WP-1017, 라벨과 같은 12색) — 에픽에 쓴다. 에픽에서 다른 유형으로 바뀐 이슈도 옛 색을 실을 수 있어 읽는 쪽은 유형이 EPIC 일 때만 쓴다.
+  // 색을 정하기 전 에픽·구버전 응답엔 없어 optional(없으면 유형 색).
+  epicColor?: string | null;
   // 이슈에 부착된 첨부 개수 — N+1 회피용 카운트 (목록 카드 표시).
   attachmentCount: number;
   // 이슈 유형 요약 — 검색·상세 응답에는 항상 채워지지만,
