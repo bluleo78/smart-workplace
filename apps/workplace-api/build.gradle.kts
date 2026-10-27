@@ -142,6 +142,9 @@ tasks.withType<Test> {
     )
     // 테스트 완료 후 JaCoCo 리포트 자동 생성
     finalizedBy(tasks.jacocoTestReport)
+    // 리포트를 빼는 실행(-x jacocoTestReport, push 검사)은 -PnoCoverage 로 계측 에이전트도 끈다(WP-1028) —
+    // 리포트를 안 만들면 테스트 내내 모든 클래스를 계측하는 비용만 남는다.
+    extensions.configure<JacocoTaskExtension> { isEnabled = !providers.gradleProperty("noCoverage").isPresent }
 }
 
 tasks.jacocoTestReport {
