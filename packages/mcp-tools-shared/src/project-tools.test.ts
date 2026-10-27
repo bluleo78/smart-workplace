@@ -33,6 +33,8 @@ function mockClient(): Client {
     updateProject: vi.fn().mockResolvedValue({ key: 'WP' }),
     createProjectMeta: vi.fn().mockResolvedValue({ id: 1, projectId: 2, name: 'x' }),
     updateProjectMeta: vi.fn().mockResolvedValue({ id: 1, projectId: 2, name: 'x' }),
+    releaseProjectVersion: vi.fn().mockResolvedValue({}),
+    unreleaseProjectVersion: vi.fn().mockResolvedValue({}),
   };
 }
 
@@ -806,5 +808,82 @@ describe('create_project_meta·update_project_meta (WP-356)', () => {
       '사용 가능: bug',
     );
     expect(c.updateProjectMeta).not.toHaveBeenCalled();
+  });
+  // WP-1005: kind: version — 릴리스 스킬이 버전을 만들고 출시 처리한다(REST 토큰 연동 대신).
+  describe('kind: version (WP-1005)', () => {
+    const rows = (status: string) => [{ id: 7, name: 'v1.0.0', status, releaseDate: null }] as never;
+
+    it('만들기 — versions 경로로 name·description·releaseDate 를 보낸다', async () => {
+      const c = mockClient();
+      vi.mocked(c.createProjectMeta).mockResolvedValue({ id: 7, projectId: 2, name: 'v1.0.0', status: 'UNRELEASED', releaseDate: '2026-11-01' });
+      const out = JSON.parse(
+        resultText(await tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1.0.0', releaseDate: '2026-11-01', description: '' })),
+      );
+      expect(c.createProjectMeta).toHaveBeenCalledWith('WP', 'version', { name: 'v1.0.0', releaseDate: '2026-11-01', description: undefined });
+      expect(out).toMatchObject({ kind: 'version', name: 'v1.0.0', status: 'UNRELEASED' });
+      expect(out.id).toBeUndefined();
+    });
+
+    it('만들 때는 status·archived 를 받지 않는다', async () => {
+      const c = mockClient();
+      await expect(tool(c, 'create_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1', status: 'RELEASED' })).rejects.toThrow('status');
+      expect(c.createProjectMeta).not.toHaveBeenCalled();
+    });
+
+    it('이름 변경 — PATCH 만 부르고 출시는 부르지 않는다', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProjectVersions).mockResolvedValue(rows('UNRELEASED'));
+      await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1.0.0', newName: 'v1.0.1', description: '' });
+      expect(c.updateProjectMeta).toHaveBeenCalledWith('WP', 'version', 7, { name: 'v1.0.1', clearDescription: true });
+      expect(c.releaseProjectVersion).not.toHaveBeenCalled();
+    });
+
+    it('RELEASED — 미출시 버전이면 출시 호출, 날짜를 함께 주면 PATCH 후 출시(PATCH 가 먼저)', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProjectVersions).mockResolvedValue(rows('UNRELEASED'));
+      await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1.0.0', status: 'RELEASED', releaseDate: '2026-11-01' });
+      expect(c.updateProjectMeta).toHaveBeenCalledWith('WP', 'version', 7, { releaseDate: '2026-11-01' });
+      expect(c.releaseProjectVersion).toHaveBeenCalledWith('WP', 7);
+      expect(vi.mocked(c.updateProjectMeta).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(c.releaseProjectVersion).mock.invocationCallOrder[0]);
+    });
+
+    it('RELEASED — 이미 출시됐으면 아무것도 부르지 않는다(반복 호출 안전)', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProjectVersions).mockResolvedValue(rows('RELEASED'));
+      await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1.0.0', status: 'RELEASED' });
+      expect(c.releaseProjectVersion).not.toHaveBeenCalled();
+      expect(c.updateProjectMeta).not.toHaveBeenCalled();
+    });
+
+    it('UNRELEASED — 출시된 버전의 출시를 취소한다', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProjectVersions).mockResolvedValue(rows('RELEASED'));
+      await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1.0.0', status: 'UNRELEASED' });
+      expect(c.unreleaseProjectVersion).toHaveBeenCalledWith('WP', 7);
+    });
+
+    it('보관 — archived 를 PATCH 로 보낸다', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProjectVersions).mockResolvedValue(rows('RELEASED'));
+      await tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1.0.0', archived: true });
+      expect(c.updateProjectMeta).toHaveBeenCalledWith('WP', 'version', 7, { archived: true });
+    });
+
+    it('권한 없음(403) 메시지는 그대로 올린다', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProjectVersions).mockResolvedValue(rows('UNRELEASED'));
+      vi.mocked(c.releaseProjectVersion).mockRejectedValue(new Error('API 오류 403: 권한이 부족합니다: OWNER 필요'));
+      await expect(
+        tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v1.0.0', status: 'RELEASED' }),
+      ).rejects.toThrow('OWNER 필요');
+    });
+
+    it('없는 버전·다른 kind 의 status 는 쓰기 전에 거절한다', async () => {
+      const c = mockClient();
+      await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'nope', status: 'RELEASED' })).rejects.toThrow('nope');
+      await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'version', name: 'v', status: 'ACTIVE' })).rejects.toThrow('RELEASED | UNRELEASED');
+      await expect(tool(c, 'update_project_meta').handler({ projectKey: 'WP', kind: 'cycle', name: 'c', status: 'RELEASED' })).rejects.toThrow('PLANNED | ACTIVE | COMPLETED');
+      expect(c.updateProjectMeta).not.toHaveBeenCalled();
+    });
   });
 });

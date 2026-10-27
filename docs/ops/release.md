@@ -20,6 +20,10 @@ Claude 세션에서 `/release prepare` — 범위 수집·버전 제안(`deploy/
 
 노트만 바뀐 push 와 태그 push 는 pre-push 회귀를 건너뛴다(`scripts/husky/pre-push.sh`). 코드 머지는 워크트리에서 머지 전에 `pnpm test:full` 을 통과시켜 두면, 같은 트리의 main push 에서 회귀를 다시 돌지 않는다.
 
+### WP 버전 연동 (WP-1005)
+
+태그를 push 한 뒤 `/release` 스킬이 genia-works MCP 로 WP 프로젝트에 버전 `vX.Y.Z` 를 만들고(`create_project_meta kind: version`, 이미 있으면 생략) 이번 노트에 담은 이슈의 수정 버전(`update_issue fixVersions`)에 붙인다. 운영 반영 뒤 이슈를 완료할 때 `update_project_meta kind: version status: RELEASED` 로 출시 처리한다. 잘못 출시했으면 `status: UNRELEASED`(자동 롤백 없음). 버전 만들기·출시는 WP 프로젝트 OWNER 권한이라 OWNER 세션에서 한다. 개인 토큰·환경변수(`GENIA_WORKS_*`)는 쓰지 않는다.
+
 ## ② 빌드 — GitLab CI (`.gitlab-ci.yml`)
 
 `vX.Y.Z` 태그 push 에서만 돈다(main push 에는 파이프라인 없음 — pre-push 가 이미 회귀를 돌렸다).
@@ -62,26 +66,6 @@ node deploy/release/release.mjs rollback    # 마지막 정상 리비전으로(�
 - 반영이 실패해 새 리비전이 `failed` 로 남았으면 `rollback` 은 그 직전 정상(`deployed`) 리비전을 다시 적용한다. 새 리비전이 안 생긴 실패(렌더 오류 등)는 운영이 그대로이니 롤백하지 않는다 — `deploy` 출력이 어느 쪽인지 알려 준다.
 - 전환 이전 리비전(values 에 `release.version` 이 없는, `:latest` 시대)으로는 되돌리지 않는다(`--force` 없이는 거부). 이유는 `deploy/helm/README.md`.
 - 롤백한 뒤 다시 `rollback` 하면 방금 되돌린 새 릴리스로 앞으로 간다(Helm 기본 동작) — 출력의 ⚠ 를 확인한다.
-
-## WP 버전 연동
-
-릴리스마다 WP 프로젝트에 버전 `v<x.y.z>` 를 두어, 어떤 이슈가 어느 릴리스로 나갔는지와 운영 반영 여부를 이슈 트래커에서 본다(WP-1005).
-
-| 시점 | 명령 | 하는 일 |
-|---|---|---|
-| 태그 push 뒤(① 끝) | `node deploy/release/tracker.mjs attach X.Y.Z` | 버전 `vX.Y.Z` 를 만들고(없을 때만) 범위의 이슈(커밋 제목·`Refs:` 의 WP 키)에 수정 버전으로 붙인다. 기존 수정 버전은 그대로 둔다 |
-| 반영 성공 뒤(③) | `release.mjs deploy` 가 자동 | `vX.Y.Z` 를 출시(출시일 = 오늘)로. 반영이 실패하면 바꾸지 않는다 |
-| 롤백 뒤(④) | `release.mjs rollback` 이 자동 | 돌아간 릴리스는 출시로, 떠난 릴리스는 그보다 새 것일 때만 출시 취소(실패한 반영에서 복구할 때는 건드리지 않는다) |
-| 손으로 맞출 때 | `tracker.mjs release X.Y.Z` / `unrelease X.Y.Z` | 위 자동 처리가 설정 없이 돌았을 때 |
-
-```sh
-export GENIA_WORKS_API_URL=https://<Gen:iA Works 주소> GENIA_WORKS_RELEASE_TOKEN=swp_<WP 프로젝트 OWNER 의 개인 토큰>
-```
-
-- 두 변수가 없으면 안내 한 줄만 남기고 건너뛴다. API 가 실패해도(권한·연결) 경고만 남기고 태그·반영·롤백은 그대로 성공한다 — 트래커는 부수 기록이다.
-- 버전 만들기·출시는 프로젝트 OWNER 만 할 수 있다(AI 토큰은 MEMBER 라 403).
-- 다시 돌려도 같다: 있는 버전은 만들지 않고, 이미 붙은 이슈는 건너뛰고, 이미 출시된 버전은 다시 출시하지 않는다(출시일이 덮이지 않게).
-- 이슈 상태(완료)는 바꾸지 않는다.
 
 ## 빌드가 실패한 태그
 

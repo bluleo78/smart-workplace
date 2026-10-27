@@ -387,6 +387,13 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/projects/WP/milestones', { name: 'M', dueDate: '2026-12-01' });
     await client.updateProjectMeta('WP', 'cycle', 5, { name: 'C' });
     expect(http.patch).toHaveBeenCalledWith('/projects/WP/cycles/5', { name: 'C' });
+    // WP-1005: 버전 — 메타 경로는 versions, 출시·출시 취소는 별도 POST.
+    await client.createProjectMeta('WP', 'version', { name: 'v1.0.0' });
+    expect(http.post).toHaveBeenCalledWith('/projects/WP/versions', { name: 'v1.0.0' });
+    await client.releaseProjectVersion('WP', 7);
+    expect(http.post).toHaveBeenLastCalledWith('/projects/WP/versions/7/release', {});
+    await client.unreleaseProjectVersion('WP', 7);
+    expect(http.post).toHaveBeenLastCalledWith('/projects/WP/versions/7/unrelease', {});
   });
 
   it('WP-933: 구성요소 — 목록은 /projects/{key}/components(없으면 빈 배열), 교체는 PUT .../components 에 componentIds', async () => {

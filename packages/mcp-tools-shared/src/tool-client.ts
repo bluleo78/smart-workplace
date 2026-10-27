@@ -818,10 +818,14 @@ export interface ProjectToolClient extends ProjectMetaClient, IssueRelationTypeC
   createProjectMeta(projectKey: string, kind: ProjectMetaKind, body: Record<string, unknown>): Promise<unknown>;
   /** PATCH /projects/{key}/{kind}/{id} — 서버는 본문 전체로 덮어쓴다(생략=비움). 병합은 핸들러가 한다(WP-356). */
   updateProjectMeta(projectKey: string, kind: ProjectMetaKind, id: number, body: Record<string, unknown>): Promise<unknown>;
+  /** POST /projects/{key}/versions/{id}/release — 버전 출시(WP-1005). 출시일은 본문 > 기존 출시 예정일 > 오늘 순. OWNER 만. */
+  releaseProjectVersion(projectKey: string, id: number): Promise<unknown>;
+  /** POST /projects/{key}/versions/{id}/unrelease — 출시 취소(WP-1005). 출시일은 남는다. OWNER 만. */
+  unreleaseProjectVersion(projectKey: string, id: number): Promise<unknown>;
 }
 
-/** 프로젝트 메타 종류(WP-356) — create_project_meta·update_project_meta 의 kind. */
-export type ProjectMetaKind = 'label' | 'milestone' | 'cycle';
+/** 프로젝트 메타 종류(WP-356, 버전 WP-1005) — create_project_meta·update_project_meta 의 kind. */
+export type ProjectMetaKind = 'label' | 'milestone' | 'cycle' | 'version';
 
 /** 프로젝트 생성 요청 본문 — 서버 CreateProjectRequest 와 1:1(key 는 PERSONAL 이면 서버가 무시하고 자동 생성). */
 export interface CreateProjectBody {
