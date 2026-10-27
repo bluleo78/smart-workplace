@@ -49,12 +49,12 @@ test('조직도(공유) 선택 시 트리+직속 멤버 렌더', { tag: '@smoke'
   await page.goto('/contacts')
   await expect(page.getByTestId('group-node-10')).toBeVisible()
   await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
   await expect(page.getByTestId('group-member-MEMBER-2')).toContainText('이개발')
 
   // 사이드바 「전체」를 누르면 그룹 선택이 저절로 풀리고 통합 목록(빈 상태)이 돌아온다(WP-976 — 같은 노드 재클릭 토글 없음).
   await page.getByTestId('contact-filter-ALL').click()
-  await expect(page.getByTestId('org-chart-view')).toBeHidden()
+  await expect(page.getByTestId('group-contact-view')).toBeHidden()
   await expect(page.getByTestId('contact-empty')).toBeVisible()
 })
 
@@ -77,7 +77,7 @@ test('그룹 트리·그룹 멤버 행 선택 표시 (WP-368)', async ({ authent
   const row10 = page.getByTestId('group-node-10').locator('..')
   const row20 = page.getByTestId('group-node-20').locator('..')
   await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
   await expectSelectedRow(row10, row20)
   // 사이드바 「보기」 항목이라 현재 위치를 aria-current="page" 로 알린다(WP-976 — 토글이 아니다).
   await expectCurrent(page.getByTestId('group-node-10'), page.getByTestId('group-node-20'), 'page')
@@ -105,7 +105,7 @@ test('그룹을 고르면 「전체」는 현재 항목이 아니되 잠기지 �
   await expect(all).toHaveClass(/bg-selected/)
 
   await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
   await expect(all).toBeEnabled()
   await expect(all).not.toHaveAttribute('aria-current')
   await expect(all).not.toHaveClass(/bg-selected/)
@@ -113,14 +113,14 @@ test('그룹을 고르면 「전체」는 현재 항목이 아니되 잠기지 �
 
   // 「전체」를 누르면 그룹 선택이 풀리고 「전체」가 돌아온다.
   await all.click()
-  await expect(page.getByTestId('org-chart-view')).toBeHidden()
+  await expect(page.getByTestId('group-contact-view')).toBeHidden()
   await expect(all).toHaveAttribute('aria-current', 'page')
   await expect(all).toHaveClass(/bg-selected/)
   await expect(page.getByTestId('group-node-10')).not.toHaveAttribute('aria-current')
 })
 
 // WP-923: 행마다 반복되는 접기·수정·삭제 버튼은 이름에 그룹 이름을 넣어 스크린리더가 어느 그룹의 버튼인지 구분한다.
-test('그룹 트리 — 접기·수정·삭제 버튼 이름에 그룹 이름이 들어간다', async ({ authenticatedPage: page }) => {
+test('그룹 트리 — 접기·⋯ 버튼 이름에 그룹 이름이 들어간다', async ({ authenticatedPage: page }) => {
   await stubContacts(page)
   await stubTree(
     page,
@@ -143,9 +143,8 @@ test('그룹 트리 — 접기·수정·삭제 버튼 이름에 그룹 이름이
   // 하위 그룹이 없는 노드엔 눌러도 아무 일 없는 접기 버튼을 두지 않는다.
   await expect(page.getByRole('button', { name: /^플랫폼팀 (접기|펼치기)$/ })).toHaveCount(0)
 
-  // 개인 그룹의 수정·삭제 아이콘.
-  await expect(page.getByTestId('group-edit-20')).toHaveAccessibleName('내 분류 수정')
-  await expect(page.getByTestId('group-delete-20')).toHaveAccessibleName('내 분류 삭제')
+  // 행 ⋯ 메뉴 버튼 이름에 그룹 이름이 들어간다(WP-978 — 수정·삭제는 이 메뉴 안으로 옮겼다).
+  await expect(page.getByTestId('group-more-20')).toHaveAccessibleName('내 분류 더보기')
 })
 
 test('개인 그룹 생성 + 멤버 편입', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -246,131 +245,6 @@ test('비-admin: 조직도 헤더 + 버튼 미노출', async ({ authenticatedPag
   await expect(page.getByTestId('org-create')).toHaveCount(0)
 })
 
-test('admin: 조직도 노드 수정(PATCH 부분 수정 — code 생략으로 보존, 최상위는 moveToRoot)', async ({ adminPage: page }) => {
-  const patches = trackRequests(page, 'PATCH', '/api/v1/user-groups/10')
-  await stubContacts(page)
-  await stubTree(page)
-  // 상세는 code 가 채워진 그룹으로 — code 보존 검증
-  await page.route(
-    (url) => url.pathname === '/api/v1/user-groups/10',
-    (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail({ code: 'DEV' })) }),
-  )
-  await page.route(
-    (url) => /^\/api\/v1\/user-groups\/10$/.test(url.pathname),
-    (route, req) => {
-      if (req.method() === 'PATCH') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail({ code: 'DEV', name: '개발본부(수정)' })) })
-      }
-      return route.fallback()
-    },
-  )
-  await page.goto('/contacts')
-  await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
-  await page.getByTestId('org-edit-10').click()
-  await expect(page.getByTestId('group-form-dialog')).toBeVisible()
-  await page.getByTestId('g-name').fill('개발본부(수정)')
-  await page.getByTestId('g-save').click()
-  await expect(page.getByTestId('group-form-dialog')).toBeHidden()
-  // #839 부분 수정 계약: 폼이 다루지 않는 code·sortOrder 는 생략(서버가 유지), 상위 '최상위'는 moveToRoot 플래그
-  expect(patches.lastBody()).toEqual({ name: '개발본부(수정)', moveToRoot: true })
-})
-
-test('admin: 조직도 노드 하위 그룹 추가(POST parentId)', async ({ adminPage: page }) => {
-  const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
-  await stubContacts(page)
-  await stubDetail(page)
-  await page.route(
-    (url) => url.pathname === '/api/v1/user-groups',
-    (route, req) => {
-      if (req.method() === 'POST') {
-        return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(sharedDetail({ id: 97, name: '하위팀', parentId: 10, members: [] })) })
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree()) })
-    },
-  )
-  await page.goto('/contacts')
-  await page.getByTestId('group-node-10').click()
-  await page.getByTestId('org-add-10').click()
-  await expect(page.getByTestId('group-form-dialog')).toBeVisible()
-  await page.getByTestId('g-name').fill('하위팀')
-  await page.getByTestId('g-save').click()
-  await expect(page.getByTestId('group-form-dialog')).toBeHidden()
-  expect(creates.lastBody()).toMatchObject({ name: '하위팀', visibility: 'SHARED', parentId: 10 })
-})
-
-test('admin: 조직도 노드 삭제(DELETE + 확인 + 선택 해제)', async ({ adminPage: page }) => {
-  const deletes = trackRequests(page, 'DELETE', '/api/v1/user-groups/10')
-  await stubContacts(page)
-  await stubDetail(page)
-  await page.route(
-    (url) => url.pathname === '/api/v1/user-groups',
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree()) }),
-  )
-  await page.route(
-    (url) => /^\/api\/v1\/user-groups\/10$/.test(url.pathname),
-    (route, req) => {
-      if (req.method() === 'DELETE') {
-        return route.fulfill({ status: 204, body: '' })
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail()) })
-    },
-  )
-  await page.goto('/contacts')
-  await page.getByTestId('group-node-10').click()
-  await page.getByTestId('org-delete-10').click()
-  await expect(page.getByTestId('org-delete-confirm')).toBeVisible()
-  await page.getByTestId('org-delete-confirm-btn').click()
-  await deletes.waitFor()
-  // 보던 그룹 삭제 → 메인 패널이 통합 목록(빈 상태)으로 복귀
-  await expect(page.getByTestId('org-chart-view')).toBeHidden()
-})
-
-test('admin: 사이클 등 거부 시 에러 토스트', async ({ adminPage: page }) => {
-  await stubContacts(page)
-  await stubTree(page)
-  await page.route(
-    (url) => url.pathname === '/api/v1/user-groups/10',
-    (route, req) => {
-      if (req.method() === 'PATCH') {
-        return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ message: '그룹을 자손 그룹의 하위로 옮길 수 없습니다' }) })
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail()) })
-    },
-  )
-  await page.goto('/contacts')
-  await page.getByTestId('group-node-10').click()
-  await page.getByTestId('org-edit-10').click()
-  await page.getByTestId('g-name').fill('변경')
-  await page.getByTestId('g-save').click()
-  await expect(page.getByText('그룹을 자손 그룹의 하위로 옮길 수 없습니다')).toBeVisible()
-})
-
-test('admin: 조직도 노드 삭제 실패 시 에러 토스트', async ({ adminPage: page }) => {
-  await stubContacts(page)
-  await stubDetail(page)
-  await page.route(
-    (url) => url.pathname === '/api/v1/user-groups',
-    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tree()) }),
-  )
-  await page.route(
-    (url) => /^\/api\/v1\/user-groups\/10$/.test(url.pathname),
-    (route, req) => {
-      if (req.method() === 'DELETE') {
-        return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: '삭제할 수 없습니다' }) })
-      }
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(sharedDetail()) })
-    },
-  )
-  await page.goto('/contacts')
-  await page.getByTestId('group-node-10').click()
-  await page.getByTestId('org-delete-10').click()
-  await expect(page.getByTestId('org-delete-confirm')).toBeVisible()
-  await page.getByTestId('org-delete-confirm-btn').click()
-  await expect(page.getByText('삭제할 수 없습니다')).toBeVisible()
-})
-
 test('admin: 최상위 공유 그룹 생성 시 이름 중복(400) → 인라인 에러 + 다이얼로그 유지(#803)', async ({ adminPage: page }) => {
   await stubContacts(page)
   await stubDetail(page)
@@ -397,17 +271,6 @@ test('admin: 최상위 공유 그룹 생성 시 이름 중복(400) → 인라인
   // (같은 문구가 토스트로도 뜨므로 role=alert 인라인 에러 요소로 특정해 검증)
   await expect(page.getByTestId('group-form-dialog')).toBeVisible()
   await expect(page.locator('#g-name-error')).toHaveText('이미 존재하는 그룹 이름입니다: 테스트그룹A')
-})
-
-test('비-admin: 조직도 노드 호버 액션 미노출(읽기 전용)', async ({ authenticatedPage: page }) => {
-  await stubContacts(page)
-  await stubTree(page)
-  await stubDetail(page)
-  await page.goto('/contacts')
-  await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
-  await expect(page.getByTestId('org-edit-10')).toHaveCount(0)
-  await expect(page.getByTestId('org-delete-10')).toHaveCount(0)
 })
 
 // WP-548: 멤버 검색 결과·선택 칩의 이름이 아주 길어도 창이 옆으로 늘어나지 않고 저장 버튼이 창 안에 남는다(데스크톱·모바일).

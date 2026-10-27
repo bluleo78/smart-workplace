@@ -127,7 +127,6 @@ test('그룹 보기에서 검색하면 그 그룹 구성원 안에서만 거르�
   expect(screen.queryByTestId('group-member-MEMBER-3')).not.toBeInTheDocument()
   expect(screen.getByTestId('group-member-MEMBER-2')).toBeInTheDocument()
   expect(screen.getByText('소속 멤버 중 검색 결과 1명')).toBeInTheDocument()
-  expect(screen.queryByTestId('org-chart-view')).not.toBeInTheDocument()
 
   search('없는사람')
   expect(screen.getByTestId('group-members-empty')).toHaveTextContent('소속 멤버 중 「없는사람」 검색 결과가 없습니다')

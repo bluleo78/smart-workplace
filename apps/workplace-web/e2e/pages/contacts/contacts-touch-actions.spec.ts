@@ -28,7 +28,8 @@ async function expectCoarse(page: Page) {
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
 }
 
-test('조직도 노드: hover 아이콘 대신 ⋯ 드롭다운 → 삭제 확인 → DELETE', async ({ adminPage: page }) => {
+// @layout: ⋯ 탭 영역 44px(기하), @input: coarse pointer 의 실제 탭으로 메뉴를 연다.
+test('조직도 사이드바 행: 늘 보이는 ⋯ 드롭다운 → 삭제 확인 → DELETE', { tag: ['@layout', '@input'] }, async ({ adminPage: page }) => {
   const deletes = trackRequests(page, 'DELETE', '/api/v1/user-groups/10')
   // 먼저 등록한 GET 스텁보다 뒤에 등록한 핸들러가 우선 — DELETE 만 가로채고 나머지는 앞 스텁으로.
   await stubBase(page)
@@ -39,9 +40,9 @@ test('조직도 노드: hover 아이콘 대신 ⋯ 드롭다운 → 삭제 확�
   await page.goto('/contacts')
   await expectCoarse(page)
   await page.getByTestId('group-node-10').click()
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
 
-  // coarse 에선 hover 아이콘 묶음을 렌더하지 않는다.
+  // 메뉴를 열기 전엔 항목이 없다 — 관리 동작은 사이드바 행 ⋯ 안에 있다(WP-978).
   await expect(page.getByTestId('org-edit-10')).toHaveCount(0)
   const more = page.getByTestId('org-more-10')
   const box = (await more.boundingBox())!
@@ -49,9 +50,9 @@ test('조직도 노드: hover 아이콘 대신 ⋯ 드롭다운 → 삭제 확�
   expect(box.height).toBeGreaterThanOrEqual(44)
 
   await more.tap()
-  await expect(page.getByTestId('row-action-org-add')).toBeVisible()
-  await expect(page.getByTestId('row-action-org-edit')).toBeVisible()
-  const del = page.getByTestId('row-action-org-delete')
+  await expect(page.getByTestId('org-add-10')).toBeVisible()
+  await expect(page.getByTestId('org-edit-10')).toBeVisible()
+  const del = page.getByTestId('org-delete-10')
   await expect(del).toHaveAttribute('data-variant', 'destructive')
   await del.click()
   // 바로 지우지 않고 기존 확인 다이얼로그를 거친다.
@@ -61,7 +62,8 @@ test('조직도 노드: hover 아이콘 대신 ⋯ 드롭다운 → 삭제 확�
   await deletes.waitFor()
 })
 
-test('내 그룹: ⋯ 드롭다운 → 수정 → PATCH 본문', async ({ authenticatedPage: page }) => {
+// @input: coarse pointer 에서 hover 없이 늘 보이는 ⋯ 를 실제로 탭해 연다.
+test('내 그룹: ⋯ 드롭다운 → 수정 → PATCH 본문', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   const patches = trackRequests(page, 'PATCH', '/api/v1/user-groups/20')
   await stubBase(page)
   await page.route((u) => u.pathname === '/api/v1/user-groups/20', (r) => {
@@ -74,7 +76,7 @@ test('내 그룹: ⋯ 드롭다운 → 수정 → PATCH 본문', async ({ authen
   await expect(page.getByTestId('group-edit-20')).toHaveCount(0)
 
   await page.getByTestId('group-more-20').tap()
-  await page.getByTestId('row-action-group-edit').click()
+  await page.getByTestId('group-edit-20').click()
   await expect(page.getByTestId('group-form-dialog')).toBeVisible()
   await page.getByTestId('g-name').fill('내 분류(수정)')
   await page.getByTestId('g-save').click()
