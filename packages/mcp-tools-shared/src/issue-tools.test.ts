@@ -34,6 +34,7 @@ function mockClient(): IssueToolClient {
   return {
     getProjectTypes: vi.fn().mockResolvedValue([{ id: 2, name: 'BUG' }]),
     getProjectMembers: vi.fn().mockResolvedValue([{ userId: 10, username: 'alice' }]),
+    getProject: vi.fn().mockResolvedValue({ key: 'WP', type: 'TEAM' }),
     getMe: vi.fn().mockResolvedValue({ id: 10, username: 'alice' }),
     getProjectLabels: vi.fn().mockResolvedValue([{ id: 100, name: 'urgent' }]),
     getProjectComponents: vi.fn().mockResolvedValue(COMPONENTS),
@@ -775,6 +776,49 @@ describe('buildSharedIssueTools', () => {
     await expect(t.handler({ issueKey: 'WP-12', title: 'x', reporter: 'nobody' })).rejects.toThrow();
     expect(c.changeIssueReporter).not.toHaveBeenCalled();
     expect(c.updateIssueContent).not.toHaveBeenCalled();
+  });
+
+  // WP-1012: 오픈(OPEN) 프로젝트는 서버가 비멤버 구성원을 보고자로 받는다(WP-967) — 도구도 워크스페이스 구성원으로 해석한다. 팀 프로젝트는 그대로 멤버만.
+  describe('reporter — 오픈 프로젝트의 비멤버 (WP-1012)', () => {
+    const outsider = { userId: 77, username: 'jey@iacloud.kr', name: '양정모', kind: 'HUMAN', active: true };
+    const tool = (c: IssueToolClient) => buildSharedIssueTools(c).find((x) => x.name === 'update_issue')!;
+
+    it('오픈 프로젝트면 멤버가 아닌 워크스페이스 구성원도 보고자로 보낸다', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProject).mockResolvedValue({ key: 'WP', type: 'OPEN' });
+      vi.mocked(c.searchMembers).mockResolvedValue([outsider]);
+      const out = JSON.parse(resultText(await tool(c).handler({ issueKey: 'WP-12', reporter: 'jey@iacloud.kr' })));
+      expect(out).toEqual({ ok: true, results: { reporter: 'ok' } });
+      expect(c.changeIssueReporter).toHaveBeenCalledWith('WP-12', 77);
+    });
+
+    it('오픈 프로젝트에서도 워크스페이스에 없는 이름은 아무것도 쓰지 않고 거절한다', async () => {
+      const c = mockClient();
+      vi.mocked(c.getProject).mockResolvedValue({ key: 'WP', type: 'OPEN' });
+      await expect(tool(c).handler({ issueKey: 'WP-12', title: 'x', reporter: 'nobody' })).rejects.toThrow('search_members');
+      expect(c.updateIssueContent).not.toHaveBeenCalled();
+      expect(c.changeIssueReporter).not.toHaveBeenCalled();
+    });
+
+    it('팀 프로젝트는 비멤버를 여전히 거절하고 워크스페이스를 찾지 않는다', async () => {
+      const c = mockClient();
+      vi.mocked(c.searchMembers).mockResolvedValue([outsider]);
+      await expect(tool(c).handler({ issueKey: 'WP-12', reporter: 'jey@iacloud.kr' })).rejects.toThrow('사용 가능 username: alice');
+      expect(c.searchMembers).not.toHaveBeenCalled();
+      expect(c.changeIssueReporter).not.toHaveBeenCalled();
+    });
+
+    it("멤버는 오픈 프로젝트에서도 프로젝트 조회 없이 해석하고, 'me' 가 비멤버여도 오픈이면 호출자로 지정한다", async () => {
+      const c = mockClient();
+      vi.mocked(c.getProject).mockResolvedValue({ key: 'WP', type: 'OPEN' });
+      await tool(c).handler({ issueKey: 'WP-12', reporter: 'alice' });
+      expect(c.changeIssueReporter).toHaveBeenLastCalledWith('WP-12', 10);
+      expect(c.getProject).not.toHaveBeenCalled();
+
+      vi.mocked(c.getMe).mockResolvedValue({ id: 55, username: 'outsider' });
+      await tool(c).handler({ issueKey: 'WP-12', reporter: 'me' });
+      expect(c.changeIssueReporter).toHaveBeenLastCalledWith('WP-12', 55);
+    });
   });
 
   // WP-53: "나에게 할당해줘" — assignees 의 'me' 는 호출자 본인으로 지정된다.
