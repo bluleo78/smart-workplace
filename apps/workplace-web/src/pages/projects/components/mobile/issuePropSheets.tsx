@@ -85,6 +85,7 @@ export function EpicPickerSheet({
               keyword={keyword}
               projectKey={projectKey}
               hasOwnMatches={matchedCount > 0}
+              isCurrent={(epic) => isSameParent(value, epic, ownKey)}
               testId={testId}
               onSelect={(epic) => {
                 close();
@@ -102,17 +103,22 @@ export function EpicPickerSheet({
  * 에픽 시트 아래 「다른 프로젝트」 줄(WP-1039) — 시트 검색어로 다른 프로젝트 에픽을 찾아 키·제목으로 보인다.
  * 찾기는 관계 추가 창과 같은 /issues/lookup(디바운스)이고 다른 프로젝트의 열린 에픽만 받는다(useOtherProjectEpics). 검색어가 비면 아무것도 그리지 않는다.
  * 이 프로젝트 줄이 하나도 맞지 않고 다른 프로젝트 결과도 없으면 「결과가 없습니다」를 띄운다 — 이 요소가 footer 라 시트가 대신 띄우지 못한다.
+ * 지금 부모(다른 프로젝트 에픽)는 빼고 보인다 — 데스크톱 피커와 같이, 골라도 바뀌지 않는 줄을 「선택 안 됨」으로 두지 않는다.
  */
 function OtherProjectEpicRows({
-  keyword, projectKey, hasOwnMatches, testId, onSelect,
+  keyword, projectKey, hasOwnMatches, isCurrent, testId, onSelect,
 }: {
   keyword: string;
   projectKey: string;
   hasOwnMatches: boolean;
+  /** 지금 부모인가 — 그 줄은 목록에서 뺀다. */
+  isCurrent: (epic: IssueLookupItem) => boolean;
   testId: string;
   onSelect: (epic: IssueLookupItem) => void;
 }) {
-  const { epics, searching } = useOtherProjectEpics(keyword, projectKey);
+  const others = useOtherProjectEpics(keyword, projectKey);
+  const searching = others.searching;
+  const epics = others.epics.filter((e) => !isCurrent(e));
   if (keyword === '') return null;
   if (epics.length === 0) {
     if (searching) {

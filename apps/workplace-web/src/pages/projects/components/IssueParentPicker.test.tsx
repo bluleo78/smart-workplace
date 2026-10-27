@@ -185,6 +185,49 @@ describe('IssueParentPicker — 상위 에픽 제목 검색', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('지금 부모는 상한(20건) 전에 빠진다 — 지금 부모가 앞에 있어도 후보 20건이 다 보인다 (WP-1039)', () => {
+    const many = Array.from({ length: 21 }, (_, i) => ({ number: i + 1, title: `에픽 제목 ${i + 1}` }))
+    useProjectEpics.mockImplementation(() => ({ epicType: { id: 9, name: 'EPIC' }, epics: many, loading: false }))
+    try {
+      const { input } = renderPicker({ currentParent: parentRef(1) })
+      fireEvent.change(input, { target: { value: '' } })
+      const shown = screen.getAllByTestId(/^parent-epic-option-/)
+      expect(shown).toHaveLength(20)
+      expect(screen.queryByTestId('parent-epic-option-1')).not.toBeInTheDocument()
+      expect(screen.getByTestId('parent-epic-option-21')).toBeInTheDocument()
+    } finally {
+      useProjectEpics.mockReset()
+      useProjectEpics.mockImplementation(() => ({
+        epicType: { id: 9, name: 'EPIC' },
+        epics: [
+          { number: 3, title: '로그인 개편' },
+          { number: 12, title: 'v1.7.0 제품개선' },
+          { number: 120, title: '결제 v1.7 대응' },
+        ],
+        loading: false,
+      }))
+    }
+  })
+
+  it('입력을 고쳐도 지금 부모에 맞으면 「현재」 줄을 보인다 — 빈 「맞는 에픽이 없습니다」가 아니다 (WP-1039)', () => {
+    // 같은 프로젝트 지금 부모 #3 — 「#3」으로 고쳐 쳐도(처음 값 「3」과 다름) 「현재」로 보인다.
+    const { input, onClose } = renderPicker({ currentParent: parentRef(3) })
+    fireEvent.change(input, { target: { value: '#3' } })
+    expect(screen.getByTestId('parent-current-option')).toHaveTextContent('현재WP-3에픽 3')
+    expect(screen.queryByText('맞는 에픽이 없습니다')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('parent-typed-option')).not.toBeInTheDocument()
+    // 맞지 않는 값이면 「현재」는 사라진다.
+    fireEvent.change(input, { target: { value: '결제' } })
+    expect(screen.queryByTestId('parent-current-option')).not.toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('다른 프로젝트 지금 부모는 키(대소문자 무시)를 다시 쳐도 「현재」 줄로 보인다 (WP-1039)', () => {
+    const { input } = renderPicker({ currentParent: parentRef(12, 'PLAN') })
+    fireEvent.change(input, { target: { value: 'plan-12' } })
+    expect(screen.getByTestId('parent-current-option')).toHaveTextContent('현재PLAN-12에픽 12')
+  })
+
   it('가려진 부모로 열면 Enter 한 번에 연결이 풀리지 않는다 — 해제는 화살표로 골라야 한다 (WP-1039)', async () => {
     const user = userEvent.setup()
     const hidden = { number: 0, title: null, type: null, hidden: true } as never

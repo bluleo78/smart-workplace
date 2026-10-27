@@ -1,4 +1,5 @@
-// 부모 변경 뒤 캐시 무효화 범위(WP-1039) — 자식 프로젝트는 상세·검색을 통째로, 다른 프로젝트 에픽(이전·새 부모)은 그 에픽의 상세·하위 목록만 갱신한다.
+// 부모 변경 뒤 캐시 무효화 범위(WP-1039) — 자식 프로젝트는 상세·검색을 통째로, 다른 프로젝트 에픽(이전·새 부모)은 그 에픽의 상세와 그 프로젝트의
+// 검색(에픽 행의 하위 수·하위 목록)을 갱신한다.
 // 상위 에픽 고르기(useUpdateIssueParent)와 에픽 드래그·되돌리기(useMoveIssueEpic)가 같은 함수를 쓴다.
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, test, vi } from 'vitest'
@@ -14,12 +15,12 @@ function invalidated(parents: Parameters<typeof invalidateParentChange>[2]) {
 }
 
 describe('invalidateParentChange', () => {
-  test('다른 프로젝트 에픽 → 같은 프로젝트 에픽으로 옮기면 이전 부모 에픽(PLAN-3)의 상세·하위 목록만 더 무효화한다', () => {
+  test('다른 프로젝트 에픽 → 같은 프로젝트 에픽으로 옮기면 이전 부모 에픽(PLAN-3)의 상세와 PLAN 검색도 무효화한다', () => {
     expect(invalidated([{ number: 3, projectKey: 'PLAN' }, { number: 5 }])).toEqual([
       ['issues', 'WP', 'detail'],
       ['issues', 'search', 'WP'],
       ['issues', 'PLAN', 'detail', 3],
-      ['issues', 'search', 'PLAN', 'children', 3],
+      ['issues', 'search', 'PLAN'],
     ])
   })
 
@@ -28,7 +29,7 @@ describe('invalidateParentChange', () => {
       ['issues', 'WP', 'detail'],
       ['issues', 'search', 'WP'],
       ['issues', 'OPS', 'detail', 7],
-      ['issues', 'search', 'OPS', 'children', 7],
+      ['issues', 'search', 'OPS'],
     ])
     expect(invalidated([{ number: 1 }, { number: 2, projectKey: 'WP' }])).toEqual([
       ['issues', 'WP', 'detail'],

@@ -12,8 +12,10 @@ import type { ParentRef } from '../../types/issue';
 import { issueKeys } from './useIssues';
 
 /**
- * 부모 변경에 걸린 캐시를 무효화한다 — 자식 프로젝트는 상세·검색(에픽 하위 목록 포함)을 통째로, 이전·새 부모가 다른 프로젝트 에픽이면 그 에픽의
- * 상세(진행률)·하위 목록만 갱신한다(그 프로젝트의 다른 이슈는 바뀌지 않는다). 가려진 부모는 프로젝트를 몰라 뺀다.
+ * 부모 변경에 걸린 캐시를 무효화한다 — 자식 프로젝트는 상세·검색(에픽 하위 목록 포함)을 통째로. 이전·새 부모가 다른 프로젝트 에픽이면 그 에픽의
+ * 상세(진행률)와 그 프로젝트의 검색 캐시도 갱신한다 — 검색 결과의 에픽 행이 하위 수(childCount·childDoneCount)를 실어 에픽 패널·useProjectEpics·
+ * 목록·보드가 그 값을 보여 주고, 그 에픽의 하위 목록(issueKeys.children)도 검색 접두 아래에 있다. 가려진 부모는 프로젝트를 몰라 뺀다.
+ * 상위 에픽 고르기(useUpdateIssueParent)와 에픽 드래그·되돌리기(useMoveIssueEpic)가 이 함수를 같이 쓴다.
  */
 export function invalidateParentChange(
   qc: QueryClient,
@@ -27,7 +29,8 @@ export function invalidateParentChange(
     const key = parentProjectKey(p, childProjectKey);
     if (key === childProjectKey) continue;
     qc.invalidateQueries({ queryKey: issueKeys.detail(key, p.number) });
-    qc.invalidateQueries({ queryKey: issueKeys.children(key, p.number) });
+    // 하위 목록(issueKeys.children)도 이 접두 아래라 함께 갱신된다.
+    qc.invalidateQueries({ queryKey: issueKeys.search(key) });
   }
 }
 

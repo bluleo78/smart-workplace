@@ -17,6 +17,7 @@ import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.dto.CreateIssueRequest;
+import com.workplace.issue.dto.CreateIssueTypeRequest;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
@@ -27,6 +28,7 @@ import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.IssueHistoryRepository;
 import com.workplace.issue.service.IssueRelationService;
 import com.workplace.issue.service.IssueService;
+import com.workplace.issue.service.IssueTypeService;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
@@ -71,6 +73,7 @@ class IssueRelationApiTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberRepository memberRepository;
   @Autowired IssueService issueService;
+  @Autowired IssueTypeService issueTypeService;
   @Autowired ApplicationEvents events;
   @Autowired IssueRelationService relationService;
   @Autowired IssueHistoryRepository historyRepository;
@@ -606,6 +609,32 @@ class IssueRelationApiTest extends IntegrationTestBase {
         .doesNotContain(epicKey);
     assertThat(keys(lookupFiltered(reader, token, wp, "EPIC", true, true)))
         .containsExactly(epicKey);
+  }
+
+  @Test
+  void lookupTypeFilterIgnoresCase() throws Exception {
+    // 대문자로 저장되지 않은 사용자 유형(Spike)도 소문자·대문자 type 으로 찾는다 — 이름 비교는 대소문자 무시.
+    String token = "SP" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+    long spikeTypeId =
+        issueTypeService
+            .create(bob, wpv, new CreateIssueTypeRequest("Spike", "GRAY", "Circle"))
+            .id();
+    int spike =
+        issueService
+            .create(
+                bob,
+                wpv,
+                new CreateIssueRequest(
+                    "스파이크 " + token, null, null, null, null, spikeTypeId, null, null))
+            .number();
+    newIssue(bob, wpv, "태스크 " + token);
+    String spikeKey = wpv + "-" + spike;
+    assertThat(keys(lookupFiltered(reader, token, wp, "spike", false))).containsExactly(spikeKey);
+    assertThat(keys(lookupFiltered(reader, token, wp, "SPIKE", false))).containsExactly(spikeKey);
+    // 시스템 유형(TASK 로 저장)도 소문자로 찾는다.
+    assertThat(keys(lookupFiltered(reader, token, wp, "task", false)))
+        .hasSize(1)
+        .doesNotContain(spikeKey);
   }
 
   // ── 도우미 ─────────────────────────────────────────────────────────────────────────────

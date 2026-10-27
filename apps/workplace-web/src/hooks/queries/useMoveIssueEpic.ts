@@ -63,7 +63,7 @@ export function useMoveIssueEpic(projectKey: string) {
     },
     onSettled: (_data, _err, { issue, to }) => {
       // 이 프로젝트 검색(보드 컬럼·목록·에픽 패널 진행률)과 상세, 그리고 출발·도착 에픽이 다른 프로젝트면(되돌리기 포함, WP-1039) 그 프로젝트의
-      // 에픽 상세·하위 목록까지 갱신한다.
+      // 에픽 상세와 그 프로젝트 검색(에픽 행 하위 수·하위 목록)까지 갱신한다 — 상위 에픽 고르기와 같은 invalidateParentChange.
       invalidateParentChange(qc, projectKey, [issue.parent, to]);
     },
   });

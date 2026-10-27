@@ -151,8 +151,8 @@ public class IssueRelationRepository {
    * @param callerId 호출자
    * @param callerIsAdmin 호출자가 ADMIN 인가(역할 테이블을 보는 서비스가 넘긴다) — TEAM 프로젝트 읽기 우회
    * @param personalProjectId 현재 이슈가 개인 프로젝트면 그 id(그 프로젝트만 찾는다), 아니면 null(읽을 수 있는 비개인 프로젝트 전부)
-   * @param typeName 유형 이름(예: EPIC)으로 좁힌다 — null 이면 모든 유형. 유형은 프로젝트마다 따로라 이름으로 맞춘다(WP-1039 다른 프로젝트
-   *     에픽 고르기 — 화면에서 거르면 20건 상한에 다른 유형이 차 에픽이 밀려났다)
+   * @param typeName 유형 이름(예: EPIC, 대소문자 무시)으로 좁힌다 — null 이면 모든 유형. 유형은 프로젝트마다 따로라 이름으로 맞춘다(WP-1039
+   *     다른 프로젝트 에픽 고르기 — 화면에서 거르면 20건 상한에 다른 유형이 차 에픽이 밀려났다)
    * @param openOnly 참이면 종료(완료·취소 범주) 이슈를 뺀다 — 닫힌 에픽은 상위 에픽으로 고를 대상이 아니다
    * @param excludeProjectKey 이 프로젝트(대문자 키)의 이슈를 뺀다. null 이면 빼지 않는다 — 다른 프로젝트 에픽만 찾을 때 같은 프로젝트 행이
    *     상한을 차지하지 않게 한다
@@ -239,7 +239,7 @@ public class IssueRelationRepository {
   private Condition filterCondition(LookupScope scope) {
     Condition c = trueCondition();
     if (scope.typeName() != null) {
-      c = c.and(ISSUE_TYPE_DEF.NAME.eq(scope.typeName()));
+      c = c.and(ISSUE_TYPE_DEF.NAME.equalIgnoreCase(scope.typeName()));
     }
     if (scope.openOnly()) {
       c = c.and(ISSUE.STATUS.notIn(IssueStatuses.CLOSED));

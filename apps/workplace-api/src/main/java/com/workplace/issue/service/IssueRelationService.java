@@ -367,7 +367,7 @@ public class IssueRelationService {
             callerId,
             permissionChecker.userHasRole(callerId, "ADMIN"),
             personalFrom(callerId, from),
-            normalizeKey(type),
+            type == null || type.isBlank() ? null : type.trim(),
             openOnly,
             excludeFrom ? normalizeKey(from) : null);
     Optional<IssueKey> key = IssueKeys.parse(query);

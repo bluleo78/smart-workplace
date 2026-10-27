@@ -272,6 +272,8 @@ describe('속성 칩 — 시트 → 요청', () => {
           return HttpResponse.json([
             { projectKey: 'WP', number: 50, title: '결제 같은 프로젝트', status: 'TODO', type: makeEpicType() },
             { projectKey: 'PLAN', number: 3, title: '분기 계획', status: 'TODO', type: makeEpicType() },
+            // 지금 부모 — 찾기에 걸려도 「다른 프로젝트」 줄로 보이지 않는다(데스크톱 피커와 같다).
+            { projectKey: 'CLA', number: 50, title: '다른 팀 에픽', status: 'TODO', type: makeEpicType() },
           ])
         }),
       ],
@@ -291,6 +293,7 @@ describe('속성 칩 — 시트 → 요청', () => {
     expect(other).toHaveTextContent('PLAN-3분기 계획')
     // 같은 프로젝트 에픽은 찾기 결과에서 빠진다(위 목록이 맡는다).
     expect(within(sheet).queryByTestId('picker-other-epic-WP-50')).not.toBeInTheDocument()
+    expect(within(sheet).queryByTestId('picker-other-epic-CLA-50')).not.toBeInTheDocument()
     expect(lookups.at(-1)).toContain('from=WP')
     await user.click(other)
     await waitFor(() => expect(calls.find((c) => c.path.endsWith('/parent'))?.body).toEqual({ parentKey: 'PLAN-3' }))
