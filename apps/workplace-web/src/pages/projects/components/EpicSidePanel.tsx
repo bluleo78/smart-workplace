@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils';
 
 import { ClosedStatusBadge } from '../../../components/issues/ClosedStatusBadge';
 import { useClosedEpics, usePanelEpics } from '../../../hooks/queries/useProjectEpics';
-import { presenceStyle } from '../../../lib/collab/presence';
 import { DROP_TARGET_CLASS } from '../../../lib/dndDropClass';
+import { epicColorToken, epicDotClass, epicTypeSummary } from '../../../lib/epicColor';
 import {
   EPIC_DROP_NONE_ID,
   EPIC_PANEL_ZONE_ID,
@@ -272,14 +272,15 @@ function EpicItemButton({
 }) {
   const closed = isClosedStatus(ep.status);
   // 검색 응답은 type 이 항상 채워진다 — 낙관적 반영에 쓸 ParentRef 로 좁힌다. status 는 종료 에픽 드롭 차단 판정용(WP-389).
+  // 유형 색은 에픽 색으로 바꿔 둔다(WP-1017) — 놓자마자 보이는 하위의 부모 칩이 서버 응답(부모 요약 = 에픽 색)과 같은 색이 되게.
   const { setNodeRef, dropState, dropClass } = useEpicDroppable(
-    { number: ep.number, title: ep.title, type: ep.type!, status: ep.status },
+    { number: ep.number, title: ep.title, type: epicTypeSummary(ep)!, status: ep.status },
     activeIssue,
     clip,
   );
   const pct = ep.childCount > 0 ? Math.round((ep.childDoneCount / ep.childCount) * 100) : 0;
-  // 에픽 색점 — 사람 색 토큰을 번호 기준으로 빌려 쓴다(이전 Tailwind 팔레트 시절부터 아바타 팔레트를 공유, WP-318). 바탕만 쓴다.
-  const colorStyle = presenceStyle(ep.number);
+  // 에픽 색점·진행바 채움 — 에픽마다 정한 색(WP-1017, 없으면 유형 색). 예전엔 번호로 아바타 팔레트를 빌려 써 목록·타임라인 색과 달랐다.
+  const dotClass = epicDotClass(epicColorToken(ep));
   // 드래그 중에는 상세 링크를 감춘다 — 드롭 상태 표시가 우선이고, 링크가 드롭 대상 위를 가리지 않게.
   const showDetailLink = !activeIssue;
   // 개수·종료 배지 자리 — hover·키보드 포커스 동안은 ↗ 링크가 대신 보인다.
@@ -302,7 +303,7 @@ function EpicItemButton({
         )}
       >
         <span className="flex items-center gap-2">
-          <span className={cn('h-2 w-2 shrink-0 rounded-full bg-presence', closed && CLOSED_EPIC_DIM)} style={colorStyle} aria-hidden="true" />
+          <span className={cn('h-2 w-2 shrink-0 rounded-full', dotClass, closed && CLOSED_EPIC_DIM)} data-testid={`epic-color-dot-${ep.number}`} aria-hidden="true" />
           <span className={cn('min-w-0 flex-1 truncate', closed && closedEpicTitleClass(ep.status, selected))} title={ep.title}>
             {ep.title}
           </span>
@@ -325,7 +326,7 @@ function EpicItemButton({
           aria-valuemax={100}
           className="mt-1.5 ml-4 block h-1 overflow-hidden rounded-full bg-muted"
         >
-          <span className={cn('block h-full rounded-full bg-presence', closed && CLOSED_EPIC_DIM)} style={{ ...colorStyle, width: `${pct}%` }} />
+          <span className={cn('block h-full rounded-full', dotClass, closed && CLOSED_EPIC_DIM)} style={{ width: `${pct}%` }} />
         </span>
       </button>
       {showDetailLink && (

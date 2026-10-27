@@ -9,6 +9,8 @@ import { useMemo, useRef, useState } from 'react';
 import { MobileEmptyState } from '@/components/mobile/MobileEmptyState';
 import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
 import { Button } from '@/components/ui/button';
+import { epicDotClass } from '@/lib/epicColor';
+import { labelFg } from '@/lib/labelColors';
 import { cn } from '@/lib/utils';
 
 import { formatDateOnlyMonthDay, formatDateRangeMonthDay } from '../../../lib/formatters';
@@ -179,7 +181,8 @@ export function TimelineAgendaList({
                           className={cn(
                             'line-clamp-2 text-sm',
                             r.kind === 'epic' && 'font-semibold',
-                            r.kind === 'epic' && (r.status === 'DONE' ? 'text-success' : r.status === 'CANCELED' ? 'text-muted-foreground' : 'text-ai-accent'),
+                            // 진행 중 에픽은 그 에픽 색(WP-1017, 색을 모르면 예전처럼 ai-accent). 완료·취소는 상태 색이 이긴다.
+                            r.kind === 'epic' && (r.status === 'DONE' ? 'text-success' : r.status === 'CANCELED' ? 'text-muted-foreground' : r.colorToken ? labelFg(r.colorToken) : 'text-ai-accent'),
                             r.kind === 'child' && 'ml-4',
                           )}
                         >
@@ -207,7 +210,7 @@ export function TimelineAgendaList({
                             <span className={cn('relative block w-full rounded-full bg-muted', r.kind === 'epic' ? 'h-1.5' : 'h-1')}>
                               <span
                                 data-testid="agenda-bar"
-                                className={cn('absolute inset-y-0 rounded-full', r.kind === 'epic' ? (r.status === 'DONE' ? 'bg-success' : r.status === 'CANCELED' ? 'bg-muted-foreground/40' : 'bg-ai-accent') : 'bg-primary')}
+                                className={cn('absolute inset-y-0 rounded-full', r.kind === 'epic' ? (r.status === 'DONE' ? 'bg-success' : r.status === 'CANCELED' ? 'bg-muted-foreground/40' : r.colorToken ? epicDotClass(r.colorToken) : 'bg-ai-accent') : 'bg-primary')}
                                 style={spanStyle(r.bar)}
                               />
                             </span>

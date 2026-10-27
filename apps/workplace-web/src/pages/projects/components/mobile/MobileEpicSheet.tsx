@@ -6,6 +6,7 @@ import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { EpicColorDot } from '@/components/issues/EpicColorDot';
 import { MobilePickerSheet, type PickerOption } from '@/components/mobile/MobilePickerSheet';
 import { cn } from '@/lib/utils';
 
@@ -53,6 +54,7 @@ export function MobileEpicChip({ projectKey, canCreateIssue }: { projectKey: str
       return {
         value: `epic-${ep.number}`,
         label: ep.title,
+        icon: <EpicColorDot epic={ep} />,
         detail: { label: `${ep.title} 상세 열기`, onOpen: () => navigate(`/projects/${projectKey}/issues/${ep.number}`) },
         // 진행 중 사이클 소속 종료 에픽(WP-389)은 진행률 대신 종료 배지로 구분한다.
         // 진행률 바 + 완료/전체 — 데스크톱 패널과 같은 정보. 트랙은 bg-border — bg-muted 는 시트 배경과 거의 같아 0% 가 안 보인다.

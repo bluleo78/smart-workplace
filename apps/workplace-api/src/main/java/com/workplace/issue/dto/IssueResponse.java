@@ -69,7 +69,92 @@ public record IssueResponse(
     List<ComponentSummary> components,
     // WP-888 수정 버전(FIX)·영향 버전(AFFECTS) — 버전 목록 순서(미출시 → 출시됨 → 보관). 없으면 빈 배열(null 아님).
     List<VersionSummary> fixVersions,
-    List<VersionSummary> affectsVersions) {
+    List<VersionSummary> affectsVersions,
+    // WP-1017 에픽 색 토큰 — 행의 epic_color 그대로(목록·상세·타임라인이 에픽 점·막대를 칠한다). 에픽이었다가 다른 유형이 된 이슈도 옛 색을 실으므로
+    // 읽는 쪽은 유형이 EPIC 일 때만 쓴다. 없으면 JSON 에서 생략(웹은 유형 색으로 대신 칠한다).
+    @JsonInclude(JsonInclude.Include.NON_NULL) String epicColor) {
+
+  /** 에픽 색이 없던 38-인자 호환 생성자 — 에픽 색을 채우지 않는 기존 호출부용(epicColor null). */
+  public IssueResponse(
+      Long id,
+      String projectKey,
+      int number,
+      String title,
+      String status,
+      Long statusId,
+      String statusName,
+      String statusColor,
+      String priority,
+      LocalDate dueDate,
+      LocalDate startDate,
+      Long milestoneId,
+      String milestoneName,
+      Long reporterId,
+      Instant createdAt,
+      Instant updatedAt,
+      Instant closedAt,
+      List<LabelSummary> labels,
+      int attachmentCount,
+      IssueTypeSummary type,
+      List<UserSummary> assignees,
+      ParentRef parent,
+      int childCount,
+      int childDoneCount,
+      List<IssueLinkSummary> blockedBy,
+      List<IssueLinkSummary> blocks,
+      boolean blocked,
+      List<IssueFieldEntry> customFields,
+      int version,
+      List<AgentWorkView> agentWork,
+      AiTaskGroup aiGroup,
+      AiTaskProject aiProject,
+      AiTaskProject projectGroup,
+      UserSummary reporter,
+      List<CycleSummary> cycles,
+      List<ComponentSummary> components,
+      List<VersionSummary> fixVersions,
+      List<VersionSummary> affectsVersions) {
+    this(
+        id,
+        projectKey,
+        number,
+        title,
+        status,
+        statusId,
+        statusName,
+        statusColor,
+        priority,
+        dueDate,
+        startDate,
+        milestoneId,
+        milestoneName,
+        reporterId,
+        createdAt,
+        updatedAt,
+        closedAt,
+        labels,
+        attachmentCount,
+        type,
+        assignees,
+        parent,
+        childCount,
+        childDoneCount,
+        blockedBy,
+        blocks,
+        blocked,
+        customFields,
+        version,
+        agentWork,
+        aiGroup,
+        aiProject,
+        projectGroup,
+        reporter,
+        cycles,
+        components,
+        fixVersions,
+        affectsVersions,
+        null);
+  }
 
   /** 버전 필드가 없던 36-인자 호환 생성자 — 버전을 채우지 않는 기존 호출부용(두 목록은 빈 배열). */
   public IssueResponse(
@@ -282,7 +367,8 @@ public record IssueResponse(
         newCycles,
         newComponents,
         newFixVersions,
-        newAffectsVersions);
+        newAffectsVersions,
+        epicColor);
   }
 
   /**
@@ -326,7 +412,10 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 
   /**
@@ -371,7 +460,10 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 
   /** 라벨 + 첨부 카운트까지 채운 버전 — Phase 3b 호출자 호환. type null, assignees 빈 리스트. */
@@ -413,7 +505,10 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 
   /** 라벨 + 첨부 카운트 + 담당자까지 채운 풀버전 — Phase 3c 호출자 호환. type null. */
@@ -459,7 +554,10 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 
   /** Phase 4 — 라벨 + 첨부 카운트 + 유형 + 담당자 모두 채운 풀버전. */
@@ -506,7 +604,10 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 
   /**
@@ -559,7 +660,10 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 
   /** Phase 4b — 의존성(blockedBy/blocks/blocked) 까지 채운 최신 풀버전. 검색/상세 경로에서 사용. */
@@ -612,7 +716,10 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 
   /**
@@ -668,6 +775,9 @@ public record IssueResponse(
         null,
         null,
         null,
-        List.of());
+        List.of(),
+        List.of(),
+        List.of(),
+        r.epicColor());
   }
 }

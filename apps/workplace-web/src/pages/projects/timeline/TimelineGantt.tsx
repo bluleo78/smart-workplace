@@ -288,6 +288,12 @@ export function TimelineGantt({
     [groups],
   )
 
+  // 요약 막대 id → 에픽 색 토큰(WP-1017). 색은 CSS 가 data-epic-color 로 칠하고, 완료·취소(data-epic-status) 막대는 CSS 가 빼 상태 색이 그대로다.
+  const epicColorByTaskId = useMemo(
+    () => new Map(groups.flatMap((g) => (g.colorToken ? [[groupTaskId(g.key), g.colorToken] as const] : []))),
+    [groups],
+  )
+
   // 막대 저장 실패 횟수 — 그룹 행에 실어 SVAR 가 tasks 를 다시 파싱하게 한다(WP-248). SVAR init 은 새 tasks 를
   // 이전 값과 깊은 비교해 같으면 무시하므로, 실패 후 재조회 응답이 이전과 같으면 드래그로 옮겨진 막대(와 하위 기준으로
   // 재계산된 에픽 요약 막대)가 그대로 남는다.
@@ -645,6 +651,12 @@ export function TimelineGantt({
           if (status) el.dataset.epicStatus = status
           else delete el.dataset.epicStatus
         }
+        // 에픽 색(WP-1017) — 상태와 같은 방식(속성 + CSS), 같은 값이면 건드리지 않는다.
+        const color = epicColorByTaskId.get(id) ?? null
+        if ((el.dataset.epicColor ?? null) !== color) {
+          if (color) el.dataset.epicColor = color
+          else delete el.dataset.epicColor
+        }
       }
     }
     applyColors()
@@ -656,7 +668,7 @@ export function TimelineGantt({
       attributeFilter: ['style', 'class'],
     })
     return () => observer.disconnect()
-  }, [bars, tasks, rollupValuesByTaskId, epicStatusByTaskId])
+  }, [bars, tasks, rollupValuesByTaskId, epicStatusByTaskId, epicColorByTaskId])
 
   // 의존성 모순 링크 강조(#669) — SVAR 는 링크별 커스텀 className/color 주입 API 가 없어(바 색상과
   // 동일한 제약, 위 STATUS_BAR_COLOR 이펙트 참조) `data-link-id` 를 가진 <g> 안의 `.wx-line-draw`

@@ -371,6 +371,20 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
         return (String) get(24);
     }
 
+    /**
+     * Setter for <code>public.issue.epic_color</code>.
+     */
+    public void setEpicColor(String value) {
+        set(25, value);
+    }
+
+    /**
+     * Getter for <code>public.issue.epic_color</code>.
+     */
+    public String getEpicColor() {
+        return (String) get(25);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -394,7 +408,7 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
     /**
      * Create a detached, initialised IssueRecord
      */
-    public IssueRecord(Long id, Long projectId, Integer number, String title, String body, String status, String priority, LocalDate dueDate, Long reporterId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime closedAt, OffsetDateTime deletedAt, Long typeId, Long parentIssueId, Long tenantId, String sourceType, Long sourceId, LocalDate startDate, Long milestoneId, Integer version, Long statusId, Long importedBy, OffsetDateTime importedAt, String importSourceKey) {
+    public IssueRecord(Long id, Long projectId, Integer number, String title, String body, String status, String priority, LocalDate dueDate, Long reporterId, OffsetDateTime createdAt, OffsetDateTime updatedAt, OffsetDateTime closedAt, OffsetDateTime deletedAt, Long typeId, Long parentIssueId, Long tenantId, String sourceType, Long sourceId, LocalDate startDate, Long milestoneId, Integer version, Long statusId, Long importedBy, OffsetDateTime importedAt, String importSourceKey, String epicColor) {
         super(Issue.ISSUE);
 
         setId(id);
@@ -422,6 +436,7 @@ public class IssueRecord extends UpdatableRecordImpl<IssueRecord> {
         setImportedBy(importedBy);
         setImportedAt(importedAt);
         setImportSourceKey(importSourceKey);
+        setEpicColor(epicColor);
         resetChangedOnNotNull();
     }
 }

@@ -327,24 +327,39 @@ public class IssueService {
       CreateIssueRequest req,
       Long reporterId,
       IssueRepository.ImportMarks marks) {
-    return issueRepository.insert(
-        plan.project().id(),
-        number,
-        normalizeTitle(req.title()),
-        req.body(),
-        req.priority() != null ? req.priority() : IssuePriorities.DEFAULT,
-        req.dueDate(),
-        reporterId,
-        plan.typeId(),
-        plan.parentIssueId(),
-        req.startDate(),
-        plan.milestoneId(),
-        plan.status().category(),
-        plan.status().id(),
-        plan.status().name(),
-        plan.status().color(),
-        plan.milestoneName(),
-        marks);
+    IssueRow row =
+        issueRepository.insert(
+            plan.project().id(),
+            number,
+            normalizeTitle(req.title()),
+            req.body(),
+            req.priority() != null ? req.priority() : IssuePriorities.DEFAULT,
+            req.dueDate(),
+            reporterId,
+            plan.typeId(),
+            plan.parentIssueId(),
+            req.startDate(),
+            plan.milestoneId(),
+            plan.status().category(),
+            plan.status().id(),
+            plan.status().name(),
+            plan.status().color(),
+            plan.milestoneName(),
+            marks);
+    // WP-1017 에픽이면 프로젝트에서 가장 덜 쓰인 색을 붙인다. 일반 생성은 번호 할당(allocateNext)이 프로젝트 시퀀스 행을 커밋까지 잠가 같은
+    // 프로젝트의 생성이 줄을 서므로, 동시에 만든 두 에픽이 같은 「덜 쓰인 색」을 읽지 않는다. 가져오기도 이 경로를 탄다(원본 에픽 색은 옮기지 않는다).
+    return plan.epic() ? assignEpicColor(row, null) : row;
+  }
+
+  /**
+   * 이슈에 자동 에픽 색을 정해 저장하고 그 색을 실은 사본을 돌려준다(WP-1017). excludeIssueId 는 사용 수에서 뺄 이슈(유형 변경으로 에픽이 되는 이슈
+   * 자신) — 새 이슈는 아직 색이 없어 null 이어도 같다.
+   */
+  private IssueRow assignEpicColor(IssueRow row, Long excludeIssueId) {
+    String color =
+        EpicColors.pickLeastUsed(issueRepository.countEpicColors(row.projectId(), excludeIssueId));
+    issueRepository.updateEpicColor(row.id(), color);
+    return row.withEpicColor(color);
   }
 
   /**
@@ -406,7 +421,9 @@ public class IssueService {
       // WP-807 처음 상태 — statusId 우선, 범주만 오면 그 범주 기본 상태.
       ResolvedStatus status,
       // WP-933 고른 구성요소(목록 순서) — 연결과 담당자 자동 지정이 쓴다. 없으면 빈 목록.
-      List<ComponentRow> components) {
+      List<ComponentRow> components,
+      // WP-1017 만드는 이슈가 에픽인지 — INSERT 때 에픽 색을 정한다(유형을 다시 읽지 않게 검증하며 본 값을 싣는다).
+      boolean epic) {
     /** 구성요소만 바꾼 사본 — 잠그고 다시 읽은 행으로 갈아 끼울 때 쓴다. */
     CreateIssuePlan withComponents(List<ComponentRow> newComponents) {
       return new CreateIssuePlan(
@@ -421,7 +438,8 @@ public class IssueService {
           cycleIds,
           labelNames,
           status,
-          newComponents);
+          newComponents,
+          epic);
     }
   }
 
@@ -589,7 +607,8 @@ public class IssueService {
         cycleIds,
         labelNames,
         status,
-        components);
+        components,
+        isEpic);
   }
 
   /**
@@ -1281,6 +1300,10 @@ public class IssueService {
     }
 
     issueRepository.updateType(issue.id(), newType.id());
+    // WP-1017 에픽이 됐는데 색이 없으면(처음 에픽이 됨) 자동 색을 붙인다. 예전에 에픽이었다가 돌아온 이슈는 남아 있던 색을 그대로 쓴다.
+    if ("EPIC".equals(newType.name()) && issue.epicColor() == null) {
+      assignEpicColor(issue, issue.id());
+    }
     historyRecorder.recordTypeChanged(
         callerId,
         issue.id(),
@@ -1511,7 +1534,12 @@ public class IssueService {
     return new ParentRef(
         parent.number(),
         parent.title(),
-        new IssueTypeSummary(type.id(), type.name(), type.colorToken(), type.icon()),
+        // 에픽 부모는 에픽 색(WP-1017) — 응답 경로(IssueRepository.findParentRefsByIssueIds)와 같은 규칙.
+        new IssueTypeSummary(
+            type.id(),
+            type.name(),
+            IssueRepository.parentTypeColor(type.name(), type.colorToken(), parent.epicColor()),
+            type.icon()),
         parent.status(),
         // 부모의 사용자 정의 상태(WP-869) — findById 가 ISSUE_WITH_STATUS 조인으로 채운 값
         parent.statusId(),

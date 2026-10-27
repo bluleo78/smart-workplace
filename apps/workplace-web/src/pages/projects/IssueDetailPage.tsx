@@ -666,6 +666,8 @@ export default function IssueDetailPage() {
               issueNumber={issueNumber}
               isSubtask={isSubtask}
               isEpic={isEpic}
+              epicColor={summary.epicColor}
+              epicFallbackColor={summary.type?.colorToken}
               parent={summary.parent}
               status={summary.status}
               statusId={summary.statusId}

@@ -31,6 +31,7 @@ import { AssigneePickerPopover } from './AssigneePickerPopover';
 import { CustomFieldsSection } from './CustomFieldsSection';
 import { DatePickerPopover } from './DatePickerPopover';
 import { DueDatePickerPopover } from './DueDatePickerPopover';
+import { EpicColorField } from './EpicColorField';
 import { IssueClosedLine } from './IssueClosedLine';
 import { IssueParentSlot } from './IssueParentSlot';
 import { IssuePrioritySelect } from './IssuePrioritySelect';
@@ -46,6 +47,8 @@ interface IssuePropertyRailProps {
   issueNumber: number;
   isSubtask: boolean;
   isEpic: boolean;
+  epicColor?: string | null;  // summary.epicColor — 에픽 색(WP-1017, 에픽만)
+  epicFallbackColor?: string; // summary.type.colorToken — 에픽 색이 없을 때 대신 보이는 유형 색
   parent: ParentRef | null;   // summary.parent
   status: IssueStatus;        // summary.status — 범주(마감 지남 판정)
   statusId: number;           // summary.statusId — 상태 선택 값(WP-808)
@@ -87,6 +90,8 @@ export function IssuePropertyRail({
   issueNumber,
   isSubtask,
   isEpic,
+  epicColor,
+  epicFallbackColor,
   parent,
   status,
   statusId,
@@ -155,6 +160,16 @@ export function IssuePropertyRail({
     <div className="space-y-3" data-testid="property-rail">
       {/* EPIC 은 부모를 가질 수 없으므로 슬롯 자체를 노출하지 않음.
           SUBTASK/일반 이슈는 각각 "부모"/"상위 에픽" 문구로 슬롯 노출(Task 6). */}
+      {/* 에픽 색(WP-1017) — 에픽은 부모 슬롯이 없는 그 자리에 둔다. 데스크톱 레일·모바일 시트 모두. 바꾸기는 유형·부모와 같은 워크플로 권한. */}
+      {isEpic && (
+        <EpicColorField
+          projectKey={projectKey}
+          issueNumber={issueNumber}
+          epicColor={epicColor}
+          fallbackColor={epicFallbackColor}
+          disabled={!canEditWorkflow}
+        />
+      )}
       {!isEpic && (variant === 'rail' || isSubtask) && (
         <IssueParentSlot
           projectKey={projectKey}

@@ -2,6 +2,7 @@
 // 재정렬하지 않는다: 서버 순서대로 훑다가 aiGroup.size ≥ 2 인 묶음이 시작되면 머리를 넣고, 같은 묶음 행을 이어 붙인다.
 // 페이지가 이어 붙어도 서버가 묶음을 연속으로 주므로 다음 페이지의 하위 행은 앞 묶음에 붙는다.
 // 프로젝트 구간 나누기(splitByProject)는 내 작업과 함께 쓰려고 lib/projectRuns 로 옮겼다(WP-919).
+import { epicTypeSummary } from '@/lib/epicColor'
 import type { IssueResponse } from '@/types/issue'
 import type { IssueTypeSummary } from '@/types/issueType'
 
@@ -46,7 +47,8 @@ export function groupAiTasks(items: IssueResponse[]): AiTaskEntry[] {
           projectKey: it.projectKey,
           number: g.epicNumber,
           title: isHead ? it.title : (it.parent?.title ?? ''),
-          type: isHead ? (it.type ?? null) : (it.parent?.type ?? null),
+          // 머리 아이콘 색 = 에픽 색(WP-1017) — 머리가 에픽 행이면 그 epicColor, 하위 행이면 서버가 부모 요약에 실은 에픽 색.
+          type: isHead ? epicTypeSummary(it) : (it.parent?.type ?? null),
           childCount: g.epicChildCount,
           childDoneCount: g.epicChildDoneCount,
         },

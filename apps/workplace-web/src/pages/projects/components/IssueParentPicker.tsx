@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 
+import { EpicColorDot } from '@/components/issues/EpicColorDot';
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
@@ -122,6 +123,7 @@ export function IssueParentPicker({
                   onSelect={() => void save(epic.number)}
                   data-testid={`parent-epic-option-${epic.number}`}
                 >
+                  <EpicColorDot epic={epic} />
                   <span className="text-muted-foreground shrink-0 tabular-nums">#{epic.number}</span>
                   <span className="truncate">{epic.title}</span>
                 </CommandItem>

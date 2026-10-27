@@ -117,7 +117,9 @@ public class IssueRepository {
     MILESTONE_NAME,
     ISSUE.STATUS_ID,
     STATUS_NAME,
-    STATUS_COLOR
+    STATUS_COLOR,
+    // WP-1017 에픽 색
+    ISSUE.EPIC_COLOR
   };
 
   /**
@@ -150,7 +152,9 @@ public class IssueRepository {
         r.indexOf(MILESTONE_NAME) >= 0 ? r.get(MILESTONE_NAME) : null,
         r.get(ISSUE.STATUS_ID),
         r.indexOf(STATUS_NAME) >= 0 ? r.get(STATUS_NAME) : null,
-        r.indexOf(STATUS_COLOR) >= 0 ? r.get(STATUS_COLOR) : null);
+        r.indexOf(STATUS_COLOR) >= 0 ? r.get(STATUS_COLOR) : null,
+        // 에픽 색(WP-1017) — ROW_FIELDS·RETURNING 모두 싣지만, 열을 골라 SELECT 하는 경로를 위해 없으면 null.
+        r.indexOf(ISSUE.EPIC_COLOR) >= 0 ? r.get(ISSUE.EPIC_COLOR) : null);
   }
 
   /**
@@ -432,7 +436,8 @@ public class IssueRepository {
         milestoneName,
         inserted.statusId(),
         statusName,
-        statusColor);
+        statusColor,
+        inserted.epicColor());
   }
 
   /**
@@ -1535,7 +1540,8 @@ public class IssueRepository {
                 ISSUE_TYPE_DEF.ID,
                 ISSUE_TYPE_DEF.NAME,
                 ISSUE_TYPE_DEF.COLOR_TOKEN,
-                ISSUE_TYPE_DEF.ICON))
+                ISSUE_TYPE_DEF.ICON,
+                p.EPIC_COLOR))
         // 부모의 사용자 정의 상태 이름·색(WP-869) — 별칭 p 기준 공용 LEFT JOIN(WP-937)
         .from(
             IssueStatusProjection.leftJoin(
@@ -1557,13 +1563,52 @@ public class IssueRepository {
                         new IssueTypeSummary(
                             r.get(ISSUE_TYPE_DEF.ID),
                             r.get(ISSUE_TYPE_DEF.NAME),
-                            r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
+                            parentTypeColor(
+                                r.get(ISSUE_TYPE_DEF.NAME),
+                                r.get(ISSUE_TYPE_DEF.COLOR_TOKEN),
+                                r.get(p.EPIC_COLOR)),
                             r.get(ISSUE_TYPE_DEF.ICON)),
                         // 부모 상태 — 부모 행이 응답에 없어도 하위만으로 부모 취소 여부를 판단하게(WP-247)
                         r.get(p.STATUS),
                         r.get(p.STATUS_ID),
                         r.get(STATUS_NAME),
                         r.get(STATUS_COLOR))));
+    return result;
+  }
+
+  /**
+   * 부모 요약의 유형 색(WP-1017) — 부모가 에픽이고 에픽 색이 있으면 그 색, 아니면 유형 색. 웹이 부모 칩·묶음 머리·타임라인 막대를 {@code
+   * parent.type.colorToken} 으로 칠하므로, 이 값만 바꾸면 에픽마다 다른 색이 된다. 에픽에서 다른 유형으로 바뀐 이슈는 epic_color 가 남아
+   * 있어도 유형 색을 쓴다(하위 태스크의 부모 칩이 옛 에픽 색으로 칠해지지 않게).
+   */
+  public static String parentTypeColor(String typeName, String typeColor, String epicColor) {
+    return "EPIC".equals(typeName) && epicColor != null ? epicColor : typeColor;
+  }
+
+  /** 에픽 색 갱신(WP-1017) — 꾸밈 값이라 version·updated_at 은 건드리지 않는다(수정 충돌·「최근 수정」 정렬에 끼지 않게). */
+  public void updateEpicColor(Long id, String colorToken) {
+    dsl.update(ISSUE).set(ISSUE.EPIC_COLOR, colorToken).where(ISSUE.ID.eq(id)).execute();
+  }
+
+  /**
+   * 프로젝트의 활성 에픽이 쓰는 색 → 에픽 수(WP-1017 자동 색 고르기). 삭제된 에픽·색 없는 에픽은 세지 않는다. excludeIssueId 는 지금 색을 정하는
+   * 이슈 자신(유형 변경으로 에픽이 된 이슈의 옛 색을 세지 않게) — 없으면 null.
+   */
+  public Map<String, Integer> countEpicColors(Long projectId, Long excludeIssueId) {
+    Map<String, Integer> result = new HashMap<>();
+    dsl.select(ISSUE.EPIC_COLOR, count())
+        .from(ISSUE)
+        .join(ISSUE_TYPE_DEF)
+        .on(ISSUE_TYPE_DEF.ID.eq(ISSUE.TYPE_ID))
+        .where(
+            ISSUE.PROJECT_ID.eq(projectId),
+            ISSUE.DELETED_AT.isNull(),
+            ISSUE.EPIC_COLOR.isNotNull(),
+            ISSUE_TYPE_DEF.NAME.eq("EPIC"),
+            excludeIssueId == null ? noCondition() : ISSUE.ID.ne(excludeIssueId))
+        .groupBy(ISSUE.EPIC_COLOR)
+        .fetch()
+        .forEach(r -> result.put(r.value1(), r.value2()));
     return result;
   }
 
