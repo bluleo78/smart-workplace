@@ -12,6 +12,7 @@ import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueStatuses;
+import com.workplace.issue.dto.ParentRef;
 import com.workplace.issue.exception.EpicHasIncompleteChildrenException;
 import com.workplace.issue.exception.InvalidParentException;
 import com.workplace.issue.exception.ParentNotAllowedException;
@@ -51,6 +52,7 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
   @Autowired ProjectStatusRepository statusRepository;
   @Autowired ProjectService projectService;
   @Autowired ApplicationEvents events;
+  @Autowired ParentRefReader parentRefReader;
 
   private Long owner;
   private Long memberA;
@@ -250,6 +252,28 @@ class IssueCrossProjectParentTest extends IntegrationTestBase {
         issueService.setParent(owner, a.key(), child.number(), epicA.number(), key(a, epicA));
     assertThat(detail.summary().parent().number()).isEqualTo(epicA.number());
     assertThat(detail.summary().parent().projectKey()).isEqualTo(a.key());
+  }
+
+  /**
+   * 부모 프로젝트 id 를 모르는 요약(projectId 는 JsonIgnore 라 직렬화했다 되살린 요약 등)은 읽을 수 있는지 가를 수 없으므로 가린다 — 열린 쪽으로
+   * 실패해 비공개 에픽의 키·제목이 새지 않게. 프로젝트 id 가 있으면 읽을 수 있는 조회자에게는 그대로다.
+   */
+  @Test
+  void 부모_프로젝트_id_를_모르는_요약은_닫힌_쪽으로_가린다() {
+    var visibility = parentRefReader.forViewer(owner);
+    var unknown =
+        new ParentRef(epicB.number(), "B 에픽", null, "TODO", null, null, null, b.key(), false, null);
+    var redacted = visibility.redact(unknown, a.id());
+    assertThat(redacted.hidden()).isTrue();
+    assertThat(redacted.number()).isZero();
+    assertThat(redacted.title()).isNull();
+    assertThat(redacted.projectKey()).isNull();
+
+    // 같은 요약에 부모 프로젝트 id 가 있으면 그 프로젝트를 읽을 수 있는 소유자에게는 가리지 않는다.
+    var known =
+        new ParentRef(
+            epicB.number(), "B 에픽", null, "TODO", null, null, null, b.key(), false, b.id());
+    assertThat(visibility.redact(known, a.id())).isSameAs(known);
   }
 
   @Test

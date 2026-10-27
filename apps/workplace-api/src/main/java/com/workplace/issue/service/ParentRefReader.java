@@ -65,9 +65,14 @@ public class ParentRefReader {
                   .orElse(false));
     }
 
-    /** 부모가 자식과 다른 프로젝트이고 그 프로젝트를 읽을 수 없으면 가린 요약, 아니면 그대로. */
+    /**
+     * 부모가 자식과 다른 프로젝트이고 그 프로젝트를 읽을 수 없으면 가린 요약, 아니면 그대로. 부모 프로젝트 id 를 모르면(projectId 는 {@code
+     * JsonIgnore} 라 직렬화했다 되살린 요약이나 id 를 채우지 않는 조회에서 null) 읽을 수 있는지 가를 수 없으므로 가린다 — 닫힌 쪽으로 실패해 비공개
+     * 에픽의 키·제목이 새지 않게.
+     */
     public ParentRef redact(ParentRef ref, long childProjectId) {
-      if (ref == null || ref.hidden() || ref.projectId() == null) return ref;
+      if (ref == null || ref.hidden()) return ref;
+      if (ref.projectId() == null) return ParentRef.hiddenRef();
       if (ref.projectId() == childProjectId || canRead(ref.projectId())) return ref;
       return ParentRef.hiddenRef();
     }

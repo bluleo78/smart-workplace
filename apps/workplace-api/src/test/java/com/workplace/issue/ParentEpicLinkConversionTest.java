@@ -5,6 +5,8 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_EXTERNAL_LINK;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -17,10 +19,12 @@ import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.repository.IssueExternalLinkRepository;
 import com.workplace.issue.repository.IssueRelationTypeRepository;
+import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.repository.IssueTypeRepository;
 import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
+import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,13 +36,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 부모 에픽 외부 링크 일괄 변환(WP-1038) 통합 테스트 — dryRun 은 아무것도 쓰지 않고, 줄마다
  * 판정(CONVERT·SKIP_HAS_PARENT·NOT_FOUND· AMBIGUOUS·NOT_EPIC·PERSONAL·SUBTASK·DONE_EPIC_OPEN_CHILD)이
- * 맞는지, 실제 변환은 부모를 붙이고 이력·감사 로그를 남기며 링크를 지우는지, 사람 관리자가 아니면 403 인지를 본다.
+ * 맞는지, 실제 변환은 부모를 붙이고 이력·감사 로그를 남기며 링크를 지우는지, 사람 관리자가 아니면 403 인지를 본다. 바꾸지 못한 앞쪽 링크를 커서
+ * (afterLinkId·nextAfterLinkId)로 건너뛰는지, 판정과 쓰기 사이에 바뀐 줄은 CHANGED 로 남기고 나머지를 계속 바꾸는지도 본다.
  *
  * <p>픽스처: 가져오기 공통 준비의 팀 프로젝트(자식 쪽, {@code key})와 소유자의 다른 팀 프로젝트 B(에픽 쪽). 판정을 자식 프로젝트로
  * 좁혀(projectKey) 다른 테스트가 남긴 링크와 섞이지 않게 한다.
@@ -50,6 +56,8 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
   @Autowired IssueTypeRepository typeRepository;
   @Autowired IssueExternalLinkRepository linkRepository;
   @Autowired IssueRelationTypeRepository relationTypeRepository;
+  // 판정과 쓰기 사이에 에픽이 지워지는 경합을 재현하려고 스파이로 감싼다 — 동작은 실제 저장소 그대로(스텁은 테스트마다 초기화).
+  @MockitoSpyBean IssueRepository issueRepository;
 
   private ProjectResponse b;
   private long parentEpicTypeId;
@@ -124,10 +132,19 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
   /** 자식 프로젝트를 골라(null 이면 워크스페이스 전체) 변환 API 를 부른다. */
   private ResultActions convertAs(long callerId, Boolean dryRun, String projectKey)
       throws Exception {
+    return convertAs(callerId, dryRun, projectKey, null, null);
+  }
+
+  /** limit·afterLinkId(커서)까지 골라 변환 API 를 부른다 — null 이면 본문에 싣지 않는다. */
+  private ResultActions convertAs(
+      long callerId, Boolean dryRun, String projectKey, Integer limit, Long afterLinkId)
+      throws Exception {
     TenantContext.set(1L);
     Map<String, Object> body = new LinkedHashMap<>();
     body.put("projectKey", projectKey);
     body.put("dryRun", dryRun);
+    if (limit != null) body.put("limit", limit);
+    if (afterLinkId != null) body.put("afterLinkId", afterLinkId);
     var auth =
         new UsernamePasswordAuthenticationToken(
             callerId, "n/a", List.of(new SimpleGrantedAuthority("issue:write")));
@@ -263,6 +280,92 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.scanned").value(1))
         .andExpect(jsonPath("$.counts.CONVERT").value(0));
+  }
+
+  /**
+   * 바꾸지 못한 링크는 지우지 않아 다음 호출에도 같은 자리에 남는다 — 커서 없이 다시 부르면 같은 앞쪽 링크만 보고, 응답의 nextAfterLinkId 를
+   * afterLinkId 로 넘기면 그 뒤 링크를 보고 바꾼다. 마지막 쪽이면 nextAfterLinkId 는 null.
+   */
+  @Test
+  void cursor_skipsUnconvertibleLinksAhead_andConvertsLaterOnes() throws Exception {
+    IssueResponse epicB = inB("EPIC", "B 에픽");
+    long stuck1 = link(inA("TASK", "없음 1"), "CL-900001", "CL-900001");
+    long stuck2 = link(inA("TASK", "없음 2"), "CL-900002", "CL-900002");
+    long stuck3 = link(inA("TASK", "없음 3"), "CL-900003", "CL-900003");
+    IssueResponse later = inA("TASK", "뒤쪽 하위");
+    long laterLink = link(later, keyOf(b, epicB), keyOf(b, epicB));
+
+    // 첫 쪽 — 앞 두 링크는 바꿀 수 없다. 뒤에 더 있으니 다음 커서는 이번 쪽의 마지막 링크.
+    ResultActions first =
+        convertAs(admin, false, key, 2, null)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.scanned").value(2))
+            .andExpect(jsonPath("$.counts.NOT_FOUND").value(2))
+            .andExpect(jsonPath("$.counts.CONVERT").value(0))
+            .andExpect(jsonPath("$.nextAfterLinkId").value(stuck2));
+    assertThat(rowsByLink(first)).containsOnlyKeys(stuck1, stuck2);
+
+    // 커서 없이 다시 부르면 같은 앞쪽 링크에 갇힌다(바꾸지 못한 링크는 남는다).
+    assertThat(rowsByLink(convertAs(admin, false, key, 2, null).andExpect(status().isOk())))
+        .containsOnlyKeys(stuck1, stuck2);
+    assertThat(parentOf(later)).isNull();
+
+    // 커서를 넘기면 그 뒤를 보고 바꾼다 — 마지막 쪽이라 다음 커서는 null.
+    ResultActions second =
+        convertAs(admin, false, key, 2, stuck2)
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.scanned").value(2))
+            .andExpect(jsonPath("$.counts.NOT_FOUND").value(1))
+            .andExpect(jsonPath("$.counts.CONVERT").value(1));
+    JsonNode secondJson =
+        objectMapper.readTree(second.andReturn().getResponse().getContentAsString());
+    assertThat(
+            secondJson.path("nextAfterLinkId").isMissingNode()
+                || secondJson.path("nextAfterLinkId").isNull())
+        .isTrue();
+    assertThat(rowsByLink(second)).containsOnlyKeys(stuck3, laterLink);
+    assertThat(parentOf(later)).isEqualTo(epicB.id());
+    assertThat(linkRepository.findById(laterLink)).isEmpty();
+    assertThat(linkRepository.findById(stuck1)).isPresent();
+  }
+
+  /**
+   * 판정과 쓰기 사이에 에픽이 지워지면(동시 삭제) 그 줄만 CHANGED 로 남기고 링크를 둔다 — 예외로 배치 전체가 되돌려지지 않고 뒤 줄은 그대로 바꾼다(200 +
+   * 줄별 결과).
+   */
+  @Test
+  void epicDeletedBetweenJudgeAndWrite_rowChanged_restStillConverted() throws Exception {
+    IssueResponse raceEpic = inB("EPIC", "곧 지워질 에픽");
+    IssueResponse okEpic = inB("EPIC", "남는 에픽");
+    IssueResponse raceChild = inA("TASK", "경합 하위");
+    IssueResponse okChild = inA("TASK", "정상 하위");
+    long raceLink = link(raceChild, keyOf(b, raceEpic), keyOf(b, raceEpic));
+    long okLink = link(okChild, keyOf(b, okEpic), keyOf(b, okEpic));
+    // 쓰기 직전의 에픽 공유 잠금 조회(resolveParent) 때 — 판정은 이미 끝났다 — 다른 요청이 그 에픽을 지운 것처럼 만든다.
+    doAnswer(
+            inv -> {
+              dsl.update(ISSUE)
+                  .set(ISSUE.DELETED_AT, OffsetDateTime.now())
+                  .where(ISSUE.ID.eq(raceEpic.id()))
+                  .execute();
+              return inv.callRealMethod();
+            })
+        .when(issueRepository)
+        .findByProjectAndNumberForShare(eq(b.id()), eq(raceEpic.number()));
+
+    Map<Long, JsonNode> rows =
+        rowsByLink(
+            convertAs(admin, false)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.counts.CHANGED").value(1))
+                .andExpect(jsonPath("$.counts.CONVERT").value(1)));
+    assertThat(rows.get(raceLink).get("outcome").asText()).isEqualTo("CHANGED");
+    assertThat(rows.get(okLink).get("outcome").asText()).isEqualTo("CONVERT");
+    // 바뀐 줄은 쓰지 않고 링크를 남긴다. 뒤 줄은 바뀌었다.
+    assertThat(parentOf(raceChild)).isNull();
+    assertThat(linkRepository.findById(raceLink)).isPresent();
+    assertThat(parentOf(okChild)).isEqualTo(okEpic.id());
+    assertThat(linkRepository.findById(okLink)).isEmpty();
   }
 
   @Test

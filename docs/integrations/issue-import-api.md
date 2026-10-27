@@ -219,12 +219,13 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 본문:
 
 ```json
-{ "projectKey": "CLIM", "dryRun": true, "limit": 500 }
+{ "projectKey": "CLIM", "dryRun": true, "limit": 500, "afterLinkId": null }
 ```
 
 - `projectKey`(선택): 이 프로젝트 이슈(자식)에 달린 링크만 본다. 없으면 워크스페이스 전체. 없는 키는 404, 개인 프로젝트는 400 `IMPORT_PERSONAL_PROJECT`.
 - `dryRun`(**필수**): `true` 면 판정만 돌려주고 아무것도 쓰지 않는다. 먼저 `true` 로 결과를 확인한 뒤 `false` 로 바꾼다. 빠지면 400.
-- `limit`(1~500, 기본 500): 링크 id 순으로 앞에서부터 이만큼 본다.
+- `limit`(1~500, 기본 500): 링크 id 순으로 이만큼 본다.
+- `afterLinkId`(선택, 0 이상): 이 링크 id 보다 **큰** 링크부터 본다. 없으면 처음부터. 앞 응답의 `nextAfterLinkId` 를 그대로 넘긴다.
 
 지운 프로젝트의 이슈에 달린 링크는 보지 않는다. 에픽 찾기 — 링크의 `key`(없으면 `url` 의 `/browse/` 뒤)를 ① 그 값을 `sourceKey` 로 가져온 활성 이슈가 워크스페이스에 **하나뿐이면** 그 이슈로 ② 없으면 Works 이슈 키(예 `PLAN-12`)로 읽어 찾는다. 규칙은 일반 부모 지정과 같고, 링크마다 판정이 하나 붙는다.
 
@@ -239,6 +240,7 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 | `SUBTASK` | 자식이 하위 태스크다 | 그대로 |
 | `EPIC_CHILD` | 자식이 에픽이다(에픽은 부모를 가질 수 없다) | 그대로 |
 | `DONE_EPIC_OPEN_CHILD` | 완료 에픽 아래에 미완료 자식을 넣게 된다 — 에픽을 다시 열거나 자식을 끝낸 뒤 다시 돌린다 | 그대로 |
+| `CHANGED` | (`dryRun: false` 에서만) 판정 뒤 쓰기 전에 바뀌었다 — 자식이 지워졌거나, 에픽이 완료·삭제됐거나, 에픽 프로젝트가 지워짐 등. 다시 돌리면 바뀐 상태로 다시 판정한다 | 그대로 |
 
 응답(200):
 
@@ -246,17 +248,19 @@ Jira 는 같은 링크를 **양쪽 이슈에서 모두 보여 준다**(CLIM 360�
 {
   "dryRun": true,
   "scanned": 3,
-  "counts": { "CONVERT": 1, "SKIP_HAS_PARENT": 0, "NOT_FOUND": 1, "AMBIGUOUS": 0, "NOT_EPIC": 1, "PERSONAL": 0, "SUBTASK": 0, "EPIC_CHILD": 0, "DONE_EPIC_OPEN_CHILD": 0 },
+  "counts": { "CONVERT": 1, "SKIP_HAS_PARENT": 0, "NOT_FOUND": 1, "AMBIGUOUS": 0, "NOT_EPIC": 1, "PERSONAL": 0, "SUBTASK": 0, "EPIC_CHILD": 0, "DONE_EPIC_OPEN_CHILD": 0, "CHANGED": 0 },
   "rows": [
     { "linkId": 41, "childKey": "CLIM-17", "extKey": "CL-12", "outcome": "CONVERT", "parentKey": "CL-12" },
     { "linkId": 42, "childKey": "CLIM-18", "extKey": "CL-99", "outcome": "NOT_FOUND", "parentKey": null },
     { "linkId": 43, "childKey": "CLIM-19", "extKey": "CL-20", "outcome": "NOT_EPIC", "parentKey": "CL-20" }
-  ]
+  ],
+  "nextAfterLinkId": null
 }
 ```
 
 - `dryRun: false` 면 `CONVERT` 줄마다 부모를 붙이고 부모 변경 이력(행위자 = 호출한 관리자)을 남긴 뒤 링크를 지운다. 자식·에픽 양쪽 프로젝트에 화면 갱신 신호가 가고, **워처 알림·AI 작업은 만들지 않는다.** 실행마다 감사 로그(`ISSUE_PARENT_EPIC_LINKS_CONVERTED`, 판정별 건수) 한 건.
-- 요청 하나가 한 트랜잭션이다. 바꾼 링크는 지워지므로 같은 요청을 되풀이해도 안전하다 — 남는 것은 바꾸지 못한 줄뿐이다. 남은 줄이 `limit` 를 채우면 뒤의 링크를 보지 못하니, 그때는 `projectKey` 로 나눠 돌린다.
+- `nextAfterLinkId`: 뒤에 볼 링크가 더 있으면 이번에 본 마지막 링크 id, 더 없으면 `null`. 바꾸지 못한 링크는 지워지지 않아 다음 호출에도 같은 자리에 남으므로, **커서 없이 되풀이하면 앞쪽의 바꿀 수 없는 링크만 계속 본다.** 끝까지 돌리려면 `nextAfterLinkId` 를 다음 요청의 `afterLinkId` 로 넘기며 `null` 이 될 때까지 부른다(`dryRun` 도 같은 방식으로 훑는다).
+- 요청 하나가 한 트랜잭션이다. 바꾼 링크는 지워지므로 같은 요청을 되풀이해도 안전하다 — 남는 것은 바꾸지 못한 줄뿐이다. 판정과 쓰기 사이에 한 줄이 바뀌면(동시 수정) 그 줄만 `CHANGED`(그사이 부모가 생겼으면 `SKIP_HAS_PARENT`)로 남고 나머지 줄은 그대로 바뀐다 — 배치 전체가 되돌려지지 않는다.
 
 ## 오류 응답
 

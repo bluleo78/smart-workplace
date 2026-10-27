@@ -1129,16 +1129,27 @@ export function buildTools(
   const proposeDeleteIssueTool: McpTool = {
     name: 'propose_delete_issue',
     description:
-      '이슈 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 기능이 없고 하위 이슈도 함께 삭제됩니다. ' +
+      '이슈 삭제를 제안합니다. 직접 삭제하지 않고 확인 카드용 제안만 만듭니다. 복원 기능이 없습니다. 일반 이슈의 하위 이슈는 함께 삭제되지만, ' +
+      '에픽을 지우면 하위 이슈는 지워지지 않고 에픽 연결만 풀립니다. ' +
       '작성자(reporter)나 프로젝트 OWNER 만 삭제할 수 있습니다. summary 에 어떤 이슈를 지우는지 한 줄로 넣으세요.',
     inputSchema: proposeDeleteIssueInput,
     async handler(args) {
       const { issueKey, summary } = proposeDeleteIssueInput.parse(args);
       const { projectKey, number } = parseIssueKey(issueKey);
-      // 카드에 함께 지워질 하위 이슈 수를 보인다 — 사용자가 모르는 채 연쇄 삭제를 승인하지 않게.
-      const detail = (await sc.getIssueDetail(issueKey)) as { summary?: { title?: string; childCount?: number } };
+      // 카드에 하위 이슈 수와 그 처리를 보인다 — 사용자가 모르는 채 연쇄 삭제를 승인하지 않게.
+      // WP-1038: 에픽을 지우면 하위는 남고 에픽 연결만 풀린다(EpicChildDetacher). 일반 이슈의 하위는 예전처럼 함께 지워진다.
+      // 문구는 웹 확인창(issueDeleteText)과 같게 맞춘다.
+      const detail = (await sc.getIssueDetail(issueKey)) as {
+        summary?: { title?: string; childCount?: number; type?: { name?: string } | null };
+      };
       const children = detail.summary?.childCount ?? 0;
-      const note = children > 0 ? `하위 이슈 ${children}건도 함께 삭제됩니다. ` : '';
+      const isEpic = detail.summary?.type?.name === 'EPIC';
+      const note =
+        children <= 0
+          ? ''
+          : isEpic
+            ? `하위 이슈 ${children}건은 지워지지 않고 에픽 연결만 풀립니다. `
+            : `하위 이슈 ${children}건도 함께 삭제됩니다. `;
       return await writeProposal(
         'issue.delete',
         `${summary}\n(${issueKey} "${detail.summary?.title ?? ''}" — ${note}복원할 수 없습니다)`,

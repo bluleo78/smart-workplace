@@ -75,8 +75,13 @@ public class ParentEpicLinkConversionService {
   }
 
   /**
-   * PARENT_EPIC 링크를 링크 id 순으로 limit 건 보고 줄마다 판정한다. dryRun 이 아니면 CONVERT 줄을 실제로 바꾼다(한 트랜잭션 — 한 줄이라도
-   * 쓰기 중 실패하면 모두 되돌린다).
+   * PARENT_EPIC 링크를 링크 id 순으로 afterLinkId 다음부터 limit 건 보고 줄마다 판정한다. dryRun 이 아니면 CONVERT 줄을 실제로
+   * 바꾼다(한 트랜잭션). 판정과 쓰기 사이에 그 줄이 바뀌었으면(자식 삭제, 에픽 완료·삭제, 에픽 프로젝트 삭제 등) 던지지 않고 그 줄만 CHANGED(그사이 부모가
+   * 생겼으면 SKIP_HAS_PARENT)로 남기고 나머지 줄은 계속 바꾼다 — 예외로 배치 전체가 되돌려지지 않게 쓰기는 던지지 않는 {@link
+   * IssueService#attachParentFromLink} 로 한다.
+   *
+   * <p>바꾸지 못한 링크는 지우지 않아 다음 호출에도 남으므로, 뒤에 링크가 더 있으면 응답의 nextAfterLinkId 를 돌려준다. 호출자는 그것을
+   * afterLinkId 로 넘겨 다음 링크를 본다(null 이 될 때까지).
    *
    * @throws com.workplace.issue.exception.IssueImportException 사람 관리자가 아님(403), 개인 프로젝트 지정(400)
    */
@@ -90,14 +95,19 @@ public class ParentEpicLinkConversionService {
     boolean dryRun = req.dryRun();
 
     // PARENT_EPIC 은 기본 유형이라 모든 워크스페이스에 있다. 없으면(이론상) 바꿀 링크도 없다.
-    List<LinkRow> links =
+    // 한 건 더 읽어 뒤에 링크가 더 있는지 가른다 — 있으면 이번에 본 마지막 링크 id 를 다음 커서로 돌려준다.
+    int limit = req.effectiveLimit();
+    List<LinkRow> fetched =
         relationTypeRepository
             .findByCode(IssueRelationBuiltIns.PARENT_EPIC)
             .map(
                 t ->
                     linkRepository.findByTypeOnActiveIssues(
-                        t.id(), scope == null ? null : scope.id(), req.effectiveLimit()))
+                        t.id(), scope == null ? null : scope.id(), req.afterLinkId(), limit + 1))
             .orElse(List.of());
+    boolean hasMore = fetched.size() > limit;
+    List<LinkRow> links = hasMore ? fetched.subList(0, limit) : fetched;
+    Long nextAfterLinkId = hasMore ? links.get(links.size() - 1).id() : null;
 
     Map<Long, ProjectRow> projects = new HashMap<>();
     // 같은 요청 안에서 이미 부모를 붙인(dryRun 이면 붙일) 자식 — 한 이슈에 링크가 둘 이상이면 뒤 줄은 「이미 부모 있음」.
@@ -124,11 +134,13 @@ public class ParentEpicLinkConversionService {
               new ParentTarget(
                   v.epicProject().id().equals(childProject.id()) ? null : v.epicProject().key(),
                   v.epic().number());
-          // 판정 뒤 그사이 부모가 생겼으면(동시 수정) 쓰지 않고 「이미 부모 있음」으로 알린다. 링크도 남긴다.
-          if (issueService.attachParentFromLink(callerId, childProject, child.number(), target)) {
-            linkRepository.deleteById(link.id());
-          } else {
-            v = Verdict.of(Outcome.SKIP_HAS_PARENT);
+          // 판정 뒤 그사이 부모가 생겼으면(동시 수정) 「이미 부모 있음」, 자식·에픽·에픽 프로젝트가 바뀌어 규칙이 더는 맞지 않으면 「바뀜」으로 알린다.
+          // 둘 다 쓰지 않고 링크도 남긴다. 던지지 않는 쓰기라 이 줄 때문에 앞뒤 줄의 변환이 되돌려지지 않는다.
+          switch (issueService.attachParentFromLink(
+              callerId, childProject, child.number(), target)) {
+            case ATTACHED -> linkRepository.deleteById(link.id());
+            case HAS_PARENT -> v = Verdict.of(Outcome.SKIP_HAS_PARENT);
+            case CHANGED -> v = Verdict.of(Outcome.CHANGED);
           }
         }
       }
@@ -146,6 +158,8 @@ public class ParentEpicLinkConversionService {
       Map<String, Object> meta = new LinkedHashMap<>();
       meta.put("projectKey", scope == null ? null : scope.key());
       meta.put("scanned", links.size());
+      meta.put("afterLinkId", req.afterLinkId());
+      meta.put("nextAfterLinkId", nextAfterLinkId);
       counts.forEach((o, n) -> meta.put(o.name(), n));
       auditLogService.log(
           callerId,
@@ -160,7 +174,7 @@ public class ParentEpicLinkConversionService {
           null,
           meta);
     }
-    return new ConvertParentEpicLinksResponse(dryRun, links.size(), counts, rows);
+    return new ConvertParentEpicLinksResponse(dryRun, links.size(), counts, rows, nextAfterLinkId);
   }
 
   /**

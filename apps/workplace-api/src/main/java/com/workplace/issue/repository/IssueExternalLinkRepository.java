@@ -106,9 +106,10 @@ public class IssueExternalLinkRepository {
 
   /**
    * 한 유형의 외부 링크를 링크 id 순으로 limit 건 — 삭제되지 않은 이슈의 것만(WP-1038 부모 에픽 링크 변환). projectId 가 있으면 그 프로젝트
-   * 이슈의 링크만 본다.
+   * 이슈의 링크만 본다. afterLinkId 가 있으면 그 id 보다 큰 링크부터 본다(커서 — 바꾸지 못하고 남은 앞쪽 링크에 갇히지 않게).
    */
-  public List<LinkRow> findByTypeOnActiveIssues(long typeId, Long projectId, int limit) {
+  public List<LinkRow> findByTypeOnActiveIssues(
+      long typeId, Long projectId, Long afterLinkId, int limit) {
     // 지운 프로젝트의 이슈도 거른다(프로젝트 삭제는 이슈를 따로 지우지 않는다).
     var cond =
         ISSUE_EXTERNAL_LINK
@@ -117,6 +118,7 @@ public class IssueExternalLinkRepository {
             .and(ISSUE.DELETED_AT.isNull())
             .and(PROJECT.DELETED_AT.isNull());
     if (projectId != null) cond = cond.and(ISSUE.PROJECT_ID.eq(projectId));
+    if (afterLinkId != null) cond = cond.and(ISSUE_EXTERNAL_LINK.ID.gt(afterLinkId));
     return dsl.select(ISSUE_EXTERNAL_LINK.fields())
         .from(ISSUE_EXTERNAL_LINK)
         .join(ISSUE)

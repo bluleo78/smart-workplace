@@ -1586,27 +1586,45 @@ public class IssueService {
     return get(callerId, projectKey, number);
   }
 
+  /** 부모 에픽 외부 링크 변환 한 건의 쓰기 결과(WP-1038) — {@link #attachParentFromLink} 가 던지지 않고 돌려준다. */
+  enum LinkAttachResult {
+    /** 부모를 붙였다. */
+    ATTACHED,
+    /** 그사이 부모가 생겼다(동시 수정) — 아무것도 쓰지 않았다. */
+    HAS_PARENT,
+    /** 판정과 쓰기 사이에 자식이 지워졌거나, 에픽이 완료·삭제됐거나, 에픽 프로젝트가 지워지는 등 부모 규칙이 더는 맞지 않는다 — 아무것도 쓰지 않았다. */
+    CHANGED
+  }
+
   /**
    * 부모 에픽 외부 링크 변환(WP-1038) 한 건 — 부모가 없는 이슈에 target 에픽을 부모로 붙인다. 관리자 일괄 변환({@link
    * ParentEpicLinkConversionService})만 부르며, 호출자는 이미 사람 관리자로 확인됐고 줄별 판정도 마쳤다. 규칙은 {@link
-   * #resolveParent} 로 다시 본다(판정과 쓰기 사이에 바뀐 경우를 막는 마지막 확인). 권한은 관리자 우회라 프로젝트 멤버 확인을 하지 않는다.
+   * #tryResolveParent} 로 다시 본다(판정과 쓰기 사이에 바뀐 경우를 막는 마지막 확인). 권한은 관리자 우회라 프로젝트 멤버 확인을 하지 않는다.
+   *
+   * <p>바뀐 경우에도 예외를 던지지 않고 결과로 돌려준다 — 일괄 변환은 한 트랜잭션이라, 프록시를 거친 이 메서드에서 예외가 나가면 바깥 트랜잭션이
+   * rollback-only 로 표시돼 잡아도 배치 전체가 되돌려진다. 그 줄만 「바뀜」으로 남기고 나머지는 계속 바꾸게 한다.
    *
    * <p>setParent 와 같이 부모 변경 이력을 남기고 양쪽 프로젝트 화면을 갱신하지만, 정리성 쓰기라 워처 알림·AI 작업은 건드리지 않는다.
    *
-   * @return 붙였으면 true. 그사이 이슈가 지워졌거나 부모가 생겼으면 false(아무것도 쓰지 않는다)
+   * @return ATTACHED 면 붙였다. HAS_PARENT·CHANGED 면 아무것도 쓰지 않았다
    */
-  boolean attachParentFromLink(
+  LinkAttachResult attachParentFromLink(
       Long callerId, ProjectRow childProject, int childNumber, ParentTarget target) {
     // 행을 잠근 채 읽는다(setParent 와 같은 이유) — 같은 순간의 부모 지정과 겹쳐 이력 from 이 어긋나지 않게.
     var row =
         issueRepository
             .findByProjectAndNumberForUpdate(childProject.id(), childNumber)
             .orElse(null);
-    if (row == null || row.parentIssueId() != null) return false;
+    // 그사이 자식이 지워졌다.
+    if (row == null) return LinkAttachResult.CHANGED;
+    if (row.parentIssueId() != null) return LinkAttachResult.HAS_PARENT;
     boolean isSubtask =
         "SUBTASK".equals(typeRepository.findById(row.typeId()).orElseThrow().name());
-    var resolved =
-        resolveParent(callerId, childProject, row, isSubtask, target, row.status(), true);
+    // 던지지 않는 판정 — 실패면 만든 예외를 던지지 않고 버린다(트랜잭션을 rollback-only 로 만들지 않게).
+    var resolution =
+        tryResolveParent(callerId, childProject, row, isSubtask, target, row.status(), true);
+    if (resolution.failure() != null) return LinkAttachResult.CHANGED;
+    var resolved = resolution.resolved();
     issueRepository.updateParent(row.id(), resolved.row().id());
     historyRecorder.recordParentChanged(
         callerId,
@@ -1615,7 +1633,7 @@ public class IssueService {
         toParentRef(resolved.row(), resolved.type(), resolved.project().key()));
     changeNotifier.updatedWithoutTouch(childProject, childNumber, row.id(), callerId);
     notifyParentProject(childProject, resolved.row(), callerId);
-    return true;
+    return LinkAttachResult.ATTACHED;
   }
 
   /**
@@ -1730,9 +1748,38 @@ public class IssueService {
       ParentTarget target,
       String childStatus,
       boolean checkOpenChild) {
+    var resolution =
+        tryResolveParent(callerId, project, row, isSubtask, target, childStatus, checkOpenChild);
+    if (resolution.failure() != null) throw resolution.failure();
+    return resolution.resolved();
+  }
+
+  /**
+   * 부모 검증 결과 — 성공이면 resolved, 실패면 던질 예외(failure, 아직 던지지 않음). 둘 중 하나만 채운다. 일반 경로는 {@link
+   * #resolveParent} 가 failure 를 던지고, 부모 에픽 링크 변환은 던지지 않고 그 줄만 「바뀜」으로 둔다(WP-1038).
+   */
+  private record ParentResolution(ResolvedParent resolved, RuntimeException failure) {
+
+    static ParentResolution fail(RuntimeException failure) {
+      return new ParentResolution(null, failure);
+    }
+  }
+
+  /**
+   * {@link #resolveParent} 의 던지지 않는 판정 본체 — 규칙·순서는 그 Javadoc 과 같다. 위반이면 던질 예외를 만들어 결과에 담아
+   * 돌려준다(WP-1038, 프록시를 거친 트랜잭션 메서드에서 예외가 나가면 바깥 트랜잭션이 rollback-only 가 되므로 일괄 변환은 예외 없이 판정해야 한다).
+   */
+  private ParentResolution tryResolveParent(
+      Long callerId,
+      ProjectRow project,
+      IssueRow row,
+      boolean isSubtask,
+      ParentTarget target,
+      String childStatus,
+      boolean checkOpenChild) {
     boolean cross = target.crossProject();
     if (!cross && row != null && target.number() == row.number()) {
-      throw new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다");
+      return ParentResolution.fail(new InvalidParentException("자기 자신을 부모로 지정할 수 없습니다"));
     }
     // ① 부모 프로젝트 — 없거나(삭제 포함) 읽을 수 없으면 이슈가 없는 것과 같은 400 으로 가린다. 쓰기 경로(row 있음)는 그 프로젝트 행을 공유 잠금해
     // 프로젝트 삭제와 차례를 세운다(삭제가 먼저면 커밋 뒤 「찾을 수 없습니다」). 생성은 사전검증과 공유해 잠그지 않고 lockParentForShare 가 잠근다.
@@ -1743,7 +1790,10 @@ public class IssueService {
                   ? projectRepository.findByKey(target.projectKey())
                   : projectRepository.findByKeyForShare(target.projectKey()))
               .filter(p -> accessGuard.canRead(p, callerId))
-              .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+              .orElse(null);
+      if (parentProject == null) {
+        return ParentResolution.fail(new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+      }
     }
     // 새 부모는 공유 잠금으로 읽는다(WP-759) — 그 부모를 지우는 중이면 삭제 커밋을 기다렸다 「찾을 수 없습니다」. 이미 지금 부모면 잠그지 않는다:
     // 그 부모의 삭제는 이 행(이미 잠금)을 하위로 함께 처리하려 기다리므로, 여기서 부모를 또 기다리면 서로 기다리게 된다. 생성(row=null)은 잠그지 않는다.
@@ -1759,11 +1809,14 @@ public class IssueService {
         (row == null || alreadyParent
                 ? issueRepository.findByProjectAndNumber(parentProjectId, target.number())
                 : issueRepository.findByProjectAndNumberForShare(parentProjectId, target.number()))
-            .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
-    var newParentType =
-        typeRepository
-            .findById(newParent.typeId())
-            .orElseThrow(() -> new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
+            .orElse(null);
+    if (newParent == null) {
+      return ParentResolution.fail(new InvalidParentException("부모로 지정한 이슈를 찾을 수 없습니다"));
+    }
+    var newParentType = typeRepository.findById(newParent.typeId()).orElse(null);
+    if (newParentType == null) {
+      return ParentResolution.fail(new InvalidParentException("부모로 지정한 이슈의 유형을 확인할 수 없습니다"));
+    }
     // ②~⑤ 규칙은 checkParentRules 한 곳 — 부모 에픽 링크 변환도 같은 판정을 쓴다.
     ParentViolation violation =
         checkParentRules(
@@ -1774,8 +1827,8 @@ public class IssueService {
             newParentType,
             parentProject,
             checkOpenChild);
-    if (violation != null) throw violation.toException();
-    return new ResolvedParent(newParent, newParentType, parentProject);
+    if (violation != null) return ParentResolution.fail(violation.toException());
+    return new ParentResolution(new ResolvedParent(newParent, newParentType, parentProject), null);
   }
 
   /**

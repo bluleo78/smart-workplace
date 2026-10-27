@@ -10,9 +10,14 @@ import java.util.Map;
  * @param scanned 본 링크 수(limit 이하)
  * @param counts 판정 → 건수(판정 순서대로, 0 건도 싣는다)
  * @param rows 링크마다 한 줄(링크 id 순)
+ * @param nextAfterLinkId 뒤에 볼 링크가 더 있으면 이번에 본 마지막 링크 id — 다음 요청의 afterLinkId 로 넘긴다. 더 없으면 null
  */
 public record ConvertParentEpicLinksResponse(
-    boolean dryRun, int scanned, Map<Outcome, Integer> counts, List<Row> rows) {
+    boolean dryRun,
+    int scanned,
+    Map<Outcome, Integer> counts,
+    List<Row> rows,
+    Long nextAfterLinkId) {
 
   /**
    * 링크 한 줄의 판정.
@@ -28,6 +33,8 @@ public record ConvertParentEpicLinksResponse(
    *   <li>SUBTASK — 자식이 하위 태스크다(하위 태스크는 에픽을 부모로 둘 수 없다)
    *   <li>EPIC_CHILD — 자식이 에픽이다(에픽은 부모를 가질 수 없다)
    *   <li>DONE_EPIC_OPEN_CHILD — 완료된 에픽 아래에 미완료 자식을 넣게 된다
+   *   <li>CHANGED — 판정 뒤 쓰기 전에 바뀌었다(자식이 지워졌거나, 에픽이 완료·삭제됐거나, 에픽 프로젝트가 지워짐 등) — 쓰지 않고 링크도 남긴다. 다시
+   *       돌리면 바뀐 상태로 다시 판정한다
    * </ul>
    */
   public enum Outcome {
@@ -39,7 +46,8 @@ public record ConvertParentEpicLinksResponse(
     PERSONAL,
     SUBTASK,
     EPIC_CHILD,
-    DONE_EPIC_OPEN_CHILD
+    DONE_EPIC_OPEN_CHILD,
+    CHANGED
   }
 
   /**
