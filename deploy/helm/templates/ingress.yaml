@@ -47,6 +47,8 @@ spec:
             mcpPathOnWeb 이면 공개 web 호스트의 /mcp 를 mcp 서비스로 보낸다. 앱이 이미 /mcp 로 받으므로 rewrite 불필요.
             공개 인증서(Let's Encrypt)를 그대로 쓰므로 클라이언트에 자체서명 CA(NODE_EXTRA_CA_CERTS) 가 필요 없다.
             인증은 PAT Bearer — 외부 노출을 감수할 때만 켠다. 기존 mcpHost 는 병행 유지(전환 기간 호환).
+            WP-1013: mcp(Node)의 keepAliveTimeout(65초)은 ingress-nginx 컨트롤러의 upstream-keepalive-timeout(기본 60초)보다 길어야
+            닫힌 연결 재사용으로 502 가 나지 않는다. 컨트롤러 ConfigMap 에서 그 값을 올리면 apps/workplace-mcp/src/index.ts 도 함께 올린다.
           */}}
           {{- if .Values.ingress.mcpPathOnWeb }}
           - path: /mcp

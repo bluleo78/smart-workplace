@@ -8,7 +8,8 @@ import { describeApiError, toMcpContent, toolAnnotations, toolDefinition } from 
 import type { z } from 'zod';
 
 import { agentToolFromUserAgent } from './agent-tool.js';
-import { createPatApiClient } from '../clients/workplace-api.js';
+import type { AuthCache } from './auth-cache.js';
+import { createPatApiClient, verifyToken } from '../clients/workplace-api.js';
 import { buildUserTools } from '../tools/index.js';
 import { buildInstructions } from './instructions.js';
 import { FULL_SCOPE, InvalidScopeError, resolveScope, type McpRoute, type McpScope } from './scope.js';
@@ -98,16 +99,36 @@ function summarizeError(e: unknown): string {
   }
   return e instanceof Error ? e.message : String(e);
 }
+/** 토큰 검증(/auth/me) 시간 제한. */
+const AUTH_CHECK_TIMEOUT_MS = 5_000;
+
+/**
+ * 토큰 검증 실패를 HTTP 상태와 JSON-RPC 오류로 바꾼다(WP-1013).
+ * - 401: 토큰이 만료·폐기됨 → 401(클라이언트가 재인증).
+ * - 그 밖의 4xx(403 테넌트 권한·429·400 등): 같은 상태 + 서버 메시지 — 토큰은 멀쩡할 수 있어 401 로 뭉개지 않는다.
+ * - 응답 없음(연결 실패·시간 초과)·5xx: 503 — 401 로 주면 클라이언트가 멀쩡한 토큰을 버린다.
+ */
+function authFailure(e: unknown): [number, { code: number; message: string }] {
+  const response = axiosLike(e) ? e.response : undefined;
+  const status = response?.status;
+  if (status === 401) return [401, { code: -32001, message: '토큰 인증 실패 — 만료·폐기 여부를 확인하세요' }];
+  if (status !== undefined && status >= 400 && status < 500) {
+    return [status, { code: -32001, message: `토큰 확인이 거절되었습니다 — ${describeApiError(status, response?.data)}` }];
+  }
+  return [503, { code: -32603, message: '인증 서버에 연결할 수 없습니다 — 잠시 후 다시 시도하세요' }];
+}
+
 function axiosLike(e: unknown): e is { response?: { status?: number; data?: unknown } } {
   return typeof e === 'object' && e !== null && 'response' in e;
 }
 
 /**
- * POST /mcp 계열 핸들러 — Bearer swp_(사람 PAT) 또는 ak_(AI 키) 추출 → 연결 범위 검증 → (initialize 면 /auth/me 로 조기 검증) → stateless 처리.
+ * POST /mcp 계열 핸들러 — Bearer swp_(사람 PAT) 또는 ak_(AI 키) 추출 → 연결 범위 검증 → /auth/me 로 토큰 검증(성공은 authCache 가 잠깐 기억) → stateless 처리.
  * route 는 라우터가 URL 에서 읽은 범위(WP-350)이고, 기본 `/mcp` 는 생략한다(= 전체 노출, 헤더 없으면 기존과 동일).
  */
 export async function handleMcpPost(
   apiBaseUrl: string,
+  authCache: AuthCache,
   req: Request,
   res: Response,
   route: McpRoute = { readOnly: false },
@@ -137,22 +158,17 @@ export async function handleMcpPost(
     return;
   }
 
-  // initialize 요청이면 workplace-api 로 토큰을 조기 검증해 연결 시점에 401 을 돌려준다 (UX).
-  const isInit = Array.isArray(req.body)
-    ? req.body.some((m) => m?.method === 'initialize')
-    : req.body?.method === 'initialize';
-  if (isInit) {
-    try {
-      // /auth/me 는 사람·AI 모두 인증된 userId 로 응답한다(AGENT 키 필터도 userId principal 을 세움).
-      await createPatApiClient({ baseURL: apiBaseUrl, token, tenantId, agentTool }).getMe();
-    } catch {
-      res.status(401).json({
-        jsonrpc: '2.0',
-        error: { code: -32001, message: '토큰 인증 실패 — 만료·폐기 여부를 확인하세요' },
-        id: null,
-      });
-      return;
-    }
+  // 모든 요청에서 토큰을 workplace-api 로 검증한다(WP-1013). 전에는 initialize 만 검증해, 형식만 맞춘 가짜 토큰으로도
+  // tools/list 가 도구 목록을 내줬고 그런 요청마다 도구 전체를 등록한 서버를 새로 만들었다. 성공은 잠깐 기억해 요청마다 부르지 않는다.
+  try {
+    // /auth/me 는 사람·AI 모두 인증된 userId 로 응답한다(AGENT 키 필터도 userId principal 을 세움).
+    await authCache.verify(token, tenantId, () =>
+      verifyToken({ baseURL: apiBaseUrl, token, tenantId, agentTool, timeoutMs: AUTH_CHECK_TIMEOUT_MS }),
+    );
+  } catch (e) {
+    const [status, error] = authFailure(e);
+    res.status(status).json({ jsonrpc: '2.0', error, id: null });
+    return;
   }
 
   const server = buildMcpServer(apiBaseUrl, token, scope, tenantId, agentTool);
