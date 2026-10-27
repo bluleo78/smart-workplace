@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
+import com.workplace.user.outbound.DepartmentMembersReduced;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.wiki.dto.WikiPageShareRequest;
 import com.workplace.wiki.dto.WikiPageShareResponse;
@@ -35,6 +36,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.jooq.JSONB;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -626,6 +628,23 @@ public class WikiShareService {
     return share.includeChildren()
         ? pages.subtreeIdsInclusive(share.pageId())
         : List.of(share.pageId());
+  }
+
+  /**
+   * 조직도 부서의 구성원이 줄었거나 부서가 사라졌다(WP-1042) — 그 부서를 대상으로 지정한 공유가 덮는 페이지의 공유 연결을 다시 판정하게 한다. 공유 창에서 사람을
+   * 뺄 때와 같은 재검증이다. 동기 리스너라 부서를 지우기 전(부서 대상 공유 행이 CASCADE 로 사라지기 전)에 영향받는 페이지를 찾고, 재검증 요청은 커밋 뒤에
+   * 나간다.
+   */
+  @EventListener
+  public void onDepartmentMembersReduced(DepartmentMembersReduced e) {
+    List<Long> covered =
+        shares.findByGroups(e.groupIds()).stream()
+            .flatMap(s -> coveredPages(s).stream())
+            .distinct()
+            .toList();
+    if (!covered.isEmpty()) {
+      publishAccessChanged(covered);
+    }
   }
 
   /** 공유 접근이 줄었다 — 커밋 뒤 이 페이지들의 공유 연결을 다시 판정하게 한다. */

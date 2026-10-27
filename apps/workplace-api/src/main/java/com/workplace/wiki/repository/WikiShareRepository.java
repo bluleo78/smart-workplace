@@ -1006,6 +1006,20 @@ public class WikiShareRepository {
     return lockInPageOrder(where);
   }
 
+  /** 이 부서들을 대상으로 지정한 공유(WP-1042) — 부서 구성원이 줄었을 때 다시 판정할 공유를 찾는다. */
+  public List<ShareDetail> findByGroups(Collection<Long> groupIds) {
+    if (groupIds.isEmpty()) {
+      return List.of();
+    }
+    return selectDetail(
+            WIKI_PAGE_SHARE.ID.in(
+                dsl.select(WIKI_PAGE_SHARE_GROUP.SHARE_ID)
+                    .from(WIKI_PAGE_SHARE_GROUP)
+                    .where(WIKI_PAGE_SHARE_GROUP.GROUP_ID.in(groupIds))))
+        .orderBy(WIKI_PAGE_SHARE.PAGE_ID.asc())
+        .fetch(WikiShareRepository::toDetail);
+  }
+
   /** 이 페이지들의 공유를 잠그지 않고 읽는다 — 스페이스 이동 미리보기(WP-988). page_id 순. */
   public List<ShareDetail> findByPages(Collection<Long> pageIds) {
     if (pageIds.isEmpty()) {

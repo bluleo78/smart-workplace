@@ -17,7 +17,10 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.user.dto.UpdateUserGroupRequest;
+import com.workplace.user.service.UserGroupService;
 import com.workplace.wiki.dto.CreatePageRequest;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiShareAccessChangedEvent;
 import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiSharedWithPeopleEvent;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiShareAccess;
@@ -65,6 +68,7 @@ class WikiShareGroupTest extends IntegrationTestBase {
   @Autowired WikiSpaceService spaceService;
   @Autowired WikiPageService pageService;
   @Autowired ApplicationEvents appEvents;
+  @Autowired UserGroupService groupService;
 
   private long ownerId; // 스페이스 OWNER, 공유한 사람
   private long devMemberId; // 개발팀 직속 구성원(스페이스 비멤버)
@@ -142,6 +146,94 @@ class WikiShareGroupTest extends IntegrationTestBase {
     openAs(devMemberId, rootId, token).andExpect(status().isForbidden());
     openAs(backendMemberId, rootId, token).andExpect(status().isForbidden());
     call(get(sharePath(rootId)), ownerId).andExpect(jsonPath("$.share.groups").isEmpty());
+  }
+
+  // ── 구성원·구조 변경 → 열린 화면 재검증(WP-1042) ──
+
+  private List<WikiShareAccessChangedEvent> accessChanged() {
+    return appEvents.stream(WikiShareAccessChangedEvent.class).toList();
+  }
+
+  /** 부서 변경을 부를 관리자(조직도 쓰기 권한) — 스페이스 소유자에게 ADMIN 을 준다. */
+  private void asAdmin() {
+    TestFixtures.grantRole(dsl, ownerId, "ADMIN");
+  }
+
+  /**
+   * 부서에서 사람을 빼면 그 부서·상위 부서를 대상으로 한 공유가 덮는 페이지가 공유 창에서 사람을 뺄 때와 같이 재검증된다. 하위 부서 구성원 제외는 상위 부서를 대상으로
+   * 한 공유(하위 부서 포함)에 영향을 주고, 상위 부서에서 직속 구성원을 빼도 하위 부서만 대상인 공유는 영향이 없다.
+   */
+  @Test
+  void removing_department_member_revalidates_shares_targeting_it_or_ancestors() throws Exception {
+    asAdmin();
+    save(rootId, true, List.of(), List.of(devId), null);
+    appEvents.clear();
+
+    groupService.removeMember(ownerId, backendId, "MEMBER", backendMemberId);
+
+    List<WikiShareAccessChangedEvent> changed = accessChanged();
+    assertThat(changed).hasSize(1);
+    assertThat(changed.get(0).pageIds()).containsExactlyInAnyOrder(rootId, childId);
+
+    // 상위 부서(개발팀)에서 직속 구성원을 빼도 하위 부서(백엔드)만 대상인 공유는 영향이 없다.
+    save(rootId, true, List.of(), List.of(backendId), null);
+    appEvents.clear();
+    groupService.removeMember(ownerId, devId, "MEMBER", devMemberId);
+    assertThat(accessChanged()).isEmpty();
+  }
+
+  /** 부서를 지우면(공유 대상 행이 CASCADE 로 사라지기 전) 그 부서·하위 부서를 대상으로 한 공유의 페이지가 재검증된다. */
+  @Test
+  void deleting_department_revalidates_shares_targeting_it() throws Exception {
+    asAdmin();
+    save(rootId, false, List.of(), List.of(backendId), null);
+    appEvents.clear();
+
+    groupService.delete(ownerId, devId);
+
+    assertThat(dsl.fetchCount(WIKI_PAGE_SHARE_GROUP)).isZero();
+    List<WikiShareAccessChangedEvent> changed = accessChanged();
+    assertThat(changed).hasSize(1);
+    assertThat(changed.get(0).pageIds()).containsExactly(rootId);
+  }
+
+  /** 부서를 다른 상위 부서 아래(또는 최상위)로 옮기면 옛 상위 부서를 대상으로 한 공유가 재검증된다. 이름만 바꾸는 수정은 알리지 않는다. */
+  @Test
+  void moving_department_revalidates_shares_targeting_old_ancestors() throws Exception {
+    asAdmin();
+    save(rootId, false, List.of(), List.of(devId), null);
+    appEvents.clear();
+
+    groupService.update(
+        ownerId,
+        backendId,
+        new UpdateUserGroupRequest("백엔드2-" + suffix, null, null, null, null, null));
+    assertThat(accessChanged()).isEmpty();
+
+    groupService.update(
+        ownerId, backendId, new UpdateUserGroupRequest(null, null, true, null, null, null));
+
+    List<WikiShareAccessChangedEvent> changed = accessChanged();
+    assertThat(changed).hasSize(1);
+    assertThat(changed.get(0).pageIds()).containsExactly(rootId);
+  }
+
+  /** 공유 대상이 아닌 부서나 개인 그룹의 변경은 재검증하지 않는다. */
+  @Test
+  void unrelated_group_changes_do_not_revalidate() throws Exception {
+    asAdmin();
+    long other = group("기획팀-" + suffix, "SHARED", null, null);
+    member(other, strangerId);
+    long personal = group("내 스터디-" + suffix, "PERSONAL", null, ownerId);
+    member(personal, strangerId);
+    save(rootId, false, List.of(), List.of(devId), null);
+    appEvents.clear();
+
+    groupService.removeMember(ownerId, other, "MEMBER", strangerId);
+    groupService.removeMember(ownerId, personal, "MEMBER", strangerId);
+    groupService.delete(ownerId, other);
+
+    assertThat(accessChanged()).isEmpty();
   }
 
   /** 개인 그룹(내 그룹)·없는 그룹은 대상으로 저장할 수 없다(400) — 공유 창이 사람으로 펼쳐 보낸다. 저장되는 것은 없다. */
