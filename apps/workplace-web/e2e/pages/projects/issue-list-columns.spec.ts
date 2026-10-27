@@ -99,7 +99,8 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
     }).toPass();
 
     // 사이클 구간 — 구간 표(table-fixed)의 제목 칸도 같은 하한, 상단 열 이름 행과 구간 행의 칸 위치가 맞는다.
-    await page.goto(`/projects/${KEY}?cols=${ALL}`);
+    // group=cycle 을 적는다 — 주소에 조건이 없으면 바로 앞의 group=none 을 되살린다(WP-1035 필터·보기 기억).
+    await page.goto(`/projects/${KEY}?group=cycle&cols=${ALL}`);
     const row = page.getByTestId('list-cycle-section-cycle-3').getByTestId('issue-row-1');
     await expect(row).toBeVisible();
     await expect(async () => {

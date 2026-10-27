@@ -128,6 +128,7 @@ export function useIssueFilterControls(
     nextView: IssueView,
     nextGroupBy: IssueGroupParam | null,
   ) {
+    // replace 를 지킨다 — 조건 기억(useRememberedIssueQuery, WP-1035)은 replace 가 아닌 이동만 「들어옴」으로 보고 되살린다.
     setParams((prev) => carryViewOptions(filtersToParams(next, nextView, nextGroupBy), prev), { replace: true });
   }
 
