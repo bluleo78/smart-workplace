@@ -92,7 +92,8 @@ export function IssueBulkActions({
   // 모바일은 터치 타깃 44px 확보 + 눌림 피드백, 데스크톱은 기존 hover 밑줄 유지.
   // 색은 버튼별로 따로 지정한다(삭제는 text-destructive) — 공통 클래스에 넣으면 두 색이 충돌해 회색이 이긴다.
   const triggerBase = isMobile ? 'min-h-11 rounded-md px-3 active:bg-accent' : 'hover:underline';
-  const triggerCls = `${triggerBase} text-muted-foreground`;
+  // WP-1019: 회색(muted-foreground) 글자는 muted 바 위에서 대비가 낮아 잘 안 보였다 — 본문색 + 중간 굵기로 또렷하게.
+  const triggerCls = `${triggerBase} font-medium text-foreground`;
   const memberOptions = [
     { value: 'none', label: '미지정', icon: <UserPlus /> },
     // 비활성 구성원은 후보에서 뺀다(WP-487 — 서버가 새 지정을 거부).
@@ -189,10 +190,11 @@ export function IssueBulkActions({
           className={
             isMobile
               ? // 하단 탭바(--mobile-tabbar-h, MobileTabBar 가 공개) 바로 위에 고정 — 키보드가 열려 있으면 키보드 위.
-                'fixed inset-x-0 z-40 flex items-center gap-1 border-t bg-background px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] text-sm shadow-[0_-2px_8px_rgb(0_0_0/0.06)] bottom-[max(var(--mobile-tabbar-h,0px),var(--kb-inset,0px))]'
+                'fixed inset-x-0 z-40 flex items-center gap-1 border-t bg-popover text-popover-foreground px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] text-sm shadow-[0_-2px_8px_rgb(0_0_0/0.06)] bottom-[max(var(--mobile-tabbar-h,0px),var(--kb-inset,0px))]'
               : // 데스크톱은 스크롤 영역 위쪽에 붙어 있게(sticky) — 사이클 구간 목록처럼 바가 스크롤 영역 안에 있으면 아래에서 체크했을 때
                 // 바가 화면 위쪽 밖(top -1590px)에 남아 선택 표시도 조작도 보이지 않았다(WP-485). 표 머리(z-10) 위에 그린다.
-                'sticky top-0 z-20 mb-2 flex shrink-0 items-center gap-2 rounded bg-muted px-3 py-2 text-sm'
+                // WP-1019: 바탕은 불투명 popover(떠 있는 패널 표면) — 다크의 muted(흰 5% 알파)는 비쳐서 아래 목록 글자가 겹쳐 보였다. 테두리·그림자로 목록과 구분.
+                'sticky top-0 z-20 mb-2 flex shrink-0 items-center gap-2 rounded border border-border bg-popover px-3 py-2 text-sm text-popover-foreground shadow-sm'
           }
         >
           {isMobile ? (
@@ -203,7 +205,7 @@ export function IssueBulkActions({
                 data-testid="bulk-clear"
                 aria-label="선택 해제"
                 onClick={onClear}
-                className="flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-accent"
+                className="flex size-11 shrink-0 items-center justify-center rounded-md text-foreground active:bg-accent"
               >
                 <X className="size-5" aria-hidden />
               </button>

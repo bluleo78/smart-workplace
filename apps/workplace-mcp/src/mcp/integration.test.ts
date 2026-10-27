@@ -184,6 +184,50 @@ describe('/mcp', { timeout: ROUNDTRIP_TEST_TIMEOUT_MS }, () => {
     await expect(connect('swp_revoked')).rejects.toThrow();
   });
 
+  // WP-1013: 전에는 initialize 만 검증해, 형식만 맞춘 가짜 토큰으로 tools/list 를 바로 보내면 도구 목록이 나왔다.
+  describe('initialize 가 아닌 요청도 토큰을 검증한다 (WP-1013)', () => {
+    const listTools = (token: string) =>
+      fetch(baseUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+
+    it('형식만 맞춘 가짜 토큰의 tools/list 는 401 이고 도구 목록이 나가지 않는다', async () => {
+      nock(API).get('/auth/me').reply(401);
+      const res = await listTools('swp_fake');
+      expect(res.status).toBe(401);
+      expect(await res.text()).not.toContain('create_issue');
+    });
+
+    it('검증에 성공한 토큰은 잠깐 기억해 다음 요청에서 /auth/me 를 다시 부르지 않는다', async () => {
+      const me = nock(API).get('/auth/me').once().reply(200, { id: 1, username: 'u', kind: 'HUMAN' });
+      expect((await listTools('swp_valid')).status).toBe(200);
+      expect(me.isDone()).toBe(true);
+      // /auth/me 를 더 등록하지 않았다 — 다시 불렀다면 nock 이 연결을 거절해 503 이 된다.
+      expect((await listTools('swp_valid')).status).toBe(200);
+    });
+
+    it.each([
+      ['연결 실패', () => nock(API).get('/auth/me').replyWithError({ code: 'ECONNREFUSED' })],
+      ['5xx 응답', () => nock(API).get('/auth/me').reply(502)],
+    ])('workplace-api 에 닿지 못하면(%s) 401 이 아니라 503 이다(클라이언트가 멀쩡한 토큰을 버리지 않게)', async (_name, stub) => {
+      stub();
+      const res = await listTools('swp_valid');
+      expect(res.status).toBe(503);
+      const body = (await res.json()) as { error: { message: string } };
+      expect(body.error.message).toContain('인증 서버');
+    });
+
+    it('토큰 외 이유의 거절(403 테넌트 권한·429 등)은 401 로 뭉개지 않고 상태와 서버 메시지를 그대로 준다', async () => {
+      nock(API).get('/auth/me').reply(403, { message: '이 테넌트의 구성원이 아닙니다' });
+      const res = await listTools('ak_valid');
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: { message: string } };
+      expect(body.error.message).toContain('이 테넌트의 구성원이 아닙니다');
+    });
+  });
+
   // WP-372: AI 키(ak_)로도 접속 — 그 AI 신원으로 workplace-api 를 호출한다.
   describe('AI 키(ak_) 접속 (WP-372)', () => {
     it('ak_ 토큰을 받아들이고 같은 Bearer 로 /auth/me 와 도구 호출을 한다', async () => {

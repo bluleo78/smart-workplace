@@ -103,6 +103,14 @@ test('SKILL.md 는 맡길 AI 를 설명으로 고르고 내부 AI 는 피하게 
   assert.ok(text.includes('`agentRuntime` 이 `INTERNAL` 인 AI 는 다른 AI 가 맡겨도 시작하지 않으니 맡기지 않는다'));
 });
 
+// WP-1009 받는 사람 지정 — 이슈 챗 글의 @username 만 멘션(알림·AI 참여)이 된다. 받는 사람은 get_issue_chat 의 participants 에서 고른다.
+test('SKILL.md 이슈 챗 글의 받는 사람은 participants 에서 골라 @username 으로 쓰고, 모두에게 하는 진행 보고에는 멘션하지 않는다', () => {
+  const text = workLoop('SKILL.md');
+  assert.ok(text.includes('받는 사람은 `@username` 으로 지정한다'));
+  assert.ok(text.includes('`participants`'));
+  assert.ok(text.includes('모두에게 하는 진행 보고에는 멘션하지 않는다'));
+});
+
 // WP-516 근거 첨부 — 로컬 경로만 적으면 다른 환경의 사람은 결함 화면·시안·검증 스크린샷을 볼 수 없다.
 test('SKILL.md 근거 이미지·파일은 첨부로 올리고, 이슈 설명은 이슈에·질문·보고 근거는 그 글에 붙인다', () => {
   const text = workLoop('SKILL.md');

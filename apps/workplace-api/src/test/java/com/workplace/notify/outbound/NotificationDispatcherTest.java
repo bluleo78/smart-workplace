@@ -11,6 +11,7 @@ import com.workplace.chat.outbound.ChatDomainEvents.ChatMessageCreatedEvent;
 import com.workplace.chat.outbound.ChatMessageOrigin;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
@@ -274,7 +275,19 @@ class NotificationDispatcherTest {
     Mockito.verifyNoInteractions(service);
   }
 
-  /** AI 진행 보고(REPORT)는 사람 멘션이 있어도 알림 없음. */
+  /** AI 작업 보고 알림 이벤트는 상태·대리인 후보와 보고 글의 멘션을 함께 서비스로 넘긴다 — 사람당 1건 판정은 서비스 한 곳(WP-1009). */
+  @Test
+  void onAgentWorkNotice_forwardsStateCandidatesAndMentions() {
+    dispatcher.onAgentWorkNotice(
+        new AgentWorkNoticeEvent(
+            20L, 9L, AgentWorkNoticeEvent.REVIEW, List.of(1L), List.of(2L, 3L)));
+
+    verify(service)
+        .createAgentWorkNoticeAndFanOut(
+            eq(20L), eq(9L), eq(AgentWorkNoticeEvent.REVIEW), eq(List.of(1L)), eq(List.of(2L, 3L)));
+  }
+
+  /** AI 진행 보고(REPORT) 챗 글은 여기서 알리지 않는다 — 멘션은 보고 쪽 알림 이벤트가 상태 알림과 함께 만든다(WP-1009). */
   @Test
   void onChatMessageCreated_report_noNotificationEvenWithMentions() {
     dispatcher.onChatMessageCreated(

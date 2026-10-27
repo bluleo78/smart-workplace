@@ -6,6 +6,7 @@
 // body 를 마스킹하지 않으므로(원본 body 가 그대로 남음) 소스(REST/SSE)와 무관하게 일관 표시.
 
 import { Pencil, Trash2 } from 'lucide-react';
+import { useCallback } from 'react';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
@@ -19,7 +20,7 @@ import {
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar';
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown';
-import { messagePlainText } from '@/components/mentions/parseMessageSegments';
+import { messagePlainText, type RenderMention } from '@/components/mentions/parseMessageSegments';
 import { issueChatBundle } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
@@ -118,6 +119,32 @@ export function ChatMessageRow({
     </div>
   );
 
+  // 멘션 칩 — 사람 글·AI 글이 같은 모양을 쓴다(WP-1009).
+  // useCallback: MarkdownMessage 가 칩 렌더러로 components 를 만들므로, 매 렌더 새 함수면 칩·링크가 다시 마운트된다.
+  const renderMention = useCallback<RenderMention>(
+    (seg, key) => (
+      <span
+        key={key}
+        data-testid={`chat-mention-chip-${seg.id}`}
+        // #208: AGENT 멘션칩은 ai-accent 토큰으로 통일(배지/아바타와 동일 색).
+        // 사람(HUMAN) 칩은 중립 시맨틱 토큰으로 AGENT 칩과 구분하면서 다크모드도 자동 대응.
+        // 본인 말풍선(bg-primary/10) 안에서는 기존 칩 배경이 말풍선에 묻혀 사라지므로
+        // bg-background 로 대비를 확보한다(타인 메시지는 기존 클래스 유지).
+        className={`rounded px-1 font-medium ${
+          // 본인 말풍선은 wrap-anywhere 라 칩이 '@' 와 이름 사이에서 끊길 수 있어 한 덩어리로 유지한다.
+          isOwn ? 'whitespace-nowrap ' : ''
+        }${
+          seg.kind === 'AGENT'
+            ? `${isOwn ? 'bg-background' : 'bg-ai-accent-subtle'} text-ai-accent`
+            : `${isOwn ? 'bg-background' : 'bg-muted'} text-foreground`
+        }`}
+      >
+        @{seg.name}
+      </span>
+    ),
+    [isOwn],
+  );
+
   const body = (
     <div
       className={`text-sm break-words whitespace-pre-wrap ${
@@ -129,8 +156,8 @@ export function ChatMessageRow({
       {message.deleted ? (
         '(삭제됨)'
       ) : isAgent ? (
-        // #356: AI(에이전트) 메시지는 마크다운 렌더(사람 메시지는 멘션칩 포함 plain text 유지).
-        <MarkdownMessage>{message.body}</MarkdownMessage>
+        // #356: AI(에이전트) 메시지는 마크다운 렌더. 멘션은 사람 글과 같은 칩(WP-1009).
+        <MarkdownMessage mentions={message.mentions} renderMention={renderMention}>{message.body}</MarkdownMessage>
       ) : (
         // 사람 메시지 — 채팅 마크다운 부분집합(굵게·목록·코드 등, WP-101). 서식 없는 예전 평문은 예전과 같게 보인다.
         // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩.
@@ -138,26 +165,7 @@ export function ChatMessageRow({
           body={message.body}
           mentions={message.mentions}
           linkTestId="chat-link"
-          renderMention={(seg, key) => (
-            <span
-              key={key}
-              data-testid={`chat-mention-chip-${seg.id}`}
-              // #208: AGENT 멘션칩은 ai-accent 토큰으로 통일(배지/아바타와 동일 색).
-              // 사람(HUMAN) 칩은 중립 시맨틱 토큰으로 AGENT 칩과 구분하면서 다크모드도 자동 대응.
-              // 본인 말풍선(bg-primary/10) 안에서는 기존 칩 배경이 말풍선에 묻혀 사라지므로
-              // bg-background 로 대비를 확보한다(타인 메시지는 기존 클래스 유지).
-              className={`rounded px-1 font-medium ${
-                // 본인 말풍선은 wrap-anywhere 라 칩이 '@' 와 이름 사이에서 끊길 수 있어 한 덩어리로 유지한다.
-                isOwn ? 'whitespace-nowrap ' : ''
-              }${
-                seg.kind === 'AGENT'
-                  ? `${isOwn ? 'bg-background' : 'bg-ai-accent-subtle'} text-ai-accent`
-                  : `${isOwn ? 'bg-background' : 'bg-muted'} text-foreground`
-              }`}
-            >
-              @{seg.name}
-            </span>
-          )}
+          renderMention={renderMention}
         />
       )}
     </div>

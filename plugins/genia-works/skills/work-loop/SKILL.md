@@ -39,6 +39,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 - **근거 이미지·파일**(시안·스크린샷·재현 요청/응답)은 `upload_file({ name })` 로 올려 받은 `fileId` 로 **첨부한다**(work-on 4번) — 로컬 경로는 다른 환경의 사람이 열 수 없다.
   - 이슈 자체를 설명하는 것(결함의 재현 화면·오류 응답)은 `create_issue` 의 `fileIds` 로 그 이슈에, 그 시점의 질문 시안·검토 보고의 전·후 스크린샷은 `report_agent_work` 의 `fileIds` 로 그 글에 붙인다. 같은 파일을 두 곳에 올리지 않는다. 글·본문에는 각 첨부에서 볼 것을 적는다.
   - 첨부 때문에 보고가 거절되면(400 「유효하지 않은 첨부」 — 보고 전체가 되돌려진다) `fileIds` 를 빼고 다시 보내며 첨부하지 못했다고 적는다. 원본은 `MAIN/.work-loop/state/evidence/<이슈 키>/` 에 백업으로만 둔다.
+- **받는 사람은 `@username` 으로 지정한다** — 이슈 챗 글(`report_agent_work` 의 `message`)이 특정 사람에게 하는 말이면(PR 리뷰를 맡길 검토자, 질문을 받을 사람, 일을 넘길 AI) 글에 `@username` 을 쓴다. username 은 `get_issue_chat`(after 없이)이 함께 주는 `participants` 나 담당자·검토자의 username 에서 고른다. 멘션된 사람은 알림을 받고, 멘션된 AI 는 그 이슈 챗에 참여한다. 모두에게 하는 진행 보고에는 멘션하지 않는다 — 멘션마다 알림이 간다.
 - **격리 라이브 스택은 늘 이름 `work-loop` 로** 띄우고 확인하고 내린다(이 저장소는 `LIVE_STACK_NAME=work-loop` — `.work-loop/project.md` 4번). 이름이 다르면 상태 파일이 갈려, 사람이 같은 스크립트로 띄운 스택을 보거나 내리게 된다. 내리는 것도 그 이름의 스택, 곧 내가 띄운 프로세스·컨테이너뿐이다.
 - **MAIN** = main 작업 폴더 = `git rev-parse --path-format=absolute --git-common-dir` 의 부모 폴더. 워크트리 안에 있어도 이 값은 같다. 실행 상태는 `MAIN/.work-loop/state/`(git 무시), 저장소 안내는 `MAIN/.work-loop/project.md` 다. 이슈마다 이어 할 기록은 notes 파일 `MAIN/.work-loop/state/notes/<이슈 키>.md` 다.
 - **플러그인 스크립트**는 이 스킬 폴더 기준 `../../scripts/` 에 있다(스킬을 불러올 때 알려 주는 기준 폴더에서 두 단계 위). 경로는 따옴표로 감싸 부른다.

@@ -72,3 +72,37 @@ describe('MarkdownMessage 내부 링크 (WP-384)', () => {
     expect(html).toContain('href="/projects/WP/issues/2"')
   })
 })
+
+// WP-1009: 채팅의 AI 글 — 멘션 토큰 <@id> 를 호출자가 주는 칩으로 그린다(사람 글과 같은 칩).
+describe('MarkdownMessage 멘션 칩', () => {
+  const mentions = [{ id: 7, name: '김철수', kind: 'HUMAN' as const }]
+  const chip = (m: { id: number; name: string; kind: string }, key: string) =>
+    createElement('span', { key, 'data-testid': `chip-${m.id}`, 'data-kind': m.kind }, `@${m.name}`)
+  const renderWithMentions = (md: string) =>
+    renderToStaticMarkup(createElement(MarkdownMessage, { mentions, renderMention: chip, children: md }))
+
+  it('토큰을 칩으로 바꾸고 마크다운 서식은 그대로 둔다', () => {
+    const html = renderWithMentions('<@7> 리뷰 **부탁**해요')
+    expect(html).toContain('<span data-testid="chip-7" data-kind="HUMAN">@김철수</span> 리뷰 <strong class="font-semibold">부탁</strong>해요')
+    expect(html).not.toContain('&lt;@')
+  })
+
+  it('mentions 에 없는 id 는 「알 수 없음」 사람 칩', () => {
+    expect(renderWithMentions('<@99> 확인')).toContain('<span data-testid="chip-99" data-kind="HUMAN">@알 수 없음</span>')
+  })
+
+  it('코드 안의 토큰은 글자 그대로 둔다', () => {
+    const html = renderWithMentions('`<@7>` 와\n\n```\n<@7>\n```')
+    expect(html).not.toContain('chip-7')
+    expect(html).toContain('&lt;@7&gt;</code>')
+  })
+
+  it('목록·강조 안의 토큰도 칩으로', () => {
+    const html = renderWithMentions('- **<@7>** 담당')
+    expect(html).toContain('<strong class="font-semibold"><span data-testid="chip-7" data-kind="HUMAN">@김철수</span></strong>')
+  })
+
+  it('renderMention 이 없으면(AI 패널 등) 토큰을 다루지 않는다', () => {
+    expect(render('<@7> 확인')).toContain('&lt;@7&gt; 확인')
+  })
+})

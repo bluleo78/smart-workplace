@@ -176,10 +176,18 @@ export interface IssueRelationTypeClient {
   listIssueRelationTypes(): Promise<IssueRelationTypeRow[]>;
 }
 
-/** 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다. */
-export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, IssueRelationTypeClient {
+/**
+ * 이슈 도구 — issueKey(WP-12) 기준. 코멘트 API 의 숫자 issue id 해석은 구현(rest-client)이 흡수한다.
+ * 구성원 검색(searchMembers)은 report_agent_work 가 글의 @username 을 멘션으로 바꾸는 데 쓴다(WP-1009).
+ */
+export interface IssueToolClient extends ProjectMetaClient, CurrentUserClient, IssueRelationTypeClient, Pick<MemberToolClient, 'searchMembers'> {
   /** GET .../chat/thread — 이슈 챗 스레드 id(없으면 서버가 만든다, WP-373). */
   getIssueChatThreadId(issueKey: string): Promise<number>;
+  /**
+   * GET .../chat/thread 를 캐시 없이 — 스레드 id 와 현재 참여자(members, 서버 ChatMemberResponse 원형)(WP-1009). 참여자는 바뀌므로
+   * 캐시하지 않고, 받은 스레드 id 는 getIssueChatThreadId 캐시에 넣는다.
+   */
+  getIssueChatThread(issueKey: string): Promise<{ threadId: number; members: Record<string, unknown>[] }>;
   /**
    * GET /chat/threads/{id}/messages — after 가 있으면 그 뒤를, 없으면 afterMine(내 마지막 글 직전 5개 + 그 뒤)을 오름차순으로(WP-373).
    * 래퍼({ items, nextCursor, hasMore })를 그대로 둔다. nextCursor 는 hasMore 일 때 마지막 메시지 id 문자열.

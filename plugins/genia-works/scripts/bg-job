@@ -48,6 +48,9 @@ bj_status() {
   # 살아 있고 시작 시각까지 같아야 내가 띄운 작업이다(pid 재사용이면 lost). 시작 시각을 못 남겼으면 살아 있는지만 본다.
   if gw_pid_alive "$_bj_pid" && { [ "$_bj_held" = "$_bj_pid-" ] || [ "$(gw_proc_key "$_bj_pid" 2>/dev/null)" = "$_bj_held" ]; }; then
     echo running
+  elif [ -f "$_bj_base.exit" ]; then
+    # 맨 위에서 exit 파일을 본 뒤 프로세스를 보기 전에 끝났다 — 끝나기 전에 exit 파일을 남기므로(mv 뒤 종료) 다시 보면 결과가 있다.
+    bj_status
   else
     echo lost
   fi

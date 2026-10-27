@@ -21,6 +21,7 @@ import {
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown'
+import type { RenderMention } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { EmojiPicker } from '@/components/reactions/EmojiPicker'
@@ -104,6 +105,34 @@ export function MessageRow({
 
   // 본인 메시지는 우측 말풍선. 수정 중에는 에디터가 말풍선 폭(75%)에 눌리지 않도록 전폭 레이아웃으로 빠진다.
   const ownBubble = isOwn && !isEditing
+
+  // 멘션 칩 — 사람 글·AI 글이 같은 모양을 쓴다(WP-1009).
+  // useCallback: MarkdownMessage 가 칩 렌더러로 components 를 만들므로, 매 렌더 새 함수면 칩·링크가 다시 마운트된다.
+  const renderMention = useCallback<RenderMention>(
+    (seg, key) => (
+      <span
+        key={key}
+        data-testid={`mention-chip-${seg.id}`}
+        className={`rounded px-1 font-medium ${
+          // 본인 말풍선은 wrap-anywhere 라 칩이 '@' 와 이름 사이에서 끊길 수 있어 한 덩어리로 유지한다.
+          ownBubble ? 'whitespace-nowrap' : ''
+        } ${
+          ownBubble
+            ? // 본인 말풍선(bg-primary/10) 안에서는 반투명/accent 칩이 배경에 묻히므로 불투명 배경 토큰으로 띄운다.
+              seg.kind === 'AGENT'
+              ? 'bg-background text-primary'
+              : 'bg-background text-foreground'
+            : seg.kind === 'AGENT'
+              ? 'bg-primary/15 text-primary' // 에이전트: 브랜드 컬러 기반 시맨틱 토큰
+              : 'bg-accent text-accent-foreground' // 사용자: accent 시맨틱 토큰 (다크모드 자동 대응)
+        }`}
+      >
+        @{seg.name}
+      </span>
+    ),
+    [ownBubble],
+  )
+
   // 첨부만 있고 본문이 빈 메시지는 빈 말풍선을 그리지 않는다(삭제됨은 '(삭제됨)' 을 보여야 하므로 그린다).
   const hasBody = m.deleted || m.body.trim() !== ''
 
@@ -249,37 +278,12 @@ export function MessageRow({
       {m.deleted ? (
         '(삭제됨)'
       ) : m.authorKind === 'AGENT' ? (
-        // #356: AI(에이전트) 메시지는 마크다운 렌더(사람 메시지는 멘션칩 포함 plain text 유지).
-        <MarkdownMessage>{m.body}</MarkdownMessage>
+        // #356: AI(에이전트) 메시지는 마크다운 렌더. 멘션은 사람 글과 같은 칩(WP-1009).
+        <MarkdownMessage mentions={m.mentions} renderMention={renderMention}>{m.body}</MarkdownMessage>
       ) : (
         // 사람 메시지 — 채팅 마크다운 부분집합(굵게·목록·코드 등, WP-101). 서식 없는 예전 평문은 예전과 같게 보인다.
         // 본문 URL 은 새 탭 링크(WP-874), 멘션 토큰은 칩.
-        <ChatMarkdownText
-          body={m.body}
-          mentions={m.mentions}
-          linkTestId="chat-link"
-          renderMention={(seg, key) => (
-            <span
-              key={key}
-              data-testid={`mention-chip-${seg.id}`}
-              className={`rounded px-1 font-medium ${
-                // 본인 말풍선은 wrap-anywhere 라 칩이 '@' 와 이름 사이에서 끊길 수 있어 한 덩어리로 유지한다.
-                ownBubble ? 'whitespace-nowrap' : ''
-              } ${
-                ownBubble
-                  ? // 본인 말풍선(bg-primary/10) 안에서는 반투명/accent 칩이 배경에 묻히므로 불투명 배경 토큰으로 띄운다.
-                    seg.kind === 'AGENT'
-                    ? 'bg-background text-primary'
-                    : 'bg-background text-foreground'
-                  : seg.kind === 'AGENT'
-                    ? 'bg-primary/15 text-primary' // 에이전트: 브랜드 컬러 기반 시맨틱 토큰
-                    : 'bg-accent text-accent-foreground' // 사용자: accent 시맨틱 토큰 (다크모드 자동 대응)
-              }`}
-            >
-              @{seg.name}
-            </span>
-          )}
-        />
+        <ChatMarkdownText body={m.body} mentions={m.mentions} linkTestId="chat-link" renderMention={renderMention} />
       )}
       {/* 수정됨 표시 — 본문 끝에 인라인(본인은 말풍선 안). 삭제됨 메시지는 제외.
           whitespace-nowrap: 말풍선의 wrap-anywhere 때문에 '(수정'/'됨)' 으로 쪼개지는 것을 막는다. */}

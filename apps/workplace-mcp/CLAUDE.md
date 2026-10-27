@@ -13,7 +13,9 @@ Smart Workplace 의 **원격 MCP 게이트웨이**. Claude Code 등 외부 MCP �
 이 앱은 **시크릿 환경변수를 갖지 않는다.** `INTERNAL_SERVICE_TOKEN` 류의 서비스 간 공용 시크릿을
 **이 앱에 절대 추가하지 않는다.** 인증은 매 호출마다 클라이언트가 보낸 PAT 또는 AI 키를
 workplace-api 가 검증한다(`Authorization: Bearer swp_...|ak_...` → workplace-api 의 PAT·API 키 인증 필터).
-workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(패스스루)만 한다.
+workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(패스스루)만 한다. 유일한 예외는 workplace-api 가
+검증에 **성공한** 토큰의 해시를 60초 기억하는 것(`src/mcp/auth-cache.ts`, WP-1013)이다 — 판정은 여전히 workplace-api 가 하고,
+원문 토큰·실패 결과는 쥐지 않는다.
 
 - 필요 env 는 `PORT`, `WORKPLACE_API_BASE_URL` 뿐 (`.env.example` 참고).
 - 새 기능이 "서비스 간 신뢰"를 요구하는 것처럼 보이면, workplace-mcp 에 시크릿을 추가하지 말고
@@ -31,14 +33,21 @@ workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(�
                           workplace-api (매 호출 PAT 검증 + 테넌트 바인딩)
 ```
 
-- `src/mcp/server.ts`: `handleMcpPost` 가 `Authorization: Bearer swp_...|ak_...` 를 파싱 → `initialize`
-  요청이면 `GET /auth/me` 로 조기 검증(연결 시점 401 UX) → `buildMcpServer(apiBaseUrl, token)` 로
-  요청별 `McpServer` 구성.
+- `src/mcp/server.ts`: `handleMcpPost` 가 `Authorization: Bearer swp_...|ak_...` 를 파싱 → **모든 요청**에서
+  `GET /auth/me` 로 토큰 검증(WP-1013 — 전에는 initialize 만 검증해 가짜 토큰으로 tools/list 가 나갔다) →
+  `buildMcpServer(apiBaseUrl, token)` 로 요청별 `McpServer` 구성. 검증은 5초 제한, 401 은 401, 그 밖의 4xx(403 테넌트 권한 등)는
+  같은 상태 + 서버 메시지, 응답 없음·5xx 는 503.
+- `src/mcp/auth-cache.ts`: 검증 **성공만** 60초 기억한다(토큰 해시 키, 최대 1,000개). 같은 토큰의 동시 검증은 하나로 묶는다. 실패는 기억하지 않는다 — 외부가 보내는
+  값이라 쌓으면 메모리 공격 통로가 된다. 검증 자체는 여전히 workplace-api 가 한다(시크릿 없음 원칙 그대로). 폐기된 토큰은 최대 60초
+  더 tools/list 를 받을 수 있지만 도구 호출은 workplace-api 가 막는다.
+  파드별 메모리라 여러 대면 파드마다 따로 검증한다(`docs/ops/multi-instance.md`).
+- `src/index.ts` 의 `listen`: `keepAliveTimeout` 65초·`headersTimeout` 66초 — ingress-nginx upstream keep-alive(60초)보다 길어야
+  닫힌 연결 재사용으로 502 가 나지 않는다(WP-1013).
 - `src/clients/workplace-api.ts`: `createPatApiClient({ baseURL, token })` — 토큰을 헤더로 단 axios 인스턴스를
   공유 `createSharedToolClient` 에 넘긴 클라이언트. 도구 핸들러는 이 클라이언트만 통해 workplace-api 를 호출한다.
 - AI 키(`ak_`) 접속: `swp_`(사람 PAT)와 같은 도구를 같은 방식으로 쓰고, `ak_` 로 접속하면 호출이 그 AI 신원으로 실행된다.
   요청 헤더 `X-On-Behalf-Of-Tenant` 는 **`ak_` 일 때만**
-  `/auth/me` 조기 검증과 모든 도구 호출에 그대로 전달한다(AI 키엔 테넌트가 없어 다중 멤버십 AI 는 이 헤더로 고르고,
+  `/auth/me` 토큰 검증과 모든 도구 호출에 그대로 전달한다(AI 키엔 테넌트가 없어 다중 멤버십 AI 는 이 헤더로 고르고,
   서버가 멤버십을 검증한다. 사람 PAT 의 테넌트는 토큰이 정한다). `/auth/me` 는 AGENT 키도 통과한다.
 - 401 은 그대로 클라이언트에 요약 전달(`summarizeError`) — "토큰 만료·폐기" 를 사용자가 바로 알 수
   있게 한다.
@@ -57,7 +66,7 @@ workplace-mcp 자신은 토큰을 저장·검증하지 않고 그대로 전달(�
 - 앱 이름과 앱별 도구는 공유 패키지 README "앱 분류" 표가 기준이다: `issue` `project` `wiki` `drive` `mail` `messaging` `calendar` `contacts` `notify` `member`. 여러 앱에 걸친 도구(`read_file`, `list_projects`, `get_project`, `search_members`)는 고른 앱 중 하나만 속해도 실린다.
 - 헤더 `X-MCP-Toolsets: issue,wiki` 는 경로에 앱 선택이 **없을 때** 같은 의미다. 경로에 앱 선택(`/x/…`)이 있으면 헤더는 무시한다(합치지 않음). `/mcp/readonly` + 헤더는 헤더 앱 선택 + 읽기 전용이다. 빈 헤더는 없는 것으로 본다.
 - 모르는 앱 이름은 HTTP 400 + JSON-RPC 오류 본문(`error.message` 에 사용 가능한 앱 목록, `error.data.availableApps`). 일부만 싣지 않고 전부 거절한다. 인증(401)이 먼저, `/auth/me` 호출 전에 거절한다.
-- GET·DELETE 는 모든 경로에서 405(stateless). 인증·initialize 조기 검증은 모든 경로가 같다.
+- GET·DELETE 는 모든 경로에서 405(stateless). 인증·토큰 검증은 모든 경로가 같다.
 - 서버 `instructions` 는 앱별 도구 안내를 앞에 두고 전체 앱에서도 2,048자 이내(테스트가 강제 — Claude Code tool search 가 그만큼만 쓴다). 고른 앱·로드된 도구만 설명하며 읽기 전용이면 쓰기 문구를 싣지 않는다. 도구 설명과 같이 영어로 쓴다(WP-340 웨이브 5).
 - tools/list 응답은 공유 패키지 `toolDefinition()` 출력으로 바꿔 끼운다(`server.ts`, WP-340 웨이브 5) — `$schema`·`execution`·`annotations.title`·정보 없는 제약·`nullAsOmitted` 입력의 null 갈래가 빠진다. 크기 상한(기본 연결 ≤ 1.5만 토큰, 앱당 15개)은 공유 패키지 `tool-naming.test.ts` 가 같은 함수로 재고, `integration.test.ts` 가 실제 응답과 같은지 고정한다. 입력 검증은 `registerTool` 의 zod shape 그대로라 null 인자도 계속 받는다.
 - 연결 안내(웹 설정 > API 토큰 발급 직후 대화상자)에 같은 예시가 있다. 앱을 추가하거나 경로를 바꾸면 그 문구(`TokenIssueDialog.tsx`)도 고친다.

@@ -1,11 +1,15 @@
 package com.workplace.global.util;
 
+import com.workplace.global.dto.MentionResponse;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.function.LongFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 메시지 본문에서 {@code <@{userId}>} 멘션 토큰을 추출한다. 중복은 첫 등장 순서를 유지한 채 제거. 토큰 유효성(존재하는 user) 검증은 서비스
@@ -38,5 +42,16 @@ public final class MentionParser {
     }
     m.appendTail(sb);
     return sb.toString();
+  }
+
+  /**
+   * 본문의 멘션 토큰을 {@code @이름} 으로 바꾼다 — 이름은 mentions 에서, 없으면(탈퇴 등) {@code @사용자}. 푸시
+   * 미리보기(MessagePushPreview)와 AI 작업 note(WP-1009)처럼 글자 그대로 보이는 곳이 같은 표기를 쓴다.
+   */
+  public static String replaceWithNames(String body, Collection<MentionResponse> mentions) {
+    Map<Long, String> names =
+        mentions.stream()
+            .collect(Collectors.toMap(MentionResponse::id, MentionResponse::name, (a, b) -> a));
+    return replace(body, id -> "@" + names.getOrDefault(id, "사용자"));
   }
 }

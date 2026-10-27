@@ -2,7 +2,8 @@ package com.workplace.chat.outbound;
 
 /**
  * 이슈 채팅 글이 만들어진 경로(WP-452). ChatMessageCreatedEvent 에 실어 소비자(알림 등)가 화면 글·AI 진행 보고·AI 질문을 구분하게 한다.
- * question 필드(질문 강조)와 별개로 "보고 경로의 일반 진행 글"까지 구분하려고 둔다 — 진행 보고는 멘션이 있어도 알림을 만들지 않는다.
+ * question 필드(질문 강조)와 별개로 "보고 경로의 일반 진행 글"까지 구분하려고 둔다 — 진행 보고 글의 멘션 알림은 챗 이벤트가 아니라 보고 쪽 알림 이벤트가 상태
+ * 알림과 함께 만든다(WP-1009).
  */
 public enum ChatMessageOrigin {
   /** 화면·일반 API 로 쓴 글(사람 글, AI 채팅 답글 포함). */

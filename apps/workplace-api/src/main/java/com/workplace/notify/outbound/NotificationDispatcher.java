@@ -205,7 +205,8 @@ public class NotificationDispatcher {
    * 이슈 챗 글 → 알림(WP-452). 글 경로(origin)로 가른다.
    *
    * <ul>
-   *   <li>REPORT(AI 진행 보고) — 알림 없음. 멘션이 있어도 진행 보고는 인박스를 채우지 않는다.
+   *   <li>REPORT(AI 진행 보고) — 여기서는 알림 없음. 글의 멘션은 보고 쪽 AgentWorkNoticeEvent 가 상태 알림과 함께 사람당 1건으로
+   *       만든다(WP-1009, {@link #onAgentWorkNotice}).
    *   <li>REPORT_QUESTION(AI 답변 필요 질문) — 이슈의 사람 관계자 ∪ 멘션된 사람에게 AI_QUESTION 1건씩. 관계자 조회는 서비스 트랜잭션
    *       안(RLS).
    *   <li>USER(화면 글·AI 채팅 답글) — 멘션된 사람에게 ISSUE_CHAT_MENTION. 작성자 본인은 서비스가 뺀다.
@@ -239,7 +240,7 @@ public class NotificationDispatcher {
                 null);
         }
         case REPORT -> {
-          // AI 진행 보고 — 알림 없음.
+          // AI 진행 보고 — 멘션 알림은 AgentWorkNoticeEvent 가 상태 알림과 함께 만든다(WP-1009).
         }
       }
     } catch (Exception ex) {
@@ -260,12 +261,13 @@ public class NotificationDispatcher {
   public void onAgentWorkNotice(AgentWorkNoticeEvent e) {
     try {
       service.createAgentWorkNoticeAndFanOut(
-          e.issueId(), e.workerId(), e.state(), e.delegateCandidates());
+          e.issueId(), e.workerId(), e.state(), e.delegateCandidates(), e.mentionedIds());
     } catch (Exception ex) {
       log.warn(
-          "[notify] AI 작업 상태 알림 실패 issueId={} state={}: {}",
+          "[notify] AI 작업 보고 알림 실패 issueId={} state={} mentions={}: {}",
           e.issueId(),
           e.state(),
+          e.mentionedIds().size(),
           ex.getMessage());
     }
   }

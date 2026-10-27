@@ -69,6 +69,8 @@ function mockClient(): IssueToolClient {
     getIssueWatchers: vi.fn().mockResolvedValue([]),
     getIssueDriveLinks: vi.fn().mockResolvedValue([]),
     getIssueChatThreadId: vi.fn().mockResolvedValue(55),
+    getIssueChatThread: vi.fn().mockResolvedValue({ threadId: 55, members: [] }),
+    searchMembers: vi.fn().mockResolvedValue([]),
     listIssueChatMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     getProjectFields: vi.fn().mockResolvedValue([
       { id: 8, name: '고객사', type: 'SELECT', options: ['A사', 'B사'] },
@@ -191,6 +193,40 @@ describe('buildSharedIssueTools', () => {
       expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', { state: 'INPUT_REQUIRED', message: '질문' });
       expect(out.work.state).toBe('INPUT_REQUIRED');
       expect(out.work.worker).toEqual({ username: 'claude', name: 'Claude', kind: 'AI' });
+    });
+
+    it('message 의 @username 을 멘션 토큰 <@id> 로 바꿔 보낸다 — 메일 형식 username 도, 일반 메일 주소는 그대로(WP-1009)', async () => {
+      const c = mockClient();
+      vi.mocked(c.searchMembers).mockImplementation(async ({ search }) =>
+        [
+          { userId: 7, username: 'dh.yang@iacloud.kr', name: '양동희', kind: 'HUMAN' },
+          { userId: 9, username: 'teamleader', name: 'AI 팀장', kind: 'AGENT' },
+        ].filter((m) => m.username.includes(String(search))),
+      );
+      await reportTool(c).handler({
+        issueKey: 'WP-12',
+        state: 'REVIEW',
+        message: '@teamleader 리뷰 부탁해요. @dh.yang@iacloud.kr 님 참고 — 문의는 help@iacloud.kr',
+      });
+      expect(c.reportAgentWork).toHaveBeenCalledWith('WP-12', {
+        state: 'REVIEW',
+        message: '<@9> 리뷰 부탁해요. <@7> 님 참고 — 문의는 help@iacloud.kr',
+      });
+    });
+
+    it('message 길이는 도구가 막지 않는다 — 멘션을 바꾼 뒤 글에 거는 서버 @Size 에 맡긴다', async () => {
+      const c = mockClient();
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'WORKING', message: 'x'.repeat(4001) });
+      expect(c.reportAgentWork).toHaveBeenCalled();
+    });
+
+    it('message 가 없으면 구성원을 찾지 않고, 찾기가 실패하면 원문 그대로 보낸다', async () => {
+      const c = mockClient();
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'WORKING', note: '진행' });
+      expect(c.searchMembers).not.toHaveBeenCalled();
+      vi.mocked(c.searchMembers).mockRejectedValue(new Error('boom'));
+      await reportTool(c).handler({ issueKey: 'WP-12', state: 'WORKING', message: '@kodi 확인' });
+      expect(c.reportAgentWork).toHaveBeenLastCalledWith('WP-12', { state: 'WORKING', message: '@kodi 확인' });
     });
 
     it.each(['COMPLETED', 'FAILED', 'CANCELED', 'REJECTED'])('%s 보고는 work 없이 ended:true 만 돌려준다', async (state) => {
@@ -976,7 +1012,7 @@ describe('get_issue_chat (WP-373)', () => {
     const c = mockClient();
     vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: rows, nextCursor: null, hasMore: false });
     const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })));
-    expect(c.getIssueChatThreadId).toHaveBeenCalledWith('WP-1');
+    expect(c.getIssueChatThread).toHaveBeenCalledWith('WP-1');
     expect(c.listIssueChatMessages).toHaveBeenCalledWith(55, { after: undefined, limit: 30 });
     expect(out).toEqual({
       messages: [
@@ -987,6 +1023,39 @@ describe('get_issue_chat (WP-373)', () => {
       hasMore: false,
     });
     expect(JSON.stringify(out)).not.toMatch(/authorId|attachedById/);
+  });
+
+  it('after 가 없으면 현재 참여자를 username·name·kind 로 함께 준다(숫자 id·읽음 위치 없음, WP-1009)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueChatThread).mockResolvedValue({
+      threadId: 55,
+      members: [
+        { userId: 3, username: 'dh', name: '양동희', kind: 'HUMAN', lastReadMessageId: 12, joinedAt: '2026-10-14T01:00:00Z' },
+        { userId: 7, username: 'kodi', name: '코디', kind: 'AGENT', lastReadMessageId: null, joinedAt: '2026-10-14T01:00:00Z' },
+      ],
+    });
+    const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })));
+    expect(out.participants).toEqual([
+      { username: 'dh', name: '양동희', kind: 'HUMAN' },
+      { username: 'kodi', name: '코디', kind: 'AGENT' },
+    ]);
+  });
+
+  it('참여자 조회가 실패해도 메시지는 돌려준다(참여자만 빠진다)', async () => {
+    const c = mockClient();
+    vi.mocked(c.getIssueChatThread).mockRejectedValue(new Error('boom'));
+    vi.mocked(c.listIssueChatMessages).mockResolvedValue({ items: rows.slice(0, 1), nextCursor: null, hasMore: false });
+    const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1' })));
+    expect(out.messages).toHaveLength(1);
+    expect('participants' in out).toBe(false);
+  });
+
+  it('after 로 이어 읽을 때는 캐시된 스레드 id 로 메시지만 받고 참여자는 싣지 않는다', async () => {
+    const c = mockClient();
+    const out = JSON.parse(resultText(await chatTool(c).handler({ issueKey: 'WP-1', after: 10 })));
+    expect(c.getIssueChatThread).not.toHaveBeenCalled();
+    expect(c.getIssueChatThreadId).toHaveBeenCalledWith('WP-1');
+    expect('participants' in out).toBe(false);
   });
 
   it('본문의 멘션 토큰 <@id> 은 이름으로 풀어 숫자 id 를 AI 에 넘기지 않는다', async () => {
