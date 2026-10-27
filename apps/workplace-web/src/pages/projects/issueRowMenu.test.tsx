@@ -1,11 +1,12 @@
-// 이슈 행·카드 「⋯」/우클릭 메뉴(WP-273) — 페이지 테스트(WP-971).
+// 이슈 행·카드 「⋯」/우클릭 메뉴(WP-273) — 화면 테스트(WP-971, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 메뉴 항목 구성(권한·선택 여부)과 고른 항목의 요청 payload 는 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-row-menu.spec.ts 에서 옮겼다. 호버 때만 보이는 ⋯(@input)과 클립보드 복사(@platform)는 E2E 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import type { ScreenUser } from '@/test/renderScreen'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
@@ -79,7 +80,7 @@ function issueApi() {
  * 하위 메뉴를 연다 — jsdom 은 레이아웃이 없어 Radix 하위 메뉴의 포인터 유예 영역 계산이 늘 「벗어남」이라
  * 호버로 열면 항목으로 포인터를 옮기는 순간 닫힌다. 키보드(→)로 열면 같은 메뉴 상태를 레이아웃 없이 만든다.
  */
-async function openSubmenu(user: ReturnType<typeof renderPage>['user'], testId: string) {
+async function openSubmenu(user: ScreenUser, testId: string) {
   ;(await screen.findByTestId(testId)).focus()
   await user.keyboard('{ArrowRight}')
 }
@@ -87,8 +88,8 @@ async function openSubmenu(user: ReturnType<typeof renderPage>['user'], testId: 
 /** 목록(또는 보드)을 열고 첫 행이 뜰 때까지 기다린다. */
 async function open(view = 'list&group=none') {
   const api = issueApi()
-  const page = renderPage(`/projects/${KEY}?view=${view}`, { handlers: api.handlers })
-  await screen.findByTestId(view.startsWith('board') ? 'issue-card-7' : 'issue-row-7', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const page = renderProjectScreen(`/projects/${KEY}?view=${view}`, { handlers: api.handlers })
+  await screen.findByTestId(view.startsWith('board') ? 'issue-card-7' : 'issue-row-7')
   return { ...page, api }
 }
 

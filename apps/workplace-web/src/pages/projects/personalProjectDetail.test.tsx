@@ -1,13 +1,18 @@
-// 개인 프로젝트 전용 상세 화면 — 페이지 테스트(WP-971).
+// 개인 프로젝트 전용 상세 화면 — 화면 테스트(WP-971, WP-1002 에서 PersonalProjectDetail 만 띄우게 바꿈).
 // 뷰 토글·패널/모달 분기·URL(task·필터·그룹) 상태·리다이렉트·빈/오류 상태·행 표시·요청 payload/쿼리 파라미터는
 // 브라우저 없이 판정되므로 e2e/pages/projects/personal-project-detail.spec.ts 에서 옮겼다.
 // 셸 배선(@wiring)·새로고침 유지(@platform)·포커스·Esc 겹침·날짜 칸 키 입력(@input)·헤더 아래 패널 위치와
 // 스크롤·무한 로드·글자 변환(@layout)은 E2E 에 남는다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { AIAssistantProvider } from '@/components/ai/AIAssistantContext'
+import IssueDetailPage from '@/pages/projects/IssueDetailPage'
+import { PersonalProjectDetail } from '@/pages/projects/personal/PersonalProjectDetail'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { renderScreen } from '@/test/renderScreen'
 import type { IssueResponse } from '@/types/issue'
 import type { UserSummary } from '@/types/user'
 
@@ -87,10 +92,27 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
   return { handlers, db, searches, patches, posts, detailGets }
 }
 
-/** 개인 화면을 path 로 띄우고 waitFor testid 가 뜰 때까지 기다린다. */
+/**
+ * 개인 화면을 path 로 띄우고 waitFor testid 가 뜰 때까지 기다린다.
+ * 프로젝트 화면은 개인 프로젝트면 PersonalProjectDetail 로 갈라지므로 그것만 띄운다(같은 project props).
+ * 풀페이지 이슈 주소의 리다이렉트(#207)는 이슈 상세 화면이 하므로 그 라우트도 둔다 — 상세는 AI 패널 모드를 읽어 Provider 로 감싼다.
+ */
 async function open(path: string, api: ReturnType<typeof personalApi>, waitForTestId: string) {
-  const view = renderPage(path, { handlers: api.handlers })
-  await screen.findByTestId(waitForTestId, {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderScreen(
+    <Routes>
+      <Route path="/projects/:key" element={<PersonalProjectDetail project={PROJECT} />} />
+      <Route
+        path="/projects/:key/issues/:number"
+        element={
+          <AIAssistantProvider hotkeysEnabled={false}>
+            <IssueDetailPage />
+          </AIAssistantProvider>
+        }
+      />
+    </Routes>,
+    { path, handlers: [...api.handlers, ...shellHandlers] },
+  )
+  await screen.findByTestId(waitForTestId)
   return view
 }
 

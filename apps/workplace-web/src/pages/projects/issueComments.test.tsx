@@ -3,13 +3,15 @@
 // 새로고침 경고(beforeunload)·AGENT 마크다운 렌더는 브라우저 없이 판정되므로 e2e/pages/projects/issue-comments.spec.ts 에서 옮겼다.
 // RichInput(TipTap) 의 키 입력은 jsdom 이 브라우저처럼 처리하지 못해 편집기 명령(setRichText)으로 값을 채운다 —
 // 실제 타이핑·@ 자동완성·자동 포커스 위치·키보드 삭제 뒤 포커스 이동은 E2E(@input)가, 작성 → POST → 목록 갱신 배선은 E2E(@wiring)가 지킨다.
+// 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { DETAIL_PATH, type DetailRef, detailRefOf, ISSUE_ID, ME_ID, setRichText } from '@/test/kits/projects/issueDetailRef'
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueCommentResponse } from '@/types/issue'
 
 import { createAgentComment, createComment } from '../../../e2e/factories/issue.factory'
@@ -47,8 +49,8 @@ function commentWrites(ref: DetailRef, calls: Call[]) {
 async function open(comments: IssueCommentResponse[] = [], members = [] as ReturnType<typeof createMember>[]) {
   const ref = detailRefOf({ comments })
   const calls: Call[] = []
-  const view = renderPage(DETAIL_PATH, { handlers: [...issueDetailHandlers({ detail: () => ref.current, members }), ...commentWrites(ref, calls)] })
-  const input = await screen.findByTestId('issue-comment-input', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderIssueDetailScreen(DETAIL_PATH, { handlers: [...issueDetailHandlers({ detail: () => ref.current, members }), ...commentWrites(ref, calls)] })
+  const input = await screen.findByTestId('issue-comment-input', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...view, ref, calls, input }
 }
 

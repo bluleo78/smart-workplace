@@ -1,4 +1,4 @@
-// 팀 리스트 뷰 — 페이지 테스트(WP-971).
+// 팀 리스트 뷰 — 화면 테스트(WP-971, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 행 셀 표기(마감일·마감 지남·우선순위 5단계·하위 진행률), 기본 검색 쿼리, 필터 facet 옵션·아이콘과 선택 → URL·검색 파라미터,
 // 빈 상태 두 가지, 사용자 정의 상태(WP-808) 필터·그룹 헤더, 상태 목록 도착 전 그리지 않기는 브라우저 없이 판정되므로
 // e2e/pages/projects/{issue-list,issue-list-duedate}.spec.ts 에서 옮겼다.
@@ -7,8 +7,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import type { ScreenUser } from '@/test/renderScreen'
 import type { IssueResponse } from '@/types/issue'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
@@ -23,13 +24,13 @@ function openList(
   { path = `/projects/${KEY}`, extra = [], search }: { path?: string; extra?: RequestHandler[]; search?: (url: URL) => IssueResponse[] } = {},
 ) {
   const api = projectScreen(KEY, { search: search ?? (() => issues) })
-  const view = renderPage(path, { handlers: [...extra, ...api.handlers] })
+  const view = renderProjectScreen(path, { handlers: [...extra, ...api.handlers] })
   return { ...view, api, lastSearch: () => api.searches.at(-1) }
 }
 
 /** 「+ 필터」 → facet 을 연다. */
-async function openFacet(user: ReturnType<typeof renderPage>['user'], facet: string) {
-  await user.click(await screen.findByTestId('add-filter-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+async function openFacet(user: ScreenUser, facet: string) {
+  await user.click(await screen.findByTestId('add-filter-trigger'))
   await user.click(await screen.findByTestId(`add-filter-facet-${facet}`))
 }
 
@@ -42,7 +43,7 @@ describe('행 셀 표기', () => {
       createIssue({ id: 1, number: 1, title: '마감일 테스트 이슈', dueDate: '2099-06-30' }),
       createIssue({ id: 2, number: 2, title: '마감 없는 이슈', dueDate: null }),
     ])
-    expect(await screen.findByTestId('issue-row-1-due', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent(/^2099\. 6\. 30$/)
+    expect(await screen.findByTestId('issue-row-1-due')).toHaveTextContent(/^2099\. 6\. 30$/)
     expect(screen.getByTestId('issue-row-2-due')).toHaveTextContent(/^—$/)
     expect(screen.queryByText('2099-06-30')).not.toBeInTheDocument()
   })
@@ -54,7 +55,7 @@ describe('행 셀 표기', () => {
       createIssue({ id: 2, number: 2, title: '완료된 지난 마감', status: 'DONE', dueDate: '2020-01-15' }),
       createIssue({ id: 3, number: 3, title: '먼 미래 마감', status: 'TODO', dueDate: '2099-01-15' }),
     ])
-    const due1 = await screen.findByTestId('issue-row-1-due', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const due1 = await screen.findByTestId('issue-row-1-due')
     expect(due1).toHaveTextContent('마감 지남')
     expect(due1).toHaveClass('text-destructive')
     for (const n of [2, 3]) {
@@ -69,7 +70,7 @@ describe('행 셀 표기', () => {
       createIssue({ number: 9, title: '결제 모듈 개편', childCount: 5, childDoneCount: 2 }),
       createIssue({ id: 2, number: 10, title: '문구 수정' }),
     ])
-    expect(await screen.findByTestId('issue-row-9-child-progress', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('2/5')
+    expect(await screen.findByTestId('issue-row-9-child-progress')).toHaveTextContent('2/5')
     expect(screen.queryByTestId('issue-row-10-child-progress')).not.toBeInTheDocument()
   })
 
@@ -80,7 +81,7 @@ describe('행 셀 표기', () => {
       createIssue({ id: 2, number: 2, title: '로그인 오류', priority: 'HIGH' }),
       createIssue({ id: 3, number: 3, title: '아이디어', priority: 'LOWEST' }),
     ])
-    const row1 = await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const row1 = await screen.findByTestId('issue-row-1')
     const highest = within(row1).getByRole('img', { name: '우선순위 매우 높음' })
     expect(highest).toHaveTextContent(/^$/)
     expect(within(screen.getByTestId('issue-row-2')).getByRole('img', { name: '우선순위 높음' })).toBeInTheDocument()
@@ -93,7 +94,7 @@ describe('검색 쿼리', () => {
   // 목록 기본(#874): 에픽 행 숨김·에픽 직속 자식 유지·SUBTASK 숨김 → topLevel 미송신, excludeSubtasks·excludeEpics=true.
   test('필터 없이 열면 topLevel 없이 excludeSubtasks=true·excludeEpics=true 로 검색한다', async () => {
     const { lastSearch } = openList([createIssue({ number: 7 })])
-    await screen.findByTestId('issue-row-7', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-7')
     const url = lastSearch()!
     expect(url.searchParams.get('topLevel')).toBeNull()
     expect(url.searchParams.get('excludeSubtasks')).toBe('true')
@@ -154,7 +155,7 @@ describe('빈 상태 (#337)', () => {
       path: `/projects/${KEY}?q=xxxxxxxxxnotfound`,
       search: (url) => (url.searchParams.has('q') ? [] : [createIssue({ number: 5, title: '정상 이슈' })]),
     })
-    expect(await screen.findByTestId('empty-filter', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByTestId('empty-filter')).toBeInTheDocument()
     expect(screen.getByText('검색 결과가 없습니다')).toBeInTheDocument()
     expect(screen.getByText('다른 키워드나 필터 조건을 사용해 보세요.')).toBeInTheDocument()
     await user.click(screen.getByTestId('empty-reset-filter'))
@@ -166,7 +167,7 @@ describe('빈 상태 (#337)', () => {
   // 필터 없는 0건 → 「이슈가 없습니다」 + 「새 태스크 만들기」 → 유형 중립 「새 이슈」 다이얼로그(#641).
   test('필터 없이 0건이면 「이슈가 없습니다」와 CTA, 누르면 「새 이슈」 다이얼로그가 열린다', async () => {
     const { user } = openList([])
-    expect(await screen.findByTestId('empty-no-issues', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByTestId('empty-no-issues')).toBeInTheDocument()
     expect(screen.getByText('이슈가 없습니다')).toBeInTheDocument()
     expect(screen.getByText('새 태스크를 만들어 프로젝트를 시작하세요.')).toBeInTheDocument()
     await user.click(screen.getByTestId('empty-create-issue'))
@@ -179,7 +180,7 @@ describe('사용자 정의 상태 (WP-808)', () => {
   // 「상태」(statusId) facet 은 프로젝트 상태 이름 순서, 고르면 statusId=12 만 싣고 칩 「상태: 검토 중」.
   test('「상태」 필터에서 「검토 중」을 고르면 statusId=12 로 검색하고 칩이 생긴다', async () => {
     const { user, lastSearch, location } = openList([createIssue({ number: 7 })], { extra: [customStatuses()] })
-    await user.click(await screen.findByTestId('add-filter-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('add-filter-trigger'))
     expect(await screen.findByTestId('add-filter-facet-statusId')).toHaveTextContent(/^상태$/)
     await user.click(screen.getByTestId('add-filter-facet-statusId'))
     const options = await screen.findAllByTestId(/^facet-value-statusId-/)
@@ -197,7 +198,7 @@ describe('사용자 정의 상태 (WP-808)', () => {
   // 「상태 범주」 facet 은 기존 status 파라미터를 쓴다.
   test('「상태 범주」 필터는 status=IN_PROGRESS 로 검색한다(statusId 없음)', async () => {
     const { user, lastSearch } = openList([createIssue({ number: 7 })], { extra: [customStatuses()] })
-    await user.click(await screen.findByTestId('add-filter-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('add-filter-trigger'))
     expect(await screen.findByTestId('add-filter-facet-status')).toHaveTextContent(/^상태 범주$/)
     await user.click(screen.getByTestId('add-filter-facet-status'))
     await user.click(await screen.findByTestId('facet-value-status-IN_PROGRESS'))
@@ -208,7 +209,7 @@ describe('사용자 정의 상태 (WP-808)', () => {
   // 예전 ?status= 링크는 상태 범주 칩으로, 둘 다 있으면 칩 둘·파라미터 둘(서버 AND).
   test('예전 ?status= 링크는 상태 범주 칩으로 열리고, statusId 와 함께면 칩·파라미터가 둘 다 실린다', async () => {
     const first = openList([createIssue({ number: 7 })], { path: `/projects/${KEY}?status=IN_PROGRESS`, extra: [customStatuses()] })
-    const category = await screen.findByTestId('filter-chip-status', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const category = await screen.findByTestId('filter-chip-status')
     expect(category).toHaveTextContent('상태 범주:')
     expect(category).toHaveTextContent('진행 중')
     expect(screen.queryByTestId('filter-chip-statusId')).not.toBeInTheDocument()
@@ -242,7 +243,7 @@ describe('사용자 정의 상태 (WP-808)', () => {
         ],
       },
     )
-    expect(await screen.findByTestId('list-group-toggle-12', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('검토 중')
+    expect(await screen.findByTestId('list-group-toggle-12')).toHaveTextContent('검토 중')
     await waitFor(() => expect(screen.getByTestId('list-group-count-12')).toHaveTextContent(/^5$/))
     expect(within(screen.getByTestId('list-group-12')).getByTestId('issue-row-1')).toBeInTheDocument()
     expect(within(screen.getByTestId('list-group-2')).getByTestId('issue-row-2')).toBeInTheDocument()
@@ -265,7 +266,7 @@ describe('사용자 정의 상태 (WP-808)', () => {
         }),
       ],
     })
-    await screen.findByTestId('add-filter-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('add-filter-trigger')
     await waitFor(() => expect(hits).toBeGreaterThan(0))
     await new Promise((r) => setTimeout(r, 300))
     expect(screen.queryByTestId('issue-list-scroll')).not.toBeInTheDocument()

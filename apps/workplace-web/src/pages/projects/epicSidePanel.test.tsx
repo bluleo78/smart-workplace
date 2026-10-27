@@ -2,13 +2,15 @@
 // 목록·진행률, 선택 → parent/topLevel 검색 파라미터와 URL, 빈 상태, 에픽 만들기 프리셋, 종료된 에픽 구역(접힘·배지·자동 다음 페이지),
 // 진행 중 사이클 소속 종료 에픽(WP-389)은 브라우저 없이 판정되므로 e2e/pages/projects/epic-side-panel.spec.ts 에서 옮겼다.
 // 패널 높이·sticky 스크롤·선택 배경색·토글 폭(@layout), 호버·키보드 포커스로 보이는 ↗(@input), 새로고침 뒤 열림 유지(@platform)는 E2E 에 남는다.
+// 화면 테스트(WP-1002) — 에픽 패널은 목록 검색·URL·만들기 대화상자와 한 화면에서 이어져 프로젝트 상세 화면만 renderProjectScreen 으로
+// 띄운다(App·앱 셸 없이). ↗ 로 가는 에픽 상세는 그리지 않고 이동 주소만 본다.
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueResponse, IssueStatus } from '@/types/issue'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
@@ -38,10 +40,8 @@ async function openPanel({
     project: createProject({ key: KEY, type: 'TEAM' }),
     search: (url) => (isEpicSearch(url) ? epicSearch(url) : []),
   })
-  // ↗ 로 들어가는 에픽 상세(12) — 이동 뒤 화면이 부르는 조회.
-  const details = [12].flatMap((n) => issueDetailSubHandlers({ key: KEY, number: n }))
-  const view = renderPage(path, { handlers: [http.get(`${API}/projects/${KEY}/types`, () => HttpResponse.json(types)), ...details, ...api.handlers] })
-  const toggle = await screen.findByTestId('epic-panel-toggle', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderProjectScreen(path, { handlers: [http.get(`${API}/projects/${KEY}/types`, () => HttpResponse.json(types)), ...api.handlers] })
+  const toggle = await screen.findByTestId('epic-panel-toggle', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(screen.queryByTestId('epic-side-panel')).not.toBeInTheDocument()
   await view.user.click(toggle)

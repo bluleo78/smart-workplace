@@ -2,16 +2,18 @@
 // 시트 항목이 보내는 요청 payload(우선순위·담당자·AI 위임·삭제)와 선택 모드에서 ⋯ 를 숨기는 조건부 렌더는
 // 브라우저 없이 판정되므로 e2e/pages/mobile/issue-row-menu.spec.ts 에서 옮겼다.
 // 시트 배치·가로 넘침·스크린샷(@layout)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 이슈 목록 화면(ProjectDetailPage)만 renderScreen 으로 띄운다 — 행을 눌러 가는 상세는 그리지 않고 이동 주소만 본다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createAgentMember, createMember, createProject } from '../../../e2e/factories/project.factory'
+import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 // 모바일 폭·터치 포인터 — 행마다 ⋯ 와 액션 시트가 그려지는 조건.
 mockViewport()
@@ -57,8 +59,8 @@ function issueApi() {
 /** 목록을 열고 21번 행의 ⋯ 시트를 띄운다. */
 async function openSheet() {
   const api = issueApi()
-  const page = renderPage(`/projects/${KEY}?group=none`, { handlers: api.handlers })
-  await page.user.click(await screen.findByTestId('issue-row-21-menu', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
+  await page.user.click(await screen.findByTestId('issue-row-21-menu'))
   await screen.findByTestId('mobile-action-sheet')
   return { ...page, api }
 }

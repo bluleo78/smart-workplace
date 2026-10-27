@@ -2,12 +2,15 @@
 // 도구 단계 인라인 표시(ai-chat-tool-steps)·답 뒤 후속 질문(ai-followups)·멀티 세션(ai-multi-session)·통합 SSE 한 줄기(sse-single-stream)는
 // 열린 SSE 에 프레임을 밀어 넣고 화면·요청을 보는 판정이라 브라우저 없이 된다 — e2e/pages/ 의 그 spec 들에서 옮겼다.
 // SSE 는 앱의 실제 파서(fetch + ReadableStream)를 지나고, 프레임은 testkit-b2a 의 liveChat 이 보낸다.
-// AI 패널은 앱 셸(AppLayout)이 SSE 구독과 함께 띄우므로 renderPage 로 연다.
+// AI 패널은 앱 셸의 AI 조립(SSE 구독·칩·옆 패널·전체 화면)만 renderScreen 으로 띄운다(test/kits/ai/c-aiShell, WP-1002) — 본문은 원래 화면(프로젝트 목록).
+// 「인증된 앱 셸이 /events 한 줄기만 연다」 1건만 AppLayout·인증 부팅 자체를 보므로 renderPage 로 남긴다.
 // E2E 에 남은 것: 후속 질문 행 모양·정렬(@layout), 대표 배선 1건(ai-followups @wiring), 확인 카드 조회 XHR 시간 제한(@platform).
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { http, HttpResponse } from 'msw'
+import { http, HttpResponse, type RequestHandler } from 'msw'
 import { expect, test } from 'vitest'
 
+import ProjectListPage from '@/pages/projects/ProjectListPage'
+import { openAiPanel, renderAiShell } from '@/test/kits/ai/aiShell'
 import { server } from '@/test/msw/server'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
 import type { HomeMessage, HomeSessionPage } from '@/types/home'
@@ -19,7 +22,6 @@ import {
   homeChatGeneration,
   liveChat,
   msg,
-  openChatPanel,
   openSession,
   sendButton,
   sessionItem,
@@ -33,6 +35,9 @@ import {
 const A = { correlationId: 'corr-a', sessionId: 's-a' }
 const B = { correlationId: 'corr-b', sessionId: 's-b' }
 const ITEMS = ['내일 회의 준비할 것 정리해줘', '참석자 일정 알려줘', 'WP-12 상태 알려줘']
+/** 프로젝트 목록(/projects)을 본문에 두고 AI 옆 패널을 연다(testkit-b2a 의 openChatPanel 과 같은 화면). */
+const openChatPanel = (handlers: RequestHandler[]) => openAiPanel(handlers, { path: '/projects', page: <ProjectListPage /> })
+
 const panelText = () => screen.getByTestId('chat-panel').textContent ?? ''
 const followupTexts = () => screen.queryAllByTestId('chat-followup').map((e) => e.textContent)
 
@@ -118,13 +123,15 @@ test('세션 복원 시 toolCalls 가 ToolStepList(위임+도구 행) 로 렌더
       ],
     },
   ]
-  const { user } = renderPage('/projects', {
+  const { user } = renderAiShell({
+    path: '/projects',
+    page: <ProjectListPage />,
     handlers: [
       http.get('/api/v1/home/sessions', () => HttpResponse.json(sessions)),
       http.get('/api/v1/home/sessions/s-restore-1/messages', () => HttpResponse.json(messages)),
     ],
   })
-  const launcher = await screen.findByTestId('chat-launcher', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const launcher = await screen.findByTestId('chat-launcher')
   await user.click(launcher)
   await user.click(launcher) // 두 번 → 전체화면
   await screen.findByTestId('ai-fullscreen')
@@ -534,7 +541,7 @@ test('대화를 열고 이력을 읽는 동안은 보내기를 막고, 이력이
   expect(live.starts.last()).toMatchObject({ sessionId: 's-a', query: TITLE_A, correlationId: live.cid('corr-a') })
 })
 
-// ── 통합 SSE 한 줄기(sse-single-stream, #506) ──────────────────────────────
+// ── 통합 SSE 한 줄기(sse-single-stream, #506) — 앱 셸(AppLayout)·인증 부팅 자체를 보므로 renderPage ──
 
 // 구 스트림(/chat/stream·/messaging/stream·/notifications/stream)이 열리면 핸들러 없는 요청이라 setup 이 테스트를 실패시킨다.
 // 여기서는 그 요청이 없고 /events 가 실제로 열렸음을 함께 본다(「안 열림」 단언이 공허하지 않게).

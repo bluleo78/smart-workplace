@@ -2,12 +2,14 @@
 // 카드 문구·블로커 배지·접기·생성 POST → 재조회 → 요약 반영·aiAvailable 게이트는 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-instant-context.spec.ts 에서 옮겼다. 블로커 배지 글자 대비(WP-303, 계산된 색)는 jsdom 이 잴 수 없어
 // 그 spec 의 @layout 1건으로 남는다.
+// 화면 테스트(WP-1002) — 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이). 속성 레일·본문·활동이 상세 재조회로 이어져 화면 단위로 둔다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { pageAuth, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueAiContext, IssueDetailResponse } from '@/types/issue'
 
 import { createUser } from '../../../e2e/factories/auth.factory'
@@ -20,8 +22,8 @@ const EMPTY: IssueAiContext = { summary: null, nextAction: null, generatedAt: nu
 
 /** 상세를 띄우고 현황 카드가 보일 때까지 기다린다. */
 async function open(detail: IssueDetailResponse | (() => IssueDetailResponse), extra: NonNullable<Parameters<typeof issueDetailHandlers>[0]>['extra'] = []) {
-  const view = renderPage(URL, { handlers: issueDetailHandlers({ key: KEY, detail, extra }) })
-  const card = await screen.findByTestId('issue-instant-context', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderIssueDetailScreen(URL, { handlers: issueDetailHandlers({ key: KEY, detail, extra }) })
+  const card = await screen.findByTestId('issue-instant-context', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...view, card }
 }
 
@@ -80,11 +82,11 @@ describe('이슈 Instant Context 카드', () => {
   })
 
   test('aiAvailable=false 사용자에겐 카드를 그리지 않는다', async () => {
-    renderPage(URL, {
-      user: createUser({ aiAvailable: false }),
+    renderIssueDetailScreen(URL, {
+      auth: { user: { ...pageAuth.user!, ...createUser({ aiAvailable: false }) } },
       handlers: issueDetailHandlers({ key: KEY, detail: detailWith({ ...EMPTY, summary: '요약 있음', generatedAt: new Date().toISOString() }) }),
     })
-    await screen.findByTestId('issue-title-edit', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-title-edit', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     expect(screen.queryByTestId('issue-instant-context')).not.toBeInTheDocument()
   })
 })

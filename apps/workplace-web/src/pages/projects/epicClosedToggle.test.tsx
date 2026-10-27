@@ -2,12 +2,14 @@
 // 에픽을 골라도 종료 이슈 숨김(#876)이 풀리지 않고, 종료된 에픽에서 고를 때만 토글이 켜지며 벗어나면 다시 꺼지는지 —
 // URL 상태·요청 파라미터·조건부 렌더라 브라우저 없이 판정되므로 e2e/pages/projects/epic-closed-toggle.spec.ts 에서 옮겼다.
 // 목 서버는 hideInactiveClosed=true 면 지난 사이클 완료 이슈를 빼고 돌려줘 실제 숨김 결과까지 화면으로 확인한다.
+// 화면 테스트(WP-1002) — 에픽 패널·토글·목록/보드가 한 화면의 URL 상태를 나눠 써 프로젝트 상세 화면만 renderProjectScreen 으로 띄운다(App·앱 셸 없이).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { API, issueSearch, KEY, projectMeta } from '@/test/kits/projects/listBoard'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { CycleResponse } from '@/types/cycle'
 import type { IssueResponse } from '@/types/issue'
 
@@ -60,12 +62,12 @@ const toggle = () => screen.getByTestId('show-all-closed-toggle')
 
 async function open(path = `/projects/${KEY}`) {
   const s = setup()
-  const page = renderPage(path, { handlers: s.handlers })
+  const page = renderProjectScreen(path, { handlers: s.handlers })
   return { ...page, ...s }
 }
 
-async function openEpicPanel(user: ReturnType<typeof renderPage>['user']) {
-  await user.click(await screen.findByTestId('epic-panel-toggle', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+async function openEpicPanel(user: ReturnType<typeof renderProjectScreen>['user']) {
+  await user.click(await screen.findByTestId('epic-panel-toggle', {}, { timeout: SCREEN_LOAD_TIMEOUT }))
   await screen.findByTestId('epic-side-panel')
 }
 
@@ -77,7 +79,7 @@ function expectToggleOff(location: string) {
 }
 
 /** 종료된 에픽 30 선택 — 구역을 펼친 뒤 누른다. */
-async function selectClosedEpic(user: ReturnType<typeof renderPage>['user'], location: () => string) {
+async function selectClosedEpic(user: ReturnType<typeof renderProjectScreen>['user'], location: () => string) {
   const section = screen.getByTestId('epic-closed-toggle')
   if (section.getAttribute('aria-expanded') !== 'true') await user.click(section)
   await user.click(await screen.findByTestId('epic-closed-filter-30'))
@@ -140,7 +142,7 @@ describe('에픽 선택과 「완료 모두 보기」 (WP-390)', () => {
 
   test('보드도 에픽을 골랐을 때 종료 이슈 숨김을 유지한다', async () => {
     const { location, bodySearches } = await open(`/projects/${KEY}?view=board&parent=10`)
-    expect(await screen.findByTestId('issue-card-11', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    expect(await screen.findByTestId('issue-card-11', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toBeInTheDocument()
     expect(screen.queryByTestId('issue-card-12')).not.toBeInTheDocument()
     const last = bodySearches().at(-1)!
     expect(last.searchParams.get('parent')).toBe('10')

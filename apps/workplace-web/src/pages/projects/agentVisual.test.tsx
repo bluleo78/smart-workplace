@@ -4,7 +4,7 @@
 import { screen, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 
-import { openIssueDetail } from '@/test/kits/projects/issueDetailStubs'
+import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 
 import {
   createAgentComment,

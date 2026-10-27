@@ -7,7 +7,8 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { openIssueDetail, recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
+import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 import type { IssueAttachment } from '@/types/attachment'
 
 import { createAttachment } from '../../../e2e/factories/attachment.factory'

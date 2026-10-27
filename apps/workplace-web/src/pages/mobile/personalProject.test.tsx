@@ -2,17 +2,19 @@
 // 개인 툴바 구성(뷰·에픽 칩 없음, 저장 뷰 조회 없음, 체크리스트/보드 토글), 그룹 시트 선택지, 보드 카드 → 전체 화면 상세,
 // 속성 칩 저장(상태 PATCH·라벨/담당자 PUT·라벨 만들기 POST), 제목 편집 Esc 취소·저장은 요청·조건부 렌더라
 // e2e/pages/mobile/personal-project.spec.ts 에서 옮겼다. 전체 화면 레이어·토스트 겹침·입력줄 위치·행 폭 같은 기하와 시스템 뒤로가기는 그 E2E 가 지킨다.
+// 앱 셸을 보지 않으므로 이슈 목록 화면(ProjectDetailPage)만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { createChatMessagePage, createChatThread } from '../../../e2e/factories/chat.factory'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createLabel, toLabelSummary } from '../../../e2e/factories/label.factory'
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
+import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 mockViewport()
 
@@ -69,8 +71,8 @@ function stubPersonal() {
 /** 작업 상세(?task=1)를 띄운다. */
 async function openTask() {
   const p = stubPersonal()
-  const view = renderPage(`/projects/${KEY}?task=1`, { handlers: p.handlers })
-  await screen.findByTestId('personal-task-mobile', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?task=1`, handlers: p.handlers })
+  await screen.findByTestId('personal-task-mobile')
   // 칩은 상세 조회가 끝난 뒤 그려진다.
   await screen.findByTestId('mobile-prop-status')
   return { ...view, seen: p.seen }
@@ -78,8 +80,8 @@ async function openTask() {
 
 test('개인 툴바 — 뷰·에픽 칩 없이 필터·그룹·검색·체크리스트 토글, 토글하면 보드로, 저장 뷰는 조회하지 않는다', async () => {
   const p = stubPersonal()
-  const { user, location } = renderPage(`/projects/${KEY}`, { handlers: p.handlers })
-  const bar = await screen.findByTestId('mobile-issue-toolbar', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user, location } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: p.handlers })
+  const bar = await screen.findByTestId('mobile-issue-toolbar')
   expect(await screen.findByTestId('personal-checklist')).toBeInTheDocument()
   expect(within(bar).queryByTestId('mobile-chip-view')).not.toBeInTheDocument()
   expect(within(bar).queryByTestId('mobile-chip-epic')).not.toBeInTheDocument()
@@ -96,8 +98,8 @@ test('개인 툴바 — 뷰·에픽 칩 없이 필터·그룹·검색·체크리
 
 test('그룹 시트 선택지는 없음·상태·우선순위 세 가지', async () => {
   const p = stubPersonal()
-  const { user } = renderPage(`/projects/${KEY}`, { handlers: p.handlers })
-  await user.click(await screen.findByTestId('mobile-chip-group', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const { user } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: p.handlers })
+  await user.click(await screen.findByTestId('mobile-chip-group'))
   const group = await screen.findByTestId('mobile-group-sheet')
   expect(within(group).getAllByRole('option')).toHaveLength(3)
   for (const v of ['none', 'status', 'priority']) expect(within(group).getByTestId(`picker-option-${v}`)).toBeInTheDocument()
@@ -105,8 +107,8 @@ test('그룹 시트 선택지는 없음·상태·우선순위 세 가지', async
 
 test('보드 카드를 눌러도 모달 대신 같은 전체 화면 상세가 열린다(칩 순서 = 상태·우선순위·마감·담당자·라벨)', async () => {
   const p = stubPersonal()
-  const { user } = renderPage(`/projects/${KEY}?view=board`, { handlers: p.handlers })
-  const card = await screen.findByTestId('issue-card-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const { user } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?view=board`, handlers: p.handlers })
+  const card = await screen.findByTestId('issue-card-1')
   await user.click(within(card).getByRole('link'))
   const layer = await screen.findByTestId('personal-task-mobile')
   expect(screen.queryByTestId('personal-task-modal')).not.toBeInTheDocument()

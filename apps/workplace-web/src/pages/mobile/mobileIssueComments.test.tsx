@@ -1,11 +1,12 @@
 // 모바일 이슈 코멘트 삭제(WP-223) — 페이지 테스트(WP-981).
 // ⋯ → 액션 시트 → 삭제 확인창(취소면 유지, 확인이면 DELETE 후 목록에서 사라짐)은 브라우저 없이 판정되므로
 // e2e/pages/mobile/issue-comments.spec.ts 에서 옮겼다. ⋯ 44px·인라인 수정(Tiptap 입력)·카드 폭(@layout·@input)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 이슈 상세 화면만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueCommentResponse } from '@/types/issue'
 
@@ -13,6 +14,7 @@ import { createChatThread } from '../../../e2e/factories/chat.factory'
 import { createComment, createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeTaskType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import IssueDetailPage from '../projects/IssueDetailPage'
 
 // 휴대폰 폭·터치 포인터 — hover 아이콘 대신 ⋯ → 액션 시트가 그려진다.
 mockViewport()
@@ -26,7 +28,8 @@ async function open(initial: IssueCommentResponse[]) {
   let comments = [...initial]
   const deletes: number[] = []
   const issue = createIssue({ id: ISSUE_ID, number: 7, projectKey: KEY, type: makeTaskType(), title: '코멘트 액션 이슈' })
-  const view = renderPage(`/projects/${KEY}/issues/7`, {
+  const view = renderMobileRoute('/projects/:key/issues/:number', <IssueDetailPage />, {
+    path: `/projects/${KEY}/issues/7`,
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY }))),
       http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
@@ -42,7 +45,7 @@ async function open(initial: IssueCommentResponse[]) {
       }),
     ],
   })
-  await screen.findByTestId('issue-title-heading', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('issue-title-heading')
   return { ...view, deletes }
 }
 

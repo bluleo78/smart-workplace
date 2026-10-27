@@ -1,11 +1,11 @@
-// 이슈 목록 사이클 구간 드래그(#881) — 비멤버 드래그 차단 판정의 페이지 테스트(WP-971).
+// 이슈 목록 사이클 구간 드래그(#881) — 비멤버 드래그 차단 판정의 화면 테스트(WP-971, WP-1002 에서 목록 화면(ProjectDetailPage)만 띄우게 바꿈).
 // 행이 끌 수 있는 행(dnd-kit 속성·aria-roledescription)인지는 권한에 따른 조건부 렌더라 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-list-cycle-dnd.spec.ts 에서 옮겼다. 실제 끌어 놓기·키보드 끌기·되돌리기(@input)는 E2E 에 남는다.
 import { screen, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import type { CycleResponse } from '@/types/cycle'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
@@ -20,7 +20,7 @@ const CYCLES: CycleResponse[] = [
 /** 진행 중 사이클 하나에 #12 를 둔 목록을 연다. 이동 요청이 나가면 moves 에 쌓인다. */
 async function openList(member: boolean) {
   const moves: unknown[] = []
-  const view = renderPage(`/projects/${KEY}`, {
+  const view = renderProjectScreen(`/projects/${KEY}`, {
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ viewerIsMember: member }))),
       http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 10, name: '김개발', username: 'kim' })])),
@@ -36,7 +36,7 @@ async function openList(member: boolean) {
       }),
     ],
   })
-  const section = await screen.findByTestId('list-cycle-section-cycle-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const section = await screen.findByTestId('list-cycle-section-cycle-1')
   const row = await within(section).findByTestId('issue-row-12')
   return { ...view, row, moves }
 }

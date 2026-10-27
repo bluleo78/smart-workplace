@@ -3,11 +3,13 @@
 // 409 오류 문구, 「상태 관리…」 이동, MEMBER 의 편집 항목 숨김, statusId 필터 탭은 브라우저 없이 판정되므로
 // e2e/pages/mobile/board-custom-status.spec.ts 에서 옮겼다. 탭 띠 색(계산 스타일)·터치 크기·넘침·탭 스크롤(@layout)과
 // 보드 배선(@wiring)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 앱 대신 보드(ProjectDetailPage)와 「상태 관리…」 도착지인 프로젝트 설정 화면 두 라우트만 renderScreen 으로 띄운다(WP-1002).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
+import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileScreen } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 import type { ProjectStatus } from '@/types/projectStatus'
@@ -15,6 +17,8 @@ import type { ProjectStatus } from '@/types/projectStatus'
 import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import { inServerOrder, makeProjectStatus, withCustomStatuses } from '../../../e2e/factories/projectStatus.factory'
+import ProjectDetailPage from '../projects/ProjectDetailPage'
+import ProjectSettingsPage from '../projects/ProjectSettingsPage'
 
 // 휴대폰 폭·터치 포인터 — 보드가 모바일 탭 보기로 그려지게 한다.
 mockViewport()
@@ -91,8 +95,14 @@ function boardApi({
 /** 보드를 query 로 열고 탭 줄이 뜰 때까지 기다린다. */
 async function open(query: string, opts: Parameters<typeof boardApi>[0] = {}) {
   const api = boardApi(opts)
-  const view = renderPage(`/projects/${KEY}?view=board&group=none${query}`, { handlers: api.handlers })
-  await screen.findByTestId('board-tabs', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderMobileScreen(
+    <Routes>
+      <Route path="/projects/:key" element={<ProjectDetailPage />} />
+      <Route path="/projects/:key/settings" element={<ProjectSettingsPage />} />
+    </Routes>,
+    { path: `/projects/${KEY}?view=board&group=none${query}`, handlers: api.handlers },
+  )
+  await screen.findByTestId('board-tabs')
   return { ...view, ...api }
 }
 
@@ -104,7 +114,7 @@ function tabIds() {
 }
 
 /** 현재 탭 ⋯ 시트를 열고 항목을 누른다. */
-async function openTabMenuItem(user: ReturnType<typeof renderPage>['user'], item: string) {
+async function openTabMenuItem(user: ReturnType<typeof renderMobileScreen>['user'], item: string) {
   await user.click(await screen.findByTestId('board-tab-menu'))
   await user.click(await screen.findByTestId(item))
 }
@@ -167,7 +177,7 @@ describe('모바일 보드 — 상태 탭 동작', () => {
     const { user, location } = await open('&boardTab=12', {})
     await openTabMenuItem(user, 'mobile-action-status-manage')
     // 설정 「상태」 섹션 행이 뜨는지까지 본다(주소의 #statuses 해시는 location() 에 없다).
-    expect(await screen.findByTestId('status-row-12', {}, { timeout: PAGE_LOAD_TIMEOUT })).toHaveTextContent('리뷰 대기')
+    expect(await screen.findByTestId('status-row-12')).toHaveTextContent('리뷰 대기')
     expect(location()).toBe(`/projects/${KEY}/settings`)
     expect(screen.getByTestId('settings-statuses')).toBeInTheDocument()
   })

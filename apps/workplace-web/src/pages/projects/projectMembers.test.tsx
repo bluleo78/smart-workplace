@@ -1,4 +1,4 @@
-// 개인 프로젝트 AI 어시스턴트 추가(#418) — 페이지 테스트(WP-980).
+// 개인 프로젝트 AI 어시스턴트 추가(#418) — 화면 테스트(WP-980, WP-1002 에서 멤버 섹션만 띄우게 바꿈).
 // 「AI 어시스턴트 추가」 → AGENT 후보 선택 → POST payload → 토스트·표 갱신은 브라우저 없이 판정되므로
 // e2e/pages/projects/project-members.spec.ts 에서 옮겼다(그 spec 은 모두 옮겨 지웠다).
 // 모드 분기(agentOnly 헤딩·탭 숨김·kind=AGENT 조회)는 MemberManagement.test.tsx·MemberSearchPopover.test.tsx 가 맡는다.
@@ -6,8 +6,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
+import { MemberManagement } from '@/pages/projects/components/MemberManagement'
 import { projectSettingsHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 import type { MemberSummary } from '@/types/member'
 
 import { createProject } from '../../../e2e/factories/project.factory'
@@ -24,7 +25,9 @@ test('개인 프로젝트 설정 → AI 어시스턴트 추가 → POST {userId,
   const members: unknown[] = [{ userId: 1, username: 'me', name: 'Me', kind: 'HUMAN', role: 'OWNER', createdAt: null }]
   const posts: unknown[] = []
   const project = createProject({ id: 10, key: KEY, name: '내 프로젝트', type: 'PERSONAL', isDefault: false })
-  const { user } = renderPage(`/projects/${KEY}/settings`, {
+  // 설정의 「멤버」 섹션만 띄운다 — 개인 프로젝트면 설정 화면이 AI 어시스턴트 전용(agentOnly)·주인 id 로 그린다.
+  const { user } = renderScreen(<MemberManagement projectKey={KEY} agentOnly ownerId={project.ownerId} canManage />, {
+    path: `/projects/${KEY}/settings`,
     handlers: [
       http.get('/api/v1/members', ({ request }) => {
         const url = new URL(request.url)
@@ -43,7 +46,7 @@ test('개인 프로젝트 설정 → AI 어시스턴트 추가 → POST {userId,
       ...projectSettingsHandlers(project, () => members),
     ],
   })
-  const addBtn = await screen.findByTestId('member-add-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const addBtn = await screen.findByTestId('member-add-trigger')
   expect(addBtn).toHaveTextContent('AI 어시스턴트 추가')
   await user.click(addBtn)
   const popover = await screen.findByTestId('member-search-popover')

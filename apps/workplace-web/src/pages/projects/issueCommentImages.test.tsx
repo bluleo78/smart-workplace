@@ -5,7 +5,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test } from 'vitest'
 
-import { openIssueDetail } from '@/test/kits/projects/issueDetailStubs'
+import { openIssueDetail } from '@/test/kits/projects/openIssueDetail'
 
 import { createComment, createIssueDetail } from '../../../e2e/factories/issue.factory'
 

@@ -2,16 +2,22 @@
 // 진행바 색 칸·집계 문구, 헤더의 프로젝트 복귀, 생성(입력 상한)·종료일 역전 차단·수정·삭제 payload,
 // 이슈 상세 사이클 피커 PUT(완료 사이클 규칙 WP-659), 목록 사이클 필터 → 요청 cycle=1 은 브라우저 없이 판정되므로
 // e2e/pages/projects/cycles.spec.ts 에서 옮겼다. 그 spec 에는 사이클 화면 배선 1건(@wiring)과 실제 오프라인 저장(@platform)이 남는다.
+// 화면 테스트(WP-1002) — 사이클 화면(CyclesPage)·이슈 상세의 사이클 피커(CyclePickerPopover)는 그것만, 목록 필터는 필터 바와 목록 검색이
+// 한 화면에서 이어져 프로젝트 상세 화면만 renderScreen 으로 띄운다(App·앱 셸 없이).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { CyclePickerPopover } from '@/components/cycle/CyclePickerPopover'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { renderRouteScreen, SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { server } from '@/test/msw/server'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 import type { CycleProgress, CycleResponse, CycleSummary } from '@/types/cycle'
 
-import { createIssue, createIssueDetail, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
-import { createMember, createProject } from '../../../e2e/factories/project.factory'
+import { createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import { createProject } from '../../../e2e/factories/project.factory'
+import CyclesPage from './CyclesPage'
 
 const KEY = 'WP'
 const CYCLES = `/api/v1/projects/${KEY}/cycles`
@@ -27,14 +33,14 @@ function createCycle(overrides: Partial<CycleResponse> = {}): CycleResponse {
 
 /** 사이클 화면 — cycles 는 매 GET 마다 읽는다(쓰기 핸들러가 바꾸면 재조회에 반영). */
 async function openCycles(cycles: { current: CycleResponse[] }, progress: CycleProgress[] = []) {
-  const view = renderPage(`/projects/${KEY}/cycles`, {
+  const view = renderRouteScreen('/projects/:key/cycles', <CyclesPage />, `/projects/${KEY}/cycles`, {
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
       http.get(CYCLES, () => HttpResponse.json(cycles.current)),
       http.get(`${CYCLES}/progress`, () => HttpResponse.json(progress)),
     ],
   })
-  await screen.findByTestId('page-header', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('page-header', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   if (cycles.current.length) await screen.findByTestId(`cycle-row-${cycles.current[0].id}`)
   else await screen.findByText('아직 사이클이 없습니다.')
   return view
@@ -62,13 +68,9 @@ describe('사이클 관리', () => {
     const { user, location } = await openCycles({ current: [] })
     const header = screen.getByTestId('page-header')
     expect(header).toHaveTextContent(KEY)
-    // 돌아간 화면이 부르는 조회.
-    server.use(
-      http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
-      http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json(createIssueSearchResponse([]))),
-    )
+    // 돌아간 화면은 그리지 않는다(사이클 화면만 띄웠다) — 이동 주소만 본다.
     await user.click(within(header).getByRole('button', { name: '프로젝트로 돌아가기' }))
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}`), { timeout: SCREEN_LOAD_TIMEOUT })
   })
 
   test('새 사이클 — 이름·목표는 서버 상한(60·2000자)에서 더 들어가지 않고, 저장하면 POST 한다 (WP-687)', async () => {
@@ -179,20 +181,13 @@ describe('사이클 관리', () => {
   })
 })
 
-/** 이슈 상세 — 사이클 목록과 이 이슈에 붙은 사이클(PUT 은 puts 에 모으고 반영). */
+/** 이슈 상세 속성 레일의 사이클 피커 — 사이클 목록과 이 이슈에 붙은 사이클(PUT 은 puts 에 모으고 반영). */
 async function openIssue(cycles: CycleResponse[], attached: CycleSummary[]) {
   const puts: unknown[] = []
   let current = attached
-  const view = renderPage(`/projects/${KEY}/issues/1`, {
+  const view = renderScreen(<CyclePickerPopover projectKey={KEY} issueNumber={1} />, {
+    path: `/projects/${KEY}/issues/1`,
     handlers: [
-      http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
-      http.get(`/api/v1/projects/${KEY}/members`, () =>
-        HttpResponse.json([createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' })]),
-      ),
-      http.get(ISSUE, () => HttpResponse.json(createIssueDetail({ summary: createIssue({ id: 1, number: 1, title: '사이클 테스트 이슈' }) }))),
-      ...['watchers', 'labels', 'attachments', 'children'].map((sub) => http.get(`${ISSUE}/${sub}`, () => HttpResponse.json([]))),
-      http.get(`/api/v1/projects/${KEY}/fields`, () => HttpResponse.json([])),
-      http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json(createIssueSearchResponse([]))),
       http.get(CYCLES, () => HttpResponse.json(cycles)),
       http.get(`${ISSUE}/cycles`, () => HttpResponse.json(current)),
       http.put(`${ISSUE}/cycles`, async ({ request }) => {
@@ -203,7 +198,7 @@ async function openIssue(cycles: CycleResponse[], attached: CycleSummary[]) {
       }),
     ],
   })
-  await screen.findByTestId('cycle-picker-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('cycle-picker-trigger', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return { ...view, puts }
 }
 
@@ -249,7 +244,7 @@ describe('사이클 필터 — 이슈 목록', () => {
   test('「＋ 필터 › 사이클 › 스프린트 1」을 고르면 칩이 생기고 URL·검색 요청에 cycle=1 이 실린다', async () => {
     const searches: URL[] = []
     // group=none — 진행 중 사이클이 있으면 목록 기본이 사이클 그룹(#878)이라 그 구간이 이미 cycle=1 로 요청한다.
-    const { user, location } = renderPage(`/projects/${KEY}?group=none`, {
+    const { user, location } = renderProjectScreen(`/projects/${KEY}?group=none`, {
       handlers: [
         http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
         http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
@@ -260,7 +255,7 @@ describe('사이클 필터 — 이슈 목록', () => {
         }),
       ],
     })
-    await user.click(await screen.findByTestId('add-filter-trigger', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+    await user.click(await screen.findByTestId('add-filter-trigger', {}, { timeout: SCREEN_LOAD_TIMEOUT }))
     await user.click(await screen.findByTestId('add-filter-facet-cycle'))
     await user.click(await screen.findByTestId('facet-value-cycle-1'))
     expect(await screen.findByTestId('filter-chip-cycle')).toBeInTheDocument()

@@ -2,16 +2,18 @@
 // 유효성 오류·버림 확인·칩으로 고른 속성의 POST payload·하위 태스크 전환·✦ AI 제안·개인 프로젝트 칩 구성은
 // 브라우저 없이 판정되므로 e2e/pages/mobile/issue-create.spec.ts 에서 옮겼다.
 // 전체 화면 크기·자라는 입력칸·칩 줄 스크롤(@layout), IME·포커스 복귀·스와이프(@input), 시스템 back(@platform)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 이슈 목록 화면(ProjectDetailPage)만 renderScreen 으로 띄운다(WP-1002).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType, systemTypes } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
+import ProjectDetailPage from '../projects/ProjectDetailPage'
 
 // 휴대폰 폭·터치 포인터 — 「＋」가 전체 화면 생성 시트(MobileIssueCreateSheet)를 연다.
 mockViewport()
@@ -46,8 +48,8 @@ function projectApi(key = KEY, project = createProject({ key }), list = [EPIC]) 
 /** 목록을 열고 「＋」로 생성 시트를 연다. */
 async function openSheet() {
   const api = projectApi()
-  const page = renderPage(`/projects/${KEY}`, { handlers: api.handlers })
-  await page.user.click(await screen.findByTestId('mobile-new-issue', {}, { timeout: PAGE_LOAD_TIMEOUT }))
+  const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}`, handlers: api.handlers })
+  await page.user.click(await screen.findByTestId('mobile-new-issue'))
   const sheet = await screen.findByTestId('issue-create-sheet')
   return { ...page, api, sheet }
 }
@@ -160,8 +162,8 @@ describe('모바일 이슈 생성 시트 — 개인 프로젝트', () => {
     // 개인 프로젝트는 유형·에픽 개념을 쓰지 않는다 — 프로젝트 type 에 따른 칩 구성 분기.
     const PKEY = 'PME'
     const api = projectApi(PKEY, createProject({ id: 7, key: PKEY, name: '개인 작업', type: 'PERSONAL', isDefault: true }), [])
-    const { user } = renderPage(`/projects/${PKEY}`, { handlers: api.handlers })
-    const header = await screen.findByTestId('page-header', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${PKEY}`, handlers: api.handlers })
+    const header = await screen.findByTestId('page-header')
     // 빈 개인 목록은 본문에도 「빠른 추가」가 있어 머리말의 버튼으로 좁힌다.
     await user.click(await within(header).findByRole('button', { name: '빠른 추가' }))
     await screen.findByTestId('issue-create-sheet')

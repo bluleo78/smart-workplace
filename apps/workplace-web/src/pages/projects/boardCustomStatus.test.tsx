@@ -3,11 +3,13 @@
 // 컬럼에서 이슈 추가 중 상태가 지워진 경우·역할/개인 프로젝트별 편집 진입점·「완료 모두 보기」는 브라우저 없이 판정되므로
 // e2e/pages/projects/board-custom-status.spec.ts 에서 옮겼다. 컬럼 배선(@wiring)·띠 기하(@layout)·포커스 복원·IME·카드 끌기(@input)·
 // 설정으로 넘어가는 흐름(@flow)은 E2E 에 남는다.
+// 화면 테스트(WP-1002) — 보드는 상태 게이트·필터 URL·만들기 대화상자가 프로젝트 상세 화면에서 이어져 그 화면만 renderProjectScreen 으로 띄운다(App·앱 셸 없이).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueResponse } from '@/types/issue'
 import type { ProjectStatus } from '@/types/projectStatus'
 
@@ -60,13 +62,13 @@ async function openBoard(
   api: ReturnType<typeof boardApi>,
   { query = '', extra = [], waitFor: col = 'board-col-2' }: { query?: string; extra?: RequestHandler[]; waitFor?: string } = {},
 ) {
-  const view = renderPage(`/projects/${KEY}?view=board${query}`, { handlers: [...extra, ...api.handlers] })
-  await screen.findByTestId(col, {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderProjectScreen(`/projects/${KEY}?view=board${query}`, { handlers: [...extra, ...api.handlers] })
+  await screen.findByTestId(col, {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return view
 }
 
 /** 인라인 입력에 값을 넣고 Enter — 글자 하나하나는 의미가 없어 change 로 채운다. */
-async function submitName(user: ReturnType<typeof renderPage>['user'], value: string) {
+async function submitName(user: ReturnType<typeof renderProjectScreen>['user'], value: string) {
   const input = await screen.findByTestId('status-name-input')
   fireEvent.change(input, { target: { value } })
   await user.type(input, '{Enter}')
@@ -112,13 +114,13 @@ describe('보드 — 프로젝트 상태 컬럼', () => {
   test('상태 목록을 불러오지 못하면 다시 시도를 보이고 보드를 그리지 않으며, 다시 시도 성공 뒤 보드가 그려진다', async () => {
     const api = boardApi()
     let fail = true
-    const { user } = renderPage(`/projects/${KEY}?view=board`, {
+    const { user } = renderProjectScreen(`/projects/${KEY}?view=board`, {
       handlers: [
         http.get(STATUSES_PATH, () => (fail ? HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 }) : undefined)),
         ...api.handlers,
       ],
     })
-    const error = await screen.findByTestId('project-statuses-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const error = await screen.findByTestId('project-statuses-error', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     expect(error).toHaveTextContent('상태 목록을 불러오지 못했습니다')
     expect(screen.queryByTestId('board-scroll')).not.toBeInTheDocument()
     fail = false

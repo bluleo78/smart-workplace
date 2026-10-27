@@ -1,25 +1,41 @@
 // 이슈 상세의 수정 버전·영향 버전 줄(WP-888) — 페이지 테스트(WP-971).
 // 피커로 붙이기 → PUT 본문(보낸 종류만), 400 오류 → 토스트, 보관 버전의 피커 노출 규칙은 브라우저 없이 판정되므로
 // e2e/pages/issue-versions.spec.ts 에서 옮겼다. 화면 배선(버전 목록·상세)과 화면을 넘는 흐름(필터 → URL, 타임라인 → 상세)은 E2E 에 남는다.
+// 이슈 상세 화면 전체 대신 속성 레일과 같은 배선(상세 조회의 붙은 버전 → 두 줄)만 renderScreen 으로 띄운다(WP-1002) —
+// PUT 뒤 상세 재조회가 칩으로 다시 내려오는 것까지 MSW 로 지난다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import { IssueVersionsField } from '@/components/versions/IssueVersionsField'
+import { useIssue } from '@/hooks/queries/useIssue'
 import { BASE, KEY, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 
 import { createVersion, toVersionSummary } from '../../../e2e/factories/version.factory'
 
 const V1 = createVersion({ id: 1, name: '1.0.0' })
 const V2 = createVersion({ id: 2, name: '1.1.0' })
 
+/** 속성 레일(IssuePropertyRail)과 같은 배선 — 이슈 상세 조회의 붙은 버전을 수정·영향 버전 줄에 넘긴다. */
+function VersionRows() {
+  const { data } = useIssue(KEY, 1)
+  if (!data) return null
+  return (
+    <>
+      <IssueVersionsField projectKey={KEY} issueNumber={1} kind="fix" current={data.summary.fixVersions ?? []} />
+      <IssueVersionsField projectKey={KEY} issueNumber={1} kind="affects" current={data.summary.affectsVersions ?? []} />
+    </>
+  )
+}
+
+const renderRows = (handlers: RequestHandler[]) => renderScreen(<VersionRows />, { path: `/projects/${KEY}/issues/1`, handlers })
+
 /** 이슈 상세를 열고 수정 버전 줄이 뜰 때까지 기다린다. extra 는 PUT 등 이 테스트의 응답. */
 async function openIssue(opts: VersionApiOptions, extra: RequestHandler[] = []) {
   const api = versionApi(opts)
-  const view = renderPage(`/projects/${KEY}/issues/1`, {
-    handlers: [...extra, ...api.handlers],
-  })
-  await screen.findByTestId('issue-fix-versions-field', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderRows([...extra, ...api.handlers])
+  await screen.findByTestId('issue-fix-versions-field')
   return { ...view, api }
 }
 
@@ -29,19 +45,17 @@ describe('이슈 상세 — 버전 피커', () => {
     // 서버 상태 — PUT 뒤 상세 재조회가 붙은 칩을 돌려준다.
     let attached = [toVersionSummary(V1)]
     const api = versionApi({ versions: [V1, V2], issue: { fixVersions: attached, affectsVersions: [] } })
-    const view = renderPage(`/projects/${KEY}/issues/1`, {
-      handlers: [
-        http.put(`${BASE}/issues/1/versions`, async ({ request }) => {
-          const body = (await request.json()) as { fixVersionIds: number[] }
-          puts.push(body)
-          attached = [V1, V2].filter((v) => body.fixVersionIds.includes(v.id)).map(toVersionSummary)
-          api.issue.fixVersions = attached
-          return HttpResponse.json({ fixVersions: attached, affectsVersions: [] })
-        }),
-        ...api.handlers,
-      ],
-    })
-    await screen.findByTestId('issue-fix-versions-field', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const view = renderRows([
+      http.put(`${BASE}/issues/1/versions`, async ({ request }) => {
+        const body = (await request.json()) as { fixVersionIds: number[] }
+        puts.push(body)
+        attached = [V1, V2].filter((v) => body.fixVersionIds.includes(v.id)).map(toVersionSummary)
+        api.issue.fixVersions = attached
+        return HttpResponse.json({ fixVersions: attached, affectsVersions: [] })
+      }),
+      ...api.handlers,
+    ])
+    await screen.findByTestId('issue-fix-versions-field')
     expect(screen.getByTestId('issue-fix-versions')).toHaveTextContent('1.0.0')
     expect(screen.getByTestId('issue-affects-versions-field')).toBeInTheDocument()
 

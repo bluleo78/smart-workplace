@@ -2,11 +2,12 @@
 // 에픽 묶음 머리·완료 보기 결과 배지·프로젝트 머리 순서·다음 회차 대기 라벨은 API 응답이 화면 문구·순서로 바뀌는 것이라
 // 브라우저 없이 판정되므로 e2e/pages/mobile/ai-tasks.spec.ts 에서 옮겼다.
 // 메타 줄 잘림·칩 줄 가로 스크롤(@layout)과 대표 행 구조(@wiring)는 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 AI 위임 작업 화면 컴포넌트만 renderScreen 으로 띄운다(WP-1002).
 import { screen, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 
@@ -21,6 +22,7 @@ import {
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { GROUPED_ROWS } from '../../../e2e/fixtures/ai-tasks-groups'
 import { projectRows } from '../../../e2e/fixtures/ai-tasks-projects'
+import AiDelegatedTasksPage from '../me/AiDelegatedTasksPage'
 
 // 모바일(iPhone 13 폭·터치) — matchMedia 결과가 파일 안에서 캐시되므로 첫 렌더 전에 한 번.
 mockViewport()
@@ -40,8 +42,8 @@ function aiTaskHandlers(rows: IssueResponse[], counts: Parameters<typeof createA
 describe('모바일 AI 위임 작업', () => {
   // 에픽 묶음 머리는 키·하위 진행(└ 완료/전체)을 보이고, 에픽 자신 작업이 있을 때만 머리 아래 메타 줄을 그린다.
   test('묶음 머리 — 키·하위 진행, 에픽 자신 작업이 있는 묶음만 메타 줄', async () => {
-    renderPage('/me/ai-tasks', { handlers: aiTaskHandlers(GROUPED_ROWS, { all: 8 }) })
-    const head = await screen.findByTestId('ai-epic-412', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(GROUPED_ROWS, { all: 8 }) })
+    const head = await screen.findByTestId('ai-epic-412')
     expect(head).toHaveTextContent('WP-412')
     expect(head).toHaveTextContent('└ 1/5')
     expect(screen.getByTestId('ai-epic-412-meta')).toBeInTheDocument()
@@ -55,8 +57,8 @@ describe('모바일 AI 위임 작업', () => {
       id: 602, number: 602, title: '대용량 첨부 미리보기 생성 실패 원인 조사', status: 'IN_PROGRESS', assignees: [agent],
       agentWork: [createAgentWork({ state: 'FAILED', note: '샌드박스 메모리 한도 초과로 중단', updatedAt: minutesAgo(3 * 24 * 60), endedAt: minutesAgo(20) })],
     })
-    renderPage('/me/ai-tasks?state=DONE', { handlers: aiTaskHandlers([failed], { all: 3, done: 1 }) })
-    const state = await screen.findByTestId('ai-row-602-state', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks?state=DONE', handlers: aiTaskHandlers([failed], { all: 3, done: 1 }) })
+    const state = await screen.findByTestId('ai-row-602-state')
     expect(state).toHaveTextContent(/^실패$/)
     expect(state).toHaveClass('bg-destructive/10')
     expect(screen.getByTestId('ai-row-602-last')).toHaveTextContent(/^종료 20분 전$/)
@@ -64,8 +66,8 @@ describe('모바일 AI 위임 작업', () => {
 
   // WP-426: 프로젝트 머리 줄은 목록 맨 앞과 프로젝트가 바뀌는 자리에 오고, 건수는 서버 값(aiProject.size)이다.
   test('프로젝트 머리 줄이 목록 맨 앞과 프로젝트가 바뀌는 자리에 온다', async () => {
-    renderPage('/me/ai-tasks', { handlers: aiTaskHandlers(projectRows(), { all: 11 }) })
-    const firstRow = await screen.findByTestId('ai-row-2061', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(projectRows(), { all: 11 }) })
+    const firstRow = await screen.findByTestId('ai-row-2061')
     const list = firstRow.closest('ul')!
     const ids = within(list)
       .getAllByRole('listitem')
@@ -82,8 +84,8 @@ describe('모바일 AI 위임 작업', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(KST_1430))
     const rows = [createScheduledIssue(601, '주간 리포트 생성', { note: '다른 작업에 양보했어요' })]
-    renderPage('/me/ai-tasks', { handlers: aiTaskHandlers(rows, { all: 1, scheduled: 1 }) })
-    await screen.findByTestId('ai-row-601', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(rows, { all: 1, scheduled: 1 }) })
+    await screen.findByTestId('ai-row-601')
     expect(screen.getByTestId('ai-row-601-state')).toHaveTextContent('다음 회차 대기')
     expect(screen.getByTestId('ai-row-601-next-run')).toHaveTextContent(/^내일 09:00 이후$/)
     expect(screen.getByTestId('ai-row-601-meta')).toHaveTextContent('내일 09:00 이후')

@@ -3,12 +3,12 @@
 // 합성 에픽 진행률, 빈 상태 분기, 완료·취소 에픽 표시, 상태 목록 관문(로딩·실패·다시 시도)은 브라우저 없이 판정되므로
 // e2e/pages/mobile/timeline.spec.ts 에서 옮겼다. 들여쓰기·막대·오늘 선·가운데 정렬·스크롤(@layout),
 // 새로고침 뒤 펼침 유지(@platform), 화면 배선(@wiring)은 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 타임라인 화면만 renderScreen 으로 띄운다 — 행 탭 뒤 상세는 그리지 않고 이동 주소만 본다(WP-1002).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { server } from '@/test/msw/server'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { CycleResponse } from '@/types/cycle'
 import type { IssueResponse } from '@/types/issue'
@@ -18,6 +18,7 @@ import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/i
 import { makeEpicType } from '../../../e2e/factories/issueType.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
 import { inServerOrder, withCustomStatuses } from '../../../e2e/factories/projectStatus.factory'
+import TimelinePage from '../projects/timeline/TimelinePage'
 
 // 휴대폰 폭·터치 포인터 — 타임라인이 간트 대신 아젠다로 그려지게 한다.
 mockViewport()
@@ -96,8 +97,8 @@ async function open(opts: Opts = {}) {
   const period = opts.period === undefined ? 'all' : opts.period
   if (period) params.set('period', period)
   const qs = params.toString()
-  const view = renderPage(`/projects/${KEY}/timeline${qs ? `?${qs}` : ''}`, { handlers: handlers(opts) })
-  if (opts.waitAgenda ?? true) await screen.findByTestId('timeline-agenda', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderMobileRoute('/projects/:key/timeline', <TimelinePage />, { path: `/projects/${KEY}/timeline${qs ? `?${qs}` : ''}`, handlers: handlers(opts) })
+  if (opts.waitAgenda ?? true) await screen.findByTestId('timeline-agenda')
   return view
 }
 
@@ -106,14 +107,8 @@ describe('모바일 타임라인 — 행', () => {
   test('행 탭 → 이슈 상세', async () => {
     const { user, location } = await open()
     await user.click(screen.getByTestId('agenda-toggle-40'))
-    // 상세 화면 조회는 관심사가 아니라 404 로 막는다(주소만 본다).
-    server.use(
-      http.get(`/api/v1/projects/${KEY}/issues/42`, () => HttpResponse.json({ message: '없음' }, { status: 404 })),
-      http.get(`/api/v1/projects/${KEY}/issues/42/*`, () => HttpResponse.json([])),
-      http.get('/api/v1/issues/*', () => HttpResponse.json([])),
-    )
     await user.click(await screen.findByTestId('agenda-row-42'))
-    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues/42`), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/issues/42`))
   })
 
   // WP-646 — 차단된 이슈 행에만 ⛔ 표시, 행 접근 이름에도 「차단됨」.
@@ -207,7 +202,7 @@ describe('모바일 타임라인 — 칩·시트', () => {
   // 필터 칩은 활성 수를 보이고, 0건이어도 칩 줄이 남아 필터 시트에서 풀 수 있다.
   test('필터 칩 → 필터 시트(활성 수 표시), 0건이면 빈 상태 + 칩 줄 유지, 지우면 status 가 빠진다', async () => {
     const { user, location } = await open({ query: '?status=DONE', waitAgenda: false })
-    await screen.findByTestId('timeline-agenda-empty', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('timeline-agenda-empty')
     const filter = screen.getByTestId('agenda-chip-filter')
     expect(filter).toHaveTextContent(/^필터 1$/)
     await user.click(filter)
@@ -260,7 +255,7 @@ describe('모바일 타임라인 — 기간(WP-247)', () => {
   // 응답 0건이면 기본(활성) 기간이어도 원인은 필터 — 기간 문구가 아닌 필터 빈 상태.
   test('응답 0건이면 기본 기간이어도 필터 빈 상태 — 기간이 원인이 아님', async () => {
     await open({ query: '?status=DONE', period: null, waitAgenda: false })
-    const empty = await screen.findByTestId('timeline-agenda-empty', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const empty = await screen.findByTestId('timeline-agenda-empty')
     expect(empty).toHaveTextContent('표시할 이슈가 없어요')
     expect(empty).toHaveTextContent('필터를 풀면 더 많은 이슈가 보여요.')
     expect(empty).not.toHaveTextContent('이 기간에 걸친 이슈가 없어요')
@@ -294,7 +289,7 @@ describe('모바일 타임라인 — 상태 목록 관문(WP-938)', () => {
         return HttpResponse.json(inServerOrder(withCustomStatuses('설계')))
       },
     })
-    await waitFor(() => expect(screen.getByTestId('timeline-page')).toHaveTextContent('로딩 중…'), { timeout: PAGE_LOAD_TIMEOUT })
+    await waitFor(() => expect(screen.getByTestId('timeline-page')).toHaveTextContent('로딩 중…'))
     expect(screen.queryByTestId('timeline-agenda')).not.toBeInTheDocument()
     expect(screen.queryByTestId('agenda-chip-filter')).not.toBeInTheDocument()
 
@@ -320,7 +315,7 @@ describe('모바일 타임라인 — 상태 목록 관문(WP-938)', () => {
           ? HttpResponse.json({ status: 500, message: '서버 오류' }, { status: 500 })
           : HttpResponse.json(inServerOrder(withCustomStatuses())),
     })
-    const error = await screen.findByTestId('project-statuses-error', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const error = await screen.findByTestId('project-statuses-error')
     expect(error).toHaveTextContent('상태 목록을 불러오지 못했습니다')
     expect(screen.queryByTestId('timeline-agenda')).not.toBeInTheDocument()
     fail = false

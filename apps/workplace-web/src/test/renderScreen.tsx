@@ -59,3 +59,6 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
   )
   return { ...view, user: userEvent.setup(), queryClient, location: () => current }
 }
+
+/** renderScreen 이 돌려주는 userEvent 인스턴스 타입 — 테스트 안 도우미 함수의 인자 타입으로 쓴다. */
+export type ScreenUser = ReturnType<typeof renderScreen>['user']

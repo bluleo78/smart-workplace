@@ -3,11 +3,14 @@
 // 상태 변경 뒤 목록 검색 캐시 무효화는 브라우저 없이 판정되므로
 // e2e/pages/projects/{issue-title-body-edit,issue-delete,issue-update-cache-invalidation}.spec.ts 에서 옮겼다.
 // IME 조합(@input)·포커스 복원(@input)·긴 제목 줄바꿈(@layout)·버튼 대비(@layout)·history 위치로 출발 목록에 되감기(@platform)는 E2E 에 남는다.
+// 화면 테스트(WP-1002) — 이슈 상세 판정은 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·인증 부팅·앱 셸 없이).
+// 목록 → 상세 → 목록을 넘나드는 캐시 무효화(#175) 한 건만 여러 화면이라 renderPage 로 남는다.
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import { issueBodyDraftKey } from '@/lib/issueBodyDraft'
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailSubHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { API, projectScreen } from '@/test/kits/projects/projectScreens'
 import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
@@ -30,7 +33,7 @@ const settle = (ms = 300) => act(() => new Promise((r) => setTimeout(r, ms)))
 async function openEditable({ patchStatus = 200 }: { patchStatus?: number } = {}) {
   const state = { title: '원본 제목', body: '원본 본문' }
   const patches: Record<string, unknown>[] = []
-  const view = renderPage(`/projects/${KEY}/issues/1`, {
+  const view = renderIssueDetailScreen(`/projects/${KEY}/issues/1`, {
     handlers: [
       http.patch(ISSUE, async ({ request }) => {
         const p = (await request.json()) as Record<string, unknown>
@@ -49,7 +52,7 @@ async function openEditable({ patchStatus = 200 }: { patchStatus?: number } = {}
 }
 
 /** 제목 편집을 열고 입력 값을 바꾼다. */
-async function editTitle(user: ReturnType<typeof renderPage>['user'], value: string) {
+async function editTitle(user: ReturnType<typeof renderIssueDetailScreen>['user'], value: string) {
   await user.click(screen.getByRole('button', { name: '제목 편집' }))
   const input = await screen.findByTestId('issue-title-input')
   fireEvent.change(input, { target: { value } })
@@ -57,7 +60,7 @@ async function editTitle(user: ReturnType<typeof renderPage>['user'], value: str
 }
 
 /** 본문 편집을 열고 값을 바꾼다. */
-async function editBody(user: ReturnType<typeof renderPage>['user'], value: string) {
+async function editBody(user: ReturnType<typeof renderIssueDetailScreen>['user'], value: string) {
   await user.click(await screen.findByRole('button', { name: '본문 편집' }))
   const textarea = await screen.findByTestId('issue-body-textarea')
   fireEvent.change(textarea, { target: { value } })
@@ -214,7 +217,7 @@ describe('삭제 확인 AlertDialog (#161)', () => {
   /** 이슈 2 상세(삭제 대상) — DELETE 는 deletes 에 센다. */
   async function openDeletable(summary: Partial<IssueResponse> = {}) {
     let deletes = 0
-    const view = renderPage(`/projects/${KEY}/issues/2`, {
+    const view = renderIssueDetailScreen(`/projects/${KEY}/issues/2`, {
       handlers: [
         http.delete(`${API}/projects/${KEY}/issues/2`, () => {
           deletes++

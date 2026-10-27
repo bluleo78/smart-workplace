@@ -1,17 +1,18 @@
 // 모바일 내 작업(WP-630·WP-886·WP-916) — 페이지 테스트(WP-981).
 // 우선순위 메타 문구·색, 프로젝트 머리 줄 순서, 할당/구독 탭의 아바타 유무, 마감 지남 표시, 행 탭 이동은 브라우저 없이 판정되므로
 // e2e/pages/mobile/me-tasks.spec.ts 에서 옮겼다. 본문 스크롤·행 폭 같은 기하(@layout)는 E2E 에 남는다.
+// 앱 셸을 보지 않으므로 내 작업 화면만 renderScreen 으로 띄운다 — 행 탭 뒤 상세는 그리지 않고 이동 주소만 본다(WP-1002).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, expect, test, vi } from 'vitest'
 
-import { server } from '@/test/msw/server'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderMobileRoute } from '@/test/kits/mobile/mobileScreen'
 import { mockViewport } from '@/test/viewport'
 import type { IssueResponse } from '@/types/issue'
 import type { UserSummary } from '@/types/user'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
+import MyTasksPage from '../me/MyTasksPage'
 
 mockViewport()
 
@@ -31,7 +32,8 @@ const GROUPED = [
 
 /** 내 작업(할당 탭)을 연다 — /me/issues 가 issues 를 준다. */
 function open(issues: IssueResponse[], path = '/me/tasks/assigned') {
-  return renderPage(path, {
+  return renderMobileRoute('/me/tasks/:tab', <MyTasksPage />, {
+    path,
     handlers: [
       http.get('/api/v1/me/issues', () => HttpResponse.json(createIssueSearchResponse(issues))),
       http.get('/api/v1/me/watched-issues', () => HttpResponse.json(createIssueSearchResponse(issues))),
@@ -46,7 +48,7 @@ test('모바일 메타 — 우선순위는 높음·매우 높음만 빨간 글�
     createIssue({ id: 302, number: 32, title: '로그인 오류', priority: 'HIGH', assignees: [agent] }),
     createIssue({ id: 303, number: 33, title: '아이디어', priority: 'LOWEST', assignees: [agent] }),
   ])
-  const highestMeta = await screen.findByTestId('assigned-row-301-meta', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const highestMeta = await screen.findByTestId('assigned-row-301-meta')
   expect(within(highestMeta).getByText('매우 높음', { exact: true })).toHaveClass('text-destructive')
   expect(within(screen.getByTestId('assigned-row-302-meta')).getByText('높음', { exact: true })).toHaveClass('text-destructive')
   expect(screen.getByTestId('assigned-row-303-meta')).not.toHaveTextContent('낮음')
@@ -55,7 +57,7 @@ test('모바일 메타 — 우선순위는 높음·매우 높음만 빨간 글�
 // 프로젝트 머리 줄(WP-916) — 그 프로젝트 행들 바로 앞에 온다(문서 순서).
 test('내 작업 — 프로젝트 머리 줄이 그 프로젝트 행 위에 있다', async () => {
   open(GROUPED)
-  const exHead = await screen.findByTestId('assigned-row-project-EX-head', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const exHead = await screen.findByTestId('assigned-row-project-EX-head')
   const opsHead = screen.getByTestId('assigned-row-project-OPS-head')
   expect(exHead).toHaveTextContent(EX.name)
   expect(opsHead).toHaveTextContent(OPS.name)
@@ -70,7 +72,7 @@ test('내 작업 — 프로젝트 머리 줄이 그 프로젝트 행 위에 있�
 // 할당 탭은 모두 내 일이라 아바타가 군더더기 — 구독 탭은 담당자가 제각각이라 아바타를 보인다(WP-916).
 test('내 작업 — 할당 탭은 아바타가 없고 구독 탭은 있다', async () => {
   const { user } = open(GROUPED)
-  const row = await screen.findByTestId('assigned-row-301', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const row = await screen.findByTestId('assigned-row-301')
   expect(within(row).queryAllByTestId(/^user-avatar/)).toHaveLength(0)
   await user.click(screen.getByTestId('tab-watched'))
   const watched = await screen.findByTestId('watched-row-301')
@@ -88,7 +90,7 @@ test('내 작업 — 마감 지남은 빨강, 완료는 표시 없음', async ()
     ],
     '/me/tasks/assigned?closed=all',
   )
-  const overdue = await screen.findByTestId('assigned-row-401-due', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const overdue = await screen.findByTestId('assigned-row-401-due')
   expect(overdue).toHaveClass('text-destructive')
   expect(overdue).toHaveTextContent('10월 20일')
   expect(overdue).toHaveTextContent('마감 지남')
@@ -100,13 +102,6 @@ test('내 작업 — 마감 지남은 빨강, 완료는 표시 없음', async ()
 // 행 전체가 탭 대상 — 제목 링크가 아닌 메타 줄을 눌러도 상세로 간다(WP-916).
 test('내 작업 — 메타 줄을 눌러도 행 탭으로 상세 이동', async () => {
   const { location } = open(GROUPED)
-  // 라우터 이동은 transition 이라 상세 페이지 모듈(lazy)을 처음 불러올 때까지 주소가 늦게 바뀐다.
-  // 상세 화면 자체는 이 테스트의 관심사가 아니라 그 조회는 404 로 막는다.
-  server.use(
-    http.get('/api/v1/projects/EX', () => HttpResponse.json({ message: '없음' }, { status: 404 })),
-    http.get('/api/v1/projects/EX/*', () => HttpResponse.json({ message: '없음' }, { status: 404 })),
-    http.get('/api/v1/issues/*', () => HttpResponse.json([])),
-  )
-  fireEvent.click(await screen.findByTestId('assigned-row-301-meta', {}, { timeout: PAGE_LOAD_TIMEOUT }))
-  await waitFor(() => expect(location()).toBe('/projects/EX/issues/31'), { timeout: PAGE_LOAD_TIMEOUT })
+  fireEvent.click(await screen.findByTestId('assigned-row-301-meta'))
+  await waitFor(() => expect(location()).toBe('/projects/EX/issues/31'))
 })

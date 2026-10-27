@@ -7,8 +7,8 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { expect, test, vi } from 'vitest'
 
-import { openIssueDetail } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT } from '@/test/renderPage'
+import { openIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { renderScreen } from '@/test/renderScreen'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
@@ -61,7 +61,7 @@ function renderCreateDialog(classifyStatus?: number) {
 
 test('생성 대화상자 — 제목이 있어야 AI 제안이 켜지고, 제안이 유형·우선순위를 채워 생성 payload 로 실린다', async () => {
   const { user, classifies, creates, onOpenChange } = renderCreateDialog()
-  const dialog = await screen.findByRole('dialog', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const dialog = await screen.findByRole('dialog', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   const aiBtn = within(dialog).getByTestId('ai-classify-btn')
   expect(aiBtn).toBeDisabled()
 
@@ -89,7 +89,7 @@ test('생성 대화상자 — 제목이 있어야 AI 제안이 켜지고, 제안
 
 test('생성 대화상자 — AI 제안이 실패하면 오류 토스트를 띄우고 폼은 그대로 열려 있다', async () => {
   const { user, onOpenChange } = renderCreateDialog(502)
-  const dialog = await screen.findByRole('dialog', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const dialog = await screen.findByRole('dialog', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   await user.click(within(dialog).getByLabelText(/^제목/))
   await user.paste('제목')
   await user.click(within(dialog).getByTestId('ai-classify-btn'))
@@ -111,8 +111,8 @@ test('편집 속성 레일 — 제안의 우선순위·유형·라벨을 각각 
     writes.push({ method: request.method, path: new URL(request.url).pathname, body: await request.json() })
     return HttpResponse.json(detail)
   }
-  // 이슈 상세는 AI 비서·앱 셸 컨텍스트 안에서만 그려져 renderScreen 으로 띄울 수 없다 — 이 한 건만 renderPage(openIssueDetail).
-  const { user } = await openIssueDetail({
+  // 속성 레일의 제안 적용은 상세 화면(우선순위·유형·라벨 칸과 통합 토스트)에서 이어져 — 이슈 상세 화면만 AI 비서 공급자와 함께 띄운다(WP-1002).
+  const { user } = await openIssueDetailScreen({
     key: KEY,
     number: 1,
     detail,

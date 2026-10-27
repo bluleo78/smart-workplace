@@ -2,13 +2,15 @@
 // 딥링크로 연 시트를 닫으면 ?agent 만 지워져 에이전트 관리에 남는 것, 없는 에이전트는 찾을 수 없음 시트가 되는 것은
 // URL 상태라 브라우저 없이 판정되므로 e2e/pages/mobile/back-admin-agent.spec.ts 에서 옮겼다.
 // 브라우저 뒤로가기(goBack)로 시트만 닫히는 것(@platform)은 E2E 에 남는다.
+// 시트·주소는 에이전트 관리 화면 안의 일이라 그 화면 컴포넌트만 renderScreen 으로 띄운다(관리자 라우트 가드는 보지 않는다, WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { MOCK_ADMIN_ROLE, MOCK_USER_ROLE } from '@/test/msw/baseHandlers'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 import { mockViewport } from '@/test/viewport'
+
+import AgentManagementPage from '../admin/AgentManagementPage'
 
 // 모바일(iPhone 13 폭·터치) — matchMedia 결과가 파일 안에서 캐시되므로 첫 렌더 전에 한 번.
 mockViewport()
@@ -33,13 +35,14 @@ const agentHandlers = [
   ),
 ]
 
-const admin = { roles: [MOCK_ADMIN_ROLE, MOCK_USER_ROLE], handlers: agentHandlers }
+/** 관리자 로그인 — 에이전트 관리는 관리자 화면이다. */
+const admin = { auth: { isAdmin: true, hasRole: () => true }, handlers: agentHandlers }
 
 describe('에이전트 상세 시트 딥링크', () => {
   // 딥링크로 들어와 닫기를 누르면 ?agent 만 지운다 — 다른 화면으로 튕기거나 쿼리가 남으면 실패.
   test('딥링크(?agent) → 닫기는 에이전트 관리(/settings/agents)에 남는다', async () => {
-    const { user, location } = renderPage('/settings/agents?agent=100', admin)
-    const drawer = await screen.findByTestId('agent-detail-drawer', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const { user, location } = renderScreen(<AgentManagementPage />, { path: '/settings/agents?agent=100', ...admin })
+    const drawer = await screen.findByTestId('agent-detail-drawer')
     await user.click(within(drawer).getByRole('button', { name: '닫기' }))
     await waitFor(() => expect(location()).toBe('/settings/agents'))
     await waitFor(() => expect(screen.queryByTestId('agent-detail-drawer')).not.toBeInTheDocument())
@@ -47,8 +50,8 @@ describe('에이전트 상세 시트 딥링크', () => {
 
   // 목록에 없는 id 는 빈 시트가 아니라 찾을 수 없음 안내를 보이고, Esc 로 닫으면 ?agent 가 지워진다.
   test('없는 에이전트 딥링크는 찾을 수 없음 시트를 보이고 Esc 로 닫힌다', async () => {
-    const { user, location } = renderPage('/settings/agents?agent=999', admin)
-    expect(await screen.findByTestId('agent-detail-notfound', {}, { timeout: PAGE_LOAD_TIMEOUT })).toBeInTheDocument()
+    const { user, location } = renderScreen(<AgentManagementPage />, { path: '/settings/agents?agent=999', ...admin })
+    expect(await screen.findByTestId('agent-detail-notfound')).toBeInTheDocument()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(location()).toBe('/settings/agents'))
   })

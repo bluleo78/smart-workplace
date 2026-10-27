@@ -1,30 +1,39 @@
 // 이슈 상세 「이력」 탭 활동 타임라인·부모 상태 표시 — 페이지 테스트(WP-980).
 // 날짜 포맷(#320)·enum 한국어 매핑(#157)·상태 이전 문구(WP-809)·유형별 아이콘(#313)·접기/펼치기(#341)·부모 상태 이름(WP-869)은
 // 모두 상세 응답 → 문구·개수로 브라우저 없이 판정되므로 e2e/pages/projects/activity-timeline.spec.ts 에서 옮겼다(그 spec 은 지웠다).
+// 화면 컴포넌트 테스트(WP-1002) — 상세 화면 전체 대신 그 판정을 가진 컴포넌트만 띄운다: 이력은 활동 탭 묶음(IssueBodyTabs),
+// 부모 상태는 속성 레일의 부모 칸(IssueParentSlot). 값은 상세 화면이 넘기는 것과 같은 상세 응답(createIssueDetail)의 필드다.
 import { screen, within } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderScreen } from '@/test/renderScreen'
 import type { IssueDetailResponse, IssueHistoryEntry } from '@/types/issue'
 
 import { createHistoryEntry, createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
 import { makeEpicType } from '../../../e2e/factories/issueType.factory'
 import { createMember } from '../../../e2e/factories/project.factory'
+import { IssueBodyTabs } from './components/IssueBodyTabs'
+import { IssueParentSlot } from './components/IssueParentSlot'
 
 const KEY = 'WP'
 const OWNER = createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' })
 
-/** 상세를 띄운다 — 제목이 보일 때까지 기다린다. */
-async function openDetail(detail: IssueDetailResponse) {
-  const view = renderPage(`/projects/${KEY}/issues/1`, { handlers: issueDetailHandlers({ key: KEY, detail, members: [OWNER] }) })
-  await screen.findByTestId('issue-title-edit', {}, { timeout: PAGE_LOAD_TIMEOUT })
-  return view
+/** 상세의 부모 칸만 띄운다 — 상세 화면이 summary.parent 를 그대로 넘기는 것과 같다(일반 이슈 = 「상위 에픽」). */
+function openDetail(detail: IssueDetailResponse) {
+  return renderScreen(
+    <IssueParentSlot projectKey={KEY} issueNumber={detail.summary.number} parent={detail.summary.parent ?? null} isSubtask={false} />,
+    { path: `/projects/${KEY}/issues/1` },
+  )
 }
 
-/** 이력 탭을 열고 활동 타임라인 목록을 돌려준다 — 활동 섹션은 「이력」 탭 안에 있다(#343). */
+/** 이력 탭을 열고 활동 타임라인 목록을 돌려준다 — 활동 섹션은 「이력」 탭 안에 있다(#343). 코멘트 탭의 작성창이 멤버를 부른다. */
 async function openHistory(history: IssueHistoryEntry[]) {
-  const view = await openDetail(createIssueDetail({ history }))
+  const detail = createIssueDetail({ history })
+  const view = renderScreen(
+    <IssueBodyTabs projectKey={KEY} issueNumber={1} issueId={detail.summary.id} comments={detail.comments} history={detail.history} canReact />,
+    { path: `/projects/${KEY}/issues/1`, handlers: [http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([OWNER]))] },
+  )
   await view.user.click(screen.getByRole('tab', { name: /이력/ }))
   const timeline = await screen.findByRole('list', { name: '활동 타임라인' })
   return { ...view, timeline }
@@ -110,7 +119,7 @@ describe('활동 타임라인 — 접기/펼치기 (#341)', () => {
 // WP-869: 부모 표시가 범주만 알아 사용자 정의 상태(「검토 중」)를 보이지 못했다.
 describe('이슈 상세 — 부모 상태 (WP-869)', () => {
   test('부모 표시에 상태 이름과 상태 색 아이콘이 보인다', async () => {
-    await openDetail(
+    openDetail(
       createIssueDetail({
         summary: createIssue({
           id: 1,
@@ -127,7 +136,7 @@ describe('이슈 상세 — 부모 상태 (WP-869)', () => {
   })
 
   test('구 서버 응답(상태 이름 없음)이면 범주 라벨을 보인다', async () => {
-    await openDetail(
+    openDetail(
       createIssueDetail({ summary: createIssue({ id: 1, number: 1, parent: { number: 5, title: '결제 개편 에픽', type: makeEpicType(), status: 'DONE' } }) }),
     )
     expect(within(screen.getByTestId('issue-parent-slot')).getByTestId('issue-parent-status')).toHaveTextContent(/^완료$/)

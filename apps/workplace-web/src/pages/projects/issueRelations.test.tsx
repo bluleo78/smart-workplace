@@ -1,4 +1,4 @@
-// 이슈 「관계」 그룹(WP-887·WP-852) — 페이지 테스트(WP-980).
+// 이슈 「관계」 그룹(WP-887·WP-852) — 화면 테스트(WP-980, WP-1002 에서 이슈 상세 화면만 띄우게 바꿈).
 // 관계 추가 창(찾기 쿼리·POST payload·말 방향·차단 거름·409 오류·Enter 1회), 줄 제거 DELETE, 읽기 전용, 외부 링크(키 자동·POST/PUT/DELETE·검증),
 // 반대쪽 이슈 상세의 말(「결과임」 등)은 상태 있는 모킹 서버 응답 → 화면 반영이라 브라우저 없이 판정되므로
 // e2e/pages/projects/issue-relations.spec.ts 에서 옮겼다(그 spec 은 모두 옮겨 지웠다). 저장소는 E2E 와 같은 IssueRelationServer 다.
@@ -6,9 +6,10 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { recordRequests } from '@/test/kits/projects/issueDetailStubs'
 import { IssueRelationServer, relationHandlers } from '@/test/kits/projects/relations'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import type { ScreenUser } from '@/test/renderScreen'
 import type { IssueLookupItem } from '@/types/issue'
 
 import { makeTaskType } from '../../../e2e/factories/issueType.factory'
@@ -29,12 +30,12 @@ function setup() {
   return { server, requests: recordRequests() }
 }
 
-type User = ReturnType<typeof renderPage>['user']
+type User = ScreenUser
 
 /** 이슈 상세를 열고 「관계」 그룹을 펼친다(기본 접힘, 펼침 상태는 저장소에 남을 수 있다). */
 async function openIssue(server: IssueRelationServer, number = 1, key = KEY) {
-  const view = renderPage(`/projects/${key}/issues/${number}`, { handlers: relationHandlers(server) })
-  const group = await screen.findByTestId('property-group-relations', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  const view = renderIssueDetailScreen(`/projects/${key}/issues/${number}`, { handlers: relationHandlers(server) })
+  const group = await screen.findByTestId('property-group-relations')
   const trigger = within(group).getByRole('button', { name: /^관계(\s*\d+)?$/ })
   if (trigger.getAttribute('aria-expanded') !== 'true') await view.user.click(trigger)
   await screen.findByTestId('issue-relations-section')

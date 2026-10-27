@@ -3,11 +3,13 @@
 // 어긋남 없이 이어지는지는 브라우저 없이 판정되므로 e2e/pages/projects/issue-closed-filter.spec.ts 에서 옮겼다.
 // 달력이 팝오버 안에 다 들어가는지와 필터 줄 배치(「초기화」 위치)는 기하라 E2E(@layout)에 남는다.
 // 현재 시각은 2026-10-23(금) 15:00 KST 로 고정(TZ 는 vitest.config 가 Asia/Seoul) — 「지난 주」는 10/12(월)~10/18(일).
+// 화면 테스트(WP-1002) — 필터 바·목록/보드·툴바가 한 화면의 URL 상태를 나눠 써 프로젝트 상세 화면만 renderProjectScreen 으로 띄운다(App·앱 셸 없이).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { createProject } from '../../../e2e/factories/project.factory'
@@ -26,7 +28,7 @@ afterEach(() => {
 /** 목록을 연다 — 검색 요청 URL 을 searches 에 모은다. */
 async function open(query = '') {
   const searches: URL[] = []
-  const view = renderPage(`/projects/${KEY}${query ? `?${query}` : ''}`, {
+  const view = renderProjectScreen(`/projects/${KEY}${query ? `?${query}` : ''}`, {
     handlers: [
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject())),
       http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
@@ -36,14 +38,14 @@ async function open(query = '') {
       }),
     ],
   })
-  await screen.findByTestId('issue-row-7', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('issue-row-7', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   const last = () => searches.at(-1)!
   /** 주소의 closedIn 값(디코딩). */
   const closedIn = () => new URLSearchParams(view.location().split('?')[1] ?? '').get('closedIn')
   return { ...view, searches, last, closedIn }
 }
 
-type User = ReturnType<typeof renderPage>['user']
+type User = ReturnType<typeof renderProjectScreen>['user']
 
 /** 「＋ 필터 › 완료일」 까지 연다. */
 async function openClosedFacet(user: User) {

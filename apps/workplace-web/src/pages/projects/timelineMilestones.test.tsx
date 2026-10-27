@@ -2,12 +2,16 @@
 // 레인 칩 렌더·툴바 생성 payload·입력 상한(WP-687)·편집 팝오버(이름 수정·빈 값 거절 #672·409 되돌림 WP-615·삭제·Esc 겹 닫기 WP-698)·
 // readOnly 비활성은 브라우저 없이 판정되므로 e2e/pages/projects/timeline-milestones.spec.ts 에서 옮겼다.
 // 레인 구분선·칩 위치·차트 밖 칩 숨김·클릭 좌표 → 날짜 환산은 기하라 E2E(@layout)에 남는다.
+// 타임라인 화면(TimelinePage)만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
+import TimelinePage from '@/pages/projects/timeline/TimelinePage'
+import { atRoute } from '@/test/kits/projects/atRoute'
 import { API, KEY, milestone, stubCanvas, timelineApi } from '@/test/kits/projects/timeline'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { shellHandlers } from '@/test/msw/baseHandlers'
+import { renderScreen } from '@/test/renderScreen'
 import type { MilestoneResponse } from '@/types/milestone'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
@@ -27,7 +31,8 @@ async function open({ viewerIsMember = true, patchStatus }: { viewerIsMember?: b
       createIssue({ number: 2, title: '연결 이슈', dueDate: '2026-07-10', milestoneId: 1 }),
     ],
   })
-  const view = renderPage(`/projects/${KEY}/timeline?period=all`, {
+  const view = renderScreen(atRoute('/projects/:key/timeline', <TimelinePage />), {
+    path: `/projects/${KEY}/timeline?period=all`,
     handlers: [
       http.post(`${API}/milestones`, async ({ request }) => {
         const body = (await request.json()) as Partial<MilestoneResponse>
@@ -45,14 +50,15 @@ async function open({ viewerIsMember = true, patchStatus }: { viewerIsMember?: b
         return new HttpResponse(null, { status: 204 })
       }),
       ...api.handlers,
+      ...shellHandlers,
     ],
   })
-  await screen.findByTestId('timeline-gantt', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('timeline-gantt')
   return { ...view, calls }
 }
 
 /** 칩을 눌러 편집 팝오버를 연다. */
-async function openPopover(user: ReturnType<typeof renderPage>['user']) {
+async function openPopover(user: ReturnType<typeof renderScreen>['user']) {
   await user.click(await screen.findByTestId('milestone-chip-1'))
   return screen.findByTestId('milestone-edit-popover')
 }

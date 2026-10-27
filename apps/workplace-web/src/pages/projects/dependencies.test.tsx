@@ -2,11 +2,13 @@
 // 409(DEPENDENCY_CYCLE) 토스트와 창·고른 이슈 유지, 링크 행의 상태 이름(WP-869), 선행 이슈보다 이른 마감일 경고(#669),
 // 미완료 선행이 있을 때 완료 전환 확인창(#827)은 브라우저 없이 판정되므로 e2e/pages/projects/dependencies.spec.ts 에서 옮겼다.
 // 관계 추가 → POST → 행 → 제거의 배선(@wiring), 호버·키보드 포커스 때만 보이는 제거 버튼(@input), 좁은 레일의 2줄 배치(@layout)는 E2E 에 남는다.
+// 화면 테스트(WP-1002) — 관계·상태·마감일이 속성 레일에서 상세 재조회로 이어져 이슈 상세 화면만 renderIssueDetailScreen 으로 띄운다(App·앱 셸 없이).
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import type { IssueLinkSummary, IssueResponse } from '@/types/issue'
 
 import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.factory'
@@ -18,11 +20,11 @@ const KEY = 'WP'
 const ISSUE = `/api/v1/projects/${KEY}/issues/1`
 const taskType = makeTaskType()
 
-type User = ReturnType<typeof renderPage>['user']
+type User = ReturnType<typeof renderIssueDetailScreen>['user']
 
 /** 이슈 상세 — summary() 를 매 GET 마다 읽는다. extra 는 쓰기 핸들러. */
 async function openIssue(summary: () => IssueResponse, extra: ReturnType<typeof http.get>[] = []) {
-  const view = renderPage(`/projects/${KEY}/issues/1`, {
+  const view = renderIssueDetailScreen(`/projects/${KEY}/issues/1`, {
     handlers: [
       ...extra,
       http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ id: 1, key: KEY }))),
@@ -34,7 +36,7 @@ async function openIssue(summary: () => IssueResponse, extra: ReturnType<typeof 
       http.get(`/api/v1/projects/${KEY}/issues`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
     ],
   })
-  await screen.findByTestId('issue-status-select', {}, { timeout: PAGE_LOAD_TIMEOUT })
+  await screen.findByTestId('issue-status-select', {}, { timeout: SCREEN_LOAD_TIMEOUT })
   return view
 }
 

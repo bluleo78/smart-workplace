@@ -5,7 +5,8 @@
 // 분기 규칙 자체는 lib/issueComponents.test.ts·componentFacet.test.tsx·issueListColumnDefs.test.tsx, 훅을 끊은 분기는
 // ComponentManagement.test.tsx·IssueComponentsField.test.tsx 가 맡는다 — 여기서는 MSW 로 api → 훅 → 화면을 지난다.
 // 설정 섹션·상세 피커 칸·만들기 창은 renderScreen 으로 그 컴포넌트만 띄우고, 목록(필터 바·열 고르기·만들기 버튼이 한 화면)과
-// 상세의 칩 갱신(피커 저장 뒤 상세 재조회가 칸에 다시 내려온다)·속성 레일 배치는 페이지가 있어야 해서 renderPage 로 띄운다.
+// 상세의 칩 갱신(피커 저장 뒤 상세 재조회가 칸에 다시 내려온다)·속성 레일 배치는 화면 전체가 있어야 해서 그 화면만
+// renderProjectScreen·renderIssueDetailScreen 으로 띄운다(WP-1002 — App·인증 부팅·앱 셸 없이).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { describe, expect, test } from 'vitest'
@@ -13,9 +14,11 @@ import { describe, expect, test } from 'vitest'
 import { IssueComponentsField } from '@/components/components/IssueComponentsField'
 import { ComponentManagement } from '@/pages/projects/components/ComponentManagement'
 import { IssueCreateDialog } from '@/pages/projects/components/IssueCreateDialog'
+import { renderIssueDetailScreen } from '@/test/kits/projects/issueDetailScreen'
 import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
+import { renderProjectScreen } from '@/test/kits/projects/projectDetailScreen'
 import { projectScreen } from '@/test/kits/projects/projectScreens'
-import { PAGE_LOAD_TIMEOUT, renderPage } from '@/test/renderPage'
+import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 import { renderScreen } from '@/test/renderScreen'
 import type { ComponentResponse } from '@/types/component'
 import type { IssueResponse } from '@/types/issue'
@@ -146,7 +149,7 @@ describe('설정 — 구성요소 관리', () => {
 
 describe('이슈 상세 — 구성요소 칸', () => {
   // 피커는 닫을 때 한 번만 PUT 하고, 상세 재조회가 붙은 칩을 돌려준다. 칸은 속성 레일의 상태·담당 묶음 안(담당자 아래)에 놓인다.
-  // 저장 뒤 칩이 바뀌는 것은 상세 재조회 → 레일 → 칸으로 내려오는 값이라 상세 화면 전체(renderPage)로 본다.
+  // 저장 뒤 칩이 바뀌는 것은 상세 재조회 → 레일 → 칸으로 내려오는 값이라 상세 화면 전체(renderIssueDetailScreen)로 본다.
   test('담당자 아래 피커로 붙이면 닫을 때 PUT 본문이 componentIds 를 담고 칩이 바뀐다', async () => {
     const compute = createComponent({ id: 1, name: 'Compute' })
     const storage = createComponent({ id: 2, name: 'Storage' })
@@ -155,7 +158,7 @@ describe('이슈 상세 — 구성요소 칸', () => {
     let attached = [toComponentSummary(compute)]
     const puts: unknown[] = []
     const issue = () => createIssue({ id: 1, number: 1, title: '결제 모듈 개편', components: attached })
-    const { user } = renderPage(`/projects/${KEY}/issues/1`, {
+    const { user } = renderIssueDetailScreen(`/projects/${KEY}/issues/1`, {
       handlers: [
         http.get(`${BASE}/components`, () => HttpResponse.json(all)),
         http.put(`${BASE}/issues/1/components`, async ({ request }) => {
@@ -167,7 +170,7 @@ describe('이슈 상세 — 구성요소 칸', () => {
         ...issueDetailHandlers({ members: MEMBERS, detail: () => createIssueDetail({ summary: issue() }) }),
       ],
     })
-    const group = await screen.findByTestId('property-group-status-people', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    const group = await screen.findByTestId('property-group-status-people', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     const field = await within(group).findByTestId('issue-components-field')
     expect(within(field).getByTestId('issue-components')).toHaveTextContent('Compute')
 
@@ -325,14 +328,14 @@ describe('만들기 창 — 구성요소', () => {
 describe('이슈 목록 — 구성요소 필터·열', () => {
   /**
    * 목록(그룹 없음)을 띄우고 첫 행과 구성요소 응답이 도착한 뒤를 돌려준다 — 그 전의 「없다」 는 판정 전이라 의미가 없다.
-   * 필터 바·열 고르기·만들기 버튼이 한 페이지에 있어 renderPage 로 띄운다.
+   * 필터 바·열 고르기·만들기 버튼이 한 화면에 있어 프로젝트 상세 화면(renderProjectScreen)으로 띄운다.
    */
   async function openList(components: ComponentResponse[], issue: Partial<IssueResponse> = {}, query = '') {
     let served = false
     const screenApi = projectScreen(KEY, {
       search: () => [createIssue({ id: 1, number: 1, title: '결제 모듈 개편', ...issue })],
     })
-    const view = renderPage(`/projects/${KEY}?group=none${query}`, {
+    const view = renderProjectScreen(`/projects/${KEY}?group=none${query}`, {
       handlers: [
         http.get(`${BASE}/components`, () => {
           served = true
@@ -343,7 +346,7 @@ describe('이슈 목록 — 구성요소 필터·열', () => {
         ...screenApi.handlers,
       ],
     })
-    await screen.findByTestId('issue-row-1', {}, { timeout: PAGE_LOAD_TIMEOUT })
+    await screen.findByTestId('issue-row-1', {}, { timeout: SCREEN_LOAD_TIMEOUT })
     await waitFor(() => expect(served).toBe(true))
     // 응답이 그려질 틈을 준다.
     await new Promise((r) => setTimeout(r, 0))
@@ -353,7 +356,7 @@ describe('이슈 목록 — 구성요소 필터·열', () => {
   }
 
   /** 필터 후보·열 후보·만들기 창의 구성요소 칸 유무를 본다 — 숨김·노출 테스트가 같은 선택자를 써서 숨김 단언이 거짓 통과하지 않게 한다. */
-  async function expectVisibility(user: ReturnType<typeof renderPage>['user'], shown: boolean) {
+  async function expectVisibility(user: ReturnType<typeof renderIssueDetailScreen>['user'], shown: boolean) {
     const check = (id: string) =>
       shown ? expect(screen.getByTestId(id)).toBeInTheDocument() : expect(screen.queryByTestId(id)).not.toBeInTheDocument()
     await user.click(screen.getByTestId('add-filter-trigger'))
