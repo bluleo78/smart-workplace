@@ -446,6 +446,20 @@ public class NotificationRepository {
         .execute();
   }
 
+  /** 본인의 한 이슈 알림 중 안 읽은 것을 읽음으로 — 바뀐 알림 id 를 돌려준다(WP-720, AI 가 그 이슈를 처리한 뒤 한 번에). */
+  public List<Long> markReadByIssue(long recipientId, long issueId) {
+    return dsl.update(NOTIFICATION)
+        .set(NOTIFICATION.READ_AT, OffsetDateTime.now())
+        .where(
+            NOTIFICATION
+                .RECIPIENT_ID
+                .eq(recipientId)
+                .and(NOTIFICATION.ISSUE_ID.eq(issueId))
+                .and(NOTIFICATION.READ_AT.isNull()))
+        .returning(NOTIFICATION.ID)
+        .fetch(NOTIFICATION.ID);
+  }
+
   /** 본인 안읽음 전체 읽음. 영향 행 수 반환. */
   public int markAllRead(long recipientId) {
     return dsl.update(NOTIFICATION)

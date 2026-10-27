@@ -183,6 +183,18 @@ describe('buildSharedIssueTools', () => {
     expect(c.addComment).toHaveBeenCalledWith('WP-12', '안녕');
   });
 
+  it('add_comment·update_comment 는 @username 을 멘션 토큰으로 바꿔 보낸다 — 멘션된 사람·AI 가 알림을 받게(WP-720)', async () => {
+    const c = mockClient();
+    vi.mocked(c.searchMembers).mockImplementation(async ({ search }) =>
+      [{ userId: 9, username: 'teamleader', name: 'AI 팀장', kind: 'AGENT' }].filter((m) => m.username.includes(String(search))),
+    );
+    const tools = buildSharedIssueTools(c);
+    await tools.find((x) => x.name === 'add_comment')!.handler({ issueKey: 'WP-12', body: '@teamleader 리뷰 부탁해요' });
+    expect(c.addComment).toHaveBeenCalledWith('WP-12', '<@9> 리뷰 부탁해요');
+    await tools.find((x) => x.name === 'update_comment')!.handler({ issueKey: 'WP-12', commentId: 3, body: '@teamleader 다시 봐 주세요' });
+    expect(c.editComment).toHaveBeenCalledWith('WP-12', 3, '<@9> 다시 봐 주세요');
+  });
+
   describe('report_agent_work', () => {
     const reportTool = (c: IssueToolClient) => buildSharedIssueTools(c).find((x) => x.name === 'report_agent_work')!;
 

@@ -794,6 +794,8 @@ export interface NotificationToolClient {
   countUnreadNotifications(): Promise<number>;
   /** 멱등 — 이미 읽었거나 남의 알림이면 서버가 0행 처리한다. */
   markNotificationRead(notificationId: number): Promise<void>;
+  /** 한 이슈의 내 알림을 모두 읽음으로(WP-720). */
+  markIssueNotificationsRead(issueKey: string): Promise<void>;
   markAllNotificationsRead(): Promise<void>;
 }
 

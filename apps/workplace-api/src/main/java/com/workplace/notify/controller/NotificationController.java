@@ -49,6 +49,14 @@ public class NotificationController {
     return ResponseEntity.noContent().build();
   }
 
+  /** 한 이슈의 내 알림을 모두 읽음(WP-720 — AI 가 그 이슈를 처리한 뒤). 읽을 것이 없거나 볼 수 없는 이슈여도 멱등하게 204. */
+  @PostMapping("/issues/{issueId}/read")
+  public ResponseEntity<Void> markIssueRead(
+      @AuthenticationPrincipal Long callerId, @PathVariable("issueId") long issueId) {
+    service.markReadByIssue(callerId, issueId);
+    return ResponseEntity.noContent().build();
+  }
+
   /** 모두 읽음. */
   @PostMapping("/read-all")
   public ResponseEntity<Void> markAllRead(@AuthenticationPrincipal Long callerId) {

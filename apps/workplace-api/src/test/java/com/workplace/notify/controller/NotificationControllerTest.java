@@ -142,6 +142,15 @@ class NotificationControllerTest {
     verify(service).markRead(eq(1L), eq(5L));
   }
 
+  /** WP-720: 한 이슈의 내 알림 읽음 — 호출자 범위로 서비스에 넘기고 204. */
+  @Test
+  void markIssueRead_returns204_andScopesToCaller() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/notifications/issues/42/read").header("Authorization", "Bearer v"))
+        .andExpect(status().isNoContent());
+    verify(service).markReadByIssue(eq(1L), eq(42L));
+  }
+
   @Test
   void markAllRead_returns204() throws Exception {
     mockMvc

@@ -189,6 +189,7 @@ function sharedMock(): MockedShared {
     getMessagingSummary: vi.fn().mockResolvedValue({ unreadConversationCount: 0, needsReplyCount: 0, aiAttentionCount: 0, attentionCount: 0, recent: [] }),
     getThreadInbox: vi.fn().mockResolvedValue({ items: [], nextCursor: null, hasMore: false }),
     markNotificationRead: vi.fn().mockResolvedValue(undefined),
+    markIssueNotificationsRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
     // 첨부·파일 내용 읽기(WP-346)
     readIssueAttachmentText: vi.fn().mockResolvedValue({ fileId: 1, status: 'NONE' }),

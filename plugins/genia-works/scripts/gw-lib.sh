@@ -113,3 +113,13 @@ gw_write_atomic() {
   rm -f "$tmp"
   return 1
 }
+
+# 이 세션의 신원 이름 — 세션 선택(gw-session) > GENIA_WORKS_AS. 없거나 me 면 아무것도 내지 않는다(내 토큰).
+# 헤더 스크립트와 알림 구독(gw-events)이 같은 신원을 쓰도록 한곳에 둔다(WP-720). 부르는 스크립트와 같은 폴더의 gw-session-key 를 쓴다.
+gw_identity() {
+  _gw_name=""
+  _gw_sk=$("$(dirname "$0")/gw-session-key" 2>/dev/null) && [ -f "$GW_SESSIONS/$_gw_sk" ] && _gw_name=$(head -n1 "$GW_SESSIONS/$_gw_sk")
+  [ -n "$_gw_name" ] || _gw_name="${GENIA_WORKS_AS:-}"
+  [ "$_gw_name" = me ] && _gw_name=""
+  printf '%s' "$_gw_name"
+}

@@ -241,38 +241,44 @@ class NotificationDispatcherTest {
         Instant.now());
   }
 
-  /** AI 질문: 멘션 중 HUMAN 만 골라 AI_QUESTION 경로(관계자는 서비스 트랜잭션에서 조회)로 넘긴다. */
+  /** AI 질문: 멘션된 사람·AI 를 중복 없이 AI_QUESTION 경로(관계자는 서비스 트랜잭션에서 조회)로 넘긴다 — 작성자 제외는 서비스(WP-720). */
   @Test
-  void onChatMessageCreated_question_delegatesWithHumanMentionsOnly() {
+  void onChatMessageCreated_question_delegatesWithAllMentions() {
     dispatcher.onChatMessageCreated(
         chatEvent(
             AGENT_ACTOR,
             List.of(ASSIGNEE_A, AGENT_ACTOR, ASSIGNEE_A),
             ChatMessageOrigin.REPORT_QUESTION));
 
-    verify(service).createAiQuestionAndFanOut(eq(20L), eq(List.of(2L)), eq(9L));
+    verify(service).createAiQuestionAndFanOut(eq(20L), eq(List.of(2L, 9L)), eq(9L));
     verify(service, never()).createAndFanOut(any(), any(), any(), Mockito.anyLong(), any());
   }
 
-  /** 화면 글(USER): 멘션된 HUMAN 에게만 ISSUE_CHAT_MENTION. AGENT 멘션은 제외(작성자 본인 제외는 서비스가 한다). */
+  /** 화면 글(USER): 멘션된 사람·AI 에게 ISSUE_CHAT_MENTION — AI 도 사람과 같은 알림으로 깨어난다(WP-720, 작성자 제외는 서비스). */
   @Test
-  void onChatMessageCreated_userPost_mentionsHumansOnly() {
+  void onChatMessageCreated_userPost_mentionsHumansAndAgents() {
     dispatcher.onChatMessageCreated(
         chatEvent(HUMAN_ACTOR, List.of(ASSIGNEE_B, AGENT_ACTOR), ChatMessageOrigin.USER));
 
     verify(service)
         .createAndFanOut(
-            eq(NotificationType.ISSUE_CHAT_MENTION), eq(List.of(3L)), eq(1L), eq(20L), eq(null));
+            eq(NotificationType.ISSUE_CHAT_MENTION),
+            eq(List.of(3L, 9L)),
+            eq(1L),
+            eq(20L),
+            eq(null));
     verify(service, never()).createAiQuestionAndFanOut(Mockito.anyLong(), any(), any());
   }
 
-  /** 화면 글인데 사람 멘션이 없으면(AGENT 만 멘션) 알림 없음. */
+  /** 화면 글에서 AI 만 멘션해도 그 AI 에게 ISSUE_CHAT_MENTION(WP-720). */
   @Test
-  void onChatMessageCreated_userPost_agentOnlyMention_noNotification() {
+  void onChatMessageCreated_userPost_agentOnlyMention_notifiesAgent() {
     dispatcher.onChatMessageCreated(
         chatEvent(HUMAN_ACTOR, List.of(AGENT_ACTOR), ChatMessageOrigin.USER));
 
-    Mockito.verifyNoInteractions(service);
+    verify(service)
+        .createAndFanOut(
+            eq(NotificationType.ISSUE_CHAT_MENTION), eq(List.of(9L)), eq(1L), eq(20L), eq(null));
   }
 
   /** AI 작업 보고 알림 이벤트는 상태·대리인 후보와 보고 글의 멘션을 함께 서비스로 넘긴다 — 사람당 1건 판정은 서비스 한 곳(WP-1009). */

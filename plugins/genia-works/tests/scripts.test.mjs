@@ -1,7 +1,8 @@
 // genia-works 플러그인 sh 스크립트 테스트 — 가짜 HOME·가짜 ps 로 키 저장소·세션 선택·세션 키를 검증한다.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -432,4 +433,138 @@ test('bg-job: 이상한 이슈 키·없는 작업 폴더·-- 빠짐·모르는 �
   assert.equal(job(['start', main, 'WP-4', join(main, 'nope'), '--', 'true']).status, 2);
   assert.equal(job(['start', main, 'WP-4', main, 'true']).status, 2);
   assert.equal(job(['kill', main, 'WP-4']).status, 2);
+});
+
+// ---------------------------------------------------------------- gw-events (WP-720)
+
+/**
+ * 가짜 알림 서버 — /events 는 events 를 SSE 로 내고 연결을 열어 둔다(endFirst 면 첫 연결은 events 를 낸 뒤 끊고, 다음 연결은 빈 채로 연다).
+ * /notifications/unread-count 는 status 를 낸다. 받은 인증 헤더를 모은다.
+ */
+async function fakeEventServer({ events = [], status = 200, endFirst = false } = {}) {
+  let streams = 0;
+  const auths = [];
+  const server = createServer((req, res) => {
+    auths.push(req.headers.authorization);
+    if (status !== 200) {
+      res.writeHead(status);
+      res.end();
+      return;
+    }
+    if (req.url.endsWith('/events')) {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(':connected\n\n');
+      streams += 1;
+      if (endFirst && streams > 1) return; // 다시 붙은 연결은 빈 채로 열어 둔다.
+      for (const [name, data] of events) res.write(`event:${name}\ndata:${JSON.stringify(data)}\n\n`);
+      if (endFirst) res.end();
+      return; // 연결을 열어 둔다(서버 ping 없이 — 합친 줄은 이 테스트 동안 나오지 않는다).
+    }
+    res.writeHead(200);
+    res.end('{"count":0}');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  // 열린 SSE 연결까지 끊어야 close 가 끝난다.
+  const close = () => {
+    server.closeAllConnections();
+    server.close();
+  };
+  return { url: `http://127.0.0.1:${server.address().port}/api/v1`, auths, close };
+}
+
+/**
+ * gw-events 를 띄워 waitMs 동안의 표준 출력을 모은다(끝나면 종료 코드도). 시간이 지나면 SIGTERM 으로 끝내고 자식(curl)이 남지 않았는지도 본다.
+ * inPs 면 가짜 ps 표에 자기 행(gw-events)을 먼저 쓰고 exec 로 띄운다 — 같은 pid 라 스크립트가 자기 키(pid-시작 시각)를 읽을 수 있다.
+ */
+async function runEvents(args, env, waitMs, { inPs = false } = {}) {
+  const register = 'printf "%s|400|Thu Oct 15 06:41:00 2026|sh /x/scripts/gw-events\\n" $$ >> "$FAKE_PS_TABLE"; exec "$0" "$@"';
+  const [cmd, argv] = inPs ? ['sh', ['-c', register, join(scripts, 'gw-events'), ...args]] : [join(scripts, 'gw-events'), args];
+  const p = spawn(cmd, argv, {
+    env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, FAKE_PS_TABLE: table, GW_START_PID: '500', ...env },
+  });
+  let out = '';
+  p.stdout.on('data', (d) => (out += d));
+  const exited = new Promise((r) => p.on('exit', (code) => r(code)));
+  const code = await Promise.race([exited, new Promise((r) => setTimeout(() => r(null), waitMs))]);
+  if (code === null) {
+    p.kill('SIGTERM');
+    await exited;
+  }
+  const orphans = spawnSync('pgrep', ['-P', String(p.pid)], { encoding: 'utf8' }).stdout.trim();
+  return { out, code, orphans };
+}
+
+test('gw-events: AI 키 신원이 아니면 한 줄 알리고 끝난다', async () => {
+  const r = await runEvents(['WP'], {}, 3000);
+  assert.equal(r.code, 1);
+  assert.match(r.out, /^gw-events: AI 키 신원이 아니어서/);
+});
+
+test('gw-events: 맡은 프로젝트의 알림만 wake 줄로, 몰아친 알림은 합친다 — 키는 출력하지 않는다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeEventServer({
+    events: [
+      ['notify.created', { type: 'ASSIGNED', issueId: 1, issueKey: 'HR-3', projectKey: 'HR' }],
+      ['chat.message.created', { projectKey: 'WP', body: 'x' }],
+      ['notify.created', { type: 'REMINDER' }],
+      ['notify.created', { type: 'ISSUE_CHAT_MENTION', issueId: 2, issueKey: 'WP-12', projectKey: 'WP' }],
+      ['notify.created', { type: 'COMMENTED', issueId: 2, issueKey: 'WP-12', projectKey: 'WP' }],
+    ],
+  });
+  try {
+    const r = await runEvents(['WP,QA'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url }, 2500);
+    assert.equal(r.out, 'wake WP-12 ISSUE_CHAT_MENTION\n');
+    assert.equal(r.orphans, '');
+    assert.equal(srv.auths[0], 'Bearer ak_FAKE_DEV');
+    assert.ok(!r.out.includes('ak_FAKE_DEV'));
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-events: 인증이 거부되면 한 줄 알리고 끝난다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeEventServer({ status: 401 });
+  try {
+    const r = await runEvents(['WP'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url }, 5000);
+    assert.equal(r.code, 1);
+    assert.match(r.out, /^gw-events: 인증 실패\(HTTP 401\)/);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-events: 연결이 끊기면 미뤄 둔 줄을 내고, 다시 붙으면 reconnect 줄을 낸다 — 소문자 프로젝트 키도 맞춘다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeEventServer({
+    endFirst: true,
+    events: [
+      ['notify.created', { type: 'ISSUE_CHAT_MENTION', issueId: 2, issueKey: 'WP-12', projectKey: 'WP' }],
+      ['notify.created', { type: 'COMMENTED', issueId: 2, issueKey: 'WP-12', projectKey: 'WP' }],
+    ],
+  });
+  try {
+    // 끊긴 뒤 5초 쉬고 다시 붙는다.
+    const r = await runEvents(['wp'], { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url }, 8000);
+    assert.equal(r.out, 'wake WP-12 ISSUE_CHAT_MENTION\nwake WP-12 COMMENTED\nwake - reconnect\n');
+    assert.equal(r.orphans, '');
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-events: 한 세션에 하나만 — 이미 돌고 있으면 아무 줄 없이 끝난다', async () => {
+  run('gw-keys', ['add', 'ai-dev'], { input: 'ak_FAKE_DEV\n' });
+  const srv = await fakeEventServer();
+  const env = { GENIA_WORKS_AS: 'ai-dev', GENIA_WORKS_API_URL: srv.url };
+  try {
+    const first = runEvents(['WP'], env, 3000, { inPs: true });
+    await new Promise((r) => setTimeout(r, 800));
+    const second = await runEvents(['WP'], env, 2000);
+    assert.equal(second.code, 0);
+    assert.equal(second.out, '');
+    assert.equal((await first).code, null); // 첫 것은 끝까지 돌다가 테스트가 끝냈다.
+  } finally {
+    srv.close();
+  }
 });

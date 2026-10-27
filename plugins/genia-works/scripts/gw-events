@@ -1,0 +1,123 @@
+#!/bin/sh
+# gw-events <프로젝트 키[,키…]> — 이 세션 신원(AI 키)으로 알림 SSE(/api/v1/events)를 구독해, 그 프로젝트 이슈의 새 알림이 오면
+# 「wake <이슈 키> <알림 종류>」 한 줄을 낸다(WP-720). work-loop 가 Monitor 로 걸어 두고 줄이 오면 바로 한 번 확인한다 —
+# 알림은 깨우는 신호일 뿐, 할 일은 늘 list_issues 로 다시 고른다.
+# - 몰아치는 알림은 20초에 한 줄로 합친다. 밀린 줄은 다음 줄(서버 ping 은 30초마다)에서 내므로 늦어도 30초 남짓이다.
+# - 끊기면 다시 붙는다(서버 연결은 1시간마다 끝난다). 끊긴 사이 온 알림은 잃을 수 있으니 다시 붙으면 「wake - reconnect」를 낸다.
+# - 다시 붙어도 소용없는 이유(AI 키 신원 아님·인증 실패)는 「gw-events: …」 한 줄을 내고 끝난다 — 그 세션은 주기 확인만 한다.
+# - 한 세션에 하나만 돈다(SSE 연결은 사용자당 5개라 쌓이면 서로 밀어낸다). 이미 돌고 있으면 아무 줄도 내지 않고 끝난다.
+# 키는 명령줄 인자로 넘기지 않고(ps 에 보인다) 표준 입력으로 curl 설정에 넣으며, 어디에도 출력·기록하지 않는다.
+# 서버 주소: GENIA_WORKS_API_URL(예: http://localhost:6160/api/v1), 없으면 운영 주소.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+# 프로젝트 키는 대문자다(서버 페이로드와 맞춘다).
+projects=$(printf '%s' "${1:-}" | tr -d ' ' | tr '[:lower:]' '[:upper:]')
+if [ -z "$projects" ]; then
+  echo "사용: gw-events <프로젝트 키[,키…]>" >&2
+  exit 2
+fi
+api="${GENIA_WORKS_API_URL:-https://genia-works.iacloud.kr/api/v1}"
+
+name=$(gw_identity)
+key=""
+[ -n "$name" ] && key=$(gw_read_key "$name")
+if [ -z "$key" ]; then
+  echo "gw-events: AI 키 신원이 아니어서 알림을 구독하지 않습니다 — 주기 확인만 합니다"
+  exit 1
+fi
+
+# 세션당 하나 — 세션 키 이름의 파일에 이 프로세스의 키(pid-시작 시각, loop-lock·bg-job 과 같은 방식)를 둔다.
+# 그 키의 프로세스가 아직 살아 있으면(pid 가 다시 쓰였으면 시작 시각이 달라 넘어간다) 이번 것은 조용히 끝난다.
+pf=""
+me=""
+if sk=$("$here/gw-session-key" 2>/dev/null); then
+  pf="$GW_HOME/events/$sk"
+  other=$(cat "$pf" 2>/dev/null)
+  if [ -n "$other" ] && gw_pid_alive "${other%%-*}" &&
+    [ "$(gw_proc_key "${other%%-*}" 2>/dev/null)" = "$other" ]; then
+    exit 0
+  fi
+  mkdir -p "$GW_HOME/events" 2>/dev/null && chmod 700 "$GW_HOME/events" 2>/dev/null
+  if me=$(gw_proc_key $$); then gw_write_atomic "$pf" "$me" || pf=""; else pf=""; fi
+fi
+
+# Monitor 가 만료되거나 멈추면 이 스크립트에 종료 신호가 온다 — curl 이 남아 SSE 연결을 붙잡지 않게 자식을 함께 끝내고 내 키 파일을 지운다.
+# 앞쪽(포그라운드) 파이프라인을 기다리는 동안에는 trap 이 돌지 않으므로 파이프라인은 뒤에서 돌리고 wait 로 기다린다.
+cleanup() {
+  pkill -P $$ 2>/dev/null
+  [ -n "$pf" ] && [ "$(cat "$pf" 2>/dev/null)" = "$me" ] && rm -f "$pf"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM INT HUP
+
+# curl 설정(표준 입력) — 인증 헤더를 ps·출력에 드러내지 않는다.
+auth() { printf 'header = "Authorization: Bearer %s"\n' "$key"; }
+
+# SSE 줄을 읽어 맡은 프로젝트의 notify.created 만 「wake」 줄로 낸다. $1=1 이면(다시 붙었으면) reconnect 줄부터 낸다.
+# 연결이 끝나면 밀려 있던 줄을 버리지 않고 낸다.
+filter() {
+  pending=""
+  [ "$1" = 1 ] && pending="wake - reconnect"
+  ev=""
+  last=0
+  cr=$(printf '\r')
+  while IFS= read -r line; do
+    line=${line%"$cr"}
+    case $line in
+      event:*)
+        ev=${line#event:}
+        ev=${ev# }
+        ;;
+      data:*)
+        # 이슈 알림만(이슈 키가 있는 것) — 프로젝트는 이슈 키의 앞부분. 줄마다 프로세스를 띄우지 않게 셸 치환으로 꺼낸다.
+        case $ev:$line in
+          notify.created:*'"issueKey":"'*)
+            ik=${line#*\"issueKey\":\"}
+            ik=${ik%%\"*}
+            case ",$projects," in
+              *",${ik%-*},"*)
+                ty=""
+                case $line in *'"type":"'*)
+                  ty=${line#*\"type\":\"}
+                  ty=${ty%%\"*}
+                  ;;
+                esac
+                pending="wake $ik $ty"
+                ;;
+            esac
+            ;;
+        esac
+        ;;
+      '') ev="" ;;
+    esac
+    if [ -n "$pending" ]; then
+      now=$(date +%s)
+      if [ $((now - last)) -ge 20 ]; then
+        echo "$pending"
+        pending=""
+        last=$now
+      fi
+    fi
+  done
+  [ -n "$pending" ] && echo "$pending"
+  return 0
+}
+
+backoff=5
+reconnect=0
+while :; do
+  auth | curl -sS -N --config - -H 'Accept: text/event-stream' "$api/events" 2>/dev/null | filter "$reconnect" &
+  wait $!
+  reconnect=1
+  # 끊긴 이유가 인증이면 다시 붙어도 소용없다 — 알리고 끝낸다.
+  code=$(auth | curl -s -o /dev/null -w '%{http_code}' --config - "$api/notifications/unread-count" 2>/dev/null)
+  case $code in
+    401 | 403)
+      echo "gw-events: 인증 실패(HTTP $code) — 키를 확인하세요. 주기 확인만 합니다"
+      exit 1
+      ;;
+  esac
+  sleep "$backoff"
+  if [ "$code" = 200 ]; then backoff=5; else backoff=$((backoff * 2 > 60 ? 60 : backoff * 2)); fi
+done

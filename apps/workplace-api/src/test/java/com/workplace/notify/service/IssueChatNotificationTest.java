@@ -10,7 +10,11 @@ import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.ROLE;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 
+import com.workplace.global.realtime.SseRegistry;
 import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.notify.push.PushCategory;
@@ -21,6 +25,7 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +41,7 @@ class IssueChatNotificationTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired NotificationService service;
   @Autowired ApplicationEvents events;
+  @MockitoSpyBean SseRegistry registry;
 
   /**
    * project + issue_type_def + issue 1건 시드 후 issueId 반환(reporter 지정). 알림 수신자는 프로젝트 조회 권한을
@@ -200,6 +206,68 @@ class IssueChatNotificationTest extends IntegrationTestBase {
     assertThat(events.stream(InboxPushRequestedEvent.class)).isEmpty();
   }
 
+  /** WP-720: AI 도 이슈 챗 멘션 알림을 받고, SSE 페이로드에 이슈 키가 실려 외부 AI 가 맡은 프로젝트로 거를 수 있다. */
+  @Test
+  void issueChatMention_ofAgent_notifiesAgentWithIssueKeyPayload() {
+    long author = TestFixtures.createHuman(dsl);
+    long agent = TestFixtures.createAgentNoToken(dsl);
+    long issueId = seedIssue(author);
+    String projectKey =
+        dsl.select(PROJECT.KEY)
+            .from(ISSUE)
+            .join(PROJECT)
+            .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+            .where(ISSUE.ID.eq(issueId))
+            .fetchOne(PROJECT.KEY);
+
+    service.createAndFanOut(
+        NotificationType.ISSUE_CHAT_MENTION, List.of(agent), author, issueId, null);
+
+    assertThat(recipientsOf(issueId, NotificationType.ISSUE_CHAT_MENTION)).containsExactly(agent);
+    verify(registry)
+        .fanOut(
+            eq(List.of(agent)),
+            eq("notify.created"),
+            argThat(
+                payload ->
+                    payload instanceof java.util.Map<?, ?> m
+                        && "ISSUE_CHAT_MENTION".equals(m.get("type"))
+                        && (projectKey + "-1").equals(m.get("issueKey"))));
+  }
+
+  /** WP-720: 한 이슈의 내 알림만 읽음으로 — 다른 이슈·다른 사람의 알림은 그대로. */
+  @Test
+  void markReadByIssue_marksOnlyThatIssueForRecipient() {
+    long author = TestFixtures.createHuman(dsl);
+    long me = TestFixtures.createHuman(dsl);
+    long other = TestFixtures.createHuman(dsl);
+    long issueId = seedIssue(author);
+    long otherIssueId = seedIssue(author);
+    service.createAndFanOut(
+        NotificationType.ISSUE_CHAT_MENTION, List.of(me, other), author, issueId, null);
+    service.createAndFanOut(
+        NotificationType.ISSUE_CHAT_MENTION, List.of(me), author, otherIssueId, null);
+
+    assertThat(service.markReadByIssue(me, issueId)).isEqualTo(1);
+
+    assertThat(unreadOf(me, issueId)).isZero();
+    assertThat(unreadOf(me, otherIssueId)).isEqualTo(1);
+    assertThat(unreadOf(other, issueId)).isEqualTo(1);
+    // 다시 불러도 바뀌는 것이 없다.
+    assertThat(service.markReadByIssue(me, issueId)).isZero();
+  }
+
+  /** 그 사람의 그 이슈 안 읽은 알림 수. */
+  private int unreadOf(long recipientId, long issueId) {
+    return dsl.fetchCount(
+        NOTIFICATION,
+        NOTIFICATION
+            .RECIPIENT_ID
+            .eq(recipientId)
+            .and(NOTIFICATION.ISSUE_ID.eq(issueId))
+            .and(NOTIFICATION.READ_AT.isNull()));
+  }
+
   @Test
   void issueChatMention_notifiesMentionedExcludingSelf_withMentionPush() {
     long author = TestFixtures.createHuman(dsl);
@@ -265,8 +333,9 @@ class IssueChatNotificationTest extends IntegrationTestBase {
         .containsExactly(owner);
   }
 
+  /** 코멘트: 멘션된 사람·AI 는 코멘트 멘션(WP-720), 나머지 담당자·워처는 COMMENTED — 한 사람에 1건. */
   @Test
-  void commented_mentionedHumansGetCommentMention_othersGetCommented_oncePerPerson() {
+  void commented_mentionedUsersGetCommentMention_othersGetCommented_oncePerPerson() {
     long actor = TestFixtures.createHuman(dsl);
     long assignee = TestFixtures.createHuman(dsl);
     long watcher = TestFixtures.createHuman(dsl);
@@ -279,7 +348,7 @@ class IssueChatNotificationTest extends IntegrationTestBase {
     watch(issueId, watcher);
     watch(issueId, actor);
 
-    // 작성자 본인·AGENT 멘션은 알림이 없다. 담당자이면서 멘션된 사람은 멘션 1건만.
+    // 작성자 본인 멘션은 알림이 없다. 담당자이면서 멘션된 사람은 멘션 1건만.
     service.createCommentedAndFanOut(
         issueId,
         List.of(
@@ -290,7 +359,7 @@ class IssueChatNotificationTest extends IntegrationTestBase {
         77L);
 
     assertThat(recipientsOf(issueId, NotificationType.ISSUE_COMMENT_MENTION))
-        .containsExactlyInAnyOrder(mentioned, assigneeMentioned);
+        .containsExactlyInAnyOrder(mentioned, assigneeMentioned, agent);
     assertThat(recipientsOf(issueId, NotificationType.COMMENTED))
         .containsExactlyInAnyOrder(assignee, watcher);
     // 멘션 알림도 어느 코멘트인지 남긴다.
@@ -305,7 +374,7 @@ class IssueChatNotificationTest extends IntegrationTestBase {
                 .fetch(NOTIFICATION.COMMENT_ID))
         .containsOnly(77L);
 
-    // 푸시: 멘션된 사람은 MENTION, 나머지는 ISSUE.
+    // 푸시: 멘션된 사람은 MENTION, 나머지는 ISSUE(AI 는 발송 단계의 구독 조회에서 빠진다 — PushRepositoriesTest).
     List<InboxPushRequestedEvent> pushes = events.stream(InboxPushRequestedEvent.class).toList();
     assertThat(pushes).hasSize(2);
     InboxPushRequestedEvent mentionPush =
@@ -313,7 +382,8 @@ class IssueChatNotificationTest extends IntegrationTestBase {
     InboxPushRequestedEvent issuePush =
         pushes.stream().filter(p -> p.category() == PushCategory.ISSUE).findFirst().orElseThrow();
     assertThat(mentionPush.type()).isEqualTo(NotificationType.ISSUE_COMMENT_MENTION);
-    assertThat(mentionPush.recipientIds()).containsExactlyInAnyOrder(mentioned, assigneeMentioned);
+    assertThat(mentionPush.recipientIds())
+        .containsExactlyInAnyOrder(mentioned, assigneeMentioned, agent);
     assertThat(issuePush.type()).isEqualTo(NotificationType.COMMENTED);
     assertThat(issuePush.recipientIds()).containsExactlyInAnyOrder(assignee, watcher);
   }

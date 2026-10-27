@@ -372,6 +372,11 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.post).toHaveBeenCalledWith('/notifications/11/read');
     await client.markAllNotificationsRead();
     expect(http.post).toHaveBeenCalledWith('/notifications/read-all');
+    // WP-720: 이슈 단위 읽음 — 이슈 키를 숫자 id 로 바꿔 부른다.
+    http.get.mockResolvedValueOnce({ data: { summary: { id: 77 } } });
+    await client.markIssueNotificationsRead('WP-3');
+    expect(http.get).toHaveBeenCalledWith('/projects/WP/issues/3');
+    expect(http.post).toHaveBeenCalledWith('/notifications/issues/77/read');
   });
 
   it('WP-356 이슈·프로젝트 보강 경로: 워처·드라이브 링크·커스텀 필드·프로젝트 메타', async () => {

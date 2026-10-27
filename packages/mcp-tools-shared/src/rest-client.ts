@@ -717,6 +717,9 @@ export function createSharedToolClient(http: HttpLike): SharedToolClient {
     async markNotificationRead(notificationId) {
       await http.post(`/notifications/${notificationId}/read`);
     },
+    async markIssueNotificationsRead(issueKey) {
+      await http.post(`/notifications/issues/${await issueId(issueKey)}/read`);
+    },
     async markAllNotificationsRead() {
       await http.post('/notifications/read-all');
     },

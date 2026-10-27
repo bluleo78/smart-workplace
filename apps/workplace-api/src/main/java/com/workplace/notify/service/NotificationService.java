@@ -3,6 +3,7 @@ package com.workplace.notify.service;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.PermissionChecker;
+import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.outbound.AgentWorkNoticeEvent;
 import com.workplace.notify.dto.NotificationResponse;
@@ -11,11 +12,13 @@ import com.workplace.notify.dto.NotificationType;
 import com.workplace.notify.outbound.NotificationChangeNotifier;
 import com.workplace.notify.push.InboxPushRequestedEvent;
 import com.workplace.notify.push.PushCategory;
+import com.workplace.notify.push.PushContentRepository;
 import com.workplace.notify.repository.NotificationRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +49,8 @@ public class NotificationService {
   private final NotificationChangeNotifier changeNotifier;
   private final PermissionChecker permissionChecker;
   private final NotificationSettingService settings;
+  private final UserMentionHydrator mentionHydrator;
+  private final PushContentRepository issueInfo;
 
   /**
    * 이슈 알림 한 건의 내용(수신자 빼고). statusName(이슈 상태 이름, WP-869)과 agentWorkState(AI 작업 상태, WP-913)는 둘 다
@@ -88,18 +93,18 @@ public class NotificationService {
   }
 
   /**
-   * 이슈 챗 AI 질문 알림(WP-452). 수신자 = 이슈의 사람 관계자(보고자 ∪ 담당자 ∪ 워처, HUMAN) ∪ 질문 글에서 멘션된 사람 — 작성자 제외·중복 제거로
-   * 한 사람에 AI_QUESTION 1건만 만든다. 받을지는 멘션 여부와 무관하게 「답변 필요」 한 줄(ISSUE_AI_NEEDS_INPUT)이 정한다(WP-913). 푸시는
-   * 멘션된 사람만 MENTION, 나머지는 ISSUE 분류로 나눠 보낸다 — 서비스워커가 「나를 부른 질문」을 멘션으로 표시·억제하게.
+   * 이슈 챗 AI 질문 알림(WP-452). 수신자 = 이슈의 사람 관계자(보고자 ∪ 담당자 ∪ 워처, HUMAN) ∪ 질문 글에서 멘션된 사람·AI(WP-720) — 작성자
+   * 제외·중복 제거로 한 사람에 AI_QUESTION 1건만 만든다. 받을지는 멘션 여부와 무관하게 「답변 필요」 한 줄(ISSUE_AI_NEEDS_INPUT)이
+   * 정한다(WP-913). 푸시는 멘션된 사람만 MENTION, 나머지는 ISSUE 분류로 나눠 보낸다 — 서비스워커가 「나를 부른 질문」을 멘션으로 표시·억제하게.
    *
    * <p>관계자 조회(RLS 대상)는 이 트랜잭션 안에서 실행 — createWithWatchersAndFanOut 과 같은 이유(@Async 워커 스레드에서 GUC 주입 후
    * 조회).
    *
-   * @param mentionedHumanIds 질문 글에서 멘션된 HUMAN 사용자 id(호출측이 kind 로 거른 값)
+   * @param mentionedIds 질문 글에서 멘션된 사용자 id(사람·AI)
    */
   @Transactional
-  public void createAiQuestionAndFanOut(long issueId, List<Long> mentionedHumanIds, Long actorId) {
-    aiQuestion(issueId, mentionedHumanIds, actorId, null);
+  public void createAiQuestionAndFanOut(long issueId, List<Long> mentionedIds, Long actorId) {
+    aiQuestion(issueId, mentionedIds, actorId, null);
   }
 
   /**
@@ -107,15 +112,15 @@ public class NotificationService {
    * 이슈 챗 질문 글로 생긴 것이면 null 이다. 알림 행과 푸시에 함께 실어 인박스·푸시가 같은 상태별 문구를 쓰게 한다.
    */
   private void aiQuestion(
-      long issueId, List<Long> mentionedHumanIds, Long actorId, String agentWorkState) {
+      long issueId, List<Long> mentionedIds, Long actorId, String agentWorkState) {
     IssueNotice n =
         IssueNotice.of(NotificationType.AI_QUESTION, actorId, issueId, null)
             .withAgentWorkState(agentWorkState);
     List<Long> ids = new ArrayList<>(repo.findHumanStakeholderIds(issueId));
-    ids.addAll(mentionedHumanIds);
+    ids.addAll(mentionedIds);
     List<Long> recipients = insertAndFanOut(n, ids);
     if (recipients.isEmpty()) return;
-    Set<Long> mentioned = new HashSet<>(mentionedHumanIds);
+    Set<Long> mentioned = new HashSet<>(mentionedIds);
     List<Long> toMention = recipients.stream().filter(mentioned::contains).toList();
     List<Long> toIssue = recipients.stream().filter(id -> !mentioned.contains(id)).toList();
     if (!toMention.isEmpty()) publishPush(n, PushCategory.MENTION, toMention);
@@ -143,7 +148,8 @@ public class NotificationService {
    *
    * @param state 알릴 상태 변화(없으면 null — 멘션만)
    * @param delegateCandidates [AI 담당 행의 assigned_by, 보고자] 순서(null 제외)
-   * @param mentionedIds 보고 글에서 멘션된 사용자 id — 사람만 남기고, 열람 권한은 생성 경로가 거른다
+   * @param mentionedIds 보고 글에서 멘션된 사용자 id — 사람·AI 모두 받는다(WP-720, 다른 AI 에게 넘긴 일을 그 AI 가 알림으로 받아
+   *     깨어난다). 열람 권한은 생성 경로가 거른다
    */
   @Transactional
   public void createAgentWorkNoticeAndFanOut(
@@ -152,7 +158,7 @@ public class NotificationService {
       String state,
       List<Long> delegateCandidates,
       List<Long> mentionedIds) {
-    List<Long> mentioned = repo.filterHumanIds(mentionedIds);
+    List<Long> mentioned = mentionHydrator.filterExistingUserIds(mentionedIds);
     Long delegate = null;
     if (state != null) {
       switch (state) {
@@ -254,10 +260,21 @@ public class NotificationService {
         n.commentId(),
         n.statusName(),
         n.agentWorkState());
-    // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회.
-    registry.fanOut(
-        recipients, "notify.created", Map.of("type", n.type().name(), "issueId", n.issueId()));
+    // 페이로드는 경량(클라가 수신 즉시 쿼리 invalidate). 상세는 REST 재조회. 이슈 키는 외부 AI 가 맡은 프로젝트의 알림에만 깨어나도록 거르는
+    // 데 쓴다(WP-720).
+    registry.fanOut(recipients, "notify.created", issuePayload(n));
     return recipients;
+  }
+
+  /** 이슈 알림 SSE 페이로드 — 종류·이슈 id 에 이슈 키(이슈가 사라졌으면 키 없이). 프로젝트는 키의 앞부분이다. */
+  private Map<String, Object> issuePayload(IssueNotice n) {
+    Map<String, Object> payload = new HashMap<>();
+    payload.put("type", n.type().name());
+    payload.put("issueId", n.issueId());
+    issueInfo
+        .findIssue(n.issueId())
+        .ifPresent(i -> payload.put("issueKey", i.projectKey() + "-" + i.number()));
+    return payload;
   }
 
   /**
@@ -347,11 +364,11 @@ public class NotificationService {
   }
 
   /**
-   * 코멘트 알림(WP-650) — 본문에서 멘션된 사람(HUMAN)에게 ISSUE_COMMENT_MENTION(푸시 MENTION), 나머지 담당자 ∪ 워처에게
-   * COMMENTED. 멘션된 사람은 COMMENTED 에서 빼 한 사람에 1건만 만든다. 볼 수 없는 사람·작성자 제외·알림 설정 필터는 insertAndFanOut 이
-   * 그대로 건다. 워처 구독은 하지 않는다(이슈 챗 멘션과 같음).
+   * 코멘트 알림(WP-650) — 본문에서 멘션된 사람·AI 에게 ISSUE_COMMENT_MENTION(푸시 MENTION), 나머지 담당자 ∪ 워처에게 COMMENTED.
+   * 멘션된 사람은 COMMENTED 에서 빼 한 사람에 1건만 만든다. 볼 수 없는 사람·작성자 제외·알림 설정 필터는 insertAndFanOut 이 그대로 건다. 워처
+   * 구독은 하지 않는다(이슈 챗 멘션과 같음).
    *
-   * @param mentionedIds 코멘트 본문의 멘션 토큰 id(존재·종류 미검증 — 여기서 HUMAN 만 남긴다)
+   * @param mentionedIds 코멘트 본문의 멘션 토큰 id(존재 미검증 — 여기서 있는 사용자만 남긴다. 사람·AI 모두 받는다, WP-720)
    */
   @Transactional
   public void createCommentedAndFanOut(
@@ -360,7 +377,7 @@ public class NotificationService {
       List<Long> mentionedIds,
       Long actorId,
       Long commentId) {
-    List<Long> mentionCandidates = repo.filterHumanIds(mentionedIds);
+    List<Long> mentionCandidates = mentionHydrator.filterExistingUserIds(mentionedIds);
     IssueNotice mention =
         IssueNotice.of(NotificationType.ISSUE_COMMENT_MENTION, actorId, issueId, commentId);
     List<Long> mentioned = insertAndFanOut(mention, mentionCandidates);
@@ -495,6 +512,14 @@ public class NotificationService {
     int n = repo.markRead(recipientId, id);
     if (n > 0) changeNotifier.read(recipientId, List.of(id));
     return n;
+  }
+
+  /** 한 이슈의 내 알림을 모두 읽음으로 — AI 가 그 이슈를 처리한 뒤 한 번에 읽음 처리한다(WP-720). 바뀐 것이 있을 때만 다른 탭·기기에 알린다. */
+  @Transactional
+  public int markReadByIssue(long recipientId, long issueId) {
+    List<Long> ids = repo.markReadByIssue(recipientId, issueId);
+    if (!ids.isEmpty()) changeNotifier.read(recipientId, ids);
+    return ids.size();
   }
 
   /** 전체 읽음. 읽을 것이 있었을 때(>0)만 발행하며, 대상 id 는 알 수 없어 빈 목록으로 보낸다. */

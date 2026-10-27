@@ -19,7 +19,20 @@ export const listNotificationsInput = z.object({
   // WP-352: 서버 GET /notifications 의 offset(NotificationController). 이전 호출이 돌려준 nextOffset 을 그대로 넘긴다.
   offset: z.number().int().min(0).default(0).describe('nextOffset; do not compute it'),
 });
-export const markNotificationReadInput = z.object({ notificationId: z.number().int().positive() });
+/**
+ * 읽음 처리 입력 — 알림 하나(notificationId) 또는 한 이슈의 내 알림 전부(issueKey, WP-720: AI 가 그 이슈를 처리한 뒤 한 번에) 중 하나만.
+ * 서버 레이어가 shape 를 등록하므로 superRefine 뒤에도 z.object 다(attachment-tools 와 같음).
+ */
+export const markNotificationReadInput = z
+  .object({
+    notificationId: z.number().int().positive().optional(),
+    issueKey: z.string().min(1).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if ((v.notificationId == null) === (v.issueKey == null)) {
+      ctx.addIssue({ code: 'custom', message: 'notificationId 와 issueKey 중 하나만 주세요.' });
+    }
+  });
 
 /**
  * 알림 행 → LLM 뷰. 사람은 이름으로만 드러내고(actorId 제거, #833), 이슈는 숫자 id 대신 issueKey 로 합친다 —
@@ -109,11 +122,13 @@ export function buildNotifyTools(client: NotificationToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: true, idempotent: true },
       description:
-        'Marks one notification read (notificationId from list_notifications); already read is fine.',
+        'Marks notifications read: one by notificationId (from list_notifications), or all of an issue by issueKey; already read is fine.',
       inputSchema: markNotificationReadInput,
       async handler(args) {
-        const { notificationId } = markNotificationReadInput.parse(args);
-        await client.markNotificationRead(notificationId);
+        const { notificationId, issueKey } = markNotificationReadInput.parse(args);
+        // superRefine 이 둘 중 하나만 있음을 확인했다.
+        if (issueKey != null) await client.markIssueNotificationsRead(issueKey);
+        else await client.markNotificationRead(notificationId!);
         return 'ok';
       },
     },

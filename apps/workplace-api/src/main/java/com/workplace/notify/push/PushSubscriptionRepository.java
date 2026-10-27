@@ -1,6 +1,7 @@
 package com.workplace.notify.push;
 
 import static com.workplace.jooq.Tables.PUSH_SUBSCRIPTION;
+import static com.workplace.jooq.Tables.USER;
 
 import java.time.OffsetDateTime;
 import java.util.Collection;
@@ -59,7 +60,10 @@ public class PushSubscriptionRepository {
         .execute();
   }
 
-  /** 수신자들의 모든 구독. 빈 입력은 빈 결과. */
+  /**
+   * 수신자들의 모든 구독 — 사람(HUMAN)만. AI 는 알림함·SSE 로만 받고 휴대폰 푸시는 받지 않는다(WP-720) — 모든 푸시 경로가 이 조회를 지나므로 여기 한
+   * 곳에서 거른다. 빈 입력은 빈 결과.
+   */
   public List<PushSubscriptionRow> findByUserIds(Collection<Long> userIds) {
     if (userIds.isEmpty()) return List.of();
     return dsl.select(
@@ -69,7 +73,9 @@ public class PushSubscriptionRepository {
             PUSH_SUBSCRIPTION.P256DH,
             PUSH_SUBSCRIPTION.AUTH)
         .from(PUSH_SUBSCRIPTION)
-        .where(PUSH_SUBSCRIPTION.USER_ID.in(userIds))
+        .join(USER)
+        .on(USER.ID.eq(PUSH_SUBSCRIPTION.USER_ID))
+        .where(PUSH_SUBSCRIPTION.USER_ID.in(userIds).and(USER.KIND.eq("HUMAN")))
         .orderBy(PUSH_SUBSCRIPTION.ID)
         .fetch(
             r ->

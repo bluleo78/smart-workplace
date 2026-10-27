@@ -212,29 +212,26 @@ public class NotificationDispatcher {
    *   <li>USER(화면 글·AI 채팅 답글) — 멘션된 사람에게 ISSUE_CHAT_MENTION. 작성자 본인은 서비스가 뺀다.
    * </ul>
    *
-   * <p>AGENT 는 알림을 읽을 사람이 아니라 멘션에서도 뺀다(AGENT 멘션은 ChatEventDispatcher 가 AI 호출로 처리).
+   * <p>멘션은 사람과 AI 가 같은 알림을 받는다(WP-720) — 외부 AI 는 이 알림(SSE notify.created)으로 깨어난다. 서버 AI 의 멘션 호출은
+   * ChatEventDispatcher 가 따로 맡는다.
    */
   @Async("notifyEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onChatMessageCreated(ChatMessageCreatedEvent e) {
     try {
       if (e.origin() == null) return;
-      List<Long> mentionedHumans =
+      List<Long> mentioned =
           e.mentions() == null
               ? List.of()
-              : e.mentions().stream()
-                  .filter(u -> "HUMAN".equals(u.kind()))
-                  .map(UserSummary::id)
-                  .distinct()
-                  .toList();
+              : e.mentions().stream().map(UserSummary::id).distinct().toList();
       switch (e.origin()) {
         case REPORT_QUESTION ->
-            service.createAiQuestionAndFanOut(e.issueId(), mentionedHumans, actorId(e.actor()));
+            service.createAiQuestionAndFanOut(e.issueId(), mentioned, actorId(e.actor()));
         case USER -> {
-          if (!mentionedHumans.isEmpty())
+          if (!mentioned.isEmpty())
             service.createAndFanOut(
                 NotificationType.ISSUE_CHAT_MENTION,
-                mentionedHumans,
+                mentioned,
                 actorId(e.actor()),
                 e.issueId(),
                 null);

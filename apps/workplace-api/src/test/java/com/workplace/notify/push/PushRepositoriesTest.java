@@ -38,6 +38,19 @@ class PushRepositoriesTest extends IntegrationTestBase {
     assertThat(subs.incrementFailure(row.id())).isEqualTo(1); // 이전 후 0 에서 다시 시작
   }
 
+  /** AI 는 휴대폰 푸시를 받지 않는다(WP-720) — 구독 행이 있어도 발송 대상 조회에서 빠진다. 모든 푸시 경로가 이 조회를 지난다. */
+  @Test
+  void findByUserIds_excludesAgentSubscriptions() {
+    long human = TestFixtures.createHuman(dsl);
+    long agent = TestFixtures.createAgentNoToken(dsl);
+    subs.upsert(human, "https://203.0.113.10/push/" + UUID.randomUUID(), "k", "s", null);
+    subs.upsert(agent, "https://203.0.113.10/push/" + UUID.randomUUID(), "k", "s", null);
+
+    assertThat(subs.findByUserIds(List.of(human, agent)))
+        .extracting(PushSubscriptionRow::userId)
+        .containsExactly(human);
+  }
+
   @Test
   void trimToLimit_keepsNewest() {
     long a = TestFixtures.createHuman(dsl);

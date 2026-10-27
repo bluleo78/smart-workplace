@@ -9,6 +9,7 @@ function mockClient(): NotificationToolClient {
     listNotifications: vi.fn().mockResolvedValue([]),
     countUnreadNotifications: vi.fn().mockResolvedValue(0),
     markNotificationRead: vi.fn().mockResolvedValue(undefined),
+    markIssueNotificationsRead: vi.fn().mockResolvedValue(undefined),
     markAllNotificationsRead: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -153,6 +154,21 @@ describe('buildNotifyTools', () => {
     const c = mockClient();
     expect(await tool(c, 'mark_notification_read').handler({ notificationId: 11 })).toBe('ok');
     expect(c.markNotificationRead).toHaveBeenCalledWith(11);
+  });
+
+  it('mark_notification_read issueKey → 그 이슈의 내 알림 전부 읽음(WP-720)', async () => {
+    const c = mockClient();
+    expect(await tool(c, 'mark_notification_read').handler({ issueKey: 'WP-12' })).toBe('ok');
+    expect(c.markIssueNotificationsRead).toHaveBeenCalledWith('WP-12');
+    expect(c.markNotificationRead).not.toHaveBeenCalled();
+  });
+
+  it('mark_notification_read 는 notificationId·issueKey 중 하나만 받는다', async () => {
+    const c = mockClient();
+    await expect(tool(c, 'mark_notification_read').handler({})).rejects.toThrow();
+    await expect(tool(c, 'mark_notification_read').handler({ notificationId: 1, issueKey: 'WP-1' })).rejects.toThrow();
+    expect(c.markNotificationRead).not.toHaveBeenCalled();
+    expect(c.markIssueNotificationsRead).not.toHaveBeenCalled();
   });
 
   it('mark_all_notifications_read → client.markAllNotificationsRead()', async () => {

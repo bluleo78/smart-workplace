@@ -7,11 +7,9 @@ here=$(cd "$(dirname "$0")" && pwd)
 
 gw_prune_sessions
 
-name=""
-sk=$("$here/gw-session-key" 2>/dev/null) && [ -f "$GW_SESSIONS/$sk" ] && name=$(head -n1 "$GW_SESSIONS/$sk")
-[ -n "$name" ] || name="${GENIA_WORKS_AS:-}"
+name=$(gw_identity)
 
-if [ -z "$name" ] || [ "$name" = me ]; then
+if [ -z "$name" ]; then
   printf '{}\n'
   exit 0
 fi

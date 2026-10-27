@@ -469,12 +469,13 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       kind: 'write',
       hints: { destructive: false, idempotent: false },
       description:
-        'Adds a Markdown comment to an issue (이슈); the caller starts watching it. Assignees and watchers are notified; an assigned AI agent may ' +
-        'reply.',
+        'Adds a Markdown comment to an issue (이슈); the caller starts watching it. Assignees and watchers are notified, @username mentions ' +
+        'too; an assigned AI agent may reply.',
       inputSchema: addCommentInput,
       async handler(args) {
         const { issueKey, body } = addCommentInput.parse(args);
-        await client.addComment(issueKey, body);
+        // 이슈 챗 글과 같게 @username 을 멘션 토큰으로 — 그래야 멘션된 사람·AI 가 알림을 받는다(WP-720).
+        await client.addComment(issueKey, await linkMentions(client, body));
         return 'ok';
       },
     },
@@ -489,7 +490,7 @@ export function buildSharedIssueTools(client: IssueToolClient): SharedTool[] {
       inputSchema: editCommentInput,
       async handler(args) {
         const { issueKey, commentId, body } = editCommentInput.parse(args);
-        await client.editComment(issueKey, commentId, body);
+        await client.editComment(issueKey, commentId, await linkMentions(client, body));
         return 'ok';
       },
     },

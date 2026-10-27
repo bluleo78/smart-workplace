@@ -185,6 +185,26 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
     assertStays(humanId, MENTION, 0);
   }
 
+  /**
+   * WP-720: AI 가 보고 글로 다른 AI 를 멘션하면(개발 AI → 검토 AI) 그 AI 도 사람과 같은 멘션 알림을 받는다 — 외부 AI 는 이 알림으로 깨어난다.
+   * 검토 요청은 맡긴 사람에게 따로 간다.
+   */
+  @Test
+  void review_mentioningAnotherAgent_agentGetsMention() {
+    long reviewerAi = addAgent("aw-rev");
+    inTenantRun(() -> projectMemberRepository.insert(projectId, reviewerAi, "MEMBER"));
+    assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING")));
+    assertOk(
+        putReport(
+            akToken,
+            TOOL,
+            Map.of("state", "REVIEW", "message", "<@" + reviewerAi + "> PR 리뷰 부탁해요")));
+
+    awaitCount(reviewerAi, MENTION, 1);
+    awaitCount(humanId, REVIEW_REQUESTED, 1);
+    assertStays(humanId, MENTION, 0);
+  }
+
   /** 사람이 자기 도구로 보고해도 글의 멘션은 알린다(상태 알림은 AI 작업자만). */
   @Test
   void humanWorker_mention_notifiesMentioned() {
