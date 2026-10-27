@@ -3,6 +3,7 @@
 // 렌더 트리 정리(cleanup)는 RTL 이 전역 afterEach(vitest globals: true)에 스스로 건다.
 import '@testing-library/jest-dom/vitest'
 
+import { configure, getConfig } from '@testing-library/react'
 import { afterAll, afterEach } from 'vitest'
 
 import { memoryStorage } from './memoryStorage'
@@ -66,7 +67,10 @@ server.listen({
     unhandledRequests.push(`${request.method} ${new URL(request.url).pathname}`)
   },
 })
+// renderPage 가 늘린 비동기 대기(WP-1006)를 테스트마다 RTL 기본값으로 되돌린다 — 같은 워커의 다음 컴포넌트 테스트에 새지 않게.
+const DEFAULT_ASYNC_TIMEOUT = getConfig().asyncUtilTimeout
 afterEach(() => {
+  configure({ asyncUtilTimeout: DEFAULT_ASYNC_TIMEOUT })
   server.resetHandlers()
   window.localStorage.clear()
   const missed = unhandledRequests.splice(0)
