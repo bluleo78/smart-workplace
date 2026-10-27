@@ -155,12 +155,10 @@ public class WikiPublicShareService {
     return new Opened(share, target);
   }
 
-  /** 링크로 볼 수 있는 페이지 — 하위 포함이면 공유한 페이지의 서브트리, 아니면 그 페이지 하나. */
+  /** 링크로 볼 수 있는 페이지 — 하위 포함이면 공유가 덮는 서브트리(상속이 멈춘 하위는 빠짐, WP-987), 아니면 그 페이지 하나. */
   private List<WikiPageSummary> sharedPages(ShareRow share) {
     List<Long> covered =
-        share.includeChildren()
-            ? pages.subtreeIdsInclusive(share.pageId())
-            : List.of(share.pageId());
+        share.includeChildren() ? shares.coveredSubtree(share.pageId()) : List.of(share.pageId());
     return shares.listSharedPages(covered, share.pageId());
   }
 

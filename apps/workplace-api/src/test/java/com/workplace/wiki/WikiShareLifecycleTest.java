@@ -190,6 +190,32 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     assertThat(changed.get(0).pageIds()).containsExactlyInAnyOrder(childId, grandchildId);
   }
 
+  /**
+   * 같은 루트 공유 안에서도 상위 공유에서 제외된 하위(WP-987)로 옮기면 그 공유에서 빠진다 — PAGE_MOVED_OUT 과 재검증. 거꾸로 제외된 하위에서 루트 바로
+   * 아래로 꺼내면 PAGE_MOVED_IN. 조상 체인에 루트가 그대로 있어도 덮는지는 상속이 멈추는 페이지로 정한다.
+   */
+  @Test
+  void move_into_excluded_subtree_counts_as_moved_out() throws Exception {
+    saveShare(editorId, rootId, "WORKSPACE", "VIEW", true);
+    call(put("/api/v1/wiki/pages/" + childId + "/share/exclusion"), editorId)
+        .andExpect(status().isNoContent());
+    long movingId = page(spaceId, rootId, "옮길 메모");
+    appEvents.clear();
+
+    move(ownerId, movingId, childId);
+
+    assertThat(events(rootId, "PAGE_MOVED_OUT")).hasSize(1);
+    List<WikiShareAccessChangedEvent> changed = accessChanged();
+    assertThat(changed).hasSize(1);
+    assertThat(changed.get(0).pageIds()).containsExactly(movingId);
+
+    move(ownerId, movingId, rootId);
+
+    List<WikiPageShareEventRecord> in = events(rootId, "PAGE_MOVED_IN");
+    assertThat(in).hasSize(1);
+    assertThat(text(in.get(0))).contains("옮길 메모");
+  }
+
   // ── 공유한 사람이 떠날 때 ──────────────────────────────────────────────────
 
   /**

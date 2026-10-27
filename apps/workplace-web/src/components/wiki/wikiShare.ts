@@ -28,17 +28,22 @@ export function wikiShareUrl(token: string, origin: string = window.location.ori
   return `${origin}/wiki/share/${token}`
 }
 
+/** 하위 포함 공유 안의 한 페이지를 바로 여는 주소(WP-987) — 공유 화면 라우트 `/wiki/share/:token/pages/:pageId`. */
+export function wikiSharePageUrl(token: string, pageId: number, origin: string = window.location.origin): string {
+  return `${wikiShareUrl(token, origin)}/pages/${pageId}`
+}
+
 /** 공유 링크 주소를 클립보드에 넣고 결과를 토스트로 알린다 — 공유 창·공유 중인 페이지 목록·공유 표가 같은 문구를 쓴다. */
-export async function copyShareLink(token: string): Promise<void> {
-  if (await copyText(wikiShareUrl(token))) toast.success('링크를 복사했습니다')
+export async function copyShareLink(token: string, pageId?: number): Promise<void> {
+  if (await copyText(pageId == null ? wikiShareUrl(token) : wikiSharePageUrl(token, pageId))) toast.success('링크를 복사했습니다')
   else toast.error('복사하지 못했습니다')
 }
 
-/** 처음 공유할 때의 기본값 — 워크스페이스 멤버 누구나·보기만·이 페이지만·무기한(이슈 1순위 기본). */
+/** 처음 공유할 때의 기본값 — 워크스페이스 멤버 누구나·보기만·하위 페이지 포함(WP-987, Drive·Notion 과 같게)·무기한. */
 export const DEFAULT_SHARE: WikiPageShareRequest = {
   audience: 'WORKSPACE',
   permission: 'VIEW',
-  includeChildren: false,
+  includeChildren: true,
   userIds: [],
   expiresAt: null,
 }

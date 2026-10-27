@@ -289,10 +289,10 @@ class WikiShareAdminTest extends IntegrationTestBase {
     String workspaceToken = saveShare(ownerId, otherPageId, "WORKSPACE", "VIEW", false);
     long fileId = uploadPng(ownerId, childId);
 
-    // 끄기 전에는 외부 토큰으로 페이지와 첨부가 열린다(대조).
-    call(get("/api/v1/wiki/pages/{id}", childId), strangerId, publicRoot)
+    // 끄기 전에는 외부 토큰으로 페이지와 첨부가 열린다(대조). 1분기는 따로 켠 공유가 상위보다 우선이라(WP-987) 자기 토큰으로 연다.
+    call(get("/api/v1/wiki/pages/{id}", childId), strangerId, publicChild)
         .andExpect(status().isOk());
-    call(attachmentContent(childId, fileId), strangerId, publicRoot).andExpect(status().isOk());
+    call(attachmentContent(childId, fileId), strangerId, publicChild).andExpect(status().isOk());
     assertThat(resolvePublic(publicRoot)).isEqualTo(1);
     appEvents.clear();
 
@@ -310,9 +310,9 @@ class WikiShareAdminTest extends IntegrationTestBase {
     // 열려 있던 외부 탭의 새로고침(페이지 GET)·이미지 요청(첨부) — 옛 토큰은 없는 공유다.
     call(get("/api/v1/wiki/pages/{id}", rootId), strangerId, publicRoot)
         .andExpect(status().isNotFound());
-    call(get("/api/v1/wiki/pages/{id}", childId), strangerId, publicRoot)
+    call(get("/api/v1/wiki/pages/{id}", childId), strangerId, publicChild)
         .andExpect(status().isNotFound());
-    call(attachmentContent(childId, fileId), strangerId, publicRoot)
+    call(attachmentContent(childId, fileId), strangerId, publicChild)
         .andExpect(status().isNotFound());
     // 대조: 꺼지지 않은 워크스페이스 링크는 그대로 열린다.
     call(get("/api/v1/wiki/pages/{id}", otherPageId), strangerId, workspaceToken)

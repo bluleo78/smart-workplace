@@ -129,6 +129,7 @@ import com.workplace.jooq.tables.WikiPageBodyHistory;
 import com.workplace.jooq.tables.WikiPageDoc;
 import com.workplace.jooq.tables.WikiPageShare;
 import com.workplace.jooq.tables.WikiPageShareEvent;
+import com.workplace.jooq.tables.WikiPageShareExclusion;
 import com.workplace.jooq.tables.WikiPageShareMember;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
@@ -770,6 +771,11 @@ public class Tables {
      * The table <code>public.wiki_page_share_event</code>.
      */
     public static final WikiPageShareEvent WIKI_PAGE_SHARE_EVENT = WikiPageShareEvent.WIKI_PAGE_SHARE_EVENT;
+
+    /**
+     * The table <code>public.wiki_page_share_exclusion</code>.
+     */
+    public static final WikiPageShareExclusion WIKI_PAGE_SHARE_EXCLUSION = WikiPageShareExclusion.WIKI_PAGE_SHARE_EXCLUSION;
 
     /**
      * The table <code>public.wiki_page_share_member</code>.

@@ -1,6 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
+import { isAxiosError } from 'axios'
 import { BookOpen, FileQuestion } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 
 import { AiLabel } from '@/components/ai/AiLabel'
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
@@ -8,8 +10,10 @@ import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { Button } from '@/components/ui/button'
 import { buildWikiContext } from '@/lib/aiScreenContext/builders/wiki'
 
+import { wikiApi } from '../../api/wiki'
 import { useWikiPage } from '../../hooks/queries/useWikiPage'
 import { useWikiSpaces } from '../../hooks/queries/useWikiSpaces'
+import { wikiKeys } from '../../hooks/queries/wikiKeys'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle'
 import { useWikiLastVisitedKey } from '../../hooks/useWikiLastVisitedKey'
 import {
@@ -110,6 +114,10 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
   }
   if (mode === 'error') {
     /** #788: 존재하지 않는 페이지 ID 등 로드 실패 — 무한 skeleton 대신 ResourceErrorState(4요소) 표시. */
+    // 404 면 이 페이지를 덮는 공유가 있는지 먼저 묻는다(WP-987) — 스페이스 멤버가 아닌 사람이 노트 주소를 받았으면 공유 보기로 옮겨 연다.
+    if (pageId != null && isAxiosError(error) && error.response?.status === 404) {
+      return <WikiPageShareFallback pageId={pageId} onBack={() => navigate('/wiki')} />
+    }
     return <WikiPageUnavailableState onBack={() => navigate('/wiki')} />
   }
   // !page 는 타입 좁히기용 — 모드가 'editor' 면 page 가 있다.
@@ -118,6 +126,24 @@ export function WikiPageView({ pageId, spaceId }: { pageId: number | null; space
     return <WikiPageSkeleton testId="wiki-page-skeleton" />
   }
   return <WikiEditor key={page.id} page={page} spaceId={spaceId} />
+}
+
+/**
+ * 노트 주소로 열었는데 404(멤버가 아님·없는 페이지)일 때(WP-987) — 이 페이지를 지금 덮는 공유(워크스페이스 전체·지정한 사람)가 있으면 그 공유 보기
+ * `/wiki/share/<토큰>/pages/<페이지>` 로 바꿔 연다. 없거나 묻지 못하면 지금처럼 「불러올 수 없습니다」 안내.
+ */
+function WikiPageShareFallback({ pageId, onBack }: { pageId: number; onBack: () => void }) {
+  const entry = useQuery({
+    queryKey: [...wikiKeys.entry(pageId), 'link'],
+    queryFn: () => wikiApi.getPageEntry(pageId, true).then((r) => r.data),
+    retry: false,
+    // 열 때마다 지금 공유 상태로 판정한다(그사이 해제·재발급될 수 있다).
+    gcTime: 0,
+  })
+  if (entry.isPending) return <WikiPageSkeleton testId="wiki-page-skeleton" />
+  const token = entry.data && !entry.data.member ? entry.data.shareToken : null
+  if (token) return <Navigate to={`/wiki/share/${token}/pages/${pageId}`} replace />
+  return <WikiPageUnavailableState onBack={onBack} />
 }
 
 /** 없거나 볼 수 없는 노트 페이지 안내(#788) — 로드 실패와 숫자가 아닌 페이지 주소(WP-612)가 같이 쓴다. */

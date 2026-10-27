@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EVENT;
+import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EXCLUSION;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_SHARE_ACCESS_REQUEST;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
@@ -12,6 +13,7 @@ import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.AccessRequest;
+import com.workplace.wiki.dto.WikiPageShareStateResponse.ExcludedPage;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.Inherited;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiShareEventResponse;
@@ -121,25 +123,30 @@ public class WikiShareRepository {
   }
 
   /**
-   * 이 사용자가 지정한 사람으로 들어 있는, 이 페이지를 지금 덮는(만료 전) 공유의 토큰들 — 페이지 자신의 공유와 하위 포함으로 조상이 건 공유(가까운 쪽 먼저가 아니라
-   * 만든 순). 알림에서 진입할 때 지금 토큰을 찾는 데 쓴다(재발급돼도 최신). ancestorIds 는 자기 포함 조상 체인이다.
+   * 이 페이지를 덮을 수 있는(만료 전) 공유의 토큰 후보 — 이 사용자가 지정한 사람으로 들어 있는 공유, 그리고 withWorkspace 면 워크스페이스 전체 공유까지.
+   * 페이지 자신의 공유와 하위 포함으로 조상이 건 공유이고, 가까운 쪽 먼저가 아니라 만든 순이다. 진입할 때 지금 토큰을 찾는 데 쓴다(재발급돼도 최신). 하위의 제외
+   * 표시·따로 켠 공유로 상속이 멈췄는지는 보지 않는다 — 호출자가 토큰마다 {@code WikiShareAccess} 판정으로 다시 거른다. ancestorIds 는 자기
+   * 포함 조상 체인이다.
    *
-   * <p>알림 목록의 가시성 SQL({@code NotificationRepository#wikiReadableByRecipient})이 이 규칙을 그대로 따른다 — 하나를
-   * 바꾸면 다른 쪽도 함께 바꾼다(보이는 알림 ⇔ 누르면 열림).
+   * <p>알림 목록의 가시성 SQL({@code NotificationRepository#wikiReadableByRecipient})은 withWorkspace=false
+   * 의 규칙(+상속 멈춤)을 그대로 따른다 — 하나를 바꾸면 다른 쪽도 함께 바꾼다(보이는 알림 ⇔ 누르면 열림).
    */
-  public List<String> findListedCoveringTokens(
-      long pageId, long userId, Collection<Long> ancestorIds) {
+  public List<String> findCoveringTokens(
+      long pageId, long userId, Collection<Long> ancestorIds, boolean withWorkspace) {
+    Condition listed =
+        DSL.exists(
+            DSL.selectOne()
+                .from(WIKI_PAGE_SHARE_MEMBER)
+                .where(WIKI_PAGE_SHARE_MEMBER.SHARE_ID.eq(WIKI_PAGE_SHARE.ID))
+                .and(WIKI_PAGE_SHARE_MEMBER.USER_ID.eq(userId)));
+    Condition audience =
+        withWorkspace ? listed.or(WIKI_PAGE_SHARE.AUDIENCE.eq("WORKSPACE")) : listed;
     return dsl.select(WIKI_PAGE_SHARE.TOKEN)
         .from(WIKI_PAGE_SHARE)
         .where(WIKI_PAGE_SHARE.PAGE_ID.in(ancestorIds))
         .and(WIKI_PAGE_SHARE.PAGE_ID.eq(pageId).or(WIKI_PAGE_SHARE.INCLUDE_CHILDREN.isTrue()))
         .and(notExpired())
-        .and(
-            DSL.exists(
-                DSL.selectOne()
-                    .from(WIKI_PAGE_SHARE_MEMBER)
-                    .where(WIKI_PAGE_SHARE_MEMBER.SHARE_ID.eq(WIKI_PAGE_SHARE.ID))
-                    .and(WIKI_PAGE_SHARE_MEMBER.USER_ID.eq(userId))))
+        .and(audience)
         .orderBy(WIKI_PAGE_SHARE.ID)
         .fetch(WIKI_PAGE_SHARE.TOKEN);
   }
@@ -424,8 +431,114 @@ public class WikiShareRepository {
   }
 
   /**
-   * 이 페이지를 이미 보이게 하는 가장 가까운 상위 페이지의 하위 포함 공유(자기 자신 제외, 만료 전). 조상 체인에 깊이를 매겨 가까운 쪽을 고른다 — 재귀 CTE 의
-   * 출력 순서에 기대지 않는다.
+   * 상속이 멈추는 페이지(WP-987) — 상위 공유에서 제외 표시가 있거나, 따로 켠 공유(만료 전)가 있는 페이지. 그 페이지와 서브트리는 그 위의 하위 포함 공유로
+   * 열리지 않는다(따로 켠 공유는 그 공유대로 열린다 — 하위의 설정이 상위보다 우선). SQL 안에서 페이지 id 열 이름 하나({@code col})로 판정한다.
+   */
+  private static String stopsInheritance(String col) {
+    return "(EXISTS (SELECT 1 FROM wiki_page_share_exclusion e WHERE e.page_id = "
+        + col
+        + ") OR EXISTS (SELECT 1 FROM wiki_page_share s2 WHERE s2.page_id = "
+        + col
+        + " AND (s2.expires_at IS NULL OR s2.expires_at > now())))";
+  }
+
+  /**
+   * 공유 루트 rootPageId 의 하위 포함 공유가 pageId(루트 아래 페이지)를 지금 덮는지(WP-987) — pageId 의 조상 체인에 루트가 있고, pageId
+   * 부터 루트 바로 아래까지 상속이 멈추는 페이지({@link #stopsInheritance})가 없다. 루트 자신은 묻지 않는다(호출자가 먼저 본다). 체인은 루트에서
+   * 멈춘다 — 루트 위 조상은 판정과 상관없다. 재귀항은 {@link WikiPageRepository#ancestorIdsInclusive} 와 같은 이유로 UNION.
+   */
+  public boolean isCoveredBy(long rootPageId, long pageId) {
+    return Boolean.TRUE.equals(
+        dsl.fetchValue(
+            """
+            WITH RECURSIVE chain(id, parent_id) AS (
+              SELECT id, parent_id FROM wiki_page WHERE id = ?
+              UNION
+              SELECT p.id, p.parent_id FROM wiki_page p JOIN chain c ON p.id = c.parent_id
+              WHERE c.id <> ?
+            )
+            SELECT EXISTS (SELECT 1 FROM chain WHERE id = ?)
+               AND NOT EXISTS (SELECT 1 FROM chain c WHERE c.id <> ? AND %s)
+            """
+                .formatted(stopsInheritance("c.id")),
+            pageId,
+            rootPageId,
+            rootPageId,
+            rootPageId));
+  }
+
+  /**
+   * 하위 포함 공유가 덮는 페이지(WP-987) — 루트와, 상속이 멈추는 페이지({@link #stopsInheritance})에서 내려가지 않는 서브트리. 공유 화면의
+   * 페이지 목록·멘션 가림이 쓴다({@link #isCoveredBy} 와 같은 규칙).
+   */
+  public List<Long> coveredSubtree(long rootPageId) {
+    return dsl.fetch(
+            """
+            WITH RECURSIVE tree(id) AS (
+              SELECT id FROM wiki_page WHERE id = ?
+              UNION
+              SELECT p.id FROM wiki_page p JOIN tree t ON p.parent_id = t.id
+              WHERE NOT %s
+            )
+            SELECT id FROM tree
+            """
+                .formatted(stopsInheritance("p.id")),
+            rootPageId)
+        .map(r -> r.get(0, Long.class));
+  }
+
+  /**
+   * 이 하위 포함 공유에서 제외된 페이지(WP-987) — 공유가 덮는 서브트리의 바로 아래에서 제외 표시로 멈춘 페이지(따로 켠 공유로 멈춘 페이지는 빼고). 상위 공유
+   * 창의 「제외: 회의록 3 [제외 풀기]」 목록이다. 제목 순.
+   */
+  public List<ExcludedPage> listExcludedUnder(long rootPageId) {
+    return dsl.fetch(
+            """
+            WITH RECURSIVE tree(id) AS (
+              SELECT id FROM wiki_page WHERE id = ?
+              UNION
+              SELECT p.id FROM wiki_page p JOIN tree t ON p.parent_id = t.id
+              WHERE NOT %s
+            )
+            SELECT p.id, p.title FROM wiki_page p
+            JOIN tree t ON p.parent_id = t.id
+            JOIN wiki_page_share_exclusion e ON e.page_id = p.id
+            WHERE NOT EXISTS (SELECT 1 FROM wiki_page_share s2 WHERE s2.page_id = p.id
+                              AND (s2.expires_at IS NULL OR s2.expires_at > now()))
+            ORDER BY p.title, p.id
+            """
+                .formatted(stopsInheritance("p.id")),
+            rootPageId)
+        .map(r -> new ExcludedPage(r.get(0, Long.class), r.get(1, String.class)));
+  }
+
+  /** 이 페이지에 상위 공유 제외 표시가 있는지(WP-987). */
+  public boolean isExcluded(long pageId) {
+    return dsl.fetchExists(WIKI_PAGE_SHARE_EXCLUSION, WIKI_PAGE_SHARE_EXCLUSION.PAGE_ID.eq(pageId));
+  }
+
+  /** 상위 공유 제외 표시를 단다(멱등) — 새로 달았으면 true. */
+  public boolean insertExclusion(long pageId, long userId) {
+    return dsl.insertInto(WIKI_PAGE_SHARE_EXCLUSION)
+            .set(WIKI_PAGE_SHARE_EXCLUSION.PAGE_ID, pageId)
+            .set(WIKI_PAGE_SHARE_EXCLUSION.CREATED_BY, userId)
+            .onConflictDoNothing()
+            .execute()
+        > 0;
+  }
+
+  /** 상위 공유 제외 표시를 뗀다(멱등) — 있던 것을 뗐으면 true. */
+  public boolean deleteExclusion(long pageId) {
+    return dsl.deleteFrom(WIKI_PAGE_SHARE_EXCLUSION)
+            .where(WIKI_PAGE_SHARE_EXCLUSION.PAGE_ID.eq(pageId))
+            .execute()
+        > 0;
+  }
+
+  /**
+   * 이 페이지가 상속받는 상위 공유(WP-987) — 부모부터 올라가며 처음 만나는 「상속이 멈추는 페이지」가 하위 포함 공유를 가진 조상이면 그 공유, 아니면 없음. 따로
+   * 켠 공유가 하위를 포함하지 않으면 거기서 멈추고, 조상의 제외 표시도 거기서 멈춘다. 이 페이지 자신의 제외 표시·공유는 보지 않는다 — 공유 창이 「상위 공유에서 받은
+   * 권한」 상자와 제외 체크(켜져 있어도)를 함께 보이게. 깊이를 매겨 가까운 쪽을 고른다 — 재귀 CTE 의 출력 순서에 기대지 않는다.
    */
   public Optional<Inherited> findNearestIncludingAncestor(long pageId) {
     return dsl.fetchOptional(
@@ -436,21 +549,26 @@ public class WikiShareRepository {
               SELECT p.id, p.parent_id, c.depth + 1 FROM wiki_page p JOIN chain c ON p.id = c.parent_id
               WHERE c.depth < 1000
             )
-            SELECT s.page_id, p.title, s.audience
+            SELECT s.page_id, p.title, s.audience, s.permission, s.token, s.include_children
             FROM chain c
-            JOIN wiki_page_share s ON s.page_id = c.id
-            JOIN wiki_page p ON p.id = s.page_id
-            WHERE c.depth > 0
-              AND s.include_children
+            JOIN wiki_page p ON p.id = c.id
+            LEFT JOIN wiki_page_share s ON s.page_id = c.id
               AND (s.expires_at IS NULL OR s.expires_at > now())
+            WHERE c.depth > 0
+              AND (s.id IS NOT NULL OR EXISTS (SELECT 1 FROM wiki_page_share_exclusion e WHERE e.page_id = c.id))
             ORDER BY c.depth
             LIMIT 1
             """,
             pageId)
+        .filter(r -> r.get(0) != null && Boolean.TRUE.equals(r.get(5, Boolean.class)))
         .map(
             r ->
                 new Inherited(
-                    r.get(0, Long.class), r.get(1, String.class), r.get(2, String.class)));
+                    r.get(0, Long.class),
+                    r.get(1, String.class),
+                    r.get(2, String.class),
+                    r.get(3, String.class),
+                    r.get(4, String.class)));
   }
 
   /** 이 페이지에 대기 중인 접근 요청(오래된 순). 접근 요청은 공유 루트 page_id 로 만들어진다. */
