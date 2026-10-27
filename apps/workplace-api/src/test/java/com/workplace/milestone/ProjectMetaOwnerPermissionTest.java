@@ -35,9 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
  * 거치도록 HTTP(MockMvc)로 부른다.
  *
  * <ul>
- *   <li>OWNER 가 아닌 멤버(USER 역할 — {@code milestone:manage}·{@code cycle:manage} 를 가짐)는 403.
- *   <li>OWNER 는 회사 역할에 {@code milestone:manage}·{@code cycle:manage} 가 없어도({@code project:manage}
- *       만) 성공.
+ *   <li>OWNER 가 아닌 멤버(USER 역할 — 회사 역할로는 {@code project:manage} 까지 가짐)는 403.
+ *   <li>OWNER 는 회사 역할이 {@code project:read}·{@code project:write}·{@code project:manage} 뿐이어도 성공.
+ *       (예전 사이클·마일스톤 전용 권한 코드는 WP-1025 의 V226 가 지웠다.)
  * </ul>
  *
  * <p>@Transactional 이라 MockMvc 요청이 테스트 트랜잭션에 합류해 시드를 보고, 끝나면 롤백된다.
@@ -58,11 +58,10 @@ class ProjectMetaOwnerPermissionTest extends IntegrationTestBase {
   @BeforeEach
   void seed() {
     TenantContext.set(1L);
-    // OWNER 는 milestone:manage·cycle:manage 없이 project:read·project:write·project:manage 만 가진 역할로
-    // 둔다.
+    // OWNER 는 project:read·project:write·project:manage 만 가진 역할로 둔다.
     ownerId = withMembership(TestFixtures.createHuman(dsl));
     grantCustomRole(ownerId, "project:read", "project:write", "project:manage");
-    // 멤버는 USER 역할 — 회사 역할로는 milestone:manage·cycle:manage 를 다 가졌지만 프로젝트 OWNER 가 아니다.
+    // 멤버는 USER 역할 — 회사 역할로는 project:manage 까지 가졌지만 프로젝트 OWNER 가 아니다.
     memberId = withMembership(TestFixtures.createHuman(dsl));
     TestFixtures.grantRole(dsl, memberId, "USER");
     key = "PM" + UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
@@ -88,9 +87,9 @@ class ProjectMetaOwnerPermissionTest extends IntegrationTestBase {
     call(get(base), memberId).andExpect(status().isOk());
   }
 
-  /** 마일스톤 — milestone:manage 가 없는 OWNER 도 만들기·수정·삭제가 된다. */
+  /** 마일스톤 — project:* 만 가진 OWNER 도 만들기·수정·삭제가 된다. */
   @Test
-  void ownerWithoutMilestoneManageCanManageMilestone() throws Exception {
+  void ownerWithOnlyProjectPermissionsCanManageMilestone() throws Exception {
     String base = "/api/v1/projects/" + key + "/milestones";
     long id =
         idOf(call(post(base).content(milestone("베타")), ownerId).andExpect(status().isCreated()));
@@ -111,9 +110,9 @@ class ProjectMetaOwnerPermissionTest extends IntegrationTestBase {
     call(get(base), memberId).andExpect(status().isOk());
   }
 
-  /** 사이클 — cycle:manage 가 없는 OWNER 도 만들기·수정·삭제가 된다. */
+  /** 사이클 — project:* 만 가진 OWNER 도 만들기·수정·삭제가 된다. */
   @Test
-  void ownerWithoutCycleManageCanManageCycle() throws Exception {
+  void ownerWithOnlyProjectPermissionsCanManageCycle() throws Exception {
     String base = "/api/v1/projects/" + key + "/cycles";
     long id = idOf(call(post(base).content(cycle("1주차")), ownerId).andExpect(status().isOk()));
     call(patch(base + "/" + id).content(cycle("1주차 수정")), ownerId).andExpect(status().isOk());

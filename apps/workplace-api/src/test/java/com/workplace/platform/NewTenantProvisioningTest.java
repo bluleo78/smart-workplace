@@ -131,7 +131,7 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
     // #833: 구성원 디렉터리 조회 — AI 가 이름으로 userId 를 확정하는 경로.
     assertThat(agentCodes).contains("member:read", "contact:read", "issue:write");
     // 관리성 권한은 AGENT 에 주지 않는다.
-    assertThat(agentCodes).doesNotContain("project:manage", "milestone:manage", "role:assign");
+    assertThat(agentCodes).doesNotContain("project:manage", "role:assign");
     // 드리프트 가드: 마이그레이션이 AGENT 에 권한을 추가하면 시드 상수도 같이 바꿔야 한다.
     assertThat(agentCodes).isEqualTo(roleCodes(1L, "AGENT"));
   }
@@ -180,6 +180,54 @@ class NewTenantProvisioningTest extends IntegrationTestBase {
     dsl.execute(script);
 
     assertThat(roleCodes(tenantId, "USER")).isEqualTo(roleCodes(1L, "USER"));
+  }
+
+  @Test
+  void v226_dropsUnusedCycleMilestoneManage_fromCatalogAndAllTenants() throws Exception {
+    // WP-1025: WP-1008 뒤 아무도 검사하지 않는 두 권한 코드를 카탈로그와 모든 테넌트 역할에서 지운다.
+    // Flyway 는 이미 V226 를 적용했으므로, 지우기 전 상태(카탈로그 + tenant#1·다른 테넌트 USER 에 부여)를 되살린 뒤
+    // 스크립트를 다시 실행한다. 테스트 접속은 RLS 를 받는 계정이라, 다른 테넌트 GUC 에서 실행해도 tenant#1 부여까지
+    // 사라지면 FK CASCADE 가 RLS 너머로 지운다는 것(마이그레이션의 전제)이 확인된다.
+    long owner = createHumanUser("owner");
+    TenantDetailResponse detail =
+        service.createTenant(new CreateTenantRequest("DropPermCheck", uniqueSlug(), owner));
+    long tenantId = detail.id();
+    Set<String> userBefore = roleCodes(tenantId, "USER");
+    Set<String> tenant1Before = roleCodes(1L, "USER");
+    assertThat(userBefore).doesNotContain("cycle:manage", "milestone:manage"); // 신규 시드에도 없다
+
+    dsl.execute(
+        "insert into permission (code, description, category) values"
+            + " ('cycle:manage', '프로젝트 사이클 생성/수정/삭제', 'project'),"
+            + " ('milestone:manage', '프로젝트 마일스톤 생성/수정/삭제', 'project')");
+    // role 은 RLS 로 GUC 테넌트 것만 보이므로 테넌트마다 GUC 를 맞춰 부여한다.
+    for (long t : new long[] {1L, tenantId}) {
+      setGuc(Long.toString(t));
+      dsl.execute(
+          "insert into role_permission (role_id, permission_id, tenant_id)"
+              + " select r.id, p.id, r.tenant_id from role r"
+              + " join permission p on p.code in ('cycle:manage', 'milestone:manage')"
+              + " where r.name = 'USER' and r.is_system = true and r.tenant_id = ?",
+          t);
+    }
+    assertThat(roleCodes(1L, "USER")).contains("cycle:manage", "milestone:manage");
+    assertThat(roleCodes(tenantId, "USER")).contains("cycle:manage", "milestone:manage");
+
+    // 다른 테넌트 GUC 에서 실행 — tenant#1 행은 이 접속에서 보이지 않는다.
+    setGuc(Long.toString(tenantId));
+    String script =
+        new ClassPathResource(
+                "db/migration/V226__drop_unused_cycle_milestone_manage_permissions.sql")
+            .getContentAsString(StandardCharsets.UTF_8);
+    dsl.execute(script);
+
+    int leftInCatalog =
+        dsl.fetchOne(
+                "select count(*) from permission where code in ('cycle:manage', 'milestone:manage')")
+            .get(0, int.class);
+    assertThat(leftInCatalog).isZero();
+    assertThat(roleCodes(tenantId, "USER")).isEqualTo(userBefore);
+    assertThat(roleCodes(1L, "USER")).isEqualTo(tenant1Before);
   }
 
   /** WP-887: 새 테넌트의 기본 관계 유형 집합이 tenant#1(마이그레이션 시드)과 같다 — 코드·이름·말·방향·외부 전용·정렬. */
