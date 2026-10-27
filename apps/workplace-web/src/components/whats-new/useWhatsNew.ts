@@ -8,7 +8,7 @@ import { loadBundledNotes } from '@/lib/releaseNotesBundle'
 /** 노트 선택은 빌드 상수와 번들 노트에만 의존하므로 모듈 로드 시 한 번만 계산한다(렌더마다 파싱하지 않는다). */
 export const { current: currentNote, previous: previousNotes } = selectWhatsNew(loadBundledNotes(), __APP_VERSION__)
 
-// 같은 탭의 구독자 — markSeen 은 같은 문서에서 storage 이벤트를 내지 않으므로 직접 알린다(useProjectFavorites 와 같은 방식).
+// 같은 탭의 구독자 — markSeen 은 같은 문서에서 storage 이벤트를 내지 않으므로 직접 알린다.
 const listeners = new Set<() => void>()
 
 function subscribe(cb: () => void): () => void {

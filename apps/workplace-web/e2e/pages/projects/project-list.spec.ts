@@ -30,20 +30,19 @@ test('컬러 배지와 유형 칩이 보인다', async ({ authenticatedPage: pag
   await expect(row).toContainText('팀')
 })
 
-test('즐겨찾기 토글 시 상단으로 핀되고 localStorage 반영', async ({ authenticatedPage: page }) => {
+// WP-1001 — 즐겨찾기는 서버에 저장한다(브라우저 저장소에는 쓰지 않는다). 새로고침해도 남는다.
+test('즐겨찾기 토글 시 상단으로 핀되고 서버에 저장된다', async ({ authenticatedPage: page }) => {
   await page.goto('/projects')
+  const saved = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/v1/me/project-favorites/DONE1'))
   await page.getByTestId('fav-toggle-DONE1').click()
   // 핀 그룹 헤더 노출
   await expect(page.getByTestId('fav-group')).toBeVisible()
-  // localStorage 에 key 포함 여부 확인 — 키는 사용자·워크스페이스별(WP-701), 예전 브라우저 단위 키에는 쓰지 않는다.
-  const stored = await page.evaluate(() =>
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('project-favorites'))
-      .map((k) => [k, localStorage.getItem(k)]),
-  )
-  expect(stored).toHaveLength(1)
-  expect(stored[0][0]).toMatch(/^project-favorites:1:/)
-  expect(stored[0][1]).toContain('DONE1')
+  await saved
+  const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('project-favorites')))
+  expect(stored).toEqual([])
+  // 서버(목)에 남아 있어 새로고침 뒤에도 핀된다.
+  await page.reload()
+  await expect(page.getByTestId('fav-toggle-DONE1')).toHaveAttribute('aria-pressed', 'true')
 })
 
 // WP-701 — 같은 브라우저의 다른 사용자(또는 예전 브라우저 단위 키)가 고른 즐겨찾기는 내 목록에 보이지 않는다.

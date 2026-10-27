@@ -97,6 +97,7 @@ import com.workplace.jooq.tables.PlatformRolePermission;
 import com.workplace.jooq.tables.PlatformUserRole;
 import com.workplace.jooq.tables.Project;
 import com.workplace.jooq.tables.ProjectComponent;
+import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
 import com.workplace.jooq.tables.ProjectStatus;
@@ -610,6 +611,11 @@ public class Tables {
      * The table <code>public.project_component</code>.
      */
     public static final ProjectComponent PROJECT_COMPONENT = ProjectComponent.PROJECT_COMPONENT;
+
+    /**
+     * The table <code>public.project_favorite</code>.
+     */
+    public static final ProjectFavorite PROJECT_FAVORITE = ProjectFavorite.PROJECT_FAVORITE;
 
     /**
      * The table <code>public.project_issue_sequence</code>.
