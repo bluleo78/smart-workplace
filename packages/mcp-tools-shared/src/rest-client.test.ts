@@ -124,6 +124,20 @@ describe('createSharedToolClient 경로 매핑', () => {
     expect(http.get).toHaveBeenLastCalledWith('/chat/threads/55/attachments/900/view?page=2', expect.objectContaining({ responseType: 'arraybuffer' }));
   });
 
+  it('이슈 챗 스레드(참여자 포함)는 캐시 없이 매번 읽고, 받은 스레드 id 는 캐시에 넣는다(WP-1009)', async () => {
+    const { http, client } = mockHttp();
+    const members = [{ userId: 3, username: 'dh', name: '양동희', kind: 'HUMAN' }];
+    http.get.mockResolvedValue({ data: { threadId: 55, members } });
+    expect(await client.getIssueChatThread('WP-1')).toEqual({ threadId: 55, members });
+    expect(await client.getIssueChatThread('WP-1')).toEqual({ threadId: 55, members });
+    expect(http.get).toHaveBeenCalledTimes(2);
+    expect(http.get).toHaveBeenLastCalledWith('/projects/WP/issues/1/chat/thread');
+    expect(await client.getIssueChatThreadId('WP-1')).toBe(55);
+    expect(http.get).toHaveBeenCalledTimes(2);
+    http.get.mockResolvedValueOnce({ data: { threadId: 66 } });
+    expect(await client.getIssueChatThread('WP-2')).toEqual({ threadId: 66, members: [] });
+  });
+
   it('이슈 챗 스레드 id 는 같은 issueKey 로 한 번만 조회하고, 실패하면 캐시하지 않는다', async () => {
     const { http, client } = mockHttp();
     http.get.mockResolvedValueOnce({ data: { threadId: 55 } });

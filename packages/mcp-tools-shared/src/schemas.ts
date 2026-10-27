@@ -113,7 +113,9 @@ export const reportAgentWorkInput = z
     progress: z.number().int().min(0).max(100).optional(),
     stepsDone: z.number().int().min(0).optional(),
     stepsTotal: z.number().int().min(1).optional(),
-    message: z.string().min(1).max(4000).optional(),
+    // 길이(4000자)는 여기서 보지 않는다 — 서버 @Size 는 도구가 @username 을 멘션 토큰(<@id>)으로 바꿔 쓴 뒤의 글에 걸리므로(WP-1009)
+    // 판정은 서버에 맡긴다(add_channel_message 와 같은 이유). 한도는 work-on 스킬이 알린다.
+    message: z.string().min(1).optional(),
     // 다음 실행 시각(WP-450) — z.iso.datetime 은 긴 pattern 을 JSON Schema 에 싣는 탓에 문자열 + refine. 오프셋 생략 허용(핸들러가 +09:00 보정).
     nextRunAt: z
       .string()

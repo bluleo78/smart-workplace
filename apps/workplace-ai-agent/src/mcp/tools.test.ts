@@ -199,6 +199,7 @@ function sharedMock(): MockedShared {
     readMessageAttachmentText: vi.fn(),
     readMailAttachmentText: vi.fn(),
     getIssueChatThreadId: vi.fn(),
+    getIssueChatThread: vi.fn(),
     listIssueChatMessages: vi.fn(),
     readIssueChatAttachmentText: vi.fn(),
     // WP-250: 모델 입력용 이미지(/view).

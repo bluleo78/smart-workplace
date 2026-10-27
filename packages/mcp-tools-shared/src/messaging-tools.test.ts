@@ -299,6 +299,14 @@ describe('add_channel_message @username → <@userId> 멘션 변환', () => {
     expect(c.searchMembers).not.toHaveBeenCalled();
   });
 
+  it('코드(펜스 블록·인라인 코드) 안의 @ 는 멘션으로 바꾸지도 조회하지도 않는다(WP-1009)', async () => {
+    const c = mockClient();
+    c.searchMembers = searchLike([member('kim.cs', 42), member('admin', 7)]);
+    const body = '@kim.cs 확인\n```java\n@admin\n@Override\n```\n`@admin` 은 코드, @admin 은 멘션';
+    expect(await linkMentions(c, body)).toBe('<@42> 확인\n```java\n@admin\n@Override\n```\n`@admin` 은 코드, <@7> 은 멘션');
+    expect(vi.mocked(c.searchMembers).mock.calls.map(([q]) => q.search).sort()).toEqual(['admin', 'kim.cs']);
+  });
+
   it('멘션 수는 본문당 20개로 제한된다', async () => {
     const c = mockClient();
     const body = Array.from({ length: 25 }, (_, i) => `@u${i}`).join(' ');

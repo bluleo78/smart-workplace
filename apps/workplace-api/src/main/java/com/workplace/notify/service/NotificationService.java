@@ -124,7 +124,7 @@ public class NotificationService {
 
   /**
    * AI 작업 상태 알림(WP-913) — AI 작업자가 보고한 상태가 그 값으로 바뀐 순간 issue 모듈이 낸 이벤트를 커밋 뒤 받아 만든다. 작업자가 AI 인지는 발행
-   * 쪽(issue)이 이미 판정했다 — 사람이 자기 도구로 보고한 작업은 이벤트가 오지 않는다.
+   * 쪽(issue)이 이미 판정했다 — 사람이 자기 도구로 보고한 작업은 state 가 없다(글의 멘션만 온다).
    *
    * <ul>
    *   <li>REVIEW → AI_REVIEW_REQUESTED, FAILED·REJECTED → AI_WORK_FAILED: 받는 사람은 한 명 —
@@ -136,41 +136,71 @@ public class NotificationService {
    * <p>알림 설정 필터는 대체 수신자를 고른 <b>뒤</b> 건다 — 할당자가 이 알림을 꺼 두었으면 아무도 받지 않는다. 개인 설정이 다른 사람(보고자)에게 가는 대체
    * 경로를 열면 「끈 알림이 남에게 넘어가는」 셈이 되기 때문이다.
    *
+   * <p>보고 글의 멘션(WP-1009)도 같은 보고의 알림으로 함께 만든다 — <b>보고 하나 = 사람당 1건</b>. 답변 필요는 멘션된 사람까지 AI_QUESTION
+   * 하나로 합치고(이슈 챗 질문과 같은 규칙), 검토 요청·실패는 그 알림의 대리인을 빼고 나머지 멘션된 사람에게 ISSUE_CHAT_MENTION 을 만든다. 상태 알림이
+   * 없으면(state null) 멘션된 사람에게만 ISSUE_CHAT_MENTION. 대리인은 설정 필터 <b>전</b>에 뺀다 — 그 상태 알림을 꺼 둔 사람에게 같은
+   * 보고가 멘션 알림으로 새어 들어가지 않게(코멘트 알림 createCommentedAndFanOut 과 같은 규칙).
+   *
+   * @param state 알릴 상태 변화(없으면 null — 멘션만)
    * @param delegateCandidates [AI 담당 행의 assigned_by, 보고자] 순서(null 제외)
+   * @param mentionedIds 보고 글에서 멘션된 사용자 id — 사람만 남기고, 열람 권한은 생성 경로가 거른다
    */
   @Transactional
   public void createAgentWorkNoticeAndFanOut(
-      long issueId, long workerId, String state, List<Long> delegateCandidates) {
-    switch (state) {
-      case AgentWorkNoticeEvent.REVIEW ->
-          notifyDelegate(
-              NotificationType.AI_REVIEW_REQUESTED, issueId, workerId, state, delegateCandidates);
-      case AgentWorkNoticeEvent.FAILED, AgentWorkNoticeEvent.REJECTED ->
-          notifyDelegate(
-              NotificationType.AI_WORK_FAILED, issueId, workerId, state, delegateCandidates);
-      case AgentWorkNoticeEvent.AUTH_REQUIRED,
-          AgentWorkNoticeEvent.BLOCKED,
-          AgentWorkNoticeEvent.INPUT_REQUIRED ->
-          aiQuestion(issueId, List.of(), workerId, state);
-      default -> {
-        // CANCELED·COMPLETED 등 — 알림 없음(완료는 이슈 상태 변경 알림이 맡는다).
+      long issueId,
+      long workerId,
+      String state,
+      List<Long> delegateCandidates,
+      List<Long> mentionedIds) {
+    List<Long> mentioned = repo.filterHumanIds(mentionedIds);
+    Long delegate = null;
+    if (state != null) {
+      switch (state) {
+        case AgentWorkNoticeEvent.REVIEW ->
+            delegate =
+                notifyDelegate(
+                    NotificationType.AI_REVIEW_REQUESTED,
+                    issueId,
+                    workerId,
+                    state,
+                    delegateCandidates);
+        case AgentWorkNoticeEvent.FAILED, AgentWorkNoticeEvent.REJECTED ->
+            delegate =
+                notifyDelegate(
+                    NotificationType.AI_WORK_FAILED, issueId, workerId, state, delegateCandidates);
+        case AgentWorkNoticeEvent.AUTH_REQUIRED,
+            AgentWorkNoticeEvent.BLOCKED,
+            AgentWorkNoticeEvent.INPUT_REQUIRED -> {
+          // 멘션된 사람까지 「답변 필요」 하나로 — 남은 멘션 알림이 없다.
+          aiQuestion(issueId, mentioned, workerId, state);
+          return;
+        }
+        default -> {
+          // CANCELED·COMPLETED 등 — 상태 알림 없음(완료는 이슈 상태 변경 알림이 맡는다).
+        }
       }
+    }
+    Long notified = delegate;
+    List<Long> rest = mentioned.stream().filter(id -> !id.equals(notified)).toList();
+    if (!rest.isEmpty()) {
+      create(IssueNotice.of(NotificationType.ISSUE_CHAT_MENTION, workerId, issueId, null), rest);
     }
   }
 
   /**
    * 검토 요청·실패 — 대체 규칙으로 고른 한 사람에게만 만들고, 설정 필터는 그 뒤 건다. 대리인은 firstReachableDelegate 가 이미 사람·이슈 열람 가능을
-   * 확인했고 작업자는 AI(이벤트 계약)라, 열람·종류를 다시 조회하지 않고 설정 판정부터 한다.
+   * 확인했고 작업자는 AI(이벤트 계약)라, 열람·종류를 다시 조회하지 않고 설정 판정부터 한다. 고른 대리인을 돌려준다(없으면 null) — 설정으로 받지 않았어도 같은
+   * 보고의 멘션 알림에서 뺀다.
    */
-  private void notifyDelegate(
+  private Long notifyDelegate(
       NotificationType type, long issueId, long workerId, String state, List<Long> candidates) {
     Long delegate = firstReachableDelegate(issueId, workerId, candidates);
-    if (delegate == null) return;
+    if (delegate == null) return null;
     IssueNotice n = IssueNotice.of(type, workerId, issueId, null).withAgentWorkState(state);
     List<Long> recipients =
         deliver(n, List.of(delegate), Map.of(delegate, UserKind.HUMAN, workerId, UserKind.AGENT));
-    if (recipients.isEmpty()) return;
-    publishPush(n, PushCategory.ISSUE, recipients);
+    if (!recipients.isEmpty()) publishPush(n, PushCategory.ISSUE, recipients);
+    return delegate;
   }
 
   /**

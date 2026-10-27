@@ -9,10 +9,10 @@ import { Fragment, type ReactNode, useMemo } from 'react';
 
 import { LinkedText, TextLink } from '@/components/LinkedText';
 import { blankLinesBetween, MENTION_TOKEN, parseChatMarkdown, safeHref } from '@/components/mentions/chatMarkdown';
+import { mentionSeg, type RenderMention } from '@/components/mentions/parseMessageSegments';
 import type { MentionUser } from '@/components/mentions/types';
 
-/** 멘션 칩 그리기 — 이름·종류는 mentions 에서 찾는다(없으면 「알 수 없음」 사람). */
-export type RenderMention = (m: { id: number; name: string; kind: MentionUser['kind'] }, key: string) => ReactNode;
+export type { RenderMention };
 
 interface Props {
   body: string;
@@ -149,9 +149,7 @@ function renderText(text: string, ctx: Ctx, key: string, inLink: boolean): React
     inLink ? s : <LinkedText key={k} text={s} linkTestId={ctx.linkTestId} />;
   for (const m of text.matchAll(MENTION_TOKEN)) {
     if (m.index > last) out.push(piece(text.slice(last, m.index), `${key}t${last}`));
-    const id = Number(m[1]);
-    const hit = ctx.byId.get(id);
-    out.push(ctx.renderMention({ id, name: hit?.name ?? '알 수 없음', kind: hit?.kind ?? 'HUMAN' }, `${key}m${m.index}`));
+    out.push(ctx.renderMention(mentionSeg(ctx.byId, Number(m[1])), `${key}m${m.index}`));
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(piece(text.slice(last), `${key}t${last}`));

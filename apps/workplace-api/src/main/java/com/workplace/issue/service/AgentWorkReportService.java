@@ -1,6 +1,9 @@
 package com.workplace.issue.service;
 
 import com.workplace.global.security.AgentToolContext;
+import com.workplace.global.service.UserMentionHydrator;
+import com.workplace.global.util.MentionParser;
+import com.workplace.global.util.Texts;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkReportResponse;
 import com.workplace.issue.dto.AgentWorkState;
@@ -47,6 +50,7 @@ public class AgentWorkReportService {
   private final ProjectAccessGuard accessGuard;
   private final IssueChatPoster chatPoster;
   private final ApplicationEventPublisher publisher;
+  private final UserMentionHydrator mentionHydrator;
 
   /** 명시 보고. 부수 쓰기(상태 변경·챗 글)가 자동 터치로 보고 상태를 되돌리지 않도록 전체를 억제 구간으로 감싼다. */
   @Transactional
@@ -97,11 +101,10 @@ public class AgentWorkReportService {
                   req.progress(),
                   req.stepsDone(),
                   req.stepsTotal()));
-      // 실패·거절로 실제로 끝낸 순간에만 알린다 — 진행 중 작업이 없었으면(이미 끝난 뒤 재보고) end 가 false 라 알림도 없다(WP-913).
-      // 사람이 자기 도구로 보고한 작업은 AI 작업 알림 대상이 아니다.
-      if (agentWorker && ended && AgentWorkNoticeEvent.ON_END.contains(req.state())) {
-        publishNotice(issue, callerId, req.state());
-      }
+      // 실패·거절로 실제로 끝낸 순간에만 상태 알림을 싣는다 — 진행 중 작업이 없었으면(이미 끝난 뒤 재보고) end 가 false 라 알림도 없다(WP-913).
+      // 사람이 자기 도구로 보고한 작업은 AI 작업 상태 알림 대상이 아니다. 글의 멘션은 함께 실어 사람당 1건으로 알린다(WP-1009).
+      boolean noticeEnd = agentWorker && ended && AgentWorkNoticeEvent.ON_END.contains(req.state());
+      publishNotice(issue, callerId, noticeEnd ? req.state() : null, mentionsOf(req, hasMessage));
       return new AgentWorkReportResponse(null, true);
     }
 
@@ -129,18 +132,23 @@ public class AgentWorkReportService {
                 req.stepsTotal(),
                 req.nextRunAt()));
     var view = transition.view();
-    // 상태가 이번 보고로 그 값이 된 순간에만 알린다(같은 상태 재보고·note 갱신은 제외, WP-913). 글 있는 답변 필요는 아래 챗 질문 글이
-    // AI_QUESTION 을 만들므로 여기서 또 내지 않는다 — 사람당 1건.
-    if (agentWorker
-        && !Objects.equals(transition.previousState(), view.state())
-        && noticeOnEnter(view.state(), hasMessage)) {
-      publishNotice(issue, callerId, view.state());
-    }
-
     // 갱신된 상태가 답변 필요(INPUT_REQUIRED)이고 작업자가 AI 구성원일 때만 질문으로 저장한다(사람 글·인증 필요 글은 일반 글).
+    boolean question =
+        hasMessage && AgentWorkState.INPUT_REQUIRED.equals(view.state()) && agentWorker;
+    // 상태가 이번 보고로 그 값이 된 순간에만 상태 알림을 싣는다(같은 상태 재보고·note 갱신은 제외, WP-913). 글의 멘션도 함께 실어 사람당 1건으로
+    // 알린다(WP-1009). 글 있는 AI 질문은 챗 질문 글이 관계자 ∪ 멘션에게 AI_QUESTION 을 만들므로 둘 다 싣지 않는다 — 사람당 1건.
+    boolean notice =
+        agentWorker
+            && !Objects.equals(transition.previousState(), view.state())
+            && noticeOnEnter(view.state(), hasMessage);
+    publishNotice(
+        issue,
+        callerId,
+        notice ? view.state() : null,
+        question ? List.of() : mentionsOf(req, hasMessage));
+
     // 질문 여부를 생성과 함께 저장하려고 작업 갱신 뒤에 글을 올린다 — 같은 트랜잭션이라 이벤트는 커밋 뒤 함께 나간다.
     if (hasMessage) {
-      boolean question = AgentWorkState.INPUT_REQUIRED.equals(view.state()) && agentWorker;
       chatPoster.post(callerId, projectKey, number, req.message(), question, req.fileIds());
     }
     return new AgentWorkReportResponse(view, false);
@@ -177,28 +185,46 @@ public class AgentWorkReportService {
   }
 
   /**
-   * AI 작업 상태 알림 이벤트를 낸다(WP-913) — 커밋 뒤 notify 가 받는다. 검토 요청·실패의 수신 후보는 [이 작업자 담당 행을 만든 사람, 보고자] 순서.
-   * 작업자가 AI 일 때만 부른다(호출측 판정). 후보가 사람이고 이슈를 볼 수 있는지는 notify 가 판정한다.
+   * 보고 알림 이벤트를 낸다(WP-913·WP-1009) — 커밋 뒤 notify 가 상태 알림과 멘션 알림을 사람당 1건으로 만든다. state 는 AI 작업자의 알릴 상태
+   * 변화가 있을 때만(호출측 판정, 없으면 null). 검토 요청·실패의 수신 후보는 [이 작업자 담당 행을 만든 사람, 보고자] 순서. 후보·멘션이 사람이고 이슈를 볼 수
+   * 있는지는 notify 가 판정한다. 알릴 것이 없으면 내지 않는다.
    */
-  private void publishNotice(IssueRow issue, long callerId, String state) {
+  private void publishNotice(IssueRow issue, long callerId, String state, List<Long> mentionedIds) {
+    if (state == null && mentionedIds.isEmpty()) return;
     List<Long> candidates = new ArrayList<>(2);
-    assigneeRepository.findAssignedBy(issue.id(), callerId).ifPresent(candidates::add);
-    if (issue.reporterId() != null) candidates.add(issue.reporterId());
-    publisher.publishEvent(new AgentWorkNoticeEvent(issue.id(), callerId, state, candidates));
+    if (state != null) {
+      assigneeRepository.findAssignedBy(issue.id(), callerId).ifPresent(candidates::add);
+      if (issue.reporterId() != null) candidates.add(issue.reporterId());
+    }
+    publisher.publishEvent(
+        new AgentWorkNoticeEvent(issue.id(), callerId, state, candidates, mentionedIds));
   }
 
-  /** 보고의 note: 빈 문자열은 지우기(null + clearNote), 미지정이면 message 첫 줄(최대 120자)로 대체, 둘 다 없으면 null(유지). */
-  private static String noteFor(ReportAgentWorkRequest req, boolean hasMessage) {
+  /** 보고 글(message)의 멘션 id(<@id> 토큰) — 글이 없으면 빈 목록. */
+  private static List<Long> mentionsOf(ReportAgentWorkRequest req, boolean hasMessage) {
+    return hasMessage ? MentionParser.parse(req.message()) : List.of();
+  }
+
+  /**
+   * 보고의 note: 빈 문자열은 지우기(null + clearNote), 미지정이면 message 첫 줄(최대 120자)로 대체, 둘 다 없으면 null(유지). note
+   * 는 화면이 글자 그대로 보이므로 첫 줄의 멘션 토큰(<@id>)은 @이름으로 바꾼다(WP-1009 — MCP 가 글의 @username 을 토큰으로 바꿔 보낸다).
+   */
+  private String noteFor(ReportAgentWorkRequest req, boolean hasMessage) {
     if (req.note() == null) return hasMessage ? firstLine(req.message()) : null;
     return req.note().isEmpty() ? null : req.note();
   }
 
-  /** message 첫 줄(앞뒤 공백 제거)을 note 한도로 자른다. */
-  private static String firstLine(String message) {
-    String line = message.strip().lines().findFirst().orElse("").strip();
-    if (line.length() <= NOTE_MAX) return line;
-    // 서로게이트 쌍(이모지 등)을 반으로 쪼개지 않도록 경계가 high surrogate 면 한 글자 물린다.
-    int end = Character.isHighSurrogate(line.charAt(NOTE_MAX - 1)) ? NOTE_MAX - 1 : NOTE_MAX;
-    return line.substring(0, end);
+  /**
+   * message 첫 줄(앞뒤 공백 제거)을 note 한도로 자른다. 첫 줄의 멘션 토큰은 자르기 전에 {@code @이름} 으로 바꾼다 — 토큰이 없으면 조회하지 않고, 첫
+   * 줄에 든 멘션만 조회한다.
+   */
+  private String firstLine(String message) {
+    String raw = message.strip().lines().findFirst().orElse("").strip();
+    // 토큰이 없으면 asMentionResponses 가 조회 없이 빈 목록을 돌려 그대로 남는다.
+    String line =
+        MentionParser.replaceWithNames(
+            raw, mentionHydrator.asMentionResponses(MentionParser.parse(raw)));
+    // 서로게이트 쌍(이모지 등)을 반으로 쪼개지 않게 자른다.
+    return Texts.headUtf16(line, NOTE_MAX);
   }
 }

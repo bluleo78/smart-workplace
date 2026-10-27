@@ -36,7 +36,8 @@ public final class ChatDomainEvents {
       List<DriveLinkResponse> driveLinks,
       // WP-373: AI 질문 글인지 — 생성 직후 SSE 가 저장값 그대로 내려 화면이 바로 강조한다.
       boolean question,
-      // WP-452: 글이 만들어진 경로 — 알림이 화면 글(멘션 알림)·AI 진행 보고(알림 없음)·AI 질문(질문 알림)을 구분한다.
+      // WP-452: 글이 만들어진 경로 — 알림이 화면 글(멘션 알림)·AI 진행 보고(여기서는 알림 없음 — 멘션은 보고 쪽 알림 이벤트, WP-1009)·AI
+      // 질문(질문 알림)을 구분한다.
       ChatMessageOrigin origin,
       Instant occurredAt) {}
 

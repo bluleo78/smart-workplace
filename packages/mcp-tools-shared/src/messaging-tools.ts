@@ -21,6 +21,14 @@ const MENTION_CANDIDATE = /(^|[\s(])@([\p{L}\p{N}._+@-]*[\p{L}\p{N}_+@-])(?:\(([
 const MENTION_SUFFIX = /(께서|에게|한테|님|씨|께|이|가|은|는|을|를|의|도)$/u;
 // 본문 하나에서 해석할 멘션 수 상한 — 토큰마다 조회 1회라 @ 가 많은 본문의 요청 폭주를 막는다.
 const MAX_MENTIONS = 20;
+// 코드(펜스 블록·인라인 코드) — 안의 @ 는 어노테이션·패키지 범위(@Override·@types/node)라 멘션으로 보지 않는다. 화면도 코드 안 토큰을
+// 칩으로 그리지 않으므로(WP-1009), 바꾸면 코드에 <@id> 가 그대로 보인다.
+const CODE_SPAN = /```[\s\S]*?(?:```|$)|`[^`\n]*`/g;
+
+/** 위치가 코드 안인지 — CODE_SPAN 구간 목록으로 판정한다. */
+function inCode(spans: [number, number][], at: number): boolean {
+  return spans.some(([start, end]) => at >= start && at < end);
+}
 
 /** 토큰 → 후보 이름들. 긴 것부터(토큰 전체 → 조사를 한 겹씩 뗀 형태). */
 function candidateNames(token: string): string[] {
@@ -39,8 +47,11 @@ function candidateNames(token: string): string[] {
 export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers'>, body: string): Promise<string> {
   // 같은 (이름, 괄호) 쌍은 한 번만 해석한다 — `@김민수(a)` 와 `@김민수(b)` 는 서로 다른 후보다.
   const keyOf = (raw: string, paren: string | undefined) => `${raw}\u0000${paren ?? ''}`;
+  const code = [...body.matchAll(CODE_SPAN)].map((m): [number, number] => [m.index, m.index + m[0].length]);
   const candidates = new Map<string, { raw: string; paren: string | undefined }>();
-  for (const m of body.matchAll(MENTION_CANDIDATE)) candidates.set(keyOf(m[2], m[3]), { raw: m[2], paren: m[3] });
+  for (const m of body.matchAll(MENTION_CANDIDATE)) {
+    if (!inCode(code, m.index)) candidates.set(keyOf(m[2], m[3]), { raw: m[2], paren: m[3] });
+  }
   if (candidates.size === 0) return body;
   // 후보 → 멘션 대상 id + 식별자에 해당하는 앞부분 길이(나머지 조사는 원문 그대로 남긴다).
   const entries = await Promise.all(
@@ -68,9 +79,9 @@ export async function linkMentions(client: Pick<MemberToolClient, 'searchMembers
     }),
   );
   const resolved = new Map(entries.filter((e) => e !== undefined));
-  return body.replace(MENTION_CANDIDATE, (all, lead: string, raw: string, paren: string | undefined) => {
+  return body.replace(MENTION_CANDIDATE, (all, lead: string, raw: string, paren: string | undefined, offset: number) => {
     const hit = resolved.get(keyOf(raw, paren));
-    if (!hit) return all;
+    if (!hit || inCode(code, offset)) return all;
     // `@김민수(minsu)` 처럼 해석된 username 이 괄호로 따라오면 중복 표기라 지운다(다른 값이면 원문 괄호를 살린다).
     const rest = paren === undefined || paren === hit.username ? '' : `(${paren})`;
     return `${lead}<@${hit.id}>${raw.slice(hit.length)}${rest}`;
