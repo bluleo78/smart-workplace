@@ -116,14 +116,17 @@ test(
 
     await page.goto(`/wiki/spaces/${SPACE_ID}/pages/2`)
     const header = page.getByTestId('wiki-page-header')
-    await expect(header.getByRole('button', { name: '제품 문서' })).toBeVisible()
-    await expect(header).toContainText('기획')
+    // 시작점은 노트 공간(§B-1, WP-979) — 조상 페이지·공간은 링크다.
+    await expect(header.getByTestId('wiki-breadcrumb-space')).toHaveText('내 노트')
+    await expect(header.getByTestId('wiki-breadcrumb-space')).toHaveAttribute('href', `/wiki/spaces/${SPACE_ID}`)
+    await expect(header.getByRole('link', { name: '제품 문서' })).toBeVisible()
+    await expect(header.getByTestId('wiki-breadcrumb-current')).toHaveText('기획')
     // WP-816: 본문 제목은 편집 칸이라 헤더에 노트 제목을 숨은 h1 로 둔다(스크린리더 제목 이동용).
     await expect(page.getByRole('heading', { level: 1, name: '기획' })).toBeAttached()
     // WP-814: 탭 제목은 노트 제목 · 노트.
     await expect(page).toHaveTitle('기획 · 노트 · Gen:iA Works')
 
-    await header.getByRole('button', { name: '제품 문서' }).click()
+    await header.getByRole('link', { name: '제품 문서' }).click()
     await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/1$`))
   },
 )
@@ -210,10 +213,10 @@ for (const width of DESKTOP_WIDTHS) {
   })
 }
 
-// WP-304: 1024px 부근에선 nav 클램프(#830)로 폭이 ~150px 로 좁아지는데, 모든 경로 항목이 같은 비율로
-// 줄어 현재 페이지 제목까지 0 폭이 되던 회귀 — 현재 제목은 최소 폭을 지키고 조상부터 줄어야 한다.
+// WP-304: 1024px 부근에선 nav 클램프(#830)로 폭이 좁아지는데, 모든 경로 항목이 같은 비율로 줄어 현재 페이지 제목까지
+// 0 폭이 되던 회귀 — 현재 제목은 보이고, 폭이 모자라면 공용 브레드크럼이 시작점(공간)·현재만 남기고 가운데를 「…」로 접는다(WP-979).
 for (const width of [1024, 1100, 1280]) {
-  test(`노트 헤더 — ${width}px 에서 긴 경로라도 현재 페이지 제목이 보인다 (WP-304)`, async ({
+  test(`노트 헤더 — ${width}px 에서 긴 경로라도 현재 페이지 제목이 보인다 (WP-304)`, { tag: '@layout' }, async ({
     authenticatedPage: page,
   }) => {
     await page.setViewportSize({ width, height: 800 })
@@ -227,8 +230,13 @@ for (const width of [1024, 1100, 1280]) {
 
     await expect(async () => {
       const box = await measureBox(current, 'current-crumb')
-      // 현재 제목은 최소 폭(min-w-14, 줄임표 포함 몇 글자)을 지킨다 — 0 폭이면 아무것도 안 보인다.
-      expect(box.width).toBeGreaterThanOrEqual(56)
+      // 현재 제목은 몇 글자라도 보인다 — 0 폭이면 아무것도 안 보인다.
+      expect(box.width).toBeGreaterThan(0)
+      // 조상이 먼저 줄어든다 — 보이는 조상(공간 포함)은 어느 것도 현재 제목보다 넓지 않다.
+      for (const anc of [nav.getByTestId('wiki-breadcrumb-space'), ...(await nav.getByTestId('wiki-breadcrumb-ancestor').all())]) {
+        if (!(await anc.isVisible())) continue
+        expect((await measureBox(anc, 'ancestor')).width).toBeLessThanOrEqual(box.width)
+      }
       // 경로가 nav 밖(우측 액션 그룹·AI 런처 쪽)으로 넘치지 않는다.
       expect(await rowOverflow(nav)).toBeLessThanOrEqual(1)
       // 줄임표 truncate 가 실제로 걸려 있어야 한다(잘린 제목이 …로 끝남).
@@ -237,32 +245,51 @@ for (const width of [1024, 1100, 1280]) {
         return { textOverflow: cs.textOverflow, whiteSpace: cs.whiteSpace }
       })
       expect(style).toEqual({ textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
-      // 앞 항목이 먼저 줄어든다 — 보이는 조상은 어느 것도 현재 제목보다 넓지 않다.
-      for (const anc of await nav.getByTestId('wiki-breadcrumb-ancestor').all()) {
-        if (!(await anc.isVisible())) continue
-        expect((await measureBox(anc, 'ancestor')).width).toBeLessThanOrEqual(box.width)
-      }
     }).toPass()
 
-    // 좁은 폭(1024·1100)에선 조상을 "…" 메뉴로 접는다 — 숨긴 조상으로도 이동할 수 있어야 한다.
-    if (width < 1280) {
-      await expect(nav.getByTestId('wiki-breadcrumb-ancestor')).toHaveCount(2)
-      await expect(nav.getByRole('button', { name: tree[1].title })).toBeHidden()
-      await nav.getByTestId('wiki-breadcrumb-ellipsis').click()
+    // 접혔으면 숨긴 조상으로도 「…」 메뉴(경로 순서)로 이동할 수 있어야 한다.
+    const more = nav.getByTestId('breadcrumb-more')
+    if (await more.isVisible()) {
+      await expect(nav.getByTestId('wiki-breadcrumb-ancestor')).toHaveCount(0)
+      await more.click()
+      // 아주 좁으면 시작점(공간)까지 접혀 메뉴 맨 앞에 온다 — 조상 페이지는 그 뒤 경로 순서.
+      const texts = await page.getByRole('menuitem').allTextContents()
+      expect(texts.slice(-2)).toEqual(tree.slice(0, 2).map((t) => t.title))
       await page.getByRole('menuitem', { name: tree[0].title }).click()
       await expect(page).toHaveURL(new RegExp(`/wiki/spaces/${SPACE_ID}/pages/1$`))
     } else {
-      // 1280 은 중간 단계 — 바로 위 부모는 보이고 그 위 조상만 "…" 메뉴로.
-      await expect(nav.getByRole('button', { name: tree[1].title })).toBeVisible()
-      await expect(nav.getByRole('button', { name: tree[0].title })).toBeHidden()
-      await expect(nav.getByTestId('wiki-breadcrumb-ellipsis')).toBeVisible()
+      await expect(nav.getByTestId('wiki-breadcrumb-ancestor')).toHaveCount(2)
     }
   })
 }
 
-// WP-304 리뷰: 넓은 단계(≥26rem)에서 조상을 전부 펼치면 깊은 경로가 클램프를 넘어 AI 런처와 겹쳤다 —
-// 가까운 조상 3개까지만 펼치고 나머지는 "…" 메뉴(경로 순서)로 접는다.
-test('노트 헤더 — 1600px·8단 깊은 경로도 nav 를 넘치지 않고 런처와 겹치지 않는다 (WP-304)', async ({
+// WP-979 리뷰: AI 배지가 경로 밖 형제였을 때 nav 가 내용 폭이라, 한 번 접힌 뒤 창을 넓혀도 다시 펼치지 않았다 —
+// 배지를 경로 뒤(trailing)에 두고 접기 판정이 그 폭까지 센다.
+test('노트 헤더 — 좁혀서 접힌 경로는 창을 넓히면 다시 펼친다(AI 배지 있음)', { tag: '@layout' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 800 })
+  // 중간 길이 경로 — 1024 에선 넘쳐 접히고, 2400 에선(헤더 왼쪽은 AI 런처 앞까지라 절반 남짓) 다 펼쳐 들어간다.
+  const tree: WikiPageSummary[] = [
+    { id: 1, parentId: null, title: '제품 기획 문서 모음', position: 0, aiLastUsedAt: null },
+    { id: 2, parentId: 1, title: '하반기 로드맵', position: 0, aiLastUsedAt: null },
+    { id: 3, parentId: 2, title: '헤더 경로 정리안', position: 0, aiLastUsedAt: null },
+  ]
+  await setupRoutes(page, { tree, pageDetail: deepDetail(tree) })
+  await page.goto(`/wiki/spaces/${SPACE_ID}/pages/3`)
+  const nav = page.getByTestId('wiki-page-header').getByRole('navigation', { name: '페이지 경로' })
+  await expect(nav.getByTestId('wiki-page-ai-attribution-badge')).toBeVisible()
+  await expect(nav.getByTestId('breadcrumb-more')).toBeVisible()
+
+  await page.setViewportSize({ width: 2400, height: 800 })
+  await expect(nav.getByTestId('breadcrumb-more')).toHaveCount(0)
+  await expect(nav.getByTestId('wiki-breadcrumb-ancestor')).toHaveCount(2)
+  await expect(nav.getByTestId('wiki-page-ai-attribution-badge')).toBeVisible()
+})
+
+// WP-304 리뷰: 깊은 경로를 전부 펼치면 클램프를 넘어 AI 런처와 겹쳤다 — 4단계를 넘으면 시작점(공간)·현재만 남기고
+// 가운데를 「…」 메뉴(경로 순서)로 접는다(§B-1 「접기」, WP-979).
+test('노트 헤더 — 1600px·8단 깊은 경로도 nav 를 넘치지 않고 런처와 겹치지 않는다 (WP-304)', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await page.setViewportSize({ width: 1600, height: 900 })
@@ -283,10 +310,10 @@ test('노트 헤더 — 1600px·8단 깊은 경로도 nav 를 넘치지 않고 �
     expect((await measureBox(nav.getByTestId('wiki-breadcrumb-current'), 'current')).width).toBeGreaterThanOrEqual(56)
   }).toPass()
 
-  // 가까운 조상 3개(5·6·7단)만 보이고, 1~4단은 접힌다.
-  for (const t of tree.slice(4, 7)) await expect(nav.getByRole('button', { name: t.title })).toBeVisible()
-  for (const t of tree.slice(0, 4)) await expect(nav.getByRole('button', { name: t.title })).toBeHidden()
-  // "…" 메뉴는 조상 전체를 경로 순서대로 나열한다.
-  await nav.getByTestId('wiki-breadcrumb-ellipsis').click()
+  // 공간·현재만 보이고 조상 페이지 7개는 모두 접힌다.
+  await expect(nav.getByTestId('wiki-breadcrumb-space')).toBeVisible()
+  await expect(nav.getByTestId('wiki-breadcrumb-ancestor')).toHaveCount(0)
+  // 「…」 메뉴는 접힌 조상을 경로 순서대로 나열한다.
+  await nav.getByTestId('breadcrumb-more').click()
   await expect(page.getByRole('menuitem')).toHaveText(tree.slice(0, 7).map((t) => t.title))
 })

@@ -162,7 +162,8 @@ test.describe('드라이브 끌어 옮기기', () => {
 
     await moves.waitFor(1)
     expect(moves.lastBody<MoveBody>()).toEqual({ fileIds: [DESIGN], folderIds: [REFS], targetFolderId: null })
-    await expect(page.getByText('2개 항목을 「드라이브」로 옮겼습니다')).toBeVisible()
+    // 루트 단계는 공간 이름으로 보이므로 토스트도 공간 이름으로 알린다(WP-979).
+    await expect(page.getByText('2개 항목을 「팀 공간」으로 옮겼습니다')).toBeVisible()
   })
 
   test('선택 밖 행을 끌면 그 항목만 옮긴다', async ({ authenticatedPage: page }) => {

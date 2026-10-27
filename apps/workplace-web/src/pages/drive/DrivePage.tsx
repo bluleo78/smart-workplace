@@ -74,6 +74,7 @@ import { FolderPickerModal } from '../../components/drive/FolderPickerModal'
 import { RowOverflowMenu } from '../../components/drive/RowOverflowMenu'
 import { ShareLinkModal } from '../../components/drive/ShareLinkModal'
 import { VersionHistoryModal } from '../../components/drive/VersionHistoryModal'
+import { Breadcrumb, type BreadcrumbItem, type BreadcrumbRenderItem } from '../../components/layout/Breadcrumb'
 import { SearchInput } from '../../components/ui/search-input'
 import { AttachmentViewer } from '../../components/viewer/AttachmentViewer'
 import { useViewerBundle } from '../../components/viewer/useViewerBundle'
@@ -1102,6 +1103,56 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
 
   const searching = results != null
 
+  // 헤더 경로(§B-1, WP-979) — 데스크톱 풀페이지에서만 제목 자리에 둔다. 시작점은 공간(앱 이름 「드라이브」는 넣지 않는다).
+  // 검색·휴지통에서도 숨기지 않고 「공간 › 검색 결과」·「공간 › 휴지통」으로 보인다 — 검색은 공간 전체가 범위라 폴더 단계는 뺀다.
+  const headerPath = !isMobile && !embedded
+  const leaveSearchToRoot = () => {
+    setQuery('')
+    setSearchQ('')
+    setContentResults(null)
+    setContentLoading(false)
+    setShowOverview(false)
+    goRoot()
+  }
+  const spaceLabel = space?.name ?? '드라이브'
+  const pathItems: BreadcrumbItem[] =
+    trash != null
+      ? [{ key: 'root', label: spaceLabel, title: spaceLabel, onSelect: closeTrash, testId: 'drive-root' }, { key: 'mode', label: '휴지통', testId: 'drive-breadcrumb-mode' }]
+      : searching
+        ? [{ key: 'root', label: spaceLabel, title: spaceLabel, onSelect: leaveSearchToRoot, testId: 'drive-root' }, { key: 'mode', label: '검색 결과', testId: 'drive-breadcrumb-mode' }]
+        : [
+            { key: 'root', label: spaceLabel, title: spaceLabel, onSelect: goRoot, testId: 'drive-root' },
+            ...crumbs.map((c) => ({ key: `f-${c.id}`, label: c.name, title: c.name, onSelect: () => openFolder(c.id), testId: `drive-crumb-${c.id}` })),
+          ]
+  // 폴더 단계(공간·상위 폴더)는 끌어 놓을 곳이라 드롭 버튼으로, 현재 폴더는 드래그 중 흐려지는 글자로 그린다(WP-364). 모드 단계는 기본 모양.
+  const renderPathItem: BreadcrumbRenderItem = (item, { current, className }) => {
+    if (item.key === 'mode') return null
+    const id = item.key === 'root' ? null : Number(String(item.key).slice(2))
+    // 루트에 있을 때의 공간 단계는 예전처럼 드롭 버튼으로 둔다 — 루트에서 끌면 「놓을 수 없음」으로 흐려진다.
+    if (current && id != null) {
+      return (
+        <DriveCrumbCurrent aria-current="page" title={item.title} data-testid={item.testId} className={className}>
+          {item.label}
+        </DriveCrumbCurrent>
+      )
+    }
+    // 검색·휴지통의 공간 단계는 모드를 나가는 동작이라 놓을 곳이 아니다 — 기본 버튼으로 둔다.
+    if (trash != null || searching) return null
+    return (
+      <DriveCrumbDropButton
+        folderId={id}
+        name={String(item.title ?? '')}
+        onClick={item.onSelect}
+        aria-current={current ? 'page' : undefined}
+        data-testid={item.testId}
+        title={item.title}
+        className={className}
+      >
+        {item.label}
+      </DriveCrumbDropButton>
+    )
+  }
+
   // #588: 벌크 툴바 — 검색/비검색 두 목록 분기가 공유하는 렌더 헬퍼(중복 제거).
   // 1개 이상 선택 시 표시. 모바일은 목록 위 인라인 대신 화면 하단 고정 바(renderMobileBulkBar)를 쓴다(WP-216).
   function renderBulkToolbar() {
@@ -1223,8 +1274,21 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     // 페이지 틀 — 헤더는 Page.Header, 본문(브레드크럼·드롭존 스크롤)은 화면이 소유하는 자체 레이아웃(padded=false).
     <Page data-testid="drive-page">
       {/* 보이는 제목 대신 브레드크럼이라, 스크린리더 제목 이동용 화면 이름을 숨은 h1 로 둔다(WP-816). */}
+      {/* WP-364: 끌어 옮기기 — 헤더 경로·경로 줄과 목록이 같은 DndContext 안이어야 행을 경로로 끌어 놓을 수 있다(WP-979 — 헤더까지 감싼다).
+          데스크톱(마우스)·쓰기 가능한 공간에서만. 모바일·터치 태블릿은 ⋯/시트의 「이동」을 쓴다(스크롤 제스처와 충돌). */}
+      <DriveDndProvider
+        // 공간 정보가 오기 전(null)엔 보관 여부를 몰라 켜지 않는다. 폴더 전환 중 이전 폴더 목록(placeholder)·이동 처리 중에도 끈다 —
+        // 옛 행을 끌면 현재 폴더 기준의 판정·되돌리기 목적지가 어긋난다.
+        enabled={!isMobile && !isCoarse && space != null && !space.archived && !readOnlyRole && !itemsQuery.isPlaceholderData && !dragMoving}
+        currentFolderId={folderId ?? null}
+        resolveItems={resolveDragItems}
+        onMove={(dragged, target) => void onDragMove(dragged, target)}
+      >
       <Page.Header
         srTitle={space?.name ? `드라이브 — ${space.name}` : '드라이브'}
+        // 데스크톱 풀페이지는 경로를 제목 자리에(§B-1 「위치」, WP-979). 모바일·채널 서랍은 아래 경로 줄을 쓴다.
+        leadingGrow={headerPath}
+        leading={headerPath ? <Breadcrumb items={pathItems} renderItem={renderPathItem} aria-label="폴더 경로" data-testid="drive-breadcrumb" /> : undefined}
         actions={
           <>
             <SearchInput
@@ -1284,17 +1348,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           잘린다(좁은 드로워·모바일). 넘치면 세그먼트가 min-w-0·truncate 로 말줄임된다. */}
       {/* 본문 — 브레드크럼 줄 + 드롭존 스크롤. 행 여백은 페이지 여백(pageGutterClass) 축. */}
       <Page.Body padded={false} className="flex-col">
-      {/* WP-364: 끌어 옮기기 — 경로와 목록이 같은 DndContext 안이어야 행을 경로로 끌어 놓을 수 있다.
-          데스크톱(마우스)·쓰기 가능한 공간에서만. 모바일·터치 태블릿은 ⋯/시트의 「이동」을 쓴다(스크롤 제스처와 충돌). */}
-      <DriveDndProvider
-        // 공간 정보가 오기 전(null)엔 보관 여부를 몰라 켜지 않는다. 폴더 전환 중 이전 폴더 목록(placeholder)·이동 처리 중에도 끈다 —
-        // 옛 행을 끌면 현재 폴더 기준의 판정·되돌리기 목적지가 어긋난다.
-        enabled={!isMobile && !isCoarse && space != null && !space.archived && !readOnlyRole && !itemsQuery.isPlaceholderData && !dragMoving}
-        currentFolderId={folderId ?? null}
-        resolveItems={resolveDragItems}
-        onMove={(dragged, target) => void onDragMove(dragged, target)}
-      >
-      {trash == null && !searching && (
+      {!headerPath && trash == null && !searching && (
         <nav
           aria-label="폴더 경로"
           className={cn('flex h-11 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b text-sm lg:h-9', pageGutterClass)}
@@ -1859,8 +1913,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           />
         )}
       </div>
-      </DriveDndProvider>
       </Page.Body>
+      </DriveDndProvider>
       {renderMobileBulkBar()}
 
       {/* 폴더 이름 입력 다이얼로그 — 새 폴더 생성 / 이름 변경. window.prompt 대체 (#135). */}

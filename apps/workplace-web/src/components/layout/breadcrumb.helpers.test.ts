@@ -25,4 +25,10 @@ describe('collapseBreadcrumbItems', () => {
   it('2단계 이하는 접을 가운데가 없다', () => {
     expect(collapseBreadcrumbItems(make(2), 1).hidden).toBeNull()
   })
+
+  it('시작점까지 접기(keepStart=false) — 현재만 남고 앞의 모든 단계가 접힌다', () => {
+    const { visible, hidden } = collapseBreadcrumbItems(make(3), 2, { keepStart: false })
+    expect(visible.map((i) => i.key)).toEqual([2])
+    expect(hidden?.map((i) => i.key)).toEqual([0, 1])
+  })
 })
