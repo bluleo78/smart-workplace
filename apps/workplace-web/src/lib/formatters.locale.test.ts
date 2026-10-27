@@ -1,5 +1,5 @@
 // #828 — toLocale* 직접 호출을 대체한 로케일 표기 유지용 포매터 회귀 테스트.
-// vitest.config 가 TZ=Asia/Seoul 고정. ICU full/small 에 따라 오전/오후 ↔ AM/PM 이 달라 해당 부분만 패턴 검사.
+// vitest.config 가 TZ=Asia/Seoul 고정. 오전/오후는 포매터가 직접 붙여 ICU 와 무관하다(WP-1029) — 정확한 문자열로 본다.
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -26,8 +26,10 @@ describe('formatLocalClockTime24', () => {
 
 describe('formatClockTimePadded', () => {
   it('12시간제 + 시 zero-pad ("오후 02:30")', () => {
-    expect(formatClockTimePadded('2026-07-15T05:30:00Z')).toMatch(/^(오후|PM) 02:30$/)
-    expect(formatClockTimePadded('2026-07-15T00:05:00Z')).toMatch(/^(오전|AM) 09:05$/)
+    // 오전/오후는 ICU 와 무관하게 한국어(WP-1029). 로컬 타임존 기준이라 TZ=Asia/Seoul(테스트 설정) 값이다.
+    expect(formatClockTimePadded('2026-07-15T05:30:00Z')).toBe('오후 02:30')
+    expect(formatClockTimePadded('2026-07-15T00:05:00Z')).toBe('오전 09:05')
+    expect(formatClockTimePadded('2026-07-15T03:00:00Z')).toBe('오후 12:00')
   })
   it('무효 입력 → "-"', () => {
     for (const v of INVALID) expect(formatClockTimePadded(v)).toBe('-')
@@ -47,7 +49,8 @@ describe('formatDateMonthDayPadded', () => {
 
 describe('formatDateTimeLocale', () => {
   it('ko-KR 전체 일시 ("2026. 7. 5. 오후 2:30:00")', () => {
-    expect(formatDateTimeLocale('2026-07-05T05:30:00Z')).toMatch(/^2026\. 7\. 5\. (오후|PM) 2:30:00$/)
+    expect(formatDateTimeLocale('2026-07-05T05:30:00Z')).toBe('2026. 7. 5. 오후 2:30:00')
+    expect(formatDateTimeLocale('2026-07-04T15:00:09Z')).toBe('2026. 7. 5. 오전 12:00:09')
   })
   it('무효 입력 → "-"', () => {
     for (const v of INVALID) expect(formatDateTimeLocale(v)).toBe('-')
