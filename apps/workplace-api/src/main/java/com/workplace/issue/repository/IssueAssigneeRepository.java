@@ -5,7 +5,6 @@ import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.dto.UserSummary;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -76,13 +75,16 @@ public class IssueAssigneeRepository {
             .fetchOne(ISSUE_ASSIGNEE.ASSIGNED_BY));
   }
 
-  /** 단건 추가. 동일 (issue,user) 충돌 시 no-op. */
+  /**
+   * 단건 추가. 동일 (issue,user) 충돌 시 no-op. 담당이 된 시각(created_at)은 컬럼 기본값(DB now())으로 둔다 — 「담당이 된 뒤 달린 글」
+   * 판정(WP-719)이 DB 기본값으로 찍히는 댓글·이슈 챗 글 시각과 비교하므로 같은 시계여야 한다. 앱 시계로 넣으면 DB 시계가 조금만 늦어도 담당 직후 글이 「맡기
+   * 전 글」로 빠진다.
+   */
   public void add(Long issueId, Long userId, Long assignedBy) {
     dsl.insertInto(ISSUE_ASSIGNEE)
         .set(ISSUE_ASSIGNEE.ISSUE_ID, issueId)
         .set(ISSUE_ASSIGNEE.USER_ID, userId)
         .set(ISSUE_ASSIGNEE.ASSIGNED_BY, assignedBy)
-        .set(ISSUE_ASSIGNEE.CREATED_AT, OffsetDateTime.now())
         .onConflictDoNothing()
         .execute();
   }
