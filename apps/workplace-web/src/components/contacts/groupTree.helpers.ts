@@ -2,7 +2,7 @@
 import type { UserGroupMemberSummary, UserGroupNode } from '@/types/userGroup'
 
 /** 트리를 평면 {id,name} 목록으로(부모 셀렉트 후보). depth 만큼 전각 공백 들여쓰기. */
-export function flattenGroups(nodes: UserGroupNode[]): { id: number; name: string }[] {
+function flattenGroups(nodes: UserGroupNode[]): { id: number; name: string }[] {
   const out: { id: number; name: string }[] = []
   const walk = (ns: UserGroupNode[], depth: number) => {
     for (const n of ns) {

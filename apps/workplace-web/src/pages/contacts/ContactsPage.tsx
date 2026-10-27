@@ -418,7 +418,6 @@ export function ContactsPage() {
                 groupId={groupId}
                 selected={selected}
                 onSelect={selectContact}
-                onGroupDeleted={leaveGroup}
                 search={search}
                 onSearchAll={leaveGroup}
               />

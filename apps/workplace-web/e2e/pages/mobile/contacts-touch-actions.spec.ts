@@ -1,5 +1,5 @@
-// 휴대폰(390px, 터치) 연락처 행 액션(WP-237) — 조직도 노드·내 그룹의 hover 액션은 ⋯ → 모바일 액션 시트로,
-// 안 보이는 즐겨찾기 ★ 는 탭되지 않는다. 내 그룹은 ☰ 사이드바 바텀시트 안에서 액션 시트가 한 겹 더 열린다.
+// 휴대폰(390px, 터치) 연락처 행 액션(WP-237·WP-978) — 조직도·내 그룹 관리는 ☰ 사이드바 시트 안 행 ⋯ → 모바일 액션 시트로
+// (시트 위에 액션 시트가 한 겹 더 열린다), 안 보이는 즐겨찾기 ★ 는 탭되지 않는다.
 import type { Page } from '@playwright/test'
 
 import { external, member, page as makePage } from '../../factories/contacts.factory'
@@ -25,18 +25,18 @@ async function openSidebar(page: Page) {
   await expect(page.getByTestId('mobile-sidebar-sheet')).toBeVisible()
 }
 
-test('조직도 노드: ⋯ → 액션 시트 → 하위 그룹 추가 → POST parentId', async ({ adminPage: page }) => {
+test('조직도: ☰ 시트 안 행 ⋯ → 액션 시트 → 하위 조직 추가 → POST parentId, 창을 닫아도 ☰ 시트는 남는다', { tag: '@input' }, async ({ adminPage: page }) => {
   const creates = trackRequests(page, 'POST', '/api/v1/user-groups')
   await stubBase(page)
   await page.route((u) => u.pathname === '/api/v1/user-groups', (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     return r.fulfill({ ...json(sharedDetail({ id: 97, name: '하위팀', parentId: 10, members: [] })), status: 201 })
   })
-  // 그룹 뷰는 딥링크(?group=10)로 연다 — 사이드바 시트에서 그룹을 골라도 시트가 자동으로 닫히지 않는다(이번 범위 밖).
   await page.goto('/contacts?group=10')
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
-  await expect(page.getByTestId('org-add-10')).toHaveCount(0)
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
+  // 관리 동작은 사이드바(☰ 시트) 조직도 행의 ⋯ 에 있다(WP-978).
+  await openSidebar(page)
 
   await page.getByTestId('org-more-10').tap()
   const sheet = page.getByTestId('mobile-action-sheet')
@@ -50,6 +50,8 @@ test('조직도 노드: ⋯ → 액션 시트 → 하위 그룹 추가 → POST 
   await page.getByTestId('g-save').click()
   await expect(page.getByTestId('group-form-dialog')).toBeHidden()
   expect(creates.lastBody()).toMatchObject({ name: '하위팀', visibility: 'SHARED', parentId: 10 })
+  // 다이얼로그는 ☰ 시트 위에 겹쳐 열리고, 닫힌 뒤에도 시트는 그대로 남아 이어서 관리할 수 있다.
+  await expect(page.getByTestId('mobile-sidebar-sheet')).toBeVisible()
 })
 
 test('내 그룹: 사이드바 시트 안 ⋯ → 액션 시트 → 삭제 확인 → DELETE', async ({ authenticatedPage: page }) => {
@@ -133,7 +135,7 @@ test('☰ 시트 — 그룹을 고르면 시트가 닫힌다', async ({ authenti
 test('헤더 🔍 → 입력칸 초점 → 한글 연속 입력이 끊기지 않고, 「취소」로 접힌다 (WP-976)', { tag: '@input' }, async ({ authenticatedPage: page }) => {
   await stubBase(page, makePage([member({ id: 1, name: '김멤버' })]))
   await page.goto('/contacts?group=10')
-  await expect(page.getByTestId('org-chart-view')).toBeVisible()
+  await expect(page.getByTestId('group-contact-view')).toBeVisible()
   await page.getByTestId('contact-search-open').click()
   const input = page.getByTestId('contact-search')
   await expect(input).toBeFocused()
