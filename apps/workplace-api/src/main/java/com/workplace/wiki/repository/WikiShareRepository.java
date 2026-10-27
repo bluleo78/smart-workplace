@@ -649,6 +649,14 @@ public class WikiShareRepository {
         .map(r -> new ExcludedPage(r.get(0, Long.class), r.get(1, String.class)));
   }
 
+  /**
+   * 이 페이지가 위의 하위 포함 공유 상속을 멈추는지(WP-1043) — 제외 표시가 있거나 따로 켠 공유(만료 전)가 있다. 접근 판정({@link
+   * #isCoveredBy})과 같은 규칙이라, 이동 기록이 실제 접근과 어긋나지 않게 이쪽을 쓴다.
+   */
+  public boolean stopsInheritanceAt(long pageId) {
+    return Boolean.TRUE.equals(dsl.fetchValue("SELECT " + stopsInheritance("?"), pageId, pageId));
+  }
+
   /** 이 페이지에 상위 공유 제외 표시가 있는지(WP-987). */
   public boolean isExcluded(long pageId) {
     return dsl.fetchExists(WIKI_PAGE_SHARE_EXCLUSION, WIKI_PAGE_SHARE_EXCLUSION.PAGE_ID.eq(pageId));

@@ -61,7 +61,7 @@ public class WikiShareLifecycle {
     if (Objects.equals(oldParentId, newParentId) || !shares.existsIncludingChildren(spaceId)) {
       return;
     }
-    if (recordCoverageChange(pageId, oldParentId, newParentId, actorId)) {
+    if (recordCoverageChange(pageId, oldParentId, newParentId, actorId, null)) {
       // 빠진 공유로 옮긴 서브트리를 열어 둔 화면을 다시 판정하게 한다.
       shareService.publishAccessChanged(pages.subtreeIdsInclusive(pageId));
     }
@@ -70,12 +70,17 @@ public class WikiShareLifecycle {
   /**
    * 옮기기 전후 부모를 덮는 하위 포함 공유를 비교해, 빠진 공유에는 PAGE_MOVED_OUT, 새로 덮는 공유에는 PAGE_MOVED_IN 을 남긴다. 같은 스페이스 안
    * 이동과 다른 스페이스로의 이동(WP-988 — 두 조상 체인이 겹치지 않아 옛 공유는 모두 빠지고 새 공유는 모두 들어온다)이 함께 쓴다. 옮긴 페이지가 상위 공유에서
-   * 제외돼 있으면 어느 쪽도 덮지 않으므로 아무것도 남기지 않는다(WP-1031).
+   * 제외돼 있거나 자기 공유가 살아 있으면 어느 쪽도 덮지 않으므로 아무것도 남기지 않는다(WP-1031·WP-1043).
    *
+   * <p>상속을 멈추는지는 옮기기 전과 뒤를 나눠 본다(WP-1043) — 옛 공유에서 「나감」은 옮기기 전에 멈추지 않았을 때만, 새 공유에 「들어옴」은 옮긴 뒤에 멈추지
+   * 않을 때만 남긴다. 같은 스페이스 안 이동은 자기 공유·제외 표시가 그대로라 둘이 같고, 다른 스페이스로 옮길 때는 옮기며 자기 공유가 해제될 수 있어(만든 사람이 대상
+   * 스페이스 편집자가 아님) 옮기기 전 값을 {@link #beforeSpaceMove} 가 넘긴다.
+   *
+   * @param stoppedBefore 옮기기 전에 이 페이지가 상속을 멈췄는지 — null 이면 옮긴 뒤와 같다(같은 스페이스 안 이동)
    * @return 빠진 공유가 있었는지 — 있으면 공유로 열린 화면을 다시 판정해야 한다
    */
   private boolean recordCoverageChange(
-      long pageId, Long oldParentId, Long newParentId, long actorId) {
+      long pageId, Long oldParentId, Long newParentId, long actorId, Boolean stoppedBefore) {
     Set<Long> before = includingRootsAbove(oldParentId);
     Set<Long> after = includingRootsAbove(newParentId);
     List<Long> movedOut = before.stream().filter(id -> !after.contains(id)).toList();
@@ -83,11 +88,19 @@ public class WikiShareLifecycle {
     if (movedOut.isEmpty() && movedIn.isEmpty()) {
       return false;
     }
-    // 옮긴 페이지 자신에 상위 공유 제외 표시가 있으면(WP-987) 그 위의 어떤 하위 포함 공유로도 열리지 않는다 — 표시는 페이지를 따라
-    // 옮겨 가므로 옮기기 전에도 옛 공유에 덮이지 않았고 옮긴 뒤에도 새 공유에 덮이지 않는다. 그래서 「들어옴」·「나감」 모두 남기지 않고,
-    // 빠진 공유로 열려 있던 화면도 없으니 재검증도 하지 않는다(WP-1031). 조상 쪽 제외는 includingRootsAbove 가 이미 걸러 낸다.
-    // 대부분의 이동은 위에서 끝나므로 제외 표시 조회는 공유 범위가 바뀔 때만 한다.
-    if (shares.isExcluded(pageId)) {
+    // 옮긴 페이지 자신이 상속을 멈추면(상위 공유 제외 표시 WP-987, 또는 자기 공유가 살아 있음 WP-1043 — 접근 판정 stopsInheritance 와
+    // 같다) 그 위의 어떤 하위 포함 공유로도 열리지 않는다. 그래서 옮기기 전에 멈췄으면 옛 공유의 「나감」을, 옮긴 뒤에 멈추면 새 공유의 「들어옴」을
+    // 남기지 않는다. 조상 쪽에서 멈추는 경우는 includingRootsAbove 가 이미 걸러 낸다. 대부분의 이동은 위에서 끝나므로 이 조회는 공유 범위가 바뀔 때만
+    // 한다.
+    boolean stoppedAfter = shares.stopsInheritanceAt(pageId);
+    boolean stoppedBeforeMove = stoppedBefore != null ? stoppedBefore : stoppedAfter;
+    if (stoppedBeforeMove) {
+      movedOut = List.of();
+    }
+    if (stoppedAfter) {
+      movedIn = List.of();
+    }
+    if (movedOut.isEmpty() && movedIn.isEmpty()) {
       return false;
     }
     String title =
@@ -142,9 +155,15 @@ public class WikiShareLifecycle {
   /**
    * 스페이스 이동 직전(같은 트랜잭션) — 옮기면서 해제될 공유를 해제한다. 해제 기록·감사의 스페이스는 옮기기 전 스페이스로 남도록 서브트리의 스페이스를 바꾸기
    * <b>전에</b> 부른다.
+   *
+   * @return 옮기기 전에 옮길 페이지가 상속을 멈췄는지(WP-1043) — 해제 <b>전</b> 값이다. {@link #afterSpaceMove} 에 넘겨 옛 공유의
+   *     「나감」 판정에 쓴다
    */
   @Transactional(propagation = Propagation.MANDATORY)
-  public void beforeSpaceMove(List<Long> subtreeIds, long targetSpaceId, long actorId) {
+  public boolean beforeSpaceMove(
+      long pageId, List<Long> subtreeIds, long targetSpaceId, long actorId) {
+    // 해제가 자기 공유를 지우기 전에 읽는다 — 옮기기 전 위치에서는 그 공유가 상속을 멈췄다.
+    boolean stoppedBefore = shares.stopsInheritanceAt(pageId);
     SpaceMoveShares split = splitSharesForSpaceMove(subtreeIds, targetSpaceId, true);
     shareService.revokeAll(
         actorId,
@@ -152,6 +171,7 @@ public class WikiShareLifecycle {
         "REVOKED_BY_MEMBERSHIP",
         "공유한 사람이 옮겨 간 스페이스의 편집 권한이 없어 공유가 해제되었습니다",
         "MEMBERSHIP");
+    return stoppedBefore;
   }
 
   /**
@@ -161,6 +181,7 @@ public class WikiShareLifecycle {
    *
    * @param oldParentId 옮기기 전 부모(옛 스페이스의 페이지, 없으면 null)
    * @param newParentId 새 부모(새 스페이스의 페이지, 없으면 null)
+   * @param stoppedBefore {@link #beforeSpaceMove} 가 돌려준, 옮기기 전에 옮길 페이지가 상속을 멈췄는지
    */
   @Transactional(propagation = Propagation.MANDATORY)
   public void afterSpaceMove(
@@ -169,10 +190,11 @@ public class WikiShareLifecycle {
       List<Long> subtreeIds,
       Long oldParentId,
       Long newParentId,
-      long actorId) {
+      long actorId,
+      boolean stoppedBefore) {
     shares.updateSpace(subtreeIds, newSpaceId);
     // 옛 위치의 조상 체인은 옮긴 서브트리와 상관없이 그대로 — 옮긴 뒤에 읽어도 같다. 재검증은 호출자의 WikiPageSpaceChangedEvent 가 한다.
-    recordCoverageChange(pageId, oldParentId, newParentId, actorId);
+    recordCoverageChange(pageId, oldParentId, newParentId, actorId, stoppedBefore);
   }
 
   /**

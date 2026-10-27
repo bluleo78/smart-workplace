@@ -32,6 +32,7 @@ import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEv
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiShareAudit;
 import com.workplace.wiki.service.WikiSpaceService;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -168,8 +169,9 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
   }
 
   /**
-   * 공유 루트 자신을 옮기면 그 공유는 함께 옮겨 간다 — 공유 행이 그대로이고 그 공유의 기록에는 이동이 남지 않는다. 옮긴 페이지를 덮던 상위 하위 포함 공유에서는
-   * 빠지므로 그쪽에만 PAGE_MOVED_OUT, 재검증 대상은 옮긴 서브트리.
+   * 공유 루트 자신을 옮기면 그 공유는 함께 옮겨 간다 — 공유 행이 그대로이고 그 공유의 기록에는 이동이 남지 않는다. 자기 공유가 살아 있는 페이지는 상위 하위 포함
+   * 공유의 상속을 멈추므로(서버 접근 판정 stopsInheritance, WP-1043) 옮기기 전에도 상위 공유로 열리지 않았다 — 상위 공유에도
+   * PAGE_MOVED_OUT 을 남기지 않고 재검증도 하지 않는다.
    */
   @Test
   void move_shared_root_keeps_share() throws Exception {
@@ -182,12 +184,36 @@ class WikiShareLifecycleTest extends IntegrationTestBase {
     assertThat(shareCount(childId)).isEqualTo(1);
     assertThat(events(childId, "PAGE_MOVED_OUT")).isEmpty();
     assertThat(events(childId, "PAGE_MOVED_IN")).isEmpty();
-    List<WikiPageShareEventRecord> out = events(rootId, "PAGE_MOVED_OUT");
-    assertThat(out).hasSize(1);
-    assertThat(text(out.get(0))).contains("1분기 계획");
-    List<WikiShareAccessChangedEvent> changed = accessChanged();
-    assertThat(changed).hasSize(1);
-    assertThat(changed.get(0).pageIds()).containsExactlyInAnyOrder(childId, grandchildId);
+    assertThat(events(rootId, "PAGE_MOVED_OUT")).isEmpty();
+    assertThat(accessChanged()).isEmpty();
+  }
+
+  /**
+   * 자기 공유가 살아 있는 페이지를 다른 하위 포함 공유 아래로 옮겨도 그 공유로 열리지 않는다(WP-1043) — 새 공유에 PAGE_MOVED_IN 을 남기지 않는다.
+   * 자기 공유가 만료됐으면 상속을 멈추지 않으므로 그때는 평소처럼 PAGE_MOVED_IN 이 남는다(만료된 공유는 접근 판정에서도 무시된다).
+   */
+  @Test
+  void move_page_with_own_share_into_included_share_records_nothing_unless_expired()
+      throws Exception {
+    saveShare(editorId, rootId, "WORKSPACE", "VIEW", true);
+    saveShare(editorId, outsideId, "WORKSPACE", "VIEW", false);
+    appEvents.clear();
+
+    move(ownerId, outsideId, childId);
+
+    assertThat(events(rootId, "PAGE_MOVED_IN")).isEmpty();
+    assertThat(events(rootId, "PAGE_MOVED_OUT")).isEmpty();
+
+    move(ownerId, outsideId, null);
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(WIKI_PAGE_SHARE.EXPIRES_AT, OffsetDateTime.now().minusHours(1))
+        .where(WIKI_PAGE_SHARE.PAGE_ID.eq(outsideId))
+        .execute();
+    appEvents.clear();
+
+    move(ownerId, outsideId, childId);
+
+    assertThat(events(rootId, "PAGE_MOVED_IN")).hasSize(1);
   }
 
   /**

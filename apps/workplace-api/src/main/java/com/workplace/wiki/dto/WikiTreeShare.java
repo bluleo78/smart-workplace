@@ -5,5 +5,7 @@ package com.workplace.wiki.dto;
  * 사람은 싣지 않는다(트리는 VIEWER 도 받는다).
  *
  * @param audience WORKSPACE | PEOPLE | PUBLIC
+ * @param expired 만료 시각이 지났는지(WP-1043) — 만료된 자기 공유는 위 공유의 상속을 멈추지 않는다(서버 접근 판정과 같게 웹이 이동 경고·아이콘을
+ *     판정한다)
  */
-public record WikiTreeShare(String audience, boolean includeChildren) {}
+public record WikiTreeShare(String audience, boolean includeChildren, boolean expired) {}

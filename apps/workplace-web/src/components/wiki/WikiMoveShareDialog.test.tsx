@@ -25,6 +25,17 @@ function renderFor(excluded: boolean) {
 }
 
 describe('WikiMoveShareDialog', () => {
+  it('자기 공유가 살아 있는 페이지는 따로 켠 공유가 우선이라 새 위치 공유로 열리지 않는다고 알린다(WP-1043)', () => {
+    const own = [page(1, '로드맵', null, including('WORKSPACE')), page(2, '회의록', 1, { audience: 'PEOPLE', includeChildren: false }), page(3, '공개 문서', null, including('PUBLIC'))]
+    renderWithProviders(<WikiMoveShareDialog state={{ impact: shareMoveImpact(own, 2, 3), title: '회의록' }} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    const dialog = screen.getByTestId('wiki-move-share-dialog')
+    expect(within(dialog).getByTestId('wiki-move-share-blocked')).toHaveTextContent(
+      '이 페이지에 따로 켠 공유가 있어 새 위치의 「공개 문서」 외부 공개 링크로는 열리지 않습니다(따로 켠 공유가 우선).',
+    )
+    expect(dialog).not.toHaveTextContent('새로 보이게 됩니다')
+    expect(dialog).not.toHaveTextContent('더 이상 보이지 않습니다')
+  })
+
   it('제외 표시가 없으면 옛 공유에서 빠지고 새 공유로 새로 보이게 된다고 알린다', () => {
     const dialog = renderFor(false)
     expect(within(dialog).getByRole('heading')).toHaveTextContent('공유 범위가 바뀝니다')

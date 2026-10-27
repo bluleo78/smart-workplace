@@ -68,6 +68,13 @@ public class WikiPageRepository {
                 DSL.selectOne()
                     .from(WIKI_PAGE_SHARE_EXCLUSION)
                     .where(WIKI_PAGE_SHARE_EXCLUSION.PAGE_ID.eq(WIKI_PAGE.ID))));
+    // 만료 판정은 DB 시계로 한다 — 접근 판정(stopsInheritance)과 같은 기준이라 앱 시계와 어긋나지 않는다(WP-1043).
+    Field<Boolean> expired =
+        DSL.field(
+            WIKI_PAGE_SHARE
+                .EXPIRES_AT
+                .isNotNull()
+                .and(WIKI_PAGE_SHARE.EXPIRES_AT.le(DSL.currentOffsetDateTime())));
     return dsl.select(
             WIKI_PAGE.ID,
             WIKI_PAGE.PARENT_ID,
@@ -76,6 +83,7 @@ public class WikiPageRepository {
             WIKI_PAGE.AI_LAST_USED_AT,
             WIKI_PAGE_SHARE.AUDIENCE,
             WIKI_PAGE_SHARE.INCLUDE_CHILDREN,
+            expired,
             excluded)
         .from(WIKI_PAGE)
         .leftJoin(WIKI_PAGE_SHARE)
@@ -94,7 +102,8 @@ public class WikiPageRepository {
                         ? null
                         : new WikiTreeShare(
                             r.get(WIKI_PAGE_SHARE.AUDIENCE),
-                            r.get(WIKI_PAGE_SHARE.INCLUDE_CHILDREN)),
+                            r.get(WIKI_PAGE_SHARE.INCLUDE_CHILDREN),
+                            Boolean.TRUE.equals(r.get(expired))),
                     Boolean.TRUE.equals(r.get(excluded))));
   }
 

@@ -35,6 +35,8 @@ export interface WikiPageSummary {
 export interface WikiTreeShare {
   audience: WikiShareAudience
   includeChildren: boolean
+  // WP-1043: 만료 시각이 지났는지 — 만료된 자기 공유는 위 공유의 상속을 멈추지 않는다(서버 접근 판정과 같게 이동 경고·아이콘이 따른다).
+  expired?: boolean
 }
 
 export interface WikiPageDetail {

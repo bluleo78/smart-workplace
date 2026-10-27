@@ -60,6 +60,35 @@ beforeEach(() => {
   trees.loading = false
 })
 
+describe('WikiMovePageDialog 다른 스페이스 — 자기 공유가 있는 페이지(WP-1043)', () => {
+  const own = page(10, '옮길 문서', null, { audience: 'PEOPLE', includeChildren: false } as WikiPageSummary['share'])
+  const publicTree = [page(20, '공개 문서', null, { audience: 'PUBLIC', includeChildren: true } as WikiPageSummary['share']), page(21, '공개 하위', 20)]
+
+  async function pickPublicChild() {
+    trees.value = { 2: publicTree }
+    renderDialog(vi.fn(), [own, page(11, '다른 문서')])
+    await userEvent.click(screen.getByTestId('wiki-move-space'))
+    await userEvent.click(await screen.findByRole('option', { name: '디자인팀' }))
+    await userEvent.click(screen.getByTestId('wiki-move-option-21'))
+    return screen.findByTestId('wiki-move-space-warning')
+  }
+
+  it('자기 공유가 따라가면 새 위치 공유로 열리지 않는다고 알린다', async () => {
+    preview.value = { pageCount: 1, lostMemberCount: 0, gainedMemberCount: 0, keptShares: [{ pageId: 10, title: '옮길 문서' }], revokedShares: [] }
+    const warning = await pickPublicChild()
+    expect(within(warning).getByTestId('wiki-move-share-blocked')).toHaveTextContent('따로 켠 공유가 우선')
+    expect(warning).not.toHaveTextContent('새로 보이게 됩니다')
+  })
+
+  it('옮기며 자기 공유가 해제되면 옮긴 뒤에는 열리므로 「새로 보이게 됩니다」로 알린다 — 해제 안내와 모순되지 않는다', async () => {
+    preview.value = { pageCount: 1, lostMemberCount: 0, gainedMemberCount: 0, keptShares: [], revokedShares: [{ pageId: 10, title: '옮길 문서' }] }
+    const warning = await pickPublicChild()
+    expect(warning).toHaveTextContent('공유 링크는 공유한 사람이 새 스페이스 편집자가 아니라 해제됩니다')
+    expect(warning).toHaveTextContent('「공개 문서」 외부 공개 링크로 새로 보이게 됩니다')
+    expect(within(warning).queryByTestId('wiki-move-share-blocked')).toBeNull()
+  })
+})
+
 describe('WikiMovePageDialog 다른 스페이스', () => {
   it('편집할 수 없는 스페이스는 고를 수 없다', async () => {
     renderDialog()
