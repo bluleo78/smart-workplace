@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import com.workplace.user.dto.CreateUserGroupRequest;
 import com.workplace.user.dto.UserGroupMemberSummary;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -108,32 +109,59 @@ public class UserGroupRepository {
    */
   public List<UserGroupMemberSummary> findMembers(
       long tenantId, long callerId, boolean admin, long groupId) {
-    List<UserGroupMemberSummary> all = new ArrayList<>();
-    dsl.select(USER.ID, USER.NAME, USER.EMAIL, USER.TITLE, USER.USERNAME)
+    return findMembersIn(tenantId, callerId, admin, List.of(groupId), null).stream()
+        .map(GroupMemberRow::member)
+        .toList();
+  }
+
+  /** 그룹 멤버 한 행 — 속한 그룹 id 와 멤버 요약(WP-1000 하위 조직 포함 검색이 소속 경로를 그릴 때 그룹 id 를 쓴다). */
+  public record GroupMemberRow(long groupId, UserGroupMemberSummary member) {}
+
+  /**
+   * 여러 그룹의 직속 멤버를 한 번에, 속한 그룹 id 와 함께(WP-1000). 거르는 술어는 {@link #findMembers} 와 같다(MEMBER 는 현재 테넌트
+   * ACTIVE 멤버십 + 활성 HUMAN, EXTERNAL 은 호출자가 읽을 수 있는 것만). needle 이 있으면 이름·이메일·직책·조직 중 하나에 대소문자 무시 부분
+   * 일치하는 사람만 DB 에서 거른다(와일드카드 문자는 글자 그대로). 이름 오름차순.
+   */
+  public List<GroupMemberRow> findMembersIn(
+      long tenantId, long callerId, boolean admin, Collection<Long> groupIds, String needle) {
+    boolean filter = needle != null && !needle.isBlank();
+    List<GroupMemberRow> all = new ArrayList<>();
+    dsl.select(
+            USER_GROUP_MEMBER.GROUP_ID, USER.ID, USER.NAME, USER.EMAIL, USER.TITLE, USER.USERNAME)
         .from(USER_GROUP_MEMBER)
         .join(USER)
         .on(USER.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
         .join(MEMBERSHIP)
         .on(USER.ID.eq(MEMBERSHIP.USER_ID))
-        .where(USER_GROUP_MEMBER.GROUP_ID.eq(groupId))
+        .where(USER_GROUP_MEMBER.GROUP_ID.in(groupIds))
         .and(USER_GROUP_MEMBER.TARGET_TYPE.eq("MEMBER"))
         .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
         .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
         .and(USER.KIND.eq("HUMAN"))
         .and(USER.IS_ACTIVE.isTrue())
+        .and(
+            filter
+                ? USER.NAME
+                    .containsIgnoreCase(needle)
+                    .or(USER.EMAIL.containsIgnoreCase(needle))
+                    .or(USER.TITLE.containsIgnoreCase(needle))
+                : DSL.noCondition())
         .fetch()
         .forEach(
             r ->
                 all.add(
-                    new UserGroupMemberSummary(
-                        "MEMBER",
-                        r.get(USER.ID),
-                        r.get(USER.NAME),
-                        r.get(USER.EMAIL),
-                        r.get(USER.TITLE),
-                        null,
-                        r.get(USER.USERNAME))));
+                    new GroupMemberRow(
+                        r.get(USER_GROUP_MEMBER.GROUP_ID),
+                        new UserGroupMemberSummary(
+                            "MEMBER",
+                            r.get(USER.ID),
+                            r.get(USER.NAME),
+                            r.get(USER.EMAIL),
+                            r.get(USER.TITLE),
+                            null,
+                            r.get(USER.USERNAME)))));
     dsl.select(
+            USER_GROUP_MEMBER.GROUP_ID,
             CONTACT_ENTRY.ID,
             CONTACT_ENTRY.NAME,
             CONTACT_ENTRY.EMAIL,
@@ -142,22 +170,35 @@ public class UserGroupRepository {
         .from(USER_GROUP_MEMBER)
         .join(CONTACT_ENTRY)
         .on(CONTACT_ENTRY.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
-        .where(USER_GROUP_MEMBER.GROUP_ID.eq(groupId))
+        .where(USER_GROUP_MEMBER.GROUP_ID.in(groupIds))
         .and(USER_GROUP_MEMBER.TARGET_TYPE.eq("EXTERNAL"))
         .and(externalReadableBy(callerId, admin))
+        .and(
+            filter
+                ? CONTACT_ENTRY
+                    .NAME
+                    .containsIgnoreCase(needle)
+                    .or(CONTACT_ENTRY.EMAIL.containsIgnoreCase(needle))
+                    .or(CONTACT_ENTRY.TITLE.containsIgnoreCase(needle))
+                    .or(CONTACT_ENTRY.ORGANIZATION.containsIgnoreCase(needle))
+                : DSL.noCondition())
         .fetch()
         .forEach(
             r ->
                 all.add(
-                    new UserGroupMemberSummary(
-                        "EXTERNAL",
-                        r.get(CONTACT_ENTRY.ID),
-                        r.get(CONTACT_ENTRY.NAME),
-                        r.get(CONTACT_ENTRY.EMAIL),
-                        r.get(CONTACT_ENTRY.TITLE),
-                        r.get(CONTACT_ENTRY.ORGANIZATION),
-                        null)));
-    all.sort(Comparator.comparing(UserGroupMemberSummary::name, String.CASE_INSENSITIVE_ORDER));
+                    new GroupMemberRow(
+                        r.get(USER_GROUP_MEMBER.GROUP_ID),
+                        new UserGroupMemberSummary(
+                            "EXTERNAL",
+                            r.get(CONTACT_ENTRY.ID),
+                            r.get(CONTACT_ENTRY.NAME),
+                            r.get(CONTACT_ENTRY.EMAIL),
+                            r.get(CONTACT_ENTRY.TITLE),
+                            r.get(CONTACT_ENTRY.ORGANIZATION),
+                            null))));
+    all.sort(
+        Comparator.comparing(
+            (GroupMemberRow r) -> r.member().name(), String.CASE_INSENSITIVE_ORDER));
     return all;
   }
 

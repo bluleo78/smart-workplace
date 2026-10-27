@@ -29,6 +29,16 @@ export interface UserGroupMemberSummary {
   organization: string | null
 }
 
+/**
+ * 그룹과 하위 조직에서 찾은 구성원(WP-1000) — 직속 멤버 요약에 그 사람이 속한 그룹과 소속 경로를 더했다.
+ * groupPath 는 찾은 그룹부터 속한 그룹까지의 이름(「경영지원본부」·「재경팀」), 찾은 그룹의 직속이면 빈 배열.
+ * 한 사람이 여러 하위 조직에 있으면 찾은 그룹에 가장 가까운 소속 하나만 온다.
+ */
+export interface UserGroupMemberHit extends UserGroupMemberSummary {
+  groupId: number
+  groupPath: string[]
+}
+
 /** 그룹 상세 + 직속 멤버. */
 export interface UserGroupDetail {
   id: number

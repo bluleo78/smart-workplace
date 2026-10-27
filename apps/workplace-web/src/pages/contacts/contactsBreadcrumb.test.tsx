@@ -30,6 +30,8 @@ function handlers() {
     http.get('/api/v1/user-groups/12', () => HttpResponse.json(sharedDetail({ id: 12, name: '재경팀', parentId: 11 }))),
     http.get('/api/v1/user-groups/11', () => HttpResponse.json(sharedDetail({ id: 11, name: '경영전략실', parentId: 10 }))),
     http.get('/api/v1/user-groups/20', () => HttpResponse.json(personalDetail({ id: 20, name: '자주 연락' }))),
+    // 그룹 보기 검색(하위 조직 포함, WP-1000) — 이 파일은 이동·주소만 본다.
+    http.get('/api/v1/user-groups/:id/members/search', () => HttpResponse.json([])),
     http.get('/api/v1/contacts', () => HttpResponse.json(page([member({ id: 2, name: '이개발' })]))),
     http.get('/api/v1/contacts/members/2', () => HttpResponse.json(memberDetail({ id: 2, name: '이개발' }))),
   ]

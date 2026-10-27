@@ -153,6 +153,83 @@ class UserGroupServiceTest extends IntegrationTestBase {
         .allMatch(m -> m.username() == null);
   }
 
+  /** 사람 이름을 바꾼다 — 검색어로 고르기 쉽게. */
+  private void rename(long userId, String name) {
+    dsl.update(USER).set(USER.NAME, name).where(USER.ID.eq(userId)).execute();
+  }
+
+  /**
+   * 하위 조직 포함 검색(WP-1000) — 상위 조직에서 찾으면 하위 팀 구성원까지 나오고 각자 속한 그룹이 실린다. 두 팀에 있는 사람은 찾은 그룹에 가까운 소속 하나만,
+   * 검색어에 맞지 않는 사람은 빠진다.
+   */
+  @Test
+  void searchMembers_includesSubgroups_withNearestGroup() {
+    long caller = user();
+    long direct = user();
+    long inTeam = user();
+    long inBoth = user();
+    long other = user();
+    rename(direct, "김본부");
+    rename(inTeam, "김재경");
+    rename(inBoth, "김겸직");
+    rename(other, "이다른");
+    UserGroupDetail hq = service.create(caller, req("경영지원본부", null, "PERSONAL"));
+    UserGroupDetail team = service.create(caller, req("재경팀", hq.id(), "PERSONAL"));
+    UserGroupDetail part = service.create(caller, req("결산파트", team.id(), "PERSONAL"));
+    service.addMember(caller, hq.id(), new AddMemberRequest("MEMBER", direct));
+    service.addMember(caller, part.id(), new AddMemberRequest("MEMBER", inTeam));
+    service.addMember(caller, team.id(), new AddMemberRequest("MEMBER", inBoth));
+    service.addMember(caller, part.id(), new AddMemberRequest("MEMBER", inBoth));
+    service.addMember(caller, team.id(), new AddMemberRequest("MEMBER", other));
+
+    var hits = service.searchMembers(caller, hq.id(), "김");
+
+    assertThat(hits)
+        .extracting(h -> h.targetId() + "@" + h.groupId())
+        .containsExactly(
+            // 이름순 — 김겸직·김본부·김재경. 김겸직은 재경팀·결산파트 둘에 있어 가까운 재경팀으로.
+            inBoth + "@" + team.id(), direct + "@" + hq.id(), inTeam + "@" + part.id());
+    // 소속 경로 — 찾은 그룹부터 속한 그룹까지, 직속은 빈 경로.
+    assertThat(hits)
+        .extracting(h -> String.join(" › ", h.groupPath()))
+        .containsExactly("경영지원본부 › 재경팀", "", "경영지원본부 › 재경팀 › 결산파트");
+    // 와일드카드 문자는 글자 그대로 — 「%」로 모두가 나오지 않는다.
+    assertThat(service.searchMembers(caller, hq.id(), "%")).isEmpty();
+    // 하위 팀에서 찾으면 그 위(본부 직속)는 나오지 않는다.
+    assertThat(service.searchMembers(caller, team.id(), "김"))
+        .extracting(h -> h.targetId())
+        .containsExactlyInAnyOrder(inBoth, inTeam);
+    // 빈 검색어면 하위 조직 포함 전체.
+    assertThat(service.searchMembers(caller, hq.id(), " ")).hasSize(4);
+  }
+
+  /** 관리자가 남의 개인 그룹에서 찾아도 그 주인의 개인 하위 그룹까지 찾는다(관리자 자신의 트리가 아니라 주인의 트리 기준). */
+  @Test
+  void searchMembers_adminOnOthersPersonalGroup_includesItsSubgroups() {
+    long owner = user();
+    long admin = user();
+    makeAdmin(admin);
+    long inTeam = user();
+    rename(inTeam, "김재경");
+    UserGroupDetail hq = service.create(owner, req("본부", null, "PERSONAL"));
+    UserGroupDetail team = service.create(owner, req("팀", hq.id(), "PERSONAL"));
+    service.addMember(owner, team.id(), new AddMemberRequest("MEMBER", inTeam));
+
+    assertThat(service.searchMembers(admin, hq.id(), "김"))
+        .extracting(h -> h.targetId())
+        .containsExactly(inTeam);
+  }
+
+  /** 남의 개인 그룹은 하위 조직 포함 검색도 없는 것처럼 404 — 상세 조회와 같은 존재 은닉. */
+  @Test
+  void searchMembers_otherUsersPersonalGroup_notFound() {
+    long owner = user();
+    long stranger = user();
+    UserGroupDetail g = service.create(owner, req("내 그룹", null, "PERSONAL"));
+    assertThatThrownBy(() -> service.searchMembers(stranger, g.id(), "김"))
+        .isInstanceOf(UserGroupNotFoundException.class);
+  }
+
   /** 편입 이후 비활성화된 멤버는 그룹 상세(조직도)에서도 사라진다(#832) — 목록/상세와 동일 술어. 행 자체는 남으므로 재활성화 시 되살아난다. */
   @Test
   void groupMembers_hideDeactivatedUser() {

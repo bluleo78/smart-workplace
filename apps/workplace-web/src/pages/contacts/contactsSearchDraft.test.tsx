@@ -29,6 +29,10 @@ const handlers = [
     ),
   ),
   http.get('/api/v1/contacts', () => HttpResponse.json(page([member({ id: 2, name: '이수정' })]))),
+  // 그룹 보기 검색은 하위 조직 포함 검색 API 로 찾는다(WP-1000).
+  http.get('/api/v1/user-groups/10/members/search', () =>
+    HttpResponse.json([{ groupId: 10, groupPath: [], targetType: 'MEMBER', targetId: 2, name: '이수정', email: null, title: null, organization: null }]),
+  ),
   http.get('/api/v1/contacts/members/2', () => HttpResponse.json(memberDetail({ id: 2, name: '이수정' }))),
 ]
 
@@ -73,7 +77,8 @@ test('그룹 보기에서 검색어를 바꿔도 열린 상세가 닫히지 않�
   fireEvent.change(screen.getByTestId('contact-search'), { target: { value: '이수' } })
   await waitFor(() => expect(location()).toBe('/contacts?group=10&contact=member%3A2&q=%EC%9D%B4%EC%88%98'))
   expect(screen.getByTestId('contact-detail-member')).toBeInTheDocument()
-  expect(screen.getByTestId('group-member-MEMBER-2')).toBeInTheDocument()
+  // 그룹 검색은 서버(하위 조직 포함)에서 찾는다 — 응답이 오면 찾은 사람이 보인다(WP-1000).
+  expect(await screen.findByTestId('group-member-MEMBER-2')).toBeInTheDocument()
 })
 
 test('통합 목록에서는 검색어를 바꾸면 열린 상세를 닫는다(WP-206 유지)', async () => {
