@@ -25,7 +25,7 @@ import com.workplace.auth.outbound.AiAgentModelsClient;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.PersonalAssistantRepository;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.WebSessionAuth;
 import java.util.Arrays;
 import java.util.List;
@@ -39,13 +39,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Task10 — 모델 목록/프로브 API 통합 테스트. ai-agent 호출은 AiAgentModelsClient @MockitoBean 으로 대체. */
 @Transactional
-class AssistantModelsControllerTest extends IntegrationTestBase {
+class AssistantModelsControllerTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper objectMapper;
@@ -53,7 +52,7 @@ class AssistantModelsControllerTest extends IntegrationTestBase {
   @Autowired AiAgentCredentialRepository credentialRepository;
   @Autowired PersonalAssistantRepository personalAssistantRepository;
 
-  @MockitoBean AiAgentModelsClient modelsClient;
+  @Autowired AiAgentModelsClient modelsClient;
 
   @BeforeEach
   void setTenant() {

@@ -25,7 +25,7 @@ import com.workplace.fileai.service.FileExtractionPipeline.SummaryOutcome;
 import com.workplace.fileai.service.FileExtractionScheduler;
 import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.net.ConnectException;
 import java.net.http.HttpTimeoutException;
 import java.time.OffsetDateTime;
@@ -43,7 +43,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpServerErrorException;
@@ -55,7 +54,7 @@ import org.springframework.web.client.ResourceAccessException;
  * <p>(1) 업로드→추출→TEXT_READY→요약→DONE E2E. (2) 이중 요약 경합: 동시 2회 summarizePending → ai-agent 1회만 호출(CAS
  * 검증). (3) 요약 실패 → TEXT_READY 유지 → 재시도 → DONE.
  */
-class ExtractionE2eTest extends IntegrationTestBase {
+class ExtractionE2eTest extends ExternalClientMockedTestBase {
 
   private static final String INTERNAL_TOKEN = "test-token";
 
@@ -66,13 +65,13 @@ class ExtractionE2eTest extends IntegrationTestBase {
   @Autowired private DSLContext dsl;
 
   /** WorkerClient mock — 실제 워커 HTTP 호출 차단. */
-  @MockitoBean private WorkerClient workerClient;
+  @Autowired private WorkerClient workerClient;
 
   /** AiAgentDriveClient mock — 실제 ai-agent HTTP 호출 차단. */
-  @MockitoBean private AiAgentDriveClient aiAgentDriveClient;
+  @Autowired private AiAgentDriveClient aiAgentDriveClient;
 
   /** AssistantResolver mock — 테스트 DB 에 workspace 비서 미설정 상태를 회피하기 위해 mock 으로 대체. */
-  @MockitoBean private AssistantResolver assistantResolver;
+  @Autowired private AssistantResolver assistantResolver;
 
   /** 테스트용 AssistantSpec — agentUserId/model/timeoutMs 고정값. */
   private static final AssistantSpec TEST_SPEC =

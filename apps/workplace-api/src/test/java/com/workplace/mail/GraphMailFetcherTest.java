@@ -23,7 +23,7 @@ import com.workplace.mail.service.graph.GraphDeltaPage;
 import com.workplace.mail.service.graph.GraphMessage;
 import com.workplace.mail.service.graph.GraphMessage.EmailAddress;
 import com.workplace.mail.service.graph.GraphMessage.Recipient;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -31,7 +31,6 @@ import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -42,7 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 검증한다.
  */
 @Transactional
-class GraphMailFetcherTest extends IntegrationTestBase {
+class GraphMailFetcherTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired GraphMailFetcher graphMailFetcher;
@@ -51,10 +50,10 @@ class GraphMailFetcherTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** 실제 Graph API 호출 차단 — delta page DTO 를 직접 반환하도록 스텁. */
-  @MockitoBean GraphApiClient graphApiClient;
+  @Autowired GraphApiClient graphApiClient;
 
   /** 실제 AAD 토큰 갱신 차단 — "FAKE_TOKEN" 반환. */
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphTokenService graphTokenService;
 
   /** JSON 역직렬화 연기(@JsonProperty 애노테이션 검증). 별도 @Test 로 분리해 fragile 매핑을 커버한다. */
   @Autowired ObjectMapper objectMapper;

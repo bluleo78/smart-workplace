@@ -12,7 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.security.KeyPair;
 import java.security.interfaces.ECPublicKey;
@@ -27,15 +27,14 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** PushSender — 헤더, 상태코드별 구독 처리(성공 초기화·410 삭제·5회 실패 삭제), 한 구독 실패 격리. */
 @Transactional
 @ExtendWith(OutputCaptureExtension.class)
-class PushSenderTest extends IntegrationTestBase {
+class PushSenderTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean PushGateway gateway;
+  @Autowired PushGateway gateway;
   @Autowired PushSender sender;
   @Autowired PushSubscriptionRepository subs;
   @Autowired DSLContext dsl;

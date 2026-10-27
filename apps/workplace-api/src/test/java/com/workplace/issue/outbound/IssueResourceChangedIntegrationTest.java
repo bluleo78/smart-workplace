@@ -22,7 +22,7 @@ import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,7 +34,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -43,10 +42,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 아님)에게 가는지. AFTER_COMMIT 발화를 위해 클래스에 @Transactional 을 붙이지 않는다.
  */
 @DisplayName("이슈 C/U/D → resource.changed 프로젝트 멤버 fan-out 통합")
-class IssueResourceChangedIntegrationTest extends IntegrationTestBase {
+class IssueResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
 
   @Autowired DSLContext dsl;
   @Autowired PlatformTransactionManager txManager;

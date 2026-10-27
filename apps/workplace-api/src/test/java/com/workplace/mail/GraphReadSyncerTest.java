@@ -18,20 +18,19 @@ import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
 import com.workplace.mail.service.GraphReadSyncer;
 import com.workplace.mail.service.GraphTokenService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** WP-187 Graph 역동기화 — $batch 20건 단위, 항목별 상태, 429 에서 멈춤. WP-215: 토큰은 세션이 처음 필요할 때 한 번. */
-class GraphReadSyncerTest extends IntegrationTestBase {
+class GraphReadSyncerTest extends ExternalClientMockedTestBase {
 
   @Autowired GraphReadSyncer syncer;
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   /** 토큰 조회에 계정 id(10)만 쓰인다 — 나머지 필드는 Graph 처리기가 읽지 않는다. */
   private static final EmailAccountResponse ACCOUNT =

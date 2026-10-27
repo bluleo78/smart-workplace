@@ -16,7 +16,7 @@ import com.workplace.mail.outbound.GraphBatchRequest;
 import com.workplace.mail.outbound.GraphBatchResponse;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.service.GraphTokenService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.stream.LongStream;
@@ -24,13 +24,12 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-962 메일 옮기기 API — 요청 형태 검증(400)·소유 검증(404)·보낸 기록(400)·응답 모양. 서버 I/O 는 Graph 스텁. */
 @Transactional
-class MailMoveControllerTest extends IntegrationTestBase {
+class MailMoveControllerTest extends ExternalClientMockedTestBase {
 
   private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -39,8 +38,8 @@ class MailMoveControllerTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired EmailFolderRepository folderRepo;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   private String token(long userId) {
     return "Bearer " + jwtTokenProvider.generateAccessToken(userId, "user-" + userId);

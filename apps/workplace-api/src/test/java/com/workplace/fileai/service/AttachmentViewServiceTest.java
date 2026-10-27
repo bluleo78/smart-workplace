@@ -21,7 +21,7 @@ import com.workplace.fileai.exception.AttachmentViewException;
 import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.Tenant;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CyclicBarrier;
@@ -34,7 +34,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -43,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>서비스는 트랜잭션을 두지 않고 짧은 TransactionTemplate 으로만 DB 를 읽고 쓴다(R5). 그래서 테스트도 트랜잭션 없이 커밋된 시드를 쓰고, 요청
  * 스레드처럼 TenantContext 만 세팅한다. FileStore 는 실제 빈(테스트 프로필의 build/test-storage 루트)이고 워커만 목이다.
  */
-class AttachmentViewServiceTest extends IntegrationTestBase {
+class AttachmentViewServiceTest extends ExternalClientMockedTestBase {
 
   private static final long TENANT = 1L;
   private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 7, 7, 7, 7};
@@ -51,7 +50,7 @@ class AttachmentViewServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired AttachmentViewService service;
   @Autowired FileStore fileStore;
-  @MockitoBean WorkerRenderClient worker;
+  @Autowired WorkerRenderClient worker;
 
   private final List<Long> fileIds = new ArrayList<>();
 

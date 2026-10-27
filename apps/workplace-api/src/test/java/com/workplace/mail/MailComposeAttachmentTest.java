@@ -52,7 +52,7 @@ import com.workplace.mail.service.MailAttachmentService.GraphAttachment;
 import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.mail.service.MailMessageService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.BodyPart;
 import jakarta.mail.Part;
@@ -69,7 +69,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -79,7 +78,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 거절, 발송 성공 시 임시 업로드 만료·실패 시 유지.
  */
 @Transactional
-class MailComposeAttachmentTest extends IntegrationTestBase {
+class MailComposeAttachmentTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -102,8 +101,8 @@ class MailComposeAttachmentTest extends IntegrationTestBase {
   @Autowired ObjectMapper objectMapper;
   @Autowired MailAttachmentBlobGcSweeper blobGcSweeper;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   static final byte[] PDF = {'%', 'P', 'D', 'F', 0, 1, 2, (byte) 0xFF, 13, 10};
   static final byte[] TEXT = "첫 줄\r\n둘째 줄\n".getBytes(StandardCharsets.UTF_8);

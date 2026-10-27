@@ -13,7 +13,7 @@ import com.workplace.drive.service.DriveFolderService;
 import com.workplace.drive.service.DriveSpaceService;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import com.workplace.support.TestFixtures;
@@ -27,16 +27,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-63 통합 — 드라이브 파일·폴더·스페이스 변경 → AFTER_COMMIT resource.changed 수신자 검증. AFTER_COMMIT 발화를 위해
  * 클래스에 @Transactional 을 붙이지 않는다.
  */
 @DisplayName("드라이브 변경 → resource.changed fan-out 통합")
-class DriveResourceChangedIntegrationTest extends IntegrationTestBase {
+class DriveResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired DriveSpaceService spaceService;

@@ -17,7 +17,7 @@ import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.DmService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import java.util.ArrayList;
@@ -29,16 +29,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-62 통합 — 채널·멤버십·DM 변경 → AFTER_COMMIT resource.changed 수신자 검증. AFTER_COMMIT 발화를 위해
  * 클래스에 @Transactional 을 붙이지 않는다.
  */
 @DisplayName("채널·DM 변경 → resource.changed fan-out 통합")
-class ChannelResourceChangedIntegrationTest extends IntegrationTestBase {
+class ChannelResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired ChannelService channelService;

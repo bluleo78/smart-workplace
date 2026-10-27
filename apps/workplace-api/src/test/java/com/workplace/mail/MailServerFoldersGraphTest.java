@@ -23,7 +23,7 @@ import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.graph.GraphMailFolder;
 import com.workplace.mail.service.graph.GraphMailFolderPage;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +33,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -42,7 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 「프로젝트」+하위 「견적」)으로 보관·사용자 폴더만 남는지, 요청 URL 이 정확한지, 시스템 폴더 하위로 내려가지 않는지 본다.
  */
 @Transactional
-class MailServerFoldersGraphTest extends IntegrationTestBase {
+class MailServerFoldersGraphTest extends ExternalClientMockedTestBase {
 
   private static final String TOKEN = "FAKE_TOKEN";
   private static final String ROOT = "/me/mailFolders?$top=100";
@@ -55,8 +54,8 @@ class MailServerFoldersGraphTest extends IntegrationTestBase {
   @Autowired EmailFolderRepository folderRepo;
   @Autowired ObjectMapper objectMapper;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   /** 일반 폴더. */
   private static GraphMailFolder folder(

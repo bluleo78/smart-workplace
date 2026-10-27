@@ -13,7 +13,7 @@ import com.workplace.messaging.dto.CreateMessageRequest;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -23,7 +23,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 메시지 작성 → SSE fan-out 통합 테스트.
@@ -31,10 +30,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>SseRegistry 를 MockitoBean 으로 가로채어, 메시지 생성 후 AFTER_COMMIT 에 해당 채널 멤버에게
  * "messaging.message.created" 이벤트가 fan-out 되는지 검증한다.
  */
-class MessageSseFanOutTest extends IntegrationTestBase {
+class MessageSseFanOutTest extends ExternalClientMockedTestBase {
 
   /** SseRegistry 를 mock 으로 대체해 실제 SSE 연결 없이 fan-out 호출을 캡처한다. */
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired ChannelService channelService;

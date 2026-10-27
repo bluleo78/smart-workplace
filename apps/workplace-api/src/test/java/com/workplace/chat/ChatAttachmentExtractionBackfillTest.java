@@ -12,7 +12,7 @@ import com.workplace.fileai.inbound.ExtractionBackfillSource;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -20,11 +20,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** WP-244: 챗 첨부 백필 SPI — 바인딩된 첨부 중 추출 행이 없는 것만 반환. */
-class ChatAttachmentExtractionBackfillTest extends IntegrationTestBase {
+class ChatAttachmentExtractionBackfillTest extends ExternalClientMockedTestBase {
 
   @Autowired ChatMessageService chatMessageService;
   @Autowired ChatMessageAttachmentService attachmentService;
@@ -34,8 +33,8 @@ class ChatAttachmentExtractionBackfillTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired TransactionTemplate tx;
 
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean AiAgentEventClient aiAgentEventClient;
+  @Autowired SseRegistry sseRegistry;
+  @Autowired AiAgentEventClient aiAgentEventClient;
 
   @BeforeEach
   void setTenant() {

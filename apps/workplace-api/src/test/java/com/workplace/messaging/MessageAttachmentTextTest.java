@@ -28,7 +28,7 @@ import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageAttachmentService;
 import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.messaging.service.MessageService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -37,7 +37,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,7 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
  * DB 를 오염시키지 않는다(AFTER_COMMIT 워커 디스패치도 롤백이라 발화하지 않음).
  */
 @Transactional
-class MessageAttachmentTextTest extends IntegrationTestBase {
+class MessageAttachmentTextTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
@@ -58,7 +57,7 @@ class MessageAttachmentTextTest extends IntegrationTestBase {
   @Autowired MessageAttachmentStorage storage;
 
   /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
-  @MockitoBean WorkerRenderClient worker;
+  @Autowired WorkerRenderClient worker;
 
   private long userId;
   private long outsiderId;

@@ -15,7 +15,7 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.SavePageRequest;
 import com.workplace.wiki.dto.WikiPageDetail;
@@ -42,7 +42,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-301 노트 AI 요약 통합 테스트. 실제 DB(Testcontainers)·실제 권한 검사, ai-agent 클라이언트와 비서 해석만 목.
@@ -50,14 +49,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>클래스에 {@code @Transactional} 을 붙이지 않는다 — generate 는 AI 호출을 트랜잭션 밖에 두려고 TransactionTemplate 으로
  * 앞뒤를 나누므로, 테스트 트랜잭션으로 감싸면 그 경계를 검증하지 못한다.
  */
-class WikiSummaryServiceTest extends IntegrationTestBase {
+class WikiSummaryServiceTest extends ExternalClientMockedTestBase {
   @Autowired DSLContext dsl;
   @Autowired WikiSpaceService spaceService;
   @Autowired WikiPageService pageService;
   @Autowired WikiSummaryService summaryService;
   @Autowired WikiPageRepository pages;
-  @MockitoBean WikiAiAgentSummaryClient agent;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired WikiAiAgentSummaryClient agent;
+  @Autowired AssistantResolver assistantResolver;
 
   private static final String LONG_BODY = "## 회의\n" + "결정 사항을 정리한다. ".repeat(40); // 400자 초과
 

@@ -13,7 +13,7 @@ import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.LinkPreviewService;
 import com.workplace.messaging.service.MessageService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -24,15 +24,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-874: 미리보기 지우기 커밋 뒤 채널 멤버에게 {@code messaging.message.link-previews} 가 {channelId, id,
  * linkPreviews: []} 로 fan-out 되는지. 비-Tx(커밋 필요) — 만든 user 를 추적해 @AfterEach 에서 채널(CASCADE)+user 회수.
  */
-class LinkPreviewSseFanOutTest extends IntegrationTestBase {
+class LinkPreviewSseFanOutTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired ChannelService channelService;

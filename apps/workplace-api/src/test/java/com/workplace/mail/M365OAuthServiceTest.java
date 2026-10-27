@@ -16,7 +16,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.M365OAuthService;
 import com.workplace.mail.service.OAuthStateStore;
 import com.workplace.mail.service.OAuthStateStore.StateData;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.Base64;
@@ -27,7 +27,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -43,7 +42,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * connection-init-sql)이 설정된 상태에서 TenantContext 를 설정하지 않으면 GUC=1 로 INSERT 된다. TenantContext=2 로 조회하면
  * 해당 행이 보이지 않으므로 테스트가 RED 가 된다 — wrapper 가 있을 때만 GREEN.
  */
-class M365OAuthServiceTest extends IntegrationTestBase {
+class M365OAuthServiceTest extends ExternalClientMockedTestBase {
 
   private static final String TENANT2_SLUG = "m365-oauth-test-tenant-2";
 
@@ -55,7 +54,7 @@ class M365OAuthServiceTest extends IntegrationTestBase {
   @Autowired PlatformTransactionManager txManager;
 
   /** 실제 AAD 네트워크 대신 스텁으로 대체. */
-  @MockitoBean GraphApiClient graphApiClient;
+  @Autowired GraphApiClient graphApiClient;
 
   /** 테스트에서 생성한 email_account ID (AfterEach 정리용). */
   private Long createdAccountId;

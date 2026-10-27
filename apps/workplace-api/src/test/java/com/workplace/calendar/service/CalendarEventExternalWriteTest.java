@@ -19,7 +19,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.outbound.GraphCalendarClient;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphAttendeeWrite;
 import com.workplace.mail.service.GraphTokenService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -29,17 +29,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * invite/remove 오케스트레이터 + RSVP 가드 통합 테스트 — GraphCalendarClient 를 직접 모킹(CalendarTransport 미모킹). Task
  * 6 (#547).
  */
-class CalendarEventExternalWriteTest extends IntegrationTestBase {
+class CalendarEventExternalWriteTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean GraphCalendarClient graphCalendarClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphCalendarClient graphCalendarClient;
+  @Autowired GraphTokenService graphTokenService;
 
   @Autowired CalendarEventService eventService;
   @Autowired CalendarRepository calendarRepo;

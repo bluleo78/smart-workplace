@@ -17,12 +17,14 @@ import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
+import com.workplace.support.AsyncPools;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.dto.AgentUsernames;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -30,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -38,6 +41,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
   @MockitoBean AiAgentEventClient client;
+
+  // 디스패치는 커밋 뒤 이 풀에서 돈다 — 「발사되지 않음」은 풀이 빈 뒤 확인한다(고정 800ms 대기 대신, WP-1028).
+  @Autowired
+  @Qualifier("aiAgentEventExecutor")
+  Executor aiAgentEventExecutor;
+
   @Autowired DSLContext dsl;
   @Autowired MessageService messageService;
   @Autowired ChannelService channelService;
@@ -152,8 +161,7 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
    * 성공해야 한다(거부가 아닌 조용한 무시) — 설계 §4 의 멤버십 경계 검증.
    */
   @Test
-  void channel_humanMentionsCrossTenantAgent_skipsAdd_andDoesNotPublish()
-      throws InterruptedException {
+  void channel_humanMentionsCrossTenantAgent_skipsAdd_andDoesNotPublish() {
     long human = seedUser("HUMAN");
     long crossTenantAgent = seedAgentWithoutTenantMembership(); // tenant#1 멤버십 없음
     long channelId = channelRepo.insertPublic("c7x", human);
@@ -166,19 +174,19 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
     assertThat(saved.body()).contains("처리해줘");
 
     // 교차테넌트 AGENT 는 채널 멤버로 추가되지 않고, AI 이벤트도 발사되지 않는다.
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     assertThat(memberRepo.isMember(channelId, crossTenantAgent)).isFalse();
     verify(client, never()).publish(any());
   }
 
   /** 공개 채널에서 사람이 AGENT 를 언급하지 않으면 이벤트가 발사되지 않는다. */
   @Test
-  void channel_humanNoAgentMention_doesNotPublish() throws InterruptedException {
+  void channel_humanNoAgentMention_doesNotPublish() {
     long human = seedUser("HUMAN");
     long channelId = channelRepo.insertPublic("c7b", human);
     channelService.join(human, channelId);
     messageService.create(human, channelId, new CreateMessageRequest("그냥 메시지"));
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     verify(client, never()).publish(any());
   }
 
@@ -206,8 +214,7 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
   /** WP-638: 남의 개인 비서를 채널에서 멘션해도 채널에 들어오지 않고 주인의 키로 응답하지 않는다(메시지는 그대로 보내진다). */
   @Test
-  void channel_mentionOfOthersPersonalAssistant_skipsAdd_andDoesNotPublish()
-      throws InterruptedException {
+  void channel_mentionOfOthersPersonalAssistant_skipsAdd_andDoesNotPublish() {
     long owner = seedUser("HUMAN");
     long other = seedUser("HUMAN");
     long assistant = seedPersonalAssistant(owner);
@@ -219,7 +226,7 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
             other, channelId, new CreateMessageRequest("<@" + assistant + "> 이 채널 요약해 줘"));
     assertThat(saved.body()).contains("요약해 줘");
 
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     assertThat(memberRepo.isMember(channelId, assistant)).isFalse();
     verify(client, never()).publish(any());
   }
@@ -241,7 +248,7 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
   /** WP-638: 남의 개인 비서와의 1:1 DM 에서 보내도 응답하지 않는다. */
   @Test
-  void dm1to1_withOthersPersonalAssistant_doesNotPublish() throws InterruptedException {
+  void dm1to1_withOthersPersonalAssistant_doesNotPublish() {
     long owner = seedUser("HUMAN");
     long other = seedUser("HUMAN");
     long assistant = seedPersonalAssistant(owner);
@@ -249,7 +256,7 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
     messageService.create(other, dmId, new CreateMessageRequest("안녕"));
 
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     verify(client, never()).publish(any());
   }
 
@@ -269,23 +276,23 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
   /** 1:1 DM 에서 AGENT 가 직접 메시지를 작성하면 self-loop 가드로 이벤트가 발사되지 않는다. */
   @Test
-  void dm1to1_agentAuthoredMessage_doesNotPublish() throws InterruptedException {
+  void dm1to1_agentAuthoredMessage_doesNotPublish() {
     long human = seedUser("HUMAN");
     long agent = seedUser("AGENT");
     long dmId = seedDm(human, agent);
     messageService.create(agent, dmId, new CreateMessageRequest("AI 응답 메시지"));
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     verify(client, never()).publish(any());
   }
 
   /** 1:1 DM 이 사람↔사람 이면 AGENT 가 없으므로 이벤트가 발사되지 않는다. */
   @Test
-  void dm1to1_humanToHuman_doesNotPublish() throws InterruptedException {
+  void dm1to1_humanToHuman_doesNotPublish() {
     long a = seedUser("HUMAN");
     long b = seedUser("HUMAN");
     long dmId = seedDm(a, b);
     messageService.create(a, dmId, new CreateMessageRequest("hi"));
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     verify(client, never()).publish(any());
   }
 
@@ -327,7 +334,7 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
   /** 1:1 DM 상대가 외부(EXTERNAL) 에이전트면 서버가 응답하지 않는다 — ai-agent 로 발사되지 않는다. */
   @Test
-  void dm1to1_externalAgent_doesNotPublish() throws InterruptedException {
+  void dm1to1_externalAgent_doesNotPublish() {
     long human = seedUser("HUMAN");
     long agent = seedUser("AGENT");
     makeExternal(agent);
@@ -335,13 +342,13 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
     messageService.create(human, dmId, new CreateMessageRequest("안녕 외부 AI"));
 
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     verify(client, never()).publish(any());
   }
 
   /** 그룹 DM 에서 멘션된 에이전트가 외부(EXTERNAL)면 발사되지 않는다. */
   @Test
-  void groupDm_mentionedExternalAgent_doesNotPublish() throws InterruptedException {
+  void groupDm_mentionedExternalAgent_doesNotPublish() {
     long human = seedUser("HUMAN");
     long other = seedUser("HUMAN");
     long agent = seedUser("AGENT");
@@ -350,13 +357,13 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
     messageService.create(human, dmId, new CreateMessageRequest("<@" + agent + "> 봐줘"));
 
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     verify(client, never()).publish(any());
   }
 
   /** 채널에서 외부 에이전트만 멘션하면 멤버로는 추가되되 서버 이벤트는 발사되지 않는다. */
   @Test
-  void channel_onlyExternalMentioned_joinsButDoesNotPublish() throws InterruptedException {
+  void channel_onlyExternalMentioned_joinsButDoesNotPublish() {
     long human = seedUser("HUMAN");
     long external = seedUser("AGENT");
     makeExternal(external);
@@ -365,7 +372,7 @@ class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
 
     messageService.create(human, channelId, new CreateMessageRequest("<@" + external + "> 처리"));
 
-    Thread.sleep(800);
+    AsyncPools.awaitIdle(aiAgentEventExecutor);
     assertThat(memberRepo.isMember(channelId, external)).isTrue();
     verify(client, never()).publish(any());
   }

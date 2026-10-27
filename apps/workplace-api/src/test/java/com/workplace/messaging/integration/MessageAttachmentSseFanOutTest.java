@@ -17,7 +17,7 @@ import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageAttachmentStorage;
 import com.workplace.messaging.service.MessageService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 첨부 포함 메시지 SSE fan-out 회귀 테스트.
@@ -36,10 +35,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>첨부가 있는 메시지를 생성하면 "messaging.message.created" SSE payload(MessageResponse)의 attachments 가 채워져
  * fan-out 되는지 검증한다(Task 9 하이드레이션 흐름의 회귀 가드).
  */
-class MessageAttachmentSseFanOutTest extends IntegrationTestBase {
+class MessageAttachmentSseFanOutTest extends ExternalClientMockedTestBase {
 
   /** SseRegistry 를 mock 으로 대체해 fan-out payload 를 캡처한다. */
-  @MockitoBean SseRegistry registry;
+  @Autowired SseRegistry registry;
 
   @Autowired DSLContext dsl;
   @Autowired ChannelService channelService;

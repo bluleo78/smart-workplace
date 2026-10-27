@@ -25,7 +25,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.GraphMailTransport;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailMimeBuilder;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.Base64;
@@ -35,12 +35,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** GraphMailTransport — 토큰 획득 후 base64 MIME(스레딩 헤더 포함)을 sendMail 로 전달하는지 검증. */
 @Transactional
-class GraphMailTransportTest extends IntegrationTestBase {
+class GraphMailTransportTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired GraphMailTransport transport;
@@ -49,10 +48,10 @@ class GraphMailTransportTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** 실제 Graph HTTP 호출 차단 — void 반환이므로 기본 do-nothing 스텁으로 충분. */
-  @MockitoBean GraphApiClient graphApiClient;
+  @Autowired GraphApiClient graphApiClient;
 
   /** 실제 AAD 토큰 갱신 차단 — "FAKE_TOKEN" 반환. */
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphTokenService graphTokenService;
 
   @Test
   void transmit_sendsBase64MimeWithThreadingHeaders() throws Exception {

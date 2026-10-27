@@ -20,7 +20,7 @@ import com.workplace.mail.service.graph.GraphMessage;
 import com.workplace.mail.service.graph.GraphMessage.EmailAddress;
 import com.workplace.mail.service.graph.GraphMessage.Recipient;
 import com.workplace.mail.service.graph.GraphMessageMapper;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.net.URI;
 import java.time.Instant;
@@ -31,7 +31,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -40,7 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 가져오기(기간 필터 + nextLink 페이징)의 요청 URL 과 결과를 본다.
  */
 @Transactional
-class MailFolderSyncGraphTest extends IntegrationTestBase {
+class MailFolderSyncGraphTest extends ExternalClientMockedTestBase {
 
   private static final String TOKEN = "FAKE_TOKEN";
   private static final String SELECT =
@@ -52,8 +51,8 @@ class MailFolderSyncGraphTest extends IntegrationTestBase {
   @Autowired EmailFolderRepository folderRepo;
   @Autowired EmailMessageRepository messageRepo;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   private GraphMessage message(String id, String subject) {
     return new GraphMessage(

@@ -29,7 +29,7 @@ import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -38,7 +38,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -48,7 +47,7 @@ import org.springframework.web.multipart.MultipartFile;
  * 롤백으로 공유 DB 를 오염시키지 않는다(AFTER_COMMIT 워커 디스패치는 롤백이라 발화하지 않음).
  */
 @Transactional
-class IssueAttachmentTextTest extends IntegrationTestBase {
+class IssueAttachmentTextTest extends ExternalClientMockedTestBase {
 
   private static final long TEST_TENANT_ID = 1L;
 
@@ -58,10 +57,10 @@ class IssueAttachmentTextTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired MockMvc mvc;
   @Autowired JwtTokenProvider jwtTokenProvider;
-  @MockitoBean WorkerClient workerClient;
+  @Autowired WorkerClient workerClient;
 
   /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·본문만 검증한다. */
-  @MockitoBean WorkerRenderClient worker;
+  @Autowired WorkerRenderClient worker;
 
   private Long ownerId;
   private String projectKey;

@@ -16,7 +16,7 @@ import com.workplace.messaging.dto.MessageResponse;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.MessagingProposalService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -28,10 +28,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** 일정 제안(calendar.create_event) propose 통합 테스트 — 프로젝트 후보 계산 없이 일정 payload 가 저장되는지. */
-class MessagingCalendarProposalTest extends IntegrationTestBase {
+class MessagingCalendarProposalTest extends ExternalClientMockedTestBase {
 
   @Autowired MessagingProposalService proposalService;
   @Autowired ChannelRepository channelRepo;
@@ -39,7 +38,7 @@ class MessagingCalendarProposalTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired ObjectMapper objectMapper;
 
-  @MockitoBean com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
+  @Autowired com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
 
   private long human;
   private long agentId;

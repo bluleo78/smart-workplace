@@ -15,7 +15,7 @@ import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.DmService;
 import com.workplace.messaging.service.MessageService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.security.interfaces.ECPublicKey;
 import java.time.Duration;
@@ -27,12 +27,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** DM·채널 멘션 메시지 커밋 → 대상 기기 푸시 게이트웨이 호출까지 배선 검증. MessagingToAiAgentDispatchTest 와 같은 정리 방식. */
-class MessagePushDeliveryTest extends IntegrationTestBase {
+class MessagePushDeliveryTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean PushGateway gateway;
+  @Autowired PushGateway gateway;
   @Autowired DSLContext dsl;
   @Autowired DmService dmService;
   @Autowired ChannelService channelService;

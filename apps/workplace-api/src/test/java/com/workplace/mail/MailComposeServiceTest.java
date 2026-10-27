@@ -33,7 +33,7 @@ import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailAttachmentService.GraphAttachment;
 import com.workplace.mail.service.MailComposeService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Part;
 import jakarta.mail.Session;
@@ -52,12 +52,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** MailComposeService 통합 — 발송 성공 시 로컬 SENT 행 저장, 답장 스레드 상속, 검증/소유 격리. */
 @Transactional
-class MailComposeServiceTest extends IntegrationTestBase {
+class MailComposeServiceTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -73,8 +72,8 @@ class MailComposeServiceTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   // Graph 발송 경로 검증용 Mockito 빈 — SMTP 경로는 실제 GreenMail 서버를 사용한다.
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
 
   private long account(long user) {
     EmailAccountRequest req =

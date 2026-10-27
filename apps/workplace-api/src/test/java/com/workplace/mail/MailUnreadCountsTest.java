@@ -17,7 +17,7 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.List;
@@ -26,13 +26,12 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-186 안 읽은 수 — 분류 버킷·업무(미분류 포함)·회신필요·classificationActive·탭 배지 합계. */
 @Transactional
-class MailUnreadCountsTest extends IntegrationTestBase {
+class MailUnreadCountsTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
@@ -42,7 +41,7 @@ class MailUnreadCountsTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EmailFolderRepository folderRepo;
   @Autowired EncryptionService encryption;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AssistantResolver assistantResolver;
 
   @BeforeEach
   void noAssistantByDefault() {
