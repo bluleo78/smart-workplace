@@ -63,6 +63,26 @@ node deploy/release/release.mjs rollback    # 마지막 정상 리비전으로(�
 - 전환 이전 리비전(values 에 `release.version` 이 없는, `:latest` 시대)으로는 되돌리지 않는다(`--force` 없이는 거부). 이유는 `deploy/helm/README.md`.
 - 롤백한 뒤 다시 `rollback` 하면 방금 되돌린 새 릴리스로 앞으로 간다(Helm 기본 동작) — 출력의 ⚠ 를 확인한다.
 
+## WP 버전 연동
+
+릴리스마다 WP 프로젝트에 버전 `v<x.y.z>` 를 두어, 어떤 이슈가 어느 릴리스로 나갔는지와 운영 반영 여부를 이슈 트래커에서 본다(WP-1005).
+
+| 시점 | 명령 | 하는 일 |
+|---|---|---|
+| 태그 push 뒤(① 끝) | `node deploy/release/tracker.mjs attach X.Y.Z` | 버전 `vX.Y.Z` 를 만들고(없을 때만) 범위의 이슈(커밋 제목·`Refs:` 의 WP 키)에 수정 버전으로 붙인다. 기존 수정 버전은 그대로 둔다 |
+| 반영 성공 뒤(③) | `release.mjs deploy` 가 자동 | `vX.Y.Z` 를 출시(출시일 = 오늘)로. 반영이 실패하면 바꾸지 않는다 |
+| 롤백 뒤(④) | `release.mjs rollback` 이 자동 | 돌아간 릴리스는 출시로, 떠난 릴리스는 그보다 새 것일 때만 출시 취소(실패한 반영에서 복구할 때는 건드리지 않는다) |
+| 손으로 맞출 때 | `tracker.mjs release X.Y.Z` / `unrelease X.Y.Z` | 위 자동 처리가 설정 없이 돌았을 때 |
+
+```sh
+export GENIA_WORKS_API_URL=https://<Gen:iA Works 주소> GENIA_WORKS_RELEASE_TOKEN=swp_<WP 프로젝트 OWNER 의 개인 토큰>
+```
+
+- 두 변수가 없으면 안내 한 줄만 남기고 건너뛴다. API 가 실패해도(권한·연결) 경고만 남기고 태그·반영·롤백은 그대로 성공한다 — 트래커는 부수 기록이다.
+- 버전 만들기·출시는 프로젝트 OWNER 만 할 수 있다(AI 토큰은 MEMBER 라 403).
+- 다시 돌려도 같다: 있는 버전은 만들지 않고, 이미 붙은 이슈는 건너뛰고, 이미 출시된 버전은 다시 출시하지 않는다(출시일이 덮이지 않게).
+- 이슈 상태(완료)는 바꾸지 않는다.
+
 ## 빌드가 실패한 태그
 
 태그 파이프라인이 실패하면(이미지 `:<버전>`·매니페스트·Release 가 없음) 태그는 지우거나 옮기지 않고 **버린 릴리스**로 적은 뒤 다음 patch 로 다시 낸다(WP-454).
