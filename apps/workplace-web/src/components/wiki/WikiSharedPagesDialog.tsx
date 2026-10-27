@@ -61,7 +61,7 @@ export function WikiSharedPagesDialog({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{item.title || '제목 없음'}</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {shareScopeLabel(item.audience, item.permission, item.peopleCount)}
+                      {shareScopeLabel(item.audience, item.permission, item.peopleCount, item.groupCount)}
                       {item.includeChildren && ' · 하위 페이지 포함'}
                     </span>
                   </span>

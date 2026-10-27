@@ -10,7 +10,7 @@ import { renderWithProviders } from '@/test/renderWithProviders'
 import type { WikiPageShare, WikiPageShareState } from '../../types/wiki'
 import { WikiShareDialog } from './WikiShareDialog'
 
-// 공유 훅은 끊고, 쓰기 mutate 호출만 기록한다.
+// 공유 훅은 끊고, 쓰기 mutate 호출만 기록한다. 공유 저장은 차례대로 mutateAsync 로 보낸다(WP-1023).
 const state = vi.hoisted(() => ({ data: undefined as unknown, isPending: false }))
 const save = vi.hoisted(() => vi.fn())
 const regenerate = vi.hoisted(() => vi.fn())
@@ -19,27 +19,37 @@ const decide = vi.hoisted(() => vi.fn())
 const exclusion = vi.hoisted(() => vi.fn())
 const copyText = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('@/lib/copyText', () => ({ copyText }))
-vi.mock('../../hooks/queries/useWikiShare', () => ({
-  useWikiPageShare: () => ({ data: state.data, isPending: state.isPending }),
-  useWikiShareEvents: () => ({
-    isPending: false,
-    isError: false,
-    data: [{ id: 1, type: 'CREATED', actor: { userId: 2, name: '김민지' }, detail: '링크 공유를 켰습니다', at: '2026-10-20T01:00:00Z' }],
-  }),
-  useWikiShareMutations: () => ({
-    save: { mutate: save, isPending: false },
-    regenerate: { mutate: regenerate, isPending: false },
-    revoke: { mutate: revoke, isPending: false },
-    decide: { mutate: decide, isPending: false },
-    exclusion: { mutate: exclusion, isPending: false },
-  }),
-}))
+vi.mock('../../hooks/queries/useWikiShare', async () => {
+  const { useQueryClient } = await import('@tanstack/react-query')
+  const { wikiKeys } = await import('../../hooks/queries/wikiKeys')
+  return {
+    // 창은 차례가 오면 최신 공유를 쿼리 캐시에서 읽는다(WP-1023) — 끊은 훅이 돌려주는 값을 캐시에도 둔다.
+    useWikiPageShare: (pageId: number) => {
+      const qc = useQueryClient()
+      if (state.data) qc.setQueryData(wikiKeys.share(pageId), state.data)
+      return { data: state.data, isPending: state.isPending }
+    },
+    useWikiShareEvents: () => ({
+      isPending: false,
+      isError: false,
+      data: [{ id: 1, type: 'CREATED', actor: { userId: 2, name: '김민지' }, detail: '링크 공유를 켰습니다', at: '2026-10-20T01:00:00Z' }],
+    }),
+    useWikiShareMutations: () => ({
+      save: { mutateAsync: save, isPending: false },
+      regenerate: { mutate: regenerate, isPending: false },
+      revoke: { mutate: revoke, isPending: false },
+      decide: { mutate: decide, isPending: false },
+      exclusion: { mutate: exclusion, isPending: false },
+    }),
+  }
+})
 // 사람 고르기는 실제 검색 대신 한 명(id 7)을 바로 고르는 버튼으로 대신한다 — payload 만 본다.
-vi.mock('@/pages/projects/components/MemberSearchPopover', () => ({
-  MemberSearchPopover: ({ onSelect, trigger }: { onSelect: (u: { id: number }) => void; trigger: React.ReactNode }) => (
+// 사람·팀 검색(WP-1023)의 실제 검색·부서·내 그룹은 pages/wiki/wikiShare.test.tsx 가 MSW 로 본다.
+vi.mock('./ShareTargetSearchPopover', () => ({
+  ShareTargetSearchPopover: ({ onSelectPerson, trigger }: { onSelectPerson: (u: { id: number }) => void; trigger: React.ReactNode }) => (
     <div>
       {trigger}
-      <button type="button" onClick={() => onSelect({ id: 7 })}>
+      <button type="button" onClick={() => onSelectPerson({ id: 7 })}>
         7번 고르기
       </button>
     </div>
@@ -62,6 +72,7 @@ const baseShare = (over: Partial<WikiPageShare> = {}): WikiPageShare => ({
   permission: 'VIEW',
   includeChildren: false,
   people: [],
+  groups: [],
   createdBy: { userId: 2, name: '김민지' },
   createdAt: '2026-10-20T00:00:00Z',
   updatedAt: '2026-10-20T00:00:00Z',
@@ -133,7 +144,7 @@ describe('확인 절차', () => {
     renderDialog(baseState())
     await userEvent.click(screen.getByTestId('wiki-share-children'))
     expect(screen.queryByTestId('wiki-share-confirm')).not.toBeInTheDocument()
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ includeChildren: true }), expect.anything())
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ includeChildren: true }))
   })
 
   it('해제와 재발급은 확인을 거쳐야 보낸다', async () => {
@@ -155,10 +166,7 @@ describe('공유 켜기', () => {
     renderDialog(baseState({ share: null }))
     expect(screen.queryByTestId('wiki-share-url')).not.toBeInTheDocument()
     await userEvent.click(screen.getByTestId('wiki-share-switch'))
-    expect(save).toHaveBeenCalledWith(
-      { audience: 'WORKSPACE', permission: 'VIEW', includeChildren: true, userIds: [], expiresAt: null },
-      expect.anything(),
-    )
+    expect(save).toHaveBeenCalledWith({ audience: 'WORKSPACE', permission: 'VIEW', includeChildren: true, userIds: [], expiresAt: null })
   })
 })
 

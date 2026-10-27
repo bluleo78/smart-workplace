@@ -23,6 +23,7 @@ function share(over: Partial<WikiShareListItem> & Pick<WikiShareListItem, 'pageI
     permission: 'VIEW',
     includeChildren: false,
     peopleCount: 0,
+    groupCount: 0,
     createdBy: ME,
     updatedAt: '2026-10-20T00:00:00Z',
     expiresAt: null,

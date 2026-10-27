@@ -180,12 +180,12 @@ public class WikiShareService {
       }
       ShareDetail created = shares.findByPage(pageId).orElseThrow();
       if ("PEOPLE".equals(next.audience())) {
-        changePeople(
+        changeTargets(
             callerId,
             created,
             next.permission(),
-            List.of(),
-            next.userIds(),
+            new Targets(List.of(), List.of()),
+            new Targets(next.userIds(), next.groupIds() == null ? List.of() : next.groupIds()),
             next.notification(),
             false);
       }
@@ -353,18 +353,24 @@ public class WikiShareService {
 
     boolean peopleRemoved;
     if ("PEOPLE".equals(next.audience())) {
+      List<Long> currentGroups = shares.listGroupIds(before.id());
       peopleRemoved =
-          changePeople(
+          changeTargets(
               callerId,
               before,
               next.permission(),
-              shares.listPeopleIds(before.id()),
-              next.userIds(),
+              new Targets(shares.listPeopleIds(before.id()), currentGroups),
+              // 부서를 보내지 않은 요청(null)은 지금 부서를 그대로 둔다(WP-1023 — 부서를 모르는 이전 클라이언트가 사람만 고쳐도 부서가 지워지지
+              // 않게).
+              new Targets(
+                  next.userIds(), next.groupIds() == null ? currentGroups : next.groupIds()),
               next.notification(),
               false);
     } else {
       // 지정한 사람만이 아니게 되면 목록은 뜻이 없어진다 — 대상 변경 기록이 이미 남았으므로 따로 기록하지 않고 비운다.
+      // 지정한 부서도 함께 비운다(WP-1023) — 다시 지정한 사람으로 돌렸을 때 옛 부서가 되살아나지 않게.
       shares.removePeople(before.id(), null);
+      shares.removeGroups(before.id(), null);
       // 대기 중 접근 요청도 뜻을 잃는다 — 해제(revokeShare)와 같은 정리로 지워, 다시 지정한 사람으로 돌렸을 때 옛 요청이 되살아나지 않게.
       shares.deletePendingRequests(pageId);
       peopleRemoved = false;
@@ -378,37 +384,49 @@ public class WikiShareService {
   }
 
   /**
-   * 지정한 사람(PEOPLE) 공유의 사람을 current 에서 desired 로 맞춘다 — 호출자가 PEOPLE 공유일 때만 부른다. 추가·제외를 각각 기록 한 줄로,
-   * 감사는 한 건(added·removed·viaRequest)으로 남긴다. 새로 추가하는 사람은 이 워크스페이스의 ACTIVE 구성원이어야 한다(다른 테넌트 사용자의 이름이
-   * 응답에 실리지 않게).
+   * 지정한 사람(PEOPLE) 공유의 대상(사람·조직도 부서)을 current 에서 desired 로 맞춘다 — 호출자가 PEOPLE 공유일 때만 부른다. 사람·부서의
+   * 추가·제외를 각각 기록 한 줄로, 감사는 한 건(added·removed·addedGroups·removedGroups·viaRequest)으로 남긴다. 새로 추가하는
+   * 사람은 이 워크스페이스의 ACTIVE 구성원이어야 하고(다른 테넌트 사용자의 이름이 응답에 실리지 않게), 새로 추가하는 부서는 이 워크스페이스의 조직도
+   * 부서(SHARED)여야 한다(WP-1023 — 개인 그룹은 공유 창이 사람으로 펼쳐 보낸다).
    *
-   * <p>설정 저장({@code viaRequest=false})에서 「알림 보내기」를 켰고(notification 이 있음) 새로 추가된 사람이 있으면 그 사람들에게만
-   * {@link WikiSharedWithPeopleEvent} 를 낸다. 접근 요청 승인은 요청자에게 가는 승인 알림이 따로 있어 내지 않는다.
+   * <p>설정 저장({@code viaRequest=false})에서 「알림 보내기」를 켰으면(notification 이 있음) 새로 열 수 있게 된 사람에게 {@link
+   * WikiSharedWithPeopleEvent} 를 한 번 낸다 — 새로 추가된 사람과 새로 추가된 부서(하위 부서 포함)의 지금 구성원을 합쳐 중복 없이, 공유하는 사람
+   * 자신과 이미 지정돼 있던 사람·남아 있는 부서의 구성원(이미 열 수 있던 사람)은 뺀다. 접근 요청 승인은 요청자에게 가는 승인 알림이 따로 있어 내지 않는다.
    *
    * @param permission 감사 metadata 의 권한(바뀐 뒤 값)
-   * @param current 지금 지정한 사람 id
-   * @param desired 맞출 지정한 사람 id
+   * @param current 지금 지정한 사람·부서 id
+   * @param desired 맞출 지정한 사람·부서 id
    * @param notification 추가된 사람에게 보낼 알림(null 이면 보내지 않음)
-   * @return 제외된 사람이 있는지 — 그 사람이 열어 둔 화면을 닫아야 한다
+   * @return 제외된 사람이나 부서가 있는지 — 그 사람(부서 구성원)이 열어 둔 화면을 닫아야 한다
+   * @throws IllegalArgumentException 워크스페이스 구성원이 아닌 사람, 조직도 부서가 아닌 그룹(400)
    */
-  private boolean changePeople(
+  private boolean changeTargets(
       long callerId,
       ShareDetail share,
       String permission,
-      List<Long> current,
-      List<Long> desired,
+      Targets current,
+      Targets desired,
       WikiPageShareRequest.Notify notification,
       boolean viaRequest) {
-    List<Long> added = desired.stream().filter(id -> !current.contains(id)).toList();
-    List<Long> removed = current.stream().filter(id -> !desired.contains(id)).toList();
-    if (added.isEmpty() && removed.isEmpty()) {
+    List<Long> added = minus(desired.userIds(), current.userIds());
+    List<Long> removed = minus(current.userIds(), desired.userIds());
+    List<Long> addedGroups = minus(desired.groupIds(), current.groupIds());
+    List<Long> removedGroups = minus(current.groupIds(), desired.groupIds());
+    if (added.isEmpty() && removed.isEmpty() && addedGroups.isEmpty() && removedGroups.isEmpty()) {
       return false;
     }
     if (!membershipGuard.foreignUserIds(added).isEmpty()) {
       throw new IllegalArgumentException("이 워크스페이스 구성원만 지정할 수 있습니다");
     }
+    // 부서 이름 — 추가할 부서의 검증(이 워크스페이스의 조직도 부서인지)과 기록 문구에 함께 쓴다. 다른 테넌트 그룹은 RLS 로, 개인 그룹은 조건으로 빠진다.
+    Map<Long, String> groupNames = shares.findDepartmentNames(concat(addedGroups, removedGroups));
+    if (!groupNames.keySet().containsAll(addedGroups)) {
+      throw new IllegalArgumentException("조직도 부서만 지정할 수 있습니다");
+    }
     shares.addPeople(share.id(), added, callerId);
     shares.removePeople(share.id(), removed);
+    shares.addGroups(share.id(), addedGroups, callerId);
+    shares.removeGroups(share.id(), removedGroups);
     Map<Long, String> names = users.findNamesByIds(concat(added, removed));
     if (!added.isEmpty()) {
       event(callerId, share.pageId(), "PEOPLE_ADDED", namesText(added, names) + " 님을 추가했습니다");
@@ -416,22 +434,57 @@ public class WikiShareService {
     if (!removed.isEmpty()) {
       event(callerId, share.pageId(), "PEOPLE_REMOVED", namesText(removed, names) + " 님을 제외했습니다");
     }
+    if (!addedGroups.isEmpty()) {
+      event(
+          callerId,
+          share.pageId(),
+          "GROUPS_ADDED",
+          namesText(addedGroups, groupNames) + " 부서를 추가했습니다");
+    }
+    if (!removedGroups.isEmpty()) {
+      event(
+          callerId,
+          share.pageId(),
+          "GROUPS_REMOVED",
+          namesText(removedGroups, groupNames) + " 부서를 제외했습니다");
+    }
     Map<String, Object> extra = metadata("PEOPLE", permission);
     extra.put("added", added);
     extra.put("removed", removed);
+    extra.put("addedGroups", addedGroups);
+    extra.put("removedGroups", removedGroups);
     extra.put("viaRequest", viaRequest);
     audit.log(WikiShareAudit.PEOPLE_CHANGED, share.pageId(), share.spaceId(), extra);
-    if (!viaRequest && notification != null && !added.isEmpty()) {
-      String message = notification.message();
-      publisher.publishEvent(
-          new WikiSharedWithPeopleEvent(
-              TenantContext.require(),
-              share.pageId(),
-              callerId,
-              added,
-              message == null || message.isBlank() ? null : message));
+    if (!viaRequest && notification != null) {
+      List<Long> recipients = newlyReachable(callerId, current, desired, added, addedGroups);
+      if (!recipients.isEmpty()) {
+        String message = notification.message();
+        publisher.publishEvent(
+            new WikiSharedWithPeopleEvent(
+                TenantContext.require(),
+                share.pageId(),
+                callerId,
+                recipients,
+                message == null || message.isBlank() ? null : message));
+      }
     }
-    return !removed.isEmpty();
+    return !removed.isEmpty() || !removedGroups.isEmpty();
+  }
+
+  /**
+   * 이번 저장으로 새로 열 수 있게 된 사람(WP-1023) — 새로 직접 추가된 사람 + 새로 추가된 부서(하위 부서 포함)의 지금 구성원 중 저장 전부터 있던(남아 있는)
+   * 부서의 구성원이 아닌 사람(한 번의 조회). 중복 없이, 공유하는 사람 자신과 이미 지정돼 있던 사람은 뺀다 — 이미 열 수 있던 사람에게 다시 알리지 않게. 직접 추가한
+   * 사람은 남아 있는 부서에 들어 있어도 알린다(직접 고른 사람이라 — 사람 추가의 기존 동작).
+   */
+  private List<Long> newlyReachable(
+      long callerId, Targets current, Targets desired, List<Long> added, List<Long> addedGroups) {
+    Set<Long> out = new LinkedHashSet<>(added);
+    // 새 부서 구성원에서 남아 있는 부서의 구성원을 뺀 사람 — 한 번의 조회.
+    out.addAll(
+        shares.findNewDepartmentMemberIds(addedGroups, minus(desired.groupIds(), addedGroups)));
+    out.removeAll(current.userIds());
+    out.remove(callerId);
+    return List.copyOf(out);
   }
 
   /**
@@ -444,12 +497,14 @@ public class WikiShareService {
     if (current.contains(requesterId)) {
       return;
     }
-    changePeople(
+    // 지정한 부서는 그대로 — 사람만 더한다.
+    List<Long> groups = shares.listGroupIds(share.id());
+    changeTargets(
         approverId,
         share,
         share.permission(),
-        current,
-        concat(current, List.of(requesterId)),
+        new Targets(current, groups),
+        new Targets(concat(current, List.of(requesterId)), groups),
         null,
         true);
   }
@@ -472,8 +527,8 @@ public class WikiShareService {
   }
 
   /**
-   * 접근이 줄어드는 변경인지 — 대상이 좁아짐(외부 → 워크스페이스 → 지정한 사람), 편집 → 보기, 하위 포함 끔, 만료를 새로 정하거나 앞당김. 사람 제외는 {@link
-   * #changePeople} 이 따로 알린다.
+   * 접근이 줄어드는 변경인지 — 대상이 좁아짐(외부 → 워크스페이스 → 지정한 사람), 편집 → 보기, 하위 포함 끔, 만료를 새로 정하거나 앞당김. 사람·부서 제외는
+   * {@link #changeTargets} 가 따로 알린다.
    */
   private static boolean narrows(ShareDetail before, Settings next) {
     return AUDIENCE_RANK.get(next.audience()) < AUDIENCE_RANK.get(before.audience())
@@ -530,18 +585,26 @@ public class WikiShareService {
     if ("PUBLIC".equals(req.audience()) && !"VIEW".equals(req.permission())) {
       throw new IllegalArgumentException("외부 공개 링크는 보기만 할 수 있습니다");
     }
-    List<Long> userIds =
-        "PEOPLE".equals(req.audience()) && req.userIds() != null
-            ? List.copyOf(
-                new LinkedHashSet<>(req.userIds().stream().filter(Objects::nonNull).toList()))
-            : List.of();
+    boolean people = "PEOPLE".equals(req.audience());
+    List<Long> userIds = people ? distinctIds(req.userIds()) : List.of();
+    // 부서(WP-1023): 지정한 사람 공유에서 null 은 「지금 그대로」라 null 로 넘긴다. 다른 대상이면 뜻이 없어 빈 목록.
+    List<Long> groupIds =
+        !people ? List.of() : req.groupIds() == null ? null : distinctIds(req.groupIds());
     return new Settings(
         req.audience(),
         req.permission(),
         req.includeChildren(),
         req.expiresAt(),
         userIds,
+        groupIds,
         req.notification());
+  }
+
+  /** 요청의 id 목록 — null 이면 빈 목록, null 항목을 거르고 순서를 지켜 중복을 없앤다. */
+  private static List<Long> distinctIds(List<Long> ids) {
+    return ids == null
+        ? List.of()
+        : List.copyOf(new LinkedHashSet<>(ids.stream().filter(Objects::nonNull).toList()));
   }
 
   /**
@@ -610,6 +673,7 @@ public class WikiShareService {
         s.permission(),
         s.includeChildren(),
         "PEOPLE".equals(s.audience()) ? shares.listPeople(s.id()) : List.of(),
+        "PEOPLE".equals(s.audience()) ? shares.listGroups(s.id()) : List.of(),
         new WikiSharePerson(s.createdBy(), s.createdByName()),
         s.createdAt(),
         s.updatedAt(),
@@ -622,6 +686,12 @@ public class WikiShareService {
     return ids.stream()
         .map(id -> names.getOrDefault(id, String.valueOf(id)))
         .collect(Collectors.joining(", "));
+  }
+
+  /** a 에서 b 에 있는 것을 뺀 목록(a 의 순서). */
+  private static List<Long> minus(List<Long> a, List<Long> b) {
+    Set<Long> drop = Set.copyOf(b);
+    return a.stream().filter(id -> !drop.contains(id)).toList();
   }
 
   private static List<Long> concat(List<Long> a, List<Long> b) {
@@ -638,12 +708,20 @@ public class WikiShareService {
     return t == null ? null : t.toInstant().toString();
   }
 
-  /** 검증을 마친 요청 설정 — notification 은 사람을 추가할 때 보낼 알림(null 이면 보내지 않음). */
+  /**
+   * 검증을 마친 요청 설정 — notification 은 사람을 추가할 때 보낼 알림(null 이면 보내지 않음).
+   *
+   * @param groupIds 지정한 조직도 부서(WP-1023) — null 이면 지금 부서를 그대로 둔다(PEOPLE 일 때만 null 일 수 있다)
+   */
   private record Settings(
       String audience,
       String permission,
       boolean includeChildren,
       OffsetDateTime expiresAt,
       List<Long> userIds,
+      List<Long> groupIds,
       WikiPageShareRequest.Notify notification) {}
+
+  /** 지정한 사람(PEOPLE) 공유의 대상 — 사람 id 와 조직도 부서 id(WP-1023). */
+  private record Targets(List<Long> userIds, List<Long> groupIds) {}
 }

@@ -9,7 +9,9 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.WikiPage.WikiPagePath;
+import com.workplace.jooq.tables.WikiPageShareGroup.WikiPageShareGroupPath;
 import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.records.WikiPageShareRecord;
@@ -276,6 +278,19 @@ public class WikiPageShare extends TableImpl<WikiPageShareRecord> {
         return _tenant;
     }
 
+    private transient WikiPageShareGroupPath _wikiPageShareGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_page_share_group</code> table
+     */
+    public WikiPageShareGroupPath wikiPageShareGroup() {
+        if (_wikiPageShareGroup == null)
+            _wikiPageShareGroup = new WikiPageShareGroupPath(this, null, Keys.WIKI_PAGE_SHARE_GROUP__WIKI_PAGE_SHARE_GROUP_SHARE_ID_FKEY.getInverseKey());
+
+        return _wikiPageShareGroup;
+    }
+
     private transient WikiPageShareMemberPath _wikiPageShareMember;
 
     /**
@@ -287,6 +302,14 @@ public class WikiPageShare extends TableImpl<WikiPageShareRecord> {
             _wikiPageShareMember = new WikiPageShareMemberPath(this, null, Keys.WIKI_PAGE_SHARE_MEMBER__WIKI_PAGE_SHARE_MEMBER_SHARE_ID_FKEY.getInverseKey());
 
         return _wikiPageShareMember;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.user_group</code> table
+     */
+    public UserGroupPath userGroup() {
+        return wikiPageShareGroup().userGroup();
     }
 
     @Override

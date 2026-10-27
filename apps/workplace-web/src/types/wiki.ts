@@ -162,6 +162,16 @@ export interface WikiSharePerson {
   name: string
 }
 
+/**
+ * 지정한 사람 공유가 여는 조직도 부서(WP-1023, 백엔드 WikiShareGroup) — 그 부서와 하위 부서의 지금 구성원이 열 수 있다.
+ * memberCount 는 지금 열 수 있는 사람 수(하위 부서 포함·중복 제외·활성 사람만) — 공유 창이 「개발팀 · 3명」으로 보인다.
+ */
+export interface WikiShareGroup {
+  groupId: number
+  name: string
+  memberCount: number
+}
+
 /** 한 페이지의 공유 설정(백엔드 WikiPageShareResponse). token 은 링크 주소에 들어가는 값 — 재발급하면 바뀐다. */
 export interface WikiPageShare {
   pageId: number
@@ -171,6 +181,8 @@ export interface WikiPageShare {
   includeChildren: boolean
   /** audience=PEOPLE 일 때 지정한 사람(WORKSPACE 면 빈 배열). */
   people: WikiSharePerson[]
+  /** audience=PEOPLE 일 때 지정한 조직도 부서(WP-1023, 그 밖에는 빈 배열). */
+  groups: WikiShareGroup[]
   createdBy: WikiSharePerson
   createdAt: string
   updatedAt: string
@@ -219,6 +231,11 @@ export interface WikiPageShareRequest {
   permission: WikiSharePermission
   includeChildren: boolean
   userIds: number[]
+  /**
+   * 지정한 조직도 부서 전체(WP-1023) — 보내지 않으면 서버가 지금 부서를 그대로 둔다(빈 배열이면 모두 뺀다).
+   * 공유 창은 늘 지금 값을 함께 보낸다(바꾸지 않은 설정까지 덮어쓰는 PUT 이라).
+   */
+  groupIds?: number[]
   expiresAt: string | null
   /** 새로 추가한 사람에게 알림을 보낼지와 함께 보낼 메시지(선택, 최대 WIKI_SHARE_MESSAGE_MAX 자). */
   notify?: { message: string | null }
@@ -233,6 +250,8 @@ export type WikiShareEventType =
   | 'UPDATED'
   | 'PEOPLE_ADDED'
   | 'PEOPLE_REMOVED'
+  | 'GROUPS_ADDED'
+  | 'GROUPS_REMOVED'
   | 'REGENERATED'
   | 'REVOKED'
   | 'REVOKED_BY_POLICY'
@@ -262,6 +281,8 @@ export interface WikiSharedPageItem {
   permission: WikiSharePermission
   includeChildren: boolean
   peopleCount: number
+  /** 지정한 조직도 부서 수(WP-1023, PEOPLE 이 아니면 0). */
+  groupCount: number
   createdBy: WikiSharePerson
   updatedAt: string
   expiresAt: string | null

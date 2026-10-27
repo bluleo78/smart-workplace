@@ -1,10 +1,12 @@
 // WP-579 노트 페이지 공유 — 화면이 쓰는 판정·문구(링크 주소, 넓히는 변경인지, 범위 요약)와 링크 복사.
+// WP-1023 — 사람·팀 추가 검색의 그룹 목록(평면화·거르기)과 내 그룹을 사람으로 펼치기.
 
 import { toast } from 'sonner'
 
 import { copyText } from '@/lib/copyText'
 
 import { isEditRole } from '../../lib/collab/collabStatus'
+import type { UserGroupNode } from '../../types/userGroup'
 import type {
   WikiPageShareRequest,
   WikiPageSummary,
@@ -73,10 +75,74 @@ export function shareWidening(
   return null
 }
 
-/** 범위 한 줄 요약 — 공유 중인 페이지 목록. 예: "워크스페이스 전체 · 보기", "3명 · 편집", "외부 공개 · 보기". */
-export function shareScopeLabel(audience: WikiShareAudience, permission: WikiSharePermission, peopleCount: number): string {
-  const who = audience === 'WORKSPACE' ? '워크스페이스 전체' : audience === 'PUBLIC' ? '외부 공개' : `${peopleCount}명`
+/**
+ * 범위 한 줄 요약 — 공유 중인 페이지 목록. 예: "워크스페이스 전체 · 보기", "3명 · 편집", "외부 공개 · 보기".
+ * 지정한 조직도 부서가 있으면 함께 센다(WP-1023) — "3명, 부서 1개 · 편집", 부서만이면 "부서 2개 · 보기".
+ */
+export function shareScopeLabel(
+  audience: WikiShareAudience,
+  permission: WikiSharePermission,
+  peopleCount: number,
+  groupCount = 0,
+): string {
+  const people =
+    groupCount === 0 ? `${peopleCount}명` : peopleCount === 0 ? `부서 ${groupCount}개` : `${peopleCount}명, 부서 ${groupCount}개`
+  const who = audience === 'WORKSPACE' ? '워크스페이스 전체' : audience === 'PUBLIC' ? '외부 공개' : people
   return `${who} · ${permission === 'EDIT' ? '편집' : '보기'}`
+}
+
+/**
+ * 공유 대상 검색에 보이는 그룹 한 줄(WP-1023).
+ * path 는 상위 그룹 이름(「본부 › 개발팀」, 최상위면 빈 문자열), ancestorIds 는 위쪽 그룹 id(가까운 쪽이 뒤),
+ * subtreeIds 는 자기와 모든 하위 그룹 id — 상위 부서가 이미 대상인지 보고(하위 부서 비활성), 내 그룹을 하위 그룹까지 펼칠 때 쓴다.
+ */
+export interface ShareGroupOption {
+  id: number
+  name: string
+  path: string
+  ancestorIds: number[]
+  subtreeIds: number[]
+}
+
+/** 그룹 트리를 검색용 평면 목록으로(WP-1023) — 트리 순서(정렬된 형제 순, 위에서 아래로)를 지키고 상위 이름을 경로로, 상위·하위 id 를 함께 붙인다. */
+export function flattenGroupTree(nodes: UserGroupNode[], parentPath = '', ancestorIds: number[] = []): ShareGroupOption[] {
+  return nodes.flatMap((n) => {
+    const below = flattenGroupTree(n.children ?? [], parentPath ? `${parentPath} › ${n.name}` : n.name, [...ancestorIds, n.id])
+    // 하위 목록에서 바로 아래 자식들의 subtreeIds 를 모으면 이 그룹 아래 전체가 된다.
+    const directChildren = below.filter((o) => o.ancestorIds.length === ancestorIds.length + 1)
+    const subtreeIds = [n.id, ...directChildren.flatMap((c) => c.subtreeIds)]
+    return [{ id: n.id, name: n.name, path: parentPath, ancestorIds, subtreeIds }, ...below]
+  })
+}
+
+/** 검색어로 그룹을 거른다(WP-1023) — 이름이나 상위 경로에 검색어가 들어 있으면(대소문자 무시). 빈 검색어면 모두. */
+export function filterGroupOptions(options: ShareGroupOption[], query: string): ShareGroupOption[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return options
+  return options.filter((o) => o.name.toLowerCase().includes(q) || o.path.toLowerCase().includes(q))
+}
+
+/**
+ * 내 그룹을 지정한 사람으로 펼친다(WP-1023) — 그룹(하위 그룹 포함)의 사람 구성원 중 아직 지정한 사람 목록에 없는 사람만 뒤에 더한다(목록 안에서만
+ * 중복을 뺀다 — 지정한 부서의 구성원인지는 보지 않는다). exclude(공유하는 나 자신·공유를 만든 사람 — 이미 열 수 있다)는 더하지도 세지도 않는다.
+ * added 는 새로 더한 사람 수, skipped 는 이미 목록에 있어 뺀 사람 수.
+ */
+export function addGroupMembers(
+  currentUserIds: number[],
+  memberIds: number[],
+  exclude: Iterable<number> = [],
+): { userIds: number[]; added: number; skipped: number } {
+  const have = new Set(currentUserIds)
+  const excluded = new Set(exclude)
+  const candidates = [...new Set(memberIds)].filter((id) => !excluded.has(id))
+  const fresh = candidates.filter((id) => !have.has(id))
+  return { userIds: [...currentUserIds, ...fresh], added: fresh.length, skipped: candidates.length - fresh.length }
+}
+
+/** 내 그룹을 펼친 뒤의 안내(WP-1023) — 「개발 스터디에서 3명 추가 (이미 있는 1명 제외)」. 더할 사람이 없으면 그 사실만. */
+export function groupExpansionMessage(groupName: string, added: number, skipped: number): string {
+  if (added === 0) return skipped > 0 ? `${groupName}의 ${skipped}명은 이미 모두 있습니다` : `${groupName}에 추가할 사람이 없습니다`
+  return `${groupName}에서 ${added}명 추가${skipped > 0 ? ` (이미 있는 ${skipped}명 제외)` : ''}`
 }
 
 /** 관리자 공유 목록이 한 번에 받는 최대 건수 — 백엔드 기본·상한과 같다(넘으면 최신 순으로 잘린다). */

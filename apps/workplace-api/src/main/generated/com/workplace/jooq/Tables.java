@@ -131,6 +131,7 @@ import com.workplace.jooq.tables.WikiPageDoc;
 import com.workplace.jooq.tables.WikiPageShare;
 import com.workplace.jooq.tables.WikiPageShareEvent;
 import com.workplace.jooq.tables.WikiPageShareExclusion;
+import com.workplace.jooq.tables.WikiPageShareGroup;
 import com.workplace.jooq.tables.WikiPageShareMember;
 import com.workplace.jooq.tables.WikiReference;
 import com.workplace.jooq.tables.WikiRevision;
@@ -782,6 +783,11 @@ public class Tables {
      * The table <code>public.wiki_page_share_exclusion</code>.
      */
     public static final WikiPageShareExclusion WIKI_PAGE_SHARE_EXCLUSION = WikiPageShareExclusion.WIKI_PAGE_SHARE_EXCLUSION;
+
+    /**
+     * The table <code>public.wiki_page_share_group</code>.
+     */
+    public static final WikiPageShareGroup WIKI_PAGE_SHARE_GROUP = WikiPageShareGroup.WIKI_PAGE_SHARE_GROUP;
 
     /**
      * The table <code>public.wiki_page_share_member</code>.

@@ -1,6 +1,8 @@
 package com.workplace.notify;
 
 import static com.workplace.jooq.Tables.NOTIFICATION;
+import static com.workplace.jooq.Tables.USER_GROUP;
+import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -293,6 +295,35 @@ class WikiShareNotificationTest extends IntegrationTestBase {
     assertVisibleIffEntryOpens(listedId, childId, true);
   }
 
+  /**
+   * 조직도 부서 대상(WP-1023)도 같은 규칙 — 대상 부서의 하위 부서 구성원은 알림이 보이고 입구가 열며, 부서에서 빠지면 둘 다 닫히고, 다시 들어오면 열린다. 하위
+   * 페이지 알림도 하위 포함 공유로 함께 따른다.
+   */
+  @Test
+  void department_notification_visibility_matches_entry() throws Exception {
+    long dept = group("개발팀-" + UUID.randomUUID(), null);
+    long sub = group("백엔드-" + UUID.randomUUID(), dept);
+    groupMember(sub, listedId);
+    dispatcher.onWikiSharedWithPeople(
+        new WikiSharedWithPeopleEvent(1L, rootId, ownerId, List.of(listedId), null));
+    dispatcher.onWikiSharedWithPeople(
+        new WikiSharedWithPeopleEvent(1L, childId, ownerId, List.of(listedId), null));
+
+    saveDepartments(rootId, List.of(dept));
+    assertVisibleIffEntryOpens(listedId, true);
+    assertVisibleIffEntryOpens(listedId, childId, true);
+
+    dsl.deleteFrom(USER_GROUP_MEMBER)
+        .where(USER_GROUP_MEMBER.GROUP_ID.eq(sub))
+        .and(USER_GROUP_MEMBER.TARGET_ID.eq(listedId))
+        .execute();
+    assertVisibleIffEntryOpens(listedId, false);
+    assertVisibleIffEntryOpens(listedId, childId, false);
+
+    groupMember(dept, listedId);
+    assertVisibleIffEntryOpens(listedId, true);
+  }
+
   /** 받는 사람의 rootId 알림이 목록에 보이는지와 입구가 열어 주는지가 같고, 그 값이 expected 인지. */
   private void assertVisibleIffEntryOpens(long userId, boolean expected) throws Exception {
     assertVisibleIffEntryOpens(userId, rootId, expected);
@@ -415,6 +446,43 @@ class WikiShareNotificationTest extends IntegrationTestBase {
                     ownerId)
                 .andExpect(status().isOk()));
     return saved.get("token").asText();
+  }
+
+  /** 소유자가 조직도 부서만 지정한 PEOPLE 공유(하위 포함)를 저장한다(WP-1023). 알림 보내기 없음. */
+  private void saveDepartments(long pageId, List<Long> groupIds) throws Exception {
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("audience", "PEOPLE");
+    body.put("permission", "VIEW");
+    body.put("includeChildren", true);
+    body.put("userIds", List.of());
+    body.put("groupIds", groupIds);
+    body.put("expiresAt", null);
+    body.put("notify", null);
+    call(
+            put("/api/v1/wiki/pages/" + pageId + "/share")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(om.writeValueAsString(body)),
+            ownerId)
+        .andExpect(status().isOk());
+  }
+
+  /** 조직도 부서(SHARED) 시드. */
+  private long group(String name, Long parentId) {
+    return dsl.insertInto(USER_GROUP)
+        .set(USER_GROUP.NAME, name)
+        .set(USER_GROUP.VISIBILITY, "SHARED")
+        .set(USER_GROUP.PARENT_ID, parentId)
+        .returning(USER_GROUP.ID)
+        .fetchOne()
+        .getId();
+  }
+
+  private void groupMember(long groupId, long userId) {
+    dsl.insertInto(USER_GROUP_MEMBER)
+        .set(USER_GROUP_MEMBER.GROUP_ID, groupId)
+        .set(USER_GROUP_MEMBER.TARGET_TYPE, "MEMBER")
+        .set(USER_GROUP_MEMBER.TARGET_ID, userId)
+        .execute();
   }
 
   /** 소유자가 대상을 바꿔 공유를 저장한다(지정한 사람 없음). */

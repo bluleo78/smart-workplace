@@ -2,26 +2,31 @@ package com.workplace.wiki.repository;
 
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EVENT;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EXCLUSION;
+import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_GROUP;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_SHARE_ACCESS_REQUEST;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.global.share.WikiShareTargets;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.AccessRequest;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.ExcludedPage;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.Inherited;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiShareEventResponse;
+import com.workplace.wiki.dto.WikiShareGroup;
 import com.workplace.wiki.dto.WikiShareListItemResponse;
 import com.workplace.wiki.dto.WikiSharePerson;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
@@ -115,11 +120,22 @@ public class WikiShareRepository {
         .or(WIKI_PAGE_SHARE.EXPIRES_AT.gt(DSL.currentOffsetDateTime()));
   }
 
-  /** PEOPLE 공유의 지정한 사람인지. */
+  /**
+   * PEOPLE 공유가 이 사람에게 열리는지 — 지정한 사람이거나, 지정한 조직도 부서(또는 그 하위 부서)의 구성원이다(WP-1023). 부서 소속은 지금 값으로
+   * 본다(나중에 들어온 사람은 열리고 빠진 사람은 막힌다). 한 번의 조회 — 「내 부서와 그 상위 부서」를 한 번 구해 대상 부서와 맞춘다.
+   */
   public boolean isListed(long shareId, long userId) {
-    return dsl.fetchExists(
-        WIKI_PAGE_SHARE_MEMBER,
-        WIKI_PAGE_SHARE_MEMBER.SHARE_ID.eq(shareId).and(WIKI_PAGE_SHARE_MEMBER.USER_ID.eq(userId)));
+    return dsl.fetchExists(DSL.selectOne().where(listedOn(DSL.val(shareId), DSL.val(userId))));
+  }
+
+  /**
+   * 공유(shareId)가 이 사용자(userId)에게 열리는 대상인지 — 지정한 사람이거나 지정한 조직도 부서(하위 부서 포함)의 구성원(WP-1023). 규칙 자체는 공용
+   * {@link WikiShareTargets#listedOn} 하나다 — 토큰 판정({@link #isListed})·입구 토큰 찾기({@link
+   * #findCoveringTokens})·알림 목록의 가시성({@code NotificationRepository#wikiReadableByRecipient})이 모두
+   * 그것을 쓴다(보이는 알림 ⇔ 누르면 열림이 갈라지지 않게). 알림(notify)이 wiki 패키지를 import 하지 않도록 공용(global)에 두었다.
+   */
+  private static Condition listedOn(Field<Long> shareId, Field<Long> userId) {
+    return WikiShareTargets.listedOn(shareId, userId);
   }
 
   /**
@@ -129,16 +145,13 @@ public class WikiShareRepository {
    * 포함 조상 체인이다.
    *
    * <p>알림 목록의 가시성 SQL({@code NotificationRepository#wikiReadableByRecipient})은 withWorkspace=false
-   * 의 규칙(+상속 멈춤)을 그대로 따른다 — 하나를 바꾸면 다른 쪽도 함께 바꾼다(보이는 알림 ⇔ 누르면 열림).
+   * 의 규칙(+상속 멈춤)을 그대로 따른다 — 하나를 바꾸면 다른 쪽도 함께 바꾼다(보이는 알림 ⇔ 누르면 열림). 대상 판정은 둘 다 {@link #listedOn} 하나를
+   * 쓴다.
    */
   public List<String> findCoveringTokens(
       long pageId, long userId, Collection<Long> ancestorIds, boolean withWorkspace) {
-    Condition listed =
-        DSL.exists(
-            DSL.selectOne()
-                .from(WIKI_PAGE_SHARE_MEMBER)
-                .where(WIKI_PAGE_SHARE_MEMBER.SHARE_ID.eq(WIKI_PAGE_SHARE.ID))
-                .and(WIKI_PAGE_SHARE_MEMBER.USER_ID.eq(userId)));
+    // 지정한 사람이거나 지정한 부서(하위 부서 포함)의 구성원(WP-1023) — isListed 와 같은 규칙(listedOn).
+    Condition listed = listedOn(WIKI_PAGE_SHARE.ID, DSL.val(userId));
     Condition audience =
         withWorkspace ? listed.or(WIKI_PAGE_SHARE.AUDIENCE.eq("WORKSPACE")) : listed;
     return dsl.select(WIKI_PAGE_SHARE.TOKEN)
@@ -385,6 +398,130 @@ public class WikiShareRepository {
     dsl.deleteFrom(WIKI_PAGE_SHARE_MEMBER)
         .where(WIKI_PAGE_SHARE_MEMBER.SHARE_ID.eq(shareId))
         .and(who)
+        .execute();
+  }
+
+  // ── 조직도 부서 대상(WP-1023) ───────────────────────────────────────────
+
+  /**
+   * 지정한 부서(이름순)와 부서마다 지금 열 수 있는 사람 수 — 그 부서와 하위 부서의 부서 구성원({@link
+   * WikiShareTargets#ACTIVE_HUMAN_MEMBER}, 중복 제외). 접근 판정({@link #listedOn})과 같은 기준이라 보이는 수와 실제로 열 수
+   * 있는 사람이 같다. 모든 부서를 한 번의 조회로 센다.
+   */
+  public List<WikiShareGroup> listGroups(long shareId) {
+    return dsl.fetch(
+            """
+            WITH RECURSIVE tree(root_id, id) AS (
+              SELECT sg.group_id, sg.group_id FROM wiki_page_share_group sg WHERE sg.share_id = ?
+              UNION
+              SELECT t.root_id, g.id FROM user_group g JOIN tree t ON g.parent_id = t.id
+            )
+            SELECT r.id, r.name,
+              (SELECT count(DISTINCT m.target_id) FROM tree t
+                 JOIN user_group_member m ON m.group_id = t.id AND m.target_type = 'MEMBER'
+            """
+                + WikiShareTargets.ACTIVE_HUMAN_MEMBER
+                + """
+               WHERE t.root_id = r.id) AS member_count
+            FROM wiki_page_share_group sg
+            JOIN user_group r ON r.id = sg.group_id
+            WHERE sg.share_id = ?
+            ORDER BY r.name, r.id
+            """,
+            shareId,
+            shareId)
+        .map(
+            r ->
+                new WikiShareGroup(
+                    r.get(0, Long.class), r.get(1, String.class), r.get(2, Integer.class)));
+  }
+
+  /** 지정한 부서 id — 대상 차이 계산용(이름순, {@link #listGroups} 와 같은 순서). */
+  public List<Long> listGroupIds(long shareId) {
+    return dsl.select(WIKI_PAGE_SHARE_GROUP.GROUP_ID)
+        .from(WIKI_PAGE_SHARE_GROUP)
+        .join(USER_GROUP)
+        .on(USER_GROUP.ID.eq(WIKI_PAGE_SHARE_GROUP.GROUP_ID))
+        .where(WIKI_PAGE_SHARE_GROUP.SHARE_ID.eq(shareId))
+        .orderBy(USER_GROUP.NAME.asc(), USER_GROUP.ID.asc())
+        .fetch(WIKI_PAGE_SHARE_GROUP.GROUP_ID);
+  }
+
+  /**
+   * groupIds 중 이 워크스페이스의 조직도 부서(visibility=SHARED) id 와 이름 — 공유 대상으로 받을 수 있는지 검증하고 기록 문구를 만든다. 다른
+   * 테넌트의 그룹은 RLS 로 보이지 않아, 개인 그룹(PERSONAL)은 조건으로 빠진다.
+   */
+  public Map<Long, String> findDepartmentNames(Collection<Long> groupIds) {
+    if (groupIds.isEmpty()) {
+      return Map.of();
+    }
+    return dsl.select(USER_GROUP.ID, USER_GROUP.NAME)
+        .from(USER_GROUP)
+        .where(USER_GROUP.ID.in(groupIds))
+        .and(USER_GROUP.VISIBILITY.eq("SHARED"))
+        .fetchMap(USER_GROUP.ID, USER_GROUP.NAME);
+  }
+
+  /**
+   * 새로 더한 부서(addedGroupIds, 하위 부서 포함)의 부서 구성원 중 남아 있는 부서(keptGroupIds, 하위 부서 포함)의 구성원이 아닌 사람 id —
+   * 부서를 대상으로 더할 때 알림 받을 사람(이미 열 수 있던 사람은 빼고). 한 번의 조회(두 서브트리를 같은 재귀로 구해 EXCEPT). 사람 기준은 {@link
+   * WikiShareTargets#ACTIVE_HUMAN_MEMBER}. addedGroupIds 가 비었으면 빈 목록. 조직도 부서(SHARED)만 본다.
+   */
+  public List<Long> findNewDepartmentMemberIds(
+      Collection<Long> addedGroupIds, Collection<Long> keptGroupIds) {
+    if (addedGroupIds.isEmpty()) {
+      return List.of();
+    }
+    return dsl.fetch(
+            """
+            WITH RECURSIVE tree(kept, id) AS (
+              SELECT false, id FROM user_group WHERE id = ANY(?::bigint[]) AND visibility = 'SHARED'
+              UNION ALL
+              SELECT true, id FROM user_group WHERE id = ANY(?::bigint[]) AND visibility = 'SHARED'
+              UNION
+              SELECT t.kept, g.id FROM user_group g JOIN tree t ON g.parent_id = t.id
+            ),
+            members(kept, user_id) AS (
+              SELECT DISTINCT t.kept, u.id FROM tree t
+              JOIN user_group_member m ON m.group_id = t.id AND m.target_type = 'MEMBER'
+            """
+                + WikiShareTargets.ACTIVE_HUMAN_MEMBER
+                + """
+            )
+            SELECT user_id FROM members WHERE NOT kept
+            EXCEPT
+            SELECT user_id FROM members WHERE kept
+            ORDER BY 1
+            """,
+            addedGroupIds.toArray(Long[]::new),
+            keptGroupIds.toArray(Long[]::new))
+        .map(r -> r.get(0, Long.class));
+  }
+
+  /** 지정한 부서 추가(이미 있으면 그대로) — 한 문장으로 넣는다. 비었으면 아무것도 하지 않는다. */
+  public void addGroups(long shareId, Collection<Long> groupIds, long addedBy) {
+    if (groupIds.isEmpty()) {
+      return;
+    }
+    var insert =
+        dsl.insertInto(
+            WIKI_PAGE_SHARE_GROUP,
+            WIKI_PAGE_SHARE_GROUP.SHARE_ID,
+            WIKI_PAGE_SHARE_GROUP.GROUP_ID,
+            WIKI_PAGE_SHARE_GROUP.ADDED_BY);
+    for (Long groupId : groupIds) {
+      insert = insert.values(shareId, groupId, addedBy);
+    }
+    insert.onConflictDoNothing().execute();
+  }
+
+  /** 지정한 부서에서 뺀다. groupIds 가 null 이면 모두. */
+  public void removeGroups(long shareId, Collection<Long> groupIds) {
+    Condition which =
+        groupIds == null ? DSL.noCondition() : WIKI_PAGE_SHARE_GROUP.GROUP_ID.in(groupIds);
+    dsl.deleteFrom(WIKI_PAGE_SHARE_GROUP)
+        .where(WIKI_PAGE_SHARE_GROUP.SHARE_ID.eq(shareId))
+        .and(which)
         .execute();
   }
 
@@ -753,6 +890,14 @@ public class WikiShareRepository {
                   .where(WIKI_PAGE_SHARE_MEMBER.SHARE_ID.eq(WIKI_PAGE_SHARE.ID)))
           .as("people_count");
 
+  /** 지정한 조직도 부서 수(WP-1023) — PEOPLE 이 아니면 행이 없어 0. 목록이 「부서 1개」처럼 보인다. */
+  private static final Field<Integer> GROUP_COUNT =
+      DSL.field(
+              DSL.selectCount()
+                  .from(WIKI_PAGE_SHARE_GROUP)
+                  .where(WIKI_PAGE_SHARE_GROUP.SHARE_ID.eq(WIKI_PAGE_SHARE.ID)))
+          .as("group_count");
+
   /** 공유 목록 공통 조회 — 페이지 제목·스페이스 이름·공유한 사람을 붙인다. 정렬·조건은 호출자가. */
   private org.jooq.SelectOnConditionStep<?> selectListItems() {
     return dsl.select(
@@ -762,6 +907,7 @@ public class WikiShareRepository {
             WIKI_PAGE_SHARE.PERMISSION,
             WIKI_PAGE_SHARE.INCLUDE_CHILDREN,
             PEOPLE_COUNT,
+            GROUP_COUNT,
             WIKI_PAGE_SHARE.CREATED_BY,
             USER.NAME,
             WIKI_PAGE_SHARE.UPDATED_AT,
@@ -788,6 +934,7 @@ public class WikiShareRepository {
         r.get(WIKI_PAGE_SHARE.PERMISSION),
         r.get(WIKI_PAGE_SHARE.INCLUDE_CHILDREN),
         r.get(PEOPLE_COUNT),
+        r.get(GROUP_COUNT),
         new WikiSharePerson(r.get(WIKI_PAGE_SHARE.CREATED_BY), r.get(USER.NAME)),
         r.get(WIKI_PAGE_SHARE.UPDATED_AT),
         r.get(WIKI_PAGE_SHARE.EXPIRES_AT),
