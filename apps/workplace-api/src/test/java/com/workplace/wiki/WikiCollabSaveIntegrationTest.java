@@ -62,6 +62,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -957,6 +958,18 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
     assertThat(bases(pageId)).containsOnlyKeys(2, 3);
   }
 
+  /** 만료(1시간)는 조회에서 DB 시계로 판정한다 — 보관 시간 안이면 fresh, 넘었으면 아니다(WP-1033). */
+  @Test
+  void baseFreshnessIsJudgedOnTheDbClock() {
+    long pageId = seedPage("본문");
+    recordWritten(pageId, 1, "v1", null);
+    recordWritten(pageId, 2, "v2", null);
+    ageBase(pageId, 1, Duration.ofMinutes(50));
+    ageBase(pageId, 2, Duration.ofMinutes(70));
+    assertThat(baseRow(pageId, 1).fresh()).isTrue();
+    assertThat(baseRow(pageId, 2).fresh()).isFalse();
+  }
+
   /** 테넌트 격리 — tenant#1 에 남긴 기준본은 다른 테넌트 컨텍스트에서 보이지도, 지워지지도 않는다(RLS fail-closed). */
   @Test
   void basesAreInvisibleToOtherTenants() {
@@ -1036,14 +1049,18 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
                     .fetchMap(WIKI_PAGE_BODY_HISTORY.VERSION, WIKI_PAGE_BODY_HISTORY.BODY));
   }
 
-  /** 기준본을 age 만큼 오래된 것으로 만든다(만료 시나리오). */
+  /** 기준본을 age 만큼 오래된 것으로 만든다(만료 시나리오). read_at 처럼 DB 시계(now())로 당긴다 — 판정도 DB 시계로 잰다(WP-1033). */
   private void ageBase(long pageId, int version, Duration age) {
     tenant1();
     new TransactionTemplate(txManager)
         .executeWithoutResult(
             s ->
                 dsl.update(WIKI_PAGE_BODY_HISTORY)
-                    .set(WIKI_PAGE_BODY_HISTORY.READ_AT, OffsetDateTime.now().minus(age))
+                    .set(
+                        WIKI_PAGE_BODY_HISTORY.READ_AT,
+                        DSL.field(
+                            "now() - make_interval(secs => {0})",
+                            OffsetDateTime.class, DSL.val((double) age.toSeconds())))
                     .where(
                         WIKI_PAGE_BODY_HISTORY
                             .PAGE_ID

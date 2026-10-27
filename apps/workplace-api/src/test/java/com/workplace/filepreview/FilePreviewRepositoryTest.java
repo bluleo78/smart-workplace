@@ -121,7 +121,8 @@ class FilePreviewRepositoryTest extends IntegrationTestBase {
     Row row = find().orElseThrow();
     assertThat(row.status()).isEqualTo("CONVERTING");
     assertThat(row.attempts()).isEqualTo(2);
-    assertThat(row.leasedUntil()).isAfter(OffsetDateTime.now());
+    // 리스는 DB now() + LEASE 로 잡히므로 DB 시계(dbNow)와 견준다 — 앱 시계와 견주면 시계 차이에 뒤집힌다.
+    assertThat(row.leasedUntil()).isAfter(dbNow());
   }
 
   @Test
@@ -212,7 +213,8 @@ class FilePreviewRepositoryTest extends IntegrationTestBase {
         inTenantTx(() -> repo.refreshLease(fileId, expired, LEASE));
 
     assertThat(refreshed).isPresent();
-    assertThat(refreshed.get()).isAfter(OffsetDateTime.now().plusMinutes(2));
+    // 리스는 DB now() + LEASE 로 잡히므로 DB 시계(dbNow)와 견준다 — 앱 시계와 견주면 시계 차이에 뒤집힌다.
+    assertThat(refreshed.get()).isAfter(dbNow().plusMinutes(2));
     assertThat(find().orElseThrow().leasedUntil()).isEqualTo(refreshed.get());
     assertThat(inTenantTx(() -> repo.isCurrentLease(fileId, refreshed.get()))).isTrue();
     // 옛 토큰들은 더 이상 쓸 수 없다.

@@ -297,14 +297,11 @@ class MailFolderSyncImapTest extends IntegrationTestBase {
     messageService.markUnread(s[0], one);
     assertThat(serverUnread(s[2])).isEqualTo(3);
 
-    // 모두 읽음(folderId 보기) — 바뀐 수만큼
+    // 모두 읽음(folderId 보기) — 바뀐 수만큼. asOf 는 DB 적재 시각(created_at)과 견주므로 DB 시계(dbNow)로 둔다 — 앱 시계면 시계
+    // 차이에 뒤집힌다.
     int updated =
         messageService.markAllRead(
-            s[0],
-            s[1],
-            s[2],
-            new MarkAllReadRequest(
-                null, false, null, java.time.OffsetDateTime.now().plusMinutes(1)));
+            s[0], s[1], s[2], new MarkAllReadRequest(null, false, null, dbNow()));
     assertThat(updated).isEqualTo(3);
     assertThat(serverUnread(s[2])).isZero();
 
