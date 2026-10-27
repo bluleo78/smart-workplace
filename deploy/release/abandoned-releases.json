@@ -1,5 +1,6 @@
 {
   "versions": {
-    "0.9.1": "2026-10-18 build-images 실패 — db 빌드 이미지(DHI postgres -dev)의 apt 의존성 충돌. 이미지 :0.9.1 태그·매니페스트·Release 없음, 운영 미반영. 같은 변경은 v0.9.2 로 냈다 (WP-454)"
+    "0.9.1": "2026-10-18 build-images 실패 — db 빌드 이미지(DHI postgres -dev)의 apt 의존성 충돌. 이미지 :0.9.1 태그·매니페스트·Release 없음, 운영 미반영. 같은 변경은 v0.9.2 로 냈다 (WP-454)",
+    "0.9.24": "2026-10-27 build-images 실패(파이프라인 7429) — web tsc -b 가 src/pages 의 테스트 핸들러(remainingPages.handlers.ts)에서 이미지에 빠진 src/test/msw 를 찾지 못함. 이미지 :0.9.24 태그·매니페스트·Release 없음, 운영 미반영. 같은 변경은 v0.9.25 로 냈다 (WP-1007)"
   }
 }
