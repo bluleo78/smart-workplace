@@ -7,6 +7,8 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
+import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.UserGroup.UserGroupPath;
@@ -237,6 +239,19 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
         return _userGroup;
     }
 
+    private transient DriveSpaceMemberGroupPath _driveSpaceMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_space_member_group</code> table
+     */
+    public DriveSpaceMemberGroupPath driveSpaceMemberGroup() {
+        if (_driveSpaceMemberGroup == null)
+            _driveSpaceMemberGroup = new DriveSpaceMemberGroupPath(this, null, Keys.DRIVE_SPACE_MEMBER_GROUP__DRIVE_SPACE_MEMBER_GROUP_GROUP_ID_FKEY.getInverseKey());
+
+        return _driveSpaceMemberGroup;
+    }
+
     private transient UserGroupMemberPath _userGroupMember;
 
     /**
@@ -274,6 +289,14 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
             _wikiSpaceMemberGroup = new WikiSpaceMemberGroupPath(this, null, Keys.WIKI_SPACE_MEMBER_GROUP__WIKI_SPACE_MEMBER_GROUP_GROUP_ID_FKEY.getInverseKey());
 
         return _wikiSpaceMemberGroup;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.drive_space</code> table
+     */
+    public DriveSpacePath driveSpace() {
+        return driveSpaceMemberGroup().driveSpace();
     }
 
     /**

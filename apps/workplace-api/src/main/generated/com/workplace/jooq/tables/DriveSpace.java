@@ -12,9 +12,11 @@ import com.workplace.jooq.tables.DriveFile.DriveFilePath;
 import com.workplace.jooq.tables.DriveFolder.DriveFolderPath;
 import com.workplace.jooq.tables.DriveShareLink.DriveShareLinkPath;
 import com.workplace.jooq.tables.DriveSpaceMember.DriveSpaceMemberPath;
+import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath;
 import com.workplace.jooq.tables.DriveTransferLink.DriveTransferLinkPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.records.DriveSpaceRecord;
 
 import java.time.OffsetDateTime;
@@ -276,6 +278,19 @@ public class DriveSpace extends TableImpl<DriveSpaceRecord> {
         return _driveShareLink;
     }
 
+    private transient DriveSpaceMemberGroupPath _driveSpaceMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_space_member_group</code> table
+     */
+    public DriveSpaceMemberGroupPath driveSpaceMemberGroup() {
+        if (_driveSpaceMemberGroup == null)
+            _driveSpaceMemberGroup = new DriveSpaceMemberGroupPath(this, null, Keys.DRIVE_SPACE_MEMBER_GROUP__DRIVE_SPACE_MEMBER_GROUP_SPACE_ID_FKEY.getInverseKey());
+
+        return _driveSpaceMemberGroup;
+    }
+
     private transient DriveSpaceMemberPath _driveSpaceMember;
 
     /**
@@ -300,6 +315,14 @@ public class DriveSpace extends TableImpl<DriveSpaceRecord> {
             _driveTransferLink = new DriveTransferLinkPath(this, null, Keys.DRIVE_TRANSFER_LINK__DRIVE_TRANSFER_LINK_SPACE_ID_FKEY.getInverseKey());
 
         return _driveTransferLink;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.user_group</code> table
+     */
+    public UserGroupPath userGroup() {
+        return driveSpaceMemberGroup().userGroup();
     }
 
     @Override

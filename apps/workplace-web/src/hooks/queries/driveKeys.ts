@@ -7,6 +7,8 @@ export const driveKeys = {
   space: (spaceId: number | undefined) => ['drive', 'space', spaceId] as const,
   /** 공간 멤버 목록(WP-582). */
   members: (spaceId: number) => ['drive', 'members', spaceId] as const,
+  // 멤버인 조직도 부서(WP-1056) — members 와 따로 둔다(멤버 무효화가 부서 목록까지 다시 받지 않게, 노트와 같은 규칙).
+  memberGroups: (spaceId: number) => ['drive', 'member-groups', spaceId] as const,
   /** 공간의 모든 폴더 목록 prefix. */
   itemsAll: (spaceId: number | undefined) => ['drive', 'items', spaceId] as const,
   /** 특정 폴더 목록 — 루트는 null. */

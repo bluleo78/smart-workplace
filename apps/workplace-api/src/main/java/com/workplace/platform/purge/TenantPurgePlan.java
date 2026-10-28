@@ -160,6 +160,7 @@ public final class TenantPurgePlan {
           FILE_PREVIEW,
           DRIVE_FILE,
           DRIVE_FOLDER,
+          DRIVE_SPACE_MEMBER_GROUP, // 공간 멤버 조직도 부서(WP-1056) — drive_space·user_group 보다 먼저
           DRIVE_SPACE_MEMBER,
           DRIVE_SPACE,
           WORKER_JOB,

@@ -169,7 +169,13 @@ const RULES: Record<string, Rule> = {
   'drive-space': (p) => [
     { queryKey: driveKeys.spaces() },
     ...(p.spaceId != null
-      ? [{ queryKey: driveKeys.space(p.spaceId) }, { queryKey: driveKeys.members(p.spaceId) }, { queryKey: driveKeys.itemsAll(p.spaceId) }]
+      ? [
+          { queryKey: driveKeys.space(p.spaceId) },
+          { queryKey: driveKeys.members(p.spaceId) },
+          // 멤버인 조직도 부서(WP-1056) — 다른 소유자가 부서를 바꾸거나 부서 구성원이 줄면 열어 둔 멤버 창의 부서 행·인원도 바로.
+          { queryKey: driveKeys.memberGroups(p.spaceId) },
+          { queryKey: driveKeys.itemsAll(p.spaceId) },
+        ]
       : []),
   ],
   dm: () => [{ queryKey: messagingKeys.dms() }, { queryKey: ['messaging-summary'] }],

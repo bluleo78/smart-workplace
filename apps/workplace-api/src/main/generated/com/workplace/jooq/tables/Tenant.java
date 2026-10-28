@@ -34,6 +34,7 @@ import com.workplace.jooq.tables.DriveFolder.DriveFolderPath;
 import com.workplace.jooq.tables.DriveShareLink.DriveShareLinkPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.DriveSpaceMember.DriveSpaceMemberPath;
+import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath;
 import com.workplace.jooq.tables.DriveTransferLink.DriveTransferLinkPath;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
 import com.workplace.jooq.tables.EmailAttachment.EmailAttachmentPath;
@@ -449,6 +450,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _driveShareLink = new DriveShareLinkPath(this, null, Keys.DRIVE_SHARE_LINK__DRIVE_SHARE_LINK_TENANT_ID_FKEY.getInverseKey());
 
         return _driveShareLink;
+    }
+
+    private transient DriveSpaceMemberGroupPath _driveSpaceMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.drive_space_member_group</code> table
+     */
+    public DriveSpaceMemberGroupPath driveSpaceMemberGroup() {
+        if (_driveSpaceMemberGroup == null)
+            _driveSpaceMemberGroup = new DriveSpaceMemberGroupPath(this, null, Keys.DRIVE_SPACE_MEMBER_GROUP__DRIVE_SPACE_MEMBER_GROUP_TENANT_ID_FKEY.getInverseKey());
+
+        return _driveSpaceMemberGroup;
     }
 
     private transient DriveTransferLinkPath _driveTransferLink;
