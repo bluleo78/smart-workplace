@@ -7,7 +7,7 @@ import { type ReactNode, useMemo } from 'react';
 
 import { ComponentChips } from '../../../components/components/ComponentChip';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
-import { UserAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar, UserAvatar } from '../../../components/users/UserAvatar';
 import { VersionChips } from '../../../components/versions/VersionChip';
 import { useCustomFields } from '../../../hooks/queries/useCustomFields';
 import { formatDateOnlyMonthDay, formatDateTimeMinute, formatInstantMonthDay, formatListDueDate } from '../../../lib/formatters';
@@ -183,7 +183,7 @@ function builtinDef(key: BuiltinColumnKey): IssueListColumnDef {
               <>
                 {it.assignees.slice(0, 3).map((u) => (
                   // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분.
-                  <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
+                  <AssigneeAvatar key={u.id} user={u} size="xs" ring />
                 ))}
                 {it.assignees.length > 3 && (
                   <span className="ml-1 text-xs text-muted-foreground">+{it.assignees.length - 3}</span>

@@ -58,5 +58,6 @@ export function toggleAssigneeIds(current: number[], id: number): number[] {
 
 /** 프로젝트 멤버 → 담당자 요약 — 낙관적 패치로 행에 바로 그릴 값이자 메뉴·시트의 아바타 입력. */
 export function toSummary(m: MemberResponse): UserSummary {
-  return { id: m.userId, username: m.username, name: m.name, kind: m.kind };
+  // active 도 옮긴다 — 낙관적 패치가 정지된 담당자의 「비활성」 표시를 지우지 않게(WP-1080).
+  return { id: m.userId, username: m.username, name: m.name, kind: m.kind, active: m.active };
 }

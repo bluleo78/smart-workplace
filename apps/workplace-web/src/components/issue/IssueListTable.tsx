@@ -18,7 +18,7 @@ import type { IssueResponse } from '../../types/issue'
 import { IssuePriorityBars } from '../issues/IssuePriorityBars'
 import { IssueStatusIcon } from '../issues/IssueStatusIcon'
 import { IssueTypeBadge } from '../issueTypes/IssueTypeBadge'
-import { UserAvatar } from '../users/UserAvatar'
+import { AssigneeAvatar } from '../users/UserAvatar'
 import { IssueLabelMeta } from './IssueLabelMeta'
 import { ProjectRunHead } from './ProjectRunHead'
 
@@ -117,7 +117,7 @@ function IssueTableRow({ it, tid, showAssignee }: { it: IssueResponse; tid: stri
               <>
                 {it.assignees.slice(0, 3).map((u) => (
                   // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분(IssueListRow 와 같은 묶음).
-                  <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
+                  <AssigneeAvatar key={u.id} user={u} size="xs" ring />
                 ))}
                 {it.assignees.length > 3 && (
                   <span className="ml-1 text-xs text-muted-foreground">+{it.assignees.length - 3}</span>

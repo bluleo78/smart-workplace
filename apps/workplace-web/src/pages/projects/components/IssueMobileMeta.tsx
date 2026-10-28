@@ -5,7 +5,7 @@ import { Fragment, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 import { ComponentChips } from '../../../components/components/ComponentChip';
-import { UserAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar } from '../../../components/users/UserAvatar';
 import { formatListDueDate } from '../../../lib/formatters';
 import { closedInfo } from '../../../lib/issueClosedInfo';
 import { isEpicParent, ISSUE_PRIORITY_LABEL } from '../../../lib/issueGrouping';
@@ -109,7 +109,7 @@ export function IssueMobileMeta({
         <span className="flex shrink-0 items-center -space-x-0.5">
           {/* 선택 행(bg-primary/10)에선 배경색 ring 이 흰 테두리로 떠 보여 끈다(AGENT 보라 ring 은 유지). */}
           {it.assignees.slice(0, 2).map((u) => (
-            <UserAvatar key={u.id} user={u} size="xs" ring={!selected} agent={u.kind === 'AGENT'} />
+            <AssigneeAvatar key={u.id} user={u} size="xs" ring={!selected} />
           ))}
           {it.assignees.length > 2 && (
             <span className="ml-1.5 text-xs text-muted-foreground">+{it.assignees.length - 2}</span>

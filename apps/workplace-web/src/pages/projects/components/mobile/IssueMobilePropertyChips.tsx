@@ -24,6 +24,7 @@ import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/is
 import { isOverdue } from '../../../../lib/issueOverdue';
 import { labelWithValue } from '../../../../lib/labelWithValue';
 import { findStatus, needsDoneConfirm } from '../../../../lib/projectStatuses';
+import { displayNameWithStatus } from '../../../../lib/userStatus';
 import type { IssuePriority, IssueResponse, UpdateIssueRequest } from '../../../../types/issue';
 import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
 import type { ProjectStatus } from '../../../../types/projectStatus';
@@ -97,7 +98,8 @@ export function IssueMobilePropertyChips({
 
   const firstAssignee = issue.assignees[0];
   // 칩에 그리는 값 글자 — aria-label 이 칩 안 글자를 덮어쓰므로 접근 이름에도 같은 문자열을 붙인다(WP-853 Label in Name).
-  const assigneeText = firstAssignee ? firstAssignee.name : '담당자 없음';
+  // 정지된 담당자는 「(비활성)」 꼬리(WP-1080).
+  const assigneeText = firstAssignee ? displayNameWithStatus(firstAssignee) : '담당자 없음';
   const assigneeMore = issue.assignees.length > 1 ? `+${issue.assignees.length - 1}` : null;
   // 해석할 수 없는 마감일(API 로 들어간 +10000-01-01 등)은 엉뚱한 월·일 대신 「잘못된 날짜」(WP-725)
   const dueText = issue.dueDate ? (parseValidDateKey(issue.dueDate) ? formatDateMonthDay(issue.dueDate) : '잘못된 날짜') : '마감 없음';

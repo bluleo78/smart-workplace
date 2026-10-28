@@ -6,15 +6,17 @@ import { useMemo, useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Input } from '@/components/ui/input';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { labelWithValue } from '@/lib/labelWithValue';
 import { cn } from '@/lib/utils';
 
 import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { AgentBadge } from '../../../components/users/AgentBadge';
-import { UserAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar, UserAvatar } from '../../../components/users/UserAvatar';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../hooks/queries/useUpdateIssueAssignees';
 import { assigneeCandidates, isInactiveMember } from '../../../lib/assigneeCandidates';
+import { displayNameWithStatus, isInactiveUser } from '../../../lib/userStatus';
 import type { UserSummary } from '../../../types/user';
 
 export function AssigneePickerPopover({
@@ -75,7 +77,7 @@ export function AssigneePickerPopover({
             이름에 보이는 값(담당자 이름들/미지정)을 붙인다 — aria-label 이 안쪽 글자를 덮어써 값을 못 읽었다(WP-853). */}
         <button
           type="button"
-          aria-label={labelWithValue('담당자 편집', current.length === 0 ? '미지정' : current.map((u) => u.name).join(', '))}
+          aria-label={labelWithValue('담당자 편집', current.length === 0 ? '미지정' : current.map(displayNameWithStatus).join(', '))}
           data-testid="assignee-picker-trigger"
           disabled={disabled}
           className={cn(INLINE_FIELD_RAIL_CLASS, INLINE_FIELD_CLASS)}
@@ -87,17 +89,26 @@ export function AssigneePickerPopover({
                 미지정
               </span>
             ) : (
-              current.map((u) => (
-                <span
-                  key={u.id}
-                  className="inline-flex items-center gap-1"
-                  data-testid={`issue-assignee-${u.id}`}
-                >
-                  {/* AGENT 는 별도 칩 대신 아바타에 에이전트 표식(ring + Bot 마커). */}
-                  <UserAvatar user={u} size="xs" agent={u.kind === 'AGENT'} />
-                  <span>{u.name}</span>
-                </span>
-              ))
+              current.map((u) => {
+                const inactive = isInactiveUser(u);
+                return (
+                  <span
+                    key={u.id}
+                    className="inline-flex items-center gap-1"
+                    data-testid={`issue-assignee-${u.id}`}
+                  >
+                    {/* AGENT 는 별도 칩 대신 아바타에 에이전트 표식(ring + Bot 마커). */}
+                    <AssigneeAvatar user={u} size="xs" />
+                    {/* 정지된 담당자는 흐린 이름 + 「비활성」 배지(WP-1080) */}
+                    <span className={cn(inactive && 'text-muted-foreground')}>{u.name}</span>
+                    {inactive && (
+                      <StatusBadge type="inactive" className="shrink-0" data-testid={`issue-assignee-${u.id}-inactive`}>
+                        비활성
+                      </StatusBadge>
+                    )}
+                  </span>
+                );
+              })
             )}
           </span>
         </button>
