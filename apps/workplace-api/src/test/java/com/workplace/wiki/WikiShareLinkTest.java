@@ -300,6 +300,8 @@ class WikiShareLinkTest extends IntegrationTestBase {
     assertThat(events.get(0).sharerId()).isEqualTo(ownerId);
     assertThat(pendingRows(rootId, strangerId)).isEqualTo(1);
     assertThat(historyTypes(rootId)).containsOnlyOnce("ACCESS_REQUESTED");
+    // 행위자(요청한 사람)를 화면이 앞에 붙이므로 설명에는 이름이 다시 들어가지 않는다(WP-1066).
+    assertThat(historyDetail(rootId, "ACCESS_REQUESTED")).isEqualTo("접근을 요청했습니다");
 
     // 공유 창 상태에 대기 요청이 보인다.
     JsonNode state = json(call(get(sharePath(rootId)), ownerId).andExpect(status().isOk()));
@@ -768,6 +770,18 @@ class WikiShareLinkTest extends IntegrationTestBase {
     List<String> out = new ArrayList<>();
     events.forEach(e -> out.add(e.get("type").asText()));
     return out;
+  }
+
+  /** 공유 기록 중 그 type 의 가장 최근 줄 설명(detail). 그 type 의 줄이 없으면 그 자리에서 실패한다. */
+  private String historyDetail(long pageId, String type) throws Exception {
+    JsonNode events =
+        json(call(get(sharePath(pageId) + "/events"), ownerId).andExpect(status().isOk()));
+    for (JsonNode e : events) {
+      if (type.equals(e.get("type").asText())) {
+        return e.get("detail").asText();
+      }
+    }
+    throw new AssertionError("공유 기록에 " + type + " 줄이 없습니다");
   }
 
   private List<AuditLogRecord> audits(long pageId, String actionType) {
