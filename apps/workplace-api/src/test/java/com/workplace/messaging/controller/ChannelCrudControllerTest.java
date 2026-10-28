@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,6 +16,7 @@ import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.messaging.exception.ChannelForbiddenException;
+import com.workplace.messaging.exception.ChannelUnarchiveNameTakenException;
 import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.permission.service.PermissionService;
@@ -67,6 +69,50 @@ class ChannelCrudControllerTest extends WebMvcSliceTestBase {
         .perform(post("/api/v1/messaging/channels/5/archive").header("Authorization", "Bearer v"))
         .andExpect(status().isNoContent());
     verify(channelService).archive(eq(1L), eq(5L));
+  }
+
+  @Test
+  void unarchive_withoutBody_keepsName() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/messaging/channels/5/unarchive").header("Authorization", "Bearer v"))
+        .andExpect(status().isNoContent());
+    verify(channelService).unarchive(eq(1L), eq(5L), eq(null));
+  }
+
+  @Test
+  void unarchive_withName_passesTrimmedName() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/messaging/channels/5/unarchive")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"  일반-보관  \"}"))
+        .andExpect(status().isNoContent());
+    verify(channelService).unarchive(eq(1L), eq(5L), eq("일반-보관"));
+  }
+
+  @Test
+  void unarchive_blankName_returns400() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/messaging/channels/5/unarchive")
+                .header("Authorization", "Bearer v")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"   \"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  /** WP-1084: 같은 이름의 공개 채널이 있어 해제가 거절되면 409 와 사유 코드 — 웹이 새 이름 대화창을 여는 기준. */
+  @Test
+  void unarchive_nameTaken_returns409WithCode() throws Exception {
+    doThrow(new ChannelUnarchiveNameTakenException())
+        .when(channelService)
+        .unarchive(eq(1L), eq(5L), eq(null));
+    mockMvc
+        .perform(post("/api/v1/messaging/channels/5/unarchive").header("Authorization", "Bearer v"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("CHANNEL_NAME_TAKEN"))
+        .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("새 이름")));
   }
 
   @Test

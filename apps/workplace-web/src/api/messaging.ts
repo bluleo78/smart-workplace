@@ -55,8 +55,9 @@ export const messagingApi = {
   archiveChannel: (channelId: number) =>
     client.post<void>(`/messaging/channels/${channelId}/archive`),
 
-  unarchiveChannel: (channelId: number) =>
-    client.post<void>(`/messaging/channels/${channelId}/unarchive`),
+  // name 을 주면 그 이름으로 바꾸며 해제한다(WP-1084) — 같은 이름의 채널이 있어 그대로는 해제할 수 없을 때.
+  unarchiveChannel: (channelId: number, name?: string) =>
+    client.post<void>(`/messaging/channels/${channelId}/unarchive`, name === undefined ? undefined : { name }),
 
   deleteChannel: (channelId: number) =>
     client.delete<void>(`/messaging/channels/${channelId}`),

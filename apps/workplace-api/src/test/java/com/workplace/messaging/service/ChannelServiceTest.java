@@ -8,6 +8,7 @@ import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNameDuplicatedException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
+import com.workplace.messaging.exception.ChannelUnarchiveNameTakenException;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.support.IntegrationTestBase;
@@ -118,6 +119,70 @@ class ChannelServiceTest extends IntegrationTestBase {
     assertThat(channelService.list(owner)).extracting(ChannelResponse::id).doesNotContain(ch.id());
     channelService.unarchive(owner, ch.id());
     assertThat(channelRepo.isArchived(ch.id())).isFalse();
+  }
+
+  /** WP-1084: 보관한 공개 채널과 같은 이름의 공개 채널이 새로 생기면 이름 그대로는 해제할 수 없다 — 사유 코드 예외로 알린다. */
+  @Test
+  void unarchive_nameTakenByNewPublicChannel_throwsNameTaken() {
+    long owner = seedUser();
+    ChannelResponse old = channelService.create(owner, "일반", "PUBLIC");
+    channelService.archive(owner, old.id());
+    channelService.create(seedUser(), "일반", "PUBLIC");
+
+    assertThatThrownBy(() -> channelService.unarchive(owner, old.id()))
+        .isInstanceOf(ChannelUnarchiveNameTakenException.class);
+    assertThat(channelRepo.isArchived(old.id())).isTrue();
+  }
+
+  /** WP-1084: 새 이름을 주면 이름을 바꾸며 해제한다 — 보관 중 이름 변경 금지(WP-508)를 건드리지 않는 탈출구. */
+  @Test
+  void unarchive_withNewName_renamesAndUnarchives() {
+    long owner = seedUser();
+    ChannelResponse old = channelService.create(owner, "일반", "PUBLIC");
+    channelService.archive(owner, old.id());
+    channelService.create(seedUser(), "일반", "PUBLIC");
+
+    channelService.unarchive(owner, old.id(), "  일반-옛날  ");
+
+    assertThat(channelRepo.isArchived(old.id())).isFalse();
+    assertThat(channelService.getDetail(owner, old.id()).name()).isEqualTo("일반-옛날");
+  }
+
+  /** WP-1084: 새 이름도 이름 변경과 같은 중복 기준을 지킨다 — 겹치면 해제하지 않는다. */
+  @Test
+  void unarchive_withDuplicatedNewName_throwsAndStaysArchived() {
+    long owner = seedUser();
+    ChannelResponse old = channelService.create(owner, "일반", "PUBLIC");
+    channelService.archive(owner, old.id());
+    channelService.create(seedUser(), "일반", "PUBLIC");
+    channelService.create(seedUser(), "공지", "PUBLIC");
+
+    assertThatThrownBy(() -> channelService.unarchive(owner, old.id(), "공지"))
+        .isInstanceOf(ChannelNameDuplicatedException.class);
+    assertThat(channelRepo.isArchived(old.id())).isTrue();
+  }
+
+  /** 비공개 채널도 생성·이름 변경과 같은 기준(볼 수 있는 활성 채널과 겹침, WP-590)으로 막는다 — 사이드바에 같은 이름 두 개가 생기지 않게. */
+  @Test
+  void unarchive_privateChannel_sameNameAsVisibleChannel_throwsNameTaken() {
+    long owner = seedUser();
+    ChannelResponse priv = channelService.create(owner, "일반", "PRIVATE");
+    channelService.archive(owner, priv.id());
+    channelService.create(seedUser(), "일반", "PUBLIC");
+
+    assertThatThrownBy(() -> channelService.unarchive(owner, priv.id()))
+        .isInstanceOf(ChannelUnarchiveNameTakenException.class);
+  }
+
+  /** 이름은 보관 해제와 함께일 때만 받는다 — 활성 채널을 이 경로로 이름 바꾸지 못한다. */
+  @Test
+  void unarchive_withName_onActiveChannel_rejected() {
+    long owner = seedUser();
+    ChannelResponse ch = channelService.create(owner, "활성", "PUBLIC");
+
+    assertThatThrownBy(() -> channelService.unarchive(owner, ch.id(), "딴이름"))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(channelService.getDetail(owner, ch.id()).name()).isEqualTo("활성");
   }
 
   @Test

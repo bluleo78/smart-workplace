@@ -164,6 +164,82 @@ describe('보관 채널', () => {
     expect(await screen.findByTestId('channel-unarchive-action')).toBeInTheDocument()
     expect(screen.queryByTestId('channel-rename-action')).not.toBeInTheDocument()
   })
+
+  // WP-1084: 같은 이름의 채널이 새로 생기면 보관 해제가 409(CHANNEL_NAME_TAKEN)로 거절된다.
+  // 뭉뚱그린 오류 토스트 대신 새 이름 대화창을 열고, 받은 이름으로 해제 요청을 다시 보낸다.
+  test('보관 해제가 이름 겹침으로 거절되면 새 이름 대화창에서 그 이름으로 해제한다', async () => {
+    const ch = createChannel({ id: 61, name: '일반', archived: true, role: 'OWNER', member: true })
+    let unarchived = false
+    let calls = 0
+    const post = capture<{ name: string } | null>('post', '/messaging/channels/61/unarchive', (): Response => {
+      // 첫 요청(이름 없음)은 이름 겹침으로 거절, 새 이름으로 다시 보낸 요청은 성공.
+      if (calls++ === 0) {
+        return HttpResponse.json(
+          { message: '같은 이름의 채널이 있어 보관을 해제할 수 없습니다. 새 이름으로 해제해 주세요.', errors: { code: 'CHANNEL_NAME_TAKEN' } },
+          { status: 409 },
+        )
+      }
+      unarchived = true
+      return new HttpResponse(null, { status: 204 })
+    })
+    const { user } = openChannel(ch, {
+      handlers: [
+        post.handler,
+        http.get(`${API}/messaging/channels/61`, () => HttpResponse.json(unarchived ? { ...ch, name: '일반-옛날', archived: false } : ch)),
+      ],
+    })
+    await user.click(await screen.findByTestId('channel-settings-btn'))
+    await user.click(await screen.findByTestId('channel-unarchive-action'))
+
+    const modal = await screen.findByTestId('rename-channel-modal')
+    expect(within(modal).getByRole('heading', { name: '새 이름으로 보관 해제' })).toBeInTheDocument()
+    expect(screen.getByTestId('rename-channel-unarchive-hint')).toHaveTextContent('같은 이름의 채널이 있어 「일반」 이름으로는 보관을 해제할 수 없어요')
+    // 거절된 이름 그대로는 다시 보낼 수 없다.
+    const submit = screen.getByTestId('rename-channel-submit')
+    expect(submit).toHaveTextContent('보관 해제')
+    expect(submit).toBeDisabled()
+    // 이 거절은 대화창으로 안내하므로 오류 토스트를 띄우지 않는다.
+    expect(screen.queryByText(/같은 이름의 채널이 있어 보관을/)).not.toBeInTheDocument()
+
+    await user.clear(screen.getByTestId('rename-channel-name'))
+    await user.paste('일반-옛날')
+    await user.click(submit)
+    await waitFor(() => expect(screen.queryByTestId('rename-channel-modal')).not.toBeInTheDocument())
+    expect(post.bodies).toEqual([null, { name: '일반-옛날' }])
+    await waitFor(() => expect(screen.getByTestId('channel-header-name')).toHaveTextContent('일반-옛날'))
+    expect(screen.queryByTestId('channel-archived-badge')).not.toBeInTheDocument()
+  })
+
+  // WP-1084: 새 이름도 다른 채널과 겹치면 대화창에 그대로 남아 이유를 보인다(해제되지 않음).
+  test('새 이름이 다른 채널과 겹치면 대화창에 인라인 오류를 보인다', async () => {
+    const ch = createChannel({ id: 62, name: '일반', archived: true, role: 'OWNER', member: true })
+    let calls = 0
+    const post = capture<{ name: string } | null>('post', '/messaging/channels/62/unarchive', (): Response =>
+      calls++ === 0
+        ? HttpResponse.json({ message: '같은 이름의 채널이 있어 보관을 해제할 수 없습니다.', errors: { code: 'CHANNEL_NAME_TAKEN' } }, { status: 409 })
+        : HttpResponse.json({ message: '이미 존재하는 채널 이름입니다: 공지' }, { status: 409 }),
+    )
+    const { user } = openChannel(ch, { handlers: [post.handler] })
+    await user.click(await screen.findByTestId('channel-settings-btn'))
+    await user.click(await screen.findByTestId('channel-unarchive-action'))
+    await user.clear(await screen.findByTestId('rename-channel-name'))
+    await user.paste('공지')
+    await user.click(screen.getByTestId('rename-channel-submit'))
+    expect(await screen.findByTestId('rename-channel-name-error')).toHaveTextContent('이미 존재하는 채널 이름입니다: 공지')
+    expect(screen.getByTestId('rename-channel-modal')).toBeInTheDocument()
+    expect(post.bodies).toEqual([null, { name: '공지' }])
+  })
+
+  // 이름이 겹치지 않으면 지금처럼 본문 없이 바로 해제된다(대화창 없음).
+  test('이름이 겹치지 않으면 본문 없이 바로 해제하고 대화창은 열리지 않는다', async () => {
+    const ch = createChannel({ id: 63, name: '보관됨', archived: true, role: 'OWNER', member: true })
+    const post = capture<null>('post', '/messaging/channels/63/unarchive')
+    const { user } = openChannel(ch, { handlers: [post.handler] })
+    await user.click(await screen.findByTestId('channel-settings-btn'))
+    await user.click(await screen.findByTestId('channel-unarchive-action'))
+    await waitFor(() => expect(post.bodies).toEqual([null]))
+    expect(screen.queryByTestId('rename-channel-modal')).not.toBeInTheDocument()
+  })
 })
 
 describe('멤버 패널', () => {

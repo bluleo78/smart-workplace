@@ -7,6 +7,7 @@ import com.workplace.messaging.exception.ChannelArchivedException;
 import com.workplace.messaging.exception.ChannelForbiddenException;
 import com.workplace.messaging.exception.ChannelNameDuplicatedException;
 import com.workplace.messaging.exception.ChannelNotFoundException;
+import com.workplace.messaging.exception.ChannelUnarchiveNameTakenException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelArchivedEvent;
 import com.workplace.messaging.outbound.MessagingDomainEvents.ChannelDeletingEvent;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -117,12 +119,7 @@ public class ChannelService {
     // 보관된 채널은 읽기 전용 — 이름을 바꾸려면 먼저 보관을 해제한다(WP-508).
     if (channelRepo.isArchived(channelId))
       throw new ChannelArchivedException(channelId, "보관된 채널은 이름을 바꿀 수 없습니다");
-    if (channelRepo.existsVisibleChannelName(name, callerId, channelId)) {
-      throw new ChannelNameDuplicatedException(name);
-    }
-    channelRepo.rename(channelId, name);
-    // 연동 드라이브 공간 이름도 따라 바꾼다(WP-532) — 공간이 없으면 drive 쪽에서 no-op.
-    publisher.publishEvent(new ChannelRenamedEvent(channelId, name, Instant.now()));
+    applyRename(callerId, channelId, name);
     ChannelResponse renamed =
         channelRepo
             .findDetail(channelId, callerId)
@@ -146,12 +143,42 @@ public class ChannelService {
     notifyChannelUpdated(channelId, callerId);
   }
 
-  /** 아카이브 해제 — OWNER 또는 시스템 ADMIN. */
+  /** 아카이브 해제 — OWNER 또는 시스템 ADMIN. 이름은 그대로 둔다. */
   @Transactional
   public void unarchive(long callerId, long channelId) {
+    unarchive(callerId, channelId, null);
+  }
+
+  /**
+   * 아카이브 해제 — OWNER 또는 시스템 ADMIN. {@code rawName} 이 있으면 그 이름으로 바꾸며 해제한다(WP-1084).
+   *
+   * <p>보관한 채널의 이름은 새 채널이 다시 쓸 수 있고(#688), 보관 중에는 이름을 바꿀 수 없다(WP-508). 그래서 같은 이름의 채널이 새로 생기면 원래 채널은
+   * 해제도 이름 바꾸기도 못 하는 막다른 길이었다. 이름이 겹치면 사유 코드로 알려 웹이 새 이름을 받게 하고, 받은 이름으로 바꾸기와 해제를 한 번에 한다(보관 중 읽기
+   * 전용 규칙은 그대로). 겹침 판정은 생성·이름 변경과 같은 기준(바꾸는 사람이 볼 수 있는 활성 채널, #688·WP-590)이다.
+   */
+  @Transactional
+  public void unarchive(long callerId, long channelId, String rawName) {
     ensureExists(channelId);
     perms.requireOwner(channelId, callerId, "unarchive");
-    channelRepo.setArchived(channelId, false);
+    if (rawName != null) {
+      // 이름은 보관 해제와 함께일 때만 받는다 — 활성 채널의 이름 변경은 rename(관리 권한·응답·통지)으로만.
+      if (!channelRepo.isArchived(channelId))
+        throw new IllegalArgumentException("보관된 채널만 새 이름으로 해제할 수 있습니다");
+      applyRename(callerId, channelId, normalizeName(rawName));
+    } else {
+      String current = channelRepo.findName(channelId).orElse("");
+      if (channelRepo.existsVisibleChannelName(current, callerId, channelId)) {
+        throw new ChannelUnarchiveNameTakenException();
+      }
+    }
+    try {
+      channelRepo.setArchived(channelId, false);
+    } catch (DuplicateKeyException e) {
+      // 확인과 해제 사이에 같은 이름의 공개 채널이 생기면 유니크 인덱스(uq_channel_active_public_name)에 걸린다 — 일반 409 대신 같은 사유로
+      // 알린다.
+      if (rawName != null) throw new ChannelNameDuplicatedException(normalizeName(rawName));
+      throw new ChannelUnarchiveNameTakenException();
+    }
     publisher.publishEvent(new ChannelArchivedEvent(channelId, false, Instant.now()));
     notifyChannelUpdated(channelId, callerId);
   }
@@ -169,6 +196,18 @@ public class ChannelService {
     channelRepo.hardDelete(channelId);
     changeNotifier.channelChanged(
         ResourceChangedEvent.OP_DELETED, channelId, isPublic, callerId, before);
+  }
+
+  /**
+   * 이름 바꾸기 공통 — 중복 검사(#688·WP-590) 뒤 저장하고 연동 드라이브 공간 이름도 따라 바꾼다(WP-532, 공간이 없으면 no-op). 권한·보관 검사는
+   * 호출처가 한다.
+   */
+  private void applyRename(long callerId, long channelId, String name) {
+    if (channelRepo.existsVisibleChannelName(name, callerId, channelId)) {
+      throw new ChannelNameDuplicatedException(name);
+    }
+    channelRepo.rename(channelId, name);
+    publisher.publishEvent(new ChannelRenamedEvent(channelId, name, Instant.now()));
   }
 
   /** 채널 자체 변경(updated) 발행 — 공개 여부는 현재 상세 조회로 판단한다. */
