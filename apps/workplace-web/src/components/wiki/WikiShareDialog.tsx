@@ -44,10 +44,10 @@ import type {
   WikiSharePermission,
 } from '../../types/wiki'
 import { WIKI_SHARE_MESSAGE_MAX } from '../../types/wiki'
+import { GroupMembers } from '../members/GroupMembers'
 import type { GroupOption } from '../members/groupOptions'
 import { PeopleAndDepartmentPicker } from '../members/PeopleAndDepartmentPicker'
 import { addGroupMembers, fetchPersonalGroupMemberIds, groupExpansionMessage } from '../members/personalGroups'
-import { ShareGroupMembers } from './ShareGroupMembers'
 import {
   copyShareLink,
   DEFAULT_SHARE,
@@ -633,7 +633,7 @@ export function WikiShareDialog({
                                 <X aria-hidden="true" />
                               </Button>
                             </div>
-                            {membersOpen && <ShareGroupMembers groupId={g.groupId} />}
+                            {membersOpen && <GroupMembers groupId={g.groupId} testId={`wiki-share-group-members-${g.groupId}`} className="mt-1 mb-0 ml-8" />}
                           </li>
                         )
                       })}

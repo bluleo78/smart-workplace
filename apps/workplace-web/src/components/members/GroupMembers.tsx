@@ -1,15 +1,19 @@
-// 부서 행의 구성원 펼침(WP-1052) — 노트·드라이브 공간 멤버 창(SpaceMemberDialog)과 프로젝트 멤버 관리(WP-1057)의 부서 행이 같이 쓴다.
+// 부서 행의 구성원 펼침(WP-1052) — 노트·드라이브 공간 멤버 창(SpaceMemberDialog)·프로젝트 멤버 관리(WP-1057)의 부서 행과
+// 노트 공유 창의 지정한 부서(WP-1048)가 같이 쓴다. 공유 창용 사본(ShareGroupMembers)만 긴 소속 경로 말줄임을 고쳐(WP-1068) 멤버 창은
+// 이름이 한두 글자로 줄어든 채 남았다(WP-1094) — 한 컴포넌트로 합쳐 어느 창에서나 같은 줄 모양을 쓴다.
 import { useGroupAllMembers } from '@/hooks/queries/useGroupMemberSearch'
+import { cn } from '@/lib/utils'
 
 /**
  * 부서 행의 구성원 펼침(WP-1052) — 그 부서와 하위 부서의 지금 사람 구성원(그 부서로 들어오는 사람). 펼칠 때만 받는다.
  * 하위 부서 사람은 소속 경로를 함께 보인다(서버 경로는 펼친 부서 자신부터라 첫 이름은 뺀다). 외부 연락처는 멤버로 들어올 수 없어 뺀다.
+ * className 은 놓이는 줄에 맞춘 들여쓰기·여백을 덧붙인다(창마다 부서 행 모양이 달라서 — 기본 mb-1 ml-14 를 tailwind-merge 로 덮는다).
  */
-export function GroupMembers({ groupId, testId }: { groupId: number; testId: string }) {
+export function GroupMembers({ groupId, testId, className }: { groupId: number; testId: string; className?: string }) {
   const members = useGroupAllMembers(groupId)
   const people = (members.data ?? []).filter((m) => m.targetType === 'MEMBER')
   return (
-    <div className="mb-1 ml-14 space-y-0.5 text-xs" data-testid={testId}>
+    <div className={cn('mb-1 ml-14 space-y-0.5 text-xs', className)} data-testid={testId}>
       {members.isPending ? (
         <p className="text-muted-foreground">구성원을 불러오는 중…</p>
       ) : members.isError ? (
@@ -20,8 +24,10 @@ export function GroupMembers({ groupId, testId }: { groupId: number; testId: str
         <ul className="space-y-0.5">
           {people.map((m) => (
             <li key={m.targetId} className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate">{m.name}</span>
-              {m.groupPath.length > 1 && <span className="truncate text-muted-foreground">{m.groupPath.slice(1).join(' › ')}</span>}
+              {/* 이름이 먼저 — 긴 소속 경로가 이름을 한두 글자로 줄이지 않게 경로가 붙는 줄은 이름이 줄 폭의 60% 까지 지키고 경로가 먼저 줄어든다(WP-1068).
+                  경로가 없는 직속 사람은 줄 전체를 이름이 쓴다. */}
+              <span className={cn('truncate', m.groupPath.length > 1 && 'max-w-[60%] shrink-0')}>{m.name}</span>
+              {m.groupPath.length > 1 && <span className="min-w-0 truncate text-muted-foreground">{m.groupPath.slice(1).join(' › ')}</span>}
             </li>
           ))}
         </ul>
