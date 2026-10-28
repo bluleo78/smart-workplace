@@ -412,7 +412,7 @@ function savedShare(req: WikiPageShareRequest, prev: WikiPageShare): WikiPageSha
     ...prev,
     audience: req.audience,
     permission: req.permission,
-    people: req.userIds.map((userId) => ({ userId, name: PEOPLE_NAMES[userId] ?? `사용자${userId}` })),
+    people: req.userIds.map((userId) => ({ userId, name: PEOPLE_NAMES[userId] ?? `사용자${userId}`, active: true })),
     groups: groupIds.map((groupId) => ({ groupId, ...DEPTS[groupId] })),
   }
 }
@@ -432,7 +432,7 @@ function openShareDialog(
   const searches: string[] = []
   let current: WikiPageShare = {
     pageId: SHARE_PAGE, token: 'wsh_dialog', audience: 'PEOPLE', permission: 'VIEW', includeChildren: false,
-    people: [{ userId: 3, name: '박서준' }], groups: [], createdBy: { userId: 1, name: '나' },
+    people: [{ userId: 3, name: '박서준', active: true }], groups: [], createdBy: { userId: 1, name: '나' },
     createdAt: '2026-10-20T00:00:00Z', updatedAt: '2026-10-20T00:00:00Z', expiresAt: null, lastAccessedAt: null, viewCount: 0,
     ...initial,
   }

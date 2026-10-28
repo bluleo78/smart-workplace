@@ -47,7 +47,7 @@ function toShare(req: WikiPageShareRequest, prev: WikiPageShare | null, token: s
     audience: req.audience,
     permission: req.permission,
     includeChildren: req.includeChildren,
-    people: req.userIds.map((userId) => ({ userId, name: `사용자${userId}` })),
+    people: req.userIds.map((userId) => ({ userId, name: `사용자${userId}`, active: true })),
     groups: (req.groupIds ?? []).map((groupId) => ({ groupId, name: `부서${groupId}`, memberCount: 0 })),
     createdBy: prev?.createdBy ?? ME,
     createdAt: prev?.createdAt ?? '2026-10-20T00:00:00Z',

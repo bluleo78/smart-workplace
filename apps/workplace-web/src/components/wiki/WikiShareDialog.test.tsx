@@ -171,7 +171,7 @@ describe('공유 켜기', () => {
 })
 
 describe('지정한 사람 추가 — notify payload', () => {
-  const people = baseShare({ audience: 'PEOPLE', people: [{ userId: 3, name: '박' }] })
+  const people = baseShare({ audience: 'PEOPLE', people: [{ userId: 3, name: '박', active: true }] })
 
   it('알림을 켜 두고 메시지를 적으면 notify.message 와 함께 기존 사람 + 새 사람을 보낸다', async () => {
     renderDialog(baseState({ share: people }))
@@ -210,6 +210,24 @@ describe('지정한 사람 추가 — notify payload', () => {
     await userEvent.click(screen.getByRole('button', { name: '박 빼기' }))
     expect(save.mock.calls[0][0]).toMatchObject({ userIds: [] })
     expect(save.mock.calls[0][0].notify).toBeUndefined()
+  })
+
+  it('정지된 지정 대상은 「비활성」으로 구분해 보이고 빼기는 그대로다 — 활성인 사람에게는 붙지 않는다(WP-1063)', async () => {
+    renderDialog(
+      baseState({
+        share: baseShare({
+          audience: 'PEOPLE',
+          people: [
+            { userId: 3, name: '박', active: true },
+            { userId: 4, name: '이', active: false },
+          ],
+        }),
+      }),
+    )
+    expect(screen.getByTestId('wiki-share-person-inactive-4')).toHaveTextContent('비활성')
+    expect(screen.queryByTestId('wiki-share-person-inactive-3')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '이 빼기' }))
+    expect(save.mock.calls[0][0]).toMatchObject({ userIds: [3] })
   })
 })
 
