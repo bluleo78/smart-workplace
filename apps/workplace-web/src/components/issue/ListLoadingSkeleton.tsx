@@ -12,7 +12,7 @@ export function ListLoadingSkeleton({ label }: { label: string }) {
     return (
       <ul aria-busy="true" aria-label={label} data-testid="list-loading-skeleton">
         {[0, 1, 2].map((i) => (
-          <li key={i} className="flex items-start gap-2 border-b px-1 py-2.5">
+          <li key={i} className="flex items-start gap-2 row-divider px-1 py-2.5">
             <Skeleton className="mt-0.5 h-4 w-4 shrink-0 rounded-full" />
             <div className="min-w-0 flex-1 space-y-2">
               <Skeleton className="h-4 w-4/5" />

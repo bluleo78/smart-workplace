@@ -101,7 +101,7 @@ export function IssueTypeManagement({
           {(types.data ?? []).map((t) => (
             <li
               key={t.id}
-              className="flex items-center gap-2 border-b py-2"
+              className="flex items-center gap-2 row-divider py-2"
               data-testid={`issue-type-row-${t.id}`}
             >
               <IssueTypeBadge

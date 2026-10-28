@@ -202,7 +202,7 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
           </thead>
           <tbody>
             {members.data?.map((m) => (
-              <tr key={m.userId} className="border-b hover:bg-accent/50 transition-colors cursor-pointer" role="row">
+              <tr key={m.userId} className="row-divider hover:bg-accent/50 transition-colors cursor-pointer" role="row">
                 {/* 이름 열 최소 폭(min-w-32)으로 긴 이메일에 밀려 세로로 쌓이지 않게 — 긴 값 줄바꿈은 섹션 입력 열의 wrap-anywhere 를 물려받는다. */}
                 <td className="py-2 pr-3">
                   {m.name}

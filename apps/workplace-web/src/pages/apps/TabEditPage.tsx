@@ -111,7 +111,7 @@ function TabEditor() {
             const t = MOBILE_TABS[id]
             const Icon = t.icon
             return (
-              <li key={id} data-testid={`tab-edit-slot-${i}`} className="flex min-h-11 items-center gap-2 border-b pl-4 pr-1 last:border-b-0">
+              <li key={id} data-testid={`tab-edit-slot-${i}`} className="flex min-h-11 items-center gap-2 row-divider pl-4 pr-1 last:border-b-0">
                 <Icon className="h-4 w-4" /><span className="flex-1 text-sm">{t.label}</span>
                 <button type="button" data-testid={`tab-edit-up-${i}`} aria-label={`${t.label} 위로`} disabled={i === 0} onClick={() => move(i, -1)} className={ICON_BTN}>↑</button>
                 <button type="button" data-testid={`tab-edit-down-${i}`} aria-label={`${t.label} 아래로`} disabled={i === draft.length - 1} onClick={() => move(i, 1)} className={ICON_BTN}>↓</button>

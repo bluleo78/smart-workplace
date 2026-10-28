@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 // presenceTokens.test(접속자 색)·statusTextTokens.test(버전 비교 추가·삭제 문구)가 함께 쓴다.
 // oklch → 선형 sRGB(OKLab 표준 행렬, 색역 밖은 자름) → WCAG 상대 휘도. 토큰은 리터럴 oklch 여야 읽힌다(var()·color-mix 는 못 읽는다).
 
-const css = readFileSync(fileURLToPath(new URL('../../index.css', import.meta.url)), 'utf8')
+/** index.css 원문 — 토큰 값이 아닌 규칙(구분선 기본 색 등)을 확인하는 테스트도 함께 쓴다. */
+export const css = readFileSync(fileURLToPath(new URL('../../index.css', import.meta.url)), 'utf8')
 
 function block(re: RegExp): string {
   const m = re.exec(css)

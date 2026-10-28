@@ -149,7 +149,7 @@ export function InboxList({
                   data-testid="inbox-item"
                   onClick={() => onRowClick(n)}
                   className={cn(
-                    "flex w-full items-start gap-2 border-b px-3 py-2 text-left text-sm hover:bg-accent/50",
+                    "flex w-full items-start gap-2 row-divider px-3 py-2 text-left text-sm hover:bg-accent/50",
                     !n.read && "bg-accent/20",
                   )}
                 >

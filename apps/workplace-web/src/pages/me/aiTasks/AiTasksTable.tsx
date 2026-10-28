@@ -114,7 +114,7 @@ function AiCells({ it, tid }: { it: IssueResponse | null; tid: string }) {
 function AiTaskRow({ it, inGroup }: { it: IssueResponse; inGroup: boolean }) {
   const tid = `ai-row-${it.id}`
   return (
-    <tr className="border-b hover:bg-accent" data-testid={tid}>
+    <tr className="row-divider hover:bg-accent" data-testid={tid}>
       <td className="py-2.5"><IssueStatusIcon status={it.status} name={it.statusName} color={it.statusColor} /></td>
       <td><IssuePriorityBars priority={it.priority} /></td>
       <td className="font-mono text-muted-foreground">{it.projectKey}-{it.number}</td>
@@ -149,7 +149,7 @@ function AiTaskRow({ it, inGroup }: { it: IssueResponse; inGroup: boolean }) {
 function EpicHeadRow({ epic, head }: { epic: EpicHead; head: IssueResponse | null }) {
   const tid = `ai-epic-${epic.number}`
   return (
-    <tr className="border-b bg-muted/40" data-testid={tid}>
+    <tr className="row-divider bg-muted/40" data-testid={tid}>
       <td colSpan={4} className="py-2">
         <div className="flex min-w-0 items-center gap-1.5 pr-4">
           <EpicHeadTitle epic={epic} tid={tid} />
@@ -192,7 +192,7 @@ export function AiTasksTable({ items, done = false }: { items: IssueResponse[]; 
           const tid = `ai-project-${run.key}-head`
           return (
             <tbody key={`${run.key}-${run.items[0].id}`} data-testid={`ai-project-${run.key}`}>
-              <tr className="border-b" data-testid={tid}>
+              <tr className="row-divider" data-testid={tid}>
                 {/* 접히는 두 칸(진행률·에이전트 유형)은 colSpan 에 넣지 않고 같은 숨김 클래스의 빈 칸으로 둔다 —
                     colSpan=10 이면 칸이 숨는 폭에서 table-fixed 가 빈 열 2개를 더 만들어 제목 칸 폭을 나눠 가진다(WP-917). */}
                 <td colSpan={8} className={cn('pb-2', i === 0 ? 'pt-3' : 'pt-6')}>
