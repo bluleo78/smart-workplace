@@ -28,7 +28,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.mail.outbound.GraphCalendarClient.GraphEventWrite;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.notify.outbound.NotificationDispatcher;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.dto.UserKind;
 import java.time.OffsetDateTime;
@@ -47,10 +47,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  * create/update/delete write-through 통합 테스트 — CalendarTransport·GraphTokenService 를 모킹한다.
  * NotificationDispatcher 도 모킹해 AFTER_COMMIT @Async 알림 스레드가 테스트 정리 시 FK 경합을 유발하지 않도록 한다.
  */
-class CalendarEventWriteThroughTest extends IntegrationTestBase {
+class CalendarEventWriteThroughTest extends ExternalClientMockedTestBase {
 
   @MockitoBean CalendarTransport calendarTransport;
-  @MockitoBean GraphTokenService graphTokenService;
+  @Autowired GraphTokenService graphTokenService;
   @MockitoBean NotificationDispatcher notificationDispatcher;
 
   @Autowired CalendarEventService eventService;

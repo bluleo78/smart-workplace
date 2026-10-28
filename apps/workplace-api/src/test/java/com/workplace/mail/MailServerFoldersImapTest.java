@@ -24,12 +24,9 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
-import com.workplace.mail.service.MailBackfillService;
-import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.ImapFolderLister;
 import com.workplace.mail.service.folder.MailFolderService;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
@@ -47,8 +44,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -56,7 +51,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 보관·사용자 폴더만 저장하는지, 계층·안 읽은 수가 맞는지, 서버에서 지운 폴더가 메일과 함께 지워지는지, 목록 실패 때 아무것도 지우지 않는지 본다.
  */
 @Transactional
-class MailServerFoldersImapTest extends IntegrationTestBase {
+class MailServerFoldersImapTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -72,14 +67,12 @@ class MailServerFoldersImapTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** 목록 실패를 흉내 낼 때만 예외를 심는다(기본은 실제 동작). */
-  @MockitoSpyBean ImapFolderLister imapFolderLister;
+  @Autowired ImapFolderLister imapFolderLister;
 
   /** 동기화 뒤 알림 발행 여부만 본다. */
-  @MockitoBean MailChangeNotifier notifier;
+  @Autowired MailChangeNotifier notifier;
 
-  @MockitoBean MailBackfillService backfillService;
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 서버 쪽 폴더 구성: 보관(안 읽음 1/전체 2) · 보낸편지함 · 휴지통 · 한글 계층(고객사 > A사, 안 읽음 1). */
   private void seedServerFolders() throws Exception {

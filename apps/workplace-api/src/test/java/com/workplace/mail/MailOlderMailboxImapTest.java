@@ -16,13 +16,10 @@ import com.workplace.mail.dto.MailOlderResult;
 import com.workplace.mail.exception.MailValidationException;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
-import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailMessageService;
-import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.folder.MailFolderSyncGuard;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Message;
@@ -39,7 +36,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -48,7 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 커서 페이징이 빠짐·겹침 없이 끝까지 이어지는지 본다.
  */
 @Transactional
-class MailOlderMailboxImapTest extends IntegrationTestBase {
+class MailOlderMailboxImapTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -64,9 +60,7 @@ class MailOlderMailboxImapTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EncryptionService encryption;
 
-  @MockitoBean MailBackfillService backfillService;
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 계정만 만든다. [user, account] */
   private long[] account() {

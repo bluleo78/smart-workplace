@@ -13,7 +13,7 @@ import com.workplace.fileai.service.ExtractedTextService;
 import com.workplace.fileai.service.FileExtractionPipeline;
 import com.workplace.fileai.service.FileExtractionPipeline.ExtractResult;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,8 +22,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -37,8 +35,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>TextOnlyProfileTest 와 같은 컨텍스트 설정(워커 활성 + 워커·요약 클라이언트 mock)을 써 컨텍스트 캐시를 공유한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
-class MailExtractCopyLifecycleTest extends IntegrationTestBase {
+class MailExtractCopyLifecycleTest extends ExternalClientMockedTestBase {
 
   private static final long TENANT = 1L;
 
@@ -49,8 +46,8 @@ class MailExtractCopyLifecycleTest extends IntegrationTestBase {
   @Autowired ExtractedTextService extractedText;
   @Autowired FileStore fileStore;
 
-  @MockitoBean WorkerClient workerClient;
-  @MockitoBean AiAgentDriveClient driveClient;
+  @Autowired WorkerClient workerClient;
+  @Autowired AiAgentDriveClient driveClient;
 
   private final List<Long> fileIds = new ArrayList<>();
   private final List<Long> userIds = new ArrayList<>();

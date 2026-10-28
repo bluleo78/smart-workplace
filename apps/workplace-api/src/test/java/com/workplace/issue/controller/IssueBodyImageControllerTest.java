@@ -12,19 +12,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.issue.dto.IssueBodyImageResponse;
 import com.workplace.issue.exception.IssueBodyImageRejectedException;
 import com.workplace.issue.service.IssueAttachmentStorage;
 import com.workplace.issue.service.IssueBodyImageService;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.nio.file.Files;
@@ -34,25 +30,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * IssueBodyImageController @WebMvcTest(WP-199). 서비스는 Mock — 업로드 201·조회 inline 헤더·nosniff·거부 400 매핑
  * 같은 HTTP 계약만 검증한다(권한·IDOR 는 서비스 통합 테스트가 담당).
  */
-@WebMvcTest(IssueBodyImageController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class IssueBodyImageControllerTest {
+class IssueBodyImageControllerTest extends WebMvcSliceTestBase {
 
   private static final byte[] PNG =
       new byte[] {
@@ -60,10 +45,10 @@ class IssueBodyImageControllerTest {
       };
 
   @Autowired MockMvc mockMvc;
-  @MockitoBean IssueBodyImageService service;
-  @MockitoBean JwtTokenProvider jwt;
-  @MockitoBean JwtProperties jwtProps;
-  @MockitoBean PermissionService permissionService;
+  @Autowired IssueBodyImageService service;
+  @Autowired JwtTokenProvider jwt;
+  @Autowired JwtProperties jwtProps;
+  @Autowired PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -71,10 +56,10 @@ class IssueBodyImageControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean MembershipRepository membershipRepository;
-  @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean UserRepository userRepository;
+  @Autowired MembershipRepository membershipRepository;
+  @Autowired AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired UserApiTokenRepository userApiTokenRepository;
+  @Autowired UserRepository userRepository;
 
   @TempDir Path tmp;
 

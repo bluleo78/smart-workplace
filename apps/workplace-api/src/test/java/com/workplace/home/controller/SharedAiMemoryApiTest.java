@@ -26,7 +26,6 @@ import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.time.Instant;
@@ -37,7 +36,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
@@ -47,7 +45,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** WP-386 관리 API — 공간 목록·권한 표(추가·고치기·지우기)·한도·키셋·검색·지운 기록·내부 토큰 쓰기 거절. */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class SharedAiMemoryApiTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;

@@ -21,7 +21,6 @@ import com.workplace.fileai.outbound.WorkerRenderClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentContextSummaryClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
@@ -29,7 +28,7 @@ import com.workplace.home.outbound.ChatMessages.ChatRequest;
 import com.workplace.home.service.HomeAttachmentService;
 import com.workplace.home.service.HomeChatService;
 import com.workplace.home.service.HomeSessionService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -45,7 +44,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.ResultActions;
@@ -60,23 +58,23 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @TestPropertySource(
     properties = {
-      "workplace.ai-agent.enabled=true",
-      "workplace.home.chat.context-token-budget=400"
+      "workplace.home.chat.context-token-budget=400",
+      // 첨부 추출 요청이 PENDING 으로 남는지 본다 — 공통 기반이 켠 워커를 끈다(켜면 바로 EXTRACTING 으로 넘어간다, WP-1028)
+      "workplace.worker.enabled=false"
     })
-public abstract class HomeAttachmentTestSupport extends IntegrationTestBase {
+public abstract class HomeAttachmentTestSupport extends ExternalClientMockedTestBase {
 
-  @MockitoBean protected AiAgentChatClient chatClient;
+  @Autowired protected AiAgentChatClient chatClient;
 
   /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
-  @MockitoBean protected AiAgentSuggestionClient suggestionClient;
+  @Autowired protected AiAgentSuggestionClient suggestionClient;
 
-  @MockitoBean protected AiAgentContextSummaryClient summaryClient;
-  @MockitoBean protected AssistantResolver assistantResolver;
-  @MockitoBean protected SseRegistry sseRegistry;
-  @MockitoBean protected TenantScopedRunner tenantScopedRunner;
+  @Autowired protected AiAgentContextSummaryClient summaryClient;
+  @Autowired protected AssistantResolver assistantResolver;
+  @Autowired protected SseRegistry sseRegistry;
 
   /** WP-250: /view 의 워커 렌더 호출 목 — 실제 워커 없이 권한·헤더·쪽수 보충을 검증한다(공용이라 컨텍스트 캐시를 나누지 않는다). */
-  @MockitoBean protected WorkerRenderClient worker;
+  @Autowired protected WorkerRenderClient worker;
 
   @Autowired protected DSLContext dsl;
   @Autowired protected ObjectMapper om;

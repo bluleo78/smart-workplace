@@ -22,7 +22,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.jooq.tables.records.AuditLogRecord;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.RowLockWaits;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.dto.CreatePageRequest;
@@ -58,7 +58,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.context.transaction.TestTransaction;
@@ -78,7 +77,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Transactional
 @RecordApplicationEvents
 @TestPropertySource(properties = "workplace.collab.enabled=true")
-class WikiShareServiceTest extends IntegrationTestBase {
+class WikiShareServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired ObjectMapper om;
@@ -90,7 +89,7 @@ class WikiShareServiceTest extends IntegrationTestBase {
 
   @Autowired ApplicationEvents appEvents;
 
-  @MockitoBean CollabClient collab;
+  @Autowired CollabClient collab;
 
   private final List<Long> seededUserIds = new ArrayList<>();
   private long ownerId;

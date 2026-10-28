@@ -15,13 +15,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
-import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.dto.PageResponse;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.dto.ProjectResponse;
@@ -30,8 +26,8 @@ import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.exception.ProjectConflictException;
 import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -40,31 +36,20 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** ProjectController @WebMvcTest. JWT/Permission 은 mock. */
 @SuppressWarnings("null")
-@WebMvcTest(ProjectController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class ProjectControllerTest {
+class ProjectControllerTest extends WebMvcSliceTestBase {
 
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
 
-  @MockitoBean private ProjectService projectService;
-  @MockitoBean private JwtTokenProvider jwtTokenProvider;
-  @MockitoBean private JwtProperties jwtProperties;
-  @MockitoBean private PermissionService permissionService;
+  @Autowired private ProjectService projectService;
+  @Autowired private JwtTokenProvider jwtTokenProvider;
+  @Autowired private JwtProperties jwtProperties;
+  @Autowired private PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -72,12 +57,12 @@ class ProjectControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean private MembershipRepository membershipRepository;
+  @Autowired private MembershipRepository membershipRepository;
 
-  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
+  @Autowired private AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired private UserApiTokenRepository userApiTokenRepository;
 
-  @MockitoBean private UserRepository userRepository;
+  @Autowired private UserRepository userRepository;
 
   /** valid-token 인증 + 주어진 권한 부여. */
   private void mockAuthentication(String... permissions) {

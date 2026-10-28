@@ -14,8 +14,6 @@ import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.outbound.GraphApiClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.service.MailAutoSyncScheduler;
-import com.workplace.mail.service.MailBackfillService;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -27,7 +25,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -38,7 +35,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 정리는 @AfterEach 에서 시드한 id 스코프로 삭제. 두 번째 테넌트는 고정 슬러그 find-or-create(app_tenant 롤은 tenant DELETE
  * 불가이므로).
  */
-class MailAutoSyncSchedulerTest extends IntegrationTestBase {
+class MailAutoSyncSchedulerTest extends MailSyncTestSupport {
 
   /** RLS 격리 증명용 존재하지 않는 테넌트 ID (app_tenant 롤은 tenant DELETE 불가이므로 INSERT 없이 사용). */
   private static final long PHANTOM_TENANT_ID = 999_999L;
@@ -58,15 +55,12 @@ class MailAutoSyncSchedulerTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
   @Autowired PlatformTransactionManager txManager;
 
-  /** 비동기 본문 보충 목킹 — sync 의 백필 트리거를 무동작으로 만들어 메타전용 단언을 결정적으로 만든다. */
-  @MockitoBean MailBackfillService backfillService;
-
   /**
    * Graph API 목킹 — syncAllTenants 는 공유 테스트 DB 의 전 테넌트 활성 계정을 순회하므로, 다른 테스트가 남긴 M365 계정 때문에 실제
    * graph.microsoft.com 을 호출했다(401, WP-84). 목은 실패로 처리되어 계정별 실패 격리 경로를 타고, 이 테스트의 GreenMail 계정 단언에는
    * 영향이 없다.
    */
-  @MockitoBean GraphApiClient graphApiClient;
+  @Autowired GraphApiClient graphApiClient;
 
   /** 테스트에서 생성한 user/account id — AfterEach 에서 삭제 대상. (tenantId, accountId, userId) 튜플로 보관. */
   private final List<long[]> seeded = new ArrayList<>();

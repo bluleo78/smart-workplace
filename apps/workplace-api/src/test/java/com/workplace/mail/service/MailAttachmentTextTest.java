@@ -11,7 +11,7 @@ import static com.workplace.jooq.Tables.FILE_EXTRACTION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -43,7 +43,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,7 +54,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class MailAttachmentTextTest extends IntegrationTestBase {
 
-  @MockitoBean MailAttachmentService attachmentService;
+  /** 공통 spy(IntegrationTestBase) — 원본 내려받기(download)만 스텁해 IMAP 에 붙지 않는다. */
+  @Autowired MailAttachmentService attachmentService;
 
   @Autowired MailAttachmentTextService textService;
   @Autowired ContentAttachmentRepository contentAttachmentRepo;
@@ -105,9 +105,9 @@ class MailAttachmentTextTest extends IntegrationTestBase {
         contentAttachmentRepo.findOrCreate(contentId, 0, "spec.pdf", "application/pdf", 100L, null);
     attA = attachment(message(accA, fldA, msgId, 100L), caId);
     attB = attachment(message(accB, fldB, msgId, 200L), caId);
-    given(attachmentService.download(anyLong(), anyLong()))
-        .willReturn(
-            new AttachmentDownload("%PDF-1.4 test".getBytes(), "spec.pdf", "application/pdf"));
+    willReturn(new AttachmentDownload("%PDF-1.4 test".getBytes(), "spec.pdf", "application/pdf"))
+        .given(attachmentService)
+        .download(anyLong(), anyLong());
   }
 
   @AfterEach

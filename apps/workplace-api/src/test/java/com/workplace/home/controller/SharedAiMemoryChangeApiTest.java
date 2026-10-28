@@ -28,7 +28,6 @@ import com.workplace.home.service.SharedMemorySpaces;
 import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.time.OffsetDateTime;
@@ -39,7 +38,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
@@ -50,7 +48,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 삭제 정리.
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class SharedAiMemoryChangeApiTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;

@@ -25,7 +25,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-185 분류 일괄 스케줄러 — 모든 활성 계정을 자기 테넌트 컨텍스트에서 분류하고, 회차 guard 멈춤·회차 묶음 상한·계정별 실패 격리를 지키는지 검증한다.
@@ -41,7 +40,7 @@ class MailCategoryBackfillSchedulerIT extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired MailCategoryBackfillScheduler scheduler;
 
-  @MockitoBean MailCategoryBackfillService categoryBackfill;
+  @Autowired MailCategoryBackfillService categoryBackfill;
 
   /** 서비스가 받은 (계정, 넘겨받은 예산, 호출 시점 TenantContext). */
   private record Call(long userId, long accountId, int budget, Long ctx) {}

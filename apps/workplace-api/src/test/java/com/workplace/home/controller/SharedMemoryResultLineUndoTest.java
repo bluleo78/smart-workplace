@@ -23,7 +23,6 @@ import com.workplace.home.service.SharedMemorySnapshot;
 import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -32,7 +31,6 @@ import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
@@ -44,7 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 대화 블록으로는 되돌릴 수 없다.
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class SharedMemoryResultLineUndoTest extends IntegrationTestBase {
 
   @Autowired MockMvc mvc;

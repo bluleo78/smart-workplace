@@ -9,7 +9,6 @@ import com.workplace.home.repository.AiMemoryRepository;
 import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.AiPreferenceService;
@@ -22,7 +21,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -31,7 +29,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 않으므로 필요한 임베딩은 직접 써 넣는다.
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class AiMemorySelectorTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

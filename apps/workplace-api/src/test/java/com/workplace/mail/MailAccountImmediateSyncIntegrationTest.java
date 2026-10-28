@@ -13,8 +13,6 @@ import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.service.EmailAccountService;
-import com.workplace.mail.service.MailBackfillService;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Duration;
 import org.jooq.DSLContext;
@@ -24,7 +22,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 메일 계정 연결 직후 즉시 동기화 production 경로 통합 (#514).
@@ -38,7 +35,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * 가 전파해 새 트랜잭션의 GUC 를 채운다.
  */
 @DisplayName("메일 계정 연결 직후 → 커밋 → AFTER_COMMIT → 즉시 동기화 통합 (#514)")
-class MailAccountImmediateSyncIntegrationTest extends IntegrationTestBase {
+class MailAccountImmediateSyncIntegrationTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -48,9 +45,6 @@ class MailAccountImmediateSyncIntegrationTest extends IntegrationTestBase {
 
   @Autowired EmailAccountService emailAccountService;
   @Autowired DSLContext dsl;
-
-  /** 비동기 본문 보충 목킹 — 즉시 sync 의 백필 트리거를 무동작으로 만들어 단언을 결정적으로 만든다. */
-  @MockitoBean MailBackfillService backfillService;
 
   private Long createdAccountId;
   private Long createdUserId;

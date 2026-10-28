@@ -16,25 +16,18 @@ import com.workplace.drive.service.DriveFileService;
 import com.workplace.drive.service.DriveShareLinkService;
 import com.workplace.drive.service.DriveShareLinkService.ResolvedTarget;
 import com.workplace.file.service.FileUploadService.FileContentResult;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -48,25 +41,17 @@ import org.springframework.test.web.servlet.MockMvc;
  * </ul>
  */
 @SuppressWarnings("null")
-@WebMvcTest(PublicDriveShareController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class PublicDriveShareControllerTest {
+class PublicDriveShareControllerTest extends WebMvcSliceTestBase {
 
   @Autowired private MockMvc mockMvc;
 
-  @MockitoBean private DriveShareLinkService shareLinks;
-  @MockitoBean private DriveFileService fileService;
+  @Autowired private DriveShareLinkService shareLinks;
+  @Autowired private DriveFileService fileService;
 
   // SecurityConfig 에서 필요한 빈들 — DriveShareLinkControllerTest 와 동일 세트
-  @MockitoBean private JwtTokenProvider jwtTokenProvider;
-  @MockitoBean private JwtProperties jwtProperties;
-  @MockitoBean private PermissionService permissionService;
+  @Autowired private JwtTokenProvider jwtTokenProvider;
+  @Autowired private JwtProperties jwtProperties;
+  @Autowired private PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -74,10 +59,10 @@ class PublicDriveShareControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean private MembershipRepository membershipRepository;
-  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean private UserRepository userRepository;
+  @Autowired private MembershipRepository membershipRepository;
+  @Autowired private AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired private UserApiTokenRepository userApiTokenRepository;
+  @Autowired private UserRepository userRepository;
 
   /**
    * 익명 요청이 401 로 차단되지 않아야 한다 — permitAll 와이어링 검증.

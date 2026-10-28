@@ -22,15 +22,11 @@ import com.workplace.chat.dto.CreateChatMessageRequest;
 import com.workplace.chat.dto.MarkChatReadRequest;
 import com.workplace.chat.dto.UpdateChatMessageRequest;
 import com.workplace.chat.service.ChatMessageService;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -39,30 +35,19 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** ChatMessageController @WebMvcTest. */
 @SuppressWarnings("null")
-@WebMvcTest(ChatMessageController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class ChatMessageControllerTest {
+class ChatMessageControllerTest extends WebMvcSliceTestBase {
 
   @Autowired MockMvc mockMvc;
   @Autowired ObjectMapper om;
-  @MockitoBean ChatMessageService messageService;
-  @MockitoBean JwtTokenProvider jwt;
-  @MockitoBean JwtProperties jwtProps;
-  @MockitoBean PermissionService permissionService;
+  @Autowired ChatMessageService messageService;
+  @Autowired JwtTokenProvider jwt;
+  @Autowired JwtProperties jwtProps;
+  @Autowired PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -70,11 +55,11 @@ class ChatMessageControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean MembershipRepository membershipRepository;
+  @Autowired MembershipRepository membershipRepository;
 
-  @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean UserRepository userRepository;
+  @Autowired AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired UserApiTokenRepository userApiTokenRepository;
+  @Autowired UserRepository userRepository;
 
   @BeforeEach
   void auth() {

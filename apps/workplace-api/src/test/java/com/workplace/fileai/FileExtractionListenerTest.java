@@ -18,7 +18,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import com.workplace.fileai.inbound.FileExtractionRequestedEvent;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -28,8 +28,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -38,14 +36,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>추출 행(PENDING/SKIPPED)은 발행 트랜잭션 안에서 동기 생성되고(원자성), AFTER_COMMIT 단계는 워커 디스패치(nudge)만 맡는다. 커밋이 필요한
  * 흐름이라 단일 롤백-트랜잭션 패턴 사용 불가 — @AfterEach 에서 cleanupInTenant 로 잔여 행을 삭제한다(#512 방지).
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
-class FileExtractionListenerTest extends IntegrationTestBase {
+class FileExtractionListenerTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired ApplicationEventPublisher publisher;
 
   /** WorkerClient mock — 리스너 nudge 의 HTTP push 차단(실제 워커 미기동 환경). */
-  @MockitoBean WorkerClient workerClient;
+  @Autowired WorkerClient workerClient;
 
   /** 테스트에서 삽입한 file_id 목록 — @AfterEach 정리용. */
   private final List<Long> createdFileIds = new ArrayList<>();

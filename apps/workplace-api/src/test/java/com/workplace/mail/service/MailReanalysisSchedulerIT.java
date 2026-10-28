@@ -5,7 +5,7 @@ import static com.workplace.jooq.Tables.EMAIL_FOLDER;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doAnswer;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
@@ -18,7 +18,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-151 재분석 스케줄러 — 테넌트별 GUC 로 "AI 사용 + 버전 낮음" 계정만 모으고, 실행 단계에서 그 테넌트의 TenantContext 를 주입해 계정별 재분석을
@@ -31,7 +30,7 @@ class MailReanalysisSchedulerIT extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired MailReanalysisScheduler scheduler;
 
-  @MockitoBean MailReanalysisService reanalysis;
+  @Autowired MailReanalysisService reanalysis;
 
   /** 시드한 메일함 {userId, accountId, folderId}. */
   private final List<long[]> seeded = new ArrayList<>();
@@ -70,13 +69,14 @@ class MailReanalysisSchedulerIT extends IntegrationTestBase {
     long[] outdated = seed(true, 0);
     long[] current = seed(true, MailReanalysisService.CURRENT_CLASSIFY_VERSION);
     long[] aiOff = seed(false, 0);
-    when(reanalysis.reanalyzeAccountNow(anyLong(), anyLong()))
-        .thenAnswer(
+    doAnswer(
             inv -> {
               long accountId = inv.getArgument(1);
               calls.add(new Call(inv.getArgument(0), accountId, TenantContext.get()));
               return accountId == outdated[1]; // 시드 외 계정은 미선점 → 상한에 안 셈
-            });
+            })
+        .when(reanalysis)
+        .reanalyzeAccountNow(anyLong(), anyLong());
 
     scheduler.runPendingNow();
 

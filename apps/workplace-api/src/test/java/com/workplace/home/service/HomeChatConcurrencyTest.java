@@ -18,7 +18,6 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeChatActiveResponse;
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.dto.HomeMessageResponse;
@@ -27,7 +26,7 @@ import com.workplace.home.exception.HomeChatConcurrencyLimitException;
 import com.workplace.home.exception.HomeChatSessionBusyException;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -40,28 +39,24 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-190 홈 채팅 동시 생성 제한 — 대화당 1개(409)·사용자당 상한(429)·거절 시 무저장·생성 중 목록. 펌프는 테스트가 풀어 줄 때까지 붙잡아 "생성 중"
  * 상태를 만든다. @Transactional 을 쓰지 않는다(펌프 스레드 커밋 필요) — 만든 사용자는 @AfterEach 에서 회수(#512).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeChatConcurrencyTest extends IntegrationTestBase {
+class HomeChatConcurrencyTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService chatService;
   @Autowired HomeSessionService sessionService;
   @Autowired StreamingGenerationRegistry registry;
   @Autowired DSLContext dsl;
-  @MockitoBean AiAgentChatClient chatClient;
+  @Autowired AiAgentChatClient chatClient;
 
   /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
+  @Autowired AiAgentSuggestionClient suggestionClient;
 
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired SseRegistry sseRegistry;
 
   private final List<Long> users = new ArrayList<>();
   private final CountDownLatch release = new CountDownLatch(1);

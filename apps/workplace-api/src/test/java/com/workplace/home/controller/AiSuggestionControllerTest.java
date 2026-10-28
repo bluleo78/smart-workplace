@@ -14,11 +14,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.SuggestionRequest;
 import com.workplace.home.service.HomeSessionService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.AiPreferenceService;
 import java.time.OffsetDateTime;
@@ -33,27 +32,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * WP-139 POST /api/v1/ai/suggestions — 켜짐/꺼짐/비서 없음, 화면 참고 유무에 따른 최근 제목·개수, ai-agent 실패 시 빈 결과.
- * TenantScopedRunner 목: 스케줄러 콜백이 AssistantResolver 스텁을 다른 스레드에서 건드려 flaky 해지는 것을
- * 막는다(HomeChatServiceTest 와 같음).
- */
+/** WP-139 POST /api/v1/ai/suggestions — 켜짐/꺼짐/비서 없음, 화면 참고 유무에 따른 최근 제목·개수, ai-agent 실패 시 빈 결과. */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class AiSuggestionControllerTest extends IntegrationTestBase {
+class AiSuggestionControllerTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
   @Autowired HomeSessionService sessionService;
   @Autowired AiPreferenceService preferences;
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AiAgentSuggestionClient suggestionClient;
+  @Autowired AssistantResolver assistantResolver;
 
   private Authentication auth(long userId) {
     return new UsernamePasswordAuthenticationToken(userId, "n/a", List.of());

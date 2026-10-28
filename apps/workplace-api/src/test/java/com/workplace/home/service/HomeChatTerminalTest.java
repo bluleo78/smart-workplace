@@ -14,12 +14,11 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeChatStartedResponse;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,30 +36,26 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-190 홈 채팅 턴 종결 — 모든 home.chat 이벤트의 sessionId 봉투, 취소(cancelled{reason})·오류 종결의 부분 답변 저장
  * (STOPPED·FAILED), "영속 → 반납 → 이벤트" 순서. @Transactional 을 쓰지 않는다(펌프 스레드 커밋 필요) — 만든 사용자는 @AfterEach
  * 에서 회수(#512).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeChatTerminalTest extends IntegrationTestBase {
+class HomeChatTerminalTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService chatService;
   @Autowired HomeSessionService sessionService;
   @Autowired StreamingGenerationRegistry registry;
   @Autowired DSLContext dsl;
   @Autowired ObjectMapper om;
-  @MockitoBean AiAgentChatClient chatClient;
+  @Autowired AiAgentChatClient chatClient;
 
   /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
+  @Autowired AiAgentSuggestionClient suggestionClient;
 
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired SseRegistry sseRegistry;
 
   private final List<Long> users = new ArrayList<>();
 

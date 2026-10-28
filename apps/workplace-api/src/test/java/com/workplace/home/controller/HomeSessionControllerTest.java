@@ -9,18 +9,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.home.dto.HomeSessionResponse;
 import com.workplace.home.service.HomeConversationSearchService;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.Instant;
@@ -29,29 +25,18 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** HomeSessionController @WebMvcTest — 보안 하네스는 ChatThreadMemberControllerTest 와 동일. */
 @SuppressWarnings("null")
-@WebMvcTest(HomeSessionController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class HomeSessionControllerTest {
+class HomeSessionControllerTest extends WebMvcSliceTestBase {
 
   @Autowired MockMvc mockMvc;
-  @MockitoBean HomeSessionService sessionService;
-  @MockitoBean HomeConversationSearchService searchService;
-  @MockitoBean JwtTokenProvider jwt;
-  @MockitoBean JwtProperties jwtProps;
-  @MockitoBean PermissionService permissionService;
+  @Autowired HomeSessionService sessionService;
+  @Autowired HomeConversationSearchService searchService;
+  @Autowired JwtTokenProvider jwt;
+  @Autowired JwtProperties jwtProps;
+  @Autowired PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -59,11 +44,11 @@ class HomeSessionControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean MembershipRepository membershipRepository;
+  @Autowired MembershipRepository membershipRepository;
 
-  @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean UserRepository userRepository;
+  @Autowired AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired UserApiTokenRepository userApiTokenRepository;
+  @Autowired UserRepository userRepository;
 
   @BeforeEach
   void auth() {

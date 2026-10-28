@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -51,7 +53,7 @@ import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAiService;
 import com.workplace.mail.service.MailAnalysisFixtures;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.List;
@@ -61,8 +63,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -70,8 +70,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** MailAiService 통합 테스트. ai-agent 클라이언트와 비서 해석기는 Mock으로 대체 — 서비스 로직(캐시, gate)만 검증. */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailAiServiceTest extends IntegrationTestBase {
+class MailAiServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired MailAiService mailAiService;
   @Autowired DSLContext dsl;
@@ -82,16 +81,16 @@ class MailAiServiceTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 비서 해석은 관심 밖 — 더미 사양으로 고정. */
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AssistantResolver assistantResolver;
 
-  /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
-  @MockitoBean AiMemoryReader memoryReader;
+  /** 메일 메모리(WP-381) — 공통 spy(IntegrationTestBase). 스텁하지 않으면 실제로 읽으며, 새 사용자는 메모리가 없어 빈 목록이다. */
+  @Autowired AiMemoryReader memoryReader;
 
-  /** 공용 메모리(WP-386) — 목 기본값(null)은 서비스가 빈 묶음으로 바꾼다. */
-  @MockitoBean SharedAiMemoryReader sharedReader;
+  /** 공용 메모리(WP-386) — 공통 spy(IntegrationTestBase). 스텁하지 않으면 실제로 읽는다. */
+  @Autowired SharedAiMemoryReader sharedReader;
 
   private void stubAssistant() {
     AssistantSpec spec = new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
@@ -771,8 +770,8 @@ class MailAiServiceTest extends IntegrationTestBase {
     List<AiMemoryLine> lines =
         List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
     var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "끝인사는 감사합니다")), 2);
-    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null)).thenReturn(lines);
-    when(sharedReader.readForUser(userId, null, null)).thenReturn(shared);
+    doReturn(lines).when(memoryReader).readForEntry(userId, AiMemoryReader.MAIL, null);
+    doReturn(shared).when(sharedReader).readForUser(userId, null, null);
     when(mailClient.composeDraft(any())).thenReturn(new ComposeDraftResult(null, "본문"));
 
     mailAiService.composeDraft(
@@ -802,12 +801,13 @@ class MailAiServiceTest extends IntegrationTestBase {
                 });
     try {
       AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
-      when(memoryReader.readForEntry(ids[0], AiMemoryReader.MAIL, null))
-          .thenAnswer(
+      doAnswer(
               inv -> {
                 txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());
                 return List.of();
-              });
+              })
+          .when(memoryReader)
+          .readForEntry(ids[0], AiMemoryReader.MAIL, null);
       when(mailClient.composeDraft(any())).thenReturn(new ComposeDraftResult(null, "본문"));
 
       mailAiService.composeDraft(
@@ -830,7 +830,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long accountId = createAccount(userId, "mem@test.local", true);
     List<AiMemoryLine> lines =
         List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
-    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, null)).thenReturn(lines);
+    doReturn(lines).when(memoryReader).readForEntry(userId, AiMemoryReader.MAIL, null);
     when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
 
     mailAiService.coachDraft(
@@ -851,7 +851,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long msgId = insertMessage(accountId, folderId, "mem-msg-1@test.local", "mem-thread-1");
     List<AiMemoryLine> lines =
         List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
-    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목")).thenReturn(lines);
+    doReturn(lines).when(memoryReader).readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목");
     when(mailClient.replyDraft(any())).thenReturn(new ReplyDraftResult("초안"));
 
     mailAiService.replyDraft(userId, msgId);
@@ -870,7 +870,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long folderId = folderRepo.ensureFolder(accountId, "INBOX").id();
     long msgId = insertMessage(accountId, folderId, "shared-msg-1@test.local", "shared-thread-1");
     var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "메일 끝인사는 감사합니다로 맺는다")), 3);
-    when(sharedReader.readForUser(userId, null, null)).thenReturn(shared);
+    doReturn(shared).when(sharedReader).readForUser(userId, null, null);
     when(mailClient.replyDraft(any())).thenReturn(new ReplyDraftResult("초안"));
 
     mailAiService.replyDraft(userId, msgId);
@@ -888,7 +888,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long userId = TestFixtures.createHuman(dsl);
     long accountId = createAccount(userId, "shared2@test.local", true);
     var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "메일 끝인사는 감사합니다로 맺는다")), 0);
-    when(sharedReader.readForUser(userId, null, null)).thenReturn(shared);
+    doReturn(shared).when(sharedReader).readForUser(userId, null, null);
     when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
 
     mailAiService.coachDraft(
@@ -909,7 +909,7 @@ class MailAiServiceTest extends IntegrationTestBase {
     long msgId = insertMessage(accountId, folderId, "mem-msg-3@test.local", "mem-thread-3");
     List<AiMemoryLine> lines =
         List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
-    when(memoryReader.readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목")).thenReturn(lines);
+    doReturn(lines).when(memoryReader).readForEntry(userId, AiMemoryReader.MAIL, "테스트 제목");
     when(mailClient.coachDraft(any())).thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
 
     mailAiService.coachDraft(
@@ -941,12 +941,13 @@ class MailAiServiceTest extends IntegrationTestBase {
       List<AiMemoryLine> lines =
           List.of(new AiMemoryLine(5L, "PREFERENCE", "메일은 존댓말로", "MAIL", null, null));
       AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
-      when(memoryReader.readForEntry(ids[0], AiMemoryReader.MAIL, null))
-          .thenAnswer(
+      doAnswer(
               inv -> {
                 txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());
                 return lines;
-              });
+              })
+          .when(memoryReader)
+          .readForEntry(ids[0], AiMemoryReader.MAIL, null);
       when(mailClient.coachDraft(any()))
           .thenReturn(new DraftCoachingResult(List.of(), "<p>개선</p>"));
 

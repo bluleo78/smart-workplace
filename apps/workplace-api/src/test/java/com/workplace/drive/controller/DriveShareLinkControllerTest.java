@@ -13,15 +13,11 @@ import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.drive.dto.CreatedShareLinkResponse;
 import com.workplace.drive.dto.ShareLinkResponse;
 import com.workplace.drive.service.DriveShareLinkService;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
@@ -29,32 +25,21 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** DriveShareLinkController WebMvcTest — 공유 링크 관리 HTTP 계약(생성/목록/폐기). */
 @SuppressWarnings("null")
-@WebMvcTest(DriveShareLinkController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class DriveShareLinkControllerTest {
+class DriveShareLinkControllerTest extends WebMvcSliceTestBase {
 
   @Autowired private MockMvc mockMvc;
 
-  @MockitoBean private DriveShareLinkService service;
-  @MockitoBean private JwtTokenProvider jwtTokenProvider;
-  @MockitoBean private JwtProperties jwtProperties;
-  @MockitoBean private PermissionService permissionService;
+  @Autowired private DriveShareLinkService service;
+  @Autowired private JwtTokenProvider jwtTokenProvider;
+  @Autowired private JwtProperties jwtProperties;
+  @Autowired private PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -62,11 +47,11 @@ class DriveShareLinkControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean private MembershipRepository membershipRepository;
+  @Autowired private MembershipRepository membershipRepository;
 
-  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean private UserRepository userRepository;
+  @Autowired private AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired private UserApiTokenRepository userApiTokenRepository;
+  @Autowired private UserRepository userRepository;
 
   @BeforeEach
   void setUp() {

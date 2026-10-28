@@ -13,7 +13,6 @@ import com.workplace.home.repository.AiMemoryRepository.NewMemory;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.home.service.AiMemoryRanker;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.AiPreferenceService;
@@ -25,7 +24,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -37,7 +35,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 목록, limit 기본 10·최대 20, 빈 질의 400, 기호뿐인 질의는 400 이 아니다(판정 9). 결과 줄은 범위·고정을 싣는다(#id 로 바로 고치기·지우기).
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class AiMemorySearchApiTest extends IntegrationTestBase {
 
   private static final String SEARCH = "/api/v1/users/me/ai-memories/search";

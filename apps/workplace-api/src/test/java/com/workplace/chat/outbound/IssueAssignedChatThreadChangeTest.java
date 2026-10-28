@@ -11,7 +11,7 @@ import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.service.IssueAssigneeService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import java.time.Duration;
 import java.util.List;
@@ -24,15 +24,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /** 담당자 변경(추가·제거) → 이슈 챗 chat-thread resource.changed 발행 통합 — 열린 챗의 작성창 안내가 타인 변경에도 갱신되도록. */
 @DisplayName("담당자 변경 → chat-thread resource.changed 통합")
-class IssueAssignedChatThreadChangeTest extends IntegrationTestBase {
+class IssueAssignedChatThreadChangeTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient;
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient;
 
   @Autowired IssueAssigneeService assigneeService;
   @Autowired ChatThreadService threadService;

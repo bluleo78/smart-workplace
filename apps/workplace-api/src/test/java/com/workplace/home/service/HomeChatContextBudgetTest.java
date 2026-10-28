@@ -17,7 +17,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.global.util.TokenEstimates;
 import com.workplace.home.exception.HomeContextSummaryException;
 import com.workplace.home.outbound.AiAgentChatClient;
@@ -28,7 +27,7 @@ import com.workplace.home.outbound.ChatMessages.ContextMessage;
 import com.workplace.home.outbound.ChatMessages.ContextSummaryRequest;
 import com.workplace.home.outbound.ChatMessages.ContextSummaryResult;
 import com.workplace.home.repository.HomeSessionRepository.SummaryState;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
@@ -45,33 +44,32 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClientException;
 
 /**
  * 메인 AI 채팅 토큰 예산 + 누적 요약 통합 테스트(WP-232). 예산을 400 으로 낮춰(trigger 300 / target 200 / 메시지 상한 100)
- * 동기·비동기 요약 경로를 검증한다. 펌프·요약 워커가 별도 스레드에서 커밋하므로 @Transactional 을 쓰지 않는다(HomeChatServiceTest 와 동일 이유
- * — TenantScopedRunner mock 도 같은 flake 차단 목적).
+ * 동기·비동기 요약 경로를 검증한다. 펌프·요약 워커가 별도 스레드에서 커밋하므로 @Transactional 을 쓰지 않는다(HomeChatServiceTest 와 동일
+ * 이유).
  */
 @TestPropertySource(
     properties = {
-      "workplace.ai-agent.enabled=true",
-      "workplace.home.chat.context-token-budget=400"
+      "workplace.home.chat.context-token-budget=400",
+      // HomeAttachmentTestSupport 와 같은 속성 — 컨텍스트를 함께 쓰게(그쪽은 추출 PENDING 을 보려고 워커를 끈다)
+      "workplace.worker.enabled=false"
     })
-class HomeChatContextBudgetTest extends IntegrationTestBase {
+class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService chatService;
   @Autowired HomeSessionService sessionService;
   @Autowired DSLContext dsl;
-  @MockitoBean AiAgentChatClient chatClient;
+  @Autowired AiAgentChatClient chatClient;
 
   /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
+  @Autowired AiAgentSuggestionClient suggestionClient;
 
-  @MockitoBean AiAgentContextSummaryClient summaryClient;
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AiAgentContextSummaryClient summaryClient;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired SseRegistry sseRegistry;
 
   private final List<Long> users = new ArrayList<>();
 

@@ -12,15 +12,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.wiki.dto.SavePageRequest;
@@ -42,36 +38,25 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** WikiPageController WebMvcTest — 낙관적 충돌 HTTP 계약(stale 저장 → 409). */
 @SuppressWarnings("null")
-@WebMvcTest(WikiPageController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class WikiPageControllerTest {
+class WikiPageControllerTest extends WebMvcSliceTestBase {
 
   @Autowired private MockMvc mockMvc;
 
-  @MockitoBean private WikiPageService pageService;
-  @MockitoBean private WikiHydrationService hydrationService;
+  @Autowired private WikiPageService pageService;
+  @Autowired private WikiHydrationService hydrationService;
   // WP-286 collab-access 엔드포인트가 주입받는 서비스 — 이 슬라이스 테스트는 다루지 않으므로 목으로 채운다.
-  @MockitoBean private WikiCollabDocService collabService;
+  @Autowired private WikiCollabDocService collabService;
   // WP-297 버전 기록 엔드포인트가 주입받는 서비스 — 통합 테스트(WikiRevisionIntegrationTest)가 다룬다.
-  @MockitoBean private WikiRevisionService revisionService;
+  @Autowired private WikiRevisionService revisionService;
   // WP-579 공유 링크 판정기(알림 진입 entry 가 쓴다) — 컨트롤러가 주입받으므로 목으로 둔다.
-  @MockitoBean private WikiShareAccess shareAccess;
-  @MockitoBean private JwtTokenProvider jwtTokenProvider;
-  @MockitoBean private JwtProperties jwtProperties;
-  @MockitoBean private PermissionService permissionService;
+  @Autowired private WikiShareAccess shareAccess;
+  @Autowired private JwtTokenProvider jwtTokenProvider;
+  @Autowired private JwtProperties jwtProperties;
+  @Autowired private PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -79,11 +64,11 @@ class WikiPageControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean private MembershipRepository membershipRepository;
+  @Autowired private MembershipRepository membershipRepository;
 
-  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean private UserRepository userRepository;
+  @Autowired private AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired private UserApiTokenRepository userApiTokenRepository;
+  @Autowired private UserRepository userRepository;
 
   @BeforeEach
   void setUp() {

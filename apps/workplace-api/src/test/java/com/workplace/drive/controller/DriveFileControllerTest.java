@@ -20,15 +20,11 @@ import com.workplace.file.service.FileUploadService.FileContentResult;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.fileai.service.AttachmentViewService;
 import com.workplace.filepreview.service.FilePreviewService;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Optional;
@@ -37,38 +33,27 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** DriveFileController WebMvcTest — 썸네일 HTTP 계약(없으면 404, 있으면 200 image/png). */
 @SuppressWarnings("null")
-@WebMvcTest(DriveFileController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class DriveFileControllerTest {
+class DriveFileControllerTest extends WebMvcSliceTestBase {
 
   @Autowired private MockMvc mockMvc;
 
-  @MockitoBean private DriveFileService fileService;
+  @Autowired private DriveFileService fileService;
 
   /** WP-250: 컨트롤러가 /view 용으로 주입받는 공통 서비스 — 슬라이스 컨텍스트에 빈이 있어야 한다. */
-  @MockitoBean private AttachmentViewService attachmentView;
+  @Autowired private AttachmentViewService attachmentView;
 
   /** WP-431: 컨트롤러 생성자 의존 — 미리보기 계약은 DriveFilePreviewTest 가 종단으로 본다. */
-  @MockitoBean private FilePreviewService previewService;
+  @Autowired private FilePreviewService previewService;
 
-  @MockitoBean private JwtTokenProvider jwtTokenProvider;
-  @MockitoBean private JwtProperties jwtProperties;
-  @MockitoBean private PermissionService permissionService;
+  @Autowired private JwtTokenProvider jwtTokenProvider;
+  @Autowired private JwtProperties jwtProperties;
+  @Autowired private PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -76,11 +61,11 @@ class DriveFileControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean private MembershipRepository membershipRepository;
+  @Autowired private MembershipRepository membershipRepository;
 
-  @MockitoBean private AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean private UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean private UserRepository userRepository;
+  @Autowired private AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired private UserApiTokenRepository userApiTokenRepository;
+  @Autowired private UserRepository userRepository;
 
   @BeforeEach
   void setUp() {

@@ -23,7 +23,7 @@ import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.repository.UserRepository;
 import java.util.ArrayList;
@@ -32,13 +32,10 @@ import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * 5b-1 통합 테스트 — 실제 서비스 호출 → 이벤트 발행 → AFTER_COMMIT dispatcher → AiAgentEventClient.publish 캡처. 실제
@@ -46,8 +43,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * AFTER_COMMIT 이 발화하지 않기 때문 (위험 1 대응).
  */
 @DisplayName("이슈 도메인 이벤트 → ai-agent dispatcher 통합")
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
+class IssueEventDispatchIntegrationTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired IssueService issueService;
@@ -57,22 +53,17 @@ class IssueEventDispatchIntegrationTest extends IntegrationTestBase {
   @Autowired ProjectMemberRepository memberRepository;
   @Autowired UserRepository userRepository;
 
-  @MockitoSpyBean AiAgentEventClient client;
-
   /**
    * 통합 테스트는 dispatcher → client 호출 캡처만 검증한다. 실제 HTTP 발사는 AiAgentEventClientTest 의
-   * MockRestServiceServer 가 담당. spy 가 실제 publish 를 실행하면 ai-agent 가 부재한 환경에서 재시도 백오프(1s+2s+4s ≒ 7s)
-   * 가 누적되므로 doNothing 으로 stub.
+   * MockRestServiceServer 가 담당. 공통 목(ExternalClientMockedTestBase)이라 실제 publish 는 일어나지 않는다 —
+   * ai-agent 가 부재한 환경에서 재시도 백오프(1s+2s+4s ≒ 7s)가 누적되지 않는다.
    */
+  @Autowired AiAgentEventClient client;
+
   // 비-Tx(AFTER_COMMIT 검증, 클래스에 @Transactional 금지) 테스트: 커밋된 row 추적 → @AfterEach 회수.
   private final List<Long> createdUserIds = new ArrayList<>();
 
   private final List<Long> createdProjectIds = new ArrayList<>();
-
-  @BeforeEach
-  void stubClientPublish() {
-    doNothing().when(client).publish(any(EventEnvelope.class));
-  }
 
   @AfterEach
   void cleanup() {

@@ -9,7 +9,6 @@ import com.workplace.home.service.AiMemoryEvalSupport.Fixture;
 import com.workplace.home.service.AiMemoryEvalSupport.Memory;
 import com.workplace.home.service.AiMemoryEvalSupport.Question;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.List;
@@ -19,7 +18,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -28,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 예산 안이다. 결과는 표준 출력으로 남긴다(완료 보고용).
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class AiMemorySelectionEvalTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

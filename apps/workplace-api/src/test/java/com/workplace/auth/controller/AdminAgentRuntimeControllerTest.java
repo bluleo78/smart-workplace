@@ -32,7 +32,6 @@ import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,7 +47,7 @@ class AdminAgentRuntimeControllerTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired WorkspaceAssistantService workspaceAssistantService;
   // 락 호출 검증용 — 실제 동작은 그대로 두고 호출만 관찰한다.
-  @MockitoSpyBean UserRepository userRepository;
+  @Autowired UserRepository userRepository;
 
   @BeforeEach
   void setTenant() {

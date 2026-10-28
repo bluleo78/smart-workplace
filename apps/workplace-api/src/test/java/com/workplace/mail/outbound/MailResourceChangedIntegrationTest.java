@@ -15,19 +15,18 @@ import static org.mockito.Mockito.when;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.mail.MailSyncTestSupport;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.dto.PromoteToIssueRequest;
 import com.workplace.mail.service.EmailAccountService;
-import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailFetcher;
 import com.workplace.mail.service.MailIssueService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import com.workplace.support.TestFixtures;
@@ -41,7 +40,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
@@ -49,11 +47,10 @@ import org.springframework.test.util.ReflectionTestUtils;
  * 클래스에 @Transactional 을 붙이지 않는다(커밋된 행은 @AfterEach 에서 회수).
  */
 @DisplayName("메일 변경 → resource.changed fan-out 통합")
-class MailResourceChangedIntegrationTest extends IntegrationTestBase {
+class MailResourceChangedIntegrationTest extends MailSyncTestSupport {
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
-  @MockitoBean MailBackfillService backfillService; // 동기화 후 본문 보충 트리거 무동작화
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
 
   @Autowired DSLContext dsl;
   @Autowired MailMessageService messageService;

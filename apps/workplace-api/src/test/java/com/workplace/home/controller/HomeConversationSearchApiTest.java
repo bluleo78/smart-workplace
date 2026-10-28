@@ -13,7 +13,6 @@ import com.workplace.home.repository.HomeConversationSearchRepository;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.AiPreferenceService;
@@ -25,7 +24,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -38,7 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
  * "/?aiChat=<id>".
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class HomeConversationSearchApiTest extends IntegrationTestBase {
 
   private static final String SEARCH = "/api/v1/home/sessions/search";

@@ -19,7 +19,7 @@ import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.repository.ConversationAttentionRepository;
 import com.workplace.messaging.service.MessageService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,8 +31,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * 메시징 어텐션 도착 트리거 production 경로 통합 (#476 C1).
@@ -48,8 +46,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>ai-agent enabled=true override — 어텐션 분류 경로는 enabled 게이트를 받지 않지만, 일관성을 위해 통합 환경에서 활성화한다.
  */
 @DisplayName("메시징 어텐션 도착 트리거 → AFTER_COMMIT → async 분류 통합 (#476)")
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MessagingAttentionCreatePathIntegrationTest extends IntegrationTestBase {
+class MessagingAttentionCreatePathIntegrationTest extends ExternalClientMockedTestBase {
 
   @Autowired MessageService messageService;
   @Autowired ChannelRepository channelRepo;
@@ -58,9 +55,9 @@ class MessagingAttentionCreatePathIntegrationTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
 
   /** ai-agent 분류 호출을 모킹 — relevant 반환으로 conversation_attention 기록을 강제. */
-  @MockitoBean AiAgentMessagingClient aiClient;
+  @Autowired AiAgentMessagingClient aiClient;
 
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AssistantResolver assistantResolver;
 
   private final List<Long> createdChannelIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();

@@ -23,7 +23,6 @@ import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Message;
@@ -46,7 +45,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -56,7 +54,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Message-ID), 소유 격리(404), 동시성 가드, 본문 미저장.
  */
 @Transactional
-class MailSyncServiceTest extends IntegrationTestBase {
+class MailSyncServiceTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -71,14 +69,14 @@ class MailSyncServiceTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
   @Autowired MailSyncProgress progress;
 
-  /** 비동기 본문 보충을 목킹 — sync 의 백필 트리거를 무동작으로 만들어 메타전용 단언을 결정적으로 만든다. */
-  @MockitoBean MailBackfillService backfillService;
+  /** 공통 기반(MailSyncTestSupport)의 목 — 호출 여부를 확인한다. */
+  @Autowired MailBackfillService backfillService;
 
-  /** 선제 요약 백필을 목킹 — sync 완료 후 호출 여부만 검증하고 실제 LLM/IMAP 은 실행하지 않는다. */
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
+  /** 공통 기반(MailSyncTestSupport)의 목 — 호출 여부를 확인한다. */
+  @Autowired MailSummaryBackfillService summaryBackfillService;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** box@test.local 을 가리키는 계정을 직접 삽입(연결테스트 우회). 동기화 대상 accountId 반환. */
   private long insertAccount(long userId) {

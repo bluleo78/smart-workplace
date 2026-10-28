@@ -3,6 +3,8 @@ package com.workplace.issue.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -20,38 +22,38 @@ import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
-/** IssueAiClassifyService 통합 테스트 — ai-agent 클라이언트 목. */
-class IssueAiClassifyServiceTest extends IntegrationTestBase {
+/** IssueAiClassifyService 통합 테스트 — ai-agent 클라이언트 목. 접근 검사·라벨 조회는 공통 spy 를 스텁한다. */
+class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired private IssueAiClassifyService classifyService;
 
-  @MockitoBean private AiAgentIssueClient aiClient;
+  @Autowired private AiAgentIssueClient aiClient;
 
-  @MockitoBean private ProjectAccessGuard accessGuard;
+  @Autowired private ProjectAccessGuard accessGuard;
 
-  @MockitoBean private LabelRepository labelRepository;
+  @Autowired private LabelRepository labelRepository;
 
-  @MockitoBean private AssistantResolver assistantResolver;
+  @Autowired private AssistantResolver assistantResolver;
 
   @Test
   void classify_팀프로젝트_정상분류() {
     // given
     ProjectRow project =
         new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
-    when(accessGuard.assertIssueCreatable("TEST", 1L)).thenReturn(project);
-    when(labelRepository.findByProject(10L))
-        .thenReturn(
+    doReturn(project).when(accessGuard).assertIssueCreatable("TEST", 1L);
+    doReturn(
             List.of(
                 new LabelRow(1L, 10L, "backend", "#ff0000", null, null, null),
-                new LabelRow(2L, 10L, "bug", "#ff5500", null, null, null)));
+                new LabelRow(2L, 10L, "bug", "#ff5500", null, null, null)))
+        .when(labelRepository)
+        .findByProject(10L);
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
     IssueClassifyResult aiResult =
@@ -73,8 +75,8 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
     // given
     ProjectRow project =
         new ProjectRow(10L, "TEST", "테스트 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
-    when(accessGuard.assertIssueCreatable("TEST", 1L)).thenReturn(project);
-    when(labelRepository.findByProject(10L)).thenReturn(List.of());
+    doReturn(project).when(accessGuard).assertIssueCreatable("TEST", 1L);
+    doReturn(List.of()).when(labelRepository).findByProject(10L);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.empty());
 
     // when/then
@@ -87,8 +89,8 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
     // given — 개인 프로젝트: ownerId=1, type="PERSONAL"
     ProjectRow project =
         new ProjectRow(11L, "PERSONAL", "개인", null, 1L, "PERSONAL", false, null, null, null, null);
-    when(accessGuard.assertIssueCreatable("PERSONAL", 1L)).thenReturn(project);
-    when(labelRepository.findByProject(11L)).thenReturn(List.of());
+    doReturn(project).when(accessGuard).assertIssueCreatable("PERSONAL", 1L);
+    doReturn(List.of()).when(labelRepository).findByProject(11L);
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
     when(assistantResolver.resolveOrEmpty(1L)).thenReturn(Optional.of(spec));
     // 개인 프로젝트는 type null 반환 가능
@@ -109,8 +111,9 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
    */
   @Test
   void classify_프로젝트_접근권한없음_403_라벨_어시스턴트_조회안함() {
-    when(accessGuard.assertIssueCreatable("SEC", 99L))
-        .thenThrow(new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다"));
+    doThrow(new ProjectAccessDeniedException("프로젝트 멤버가 아닙니다"))
+        .when(accessGuard)
+        .assertIssueCreatable("SEC", 99L);
 
     assertThatThrownBy(() -> classifyService.classify(99L, "SEC", "x", ""))
         .isInstanceOf(ProjectAccessDeniedException.class);
@@ -123,8 +126,8 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
   void classify_우선순위_5단계는_그대로() {
     ProjectRow project =
         new ProjectRow(12L, "PRI", "우선순위 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
-    when(accessGuard.assertIssueCreatable("PRI", 1L)).thenReturn(project);
-    when(labelRepository.findByProject(12L)).thenReturn(List.of());
+    doReturn(project).when(accessGuard).assertIssueCreatable("PRI", 1L);
+    doReturn(List.of()).when(labelRepository).findByProject(12L);
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
 
@@ -145,8 +148,8 @@ class IssueAiClassifyServiceTest extends IntegrationTestBase {
   void classify_본문은_2만자까지만_보내고_표식을_붙인다() {
     ProjectRow project =
         new ProjectRow(13L, "LONG", "긴 본문 프로젝트", null, 1L, "TEAM", false, null, null, null, null);
-    when(accessGuard.assertIssueCreatable("LONG", 1L)).thenReturn(project);
-    when(labelRepository.findByProject(13L)).thenReturn(List.of());
+    doReturn(project).when(accessGuard).assertIssueCreatable("LONG", 1L);
+    doReturn(List.of()).when(labelRepository).findByProject(13L);
     AssistantSpec spec = new AssistantSpec(2L, "claude-sonnet-4-6", "NONE", 6, 30_000);
     when(assistantResolver.resolveWorkspaceOrEmpty()).thenReturn(Optional.of(spec));
     when(aiClient.classify(any()))

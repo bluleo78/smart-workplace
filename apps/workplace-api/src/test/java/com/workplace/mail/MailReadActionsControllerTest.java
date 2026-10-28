@@ -17,7 +17,7 @@ import com.workplace.mail.event.MessagesSeenChangedEvent;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailReadSyncDispatcher;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -37,7 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** WP-187 읽음 조작 API — 안읽음·건수(asOf)·모두 읽음·소유 검증·asOf 경계(DB 적재 시각). */
 @Transactional
 @RecordApplicationEvents
-class MailReadActionsControllerTest extends IntegrationTestBase {
+class MailReadActionsControllerTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired ApplicationEvents events;
@@ -45,7 +45,7 @@ class MailReadActionsControllerTest extends IntegrationTestBase {
   @Autowired JwtTokenProvider jwtTokenProvider;
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EmailContentRepository contentRepo;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AssistantResolver assistantResolver;
   // 원격 읽음 반영 차단 — 이벤트가 리스너로 가도 외부 호출이 일어나지 않게 한다
   @MockitoBean MailReadSyncDispatcher dispatcher;
 

@@ -28,7 +28,7 @@ import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.MailAttachmentPreviewRepository;
 import com.workplace.mail.repository.MailPreviewKey;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.PreviewAwait;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Folder;
@@ -54,7 +54,6 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -71,7 +70,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * fetch)과 {@link MailAttachmentService} 스파이의 {@code download} 호출로 센다.
  */
 @TestPropertySource(properties = "workplace.converter.enabled=true")
-abstract class MailAttachmentPreviewTestSupport extends IntegrationTestBase {
+abstract class MailAttachmentPreviewTestSupport extends ExternalClientMockedTestBase {
 
   private static final String FIXTURE_TENANT_SLUG = "mail-preview-fixture-tenant";
 
@@ -80,12 +79,12 @@ abstract class MailAttachmentPreviewTestSupport extends IntegrationTestBase {
 
   static final String HWP = "application/x-hwp";
 
-  @MockitoBean ConverterClient converter;
+  @Autowired ConverterClient converter;
   @MockitoBean ImapConnector imapConnector;
   @MockitoBean MailMessageParser parser;
-  @MockitoSpyBean MailAttachmentService attachmentService;
+  @Autowired MailAttachmentService attachmentService;
   // 스파이 — 304·판정이 미리보기를 복호화하지 않는지 보는 테스트용(그 밖엔 실제 동작 그대로).
-  @MockitoSpyBean MailAttachmentBlobStore blobStore;
+  @Autowired MailAttachmentBlobStore blobStore;
 
   @Autowired DSLContext dsl;
   @Autowired MockMvc mvc;

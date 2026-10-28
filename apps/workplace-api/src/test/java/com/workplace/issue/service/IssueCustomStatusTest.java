@@ -39,7 +39,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,7 +60,7 @@ class IssueCustomStatusTest extends IntegrationTestBase {
   @Autowired MilestoneService milestoneService;
   @Autowired IssueSearchService issueSearchService;
   // 생성이 INSERT 뒤 이슈를 다시 읽지 않는지(WP-870) 보려고 스파이로 감싼다 — 동작은 실제 저장소 그대로.
-  @MockitoSpyBean IssueRepository issueRepository;
+  @Autowired IssueRepository issueRepository;
 
   private Long owner;
   private ProjectResponse project;

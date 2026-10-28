@@ -15,7 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -24,8 +24,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -35,8 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>embed worker_job 생성, hasPendingEmbedJob CAS, applyEmbedResult 멱등, findEmbeddable 독성 루프 가드, 콜백
  * 엔드포인트 C1 RLS 회귀를 검증한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
-class FileEmbeddingPipelineTest extends IntegrationTestBase {
+class FileEmbeddingPipelineTest extends ExternalClientMockedTestBase {
 
   /** 테스트 프로파일 workplace.worker.internal-token 값. */
   private static final String INTERNAL_TOKEN = "test-token";
@@ -49,7 +46,7 @@ class FileEmbeddingPipelineTest extends IntegrationTestBase {
   @Autowired private DSLContext dsl;
 
   /** WorkerClient mock — 실제 워커 HTTP 호출 차단. */
-  @MockitoBean private WorkerClient workerClient;
+  @Autowired private WorkerClient workerClient;
 
   /** 테스트에서 삽입한 file_id 목록 — @AfterEach 정리용. */
   private final List<Long> createdFileIds = new ArrayList<>();

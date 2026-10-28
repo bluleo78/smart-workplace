@@ -12,7 +12,7 @@ import static org.mockito.Mockito.doNothing;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -20,8 +20,6 @@ import org.jooq.JSONB;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -30,8 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>@Transactional 금지: 스케줄러 내부 TenantScopedRunner 가 REQUIRES_NEW 트랜잭션을 열므로, 검증은 실제 커밋된 데이터를 대상으로
  * 한다. TenantContext.clear() 로 ambient GUC 마스킹을 방지한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
-class FileEmbeddingSchedulerTest extends IntegrationTestBase {
+class FileEmbeddingSchedulerTest extends ExternalClientMockedTestBase {
 
   /** 기본 테스트 테넌트. */
   private static final long TENANT_1 = 1L;
@@ -41,7 +38,7 @@ class FileEmbeddingSchedulerTest extends IntegrationTestBase {
   @Autowired private DSLContext dsl;
 
   /** WorkerClient mock — 실제 워커 HTTP 호출 차단. */
-  @MockitoBean private WorkerClient workerClient;
+  @Autowired private WorkerClient workerClient;
 
   /** 테스트에서 삽입한 file_id 목록 — @AfterEach 정리용. */
   private final List<Long> createdFileIds = new ArrayList<>();

@@ -25,7 +25,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * 리뷰 #866 — 푸시 수신자 계산이 실패해도 메시지 작성은 커밋된다. 계산은 커밋 후 별도 트랜잭션(resolver)에서 돌기 때문에 작성 트랜잭션과 분리돼 있다(이전
@@ -33,7 +32,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  */
 class MessagePushResolverFailureTest extends IntegrationTestBase {
 
-  @MockitoSpyBean MessagePushRecipientResolver resolver;
+  @Autowired MessagePushRecipientResolver resolver;
   @Autowired DSLContext dsl;
   @Autowired DmService dmService;
   @Autowired MessageService messageService;

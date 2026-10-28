@@ -21,7 +21,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -37,7 +36,7 @@ class AiMemoryEntryReaderTest extends IntegrationTestBase {
 
   @Autowired AiMemoryReader reader;
   @Autowired AiMemoryService memoryService;
-  @MockitoSpyBean AiPreferenceService preferences;
+  @Autowired AiPreferenceService preferences;
 
   private final List<Long> users = new ArrayList<>();
 

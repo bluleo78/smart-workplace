@@ -15,6 +15,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -35,7 +36,7 @@ import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,7 +48,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,14 +59,16 @@ import org.springframework.transaction.annotation.Transactional;
  * 빈이라 요청 전후 저장소 파일을 비교한다. 클래스 트랜잭션 롤백으로 공유 DB 를 오염시키지 않는다.
  */
 @Transactional
-class MailAttachmentViewTest extends IntegrationTestBase {
+class MailAttachmentViewTest extends ExternalClientMockedTestBase {
 
   private static final long T = 1L;
   private static final byte[] PDF = "%PDF-1.4 view test".getBytes();
   private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 7, 7, 7, 7};
 
-  @MockitoBean MailAttachmentService attachmentService;
-  @MockitoBean WorkerRenderClient worker;
+  /** 공통 spy(IntegrationTestBase) — 원본 내려받기(download)만 스텁해 IMAP 에 붙지 않는다. */
+  @Autowired MailAttachmentService attachmentService;
+
+  @Autowired WorkerRenderClient worker;
 
   @Autowired ContentAttachmentRepository contentAttachmentRepo;
   @Autowired MockMvc mvc;
@@ -298,8 +300,9 @@ class MailAttachmentViewTest extends IntegrationTestBase {
   // ── 픽스처 ──
 
   private void givenDownload(byte[] data, String filename, String contentType) {
-    given(attachmentService.download(anyLong(), any(AttachmentDownloadContext.class)))
-        .willReturn(new AttachmentDownload(data, filename, contentType));
+    willReturn(new AttachmentDownload(data, filename, contentType))
+        .given(attachmentService)
+        .download(anyLong(), any(AttachmentDownloadContext.class));
   }
 
   /** 워커가 result 를 돌려주게 한다. */

@@ -2,7 +2,7 @@ package com.workplace.home.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doReturn;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -36,7 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * WP-380: 메모리 기한 — 오늘(고정 시계 2026-10-14, Asia/Seoul) 기준 유효/만료 경계, 과거·형식 오류 400, 기한 지정·없애기, 만료 행 되살리기
- * 한도, 되돌리기의 기한 복원·과거 기한 재생성, 주입 항목의 기한. 시계는 {@link AiMemoryClock} 목으로 고정한다(실시간 날짜에 기대지 않는다).
+ * 한도, 되돌리기의 기한 복원·과거 기한 재생성, 주입 항목의 기한. 시계는 {@link AiMemoryClock} 공통 spy 를 스텁해 고정한다(실시간 날짜에 기대지
+ * 않는다).
  */
 @Transactional
 class AiMemoryExpiryTest extends IntegrationTestBase {
@@ -49,11 +49,11 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
   @Autowired AiMemoryRepository repo;
   @Autowired AiMemoryService memories;
   @Autowired HomeSessionService sessions;
-  @MockitoBean AiMemoryClock clock;
+  @Autowired AiMemoryClock clock;
 
   @BeforeEach
   void fixToday() {
-    when(clock.today()).thenReturn(TODAY);
+    doReturn(TODAY).when(clock).today();
   }
 
   /** 브라우저 사용자로 JSON 본문 요청. */
@@ -100,7 +100,7 @@ class AiMemoryExpiryTest extends IntegrationTestBase {
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.errors.scope").value("COMMON"));
 
-    when(clock.today()).thenReturn(TODAY.plusDays(1));
+    doReturn(TODAY.plusDays(1)).when(clock).today();
     list(uid)
         .andExpect(jsonPath("$.items[0].content").value("이번 주는 결제 모듈"))
         .andExpect(jsonPath("$.items[0].expired").value(true));

@@ -6,7 +6,45 @@ import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
+import com.workplace.calendar.service.CalendarSyncService;
+import com.workplace.drive.outbound.DriveChangeNotifier;
+import com.workplace.drive.repository.DriveFileRepository;
+import com.workplace.drive.repository.DriveQuotaRepository;
+import com.workplace.file.storage.FileStore;
+import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.home.repository.HomeMessageRepository;
+import com.workplace.home.repository.SharedAiMemoryRepository;
+import com.workplace.home.service.AiMemoryClock;
+import com.workplace.home.service.SharedAiMemoryChangeLog;
+import com.workplace.issue.repository.AgentWorkRepository;
+import com.workplace.issue.repository.IssueRepository;
+import com.workplace.label.repository.LabelRepository;
+import com.workplace.mail.outbound.MailChangeNotifier;
+import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.repository.MailPeopleRepository;
+import com.workplace.mail.repository.PersonalContextRepository;
+import com.workplace.mail.service.ImapConnector;
+import com.workplace.mail.service.MailAttachmentBlobStore;
+import com.workplace.mail.service.MailAttachmentService;
+import com.workplace.mail.service.MailBodyFetcher;
+import com.workplace.mail.service.MailCategoryBackfillService;
+import com.workplace.mail.service.MailReanalysisService;
+import com.workplace.mail.service.MailSentAttachmentRecorder;
+import com.workplace.mail.service.MailSyncService;
+import com.workplace.mail.service.NeedsReplyFinalizer;
+import com.workplace.mail.service.SenderRelationResolver;
+import com.workplace.mail.service.UserMailProfileBuilder;
+import com.workplace.mail.service.folder.ImapFolderLister;
+import com.workplace.messaging.service.MessagePushRecipientResolver;
+import com.workplace.project.repository.ProjectRepository;
+import com.workplace.project.service.ProjectAccessGuard;
+import com.workplace.user.repository.UserRepository;
+import com.workplace.user.service.AiPreferenceService;
+import com.workplace.wiki.repository.WikiBodyHistoryRepository;
+import com.workplace.wiki.service.WikiShareClock;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -22,6 +60,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.transaction.AfterTransaction;
 import org.springframework.test.context.transaction.BeforeTransaction;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -34,7 +73,52 @@ import org.springframework.transaction.support.TransactionTemplate;
 @AutoConfigureMockMvc
 // 링크 미리보기 가져오기를 고정 응답으로 바꾼다(WP-874) — URL 든 메시지를 커밋하는 테스트가 인터넷으로 나가지 않게. 모든 서브클래스가 같은
 // 구성이라 컨텍스트 캐시 키도 같다.
-@Import(FixtureHttpFetcherConfig.class)
+// 가짜 임베딩(FakeTextEmbedderConfig)도 모두에게 둔다(WP-1028) — 필요한 클래스만 @Import 하면 그 유무로 컨텍스트가 갈린다.
+@Import({FixtureHttpFetcherConfig.class, FakeTextEmbedderConfig.class})
+// 테스트가 실패 주입·호출 확인에 쓰는 spy 를 모든 통합 테스트에 한 벌로 둔다(WP-1028). spy 는 따로 스텁하지 않으면 실제 빈과 똑같이
+// 움직이고 테스트마다 초기화되므로, 클래스마다 spy 대상이 달라 Spring 컨텍스트가 갈리던 것을 없앤다. 쓰는 테스트는 @Autowired 로 받는다.
+// 공통 목(ExternalClientMockedTestBase)과 겹치는 타입과 이름으로 고르는 실행기 spy 는 클래스에 남긴다.
+@MockitoSpyBean(
+    types = {
+      AgentWorkRepository.class,
+      AiMemoryClock.class,
+      AiMemoryReader.class,
+      AiPreferenceService.class,
+      CalendarSyncService.class,
+      DriveChangeNotifier.class,
+      DriveFileRepository.class,
+      DriveQuotaRepository.class,
+      EmailAccountRepository.class,
+      EmailMessageRepository.class,
+      FileStore.class,
+      HomeMessageRepository.class,
+      ImapConnector.class,
+      ImapFolderLister.class,
+      IssueRepository.class,
+      LabelRepository.class,
+      MailAttachmentBlobStore.class,
+      MailAttachmentService.class,
+      MailBodyFetcher.class,
+      MailCategoryBackfillService.class,
+      MailChangeNotifier.class,
+      MailPeopleRepository.class,
+      MailReanalysisService.class,
+      MailSentAttachmentRecorder.class,
+      MailSyncService.class,
+      MessagePushRecipientResolver.class,
+      NeedsReplyFinalizer.class,
+      PersonalContextRepository.class,
+      ProjectAccessGuard.class,
+      ProjectRepository.class,
+      SenderRelationResolver.class,
+      SharedAiMemoryChangeLog.class,
+      SharedAiMemoryReader.class,
+      SharedAiMemoryRepository.class,
+      UserMailProfileBuilder.class,
+      UserRepository.class,
+      WikiBodyHistoryRepository.class,
+      WikiShareClock.class
+    })
 public abstract class IntegrationTestBase {
 
   /**

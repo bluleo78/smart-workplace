@@ -34,7 +34,7 @@ import com.workplace.filepreview.outbound.ConverterProperties;
 import com.workplace.filepreview.repository.FilePreviewRepository;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -54,7 +54,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
@@ -68,7 +67,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 커밋하고(WP-417 — 세션 기본 GUC=1 이 비동기 GUC 누락을 가리지 않게), 정리는 {@code @AfterEach} 에서 자기 스페이스 행만 지운다.
  */
 @TestPropertySource(properties = "workplace.converter.enabled=true")
-class DriveFilePreviewTest extends IntegrationTestBase {
+class DriveFilePreviewTest extends ExternalClientMockedTestBase {
 
   private static final String FIXTURE_TENANT_SLUG = "drive-preview-fixture-tenant";
   private static final String HWP = "application/x-hwp";
@@ -84,7 +83,7 @@ class DriveFilePreviewTest extends IntegrationTestBase {
   @Autowired DriveTrashService trashService;
   @Autowired FileCleanupService fileCleanupService;
 
-  @MockitoBean ConverterClient converter;
+  @Autowired ConverterClient converter;
 
   private Long tid2;
   private Long memberId;

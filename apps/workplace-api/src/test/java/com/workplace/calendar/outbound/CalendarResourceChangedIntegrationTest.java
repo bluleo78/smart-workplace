@@ -25,7 +25,7 @@ import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.repository.EmailAccountRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import com.workplace.support.TestFixtures;
@@ -42,7 +42,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-61 통합 — 캘린더 일정·참석자·RSVP·캘린더·외부 동기화 변경 → AFTER_COMMIT resource.changed 수신자 검증. AFTER_COMMIT 발화를
@@ -50,7 +49,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  */
 @Import(CalendarResourceChangedIntegrationTest.FakeFetcherConfig.class)
 @DisplayName("캘린더 변경 → resource.changed fan-out 통합")
-class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
+class CalendarResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
   /** 동기화 경로 검증용 가짜 fetcher — 실제 Graph 호출 없이 IMAP 키로 등록한다(Graph fetcher 는 M365_GRAPH). */
   @TestConfiguration
@@ -68,8 +67,8 @@ class CalendarResourceChangedIntegrationTest extends IntegrationTestBase {
     }
   }
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
 
   @Autowired DSLContext dsl;
   @Autowired CalendarEventService eventService;

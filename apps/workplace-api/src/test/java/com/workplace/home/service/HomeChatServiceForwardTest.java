@@ -18,14 +18,13 @@ import com.workplace.global.realtime.DefaultStreamingGenerationRegistry;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.AiScreenContext;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeProposalResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,8 +36,6 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.AsyncTaskExecutor;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * HomeChatService 의 progress·pending_action·tool 콜백 → 통합 /events 채널(SseRegistry.fanOut) 이벤트 포워드
@@ -48,20 +45,17 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * StreamingGenerationRegistry 는 실제 구현(DefaultStreamingGenerationRegistry)을 써서 correlationId 발급까지 실제
  * 경로로 검증한다.
  *
- * <p>MailSummaryScheduler 가 컨텍스트 기동 직후 TenantScopedRunner.forEachActiveTenant 콜백 안에서
- * assistantResolver.resolveWorkspaceOrEmpty() 를 호출해, 테스트 스레드의 스터빙과 동시 실행되면 Mockito 상태가 오염돼 간헐적으로
- * flake 한다(HomeChatServiceTest 와 동일 패턴). TenantScopedRunner 를 mock 으로 대체해 원천 차단한다.
+ * <p>스케줄러 경합으로 막던 TenantScopedRunner 목은 테스트 프로파일이 @Scheduled 를 끈 뒤 필요 없어 뺐다(HomeChatServiceTest
+ * 참고).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeChatServiceForwardTest extends IntegrationTestBase {
+class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean AiAgentChatClient chatClient;
+  @Autowired AiAgentChatClient chatClient;
 
   /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
+  @Autowired AiAgentSuggestionClient suggestionClient;
 
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AssistantResolver assistantResolver;
   @Autowired HomeSessionService sessionService;
   @Autowired HomeProposalService proposalService;
   @Autowired HomeContextSummaryService contextService;
