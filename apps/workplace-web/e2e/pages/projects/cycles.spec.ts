@@ -1,7 +1,8 @@
-// 사이클 관리 E2E — 목록+진행바 배선 1건(@wiring)과 실제 오프라인 저장(@platform)만 남긴다.
+// 사이클 관리 E2E — 목록+진행바 배선 1건(@wiring), 실제 오프라인 저장(@platform), 긴 이름 행 배치(@layout, WP-1078)만 남긴다.
 // 진행바 색 칸·헤더 복귀·생성(입력 상한)·날짜 역전·수정·삭제, 이슈 상세 사이클 피커, 목록 사이클 필터는
 // 페이지 테스트 src/pages/projects/cycles.test.tsx 가 지킨다(WP-971).
 import { expect, test } from '../../fixtures/auth.fixture';
+import { boxOf } from '../../fixtures/layout';
 import { expectStays } from '../../fixtures/wait';
 import { createCycle } from '../../factories/cycle.factory';
 import { createMember, createProject } from '../../factories/project.factory';
@@ -121,5 +122,35 @@ test.describe('사이클 관리', () => {
     await expectStays(page, () => created, 0, { ms: 1000 });
   });
 
+  // 예전엔 긴 이름에 밀려 상태 배지가 「예/정」으로 세로로 꺾였다.
+  test('이름이 긴 사이클도 상태 배지가 한 줄로 남고 수정·삭제 버튼이 행 안에 있다 (WP-1078)', { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    // 이름 상한(60자)을 꽉 채운 띄어쓰기 없는 영문 — 한글과 달리 글자 사이에서 끊기지 않아 break-words(overflow-wrap) 가 있어야 접힌다
+    const longName = 'W'.repeat(60);
+    const cycle = createCycle({ id: 2, name: longName, status: 'PLANNED', goal: 'g'.repeat(400) });
+    await setupCyclesPageStubs(page, [cycle], [{ cycleId: 2, total: 1, done: 0, byStatus: { TODO: 1 } }]);
+    await page.goto(`/projects/${KEY}/cycles`);
+
+    const row = page.getByTestId('cycle-row-2');
+    const name = row.getByText(longName);
+    const badge = row.getByText('예정', { exact: true });
+    const [rowBox, nameBox, badgeBox, editBox] = await Promise.all([
+      boxOf(row),
+      boxOf(name),
+      boxOf(badge),
+      boxOf(row.getByRole('button', { name: `${longName} 수정` })),
+    ]);
+    // 배지는 한 줄(두 글자가 한 줄에) — 꺾이면 높이가 두 배가 된다
+    const badgeLine = await badge.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    expect(badgeBox.height).toBeLessThan(badgeLine * 2);
+    // 이름은 두 줄 이상으로 접혀 배지 왼쪽에서 멈추고, 수정 버튼은 행 오른쪽 안에 있다
+    const nameLine = await name.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
+    expect(nameBox.height).toBeGreaterThanOrEqual(nameLine * 2);
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(badgeBox.x);
+    expect(editBox.x + editBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width);
+    // 목표처럼 띄어쓰기 없는 긴 글도 행 밖으로 넘치지 않는다
+    expect(await row.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
+  });
 
 });
