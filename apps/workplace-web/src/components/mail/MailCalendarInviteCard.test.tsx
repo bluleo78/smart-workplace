@@ -88,16 +88,24 @@ test('이미 응답한 초대는 지금 응답이 눌림으로 보이고 결과 
   expect(screen.getByTestId('mail-invite-open-calendar')).toHaveTextContent('캘린더에서 보기')
 })
 
-test('응답 실패(409)는 서버 문구를 토스트로 보이고 카드는 그대로다', async () => {
+test('응답 실패(409)는 서버 문구를 토스트로 보이고, 카드를 다시 받아 버튼을 내리고 안내를 보인다', async () => {
   const respond = record('post', '/api/v1/mail/messages/7/invite-response', () =>
-    HttpResponse.json({ status: 409, message: '이 초대에는 응답할 수 없습니다' }, { status: 409 }),
+    HttpResponse.json({ status: 409, message: '이 초대는 이후 변경되었습니다 — 최신 메일에서 응답하세요' }, { status: 409 }),
   )
-  const { user } = renderCard(calendarInvite(), [respond.handler])
+  // 처음 연 상세는 응답 가능한 초대, 409 뒤 다시 받은 상세는 그사이 변경돼 낡은 초대다.
+  let gets = 0
+  const reload = http.get('/api/v1/mail/messages/7', () => {
+    gets += 1
+    const invite = gets === 1 ? calendarInvite() : calendarInvite({ outdated: true, canRespond: false })
+    return HttpResponse.json(detail({ id: 7, calendarInvite: invite }))
+  })
+  const { user } = renderCard(calendarInvite(), [respond.handler, reload])
   await user.click(await screen.findByTestId('rsvp-btn-accepted'))
-  expect(await screen.findByText('이 초대에는 응답할 수 없습니다')).toBeInTheDocument()
-  expect(screen.getByTestId('rsvp-btn-accepted')).toHaveAttribute('aria-pressed', 'false')
-  expect(screen.getByTestId('rsvp-btn-accepted')).toBeEnabled()
+  expect(await screen.findByText('이 초대는 이후 변경되었습니다 — 최신 메일에서 응답하세요', { selector: '[data-sonner-toast] *' })).toBeInTheDocument()
+  expect(await screen.findByTestId('mail-invite-outdated')).toBeInTheDocument()
+  expect(screen.queryByTestId('rsvp-btn-accepted')).toBeNull()
   expect(screen.queryByTestId('mail-invite-result')).toBeNull()
+  expect(gets).toBe(2)
 })
 
 test('이후 변경된 옛 초대(outdated) — 버튼 없이 「최신 메일에서 응답하세요」 안내', async () => {

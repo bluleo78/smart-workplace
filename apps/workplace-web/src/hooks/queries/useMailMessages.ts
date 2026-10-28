@@ -1,6 +1,7 @@
 // 받은편지함/보낸편지함 목록·상세 조회 + 동기화·발송 mutation.
 
 import { type InfiniteData, type QueryClient, queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 
@@ -472,6 +473,12 @@ export function useRespondToInvite(messageId: number) {
       );
       qc.invalidateQueries({ queryKey: calendarKeys.all });
     },
-    onError: (e) => handleApiError(e, '초대에 응답하지 못했어요'),
+    onError: (e) => {
+      handleApiError(e, '초대에 응답하지 못했어요');
+      // 409 = 그사이 취소·변경돼 응답할 수 없는 초대 — 카드를 다시 받아 버튼을 내리고 안내를 보인다(PR #962 리뷰).
+      if (isAxiosError(e) && e.response?.status === 409) {
+        qc.invalidateQueries({ queryKey: mailMessageKeys.detail(messageId) });
+      }
+    },
   });
 }

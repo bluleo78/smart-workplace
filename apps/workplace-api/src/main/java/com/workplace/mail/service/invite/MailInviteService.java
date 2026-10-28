@@ -121,41 +121,46 @@ public class MailInviteService {
       return view(userId, messageId);
     }
     try {
-      send(userId, messageId, ctx, response);
+      deliver(userId, ctx, response);
     } catch (RuntimeException e) {
-      // 보내지 못했으면 선점을 되돌려 다시 시도할 수 있게 한다
+      // 주최자에게 보내지 못했으면 선점을 되돌려 다시 시도할 수 있게 한다
       txTemplate.executeWithoutResult(
           s -> inviteRepo.releaseResponse(messageId, response, previous));
       throw e;
     }
+    // 이미 주최자에게 나갔다 — 아래 반영이 실패해도 선점(내 응답)은 되돌리지 않는다. 되돌리면 다시 누를 때 응답이 두 번 간다.
+    record(userId, messageId, ctx, response);
     return view(userId, messageId);
   }
 
-  /** 선점한 응답을 실제로 보내고(Graph·SMTP, tx 밖) 내 캘린더·초대 행에 반영한다. */
-  private void send(long userId, long messageId, Ctx ctx, String response) {
+  /** 선점한 응답을 주최자에게 보낸다(tx 밖) — M365 는 Graph 응답, IMAP 은 iCalendar REPLY 메일(SMTP). */
+  private void deliver(long userId, Ctx ctx, String response) {
     InviteRow row = ctx.row();
-    InviteValues v = row.values();
     if (MailProvider.M365_GRAPH.name().equals(row.provider())) {
-      // ① Graph 응답(tx 밖) — Exchange 가 주최자에게 응답 메일을 보내고 내 사서함 일정 상태를 바꾼다
+      // Exchange 가 주최자에게 응답 메일을 보내고 내 사서함 일정 상태를 바꾼다
       String token = graphTokenService.getAccessToken(userId, row.accountId());
       String graphEventId = resolveGraphEventId(token, row);
       graphCalendarClient.respondToEvent(token, graphEventId, response);
-      // ② 동기화 사본의 내 응답을 바로 맞춘다(다음 동기화 전에도 화면이 맞게)
-      txTemplate.executeWithoutResult(
-          s -> {
-            calendarPort.applySyncedResponse(userId, v.uid(), response);
-            inviteRepo.updateMyResponse(messageId, response);
-          });
     } else {
-      // ① iCalendar REPLY 메일(SMTP, tx 밖)
       sendReply(userId, ctx.account(), row, response);
-      // ② 내 캘린더 반영 — 수락·미정은 넣거나 고치고, 거절은 있으면 응답만
-      txTemplate.executeWithoutResult(
-          s -> {
-            calendarPort.applyLocalResponse(userId, row.accountEmail(), eventData(v), response);
-            inviteRepo.updateMyResponse(messageId, response);
-          });
     }
+  }
+
+  /** 보낸 응답을 내 캘린더·초대 행에 반영한다(tx 안). */
+  private void record(long userId, long messageId, Ctx ctx, String response) {
+    InviteRow row = ctx.row();
+    InviteValues v = row.values();
+    txTemplate.executeWithoutResult(
+        s -> {
+          if (MailProvider.M365_GRAPH.name().equals(row.provider())) {
+            // 동기화 사본의 내 응답을 바로 맞춘다(다음 동기화 전에도 화면이 맞게)
+            calendarPort.applySyncedResponse(userId, v.uid(), response);
+          } else {
+            // 내 캘린더 반영 — 수락·미정은 넣거나 고치고, 거절은 있으면 응답만
+            calendarPort.applyLocalResponse(userId, row.accountEmail(), eventData(v), response);
+          }
+          inviteRepo.updateMyResponse(messageId, response);
+        });
   }
 
   /** 응답 전 확인 결과. */

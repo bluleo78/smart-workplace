@@ -5,6 +5,10 @@ import static com.workplace.jooq.Tables.EMAIL_MESSAGE;
 import static com.workplace.jooq.Tables.EVENT_ATTENDEE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 
 import com.icegreen.greenmail.configuration.GreenMailConfiguration;
 import com.icegreen.greenmail.junit5.GreenMailExtension;
@@ -17,6 +21,7 @@ import com.workplace.mail.dto.CalendarInvite;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.exception.MailInviteNotFoundException;
 import com.workplace.mail.exception.MailInviteNotRespondableException;
+import com.workplace.mail.outbound.MailInviteCalendarPort;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailMessageService;
@@ -38,6 +43,7 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -62,6 +68,9 @@ class MailCalendarInviteImapTest extends ExternalClientMockedTestBase {
   @Autowired EncryptionService encryption;
   @Autowired CalendarInviteEventRepository inviteEventRepo;
   @Autowired CalendarService calendarService;
+
+  /** 응답을 보낸 뒤 캘린더 반영이 실패하는 경우를 만들 때만 끼어든다(기본은 실제 구현). */
+  @MockitoSpyBean MailInviteCalendarPort calendarPort;
 
   static final String UID = "wp986-invite@google.com";
 
@@ -509,6 +518,31 @@ class MailCalendarInviteImapTest extends ExternalClientMockedTestBase {
     assertThat(second.eventId()).isEqualTo(first.eventId());
     assertThat(second.myResponse()).isEqualTo("ACCEPTED");
     assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.ICAL_UID.eq(UID))).isEqualTo(1);
+    assertThat(greenMail.waitForIncomingEmail(500, 3)).isFalse();
+    assertThat(replies()).hasSize(1);
+  }
+
+  /**
+   * 응답 메일이 나간 뒤 캘린더 반영이 실패해도 선점(내 응답)을 되돌리지 않는다 — 되돌리면 다시 누를 때 주최자에게 REPLY 가 두 번 간다(PR #962 리뷰).
+   */
+  @Test
+  void recordFailsAfterReplySent_keepsClaim_andRetryDoesNotResend() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = newAccount(user);
+    long id = deliverInvite(user, accountId, "초대: 반영 실패", ics("REQUEST", 0, "20261103T100000"));
+    messageService.get(user, id, false);
+    doThrow(new IllegalStateException("캘린더 반영 실패"))
+        .doCallRealMethod()
+        .when(calendarPort)
+        .applyLocalResponse(anyLong(), anyString(), any(), anyString());
+
+    assertThatThrownBy(() -> inviteService.respond(user, id, "ACCEPTED"))
+        .isInstanceOf(IllegalStateException.class);
+    greenMail.waitForIncomingEmail(2);
+    assertThat(replies()).hasSize(1);
+
+    CalendarInvite again = inviteService.respond(user, id, "ACCEPTED");
+    assertThat(again.myResponse()).isEqualTo("ACCEPTED");
     assertThat(greenMail.waitForIncomingEmail(500, 3)).isFalse();
     assertThat(replies()).hasSize(1);
   }
