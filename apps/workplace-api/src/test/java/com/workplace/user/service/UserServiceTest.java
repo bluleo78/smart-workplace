@@ -378,6 +378,28 @@ class UserServiceTest extends IntegrationTestBase {
   }
 
   @Test
+  void updateProfile_blankEmail_clearsToNull_andDoesNotCollide() {
+    // WP-1098: 빈 문자열 이메일은 「이메일 없음」(null)으로 정리된다 — '' 가 저장되면 두 번째로 지우는 사람이 '' 끼리 겹쳐 409 를 받았다.
+    Long other =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "blank-other@example.com")
+            .set(USER.PASSWORD, "password")
+            .set(USER.NAME, "Other User")
+            .set(USER.EMAIL, "blank-other@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+
+    userService.updateProfile(testUserId, "Test User", "");
+    userService.updateProfile(other, "Other User", "");
+
+    assertThat(dsl.select(USER.EMAIL).from(USER).where(USER.ID.eq(testUserId)).fetchOne().value1())
+        .isNull();
+    assertThat(dsl.select(USER.EMAIL).from(USER).where(USER.ID.eq(other)).fetchOne().value1())
+        .isNull();
+  }
+
+  @Test
   void updateProfile_emailCaseVariantOfOther_throwsException() {
     // WP-613: 대소문자만 바꾼 남의 이메일도 같은 이메일이다 — 이메일로 사람을 찾는 곳(캘린더 참석자·운영자 조회)이 대소문자를 무시한다.
     dsl.insertInto(USER)

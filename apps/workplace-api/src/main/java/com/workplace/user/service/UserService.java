@@ -330,7 +330,7 @@ public class UserService {
       throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
     }
     // 이메일은 선택값. 공백/널이면 null 로 저장하고, 값이 있으면 중복 검사.
-    String email = (req.email() == null || req.email().isBlank()) ? null : req.email();
+    String email = Texts.blankToNull(req.email());
     if (email != null && userRepository.existsByEmail(email)) {
       throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
     }
@@ -519,9 +519,12 @@ public class UserService {
   }
 
   @Transactional
-  public void updateProfile(Long userId, String rawName, String email) {
+  public void updateProfile(Long userId, String rawName, String rawEmail) {
     // WP-572: 이름 앞뒤 공백·보이지 않는 문자를 다듬고, 비거나 제어 문자가 섞인 이름은 거절한다.
     String name = PersonNames.normalize(rawName);
+    // WP-1098: 빈 이메일은 「이메일 없음」(null) — 구성원 생성·가입과 같은 규칙. '' 가 그대로 저장돼 다음에 지우는 사람이 '' 끼리 겹쳐 409 를
+    // 받았다.
+    String email = Texts.blankToNull(rawEmail);
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
 

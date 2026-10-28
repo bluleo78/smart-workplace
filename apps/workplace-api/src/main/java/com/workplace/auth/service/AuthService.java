@@ -17,6 +17,7 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.DefaultTenant;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.PersonNames;
+import com.workplace.global.util.Texts;
 import com.workplace.role.exception.RoleNotFoundException;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.tenant.dto.MembershipResponse;
@@ -91,9 +92,9 @@ public class AuthService {
       // 사용자에게 한국어 메시지 반환 — 영문 원문 메시지 노출 방지
       throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
     }
-    if (request.email() != null
-        && !request.email().isBlank()
-        && userRepository.existsByEmail(request.email())) {
+    // WP-1098: 빈 이메일은 「이메일 없음」(null)으로 저장한다 — '' 를 그대로 저장하면 다음에 빈 이메일로 가입하는 사람이 '' 끼리 겹쳤다.
+    String email = Texts.blankToNull(request.email());
+    if (email != null && userRepository.existsByEmail(email)) {
       // 사용자에게 한국어 메시지 반환 — 영문 원문 메시지 노출 방지
       throw new EmailAlreadyExistsException("이미 사용 중인 이메일입니다.");
     }
@@ -105,10 +106,7 @@ public class AuthService {
     // WP-572: 이름 앞뒤 공백·보이지 않는 문자를 다듬고, 비거나 제어 문자가 섞인 이름은 거절한다.
     UserResponse user =
         userRepository.save(
-            request.username(),
-            request.email(),
-            encodedPassword,
-            PersonNames.normalize(request.name()));
+            request.username(), email, encodedPassword, PersonNames.normalize(request.name()));
 
     // Assign roles: first user gets ADMIN + USER, subsequent users get USER only
     Long userRoleId =
