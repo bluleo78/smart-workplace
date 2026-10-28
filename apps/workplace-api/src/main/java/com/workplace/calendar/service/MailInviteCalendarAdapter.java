@@ -68,7 +68,7 @@ public class MailInviteCalendarAdapter implements MailInviteCalendarPort {
       InviteEventData event,
       String response,
       boolean retryOnConflict) {
-    // 같은 주인·UID 앱 일정은 V230 유일 인덱스로 많아야 하나
+    // 같은 주인·UID 앱 일정은 V231 유일 인덱스로 많아야 하나
     Optional<InviteEventRow> existing =
         inviteRepo.findOwnedByUid(userId, event.uid()).stream()
             .filter(InviteEventRow::local)
