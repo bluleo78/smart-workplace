@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
-import { andParticle, directionParticle, euroRo, initialOf, objectParticle, subjectParticle } from './utils'
+import { andParticle, cn, directionParticle, euroRo, initialOf, objectParticle, subjectParticle } from './utils'
+
+describe('cn — 줄바꿈 클래스 병합 (WP-1073)', () => {
+  it('break-words(overflow-wrap)는 break-keep(word-break)과 함께 남는다 — 지워지면 긴 제목이 넘친다', () => {
+    expect(cn('break-words break-keep')).toBe('break-words break-keep')
+    expect(cn('break-keep', 'break-words')).toBe('break-keep break-words')
+  })
+
+  it('같은 묶음끼리는 여전히 뒤의 것이 이긴다', () => {
+    expect(cn('break-words wrap-anywhere')).toBe('wrap-anywhere')
+    expect(cn('wrap-anywhere', 'break-words')).toBe('break-words')
+    expect(cn('break-all break-keep')).toBe('break-keep')
+  })
+})
 
 // 아바타 이니셜 — 법인 표기·기호로 시작하는 이름이 '(' 같은 기호를 이니셜로 쓰던 문제(WP-198).
 describe('initialOf', () => {
