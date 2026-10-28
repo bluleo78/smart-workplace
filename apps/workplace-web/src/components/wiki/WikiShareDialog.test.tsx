@@ -46,10 +46,10 @@ vi.mock('../../hooks/queries/useWikiShare', async () => {
 // 사람 고르기는 실제 검색 대신 한 명(id 7)을 바로 고르는 버튼으로 대신한다 — payload 만 본다.
 // 사람·팀 검색(WP-1023)의 실제 검색·부서·내 그룹은 pages/wiki/wikiShare.test.tsx 가 MSW 로 본다.
 vi.mock('./ShareTargetSearchPopover', () => ({
-  ShareTargetSearchPopover: ({ onSelectPerson, trigger }: { onSelectPerson: (u: { id: number }) => void; trigger: React.ReactNode }) => (
+  ShareTargetSearchPopover: ({ onSelectPerson, trigger }: { onSelectPerson: (userId: number) => void; trigger: React.ReactNode }) => (
     <div>
       {trigger}
-      <button type="button" onClick={() => onSelectPerson({ id: 7 })}>
+      <button type="button" onClick={() => onSelectPerson(7)}>
         7번 고르기
       </button>
     </div>

@@ -19,3 +19,16 @@ export function useGroupMemberSearch(groupId: number, q: string) {
     staleTime: 10_000,
   })
 }
+
+/**
+ * 그룹과 하위 조직의 구성원 전체(WP-1048) — 노트 공유 창에서 지정한 부서의 지금 구성원을 펼쳐 볼 때. 펼칠 때만 받는다(enabled).
+ * 검색과 같은 엔드포인트에 빈 검색어 — 서버가 하위 조직까지 모아 한 사람은 한 번만(가장 가까운 소속) 준다.
+ */
+export function useGroupAllMembers(groupId: number, enabled = true) {
+  return useQuery<UserGroupMemberHit[]>({
+    queryKey: userGroupKeys.memberSearch(groupId, ''),
+    queryFn: () => userGroupsApi.searchMembers(groupId, '').then((r) => r.data),
+    enabled,
+    staleTime: 10_000,
+  })
+}

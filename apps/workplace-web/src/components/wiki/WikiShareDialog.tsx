@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Copy, Info, Link2, RefreshCw, UserPlus, Users, X } from 'lucide-react'
+import { Building2, ChevronDown, Copy, Info, Link2, RefreshCw, UserPlus, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -44,6 +44,7 @@ import type {
   WikiSharePermission,
 } from '../../types/wiki'
 import { WIKI_SHARE_MESSAGE_MAX } from '../../types/wiki'
+import { ShareGroupMembers } from './ShareGroupMembers'
 import { ShareTargetSearchPopover } from './ShareTargetSearchPopover'
 import {
   addGroupMembers,
@@ -167,6 +168,14 @@ export function WikiShareDialog({
   const [historyOpen, setHistoryOpen] = useState(false)
   const events = useWikiShareEvents(pageId, open && historyOpen)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // 구성원을 펼쳐 본 부서(WP-1048) — 부서 행의 ▾.
+  const [openGroupIds, setOpenGroupIds] = useState<Set<number>>(() => new Set())
+  const toggleGroupMembers = (groupId: number) =>
+    setOpenGroupIds((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(groupId)) next.add(groupId)
+      return next
+    })
   // 지정한 사람에 추가할 때 보낼 알림 — 기본 켬, 메시지는 선택.
   const [notify, setNotify] = useState(true)
   const [message, setMessage] = useState('')
@@ -549,39 +558,55 @@ export function WikiShareDialog({
                   ) : (
                     <ul className="space-y-1">
                       {/* 지정한 조직도 부서(WP-1023) — 한 줄로 이름과 지금 열 수 있는 사람 수(하위 부서 포함). 구성원이 바뀌면 열 수 있는 사람도 바뀐다. */}
-                      {share.groups.map((g) => (
-                        <li
-                          key={`g${g.groupId}`}
-                          className="flex items-center justify-between gap-2 text-sm"
-                          data-testid={`wiki-share-group-${g.groupId}`}
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span
-                              aria-hidden="true"
-                              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-                            >
-                              <Users className="size-3.5" />
-                            </span>
-                            <span className="truncate">
-                              {g.name} · {g.memberCount}명
-                            </span>
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-7 text-muted-foreground"
-                            aria-label={`${g.name} 빼기`}
-                            disabled={busy}
-                            onClick={() =>
-                              change((latest) => ({
-                                groupIds: latest.groups.filter((x) => x.groupId !== g.groupId).map((x) => x.groupId),
-                              }))
-                            }
-                          >
-                            <X aria-hidden="true" />
-                          </Button>
-                        </li>
-                      ))}
+                      {/* ▾ 로 지금 열 수 있는 구성원(하위 부서 포함)을 펼쳐 본다(WP-1048) — 펼칠 때만 받는다. */}
+                      {share.groups.map((g) => {
+                        const membersOpen = openGroupIds.has(g.groupId)
+                        return (
+                          <li key={`g${g.groupId}`} className="text-sm" data-testid={`wiki-share-group-${g.groupId}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="flex min-w-0 items-center gap-2">
+                                <span
+                                  aria-hidden="true"
+                                  className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+                                >
+                                  <Building2 className="size-3.5" />
+                                </span>
+                                <span className="truncate">
+                                  {g.name} · {g.memberCount}명
+                                </span>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-6 shrink-0 text-muted-foreground"
+                                  aria-label={`${g.name} 구성원 ${membersOpen ? '접기' : '보기'}`}
+                                  aria-expanded={membersOpen}
+                                  onClick={() => toggleGroupMembers(g.groupId)}
+                                  data-testid={`wiki-share-group-toggle-${g.groupId}`}
+                                >
+                                  <ChevronDown className={cn('transition-transform', !membersOpen && '-rotate-90')} aria-hidden="true" />
+                                </Button>
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-muted-foreground"
+                                aria-label={`${g.name} 빼기`}
+                                disabled={busy}
+                                onClick={() => {
+                                  // 뺀 부서의 펼침도 지운다 — 다시 더했을 때 펼친 채로 나와 구성원을 바로 받지 않게.
+                                  if (membersOpen) toggleGroupMembers(g.groupId)
+                                  change((latest) => ({
+                                    groupIds: latest.groups.filter((x) => x.groupId !== g.groupId).map((x) => x.groupId),
+                                  }))
+                                }}
+                              >
+                                <X aria-hidden="true" />
+                              </Button>
+                            </div>
+                            {membersOpen && <ShareGroupMembers groupId={g.groupId} />}
+                          </li>
+                        )
+                      })}
                       {share.people.map((p) => (
                         <li key={p.userId} className="flex items-center justify-between gap-2 text-sm">
                           <span className="flex min-w-0 items-center gap-2">
@@ -618,7 +643,8 @@ export function WikiShareDialog({
                       onOpenChange={setPickerOpen}
                       existingUserIds={new Set(share.people.map((p) => p.userId))}
                       existingGroupIds={new Set(share.groups.map((g) => g.groupId))}
-                      onSelectPerson={(u) => addPerson(u.id)}
+                      excludeUserIds={new Set([user?.id, share.createdBy.userId].filter((id): id is number => id != null))}
+                      onSelectPerson={addPerson}
                       onSelectDepartment={addDepartment}
                       onSelectPersonalGroup={(g) => void addPersonalGroup(g)}
                       trigger={

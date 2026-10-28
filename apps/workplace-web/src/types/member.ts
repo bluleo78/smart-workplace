@@ -22,4 +22,6 @@ export interface MemberSummary {
   description?: string | null
   /** AI 의 실행 방식(INTERNAL=서버에서 실행 · EXTERNAL=외부 에이전트). 사람은 null. */
   agentRuntime?: 'INTERNAL' | 'EXTERNAL' | null
+  /** 소속 부서(WP-1048) — 직접 속한 조직도 부서 하나의 이름(정렬 순서가 앞인 것). 없으면 null. */
+  department?: string | null
 }

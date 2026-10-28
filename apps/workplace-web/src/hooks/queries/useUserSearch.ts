@@ -31,6 +31,8 @@ export type MemberPickerCandidate = {
   email: string | null;
   isActive: boolean;
   kind: UserResponse['kind'];
+  /** 소속 부서(WP-1048) — 직접 속한 조직도 부서 하나. 같은 이름을 가르려고 이름 옆에 보인다. 없으면 null. */
+  department: string | null;
 };
 
 export function useUserSearch(query: string, kind: 'HUMAN' | 'AGENT' | 'ALL' = 'HUMAN') {
@@ -44,6 +46,7 @@ export function useUserSearch(query: string, kind: 'HUMAN' | 'AGENT' | 'ALL' = '
     email: m.email,
     isActive: m.active,
     kind: m.kind,
+    department: m.department ?? null,
   }));
   return { ...q, data: q.data ? { ...q.data, content } : undefined };
 }
