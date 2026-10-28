@@ -16,6 +16,8 @@ export interface MemberRow {
   /** AI 의 설명(역할)·실행 방식 INTERNAL|EXTERNAL(WP-455). 사람은 null. */
   description?: string | null;
   agentRuntime?: string | null;
+  /** AI 의 지시(WP-1077) — 서버가 AI 본인의 단건 조회(GET /members/{내 id})에만 싣는다. */
+  instructions?: string | null;
   [key: string]: unknown;
 }
 

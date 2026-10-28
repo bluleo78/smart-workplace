@@ -203,6 +203,7 @@ public class UserRepository {
             USER.CREATED_AT,
             USER.AGENT_RUNTIME,
             USER.DESCRIPTION,
+            USER.INSTRUCTIONS,
             keyLastUsed,
             owner.NAME,
             WORKSPACE_ASSISTANT.AGENT_USER_ID)
@@ -241,7 +242,8 @@ public class UserRepository {
                   isPersonal ? ownerName : null,
                   r.get(USER.AGENT_RUNTIME),
                   r.get(keyLastUsed) != null ? r.get(keyLastUsed).toInstant() : null,
-                  r.get(USER.DESCRIPTION));
+                  r.get(USER.DESCRIPTION),
+                  r.get(USER.INSTRUCTIONS));
             });
   }
 
@@ -293,23 +295,34 @@ public class UserRepository {
   }
 
   /**
-   * AGENT 의 식별자(username)·표시 이름(name)·설명(description)만 변경한다. email/password 등 다른 필드는 절대 건드리지
-   * 않는다(관리자 rename 전용). description 이 null 이면 지운다.
+   * AGENT 의 식별자(username)·표시 이름(name)·설명(description)·지시(instructions, WP-1077)만 변경한다.
+   * email/password 등 다른 필드는 절대 건드리지 않는다(관리자 rename 전용). description·instructions 가 null 이면 지운다.
    */
-  public void renameAgentIdentity(Long id, String username, String name, String description) {
+  public void renameAgentIdentity(
+      Long id, String username, String name, String description, String instructions) {
     dsl.update(USER)
         .set(USER.USERNAME, username)
         .set(USER.NAME, name)
         .set(USER.DESCRIPTION, description)
+        .set(USER.INSTRUCTIONS, instructions)
         .set(USER.UPDATED_AT, LocalDateTime.now())
         .where(USER.ID.eq(id))
         .execute();
   }
 
-  /** AGENT 설명(역할) 조회 (WP-455) — 관리자 변경 감사 로그에 설명이 바뀌었는지 남기려고 이전 값을 읽는다. 없거나 비었으면 null. */
-  public String findDescription(Long id) {
-    return dsl.select(USER.DESCRIPTION).from(USER).where(USER.ID.eq(id)).fetchOne(USER.DESCRIPTION);
+  /**
+   * AGENT 설명(역할, WP-455)·지시(WP-1077) 조회 — 관리자 변경에서 빠진 칸은 그대로 두고, 감사 로그에 무엇이 바뀌었는지 남기려고 이전 값을 읽는다.
+   * 호출 전에 행이 있음을 확인한다. 비었으면 각각 null.
+   */
+  public AgentTexts findAgentTexts(Long id) {
+    return dsl.select(USER.DESCRIPTION, USER.INSTRUCTIONS)
+        .from(USER)
+        .where(USER.ID.eq(id))
+        .fetchSingle(r -> new AgentTexts(r.get(USER.DESCRIPTION), r.get(USER.INSTRUCTIONS)));
   }
+
+  /** AGENT 의 설명(역할)·지시 한 쌍 — {@link #findAgentTexts(Long)} 의 결과. */
+  public record AgentTexts(String description, String instructions) {}
 
   /**
    * 에이전트 실행 방식(INTERNAL|EXTERNAL) 변경 (WP-371). 호출 전 AGENT 여부·보호 대상(비서) 검증은 서비스가 한다. 값이 실제로 바뀐 경우에만

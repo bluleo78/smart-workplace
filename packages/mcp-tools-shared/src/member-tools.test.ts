@@ -46,6 +46,19 @@ describe('get_member 의 me (WP-376)', () => {
     expect(out).toEqual({ username: 'ai', name: 'AI', kind: 'AGENT', active: true });
   });
 
+  it("get_member: 'me' 는 서버가 실어 준 지시(instructions)를 그대로 준다 — 비어 있으면 키째 뺀다 (WP-1077)", async () => {
+    const c = mockClient();
+    vi.mocked(c.getMe).mockResolvedValue({ id: 7, username: 'ai-dev' });
+    vi.mocked(c.getMember).mockResolvedValue({ ...aiRow, instructions: '다른 서비스를 참고한다' });
+    const out = JSON.parse(resultText(await tool(c, 'get_member').handler({ username: 'me' })));
+    expect(out.instructions).toBe('다른 서비스를 참고한다');
+
+    vi.mocked(c.getMember).mockResolvedValue({ ...aiRow, instructions: null });
+    const empty = JSON.parse(resultText(await tool(c, 'get_member').handler({ username: 'me' })));
+    expect(empty).not.toHaveProperty('instructions');
+    expect(tool(c, 'get_member').description).toContain('instructions');
+  });
+
   it("get_member: ' ME ' 도 호출자다", async () => {
     const c = mockClient();
     vi.mocked(c.getMe).mockResolvedValue({ id: 7, username: 'ai-dev' });

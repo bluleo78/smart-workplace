@@ -55,9 +55,13 @@ public class MemberController {
     return ResponseEntity.ok(service.list(callerId, search, kind, includeInactive, page, size));
   }
 
-  /** 구성원 단건. 다른 테넌트 사용자는 404 — 존재 자체를 노출하지 않는다. */
+  /** 구성원 단건. 다른 테넌트 사용자는 404 — 존재 자체를 노출하지 않는다. 자기 자신(AI)을 읽으면 지시도 싣는다(WP-1077). */
   @GetMapping("/{userId}")
-  public ResponseEntity<MemberSummary> get(@PathVariable("userId") long userId) {
-    return service.get(userId).map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
+  public ResponseEntity<MemberSummary> get(
+      @AuthenticationPrincipal Long callerId, @PathVariable("userId") long userId) {
+    return service
+        .get(callerId, userId)
+        .map(ResponseEntity::ok)
+        .orElse(ResponseEntity.notFound().build());
   }
 }

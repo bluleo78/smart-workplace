@@ -18,6 +18,7 @@ const AGENTS: AgentResponse[] = [
     ownerName: null,
     runtime: 'EXTERNAL',
     description: null,
+    instructions: null,
     lastKeyUsedAt: null,
   },
   {
@@ -31,6 +32,7 @@ const AGENTS: AgentResponse[] = [
     ownerName: '김민수',
     runtime: 'INTERNAL',
     description: null,
+    instructions: null,
     lastKeyUsedAt: null,
   },
 ]

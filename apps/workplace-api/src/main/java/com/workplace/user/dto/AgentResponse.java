@@ -14,6 +14,8 @@ import java.time.LocalDateTime;
  * 없거나 한 번도 안 쓰였으면 null) — 외부 에이전트가 실제로 접속 중인지 가늠하는 용도.
  *
  * <p>WP-455: description 은 설명(역할) — 다른 AI 가 일을 맡길 상대를 고를 때 읽는다. 비어 있으면 null.
+ *
+ * <p>WP-1077: instructions 는 지시 — 그 AI 자신이 이슈를 맡을 때마다 따르는 규칙(관리자 목록에만, 다른 AI 는 못 본다). 비어 있으면 null.
  */
 public record AgentResponse(
     Long id,
@@ -26,7 +28,8 @@ public record AgentResponse(
     String ownerName,
     String runtime,
     Instant lastKeyUsedAt,
-    String description) {
+    String description,
+    String instructions) {
 
   public static final String TYPE_PERSONAL = "PERSONAL";
   public static final String TYPE_WORKSPACE = "WORKSPACE";

@@ -1,5 +1,7 @@
 package com.workplace.member.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 /**
  * 구성원 디렉터리 항목 (#833).
  *
@@ -14,6 +16,8 @@ package com.workplace.member.dto;
  *     null.
  * @param agentRuntime AI 의 실행 방식 INTERNAL(서버에서 실행)/EXTERNAL(외부 에이전트) — 사람은 null.
  * @param department 소속 부서(WP-1048) — 직접 속한 조직도 부서 하나의 이름(정렬 순서가 앞인 것). 없으면 null.
+ * @param instructions AI 의 지시(WP-1077) — 그 AI 자신이 이슈를 맡을 때마다 따르는 규칙. AI 가 자기 자신을 단건 조회할 때만 싣고,
+ *     목록·남의 조회에는 빠진다(null 이면 JSON 에서 키째 뺀다).
  */
 public record MemberSummary(
     long userId,
@@ -27,4 +31,5 @@ public record MemberSummary(
     String membershipStatus,
     String description,
     String agentRuntime,
-    String department) {}
+    String department,
+    @JsonInclude(JsonInclude.Include.NON_NULL) String instructions) {}

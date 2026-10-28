@@ -220,6 +220,11 @@ public class User extends TableImpl<UserRecord> {
      */
     public final TableField<UserRecord, String> DESCRIPTION = createField(DSL.name("description"), SQLDataType.VARCHAR(500), this, "");
 
+    /**
+     * The column <code>public.user.instructions</code>.
+     */
+    public final TableField<UserRecord, String> INSTRUCTIONS = createField(DSL.name("instructions"), SQLDataType.VARCHAR(4000), this, "");
+
     private User(Name alias, Table<UserRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

@@ -22,6 +22,7 @@ const base = {
   ownerName: null,
   lastKeyUsedAt: null,
   description: null,
+  instructions: null,
 } as const
 
 // 일반 내부 1 · 외부(5분 전 키 사용) 1 · 외부(키 미사용) 1 · 공통 비서 1.
@@ -39,6 +40,8 @@ function makeAgents(): AgentResponse[] {
     },
     { ...base, id: 102, username: 'ext_new', name: '외부신규', type: 'REGULAR', runtime: 'EXTERNAL' },
     { ...base, id: 103, username: 'ws_bot', name: '공통봇', type: 'WORKSPACE', runtime: 'INTERNAL' },
+    // 외부일 때 지시를 적고 내부로 바꾼 AI — 지시가 남아 있으면 칸을 보여 지울 수 있어야 한다(WP-1077).
+    { ...base, id: 104, username: 'was_ext', name: '전외부봇', type: 'REGULAR', runtime: 'INTERNAL', instructions: '옛 지시' },
   ]
 }
 
@@ -199,7 +202,7 @@ test('기록이 남아 서버가 사용 중지(DEACTIVATED)하면 삭제 대신 
   expect(screen.queryByText('에이전트를 삭제했습니다')).not.toBeInTheDocument()
 })
 
-test('이름·아이디·설명을 바꿔 저장하면 설명 앞뒤 공백을 걷어 PUT 하고 변경 토스트를 띄운다 (WP-455)', async () => {
+test('이름·아이디·설명을 바꿔 저장하면 설명 앞뒤 공백을 걷어 PUT 하고 변경 토스트를 띄운다 — 내부 AI 는 지시 칸이 없다 (WP-455, WP-1077)', async () => {
   const { user, calls } = await renderAgents()
   await openDrawer(user, 100)
   const name = await screen.findByTestId('agent-name-input')
@@ -208,12 +211,47 @@ test('이름·아이디·설명을 바꿔 저장하면 설명 앞뒤 공백을 �
   const username = screen.getByTestId('agent-username-input')
   await user.clear(username)
   await user.paste('ai-dev-v2')
+  // 내부 AI 는 지시를 읽지 않으므로 지시 칸이 없고, 저장해도 지시를 보내지 않는다(WP-1077).
+  expect(screen.queryByTestId('agent-instructions-input')).not.toBeInTheDocument()
   await user.click(screen.getByLabelText('설명(역할)'))
   await user.paste('  코드 리뷰를 맡습니다.  ')
   await user.click(screen.getByTestId('agent-identity-save'))
 
   expect(await screen.findByText('에이전트를 변경했습니다')).toBeInTheDocument()
   expect(calls.puts).toEqual([{ username: 'ai-dev-v2', name: '내부봇 v2', description: '코드 리뷰를 맡습니다.' }])
+})
+
+test('외부 AI 는 지시 칸이 보이고 앞뒤 공백을 걷어 PUT 한다 (WP-1077)', async () => {
+  const { user, calls } = await renderAgents()
+  await openDrawer(user, 101)
+  const instructions = await screen.findByLabelText('지시')
+  expect(screen.getByText(/이 AI 가 이슈를 맡을 때마다 따르는 규칙입니다/)).toBeInTheDocument()
+  await user.click(instructions)
+  await user.paste('  - 기획 이슈는 다른 서비스 사례를 조사해 근거를 붙인다.\n')
+  await user.click(screen.getByTestId('agent-identity-save'))
+
+  expect(await screen.findByText('에이전트를 변경했습니다')).toBeInTheDocument()
+  expect(calls.puts).toEqual([
+    {
+      username: 'ext_bot',
+      name: '외부봇',
+      description: '',
+      instructions: '- 기획 이슈는 다른 서비스 사례를 조사해 근거를 붙인다.',
+    },
+  ])
+})
+
+test('내부 AI 라도 적힌 지시가 있으면 칸과 「읽지 않는다」 안내를 보이고, 비워 저장하면 빈 지시를 보낸다 (WP-1077)', async () => {
+  const { user, calls } = await renderAgents()
+  await openDrawer(user, 104)
+  const instructions = await screen.findByLabelText('지시')
+  expect(instructions).toHaveValue('옛 지시')
+  expect(screen.getByText('서버에서 실행하는 AI 는 지시를 읽지 않습니다. 외부로 바꾸면 다시 따릅니다.')).toBeInTheDocument()
+  await user.clear(instructions)
+  await user.click(screen.getByTestId('agent-identity-save'))
+
+  expect(await screen.findByText('에이전트를 변경했습니다')).toBeInTheDocument()
+  expect(calls.puts).toEqual([{ username: 'was_ext', name: '전외부봇', description: '', instructions: '' }])
 })
 
 test('내부 → 외부로 바꾸면 AI 연결 대신 외부 연결 카드(설치·로그인·전환·work-loop 명령)가 보이고 키 발급창엔 평문 키 명령이 없다', async () => {

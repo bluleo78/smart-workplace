@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
@@ -73,9 +74,18 @@ public class MemberDirectoryRepository {
           USER.AGENT_RUNTIME,
           DEPARTMENT);
 
+  /** AI 본인 단건 조회 컬럼 — 공용 컬럼에 지시(WP-1077)를 더한다. */
+  private static final List<SelectField<?>> FIELDS_WITH_INSTRUCTIONS =
+      Stream.concat(FIELDS.stream(), Stream.of(USER.INSTRUCTIONS)).toList();
+
   /** 목록/단건 공용 select + join. */
   private SelectOnConditionStep<Record> base() {
-    return dsl.select(FIELDS).from(USER).join(MEMBERSHIP).on(MEMBERSHIP.USER_ID.eq(USER.ID));
+    return base(FIELDS);
+  }
+
+  /** 공용 join 에 고른 컬럼만 — 단건 본인 조회가 지시 컬럼을 더할 때 쓴다(WP-1077). */
+  private SelectOnConditionStep<Record> base(List<SelectField<?>> fields) {
+    return dsl.select(fields).from(USER).join(MEMBERSHIP).on(MEMBERSHIP.USER_ID.eq(USER.ID));
   }
 
   /**
@@ -125,7 +135,7 @@ public class MemberDirectoryRepository {
         .orderBy(sortFields(search))
         .offset(offset)
         .limit(limit)
-        .fetch(this::map);
+        .fetch(r -> map(r, false));
   }
 
   /**
@@ -173,12 +183,15 @@ public class MemberDirectoryRepository {
     return count == null ? 0 : count;
   }
 
-  /** 단건 조회. 다른 테넌트 사용자는 빈 값 — 존재 자체를 노출하지 않는다. */
+  /**
+   * 단건 조회. 다른 테넌트 사용자는 빈 값 — 존재 자체를 노출하지 않는다. withInstructions 면 AI 의 지시(WP-1077)도 같은 쿼리로 읽어 싣는다 —
+   * AI 본인 조회에서만 켠다(목록·남의 조회는 지시 컬럼을 읽지도 않는다).
+   */
   @Transactional(readOnly = true)
-  public Optional<MemberSummary> findOne(long tenantId, long userId) {
-    return base()
+  public Optional<MemberSummary> findOne(long tenantId, long userId, boolean withInstructions) {
+    return base(withInstructions ? FIELDS_WITH_INSTRUCTIONS : FIELDS)
         .where(scope(tenantId, null, UserKind.ALL_FILTER, true).and(USER.ID.eq(userId)))
-        .fetchOptional(this::map);
+        .fetchOptional(r -> map(r, withInstructions));
   }
 
   /**
@@ -199,7 +212,7 @@ public class MemberDirectoryRepository {
         .fetch(r -> Map.entry(r.get(USER.USERNAME), r.get(USER.ID)));
   }
 
-  private MemberSummary map(Record r) {
+  private MemberSummary map(Record r, boolean withInstructions) {
     boolean isAgent = UserKind.isAgent(r.get(USER.KIND));
     return new MemberSummary(
         r.get(USER.ID),
@@ -215,6 +228,8 @@ public class MemberDirectoryRepository {
         // 설명(역할)·실행 방식은 AI 에만 뜻이 있다 — 사람 행의 컬럼 값(실행 방식 기본값 INTERNAL 등)은 내보내지 않는다.
         isAgent ? r.get(USER.DESCRIPTION) : null,
         isAgent ? r.get(USER.AGENT_RUNTIME) : null,
-        r.get(DEPARTMENT));
+        r.get(DEPARTMENT),
+        // 지시(WP-1077)는 AI 본인 단건 조회만 싣는다 — 그 밖에는 컬럼을 읽지 않았다.
+        withInstructions && isAgent ? r.get(USER.INSTRUCTIONS) : null);
   }
 }

@@ -160,7 +160,7 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
         .extracting(MemberSummary::department)
         .isNull();
     // 단건 조회도 같은 컬럼을 쓴다(목록·단건 공용 FIELDS).
-    assertThat(service.get(twoDepts))
+    assertThat(service.get(null, twoDepts))
         .get()
         .extracting(MemberSummary::department)
         .isEqualTo("플랫폼팀" + suffix);
@@ -249,7 +249,7 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
     assertThat(agents).contains(myAssistant, workspaceAgent).doesNotContain(othersAssistant);
     assertThat(service.list(insider, "Work Loop", "ALL", false, 0, 200).content()).isEmpty();
     // 단건 조회는 그대로 — 주인이 맡긴 이슈의 담당자 카드처럼 이미 보이는 자리에서는 열린다.
-    assertThat(service.get(othersAssistant)).isPresent();
+    assertThat(service.get(null, othersAssistant)).isPresent();
   }
 
   @Test
@@ -275,9 +275,9 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
 
   @Test
   void get_returnsMember_butHidesOtherTenantUser() {
-    assertThat(service.get(insider)).isPresent();
+    assertThat(service.get(null, insider)).isPresent();
     // 존재 자체를 숨긴다 — 빈 값이어야 하며 예외로 "있긴 있다"를 알려주면 안 된다.
-    assertThat(service.get(outsider)).isEmpty();
+    assertThat(service.get(null, outsider)).isEmpty();
   }
 
   @Test
@@ -291,7 +291,7 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
         .where(USER.ID.eq(reviewer))
         .execute();
 
-    MemberSummary ai = service.get(reviewer).orElseThrow();
+    MemberSummary ai = service.get(null, reviewer).orElseThrow();
     assertThat(ai.description()).isEqualTo("코드 리뷰를 맡습니다");
     assertThat(ai.agentRuntime()).isEqualTo("EXTERNAL");
     // 목록도 같은 칸을 준다(MCP search_members 가 쓰는 경로).
@@ -301,7 +301,7 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
         .satisfies(m -> assertThat(m.description()).isEqualTo("코드 리뷰를 맡습니다"));
 
     // 사람 행의 컬럼 기본값(INTERNAL)은 내보내지 않는다 — 실행 방식은 AI 에만 뜻이 있다.
-    MemberSummary human = service.get(insider).orElseThrow();
+    MemberSummary human = service.get(null, insider).orElseThrow();
     assertThat(human.agentRuntime()).isNull();
     assertThat(human.description()).isNull();
   }

@@ -13,6 +13,7 @@ import com.workplace.global.security.AuthDetails;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.PersonNames;
+import com.workplace.global.util.Texts;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.role.repository.RoleRepository;
 import com.workplace.role.service.RoleGrantGuard;
@@ -201,6 +202,28 @@ public class UserService {
       throw new IllegalArgumentException("아이디에는 글자·숫자와 . _ @ + - 만 쓸 수 있습니다");
     }
     return username;
+  }
+
+  /** 관리자 변경의 선택 글 칸(설명·지시) — 빠지면(null) 이전 값, 공백뿐이면 지움(null), 그 밖엔 앞뒤 공백을 뗀 값. */
+  private static String keepOrReplace(String previous, String requested) {
+    return requested == null ? previous : Texts.blankToNull(requested.strip());
+  }
+
+  /**
+   * 긴 글 칸(설명·지시)의 변경 감사 기록 — 문구엔 「<라벨> 변경」만 남기고, 전후 값(없으면 빈 문자열)은 메타 old·new<키> 에 둔다. 같으면 아무것도 남기지
+   * 않는다.
+   */
+  private static void recordTextChange(
+      List<String> changes,
+      Map<String, String> meta,
+      String label,
+      String metaKey,
+      String before,
+      String after) {
+    if (Objects.equals(before, after)) return;
+    changes.add(label + " 변경");
+    meta.put("old" + metaKey, Objects.requireNonNullElse(before, ""));
+    meta.put("new" + metaKey, Objects.requireNonNullElse(after, ""));
   }
 
   private String resolveUsername(Long callerId) {
@@ -425,15 +448,14 @@ public class UserService {
         throw new UsernameAlreadyExistsException("이미 사용 중인 아이디입니다.");
       }
     }
-    // 설명: 빠지면(null) 그대로 둔다 — 설명 칸을 모르는 옛 화면(배포 중·캐시된 PWA)이 이름만 바꿔도 지워지지 않게. 공백뿐이면 지운다.
-    String oldDescription = userRepository.findDescription(userId);
-    String description =
-        req.description() == null
-            ? oldDescription
-            : (req.description().isBlank() ? null : req.description().strip());
+    // 설명·지시: 빠지면(null) 그대로 둔다 — 그 칸을 모르는 옛 화면(배포 중·캐시된 PWA)이나 지시 칸을 숨긴 내부 AI 화면이 저장해도
+    // 지워지지 않게. 공백뿐이면 지운다.
+    UserRepository.AgentTexts old = userRepository.findAgentTexts(userId);
+    String description = keepOrReplace(old.description(), req.description());
+    String instructions = keepOrReplace(old.instructions(), req.instructions());
     // 표시 이름은 만들 때와 같은 사람 이름 규칙(WP-671).
     String name = PersonNames.normalize(req.name());
-    userRepository.renameAgentIdentity(userId, username, name, description);
+    userRepository.renameAgentIdentity(userId, username, name, description, instructions);
     // 감사 로그 — AGENT_RENAMED (이전/이후 username·name 메타).
     // 설명 문구엔 실제로 바뀐 필드만 반영한다 — username 이 그대로인 채 name 만 바뀌면
     // "username → 동일 username" 만 찍혀 변경이 없었던 것처럼 보이는 오해를 방지(#796).
@@ -449,12 +471,8 @@ public class UserService {
     if (!user.name().equals(name)) {
       changes.add("이름 " + user.name() + " → " + name);
     }
-    // 설명은 길어서 문구엔 바뀌었다는 사실만 남기고, 전후 값(없으면 빈 문자열)은 메타에 둔다.
-    if (!Objects.equals(oldDescription, description)) {
-      changes.add("설명 변경");
-      meta.put("oldDescription", Objects.requireNonNullElse(oldDescription, ""));
-      meta.put("newDescription", Objects.requireNonNullElse(description, ""));
-    }
+    recordTextChange(changes, meta, "설명", "Description", old.description(), description);
+    recordTextChange(changes, meta, "지시", "Instructions", old.instructions(), instructions);
     auditUserAction(
         callerId,
         resolveUsername(callerId),

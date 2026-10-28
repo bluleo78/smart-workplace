@@ -27,6 +27,7 @@ const base = {
   ownerName: null,
   lastKeyUsedAt: null,
   description: null,
+  instructions: null,
 } as const;
 
 function makeAgents(): AgentResponse[] {

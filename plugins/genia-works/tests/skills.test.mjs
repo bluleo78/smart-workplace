@@ -103,6 +103,14 @@ test('SKILL.md 는 맡길 AI 를 설명으로 고르고 내부 AI 는 피하게 
   assert.ok(text.includes('`agentRuntime` 이 `INTERNAL` 인 AI 는 다른 AI 가 맡겨도 시작하지 않으니 맡기지 않는다'));
 });
 
+// WP-1077 — 관리자가 적은 지시는 그 AI 자신이 매번 읽어야 한다. 신원 확인 응답에서 읽고, 저장소 규칙과 부딪히면 저장소가 이긴다.
+test('SKILL.md 는 신원 확인 응답의 지시(instructions)를 이번 부르기의 이슈에 따르게 하고 저장소 규칙을 먼저 둔다', () => {
+  const text = body(workLoop('SKILL.md'));
+  assertBefore(text, '**내 지시**', '`list_issues(');
+  assert.ok(text.includes('응답에 `instructions` 가 있으면'));
+  assert.ok(text.includes('`MAIN/.work-loop/project.md` 와 부딪히면 그쪽을 따르고'));
+});
+
 // WP-1009 받는 사람 지정 — 이슈 챗 글의 @username 만 멘션(알림·AI 참여)이 된다. 받는 사람은 get_issue_chat 의 participants 에서 고른다.
 test('SKILL.md 이슈 챗 글의 받는 사람은 participants 에서 골라 @username 으로 쓰고, 모두에게 하는 진행 보고에는 멘션하지 않는다', () => {
   const text = workLoop('SKILL.md');

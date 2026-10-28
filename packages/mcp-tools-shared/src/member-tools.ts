@@ -26,10 +26,17 @@ export interface ContactRow {
 /**
  * 구성원 행 → LLM 뷰. 숫자 userId 는 빼고 사람을 가리키는 username 만 준다(#833, WP-353). 쓰기 도구는 username 을 받아
  * 서버 쪽 id 로 해석하므로(requireMember 등) LLM 이 userId 를 알 필요가 없다. 나머지 필드(kind·active·email 등)는 그대로 둔다.
- * AI 의 설명(역할)·실행 방식(WP-455)은 값이 있을 때만 싣는다 — 사람 행마다 빈 칸 두 개가 붙지 않게 한다.
+ * AI 의 설명(역할)·실행 방식(WP-455)·지시(WP-1077, 서버가 AI 본인 단건 조회에만 싣는다)는 값이 있을 때만 싣는다 — 사람 행마다 빈 칸이
+ * 붙지 않게 한다.
  */
-export function toMemberView({ userId: _userId, description, agentRuntime, ...rest }: MemberRow): Omit<MemberRow, 'userId'> {
-  return { ...rest, ...dropEmpty({ description, agentRuntime }) };
+export function toMemberView({
+  userId: _userId,
+  description,
+  agentRuntime,
+  instructions,
+  ...rest
+}: MemberRow): Omit<MemberRow, 'userId'> {
+  return { ...rest, ...dropEmpty({ description, agentRuntime, instructions }) };
 }
 
 /**
@@ -176,8 +183,8 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       app: 'member',
       kind: 'read',
       description:
-        'Returns one member by username (from search_members; "me" = the caller): name, email, title, kind, active, membershipRole, ' +
-        'membershipStatus; AI members add description and agentRuntime (see search_members).',
+        'Returns one member by username ("me" = the caller): name, email, title, kind, active, membershipRole, membershipStatus; ' +
+        'AI members add description and agentRuntime; "me" adds instructions (rules to follow).',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);

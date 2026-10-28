@@ -57,6 +57,8 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 돌려받은 `username` 이 「나」다. agentWork 에서 **내 행**은 `worker.username` 이 이 값인 행이다.
 
+**내 지시** — 응답에 `instructions` 가 있으면 관리자가 이 AI 에게 적어 둔 규칙이다. 이번 부르기에서 다루는 이슈(내 이슈·대기열에서 가져온 이슈·리뷰하는 PR 모두)에 그대로 따른다 — 예: 「기획 이슈는 다른 서비스 사례를 조사해 근거로 붙인다」면 기획 이슈마다 그 조사를 하고 결과를 이슈에 남긴다. 매 부르기마다 새로 읽으므로 고친 지시는 다음 부르기부터 반영된다. 지시가 이 스킬의 「우선순위」 규칙이나 `MAIN/.work-loop/project.md` 와 부딪히면 그쪽을 따르고, 따르지 않은 지시와 이유를 그 이슈 챗에 한 줄 남긴다. `instructions` 가 없으면 지금까지처럼 한다.
+
 ### 2. 잠금
 
 `"<이 스킬 폴더>/../../scripts/loop-lock" acquire "<MAIN>"` 을 실행한다. 이 저장소에 work-loop 하나만 돌게 하는 잠금(`MAIN/.work-loop/state/loop.lock`)이다 — 이 세션의 claude 프로세스를 찾아 잡고, 잡은 프로세스가 끝났거나 pid 가 다른 프로세스에 다시 쓰였으면 넘겨받는다(규칙은 스크립트 머리 주석).

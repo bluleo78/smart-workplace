@@ -19,6 +19,8 @@ export interface AgentResponse {
   runtime: AgentRuntime;
   // 설명 — 다른 AI 가 일을 맡길 상대를 고를 때 읽는다(WP-455). 비어 있으면 null.
   description: string | null;
+  // 지시 — 이 AI 가 일할 때마다 따르는 규칙(WP-1077). 다른 AI 는 보지 않는다. 비어 있으면 null.
+  instructions: string | null;
   // 비회수 키의 마지막 사용 시각(ISO). 한 번도 안 썼으면 null.
   lastKeyUsedAt: string | null;
 }

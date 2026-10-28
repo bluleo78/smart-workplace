@@ -53,8 +53,13 @@ public class MemberDirectoryService {
     return new PageResponse<>(content, page, size, total, (int) Math.ceil((double) total / size));
   }
 
+  /**
+   * 구성원 단건. 보는 사람(viewerId)이 바로 그 AI 면 지시(WP-1077)를 함께 싣는다 — 외부 AI 의 work-loop 가 MCP
+   * get_member("me") 로 자기 지시를 읽는다. 남의 조회에는 싣지 않는다(지시는 그 AI 만 본다).
+   */
   @Transactional(readOnly = true)
-  public Optional<MemberSummary> get(long userId) {
-    return repository.findOne(TenantContext.require(), userId);
+  public Optional<MemberSummary> get(Long viewerId, long userId) {
+    boolean self = viewerId != null && viewerId == userId;
+    return repository.findOne(TenantContext.require(), userId, self);
   }
 }
