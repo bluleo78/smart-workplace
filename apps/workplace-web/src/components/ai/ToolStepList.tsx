@@ -33,9 +33,10 @@ export function ToolStepList({ steps, inDelegation = false }: { steps: ToolStep[
         // 앞에(이 그룹이나 앞 그룹에) 위임 헤더가 있을 때만 그 아래로 들여 쓴다.
         const nested = inDelegation || vis.slice(0, i).some((p) => p.kind === 'delegation');
         return (
+          // 줄이 좁아지면 설명만 … 로 줄인다 — 아이콘·라벨은 shrink-0 이라 라벨이 한 글자씩 꺾이지 않는다(WP-1050).
           <li key={i} className={cn('flex items-center gap-1.5', nested && 'pl-4')} data-testid="tool-step-tool">
-            <span>{icon}</span>
-            <span>{label}</span>
+            <span className="shrink-0">{icon}</span>
+            <span className="shrink-0">{label}</span>
             {detail && <span className="truncate text-muted-foreground">{detail}</span>}
             <StatusMark status={s.status} />
           </li>
