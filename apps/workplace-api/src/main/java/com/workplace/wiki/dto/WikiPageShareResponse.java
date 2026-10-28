@@ -7,7 +7,7 @@ import java.util.List;
  * 한 페이지의 공유 설정(WP-579) — 웹 {@code WikiPageShare} 와 필드 이름이 같다. token 은 링크 주소에 들어가는 값이라 공유 창이 언제든 다시
  * 복사할 수 있게 그대로 준다(편집자에게만 보이는 응답).
  *
- * @param people audience=PEOPLE 일 때 지정한 사람(그 밖에는 빈 목록)
+ * @param people audience=PEOPLE 일 때 지정한 사람과 지금 열 수 있는지(그 밖에는 빈 목록, 정지 여부는 WP-1063)
  * @param groups audience=PEOPLE 일 때 지정한 조직도 부서와 부서마다 지금 열 수 있는 사람 수(그 밖에는 빈 목록, WP-1023)
  * @param expiresAt 만료 시각(null 이면 무기한)
  * @param lastAccessedAt 링크가 마지막으로 열린 시각(없으면 null)
@@ -19,7 +19,7 @@ public record WikiPageShareResponse(
     String audience,
     String permission,
     boolean includeChildren,
-    List<WikiSharePerson> people,
+    List<WikiShareTargetPerson> people,
     List<WikiShareGroup> groups,
     WikiSharePerson createdBy,
     OffsetDateTime createdAt,

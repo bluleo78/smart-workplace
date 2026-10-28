@@ -1,5 +1,6 @@
 package com.workplace.wiki.repository;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
@@ -15,6 +16,7 @@ import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
 import com.workplace.global.org.Departments;
 import com.workplace.global.share.WikiShareTargets;
+import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.AccessRequest;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.ExcludedPage;
@@ -24,6 +26,7 @@ import com.workplace.wiki.dto.WikiShareEventResponse;
 import com.workplace.wiki.dto.WikiShareGroup;
 import com.workplace.wiki.dto.WikiShareListItemResponse;
 import com.workplace.wiki.dto.WikiSharePerson;
+import com.workplace.wiki.dto.WikiShareTargetPerson;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -353,15 +356,23 @@ public class WikiShareRepository {
     dsl.deleteFrom(WIKI_PAGE_SHARE).where(WIKI_PAGE_SHARE.ID.eq(shareId)).execute();
   }
 
-  /** 지정한 사람(이름순). */
-  public List<WikiSharePerson> listPeople(long shareId) {
-    return dsl.select(WIKI_PAGE_SHARE_MEMBER.USER_ID, USER.NAME)
+  /**
+   * 지정한 사람(이름순)과 지금 열 수 있는지(WP-1063) — 그 행의 워크스페이스에서 활성({@link WorkspaceActive}: 계정 활성·멤버십 ACTIVE)인
+   * 사람만 active. 부서 인원수({@link WikiShareTargets#ACTIVE_HUMAN_MEMBER})의 계정·멤버십 조건과 같아, 정지·비활성 계정을 공유
+   * 창이 「비활성」으로 구분해 보인다. 사람 종류(kind)는 보지 않는다 — 직접 지정한 대상은 종류와 상관없이 열리므로({@link
+   * WikiShareTargets#listedOn}) 부서처럼 AI 를 빼면 열 수 있는 대상이 비활성으로 보인다. 정지돼도 지정은 그대로 남는다(다시 활성이 되면 바로
+   * 열린다).
+   */
+  public List<WikiShareTargetPerson> listPeople(long shareId) {
+    return dsl.select(WIKI_PAGE_SHARE_MEMBER.USER_ID, USER.NAME, WorkspaceActive.field())
         .from(WIKI_PAGE_SHARE_MEMBER)
         .join(USER)
         .on(USER.ID.eq(WIKI_PAGE_SHARE_MEMBER.USER_ID))
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(WIKI_PAGE_SHARE_MEMBER.TENANT_ID))
         .where(WIKI_PAGE_SHARE_MEMBER.SHARE_ID.eq(shareId))
         .orderBy(USER.NAME.asc(), WIKI_PAGE_SHARE_MEMBER.USER_ID.asc())
-        .fetch(r -> new WikiSharePerson(r.value1(), r.value2()));
+        .fetch(r -> new WikiShareTargetPerson(r.value1(), r.value2(), r.value3()));
   }
 
   /**

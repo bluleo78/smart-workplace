@@ -1,5 +1,6 @@
 package com.workplace.wiki;
 
+import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EVENT;
@@ -375,6 +376,35 @@ class WikiShareGroupTest extends IntegrationTestBase {
     openAs(devMemberId, rootId, token).andExpect(status().isOk());
     assertThat(appEvents.stream(WikiSharedWithPeopleEvent.class).toList().get(0).recipientIds())
         .containsExactlyInAnyOrder(devMemberId, backendMemberId);
+  }
+
+  /**
+   * 지정한 사람이 지정 뒤 정지·비활성이 되면 공유 창 응답의 그 사람에 active=false 를 준다(WP-1063) — 부서 인원수와 같은 기준이라 한 창 안에서 기준이
+   * 갈리지 않는다. 지정은 그대로 남고(빼기는 사람이 한다), 남은 사람만 고쳐 저장해도 정지된 사람 때문에 막히지 않는다.
+   */
+  @Test
+  void designated_person_carries_active_state() throws Exception {
+    long suspendedId = human();
+    long deactivatedId = human();
+    save(rootId, false, List.of(devMemberId, suspendedId, deactivatedId), List.of(), null);
+    TestFixtures.suspendMember(dsl, suspendedId, 1L);
+    dsl.update(USER).set(USER.IS_ACTIVE, false).where(USER.ID.eq(deactivatedId)).execute();
+
+    JsonNode people =
+        json(call(get(sharePath(rootId)), ownerId).andExpect(status().isOk()))
+            .get("share")
+            .get("people");
+    Map<Long, Boolean> activeById = new LinkedHashMap<>();
+    people.forEach(p -> activeById.put(p.get("userId").asLong(), p.get("active").asBoolean()));
+    assertThat(activeById)
+        .containsExactlyInAnyOrderEntriesOf(
+            Map.of(devMemberId, true, suspendedId, false, deactivatedId, false));
+
+    // 정지된 사람을 남긴 채 다른 사람을 빼는 저장도 된다 — 새로 추가하는 사람만 구성원인지 본다.
+    saveRaw(rootId, false, List.of(suspendedId, deactivatedId), List.of(), null)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.people.length()").value(2))
+        .andExpect(jsonPath("$.people[0].active").value(false));
   }
 
   // ── 도우미 ─────────────────────────────────────────────────────────────

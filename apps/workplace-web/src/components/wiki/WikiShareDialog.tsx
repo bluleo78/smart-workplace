@@ -15,6 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -616,7 +617,18 @@ export function WikiShareDialog({
                             >
                               {p.name.slice(0, 1)}
                             </span>
-                            <span className="truncate">{p.name}</span>
+                            <span className={cn('truncate', p.active === false && 'text-muted-foreground')}>{p.name}</span>
+                            {/* 정지·비활성 계정은 지정이 남아 있어도 열지 못해 「비활성」으로 구분한다(WP-1063, 표시는 WP-723 채널 구성원과 같음). */}
+                            {p.active === false && (
+                              <Badge
+                                variant="outline"
+                                className="shrink-0"
+                                title="정지되었거나 비활성인 계정이라 이 페이지를 열 수 없습니다"
+                                data-testid={`wiki-share-person-inactive-${p.userId}`}
+                              >
+                                비활성
+                              </Badge>
+                            )}
                           </span>
                           <Button
                             variant="ghost"

@@ -165,6 +165,14 @@ export interface WikiSharePerson {
 }
 
 /**
+ * 지정한 사람(PEOPLE) 공유의 대상 한 사람(WP-1063, 백엔드 WikiShareTargetPerson). active=false 면 정지·비활성 계정이라 지금 열 수
+ * 없다(기준은 백엔드 WikiShareRepository.listPeople). 롤링 배포 중 이전 API 응답에는 없을 수 있어 선택 필드다 — 없으면 활성으로 본다.
+ */
+export interface WikiShareTargetPerson extends WikiSharePerson {
+  active?: boolean
+}
+
+/**
  * 지정한 사람 공유가 여는 조직도 부서(WP-1023, 백엔드 WikiShareGroup) — 그 부서와 하위 부서의 지금 구성원이 열 수 있다.
  * memberCount 는 지금 열 수 있는 사람 수(하위 부서 포함·중복 제외·활성 사람만) — 공유 창이 「개발팀 · 3명」으로 보인다.
  */
@@ -181,8 +189,8 @@ export interface WikiPageShare {
   audience: WikiShareAudience
   permission: WikiSharePermission
   includeChildren: boolean
-  /** audience=PEOPLE 일 때 지정한 사람(WORKSPACE 면 빈 배열). */
-  people: WikiSharePerson[]
+  /** audience=PEOPLE 일 때 지정한 사람과 지금 열 수 있는지(WORKSPACE 면 빈 배열). */
+  people: WikiShareTargetPerson[]
   /** audience=PEOPLE 일 때 지정한 조직도 부서(WP-1023, 그 밖에는 빈 배열). */
   groups: WikiShareGroup[]
   createdBy: WikiSharePerson
