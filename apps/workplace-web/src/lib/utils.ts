@@ -1,5 +1,14 @@
 import { type ClassValue,clsx } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { extendTailwindMerge } from "tailwind-merge"
+
+/**
+ * 클래스 병합기 — tailwind-merge 기본 설정은 `break-words` 를 word-break 묶음(break-keep 등)에 넣어 `break-words break-keep` 에서
+ * `break-words` 를 지운다. Tailwind 4 의 `break-words` 는 overflow-wrap 이라 wrap-* 묶음으로 옮긴다 — 지워지면 띄어쓰기 없는 긴 제목이 넘쳤다(WP-1073).
+ */
+const twMerge = extendTailwindMerge({
+  override: { classGroups: { break: [{ break: ["normal", "all", "keep"] }] } },
+  extend: { classGroups: { wrap: ["break-words"] } },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test'
 import type { Attendee, CalendarEvent } from '../../../src/types/calendar'
 import { calendarEvent } from '../../factories/calendar.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
+import { boxOf } from '../../fixtures/layout'
 
 // ────────────────────────────────────────────────────────────
 // 테스트 데이터
@@ -211,3 +212,26 @@ test(
 )
 
 // 주최자·외부(external) 일정의 RSVP 미노출 판정은 calendarEventForm.test(shouldShowRsvp)가 지킨다.
+
+// cn 이 제목의 break-words 를 지워 긴 제목이 창 밖으로 넘쳤다(WP-1073, src/lib/utils.ts) — 실제 레이아웃으로 본다.
+test('초대받은 일정 — 띄어쓰기 없는 긴 제목도 창 안에서 줄바꿈되고 닫기(✕)를 덮지 않는다(WP-1073)', { tag: '@layout' }, async ({
+  authenticatedPage: page,
+}) => {
+  await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+  const longTitle = '아주긴일정제목'.repeat(12)
+  const store: CalendarEvent[] = [calendarEvent({ id: 100, title: longTitle })]
+  const detail = makeDetailEvent({ title: longTitle, myRole: 'ATTENDEE', myRsvpStatus: 'NEEDS_ACTION' })
+  await stubCalendar(page, store, detail)
+
+  await page.goto('/calendar')
+  await page.getByTestId('calendar-event-100').first().click()
+  const dialog = page.getByTestId('calendar-event-dialog')
+  const title = dialog.getByTestId('event-detail-title')
+  await expect(title).toHaveText(longTitle)
+
+  // 제목 글자가 제 칸을 넘지 않고(줄바꿈됨), 칸의 오른쪽 끝은 닫기(✕) 왼쪽에서 멈춘다
+  const overflow = await title.evaluate((el) => el.scrollWidth - el.clientWidth)
+  expect(overflow).toBeLessThanOrEqual(0)
+  const [titleBox, closeBox] = await Promise.all([boxOf(title), boxOf(dialog.getByRole('button', { name: '닫기' }))])
+  expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(closeBox.x)
+})
