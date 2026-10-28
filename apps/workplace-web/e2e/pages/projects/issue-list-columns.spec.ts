@@ -50,14 +50,14 @@ const ISSUE: IssueResponse = createIssue({
 });
 
 /** 공통 목 — 사이클 유무에 따라 기본 그룹이 달라진다(사이클 있으면 사이클 그룹). */
-async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE } = {}) {
+async function setup(page: Page, { cycles = [] as CycleResponse[], issue = ISSUE, fields = FIELD_DEFS } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-23T06:00:00Z'));
   const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route(`**/api/v1/projects/${KEY}`, (route) => route.fulfill(json(createProject())));
   await page.route(`**/api/v1/projects/${KEY}/members`, (route) => route.fulfill(json([])));
   await page.route(`**/api/v1/projects/${KEY}/labels`, (route) => route.fulfill(json([])));
   await page.route(`**/api/v1/projects/${KEY}/saved-views`, (route) => route.fulfill(json([])));
-  await page.route(`**/api/v1/projects/${KEY}/fields`, (route) => route.fulfill(json(FIELD_DEFS)));
+  await page.route(`**/api/v1/projects/${KEY}/fields`, (route) => route.fulfill(json(fields)));
   await page.route(`**/api/v1/projects/${KEY}/cycles`, (route) => route.fulfill(json(cycles)));
   await page.route(`**/api/v1/projects/${KEY}/cycles/progress`, (route) => route.fulfill(json([])));
   await page.route(
@@ -164,6 +164,44 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
       await inView('cycle-progress-3');
       await inView('issue-bulk-toolbar');
     }).toPass();
+  });
+
+  test('평면 목록에서 텍스트 커스텀 필드·마일스톤의 긴 값은 칸을 넓히지 않고 말줄임된다 — 뒤 열이 화면 밖으로 밀리지 않는다(WP-1091)', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const LONG = '주식회사 한국가상테스트솔루션즈 서울본사 영업2팀 대외협력 담당 부서 (계약·정산·납품 일정 조율 전담 창구, 2026년 하반기 기준)';
+    const longIssue = {
+      ...ISSUE,
+      milestoneName: `${LONG} 마일스톤`,
+      customFields: [{ defId: 9, name: '고객 메모', type: 'TEXT' as const, value: LONG }],
+    };
+    const textDef: IssueFieldDef = { id: 9, projectId: 1, name: '고객 메모', type: 'TEXT', options: null, position: 2, createdAt: '', updatedAt: '' };
+    await setup(page, { issue: longIssue, fields: [...FIELD_DEFS, textDef] });
+    await page.goto(`/projects/${KEY}?group=none&cols=priority,assignee,due,milestone,cf9,reporter`);
+    const cf = page.getByTestId('issue-row-1-cf9');
+    await expect(cf).toContainText('주식회사');
+    await expect(async () => {
+      // 칸은 열 폭(8rem = 128px)을 넘지 않고, 안쪽 글자는 잘린다(말줄임).
+      for (const id of ['issue-row-1-cf9', 'issue-row-1-milestone']) {
+        const m = await page.getByTestId(id).evaluate((td) => {
+          const inner = td.querySelector('.truncate')!;
+          return { w: td.getBoundingClientRect().width, sw: inner.scrollWidth, cw: inner.clientWidth };
+        });
+        expect(m.w, `${id} 칸 폭`).toBeLessThanOrEqual(128.5);
+        expect(m.sw, `${id} 말줄임`).toBeGreaterThan(m.cw);
+      }
+      // 마지막 열(보고자)이 목록 보이는 폭 안에 있고 표가 가로로 넘치지 않는다.
+      const scroll = page.getByTestId('issue-list-scroll');
+      const { sw, cw, right } = await scroll.evaluate((el) => ({
+        sw: el.scrollWidth, cw: el.clientWidth, right: el.getBoundingClientRect().right,
+      }));
+      expect(sw).toBeLessThanOrEqual(cw);
+      const reporter = await page.getByTestId('issue-row-1-reporter').boundingBox();
+      expect(reporter!.x + reporter!.width).toBeLessThanOrEqual(right + 1);
+    }).toPass();
+    // 값 전체는 셀 툴팁으로 본다.
+    await expect(cf).toHaveAttribute('title', LONG);
   });
 
   test('사이클 구간(table-fixed)에서 지난해 완료일이 칸을 넘치면 다음 칸으로 번지지 않고 잘린다', async ({ authenticatedPage: page }) => {

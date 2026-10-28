@@ -9,6 +9,7 @@ import type { FieldType, IssueFieldDef, IssueFieldEntry } from '../../../types/c
 import type { IssueResponse } from '../../../types/issue'
 import {
   buildColumnDefs,
+  columnCellClass,
   hasExtraColumns,
   issueListColumnCount,
   issueListMinWidthRem,
@@ -74,6 +75,16 @@ describe('열 폭', () => {
     const defs = buildColumnDefs([...BUILTIN_ORDER, 'cf8'], FIELDS)
     expect(defs).toHaveLength(BUILTIN_ORDER.length + 1)
     for (const d of defs) expect(WIDTH_CLASS[d.widthRem]).toBeDefined()
+  })
+
+  // 칸 폭 상한은 열 폭에서 얻는다 — 자동 레이아웃 평면 목록에서 긴 값이 칸을 넓히지 않게(WP-1091).
+  it('텍스트·날짜 열(7·8rem)의 셀은 열 폭과 같은 상한을 갖고, 아이콘·아바타 열은 상한이 없다', () => {
+    const defs = buildColumnDefs([...BUILTIN_ORDER, 'cf7', 'cf8', 'cf9'], FIELDS)
+    for (const d of defs) {
+      const cls = columnCellClass(d, issue())
+      if (d.widthRem >= 7) expect(cls, d.key).toContain(`max-w-${d.widthRem * 4}`)
+      else expect(cls, d.key).not.toMatch(/\bmax-w-/)
+    }
   })
 
   it('가로 스크롤 하한 = 고정 열 29.5rem(체크·상태 2.25·ID 7·제목 16·⋯ 2) + 선택 열 폭 합', () => {

@@ -38,6 +38,16 @@ export const WIDTH_CLASS: Record<ColumnWidthRem, string> = {
   8: 'w-32 min-w-32',
 };
 
+/**
+ * 폭(rem) → 셀(td) 폭 상한 — 글자를 말줄임하는 열(텍스트·날짜, 7·8rem)만. 평면 목록 표는 자동 레이아웃이라 헤더의 w-* 는 하한일 뿐,
+ * 상한이 없으면 긴 값(텍스트 커스텀 필드·마일스톤·지난해 완료일)의 한 줄 폭만큼 칸이 넓어져 뒤 열이 화면 밖으로 밀린다(WP-1091).
+ * 아이콘·아바타 열(2.25·5rem)은 내용 폭이 정해져 있고, 담당자 「+N」 은 칸 폭을 조금 넘을 수 있어 상한을 걸지 않는다(걸면 다음 칸을 덮는다).
+ */
+export const CELL_MAX_WIDTH_CLASS: Partial<Record<ColumnWidthRem, string>> = {
+  7: 'max-w-28',
+  8: 'max-w-32',
+};
+
 /** 선택 열 하나의 정의. */
 export interface IssueListColumnDef {
   key: IssueListColumnKey;
@@ -129,7 +139,7 @@ function customFieldTitle(entry: IssueFieldEntry | undefined): string | undefine
  * 다음 칸으로 번진다. 말줄임하고 정확한 값은 셀 툴팁(title)으로 본다.
  */
 const DATE_CELL = 'overflow-hidden text-ellipsis whitespace-nowrap pr-3 text-muted-foreground';
-/** 텍스트 칸 공통 — 칸 폭 안에서 말줄임(안쪽 span 이 truncate). */
+/** 텍스트 칸 공통 — 칸 폭 안에서 말줄임(안쪽 span 이 truncate). 칸 폭 상한은 columnCellClass 가 건다. */
 const TEXT_CELL = 'pr-3';
 
 /** 셀 testid — `issue-row-{n}-{key}`. */
@@ -368,6 +378,11 @@ export function columnHeadCells(
       <span className={cn((d.srOnlyHeader || hideLabel) && 'sr-only')}>{d.header}</span>
     </th>
   ));
+}
+
+/** 셀(td) 클래스 — 열 폭에서 얻는 폭 상한 + 값에 따른 톤(cellClass). 평면 목록·사이클 구간 행이 모두 이것으로 칸을 그린다. */
+export function columnCellClass(def: IssueListColumnDef, issue: IssueResponse): string {
+  return cn(CELL_MAX_WIDTH_CLASS[def.widthRem], def.cellClass?.(issue));
 }
 
 /** 표의 전체 열 수 — 고정 열(체크·상태·ID·제목·⋯) + 선택 열. 그룹 헤더 colSpan 에 쓴다. */
