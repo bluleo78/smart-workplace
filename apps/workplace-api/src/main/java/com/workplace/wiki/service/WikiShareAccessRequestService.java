@@ -84,11 +84,9 @@ public class WikiShareAccessRequestService {
     if (!shares.insertPendingRequest(share.pageId(), userId)) {
       return WikiShareAccessRequestResult.PENDING;
     }
+    // 행위자가 요청한 사람이라 화면이 「{행위자}님이 {detail}」로 그린다 — detail 에 이름을 다시 넣지 않는다(WP-1066).
     shares.insertEvent(
-        share.pageId(),
-        userId,
-        "ACCESS_REQUESTED",
-        shareService.detail(shareService.nameOf(userId) + " 님이 접근을 요청했습니다"));
+        share.pageId(), userId, "ACCESS_REQUESTED", shareService.detail("접근을 요청했습니다"));
     publisher.publishEvent(
         new WikiShareAccessRequestedEvent(
             TenantContext.require(), share.pageId(), userId, share.createdBy()));
