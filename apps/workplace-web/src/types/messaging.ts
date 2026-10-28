@@ -124,6 +124,8 @@ export interface MessageResponse {
   proposal?: MessageProposal | null; // L3 위임 제안(제안 없는 메시지엔 null/undefined)
   // 본문 URL 의 Open Graph 미리보기(WP-874) — 처음 나오는 서로 다른 URL 3개까지. 서버는 늘 배열을 주지만 낙관적 메시지엔 없다.
   linkPreviews?: LinkPreview[];
+  // 보낸 사람이 미리보기를 지웠는지(WP-896) — 우리 앱 링크 카드도 함께 감춘다. 낙관적 메시지·구 서버 응답엔 없다(false 로 본다).
+  linkPreviewsDismissed?: boolean;
 }
 
 // 링크 미리보기 카드 1장(WP-874). 썸네일 원문 주소는 내보내지 않는다 — hasImage 면 서버 프록시 경로로 받는다.

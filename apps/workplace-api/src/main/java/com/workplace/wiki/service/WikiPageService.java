@@ -15,6 +15,7 @@ import com.workplace.wiki.dto.WikiSearchResult;
 import com.workplace.wiki.dto.WikiShareGrant;
 import com.workplace.wiki.exception.WikiBaseExpiredException;
 import com.workplace.wiki.exception.WikiConflictException;
+import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiInvalidMoveException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
 import com.workplace.wiki.outbound.CollabClient;
@@ -160,6 +161,23 @@ public class WikiPageService {
     // 권한 검사(없는 페이지 404·권한 없음 403)를 기록보다 먼저 — 실패하면 아무것도 남기지 않는다.
     requireViewer(callerId, pageId, shareToken);
     return detailRecordingBase(pageId);
+  }
+
+  /**
+   * 채팅 앱 링크 카드(WP-896) — 노트를 열 때와 같은 VIEWER 판정(멤버 역할, 공유 토큰 없음) 뒤 제목·스페이스 이름만 읽는다. 볼 수 없는 페이지도 없는
+   * 페이지와 같은 404 로 돌려 카드 요청으로 페이지 id 가 있는지 알 수 없게 한다.
+   */
+  @Transactional(readOnly = true)
+  public WikiPageRepository.TitleInSpace linkCard(long callerId, long pageId) {
+    // 권한 확인용 spaceId 를 같은 조회로 받는다 — requireViewer 처럼 따로 읽지 않는다(한 번 조회).
+    WikiPageRepository.TitleInSpace card =
+        pages.findTitleInSpace(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
+    try {
+      shareAccess.effectiveRole(card.spaceId(), pageId, callerId, null, "VIEWER");
+    } catch (WikiForbiddenException e) {
+      throw new WikiPageNotFoundException(pageId);
+    }
+    return card;
   }
 
   /** 페이지 조회 권한 — 없는 페이지면 404, VIEWER 미만이면 403. 공유 토큰이 있으면 멤버·공유 중 높은 역할(WP-579). */

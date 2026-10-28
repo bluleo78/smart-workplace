@@ -162,6 +162,7 @@ public class MessageRepository {
             MESSAGE.EDITED_AT,
             MESSAGE.DELETED_AT,
             MESSAGE.PARENT_MESSAGE_ID,
+            MESSAGE.LINK_PREVIEWS_DISMISSED,
             replyCountField())
         .from(MESSAGE)
         .join(USER)
@@ -189,6 +190,7 @@ public class MessageRepository {
                 MESSAGE.EDITED_AT,
                 MESSAGE.DELETED_AT,
                 MESSAGE.PARENT_MESSAGE_ID,
+                MESSAGE.LINK_PREVIEWS_DISMISSED,
                 replyCountField())
             .from(MESSAGE)
             .join(USER)
@@ -240,6 +242,7 @@ public class MessageRepository {
                 MESSAGE.EDITED_AT,
                 MESSAGE.DELETED_AT,
                 MESSAGE.PARENT_MESSAGE_ID,
+                MESSAGE.LINK_PREVIEWS_DISMISSED,
                 replyCountField())
             .from(MESSAGE)
             .join(USER)
@@ -306,7 +309,8 @@ public class MessageRepository {
         0, // unreadReplyCount — service 가 enrich
         false, // followed — service 가 enrich
         null, // proposal — service 가 batch enrich
-        List.of()); // linkPreviews — service 가 batch enrich
+        List.of(), // linkPreviews — service 가 batch enrich
+        Boolean.TRUE.equals(r.get(MESSAGE.LINK_PREVIEWS_DISMISSED)));
   }
 
   @SneakyThrows

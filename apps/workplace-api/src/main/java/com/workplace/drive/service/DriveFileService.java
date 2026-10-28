@@ -10,6 +10,7 @@ import com.workplace.drive.dto.FileSummaryResponse;
 import com.workplace.drive.exception.DriveDuplicateNameException;
 import com.workplace.drive.exception.DriveFileNotFoundException;
 import com.workplace.drive.exception.DriveFolderNotFoundException;
+import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.exception.DriveNotTextFileException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
@@ -632,10 +633,28 @@ public class DriveFileService {
    */
   @Transactional(readOnly = true)
   public long resolveViewFileId(long callerId, long driveFileId) {
+    return viewableRow(callerId, driveFileId).fileId();
+  }
+
+  /** 보기 가드 — 없는·휴지통 파일 404, 스페이스 VIEWER 미만 403. 보기 경로들이 이 한 곳의 규칙을 쓴다. */
+  private DriveFileRepository.DriveFileRow viewableRow(long callerId, long driveFileId) {
     DriveFileRepository.DriveFileRow row =
         files.findRow(driveFileId).orElseThrow(() -> new DriveFileNotFoundException(driveFileId));
     perms.requireRole(row.spaceId(), callerId, "VIEWER");
-    return row.fileId();
+    return row;
+  }
+
+  /**
+   * 채팅 앱 링크 카드용 파일 이름(WP-896) — {@link #resolveViewFileId} 와 같은 가드(없는·휴지통 파일 404, 스페이스 VIEWER 이상)를
+   * 거친다. 볼 수 없는 파일도 없는 파일과 같은 404 로 돌려 카드 요청으로 파일 id 가 있는지 알 수 없게 한다.
+   */
+  @Transactional(readOnly = true)
+  public String viewableFileName(long callerId, long driveFileId) {
+    try {
+      return viewableRow(callerId, driveFileId).name();
+    } catch (DriveForbiddenException e) {
+      throw new DriveFileNotFoundException(driveFileId);
+    }
   }
 
   /**

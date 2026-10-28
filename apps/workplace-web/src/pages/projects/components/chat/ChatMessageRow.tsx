@@ -6,11 +6,12 @@
 // body 를 마스킹하지 않으므로(원본 body 가 그대로 남음) 소스(REST/SSE)와 무관하게 일관 표시.
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { ChatMarkdownText } from '@/components/chat/ChatMarkdownText';
+import { LinkPreviewList } from '@/components/chat/LinkPreviewCard';
 import { MessageActionsButton } from '@/components/chat/MessageActionsButton';
 import { MessageAttachmentList } from '@/components/chat/MessageAttachmentList';
 import {
@@ -24,6 +25,7 @@ import { messagePlainText, type RenderMention } from '@/components/mentions/pars
 import { issueChatBundle } from '@/components/viewer/viewerItems';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
+import { appLinksOf, currentAppHost } from '@/lib/appLinks';
 import { itemActionLabel } from '@/lib/itemActionLabel'
 
 import { Button } from '../../../../components/ui/button';
@@ -87,6 +89,11 @@ export function ChatMessageRow({
   const toolbarRowProps = useToolbarReveal()(message.id);
   // 첨부만 있고 본문이 빈 본인 메시지는 빈 말풍선을 그리지 않는다.
   const hasBody = message.deleted || message.body.trim() !== '';
+  // 우리 앱 링크 카드(WP-896) — 이슈 채팅엔 외부 링크 미리보기·지우기가 없어 앱 카드만 그린다. 미확정·삭제 메시지엔 없다.
+  const appLinks = useMemo(
+    () => (message.deleted || isPending ? [] : appLinksOf(message.body, currentAppHost())),
+    [message.body, message.deleted, isPending],
+  );
 
   // 수정/삭제 툴바 — 본인 메시지 전용. 시각 줄 안에서 시각의 왼쪽에 떠 말풍선·윗 메시지를 가리지 않는다.
   // hidden 토글이 아니라 opacity 토글(MESSAGE_TOOLBAR_CLASS)이라 키보드 포커스로도 도달한다(#809 와 같은 규칙).
@@ -168,6 +175,7 @@ export function ChatMessageRow({
           renderMention={renderMention}
         />
       )}
+      <LinkPreviewList messageId={message.id} previews={[]} appLinks={appLinks} />
     </div>
   );
 

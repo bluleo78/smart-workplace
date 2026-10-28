@@ -230,6 +230,22 @@ public class WikiPageRepository {
         r.get(WIKI_PAGE.FULL_WIDTH));
   }
 
+  /** 페이지 제목과 스페이스 이름(채팅 앱 링크 카드, WP-896) — 본문은 읽지 않는다. 권한은 호출자가 spaceId 로 확인한다. */
+  public Optional<TitleInSpace> findTitleInSpace(long pageId) {
+    return dsl.select(WIKI_PAGE.SPACE_ID, WIKI_PAGE.TITLE, WIKI_SPACE.NAME)
+        .from(WIKI_PAGE)
+        .join(WIKI_SPACE)
+        .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
+        .where(WIKI_PAGE.ID.eq(pageId))
+        .fetchOptional(
+            r ->
+                new TitleInSpace(
+                    r.get(WIKI_PAGE.SPACE_ID), r.get(WIKI_PAGE.TITLE), r.get(WIKI_SPACE.NAME)));
+  }
+
+  /** {@link #findTitleInSpace} 결과. */
+  public record TitleInSpace(long spaceId, String title, String spaceName) {}
+
   /** 공간 id 만 빠르게(인가 해석용). */
   public Optional<Long> findSpaceId(long pageId) {
     return dsl.select(WIKI_PAGE.SPACE_ID)

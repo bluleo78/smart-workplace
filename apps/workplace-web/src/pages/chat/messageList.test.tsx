@@ -466,3 +466,110 @@ describe('첨부 뷰어 (WP-279)', () => {
     expect(screen.queryByTestId('attachment-viewer')).not.toBeInTheDocument()
   })
 })
+
+describe('앱 링크 카드 (WP-896)', () => {
+  // 테스트 화면의 호스트는 localhost — 같은 호스트의 이슈·노트·파일 주소가 앱 링크다.
+  const ISSUE_URL = 'http://localhost/projects/WP/issues/1090'
+  const PAGE_URL = 'http://localhost/wiki/spaces/3/pages/41'
+  const FILE_URL = 'http://localhost/drive/spaces/5/?file=77'
+  const cardHandlers = (calls: string[] = []) => [
+    http.get(`${API}/app-links/issues/:key/:number`, ({ params }) => {
+      calls.push(`issue ${params.key}-${params.number}`)
+      return HttpResponse.json({
+        kind: 'ISSUE', title: '종일 일정 종료일 오류', issueKey: 'WP-1090', statusName: '진행 중', statusCategory: 'IN_PROGRESS',
+        assignees: [{ id: 3, username: 'dev3', name: 'AI 개발자3', kind: 'AGENT' }], priority: 'LOW',
+      })
+    }),
+    http.get(`${API}/app-links/pages/:id`, () => HttpResponse.json({ kind: 'PAGE', title: '릴리스 체크리스트', spaceName: '개발팀 공간' })),
+    // 볼 수 없는 파일 — 서버는 정보 없이 404 를 준다.
+    http.get(`${API}/app-links/files/:id`, () => HttpResponse.json({ message: '파일을 찾을 수 없습니다' }, { status: 404 })),
+    http.delete(`${API}/messaging/messages/:id/link-previews`, () => new HttpResponse(null, { status: 204 })),
+  ]
+
+  /** 받는 동안의 자리는 받은 뒤 다른 요소(링크)로 바뀌므로, 상태가 될 때까지 다시 찾아 그 요소를 돌려준다. */
+  const settled = async (testId: string, state: 'ready' | 'denied') => {
+    await waitFor(() => expect(screen.getByTestId(testId)).toHaveAttribute('data-state', state))
+    return screen.getByTestId(testId)
+  }
+
+  test('이슈·노트 링크는 보는 사람 기준 정보 카드, 볼 수 없는 대상은 정보 없이 「볼 수 없는 …」', async () => {
+    openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({ id: 30, channelId: 1, authorId: 20, authorName: '이진우', body: `먼저 봐 주세요 ${ISSUE_URL} 노트도 ${PAGE_URL} 파일 ${FILE_URL}` }),
+    ], { handlers: cardHandlers() })
+
+    const issue = await settled('app-link-30-0', 'ready')
+    expect(screen.getByTestId('app-link-30-0-key')).toHaveTextContent('WP-1090')
+    expect(issue).toHaveTextContent('진행 중')
+    expect(screen.getByTestId('app-link-30-0-title')).toHaveTextContent('종일 일정 종료일 오류')
+    expect(issue).toHaveTextContent('AI 개발자3 · 우선순위 낮음')
+    // 카드는 앱 안 이동 링크(새 탭 아님) — 본문 URL 은 지금처럼 새 탭.
+    expect(issue).toHaveAttribute('href', '/projects/WP/issues/1090')
+    expect(issue).not.toHaveAttribute('target')
+
+    const page = await settled('app-link-30-1', 'ready')
+    expect(page).toHaveTextContent('노트 · 개발팀 공간')
+    expect(page).toHaveTextContent('릴리스 체크리스트')
+    expect(page).toHaveAttribute('href', '/wiki/spaces/3/pages/41')
+
+    const file = await settled('app-link-30-2', 'denied')
+    expect(file).toHaveTextContent('볼 수 없는 파일입니다')
+  })
+
+  test('일시 오류(5xx)는 「볼 수 없음」이 아니다 — 다시 물어도 못 받으면 카드 없이 둔다', async () => {
+    let calls = 0
+    openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({ id: 35, channelId: 1, authorId: 20, authorName: '이진우', body: `잠깐 ${ISSUE_URL}` }),
+    ], {
+      handlers: [
+        http.get(`${API}/app-links/issues/:key/:number`, () => {
+          calls += 1
+          return HttpResponse.json({ message: '서버 오류' }, { status: 503 })
+        }),
+      ],
+    })
+    expect(await screen.findByTestId('app-link-35-0')).toHaveAttribute('data-state', 'loading')
+    await waitFor(() => expect(screen.queryByTestId('app-link-35-0')).not.toBeInTheDocument(), { timeout: 8000 })
+    expect(calls).toBe(3)
+    expect(screen.queryByText(/볼 수 없는/)).not.toBeInTheDocument()
+  }, 15_000)
+
+  test('앱 카드 주소의 외부 미리보기는 겹쳐 보이지 않는다', async () => {
+    openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({
+        id: 36, channelId: 1, authorId: 20, authorName: '이진우', body: `봐요 ${ISSUE_URL}`,
+        linkPreviews: [createLinkPreview({ position: 0, url: ISSUE_URL, title: 'Gen:iA Works' })],
+      }),
+    ], { handlers: cardHandlers() })
+    expect(await screen.findByTestId('app-link-36-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('link-preview-36-0')).not.toBeInTheDocument()
+  })
+
+  test('다른 호스트·앱 화면이 아닌 주소에는 앱 카드가 없다', async () => {
+    const calls: string[] = []
+    openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({ id: 31, channelId: 1, authorId: 20, authorName: '이진우', body: 'https://other.example.com/projects/WP/issues/1 와 http://localhost/settings/profile' }),
+    ], { handlers: cardHandlers(calls) })
+    expect(await screen.findByTestId('message-body-31')).toBeInTheDocument()
+    expect(screen.queryByTestId('link-previews-31')).not.toBeInTheDocument()
+    expect(calls).toEqual([])
+  })
+
+  test('보낸 사람이 지우면 앱 카드도 사라지고, 지운 메시지·SSE 로 지움을 받은 메시지엔 카드가 없다', async () => {
+    const events = chatEvents()
+    const { user } = openChannel(createChannel({ id: 1, member: true }), [
+      createMessage({ id: 34, channelId: 1, authorId: 20, authorName: '이진우', body: `동료 ${ISSUE_URL}` }),
+      createMessage({ id: 33, channelId: 1, authorId: 20, authorName: '이진우', body: `지운 것 ${ISSUE_URL}`, linkPreviewsDismissed: true }),
+      createMessage({ id: 32, channelId: 1, authorId: 1, authorName: 'me', body: `내 것 ${ISSUE_URL}` }),
+    ], { handlers: cardHandlers(), events: events.handler })
+
+    expect(await screen.findByTestId('app-link-32-0')).toBeInTheDocument()
+    expect(screen.queryByTestId('link-previews-33')).not.toBeInTheDocument()
+    // 앱 카드만 있어도 작성자에게 ✕ 가 있다(외부 링크 카드가 없어도).
+    await user.click(screen.getByTestId('link-preview-dismiss-32'))
+    await waitFor(() => expect(screen.queryByTestId('link-previews-32')).not.toBeInTheDocument())
+
+    expect(screen.getByTestId('app-link-34-0')).toBeInTheDocument()
+    await events.push('messaging.message.link-previews', { channelId: 1, id: 34, linkPreviews: [], linkPreviewsDismissed: true })
+    await waitFor(() => expect(screen.queryByTestId('link-previews-34')).not.toBeInTheDocument())
+  })
+})

@@ -3,7 +3,7 @@
 //   본인: 우측 말풍선(최대 75%, 아바타·이름 없음). 수정 중에는 전폭 에디터.
 // 뮤테이션·편집 상태는 목록(MessageList)이 갖고, 이 컴포넌트는 콜백만 받아 그린다.
 import { Bot, MessageSquare, Pencil, Trash2, Users } from 'lucide-react'
-import { type ComponentProps, type Ref, useCallback, useRef } from 'react'
+import { type ComponentProps, type Ref, useCallback, useMemo, useRef } from 'react'
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage'
 import { ChatAvatar } from '@/components/chat/ChatAvatar'
@@ -33,6 +33,7 @@ import { messageReactorSource } from '@/hooks/queries/messageReactorSource'
 import { useIsTouchShell } from '@/hooks/useIsTouchShell'
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit'
 import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
+import { currentAppHost, parseAppLink, visibleAppLinks } from '@/lib/appLinks'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
 import { itemActionLabel } from '@/lib/itemActionLabel'
 import type { MessageResponse } from '@/types/messaging'
@@ -102,6 +103,13 @@ export function MessageRow({
   const isOwn = m.authorId === currentUserId
   // 본인·미삭제·미전송중 메시지만 수정/삭제 노출.
   const canEdit = !readOnly && isOwn && !m.deleted && !isPending
+  // 우리 앱 링크 카드(WP-896) — 보낸 사람이 미리보기를 지웠으면 함께 감춘다. 같은 본문은 appLinksOf 캐시가 같은 배열을 돌려준다.
+  const appLinks = visibleAppLinks(m)
+  // 앱 카드로 그리는 주소의 외부 미리보기는 뺀다 — 서버가 공개 웹 주소를 몰라(설정 누락) 앱 껍데기 OG 카드를 만들었어도 카드가 겹치지 않게.
+  const ogPreviews = useMemo(() => {
+    const host = currentAppHost()
+    return (m.linkPreviews ?? []).filter((p) => !parseAppLink(p.url, host))
+  }, [m.linkPreviews])
 
   // 본인 메시지는 우측 말풍선. 수정 중에는 에디터가 말풍선 폭(75%)에 눌리지 않도록 전폭 레이아웃으로 빠진다.
   const ownBubble = isOwn && !isEditing
@@ -303,7 +311,8 @@ export function MessageRow({
       {!m.deleted && !isPending && !isEditing && (
         <LinkPreviewList
           messageId={m.id}
-          previews={m.linkPreviews ?? []}
+          previews={ogPreviews}
+          appLinks={appLinks}
           onDismiss={canEdit && !touchShell ? onDismissPreviews : undefined}
         />
       )}
