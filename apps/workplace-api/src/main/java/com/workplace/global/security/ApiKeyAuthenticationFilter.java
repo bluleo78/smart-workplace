@@ -5,6 +5,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantStatusChecker;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import jakarta.servlet.FilterChain;
@@ -81,6 +82,9 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                     userRepository
                         .findById(key.userId())
                         .filter(u -> UserKind.isAgent(u.kind()))
+                        // WP-1153: 개인 비서는 주인의 위임(내부 토큰)으로만 움직인다 — 관리자가 발급해 둔 키로 그 신원을 얻으면 주인의
+                        // 개인 작업을 읽을 수 있어, 발급을 막기 전에 나간 키도 여기서 인증하지 않는다(401).
+                        .filter(u -> !AgentUsernames.isPersonalAssistant(u.username()))
                         .ifPresent(
                             user -> {
                               // AGENT 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입되어

@@ -383,3 +383,17 @@ test('개인 비서 상세에는 역할 할당·활성 상태가 보이지 않�
   expect(within(drawer).queryByRole('switch', { name: '활성 상태' })).not.toBeInTheDocument()
   expect(within(drawer).queryByText('역할 할당')).not.toBeInTheDocument()
 })
+
+// WP-1153: 관리자가 개인 비서에게 키를 받으면 그 신원으로 주인의 개인 작업을 읽을 수 있었다 — 발급 폼 대신 안내만 보이고, 키 목록은 남는다.
+test('개인 비서 상세에는 키 발급 폼 대신 안내가 보이고 키 목록은 그대로다 (WP-1153)', async () => {
+  const personal: AgentResponse = { ...base, id: 106, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
+  const { user } = await renderAgents({ extraAgents: [personal] })
+  const drawer = await openDrawer(user, 106)
+  const keys = await within(drawer).findByTestId('agent-keys-block')
+  expect(within(keys).getByTestId('key-issue-personal-hint')).toHaveTextContent('개인 비서의 키는 관리자가 발급할 수 없어요')
+  expect(within(keys).queryByTestId('key-issue-form')).not.toBeInTheDocument()
+  expect(within(keys).queryByRole('button', { name: '키 발급' })).not.toBeInTheDocument()
+  expect(await within(keys).findByText('키가 없습니다')).toBeInTheDocument()
+  // 키가 없으면 회수 안내를 붙이지 않는다.
+  expect(within(keys).getByTestId('key-issue-personal-hint')).not.toHaveTextContent('회수')
+})

@@ -15,6 +15,8 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.support.WebSessionAuth;
+import com.workplace.user.dto.AgentUsernames;
+import com.workplace.user.dto.UserKind;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -122,5 +124,23 @@ class AdminAgentCrossTenantTest extends IntegrationTestBase {
     call(post(keys).content("{\"label\":\"우리 키\"}")).andExpect(status().isOk());
     call(get(keys)).andExpect(status().isOk());
     assertThat(dsl.fetchCount(AGENT_API_KEY, AGENT_API_KEY.USER_ID.eq(homeAgent))).isEqualTo(1);
+  }
+
+  // WP-1153: 관리자가 구성원의 개인 비서에게 키를 받으면 주인의 개인 작업을 읽을 수 있었다 — HTTP 에서도 403 이고 키가 생기지 않는다.
+  @Test
+  void 개인_비서에게는_관리자가_키를_발급하지_못한다() throws Exception {
+    long assistant =
+        dsl.insertInto(com.workplace.jooq.Tables.USER)
+            .set(com.workplace.jooq.Tables.USER.USERNAME, AgentUsernames.personalAssistantOf(admin))
+            .setNull(com.workplace.jooq.Tables.USER.PASSWORD)
+            .set(com.workplace.jooq.Tables.USER.NAME, "개인 비서")
+            .set(com.workplace.jooq.Tables.USER.KIND, UserKind.AGENT)
+            .returning(com.workplace.jooq.Tables.USER.ID)
+            .fetchOne()
+            .getId();
+    TestFixtures.addMember(dsl, assistant, 1L);
+    String keys = "/api/v1/admin/agents/" + assistant + "/keys";
+    call(post(keys).content("{\"label\":\"leak\"}")).andExpect(status().isForbidden());
+    assertThat(dsl.fetchCount(AGENT_API_KEY, AGENT_API_KEY.USER_ID.eq(assistant))).isZero();
   }
 }
