@@ -20,10 +20,11 @@ import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
 import { ParentChip } from '@/components/issues/ParentChip'
 import { IssueTypeBadge } from '@/components/issueTypes/IssueTypeBadge'
-import { UserAvatar } from '@/components/users/UserAvatar'
+import { AssigneeAvatar } from '@/components/users/UserAvatar'
 import { agentToolLabel, displayState, issueChatPath, primaryWork, progressView } from '@/lib/agentWork'
 import { LIST_HEAD_CELL_CLASS } from '@/lib/listStyles'
 import { splitByProject } from '@/lib/projectRuns'
+import { isInactiveUser, withInactiveSuffix } from '@/lib/userStatus'
 import { cn } from '@/lib/utils'
 import type { AgentWorkView, IssueResponse } from '@/types/issue'
 
@@ -46,16 +47,19 @@ const PROGRESS_COL_CLASS = 'hidden @min-[53.25rem]/ai:table-cell'
 /** 담당자 칸 — 아바타만(AI 구성원은 아바타의 에이전트 표식으로 구분).
  *  대표 작업 작업자 → 없으면 첫 AI 담당자 → 그 외 첫 담당자. 진행 중 작업이 2건 이상이면 +N. */
 export function AiTaskAssignee({ issue, work, testId }: { issue: IssueResponse; work: AgentWorkView | null; testId?: string }) {
-  const u = work?.worker ?? issue.assignees.find((a) => a.kind === 'AGENT') ?? issue.assignees[0]
-  if (!u) return DASH
+  const picked = work?.worker ?? issue.assignees.find((a) => a.kind === 'AGENT') ?? issue.assignees[0]
+  if (!picked) return DASH
+  // 작업자 요약에는 active 가 없다(서버가 담당자에만 싣는다) — 같은 사람의 담당자 요약이 있으면 그것으로 정지 여부를 본다(WP-1100).
+  const u = issue.assignees.find((a) => a.id === picked.id) ?? picked
   const more = (issue.agentWork?.length ?? 0) - 1
   // 좁은 폭에서 에이전트 유형 칸이 숨어도 도구를 알 수 있게 툴팁에 「이름 · 도구」(WP-917). 도구를 모르면 이름만.
   const tool = work?.tool ? agentToolLabel(work.tool) : null
-  const name = u.kind === 'AGENT' ? `${u.name} (에이전트)` : u.name
+  // 정지된 담당자는 담당자 칸·작업 목록처럼 회색 아바타 + 「(비활성)」(WP-1100).
+  const name = withInactiveSuffix(u.kind === 'AGENT' ? `${u.name} (에이전트)` : u.name, isInactiveUser(u))
   const title = tool ? `${name} · ${tool}` : name
   return (
     <span className="inline-flex shrink-0 items-center gap-1" title={title} data-testid={testId}>
-      <UserAvatar user={u} size="xs" agent={u.kind === 'AGENT'} title={tool ? title : undefined} />
+      <AssigneeAvatar user={u} size="xs" title={tool ? title : undefined} />
       {more > 0 && <span className="text-xs text-muted-foreground">+{more}</span>}
     </span>
   )

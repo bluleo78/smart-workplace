@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { assigneeCandidates, isInactiveMember } from './assigneeCandidates';
+import { assigneeCandidates } from './assigneeCandidates';
 
 describe('assigneeCandidates (WP-487)', () => {
   const members = [
@@ -19,10 +19,5 @@ describe('assigneeCandidates (WP-487)', () => {
 
   it('로딩 중이면 빈 목록', () => {
     expect(assigneeCandidates(undefined)).toEqual([]);
-  });
-
-  it('isInactiveMember 는 active=false 일 때만 true', () => {
-    expect(isInactiveMember({ userId: 1, active: false })).toBe(true);
-    expect(isInactiveMember({ userId: 1 })).toBe(false);
   });
 });

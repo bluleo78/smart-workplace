@@ -56,8 +56,9 @@ export function UserAvatar({
       : '';
   return (
     <span
-      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} ${inactive ? 'bg-muted-foreground/30 text-muted-foreground' : 'bg-presence text-presence-foreground'} ${ringClass}`}
+      className={`relative inline-flex shrink-0 items-center justify-center rounded-full font-medium ${SIZE_CLASS[size]} ${inactive ? 'bg-muted-foreground/15 text-muted-foreground' : 'bg-presence text-presence-foreground'} ${ringClass}`}
       // 흐림(opacity·grayscale) 대신 회색 바탕 — AGENT ring·Bot 마커를 지우지 않고 겹친 아바타가 비치지 않게
+      // 비활성 바탕은 /15 — /30 이면 xs 이니셜 대비가 라이트 3.68:1 로 4.5:1 에 못 미쳤다(WP-1100 실측: /15 라이트 4.6·다크 5.68).
       style={inactive ? undefined : presenceStyle(user.id)}
       title={title ?? label}
       aria-label={label}

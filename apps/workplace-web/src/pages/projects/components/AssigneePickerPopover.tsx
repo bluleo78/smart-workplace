@@ -12,10 +12,11 @@ import { cn } from '@/lib/utils';
 
 import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { AgentBadge } from '../../../components/users/AgentBadge';
-import { AssigneeAvatar, UserAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar } from '../../../components/users/UserAvatar';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueAssignees } from '../../../hooks/queries/useUpdateIssueAssignees';
-import { assigneeCandidates, isInactiveMember } from '../../../lib/assigneeCandidates';
+import { assigneeCandidates } from '../../../lib/assigneeCandidates';
+import { toSummary } from '../../../lib/issueRowMenu';
 import { displayNameWithStatus, isInactiveUser } from '../../../lib/userStatus';
 import type { UserSummary } from '../../../types/user';
 
@@ -137,19 +138,19 @@ export function AssigneePickerPopover({
                 className="shrink-0"
                 checked={selected.includes(m.userId)}
                 // 비활성 구성원은 해제만 — 다시 고르면 서버가 거부한다(WP-487).
-                disabled={isInactiveMember(m) && !selected.includes(m.userId)}
+                disabled={isInactiveUser(m) && !selected.includes(m.userId)}
                 onChange={() => toggle(m.userId)}
                 aria-label={m.name}
               />
-              <UserAvatar
-                user={{ id: m.userId, username: m.username, name: m.name }}
-                size="xs"
-              />
+              {/* 위쪽 담당자 칸과 같은 표기(WP-1100) — 정지된 구성원은 회색 아바타 + 「비활성」 배지. */}
+              <AssigneeAvatar user={toSummary(m)} size="xs" />
               <span className="min-w-0 truncate text-sm">{m.name}</span>
               <span className="min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground">@{m.username}</span>
               {m.kind === 'AGENT' && <AgentBadge size="xs" />}
-              {isInactiveMember(m) && (
-                <span className="shrink-0 text-xs text-muted-foreground" data-testid={`assignee-option-${m.userId}-inactive`}>비활성</span>
+              {isInactiveUser(m) && (
+                <StatusBadge type="inactive" className="shrink-0" data-testid={`assignee-option-${m.userId}-inactive`}>
+                  비활성
+                </StatusBadge>
               )}
             </label>
           ))}

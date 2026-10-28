@@ -13,7 +13,7 @@ import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/M
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { AgentBadge } from '@/components/users/AgentBadge';
-import { UserAvatar } from '@/components/users/UserAvatar';
+import { AssigneeAvatar, UserAvatar } from '@/components/users/UserAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { copyText } from '@/lib/copyText';
@@ -27,6 +27,7 @@ import { useMoveIssueEpic } from '../../../hooks/queries/useMoveIssueEpic';
 import { useProjectEpics } from '../../../hooks/queries/useProjectEpics';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
+import { assigneeCandidates } from '../../../lib/assigneeCandidates';
 import { failedOf } from '../../../lib/bulkResult';
 import type { ClosedHidingNotice } from '../../../lib/closedHiding';
 import { epicDragBlockReason } from '../../../lib/epicDnd';
@@ -158,6 +159,8 @@ export function useIssueRowActions({
     count: numbers.length,
   });
   const assigneeIds = state?.assigneeIds ?? [];
+  // 담당자 시트 후보 — 정지된 비담당자는 빼고 정지된 담당자는 해제할 수 있게 남긴다(데스크톱 행 메뉴와 같음, WP-1100). 검색 칸 기준도 이 수로.
+  const assigneeOptions = assigneeCandidates(members, assigneeIds);
 
   // ── 액션 ──────────────────────────────────────────────
   // 다중 선택 일괄 작업 뒤 실패한 이슈만 선택에 남긴다(WP-851) — 결과는 보낸 numbers 와 같은 순서.
@@ -322,18 +325,19 @@ export function useIssueRowActions({
         options={ISSUE_PRIORITY_OPTIONS.map((o) => ({ ...o, icon: <IssuePriorityBars priority={o.value} /> }))}
         onSelect={(v) => changePriority(v as IssuePriority)}
       />
-      {/* 담당자 — 한 명을 누르면 넣거나 빼는 토글(다중 담당자). 지금 담당자는 ✓ 힌트로 표시. */}
+      {/* 담당자 — 한 명을 누르면 넣거나 빼는 토글(다중 담당자). 지금 담당자는 ✓ 힌트로 표시.
+          데스크톱 행 메뉴(IssueRowMenu)와 같은 후보·표기(WP-1100): 정지된 구성원은 빼되 지금 담당 중이면 해제할 수 있게 남기고, 회색 아바타로 그린다. */}
       <MobilePickerSheet
         testId="issue-assignee-picker"
         open={sheet === 'assignee'}
         onClose={close}
         title="담당자"
-        searchable={members.length > 8}
+        searchable={assigneeOptions.length > 8}
         value={null}
-        options={members.map((m) => ({
+        options={assigneeOptions.map((m) => ({
           value: String(m.userId),
           label: m.name,
-          icon: <UserAvatar user={toSummary(m)} size="xs" agent={m.kind === 'AGENT'} />,
+          icon: <AssigneeAvatar user={toSummary(m)} size="xs" />,
           hint: (
             <>
               {m.kind === 'AGENT' && <AgentBadge size="xs" />}
