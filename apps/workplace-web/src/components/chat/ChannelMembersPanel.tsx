@@ -1,5 +1,5 @@
 // 채널 멤버 패널 — 멤버 목록(역할 뱃지), MemberSearchPopover 재사용 추가, 제거,
-// 역할 변경(OWNER만, role:OWNER 지정 시 소유권 이전), 나가기.
+// 역할 변경(OWNER만, role:OWNER 지정 시 소유권 이전 — 확인 창을 거친다, WP-1131), 나가기.
 // 권한별 액션 노출: OWNER = 전체, ADMIN = 추가/제거, MEMBER = 보기+나가기.
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -30,7 +30,7 @@ import {
   useUpdateMemberRole,
 } from '@/hooks/queries/useMemberMutations'
 import { useAuth } from '@/hooks/useAuth'
-import { assignableChannelRoles } from '@/lib/channelRoles'
+import { assignableChannelRoles, channelRoleLabel } from '@/lib/channelRoles'
 import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
 import type { ChannelRole } from '@/types/messaging'
 
@@ -58,9 +58,17 @@ export function ChannelMembersPanel({
   const [confirmLeave, setConfirmLeave] = useState(false)
   // 제거 확인 다이얼로그 — { userId, name } 를 열면 해당 멤버 제거 확인 요청.
   const [confirmRemove, setConfirmRemove] = useState<{ userId: number; name: string } | null>(null)
-
+  // 소유권 이전 확인 — 역할 select 에서 OWNER 를 고르면 바로 바꾸지 않고 이 확인을 연다(WP-1131).
+  // 넘기면 나는 관리자로 내려가 역할 목록을 잃어 스스로 되돌릴 수 없으므로 제거·나가기처럼 확인을 거친다.
+  // select 는 서버 값(m.role)에 묶여 있어, 취소하면 원래 역할로 보인다.
+  const [confirmTransfer, setConfirmTransfer] = useState<{ userId: number; name: string } | null>(null)
   // 내가 OWNER 인지(역할 변경 가능), 내가 OWNER 또는 ADMIN 인지(추가/제거 가능).
   const isOwner = myRole === 'OWNER'
+  // 확인 창을 연 사이 그 사람이 나가거나 제거되면(목록 재조회), 또는 내가 소유자가 아니게 되면(다른 탭에서 넘김 등) 확인 상태를 비운다
+  // — 창만 숨기면 그 사람이 다시 들어왔을 때 창이 저절로 다시 떠 한 번의 클릭으로 뜻하지 않은 사람에게 넘어간다. 렌더 중 상태 조정 패턴.
+  if (confirmTransfer && (!isOwner || (members && !members.some((m) => m.userId === confirmTransfer.userId)))) {
+    setConfirmTransfer(null)
+  }
   const canManage = myRole === 'OWNER' || myRole === 'ADMIN'
   // 기존 멤버 ID 집합 — MemberSearchPopover 에 전달해 중복 추가 방지.
   const existingIds = useMemo(
@@ -114,25 +122,27 @@ export function ChannelMembersPanel({
                     <select
                       data-testid={`member-role-select-${m.userId}`}
                       value={m.role}
-                      onChange={(e) =>
-                        updateRole.mutate({
-                          userId: m.userId,
-                          role: e.target.value as ChannelRole,
-                        })
-                      }
+                      // 역할 변경이 도는 동안 잠근다 — 소유권을 넘긴 직후 목록이 다시 오기 전에 또 넘기기를 시작하지 않게(WP-1131).
+                      disabled={updateRole.isPending}
+                      onChange={(e) => {
+                        const role = e.target.value as ChannelRole
+                        // 소유권 이전은 확인 뒤에. 관리자·멤버 사이는 되돌릴 수 있어 바로 바꾼다.
+                        if (role === 'OWNER') setConfirmTransfer({ userId: m.userId, name: m.name })
+                        else updateRole.mutate({ userId: m.userId, role })
+                      }}
                       className="rounded border bg-background px-1 py-0.5 text-xs"
                       aria-label={`${m.name} 역할 변경`}
                     >
-                      {/* AGENT(AI 봇)는 채널 OWNER 가 될 수 없음(사람 전용 권한, #598) — 옵션 자체를 제거해 시도를 UX 상에서 차단. */}
-                      {assignableChannelRoles(m.kind).map((r) => (
+                      {/* AGENT(AI 봇)·정지된 사람은 채널 OWNER 가 될 수 없음(#598·WP-1131) — 옵션 자체를 제거해 시도를 UX 상에서 차단. */}
+                      {assignableChannelRoles(m).map((r) => (
                         <option key={r} value={r}>
-                          {r}
+                          {channelRoleLabel(r)}
                         </option>
                       ))}
                     </select>
                   ) : (
                     <Badge variant="secondary" data-testid={`member-role-${m.userId}`}>
-                      {m.role}
+                      {channelRoleLabel(m.role)}
                     </Badge>
                   )}
                   {/* OWNER/ADMIN 은 타인 제거 가능(본인 제외). OWNER 는 제거 불가(백엔드 403) → 버튼 숨김. */}
@@ -190,6 +200,34 @@ export function ChannelMembersPanel({
               }}
             >
               제거
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 소유권 이전 확인 — 넘기면 되돌리려면 새 소유자에게 부탁해야 하므로 제거·나가기와 같은 확인 창을 거친다(WP-1131). */}
+      <AlertDialog
+        open={confirmTransfer !== null}
+        onOpenChange={(open) => !open && setConfirmTransfer(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>소유권 넘기기</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmTransfer?.name}에게 채널 소유권을 넘기면 나는 관리자가 됩니다. 되돌리려면 새 소유자에게 부탁해야 해요.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              data-testid="member-transfer-confirm"
+              onClick={() => {
+                if (confirmTransfer) updateRole.mutate({ userId: confirmTransfer.userId, role: 'OWNER' })
+                setConfirmTransfer(null)
+              }}
+            >
+              넘기기
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

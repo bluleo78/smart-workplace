@@ -39,10 +39,13 @@ export function useUpdateMemberRole(channelId: number) {
   return useMutation<void, unknown, { userId: number; role: ChannelRole }>({
     mutationFn: ({ userId, role }) =>
       messagingApi.updateMemberRole(channelId, userId, role).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: messagingKeys.members(channelId) });
-      qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
-    },
+    // 재조회 promise 를 돌려줘 목록·내 역할이 다시 올 때까지 pending 을 유지한다 — 소유권을 넘긴 직후 낡은 내 역할(OWNER)로
+    // 역할 select 가 다시 풀려 또 넘기다 403 을 받지 않게(WP-1131).
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: messagingKeys.members(channelId) }),
+        qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) }),
+      ]),
     onError: (err) => handleApiError(err, '역할 변경에 실패했습니다'),
   });
 }
