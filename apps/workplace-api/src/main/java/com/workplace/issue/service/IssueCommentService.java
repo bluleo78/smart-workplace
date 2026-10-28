@@ -45,6 +45,7 @@ public class IssueCommentService {
   private final IssueBodyImageService bodyImageService;
   // 코멘트 응답에 보는 사람별 반응 집계를 싣는다(WP-504).
   private final IssueCommentReactionService reactionService;
+  private final IssueCommentMentionService mentionService;
 
   /**
    * 이슈 → 프로젝트 → 조회 가드(readable). OPEN 은 테넌트 전원 조회 허용(RLS 가 테넌트 경계 보장). 프로젝트 row 반환.
@@ -130,7 +131,9 @@ public class IssueCommentService {
   @Transactional(readOnly = true)
   public List<IssueCommentResponse> list(Long callerId, Long issueId) {
     assertIssueReadable(issueId, callerId);
-    return reactionService.enrich(commentRepository.findByIssue(issueId), callerId);
+    // 멘션 사용자(WP-1095)도 함께 — 프로젝트에서 빠진 사람의 지난 멘션도 이름으로 보이게.
+    return mentionService.enrich(
+        reactionService.enrich(commentRepository.findByIssue(issueId), callerId));
   }
 
   /**
@@ -179,7 +182,8 @@ public class IssueCommentService {
       publisher.publishEvent(new IssueHumanReplyPosted(issueId));
     }
 
-    return resp;
+    // 작성 응답으로 캐시에 붙여도 멘션 이름이 바로 보이게 멘션 사용자를 싣는다(WP-1095).
+    return mentionService.enrich(resp);
   }
 
   /** 코멘트 수정 (본인만, WP-620) — 프로젝트 OWNER 도 남의 코멘트는 고칠 수 없다(삭제는 가능). */
@@ -220,7 +224,7 @@ public class IssueCommentService {
             Instant.now()));
 
     // 수정 응답으로 캐시를 덮어써도 반응이 사라져 보이지 않게 집계를 싣는다(WP-504).
-    return reactionService.enrich(List.of(updated), callerId).getFirst();
+    return mentionService.enrich(reactionService.enrich(List.of(updated), callerId).getFirst());
   }
 
   /** 코멘트 soft-delete (본인 또는 프로젝트 OWNER). */

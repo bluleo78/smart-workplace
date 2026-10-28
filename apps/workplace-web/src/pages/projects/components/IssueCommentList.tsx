@@ -3,8 +3,8 @@
 // 본인(HUMAN) 코멘트에만 수정·삭제 버튼 노출 (#154).
 // #785: 작성/수정 입력을 shadcn Textarea 대신 이슈 채팅과 동일한 RichInput + 공용 멘션
 // 파이프라인(lib/chat-mentions.ts, components/mentions/*)으로 교체 — @ 자동완성 지원.
-// 코멘트는 별도 mentions 필드가 없으므로(백엔드 미지원) 프로젝트 멤버 목록으로 <@id> 토큰을
-// 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
+// <@id> 토큰의 이름/종류는 코멘트 응답의 mentions(서버가 사용자 테이블에서 풀어 줌 — 프로젝트에서 빠진 사람 포함, WP-1095)와
+// 프로젝트 멤버 목록으로 찾는다(읽기 렌더·수정 폼 초기값 공용). 구버전 서버(mentions 없음)는 멤버 목록만 쓴다.
 
 import { Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -42,8 +42,21 @@ import { handleApiError } from '../../../lib/api-error';
 import { formatDateTimeMinute } from '../../../lib/formatters';
 import { commentOverLimitMessage, ISSUE_BODY_MAX_LENGTH } from '../../../lib/validations/issue';
 import type { IssueCommentResponse } from '../../../types/issue';
+import type { MentionResponse } from '../../../types/messaging';
 import { AddReactionButton, CommentReactions } from './CommentReactions';
 import { IssueCommentComposer } from './IssueCommentComposer';
+
+/**
+ * 코멘트 한 개의 멘션 이름표(WP-1095). 서버가 그 본문에서 풀어 준 멘션을 먼저 두고, 거기 없는 id 만 프로젝트 멤버에서 더한다(id 하나에 이름표
+ * 하나 — 읽기 렌더·수정 폼이 같은 이름을 쓴다). 프로젝트에서 빠진 사람도 지난 코멘트에서 「알 수 없음」이 아니라 이름으로 보인다. 구버전
+ * 서버(mentions 없음)는 멤버만 쓴다.
+ */
+function withCommentMentions(members: MentionUser[], mentions: MentionResponse[] | undefined): MentionUser[] {
+  if (!mentions?.length) return members;
+  const fromServer = mentions.map(({ id, name, kind }) => ({ id, name, kind }));
+  const ids = new Set(fromServer.map((m) => m.id));
+  return [...fromServer, ...members.filter((m) => !ids.has(m.id))];
+}
 
 // 개별 코멘트 항목 — 본인 HUMAN 코멘트에만 수정·삭제 액션 제공.
 function CommentItem({
@@ -81,6 +94,11 @@ function CommentItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 이 코멘트의 멘션 이름표 — 프로젝트 멤버 + 서버가 풀어 준 멘션(프로젝트에서 빠진 사람 포함, WP-1095).
+  const commentMentionUsers = useMemo(
+    () => withCommentMentions(mentionUsers, comment.mentions),
+    [mentionUsers, comment.mentions],
+  );
   // 수정을 끝내면(Esc 취소·저장) 편집기가 사라져 포커스가 body 로 빠졌다 — 「코멘트 수정」 버튼으로 돌린다(WP-813).
   const editButtonRef = useRef<HTMLButtonElement | null>(null);
   useRestoreFocusOnExit(editing, editButtonRef);
@@ -262,7 +280,7 @@ function CommentItem({
             ariaLabel="코멘트 수정"
             members={mentionCandidates}
             initialBody={comment.body}
-            initialMentions={mentionUsers}
+            initialMentions={commentMentionUsers}
             onSubmit={handleSave}
             onCancel={() => setEditing(false)}
             submitLabel="저장"
@@ -282,7 +300,7 @@ function CommentItem({
           <MarkdownMessage
             className="leading-6 text-foreground"
             renderImage={renderImage}
-            mentions={mentionUsers}
+            mentions={commentMentionUsers}
             renderMention={renderMention}
           >
             {comment.body}

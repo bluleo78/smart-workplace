@@ -33,6 +33,9 @@ public class IssueCommentRepository {
         created != null ? created.toInstant() : null,
         updated != null ? updated.toInstant() : null,
         r.get(USER.USERNAME),
+        List.of(),
+        // 멘션 사용자는 응답을 만드는 서비스가 채운다(IssueCommentMentionService, WP-1095) — 권한 확인·AI 요약처럼 본문만 읽는 경로는
+        // 조회하지 않는다.
         List.of());
   }
 
@@ -55,7 +58,7 @@ public class IssueCommentRepository {
         .fetchOptional(this::mapToResponse);
   }
 
-  /** 이슈 단위 활성 코멘트 목록을 created_at asc 정렬로 조회. */
+  /** 이슈 단위 활성 코멘트 목록을 created_at asc(같으면 id asc) 정렬로 조회. */
   public List<IssueCommentResponse> findByIssue(Long issueId) {
     return dsl.select(
             ISSUE_COMMENT.ID,
@@ -71,7 +74,8 @@ public class IssueCommentRepository {
         .join(USER)
         .on(USER.ID.eq(ISSUE_COMMENT.AUTHOR_ID))
         .where(ISSUE_COMMENT.ISSUE_ID.eq(issueId).and(ISSUE_COMMENT.DELETED_AT.isNull()))
-        .orderBy(ISSUE_COMMENT.CREATED_AT.asc())
+        // 같은 시각(한 트랜잭션·같은 밀리초)에 들어온 코멘트는 먼저 넣은 순서(id)로 — 순서가 정해지지 않으면 화면·테스트가 흔들린다(WP-1095 리뷰).
+        .orderBy(ISSUE_COMMENT.CREATED_AT.asc(), ISSUE_COMMENT.ID.asc())
         .fetch(this::mapToResponse);
   }
 
