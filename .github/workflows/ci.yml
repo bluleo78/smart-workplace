@@ -2,6 +2,7 @@
 # main 브랜치 보호의 required status check 로 걸 job 이름은 `verify` 다(바꾸면 보호 설정도 함께 바꾼다).
 # 이미지 빌드 입력 타입 검사(WP-1026): .dockerignore 가 테스트 파일·src/test/ 를 뺀 복사본에서 web·admin·collab 의 tsc 를 다시 돌린다.
 #   테스트 아닌 파일이 src/test/ 를 import 하면 위 typecheck 는 통과하고 이미지 빌드만 깨지기 때문이다(v0.9.24).
+# 마이그레이션 번호 확인(WP-1081): 두 PR 이 같은 Flyway 번호를 더하면 git 충돌 없이 합친 main 에서만 깨진다 — 합친 상태(머지 커밋)로 본다.
 # 빠지는 것: 전체 E2E(30분대)·백엔드 JUnit(Testcontainers) — 지금처럼 로컬 pre-push 게이트(scripts/husky/pre-push.sh)가 맡는다.
 #   이 검사는 「머지된 결과에서 lint·타입·단위 테스트가 조용히 깨지는 일」(2026-10-26 main lint)을 막는 몫이다.
 name: CI
@@ -27,7 +28,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # 마이그레이션 번호 확인이 첫 부모(HEAD^1 — PR 이면 머지 대상 main, main push 면 직전 main)를 읽으므로 2단계까지 받는다.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      # 러너 기본 node 로 도구 준비 전에 돌려 빨리 실패한다. 머지 커밋은 PR 에 push 한 때의 main 이라, 그 뒤 main 과의 겹침은 검토자가 머지 직전에 본다.
+      - name: migration versions
+        run: node scripts/check-migration-versions.mjs HEAD^1
 
       # pnpm 버전은 루트 package.json 의 packageManager 를 따른다.
       - uses: pnpm/action-setup@v4

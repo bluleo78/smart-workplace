@@ -146,4 +146,19 @@ rm apps/web/untracked.ts
 out=$(env -u PREPUSH_VERIFIED_FILE FULL_REGRESSION_CMD=true sh "$HOOKS/full-regression.sh" 2>&1 || true)
 check "FULL_REGRESSION_CMD 단독 사용 거부" "$out" "테스트 전용"
 
+# 18) 마이그레이션 번호(WP-1081) — 갈라진 뒤 원격 main 이 같은 번호를 먼저 넣었으면 회귀 판정 전에 push 를 막는다
+MIG=apps/workplace-api/src/main/resources/db/migration
+git checkout -q main
+git checkout -q -b mig/dup
+commit_file "$MIG/V2__pr.sql" 'select 1;'
+git checkout -q main
+commit_file "$MIG/V2__main.sql" 'select 1;'
+git push -q origin main
+expect "원격 main 과 같은 번호 → push 막음" "$(line refs/heads/mig/dup refs/heads/mig/dup)" "번호를 옮겨야" "전체 회귀 실행"
+
+# 19) 원격 main 최대 번호 뒤면 통과해 평소 판정으로 간다
+git checkout -q -b mig/ok
+commit_file "$MIG/V3__pr.sql" 'select 1;'
+expect "main 뒤 번호 → 평소 판정(전체 회귀)" "$(line refs/heads/mig/ok refs/heads/mig/ok)" "전체 회귀 실행" "번호를 옮겨야"
+
 finish
