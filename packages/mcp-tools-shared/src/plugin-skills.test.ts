@@ -56,11 +56,7 @@ describeSkillTools('work-on', {
   read_file: ['source', 'issueKey', 'messageId', 'attachmentId'],
 });
 
-// WP-1011: 에이전트 홈에서 맡은 프로젝트마다 work-loop 세션을 띄우는 스킬 — 신원 확인과 프로젝트 목록만 쓴다.
-describeSkillTools('start-agent', {
-  get_member: ['username'],
-  list_projects: ['page'],
-});
+// start-agent 는 MCP 도구를 부르지 않는다 — 고른 AI 의 키로 스크립트(gw-agent-projects)가 REST 목록을 읽는다(WP-1046).
 
 // WP-449: work-on 의 짝 — 결과 요약을 남기며 작업을 끝내고(검토 대기·완료 뒤 DONE·취소·반려·실패) 리소스를 정리하는 스킬.
 describeSkillTools('work-done', {

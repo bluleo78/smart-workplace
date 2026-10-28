@@ -569,14 +569,98 @@ test('gw-events: 한 세션에 하나만 — 이미 돌고 있으면 아무 줄 
   }
 });
 
-// ---------------------------------------------------------------- start-agent 도우미 (WP-1011)
+// ---------------------------------------------------------------- start-agent 도우미 (WP-1011·WP-1046)
 
-test('gw-whoami: 세션 신원 이름만 내고, 내 토큰(me)·없음이면 아무것도 내지 않고 1', () => {
-  assert.equal(run('gw-whoami', [], { env: { GENIA_WORKS_AS: 'ai-dev' } }).stdout, 'ai-dev\n');
-  const none = run('gw-whoami');
-  assert.equal(none.status, 1);
-  assert.equal(none.stdout, '');
-  assert.equal(run('gw-whoami', [], { env: { GENIA_WORKS_AS: 'me' } }).status, 1);
+/** 가짜 프로젝트 목록 서버 — status 와 body 를 내고, 받은 인증 헤더·주소를 모은다. */
+async function fakeProjectServer({ status = 200, body = '{"content":[],"page":0,"size":100,"totalElements":0,"totalPages":0}' } = {}) {
+  const reqs = [];
+  const server = createServer((req, res) => {
+    reqs.push({ url: req.url, auth: req.headers.authorization });
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(status === 200 ? body : '{"status":' + status + '}');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return { url: `http://127.0.0.1:${server.address().port}/api/v1`, reqs, close: () => server.close() };
+}
+
+/** gw-agent-projects 를 띄운다 — 같은 프로세스의 가짜 서버가 답해야 하므로 spawnSync 가 아니라 비동기로 기다린다. */
+function agentProjects(args, env = {}) {
+  const p = spawn(join(scripts, 'gw-agent-projects'), args, {
+    env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, ...env },
+  });
+  let stdout = '';
+  let stderr = '';
+  p.stdout.on('data', (d) => (stdout += d));
+  p.stderr.on('data', (d) => (stderr += d));
+  return new Promise((r) => p.on('close', (status) => r({ status, stdout, stderr })));
+}
+
+test('gw-agent-projects: 등록한 AI 키로 프로젝트 목록 한 페이지(100개씩)를 그대로 내고, 키는 어디에도 내지 않는다', async () => {
+  run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
+  const body = '{"content":[{"key":"WP","viewerRole":"MEMBER","repositoryUrl":"https://github.com/x/y.git"}],"page":1,"size":100,"totalElements":101,"totalPages":2}';
+  const srv = await fakeProjectServer({ body });
+  try {
+    const r = await agentProjects(['kodi', '1'], { GENIA_WORKS_API_URL: srv.url });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, body + '\n');
+    assert.deepEqual(srv.reqs, [{ url: '/api/v1/projects?page=1&size=100', auth: 'Bearer ak_FAKE_KODI' }]);
+    assert.doesNotMatch(r.stdout + r.stderr, /ak_FAKE_KODI/);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-agent-projects: 키 거절(401)은 4, 권한 없음(403)은 6, 서버 오류는 5 — 한 줄만 알린다', async () => {
+  run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
+  const cases = [
+    [401, 4, /kodi 키가 거절됐습니다\(HTTP 401\)/],
+    [403, 6, /kodi 에게 프로젝트를 볼 권한이 없습니다\(HTTP 403\)/],
+    [500, 5, /읽지 못했습니다\(HTTP 500/],
+  ];
+  for (const [status, code, msg] of cases) {
+    const srv = await fakeProjectServer({ status });
+    try {
+      const r = await agentProjects(['kodi'], { GENIA_WORKS_API_URL: srv.url });
+      assert.equal(r.status, code);
+      assert.equal(r.stdout, '');
+      assert.match(r.stderr, msg);
+      assert.equal(srv.reqs[0].url, '/api/v1/projects?page=0&size=100');
+    } finally {
+      srv.close();
+    }
+  }
+});
+
+test('gw-agent-projects: 서버에 닿지 못하면 5 — 주소 끝의 / 는 떼고 부른다', async () => {
+  run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
+  const down = await agentProjects(['kodi'], { GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+  assert.equal(down.status, 5);
+  assert.match(down.stderr, /서버에 닿지 못했습니다\(http:\/\/127\.0\.0\.1:9\/api\/v1\)/);
+  const srv = await fakeProjectServer();
+  try {
+    assert.equal((await agentProjects(['kodi'], { GENIA_WORKS_API_URL: srv.url + '//' })).status, 0);
+    assert.equal(srv.reqs[0].url, '/api/v1/projects?page=0&size=100');
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-agent-projects: 키 파일이 깨졌으면 「없음」과 나눠 알린다', async () => {
+  const dir = join(home, '.genia-works', 'keys');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'kodi'), 'not a key\n');
+  const r = await agentProjects(['kodi'], { GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /kodi 키 파일이 키 형식이 아닙니다/);
+});
+
+test('gw-agent-projects: 키가 없거나 인자가 잘못되면 서버에 묻지 않고 끝난다', async () => {
+  const noKey = await agentProjects(['kodi'], { GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+  assert.equal(noKey.status, 1);
+  assert.match(noKey.stderr, /kodi 키가 이 컴퓨터에 없습니다/);
+  assert.equal((await agentProjects([])).status, 2);
+  assert.equal((await agentProjects(['kodi', '-1'])).status, 2);
+  assert.equal((await agentProjects(['../x'])).status, 1);
 });
 
 /** 가짜 tmux 로 agent-window 를 부른다 — 상태 파일·호출 기록을 돌려준다. */
@@ -621,6 +705,18 @@ test('agent-window: 신원 이름의 . 은 tmux 처럼 _ 로 바꿔 — 다시 �
   assert.equal(again.stdout, 'exists dev_kodi\n');
   // 기록 파일은 두 호출이 함께 쓴다 — 두 번째 호출이 남긴 줄만 본다.
   assert.doesNotMatch(again.log.slice(first.log.length), /new-session|new-window/);
+});
+
+test('agent-window --restart: 있던 창은 그 자리에서 명령만 다시 띄워 restarted, 없던 창은 started (WP-1046)', () => {
+  const r = agentWindow(['--restart', 'kodi', 'WP', '/home/kodi/repos/WP', 'env', 'GENIA_WORKS_AS=kodi', 'claude'], 'kodi:home\nkodi:WP\nkodi:HR\n');
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout, 'restarted kodi\n');
+  assert.equal(r.state, 'kodi:home\nkodi:WP\nkodi:HR\n');
+  assert.match(r.log, /^respawn-window\t-k\t-t\t=kodi:=WP\t-c\t\/home\/kodi\/repos\/WP\tenv\tPATH=[^\t]+\tenv\tGENIA_WORKS_AS=kodi\tclaude$/m);
+  assert.doesNotMatch(r.log, /new-window/);
+  const fresh = agentWindow(['--restart', 'kodi', 'OPS', '/x', 'claude'], 'kodi:home\n');
+  assert.equal(fresh.stdout, 'started kodi\n');
+  assert.doesNotMatch(fresh.log.slice(r.log.length), /respawn-window/);
 });
 
 test('agent-window: tmux 가 없으면 no-tmux 로 3', () => {

@@ -10,15 +10,17 @@ while [ $# -gt 0 ]; do
     -s) session=$2; shift 2 ;;
     -n) name=$2; shift 2 ;;
     -c | -F) shift 2 ;;
-    -d) shift ;;
+    -d | -k) shift ;;
     *) break ;;
   esac
 done
 target=${target#=}; target=${target%:}
+case $target in *:=*) target="${target%%:=*}:${target#*:=}" ;; esac
 case "$cmd" in
   has-session) grep -q "^$target:" "$FAKE_TMUX_STATE" ;;
   list-windows) grep "^$target:" "$FAKE_TMUX_STATE" | cut -d: -f2- ;;
   new-session) echo "$session:$name" >> "$FAKE_TMUX_STATE" ;;
   new-window) echo "$target:$name" >> "$FAKE_TMUX_STATE" ;;
+  respawn-window) grep -qxF "$target" "$FAKE_TMUX_STATE" ;;
   *) exit 1 ;;
 esac

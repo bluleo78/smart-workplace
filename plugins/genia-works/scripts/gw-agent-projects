@@ -1,0 +1,65 @@
+#!/bin/sh
+# gw-agent-projects <AI 이름> [페이지] — 등록한 AI 키로 그 AI 에게 보이는 프로젝트 목록 한 페이지(GET /projects, 100개씩)를 JSON 그대로 낸다(WP-1046).
+# start-agent 가 이 세션의 신원을 바꾸지 않고 고른 AI 가 맡은 프로젝트(viewerRole·repositoryUrl)를 읽는 데 쓴다.
+# 응답은 { content, page, size, totalElements, totalPages } — 다음 페이지는 page+1 < totalPages 일 때 부른다.
+# 실패는 「gw-agent-projects: …」 한 줄을 표준 오류로 내고 끝낸다:
+#   1 키 없음·키 파일 깨짐 · 4 키 거절(401) · 5 서버 오류·닿지 못함 · 6 권한 없음(403 — 키는 맞다)
+# 키는 명령줄 인자로 넘기지 않고(ps 에 보인다) 표준 입력으로 curl 설정에 넣으며, 어디에도 출력하지 않는다.
+# 서버 주소: GENIA_WORKS_API_URL(예: http://localhost:6160/api/v1), 없으면 운영 주소(gw_api_url).
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+name=${1:-}
+page=${2:-0}
+if [ -z "$name" ]; then
+  echo "사용: gw-agent-projects <AI 이름> [페이지]" >&2
+  exit 2
+fi
+case "$page" in
+  '' | *[!0-9]*)
+    echo "gw-agent-projects: 페이지는 0 이상 정수여야 합니다: $page" >&2
+    exit 2
+    ;;
+esac
+api=$(gw_api_url)
+
+# 목록(gw-keys list)에는 파일만 있으면 보이므로, 파일은 있는데 키 형식이 아니면(2) 「없음」과 나눠 알린다.
+key=$(gw_read_key "$name")
+case $? in
+  0) ;;
+  2)
+    echo "gw-agent-projects: $name 키 파일이 키 형식이 아닙니다 — /genia-works:login 에서 그 AI 의 키를 바꾸세요" >&2
+    exit 1
+    ;;
+  *)
+    echo "gw-agent-projects: $name 키가 이 컴퓨터에 없습니다 — /genia-works:login 으로 넣으세요" >&2
+    exit 1
+    ;;
+esac
+
+# 본문 뒤에 상태 코드를 한 줄 덧붙여 받아 나눈다. 닿지 않는 서버에 매달리지 않게 시간을 묶는다(닿지 못하면 상태 코드 000).
+out=$(gw_curl_auth "$key" |
+  curl -s --connect-timeout 10 --max-time 30 --config - -w '\n%{http_code}' "$api/projects?page=$page&size=100" 2>/dev/null)
+code=${out##*
+}
+body=${out%
+*}
+case $code in
+  200) printf '%s\n' "$body" ;;
+  401)
+    echo "gw-agent-projects: $name 키가 거절됐습니다(HTTP 401) — 관리자 › 에이전트에서 다시 발급해 /genia-works:login 으로 바꾸세요" >&2
+    exit 4
+    ;;
+  403)
+    echo "gw-agent-projects: $name 에게 프로젝트를 볼 권한이 없습니다(HTTP 403) — 관리자에게 그 AI 의 역할을 확인하세요" >&2
+    exit 6
+    ;;
+  000 | '')
+    echo "gw-agent-projects: 서버에 닿지 못했습니다($api) — 주소·네트워크를 확인하세요(운영이 아니면 GENIA_WORKS_API_URL)" >&2
+    exit 5
+    ;;
+  *)
+    echo "gw-agent-projects: 프로젝트 목록을 읽지 못했습니다(HTTP $code, $api)" >&2
+    exit 5
+    ;;
+esac

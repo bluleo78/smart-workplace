@@ -17,7 +17,7 @@ if [ -z "$projects" ]; then
   echo "사용: gw-events <프로젝트 키[,키…]>" >&2
   exit 2
 fi
-api="${GENIA_WORKS_API_URL:-https://genia-works.iacloud.kr/api/v1}"
+api=$(gw_api_url)
 
 name=$(gw_identity)
 key=""
@@ -51,8 +51,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 143' TERM INT HUP
 
-# curl 설정(표준 입력) — 인증 헤더를 ps·출력에 드러내지 않는다.
-auth() { printf 'header = "Authorization: Bearer %s"\n' "$key"; }
 
 # SSE 줄을 읽어 맡은 프로젝트의 notify.created 만 「wake」 줄로 낸다. $1=1 이면(다시 붙었으면) reconnect 줄부터 낸다.
 # 연결이 끝나면 밀려 있던 줄을 버리지 않고 낸다.
@@ -107,11 +105,11 @@ filter() {
 backoff=5
 reconnect=0
 while :; do
-  auth | curl -sS -N --config - -H 'Accept: text/event-stream' "$api/events" 2>/dev/null | filter "$reconnect" &
+  gw_curl_auth "$key" | curl -sS -N --config - -H 'Accept: text/event-stream' "$api/events" 2>/dev/null | filter "$reconnect" &
   wait $!
   reconnect=1
   # 끊긴 이유가 인증이면 다시 붙어도 소용없다 — 알리고 끝낸다.
-  code=$(auth | curl -s -o /dev/null -w '%{http_code}' --config - "$api/notifications/unread-count" 2>/dev/null)
+  code=$(gw_curl_auth "$key" | curl -s -o /dev/null -w '%{http_code}' --config - "$api/notifications/unread-count" 2>/dev/null)
   case $code in
     401 | 403)
       echo "gw-events: 인증 실패(HTTP $code) — 키를 확인하세요. 주기 확인만 합니다"

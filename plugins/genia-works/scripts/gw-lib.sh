@@ -38,13 +38,14 @@ gw_key_ok() {
   return 0
 }
 
-# 키 읽기 — 이름이 유효하고 파일이 있고 첫 줄이 gw_key_ok 를 통과하면 키를 출력하고 0, 아니면 아무것도 내지 않고 1.
+# 키 읽기 — 이름이 유효하고 파일이 있고 첫 줄이 gw_key_ok 를 통과하면 키를 출력하고 0. 아니면 아무것도 내지 않고
+# 이름이 틀렸거나 파일이 없으면 1, 파일은 있는데 키 형식이 아니면 2(gw-agent-projects 가 둘을 나눠 알린다).
 # 헤더 스크립트·존재 확인(gw-keys has)·세션 선택이 같은 기준을 한 함수로 쓴다(호출 쪽에서 존재 확인만 할 때는 출력을 버린다).
 gw_read_key() {
   gw_valid_name "$1" && [ -f "$GW_KEYS/$1" ] || return 1
   _gw_k=""
   { IFS= read -r _gw_k || true; } 2>/dev/null < "$GW_KEYS/$1"
-  gw_key_ok "$_gw_k" || return 1
+  gw_key_ok "$_gw_k" || return 2
   printf '%s\n' "$_gw_k"
 }
 
@@ -122,4 +123,17 @@ gw_identity() {
   [ -n "$_gw_name" ] || _gw_name="${GENIA_WORKS_AS:-}"
   [ "$_gw_name" = me ] && _gw_name=""
   printf '%s' "$_gw_name"
+}
+
+# REST API 주소 — GENIA_WORKS_API_URL(예: http://localhost:6160/api/v1), 없으면 운영 주소. 끝의 / 는 뗀다(…/api/v1//events 가 되지 않게).
+# 알림 구독(gw-events)과 프로젝트 읽기(gw-agent-projects)가 같은 서버를 보도록 한곳에 둔다(WP-1046).
+gw_api_url() {
+  _gw_api="${GENIA_WORKS_API_URL:-https://genia-works.iacloud.kr/api/v1}"
+  while [ "${_gw_api%/}" != "$_gw_api" ]; do _gw_api=${_gw_api%/}; done
+  printf '%s' "$_gw_api"
+}
+
+# curl 설정(표준 입력으로 넘김) 한 줄 — 인증 헤더를 명령줄 인자(ps 에 보인다)·출력에 드러내지 않는다. 사용: gw_curl_auth "$key" | curl --config - …
+gw_curl_auth() {
+  printf 'header = "Authorization: Bearer %s"\n' "$1"
 }

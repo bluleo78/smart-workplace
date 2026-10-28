@@ -424,24 +424,47 @@ test('SKILL.md 5번: 알림 감시(gw-events)를 Monitor 로 걸고, 처리 중�
   assertBefore(text, '### 4. 이슈 하나 처리', '`mark_notification_read({ issueKey })`');
 });
 
-// WP-1011 start-agent — 에이전트 홈에서 맡은 프로젝트(연결된 저장소)마다 clone 하고 tmux 창으로 work-loop 세션을 띄운다.
-test('start-agent: AI 신원·저장소 밖 폴더를 확인하고, 연결된 저장소가 있는 멤버 프로젝트만 프로젝트마다 clone·창으로 띄운다 (WP-1011)', () => {
+// WP-1011·WP-1046 start-agent — 사람이 만든 홈에서 AI 하나를 골라, 맡은 프로젝트(연결된 저장소)마다 clone 하고 tmux 창으로 work-loop 세션을 띄운다.
+test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만 하고, 그 AI 키로 읽은 연결된 저장소 프로젝트만 AI·프로젝트마다 clone·창으로 띄운다 (WP-1011·WP-1046)', () => {
   const text = readFileSync(new URL('start-agent/SKILL.md', skillsDir), 'utf8');
-  assert.ok(text.includes('`get_member({ username: \'me\' })`'));
-  assert.ok(text.includes('scripts/gw-whoami'));
+  // 홈 세션은 내 토큰이어도 된다 — 신원을 바꾸지 않고, 고른 AI 의 키로 프로젝트를 읽는다(MCP 도구를 부르지 않는다).
+  assert.ok(text.includes('git rev-parse --is-inside-work-tree'));
+  assert.ok(text.includes('scripts/gw-keys" list'));
+  assert.ok(text.includes('`/genia-works:login`'));
+  assert.ok(text.includes('키는 대화에 붙이지 않는다'));
+  assert.ok(text.includes('이 세션의 신원(내 토큰이어도 된다)은 바꾸지 않는다'));
+  assert.ok(!text.includes('get_member'));
+  assert.ok(!text.includes('list_projects'));
+  // 설치·로그인은 안내만.
+  assert.ok(text.includes('설치·로그인은 하지 않는다'));
+  assert.ok(text.includes('`command -v git tmux gh`'));
+  assert.ok(text.includes('`! gh auth setup-git`'));
+  assert.ok(text.includes('scripts/gw-agent-projects" "<AI 이름>" <페이지>'));
+  assert.ok(text.includes('`page + 1 < totalPages`'));
+  // 예전(0.1.21) AI 폴더에서 부르면 위 폴더로 안내하고, 권한·서버 문제는 키를 다시 넣게 하지 않는다.
+  assert.ok(text.includes('예전(0.1.21) 방식으로 AI 마다 만든 폴더다'));
+  assert.ok(text.includes('키를 바꿔도 풀리지 않으니 키를 다시 넣게 하지 않는다'));
   // 관리자 AI 는 viewerIsMember 가 늘 true — 실제 멤버 역할(viewerRole)로 고른다.
   assert.ok(text.includes('`viewerRole` 이 있고'));
   assert.ok(text.includes('`repositoryUrl` 이 있는 프로젝트를 고른다'));
-  assert.ok(text.includes('repos/<프로젝트 키>'));
+  assert.ok(text.includes('<AI 이름>/repos/<키>'));
   // 설정에서 온 주소·브랜치는 따옴표와 -- 로 넘기고, 기존 clone 은 insteadOf 에 흔들리지 않는 원래 주소로 비교한다.
-  assert.ok(text.includes('git clone -- "<repositoryUrl>" "repos/<키>"'));
+  assert.ok(text.includes('git clone -- "<repositoryUrl>" "<폴더>"'));
   assert.ok(text.includes('config --get remote.origin.url'));
   assert.ok(text.includes('status --porcelain'));
-  assert.ok(text.includes('scripts/agent-window'));
+  // 띄운 창은 그 AI 신원과 자동 압축 40%(work-loop.sh 와 같은 값)로 돈다.
+  assert.ok(text.includes('env "GENIA_WORKS_AS=<AI 이름>" "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40" claude'));
   assert.ok(text.includes('/loop /genia-works:work-loop <키>'));
+  // 반복은 7일 뒤 끝난다 — --restart 로 돌던 창도 닫고 새로 띄운다(WP-1046).
+  assert.ok(text.includes('`agent-window` 의 첫 인자로 `--restart` 를 넣는다'));
+  assert.ok(text.includes('`/genia-works:start-agent <AI 이름> --restart`'));
+  assert.ok(text.includes('`tmux attach -r -t <세션>`'));
   // 돌던 창·저장소는 건드리지 않는다 — 주소가 바뀐 clone 은 지우지 않고 알린다.
   assert.ok(text.includes('다르면 건드리지 않고'));
   assert.ok(text.includes('창을 닫거나 저장소 폴더를 지우는 일은 하지 않는다'));
-  // 고르기(list_projects)가 띄우기(agent-window)보다 먼저.
-  assertBefore(text, '`list_projects`', 'scripts/agent-window');
+  // 폴더 확인 → AI 고르기 → 도구 확인 → 프로젝트 읽기 → 띄우기 순.
+  assertBefore(text, 'git rev-parse --is-inside-work-tree', 'scripts/gw-keys" list');
+  assertBefore(text, 'scripts/gw-keys" list', '`command -v git tmux gh`');
+  assertBefore(text, '`command -v git tmux gh`', 'scripts/gw-agent-projects');
+  assertBefore(text, 'scripts/gw-agent-projects', 'scripts/agent-window');
 });

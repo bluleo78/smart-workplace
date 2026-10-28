@@ -148,19 +148,41 @@ GENIA_WORKS_AS=<AI 이름> claude --permission-mode bypassPermissions
 - 사람처럼 이슈를 만들고 담당자를 정합니다 — 일을 나눠 다른 AI·사람에게 맡기거나 찾은 결함을 등록합니다. 담당자를 넣거나 뺄 때는 이유를 그 이슈에 댓글로 남깁니다. 받은 AI 는 자기 work-loop 의 다음 확인 때 이어 받습니다. 맡길 AI 는 관리자가 에이전트 화면에 적은 「설명(역할)」을 보고 고르고, 서버에서 실행하는 내부 AI 는 다른 AI 가 맡겨도 시작하지 않아 맡기지 않습니다.
 - 넘길 일의 역할에 대기열 라벨이 있으면(`.work-loop/project.md` 「대기열 라벨」) 특정 AI 대신 그 라벨을 붙여 넘깁니다.
 
-### 여러 프로젝트 맡기기 (start-agent)
+### 에이전트 서버에서 띄우기 (start-agent)
 
-AI 하나에게 여러 프로젝트를 맡기려면, 프로젝트 설정 › **연결된 저장소**에 저장소 주소(와 기본 브랜치)를 적고 그 AI 를 프로젝트 멤버로 넣습니다. 그다음 AI 마다 빈 작업 폴더(에이전트 홈)를 하나 두고 거기서 한 번 띄웁니다.
+AI 를 돌릴 컴퓨터(에이전트 서버)에서 에이전트용 폴더(**홈**, 위치는 마음대로)를 하나 만들고, 거기서 Claude 를 띄워 명령 하나로 준비·실행합니다. AI 하나가 여러 프로젝트를 맡아도 프로젝트마다 세션이 따로 돕니다.
+
+먼저 웹에서 해 둡니다.
+- 관리자 › 에이전트에서 그 AI 의 키(`ak_…`)를 발급합니다.
+- 맡길 프로젝트마다 프로젝트 설정 › **연결된 저장소**에 저장소 주소(와 기본 브랜치)를 적고, 그 AI 를 프로젝트 멤버로 넣습니다.
+
+서버에서는 이것만 합니다.
 
 ```
-mkdir -p ~/agents/<AI 이름> && cd ~/agents/<AI 이름>
-GENIA_WORKS_AS=<AI 이름> claude
-/genia-works:start-agent              # 대기열을 쓰면 --queue "<라벨>"
+mkdir -p ~/agents && cd ~/agents        # 홈 — 저장소 밖이면 어디든
+claude                                  # 처음이면 Claude 로그인
+/plugin marketplace add https://genia-works.iacloud.kr/claude/marketplace.json
+/plugin install genia-works@genia-works
+/genia-works:start-agent                # 또는 /genia-works:start-agent <AI 이름> [--queue "<라벨>"] [--restart]
 ```
 
-- 연결된 저장소가 있는 멤버 프로젝트마다 `repos/<프로젝트 키>` 로 clone 하고(이 컴퓨터의 git 자격 증명으로), tmux 세션 「<AI 이름>」에 프로젝트마다 창을 띄워 `/loop /genia-works:work-loop <키>` 를 겁니다. 들여다볼 때는 start-agent 가 알려 주는 `tmux attach -t <세션>`(보통 AI 이름).
-- 프로젝트마다 세션이 따로라 저장소마다 다른 `CLAUDE.md` 규칙이 섞이지 않습니다. 같은 저장소를 쓰는 프로젝트도 clone 을 따로 둡니다.
-- 다시 부르면 새로 연결된 프로젝트만 더 띄웁니다 — 돌던 창·저장소 폴더는 건드리지 않습니다. tmux 가 필요합니다(예: `brew install tmux`).
+start-agent 가 차례로 합니다.
+1. **AI 고르기** — 이 컴퓨터에 키가 등록된 AI 중 하나를 고릅니다. 키가 없으면 `/genia-works:login` 으로 넣으라고 안내합니다(키는 대화에 붙이지 않습니다). 홈 세션은 내 토큰이어도 되고, 신원을 바꾸지 않습니다.
+2. **도구·인증 확인** — git·tmux·gh 가 없거나 `gh auth status` 가 실패하면 직접 칠 명령(`! brew install tmux`, `! gh auth login`, `! gh auth setup-git` 등)을 안내합니다. 설치는 하지 않습니다. 다 쳤다고 하면 다시 확인하고 이어 갑니다.
+3. **띄우기** — 그 AI 의 키로 맡은 프로젝트(멤버이고 연결된 저장소가 있는 것)를 읽어, 프로젝트마다 `<홈>/<AI 이름>/repos/<프로젝트 키>` 로 clone 하고 tmux 세션 「<AI 이름>」에 창을 띄워 `/loop /genia-works:work-loop <키>` 를 겁니다. 창은 그 AI 신원과 자동 압축 40%(`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`)로 돕니다.
+
+```
+<홈>/
+  kodi/repos/WP/      ← AI 마다, 프로젝트마다 clone 하나
+  kodi/repos/HR/
+  lead/repos/WP/      ← 같은 저장소도 AI 마다 따로(저장소 하나에는 work-loop 하나)
+```
+
+- tmux 는 홈 세션과 따로 돌아, 홈 세션을 닫거나 SSH 를 끊어도 AI 는 계속 돕니다. 들여다볼 때는 `tmux attach -r -t <AI 이름>`(읽기 전용 — 붙은 채 친 글이 AI 세션에 들어가지 않게, 직접 입력하려면 `-r` 을 뺍니다), 창 옮기기는 `Ctrl+b w`, 빠질 때는 `Ctrl+b d`. 진행 상황은 웹의 AI 위임 작업·이슈 챗에서도 보입니다.
+- 다른 AI 도 띄우려면 `/genia-works:start-agent <다른 AI>` 를 다시 부릅니다. 재부팅 뒤·새 프로젝트를 연결한 뒤에도 같은 명령입니다 — 돌던 창·저장소 폴더는 건드리지 않고 없는 것만 더 띄웁니다.
+- `/loop` 반복은 7일 뒤 끝납니다(Claude Code 제약 — 반복이 스스로 늘릴 방법이 없습니다). 일주일에 한 번 `/genia-works:start-agent <AI 이름> --restart` 로 그 AI 의 창을 닫고 새로 띄웁니다. 하던 일 중간이면 끊기지만, 새 세션의 work-loop 가 다음 확인에서 이어 받습니다.
+- 프로젝트마다 세션이 따로라 저장소마다 다른 `CLAUDE.md` 규칙이 섞이지 않습니다.
+- 운영이 아닌 서버에 붙일 때는 홈 세션을 `GENIA_WORKS_API_URL=<API 주소> claude` 로 띄웁니다(프로젝트 읽기·알림 감시가 같은 서버를 봅니다).
 
 ### 반복 업무 맡기기 (본문 지시)
 
