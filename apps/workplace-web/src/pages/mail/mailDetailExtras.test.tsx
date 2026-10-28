@@ -9,7 +9,7 @@ import { expect, test } from 'vitest'
 
 import { record, renderMail } from '@/test/kits/mail/testkit-b4'
 
-import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
+import { calendarInvite, detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
 
 const wait = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
 
@@ -309,4 +309,39 @@ test('NOT_APPLICABLE 404(변환 꺼짐·레거시 첨부)는 기존 미지원 �
   await openHwp(45, handlers)
   expect(await screen.findByTestId('preview-unsupported', {}, { timeout: 5000 })).toBeInTheDocument()
   expect(screen.queryByTestId('preview-error')).not.toBeInTheDocument()
+})
+
+// ── 일정 초대 카드(WP-986) ─────────────────────────────────────────────────────
+
+test('일정 초대 메일은 헤더와 본문 사이에 초대 카드를 그리고, 수락하면 응답 API 후 카드가 바뀐다 — 초대 없는 메일엔 카드가 없다', async () => {
+  const respond = record('post', '/api/v1/mail/messages/7/invite-response', () =>
+    HttpResponse.json(calendarInvite({ myResponse: 'ACCEPTED', eventId: 42 })),
+  )
+  const { user } = renderMail('/mail/1', {
+    handlers: [
+      respond.handler,
+      http.get('/api/v1/mail/accounts/1/messages', () =>
+        HttpResponse.json([summary({ id: 7, subject: '주간 제품 회의' }), summary({ id: 8, subject: '그냥 메일' })]),
+      ),
+      http.get('/api/v1/mail/messages/7', () =>
+        HttpResponse.json(detail({ id: 7, subject: '주간 제품 회의', bodyText: '초대 본문', calendarInvite: calendarInvite() })),
+      ),
+      http.get('/api/v1/mail/messages/8', () => HttpResponse.json(detail({ id: 8, subject: '그냥 메일', bodyText: '보통 본문' }))),
+    ],
+  })
+  await user.click(await screen.findByTestId('mail-row-7'))
+  const card = await screen.findByTestId('mail-invite-card')
+  // 답장 버튼(헤더) 뒤, 본문 앞.
+  expect(screen.getByTestId('mail-reply').compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(card.compareDocumentPosition(screen.getByText('초대 본문')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(within(card).getByTestId('mail-invite-time')).toHaveTextContent('11월 3일 (화) 오후 2:00 – 3:00')
+
+  await user.click(within(card).getByTestId('rsvp-btn-accepted'))
+  expect(await within(card).findByTestId('mail-invite-result')).toHaveTextContent('수락했습니다 — 주최자에게 응답을 보냈습니다')
+  expect(respond.last().body).toEqual({ response: 'ACCEPTED' })
+  expect(within(card).getByTestId('mail-invite-open-calendar')).toHaveAttribute('href', '/calendar?eventId=42')
+
+  await user.click(screen.getByTestId('mail-row-8'))
+  expect(await screen.findByText('보통 본문')).toBeInTheDocument()
+  expect(screen.queryByTestId('mail-invite-card')).toBeNull()
 })

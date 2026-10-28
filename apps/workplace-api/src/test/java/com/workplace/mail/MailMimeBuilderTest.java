@@ -228,4 +228,31 @@ class MailMimeBuilderTest {
     MimeMessage parsed = roundTrip(builder.build(account(), reply()));
     assertThat(parsed.isMimeType("multipart/alternative")).isTrue();
   }
+
+  /**
+   * WP-986: 초대 응답 — alternative[text/plain, text/calendar; method=REPLY] + 스레딩 헤더, iCalendar 원문 보존.
+   */
+  @Test
+  void buildCalendarReply_hasTextAndCalendarReplyParts() throws Exception {
+    String ics = "BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nSUMMARY:회의\r\nEND:VCALENDAR\r\n";
+    MimeMessage msg = builder.buildCalendarReply(account(), reply(), ics);
+    java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+    msg.writeTo(out);
+    MimeMessage parsed =
+        new MimeMessage(
+            jakarta.mail.Session.getInstance(new java.util.Properties()),
+            new java.io.ByteArrayInputStream(out.toByteArray()));
+
+    assertThat(parsed.getHeader("In-Reply-To")[0]).isEqualTo("<parent-id@example.com>");
+    assertThat(parsed.getContentType()).startsWith("multipart/alternative");
+    jakarta.mail.Multipart mp = (jakarta.mail.Multipart) parsed.getContent();
+    assertThat(mp.getCount()).isEqualTo(2);
+    assertThat(mp.getBodyPart(0).isMimeType("text/plain")).isTrue();
+    jakarta.mail.BodyPart cal = mp.getBodyPart(1);
+    assertThat(cal.getContentType()).contains("text/calendar").contains("method=REPLY");
+    try (java.io.InputStream is = cal.getInputStream()) {
+      assertThat(new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8))
+          .isEqualTo(ics);
+    }
+  }
 }

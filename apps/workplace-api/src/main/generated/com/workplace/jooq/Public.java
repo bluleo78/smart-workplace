@@ -41,6 +41,7 @@ import com.workplace.jooq.tables.DriveSpaceMemberGroup;
 import com.workplace.jooq.tables.DriveTransferLink;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
+import com.workplace.jooq.tables.EmailCalendarInvite;
 import com.workplace.jooq.tables.EmailContent;
 import com.workplace.jooq.tables.EmailFolder;
 import com.workplace.jooq.tables.EmailMessage;
@@ -349,6 +350,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.email_attachment</code>.
      */
     public final EmailAttachment EMAIL_ATTACHMENT = EmailAttachment.EMAIL_ATTACHMENT;
+
+    /**
+     * The table <code>public.email_calendar_invite</code>.
+     */
+    public final EmailCalendarInvite EMAIL_CALENDAR_INVITE = EmailCalendarInvite.EMAIL_CALENDAR_INVITE;
 
     /**
      * The table <code>public.email_content</code>.
@@ -916,6 +922,7 @@ public class Public extends SchemaImpl {
             DriveTransferLink.DRIVE_TRANSFER_LINK,
             EmailAccount.EMAIL_ACCOUNT,
             EmailAttachment.EMAIL_ATTACHMENT,
+            EmailCalendarInvite.EMAIL_CALENDAR_INVITE,
             EmailContent.EMAIL_CONTENT,
             EmailFolder.EMAIL_FOLDER,
             EmailMessage.EMAIL_MESSAGE,

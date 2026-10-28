@@ -1,4 +1,4 @@
-package com.workplace.calendar.service;
+package com.workplace.global.ical;
 
 import java.time.Instant;
 import java.time.LocalDate;

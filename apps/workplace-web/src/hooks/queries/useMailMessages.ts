@@ -4,11 +4,12 @@ import { type InfiniteData, type QueryClient, queryOptions, useInfiniteQuery, us
 import { useMemo } from 'react';
 import { toast } from 'sonner';
 
-import { coachDraft, fetchMailAttachmentDataUri, fetchOlderMail, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMailFolders, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, sendMail, syncMailbox, syncMailFolder } from '../../api/mailMessages';
+import { coachDraft, fetchMailAttachmentDataUri, fetchOlderMail, generateIssueDraft, generateMailSummary, generateReplyDraft, getLinkedIssue, getMailSummary, getMessage, getSyncStatus, getUnreadCounts, getUnreadSummary, listMailFolders, listMessages, type MailViewScope, markAllRead, markMessageRead, markMessageUnread, promoteMailToIssue, respondToInvite, sendMail, syncMailbox, syncMailFolder } from '../../api/mailMessages';
 import { handleApiError } from '../../lib/api-error';
 import { replaceCidRefs, resolveCidTargets } from '../../lib/mailInlineImages';
 import { MAIL_PAGE_SIZE, type MailListCache, mapMailListCache, nextMailCursor } from '../../lib/mailListPages';
-import type { DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, MailFolder, MailListCursor, MailOlderResult, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
+import type { CalendarInvite, DraftCoachingRequest, EmailAttachmentMeta, EmailMessageDetail, EmailMessageSummary, InviteResponseRequest, MailFolder, MailListCursor, MailOlderResult, MailSendRequest, PromoteToIssuePayload } from '../../types/mailMessage';
+import { calendarKeys } from './calendarKeys';
 import { invalidateMailDrafts } from './mailDraftKeys';
 import { mailMessageKeys } from './mailMessageKeys';
 
@@ -453,5 +454,24 @@ export function useSendMail() {
       toast.success('메일을 보냈습니다');
     },
     // 실패 알림은 작성창이 정한다 — 보내는 동안 작성창을 닫았으면 「보내지 못해 임시보관함에 저장했어요」로 함께 알린다(WP-577).
+  });
+}
+
+/**
+ * WP-986 일정 초대 메일에 응답(수락·미정·거절).
+ * 성공하면 돌려받은 초대 정보로 상세 캐시의 calendarInvite 를 바로 바꾸고(카드가 새 응답을 강조),
+ * 서버가 내 캘린더 일정을 넣거나 고쳤으므로 캘린더 쿼리(목록·상세 전부)를 무효화한다. 실패는 토스트.
+ */
+export function useRespondToInvite(messageId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (response: InviteResponseRequest['response']) => respondToInvite(messageId, response),
+    onSuccess: (invite: CalendarInvite) => {
+      qc.setQueryData<EmailMessageDetail>(mailMessageKeys.detail(messageId), (old) =>
+        old ? { ...old, calendarInvite: invite } : old,
+      );
+      qc.invalidateQueries({ queryKey: calendarKeys.all });
+    },
+    onError: (e) => handleApiError(e, '초대에 응답하지 못했어요'),
   });
 }

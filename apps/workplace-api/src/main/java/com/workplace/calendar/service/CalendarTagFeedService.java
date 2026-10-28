@@ -11,6 +11,7 @@ import com.workplace.calendar.repository.CalendarTagRepository.FeedTagRow;
 import com.workplace.calendar.repository.CalendarTagRepository.TagRow;
 import com.workplace.calendar.repository.EventAttendeeRepository;
 import com.workplace.calendar.repository.EventAttendeeRepository.AttendeeRow;
+import com.workplace.global.ical.IcsWriter;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.util.CapabilityTokens;
 import com.workplace.user.dto.UserResponse;

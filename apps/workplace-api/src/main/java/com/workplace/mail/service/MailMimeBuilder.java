@@ -97,6 +97,51 @@ public class MailMimeBuilder {
     return msg;
   }
 
+  /**
+   * WP-986: 일정 초대 응답(iCalendar METHOD:REPLY) 메일 조립. 받는 쪽(Outlook·Gmail 등)이 응답으로 처리하도록
+   * multipart/alternative 안에 사람이 읽는 text/plain 과 {@code text/calendar; method=REPLY; charset=UTF-8}
+   * 파트를 둔다 — 캘린더 파트를 첨부가 아닌 본문 대안으로 두는 것이 RFC 6047(iMIP)의 권장 형태다. 스레딩·Message-ID 등 헤더 규칙은 {@link
+   * #build} 와 같다(html 파트는 없다).
+   *
+   * @param ics METHOD:REPLY VCALENDAR 원문(CRLF 줄 끝)
+   */
+  public MimeMessage buildCalendarReply(EmailAccountResponse account, OutgoingMail mail, String ics)
+      throws MessagingException {
+    Session session = Session.getInstance(new Properties());
+    MimeMessage msg =
+        new MimeMessage(session) {
+          @Override
+          protected void updateMessageID() throws MessagingException {
+            if (getHeader("Message-ID") == null) {
+              super.updateMessageID();
+            }
+          }
+        };
+    msg.setHeader("Message-ID", "<" + mail.messageId() + ">");
+    msg.setFrom(fromAddress(account));
+    msg.setRecipients(Message.RecipientType.TO, parse(mail.to()));
+    msg.setSubject(mail.subject() == null ? "" : mail.subject(), "UTF-8");
+    msg.setSentDate(Date.from(mail.sentAt()));
+    if (mail.inReplyTo() != null) {
+      msg.setHeader("In-Reply-To", "<" + mail.inReplyTo() + ">");
+    }
+    if (mail.references() != null) {
+      msg.setHeader("References", mail.references());
+    }
+    MimeBodyPart textPart = new MimeBodyPart();
+    textPart.setText(mail.bodyText() == null ? "" : mail.bodyText(), "UTF-8");
+    MimeBodyPart calPart = new MimeBodyPart();
+    calPart.setContent(ics, "text/calendar; method=REPLY; charset=UTF-8");
+    // 전송 인코딩은 Jakarta Mail 이 고른다(한글 SUMMARY 면 quoted-printable/base64) — 8bit 는 8BITMIME 없는 서버에서 깨질
+    // 수 있다
+    MimeMultipart alt = new MimeMultipart("alternative");
+    alt.addBodyPart(textPart);
+    alt.addBodyPart(calPart);
+    msg.setContent(alt);
+    msg.saveChanges();
+    return msg;
+  }
+
   /** 하위 multipart 를 상위 multipart 의 한 파트로 감싼다. */
   private static MimeBodyPart wrap(MimeMultipart inner) throws MessagingException {
     MimeBodyPart part = new MimeBodyPart();

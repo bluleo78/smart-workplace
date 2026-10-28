@@ -45,6 +45,7 @@ import { cn } from '@/lib/utils'
 
 import { getMessage, getViewUnreadCount, type MailViewScope } from '../../api/mailMessages'
 import { FileTypeIcon } from '../../components/drive/FileTypeIcon'
+import { MailCalendarInviteCard } from '../../components/mail/MailCalendarInviteCard'
 import { type ComposeDraft,useMailCompose } from '../../components/mail/MailComposeContext'
 import { MailMarkAllReadDialog } from '../../components/mail/MailMarkAllReadDialog'
 import { MailMoveMenu, MailMoveTargetSheet } from '../../components/mail/MailMoveMenu'
@@ -591,6 +592,10 @@ function MessageDetailPanel({
       <AttachmentList attachments={listedAttachments} onPreview={attachmentViewer.onPreview} />
     ) : null
   const aiActions = aiAvailable && aiEnabled
+  // WP-986 일정 초대 카드 — 초대·취소 메일일 때만. 데스크톱(본문 위)·모바일(본문 슬롯 위) 공용.
+  const inviteCard = detail.calendarInvite ? (
+    <MailCalendarInviteCard messageId={detail.id} invite={detail.calendarInvite} />
+  ) : null
 
   // WP-400 모바일 — 첫 화면에 본문이 보이게 메타를 접고, 액션은 하단 고정 바·⋯ 메뉴로 옮긴다(데스크톱은 아래 원래 마크업).
   if (isMobile) {
@@ -634,6 +639,7 @@ function MessageDetailPanel({
       <MailMobileDetail
         key={detail.id}
         detail={detail}
+        invite={inviteCard}
         onBack={onBack}
         onMarkUnread={onMarkUnread}
         menuItems={
@@ -864,6 +870,8 @@ function MessageDetailPanel({
         {attachmentList}
       </div>
       <div className="flex-1 p-4">
+        {/* WP-986 일정 초대 카드 — 헤더와 본문 사이(초대 메일일 때만). */}
+        {inviteCard && <div className="mb-4">{inviteCard}</div>}
         {detail.bodyText ? (
           <pre className="whitespace-pre-wrap break-words font-sans text-sm">{detail.bodyText}</pre>
         ) : bodyHtml ? (

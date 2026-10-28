@@ -3,6 +3,7 @@ import type { MailAccountResponse } from '../../src/types/mailAccount'
 import type { MailDraftDetail } from '../../src/types/mailDraft'
 import type { MailServerFolder } from '../../src/types/mailFolder'
 import type {
+  CalendarInvite,
   EmailMessageDetail,
   EmailMessageSummary,
 } from '../../src/types/mailMessage'
@@ -71,6 +72,28 @@ export function detail(overrides?: Partial<EmailMessageDetail>): EmailMessageDet
     attachments: [
       { id: 1, filename: '안건.pdf', contentType: 'application/pdf', sizeBytes: 1024, contentId: null },
     ],
+    calendarInvite: null,
+    ...overrides,
+  }
+}
+
+/** WP-986 일정 초대 — 기본은 응답 전 REQUEST(11월 3일 오후 2~3시 KST, 참석자 5명, 내 캘린더에 없음). */
+export function calendarInvite(overrides?: Partial<CalendarInvite>): CalendarInvite {
+  return {
+    method: 'REQUEST',
+    uid: 'weekly-product@partner.com',
+    sequence: 0,
+    summary: '주간 제품 회의',
+    start: '2026-11-03T14:00:00+09:00',
+    end: '2026-11-03T15:00:00+09:00',
+    allDay: false,
+    location: '3층 대회의실 · Teams',
+    organizer: { name: 'Ethan Lee', email: 'ethan@partner.com' },
+    attendeeCount: 5,
+    myResponse: 'NEEDS_ACTION',
+    eventId: null,
+    outdated: false,
+    canRespond: true,
     ...overrides,
   }
 }

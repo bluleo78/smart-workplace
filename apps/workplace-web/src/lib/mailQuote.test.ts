@@ -26,6 +26,7 @@ const detail = {
   receivedAt: '2026-08-09T02:30:00Z',
   seen: true,
   attachments: [],
+  calendarInvite: null,
 };
 
 describe('unwrapMailHtml', () => {

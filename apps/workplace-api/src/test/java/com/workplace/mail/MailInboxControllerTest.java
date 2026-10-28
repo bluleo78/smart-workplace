@@ -413,4 +413,73 @@ class MailInboxControllerTest extends IntegrationTestBase {
         .where(com.workplace.jooq.tables.EmailMessage.EMAIL_MESSAGE.ID.eq(messageId))
         .execute();
   }
+
+  /** WP-986: 취소 초대 행을 직접 심는다(본문 적재 경로는 MailCalendarInviteImapTest 가 본다). */
+  private void seedCancelInvite(long messageId) {
+    dsl.insertInto(com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE)
+        .set(com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.MESSAGE_ID, messageId)
+        .set(com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.METHOD, "CANCEL")
+        .set(com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.UID, "ctl-uid-" + messageId)
+        .set(com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.SEQUENCE, 1)
+        .set(com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.SUMMARY, "취소된 회의")
+        .set(
+            com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.STARTS_AT,
+            java.time.OffsetDateTime.parse("2026-11-03T01:00:00Z"))
+        .set(com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.ORGANIZER_EMAIL, "boss@x.com")
+        .set(
+            com.workplace.jooq.Tables.EMAIL_CALENDAR_INVITE.ATTENDEE_EMAILS,
+            new String[] {"boss@x.com", "peer@x.com"})
+        .execute();
+  }
+
+  /** WP-986: 상세의 calendarInvite 계약 모양 + 초대 응답 400(잘못된 값)·404(초대 없음)·409(취소 초대, errors.code). */
+  @Test
+  void inviteResponse_contract() throws Exception {
+    long userId = TestFixtures.createHuman(dsl);
+    long accountId = createAccount(userId, "invite-" + System.nanoTime() + "@test.local");
+    long inbox = folderRepo.ensureFolder(accountId, "INBOX").id();
+    long plain = seedMessage(accountId, inbox, true, null);
+    long cancel = seedMessage(accountId, inbox, true, null);
+    seedCancelInvite(cancel);
+    String token = jwtTokenProvider.generateAccessToken(userId, "user-" + userId);
+
+    mvc.perform(
+            get("/api/v1/mail/messages/{m}", cancel)
+                .param("markSeen", "false")
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.calendarInvite.method").value("CANCEL"))
+        .andExpect(jsonPath("$.calendarInvite.summary").value("취소된 회의"))
+        .andExpect(jsonPath("$.calendarInvite.start").value("2026-11-03T01:00:00Z"))
+        .andExpect(jsonPath("$.calendarInvite.organizer.email").value("boss@x.com"))
+        .andExpect(jsonPath("$.calendarInvite.attendeeCount").value(2))
+        .andExpect(jsonPath("$.calendarInvite.myResponse").value("NEEDS_ACTION"))
+        .andExpect(jsonPath("$.calendarInvite.canRespond").value(false));
+    mvc.perform(
+            get("/api/v1/mail/messages/{m}", plain)
+                .param("markSeen", "false")
+                .header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.calendarInvite").isEmpty());
+
+    mvc.perform(
+            post("/api/v1/mail/messages/{m}/invite-response", cancel)
+                .header("Authorization", "Bearer " + token)
+                .contentType("application/json")
+                .content("{\"response\":\"MAYBE\"}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post("/api/v1/mail/messages/{m}/invite-response", plain)
+                .header("Authorization", "Bearer " + token)
+                .contentType("application/json")
+                .content("{\"response\":\"ACCEPTED\"}"))
+        .andExpect(status().isNotFound());
+    mvc.perform(
+            post("/api/v1/mail/messages/{m}/invite-response", cancel)
+                .header("Authorization", "Bearer " + token)
+                .contentType("application/json")
+                .content("{\"response\":\"ACCEPTED\"}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("INVITE_NOT_RESPONDABLE"));
+  }
 }
