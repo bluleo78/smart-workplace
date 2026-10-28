@@ -170,6 +170,16 @@ public class CalendarEvent extends TableImpl<CalendarEventRecord> {
      */
     public final TableField<CalendarEventRecord, OffsetDateTime> CATEGORIES_WRITTEN_AT = createField(DSL.name("categories_written_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
 
+    /**
+     * The column <code>public.calendar_event.ical_sequence</code>.
+     */
+    public final TableField<CalendarEventRecord, Integer> ICAL_SEQUENCE = createField(DSL.name("ical_sequence"), SQLDataType.INTEGER, this, "");
+
+    /**
+     * The column <code>public.calendar_event.cancelled_at</code>.
+     */
+    public final TableField<CalendarEventRecord, OffsetDateTime> CANCELLED_AT = createField(DSL.name("cancelled_at"), SQLDataType.TIMESTAMPWITHTIMEZONE(6), this, "");
+
     private CalendarEvent(Name alias, Table<CalendarEventRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }
@@ -239,7 +249,7 @@ public class CalendarEvent extends TableImpl<CalendarEventRecord> {
 
     @Override
     public List<Index> getIndexes() {
-        return Arrays.asList(Indexes.IDX_CALENDAR_EVENT_CALENDAR, Indexes.IDX_CALENDAR_EVENT_OWNER_RANGE, Indexes.IDX_CALENDAR_EVENT_SERIES_MASTER, Indexes.IDX_CALENDAR_EVENT_TENANT, Indexes.UQ_EVENT_EXTERNAL);
+        return Arrays.asList(Indexes.IDX_CALENDAR_EVENT_CALENDAR, Indexes.IDX_CALENDAR_EVENT_OWNER_RANGE, Indexes.IDX_CALENDAR_EVENT_SERIES_MASTER, Indexes.IDX_CALENDAR_EVENT_TENANT, Indexes.UQ_CALENDAR_EVENT_OWNER_ICAL_UID_LOCAL, Indexes.UQ_EVENT_EXTERNAL);
     }
 
     @Override

@@ -63,6 +63,7 @@ const source: EmailMessageDetail = {
   bodyText: '원본 본문입니다',
   bodyHtml: null,
   attachments: [],
+  calendarInvite: null,
 };
 
 describe('buildDraftSavePayload', () => {

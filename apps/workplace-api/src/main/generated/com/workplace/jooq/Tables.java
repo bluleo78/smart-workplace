@@ -41,6 +41,7 @@ import com.workplace.jooq.tables.DriveSpaceMemberGroup;
 import com.workplace.jooq.tables.DriveTransferLink;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
+import com.workplace.jooq.tables.EmailCalendarInvite;
 import com.workplace.jooq.tables.EmailContent;
 import com.workplace.jooq.tables.EmailFolder;
 import com.workplace.jooq.tables.EmailMessage;
@@ -334,6 +335,11 @@ public class Tables {
      * The table <code>public.email_attachment</code>.
      */
     public static final EmailAttachment EMAIL_ATTACHMENT = EmailAttachment.EMAIL_ATTACHMENT;
+
+    /**
+     * The table <code>public.email_calendar_invite</code>.
+     */
+    public static final EmailCalendarInvite EMAIL_CALENDAR_INVITE = EmailCalendarInvite.EMAIL_CALENDAR_INVITE;
 
     /**
      * The table <code>public.email_content</code>.

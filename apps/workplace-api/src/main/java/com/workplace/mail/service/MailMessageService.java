@@ -20,6 +20,7 @@ import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.invite.MailInviteService;
 import java.time.OffsetDateTime;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
@@ -55,6 +56,9 @@ public class MailMessageService {
   private final AssistantResolver assistantResolver;
   private final DSLContext dsl;
 
+  /** WP-986: 일정 초대 카드. */
+  private final MailInviteService inviteService;
+
   /** WP-68: 첨부 행이 없는 인라인 전용 Graph 메일의 첨부 목록 즉시 적재. */
   private final MailInlineContentIdBackfiller inlineBackfiller;
 
@@ -75,7 +79,8 @@ public class MailMessageService {
       MailChangeNotifier notifier,
       AssistantResolver assistantResolver,
       DSLContext dsl,
-      PlatformTransactionManager txManager) {
+      PlatformTransactionManager txManager,
+      MailInviteService inviteService) {
     this.accountRepo = accountRepo;
     this.messageRepo = messageRepo;
     this.folderRepo = folderRepo;
@@ -87,6 +92,7 @@ public class MailMessageService {
     this.assistantResolver = assistantResolver;
     this.dsl = dsl;
     this.txTemplate = new TransactionTemplate(txManager);
+    this.inviteService = inviteService;
   }
 
   /** 계정의 메시지 목록(폴더 스코프·최신순·선택 검색어·#466 unread·P2 category/needsReply 필터). 계정이 본인 소유가 아니면 404. */
@@ -301,7 +307,8 @@ public class MailMessageService {
               detail.bodyHtml(),
               detail.attachments());
     }
-    return detail;
+    // WP-986: 일정 초대·취소 카드 — 본문 적재 때 기록한 초대에 내 캘린더 상태를 합친다(초대 메일이 아니면 null)
+    return detail.withCalendarInvite(inviteService.view(userId, messageId));
   }
 
   /**

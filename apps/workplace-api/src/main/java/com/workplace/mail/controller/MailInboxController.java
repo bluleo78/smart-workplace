@@ -4,8 +4,10 @@ import com.workplace.fileai.controller.ViewImageResponses;
 import com.workplace.fileai.dto.ExtractedTextSlice;
 import com.workplace.filepreview.PreviewResponses;
 import com.workplace.mail.dto.AttachmentCacheUsage;
+import com.workplace.mail.dto.CalendarInvite;
 import com.workplace.mail.dto.EmailMessageDetail;
 import com.workplace.mail.dto.EmailMessageSummary;
+import com.workplace.mail.dto.InviteResponseRequest;
 import com.workplace.mail.dto.MailFolderResponse;
 import com.workplace.mail.dto.MailFolderSyncResult;
 import com.workplace.mail.dto.MailListCursor;
@@ -25,6 +27,7 @@ import com.workplace.mail.service.MailAttachmentViewService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
+import com.workplace.mail.service.invite.MailInviteService;
 import com.workplace.mail.service.move.MailMoveService;
 import jakarta.validation.Valid;
 import java.nio.charset.StandardCharsets;
@@ -62,6 +65,7 @@ public class MailInboxController {
   private final MailAttachmentPreviewService attachmentPreviewService;
   private final MailFolderService folderService;
   private final MailMoveService moveService;
+  private final MailInviteService inviteService;
 
   /** 계정의 INBOX 를 증분 동기화(수동 트리거). */
   @PostMapping("/accounts/{accountId}/sync")
@@ -177,6 +181,18 @@ public class MailInboxController {
       @PathVariable long messageId,
       @RequestParam(defaultValue = "true") boolean markSeen) {
     return messageService.get(callerId, messageId, markSeen);
+  }
+
+  /**
+   * WP-986: 메일의 일정 초대에 응답한다(수락·미정·거절). M365 계정은 Graph 일정 응답, IMAP 계정은 주최자에게 iCalendar REPLY 메일 + 내
+   * 캘린더 반영. 갱신된 초대 카드를 돌려준다. 내 메일이 아니면 404, 초대가 없으면 404, 취소·옛 초대 등 응답할 수 없으면 409.
+   */
+  @PostMapping("/messages/{messageId}/invite-response")
+  public CalendarInvite respondToInvite(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable long messageId,
+      @Valid @RequestBody InviteResponseRequest req) {
+    return inviteService.respond(callerId, messageId, req.response());
   }
 
   /** WP-146: 명시적 읽음 처리(MCP mark_mail_read). 본인 메일이 아니면 404, 이미 읽었으면 그대로 200. */

@@ -3,12 +3,14 @@ import type { AxiosProgressEvent } from 'axios';
 
 import type { MailFolderSyncResult, MailMoveRequest, MailMoveResponse, MailServerFolder } from '../types/mailFolder';
 import type {
+  CalendarInvite,
   ComposeAttachmentUpload,
   ComposeDraftRequest,
   ComposeDraftResult,
   DraftCoachingRequest,
   EmailMessageDetail,
   EmailMessageSummary,
+  InviteResponseRequest,
   MailAiSummary,
   MailDraftCoaching,
   MailFolder,
@@ -214,6 +216,19 @@ export async function getMessage(messageId: number): Promise<EmailMessageDetail>
   const { data } = await client.get<EmailMessageDetail>(`/mail/messages/${messageId}`, {
     params: { markSeen: false },
   });
+  return data;
+}
+
+/**
+ * WP-986 일정 초대 메일에 응답(수락·미정·거절) — 서버가 주최자에게 응답을 보내고 내 캘린더 일정을 맞춘다.
+ * 응답은 갱신된 초대 정보다. 응답할 수 없는 메일이면 409.
+ */
+export async function respondToInvite(
+  messageId: number,
+  response: InviteResponseRequest['response'],
+): Promise<CalendarInvite> {
+  const body: InviteResponseRequest = { response };
+  const { data } = await client.post<CalendarInvite>(`/mail/messages/${messageId}/invite-response`, body);
   return data;
 }
 

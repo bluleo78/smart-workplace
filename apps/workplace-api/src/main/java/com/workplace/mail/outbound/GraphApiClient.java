@@ -181,6 +181,53 @@ public class GraphApiClient {
   }
 
   /**
+   * WP-986: Graph 리소스의 원문 바이트를 GET 한다 — 메시지 MIME 원문({@code /me/messages/{id}/$value}) 처럼 JSON 이 아닌
+   * 응답용.
+   *
+   * @throws MailSyncException HTTP 오류 또는 네트워크 실패
+   */
+  public byte[] getBytes(String accessToken, String url) {
+    String absoluteUrl = url.startsWith("http") ? url : GRAPH_BASE_URL + url;
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(absoluteUrl))
+            .header("Authorization", "Bearer " + accessToken)
+            .GET()
+            .build();
+    try {
+      HttpResponse<byte[]> resp = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+      if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+        // 응답 바디는 남기지 않는다 — 토큰·본문 노출 방지
+        log.error("Graph API 원문 조회 오류: status={}", resp.statusCode());
+        throw new MailSyncException("Graph API 호출 실패: " + resp.statusCode());
+      }
+      return resp.body();
+    } catch (IOException e) {
+      throw new MailSyncException("Graph API 네트워크 오류", e);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new MailSyncException("Graph API 요청이 중단됨", e);
+    }
+  }
+
+  /**
+   * WP-986: 응답 본문이 없는(202·204) Graph 동작에 POST(application/json) 한다 — 일정 수락·거절({@code
+   * /me/events/{id}/accept}) 처럼 결과를 돌려주지 않는 요청용. {@link #post} 는 응답을 역직렬화하므로 빈 본문에서 실패한다.
+   *
+   * @throws MailSendException 2xx 외 응답 또는 네트워크 실패
+   */
+  public void postNoContent(String accessToken, String path, String jsonBody) {
+    HttpRequest req =
+        HttpRequest.newBuilder()
+            .uri(URI.create(GRAPH_BASE_URL + path))
+            .header("Authorization", "Bearer " + accessToken)
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+            .build();
+    sendWrite(req, "postNoContent");
+  }
+
+  /**
    * MIME 메시지를 Graph로 발송한다(POST /me/sendMail, base64 MIME).
    *
    * <p>JSON Message가 아닌 raw MIME 모드를 쓰는 이유: Graph의 internetMessageHeaders는 x- 접두 커스텀 헤더만 허용해

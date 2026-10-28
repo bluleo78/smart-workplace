@@ -142,6 +142,7 @@ public final class TenantPurgePlan {
           MAIL_DRAFT,
           // 메일 (email_message.content_id RESTRICT 때문에 메시지·첨부가 본문보다 먼저)
           EMAIL_ATTACHMENT,
+          EMAIL_CALENDAR_INVITE, // WP-986 메일 일정 초대 — email_message 보다 먼저
           EMAIL_MESSAGE,
           EMAIL_FOLDER,
           EMAIL_ACCOUNT,

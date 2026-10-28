@@ -300,6 +300,34 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
         return (OffsetDateTime) get(19);
     }
 
+    /**
+     * Setter for <code>public.calendar_event.ical_sequence</code>.
+     */
+    public void setIcalSequence(Integer value) {
+        set(20, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_event.ical_sequence</code>.
+     */
+    public Integer getIcalSequence() {
+        return (Integer) get(20);
+    }
+
+    /**
+     * Setter for <code>public.calendar_event.cancelled_at</code>.
+     */
+    public void setCancelledAt(OffsetDateTime value) {
+        set(21, value);
+    }
+
+    /**
+     * Getter for <code>public.calendar_event.cancelled_at</code>.
+     */
+    public OffsetDateTime getCancelledAt() {
+        return (OffsetDateTime) get(21);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -323,7 +351,7 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
     /**
      * Create a detached, initialised CalendarEventRecord
      */
-    public CalendarEventRecord(Long id, Long ownerId, String title, String description, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String color, OffsetDateTime createdAt, OffsetDateTime updatedAt, String recurrenceRule, Long tenantId, Long calendarId, String externalId, String icalUid, String onlineMeetingUrl, String seriesMasterId, String externalType, OffsetDateTime categoriesWrittenAt) {
+    public CalendarEventRecord(Long id, Long ownerId, String title, String description, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String color, OffsetDateTime createdAt, OffsetDateTime updatedAt, String recurrenceRule, Long tenantId, Long calendarId, String externalId, String icalUid, String onlineMeetingUrl, String seriesMasterId, String externalType, OffsetDateTime categoriesWrittenAt, Integer icalSequence, OffsetDateTime cancelledAt) {
         super(CalendarEvent.CALENDAR_EVENT);
 
         setId(id);
@@ -346,6 +374,8 @@ public class CalendarEventRecord extends UpdatableRecordImpl<CalendarEventRecord
         setSeriesMasterId(seriesMasterId);
         setExternalType(externalType);
         setCategoriesWrittenAt(categoriesWrittenAt);
+        setIcalSequence(icalSequence);
+        setCancelledAt(cancelledAt);
         resetChangedOnNotNull();
     }
 }

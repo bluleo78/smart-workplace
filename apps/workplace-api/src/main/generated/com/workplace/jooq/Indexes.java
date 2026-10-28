@@ -41,6 +41,7 @@ import com.workplace.jooq.tables.DriveSpaceMemberGroup;
 import com.workplace.jooq.tables.DriveTransferLink;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
+import com.workplace.jooq.tables.EmailCalendarInvite;
 import com.workplace.jooq.tables.EmailContent;
 import com.workplace.jooq.tables.EmailFolder;
 import com.workplace.jooq.tables.EmailMessage;
@@ -240,6 +241,8 @@ public class Indexes {
     public static final Index IDX_EMAIL_ATTACHMENT_CONTENT_ATT = Internal.createIndex(DSL.name("idx_email_attachment_content_att"), EmailAttachment.EMAIL_ATTACHMENT, new OrderField[] { EmailAttachment.EMAIL_ATTACHMENT.CONTENT_ATTACHMENT_ID }, false);
     public static final Index IDX_EMAIL_ATTACHMENT_MESSAGE = Internal.createIndex(DSL.name("idx_email_attachment_message"), EmailAttachment.EMAIL_ATTACHMENT, new OrderField[] { EmailAttachment.EMAIL_ATTACHMENT.MESSAGE_ID }, false);
     public static final Index IDX_EMAIL_ATTACHMENT_TENANT = Internal.createIndex(DSL.name("idx_email_attachment_tenant"), EmailAttachment.EMAIL_ATTACHMENT, new OrderField[] { EmailAttachment.EMAIL_ATTACHMENT.TENANT_ID }, false);
+    public static final Index IDX_EMAIL_CALENDAR_INVITE_TENANT = Internal.createIndex(DSL.name("idx_email_calendar_invite_tenant"), EmailCalendarInvite.EMAIL_CALENDAR_INVITE, new OrderField[] { EmailCalendarInvite.EMAIL_CALENDAR_INVITE.TENANT_ID }, false);
+    public static final Index IDX_EMAIL_CALENDAR_INVITE_UID = Internal.createIndex(DSL.name("idx_email_calendar_invite_uid"), EmailCalendarInvite.EMAIL_CALENDAR_INVITE, new OrderField[] { EmailCalendarInvite.EMAIL_CALENDAR_INVITE.UID }, false);
     public static final Index IDX_EMAIL_FOLDER_PARENT = Internal.createIndex(DSL.name("idx_email_folder_parent"), EmailFolder.EMAIL_FOLDER, new OrderField[] { EmailFolder.EMAIL_FOLDER.PARENT_ID }, false);
     public static final Index IDX_EMAIL_FOLDER_TENANT = Internal.createIndex(DSL.name("idx_email_folder_tenant"), EmailFolder.EMAIL_FOLDER, new OrderField[] { EmailFolder.EMAIL_FOLDER.TENANT_ID }, false);
     public static final Index IDX_EMAIL_MESSAGE_RECEIVED = Internal.createIndex(DSL.name("idx_email_message_received"), EmailMessage.EMAIL_MESSAGE, new OrderField[] { EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID, EmailMessage.EMAIL_MESSAGE.RECEIVED_AT.desc() }, false);
@@ -425,6 +428,7 @@ public class Indexes {
     public static final Index UK_EMAIL_MESSAGE_PROVIDER_MSG = Internal.createIndex(DSL.name("uk_email_message_provider_msg"), EmailMessage.EMAIL_MESSAGE, new OrderField[] { EmailMessage.EMAIL_MESSAGE.ACCOUNT_ID, EmailMessage.EMAIL_MESSAGE.PROVIDER_MESSAGE_ID }, true);
     public static final Index UQ_AAC_ACTIVE = Internal.createIndex(DSL.name("uq_aac_active"), AiAgentCredential.AI_AGENT_CREDENTIAL, new OrderField[] { AiAgentCredential.AI_AGENT_CREDENTIAL.USER_ID }, true);
     public static final Index UQ_CALENDAR_DEFAULT = Internal.createIndex(DSL.name("uq_calendar_default"), Calendar.CALENDAR, new OrderField[] { Calendar.CALENDAR.OWNER_ID, Calendar.CALENDAR.TENANT_ID }, true);
+    public static final Index UQ_CALENDAR_EVENT_OWNER_ICAL_UID_LOCAL = Internal.createIndex(DSL.name("uq_calendar_event_owner_ical_uid_local"), CalendarEvent.CALENDAR_EVENT, new OrderField[] { CalendarEvent.CALENDAR_EVENT.OWNER_ID, CalendarEvent.CALENDAR_EVENT.ICAL_UID }, true);
     public static final Index UQ_CALENDAR_EXTERNAL = Internal.createIndex(DSL.name("uq_calendar_external"), Calendar.CALENDAR, new OrderField[] { Calendar.CALENDAR.EXTERNAL_ACCOUNT_ID, Calendar.CALENDAR.EXTERNAL_ID }, true);
     public static final Index UQ_CHANNEL_DM_MEMBER_KEY = Internal.createIndex(DSL.name("uq_channel_dm_member_key"), Channel.CHANNEL, new OrderField[] { Channel.CHANNEL.TENANT_ID, Channel.CHANNEL.MEMBER_KEY }, true);
     public static final Index UQ_DRIVE_SHARE_LINK_TOKEN = Internal.createIndex(DSL.name("uq_drive_share_link_token"), DriveShareLink.DRIVE_SHARE_LINK, new OrderField[] { DriveShareLink.DRIVE_SHARE_LINK.TOKEN_HASH }, true);

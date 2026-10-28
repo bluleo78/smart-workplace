@@ -10,6 +10,7 @@ import com.workplace.mail.exception.EmailAccountNotFoundException;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
+import com.workplace.mail.service.invite.MailInviteRecorder;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.Store;
@@ -39,6 +40,9 @@ public class ImapBodyLoader implements MailBodyLoader {
   private final EncryptionService encryption;
   private final ImapConnector imapConnector;
   private final MailMessageParser parser;
+
+  /** WP-986: 일정 초대 기록. */
+  private final MailInviteRecorder inviteRecorder;
 
   @Override
   public MailProvider provider() {
@@ -105,6 +109,8 @@ public class ImapBodyLoader implements MailBodyLoader {
       messageRepo.markHasAttachment(target.messageId(), body.hasAttachment());
       // ordinal = MIME 순서(0-based). 분리됐으면 새 content 기준(target.contentId() 는 낡은 값).
       attachmentRepo.insertAll(target.messageId(), contentId, attachments);
+      // WP-986: 일정 초대·취소(text/calendar·.ics) 기록 — 주최자가 보낸 취소면 넣어 둔 같은 UID 일정을 취소 표시
+      inviteRecorder.record(userId, target.messageId(), body.calendarIcs(), body.senderEmails());
       // V97: per-envelope 마커 — 이 envelope 의 첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
       return true;

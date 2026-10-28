@@ -7,6 +7,7 @@ import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.exception.MailConnectionException;
 import com.workplace.mail.exception.MailDraftConflictException;
 import com.workplace.mail.exception.MailDraftNotFoundException;
+import com.workplace.mail.exception.MailInviteNotRespondableException;
 import com.workplace.mail.exception.MailValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -83,6 +84,17 @@ public class MailExceptionHandler {
         HttpStatus.CONFLICT,
         e.getMessage(),
         Map.of("code", MailDraftConflictException.CODE),
+        request);
+  }
+
+  /** 응답할 수 없는 일정 초대(WP-986) → 409 + errors.code=INVITE_NOT_RESPONDABLE. */
+  @ExceptionHandler(MailInviteNotRespondableException.class)
+  public ResponseEntity<ErrorResponse> handleInviteNotRespondable(
+      MailInviteNotRespondableException e, HttpServletRequest request) {
+    return error(
+        HttpStatus.CONFLICT,
+        e.getMessage(),
+        Map.of("code", MailInviteNotRespondableException.CODE),
         request);
   }
 

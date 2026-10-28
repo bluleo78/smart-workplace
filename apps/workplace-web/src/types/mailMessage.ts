@@ -64,6 +64,46 @@ export interface EmailMessageDetail {
   bodyText: string | null;
   bodyHtml: string | null;
   attachments: EmailAttachmentMeta[];
+  /** WP-986 일정 초대(iCalendar METHOD:REQUEST·CANCEL) 메일이면 초대 정보, 아니면 null — 본문 위 초대 카드로 보인다. */
+  calendarInvite: CalendarInvite | null;
+}
+
+/** WP-986 초대 메일의 내 응답 — 백엔드 CalendarInvite.myResponse 와 1:1(캘린더 RsvpStatus 와 같은 값). */
+export type CalendarInviteResponse = 'NEEDS_ACTION' | 'ACCEPTED' | 'TENTATIVE' | 'DECLINED';
+
+/**
+ * WP-986 메일에 담긴 일정 초대 — 백엔드 CalendarInvite DTO 와 1:1.
+ * 판정은 iCalendar 규칙(METHOD/UID/SEQUENCE)만 쓴다. canRespond 는 서버가 정한다(REQUEST·최신·응답 수단 있음).
+ */
+export interface CalendarInvite {
+  method: 'REQUEST' | 'CANCEL';
+  uid: string;
+  sequence: number;
+  summary: string | null;
+  /** 시작 시각(ISO-8601, 오프셋 포함). */
+  start: string;
+  /** 끝 시각(ISO-8601) — 초대에 없으면 null. 종일이면 배타적(다음 날 0시). */
+  end: string | null;
+  allDay: boolean;
+  location: string | null;
+  organizer: { name: string | null; email: string } | null;
+  attendeeCount: number;
+  myResponse: CalendarInviteResponse;
+  /** 내 캘린더에 있는 같은 UID 일정 id — 있으면 「캘린더에서 보기」. */
+  eventId: number | null;
+  /** 더 최신 SEQUENCE 의 초대를 알고 있다(이 메일은 옛 초대). */
+  outdated: boolean;
+  /** 이 메일에서 응답할 수 있는가(REQUEST && !outdated && 응답 수단 있음). */
+  canRespond: boolean;
+  /** 이 메일을 주최자가 보냈다(iCalendar ORGANIZER = 메일 From·Sender). false 인 취소 메일은 내 캘린더를 건드리지 않았다. */
+  fromOrganizer: boolean;
+  /** REQUEST — 주최자가 보내지 않은 같은 일정의 더 새 초대·취소 메일이 있다(낡음 판정에는 안 세서 응답은 그대로 된다). */
+  unverifiedNewer: boolean;
+}
+
+/** WP-986 초대 응답 요청 — POST /mail/messages/{id}/invite-response 본문. */
+export interface InviteResponseRequest {
+  response: Exclude<CalendarInviteResponse, 'NEEDS_ACTION'>;
 }
 
 /** 수동 동기화 1회 결과 요약. */

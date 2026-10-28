@@ -38,6 +38,7 @@ import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath
 import com.workplace.jooq.tables.DriveTransferLink.DriveTransferLinkPath;
 import com.workplace.jooq.tables.EmailAccount.EmailAccountPath;
 import com.workplace.jooq.tables.EmailAttachment.EmailAttachmentPath;
+import com.workplace.jooq.tables.EmailCalendarInvite.EmailCalendarInvitePath;
 import com.workplace.jooq.tables.EmailContent.EmailContentPath;
 import com.workplace.jooq.tables.EmailFolder.EmailFolderPath;
 import com.workplace.jooq.tables.EmailMessage.EmailMessagePath;
@@ -476,6 +477,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _driveTransferLink = new DriveTransferLinkPath(this, null, Keys.DRIVE_TRANSFER_LINK__DRIVE_TRANSFER_LINK_TENANT_ID_FKEY.getInverseKey());
 
         return _driveTransferLink;
+    }
+
+    private transient EmailCalendarInvitePath _emailCalendarInvite;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.email_calendar_invite</code> table
+     */
+    public EmailCalendarInvitePath emailCalendarInvite() {
+        if (_emailCalendarInvite == null)
+            _emailCalendarInvite = new EmailCalendarInvitePath(this, null, Keys.EMAIL_CALENDAR_INVITE__EMAIL_CALENDAR_INVITE_TENANT_ID_FKEY.getInverseKey());
+
+        return _emailCalendarInvite;
     }
 
     private transient EmailContentPath _emailContent;

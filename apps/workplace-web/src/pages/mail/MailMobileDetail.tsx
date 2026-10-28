@@ -1,7 +1,7 @@
 // 모바일 메일 상세(WP-400) — 첫 화면에서 본문이 보이도록 메타 정보를 접고, 자주 쓰는 액션은 하단 고정 바로 뺀다.
 // 데스크톱 상세(MailInboxPage 의 MessageDetailPanel 본래 마크업)는 그대로 두고, 휴대폰 폭에서만 이 배치를 쓴다.
 //  - 상단바: ‹ · 제목(본문 위 큰 제목이 스크롤로 사라지면 페이드인) · ⋯(안 읽음·AI 이슈·원본 배경) · ✦
-//  - 스크롤 영역: AI 요약(접힘) → 큰 제목 → 보낸사람 → 수신자 한 줄 요약(탭하면 펼침) → 첨부 → 본문
+//  - 스크롤 영역: AI 요약(접힘) → 큰 제목 → 보낸사람 → 수신자 한 줄 요약(탭하면 펼침) → 첨부 → 일정 초대 카드(WP-986) → 본문
 //  - 하단 고정 바: 답장 · 전체답장 · 전달 · AI 답장
 import { ChevronDown, Forward, Loader2, Mail, Reply, ReplyAll, Sparkles } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
@@ -209,6 +209,7 @@ export function MailMobileDetail({
   summary,
   linkedIssue,
   attachments,
+  invite,
   body,
   onReply,
   onReplyAll,
@@ -222,6 +223,8 @@ export function MailMobileDetail({
   summary?: ReactNode
   linkedIssue?: ReactNode
   attachments?: ReactNode
+  /** WP-986 일정 초대 카드 — 머리 영역과 본문 사이에 둔다(초대 메일일 때만). */
+  invite?: ReactNode
   body: ReactNode
   onReply: () => void
   onReplyAll: () => void
@@ -266,6 +269,7 @@ export function MailMobileDetail({
             <MailMobileRecipients detail={detail} />
             {attachments}
           </div>
+          {invite && <div className="px-4 pt-3">{invite}</div>}
           <div className="px-4 py-2">{body}</div>
         </div>
         <MailMobileActionBar onReply={onReply} onReplyAll={onReplyAll} onForward={onForward} aiReply={aiReply} />

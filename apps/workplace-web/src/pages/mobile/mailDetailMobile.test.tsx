@@ -11,7 +11,7 @@ import { chatHandlers } from '@/test/kits/mobile/chatHistory'
 import { renderMobileMail } from '@/test/kits/mobile/mobileMail'
 import { mockViewport } from '@/test/viewport'
 
-import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
+import { calendarInvite, detail, mailAccount, summary } from '../../../e2e/factories/mail.factory'
 
 mockViewport()
 
@@ -284,4 +284,19 @@ describe('하단 고정 바', () => {
     await user.click(within(bar).getByTestId('mobile-header-more'))
     expect(within(within(bar).getByTestId('mobile-header-more-menu')).getAllByRole('menuitem').map((el) => el.textContent?.trim())).toEqual(['안 읽음', '삭제'])
   })
+})
+
+test('일정 초대 메일(WP-986)은 머리 영역과 본문 사이에 초대 카드를 그린다', async () => {
+  await openMail(10, {
+    detail10: () =>
+      HttpResponse.json(detail({ id: 10, seen: true, subject: SUBJECT, bodyText: '본문입니다.', bodyHtml: null, attachments: [], calendarInvite: calendarInvite() })),
+  })
+  const card = await screen.findByTestId('mail-invite-card')
+  expect(within(card).getByTestId('mail-invite-title')).toHaveTextContent('주간 제품 회의')
+  expect(within(card).getByRole('group', { name: '참석 여부' })).toBeInTheDocument()
+  // 큰 제목 뒤, 본문 앞.
+  const heading = screen.getByRole('heading', { level: 2, name: SUBJECT })
+  const body = screen.getByText('본문입니다.')
+  expect(heading.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(card.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })

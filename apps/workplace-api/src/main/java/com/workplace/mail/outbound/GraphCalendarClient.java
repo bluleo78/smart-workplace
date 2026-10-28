@@ -2,6 +2,7 @@ package com.workplace.mail.outbound;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -9,6 +10,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -346,6 +348,58 @@ public class GraphCalendarClient {
         accessToken,
         "/me/events/" + externalEventId + "?$select=id,type,seriesMasterId,categories",
         GraphEventCategoryState.class);
+  }
+
+  /**
+   * WP-986: 초대 메일(eventMessage)에 이어진 내 일정의 Graph id. {@code
+   * $expand=microsoft.graph.eventMessage/event} 는 Graph 문서의 eventMessage 조회 방식이다 — 메일 하나가 가리키는 일정을
+   * UID 검색 없이 바로 얻는다(반복 회의도 시리즈 마스터). 이어진 일정이 없으면(이미 지워짐 등) 빈 값.
+   */
+  public Optional<String> findEventIdForMessage(String accessToken, String messageId) {
+    JsonNode node =
+        api.get(
+            accessToken,
+            "/me/messages/" + messageId + "?$select=id&$expand=microsoft.graph.eventMessage/event",
+            JsonNode.class);
+    if (node == null) return Optional.empty();
+    String id = node.path("event").path("id").asText(null);
+    return id == null || id.isBlank() ? Optional.empty() : Optional.of(id);
+  }
+
+  /**
+   * WP-986: iCalendar UID 로 내 일정의 Graph id 를 찾는다 — 메일에 이어진 일정을 얻지 못했을 때의 대안. 값 안의 작은따옴표는 OData 규칙대로
+   * 두 번 쓴다.
+   */
+  public Optional<String> findEventIdByICalUid(String accessToken, String iCalUid) {
+    String filter = "iCalUId eq '" + iCalUid.replace("'", "''") + "'";
+    JsonNode node =
+        api.get(
+            accessToken,
+            "/me/events?$select=id&$top=1&$filter="
+                + URLEncoder.encode(filter, StandardCharsets.UTF_8).replace("+", "%20"),
+            JsonNode.class);
+    if (node == null) return Optional.empty();
+    String id = node.path("value").path(0).path("id").asText(null);
+    return id == null || id.isBlank() ? Optional.empty() : Optional.of(id);
+  }
+
+  /**
+   * WP-986: 일정 초대에 응답한다 — {@code POST /me/events/{id}/accept|tentativelyAccept|decline}, {@code
+   * sendResponse=true} 라 Exchange 가 주최자에게 응답 메일을 보내고 내 일정 상태도 바꾼다.
+   *
+   * @param response ACCEPTED·TENTATIVE·DECLINED
+   * @throws com.workplace.mail.exception.MailSendException Graph 오류
+   */
+  public void respondToEvent(String accessToken, String eventId, String response) {
+    String action =
+        switch (response) {
+          case "ACCEPTED" -> "accept";
+          case "TENTATIVE" -> "tentativelyAccept";
+          case "DECLINED" -> "decline";
+          default -> throw new IllegalArgumentException("알 수 없는 응답: " + response);
+        };
+    api.postNoContent(
+        accessToken, "/me/events/" + eventId + "/" + action, "{\"sendResponse\":true}");
   }
 
   /**
