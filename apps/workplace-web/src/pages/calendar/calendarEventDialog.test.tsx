@@ -278,6 +278,25 @@ describe('종일', () => {
     expect(requests.posts).toHaveLength(0)
   })
 
+  // WP-1090 — 앞선 종료일을 고르면 칸도 그 날로 남고(시작일로 바꿔 보이지 않음), 같은 날로 다시 고르면 오류가 풀려 저장된다.
+  test('종일 종료일을 하루 앞으로 골랐다가 같은 날로 되돌리면 저장된다 (WP-1090)', async () => {
+    const { user, requests } = await openNew('되돌리기')
+    await user.click(screen.getByTestId('calendar-form-allday'))
+    setValue('calendar-form-end', '2026-06-09')
+    expect(screen.getByTestId('calendar-form-end')).toHaveValue('2026-06-09')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(await screen.findByText('종료일은 시작일보다 앞설 수 없습니다')).toBeInTheDocument()
+
+    setValue('calendar-form-end', '2026-06-10')
+    expect(screen.getByTestId('calendar-form-end')).toHaveValue('2026-06-10')
+    await waitFor(() => expect(screen.queryByText('종료일은 시작일보다 앞설 수 없습니다')).not.toBeInTheDocument())
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.posts).toHaveLength(1))
+    const body = requests.posts[0] as { startsAt: string; endsAt: string }
+    expect(new Date(body.startsAt).toISOString()).toBe('2026-06-09T15:00:00.000Z')
+    expect(new Date(body.endsAt).toISOString()).toBe('2026-06-10T15:00:00.000Z')
+  })
+
   test('종일 시작일을 종료일 뒤로 옮기면 종료일이 시작일로 따라온다 (WP-1072)', async () => {
     await openNew('옮기기')
     fireEvent.click(screen.getByTestId('calendar-form-allday'))
