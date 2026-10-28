@@ -14,6 +14,7 @@ import type {
   WikiShareEvent,
   WikiSharedPageItem,
 } from '../../../src/types/wiki'
+import { createMember } from '../../factories/auth.factory'
 import { wikiPageDetail } from '../../factories/wiki.factory'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { bodyOf, trackRequests } from '../../fixtures/requests'
@@ -296,5 +297,32 @@ test.describe('노트 공유 — 휴대폰', () => {
       const box = await page.getByTestId(id).boundingBox()
       expect(box!.x + box!.width).toBeLessThanOrEqual(header!.x + header!.width)
     }
+  })
+})
+
+// 사람·팀 추가 목록 스크롤(WP-1048) — 공유 창(Dialog)이 바깥 스크롤을 막아(RemoveScroll), 포털로 그린 검색 팝오버의 목록이 휠로 내려가지 않았다.
+// 휠 이벤트가 막히는지는 jsdom 이 잴 수 없어 실제 브라우저로 본다. 목록 내용·고르기는 src/pages/wiki/wikiShare.test.tsx 가 맡는다.
+test.describe('노트 공유 — 사람·팀 추가 목록(WP-1048)', () => {
+  test('공유 창 안의 후보 목록이 휠로 내려간다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    const server = newServer({ share: existingShare({ audience: 'PEOPLE' }) })
+    await mockOwnerShare(page, server)
+    // 목록 높이(300px)를 넘기도록 사람 20명.
+    const people = Array.from({ length: 20 }, (_, i) => createMember({ userId: 100 + i, username: `p${i}`, name: `사람${i}` }))
+    await page.route((u) => u.pathname === '/api/v1/members', (r) =>
+      r.fulfill({ json: { content: people, page: 0, size: 20, totalElements: people.length, totalPages: 1 } }),
+    )
+    await page.route((u) => u.pathname === '/api/v1/user-groups', (r) => r.fulfill({ json: { shared: [], personal: [] } }))
+
+    await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE}`)
+    await page.getByTestId('wiki-share-button').click()
+    await dialogOf(page).getByTestId('wiki-share-add-person').click()
+    const list = page.getByTestId('share-target-search').locator('[cmdk-list]')
+    await expect(page.getByTestId('share-target-person-119')).toBeAttached()
+    expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+
+    const box = await list.boundingBox()
+    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2)
+    await page.mouse.wheel(0, 600)
+    await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
   })
 })

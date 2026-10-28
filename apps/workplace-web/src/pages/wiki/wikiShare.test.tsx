@@ -453,12 +453,21 @@ function openShareDialog(
         http.get('/api/v1/members', ({ request }) => {
           const search = new URL(request.url).searchParams.get('search') ?? ''
           searches.push(search)
-          // 「김」으로 찾으면 김민지(7), 검색어가 없으면 두 사람, 그 밖엔 없음.
-          const all = [createMember({ userId: 7, username: 'minji', name: '김민지' }), createMember({ userId: 8, username: 'doyun', name: '이도윤' })]
+          // 「김」으로 찾으면 김민지(7), 검색어가 없으면 모두, 그 밖엔 없음. 1(나 — 로그인 사용자)은 후보에서 빠져야 한다(WP-1048).
+          const all = [
+            createMember({ userId: 1, username: 'me', name: '나' }),
+            createMember({ userId: 7, username: 'minji', name: '김민지', department: '프론트엔드팀' }),
+            createMember({ userId: 8, username: 'doyun', name: '이도윤' }),
+          ]
           const content = search === '' ? all : all.filter((m) => m.name.includes(search))
           return HttpResponse.json({ content, page: 0, size: 20, totalElements: content.length, totalPages: 1 })
         }),
         http.get('/api/v1/user-groups', () => HttpResponse.json(GROUP_TREE)),
+        // 하위 조직 포함 구성원(빈 검색어) — 공유 창 부서 행의 ▾(WP-1048). groupMembers 의 직속 구성원에 경로 없이 답한다.
+        http.get('/api/v1/user-groups/:id/members/search', ({ params }) => {
+          const id = Number(params.id)
+          return HttpResponse.json((groupMembers[id] ?? []).map((m) => ({ ...m, groupId: id, groupPath: [] })))
+        }),
         http.get('/api/v1/user-groups/:id', async ({ params }) => {
           const id = Number(params.id)
           if (detailGate) await detailGate
@@ -486,11 +495,9 @@ describe('노트 공유 창 — 사람·팀 추가(WP-1023)', () => {
     const { user, searches } = openShareDialog()
     const input = await openPicker(user)
     const departments = await screen.findByTestId('share-target-departments')
-    expect(within(departments).getByText('조직도')).toBeInTheDocument()
-    expect(within(screen.getByTestId('share-target-personal-groups')).getByText('내 그룹')).toBeInTheDocument()
-    expect(within(await screen.findByTestId('share-target-people')).getByText('사람')).toBeInTheDocument()
-    // 하위 부서는 상위 부서 경로와 함께 보인다.
-    expect(within(screen.getByTestId('share-target-department-12')).getByText('개발팀')).toBeInTheDocument()
+    expect(within(departments).getByText('조직도', { selector: '[cmdk-group-heading]' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('share-target-personal-groups')).getByText('내 그룹', { selector: '[cmdk-group-heading]' })).toBeInTheDocument()
+    expect(within(await screen.findByTestId('share-target-people')).getByText('사람', { selector: '[cmdk-group-heading]' })).toBeInTheDocument()
 
     await user.type(input, '김')
     await waitFor(() => expect(searches).toContain('김'))
@@ -570,7 +577,9 @@ describe('노트 공유 창 — 사람·팀 추가(WP-1023)', () => {
 
   test('내 그룹은 하위 그룹도 경로와 함께 보이고, 고르면 하위 그룹 구성원까지 펼쳐 중복 없이 더한다', async () => {
     const { user, puts } = openShareDialog({}, { 30: [memberRow(7)], 31: [memberRow(7), memberRow(8)] })
-    await openPicker(user)
+    const input = await openPicker(user)
+    // 검색으로 찾은 하위 그룹은 상위 경로와 함께 보인다.
+    await user.type(input, '스터디')
     const sub = await screen.findByTestId('share-target-personal-group-31')
     expect(sub).toHaveTextContent('스터디-A')
     expect(sub).toHaveTextContent('개발 스터디')
@@ -673,11 +682,159 @@ describe('노트 공유 창 — 사람·팀 추가(WP-1023)', () => {
   test('상위 부서가 이미 대상이면 그 하위 부서는 고를 수 없고 「상위 부서에 포함됨」으로 보인다', async () => {
     const { user } = openShareDialog({ groups: [{ groupId: 10, name: '개발팀', memberCount: 3 }] })
     await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-expand-10'))
     const backend = await screen.findByTestId('share-target-department-12')
     expect(backend).toHaveAttribute('aria-disabled', 'true')
     expect(backend).toHaveTextContent('상위 부서에 포함됨')
     expect(screen.getByTestId('share-target-department-10')).toHaveTextContent('(이미 추가됨)')
     // 다른 부서는 그대로 고를 수 있다.
     expect(screen.getByTestId('share-target-department-20')).not.toHaveAttribute('aria-disabled', 'true')
+  })
+})
+
+// ── 공유 대상 고르기 개선(WP-1048) ─────────────────────────────────────
+// 종류 탭·조직 펼치기·나 빼기·소속 부서·검색어 없을 때 조직도 먼저, 공유 창 부서 행의 구성원 펼치기.
+describe('노트 공유 창 — 공유 대상 고르기(WP-1048)', () => {
+  test('검색어가 없으면 조직도가 사람보다 먼저이고, 나는 사람 후보에 없으며, 사람 행에 소속 부서(없으면 아이디)를 보인다', async () => {
+    const { user } = openShareDialog()
+    await openPicker(user)
+    const people = await screen.findByTestId('share-target-people')
+    const departments = screen.getByTestId('share-target-departments')
+    // 조직도 → 내 그룹 → 사람 순(문서 순서).
+    expect(departments.compareDocumentPosition(people) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('share-target-personal-groups').compareDocumentPosition(people) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 최상위 조직만 보이고 하위 부서는 펼쳐야 보인다.
+    expect(screen.getByTestId('share-target-department-10')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-department-12')).not.toBeInTheDocument()
+    expect(screen.getByTestId('share-target-department-10')).toHaveTextContent('조직')
+    expect(screen.getByTestId('share-target-personal-group-30')).toHaveTextContent('내 그룹')
+    // 공유하는 나(1)는 빠지고, 김민지는 부서, 이도윤은 부서가 없어 아이디.
+    expect(screen.queryByTestId('share-target-person-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('share-target-person-7')).toHaveTextContent('프론트엔드팀')
+    expect(screen.getByTestId('share-target-person-8')).toHaveTextContent('@doyun')
+  })
+
+  test('종류 탭은 후보 수를 보이고, 누른 종류만 남긴다', async () => {
+    const { user } = openShareDialog()
+    await openPicker(user)
+    await screen.findByTestId('share-target-people')
+    // 사람은 서버 총원 3에서 나를 뺀 2, 조직은 하위 포함 3, 내 그룹은 하위 포함 2.
+    expect(screen.getByTestId('share-target-tab-people')).toHaveTextContent('사람2')
+    expect(screen.getByTestId('share-target-tab-departments')).toHaveTextContent('조직3')
+    expect(screen.getByTestId('share-target-tab-groups')).toHaveTextContent('내 그룹2')
+
+    await user.click(screen.getByTestId('share-target-tab-departments'))
+    expect(screen.getByTestId('share-target-tab-departments')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('share-target-departments')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-people')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-personal-groups')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('share-target-tab-people'))
+    expect(screen.getByTestId('share-target-people')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-departments')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('share-target-tab-all'))
+    expect(screen.getByTestId('share-target-departments')).toBeInTheDocument()
+    expect(screen.getByTestId('share-target-people')).toBeInTheDocument()
+  })
+
+  test('조직의 ▸ 는 조직을 더하지 않고 하위 부서·직속 구성원을 펼치며, 구성원 행을 고르면 그 사람만 더한다', async () => {
+    const { user, puts } = openShareDialog({}, { 10: [memberRow(1), memberRow(7), memberRow(99, 'EXTERNAL')] })
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-expand-10'))
+    expect(await screen.findByTestId('share-target-department-12')).toBeInTheDocument()
+    expect(await screen.findByTestId('share-target-member-10-7')).toHaveTextContent('사람만 추가')
+    // 나(1)와 외부 연락처(99)는 펼친 구성원에도 없다.
+    expect(screen.queryByTestId('share-target-member-10-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-member-10-99')).not.toBeInTheDocument()
+    expect(puts).toHaveLength(0)
+
+    await user.click(screen.getByTestId('share-target-member-10-7'))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0]).toMatchObject({ userIds: [3, 7] })
+    expect(puts[0].groupIds ?? []).toEqual([])
+    // 다시 누르면 접힌다.
+    await user.click(screen.getByTestId('share-target-expand-10'))
+    await waitFor(() => expect(screen.queryByTestId('share-target-department-12')).not.toBeInTheDocument())
+  })
+
+  test('펼친 조직을 더하면 그 구성원 행은 「조직에 포함됨」으로 고를 수 없다', async () => {
+    const { user, puts } = openShareDialog({}, { 10: [memberRow(8)] })
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-expand-10'))
+    expect(await screen.findByTestId('share-target-member-10-8')).not.toHaveAttribute('aria-disabled', 'true')
+    await user.click(screen.getByTestId('share-target-department-10'))
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0].groupIds).toEqual([10])
+    const member = await screen.findByTestId('share-target-member-10-8')
+    await waitFor(() => expect(member).toHaveAttribute('aria-disabled', 'true'))
+    expect(member).toHaveTextContent('조직에 포함됨')
+  })
+
+  test('→ 는 고른 조직을 펼치고 ← 는 접는다(검색창에서 손을 떼지 않고)', async () => {
+    const { user } = openShareDialog()
+    const input = await openPicker(user)
+    await screen.findByTestId('share-target-department-10')
+    input.focus()
+    // 검색어가 없으면 첫 후보는 맨 위 조직(개발팀).
+    await user.keyboard('{ArrowRight}')
+    expect(await screen.findByTestId('share-target-department-12')).toBeInTheDocument()
+    await user.keyboard('{ArrowLeft}')
+    await waitFor(() => expect(screen.queryByTestId('share-target-department-12')).not.toBeInTheDocument())
+  })
+
+  test('← 는 구성원 줄에서 그 조직을 접고, 상위를 접으면 펼쳐 둔 하위도 함께 접힌다', async () => {
+    const { user } = openShareDialog({}, { 10: [memberRow(7)], 12: [memberRow(8)] })
+    const input = await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-expand-10'))
+    await user.click(await screen.findByTestId('share-target-expand-12'))
+    expect(await screen.findByTestId('share-target-member-12-8')).toBeInTheDocument()
+    // 상위(10)를 접었다 다시 펼치면 하위(12)는 접힌 채다.
+    await user.click(screen.getByTestId('share-target-expand-10'))
+    await user.click(screen.getByTestId('share-target-expand-10'))
+    expect(await screen.findByTestId('share-target-member-10-7')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-member-12-8')).not.toBeInTheDocument()
+
+    // 구성원 줄로 내려가 ← 를 누르면 그 조직(10)이 접힌다.
+    input.focus()
+    await user.keyboard('{ArrowDown}{ArrowDown}')
+    await waitFor(() => expect(screen.getByTestId('share-target-member-10-7')).toHaveAttribute('aria-selected', 'true'))
+    await user.keyboard('{ArrowLeft}')
+    await waitFor(() => expect(screen.queryByTestId('share-target-member-10-7')).not.toBeInTheDocument())
+  })
+
+  test('검색어 안에서 글자 커서를 옮기는 ← → 는 가로채지 않는다', async () => {
+    const { user } = openShareDialog()
+    const input = (await openPicker(user)) as HTMLInputElement
+    await user.type(input, '개발')
+    await user.click(await screen.findByTestId('share-target-expand-10'))
+    expect(await screen.findByTestId('share-target-department-12')).toBeInTheDocument()
+    input.focus()
+    input.setSelectionRange(2, 2)
+    // 커서가 끝이 아니면 ← 는 글자 커서만 옮긴다 — 펼친 개발팀은 그대로.
+    await user.keyboard('{ArrowLeft}')
+    expect(input.selectionStart).toBe(1)
+    expect(screen.getByTestId('share-target-department-12')).toBeInTheDocument()
+    // 커서가 처음이 아니면 → 도 가로채지 않는다(접힌 그룹이 고른 줄이어도).
+    await user.keyboard('{ArrowRight}')
+    expect(input.selectionStart).toBe(2)
+  })
+
+  test('공유 창의 부서 행 ▾ 는 하위 부서까지 지금 구성원(사람만)을 펼쳐 보인다', async () => {
+    const { user, puts } = openShareDialog(
+      { groups: [{ groupId: 10, name: '개발팀', memberCount: 1 }] },
+      { 10: [memberRow(7), memberRow(99, 'EXTERNAL')] },
+    )
+    const toggle = await screen.findByTestId('wiki-share-group-toggle-10')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await user.click(toggle)
+    const members = await screen.findByTestId('wiki-share-group-members-10')
+    expect(await within(members).findByText('m7')).toBeInTheDocument()
+    expect(within(members).queryByText('m99')).not.toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    // 펼쳐 보기만 한다 — 저장하지 않는다.
+    expect(puts).toHaveLength(0)
+    await user.click(toggle)
+    await waitFor(() => expect(screen.queryByTestId('wiki-share-group-members-10')).not.toBeInTheDocument())
   })
 })

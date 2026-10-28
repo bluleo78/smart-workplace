@@ -2,6 +2,8 @@ package com.workplace.member;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_GROUP;
+import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.global.tenant.TenantContext;
@@ -105,6 +107,63 @@ class MemberDirectoryServiceTest extends IntegrationTestBase {
     // 공백뿐이면 조건 없이 전체 — 빈 검색과 같은 수(전체가 한 페이지를 넘을 수 있어 수로 비교).
     assertThat(service.list("   ", "ALL", false, 0, 1).totalElements())
         .isEqualTo(service.list(null, "ALL", false, 0, 1).totalElements());
+  }
+
+  /** 테넌트#1 그룹 시드 — visibility·정렬 순서를 지정하고 사람(MEMBER)을 직속으로 넣는다. */
+  private long seedGroup(
+      String name, String visibility, int sortOrder, Long ownerId, long... members) {
+    long groupId =
+        dsl.insertInto(USER_GROUP)
+            .set(USER_GROUP.NAME, name)
+            .set(USER_GROUP.VISIBILITY, visibility)
+            .set(USER_GROUP.SORT_ORDER, sortOrder)
+            .set(USER_GROUP.OWNER_ID, ownerId)
+            .set(USER_GROUP.TENANT_ID, 1L)
+            .returning(USER_GROUP.ID)
+            .fetchOne()
+            .getId();
+    for (long m : members) {
+      dsl.insertInto(USER_GROUP_MEMBER)
+          .set(USER_GROUP_MEMBER.GROUP_ID, groupId)
+          .set(USER_GROUP_MEMBER.TARGET_TYPE, "MEMBER")
+          .set(USER_GROUP_MEMBER.TARGET_ID, m)
+          .set(USER_GROUP_MEMBER.TENANT_ID, 1L)
+          .execute();
+    }
+    return groupId;
+  }
+
+  /**
+   * WP-1048: 목록 행에 소속 부서를 싣는다 — 직접 속한 조직도 부서 중 정렬 순서가 앞인 것 하나. 개인 그룹(내 그룹)은 부서가 아니라 보지 않고, 부서가 없으면
+   * null. 노트 공유 대상 고르기가 사람 이름 옆에 보인다.
+   */
+  @Test
+  void list_carriesDepartment_firstSharedGroupBySortOrder() {
+    String suffix = UUID.randomUUID().toString().substring(0, 6);
+    long twoDepts = seedNamed("dept2_" + suffix, "부서둘" + suffix, "HUMAN", true);
+    long personalOnly = seedNamed("dept0_" + suffix, "부서없음" + suffix, "HUMAN", true);
+    linkMembership(twoDepts, 1L, "ACTIVE");
+    linkMembership(personalOnly, 1L, "ACTIVE");
+    seedGroup("백엔드팀" + suffix, "SHARED", 2, null, twoDepts);
+    seedGroup("플랫폼팀" + suffix, "SHARED", 1, null, twoDepts);
+    seedGroup("내스터디" + suffix, "PERSONAL", 0, insider, twoDepts, personalOnly);
+
+    var rows = service.list(suffix, "ALL", false, 0, 50).content();
+    assertThat(rows)
+        .filteredOn(m -> m.userId() == twoDepts)
+        .singleElement()
+        .extracting(MemberSummary::department)
+        .isEqualTo("플랫폼팀" + suffix);
+    assertThat(rows)
+        .filteredOn(m -> m.userId() == personalOnly)
+        .singleElement()
+        .extracting(MemberSummary::department)
+        .isNull();
+    // 단건 조회도 같은 컬럼을 쓴다(목록·단건 공용 FIELDS).
+    assertThat(service.get(twoDepts))
+        .get()
+        .extracting(MemberSummary::department)
+        .isEqualTo("플랫폼팀" + suffix);
   }
 
   /** WP-554: 자모가 분리된(NFD) 한글 검색어도 완성형(NFC) 이름의 구성원을 찾는다. */

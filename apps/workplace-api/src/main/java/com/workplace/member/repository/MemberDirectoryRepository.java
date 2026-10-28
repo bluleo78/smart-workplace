@@ -2,6 +2,8 @@ package com.workplace.member.repository;
 
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_GROUP;
+import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
@@ -16,6 +18,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.SelectField;
 import org.jooq.SelectOnConditionStep;
@@ -39,6 +42,27 @@ public class MemberDirectoryRepository {
 
   private final DSLContext dsl;
 
+  /**
+   * 소속 부서(WP-1048) — 이 사람이 직접 속한 조직도(공유 그룹) 부서 하나의 이름. 여럿이면 정렬 순서·id 가 앞인 부서, 없으면 null. 사람을 고르는
+   * 목록(노트 공유 대상 등)에서 동명이인·같은 이름 조각을 가르도록 이름 옆에 보인다. 부서는 이 행의 멤버십 테넌트 것만 본다(RLS 와 같은 경계를 조건으로도 둔다).
+   */
+  private static final Field<String> DEPARTMENT =
+      DSL.field(
+              DSL.select(USER_GROUP.NAME)
+                  .from(USER_GROUP_MEMBER)
+                  .join(USER_GROUP)
+                  .on(USER_GROUP.ID.eq(USER_GROUP_MEMBER.GROUP_ID))
+                  .where(
+                      USER_GROUP_MEMBER
+                          .TARGET_TYPE
+                          .eq("MEMBER")
+                          .and(USER_GROUP_MEMBER.TARGET_ID.eq(USER.ID))
+                          .and(USER_GROUP.VISIBILITY.eq("SHARED"))
+                          .and(USER_GROUP.TENANT_ID.eq(MEMBERSHIP.TENANT_ID)))
+                  .orderBy(USER_GROUP.SORT_ORDER.asc(), USER_GROUP.ID.asc())
+                  .limit(1))
+          .as("department");
+
   /** 목록/단건 공용 컬럼. 한 곳에만 둬야 컬럼 추가 시 누락이 없다. */
   private static final List<SelectField<?>> FIELDS =
       List.of(
@@ -52,7 +76,8 @@ public class MemberDirectoryRepository {
           MEMBERSHIP.ROLE,
           MEMBERSHIP.STATUS,
           USER.DESCRIPTION,
-          USER.AGENT_RUNTIME);
+          USER.AGENT_RUNTIME,
+          DEPARTMENT);
 
   /** 목록/단건 공용 select + join. */
   private SelectOnConditionStep<Record> base() {
@@ -195,6 +220,7 @@ public class MemberDirectoryRepository {
         r.get(MEMBERSHIP.STATUS),
         // 설명(역할)·실행 방식은 AI 에만 뜻이 있다 — 사람 행의 컬럼 값(실행 방식 기본값 INTERNAL 등)은 내보내지 않는다.
         isAgent ? r.get(USER.DESCRIPTION) : null,
-        isAgent ? r.get(USER.AGENT_RUNTIME) : null);
+        isAgent ? r.get(USER.AGENT_RUNTIME) : null,
+        r.get(DEPARTMENT));
   }
 }
