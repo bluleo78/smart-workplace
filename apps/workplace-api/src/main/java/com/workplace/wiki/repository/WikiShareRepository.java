@@ -118,12 +118,26 @@ public class WikiShareRepository {
         r.get(WIKI_PAGE_SHARE.EXPIRES_AT));
   }
 
-  /** 만료 전(무기한 포함) 공유 — 만료는 DB 시계로 판정한다. 토큰 판정·알림 진입 토큰 찾기가 함께 쓴다(같은 시계·같은 규칙). */
-  private static Condition notExpired() {
+  /**
+   * 만료 전(무기한 포함) 공유 — 만료는 DB 시계로 판정한다. 토큰 판정·알림 진입 토큰 찾기와 페이지 상세의 「공유 중」(WikiPageRepository)이 함께
+   * 쓴다(같은 시계·같은 규칙).
+   */
+  static Condition notExpired() {
     return WIKI_PAGE_SHARE
         .EXPIRES_AT
         .isNull()
         .or(WIKI_PAGE_SHARE.EXPIRES_AT.gt(DSL.currentOffsetDateTime()));
+  }
+
+  /**
+   * 만료된 공유 — {@link #notExpired()} 의 반대(만료 시각이 있고 DB 시계로 지났다). 트리·페이지 상세의 만료 표시가
+   * 쓴다(WP-1043·WP-1086).
+   */
+  static Condition expired() {
+    return WIKI_PAGE_SHARE
+        .EXPIRES_AT
+        .isNotNull()
+        .and(WIKI_PAGE_SHARE.EXPIRES_AT.le(DSL.currentOffsetDateTime()));
   }
 
   /**

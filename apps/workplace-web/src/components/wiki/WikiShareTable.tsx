@@ -210,7 +210,15 @@ export function WikiShareTable({
                 <TableCell className="hidden text-right tabular-nums md:table-cell">{i.viewCount}</TableCell>
                 <TableCell>
                   <div className="flex justify-end gap-0.5">
-                    <Button variant="ghost" size="icon" className="size-8" aria-label="링크 복사" onClick={() => void copyShareLink(i.token)}>
+                    {/* 만료된 링크는 열리지 않으므로 복사하지 않는다(WP-1086). */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      aria-label="링크 복사"
+                      disabled={isShareExpired(i.expiresAt)}
+                      onClick={() => void copyShareLink(i.token)}
+                    >
                       <Link2 aria-hidden="true" />
                     </Button>
                     <Button variant="ghost" size="icon" className="size-8" aria-label="페이지 열기" onClick={() => onOpenPage(i)}>

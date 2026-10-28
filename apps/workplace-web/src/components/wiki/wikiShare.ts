@@ -176,17 +176,18 @@ export function hasShareMoveImpact(impact: ShareMoveImpact): boolean {
   return impact.leaving.length > 0 || impact.entering.length > 0 || impact.blocked.length > 0
 }
 
-/** 트리 행 공유 표시 — 자기 공유(own), 상위 페이지 공유(하위 포함)에 포함(inherited). 없으면 맵에 없다. */
-export type TreeShareMark = 'own' | 'inherited'
+/** 트리 행 공유 표시 — 자기 공유(own), 상위 페이지 공유(하위 포함)에 포함(inherited), 만료돼 열리지 않는 자기 공유(expired, WP-1086). 없으면 맵에 없다. */
+export type TreeShareMark = 'own' | 'inherited' | 'expired'
 
 /**
  * 한 행의 공유 표시(WP-1043) — 살아 있는 자기 공유는 'own'. 그렇지 않고 상속이 멈추지 않으면(stopsInheritance: 제외 표시도 만료 전 자기 공유도 없음)
- * 위의 하위 포함 공유가 덮을 때 'inherited'. 만료된 자기 공유는 상속을 멈추지 않으므로 덮는 공유가 있으면 'inherited' 이고, 없을 때만 'own' 으로 남는다.
+ * 위의 하위 포함 공유가 덮을 때 'inherited'. 만료된 자기 공유는 상속을 멈추지 않으므로 덮는 공유가 있으면 'inherited' 이고, 없으면 링크가 열리지 않으므로
+ * 'expired'(흐린 끊긴 링크) — 살아 있는 것처럼 'own' 으로 보이지 않게 한다(WP-1086).
  */
 function treeShareMark(byId: Map<number, TreeNode>, p: TreeNode): TreeShareMark | null {
   if (p.share && p.share.expired !== true) return 'own'
   if (!stopsInheritance(p) && coveringFrom(byId, p.parentId).length > 0) return 'inherited'
-  return p.share ? 'own' : null
+  return p.share ? 'expired' : null
 }
 
 /**

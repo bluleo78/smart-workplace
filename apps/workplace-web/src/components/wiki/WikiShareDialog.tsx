@@ -52,6 +52,7 @@ import {
   copyShareLink,
   DEFAULT_SHARE,
   expiryAfterDays,
+  isShareExpired,
   PUBLIC_DEFAULT_EXPIRY_DAYS,
   type ShareWidening,
   shareWidening,
@@ -111,6 +112,26 @@ const AUDIENCE_SUMMARY: Record<WikiShareAudience, string> = {
   PUBLIC: '링크가 있는 누구나(외부)',
 }
 
+/** 공유 스위치 아래 한 줄 — 지금 이 페이지가 링크로 열리는지. 만료된 자기 공유는 상속을 멈추지 않아(WP-1043) 상위 공유가 덮으면 그 링크로는 열린다(WP-1086). */
+function switchHint({
+  live,
+  expired,
+  inherited,
+  inheritedOpen,
+}: {
+  live: boolean
+  expired: boolean
+  inherited: boolean
+  inheritedOpen: boolean
+}): string {
+  if (expired && inheritedOpen)
+    return '이 페이지의 링크는 만료됐습니다. 상위 페이지 공유 링크로는 계속 열 수 있습니다. 만료를 바꾸면 다시 열립니다.'
+  if (expired) return '링크가 만료되어 지금은 아무도 열 수 없습니다. 만료를 바꾸면 다시 열립니다.'
+  if (live) return '스페이스 멤버가 아니어도 링크를 받은 사람은 이 페이지를 열 수 있습니다.'
+  if (inherited) return '켜면 이 페이지의 범위·권한이 상위 공유보다 우선합니다.'
+  return '지금은 스페이스 멤버만 이 페이지를 볼 수 있습니다.'
+}
+
 /** 만료 선택지 — 지금 값(정해진 날짜)은 「YYYY-MM-DD까지」로 따로 보인다. */
 const EXPIRY_CHOICES = [
   { value: 'none', label: '만료 없음' },
@@ -163,6 +184,10 @@ export function WikiShareDialog({
   const stateQuery = useWikiPageShare(pageId, open)
   const state = stateQuery.data
   const share = state?.share ?? null
+  // 만료된 공유(WP-1086) — 설정은 남아 고칠 수 있지만 링크는 열리지 않는다. 그래서 링크 복사를 막고 만료를 알린다(만료를 미루면 다시 열린다).
+  const expired = share != null && isShareExpired(share.expiresAt)
+  // 지금 링크가 열리는 자기 공유 — 만료된 자기 공유는 상위 공유(하위 포함)를 덮지 않는다(WP-1043). 상위 공유 상자·안내는 이 값으로 가른다.
+  const liveShare = share != null && !expired
   const { save, regenerate, revoke, decide, exclusion } = useWikiShareMutations(pageId, spaceId)
   const [historyOpen, setHistoryOpen] = useState(false)
   const events = useWikiShareEvents(pageId, open && historyOpen)
@@ -361,15 +386,15 @@ export function WikiShareDialog({
                   {AUDIENCE_SUMMARY[inherited.audience]} · {inherited.permission === 'EDIT' ? '편집 가능' : '보기만'}
                 </p>
               </div>
-              {share || state?.excludedFromParent ? (
+              {liveShare || state?.excludedFromParent ? (
                 <p className="text-muted-foreground" data-testid="wiki-share-inherited-overridden">
-                  {share
+                  {liveShare
                     ? '이 페이지는 따로 켠 공유를 따릅니다 — 상위 공유 링크로는 열리지 않습니다.'
                     : '상위 공유에서 제외되어 상위 공유 링크로는 이 페이지와 하위가 열리지 않습니다.'}
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
-                {!share && !state?.excludedFromParent && (
+                {!liveShare && !state?.excludedFromParent && (
                   <Button
                     size="sm"
                     className="h-7 text-xs"
@@ -450,12 +475,11 @@ export function WikiShareDialog({
                 링크로 공유
                 {inherited && <span className="ml-1 font-normal text-muted-foreground">(이 페이지만 따로)</span>}
               </Label>
-              <p className="mt-0.5 text-xs text-muted-foreground" data-testid="wiki-share-switch-hint">
-                {share
-                  ? '스페이스 멤버가 아니어도 링크를 받은 사람은 이 페이지를 열 수 있습니다.'
-                  : inherited
-                    ? '켜면 이 페이지의 범위·권한이 상위 공유보다 우선합니다.'
-                    : '지금은 스페이스 멤버만 이 페이지를 볼 수 있습니다.'}
+              <p
+                className={cn('mt-0.5 text-xs', expired ? 'text-destructive' : 'text-muted-foreground')}
+                data-testid="wiki-share-switch-hint"
+              >
+                {switchHint({ live: liveShare, expired, inheritedOpen: inherited != null && !state?.excludedFromParent, inherited: inherited != null })}
               </p>
             </div>
             <BusySwitch
@@ -478,10 +502,11 @@ export function WikiShareDialog({
                     value={wikiShareUrl(share.token)}
                     aria-label="공유 링크"
                     data-testid="wiki-share-url"
-                    className="flex-1 font-mono text-xs"
+                    // 만료된 링크는 열리지 않는다는 것을 주소에도 보인다(지워진 주소처럼 흐리게).
+                    className={cn('flex-1 font-mono text-xs', expired && 'text-muted-foreground line-through')}
                     onFocus={(e) => e.target.select()}
                   />
-                  <Button variant="outline" size="sm" className="h-9" onClick={onCopy} data-testid="wiki-share-copy">
+                  <Button variant="outline" size="sm" className="h-9" onClick={onCopy} disabled={expired} data-testid="wiki-share-copy">
                     <Link2 aria-hidden="true" />
                     링크 복사
                   </Button>
@@ -540,7 +565,11 @@ export function WikiShareDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {share.expiresAt && <SelectItem value="current">{formatDateOnly(share.expiresAt)}까지</SelectItem>}
+                    {share.expiresAt && (
+                      <SelectItem value="current">
+                        {expired ? `만료됨 (${formatDateOnly(share.expiresAt)})` : `${formatDateOnly(share.expiresAt)}까지`}
+                      </SelectItem>
+                    )}
                     {EXPIRY_CHOICES.map((c) => (
                       <SelectItem key={c.value} value={c.value}>
                         {c.label}

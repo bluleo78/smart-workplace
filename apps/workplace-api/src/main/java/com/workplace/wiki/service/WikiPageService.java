@@ -307,6 +307,7 @@ public class WikiPageService {
           c.aiLastUsedAt(),
           c.aiLastAction(),
           c.shared(),
+          c.shareExpired(),
           c.fullWidth());
     }
   }

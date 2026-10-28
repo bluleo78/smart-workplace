@@ -177,6 +177,34 @@ class WikiShareAdminTest extends IntegrationTestBase {
     assertThat(detail(rootId).get("shared").asBoolean()).isFalse();
   }
 
+  /**
+   * 만료된 공유는 링크가 열리지 않으므로 상세의 shared 가 false 이고 shareExpired 가 true 다(WP-1086) — 헤더가 「공유 중」 대신 「공유
+   * 만료」로 보인다. 만료를 다시 미루면 shared 로 돌아온다. 판정은 DB 시계다.
+   */
+  @Test
+  void detail_shared_flag_excludes_expired_share() throws Exception {
+    saveShare(ownerId, rootId, "WORKSPACE", "VIEW", false);
+    JsonNode live = detail(rootId);
+    assertThat(live.get("shared").asBoolean()).isTrue();
+    assertThat(live.get("shareExpired").asBoolean()).isFalse();
+
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(WIKI_PAGE_SHARE.EXPIRES_AT, OffsetDateTime.now().minusHours(1))
+        .where(WIKI_PAGE_SHARE.PAGE_ID.eq(rootId))
+        .execute();
+    JsonNode expired = detail(rootId);
+    assertThat(expired.get("shared").asBoolean()).isFalse();
+    assertThat(expired.get("shareExpired").asBoolean()).isTrue();
+
+    dsl.update(WIKI_PAGE_SHARE)
+        .set(WIKI_PAGE_SHARE.EXPIRES_AT, OffsetDateTime.now().plusDays(1))
+        .where(WIKI_PAGE_SHARE.PAGE_ID.eq(rootId))
+        .execute();
+    JsonNode renewed = detail(rootId);
+    assertThat(renewed.get("shared").asBoolean()).isTrue();
+    assertThat(renewed.get("shareExpired").asBoolean()).isFalse();
+  }
+
   // ── 목록 ────────────────────────────────────────────────────────────────
 
   /** 내 공유는 스페이스를 가로질러 내가 만든 것만 — 남이 만든 공유는 같은 스페이스여도 빠진다. 토큰·스페이스 이름·사람 수가 실린다. */

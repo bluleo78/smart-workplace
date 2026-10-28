@@ -1,4 +1,4 @@
-import { ChevronDown, FileCode, History, Link2, Loader2, MoreHorizontal, MoveHorizontal, Trash2 } from 'lucide-react'
+import { ChevronDown, FileCode, History, Link2, Link2Off, Loader2, MoreHorizontal, MoveHorizontal, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { AiLabel } from '@/components/ai/AiLabel'
@@ -63,6 +63,7 @@ export function WikiPageHeader({
   onViewHistory,
   presence,
   shared = false,
+  shareExpired = false,
   onShare,
   sharedBy,
   fullWidth = false,
@@ -93,6 +94,8 @@ export function WikiPageHeader({
   presence?: ReactNode
   /** 이 페이지를 링크로 공유 중인지(WP-579) — 버튼이 「공유 중」으로 바뀌고 모바일은 제목 옆에 표시한다. */
   shared?: boolean
+  /** 공유 설정은 남았지만 만료돼 링크가 열리지 않는지(WP-1086) — 버튼이 「공유 만료」로 바뀌고 모바일은 제목 옆에 흐리게 표시한다. */
+  shareExpired?: boolean
   /** 공유 창 열기(WP-579). 공유를 바꿀 수 없는 사람(읽기 전용·공유 링크로 들어온 사람)에겐 넘기지 않아 버튼을 두지 않는다. */
   onShare?: () => void
   /**
@@ -199,6 +202,9 @@ export function WikiPageHeader({
     </>
   )
   // 공유 버튼(WP-579) — 공유 중이면 「공유 중」으로 바뀌어 지금 스페이스 밖에 열려 있다는 것을 늘 보여 준다.
+  // 만료된 공유는 링크가 열리지 않으므로 흐린 「공유 만료」로 — 설정은 남아 공유 창에서 만료를 미루면 다시 열린다(WP-1086).
+  const shareState: ShareState = shared ? 'live' : shareExpired ? 'expired' : 'none'
+  const shareUi = SHARE_UI[shareState]
   const shareButton = onShare && !isAccessLost(syncStatus) && (
     <Button
       type="button"
@@ -206,10 +212,10 @@ export function WikiPageHeader({
       size="sm"
       onClick={onShare}
       data-testid="wiki-share-button"
-      className={shared ? 'border-primary/40 text-primary hover:text-primary' : undefined}
+      className={shareUi.className}
     >
-      <Link2 aria-hidden="true" />
-      {shared ? '공유 중' : '공유'}
+      <shareUi.Icon aria-hidden="true" />
+      {shareUi.button}
     </Button>
   )
   // 공유 링크 화면 표시(WP-579) — 스페이스 화면이 아니라 누군가 링크로 보여 준 페이지라는 것.
@@ -290,7 +296,7 @@ export function WikiPageHeader({
         {/* 모바일은 헤더 폭이 좁아 공유 버튼 대신 메뉴 항목으로(WP-579). */}
         {isMobile && onShare && !isAccessLost(syncStatus) && (
           <DropdownMenuItem data-testid="wiki-menu-share" onSelect={() => setTimeout(onShare, 0)}>
-            <Link2 className="mr-2 h-4 w-4" aria-hidden="true" /> {shared ? '공유 설정' : '공유'}
+            <shareUi.Icon className="mr-2 h-4 w-4" aria-hidden="true" /> {shareUi.menu}
           </DropdownMenuItem>
         )}
         {/* 소스 보기는 읽기 권한만으로 충분하다 — 이 드롭다운 자체가 권한 분기 밖에 있다. */}
@@ -336,15 +342,24 @@ export function WikiPageHeader({
         title={current?.title ?? detail.title}
         titleAccessory={
           // 공유 중 표식과 AI 생성 표식은 서로 다른 신호라 함께 보인다(제목이 먼저 말줄임되고 표식은 줄어들지 않는다).
-          shared || aiAttributed ? (
+          shareState !== 'none' || aiAttributed ? (
             <>
-              {shared && (
+              {shareState === 'live' && (
                 <span
                   data-testid="wiki-page-shared-badge"
                   className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-primary/10 px-1 text-[11px] text-primary"
                 >
                   <Link2 className="size-3" aria-hidden="true" />
                   공유 중
+                </span>
+              )}
+              {shareState === 'expired' && (
+                <span
+                  data-testid="wiki-page-share-expired-badge"
+                  className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded bg-muted px-1 text-[11px] text-muted-foreground"
+                >
+                  <Link2Off className="size-3" aria-hidden="true" />
+                  공유 만료
                 </span>
               )}
               {aiAttributed && (
@@ -411,4 +426,14 @@ export function WikiPageHeader({
       }
     />
   )
+}
+
+/** 이 페이지 자신의 공유 상태(WP-1086) — 없음·살아 있음·만료됨. 서버의 shared·shareExpired 는 함께 참일 수 없다. */
+type ShareState = 'none' | 'live' | 'expired'
+
+/** 공유 상태별 공유 버튼·모바일 메뉴 모양 — 만료된 공유는 링크가 열리지 않으므로 흐린 끊긴 링크로 보인다. */
+const SHARE_UI: Record<ShareState, { Icon: typeof Link2; button: string; menu: string; className?: string }> = {
+  none: { Icon: Link2, button: '공유', menu: '공유' },
+  live: { Icon: Link2, button: '공유 중', menu: '공유 설정', className: 'border-primary/40 text-primary hover:text-primary' },
+  expired: { Icon: Link2Off, button: '공유 만료', menu: '공유 설정(만료됨)', className: 'text-muted-foreground' },
 }

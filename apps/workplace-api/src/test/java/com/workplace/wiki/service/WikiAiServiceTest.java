@@ -106,6 +106,7 @@ class WikiAiServiceTest {
         null,
         null,
         false,
+        false,
         false);
   }
 
