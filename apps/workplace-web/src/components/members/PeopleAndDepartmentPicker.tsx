@@ -525,9 +525,17 @@ export function PeopleAndDepartmentPicker({
   return (
     <Popover open={open} onOpenChange={handleOpenChange} modal>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      {/* 가장자리 16px — 390 화면에서 팝오버가 오른쪽 끝에 붙지 않게(MemberSearchPopover 와 같은 폭·여백). */}
-      <PopoverContent className="w-[min(380px,calc(100vw-32px))] p-0" align="start" collisionPadding={16} data-testid={tid('search')}>
-        <Command shouldFilter={false} value={current} onValueChange={setActive} onKeyDown={onKeyDown}>
+      {/* 가장자리 16px — 390 화면에서 팝오버가 오른쪽 끝에 붙지 않게(MemberSearchPopover 와 같은 폭·여백).
+          높이는 Radix 가 준 남은 높이까지만 — 아래 확인 줄(footer)이 붙어도 창이 화면 밖으로 늘지 않고 후보 목록이 줄어 스크롤한다(WP-1113).
+          최소 높이(min-h-60)는 최대 높이보다 앞선다 — 이쪽 남은 높이가 그보다 작으면 창이 넘쳐 Radix 가 반대쪽으로 뒤집는다.
+          최소가 없으면 창이 늘 남은 높이에 맞춰 줄어 뒤집히지 않고, 좁은 쪽에 후보가 한두 줄만 보인다. */}
+      <PopoverContent
+        className="flex max-h-(--radix-popover-content-available-height) min-h-60 w-[min(380px,calc(100vw-32px))] flex-col p-0"
+        align="start"
+        collisionPadding={16}
+        data-testid={tid('search')}
+      >
+        <Command className="min-h-0 flex-1" shouldFilter={false} value={current} onValueChange={setActive} onKeyDown={onKeyDown}>
           <CommandInput
             value={query}
             onValueChange={setQuery}
@@ -561,7 +569,7 @@ export function PeopleAndDepartmentPicker({
               </button>
             ))}
           </div>
-          <CommandList label="사람·팀 후보">
+          <CommandList label="사람·팀 후보" className="min-h-0">
             {nothing &&
               (people.isLoading || groups.isLoading ? (
                 <CommandEmpty>검색 중…</CommandEmpty>
@@ -576,7 +584,8 @@ export function PeopleAndDepartmentPicker({
             {!peopleQuery && peopleShown.length > 0 && peopleSection}
           </CommandList>
         </Command>
-        {footer}
+        {/* 확인 줄은 줄어들지 않는다 — 좁은 화면에선 후보 목록이 대신 줄어든다. */}
+        {footer && <div className="shrink-0">{footer}</div>}
       </PopoverContent>
     </Popover>
   )
