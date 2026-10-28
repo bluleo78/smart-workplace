@@ -33,6 +33,15 @@ function chooseFiles(files: File[]) {
   fireEvent.change(screen.getByTestId('file-input'), { target: { files } })
 }
 
+/** 파일 한 개를 목록 영역에 놓는다 — readDroppedTree 가 읽는 webkitGetAsEntry 엔트리만 흉내 낸다. */
+function dropFile() {
+  fireEvent.drop(screen.getByTestId('drive-dropzone'), {
+    dataTransfer: {
+      items: [{ webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'a.txt', file: (cb: (f: File) => void) => cb(new File(['x'], 'a.txt')) }) }],
+    },
+  })
+}
+
 /** 행(listitem)을 이름으로 찾는다. */
 async function rowOf(name: string) {
   return (await screen.findByText(name)).closest('li') as HTMLElement
@@ -527,13 +536,6 @@ describe('휴지통', () => {
         }),
       ],
     })
-    // 놓은 파일 한 개 — readDroppedTree 가 읽는 webkitGetAsEntry 엔트리만 흉내 낸다.
-    const dropFile = () =>
-      fireEvent.drop(screen.getByTestId('drive-dropzone'), {
-        dataTransfer: {
-          items: [{ webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'a.txt', file: (cb: (f: File) => void) => cb(new File(['x'], 'a.txt')) }) }],
-        },
-      })
     await user.click(screen.getByTestId('trash-toggle'))
     await within(await screen.findByTestId('trash-view')).findByText('memo.txt')
     // 휴지통 뷰에서는 끌어 와도 놓기 표시(테두리)를 하지 않는다.
@@ -546,6 +548,26 @@ describe('휴지통', () => {
     await waitFor(() => expect(posts).toBe(1))
     expect(await screen.findByText(/업로드 완료/)).toBeInTheDocument()
     expect(posts).toBe(1)
+  })
+
+  // WP-1101: 업로드 중에 휴지통을 열어도 진행 표시(누를 수 없는 「업로드 중…」)와 「취소」가 함께 남는다 — 취소만 홀로 남지 않는다.
+  test('업로드 중에 휴지통을 열면 진행 표시와 취소가 함께 보이고, 취소하면 함께 사라진다', async () => {
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [trashHandler, http.post(`${API}/spaces/${SPACE_ID}/files`, () => new Promise<Response>(() => {}))],
+    })
+    chooseFiles([new File(['hello'], 'memo.txt', { type: 'text/plain' })])
+    await waitFor(() => expect(screen.getByTestId('drive-upload')).toHaveTextContent('업로드 중…'))
+    await user.click(screen.getByTestId('trash-toggle'))
+    await within(await screen.findByTestId('trash-view')).findByText('memo.txt')
+    expect(screen.getByTestId('drive-upload')).toHaveTextContent('업로드 중…')
+    expect(screen.getByTestId('drive-upload')).toBeDisabled()
+    expect(screen.getByTestId('drive-upload-cancel')).toBeInTheDocument()
+    // 새 폴더는 휴지통에서 계속 감춘다.
+    expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('drive-upload-cancel'))
+    expect(await screen.findByText('업로드를 취소했습니다.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument())
+    expect(screen.queryByTestId('drive-upload-cancel')).not.toBeInTheDocument()
   })
 
   // #143: 복원 500 이면 사유 토스트를 보이고 휴지통 목록은 그대로다.
@@ -747,3 +769,65 @@ describe('미리보기', () => {
   })
 })
 
+describe('검색 결과 화면의 만들기·놓기 (WP-1101)', () => {
+  const searchHandlers = [
+    http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ folders: [], files: [createFile({ id: 41, name: '예산안.pdf' })] })),
+    http.get(`${API}/search`, () => HttpResponse.json({ hits: [], semantic: false })),
+  ]
+
+  // 결과 화면에서 만들면 보이지 않는 지금 폴더에 알림 없이 생겼다 — 휴지통처럼 새 폴더·업로드를 감추고, 검색을 지우면 다시 보인다.
+  test('검색 결과 화면에서는 새 폴더·업로드 단추가 없고, 검색을 지우면 다시 보인다', async () => {
+    const { user } = await openDrive({ folders: [], files: [] }, { handlers: searchHandlers })
+    expect(screen.getByTestId('drive-upload')).toBeInTheDocument()
+    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
+    await user.paste('예산')
+    expect(await within(await screen.findByTestId('search-results')).findByText('예산안.pdf')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
+    await user.clear(screen.getByLabelText('파일명 및 콘텐츠 검색'))
+    expect(await screen.findByTestId('drive-new-folder')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-upload')).toBeInTheDocument()
+  })
+
+  // 검색어를 친 직후(결과가 오기 전)에도 업로드를 막는다 — 곧 결과 화면이 덮어 보이지 않는 폴더에 생긴다.
+  test('검색어를 친 직후 결과가 오기 전에도 새 폴더·업로드가 없다', async () => {
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      // 결과를 늦게 준다 — 디바운스·조회 중인 틈을 본다.
+      handlers: [http.get(`${API}/spaces/${SPACE_ID}/search`, () => new Promise<Response>(() => {})), http.get(`${API}/search`, () => new Promise<Response>(() => {}))],
+    })
+    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
+    await user.paste('예산')
+    expect(screen.queryByTestId('search-results')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
+  })
+
+  // 결과 화면에 파일을 놓아도 올리지 않고 놓기 테두리도 없다. 드라이브 뷰에서는 테두리가 생기고 올린다(대조).
+  test('검색 결과 화면에 놓으면 올리지 않고, 폴더 보기에서는 테두리가 생기고 올린다', async () => {
+    let posts = 0
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        ...searchHandlers,
+        http.post(`${API}/spaces/${SPACE_ID}/files`, () => {
+          posts += 1
+          return HttpResponse.json(createFile({ id: 30 }), { status: 201 })
+        }),
+      ],
+    })
+    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
+    await user.paste('예산')
+    await within(await screen.findByTestId('search-results')).findByText('예산안.pdf')
+    fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
+    expect(screen.getByTestId('drive-dropzone').style.outline).toBe('')
+    dropFile()
+
+    await user.clear(screen.getByLabelText('파일명 및 콘텐츠 검색'))
+    await screen.findByTestId('drive-new-folder')
+    fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
+    expect(screen.getByTestId('drive-dropzone').style.outline).not.toBe('')
+    dropFile()
+    await waitFor(() => expect(posts).toBe(1))
+    expect(await screen.findByText(/업로드 완료/)).toBeInTheDocument()
+    expect(posts).toBe(1)
+  })
+})

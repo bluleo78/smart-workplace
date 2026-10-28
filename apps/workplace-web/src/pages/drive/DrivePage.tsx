@@ -119,6 +119,8 @@ const ROW_INLINE_ACTIONS: Record<RowTarget['kind'], { key: string; label: string
 
 // WP-364: 끌어 옮기기 완료 토스트 id — 이동마다 같은 자리를 갈아 끼워 되돌리기는 늘 마지막 이동만 가리킨다.
 const DRAG_MOVE_TOAST_ID = 'drive-drag-move'
+// 검색을 시작하는 검색어 길이(앞뒤 공백 제외) — 디바운스 검색과 만들기·놓기 막기가 같은 기준을 쓴다.
+const MIN_SEARCH_LEN = 2
 
 // WP-63: 폴더 목록 미로드(조회 전·실패) 시 쓰는 빈 목록 — 매 렌더 새 객체를 만들지 않도록 모듈 상수로 둔다.
 const EMPTY_ITEMS: DriveItemList = { folders: [], files: [] }
@@ -270,9 +272,16 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const trashOpen = trashParam.value === 'trash'
   const trashQuery = useDriveTrash(validSid, trashOpen)
   const trash: DriveTrashItem[] | null = trashOpen && trashQuery.data ? trashQuery.data.items : null
-  // 휴지통 뷰에선 새 폴더·업로드·파일 놓기를 막는다 — 만든 항목이 보이지 않는 지금 폴더에 알림 없이 생겼다(WP-1082).
-  const canCreateHere = !readOnlyRole && trash == null
-  const canDropHere = !readOnly && trash == null
+  // 검색 결과 화면 — 폴더 목록 대신 결과 목록을 그린다.
+  const searching = results != null
+  // 폴더를 보고 있는지 — 휴지통·검색 결과 화면이 아니다. 경로 줄·만들기·놓기가 이 값 하나를 본다.
+  const browsing = trash == null && !searching
+  // 검색어를 친 뒤 결과가 오기 전(디바운스·첫 조회 중) — 곧 결과 화면이 덮는다.
+  const searchStarting = query.trim().length >= MIN_SEARCH_LEN
+  // 새 폴더·업로드·파일 놓기는 폴더 보기에서만 — 휴지통·검색 화면에선 만든 항목이 보이지 않는 지금 폴더에 알림 없이 생겼다(WP-1082, WP-1101).
+  const canAddHere = browsing && !searchStarting
+  const canCreateHere = !readOnlyRole && canAddHere
+  const canDropHere = !readOnly && canAddHere
 
   // 폴더 이름 입력 다이얼로그 — 새 폴더 생성(create) / 이름 변경(rename). window.prompt 대체 (#135).
   const [nameDialog, setNameDialog] = useState<{
@@ -485,11 +494,11 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     preview,
   })
 
-  // 검색 디바운스(300ms). 2자 미만이면 결과 해제(브라우즈 복귀).
+  // 검색 디바운스(300ms). MIN_SEARCH_LEN(2자) 미만이면 결과 해제(브라우즈 복귀).
   // 파일명 검색(driveApi.search)과 콘텐츠 검색(searchDriveContent)을 동시 호출 — 두 검색창을 하나로 통합.
   useEffect(() => {
     const q = query.trim()
-    if (q.length < 2) {
+    if (q.length < MIN_SEARCH_LEN) {
       setSearchQ('')
       setContentResults(null)
       setContentLoading(false)
@@ -1105,8 +1114,6 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     })
   }
 
-  const searching = results != null
-
   // 헤더 경로(§B-1, WP-979) — 데스크톱 풀페이지에서만 제목 자리에 둔다. 시작점은 공간(앱 이름 「드라이브」는 넣지 않는다).
   // 검색·휴지통에서도 숨기지 않고 「공간 › 검색 결과」·「공간 › 휴지통」으로 보인다 — 검색은 공간 전체가 범위라 폴더 단계는 뺀다.
   const headerPath = !isMobile && !embedded
@@ -1141,7 +1148,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
       )
     }
     // 검색·휴지통의 공간 단계는 모드를 나가는 동작이라 놓을 곳이 아니다 — 기본 버튼으로 둔다.
-    if (trash != null || searching) return null
+    if (!browsing) return null
     return (
       <DriveCrumbDropButton
         folderId={id}
@@ -1313,7 +1320,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 새 폴더
               </button>
             )}
-            {canCreateHere && (
+            {/* 업로드 중엔 휴지통·검색 화면이어도 진행 표시를 남긴다 — 옆의 「취소」가 무엇을 취소하는지 보이게(WP-1101). 올리는 중이라 눌리지 않는다. */}
+            {(canCreateHere || uploading) && (
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
@@ -1353,7 +1361,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           잘린다(좁은 드로워·모바일). 넘치면 세그먼트가 min-w-0·truncate 로 말줄임된다. */}
       {/* 본문 — 브레드크럼 줄 + 드롭존 스크롤. 행 여백은 페이지 여백(pageGutterClass) 축. */}
       <Page.Body padded={false} className="flex-col">
-      {!headerPath && trash == null && !searching && (
+      {!headerPath && browsing && (
         <nav
           aria-label="폴더 경로"
           className={cn('flex h-11 min-w-0 shrink-0 items-center gap-1 overflow-hidden whitespace-nowrap border-b text-sm lg:h-9', pageGutterClass)}
@@ -1406,7 +1414,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         data-testid="drive-dropzone"
         onDragOver={(e) => {
           e.preventDefault()
-          // 놓아도 올리지 않는 곳(읽기 전용·휴지통 뷰)이면 놓기 표시(테두리·커서)도 하지 않는다.
+          // 놓아도 올리지 않는 곳(읽기 전용·휴지통·검색 화면)이면 놓기 표시(테두리·커서)도 하지 않는다.
           if (!canDropHere) {
             e.dataTransfer.dropEffect = 'none'
             return
