@@ -21,7 +21,7 @@ import { EpicColorDot } from '../../../components/issues/EpicColorDot';
 import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars';
 import { IssueStatusIcon } from '../../../components/issues/IssueStatusIcon';
 import { AgentBadge } from '../../../components/users/AgentBadge';
-import { UserAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar, UserAvatar } from '../../../components/users/UserAvatar';
 import { assigneeCandidates } from '../../../lib/assigneeCandidates';
 import { ISSUE_PRIORITY_OPTIONS } from '../../../lib/issueGrouping';
 import { type RowMenuItems, toSummary } from '../../../lib/issueRowMenu';
@@ -139,7 +139,7 @@ export function IssueRowMenu({
               {assigneeCandidates(members, bulk ? [] : assigneeIds).map((m) =>
                 bulk ? (
                   <DropdownMenuItem key={m.userId} onSelect={() => onBulkAssign([m.userId])} data-testid={`row-menu-assignee-${m.userId}`}>
-                    <UserAvatar user={toSummary(m)} size="xs" agent={m.kind === 'AGENT'} />
+                    <AssigneeAvatar user={toSummary(m)} size="xs" />
                     <span className="truncate">{m.name}</span>
                   </DropdownMenuItem>
                 ) : (
@@ -153,7 +153,7 @@ export function IssueRowMenu({
                     }}
                     data-testid={`row-menu-assignee-${m.userId}`}
                   >
-                    <UserAvatar user={toSummary(m)} size="xs" agent={m.kind === 'AGENT'} />
+                    <AssigneeAvatar user={toSummary(m)} size="xs" />
                     <span className="truncate">{m.name}</span>
                     {m.kind === 'AGENT' && <AgentBadge size="xs" />}
                   </DropdownMenuCheckboxItem>

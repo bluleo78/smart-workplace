@@ -90,6 +90,22 @@ describe('셀 렌더러', () => {
   })
   afterEach(() => vi.useRealTimers())
 
+  // WP-1080: 정지된 담당자는 아바타만 보이는 목록 칸에서도 흐리게 + 접근 이름 「(비활성)」 로 다른 담당자와 구분된다.
+  it('담당자 칸 — 정지된 담당자 아바타만 비활성으로 표시한다', () => {
+    const [def] = buildColumnDefs(['assignee'], FIELDS)
+    const it = issue({
+      assignees: [
+        { id: 1, username: 'kim', name: '김', kind: 'HUMAN', active: true },
+        { id: 2, username: 'park', name: '박', kind: 'HUMAN', active: false },
+      ],
+    })
+    const { getByTestId } = render(<>{def.cell(it, { projectKey: 'WP' })}</>)
+    expect(getByTestId('user-avatar-1')).not.toHaveAttribute('data-inactive')
+    expect(getByTestId('user-avatar-1')).toHaveAccessibleName('김')
+    expect(getByTestId('user-avatar-2')).toHaveAttribute('data-inactive', 'true')
+    expect(getByTestId('user-avatar-2')).toHaveAccessibleName('박 (비활성)')
+  })
+
   it('다중 선택은 첫 값 + `+N`', () => {
     expect(cellText('cf7', issue({ customFields: [entry(7, 'MULTI_SELECT', ['A', 'B', 'C'])] }))).toBe('A +2')
   })

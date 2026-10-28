@@ -7,7 +7,10 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.dto.UserSummary;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
@@ -48,6 +51,7 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
   @Autowired UserRepository userRepository;
   @Autowired IssueService issueService;
   @Autowired ProjectMemberRepository memberRepository;
+  @Autowired ObjectMapper objectMapper;
 
   private Long createUser(String prefix) {
     String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -331,6 +335,31 @@ class IssueAssigneeServiceTest extends IntegrationTestBase {
                     new CreateIssueRequest(
                         "t", null, null, null, List.of(member), null, null, null)))
         .isInstanceOf(InvalidAssigneeForProjectException.class);
+  }
+
+  /**
+   * WP-1080: 담당 중이던 구성원이 이 워크스페이스에서 정지되면 담당자 요약의 active 가 false 다(상세·목록 경로 모두) — 화면이 담당자 칸·작업 목록에서
+   * 「비활성」으로 구분한다. 다른 담당자는 true, 활성 여부를 모르는 다른 응답의 요약은 JSON 에 active 를 싣지 않는다.
+   */
+  @Test
+  void suspended_assignee_is_reported_inactive() throws Exception {
+    Long owner = createUser("act-owner");
+    Long member = createUser("act-member");
+    ProjectResponse p = newProject(owner, "ACTV");
+    projectService.addMember(owner, p.key(), new AddMemberRequest(member, "MEMBER"));
+    Long issueId =
+        IssueSeeds.insert(issueRepository, baseDsl, p.id(), 1, "t", null, "MID", null, owner).id();
+    service.replace(owner, p.key(), 1, List.of(owner, member));
+    TestFixtures.suspendMember(dsl, member, 1L);
+
+    for (List<UserSummary> assignees :
+        List.of(repo.findByIssue(issueId), repo.findByIssueIds(List.of(issueId)).get(issueId))) {
+      assertThat(assignees)
+          .extracting(UserSummary::id, UserSummary::active)
+          .containsExactlyInAnyOrder(tuple(owner, true), tuple(member, false));
+    }
+    assertThat(objectMapper.writeValueAsString(new UserSummary(owner, "u", "n", "HUMAN")))
+        .doesNotContain("active");
   }
 
   /**

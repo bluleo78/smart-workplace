@@ -17,7 +17,7 @@ import { IssuePriorityBars } from '../../../components/issues/IssuePriorityBars'
 import { ParentChip } from '../../../components/issues/ParentChip';
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { LabelChip } from '../../../components/labels/LabelChip';
-import { UserAvatar } from '../../../components/users/UserAvatar';
+import { AssigneeAvatar } from '../../../components/users/UserAvatar';
 import type { IssueDragData } from '../../../lib/epicDnd';
 import { closedInfo } from '../../../lib/issueClosedInfo';
 import { isOverdue } from '../../../lib/issueOverdue';
@@ -200,7 +200,7 @@ export function IssueCard({
               <>
                 {issue.assignees.slice(0, 3).map((u) => (
                   // AGENT(AI) 담당자는 보라색 ring + Bot 마커로 사람과 시각 구분 (#199).
-                  <UserAvatar key={u.id} user={u} size="xs" ring agent={u.kind === 'AGENT'} />
+                  <AssigneeAvatar key={u.id} user={u} size="xs" ring />
                 ))}
                 {issue.assignees.length > 3 && (
                   <span className="text-xs text-muted-foreground ml-1">

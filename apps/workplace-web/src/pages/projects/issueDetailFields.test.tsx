@@ -151,6 +151,18 @@ describe('담당자(다중)', () => {
     await user.keyboard('{Escape}')
     await waitFor(() => expect(puts).toEqual([{ userIds: [] }]))
   })
+
+  // WP-1080: 정지된 담당자는 피커를 열지 않아도 담당자 칸에서 흐린 이름 + 「비활성」 배지로 구분되고, 접근 이름에도 드러난다.
+  test('정지된 담당자는 담당자 칸에 「비활성」 배지가 붙고 다른 담당자에는 없다', async () => {
+    await openDetail(
+      detailWith({ assignees: [{ ...USER1, active: true }, { id: 3, username: 'left', name: '퇴사자', kind: 'HUMAN', active: false }] }),
+    )
+    const inactive = await screen.findByTestId('issue-assignee-3')
+    expect(within(inactive).getByTestId('issue-assignee-3-inactive')).toHaveTextContent('비활성')
+    expect(within(inactive).getByTestId('user-avatar-3')).toHaveAttribute('data-inactive', 'true')
+    expect(screen.queryByTestId(`issue-assignee-${USER1.id}-inactive`)).not.toBeInTheDocument()
+    expect(screen.getByTestId('assignee-picker-trigger')).toHaveAccessibleName(`담당자 편집: ${USER1.name}, 퇴사자 (비활성)`)
+  })
 })
 
 describe('구독(watch)', () => {

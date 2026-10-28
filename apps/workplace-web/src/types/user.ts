@@ -43,6 +43,8 @@ export interface UserSummary {
   username: string;
   name: string;
   kind: UserKind;
+  // 이 워크스페이스에서 활성인가 — 이슈 담당자만 싣는다(WP-1080). false 면 정지·비활성 계정, 없으면 활성으로 본다.
+  active?: boolean;
 }
 
 // 구성원(계정) 추가 요청 — 백엔드 CreateMemberRequest 와 1:1. email 은 선택값.

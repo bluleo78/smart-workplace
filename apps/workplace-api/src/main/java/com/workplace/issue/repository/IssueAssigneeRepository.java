@@ -2,9 +2,11 @@ package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.tenant.WorkspaceActive;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -12,6 +14,8 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.Record;
 import org.springframework.stereotype.Repository;
 
 /** issue_assignee N:M jOOQ 리포지토리. user 조인으로 응답 DTO 직접 구성. */
@@ -29,41 +33,52 @@ public class IssueAssigneeRepository {
         .fetch(ISSUE_ASSIGNEE.USER_ID);
   }
 
+  /** 담당자가 이 워크스페이스에서 활성인가(WP-1080) — 정지·전역 비활성이면 false 라 화면이 「비활성」으로 구분한다. */
+  private static final Field<Boolean> ACTIVE = WorkspaceActive.field();
+
   /** 이슈에 부착된 담당자 요약을 USER 조인으로 조회. name 오름차순. */
   public List<UserSummary> findByIssue(Long issueId) {
-    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.KIND)
+    return dsl.select(USER.ID, USER.USERNAME, USER.NAME, USER.KIND, ACTIVE)
         .from(ISSUE_ASSIGNEE)
         .join(USER)
         .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
+        // 멤버십은 RLS 밖 전역 테이블이라 담당 행의 테넌트로 붙인다(WorkspaceActive 참조).
+        .leftJoin(MEMBERSHIP)
+        .on(WorkspaceActive.join(ISSUE_ASSIGNEE.USER_ID, ISSUE_ASSIGNEE.TENANT_ID))
         .where(ISSUE_ASSIGNEE.ISSUE_ID.eq(issueId))
         .orderBy(USER.NAME.asc())
-        .fetch(
-            r ->
-                new UserSummary(
-                    r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)));
+        .fetch(IssueAssigneeRepository::toSummary);
   }
 
   /** issueIds 일괄 — issueId 별 UserSummary 리스트 (N+1 회피). 입력에 있는 모든 id 키를 보장한다. */
   public Map<Long, List<UserSummary>> findByIssueIds(List<Long> issueIds) {
     if (issueIds == null || issueIds.isEmpty()) return Map.of();
     var rows =
-        dsl.select(ISSUE_ASSIGNEE.ISSUE_ID, USER.ID, USER.USERNAME, USER.NAME, USER.KIND)
+        dsl.select(ISSUE_ASSIGNEE.ISSUE_ID, USER.ID, USER.USERNAME, USER.NAME, USER.KIND, ACTIVE)
             .from(ISSUE_ASSIGNEE)
             .join(USER)
             .on(USER.ID.eq(ISSUE_ASSIGNEE.USER_ID))
+            .leftJoin(MEMBERSHIP)
+            .on(WorkspaceActive.join(ISSUE_ASSIGNEE.USER_ID, ISSUE_ASSIGNEE.TENANT_ID))
             .where(ISSUE_ASSIGNEE.ISSUE_ID.in(issueIds))
             .orderBy(USER.NAME.asc())
             .fetch();
     Map<Long, List<UserSummary>> result = new HashMap<>();
     for (Long id : issueIds) result.put(id, new ArrayList<>());
     for (var r : rows) {
-      result
-          .get(r.get(ISSUE_ASSIGNEE.ISSUE_ID))
-          .add(
-              new UserSummary(
-                  r.get(USER.ID), r.get(USER.USERNAME), r.get(USER.NAME), r.get(USER.KIND)));
+      result.get(r.get(ISSUE_ASSIGNEE.ISSUE_ID)).add(toSummary(r));
     }
     return result;
+  }
+
+  /** 담당자 행 → 요약(활성 여부 포함). */
+  private static UserSummary toSummary(Record r) {
+    return new UserSummary(
+        r.get(USER.ID),
+        r.get(USER.USERNAME),
+        r.get(USER.NAME),
+        r.get(USER.KIND),
+        Boolean.TRUE.equals(r.get(ACTIVE)));
   }
 
   /** 그 담당 행을 만든 사람(assigned_by). 담당 행이 없거나 기록이 없으면 비어 있다 — AI 작업 검토 요청·실패 알림(WP-913)의 수신자 후보. */
