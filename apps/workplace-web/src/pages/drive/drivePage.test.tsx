@@ -477,6 +477,9 @@ describe('업로드', () => {
 })
 
 describe('휴지통', () => {
+  // 휴지통 목록 한 건(memo.txt) 조회
+  const trashHandler = http.get(`${API}/spaces/${SPACE_ID}/trash`, () => HttpResponse.json(makeTrashList()))
+
   // 휴지통을 열면 목록이 보이고, 복원하면 다시 조회해 비어 있음 안내로 바뀐다.
   test('복원하면 휴지통 목록이 다시 조회돼 비어 있음으로 바뀐다', async () => {
     let restored = false
@@ -497,11 +500,59 @@ describe('휴지통', () => {
     expect(restored).toBe(true)
   })
 
+  // WP-1082: 휴지통 뷰에서는 새 폴더·업로드를 감춘다 — 거기서 만들면 보이지 않는 루트에 알림 없이 생겼다. 드라이브로 돌아가면 다시 보인다.
+  test('휴지통 뷰에서는 새 폴더·업로드 단추가 없고, 드라이브로 돌아가면 다시 보인다', async () => {
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [trashHandler],
+    })
+    expect(screen.getByTestId('drive-new-folder')).toBeInTheDocument()
+    await user.click(screen.getByTestId('trash-toggle'))
+    expect(await within(await screen.findByTestId('trash-view')).findByText('memo.txt')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('trash-toggle'))
+    expect(await screen.findByTestId('drive-new-folder')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-upload')).toBeInTheDocument()
+  })
+
+  // WP-1082: 휴지통 뷰에 파일을 놓아도 올리지 않는다. 먼저 휴지통에 놓고, 드라이브로 돌아가 다시 놓으면 그 한 번만 올라간다.
+  test('휴지통 뷰에 파일을 놓으면 올리지 않고, 드라이브 뷰에 놓으면 올린다', async () => {
+    let posts = 0
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        trashHandler,
+        http.post(`${API}/spaces/${SPACE_ID}/files`, () => {
+          posts += 1
+          return HttpResponse.json(createFile({ id: 30 }), { status: 201 })
+        }),
+      ],
+    })
+    // 놓은 파일 한 개 — readDroppedTree 가 읽는 webkitGetAsEntry 엔트리만 흉내 낸다.
+    const dropFile = () =>
+      fireEvent.drop(screen.getByTestId('drive-dropzone'), {
+        dataTransfer: {
+          items: [{ webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'a.txt', file: (cb: (f: File) => void) => cb(new File(['x'], 'a.txt')) }) }],
+        },
+      })
+    await user.click(screen.getByTestId('trash-toggle'))
+    await within(await screen.findByTestId('trash-view')).findByText('memo.txt')
+    // 휴지통 뷰에서는 끌어 와도 놓기 표시(테두리)를 하지 않는다.
+    fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
+    expect(screen.getByTestId('drive-dropzone').style.outline).toBe('')
+    dropFile()
+    await user.click(screen.getByTestId('trash-toggle'))
+    await screen.findByTestId('drive-new-folder')
+    dropFile()
+    await waitFor(() => expect(posts).toBe(1))
+    expect(await screen.findByText(/업로드 완료/)).toBeInTheDocument()
+    expect(posts).toBe(1)
+  })
+
   // #143: 복원 500 이면 사유 토스트를 보이고 휴지통 목록은 그대로다.
   test('복원 실패(500) 시 사유 토스트를 보이고 목록은 남는다', async () => {
     const { user } = await openDrive({ folders: [], files: [] }, {
       handlers: [
-        http.get(`${API}/spaces/${SPACE_ID}/trash`, () => HttpResponse.json(makeTrashList())),
+        trashHandler,
         http.post(`${API}/files/901/restore`, () =>
           HttpResponse.json({ status: 500, error: 'Internal Server Error', message: '복원하지 못했습니다.' }, { status: 500 }),
         ),
