@@ -294,6 +294,56 @@ class AgentWorkNoticeTest extends AgentWorkTestSupport {
     assertThat(ofType(humanId, AI_QUESTION).get(0).agentWorkState()).isEqualTo("INPUT_REQUIRED");
   }
 
+  // ------------------------------------------------------------------ 답변 필요 AI 깨우기(WP-1067)
+
+  /**
+   * 답변 필요로 기다리는 AI 에게 사람이 멘션 없이 챗 글로 답해도 그 AI 에게 알림 1건 — 같은 글이 작업을 작업 중으로 되돌린 뒤라도(커밋 뒤 비동기) 받는다. 사람
+   * 관계자에게는 멘션 알림이 없다.
+   */
+  @Test
+  void inputRequired_humanChatWithoutMention_wakesWaitingAgent() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED")));
+
+    assertOk(postChat(jwtToken, "A"));
+
+    awaitCount(agentId, MENTION, 1);
+    assertThat(ofType(agentId, MENTION).get(0).actorId()).isEqualTo(humanId);
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
+    assertStays(otherId, MENTION, 0);
+  }
+
+  /** 기다리는 AI 를 멘션까지 해 답하면 멘션 알림 1건만 — 되돌림 알림을 따로 만들지 않는다. */
+  @Test
+  void inputRequired_humanChatMentioningAgent_notifiesOnce() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED")));
+
+    assertOk(postChat(jwtToken, "<@" + agentId + "> A 로 해 주세요"));
+
+    awaitCount(agentId, MENTION, 1);
+    assertStays(agentId, MENTION, 1);
+  }
+
+  /** 답변 필요가 아닌 AI(작업 중)에게는 멘션 없는 챗 글로 알림이 없다 — 지금과 같다. */
+  @Test
+  void working_humanChatWithoutMention_noAgentNotice() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "WORKING")));
+
+    assertOk(postChat(jwtToken, "진행 상황 어떤가요"));
+
+    assertStays(agentId, MENTION, 0);
+  }
+
+  /** 기다리는 AI 자신이 쓴 챗 글은 사람의 답이 아니라 되돌리지도 깨우지도 않는다. */
+  @Test
+  void inputRequired_agentOwnChat_noNotice() {
+    assertOk(putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED")));
+
+    assertOk(postChat(akToken, "추가 설명입니다"));
+
+    assertStays(agentId, MENTION, 0);
+    assertThat(activeWork(issueId, agentId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
+  }
+
   @Test
   void inputRequiredWithMessage_singleAiQuestion() {
     assertOk(putReport(akToken, TOOL, Map.of("state", "INPUT_REQUIRED", "message", "어느 쪽?")));

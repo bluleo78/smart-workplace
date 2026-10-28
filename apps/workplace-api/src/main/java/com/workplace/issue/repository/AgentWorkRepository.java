@@ -333,10 +333,9 @@ public class AgentWorkRepository {
 
   /** {@link #end} 와 같되 종료한 행의 이슈 id 를 돌려준다(RETURNING 에 issue_id 를 덧붙여 CTE 에서 고른다). */
   private List<Long> endReturningIssueIds(String terminalState, Condition where) {
-    List<Field<?>> returning = new ArrayList<>(EVENT_SOURCE_FIELDS);
-    returning.add(AGENT_WORK.ISSUE_ID);
     return recordEvents(
-        endStatement(terminalValue(terminalState), null, where, returning),
+        endStatement(
+            terminalValue(terminalState), null, where, eventFieldsWith(AGENT_WORK.ISSUE_ID)),
         false,
         AGENT_WORK.ISSUE_ID);
   }
@@ -412,6 +411,16 @@ public class AgentWorkRepository {
           AGENT_WORK_EVENT.PROGRESS,
           AGENT_WORK_EVENT.STEPS_DONE,
           AGENT_WORK_EVENT.STEPS_TOTAL);
+
+  /**
+   * 이벤트로 옮기는 컬럼({@link #EVENT_SOURCE_FIELDS})에 project 컬럼을 덧붙인 RETURNING 목록 — 바뀐 행의 그 값을 돌려받을 때(이슈
+   * id·작업자 id). 이벤트로 옮기는 컬럼은 그대로다.
+   */
+  private static List<Field<?>> eventFieldsWith(Field<?> project) {
+    List<Field<?>> out = new ArrayList<>(EVENT_SOURCE_FIELDS);
+    out.add(project);
+    return out;
+  }
 
   /** update 의 RETURNING 에 덧붙이는 "갱신 전과 달라졌는가" 컬럼 이름. */
   private static final String CHANGED_COLUMN = "changed";
@@ -546,9 +555,9 @@ public class AgentWorkRepository {
   /**
    * 사람이 이슈에 응답(챗 글·댓글 등)했을 때, 그 이슈에서 "답변 필요(INPUT_REQUIRED)" 로 멈춘 AI 구성원 작업을 작업 중으로 되돌린다. 사람(도구
    * 사용자) 작업은 건드리지 않는다. 인증 필요(AUTH_REQUIRED)는 사람이 글로 답해서 풀리는 게 아니라 권한을 준 뒤 AI 가 다시 쓰면 터치로 복귀하므로 여기서
-   * 건드리지 않는다.
+   * 건드리지 않는다. 되돌린 행의 작업자 id 를 돌려준다(WP-1067 — 그 AI 들에게 알림을 보내 깨운다).
    */
-  public int resumeInputRequiredAgents(long issueId) {
+  public List<Long> resumeInputRequiredAgents(long issueId) {
     return recordEvents(
         dsl.update(AGENT_WORK)
             .set(AGENT_WORK.STATE, AgentWorkState.WORKING)
@@ -561,8 +570,9 @@ public class AgentWorkRepository {
             .and(
                 AGENT_WORK.WORKER_ID.in(
                     dsl.select(USER.ID).from(USER).where(USER.KIND.eq(UserKind.AGENT))))
-            .returning(EVENT_SOURCE_FIELDS),
-        false);
+            .returning(eventFieldsWith(AGENT_WORK.WORKER_ID)),
+        false,
+        AGENT_WORK.WORKER_ID);
   }
 
   /** AGENT_WORK 컬럼을 가진 Record → AgentWorkRow (OffsetDateTime → Instant). */
