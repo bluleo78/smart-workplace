@@ -8,6 +8,8 @@
 // - 조직·그룹 펼치기(WP-1048): 행의 ▸(또는 → 키)로 그 자리에서 하위 부서와 직속 구성원을 펼친다. 행을 고르면 그 조직을 추가하고,
 //   펼친 구성원 행을 고르면 그 사람만 추가한다. 검색어가 없으면 최상위 조직만 보이고 펼쳐 내려간다.
 // - 키보드: cmdk 목록이라 ↑↓ 로 섹션을 넘나들며 고르고 Enter 로 더한다. 검색어를 치면 고를 수 있는 첫 후보가 잡혀 바로 Enter 로 더할 수 있다.
+// - 읽기 도구(WP-1065): 후보가 listbox option 이라 펼침 상태·상위 그룹은 이름 안의 화면 밖 글로, → / ← 안내는 검색창 설명으로,
+//   펼치고 접은 결과는 상태 영역(role=status)으로 알린다.
 // - 이미 지정한 사람·부서는 비활성 + 「(이미 추가됨)」, 상위 부서가 이미 대상인 부서는 비활성 + 「상위 부서에 포함됨」.
 //   고르면 검색어만 비우고 팝오버는 열어 둔다(연속 추가). 내 그룹은 고르면 하위 그룹 구성원까지 한 명씩 펼쳐 더한다.
 // - 모달 팝오버(WP-1048): 공유 창(Dialog)이 바깥 스크롤을 막는데(RemoveScroll) 팝오버는 포털이라 그 밖으로 보여, 목록이 휠로 움직이지 않았다.
@@ -15,7 +17,7 @@
 
 import { useQueries } from '@tanstack/react-query'
 import { Building2, ChevronRight, Users } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
@@ -48,6 +50,8 @@ type GroupRow =
       node: UserGroupNode
       depth: number
       showPath: boolean
+      /** 펼쳐서 보이는 하위 그룹이면 품은 그룹 이름 — 들여쓰기 대신 읽기 도구에 읽힌다(WP-1065). */
+      parentName?: string
     }
   | {
       type: 'member'
@@ -55,6 +59,8 @@ type GroupRow =
       ancestorIds: number[]
       member: UserGroupMemberSummary
       depth: number
+      /** 품은 그룹 이름(WP-1065). */
+      parentName: string
     }
   | { type: 'note'; groupId: number; text: string; depth: number }
 
@@ -97,6 +103,11 @@ export function ShareTargetSearchPopover({
   onSelectPersonalGroup,
 }: ShareTargetSearchPopoverProps) {
   const [query, setQuery] = useState('')
+  // 검색창의 키 안내(aria-describedby) — 펼침은 → / ← 로만 하므로 읽기 도구 사용자에게 알린다(WP-1065).
+  const keyHintId = useId()
+  // 마지막으로 펼치거나 접은 그룹 — 선택(aria-activedescendant)이 그대로라 읽기 도구가 바뀐 이름을 다시 읽지 않으므로,
+  // 상태 영역(role=status)이 「개발팀 펼침 — 하위 1개, 구성원 2명」처럼 결과를 알린다(WP-1065).
+  const [announcedId, setAnnouncedId] = useState<number | null>(null)
   const [kind, setKind] = useState<TargetKind>('all')
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
   const debounced = useDebounceValue(query, 300)
@@ -113,6 +124,9 @@ export function ShareTargetSearchPopover({
     })),
   })
   const detailOf = new Map(expandedIds.map((id, i) => [id, details[i]]))
+  /** 펼친 그룹의 직속 구성원 중 줄로 보일 사람 — 펼친 줄과 펼침 알림(WP-1065)의 구성원 수가 같은 기준이게 한 곳에서 거른다. */
+  const visibleMembers = (groupId: number) =>
+    (detailOf.get(groupId)?.data?.members ?? []).filter((m) => m.targetType === 'MEMBER' && !excludeUserIds.has(m.targetId))
 
   const q = query.trim()
   // 사람 목록은 debounce 된 검색어(300ms)의 결과다 — 그사이 목록은 이전 검색어의 것이라, 순서를 정하거나 고르게 하면
@@ -156,24 +170,25 @@ export function ShareTargetSearchPopover({
     const starts = q ? filterGroupOptions(all, q) : roots.slice(0, limit)
     const rows: GroupRow[] = []
     const seen = new Set<number>()
-    const walk = (option: ShareGroupOption, depth: number, showPath: boolean) => {
+    const walk = (option: ShareGroupOption, depth: number, showPath: boolean, parentName?: string) => {
       const node = nodeById.get(option.id)
       if (!node || seen.has(option.id)) return
       seen.add(option.id)
-      rows.push({ type: 'group', option, node, depth, showPath })
+      rows.push({ type: 'group', option, node, depth, showPath, parentName })
       if (!expanded.has(option.id)) return
       for (const child of node.children ?? []) {
         const childOption = optionOf.get(child.id)
-        if (childOption) walk(childOption, depth + 1, false)
+        if (childOption) walk(childOption, depth + 1, false, node.name)
       }
       const detail = detailOf.get(option.id)
-      const members = (detail?.data?.members ?? []).filter((m) => m.targetType === 'MEMBER' && !excludeUserIds.has(m.targetId))
+      const members = visibleMembers(option.id)
       for (const member of members) {
         rows.push({
           type: 'member',
           groupId: option.id,
           ancestorIds: option.ancestorIds,
           member,
+          parentName: node.name,
           depth: depth + 1,
         })
       }
@@ -241,13 +256,15 @@ export function ShareTargetSearchPopover({
     setQuery('')
   }
   // 접으면 그 아래 펼쳐 둔 하위 그룹도 함께 접는다 — 숨은 하위의 구성원 조회가 남아 다시 받거나, 다시 펼칠 때 하위가 펼친 채로 튀어나오지 않게.
-  const toggle = (id: number, next = !expanded.has(id)) =>
+  const toggle = (id: number, next = !expanded.has(id)) => {
+    setAnnouncedId(id)
     setExpanded((prev) => {
       const s = new Set(prev)
       if (next) s.add(id)
       else for (const sub of optionById.get(id)?.subtreeIds ?? [id]) s.delete(sub)
       return s
     })
+  }
   // → 는 지금 고른 조직·그룹을 펼치고 ← 는 접는다 — 검색창에서 손을 떼지 않고 조직도를 내려간다.
   // ← 는 고른 줄이 펼친 그룹이면 그 그룹을, 아니면(구성원 줄·접힌 하위 그룹) 그 줄을 품은 그룹을 접는다.
   // 검색어 안에서 글자 커서를 옮기는 중이면(→ 는 끝이 아닐 때, ← 는 처음이 아닐 때) 가로채지 않는다.
@@ -285,6 +302,7 @@ export function ShareTargetSearchPopover({
     if (!next) {
       setKind('all')
       setExpanded(new Set())
+      setAnnouncedId(null)
       setActive('')
       setQuery('')
     }
@@ -322,6 +340,8 @@ export function ShareTargetSearchPopover({
               >
                 {/* 펼침 단추 자리만큼 비워 그룹 이름과 줄을 맞춘다. */}
                 <span className="size-5 shrink-0" aria-hidden="true" />
+                {/* 들여쓰기는 눈에만 보여 읽기 도구에는 어느 그룹 아래인지 이름 앞에 읽힌다(WP-1065). */}
+                <span className="sr-only">{r.parentName} 구성원,</span>
                 <PersonAvatar name={r.member.name} />
                 <span className="min-w-0 truncate">{r.member.name}</span>
                 {r.member.title && <span className="truncate text-xs text-muted-foreground">{r.member.title}</span>}
@@ -344,7 +364,8 @@ export function ShareTargetSearchPopover({
             >
               {/* 펼침 단추 — 행을 고르지 않고(조직 추가 아님) 그 자리에서 하위 부서·구성원만 펼친다. 검색창 포커스는 그대로 둔다.
                   고를 수 없는(이미 추가한) 조직도 펼쳐 볼 수 있게 비활성 행의 pointer-events-none 을 단추만 되살린다. */}
-              {/* 목록 안의 단추는 읽기 도구·Tab 에 따로 잡히지 않게 숨긴다(포커스는 검색창에 두고 → / ← 로 같은 일을 한다). */}
+              {/* 목록 안의 단추는 읽기 도구·Tab 에 따로 잡히지 않게 숨긴다(포커스는 검색창에 두고 → / ← 로 같은 일을 한다).
+                  그 키와 펼침 상태는 행 이름 끝·검색창 설명으로 읽힌다(WP-1065). */}
               <button
                 type="button"
                 tabIndex={-1}
@@ -363,6 +384,8 @@ export function ShareTargetSearchPopover({
                 {department ? <Building2 className="size-3.5" /> : <Users className="size-3.5" />}
               </span>
               <span className="min-w-0 truncate">
+                {/* 펼쳐서 보이는 하위 그룹 — 어느 그룹 아래인지 읽기 도구에 알린다(검색 결과는 상위 경로를 눈으로도 보인다, WP-1065). */}
+                {r.parentName && <span className="sr-only">{r.parentName} 하위,</span>}
                 <span className={cn(r.depth === 0 && 'font-medium')}>{node.name}</span>
                 {/* 검색으로 찾은 하위 그룹은 상위 경로와 함께(「개발본부 › 플랫폼팀」) — 이름이 같은 하위 그룹을 가린다. */}
                 {r.showPath && option.path && <span className="ml-1.5 text-xs text-muted-foreground">{option.path}</span>}
@@ -372,6 +395,12 @@ export function ShareTargetSearchPopover({
               </span>
               <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                 {department ? (blocked ?? '하위 부서 포함') : '구성원을 한 명씩 추가'}
+              </span>
+              {/* 펼침 상태 — 후보는 listbox 의 option 이라 aria-expanded 를 둘 수 없어(ARIA 1.2 허용 속성 아님) 이름 끝에 읽힌다(WP-1065).
+                  고를 수 없는 행은 키보드 선택이 건너뛰어 키로 펼칠 수 없으니 키 안내를 붙이지 않는다. 화살표 기호는 읽기 도구가 건너뛸 수 있어 말로 쓴다. */}
+              <span className="sr-only">
+                ({open ? '펼침' : '접힘'}
+                {blocked == null && (open ? ' — 왼쪽 화살표로 접기' : ' — 오른쪽 화살표로 펼치기')})
               </span>
             </CommandItem>
           )
@@ -412,6 +441,18 @@ export function ShareTargetSearchPopover({
     </CommandGroup>
   )
 
+  /** 펼치거나 접은 결과 한 줄 — 펼쳤으면 받는 중·실패·하위 수와 구성원 수(펼친 줄과 같은 기준)를 함께 알린다(WP-1065). */
+  const announcement = (() => {
+    const node = announcedId == null ? undefined : nodeById.get(announcedId)
+    if (!node) return ''
+    // 펼침 여부는 expanded 에서 읽는다 — 상위를 접어 함께 접힌 경우도 같은 값이다.
+    if (!expanded.has(node.id)) return `${node.name} 접힘`
+    const detail = detailOf.get(node.id)
+    if (!detail || detail.isPending) return `${node.name} 펼침 — 구성원을 불러오는 중`
+    if (detail.isError) return `${node.name} 펼침 — 구성원을 불러오지 못했습니다`
+    return `${node.name} 펼침 — 하위 ${(node.children ?? []).length}개, 구성원 ${visibleMembers(node.id).length}명`
+  })()
+
   const tabs: { kind: TargetKind; label: string; count?: number | string }[] = [
     { kind: 'all', label: '전체' },
     { kind: 'people', label: '사람', count: peopleCount },
@@ -425,7 +466,20 @@ export function ShareTargetSearchPopover({
       {/* 가장자리 16px — 390 화면에서 팝오버가 오른쪽 끝에 붙지 않게(MemberSearchPopover 와 같은 폭·여백). */}
       <PopoverContent className="w-[min(380px,calc(100vw-32px))] p-0" align="start" collisionPadding={16} data-testid="share-target-search">
         <Command shouldFilter={false} value={current} onValueChange={setActive} onKeyDown={onKeyDown}>
-          <CommandInput value={query} onValueChange={setQuery} placeholder="이름·부서·그룹으로 검색" aria-label="사람·팀 검색" />
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder="이름·부서·그룹으로 검색"
+            aria-label="사람·팀 검색"
+            aria-describedby={keyHintId}
+          />
+          <p role="status" className="sr-only" data-testid="share-target-announcement">
+            {announcement}
+          </p>
+          <p id={keyHintId} className="sr-only">
+            위·아래 화살표로 후보를 고르고 Enter 로 추가합니다. 조직·그룹은 오른쪽 화살표로 펼쳐 하위와 구성원을 보고 왼쪽 화살표로
+            접습니다. 검색어 가운데에 커서가 있으면 커서만 움직입니다.
+          </p>
           {/* 종류 탭 — 누른 종류만 보인다. 수는 지금 검색어에 맞는 후보 수. */}
           <div role="group" aria-label="후보 종류" className="flex gap-1 border-b px-2 py-1.5">
             {tabs.map((t) => (
