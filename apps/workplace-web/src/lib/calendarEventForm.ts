@@ -3,7 +3,8 @@
 import { addDays, addMilliseconds, format, parse } from 'date-fns'
 import { z } from 'zod'
 
-import { isNotEventOrganizer } from '@/lib/calendar'
+import { allDayLocalDate, isNotEventOrganizer } from '@/lib/calendar'
+import { formatDateKey, parseValidDateKey } from '@/lib/formatters'
 import { buildRRule, type RecurrenceForm } from '@/lib/recurrence'
 import { isSupportedDateKey, SUPPORTED_DATE_RANGE_MESSAGE } from '@/lib/supportedDate'
 import type { Calendar, CalendarEvent, CalendarEventRequest } from '@/types/calendar'
@@ -59,7 +60,9 @@ export const eventFormSchema = z
       }
     }
     if (!invalid.start && !invalid.end && endMs <= startMs) {
-      ctx.addIssue({ code: 'custom', message: '종료는 시작보다 뒤여야 합니다', path: ['end'] })
+      // 종일 폼 값의 종료는 마지막 날 다음 자정(배타적 끝)이라 하루 일정도 end > start 다 — 여기 걸리면 화면의 종료일(마지막 날 포함)이 시작일보다 앞선 것이다(WP-1072).
+      const message = v.allDay ? '종료일은 시작일보다 앞설 수 없습니다' : '종료는 시작보다 뒤여야 합니다'
+      ctx.addIssue({ code: 'custom', message, path: ['end'] })
     }
   })
   // 반복 관련 필드는 해당 입력이 실제로 노출될 때(freq≠NONE)만 검증한다.
@@ -152,6 +155,57 @@ export function normalizeAllDayRange(start: string, end: string): { start: strin
   const endDate = end ? localDateOnly(end) : startDate
   const normalizedEndDate = endDate <= startDate ? addDaysToDateOnly(startDate, 1) : endDate
   return { start: `${startDate}T00:00`, end: `${normalizedEndDate}T00:00` }
+}
+
+/**
+ * 종일 일정의 폼 값(자정 경계 half-open [start, end)) → 화면에 보일 날짜 칸 값(WP-1072).
+ * 종료는 마지막 날을 포함하는 날짜로 보인다 — 배타적 끝(다음 날 0시)을 그대로 보이면 10/28 하루 일정이 「10/28 – 10/29」로 보여,
+ * 그 날짜를 고친 사람이 고른 종료일이 달력에서 하루 빠졌다. 종료가 시작 이하이면 시작과 같은 날로 본다.
+ */
+export function allDayDisplayDates(start: string, end: string): { startDate: string; endDate: string } {
+  const startDate = localDateOnly(start)
+  const exclusiveEnd = localDateOnly(end)
+  // 비었거나 날짜로 읽을 수 없으면(연도 5자리 등) 그대로 보인다 — 날짜 연산이 던지지 않게, 오류는 스키마가 알린다(WP-902).
+  if (!isDateOnly(startDate) || !isDateOnly(exclusiveEnd)) return { startDate, endDate: exclusiveEnd }
+  const endDate = exclusiveEnd > startDate ? addDaysToDateOnly(exclusiveEnd, -1) : startDate
+  return { startDate, endDate }
+}
+
+/**
+ * 종일 날짜 칸 값(종료는 마지막 날 포함) → 폼 값(자정 경계 half-open [start, end)) — {@link allDayDisplayDates} 의 반대 방향.
+ * 종료일이 시작일보다 앞이면 그대로 하루 앞의 배타적 끝을 만들어 스키마가 「종료일은 시작일보다 앞설 수 없습니다」로 막게 둔다.
+ * 빈 칸은 빈 값, 날짜로 읽을 수 없는 칸은 그 글자 그대로 넘겨 스키마가 필수·연도 오류로 알리게 한다(칸을 지우고 다시 입력할 수 있게).
+ */
+export function allDayRangeFromDates(startDate: string, endDate: string): { start: string; end: string } {
+  const toMidnight = (date: string) => date && `${date}T00:00`
+  return { start: toMidnight(startDate), end: toMidnight(isDateOnly(endDate) ? addDaysToDateOnly(endDate, 1) : endDate) }
+}
+
+/** YYYY-MM-DD 이고 실제 달력 날짜인가 — 날짜 연산(addDaysToDateOnly) 전에 거른다 */
+function isDateOnly(value: string): boolean {
+  return parseValidDateKey(value) !== undefined
+}
+
+/** 종일 일정의 ISO → 그 캘린더 날짜의 자정 폼 값 — allDayLocalDate 로 저장 규약(동기화 UTC 자정·로컬 자정) 차이를 흡수한다(WP-1072). */
+export function allDayFormValue(iso: string): string {
+  return `${formatDateKey(allDayLocalDate(iso))}T00:00`
+}
+
+/**
+ * 종일 날짜를 고치지 않은 저장이면 저장된 시각을 그대로 보낸다(WP-1072) — 동기화 일정(UTC 자정)을 로컬 자정으로 바꿔 보내면
+ * 제목만 고쳐도 서버가 일정 변경으로 보고 참석자 알림·리마인더·외부 동기화를 다시 돈다.
+ */
+export function keepStoredAllDayInstants<T extends { startsAt: string; endsAt: string }>(
+  request: T,
+  values: Pick<EventFormValues, 'allDay' | 'start' | 'end'>,
+  event: Pick<CalendarEvent, 'allDay' | 'startsAt' | 'endsAt'> | null | undefined,
+): T {
+  const unchanged =
+    event?.allDay &&
+    values.allDay &&
+    values.start === allDayFormValue(event.startsAt) &&
+    values.end === allDayFormValue(event.endsAt)
+  return unchanged ? { ...request, startsAt: event.startsAt, endsAt: event.endsAt } : request
 }
 
 const LOCAL_INPUT_FORMAT = "yyyy-MM-dd'T'HH:mm"
