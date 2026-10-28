@@ -7,14 +7,14 @@
 // 이름/종류로 역매핑한다(읽기 렌더·수정 폼 초기값 공용).
 
 import { Pencil, Trash2 } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
 import { countApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
-import { parseMessageSegments } from '@/components/mentions/parseMessageSegments';
+import type { RenderMention } from '@/components/mentions/parseMessageSegments';
 import { RichInput } from '@/components/mentions/RichInput';
 import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet';
@@ -46,19 +46,6 @@ import { AddReactionButton, CommentReactions } from './CommentReactions';
 import { IssueCommentComposer } from './IssueCommentComposer';
 
 // 개별 코멘트 항목 — 본인 HUMAN 코멘트에만 수정·삭제 액션 제공.
-// 마크다운 특수문자 — 멘션 이름에 섞여 있으면 강조·링크 등으로 해석되지 않게 백슬래시로 이스케이프한다.
-const MD_SPECIAL = /[\\`*_[\]<>#|~]/g;
-
-/** 멘션 칩이 될 링크의 href 접두 — 마크다운이 해석하지 못하는 <@id> 토큰을 `[@이름](#comment-mention-<id>)` 로 바꿔 renderLink 가 칩으로 그린다. */
-const MENTION_HREF = '#comment-mention-';
-
-/** 코멘트 본문의 <@id> 토큰을 마크다운 링크로 바꾼다(WP-1015) — 미해결 id 는 '@알 수 없음'. 이름의 마크다운 특수문자는 이스케이프. */
-function mentionsToMarkdown(body: string, users: MentionUser[]): string {
-  return parseMessageSegments(body, users)
-    .map((seg) => (seg.type === 'text' ? seg.value : `[@${seg.name.replace(MD_SPECIAL, '\\$&')}](${MENTION_HREF}${seg.id})`))
-    .join('');
-}
-
 function CommentItem({
   comment,
   isOwn,
@@ -151,22 +138,20 @@ function CommentItem({
     (p: { src?: string; alt?: string }) => <IssueBodyImage projectKey={projectKey} {...p} />,
     [projectKey],
   );
-  // 멘션 링크(`#comment-mention-<id>`) → 이슈 채팅과 같은 칩 — AI 는 AI 색, 사람은 중립색(#785, #208). 그 밖의 링크는 기본 렌더.
-  const renderMentionLink = useCallback(
-    (href: string | undefined, children: ReactNode) => {
-      if (!href?.startsWith(MENTION_HREF)) return undefined;
-      const id = href.slice(MENTION_HREF.length);
-      const kind = mentionUsers.find((u) => String(u.id) === id)?.kind;
-      return (
-        <span
-          data-testid={`comment-mention-chip-${id}`}
-          className={`rounded px-1 font-medium ${kind === 'AGENT' ? 'bg-ai-accent-subtle text-ai-accent' : 'bg-muted text-foreground'}`}
-        >
-          {children}
-        </span>
-      );
-    },
-    [mentionUsers],
+  // 멘션 토큰 <@id> → 이슈 채팅과 같은 칩 — AI 는 AI 색, 사람은 중립색(#785, #208). 토큰 나누기는 MarkdownMessage 가 채팅 AI 글과 같은
+  // 규칙으로 한다(WP-1009) — 코드(`…`·펜스) 안의 토큰은 칩으로 바꾸지 않고 글자 그대로 둔다. 예전에는 토큰을 마크다운 링크로 미리 바꿔
+  // 넣어, 코드 안에서는 그 링크 원문(「[@이름](#comment-mention-2)」)이 그대로 보였다(WP-1093).
+  const renderMention = useCallback<RenderMention>(
+    (seg, key) => (
+      <span
+        key={key}
+        data-testid={`comment-mention-chip-${seg.id}`}
+        className={`rounded px-1 font-medium ${seg.kind === 'AGENT' ? 'bg-ai-accent-subtle text-ai-accent' : 'bg-muted text-foreground'}`}
+      >
+        @{seg.name}
+      </span>
+    ),
+    [],
   );
 
   return (
@@ -297,9 +282,10 @@ function CommentItem({
           <MarkdownMessage
             className="leading-6 text-foreground"
             renderImage={renderImage}
-            renderLink={renderMentionLink}
+            mentions={mentionUsers}
+            renderMention={renderMention}
           >
-            {mentionsToMarkdown(comment.body, mentionUsers)}
+            {comment.body}
           </MarkdownMessage>
         )}
 
@@ -393,12 +379,13 @@ export function IssueCommentList({
 
   // 프로젝트 멤버 = RichInput @ 자동완성 후보이자, 본문 <@id> 토큰의 이름/종류 역매핑 소스.
   const membersQuery = useProjectMembers(projectKey);
-  const mentionCandidates: MentionCandidate[] = membersQuery.data ?? [];
-  const mentionUsers: MentionUser[] = mentionCandidates.map((m) => ({
-    id: m.userId,
-    name: m.name,
-    kind: m.kind,
-  }));
+  const mentionCandidates: MentionCandidate[] = useMemo(() => membersQuery.data ?? [], [membersQuery.data]);
+  // 멤버가 바뀔 때만 새로 만든다 — MarkdownMessage 가 mentions 로 렌더러 묶음을 다시 만들면 코멘트 이미지가 다시 마운트돼
+  // 열린 뷰어가 닫히고 썸네일이 깜빡인다(renderImage 를 memo 하는 이유와 같다).
+  const mentionUsers: MentionUser[] = useMemo(
+    () => mentionCandidates.map((m) => ({ id: m.userId, name: m.name, kind: m.kind })),
+    [mentionCandidates],
+  );
 
   const composer = !hideComposer && (
     <div key="composer" className="space-y-2">
