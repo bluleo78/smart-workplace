@@ -4,6 +4,7 @@ import com.workplace.audit.service.AuditLogService;
 import com.workplace.auth.exception.AccountLockedException;
 import com.workplace.auth.exception.EmailAlreadyExistsException;
 import com.workplace.auth.exception.UsernameAlreadyExistsException;
+import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AuthService;
 import com.workplace.auth.service.LoginAttemptService;
@@ -64,6 +65,8 @@ public class UserService {
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
   private final WorkspaceMemberGuard memberGuard;
+  // WP-1075: 공통 비서 정지 가드 — 지정 여부는 지정 테이블의 주인(auth 모듈) 저장소로 읽는다.
+  private final WorkspaceAssistantRepository workspaceAssistantRepository;
   // WP-48: SSO 전용 구성원 등록 시 워크스페이스 SSO 켜짐 여부 확인
   private final TenantRepository tenantRepository;
   // AI 가용성 해석 — 개인/공통 비서 중 active token 보유 여부를 판단. /users/me 응답에 aiAvailable 노출.
@@ -804,6 +807,11 @@ public class UserService {
     // WP-729: 역할 할당(WP-599)과 같은 위임 상한 — 자기보다 넓은 권한을 가진 구성원(관리자 등)은 정지·해제하지 못한다.
     // 호출자 없음(null)은 사람 요청이 아닌 내부 호출이다 — API·확인 카드·AI 삭제 경로는 늘 로그인한 호출자를 넘긴다.
     if (callerId != null) roleGrantGuard.requireCanManageUser(callerId, userId);
+    // WP-1075: 공통 비서는 지정을 먼저 풀어야 끌 수 있다 — 지정을 둔 채 정지하면 개인 비서 없는 구성원 모두의 AI 대화가 정지된 AI 로 돈다.
+    // 에이전트 삭제(AgentRemovalService)가 지정을 먼저 푸는 것과 같은 불변식이다.
+    if (!active && workspaceAssistantRepository.findAgentId().filter(userId::equals).isPresent()) {
+      throw new IllegalStateException("공통 비서는 지정을 해제한 뒤 비활성화할 수 있습니다");
+    }
     // 마지막 활성 ADMIN 비활성화 방지 — 모든 ADMIN이 잠기면 시스템 관리 불가 (#146).
     // WP-417: 활성 ADMIN 수는 현재 워크스페이스 기준 — 다른 워크스페이스의 정지는 영향 없다. 대상이 지금 이 워크스페이스의 활성 ADMIN 일 때만
     // 끄기가 그 수를 줄이므로 그때만 검사한다(이미 정지된 대상을 다시 끄는 것은 멱등 no-op).

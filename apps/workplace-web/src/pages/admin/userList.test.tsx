@@ -3,7 +3,7 @@
 // SSO 켜짐/꺼짐에 따른 로그인 방식, 아이디·이메일 보조 줄, 다음 페이지 실패 → 다시 시도는 브라우저 없이 판정되므로
 // e2e/pages/admin/member-add.spec.ts · member-add-sso.spec.ts · settings-list-infinite-scroll.spec.ts 에서 옮겼다.
 // 설정 사이드바의 워크스페이스 관리 항목 순서(admin-sidebar.spec.ts)도 여기서 본다 — 구성원 화면 옆에 놓이는 사이드바라 한 파일에 모았다.
-// E2E 에 남는 것: 구분 배지 배선(user-list-kind.spec.ts @wiring), 스크롤로 다음 페이지 이어 붙이기(@layout).
+// 사람만 요청·「구분」 열 없음(WP-1075)도 여기서 본다. E2E 에 남는 것: 목록 배선(user-list-kind.spec.ts @wiring), 스크롤로 다음 페이지 이어 붙이기(@layout).
 // 대화상자·푸터가 목록 화면 안에 있어 UserListPage 를 renderScreen 으로 띄운다(앱 셸·라우트는 거치지 않는다).
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
@@ -288,4 +288,21 @@ test('설정 사이드바 워크스페이스 관리 그룹은 구성원 → 에�
     'SSO',
     '감사 로그',
   ])
+})
+
+test('구성원 목록은 사람만(kind=HUMAN) 요청하고, 모두 사람이라 「구분」 열이 없다 (WP-1075)', async () => {
+  const kinds: (string | null)[] = []
+  renderScreen(<UserListPage />, {
+    path: '/settings/users',
+    handlers: [
+      http.get('/api/v1/members', ({ request }) => {
+        kinds.push(new URL(request.url).searchParams.get('kind'))
+        return HttpResponse.json(createPageResponse([createMember({ userId: 1, name: '사람1', username: 'p1' })]))
+      }),
+    ],
+  })
+  await screen.findByRole('button', { name: '사용자 사람1 상세 보기' })
+  expect(kinds).toEqual(['HUMAN'])
+  expect(screen.queryByRole('columnheader', { name: '구분' })).not.toBeInTheDocument()
+  expect(screen.getByRole('columnheader', { name: '상태' })).toBeInTheDocument()
 })

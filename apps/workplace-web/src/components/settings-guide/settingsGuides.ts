@@ -97,8 +97,13 @@ export const settingsGuides = {
       // WP-420: 마지막 활성 ADMIN 은 정지뿐 아니라 다른 관리자가 ADMIN 역할을 빼는 것도 막힌다(409).
       '마지막 남은 활성 ADMIN 은 비활성화할 수도, ADMIN 역할을 뺄 수도 없어요. 내 ADMIN 역할은 직접 뺄 수 없어요.',
       '비활성 구성원은 프로젝트 멤버로 새로 추가할 수 없어요.',
+      // WP-1075: AI 는 구성원 목록에서 빠지고 에이전트 상세가 역할·활성 상태를 맡는다.
+      '공통 비서·일반 AI 의 역할과 활성 상태는 설정 › 에이전트의 에이전트 상세에서 바꿔요.',
     ],
-    related: [{ label: '역할', to: '/settings/roles' }],
+    related: [
+      { label: '역할', to: '/settings/roles' },
+      { label: '에이전트', to: '/settings/agents' },
+    ],
   },
   projectSettings: {
     title: '프로젝트 설정',

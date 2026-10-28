@@ -1,62 +1,43 @@
-import axios from 'axios';
 import { ArrowLeft } from 'lucide-react';
 import { useEffect,useState } from 'react';
-import { useNavigate,useParams } from 'react-router-dom';
+import { Navigate, useNavigate,useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { rolesApi } from '../../api/roles';
 import { usersApi } from '../../api/users';
 import { SettingsPage } from '../../components/layout/SettingsPage';
-import { SettingsSection, SettingsToggleRow } from '../../components/layout/SettingsSection';
+import { SettingsSection } from '../../components/layout/SettingsSection';
 import { settingsGuides } from '../../components/settings-guide/settingsGuides';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../../components/ui/alert-dialog';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Checkbox } from '../../components/ui/checkbox';
-import { Label } from '../../components/ui/label';
 import { Skeleton } from '../../components/ui/skeleton';
-import { Switch } from '../../components/ui/switch';
-import { useAuth } from '../../hooks/useAuth';
-import { assignableRoles } from '../../lib/assignableRoles';
 import { formatDateShort } from '../../lib/formatters';
-import type { ErrorResponse } from '../../types/auth';
 import type { RoleResponse } from '../../types/role';
 import type { UserDetailResponse } from '../../types/user';
+import { UserActiveSection, UserRolesSection } from './components/UserAccessSections';
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user: currentUser } = useAuth();
   const [user, setUser] = useState<UserDetailResponse | null>(null);
   const [allRoles, setAllRoles] = useState<RoleResponse[]>([]);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<number[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSavingRoles, setIsSavingRoles] = useState(false);
-  const [isTogglingActive, setIsTogglingActive] = useState(false);
-  // 비활성화 확인 다이얼로그 표시 상태 — 활성→비활성 방향일 때만 열린다
-  const [isDeactivateDialogOpen, setIsDeactivateDialogOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
       if (!id) return;
       setIsLoading(true);
       try {
+        // 둘을 함께 읽되 역할 목록 실패는 AI 일 때 무시한다 — AI 는 역할 없이 에이전트 상세로 넘긴다(WP-1075, 아래 Navigate).
         const [userRes, rolesRes] = await Promise.all([
           usersApi.getUserById(Number(id)),
-          rolesApi.getRoles(),
+          rolesApi.getRoles().catch(() => null),
         ]);
+        if (userRes.data.kind !== 'AGENT') {
+          if (!rolesRes) throw new Error('역할 목록을 불러오지 못했습니다');
+          setAllRoles(rolesRes.data);
+        }
         setUser(userRes.data);
-        setAllRoles(rolesRes.data);
-        setSelectedRoleIds(userRes.data.roles.map(r => r.id));
       } catch {
         toast.error('사용자 정보를 불러오는데 실패했습니다.');
         navigate('/settings/users');
@@ -67,84 +48,6 @@ export default function UserDetailPage() {
 
     fetchData();
   }, [id, navigate]);
-
-  const handleRoleToggle = (roleId: number, checked: boolean) => {
-    setSelectedRoleIds(prev =>
-      checked ? [...prev, roleId] : prev.filter(id => id !== roleId)
-    );
-  };
-
-  const handleSaveRoles = async () => {
-    if (!user) return;
-    // 역할 0개 저장 방지 — 사용자에게 역할이 최소 1개 이상 있어야 한다 (#150)
-    if (selectedRoleIds.length === 0) {
-      toast.error('역할은 최소 1개 이상 선택해야 합니다.');
-      return;
-    }
-    setIsSavingRoles(true);
-    try {
-      await usersApi.setUserRoles(user.id, { roleIds: selectedRoleIds });
-      const { data: updatedUser } = await usersApi.getUserById(user.id);
-      setUser(updatedUser);
-      setSelectedRoleIds(updatedUser.roles.map(r => r.id));
-      toast.success('역할이 저장되었습니다.');
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.data) {
-        const errData = error.response.data as ErrorResponse;
-        toast.error(errData.message || '역할 저장에 실패했습니다.');
-      } else {
-        toast.error('역할 저장에 실패했습니다.');
-      }
-    } finally {
-      setIsSavingRoles(false);
-    }
-  };
-
-  /**
-   * 활성 상태 토글 실행 — AlertDialog 확인 후 호출되거나, 활성화(비활성→활성) 방향에서 직접 호출된다.
-   * 자기 자신의 계정은 비활성화할 수 없다.
-   */
-  const handleToggleActive = async () => {
-    if (!user) return;
-    // 자기 자신의 계정 비활성화 차단 (#73)
-    if (currentUser?.id === user.id && user.isActive) {
-      toast.error('자신의 계정을 비활성화할 수 없습니다.');
-      return;
-    }
-    setIsTogglingActive(true);
-    try {
-      await usersApi.setUserActive(user.id, { active: !user.isActive });
-      // 성공 토스트는 두지 않는다 — 스위치·라벨·상태 배지가 곧 피드백이고, 우상단 토스트가 오른쪽 끝 스위치를 가린다(WP-397).
-      setUser({ ...user, isActive: !user.isActive });
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.data) {
-        const errData = error.response.data as ErrorResponse;
-        toast.error(errData.message || '상태 변경에 실패했습니다.');
-      } else {
-        toast.error('상태 변경에 실패했습니다.');
-      }
-    } finally {
-      setIsTogglingActive(false);
-    }
-  };
-
-  /**
-   * Switch onCheckedChange 핸들러 — 비활성화 방향(활성→비활성)일 때 AlertDialog를 열고,
-   * 활성화 방향(비활성→활성)일 때는 즉시 API를 호출한다. (#50)
-   */
-  const handleSwitchChange = () => {
-    if (!user) return;
-    if (user.isActive) {
-      // 활성 → 비활성: 파괴적 액션이므로 확인 다이얼로그 표시
-      setIsDeactivateDialogOpen(true);
-    } else {
-      // 비활성 → 활성: 즉시 처리
-      void handleToggleActive();
-    }
-  };
-
-  // 지금 보고 있는 활성 계정이 나 자신인지 — 활성 상태 스위치를 막는 데 쓴다(WP-909).
-  const isSelfActive = !!user && currentUser?.id === user.id && user.isActive;
 
   // 뒤로가기 버튼 — 제목 왼쪽에 배치하는 관례 준수 (#102).
   const backButton = (
@@ -166,6 +69,9 @@ export default function UserDetailPage() {
   }
 
   if (!user) return null;
+
+  // WP-1075: AI 는 에이전트 화면이 관리한다 — 옛 주소(/settings/users/{에이전트 id})로 들어오면 에이전트 상세로 넘긴다.
+  if (user.kind === 'AGENT') return <Navigate to={`/settings/agents?agent=${user.id}`} replace />;
 
   return (
     <SettingsPage
@@ -209,93 +115,9 @@ export default function UserDetailPage() {
         </div>
       </SettingsSection>
 
-      {/* 비활성화 확인 AlertDialog — 활성→비활성 방향 토글 시에만 표시된다 (#50). 정지 범위는 이 워크스페이스뿐(WP-417) */}
-      <AlertDialog open={isDeactivateDialogOpen} onOpenChange={setIsDeactivateDialogOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>사용자 비활성화</AlertDialogTitle>
-            <AlertDialogDescription>
-              비활성화하면 이 사용자는 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스와 계정은 그대로예요. 계속할까요?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                setIsDeactivateDialogOpen(false);
-                void handleToggleActive();
-              }}
-            >
-              비활성화
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* 활성 상태 — 토글 행(라벨 왼쪽·스위치 오른쪽 끝). 비활성화는 확인 다이얼로그를 거친다.
-          WP-417: 비활성은 이 워크스페이스 멤버십 정지라 문구도 워크스페이스 범위로 쓴다(계정 전역 차단 아님). */}
-      <SettingsSection
-        title="활성 상태"
-        description="비활성 구성원은 이 워크스페이스에 들어올 수 없어요. 다른 워크스페이스에는 영향이 없어요."
-      >
-        {/* WP-909: 내 계정은 끌 수 없으니 스위치를 처음부터 막고 이유를 보인다 — 확인창을 거친 뒤에야 거절되던 흐름을 없앤다.
-            자기 ADMIN 역할 체크박스를 막아 둔 것(#57)과 같은 방식. 비활성인 내 계정은 없으므로 활성일 때만 따진다. */}
-        <SettingsToggleRow
-          label={user.isActive ? '활성' : '비활성'}
-          description={isSelfActive ? '내 계정은 비활성화할 수 없어요.' : undefined}
-          control={
-            <Switch
-              checked={user.isActive}
-              onCheckedChange={handleSwitchChange}
-              disabled={isTogglingActive || isSelfActive}
-              aria-label="활성 상태"
-            />
-          }
-        />
-      </SettingsSection>
-
-      {/* 역할 할당 — 체크한 역할을 '역할 저장'으로 한 번에 반영 */}
-      <SettingsSection
-        title="역할 할당"
-        description={
-          user.kind === 'AGENT'
-            ? '이 AI 에게 줄 역할을 골라요. AI 에게는 관리자 역할이나 관리 권한이 든 역할을 줄 수 없어요.'
-            : '이 구성원에게 줄 역할을 골라요.'
-        }
-      >
-        <div className="space-y-3">
-          {/* 대상 종류에 맞는 역할만(WP-728) — 이미 가진 역할은 뺄 수 있게 그대로 보인다. */}
-          {assignableRoles(allRoles, user.kind, user.roles.map((r) => r.id)).map((role) => {
-            // 자기 자신의 ADMIN 역할 제거 차단 (#57)
-            const isSelf = currentUser?.id === Number(id);
-            const isOwnAdminRole = isSelf && role.name === 'ADMIN';
-            return (
-            // flex-wrap+min-w-0 — 긴 역할명·설명이 한 줄을 넘기면 설명을 다음 줄로 내려 본문 가로 넘침을 막는다(WP-397 D2).
-            <div key={role.id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <Checkbox
-                id={`role-${role.id}`}
-                checked={selectedRoleIds.includes(role.id)}
-                disabled={isOwnAdminRole}
-                onCheckedChange={(checked) => handleRoleToggle(role.id, checked === true)}
-              />
-              <Label htmlFor={`role-${role.id}`} className="flex min-w-0 items-center gap-2">
-                {role.name}
-                {role.isSystem && (
-                  <Badge variant="outline" className="text-xs">시스템</Badge>
-                )}
-              </Label>
-              {role.description && (
-                <span className="min-w-0 text-sm break-words text-muted-foreground">{role.description}</span>
-              )}
-            </div>
-          );
-          })}
-        </div>
-        <Button onClick={handleSaveRoles} disabled={isSavingRoles}>
-          {isSavingRoles ? '저장 중...' : '역할 저장'}
-        </Button>
-      </SettingsSection>
+      {/* 활성 상태·역할 할당 — 에이전트 상세와 같은 섹션(WP-1075). key 로 다른 사용자 전환 시 역할 선택을 다시 시드한다. */}
+      <UserActiveSection key={user.id} user={user} onChanged={(active) => setUser({ ...user, isActive: active })} />
+      <UserRolesSection key={user.id} user={user} allRoles={allRoles} onSaved={setUser} />
     </SettingsPage>
   );
 }
