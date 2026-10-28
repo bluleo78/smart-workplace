@@ -91,4 +91,13 @@ describe('모바일 AI 위임 작업', () => {
     expect(screen.getByTestId('ai-row-601-meta')).toHaveTextContent('내일 09:00 이후')
     expect(screen.getByTestId('ai-row-601-note')).toHaveTextContent(/^다른 작업에 양보했어요$/)
   })
+
+  // WP-989: 반복 작업 행은 메타 줄에 반복 표식(요약)을 보인다.
+  test('반복 작업 행은 메타 줄에 「매일 08:30」 반복 표식을 보인다', async () => {
+    const rows = [{ ...createScheduledIssue(611, '아침 브리핑'), recurrence: { rrule: 'FREQ=DAILY', time: '08:30', enabled: true } }]
+    renderScreen(<AiDelegatedTasksPage />, { path: '/me/ai-tasks', handlers: aiTaskHandlers(rows, { all: 1, scheduled: 1 }) })
+    await screen.findByTestId('ai-row-611')
+    expect(screen.getByTestId('ai-row-611-recurrence')).toHaveTextContent(/^매일 08:30$/)
+    expect(screen.getByTestId('ai-row-611-meta')).toContainElement(screen.getByTestId('ai-row-611-recurrence'))
+  })
 })

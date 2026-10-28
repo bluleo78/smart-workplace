@@ -55,6 +55,22 @@ export const issueStatusChangedPayload = z.object({
   newStatusName: z.string().nullish(),
 });
 
+// WP-989: 반복 AI 작업 회차 실행 — API 스케줄러가 회차 시각마다 반복에 등록된 비서(actingAgentId)에게 보낸다.
+// runId 는 결과 보고(POST /internal/issue-recurrence/{issueId}/runs)에 그대로 돌려줘 같은 회차를 두 번 반영하지 않게 한다.
+// runAt 은 KST 오프셋이 붙은 ISO, round 는 몇 번째 회차인지(1부터 — 구 API 가 빼도 받는다), issueBody 는 이슈 본문(없으면 null).
+export const issueRecurringRunPayload = z.object({
+  ...common,
+  // 회차의 도구는 반복을 등록한 사람(소유자) 권한으로 돈다 — 홈 AI 채팅과 같은 대행. 없으면 거절(fail-closed: 비서 신원으로 대신 돌리지 않는다).
+  ownerUserId: z.number().int().positive(),
+  // 대행 호출의 테넌트(X-On-Behalf-Of-Tenant) — 소유자가 여러 워크스페이스에 속해도 이 테넌트로만 읽는다.
+  tenantId: z.number().int().positive().nullish(),
+  runId: z.string().min(1),
+  runAt: z.string(),
+  round: z.number().int().positive().optional(),
+  recurrence: z.object({ rrule: z.string(), time: z.string() }),
+  issueBody: z.string().nullish(),
+});
+
 // type 별 분기를 zod 가 알아채도록 discriminatedUnion.
 export const issueEventEnvelope = z.discriminatedUnion('type', [
   z.object({ type: z.literal('issue.created'), payload: issueCreatedPayload }),
@@ -64,12 +80,14 @@ export const issueEventEnvelope = z.discriminatedUnion('type', [
     type: z.literal('issue.status_changed'),
     payload: issueStatusChangedPayload,
   }),
+  z.object({ type: z.literal('issue.recurring_run'), payload: issueRecurringRunPayload }),
 ]);
 
 export type IssueCreatedPayload = z.infer<typeof issueCreatedPayload>;
 export type IssueAssignedPayload = z.infer<typeof issueAssignedPayload>;
 export type IssueCommentedPayload = z.infer<typeof issueCommentedPayload>;
 export type IssueStatusChangedPayload = z.infer<typeof issueStatusChangedPayload>;
+export type IssueRecurringRunPayload = z.infer<typeof issueRecurringRunPayload>;
 export type IssueEventEnvelope = z.infer<typeof issueEventEnvelope>;
 
 // 본 ai-agent 가 처리하는 알려진 type 들의 prefix — invalid_payload 와
@@ -84,4 +102,5 @@ export const KNOWN_ISSUE_TYPES: ReadonlySet<string> = new Set([
   'issue.assigned',
   'issue.commented',
   'issue.status_changed',
+  'issue.recurring_run',
 ]);

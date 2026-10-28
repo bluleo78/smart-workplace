@@ -303,7 +303,34 @@ const showDriveInput = z.object({
 });
 
 // #333: assistant 프로파일 추가 — 전 앱 도구 union(M1).
-export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant';
+// WP-989: recurring — 반복 개인 작업 회차 실행(읽기 전용, RECURRING_RUN_TOOLS).
+export type McpProfile = 'issue' | 'chat' | 'home' | 'messaging' | 'assistant' | 'recurring';
+
+/**
+ * WP-989: 반복 개인 작업의 회차 실행이 싣는 도구 — 읽기만. 회차는 반복을 등록한 사람(소유자) 권한으로 돌아(홈 AI 채팅과 같은 대행) 그 사람의
+ * 이슈·노트·일정·메일·연락처·메시징·드라이브·알림을 읽을 수 있다. 사람이 지켜보지 않는 실행이라 확인 카드를 띄울 수 없으므로 쓰기 도구(초안 만들기
+ * 포함)는 두지 않고, 필요한 쓰기는 결과 글의 「제안」으로 남기게 한다(회차 지시문). 결과 글은 도구가 아니라 API 내부 보고로 서버가 AI 이름으로 남긴다.
+ * tools.test.ts 가 전부 읽기 도구(readOnlyHint)임을 고정한다.
+ */
+export const RECURRING_RUN_TOOLS: readonly string[] = [
+  // 이슈·프로젝트
+  'list_issues', 'get_issue_detail', 'list_projects', 'get_project',
+  // 노트
+  'list_wiki_spaces', 'list_wiki_pages', 'search_wiki', 'get_wiki_page', 'list_wiki_backlinks',
+  // 캘린더
+  'list_events', 'get_event',
+  // 메일
+  'list_mail_accounts', 'list_mail', 'get_mail', 'get_mail_summary',
+  // 연락처·사용자 그룹·구성원
+  'list_contacts', 'get_external_contact', 'get_contact_facets', 'list_user_groups', 'get_user_group',
+  'search_members', 'get_member', 'get_member_contact',
+  // 메시징
+  'list_channels', 'list_channel_messages', 'list_thread_replies',
+  // 드라이브·파일 본문
+  'list_drive_spaces', 'list_drive_items', 'search_drive', 'search_drive_content', 'get_drive_file_summary', 'read_file',
+  // 알림·홈 현황
+  'list_notifications', 'get_home_overview',
+];
 
 /**
  * WP-351: AI Chat 라우터(assistant 프로필의 메인 스레드)가 모델에 싣는 도구 — 라우터가 직접 쓰는 것만 둔다.
@@ -1351,6 +1378,11 @@ export function buildTools(
         ];
       })(),
     ];
+  }
+
+  // WP-989: 반복 회차 — 읽기 도구만(RECURRING_RUN_TOOLS).
+  if (profile === 'recurring') {
+    return RECURRING_RUN_TOOLS.map(sharedTool);
   }
 
   // issue 프로파일(기본) — 이슈 읽기/쓰기 + 위키 읽기 그라운딩.

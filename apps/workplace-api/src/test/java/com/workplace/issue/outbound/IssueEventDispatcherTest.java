@@ -18,6 +18,7 @@ import com.workplace.global.outbound.AiAgentProperties;
 import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueRecurringRunEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
@@ -96,6 +97,25 @@ class IssueEventDispatcherTest {
     verify(client).publish(captor.capture());
     assertThat(captor.getValue().payload()).containsEntry("sharedMemories", shared.items());
     assertThat(captor.getValue().payload()).containsEntry("sharedMemoryMoreCount", 1);
+  }
+
+  /** WP-989: 깨우지 않는 담당 변경(반복 저장이 비서를 담당에 넣음)은 issue.assigned 를 보내지 않는다. */
+  @Test
+  void 깨우지_않는_담당_변경은_발사하지_않는다() {
+    dispatcher = build(true);
+    dispatcher.onIssueAssigned(
+        new IssueAssignedEvent(
+            42L,
+            "WP",
+            "WP-42",
+            "분석",
+            HUMAN_ACTOR,
+            List.of(AGENT_ASSIGNEE),
+            List.of(AGENT_ASSIGNEE),
+            List.of(),
+            Instant.parse("2026-05-25T12:00:00Z"),
+            false));
+    verify(client, never()).publish(any());
   }
 
   /** WP-386: 리더가 비면 빈 목록(null 아님). */
@@ -337,5 +357,60 @@ class IssueEventDispatcherTest {
         .containsEntry("newStatus", "DONE")
         .containsEntry("previousStatusName", "검토 중")
         .containsEntry("newStatusName", "배포됨");
+  }
+
+  /** WP-989: 반복 회차 — 반복에 등록된 비서를 대행 AI 로, 회차 id·시각(KST)·회차 번호·규칙·본문을 싣는다. 담당자 해석은 거치지 않는다. */
+  @Test
+  void 반복_회차는_등록된_비서로_발사한다() {
+    dispatcher = build(true);
+    com.workplace.global.tenant.TenantContext.set(5L);
+    try {
+      dispatcher.onIssueRecurringRun(recurringRun());
+    } finally {
+      com.workplace.global.tenant.TenantContext.clear();
+    }
+
+    var captor = ArgumentCaptor.forClass(EventEnvelope.class);
+    verify(client, times(1)).publish(captor.capture());
+    assertThat(captor.getValue().type()).isEqualTo("issue.recurring_run");
+    var payload = captor.getValue().payload();
+    assertThat(payload)
+        .containsEntry("actingAgentId", 201L)
+        .containsEntry("ownerUserId", 7L)
+        .containsEntry("tenantId", 5L)
+        .containsEntry("issueKey", "P1-3")
+        .containsEntry("runId", "3-1790000000")
+        .containsEntry("runAt", "2026-09-21T23:13:20+09:00")
+        .containsEntry("round", 4)
+        .containsEntry("issueBody", "오늘 할 일 정리")
+        .containsEntry("recurrence", java.util.Map.of("rrule", "FREQ=DAILY", "time", "00:33"));
+    verify(resolver, never()).pickActingAgent(any(), any());
+  }
+
+  /** WP-989: ai-agent 연동이 꺼져 있으면 반복 회차도 발사하지 않는다. */
+  @Test
+  void 반복_회차도_비활성이면_발사하지_않는다() {
+    dispatcher = build(false);
+    dispatcher.onIssueRecurringRun(recurringRun());
+    verifyNoInteractions(client);
+  }
+
+  private static IssueRecurringRunEvent recurringRun() {
+    return new IssueRecurringRunEvent(
+        3L,
+        "P1",
+        "P1-3",
+        "매일 정리",
+        HUMAN_ACTOR,
+        List.of(AGENT_ASSIGNEE),
+        201L,
+        7L,
+        "3-1790000000",
+        Instant.ofEpochSecond(1790000000L),
+        4,
+        "FREQ=DAILY",
+        "00:33",
+        "오늘 할 일 정리",
+        Instant.now());
   }
 }

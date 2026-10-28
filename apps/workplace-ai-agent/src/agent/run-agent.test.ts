@@ -53,6 +53,8 @@ function client(token: string | Error): WorkplaceApiClient {
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
+    // WP-989: 반복 회차 결과 보고
+    reportRecurringRun: vi.fn().mockResolvedValue(undefined),
   };
   return c;
 }

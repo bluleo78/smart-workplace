@@ -18,7 +18,8 @@ import { type EditBarControls, MobileEditBar } from '../components/mobile/Mobile
 import { usePersonalTask } from './usePersonalTask';
 
 // 개인 작업 칩 — 마감이 담당자보다 앞(개인은 담당이 대개 본인), 에픽 대신 라벨, 「＋ 속성」 없음(스펙 §4.2).
-const PERSONAL_FIELDS: MobilePropField[] = ['status', 'priority', 'due', 'assignee', 'label'];
+// 반복(WP-989)은 담당자 뒤 — 데스크톱 패널과 같은 순서(담당에 AI 비서를 넣고 반복을 켠다).
+const PERSONAL_FIELDS: MobilePropField[] = ['status', 'priority', 'due', 'assignee', 'recurrence', 'label'];
 
 /** ?task=N 이 있으면 열린다(열림의 단일 원천은 PersonalTaskPanel 의 useHistoryParam). 닫기 = onClose(시스템 뒤로가기와 같은 경로). */
 export function PersonalTaskMobile({

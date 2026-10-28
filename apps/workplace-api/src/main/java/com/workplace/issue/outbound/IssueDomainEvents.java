@@ -34,7 +34,10 @@ public final class IssueDomainEvents {
       UserSummary to,
       Instant occurredAt) {}
 
-  /** assignee 집합 변경. added/removed 는 diff. */
+  /**
+   * assignee 집합 변경. added/removed 는 diff. wakeAgent=false 면 ai-agent 발사(IssueEventDispatcher)만 건너뛴다
+   * — 챗 스레드 멤버 반영·배정 알림 같은 다른 리스너는 그대로 받는다(WP-989: 반복 저장이 비서를 담당에 넣을 때 「지금 시작하라」는 뜻이 아니다).
+   */
   public record IssueAssignedEvent(
       long issueId,
       String projectKey,
@@ -44,7 +47,24 @@ public final class IssueDomainEvents {
       List<UserSummary> assignees,
       List<UserSummary> added,
       List<UserSummary> removed,
-      Instant occurredAt) {}
+      Instant occurredAt,
+      boolean wakeAgent) {
+
+    /** 보통의 담당 변경 — AI 담당자를 깨운다. */
+    public IssueAssignedEvent(
+        long issueId,
+        String projectKey,
+        String issueKey,
+        String title,
+        UserSummary actor,
+        List<UserSummary> assignees,
+        List<UserSummary> added,
+        List<UserSummary> removed,
+        Instant occurredAt) {
+      this(
+          issueId, projectKey, issueKey, title, actor, assignees, added, removed, occurredAt, true);
+    }
+  }
 
   /**
    * 코멘트 추가. commentBody 는 agent 응답 트리거의 핵심 컨텍스트라 포함. issueNumber 는 SSE 브로드캐스트(#579)가 프론트
@@ -126,5 +146,33 @@ public final class IssueDomainEvents {
       List<UserSummary> assignees,
       String previousPriority,
       String newPriority,
+      Instant occurredAt) {}
+
+  /**
+   * 반복 AI 작업(WP-989)의 회차 실행 — 스케줄러가 회차 시각이 된 반복마다 발행한다. 담당 AI(actingAgentId = 반복에 등록된 비서)가 이슈 본문의
+   * 요청을 이번 회차로 수행하고 결과를 내부 보고로 돌려준다. actor 는 반복을 등록한 사람이다.
+   *
+   * @param ownerUserId 반복을 등록한 사람(이슈 소유자) — 회차의 도구는 이 사람 권한으로 돈다(홈 AI 채팅과 같은 대행)
+   * @param runId 회차 id("<issueId>-<runAt epoch 초>") — 결과 보고가 같은 회차를 두 번 반영하지 않게 쓴다
+   * @param runAt 이번 회차의 예정 시각
+   * @param round 몇 번째 회차인지(1부터)
+   * @param time KST 실행 시각 "HH:mm"
+   * @param issueBody 이슈 본문(마크다운). 없으면 null
+   */
+  public record IssueRecurringRunEvent(
+      long issueId,
+      String projectKey,
+      String issueKey,
+      String title,
+      UserSummary actor,
+      List<UserSummary> assignees,
+      long actingAgentId,
+      long ownerUserId,
+      String runId,
+      Instant runAt,
+      int round,
+      String rrule,
+      String time,
+      String issueBody,
       Instant occurredAt) {}
 }

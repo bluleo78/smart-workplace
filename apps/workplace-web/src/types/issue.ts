@@ -3,6 +3,7 @@
 import type { IssueAttachment } from './attachment';
 import type { ComponentSummary } from './component';
 import type { IssueFieldEntry } from './customField';
+import type { IssueRecurrenceSummary } from './issueRecurrence';
 import type { IssueTypeSummary } from './issueType';
 import type { LabelSummary } from './label';
 import type { ReactionResponse } from './messaging';
@@ -182,6 +183,8 @@ export interface IssueResponse {
   aiProject?: AiTaskProject | null;
   // 내 작업 묶음(WP-915) — 이 목록 밖에서는 생략.
   projectGroup?: AiTaskProject | null;
+  // AI 위임 작업(WP-989) — 개인 작업의 반복 요약. 반복이 없거나 이 목록 밖에서는 null·생략.
+  recurrence?: IssueRecurrenceSummary | null;
 }
 
 export interface IssueCommentResponse {

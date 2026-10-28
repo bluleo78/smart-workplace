@@ -310,6 +310,8 @@ test('개인 프로젝트 — 열린 개인 태스크가 대상으로, 범위는
       ...issueDetailSubHandlers({ key: KEY, detail: createIssueDetail({ summary: createIssue({ projectKey: KEY, number: 1, title: '블로그 초안' }) }) }),
       http.get(`/api/v1/projects/${KEY}/issues/1/chat/thread`, () => HttpResponse.json(thread)),
       http.get(`/api/v1/chat/threads/${thread.threadId}/messages`, () => HttpResponse.json(createChatMessagePage([]))),
+      // 개인 작업 패널의 반복 칸(WP-989) — 반복 없음.
+      http.get(`/api/v1/projects/${KEY}/issues/1/recurrence`, () => new HttpResponse(null, { status: 204 })),
     ],
     { waitFor: 'personal-task-panel' },
   )

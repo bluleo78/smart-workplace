@@ -1,13 +1,17 @@
 // 모바일 이슈 상세 속성 칩 줄(WP-196) — 데스크톱은 우측 레일에 있는 속성이 모바일에선 맨 아래(활동 뒤)라 첫 화면에 안 보였다.
 // 제목 바로 아래 칩(상태·담당자·우선순위·마감·에픽·＋ 속성)으로 올리고, 탭하면 해당 선택 시트를 연다.
 // 에픽 칩은 EPIC(부모 불가)·SUBTASK(부모가 태스크) 이슈에선 숨긴다 — SUBTASK 부모는 「＋ 속성」 시트에서 편집.
-// 개인 작업(WP-221)은 fields 로 [상태·우선순위·마감·담당자·라벨] 구성, 「＋ 속성」 없음.
-import { CalendarDays, Diamond, Flag, Plus, Tag, User } from 'lucide-react';
+// 개인 작업(WP-221)은 fields 로 [상태·우선순위·마감·담당자·반복·라벨] 구성, 「＋ 속성」 없음. 반복 칩(WP-989)은 개인 작업만 쓴다.
+import { CalendarDays, Diamond, Flag, Plus, Repeat, Tag, User } from 'lucide-react';
 import { Fragment, useState } from 'react';
 
+import { TaskRecurrenceEditor } from '@/components/issue/recurrence/TaskRecurrenceEditor';
 import { MobileDateSheet } from '@/components/mobile/MobileDateSheet';
 import { MobileMultiPickerSheet } from '@/components/mobile/MobileMultiPickerSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
+import { MobileSheetShell } from '@/components/mobile/MobileSheetShell';
+import { useIssueRecurrence } from '@/hooks/queries/useIssueRecurrence';
+import { recurrenceLabel, recurrencePausedText } from '@/lib/issueRecurrence';
 import { parentTitleLabel } from '@/lib/parentRef';
 import { cn } from '@/lib/utils';
 
@@ -36,11 +40,11 @@ import { MOBILE_CHIP } from './chipStyles';
 import { memberOptions } from './issuePropOptions';
 import { EpicPickerSheet } from './issuePropSheets';
 
-/** 칩 줄에 놓을 속성(이 순서대로 렌더). 팀 상세 기본 = TEAM_FIELDS, 개인 작업은 에픽 대신 라벨(WP-221). */
-export type MobilePropField = 'status' | 'assignee' | 'priority' | 'due' | 'epic' | 'label';
+/** 칩 줄에 놓을 속성(이 순서대로 렌더). 팀 상세 기본 = TEAM_FIELDS, 개인 작업은 에픽 대신 라벨(WP-221)·반복(WP-989). */
+export type MobilePropField = 'status' | 'assignee' | 'priority' | 'due' | 'epic' | 'label' | 'recurrence';
 const TEAM_FIELDS: MobilePropField[] = ['status', 'assignee', 'priority', 'due', 'epic'];
 
-type Sheet = Exclude<MobilePropField, 'label'> | null; // 라벨 시트는 LabelPropChip 이 자체 상태로 연다
+type Sheet = Exclude<MobilePropField, 'label' | 'recurrence'> | null; // 라벨·반복 시트는 각 칩이 자체 상태로 연다
 
 export function IssueMobilePropertyChips({
   projectKey, issue, canEditWorkflow, updatePending, onPatch, onOpenMore, fields = TEAM_FIELDS, trailing,
@@ -163,6 +167,8 @@ export function IssueMobilePropertyChips({
         );
       case 'label':
         return <LabelPropChip projectKey={projectKey} issue={issue} disabled={disabled} />;
+      case 'recurrence':
+        return <RecurrencePropChip projectKey={projectKey} number={issue.number} disabled={disabled} />;
     }
   };
 
@@ -310,6 +316,56 @@ function LabelPropChip({ projectKey, issue, disabled }: { projectKey: string; is
           if (key(next) !== key(issue.labels.map((l) => l.id))) update.mutate(next);
         }}
       />
+    </>
+  );
+}
+
+// 반복 칩 + 편집 시트(WP-989) — 개인 작업만 쓴다(팀 상세 fields 에는 없어 반복을 조회하지도 않는다).
+// 칩 글자는 요약(「매주 월·수 08:30」)·없으면 「반복 안 함」, 꺼졌으면 「· 멈춤」/「· 꺼짐」. 시트 본문은 데스크톱 팝오버와 같은 편집기.
+function RecurrencePropChip({ projectKey, number, disabled }: { projectKey: string; number: number; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const q = useIssueRecurrence(projectKey, number);
+  const r = q.data ?? null;
+  const text = r ? recurrenceLabel(r.rrule, r.time) : '반복 안 함';
+  // 칩에는 짧게 — 「멈춤 — 3회 연속 실패」의 앞 단어만. 전체 문구는 시트 머리에 보인다.
+  const paused = r ? recurrencePausedText(r)?.split(' ')[0] : null;
+  // 조회 실패 — 「반복 안 함」으로 보이면 있던 반복을 덮어쓸 수 있다. 칩은 실패를 알리고, 누르면 다시 조회만 한다(시트를 열지 않음).
+  if (q.isError) {
+    return (
+      <button
+        type="button"
+        aria-label="반복을 불러오지 못했어요. 다시 시도"
+        data-testid="mobile-prop-recurrence"
+        disabled={q.isFetching}
+        onClick={() => void q.refetch()}
+        className={cn(MOBILE_CHIP, 'max-w-full text-destructive disabled:opacity-60')}
+      >
+        <Repeat className="size-4" aria-hidden />
+        반복을 불러오지 못했어요 · 다시 시도
+      </button>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={labelWithValue('반복', text, paused)}
+        data-testid="mobile-prop-recurrence"
+        // 조회 전에는 편집기 초기값을 모르니 막는다.
+        disabled={disabled || q.isLoading}
+        onClick={() => setOpen(true)}
+        className={cn(MOBILE_CHIP, 'max-w-full disabled:opacity-60', !r && 'text-muted-foreground', paused && 'text-warning-text')}
+      >
+        <Repeat className="size-4" aria-hidden />
+        <span className="max-w-40 truncate">{text}</span>
+        {paused && <span className="shrink-0">· {paused}</span>}
+      </button>
+      <MobileSheetShell open={open} onClose={() => setOpen(false)} title="반복" description="반복 주기와 시각을 고르세요." testId="issue-recurrence-sheet">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          {/* 시트가 닫히면 본문이 언마운트되어 다음에 열 때 지금 값으로 폼을 새로 시작한다. */}
+          {open && <TaskRecurrenceEditor projectKey={projectKey} number={number} recurrence={r} onDone={() => setOpen(false)} />}
+        </div>
+      </MobileSheetShell>
     </>
   );
 }

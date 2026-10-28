@@ -286,6 +286,22 @@ describe('AI 위임 작업 표', () => {
     expect(screen.getByTestId('ai-row-602-next-run')).toHaveTextContent(/^다른 작업 뒤 이어서$/)
     expect(screen.getByTestId('ai-row-602-next-run')).not.toHaveAttribute('title')
   })
+
+  // WP-989: 반복 작업 행은 예정 라벨 옆에 「↻ 매주 월·수 08:30」, 꺼진 반복은 「· 꺼짐」, 반복 없는 행엔 표식이 없다.
+  test('반복 작업 행은 반복 표식(요약)을 예정 라벨 옆에 보인다', async () => {
+    const rows = [
+      { ...createScheduledIssue(701, '아침 브리핑'), recurrence: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', time: '08:30', enabled: true } },
+      { ...createScheduledIssue(702, '월간 정산'), recurrence: { rrule: 'FREQ=MONTHLY;BYMONTHDAY=15', time: '07:00', enabled: false } },
+      createScheduledIssue(703, '한 번만'),
+    ]
+    renderAiTasks('/me/ai-tasks', rows, createAiTaskCounts({ all: 3, scheduled: 3 }))
+    const marker = await screen.findByTestId('ai-row-701-recurrence')
+    expect(marker).toHaveTextContent(/^매주 월·수 08:30$/)
+    expect(marker).toHaveAttribute('title', '반복 매주 월·수 08:30')
+    expect(screen.getByTestId('ai-row-701-next-run').compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('ai-row-702-recurrence')).toHaveTextContent(/^매월 15일 07:00 · 꺼짐$/)
+    expect(screen.queryByTestId('ai-row-703-recurrence')).not.toBeInTheDocument()
+  })
 })
 
 describe('AI 위임 작업 빈·실패 상태', () => {

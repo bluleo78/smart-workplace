@@ -3,7 +3,7 @@
 // 브라우저 없이 판정되므로 e2e/pages/projects/personal-project-detail.spec.ts 에서 옮겼다.
 // 셸 배선(@wiring)·새로고침 유지(@platform)·포커스·Esc 겹침·날짜 칸 키 입력(@input)·헤더 아래 패널 위치와
 // 스크롤·무한 로드·글자 변환(@layout)은 E2E 에 남는다.
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { Route, Routes } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
@@ -15,6 +15,7 @@ import { openQuickFacet } from '@/test/kits/projects/quickFilter'
 import { shellHandlers } from '@/test/msw/baseHandlers'
 import { renderScreen } from '@/test/renderScreen'
 import type { IssueResponse } from '@/types/issue'
+import type { IssueRecurrence } from '@/types/issueRecurrence'
 import type { UserSummary } from '@/types/user'
 
 import { createAgentWork } from '../../../e2e/factories/agentWork.factory'
@@ -39,6 +40,20 @@ type ApiOptions = {
   types?: unknown[]
   /** 프로젝트 멤버 — 담당자 픽커가 부른다. */
   members?: unknown[]
+  /** 작업의 반복(WP-989) — 없으면 GET 204. */
+  recurrence?: IssueRecurrence | null
+  /** PUT 반복이 돌려줄 오류(예: 409 쓸 수 있는 AI 비서 없음). */
+  recurrencePutError?: { status: number; message: string }
+  /** 반복 GET 이 500 을 돌려줄지 — 테스트가 도중에 꺼서 다시 시도를 본다. */
+  failRecurrenceGet?: { on: boolean }
+}
+
+/** 반복 응답 — 매주 월·수 08:30, 다음 실행 10/29(목) 08:30. */
+function recurrenceOf(o: Partial<IssueRecurrence> = {}): IssueRecurrence {
+  return {
+    rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', time: '08:30', enabled: true, nextRunAt: '2026-10-28T23:30:00Z',
+    consecutiveFailures: 0, lastRunAt: null, agentUserId: 9, agentName: 'AI 비서', ...o,
+  }
 }
 
 /**
@@ -51,7 +66,29 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
   const patches: Patch[] = []
   const posts: Record<string, unknown>[] = []
   const detailGets: number[] = []
+  const recurrencePuts: Record<string, unknown>[] = []
+  let recurrenceDeletes = 0
+  let recurrence = opts.recurrence ?? null
   const handlers = [
+    // 반복(WP-989) — 패널을 열면 조회한다. 저장·끄기는 기록하고 메모리 값을 바꾼다.
+    http.get(`${BASE}/issues/:num/recurrence`, () => {
+      if (opts.failRecurrenceGet?.on) return HttpResponse.json({ message: 'boom' }, { status: 500 })
+      return recurrence ? HttpResponse.json(recurrence) : new HttpResponse(null, { status: 204 })
+    }),
+    http.put(`${BASE}/issues/:num/recurrence`, async ({ request }) => {
+      const body = (await request.json()) as { rrule: string; time: string }
+      recurrencePuts.push(body)
+      if (opts.recurrencePutError) {
+        return HttpResponse.json({ status: opts.recurrencePutError.status, message: opts.recurrencePutError.message }, { status: opts.recurrencePutError.status })
+      }
+      recurrence = recurrenceOf(body)
+      return HttpResponse.json(recurrence)
+    }),
+    http.delete(`${BASE}/issues/:num/recurrence`, () => {
+      recurrenceDeletes++
+      recurrence = null
+      return new HttpResponse(null, { status: 204 })
+    }),
     http.get(BASE, () => HttpResponse.json(PROJECT)),
     http.get(`${BASE}/types`, () => HttpResponse.json(opts.types ?? [])),
     ...(opts.members ? [http.get(`${BASE}/members`, () => HttpResponse.json(opts.members))] : []),
@@ -90,7 +127,7 @@ function personalApi(issues: IssueResponse[] = [createIssue({ projectKey: KEY })
       return HttpResponse.json(createIssueDetail({ summary: it, body: '서론은 짧게' }))
     }),
   ]
-  return { handlers, db, searches, patches, posts, detailGets }
+  return { handlers, db, searches, patches, posts, detailGets, recurrencePuts, deletes: () => recurrenceDeletes }
 }
 
 /**
@@ -350,6 +387,124 @@ describe('작업 패널·모달(?task=)', () => {
     await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
     const trigger = await screen.findByTestId('assignee-picker-trigger')
     expect(trigger.querySelector('img') ?? within(trigger).queryByText('테')).not.toBeNull()
+  })
+})
+
+describe('반복(WP-989)', () => {
+  test('패널에 「반복」 칸 — 없으면 「반복 안 함」, 매주 월·수 08:30 을 고르면 PUT 하고 요약·다음 실행이 보인다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1, title: '주간 보고' })])
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const panel = screen.getByTestId('personal-task-panel')
+    expect(await within(panel).findByText('반복', { exact: true })).toBeInTheDocument()
+    const trigger = await within(panel).findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(trigger).toBeEnabled())
+    expect(trigger).toHaveTextContent('반복 안 함')
+
+    await user.click(trigger)
+    const pop = await screen.findByTestId('task-recurrence-popover')
+    expect(pop).toHaveTextContent('반복을 켜면 내 AI 비서가 담당에 들어가요')
+    expect(pop).toHaveTextContent('결과는 이 작업의 채팅에 남습니다')
+    await user.click(within(pop).getByRole('button', { name: '매주' }))
+    // 기본 월요일이 켜져 있다 — 수요일을 더한다.
+    expect(within(pop).getByRole('button', { name: '월요일' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(within(pop).getByRole('button', { name: '수요일' }))
+    expect(within(pop).getByText('한국 시간')).toBeInTheDocument()
+    const time = within(pop).getByLabelText('실행 시각 (한국 시간)')
+    await user.clear(time)
+    await user.type(time, '08:30')
+    // 저장하면 서버가 AI 비서를 담당에 넣는다 — 작업 상세·목록을 다시 받는지 요청 수로 본다.
+    const before = { detail: api.detailGets.length, list: api.searches.length }
+    await user.click(within(pop).getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(api.recurrencePuts).toEqual([{ rrule: 'FREQ=WEEKLY;BYDAY=MO,WE', time: '08:30' }]))
+    await waitFor(() => expect(api.detailGets.length).toBeGreaterThan(before.detail))
+    await waitFor(() => expect(api.searches.length).toBeGreaterThan(before.list))
+    await waitFor(() => expect(screen.queryByTestId('task-recurrence-popover')).not.toBeInTheDocument())
+    expect(within(panel).getByTestId('task-recurrence-trigger')).toHaveTextContent('매주 월·수 08:30')
+    expect(within(panel).getByTestId('task-recurrence-status')).toHaveTextContent('다음 실행 10/29(목) 08:30')
+  })
+
+  test('반복 조회가 실패하면 「반복 안 함」 대신 실패 안내 — 편집 버튼 없음, 다시 시도로 회복한다', async () => {
+    const fail = { on: true }
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1 })], {
+      failRecurrenceGet: fail,
+      recurrence: recurrenceOf({ rrule: 'FREQ=DAILY' }),
+    })
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const err = await screen.findByTestId('task-recurrence-error-state')
+    expect(err).toHaveTextContent('반복을 불러오지 못했어요')
+    expect(screen.queryByTestId('task-recurrence-trigger')).not.toBeInTheDocument()
+    expect(screen.queryByText('반복 안 함')).not.toBeInTheDocument()
+    fail.on = false
+    await user.click(within(err).getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByTestId('task-recurrence-trigger')).toHaveTextContent('매일 08:30')
+  })
+
+  test('매월 29~31일을 고르면 「그 날짜가 없는 달은 건너뜁니다」, 28일 이하는 안내 없음', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1 })])
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const trigger = await screen.findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(trigger).toBeEnabled())
+    await user.click(trigger)
+    const pop = await screen.findByTestId('task-recurrence-popover')
+    await user.click(within(pop).getByRole('button', { name: '매월' }))
+    const day = within(pop).getByLabelText('날짜')
+    fireEvent.change(day, { target: { value: '28' } })
+    expect(within(pop).queryByTestId('task-recurrence-monthday-hint')).not.toBeInTheDocument()
+    fireEvent.change(day, { target: { value: '31' } })
+    expect(within(pop).getByTestId('task-recurrence-monthday-hint')).toHaveTextContent('그 날짜가 없는 달은 건너뜁니다')
+    await user.click(within(pop).getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(api.recurrencePuts).toEqual([{ rrule: 'FREQ=MONTHLY;BYMONTHDAY=31', time: '09:00' }]))
+  })
+
+  test('요일을 모두 끄고 저장하면 요청 없이 「요일을 하나 이상 고르세요」', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1 })])
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const trigger = await screen.findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(trigger).toBeEnabled())
+    await user.click(trigger)
+    const pop = await screen.findByTestId('task-recurrence-popover')
+    await user.click(within(pop).getByRole('button', { name: '매주' }))
+    await user.click(within(pop).getByRole('button', { name: '월요일' }))
+    await user.click(within(pop).getByRole('button', { name: '저장' }))
+    expect(within(pop).getByRole('alert')).toHaveTextContent('요일을 하나 이상 고르세요')
+    expect(api.recurrencePuts).toEqual([])
+  })
+
+  test('서버 409(쓸 수 있는 AI 비서 없음)는 그 문구를 보이고 편집기를 닫지 않는다', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1 })], {
+      recurrencePutError: { status: 409, message: '쓸 수 있는 AI 비서가 없습니다 — 개인 비서를 연결하거나 관리자에게 공통 비서 지정을 요청하세요' },
+    })
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const trigger = await screen.findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(trigger).toBeEnabled())
+    await user.click(trigger)
+    const pop = await screen.findByTestId('task-recurrence-popover')
+    await user.click(within(pop).getByRole('button', { name: '매일' }))
+    await user.click(within(pop).getByRole('button', { name: '저장' }))
+    expect(await screen.findByText('쓸 수 있는 AI 비서가 없습니다 — 개인 비서를 연결하거나 관리자에게 공통 비서 지정을 요청하세요')).toBeInTheDocument()
+    expect(api.recurrencePuts).toEqual([{ rrule: 'FREQ=DAILY', time: '09:00' }])
+    expect(screen.getByTestId('task-recurrence-popover')).toBeInTheDocument()
+    expect(trigger).toHaveTextContent('반복 안 함')
+  })
+
+  test('3회 연속 실패로 멈춘 반복은 「멈춤 — 3회 연속 실패」, 「반복 끄기」는 DELETE 하고 「반복 안 함」으로', async () => {
+    const api = personalApi([createIssue({ projectKey: KEY, number: 1 })], {
+      recurrence: recurrenceOf({ rrule: 'FREQ=MONTHLY;BYMONTHDAY=15', enabled: false, consecutiveFailures: 3 }),
+    })
+    const { user } = await open(`/projects/${KEY}?task=1`, api, 'personal-task-panel')
+    const trigger = await screen.findByTestId('task-recurrence-trigger')
+    await waitFor(() => expect(trigger).toHaveTextContent('매월 15일 08:30'))
+    expect(screen.getByTestId('task-recurrence-status')).toHaveTextContent('멈춤 — 3회 연속 실패')
+    await user.click(trigger)
+    const pop = await screen.findByTestId('task-recurrence-popover')
+    // 편집기는 지금 규칙으로 시작한다.
+    expect(within(pop).getByRole('button', { name: '매월' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(pop).getByLabelText('날짜')).toHaveValue(15)
+    await user.click(within(pop).getByRole('button', { name: '반복 끄기' }))
+    await waitFor(() => expect(api.deletes()).toBe(1))
+    await waitFor(() => expect(screen.getByTestId('task-recurrence-trigger')).toHaveTextContent('반복 안 함'))
+    expect(screen.queryByTestId('task-recurrence-status')).not.toBeInTheDocument()
   })
 })
 

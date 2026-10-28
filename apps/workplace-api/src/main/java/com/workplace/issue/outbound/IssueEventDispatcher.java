@@ -9,7 +9,9 @@ import com.workplace.global.outbound.EventEnvelope;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
+import com.workplace.issue.outbound.IssueDomainEvents.IssueRecurringRunEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueStatusChangedEvent;
+import com.workplace.issue.service.IssueRecurrenceRules;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.service.ServerAgentResolver;
 import java.time.Instant;
@@ -46,6 +48,8 @@ public class IssueEventDispatcher {
   @Async("aiAgentEventExecutor")
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onIssueAssigned(IssueAssignedEvent e) {
+    // 깨우지 않는 담당 변경(반복 저장이 비서를 담당에 넣음 — WP-989) 은 회차 이벤트로만 일하므로 issue.assigned 를 보내지 않는다.
+    if (!e.wakeAgent()) return;
     Long actingAgentId = actingAgentOrSkip(e.actor(), e.assignees());
     if (actingAgentId == null) return;
     Map<String, Object> p =
@@ -106,6 +110,43 @@ public class IssueEventDispatcher {
     p.put("previousStatusName", e.previousStatusName());
     p.put("newStatusName", e.newStatusName());
     dispatch("issue.status_changed", p, e.issueKey());
+  }
+
+  /**
+   * 반복 AI 작업 회차(WP-989) — 스케줄러가 고른 회차를 반복에 등록된 비서(actingAgentId)에게 보낸다. 도구는 등록한 사람(ownerUserId)
+   * 권한으로 돈다. 담당자 중 첫 INTERNAL 에이전트를 고르는 일반 경로와 달리 실행 AI 는 반복 행이 이미 정했고(스케줄러가 담당 여부를 확인한 뒤 발행),
+   * actor 는 반복을 등록한 사람이라 self-loop 판정도 필요 없다. 결과는 ai-agent 가 내부
+   * 보고(/internal/issue-recurrence/{issueId}/runs)로 돌려준다.
+   */
+  @Async("aiAgentEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onIssueRecurringRun(IssueRecurringRunEvent e) {
+    if (!props.enabled()) return;
+    Map<String, Object> p =
+        baseFields(
+            e.issueId(),
+            e.projectKey(),
+            e.issueKey(),
+            e.title(),
+            e.actor(),
+            e.assignees(),
+            e.occurredAt(),
+            e.actingAgentId());
+    // 회차의 도구는 등록한 사람(소유자) 권한으로 돈다 — ai-agent 가 이 id 로 대행하고, 결과 글만 AI(actingAgentId) 이름으로 남긴다.
+    p.put("ownerUserId", e.ownerUserId());
+    // 대행 호출의 테넌트(X-On-Behalf-Of-Tenant) — 소유자가 여러 워크스페이스에 속해도 이 테넌트로만 읽게 한다. 이 핸들러 스레드는 발행
+    // 스레드의 테넌트를 전파받는다(WP-417).
+    p.put("tenantId", TenantContext.get());
+    p.put("runId", e.runId());
+    // 회차 시각은 KST 오프셋을 붙인 ISO 로 — AI 지시문이 그대로 한국 시각으로 읽는다.
+    p.put("runAt", e.runAt().atZone(IssueRecurrenceRules.KST).toOffsetDateTime().toString());
+    p.put("round", e.round());
+    Map<String, Object> recurrence = new HashMap<>();
+    recurrence.put("rrule", e.rrule());
+    recurrence.put("time", e.time());
+    p.put("recurrence", recurrence);
+    p.put("issueBody", e.issueBody());
+    dispatch("issue.recurring_run", p, e.issueKey());
   }
 
   /**

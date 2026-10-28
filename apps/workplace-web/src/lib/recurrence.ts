@@ -66,9 +66,10 @@ export function buildRRule(form: RecurrenceForm): string | null {
 
 /**
  * "KEY=VALUE;KEY=VALUE" → 키(대문자)·값 맵. parseRRule 과 isFormEditableRRule 이 같은 방식으로 읽게 한 곳에 둔다.
+ * 개인 작업 반복(lib/issueRecurrence, WP-989)도 같은 토큰화를 쓴다.
  * clean=false: 형식이 깨진 조각이나 같은 키가 두 번 있어 맵이 원문을 다 담지 못했다(같은 키는 뒤엣것이 남는다). 빈 조각(끝의 ;)은 무해.
  */
-function tokenizeRRule(rrule: string): { map: Map<string, string>; clean: boolean } {
+export function tokenizeRRule(rrule: string): { map: Map<string, string>; clean: boolean } {
   const map = new Map<string, string>()
   let clean = true
   for (const seg of rrule.split(';')) {

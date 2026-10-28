@@ -3,9 +3,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 vi.mock('./run-agent.js', () => ({
   runAgent: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('./run-recurring.js', () => ({
+  runRecurring: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { handleEvent } from './event-handler.js';
 import { runAgent } from './run-agent.js';
+import { runRecurring } from './run-recurring.js';
 import type { IssueEventEnvelope } from '../types/issue-events.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
 
@@ -103,5 +107,22 @@ describe('handleEvent', () => {
       ),
     ).not.toThrow();
     await new Promise((r) => setImmediate(r));
+  });
+
+  // WP-989: 반복 회차는 runAgent 가 아니라 runRecurring(읽기 전용 실행 + 결과 보고)으로 간다.
+  it('issue.recurring_run → runRecurring(payload, deps), runAgent 미호출', () => {
+    vi.mocked(runRecurring).mockClear();
+    const payload = {
+      ...common,
+      ownerUserId: 7,
+      runId: '42-1',
+      runAt: '2026-09-21T23:13:20+09:00',
+      round: 1,
+      recurrence: { rrule: 'FREQ=DAILY', time: '23:13' },
+      issueBody: null,
+    };
+    handleEvent({ type: 'issue.recurring_run', payload }, { client });
+    expect(runRecurring).toHaveBeenCalledWith(payload, { client });
+    expect(runAgent).not.toHaveBeenCalled();
   });
 });

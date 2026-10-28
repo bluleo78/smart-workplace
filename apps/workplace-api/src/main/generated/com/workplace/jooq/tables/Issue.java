@@ -24,6 +24,7 @@ import com.workplace.jooq.tables.IssueFieldDef.IssueFieldDefPath;
 import com.workplace.jooq.tables.IssueFieldValue.IssueFieldValuePath;
 import com.workplace.jooq.tables.IssueHistory.IssueHistoryPath;
 import com.workplace.jooq.tables.IssueLabel.IssueLabelPath;
+import com.workplace.jooq.tables.IssueRecurrence.IssueRecurrencePath;
 import com.workplace.jooq.tables.IssueRelation.IssueRelationPath;
 import com.workplace.jooq.tables.IssueTypeDef.IssueTypeDefPath;
 import com.workplace.jooq.tables.IssueVersion.IssueVersionPath;
@@ -608,6 +609,19 @@ public class Issue extends TableImpl<IssueRecord> {
             _issueLabel = new IssueLabelPath(this, null, Keys.ISSUE_LABEL__ISSUE_LABEL_ISSUE_ID_FKEY.getInverseKey());
 
         return _issueLabel;
+    }
+
+    private transient IssueRecurrencePath _issueRecurrence;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_recurrence</code> table
+     */
+    public IssueRecurrencePath issueRecurrence() {
+        if (_issueRecurrence == null)
+            _issueRecurrence = new IssueRecurrencePath(this, null, Keys.ISSUE_RECURRENCE__ISSUE_RECURRENCE_ISSUE_ID_FKEY.getInverseKey());
+
+        return _issueRecurrence;
     }
 
     private transient IssueRelationPath _issueRelationSourceIssueIdFkey;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildUserMessage } from './user-message.js';
+import { buildUserMessage, formatKst } from './user-message.js';
 import { issueEventEnvelope, type IssueEventEnvelope } from '../types/issue-events.js';
 
 const common = {
@@ -77,5 +77,49 @@ describe('buildUserMessage', () => {
       payload: { ...base, previousStatusName: '할 일', newStatusName: '배포 완료' },
     });
     expect(parsed.type === 'issue.status_changed' && parsed.payload.newStatusName).toBe('배포 완료');
+  });
+
+  // WP-989: 반복 회차 지시문 — 회차 번호·KST 시각·본문·쓰기 금지(제안으로)·결과가 챗에 남는다는 안내.
+  it('issue.recurring_run', () => {
+    const m = buildUserMessage({
+      type: 'issue.recurring_run',
+      payload: {
+        ...common,
+        ownerUserId: 7,
+        runId: '42-1790000000',
+        runAt: '2026-09-21T23:13:20+09:00',
+        round: 3,
+        recurrence: { rrule: 'FREQ=WEEKLY;BYDAY=MO', time: '23:13' },
+        issueBody: '이번 주 진행 중 이슈를 정리해 줘',
+      },
+    } as IssueEventEnvelope);
+    expect(m).toContain('[이벤트: issue.recurring_run]');
+    expect(m).toContain('3회차');
+    expect(m).toContain('2026-09-21(월) 23:13 KST');
+    expect(m).toContain('WP-42');
+    expect(m).toContain('이번 주 진행 중 이슈를 정리해 줘');
+    expect(m).toContain('FREQ=WEEKLY;BYDAY=MO');
+    expect(m).toContain('쓰기 작업');
+    expect(m).toContain('「제안」');
+    expect(m).toContain('이슈 챗에 남는');
+    // 도구는 요청자 권한 — 「확인 필요」 우회 문구는 없다.
+    expect(m).toContain('@alice');
+    expect(m).toContain('권한으로 동작');
+    expect(m).not.toContain('확인 필요');
+  });
+
+  it('issue.recurring_run — 본문 없음·회차 번호 없음', () => {
+    const m = buildUserMessage({
+      type: 'issue.recurring_run',
+      payload: { ...common, ownerUserId: 7, runId: 'r', runAt: '2026-09-21T00:00:00Z', recurrence: { rrule: 'FREQ=DAILY', time: '09:00' }, issueBody: null },
+    } as IssueEventEnvelope);
+    expect(m).toContain('이번 회차 실행');
+    expect(m).toContain('본문 없음');
+    expect(m).toContain('2026-09-21(월) 09:00 KST');
+  });
+
+  it('formatKst — UTC 를 KST 로, 못 읽는 값은 그대로', () => {
+    expect(formatKst('2026-12-31T15:30:00Z')).toBe('2027-01-01(금) 00:30 KST');
+    expect(formatKst('oops')).toBe('oops');
   });
 });

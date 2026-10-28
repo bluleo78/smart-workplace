@@ -58,6 +58,16 @@ public class IssueAssigneeService {
    */
   public List<UserSummary> replace(
       Long callerId, String projectKey, int number, List<Long> userIds) {
+    return replace(callerId, projectKey, number, userIds, true);
+  }
+
+  /**
+   * 담당자 교체 — {@code wakeAgent=false} 면 담당 변경 이벤트(IssueAssignedEvent)는 그대로 내되 ai-agent
+   * issue.assigned 실행만 건너뛰게 표시한다(챗 스레드 멤버 반영·배정 알림은 같다). 이력·워처·실시간 갱신·외부 AI 작업 기록도 같다. 반복 AI
+   * 작업(WP-989)이 저장할 때 비서를 담당에 넣는 경로처럼, 담당 지정이 「지금 이 이슈를 시작하라」는 뜻이 아닐 때 쓴다(그 AI 는 반복 회차 이벤트로만 일한다).
+   */
+  public List<UserSummary> replace(
+      Long callerId, String projectKey, int number, List<Long> userIds, boolean wakeAgent) {
     var project = accessGuard.assertMember(projectKey, callerId);
     // 이슈 행을 잠가 같은 이슈의 담당자 교체를 한 줄로 세운다 — 동시 교체가 서로의 diff·이력을 덮어쓰지 않게 한다.
     var issue =
@@ -118,7 +128,8 @@ public class IssueAssigneeService {
     // 5) 신규 추가 사용자 watcher 자동 등록
     for (Long uid : toAdd) watcherAutoEnroller.enroll(project, issue.id(), uid, callerId);
 
-    // 6) 변경이 있을 때만 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보)
+    // 6) 변경이 있을 때만 도메인 이벤트 발행 (AFTER_COMMIT 에서 ai-agent 발사 후보) — 깨우지 않는 교체는 wakeAgent=false 로 실어
+    //    ai-agent 발사만 막는다. 이벤트 자체를 빼면 챗 스레드 멤버 반영·배정 알림까지 빠진다.
     if (!toAdd.isEmpty() || !toRemove.isEmpty()) {
       var actor = userRepository.findById(callerId).map(UserResponse::toSummary).orElse(null);
       var currentAssignees = repo.findByIssue(issue.id());
@@ -133,7 +144,8 @@ public class IssueAssigneeService {
               currentAssignees,
               addedSummaries,
               removedSummaries,
-              Instant.now()));
+              Instant.now(),
+              wakeAgent));
     }
 
     return repo.findByIssue(issue.id());

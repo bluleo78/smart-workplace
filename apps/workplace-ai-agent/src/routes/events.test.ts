@@ -6,6 +6,10 @@ import request from 'supertest';
 vi.mock('../agent/run-agent.js', () => ({
   runAgent: vi.fn().mockResolvedValue(undefined),
 }));
+// WP-989: 반복 회차 실행 — 라우팅만 검증한다(실행은 run-recurring.test.ts).
+vi.mock('../agent/run-recurring.js', () => ({
+  runRecurring: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('../agent/chat-event-handler.js', () => ({
   handleChatEvent: vi.fn(),
 }));
@@ -16,6 +20,7 @@ vi.mock('../agent/messaging-event-handler.js', () => ({
 import { internalAuth } from '../middleware/internal-auth.js';
 import { createEventsRouter } from './events.js';
 import { runAgent } from '../agent/run-agent.js';
+import { runRecurring } from '../agent/run-recurring.js';
 import { handleChatEvent } from '../agent/chat-event-handler.js';
 import { handleMessagingEvent } from '../agent/messaging-event-handler.js';
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
@@ -102,6 +107,58 @@ describe('POST /events', () => {
       error: 'unsupported_event_type',
       type: 'issue.foo',
     });
+  });
+
+  // WP-989: 반복 회차 이벤트 — 스키마를 통과하면 202 로 받고 runRecurring 으로 보낸다(runAgent 아님).
+  const recurringPayload = {
+    ...validCreatedPayload,
+    ownerUserId: 7,
+    runId: '42-1790000000',
+    runAt: '2026-09-21T23:13:20+09:00',
+    round: 3,
+    recurrence: { rrule: 'FREQ=DAILY', time: '23:13' },
+    issueBody: '오늘 할 일을 정리해 줘',
+  };
+
+  it('issue.recurring_run → 202 + runRecurring(payload)', async () => {
+    vi.mocked(runRecurring).mockClear();
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'issue.recurring_run', payload: recurringPayload });
+    expect(res.status).toBe(202);
+    expect(runRecurring).toHaveBeenCalledOnce();
+    expect(vi.mocked(runRecurring).mock.calls[0][0]).toMatchObject({ runId: '42-1790000000', round: 3, issueBody: '오늘 할 일을 정리해 줘' });
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it('issue.recurring_run 의 issueBody 는 null 이어도 받는다', async () => {
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'issue.recurring_run', payload: { ...recurringPayload, issueBody: null } });
+    expect(res.status).toBe(202);
+  });
+
+  // 소유자 대행이 필수 — 없으면 비서 신원으로 대신 돌리지 않고 거절한다(fail-closed).
+  it('issue.recurring_run 의 ownerUserId 누락 → 400 invalid_payload', async () => {
+    const { ownerUserId: _omit, ...noOwner } = recurringPayload;
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'issue.recurring_run', payload: noOwner });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
+  });
+
+  it('issue.recurring_run 의 runId 누락 → 400 invalid_payload', async () => {
+    const { runId: _omit, ...noRunId } = recurringPayload;
+    const res = await request(buildApp())
+      .post('/events')
+      .set('Authorization', AUTH)
+      .send({ type: 'issue.recurring_run', payload: noRunId });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_payload');
   });
 
   it('issue.assigned payload 의 added 누락 → 400 invalid_payload', async () => {

@@ -69,6 +69,7 @@ import com.workplace.jooq.tables.IssueFieldDef;
 import com.workplace.jooq.tables.IssueFieldValue;
 import com.workplace.jooq.tables.IssueHistory;
 import com.workplace.jooq.tables.IssueLabel;
+import com.workplace.jooq.tables.IssueRecurrence;
 import com.workplace.jooq.tables.IssueRelation;
 import com.workplace.jooq.tables.IssueRelationType;
 import com.workplace.jooq.tables.IssueTypeDef;
@@ -299,6 +300,10 @@ public class Indexes {
     public static final Index IDX_ISSUE_PARENT = Internal.createIndex(DSL.name("idx_issue_parent"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PARENT_ISSUE_ID }, false);
     public static final Index IDX_ISSUE_PROJECT_STATUS_ID_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_id_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS_ID, Issue.ISSUE.UPDATED_AT.desc() }, false);
     public static final Index IDX_ISSUE_PROJECT_STATUS_UPDATED = Internal.createIndex(DSL.name("idx_issue_project_status_updated"), Issue.ISSUE, new OrderField[] { Issue.ISSUE.PROJECT_ID, Issue.ISSUE.STATUS, Issue.ISSUE.UPDATED_AT.desc() }, false);
+    public static final Index IDX_ISSUE_RECURRENCE_AGENT = Internal.createIndex(DSL.name("idx_issue_recurrence_agent"), IssueRecurrence.ISSUE_RECURRENCE, new OrderField[] { IssueRecurrence.ISSUE_RECURRENCE.AGENT_USER_ID }, false);
+    public static final Index IDX_ISSUE_RECURRENCE_CREATED_BY = Internal.createIndex(DSL.name("idx_issue_recurrence_created_by"), IssueRecurrence.ISSUE_RECURRENCE, new OrderField[] { IssueRecurrence.ISSUE_RECURRENCE.CREATED_BY }, false);
+    public static final Index IDX_ISSUE_RECURRENCE_DUE = Internal.createIndex(DSL.name("idx_issue_recurrence_due"), IssueRecurrence.ISSUE_RECURRENCE, new OrderField[] { IssueRecurrence.ISSUE_RECURRENCE.ENABLED, IssueRecurrence.ISSUE_RECURRENCE.NEXT_RUN_AT }, false);
+    public static final Index IDX_ISSUE_RECURRENCE_PENDING = Internal.createIndex(DSL.name("idx_issue_recurrence_pending"), IssueRecurrence.ISSUE_RECURRENCE, new OrderField[] { IssueRecurrence.ISSUE_RECURRENCE.LAST_RUN_AT }, false);
     public static final Index IDX_ISSUE_RELATION_SOURCE = Internal.createIndex(DSL.name("idx_issue_relation_source"), IssueRelation.ISSUE_RELATION, new OrderField[] { IssueRelation.ISSUE_RELATION.SOURCE_ISSUE_ID }, false);
     public static final Index IDX_ISSUE_RELATION_TARGET = Internal.createIndex(DSL.name("idx_issue_relation_target"), IssueRelation.ISSUE_RELATION, new OrderField[] { IssueRelation.ISSUE_RELATION.TARGET_ISSUE_ID }, false);
     public static final Index IDX_ISSUE_RELATION_TENANT = Internal.createIndex(DSL.name("idx_issue_relation_tenant"), IssueRelation.ISSUE_RELATION, new OrderField[] { IssueRelation.ISSUE_RELATION.TENANT_ID }, false);
