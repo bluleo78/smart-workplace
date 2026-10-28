@@ -18,9 +18,10 @@ export function ShareGroupMembers({ groupId }: { groupId: number }) {
         <ul className="space-y-0.5">
           {people.map((m) => (
             <li key={m.targetId} className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate">{m.name}</span>
+              {/* 이름이 먼저 — 긴 소속 경로가 이름을 한두 글자로 줄이지 않게 이름은 줄 폭의 60% 까지 지키고 경로가 먼저 줄어든다(WP-1068). */}
+              <span className="max-w-[60%] shrink-0 truncate">{m.name}</span>
               {/* 하위 부서 사람은 소속 경로 — 서버 경로는 펼친 부서 자신부터라(직속이면 빈 배열) 줄 위의 부서 이름은 빼고 그 아래만 보인다. */}
-              {m.groupPath.length > 1 && <span className="truncate text-muted-foreground">{m.groupPath.slice(1).join(' › ')}</span>}
+              {m.groupPath.length > 1 && <span className="min-w-0 truncate text-muted-foreground">{m.groupPath.slice(1).join(' › ')}</span>}
             </li>
           ))}
         </ul>

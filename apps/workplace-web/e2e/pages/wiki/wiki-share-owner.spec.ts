@@ -5,6 +5,7 @@
 // 외부 공개 확인·재발급·해제·접근 요청 승인/거절·VIEWER 숨김(?share=1 정리)·휴대폰 ⋯ 메뉴는 src/pages/wiki/wikiPage.test.tsx·wikiMobile.test.tsx 가 지킨다(WP-983).
 import type { Page } from '@playwright/test'
 
+import type { UserGroupMemberHit } from '../../../src/types/userGroup'
 import type {
   WikiPageShare,
   WikiPageShareRequest,
@@ -325,4 +326,78 @@ test.describe('노트 공유 — 사람·팀 추가 목록(WP-1048)', () => {
     await page.mouse.wheel(0, 600)
     await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
   })
+})
+
+// 긴 이름 넘침(WP-1068) — 띄어쓰기 없는 긴 부서·사람 이름이 줄 안에서 말줄임되지 않아 공유 창 내용이 옆으로 늘어나,
+// 「링크로 공유」 스위치·빼기·「완료」가 창 밖으로 밀렸다. 폭·잘림은 jsdom 이 잴 수 없어 실제 브라우저로 본다.
+test.describe('노트 공유 — 긴 이름(WP-1068)', () => {
+  const longDept = '아주긴부서이름'.repeat(15).slice(0, 100)
+  const longPerson = '아주긴사람이름'.repeat(8).slice(0, 50)
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 393, height: 852 }]) {
+    test(`지정한 부서·사람 이름이 길어도 창 폭 안에서 말줄임되고 버튼이 모두 보인다(${viewport.width}px)`, { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+      await page.setViewportSize(viewport)
+      const server = newServer({
+        share: existingShare({
+          audience: 'PEOPLE',
+          groups: [{ groupId: 7, name: longDept, memberCount: 3 }],
+          people: [{ userId: 5, name: longPerson }],
+        }),
+        accessRequests: [{ id: 3, requester: { userId: 6, name: longPerson }, requestedAt: '2026-10-20T00:00:00Z' }],
+      })
+      await mockOwnerShare(page, server)
+
+      await page.goto(`/wiki/spaces/${SPACE_ID}/pages/${PAGE}`)
+      if (viewport.width < 768) {
+        // 휴대폰은 헤더 공유 버튼 대신 ⋯ 메뉴의 공유 항목으로 연다.
+        await page.getByTestId('wiki-page-menu').click()
+        await page.getByTestId('wiki-menu-share').click()
+      } else {
+        await page.getByTestId('wiki-share-button').click()
+      }
+      const dialog = dialogOf(page)
+      await expect(dialog.getByTestId('wiki-share-group-7')).toBeVisible()
+
+      // 창 내용이 창 폭을 넘지 않는다(여는 애니메이션이 끝날 때까지 기다리며 잰다).
+      const overflow = () => dialog.evaluate((el) => el.scrollWidth - el.clientWidth)
+      await expect.poll(overflow).toBeLessThanOrEqual(0)
+      await expect.poll(() => dialog.evaluate((el) => el.getAnimations().length)).toBe(0)
+      // 창은 화면 안에 있고, 휴대폰에서도 좌우 여백을 남긴다.
+      const box = (await dialog.boundingBox())!
+      expect(box.x).toBeGreaterThan(0)
+      expect(box.x + box.width).toBeLessThan(viewport.width)
+      // 스위치·빼기·완료·요청 승인이 모두 창 안에 있다.
+      for (const target of [
+        dialog.getByRole('switch').first(),
+        dialog.getByRole('button', { name: `${longDept} 빼기` }),
+        dialog.getByRole('button', { name: `${longPerson} 빼기` }),
+        dialog.getByRole('button', { name: '완료' }),
+        dialog.getByTestId('wiki-share-requests').getByRole('button').last(),
+      ]) {
+        await expect(target).toBeVisible()
+        const b = (await target.boundingBox())!
+        expect(b.x).toBeGreaterThanOrEqual(box.x)
+        expect(b.x + b.width).toBeLessThanOrEqual(box.x + box.width)
+      }
+      // 부서·사람 이름은 줄 안에서 말줄임된다(잘린 채 보임).
+      for (const name of [
+        dialog.getByTestId('wiki-share-group-7').getByText(longDept, { exact: false }),
+        dialog.getByText(longPerson, { exact: true }).first(),
+      ]) {
+        expect(await name.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+      }
+
+      // 부서를 펼쳐 긴 이름·긴 소속 경로의 구성원이 보여도 창이 늘지 않는다.
+      const members: UserGroupMemberHit[] = [
+        { targetType: 'MEMBER', targetId: 11, name: longPerson, email: null, title: null, organization: null, groupId: 8, groupPath: [longDept, longDept] },
+      ]
+      await page.route((u) => u.pathname === '/api/v1/user-groups/7/members/search', (r) => r.fulfill({ json: members }))
+      await dialog.getByTestId('wiki-share-group-toggle-7').click()
+      await expect(dialog.getByTestId('wiki-share-group-members-7').getByText(longPerson, { exact: false })).toBeVisible()
+      await expect.poll(overflow).toBeLessThanOrEqual(0)
+      // 긴 소속 경로가 있어도 구성원 이름이 먼저 보인다(경로가 먼저 줄어든다).
+      const memberName = dialog.getByTestId('wiki-share-group-members-7').getByText(longPerson, { exact: true })
+      expect((await memberName.boundingBox())!.width).toBeGreaterThan(100)
+    })
+  }
 })
