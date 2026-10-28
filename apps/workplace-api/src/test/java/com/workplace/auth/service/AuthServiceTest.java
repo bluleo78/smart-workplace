@@ -105,6 +105,18 @@ class AuthServiceTest extends IntegrationTestBase {
     assertThat(result.username()).isEqualTo("second@example.com");
   }
 
+  @Test
+  void signup_blankEmail_storedAsNull_andSecondBlankDoesNotCollide() {
+    // WP-1098: 빈 이메일로 가입하면 「이메일 없음」(null)이다 — '' 가 저장되면 다음 빈 이메일 가입이 '' 끼리 겹쳤다.
+    UserResponse a =
+        authService.signup(new SignupRequest("blank-a@example.com", "", "Password123", "Blank A"));
+    UserResponse b =
+        authService.signup(new SignupRequest("blank-b@example.com", "", "Password123", "Blank B"));
+
+    assertThat(userRepository.findById(a.id()).orElseThrow().email()).isNull();
+    assertThat(userRepository.findById(b.id()).orElseThrow().email()).isNull();
+  }
+
   /**
    * 회귀 가드: 일반(비-최초) 가입자는 플랫폼 역할을 절대 부여받지 않아야 한다. SUPER_ADMIN 부트스트랩 호출이 {@code isFirstUser} 블록 밖으로
    * 새면 모든 가입자가 슈퍼 관리자가 되는 치명적 결함을 잡는다.
