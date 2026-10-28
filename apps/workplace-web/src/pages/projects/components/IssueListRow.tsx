@@ -19,7 +19,7 @@ import { MULTI_SELECTED_ROW_CLASS } from '../../../lib/selectionStyles';
 import { cn } from '../../../lib/utils';
 import type { IssueResponse } from '../../../types/issue';
 import { type OpenRowMenu, openRowMenuAtPointer } from '../hooks/useIssueRowActions';
-import type { ColumnDefs, IssueListColumnDef } from './issueListColumnDefs';
+import { columnCellClass, type ColumnDefs, type IssueListColumnDef } from './issueListColumnDefs';
 import { IssueRowMobileCell } from './IssueRowMobileCell';
 import { RowMenuButton } from './RowMenuButton';
 
@@ -243,7 +243,7 @@ function renderCell(def: IssueListColumnDef, issue: IssueResponse, projectKey: s
   return (
     <td
       key={def.key}
-      className={def.cellClass?.(issue)}
+      className={columnCellClass(def, issue)}
       title={def.cellTitle?.(issue)}
       data-testid={def.testId?.(issue.number)}
     >
