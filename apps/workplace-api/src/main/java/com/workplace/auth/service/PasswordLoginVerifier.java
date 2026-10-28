@@ -43,6 +43,14 @@ public class PasswordLoginVerifier {
    * 호출자가 한다(비밀번호를 모르면 알 수 없게).
    */
   public UserResponse verify(String rawUsername, String rawPassword) {
+    return verify(rawUsername, rawPassword, null);
+  }
+
+  /**
+   * {@link #verify(String, String)} 에 실패 알림을 더한다(WP-1152). 있는 사람 계정의 비밀번호가 틀렸을 때만 onFailed 를 부른다 —
+   * 없는 아이디·AI 계정·이미 잠긴 계정은 부르지 않는다. 받는 쪽은 응답 시간이 계정 존재로 갈리지 않게 곧바로 돌아와야 한다.
+   */
+  public UserResponse verify(String rawUsername, String rawPassword, FailedLoginListener onFailed) {
     String username = canonicalUsername(rawUsername);
     if (loginAttemptService.isBlocked(username)) {
       throw new AccountLockedException("로그인 시도 횟수를 초과하였습니다. 잠시 후 다시 시도해 주세요.");
@@ -57,7 +65,8 @@ public class PasswordLoginVerifier {
     boolean matches = passwordEncoder.matches(rawPassword, stored.orElse(dummyHash));
     if (user.isEmpty() || agent || stored.isEmpty() || !matches) {
       if (!agent) {
-        loginAttemptService.loginFailed(username);
+        boolean locked = loginAttemptService.loginFailed(username);
+        if (onFailed != null && user.isPresent()) onFailed.failed(user.get(), locked);
       }
       throw new InvalidCredentialsException(INVALID);
     }
@@ -73,5 +82,11 @@ public class PasswordLoginVerifier {
     String trimmed = rawUsername == null ? "" : rawUsername.strip();
     List<String> matches = userRepository.findUsernamesIgnoreCase(trimmed);
     return matches.size() == 1 ? matches.get(0) : trimmed;
+  }
+
+  /** 있는 사람 계정의 비밀번호 로그인 실패 알림. locked 면 이 실패로 계정이 잠겼다. */
+  @FunctionalInterface
+  public interface FailedLoginListener {
+    void failed(UserResponse user, boolean locked);
   }
 }

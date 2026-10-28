@@ -55,6 +55,7 @@ public class AuthService {
   private final RefreshTokenRepository refreshTokenRepository;
   private final LoginAttemptService loginAttemptService;
   private final PasswordLoginVerifier passwordLoginVerifier;
+  private final LoginFailureAuditor loginFailureAuditor;
   private final AuditLogService auditLogService;
   private final MembershipRepository membershipRepository;
   private final TenantRepository tenantRepository;
@@ -146,7 +147,10 @@ public class AuthService {
    */
   public LoginResult login(LoginRequest request) {
     // 잠금·자격 검증 — 실패는 모두 같은 문구·같은 해시 계산 시간(WP-623, PasswordLoginVerifier).
-    UserResponse user = passwordLoginVerifier.verify(request.username(), request.password());
+    // 있는 계정의 실패는 감사 로그 「로그인 실패」로 남긴다(WP-1152) — 기록은 요청 스레드 밖에서 해 응답 시간이 갈리지 않는다.
+    UserResponse user =
+        passwordLoginVerifier.verify(
+            request.username(), request.password(), loginFailureAuditor::recordFailed);
 
     if (!user.isActive()) {
       // 비활성화된 계정 접근 시 한국어 메시지 반환

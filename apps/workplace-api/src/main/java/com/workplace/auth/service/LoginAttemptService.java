@@ -24,12 +24,16 @@ public class LoginAttemptService {
   /**
    * 로그인 실패 시 카운터 1 증가. 키보다 긴 아이디는 세지 않는다 — 저장이 길이 제약에 걸려 401 대신 409 가 났고(WP-748), 그런 이름의 계정은 없어 잠글
    * 대상도 없다.
+   *
+   * @return 이 실패로 계정이 잠겼으면(잠금 기준 {@value #MAX_ATTEMPTS}회 이상) true
    */
-  public void loginFailed(String username) {
+  public boolean loginFailed(String username) {
     if (username.length() > MAX_KEY_LENGTH) {
-      return;
+      return false;
     }
-    repository.incrementAttempts(username);
+    // 이 실패로 잠겼는지(WP-1152). 잠긴 동안은 여기까지 오지 않으므로(isBlocked 에서 먼저 거절) 기준 이상이면 이 실패가 잠근 것이다 — 잠금이
+    // 풀린 뒤에도 행은 정리 전까지 기준 이상으로 남아 다음 실패가 6·7 로 바로 다시 잠그므로 「같다」로는 두 번째 잠금을 놓친다.
+    return repository.incrementAttempts(username) >= MAX_ATTEMPTS;
   }
 
   /** 로그인 성공 시 카운터 제거. */
