@@ -101,6 +101,48 @@ export function timedEventBox(event: CalendarEvent, day: Date): { top: number; h
   }
 }
 
+/** 시간 그리드 블록 배치 — 그날 위치·높이에 더해, 겹치는 일정끼리 나눈 열 번호(lane)와 그 묶음의 열 수(lanes). */
+export interface TimedEventLayout {
+  event: CalendarEvent
+  top: number
+  height: number
+  lane: number
+  lanes: number
+}
+
+/**
+ * 그날의 타임드 일정을 겹치는 묶음마다 열로 나눈다(WP-1138). 모든 블록을 같은 자리·폭으로 그리면 뒤 일정이 앞 일정을 덮어
+ * 제목도 안 보이고 누를 수도 없었다. 그려지는 세로 구간(최소 높이 16px 포함)이 이어지는 일정들을 한 묶음으로 보고, 시작이 이른 순(같으면 긴
+ * 것 먼저)으로 비어 있는 가장 왼쪽 열에 넣는다 — 묶음의 열 수만큼 폭을 똑같이 나눈다. 겹치지 않는 일정은 한 열(전체 폭) 그대로다.
+ */
+export function layoutTimedEvents(events: CalendarEvent[], day: Date): TimedEventLayout[] {
+  const boxes = events
+    .map((event) => ({ event, ...timedEventBox(event, day), lane: 0, lanes: 1 }))
+    .sort((a, b) => a.top - b.top || b.height - a.height)
+  let cluster: TimedEventLayout[] = []
+  let laneEnds: number[] = []
+  let clusterEnd = -Infinity
+  const closeCluster = () => {
+    for (const b of cluster) b.lanes = laneEnds.length
+    cluster = []
+    laneEnds = []
+  }
+  for (const box of boxes) {
+    // 겹침은 정수 px 로 본다 — 분 단위 px 는 소수라(01:10 = 56.000…01px) 맞닿은 일정이 겹친 것으로 잘못 갈렸다.
+    const top = Math.round(box.top)
+    const bottom = Math.round(box.top + box.height)
+    // 지금 묶음의 가장 아래보다 아래에서 시작하면 겹치지 않는다 — 묶음을 닫고 새로 시작한다.
+    if (top >= clusterEnd) closeCluster()
+    const free = laneEnds.findIndex((end) => end <= top)
+    box.lane = free === -1 ? laneEnds.length : free
+    laneEnds[box.lane] = bottom
+    cluster.push(box)
+    clusterEnd = Math.max(clusterEnd, bottom)
+  }
+  closeCluster()
+  return boxes
+}
+
 // 해당 날짜(yyyy-MM-dd)에 마감인 이슈 마커. dueDate 는 날짜 단위라 시각 비교 없이 키 매칭.
 export function issueDuesOnDay(dues: IssueDueMarker[], day: Date): IssueDueMarker[] {
   const key = format(day, 'yyyy-MM-dd')

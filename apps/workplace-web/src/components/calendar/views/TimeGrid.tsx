@@ -2,11 +2,11 @@
 // WeekView(7일)와 DayView(1일)가 동일한 레이아웃을 공유한다.
 import { format, isToday } from 'date-fns'
 import { ko } from 'date-fns/locale'
-import { type PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, useMemo, useRef, useState } from 'react'
 
 import { ExtraTagDots } from '@/components/calendar/ExtraTagDots'
 import { IssueDueChip } from '@/components/calendar/IssueDueChip'
-import { dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, timedEventBox } from '@/lib/calendar'
+import { dragSlotRange, eventDisplayColor, eventsOnDay, HOUR_SLOT_PX, HOURS, issueDuesOnDay, layoutTimedEvents } from '@/lib/calendar'
 import { resolvePalette } from '@/lib/calendarPalette'
 import { formatClockTimePadded } from '@/lib/formatters'
 import type { CalendarEvent, IssueDueMarker } from '@/types/calendar'
@@ -59,6 +59,11 @@ export function TimeGrid({
 }: TimeGridProps) {
   // 시간 구간 끌어 만들기(WP-949) — 마우스·펜만. 터치는 세로 스크롤과 겹쳐 지금처럼 칸 탭(정각 + 1시간)만 둔다.
   const [drag, setDragState] = useState<DragSelection | null>(null)
+  // 날짜별 타임드 일정 배치(겹침 열 나누기, WP-1138) — 끌기 중 포인터가 움직일 때마다 다시 그리므로 일정·날짜가 바뀔 때만 계산한다.
+  const layoutsByDay = useMemo(
+    () => days.map((day) => layoutTimedEvents(eventsOnDay(events, day).filter((e) => !e.allDay), day)),
+    [events, days],
+  )
   // 이벤트 처리기는 이 ref 의 최신 값을 읽는다 — 빠르게 튕기듯 끌면 다시 그리기 전에 pointerup 이 와서, 렌더 때 값(drag)으로는
   // 움직이지 않은 것으로 보고 정각 클릭으로 열 수 있었다. state 는 하이라이트를 그리는 데만 쓴다.
   const dragRef = useRef<DragSelection | null>(null)
@@ -188,9 +193,7 @@ export function TimeGrid({
         </div>
 
         {/* 날짜별 컬럼 */}
-        {days.map((day) => {
-          // 해당 날의 타임드(종일 아닌) 이벤트
-          const timedEvts = eventsOnDay(events, day).filter((e) => !e.allDay)
+        {days.map((day, dayIndex) => {
           return (
             <div
               key={day.toISOString()}
@@ -224,15 +227,21 @@ export function TimeGrid({
                 <DragSelectionBox day={day} startY={drag.startY} currentY={drag.currentY} />
               )}
 
-              {/* 절대 위치 타임드 이벤트 블록 */}
-              {timedEvts.map((e) => {
-                // 그날에 걸친 구간만(자정 넘김은 날짜별로 잘림 — WP-539)
-                const style = timedEventBox(e, day)
+              {/* 절대 위치 타임드 이벤트 블록 — 그날에 걸친 구간만(자정 넘김은 날짜별로 잘림 — WP-539),
+                  겹치는 일정은 열을 나눠 나란히 그린다(WP-1138). */}
+              {layoutsByDay[dayIndex].map(({ event: e, top, height, lane, lanes }) => {
                 return (
                   <button
                     key={`${e.id}-${e.occurrenceDate ?? 'single'}`}
                     data-testid={`calendar-event-${e.occurrenceDate ? `${e.id}-${e.occurrenceDate}` : e.id}`}
-                    style={{ position: 'absolute', top: style.top, height: style.height, left: 2, right: 2 }}
+                    style={{
+                      position: 'absolute',
+                      top,
+                      height,
+                      left: `calc(${(lane / lanes) * 100}% + 2px)`,
+                      // 좁은 모바일 열에 겹침이 많아도 블록이 0 이하로 사라지지 않게 최소 폭을 둔다.
+                      width: `max(calc(${100 / lanes}% - 4px), 4px)`,
+                    }}
                     onClick={(ev) => {
                       ev.stopPropagation()
                       onSelectEvent(e)

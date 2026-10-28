@@ -1,6 +1,6 @@
 // 캘린더 E2E — 브라우저가 필요한 판정만 남겼다(WP-966).
 // - @wiring: /calendar 진입 → 일정 API → 월 보기 칩 + 보기 전환(화면당 1건)
-// - @layout: 상세 전 참석자 줄 자리(높이), 주 보기 종일 칸 정렬·날짜 열 높이, 모바일 오늘 배지 넘침
+// - @layout: 상세 전 참석자 줄 자리(높이), 주 보기 종일 칸 정렬·날짜 열 높이·겹치는 일정 나란히(WP-1138), 모바일 오늘 배지 넘침
 // - @input: 주 보기 시간 구간 끌어 만들기
 // - @platform: 다시 들어오면 마지막 보기(localStorage, 데스크톱·모바일 따로)
 // 헤더 접근성 이름·요일·오늘 강조·일정 색·반복 회차 표시, 만들기·수정·삭제·반복 범위 선택 payload, 일정 폼 입력·검증은
@@ -178,6 +178,39 @@ test.describe('주 보기 종일·시간 그리드 기하 (KST 고정)', { tag: 
       for (let i = 0; i < 7; i++) {
         const box = await columns.nth(i).boundingBox()
         expect(box!.height, `${i}번째 열 높이`).toBeGreaterThanOrEqual(24 * 48)
+      }
+    },
+  )
+
+  // WP-1138: 시간이 겹치는 일정이 모두 같은 자리·폭(left/right 2px)으로 포개져 뒤 일정이 앞 일정을 덮었다 —
+  // 겹치는 일정은 열을 나눠 나란히 그려, 서로 가리지 않고 각 블록 한가운데를 누르면 그 일정이 눌린다.
+  test(
+    '주 뷰 시간 그리드 — 겹치는 일정은 나란히 그려져 서로 가리지 않는다 (WP-1138)',
+    async ({ authenticatedPage: page }) => {
+      await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+      await stubCalendarEvents(page, [
+        calendarEvent({ id: 5, title: '겹침A', startsAt: '2026-06-10T01:00:00+09:00', endsAt: '2026-06-10T02:00:00+09:00' }),
+        calendarEvent({ id: 7, title: '겹침C', startsAt: '2026-06-10T01:15:00+09:00', endsAt: '2026-06-10T03:00:00+09:00' }),
+        calendarEvent({ id: 6, title: '겹침B', startsAt: '2026-06-10T01:30:00+09:00', endsAt: '2026-06-10T02:30:00+09:00' }),
+      ])
+
+      await page.goto('/calendar')
+      await page.getByTestId('calendar-view-week-btn').click()
+      const blocks = [5, 7, 6].map((id) => page.getByTestId(`calendar-event-${id}`))
+      for (const b of blocks) await expect(b).toBeVisible()
+
+      const boxes = await Promise.all(blocks.map(async (b) => (await b.boundingBox())!))
+      // 가로로 겹치지 않는다(왼쪽부터 A·C·B).
+      expect(boxes[0].x + boxes[0].width).toBeLessThanOrEqual(boxes[1].x + 0.5)
+      expect(boxes[1].x + boxes[1].width).toBeLessThanOrEqual(boxes[2].x + 0.5)
+      // 각 블록 한가운데의 맨 위 요소가 그 블록 자신이다 — 다른 일정에 가려지지 않아 누를 수 있다.
+      for (const [i, b] of blocks.entries()) {
+        const { x, y, width, height } = boxes[i]
+        const hit = await page.evaluate(
+          ([cx, cy]) => document.elementFromPoint(cx, cy)?.closest('button')?.getAttribute('data-testid') ?? null,
+          [x + width / 2, y + height / 2],
+        )
+        expect(hit).toBe(await b.getAttribute('data-testid'))
       }
     },
   )

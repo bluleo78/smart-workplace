@@ -16,6 +16,7 @@ import {
   isLocalRangeReversed,
   isNotEventOrganizer,
   isoToLocalInput,
+  layoutTimedEvents,
   loadLastView,
   markedDays,
   monthMatrix,
@@ -349,5 +350,64 @@ describe('loadLastView / saveLastView', () => {
     })
     expect(() => saveLastView(lastViewOwner, false, 'week')).not.toThrow()
     expect(loadLastView(lastViewOwner, false)).toBeNull()
+  })
+})
+
+// WP-1138: 겹치는 일정이 같은 자리·폭으로 포개져 뒤 일정이 앞 일정을 덮었다 — 겹침 묶음마다 열을 나눈다.
+describe('layoutTimedEvents', () => {
+  const day = new Date('2026-10-29T00:00:00')
+  const at = (id: number, s: string, e: string) => ev(id, `2026-10-29T${s}:00+09:00`, `2026-10-29T${e}:00+09:00`)
+  const lanesOf = (events: CalendarEvent[]) =>
+    Object.fromEntries(layoutTimedEvents(events, day).map((l) => [l.event.id, [l.lane, l.lanes]]))
+
+  it('서로 겹치는 세 일정은 세 열로 나뉜다(이슈 재현: 01:00–02:00, 01:15–03:00, 01:30–02:30)', () => {
+    expect(lanesOf([at(5, '01:00', '02:00'), at(7, '01:15', '03:00'), at(6, '01:30', '02:30')])).toEqual({
+      5: [0, 3],
+      7: [1, 3],
+      6: [2, 3],
+    })
+  })
+
+  it('겹치지 않는 일정은 각자 전체 폭(한 열)이다', () => {
+    expect(lanesOf([at(1, '09:00', '10:00'), at(2, '10:00', '11:00')])).toEqual({ 1: [0, 1], 2: [0, 1] })
+  })
+
+  it('먼저 끝난 열은 다시 쓴다 — A·B 가 겹치고 C 는 A 가 끝난 뒤 B 와만 겹치면 두 열', () => {
+    expect(lanesOf([at(1, '09:00', '10:00'), at(2, '09:30', '11:00'), at(3, '10:00', '10:30')])).toEqual({
+      1: [0, 2],
+      2: [1, 2],
+      3: [0, 2],
+    })
+  })
+
+  it('같은 시각에 시작하면 긴 일정이 왼쪽 열이다', () => {
+    expect(lanesOf([at(1, '09:00', '09:30'), at(2, '09:00', '11:00')])).toEqual({ 1: [1, 2], 2: [0, 2] })
+  })
+
+  it('묶음마다 열 수를 따로 센다 — 오전의 세 겹침이 오후 단독 일정의 폭을 줄이지 않는다', () => {
+    const layout = lanesOf([at(1, '09:00', '10:00'), at(2, '09:00', '10:00'), at(3, '09:00', '10:00'), at(4, '15:00', '16:00')])
+    expect(layout[4]).toEqual([0, 1])
+    expect(layout[1][1]).toBe(3)
+  })
+
+  it('분 단위 경계에서 맞닿은 일정은 겹치지 않는다(01:10 의 px 가 소수여도)', () => {
+    expect(lanesOf([at(1, '00:05', '01:10'), at(2, '01:10', '02:00')])).toEqual({ 1: [0, 1], 2: [0, 1] })
+    // 끝난 열도 같은 기준으로 다시 쓴다 — 셋째 열을 만들지 않는다.
+    expect(lanesOf([at(1, '08:05', '09:10'), at(2, '08:30', '10:00'), at(3, '09:10', '09:40')])).toEqual({
+      1: [0, 2],
+      2: [1, 2],
+      3: [0, 2],
+    })
+  })
+
+  it('아주 짧은 일정은 그려지는 최소 높이(16px)로 겹침을 본다', () => {
+    // 09:00–09:05 는 16px(20분 높이)로 그려져 09:10 에 시작하는 일정과 화면에서 겹친다.
+    expect(lanesOf([at(1, '09:00', '09:05'), at(2, '09:10', '10:00')])).toEqual({ 1: [0, 2], 2: [1, 2] })
+  })
+
+  it('위치·높이는 timedEventBox 와 같다', () => {
+    const e = at(1, '10:00', '11:30')
+    const [l] = layoutTimedEvents([e], day)
+    expect({ top: l.top, height: l.height }).toEqual(timedEventBox(e, day))
   })
 })
