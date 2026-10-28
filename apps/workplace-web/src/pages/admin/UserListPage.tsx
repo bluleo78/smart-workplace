@@ -23,7 +23,6 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table';
-import { AgentBadge } from '../../components/users/AgentBadge';
 import { useInfiniteMembers } from '../../hooks/queries/useMembers';
 
 export default function UserListPage() {
@@ -38,7 +37,8 @@ export default function UserListPage() {
   // WP-182: 페이지 번호 대신 무한 스크롤 — 끝에 닿으면 다음 50명을 이어 붙인다.
   const membersQuery = useInfiniteMembers({
     search: debouncedSearch || undefined,
-    kind: 'ALL',
+    // WP-1075: 사람만 — AI 는 설정 › 에이전트가 관리한다(같은 AI 가 두 화면에 나뉘어 보이던 것을 없앤다).
+    kind: 'HUMAN',
     includeInactive: true,
   });
   // 오류 행은 첫 페이지 실패만(isLoadingError) — LoadMoreFooter 참조
@@ -75,18 +75,17 @@ export default function UserListPage() {
           <TableHeader>
             <TableRow>
               {/* WP-182: 아이디·이메일은 대부분 같은 값이라 별도 열 대신 이름 아래 보조 줄로 합쳤다.
-                  구분·상태는 배지 폭만큼만(w-px + nowrap) 차지해 이름 열에 공간을 몰아준다. */}
+                  상태는 배지 폭만큼만(w-px + nowrap) 차지해 이름 열에 공간을 몰아준다. 모두 사람이라 「구분」 열은 없다(WP-1075). */}
               <TableHead className="w-full">구성원</TableHead>
-              <TableHead className="w-px whitespace-nowrap">구분</TableHead>
               <TableHead className="w-px whitespace-nowrap">상태</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableSkeletonRows columns={3} rows={5} />
+              <TableSkeletonRows columns={2} rows={5} />
             ) : isLoadingError ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center text-destructive">
+                <TableCell colSpan={2} className="text-center text-destructive">
                   데이터를 불러오는데 실패했습니다.
                 </TableCell>
               </TableRow>
@@ -118,14 +117,6 @@ export default function UserListPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {u.kind === 'AGENT' ? (
-                      <AgentBadge size="xs" />
-                    ) : (
-                      // 같은 '구분' 컬럼에서 AGENT(배지)와 시각 일관성 유지 — HUMAN도 배지로 통일
-                      <Badge variant="secondary">일반</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
                     <Badge variant={u.active ? 'default' : 'secondary'}>
                       {u.active ? '활성' : '비활성'}
                     </Badge>
@@ -134,7 +125,7 @@ export default function UserListPage() {
               ))
             ) : (
               <TableEmptyRow
-                colSpan={3}
+                colSpan={2}
                 message="사용자가 없습니다."
                 searchKeyword={debouncedSearch || undefined}
                 onResetSearch={search ? () => setSearch('') : undefined}

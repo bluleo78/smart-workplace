@@ -8,7 +8,6 @@ import static org.jooq.impl.DSL.val;
 
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
-import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.AgentResponse;
 import com.workplace.user.dto.AgentRuntime;
 import com.workplace.user.dto.AgentUsernames;
@@ -179,13 +178,9 @@ public class UserRepository {
   public List<AgentResponse> findAgents(Long tenantId, boolean includePersonal) {
     // 개인 비서 소유자(사람) 이름을 얻기 위한 self-join: owner.personal_assistant_agent_id = agent.id.
     com.workplace.jooq.tables.User owner = USER.as("owner");
-    // WP-705: 사용을 중지한(멤버십 정지) AGENT 는 목록에서 숨긴다 — 기록이 남아 삭제 대신 정지된 AI 다.
-    Condition where =
-        MEMBERSHIP
-            .TENANT_ID
-            .eq(tenantId)
-            .and(MEMBERSHIP.STATUS.eq(MembershipRepository.STATUS_ACTIVE))
-            .and(USER.KIND.eq(UserKind.AGENT));
+    // WP-1075: 사용을 중지한(멤버십 정지) AGENT 도 내려 준다 — 관리 화면이 「비활성」 배지로 구별하고 상세의 활성 상태로 다시 켠다.
+    // 삭제 때 기록이 남아 정지된 AI(WP-705)도 여기 포함된다. 활성 여부는 아래 WORKSPACE_ACTIVE 로 싣는다.
+    Condition where = MEMBERSHIP.TENANT_ID.eq(tenantId).and(USER.KIND.eq(UserKind.AGENT));
     if (!includePersonal) {
       // startsWith 는 LIKE 와일드카드를 이스케이프하므로 `__` 가 임의문자로 해석되지 않는다.
       where = where.and(USER.USERNAME.startsWith(AgentUsernames.PERSONAL_ASSISTANT_PREFIX).not());

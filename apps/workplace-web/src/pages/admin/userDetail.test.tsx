@@ -1,5 +1,5 @@
 // 설정 › 구성원 상세(/settings/users/:id) — 화면 컴포넌트 테스트(WP-971, WP-995).
-// 역할 0개 저장 가드(#150), 활성 상태 끄기 문구·payload(WP-417), 내 계정 스위치 잠금(WP-909), 대상 종류별 역할 숨김(WP-728)은
+// 역할 0개 저장 가드(#150), 활성 상태 끄기 문구·payload(WP-417), 내 계정 스위치 잠금(WP-909), 사람 대상 역할 숨김(WP-728), AI 옛 주소 이동(WP-1075)은
 // 응답 → 화면, 입력 → payload 라 브라우저 없이 판정되므로 e2e/pages/admin/user-detail-roles.spec.ts 에서 옮겼다.
 // 역할 저장 → PUT → 성공 토스트 배선 1건(@wiring)은 E2E 에 남는다.
 // useParams 가 id 를 읽으므로 UserDetailPage 를 라우트 패턴으로 감싸 renderScreen 으로 띄운다.
@@ -108,11 +108,12 @@ test('내 계정 상세에서는 활성 상태 스위치가 처음부터 막혀 
   expect(calls.actives).toEqual([])
 })
 
-test('AI 대상에게는 ADMIN·관리 권한 역할이 보이지 않고 이유가 안내된다 (WP-728)', async () => {
-  renderDetail({ ...INITIAL_USER, kind: 'AGENT', roles: [KIND_ROLES[2]] }, KIND_ROLES)
-  expect(await screen.findByText('AI 에게는 관리자 역할이나 관리 권한이 든 역할을 줄 수 없어요', { exact: false })).toBeInTheDocument()
-  for (const id of [1, 3, 5]) expect(document.getElementById(`role-${id}`)).toBeInTheDocument()
-  for (const id of [2, 4]) expect(document.getElementById(`role-${id}`)).not.toBeInTheDocument()
+// AI 대상의 역할 거르기(WP-728)는 에이전트 상세로 옮겨 agentManagement.test.tsx 가 본다(WP-1075).
+test('AI 계정의 옛 주소로 들어오면 에이전트 화면의 그 상세로 넘긴다 (WP-1075)', async () => {
+  const { location, calls } = renderDetail({ ...INITIAL_USER, kind: 'AGENT' })
+  await waitFor(() => expect(location()).toBe(`/settings/agents?agent=${USER_ID}`))
+  expect(screen.queryByRole('switch', { name: '활성 상태' })).not.toBeInTheDocument()
+  expect(calls.roleSaves).toEqual([])
 })
 
 test('사람 대상에게는 AGENT 역할만 보이지 않는다 (WP-728)', async () => {

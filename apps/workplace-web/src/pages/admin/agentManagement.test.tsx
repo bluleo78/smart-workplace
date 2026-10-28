@@ -10,7 +10,9 @@ import { expect, test } from 'vitest'
 
 import { renderScreen } from '@/test/renderScreen'
 import type { AgentResponse } from '@/types/agent'
+import type { RoleResponse } from '@/types/role'
 
+import { createRole, createUserDetail } from '../../../e2e/factories/auth.factory'
 import AgentManagementPage from './AgentManagementPage'
 
 const base = {
@@ -51,17 +53,56 @@ const KEY_1 = {
   revokedAt: null,
 }
 
-type Calls = { revokes: number; deletes: number; puts: unknown[]; runtimes: unknown[] }
+// 역할 목록 — AI 에게 줄 수 없는 ADMIN·관리 권한 역할(grantsAdmin)과 사람 전용 USER 가 섞였다(WP-728).
+const ROLES: RoleResponse[] = [
+  createRole({ id: 1, name: 'USER', description: '일반 사용자', isSystem: true }),
+  { ...createRole({ id: 2, name: 'ADMIN', description: '시스템 관리자', isSystem: true }), grantsAdmin: true },
+  createRole({ id: 3, name: 'AGENT', description: 'AI 에이전트', isSystem: true }),
+  { ...createRole({ id: 4, name: 'HR', description: '인사', isSystem: false }), grantsAdmin: true },
+  createRole({ id: 5, name: 'VIEWER', description: '보기 전용', isSystem: false }),
+]
+
+type Calls = {
+  revokes: number
+  deletes: number
+  puts: unknown[]
+  runtimes: unknown[]
+  roleSaves: unknown[]
+  actives: unknown[]
+  agentListReads: number
+}
 
 /**
  * 에이전트 화면이 부르는 API — 목록은 runtime PUT 을 반영해 재조회에 보인다.
  * runtimeConflict 면 runtime PUT 이 409, deleteResult 는 DELETE 결과(DELETED/DEACTIVATED). 쓰기 요청은 calls 에 모은다.
  */
-function agentApi(opts: { runtimeConflict?: string; deleteResult?: 'DELETED' | 'DEACTIVATED' } = {}) {
-  let agents = makeAgents()
-  const calls: Calls = { revokes: 0, deletes: 0, puts: [], runtimes: [] }
+function agentApi(
+  opts: { runtimeConflict?: string; deleteResult?: 'DELETED' | 'DEACTIVATED'; extraAgents?: AgentResponse[] } = {},
+) {
+  let agents = [...makeAgents(), ...(opts.extraAgents ?? [])]
+  const calls: Calls = { revokes: 0, deletes: 0, puts: [], runtimes: [], roleSaves: [], actives: [], agentListReads: 0 }
+  // 에이전트 상세의 역할·활성 상태(WP-1075)는 계정 상세(/users/:id)를 읽는다 — 활성 PUT 을 반영한다.
+  const accountOf = (id: number) => {
+    const a = agents.find((x) => x.id === id)!
+    return createUserDetail({ id, username: a.username, name: a.name, kind: 'AGENT', isActive: a.isActive, roles: [ROLES[2]] })
+  }
   const handlers = [
-    http.get('/api/v1/admin/agents', () => HttpResponse.json(agents)),
+    http.get('/api/v1/admin/agents', () => {
+      calls.agentListReads += 1
+      return HttpResponse.json(agents)
+    }),
+    http.get('/api/v1/users/:id', ({ params }) => HttpResponse.json(accountOf(Number(params.id)))),
+    http.get('/api/v1/roles', () => HttpResponse.json(ROLES)),
+    http.put('/api/v1/users/:id/roles', async ({ request }) => {
+      calls.roleSaves.push(await request.json())
+      return new HttpResponse(null, { status: 204 })
+    }),
+    http.put('/api/v1/users/:id/active', async ({ params, request }) => {
+      const body = (await request.json()) as { active: boolean }
+      calls.actives.push(body)
+      agents = agents.map((a) => (a.id === Number(params.id) ? { ...a, isActive: body.active } : a))
+      return new HttpResponse(null, { status: 204 })
+    }),
     http.put('/api/v1/admin/agents/:id/runtime', async ({ params, request }) => {
       const body = (await request.json()) as { runtime: AgentResponse['runtime'] }
       calls.runtimes.push(body)
@@ -228,4 +269,79 @@ test('공통 비서는 실행 방식 두 버튼이 모두 비활성이고 해제
   expect(await screen.findByTestId('agent-runtime-EXTERNAL')).toBeDisabled()
   expect(screen.getByTestId('agent-runtime-INTERNAL')).toBeDisabled()
   expect(screen.getByTestId('agent-runtime-description')).toHaveTextContent('비서 지정을 먼저 해제하세요')
+})
+
+// ── WP-1075: 역할 할당·활성 상태가 구성원 화면에서 에이전트 상세로 옮겨 왔다 ──
+
+test('일반 에이전트 상세 — AI 에게 줄 수 없는 역할은 빠지고, 고른 역할을 저장하면 roleIds 로 PUT 한다 (WP-1075·WP-728)', async () => {
+  const { user, calls } = await renderAgents()
+  const drawer = await openDrawer(user, 100)
+  const access = await within(drawer).findByTestId('agent-access-sections')
+  expect(within(access).getByText('AI 에게는 관리자 역할이나 관리 권한이 든 역할을 줄 수 없어요', { exact: false })).toBeInTheDocument()
+  // 보이는 역할: USER·AGENT·VIEWER, 숨는 역할: ADMIN·HR(관리 권한).
+  for (const id of [1, 3, 5]) expect(document.getElementById(`role-${id}`)).toBeInTheDocument()
+  for (const id of [2, 4]) expect(document.getElementById(`role-${id}`)).not.toBeInTheDocument()
+
+  await user.click(within(access).getByRole('checkbox', { name: /VIEWER/ }))
+  await user.click(within(access).getByRole('button', { name: '역할 저장' }))
+  await waitFor(() => expect(calls.roleSaves).toEqual([{ roleIds: [3, 5] }]))
+  expect(await screen.findByText('역할이 저장되었습니다.')).toBeInTheDocument()
+})
+
+test('일반 에이전트 상세 — 활성 끄기는 AI 문구의 확인창을 거쳐 active=false 로 저장되고, 목록에 「비활성」 배지와 연결 대신 안내가 보인다 (WP-1075)', async () => {
+  const { user, calls } = await renderAgents()
+  expect(screen.queryByTestId('agent-inactive-100')).not.toBeInTheDocument()
+  const drawer = await openDrawer(user, 100)
+  const access = await within(drawer).findByTestId('agent-access-sections')
+  expect(within(access).getByText('비활성 AI 는 이 워크스페이스에 접속하거나 일할 수 없어요. 다른 워크스페이스에는 영향이 없어요.')).toBeInTheDocument()
+  const readsBefore = calls.agentListReads
+
+  await user.click(within(access).getByRole('switch', { name: '활성 상태' }))
+  const dialog = await screen.findByRole('alertdialog')
+  expect(dialog).toHaveTextContent('에이전트 비활성화')
+  expect(dialog).toHaveTextContent('비활성화하면 이 AI 는 이 워크스페이스에 접속하거나 일할 수 없어요.')
+  await user.click(within(dialog).getByRole('button', { name: '비활성화' }))
+
+  await waitFor(() => expect(calls.actives).toEqual([{ active: false }]))
+  // 목록을 다시 읽어 배지가 바로 붙고, 상세는 키·연결 대신 안내를 보인다(정지된 AI 에 키 발급 방지).
+  expect(await screen.findByTestId('agent-inactive-100')).toHaveTextContent('비활성')
+  expect(calls.agentListReads).toBeGreaterThan(readsBefore)
+  expect(await within(drawer).findByTestId('agent-inactive-notice')).toBeInTheDocument()
+  expect(within(drawer).queryByTestId('key-revoke-1')).not.toBeInTheDocument()
+  expect(within(access).getByRole('switch', { name: '활성 상태' })).not.toBeChecked()
+})
+
+test('공통 비서 상세 — 활성 스위치는 막혀 있고 지정 해제가 먼저라는 이유가 보인다 (WP-1075)', async () => {
+  const { user, calls } = await renderAgents()
+  const drawer = await openDrawer(user, 103)
+  const access = await within(drawer).findByTestId('agent-access-sections')
+  const toggle = within(access).getByRole('switch', { name: '활성 상태' })
+  expect(toggle).toBeChecked()
+  expect(toggle).toBeDisabled()
+  expect(within(access).getByText('공통 비서는 지정을 해제한 뒤 비활성화할 수 있어요.')).toBeInTheDocument()
+  expect(calls.actives).toEqual([])
+})
+
+test('비활성 에이전트는 목록에 배지가 보이고, 상세에서 켜면 확인창 없이 active=true 로 저장된다 (WP-1075·WP-705)', async () => {
+  const stopped: AgentResponse = { ...base, id: 105, username: 'old_bot', name: '중지봇', type: 'REGULAR', runtime: 'INTERNAL', isActive: false }
+  const { user, calls } = await renderAgents({ extraAgents: [stopped] })
+  expect(screen.getByTestId('agent-inactive-105')).toHaveTextContent('비활성')
+  expect(screen.queryByTestId('agent-inactive-100')).not.toBeInTheDocument()
+
+  const drawer = await openDrawer(user, 105)
+  const access = await within(drawer).findByTestId('agent-access-sections')
+  await user.click(within(access).getByRole('switch', { name: '활성 상태' }))
+  await waitFor(() => expect(calls.actives).toEqual([{ active: true }]))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByTestId('agent-inactive-105')).not.toBeInTheDocument())
+})
+
+test('개인 비서 상세에는 역할 할당·활성 상태가 보이지 않는다 (WP-1075)', async () => {
+  const personal: AgentResponse = { ...base, id: 104, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
+  const { user } = await renderAgents({ extraAgents: [personal] })
+  const drawer = await openDrawer(user, 104)
+  await within(drawer).findByTestId('agent-delete-104')
+  expect(within(drawer).queryByTestId('agent-access-sections')).not.toBeInTheDocument()
+  expect(within(drawer).queryByRole('switch', { name: '활성 상태' })).not.toBeInTheDocument()
+  expect(within(drawer).queryByText('역할 할당')).not.toBeInTheDocument()
 })

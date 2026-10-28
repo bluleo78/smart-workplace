@@ -9,6 +9,7 @@ import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
+import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
@@ -47,7 +48,10 @@ public class WorkspaceAssistantService {
     // runtime 이 EXTERNAL 로 바뀌는 경합을 막는다. 대상이 없으면 0행이 잠기고 아래에서 404 로 처리된다.
     agentRuntimePolicy.lock(agentUserId);
     // WP-703: 다른 워크스페이스의 AI 는 공용 비서로 지정할 수 없다(404) — 지정되면 그 AI 의 AI 연결로 이 워크스페이스 대화가 돈다.
-    memberGuard.require(agentUserId);
+    // WP-1075: 사용을 중지한(멤버십 정지) AI 도 에이전트 목록에 보이게 됐다 — 정지된 AI 로 공통 대화가 돌지 않게 지정을 막는다(409).
+    if (MembershipRepository.STATUS_SUSPENDED.equals(memberGuard.require(agentUserId))) {
+      throw new IllegalStateException("사용이 중지된 에이전트는 공통 비서로 지정할 수 없습니다. 먼저 활성 상태를 켜세요.");
+    }
     UserResponse user =
         userRepository
             .findById(agentUserId)

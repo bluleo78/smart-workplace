@@ -64,6 +64,7 @@ import {
 } from '../../lib/agentRuntime';
 import { clickableRowProps } from '../../lib/clickableRowProps';
 import type { AgentResponse } from '../../types/agent';
+import { AgentAccessSections } from './components/AgentAccessSections';
 import { AgentConnectionSection } from './components/AgentConnectionSection';
 import { AgentIdentitySection } from './components/AgentIdentitySection';
 import { AgentKeyIssueDialog } from './components/AgentKeyIssueDialog';
@@ -242,6 +243,12 @@ export default function AgentManagementPage() {
                       <div className="min-w-0">
                         {/* 모바일은 긴 이름을 줄바꿈해 칸 안에 둔다(데스크톱은 그대로 한 줄) */}
                         <span className="font-medium break-words whitespace-normal md:whitespace-nowrap">{a.name}</span>
+                        {/* 사용 중지된 AI(삭제 때 기록이 남아 정지된 경우 포함, WP-705)를 구별한다 — 상세의 활성 상태로 다시 켤 수 있다(WP-1075). */}
+                        {!a.isActive && (
+                          <Badge variant="secondary" className="ml-2 align-middle" data-testid={`agent-inactive-${a.id}`}>
+                            비활성
+                          </Badge>
+                        )}
                         {/* 모바일 전용 — 숨긴 아이디·유형·실행 열의 값(WP-639) */}
                         <div
                           className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground md:hidden"
@@ -321,98 +328,110 @@ export default function AgentManagementPage() {
                 <AgentIdentitySection key={selected.id} agent={selected} />
 
                 {/* 실행 방식 — 내부(서버 실행)/외부(사용자 컴퓨터 등) 선택. */}
-                <AgentRuntimeSection key={`rt-${selected.id}`} agent={selected} />
+                {selected.isActive && <AgentRuntimeSection key={`rt-${selected.id}`} agent={selected} />}
 
-                {external ? (
-                  /* 외부 에이전트 연결 — AI 연결·모델은 숨기고 키 발급 + MCP 연결 안내만 보인다. */
-                  <section className="space-y-3 rounded-md border p-4" data-testid="external-connect-card">
-                    <h3 className="text-sm font-medium">외부 에이전트 연결</h3>
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-medium text-muted-foreground">① 키 발급</h4>
-                      {keysSection}
-                    </div>
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-medium text-muted-foreground">
-                        ② genia-works 플러그인 설치 (한 번만 · 설치했으면 건너뛰기)
-                      </h4>
-                      <CopyableCommand command={buildPluginInstallCommands()} testId="plugin-install-command" />
-                      <PluginServerUrlStep />
-                    </div>
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-medium text-muted-foreground">
-                        ③ Claude Code 에 이 AI 등록 (컴퓨터마다 한 번)
-                      </h4>
-                      <CopyableCommand command={PLUGIN_COMMANDS.login} testId="agent-login-command" />
-                      <p className="text-xs text-muted-foreground">
-                        「새 AI 추가」를 고르고 ①에서 발급한 키를 붙여 넣으세요. 이름은 이 AI 의 아이디{' '}
-                        <code className="font-mono">{selected.username}</code> 로 넣으면 아래 명령을 그대로 쓸 수 있어요.
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        data-testid="agent-username-copy"
-                        onClick={() => void copyUsername(selected.username)}
-                      >
-                        아이디 복사
-                      </Button>
-                    </div>
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-medium text-muted-foreground">④ 이 AI로 일하기</h4>
-                      <p className="text-xs text-muted-foreground">지금 세션에서 바꾸기</p>
-                      <CopyableCommand command={buildSwitchCommand(selected.username)} testId="agent-switch-command" />
-                      <p className="text-xs text-muted-foreground">처음부터 이 AI로 띄우기</p>
-                      <CopyableCommand command={buildLaunchAsCommand(selected.username)} testId="agent-launch-as-command" />
-                      <p className="text-xs text-muted-foreground">
-                        그 세션만 이 AI로 바뀌고, 다른 세션은 내 계정 그대로예요.{' '}
-                        <code className="font-mono">{PLUGIN_COMMANDS.logout}</code> 하면 내 계정으로 돌아옵니다.
-                      </p>
-                    </div>
-                    <div className="space-y-2" data-testid="agent-work-loop">
-                      <h4 className="text-xs font-medium text-muted-foreground">⑤ 자동으로 이슈 처리</h4>
-                      <p className="text-xs text-muted-foreground">이 AI 전용 터미널에서 띄우기</p>
-                      <CopyableCommand
-                        command={buildWorkLoopLaunchCommand(selected.username)}
-                        testId="agent-work-loop-launch-command"
-                      />
-                      <p className="text-xs text-muted-foreground">Claude Code 안에서 시작하기</p>
-                      <CopyableCommand command={buildWorkLoopStartCommand()} testId="agent-work-loop-start-command" />
-                      <p className="text-xs text-muted-foreground">
-                        이 AI 에게 할당된 이슈를 하나씩 가져와 구현·검증·main 머지까지 하고 검토 대기로 올립니다. push·배포는
-                        하지 않아요.
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        권한을 묻지 않는 모드라 이 AI 전용 터미널에서만 쓰세요. Claude Code 가 열려 있는 동안만 돌고 7일 뒤
-                        다시 켜야 해요.
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        이슈 하나만 맡길 때는 <code className="font-mono">{PLUGIN_SKILLS.workOn} 이슈키</code> 를 쓰세요.
-                      </p>
-                    </div>
-                    {/* 플러그인 전환을 못 쓰는 환경용 — 기본은 접어 둔다. */}
-                    <Collapsible className="border-t pt-3">
-                      <CollapsibleTrigger
-                        className="group flex w-full items-center justify-between text-left text-xs font-medium text-muted-foreground hover:text-foreground"
-                        data-testid="agent-fallback"
-                      >
-                        다른 방법 (Windows 등 플러그인 전환을 쓸 수 없을 때)
-                        <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="space-y-2 pt-2">
-                        <CopyableCommand command={buildTokenFallbackCommand()} testId="agent-fallback-command" />
-                        <p className="text-xs text-muted-foreground">
-                          키를 직접 넘겨 띄웁니다. 셸 기록에 키가 남을 수 있어요.
-                        </p>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </section>
+                {/* 활성 상태·역할 할당 — 구성원 화면에서 옮겨 왔다(WP-1075). 개인 비서는 주인 전용이라 보이지 않는다. */}
+                {selected.type !== 'PERSONAL' && <AgentAccessSections key={`ac-${selected.id}`} agent={selected} />}
+
+                {!selected.isActive ? (
+                  /* 사용 중지된 AI(WP-705·WP-1075) — 연결·키·실행 방식은 다시 켠 뒤에 다룬다. 정지된 AI 에 키를 발급하거나 공통 비서로 지정하지 않게 숨긴다. */
+                  <p className="rounded-md border px-4 py-3 text-sm text-muted-foreground" data-testid="agent-inactive-notice">
+                    사용이 중지된 에이전트예요. 위 활성 상태를 켜면 실행 방식·연결·키를 다시 설정할 수 있어요.
+                  </p>
                 ) : (
                   <>
-                    {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
-                    <AgentConnectionSection agentUserId={selected.id} />
+                  {external ? (
+                    /* 외부 에이전트 연결 — AI 연결·모델은 숨기고 키 발급 + MCP 연결 안내만 보인다. */
+                    <section className="space-y-3 rounded-md border p-4" data-testid="external-connect-card">
+                      <h3 className="text-sm font-medium">외부 에이전트 연결</h3>
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-medium text-muted-foreground">① 키 발급</h4>
+                        {keysSection}
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-medium text-muted-foreground">
+                          ② genia-works 플러그인 설치 (한 번만 · 설치했으면 건너뛰기)
+                        </h4>
+                        <CopyableCommand command={buildPluginInstallCommands()} testId="plugin-install-command" />
+                        <PluginServerUrlStep />
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-medium text-muted-foreground">
+                          ③ Claude Code 에 이 AI 등록 (컴퓨터마다 한 번)
+                        </h4>
+                        <CopyableCommand command={PLUGIN_COMMANDS.login} testId="agent-login-command" />
+                        <p className="text-xs text-muted-foreground">
+                          「새 AI 추가」를 고르고 ①에서 발급한 키를 붙여 넣으세요. 이름은 이 AI 의 아이디{' '}
+                          <code className="font-mono">{selected.username}</code> 로 넣으면 아래 명령을 그대로 쓸 수 있어요.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          data-testid="agent-username-copy"
+                          onClick={() => void copyUsername(selected.username)}
+                        >
+                          아이디 복사
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-medium text-muted-foreground">④ 이 AI로 일하기</h4>
+                        <p className="text-xs text-muted-foreground">지금 세션에서 바꾸기</p>
+                        <CopyableCommand command={buildSwitchCommand(selected.username)} testId="agent-switch-command" />
+                        <p className="text-xs text-muted-foreground">처음부터 이 AI로 띄우기</p>
+                        <CopyableCommand command={buildLaunchAsCommand(selected.username)} testId="agent-launch-as-command" />
+                        <p className="text-xs text-muted-foreground">
+                          그 세션만 이 AI로 바뀌고, 다른 세션은 내 계정 그대로예요.{' '}
+                          <code className="font-mono">{PLUGIN_COMMANDS.logout}</code> 하면 내 계정으로 돌아옵니다.
+                        </p>
+                      </div>
+                      <div className="space-y-2" data-testid="agent-work-loop">
+                        <h4 className="text-xs font-medium text-muted-foreground">⑤ 자동으로 이슈 처리</h4>
+                        <p className="text-xs text-muted-foreground">이 AI 전용 터미널에서 띄우기</p>
+                        <CopyableCommand
+                          command={buildWorkLoopLaunchCommand(selected.username)}
+                          testId="agent-work-loop-launch-command"
+                        />
+                        <p className="text-xs text-muted-foreground">Claude Code 안에서 시작하기</p>
+                        <CopyableCommand command={buildWorkLoopStartCommand()} testId="agent-work-loop-start-command" />
+                        <p className="text-xs text-muted-foreground">
+                          이 AI 에게 할당된 이슈를 하나씩 가져와 구현·검증·main 머지까지 하고 검토 대기로 올립니다. push·배포는
+                          하지 않아요.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          권한을 묻지 않는 모드라 이 AI 전용 터미널에서만 쓰세요. Claude Code 가 열려 있는 동안만 돌고 7일 뒤
+                          다시 켜야 해요.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          이슈 하나만 맡길 때는 <code className="font-mono">{PLUGIN_SKILLS.workOn} 이슈키</code> 를 쓰세요.
+                        </p>
+                      </div>
+                      {/* 플러그인 전환을 못 쓰는 환경용 — 기본은 접어 둔다. */}
+                      <Collapsible className="border-t pt-3">
+                        <CollapsibleTrigger
+                          className="group flex w-full items-center justify-between text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+                          data-testid="agent-fallback"
+                        >
+                          다른 방법 (Windows 등 플러그인 전환을 쓸 수 없을 때)
+                          <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-2 pt-2">
+                          <CopyableCommand command={buildTokenFallbackCommand()} testId="agent-fallback-command" />
+                          <p className="text-xs text-muted-foreground">
+                            키를 직접 넘겨 띄웁니다. 셸 기록에 키가 남을 수 있어요.
+                          </p>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </section>
+                  ) : (
+                    <>
+                      {/* AI 연결 및 모델 — 연결 상태/재발급/회수 + 공통 비서 지정 + 모델/생각의 깊이. */}
+                      <AgentConnectionSection agentUserId={selected.id} />
 
-                    {/* 인증 — API 키. */}
-                    {keysSection}
+                      {/* 인증 — API 키. */}
+                      {keysSection}
+                    </>
+                  )}
                   </>
                 )}
               </div>

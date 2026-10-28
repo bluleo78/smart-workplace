@@ -34,8 +34,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * WP-705 — AI 에이전트 삭제. 일한 기록이 없으면 완전히 지우고, 기록이 남아 지울 수 없으면 사용 중지(이 워크스페이스 멤버십 정지·키·AI 연결 회수·목록에서
- * 숨김)로 대신한다. 예전엔 FK 에 막혀 영어 409 만 떴다. 공통 비서 지정은 먼저 해제하고, 다른 워크스페이스에도 속한 AI 는 지우지 않는다.
+ * WP-705 — AI 에이전트 삭제. 일한 기록이 없으면 완전히 지우고, 기록이 남아 지울 수 없으면 사용 중지(이 워크스페이스 멤버십 정지·키·AI 연결 회수·목록에는
+ * 비활성으로 남김, WP-1075)로 대신한다. 예전엔 FK 에 막혀 영어 409 만 떴다. 공통 비서 지정은 먼저 해제하고, 다른 워크스페이스에도 속한 AI 는 지우지
+ * 않는다.
  */
 @Transactional
 class AdminAgentDeleteTest extends IntegrationTestBase {
@@ -129,7 +130,7 @@ class AdminAgentDeleteTest extends IntegrationTestBase {
   }
 
   @Test
-  void 기록이_남은_AI_는_사용을_중지하고_목록에서_숨긴다() throws Exception {
+  void 기록이_남은_AI_는_사용을_중지하고_목록에는_비활성으로_남긴다() throws Exception {
     long agent = agentHere();
     assistantRepo.upsert(agent, admin);
     leaveRecord(agent);
@@ -145,7 +146,8 @@ class AdminAgentDeleteTest extends IntegrationTestBase {
     assertThat(dsl.fetchCount(WORKSPACE_ASSISTANT)).isZero();
     call(get("/api/v1/admin/agents"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[?(@.id == " + agent + ")]").doesNotExist());
+        // WP-1075: 목록에서 숨기지 않고 비활성으로 보인다 — 관리자가 에이전트 상세의 활성 상태로 다시 켤 수 있다.
+        .andExpect(jsonPath("$[?(@.id == " + agent + ")].isActive").value(false));
   }
 
   @Test
