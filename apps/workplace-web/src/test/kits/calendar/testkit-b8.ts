@@ -39,7 +39,7 @@ export function capture(
   return { handler, bodies, urls }
 }
 
-/** 캘린더 화면 기본 조회 — 캘린더 목록·범위 일정(+상세)·내 이슈 마감·태그 목록·구성원 검색(빈 결과). 테스트가 더 구체적인 핸들러를 앞에 줘 덮는다. */
+/** 캘린더 화면 기본 조회 — 캘린더 목록·범위 일정(+상세)·내 이슈 마감·태그 목록·구성원 검색(빈 결과)·그룹 트리(빈 트리). 테스트가 더 구체적인 핸들러를 앞에 줘 덮는다. */
 export function calendarHandlers({
   calendars,
   events = [],
@@ -60,6 +60,8 @@ export function calendarHandlers({
     http.get(`${API}/calendar/tags`, () => HttpResponse.json(tags)),
     // 참석자 줄의 구성원 검색(GET /members?search=) — 참석자 테스트는 결과를 주는 핸들러로 덮는다
     http.get(`${API}/members`, () => HttpResponse.json({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })),
+    // 참석자 고르기 창의 조직도·내 그룹(WP-1059) — 빈 트리. 그룹을 고르는 테스트가 덮는다
+    http.get(`${API}/user-groups`, () => HttpResponse.json({ shared: [], personal: [] })),
   ]
 }
 

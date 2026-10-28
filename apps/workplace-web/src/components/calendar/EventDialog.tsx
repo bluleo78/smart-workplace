@@ -611,7 +611,7 @@ export function EventDialog({
                     selectedMembers={selectedAttendees}
                     onChange={setSelectedAttendees}
                     attendees={eventWithDetail?.attendees}
-                    onInvite={canManageAttendees ? (userId) => inviteAttendees.mutate([userId]) : undefined}
+                    onInvite={canManageAttendees ? (userIds) => inviteAttendees.mutate(userIds) : undefined}
                     onRemove={canManageAttendees ? (userId) => removeAttendee.mutate(userId) : undefined}
                     hideAdd={isEdit && !canManageAttendees}
                   />

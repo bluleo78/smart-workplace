@@ -1,6 +1,7 @@
 // 내 그룹을 사람으로 펼치기(WP-1023 노트 공유 → WP-1056 드라이브 팀 스페이스 멤버) — 내 그룹은 그룹 자체를 대상·멤버로 남기지 않고, 고르는 시점의
 // 사람 구성원으로 풀어 더한다. 노트 공유 창과 공간 멤버 창이 같은 규칙(구성원 받기·중복 빼기·안내 문구)을 쓰도록 여기 모은다.
 import { userGroupsApi } from '../../api/userGroups'
+import type { UserGroupMemberHit } from '../../types/userGroup'
 import type { GroupOption } from './groupOptions'
 
 /**
@@ -33,4 +34,43 @@ export function addGroupMembers(
 export function groupExpansionMessage(groupName: string, added: number, skipped: number): string {
   if (added === 0) return skipped > 0 ? `${groupName}의 ${skipped}명은 이미 모두 있습니다` : `${groupName}에 추가할 사람이 없습니다`
   return `${groupName}에서 ${added}명 추가${skipped > 0 ? ` (이미 있는 ${skipped}명 제외)` : ''}`
+}
+
+/** 조직·내 그룹을 사람으로 풀어 넣을 계획(WP-1059) — 넣기 전에 몇 명이 들어가는지 확인받는 곳(일정 참석자)이 쓴다. */
+export interface GroupExpansionPlan {
+  /** 새로 넣을 사람(서버 구성원 찾기 순서 — 이름순). */
+  toAdd: { id: number; name: string }[]
+  /** 이미 목록에 있어 뺀 사람 수. */
+  skipped: number
+  /** 그룹에 나도 있어 뺐는지(나는 이미 들어 있다 — 일정 주최자 등). */
+  meIncluded: boolean
+  /** 이번에 더 넣을 수 있는 수 — toAdd 가 이보다 많으면 넣지 않는다. */
+  capacity: number
+}
+
+/**
+ * 그룹 구성원 찾기 결과(하위 포함 — 서버가 활성 사람만 준다)에서 넣을 사람을 고른다. 외부 연락처 행은 사람이 아니라 빼고, 이미 있는 사람·나는 빼고,
+ * 두 하위 조직에 있는 같은 사람은 한 번만 넣는다.
+ */
+export function planGroupExpansion(
+  hits: UserGroupMemberHit[],
+  existingIds: number[],
+  meId: number | undefined,
+  capacity: number,
+): GroupExpansionPlan {
+  const existing = new Set(existingIds)
+  const added = new Set<number>()
+  const skipped = new Set<number>()
+  const toAdd: GroupExpansionPlan['toAdd'] = []
+  let meIncluded = false
+  for (const h of hits) {
+    if (h.targetType !== 'MEMBER') continue
+    if (h.targetId === meId) meIncluded = true
+    else if (existing.has(h.targetId)) skipped.add(h.targetId)
+    else if (!added.has(h.targetId)) {
+      added.add(h.targetId)
+      toAdd.push({ id: h.targetId, name: h.name })
+    }
+  }
+  return { toAdd, skipped: skipped.size, meIncluded, capacity }
 }
