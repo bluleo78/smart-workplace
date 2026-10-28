@@ -76,7 +76,7 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
     }
   }
 
-  // 2) @멘션(안 읽은 COMMENTED) — urgency 1.
+  // 2) @멘션(안 읽은 코멘트 멘션·이슈 챗 멘션·AI 질문 — isMentionLike) — urgency 1.
   // WP-258: 같은 이슈에 코멘트가 여러 번 달리면 같은 제목 줄이 반복됐다 → 이동 대상(notifTarget) 기준으로
   // 묶어 한 줄 + 건수·최신 시각("멘션 2 · 3시간 전")으로 보여준다. 단건은 다른 행과 같은 짧은 라벨('멘션') 유지.
   // 상단 '멘션' 카운트 셀은 묶기 전 건수 그대로.

@@ -25,6 +25,7 @@ import com.workplace.mail.dto.EmailAccountRequest;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.repository.EmailAccountRepository;
+import com.workplace.support.AsyncPools;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
@@ -33,12 +34,14 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -77,6 +80,10 @@ class CalendarResourceChangedIntegrationTest extends ExternalClientMockedTestBas
   @Autowired EmailAccountRepository accountRepo;
   @Autowired com.workplace.global.security.EncryptionService encryption;
 
+  @Autowired
+  @Qualifier("notifyEventExecutor")
+  Executor notifyEventExecutor;
+
   private static final OffsetDateTime NOW = OffsetDateTime.parse("2026-07-01T09:00:00Z");
 
   private final List<Long> userIds = new ArrayList<>();
@@ -93,6 +100,9 @@ class CalendarResourceChangedIntegrationTest extends ExternalClientMockedTestBas
 
   @AfterEach
   void cleanup() {
+    // 참석자 초대·취소 알림은 커밋 뒤 비동기로 쌓인다 — 그 삽입이 아래 정리 삭제와 겹치면 행 잠금이 엇갈려 교착(deadlock)으로
+    // 정리가 깨졌다. 알림 풀이 비운 뒤 지운다.
+    AsyncPools.awaitIdle(notifyEventExecutor);
     dsl.deleteFrom(EMAIL_ACCOUNT).where(EMAIL_ACCOUNT.ID.in(accountIds)).execute();
     dsl.deleteFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.OWNER_ID.in(userIds)).execute();
     // 일정 취소 알림(WP-712)은 event_id 가 없어 일정 삭제의 cascade 로 지워지지 않는다 — 사람을 지우기 전에 받은 알림을 지운다.

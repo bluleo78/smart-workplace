@@ -20,9 +20,9 @@ function todayKey(): string {
 /** 내 작업·합성이 같이 쓰는 /me/issues 를 주어진 이슈로. */
 const myIssues = (list: ReturnType<typeof createIssue>[]) => http.get('/api/v1/me/issues', () => HttpResponse.json(createIssueSearchResponse(list)))
 
-/** 멘션 프록시 — 안 읽은 COMMENTED 1건. */
+/** 멘션 — 안 읽은 코멘트 멘션 1건(일반 댓글 COMMENTED 는 멘션이 아니다, WP-1092). */
 const commented = http.get('/api/v1/notifications', () =>
-  HttpResponse.json([notification({ id: 5, type: 'COMMENTED', issueTitle: '코멘트 달린 이슈', commentId: 9 })]),
+  HttpResponse.json([notification({ id: 5, type: 'ISSUE_COMMENT_MENTION', issueTitle: '코멘트 달린 이슈', commentId: 9 })]),
 )
 
 // 5종 위젯 각 행이 상세로 딥링크되고, 헤더는 모듈 루트로 간다. 홈에는 하단 AI 챗 입력이 없다(대시보드 전환 요건).

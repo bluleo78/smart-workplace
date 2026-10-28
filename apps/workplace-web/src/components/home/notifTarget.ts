@@ -72,9 +72,11 @@ export function notifLabel(n: NotificationResponse): string {
 }
 
 /**
- * "나를 호출한" 알림 판별 — 이슈 챗 멘션·AI 질문(WP-452 전용 유형), 코멘트 멘션(WP-650 전용 유형), 그리고 멘션 프록시로 쓰던 COMMENTED.
+ * "나를 호출한" 알림 판별 — 이슈 챗 멘션·AI 질문(WP-452 전용 유형), 코멘트 멘션(WP-650 전용 유형).
+ * COMMENTED 는 넣지 않는다 — WP-650 뒤로 멘션된 사람은 ISSUE_COMMENT_MENTION 을 받고, COMMENTED 는 멘션 없는 담당자·워처 공통 알림이다.
+ * 예전 멘션 프록시로 남아 일반 댓글이 「멘션」으로 세지고 「지금 신경 쓸 일」에 올랐다(WP-1092). 받은편지함 구분(notifSection)과 같은 기준.
  * 합성 레이어의 멘션 카운트/주의 필요 필터가 동일 규칙을 공유한다(백엔드 PriorityClassificationScheduler 도 같은 규칙).
  */
 export function isMentionLike(n: NotificationResponse): boolean {
-  return n.type === 'COMMENTED' || n.type === 'ISSUE_COMMENT_MENTION' || isIssueChatType(n)
+  return n.type === 'ISSUE_COMMENT_MENTION' || isIssueChatType(n)
 }

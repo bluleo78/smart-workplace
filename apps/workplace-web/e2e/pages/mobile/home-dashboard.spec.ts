@@ -454,7 +454,7 @@ test('요약 — 같은 이슈 멘션 여러 건은 한 줄(멘션 N · 시각),
 }) => {
   const LONG = '결제 모듈 리팩터링 후 정산 배치가 이중 집계되는 문제 조사 및 재발 방지 대책 수립'
   const notif = (id: number, issueNumber: number, issueTitle: string, createdAt: string): NotificationResponse => ({
-    id, type: 'COMMENTED', actorId: 3, actorName: '홍길동', actorKind: 'HUMAN', issueId: issueNumber, projectKey: 'WP',
+    id, type: 'ISSUE_COMMENT_MENTION', actorId: 3, actorName: '홍길동', actorKind: 'HUMAN', issueId: issueNumber, projectKey: 'WP',
     issueNumber, issueTitle, commentId: id, eventId: null, eventTitle: null, eventStartsAt: null, read: false, createdAt,
   })
   await stubWidgetData(page)

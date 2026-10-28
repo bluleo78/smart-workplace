@@ -230,8 +230,8 @@ public class PriorityClassificationScheduler {
   }
 
   /**
-   * 4개 소스에서 후보 수집. SynthesisLayer.tsx 의 행 생성 필터와 동일 기준(마감 지남/오늘 이슈, COMMENTED 알림(멘션 프록시,
-   * notifTarget.ts isMentionLike 미러) 안읽음, aiNeedsReply&&처리안됨 메일, attention 메시징 대화).
+   * 4개 소스에서 후보 수집. SynthesisLayer.tsx 의 행 생성 필터와 동일 기준(마감 지남/오늘 이슈, 멘션 알림(notifTarget.ts
+   * isMentionLike 미러) 안읽음, aiNeedsReply&&처리안됨 메일, attention 메시징 대화).
    */
   private List<PriorityCandidate> collectCandidates(long userId) {
     List<PriorityCandidate> out = new ArrayList<>();
@@ -265,15 +265,15 @@ public class PriorityClassificationScheduler {
       }
     }
 
-    // 멘션(안읽은 COMMENTED·코멘트 멘션·이슈 챗 멘션·AI 질문 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙
-    // (COMMENTED 는 멘션 프록시, 코멘트 멘션은 WP-650·이슈 챗 알림은 WP-452 의 전용 유형). notifTarget() 라우팅 규칙도 그대로
+    // 멘션(안읽은 코멘트 멘션·이슈 챗 멘션·AI 질문 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙
+    // (코멘트 멘션은 WP-650·이슈 챗 알림은 WP-452 의 전용 유형). COMMENTED 는 멘션 없는 담당자·워처 공통 알림이라 넣지 않는다
+    // — 예전 멘션 프록시로 남아 일반 댓글이 멘션 후보가 됐다(WP-1092). notifTarget() 라우팅 규칙도 그대로
     // 포팅(projectKey+issueNumber 딥링크,
     // 이슈 챗 알림은 ?chat=1 로 챗 드로워를 연다).
     for (var n : notificationService.listRecent(userId, SOURCE_LIMIT, 0)) {
       boolean issueChat = "AI_QUESTION".equals(n.type()) || "ISSUE_CHAT_MENTION".equals(n.type());
-      boolean commentLike =
-          "COMMENTED".equals(n.type()) || "ISSUE_COMMENT_MENTION".equals(n.type());
-      if (!n.read() && (commentLike || issueChat)) {
+      boolean commentMention = "ISSUE_COMMENT_MENTION".equals(n.type());
+      if (!n.read() && (commentMention || issueChat)) {
         out.add(
             new PriorityCandidate(
                 userId,

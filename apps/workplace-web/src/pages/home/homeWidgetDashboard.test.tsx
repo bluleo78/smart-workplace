@@ -378,7 +378,7 @@ test('합성 — 이슈·메시지·메일 행이 AI 우선순위 점수 순서�
 test('합성 — 같은 이슈 멘션 3건은 한 줄(멘션 3)로 묶이고 단건은 「멘션」, 카운트 셀은 전체 4건 그대로다 (WP-258)', async () => {
   const A = '결제 모듈 리팩터링 후 정산 배치가 이중 집계되는 문제 조사 및 재발 방지 대책 수립'
   const c = (id: number, issueNumber: number, issueTitle: string, createdAt: string) =>
-    notif({ id, type: 'COMMENTED', actorId: 3, actorName: '홍길동', issueId: issueNumber, issueNumber, issueTitle, commentId: id, createdAt })
+    notif({ id, type: 'ISSUE_COMMENT_MENTION', actorId: 3, actorName: '홍길동', issueId: issueNumber, issueNumber, issueTitle, commentId: id, createdAt })
   renderHome(layout(['synthesis']), {
     notifications: [c(1, 7, A, '2026-06-16T01:00:00Z'), c(2, 7, A, '2026-06-16T03:00:00Z'), c(3, 7, A, '2026-06-16T02:00:00Z'), c(4, 8, '이슈 B', '2026-06-16T00:00:00Z')],
     issues: [],

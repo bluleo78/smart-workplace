@@ -1,5 +1,5 @@
 // 합성 레이어 "지금 신경 쓸 일" 멘션 행 묶기(WP-258) — 같은 이슈에 코멘트가 여러 번 달리면 안 읽은
-// COMMENTED 알림이 이슈 하나에 여러 건 쌓여 같은 제목 줄이 반복됐다. 이동 대상(notifTarget)이 같은
+// 멘션 알림이 이슈 하나에 여러 건 쌓여 같은 제목 줄이 반복됐다. 이동 대상(notifTarget)이 같은
 // 알림을 한 묶음으로 모아 한 줄 + 건수로 보여주기 위한 순수 그룹핑 함수. DOM/React 비의존(vitest 대상).
 import { parseUtcDate } from '@/lib/formatters'
 import type { NotificationResponse } from '@/types/notification'
