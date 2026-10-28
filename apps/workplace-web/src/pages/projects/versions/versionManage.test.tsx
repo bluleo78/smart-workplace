@@ -54,6 +54,9 @@ describe('출시 대화상자 → release 요청', () => {
     await waitFor(() => expect(screen.queryByTestId('version-release-dialog')).not.toBeInTheDocument())
     // 재조회가 출시됨을 받아 「출시 취소」 로 바뀐다.
     expect(await screen.findByTestId('version-unrelease')).toBeInTheDocument()
+    // 데스크톱은 헤더에 상태 배지가 있어 본문에 모바일용 배지를 또 그리지 않는다(WP-1089).
+    expect(within(screen.getByTestId('page-header')).getByText('출시됨')).toBeInTheDocument()
+    expect(screen.queryByTestId('version-status-mobile')).not.toBeInTheDocument()
   })
 
   test('그대로 두기를 고르면 대상 선택이 사라지고 release 본문에 moveUnresolvedTo 가 없다', async () => {
