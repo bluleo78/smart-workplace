@@ -133,8 +133,13 @@ export function useStickToBottom(
       observe(el)
       if (el.clientHeight !== lastClientHeight) {
         lastClientHeight = el.clientHeight
-        if (stuckRef.current) toBottom()
-        return
+        if (stuckRef.current) {
+          toBottom()
+          return
+        }
+        // 고정이 풀린 상태면 아래 일반 판정으로 간다 — 보이는 높이가 바뀐 뒤 처음 오는 scroll 이 사용자가 바닥까지 내린 스크롤일 수
+        // 있다. 여기서 끝내면 그 스크롤을 놓쳐 바닥에 와 있어도 고정이 돌아오지 않았다(WP-1076 — 앵커 진입 뒤 입력창 높이가 바뀐 채널).
+        // 위로 움직인 보정 이벤트는 아래 판정이 고정을 켜지 않으므로(위로 움직였거나 바닥에서 멀면 false) 그대로 둬도 안전하다.
       }
       // 콘텐츠 높이가 그대로인데 위로 움직인 스크롤은 사용자 의도다(입력 이벤트 없이 오는 스크롤 포함) — 고정을 푼다.
       // 입력으로 잠정 해제한 뒤 실제로 위로 움직였으면 해제를 확정한다(높이 변화와 무관 — 사용자 입력이 먼저 있었다).

@@ -164,3 +164,44 @@ test('구분선 앵커로 진입 후 바닥까지 내리면 콘텐츠가 커져�
   });
   await expect.poll(distFromBottom).toBeLessThanOrEqual(1);
 });
+
+// WP-1076 — 앵커 진입 뒤 보이는 높이가 먼저 바뀌고(입력창·카드 높이 변화) 사용자가 바닥까지 내리면, 높이가 바뀐 뒤 첫 scroll 이
+// 그 스크롤이다. 이 scroll 을 「높이 변화 보정」으로만 보고 끝내면 바닥에 와 있어도 고정이 돌아오지 않아 콘텐츠 성장을 놓쳤다.
+// 위 테스트는 높이 변화와 스크롤의 순서가 타이밍에 달려 가끔만 깨졌다 — 여기서는 높이를 먼저 줄여 순서를 고정한다.
+test('구분선 앵커 진입 뒤 보이는 높이가 줄고 나서 바닥까지 내려도 콘텐츠 성장을 따라간다', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  const LONG = '앵커 진입 후 바닥 고정을 확인하는 긴 메시지입니다. '.repeat(6);
+  const items = Array.from({ length: 20 }, (_, i) =>
+    createMessage({ id: 101 + i, channelId: CHANNEL_ID, authorId: 2, body: `${i + 1}번째 — ${LONG}` }),
+  ).sort((a, b) => b.id - a.id);
+  await setupChannelStubs(page, createChannel({ id: CHANNEL_ID, member: true, lastReadMessageId: 110 }));
+  await stubMessages(page, items);
+  await page.route(
+    (url) => url.pathname === `/api/v1/messaging/channels/${CHANNEL_ID}/catchup`,
+    (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SAMPLE_CATCHUP) }),
+  );
+
+  await page.goto(`/chat/channels/${CHANNEL_ID}`);
+  await expect(page.getByTestId('unread-divider')).toBeInViewport();
+
+  const area = page.getByTestId('message-scroll-area');
+  // 보이는 높이를 먼저 40px 줄인다 — scrollTop 이 그대로라 scroll 이벤트 없이 높이만 바뀐다(입력창이 커진 것과 같다).
+  const before = await area.evaluate((el) => el.clientHeight);
+  await area.evaluate((el) => {
+    // flex 를 풀기 전에 잰다 — 풀고 나면 높이가 콘텐츠 높이로 커진다.
+    const h = el.offsetHeight - 40;
+    el.style.flex = 'none';
+    el.style.height = `${h}px`;
+  });
+  await expect.poll(() => area.evaluate((el) => el.clientHeight)).toBe(before - 40);
+
+  const distFromBottom = () => area.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+  await area.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect.poll(distFromBottom).toBeLessThanOrEqual(1);
+
+  await page.getByTestId('message-120').evaluate((el) => {
+    const grow = document.createElement('div');
+    grow.style.height = '400px';
+    el.appendChild(grow);
+  });
+  await expect.poll(distFromBottom).toBeLessThanOrEqual(1);
+});
