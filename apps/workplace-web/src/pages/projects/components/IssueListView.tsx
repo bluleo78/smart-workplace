@@ -151,7 +151,9 @@ export function IssueListView({
   }
 
   // 첫 로딩 — 「로딩 중…」 글자 대신 스켈레톤(DS 06 §A-2). 데스크톱은 표 자리, 모바일은 2줄 행 모양.
-  if (isLoading) {
+  // 이전 조건의 결과가 0건이면 자리채움으로 둘 목록이 없다(WP-1049) — 빈 상태(「이슈가 없습니다」·필터 빈 상태)를 새 조건에 붙여
+  // 흐림 없이 보이면 결과가 있는 조건에서도 틀린 안내와 「새 태스크 만들기」가 눌린다. 첫 로딩과 같게 스켈레톤을 보인다.
+  if (isLoading || (refreshing && items.length === 0)) {
     return <ListLoadingSkeleton label="이슈 불러오는 중" />;
   }
 

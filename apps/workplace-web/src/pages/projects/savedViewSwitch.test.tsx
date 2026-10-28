@@ -33,16 +33,19 @@ const VIEWS = [
   savedView(1, '높음만', 'priority=HIGH&group=none'),
   savedView(2, '낮음만', 'priority=LOW&group=none'),
   savedView(3, '보드', 'view=board&group=none'),
+  savedView(4, '최저만', 'priority=LOWEST&group=none'),
+  savedView(5, '보드 높음', 'view=board&group=none&priority=HIGH'),
 ]
 
 const issue = (number: number, title: string) =>
   createIssue({ id: number, number, projectKey: KEY, title, type: makeTaskType() })
 
-// 우선순위 조건별 결과 — 「전체」는 두 건, 「높음만」·「낮음만」은 한 건씩.
+// 우선순위 조건별 결과 — 「전체」는 두 건, 「높음만」·「낮음만」은 한 건씩, 「최저만」은 0건.
 const RESULTS: Record<string, ReturnType<typeof issue>[]> = {
   '': [issue(1, '전체 목록 이슈'), issue(2, '전체 목록 둘째 이슈')],
   HIGH: [issue(3, '높음 이슈')],
   LOW: [issue(4, '낮음 이슈')],
+  LOWEST: [],
 }
 
 // 늦출 요청 — 우선순위 조건(또는 보드 컬럼 요청)이 이 값이면 release() 전까지 응답하지 않는다.
@@ -134,6 +137,44 @@ describe('저장한 뷰 전환 — 중간 상태 없이 한 번에 바뀐다', (
     for (const s of snapshots) expect(s).toMatch(/^view-chip-[^,+ ]+$/)
     const order = snapshots.filter((s, i) => s !== snapshots[i - 1])
     expect(order).toEqual(['view-chip-1', 'view-chip-2', 'view-chip-all'])
+  })
+
+  test('결과가 0건인 뷰에서 바꾸면 빈 상태를 새 조건에 붙여 보이지 않고 스켈레톤을 보인다', async () => {
+    await open()
+    fireEvent.click(screen.getByTestId('view-chip-4'))
+    expect(await screen.findByTestId('empty-filter')).toBeInTheDocument()
+
+    // 아직 받지 않은 「높음만」 요청을 늦춘다 — 자리채움은 0건이라 둘 목록이 없다.
+    const release = holdWhile((u) => u.searchParams.get('priority') === 'HIGH')
+    fireEvent.click(screen.getByTestId('view-chip-1'))
+    expect(await screen.findByTestId('list-loading-skeleton')).toBeInTheDocument()
+    // 결과가 있는 조건에 이전 조건의 빈 상태(필터 빈 상태·「이슈가 없습니다 / 새 태스크 만들기」)가 비치지 않는다.
+    expect(screen.queryByTestId('empty-no-issues')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('empty-create-issue')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('empty-filter')).not.toBeInTheDocument()
+
+    release()
+    expect(await screen.findByText('높음 이슈')).toBeInTheDocument()
+    expect(screen.queryByTestId('list-loading-skeleton')).not.toBeInTheDocument()
+  })
+
+  test('보드에서 조건을 바꿔 받는 동안 컬럼 수는 이전 조건의 수 대신 비워 둔다', async () => {
+    await open()
+    fireEvent.click(screen.getByTestId('view-chip-3'))
+    await waitFor(() => expect(screen.queryAllByTestId(/^board-col-pending-/)).toHaveLength(0))
+    const counts = () => screen.getAllByTestId(/^board-col-count-/).map((e) => e.textContent)
+    expect(counts()).toContain('2')
+
+    const release = holdWhile((u) => u.searchParams.has('statusId') && u.searchParams.get('priority') === 'HIGH')
+    fireEvent.click(screen.getByTestId('view-chip-5'))
+    expect((await screen.findAllByTestId('results-refreshing')).length).toBeGreaterThan(0)
+    // 흐린 이전 카드는 남지만 수는 비어 있다 — 「2」가 새 조건의 수처럼 또렷이 보이지 않는다.
+    expect(screen.getAllByText('전체 목록 이슈').length).toBeGreaterThan(0)
+    expect(counts().every((c) => c === '')).toBe(true)
+
+    release()
+    await waitFor(() => expect(screen.queryAllByTestId('results-refreshing')).toHaveLength(0))
+    expect(counts()).toContain('1')
   })
 
   test('보드를 처음 열 때 컬럼은 결과가 오기 전까지 카드 자리만 보이고 「이슈 없음」을 그리지 않는다', async () => {

@@ -235,6 +235,7 @@ function IssueBoardViewInner({
       count: byStatusId[s.id]?.length ?? 0,
       hasMore: !grouped && !!columnQueries[s.id]?.hasNextPage,
       pending: pendingOf(s),
+      refreshing: refreshingOf(s),
     }));
     // 탭의 「이슈 추가」는 그 탭 상태로 만든다.
     const createIn = (s: ProjectStatus) => (onOpenCreate ? () => onOpenCreate(s.id) : undefined);
@@ -265,7 +266,7 @@ function IssueBoardViewInner({
         : undefined;
     return (
       <IssueCardMenuContext.Provider value={cardMenu}>
-        <MobileBoard tabs={tabs} band={showCategoryBand} menu={menu}>
+        <MobileBoard tabs={tabs} band={showCategoryBand} menu={menu} scrollReset={scrollReset}>
           {(statusId, root) => {
             const status = visible.find((s) => s.id === statusId);
             if (!status) return null;
@@ -566,10 +567,10 @@ function BoardColumn({
                 {status.name}
               </span>
               {/* 아직 받지 않은 페이지가 있으면 로드분이 전체가 아니므로 "N+" 로 표시 */}
-              {/* 처음 받는 중에는 수를 비워 둔다 — 「0」으로 보였다가 실제 수로 바뀌지 않게(WP-1049). */}
+              {/* 처음 받는 중·조건을 바꿔 받는 중(이전 조건의 자리채움)에는 수를 비워 둔다 — 「0」이나 이전 조건의 수가 또렷이
+                  보였다가 실제 수로 바뀌지 않게(WP-1049). 카드는 아래 RefreshingResults 가 흐린다. */}
               <span className="shrink-0 font-normal text-muted-foreground" data-testid={`board-col-count-${status.id}`}>
-                {firstLoading ? '' : issues.length}
-                {query?.hasNextPage ? '+' : ''}
+                {firstLoading || query?.isPlaceholderData ? '' : `${issues.length}${query?.hasNextPage ? '+' : ''}`}
               </span>
             </span>
             {edit && (

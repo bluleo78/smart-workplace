@@ -9,16 +9,22 @@ import { useSearchParams } from 'react-router-dom';
 import { CATEGORY_COLOR } from '@/components/issues/issueCategoryColor';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHorizontalSwipe } from '@/hooks/useHorizontalSwipe';
+import { useScrollTopWhenSettled } from '@/hooks/useScrollTopWhenSettled';
 import { BOARD_TAB_PARAM, type BoardTabInfo, resolveBoardTab } from '@/lib/boardTabs';
 import { withBoardTab } from '@/lib/issueFilters';
 import { cn } from '@/lib/utils';
 
-export type MobileBoardTab = BoardTabInfo & { label: string; hasMore: boolean };
+// refreshing — 조건을 바꿔 새 결과를 받는 중(이전 결과 자리채움, WP-1049). 수는 이전 조건의 것이라 비워 둔다.
+export type MobileBoardTab = BoardTabInfo & { label: string; hasMore: boolean; refreshing?: boolean };
+
+/** 탭·헤더의 수 — 받는 중이면 비우고, 아직 받지 않은 페이지가 있으면 「N+」. */
+const tabCount = (t: MobileBoardTab) => (t.refreshing ? '' : `${t.count}${t.hasMore ? '+' : ''}`);
 
 export function MobileBoard({
   tabs,
   band = true,
   menu,
+  scrollReset,
   children,
 }: {
   // 보일 상태 탭(표시 순서) — 상태 목록 로딩 중엔 빈 배열(기본 탭을 미리 고르지 않는다).
@@ -27,6 +33,8 @@ export function MobileBoard({
   band?: boolean;
   // 현재 탭 헤더 줄의 ⋯ 편집 진입점(OWNER) — 없으면 헤더 줄에 이름·개수만 보인다.
   menu?: (statusId: number) => ReactNode;
+  // 새 조건(key)의 결과가 모두 들어오면 목록을 맨 위로(WP-1049) — 받는 동안 이전 카드가 남아 있어 새 결과가 옛 스크롤 위치에 들어오지 않게.
+  scrollReset?: { key: string; refreshing: boolean };
   children: (statusId: number, root: Element) => ReactNode;
 }) {
   const [params, setParams] = useSearchParams();
@@ -56,6 +64,8 @@ export function MobileBoard({
       setParams((prev) => withBoardTab(prev, active), { replace: true });
     }
   }, [settled, active, urlTab, setParams]);
+
+  useScrollTopWhenSettled(scrollEl, scrollReset?.key ?? '', scrollReset?.refreshing ?? false);
 
   // 탭이 바뀌면 목록을 맨 위로 — 이전 탭의 스크롤 위치가 남아 sentinel 이 바로 보이거나 빈 화면처럼 보이지 않게.
   useEffect(() => {
@@ -109,8 +119,7 @@ export function MobileBoard({
                 {t.label}
               </span>
               <span className="font-normal tabular-nums text-muted-foreground" data-testid={`board-tab-count-${t.statusId}`}>
-                {t.count}
-                {t.hasMore ? '+' : ''}
+                {tabCount(t)}
               </span>
             </TabsTrigger>
           ))}
@@ -124,8 +133,7 @@ export function MobileBoard({
               {current.label}
             </span>
             <span className="shrink-0 font-normal tabular-nums text-muted-foreground">
-              {current.count}
-              {current.hasMore ? '+' : ''}
+              {tabCount(current)}
             </span>
           </span>
           {menu?.(current.statusId)}
