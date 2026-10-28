@@ -1,12 +1,10 @@
 #!/bin/sh
-# agent-home <AI 폴더> <명령> … — start-agent 가 만든 AI 폴더(<홈>/<AI 이름>)의 설정과 「새 프로젝트 알림」 기록을 다룬다(WP-1053).
-#   get <이름>       — 저장한 값을 낸다(빈 값도 값이다 — 「대기열 없음」). 저장한 적이 없으면 아무것도 내지 않고 1.
-#   set <이름> <값>  — 값을 저장한다. 이름은 queue(대기열 라벨, 빈 값 = 가져오지 않기)·operator(새 프로젝트를 알릴 사람 username).
-#   due              — 새 프로젝트 확인을 할 때면 알릴 사람(operator)을 내고 0, 아니면 아무것도 내지 않고 1.
-#                      6시간 구간마다 처음 부른 하나만 0 이다 — 칸 여럿이 같은 AI 폴더를 보므로 mkdir(한 쪽만 성공)로 하나만 확인하게 한다.
-#                      work-loop 가 반복마다 부르므로 한 번으로 끝나게 했다: AI 폴더가 비었거나(start-agent 로 띄운 칸이 아님) 알릴 사람이 없으면 조용히 1.
-#   missing <키>…    — 받은 프로젝트 키(그 AI 가 지금 맡은 것 전부) 중 tmux 칸이 없는 키를 한 줄씩 낸다. 이미 알린 키는 내지 않고(한 번만 알리게),
-#                      칸이 생겼거나 맡은 목록에서 빠진 키는 알린 기록을 지운다(나중에 다시 칸 없이 맡게 되면 또 알리게). AI 의 tmux 세션이 없으면 3.
+# agent-home <AI 폴더> <명령> … — start-agent 가 만든 AI 폴더(<홈>/<AI 이름>)의 설정과 「새 프로젝트 확인」을 다룬다(WP-1053).
+#   get queue          — 저장한 대기열 라벨을 낸다(빈 값도 값이다 — 「가져오지 않기」). 저장한 적이 없으면 아무것도 내지 않고 1.
+#   set queue <라벨>   — 대기열 라벨을 저장한다(빈 값 = 가져오지 않기). 큰따옴표 "·역슬래시 \ 는 work-loop 인자(--queue "…")를 깨뜨려 거절한다.
+#   due                — 새 프로젝트 확인을 할 때면 0, 아니면 1. work-loop 가 깨어날 때마다 부른다 — 같은 AI 의 칸 여럿이 함께 깨어나도
+#                        5분 구간마다 처음 부른 하나만 0 이다(mkdir 은 한 쪽만 성공). AI 폴더가 비었으면(start-agent 로 띄운 칸이 아님) 조용히 1.
+#   missing <키>…      — 받은 프로젝트 키(그 AI 가 지금 맡은 것 전부) 중 tmux 칸이 없는 키를 한 줄씩 낸다. AI 의 tmux 세션이 없으면 3.
 # 설정은 <AI 폴더>/agent.conf(한 줄에 「이름=값」), 기록은 <AI 폴더>/state/ 에 둔다.
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
@@ -19,17 +17,14 @@ if [ -z "$aidir" ] || [ -z "$cmd" ]; then
   exit 2
 fi
 # AI 폴더 이름은 AI 이름(키 이름과 같은 규칙)이고 tmux 세션 이름이 된다.
-if [ ! -d "$aidir" ] || ! gw_valid_name "$(basename "$aidir")"; then
-  echo "AI 폴더가 아닙니다: $aidir" >&2
-  exit 2
-fi
+aidir=$(gw_ai_dir "$aidir") || { echo "AI 폴더가 아닙니다: ${1:-}" >&2; exit 2; }
 shift 2
 conf="$aidir/agent.conf"
 state="$aidir/state"
 
 case "$cmd" in
   get | set)
-    case "${1:-}" in queue | operator) ;; *) echo "모르는 이름: ${1:-}" >&2; exit 2 ;; esac
+    case "${1:-}" in queue) ;; *) echo "모르는 이름: ${1:-}" >&2; exit 2 ;; esac
     ;;
 esac
 
@@ -41,43 +36,29 @@ case "$cmd" in
   set)
     [ $# -eq 2 ] || { echo "사용: agent-home <AI 폴더> set <이름> <값>" >&2; exit 2; }
     case "$2" in *'
-'*) echo "값에 줄바꿈을 넣을 수 없습니다" >&2; exit 2 ;; esac
+'* | *'"'* | *\\*) echo "값에 줄바꿈·큰따옴표(\")·역슬래시(\\)를 넣을 수 없습니다" >&2; exit 2 ;; esac
     rest=$(grep -v "^$1=" "$conf" 2>/dev/null)
     gw_write_atomic "$conf" "${rest:+$rest
 }$1=$2"
     ;;
   due)
-    line=$(grep -m1 "^operator=" "$conf" 2>/dev/null) && [ -n "${line#*=}" ] || exit 1
     mkdir -p "$state"
-    slot="$state/checked-$(($(date +%s) / 21600))"
+    slot="$state/checked-$(($(date +%s) / 300))"
     mkdir "$slot" 2>/dev/null || exit 1
     # 지난 구간 표시는 지운다(이번 것만 남긴다).
     for d in "$state"/checked-*; do
       [ "$d" = "$slot" ] || rmdir "$d" 2>/dev/null
     done
-    printf '%s\n' "${line#*=}"
     ;;
   missing)
     # 칸 키는 agent-window 가 다는 것이라 그것으로 읽는다(예전 구성의 프로젝트 창은 창 이름 — 그 프로젝트도 돌고 있는 것이다).
     panes=$("$here/agent-window" --keys "$(basename "$aidir")") || exit 3
     nl='
 '
-    mkdir -p "$state/notified"
-    keys=""
     for k in "$@"; do
-      k=$(printf '%s' "$k" | tr '.:' '__')
-      case "$k" in '' | *[!A-Za-z0-9_-]*) echo "이상한 프로젝트 키: $k" >&2; continue ;; esac
-      keys="$keys$nl$k"
-      case "$nl$panes$nl" in
-        *"$nl$k$nl"*) rmdir "$state/notified/$k" 2>/dev/null ;;
-        # mkdir 은 한 칸만 성공한다 — 칸 여럿이 동시에 확인해도 한 번만 알린다.
-        *) mkdir "$state/notified/$k" 2>/dev/null && printf '%s\n' "$k" ;;
-      esac
-    done
-    # 맡은 목록에서 빠진 키의 기록도 지운다 — 빠졌다 다시 들어오면 또 알리게.
-    for d in "$state/notified"/*; do
-      [ -d "$d" ] || continue
-      case "$keys$nl" in *"$nl${d##*/}$nl"*) ;; *) rmdir "$d" 2>/dev/null ;; esac
+      # 키로 쓸 수 없는 값은 건너뛴다(띄우지 못하는 키를 매번 내지 않게).
+      gw_valid_project_key "$k" || { echo "이상한 프로젝트 키: $k" >&2; continue; }
+      case "$nl$panes$nl" in *"$nl$k$nl"*) ;; *) printf '%s\n' "$k" ;; esac
     done
     ;;
   *)

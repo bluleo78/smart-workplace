@@ -115,6 +115,45 @@ gw_write_atomic() {
   return 1
 }
 
+# 프로젝트 키 검사 — 폴더·tmux 칸 이름으로 쓰므로 영문·숫자·_·- 만(서버 키는 대문자·숫자라 늘 통과한다, WP-1053).
+gw_valid_project_key() {
+  case "$1" in '' | *[!A-Za-z0-9_-]*) return 1 ;; esac
+  return 0
+}
+
+# AI 폴더(start-agent 의 <홈>/<AI 이름>) 검사 — 있는 폴더이고 이름이 AI 이름 규칙(gw_valid_name)을 지키면 절대 경로를 내고 0.
+# 폴더 이름이 그 칸의 신원(GENIA_WORKS_AS)·tmux 세션 이름이 되므로 me·공백 든 이름은 받지 않는다(WP-1053).
+gw_ai_dir() {
+  [ -d "$1" ] && gw_valid_name "$(basename "$1")" && (cd "$1" && pwd)
+}
+
+# 폴더 잠금 — mkdir(한 쪽만 성공)로 잡고 안에 잡은 프로세스(gw_proc_key — pid 와 시작 시각)를 적는다(WP-1053).
+# 사용: gw_dir_lock <폴더> [<기다릴 횟수 — 0.1초씩>] — 잡으면 0(스크립트가 끝날 때 저절로 푼다), 못 잡으면 1.
+# 잡은 프로세스가 끝났거나 pid 가 다른 프로세스에 다시 쓰였으면 넘겨받는다 — 나이로 짐작하지 않아 오래 걸리는 clone 의 잠금을 뺏지 않는다.
+# 적기 전에 죽어 주인이 없는 잠금은 1분이 지나면 넘겨받는다. 한 스크립트에 잠금은 하나다.
+gw_dir_lock() {
+  _gw_tries=${2:-0}
+  while ! mkdir "$1" 2>/dev/null; do
+    _gw_owner=$(cat "$1/owner" 2>/dev/null)
+    if [ -n "$_gw_owner" ]; then
+      case "$_gw_owner" in
+        *-*) [ "$(gw_proc_key "${_gw_owner%%-*}")" = "$_gw_owner" ] ;;
+        *) kill -0 "$_gw_owner" 2>/dev/null ;;
+      esac || { rm -rf "$1"; continue; }
+    elif [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+      rm -rf "$1"
+      continue
+    fi
+    [ "$_gw_tries" -gt 0 ] || return 1
+    _gw_tries=$((_gw_tries - 1))
+    sleep 0.1
+  done
+  # ps 가 시작 시각을 못 읽으면 pid 만 적는다(그때는 살아 있는지로만 본다).
+  { gw_proc_key $$ || echo $$; } > "$1/owner" 2>/dev/null
+  _gw_lock_dir=$1
+  trap 'rm -rf "$_gw_lock_dir"' EXIT
+}
+
 # 이 세션의 신원 이름 — 세션 선택(gw-session) > GENIA_WORKS_AS. 없거나 me 면 아무것도 내지 않는다(내 토큰).
 # 헤더 스크립트와 알림 구독(gw-events)이 같은 신원을 쓰도록 한곳에 둔다(WP-720). 부르는 스크립트와 같은 폴더의 gw-session-key 를 쓴다.
 gw_identity() {

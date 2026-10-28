@@ -42,7 +42,7 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
   - 첨부 때문에 보고가 거절되면(400 「유효하지 않은 첨부」 — 보고 전체가 되돌려진다) `fileIds` 를 빼고 다시 보내며 첨부하지 못했다고 적는다. 원본은 `MAIN/.work-loop/state/evidence/<이슈 키>/` 에 백업으로만 둔다.
 - **받는 사람은 `@username` 으로 지정한다** — 이슈 챗 글(`report_agent_work` 의 `message`, `add_issue_chat` 의 `body`)이 특정 사람에게 하는 말이면(PR 리뷰를 맡길 검토자, 질문을 받을 사람, 일을 넘길 AI) 글에 `@username` 을 쓴다. username 은 `get_issue_chat`(after 없이)이 함께 주는 `participants` 나 담당자·검토자의 username 에서 고른다. 멘션된 사람은 알림을 받고, 멘션된 AI 는 그 이슈 챗에 참여한다. 모두에게 하는 진행 보고에는 멘션하지 않는다 — 멘션마다 알림이 간다.
 - **이슈 챗 글은 목적으로 도구를 고른다** — 내 작업 상태가 바뀌면(시작·질문·막힘·검토 요청 등) `report_agent_work` 에 상태와 함께 `message` 로 남긴다. 상태 변화 없이 말만 하면(담당 밖 이슈의 멘션에 답하기 등) `add_issue_chat({ issueKey, body })` 로 남긴다 — 담당이 아니어도 쓸 수 있다. 댓글에서 받은 말에는 `add_comment` 로 답한다(물은 곳에 답한다).
-- **이 세션의 프로젝트만 다룬다** — 후보·멘션·대기열 모두 인자로 받은 프로젝트 키로만 조회하고, 다른 프로젝트의 이슈는 읽지도 답하지도 않는다. 같은 AI 키로 다른 프로젝트를 도는 세션이 따로 있을 수 있다. 예외는 3번에서 내 이슈 목록을 읽어 「동시 진행 상한」을 셀 때와, 5번 「새 프로젝트 확인」에서 내가 맡은 프로젝트 목록을 읽을 때뿐이다 — 다른 프로젝트의 이슈는 세기만 하고, 프로젝트 목록은 칸이 없는 프로젝트를 사람에게 알리는 데만 쓴다.
+- **이 세션의 프로젝트만 다룬다** — 후보·멘션·대기열 모두 인자로 받은 프로젝트 키로만 조회하고, 다른 프로젝트의 이슈는 읽지도 답하지도 않는다. 같은 AI 키로 다른 프로젝트를 도는 세션이 따로 있을 수 있다. 예외는 3번에서 내 이슈 목록을 읽어 「동시 진행 상한」을 셀 때와, 5번 「새 프로젝트 확인」에서 내 소속 프로젝트 목록을 읽을 때뿐이다 — 다른 프로젝트의 이슈는 세기만 하고, 프로젝트 목록은 칸이 없는 프로젝트를 띄우는 데만 쓴다(그 프로젝트의 일은 새 칸이 한다).
 - **격리 라이브 스택은 늘 이름 `work-loop` 로** 띄우고 확인하고 내린다(이 저장소는 `LIVE_STACK_NAME=work-loop` — `.work-loop/project.md` 4번). 이름이 다르면 상태 파일이 갈려, 사람이 같은 스크립트로 띄운 스택을 보거나 내리게 된다. 내리는 것도 그 이름의 스택, 곧 내가 띄운 프로세스·컨테이너뿐이다.
 - **MAIN** = main 작업 폴더 = `git rev-parse --path-format=absolute --git-common-dir` 의 부모 폴더. 워크트리 안에 있어도 이 값은 같다. 실행 상태는 `MAIN/.work-loop/state/`(git 무시), 저장소 안내는 `MAIN/.work-loop/project.md` 다. 이슈마다 이어 할 기록은 notes 파일 `MAIN/.work-loop/state/notes/<이슈 키>.md` 다.
 - **플러그인 스크립트**는 이 스킬 폴더 기준 `../../scripts/` 에 있다(스킬을 불러올 때 알려 주는 기준 폴더에서 두 단계 위). 경로는 따옴표로 감싸 부른다.
@@ -140,11 +140,14 @@ description: Use when the user runs /genia-works:work-loop <프로젝트 키> (u
 
 #### 새 프로젝트 확인
 
-start-agent 가 띄운 칸에서만, 다음 확인을 잡기 전에 한다. 내가 중간에 다른 프로젝트에 추가되면 그 프로젝트는 누가 start-agent 를 다시 부를 때까지 칸이 없어 아무도 보지 않는다 — 그것을 start-agent 를 부른 사람에게 알리려는 것이다. 칸을 스스로 띄우지는 않는다(tmux·clone 은 start-agent 의 일). 아래 `agent-home` 은 `"<이 스킬 폴더>/../../scripts/agent-home" "$GENIA_WORKS_AGENT_DIR"` 다(start-agent 가 칸에 넘긴 AI 폴더 — 셸이 펼치게 따옴표 안의 변수 그대로).
-1. `agent-home due` 를 한 번 부른다. 종료 0 일 때만 이어 가고 출력이 알릴 사람의 username 이다 — 같은 AI 의 칸들이 함께 6시간에 한 번, 먼저 부른 칸 하나만 0 을 받는다. 1 이면(때가 아님·알릴 사람 없음·start-agent 로 띄운 칸이 아님) 그만둔다.
-2. `list_projects` 를 끝까지 읽어(`hasMore` 면 `nextPage` 를 `page` 로 넘긴다) `viewerRole` 과 `repositoryUrl` 이 있는 프로젝트 키를 모은다.
-3. `agent-home missing <키>…`(모은 키 전부)이 낸 키마다 — 칸이 없고 아직 알리지 않은 프로젝트다 — `open_dm({ usernames: ['<알릴 사람>'] })` 의 채널에 `add_channel_message` 로 한 번 알린다: 「<내 이름>이 <키>(<프로젝트 이름>) 프로젝트에 추가됐지만 아직 이 프로젝트를 돌고 있지 않습니다 — 에이전트 서버의 홈에서 `/genia-works:start-agent <내 이름>` 을 불러 주세요.」 종료 3(tmux 세션을 찾지 못함)이면 그만둔다.
-- 어느 단계든 실패하면 알리지 않고 넘어간다 — 이번 부르기의 일을 막지 않는다.
+start-agent 가 띄운 칸에서만, 다음 확인을 잡기 전에 한다. 내가 중간에 다른 프로젝트에 추가되면(서버는 이것을 알리지 않는다) 그 프로젝트는 칸이 없어 아무도 보지 않는다 — 깨어날 때마다 내 소속 프로젝트를 읽어, 칸이 없는 프로젝트를 start-agent 와 같은 절차로 스스로 준비하고 칸으로 띄운다. 새 칸의 work-loop 가 그 프로젝트를 맡는다. 아래 `agent-home`·`agent-project` 는 `"<이 스킬 폴더>/../../scripts/agent-home"`·`"<이 스킬 폴더>/../../scripts/agent-project"` 이고, `<AI 폴더>` 는 셸이 펼치게 따옴표 안에 그대로 쓰는 `"$GENIA_WORKS_AGENT_DIR"` 다(start-agent 가 칸에 넘긴 값).
+1. `agent-home <AI 폴더> due` 가 0 일 때만 이어 간다 — 같은 AI 의 칸들이 함께 깨어나도 5분에 하나만 확인한다. 1 이면(때가 아님·start-agent 로 띄운 칸이 아님) 그만둔다.
+2. `list_projects` 를 끝까지 읽어(`hasMore` 면 `nextPage` 를 `page` 로 넘긴다) `viewerRole` 과 `repositoryUrl` 이 있는 프로젝트를 모은다.
+3. `agent-home <AI 폴더> missing <키>…`(모은 키 전부)이 낸 키마다 — 칸이 없는 프로젝트다 — 차례로 `agent-project add <AI 폴더> "<키>" "<repositoryUrl>"`(`repositoryBranch` 가 있으면 끝에 `"<브랜치>"` — 주소·브랜치는 프로젝트 설정의 값이라 따옴표로 감싼다)를 부른다. clone(또는 fetch)하고 칸을 띄운다.
+   - 종료 0 — 띄웠다. 종료 6(`busy` — 다른 칸·start-agent 가 그 키를 하는 중)·7(`backoff` — 1시간 안에 실패했다)은 조용히 넘어간다.
+   - 종료 1 — 사람이 손봐야 하는 실패다(이유는 마지막 줄 — 스크립트 머리 주석). 스크립트가 이유를 기록해 두어 사람이 start-agent 를 부를 때 보이고, 1시간 뒤 다시 해 본다. 이번 부르기의 콘솔 요약에도 「<키> 칸 띄우기 실패 — <마지막 줄>」 한 줄을 남긴다.
+- 칸을 닫거나 저장소 폴더를 지우지 않는다 — 멤버에서 빠진 프로젝트의 칸은 start-agent 를 부를 때 사람에게 알린다.
+- 어느 단계든 실패해도 이번 부르기의 일을 막지 않는다.
 
 #### 알림으로 깨우기
 

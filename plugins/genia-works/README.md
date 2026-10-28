@@ -175,7 +175,7 @@ start-agent 가 차례로 합니다.
 
 ```
 <홈>/
-  kodi/agent.conf     ← 대기열 라벨·알릴 사람(start-agent 를 부른 사람)
+  kodi/agent.conf     ← 대기열 라벨
   kodi/repos/WP/      ← AI 마다, 프로젝트마다 clone 하나
   kodi/repos/HR/
   lead/repos/WP/      ← 같은 저장소도 AI 마다 따로(저장소 하나에는 work-loop 하나)
@@ -191,7 +191,7 @@ tmux attach -t kodi
 - tmux 는 홈 세션과 따로 돌아, 홈 세션을 닫거나 SSH 를 끊어도 AI 는 계속 돕니다. 들여다볼 때는 `tmux attach -t <AI 이름>` — 칸 위에 프로젝트 키가 보이고, 칸을 클릭해 고르면 거기 친 글이 그 AI 세션에 들어갑니다(직접 묻거나 명령을 칠 수 있습니다). `Ctrl+b z` 로 고른 칸만 크게 보고 같은 키로 돌아오며, 빠질 때는 `Ctrl+b d`. 진행 상황은 웹의 AI 위임 작업·이슈 챗에서도 보입니다.
 - claude 가 끝난 칸(반복 만료·오류)은 닫히지 않고 남아 보입니다. 같은 명령을 다시 부르면 그 칸만 다시 띄웁니다.
 - 다른 AI 도 띄우려면 `/genia-works:start-agent <다른 AI>` 를 다시 부릅니다. 재부팅 뒤·새 프로젝트를 연결한 뒤에도 같은 명령입니다 — 돌던 칸·저장소 폴더는 건드리지 않고 없는 것만 더 띄웁니다.
-- AI 가 중간에 다른 프로젝트에 추가되면, 돌고 있는 칸이 몇 시간 안에 알아채고 start-agent 를 부른 사람에게 「다시 불러 주세요」 DM 을 한 번 보냅니다(칸을 스스로 띄우지는 않습니다).
+- AI 가 중간에 다른 프로젝트에 추가되면(멤버이고 연결된 저장소가 있으면), 돌고 있는 칸이 깨어날 때 알아채고 그 프로젝트를 clone 해 칸을 하나 더 띄웁니다 — 다시 부르지 않아도 됩니다. clone 이 실패하면(git 자격 증명 등) 다음 확인에서 다시 해 봅니다.
 - `/loop` 반복은 7일 뒤 끝납니다(Claude Code 제약 — 반복이 스스로 늘릴 방법이 없습니다). 일주일에 한 번 `/genia-works:start-agent <AI 이름> --restart` 로 그 AI 의 칸을 모두 다시 띄웁니다. 하던 일 중간이면 끊기지만, 새 세션의 work-loop 가 다음 확인에서 이어 받습니다. 예전(0.1.22 이하) 구성 — 프로젝트마다 창 — 으로 돌던 AI 도 `--restart` 한 번으로 칸으로 옮깁니다.
 - **플러그인 업데이트** — 마켓플레이스는 저절로 새로 받지 않을 수 있습니다. 새 버전이 나오면 홈 세션을 나와 `claude plugin marketplace update genia-works` → `claude plugin update genia-works@genia-works` 를 치고, 홈 세션을 다시 띄워 `--restart` 로 AI 를 다시 띄워야 돌던 AI 도 새 버전으로 돕니다.
 - 프로젝트마다 세션이 따로라 저장소마다 다른 `CLAUDE.md` 규칙이 섞이지 않습니다.
