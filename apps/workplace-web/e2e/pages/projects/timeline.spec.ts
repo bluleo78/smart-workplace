@@ -6,6 +6,7 @@ import type { Locator, Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { afterScroll, gotoTimeline } from '../../fixtures/timeline';
 import { expectStays } from '../../fixtures/wait';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
@@ -192,7 +193,7 @@ test('막대 드래그 이동 시 startDate+dueDate PATCH', { tag: '@input' }, a
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
   await expandNoEpicGroup(page);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
@@ -238,7 +239,7 @@ test('PATCH 실패 시 토스트 노출 + 서버 상태 복원', { tag: '@input'
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
   await expandNoEpicGroup(page);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
@@ -271,7 +272,7 @@ test('비멤버는 드래그 비활성', { tag: '@input' }, async ({ authenticat
     }
     return route.fallback();
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
   await expandNoEpicGroup(page);
   const bar = page.locator('[data-task-id="1"]');
   await expect(bar).toBeVisible();
@@ -294,7 +295,8 @@ test('의존 화살표 렌더 (표시 전용)', { tag: '@layout' }, async ({ aut
       body: JSON.stringify([{ fromIssueNumber: 1, toIssueNumber: 2 }]),
     });
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  // 막대·화살표 좌표를 차례로 재므로 첫 진입 스크롤이 걸린 뒤에 잰다.
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   await expandNoEpicGroup(page);
   const link = page.locator('[data-link-id]');
@@ -546,19 +548,18 @@ test('「오늘」을 다시 눌러도(같은 날짜) 옆으로 밀어 둔 차�
     const t = await todayLine.boundingBox();
     return !!c && !!t && t.x >= c.x && t.x <= c.x + c.width;
   };
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
+  await gotoTimeline(page, `/projects/${KEY}/timeline?period=all`);
   await expect.poll(todayInChart).toBe(true);
   const todayButton = page.getByRole('button', { name: '오늘' });
+  // 「오늘」을 누르고 그 스크롤이 걸릴 때까지 기다린다 — 걸리기 전에 밀면 늦게 온 스크롤이 다시 오늘로 되돌렸다.
+  const clickToday = () => afterScroll(page, () => todayButton.click());
   // 같은 날짜를 두 번 요청하는 경우 — 첫 「오늘」 뒤 밀어 두고 다시 누른다. 양 끝 모두 확인.
   for (const edge of ['start', 'end'] as const) {
-    await todayButton.click();
+    await clickToday();
     await expect.poll(todayInChart).toBe(true);
-    // 「오늘」 스크롤은 한 프레임 미뤄 실행된다 — 그 프레임이 지나기 전에 밀면 미뤄 둔 스크롤이 다시 오늘로 되돌린다.
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await chart.evaluate((el, e) => el.scrollTo({ left: e === 'start' ? 0 : el.scrollWidth }), edge);
     await expect.poll(todayInChart).toBe(false);
-    await todayButton.click();
+    await clickToday();
     await expect.poll(todayInChart).toBe(true);
   }
 });
@@ -623,15 +624,18 @@ test('일 보기 — 날짜·요일 칸과 주말 음영, 하루 단위 막대 �
       body: JSON.stringify(createIssue({ number: 1, title: '기간 이슈', startDate: '2026-07-04', dueDate: '2026-07-08' })),
     });
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
   await expect(page.getByTestId('timeline-gantt')).toBeVisible();
   const dayButton = page.getByRole('button', { name: '일', exact: true });
-  await dayButton.click();
-  await expectToggle(dayButton, true);
+  // 보기를 바꾸면 보던 날짜로 다시 가운데를 맞추고, 「오늘」도 스크롤한다 — 막대를 끌기 전에 둘 다 걸린 뒤로 기다린다.
+  await afterScroll(page, async () => {
+    await dayButton.click();
+    await expectToggle(dayButton, true);
+  });
   await expectToggle(page.getByRole('button', { name: '주' }), false);
 
   // 오늘선 아래의 위·아래 스케일 칸 — 달과 「날짜 요일」.
-  await page.getByRole('button', { name: '오늘' }).click();
+  await afterScroll(page, () => page.getByRole('button', { name: '오늘' }).click());
   const todayLine = page.getByTestId('timeline-today-line');
   const cellAt = (row: 'first' | 'last') =>
     todayLine.evaluate((line, which) => {
@@ -733,12 +737,11 @@ test('보기 단위를 바꿔도 차트 가운데 보던 날짜가 가운데에 
     const t = (await todayLine.boundingBox())!;
     return Math.abs(t.x - (c.x + c.width / 2));
   };
-  await page.goto(`/projects/${KEY}/timeline?period=all`);
-  await expect(page.getByTestId('timeline-gantt')).toBeVisible();
-  await page.getByRole('button', { name: '오늘' }).click();
+  await gotoTimeline(page, `/projects/${KEY}/timeline?period=all`);
+  // 「오늘」 스크롤은 효과 다음 프레임에 걸려 부하에 따라 늦게 온다 — 걸린 뒤에 오늘선을 차트 가운데로 옮긴다. 프레임 두 개만
+  // 기다리면 그 뒤에 스크롤이 와서 가운데로 옮겨 둔 차트를 다시 밀어, 병렬 실행에서 보기 전환 뒤 가운데가 크게 어긋났다.
+  await afterScroll(page, () => page.getByRole('button', { name: '오늘' }).click());
   await expect(todayLine).toBeVisible();
-  // 「오늘」 스크롤은 한 프레임 미뤄 실행된다 — 그 뒤에 오늘선을 차트 가운데로 옮긴다.
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const shift = (await todayLine.boundingBox())!.x - ((await chart.boundingBox())!.x + (await chart.boundingBox())!.width / 2);
   await chart.evaluate((el, dx) => el.scrollBy({ left: dx }), shift);
   await expect.poll(offCenter).toBeLessThan(4);

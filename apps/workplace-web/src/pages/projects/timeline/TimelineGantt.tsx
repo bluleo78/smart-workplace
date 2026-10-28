@@ -15,7 +15,7 @@ import {
 import { addDays, format, parseISO } from 'date-fns'
 import { Diamond, Triangle } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import {
   DropdownMenu,
@@ -24,14 +24,17 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/overlay/dropdown-menu'
-import { formatDateKey, formatListDueDate } from '@/lib/formatters'
+import { formatDateKey, formatDateOnlyMonthDay, formatDateRangeMonthDay } from '@/lib/formatters'
+import { cn } from '@/lib/utils'
 import type { IssueStatus } from '@/types/issue'
 
 import {
+  clusterLaneGroups,
   dayCellLabel,
   ganttAxisBounds,
   groupLaneChipsByDate,
   isWeekend,
+  type LaneChipCluster,
   laneGroupLabelParts,
   rollupOverlay,
   weekMonthAdd,
@@ -100,8 +103,14 @@ export interface TimelineGanttProps {
 // translateX 가 음수에 가까워지며 라벨 위로 겹치는 것을 막는다. 라벨 실측 대신 고정 여백을
 // 쓴 것은 이 스코프에서 동적 폭 측정이 과설계이기 때문(YAGNI).
 const MILESTONE_LABEL_RESERVED_PX = 64
+// 레인 항목의 날짜 — 날짜 묶음·화면 묶음·배치·목록이 같은 함수를 쓴다.
+const milestoneDate = (m: TimelineMilestoneMarker) => m.dueDate
+const versionDate = (v: TimelineVersionMarker) => v.date
 // versions 기본값 — 렌더마다 새 배열이 되어 오버레이 effect 가 매번 다시 돌지 않게 고정 참조.
 const NO_VERSIONS: TimelineVersionMarker[] = []
+// 레인 칩을 따로 둘 최소 날짜 간격(px, WP-1047) — 이보다 가까운 날짜의 칩은 하나로 묶는다. 짧은 버전 칩 한 개 폭 안팎이고,
+// 실제 칩이 더 넓으면 그려진 칩 폭으로 늘린다(laneGaps).
+const LANE_CHIP_MIN_GAP_PX = 96
 // 겹치는 사이클 이름표 한 줄 높이(text-xs 줄 높이 16px) — 줄을 나눌 때 아래로 내리는 간격(WP-489).
 const CYCLE_LABEL_LANE_PX = 16
 
@@ -149,19 +158,55 @@ interface PendingScroll {
   frame: number
 }
 
+// 앱이 건 차트 스크롤 수 — 모듈에 하나만 두어 간트가 다시 마운트돼도 줄지 않는다(E2E 가 잡아 둔 수보다 늘 커진다).
+let scrollSeq = 0
+
+/**
+ * 앱이 차트를 옮긴 뒤 부른다 — SVAR 상태의 scrollLeft 를 DOM 에도 바로 쓰고 차트 뿌리의 `data-scroll-seq` 를 하나 올린다.
+ * 스크롤이 부하에 따라 늦게 와서, 그 전에 막대를 재면 잰 직후 차트가 밀려 좌표가 어긋났다. E2E 는 이 수가 오르길 기다린 뒤
+ * 잰다(e2e/fixtures/timeline.ts). SVAR 는 상태를 다음 그리기에서야 DOM 에 써서, 수만 먼저 올리면 아직 안 옮긴 차트를 잴 수
+ * 있어 DOM 도 함께 맞춘다. 같은 날짜로 다시 걸어도(「오늘」 두 번) 구분되게 날짜가 아니라 수를 남긴다.
+ */
+function markScrolled(api: IApi, root: HTMLElement | null) {
+  const scroller = root?.querySelector<HTMLElement>('.wx-chart')
+  const { scrollLeft } = api.getState()
+  if (scroller && typeof scrollLeft === 'number') scroller.scrollLeft = scrollLeft
+  root?.setAttribute('data-scroll-seq', String(++scrollSeq))
+}
+
 /**
  * 한 프레임 뒤 scroll-chart 를 건다(이미 예약한 프레임은 취소). 그때 api 가 아직 없으면 날짜를 남겨 둔다 —
  * api 가 붙을 때(Gantt ref) 다시 부른다. 효과·ref 콜백 두 곳에서 부르므로 refs 만 읽는 모듈 함수로 둔다(의존성 없음).
  */
-function applyScroll(pending: PendingScroll, apiRef: RefObject<IApi | null>) {
+function applyScroll(pending: PendingScroll, apiRef: RefObject<IApi | null>, rootRef: RefObject<HTMLDivElement | null>) {
   cancelAnimationFrame(pending.frame)
   pending.frame = requestAnimationFrame(() => {
     const api = apiRef.current
     if (!pending.date || !api) return
     api.exec('scroll-chart', { date: parseISO(pending.date) })
+    markScrolled(api, rootRef.current)
     pending.date = null
   })
 }
+
+/**
+ * 레인 칩을 따로 둘 최소 간격(px, WP-1047) — 기본은 LANE_CHIP_MIN_GAP_PX, 그려진 칩이 더 넓으면(긴 이름·큰 「+N」) 그 폭까지
+ * 늘린다. 그리기 전(레이아웃 effect)에 재므로 넓은 칩이 겹친 채 보이지 않는다. 한 보기·한 데이터 안에서는 늘기만 해 몇 번 안에
+ * 멈추고, 보기나 항목이 바뀌면 기본값부터 다시 잰다 — 사라진 긴 이름 때문에 계속 넓게 묶이지 않게.
+ */
+function useLaneChipGap(groups: unknown, zoom: TimelineZoom, chipRefs: RefObject<Map<string, HTMLButtonElement>>): number {
+  const [measured, setMeasured] = useState<{ groups: unknown; zoom: TimelineZoom; gap: number } | null>(null)
+  const gap = measured && measured.groups === groups && measured.zoom === zoom ? measured.gap : LANE_CHIP_MIN_GAP_PX
+  useLayoutEffect(() => {
+    const widest = Math.max(0, ...[...chipRefs.current.values()].map((chip) => chip.offsetWidth)) + 4
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 그려진 칩 폭은 DOM 에서만 잴 수 있고, 그리기 전에 다시 묶어야 겹친 칩이 보이지 않는다.
+    if (widest > gap) setMeasured({ groups, zoom, gap: widest })
+  }, [groups, zoom, gap, chipRefs])
+  return gap
+}
+
+// 보기 전환 뒤 새 축이 DOM 에 반영되길 기다리는 최대 프레임(약 1초) — 그 뒤엔 있는 축으로 가운데를 맞춘다.
+const RECENTER_MAX_FRAMES = 60
 
 const WEEK_MONTH_UNIT = 'weekmonth'
 registerScaleUnit(WEEK_MONTH_UNIT, {
@@ -184,8 +229,16 @@ const DAY_SCALES: IScaleConfig[] = [
   { unit: 'day', step: 1, format: dayCellLabel },
 ]
 
-// 일 보기 칸 폭 — 「25 토」 라벨(12px)이 잘리지 않는 최소 폭. 주·월은 SVAR 기본 폭을 그대로 쓴다.
-const DAY_CELL_WIDTH = 44
+// 보기마다 칸 폭(px) — 일 보기는 「25 토」 라벨(12px)이 잘리지 않는 최소 폭, 주(한 주)·월(한 달)은 SVAR 기본 폭(100)과 같다.
+// SVAR 에 늘 이 값을 넘겨, 레인 칩 묶음(WP-1047)이 쓰는 하루 폭(PX_PER_DAY_BY_ZOOM)과 실제 축이 어긋나지 않게 한다.
+const CELL_WIDTH_BY_ZOOM: Record<TimelineZoom, number> = { day: 44, week: 100, month: 100 }
+// 보기마다 하루 폭(px) — 칸 폭에서 정한다. 축을 재서 상태로 두면 첫 그림이 묶이기 전 모양으로 한 번 그려지고, 보기를 바꾼
+// 직후엔 SVAR 가 새 축을 다음 프레임에 재 이전 보기 폭으로 묶였다. 월은 평균 일수로 나눈다(묶음 판정용이라 충분하다).
+const PX_PER_DAY_BY_ZOOM: Record<TimelineZoom, number> = {
+  day: CELL_WIDTH_BY_ZOOM.day,
+  week: CELL_WIDTH_BY_ZOOM.week / 7,
+  month: CELL_WIDTH_BY_ZOOM.month / 30.44,
+}
 
 const MONTH_SCALES: IScaleConfig[] = [
   { unit: 'year', step: 1, format: (date) => format(date, 'yyyy년') },
@@ -197,6 +250,9 @@ const SCALES_BY_ZOOM: Record<TimelineZoom, IScaleConfig[]> = {
   week: WEEK_SCALES,
   month: MONTH_SCALES,
 }
+
+// 보기의 가장 작은 눈금 단위 — SVAR 축(_scales.minUnit)이 이 보기로 바뀌었는지 볼 때 쓴다.
+const minUnitOf = (zoom: TimelineZoom) => SCALES_BY_ZOOM[zoom][SCALES_BY_ZOOM[zoom].length - 1].unit
 
 // SVAR 기본 그리드 컬럼 헤더가 영문(Task name/Start date/Duration)이라 앱 전체 한국어 UI와
 // 어긋남 — id/width 는 SVAR 기본값(getDefaultColumns)을 유지하고 header 텍스트만 교체한다.
@@ -265,14 +321,30 @@ export function TimelineGantt({
   // 마일스톤 레인과 그 아래 차트의 그리드/차트 경계선을 잇는 구분선 — 레인이 별도 sibling div라
   // SVAR 내부 구분선이 이 행 높이에서는 그려지지 않아 시각적으로 끊겨 보이는 문제를 보정한다.
   const milestoneDividerRef = useRef<HTMLDivElement | null>(null)
-  // 버전 레인(WP-888) — 마일스톤 레인과 같은 방식의 칩/세로 점선/구분선 참조.
+  // 버전 레인(WP-888) — 마일스톤 레인과 같은 방식의 칩/구분선 참조. 세로 점선 대신 레인 안에 버전마다 출시일 점을 찍는다
+  // (WP-1047 — 릴리스가 잦아 점선이 차트 내용을 가렸다). 점은 항목 id 로 찾는다.
   const versionChipRefs = useRef(new Map<string, HTMLButtonElement>())
-  const versionVlineRefs = useRef(new Map<number, HTMLDivElement>())
+  const versionDotRefs = useRef(new Map<number, HTMLDivElement>())
   const versionDividerRef = useRef<HTMLDivElement | null>(null)
   // 같은 날짜 칩 묶음(WP-1027) — 같은 날짜를 옆으로 밀면 뒤 칩이 다른 날짜로 읽히므로 날짜마다 칩 하나로 그린다.
   // 입력은 milestonesToMarkers·versionsToMarkers 가 이미 날짜 → 이름 → id 순으로 준다.
-  const milestoneGroups = useMemo(() => groupLaneChipsByDate(milestones, (m) => m.dueDate), [milestones])
-  const versionGroups = useMemo(() => groupLaneChipsByDate(versions, (v) => v.date), [versions])
+  const milestoneGroups = useMemo(() => groupLaneChipsByDate(milestones, milestoneDate), [milestones])
+  const versionGroups = useMemo(() => groupLaneChipsByDate(versions, versionDate), [versions])
+  // 화면에서 가까운 날짜 칩 묶음(WP-1047) — 보기(일·주·월)마다 하루 폭이 달라 묶음도 달라진다. 축을 조회 기간으로 잘랐는데
+  // (autoScale 끔) 그 축이 차트보다 좁으면 SVAR 가 칸을 늘린다 — 늘린 비율(axisStretch, 아래 오버레이 효과가 잰다)만큼 키운다.
+  // 재기 전엔 늘리지 않은 폭으로 묶는데, 그쪽은 칩 사이가 실제보다 좁게 보는 것이라 더 묶일 뿐 겹치지 않는다.
+  const [axisStretch, setAxisStretch] = useState<{ zoom: TimelineZoom; ratio: number } | null>(null)
+  const pxPerDay = PX_PER_DAY_BY_ZOOM[zoom] * (axisStretch?.zoom === zoom ? axisStretch.ratio : 1)
+  const milestoneGap = useLaneChipGap(milestoneGroups, zoom, milestoneChipRefs)
+  const versionGap = useLaneChipGap(versionGroups, zoom, versionChipRefs)
+  const milestoneClusters = useMemo(
+    () => clusterLaneGroups(milestoneGroups, pxPerDay, milestoneGap),
+    [milestoneGroups, pxPerDay, milestoneGap],
+  )
+  const versionClusters = useMemo(
+    () => clusterLaneGroups(versionGroups, pxPerDay, versionGap),
+    [versionGroups, pxPerDay, versionGap],
+  )
   // onToggleGroup 최신 참조 — api.on 구독 콜백이 stale closure 를 잡지 않도록.
   // 렌더 중 ref 갱신은 React Compiler 가 금지하므로(react-hooks/refs) 이펙트에서 갱신한다.
   const onToggleGroupRef = useRef(onToggleGroup)
@@ -469,7 +541,7 @@ export function TimelineGantt({
     if (!scrollRequest) return
     const pending = scrollRef.current
     pending.date = scrollRequest.date
-    applyScroll(pending, apiRef)
+    applyScroll(pending, apiRef, containerRef)
     return () => cancelAnimationFrame(pending.frame)
   }, [scrollRequest])
 
@@ -477,6 +549,10 @@ export function TimelineGantt({
   // 몇 달 뒤가, 월 보기로 바꾸면 축 끝이 보였다. 바꾸기 직전 차트 가운데 날짜(viewCenterRef — 아래 오버레이 효과가 스크롤마다
   // 갱신)를 새 축에서도 가운데에 둔다. 왼쪽 끝 날짜로 맞추면 좁은 화면에서 주→일로 바꿀 때 보던 날짜가 오른쪽 밖으로 밀렸다.
   // 이 효과는 오버레이 효과보다 먼저 선언돼야 새 축으로 viewCenterRef 가 덮이기 전에 읽는다. 새 축은 SVAR 가 다음 프레임에 잰다.
+  // 그 프레임에 SVAR 상태는 새 축이어도 DOM(차트 폭·스크롤)은 아직 이전 보기일 수 있다 — 일→월처럼 차트가 줄면 브라우저가 이전
+  // 스크롤을 끝으로 잘라, SVAR 상태에 걸어 둔 자리와 DOM 이 어긋난 채 남았다(가운데에서 수백 px). 새 축이 DOM 에 반영될 때까지
+  // 한 프레임씩 미룬 뒤(끝없이 기다리지 않게 RECENTER_MAX_FRAMES 까지), 상태와 DOM 에 같은 자리를 함께 건다 — 상태만 바꾸면
+  // SVAR 가 DOM 에 다시 쓰지 않는 경우가 있었다. 같은 값이라 SVAR 가 상태로 DOM 을 덮어도 그대로다.
   const viewCenterRef = useRef<number | null>(null)
   const prevZoomRef = useRef(zoom)
   useEffect(() => {
@@ -484,16 +560,33 @@ export function TimelineGantt({
     prevZoomRef.current = zoom
     const center = viewCenterRef.current
     if (center == null) return
-    const frame = requestAnimationFrame(() => {
+    const minUnit = minUnitOf(zoom)
+    let frame = 0
+    let waited = 0
+    const recenter = () => {
       const api = apiRef.current
       const chartScales = api?.getState()._scales
       const scroller = containerRef.current?.querySelector<HTMLElement>('.wx-chart')
+      // 간트가 잠깐 떨어져 있어도(api·축·스크롤 영역이 없는 프레임) 버리지 않고 다음 프레임에 다시 본다.
+      const domReady =
+        !!chartScales &&
+        !!scroller &&
+        chartScales.minUnit === minUnit &&
+        Math.abs(scroller.scrollWidth - Math.max(chartScales.width, scroller.clientWidth)) <= 1
+      if (!domReady && ++waited < RECENTER_MAX_FRAMES) {
+        frame = requestAnimationFrame(recenter)
+        return
+      }
       if (!api || !chartScales || !scroller) return
       const msPerPixel = (chartScales.end.getTime() - chartScales.start.getTime()) / chartScales.width
       const left = (center - chartScales.start.getTime()) / msPerPixel - scroller.clientWidth / 2
-      // DOM scrollLeft 를 직접 바꾸면 SVAR 가 자기 상태의 scrollLeft 로 다시 덮는다 — 액션으로 상태째 옮긴다(축 끝에서는 SVAR 가 자른다).
-      api.exec('scroll-chart', { left: Math.max(0, Math.min(left, chartScales.width - scroller.clientWidth)) })
-    })
+      // DOM scrollLeft 만 바꾸면 SVAR 가 자기 상태의 scrollLeft 로 다시 덮는다 — 액션으로 상태를 옮기고 DOM 도 같은 값으로
+      // 맞춘다(markScrolled).
+      const target = Math.max(0, Math.min(left, chartScales.width - scroller.clientWidth))
+      api.exec('scroll-chart', { left: target })
+      markScrolled(api, containerRef.current)
+    }
+    frame = requestAnimationFrame(recenter)
     return () => cancelAnimationFrame(frame)
   }, [zoom])
 
@@ -507,29 +600,40 @@ export function TimelineGantt({
     if (!scroller) return
 
     let todayLeft = 0
+    // 마지막으로 배치에 쓴 SVAR 축·차트 시작 X — 크기 관찰이 둘 다 그대로일 때(관찰 시작 직후 첫 알림 등) 다시 배치하지 않게.
+    let laidOutScales: unknown = null
+    let laidOutLeft = 0
     // 차트 가운데 날짜 계산용 — recompute 가 새 축으로 채운다.
     let axisStart = 0
     let axisMsPerPixel = 0
     // 차트 영역 왼쪽 끝(containerRef 기준) — 사이클 이름표를 이보다 왼쪽(그리드 표 위)에 그리지 않는다(WP-489).
     let chartLeft = 0
     const bandLefts = new Map<number, { left: number; width: number }>()
-    // 마일스톤 오버레이 좌표(#648) — 마감일 오름차순으로 마감일 정확한 X 와 칩 폭을 둔다. vline 은 늘 이 X,
-    // 칩은 스크롤 뒤 겹치거나 차트 왼쪽에 걸리면 우측으로 밀어 배치한다(applyTransform).
-    // 같은 날짜는 칩 하나(date)로 묶여 있어 밀리는 것은 날짜가 다른 칩뿐이다(WP-1027). ids 는 그 날짜의 점선들.
-    type LaneLayout = { date: string; ids: number[]; x: number; width: number }[]
+    // 마일스톤 오버레이 좌표(#648) — 묶음(WP-1047)마다 칩 폭과, 묶인 항목마다 날짜 X(lines — 마일스톤은 세로 점선, 버전은
+    // 출시일 점)를 날짜순으로 둔다. 칩은 마지막(가장 늦은) 날짜 X 가운데에 서고, 차트 왼쪽에 걸리면 우측으로 밀어 둔다(applyTransform).
+    // tail 은 버전 칩의 꼬리(▾) — 스크롤마다 찾지 않게 배치할 때 한 번 찾아 둔다.
+    type LaneLayout = { date: string; lines: { id: number; x: number }[]; x: number; width: number; tail: HTMLElement | null }[]
     const milestoneLayout: LaneLayout = []
     // 버전 오버레이 좌표(WP-888) — 마일스톤과 같은 배치 규칙(placeLaneChips)을 쓴다.
     const versionLayout: LaneLayout = []
 
     const recompute = () => {
-      const chartScales = api.getState()._scales
+      const state = api.getState()
+      const chartScales = state._scales
       if (!chartScales) return
+      // 이 보기의 축이 그려졌으면 SVAR 가 쓰는 칸 폭과 넘긴 칸 폭의 비율을 남긴다(레인 칩 묶음의 하루 폭, WP-1047).
+      if (chartScales.minUnit === minUnitOf(zoom)) {
+        const ratio = (state.cellWidth ?? CELL_WIDTH_BY_ZOOM[zoom]) / CELL_WIDTH_BY_ZOOM[zoom]
+        setAxisStretch((prev) => (prev?.zoom === zoom && prev.ratio === ratio ? prev : { zoom, ratio }))
+      }
       const msPerPixel = (chartScales.end.getTime() - chartScales.start.getTime()) / chartScales.width
       const toOffset = (date: Date) => (date.getTime() - chartScales.start.getTime()) / msPerPixel
       axisStart = chartScales.start.getTime()
       axisMsPerPixel = msPerPixel
       // 오버레이는 containerRef 기준 absolute — `.wx-chart` 가 그리드 패널 뒤에서 시작하므로 그 시작 오프셋을 더한다.
       const baseLeft = scroller.getBoundingClientRect().left - container.getBoundingClientRect().left
+      laidOutScales = chartScales
+      laidOutLeft = baseLeft
       // 마일스톤 레인은 containerRef 와 같은 좌측 원점을 공유하는 sibling 이므로, 그리드/차트
       // 경계(baseLeft)에 맞춰 구분선을 그으면 아래 차트의 내부 경계선과 이어져 보인다. 이 경계는
       // 가로 스크롤과 무관하게 고정된 위치라 scrollLeft 보정이 필요 없다(칩/점선과의 차이점).
@@ -561,20 +665,24 @@ export function TimelineGantt({
         const width = baseLeft + toOffset(parseISO(band.endDate)) - left
         bandLefts.set(band.id, { left, width })
       }
-      const fillLayout = (
+      const xOf = (date: string) => baseLeft + toOffset(parseISO(date))
+      const fillLayout = <T extends { id: number }>(
         layout: LaneLayout,
-        groups: { date: string; items: { id: number }[] }[],
+        clusters: { date: string; items: T[] }[],
+        dateOf: (item: T) => string,
         chipRefs: Map<string, HTMLButtonElement>,
       ) => {
         layout.length = 0
-        for (const { date, items } of groups) {
-          const width = chipRefs.get(date)?.offsetWidth ?? 0
-          layout.push({ date, ids: items.map((item) => item.id), x: baseLeft + toOffset(parseISO(date)), width })
+        for (const { date, items } of clusters) {
+          const chip = chipRefs.get(date)
+          const lines = items.map((item) => ({ id: item.id, x: xOf(dateOf(item)) }))
+          const tail = chip?.querySelector<HTMLElement>('[data-lane-tail]') ?? null
+          layout.push({ date, lines, x: xOf(date), width: chip?.offsetWidth ?? 0, tail })
         }
       }
-      // 묶음은 이미 날짜순이다(milestoneGroups·versionGroups) — 다시 정렬하지 않는다.
-      fillLayout(milestoneLayout, milestoneGroups, milestoneChipRefs.current)
-      fillLayout(versionLayout, versionGroups, versionChipRefs.current)
+      // 묶음은 이미 날짜순이다(milestoneClusters·versionClusters) — 다시 정렬하지 않는다.
+      fillLayout(milestoneLayout, milestoneClusters, milestoneDate, milestoneChipRefs.current)
+      fillLayout(versionLayout, versionClusters, versionDate, versionChipRefs.current)
       applyTransform()
     }
 
@@ -599,22 +707,25 @@ export function TimelineGantt({
       // 칩·점선을 숨겨 왼쪽 그리드 표 위에 겹치지 않게 하고, 마감일은 보이는데 칩만 걸치면 차트 왼쪽 끝에 붙인다.
       // 좌측 "마일스톤" 라벨 예약 폭보다 왼쪽으로도 밀리지 않는다(그리드가 좁을 때).
       const minChipLeft = Math.max(chartLeft, MILESTONE_LABEL_RESERVED_PX)
-      // 마감일 오름차순으로 훑으며 직전 칩과 겹치면 그 우측 +4px 로 밀어 배치(간단한 충돌 회피).
-      // 버전 레인도 같은 규칙을 쓴다(WP-888).
+      // 칩 날짜끼리는 칩 폭 이상 떨어지게 묶었으므로(clusterLaneGroups, WP-1047) 칩은 제 날짜 가운데에 선다. 다만 차트
+      // 왼쪽 끝에 붙인 칩은 오른쪽으로 옮겨져 다음 칩과 겹칠 수 있어, 그때만 직전 칩 오른쪽 +4px 로 민다(꼬리는 여전히 제 날짜).
+      // 버전 레인도 같은 규칙을 쓰되 점선 대신 출시일 점을 옮긴다.
       const placeLaneChips = (
         layout: LaneLayout,
         chipRefs: Map<string, HTMLButtonElement>,
-        vlineRefs: Map<number, HTMLDivElement>,
+        markerRefs: Map<number, HTMLDivElement>,
       ) => {
         let prevRight = -Infinity
-        for (const { date, ids, x, width } of layout) {
+        for (const { date, lines, x, width, tail } of layout) {
           const lineX = x - scrollLeft
           const visible = lineX >= chartLeft
-          for (const id of ids) {
-            const vline = vlineRefs.get(id)
-            if (!vline) continue
-            vline.style.visibility = visible ? '' : 'hidden'
-            vline.style.transform = `translateX(${lineX}px)`
+          // 점선·점은 묶여도 항목마다 제 날짜에 둔다.
+          for (const line of lines) {
+            const marker = markerRefs.get(line.id)
+            if (!marker) continue
+            const markerX = line.x - scrollLeft
+            marker.style.visibility = markerX >= chartLeft ? '' : 'hidden'
+            marker.style.transform = `translateX(${markerX}px)`
           }
           const chip = chipRefs.get(date)
           if (!chip) continue
@@ -622,17 +733,34 @@ export function TimelineGantt({
           if (!visible) continue
           const left = Math.max(lineX - width / 2, minChipLeft, prevRight + 4)
           chip.style.transform = `translateX(${left}px)`
+          // 꼬리(버전 칩, WP-1047)는 칩이 차트 왼쪽 끝에 붙어도 대표 날짜를 가리키게 그 X 로 옮긴다(테두리 1px 제외).
+          if (tail) tail.style.transform = `translateX(${lineX - left - 1}px)`
           prevRight = left + width
         }
       }
       placeLaneChips(milestoneLayout, milestoneChipRefs.current, milestoneVlineRefs.current)
-      placeLaneChips(versionLayout, versionChipRefs.current, versionVlineRefs.current)
+      placeLaneChips(versionLayout, versionChipRefs.current, versionDotRefs.current)
     }
 
     recompute()
     scroller.addEventListener('scroll', applyTransform)
-    return () => scroller.removeEventListener('scroll', applyTransform)
-  }, [cycles, zoom, tasks, milestoneGroups, versionGroups])
+    // 차트 폭이 바뀌면(첫 측정·창 크기) SVAR 가 축을 다시 잰다 — 고정 축이 차트보다 좁으면 칸을 늘린다(WP-1047). SVAR 가 새 축을
+    // 상태에 둔 다음 프레임에 다시 배치해, 오버레이와 칩 묶음의 하루 폭이 늘어난 축을 따르게 한다.
+    let resizeFrame = 0
+    const resizeObserver = new ResizeObserver(() => {
+      cancelAnimationFrame(resizeFrame)
+      resizeFrame = requestAnimationFrame(() => {
+        const left = scroller.getBoundingClientRect().left - container.getBoundingClientRect().left
+        if (api.getState()._scales !== laidOutScales || left !== laidOutLeft) recompute()
+      })
+    })
+    resizeObserver.observe(scroller)
+    return () => {
+      scroller.removeEventListener('scroll', applyTransform)
+      resizeObserver.disconnect()
+      cancelAnimationFrame(resizeFrame)
+    }
+  }, [cycles, zoom, tasks, milestoneClusters, versionClusters])
 
   // 이슈 막대 상태별 색상(#639) — SVAR 는 task 필드 기반 className/style 주입 API 가 없어(스파이크 노트),
   // 렌더된 `.wx-bar` DOM 노드에 직접 CSS 변수를 주입한다. `--wx-gantt-task-color`(기본 배경)와
@@ -786,7 +914,7 @@ export function TimelineGantt({
           data-testid="milestone-lane-divider"
           className="border-border pointer-events-none absolute inset-y-0 w-0 border-l"
         />
-        {milestoneGroups.map((group) => (
+        {milestoneClusters.map((group) => (
           <LaneGroupChip
             key={group.date}
             kind="milestone"
@@ -796,16 +924,18 @@ export function TimelineGantt({
             disabled={!canEditMilestones}
             className="bg-primary text-primary-foreground absolute top-1 flex items-center gap-1 rounded-sm px-2 py-0.5 text-xs font-medium"
             icon={<Diamond className="h-3 w-3" aria-hidden="true" />}
+            dateOf={milestoneDate}
             onPick={onMilestoneClick}
           />
         ))}
       </div>
-      {/* 버전 레인(WP-888) — 마일스톤 레인 아래 별도 스트립. 마일스톤과 다른 색(info 토큰)의 ▲ 칩 + 세로 점선.
+      {/* 버전 레인(WP-888) — 마일스톤 레인 아래 별도 스트립. 마일스톤과 다른 색(info 토큰)의 ▲ 칩만 그린다(세로 점선 없음, WP-1047).
           빈 곳 클릭 동작은 없고(마일스톤 만들기와 섞이지 않게), 칩 클릭은 버전 상세로 이동한다. 표시할 버전이 없으면 레인을 그리지 않는다. */}
       {versions.length > 0 && (
         <div
           data-testid="version-lane"
-          className="bg-info-subtle relative h-8 shrink-0 overflow-hidden border-b"
+          // 칩 줄 아래에 출시일 점 줄을 두려고 마일스톤 레인(h-8)보다 조금 높다(WP-1047).
+          className="bg-info-subtle relative h-9 shrink-0 overflow-hidden border-b"
         >
           <span className="text-info absolute top-1/2 left-3 -translate-y-1/2 text-xs font-semibold tracking-wider uppercase">
             버전
@@ -815,19 +945,35 @@ export function TimelineGantt({
             data-testid="version-lane-divider"
             className="border-border pointer-events-none absolute inset-y-0 w-0 border-l"
           />
-          {versionGroups.map((group) => (
+          {/* 출시일 점(WP-1047) — 버전마다 정확한 출시일에 하나. 출시됨은 테두리 점, 미출시는 채운 점(칩과 같은 구분). */}
+          {versions.map((v) => (
+            <div
+              key={v.id}
+              ref={(el) => {
+                if (el) versionDotRefs.current.set(v.id, el)
+                else versionDotRefs.current.delete(v.id)
+              }}
+              data-testid={`version-dot-${v.id}`}
+              className={cn(
+                'border-info pointer-events-none absolute bottom-px left-0 -ml-0.75 size-1.5 rounded-full border',
+                v.status === 'RELEASED' ? 'bg-background' : 'bg-info',
+              )}
+            />
+          ))}
+          {versionClusters.map((group) => (
             <LaneGroupChip
               key={group.date}
               kind="version"
               group={group}
+              tail
               chipRefs={versionChipRefs}
-              // 출시됨은 채우지 않은 테두리 칩으로 미출시와 구분한다 — 묶음은 모두 출시됨일 때만 테두리 칩.
-              className={
-                group.items.every((v) => v.status === 'RELEASED')
-                  ? 'border-info text-info bg-background absolute top-1 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium'
-                  : 'bg-info text-info-foreground border-info absolute top-1 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium'
-              }
+              // 출시됨은 채우지 않은 테두리 칩으로 미출시와 구분한다 — 묶음은 칩 이름인 가장 최신 버전의 상태를 따른다(WP-1047).
+              className={cn(
+                'border-info absolute top-0.5 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium',
+                group.items[group.items.length - 1].status === 'RELEASED' ? 'text-info bg-background' : 'bg-info text-info-foreground',
+              )}
               icon={<Triangle className="h-3 w-3" aria-hidden="true" />}
+              dateOf={versionDate}
               // 묶음에 출시됨·미출시가 섞일 수 있어 목록 항목마다 상태를 적는다.
               itemNote={(v) => (v.status === 'RELEASED' ? '출시됨' : '미출시')}
               onPick={(id) => onVersionClick?.(id)}
@@ -869,18 +1015,6 @@ export function TimelineGantt({
             className="border-primary pointer-events-none absolute inset-y-0 left-0 z-10 w-0 border-l-2 border-dashed"
           />
         ))}
-        {/* 버전 출시일 세로 점선(WP-888) — 마일스톤 점선과 다른 토큰 색. */}
-        {versions.map((v) => (
-          <div
-            key={v.id}
-            ref={(el) => {
-              if (el) versionVlineRefs.current.set(v.id, el)
-              else versionVlineRefs.current.delete(v.id)
-            }}
-            data-testid={`version-vline-${v.id}`}
-            className="border-info pointer-events-none absolute inset-y-0 left-0 z-10 w-0 border-l-2 border-dashed"
-          />
-        ))}
         {/*
           의존 화살표는 1차 표시 전용(스펙) — SVAR 가 막대 hover 시 좌우에 렌더하는
           링크 생성용 원형 핸들(.wx-link.wx-target)만 숨긴다. 실제 화살표 경로는
@@ -901,15 +1035,15 @@ export function TimelineGantt({
                   if (isGroupTaskId(ev.id)) onToggleGroupRef.current(groupKeyFromTaskId(ev.id), ev.mode)
                 })
                 // 첫 진입 스크롤이 api 보다 먼저 와 남아 있으면 이제 건다(applyScroll).
-                if (scrollRef.current.date) applyScroll(scrollRef.current, apiRef)
+                if (scrollRef.current.date) applyScroll(scrollRef.current, apiRef, containerRef)
               }
               if (!api) apiRef.current = null
             }}
             tasks={tasks}
             links={links}
             scales={scales}
-            // 일 보기만 칸 폭을 정한다 — 주·월은 SVAR 기본 폭(지금까지의 모양)을 그대로 둔다.
-            {...(zoom === 'day' ? { cellWidth: DAY_CELL_WIDTH } : {})}
+            // 칸 폭 — 주·월은 SVAR 기본 폭과 같은 값(지금까지의 모양)이고, 레인 칩 묶음의 하루 폭과 같은 표에서 온다.
+            cellWidth={CELL_WIDTH_BY_ZOOM[zoom]}
             // 축을 자를 때만 고정 범위(autoScale 끔) — SVAR 는 start·end 가 둘 다 있고 autoScale 이 꺼져야 그 범위를 쓴다.
             {...(axis ? { start: axis.start, end: axis.end, autoScale: false } : {})}
             columns={GRID_COLUMNS}
@@ -954,13 +1088,18 @@ export function TimelineGantt({
 /** 레인 칩 한 개가 그리는 묶음 — 같은 날짜의 마일스톤 또는 버전(WP-1027). */
 interface LaneGroupChipProps<T extends { id: number; name: string }> {
   kind: 'milestone' | 'version'
-  group: { date: string; items: T[] }
+  /** date 는 칩이 서는(가장 늦은) 날짜, firstDate 는 묶음의 가장 이른 날짜(WP-1047) — 다르면 화면에서 겹쳐 묶인 것이다. */
+  group: LaneChipCluster<T>
   /** 배치 effect 가 날짜로 칩을 찾아 옮긴다 — 마운트·언마운트 때 등록·해제. */
   chipRefs: RefObject<Map<string, HTMLButtonElement>>
   /** 고를 권한이 없을 때 — 하나짜리 칩은 비활성, 묶음은 목록은 열어 이름을 보되 항목을 비활성으로 둔다. */
   disabled?: boolean
   className: string
   icon: ReactNode
+  /** 칩 아래 꼬리(▾)로 대표 날짜를 가리킬지(버전, WP-1047) — 위치는 배치 effect 가 정한다. */
+  tail?: boolean
+  /** 항목의 날짜 — 묶음이 여러 날짜에 걸치면(WP-1047) 목록 항목마다 날짜를 덧붙인다. */
+  dateOf: (item: T) => string
   /** 목록 항목 옆에 덧붙일 말(버전의 출시 상태 등). */
   itemNote?: (item: T) => string
   /** 항목 하나를 골랐을 때 — 마일스톤은 편집 팝오버(칩 위치 기준), 버전은 상세 이동. */
@@ -968,8 +1107,9 @@ interface LaneGroupChipProps<T extends { id: number; name: string }> {
 }
 
 /**
- * 마일스톤·버전 레인 칩(WP-1027) — 그 날짜 점선 위에 하나만 그린다. 항목이 하나면 누르면 바로 그 항목으로 가고,
- * 여럿이면 마지막 이름에 나머지 개수(「c +2」)를 보이고 누르면 그 날짜의 목록이 열려 하나를 고른다.
+ * 마일스톤·버전 레인 칩(WP-1027) — 묶음의 가장 늦은 날짜(마일스톤은 점선, 버전은 출시일 점) 위에 하나만 그린다. 항목이 하나면 누르면 바로 그 항목으로 가고,
+ * 여럿이면 마지막 이름에 나머지 개수(「c +2」)를 보이고 누르면 그 묶음의 목록(최신 순)이 열려 하나를 고른다.
+ * 화면에서 가까운 다른 날짜도 한 묶음이 될 수 있어(WP-1047) 칩은 묶음의 가장 늦은 날짜 위에 선다.
  * 테스트 id 는 하나일 때 기존(`milestone-chip-<id>`)을 지키고, 묶음은 `<kind>-chip-group-<날짜>` 다.
  */
 function LaneGroupChip<T extends { id: number; name: string }>({
@@ -979,9 +1119,18 @@ function LaneGroupChip<T extends { id: number; name: string }>({
   disabled,
   className,
   icon,
+  tail,
+  dateOf,
   itemNote,
   onPick,
 }: LaneGroupChipProps<T>) {
+  const tailEl = tail ? (
+    <span
+      data-lane-tail
+      aria-hidden="true"
+      className="border-t-info pointer-events-none absolute top-full left-0 -ml-[5px] border-x-[5px] border-t-[5px] border-x-transparent"
+    />
+  ) : null
   // 목록이 닫히면(고름·Esc·바깥 클릭 모두) 포커스는 Radix 기본대로 칩으로 돌아간다 — 하나짜리 칩을 눌러 편집 팝오버를 연
   // 때와 같은 자리다. 편집 팝오버는 포커스를 가져가지 않아, 막으면 키보드 사용자의 포커스가 <body> 로 빠졌다(PR #930 리뷰).
   const chipRef = useRef<HTMLButtonElement | null>(null)
@@ -1007,12 +1156,19 @@ function LaneGroupChip<T extends { id: number; name: string }>({
       >
         {icon}
         <span className="max-w-40 truncate">{first.name}</span>
+        {tailEl}
       </button>
     )
   }
   const names = group.items.map((item) => item.name)
   const label = laneGroupLabelParts(names)
-  const summary = `${formatListDueDate(group.date)} · ${kindLabel} ${names.length}개`
+  const spansDates = group.firstDate !== group.date
+  // 날짜 표기는 아젠다 목록과 같은 범위 포매터(올해가 아니면 연도까지).
+  const dateLabel = formatDateRangeMonthDay(group.firstDate, group.date, '', { collapseSameDay: true })
+  // 목록 항목 옆 말 — 여러 날짜에 걸친 묶음이면 날짜를 앞에 둔다.
+  const noteOf = (item: T) =>
+    [spansDates ? formatDateOnlyMonthDay(dateOf(item)) : null, itemNote?.(item)].filter(Boolean).join(' · ')
+  const summary = `${dateLabel} · ${kindLabel} ${names.length}개`
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1029,6 +1185,7 @@ function LaneGroupChip<T extends { id: number; name: string }>({
           <span className="max-w-40 truncate">{label.name}</span>
           {/* 이름이 길어 말줄임돼도 묶음임이 보이게 「+N」은 따로 둔다. */}
           <span className="shrink-0">{label.rest}</span>
+          {tailEl}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -1037,7 +1194,10 @@ function LaneGroupChip<T extends { id: number; name: string }>({
         onClick={(e) => e.stopPropagation()}
       >
         <DropdownMenuLabel className="text-muted-foreground text-xs">{summary}</DropdownMenuLabel>
-        {group.items.map((item) => (
+        {/* 최신 순(WP-1047) — 칩 이름인 가장 최신 항목이 맨 위에 온다. */}
+        {[...group.items].reverse().map((item) => {
+          const note = noteOf(item)
+          return (
           <DropdownMenuItem
             key={item.id}
             data-testid={`${kind}-chip-item-${item.id}`}
@@ -1051,9 +1211,10 @@ function LaneGroupChip<T extends { id: number; name: string }>({
           >
             {icon}
             <span className="truncate">{item.name}</span>
-            {itemNote && <span className="text-muted-foreground ml-auto pl-3 text-xs">{itemNote(item)}</span>}
+            {note && <span className="text-muted-foreground ml-auto pl-3 text-xs">{note}</span>}
           </DropdownMenuItem>
-        ))}
+          )
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   )

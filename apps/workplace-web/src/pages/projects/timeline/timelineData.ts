@@ -68,9 +68,9 @@ export function versionsToMarkers(
 
 /** 레인 칩 묶음(WP-1027) — 같은 날짜의 마일스톤·버전을 칩 하나로 그리기 위한 단위. */
 export interface LaneChipGroup<T> {
-  /** 묶음 날짜 yyyy-MM-dd — 칩·점선의 X 와 키. */
+  /** 묶음 날짜 yyyy-MM-dd — 칩의 X 와 키(묶음이면 가장 늦은 날짜). */
   date: string;
-  /** 그 날짜의 항목들(입력 순서 유지). */
+  /** 묶음의 항목들(날짜순, 같은 날짜는 입력 순서 유지) — 날짜 묶음이면 그 날짜, 화면 묶음(WP-1047)이면 여러 날짜. */
   items: T[];
 }
 
@@ -92,6 +92,71 @@ export function groupLaneChipsByDate<T>(items: T[], dateOf: (item: T) => string)
     group.items.push(item);
   }
   return groups;
+}
+
+/** 화면에서 가까워 하나로 묶인 레인 칩(WP-1047) — 칩은 가장 늦은 날짜(date) 위에 서고, 목록 머리말은 firstDate~date 를 보인다. */
+export interface LaneChipCluster<T> extends LaneChipGroup<T> {
+  /** 묶음의 가장 이른 날짜 — 하나짜리면 date 와 같다. */
+  firstDate: string;
+}
+
+/**
+ * 날짜 묶음(groupLaneChipsByDate)을 지금 보기의 하루 폭으로 다시 묶는다(WP-1047) — 날짜마다 칩을 두면 하루 폭이 칩 폭보다
+ * 좁은 주·월 보기에서 칩이 겹치고, 겹침 피하기로 뒤 칩이 오른쪽으로 줄줄이 밀려 다른 날짜로 읽혔다.
+ *
+ * 칩은 묶음의 가장 늦은 날짜 위에 서므로 두 가지를 함께 지킨다.
+ * - 묶음 범위(첫 날짜 ~ 칩 날짜)는 칩 폭(minGapPx) 안으로 끊는다 — 일 보기에서 매일 나간 릴리스도 2~3일씩 나뉜다.
+ *   앞 날짜와의 간격만 보고 이어 붙이면 매일 릴리스가 일 보기에서도 칩 하나로 뭉쳤다(사용자 결정: 시안 B).
+ * - 칩 날짜끼리는 칩 폭 이상 떨어뜨린다 — 묶음을 닫으려는데 칩 날짜가 앞 칩과 너무 가까우면, 다음 날짜를 더 받아 칩 날짜를
+ *   뒤로 옮기거나 앞 묶음에 합친다. 둘 중 묶음 범위가 덜 넓어지는 쪽을 고른다 — 늘 앞으로만 받으면 다음 릴리스가 몇 주 뒤일 때
+ *   칩이 그 먼 날짜에 서서 가까운 점들 위에 칩이 없었고, 늘 앞 묶음에 합치면 고르지 않은 날짜에서 합치기가 끝없이 이어졌다.
+ *   그래서 칩이 밀리지 않고 늘 제 날짜에 선다.
+ */
+export function clusterLaneGroups<T>(
+  groups: LaneChipGroup<T>[],
+  pxPerDay: number,
+  minGapPx: number,
+): LaneChipCluster<T>[] {
+  if (!groups.length) return [];
+  // 날짜를 한 번만 화면 X(px)로 바꿔 둔다 — 비교는 숫자로만 한다.
+  const origin = parseISO(groups[0].date);
+  const xs = new Map(groups.map((g) => [g.date, differenceInCalendarDays(parseISO(g.date), origin) * pxPerDay]));
+  const gap = (from: string, to: string) => xs.get(to)! - xs.get(from)!;
+  /** 뒤 묶음(또는 날짜 묶음)을 앞 묶음에 붙인다 — 칩 날짜는 뒤의 날짜로 옮겨진다. */
+  const absorb = (into: LaneChipCluster<T>, from: LaneChipGroup<T>) => {
+    into.date = from.date;
+    into.items.push(...from.items);
+  };
+  const clusters: LaneChipCluster<T>[] = [];
+  // 칩 날짜가 앞 칩과 칩 폭 이상 떨어졌는가 — 첫 묶음은 앞 칩이 없다.
+  const anchoredApart = (c: LaneChipCluster<T>) => {
+    const prev = clusters[clusters.length - 1];
+    return !prev || gap(prev.date, c.date) >= minGapPx;
+  };
+  let cur: LaneChipCluster<T> | null = null;
+  for (const group of groups) {
+    if (cur && gap(cur.firstDate, group.date) < minGapPx) {
+      absorb(cur, group);
+      continue;
+    }
+    if (cur && !anchoredApart(cur)) {
+      const prev = clusters[clusters.length - 1];
+      // 다음 날짜를 받으면 범위가 cur.firstDate~group, 앞 묶음에 합치면 prev.firstDate~cur — 덜 넓은 쪽.
+      if (gap(cur.firstDate, group.date) <= gap(prev.firstDate, cur.date)) {
+        absorb(cur, group);
+        continue;
+      }
+      absorb(prev, cur);
+      cur = null;
+    }
+    if (cur) clusters.push(cur);
+    cur = { date: group.date, firstDate: group.date, items: [...group.items] };
+  }
+  if (!cur) return clusters;
+  // 마지막 묶음의 칩 날짜가 앞 칩과 끝내 가까우면 앞 묶음에 합친다 — 앞 칩 날짜가 뒤로 옮겨질 뿐이라 그 앞과의 간격은 넓어진다.
+  if (anchoredApart(cur)) clusters.push(cur);
+  else absorb(clusters[clusters.length - 1], cur);
+  return clusters;
 }
 
 /**

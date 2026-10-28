@@ -175,25 +175,59 @@ describe('버전 노출 — 타임라인 레인', () => {
       versions: [
         createVersion({ id: 1, name: 'v0.9.23', releaseDate: '2026-07-10', status: 'RELEASED' }),
         createVersion({ id: 2, name: 'v0.9.25', releaseDate: '2026-07-10', status: 'RELEASED' }),
-        createVersion({ id: 3, name: 'v0.9.26', releaseDate: '2026-07-12' }),
+        // 화면에서도 멀리 떨어진 날짜(WP-1047 묶음에 들지 않게) — 제 칩 그대로다.
+        createVersion({ id: 3, name: 'v0.9.26', releaseDate: '2026-07-31' }),
       ],
     })
     const lane = await screen.findByTestId('version-lane')
     const group = within(lane).getByTestId('version-chip-group-2026-07-10')
     // 보이는 문구로 시작하는 접근 이름 — 날짜·개수는 뒤에 붙는다.
     expect(group).toHaveAccessibleName('v0.9.25 +1, 7월 10일 · 버전 2개')
-    // 묶인 버전은 따로 칩을 그리지 않고, 날짜가 다른 버전은 제 칩 그대로다. 점선은 버전마다 남는다(같은 X).
+    // 묶인 버전은 따로 칩을 그리지 않고, 날짜가 다른 버전은 제 칩 그대로다. 출시일 점은 버전마다 남는다(WP-1047).
     expect(within(lane).queryByTestId('version-chip-1')).not.toBeInTheDocument()
     expect(within(lane).queryByTestId('version-chip-2')).not.toBeInTheDocument()
     expect(within(lane).getByTestId('version-chip-3')).toHaveTextContent('v0.9.26')
-    expect(screen.getByTestId('version-vline-1')).toBeInTheDocument()
-    expect(screen.getByTestId('version-vline-2')).toBeInTheDocument()
+    expect(within(lane).getByTestId('version-dot-1')).toBeInTheDocument()
+    expect(within(lane).getByTestId('version-dot-2')).toBeInTheDocument()
 
     await user.click(group)
     const menu = await screen.findByRole('menu')
-    // 목록은 이름순(숫자 값)이고 항목마다 출시 상태를 적는다.
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['v0.9.23출시됨', 'v0.9.25출시됨'])
+    // 목록은 최신 순(WP-1047, 같은 날은 이름 역순)이고 항목마다 출시 상태를 적는다. 날짜가 하나뿐이라 날짜는 머리말에만 있다.
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['v0.9.25출시됨', 'v0.9.23출시됨'])
     await user.click(within(menu).getByRole('menuitem', { name: /v0\.9\.25/ }))
+    await waitFor(() => expect(window.location.pathname).toBe(`/projects/${KEY}/versions/2`))
+  })
+
+  // 날짜가 달라도 화면에서 칩 폭보다 가까우면 칩이 줄줄이 밀려 다른 날짜로 읽혔다(WP-1047) — 대표(가장 최신) 칩 하나로 묶는다.
+  test('출시일이 가까운 버전은 가장 최신 버전 칩 하나로 묶고, 목록은 최신 순으로 날짜·상태를 보인다', async () => {
+    const { user } = await openTimeline({
+      versions: [
+        createVersion({ id: 1, name: 'v0.9.27', releaseDate: '2026-07-10', status: 'RELEASED' }),
+        createVersion({ id: 2, name: 'v0.9.28', releaseDate: '2026-07-11', status: 'RELEASED' }),
+        createVersion({ id: 3, name: 'v0.9.29', releaseDate: '2026-07-12' }),
+      ],
+    })
+    const lane = await screen.findByTestId('version-lane')
+    // 기본 보기(주)는 하루가 칩 폭보다 훨씬 좁아 사흘이 한 묶음 — 칩은 가장 늦은 날짜(7/12)에 서고 이름도 그 버전이다.
+    const group = await within(lane).findByTestId('version-chip-group-2026-07-12')
+    expect(group).toHaveAccessibleName('v0.9.29 +2, 7월 10일 ~ 7월 12일 · 버전 3개')
+    // 칩 색은 대표(가장 최신) 버전의 상태 — 미출시라 채운 칩이다.
+    expect(group).toHaveClass('bg-info')
+    for (const id of [1, 2, 3]) expect(within(lane).queryByTestId(`version-chip-${id}`)).not.toBeInTheDocument()
+    // 세로 점선 대신 버전마다 출시일 점 — 출시됨은 테두리 점, 미출시는 채운 점.
+    expect(within(lane).getByTestId('version-dot-1')).toHaveClass('bg-background')
+    expect(within(lane).getByTestId('version-dot-3')).toHaveClass('bg-info')
+    expect(screen.queryByTestId('version-vline-1')).not.toBeInTheDocument()
+
+    await user.click(group)
+    const menu = await screen.findByRole('menu')
+    expect(within(menu).getByText('7월 10일 ~ 7월 12일 · 버전 3개')).toBeInTheDocument()
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'v0.9.297월 12일 · 미출시',
+      'v0.9.287월 11일 · 출시됨',
+      'v0.9.277월 10일 · 출시됨',
+    ])
+    await user.click(within(menu).getByRole('menuitem', { name: /v0\.9\.28/ }))
     await waitFor(() => expect(window.location.pathname).toBe(`/projects/${KEY}/versions/2`))
   })
 

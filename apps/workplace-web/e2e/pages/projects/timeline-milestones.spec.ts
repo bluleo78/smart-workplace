@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/auth.fixture';
 import { trackRequests } from '../../fixtures/requests';
+import { gotoTimeline } from '../../fixtures/timeline';
 import { createIssue, createIssueSearchResponse } from '../../factories/issue.factory';
 import { createMember, createProject } from '../../factories/project.factory';
 import type { CycleResponse } from '../../../src/types/cycle';
@@ -109,7 +110,7 @@ test('차트 왼쪽 밖의 마일스톤은 칩·점선을 그리드 위에 그�
     const issues = [createIssue({ number: 1, title: '이번 주 이슈', startDate: isoFromToday(-1), dueDate: isoFromToday(3) })];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
   });
-  await page.goto(`/projects/${KEY}/timeline`);
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
   const scroller = page.locator('.timeline-gantt-root .wx-chart').first();
   await expect(page.getByTestId('milestone-chip-2')).toBeVisible();
   const chartLeft = await scroller.evaluate((el) => el.getBoundingClientRect().left);
@@ -125,9 +126,9 @@ test('차트 왼쪽 밖의 마일스톤은 칩·점선을 그리드 위에 그�
   expect((await page.getByTestId('milestone-chip-3').boundingBox())!.x).toBeGreaterThanOrEqual(chartLeft - 1);
 });
 
-// WP-1027: 같은 마감일 칩을 옆으로 밀어 뒤 칩이 다른 날에 있는 것처럼 보였다 — 같은 날짜는 칩 하나가 그 점선 위에 선다.
-// 날짜가 다른 칩이 가까우면 지금처럼 겹치지 않게 오른쪽으로 민다.
-test('같은 마감일 마일스톤은 묶음 칩 하나가 그 날짜 점선 가운데에 서고, 다음 날 칩은 겹치지 않게 밀린다', { tag: '@layout' }, async ({
+// WP-1027: 같은 마감일 칩을 옆으로 밀어 뒤 칩이 다른 날에 있는 것처럼 보였다 — 같은 날짜는 칩 하나로 묶는다.
+// WP-1047: 날짜가 달라도 화면에서 칩 폭보다 가까우면(주 보기에서 하루 차이) 밀지 않고 한 칩으로 묶어, 가장 늦은 날짜 점선 가운데에 세운다.
+test('가까운 마감일 마일스톤은 묶음 칩 하나가 가장 늦은 날짜 점선 가운데에 서고, 점선은 마일스톤마다 제 날짜에 남는다', { tag: '@layout' }, async ({
   authenticatedPage: page,
 }) => {
   await setupStubs(page, {
@@ -142,21 +143,22 @@ test('같은 마감일 마일스톤은 묶음 칩 하나가 그 날짜 점선 �
     const issues = [createIssue({ number: 1, title: '이번 주 이슈', startDate: isoFromToday(-1), dueDate: isoFromToday(3) })];
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(createIssueSearchResponse(issues)) });
   });
-  await page.goto(`/projects/${KEY}/timeline`);
-  const group = page.getByTestId(`milestone-chip-group-${isoFromToday(7)}`);
+  // 점선과 칩 좌표를 차례로 재므로 첫 진입 스크롤이 걸린 뒤에 잰다.
+  await gotoTimeline(page, `/projects/${KEY}/timeline`);
+  const group = page.getByTestId(`milestone-chip-group-${isoFromToday(8)}`);
   await expect(group).toBeVisible();
-  await expect(group).toHaveAccessibleName(/^출시 \+1,/);
+  // 칩 이름은 가장 늦은 마일스톤, 나머지는 개수로 — 따로 밀린 칩은 없다.
+  await expect(group).toHaveAccessibleName(/^다음 날 마일스톤 \+2,/);
+  await expect(page.getByTestId('milestone-chip-3')).toHaveCount(0);
 
-  // 두 마일스톤의 점선은 같은 X — 묶음 칩의 가운데가 그 X 에 맞는다(밀리지 않음).
+  // 같은 날 두 마일스톤의 점선은 같은 X, 다음 날 점선은 그 오른쪽 — 칩 가운데는 가장 늦은 날짜(다음 날) 점선에 맞는다(밀리지 않음).
   const line1 = (await page.getByTestId('milestone-vline-1').boundingBox())!;
   const line2 = (await page.getByTestId('milestone-vline-2').boundingBox())!;
+  const line3 = (await page.getByTestId('milestone-vline-3').boundingBox())!;
   expect(Math.abs(line1.x - line2.x)).toBeLessThan(1);
+  expect(line3.x).toBeGreaterThan(line1.x + 1);
   const chip = (await group.boundingBox())!;
-  expect(Math.abs(chip.x + chip.width / 2 - line1.x)).toBeLessThan(2);
-
-  // 하루 뒤 칩은 묶음 칩과 겹치지 않는다(기존 밀어 놓기 규칙).
-  const next = (await page.getByTestId('milestone-chip-3').boundingBox())!;
-  expect(next.x).toBeGreaterThanOrEqual(chip.x + chip.width);
+  expect(Math.abs(chip.x + chip.width / 2 - line3.x)).toBeLessThan(2);
 });
 
 test('레인 빈 곳 클릭 → 클릭 좌표 날짜가 채워진 생성 다이얼로그', { tag: '@layout' }, async ({ authenticatedPage: page }) => {

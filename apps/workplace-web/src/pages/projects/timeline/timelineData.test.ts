@@ -9,6 +9,7 @@ import type { MilestoneResponse } from '@/types/milestone';
 import {
   type AgendaSection,
   buildAgendaSections,
+  clusterLaneGroups,
   cyclesToBands,
   dayCellLabel,
   defaultScheduleRange,
@@ -1095,6 +1096,57 @@ describe('groupLaneChipsByDate (WP-1027)', () => {
 
   it('빈 목록은 빈 묶음', () => {
     expect(groupLaneChipsByDate([], () => '')).toEqual([]);
+  });
+});
+
+describe('clusterLaneGroups (WP-1047)', () => {
+  // 운영처럼 매일 나간 릴리스 — 10/18·10/27 은 같은 날 여럿, 10/19·10/24 는 없다.
+  const dates = ['10-17', '10-18', '10-18', '10-20', '10-21', '10-22', '10-23', '10-25', '10-26', '10-27', '10-27', '10-28'];
+  const groups = groupLaneChipsByDate(
+    dates.map((d, i) => ({ id: i + 1, date: `2026-${d}` })),
+    (item) => item.date,
+  );
+  const ranges = (pxPerDay: number) =>
+    clusterLaneGroups(groups, pxPerDay, 96).map((c) => `${c.firstDate.slice(5)}~${c.date.slice(5)}`);
+
+  it('일 보기(하루 44px)에서는 묶음 범위가 칩 폭을 넘지 않게 2~3일씩 끊는다 — 매일 릴리스가 칩 하나로 뭉치지 않는다', () => {
+    expect(ranges(44)).toEqual(['10-17~10-18', '10-20~10-22', '10-23~10-25', '10-26~10-28']);
+  });
+
+  it('주 보기(하루 약 14px)에서는 칩이 서는 날짜끼리도 가까워 한 묶음으로 합친다', () => {
+    expect(ranges(100 / 7)).toEqual(['10-17~10-28']);
+  });
+
+  // 다음 릴리스가 몇 주 뒤면, 가까운 앞 칩과 붙은 끝 묶음이 그 먼 날짜까지 받아 칩이 먼 날짜에 섰다 — 앞 묶음에 합쳐야 한다.
+  it('다음 날짜가 멀면 앞 칩과 가까운 묶음은 먼 날짜를 받지 않고 앞 묶음에 합친다', () => {
+    const withFar = groupLaneChipsByDate(
+      [...dates, '11-20'].map((d, i) => ({ id: i + 1, date: `2026-${d}` })),
+      (item) => item.date,
+    );
+    const at = clusterLaneGroups(withFar, 100 / 7, 96).map((c) => `${c.firstDate.slice(5)}~${c.date.slice(5)}`);
+    expect(at).toEqual(['10-17~10-28', '11-20~11-20']);
+  });
+
+  it('칩이 서는 날짜(묶음의 가장 늦은 날짜)끼리는 늘 칩 폭 이상 떨어진다 — 밀어내기 없이 제자리에 선다', () => {
+    for (const pxPerDay of [44, 30, 20, 100 / 7, 100 / 30]) {
+      const anchors = clusterLaneGroups(groups, pxPerDay, 96).map((c) => Date.parse(c.date) / 86_400_000);
+      anchors.slice(1).forEach((day, k) => expect((day - anchors[k]) * pxPerDay).toBeGreaterThanOrEqual(96));
+    }
+  });
+
+  it('묶음은 항목을 날짜순으로 모두 담는다 — 마지막이 칩 이름(가장 최신)이다', () => {
+    const [week] = clusterLaneGroups(groups, 100 / 7, 96);
+    expect(week.items.map((item) => item.id)).toEqual(dates.map((_, i) => i + 1));
+  });
+
+  // 리뷰 지적 — 칩 날짜를 직전 칩 날짜와만 비교해 합치면 고르지 않은 날짜에서 합치기가 끝없이 이어져 일 보기에서도 몇 주가 칩 하나가 됐다.
+  it('고르지 않은 날짜에서도 묶음이 끝없이 이어지지 않고, 칩 날짜끼리는 칩 폭 이상 떨어진다', () => {
+    // 하루 1px 로 두면 날짜 차가 곧 px — 0·90·100·180·196·260·400·480 일.
+    const at = [0, 90, 100, 180, 196, 260, 400, 480].map((d, i) => ({ id: i + 1, date: format(addDays(parseISO('2026-01-01'), d), 'yyyy-MM-dd') }));
+    const clusters = clusterLaneGroups(groupLaneChipsByDate(at, (item) => item.date), 1, 96);
+    expect(clusters.map((c) => c.items.map((item) => item.id))).toEqual([[1, 2], [3, 4, 5], [6, 7, 8]]);
+    const anchors = clusters.map((c) => parseISO(c.date).getTime() / 86_400_000);
+    anchors.slice(1).forEach((day, k) => expect(day - anchors[k]).toBeGreaterThanOrEqual(96));
   });
 });
 

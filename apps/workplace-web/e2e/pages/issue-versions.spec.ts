@@ -238,4 +238,88 @@ test.describe('프로젝트 버전 (WP-888)', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${KEY}/versions/1$`));
     await expect(page.getByTestId('version-detail-page')).toBeVisible();
   });
+
+  // WP-1047 — 출시일이 하루 이틀 차이인 버전 칩이 겹침 피하기로 줄줄이 밀려 다른 날짜(다음 달)로 읽혔다. 가까운 버전은 대표 칩
+  // 하나로 묶고, 칩 꼬리는 늘 대표 버전의 출시일 점을 가리키며, 보기(일·주·월)를 바꿔도 칩끼리 겹치지 않는다. 좌표는 jsdom 이
+  // 잴 수 없어 E2E 로 본다(묶음 판정·목록 문구는 timelineData.test.ts·versionVisibility.test.tsx).
+  test('출시일이 가까운 버전 칩은 보기마다 겹치지 않고 꼬리가 대표 버전의 출시일 점을 가리킨다', { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z'));
+    // 7/1~7/12 매일 릴리스(7/4·7/9 는 없음).
+    const days = [1, 2, 3, 5, 6, 7, 8, 10, 11, 12];
+    await setup(page, {
+      versions: days.map((d, i) =>
+        createVersion({ id: i + 1, name: `v0.9.${i + 1}`, releaseDate: `2026-07-${String(d).padStart(2, '0')}`, status: 'RELEASED' }),
+      ),
+      issue: { startDate: '2026-07-01', dueDate: '2026-07-14' },
+    });
+    await setupTimelineStubs(page);
+    await page.goto(`/projects/${KEY}/timeline?period=all`);
+    const lane = page.getByTestId('version-lane');
+    await expect(lane).toBeVisible();
+
+    /** 레인의 칩(왼쪽부터)과 각 칩 꼬리의 X 중심, 출시일 점의 X 중심. */
+    const measure = () =>
+      lane.evaluate((el) => {
+        const center = (r: DOMRect) => r.left + r.width / 2;
+        const chips = [...el.querySelectorAll<HTMLElement>('[data-testid^="version-chip-"]')]
+          .filter((chip) => getComputedStyle(chip).visibility !== 'hidden')
+          .map((chip) => {
+            const r = chip.getBoundingClientRect();
+            const tail = chip.querySelector('[data-lane-tail]')!.getBoundingClientRect();
+            return { left: r.left, right: r.right, tail: center(tail) };
+          })
+          .sort((a, b) => a.left - b.left);
+        const dots = [...el.querySelectorAll<HTMLElement>('[data-testid^="version-dot-"]')].map((dot) => center(dot.getBoundingClientRect()));
+        return { chips, dots };
+      });
+
+    const zoom = (label: string) => page.getByRole('group', { name: '줌 전환' }).getByRole('button', { name: label, exact: true });
+    const chipCounts: Record<string, number> = {};
+    for (const label of ['일', '주', '월']) {
+      await zoom(label).click();
+      await expect(zoom(label)).toHaveAttribute('aria-pressed', 'true');
+      await expect
+        .poll(async () => {
+          const { chips, dots } = await measure();
+          const apart = chips.every((chip, i) => i === 0 || chip.left >= chips[i - 1].right);
+          // 꼬리는 칩 아래에 붙어 있고(칩 밖으로 밀려나지 않음) 대표 버전의 출시일 점 바로 위다.
+          const pointsAtDot = chips.every(
+            (chip) => chip.tail >= chip.left && chip.tail <= chip.right && dots.some((dot) => Math.abs(dot - chip.tail) <= 1.5),
+          );
+          return chips.length > 0 && apart && pointsAtDot;
+        }, { message: `${label} 보기: 칩이 겹치지 않고 꼬리가 출시일 점을 가리킨다` })
+        .toBe(true);
+      chipCounts[label] = (await measure()).chips.length;
+    }
+    // 일 보기는 하루가 넓어 여러 칩으로 나뉘고, 주·월 보기는 열흘 남짓이 칩 하나로 모인다.
+    expect(chipCounts['일']).toBeGreaterThan(1);
+    expect(chipCounts['주']).toBe(1);
+    expect(chipCounts['월']).toBe(1);
+  });
+
+  test('축이 차트보다 좁아 칸이 늘어난 월 보기에서는 늘어난 폭으로 버전 칩을 묶는다', { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-07-08T03:00:00Z'));
+    // 넓은 화면 + 기간을 크게 넘는 막대 → 축을 「분기 앞 12개월 ~ 막대 끝」(13개월, 월 보기 1300px)으로 자르고(WP-595),
+    // 차트가 그보다 넓어 SVAR 가 칸을 약 1.7배로 늘린다.
+    await page.setViewportSize({ width: 3000, height: 900 });
+    await setup(page, {
+      versions: [
+        createVersion({ id: 1, name: 'v1.0.0', releaseDate: '2026-07-02', status: 'RELEASED' }),
+        createVersion({ id: 2, name: 'v1.1.0', releaseDate: '2026-07-27', status: 'UNRELEASED' }),
+      ],
+      issue: { startDate: '1990-01-01', dueDate: '2026-07-14' },
+    });
+    await setupTimelineStubs(page);
+    await page.goto(`/projects/${KEY}/timeline?period=quarter`);
+    const zoom = page.getByRole('group', { name: '줌 전환' }).getByRole('button', { name: '월', exact: true });
+    await zoom.click();
+    await expect(zoom).toHaveAttribute('aria-pressed', 'true');
+    // 25일 간격은 늘리지 않은 월 칸(하루 약 3.3px)이면 82px 라 한 칩으로 묶이지만, 늘어난 칸(약 5.7px)에선 140px 남짓이라 따로 선다.
+    const lane = page.getByTestId('version-lane');
+    await expect(lane.getByTestId(/^version-chip-/)).toHaveCount(2);
+  });
 });
