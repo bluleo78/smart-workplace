@@ -109,7 +109,7 @@ describe('SpaceMemberDialog', () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
   })
 
-  it('부서 멤버를 넘기지 않으면(드라이브) 부서 행·조직 수 없이 예전 사람 검색 창을 쓴다(WP-1052)', () => {
+  it('부서 멤버를 넘기지 않으면 부서 행·조직 수 없이 예전 사람 검색 창을 쓴다(WP-1052)', () => {
     renderDialog([ME_OWNER, EDITOR, VIEWER], true)
     expect(screen.getByTestId('drive-member-count')).toHaveTextContent(/^멤버 3명$/)
     expect(screen.queryByTestId(/drive-member-group-/)).not.toBeInTheDocument()

@@ -3,13 +3,17 @@ package com.workplace.drive.service;
 import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidRoleException;
 import com.workplace.drive.exception.DriveSpaceNotFoundException;
+import com.workplace.drive.exception.DriveSpaceTypeNotEditableException;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
 import com.workplace.drive.repository.DriveSpaceRepository;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** 공간 역할 검증. drive_space_member + drive_space(archived 확인) 사용. */
+/**
+ * 공간 역할 검증. 실효 역할(직접 멤버 행 drive_space_member 와 멤버로 둔 조직도 부서 행 drive_space_member_group 중 가장 높은 것,
+ * WP-1056) + drive_space(archived 확인) 사용.
+ */
 @Component
 @RequiredArgsConstructor
 public class DrivePermissions {
@@ -56,5 +60,18 @@ public class DrivePermissions {
       throw new DriveForbiddenException(spaceId, userId);
     }
     return role;
+  }
+
+  /**
+   * TEAM 공간이 아니면 거부(409) — PERSONAL("내 드라이브")/CHANNEL(채널 소유) 보호. rename·delete·사람 멤버 변경·부서 멤버
+   * 변경(WP-1056)이 공유하는 단일 타입 가드. 개인 공간 멤버를 바꾸면 남에게 넘기거나 소유자가 빠져 영구히 열리지 않고, 채널 공간 멤버는 채널 멤버십을
+   * 따른다(WP-495).
+   */
+  public void requireTeamSpace(long spaceId) {
+    String type =
+        spaces.findType(spaceId).orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
+    if (!"TEAM".equals(type)) {
+      throw new DriveSpaceTypeNotEditableException(spaceId, type);
+    }
   }
 }

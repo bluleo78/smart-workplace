@@ -37,6 +37,7 @@ import com.workplace.jooq.tables.DriveShareLink;
 import com.workplace.jooq.tables.DriveShareLinkAttempts;
 import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
+import com.workplace.jooq.tables.DriveSpaceMemberGroup;
 import com.workplace.jooq.tables.DriveTransferLink;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
@@ -227,6 +228,9 @@ public class Indexes {
     public static final Index IDX_DRIVE_SHARE_LINK_ATTEMPTS_EXPIRES_AT = Internal.createIndex(DSL.name("idx_drive_share_link_attempts_expires_at"), DriveShareLinkAttempts.DRIVE_SHARE_LINK_ATTEMPTS, new OrderField[] { DriveShareLinkAttempts.DRIVE_SHARE_LINK_ATTEMPTS.EXPIRES_AT }, false);
     public static final Index IDX_DRIVE_SHARE_LINK_FILE = Internal.createIndex(DSL.name("idx_drive_share_link_file"), DriveShareLink.DRIVE_SHARE_LINK, new OrderField[] { DriveShareLink.DRIVE_SHARE_LINK.DRIVE_FILE_ID }, false);
     public static final Index IDX_DRIVE_SHARE_LINK_TENANT = Internal.createIndex(DSL.name("idx_drive_share_link_tenant"), DriveShareLink.DRIVE_SHARE_LINK, new OrderField[] { DriveShareLink.DRIVE_SHARE_LINK.TENANT_ID }, false);
+    public static final Index IDX_DRIVE_SPACE_MEMBER_GROUP_ADDED_BY = Internal.createIndex(DSL.name("idx_drive_space_member_group_added_by"), DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP, new OrderField[] { DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP.ADDED_BY }, false);
+    public static final Index IDX_DRIVE_SPACE_MEMBER_GROUP_GROUP = Internal.createIndex(DSL.name("idx_drive_space_member_group_group"), DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP, new OrderField[] { DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP.GROUP_ID }, false);
+    public static final Index IDX_DRIVE_SPACE_MEMBER_GROUP_TENANT = Internal.createIndex(DSL.name("idx_drive_space_member_group_tenant"), DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP, new OrderField[] { DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP.TENANT_ID }, false);
     public static final Index IDX_DRIVE_SPACE_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_drive_space_member_tenant"), DriveSpaceMember.DRIVE_SPACE_MEMBER, new OrderField[] { DriveSpaceMember.DRIVE_SPACE_MEMBER.TENANT_ID }, false);
     public static final Index IDX_DRIVE_SPACE_TENANT = Internal.createIndex(DSL.name("idx_drive_space_tenant"), DriveSpace.DRIVE_SPACE, new OrderField[] { DriveSpace.DRIVE_SPACE.TENANT_ID }, false);
     public static final Index IDX_DRIVE_TRANSFER_LINK_TENANT = Internal.createIndex(DSL.name("idx_drive_transfer_link_tenant"), DriveTransferLink.DRIVE_TRANSFER_LINK, new OrderField[] { DriveTransferLink.DRIVE_TRANSFER_LINK.TENANT_ID }, false);

@@ -37,6 +37,7 @@ import com.workplace.jooq.tables.DriveShareLink;
 import com.workplace.jooq.tables.DriveShareLinkAttempts;
 import com.workplace.jooq.tables.DriveSpace;
 import com.workplace.jooq.tables.DriveSpaceMember;
+import com.workplace.jooq.tables.DriveSpaceMemberGroup;
 import com.workplace.jooq.tables.DriveTransferLink;
 import com.workplace.jooq.tables.EmailAccount;
 import com.workplace.jooq.tables.EmailAttachment;
@@ -328,6 +329,11 @@ public class Public extends SchemaImpl {
      * The table <code>public.drive_space_member</code>.
      */
     public final DriveSpaceMember DRIVE_SPACE_MEMBER = DriveSpaceMember.DRIVE_SPACE_MEMBER;
+
+    /**
+     * The table <code>public.drive_space_member_group</code>.
+     */
+    public final DriveSpaceMemberGroup DRIVE_SPACE_MEMBER_GROUP = DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP;
 
     /**
      * The table <code>public.drive_transfer_link</code>.
@@ -906,6 +912,7 @@ public class Public extends SchemaImpl {
             DriveShareLinkAttempts.DRIVE_SHARE_LINK_ATTEMPTS,
             DriveSpace.DRIVE_SPACE,
             DriveSpaceMember.DRIVE_SPACE_MEMBER,
+            DriveSpaceMemberGroup.DRIVE_SPACE_MEMBER_GROUP,
             DriveTransferLink.DRIVE_TRANSFER_LINK,
             EmailAccount.EMAIL_ACCOUNT,
             EmailAttachment.EMAIL_ATTACHMENT,

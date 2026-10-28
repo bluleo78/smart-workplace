@@ -44,6 +44,17 @@ export interface DriveMember {
   role: DriveRole
 }
 
+/**
+ * 팀 스페이스 멤버인 조직도 부서(WP-1056) — 부서 자체가 멤버라 그 부서와 하위 부서의 지금 구성원이 이 역할을 받는다(노트 WikiMemberGroup 과 같은 모양).
+ * 역할은 편집자·보기 전용만(소유자 불가). memberCount 는 하위 포함 활성 사람 수(중복 제외).
+ */
+export interface DriveMemberGroup {
+  groupId: number
+  name: string
+  role: Exclude<DriveRole, 'OWNER'>
+  memberCount: number
+}
+
 export interface DriveFolder {
   id: number
   parentId: number | null

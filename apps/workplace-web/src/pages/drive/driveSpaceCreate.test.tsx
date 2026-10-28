@@ -175,6 +175,9 @@ describe('팀 공간 ⋯ 메뉴', () => {
         ...handlers,
         http.get('/api/v1/drive/quota', () => HttpResponse.json({ usedBytes: 0, quotaBytes: 1024 ** 3 })),
         http.get('/api/v1/drive/spaces', () => HttpResponse.json([personalSpace, space])),
+        // 멤버 창이 함께 받는 부서 멤버·조직도(WP-1056) — 부서는 DriveSpaceMemberDialog.test.tsx 가 보고 여기선 비워 둔다.
+        http.get(`/api/v1/drive/spaces/${space.id}/member-groups`, () => HttpResponse.json([])),
+        http.get('/api/v1/user-groups', () => HttpResponse.json({ shared: [], personal: [] })),
       ],
     })
     await view.user.click(await screen.findByTestId(`drive-space-menu-${space.id}`))
@@ -269,7 +272,8 @@ describe('팀 공간 ⋯ 메뉴', () => {
     expect((screen.getByTestId('drive-member-role-select-3') as HTMLSelectElement).selectedOptions[0]).toHaveTextContent('편집자')
 
     await user.click(screen.getByTestId('drive-member-add-trigger'))
-    await user.click(await screen.findByTestId('member-search-row-2'))
+    // 사람·조직 선택 창(WP-1056) — 사람 후보 행을 고른다.
+    await user.click(await screen.findByTestId('drive-member-picker-person-2'))
     expect(await screen.findByTestId('drive-member-row-2')).toHaveTextContent('김민지')
     await user.keyboard('{Escape}')
 

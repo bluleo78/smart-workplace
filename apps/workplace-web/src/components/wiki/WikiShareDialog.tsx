@@ -33,7 +33,6 @@ import { handleApiError } from '@/lib/api-error'
 import { formatDateOnly, formatMonthDayClock } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 
-import { userGroupsApi } from '../../api/userGroups'
 import { useWikiPageShare, useWikiShareEvents, useWikiShareMutations } from '../../hooks/queries/useWikiShare'
 import { wikiKeys } from '../../hooks/queries/wikiKeys'
 import { useAuth } from '../../hooks/useAuth'
@@ -47,13 +46,12 @@ import type {
 import { WIKI_SHARE_MESSAGE_MAX } from '../../types/wiki'
 import type { GroupOption } from '../members/groupOptions'
 import { PeopleAndDepartmentPicker } from '../members/PeopleAndDepartmentPicker'
+import { addGroupMembers, fetchPersonalGroupMemberIds, groupExpansionMessage } from '../members/personalGroups'
 import { ShareGroupMembers } from './ShareGroupMembers'
 import {
-  addGroupMembers,
   copyShareLink,
   DEFAULT_SHARE,
   expiryAfterDays,
-  groupExpansionMessage,
   PUBLIC_DEFAULT_EXPIRY_DAYS,
   type ShareWidening,
   shareWidening,
@@ -284,8 +282,7 @@ export function WikiShareDialog({
     const notifyWith = notifyPayload()
     let memberIds: number[]
     try {
-      const details = await Promise.all(group.subtreeIds.map((id) => userGroupsApi.detail(id).then((r) => r.data)))
-      memberIds = details.flatMap((d) => d.members.filter((m) => m.targetType === 'MEMBER').map((m) => m.targetId))
+      memberIds = await fetchPersonalGroupMemberIds(group)
     } catch (e) {
       handleApiError(e, '그룹 구성원을 불러오지 못했습니다')
       return

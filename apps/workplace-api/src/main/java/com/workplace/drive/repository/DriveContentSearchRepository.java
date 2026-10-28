@@ -3,12 +3,16 @@ package com.workplace.drive.repository;
 import java.util.ArrayList;
 import java.util.List;
 import org.jooq.DSLContext;
+import org.jooq.Param;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
+import org.jooq.impl.SQLDataType;
 import org.springframework.stereotype.Repository;
 
 /**
- * Drive 콘텐츠 하이브리드 검색. 키워드(tsvector websearch) 랭크와 벡터(pgvector 코사인) 랭크를 RRF 로 병합. RLS 가 테넌트를,
- * drive_space_member 조인이 사용자 접근을 스코프한다. 벡터가 null 이면 키워드 전용. spaceId 가 있으면 해당 공간으로 결과를 추가 제한한다.
+ * Drive 콘텐츠 하이브리드 검색. 키워드(tsvector websearch) 랭크와 벡터(pgvector 코사인) 랭크를 RRF 로 병합. RLS 가 테넌트를, 사용자가
+ * (실효) 멤버인 공간 목록이 사용자 접근을 스코프한다 — 직접 멤버 행이나 멤버로 둔 조직도 부서(WP-1056). 벡터가 null 이면 키워드 전용. spaceId 가
+ * 있으면 해당 공간으로 결과를 추가 제한한다.
  */
 @Repository
 public class DriveContentSearchRepository {
@@ -47,17 +51,26 @@ public class DriveContentSearchRepository {
    */
   public List<ContentRow> hybridSearch(
       long userId, String query, float[] queryVec, int limit, Long spaceId) {
-    if (queryVec != null) {
-      return hybridSearchWithVector(userId, query, toVectorLiteral(queryVec), limit, spaceId);
+    // 검색할 수 있는 공간을 공통 멤버십 규칙(DriveSpaceMembership)으로 먼저 구한다(WP-1056) — 원시 SQL 안에 부서 트리 판정을
+    // 다시 쓰지 않게, 직접·부서 양쪽에 걸린 공간도 한 번만 들어가 같은 파일이 두 번 나오지 않게(예전 멤버 행 JOIN 을 대신한다).
+    List<Long> ids =
+        dsl.fetch(DriveSpaceMembership.spaceIdsOf(DSL.val(userId))).getValues(0, Long.class);
+    if (ids.isEmpty()) {
+      return List.of();
     }
-    return keywordOnlySearch(userId, query, limit, spaceId);
+    Param<Long[]> spaceIds = DSL.val(ids.toArray(Long[]::new), SQLDataType.BIGINT.array());
+    if (queryVec != null) {
+      return hybridSearchWithVector(spaceIds, query, toVectorLiteral(queryVec), limit, spaceId);
+    }
+    return keywordOnlySearch(spaceIds, query, limit, spaceId);
   }
 
   /**
    * 키워드 전용 검색(벡터 없음). vec CTE 를 제거해 null 바인딩 타입 추론 오류를 회피. RRF 점수 = 1/(K+rank_kw) + 1/(K+MISS_RANK)
-   * — 벡터 랭커 부재 시 상수 페널티. spaceId 가 있으면 accessible CTE 에 공간 필터를 추가한다.
+   * — 벡터 랭커 부재 시 상수 페널티. spaceIds(접근 가능한 공간)로 접근을 거르고, spaceId 가 있으면 accessible CTE 에 공간 필터를 추가한다.
    */
-  private List<ContentRow> keywordOnlySearch(long userId, String query, int limit, Long spaceId) {
+  private List<ContentRow> keywordOnlySearch(
+      Param<Long[]> spaceIds, String query, int limit, Long spaceId) {
     String spaceFilter = spaceId != null ? "AND df.space_id = ?" : "";
     String sql =
         """
@@ -66,10 +79,10 @@ public class DriveContentSearchRepository {
                  df.name AS file_name, f.mime_type, fe.search_tv, fe.extracted_text
           FROM file_extraction fe
           JOIN drive_file df ON df.file_id = fe.file_id
-          JOIN drive_space_member m ON m.space_id = df.space_id AND m.user_id = ?
           JOIN drive_space ds ON ds.id = df.space_id
           JOIN file f ON f.id = fe.file_id
           WHERE fe.status = 'DONE'
+            AND df.space_id = ANY(?)
           %s
         ),
         kw AS (
@@ -95,7 +108,7 @@ public class DriveContentSearchRepository {
         """
             .formatted(spaceFilter);
     List<Object> params = new ArrayList<>();
-    params.add(userId);
+    params.add(spaceIds);
     if (spaceId != null) params.add(spaceId);
     params.add(query);
     params.add(query);
@@ -110,11 +123,11 @@ public class DriveContentSearchRepository {
   }
 
   /**
-   * 키워드 + 벡터 하이브리드 검색. 두 랭커를 RRF 로 병합. 미접근 파일은 drive_space_member 조인으로 배제. spaceId 가 있으면 accessible
+   * 키워드 + 벡터 하이브리드 검색. 두 랭커를 RRF 로 병합. 미접근 파일은 spaceIds(접근 가능한 공간) 필터로 배제. spaceId 가 있으면 accessible
    * CTE 에 공간 필터를 추가한다.
    */
   private List<ContentRow> hybridSearchWithVector(
-      long userId, String query, String vecLiteral, int limit, Long spaceId) {
+      Param<Long[]> spaceIds, String query, String vecLiteral, int limit, Long spaceId) {
     String spaceFilter = spaceId != null ? "AND df.space_id = ?" : "";
     String sql =
         """
@@ -123,10 +136,10 @@ public class DriveContentSearchRepository {
                  df.name AS file_name, f.mime_type, fe.search_tv, fe.embedding, fe.extracted_text
           FROM file_extraction fe
           JOIN drive_file df ON df.file_id = fe.file_id
-          JOIN drive_space_member m ON m.space_id = df.space_id AND m.user_id = ?
           JOIN drive_space ds ON ds.id = df.space_id
           JOIN file f ON f.id = fe.file_id
           WHERE fe.status = 'DONE'
+            AND df.space_id = ANY(?)
           %s
         ),
         kw AS (
@@ -162,7 +175,7 @@ public class DriveContentSearchRepository {
         """
             .formatted(spaceFilter);
     List<Object> params = new ArrayList<>();
-    params.add(userId);
+    params.add(spaceIds);
     if (spaceId != null) params.add(spaceId);
     params.add(query);
     params.add(query);

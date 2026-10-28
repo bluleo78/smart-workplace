@@ -105,7 +105,7 @@ public class DriveSpaceService {
   @Transactional
   public void addMember(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    perms.requireTeamSpace(spaceId);
     perms.validateRole(role);
     if (membershipGuard.isForeignUser(userId)) {
       throw new DriveForbiddenException(spaceId, userId);
@@ -119,10 +119,11 @@ public class DriveSpaceService {
   @Transactional
   public void changeRole(long callerId, long spaceId, long userId, String role) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    perms.requireTeamSpace(spaceId);
     perms.validateRole(role);
-    // 멤버가 아니면 바꿀 행이 없다 — 0행 UPDATE 를 성공(204)으로 돌려주지 않고 거절한다(WP-667).
-    if (members.findRole(spaceId, userId).isEmpty()) {
+    // 멤버가 아니면 바꿀 행이 없다 — 0행 UPDATE 를 성공(204)으로 돌려주지 않고 거절한다(WP-667). 직접 멤버 행만 본다 — 조직도 부서로만
+    // 들어온 사람(WP-1056)도 바꿀 직접 행이 없다.
+    if (members.findDirectRole(spaceId, userId).isEmpty()) {
       throw new com.workplace.drive.exception.DriveSpaceMemberNotFoundException();
     }
     if (!"OWNER".equals(role)) requireAnotherOwner(spaceId, userId);
@@ -133,7 +134,7 @@ public class DriveSpaceService {
   @Transactional
   public void removeMember(long callerId, long spaceId, long userId) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    perms.requireTeamSpace(spaceId);
     requireAnotherOwner(spaceId, userId);
     members.remove(spaceId, userId);
     // 제거된 멤버는 커밋 후 명단에 없으므로 extra 로 넘겨 목록에서 사라지게 한다.
@@ -153,23 +154,11 @@ public class DriveSpaceService {
     }
   }
 
-  /**
-   * TEAM 공간이 아니면 거부 — PERSONAL("내 드라이브")/CHANNEL(채널 소유) 보호. rename·delete·멤버 변경이 공유하는 단일 타입 가드. 개인
-   * 공간 멤버를 바꾸면 남에게 넘기거나 소유자가 빠져 영구히 열리지 않고, 채널 공간 멤버는 채널 멤버십을 따른다(WP-495).
-   */
-  private void requireTeamSpace(long spaceId) {
-    String type =
-        spaces.findType(spaceId).orElseThrow(() -> new DriveSpaceNotFoundException(spaceId));
-    if (!"TEAM".equals(type)) {
-      throw new com.workplace.drive.exception.DriveSpaceTypeNotEditableException(spaceId, type);
-    }
-  }
-
   /** TEAM 공간 이름 변경. OWNER 전용. 바꾸는 사람이 볼 수 있는 다른 TEAM 공간과 이름이 겹치면 차단(#696·WP-693). */
   @Transactional
   public DriveSpaceResponse renameTeamSpace(long callerId, long spaceId, String name) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    perms.requireTeamSpace(spaceId);
     spaces.lockTeamSpaceName(name); // WP-772 — 만들기와 같은 이름 잠금
     if (spaces.existsVisibleTeamSpaceName(name, callerId, spaceId)) {
       throw new DriveSpaceNameDuplicatedException(name);
@@ -190,7 +179,7 @@ public class DriveSpaceService {
   @Transactional
   public void deleteTeamSpace(long callerId, long spaceId) {
     perms.requireRole(spaceId, callerId, "OWNER");
-    requireTeamSpace(spaceId);
+    perms.requireTeamSpace(spaceId);
     purgeSpace(spaceId, callerId);
   }
 
@@ -200,8 +189,8 @@ public class DriveSpaceService {
    */
   @Transactional
   public void purgeSpace(long spaceId, long actorId) {
-    // 하드삭제 cascade 로 멤버 행이 사라지므로 삭제 전에 명단을 확보한다.
-    List<Long> before = members.memberUserIds(spaceId);
+    // 하드삭제 cascade 로 멤버 행(직접·부서)이 사라지므로 삭제 전에 실효 멤버 명단(부서 구성원 포함, WP-1056)을 확보한다.
+    List<Long> before = members.audienceUserIds(spaceId);
     files.expireFiles(files.allFileIdsInSpace(spaceId));
     files.expireFiles(versions.fileIdsForSpace(spaceId));
     spaces.deleteSpace(spaceId);

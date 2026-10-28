@@ -1,6 +1,6 @@
 // 노트 스페이스 멤버 창의 조직도 부서 멤버(WP-1052) — 부서 행(「개발팀 · 12명 [조직]」)·인원 수 머리글·역할 변경·제거·하위 포함 구성원 펼치기,
 // 사람·조직 공통 선택 창으로 부서·사람 추가(payload), 이미 추가한 부서·사람 표시, 내 그룹 탭 없음·AI 에이전트 포함을 MSW 로 본다.
-// 드라이브 공간 창에 부서 기능이 없는지는 SpaceMemberDialog.test.tsx 가 본다.
+// 부서 멤버를 넘기지 않을 때(사람만)는 SpaceMemberDialog.test.tsx 가, 드라이브 팀 공간의 부서·내 그룹은 DriveSpaceMemberDialog.test.tsx 가 본다.
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'

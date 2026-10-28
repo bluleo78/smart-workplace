@@ -2,9 +2,11 @@
 // 데이터 조회·변경은 앱별 래퍼(WikiSpaceMemberDialog·DriveSpaceMemberDialog)가 훅으로 하고, 여기는 모양과 규칙만 맡는다.
 // 네이티브 <select> 사용 — shadcn Select(Radix)는 Playwright selectOption 미동작.
 // WP-1052 — 노트는 조직도 부서 자체도 멤버로 둔다(departments 를 넘길 때만): 부서 행(「개발팀 · 12명 [조직]」, 편집자·보기 전용, 제거,
-// ▸ 로 하위 부서까지 지금 구성원 펼치기)과, 사람·조직을 함께 고르는 공통 선택 창. 드라이브는 넘기지 않아 예전 화면 그대로다.
+// ▸ 로 하위 부서까지 지금 구성원 펼치기)과, 사람·조직을 함께 고르는 공통 선택 창.
+// WP-1056 — 드라이브 팀 스페이스도 부서 멤버를 넘기고, 내 그룹도 골라 지금 구성원을 사람 멤버로 풀어 더한다(onAddPersonalGroupMembers).
 import { Building2, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { toast } from 'sonner'
 
 import {
   AlertDialog,
@@ -22,6 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { useGroupAllMembers } from '@/hooks/queries/useGroupMemberSearch'
 import { useAuth } from '@/hooks/useAuth'
+import { handleApiError } from '@/lib/api-error'
 import {
   isLockedMemberRow,
   SPACE_GROUP_ROLES,
@@ -35,9 +38,11 @@ import {
 import { cn } from '@/lib/utils'
 import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
 
+import type { GroupOption } from '../members/groupOptions'
 import { PeopleAndDepartmentPicker } from '../members/PeopleAndDepartmentPicker'
+import { fetchPersonalGroupMemberIds, groupExpansionMessage } from '../members/personalGroups'
 
-/** 멤버인 조직도 부서(WP-1052) — 넘기면 부서 행과 사람·조직 선택 창을 켠다. 노트만 넘긴다. */
+/** 멤버인 조직도 부서(WP-1052) — 넘기면 부서 행과 사람·조직 선택 창을 켠다. 노트·드라이브 팀 스페이스가 넘긴다(WP-1056). */
 export interface SpaceMemberDepartments {
   /** 부서 목록 — 조회 전이면 undefined. */
   groups: SpaceMemberGroup[] | undefined
@@ -47,6 +52,12 @@ export interface SpaceMemberDepartments {
   onRemove: (groupId: number) => void
   /** 부서 제거 확인 문구 — 제거하면 그 부서 사람이 무엇을 잃는지. */
   removeHint: (name: string) => string
+  /**
+   * 내 그룹 구성원을 사람 멤버로 더하기(WP-1056) — 넘기면 선택 창에 내 그룹도 보이고, 고른 그룹(하위 그룹 포함)의 지금 사람 구성원 id 를 넘겨 받는다.
+   * 이미 멤버인 사람 거르기·추가·무효화는 앱이 하고(최신 멤버 목록으로 — 업서트가 기존 역할을 덮지 않게) 더한·뺀·실패한 수를 돌려준다. 그룹 자체는
+   * 멤버로 남지 않아 나중에 그룹에 들어온 사람은 따라오지 않는다. 없으면(노트 스페이스) 내 그룹을 보이지 않는다.
+   */
+  onAddPersonalGroupMembers?: (memberIds: number[]) => Promise<{ added: number; skipped: number; failed: number }>
 }
 
 /** 제거 확인 대상 — 사람 행 또는 부서 행. */
@@ -86,7 +97,7 @@ export function SpaceMemberDialog({
   onRemove: (userId: number) => void
   /** data-testid 접두사 — 앱별 E2E 가 구분해 잡는다(wiki-member-row-1, drive-member-row-1 …). */
   testIdPrefix: 'wiki' | 'drive'
-  /** 조직도 부서 멤버(WP-1052) — 넘기면 부서 행과 사람·조직 선택 창을 켠다. 없으면(드라이브) 사람만. */
+  /** 조직도 부서 멤버(WP-1052) — 넘기면 부서 행과 사람·조직 선택 창을 켠다. 없으면 사람만. */
   departments?: SpaceMemberDepartments
 }) {
   const { user } = useAuth()
@@ -107,6 +118,18 @@ export function SpaceMemberDialog({
       else next.add(groupId)
       return next
     })
+  /** 내 그룹 고르기(WP-1056) — 지금 사람 구성원을 받아 앱에 넘기고, 끝난 뒤 몇 명을 더했는지(실패가 있으면 함께) 알린다. */
+  const addPersonalGroup = async (group: GroupOption, addMembers: NonNullable<SpaceMemberDepartments['onAddPersonalGroupMembers']>) => {
+    try {
+      const { added, skipped, failed } = await addMembers(await fetchPersonalGroupMemberIds(group))
+      const text = groupExpansionMessage(group.name, added, skipped)
+      if (failed > 0) toast.error(`${text} — ${failed}명은 추가하지 못했습니다`)
+      else if (added === 0) toast.info(text)
+      else toast.success(text)
+    } catch (e) {
+      handleApiError(e, '그룹 구성원을 추가하지 못했습니다')
+    }
+  }
   const addTrigger = (
     <Button size="sm" variant="outline" data-testid={tid('member-add-trigger')}>
       멤버 추가
@@ -123,7 +146,8 @@ export function SpaceMemberDialog({
           </DialogHeader>
 
           {/* 인원 수 + 멤버 추가(소유자만). 검색에 AI 에이전트도 넣는다 — 팀 공간 일을 AI 에게도 맡길 수 있게.
-              부서 멤버를 켜면(노트) 「멤버 3명 · 조직 1」로 부서 수도 함께 보이고, 사람·조직을 한 창에서 고른다(내 그룹은 그룹 자체를 멤버로 두지 않아 뺀다). */}
+              부서 멤버를 켜면 「멤버 3명 · 조직 1」로 부서 수도 함께 보이고, 사람·조직을 한 창에서 고른다. 내 그룹은 그룹 자체를 멤버로 두지 않아
+              기본으로 빼고, onAddPersonalGroupMembers(드라이브)를 넘기면 보이되 고르면 지금 구성원을 사람 멤버로 풀어 더한다. */}
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground" data-testid={tid('member-count')}>
               멤버 {members?.length ?? 0}명{departments && (groups?.length ?? 0) > 0 && ` · 조직 ${groups!.length}`}
@@ -136,7 +160,11 @@ export function SpaceMemberDialog({
                 existingGroupIds={existingGroupIds}
                 onSelectPerson={(userId) => onAdd(userId, 'EDITOR')}
                 onSelectDepartment={(g) => departments.onAdd(g.id, 'EDITOR')}
-                showPersonalGroups={false}
+                onSelectPersonalGroup={(g) => {
+                  const addMembers = departments.onAddPersonalGroupMembers
+                  if (addMembers) void addPersonalGroup(g, addMembers)
+                }}
+                showPersonalGroups={departments.onAddPersonalGroupMembers != null}
                 includeAgents
                 testIdPrefix={tid('member-picker')}
                 trigger={addTrigger}

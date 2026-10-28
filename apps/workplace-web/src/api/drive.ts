@@ -11,6 +11,7 @@ import type {
   DriveFolderPathSegment,
   DriveItemList,
   DriveMember,
+  DriveMemberGroup,
   DriveQuota,
   DriveRole,
   DriveSearchResult,
@@ -163,6 +164,15 @@ export const driveApi = {
   // 멤버 제거 — OWNER 전용. 마지막 OWNER 제거는 서버가 거부한다.
   removeMember: (spaceId: number, userId: number) =>
     client.delete<void>(`/drive/spaces/${spaceId}/members/${userId}`),
+
+  // 멤버인 조직도 부서(WP-1056) — TEAM 공간만. 부서 자체를 역할과 함께 멤버로 둔다. 추가·변경·제거는 OWNER 만, 역할은 EDITOR·VIEWER 만.
+  listMemberGroups: (spaceId: number) => client.get<DriveMemberGroup[]>(`/drive/spaces/${spaceId}/member-groups`),
+  addMemberGroup: (spaceId: number, groupId: number, role: DriveMemberGroup['role']) =>
+    client.post<DriveMemberGroup>(`/drive/spaces/${spaceId}/member-groups`, { groupId, role }),
+  changeMemberGroupRole: (spaceId: number, groupId: number, role: DriveMemberGroup['role']) =>
+    client.patch<DriveMemberGroup>(`/drive/spaces/${spaceId}/member-groups/${groupId}`, { role }),
+  removeMemberGroup: (spaceId: number, groupId: number) =>
+    client.delete<void>(`/drive/spaces/${spaceId}/member-groups/${groupId}`),
 
   listItems: (spaceId: number, parentId: number | null) =>
     client.get<DriveItemList>(`/drive/spaces/${spaceId}/items`, {
