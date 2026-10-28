@@ -145,7 +145,8 @@ export interface MessagePage {
 // #65 2단계: 크로스채널 스레드 인박스 카드.
 export interface ThreadInboxItem {
   rootMessage: MessageResponse; // 스레드 루트(unreadReplyCount/followed 채워짐)
-  channelName: string;
+  channelName: string | null; // DM 은 null — 카드는 상대 이름을 보인다(WP-1083)
+  channelKind: 'CHANNEL' | 'DM'; // DM 스레드는 DM 화면(/chat/dms)으로 연다(WP-1083)
   lastReplyAt: string; // ISO, 최근 답글 시각
 }
 
