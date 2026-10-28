@@ -375,10 +375,10 @@ test('비활성 에이전트는 목록에 배지가 보이고, 상세에서 켜�
 })
 
 test('개인 비서 상세에는 역할 할당·활성 상태가 보이지 않는다 (WP-1075)', async () => {
-  const personal: AgentResponse = { ...base, id: 104, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
+  const personal: AgentResponse = { ...base, id: 106, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
   const { user } = await renderAgents({ extraAgents: [personal] })
-  const drawer = await openDrawer(user, 104)
-  await within(drawer).findByTestId('agent-delete-104')
+  const drawer = await openDrawer(user, 106)
+  await within(drawer).findByTestId('agent-delete-106')
   expect(within(drawer).queryByTestId('agent-access-sections')).not.toBeInTheDocument()
   expect(within(drawer).queryByRole('switch', { name: '활성 상태' })).not.toBeInTheDocument()
   expect(within(drawer).queryByText('역할 할당')).not.toBeInTheDocument()
