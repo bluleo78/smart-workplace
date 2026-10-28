@@ -4,7 +4,7 @@
 // - 조직도 부서·내 그룹: 그룹 트리(GET /user-groups, 공유 조직도 + 내 개인 그룹만 온다)를 한 번 받아 브라우저에서 이름·상위 경로로 거른다.
 //   트리를 못 받으면(권한·오류) 그룹 섹션만 빠지고 사람 검색은 그대로 쓴다 — 공유 창 전체를 막지 않는다.
 // - 종류 탭(WP-1048): 전체·사람·조직·내 그룹 — 사람이 많아도 조직만 골라 볼 수 있다. 검색어가 없으면 조직도를 맨 위에 둔다
-//   (사람 기본 목록이 첫 화면을 채워 조직도가 안 보이던 VOC). 검색어를 치면 사람을 먼저 둔다(이름으로 찾는 일이 많다).
+//   (사람 기본 목록이 첫 화면을 채워 조직도가 안 보이던 VOC). 사람 검색 결과가 오면 사람을 먼저 둔다(이름으로 찾는 일이 많다).
 // - 조직·그룹 펼치기(WP-1048): 행의 ▸(또는 → 키)로 그 자리에서 하위 부서와 직속 구성원을 펼친다. 행을 고르면 그 조직을 추가하고,
 //   펼친 구성원 행을 고르면 그 사람만 추가한다. 검색어가 없으면 최상위 조직만 보이고 펼쳐 내려간다.
 // - 키보드: cmdk 목록이라 ↑↓ 로 섹션을 넘나들며 고르고 Enter 로 더한다. 검색어를 치면 고를 수 있는 첫 후보가 잡혀 바로 Enter 로 더할 수 있다.
@@ -110,6 +110,11 @@ export function ShareTargetSearchPopover({
   const detailOf = new Map(expandedIds.map((id, i) => [id, details[i]]))
 
   const q = query.trim()
+  // 사람 목록은 debounce 된 검색어(300ms)의 결과다 — 그사이 목록은 이전 검색어의 것이라, 순서를 정하거나 고르게 하면
+  // 「개발」을 치고 바로 Enter 를 눌렀을 때 이전 목록의 첫 사람에게 공유된다. 사람 섹션 자리는 사람 검색어로 정하고,
+  // 지금 검색어의 결과가 아니면 사람 줄을 고르지 못하게 한다(조직·그룹은 브라우저에서 바로 걸러 지금 검색어 그대로다).
+  const peopleQuery = debounced.trim()
+  const peopleFresh = peopleQuery === q
   // 사람 후보 — 비활성 사용자·나·공유를 만든 사람은 빼고, 이미 지정한 사람은 뒤로(기본 목록 앞줄이 고를 수 없는 행으로 차지 않게).
   const fetched = people.data?.content ?? []
   const personItems = fetched
@@ -219,9 +224,9 @@ export function ShareTargetSearchPopover({
       if (r.type === 'member') return memberBlock(r, department) ? [] : [memberValue(department, r.groupId, r.member.targetId)]
       return []
     })
-  const selectablePeople = peopleShown.filter((u) => !existingUserIds.has(u.id)).map((u) => `user-${u.id}`)
+  const selectablePeople = peopleFresh ? peopleShown.filter((u) => !existingUserIds.has(u.id)).map((u) => `user-${u.id}`) : []
   const selectableGroups = [...selectableGroupRows(departmentRows, true), ...selectableGroupRows(personalRows, false)]
-  const selectable = q ? [...selectablePeople, ...selectableGroups] : [...selectableGroups, ...selectablePeople]
+  const selectable = peopleQuery ? [...selectablePeople, ...selectableGroups] : [...selectableGroups, ...selectablePeople]
   const current = selectable.includes(active) ? active : (selectable[0] ?? '')
   const pick = (fn: () => void) => {
     fn()
@@ -244,18 +249,38 @@ export function ShareTargetSearchPopover({
     if (input && input.selectionStart !== input.selectionEnd) return
     if (input && e.key === 'ArrowRight' && input.selectionEnd !== input.value.length) return
     if (input && e.key === 'ArrowLeft' && input.selectionStart !== 0) return
-    const group = /^(?:dept|group)-(\d+)$/.exec(current)
-    const member = /^(?:dept|group)-member-(\d+)-\d+$/.exec(current)
+    const group = /^(dept|group)-(\d+)$/.exec(current)
+    const member = /^(dept|group)-member-(\d+)-\d+$/.exec(current)
     let target: number | undefined
-    if (e.key === 'ArrowRight') target = group ? Number(group[1]) : undefined
-    else if (member) target = Number(member[1])
+    if (e.key === 'ArrowRight') target = group ? Number(group[2]) : undefined
+    else if (member) target = Number(member[2])
     else if (group) {
-      const id = Number(group[1])
-      target = expanded.has(id) ? id : optionById.get(id)?.ancestorIds.at(-1)
+      const id = Number(group[2])
+      const parent = optionById.get(id)?.ancestorIds.at(-1)
+      // 검색으로 평평하게 보이는 하위 그룹은 상위가 펼쳐져 있지 않다 — 보이지 않는 상위를 접는 대신 키를 그대로 둔다.
+      target = expanded.has(id) ? id : parent != null && expanded.has(parent) ? parent : undefined
     }
     if (target == null) return
     e.preventDefault()
-    toggle(target, e.key === 'ArrowRight')
+    if (e.key === 'ArrowRight') {
+      toggle(target, true)
+      return
+    }
+    // 접으면 고른 줄(구성원·하위 그룹)이 사라진다 — 고른 줄이 사라지면 cmdk 가 맨 위 줄을 고르므로, 선택을 먼저 접을 그룹으로
+    // 옮겨 커밋한 뒤 다음 틱에 접는다. 그래야 다음 Enter·→ 가 맨 위 줄이 아니라 방금 접은 그룹에 간다.
+    const collapse = target
+    setActive(`${(group ?? member)![1]}-${collapse}`)
+    setTimeout(() => toggle(collapse, false), 0)
+  }
+  // 닫으면 탭·펼침·선택·검색어를 처음으로 — 다시 열 때 이전 탭(「내 그룹」만 등)·펼침이 남아 있거나 펼친 그룹 조회가 남지 않게.
+  const handleOpenChange = (next: boolean) => {
+    if (!next) {
+      setKind('all')
+      setExpanded(new Set())
+      setActive('')
+      setQuery('')
+    }
+    onOpenChange(next)
   }
 
   /** 조직·그룹 섹션 — department 면 조직도(고르면 부서 행), 아니면 내 그룹(고르면 구성원을 한 명씩). */
@@ -351,7 +376,9 @@ export function ShareTargetSearchPopover({
           <CommandItem
             key={`u${u.id}`}
             value={`user-${u.id}`}
-            disabled={added}
+            // 이전 검색어의 사람(지금 검색어의 결과가 오기 전)은 고를 수 없다 — 고를 후보가 없을 때 cmdk 가 첫 줄을 스스로 골라
+            // Enter 로 엉뚱한 사람이 더해지지 않게(지금 검색어에 맞는 조직이 이미 추가돼 비활성일 때 등).
+            disabled={added || !peopleFresh}
             onSelect={() => pick(() => onSelectPerson(u.id))}
             data-testid={`share-target-person-${u.id}`}
             className="flex items-center gap-2"
@@ -375,7 +402,7 @@ export function ShareTargetSearchPopover({
   ]
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange} modal>
+    <Popover open={open} onOpenChange={handleOpenChange} modal>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       {/* 가장자리 16px — 390 화면에서 팝오버가 오른쪽 끝에 붙지 않게(MemberSearchPopover 와 같은 폭·여백). */}
       <PopoverContent className="w-[min(380px,calc(100vw-32px))] p-0" align="start" collisionPadding={16} data-testid="share-target-search">
@@ -409,10 +436,10 @@ export function ShareTargetSearchPopover({
               ) : (
                 <CommandEmpty>결과가 없습니다</CommandEmpty>
               ))}
-            {q && peopleShown.length > 0 && peopleSection}
+            {peopleQuery && peopleShown.length > 0 && peopleSection}
             {departmentRows.length > 0 && groupSection(departmentRows, true)}
             {personalRows.length > 0 && groupSection(personalRows, false)}
-            {!q && peopleShown.length > 0 && peopleSection}
+            {!peopleQuery && peopleShown.length > 0 && peopleSection}
           </CommandList>
         </Command>
       </PopoverContent>

@@ -2,7 +2,7 @@
 // 외부 보기의 응답 → 화면(트리·본문·가린 멘션·링크), 하위 이동의 ?pageId 질의, 만료·하위만 닫힘·해제·일시 오류·로그인 필요(401) 안내,
 // 받는 사람 화면의 외부 보기 전환(409 PUBLIC)·일시 실패(5xx)·접근 요청, 알림 입구의 갈 곳 판정은 브라우저 없이 판정되므로
 // wiki-share-public · wiki-share-view 에서 옮겼다. 공유 창의 「사람·팀 추가」(WP-1023 — 사람·조직도 부서·내 그룹 검색과 저장 payload)도 여기서 본다. 이미지 실제 로드·전체 폭 기하·robots.txt·동기화 서버 연결·워크스페이스 전환 새로고침은 E2E 에 남는다.
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { useState } from 'react'
 import { Route, Routes, useParams } from 'react-router-dom'
@@ -466,7 +466,7 @@ function openShareDialog(
         // 하위 조직 포함 구성원(빈 검색어) — 공유 창 부서 행의 ▾(WP-1048). groupMembers 의 직속 구성원에 경로 없이 답한다.
         http.get('/api/v1/user-groups/:id/members/search', ({ params }) => {
           const id = Number(params.id)
-          return HttpResponse.json((groupMembers[id] ?? []).map((m) => ({ ...m, groupId: id, groupPath: [] })))
+          return HttpResponse.json((groupMembers[id] ?? []).map((m) => ({ groupId: id, groupPath: [], ...m })))
         }),
         http.get('/api/v1/user-groups/:id', async ({ params }) => {
           const id = Number(params.id)
@@ -818,6 +818,80 @@ describe('노트 공유 창 — 공유 대상 고르기(WP-1048)', () => {
     // 커서가 처음이 아니면 → 도 가로채지 않는다(접힌 그룹이 고른 줄이어도).
     await user.keyboard('{ArrowRight}')
     expect(input.selectionStart).toBe(2)
+  })
+
+  test('검색어를 치고 사람 검색이 오기 전에 Enter 를 눌러도 이전 사람 목록의 사람이 아니라 지금 검색어에 맞는 조직을 더한다', async () => {
+    const { user, puts } = openShareDialog()
+    const input = await openPicker(user)
+    // 빈 검색어의 사람 목록(김민지·이도윤)이 보인 뒤.
+    await screen.findByTestId('share-target-person-7')
+    await user.type(input, '개발{Enter}')
+    await waitFor(() => expect(puts).toHaveLength(1))
+    expect(puts[0]).toMatchObject({ userIds: [3], groupIds: [10] })
+  })
+
+  test('지금 검색어에 맞는 조직이 이미 추가돼 고를 것이 없으면, 사람 검색이 오기 전 Enter 는 아무도 더하지 않는다', async () => {
+    const { user, puts } = openShareDialog({ groups: [{ groupId: 10, name: '개발팀', memberCount: 3 }] })
+    const input = await openPicker(user)
+    await screen.findByTestId('share-target-person-7')
+    await user.type(input, '백엔드')
+    // 「백엔드」는 상위 개발팀이 이미 대상이라 고를 수 없고, 이전 검색어의 사람 줄은 비활성이다.
+    expect(screen.getByTestId('share-target-person-7')).toHaveAttribute('aria-disabled', 'true')
+    await user.keyboard('{Enter}')
+    // 사람 검색(「백엔드」 — 맞는 사람 없음)이 와서 이전 사람 줄이 사라질 때까지 아무것도 더하지 않는다.
+    await waitFor(() => expect(screen.queryByTestId('share-target-person-7')).not.toBeInTheDocument())
+    expect(puts).toHaveLength(0)
+    expect(input).toHaveValue('백엔드')
+  })
+
+  test('← 로 접으면 선택은 접은 그룹에 남고, 검색으로 평평하게 보이는 하위 그룹에서는 ← 를 가로채지 않는다', async () => {
+    const { user } = openShareDialog({}, { 20: [memberRow(8)] })
+    const input = (await openPicker(user)) as HTMLInputElement
+    await screen.findByTestId('share-target-department-20')
+    input.focus()
+    // 디자인팀(둘째 조직)으로 내려가 펼치고, 구성원 줄에서 ← 로 접는다.
+    await user.keyboard('{ArrowDown}')
+    await waitFor(() => expect(screen.getByTestId('share-target-department-20')).toHaveAttribute('aria-selected', 'true'))
+    await user.keyboard('{ArrowRight}')
+    await screen.findByTestId('share-target-member-20-8')
+    await user.keyboard('{ArrowDown}')
+    await waitFor(() => expect(screen.getByTestId('share-target-member-20-8')).toHaveAttribute('aria-selected', 'true'))
+    await user.keyboard('{ArrowLeft}')
+    await waitFor(() => expect(screen.queryByTestId('share-target-member-20-8')).not.toBeInTheDocument())
+    expect(screen.getByTestId('share-target-department-20')).toHaveAttribute('aria-selected', 'true')
+
+    // 「백엔드」로 찾으면 하위 부서만 보인다 — 상위(개발팀)가 펼쳐져 있지 않아 ← 는 글자 커서용으로 둔다.
+    await user.type(input, '백엔드')
+    await waitFor(() => expect(screen.getByTestId('share-target-department-12')).toHaveAttribute('aria-selected', 'true'))
+    input.setSelectionRange(0, 0)
+    expect(fireEvent.keyDown(input, { key: 'ArrowLeft' })).toBe(true)
+  })
+
+  test('닫았다 다시 열면 탭·펼침이 처음으로 돌아간다', async () => {
+    const { user } = openShareDialog()
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-expand-10'))
+    await screen.findByTestId('share-target-department-12')
+    await user.click(screen.getByTestId('share-target-tab-departments'))
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByTestId('share-target-search')).not.toBeInTheDocument())
+
+    await openPicker(user)
+    expect(await screen.findByTestId('share-target-tab-all')).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByTestId('share-target-department-10')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-department-12')).not.toBeInTheDocument()
+  })
+
+  test('공유 창 ▾ 의 하위 부서 사람은 펼친 부서 이름을 빼고 그 아래 소속만 보인다', async () => {
+    const sub = { ...memberRow(9), name: '웹파트 사람', groupPath: ['개발팀', '백엔드'] } as UserGroupDetail['members'][number]
+    const { user } = openShareDialog({ groups: [{ groupId: 10, name: '개발팀', memberCount: 2 }] }, { 10: [memberRow(7), sub] })
+    await user.click(await screen.findByTestId('wiki-share-group-toggle-10'))
+    const members = await screen.findByTestId('wiki-share-group-members-10')
+    const row = (await within(members).findByText('웹파트 사람')).closest('li')!
+    expect(row).toHaveTextContent('백엔드')
+    expect(row).not.toHaveTextContent('개발팀')
+    // 직속 구성원은 경로 없이 이름만.
+    expect(within(members).getByText('m7').closest('li')).toHaveTextContent(/^m7$/)
   })
 
   test('공유 창의 부서 행 ▾ 는 하위 부서까지 지금 구성원(사람만)을 펼쳐 보인다', async () => {

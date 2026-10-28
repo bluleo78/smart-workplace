@@ -19,8 +19,8 @@ export function ShareGroupMembers({ groupId }: { groupId: number }) {
           {people.map((m) => (
             <li key={m.targetId} className="flex min-w-0 items-center gap-1.5">
               <span className="truncate">{m.name}</span>
-              {/* 하위 부서 사람은 소속 경로(연락처 조직도와 같은 표기) — 직속이면 비어 있다. */}
-              {m.groupPath.length > 0 && <span className="truncate text-muted-foreground">{m.groupPath.join(' › ')}</span>}
+              {/* 하위 부서 사람은 소속 경로 — 서버 경로는 펼친 부서 자신부터라(직속이면 빈 배열) 줄 위의 부서 이름은 빼고 그 아래만 보인다. */}
+              {m.groupPath.length > 1 && <span className="truncate text-muted-foreground">{m.groupPath.slice(1).join(' › ')}</span>}
             </li>
           ))}
         </ul>
