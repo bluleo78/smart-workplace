@@ -97,6 +97,7 @@ public class IssueService {
   private final IssueBodyImageService bodyImageService;
   private final IssueCommentRepository commentRepository;
   private final IssueCommentReactionService commentReactionService;
+  private final IssueCommentMentionService commentMentionService;
   private final IssueHistoryRepository historyRepository;
   private final IssueLabelRepository issueLabelRepository;
   private final IssueAttachmentRepository issueAttachmentRepository;
@@ -814,8 +815,10 @@ public class IssueService {
     var assignees = assigneeRepository.findByIssue(row.id());
     var typeMap = typeRepository.findByIds(List.of(row.typeId()));
     var type = typeMap.get(row.typeId());
-    // 코멘트마다 보는 사람별 반응 집계를 싣는다(WP-504) — 집계 쿼리 한 번.
-    var comments = commentReactionService.enrich(commentRepository.findByIssue(row.id()), callerId);
+    // 코멘트마다 보는 사람별 반응 집계(WP-504)와 멘션 사용자(WP-1095)를 싣는다 — 각각 쿼리 한 번.
+    var comments =
+        commentMentionService.enrich(
+            commentReactionService.enrich(commentRepository.findByIssue(row.id()), callerId));
     // 관계 이력(RELATION_*)은 상대 프로젝트를 읽을 수 없는 조회자에게 상대 키·제목을 가린다(WP-887).
     var history =
         relationService.redactHistory(callerId, project, historyRepository.findByIssue(row.id()));

@@ -126,6 +126,7 @@ class IssueAiSummaryInputBudgetTest {
         Instant.parse("2026-01-01T00:00:00Z").plusSeconds(id),
         null,
         "writer",
+        List.of(),
         List.of());
   }
 }

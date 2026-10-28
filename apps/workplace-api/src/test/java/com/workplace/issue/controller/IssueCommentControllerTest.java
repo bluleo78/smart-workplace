@@ -70,7 +70,17 @@ class IssueCommentControllerTest extends WebMvcSliceTestBase {
 
   private IssueCommentResponse sampleComment() {
     return new IssueCommentResponse(
-        50L, 100L, 1L, "me", "HUMAN", "hello", Instant.now(), Instant.now(), "me", List.of());
+        50L,
+        100L,
+        1L,
+        "me",
+        "HUMAN",
+        "hello",
+        Instant.now(),
+        Instant.now(),
+        "me",
+        List.of(),
+        List.of());
   }
 
   @Test
@@ -87,6 +97,7 @@ class IssueCommentControllerTest extends WebMvcSliceTestBase {
             Instant.now(),
             Instant.now(),
             "ai-bot",
+            List.of(),
             List.of());
     when(commentService.list(1L, 100L)).thenReturn(List.of(agentComment));
 

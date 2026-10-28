@@ -6,7 +6,7 @@ import type { IssueFieldEntry } from './customField';
 import type { IssueRecurrenceSummary } from './issueRecurrence';
 import type { IssueTypeSummary } from './issueType';
 import type { LabelSummary } from './label';
-import type { ReactionResponse } from './messaging';
+import type { MentionResponse, ReactionResponse } from './messaging';
 import type { UserSummary } from './user';
 import type { VersionSummary } from './version';
 
@@ -199,6 +199,9 @@ export interface IssueCommentResponse {
   updatedAt: string;
   // 이모지별 반응 집계(WP-504) — 채팅 메시지와 같은 모양. 구버전 서버(롤링 배포 중)는 빠뜨릴 수 있어 읽을 때 `?? []`.
   reactions: ReactionResponse[];
+  // 본문 멘션 토큰(<@id>)이 가리키는 사용자(WP-1095) — 서버가 사용자 테이블에서 풀어 준다. 프로젝트에서 빠진 사람도 이름이 있다.
+  // 구버전 서버(롤링 배포 중)는 빠뜨릴 수 있어 읽을 때 `?? []`.
+  mentions?: MentionResponse[];
 }
 
 export type IssueHistoryEventType =

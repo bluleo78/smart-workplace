@@ -101,9 +101,27 @@ describe('IssueCommentList — 코멘트 마크다운 렌더 (WP-1015)', () => {
     expect(md.querySelector('pre code')?.textContent).toBe('담당 <@99>\n')
   })
 
-  it('멤버 목록에 없는 멘션은 「알 수 없음」 칩으로 그린다', () => {
+  it('멤버 목록에도 서버 멘션에도 없는 멘션(탈퇴 등)은 「알 수 없음」 칩으로 그린다', () => {
     renderList([createComment({ id: 1, authorId: 2, body: '<@555> 확인' })])
     expect(screen.getByTestId('comment-mention-chip-555')).toHaveTextContent('@알 수 없음')
+  })
+
+  it('프로젝트에서 빠진 사람의 멘션은 서버가 준 멘션 이름으로 그린다 — 멤버 목록에 없어도 「알 수 없음」이 아니다(WP-1095)', () => {
+    renderList([
+      createComment({
+        id: 1,
+        authorId: 2,
+        body: '<@555> 와 <@1> 확인',
+        mentions: [{ id: 555, username: 'left', name: '떠난 사람', kind: 'HUMAN' }],
+      }),
+      // 서버 멘션이 없는 다른 코멘트(구버전 서버)는 멤버 목록만 쓴다 — 다른 코멘트의 서버 멘션이 새지 않는다.
+      createComment({ id: 2, authorId: 2, body: '<@555> 다시' }),
+    ])
+
+    const chips = screen.getAllByTestId('comment-mention-chip-555')
+    expect(chips[0]).toHaveTextContent('@떠난 사람')
+    expect(chips[1]).toHaveTextContent('@알 수 없음')
+    expect(screen.getByTestId('comment-mention-chip-1')).toHaveTextContent('@Tester')
   })
 })
 
