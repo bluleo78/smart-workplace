@@ -125,6 +125,7 @@ E2E 를 vitest 로 옮길 때는 옮긴 테스트마다 로직을 일부러 깨 
 - 설정: `playwright.config.ts`. 테스트: `e2e/`. baseURL 은 런마다 20000번대 랜덤 `E2E_PORT` 로 자체 Vite 를 띄운다(`CI` 일 때만 6173)
 - 서버 모드: 기본 dev(즉시 기동, 소수 spec·디버그용) / `E2E_SERVER=preview`(포트별 임시 디렉토리에 빌드 후 `vite preview`, 전체 스위트용). pre-push 와 pre-commit 의 전체 E2E 경로는 preview, 도메인 한정 경로는 dev
 - E2E 가 강제 종료(SIGKILL·timeout)돼 남은 webServer(동기화 테스트 서버·20000번대 dev·preview)는 다음 E2E 가 전역 락을 잡은 뒤 정리한다 — 부모가 Playwright 러너가 아닌 그룹 우두머리만, 명령줄 전체가 같을 때만(`scripts/e2e-orphan-webservers.mjs`, WP-972)
+- `pnpm test:e2e`(web·admin)는 러너·웹 서버·브라우저를 **바깥과 끊긴 네트워크 네임스페이스**(루프백 + 브라우저가 온라인으로 보게 하는 안쪽 전용 가짜 장치 `e2e0`)에서 돌린다(`scripts/e2e-netns.mjs`, WP-1097) — 같은 기계에서 docker 컨테이너·네트워크가 생기고 지워질 때 Chromium 이 진행 중인 요청을 `net::ERR_NETWORK_CHANGED` 로 끊던 것을 막는다. 리눅스에서 권한 없는 네임스페이스를 못 만들면 알리고 그대로 돈다, `E2E_NETNS=0` 이면 끈다. `--headed`·`--ui`·`--debug` 와 `test:e2e:ui`·`test:e2e:headed`·`npx playwright test` 는 격리하지 않는다(디스플레이·D-Bus 추상 소켓이 네임스페이스에 묶인다). 격리된 실행은 실패 리포트를 자동으로 열지 않으니 `pnpm exec playwright show-report` 로 본다
 - 로컬 E2E·pre-commit·pre-push 게이트는 **6173 dev 서버를 쓰지 않는다** — push/테스트 전에 6173 을 확인·종료할 필요 없음(병렬 세션 dev 서버 kill 금지)
 - 백엔드 없이 동작 — `page.route()` 로 API 모킹
 - **모든 테스트에 판정 태그**(`@layout`·`@input`·`@platform`·`@wiring`·`@flow`) — 위 「테스트 종류 판정」. 이관 전 테스트는 `e2e/untagged-baseline.json` 의 파일별 수만큼만 허용하고 늘면 lint 오류다(WP-971)

@@ -111,9 +111,9 @@ elif [ -n "$WEB_PAGE_CHANGES" ] || [ -n "$GRAPH_DOMAINS" ]; then
     # grep 은 파일 경로가 포함된 전체 타이틀에 매칭되므로 "@smoke|pages/<도메인>/" 하나로 두 집합의
     # 합집합을 고른다(겹치는 도메인 smoke 도 1회만). 2회 호출 시 서버 기동·세션 락 대기가 두 번 든다.
     if [ -n "$DOMAIN_RE" ]; then
-      run_locked npx playwright test --grep "@smoke|pages/($DOMAIN_RE)/"
+      run_locked pnpm test:e2e --grep "@smoke|pages/($DOMAIN_RE)/"
     else
-      run_locked npx playwright test --grep "@smoke"
+      run_locked pnpm test:e2e --grep "@smoke"
     fi
     cd - >/dev/null
   fi
