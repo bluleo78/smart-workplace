@@ -9,9 +9,11 @@ import type { DmResponse } from '@/types/messaging'
 interface DmHeaderProps {
   dm: DmResponse
   currentUserId: number
+  /** 모바일에서 스레드를 전체폭으로 열 때 헤더를 숨기는 데 쓴다(ChannelHeader 와 같음, WP-1083). */
+  className?: string
 }
 
-export function DmHeader({ dm, currentUserId }: DmHeaderProps) {
+export function DmHeader({ dm, currentUserId, className }: DmHeaderProps) {
   // 상대 중 AGENT 가 있으면 배지. 인원수는 그룹(본인 포함 3명+)일 때만 표시(1:1·self 의 "2명/1명" 노이즈 제거).
   const hasAgent = dm.participants.some((p) => p.kind === 'AGENT' && p.userId !== currentUserId)
   const displayName = dmDisplayName(dm, currentUserId)
@@ -27,6 +29,7 @@ export function DmHeader({ dm, currentUserId }: DmHeaderProps) {
     return (
       <Page.Header
         data-testid="dm-header"
+        className={className}
         title={
           <span className="flex min-w-0 items-center gap-1">
             <span className="truncate" title={displayName} data-testid="dm-title">{displayName}</span>

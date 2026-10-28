@@ -1,4 +1,5 @@
 // DM 메시지 뷰 — 기존 메시지 컴포넌트 재사용(DM 채널 id). 헤더는 참여자 기반.
+// 스레드도 채널처럼 URL ?thread 로 우측 칸(모바일 전체폭)에 연다 — 스레드 인박스의 DM 스레드가 여기로 온다(WP-1083).
 // #345: DM 도 채널이므로 백엔드가 AI 진행 progress 를 fan-out 한다 → ChannelPage 와 동일하게
 // onMessagingProgress 를 구독해 작업 중 유령 버블을 렌더(dm.id 기준).
 import { MessageSquare, Sparkles } from 'lucide-react'
@@ -13,6 +14,7 @@ import { DmHeader } from '@/components/chat/DmHeader'
 import { MessageComposer } from '@/components/chat/MessageComposer'
 import { MessageList } from '@/components/chat/MessageList'
 import { MessageScrollArea } from '@/components/chat/MessageScrollArea'
+import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
 import { Button } from '@/components/ui/button'
@@ -27,7 +29,9 @@ import { useAiWorkingBubbles } from '@/hooks/useAiWorkingBubbles'
 import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { onChannelProgress } from '@/hooks/useMessageStream'
+import { useOpenThread } from '@/hooks/useOpenThread'
 import { buildDmContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
@@ -60,6 +64,11 @@ export default function DmPage() {
   const { data: dms, isLoading, isError, refetch } = useMyDms()
   const { data } = useChannelMessages(dmId)
   const messages = data?.pages.flatMap((p) => p.items) ?? []
+
+  // 열린 스레드 = URL ?thread(ChannelPage 와 같은 useOpenThread). 인박스 카드는 루트 메시지를 navigate state 로 넘겨, 첫 페이지에
+  // 없는 오래된 루트도 패널을 연다. 루트를 찾았을 때만 그리고, 그때만 모바일 대화 컬럼·탭바를 숨긴다(WP-1083).
+  const { threadParam, openThreadParent, threadShown } = useOpenThread(messages)
+  const isMobile = useIsMobile()
 
   // AI 작업 중 유령 버블 — ChannelPage 와 같은 훅(DM 채널의 channelId === dmId).
   const messagesLoaded = data !== undefined
@@ -171,11 +180,19 @@ export default function DmPage() {
     return <div className="p-4 text-sm text-muted-foreground">불러오는 중…</div>
   }
 
+  // 모바일 스레드는 전체폭 상세 — DM 헤더·대화 컬럼을 숨기고 스레드 자체 헤더(‹)만 보인다(ChannelPage 와 같음).
+  const hideConversation = isMobile && threadShown
   return (
     // 페이지 틀 — DM 헤더(Page.Header) + 자체 레이아웃 본문(메시지 스크롤·입력창이 각자 16px 축을 쓴다).
+    // 본문은 [대화 컬럼 | 스레드 칸] 가로 분할(ChannelPage 와 같은 구조).
     <Page>
-      <DmHeader dm={dm} currentUserId={me.id} />
-      <Page.Body padded={false} className="flex-col">
+      <DmHeader dm={dm} currentUserId={me.id} className={cn(hideConversation && 'hidden')} />
+      <Page.Body padded={false}>
+        {/* min-w-0: 긴 첨부 파일명의 min-content 폭만큼 컬럼이 부모를 넘어 커지지 않게(ChannelPage 와 같음). */}
+        <div
+          data-testid="dm-column"
+          className={cn('flex h-full min-h-0 min-w-0 flex-1 flex-col', hideConversation && 'hidden')}
+        >
         <MessageScrollArea
           depKey={`${messages.length}:${messages[0]?.id ?? 0}`}
           initialAnchor={chatEntryAnchor(unreadDividerBeforeId, catchupSlot != null)}
@@ -188,6 +205,7 @@ export default function DmPage() {
             channelId={dm.id}
             currentUserId={me.id}
             members={mentionMembers}
+            onOpenThread={(id) => threadParam.open(String(id))}
             unreadDividerBeforeId={unreadDividerBeforeId}
             catchupSlot={catchupSlot}
             emptyState={
@@ -224,6 +242,24 @@ export default function DmPage() {
             })
           }
         />
+        </div>
+        {/* 스레드 칸 — 루트를 찾았을 때만. 보조 표기는 # 없이 상대 이름(WP-1083). 닫기는 히스토리 닫기(WP-207). */}
+        {openThreadParent && (
+          <ThreadPanel
+            channelId={dm.id}
+            channelName={dmDisplayName(dm, me.id)}
+            isDm
+            parent={openThreadParent}
+            members={mentionMembers}
+            me={me}
+            archived={false}
+            // 받는 사람이 모두 정지됐으면 스레드 답글도 막는다 — 대화 입력창과 같은 안내(WP-723).
+            blockedNotice={
+              isDmRecipientInactive(dm, me.id) ? '비활성화된 구성원이라 메시지를 보낼 수 없습니다' : undefined
+            }
+            onClose={threadParam.close}
+          />
+        )}
       </Page.Body>
     </Page>
   )

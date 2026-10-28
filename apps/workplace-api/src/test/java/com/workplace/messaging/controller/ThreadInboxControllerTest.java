@@ -52,6 +52,7 @@ class ThreadInboxControllerTest extends IntegrationTestBase {
     assertThat(page.items()).hasSize(1);
     var item = page.items().get(0);
     assertThat(item.channelName()).isEqualTo("일반채널");
+    assertThat(item.channelKind()).isEqualTo("CHANNEL");
     assertThat(item.rootMessage().id()).isEqualTo(root);
     assertThat(item.rootMessage().body()).isEqualTo("부모글");
     assertThat(item.rootMessage().unreadReplyCount()).isEqualTo(1);

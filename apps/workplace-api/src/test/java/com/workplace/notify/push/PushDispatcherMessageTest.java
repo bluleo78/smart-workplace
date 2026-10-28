@@ -36,6 +36,18 @@ class PushDispatcherMessageTest {
   }
 
   @Test
+  void dm_threadReply_urlHasThread() {
+    // DM 스레드 답글 — DM 화면에서 그 스레드 칸이 열리도록 ?thread 를 붙인다(WP-1083).
+    dispatcher.dispatchMessage(
+        new MessagePushRequest(
+            1L, 42L, "DM", null, 1235L, 1234L, 7L, "박민수", "답글", List.of(8L), List.of()));
+
+    ArgumentCaptor<PushMessage> m = ArgumentCaptor.forClass(PushMessage.class);
+    verify(sender).send(eq(List.of(8L)), m.capture());
+    assertThat(m.getValue().url()).isEqualTo("/chat/dms/42?thread=1234");
+  }
+
+  @Test
   void channel_nullChannelName_fallsBackTitle() {
     // 채널명 조회 실패/레이스로 channelName 이 null 이어도 "#null · 작성자" 로 새지 않아야 한다.
     dispatcher.dispatchMessage(

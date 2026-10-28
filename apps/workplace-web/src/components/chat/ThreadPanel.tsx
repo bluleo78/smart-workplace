@@ -20,16 +20,20 @@ interface ThreadPanelProps {
   channelId: number
   /** 모바일 상세 헤더 보조 표기(#채널명) — 채널 컬럼을 숨겨 맥락이 사라지므로 헤더에 남긴다(WP-207). */
   channelName: string
+  /** DM 스레드면 보조 표기에 # 를 붙이지 않는다 — channelName 에 상대 이름을 넘긴다(WP-1083). */
+  isDm?: boolean
   parent: MessageResponse
   members: MentionCandidate[]
   me: { id: number; name: string; kind: UserKind }
   archived: boolean
+  /** 입력창 대신 보일 안내 — DM 받는 사람이 모두 정지됐을 때(WP-723·WP-1083). 있으면 답글을 보낼 수 없다. */
+  blockedNotice?: string
   /** 읽음 표시 여부 — 멤버가 아닌 열람자(보관된 공개 채널, WP-621)는 읽음 상태가 없어 보내지 않는다. 기본 true. */
   canMarkRead?: boolean
   onClose: () => void
 }
 
-export function ThreadPanel({ channelId, channelName, parent, members, me, archived, canMarkRead = true, onClose }: ThreadPanelProps) {
+export function ThreadPanel({ channelId, channelName, isDm = false, parent, members, me, archived, blockedNotice, canMarkRead = true, onClose }: ThreadPanelProps) {
   const isMobile = useIsMobile()
   const { data } = useThreadReplies(parent.id)
   // 스레드 답글은 ASC 페이지. MessageList 가 내부에서 reverse 하므로 reverse 해서 넘긴다(원복).
@@ -59,7 +63,7 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
           titleClassName="shrink-0"
           titleAccessory={
             <span data-testid="thread-channel-name" className="min-w-0 truncate text-xs text-muted-foreground">
-              #{channelName}
+              {isDm ? channelName : `#${channelName}`}
             </span>
           }
           onBack={onClose}
@@ -121,6 +125,7 @@ export function ThreadPanel({ channelId, channelName, parent, members, me, archi
         channelId={channelId}
         members={members}
         archived={archived}
+        blockedNotice={blockedNotice}
         onSend={(body, fileIds, driveFileIds) =>
           reply.mutateAsync({
             body,

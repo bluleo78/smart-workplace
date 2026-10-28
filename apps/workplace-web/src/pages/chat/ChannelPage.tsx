@@ -3,7 +3,7 @@
 // A9: AI 에이전트 작업 중 유령 버블 — onMessagingProgress 구독으로 채널별 진행 상태 렌더.
 import { Hash, Sparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { Navigate, useLocation, useParams } from 'react-router-dom'
 
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext'
 import { AiWorkingBubble } from '@/components/chat/AiWorkingBubble'
@@ -18,7 +18,6 @@ import { RenameChannelModal } from '@/components/chat/RenameChannelModal'
 import { ThreadPanel } from '@/components/chat/ThreadPanel'
 import { Page, pageGutterClass } from '@/components/layout/Page'
 import type { MentionCandidate } from '@/components/mentions/types'
-import { useHideTabBar } from '@/components/mobile/MobileChromeContext'
 import { Button } from '@/components/ui/button'
 import { useChannelCatchup } from '@/hooks/queries/useChannelCatchup'
 import { useChannelDetail } from '@/hooks/queries/useChannelDetail'
@@ -32,14 +31,13 @@ import { useAiWorkingBubbles } from '@/hooks/useAiWorkingBubbles'
 import { useAuth } from '@/hooks/useAuth'
 import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { useEntryMaxMessageId } from '@/hooks/useEntryMaxMessageId'
-import { useHistoryParam } from '@/hooks/useHistoryParam'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { onChannelProgress } from '@/hooks/useMessageStream'
+import { useOpenThread } from '@/hooks/useOpenThread'
 import { buildChannelContext } from '@/lib/aiScreenContext/builders/messaging'
 import { shouldAutoShowCatchup } from '@/lib/catchupGate'
 import { catchupWatermark } from '@/lib/catchupWatermark'
 import { chatEntryAnchor } from '@/lib/chatEntryAnchor'
-import { parseId } from '@/lib/historyParam'
 import { channelMentionCandidates } from '@/lib/mentionCandidates'
 import { firstUnreadMessageId, unreadFromOthersCount } from '@/lib/unreadBoundary'
 import { cn } from '@/lib/utils'
@@ -96,26 +94,10 @@ export default function ChannelPage() {
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
 
-  // 열린 스레드 = URL ?thread(상태의 단일 원천, WP-207). 채널 안 "답글"도 push 라 시스템 뒤로가기가 스레드만 닫는다.
-  // 인박스 카드(ThreadsInboxPage)는 기존처럼 ?thread 로 push(마크 없음) → 닫기 = 인박스로 -1.
-  // 푸시 알림 콜드 진입은 닫기 = ?thread 만 지우고 채널에 남는다(useHistoryParam 규칙 3).
+  // 열린 스레드(?thread) — 판정·모바일 탭바 숨김은 DmPage 와 공용(useOpenThread, WP-207·WP-1083).
   const location = useLocation()
-  const threadParam = useHistoryParam('thread')
-  const openThreadId = parseId(threadParam.value)
+  const { threadParam, openThreadParent, threadShown } = useOpenThread(messages)
   const isMobile = useIsMobile()
-
-  // 패널 parent: 채널 메시지 캐시에서 찾되, 없으면 navigate state(인박스 카드가 넘긴 rootMessage) 사용.
-  const stateParent = (location.state as { threadParent?: MessageResponse } | null)?.threadParent
-  const openThreadParent =
-    openThreadId != null
-      ? messages.find((m) => m.id === openThreadId) ??
-        (stateParent && stateParent.id === openThreadId ? stateParent : null)
-      : null
-
-  // 패널이 실제로 그려질 때만(루트를 찾았을 때만) 모바일 채널 컬럼을 숨긴다 — ?thread 만 보고 숨기면
-  // 첫 페이지에 없는 루트·삭제된 루트에서 빈 전체폭 화면이 된다.
-  const threadShown = openThreadParent != null
-  useHideTabBar(threadShown)
 
   // WP-54: 채널 화면 컨텍스트 등록 — 채널 + 열린 스레드(루트 메시지).
   useChannelScreenContext(channelId, detail.data, openThreadParent)
@@ -208,6 +190,12 @@ export default function ChannelPage() {
 
   if (!detail.data) {
     return <div className="p-4 text-sm text-muted-foreground">불러오는 중…</div>
+  }
+
+  // DM 은 채널 화면이 아니라 DM 화면에서 연다 — 이름이 없고(null) 헤더·이름 바꾸기·멤버 관리가 채널 전용이다. 스레드 인박스·첨부·드라이브
+  // 백링크처럼 채널 주소로 들어온 DM 은 같은 ?thread 와 넘겨받은 state(스레드 루트)를 그대로 들고 DM 화면으로 바꿔 간다(WP-1083).
+  if (detail.data.kind === 'DM') {
+    return <Navigate to={`/chat/dms/${detail.data.id}${location.search}${location.hash}`} replace state={location.state} />
   }
 
   const channel = detail.data
