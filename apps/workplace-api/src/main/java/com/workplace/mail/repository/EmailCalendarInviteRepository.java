@@ -15,7 +15,7 @@ import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 /**
- * 메일(envelope)에 실린 일정 초대 저장소(WP-986, V229 email_calendar_invite). 본문 적재 때 기록하고, 상세·응답이 읽는다. 소유 확인은
+ * 메일(envelope)에 실린 일정 초대 저장소(WP-986, V230 email_calendar_invite). 본문 적재 때 기록하고, 상세·응답이 읽는다. 소유 확인은
  * 메일 계정의 user_id 로 한다(끊긴 계정 제외 — 상세 조회와 같은 규칙).
  */
 @Repository

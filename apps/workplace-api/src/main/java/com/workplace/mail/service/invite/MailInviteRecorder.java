@@ -27,7 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public class MailInviteRecorder {
 
-  // V229 컬럼 상한 — 넘치면 INSERT 가 트랜잭션을 깨므로 미리 자른다
+  // V230 컬럼 상한 — 넘치면 INSERT 가 트랜잭션을 깨므로 미리 자른다
   private static final int UID_MAX = 500;
   private static final int TEXT_MAX = 500;
   private static final int EMAIL_MAX = 320;

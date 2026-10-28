@@ -80,7 +80,7 @@ public class CalendarInviteEventRepository {
                     r.get("organizer_email", String.class)));
   }
 
-  /** 메일 초대로 넣은 앱 일정 조건 — V229 부분 유일 인덱스의 술어와 같다(ON CONFLICT 가 그 인덱스를 고르려면 같아야 한다). */
+  /** 메일 초대로 넣은 앱 일정 조건 — V230 부분 유일 인덱스의 술어와 같다(ON CONFLICT 가 그 인덱스를 고르려면 같아야 한다). */
   private static Condition localEvent() {
     return CALENDAR_EVENT.EXTERNAL_ID.isNull().and(CALENDAR_EVENT.ICAL_SEQUENCE.isNotNull());
   }
@@ -101,7 +101,7 @@ public class CalendarInviteEventRepository {
       int sequence) {}
 
   /**
-   * 메일 초대로 앱 일정을 만든다(취소 아님). 같은 주인·UID 앱 일정이 이미 있으면(동시 수락 — V229 유일 인덱스
+   * 메일 초대로 앱 일정을 만든다(취소 아님). 같은 주인·UID 앱 일정이 이미 있으면(동시 수락 — V230 유일 인덱스
    * uq_calendar_event_owner_ical_uid_local) 넣지 않고 빈 값 — 호출자가 다시 읽어 고친다.
    *
    * @return 생성 id(이미 있으면 빈 값)

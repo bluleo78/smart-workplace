@@ -547,7 +547,7 @@ class MailCalendarInviteImapTest extends ExternalClientMockedTestBase {
     assertThat(replies()).hasSize(1);
   }
 
-  /** 같은 주인·UID 앱 일정은 하나 — 동시 수락으로 두 번째 넣기가 오면 넣지 않는다(V229 부분 유일 인덱스). */
+  /** 같은 주인·UID 앱 일정은 하나 — 동시 수락으로 두 번째 넣기가 오면 넣지 않는다(V230 부분 유일 인덱스). */
   @Test
   void insertIfAbsent_secondInsertForSameUid_isSkipped() {
     long user = TestFixtures.createHuman(dsl);
