@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.wiki.dto.WikiMemberResponse;
 import java.util.Collection;
 import java.util.List;
@@ -11,9 +12,11 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
-/** wiki_space_member 접근. */
+/** wiki_space_member 접근 + 스페이스 실효 멤버십(직접 + 조직도 부서, WP-1052) 조회. */
 @Repository
 @RequiredArgsConstructor
 public class WikiSpaceMemberRepository {
@@ -30,7 +33,18 @@ public class WikiSpaceMemberRepository {
         .execute();
   }
 
+  /**
+   * 사람의 스페이스 실효 역할(WP-1052) — 직접 멤버 역할과 멤버로 둔 조직도 부서(내 부서·상위 부서) 역할 중 가장 높은 것. 멤버가 아니면 empty. 권한
+   * 판정·공유 판정·입구가 모두 이 값을 쓴다.
+   */
   public Optional<String> findRole(long spaceId, long userId) {
+    return Optional.ofNullable(
+        dsl.select(WikiSpaceMembership.effectiveRole(DSL.val(spaceId), DSL.val(userId)))
+            .fetchOne(0, String.class));
+  }
+
+  /** 직접 멤버 행의 역할만 — 멤버 관리(역할 변경 대상 확인)용. 부서로만 들어온 사람은 empty. */
+  public Optional<String> findDirectRole(long spaceId, long userId) {
     return dsl.select(WIKI_SPACE_MEMBER.ROLE)
         .from(WIKI_SPACE_MEMBER)
         .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
@@ -38,21 +52,26 @@ public class WikiSpaceMemberRepository {
         .fetchOptional(WIKI_SPACE_MEMBER.ROLE);
   }
 
-  /** 여러 사람의 그 스페이스 역할을 한 번에 읽는다 — 멤버가 아닌 사람은 빠진다(WP-988 스페이스 이동의 공유 유지 판정). */
+  /**
+   * 여러 사람의 그 스페이스 실효 역할을 한 번에 읽는다 — 멤버가 아닌 사람은 빠진다(WP-988 스페이스 이동의 공유 유지 판정). 부서로 들어온 사람도 실효 역할로
+   * 판정한다(WP-1052).
+   */
   public Map<Long, String> findRoles(long spaceId, Collection<Long> userIds) {
     if (userIds.isEmpty()) {
       return Map.of();
     }
-    return dsl.select(WIKI_SPACE_MEMBER.USER_ID, WIKI_SPACE_MEMBER.ROLE)
-        .from(WIKI_SPACE_MEMBER)
-        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
-        .and(WIKI_SPACE_MEMBER.USER_ID.in(userIds))
-        .fetchMap(WIKI_SPACE_MEMBER.USER_ID, WIKI_SPACE_MEMBER.ROLE);
+    Field<String> role = WikiSpaceMembership.effectiveRole(DSL.val(spaceId), USER.ID);
+    return dsl.select(USER.ID, role)
+        .from(USER)
+        .where(USER.ID.in(userIds))
+        .and(role.isNotNull())
+        .fetchMap(USER.ID, role);
   }
 
   /**
    * 역할을 잠가 읽는다(FOR SHARE, WP-579) — 진행 중인 강등·제거(이 행의 UPDATE·DELETE)가 있으면 그 커밋을 기다려 바뀐 값을 보고, 읽은 뒤엔
-   * 이 트랜잭션이 끝날 때까지 강등·제거를 막는다. 공유 변경이 「강등된 사람 이름으로」 만들어지지 않게 하는 데 쓴다.
+   * 이 트랜잭션이 끝날 때까지 강등·제거를 막는다. 공유 변경이 「강등된 사람 이름으로」 만들어지지 않게 하는 데 쓴다. <b>직접 멤버 행만</b> 잠그고 읽는다 — 부서
+   * 행(WP-1052)의 소속 변화는 행 잠금으로 막을 수 없어, 부서 쪽은 바뀔 때 공유를 정리한다(WikiSpaceService).
    */
   public Optional<String> findRoleForShare(long spaceId, long userId) {
     return dsl.select(WIKI_SPACE_MEMBER.ROLE)
@@ -111,28 +130,23 @@ public class WikiSpaceMemberRepository {
         .fetch(WIKI_SPACE_MEMBER.SPACE_ID);
   }
 
-  /** 스페이스 멤버 user id 목록 — SSE fan-out 대상(#724). */
+  /**
+   * 스페이스 실효 멤버 user id 목록(중복 없음) — 직접 멤버와 멤버로 둔 부서·하위 부서의 활성 사람 구성원(WP-1052). SSE fan-out(#724)·변경
+   * 알림 수신자·스페이스 삭제 알림 대상.
+   */
   public List<Long> memberUserIds(long spaceId) {
-    return dsl.select(WIKI_SPACE_MEMBER.USER_ID)
-        .from(WIKI_SPACE_MEMBER)
-        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(spaceId))
-        .fetch(WIKI_SPACE_MEMBER.USER_ID);
+    return dsl.fetch(WikiSpaceMembership.memberUserIds(DSL.val(spaceId))).getValues(0, Long.class);
   }
 
   /**
-   * 원본 스페이스 멤버 중 대상 스페이스 멤버가 아닌 사람 수(WP-988) — 페이지를 옮기면 그 사람들은 멤버 자격으로는 더 볼 수 없다. 공유 링크로 보는 것은 따로
-   * 판정된다. 인자를 뒤집으면(대상 기준) 옮긴 뒤 새로 보게 되는 사람 수가 된다.
+   * 원본 스페이스 (실효) 멤버 중 대상 스페이스 멤버가 아닌 사람 수(WP-988) — 페이지를 옮기면 그 사람들은 멤버 자격으로는 더 볼 수 없다. 공유 링크로 보는 것은
+   * 따로 판정된다. 인자를 뒤집으면(대상 기준) 옮긴 뒤 새로 보게 되는 사람 수가 된다.
    */
   public int countMissingFrom(long sourceSpaceId, long targetSpaceId) {
+    // 실효 멤버(직접 + 부서) 기준(WP-1052) — 원본에 들어 있는 사람에서 대상에 들어 있는 사람을 뺀다.
     return dsl.fetchCount(
-        dsl.select(WIKI_SPACE_MEMBER.USER_ID)
-            .from(WIKI_SPACE_MEMBER)
-            .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(sourceSpaceId))
-            .and(
-                WIKI_SPACE_MEMBER.USER_ID.notIn(
-                    dsl.select(WIKI_SPACE_MEMBER.USER_ID)
-                        .from(WIKI_SPACE_MEMBER)
-                        .where(WIKI_SPACE_MEMBER.SPACE_ID.eq(targetSpaceId)))));
+        WikiSpaceMembership.memberUserIds(DSL.val(sourceSpaceId))
+            .except(WikiSpaceMembership.memberUserIds(DSL.val(targetSpaceId))));
   }
 
   public List<WikiMemberResponse> listMembers(long spaceId) {

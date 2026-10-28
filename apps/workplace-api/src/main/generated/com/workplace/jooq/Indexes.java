@@ -126,6 +126,7 @@ import com.workplace.jooq.tables.WikiRevision;
 import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
+import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
@@ -400,6 +401,9 @@ public class Indexes {
     public static final Index IDX_WIKI_REVISION_TENANT = Internal.createIndex(DSL.name("idx_wiki_revision_tenant"), WikiRevision.WIKI_REVISION, new OrderField[] { WikiRevision.WIKI_REVISION.TENANT_ID }, false);
     public static final Index IDX_WIKI_SHARE_ACCESS_REQUEST_DENIED = Internal.createIndex(DSL.name("idx_wiki_share_access_request_denied"), WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST, new OrderField[] { WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.PAGE_ID, WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.REQUESTER_ID }, false);
     public static final Index IDX_WIKI_SHARE_ACCESS_REQUEST_TENANT = Internal.createIndex(DSL.name("idx_wiki_share_access_request_tenant"), WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST, new OrderField[] { WikiShareAccessRequest.WIKI_SHARE_ACCESS_REQUEST.TENANT_ID }, false);
+    public static final Index IDX_WIKI_SPACE_MEMBER_GROUP_ADDED_BY = Internal.createIndex(DSL.name("idx_wiki_space_member_group_added_by"), WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, new OrderField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.ADDED_BY }, false);
+    public static final Index IDX_WIKI_SPACE_MEMBER_GROUP_GROUP = Internal.createIndex(DSL.name("idx_wiki_space_member_group_group"), WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, new OrderField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.GROUP_ID }, false);
+    public static final Index IDX_WIKI_SPACE_MEMBER_GROUP_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_member_group_tenant"), WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP, new OrderField[] { WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP.TENANT_ID }, false);
     public static final Index IDX_WIKI_SPACE_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_member_tenant"), WikiSpaceMember.WIKI_SPACE_MEMBER, new OrderField[] { WikiSpaceMember.WIKI_SPACE_MEMBER.TENANT_ID }, false);
     public static final Index IDX_WIKI_SPACE_TENANT = Internal.createIndex(DSL.name("idx_wiki_space_tenant"), WikiSpace.WIKI_SPACE, new OrderField[] { WikiSpace.WIKI_SPACE.TENANT_ID }, false);
     public static final Index IDX_WORKSPACE_ASSISTANT_TENANT = Internal.createIndex(DSL.name("idx_workspace_assistant_tenant"), WorkspaceAssistant.WORKSPACE_ASSISTANT, new OrderField[] { WorkspaceAssistant.WORKSPACE_ASSISTANT.TENANT_ID }, false);

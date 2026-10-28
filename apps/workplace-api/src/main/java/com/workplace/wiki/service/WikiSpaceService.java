@@ -125,7 +125,7 @@ public class WikiSpaceService {
     if (!"OWNER".equals(role)) requireAnotherOwner(spaceId, userId);
     members.add(spaceId, userId, role);
     // 업서트라 기존 편집자를 보기로 내릴 수도 있다 — 역할 변경과 같은 공유 정리.
-    revokeSharesIfLostEdit(spaceId, userId, role);
+    revokeSharesIfLostEdit(spaceId, userId);
     notifier.spaceChanged(spaceId, callerId, Set.of());
     publishMembershipChanged(spaceId, userId);
   }
@@ -136,12 +136,13 @@ public class WikiSpaceService {
     requireTeamSpace(spaceId);
     perms.validateRole(role);
     // 멤버가 아니면 바꿀 행이 없다 — 0행 UPDATE 를 성공(204)으로 돌려주지 않고 거절한다(WP-667).
-    if (members.findRole(spaceId, userId).isEmpty()) {
+    // 직접 멤버 행만 본다 — 부서로만 들어온 사람은 바꿀 직접 행이 없다(부서 역할은 부서 행에서 바꾼다, WP-1052).
+    if (members.findDirectRole(spaceId, userId).isEmpty()) {
       throw new com.workplace.wiki.exception.WikiSpaceMemberNotFoundException();
     }
     if (!"OWNER".equals(role)) requireAnotherOwner(spaceId, userId);
     members.changeRole(spaceId, userId, role);
-    revokeSharesIfLostEdit(spaceId, userId, role);
+    revokeSharesIfLostEdit(spaceId, userId);
     notifier.spaceChanged(spaceId, callerId, Set.of());
     // 강등(EDITOR→VIEWER)이면 열린 연결을 읽기 전용으로 바꿔야 한다.
     publishMembershipChanged(spaceId, userId);
@@ -197,8 +198,9 @@ public class WikiSpaceService {
     requireAnotherOwner(spaceId, userId);
     members.remove(spaceId, userId);
     // WP-579: 내보내진 사람이 이 스페이스에 만든 공유를 해제한다.
+    // 멤버로 둔 조직도 부서로 여전히 편집자면 공유는 그대로 둔다(WP-1052).
     if (revokeShares) {
-      shareLifecycle.onMemberLostEdit(spaceId, userId);
+      shareLifecycle.revokeIfLostEdit(spaceId, userId);
     }
     // 제거된 멤버는 커밋 후 명단에서 빠지므로 extra 로 넘겨 자기 화면에서도 스페이스가 사라지게 한다.
     notifier.spaceChanged(spaceId, actorId, List.of(userId));
@@ -223,6 +225,7 @@ public class WikiSpaceService {
     // WP-579: 함께 사라질 공유마다 감사(reason PAGE_DELETED) — 페이지 행을 잠그기 전에(교착 회피, 메서드 주석 참조).
     shareLifecycle.beforeSpaceDeleted(spaceId);
     List<Long> pageIds = pages.lockPageIdsOfSpace(spaceId);
+    // 실효 멤버(직접 + 조직도 부서 구성원, WP-1052) — 부서로 들어온 사람의 화면에서도 스페이스가 사라지게.
     List<Long> memberIds = members.memberUserIds(spaceId);
     attachments.reclaimSpace(spaceId);
     spaces.delete(spaceId);
@@ -235,13 +238,11 @@ public class WikiSpaceService {
   }
 
   /**
-   * WP-579: 바뀐 역할이 편집 권한 아래(보기)면 그 사람이 이 스페이스에 만든 공유를 해제한다(설계 「공유한 사람이 떠날 때」). 원래 보기였거나 공유가 없으면 지울
-   * 것이 없어 아무것도 하지 않는다.
+   * WP-579: 바뀐 뒤 실효 역할이 편집 권한 아래(보기)면 그 사람이 이 스페이스에 만든 공유를 해제한다(설계 「공유한 사람이 떠날 때」). 직접 역할을 보기로 내려도
+   * 멤버로 둔 조직도 부서로 여전히 편집자면 해제하지 않는다(WP-1052). 원래 보기였거나 공유가 없으면 지울 것이 없어 아무것도 하지 않는다.
    */
-  private void revokeSharesIfLostEdit(long spaceId, long userId, String role) {
-    if (!WikiPermissions.atLeast(role, "EDITOR")) {
-      shareLifecycle.onMemberLostEdit(spaceId, userId);
-    }
+  private void revokeSharesIfLostEdit(long spaceId, long userId) {
+    shareLifecycle.revokeIfLostEdit(spaceId, userId);
   }
 
   /**

@@ -45,8 +45,9 @@ import type {
   WikiSharePermission,
 } from '../../types/wiki'
 import { WIKI_SHARE_MESSAGE_MAX } from '../../types/wiki'
+import type { GroupOption } from '../members/groupOptions'
+import { PeopleAndDepartmentPicker } from '../members/PeopleAndDepartmentPicker'
 import { ShareGroupMembers } from './ShareGroupMembers'
-import { ShareTargetSearchPopover } from './ShareTargetSearchPopover'
 import {
   addGroupMembers,
   copyShareLink,
@@ -54,7 +55,6 @@ import {
   expiryAfterDays,
   groupExpansionMessage,
   PUBLIC_DEFAULT_EXPIRY_DAYS,
-  type ShareGroupOption,
   type ShareWidening,
   shareWidening,
   wikiShareUrl,
@@ -269,7 +269,7 @@ export function WikiShareDialog({
   }
 
   /** 조직도 부서 추가(WP-1023) — 부서 행으로 저장한다. 그 부서와 하위 부서의 구성원은 열 때마다 다시 판정돼 나중에 들어온 사람도 열 수 있다. */
-  const addDepartment = (group: ShareGroupOption) => {
+  const addDepartment = (group: GroupOption) => {
     const notifyWith = notifyPayload()
     change((latest) => ({ groupIds: addUnique(latest.groups.map((g) => g.groupId), group.id), notify: notifyWith }))
   }
@@ -279,7 +279,7 @@ export function WikiShareDialog({
    * 공유하는 나와 공유를 만든 사람은 이미 열 수 있어 더하지도 세지도 않는다). 구성원은 그룹마다 상세에서 받는다(서버가 이 워크스페이스의 활성 사람만 준다 —
    * 외부 연락처는 사람이 아니라 뺀다). 구성원을 받은 뒤 차례에 올려, 앞 바꾸기가 끝난 때의 최신 공유에 더한다. 더할 사람이 없으면 저장하지 않고 알린다.
    */
-  const addPersonalGroup = async (group: ShareGroupOption) => {
+  const addPersonalGroup = async (group: GroupOption) => {
     if (!share) return
     const notifyWith = notifyPayload()
     let memberIds: number[]
@@ -653,7 +653,7 @@ export function WikiShareDialog({
                   )}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                     {/* 사람·조직도 부서·내 그룹을 한 검색에서 고른다(WP-1023). */}
-                    <ShareTargetSearchPopover
+                    <PeopleAndDepartmentPicker
                       open={pickerOpen}
                       onOpenChange={setPickerOpen}
                       existingUserIds={new Set(share.people.map((p) => p.userId))}

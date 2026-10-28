@@ -3,8 +3,8 @@ package com.workplace.home.repository;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
-import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.global.share.WikiSpaceMembership;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -86,13 +86,19 @@ public class SharedMemorySpaceRepository {
                     new ProjectInfo(r.value1(), r.value2(), r.value3(), r.value4()), r.value5()));
   }
 
-  /** 구성원인 TEAM 노트 스페이스(이름순)와 사용자의 스페이스 역할. */
+  /**
+   * 구성원인 TEAM 노트 스페이스(이름순)와 사용자의 스페이스 실효 역할 — 직접 멤버이거나 멤버로 둔 조직도 부서에 걸린 스페이스, 역할은 가장 높은 것(WP-1052,
+   * 노트 화면과 같은 규칙).
+   */
   public List<WikiWithRole> teamWikis(long userId) {
-    return dsl.select(WIKI_SPACE.ID, WIKI_SPACE.NAME, WIKI_SPACE.TYPE, WIKI_SPACE_MEMBER.ROLE)
+    return dsl.select(
+            WIKI_SPACE.ID,
+            WIKI_SPACE.NAME,
+            WIKI_SPACE.TYPE,
+            WikiSpaceMembership.effectiveRole(WIKI_SPACE.ID, DSL.val(userId)))
         .from(WIKI_SPACE)
-        .join(WIKI_SPACE_MEMBER)
-        .on(WIKI_SPACE_MEMBER.SPACE_ID.eq(WIKI_SPACE.ID).and(WIKI_SPACE_MEMBER.USER_ID.eq(userId)))
         .where(WIKI_SPACE.TYPE.eq("TEAM"))
+        .and(WikiSpaceMembership.isMember(WIKI_SPACE.ID, DSL.val(userId)))
         .orderBy(WIKI_SPACE.NAME.asc(), WIKI_SPACE.ID.asc())
         .fetch(r -> new WikiWithRole(new WikiInfo(r.value1(), r.value2(), r.value3()), r.value4()));
   }

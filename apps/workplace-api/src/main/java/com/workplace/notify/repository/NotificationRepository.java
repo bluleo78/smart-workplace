@@ -14,6 +14,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 
 import com.workplace.global.share.WikiShareTargets;
+import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.global.util.SingleLineTitles;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
@@ -345,10 +346,11 @@ public class NotificationRepository {
 
   /**
    * 노트 공유 알림이면 받는 사람이 그 노트를 지금도 열 수 있어야 한다(WP-579, WP-491·517 과 같은 방식으로 못 열면 목록·안읽음 수에서 뺀다) — 지정에서
-   * 빠지거나 공유가 해제·만료돼도 예전 알림이 노트의 현재(바뀐) 제목을 계속 보여 주지 않게 한다. 열 수 있는 경우: 노트 스페이스의 멤버이거나, 이 노트를 지금
-   * 덮는(자기 공유 또는 하위 포함 조상 공유) 만료 전 공유에 받는 사람이 지정한 사람으로 들어 있거나, 지정한 조직도 부서(하위 부서 포함)의 구성원이다(WP-1023).
-   * 조상 공유는 그 사이(노트 포함)에 상속이 멈추는 페이지(상위 공유 제외 표시·따로 켠 공유, WP-987)가 없을 때만 덮는다 — {@code
-   * WikiShareAccess} 의 범위 판정과 같은 규칙.
+   * 빠지거나 공유가 해제·만료돼도 예전 알림이 노트의 현재(바뀐) 제목을 계속 보여 주지 않게 한다. 열 수 있는 경우: 노트 스페이스의 멤버(직접 멤버이거나 멤버로 둔
+   * 조직도 부서·하위 부서의 구성원 — 공용 {@link WikiSpaceMembership#isMember}, WP-1052)이거나, 이 노트를 지금 덮는(자기 공유 또는
+   * 하위 포함 조상 공유) 만료 전 공유에 받는 사람이 지정한 사람으로 들어 있거나, 지정한 조직도 부서(하위 부서 포함)의 구성원이다(WP-1023). 조상 공유는 그
+   * 사이(노트 포함)에 상속이 멈추는 페이지(상위 공유 제외 표시·따로 켠 공유, WP-987)가 없을 때만 덮는다 — {@code WikiShareAccess} 의 범위
+   * 판정과 같은 규칙.
    *
    * <p>알림을 누르면 가는 입구({@code WikiShareAccess#entry} — 멤버 또는 {@code
    * WikiShareRepository#findCoveringTokens} 가 찾은 지정 공유 토큰)와 <b>같은 규칙</b>이어야 한다. 워크스페이스 전체 공유는 입구가
@@ -370,8 +372,7 @@ public class NotificationRepository {
                   select 1 from wiki_page wp
                   where wp.id = notification.wiki_page_id
                     and (
-                      exists (select 1 from wiki_space_member m
-                              where m.space_id = wp.space_id and m.user_id = {0})
+                      ({0})
                       or exists (
                         with recursive chain(id, parent_id, depth) as (
                           select id, parent_id, 0 from wiki_page where id = notification.wiki_page_id
@@ -395,7 +396,9 @@ public class NotificationRepository {
                     )
                 )
                 """,
-                DSL.val(recipientId),
+                // 스페이스 멤버 판정(직접 멤버 또는 멤버로 둔 조직도 부서의 구성원, WP-1052)도 입구와 같은 한 규칙 — 별칭 wp 의 스페이스 열.
+                WikiSpaceMembership.isMember(
+                    DSL.field(DSL.name("wp", "space_id"), Long.class), DSL.val(recipientId)),
                 // 대상 판정(지정한 사람·지정한 부서 구성원)은 입구 판정과 같은 한 규칙(WP-1023) — 별칭 s 의 공유 id 열과 받는 사람 값.
                 WikiShareTargets.listedOn(
                     DSL.field(DSL.name("s", "id"), Long.class), DSL.val(recipientId))));

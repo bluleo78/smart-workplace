@@ -322,6 +322,7 @@ describe('규칙 키 값 고정', () => {
     expect(keys({ resource: 'wiki-space', op: 'updated', spaceId: 2 })).toEqual([
       { queryKey: ['wiki', 'spaces'] },
       { queryKey: ['wiki', 'members', 2] },
+      { queryKey: ['wiki', 'member-groups', 2] },
       { queryKey: ['wiki', 'tree', 2] },
     ]);
     // 삭제(WP-580)는 목록만 — 지운 스페이스의 트리·멤버를 다시 받지 않는다.
