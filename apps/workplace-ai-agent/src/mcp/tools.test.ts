@@ -11,7 +11,7 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import type { WorkplaceApiClient } from '../clients/workplace-api.js';
-import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
+import { AGENT_IDENTITY_OMITTED_FIELDS, AI_AGENT_EXCLUDED_SHARED_TOOLS, ASSISTANT_ROUTER_TOOLS, buildTools, CARD_ONLY_SHARED_TOOLS, RECURRING_RUN_TOOLS, routerToolsFor, type HostBridge, type McpProfile } from './tools.js';
 
 // #842: 서버가 응답한 검증 실패(4xx)를 흉내 낸다 — 인터셉터가 message 를 서버 사유로 채운 AxiosError 형태.
 function apiError(status: number, message: string): Error {
@@ -234,6 +234,8 @@ function client(): TestClient {
     proposeCreateIssue: vi.fn().mockResolvedValue(undefined),
     proposeCreateEvent: vi.fn().mockResolvedValue(undefined),
     listDelegationCandidates: vi.fn().mockResolvedValue([]),
+    // WP-989: 반복 회차 결과 보고
+    reportRecurringRun: vi.fn().mockResolvedValue(undefined),
     listThreadIssueAttachments: vi.fn().mockResolvedValue([]),
     downloadThreadIssueAttachment: vi.fn(),
     readChatAttachmentText: vi.fn(),
@@ -537,6 +539,26 @@ describe('프로필 구성', () => {
       // WP-807·WP-870: 범주가 아닌 값은 프로젝트 상태 이름으로 받는다 — 핸들러가 statusName 으로 보내고 모르는 이름은 서버가 사용 가능 목록과 함께 거절한다.
       expect(tool.inputSchema.parse({ issueKey: 'WP-1', status: '검토 중' })).toMatchObject({ status: '검토 중' });
     }
+  });
+
+  // WP-989: 반복 회차 실행은 사람이 없어 확인 카드를 띄울 수 없다 — 읽기 도구만 싣고, 쓰기(코멘트·이슈·메일·메시지)는 하나도 없어야 한다.
+  it('recurring 프로필은 소유자 권한의 읽기 도구(메일·일정 포함)만 싣고 쓰기 도구는 없다', () => {
+    const tools = buildTools(client(), AGENT_ID, 'recurring');
+    expect(tools.map((t) => t.name)).toEqual([...RECURRING_RUN_TOOLS]);
+    for (const t of tools) expect(t.annotations?.readOnlyHint, t.name).toBe(true);
+    const names = tools.map((t) => t.name);
+    // 소유자 권한으로 메일·일정·연락처·노트·드라이브·이슈를 읽는다(홈 비서의 읽기 도구).
+    for (const r of ['list_mail', 'get_mail', 'list_events', 'get_event', 'list_contacts', 'search_wiki', 'search_drive', 'list_issues', 'read_file']) {
+      expect(names).toContain(r);
+    }
+    for (const w of [
+      'add_comment', 'update_issue', 'create_issue', 'add_chat_message', 'add_channel_message', 'unassign_self',
+      'create_event', 'update_event', 'draft_mail_reply', 'draft_issue_from_mail', 'create_issue_from_mail', 'mark_mail_read',
+      'mark_notification_read', 'create_drive_file', 'upload_file', 'create_wiki_page', 'update_wiki_page',
+    ]) {
+      expect(names).not.toContain(w);
+    }
+    expect(routerToolsFor('recurring')).toBeUndefined();
   });
 
   it('home 표시 도구는 {displayed:true} 만 반환한다(데이터 조회 X)', async () => {

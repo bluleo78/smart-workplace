@@ -39,7 +39,7 @@ async function stubPersonal(page: Page) {
 }
 
 test.describe('작업 상세(전체 화면)', () => {
-  test('체크리스트 행 탭 → 화면 전체를 덮는 상세, 칩 = 상태·우선순위·마감·담당자·라벨(＋ 속성·에픽 없음)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  test('체크리스트 행 탭 → 화면 전체를 덮는 상세, 칩 = 상태·우선순위·마감·담당자·반복·라벨(＋ 속성·에픽 없음, 반복은 WP-989)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
     await stubPersonal(page);
     await page.goto(`/projects/${KEY}`);
     await page.getByTestId('personal-task-row-1').tap();
@@ -54,7 +54,7 @@ test.describe('작업 상세(전체 화면)', () => {
     const order = await layer.locator('[data-testid^="mobile-prop-"]').evaluateAll((els) =>
       els.map((e) => e.getAttribute('data-testid')).filter((id) => id !== 'mobile-prop-chips'),
     );
-    expect(order).toEqual(['mobile-prop-status', 'mobile-prop-priority', 'mobile-prop-due', 'mobile-prop-assignee', 'mobile-prop-label']);
+    expect(order).toEqual(['mobile-prop-status', 'mobile-prop-priority', 'mobile-prop-due', 'mobile-prop-assignee', 'mobile-prop-recurrence', 'mobile-prop-label']);
     await expect(layer.getByTestId('mobile-prop-label')).toContainText('세금');
     await expect(layer).toContainText('영수증은 드라이브'); // 메모(읽기 전용)
     await expect(page.getByTestId('personal-task-panel')).toHaveCount(0);

@@ -69,6 +69,7 @@ import com.workplace.jooq.tables.IssueFieldDef;
 import com.workplace.jooq.tables.IssueFieldValue;
 import com.workplace.jooq.tables.IssueHistory;
 import com.workplace.jooq.tables.IssueLabel;
+import com.workplace.jooq.tables.IssueRecurrence;
 import com.workplace.jooq.tables.IssueRelation;
 import com.workplace.jooq.tables.IssueRelationType;
 import com.workplace.jooq.tables.IssueTypeDef;
@@ -475,6 +476,11 @@ public class Tables {
      * The table <code>public.issue_label</code>.
      */
     public static final IssueLabel ISSUE_LABEL = IssueLabel.ISSUE_LABEL;
+
+    /**
+     * The table <code>public.issue_recurrence</code>.
+     */
+    public static final IssueRecurrence ISSUE_RECURRENCE = IssueRecurrence.ISSUE_RECURRENCE;
 
     /**
      * The table <code>public.issue_relation</code>.

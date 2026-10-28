@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { TaskRecurrenceField } from '@/components/issue/recurrence/TaskRecurrenceField';
 import { LabelChip } from '@/components/labels/LabelChip';
 import { LabelPickerPopover } from '@/components/labels/LabelPickerPopover';
 import { pageGutterClass, subPaneHeaderClass } from '@/components/layout/Page';
@@ -199,7 +200,7 @@ export function PersonalTaskDetail({
         </div>
       )}
 
-      {/* 필드 영역 — 필드 다이어트: 상태·우선순위·마감·담당자·라벨·메모·AI대화만 */}
+      {/* 필드 영역 — 필드 다이어트: 상태·우선순위·마감·담당자·반복·라벨·메모·AI대화만 */}
       {data && (
         <div className="space-y-4 p-4">
           <Field label="상태">
@@ -232,6 +233,10 @@ export function PersonalTaskDetail({
               issueNumber={number}
               current={data.summary.assignees}
             />
+          </Field>
+          {/* 반복(WP-989) — 정한 시각마다 담당의 AI 비서가 이 작업을 실행한다. */}
+          <Field label="반복">
+            <TaskRecurrenceField projectKey={projectKey} number={number} />
           </Field>
           <Field label="라벨">
             <div className="flex flex-wrap items-center gap-1">

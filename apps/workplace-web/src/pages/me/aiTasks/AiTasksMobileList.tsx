@@ -15,6 +15,7 @@ import {
   AgentToolChip,
 } from '@/components/ai/agentWork/AgentWorkBits'
 import { ProjectRunHead } from '@/components/issue/ProjectRunHead'
+import { RecurrenceMarker } from '@/components/issue/recurrence/RecurrenceMarker'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
 import { displayState, issueChatPath, primaryWork } from '@/lib/agentWork'
 import { splitByProject } from '@/lib/projectRuns'
@@ -56,6 +57,8 @@ function MobileRow({ it }: { it: IssueResponse }) {
                 />
               )}
               {w && <AgentNextRun w={w} className="shrink-0" data-testid={`${tid}-next-run`} />}
+              {/* 반복 작업(WP-989) — 예정 라벨 옆에 「↻ 매주 월·수 08:30」. */}
+              {it.recurrence && <RecurrenceMarker recurrence={it.recurrence} className="shrink-0" data-testid={`${tid}-recurrence`} />}
               {w && <AgentToolChip tool={w.tool} data-testid={`${tid}-tool`} />}
               {w && <AgentProgress w={w} variant="text" hideEmpty className="shrink-0" data-testid={`${tid}-progress`} />}
               {w && <AgentLastReport w={w} className="shrink-0" endedLabel data-testid={`${tid}-last`} />}

@@ -14,6 +14,7 @@ import {
   AgentToolChip,
 } from '@/components/ai/agentWork/AgentWorkBits'
 import { ProjectRunHead } from '@/components/issue/ProjectRunHead'
+import { RecurrenceMarker } from '@/components/issue/recurrence/RecurrenceMarker'
 import { ChildProgress } from '@/components/issues/ChildProgress'
 import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars'
 import { IssueStatusIcon } from '@/components/issues/IssueStatusIcon'
@@ -97,6 +98,8 @@ function AiCells({ it, tid }: { it: IssueResponse | null; tid: string }) {
         {/* 다음 회차 대기 — 예정 라벨을 최근 보고 앞에 두고 보고는 남는 폭에서 말줄임(한 줄). */}
         <div className="flex min-w-0 items-center gap-1.5">
           {w && <AgentNextRun w={w} className="shrink-0" data-testid={`${tid}-next-run`} />}
+          {/* 반복 작업(WP-989) — 예정 라벨 옆에 「↻ 매주 월·수 08:30」. */}
+          {it.recurrence && <RecurrenceMarker recurrence={it.recurrence} className="shrink-0" data-testid={`${tid}-recurrence`} />}
           <p className="min-w-0 truncate font-normal text-muted-foreground" title={w?.note ?? undefined} data-testid={`${tid}-note`}>
             {w?.note ?? '—'}
           </p>

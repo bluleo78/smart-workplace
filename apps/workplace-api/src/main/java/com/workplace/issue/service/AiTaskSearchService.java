@@ -8,12 +8,14 @@ import com.workplace.issue.dto.AiTaskCounts;
 import com.workplace.issue.dto.AiTaskCursor;
 import com.workplace.issue.dto.AiTaskGroup;
 import com.workplace.issue.dto.AiTaskProject;
+import com.workplace.issue.dto.IssueRecurrenceSummary;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueRow;
 import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.repository.AiTaskRepository;
 import com.workplace.issue.repository.AiTaskRepository.AiTaskQuery;
 import com.workplace.issue.repository.AiTaskRepository.AiTaskRow;
+import com.workplace.issue.repository.IssueRecurrenceRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectRepository;
 import java.util.ArrayList;
@@ -39,6 +41,8 @@ public class AiTaskSearchService {
   private final ProjectRepository projectRepository;
   private final IssueRepository issueRepository;
   private final AgentWorkService agentWorkService;
+  // WP-989 행의 반복 요약 — 페이지 이슈들의 반복 행을 한 번에 읽는다.
+  private final IssueRecurrenceRepository recurrenceRepository;
 
   /**
    * 프로젝트 → 에픽 묶음 단위 급한 순 한 페이지(WP-375, WP-426). 마지막 행의 정렬 키 10개가 다음 커서, 에픽 묶음 행에는 aiGroup 을, 모든 행에는
@@ -69,6 +73,9 @@ public class AiTaskSearchService {
             .toList();
     var childCount = issueRepository.countChildrenByParentIds(epicIds);
     var childDone = issueRepository.countDoneChildrenByParentIds(epicIds);
+    // WP-989 반복 AI 작업 — 반복 행이 있는 이슈만 키가 있다(없으면 행에 recurrence 를 싣지 않는다).
+    var recurrences =
+        recurrenceRepository.findByIssueIds(issueRows.stream().map(IssueRow::id).toList());
     List<IssueResponse> withGroups = new ArrayList<>(items.size());
     for (int i = 0; i < items.size(); i++) {
       AiTaskRow r = rows.get(i);
@@ -83,8 +90,19 @@ public class AiTaskSearchService {
       // 이름이 없으면(이론상 없음 — 활성 프로젝트만 조회됨) 키로 대신한다(웹 밖 소비자도 빈 머리를 받지 않게). size 는 필터 후 그 프로젝트 행 수.
       String pName =
           nameById.getOrDefault(r.row().projectId(), keyById.getOrDefault(r.row().projectId(), ""));
+      var rec = recurrences.get(r.row().id());
       withGroups.add(
-          items.get(i).withAiGroup(g).withAiProject(new AiTaskProject(pName, r.projectSize())));
+          items
+              .get(i)
+              .withAiGroup(g)
+              .withAiProject(new AiTaskProject(pName, r.projectSize()))
+              .withRecurrence(
+                  rec == null
+                      ? null
+                      : new IssueRecurrenceSummary(
+                          rec.rrule(),
+                          IssueRecurrenceRules.formatTime(rec.runTime()),
+                          rec.enabled())));
     }
 
     // 기존 이슈 검색과 같은 규칙 — 꽉 찬 페이지면 다음이 있다고 본다(마지막 페이지가 정확히 size 면 빈 페이지 한 번 더).

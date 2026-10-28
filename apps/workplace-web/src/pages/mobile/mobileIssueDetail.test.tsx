@@ -123,6 +123,8 @@ describe('속성 칩 — 문구·조건부 렌더', () => {
     for (const k of ['status', 'assignee', 'priority', 'due', 'epic', 'more']) {
       expect(within(chips).getByTestId(`mobile-prop-${k}`)).toBeInTheDocument()
     }
+    // 반복 칩(WP-989)은 개인 작업 전용 — 팀 이슈 칩 줄엔 없다.
+    expect(within(chips).queryByTestId('mobile-prop-recurrence')).not.toBeInTheDocument()
     expect(within(chips).getByTestId('mobile-prop-status')).toHaveTextContent('할 일')
     expect(within(chips).getByRole('button', { name: '상태: 할 일' })).toBeInTheDocument()
     expect(within(chips).getByRole('button', { name: `에픽: ${EPIC.title}` })).toBeInTheDocument()

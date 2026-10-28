@@ -25,11 +25,11 @@ const TITLE = '연말정산 증빙서류 정리 및 회사 제출'
  * 개인 프로젝트 + 작업 1건. 쓰기(PATCH 이슈·PUT 라벨·PUT 담당자·POST 라벨)와 저장 뷰 요청을 seen 에 모은다.
  * E2E personal-project.spec 의 stubPersonal 과 같은 구성.
  */
-function stubPersonal() {
+function stubPersonal(opts: { failRecurrence?: boolean } = {}) {
   const labels = [createLabel({ id: 1, name: '세금' }), createLabel({ id: 2, name: '긴급' })]
   const issue = createIssue({ projectKey: KEY, number: 1, title: TITLE, status: 'TODO', labels: [toLabelSummary(labels[0])] })
   const thread = createChatThread()
-  const seen = { patches: [] as unknown[], putLabels: [] as unknown[], putAssignees: [] as unknown[], labelPosts: [] as unknown[], savedViews: 0 }
+  const seen = { patches: [] as unknown[], putLabels: [] as unknown[], putAssignees: [] as unknown[], labelPosts: [] as unknown[], putRecurrence: [] as unknown[], savedViews: 0 }
   const handlers = [
     http.get(`/api/v1/projects/${KEY}/saved-views`, () => {
       seen.savedViews++
@@ -61,6 +61,15 @@ function stubPersonal() {
       seen.putAssignees.push(await request.json())
       return HttpResponse.json([])
     }),
+    // 반복(WP-989) — 처음엔 없음(204), 저장하면 그 규칙으로 응답한다.
+    http.get(`/api/v1/projects/${KEY}/issues/1/recurrence`, () =>
+      opts.failRecurrence ? HttpResponse.json({ message: 'boom' }, { status: 500 }) : new HttpResponse(null, { status: 204 }),
+    ),
+    http.put(`/api/v1/projects/${KEY}/issues/1/recurrence`, async ({ request }) => {
+      const body = (await request.json()) as { rrule: string; time: string }
+      seen.putRecurrence.push(body)
+      return HttpResponse.json({ ...body, enabled: true, nextRunAt: '2026-10-28T23:30:00Z', consecutiveFailures: 0, lastRunAt: null, agentUserId: 9, agentName: '비서' })
+    }),
     http.get(`/api/v1/projects/${KEY}/issues/1/chat/thread`, () => HttpResponse.json(thread)),
     http.get(`/api/v1/chat/threads/${thread.threadId}/messages`, () => HttpResponse.json(createChatMessagePage([]))),
     ...['watchers', 'attachments', 'drive-links', 'labels'].map((s) => http.get(`/api/v1/projects/${KEY}/issues/1/${s}`, () => HttpResponse.json([]))),
@@ -69,8 +78,8 @@ function stubPersonal() {
 }
 
 /** 작업 상세(?task=1)를 띄운다. */
-async function openTask() {
-  const p = stubPersonal()
+async function openTask(opts: { failRecurrence?: boolean } = {}) {
+  const p = stubPersonal(opts)
   const view = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?task=1`, handlers: p.handlers })
   await screen.findByTestId('personal-task-mobile')
   // 칩은 상세 조회가 끝난 뒤 그려진다.
@@ -110,7 +119,7 @@ test('그룹 시트 선택지는 없음·상태·우선순위 세 가지', async
   for (const v of ['none', 'status', 'priority']) expect(within(group).getByTestId(`picker-option-${v}`)).toBeInTheDocument()
 })
 
-test('보드 카드를 눌러도 모달 대신 같은 전체 화면 상세가 열린다(칩 순서 = 상태·우선순위·마감·담당자·라벨)', async () => {
+test('보드 카드를 눌러도 모달 대신 같은 전체 화면 상세가 열린다(칩 순서 = 상태·우선순위·마감·담당자·반복·라벨)', async () => {
   const p = stubPersonal()
   const { user } = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?view=board`, handlers: p.handlers })
   const card = await screen.findByTestId('issue-card-1')
@@ -121,8 +130,37 @@ test('보드 카드를 눌러도 모달 대신 같은 전체 화면 상세가 �
   const order = [...layer.querySelectorAll('[data-testid^="mobile-prop-"]')]
     .map((e) => e.getAttribute('data-testid'))
     .filter((id) => id !== 'mobile-prop-chips')
-  expect(order).toEqual(['mobile-prop-status', 'mobile-prop-priority', 'mobile-prop-due', 'mobile-prop-assignee', 'mobile-prop-label'])
+  expect(order).toEqual(['mobile-prop-status', 'mobile-prop-priority', 'mobile-prop-due', 'mobile-prop-assignee', 'mobile-prop-recurrence', 'mobile-prop-label'])
   expect(within(layer).getByTestId('mobile-prop-label')).toHaveTextContent('세금')
+  expect(await within(layer).findByTestId('mobile-prop-recurrence')).toHaveTextContent('반복 안 함')
+})
+
+// WP-989: 반복 조회 실패 — 칩은 「반복 안 함」 대신 실패를 알리고, 눌러도 시트를 열지 않고 다시 조회한다.
+test('반복 조회 실패 — 칩이 실패 안내, 누르면 시트 없이 다시 조회', async () => {
+  const { user } = await openTask({ failRecurrence: true })
+  const chip = await screen.findByRole('button', { name: '반복을 불러오지 못했어요. 다시 시도' })
+  expect(chip).toHaveTextContent('반복을 불러오지 못했어요')
+  expect(chip).not.toHaveTextContent('반복 안 함')
+  await waitFor(() => expect(chip).toBeEnabled())
+  await user.click(chip)
+  expect(screen.queryByTestId('issue-recurrence-sheet')).not.toBeInTheDocument()
+})
+
+// WP-989: 반복 칩 → 시트의 편집기 — 매일 · 07:00 저장 → PUT, 시트가 닫히고 칩이 요약으로 바뀐다.
+test('반복 칩 → 매일 07:00 저장 → PUT 1회, 칩이 「매일 07:00」', async () => {
+  const { user, seen } = await openTask()
+  const chip = screen.getByTestId('mobile-prop-recurrence')
+  await waitFor(() => expect(chip).toBeEnabled())
+  await user.click(chip)
+  const sheet = await screen.findByTestId('issue-recurrence-sheet')
+  await user.click(within(sheet).getByRole('button', { name: '매일' }))
+  const time = within(sheet).getByLabelText('실행 시각 (한국 시간)')
+  await user.clear(time)
+  await user.type(time, '07:00')
+  await user.click(within(sheet).getByRole('button', { name: '저장' }))
+  await waitFor(() => expect(seen.putRecurrence).toEqual([{ rrule: 'FREQ=DAILY', time: '07:00' }]))
+  await waitFor(() => expect(screen.queryByTestId('issue-recurrence-sheet')).not.toBeInTheDocument())
+  expect(screen.getByTestId('mobile-prop-recurrence')).toHaveTextContent('매일 07:00')
 })
 
 test('상태 칩 → 완료 → PATCH statusId(프로젝트 상태 id)', async () => {

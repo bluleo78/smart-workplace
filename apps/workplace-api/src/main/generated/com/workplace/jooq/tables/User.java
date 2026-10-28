@@ -47,6 +47,7 @@ import com.workplace.jooq.tables.IssueCommentReaction.IssueCommentReactionPath;
 import com.workplace.jooq.tables.IssueDependency.IssueDependencyPath;
 import com.workplace.jooq.tables.IssueExternalLink.IssueExternalLinkPath;
 import com.workplace.jooq.tables.IssueHistory.IssueHistoryPath;
+import com.workplace.jooq.tables.IssueRecurrence.IssueRecurrencePath;
 import com.workplace.jooq.tables.IssueRelation.IssueRelationPath;
 import com.workplace.jooq.tables.IssueRelationType.IssueRelationTypePath;
 import com.workplace.jooq.tables.IssueWatcher.IssueWatcherPath;
@@ -910,6 +911,34 @@ public class User extends TableImpl<UserRecord> {
             _issueImportedByFkey = new IssuePath(this, null, Keys.ISSUE__ISSUE_IMPORTED_BY_FKEY.getInverseKey());
 
         return _issueImportedByFkey;
+    }
+
+    private transient IssueRecurrencePath _issueRecurrenceAgentUserIdFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_recurrence</code> table, via the
+     * <code>issue_recurrence_agent_user_id_fkey</code> key
+     */
+    public IssueRecurrencePath issueRecurrenceAgentUserIdFkey() {
+        if (_issueRecurrenceAgentUserIdFkey == null)
+            _issueRecurrenceAgentUserIdFkey = new IssueRecurrencePath(this, null, Keys.ISSUE_RECURRENCE__ISSUE_RECURRENCE_AGENT_USER_ID_FKEY.getInverseKey());
+
+        return _issueRecurrenceAgentUserIdFkey;
+    }
+
+    private transient IssueRecurrencePath _issueRecurrenceCreatedByFkey;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.issue_recurrence</code> table, via the
+     * <code>issue_recurrence_created_by_fkey</code> key
+     */
+    public IssueRecurrencePath issueRecurrenceCreatedByFkey() {
+        if (_issueRecurrenceCreatedByFkey == null)
+            _issueRecurrenceCreatedByFkey = new IssueRecurrencePath(this, null, Keys.ISSUE_RECURRENCE__ISSUE_RECURRENCE_CREATED_BY_FKEY.getInverseKey());
+
+        return _issueRecurrenceCreatedByFkey;
     }
 
     private transient IssueRelationPath _issueRelation;
