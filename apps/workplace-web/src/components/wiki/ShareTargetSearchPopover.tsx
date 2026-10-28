@@ -29,8 +29,13 @@ import { useDebounceValue } from '../../hooks/useDebounceValue'
 import type { UserGroupMemberSummary, UserGroupNode } from '../../types/userGroup'
 import { filterGroupOptions, flattenGroupTree, type ShareGroupOption } from './wikiShare'
 
-/** 검색어가 없을 때 그룹 섹션마다 보이는 최상위 줄 수 — 큰 조직도에서 목록이 끝없이 길어지지 않게(검색하면 모두에서 찾는다). */
-const GROUPS_WITHOUT_QUERY = 20
+/**
+ * 검색어가 없을 때 그룹 섹션마다 보이는 최상위 줄 수 — 「전체」 탭은 사람·조직·내 그룹이 한 목록이라 큰 조직도가 사람 섹션을 밀어내지 않게 짧게,
+ * 그 종류만 보는 「조직」·「내 그룹」 탭은 넉넉하게(아주 큰 조직도에서도 목록이 끝없이 길어지지 않게). 잘리면 섹션 끝에 남은 수와 찾는 길을
+ * 알린다(WP-1064 — 탭의 수보다 목록이 짧은데 안내가 없어 나머지 부서가 없는 줄 알았다).
+ */
+const GROUPS_WITHOUT_QUERY_ALL = 20
+const GROUPS_WITHOUT_QUERY_KIND = 200
 
 /** 종류 탭 — 전체 또는 한 종류만. */
 type TargetKind = 'all' | 'people' | 'departments' | 'groups'
@@ -145,7 +150,10 @@ export function ShareTargetSearchPopover({
   const buildRows = (tree: UserGroupNode[]) => {
     const all = flattenGroupTree(tree)
     const optionOf = new Map(all.map((o) => [o.id, o]))
-    const starts = q ? filterGroupOptions(all, q) : all.filter((o) => o.ancestorIds.length === 0).slice(0, GROUPS_WITHOUT_QUERY)
+    // 검색어가 없을 때만 최상위 줄을 탭에 맞는 수로 자른다 — 검색하면 모두에서 찾는다.
+    const roots = q ? [] : all.filter((o) => o.ancestorIds.length === 0)
+    const limit = kind === 'all' ? GROUPS_WITHOUT_QUERY_ALL : GROUPS_WITHOUT_QUERY_KIND
+    const starts = q ? filterGroupOptions(all, q) : roots.slice(0, limit)
     const rows: GroupRow[] = []
     const seen = new Set<number>()
     const walk = (option: ShareGroupOption, depth: number, showPath: boolean) => {
@@ -192,8 +200,8 @@ export function ShareTargetSearchPopover({
         })
     }
     for (const s of starts) walk(s, 0, q !== '')
-    // 탭의 수는 찾은 그룹 수(검색어가 없으면 전체) — 펼친 줄·구성원은 세지 않는다.
-    return { rows, count: q ? starts.length : all.length }
+    // 탭의 수는 찾은 그룹 수(검색어가 없으면 전체) — 펼친 줄·구성원은 세지 않는다. hidden 은 잘라서 안 보이는 최상위 줄 수.
+    return { rows, count: q ? starts.length : all.length, hidden: roots.length - (q ? 0 : starts.length) }
   }
   const departments = buildRows(sharedTree)
   const personalGroups = buildRows(personalTree)
@@ -283,90 +291,100 @@ export function ShareTargetSearchPopover({
     onOpenChange(next)
   }
 
-  /** 조직·그룹 섹션 — department 면 조직도(고르면 부서 행), 아니면 내 그룹(고르면 구성원을 한 명씩). */
-  const groupSection = (rows: GroupRow[], department: boolean) => (
-    <CommandGroup
-      heading={department ? '조직도' : '내 그룹'}
-      data-testid={department ? 'share-target-departments' : 'share-target-personal-groups'}
-    >
-      {rows.map((r) => {
-        const indent = { paddingLeft: `${8 + r.depth * 16}px` }
-        if (r.type === 'note')
-          return (
-            <div key={`n${r.groupId}`} style={indent} className="py-1.5 pr-2 text-xs text-muted-foreground">
-              <span className="ml-7">{r.text}</span>
-            </div>
-          )
-        if (r.type === 'member') {
-          const blocked = memberBlock(r, department)
+  /**
+   * 조직·그룹 섹션 — department 면 조직도(고르면 부서 행), 아니면 내 그룹(고르면 구성원을 한 명씩). hidden 은 잘린 최상위 줄 수 — 섹션
+   * 끝에 남은 수와 찾는 길(「전체」 탭이면 종류 탭·검색, 종류 탭이면 검색)을 알려 「목록에 없으니 공유할 수 없다」고 여기지 않게 한다(WP-1064).
+   */
+  const groupSection = (rows: GroupRow[], department: boolean, hidden: number) => {
+    const testId = department ? 'share-target-departments' : 'share-target-personal-groups'
+    const label = department ? '조직' : '내 그룹'
+    return (
+      <CommandGroup heading={department ? '조직도' : '내 그룹'} data-testid={testId}>
+        {rows.map((r) => {
+          const indent = { paddingLeft: `${8 + r.depth * 16}px` }
+          if (r.type === 'note')
+            return (
+              <div key={`n${r.groupId}`} style={indent} className="py-1.5 pr-2 text-xs text-muted-foreground">
+                <span className="ml-7">{r.text}</span>
+              </div>
+            )
+          if (r.type === 'member') {
+            const blocked = memberBlock(r, department)
+            return (
+              <CommandItem
+                key={`m${r.groupId}-${r.member.targetId}`}
+                value={memberValue(department, r.groupId, r.member.targetId)}
+                disabled={blocked != null}
+                onSelect={() => pick(() => onSelectPerson(r.member.targetId))}
+                style={indent}
+                data-testid={`share-target-member-${r.groupId}-${r.member.targetId}`}
+                className="flex items-center gap-2"
+              >
+                {/* 펼침 단추 자리만큼 비워 그룹 이름과 줄을 맞춘다. */}
+                <span className="size-5 shrink-0" aria-hidden="true" />
+                <PersonAvatar name={r.member.name} />
+                <span className="min-w-0 truncate">{r.member.name}</span>
+                {r.member.title && <span className="truncate text-xs text-muted-foreground">{r.member.title}</span>}
+                <span className="ml-auto shrink-0 text-xs text-muted-foreground">{blocked ?? '사람만 추가'}</span>
+              </CommandItem>
+            )
+          }
+          const { option, node } = r
+          const blocked = department ? departmentBlock(option) : null
+          const open = expanded.has(option.id)
           return (
             <CommandItem
-              key={`m${r.groupId}-${r.member.targetId}`}
-              value={memberValue(department, r.groupId, r.member.targetId)}
+              key={`g${option.id}`}
+              value={groupValue(department, option.id)}
               disabled={blocked != null}
-              onSelect={() => pick(() => onSelectPerson(r.member.targetId))}
+              onSelect={() => pick(() => (department ? onSelectDepartment(option) : onSelectPersonalGroup(option)))}
               style={indent}
-              data-testid={`share-target-member-${r.groupId}-${r.member.targetId}`}
+              data-testid={department ? `share-target-department-${option.id}` : `share-target-personal-group-${option.id}`}
               className="flex items-center gap-2"
             >
-              {/* 펼침 단추 자리만큼 비워 그룹 이름과 줄을 맞춘다. */}
-              <span className="size-5 shrink-0" aria-hidden="true" />
-              <PersonAvatar name={r.member.name} />
-              <span className="min-w-0 truncate">{r.member.name}</span>
-              {r.member.title && <span className="truncate text-xs text-muted-foreground">{r.member.title}</span>}
-              <span className="ml-auto shrink-0 text-xs text-muted-foreground">{blocked ?? '사람만 추가'}</span>
+              {/* 펼침 단추 — 행을 고르지 않고(조직 추가 아님) 그 자리에서 하위 부서·구성원만 펼친다. 검색창 포커스는 그대로 둔다.
+                  고를 수 없는(이미 추가한) 조직도 펼쳐 볼 수 있게 비활성 행의 pointer-events-none 을 단추만 되살린다. */}
+              {/* 목록 안의 단추는 읽기 도구·Tab 에 따로 잡히지 않게 숨긴다(포커스는 검색창에 두고 → / ← 로 같은 일을 한다). */}
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="pointer-events-auto flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggle(option.id)
+                }}
+                data-testid={`share-target-expand-${option.id}`}
+              >
+                <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} aria-hidden="true" />
+              </button>
+              <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                {department ? <Building2 className="size-3.5" /> : <Users className="size-3.5" />}
+              </span>
+              <span className="min-w-0 truncate">
+                <span className={cn(r.depth === 0 && 'font-medium')}>{node.name}</span>
+                {/* 검색으로 찾은 하위 그룹은 상위 경로와 함께(「개발본부 › 플랫폼팀」) — 이름이 같은 하위 그룹을 가린다. */}
+                {r.showPath && option.path && <span className="ml-1.5 text-xs text-muted-foreground">{option.path}</span>}
+              </span>
+              <span className="shrink-0 rounded border px-1 text-[11px] leading-4 text-muted-foreground">
+                {department ? '조직' : '내 그룹'}
+              </span>
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                {department ? (blocked ?? '하위 부서 포함') : '구성원을 한 명씩 추가'}
+              </span>
             </CommandItem>
           )
-        }
-        const { option, node } = r
-        const blocked = department ? departmentBlock(option) : null
-        const open = expanded.has(option.id)
-        return (
-          <CommandItem
-            key={`g${option.id}`}
-            value={groupValue(department, option.id)}
-            disabled={blocked != null}
-            onSelect={() => pick(() => (department ? onSelectDepartment(option) : onSelectPersonalGroup(option)))}
-            style={indent}
-            data-testid={department ? `share-target-department-${option.id}` : `share-target-personal-group-${option.id}`}
-            className="flex items-center gap-2"
-          >
-            {/* 펼침 단추 — 행을 고르지 않고(조직 추가 아님) 그 자리에서 하위 부서·구성원만 펼친다. 검색창 포커스는 그대로 둔다.
-                고를 수 없는(이미 추가한) 조직도 펼쳐 볼 수 있게 비활성 행의 pointer-events-none 을 단추만 되살린다. */}
-            {/* 목록 안의 단추는 읽기 도구·Tab 에 따로 잡히지 않게 숨긴다(포커스는 검색창에 두고 → / ← 로 같은 일을 한다). */}
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="pointer-events-auto flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => {
-                e.stopPropagation()
-                toggle(option.id)
-              }}
-              data-testid={`share-target-expand-${option.id}`}
-            >
-              <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} aria-hidden="true" />
-            </button>
-            <span aria-hidden="true" className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-              {department ? <Building2 className="size-3.5" /> : <Users className="size-3.5" />}
-            </span>
-            <span className="min-w-0 truncate">
-              <span className={cn(r.depth === 0 && 'font-medium')}>{node.name}</span>
-              {/* 검색으로 찾은 하위 그룹은 상위 경로와 함께(「개발본부 › 플랫폼팀」) — 이름이 같은 하위 그룹을 가린다. */}
-              {r.showPath && option.path && <span className="ml-1.5 text-xs text-muted-foreground">{option.path}</span>}
-            </span>
-            <span className="shrink-0 rounded border px-1 text-[11px] leading-4 text-muted-foreground">
-              {department ? '조직' : '내 그룹'}
-            </span>
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-              {department ? (blocked ?? '하위 부서 포함') : '구성원을 한 명씩 추가'}
-            </span>
-          </CommandItem>
-        )
-      })}
-    </CommandGroup>
-  )
+        })}
+        {hidden > 0 && (
+          // 수는 잘린 최상위 줄만 센다 — 탭의 수(하위 포함 전체)와 헷갈리지 않게 「최상위」를 붙인다.
+          <div className="px-2 py-1.5 text-xs text-muted-foreground" data-testid={`${testId}-more`}>
+            최상위 {label} {hidden}개 더 있음 — {kind === 'all' ? `「${label}」 탭이나 이름 검색으로` : '이름 검색으로'} 찾으세요
+          </div>
+        )}
+      </CommandGroup>
+    )
+  }
 
   const peopleSection = (
     <CommandGroup heading="사람" data-testid="share-target-people">
@@ -437,8 +455,8 @@ export function ShareTargetSearchPopover({
                 <CommandEmpty>결과가 없습니다</CommandEmpty>
               ))}
             {peopleQuery && peopleShown.length > 0 && peopleSection}
-            {departmentRows.length > 0 && groupSection(departmentRows, true)}
-            {personalRows.length > 0 && groupSection(personalRows, false)}
+            {departmentRows.length > 0 && groupSection(departmentRows, true, departments.hidden)}
+            {personalRows.length > 0 && groupSection(personalRows, false, personalGroups.hidden)}
             {!peopleQuery && peopleShown.length > 0 && peopleSection}
           </CommandList>
         </Command>
