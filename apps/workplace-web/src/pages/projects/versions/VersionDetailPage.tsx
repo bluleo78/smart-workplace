@@ -10,6 +10,7 @@ import { Page } from '@/components/layout/Page';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
+import { useIsMobile } from '@/hooks/useIsMobile';
 
 import { IssueTypeBadge } from '../../../components/issueTypes/IssueTypeBadge';
 import { useIssueTypes } from '../../../hooks/queries/useIssueTypes';
@@ -45,6 +46,9 @@ export default function VersionDetailPage() {
   const fixIssues = useVersionIssues(key, 'fixVersion', id);
   const affectsIssues = useVersionIssues(key, 'affectsVersion', id);
   const actions = useVersionActions(key);
+  // 모바일 헤더는 meta(상태 배지)를 그리지 않는다 — 모바일에선 같은 배지를 본문 기간 줄 위에 보인다(WP-1089).
+  // 헤더가 모바일 모양으로 바뀌는 판정(useIsMobile)과 같은 훅을 써야 두 곳에 함께 보이거나 둘 다 빠지는 폭이 없다.
+  const isMobile = useIsMobile();
   const [tab, setTab] = useState<VersionIssueKind>('fixVersion');
   const [editing, setEditing] = useState(false);
   const [releasing, setReleasing] = useState(false);
@@ -62,6 +66,7 @@ export default function VersionDetailPage() {
   const overdue = version ? versionDueState(version, today) === 'overdue' : false;
   const start = versionDateText(version?.startDate);
   const rel = versionDateText(version?.releaseDate);
+  const statusBadge = version ? <VersionStatusBadge status={version.status} /> : undefined;
 
   return (
     <Page width="reading" data-testid="version-detail-page">
@@ -72,7 +77,7 @@ export default function VersionDetailPage() {
           </Button>
         }
         title={version?.name ?? '버전'}
-        meta={version ? <VersionStatusBadge status={version.status} /> : undefined}
+        meta={statusBadge}
         actions={
           version &&
           canManage && (
@@ -112,6 +117,9 @@ export default function VersionDetailPage() {
         ) : (
           <div className="space-y-6">
             <section className="space-y-2">
+              {isMobile && (
+                <div data-testid="version-status-mobile">{statusBadge}</div>
+              )}
               <p className="text-sm text-muted-foreground" data-testid="version-period">
                 {start ?? '시작일 없음'} ~ {rel ?? '출시일 없음'}
                 {dueLabel && (
