@@ -6,14 +6,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { configure, render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RequestHandler } from 'msw'
-import { type ReactElement, useEffect } from 'react'
-import { BrowserRouter, useLocation } from 'react-router-dom'
+import type { ReactElement } from 'react'
+import { BrowserRouter } from 'react-router-dom'
 
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthContext, type AuthContextValue } from '@/hooks/auth-context-value'
 
 import { PAGE_ASYNC_TIMEOUT } from './asyncTimeout'
+import { trackLocation } from './locationProbe'
 import { server } from './msw/server'
 import { testAuthValue } from './renderWithProviders'
 
@@ -24,13 +25,6 @@ type RenderScreenOptions = {
   handlers?: RequestHandler[]
   /** 로그인 사용자·역할 — 기본은 testAuthValue(일반 사용자 id 1). */
   auth?: Partial<AuthContextValue>
-}
-
-/** 주소가 바뀔 때마다 알린다 — 이동을 단언할 때 쓴다(location.pathname + search). */
-function LocationProbe({ onChange }: { onChange: (location: string) => void }) {
-  const loc = useLocation()
-  useEffect(() => onChange(loc.pathname + loc.search), [loc, onChange])
-  return null
 }
 
 /**
@@ -45,22 +39,20 @@ export function renderScreen(ui: ReactElement, { path = '/', handlers = [], auth
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },
   })
-  let current = path
-  const onLocation = (location: string) => {
-    current = location
-  }
+  const { Tracked, location } = trackLocation(path)
   const view = render(
     <QueryClientProvider client={queryClient}>
       <AuthContext.Provider value={{ ...testAuthValue, ...auth }}>
         <BrowserRouter>
-          <TooltipProvider>{ui}</TooltipProvider>
-          <LocationProbe onChange={onLocation} />
-          <Toaster />
+          <Tracked>
+            <TooltipProvider>{ui}</TooltipProvider>
+            <Toaster />
+          </Tracked>
         </BrowserRouter>
       </AuthContext.Provider>
     </QueryClientProvider>,
   )
-  return { ...view, user: userEvent.setup(), queryClient, location: () => current }
+  return { ...view, user: userEvent.setup(), queryClient, location }
 }
 
 /** renderScreen 이 돌려주는 userEvent 인스턴스 타입 — 테스트 안 도우미 함수의 인자 타입으로 쓴다. */
