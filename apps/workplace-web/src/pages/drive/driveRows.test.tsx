@@ -334,8 +334,16 @@ describe('여러 개 선택', () => {
 
     await user.click(screen.getByTestId('select-folder-10'))
     expect(screen.getByTestId('bulk-toolbar')).toHaveTextContent('선택 1개')
+    // 일부만 고르면 전체선택이 「일부 선택」(WP-1071)
+    expect(screen.getByTestId('select-all')).toBePartiallyChecked()
     await user.click(screen.getByTestId('select-file-20'))
+    expect(screen.getByTestId('select-all')).not.toBePartiallyChecked()
+    // 일부 선택에서 누르면 전체를 고른다
+    await user.click(screen.getByTestId('select-file-20'))
+    expect(screen.getByTestId('select-all')).toBePartiallyChecked()
+    await user.click(screen.getByTestId('select-all'))
     expect(screen.getByTestId('bulk-toolbar')).toHaveTextContent('선택 2개')
+    expect(screen.getByTestId('select-all')).not.toBePartiallyChecked()
     await user.click(screen.getByTestId('bulk-clear'))
     expect(screen.queryByTestId('bulk-toolbar')).not.toBeInTheDocument()
 

@@ -79,6 +79,28 @@ describe('팀 리스트 뷰 — 일괄 작업 (#606)', () => {
     expect(screen.queryByTestId('issue-bulk-toolbar')).not.toBeInTheDocument()
   })
 
+  // WP-1071 — 일부만 고르면 머리 체크박스가 빈칸이 아니라 「일부 선택」이고, 누르면 전체를 고른다.
+  test('일부만 고르면 전체선택이 「일부 선택」으로 보이고, 누르면 모두 고른다', async () => {
+    const { user } = await open(AB())
+    const selectAll = screen.getByTestId('issue-select-all')
+    expect(selectAll).not.toBePartiallyChecked()
+    await user.click(screen.getByTestId('select-issue-7'))
+    expect(selectAll).toBePartiallyChecked()
+    expect(selectAll).not.toBeChecked()
+
+    await user.click(selectAll)
+    expect(toolbar()).toHaveTextContent('선택 2개')
+    expect(selectAll).toBeChecked()
+    expect(selectAll).not.toBePartiallyChecked()
+
+    // 고른 것을 모두 풀면 다시 빈칸
+    await user.click(screen.getByTestId('select-issue-7'))
+    expect(selectAll).toBePartiallyChecked()
+    await user.click(screen.getByTestId('select-issue-8'))
+    expect(selectAll).not.toBePartiallyChecked()
+    expect(selectAll).not.toBeChecked()
+  })
+
   test('일괄 상태 변경 — 선택 항목마다 PATCH .../status { statusId }, 끝나면 선택 해제 + 결과 토스트', async () => {
     const { user, api } = await open(AB())
     await selectBoth(user)
