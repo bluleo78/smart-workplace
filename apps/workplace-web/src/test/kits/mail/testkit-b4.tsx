@@ -62,6 +62,8 @@ export function mailBaseHandlers({
     // 받는사람 자동완성 — 기본은 후보 없음.
     http.get(`${API}/mail/recent-recipients`, () => HttpResponse.json([])),
     http.get(`${API}/contacts`, () => HttpResponse.json({ items: [], nextCursor: null, hasMore: false })),
+    // 받는사람의 조직·내 그룹 후보(WP-1060) — 기본은 조직도·내 그룹 없음.
+    http.get(`${API}/user-groups`, () => HttpResponse.json({ shared: [], personal: [] })),
   ]
 }
 
