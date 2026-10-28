@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -19,8 +20,11 @@ import com.workplace.global.outbound.AgentOutageGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.exception.PriorityAiException;
 import com.workplace.home.outbound.AiAgentPriorityClient;
+import com.workplace.home.outbound.dto.PriorityClassifyRequest;
 import com.workplace.home.outbound.dto.PriorityClassifyResult;
 import com.workplace.home.repository.PriorityItemRepository;
+import com.workplace.issue.dto.IssueRow;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
@@ -29,6 +33,7 @@ import com.workplace.project.dto.ProjectResponse;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +43,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.ResourceAccessException;
@@ -125,21 +131,27 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     String key = uniqueKey(namePrefix.toUpperCase());
     ProjectResponse proj =
         projectService.create(userId, new CreateProjectRequest(key, namePrefix + " 프로젝트", "x"));
+    var issue = insertOverdueIssue(proj.id(), 1, userId, namePrefix + " 마감 지난 이슈");
+    usersToDelete.add(userId);
+    projectsToDelete.add(proj.id());
+    return issue.id();
+  }
+
+  /** 담당자=userId 인 마감 지난(어제) 이슈 하나 — 할 일(TODO) 기본 상태. */
+  private IssueRow insertOverdueIssue(long projectId, int number, long userId, String title) {
     var issue =
         IssueSeeds.insert(
             issueRepository,
             baseDsl,
-            proj.id(),
-            1,
-            namePrefix + " 마감 지난 이슈",
+            projectId,
+            number,
+            title,
             null,
             "MID",
             LocalDate.now().minusDays(1),
             userId);
     issueAssigneeRepository.add(issue.id(), userId, userId);
-    usersToDelete.add(userId);
-    projectsToDelete.add(proj.id());
-    return issue.id();
+    return issue;
   }
 
   private String uniqueKey(String prefix) {
@@ -179,6 +191,57 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     assertThat(row.importanceScore()).isEqualTo(77);
     assertThat(row.urgencyScore()).isEqualTo(88);
     assertThat(row.reason()).isEqualTo("테스트 근거");
+  }
+
+  @Test
+  @DisplayName("마감 지난 이슈 중 완료·취소된 것은 ISSUE_DUE 후보가 아니다 — 열린 이슈만 AI 분류에 넘긴다(WP-1099)")
+  void 마감_지난_완료_취소_이슈는_후보에서_빠진다() {
+    long openIssueId = seedUserWithOverdueIssue("aaa-closed");
+    long userId = userIdOfIssue(openIssueId);
+    long projectId =
+        dsl.select(ISSUE.PROJECT_ID)
+            .from(ISSUE)
+            .where(ISSUE.ID.eq(openIssueId))
+            .fetchOne(ISSUE.PROJECT_ID);
+    // 같은 사용자 담당의 마감 지난 이슈 두 개를 더 만들어 완료·취소로 닫는다 — 운영의 「결함 탐색 #6」(완료) 같은 경우.
+    long doneIssueId = seedClosedOverdueIssue(projectId, 2, userId, IssueStatuses.DONE);
+    long canceledIssueId = seedClosedOverdueIssue(projectId, 3, userId, IssueStatuses.CANCELED);
+
+    when(aiClient.classify(any())).thenReturn(new PriorityClassifyResult(List.of()));
+
+    scheduler.runOnce();
+
+    // 다른 테스트가 남긴 사용자도 함께 분류되므로, 모든 호출의 ISSUE_DUE 후보를 모아 이 사용자의 이슈만 본다.
+    ArgumentCaptor<PriorityClassifyRequest> captor =
+        ArgumentCaptor.forClass(PriorityClassifyRequest.class);
+    verify(aiClient, atLeastOnce()).classify(captor.capture());
+    List<String> issueDueIds =
+        captor.getAllValues().stream()
+            .flatMap(r -> r.items().stream())
+            .filter(c -> c.sourceType().equals("ISSUE_DUE"))
+            .map(PriorityClassifyRequest.CandidateLine::sourceId)
+            .toList();
+    assertThat(issueDueIds)
+        .contains(String.valueOf(openIssueId))
+        .doesNotContain(String.valueOf(doneIssueId), String.valueOf(canceledIssueId));
+  }
+
+  /** 담당자=userId 인 마감 지난 이슈를 만들어 주어진 끝난 범주(DONE·CANCELED)로 닫는다. */
+  private long seedClosedOverdueIssue(long projectId, int number, long userId, String status) {
+    var issue = insertOverdueIssue(projectId, number, userId, status + " 마감 지난 이슈");
+    IssueSeeds.updateAll(
+        issueRepository,
+        baseDsl,
+        issue.id(),
+        issue.title(),
+        null,
+        status,
+        "MID",
+        issue.dueDate(),
+        null,
+        null,
+        Instant.now());
+    return issue.id();
   }
 
   @Test
