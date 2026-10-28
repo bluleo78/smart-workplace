@@ -22,16 +22,12 @@ import com.workplace.calendar.exception.CalendarTagNotFoundException;
 import com.workplace.calendar.exception.ExternalEventTagNotSupportedException;
 import com.workplace.calendar.exception.OutlookTagRenameNotAllowedException;
 import com.workplace.calendar.service.CalendarTagService;
-import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.realtime.SseRegistry;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
@@ -39,35 +35,24 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** CalendarTagController(WP-714) 라우팅·상태 코드·한국어 오류 문구 테스트. 서비스는 Mockito. */
 @SuppressWarnings("null")
-@WebMvcTest(controllers = CalendarTagController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class CalendarTagControllerTest {
+class CalendarTagControllerTest extends WebMvcSliceTestBase {
 
   @Autowired MockMvc mockMvc;
 
-  @MockitoBean CalendarTagService service;
-  @MockitoBean SseRegistry registry;
-  @MockitoBean JwtTokenProvider jwt;
-  @MockitoBean JwtProperties jwtProps;
-  @MockitoBean PermissionService permissionService;
-  @MockitoBean MembershipRepository membershipRepository;
-  @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean UserRepository userRepository;
+  @Autowired CalendarTagService service;
+  @Autowired SseRegistry registry;
+  @Autowired JwtTokenProvider jwt;
+  @Autowired JwtProperties jwtProps;
+  @Autowired PermissionService permissionService;
+  @Autowired MembershipRepository membershipRepository;
+  @Autowired AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired UserApiTokenRepository userApiTokenRepository;
+  @Autowired UserRepository userRepository;
 
   @BeforeEach
   void auth() {

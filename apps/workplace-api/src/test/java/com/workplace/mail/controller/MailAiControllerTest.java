@@ -10,12 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.mail.dto.MailReplyDraft;
 import com.workplace.mail.dto.MailSummary;
 import com.workplace.mail.exception.EmailMessageNotFoundException;
@@ -24,39 +20,27 @@ import com.workplace.mail.exception.MailAiUnavailableException;
 import com.workplace.mail.service.MailAiService;
 import com.workplace.mail.service.MailIssueService;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /** MailAiController 라우팅·인증·예외응답 테스트. 서비스는 Mockito. */
 @SuppressWarnings("null")
-@WebMvcTest(controllers = MailAiController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class,
-  MailExceptionHandler.class
-})
-class MailAiControllerTest {
+class MailAiControllerTest extends WebMvcSliceTestBase {
 
   @Autowired MockMvc mockMvc;
 
-  @MockitoBean MailAiService aiService;
-  @MockitoBean MailIssueService issueService;
-  @MockitoBean JwtTokenProvider jwt;
-  @MockitoBean JwtProperties jwtProps;
-  @MockitoBean PermissionService permissionService;
+  @Autowired MailAiService aiService;
+  @Autowired MailIssueService issueService;
+  @Autowired JwtTokenProvider jwt;
+  @Autowired JwtProperties jwtProps;
+  @Autowired PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -64,11 +48,11 @@ class MailAiControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean MembershipRepository membershipRepository;
+  @Autowired MembershipRepository membershipRepository;
 
-  @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean UserRepository userRepository;
+  @Autowired AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired UserApiTokenRepository userApiTokenRepository;
+  @Autowired UserRepository userRepository;
 
   @BeforeEach
   void auth() {

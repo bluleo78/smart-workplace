@@ -10,21 +10,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
-import com.workplace.chat.controller.ChatMessageAttachmentController;
 import com.workplace.chat.exception.ChatThreadNotMemberException;
 import com.workplace.chat.exception.InvalidChatAttachmentException;
 import com.workplace.chat.repository.ChatMessageAttachmentRepository;
 import com.workplace.chat.service.ChatMessageAttachmentService;
 import com.workplace.fileai.service.AttachmentViewService;
-import com.workplace.global.config.SecurityConfig;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.io.File;
@@ -35,35 +30,24 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * ChatMessageAttachmentController @WebMvcTest. DB·스토리지 미사용 — 서비스 Mock 으로 컨트롤러 레이어만 검증. 멤버십 거부·교차스레드
  * 차단이 올바른 HTTP 상태로 응답하는지 확인한다.
  */
-@WebMvcTest(ChatMessageAttachmentController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class ChatMessageAttachmentControllerTest {
+class ChatMessageAttachmentControllerTest extends WebMvcSliceTestBase {
 
   @Autowired MockMvc mockMvc;
-  @MockitoBean ChatMessageAttachmentService service;
+  @Autowired ChatMessageAttachmentService service;
 
   /** WP-250: 컨트롤러가 /view 용으로 주입받는 공통 서비스 — 슬라이스 컨텍스트에 빈이 있어야 한다. */
-  @MockitoBean AttachmentViewService attachmentView;
+  @Autowired AttachmentViewService attachmentView;
 
-  @MockitoBean JwtTokenProvider jwt;
-  @MockitoBean JwtProperties jwtProps;
-  @MockitoBean PermissionService permissionService;
+  @Autowired JwtTokenProvider jwt;
+  @Autowired JwtProperties jwtProps;
+  @Autowired PermissionService permissionService;
 
   /** WP-420: JWT tenant 경로가 기존 getUserPermissions 스텁을 따르게 한다(PermissionMocks 참고). */
   @BeforeEach
@@ -71,10 +55,10 @@ class ChatMessageAttachmentControllerTest {
     PermissionMocks.mirrorActiveMember(permissionService);
   }
 
-  @MockitoBean MembershipRepository membershipRepository;
-  @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean UserRepository userRepository;
+  @Autowired MembershipRepository membershipRepository;
+  @Autowired AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired UserApiTokenRepository userApiTokenRepository;
+  @Autowired UserRepository userRepository;
 
   @BeforeEach
   void auth() {

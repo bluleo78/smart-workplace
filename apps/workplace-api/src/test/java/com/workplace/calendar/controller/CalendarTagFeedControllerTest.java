@@ -14,16 +14,12 @@ import com.workplace.calendar.dto.TagFeedResponse;
 import com.workplace.calendar.exception.CalendarTagNotFoundException;
 import com.workplace.calendar.exception.TagFeedNotFoundException;
 import com.workplace.calendar.service.CalendarTagFeedService;
-import com.workplace.global.config.SecurityConfig;
 import com.workplace.global.realtime.SseRegistry;
-import com.workplace.global.security.ApiKeyAuthenticationFilter;
-import com.workplace.global.security.JwtAuthenticationFilter;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
-import com.workplace.global.security.UserTokenAuthenticationFilter;
 import com.workplace.permission.service.PermissionService;
-import com.workplace.support.AlwaysActiveTenantStatusChecker;
 import com.workplace.support.PermissionMocks;
+import com.workplace.support.WebMvcSliceTestBase;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.repository.UserRepository;
 import java.time.OffsetDateTime;
@@ -31,9 +27,6 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -41,27 +34,19 @@ import org.springframework.test.web.servlet.MockMvc;
  * PublicCalendarFeedIntegrationTest.
  */
 @SuppressWarnings("null")
-@WebMvcTest(controllers = CalendarTagFeedController.class)
-@Import({
-  AlwaysActiveTenantStatusChecker.class,
-  SecurityConfig.class,
-  JwtAuthenticationFilter.class,
-  ApiKeyAuthenticationFilter.class,
-  UserTokenAuthenticationFilter.class
-})
-class CalendarTagFeedControllerTest {
+class CalendarTagFeedControllerTest extends WebMvcSliceTestBase {
 
   @Autowired MockMvc mockMvc;
 
-  @MockitoBean CalendarTagFeedService service;
-  @MockitoBean SseRegistry registry;
-  @MockitoBean JwtTokenProvider jwt;
-  @MockitoBean JwtProperties jwtProps;
-  @MockitoBean PermissionService permissionService;
-  @MockitoBean MembershipRepository membershipRepository;
-  @MockitoBean AgentApiKeyRepository agentApiKeyRepository;
-  @MockitoBean UserApiTokenRepository userApiTokenRepository;
-  @MockitoBean UserRepository userRepository;
+  @Autowired CalendarTagFeedService service;
+  @Autowired SseRegistry registry;
+  @Autowired JwtTokenProvider jwt;
+  @Autowired JwtProperties jwtProps;
+  @Autowired PermissionService permissionService;
+  @Autowired MembershipRepository membershipRepository;
+  @Autowired AgentApiKeyRepository agentApiKeyRepository;
+  @Autowired UserApiTokenRepository userApiTokenRepository;
+  @Autowired UserRepository userRepository;
 
   private static final TagFeedResponse FEED =
       new TagFeedResponse(
