@@ -270,6 +270,9 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   const trashOpen = trashParam.value === 'trash'
   const trashQuery = useDriveTrash(validSid, trashOpen)
   const trash: DriveTrashItem[] | null = trashOpen && trashQuery.data ? trashQuery.data.items : null
+  // 휴지통 뷰에선 새 폴더·업로드·파일 놓기를 막는다 — 만든 항목이 보이지 않는 지금 폴더에 알림 없이 생겼다(WP-1082).
+  const canCreateHere = !readOnlyRole && trash == null
+  const canDropHere = !readOnly && trash == null
 
   // 폴더 이름 입력 다이얼로그 — 새 폴더 생성(create) / 이름 변경(rename). window.prompt 대체 (#135).
   const [nameDialog, setNameDialog] = useState<{
@@ -620,7 +623,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   async function onDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
-    if (readOnly) return
+    if (!canDropHere) return
     const dropped = await readDroppedTree(e.dataTransfer.items)
     await uploadDroppedTree(dropped)
   }
@@ -1299,7 +1302,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
               placeholder="이 공간에서 검색..."
               aria-label="파일명 및 콘텐츠 검색"
             />
-            {!readOnlyRole && (
+            {canCreateHere && (
               <button
                 type="button"
                 onClick={onNewFolder}
@@ -1310,7 +1313,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 새 폴더
               </button>
             )}
-            {!readOnlyRole && (
+            {canCreateHere && (
               <button
                 type="button"
                 onClick={() => fileInput.current?.click()}
@@ -1403,8 +1406,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
         data-testid="drive-dropzone"
         onDragOver={(e) => {
           e.preventDefault()
-          // 읽기 전용이면 놓아도 올리지 않으므로 놓기 표시(테두리·커서)도 하지 않는다.
-          if (readOnly) {
+          // 놓아도 올리지 않는 곳(읽기 전용·휴지통 뷰)이면 놓기 표시(테두리·커서)도 하지 않는다.
+          if (!canDropHere) {
             e.dataTransfer.dropEffect = 'none'
             return
           }
