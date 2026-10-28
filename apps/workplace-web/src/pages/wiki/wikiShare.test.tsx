@@ -420,13 +420,14 @@ function savedShare(req: WikiPageShareRequest, prev: WikiPageShare): WikiPageSha
 /**
  * 지정한 사람 공유 하나를 가진 공유 창을 띄운다 — 받은 PUT 본문과 사람 검색어를 모은다. groupMembers 는 그룹 id 별 상세의 구성원(없으면 빈 목록),
  * detailGate 를 주면 그룹 상세 응답이 그 약속이 풀릴 때까지 기다린다(구성원을 받는 사이의 다른 추가를 재현). firstPutGate 를 주면 첫 PUT 이
- * 본문을 받은 뒤 그 약속이 풀릴 때까지 응답하지 않는다(저장이 끝나기 전에 잇달아 더하기를 재현).
+ * 본문을 받은 뒤 그 약속이 풀릴 때까지 응답하지 않는다(저장이 끝나기 전에 잇달아 더하기를 재현). groupTree 는 조직도·내 그룹 트리(기본 GROUP_TREE).
  */
 function openShareDialog(
   initial: Partial<WikiPageShare> = {},
   groupMembers: Record<number, UserGroupDetail['members']> = {},
   detailGate?: Promise<void>,
   firstPutGate?: Promise<void>,
+  groupTree: UserGroupTree = GROUP_TREE,
 ) {
   const puts: WikiPageShareRequest[] = []
   const searches: string[] = []
@@ -462,7 +463,7 @@ function openShareDialog(
           const content = search === '' ? all : all.filter((m) => m.name.includes(search))
           return HttpResponse.json({ content, page: 0, size: 20, totalElements: content.length, totalPages: 1 })
         }),
-        http.get('/api/v1/user-groups', () => HttpResponse.json(GROUP_TREE)),
+        http.get('/api/v1/user-groups', () => HttpResponse.json(groupTree)),
         // 하위 조직 포함 구성원(빈 검색어) — 공유 창 부서 행의 ▾(WP-1048). groupMembers 의 직속 구성원에 경로 없이 답한다.
         http.get('/api/v1/user-groups/:id/members/search', ({ params }) => {
           const id = Number(params.id)
@@ -695,6 +696,43 @@ describe('노트 공유 창 — 사람·팀 추가(WP-1023)', () => {
 // ── 공유 대상 고르기 개선(WP-1048) ─────────────────────────────────────
 // 종류 탭·조직 펼치기·나 빼기·소속 부서·검색어 없을 때 조직도 먼저, 공유 창 부서 행의 구성원 펼치기.
 describe('노트 공유 창 — 공유 대상 고르기(WP-1048)', () => {
+  test('최상위 조직이 20개를 넘으면 「전체」 탭은 20개와 남은 수 안내를 보이고, 「조직」 탭은 모두 보인다(WP-1064)', async () => {
+    // 최상위 부서 25개(100~124) — 개발팀(10)·디자인팀(20) 없이 이 트리만. 내 그룹은 그대로 2개라 잘리지 않는다.
+    const shared = Array.from({ length: 25 }, (_, i) => groupNode(100 + i, `부서${String(i + 1).padStart(2, '0')}`, 'SHARED'))
+    const { user } = openShareDialog({}, {}, undefined, undefined, { ...GROUP_TREE, shared })
+    await openPicker(user)
+    const departments = await screen.findByTestId('share-target-departments')
+    expect(within(departments).getAllByTestId(/^share-target-department-\d+$/)).toHaveLength(20)
+    expect(screen.getByTestId('share-target-department-119')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-department-120')).not.toBeInTheDocument()
+    expect(screen.getByTestId('share-target-departments-more')).toHaveTextContent('최상위 조직 5개 더 있음 — 「조직」 탭이나 이름 검색으로 찾으세요')
+    expect(screen.queryByTestId('share-target-personal-groups-more')).not.toBeInTheDocument()
+    expect(screen.getByTestId('share-target-tab-departments')).toHaveTextContent('조직25')
+
+    // 「조직」 탭은 그 종류만 보므로 자르지 않는다 — 25개 모두, 안내 없음.
+    await user.click(screen.getByTestId('share-target-tab-departments'))
+    expect(within(screen.getByTestId('share-target-departments')).getAllByTestId(/^share-target-department-\d+$/)).toHaveLength(25)
+    expect(screen.queryByTestId('share-target-departments-more')).not.toBeInTheDocument()
+
+    // 「전체」 탭에서도 검색하면 모두에서 찾는다 — 잘렸던 부서24 가 나오고 안내는 없다.
+    await user.click(screen.getByTestId('share-target-tab-all'))
+    await user.click(screen.getByLabelText('사람·팀 검색'))
+    await user.paste('부서24')
+    expect(await screen.findByTestId('share-target-department-123')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-departments-more')).not.toBeInTheDocument()
+  })
+
+  test('「조직」 탭도 최상위 200개에서 자르고 남은 수를 검색으로 찾으라고 알린다(WP-1064)', async () => {
+    const shared = Array.from({ length: 203 }, (_, i) => groupNode(1000 + i, `부서${i + 1}`, 'SHARED'))
+    const { user } = openShareDialog({}, {}, undefined, undefined, { ...GROUP_TREE, shared })
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-tab-departments'))
+    // 200번째(1199)까지 보이고 201번째(1200)부터는 잘린다.
+    expect(screen.getByTestId('share-target-department-1199')).toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-department-1200')).not.toBeInTheDocument()
+    expect(screen.getByTestId('share-target-departments-more')).toHaveTextContent('최상위 조직 3개 더 있음 — 이름 검색으로 찾으세요')
+  })
+
   test('검색어가 없으면 조직도가 사람보다 먼저이고, 나는 사람 후보에 없으며, 사람 행에 소속 부서(없으면 아이디)를 보인다', async () => {
     const { user } = openShareDialog()
     await openPicker(user)
