@@ -26,6 +26,7 @@ import { Page, pageGutterClass } from '@/components/layout/Page'
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState'
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet'
 import { TOUCH_ROW_TRIGGER, TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
+import { SelectAllCheckbox } from '@/components/SelectAllCheckbox'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1214,9 +1215,10 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     const allSelected = selCount > 0 && selCount === total
     return (
       <div className="mb-1 flex items-center gap-2 px-0.5 text-sm text-muted-foreground">
-        <input
-          type="checkbox"
+        <SelectAllCheckbox
           checked={allSelected}
+          // 일부만 고르면 「일부 선택」(WP-1071) — 누르면 전체를 고른다
+          indeterminate={selCount > 0 && !allSelected}
           onChange={() => {
             if (allSelected) {
               clearSel()

@@ -7,6 +7,7 @@
 import { ChevronRight, CircleCheckBig, LayoutList } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { SelectAllCheckbox } from '@/components/SelectAllCheckbox';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS } from '@/lib/listStyles';
 import { cn } from '@/lib/utils';
@@ -203,6 +204,8 @@ export function IssueListView({
 
   const allNumbers = items.map((it) => it.number);
   const allSelected = allNumbers.length > 0 && allNumbers.every((n) => selected.has(n));
+  // 일부만 고르면 머리 체크박스를 「일부 선택」으로(WP-1071) — 툴바의 「선택 N개」와 같은 기준(selected 전체).
+  const someSelected = !allSelected && selected.size > 0;
 
   function toggleSelectAll() {
     setSelected(allSelected ? new Set() : new Set(allNumbers));
@@ -228,9 +231,9 @@ export function IssueListView({
                 {/* 열 머리 모양은 공용 LIST_HEAD_CELL_CLASS — 사이클 구간 목록 헤더·내 작업과 같다(WP-919). */}
                 <tr>
                   <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}>
-                    <input
-                      type="checkbox"
+                    <SelectAllCheckbox
                       checked={allSelected}
+                      indeterminate={someSelected}
                       onChange={toggleSelectAll}
                       aria-label="전체선택"
                       data-testid="issue-select-all"
