@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AgentWorkView } from '../types/issue'
-import { AGENT_STATE_LABEL, agentQuestionWorks, agentStateTone, agentToolLabel, displayState, primaryWork, progressView, questionWork } from './agentWork'
+import { AGENT_STATE_LABEL, agentQuestionWorks, agentStateTone, agentToolLabel, displayState, isAgentQuestion, primaryWork, progressView } from './agentWork'
 
 const w = (state: AgentWorkView['state'], extra: Partial<AgentWorkView> = {}): AgentWorkView => ({
   worker: { id: 1, username: 'me', name: '나', kind: 'HUMAN' }, tool: 'claude-code', state, note: null,
@@ -66,13 +66,11 @@ describe('displayState', () => {
     expect(displayState({ assignees: [agent], status: 'DONE', agentWork: [w('COMPLETED')] })).toBe('COMPLETED'))
   it('작업 있으면 대표 상태', () => expect(displayState({ assignees: [agent], status: 'TODO', agentWork: [w('BLOCKED')] })).toBe('BLOCKED'))
 })
-describe('questionWork', () => {
+describe('isAgentQuestion', () => {
   const agent = { id: 9, username: 'aki', name: '아키', kind: 'AGENT' as const }
-  it('AI 구성원의 답변 필요 첫 건', () =>
-    expect(questionWork([w('INPUT_REQUIRED'), w('WORKING', { worker: agent }), w('INPUT_REQUIRED', { worker: agent, note: 'q' })])?.note).toBe('q'))
-  it('AI 구성원의 인증 필요는 질문 카드에 올리지 않는다', () => expect(questionWork([w('AUTH_REQUIRED', { worker: agent })])).toBeNull())
-  it('사람의 답변 필요만 있으면 null', () => expect(questionWork([w('INPUT_REQUIRED')])).toBeNull())
-  it('없으면 null', () => expect(questionWork(undefined)).toBeNull())
+  it('AI 구성원의 답변 필요', () => expect(isAgentQuestion(w('INPUT_REQUIRED', { worker: agent }))).toBe(true))
+  it('AI 구성원의 인증 필요는 질문이 아니다', () => expect(isAgentQuestion(w('AUTH_REQUIRED', { worker: agent }))).toBe(false))
+  it('사람의 답변 필요는 터미널에서 답하므로 아니다', () => expect(isAgentQuestion(w('INPUT_REQUIRED'))).toBe(false))
 })
 
 describe('agentQuestionWorks (WP-391)', () => {

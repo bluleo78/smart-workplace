@@ -2,15 +2,14 @@
 // 값은 밖에서 쥐고(value) 팝오버가 닫힐 때 바뀐 경우에만 onCommit 을 부른다 — 상세는 그때 한 번 저장(PUT)하고, 만들기 창은 폼 값만 바꾼다.
 // 선택지는 사용 중 구성요소 + 이 이슈에 이미 붙은 보관 구성요소(pickerComponentOptions) — 보관된 것을 빼면 교체 요청에서 조용히 떨어진다.
 
-import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import { pickerComponentOptions } from '../../lib/issueComponents';
 import type { ComponentResponse } from '../../types/component';
+import { PickerAddTrigger, type PickerTriggerVariant } from '../issue/PropertyChipRow';
 import { filterLabelsByName } from '../labels/labelSearch';
 import { ComponentChip } from './ComponentChip';
 
@@ -21,7 +20,7 @@ export function ComponentPickerPopover({
   components,
   value,
   onCommit,
-  disabled = false,
+  trigger = 'button',
 }: {
   /** 프로젝트 구성요소 전체(보관 포함, 목록 순서). */
   components: ComponentResponse[];
@@ -29,8 +28,8 @@ export function ComponentPickerPopover({
   value: number[];
   /** 닫힐 때 집합이 바뀌었으면 새 id 목록(목록 순서). */
   onCommit: (ids: number[]) => void;
-  /** 워크플로 편집 권한 없음 — 라벨 피커와 같은 규칙. */
-  disabled?: boolean;
+  /** 트리거 모양(PickerAddTrigger) — button: 테두리 「＋」 상자, row·icon: 속성 레일 칩 줄(WP-1079). */
+  trigger?: PickerTriggerVariant;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -58,16 +57,8 @@ export function ComponentPickerPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label="구성요소 편집"
-          data-testid="component-picker-trigger"
-          disabled={disabled}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        {/* 속성 레일(row·icon)은 보이는 글자 「추가」와 읽히는 이름을 맞춘다(음성 조작이 「추가」로 찾는다). */}
+        <PickerAddTrigger variant={trigger} aria-label={trigger === 'button' ? '구성요소 편집' : '구성요소 추가'} data-testid="component-picker-trigger" />
       </PopoverTrigger>
       {/* 트리거가 속성 레일 오른쪽 끝이라 가운데 정렬이면 화면 가장자리에 붙는다 — 오른쪽 끝을 트리거에 맞추고 가장자리 16px 를 띄운다. */}
       <PopoverContent align="end" collisionPadding={16} className="w-72 p-2" data-testid="component-picker">

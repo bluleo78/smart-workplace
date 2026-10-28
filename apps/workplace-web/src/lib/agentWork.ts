@@ -107,12 +107,13 @@ export function primaryWork(list?: AgentWorkView[]): AgentWorkView | null {
   return list?.[0] ?? null
 }
 
-/** 이슈 상세 질문 카드에 올릴 작업 — AI 구성원(AGENT)이 답변을 기다리는 첫 건. 사람의 답변 필요는 터미널에서 답하므로 제외. */
-export function questionWork(list?: AgentWorkView[]): AgentWorkView | null {
-  return list?.find((w) => w.state === 'INPUT_REQUIRED' && w.worker.kind === 'AGENT') ?? null
+/** AI 구성원(AGENT)이 이슈 채팅에서 답을 기다리는 작업인지 — 이슈 상세 AI 진행 칸의 「답변 필요」 채팅 링크·질문 전체 표시 대상(WP-1079).
+ *  사람의 답변 필요는 터미널에서 답하므로 제외. */
+export function isAgentQuestion(w: Pick<AgentWorkView, 'state' | 'worker'>): boolean {
+  return w.state === 'INPUT_REQUIRED' && w.worker.kind === 'AGENT'
 }
 
-/** 질문 글 판정 재료(WP-391) — 그 AI 가 답변을 기다리는지(questionWork 와 같은 판정)와 작업의 마지막 갱신 시각(epoch ms). */
+/** 질문 글 판정 재료(WP-391) — 그 AI 가 답변을 기다리는지(isAgentQuestion 과 같은 판정)와 작업의 마지막 갱신 시각(epoch ms). */
 export interface AgentQuestionWork {
   waiting: boolean
   updatedAt: number
@@ -123,7 +124,7 @@ export function agentQuestionWorks(list?: AgentWorkView[]): Map<number, AgentQue
   return new Map(
     (list ?? [])
       .filter((w) => w.worker.kind === 'AGENT')
-      .map((w) => [w.worker.id, { waiting: w.state === 'INPUT_REQUIRED', updatedAt: Date.parse(w.updatedAt) }]),
+      .map((w) => [w.worker.id, { waiting: isAgentQuestion(w), updatedAt: Date.parse(w.updatedAt) }]),
   )
 }
 

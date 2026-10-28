@@ -17,7 +17,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { labelWithValue } from '@/lib/labelWithValue';
+import { cn } from '@/lib/utils';
 
+import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useChangeIssueReporter } from '../../../hooks/queries/useChangeIssueReporter';
 import { useReporterCandidates } from '../../../hooks/queries/useReporterCandidates';
@@ -153,11 +155,11 @@ function ReporterPicker({
             aria-label={labelWithValue('보고자 편집', reporter?.name ?? '알 수 없음')}
             data-testid="reporter-picker-trigger"
             disabled={change.isPending}
-            className={
+            className={cn(
               // 레일은 담당자 필드와 같은 풀폭 px-3 필드, 시트는 오른쪽 값 자리만 차지한다.
-              (layout === 'rail' ? 'flex w-full px-3 py-2 ' : 'inline-flex min-w-0 max-w-[70%] px-2 py-1 ') +
-              'items-center rounded-md border border-transparent text-left text-sm transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'
-            }
+              layout === 'rail' ? INLINE_FIELD_RAIL_CLASS : 'inline-flex min-w-0 max-w-[70%] px-2 py-1',
+              INLINE_FIELD_CLASS,
+            )}
           >
             {children}
           </button>

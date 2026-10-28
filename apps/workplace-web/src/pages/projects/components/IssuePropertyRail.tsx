@@ -5,7 +5,6 @@
 
 import { IssueComponentsField } from '../../../components/components/IssueComponentsField';
 import { CyclePickerPopover } from '../../../components/cycle/CyclePickerPopover';
-import { AgentWorkRailSection } from '../../../components/issue/agentWork/AgentWorkRailSection';
 import { AiClassifyButton } from '../../../components/issue/AiClassifyButton';
 import { LabelChip } from '../../../components/labels/LabelChip';
 import { LabelPickerPopover } from '../../../components/labels/LabelPickerPopover';
@@ -15,7 +14,6 @@ import { isOverdue } from '../../../lib/issueOverdue';
 import type { ComponentSummary } from '../../../types/component';
 import type { IssueFieldEntry } from '../../../types/customField';
 import type {
-  AgentWorkView,
   IssueExternalLinkView,
   IssueLinkSummary,
   IssuePriority,
@@ -79,8 +77,6 @@ interface IssuePropertyRailProps {
   onAiClassify?: () => void;
   isAiClassifying?: boolean;
   aiClassifyReason?: string | null;
-  /** 진행 중 AI 작업(WP-377) — rail 에서만 담당자 아래 「AI 진행」 섹션으로 보인다(모바일은 칩 + 시트). */
-  agentWork?: AgentWorkView[];
   /** sheet = 모바일 ＋ 속성 시트(WP-196): 칩과 겹치는 상태·우선순위·담당자·마감을 숨기고, 부모 슬롯은 SUBTASK 만 노출. 기본 rail(데스크톱). */
   variant?: 'rail' | 'sheet';
 }
@@ -120,7 +116,6 @@ export function IssuePropertyRail({
   onAiClassify,
   isAiClassifying,
   aiClassifyReason,
-  agentWork,
   variant = 'rail',
 }: IssuePropertyRailProps) {
   // 상태 선택지 — 프로젝트 상태 목록(WP-808). 시트(variant=sheet)는 상태 칩이 맡지만 같은 캐시라 추가 요청은 없다.
@@ -230,8 +225,6 @@ export function IssuePropertyRail({
           {/* 수정 버전·영향 버전(WP-888) — 구성요소 바로 아래 두 줄. 보관 안 된 버전이 없는 프로젝트면 줄이 스스로 숨는다. 붙이기는 구성요소와 같은 워크플로 권한. */}
           <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="fix" current={fixVersions} disabled={!canEditWorkflow} />
           <IssueVersionsField projectKey={projectKey} issueNumber={issueNumber} kind="affects" current={affectsVersions} disabled={!canEditWorkflow} />
-          {/* AI 진행(WP-377) — 담당자 바로 아래. 진행 중 작업이 없으면 섹션이 스스로 숨는다. */}
-          <AgentWorkRailSection list={agentWork} />
           {/* 보고자(WP-272) — 바꿀 수 있으면 고르기 트리거(WP-944). 구버전 서버 응답(reporter 없음)이면 필드가 스스로 숨는다. */}
           <IssueReporterField reporter={reporter} createdAt={createdAt} layout="rail" edit={reporterEdit} />
           {/* AI 분류 제안 — 섹션 가장 아래(목업 배치). 구분선 후 full-width. */}

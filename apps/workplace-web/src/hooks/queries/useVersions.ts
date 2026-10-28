@@ -23,7 +23,9 @@ import type {
   ReleaseVersionRequest,
   ReplaceIssueVersionsRequest,
   UpdateVersionRequest,
+  VersionResponse,
 } from '../../types/version';
+import { patchIssueDetailSummary, summariesFor } from './issueDetailCache';
 import { refreshStatusesOnUnknown } from './useProjectStatuses';
 
 /** 버전 쿼리 키. */
@@ -141,10 +143,24 @@ export function useUpdateIssueVersions(projectKey: string, number: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: ReplaceIssueVersionsRequest) => replaceIssueVersions(projectKey, number, body),
+    // 같은 이슈의 버전 교체는 하나씩 — 저장 중에도 트리거를 잠그지 않으므로, 연달아 고르면 앞 요청이 늦게 끝나 마지막 선택을 덮거나
+    // 앞 요청의 실패 복원·재조회가 뒤 요청의 낙관적 패치를 지우지 않게 줄 세운다(뒤 요청은 앞 요청이 끝난 뒤 패치·전송).
+    scope: { id: `issue-versions-${projectKey}-${number}` },
+    // 상세 캐시를 먼저 고친다(WP-1079) — 칩·고르기가 바로 새 값을 보고, 저장 중 트리거를 잠그지 않아도 된다. 보낸 종류만 바꾼다.
+    onMutate: (body) => {
+      const all = qc.getQueryData<VersionResponse[]>(versionKeys.all(projectKey))?.map(({ id, name, status }) => ({ id, name, status }));
+      return patchIssueDetailSummary(qc, projectKey, number, (s) => ({
+        ...(body.fixVersionIds && { fixVersions: summariesFor(body.fixVersionIds, all, s.fixVersions) }),
+        ...(body.affectsVersionIds && { affectsVersions: summariesFor(body.affectsVersionIds, all, s.affectsVersions) }),
+      }));
+    },
     onSuccess: () => {
-      invalidateAll(qc, projectKey);
       toast.success('버전을 저장했어요');
     },
-    onError: (e) => handleApiError(e, '버전 저장에 실패했습니다'),
+    onError: (e, _body, ctx) => {
+      ctx?.restore();
+      handleApiError(e, '버전 저장에 실패했습니다');
+    },
+    onSettled: () => invalidateAll(qc, projectKey),
   });
 }

@@ -1,5 +1,5 @@
 // IssueComponentsField(WP-933) 모드 분기 — 사용 중 구성요소가 없으면 칸이 없고, 보관된 값만 붙은 이슈는 읽기 전용(피커 없음),
-// 사용 중인 것이 있으면 칩 + 피커(권한 없으면 비활성). 실제 저장 배선은 E2E 가 맡는다.
+// 사용 중인 것이 있으면 값이 없을 때 줄 전체 「＋ 추가」·값이 있으면 칩 뒤 「＋」(권한 없으면 값만, WP-1079). 실제 저장 배선은 E2E 가 맡는다.
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -39,10 +39,19 @@ describe('IssueComponentsField', () => {
     expect(screen.queryByTestId('component-picker-trigger')).not.toBeInTheDocument()
   })
 
-  it('사용 중 구성요소가 있으면 피커가 있고, 권한이 없으면 비활성', () => {
+  it('사용 중 구성요소가 있으면 값이 없을 때 줄 전체가 「＋ 추가」, 값이 있으면 칩 뒤 「＋」(WP-1079)', () => {
+    state.data = [comp(1, 'Compute')]
+    const { unmount } = renderWithProviders(<IssueComponentsField projectKey="WP" issueNumber={1} current={[]} />)
+    expect(screen.getByTestId('component-picker-trigger')).toHaveTextContent('추가')
+    unmount()
+    renderWithProviders(<IssueComponentsField projectKey="WP" issueNumber={1} current={[{ id: 1, name: 'Compute', archived: false }]} />)
+    expect(screen.getByTestId('issue-components')).toContainElement(screen.getByTestId('component-picker-trigger'))
+  })
+
+  it('권한이 없으면 고르기 없이 값만 — 비어 있으면 「없음」', () => {
     state.data = [comp(1, 'Compute')]
     renderWithProviders(<IssueComponentsField projectKey="WP" issueNumber={1} current={[]} disabled />)
     expect(screen.getByTestId('issue-components')).toHaveTextContent('없음')
-    expect(screen.getByTestId('component-picker-trigger')).toBeDisabled()
+    expect(screen.queryByTestId('component-picker-trigger')).not.toBeInTheDocument()
   })
 })

@@ -12,7 +12,8 @@ import {
   updateComponent,
 } from '../../api/components';
 import { handleApiError } from '../../lib/api-error';
-import type { CreateComponentRequest, UpdateComponentRequest } from '../../types/component';
+import type { ComponentResponse, CreateComponentRequest, UpdateComponentRequest } from '../../types/component';
+import { patchIssueDetailSummary, summariesFor } from './issueDetailCache';
 
 /** 구성요소 목록 쿼리 키. */
 export const componentKeys = {
@@ -77,11 +78,23 @@ export function useUpdateIssueComponents(projectKey: string, number: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (componentIds: number[]) => replaceIssueComponents(projectKey, number, componentIds),
+    // 같은 이슈의 구성요소 교체는 하나씩 — 버전 교체(useUpdateIssueVersions)와 같은 이유로 줄 세운다.
+    scope: { id: `issue-components-${projectKey}-${number}` },
+    // 상세 캐시를 먼저 고친다(WP-1079) — 칩·고르기가 바로 새 값을 보고, 저장 중 트리거를 잠그지 않아도 된다.
+    onMutate: (componentIds) => {
+      const all = qc.getQueryData<ComponentResponse[]>(componentKeys.all(projectKey))?.map(({ id, name, archived }) => ({ id, name, archived }));
+      return patchIssueDetailSummary(qc, projectKey, number, (s) => ({ components: summariesFor(componentIds, all, s.components) }));
+    },
     onSuccess: () => {
-      invalidateIssueViews(qc, projectKey);
-      qc.invalidateQueries({ queryKey: componentKeys.all(projectKey) });
       toast.success('구성요소를 저장했어요');
     },
-    onError: (e) => handleApiError(e, '구성요소 저장에 실패했습니다'),
+    onError: (e, _ids, ctx) => {
+      ctx?.restore();
+      handleApiError(e, '구성요소 저장에 실패했습니다');
+    },
+    onSettled: () => {
+      invalidateIssueViews(qc, projectKey);
+      qc.invalidateQueries({ queryKey: componentKeys.all(projectKey) });
+    },
   });
 }

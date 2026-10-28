@@ -1,5 +1,5 @@
 // IssueVersionsField(WP-888) — 보관 안 된 버전이 없으면 줄이 없고, 보관된 값만 붙은 이슈는 읽기 전용(피커 없음),
-// 있으면 칩 + 피커(권한 없으면 비활성). 칩은 버전 상세 링크. 실제 저장 배선은 E2E 가 맡는다.
+// 있으면 값이 없을 때 줄 전체 「＋ 추가」·값이 있으면 칩 뒤 「＋」(권한 없으면 고르기 없이 값만, WP-1079). 칩은 버전 상세 링크. 실제 저장 배선은 E2E 가 맡는다.
 import { screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -41,11 +41,26 @@ describe('IssueVersionsField', () => {
     expect(screen.queryByTestId('affects-version-picker-trigger')).not.toBeInTheDocument()
   })
 
-  it('보관 안 된 버전이 있으면 피커가 있고, 권한이 없으면 비활성', () => {
+  it('보관 안 된 버전이 있으면 값이 없을 때 줄 전체가 「＋ 추가」, 값이 있으면 칩 뒤 「＋」', () => {
+    state.data = [ver(1, '1.0'), ver(2, '1.1')]
+    const { unmount } = renderWithProviders(<IssueVersionsField projectKey="WP" issueNumber={1} kind="fix" current={[]} />)
+    expect(screen.getByTestId('fix-version-picker-trigger')).toHaveTextContent('추가')
+    expect(screen.getByTestId('issue-fix-versions')).not.toHaveTextContent('없음')
+    unmount()
+    renderWithProviders(
+      <IssueVersionsField projectKey="WP" issueNumber={1} kind="fix" current={[{ id: 1, name: '1.0', status: 'UNRELEASED' }]} />,
+    )
+    const values = screen.getByTestId('issue-fix-versions')
+    expect(values).toHaveTextContent('1.0')
+    expect(values).toContainElement(screen.getByTestId('fix-version-picker-trigger'))
+    expect(screen.getByTestId('fix-version-picker-trigger')).not.toHaveTextContent('추가')
+  })
+
+  it('권한이 없으면 고르기 없이 값만 — 비어 있으면 「없음」', () => {
     state.data = [ver(1, '1.0')]
     renderWithProviders(<IssueVersionsField projectKey="WP" issueNumber={1} kind="fix" current={[]} disabled />)
     expect(screen.getByTestId('issue-fix-versions')).toHaveTextContent('없음')
-    expect(screen.getByTestId('fix-version-picker-trigger')).toBeDisabled()
+    expect(screen.queryByTestId('fix-version-picker-trigger')).not.toBeInTheDocument()
   })
 
   it('칩을 누르면 버전 상세로 가는 링크다', () => {

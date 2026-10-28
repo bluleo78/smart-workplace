@@ -27,9 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { cn } from '@/lib/utils';
 
-import { AgentQuestionCard } from '../../components/issue/agentWork/AgentQuestionCard';
-import { AgentWorkMobileChips } from '../../components/issue/agentWork/AgentWorkMobileChips';
-import { AgentWorkRailSection } from '../../components/issue/agentWork/AgentWorkRailSection';
+import { AgentWorkCard } from '../../components/issue/agentWork/AgentWorkCard';
 import { IssueBodyImage } from '../../components/issue/IssueBodyImage';
 import { IssueBodyImageButton } from '../../components/issue/IssueBodyImageButton';
 import { IssueInstantContextCard } from '../../components/issue/IssueInstantContextCard';
@@ -52,7 +50,6 @@ import { useIssueImageUpload } from '../../hooks/useIssueImageUpload';
 import { useReturnOnEscape, useReturnToIssueOrigin } from '../../hooks/useIssueOrigin';
 import { useRestoreFocusOnExit } from '../../hooks/useRestoreFocusOnExit';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { questionWork } from '../../lib/agentWork';
 import { aiClassifyApplyToast } from '../../lib/aiClassifyResult';
 import { buildIssueDetailContext } from '../../lib/aiScreenContext/builders/issue';
 import { isNotFoundError } from '../../lib/api-error';
@@ -430,14 +427,11 @@ export default function IssueDetailPage() {
     lastEditor === 'title' ? (titleControls ?? bodyControls) : (bodyControls ?? titleControls);
   // 모바일 「＋ 속성」 시트 open 상태 — 칩 줄의 「＋ 속성」 버튼이 열고, 아래 MobileSheetShell(issue-more-props-sheet)이 이 값으로 열림/닫힘을 제어한다.
   const [moreOpen, setMoreOpen] = useState(false);
-  // 모바일 「AI 진행」 시트 open 상태(WP-377) — 속성 칩 아래 작업자별 칩이 연다.
-  const [agentSheetOpen, setAgentSheetOpen] = useState(false);
   // 시트 안 링크(의존성·상위 배지)로 다른 이슈로 이동하면 같은 라우트라 페이지 인스턴스가 재사용된다 — 이슈가 바뀌면 시트를 닫는다(렌더 중 상태 조정).
   const [prevIssueKey, setPrevIssueKey] = useState(`${key}/${issueNumber}`);
   if (prevIssueKey !== `${key}/${issueNumber}`) {
     setPrevIssueKey(`${key}/${issueNumber}`);
     setMoreOpen(false);
-    setAgentSheetOpen(false);
   }
   const watcherCount = watchers.data?.length ?? 0;
   const mobileWatchLabel = isWatching ? `구독 중 · ${watcherCount}명` : '구독하기';
@@ -511,11 +505,6 @@ export default function IssueDetailPage() {
   const isSubtask = summary.type?.name === 'SUBTASK';
   // EPIC 여부 — 부모 슬롯 숨김(EPIC 은 부모를 가질 수 없음) 분기에 사용 (EPIC 계층 확장).
   const isEpic = summary.type?.name === 'EPIC';
-  // 질문 카드에 올릴 작업(WP-377) — AI 구성원의 답변 필요 첫 건. 사람의 답변 필요는 레일 배지만.
-  const question = questionWork(summary.agentWork);
-  // 실시간 갱신으로 진행 중 작업이 모두 끝나면 「AI 진행」 시트를 닫는다(렌더 중 상태 조정) — open 만 가리면 상태가 남아
-  // 다음 보고 때 탭 없이 시트가 다시 열린다.
-  if (agentSheetOpen && !summary.agentWork?.length) setAgentSheetOpen(false);
 
   // 서버 플래그 기반 UI 권한 분기 — 클라이언트에서 재파생하지 않는다.
   // 미지정(구 응답 호환)은 false 로 안전하게 처리 — 실제 API 는 항상 명시적으로 내려준다.
@@ -696,7 +685,6 @@ export default function IssueDetailPage() {
               onAiClassify={handleClassify}
               isAiClassifying={classify.isPending}
               aiClassifyReason={classifyReason}
-              agentWork={summary.agentWork}
               variant={variant}
             />
   );
@@ -785,10 +773,9 @@ export default function IssueDetailPage() {
                   </div>
                 )}
               </div>
-              {/* 모바일 AI 진행 칩(WP-377) — 속성 칩 아래 작업자별 칩, 탭하면 「AI 진행」 시트. 데스크톱은 레일이 보여 준다. */}
-              {isMobile && <AgentWorkMobileChips list={summary.agentWork} onOpen={() => setAgentSheetOpen(true)} />}
-              {/* 질문 카드(WP-377) — AI 구성원이 답변을 기다릴 때만. AI 현황 요약 위, 비서 가용성과 무관(질문은 구성원이 보냈다). */}
-              {question && <AgentQuestionCard work={question} onReply={openChat} />}
+              {/* AI 진행(WP-1079) — 제목 아래·AI 현황 요약 위. 진행 중 작업이 없으면 스스로 숨고, 비서 가용성과 무관(작업은 구성원이 보고했다).
+                  답변 필요 배지가 이슈 채팅을 연다(옛 질문 카드 대체). 모바일은 좁은 폭에 맞춰 작업자마다 여러 줄로 쌓는다. */}
+              <AgentWorkCard list={summary.agentWork} onOpenChat={openChat} stacked={isMobile} />
               {/* AI 즉각 컨텍스트 카드 — 비서 있을 때만 렌더(#517). 자체 아우라 박스라 바 없이 분리. */}
               {aiAvailable && (
                 <IssueInstantContextCard
@@ -910,20 +897,6 @@ export default function IssueDetailPage() {
             {/* 보고자(WP-272) — 시트는 상태·담당 그룹을 숨기므로 유형 바로 아래 같은 라벨↔값 행으로 둔다. */}
             <IssueReporterField reporter={data.reporter} createdAt={summary.createdAt} layout="sheet" edit={reporterEdit} />
             {renderRail('sheet')}
-          </div>
-        </MobileSheetShell>
-      )}
-      {/* 모바일 「AI 진행」 시트(WP-377) — 데스크톱 레일 섹션과 같은 내용. 제목이 「AI 진행」이라 섹션 라벨은 숨긴다. */}
-      {isMobile && (
-        <MobileSheetShell
-          open={agentSheetOpen}
-          onClose={() => setAgentSheetOpen(false)}
-          title="AI 진행"
-          description="이 이슈에서 일하는 AI 의 진행 상황입니다."
-          testId="agent-work-sheet"
-        >
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            <AgentWorkRailSection list={summary.agentWork} hideLabel fullNote />
           </div>
         </MobileSheetShell>
       )}

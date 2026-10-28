@@ -2,15 +2,14 @@
 // 값은 밖에서 쥐고(value) 팝오버가 닫힐 때 바뀐 경우에만 onCommit 을 부른다 — 그때 한 번 저장(PUT)한다.
 // 선택지는 보관 안 된 버전(미출시 먼저) + 이 이슈에 이미 붙은 보관 버전(pickerVersionOptions) — 보관된 것을 빼면 교체 요청에서 조용히 떨어진다.
 
-import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
 import { isArchived, pickerVersionOptions } from '../../lib/issueVersions';
 import type { VersionResponse } from '../../types/version';
+import { PickerAddTrigger, type PickerTriggerVariant } from '../issue/PropertyChipRow';
 import { filterLabelsByName } from '../labels/labelSearch';
 import { VersionChip } from './VersionChip';
 
@@ -23,7 +22,7 @@ export function VersionPickerPopover({
   onCommit,
   ariaLabel,
   testIdPrefix,
-  disabled = false,
+  trigger,
 }: {
   /** 프로젝트 버전 전체(보관 포함, 목록 순서). */
   versions: VersionResponse[];
@@ -35,8 +34,8 @@ export function VersionPickerPopover({
   ariaLabel: string;
   /** 테스트 식별자 접두사 — fix/affects 두 줄을 구분한다. */
   testIdPrefix: string;
-  /** 워크플로 편집 권한 없음 — 라벨 피커와 같은 규칙. */
-  disabled?: boolean;
+  /** 트리거 모양(PickerAddTrigger, WP-1079) — row: 값이 없을 때 줄 전체 「＋ 추가」, icon: 칩 뒤 작은 「＋」. */
+  trigger: Exclude<PickerTriggerVariant, 'button'>;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -64,18 +63,10 @@ export function VersionPickerPopover({
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label={`${ariaLabel} 편집`}
-          data-testid={`${testIdPrefix}-picker-trigger`}
-          disabled={disabled}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        {/* 보이는 글자 「추가」와 읽히는 이름을 맞춘다(음성 조작이 「추가」로 찾는다). */}
+        <PickerAddTrigger variant={trigger} aria-label={`${ariaLabel} 추가`} data-testid={`${testIdPrefix}-picker-trigger`} />
       </PopoverTrigger>
-      {/* 트리거가 속성 레일 오른쪽 끝이라 가운데 정렬이면 화면 가장자리에 붙는다 — 오른쪽 끝을 트리거에 맞추고 가장자리 16px 를 띄운다. */}
+      {/* 레일 오른쪽 끝 가까이에서 열려 가운데 정렬이면 화면 가장자리에 붙는다 — 오른쪽 끝을 트리거에 맞추고 가장자리 16px 를 띄운다. */}
       <PopoverContent align="end" collisionPadding={16} className="w-72 p-2" data-testid={`${testIdPrefix}-picker`}>
         <Input
           placeholder={`${ariaLabel} 검색`}

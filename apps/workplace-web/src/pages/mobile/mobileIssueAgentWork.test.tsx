@@ -1,7 +1,6 @@
-// 모바일 이슈 상세 AI 진행(WP-377) — 페이지 테스트(WP-981).
-// 작업자별 칩 문구·순서, 「AI 진행」 시트 내용(상태·질문·진행·마지막 보고·도구), 질문 카드 「채팅에서 답하기」 → ?chat=1 드로워는
-// 브라우저 없이 판정되므로 e2e/pages/mobile/issue-agent-work.spec.ts 에서 옮겼다.
-// 칩·카드 위치·버튼 줄바꿈·최근 보고 잘림 없음(@layout)은 E2E 에 남는다.
+// 모바일 이슈 상세 AI 진행(WP-377·WP-1079) — 페이지 테스트(WP-981).
+// 제목 아래 「AI 진행」 칸의 작업자 순서·상태(진행률 포함)·질문 전문·마지막 보고, 「답변 필요」 배지 → ?chat=1 드로워는
+// 브라우저 없이 판정된다. 칸 위치·질문 잘림 없음(@layout)은 e2e/pages/mobile/issue-agent-work.spec.ts 에 남는다.
 // 앱 셸을 보지 않으므로 이슈 상세 화면만 renderScreen 으로 띄운다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
@@ -16,7 +15,7 @@ import { createIssue, createIssueDetail } from '../../../e2e/factories/issue.fac
 import { createProject } from '../../../e2e/factories/project.factory'
 import IssueDetailPage from '../projects/IssueDetailPage'
 
-// 휴대폰 폭·터치 포인터 — 모바일 상세(칩 줄·시트)로 그려지게 한다.
+// 휴대폰 폭·터치 포인터 — 모바일 상세(칩 줄·여러 줄로 쌓은 AI 진행 칸)로 그려지게 한다.
 mockViewport()
 
 const BASE = '/api/v1/projects/WP/issues/12'
@@ -38,36 +37,29 @@ async function open() {
       http.get(`/api/v1/issues/${summary.id}/comments`, () => HttpResponse.json([])),
     ],
   })
-  await screen.findByTestId('agent-work-chip-9')
+  await screen.findByTestId('agent-work-card')
   return view
 }
 
-// 작업자별 칩 상태 문구와 서버 순서(아키 먼저), 데스크톱 레일 없음, 칩을 누르면 시트가 레일과 같은 내용을 보인다.
-test('작업자별 칩 → AI 진행 시트가 레일과 같은 내용(상태·질문·진행·마지막 보고·도구)을 보인다', async () => {
-  const { user } = await open()
-  const akiChip = screen.getByTestId('agent-work-chip-9')
-  const meChip = screen.getByTestId('agent-work-chip-1')
-  expect(akiChip).toHaveTextContent('답변 필요')
-  expect(meChip).toHaveTextContent('작업 중')
-  expect(akiChip.compareDocumentPosition(meChip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+// 작업자 서버 순서(아키 먼저), 데스크톱 레일 없음, 질문은 잘리지 않고 다 보이며 진행률은 배지에 합친다.
+test('AI 진행 칸이 작업자별 상태·질문·진행·마지막 보고를 보인다', async () => {
+  await open()
+  const card = screen.getByTestId('agent-work-card')
+  const akiRow = within(card).getByTestId('agent-work-9')
+  const meRow = within(card).getByTestId('agent-work-1')
+  expect(akiRow.compareDocumentPosition(meRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(screen.queryByTestId('property-rail')).not.toBeInTheDocument()
-
-  await user.click(meChip)
-  const sheet = await screen.findByTestId('agent-work-sheet')
-  expect(within(sheet).getByRole('heading', { name: 'AI 진행' })).toBeInTheDocument()
-  expect(within(sheet).getByTestId('agent-work-rail-9-state')).toHaveTextContent('답변 필요')
-  expect(within(sheet).getByTestId('agent-work-rail-9')).toHaveTextContent(QUESTION)
-  expect(within(sheet).getByTestId('agent-work-rail-1-progress')).toHaveTextContent('3/5')
-  expect(within(sheet).getByTestId('agent-work-rail-1-last')).toHaveTextContent('5분 전')
-  expect(within(sheet).getByTestId('agent-work-rail-1')).toHaveTextContent('Claude Code')
+  expect(within(akiRow).getByTestId('agent-work-9-state')).toHaveTextContent('답변 필요')
+  expect(akiRow).toHaveTextContent(QUESTION)
+  expect(within(akiRow).getByText(QUESTION)).not.toHaveClass('line-clamp-2')
+  expect(within(meRow).getByTestId('agent-work-1-state')).toHaveTextContent('작업 중 3/5')
+  expect(within(meRow).getByTestId('agent-work-1-last')).toHaveTextContent('5분 전')
 })
 
-// 질문 카드 머리말과 「채팅에서 답하기」 — 누르면 ?chat=1 로 이슈 챗 드로워가 열린다.
-test('질문 카드 머리말, 답하기를 누르면 ?chat=1 로 이슈 챗 드로워가 열린다', async () => {
+// 「답변 필요」 배지를 누르면 ?chat=1 로 이슈 챗 드로워가 열린다(옛 질문 카드 「채팅에서 답하기」 대체).
+test('답변 필요 배지를 누르면 ?chat=1 로 이슈 챗 드로워가 열린다', async () => {
   const { user, location } = await open()
-  const card = screen.getByTestId('agent-question-card')
-  expect(card).toHaveTextContent('아키의 질문 · 답변 필요')
-  await user.click(within(card).getByTestId('agent-question-reply'))
+  await user.click(screen.getByTestId('agent-work-9-state'))
   await waitFor(() => expect(location()).toMatch(/[?&]chat=1/))
   expect(await screen.findByTestId('issue-chat-drawer')).toBeInTheDocument()
 })

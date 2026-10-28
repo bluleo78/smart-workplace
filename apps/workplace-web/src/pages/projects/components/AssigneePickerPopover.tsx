@@ -7,7 +7,9 @@ import { useMemo, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover';
 import { Input } from '@/components/ui/input';
 import { labelWithValue } from '@/lib/labelWithValue';
+import { cn } from '@/lib/utils';
 
+import { INLINE_FIELD_CLASS, INLINE_FIELD_RAIL_CLASS } from '../../../components/issue/inlineField';
 import { AgentBadge } from '../../../components/users/AgentBadge';
 import { UserAvatar } from '../../../components/users/UserAvatar';
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
@@ -76,7 +78,7 @@ export function AssigneePickerPopover({
           aria-label={labelWithValue('담당자 편집', current.length === 0 ? '미지정' : current.map((u) => u.name).join(', '))}
           data-testid="assignee-picker-trigger"
           disabled={disabled}
-          className="flex w-full items-center rounded-md border border-transparent px-3 py-2 text-left text-sm transition-colors hover:border-input hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+          className={cn(INLINE_FIELD_RAIL_CLASS, INLINE_FIELD_CLASS)}
         >
           <span className="flex flex-1 flex-wrap items-center gap-2" data-testid="issue-assignees">
             {current.length === 0 ? (

@@ -12,19 +12,25 @@ import type { AgentWorkState, AgentWorkView } from '@/types/issue'
 export function AgentStateBadge({
   state,
   to,
+  onClick,
+  hint,
   suffix,
   'data-testid': testId,
 }: {
   state: AgentWorkState | 'NOT_STARTED'
   /** 주면 칩이 그 경로로 가는 링크가 된다 — 어느 상태에 줄지는 호출부가 정한다(예: 「답변 필요」만 이슈 챗 딥링크). */
   to?: string
+  /** 주면 칩이 버튼이 된다 — 같은 화면 안에서 여는 동작(이슈 상세 AI 진행 칸의 「답변 필요」 → 채팅 드로워, WP-1079). AI 신호 톤(action·info)만. */
+  onClick?: () => void
+  /** 누르면 무엇을 하는지 — 마우스 올리면 보이는 안내(title). to·onClick 과 함께 준다. */
+  hint?: string
   /** 상태 라벨 뒤에 붙일 짧은 글자 — 좁은 표에서 진행률 칸을 숨길 때 「작업 중 64%」처럼 진행률을 배지에 합친다(WP-917). */
   suffix?: string
   'data-testid'?: string
 }) {
   const label = suffix ? `${AGENT_STATE_LABEL[state]} ${suffix}` : AGENT_STATE_LABEL[state]
   const tone = agentStateTone(state)
-  if (tone === 'action' || tone === 'info') return <AiSignalBadge variant={tone} to={to} data-testid={testId}>{label}</AiSignalBadge>
+  if (tone === 'action' || tone === 'info') return <AiSignalBadge variant={tone} to={to} onClick={onClick} reason={hint} data-testid={testId}>{label}</AiSignalBadge>
   if (tone === 'muted') return <Badge variant="outline" className="text-muted-foreground" data-testid={testId}>{label}</Badge>
   // 실패 — Badge 에 옅은 위험 variant 가 없어 success·warning 과 같은 결(/10 바탕·/20 테두리)의 tint 를 디자인 토큰으로 입힌다(진한 destructive 채움은 과하다).
   if (tone === 'destructive')
