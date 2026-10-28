@@ -90,6 +90,17 @@ describe('IssueCommentList — 코멘트 마크다운 렌더 (WP-1015)', () => {
     expect(p?.textContent).toBe('첫 줄\n둘째 줄')
   })
 
+  it('코드(`…`·펜스) 안의 멘션 토큰은 칩이나 마크다운 링크 원문이 아니라 쓴 글자 그대로 보인다 — 채팅과 같은 규칙(WP-1093)', () => {
+    renderList([createComment({ id: 1, authorId: 2, body: '표시 <@1> / 코드 `<@1>`\n\n```\n담당 <@99>\n```' })])
+
+    const md = screen.getByTestId('markdown-content')
+    // 코드 밖 멘션은 칩 하나뿐 — 코드 안 토큰은 칩이 되지 않는다.
+    expect(screen.getAllByTestId('comment-mention-chip-1')).toHaveLength(1)
+    expect(screen.queryByTestId('comment-mention-chip-99')).toBeNull()
+    expect(md.querySelector('p code')?.textContent).toBe('<@1>')
+    expect(md.querySelector('pre code')?.textContent).toBe('담당 <@99>\n')
+  })
+
   it('멤버 목록에 없는 멘션은 「알 수 없음」 칩으로 그린다', () => {
     renderList([createComment({ id: 1, authorId: 2, body: '<@555> 확인' })])
     expect(screen.getByTestId('comment-mention-chip-555')).toHaveTextContent('@알 수 없음')

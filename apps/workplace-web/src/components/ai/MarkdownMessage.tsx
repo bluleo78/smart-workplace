@@ -188,22 +188,19 @@ export function MarkdownMessage({
   renderImage,
   internalLinks,
   onPageLink,
-  renderLink,
   mentions,
   renderMention,
 }: {
   children: string
   className?: string
   renderImage?: (props: { src?: string; alt?: string }) => ReactNode
-  /** WP-1009: 채팅의 AI 글 — 멘션 토큰 <@id> 를 사람 글과 같은 칩으로 그린다(이름·종류는 mentions). 없으면 토큰을 다루지 않는다. */
+  /** WP-1009: 채팅의 AI 글·이슈 코멘트(WP-1093) — 멘션 토큰 <@id> 를 사람 글과 같은 칩으로 그린다(이름·종류는 mentions). 없으면 토큰을 다루지 않는다. */
   mentions?: MentionUser[]
   renderMention?: RenderMention
   /** WP-384: AI 답 — 같은 출처 상대 경로를 같은 탭 라우터 링크로(AIChatPanel 이 켠다). 다른 호출자는 이전처럼 모두 새 탭. */
   internalLinks?: boolean
   /** WP-384: 답 안 다른 화면 링크로 이동하기 직전 — 전체 화면 AI 를 내린다(AIChatPanel). */
   onPageLink?: () => void
-  /** WP-1015: 호출자가 특정 링크를 다른 요소로 그린다(이슈 코멘트의 멘션 칩) — undefined 를 돌려주면 기본 링크로 그린다. */
-  renderLink?: (href: string | undefined, children: ReactNode) => ReactNode | undefined
 }) {
   const mentionById = useMemo(() => new Map((mentions ?? []).map((m) => [m.id, m])), [mentions])
   const components = useMemo<Components>(() => {
@@ -221,10 +218,8 @@ export function MarkdownMessage({
     const withLinks: Components = internalLinks
       ? { ...withMentions, a: ({ href, children: c }) => <AiLink href={href} onPageLink={onPageLink}>{c}</AiLink> }
       : withMentions
-    if (!renderLink) return withLinks
-    const baseLink = withLinks.a as (props: { href?: string; children?: ReactNode }) => ReactNode
-    return { ...withLinks, a: ({ href, children: c }) => renderLink(href, c) ?? baseLink({ href, children: c }) }
-  }, [renderImage, internalLinks, onPageLink, renderLink, mentionById, renderMention])
+    return withLinks
+  }, [renderImage, internalLinks, onPageLink, mentionById, renderMention])
   return (
     <div
       data-testid="markdown-content"
