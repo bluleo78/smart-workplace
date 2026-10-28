@@ -181,6 +181,8 @@ class MailCalendarInviteGraphTest extends ExternalClientMockedTestBase {
     assertThat(inv.eventId()).isEqualTo(eventId);
     assertThat(inv.myResponse()).isEqualTo("NEEDS_ACTION");
     assertThat(inv.canRespond()).isTrue();
+    // 원문 MIME 의 From(lead@corp.com)이 ORGANIZER 와 같다 — Graph 경로도 IMAP 과 같이 주최자 발송을 판정한다
+    assertThat(inv.fromOrganizer()).isTrue();
   }
 
   /** 일반 Graph 메일은 원문을 받지 않고 카드도 없다. */

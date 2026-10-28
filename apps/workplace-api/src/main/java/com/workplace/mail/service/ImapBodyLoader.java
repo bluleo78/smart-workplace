@@ -109,8 +109,8 @@ public class ImapBodyLoader implements MailBodyLoader {
       messageRepo.markHasAttachment(target.messageId(), body.hasAttachment());
       // ordinal = MIME 순서(0-based). 분리됐으면 새 content 기준(target.contentId() 는 낡은 값).
       attachmentRepo.insertAll(target.messageId(), contentId, attachments);
-      // WP-986: 일정 초대·취소(text/calendar·.ics) 기록 — 취소면 넣어 둔 같은 UID 일정을 취소 표시
-      inviteRecorder.record(userId, target.messageId(), body.calendarIcs());
+      // WP-986: 일정 초대·취소(text/calendar·.ics) 기록 — 주최자가 보낸 취소면 넣어 둔 같은 UID 일정을 취소 표시
+      inviteRecorder.record(userId, target.messageId(), body.calendarIcs(), body.senderEmails());
       // V97: per-envelope 마커 — 이 envelope 의 첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
       return true;

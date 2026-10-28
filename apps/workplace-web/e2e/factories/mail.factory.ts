@@ -94,6 +94,8 @@ export function calendarInvite(overrides?: Partial<CalendarInvite>): CalendarInv
     eventId: null,
     outdated: false,
     canRespond: true,
+    fromOrganizer: true,
+    unverifiedNewer: false,
     ...overrides,
   }
 }

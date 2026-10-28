@@ -45,6 +45,7 @@ public class EmailCalendarInviteRepository {
    * @param providerMessageId Graph 메시지 id(IMAP 은 null)
    * @param internetMessageId 메일의 Message-ID(꺾쇠 없음, 없으면 null) — 응답 메일의 In-Reply-To
    * @param myResponse 이 메일에서 마지막으로 보낸 내 응답(없으면 null)
+   * @param fromOrganizer 이 메일을 주최자가 보냈는가(ORGANIZER 주소 = From·Sender 주소)
    */
   public record InviteRow(
       long messageId,
@@ -54,10 +55,15 @@ public class EmailCalendarInviteRepository {
       String providerMessageId,
       String internetMessageId,
       InviteValues values,
-      String myResponse) {}
+      String myResponse,
+      boolean fromOrganizer) {}
 
-  /** 초대를 기록한다 — 같은 메일을 다시 적재하면 값만 덮어쓰고 내 응답은 둔다. */
-  public void upsert(long messageId, InviteValues v) {
+  /**
+   * 초대를 기록한다 — 같은 메일을 다시 적재하면 값만 덮어쓰고 내 응답은 둔다.
+   *
+   * @param fromOrganizer 이 메일을 주최자가 보냈는가 — 낡음·취소 판정에 이 메일을 셀지 정한다
+   */
+  public void upsert(long messageId, InviteValues v, boolean fromOrganizer) {
     String[] attendees = v.attendeeEmails().toArray(String[]::new);
     dsl.insertInto(EMAIL_CALENDAR_INVITE)
         .set(EMAIL_CALENDAR_INVITE.MESSAGE_ID, messageId)
@@ -72,6 +78,7 @@ public class EmailCalendarInviteRepository {
         .set(EMAIL_CALENDAR_INVITE.ORGANIZER_EMAIL, v.organizerEmail())
         .set(EMAIL_CALENDAR_INVITE.ORGANIZER_NAME, v.organizerName())
         .set(EMAIL_CALENDAR_INVITE.ATTENDEE_EMAILS, attendees)
+        .set(EMAIL_CALENDAR_INVITE.FROM_ORGANIZER, fromOrganizer)
         .onConflict(EMAIL_CALENDAR_INVITE.MESSAGE_ID)
         .doUpdate()
         .set(EMAIL_CALENDAR_INVITE.METHOD, v.method())
@@ -85,6 +92,7 @@ public class EmailCalendarInviteRepository {
         .set(EMAIL_CALENDAR_INVITE.ORGANIZER_EMAIL, v.organizerEmail())
         .set(EMAIL_CALENDAR_INVITE.ORGANIZER_NAME, v.organizerName())
         .set(EMAIL_CALENDAR_INVITE.ATTENDEE_EMAILS, attendees)
+        .set(EMAIL_CALENDAR_INVITE.FROM_ORGANIZER, fromOrganizer)
         .execute();
   }
 
@@ -127,13 +135,15 @@ public class EmailCalendarInviteRepository {
                       r.get(EMAIL_CALENDAR_INVITE.ORGANIZER_EMAIL),
                       r.get(EMAIL_CALENDAR_INVITE.ORGANIZER_NAME),
                       attendees == null ? List.of() : List.of(attendees)),
-                  r.get(EMAIL_CALENDAR_INVITE.MY_RESPONSE));
+                  r.get(EMAIL_CALENDAR_INVITE.MY_RESPONSE),
+                  Boolean.TRUE.equals(r.get(EMAIL_CALENDAR_INVITE.FROM_ORGANIZER)));
             });
   }
 
   /**
    * 내 메일들 가운데 같은 UID·같은 주최자 초대의 가장 큰 SEQUENCE(없으면 빈 값) — 옛 초대 판정. 끊긴 계정의 메일도 센다(이미 알게 된 사실). 주최자가
-   * 다른 메일은 세지 않는다 — 남이 같은 UID 에 큰 SEQUENCE 를 실어 보낸 위조 초대가 진짜 초대를 낡게 만들지 못하게.
+   * 다른 메일은 세지 않는다 — 남이 같은 UID 에 큰 SEQUENCE 를 실어 보낸 위조 초대가 진짜 초대를 낡게 만들지 못하게. 주최자 주소를 적었어도 주최자가 보내지
+   * 않은 메일(from_organizer=false — 다른 참석자의 위조일 수 있다)도 세지 않는다.
    *
    * @param organizerEmail 이 초대의 주최자(없으면 주최자 없는 초대끼리만 센다)
    */
@@ -148,12 +158,13 @@ public class EmailCalendarInviteRepository {
             .where(EMAIL_CALENDAR_INVITE.UID.eq(uid))
             .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
             .and(sameOrganizer(organizerEmail))
+            .and(EMAIL_CALENDAR_INVITE.FROM_ORGANIZER.isTrue())
             .fetchOne(0, Integer.class));
   }
 
   /**
    * 같은 UID·같은 주최자의 취소 메일(METHOD:CANCEL)이 이 SEQUENCE 이상으로 있는가 — 있으면 그 초대는 취소된 것이라 응답할 수 없다(같은
-   * SEQUENCE 의 취소도 초대보다 우선, RFC 5546 3.2.5).
+   * SEQUENCE 의 취소도 초대보다 우선, RFC 5546 3.2.5). 주최자가 보낸 취소 메일만 센다(위조 취소가 진짜 초대를 막지 못하게).
    */
   public boolean hasCancelAtOrAfter(long userId, String uid, String organizerEmail, int sequence) {
     return dsl.fetchExists(
@@ -167,7 +178,35 @@ public class EmailCalendarInviteRepository {
             .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
             .and(EMAIL_CALENDAR_INVITE.METHOD.eq("CANCEL"))
             .and(EMAIL_CALENDAR_INVITE.SEQUENCE.ge(sequence))
-            .and(sameOrganizer(organizerEmail)));
+            .and(sameOrganizer(organizerEmail))
+            .and(EMAIL_CALENDAR_INVITE.FROM_ORGANIZER.isTrue()));
+  }
+
+  /**
+   * 주최자가 보내지 않은 같은 UID·같은 주최자의 더 새 메일이 있는가 — 더 큰 SEQUENCE 의 초대·취소, 또는 이 SEQUENCE 이상의 취소. 낡음 판정에는 세지
+   * 않지만(위조일 수 있다) 카드가 「주최자에게 확인해 주세요」를 보이게 한다 — 대리 발송 등 진짜 변경일 수도 있어서.
+   */
+  public boolean hasUnverifiedNewer(long userId, String uid, String organizerEmail, int sequence) {
+    return dsl.fetchExists(
+        DSL.selectOne()
+            .from(EMAIL_CALENDAR_INVITE)
+            .join(EMAIL_MESSAGE)
+            .on(EMAIL_MESSAGE.ID.eq(EMAIL_CALENDAR_INVITE.MESSAGE_ID))
+            .join(EMAIL_ACCOUNT)
+            .on(EMAIL_ACCOUNT.ID.eq(EMAIL_MESSAGE.ACCOUNT_ID))
+            .where(EMAIL_CALENDAR_INVITE.UID.eq(uid))
+            .and(EMAIL_ACCOUNT.USER_ID.eq(userId))
+            .and(sameOrganizer(organizerEmail))
+            .and(EMAIL_CALENDAR_INVITE.FROM_ORGANIZER.isFalse())
+            .and(
+                EMAIL_CALENDAR_INVITE
+                    .SEQUENCE
+                    .gt(sequence)
+                    .or(
+                        EMAIL_CALENDAR_INVITE
+                            .METHOD
+                            .eq("CANCEL")
+                            .and(EMAIL_CALENDAR_INVITE.SEQUENCE.ge(sequence)))));
   }
 
   /** 주최자 같음 조건(대소문자 무시). 주최자가 없으면 주최자 없는 초대끼리만. */

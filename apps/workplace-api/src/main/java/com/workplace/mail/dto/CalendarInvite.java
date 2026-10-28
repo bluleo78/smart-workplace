@@ -17,6 +17,10 @@ import java.time.OffsetDateTime;
  * @param eventId 내 캘린더의 같은 UID 일정(「캘린더에서 보기」), 없으면 null
  * @param outdated 같은 UID 의 더 최신 SEQUENCE(다른 메일·넣어 둔 일정)를 알고 있다
  * @param canRespond REQUEST·최신·주최자 이메일 있음·응답 수단 있음(IMAP 은 내가 참석자 목록에 있어야 한다)
+ * @param fromOrganizer 이 메일을 주최자가 보냈다(iCalendar ORGANIZER = 메일 From·Sender). false 인 취소 메일은 내 일정을
+ *     건드리지 않았다
+ * @param unverifiedNewer REQUEST 카드에서 — 주최자가 보내지 않은 같은 UID 의 더 새 초대·취소 메일이 있다. 낡음 판정에는 세지 않아 응답은
+ *     그대로 되지만, 카드가 주최자에게 확인하라고 알린다
  */
 public record CalendarInvite(
     String method,
@@ -32,7 +36,9 @@ public record CalendarInvite(
     String myResponse,
     Long eventId,
     boolean outdated,
-    boolean canRespond) {
+    boolean canRespond,
+    boolean fromOrganizer,
+    boolean unverifiedNewer) {
 
   /** 주최자. */
   public record Organizer(String name, String email) {}

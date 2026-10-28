@@ -121,6 +121,11 @@ public class EmailCalendarInvite extends TableImpl<EmailCalendarInviteRecord> {
     public final TableField<EmailCalendarInviteRecord, String> ORGANIZER_NAME = createField(DSL.name("organizer_name"), SQLDataType.VARCHAR(255), this, "");
 
     /**
+     * The column <code>public.email_calendar_invite.from_organizer</code>.
+     */
+    public final TableField<EmailCalendarInviteRecord, Boolean> FROM_ORGANIZER = createField(DSL.name("from_organizer"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("false"), SQLDataType.BOOLEAN)), this, "");
+
+    /**
      * The column <code>public.email_calendar_invite.attendee_emails</code>.
      */
     public final TableField<EmailCalendarInviteRecord, String[]> ATTENDEE_EMAILS = createField(DSL.name("attendee_emails"), SQLDataType.CLOB.array().nullable(false).defaultValue(DSL.field(DSL.raw("'{}'::text[]"), SQLDataType.CLOB.array())), this, "");

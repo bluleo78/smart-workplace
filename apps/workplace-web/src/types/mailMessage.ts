@@ -95,6 +95,10 @@ export interface CalendarInvite {
   outdated: boolean;
   /** 이 메일에서 응답할 수 있는가(REQUEST && !outdated && 응답 수단 있음). */
   canRespond: boolean;
+  /** 이 메일을 주최자가 보냈다(iCalendar ORGANIZER = 메일 From·Sender). false 인 취소 메일은 내 캘린더를 건드리지 않았다. */
+  fromOrganizer: boolean;
+  /** REQUEST — 주최자가 보내지 않은 같은 일정의 더 새 초대·취소 메일이 있다(낡음 판정에는 안 세서 응답은 그대로 된다). */
+  unverifiedNewer: boolean;
 }
 
 /** WP-986 초대 응답 요청 — POST /mail/messages/{id}/invite-response 본문. */

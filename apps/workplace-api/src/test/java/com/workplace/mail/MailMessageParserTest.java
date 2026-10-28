@@ -208,4 +208,18 @@ class MailMessageParserTest {
     assertThat(b.attachments()).hasSize(1);
     assertThat(parser.parseBody(mime(raw())).calendarIcs()).isNull();
   }
+
+  /** WP-986: 초대 메일이면 From·Sender 주소를 소문자로 함께 돌려준다(주최자가 보낸 메일인지 판정 재료). 초대가 아닌 메일은 읽지 않는다(빈 목록). */
+  @Test
+  void parseBody_collectsFromAndSender_forCalendarMail() throws Exception {
+    String raw =
+        "From: \"비서\" <Assistant@X.com>\r\nSender: Boss@X.com\r\nTo: b@y.com\r\nSubject: invite\r\n"
+            + "MIME-Version: 1.0\r\n"
+            + "Content-Type: text/calendar; charset=UTF-8; method=CANCEL\r\n\r\n"
+            + "BEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\nEND:VCALENDAR\r\n";
+    ParsedBody b = parser.parseBody(mime(raw));
+    assertThat(b.calendarIcs()).contains("METHOD:CANCEL");
+    assertThat(b.senderEmails()).containsExactly("assistant@x.com", "boss@x.com");
+    assertThat(parser.parseBody(mime(raw())).senderEmails()).isEmpty();
+  }
 }

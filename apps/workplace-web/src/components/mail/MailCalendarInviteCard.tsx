@@ -1,6 +1,7 @@
 // 메일 상세의 일정 초대 카드(WP-986) — 초대(.ics) 메일을 열면 헤더와 본문 사이에 보인다.
 // 초대(REQUEST)는 제목·일시·장소·주최자·참석자 수와 수락/미정/거절 버튼(일정 상세와 같은 RsvpButtons)을,
 // 취소(CANCEL)는 줄 그은 일시와 취소 안내만 보인다. 이후 변경된 옛 초대 메일이면 버튼 대신 「최신 메일에서 응답」 안내.
+// 주최자가 보내지 않은 메일(ORGANIZER 만 주최자로 적힌 위조일 수 있음)은 서버가 판정에서 빼므로, 카드는 「확인해 주세요」 안내만 붙인다.
 // 응답하면 서버가 주최자에게 응답을 보내고 내 캘린더를 맞추며, 카드는 돌려받은 초대 정보로 바로 바뀐다.
 import { CalendarDays, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -27,6 +28,8 @@ export function MailCalendarInviteCard({ messageId, invite, className }: MailCal
   const organizer = inviteOrganizerText(invite.organizer)
   // 결과 문구는 응답할 수 있는 카드에서만 — 취소·옛 초대에는 지난 응답을 다시 알리지 않는다.
   const result = mode === 'respond' ? inviteResultText(invite.myResponse) : null
+  // 주최자가 아닌 주소에서 온 더 새 변경 메일 — 응답은 막지 않고 확인만 권한다(옛 초대면 이미 「이후 변경」 안내가 있다).
+  const unverifiedNewer = !cancelled && !invite.outdated && invite.unverifiedNewer
 
   return (
     <section
@@ -79,9 +82,26 @@ export function MailCalendarInviteCard({ messageId, invite, className }: MailCal
         )}
       </div>
 
-      {cancelled && (
+      {/* 취소 안내 — 주최자가 보낸 취소만 「주최자가 취소」라고 말한다. 아니면 내 캘린더도 그대로라 직접 확인을 권한다. */}
+      {cancelled && invite.fromOrganizer && (
         <p data-testid="mail-invite-cancelled" className="mt-2 text-xs text-muted-foreground">
           주최자가 일정을 취소했습니다.
+        </p>
+      )}
+      {cancelled && !invite.fromOrganizer && (
+        <p data-testid="mail-invite-cancel-unverified" className="mt-2 text-xs text-muted-foreground">
+          주최자가 아닌 주소에서 온 취소 메일입니다 — 캘린더에서 직접 확인해 주세요
+        </p>
+      )}
+      {/* 주최자가 아닌 주소에서 온 초대 — 위조일 수 있다. 응답하면 내 일정이 이 메일 값(SEQUENCE 포함)으로 맞춰지므로 응답 전에 확인을 권한다. */}
+      {mode === 'respond' && !invite.fromOrganizer && (
+        <p data-testid="mail-invite-request-unverified" className="mt-2 text-xs text-muted-foreground">
+          주최자가 아닌 주소에서 온 초대입니다 — 응답하기 전에 주최자에게 확인해 주세요
+        </p>
+      )}
+      {unverifiedNewer && (
+        <p data-testid="mail-invite-unverified" className="mt-2 text-xs text-muted-foreground">
+          다른 주소에서 이 일정의 변경 메일이 왔습니다 — 주최자에게 확인해 주세요
         </p>
       )}
       {mode === 'outdated' && (

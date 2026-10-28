@@ -32,6 +32,7 @@ import com.workplace.support.TestFixtures;
 import jakarta.mail.Message;
 import jakarta.mail.Multipart;
 import jakarta.mail.Part;
+import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
@@ -116,8 +117,32 @@ class MailCalendarInviteImapTest extends ExternalClientMockedTestBase {
   private long deliverInvite(
       long user, long accountId, String subject, String calendar, String transferEncoding)
       throws Exception {
+    return deliverInvite(user, accountId, subject, calendar, transferEncoding, "boss@x.com", null);
+  }
+
+  /** 보낸 주소를 바꾼 초대 메일(From·Sender) — 주최자가 아닌 참석자가 보낸 위조 메일·대리 발송 흉내. */
+  private long deliverInviteFrom(
+      long user, long accountId, String subject, String calendar, String from, String sender)
+      throws Exception {
+    return deliverInvite(user, accountId, subject, calendar, null, from, sender);
+  }
+
+  /**
+   * @param from From 헤더 주소
+   * @param sender Sender 헤더 주소(null 이면 넣지 않음)
+   */
+  private long deliverInvite(
+      long user,
+      long accountId,
+      String subject,
+      String calendar,
+      String transferEncoding,
+      String from,
+      String sender)
+      throws Exception {
     MimeMessage msg = new MimeMessage(greenMail.getSmtp().createSession());
-    msg.setFrom("boss@x.com");
+    msg.setFrom(from);
+    if (sender != null) msg.setSender(new InternetAddress(sender));
     msg.setRecipients(Message.RecipientType.TO, "box@test.local");
     msg.setSubject(subject, "UTF-8");
     MimeBodyPart text = new MimeBodyPart();
@@ -566,5 +591,94 @@ class MailCalendarInviteImapTest extends ExternalClientMockedTestBase {
     assertThat(inviteEventRepo.insertIfAbsent(user, calendarId, v)).isEmpty();
     assertThat(dsl.fetchCount(CALENDAR_EVENT, CALENDAR_EVENT.ICAL_UID.eq("dup-uid@x.com")))
         .isEqualTo(1);
+  }
+
+  /**
+   * 참석자 위조 — 다른 참석자(peer@x.com)가 ORGANIZER 에 진짜 주최자(boss@x.com)를 적고 SEQUENCE 99 로 보낸 초대는 진짜 초대를 낡게
+   * 만들지 못한다. 진짜 초대는 응답할 수 있고 「확인해 주세요」(unverifiedNewer)만 붙는다.
+   */
+  @Test
+  void attendeeForgedHigherSequence_withRealOrganizer_doesNotOutdateReal() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = newAccount(user);
+    long id = deliverInvite(user, accountId, "초대: 진짜3", ics("REQUEST", 0, "20261103T100000"));
+    long forged =
+        deliverInviteFrom(
+            user,
+            accountId,
+            "초대: 참석자위조",
+            ics("REQUEST", 99, "20261104T100000"),
+            "peer@x.com",
+            null);
+    messageService.get(user, id, false);
+    messageService.get(user, forged, false);
+
+    CalendarInvite real = inviteService.view(user, id);
+    CalendarInvite fake = inviteService.view(user, forged);
+
+    assertThat(real.outdated()).isFalse();
+    assertThat(real.canRespond()).isTrue();
+    assertThat(real.fromOrganizer()).isTrue();
+    assertThat(real.unverifiedNewer()).isTrue();
+    assertThat(fake.fromOrganizer()).isFalse();
+    assertThat(fake.unverifiedNewer()).isFalse();
+    // 진짜 초대에 그대로 응답할 수 있다
+    assertThat(inviteService.respond(user, id, "ACCEPTED").myResponse()).isEqualTo("ACCEPTED");
+  }
+
+  /**
+   * 참석자 위조 취소 — peer@x.com 이 ORGANIZER 에 boss@x.com 을 적어 보낸 취소는 내 일정을 취소하지 않고, 진짜 초대도 막지 않는다. 취소
+   * 카드는 기록되지만 「주최자가 보내지 않음」(fromOrganizer=false)이다.
+   */
+  @Test
+  void attendeeForgedCancel_withRealOrganizer_doesNotCancelEvent() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = newAccount(user);
+    long id = deliverInvite(user, accountId, "초대: 진짜4", ics("REQUEST", 0, "20261103T100000"));
+    messageService.get(user, id, false);
+    long eventId = inviteService.respond(user, id, "ACCEPTED").eventId();
+
+    long forged =
+        deliverInviteFrom(
+            user, accountId, "취소: 참석자위조", ics("CANCEL", 5, "20261103T100000"), "peer@x.com", null);
+    CalendarInvite cancel = messageService.get(user, forged, false).calendarInvite();
+
+    assertThat(cancel.method()).isEqualTo("CANCEL");
+    assertThat(cancel.fromOrganizer()).isFalse();
+    assertThat(cancel.canRespond()).isFalse();
+    var ev = dsl.selectFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.eq(eventId)).fetchOne();
+    assertThat(ev.getCancelledAt()).isNull();
+    assertThat(ev.getTitle()).isEqualTo("분기 계획 회의");
+    CalendarInvite real = inviteService.view(user, id);
+    assertThat(real.outdated()).isFalse();
+    assertThat(real.canRespond()).isTrue();
+    assertThat(real.unverifiedNewer()).isTrue();
+  }
+
+  /** 대리 발송 — From 은 비서(assistant@x.com)지만 Sender 헤더가 주최자(boss@x.com)면 주최자가 보낸 취소로 보고 일정을 취소한다. */
+  @Test
+  void cancel_senderHeaderIsOrganizer_countsAsFromOrganizer() throws Exception {
+    long user = TestFixtures.createHuman(dsl);
+    long accountId = newAccount(user);
+    long id = deliverInvite(user, accountId, "초대: 대리", ics("REQUEST", 0, "20261103T100000"));
+    messageService.get(user, id, false);
+    long eventId = inviteService.respond(user, id, "ACCEPTED").eventId();
+
+    long cancelId =
+        deliverInviteFrom(
+            user,
+            accountId,
+            "취소: 대리",
+            ics("CANCEL", 1, "20261103T100000"),
+            "assistant@x.com",
+            "Boss@X.com");
+    CalendarInvite cancel = messageService.get(user, cancelId, false).calendarInvite();
+
+    assertThat(cancel.fromOrganizer()).isTrue();
+    var ev = dsl.selectFrom(CALENDAR_EVENT).where(CALENDAR_EVENT.ID.eq(eventId)).fetchOne();
+    assertThat(ev.getCancelledAt()).isNotNull();
+    CalendarInvite real = inviteService.view(user, id);
+    assertThat(real.outdated()).isTrue();
+    assertThat(real.unverifiedNewer()).isFalse();
   }
 }

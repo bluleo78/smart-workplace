@@ -18,6 +18,10 @@ CREATE TABLE email_calendar_invite (
   location        VARCHAR(500),
   organizer_email VARCHAR(320),
   organizer_name  VARCHAR(255),
+  -- 이 메일을 주최자가 보냈는가 — iCalendar ORGANIZER 주소가 메일의 From 또는 Sender 주소와 같을 때(대소문자 무시)만 TRUE.
+  -- ORGANIZER 는 아무나 적을 수 있어서, 같은 미팅의 다른 참석자가 큰 SEQUENCE·취소를 실어 보낸 위조 메일이 진짜 초대를 막거나
+  -- 내 일정을 취소하지 못하게 낡음·취소 판정과 일정 취소 반영은 TRUE 인 행만 쓴다
+  from_organizer  BOOLEAN      NOT NULL DEFAULT FALSE,
   -- 참석자 이메일(소문자) — 「내가 참석자인가」 판정과 참석자 수에 쓴다
   attendee_emails TEXT[]       NOT NULL DEFAULT '{}',
   -- 이 메일에서 마지막으로 보낸 내 응답(ACCEPTED|TENTATIVE|DECLINED). 캘린더 일정이 없을 때(거절 등) 카드가 이 값을 보인다

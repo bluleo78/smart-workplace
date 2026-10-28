@@ -189,59 +189,73 @@ public class EmailCalendarInviteRecord extends UpdatableRecordImpl<EmailCalendar
     }
 
     /**
+     * Setter for <code>public.email_calendar_invite.from_organizer</code>.
+     */
+    public void setFromOrganizer(Boolean value) {
+        set(12, value);
+    }
+
+    /**
+     * Getter for <code>public.email_calendar_invite.from_organizer</code>.
+     */
+    public Boolean getFromOrganizer() {
+        return (Boolean) get(12);
+    }
+
+    /**
      * Setter for <code>public.email_calendar_invite.attendee_emails</code>.
      */
     public void setAttendeeEmails(String[] value) {
-        set(12, value);
+        set(13, value);
     }
 
     /**
      * Getter for <code>public.email_calendar_invite.attendee_emails</code>.
      */
     public String[] getAttendeeEmails() {
-        return (String[]) get(12);
+        return (String[]) get(13);
     }
 
     /**
      * Setter for <code>public.email_calendar_invite.my_response</code>.
      */
     public void setMyResponse(String value) {
-        set(13, value);
+        set(14, value);
     }
 
     /**
      * Getter for <code>public.email_calendar_invite.my_response</code>.
      */
     public String getMyResponse() {
-        return (String) get(13);
+        return (String) get(14);
     }
 
     /**
      * Setter for <code>public.email_calendar_invite.responded_at</code>.
      */
     public void setRespondedAt(OffsetDateTime value) {
-        set(14, value);
+        set(15, value);
     }
 
     /**
      * Getter for <code>public.email_calendar_invite.responded_at</code>.
      */
     public OffsetDateTime getRespondedAt() {
-        return (OffsetDateTime) get(14);
+        return (OffsetDateTime) get(15);
     }
 
     /**
      * Setter for <code>public.email_calendar_invite.created_at</code>.
      */
     public void setCreatedAt(OffsetDateTime value) {
-        set(15, value);
+        set(16, value);
     }
 
     /**
      * Getter for <code>public.email_calendar_invite.created_at</code>.
      */
     public OffsetDateTime getCreatedAt() {
-        return (OffsetDateTime) get(15);
+        return (OffsetDateTime) get(16);
     }
 
     // -------------------------------------------------------------------------
@@ -267,7 +281,7 @@ public class EmailCalendarInviteRecord extends UpdatableRecordImpl<EmailCalendar
     /**
      * Create a detached, initialised EmailCalendarInviteRecord
      */
-    public EmailCalendarInviteRecord(Long messageId, Long tenantId, String method, String uid, Integer sequence, String summary, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String organizerEmail, String organizerName, String[] attendeeEmails, String myResponse, OffsetDateTime respondedAt, OffsetDateTime createdAt) {
+    public EmailCalendarInviteRecord(Long messageId, Long tenantId, String method, String uid, Integer sequence, String summary, OffsetDateTime startsAt, OffsetDateTime endsAt, Boolean allDay, String location, String organizerEmail, String organizerName, Boolean fromOrganizer, String[] attendeeEmails, String myResponse, OffsetDateTime respondedAt, OffsetDateTime createdAt) {
         super(EmailCalendarInvite.EMAIL_CALENDAR_INVITE);
 
         setMessageId(messageId);
@@ -282,6 +296,7 @@ public class EmailCalendarInviteRecord extends UpdatableRecordImpl<EmailCalendar
         setLocation(location);
         setOrganizerEmail(organizerEmail);
         setOrganizerName(organizerName);
+        setFromOrganizer(fromOrganizer);
         setAttendeeEmails(attendeeEmails);
         setMyResponse(myResponse);
         setRespondedAt(respondedAt);

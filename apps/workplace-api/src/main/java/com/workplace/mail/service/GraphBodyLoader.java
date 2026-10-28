@@ -3,6 +3,7 @@ package com.workplace.mail.service;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.workplace.mail.dto.BodyTarget;
+import com.workplace.mail.dto.CalendarMailPart;
 import com.workplace.mail.dto.EmailAccountResponse;
 import com.workplace.mail.dto.MailProvider;
 import com.workplace.mail.dto.ParsedAttachment;
@@ -141,10 +142,9 @@ public class GraphBodyLoader implements MailBodyLoader {
       attachmentRepo.insertAll(target.messageId(), contentId, attachments);
       // WP-986: 일정 초대 메일(eventMessage)이면 원문 MIME 의 text/calendar 로 초대·취소를 기록한다
       if (isMeetingMessage(msgResp)) {
-        inviteRecorder.record(
-            userId,
-            target.messageId(),
-            fetchCalendarIcs(accessToken, providerMessageId, target.messageId()));
+        CalendarMailPart calendar =
+            fetchCalendarPart(accessToken, providerMessageId, target.messageId());
+        inviteRecorder.record(userId, target.messageId(), calendar.ics(), calendar.senderEmails());
       }
       // V97: per-envelope 마커 — 이 envelope 의 본문/첨부 적재가 완료됐음을 기록
       messageRepo.markFetched(target.messageId());
@@ -234,21 +234,22 @@ public class GraphBodyLoader implements MailBodyLoader {
   /**
    * WP-986: 메시지 원문 MIME({@code /me/messages/{id}/$value})에서 iCalendar 원문을 꺼낸다. Graph 의 eventMessage
    * JSON 에는 SEQUENCE·METHOD 가 없어(옛 초대·취소 판정 재료) IMAP 과 같은 iCalendar 를 읽으려고 원문을 받는다 — 일정 메일에만 한 번 더
-   * 부른다. 실패는 초대 없음으로 흡수한다(본문 적재는 계속).
+   * 부른다. 같은 원문의 From·Sender 주소도 함께 돌려준다(주최자가 보낸 메일인지 판정 — IMAP 과 같은 규칙). 실패는 초대 없음으로 흡수한다(본문 적재는
+   * 계속).
    */
-  String fetchCalendarIcs(String accessToken, String providerMessageId, long messageId) {
+  CalendarMailPart fetchCalendarPart(String accessToken, String providerMessageId, long messageId) {
     try {
       byte[] mime =
           graphApiClient.getBytes(accessToken, "/me/messages/" + providerMessageId + "/$value");
       if (mime == null || mime.length == 0) {
-        return null;
+        return new CalendarMailPart(null, List.of());
       }
       MimeMessage msg =
           new MimeMessage(Session.getInstance(new Properties()), new ByteArrayInputStream(mime));
-      return parser.extractCalendarIcsQuietly(msg);
+      return parser.extractCalendarPartQuietly(msg);
     } catch (Exception e) {
       log.warn("Graph 일정 메일 원문 조회 실패 — 초대 카드 없이 둔다 (messageId={}): {}", messageId, e.toString());
-      return null;
+      return new CalendarMailPart(null, List.of());
     }
   }
 

@@ -134,7 +134,45 @@ test('취소(CANCEL) — 취소된 일정 태그·줄 그은 일시·취소 안�
   expect(within(card).getByTestId('mail-invite-tag').className).toMatch(/text-destructive-text/)
   expect(within(card).getByTestId('mail-invite-time').className).toMatch(/line-through/)
   expect(within(card).getByTestId('mail-invite-cancelled')).toHaveTextContent('주최자가 일정을 취소했습니다.')
+  expect(within(card).queryByTestId('mail-invite-cancel-unverified')).toBeNull()
   expect(within(card).queryByTestId('rsvp-controls')).toBeNull()
+})
+
+test('주최자가 아닌 주소의 취소(fromOrganizer=false) — 「주최자가 취소」 대신 직접 확인 안내, 버튼 없음', async () => {
+  renderCard(calendarInvite({ method: 'CANCEL', canRespond: false, sequence: 5, fromOrganizer: false }))
+  const card = await screen.findByTestId('mail-invite-card')
+  expect(within(card).getByTestId('mail-invite-cancel-unverified')).toHaveTextContent(
+    '주최자가 아닌 주소에서 온 취소 메일입니다 — 캘린더에서 직접 확인해 주세요',
+  )
+  expect(within(card).queryByTestId('mail-invite-cancelled')).toBeNull()
+  expect(within(card).queryByTestId('rsvp-controls')).toBeNull()
+})
+
+test('주최자가 보내지 않은 더 새 변경 메일(unverifiedNewer) — 확인 안내를 띄우고 응답 버튼은 그대로', async () => {
+  renderCard(calendarInvite({ unverifiedNewer: true }))
+  const card = await screen.findByTestId('mail-invite-card')
+  expect(within(card).getByTestId('mail-invite-unverified')).toHaveTextContent(
+    '다른 주소에서 이 일정의 변경 메일이 왔습니다 — 주최자에게 확인해 주세요',
+  )
+  const group = within(card).getByRole('group', { name: '참석 여부' })
+  expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['수락', '미정', '거절'])
+  expect(within(card).queryByTestId('mail-invite-outdated')).toBeNull()
+})
+
+test('주최자가 아닌 주소에서 온 초대(fromOrganizer=false) — 응답 전 확인 안내, 버튼은 그대로', async () => {
+  renderCard(calendarInvite({ fromOrganizer: false }))
+  const card = await screen.findByTestId('mail-invite-card')
+  expect(within(card).getByTestId('mail-invite-request-unverified')).toHaveTextContent(
+    '주최자가 아닌 주소에서 온 초대입니다 — 응답하기 전에 주최자에게 확인해 주세요',
+  )
+  expect(within(card).getByRole('group', { name: '참석 여부' })).toBeInTheDocument()
+})
+
+test('평소 초대에는 확인 안내가 없다', async () => {
+  renderCard(calendarInvite())
+  const card = await screen.findByTestId('mail-invite-card')
+  expect(within(card).queryByTestId('mail-invite-unverified')).toBeNull()
+  expect(within(card).queryByTestId('mail-invite-request-unverified')).toBeNull()
 })
 
 test('초대가 없는 메일은 카드를 그리지 않는다', async () => {

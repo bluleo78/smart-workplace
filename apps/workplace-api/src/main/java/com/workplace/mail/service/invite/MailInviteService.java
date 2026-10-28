@@ -195,8 +195,9 @@ public class MailInviteService {
   }
 
   /**
-   * 초대 행 + 내 캘린더 상태 → 카드(tx 안). 낡음(outdated)·취소 판정은 이 초대와 같은 주최자의 메일·일정만 본다 — 다른 주소가 같은 UID 로 보낸 위조
-   * 초대·취소가 진짜 초대를 막지 못하게.
+   * 초대 행 + 내 캘린더 상태 → 카드(tx 안). 낡음(outdated)·취소 판정은 이 초대와 같은 주최자의, 주최자가 직접 보낸(From·Sender) 메일과 일정만
+   * 본다 — 다른 주소가 같은 UID 로 보낸 위조 초대·취소(ORGANIZER 에 주최자 주소를 적은 것 포함)가 진짜 초대를 막지 못하게. 주최자가 보내지 않은 더 새
+   * 메일은 막지 않고 unverifiedNewer 로 알린다.
    */
   private CalendarInvite toView(long userId, InviteRow r) {
     InviteValues v = r.values();
@@ -218,6 +219,11 @@ public class MailInviteService {
       outdated =
           eventCancelled || inviteRepo.hasCancelAtOrAfter(userId, v.uid(), organizer, v.sequence());
     }
+    // 주최자가 보내지 않은 더 새 초대·취소 — 응답은 막지 않고 카드에 「주최자에게 확인」을 띄운다(이미 낡은 초대면 의미 없음)
+    boolean unverifiedNewer =
+        "REQUEST".equals(v.method())
+            && !outdated
+            && inviteRepo.hasUnverifiedNewer(userId, v.uid(), organizer, v.sequence());
     String myResponse =
         event
             .map(MyInviteEvent::myResponse)
@@ -244,7 +250,9 @@ public class MailInviteService {
         myResponse,
         event.map(MyInviteEvent::eventId).orElse(null),
         outdated,
-        canRespond);
+        canRespond,
+        r.fromOrganizer(),
+        unverifiedNewer);
   }
 
   /** 앱 일정의 주최자가 이 초대의 주최자와 같은가(대소문자 무시, 어느 쪽이든 없으면 다르다). */
