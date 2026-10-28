@@ -33,7 +33,7 @@ export interface MobileAgendaViewProps {
 }
 
 // 행 공통 — 좌우 여백 16 · 시간 칸 44 · 간격 10. 지금 선(NowLine)의 왼쪽 시작점 70px 이 이 합(막대 위치)이다.
-const ROW_CLASS = 'flex min-h-11 w-full items-stretch gap-2.5 border-b px-4 py-2 text-left active:bg-accent'
+const ROW_CLASS = 'flex min-h-11 w-full items-stretch gap-2.5 row-divider px-4 py-2 text-left active:bg-accent'
 
 /** 모바일 일정 목록 뷰 — 자체 스크롤 컨테이너(센티널·맨 위 날짜 관찰의 root). */
 export function MobileAgendaView({ agenda, now, onSelectEvent, onSelectIssue }: MobileAgendaViewProps) {

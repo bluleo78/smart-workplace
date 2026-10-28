@@ -120,7 +120,7 @@ export const IssueRow = memo(function IssueRow({
       {...(desktopContextMenu && { onContextMenu: desktopContextMenu })}
       onClick={() => navigate(to)}
       className={cn(
-        'group border-b hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'group row-divider hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         menuOpen && 'bg-accent',
         isDragging && 'opacity-40',
         isMobile && 'select-none [-webkit-touch-callout:none]',

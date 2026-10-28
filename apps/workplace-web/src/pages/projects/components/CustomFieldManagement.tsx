@@ -146,7 +146,7 @@ export function CustomFieldManagement({
           {(fields.data ?? []).map((f) => (
             <li
               key={f.id}
-              className="flex items-center gap-2 border-b py-2"
+              className="flex items-center gap-2 row-divider py-2"
               data-testid={`custom-field-row-${f.id}`}
             >
               <span className="font-medium">{f.name}</span>

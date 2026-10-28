@@ -39,14 +39,14 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 
 | Token | OKLch 값 | 근사 색상 | 용도 |
 |-------|----------|-----------|------|
-| `--background` | `oklch(0.985 0.002 264)` | 거의 흰색(미세한 한색 기운) | 페이지 전체 배경 |
+| `--background` | `oklch(0.975 0.003 264)` | 거의 흰색(미세한 한색 기운) | 페이지 전체 배경 — 흰 카드·패널이 한 단계 떠 보이게 한다(WP-1051) |
 | `--foreground` | `oklch(0.145 0 0)` | Near-black | 기본 본문 텍스트 |
 | `--card` | `oklch(1 0 0)` | 흰색 | 카드 컴포넌트 배경 |
 | `--card-foreground` | `oklch(0.145 0 0)` | Near-black | 카드 내 텍스트 |
 | `--popover` | `oklch(1 0 0)` | 흰색 | 팝오버, 드롭다운 배경 |
 | `--popover-foreground` | `oklch(0.145 0 0)` | Near-black | 팝오버 내 텍스트 |
 
-> `--background`는 순수 무채색이 아니라 `oklch(0.985 0.002 264)` — 인디고(h=264) 기운을 아주 미세하게 띤다. UI 전반의 한색 톤을 통일하기 위한 의도적 설정이다.
+> `--background`는 순수 무채색이 아니라 `oklch(0.975 0.003 264)` — 인디고(h=264) 기운을 아주 미세하게 띤다. UI 전반의 한색 톤을 통일하기 위한 의도적 설정이다.
 
 #### Brand & Interaction Tokens
 
@@ -54,21 +54,22 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 |-------|----------|-----------|------|
 | `--primary` | `oklch(0.45 0.2 264)` | 인디고/블루 | 기본 브랜드 색상, CTA 버튼 배경 |
 | `--primary-foreground` | `oklch(0.985 0 0)` | Near-white | Primary 위 텍스트 |
-| `--secondary` | `oklch(0.965 0.005 264)` | 연한 한색 회색 | 보조 버튼, 보조 배경 |
+| `--secondary` | `oklch(0.958 0.006 264)` | 연한 한색 회색 | 보조 버튼, 보조 배경 |
 | `--secondary-foreground` | `oklch(0.25 0 0)` | 어두운 회색 | Secondary 위 텍스트 |
-| `--muted` | `oklch(0.965 0.005 264)` | 연한 한색 회색 | 음소거 배경, 비활성 영역 |
+| `--muted` | `oklch(0.958 0.006 264)` | 연한 한색 회색 | 음소거 배경, 비활성 영역 |
 | `--muted-foreground` | `oklch(0.5 0 0)` | 중간 회색 | 플레이스홀더, 부가 설명 텍스트 |
 | `--accent` | `oklch(0.955 0.01 264)` | 연한 한색 회색 | hover·누름(press) 피드백 배경. **선택 표시에 쓰지 않는다** — [1-8](#1-8-선택-상태-표시-규칙) |
 | `--accent-foreground` | `oklch(0.25 0 0)` | 어두운 회색 | Accent 위 텍스트 |
-| `--selected` | `oklch(0.915 0.02 264)` | 연한 인디고 회색 | 목록에서 현재 고른 항목 배경(WP-368). 바탕 대비 1.2:1 이상 — [1-8](#1-8-선택-상태-표시-규칙) |
+| `--selected` | `oklch(0.905 0.02 264)` | 연한 인디고 회색 | 목록에서 현재 고른 항목 배경(WP-368). 바탕 대비 1.2:1 이상 — [1-8](#1-8-선택-상태-표시-규칙) |
 | `--destructive` | `oklch(0.55 0.245 27.325)` | 빨간색 | 위험·삭제 액션, 에러 상태. 삭제 버튼 흰 글자(`--destructive-foreground`) 평소 4.93:1·hover(`/90` 합성) 4.63:1 (WP-322) |
 
 #### Structural Tokens
 
 | Token | OKLch 값 | 근사 색상 | 용도 |
 |-------|----------|-----------|------|
-| `--border` | `oklch(0.94 0.005 264)` | 연한 한색 회색 | 일반 테두리 |
-| `--input` | `oklch(0.92 0.005 264)` | 연한 한색 회색 | Input 컴포넌트 테두리 |
+| `--border` | `oklch(0.88 0.006 264)` | 한색 회색 | 카드·패널·섹션 등 덩어리 외곽 테두리(WP-1051) |
+| `--divider` | `oklch(0.93 0.005 264)` | 연한 한색 회색 | 목록 행 사이 구분선 — `divide-y`·`divide-x` 기본 색, 행 아래 선은 `row-divider` 유틸리티(WP-1051) |
+| `--input` | `oklch(0.84 0.006 264)` | 한색 회색 | Input 컴포넌트 테두리 — 경계 단계 중 가장 진하다 |
 | `--ring` | `oklch(0.55 0.15 264)` | 인디고 (유색) | 키보드 Focus ring |
 
 > `--ring`이 무채색이 아닌 인디고 계열인 점에 주목한다. Focus ring이 브랜드 색과 일치하여 키보드 포커스가 명확하게 드러난다.
@@ -83,7 +84,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--sidebar-primary-foreground` | `oklch(0.985 0 0)` | Near-white | 사이드바 선택 항목 텍스트 |
 | `--sidebar-accent` | `oklch(0.955 0.015 264)` | 연한 한색 회색 | 사이드바 hover 배경 |
 | `--sidebar-accent-foreground` | `oklch(0.25 0 0)` | 어두운 회색 | 사이드바 hover 텍스트 |
-| `--sidebar-border` | `oklch(0.94 0.005 264)` | 연한 한색 회색 | 사이드바 테두리 |
+| `--sidebar-border` | `oklch(0.88 0.006 264)` | 연한 한색 회색 | 사이드바 테두리 |
 | `--sidebar-ring` | `oklch(0.55 0.15 264)` | 인디고 | 사이드바 focus ring |
 
 ---
@@ -98,7 +99,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 |-------|----------|-----------|
 | `--background` | `oklch(0.13 0.015 280)` | 한색(h=280)을 띤 매우 어두운 색 |
 | `--foreground` | `oklch(0.93 0 0)` | Near-white |
-| `--card` | `oklch(1 0 0 / 3%)` | 흰색 3% 알파 (반투명 표면) |
+| `--card` | `oklch(1 0 0 / 4.5%)` | 흰색 4.5% 알파 (반투명 표면) |
 | `--card-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--popover` | `oklch(0.18 0.015 280)` | 어두운 한색 회색 |
 | `--popover-foreground` | `oklch(0.93 0 0)` | Near-white |
@@ -111,8 +112,8 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--primary-foreground` | `oklch(0.18 0 0)` | 거의 검정 — 밝은 primary 위 글자 5.54:1(흰 글자는 3.25:1 로 미달, WP-322) |
 | `--secondary` | `oklch(1 0 0 / 5%)` | 흰색 5% 알파 |
 | `--secondary-foreground` | `oklch(0.93 0 0)` | Near-white |
-| `--muted` | `oklch(1 0 0 / 5%)` | 흰색 5% 알파 |
-| `--muted-foreground` | `oklch(0.65 0 0)` | 중간 회색 — 카드 두 겹 위 12px 에서도 4.5:1 (WP-736) |
+| `--muted` | `oklch(1 0 0 / 6.5%)` | 흰색 6.5% 알파 |
+| `--muted-foreground` | `oklch(0.67 0 0)` | 중간 회색 — 카드 두 겹 위 머리 띠·hover 의 12px 에서도 4.5:1 (WP-736·WP-1051) |
 | `--accent` | `oklch(1 0 0 / 7%)` | 흰색 7% 알파 |
 | `--accent-foreground` | `oklch(0.93 0 0)` | Near-white |
 | `--selected` | `oklch(0.28 0.02 275)` | 솔리드(배경 위 흰 ~11% 상당) — 떠 있는 패널(popover) 위에서도 구분되게 알파 대신 솔리드 (WP-368) |
@@ -123,8 +124,9 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 
 | Token | OKLch 값 | 비고 |
 |-------|----------|------|
-| `--border` | `oklch(1 0 0 / 10%)` | 흰색 10% 알파 — 반투명 테두리 |
-| `--input` | `oklch(1 0 0 / 12%)` | 흰색 12% 알파 — Input 테두리 |
+| `--border` | `oklch(1 0 0 / 16%)` | 흰색 16% 알파 — 덩어리 외곽 테두리 |
+| `--divider` | `oklch(1 0 0 / 9%)` | 흰색 9% 알파 — 목록 행 사이 구분선 |
+| `--input` | `oklch(1 0 0 / 22%)` | 흰색 22% 알파 — Input 테두리 |
 | `--ring` | `oklch(0.65 0.2 264)` | 밝은 인디고 |
 
 #### Sidebar Tokens (Dark)
@@ -137,7 +139,7 @@ Smart Workplace의 색상 시스템은 CSS 커스텀 프로퍼티(CSS Custom Pro
 | `--sidebar-primary-foreground` | `oklch(0.18 0 0)` | 거의 검정 (`--primary-foreground` 와 같은 이유, WP-322) |
 | `--sidebar-accent` | `oklch(1 0 0 / 7%)` | 흰색 7% 알파 |
 | `--sidebar-accent-foreground` | `oklch(0.93 0 0)` | Near-white |
-| `--sidebar-border` | `oklch(1 0 0 / 10%)` | 흰색 10% 알파 |
+| `--sidebar-border` | `oklch(1 0 0 / 16%)` | 흰색 16% 알파 |
 | `--sidebar-ring` | `oklch(0.65 0.2 264)` | 밝은 인디고 |
 
 > 다크 모드의 표면(secondary/muted/accent/card)은 솔리드 회색이 아니라 **흰색 알파 오버레이**(`oklch(1 0 0 / N%)`)로 정의된다. 알파를 높일수록 고도(elevation)가 올라가는 모델이다. 자세한 설명은 [11-dark-mode.md](./11-dark-mode.md) "표면 고도 모델" 참조.
@@ -470,3 +472,4 @@ Workplace는 Tailwind v4를 사용하며 `tailwind.config.js`가 없다. 대신 
 | 2026-10-08 | v1.1 | 노트 접속자 색 토큰 `--presence-1..8`·`--presence-foreground`(§1-5) 추가, Tailwind `presence`·`presence-foreground` 색 등록, §1-7 단일 출처·테마 무관 원칙에 접속자 색 예외 명시 (WP-173) |
 | 2026-10-09 | v1.2 | 다크 `--primary-foreground`·`--sidebar-primary-foreground` → `oklch(0.18 0 0)`(5.54:1), 라이트 `--destructive` → `oklch(0.55 0.245 27.325)`(평소 4.93·hover 4.63:1), 다크 `--destructive-foreground` → `oklch(0.18 0 0)`(6.5:1, 삭제 버튼·배지 `dark:bg-destructive/60` 제거), 모바일 AI 캡슐 글리프 `text-primary-foreground`, 다크 스위치 thumb `bg-foreground`, 성공 배지 예시를 `text-success-text` 로 (WP-322). 앱 전체 아바타·에픽 색점을 `--presence-*` 로 통일 (WP-318) |
 | 2026-10-13 | v1.3 | 선택 전용 토큰 `--selected`(6조합)·`selection-bar` 유틸·`src/lib/selectionStyles.ts` 추가, `--accent` 용도를 hover·누름으로 좁히고 §1-8 선택 상태 표시 규칙 신설, ocean·sunset 라이트 primary 를 대비 기준으로 0.47·0.53 으로 낮춤 (WP-368) |
+| 2026-10-28 | v1.4 | 영역 경계 단계(WP-1051): 배경 3단(background .975 < card < muted)·테두리 3단(divider < border < input), 행 구분선 토큰 `--divider` 신설(`divide-*` 기본 색), 다크 card 4.5%·border 16%·input 22%, 라이트 `--selected` .905. 단계 대비는 `boundaryTokens.test` 가 고정 |

@@ -19,17 +19,18 @@
 
 | 토큰 | Light | Dark | 규칙 |
 |------|-------|------|------|
-| `--background` | `oklch(0.985 0.002 264)` | `oklch(0.13 0.015 280)` | 명도 반전 + 한색(h 264→280) |
+| `--background` | `oklch(0.975 0.003 264)` | `oklch(0.13 0.015 280)` | 명도 반전 + 한색(h 264→280) |
 | `--foreground` | `oklch(0.145 0 0)` | `oklch(0.93 0 0)` | 반전 (순백 아님) |
-| `--card` | `oklch(1 0 0)` | `oklch(1 0 0 / 3%)` | 솔리드 → 흰색 알파 오버레이 |
+| `--card` | `oklch(1 0 0)` | `oklch(1 0 0 / 4.5%)` | 솔리드 → 흰색 알파 오버레이 |
 | `--primary` | `oklch(0.45 0.2 264)` | `oklch(0.65 0.2 264)` | 인디고 — 다크에서 더 밝게(L↑) |
-| `--secondary` | `oklch(0.965 0.005 264)` | `oklch(1 0 0 / 5%)` | 솔리드 → 흰색 5% 알파 |
-| `--muted` | `oklch(0.965 0.005 264)` | `oklch(1 0 0 / 5%)` | secondary와 동일 |
-| `--muted-foreground` | `oklch(0.5 0 0)` | `oklch(0.65 0 0)` | 다크 배경에서 더 밝게 — 카드가 두 겹 깔린 곳에서도 4.5:1 (WP-736) |
+| `--secondary` | `oklch(0.958 0.006 264)` | `oklch(1 0 0 / 5%)` | 솔리드 → 흰색 5% 알파 |
+| `--muted` | `oklch(0.958 0.006 264)` | `oklch(1 0 0 / 6.5%)` | 라이트는 secondary와 같고, 다크는 secondary(5%)보다 한 단계 진하다 — 카드 위 머리 띠가 구분되게(WP-1051) |
+| `--muted-foreground` | `oklch(0.5 0 0)` | `oklch(0.67 0 0)` | 다크 배경에서 더 밝게 — 카드가 두 겹 깔린 곳의 머리 띠·hover 에서도 4.5:1 (WP-736·WP-1051) |
 | `--accent` | `oklch(0.955 0.01 264)` | `oklch(1 0 0 / 7%)` | 솔리드 → 흰색 7% 알파 |
 | `--destructive` | `oklch(0.55 0.245 27.325)` | `oklch(0.704 0.191 22.216)` | 다크에서 더 밝고 채도 낮게 — 그래서 다크 `--destructive-foreground`·`--primary-foreground` 는 어두운 글자 `oklch(0.18 0 0)` (WP-322) |
-| `--border` | `oklch(0.94 0.005 264)` | `oklch(1 0 0 / 10%)` | 솔리드 → 흰색 10% 알파 |
-| `--input` | `oklch(0.92 0.005 264)` | `oklch(1 0 0 / 12%)` | 솔리드 → 흰색 12% 알파 |
+| `--border` | `oklch(0.88 0.006 264)` | `oklch(1 0 0 / 16%)` | 솔리드 → 흰색 16% 알파 |
+| `--divider` | `oklch(0.93 0.005 264)` | `oklch(1 0 0 / 9%)` | 솔리드 → 흰색 9% 알파(외곽보다 옅게) |
+| `--input` | `oklch(0.84 0.006 264)` | `oklch(1 0 0 / 22%)` | 솔리드 → 흰색 22% 알파 |
 | `--ring` | `oklch(0.55 0.15 264)` | `oklch(0.65 0.2 264)` | 인디고 — 다크에서 더 밝게 |
 
 시맨틱 상태(`--success`/`--warning`/`--info`)와 도메인·AI 토큰(`--ai-accent` 등)도 모두 다크 값을 별도로 정의한다. 자세한 값은 [01-design-tokens.md](./01-design-tokens.md) §1-4·§1-5 참조.
@@ -44,13 +45,13 @@ Workplace 다크 모드의 핵심 특징은 **솔리드 회색이 아니라 흰�
 |------|------|-------|--------|
 | 0 (Base) | 페이지 배경 | `oklch(0.13 0.015 280)` | Body / `--background` |
 | 0' (Sidebar) | 사이드바 베이스 | `oklch(0.14 0.02 280)` | `--sidebar` |
-| 1 (Card) | 카드 표면 | `oklch(1 0 0 / 3%)` | `--card` |
-| 2 (Secondary/Muted) | 보조 표면 | `oklch(1 0 0 / 5%)` | `--secondary`, `--muted` |
+| 1 (Card) | 카드 표면 | `oklch(1 0 0 / 4.5%)` | `--card` |
+| 2 (Secondary/Muted) | 보조 표면 | `oklch(1 0 0 / 5~6.5%)` | `--secondary`, `--muted` |
 | 3 (Accent) | hover/강조 표면 | `oklch(1 0 0 / 7%)` | `--accent`, `--sidebar-accent` |
 | Popover | 드롭다운/팝오버 | `oklch(0.18 0.015 280)` | `--popover` (솔리드, 예외) |
 
 > `--popover`만 알파가 아닌 솔리드 한색(`oklch(0.18 0.015 280)`)이다. 팝오버는 아래 콘텐츠가 비치면 안 되므로 의도적으로 불투명하게 둔다.
-> 테두리(`--border` 10%) > Input(`--input` 12%)도 같은 알파 누적 모델을 따른다.
+> 행 구분선(`--divider` 9%) < 테두리(`--border` 16%) < Input(`--input` 22%)도 같은 알파 누적 모델을 따른다.
 
 ---
 

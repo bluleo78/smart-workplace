@@ -34,6 +34,7 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  --color-divider: var(--divider);
   --color-input: var(--input);
   --color-switch-off-border: var(--switch-off-border);
   --color-ring: var(--ring);
@@ -94,7 +95,9 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(0.985 0.002 264);
+  /* WP-1051: 경계 단계 — 배경 3단(페이지 background < 패널·카드 card < 머리 띠 muted)과 테두리 3단(행 구분선 divider < 덩어리 외곽 border < 입력 input).
+     예전에는 페이지(.985)와 카드(1.0)가 거의 같고 테두리(.94)가 옅어 카드·패널·목록·입력이 한 면에 붙어 보였다. 단계 사이 대비는 boundaryTokens.test 가 고정. */
+  --background: oklch(0.975 0.003 264);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -102,21 +105,25 @@
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.45 0.2 264);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.965 0.005 264);
+  --secondary: oklch(0.958 0.006 264);
   --secondary-foreground: oklch(0.25 0 0);
-  --muted: oklch(0.965 0.005 264);
+  --muted: oklch(0.958 0.006 264);
   --muted-foreground: oklch(0.5 0 0);
   --accent: oklch(0.955 0.01 264);
   --accent-foreground: oklch(0.25 0 0);
   /* WP-368: 선택(현재 고른 항목) 전용 배경 — accent(hover)보다 한 단계 진하고 primary 색조를 머금는다.
      hover(accent/50·muted/50)와 확실히 구분되게 따로 둔다. 대비는 actionTokens.test 가 고정(리터럴 oklch 필수). */
-  --selected: oklch(0.915 0.02 264);
+  /* WP-1051: 페이지 바탕을 .985 → .975 로 내리며 바탕 대비 1.2:1 을 지키려 .915 → .905(브랜드 테마도 같이). */
+  --selected: oklch(0.905 0.02 264);
   /* WP-322: 흰 글자(삭제 버튼) 4.5:1 — 평소 4.93:1, hover(bg-destructive/90 을 배경 위에 합성) 4.63:1.
      이전 0.637 은 3.6:1, 0.577 은 hover 에서 4.32:1 로 AA 미달. 대비는 actionTokens.test 가 고정. */
   --destructive: oklch(0.55 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.94 0.005 264);
-  --input: oklch(0.92 0.005 264);
+  --border: oklch(0.88 0.006 264);
+  /* WP-1051: 목록 행 사이 구분선 — 덩어리 외곽(border)보다 옅게 두어 촘촘한 목록(작업 관리 목록·보드)에서 줄이 과해 보이지 않게 한다.
+     divide-y·divide-x 의 기본 색이고(아래 @layer base), 행 아래 선은 row-divider 유틸리티로 쓴다. */
+  --divider: oklch(0.93 0.005 264);
+  --input: oklch(0.84 0.006 264);
   /* WP-935: 꺼진 스위치 테두리 — 트랙(input)은 흰 카드와 1.2:1 이라 경계가 안 보였다. 테두리로 비텍스트 3:1(WCAG 1.4.11)을 맞춘다.
      브랜드 테마는 덮지 않는다(무채색). 대비는 actionTokens.test 가 고정(리터럴 oklch 필수). */
   --switch-off-border: oklch(0.6 0.005 264);
@@ -135,7 +142,7 @@
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.955 0.015 264);
   --sidebar-accent-foreground: oklch(0.25 0 0);
-  --sidebar-border: oklch(0.94 0.005 264);
+  --sidebar-border: oklch(0.88 0.006 264);
   --sidebar-ring: oklch(0.55 0.15 264);
   --success: oklch(0.523 0.165 149.5);
   --success-foreground: oklch(0.985 0 0);
@@ -197,7 +204,8 @@
 .dark {
   --background: oklch(0.13 0.015 280);
   --foreground: oklch(0.93 0 0);
-  --card: oklch(1 0 0 / 3%);
+  /* WP-1051: 다크 경계 단계 — 카드 흰 3% → 4.5%, 테두리 10% → 16%, 입력 12% → 22%, 행 구분선은 9%(외곽보다 옅게). */
+  --card: oklch(1 0 0 / 4.5%);
   --card-foreground: oklch(0.93 0 0);
   --popover: oklch(0.18 0.015 280);
   --popover-foreground: oklch(0.93 0 0);
@@ -206,9 +214,10 @@
   --primary-foreground: oklch(0.18 0 0);
   --secondary: oklch(1 0 0 / 5%);
   --secondary-foreground: oklch(0.93 0 0);
-  --muted: oklch(1 0 0 / 5%);
-  /* 0.6 → 0.65: 카드가 두 겹 깔린 곳(홈 요약 칸 등)에서도 12px 보조 글자가 4.5:1 을 넘게(WP-736). */
-  --muted-foreground: oklch(0.65 0 0);
+  --muted: oklch(1 0 0 / 6.5%);
+  /* 0.6 → 0.65: 카드가 두 겹 깔린 곳(홈 요약 칸 등)에서도 12px 보조 글자가 4.5:1 을 넘게(WP-736).
+     0.65 → 0.67(WP-1051): 카드·머리 띠를 진하게 하며 두 겹 카드 위 머리 띠·hover 에서 4.3:1 로 떨어져 다시 올린다 — boundaryTokens.test 가 고정. */
+  --muted-foreground: oklch(0.67 0 0);
   --accent: oklch(1 0 0 / 7%);
   --accent-foreground: oklch(0.93 0 0);
   /* WP-368: 다크 선택 배경 — 흰 알파 대신 솔리드(배경 위 흰 ~11% 상당). 떠 있는 패널(popover 0.18) 위에서도 구분된다. */
@@ -217,9 +226,10 @@
   --destructive: oklch(0.704 0.191 22.216);
   /* WP-322: 밝은 다크 빨강 위 흰 글자는 2.77:1 — primary 와 같이 어두운 글자(6.5:1, hover /90 합성 5.38:1). */
   --destructive-foreground: oklch(0.18 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 12%);
-  /* WP-935: 다크 꺼진 스위치 테두리 — 카드(바탕 위 흰 3%) 위에 합성해 3:1. */
+  --border: oklch(1 0 0 / 16%);
+  --divider: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 22%);
+  /* WP-935: 다크 꺼진 스위치 테두리 — 카드(바탕 위 흰 4.5%) 위에 합성해 3:1. */
   --switch-off-border: oklch(1 0 0 / 40%);
   --ring: oklch(0.65 0.2 264);
   --scrollbar-thumb: oklch(1 0 0 / 18%);
@@ -235,7 +245,7 @@
   --sidebar-primary-foreground: oklch(0.18 0 0);
   --sidebar-accent: oklch(1 0 0 / 7%);
   --sidebar-accent-foreground: oklch(0.93 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-border: oklch(1 0 0 / 16%);
   --sidebar-ring: oklch(0.65 0.2 264);
   /* --success-text 가 이 값을 리터럴로 되풀이한다(대비 테스트가 var() 를 못 읽음) — 바꾸면 함께 바꾼다. */
   --success: oklch(0.65 0.15 149.5);
@@ -289,9 +299,23 @@
   --dtype-uuid: oklch(0.7 0.1 200);
 }
 
+/* WP-1051: 목록 행 아래 구분선 — 행마다 border-b + 색을 따로 주지 않고 역할 이름 하나로 쓴다(divide-y 를 못 쓰는 행: 표 tr·가상 목록 등). */
+@utility row-divider {
+  border-bottom-width: 1px;
+  border-bottom-color: var(--divider);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+  /* WP-1051: 목록 행 사이 선은 외곽(border)보다 옅은 divider — divide-y·divide-x 의 기본 색. 선이 놓이는 방향만 바꿔 자식이 그린 외곽은 border 로 두고,
+     base 레이어라 화면이 divide-* 색 유틸리티를 주면 그쪽이 이긴다. */
+  :where(.divide-y) > :not(:last-child) {
+    border-block-color: var(--divider);
+  }
+  :where(.divide-x) > :not(:last-child) {
+    border-inline-color: var(--divider);
   }
   body {
     @apply bg-background text-foreground;
@@ -407,13 +431,13 @@
   --chart-1: oklch(0.47 0.14 195);
   --accent: oklch(0.96 0.01 195);
   --sidebar-accent: oklch(0.96 0.01 195);
-  --selected: oklch(0.915 0.02 195);
+  --selected: oklch(0.905 0.02 195);
 }
 .theme-ocean.dark, .dark .theme-ocean {
   --primary: oklch(0.75 0.12 195);
   --ring: oklch(0.75 0.12 195);
   --background: oklch(0.12 0.015 210);
-  --card: oklch(0.75 0.12 195 / 3%);
+  --card: oklch(0.75 0.12 195 / 4.5%);
   --popover: oklch(0.17 0.015 210);
   --sidebar: oklch(0.13 0.02 210);
   --sidebar-primary: oklch(0.75 0.12 195);
@@ -433,13 +457,13 @@
   --chart-1: oklch(0.53 0.18 50);
   --accent: oklch(0.96 0.01 50);
   --sidebar-accent: oklch(0.96 0.01 50);
-  --selected: oklch(0.915 0.02 50);
+  --selected: oklch(0.905 0.02 50);
 }
 .theme-sunset.dark, .dark .theme-sunset {
   --primary: oklch(0.72 0.15 50);
   --ring: oklch(0.72 0.15 50);
   --background: oklch(0.12 0.015 40);
-  --card: oklch(0.72 0.15 50 / 3%);
+  --card: oklch(0.72 0.15 50 / 4.5%);
   --popover: oklch(0.17 0.015 40);
   --sidebar: oklch(0.13 0.02 40);
   --sidebar-primary: oklch(0.72 0.15 50);
@@ -604,7 +628,7 @@
   --xy-controls-button-background-color-hover-default: oklch(0.25 0.015 280);
   --xy-controls-button-color-default: oklch(0.7 0 0);
   --xy-controls-button-color-hover-default: oklch(0.9 0 0);
-  --xy-controls-button-border-color-default: oklch(1 0 0 / 10%);
+  --xy-controls-button-border-color-default: var(--border);
   --xy-controls-box-shadow-default: 0 2px 8px rgba(0,0,0,0.3);
 }
 .dark .react-flow__minimap {
