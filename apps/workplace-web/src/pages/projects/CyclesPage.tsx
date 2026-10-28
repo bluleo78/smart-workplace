@@ -107,15 +107,16 @@ export default function CyclesPage() {
             />
           ) : (
             <li key={c.id} className="rounded border p-4" data-testid={`cycle-row-${c.id}`}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{c.name}</span>
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs">
+              {/* 긴 이름은 min-w-0·break-words 로 접고, 상태 배지·수정/삭제는 shrink-0 으로 줄지 않게(WP-1078 — 배지가 「예/정」으로 꺾였다) */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="min-w-0 font-medium break-words">{c.name}</span>
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs">
                       {CYCLE_STATUS_LABEL[c.status] ?? c.status}
                     </span>
                   </div>
-                  {c.goal && <p className="mt-0.5 text-sm text-muted-foreground">{c.goal}</p>}
+                  {c.goal && <p className="mt-0.5 text-sm text-muted-foreground break-words">{c.goal}</p>}
                   {(c.startDate || c.endDate) && (
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {c.startDate ?? '—'} ~ {c.endDate ?? '—'}
@@ -123,7 +124,7 @@ export default function CyclesPage() {
                   )}
                 </div>
                 {canManage && (
-                  <div className="flex gap-1">
+                  <div className="flex shrink-0 gap-1">
                     <Button
                       variant="ghost"
                       size="icon"
