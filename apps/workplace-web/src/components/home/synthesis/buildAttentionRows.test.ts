@@ -18,7 +18,7 @@ function due(over: Partial<IssueDueMarker>): IssueDueMarker {
 function mention(over: Partial<NotificationResponse>): NotificationResponse {
   return {
     id: 1,
-    type: 'COMMENTED',
+    type: 'ISSUE_COMMENT_MENTION',
     actorId: 3,
     actorName: '홍길동',
     actorKind: 'HUMAN',
@@ -184,6 +184,11 @@ describe('buildAttentionRows — 멘션 묶음', () => {
       priorityItems: [score('MENTION', '1', 10), score('MENTION', '2', 40)],
     })
     expect(rows[0].aiScore).toBe(40)
+  })
+
+  it('멘션 없는 일반 댓글(COMMENTED) 알림은 「멘션」 행으로 올리지 않는다(WP-1092)', () => {
+    const rows = build({ notifications: [mention({ id: 1, type: 'COMMENTED' })] })
+    expect(rows).toEqual([])
   })
 })
 

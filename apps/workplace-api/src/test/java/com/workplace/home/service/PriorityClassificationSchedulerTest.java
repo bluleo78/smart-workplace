@@ -226,6 +226,45 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
         .doesNotContain(String.valueOf(doneIssueId), String.valueOf(canceledIssueId));
   }
 
+  @Test
+  @DisplayName("멘션 없는 일반 댓글(COMMENTED) 알림은 MENTION 후보가 아니다 — 코멘트 멘션만 넘긴다(WP-1092)")
+  void 일반_댓글_알림은_멘션_후보에서_빠진다() {
+    long issueId = seedUserWithOverdueIssue("aaa-commented");
+    long userId = userIdOfIssue(issueId);
+    // 같은 이슈에 안 읽은 일반 댓글 알림(담당·구독 공통)과 코멘트 멘션 알림을 하나씩 둔다.
+    long commentedId = insertNotification(userId, issueId, "COMMENTED");
+    long mentionId = insertNotification(userId, issueId, "ISSUE_COMMENT_MENTION");
+
+    when(aiClient.classify(any())).thenReturn(new PriorityClassifyResult(List.of()));
+
+    scheduler.runOnce();
+
+    // 다른 테스트가 남긴 사용자도 함께 분류되므로, 모든 호출의 MENTION 후보를 모아 본다(알림 id 는 전역 시퀀스라 겹치지 않는다).
+    ArgumentCaptor<PriorityClassifyRequest> captor =
+        ArgumentCaptor.forClass(PriorityClassifyRequest.class);
+    verify(aiClient, atLeastOnce()).classify(captor.capture());
+    List<String> mentionIds =
+        captor.getAllValues().stream()
+            .flatMap(r -> r.items().stream())
+            .filter(c -> c.sourceType().equals("MENTION"))
+            .map(PriorityClassifyRequest.CandidateLine::sourceId)
+            .toList();
+    assertThat(mentionIds)
+        .contains(String.valueOf(mentionId))
+        .doesNotContain(String.valueOf(commentedId));
+  }
+
+  /** 안 읽은 알림 한 건을 넣고 id 를 돌려준다. */
+  private long insertNotification(long userId, long issueId, String type) {
+    return dsl.insertInto(com.workplace.jooq.Tables.NOTIFICATION)
+        .set(com.workplace.jooq.Tables.NOTIFICATION.RECIPIENT_ID, userId)
+        .set(com.workplace.jooq.Tables.NOTIFICATION.TYPE, type)
+        .set(com.workplace.jooq.Tables.NOTIFICATION.ISSUE_ID, issueId)
+        .returning(com.workplace.jooq.Tables.NOTIFICATION.ID)
+        .fetchOne()
+        .getId();
+  }
+
   /** 담당자=userId 인 마감 지난 이슈를 만들어 주어진 끝난 범주(DONE·CANCELED)로 닫는다. */
   private long seedClosedOverdueIssue(long projectId, int number, long userId, String status) {
     var issue = insertOverdueIssue(projectId, number, userId, status + " 마감 지난 이슈");
@@ -309,7 +348,7 @@ class PriorityClassificationSchedulerTest extends IntegrationTestBase {
     dsl.insertInto(com.workplace.jooq.Tables.NOTIFICATION)
         .set(com.workplace.jooq.Tables.NOTIFICATION.ID, issueId)
         .set(com.workplace.jooq.Tables.NOTIFICATION.RECIPIENT_ID, userId)
-        .set(com.workplace.jooq.Tables.NOTIFICATION.TYPE, "COMMENTED")
+        .set(com.workplace.jooq.Tables.NOTIFICATION.TYPE, "ISSUE_COMMENT_MENTION")
         .set(com.workplace.jooq.Tables.NOTIFICATION.ISSUE_ID, issueId)
         .execute();
 

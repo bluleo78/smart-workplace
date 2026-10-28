@@ -16,7 +16,7 @@ function due(dueDate: string, issueId = 1): IssueDueMarker {
 function notif(over: Partial<NotificationResponse>): NotificationResponse {
   return {
     id: 1,
-    type: 'COMMENTED',
+    type: 'ISSUE_COMMENT_MENTION',
     actorId: 2,
     actorName: '김개발',
     actorKind: 'HUMAN',
@@ -65,7 +65,7 @@ describe('computeSynthesisCounts', () => {
     expect(r.dueToday).toBe(2)
   })
 
-  it('멘션은 안 읽은 COMMENTED 만 센다', () => {
+  it('멘션은 안 읽은 멘션 알림만 센다', () => {
     const r = computeSynthesisCounts({
       ...empty,
       notifications: [
@@ -76,6 +76,14 @@ describe('computeSynthesisCounts', () => {
       ],
     })
     expect(r.mention).toBe(2)
+  })
+
+  it('멘션 없는 일반 댓글(COMMENTED)은 멘션으로 세지 않는다(WP-1092)', () => {
+    const r = computeSynthesisCounts({
+      ...empty,
+      notifications: [notif({ id: 1, type: 'COMMENTED' }), notif({ id: 2 })],
+    })
+    expect(r.mention).toBe(1)
   })
 
   it('메일은 분류 꺼짐이면 안 읽음, 켜짐이면 회신 필요 건수로 스왑한다', () => {

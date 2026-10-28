@@ -53,11 +53,12 @@ describe('notifTarget', () => {
 })
 
 describe('isMentionLike', () => {
-  it('이슈 챗 질문·멘션과 코멘트는 나를 호출한 알림', () => {
+  it('이슈 챗 질문·멘션과 코멘트 멘션은 나를 호출한 알림', () => {
     expect(isMentionLike(notif({ type: 'AI_QUESTION' }))).toBe(true)
     expect(isMentionLike(notif({ type: 'ISSUE_CHAT_MENTION' }))).toBe(true)
-    expect(isMentionLike(notif({ type: 'COMMENTED' }))).toBe(true)
     expect(isMentionLike(notif({ type: 'ISSUE_COMMENT_MENTION' }))).toBe(true)
+    // 멘션 없는 일반 댓글(담당·구독 이슈 공통 알림)은 나를 호출한 알림이 아니다(WP-1092).
+    expect(isMentionLike(notif({ type: 'COMMENTED' }))).toBe(false)
     expect(isMentionLike(notif({ type: 'STATUS_CHANGED' }))).toBe(false)
     // AI 검토 요청·실패(WP-913)는 나를 호출한 알림이 아니다(멘션 카운트에 넣지 않음).
     expect(isMentionLike(notif({ type: 'AI_REVIEW_REQUESTED' }))).toBe(false)

@@ -2,7 +2,7 @@
 // 전부 순수 함수(클라이언트 파생) — 백엔드 변경 없음. (내 작업 위젯 myTasks.ts 선례)
 import {
   isCalendarType,
-  isIssueChatType,
+  isMentionLike,
   isWikiShareType,
   notifTarget,
 } from "@/components/home/notifTarget";
@@ -37,15 +37,14 @@ export interface GroupedNotifs {
 // AI 작업 검토 요청·실패(WP-913)도 내가 검토하거나 다시 맡겨야 하는 알림이라 행동 필요.
 // COMMENTED 는 담당자∪워처 공통 수신이라 "나를 멘션"인지 구분 불가 → 보수적으로 updates.
 export function notifSection(n: NotificationResponse): NotifSection {
-  // 코멘트 멘션(WP-650)은 나를 직접 가리킨 알림, 노트 접근 요청(WP-579)은 승인·거절이 필요한 알림이라 둘 다 행동 필요.
-  // 보고자로 지정됨(WP-944)도 나에게 맡겨진 이슈라 배정과 같이 행동 필요.
+  // 나를 호출한 알림(코멘트 멘션 WP-650·이슈 챗 멘션·AI 질문 WP-452)은 홈 「멘션」과 같은 판정(isMentionLike)을 쓴다 — 두 곳이 갈리지 않게(WP-1092).
+  // 노트 접근 요청(WP-579)은 승인·거절이 필요한 알림, 보고자로 지정됨(WP-944)은 나에게 맡겨진 이슈라 배정과 같이 행동 필요.
   return n.type === "ASSIGNED" ||
     n.type === "REPORTER_ASSIGNED" ||
-    n.type === "ISSUE_COMMENT_MENTION" ||
     n.type === "WIKI_SHARE_ACCESS_REQUESTED" ||
     n.type === "AI_REVIEW_REQUESTED" ||
     n.type === "AI_WORK_FAILED" ||
-    isIssueChatType(n)
+    isMentionLike(n)
     ? "mine"
     : "updates";
 }

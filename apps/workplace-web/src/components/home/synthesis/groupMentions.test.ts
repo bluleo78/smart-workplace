@@ -5,11 +5,11 @@ import type { NotificationResponse } from '@/types/notification'
 
 import { groupMentionNotifs } from './groupMentions'
 
-// 테스트용 알림 — 기본은 WP-1 이슈의 안 읽은 COMMENTED.
+// 테스트용 알림 — 기본은 WP-1 이슈의 안 읽은 코멘트 멘션.
 function notif(over: Partial<NotificationResponse>): NotificationResponse {
   return {
     id: 1,
-    type: 'COMMENTED',
+    type: 'ISSUE_COMMENT_MENTION',
     actorId: 2,
     actorName: '김개발',
     actorKind: 'HUMAN',
@@ -53,6 +53,8 @@ describe('groupMentionNotifs', () => {
     const groups = groupMentionNotifs([
       notif({ id: 1, read: true }),
       notif({ id: 2, type: 'ASSIGNED' }),
+      // 멘션 없는 일반 댓글도 멘션 묶음에 들어가지 않는다(WP-1092).
+      notif({ id: 4, type: 'COMMENTED' }),
       notif({ id: 3 }),
     ])
     expect(groups).toHaveLength(1)
