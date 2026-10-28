@@ -695,6 +695,34 @@ describe('노트 공유 창 — 사람·팀 추가(WP-1023)', () => {
 
 // ── 공유 대상 고르기 개선(WP-1048) ─────────────────────────────────────
 // 종류 탭·조직 펼치기·나 빼기·소속 부서·검색어 없을 때 조직도 먼저, 공유 창 부서 행의 구성원 펼치기.
+describe('노트 공유 창 — 공유 대상 고르기 읽기 도구(WP-1065)', () => {
+  test('펼침 상태·상위 그룹은 후보 이름에, 키 안내는 검색창 설명에, 펼친 결과는 상태 영역에 알린다', async () => {
+    const { user } = openShareDialog({}, { 10: [memberRow(7)] })
+    const input = await openPicker(user)
+    expect(input).toHaveAccessibleDescription(/오른쪽 화살표로 펼쳐 하위와 구성원을 보고 왼쪽 화살표로 접습니다/)
+    const dev = await screen.findByTestId('share-target-department-10')
+    expect(dev).toHaveAccessibleName('개발팀 조직 하위 부서 포함 (접힘 — 오른쪽 화살표로 펼치기)')
+    expect(screen.getByRole('status')).toHaveTextContent('')
+
+    await user.click(screen.getByTestId('share-target-expand-10'))
+    expect(dev).toHaveAccessibleName('개발팀 조직 하위 부서 포함 (펼침 — 왼쪽 화살표로 접기)')
+    // 펼쳐 보이는 하위 부서·구성원은 어느 조직 아래인지 이름 앞에 읽힌다(들여쓰기는 눈에만 보인다).
+    expect(await screen.findByTestId('share-target-department-12')).toHaveAccessibleName(/^개발팀 하위, 백엔드 조직/)
+    expect(await screen.findByTestId('share-target-member-10-7')).toHaveAccessibleName(/^개발팀 구성원, /)
+    // 선택이 그대로라 이름이 바뀌어도 다시 읽히지 않으므로 결과를 상태 영역이 알린다 — 구성원을 받은 뒤 수까지.
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('개발팀 펼침 — 하위 1개, 구성원 1명'))
+
+    await user.click(screen.getByTestId('share-target-expand-10'))
+    expect(screen.getByRole('status')).toHaveTextContent('개발팀 접힘')
+  })
+
+  test('이미 추가한(고를 수 없는) 조직은 키로 닿지 않으니 펼침 상태만 읽고 키 안내는 붙이지 않는다', async () => {
+    const { user } = openShareDialog({ groups: [{ groupId: 10, name: '개발팀', memberCount: 3 }] })
+    await openPicker(user)
+    expect(await screen.findByTestId('share-target-department-10')).toHaveAccessibleName(/\(접힘\)$/)
+  })
+})
+
 describe('노트 공유 창 — 공유 대상 고르기(WP-1048)', () => {
   test('최상위 조직이 20개를 넘으면 「전체」 탭은 20개와 남은 수 안내를 보이고, 「조직」 탭은 모두 보인다(WP-1064)', async () => {
     // 최상위 부서 25개(100~124) — 개발팀(10)·디자인팀(20) 없이 이 트리만. 내 그룹은 그대로 2개라 잘리지 않는다.
