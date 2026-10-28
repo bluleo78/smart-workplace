@@ -185,12 +185,15 @@ test('구분선 앵커 진입 뒤 보이는 높이가 줄고 나서 바닥까지
 
   const area = page.getByTestId('message-scroll-area');
   // 보이는 높이를 먼저 40px 줄인다 — scrollTop 이 그대로라 scroll 이벤트 없이 높이만 바뀐다(입력창이 커진 것과 같다).
-  const before = await area.evaluate((el) => el.clientHeight);
-  await area.evaluate((el) => {
+  // 재기와 줄이기를 한 번에 한다 — 둘을 나눠 부르면 그 사이 입력창·카드 높이가 바뀌어(부하에서) 잰 값과 줄인 기준이 어긋났다(WP-1087).
+  // 메시지 영역은 div 다 — offsetHeight 는 HTMLElement 에만 있어 타입을 좁힌다(E2E 타입 검사).
+  const before = await area.evaluate((el: HTMLElement) => {
+    const clientHeight = el.clientHeight;
     // flex 를 풀기 전에 잰다 — 풀고 나면 높이가 콘텐츠 높이로 커진다.
     const h = el.offsetHeight - 40;
     el.style.flex = 'none';
     el.style.height = `${h}px`;
+    return clientHeight;
   });
   await expect.poll(() => area.evaluate((el) => el.clientHeight)).toBe(before - 40);
 
