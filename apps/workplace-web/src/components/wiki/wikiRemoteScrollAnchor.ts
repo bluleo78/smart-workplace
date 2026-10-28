@@ -65,6 +65,8 @@ export const WikiRemoteScrollAnchor = Extension.create({
           let ro: ResizeObserver | null = null
           /** 기준점 — Yjs 상대 위치와, 그 위치의 본문 칼럼 top 기준 높이, 내 캐럿인지(아니면 화면 맨 위 블록), 그때 칼럼의 화면 높이(스크롤 영역 top 기준). */
           let anchor: { rel: Y.RelativePosition; offset: number; caret: boolean; colTop: number } | null = null
+          /** 기준점을 잡을 때의 본문 칼럼 폭 — 폭이 바뀐 뒤 크기 콜백보다 먼저 온 스크롤 이벤트를 가려낸다(아래 onScroll). */
+          let colWidth = 0
           /** 원격 보정을 이미 한 상태 — 트랜잭션 없는 updateState(속성 갱신)에 remote 플래그가 남아 있어도 다시 보정하지 않는다. */
           let consumed: EditorState | null = null
 
@@ -115,6 +117,7 @@ export const WikiRemoteScrollAnchor = Extension.create({
           /** 지금 기준점을 잡는다 — 내 입력·선택·스크롤·보정 뒤마다(다음 원격 반영·크기 변화 직전의 위치가 필요하므로). 스크롤 뒤엔 기준 위치를 다시 고른다. */
           const capture = () => {
             if (!scroller || !column) return
+            colWidth = column.offsetWidth
             const a = anchorPos(scroller)
             const rel = a ? toRelative(view.state, a.pos) : null
             anchor = a && rel ? { rel, offset: offsetOf(a.pos, a.caret), caret: a.caret, colTop: columnTop() } : null
@@ -149,7 +152,17 @@ export const WikiRemoteScrollAnchor = Extension.create({
             if (aboveEditorHidden()) restore(screen)
             capture()
           }
-          const onScroll = () => settle(false)
+          /**
+           * 스크롤 이벤트 — 칼럼 이동은 사용자의 스크롤이라 되돌리지 않고(screen=false) 기준점만 다시 잡는다.
+           * 다만 칼럼 폭이 기준점 때와 다르면 아무것도 하지 않는다 — 폭이 바뀐 뒤 누가 레이아웃을 먼저 읽으면(강제 레이아웃) 다시 줄바꿈과
+           * scrollTop 잘림이 그 자리에서 일어나 잘림의 스크롤 이벤트가 크기 콜백보다 먼저 온다. 여기서 기준점을 다시 잡으면 잘려 칼럼째
+           * 내려간 몫이 기준점에 삼켜져 크기 콜백이 되돌리지 못한다(WP-1088 — 부하에서 읽던 줄이 잘린 만큼 어긋났다).
+           * 기준점을 그대로 두면 곧 올 크기 콜백(settle(true))이 줄바꿈 밀림과 잘림을 함께 되돌리고 새 기준점을 잡는다.
+           */
+          const onScroll = () => {
+            if (column && column.offsetWidth !== colWidth) return
+            settle(false)
+          }
 
           /** 에디터가 화면에 붙었으면 스크롤 영역·칼럼을 찾아 듣기 시작한다(한 번만). */
           const attach = () => {

@@ -160,7 +160,11 @@ test.describe('모바일 위쪽 삽입 스크롤 고정', { tag: '@platform' }, 
 })
 
 test.describe('모바일 화면 회전 읽던 줄 고정', { tag: '@layout' }, () => {
-  test('긴 문단 중간을 읽다가 화면 폭이 바뀌어 다시 줄바꿈돼도 읽던 줄이 제자리에 있다', async ({ authenticatedPage: a }) => {
+  /**
+   * 긴 문단(단어 300개) 가운데를 화면 맨 위에 두고 읽는 상태를 만든다 — 그 자리 글자의 문단 내 위치(at)와 화면 top(y0)을 돌려준다.
+   * 폭이 넓어지면 긴 문단이 다시 줄바꿈돼 문서가 짧아지고, 브라우저가 scrollTop 을 최대값으로 잘라 칼럼째 내린다.
+   */
+  async function readMiddleOfLongParagraph(a: Page) {
     const long = Array.from({ length: 300 }, (_, i) => `단어${i + 1}`).join(' ')
     const body = [...Array.from({ length: 10 }, (_, i) => `문단 ${i + 1}`), long, ...Array.from({ length: 20 }, (_, i) => `뒤 문단 ${i + 1}`)].join('\n\n')
     await mockWikiPageEditor(a, { spaceId: SPACE_ID, pageId: 63, title: '긴 문단', body })
@@ -182,22 +186,47 @@ test.describe('모바일 화면 회전 읽던 줄 고정', { tag: '@layout' }, (
       const e = document.querySelector('.ProseMirror')!.getBoundingClientRect()
       return document.caretRangeFromPoint(e.left + 8, sc.getBoundingClientRect().top + 4)!.startOffset
     })
-    /** 긴 문단 안 offset 글자의 화면 top. */
-    const lineTop = (offset: number) =>
+    /** 긴 문단 안 at 글자의 화면 top. */
+    const lineTop = () =>
       a.evaluate((o) => {
         const p = [...document.querySelectorAll('.ProseMirror p')].find((e) => e.textContent!.startsWith('단어1 '))!
         const range = document.createRange()
         range.setStart(p.firstChild!, o)
         range.setEnd(p.firstChild!, o + 1)
         return range.getBoundingClientRect().top
-      }, offset)
-    const y0 = await lineTop(at)
+      }, at)
+    return { scroller, lineTop, y0: await lineTop() }
+  }
+
+  test('긴 문단 중간을 읽다가 화면 폭이 바뀌어 다시 줄바꿈돼도 읽던 줄이 제자리에 있다', async ({ authenticatedPage: a }) => {
+    const { scroller, lineTop, y0 } = await readMiddleOfLongParagraph(a)
 
     // 폭이 넓어지면(가로 회전) 긴 문단이 다시 줄바꿈돼 문단 안 줄들의 높이가 바뀐다 — 문단 top 이 아니라 읽던 줄을 지켜야 한다.
     await a.setViewportSize({ width: 700, height: 844 })
     await expect.poll(() => scroller.evaluate((el) => el.clientWidth)).toBeGreaterThan(600)
     await nextFrame(a)
-    expect(Math.abs((await lineTop(at)) - y0)).toBeLessThanOrEqual(2)
+    expect(Math.abs((await lineTop()) - y0)).toBeLessThanOrEqual(2)
+  })
+
+  // 무엇을: 폭이 바뀐 직후 누군가 레이아웃을 읽어(강제 레이아웃) scrollTop 잘림의 scroll 이벤트가 크기 콜백(ResizeObserver)보다 먼저 와도 읽던 줄이 제자리인지.
+  // 왜: scroll 이벤트가 먼저 기준점을 다시 잡아 잘림으로 칼럼이 내려간 몫을 삼켜, 크기 콜백이 그만큼 되돌리지 못했다(WP-1088).
+  //     위 회전 테스트도 폭을 기다리는 poll 이 강제 레이아웃이라 부하에서 이 순서가 되어 간헐 실패했다(두 실패 모두 잘린 몫 244px 만큼 어긋남).
+  //     순서를 프레임 타이밍에 맡기지 않으려고, 한 태스크에서 폭을 바꾸고 강제 레이아웃으로 잘림을 일으킨 뒤 scroll 이벤트를 바로 보낸다 —
+  //     앱의 scroll 처리가 크기 콜백(다음 렌더링 때)보다 늘 먼저 돈다. 폭은 스크롤 영역에만 준다(회전처럼 문단이 다시 줄바꿈되면 된다).
+  test('폭이 바뀐 뒤 잘림의 scroll 이벤트가 크기 콜백보다 먼저 와도 읽던 줄이 제자리에 있다', async ({ authenticatedPage: a }) => {
+    const { scroller, lineTop, y0 } = await readMiddleOfLongParagraph(a)
+
+    const clamped = await scroller.evaluate((sc) => {
+      const before = sc.scrollTop
+      sc.style.width = '700px'
+      void sc.scrollHeight // 강제 레이아웃 — 문서가 짧아져 scrollTop 이 이 자리에서 잘린다.
+      sc.dispatchEvent(new Event('scroll')) // 잘림의 scroll 이벤트가 크기 콜백보다 먼저 닿은 상황.
+      return sc.scrollTop < before
+    })
+    // 잘림이 실제로 일어나야 이 순서를 시험한다.
+    expect(clamped).toBe(true)
+    await nextFrame(a)
+    expect(Math.abs((await lineTop()) - y0)).toBeLessThanOrEqual(2)
   })
 })
 
