@@ -6,8 +6,8 @@ import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
-import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 
+import com.workplace.global.org.Departments;
 import com.workplace.mail.util.MailAddresses;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -75,17 +75,13 @@ public class MailPeopleRepository {
   }
 
   /**
-   * 소속 조직 — 공유(SHARED) 조직도에서 MEMBER 로 직접 속한 그룹 이름(정렬 순서 → 이름). 상위 그룹은 따라가지 않는다. 다른 사람의 PERSONAL 그룹에
-   * 내가 들어 있어도 소속이 아니다(그 사람만의 분류).
+   * 소속 조직 — 공유(SHARED) 조직도에서 MEMBER 로 직접 속한 그룹 이름(공통 규칙 {@link Departments#directDepartmentOf}, 정렬
+   * 순서 → 이름). 상위 그룹은 따라가지 않는다. 다른 사람의 PERSONAL 그룹에 내가 들어 있어도 소속이 아니다(그 사람만의 분류).
    */
   public List<String> listSharedGroupNames(long userId) {
     return dsl.select(USER_GROUP.NAME)
-        .from(USER_GROUP_MEMBER)
-        .join(USER_GROUP)
-        .on(USER_GROUP.ID.eq(USER_GROUP_MEMBER.GROUP_ID))
-        .where(USER_GROUP_MEMBER.TARGET_TYPE.eq("MEMBER"))
-        .and(USER_GROUP_MEMBER.TARGET_ID.eq(userId))
-        .and(USER_GROUP.VISIBILITY.eq("SHARED"))
+        .from(USER_GROUP)
+        .where(Departments.directDepartmentOf(USER_GROUP, DSL.val(userId)))
         .orderBy(USER_GROUP.SORT_ORDER.asc(), USER_GROUP.NAME.asc())
         .fetch(USER_GROUP.NAME);
   }
@@ -135,19 +131,10 @@ public class MailPeopleRepository {
 
   /** 두 사람이 함께 MEMBER 로 직접 속한 공유(SHARED) 그룹 이름 — "같은 조직". 개인 그룹·상위 그룹은 보지 않는다. */
   public List<String> listCommonSharedGroupNames(long userA, long userB) {
-    var a = USER_GROUP_MEMBER.as("ma");
-    var b = USER_GROUP_MEMBER.as("mb");
     return dsl.select(USER_GROUP.NAME)
         .from(USER_GROUP)
-        .join(a)
-        .on(a.GROUP_ID.eq(USER_GROUP.ID))
-        .and(a.TARGET_TYPE.eq("MEMBER"))
-        .and(a.TARGET_ID.eq(userA))
-        .join(b)
-        .on(b.GROUP_ID.eq(USER_GROUP.ID))
-        .and(b.TARGET_TYPE.eq("MEMBER"))
-        .and(b.TARGET_ID.eq(userB))
-        .where(USER_GROUP.VISIBILITY.eq("SHARED"))
+        .where(Departments.directDepartmentOf(USER_GROUP, DSL.val(userA)))
+        .and(Departments.directDepartmentOf(USER_GROUP, DSL.val(userB)))
         .orderBy(USER_GROUP.SORT_ORDER.asc(), USER_GROUP.NAME.asc())
         .fetch(USER_GROUP.NAME);
   }

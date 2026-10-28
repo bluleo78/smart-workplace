@@ -3,6 +3,8 @@ package com.workplace.global.tenant;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.jooq.tables.Membership;
+import com.workplace.jooq.tables.User;
 import com.workplace.tenant.repository.MembershipRepository;
 import org.jooq.Condition;
 import org.jooq.Field;
@@ -24,7 +26,12 @@ public final class WorkspaceActive {
 
   /** USER(또는 주어진 user id 컬럼) 에 대상 테넌트의 MEMBERSHIP 행을 붙이는 조인 조건. */
   public static Condition join(Field<Long> userId, Field<Long> tenantId) {
-    return MEMBERSHIP.USER_ID.eq(userId).and(MEMBERSHIP.TENANT_ID.eq(tenantId));
+    return join(MEMBERSHIP, userId, tenantId);
+  }
+
+  /** {@link #join(Field, Field)} 의 별칭 판 — 바깥 질의에 MEMBERSHIP 이 이미 있어 별칭으로 붙일 때(WP-1055). */
+  public static Condition join(Membership ms, Field<Long> userId, Field<Long> tenantId) {
+    return ms.USER_ID.eq(userId).and(ms.TENANT_ID.eq(tenantId));
   }
 
   /** {@link #join(Field, Field)} 의 USER.ID 판. */
@@ -39,7 +46,12 @@ public final class WorkspaceActive {
 
   /** 술어 — {@link #join} 으로 MEMBERSHIP 을 붙인 쿼리의 where 에 쓴다. */
   public static Condition condition() {
-    return USER.IS_ACTIVE.isTrue().and(MEMBERSHIP.STATUS.eq(MembershipRepository.STATUS_ACTIVE));
+    return condition(USER, MEMBERSHIP);
+  }
+
+  /** {@link #condition()} 의 별칭 판 — USER·MEMBERSHIP 을 별칭으로 붙인 쿼리에서 쓴다(WP-1055). */
+  public static Condition condition(User u, Membership ms) {
+    return u.IS_ACTIVE.isTrue().and(ms.STATUS.eq(MembershipRepository.STATUS_ACTIVE));
   }
 
   /** 술어를 select 컬럼으로 — 목록이 active 값으로 그대로 내보낸다. LEFT JOIN 에서도 NULL 이 되지 않게 false 로 감싼다. */

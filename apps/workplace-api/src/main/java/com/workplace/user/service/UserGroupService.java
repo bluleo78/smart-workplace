@@ -84,8 +84,8 @@ public class UserGroupService {
     for (FlatGroup g : repo.findAccessible(treeOwner(root, callerId))) {
       byId.put(g.id(), g);
     }
-    // 그룹 id → 너비 우선 순번(작을수록 찾은 그룹에 가까운 소속). 키는 찾을 범위다.
-    Map<Long, Integer> depthRank = subtreeRanks(byId.values(), id);
+    // 그룹 id → 가까운 순번(작을수록 찾은 그룹에 가까운 소속). 키는 찾을 범위다.
+    Map<Long, Integer> depthRank = subtreeRanks(id);
     Map<String, GroupMemberRow> nearest = new LinkedHashMap<>();
     for (GroupMemberRow r :
         repo.findMembersIn(
@@ -121,26 +121,22 @@ public class UserGroupService {
   }
 
   /**
-   * 그룹의 하위를 볼 트리의 주인 — 개인 그룹이면 그 주인, 공유 그룹이면 호출자. 개인 그룹의 하위는 같은 주인의 개인 그룹뿐이라(validateParent) 관리자가
-   * 남의 개인 그룹을 다룰 때도 주인 트리로 봐야 자손을 놓치지 않는다(WP-677).
+   * 그룹의 하위를 볼 트리의 주인 — 개인 그룹이면 그 주인, 공유 그룹이면 호출자. 하위 조직 검색이 소속 경로 이름을 그릴 그룹 목록을 읽을 때 쓴다 — 관리자가 남의
+   * 개인 그룹을 검색할 때도 주인 트리로 봐야 경로가 끊기지 않는다(WP-677). 검색 범위(자손) 자체는 {@link
+   * UserGroupRepository#findSubtreeIds} 가 정한다.
    */
   private static long treeOwner(FlatGroup g, long callerId) {
     return g.ownerId() != null ? g.ownerId() : callerId;
   }
 
-  /** id 그룹과 자손의 너비 우선 순번(자기 0 — 작을수록 가까운 소속). 순서를 지키는 맵이다. */
-  private static Map<Long, Integer> subtreeRanks(Collection<FlatGroup> groups, long id) {
-    Map<Long, List<Long>> childrenByParent = new LinkedHashMap<>();
-    for (FlatGroup g : groups) {
-      childrenByParent.computeIfAbsent(g.parentId(), k -> new ArrayList<>()).add(g.id());
-    }
+  /**
+   * id 그룹과 자손의 가까운 순번(자기 0 — 작을수록 가까운 소속, 깊이 순). 순서를 지키는 맵이다. 트리 탐색은 공통 규칙(WP-1055, {@link
+   * UserGroupRepository#findSubtreeIds})이다.
+   */
+  private Map<Long, Integer> subtreeRanks(long id) {
     Map<Long, Integer> ranks = new LinkedHashMap<>();
-    ranks.put(id, 0);
-    List<Long> order = new ArrayList<>(List.of(id));
-    for (int i = 0; i < order.size(); i++) {
-      for (Long child : childrenByParent.getOrDefault(order.get(i), List.of())) {
-        if (ranks.putIfAbsent(child, ranks.size()) == null) order.add(child);
-      }
+    for (Long g : repo.findSubtreeIds(id)) { // 출발 그룹이 하나라 그룹마다 한 번씩 온다
+      ranks.put(g, ranks.size());
     }
     return ranks;
   }
@@ -208,10 +204,10 @@ public class UserGroupService {
       if (req.parentId() == id) {
         throw new InvalidUserGroupException("그룹을 자기 자신의 하위로 옮길 수 없습니다");
       }
-      // 자손·부모는 호출자가 아니라 이 그룹 주인 기준으로 본다(WP-677) — 관리자가 남의 개인 그룹을 옮길 때 관리자 트리에는 그 자손이 없어
-      // 순환을 놓쳤고, 「부모 주인 == 호출자」만 봐 남의 그룹을 관리자 개인 그룹 밑으로 옮겨 양쪽 트리에서 사라지게 했다.
-      if (subtreeRanks(repo.findAccessible(treeOwner(g, callerId)), id)
-          .containsKey(req.parentId())) {
+      // 자손·부모는 호출자가 아니라 이 그룹 기준으로 본다(WP-677) — 관리자가 남의 개인 그룹을 옮길 때 관리자 트리로 보면 그 자손이 없어
+      // 순환을 놓쳤고, 「부모 주인 == 호출자」만 봐 남의 그룹을 관리자 개인 그룹 밑으로 옮겨 양쪽 트리에서 사라지게 했다. 자손은 이 그룹의 트리를
+      // DB 에서 따라가 구하고(호출자와 무관), 부모는 이 그룹 주인으로 검증한다.
+      if (repo.findSubtreeIds(id).contains(req.parentId())) {
         throw new InvalidUserGroupException("그룹을 자손 그룹의 하위로 옮길 수 없습니다");
       }
       validateParent(g.ownerId(), g.visibility(), req.parentId());
@@ -235,7 +231,7 @@ public class UserGroupService {
     FlatGroup g = requireWritable(callerId, id);
     // 지울 부서·하위 부서와 그 상위 부서의 구성원이 줄어든다. 부서를 대상으로 한 공유 행은 지우면 사라지므로 지우기 전에 알린다(WP-1042).
     Set<Long> affected = new LinkedHashSet<>(ancestorIds(g.parentId()));
-    affected.addAll(subtreeRanks(repo.findAccessible(treeOwner(g, callerId)), id).keySet());
+    affected.addAll(repo.findSubtreeIds(id));
     publishMembersReduced(g, affected);
     repo.delete(id);
   }
@@ -297,14 +293,9 @@ public class UserGroupService {
 
   // --- 내부 헬퍼 ---
 
-  /** parentId 부터 위로 올라가는 상위 부서 id(가까운 순). 사이클이 있어도 한 번씩만. */
+  /** parentId 부터 위로 올라가는 상위 부서 id(가까운 순) — 한 번의 조회(공통 규칙, WP-1055). 최상위(null)면 빈 목록. */
   private List<Long> ancestorIds(Long parentId) {
-    List<Long> out = new ArrayList<>();
-    for (Long cur = parentId; cur != null && !out.contains(cur); ) {
-      out.add(cur);
-      cur = repo.findById(cur).map(FlatGroup::parentId).orElse(null);
-    }
-    return out;
+    return parentId == null ? List.of() : repo.findAncestorIds(parentId);
   }
 
   /** 조직도 부서(SHARED)의 구성원이 줄었음을 알린다 — 개인 그룹은 노트 공유 대상이 아니므로 알리지 않는다. */
