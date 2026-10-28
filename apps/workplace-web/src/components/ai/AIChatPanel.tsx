@@ -401,7 +401,9 @@ export function AIChatPanel({
                     {t.role === 'assistant' ? (
                       t.contentBlocks?.length ? (
                         // #463: 라이브 인터리브 — 블록 도착순으로 text↔widget↔도구 그룹(WP-157) 렌더.
-                        <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
+                        // min-w-0: 가로 flex 아이템 기본 min-width:auto 가 max-w-[92%] 를 이겨, 긴 도구 설명 줄 폭만큼
+                        // 넓어져 대화 영역에 가로 스크롤이 생기던 결함(WP-1050 — 일반 답변 분기의 #202 와 같은 원인).
+                        <div className="flex w-full min-w-0 max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
                           {t.contentBlocks.map((b, bi, blocks) => {
                             if (b.kind === 'tools') {
                               // WP-157: 도구 그룹 = steps[stepStart ~ 다음 tools 블록의 stepStart). result 이벤트는 steps 만
@@ -409,7 +411,8 @@ export function AIChatPanel({
                               const [from, to] = sliceRange(blocks, bi);
                               const steps = t.steps ?? [];
                               return (
-                                <div key={bi} className="self-start" data-testid="chat-block-tools">
+                                // max-w-full: self-start 상자는 내용 폭에 맞춰 커지므로 래퍼 폭으로 막아야 설명이 … 로 잘린다(WP-1050).
+                                <div key={bi} className="max-w-full self-start" data-testid="chat-block-tools">
                                   <ToolStepList
                                     steps={steps.slice(from, to)}
                                     // 메모리 결과 줄로 끊겨 이어지는 그룹은 앞 그룹의 위임 아래로 들여 쓴다(텍스트로 끊긴 그룹은 기존대로).
@@ -453,8 +456,8 @@ export function AIChatPanel({
                           })}
                         </div>
                       ) : t.widgets?.length ? (
-                        // #431: 히스토리/위젯-only 폴백(기존 2-섹션). contentBlocks 없을 때 사용.
-                        <div className="flex w-full max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
+                        // #431: 히스토리/위젯-only 폴백(기존 2-섹션). contentBlocks 없을 때 사용. min-w-0 은 위 분기와 같은 이유(WP-1050).
+                        <div className="flex w-full min-w-0 max-w-[92%] flex-col gap-2" data-testid="chat-widgets">
                           {/* 도구 호출 단계 인라인 표시 — 위젯 위에 렌더. 표시 가능 step 이 있을 때만. */}
                           {t.steps && visibleSteps(t.steps).length > 0 && <ToolStepList steps={t.steps} />}
                           {t.content && (
