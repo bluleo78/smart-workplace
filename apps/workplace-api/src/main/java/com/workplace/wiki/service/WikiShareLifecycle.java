@@ -1,6 +1,7 @@
 package com.workplace.wiki.service;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.wiki.repository.WikiPageRepository;
 import com.workplace.wiki.repository.WikiShareRepository;
@@ -103,8 +104,7 @@ public class WikiShareLifecycle {
     if (movedOut.isEmpty() && movedIn.isEmpty()) {
       return false;
     }
-    String title =
-        pages.findTitle(pageId).filter(t -> !t.isBlank()).orElse(WikiPublicShareService.UNTITLED);
+    String title = SingleLineTitles.orUntitled(pages.findTitle(pageId).orElse(null));
     movedOut.forEach(
         root ->
             recordMove(

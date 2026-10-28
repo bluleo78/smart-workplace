@@ -14,6 +14,7 @@ import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 
 import com.workplace.global.share.WikiShareTargets;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.notify.dto.NotificationResponse;
 import com.workplace.notify.dto.NotificationType;
 import java.time.OffsetDateTime;
@@ -256,7 +257,10 @@ public class NotificationRepository {
                   r.get(EVENT_TITLE),
                   eventStart == null ? null : eventStart.toInstant(),
                   r.get(NOTIFICATION.WIKI_PAGE_ID),
-                  r.get(WIKI_PAGE.TITLE),
+                  // 제목을 비워 둔 노트는 「제목 없음」 — 빈 이름이 「노트 「」을 공유했습니다」로 보였다(WP-1069). 노트 알림이 아니면 null
+                  r.get(NOTIFICATION.WIKI_PAGE_ID) == null
+                      ? null
+                      : SingleLineTitles.orUntitled(r.get(WIKI_PAGE.TITLE)),
                   r.get(NOTIFICATION.MESSAGE),
                   r.get(NOTIFICATION.STATUS_NAME),
                   r.get(NOTIFICATION.AGENT_WORK_STATE),
