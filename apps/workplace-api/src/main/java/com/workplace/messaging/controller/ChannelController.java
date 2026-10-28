@@ -3,6 +3,7 @@ package com.workplace.messaging.controller;
 import com.workplace.messaging.dto.ChannelResponse;
 import com.workplace.messaging.dto.CreateChannelRequest;
 import com.workplace.messaging.dto.RenameChannelRequest;
+import com.workplace.messaging.dto.UnarchiveChannelRequest;
 import com.workplace.messaging.service.ChannelService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -74,11 +75,13 @@ public class ChannelController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 아카이브 해제. */
+  /** 아카이브 해제 — 본문에 이름을 주면 그 이름으로 바꾸며 해제한다(WP-1084, 이름이 겹쳐 해제가 거절된 뒤). */
   @PostMapping("/channels/{id}/unarchive")
   public ResponseEntity<Void> unarchive(
-      @AuthenticationPrincipal Long callerId, @PathVariable("id") long channelId) {
-    channelService.unarchive(callerId, channelId);
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long channelId,
+      @Valid @RequestBody(required = false) UnarchiveChannelRequest req) {
+    channelService.unarchive(callerId, channelId, req == null ? null : req.name());
     return ResponseEntity.noContent().build();
   }
 

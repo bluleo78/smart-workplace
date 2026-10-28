@@ -93,6 +93,8 @@ export default function ChannelPage() {
   const mentionMembers: MentionCandidate[] = channelMentionCandidates(channelMembers, agentCandidates, aiAvailable)
   const [membersOpen, setMembersOpen] = useState(false)
   const [renameOpen, setRenameOpen] = useState(false)
+  // 이름 대화창의 용도 — 이름 변경, 또는 이름이 겹쳐 거절된 보관 해제를 새 이름으로 다시 하기(WP-1084).
+  const [renameMode, setRenameMode] = useState<'rename' | 'unarchive'>('rename')
 
   // 열린 스레드(?thread) — 판정·모바일 탭바 숨김은 DmPage 와 공용(useOpenThread, WP-207·WP-1083).
   const location = useLocation()
@@ -208,7 +210,14 @@ export default function ChannelPage() {
       <ChannelHeader
         channel={channel}
         onOpenMembers={() => setMembersOpen(true)}
-        onOpenRename={() => setRenameOpen(true)}
+        onOpenRename={() => {
+          setRenameMode('rename')
+          setRenameOpen(true)
+        }}
+        onUnarchiveNameTaken={() => {
+          setRenameMode('unarchive')
+          setRenameOpen(true)
+        }}
         className={cn(hideChannel && 'hidden')}
       />
       <Page.Body padded={false}>
@@ -285,6 +294,7 @@ export default function ChannelPage() {
       <RenameChannelModal
         channelId={channel.id}
         currentName={channel.name}
+        mode={renameMode}
         open={renameOpen}
         onOpenChange={setRenameOpen}
       />

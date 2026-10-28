@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { messagingApi } from '../../api/messaging';
-import { handleApiError } from '../../lib/api-error';
+import { extractApiErrorCode, handleApiError } from '../../lib/api-error';
 import type { ChannelResponse, CreateChannelRequest } from '../../types/messaging';
 import { messagingKeys } from './messagingKeys';
 
@@ -40,15 +40,27 @@ export function useArchiveChannel(channelId: number) {
   });
 }
 
-export function useUnarchiveChannel(channelId: number) {
+/** 보관 해제가 이름 겹침으로 거절됐을 때 서버가 싣는 사유 코드(409, ErrorResponse.errors.code — WP-1084). */
+const CHANNEL_NAME_TAKEN = 'CHANNEL_NAME_TAKEN';
+
+/**
+ * 보관 해제. 변수로 새 이름을 주면 그 이름으로 바꾸며 해제한다(WP-1084).
+ * 같은 이름의 채널이 있어 거절되면(CHANNEL_NAME_TAKEN) onNameTaken 이 있을 때 토스트 대신 그것을 부른다 — 새 이름 대화창을 여는 자리.
+ * 새 이름으로 보낸 요청의 실패는 그 대화창이 인라인으로 보이므로 토스트를 띄우지 않는다.
+ */
+export function useUnarchiveChannel(channelId: number, { onNameTaken }: { onNameTaken?: () => void } = {}) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => messagingApi.unarchiveChannel(channelId).then((r) => r.data),
+  return useMutation<void, unknown, string | undefined>({
+    mutationFn: (name) => messagingApi.unarchiveChannel(channelId, name).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.channels() });
     },
-    onError: (err) => handleApiError(err, '채널 보관 해제에 실패했습니다'),
+    onError: (err, name) => {
+      if (name !== undefined) return;
+      if (onNameTaken && extractApiErrorCode(err) === CHANNEL_NAME_TAKEN) return onNameTaken();
+      handleApiError(err, '채널 보관 해제에 실패했습니다');
+    },
   });
 }
 

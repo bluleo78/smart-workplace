@@ -42,11 +42,14 @@ export function ChannelHeader({
   channel,
   onOpenMembers,
   onOpenRename,
+  onUnarchiveNameTaken,
   className,
 }: {
   channel: ChannelResponse
   onOpenMembers: () => void
   onOpenRename: () => void
+  /** 보관 해제가 같은 이름의 공개 채널 때문에 거절됐을 때 — 새 이름으로 해제하는 대화창을 연다(WP-1084). */
+  onUnarchiveNameTaken: () => void
   /** 헤더 바 추가 클래스 — 모바일 스레드 전체폭일 때 채널 헤더를 숨기는 용도(채널 컬럼과 함께 가려짐). */
   className?: string
 }) {
@@ -54,7 +57,8 @@ export function ChannelHeader({
   const { isAdmin } = useAuth()
   const navigate = useNavigate()
   const archive = useArchiveChannel(channel.id)
-  const unarchive = useUnarchiveChannel(channel.id)
+  // 보관 해제 — 이름이 겹쳐 거절되면 막다른 오류 대신 새 이름 대화창으로 잇는다(WP-1084).
+  const unarchive = useUnarchiveChannel(channel.id, { onNameTaken: onUnarchiveNameTaken })
   const del = useDeleteChannel()
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -162,7 +166,7 @@ export function ChannelHeader({
                     <button type="button" data-testid="channel-rename-action" onClick={onOpenRename}>이름 변경</button>
                   )}
                   {channel.archived ? (
-                    <button type="button" data-testid="channel-unarchive-action" onClick={() => unarchive.mutate()}>보관 해제</button>
+                    <button type="button" data-testid="channel-unarchive-action" onClick={() => unarchive.mutate(undefined)}>보관 해제</button>
                   ) : (
                     <button type="button" data-testid="channel-archive-action" onClick={() => archive.mutate()}>보관</button>
                   )}
@@ -254,7 +258,7 @@ export function ChannelHeader({
                       {channel.archived ? (
                         <DropdownMenuItem
                           data-testid="channel-unarchive-action"
-                          onClick={() => unarchive.mutate()}
+                          onClick={() => unarchive.mutate(undefined)}
                         >
                           보관 해제
                         </DropdownMenuItem>
