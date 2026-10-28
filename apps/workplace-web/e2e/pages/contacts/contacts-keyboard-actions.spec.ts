@@ -105,3 +105,73 @@ test('연락처 목록 — ☆ 는 키보드 초점을 받으면 보이고 Enter
   await posts.waitFor()
   expect(posts.lastBody()).toMatchObject({ targetType: 'EXTERNAL', targetId: 100 })
 })
+
+// WP-1085 — 저장 중 「저장」을 disabled 로 끄면 초점이 body 로 빠져, 이어 뜬 중복 경고를 닫거나 강행 저장이 실패한 뒤 돌아올 곳이 없었다.
+// 경고를 취소·Esc 로 닫아도, 「그래도 추가」가 실패해도 열린 채 남는 폼의 「저장」에 초점이 있어야 한다.
+// 꺼진 버튼에서 초점이 빠지는 것은 실제 브라우저만 재현한다(jsdom 은 초점을 그대로 둔다).
+for (const close of ['Escape', '취소'] as const) {
+  test(`외부 연락처 중복 경고를 ${close === 'Escape' ? 'Esc' : '「취소」'}로 닫으면 초점이 폼의 「저장」으로 돌아온다`, { tag: '@input' }, async ({ authenticatedPage: page }) => {
+    await stub(page)
+    await page.route((u) => u.pathname === '/api/v1/contacts/external', (r) =>
+      r.request().method() === 'POST'
+        ? r.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ status: 409, error: 'Conflict', message: '이미 존재하는 연락처입니다: 중복 테스트', errors: null, path: '/api/v1/contacts/external' }),
+          })
+        : r.fallback())
+    await page.goto('/contacts')
+    await page.getByTestId('contact-create').click()
+    await page.getByTestId('c-name').fill('중복 테스트')
+    await page.getByTestId('c-email').fill('DUP@x.com')
+    await page.getByTestId('c-save').focus()
+    await page.keyboard.press('Enter')
+
+    const warning = page.getByTestId('contact-duplicate-dialog')
+    await expect(warning).toBeVisible()
+    if (close === 'Escape') await page.keyboard.press('Escape')
+    else await warning.getByRole('button', { name: '취소' }).click()
+
+    await expect(warning).toBeHidden()
+    await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
+    await expect(page.getByTestId('c-save')).toBeFocused()
+    // 입력값은 그대로 — 고쳐서 다시 저장할 수 있다.
+    await expect(page.getByTestId('c-name')).toHaveValue('중복 테스트')
+  })
+}
+
+test('외부 연락처 중복 경고에서 「그래도 추가」가 실패해도 초점이 폼의 「저장」에 남는다', { tag: '@input' }, async ({ authenticatedPage: page }) => {
+  await stub(page)
+  await page.route((u) => u.pathname === '/api/v1/contacts/external', (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    const force = new URL(r.request().url()).searchParams.get('force') === 'true'
+    return r.fulfill({
+      status: force ? 500 : 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: force ? 500 : 409,
+        error: force ? 'Internal Server Error' : 'Conflict',
+        message: force ? '서버 오류' : '이미 존재하는 연락처입니다: 중복 테스트',
+        errors: null,
+        path: '/api/v1/contacts/external',
+      }),
+    })
+  })
+  await page.goto('/contacts')
+  await page.getByTestId('contact-create').click()
+  await page.getByTestId('c-name').fill('중복 테스트')
+  await page.getByTestId('c-email').fill('DUP@x.com')
+  await page.getByTestId('c-save').focus()
+  await page.keyboard.press('Enter')
+
+  const warning = page.getByTestId('contact-duplicate-dialog')
+  await expect(warning).toBeVisible()
+  const forced = page.waitForResponse((r) => r.url().includes('force=true'))
+  await page.getByTestId('contact-duplicate-confirm').focus()
+  await page.keyboard.press('Enter')
+  await forced
+
+  await expect(warning).toBeHidden()
+  await expect(page.getByTestId('external-contact-dialog')).toBeVisible()
+  await expect(page.getByTestId('c-save')).toBeFocused()
+})

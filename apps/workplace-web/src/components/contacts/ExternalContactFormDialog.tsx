@@ -30,6 +30,7 @@ import {
   useCreateExternalContact,
   useUpdateExternalContact,
 } from '@/hooks/queries/useExternalContactMutations'
+import { cn } from '@/lib/utils'
 import {
   type ExternalContactFormData,
   externalContactSchema,
@@ -83,6 +84,8 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
   }, [open, contact, form])
 
   const onSubmit: SubmitHandler<ExternalContactFormData> = async (data) => {
+    // 저장 중엔 「저장」을 끄지 않으므로(아래) 두 번째 제출은 여기서 무시한다.
+    if (create.isPending || update.isPending) return
     try {
       if (isEdit && contact) {
         await update.mutateAsync({ id: contact.id, body: data })
@@ -176,7 +179,15 @@ export function ExternalContactFormDialog({ open, onOpenChange, contact }: Props
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
                 취소
               </Button>
-              <Button type="submit" disabled={saving} data-testid="c-save">
+              <Button
+                type="submit"
+                // 저장 중엔 disabled 대신 aria-disabled + 제출 무시(onSubmit) — disabled 로 꺼지면 키보드 초점이 body 로 빠져, 이어 뜨는
+                // 중복 경고(409)를 닫거나 저장이 실패한 뒤 초점이 돌아올 곳이 없다(WP-1085, 같은 방식 WP-847).
+                aria-disabled={saving || undefined}
+                aria-busy={saving || undefined}
+                className={cn(saving && 'cursor-progress opacity-50')}
+                data-testid="c-save"
+              >
                 {saving ? '저장 중…' : '저장'}
               </Button>
             </DialogFooter>
