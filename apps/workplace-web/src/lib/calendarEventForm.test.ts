@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { Attendee } from '../types/calendar'
 import {
   allDayDisplayDates,
+  allDayFormRange,
   allDayFormValue,
   allDayRangeFromDates,
   eventEditability,
@@ -349,9 +350,11 @@ describe('allDayDisplayDates / allDayRangeFromDates', () => {
     expect(allDayDisplayDates('2026-10-28T00:00', '2026-11-02T00:00')).toEqual({ startDate: '2026-10-28', endDate: '2026-11-01' })
     expect(allDayDisplayDates('2026-12-31T00:00', '2027-01-01T00:00').endDate).toBe('2026-12-31')
   })
-  it('종료가 시작 이하이면 종료일은 시작일, 비었으면 빈 칸', () => {
+  // WP-1090 — 시작일로 고쳐 보이면 오류가 남은 채 같은 날을 다시 고를 수 없었다. 폼 값의 마지막 날을 그대로 보인다.
+  it('종료가 시작 이하이면 폼 값 그대로 시작일보다 앞선 날로 보이고, 비었으면 빈 칸', () => {
     expect(allDayDisplayDates('2026-10-28T00:00', '').endDate).toBe('')
-    expect(allDayDisplayDates('2026-10-28T00:00', '2026-10-28T00:00').endDate).toBe('2026-10-28')
+    expect(allDayDisplayDates('2026-10-28T00:00', '2026-10-28T00:00').endDate).toBe('2026-10-27')
+    expect(allDayDisplayDates('2026-10-28T00:00', '2026-10-26T00:00').endDate).toBe('2026-10-25')
   })
   it('날짜 칸 → 폼 값: 종료일 다음 날 0시가 끝이다(왕복이 같다)', () => {
     expect(allDayRangeFromDates('2026-10-28', '2026-11-01')).toEqual({ start: '2026-10-28T00:00', end: '2026-11-02T00:00' })
@@ -379,6 +382,13 @@ describe('allDayFormValue / keepStoredAllDayInstants', () => {
   const synced = { allDay: true, startsAt: '2026-06-11T00:00:00Z', endsAt: '2026-06-13T00:00:00Z' }
   const request = { startsAt: 'LOCAL-START', endsAt: 'LOCAL-END', title: 't' }
 
+  // WP-1090 — 길이 0 으로 저장된 종일은 하루 일정으로 연다(처음부터 오류로 열리지 않게), 그대로 저장해도 서버가 거절하는 길이 0 대신 하루로 고친 값을 보낸다.
+  it('길이 0 종일은 하루 일정 폼 값으로 열리고, 그대로 저장하면 하루로 고친 시각을 보낸다', () => {
+    const zero = { allDay: true, startsAt: '2026-06-11T00:00:00Z', endsAt: '2026-06-11T00:00:00Z' }
+    const range = allDayFormRange(zero)
+    expect(range).toEqual({ start: '2026-06-11T00:00', end: '2026-06-12T00:00' })
+    expect(keepStoredAllDayInstants(request, { allDay: true, ...range }, zero)).toBe(request)
+  })
   it('동기화(UTC 자정) 종일은 그 날짜의 자정 폼 값이 된다', () => {
     expect(allDayFormValue(synced.startsAt)).toBe('2026-06-11T00:00')
     expect(allDayFormValue(synced.endsAt)).toBe('2026-06-13T00:00')

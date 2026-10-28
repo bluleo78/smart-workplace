@@ -160,15 +160,16 @@ export function normalizeAllDayRange(start: string, end: string): { start: strin
 /**
  * 종일 일정의 폼 값(자정 경계 half-open [start, end)) → 화면에 보일 날짜 칸 값(WP-1072).
  * 종료는 마지막 날을 포함하는 날짜로 보인다 — 배타적 끝(다음 날 0시)을 그대로 보이면 10/28 하루 일정이 「10/28 – 10/29」로 보여,
- * 그 날짜를 고친 사람이 고른 종료일이 달력에서 하루 빠졌다. 종료가 시작 이하이면 시작과 같은 날로 본다.
+ * 그 날짜를 고친 사람이 고른 종료일이 달력에서 하루 빠졌다.
  */
 export function allDayDisplayDates(start: string, end: string): { startDate: string; endDate: string } {
   const startDate = localDateOnly(start)
   const exclusiveEnd = localDateOnly(end)
   // 비었거나 날짜로 읽을 수 없으면(연도 5자리 등) 그대로 보인다 — 날짜 연산이 던지지 않게, 오류는 스키마가 알린다(WP-902).
   if (!isDateOnly(startDate) || !isDateOnly(exclusiveEnd)) return { startDate, endDate: exclusiveEnd }
-  const endDate = exclusiveEnd > startDate ? addDaysToDateOnly(exclusiveEnd, -1) : startDate
-  return { startDate, endDate }
+  // 폼 값 그대로의 마지막 날을 보인다 — 시작일로 고쳐 보이면 칸과 폼 값이 어긋나, 오류가 남은 채 같은 날을 다시 골라도
+  // 칸 값이 바뀌지 않아(change 없음) 고칠 수 없었다(WP-1090). 종료가 시작 이하이면 화면에서도 시작일보다 앞선 날로 보이고 스키마가 알린다.
+  return { startDate, endDate: addDaysToDateOnly(exclusiveEnd, -1) }
 }
 
 /**
@@ -192,20 +193,29 @@ export function allDayFormValue(iso: string): string {
 }
 
 /**
+ * 종일 일정 → 폼 값(자정 경계 half-open [start, end)) — 프리필과 「날짜를 고치지 않았는가」 판정이 같은 값을 쓴다(WP-1090).
+ * 길이 0 으로 저장된 종일 일정(종료 ≤ 시작)은 하루 일정으로 연다 — 그대로 열면 종료일이 시작일보다 앞서 보여 처음부터 오류가 난다.
+ */
+export function allDayFormRange(event: Pick<CalendarEvent, 'startsAt' | 'endsAt'>): { start: string; end: string } {
+  return normalizeAllDayRange(allDayFormValue(event.startsAt), allDayFormValue(event.endsAt))
+}
+
+/**
  * 종일 날짜를 고치지 않은 저장이면 저장된 시각을 그대로 보낸다(WP-1072) — 동기화 일정(UTC 자정)을 로컬 자정으로 바꿔 보내면
  * 제목만 고쳐도 서버가 일정 변경으로 보고 참석자 알림·리마인더·외부 동기화를 다시 돈다.
+ * 저장된 범위가 길이 0 이면(종료 ≤ 시작) 서버가 거절하므로 하루로 고친 요청을 그대로 보낸다(WP-1090).
  */
 export function keepStoredAllDayInstants<T extends { startsAt: string; endsAt: string }>(
   request: T,
   values: Pick<EventFormValues, 'allDay' | 'start' | 'end'>,
   event: Pick<CalendarEvent, 'allDay' | 'startsAt' | 'endsAt'> | null | undefined,
 ): T {
-  const unchanged =
-    event?.allDay &&
-    values.allDay &&
-    values.start === allDayFormValue(event.startsAt) &&
-    values.end === allDayFormValue(event.endsAt)
-  return unchanged ? { ...request, startsAt: event.startsAt, endsAt: event.endsAt } : request
+  if (!event?.allDay || !values.allDay) return request
+  if (new Date(event.endsAt) <= new Date(event.startsAt)) return request
+  const stored = allDayFormRange(event)
+  return values.start === stored.start && values.end === stored.end
+    ? { ...request, startsAt: event.startsAt, endsAt: event.endsAt }
+    : request
 }
 
 const LOCAL_INPUT_FORMAT = "yyyy-MM-dd'T'HH:mm"

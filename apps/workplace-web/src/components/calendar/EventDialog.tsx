@@ -45,7 +45,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { INVITED_CALENDAR_LABEL } from '@/lib/calendar'
 // 폼 스키마·요청 조립·편집 가능 판정은 @/lib/calendarEventForm 의 순수 함수(WP-412)
 import {
-  allDayFormValue,
+  allDayFormRange,
   eventEditability,
   eventFormSchema,
   type EventFormValues as FormValues,
@@ -232,8 +232,7 @@ export function EventDialog({
         title: event.title,
         allDay: event.allDay,
         // 종일은 저장 규약(동기화 UTC 자정·로컬 자정)과 무관하게 의도한 날짜로 — 시각으로 풀면 UTC 자정 종일이 09:00 으로 보였다(WP-1072).
-        start: event.allDay ? allDayFormValue(event.startsAt) : toLocalInput(event.startsAt),
-        end: event.allDay ? allDayFormValue(event.endsAt) : toLocalInput(event.endsAt),
+        ...(event.allDay ? allDayFormRange(event) : { start: toLocalInput(event.startsAt), end: toLocalInput(event.endsAt) }),
         location: event.location ?? '',
         description: event.description ?? '',
         reminderMinutes: (event.reminderMinutes?.toString() ??
