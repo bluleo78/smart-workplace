@@ -19,7 +19,7 @@ import { useEffect, useReducer, useState } from 'react';
 
 import type { IssueFilters, IssueSearchResponse } from '../../types/issue';
 import type { ProjectStatus } from '../../types/projectStatus';
-import { issueSearchOptions } from './useIssueSearch';
+import { issueSearchOptions, keepPreviousInProject } from './useIssueSearch';
 
 // 컬럼당 한 페이지 크기 — 여러 컬럼 첫 렌더가 수백 장을 넘지 않도록 50.
 export const BOARD_COLUMN_PAGE_SIZE = 50;
@@ -71,9 +71,11 @@ export function useIssueBoardColumns(
     for (const s of statuses) {
       const f = columnFilters(filters, s);
       if (!f) continue;
-      const options = client.defaultQueryOptions(
-        issueSearchOptions(projectKey, f, BOARD_COLUMN_PAGE_SIZE),
-      ) as unknown as ColumnOptions;
+      // 조건을 바꾸면 컬럼마다 이전 카드를 둔 채 새 결과를 받는다(WP-1049) — 모든 컬럼이 「이슈 없음 0」으로 떨어졌다 차오르지 않게.
+      const options = client.defaultQueryOptions({
+        ...issueSearchOptions(projectKey, f, BOARD_COLUMN_PAGE_SIZE),
+        placeholderData: keepPreviousInProject(projectKey),
+      }) as unknown as ColumnOptions;
       options._optimisticResults = 'optimistic';
       specs.push({ id: s.id, options });
     }

@@ -64,6 +64,8 @@ async function openBoard(
 ) {
   const view = renderProjectScreen(`/projects/${KEY}?view=board${query}`, { handlers: [...extra, ...api.handlers] })
   await screen.findByTestId(col, {}, { timeout: SCREEN_LOAD_TIMEOUT })
+  // 컬럼은 첫 결과를 받기 전까지 카드 자리만 보인다(WP-1049) — 빈 컬럼 안내·「이슈 추가」는 결과를 받은 뒤 생긴다.
+  await waitFor(() => expect(screen.queryAllByTestId(/^board-col-pending-/)).toHaveLength(0))
   return view
 }
 

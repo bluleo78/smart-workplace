@@ -1,6 +1,6 @@
 // 저장된 뷰 상태 훅 — 데스크톱 ViewChipBar 와 모바일 뷰 칩 행이 공유한다.
 // 현재 URL 쿼리와 저장 뷰의 일치·dirty 판정, 칩 적용/뷰 업데이트 동작을 담당한다.
-import { useState } from 'react'
+import { startTransition, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 
 import { useProject } from '../../../hooks/queries/useProjects'
@@ -160,21 +160,26 @@ export function useSavedViewState(projectKey: string): SavedViewState {
   // 데스크톱 ViewChipBar·저장 뷰 매칭은 isAllActive 그대로.
   const isAllActiveIgnoringEpic = isAllActive || isAllIgnoringEpicScope(filters, !!activeView)
 
+  // 칩 적용은 고른 뷰 상태와 주소를 한 전환(transition)에 묶는다(WP-1049) — 라우터(BrowserRouter)는 주소 갱신을
+  // startTransition 으로 늦게 커밋한다. 고른 뷰 상태만 먼저 커밋되면 한 프레임 동안 옛 주소와 새 뷰가 섞여
+  // 칩 둘이 켜지거나 「전체」로 튀고, 새 칩에 「수정됨」·뷰 업데이트 버튼이 비쳤다. 같은 이벤트의 전환은 한 번에 커밋된다.
   // 전체 칩 — 모든 파라미터 제거(그룹도 화면 기본값으로). 고른 뷰도 잊는다.
   // 서명(prev)도 함께 비워 둔다 — 남아 있으면 나중에 같은 뷰가 다시 일치해도 「변화 없음」으로 걸러져 고른 뷰가 잡히지 않는다.
-  const applyAll = () => {
-    setSelectedViewId(null)
-    setPickedViewId(null)
-    setPrevMatchingSignature(null)
-    setParams(new URLSearchParams(), { replace: true })
-  }
+  const applyAll = () =>
+    startTransition(() => {
+      setSelectedViewId(null)
+      setPickedViewId(null)
+      setPrevMatchingSignature(null)
+      setParams(new URLSearchParams(), { replace: true })
+    })
   // 저장 뷰 적용 — group 이 없는 (사이클 그룹 도입 전) 뷰는 group=none 을 명시해 예전처럼 평면 목록으로 연다(#878).
   // 고른 뷰 id 를 먼저 기억해 둔다 — 같은 조건의 다른 뷰가 활성으로 잡히지 않게(WP-473).
-  const apply = (v: SavedViewResponse) => {
-    setSelectedViewId(v.id)
-    setPickedViewId(v.id)
-    setParams(savedViewQueryToParams(v.query), { replace: true })
-  }
+  const apply = (v: SavedViewResponse) =>
+    startTransition(() => {
+      setSelectedViewId(v.id)
+      setPickedViewId(v.id)
+      setParams(savedViewQueryToParams(v.query), { replace: true })
+    })
 
   // 막 저장한 뷰를 고른 뷰로 — 일치 판정에 맡기면 열만 바꾼 예전 뷰(필터는 같음)가 고른 뷰로 남아 새 뷰가 활성이 되지 않았다.
   // 「마지막으로 고른 뷰가 이긴다」(WP-473)를 생성에도 적용한다. 목록 캐시에는 생성 훅이 먼저 넣어 둔다.

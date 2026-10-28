@@ -8,9 +8,11 @@ import { Inbox, Plus } from 'lucide-react';
 import { createContext, type ReactNode, useContext, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { RefreshingResults } from '@/components/RefreshingResults';
 import { RemainingPagesError } from '@/components/RemainingPagesError';
 import { Button } from '@/components/ui/button';
 import { LoadMoreFooter } from '@/components/ui/load-more-footer';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useRestoreFocusOnExit } from '@/hooks/useRestoreFocusOnExit';
 import { cn } from '@/lib/utils';
@@ -22,13 +24,14 @@ import {
   columnFilters,
   useIssueBoardColumns,
 } from '../../../hooks/queries/useIssueBoardColumns';
-import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
+import { useIssueSearchKeepingPrevious } from '../../../hooks/queries/useIssueSearch';
 import { useStatusEditing } from '../../../hooks/queries/useProjectStatuses';
 import { useUpdateIssueStatus } from '../../../hooks/queries/useUpdateIssueStatus';
+import { useScrollTopWhenSettled } from '../../../hooks/useScrollTopWhenSettled';
 import { boardDropStatusId, laneCellTestId, laneTestId } from '../../../lib/boardLaneDrop';
 import { CLOSED_HIDDEN_NOTE, CLOSED_ISSUE_STATUSES } from '../../../lib/closedHiding';
 import type { IssueDragData } from '../../../lib/epicDnd';
-import { withBoardTab } from '../../../lib/issueFilters';
+import { filtersToParams, withBoardTab } from '../../../lib/issueFilters';
 import { groupIssues } from '../../../lib/issueGrouping';
 import { categorySpans } from '../../../lib/projectStatuses';
 import { failedWithoutData } from '../../../lib/queryFailure';
@@ -106,7 +109,8 @@ function IssueBoardViewInner({
   // 상태 보드 — 컬럼(statusId)별 쿼리. 그룹 보드에서는 비활성.
   const columnQueries = useIssueBoardColumns(projectKey, filters, columns, !grouped);
   // 그룹 보드 — 단일 쿼리. 상태 보드에서는 비활성.
-  const groupQuery = useIssueSearch(projectKey, filters, 100, grouped);
+  // 조건을 바꾸면 새 결과가 올 때까지 이전 카드를 흐리게 둔다(WP-1049) — 상태 보드 컬럼 쿼리도 같다(useIssueBoardColumns).
+  const groupQuery = useIssueSearchKeepingPrevious(projectKey, filters, 100, grouped);
   // 종료 이슈 숨김 안내(WP-606) — 팀 보드 기본 범위만 숨김이 켜진다(개인 보드·「완료 모두 보기」·상태 필터는 꺼짐).
   // 끌어 놓기·카드 메뉴로 종료한 이슈가 숨겨지면 토스트로, 빈 완료·취소 열은 안내 + 「완료 모두 보기」로 알린다.
   const closedHiding = useClosedHidingNotice(!!filters.hideInactiveClosed);
@@ -135,6 +139,14 @@ function IssueBoardViewInner({
   // 다음 페이지 요청이 실패하면 멈추고(아래 「다시 시도」), 응답이 올 때마다 다시 판정한다(WP-996 — useFetchAllPages).
   const { hasNextPage: groupHasNext, isFetchNextPageError: groupNextError, fetchNextPage } = groupQuery;
   useFetchAllPages(groupQuery, grouped);
+  // 컬럼이 이전 조건의 카드로 자리를 채우는 중인가(WP-1049) — 그 컬럼(그룹 보드는 보드 전체)을 흐린다.
+  const refreshingOf = (s: ProjectStatus) =>
+    grouped ? groupQuery.isPlaceholderData : !!columnQueries[s.id]?.isPlaceholderData;
+  // 새 조건의 결과가 모두 들어오면 보드 스크롤을 맨 위로 — 자리채움 동안 스크롤 컨테이너가 남아 옛 위치에 새 카드가 보이지 않게.
+  const scrollReset = {
+    key: filtersToParams(filters, 'board', groupBy ?? null).toString(),
+    refreshing: columns.some(refreshingOf),
+  };
 
   // 응답 모양이 예상과 다른 경우(p.items 누락) flatMap 이 [undefined] 를 만들지 못하게 방어.
   // 상태 보드는 모든 컬럼 쿼리를 합친 뒤 id 로 중복 제거하고 아래 byStatusId 에서 it.statusId 로 다시 나눈다 —
@@ -223,6 +235,7 @@ function IssueBoardViewInner({
       count: byStatusId[s.id]?.length ?? 0,
       hasMore: !grouped && !!columnQueries[s.id]?.hasNextPage,
       pending: pendingOf(s),
+      refreshing: refreshingOf(s),
     }));
     // 탭의 「이슈 추가」는 그 탭 상태로 만든다.
     const createIn = (s: ProjectStatus) => (onOpenCreate ? () => onOpenCreate(s.id) : undefined);
@@ -253,39 +266,46 @@ function IssueBoardViewInner({
         : undefined;
     return (
       <IssueCardMenuContext.Provider value={cardMenu}>
-        <MobileBoard tabs={tabs} band={showCategoryBand} menu={menu}>
+        <MobileBoard tabs={tabs} band={showCategoryBand} menu={menu} scrollReset={scrollReset}>
           {(statusId, root) => {
             const status = visible.find((s) => s.id === statusId);
             if (!status) return null;
-            return grouped ? (
-              <MobileGroupedColumn
-                status={status}
-                issues={byStatusId[status.id] ?? []}
-                groupBy={groupBy}
-                pending={groupQuery.isPending}
-                footer={groupFooter('')}
-                projectKey={projectKey}
-                cardTo={cardTo}
-                showType={showType}
-                onOpenCreate={createIn(status)}
-                onShowAllClosed={showAllClosedFor(status.category)}
-                onLongPress={onCardLongPress}
-              />
-            ) : (
-              <BoardScrollRootContext.Provider value={root}>
-                <MobileStatusColumn
-                  status={status}
-                  issues={byStatusId[status.id] ?? []}
-                  query={columnQueries[status.id]}
-                  pending={pendingOf(status)}
-                  projectKey={projectKey}
-                  cardTo={cardTo}
-                  showType={showType}
-                  onOpenCreate={createIn(status)}
-                  onShowAllClosed={showAllClosedFor(status.category)}
-                  onLongPress={onCardLongPress}
-                />
-              </BoardScrollRootContext.Provider>
+            // 컬럼 내용만 흐린다(WP-1049) — 탭·헤더 메뉴는 그대로 누를 수 있다. 상태 탭은 그 컬럼 쿼리의 자리채움만 본다.
+            return (
+              <RefreshingResults
+                refreshing={refreshingOf(status)}
+              >
+                {grouped ? (
+                  <MobileGroupedColumn
+                    status={status}
+                    issues={byStatusId[status.id] ?? []}
+                    groupBy={groupBy}
+                    pending={groupQuery.isPending}
+                    footer={groupFooter('')}
+                    projectKey={projectKey}
+                    cardTo={cardTo}
+                    showType={showType}
+                    onOpenCreate={createIn(status)}
+                    onShowAllClosed={showAllClosedFor(status.category)}
+                    onLongPress={onCardLongPress}
+                  />
+                ) : (
+                  <BoardScrollRootContext.Provider value={root}>
+                    <MobileStatusColumn
+                      status={status}
+                      issues={byStatusId[status.id] ?? []}
+                      query={columnQueries[status.id]}
+                      pending={pendingOf(status)}
+                      projectKey={projectKey}
+                      cardTo={cardTo}
+                      showType={showType}
+                      onOpenCreate={createIn(status)}
+                      onShowAllClosed={showAllClosedFor(status.category)}
+                      onLongPress={onCardLongPress}
+                    />
+                  </BoardScrollRootContext.Provider>
+                )}
+              </RefreshingResults>
             );
           }}
         </MobileBoard>
@@ -308,20 +328,23 @@ function IssueBoardViewInner({
       <IssueCardMenuContext.Provider value={cardMenu}>
         {/* 레인 드롭도 상태 보드와 같은 handleDragEnd — 다른 레인 칸·카드는 boardDropStatusId 가 무시한다. */}
         <BoardStatusDropMonitor onDragEnd={handleDragEnd} />
-        <BoardScroll footer={groupFooter('mt-3')}>
-          <BoardSwimlanes
-            columns={columns}
-            groups={groups}
-            issues={visibleIssues}
-            pending={groupQuery.isPending}
-            projectKey={projectKey}
-            cardTo={cardTo}
-            showType={showType}
-            dragDisabled={!canDragStatus}
-            onLongPress={onCardLongPress}
-            showAllClosedFor={showAllClosedFor}
-          />
-        </BoardScroll>
+        {/* 그룹 보드는 쿼리 하나라 보드 전체를 함께 흐린다(WP-1049) — 진행 막대는 스크롤과 상관없이 보드 위에 보인다. */}
+        <RefreshingResults refreshing={groupQuery.isPlaceholderData} className="h-full">
+          <BoardScroll footer={groupFooter('mt-3')} scrollReset={scrollReset}>
+            <BoardSwimlanes
+              columns={columns}
+              groups={groups}
+              issues={visibleIssues}
+              pending={groupQuery.isPending}
+              projectKey={projectKey}
+              cardTo={cardTo}
+              showType={showType}
+              dragDisabled={!canDragStatus}
+              onLongPress={onCardLongPress}
+              showAllClosedFor={showAllClosedFor}
+            />
+          </BoardScroll>
+        </RefreshingResults>
         {cardActions.sheets}
       </IssueCardMenuContext.Provider>
     );
@@ -333,7 +356,7 @@ function IssueBoardViewInner({
   return (
     <IssueCardMenuContext.Provider value={cardMenu}>
       <BoardStatusDropMonitor onDragEnd={handleDragEnd} />
-      <BoardScroll columnCount={columns.length} band={showCategoryBand}>
+      <BoardScroll columnCount={columns.length} band={showCategoryBand} scrollReset={scrollReset}>
         {showCategoryBand && (
           <BoardCategoryBand
             spans={categorySpans(columns)}
@@ -420,13 +443,17 @@ function BoardScroll({
   footer,
   columnCount,
   band = false,
+  scrollReset,
 }: {
   children?: ReactNode;
   footer?: ReactNode;
   columnCount?: number;
   band?: boolean;
+  /** 새 조건(key)의 결과가 모두 들어오면 세로 스크롤을 맨 위로(useScrollTopWhenSettled, WP-1049). 가로 위치는 그대로 둔다. */
+  scrollReset?: { key: string; refreshing: boolean };
 }) {
   const [el, setEl] = useState<HTMLDivElement | null>(null);
+  useScrollTopWhenSettled(el, scrollReset?.key ?? '', scrollReset?.refreshing ?? false);
   return (
     <div ref={setEl} className="h-full overflow-auto" data-testid="board-scroll">
       <BoardScrollRootContext.Provider value={el}>
@@ -508,6 +535,8 @@ function BoardColumn({
   // 바깥 클릭으로 다른 요소에 포커스가 갔으면 그대로 둔다(빼앗지 않는다 — useRestoreFocusOnExit 규칙).
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   useRestoreFocusOnExit(!!edit?.renaming, menuTriggerRef);
+  // 첫 결과를 아직 받지 못했다(받은 카드도 없다) — 낙관적 이동으로 들어온 카드가 있으면 그대로 그린다.
+  const firstLoading = issues.length === 0 && !!query?.isPending;
   return (
     <section
       ref={setNodeRef}
@@ -538,9 +567,10 @@ function BoardColumn({
                 {status.name}
               </span>
               {/* 아직 받지 않은 페이지가 있으면 로드분이 전체가 아니므로 "N+" 로 표시 */}
+              {/* 처음 받는 중·조건을 바꿔 받는 중(이전 조건의 자리채움)에는 수를 비워 둔다 — 「0」이나 이전 조건의 수가 또렷이
+                  보였다가 실제 수로 바뀌지 않게(WP-1049). 카드는 아래 RefreshingResults 가 흐린다. */}
               <span className="shrink-0 font-normal text-muted-foreground" data-testid={`board-col-count-${status.id}`}>
-                {issues.length}
-                {query?.hasNextPage ? '+' : ''}
+                {firstLoading || query?.isPlaceholderData ? '' : `${issues.length}${query?.hasNextPage ? '+' : ''}`}
               </span>
             </span>
             {edit && (
@@ -561,36 +591,46 @@ function BoardColumn({
         items={issues.map((i) => `issue-${i.id}`)}
         strategy={verticalListSortingStrategy}
       >
-        {issues.length === 0 ? (
-          /* 빈 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
-          <div
-            className="flex flex-col items-center justify-center py-8 gap-3 text-center"
-            data-testid={`board-col-empty-${status.id}`}
-          >
-            <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
-              {/* 좁은 열에서 음절 단위로 끊기지 않게 어절 단위 줄바꿈(break-keep) */}
-              <p className="break-keep px-2 text-xs text-muted-foreground">
-                {onShowAllClosed ? CLOSED_HIDDEN_NOTE : '드래그하거나 새 이슈를 추가하세요'}
-              </p>
+        {/* 조건을 바꾼 뒤 이 컬럼이 이전 카드로 자리를 채우는 동안만 흐린다(WP-1049) — 컬럼마다 따로 풀리고 헤더 메뉴는 그대로 쓴다. */}
+        <RefreshingResults refreshing={!!query?.isPlaceholderData}>
+          {firstLoading ? (
+            // 처음 받는 중 — 빈 상태(「이슈 없음」)를 그렸다가 카드로 바뀌지 않게 카드 자리만 보인다(WP-1049).
+            // 조건을 바꾼 뒤에는 이전 카드가 자리를 채우므로(keepPreviousInProject) 보드를 처음 열 때만 보인다.
+            <div className="flex flex-col gap-2" aria-busy="true" aria-label={`${status.name} 불러오는 중`} data-testid={`board-col-pending-${status.id}`}>
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
             </div>
-            {onShowAllClosed && <ShowAllClosedButton testKey={status.id} onClick={onShowAllClosed} />}
-            {onOpenCreate && (
-              // 컬럼 상태로 만든다(WP-464, WP-808) — 「검토 중」 컬럼에서 누르면 검토 중으로 만들어진다.
-              <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status.id)} data-testid={`board-col-add-${status.id}`}>
-                <Plus className="h-4 w-4" />
-                이슈 추가
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {issues.map((it) => (
-              <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled={dragDisabled} onLongPress={onLongPress} />
-            ))}
-          </div>
-        )}
+          ) : issues.length === 0 ? (
+            /* 빈 컬럼 — 디자인 시스템 §2.5 빈 상태 패턴: 아이콘 + 제목 + 설명 + CTA */
+            <div
+              className="flex flex-col items-center justify-center py-8 gap-3 text-center"
+              data-testid={`board-col-empty-${status.id}`}
+            >
+              <Inbox className="h-8 w-8 text-muted-foreground/50" aria-hidden="true" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-muted-foreground">이슈 없음</p>
+                {/* 좁은 열에서 음절 단위로 끊기지 않게 어절 단위 줄바꿈(break-keep) */}
+                <p className="break-keep px-2 text-xs text-muted-foreground">
+                  {onShowAllClosed ? CLOSED_HIDDEN_NOTE : '드래그하거나 새 이슈를 추가하세요'}
+                </p>
+              </div>
+              {onShowAllClosed && <ShowAllClosedButton testKey={status.id} onClick={onShowAllClosed} />}
+              {onOpenCreate && (
+                // 컬럼 상태로 만든다(WP-464, WP-808) — 「검토 중」 컬럼에서 누르면 검토 중으로 만들어진다.
+                <Button size="sm" variant="ghost" onClick={() => onOpenCreate(status.id)} data-testid={`board-col-add-${status.id}`}>
+                  <Plus className="h-4 w-4" />
+                  이슈 추가
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {issues.map((it) => (
+                <IssueCard key={it.id} projectKey={projectKey} issue={it} to={cardTo?.(it)} showType={showType} dragDisabled={dragDisabled} onLongPress={onLongPress} />
+              ))}
+            </div>
+          )}
+        </RefreshingResults>
       </SortableContext>
       {query && <ColumnLoadMore testKey={status.id} query={query} />}
     </section>
