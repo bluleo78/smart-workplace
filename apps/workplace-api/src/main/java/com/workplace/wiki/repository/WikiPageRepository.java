@@ -69,12 +69,7 @@ public class WikiPageRepository {
                     .from(WIKI_PAGE_SHARE_EXCLUSION)
                     .where(WIKI_PAGE_SHARE_EXCLUSION.PAGE_ID.eq(WIKI_PAGE.ID))));
     // 만료 판정은 DB 시계로 한다 — 접근 판정(stopsInheritance)과 같은 기준이라 앱 시계와 어긋나지 않는다(WP-1043).
-    Field<Boolean> expired =
-        DSL.field(
-            WIKI_PAGE_SHARE
-                .EXPIRES_AT
-                .isNotNull()
-                .and(WIKI_PAGE_SHARE.EXPIRES_AT.le(DSL.currentOffsetDateTime())));
+    Field<Boolean> expired = DSL.field(WikiShareRepository.expired());
     return dsl.select(
             WIKI_PAGE.ID,
             WIKI_PAGE.PARENT_ID,
@@ -109,15 +104,30 @@ public class WikiPageRepository {
 
   /**
    * 이 페이지 자신이 공유 중인지(WP-579) — 상세 응답의 {@code shared}. 서브쿼리라 CTE({@link
-   * #findDetailRecordingBase})·단건 조회 어디에나 같은 컬럼으로 붙는다.
+   * #findDetailRecordingBase})·단건 조회 어디에나 같은 컬럼으로 붙는다. 만료된 공유는 링크로 열리지 않으므로 빼고(WP-1086 — 토큰 판정과 같은
+   * DB 시계), 따로 {@link #SHARE_EXPIRED} 로 알린다.
    */
   private static final Field<Boolean> SHARED =
       DSL.field(
               DSL.exists(
                   DSL.selectOne()
                       .from(WIKI_PAGE_SHARE)
-                      .where(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))))
+                      .where(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))
+                      .and(WikiShareRepository.notExpired())))
           .as("shared");
+
+  /**
+   * 이 페이지의 공유가 만료됐는지(WP-1086) — 상세 응답의 {@code shareExpired}. 만료된 공유도 설정은 남아 공유 창에서 고칠 수 있으므로 헤더가
+   * 「공유 만료」로 알린다. 트리의 만료 판정({@link #listBySpace})과 같은 조건({@link WikiShareRepository#expired()})이다.
+   */
+  private static final Field<Boolean> SHARE_EXPIRED =
+      DSL.field(
+              DSL.exists(
+                  DSL.selectOne()
+                      .from(WIKI_PAGE_SHARE)
+                      .where(WIKI_PAGE_SHARE.PAGE_ID.eq(WIKI_PAGE.ID))
+                      .and(WikiShareRepository.expired())))
+          .as("share_expired");
 
   /** 상세 응답의 본문·version 밖 컬럼 — {@link #findDetailWithBody} 처럼 본문 TEXT 를 읽지 않는 조회가 쓴다. */
   private static final List<Field<?>> DETAIL_META_FIELDS =
@@ -131,7 +141,8 @@ public class WikiPageRepository {
           WIKI_PAGE.AI_LAST_USED_AT,
           WIKI_PAGE.AI_LAST_ACTION,
           WIKI_PAGE.FULL_WIDTH,
-          SHARED);
+          SHARED,
+          SHARE_EXPIRED);
 
   /** 상세 응답 컬럼 — {@link #findDetail} 과 {@link #findDetailRecordingBase} 가 공유한다. */
   private static final List<Field<?>> DETAIL_FIELDS =
@@ -215,6 +226,7 @@ public class WikiPageRepository {
         r.get(WIKI_PAGE.AI_LAST_USED_AT),
         r.get(WIKI_PAGE.AI_LAST_ACTION),
         Boolean.TRUE.equals(r.get(SHARED)),
+        Boolean.TRUE.equals(r.get(SHARE_EXPIRED)),
         r.get(WIKI_PAGE.FULL_WIDTH));
   }
 

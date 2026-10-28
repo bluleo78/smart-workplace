@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { ChevronDown, ChevronRight, CornerDownRight, Link2, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, CornerDownRight, Link2, Link2Off, MoreHorizontal, Plus, Trash2 } from 'lucide-react'
 
 import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { TouchRowActionsMenu } from '@/components/mobile/TouchRowActionsMenu'
@@ -126,17 +126,7 @@ export function WikiTreeRow({
               AI
             </AiSignalBadge>
           )}
-          {shareMark && (
-            <Link2
-              role="img"
-              aria-label={shareMark === 'own' ? '링크로 공유 중' : '상위 페이지 공유에 포함됨'}
-              data-testid={`wiki-tree-shared-${id}`}
-              data-mark={shareMark}
-              className={cn('size-3.5 shrink-0', shareMark === 'own' ? 'text-primary' : 'text-muted-foreground/60')}
-            >
-              <title>{shareMark === 'own' ? '링크로 공유 중' : '상위 페이지 공유에 포함됨'}</title>
-            </Link2>
-          )}
+          {shareMark && <ShareMarkIcon id={id} mark={shareMark} />}
         </button>
         {!canEdit ? null : coarse ? (
           // 터치: 제목 옆 제자리(absolute 아님)에 ⋯ 하나 — 제목을 덮지 않는다(WP-237).
@@ -190,5 +180,28 @@ export function WikiTreeRow({
         )}
       </div>
     </div>
+  )
+}
+
+/** 트리 공유 표시의 읽는 이름·툴팁 — 표시 종류마다 하나. */
+const SHARE_MARK_LABEL: Record<TreeShareMark, string> = {
+  own: '링크로 공유 중',
+  inherited: '상위 페이지 공유에 포함됨',
+  expired: '링크 공유 만료됨',
+}
+
+/** 트리 행 공유 표시 아이콘 — 자기 공유는 진하게, 상위 공유 포함은 흐리게, 만료된 자기 공유는 링크가 열리지 않으므로 끊긴 링크를 흐리게(WP-1086). */
+function ShareMarkIcon({ id, mark }: { id: number; mark: TreeShareMark }) {
+  const Icon = mark === 'expired' ? Link2Off : Link2
+  return (
+    <Icon
+      role="img"
+      aria-label={SHARE_MARK_LABEL[mark]}
+      data-testid={`wiki-tree-shared-${id}`}
+      data-mark={mark}
+      className={cn('size-3.5 shrink-0', mark === 'own' ? 'text-primary' : 'text-muted-foreground/60')}
+    >
+      <title>{SHARE_MARK_LABEL[mark]}</title>
+    </Icon>
   )
 }

@@ -9,6 +9,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse, type RequestHandler } from 'msw'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import { isShareExpired } from '@/components/wiki/wikiShare'
 import { wikiLastVisitedKey,writeWikiLastVisited } from '@/lib/wikiLastVisited'
 import { attachSilentCollab,editorSideHandlers } from '@/test/kits/wiki/testkit-b3-msw'
 import { renderScreen } from '@/test/renderScreen'
@@ -422,10 +423,12 @@ function openShareOwner(server: ServerShare, { role = 'OWNER' as WikiRole, path 
     tree: () => [
       {
         ...wikiPageSummary({ id: SHARE_PAGE, title: SHARE_TITLE }),
-        share: server.share && { audience: server.share.audience, includeChildren: server.share.includeChildren },
+        share: server.share && { audience: server.share.audience, includeChildren: server.share.includeChildren, expired: shareExpired(server) },
       },
     ],
-    detail: (id) => wikiPageDetail({ id, spaceId: SHARE_SPACE, title: SHARE_TITLE, shared: server.share != null }),
+    // 서버처럼 만료된 공유는 shared 가 아니고 shareExpired 다(WP-1086).
+    detail: (id) =>
+      wikiPageDetail({ id, spaceId: SHARE_SPACE, title: SHARE_TITLE, shared: server.share != null && !shareExpired(server), shareExpired: shareExpired(server) }),
     handlers: [
       http.get(sharePath, async ({ request }) => {
         await record(request)
@@ -462,6 +465,9 @@ function openShareOwner(server: ServerShare, { role = 'OWNER' as WikiRole, path 
   return { ...view, calls }
 }
 
+/** 서버의 만료 판정 대신 — 테스트의 Date 로 같은 판정을 한다. */
+const shareExpired = (server: ServerShare) => isShareExpired(server.share?.expiresAt ?? null)
+
 const newServer = (over: Partial<ServerShare> = {}): ServerShare => ({ share: null, accessRequests: [], tokenSeq: 1, ...over })
 const shareDialog = () => screen.findByTestId('wiki-share-dialog')
 
@@ -487,6 +493,28 @@ describe('노트 공유 — 공유하는 쪽', () => {
     )
     await waitFor(() => expect(within(dialog).getByTestId('wiki-share-permission')).toBeDisabled())
     expect(within(dialog).getByTestId('wiki-share-expiry')).toHaveTextContent('2026')
+  })
+
+  test('만료된 공유는 헤더 「공유 만료」·트리 끊긴 링크로 보이고, 공유 창에서 만료를 미루면 「공유 중」으로 돌아온다(WP-1086)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-29T03:00:00.000Z') })
+    const server = newServer({ share: existingShare({ expiresAt: '2026-10-28T00:00:00.000Z' }) })
+    const { user, calls } = openShareOwner(server)
+    expect(await screen.findByTestId('wiki-share-button')).toHaveTextContent(/^공유 만료$/)
+    expect(screen.getByTestId(`wiki-tree-shared-${SHARE_PAGE}`)).toHaveAttribute('data-mark', 'expired')
+    expect(screen.getByTestId(`wiki-tree-shared-${SHARE_PAGE}`)).toHaveAccessibleName('링크 공유 만료됨')
+    await user.click(screen.getByTestId('wiki-share-button'))
+    const dialog = await shareDialog()
+    await waitFor(() => expect(within(dialog).getByTestId('wiki-share-copy')).toBeDisabled())
+    expect(within(dialog).getByTestId('wiki-share-expiry')).toHaveTextContent('만료됨')
+    // 만료를 7일 뒤로 미루면 링크가 다시 열린다 — 헤더·트리도 살아 있는 공유로 돌아온다.
+    await user.click(within(dialog).getByTestId('wiki-share-expiry'))
+    await user.click(await screen.findByRole('option', { name: '7일 뒤' }))
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === 'PUT').map((c) => (c.body as { expiresAt: string }).expiresAt)).toEqual(['2026-11-05T03:00:00.000Z']),
+    )
+    await waitFor(() => expect(within(dialog).getByTestId('wiki-share-copy')).toBeEnabled())
+    await waitFor(() => expect(screen.getByTestId('wiki-share-button')).toHaveTextContent(/^공유 중$/))
+    expect(screen.getByTestId(`wiki-tree-shared-${SHARE_PAGE}`)).toHaveAttribute('data-mark', 'own')
   })
 
   test('재발급·해제는 확인을 받고, 해제하면 헤더·트리가 공유 전으로 돌아간다', async () => {

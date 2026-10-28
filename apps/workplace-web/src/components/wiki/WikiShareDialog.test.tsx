@@ -124,6 +124,41 @@ describe('열 수 있는 사람 선택지', () => {
   })
 })
 
+describe('만료된 공유(WP-1086)', () => {
+  it('만료 시각이 지났으면 만료를 알리고 링크 복사를 막는다 — 만료 칸은 「만료됨 (날짜)」', () => {
+    renderDialog(baseState({ share: baseShare({ expiresAt: '2020-01-01T00:00:00Z' }) }))
+    expect(screen.getByTestId('wiki-share-switch-hint')).toHaveTextContent('링크가 만료되어 지금은 아무도 열 수 없습니다')
+    expect(screen.getByTestId('wiki-share-copy')).toBeDisabled()
+    expect(screen.getByTestId('wiki-share-expiry')).toHaveTextContent(/^만료됨 \(.+\)$/)
+    // 설정은 그대로 고칠 수 있다 — 스위치는 켜진 채다.
+    expect(screen.getByTestId('wiki-share-switch')).toBeChecked()
+  })
+
+  it('상위 공유가 덮으면 이 페이지 링크만 만료됐고 상위 링크로는 열린다고 알린다 — 상위 링크 복사도 살아 있다', async () => {
+    renderDialog(
+      baseState({
+        share: baseShare({ expiresAt: '2020-01-01T00:00:00Z' }),
+        inheritedFrom: { pageId: 1, title: '상위', audience: 'WORKSPACE', permission: 'VIEW', token: 'wsh_parent' },
+      }),
+    )
+    expect(screen.getByTestId('wiki-share-switch-hint')).toHaveTextContent('상위 페이지 공유 링크로는 계속 열 수 있습니다')
+    expect(screen.getByTestId('wiki-share-copy')).toBeDisabled()
+    // 만료된 자기 공유는 상위 공유를 덮지 않는다(WP-1043) — 「상위 링크로는 열리지 않습니다」를 띄우지 않고, 지금 열리는 상위 링크를 복사할 수 있다.
+    expect(screen.queryByTestId('wiki-share-inherited-overridden')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('wiki-share-inherited-copy'))
+    expect(copyText).toHaveBeenCalledTimes(1)
+    expect(copyText.mock.calls[0]).toEqual([expect.stringContaining('wsh_parent')])
+  })
+
+  it('만료 전이면 링크 복사가 살아 있고 만료 칸은 「날짜까지」다', async () => {
+    renderDialog(baseState({ share: baseShare({ expiresAt: '2099-01-01T00:00:00Z' }) }))
+    expect(screen.getByTestId('wiki-share-switch-hint')).toHaveTextContent('링크를 받은 사람은 이 페이지를 열 수 있습니다')
+    expect(screen.getByTestId('wiki-share-expiry')).toHaveTextContent(/까지$/)
+    await userEvent.click(screen.getByTestId('wiki-share-copy'))
+    expect(copyText).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('확인 절차', () => {
   it('외부로 바꾸면 확인 뒤에야 보기·이 페이지만·만료 있는 값으로 저장한다', async () => {
     renderDialog(baseState({ share: baseShare({ permission: 'EDIT', includeChildren: true }) }))

@@ -1001,6 +1001,7 @@ function WikiEditorBody({ page, spaceId, share }: WikiEditorProps) {
         sharedBy={share && { name: share.sharedByName, canEdit: share.permission === 'EDIT' }}
         presence={<WikiPresence people={visiblePeople} compact={isMobile} stale={stale} onJump={jumpToPerson} />}
         shared={page.shared === true}
+        shareExpired={page.shareExpired === true}
         // 공유는 이 스페이스에 쓸 수 있는 사람(EDITOR 이상)만 바꾼다 — 보기만 하는 사람이 범위를 넓히지 못하게.
         onShare={canShare ? () => setShareOpen(true) : undefined}
         fullWidth={fullWidth}

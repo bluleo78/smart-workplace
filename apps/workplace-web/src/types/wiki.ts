@@ -63,7 +63,10 @@ export interface WikiPageDetail {
   aiLastUsedAt: string | null
   aiLastAction: string | null
   // WP-579: 이 페이지 자신이 링크로 공유 중인지 — 헤더 「공유 중」 표시. 설정 내용은 공유 창을 열 때 따로 받는다.
+  // 만료된 공유는 링크가 열리지 않아 false 이고 대신 shareExpired 가 true 다(WP-1086).
   shared?: boolean
+  // WP-1086: 공유 설정은 남았지만 만료돼 링크가 열리지 않는지 — 헤더 「공유 만료」 표시. 구버전 서버엔 없어 기본 false.
+  shareExpired?: boolean
   // WP-793: 본문을 읽기 폭(768px) 대신 화면 폭 전체로 펼친다 — 페이지에 저장돼 여는 모든 사람에게 같다. 구버전 서버엔 없어 기본 false.
   fullWidth?: boolean
 }

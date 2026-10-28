@@ -172,6 +172,7 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
                     null,
                     null,
                     false,
+                    false,
                     false),
                 null));
     when(hydrationService.resolveMentions(eq(1L), eq("<#page:9>"), isNull()))
@@ -192,7 +193,19 @@ class WikiPageControllerTest extends WebMvcSliceTestBase {
     when(pageService.get(eq(1L), eq(7L)))
         .thenReturn(
             new WikiPageDetail(
-                7L, 3L, null, "제목", "본문", 1, 1L, OffsetDateTime.now(), null, null, false, false));
+                7L,
+                3L,
+                null,
+                "제목",
+                "본문",
+                1,
+                1L,
+                OffsetDateTime.now(),
+                null,
+                null,
+                false,
+                false,
+                false));
     when(hydrationService.backlinks(eq(1L), eq(7L)))
         .thenReturn(
             new WikiBacklinksResponse(

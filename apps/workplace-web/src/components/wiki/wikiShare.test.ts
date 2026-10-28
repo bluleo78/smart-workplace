@@ -63,17 +63,17 @@ describe('treeShareMarks — 자기 공유가 상속을 멈춘다(WP-1043)', () 
 })
 
 describe('treeShareMarks — 만료된 자기 공유(WP-1043)', () => {
-  it('만료된 자기 공유는 상속을 멈추지 않아 살아 있는 상위 공유가 덮으면 inherited, 덮는 공유가 없으면 own 으로 남는다', () => {
+  it('만료된 자기 공유는 상속을 멈추지 않아 살아 있는 상위 공유가 덮으면 inherited, 덮는 공유가 없으면 expired(WP-1086)', () => {
     const expired = { ...own('PEOPLE', false), expired: true }
     const marks = treeShareMarks([node(1, null, own()), node(2, 1, expired), node(3, null, expired), node(4, 2)])
     expect(marks.get(2)).toBe('inherited')
-    expect(marks.get(3)).toBe('own')
+    expect(marks.get(3)).toBe('expired')
     expect(marks.get(4)).toBe('inherited')
   })
 
-  it('제외 표시가 있으면 만료된 자기 공유여도 멈춰서 own 이다', () => {
+  it('제외 표시가 있으면 만료된 자기 공유는 상위 공유에 덮이지 않아 expired 다', () => {
     const marks = treeShareMarks([node(1, null, own()), excluded(2, 1, { ...own('PEOPLE', false), expired: true })])
-    expect(marks.get(2)).toBe('own')
+    expect(marks.get(2)).toBe('expired')
   })
 })
 
@@ -83,7 +83,8 @@ const expiredShare = (audience: WikiShareAudience = 'WORKSPACE'): WikiTreeShare 
 describe('만료된 하위 포함 공유는 덮지 않는다(WP-1044)', () => {
   it('트리: 만료된 하위 포함 공유 아래는 inherited 가 아니고, 살아 있는 공유 아래는 inherited 다', () => {
     const marks = treeShareMarks([node(1, null, expiredShare()), node(2, 1), node(3, 2), node(4, null, own()), node(5, 4)])
-    expect(marks.get(1)).toBe('own')
+    // 만료된 자기 공유는 열리지 않으므로 expired 로 보인다(WP-1086).
+    expect(marks.get(1)).toBe('expired')
     expect(marks.has(2)).toBe(false)
     expect(marks.has(3)).toBe(false)
     expect(marks.get(5)).toBe('inherited')
