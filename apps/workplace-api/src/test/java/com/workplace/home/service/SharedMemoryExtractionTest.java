@@ -40,8 +40,8 @@ import com.workplace.home.service.SessionCleanupInput.Utterance;
 import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.FakeTextEmbedderConfig;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.net.http.HttpTimeoutException;
 import java.time.Instant;
@@ -63,8 +63,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
@@ -76,14 +74,14 @@ import org.springframework.web.client.ResourceAccessException;
  */
 @Transactional
 @Import(FakeTextEmbedderConfig.class)
-class SharedMemoryExtractionTest extends IntegrationTestBase {
+class SharedMemoryExtractionTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired SharedMemoryExtractionParticipant participant;
   @Autowired HomeSessionService sessions;
   // 공간 묶기(spacesOf)·공간 읽기(repo.all)에 DB 오류를 심는 데 쓴다(기본은 실제 동작 그대로).
-  @MockitoSpyBean HomeMessageRepository messages;
-  @MockitoSpyBean SharedAiMemoryRepository repo;
+  @Autowired HomeMessageRepository messages;
+  @Autowired SharedAiMemoryRepository repo;
   @Autowired SharedAiMemoryForgottenRepository forgottenRepo;
   @Autowired SharedAiMemoryForgottenService forgotten;
   @Autowired SharedAiMemoryService service;
@@ -93,10 +91,10 @@ class SharedMemoryExtractionTest extends IntegrationTestBase {
   @Autowired AiMemoryCleanupApplier cleanupApplier;
   @Autowired SharedAiMemoryRequestService requests;
   @Autowired SharedAiMemoryChangeService changeService;
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean AiAgentSharedMemoryClient client;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired AiAgentSharedMemoryClient client;
   // 한 공간의 적용에 SQL 오류를 심는 데 쓴다(기본은 실제 동작 그대로).
-  @MockitoSpyBean SharedAiMemoryChangeLog changeLog;
+  @Autowired SharedAiMemoryChangeLog changeLog;
 
   long owner;
   long speaker;

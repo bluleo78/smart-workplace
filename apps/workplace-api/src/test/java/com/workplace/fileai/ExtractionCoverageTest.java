@@ -14,7 +14,7 @@ import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.repository.FileExtractionRepository;
 import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +24,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -32,7 +31,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * — html 확장 지원, 미지원 mime 사유 문자열, 재개방 백필 로직, findResumable 배치 상한을 검증한다.
  */
 @TestPropertySource(properties = "workplace.worker.enabled=true")
-class ExtractionCoverageTest extends IntegrationTestBase {
+class ExtractionCoverageTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired ApplicationEventPublisher publisher;
@@ -40,7 +39,7 @@ class ExtractionCoverageTest extends IntegrationTestBase {
   @Autowired FileExtractionRepository extractionRepo;
 
   /** WorkerClient mock — 리스너 nudge 의 HTTP push 차단(실제 워커 미기동 환경). */
-  @MockitoBean WorkerClient workerClient;
+  @Autowired WorkerClient workerClient;
 
   private final List<Long> createdFileIds = new ArrayList<>();
   private final List<Long> createdUserIds = new ArrayList<>();

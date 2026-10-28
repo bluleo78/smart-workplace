@@ -24,7 +24,7 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.outbound.MailAiMessages.Me;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.jooq.Record;
@@ -33,8 +33,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,7 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 @RecordApplicationEvents
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailPersonalAnalysisTest extends IntegrationTestBase {
+class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =
       new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
@@ -56,9 +54,9 @@ class MailPersonalAnalysisTest extends IntegrationTestBase {
   @Autowired EmailContentRepository contentRepo;
   @Autowired ApplicationEvents events;
 
-  @MockitoBean AiAgentMailClient mailClient;
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoSpyBean NeedsReplyFinalizer finalizer;
+  @Autowired AiAgentMailClient mailClient;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired NeedsReplyFinalizer finalizer;
 
   @BeforeEach
   void assistants() {

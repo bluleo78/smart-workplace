@@ -27,7 +27,7 @@ import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.ResourceChangedCapture;
 import com.workplace.support.ResourceChangedCapture.Captured;
 import com.workplace.support.TestFixtures;
@@ -49,10 +49,10 @@ import org.springframework.test.util.ReflectionTestUtils;
  * 클래스에 @Transactional 을 붙이지 않는다(커밋된 행은 @AfterEach 에서 회수).
  */
 @DisplayName("메일 변경 → resource.changed fan-out 통합")
-class MailResourceChangedIntegrationTest extends IntegrationTestBase {
+class MailResourceChangedIntegrationTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean SseRegistry registry;
-  @MockitoBean AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
+  @Autowired SseRegistry registry;
+  @Autowired AiAgentEventClient aiClient; // ai-agent 실제 호출 차단
   @MockitoBean MailBackfillService backfillService; // 동기화 후 본문 보충 트리거 무동작화
 
   @Autowired DSLContext dsl;

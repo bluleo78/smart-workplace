@@ -17,12 +17,11 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.realtime.StreamingGenerationRegistry;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.SuggestionRequest;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.AiPreferenceService;
 import java.util.ArrayList;
@@ -42,7 +41,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
@@ -50,7 +48,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  * 다음 턴 맥락 제외. 펌프·실행기 스레드가 커밋해야 하므로 @Transactional 을 쓰지 않는다(HomeChatTerminalTest 와 같은 정리 방식).
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeFollowupTest extends IntegrationTestBase {
+class HomeFollowupTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService chatService;
   @Autowired HomeSessionService sessionService;
@@ -70,11 +68,10 @@ class HomeFollowupTest extends IntegrationTestBase {
   /** 이 테스트 시작 시점의 누적 완료 작업 수 — 실행기 빈은 클래스 내 테스트가 공유하므로 차이로 이번 테스트의 완료만 센다. */
   private long completedBaseline;
 
-  @MockitoBean AiAgentChatClient chatClient;
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AiAgentChatClient chatClient;
+  @Autowired AiAgentSuggestionClient suggestionClient;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired SseRegistry sseRegistry;
 
   private final List<Long> users = new ArrayList<>();
   private final List<Map.Entry<String, Map<String, Object>>> events = new CopyOnWriteArrayList<>();

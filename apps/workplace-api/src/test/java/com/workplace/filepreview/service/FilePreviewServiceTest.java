@@ -21,7 +21,7 @@ import com.workplace.filepreview.outbound.ConverterClient;
 import com.workplace.filepreview.outbound.ConverterProperties;
 import com.workplace.filepreview.repository.FilePreviewRepository;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.PreviewAwait;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -43,8 +43,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -54,7 +52,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 기본 GUC=1 이 비동기 경로의 테넌트 GUC 누락을 가리지 않게(WP-417). 정리는 {@code @AfterEach} 에서 자기 id 만.
  */
 @TestPropertySource(properties = "workplace.converter.enabled=true")
-class FilePreviewServiceTest extends IntegrationTestBase {
+class FilePreviewServiceTest extends ExternalClientMockedTestBase {
 
   private static final String FIXTURE_TENANT_SLUG = "file-preview-svc-fixture-tenant";
   private static final byte[] PDF = "%PDF-1.7 fake".getBytes(StandardCharsets.UTF_8);
@@ -64,7 +62,7 @@ class FilePreviewServiceTest extends IntegrationTestBase {
   @Autowired FilePreviewService service;
   @Autowired FilePreviewRepository repo;
   // 스파이 — 쓰기와 완료 기록 사이의 파일 삭제를 재현하는 테스트용(그 밖엔 실제 동작 그대로).
-  @MockitoSpyBean FileStore fileStore;
+  @Autowired FileStore fileStore;
   @Autowired ConverterProperties props;
 
   @Autowired
@@ -75,7 +73,7 @@ class FilePreviewServiceTest extends IntegrationTestBase {
   @Qualifier("filePreviewBackgroundExecutor")
   ThreadPoolTaskExecutor backgroundExecutor;
 
-  @MockitoBean ConverterClient converter;
+  @Autowired ConverterClient converter;
 
   private Long tid2;
   private Long userId;

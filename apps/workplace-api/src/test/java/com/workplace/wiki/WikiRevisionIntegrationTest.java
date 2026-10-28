@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.exception.CollabUnavailableException;
@@ -47,7 +47,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -60,7 +59,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 정리한다(공간 삭제 → page·revision·doc CASCADE).
  */
 @TestPropertySource(properties = "workplace.collab.enabled=true")
-class WikiRevisionIntegrationTest extends IntegrationTestBase {
+class WikiRevisionIntegrationTest extends ExternalClientMockedTestBase {
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
   @Autowired WikiSpaceService spaceService;
@@ -68,7 +67,7 @@ class WikiRevisionIntegrationTest extends IntegrationTestBase {
   @Autowired WikiRevisionService revisionService;
   @Autowired JwtTokenProvider jwt;
 
-  @MockitoBean CollabClient collab;
+  @Autowired CollabClient collab;
 
   private final List<Long> seededUserIds = new ArrayList<>();
   private long ownerId;
@@ -289,7 +288,7 @@ class WikiRevisionIntegrationTest extends IntegrationTestBase {
   class CollabOff {
     // 이 클래스의 컨텍스트(collab 꺼짐) 빈 — 바깥 필드(mvc 등)는 바깥 컨텍스트(collab 켜짐)에서 주입된다. 시드는 같은 DB 라 바깥 빈을 그대로 쓴다.
     @Autowired MockMvc offMvc;
-    @MockitoBean CollabClient offCollab;
+    @Autowired CollabClient offCollab;
 
     private ResultActions restoreAs(long userId, long pageId, int version) throws Exception {
       return offMvc.perform(

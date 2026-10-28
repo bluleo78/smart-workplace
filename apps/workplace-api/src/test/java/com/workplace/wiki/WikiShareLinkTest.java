@@ -43,7 +43,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.web.servlet.MockMvc;
@@ -70,7 +69,7 @@ class WikiShareLinkTest extends IntegrationTestBase {
   @Autowired WikiPageService pageService;
   @Autowired ApplicationEvents appEvents;
   // 거절 뒤 재요청 대기(24시간)를 실제 대기 없이 넘기려고 시각만 바꾼다 — 그 밖엔 실제 시계 그대로.
-  @MockitoSpyBean WikiShareClock shareClock;
+  @Autowired WikiShareClock shareClock;
 
   private long ownerId; // 스페이스 OWNER, 공유한 사람
   private long editorId; // 스페이스 EDITOR

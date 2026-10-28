@@ -13,13 +13,12 @@ import static org.mockito.Mockito.verify;
 
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -27,13 +26,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * PENDING 으로 유지함을 확인한다(스팸·고착 방지).
  */
 @TestPropertySource(properties = "workplace.worker.enabled=false")
-class ExtractionGateTest extends IntegrationTestBase {
+class ExtractionGateTest extends ExternalClientMockedTestBase {
 
   private static final long TENANT_1 = 1L;
 
   @Autowired private FileExtractionPipeline pipeline;
   @Autowired private DSLContext dsl;
-  @MockitoBean private WorkerClient workerClient;
+  @Autowired private WorkerClient workerClient;
 
   private Long createdFileId;
   private Long createdUserId;

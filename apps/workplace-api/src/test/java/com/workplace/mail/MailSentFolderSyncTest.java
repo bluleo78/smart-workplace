@@ -20,7 +20,7 @@ import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Message;
@@ -45,7 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 한다. 받은편지함(「새 메일 N건」)에는 섞이지 않는다.
  */
 @Transactional
-class MailSentFolderSyncTest extends IntegrationTestBase {
+class MailSentFolderSyncTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -68,7 +68,7 @@ class MailSentFolderSyncTest extends IntegrationTestBase {
   @MockitoBean MailSummaryBackfillService summaryBackfillService;
 
   /** ai-agent 실호출 차단. */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** GreenMail 사용자 box@test.local 의 서버 「Sent」 폴더(없으면 만든다). */
   private MailFolder serverSent() throws Exception {

@@ -17,14 +17,13 @@ import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
 import com.workplace.mail.service.MailClassifyBackfillService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Optional;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -33,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Transactional
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailClassifyBackfillServiceTest extends IntegrationTestBase {
+class MailClassifyBackfillServiceTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =
       new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60000);
@@ -42,8 +41,8 @@ class MailClassifyBackfillServiceTest extends IntegrationTestBase {
   @Autowired MailClassifyBackfillService classifyBackfillService;
   @Autowired EmailContentRepository contentRepo;
 
-  @MockitoBean AiAgentMailClient mailClient;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AiAgentMailClient mailClient;
+  @Autowired AssistantResolver assistantResolver;
 
   @BeforeEach
   void assistants() {

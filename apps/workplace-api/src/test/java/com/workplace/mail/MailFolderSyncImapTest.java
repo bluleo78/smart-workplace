@@ -29,7 +29,7 @@ import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.folder.MailFolderSyncGuard;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
@@ -57,7 +57,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 반영(폴더 이름으로 열기), 본문 열기를 본다.
  */
 @Transactional
-class MailFolderSyncImapTest extends IntegrationTestBase {
+class MailFolderSyncImapTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -80,7 +80,7 @@ class MailFolderSyncImapTest extends IntegrationTestBase {
 
   @MockitoBean MailBackfillService backfillService;
   @MockitoBean MailSummaryBackfillService summaryBackfillService;
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 계정·서버 폴더를 만들고 폴더 목록을 갱신(받은편지함 동기화)해 「Projects」 폴더 id 를 돌려준다. */
   private long[] setup() throws Exception {

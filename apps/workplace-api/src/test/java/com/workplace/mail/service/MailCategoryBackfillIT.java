@@ -20,7 +20,7 @@ import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchRequest;
 import com.workplace.mail.outbound.MailAiMessages.ClassifyBatchResult;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +31,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,7 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 @RecordApplicationEvents
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailCategoryBackfillIT extends IntegrationTestBase {
+class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec WORKSPACE =
       new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
@@ -52,8 +51,8 @@ class MailCategoryBackfillIT extends IntegrationTestBase {
   @Autowired EmailContentRepository contentRepo;
   @Autowired ApplicationEvents events;
 
-  @MockitoBean AiAgentMailClient mailClient;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AiAgentMailClient mailClient;
+  @Autowired AssistantResolver assistantResolver;
 
   @BeforeEach
   void workspaceAssistant() {

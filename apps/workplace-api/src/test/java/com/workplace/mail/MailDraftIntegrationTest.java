@@ -44,7 +44,7 @@ import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.mail.service.MailSentAttachmentRecorder;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -60,8 +60,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.ResultActions;
@@ -73,7 +71,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * <p>만료 스윕·발송 단계별 트랜잭션은 커밋을 봐야 하므로 테스트 트랜잭션 없이 돈다({@link MailComposeSendIsolationTest} 와 같은 구성 —
  * Spring 컨텍스트 캐시를 공유한다). 시드는 {@link #cleanup} 에서 지운다.
  */
-class MailDraftIntegrationTest extends IntegrationTestBase {
+class MailDraftIntegrationTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired MockMvc mockMvc;
@@ -90,9 +88,9 @@ class MailDraftIntegrationTest extends IntegrationTestBase {
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EmailAttachmentRepository attachmentRepo;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
-  @MockitoSpyBean MailSentAttachmentRecorder recorder;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
+  @Autowired MailSentAttachmentRecorder recorder;
 
   private final List<Long> users = new ArrayList<>();
 

@@ -14,7 +14,6 @@ import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-150 "나" 프로필 — 다계정 주소 + user.email, 이름·다른 이름·직함, 공유 조직도 소속만, 조회 실패 처리, 배치 캐시. */
@@ -23,7 +22,7 @@ class UserMailProfileBuilderTest extends IntegrationTestBase {
 
   @Autowired UserMailProfileBuilder builder;
   @Autowired DSLContext dsl;
-  @MockitoSpyBean MailPeopleRepository peopleRepo;
+  @Autowired MailPeopleRepository peopleRepo;
 
   @Test
   void build_collectsAllAddressesNamesTitleAndSharedGroups() {

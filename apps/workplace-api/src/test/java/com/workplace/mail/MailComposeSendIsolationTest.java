@@ -28,7 +28,7 @@ import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailComposeAttachmentService;
 import com.workplace.mail.service.MailComposeService;
 import com.workplace.mail.service.MailSentAttachmentRecorder;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -42,8 +42,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * 발송 트랜잭션 분리(WP-574) — 실제 커밋 경계를 봐야 하므로 테스트 트랜잭션 없이(커밋) 돈다. 시드는 {@link #cleanup} 에서 지운다.
@@ -54,7 +52,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
  *   <li>전송이 실패하면 클레임을 되돌려 같은 업로드로 다시 보낼 수 있다.
  * </ul>
  */
-class MailComposeSendIsolationTest extends IntegrationTestBase {
+class MailComposeSendIsolationTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired MailComposeService composeService;
@@ -64,9 +62,9 @@ class MailComposeSendIsolationTest extends IntegrationTestBase {
   @Autowired FileCleanupService fileCleanupService;
   @Autowired FileStore fileStore;
 
-  @MockitoBean GraphApiClient graphApiClient;
-  @MockitoBean GraphTokenService graphTokenService;
-  @MockitoSpyBean MailSentAttachmentRecorder recorder;
+  @Autowired GraphApiClient graphApiClient;
+  @Autowired GraphTokenService graphTokenService;
+  @Autowired MailSentAttachmentRecorder recorder;
 
   private final List<Long> users = new ArrayList<>();
   private final List<Long> accounts = new ArrayList<>();

@@ -27,7 +27,7 @@ import com.workplace.messaging.outbound.AiAgentCatchupClient;
 import com.workplace.messaging.outbound.dto.CatchupSummarizeRequest;
 import com.workplace.messaging.outbound.dto.CatchupSummarizeResult;
 import com.workplace.messaging.repository.ChannelRepository;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,15 +56,15 @@ import org.springframework.web.server.ResponseStatusException;
  * fail-closed 403 ⑦메모리 지문 캐시(WP-381 — 메모리가 같으면 함께 쓰고, 다르거나 바뀌면 다시 요약).
  */
 @Transactional
-class ChannelCatchupServiceTest extends IntegrationTestBase {
+class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired ChannelCatchupService service;
   @Autowired DSLContext dsl;
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelService channelService;
   @Autowired MessageService messageService;
-  @MockitoBean AiAgentCatchupClient catchupClient;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AiAgentCatchupClient catchupClient;
+  @Autowired AssistantResolver assistantResolver;
 
   /** 요청자 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
   @MockitoBean AiMemoryReader memoryReader;

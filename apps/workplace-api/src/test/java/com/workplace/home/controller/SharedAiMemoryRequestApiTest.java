@@ -30,8 +30,8 @@ import com.workplace.home.service.HomeSessionService;
 import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.FakeTextEmbedderConfig;
-import com.workplace.support.IntegrationTestBase;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -47,7 +47,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,7 +58,7 @@ import org.springframework.web.client.ResourceAccessException;
  */
 @Transactional
 @Import(FakeTextEmbedderConfig.class)
-class SharedAiMemoryRequestApiTest extends IntegrationTestBase {
+class SharedAiMemoryRequestApiTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
@@ -69,8 +68,8 @@ class SharedAiMemoryRequestApiTest extends IntegrationTestBase {
   @Autowired HomeMessageRepository messages;
   @Autowired SharedAiMemoryRepository repo;
   @Autowired WikiSpaceService wikiService;
-  @MockitoBean AiAgentSharedMemoryClient client;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AiAgentSharedMemoryClient client;
+  @Autowired AssistantResolver assistantResolver;
 
   long owner;
   long member;

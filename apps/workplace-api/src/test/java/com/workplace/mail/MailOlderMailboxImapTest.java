@@ -22,7 +22,7 @@ import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.folder.MailFolderSyncGuard;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Message;
@@ -48,7 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 커서 페이징이 빠짐·겹침 없이 끝까지 이어지는지 본다.
  */
 @Transactional
-class MailOlderMailboxImapTest extends IntegrationTestBase {
+class MailOlderMailboxImapTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -66,7 +66,7 @@ class MailOlderMailboxImapTest extends IntegrationTestBase {
 
   @MockitoBean MailBackfillService backfillService;
   @MockitoBean MailSummaryBackfillService summaryBackfillService;
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 계정만 만든다. [user, account] */
   private long[] account() {

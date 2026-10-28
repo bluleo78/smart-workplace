@@ -16,7 +16,7 @@ import com.workplace.fileai.inbound.ExtractionBackfillSource;
 import com.workplace.fileai.outbound.AiAgentDriveClient;
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -29,7 +29,6 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -45,7 +44,7 @@ import org.springframework.transaction.support.TransactionTemplate;
       "workplace.worker.extract.resume-batch-size=100000"
     })
 @Import(AttachmentExtractionBackfillTest.FakeSourceConfig.class)
-class AttachmentExtractionBackfillTest extends IntegrationTestBase {
+class AttachmentExtractionBackfillTest extends ExternalClientMockedTestBase {
 
   private static final long TENANT = 1L;
 
@@ -70,8 +69,8 @@ class AttachmentExtractionBackfillTest extends IntegrationTestBase {
   @Autowired FileExtractionScheduler scheduler;
   @Autowired FileExtractionRowWriter rowWriter;
 
-  @MockitoBean WorkerClient workerClient;
-  @MockitoBean AiAgentDriveClient driveClient;
+  @Autowired WorkerClient workerClient;
+  @Autowired AiAgentDriveClient driveClient;
 
   private final List<Long> fileIds = new ArrayList<>();
   private final List<Long> userIds = new ArrayList<>();

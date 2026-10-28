@@ -19,7 +19,7 @@ import com.workplace.mail.outbound.MailAiMessages.Sender;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.repository.PersonalContextRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.jooq.DSLContext;
@@ -28,14 +28,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-150 ④ 보강 입력 배선 — 관계 블록 전달, 블록 조회 실패 시 그 블록만 빠지고 분석 계속, 요약만 모드도 같은 입력. */
 @Transactional
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailPersonalContextTest extends IntegrationTestBase {
+class MailPersonalContextTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =
       new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
@@ -44,10 +42,10 @@ class MailPersonalContextTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
 
-  @MockitoBean AiAgentMailClient mailClient;
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoSpyBean SenderRelationResolver relationResolver;
-  @MockitoSpyBean PersonalContextRepository contextRepo;
+  @Autowired AiAgentMailClient mailClient;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired SenderRelationResolver relationResolver;
+  @Autowired PersonalContextRepository contextRepo;
 
   @BeforeEach
   void assistants() {

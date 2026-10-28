@@ -15,13 +15,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.realtime.SseRegistry;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.dto.HomeMessageResponse;
 import com.workplace.home.dto.HomeSessionSummary;
 import com.workplace.home.outbound.AiAgentChatClient;
 import com.workplace.home.outbound.AiAgentSuggestionClient;
 import com.workplace.home.outbound.ChatMessages.ChatRequest;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,7 +34,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * HomeChatService 통합 테스트(#593 편입) — 통합 /events 채널(SseRegistry.fanOut) 로의
@@ -45,28 +43,23 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * composeStream 은 비동기 펌프를 제출하므로 CountDownLatch 로 done 완료를 기다린다. @Transactional 을 쓰지 않는다 — 펌프 스레드의
  * ASSISTANT appendMessage 가 별도 tx 로 커밋되어야 하기 때문이다.
  *
- * <p>MailSummaryScheduler 가 {@code @Scheduled(fixedRate=600_000)} 로 컨텍스트 기동 직후(initialDelay 미설정 →
- * 즉시 1회 실행) TenantScopedRunner.forEachActiveTenant 콜백 안에서
- * assistantResolver.resolveWorkspaceOrEmpty() 를 호출한다. 이 호출이 테스트 스레드의
- * stubAssistant()(when(...).thenReturn(...)) 와 다른 스레드에서 동시에 실행되면 Mockito 스터빙 내부 상태가
- * 오염되어(WrongTypeOfReturnValue / 스텁 null 리셋 등) 본 클래스 전체가 간헐적으로 flake 한다 (IssueAiSummaryServiceTest 의
- * 동일 패턴 미러). TenantScopedRunner 를 mock 으로 대체해 콜백 자체가 실행되지 않게 해 오염을 원천 차단한다.
+ * <p>예전에는 기동 직후 도는 MailSummaryScheduler 가 다른 스레드에서 AssistantResolver 스텁을 건드려 flake 해서
+ * TenantScopedRunner 를 목으로 막았다. 테스트 프로파일이 @Scheduled 를 끈 뒤(WP-80) 그 목은 필요 없어 뺐다(WP-1028).
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeChatServiceTest extends IntegrationTestBase {
+class HomeChatServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService composeService;
   @Autowired HomeSessionService sessionService;
   @Autowired ObjectMapper objectMapper;
   @Autowired DSLContext dsl;
-  @MockitoBean AiAgentChatClient chatClient;
+  @Autowired AiAgentChatClient chatClient;
 
   /** WP-139: 완료 턴마다 나가는 후속 질문 호출을 막는다 — 실제 ai-agent 가 없어 연결 거부 WARN 이 쌓이지 않게(기본 빈 목록). */
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
+  @Autowired AiAgentSuggestionClient suggestionClient;
 
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean SseRegistry sseRegistry;
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired SseRegistry sseRegistry;
 
   private void stubAssistant() {
     when(assistantResolver.resolve(anyLong()))

@@ -24,7 +24,7 @@ import com.workplace.mail.outbound.MailAiMessages.AnalyzePersonalResult;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailContentRepository;
 import com.workplace.mail.service.MailAnalysisFixtures.Box;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.time.OffsetDateTime;
 import java.util.Optional;
 import org.jooq.DSLContext;
@@ -34,8 +34,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.ResourceAccessException;
 
@@ -46,7 +44,7 @@ import org.springframework.web.client.ResourceAccessException;
  */
 @Transactional
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailReanalysisServiceTest extends IntegrationTestBase {
+class MailReanalysisServiceTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =
       new AssistantSpec(5L, "claude-sonnet-4-6", "NORMAL", 8, 60_000);
@@ -55,12 +53,12 @@ class MailReanalysisServiceTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired EmailContentRepository contentRepo;
 
-  @MockitoBean AiAgentMailClient mailClient;
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AiAgentMailClient mailClient;
+  @Autowired AssistantResolver assistantResolver;
   // WP-150 "나" 프로필 빌더 — 계정 루프 동안 캐시 1개를 쓰는지(메일마다 다시 읽지 않는지) 호출 수로 확인한다
-  @MockitoSpyBean UserMailProfileBuilder profileBuilder;
+  @Autowired UserMailProfileBuilder profileBuilder;
   // 선점 되돌리기 실패 주입용
-  @MockitoSpyBean EmailAccountRepository accountRepo;
+  @Autowired EmailAccountRepository accountRepo;
 
   @BeforeEach
   void assistants() {

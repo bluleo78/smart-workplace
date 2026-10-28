@@ -18,7 +18,7 @@ import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.MessageService;
 import com.workplace.support.AsyncPools;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.user.dto.AgentUsernames;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,13 +34,12 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** 메시지 → ai-agent 발사 결정 테이블 검증. client 를 MockitoBean 으로 가로채 호출 검증. enabled=true 강제. */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MessagingToAiAgentDispatchTest extends IntegrationTestBase {
+class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean AiAgentEventClient client;
+  @Autowired AiAgentEventClient client;
 
   // 디스패치는 커밋 뒤 이 풀에서 돈다 — 「발사되지 않음」은 풀이 빈 뒤 확인한다(고정 800ms 대기 대신, WP-1028).
   @Autowired

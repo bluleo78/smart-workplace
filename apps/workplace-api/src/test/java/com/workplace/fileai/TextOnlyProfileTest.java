@@ -16,7 +16,7 @@ import com.workplace.fileai.repository.WorkerJobRepository;
 import com.workplace.fileai.service.FileExtractionPipeline;
 import com.workplace.fileai.service.FileExtractionPipeline.ExtractResult;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
@@ -25,14 +25,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * WP-242: TEXT_ONLY(첨부) 프로파일은 추출 후 바로 DONE 이 되고 요약·임베딩 경로에 들어가지 않는다. 워커 예외는 extract-error: 로 기록된다.
  */
 @TestPropertySource(properties = "workplace.worker.enabled=true")
-class TextOnlyProfileTest extends IntegrationTestBase {
+class TextOnlyProfileTest extends ExternalClientMockedTestBase {
 
   private static final long TENANT = 1L;
 
@@ -40,8 +39,8 @@ class TextOnlyProfileTest extends IntegrationTestBase {
   @Autowired FileExtractionPipeline pipeline;
   @Autowired WorkerJobRepository jobs;
 
-  @MockitoBean WorkerClient workerClient;
-  @MockitoBean AiAgentDriveClient driveClient;
+  @Autowired WorkerClient workerClient;
+  @Autowired AiAgentDriveClient driveClient;
 
   private final List<Long> fileIds = new ArrayList<>();
   private final List<Long> userIds = new ArrayList<>();

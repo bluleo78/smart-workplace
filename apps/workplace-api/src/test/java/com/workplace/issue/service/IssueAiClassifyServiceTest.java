@@ -20,7 +20,7 @@ import com.workplace.label.repository.LabelRepository;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
 import com.workplace.project.service.ProjectAccessGuard;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -29,17 +29,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** IssueAiClassifyService 통합 테스트 — ai-agent 클라이언트 목. */
-class IssueAiClassifyServiceTest extends IntegrationTestBase {
+class IssueAiClassifyServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired private IssueAiClassifyService classifyService;
 
-  @MockitoBean private AiAgentIssueClient aiClient;
+  @Autowired private AiAgentIssueClient aiClient;
 
   @MockitoBean private ProjectAccessGuard accessGuard;
 
   @MockitoBean private LabelRepository labelRepository;
 
-  @MockitoBean private AssistantResolver assistantResolver;
+  @Autowired private AssistantResolver assistantResolver;
 
   @Test
   void classify_팀프로젝트_정상분류() {

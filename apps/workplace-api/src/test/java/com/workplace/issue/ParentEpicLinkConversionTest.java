@@ -36,7 +36,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,7 +56,7 @@ class ParentEpicLinkConversionTest extends IssueImportTestSupport {
   @Autowired IssueExternalLinkRepository linkRepository;
   @Autowired IssueRelationTypeRepository relationTypeRepository;
   // 판정과 쓰기 사이에 에픽이 지워지는 경합을 재현하려고 스파이로 감싼다 — 동작은 실제 저장소 그대로(스텁은 테스트마다 초기화).
-  @MockitoSpyBean IssueRepository issueRepository;
+  @Autowired IssueRepository issueRepository;
 
   private ProjectResponse b;
   private long parentEpicTypeId;

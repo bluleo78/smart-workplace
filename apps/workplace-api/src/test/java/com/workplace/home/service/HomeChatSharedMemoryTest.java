@@ -20,7 +20,6 @@ import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.ai.SharedMemoryLine;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.SharedMemoryFixtures;
 import com.workplace.home.dto.HomeChatRequest;
 import com.workplace.home.outbound.AiAgentChatClient;
@@ -31,7 +30,7 @@ import com.workplace.home.repository.SharedAiMemoryRepository;
 import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.user.service.AiPreferenceService;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -49,7 +48,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -59,7 +57,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 트랜잭션으로 치운다. 조직 범위는 테넌트 공유라 이 테스트가 넣은 줄의 유무만 단언한다.
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class HomeChatSharedMemoryTest extends IntegrationTestBase {
+class HomeChatSharedMemoryTest extends ExternalClientMockedTestBase {
 
   private static final String RULE = "배포는 API 먼저 한다";
 
@@ -70,13 +68,10 @@ class HomeChatSharedMemoryTest extends IntegrationTestBase {
   @Autowired SharedAiMemoryRepository repo;
   @Autowired HomeMessageRepository messages;
   @Autowired AiPreferenceService preferences;
-  @MockitoBean AiAgentChatClient chatClient;
-  @MockitoBean AiAgentSuggestionClient suggestionClient;
-  @MockitoBean AssistantResolver assistantResolver;
-  @MockitoBean SseRegistry sseRegistry;
-
-  /** 기동 직후 스케줄러가 비서 스텁과 엇갈려 Mockito 상태를 오염시키지 않게(HomeChatServiceTest 와 같은 이유). */
-  @MockitoBean TenantScopedRunner tenantScopedRunner;
+  @Autowired AiAgentChatClient chatClient;
+  @Autowired AiAgentSuggestionClient suggestionClient;
+  @Autowired AssistantResolver assistantResolver;
+  @Autowired SseRegistry sseRegistry;
 
   long owner;
   long member;

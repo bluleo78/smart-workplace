@@ -33,7 +33,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,7 +57,7 @@ class WatchedIssuesGroupedTest extends IntegrationTestBase {
   @Autowired WatcherService watcherService;
   @Autowired ProjectService projectService;
   @Autowired ProjectMemberRepository memberRepository;
-  @MockitoSpyBean ProjectRepository projectRepository;
+  @Autowired ProjectRepository projectRepository;
 
   /** 호출자 — 테스트마다 새로 만들어 다른 테스트의 시드가 섞이지 않게 한다. */
   private long me;

@@ -51,7 +51,7 @@ import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.MailAiService;
 import com.workplace.mail.service.MailAnalysisFixtures;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
 import java.util.List;
@@ -71,7 +71,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** MailAiService 통합 테스트. ai-agent 클라이언트와 비서 해석기는 Mock으로 대체 — 서비스 로직(캐시, gate)만 검증. */
 @Transactional
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class MailAiServiceTest extends IntegrationTestBase {
+class MailAiServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired MailAiService mailAiService;
   @Autowired DSLContext dsl;
@@ -82,10 +82,10 @@ class MailAiServiceTest extends IntegrationTestBase {
   @Autowired EncryptionService encryption;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** 비서 해석은 관심 밖 — 더미 사양으로 고정. */
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AssistantResolver assistantResolver;
 
   /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
   @MockitoBean AiMemoryReader memoryReader;

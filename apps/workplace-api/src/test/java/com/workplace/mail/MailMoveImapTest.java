@@ -37,7 +37,7 @@ import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.move.ImapMailMover;
 import com.workplace.mail.service.move.MailMoveService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
@@ -63,7 +63,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 없는 서버의 COPY+UID EXPUNGE 대체 경로, 메일별 부분 실패, 권한·대상 검증(404·400)도 본다.
  */
 @Transactional
-class MailMoveImapTest extends IntegrationTestBase {
+class MailMoveImapTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -88,7 +88,7 @@ class MailMoveImapTest extends IntegrationTestBase {
   @MockitoBean MailChangeNotifier notifier;
   @MockitoBean MailBackfillService backfillService;
   @MockitoBean MailSummaryBackfillService summaryBackfillService;
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** [user, account] — 서버 메일함(Archive·Projects + 선택적으로 Trash)을 만들고 받은편지함 메일을 받은 뒤 동기화한다. */
   private long[] setup(boolean withTrash, String... subjects) throws Exception {

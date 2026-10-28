@@ -36,7 +36,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,7 +47,7 @@ class AgentWorkServiceTest extends IntegrationTestBase {
 
   @Autowired AgentWorkService service;
   // 스파이 — 평소엔 실제 저장소로 위임하고, 충돌 직후 종료 경합 테스트에서만 insertOutcome 결과를 바꾼다.
-  @MockitoSpyBean AgentWorkRepository repo;
+  @Autowired AgentWorkRepository repo;
   @Autowired DSLContext dsl;
   @Autowired ApplicationEvents events;
   @Autowired IssueRepository issueRepository;

@@ -15,7 +15,6 @@ import static org.mockito.Mockito.when;
 import com.workplace.auth.service.AssistantResolver;
 import com.workplace.auth.service.AssistantSpec;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.issue.exception.IssueAiAssistantUnavailableException;
 import com.workplace.issue.exception.IssueAiException;
 import com.workplace.issue.outbound.dto.IssueSummaryRequest;
@@ -26,7 +25,7 @@ import com.workplace.issue.repository.IssueRepository;
 import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.Optional;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -34,14 +33,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * IssueAiSummaryService 통합 테스트. ai-agent 클라이언트·AssistantResolver 는 목 사용. 비-@Transactional — GUC 주입
  * 경로의 실제 동작을 cleanupInTenant 로 검증. 기존 서비스가 write-time 자동 생성에서 온디맨드(버튼) 생성으로 변경된 것을 검증한다.
  */
-class IssueAiSummaryServiceTest extends IntegrationTestBase {
+class IssueAiSummaryServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired private IssueAiSummaryService service;
   @Autowired private IssueAiSummaryRepository summaryRepo;
@@ -50,15 +48,8 @@ class IssueAiSummaryServiceTest extends IntegrationTestBase {
   @Autowired private ProjectService projectService;
   @Autowired private DSLContext dsl;
 
-  @MockitoBean private AiAgentIssueClient client;
-  @MockitoBean private AssistantResolver assistantResolver;
-
-  /**
-   * MailSummaryScheduler 가 @Scheduled(fixedRate=600_000) 로 TenantScopedRunner.forEachActiveTenant
-   * 콜백 안에서 resolveWorkspaceOrEmpty() 를 호출해 verify 카운트를 오염시킨다. TenantScopedRunner 를 목으로 교체하면 콜백 자체가
-   * 실행되지 않아 오염이 원천 차단된다.
-   */
-  @MockitoBean private TenantScopedRunner tenantScopedRunner;
+  @Autowired private AiAgentIssueClient client;
+  @Autowired private AssistantResolver assistantResolver;
 
   /** 테스트용 고정 AssistantSpec — agentUserId=999. */
   private static final AssistantSpec MOCK_SPEC =

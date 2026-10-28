@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.UserService;
 import com.workplace.wiki.dto.CreatePageRequest;
@@ -71,7 +71,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.TransactionDefinition;
@@ -85,7 +84,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @TestPropertySource(properties = "workplace.collab.enabled=true")
 @ExtendWith(OutputCaptureExtension.class)
-class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
+class WikiCollabSaveIntegrationTest extends ExternalClientMockedTestBase {
   @Autowired MockMvc mvc;
   @Autowired DSLContext dsl;
   @Autowired WikiSpaceService spaceService;
@@ -93,10 +92,10 @@ class WikiCollabSaveIntegrationTest extends IntegrationTestBase {
   @Autowired WikiCollabDocService docService;
   @Autowired JwtTokenProvider jwt;
   // 스파이 — 응답 판 기준본 기록에 실제 DB 오류를 끼워 넣는다(기본은 실제 동작 그대로).
-  @MockitoSpyBean WikiBodyHistoryRepository bodies;
+  @Autowired WikiBodyHistoryRepository bodies;
   @Autowired WikiBodyHistoryCleanupScheduler bodyCleanup;
 
-  @MockitoBean CollabClient collab;
+  @Autowired CollabClient collab;
   // WP-420: 멤버십 정지 후 SSE 종료 관찰용 스파이(기본은 실제 동작).
   @MockitoSpyBean SseRegistry sse;
   @Autowired UserService userService;

@@ -13,22 +13,21 @@ import com.workplace.chat.service.ChatMessageService;
 import com.workplace.chat.service.ChatThreadService;
 import com.workplace.global.outbound.AiAgentEventClient;
 import com.workplace.global.outbound.EventEnvelope;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * chat 메시지 → ai-agent webhook 발사 통합. ai-agent client 를 MockitoBean 으로 가로채 호출 검증. enabled=true 강제.
  */
 @TestPropertySource(properties = "workplace.ai-agent.enabled=true")
-class ChatToAiAgentDispatchTest extends IntegrationTestBase {
+class ChatToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
-  @MockitoBean AiAgentEventClient client;
+  @Autowired AiAgentEventClient client;
   @Autowired ChatThreadService threadService;
   @Autowired ChatMessageService messageService;
   @Autowired ChatThreadMemberRepository memberRepo;

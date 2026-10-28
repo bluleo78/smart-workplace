@@ -35,7 +35,7 @@ import com.workplace.mail.MailTestPorts;
 import com.workplace.mail.repository.ContentAttachmentRepository;
 import com.workplace.mail.repository.EmailAttachmentRepository.AttachmentDownloadContext;
 import com.workplace.mail.service.MailAttachmentService.AttachmentDownload;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,14 +59,14 @@ import org.springframework.transaction.annotation.Transactional;
  * 빈이라 요청 전후 저장소 파일을 비교한다. 클래스 트랜잭션 롤백으로 공유 DB 를 오염시키지 않는다.
  */
 @Transactional
-class MailAttachmentViewTest extends IntegrationTestBase {
+class MailAttachmentViewTest extends ExternalClientMockedTestBase {
 
   private static final long T = 1L;
   private static final byte[] PDF = "%PDF-1.4 view test".getBytes();
   private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 7, 7, 7, 7};
 
   @MockitoBean MailAttachmentService attachmentService;
-  @MockitoBean WorkerRenderClient worker;
+  @Autowired WorkerRenderClient worker;
 
   @Autowired ContentAttachmentRepository contentAttachmentRepo;
   @Autowired MockMvc mvc;

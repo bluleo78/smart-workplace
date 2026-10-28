@@ -41,7 +41,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -62,8 +61,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 결정적으로 만들려면 스레드·대기가 필요하다.
  */
 class DriveFileVersionLockRaceTest extends IntegrationTestBase {
-  @MockitoSpyBean DriveQuotaRepository quotaRepo;
-  @MockitoSpyBean DriveFileRepository filesRepo;
+  @Autowired DriveQuotaRepository quotaRepo;
+  @Autowired DriveFileRepository filesRepo;
 
   /**
    * 변경 알림은 끈다 — 끼워 넣은 트랜잭션의 커밋 뒤(AFTER_COMMIT) SSE 디스패처가 REQUIRES_NEW 로 커넥션을 하나 더 열려 하는데, 테스트

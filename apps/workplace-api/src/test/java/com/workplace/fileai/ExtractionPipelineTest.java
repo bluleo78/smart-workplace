@@ -20,7 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.workplace.fileai.outbound.WorkerClient;
 import com.workplace.fileai.service.FileExtractionPipeline;
 import com.workplace.global.tenant.TenantContext;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -32,7 +32,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClientException;
@@ -48,7 +47,7 @@ import org.springframework.web.client.RestClientException;
  * 활성화한다.
  */
 @TestPropertySource(properties = "workplace.worker.enabled=true")
-class ExtractionPipelineTest extends IntegrationTestBase {
+class ExtractionPipelineTest extends ExternalClientMockedTestBase {
 
   /** 테스트 프로파일의 workplace.worker.internal-token 값 (WorkerProperties.internalToken()). */
   private static final String INTERNAL_TOKEN = "test-token";
@@ -58,7 +57,7 @@ class ExtractionPipelineTest extends IntegrationTestBase {
   @Autowired private DSLContext dsl;
 
   /** WorkerClient mock — 실제 워커 HTTP 호출 차단. */
-  @MockitoBean private WorkerClient workerClient;
+  @Autowired private WorkerClient workerClient;
 
   /** 테스트에서 삽입한 file_id 목록 — @AfterEach 정리용. */
   private final List<Long> createdFileIds = new ArrayList<>();

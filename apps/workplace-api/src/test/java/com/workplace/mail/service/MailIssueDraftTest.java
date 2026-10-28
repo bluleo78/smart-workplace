@@ -24,7 +24,7 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.outbound.MailAiMessages;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,17 +38,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** #520 메일 이슈 초안 — RLS-safe 컨텍스트 조회 + 후보 프로젝트 포함 + ai-agent 응답 매핑 + 소유권 가드 통합 테스트. */
-class MailIssueDraftTest extends IntegrationTestBase {
+class MailIssueDraftTest extends ExternalClientMockedTestBase {
 
   @Autowired MailIssueService mailIssueService;
   @Autowired ProjectService projectService;
   @Autowired DSLContext dsl;
 
   /** ai-agent HTTP 목(실 HTTP 호출 없음). */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** AssistantResolver 목(비서 미설정 환경에서도 통과). */
-  @MockitoBean AssistantResolver assistantResolver;
+  @Autowired AssistantResolver assistantResolver;
 
   /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
   @MockitoBean AiMemoryReader memoryReader;

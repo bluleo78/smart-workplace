@@ -23,7 +23,7 @@ import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Message;
@@ -56,7 +56,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Message-ID), 소유 격리(404), 동시성 가드, 본문 미저장.
  */
 @Transactional
-class MailSyncServiceTest extends IntegrationTestBase {
+class MailSyncServiceTest extends ExternalClientMockedTestBase {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -78,7 +78,7 @@ class MailSyncServiceTest extends IntegrationTestBase {
   @MockitoBean MailSummaryBackfillService summaryBackfillService;
 
   /** ai-agent 실호출 차단 — 더미 응답으로 고정. */
-  @MockitoBean AiAgentMailClient mailClient;
+  @Autowired AiAgentMailClient mailClient;
 
   /** box@test.local 을 가리키는 계정을 직접 삽입(연결테스트 우회). 동기화 대상 accountId 반환. */
   private long insertAccount(long userId) {
