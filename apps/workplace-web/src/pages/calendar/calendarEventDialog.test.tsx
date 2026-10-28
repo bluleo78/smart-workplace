@@ -3,7 +3,7 @@
 // 캘린더 일정 만들기·수정·삭제와 일정 폼 — 화면 컴포넌트 테스트(WP-966, WP-995).
 // 브라우저 없이 판정되는 아래 동작을 e2e/pages/calendar/calendar.spec.ts 에서 옮겼다:
 // - 만들기·수정·삭제(확인 대화상자·destructive 버튼)·반복 회차 범위 선택의 payload·쿼리, 저장 중 잠금·같은 틱 연속 클릭 1회
-// - 종일 → 시각·payload, 반복 입력 → RRULE, 간격·횟수·종료 날짜 검증 안내(저장 막힘), 폼이 담을 수 없는 반복 규칙 잠금·풀기
+// - 종일 → 날짜 칸(종료는 마지막 날 포함, WP-1072)·payload, 반복 입력 → RRULE, 간격·횟수·종료 날짜 검증 안내(저장 막힘), 폼이 담을 수 없는 반복 규칙 잠금·풀기
 //   (규칙 자체는 lib/calendarEventForm.test·recurrence.test 가 지키고, 여기선 폼 입력 → 요청 연결을 본다)
 // 본문·사이드바는 calendarPage.test.tsx 가 본다. 상세가 오기 전 참석자 줄 자리 잡기(높이)는 calendar.spec.ts 의 E2E(@layout)가 지킨다.
 // 저장 요청·대화상자 전환까지 보려고 CalendarPage 를 renderScreen 으로 띄운다(calendarPageKit). 지금 = 2026-06-10 12:00 KST.
@@ -203,15 +203,87 @@ async function openNew(title: string) {
 }
 
 describe('종일', () => {
-  // #575 — 종일 체크가 시작·종료 입력을 자정으로 바꾸고 allDay 로 저장된다.
-  test('종일 체크 시 시작/종료 입력이 자정으로 바뀌고 allDay 로 저장된다 (#575)', async () => {
+  // #575 — 종일 체크가 시작·종료를 자정 경계로 바꾸고 allDay 로 저장된다.
+  // WP-1072 — 종일이면 날짜 칸만 보이고 종료는 마지막 날을 포함한다(하루 일정 = 같은 날). 저장은 그대로 배타적 끝(다음 날 0시).
+  test('종일 체크 시 날짜 칸이 시작·종료 모두 그날로 보이고, 저장은 그날 0시 ~ 다음 날 0시 allDay 다 (#575, WP-1072)', async () => {
     const { user, requests } = await openNew('종일테스트일정')
     await user.click(screen.getByTestId('calendar-form-allday'))
-    expect((screen.getByTestId('calendar-form-start') as HTMLInputElement).value).toMatch(/T00:00$/)
-    expect((screen.getByTestId('calendar-form-end') as HTMLInputElement).value).toMatch(/T00:00$/)
+    const start = screen.getByTestId('calendar-form-start') as HTMLInputElement
+    const end = screen.getByTestId('calendar-form-end') as HTMLInputElement
+    expect(start.type).toBe('date')
+    expect(start).toHaveValue('2026-06-10')
+    expect(end).toHaveValue('2026-06-10')
     await user.click(screen.getByTestId('calendar-form-submit'))
     await waitFor(() => expect(requests.posts).toHaveLength(1))
-    expect(requests.posts[0]).toMatchObject({ allDay: true })
+    const body = requests.posts[0] as { allDay: boolean; startsAt: string; endsAt: string }
+    expect(body.allDay).toBe(true)
+    // KST 자정 = 전날 15:00Z
+    expect(new Date(body.startsAt).toISOString()).toBe('2026-06-09T15:00:00.000Z')
+    expect(new Date(body.endsAt).toISOString()).toBe('2026-06-10T15:00:00.000Z')
+  })
+
+  // WP-1072 — 여러 날 종일 일정(동기화 UTC 자정 저장)을 열면 종료일이 마지막 날로 보이고, 고른 종료일이 달력에 포함되게 다음 날 0시로 저장된다.
+  test('여러 날 종일 일정은 마지막 날을 종료일로 보이고, 종료일을 고치면 그 날까지 포함해 저장된다 (WP-1072)', async () => {
+    const { user, requests } = await renderCalendar({
+      events: [calendarEvent({ id: 1, title: '워크숍', allDay: true, startsAt: '2026-06-11T00:00:00Z', endsAt: '2026-06-13T00:00:00Z' })],
+    })
+    await user.click((await screen.findAllByTestId('calendar-event-1'))[0])
+    await screen.findByTestId('calendar-event-dialog')
+    expect(screen.getByTestId('calendar-form-start')).toHaveValue('2026-06-11')
+    expect(screen.getByTestId('calendar-form-end')).toHaveValue('2026-06-12')
+
+    setValue('calendar-form-end', '2026-06-14')
+    expect(screen.getByTestId('calendar-form-end')).toHaveValue('2026-06-14')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    const body = requests.patches[0].body as { allDay: boolean; startsAt: string; endsAt: string }
+    expect(body.allDay).toBe(true)
+    expect(new Date(body.startsAt).toISOString()).toBe('2026-06-10T15:00:00.000Z')
+    // 6/14 를 포함 → 6/15 0시(KST) 배타적 끝
+    expect(new Date(body.endsAt).toISOString()).toBe('2026-06-14T15:00:00.000Z')
+  })
+
+  // WP-1072 — 날짜를 고치지 않은 저장은 저장된 시각(동기화 UTC 자정)을 그대로 보낸다 — 로컬 자정으로 바꿔 보내면 서버가 일정 변경으로 본다.
+  test('종일 일정의 제목만 고쳐 저장하면 시작·종료 시각은 저장된 값 그대로다 (WP-1072)', async () => {
+    const { user, requests } = await renderCalendar({
+      events: [calendarEvent({ id: 1, title: '워크숍', allDay: true, startsAt: '2026-06-11T00:00:00Z', endsAt: '2026-06-13T00:00:00Z' })],
+    })
+    await user.click((await screen.findAllByTestId('calendar-event-1'))[0])
+    await screen.findByTestId('calendar-event-dialog')
+    setValue('calendar-form-title', '워크숍(장소 변경)')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    await waitFor(() => expect(requests.patches).toHaveLength(1))
+    const body = requests.patches[0].body as { startsAt: string; endsAt: string }
+    expect(new Date(body.startsAt).toISOString()).toBe('2026-06-11T00:00:00.000Z')
+    expect(new Date(body.endsAt).toISOString()).toBe('2026-06-13T00:00:00.000Z')
+  })
+
+  // 제어 칸이라 빈 값을 버리면 지운 칸이 되살아났다 — 지울 수 있고, 빈 채 저장하면 막힌다.
+  test('종일 종료일 칸을 지우면 빈 칸으로 남고 저장되지 않는다 (WP-1072)', async () => {
+    const { user, requests } = await openNew('지우기')
+    await user.click(screen.getByTestId('calendar-form-allday'))
+    setValue('calendar-form-end', '')
+    expect(screen.getByTestId('calendar-form-end')).toHaveValue('')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(screen.getByTestId('calendar-form-end')).toHaveAttribute('aria-invalid', 'true')
+    expect(requests.posts).toHaveLength(0)
+  })
+
+  test('종일 종료일을 시작일보다 앞으로 고르면 안내하고 저장하지 않는다 — 같은 날은 허용된다 (WP-1072)', async () => {
+    const { user, requests } = await openNew('하루')
+    await user.click(screen.getByTestId('calendar-form-allday'))
+    setValue('calendar-form-end', '2026-06-09')
+    await user.click(screen.getByTestId('calendar-form-submit'))
+    expect(await screen.findByText('종료일은 시작일보다 앞설 수 없습니다')).toBeInTheDocument()
+    expect(requests.posts).toHaveLength(0)
+  })
+
+  test('종일 시작일을 종료일 뒤로 옮기면 종료일이 시작일로 따라온다 (WP-1072)', async () => {
+    await openNew('옮기기')
+    fireEvent.click(screen.getByTestId('calendar-form-allday'))
+    setValue('calendar-form-start', '2026-06-15')
+    expect(screen.getByTestId('calendar-form-start')).toHaveValue('2026-06-15')
+    expect(screen.getByTestId('calendar-form-end')).toHaveValue('2026-06-15')
   })
 
   // WP-711 — 종일을 켰다 끄면 체크 전 시각으로 돌아오고 그 시각으로 저장된다(예전엔 00:00~익일 00:00 시간 일정이 됐다).
@@ -219,16 +291,17 @@ describe('종일', () => {
     const { user, requests } = await renderCalendar({ events: [calendarEvent({ id: 1, title: '주간 회의' })] })
     await user.click((await screen.findAllByTestId('calendar-event-1'))[0])
     await screen.findByTestId('calendar-event-dialog')
-    const start = screen.getByTestId('calendar-form-start') as HTMLInputElement
-    const end = screen.getByTestId('calendar-form-end') as HTMLInputElement
-    const before = { start: start.value, end: end.value }
+    // 종일을 켜고 끄면 칸 종류(날짜 ↔ 날짜·시각)가 바뀌어 요소가 새로 그려진다 — 매번 다시 찾는다.
+    const startInput = () => screen.getByTestId('calendar-form-start') as HTMLInputElement
+    const endInput = () => screen.getByTestId('calendar-form-end') as HTMLInputElement
+    const before = { start: startInput().value, end: endInput().value }
     expect(before.start).not.toMatch(/T00:00$/)
 
     await user.click(screen.getByTestId('calendar-form-allday'))
-    expect(start.value).toMatch(/T00:00$/)
+    expect(startInput()).toHaveValue('2026-06-10')
     await user.click(screen.getByTestId('calendar-form-allday'))
-    expect(start).toHaveValue(before.start)
-    expect(end).toHaveValue(before.end)
+    expect(startInput()).toHaveValue(before.start)
+    expect(endInput()).toHaveValue(before.end)
 
     await user.click(screen.getByTestId('calendar-form-submit'))
     await waitFor(() => expect(requests.patches).toHaveLength(1))

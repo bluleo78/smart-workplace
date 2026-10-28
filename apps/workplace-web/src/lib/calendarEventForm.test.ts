@@ -4,9 +4,13 @@ import { describe, expect, it } from 'vitest'
 
 import type { Attendee } from '../types/calendar'
 import {
+  allDayDisplayDates,
+  allDayFormValue,
+  allDayRangeFromDates,
   eventEditability,
   eventFormSchema,
   type EventFormValues,
+  keepStoredAllDayInstants,
   normalizeAllDayRange,
   restoreTimedRange,
   shouldShowRsvp,
@@ -333,5 +337,59 @@ describe('restoreTimedRange (WP-711)', () => {
         { start: '2026-12-31T23:00', end: '2027-01-01T01:00' },
       ),
     ).toEqual({ start: '2026-12-31T23:00', end: '2027-01-01T01:00' })
+  })
+})
+
+// WP-1072 — 종일 폼 값(자정 경계 [start, end)) ↔ 날짜 칸(종료는 마지막 날 포함)
+describe('allDayDisplayDates / allDayRangeFromDates', () => {
+  it('하루 종일(다음 날 0시 끝)은 시작·종료가 같은 날로 보인다', () => {
+    expect(allDayDisplayDates('2026-10-28T00:00', '2026-10-29T00:00')).toEqual({ startDate: '2026-10-28', endDate: '2026-10-28' })
+  })
+  it('여러 날은 배타적 끝의 전날이 종료일이다(달·해 경계 포함)', () => {
+    expect(allDayDisplayDates('2026-10-28T00:00', '2026-11-02T00:00')).toEqual({ startDate: '2026-10-28', endDate: '2026-11-01' })
+    expect(allDayDisplayDates('2026-12-31T00:00', '2027-01-01T00:00').endDate).toBe('2026-12-31')
+  })
+  it('종료가 시작 이하이면 종료일은 시작일, 비었으면 빈 칸', () => {
+    expect(allDayDisplayDates('2026-10-28T00:00', '').endDate).toBe('')
+    expect(allDayDisplayDates('2026-10-28T00:00', '2026-10-28T00:00').endDate).toBe('2026-10-28')
+  })
+  it('날짜 칸 → 폼 값: 종료일 다음 날 0시가 끝이다(왕복이 같다)', () => {
+    expect(allDayRangeFromDates('2026-10-28', '2026-11-01')).toEqual({ start: '2026-10-28T00:00', end: '2026-11-02T00:00' })
+    const r = allDayRangeFromDates('2026-10-28', '2026-10-28')
+    expect(allDayDisplayDates(r.start, r.end)).toEqual({ startDate: '2026-10-28', endDate: '2026-10-28' })
+  })
+  it('빈 칸·연도 5자리는 던지지 않고 그대로 넘겨 스키마가 알린다(WP-902)', () => {
+    expect(allDayRangeFromDates('', '2026-10-28')).toEqual({ start: '', end: '2026-10-29T00:00' })
+    expect(allDayRangeFromDates('2026-10-28', '')).toEqual({ start: '2026-10-28T00:00', end: '' })
+    expect(allDayRangeFromDates('2026-10-28', '20271-06-10').end).toBe('20271-06-10T00:00')
+    expect(allDayDisplayDates('2026-06-10T12:00', '20271-06-10T13:00')).toEqual({ startDate: '2026-06-10', endDate: '20271-06-1' })
+    const res = eventFormSchema.safeParse({ ...base, allDay: true, ...allDayRangeFromDates('2026-10-28', '') })
+    expect(res.success).toBe(false)
+  })
+  it('종료일이 시작일보다 앞이면 스키마가 종일 문구로 막는다', () => {
+    const r = allDayRangeFromDates('2026-10-28', '2026-10-26')
+    const res = eventFormSchema.safeParse({ ...base, allDay: true, ...r })
+    expect(res.success).toBe(false)
+    expect(res.error?.issues.map((i) => i.message)).toContain('종료일은 시작일보다 앞설 수 없습니다')
+  })
+})
+
+// WP-1072 — 종일 프리필(저장 규약 무관하게 그 날짜 자정)과, 날짜를 고치지 않은 저장은 저장된 시각을 그대로 보내기
+describe('allDayFormValue / keepStoredAllDayInstants', () => {
+  const synced = { allDay: true, startsAt: '2026-06-11T00:00:00Z', endsAt: '2026-06-13T00:00:00Z' }
+  const request = { startsAt: 'LOCAL-START', endsAt: 'LOCAL-END', title: 't' }
+
+  it('동기화(UTC 자정) 종일은 그 날짜의 자정 폼 값이 된다', () => {
+    expect(allDayFormValue(synced.startsAt)).toBe('2026-06-11T00:00')
+    expect(allDayFormValue(synced.endsAt)).toBe('2026-06-13T00:00')
+  })
+  it('날짜를 고치지 않았으면 저장된 시각을 그대로 보낸다', () => {
+    const values = { allDay: true, start: '2026-06-11T00:00', end: '2026-06-13T00:00' }
+    expect(keepStoredAllDayInstants(request, values, synced)).toEqual({ ...request, startsAt: synced.startsAt, endsAt: synced.endsAt })
+  })
+  it('날짜를 고쳤거나 종일을 풀었거나 새 일정이면 폼 값으로 보낸다', () => {
+    expect(keepStoredAllDayInstants(request, { allDay: true, start: '2026-06-11T00:00', end: '2026-06-14T00:00' }, synced)).toBe(request)
+    expect(keepStoredAllDayInstants(request, { allDay: false, start: '2026-06-11T00:00', end: '2026-06-13T00:00' }, synced)).toBe(request)
+    expect(keepStoredAllDayInstants(request, { allDay: true, start: '2026-06-11T00:00', end: '2026-06-13T00:00' }, null)).toBe(request)
   })
 })

@@ -11,6 +11,7 @@ import { useAiPanelAwareDialog } from '@/components/ai/useAiPanelAwareDialog'
 import { AttendeeSection, type SelectedMember } from '@/components/calendar/AttendeeSection'
 import { EventDetailView } from '@/components/calendar/EventDetailView'
 import { EventFormRow, FORM_CHIP_LINE_CLASS } from '@/components/calendar/EventFormRow'
+import { EventRangeInputs } from '@/components/calendar/EventRangeInputs'
 import { EventTagsField } from '@/components/calendar/EventTagsField'
 import { JoinMeetingButton } from '@/components/calendar/JoinMeetingButton'
 import { PaletteSwatches } from '@/components/calendar/PaletteSwatches'
@@ -44,9 +45,11 @@ import { useAuth } from '@/hooks/useAuth'
 import { INVITED_CALENDAR_LABEL } from '@/lib/calendar'
 // 폼 스키마·요청 조립·편집 가능 판정은 @/lib/calendarEventForm 의 순수 함수(WP-412)
 import {
+  allDayFormValue,
   eventEditability,
   eventFormSchema,
   type EventFormValues as FormValues,
+  keepStoredAllDayInstants,
   normalizeAllDayRange,
   recurrenceToFormValues,
   restoreTimedRange,
@@ -198,11 +201,10 @@ export function EventDialog({
   })
 
   // 화면이 따라 그리는 칸만 구독한다 — form.watch 는 어느 칸이 바뀌어도(제목 한 글자마다) 다이얼로그 전체를 다시 그렸다(WP-801).
-  const [watchedCalendarId, color, recurrenceFreq, recurrenceEnd, reminderMinutes] = useWatch({
+  const [watchedCalendarId, color, recurrenceFreq, recurrenceEnd, reminderMinutes, allDay] = useWatch({
     control: form.control,
-    name: ['calendarId', 'color', 'recurrenceFreq', 'recurrenceEnd', 'reminderMinutes'],
+    name: ['calendarId', 'color', 'recurrenceFreq', 'recurrenceEnd', 'reminderMinutes', 'allDay'],
   })
-
   // 색 점의 「상속」 색 — 고른 캘린더의 색(목록 로드 전·내 목록에 없으면 일정의 실제 색)
   const calendarColor = calendars.find((c) => c.id === watchedCalendarId)?.color ?? event?.effectiveColor ?? null
 
@@ -229,8 +231,9 @@ export function EventDialog({
       form.reset({
         title: event.title,
         allDay: event.allDay,
-        start: toLocalInput(event.startsAt),
-        end: toLocalInput(event.endsAt),
+        // 종일은 저장 규약(동기화 UTC 자정·로컬 자정)과 무관하게 의도한 날짜로 — 시각으로 풀면 UTC 자정 종일이 09:00 으로 보였다(WP-1072).
+        start: event.allDay ? allDayFormValue(event.startsAt) : toLocalInput(event.startsAt),
+        end: event.allDay ? allDayFormValue(event.endsAt) : toLocalInput(event.endsAt),
         location: event.location ?? '',
         description: event.description ?? '',
         reminderMinutes: (event.reminderMinutes?.toString() ??
@@ -311,12 +314,16 @@ export function EventDialog({
     submittingRef.current = true
 
     // 참석자 id 는 생성 모드에서만 담긴다 — 칩 표시용 이름은 제외하고 id 만 (이슈 #489)
-    const body = toEventRequest(values, {
-      isEdit,
-      defaultCalendarId,
-      attendeeUserIds: selectedAttendees.map((m) => m.id),
-      lockedRecurrenceRule,
-    })
+    const body = keepStoredAllDayInstants(
+      toEventRequest(values, {
+        isEdit,
+        defaultCalendarId,
+        attendeeUserIds: selectedAttendees.map((m) => m.id),
+        lockedRecurrenceRule,
+      }),
+      values,
+      event,
+    )
     // 태그는 바뀌었을 때만 싣는다(빈 목록 = 모두 떼기도 바뀐 것) — 안 바뀐 저장이 Outlook 범주를 다시 쓰지 않게.
     // 붙일 수 없는 일정(공유받은 읽기 전용 M365 달력)은 싣지 않는다 — 칩이 읽기 전용이라 바뀔 일도 없다
     const tagIds = tagsEditable
@@ -407,32 +414,7 @@ export function EventDialog({
               {/* 시간 — 시작·종료 한 줄(휴대폰은 한 줄씩 전체 폭: 반 폭이면 datetime-local 값이 날짜에서 잘려 시각이 안 보였다 WP-635),
                   그 아래 종일·반복. 반복을 시간 옆에 두는 건 상세 보기(시간 아래 반복 문구)와 같은 자리다. */}
               <EventFormRow icon={Clock}>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                  <Input
-                    id="ev-start"
-                    type="datetime-local"
-                    data-testid="calendar-form-start"
-                    aria-label="시작"
-                    aria-invalid={!!form.formState.errors.start}
-                    className="h-8 w-full px-2 sm:w-auto pointer-coarse:h-11"
-                    {...form.register('start')}
-                  />
-                  {/* 줄표는 종료 칸과 한 덩어리 — 좁아 꺾이면 줄표가 앞 줄 끝에 홀로 남지 않고 종료 칸과 함께 다음 줄로 간다 */}
-                  <span className="flex w-full items-center gap-2 sm:w-auto">
-                    <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">
-                      –
-                    </span>
-                    <Input
-                      id="ev-end"
-                      type="datetime-local"
-                      data-testid="calendar-form-end"
-                      aria-label="종료"
-                      aria-invalid={!!form.formState.errors.end}
-                      className="h-8 w-full px-2 sm:w-auto pointer-coarse:h-11"
-                      {...form.register('end')}
-                    />
-                  </span>
-                </div>
+                <EventRangeInputs form={form} allDay={allDay} />
                 {(form.formState.errors.start || form.formState.errors.end) && (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.start?.message ?? form.formState.errors.end?.message}
