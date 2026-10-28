@@ -12,6 +12,7 @@ import com.workplace.home.outbound.dto.PriorityClassifyRequest;
 import com.workplace.home.outbound.dto.PriorityClassifyResult;
 import com.workplace.home.repository.PriorityItemRepository;
 import com.workplace.issue.dto.IssueResponse;
+import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.messaging.service.MessagingSummaryService;
@@ -45,6 +46,12 @@ public class PriorityClassificationScheduler {
 
   /** 소스당 후보 상한 — ai-agent 요청 폭주 방지(배치 입력 상한, SynthesisLayer 표시 상한과는 별개). */
   private static final int SOURCE_LIMIT = 20;
+
+  /** 이슈 마감 후보의 상태 범주 CSV — 종료(완료·취소)가 아닌 범주. 범주가 늘거나 바뀌어도 IssueStatuses 를 따라간다(WP-1099). */
+  private static final String OPEN_CATEGORIES =
+      String.join(
+          ",",
+          IssueStatuses.CATEGORY_ORDER.stream().filter(c -> !IssueStatuses.isClosed(c)).toList());
 
   private record TenantUser(long tenantId, long userId) {}
 
@@ -231,9 +238,20 @@ public class PriorityClassificationScheduler {
     String today = LocalDate.now().toString();
 
     // 이슈 마감(지남/오늘) — SynthesisLayer 의 dueFrom(1년 전)~오늘 규칙 미러.
+    // 열린 범주(할 일·진행 중)만 받는다 — 프론트 isClosedDue(WP-675)처럼 끝난(완료·취소) 이슈는 마감이 지나도 후보가 아니다(WP-1099).
+    // DB 단계에서 거르므로 후보 상한(SOURCE_LIMIT)도 열린 이슈만 차지한다. 사용자 정의 상태도 범주로 걸러진다.
     var issues =
         issueSearchService.searchMine(
-            userId, Map.of("assignee", "me", "dueTo", today, "size", String.valueOf(SOURCE_LIMIT)));
+            userId,
+            Map.of(
+                "assignee",
+                "me",
+                "dueTo",
+                today,
+                "status",
+                OPEN_CATEGORIES,
+                "size",
+                String.valueOf(SOURCE_LIMIT)));
     for (IssueResponse i : issues.items()) {
       if (i.dueDate() != null && i.dueDate().toString().compareTo(today) <= 0) {
         out.add(
