@@ -39,6 +39,19 @@ export interface ChannelMemberResponse {
   role: ChannelRole;
   joinedAt: string;
   active?: boolean; // 이 워크스페이스에서 활성 — false 면 정지된 구성원(WP-723). 없으면 활성으로 본다
+  // 직접 멤버 행인가(WP-1058) — false 면 비공개 채널에 멤버로 둔 조직도 부서(하위 부서 포함)로만 들어온 사람.
+  direct: boolean;
+  // 이 사람을 덮는 이 채널의 멤버 부서 id(WP-1058) — 부서 펼침·「개발팀에도 속함」 안내·내보내기 확인 문구가 쓴다. 부서와 무관하면 빈 목록.
+  viaGroupIds: number[];
+}
+
+/** 비공개 채널 멤버로 둔 조직도 부서 한 줄(WP-1058) — 「개발팀 · 12명」. 부서와 하위 부서의 활성 사람이 채널 멤버가 된다. */
+export interface ChannelMemberGroup {
+  groupId: number;
+  name: string;
+  // 지금 이 부서(하위 포함)로 들어오는 활성 사람 수(중복 제외).
+  memberCount: number;
+  addedAt: string;
 }
 
 /** 메시지 내 멘션된 사용자 정보. */

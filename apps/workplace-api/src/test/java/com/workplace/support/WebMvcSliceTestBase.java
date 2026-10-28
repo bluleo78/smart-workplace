@@ -87,6 +87,7 @@ import com.workplace.messaging.controller.ChannelMemberController;
 import com.workplace.messaging.controller.DmController;
 import com.workplace.messaging.controller.MessageController;
 import com.workplace.messaging.controller.ReactionController;
+import com.workplace.messaging.service.ChannelMemberGroupService;
 import com.workplace.messaging.service.ChannelMemberService;
 import com.workplace.messaging.service.ChannelService;
 import com.workplace.messaging.service.DmService;
@@ -194,6 +195,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
       CalendarService.class,
       CalendarTagFeedService.class,
       CalendarTagService.class,
+      ChannelMemberGroupService.class,
       ChannelMemberService.class,
       ChannelService.class,
       ChatMembershipService.class,

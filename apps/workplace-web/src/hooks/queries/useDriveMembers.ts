@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
 import { driveApi } from '../../api/drive'
-import { addGroupMembers } from '../../components/members/personalGroups'
+import { addMembersFromGroup, type GroupMembersAddResult } from '../../components/members/personalGroups'
 import { handleApiError } from '../../lib/api-error'
 import type { DriveMember, DriveMemberGroup, DriveRole } from '../../types/drive'
 import { driveKeys } from './driveKeys'
@@ -115,18 +115,17 @@ export function useRemoveDriveMemberGroup(spaceId: number) {
  */
 export function useAddDriveMembersFromGroup(spaceId: number) {
   const qc = useQueryClient()
-  return async (memberIds: number[]): Promise<{ added: number; skipped: number; failed: number }> => {
-    const latest = await qc.fetchQuery({
-      queryKey: driveKeys.members(spaceId),
-      queryFn: () => driveApi.listMembers(spaceId).then((r) => r.data),
-      staleTime: 0,
+  return (memberIds: number[] | Promise<number[]>): Promise<GroupMembersAddResult> =>
+    addMembersFromGroup(memberIds, {
+      readCurrentIds: () =>
+        qc
+          .fetchQuery({
+            queryKey: driveKeys.members(spaceId),
+            queryFn: () => driveApi.listMembers(spaceId).then((r) => r.data),
+            staleTime: 0,
+          })
+          .then((latest) => latest.map((m) => m.userId)),
+      addOne: (userId) => driveApi.addMember(spaceId, userId, 'EDITOR'),
+      invalidate: () => invalidate(qc, spaceId),
     })
-    const current = latest.map((m) => m.userId)
-    const { userIds, skipped } = addGroupMembers(current, memberIds)
-    const fresh = userIds.slice(current.length)
-    const results = await Promise.allSettled(fresh.map((userId) => driveApi.addMember(spaceId, userId, 'EDITOR')))
-    const failed = results.filter((r) => r.status === 'rejected').length
-    if (fresh.length > 0) invalidate(qc, spaceId)
-    return { added: fresh.length - failed, skipped, failed }
-  }
 }

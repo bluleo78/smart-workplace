@@ -7,6 +7,8 @@ export const messagingKeys = {
   discover: (q: string) => [...messagingKeys.all, 'discover', q] as const,
   detail: (channelId: number) => [...messagingKeys.all, 'detail', channelId] as const,
   members: (channelId: number) => [...messagingKeys.all, 'members', channelId] as const,
+  /** 비공개 채널 멤버로 둔 조직도 부서(WP-1058) — members 아래라 멤버 목록 무효화(변경·실시간 channel 이벤트)가 함께 덮는다. */
+  memberGroups: (channelId: number) => [...messagingKeys.members(channelId), 'groups'] as const,
   messages: (channelId: number) => [...messagingKeys.all, 'messages', channelId] as const,
   threads: () => [...messagingKeys.all, 'thread'] as const,
   thread: (parentMessageId: number) => [...messagingKeys.all, 'thread', parentMessageId] as const,

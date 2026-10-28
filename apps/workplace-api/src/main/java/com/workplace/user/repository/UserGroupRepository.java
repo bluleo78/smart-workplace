@@ -17,6 +17,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.Condition;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -225,6 +226,17 @@ public class UserGroupRepository {
     return dsl.select(a.groupId()).from(a.table()).orderBy(a.depth().asc()).fetch(a.groupId());
   }
 
+  /**
+   * 사람이 직접 속한 조직도 부서와 그 모든 상위 부서 id(중복 없음) — 활성 여부는 보지 않는다({@link
+   * Departments#withAncestorsOfIncludingInactive}). 구성원 정지를 풀 때 그 사람만큼 구성원이 늘어난 부서를 알리는 데
+   * 쓴다(WP-1058).
+   */
+  public List<Long> findDepartmentIdsWithAncestorsOf(long userId) {
+    var ids = Departments.withAncestorsOfIncludingInactive(DSL.val(userId)).asTable("dwa", "id");
+    Field<Long> id = ids.field("id", Long.class);
+    return dsl.selectDistinct(id).from(ids).orderBy(id.asc()).fetch(id);
+  }
+
   /** 그룹 생성. ownerId 는 PERSONAL 만 non-null. 생성 id 반환. */
   public long insert(CreateUserGroupRequest req, Long ownerId) {
     return dsl.insertInto(USER_GROUP)
@@ -258,7 +270,6 @@ public class UserGroupRepository {
     dsl.deleteFrom(USER_GROUP).where(USER_GROUP.ID.eq(id)).execute();
   }
 
-  /** 멤버 편입(멱등 — PK 충돌 시 no-op). */
   /** 멤버 편입 — 이미 있으면 아무것도 하지 않는다. 새로 넣었으면 true(WP-1102 — 그때만 구성원 증가를 알린다). */
   public boolean addMember(long groupId, String targetType, long targetId) {
     return dsl.insertInto(USER_GROUP_MEMBER)

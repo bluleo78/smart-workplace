@@ -258,6 +258,23 @@ public class ChannelRepository {
         .execute();
   }
 
+  /** 채널의 종류·공개 범위·보관 여부를 한 번에 읽는다(WP-1058) — 멤버 부서 추가·맞추기가 존재·DM·공개·보관을 따로 묻지 않게. 채널이 없으면 empty. */
+  public Optional<ChannelState> findState(long channelId) {
+    return dsl.select(CHANNEL.KIND, CHANNEL.VISIBILITY, CHANNEL.ARCHIVED_AT.isNotNull())
+        .from(CHANNEL)
+        .where(CHANNEL.ID.eq(channelId))
+        .fetchOptional(r -> new ChannelState(r.value1(), r.value2(), r.value3()));
+  }
+
+  /**
+   * 채널 상태 — {@link #findState} 의 결과.
+   *
+   * @param kind CHANNEL | DM
+   * @param visibility PUBLIC | PRIVATE
+   * @param archived 보관됐는가
+   */
+  public record ChannelState(String kind, String visibility, boolean archived) {}
+
   /** 아카이브 여부. */
   public boolean isArchived(long channelId) {
     return dsl.fetchExists(

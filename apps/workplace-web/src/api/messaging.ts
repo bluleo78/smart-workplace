@@ -2,6 +2,7 @@
 
 import type {
   ChannelDriveSpaceResponse,
+  ChannelMemberGroup,
   ChannelMemberResponse,
   ChannelResponse,
   ChannelRole,
@@ -76,6 +77,16 @@ export const messagingApi = {
 
   updateMemberRole: (channelId: number, userId: number, role: ChannelRole) =>
     client.patch<void>(`/messaging/channels/${channelId}/members/${userId}`, { role }),
+
+  // 멤버로 둔 조직도 부서(WP-1058) — 비공개 채널만(공개·DM·내 그룹은 서버가 400). 추가·제거는 OWNER·ADMIN.
+  listMemberGroups: (channelId: number) =>
+    client.get<ChannelMemberGroup[]>(`/messaging/channels/${channelId}/member-groups`),
+
+  addMemberGroup: (channelId: number, groupId: number) =>
+    client.post<ChannelMemberGroup>(`/messaging/channels/${channelId}/member-groups`, { groupId }),
+
+  removeMemberGroup: (channelId: number, groupId: number) =>
+    client.delete<void>(`/messaging/channels/${channelId}/member-groups/${groupId}`),
 
   // DM 목록(참여자·최근시각 포함).
   listDms: () => client.get<DmResponse[]>('/messaging/dms'),

@@ -1,7 +1,8 @@
 // 사람·조직 고르기 창(WP-1023·WP-1048, 공통화 WP-1052) — 사람·조직도 부서·내 그룹을 한 검색창에서 섹션으로 나눠 보인다.
 // 노트 공유 「사람·팀 추가」에서 시작했고, 노트 스페이스 멤버 추가(WP-1052)도 같은 창을 쓴다 — 쓰는 곳마다 다른 점은 옵션으로 고른다:
 //   내 그룹 섹션(showPersonalGroups — 스페이스 멤버는 그룹 자체를 멤버로 두지 않아 끈다), AI 에이전트 포함(includeAgents —
-//   스페이스 일을 AI 에게도 맡길 수 있게), data-testid 접두사(testIdPrefix — 기본 share-target 이라 공유 쪽 테스트가 그대로다).
+//   스페이스 일을 AI 에게도 맡길 수 있게), data-testid 접두사(testIdPrefix — 기본 share-target 이라 공유 쪽 테스트가 그대로다),
+//   조직도 부서 섹션(onSelectDepartment 를 줄 때만 — 공개 채널 초대(WP-1058)는 부서를 멤버로 둘 수 없어 주지 않고 사람·내 그룹만 보인다).
 // - 사람: 구성원 디렉터리 검색(useUserSearch, 300ms debounce) — 사람 고르기 팝오버(MemberSearchPopover)와 같은 조회·같은 거르기(비활성 제외).
 //   공유하는 나·공유를 만든 사람(excludeUserIds)은 이미 열 수 있어 후보에서 뺀다. 이름 옆에 소속 부서를 보여 같은 이름을 가른다(WP-1048).
 // - 조직도 부서·내 그룹: 그룹 트리(GET /user-groups, 공유 조직도 + 내 개인 그룹만 온다)를 한 번 받아 브라우저에서 이름·상위 경로로 거른다.
@@ -26,7 +27,7 @@ import { useId, useState } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/overlay/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
-import { cn } from '@/lib/utils'
+import { cn, directionParticle } from '@/lib/utils'
 
 import { userGroupsApi } from '../../api/userGroups'
 import { groupAllMembersQuery } from '../../hooks/queries/useGroupMemberSearch'
@@ -87,12 +88,20 @@ export interface PeopleAndDepartmentPickerProps {
    * 참석자, WP-1059)이 다시 찾지 않게 넘긴다.
    */
   onSelectPerson: (userId: number, person: PickedPerson) => void
-  /** 조직도 부서를 대상으로 더한다(부서 행으로 저장 — 구성원은 열 때마다 다시 본다). */
-  onSelectDepartment: (group: GroupOption) => void
+  /**
+   * 조직도 부서를 대상으로 더한다(부서 행으로 저장 — 구성원은 열 때마다 다시 본다). 주지 않으면 조직 섹션·탭을 숨긴다 —
+   * 부서를 멤버로 둘 수 없는 곳(공개 채널 초대, WP-1058).
+   */
+  onSelectDepartment?: (group: GroupOption) => void
   /** 내 그룹을 고른다 — 지금 사람 구성원을 지정한 사람으로 펼쳐 더한다(그룹 행은 남기지 않는다). showPersonalGroups 일 때만 부른다. */
   onSelectPersonalGroup?: (group: GroupOption) => void
   /** 내 그룹 섹션·탭을 보일지 — 기본 true(노트 공유). 스페이스 멤버 추가는 끈다. */
   showPersonalGroups?: boolean
+  /**
+   * 사람 줄 오른쪽의 짧은 안내 — 고를 수는 있지만 알아 둘 점이 있는 사람(채널에 부서로만 들어와 있어 초대하면 직접 멤버로 남는 사람, WP-1058).
+   * null 이면 아무것도 붙이지 않는다. 이미 추가된 사람은 「(이미 추가됨)」이 먼저다.
+   */
+  personNote?: (userId: number) => string | null
   /** 사람 후보에 AI 에이전트도 넣을지 — 기본 false(사람만). 노트 스페이스 멤버 추가는 켠다. */
   includeAgents?: boolean
   /** data-testid 접두사 — 기본 share-target(노트 공유). 한 화면에 둘이 있어도 테스트가 가려 잡게. */
@@ -131,12 +140,18 @@ export function PeopleAndDepartmentPicker({
   onSelectDepartment,
   onSelectPersonalGroup,
   showPersonalGroups = true,
+  personNote,
   includeAgents = false,
   testIdPrefix = 'share-target',
   placeholder,
   footer,
 }: PeopleAndDepartmentPickerProps) {
   const tid = (suffix: string) => `${testIdPrefix}-${suffix}`
+  // 조직도 부서 섹션은 부서를 고를 곳이 있을 때만 보인다(WP-1058).
+  const showDepartments = onSelectDepartment != null
+  // 검색창 안내·키 안내의 대상 — 보이는 섹션만 이어 붙인다(「이름·부서·그룹으로 검색」, 「조직·그룹은 오른쪽 화살표로…」).
+  const searchTargets = ['이름', showDepartments && '부서', showPersonalGroups && '그룹'].filter(Boolean).join('·')
+  const expandTargets = [showDepartments && '조직', showPersonalGroups && '그룹'].filter(Boolean).join('·')
   const [query, setQuery] = useState('')
   // 검색창의 키 안내(aria-describedby) — 펼침은 → / ← 로만 하므로 읽기 도구 사용자에게 알린다(WP-1065).
   const keyHintId = useId()
@@ -271,7 +286,8 @@ export function PeopleAndDepartmentPicker({
   const departments = buildRows(sharedTree)
   const personalGroups = buildRows(showPersonalGroups ? personalTree : [])
 
-  const show = (k: Exclude<TargetKind, 'all'>) => (kind === 'all' || kind === k) && (k !== 'groups' || showPersonalGroups)
+  const show = (k: Exclude<TargetKind, 'all'>) =>
+    (kind === 'all' || kind === k) && (k !== 'groups' || showPersonalGroups) && (k !== 'departments' || showDepartments)
   const peopleShown = show('people') ? personItems : []
   const departmentRows = show('departments') ? departments.rows : []
   const personalRows = show('groups') ? personalGroups.rows : []
@@ -415,7 +431,7 @@ export function PeopleAndDepartmentPicker({
               key={`g${option.id}`}
               value={groupValue(department, option.id)}
               disabled={blocked != null}
-              onSelect={() => pick(() => (department ? onSelectDepartment(option) : onSelectPersonalGroup?.(option)))}
+              onSelect={() => pick(() => (department ? onSelectDepartment?.(option) : onSelectPersonalGroup?.(option)))}
               style={indent}
               data-testid={department ? tid(`department-${option.id}`) : tid(`personal-group-${option.id}`)}
               className="flex items-center gap-2"
@@ -477,6 +493,8 @@ export function PeopleAndDepartmentPicker({
     <CommandGroup heading="사람" data-testid={tid('people')}>
       {peopleShown.map((u) => {
         const added = existingUserIds.has(u.id)
+        // 고를 수 있는 사람에게만 붙는 안내(WP-1058) — 이미 추가된 사람은 「(이미 추가됨)」이 먼저다.
+        const note = added ? null : personNote?.(u.id)
         return (
           <CommandItem
             key={`u${u.id}`}
@@ -494,6 +512,11 @@ export function PeopleAndDepartmentPicker({
             <span className="truncate text-xs text-muted-foreground">{u.department ?? `@${u.username}`}</span>
             {u.kind === 'AGENT' && <AgentBadge size="xs" />}
             {added && <span className="ml-auto shrink-0 text-xs text-muted-foreground">(이미 추가됨)</span>}
+            {note && (
+              <span className="ml-auto truncate text-xs text-muted-foreground" data-testid={tid(`person-note-${u.id}`)}>
+                {note}
+              </span>
+            )}
           </CommandItem>
         )
       })}
@@ -518,7 +541,7 @@ export function PeopleAndDepartmentPicker({
   const tabs: { kind: TargetKind; label: string; count?: number | string }[] = [
     { kind: 'all', label: '전체' },
     { kind: 'people', label: '사람', count: peopleCount },
-    { kind: 'departments', label: '조직', count: departments.count },
+    ...(showDepartments ? [{ kind: 'departments' as const, label: '조직', count: departments.count }] : []),
     ...(showPersonalGroups ? [{ kind: 'groups' as const, label: '내 그룹', count: personalGroups.count }] : []),
   ]
 
@@ -539,7 +562,7 @@ export function PeopleAndDepartmentPicker({
           <CommandInput
             value={query}
             onValueChange={setQuery}
-            placeholder={placeholder ?? (showPersonalGroups ? '이름·부서·그룹으로 검색' : '이름·부서로 검색')}
+            placeholder={placeholder ?? `${searchTargets}${directionParticle(searchTargets)} 검색`}
             aria-label="사람·팀 검색"
             aria-describedby={keyHintId}
           />
@@ -547,8 +570,8 @@ export function PeopleAndDepartmentPicker({
             {announcement}
           </p>
           <p id={keyHintId} className="sr-only">
-            위·아래 화살표로 후보를 고르고 Enter 로 추가합니다. {showPersonalGroups ? '조직·그룹은' : '조직은'} 오른쪽 화살표로 펼쳐 하위와
-            구성원을 보고 왼쪽 화살표로 접습니다. 검색어 가운데에 커서가 있으면 커서만 움직입니다.
+            위·아래 화살표로 후보를 고르고 Enter 로 추가합니다. {expandTargets && `${expandTargets}은 오른쪽 화살표로 펼쳐 하위와 구성원을 보고 왼쪽 화살표로 접습니다. `}
+            검색어 가운데에 커서가 있으면 커서만 움직입니다.
           </p>
           {/* 종류 탭 — 누른 종류만 보인다. 수는 지금 검색어에 맞는 후보 수. */}
           <div role="group" aria-label="후보 종류" className="flex gap-1 border-b px-2 py-1.5">

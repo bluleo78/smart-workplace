@@ -181,9 +181,15 @@ export function chatBaseHandlers({
             kind: "HUMAN",
             role: "OWNER",
             joinedAt: "2026-06-01T00:00:00Z",
+            direct: true,
+            viaGroupIds: [],
           },
         ],
       ),
+    ),
+    // 비공개 채널 멤버 패널이 멤버 부서를 받는다(WP-1058) — 기본은 부서 없음.
+    http.get(`${API}/messaging/channels/:id/member-groups`, () =>
+      HttpResponse.json([]),
     ),
     http.post(
       `${API}/messaging/channels/:id/read`,

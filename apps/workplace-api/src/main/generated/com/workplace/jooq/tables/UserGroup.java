@@ -7,6 +7,8 @@ package com.workplace.jooq.tables;
 import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
+import com.workplace.jooq.tables.Channel.ChannelPath;
+import com.workplace.jooq.tables.ChannelMemberGroup.ChannelMemberGroupPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath;
 import com.workplace.jooq.tables.Project.ProjectPath;
@@ -241,6 +243,19 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
         return _userGroup;
     }
 
+    private transient ChannelMemberGroupPath _channelMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.channel_member_group</code> table
+     */
+    public ChannelMemberGroupPath channelMemberGroup() {
+        if (_channelMemberGroup == null)
+            _channelMemberGroup = new ChannelMemberGroupPath(this, null, Keys.CHANNEL_MEMBER_GROUP__CHANNEL_MEMBER_GROUP_GROUP_ID_FKEY.getInverseKey());
+
+        return _channelMemberGroup;
+    }
+
     private transient DriveSpaceMemberGroupPath _driveSpaceMemberGroup;
 
     /**
@@ -304,6 +319,14 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
             _wikiSpaceMemberGroup = new WikiSpaceMemberGroupPath(this, null, Keys.WIKI_SPACE_MEMBER_GROUP__WIKI_SPACE_MEMBER_GROUP_GROUP_ID_FKEY.getInverseKey());
 
         return _wikiSpaceMemberGroup;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.channel</code> table
+     */
+    public ChannelPath channel() {
+        return channelMemberGroup().channel();
     }
 
     /**

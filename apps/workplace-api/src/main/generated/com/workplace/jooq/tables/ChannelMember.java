@@ -91,6 +91,11 @@ public class ChannelMember extends TableImpl<ChannelMemberRecord> {
      */
     public final TableField<ChannelMemberRecord, Long> TENANT_ID = createField(DSL.name("tenant_id"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.field(DSL.raw("(NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::bigint"), SQLDataType.BIGINT)), this, "");
 
+    /**
+     * The column <code>public.channel_member.direct</code>.
+     */
+    public final TableField<ChannelMemberRecord, Boolean> DIRECT = createField(DSL.name("direct"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.field(DSL.raw("true"), SQLDataType.BOOLEAN)), this, "");
+
     private ChannelMember(Name alias, Table<ChannelMemberRecord> aliased) {
         this(alias, aliased, (Field<?>[]) null, null);
     }

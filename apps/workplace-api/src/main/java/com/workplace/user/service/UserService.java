@@ -35,7 +35,9 @@ import com.workplace.user.exception.PersonalAssistantRenameForbiddenException;
 import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.outbound.AgentDeleted;
 import com.workplace.user.outbound.AgentRuntimeChanged;
+import com.workplace.user.outbound.DepartmentMembersGrown;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
+import com.workplace.user.repository.UserGroupRepository;
 import com.workplace.user.repository.UserRepository;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -76,6 +78,8 @@ public class UserService {
   private final AuthService authService;
 
   private final LoginAttemptService loginAttemptService;
+  // WP-1058: 정지를 풀면 그 사람이 속한 조직도 부서의 구성원이 늘어난다 — 알릴 부서를 찾는다.
+  private final UserGroupRepository userGroupRepository;
   // 실행 방식 변경 이벤트 발행(AgentRuntimeChanged) — issue 모듈이 AI 작업 기록을 정리한다.
   private final ApplicationEventPublisher publisher;
 
@@ -789,6 +793,14 @@ public class UserService {
     // 이미 정지된 멤버를 다시 끄는 멱등 호출은 아무것도 내보내지 않는다. 새 요청은 JWT 필터가 멤버십으로 막는다.
     if (!active && changed > 0)
       publisher.publishEvent(new WorkspaceMembershipSuspended(tenantId, userId));
+    // WP-1058: 정지를 풀면(SUSPENDED→ACTIVE) 그 사람이 다시 부서 구성원으로 세어진다 — 부서 구성원을 사람 행으로 펼쳐 두는 채널이 다시 넣게,
+    // 그 사람이 직접 속한 조직도 부서와 상위 부서의 구성원이 늘었다고 알린다(정지 때 부서로만 들어와 있던 채널에서 빠졌다).
+    if (active && changed > 0) {
+      List<Long> departments = userGroupRepository.findDepartmentIdsWithAncestorsOf(userId);
+      if (!departments.isEmpty()) {
+        publisher.publishEvent(new DepartmentMembersGrown(tenantId, departments, List.of(userId)));
+      }
+    }
     // WP-567: 실제로 상태가 바뀐 경우에만 정지·정지 해제를 기록한다(멱등 호출은 남기지 않는다).
     if (changed > 0) {
       String target = resolveUsername(userId);

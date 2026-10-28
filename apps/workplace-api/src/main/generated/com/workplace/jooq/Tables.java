@@ -20,6 +20,8 @@ import com.workplace.jooq.tables.CalendarEventTag;
 import com.workplace.jooq.tables.CalendarTag;
 import com.workplace.jooq.tables.Channel;
 import com.workplace.jooq.tables.ChannelMember;
+import com.workplace.jooq.tables.ChannelMemberGroup;
+import com.workplace.jooq.tables.ChannelMemberGroupExclusion;
 import com.workplace.jooq.tables.ChatMessage;
 import com.workplace.jooq.tables.ChatMessageAttachment;
 import com.workplace.jooq.tables.ChatThread;
@@ -232,6 +234,16 @@ public class Tables {
      * The table <code>public.channel_member</code>.
      */
     public static final ChannelMember CHANNEL_MEMBER = ChannelMember.CHANNEL_MEMBER;
+
+    /**
+     * The table <code>public.channel_member_group</code>.
+     */
+    public static final ChannelMemberGroup CHANNEL_MEMBER_GROUP = ChannelMemberGroup.CHANNEL_MEMBER_GROUP;
+
+    /**
+     * The table <code>public.channel_member_group_exclusion</code>.
+     */
+    public static final ChannelMemberGroupExclusion CHANNEL_MEMBER_GROUP_EXCLUSION = ChannelMemberGroupExclusion.CHANNEL_MEMBER_GROUP_EXCLUSION;
 
     /**
      * The table <code>public.chat_message</code>.

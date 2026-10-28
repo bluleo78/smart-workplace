@@ -1,5 +1,6 @@
 package com.workplace.user.service;
 
+import com.workplace.global.org.Departments;
 import com.workplace.global.security.PermissionChecker;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AddMemberRequest;
@@ -232,8 +233,9 @@ public class UserGroupService {
     // 줄어듦은 변경 전에 알린다 — 노트 부서 공유가 열린 화면을 다시 판정하게(WP-1042).
     publishMembersReduced(g, lost);
     repo.update(id, name, parentId, code, sortOrder);
-    // 늚은 변경 뒤에 알린다 — 부서를 멤버로 둔 공간이 새로 들어온 사람에게도 보이게(WP-1102).
-    publishMembersGrown(g, gained);
+    // 늚은 변경 뒤에 알린다 — 부서를 멤버로 둔 공간이 새로 들어온 사람에게도 보이게(WP-1102), 부서 구성원을 펼쳐 두는 채널이 새로 들어올 사람을
+    // 넣게(WP-1058). 누가 늘었는지는 특정하지 않는다(옮긴 부서 트리 전원 — userIds null).
+    publishMembersGrown(g, gained, null);
     return toDetail(
         callerId, repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
   }
@@ -283,10 +285,9 @@ public class UserGroupService {
     boolean inserted = repo.addMember(id, req.targetType(), req.targetId());
     // 이미 구성원이면(멱등 재추가) 아무도 늘지 않아 알리지 않는다.
     if (inserted && "MEMBER".equals(req.targetType())) {
-      // 넣은 부서와 그 상위 부서는 하위 부서 구성원까지 열린다 — 그 부서를 멤버로 둔 공간이 새 구성원 화면에도 보이게 알린다(WP-1102).
-      Set<Long> affected = new LinkedHashSet<>(ancestorIds(g.parentId()));
-      affected.add(id);
-      publishMembersGrown(g, affected);
+      // 넣은 부서와 그 상위 부서는 하위 부서 구성원까지 열린다 — 그 부서를 멤버로 둔 공간이 새 구성원 화면에도 보이게(WP-1102), 채널은 이 사람만
+      // 넣게(WP-1058) 알린다.
+      publishMembersGrown(g, selfAndAncestorIds(g), List.of(req.targetId()));
     }
     return toDetail(callerId, g);
   }
@@ -304,36 +305,47 @@ public class UserGroupService {
     FlatGroup g = requireWritable(callerId, id);
     if ("MEMBER".equals(targetType)) {
       // 뺀 부서와 그 상위 부서는 하위 부서 구성원까지 열린다 — 이 사람이 다른 소속이 없으면 부서 공유 접근을 잃는다(WP-1042).
-      Set<Long> affected = new LinkedHashSet<>(ancestorIds(g.parentId()));
-      affected.add(id);
-      publishMembersReduced(g, affected);
+      publishMembersReduced(g, selfAndAncestorIds(g));
     }
     repo.removeMember(id, targetType, targetId);
   }
 
   // --- 내부 헬퍼 ---
 
-  /** 조직도 부서(SHARED)의 구성원이 늘었음을 알린다 — 개인 그룹은 공간 멤버가 될 수 없으므로 알리지 않는다(WP-1102). */
-  private void publishMembersGrown(FlatGroup g, Collection<Long> groupIds) {
-    if (!"SHARED".equals(g.visibility()) || groupIds.isEmpty()) {
-      return;
-    }
-    publisher.publishEvent(
-        new DepartmentMembersGrown(TenantContext.require(), List.copyOf(groupIds)));
-  }
-
   /** parentId 부터 위로 올라가는 상위 부서 id(가까운 순) — 한 번의 조회(공통 규칙, WP-1055). 최상위(null)면 빈 목록. */
   private List<Long> ancestorIds(Long parentId) {
     return parentId == null ? List.of() : repo.findAncestorIds(parentId);
   }
 
+  /** 그룹 자기와 그 상위 부서 id(상위 먼저, 중복 없음) — 사람을 넣거나 뺀 부서의 구성원 변화가 미치는 범위(하위 부서 구성원까지 열리므로). */
+  private Collection<Long> selfAndAncestorIds(FlatGroup g) {
+    Set<Long> ids = new LinkedHashSet<>(ancestorIds(g.parentId()));
+    ids.add(g.id());
+    return ids;
+  }
+
   /** 조직도 부서(SHARED)의 구성원이 줄었음을 알린다 — 개인 그룹은 노트 공유 대상이 아니므로 알리지 않는다. */
   private void publishMembersReduced(FlatGroup g, Collection<Long> groupIds) {
-    if (!"SHARED".equals(g.visibility()) || groupIds.isEmpty()) {
-      return;
+    if (isDepartmentChange(g, groupIds)) {
+      publisher.publishEvent(
+          new DepartmentMembersReduced(TenantContext.require(), List.copyOf(groupIds)));
     }
-    publisher.publishEvent(
-        new DepartmentMembersReduced(TenantContext.require(), List.copyOf(groupIds)));
+  }
+
+  /**
+   * 조직도 부서(SHARED)의 구성원이 늘었음을 알린다(WP-1102·WP-1058) — 개인 그룹은 공간·채널 멤버가 될 수 없으므로 알리지 않는다. userIds 는
+   * 늘어난 사람(특정하지 않으면 null).
+   */
+  private void publishMembersGrown(FlatGroup g, Collection<Long> groupIds, List<Long> userIds) {
+    if (isDepartmentChange(g, groupIds)) {
+      publisher.publishEvent(
+          new DepartmentMembersGrown(TenantContext.require(), List.copyOf(groupIds), userIds));
+    }
+  }
+
+  /** 구성원 증감을 알릴 변경인가 — 조직도 부서(개인 그룹은 부서 대상이 아니다)이고 영향받는 부서가 있을 때. */
+  private static boolean isDepartmentChange(FlatGroup g, Collection<Long> groupIds) {
+    return Departments.SHARED.equals(g.visibility()) && !groupIds.isEmpty();
   }
 
   /** 쓰기 권한 판정 — 미존재→404, PERSONAL 비소유자(비-admin)→404, SHARED 비-manage(비-admin)→403. */
