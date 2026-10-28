@@ -21,16 +21,80 @@
 #   (start-agent 가 사람에게 보인다) 1시간 동안은 다시 하지 않는다(backoff, 종료 7) — 실패는 종료 1. 잠깐의 엇갈림은 busy(종료 6)로 기록하지 않는다.
 #
 # agent-project failures <AI 폴더> — 기록된 실패를 「<키> <이유>」 한 줄씩 낸다.
+#
+# agent-project locate <AI 이름> <지금 폴더> [--set] — 그 AI 의 홈을 정한다. start-agent 는 부른 폴더를 홈으로 쓰는데, 다른 폴더에서 부르면
+#   (예: --restart 를 다른 곳에서) 홈이 바뀌어 clone·칸을 새로 만들게 된다 — 그래서 AI 마다 홈을 기억하고 그것을 쓴다.
+#   홈은 기억한 홈(그 아래 <AI 이름> 폴더가 아직 있을 때) → 그 AI 의 tmux 칸이 도는 폴더(<홈>/<AI 이름>/repos/… — 0.1.22 이하로 띄움)
+#   → 지금 폴더 아래 <AI 이름> 폴더가 있으면 지금 폴더 순으로 찾아 기억하고 한 줄 낸다:
+#     here <지금 폴더> · elsewhere <홈>(다른 폴더 — 그것을 홈으로 쓴다)
+#     new <지금 폴더> — 어디에도 없어 처음 정하는 홈이다. 기억하지 않는다 — 사람이 확인하면 --set 으로 기억한다.
+#     ambiguous 뒤 한 줄씩 후보 홈(종료 3) — 칸이 여러 홈에서 돈다. 기억하지 않는다 — 사람이 고른 홈에서 --set 으로 기억한다.
+#   --set: 지금 폴더를 홈으로 기억하고 「here <지금 폴더>」. 기억은 사용자 데이터 폴더(GW_HOME 아래 agents/<AI 이름>/home)에 둔다.
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
 
 usage() {
-  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · start [--restart] <AI 폴더> <프로젝트 키> · failures <AI 폴더>" >&2
+  echo "사용: agent-project repo|add <AI 폴더> <프로젝트 키> <저장소 주소> [<기본 브랜치>] · start [--restart] <AI 폴더> <프로젝트 키> · failures <AI 폴더> · locate <AI 이름> <지금 폴더>" >&2
   exit 2
 }
 
 cmd=${1:-}
 [ -n "$cmd" ] && shift
+
+if [ "$cmd" = locate ]; then
+  name=${1:-}
+  cur=${2:-}
+  gw_valid_name "$name" && [ -d "$cur" ] || usage
+  # 실제 경로로 맞춘다 — tmux 가 알려 주는 칸 폴더는 심볼릭 링크를 푼 경로라(macOS 의 /var → /private/var 등) 그대로 비교하면 다르게 보인다.
+  cur=$(gw_real_dir "$cur") || usage
+  record="$GW_HOME/agents/$name/home"
+  saved=$(head -n 1 "$record" 2>/dev/null)
+  save() {
+    [ "$1" = "$saved" ] && return 0
+    mkdir -p "$GW_HOME/agents/$name" && chmod 700 "$GW_HOME" "$GW_HOME/agents" "$GW_HOME/agents/$name" &&
+      gw_write_atomic "$record" "$1" || { echo "agent-project: 홈을 기억하지 못했습니다($record)" >&2; exit 1; }
+  }
+  if [ "${3:-}" = --set ]; then
+    save "$cur"
+    echo "here $cur"
+    exit 0
+  fi
+  home=""
+  if [ -n "$saved" ] && [ -d "$saved/$name" ]; then
+    # 기억한 값은 늘 실제 경로로 적었다(save 를 부르는 쪽이 gw_real_dir 로 푼 값).
+    home=$saved
+  else
+    # 기억이 없으면 돌고 있는 칸의 폴더에서 찾는다 — work-loop 가 워크트리로 들어가 있어도 경로에 /<AI 이름>/repos/ 가 남는다.
+    # 패턴 안의 "$name" 은 글자 그대로 맞춘다(이름의 . 이 아무 글자와 맞지 않게).
+    found=$("$here/agent-window" --paths "$name" 2>/dev/null | while IFS= read -r p; do
+      case $p in (*/"$name"/repos/*) h=${p%/"$name"/repos/*}; [ -d "$h/$name" ] && gw_real_dir "$h" ;; esac
+    done | sort -u)
+    case "$found" in
+      '') ;;
+      *'
+'*)
+        # 칸이 여러 홈에서 돈다(홈이 바뀌던 결함으로 생길 수 있다) — 하나를 짐작해 기억하지 않고 사람에게 고르게 한다.
+        echo ambiguous
+        printf '%s\n' "$found"
+        exit 3
+        ;;
+      *) home=$found ;;
+    esac
+  fi
+  if [ -z "$home" ]; then
+    if [ -d "$cur/$name" ]; then
+      home=$cur
+    else
+      # 기억도 돌고 있는 칸도 없다 — 처음 정하는 홈이라 기억하지 않고 확인을 받게 한다(재부팅 뒤 엉뚱한 폴더에서 부른 경우를 걸러 낸다).
+      echo "new $cur"
+      exit 0
+    fi
+  fi
+  save "$home"
+  if [ "$home" = "$cur" ]; then echo "here $cur"; else echo "elsewhere $home"; fi
+  exit 0
+fi
+
 restart=""
 if [ "$cmd" = start ] && [ "${1:-}" = --restart ]; then
   restart=--restart

@@ -12,6 +12,7 @@
 #   no-tmux          — tmux 가 없다(종료 코드 3)
 # agent-window --keys <tmux 세션> — 그 세션의 칸마다 한 줄: 키가 달린 칸은 프로젝트 키, 키 없는 칸은 창 이름(예전 구성의 프로젝트 창·home).
 #   세션이 없으면 3. 칸을 어떻게 표시하는지는 이 스크립트만 안다 — agent-home(새 프로젝트 확인)·start-agent(남은 칸 찾기)가 이것으로 읽는다.
+# agent-window --paths <tmux 세션> — 칸마다 그 칸이 지금 있는 폴더 한 줄(agent-project locate 가 예전에 띄운 AI 의 홈을 찾는 데 쓴다). 세션이 없으면 3.
 # 명령은 셸을 거치지 않고 인자 그대로 넘긴다(tmux 3.0+) — 대기열 라벨처럼 공백·한글이 든 인자도 따옴표 없이 그대로 간다.
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/gw-lib.sh"
@@ -20,9 +21,10 @@ tmux=${GW_TMUX:-tmux}
 # tmux 는 세션·창 이름의 . 과 : 를 _ 로 바꿔 저장한다 — 미리 바꿔 두어야 다시 부를 때 세션·칸 찾기가 맞는다.
 tmux_name() { printf '%s' "$1" | tr '.:' '__'; }
 
-if [ "${1:-}" = --keys ]; then
-  [ $# -eq 2 ] || { echo "사용: agent-window --keys <tmux 세션>" >&2; exit 2; }
-  "$tmux" list-panes -s -t "=$(tmux_name "$2")" -F '#{?@gw_key,#{@gw_key},#W}' 2>/dev/null || exit 3
+if [ "${1:-}" = --keys ] || [ "${1:-}" = --paths ]; then
+  [ $# -eq 2 ] || { echo "사용: agent-window --keys|--paths <tmux 세션>" >&2; exit 2; }
+  if [ "$1" = --keys ]; then format='#{?@gw_key,#{@gw_key},#W}'; else format='#{pane_current_path}'; fi
+  "$tmux" list-panes -s -t "=$(tmux_name "$2")" -F "$format" 2>/dev/null || exit 3
   exit 0
 fi
 

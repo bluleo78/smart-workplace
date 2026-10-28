@@ -457,6 +457,13 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   for (const out of ['`clone-failed`', '`url-changed`', '`busy`', '`branch-kept <브랜치>`', '`no-project-md`']) assert.ok(text.includes(out), out);
   // 돌고 있는 칸이 스스로 띄우려다 실패한 기록은 start-agent 가 사람에게 보인다.
   assert.ok(text.includes('`agent-project failures "<홈>/<AI 이름>"`'));
+  // 다른 폴더에서 불러도 홈이 바뀌지 않게 AI 마다 홈을 기억한다 — AI 폴더를 만들기 전에 정한다.
+  assert.ok(text.includes('scripts/agent-project" locate "<AI 이름>" "<홈>"'));
+  assertBefore(text, 'locate "<AI 이름>" "<홈>"', '`mkdir -p "<홈>/<AI 이름>"`');
+  // 처음 정하는 홈(new)·여러 홈(ambiguous)은 짐작하지 않고 사람에게 확인받아 --set 으로 기억한다.
+  for (const out of ['`elsewhere <폴더>`', '`new <폴더>`', '`ambiguous`']) assert.ok(text.includes(out), out);
+  assert.ok(text.includes('`… locate "<AI 이름>" "<홈>" --set`'));
+  assert.ok(text.includes('1번의 두 확인(저장소 안인지·예전 AI 폴더인지)을 그 폴더에도 한다'));
   // 띄운 창은 그 AI 신원과 자동 압축 40%(work-loop.sh 와 같은 값)로 돈다.
   // 대기열 라벨은 처음 한 번 묻고 기억한다 — 저장한 값(빈 값 포함)이 있으면 묻지 않는다(WP-1053).
   assert.ok(text.includes('set queue "<라벨>"'));

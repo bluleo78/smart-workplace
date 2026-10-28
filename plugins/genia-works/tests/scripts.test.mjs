@@ -3,7 +3,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, statSync, existsSync, readdirSync, chmodSync, symlinkSync, utimesSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -976,6 +976,48 @@ tmuxTest('agent-project add: 새 프로젝트를 clone 해 칸으로 띄우고, 
   assert.equal(readdirSync(join(d, 'state')).filter((f) => f.endsWith('.lock')).length, 0);
 });
 
+test('agent-project locate: 처음 홈은 new 로 확인받아 --set 으로 기억하고, 다른 폴더에서 불러도 그 홈을 쓴다 — 그 AI 폴더가 사라지면 다시 new', () => {
+  mkdirSync(join(home, 'agents'), { recursive: true });
+  mkdirSync(join(home, 'elsewhere'));
+  // 경로는 실제 경로로 낸다(macOS 의 /var → /private/var).
+  const first = realpathSync(join(home, 'agents'));
+  const other = realpathSync(join(home, 'elsewhere'));
+  const locate = (cur, ...a) => run('agent-project', ['locate', 'kodi', cur, ...a], { env: { GW_TMUX: '/nonexistent/tmux' } });
+  // 기억도 칸도 없으면 확인을 받는다 — 재부팅 뒤 엉뚱한 폴더에서 부른 경우를 걸러 내려는 것.
+  assert.equal(locate(first).stdout, `new ${first}\n`);
+  assert.equal(locate(first, '--set').stdout, `here ${first}\n`);
+  mkdirSync(join(first, 'kodi'));
+  assert.equal(locate(first).stdout, `here ${first}\n`);
+  assert.equal(locate(other).stdout, `elsewhere ${first}\n`);
+  // 그 AI 폴더가 지금 폴더 아래 있으면(기억이 없어도) 그 폴더다.
+  rmSync(join(first, 'kodi'), { recursive: true });
+  assert.equal(locate(other).stdout, `new ${other}\n`);
+  mkdirSync(join(other, 'kodi'));
+  assert.equal(locate(other).stdout, `here ${other}\n`);
+  assert.equal(locate(first).stdout, `elsewhere ${other}\n`);
+  assert.equal(run('agent-project', ['locate', 'me', other]).status, 2);
+  assert.equal(run('agent-project', ['locate', 'kodi', join(home, 'nope')]).status, 2);
+});
+
+tmuxTest('agent-project locate: 기억이 없으면(0.1.22 이하로 띄움) 돌고 있는 칸의 폴더에서 홈을 찾고, 여러 홈이면 ambiguous 로 고르게 한다', (t) => {
+  const { wrapper } = tmuxServer(t);
+  const first = join(home, 'agents');
+  const worktree = join(first, 'kodi', 'repos', 'WP', '.claude', 'worktrees', 'WP-1');
+  mkdirSync(worktree, { recursive: true });
+  agentWindow(wrapper, ['kodi', 'WP', worktree, 'sleep', '60']);
+  const locate = () => run('agent-project', ['locate', 'kodi', home], { env: { GW_TMUX: wrapper } });
+  assert.equal(locate().stdout, `elsewhere ${realpathSync(first)}\n`);
+
+  // 홈이 바뀌던 결함으로 두 홈에서 칸이 돌면 짐작하지 않는다.
+  rmSync(join(home, '.genia-works', 'agents'), { recursive: true });
+  const second = join(home, 'x.y');
+  mkdirSync(join(second, 'kodi', 'repos', 'HR'), { recursive: true });
+  agentWindow(wrapper, ['kodi', 'HR', join(second, 'kodi', 'repos', 'HR'), 'sleep', '60']);
+  const r = locate();
+  assert.equal(r.status, 3);
+  assert.deepEqual(r.stdout.split('\n').filter(Boolean), ['ambiguous', ...[realpathSync(first), realpathSync(second)].sort()]);
+});
+
 tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저장한 대기열 라벨로 work-loop 를 칸에 띄운다', async (t) => {
   const { wrapper, tmux } = tmuxServer(t);
   const d = aiDir();
@@ -989,9 +1031,9 @@ tmuxTest('agent-project start: 그 AI 신원·AI 폴더·자동 압축 40%·저�
   const out = join(home, 'claude-args');
   await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('/loop'));
   assert.equal(readFileSync(out, 'utf8'), [
-    join(d, 'repos', 'WP'),
+    join(realpathSync(d), 'repos', 'WP'),
     'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40',
-    `GENIA_WORKS_AGENT_DIR=${d}`,
+    `GENIA_WORKS_AGENT_DIR=${realpathSync(d)}`,
     'GENIA_WORKS_API_URL=http://127.0.0.1:6160/api/v1',
     'GENIA_WORKS_AS=kodi',
     '--permission-mode',

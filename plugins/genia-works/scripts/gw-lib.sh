@@ -124,7 +124,12 @@ gw_valid_project_key() {
 # AI 폴더(start-agent 의 <홈>/<AI 이름>) 검사 — 있는 폴더이고 이름이 AI 이름 규칙(gw_valid_name)을 지키면 절대 경로를 내고 0.
 # 폴더 이름이 그 칸의 신원(GENIA_WORKS_AS)·tmux 세션 이름이 되므로 me·공백 든 이름은 받지 않는다(WP-1053).
 gw_ai_dir() {
-  [ -d "$1" ] && gw_valid_name "$(basename "$1")" && (cd "$1" && pwd)
+  [ -d "$1" ] && gw_valid_name "$(basename "$1")" && gw_real_dir "$1"
+}
+
+# 폴더의 실제 절대 경로(심볼릭 링크를 푼 — tmux 가 알려 주는 칸 폴더와 같은 모양). CDPATH 가 있으면 cd 가 경로를 찍어 값이 두 줄이 되므로 끈다.
+gw_real_dir() {
+  (CDPATH='' cd -- "$1" && pwd -P)
 }
 
 # 폴더 잠금 — mkdir(한 쪽만 성공)로 잡고 안에 잡은 프로세스(gw_proc_key — pid 와 시작 시각)를 적는다(WP-1053).
