@@ -10,6 +10,7 @@
 #   - 범위의 변경이 모두 비코드(noncode.sh — pre-commit 과 같은 규칙) → 생략
 #   - push 하는 커밋의 트리가 이미 전체 회귀를 통과한 트리(verified-trees.sh) → 생략
 #   ref 하나라도 위에 해당하지 않으면 전체 회귀. stdin 이 비었거나 터미널이면(직접 실행) 전체 회귀.
+# 새 커밋이 있는 ref 는 생략 판정 전에 마이그레이션 번호를 확인해, 문제가 있으면 push 를 막는다(WP-1081, 아래 본문).
 # 인자: $1 = 원격 이름(git 이 넘긴다), stdin = `<local ref> <local sha> <remote ref> <remote sha>` 줄들.
 # 환경변수:
 #   PREPUSH_DRY_RUN       — 판정만 출력하고 회귀는 돌리지 않는다(테스트용)
@@ -45,6 +46,9 @@ skip() { SKIP_REASONS="${SKIP_REASONS}$1: $2; "; }
 # 락을 잡기 전에 stdin 을 다 읽고 판정한다 — 건너뛸 push 가 다른 세션의 회귀를 기다리지 않게.
 SEEN=0
 SKIP_REASONS=""
+# 원격 main(마지막 fetch 기준) — 범위에서 빼는 기준이자 마이그레이션 번호 확인의 기준. 없으면 둘 다 쓰지 않는다.
+REMOTE_MAIN=""
+git rev-parse --verify --quiet "refs/remotes/$REMOTE/main" >/dev/null && REMOTE_MAIN="refs/remotes/$REMOTE/main"
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "$local_ref" ] || continue
   SEEN=1
@@ -57,8 +61,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   # 뺄 기준: 원격 main + (있으면) 원격 ref 의 이전 값. 로컬에 없는 원격 sha 는 쓸 수 없으니 빼지 않는다(범위가 커질 뿐).
   # sha·ref 이름엔 공백이 없어 단어 분리로 넘겨도 안전하다.
-  NOT_REFS=""
-  git rev-parse --verify --quiet "refs/remotes/$REMOTE/main" >/dev/null && NOT_REFS="refs/remotes/$REMOTE/main"
+  NOT_REFS="$REMOTE_MAIN"
   if ! is_zero_sha "$remote_sha" && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then NOT_REFS="$NOT_REFS $remote_sha"; fi
 
   # 범위의 커밋과 바꾼 파일을 한 번에 — 머지 커밋은 첫 부모 대비(충돌 해결분 포함), 삭제·이름 변경 전후 경로도 포함.
@@ -67,6 +70,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   if [ -z "$LOG" ]; then
     skip "$name" "새 커밋 없음"; continue
   fi
+
+  # 마이그레이션 번호(WP-1081) — 회귀를 생략할 ref 도 본다. 각 PR 검사는 통과해도 합친 main 에서 Flyway 가 실패하기 때문.
+  # 종료 코드 1(번호 문제)만 막는다. 2(공통 조상 없는 브랜치 등 판정 불가)는 알리고 넘어간다.
+  # 원격 main 은 마지막 fetch 기준이라 머지 직전 확인은 검토자가 다시 한다(.work-loop/project.md 7절).
+  if [ -n "$REMOTE_MAIN" ]; then
+    rc=0
+    node "$HOOK_DIR/../check-migration-versions.mjs" "$REMOTE_MAIN" "$commit" >/dev/null || rc=$?
+    [ "$rc" -ne 1 ] || exit 1
+    [ "$rc" -eq 0 ] || echo "[pre-push] $name: 마이그레이션 번호를 확인하지 못함(종료 코드 $rc) — 넘어간다"
+  fi
+
   if [ -z "$(code_files "$(printf '%s\n' "$LOG" | grep -v '^@')")" ]; then
     skip "$name" "비코드 변경만"; continue
   fi

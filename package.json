@@ -12,6 +12,7 @@
     "test:scripts": "node --test scripts/*.test.mjs",
     "test:hooks": "for t in scripts/husky/*.test.sh; do sh \"$t\" || exit 1; done",
     "test:full": "sh scripts/husky/full-regression.sh",
+    "check:migrations": "node scripts/check-migration-versions.mjs",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "typecheck:image": "node scripts/image-typecheck.mjs",
