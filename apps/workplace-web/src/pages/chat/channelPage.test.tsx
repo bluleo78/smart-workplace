@@ -184,7 +184,7 @@ describe('멤버 패널', () => {
   test('OWNER — 멤버 목록과 본인 역할 배지', async () => {
     await openPanel({}, { members: members({ userId: 2, name: '동료', role: 'MEMBER' }) })
     expect(await screen.findByTestId('member-row-2')).toHaveTextContent('동료')
-    expect(screen.getByTestId('member-role-1')).toHaveTextContent('OWNER')
+    expect(screen.getByTestId('member-role-1')).toHaveTextContent('소유자')
   })
 
   // WP-723: 정지된 멤버는 「비활성」 배지(멘션 후보 제외는 lib/mentionCandidates.test.ts 가 지킨다).
@@ -251,7 +251,7 @@ describe('멤버 패널', () => {
     await waitFor(() => expect(add.bodies).toEqual([{ userId: 2 }]))
   })
 
-  // 소유권 이전 — 역할 select 로 OWNER 를 넘기면 PATCH {role}, 나는 ADMIN 으로 내려가 배지로 보이고, 나가기 확인 후 /chat.
+  // 소유권 이전 — 역할 select 로 OWNER 를 고르면 확인 창(WP-1131)을 거쳐 PATCH {role}, 나는 ADMIN 으로 내려가 배지로 보이고, 나가기 확인 후 /chat.
   test('소유권을 넘기고(PATCH role=OWNER) 나가면 /chat 으로 간다', async () => {
     let transferred = false
     const ch = createChannel({ id: CID, role: 'OWNER', member: true })
@@ -274,7 +274,9 @@ describe('멤버 패널', () => {
       ],
     })
     await user.selectOptions(await screen.findByTestId('member-role-select-2'), 'OWNER')
-    await waitFor(() => expect(screen.getByTestId('member-role-2')).toHaveTextContent('OWNER'))
+    await user.click(await screen.findByTestId('member-transfer-confirm'))
+    await waitFor(() => expect(screen.getByTestId('member-role-2')).toHaveTextContent('소유자'))
+    expect(screen.getByTestId('member-role-1')).toHaveTextContent('관리자')
     expect(patch.bodies).toEqual([{ role: 'OWNER' }])
     await user.click(screen.getByTestId('channel-leave-btn'))
     await user.click(await screen.findByTestId('channel-leave-confirm'))
@@ -282,12 +284,114 @@ describe('멤버 패널', () => {
     expect(leave.bodies).toHaveLength(1)
   })
 
+  // WP-1131: OWNER 를 고르기만 해서는 소유권이 넘어가지 않는다 — 확인 창이 누구에게 넘기는지·나는 관리자가 됨을 알리고,
+  // 취소하면 요청 없이 원래 역할로 보인다. 관리자·멤버 사이 변경은 되돌릴 수 있어 확인 없이 바로 PATCH 한다. 역할은 한국어 이름이다.
+  test('OWNER 를 고르면 확인 창을 거치고, 취소하면 PATCH 없이 그대로 — 관리자 변경은 바로 보낸다', async () => {
+    const patch = capture('patch', `/messaging/channels/${CID}/members/2`, () => new HttpResponse(null, { status: 204 }))
+    const { user } = await openPanel({ memberCount: 2 }, {
+      members: members({ userId: 2, name: '동료', role: 'MEMBER' }),
+      handlers: [patch.handler],
+    })
+    const select = await screen.findByTestId('member-role-select-2')
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['소유자', '관리자', '멤버'])
+
+    await user.selectOptions(select, 'OWNER')
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('소유권 넘기기')
+    expect(dialog).toHaveTextContent('동료에게 채널 소유권을 넘기면 나는 관리자가 됩니다')
+    await user.click(within(dialog).getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    expect(screen.getByTestId('member-role-select-2')).toHaveValue('MEMBER')
+    expect(patch.bodies).toEqual([])
+
+    await user.selectOptions(screen.getByTestId('member-role-select-2'), 'ADMIN')
+    await waitFor(() => expect(patch.bodies).toEqual([{ role: 'ADMIN' }]))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  // WP-1131 리뷰: 넘긴 뒤 목록·내 역할이 다시 올 때까지 select 를 잠근다 — PATCH 만 끝나고 낡은 내 역할(OWNER)로 다시 풀리면 또 넘기다 403.
+  test('소유권을 넘긴 뒤 재조회가 끝날 때까지 역할 select 가 잠겨 있다', async () => {
+    let transferred = false
+    let releaseMembers: () => void = () => {}
+    // 넘긴 뒤의 재조회(목록·내 역할)를 함께 붙잡아 둔다 — 그 사이 select 가 잠겨 있는지 본다.
+    const held = new Promise<void>((r) => (releaseMembers = r))
+    const ch = createChannel({ id: CID, role: 'OWNER', member: true })
+    const patch = capture('patch', `/messaging/channels/${CID}/members/2`, () => {
+      transferred = true
+      return new HttpResponse(null, { status: 204 })
+    })
+    const { user } = await openPanel({}, {
+      handlers: [
+        patch.handler,
+        http.get(`${API}/messaging/channels/${CID}`, async () => {
+          if (transferred) await held
+          return HttpResponse.json({ ...ch, role: transferred ? 'ADMIN' : 'OWNER' })
+        }),
+        http.get(`${API}/messaging/channels/${CID}/members`, async () => {
+          if (transferred) await held
+          return HttpResponse.json([
+            createChannelMember({ userId: 1, name: '나', role: transferred ? 'ADMIN' : 'OWNER' }),
+            createChannelMember({ userId: 2, name: '동료', role: transferred ? 'OWNER' : 'MEMBER' }),
+            createChannelMember({ userId: 3, name: '이웃', role: 'MEMBER' }),
+          ])
+        }),
+      ],
+    })
+    await user.selectOptions(await screen.findByTestId('member-role-select-2'), 'OWNER')
+    await user.click(await screen.findByTestId('member-transfer-confirm'))
+    await waitFor(() => expect(patch.bodies).toEqual([{ role: 'OWNER' }]))
+    // PATCH 는 끝났지만 목록이 아직 오지 않았다 — 다른 사람의 select 도 잠겨 있다.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.getByTestId('member-role-select-3')).toBeDisabled()
+    releaseMembers()
+    // 목록이 오면 나는 관리자 — select 대신 배지만 남는다.
+    await waitFor(() => expect(screen.getByTestId('member-role-1')).toHaveTextContent('관리자'))
+    expect(screen.queryByTestId('member-role-select-3')).not.toBeInTheDocument()
+    expect(patch.bodies).toHaveLength(1)
+  })
+
+  // WP-1131 리뷰: 확인 창을 연 사이 대상이 나가면 확인 상태를 비운다 — 그 사람이 다시 들어와도 창이 저절로 뜨지 않는다.
+  test('확인 창을 연 사이 대상이 나갔다 다시 들어와도 창이 저절로 다시 뜨지 않는다', async () => {
+    let roster: 'with' | 'without' = 'with'
+    const patch = capture('patch', `/messaging/channels/${CID}/members/2`)
+    const view = await openPanel({ memberCount: 2 }, {
+      handlers: [
+        patch.handler,
+        http.get(`${API}/messaging/channels/${CID}/members`, () =>
+          HttpResponse.json([
+            createChannelMember({ userId: 1, name: '나', role: 'OWNER' }),
+            ...(roster === 'with' ? [createChannelMember({ userId: 2, name: '동료', role: 'MEMBER' })] : []),
+          ]),
+        ),
+      ],
+    })
+    await view.user.selectOptions(await screen.findByTestId('member-role-select-2'), 'OWNER')
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+    roster = 'without'
+    await act(() => view.queryClient.invalidateQueries())
+    await waitFor(() => expect(screen.queryByTestId('member-row-2')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    roster = 'with'
+    await act(() => view.queryClient.invalidateQueries())
+    expect(await screen.findByTestId('member-row-2')).toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(patch.bodies).toEqual([])
+  })
+
   // #598: AGENT 는 채널 소유자가 될 수 없다 — 역할 select 에 OWNER 선택지가 없다(서버도 409 로 막는다).
   test('AGENT 멤버의 역할 select 에는 OWNER 선택지가 없다', async () => {
     await openPanel({ memberCount: 2 }, { members: members({ userId: 2, name: 'My AI', role: 'MEMBER', kind: 'AGENT' }) })
     const select = await screen.findByTestId('member-role-select-2')
     expect(select).toHaveValue('MEMBER')
-    expect(within(select).queryByRole('option', { name: /OWNER/ })).not.toBeInTheDocument()
+    expect(within(select).queryByRole('option', { name: '소유자' })).not.toBeInTheDocument()
+  })
+
+  // WP-1131: 정지된 사람에게는 소유권을 넘길 수 없다 — 로그인할 수 없는 소유자는 역할을 바꾸거나 되돌려 줄 수 없다.
+  test('정지된 멤버의 역할 select 에는 「소유자」 선택지가 없다', async () => {
+    await openPanel({ memberCount: 2 }, { members: members({ userId: 2, name: '퇴사자', role: 'MEMBER', active: false }) })
+    const select = await screen.findByTestId('member-role-select-2')
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['관리자', '멤버'])
   })
 
   // #780: 역할 select·제거 버튼은 멤버 이름으로 구분되는 접근 가능한 이름을 가진다 — 그 이름으로 고른 버튼이 그 멤버를 지목한다.
