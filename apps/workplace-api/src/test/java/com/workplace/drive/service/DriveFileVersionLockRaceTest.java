@@ -8,10 +8,12 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
 
 import com.workplace.drive.dto.DriveFileResponse;
@@ -40,7 +42,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -65,10 +66,11 @@ class DriveFileVersionLockRaceTest extends IntegrationTestBase {
   @Autowired DriveFileRepository filesRepo;
 
   /**
-   * 변경 알림은 끈다 — 끼워 넣은 트랜잭션의 커밋 뒤(AFTER_COMMIT) SSE 디스패처가 REQUIRES_NEW 로 커넥션을 하나 더 열려 하는데, 테스트
-   * 풀(2개)은 바깥 트랜잭션과 끼워 넣은 트랜잭션이 이미 쥐고 있어 30초(Hikari 대기 상한)를 기다린 뒤 실패한다. 경합 검증과 무관한 실시간 대기를 없앤다.
+   * 변경 알림은 끈다(공통 spy 를 {@link #seed()} 에서 무동작으로 스텁) — 끼워 넣은 트랜잭션의 커밋 뒤(AFTER_COMMIT) SSE 디스패처가
+   * REQUIRES_NEW 로 커넥션을 하나 더 열려 하는데, 테스트 풀(2개)은 바깥 트랜잭션과 끼워 넣은 트랜잭션이 이미 쥐고 있어 30초(Hikari 대기 상한)를
+   * 기다린 뒤 실패한다. 경합 검증과 무관한 실시간 대기를 없앤다.
    */
-  @MockitoBean DriveChangeNotifier notifier;
+  @Autowired DriveChangeNotifier notifier;
 
   @Autowired DSLContext dsl;
   @Autowired DriveFileService fileService;
@@ -89,6 +91,8 @@ class DriveFileVersionLockRaceTest extends IntegrationTestBase {
   @BeforeEach
   void seed() throws Exception {
     TenantContext.set(1L);
+    doNothing().when(notifier).itemsChanged(any(), anyLong(), any(), any());
+    doNothing().when(notifier).spaceChanged(any(), anyLong(), any(), any());
     doAnswer(
             inv -> {
               inv.callRealMethod();

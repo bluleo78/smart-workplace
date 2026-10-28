@@ -18,18 +18,14 @@ import com.workplace.mail.dto.MailSyncResult;
 import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
-import com.workplace.mail.service.MailBackfillService;
-import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * WP-148: IMAP 읽음 상태 동기화가 실패해도 신규 메일 적재는 막히지 않음을 검증한다(best-effort).
@@ -37,7 +33,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>리포지토리를 spy 로 감싸 읽음 동기화 단계(대상 조회 · 반영)만 예외를 던지게 한다. <b>@Transactional 금지</b>: 운영처럼 각 짧은 트랜잭션이
  * 독립 커밋·롤백돼야 "읽음 단계 실패가 신규 적재를 되돌리지 않음"을 그대로 확인할 수 있다. 시드는 @AfterEach 에서 회수한다(#512 non-tx 격리 패턴).
  */
-class ImapSeenSyncFailureTest extends ExternalClientMockedTestBase {
+class ImapSeenSyncFailureTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -53,12 +49,6 @@ class ImapSeenSyncFailureTest extends ExternalClientMockedTestBase {
 
   /** 읽음 동기화 단계만 실패시키기 위한 spy — 나머지 메서드는 실제 동작. */
   @Autowired EmailMessageRepository messageRepo;
-
-  /** 비동기 본문 보충 차단 — 메타 적재만 결정적으로 본다. */
-  @MockitoBean MailBackfillService backfillService;
-
-  /** 선제 요약 차단. */
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
 
   /** ai-agent 실호출 차단. */
   @Autowired AiAgentMailClient mailClient;

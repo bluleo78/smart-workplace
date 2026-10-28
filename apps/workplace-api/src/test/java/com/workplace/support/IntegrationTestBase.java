@@ -6,15 +6,22 @@ import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 
+import com.workplace.calendar.service.CalendarSyncService;
+import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveQuotaRepository;
 import com.workplace.file.storage.FileStore;
+import com.workplace.global.ai.AiMemoryReader;
+import com.workplace.global.ai.SharedAiMemoryReader;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.repository.HomeMessageRepository;
 import com.workplace.home.repository.SharedAiMemoryRepository;
+import com.workplace.home.service.AiMemoryClock;
 import com.workplace.home.service.SharedAiMemoryChangeLog;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.label.repository.LabelRepository;
+import com.workplace.mail.outbound.MailChangeNotifier;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.repository.MailPeopleRepository;
@@ -22,13 +29,18 @@ import com.workplace.mail.repository.PersonalContextRepository;
 import com.workplace.mail.service.ImapConnector;
 import com.workplace.mail.service.MailAttachmentBlobStore;
 import com.workplace.mail.service.MailAttachmentService;
+import com.workplace.mail.service.MailBodyFetcher;
+import com.workplace.mail.service.MailCategoryBackfillService;
+import com.workplace.mail.service.MailReanalysisService;
 import com.workplace.mail.service.MailSentAttachmentRecorder;
+import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.NeedsReplyFinalizer;
 import com.workplace.mail.service.SenderRelationResolver;
 import com.workplace.mail.service.UserMailProfileBuilder;
 import com.workplace.mail.service.folder.ImapFolderLister;
 import com.workplace.messaging.service.MessagePushRecipientResolver;
 import com.workplace.project.repository.ProjectRepository;
+import com.workplace.project.service.ProjectAccessGuard;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.AiPreferenceService;
 import com.workplace.wiki.repository.WikiBodyHistoryRepository;
@@ -69,7 +81,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @MockitoSpyBean(
     types = {
       AgentWorkRepository.class,
+      AiMemoryClock.class,
+      AiMemoryReader.class,
       AiPreferenceService.class,
+      CalendarSyncService.class,
+      DriveChangeNotifier.class,
       DriveFileRepository.class,
       DriveQuotaRepository.class,
       EmailAccountRepository.class,
@@ -79,16 +95,24 @@ import org.springframework.transaction.support.TransactionTemplate;
       ImapConnector.class,
       ImapFolderLister.class,
       IssueRepository.class,
+      LabelRepository.class,
       MailAttachmentBlobStore.class,
       MailAttachmentService.class,
+      MailBodyFetcher.class,
+      MailCategoryBackfillService.class,
+      MailChangeNotifier.class,
       MailPeopleRepository.class,
+      MailReanalysisService.class,
       MailSentAttachmentRecorder.class,
+      MailSyncService.class,
       MessagePushRecipientResolver.class,
       NeedsReplyFinalizer.class,
       PersonalContextRepository.class,
+      ProjectAccessGuard.class,
       ProjectRepository.class,
       SenderRelationResolver.class,
       SharedAiMemoryChangeLog.class,
+      SharedAiMemoryReader.class,
       SharedAiMemoryRepository.class,
       UserMailProfileBuilder.class,
       UserRepository.class,

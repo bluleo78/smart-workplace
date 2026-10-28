@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,7 +36,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /** #520 메일 이슈 초안 — RLS-safe 컨텍스트 조회 + 후보 프로젝트 포함 + ai-agent 응답 매핑 + 소유권 가드 통합 테스트. */
 class MailIssueDraftTest extends ExternalClientMockedTestBase {
@@ -50,11 +50,11 @@ class MailIssueDraftTest extends ExternalClientMockedTestBase {
   /** AssistantResolver 목(비서 미설정 환경에서도 통과). */
   @Autowired AssistantResolver assistantResolver;
 
-  /** 메일 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
-  @MockitoBean AiMemoryReader memoryReader;
+  /** 메일 메모리(WP-381) — 공통 spy(IntegrationTestBase). 스텁하지 않으면 실제로 읽으며, 새 사용자는 메모리가 없어 빈 목록이다. */
+  @Autowired AiMemoryReader memoryReader;
 
-  /** 공용 메모리(WP-386) — 목 기본값(null)은 서비스가 빈 묶음으로 바꾼다. */
-  @MockitoBean SharedAiMemoryReader sharedReader;
+  /** 공용 메모리(WP-386) — 공통 spy(IntegrationTestBase). 스텁하지 않으면 실제로 읽는다. */
+  @Autowired SharedAiMemoryReader sharedReader;
 
   /** 테스트용 고정 AssistantSpec. */
   private static final AssistantSpec MOCK_SPEC =
@@ -209,7 +209,7 @@ class MailIssueDraftTest extends ExternalClientMockedTestBase {
     long messageId = seedMailMessage(callerId);
     List<AiMemoryLine> lines =
         List.of(new AiMemoryLine(6L, "CONTEXT", "정산 업무 담당", null, null, null));
-    when(memoryReader.readForEntry(eq(callerId), eq(AiMemoryReader.MAIL), any())).thenReturn(lines);
+    doReturn(lines).when(memoryReader).readForEntry(eq(callerId), eq(AiMemoryReader.MAIL), any());
     when(mailClient.issueDraft(any()))
         .thenReturn(new MailAiMessages.IssueDraftResult("정산 검토", "- 5월 자료", "HIGH", projectKey));
 
@@ -226,7 +226,7 @@ class MailIssueDraftTest extends ExternalClientMockedTestBase {
   void draftIssue_조직_공용_메모리를_요청에_싣는다() {
     long messageId = seedMailMessage(callerId);
     var shared = new SharedMemories(List.of(new SharedMemoryLine("조직", "이슈 제목은 동사로 끝낸다")), 0);
-    when(sharedReader.readForUser(callerId, null, null)).thenReturn(shared);
+    doReturn(shared).when(sharedReader).readForUser(callerId, null, null);
     when(mailClient.issueDraft(any()))
         .thenReturn(new MailAiMessages.IssueDraftResult("정산 검토", "- 5월 자료", "HIGH", projectKey));
 

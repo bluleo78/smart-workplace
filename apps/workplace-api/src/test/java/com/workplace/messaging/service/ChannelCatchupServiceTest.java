@@ -9,6 +9,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -38,7 +40,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -66,11 +67,11 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
   @Autowired AiAgentCatchupClient catchupClient;
   @Autowired AssistantResolver assistantResolver;
 
-  /** 요청자 메모리(WP-381) — 목 기본값은 빈 목록이라 다른 테스트는 메모리 없이 그대로 동작한다. */
-  @MockitoBean AiMemoryReader memoryReader;
+  /** 요청자 메모리(WP-381) — 공통 spy(IntegrationTestBase). 스텁하지 않으면 실제로 읽으며, 새 사용자는 메모리가 없어 빈 목록이다. */
+  @Autowired AiMemoryReader memoryReader;
 
-  /** 조직 공용 메모리(WP-386) — 목 기본값(null)은 서비스가 빈 묶음으로 바꾼다. */
-  @MockitoBean SharedAiMemoryReader sharedReader;
+  /** 조직 공용 메모리(WP-386) — 공통 spy(IntegrationTestBase). 스텁하지 않으면 실제로 읽는다. */
+  @Autowired SharedAiMemoryReader sharedReader;
 
   /** 해석될 비서 사양 — 하드코딩 id(2) 가 아닌 이 값이 AI 요청에 실려야 한다(WP-110). */
   private static final AssistantSpec SPEC =
@@ -210,9 +211,9 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "배포 일정 공유합니다", null);
     long since = m1 - 1;
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(
-            List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null, null)));
+    doReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null, null)))
+        .when(memoryReader)
+        .readForEntry(callerA, AiMemoryReader.MESSAGING, null);
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
 
@@ -239,7 +240,7 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
     long since = m1 - 1;
     var first = new SharedMemories(List.of(new SharedMemoryLine("조직", "결정은 굵게")), 1);
     var second = new SharedMemories(List.of(new SharedMemoryLine("조직", "결정은 표로")), 0);
-    when(sharedReader.readForUser(callerA, null, null)).thenReturn(first, first, second);
+    doReturn(first, first, second).when(sharedReader).readForUser(callerA, null, null);
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
 
@@ -274,10 +275,12 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
   void 메모리가_다른_두_사용자는_요약을_나눠_쓰지_않는다() {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "회의록 올렸어요", null);
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null, null)));
-    when(memoryReader.readForEntry(userC, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(2L, "PREFERENCE", "요약은 표로", null, null, null)));
+    doReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null, null)))
+        .when(memoryReader)
+        .readForEntry(callerA, AiMemoryReader.MESSAGING, null);
+    doReturn(List.of(new AiMemoryLine(2L, "PREFERENCE", "요약은 표로", null, null, null)))
+        .when(memoryReader)
+        .readForEntry(userC, AiMemoryReader.MESSAGING, null);
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
 
@@ -297,14 +300,16 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
   void 메모리가_바뀌면_캐시를_쓰지_않고_다시_요약한다() {
     long channelId = seedChannelWithMembers();
     long m1 = postByB(channelId, "배포 일정 공유합니다", null);
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null, null)));
+    doReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", null, null, null)))
+        .when(memoryReader)
+        .readForEntry(callerA, AiMemoryReader.MESSAGING, null);
     when(catchupClient.summarize(any()))
         .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
     service.summarize(callerA, channelId, m1 - 1);
 
-    when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-        .thenReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 다섯 줄로", null, null, null)));
+    doReturn(List.of(new AiMemoryLine(1L, "PREFERENCE", "요약은 다섯 줄로", null, null, null)))
+        .when(memoryReader)
+        .readForEntry(callerA, AiMemoryReader.MESSAGING, null);
     service.summarize(callerA, channelId, m1 - 1);
 
     ArgumentCaptor<CatchupSummarizeRequest> cap =
@@ -488,13 +493,14 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
                 });
     try {
       AtomicReference<Boolean> txActiveAtRead = new AtomicReference<>();
-      when(memoryReader.readForEntry(callerA, AiMemoryReader.MESSAGING, null))
-          .thenAnswer(
+      doAnswer(
               inv -> {
                 txActiveAtRead.set(TransactionSynchronizationManager.isActualTransactionActive());
                 return List.of(
                     new AiMemoryLine(1L, "PREFERENCE", "요약은 세 줄로", "MESSAGING", null, null));
-              });
+              })
+          .when(memoryReader)
+          .readForEntry(callerA, AiMemoryReader.MESSAGING, null);
       when(catchupClient.summarize(any()))
           .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
 

@@ -1,5 +1,8 @@
 package com.workplace.calendar;
 
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
@@ -14,7 +17,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -32,11 +34,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @DisplayName("계정 연결 직후 → 커밋 → AFTER_COMMIT → 캘린더 즉시 동기화 (#556)")
 class CalendarImmediateSyncOnConnectTest extends IntegrationTestBase {
 
-  /** SUT 협력자 — 호출 여부만 검증(실제 Graph 동기화 미수행). */
-  @MockitoBean CalendarSyncService calendarSyncService;
+  /** SUT 협력자 — 호출 여부만 검증(실제 Graph 동기화 미수행). 공통 spy 를 {@link #tenant()} 에서 무동작으로 스텁한다. */
+  @Autowired CalendarSyncService calendarSyncService;
 
-  /** 동일 연결 이벤트를 받는 메일 즉시 동기화 디스패처가 실제 IMAP/Graph 를 건드리지 않도록 차단. */
-  @MockitoBean MailSyncService mailSyncService;
+  /** 동일 연결 이벤트를 받는 메일 즉시 동기화 디스패처가 실제 IMAP/Graph 를 건드리지 않도록 차단(공통 spy 를 무동작으로 스텁). */
+  @Autowired MailSyncService mailSyncService;
 
   @Autowired ApplicationEventPublisher events;
   @Autowired PlatformTransactionManager txManager;
@@ -44,6 +46,8 @@ class CalendarImmediateSyncOnConnectTest extends IntegrationTestBase {
   @BeforeEach
   void tenant() {
     TenantContext.set(1L);
+    doNothing().when(calendarSyncService).sync(anyLong(), anyLong());
+    doReturn(null).when(mailSyncService).sync(anyLong(), anyLong());
   }
 
   @AfterEach

@@ -4,7 +4,7 @@ import static com.workplace.jooq.Tables.AI_MEMORY;
 import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doReturn;
 
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.AiMemoryTestFixtures;
@@ -20,7 +20,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -34,14 +33,14 @@ class AiMemoryExpiryCleanupTest extends IntegrationTestBase {
 
   @Autowired AiMemoryRepository repo;
   @Autowired AiMemoryExpiryCleanupScheduler scheduler;
-  @MockitoBean AiMemoryClock clock;
+  @Autowired AiMemoryClock clock;
 
   private final List<Long> users = new ArrayList<>();
   private long tenant2;
 
   @BeforeEach
   void setUp() {
-    when(clock.today()).thenReturn(TODAY);
+    doReturn(TODAY).when(clock).today();
     tenant2 = TestFixtures.createTenant(baseDsl, "ACTIVE");
   }
 

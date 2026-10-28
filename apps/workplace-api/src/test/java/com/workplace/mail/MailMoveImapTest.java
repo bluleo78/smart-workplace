@@ -30,14 +30,11 @@ import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.ImapConnector;
 import com.workplace.mail.service.MailAccountCredentials;
-import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailMessageService;
-import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.move.ImapMailMover;
 import com.workplace.mail.service.move.MailMoveService;
-import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
@@ -53,7 +50,6 @@ import org.jooq.Record;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,7 +59,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 없는 서버의 COPY+UID EXPUNGE 대체 경로, 메일별 부분 실패, 권한·대상 검증(404·400)도 본다.
  */
 @Transactional
-class MailMoveImapTest extends ExternalClientMockedTestBase {
+class MailMoveImapTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -85,9 +81,7 @@ class MailMoveImapTest extends ExternalClientMockedTestBase {
   @Autowired ImapConnector imapConnector;
   @Autowired PlatformTransactionManager txManager;
 
-  @MockitoBean MailChangeNotifier notifier;
-  @MockitoBean MailBackfillService backfillService;
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
+  @Autowired MailChangeNotifier notifier;
   @Autowired AiAgentMailClient mailClient;
 
   /** [user, account] — 서버 메일함(Archive·Projects + 선택적으로 Trash)을 만들고 받은편지함 메일을 받은 뒤 동기화한다. */

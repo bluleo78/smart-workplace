@@ -21,7 +21,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * Task 4: MailBackfillService 의 @Async 경로 GUC 전파 검증 — backfillNow 가 명시적
@@ -40,7 +39,7 @@ class MailBackfillServiceTenantTest extends IntegrationTestBase {
   @Autowired MailBackfillService backfillService;
 
   /** fetchBody 가 받은 대상(accountId)을 기록 — 실제 IMAP I/O 없이 GUC/스코프만 검증. */
-  @MockitoBean MailBodyFetcher bodyFetcher;
+  @Autowired MailBodyFetcher bodyFetcher;
 
   private final List<Long> fetchedAccountIds = new ArrayList<>();
   private Long account1;

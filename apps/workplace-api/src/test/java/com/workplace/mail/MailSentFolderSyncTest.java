@@ -16,11 +16,8 @@ import com.workplace.mail.outbound.AiAgentMailClient;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
-import com.workplace.mail.service.MailBackfillService;
-import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Message;
@@ -36,7 +33,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -45,7 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 한다. 받은편지함(「새 메일 N건」)에는 섞이지 않는다.
  */
 @Transactional
-class MailSentFolderSyncTest extends ExternalClientMockedTestBase {
+class MailSentFolderSyncTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -60,12 +56,6 @@ class MailSentFolderSyncTest extends ExternalClientMockedTestBase {
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EncryptionService encryption;
   @Autowired MailSyncProgress progress;
-
-  /** 비동기 본문 보충 목킹 — 메타 동기화만 결정적으로 본다. */
-  @MockitoBean MailBackfillService backfillService;
-
-  /** 선제 요약 목킹 — LLM/IMAP 본문 호출 차단. */
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
 
   /** ai-agent 실호출 차단. */
   @Autowired AiAgentMailClient mailClient;

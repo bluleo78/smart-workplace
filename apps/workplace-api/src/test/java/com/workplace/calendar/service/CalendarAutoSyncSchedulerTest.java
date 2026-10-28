@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.TENANT;
 import static com.workplace.jooq.Tables.USER;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
@@ -19,17 +20,17 @@ import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * CalendarAutoSyncScheduler 통합 테스트 — per-tenant 순회 및 계정별 실패 격리를 검증한다.
  *
  * <p>@Transactional 금지: 스케줄러는 요청 밖 스레드를 재현하므로 주변 트랜잭션 없이 실행된다. 시드 데이터는 실제 커밋 후 @AfterEach 에서 정리.
  *
- * <p>CalendarSyncService 는 @MockitoBean 으로 교체해 실제 Graph API 호출 없이 실패 격리만 검증한다.
+ * <p>CalendarSyncService 는 공통 spy 를 무동작으로 스텁해 실제 Graph API 호출 없이 실패 격리만 검증한다.
  */
 class CalendarAutoSyncSchedulerTest extends IntegrationTestBase {
 
@@ -43,8 +44,13 @@ class CalendarAutoSyncSchedulerTest extends IntegrationTestBase {
   @Autowired EmailAccountRepository accountRepo;
   @Autowired EncryptionService encryption;
 
-  /** CalendarSyncService 를 목으로 교체 — 실제 Graph/IMAP 호출 없이 실패 격리 검증. */
-  @MockitoBean CalendarSyncService syncService;
+  /** CalendarSyncService 공통 spy — 테스트마다 무동작으로 스텁해 실제 Graph/IMAP 호출 없이 실패 격리를 검증한다. */
+  @Autowired CalendarSyncService syncService;
+
+  @BeforeEach
+  void stubSync() {
+    doNothing().when(syncService).sync(anyLong(), anyLong());
+  }
 
   /** 테스트에서 생성한 (tenantId, accountId, userId) 튜플 — AfterEach 에서 정리. */
   private final List<long[]> seeded = new ArrayList<>();

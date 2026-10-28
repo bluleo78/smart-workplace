@@ -22,12 +22,9 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.ImapConnector;
 import com.workplace.mail.service.ImapReadSyncer;
-import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailReadSyncer;
-import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncProgress;
 import com.workplace.mail.service.MailSyncService;
-import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.HashSet;
 import java.util.List;
@@ -37,7 +34,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
@@ -47,7 +43,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * cleanupInTenant} 의 테넌트 트랜잭션 안에서 부른다 — 그래야 비밀번호 조회가 RLS 로 0행이 되는 회귀(#444)를 잡는다. 시드는
  * {@code @AfterEach} 에서 회수한다(ImapSeenSyncFailureTest 와 같은 구성).
  */
-class ImapReadSyncerTest extends ExternalClientMockedTestBase {
+class ImapReadSyncerTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -65,12 +61,6 @@ class ImapReadSyncerTest extends ExternalClientMockedTestBase {
 
   /** 접속 횟수·트랜잭션 밖 접속 확인용(WP-215) — 실제 접속은 그대로 한다. */
   @Autowired ImapConnector imapConnector;
-
-  /** 비동기 본문 보충 차단 — 메타 적재만 결정적으로 본다. */
-  @MockitoBean MailBackfillService backfillService;
-
-  /** 선제 요약 차단. */
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
 
   /** ai-agent 실호출 차단. */
   @Autowired AiAgentMailClient mailClient;

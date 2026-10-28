@@ -22,14 +22,11 @@ import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.mail.repository.EmailFolderRepository;
 import com.workplace.mail.repository.EmailMessageRepository;
 import com.workplace.mail.service.ImapReadSyncer;
-import com.workplace.mail.service.MailBackfillService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailReadSyncer;
-import com.workplace.mail.service.MailSummaryBackfillService;
 import com.workplace.mail.service.MailSyncService;
 import com.workplace.mail.service.folder.MailFolderService;
 import com.workplace.mail.service.folder.MailFolderSyncGuard;
-import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import jakarta.mail.Flags;
 import jakarta.mail.Folder;
@@ -48,7 +45,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -57,7 +53,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 반영(폴더 이름으로 열기), 본문 열기를 본다.
  */
 @Transactional
-class MailFolderSyncImapTest extends ExternalClientMockedTestBase {
+class MailFolderSyncImapTest extends MailSyncTestSupport {
 
   @RegisterExtension
   static GreenMailExtension greenMail =
@@ -78,8 +74,6 @@ class MailFolderSyncImapTest extends ExternalClientMockedTestBase {
   @Autowired EmailMessageRepository messageRepo;
   @Autowired EncryptionService encryption;
 
-  @MockitoBean MailBackfillService backfillService;
-  @MockitoBean MailSummaryBackfillService summaryBackfillService;
   @Autowired AiAgentMailClient mailClient;
 
   /** 계정·서버 폴더를 만들고 폴더 목록을 갱신(받은편지함 동기화)해 「Projects」 폴더 id 를 돌려준다. */
