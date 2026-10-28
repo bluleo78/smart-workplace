@@ -18,11 +18,13 @@ import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
+import com.workplace.jooq.tables.ProjectMemberGroup.ProjectMemberGroupPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
 import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.SavedView.SavedViewPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.records.ProjectRecord;
 
 import java.time.OffsetDateTime;
@@ -385,6 +387,19 @@ public class Project extends TableImpl<ProjectRecord> {
         return _projectIssueSequence;
     }
 
+    private transient ProjectMemberGroupPath _projectMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_member_group</code> table
+     */
+    public ProjectMemberGroupPath projectMemberGroup() {
+        if (_projectMemberGroup == null)
+            _projectMemberGroup = new ProjectMemberGroupPath(this, null, Keys.PROJECT_MEMBER_GROUP__PROJECT_MEMBER_GROUP_PROJECT_ID_FKEY.getInverseKey());
+
+        return _projectMemberGroup;
+    }
+
     private transient ProjectMemberPath _projectMember;
 
     /**
@@ -435,6 +450,14 @@ public class Project extends TableImpl<ProjectRecord> {
             _savedView = new SavedViewPath(this, null, Keys.SAVED_VIEW__SAVED_VIEW_PROJECT_ID_FKEY.getInverseKey());
 
         return _savedView;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.user_group</code> table
+     */
+    public UserGroupPath userGroup() {
+        return projectMemberGroup().userGroup();
     }
 
     @Override

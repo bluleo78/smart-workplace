@@ -55,6 +55,8 @@ const projectHandlers = (project: ProjectResponse) => {
   return [
     http.get(base, () => HttpResponse.json(project)),
     http.get(`${base}/members`, () => HttpResponse.json([createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role: 'OWNER' })])),
+    // 팀 프로젝트 멤버 화면이 부서 멤버도 함께 받는다(WP-1057).
+    http.get(`${base}/member-groups`, () => HttpResponse.json([])),
     ...['labels', 'types', 'fields', 'cycles', 'milestones', 'components', 'versions', 'saved-views'].map((sub) =>
       http.get(`${base}/${sub}`, () => HttpResponse.json([])),
     ),

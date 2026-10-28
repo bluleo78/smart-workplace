@@ -67,6 +67,8 @@ function settingsApi({ role = 'OWNER', project = createProject(), impact, orderS
   const handlers = [
     http.get(base, () => HttpResponse.json(project)),
     http.get(`${base}/members`, () => HttpResponse.json([createMember({ userId: 1, username: 'testuser', name: '테스트 사용자', role })])),
+    // 팀 프로젝트 멤버 섹션의 조직도 부서(WP-1057) — 없음.
+    http.get(`${base}/member-groups`, () => HttpResponse.json([])),
     http.get(`${base}/fields`, () => HttpResponse.json([])),
     http.get(`${base}/issues/group-counts`, () =>
       HttpResponse.json({ groupBy: 'statusId', groups: Object.entries(COUNTS).map(([key, count]) => ({ key, count })) }),

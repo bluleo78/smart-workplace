@@ -139,12 +139,14 @@ export const json = (body: unknown, status = 200) => HttpResponse.json(body as n
 export function projectSettingsHandlers(
   project: ProjectResponse,
   members: MemberResponse[] | (() => unknown[]),
-  extra: { types?: unknown[] | (() => unknown[]) } = {},
+  extra: { types?: unknown[] | (() => unknown[]); memberGroups?: unknown[] | (() => unknown[]) } = {},
 ): RequestHandler[] {
   const base = `/api/v1/projects/${project.key}`
   return [
     http.get(base, () => HttpResponse.json(project)),
     http.get(`${base}/members`, () => HttpResponse.json(read(members))),
+    // 멤버로 둔 조직도 부서(WP-1057) — 팀 프로젝트 멤버 섹션이 받는다. 기본은 없음.
+    http.get(`${base}/member-groups`, () => HttpResponse.json(read(extra.memberGroups ?? []))),
     http.get(`${base}/labels`, () => HttpResponse.json([])),
     http.get(`${base}/types`, () => HttpResponse.json(read(extra.types ?? []))),
     http.get(`${base}/fields`, () => HttpResponse.json([])),

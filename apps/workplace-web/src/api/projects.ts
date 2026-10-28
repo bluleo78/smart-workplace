@@ -5,6 +5,7 @@ import type {
   AddMemberRequest,
   CreateProjectRequest,
   MemberResponse,
+  ProjectMemberGroup,
   ProjectResponse,
   UpdateMemberRoleRequest,
   UpdateProjectRequest,
@@ -30,6 +31,13 @@ export const projectsApi = {
   // 멤버가 담당 중인 이슈 수 — 제거 확인창의 영향 안내(WP-488).
   memberAssignedIssueCount: (key: string, userId: number) =>
     client.get<{ count: number }>(`/projects/${key}/members/${userId}/assigned-issue-count`).then((r) => r.data.count),
+
+  // 멤버로 둔 조직도 부서(WP-1057) — 팀 프로젝트(TEAM·OPEN)만. 역할은 MEMBER 고정이라 역할 변경 API 는 없다.
+  listMemberGroups: (key: string) => client.get<ProjectMemberGroup[]>(`/projects/${key}/member-groups`),
+  addMemberGroup: (key: string, groupId: number) =>
+    client.post<ProjectMemberGroup>(`/projects/${key}/member-groups`, { groupId, role: 'MEMBER' }),
+  removeMemberGroup: (key: string, groupId: number) =>
+    client.delete<void>(`/projects/${key}/member-groups/${groupId}`),
 
   // 내 프로젝트 즐겨찾기(WP-1001) — 서버에 사용자·워크스페이스별로 저장. 추가·해제는 key 하나씩(멱등).
   listFavorites: () =>

@@ -30,7 +30,8 @@ export async function mockProjectSettings(
   const base = `/api/v1/projects/${project.key}`
   await mockApi(page, 'GET', base, project)
   await mockApi(page, 'GET', `${base}/members`, members)
-  for (const path of ['labels', 'types', 'fields']) {
+  // member-groups — 팀 프로젝트 멤버 섹션의 조직도 부서(WP-1057). 기본은 없음.
+  for (const path of ['labels', 'types', 'fields', 'member-groups']) {
     await mockApi(page, 'GET', `${base}/${path}`, [])
   }
   const noCounts: IssueGroupCountsResponse = { groupBy: 'statusId', groups: [] }

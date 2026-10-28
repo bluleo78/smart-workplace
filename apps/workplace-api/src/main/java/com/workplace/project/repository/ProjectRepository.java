@@ -1,10 +1,9 @@
 package com.workplace.project.repository;
 
 import static com.workplace.jooq.Tables.PROJECT;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static org.jooq.impl.DSL.count;
-import static org.jooq.impl.DSL.exists;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.project.dto.ProjectRow;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -166,23 +165,16 @@ public class ProjectRepository {
   }
 
   /**
-   * 일반 사용자 프로젝트 가시 조건: 활성(deleted_at IS NULL) AND (멤버 EXISTS OR OPEN 유형). JOIN 대신 EXISTS 를 사용해 멤버
-   * 중복 행 없이 단일 결과를 보장한다.
+   * 일반 사용자 프로젝트 가시 조건: 활성(deleted_at IS NULL) AND (멤버 — 직접 또는 조직도 부서 — OR OPEN 유형). JOIN 대신 EXISTS
+   * 를 사용해 멤버 중복 행 없이 단일 결과를 보장한다.
    */
   private org.jooq.Condition memberVisibleCondition(Long userId) {
     return PROJECT
         .DELETED_AT
         .isNull()
         .and(
-            exists(
-                    dsl.selectOne()
-                        .from(PROJECT_MEMBER)
-                        .where(
-                            PROJECT_MEMBER
-                                .PROJECT_ID
-                                .eq(PROJECT.ID)
-                                .and(PROJECT_MEMBER.USER_ID.eq(userId))))
-                .or(PROJECT.TYPE.eq("OPEN")));
+            // 멤버 = 직접 멤버 또는 멤버로 둔 조직도 부서의 구성원(WP-1057).
+            ProjectMembership.isMemberOf(PROJECT.ID, userId).or(PROJECT.TYPE.eq("OPEN")));
   }
 
   /**

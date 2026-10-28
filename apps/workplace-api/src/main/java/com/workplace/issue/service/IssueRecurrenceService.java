@@ -401,7 +401,7 @@ public class IssueRecurrenceService {
    */
   private void enrollAssistant(
       long callerId, ProjectRow project, String projectKey, IssueRow issue, long agentId) {
-    if (!memberRepository.isMember(project.id(), agentId)) {
+    if (!memberRepository.isDirectMember(project.id(), agentId)) {
       projectService.addMember(callerId, projectKey, new AddMemberRequest(agentId, "MEMBER"));
     }
     List<Long> assigneeIds = assigneeRepository.findUserIdsByIssue(issue.id());

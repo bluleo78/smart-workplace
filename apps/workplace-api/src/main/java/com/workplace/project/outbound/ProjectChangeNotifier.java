@@ -22,6 +22,13 @@ public class ProjectChangeNotifier {
   public static final String RESOURCE_PROJECT = "project";
 
   public static final String RESOURCE_PROJECT_MEMBER = "project-member";
+
+  /**
+   * 멤버로 둔 조직도 부서 행(WP-1057) — 부서 추가·제거와 조직도 변경(부서 삭제·이동·구성원 감소)으로 부서 행·인원이 바뀌면 멤버 창의 부서 목록과 멤버(후보)
+   * 목록을 다시 받게 한다. ids 는 부서 id 다 — 사용자 id 를 싣는 project-member(제거 정리 리스너가 사용자 id 로 읽는다)와 섞지 않는다.
+   */
+  public static final String RESOURCE_PROJECT_MEMBER_GROUP = "project-member-group";
+
   public static final String RESOURCE_LABEL = "label";
   public static final String RESOURCE_MILESTONE = "milestone";
   public static final String RESOURCE_CYCLE = "cycle";
@@ -42,7 +49,7 @@ public class ProjectChangeNotifier {
 
   /**
    * 프로젝트 멤버 전원에게 알린다. resource 는 이 클래스의 RESOURCE_*
-   * 상수(project·label·milestone·cycle·field-def·issue-type·project-member·saved-view·
+   * 상수(project·label·milestone·cycle·field-def·issue-type·project-member·project-member-group·saved-view·
    * project-status·component·version). 반드시 쓰기 트랜잭션 안에서 호출 — 밖에서 부르면 AFTER_COMMIT 리스너가 발화하지 않는다.
    */
   public void changed(String resource, String op, ProjectRow project, long id, Long actorId) {
@@ -57,13 +64,27 @@ public class ProjectChangeNotifier {
       long id,
       Long actorId,
       Collection<Long> extra) {
+    changed(resource, op, project, List.of(id), actorId, extra);
+  }
+
+  /**
+   * 여러 대상을 한 이벤트로 알린다 — 부서 행 제거·조직도 변경으로 여러 사람이 한꺼번에 빠질 때 사람마다 이벤트(SSE·리스너)를 내지 않게(WP-1057). extra
+   * 는 위와 같다.
+   */
+  public void changed(
+      String resource,
+      String op,
+      ProjectRow project,
+      Collection<Long> ids,
+      Long actorId,
+      Collection<Long> extra) {
     publisher.publishEvent(
         ResourceChangedEvent.of(
             resource,
             op,
             ProjectAudienceResolver.SCOPE,
             project.id(),
-            List.of(id),
+            List.copyOf(ids),
             Map.of("projectKey", project.key()),
             actorId,
             extra));

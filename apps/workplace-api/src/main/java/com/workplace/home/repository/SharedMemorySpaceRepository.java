@@ -4,11 +4,13 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.global.share.WikiSpaceMembership;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -60,23 +62,32 @@ public class SharedMemorySpaceRepository {
 
   /**
    * 읽을 수 있는 TEAM·OPEN 프로젝트(이름순)와 사용자의 구성원 역할 — OPEN 은 누구나, TEAM 은 구성원 또는
-   * ADMIN(ProjectAccessGuard.isReadable 과 같은 규칙, PERSONAL 은 대상이 아니다). 구성원 테이블을 LEFT JOIN 해 역할을 같이
-   * 읽는다((project_id, user_id) 가 PK 라 행이 늘지 않는다).
+   * ADMIN(ProjectAccessGuard.isReadable 과 같은 규칙, PERSONAL 은 대상이 아니다). 역할은 실효 역할(직접 멤버 역할, 없고 멤버로 둔
+   * 조직도 부서에 걸리면 MEMBER — WP-1057)이다.
+   *
+   * <p>역할은 한 번만 계산한다 — 직접 멤버 행은 LEFT JOIN((project_id, user_id) PK 라 행이 늘지 않는다)으로, 부서 경유는 「내 부서와 상위
+   * 부서를 멤버로 둔 프로젝트 id」 집합({@link ProjectMembership#projectIdsViaDepartment}, 중복 없음 — 바깥 행을 참조하지 않아
+   * 한 번만 계산된다)을 LEFT JOIN 해, SELECT 와 WHERE 가 같은 열을 본다(스칼라 부분 질의를 둘 다에 두면 프로젝트마다 두 번씩 돈다).
    */
   public List<ProjectWithRole> readableProjects(long userId, boolean admin) {
+    var viaDept = ProjectMembership.projectIdsViaDepartment(DSL.val(userId)).asTable("smr_vd");
+    Field<Long> viaDeptProject = viaDept.field(0, Long.class);
+    Field<String> role =
+        DSL.coalesce(
+            PROJECT_MEMBER.ROLE,
+            DSL.when(viaDeptProject.isNotNull(), DSL.inline(ProjectMembership.GROUP_ROLE)));
+    var member = PROJECT_MEMBER.USER_ID.isNotNull().or(viaDeptProject.isNotNull());
     var readable =
         PROJECT
             .TYPE
             .eq("OPEN")
-            .or(
-                PROJECT
-                    .TYPE
-                    .eq("TEAM")
-                    .and(admin ? DSL.trueCondition() : PROJECT_MEMBER.USER_ID.isNotNull()));
-    return dsl.select(PROJECT.ID, PROJECT.KEY, PROJECT.NAME, PROJECT.TYPE, PROJECT_MEMBER.ROLE)
+            .or(PROJECT.TYPE.eq("TEAM").and(admin ? DSL.trueCondition() : member));
+    return dsl.select(PROJECT.ID, PROJECT.KEY, PROJECT.NAME, PROJECT.TYPE, role)
         .from(PROJECT)
         .leftJoin(PROJECT_MEMBER)
         .on(PROJECT_MEMBER.PROJECT_ID.eq(PROJECT.ID).and(PROJECT_MEMBER.USER_ID.eq(userId)))
+        .leftJoin(viaDept)
+        .on(viaDeptProject.eq(PROJECT.ID))
         .where(PROJECT.DELETED_AT.isNull())
         .and(readable)
         .orderBy(PROJECT.NAME.asc(), PROJECT.ID.asc())

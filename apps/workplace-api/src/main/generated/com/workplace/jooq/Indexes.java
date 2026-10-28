@@ -95,6 +95,7 @@ import com.workplace.jooq.tables.ProjectComponent;
 import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
+import com.workplace.jooq.tables.ProjectMemberGroup;
 import com.workplace.jooq.tables.ProjectStatus;
 import com.workplace.jooq.tables.ProjectVersion;
 import com.workplace.jooq.tables.PushSubscription;
@@ -350,6 +351,9 @@ public class Indexes {
     public static final Index IDX_PROJECT_COMPONENT_TENANT = Internal.createIndex(DSL.name("idx_project_component_tenant"), ProjectComponent.PROJECT_COMPONENT, new OrderField[] { ProjectComponent.PROJECT_COMPONENT.TENANT_ID }, false);
     public static final Index IDX_PROJECT_FAVORITE_PROJECT = Internal.createIndex(DSL.name("idx_project_favorite_project"), ProjectFavorite.PROJECT_FAVORITE, new OrderField[] { ProjectFavorite.PROJECT_FAVORITE.PROJECT_ID }, false);
     public static final Index IDX_PROJECT_ISSUE_SEQUENCE_TENANT = Internal.createIndex(DSL.name("idx_project_issue_sequence_tenant"), ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE, new OrderField[] { ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE.TENANT_ID }, false);
+    public static final Index IDX_PROJECT_MEMBER_GROUP_ADDED_BY = Internal.createIndex(DSL.name("idx_project_member_group_added_by"), ProjectMemberGroup.PROJECT_MEMBER_GROUP, new OrderField[] { ProjectMemberGroup.PROJECT_MEMBER_GROUP.ADDED_BY }, false);
+    public static final Index IDX_PROJECT_MEMBER_GROUP_GROUP = Internal.createIndex(DSL.name("idx_project_member_group_group"), ProjectMemberGroup.PROJECT_MEMBER_GROUP, new OrderField[] { ProjectMemberGroup.PROJECT_MEMBER_GROUP.GROUP_ID }, false);
+    public static final Index IDX_PROJECT_MEMBER_GROUP_TENANT = Internal.createIndex(DSL.name("idx_project_member_group_tenant"), ProjectMemberGroup.PROJECT_MEMBER_GROUP, new OrderField[] { ProjectMemberGroup.PROJECT_MEMBER_GROUP.TENANT_ID }, false);
     public static final Index IDX_PROJECT_MEMBER_TENANT = Internal.createIndex(DSL.name("idx_project_member_tenant"), ProjectMember.PROJECT_MEMBER, new OrderField[] { ProjectMember.PROJECT_MEMBER.TENANT_ID }, false);
     public static final Index IDX_PROJECT_MEMBER_USER = Internal.createIndex(DSL.name("idx_project_member_user"), ProjectMember.PROJECT_MEMBER, new OrderField[] { ProjectMember.PROJECT_MEMBER.USER_ID }, false);
     public static final Index IDX_PROJECT_STATUS_PROJECT = Internal.createIndex(DSL.name("idx_project_status_project"), ProjectStatus.PROJECT_STATUS, new OrderField[] { ProjectStatus.PROJECT_STATUS.PROJECT_ID, ProjectStatus.PROJECT_STATUS.CATEGORY, ProjectStatus.PROJECT_STATUS.POSITION }, false);

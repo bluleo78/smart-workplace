@@ -222,11 +222,11 @@ class IssueRecurrenceTest extends IntegrationTestBase {
             .where(com.workplace.jooq.Tables.ISSUE.ID.eq(issueId))
             .fetchOne(com.workplace.jooq.Tables.ISSUE.PROJECT_ID);
     projectMemberRepository.delete(projectId, agent);
-    assertThat(projectMemberRepository.isMember(projectId, agent)).isFalse();
+    assertThat(projectMemberRepository.isDirectMember(projectId, agent)).isFalse();
 
     call(put(path()).content(req("FREQ=DAILY", "08:00")), owner).andExpect(status().isOk());
 
-    assertThat(projectMemberRepository.isMember(projectId, agent)).isTrue();
+    assertThat(projectMemberRepository.isDirectMember(projectId, agent)).isTrue();
     assertThat(assigneeRepository.findUserIdsByIssue(issueId)).contains(agent);
     assertThat(recurrenceRow().get(ISSUE_RECURRENCE.AGENT_USER_ID)).isEqualTo(agent);
     assertThat(activeWork().get(AGENT_WORK.STATE)).isEqualTo("SCHEDULED");

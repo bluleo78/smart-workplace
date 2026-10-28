@@ -5,11 +5,9 @@ import static com.workplace.jooq.Tables.FILE;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ATTACHMENT;
 import static com.workplace.jooq.Tables.PROJECT;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
-import static org.jooq.impl.DSL.exists;
-import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.drive.api.AttachmentSourceProvider;
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.global.util.LikePatternUtils;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -17,7 +15,6 @@ import java.time.ZoneOffset;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
-import org.jooq.impl.DSL;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,15 +56,7 @@ public class IssueAttachmentSourceProvider implements AttachmentSourceProvider {
             .join(PROJECT)
             .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
             // 호출자가 프로젝트 멤버인 경우만 노출 (EXISTS WHERE 필터)
-            .where(
-                exists(
-                    selectOne()
-                        .from(PROJECT_MEMBER)
-                        .where(
-                            PROJECT_MEMBER
-                                .PROJECT_ID
-                                .eq(ISSUE.PROJECT_ID)
-                                .and(PROJECT_MEMBER.USER_ID.eq(callerId)))))
+            .where(ProjectMembership.isMemberOf(ISSUE.PROJECT_ID, callerId))
             .and(ISSUE.DELETED_AT.isNull());
 
     // 파일명 부분일치 필터 (선택)
@@ -126,14 +115,6 @@ public class IssueAttachmentSourceProvider implements AttachmentSourceProvider {
             .on(ISSUE.ID.eq(ISSUE_ATTACHMENT.ISSUE_ID))
             .where(ISSUE_ATTACHMENT.FILE_ID.eq(fileId))
             .and(ISSUE.DELETED_AT.isNull())
-            .and(
-                DSL.exists(
-                    DSL.selectOne()
-                        .from(PROJECT_MEMBER)
-                        .where(
-                            PROJECT_MEMBER
-                                .PROJECT_ID
-                                .eq(ISSUE.PROJECT_ID)
-                                .and(PROJECT_MEMBER.USER_ID.eq(callerId))))));
+            .and(ProjectMembership.isMemberOf(ISSUE.PROJECT_ID, callerId)));
   }
 }

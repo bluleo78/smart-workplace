@@ -4,13 +4,11 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_RELATION;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
 import static com.workplace.jooq.Tables.PROJECT;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
-import static org.jooq.impl.DSL.exists;
 import static org.jooq.impl.DSL.inline;
-import static org.jooq.impl.DSL.selectOne;
 import static org.jooq.impl.DSL.trueCondition;
 import static org.jooq.impl.DSL.when;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.issue.dto.IssueLookupItem;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.IssueTypeSummary;
@@ -258,15 +256,8 @@ public class IssueRelationRepository {
     if (scope.personalProjectId() != null) {
       return PROJECT.ID.eq(scope.personalProjectId());
     }
-    Condition member =
-        exists(
-            selectOne()
-                .from(PROJECT_MEMBER)
-                .where(
-                    PROJECT_MEMBER
-                        .PROJECT_ID
-                        .eq(PROJECT.ID)
-                        .and(PROJECT_MEMBER.USER_ID.eq(scope.callerId()))));
+    // 멤버 = 직접 멤버 또는 멤버로 둔 조직도 부서의 구성원(WP-1057).
+    Condition member = ProjectMembership.isMemberOf(PROJECT.ID, scope.callerId());
     return PROJECT
         .TYPE
         .ne("PERSONAL")

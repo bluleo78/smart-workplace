@@ -1,8 +1,8 @@
 package com.workplace.issue.repository;
 
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.PROJECT_STATUS;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.dto.ProjectStatusRow;
 import com.workplace.issue.exception.StatusNotFoundException;
@@ -96,9 +96,8 @@ public class ProjectStatusRepository {
     return dsl.selectFrom(PROJECT_STATUS)
         .where(
             PROJECT_STATUS.PROJECT_ID.in(
-                dsl.select(PROJECT_MEMBER.PROJECT_ID)
-                    .from(PROJECT_MEMBER)
-                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
+                // 직접 멤버 + 멤버로 둔 조직도 부서로 들어온 프로젝트(WP-1057)
+                ProjectMembership.projectIdsOf(DSL.val(userId))))
         .orderBy(DISPLAY_ORDER)
         .fetch(this::mapToRow);
   }

@@ -103,6 +103,7 @@ import com.workplace.jooq.tables.ProjectComponent;
 import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
+import com.workplace.jooq.tables.ProjectMemberGroup;
 import com.workplace.jooq.tables.ProjectStatus;
 import com.workplace.jooq.tables.ProjectVersion;
 import com.workplace.jooq.tables.PushSubscription;
@@ -664,6 +665,11 @@ public class Public extends SchemaImpl {
     public final ProjectMember PROJECT_MEMBER = ProjectMember.PROJECT_MEMBER;
 
     /**
+     * The table <code>public.project_member_group</code>.
+     */
+    public final ProjectMemberGroup PROJECT_MEMBER_GROUP = ProjectMemberGroup.PROJECT_MEMBER_GROUP;
+
+    /**
      * The table <code>public.project_status</code>.
      */
     public final ProjectStatus PROJECT_STATUS = ProjectStatus.PROJECT_STATUS;
@@ -990,6 +996,7 @@ public class Public extends SchemaImpl {
             ProjectFavorite.PROJECT_FAVORITE,
             ProjectIssueSequence.PROJECT_ISSUE_SEQUENCE,
             ProjectMember.PROJECT_MEMBER,
+            ProjectMemberGroup.PROJECT_MEMBER_GROUP,
             ProjectStatus.PROJECT_STATUS,
             ProjectVersion.PROJECT_VERSION,
             PushSubscription.PUSH_SUBSCRIPTION,

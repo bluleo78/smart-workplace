@@ -66,6 +66,7 @@ import com.workplace.jooq.tables.Project.ProjectPath;
 import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
+import com.workplace.jooq.tables.ProjectMemberGroup.ProjectMemberGroupPath;
 import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.PushSubscription.PushSubscriptionPath;
 import com.workplace.jooq.tables.RefreshToken.RefreshTokenPath;
@@ -1176,6 +1177,19 @@ public class User extends TableImpl<UserRecord> {
             _projectFavorite = new ProjectFavoritePath(this, null, Keys.PROJECT_FAVORITE__PROJECT_FAVORITE_USER_ID_FKEY.getInverseKey());
 
         return _projectFavorite;
+    }
+
+    private transient ProjectMemberGroupPath _projectMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_member_group</code> table
+     */
+    public ProjectMemberGroupPath projectMemberGroup() {
+        if (_projectMemberGroup == null)
+            _projectMemberGroup = new ProjectMemberGroupPath(this, null, Keys.PROJECT_MEMBER_GROUP__PROJECT_MEMBER_GROUP_ADDED_BY_FKEY.getInverseKey());
+
+        return _projectMemberGroup;
     }
 
     private transient ProjectMemberPath _projectMember;

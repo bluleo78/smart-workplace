@@ -89,6 +89,7 @@ import com.workplace.jooq.tables.ProjectComponent.ProjectComponentPath;
 import com.workplace.jooq.tables.ProjectFavorite.ProjectFavoritePath;
 import com.workplace.jooq.tables.ProjectIssueSequence.ProjectIssueSequencePath;
 import com.workplace.jooq.tables.ProjectMember.ProjectMemberPath;
+import com.workplace.jooq.tables.ProjectMemberGroup.ProjectMemberGroupPath;
 import com.workplace.jooq.tables.ProjectStatus.ProjectStatusPath;
 import com.workplace.jooq.tables.ProjectVersion.ProjectVersionPath;
 import com.workplace.jooq.tables.Role.RolePath;
@@ -1500,6 +1501,19 @@ public class Tenant extends TableImpl<TenantRecord> {
             _messageLinkPreview = new MessageLinkPreviewPath(this, null, Keys.MESSAGE_LINK_PREVIEW__MESSAGE_LINK_PREVIEW_TENANT_ID_FKEY.getInverseKey());
 
         return _messageLinkPreview;
+    }
+
+    private transient ProjectMemberGroupPath _projectMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_member_group</code> table
+     */
+    public ProjectMemberGroupPath projectMemberGroup() {
+        if (_projectMemberGroup == null)
+            _projectMemberGroup = new ProjectMemberGroupPath(this, null, Keys.PROJECT_MEMBER_GROUP__PROJECT_MEMBER_GROUP_TENANT_ID_FKEY.getInverseKey());
+
+        return _projectMemberGroup;
     }
 
     private transient ProjectStatusPath _projectStatus;

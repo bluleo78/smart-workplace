@@ -108,6 +108,9 @@ const RULES: Record<string, Rule> = {
     p.op === 'deleted' && p.projectKey
       ? [{ queryKey: ['projects'] }, ...issueTargets(p.projectKey)]
       : [{ queryKey: ['projects'] }],
+  // 멤버로 둔 조직도 부서 행(WP-1057) — 부서 추가·제거·조직도 변경(부서 삭제·이동·구성원 감소). 부서 목록(['projects','detail',pk,'member-groups'])과
+  // 부서로 들어오는 사람이 바뀐 멤버(후보) 목록이 모두 ['projects'] 아래다. 빠진 사람의 담당 해제는 같이 오는 project-member/deleted 가 이슈 대상을 맡는다.
+  'project-member-group': () => [{ queryKey: ['projects'] }],
   label: configRule((pk) => [{ queryKey: ['labels', pk] }]),
   milestone: configRule((pk) => [{ queryKey: ['milestones', pk] }]),
   cycle: configRule((pk) => [

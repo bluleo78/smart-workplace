@@ -4,10 +4,10 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_COMPONENT;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.PROJECT_COMPONENT;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
 import com.workplace.component.dto.ComponentRow;
 import com.workplace.component.dto.ComponentSummary;
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.jooq.tables.records.ProjectComponentRecord;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -77,9 +77,8 @@ public class ComponentRepository {
     return dsl.selectFrom(PROJECT_COMPONENT)
         .where(
             PROJECT_COMPONENT.PROJECT_ID.in(
-                dsl.select(PROJECT_MEMBER.PROJECT_ID)
-                    .from(PROJECT_MEMBER)
-                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
+                // 직접 멤버 + 멤버로 둔 조직도 부서로 들어온 프로젝트(WP-1057)
+                ProjectMembership.projectIdsOf(DSL.val(userId))))
         .orderBy(LIST_ORDER)
         .fetch(this::mapToRow);
   }

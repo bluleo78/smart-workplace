@@ -82,7 +82,8 @@ test('프로젝트 설정: 긴 이름·이메일 멤버도 본문이 가로로 �
   expect((await nameCell.boundingBox())!.width).toBeGreaterThanOrEqual(96)
   // 멤버 추가 팝오버가 화면 가장자리에 붙지 않는다 — 좌우 16px 여백(WP-397 D3).
   await page.getByTestId('member-add-trigger').click()
-  const pop = (await page.getByTestId('member-search-popover').boundingBox())!
+  // 팀 프로젝트는 사람·조직 선택 창(WP-1057)이 뜬다.
+  const pop = (await page.getByTestId('project-member-picker-search').boundingBox())!
   expect(pop.x).toBeGreaterThanOrEqual(15)
   expect(pop.x + pop.width).toBeLessThanOrEqual(390 - 15)
 })

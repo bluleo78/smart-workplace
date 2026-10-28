@@ -3,9 +3,9 @@ package com.workplace.version.repository;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_VERSION;
 import static com.workplace.jooq.Tables.PROJECT;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.PROJECT_VERSION;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.version.dto.VersionIssueCount;
 import com.workplace.version.dto.VersionKind;
@@ -91,9 +91,8 @@ public class VersionRepository {
     return dsl.selectFrom(PROJECT_VERSION)
         .where(
             PROJECT_VERSION.PROJECT_ID.in(
-                dsl.select(PROJECT_MEMBER.PROJECT_ID)
-                    .from(PROJECT_MEMBER)
-                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
+                // 직접 멤버 + 멤버로 둔 조직도 부서로 들어온 프로젝트(WP-1057)
+                ProjectMembership.projectIdsOf(DSL.val(userId))))
         .orderBy(LIST_ORDER)
         .fetch(this::mapToRow);
   }

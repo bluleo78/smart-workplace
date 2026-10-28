@@ -60,6 +60,8 @@ function boardApi({
   const handlers = [
     http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))),
     http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([createMember({ userId: 1, role })])),
+    // 설정으로 가면 팀 프로젝트 멤버 화면이 부서 멤버도 함께 받는다(WP-1057).
+    http.get(`/api/v1/projects/${KEY}/member-groups`, () => HttpResponse.json([])),
     http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
     // 설정 화면(「상태 관리…」 이동 뒤)이 부르는 조회.
     http.get(`/api/v1/projects/${KEY}/fields`, () => HttpResponse.json([])),
