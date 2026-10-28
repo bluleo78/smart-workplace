@@ -6,6 +6,7 @@ import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarMonth
 import { CLOSED_ISSUE_STATUSES } from '@/lib/closedHiding';
 import { epicColorToken } from '@/lib/epicColor';
 import { compareEpicGroups, epicGroupKey, epicGroupOf,type EpicGroupRef } from '@/lib/epicGroup';
+import { formatDateOnlyMonthDay, kstDayRelative } from '@/lib/formatters';
 import { formatIssueKey } from '@/lib/issueKey';
 import { isHiddenParent } from '@/lib/parentRef';
 import type { CycleResponse } from '@/types/cycle';
@@ -64,6 +65,32 @@ export function versionsToMarkers(
     out.push({ id: v.id, name: v.name, date: v.releaseDate, status: v.status });
   }
   return out.sort((a, b) => a.date.localeCompare(b.date) || compareLaneName(a.name, b.name) || a.id - b.id);
+}
+
+/**
+ * 모바일 버전 시트 구역 — 예정(미출시)은 가까운 날짜부터, 출시됨은 최신부터. 다른 서비스(Jira·GitHub·App Store)처럼
+ * 「다음 출시」와 「방금 나간 버전」이 시트 맨 위에 오게 한다 — 오래된 순 한 줄이면 릴리스가 잦을 때 둘 다 맨 아래에 묻혔다.
+ * 입력(versionsToMarkers)은 날짜 → 이름 오름차순이라 출시됨은 뒤집기만 한다.
+ */
+export function versionSheetSections(versions: TimelineVersionMarker[]): {
+  upcoming: TimelineVersionMarker[];
+  released: TimelineVersionMarker[];
+} {
+  return {
+    upcoming: versions.filter((v) => v.status !== 'RELEASED'),
+    released: versions.filter((v) => v.status === 'RELEASED').reverse(),
+  };
+}
+
+/**
+ * 버전 시트 날짜 — 오늘·어제는 말로, 그 밖은 「10월 17일」(올해가 아니면 연도까지). 오늘·어제·올해 판정은 다른 목록
+ * (목록 시각·날짜 묶음 이름)과 같은 KST 달력(kstDayRelative·formatDateOnlyMonthDay)으로 한다.
+ */
+export function versionSheetDateLabel(date: string, now: Date = new Date()): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const rel = kstDayRelative({ y, m, d, h: 0, min: 0 }, now);
+  if (rel) return rel === 'today' ? '오늘' : '어제';
+  return formatDateOnlyMonthDay(date, now);
 }
 
 /** 레인 칩 묶음(WP-1027) — 같은 날짜의 마일스톤·버전을 칩 하나로 그리기 위한 단위. */

@@ -28,6 +28,8 @@ import {
   prepareTimelineIssues,
   resolvePeriod,
   rollupOverlay,
+  versionSheetDateLabel,
+  versionSheetSections,
   versionsToMarkers,
   weekMonthAdd,
   weekMonthDiff,
@@ -1096,6 +1098,31 @@ describe('groupLaneChipsByDate (WP-1027)', () => {
 
   it('빈 목록은 빈 묶음', () => {
     expect(groupLaneChipsByDate([], () => '')).toEqual([]);
+  });
+});
+
+describe('모바일 버전 시트 (WP-1070)', () => {
+  const v = (id: number, date: string, status: 'RELEASED' | 'UNRELEASED') => ({ id, name: `v${id}`, date, status });
+
+  it('예정(미출시)은 가까운 날짜부터, 출시됨은 최신부터 — 입력은 날짜 오름차순', () => {
+    const { upcoming, released } = versionSheetSections([
+      v(1, '2026-10-01', 'RELEASED'),
+      v(2, '2026-10-10', 'UNRELEASED'),
+      v(3, '2026-10-12', 'RELEASED'),
+      v(4, '2026-10-12', 'RELEASED'),
+      v(5, '2026-11-01', 'UNRELEASED'),
+    ]);
+    expect(upcoming.map((x) => x.id)).toEqual([2, 5]);
+    expect(released.map((x) => x.id)).toEqual([4, 3, 1]);
+  });
+
+  it('날짜 — 오늘·어제는 말로, 그 밖은 월·일(올해가 아니면 연도까지)', () => {
+    const now = new Date(2026, 9, 15, 12);
+    expect(versionSheetDateLabel('2026-10-15', now)).toBe('오늘');
+    expect(versionSheetDateLabel('2026-10-14', now)).toBe('어제');
+    expect(versionSheetDateLabel('2026-10-13', now)).toBe('10월 13일');
+    expect(versionSheetDateLabel('2026-11-01', now)).toBe('11월 1일');
+    expect(versionSheetDateLabel('2025-12-31', now)).toBe('2025년 12월 31일');
   });
 });
 

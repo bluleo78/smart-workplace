@@ -13,11 +13,13 @@ import { mockViewport } from '@/test/viewport'
 import type { CycleResponse } from '@/types/cycle'
 import type { IssueResponse } from '@/types/issue'
 import type { MilestoneResponse } from '@/types/milestone'
+import type { VersionResponse } from '@/types/version'
 
 import { createIssue, createIssueSearchResponse } from '../../../e2e/factories/issue.factory'
 import { makeEpicType } from '../../../e2e/factories/issueType.factory'
 import { createMember, createProject } from '../../../e2e/factories/project.factory'
 import { inServerOrder, withCustomStatuses } from '../../../e2e/factories/projectStatus.factory'
+import { createVersion } from '../../../e2e/factories/version.factory'
 import TimelinePage from '../projects/timeline/TimelinePage'
 
 // 휴대폰 폭·터치 포인터 — 타임라인이 간트 대신 아젠다로 그려지게 한다.
@@ -70,6 +72,8 @@ type Opts = {
   period?: string | null
   issues?: IssueResponse[]
   milestones?: MilestoneResponse[]
+  /** 버전 목록 — 없으면 기본 빈 목록(baseHandlers)이라 「버전 N」 칩이 없다. */
+  versions?: VersionResponse[]
   /** 상태 목록 응답 — 관문(WP-938) 검증용. */
   statuses?: () => Promise<Response> | Response
   /** 진입 뒤 아젠다를 기다릴지(관문 검증은 false). */
@@ -90,6 +94,7 @@ function handlers(opts: Opts) {
     http.get(`/api/v1/projects/${KEY}/cycles`, () => HttpResponse.json(opts.cycles ?? [])),
     http.get(`/api/v1/projects/${KEY}/issue-dependencies`, () => HttpResponse.json([])),
     ...(opts.statuses ? [http.get(`/api/v1/projects/${KEY}/statuses`, opts.statuses)] : []),
+    ...(opts.versions ? [http.get(`/api/v1/projects/${KEY}/versions`, () => HttpResponse.json(opts.versions))] : []),
   ]
 }
 
@@ -217,6 +222,44 @@ describe('모바일 타임라인 — 칩·시트', () => {
       expect.stringMatching(/올해 베타\s*11월 1일/),
       expect.stringMatching(/내년 정식\s*2027년 3월 1일/),
     ])
+  })
+
+  // 릴리스가 잦으면 오래된 순 한 줄에서 다음 출시·방금 나간 버전이 맨 아래에 묻혔다(WP-1070) — 두 구역으로 나눈다.
+  test('버전 시트 — 예정은 가까운 날짜부터(지난 미출시는 빨강), 출시됨은 최신 10개 + 더 보기, 누르면 버전 상세', async () => {
+    // 오늘 10/15 — 출시됨 12개(10/4~10/15), 출시일이 지난 미출시 1개(10/10), 앞으로 나갈 미출시 1개(11/1).
+    const released = Array.from({ length: 12 }, (_, k) =>
+      createVersion({ id: k + 1, name: `v1.${k}`, releaseDate: `2026-10-${String(k + 4).padStart(2, '0')}`, status: 'RELEASED' }),
+    )
+    const { user, location } = await open({
+      versions: [
+        ...released,
+        createVersion({ id: 20, name: 'v2.0', releaseDate: '2026-11-01' }),
+        createVersion({ id: 21, name: 'v1.9-hotfix', releaseDate: '2026-10-10' }),
+      ],
+    })
+    await user.click(await screen.findByTestId('agenda-chip-versions'))
+    const sheet = await screen.findByTestId('agenda-version-sheet')
+    const rows = () => [...sheet.querySelectorAll('li')].map((li) => li.textContent)
+    // 구역은 제목으로 나뉜다 — 출시됨은 접혀 있어도 전체 수.
+    expect(within(sheet).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['예정 2', '출시됨 12'])
+    expect(rows()).toEqual([
+      'v1.9-hotfix10월 10일',
+      'v2.011월 1일',
+      'v1.11오늘',
+      'v1.10어제',
+      ...[9, 8, 7, 6, 5, 4, 3, 2].map((k) => `v1.${k}10월 ${k + 4}일`),
+      '이전 버전 2개 더 보기',
+    ])
+    // 출시일이 지났는데 아직 미출시면 날짜를 빨갛게 — 앞으로 나갈 미출시·출시됨은 아니다.
+    expect(within(screen.getByTestId('agenda-version-21')).getByText('10월 10일')).toHaveClass('text-destructive')
+    expect(within(screen.getByTestId('agenda-version-20')).getByText('11월 1일')).not.toHaveClass('text-destructive')
+
+    await user.click(screen.getByTestId('agenda-version-more'))
+    expect(rows().slice(-2)).toEqual(['v1.110월 5일', 'v1.010월 4일'])
+    expect(screen.queryByTestId('agenda-version-more')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('agenda-version-20'))
+    await waitFor(() => expect(location()).toBe(`/projects/${KEY}/versions/20`))
   })
 
   // 필터 칩은 활성 수를 보이고, 0건이어도 칩 줄이 남아 필터 시트에서 풀 수 있다.

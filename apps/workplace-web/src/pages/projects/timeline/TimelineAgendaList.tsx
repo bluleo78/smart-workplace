@@ -13,13 +13,14 @@ import { epicDotClass } from '@/lib/epicColor';
 import { formatIssueKey } from '@/lib/issueKey';
 import { labelFg } from '@/lib/labelColors';
 import { cn } from '@/lib/utils';
+import { versionDueState } from '@/lib/versions';
 
-import { formatDateOnlyMonthDay, formatDateRangeMonthDay } from '../../../lib/formatters';
+import { formatDateOnlyMonthDay, formatDateRangeMonthDay, kstDateKey } from '../../../lib/formatters';
 import type { IssueResponse } from '../../../types/issue';
 import type { MilestoneResponse } from '../../../types/milestone';
-import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE } from '../components/mobile/chipStyles';
+import { HIDE_SCROLLBAR, MOBILE_CHIP, MOBILE_CHIP_ACTIVE, MOBILE_SECTION_HEADING } from '../components/mobile/chipStyles';
 import { MobileFilterSheet } from '../components/mobile/MobileFilterSheet';
-import { type AgendaRow, buildAgendaSections } from './timelineData';
+import { type AgendaRow, buildAgendaSections, versionSheetDateLabel, versionSheetSections } from './timelineData';
 import { TimelineStatusBadge } from './TimelineStatusBadge';
 import type { TimelineVersionMarker, TimelineViewOptions } from './timelineTypes';
 import { useTimelineExpanded } from './useTimelineExpanded';
@@ -31,6 +32,9 @@ function rowDateText(r: AgendaRow): string {
   if (!r.due) return formatDateRangeMonthDay(r.start, null, '일정 미정', { openEnded: true });
   return formatDateRangeMonthDay(r.start, r.due, '일정 미정', { collapseSameDay: true });
 }
+
+// 버전 시트의 출시됨 구역은 최근 이만큼만 먼저 보인다 — 나머지는 「이전 버전 N개 더 보기」로 편다.
+const RELEASED_PREVIEW = 10;
 
 // 월 비율 구간 → 막대 style. 월 밖으로 잘려 폭이 0 이어도 끝에 2px 막대가 남게 — left 는 트랙 안으로, width 는 최소 2px(Review Focus 2).
 function spanStyle(span: { left: number; right: number }) {
@@ -160,7 +164,7 @@ export function TimelineAgendaList({
               aria-label={sec.label}
             >
               {/* 월 제목 — 스크롤 중에도 어느 달인지 보이게 sticky. */}
-              <h2 className="sticky top-0 z-10 border-b bg-muted px-4 py-2 text-xs font-semibold text-muted-foreground">{sec.label}</h2>
+              <h2 className={MOBILE_SECTION_HEADING}>{sec.label}</h2>
               <ul>
                 {sec.rows.map((r) => {
                   // 접힌 에픽의 하위 행은 그리지 않는다.
@@ -294,7 +298,7 @@ export function TimelineAgendaList({
             ))}
         </ul>
       </MobileSheetShell>
-      {/* 버전 시트(WP-888) — 출시일 오름차순, 누르면 버전 상세로. 마일스톤 시트와 같은 모양. */}
+      {/* 버전 시트(WP-888) — 누르면 버전 상세로. 예정(가까운 날짜부터)·출시됨(최신부터) 두 구역(WP-1070). */}
       <MobileSheetShell
         open={sheet === 'versions'}
         onClose={() => setSheet(null)}
@@ -302,23 +306,78 @@ export function TimelineAgendaList({
         description="출시일이 있는 프로젝트 버전 목록입니다."
         testId="agenda-version-sheet"
       >
-        <ul className="min-h-0 flex-1 overflow-y-auto pb-3">
-          {versions.map((v) => (
-              <li key={v.id}>
-                <button
-                  type="button"
-                  className="flex min-h-11 w-full items-center gap-3 px-4 text-left text-base"
-                  data-testid={`agenda-version-${v.id}`}
-                  onClick={() => onOpenVersion?.(v.id)}
-                >
-                  <Triangle className="size-4 shrink-0 text-info" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate">{v.name}</span>
-                  <span className="shrink-0 text-sm text-muted-foreground">{formatDateOnlyMonthDay(v.date)}</span>
-                </button>
-              </li>
-            ))}
-        </ul>
+        <VersionSheetList versions={versions} onOpenVersion={onOpenVersion} />
       </MobileSheetShell>
+    </div>
+  );
+}
+
+/**
+ * 버전 시트 목록 — 「예정 N」(미출시, 가까운 날짜부터)·「출시됨 N」(최신부터) 두 구역. 출시일이 지났는데 미출시면 날짜를 빨갛게 둔다.
+ * 출시됨은 릴리스가 잦아 금방 길어지므로 최근 RELEASED_PREVIEW 개만 먼저 보이고 나머지는 펼쳐 본다(시트를 다시 열면 접힌다).
+ * 오늘은 한 번만 정해 날짜 문구와 빨간 표시가 같은 날을 본다(KST — 다른 목록과 같은 달력).
+ */
+function VersionSheetList({ versions, onOpenVersion }: { versions: TimelineVersionMarker[]; onOpenVersion?: (id: number) => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const { upcoming, released } = useMemo(() => versionSheetSections(versions), [versions]);
+  const shown = showAll ? released : released.slice(0, RELEASED_PREVIEW);
+  const now = new Date();
+  const today = kstDateKey(now);
+  const row = (v: TimelineVersionMarker) => (
+    <li key={v.id}>
+      <button
+        type="button"
+        className="flex min-h-11 w-full items-center gap-3 px-4 text-left text-base"
+        data-testid={`agenda-version-${v.id}`}
+        onClick={() => onOpenVersion?.(v.id)}
+      >
+        <Triangle className={cn('size-4 shrink-0 text-info', v.status !== 'RELEASED' && 'fill-info')} aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{v.name}</span>
+        <span
+          className={cn(
+            'shrink-0 text-sm text-muted-foreground',
+            versionDueState({ status: v.status, releaseDate: v.date }, today) === 'overdue' && 'text-destructive',
+          )}
+        >
+          {versionSheetDateLabel(v.date, now)}
+        </span>
+      </button>
+    </li>
+  );
+  // 구역 제목은 스크롤 중에도 보이게 sticky — 아젠다 월 제목과 같은 모양(MOBILE_SECTION_HEADING). 화면 읽기 프로그램이 구역으로 건너뛸 수 있게 제목·목록을 나눈다.
+  // count 는 구역 전체 수 — 출시됨은 접혀 있어도 전체 수를 보인다.
+  const section = (label: string, count: number, items: TimelineVersionMarker[], children?: ReactNode) => (
+    <section aria-label={`${label} ${count}`}>
+      <h3 className={MOBILE_SECTION_HEADING}>
+        {label} {count}
+      </h3>
+      <ul>
+        {items.map(row)}
+        {children}
+      </ul>
+    </section>
+  );
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto pb-3">
+      {upcoming.length > 0 && section('예정', upcoming.length, upcoming)}
+      {released.length > 0 &&
+        section(
+          '출시됨',
+          released.length,
+          shown,
+          released.length > shown.length && (
+            <li>
+              <button
+                type="button"
+                data-testid="agenda-version-more"
+                className="flex min-h-11 w-full items-center justify-center text-sm font-medium text-muted-foreground"
+                onClick={() => setShowAll(true)}
+              >
+                이전 버전 {released.length - shown.length}개 더 보기
+              </button>
+            </li>
+          ),
+        )}
     </div>
   );
 }
