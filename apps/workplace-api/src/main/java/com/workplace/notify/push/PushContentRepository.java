@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 
+import com.workplace.global.util.SingleLineTitles;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -42,12 +43,16 @@ public class PushContentRepository {
         .fetchOptional(CALENDAR_EVENT.TITLE);
   }
 
-  /** 노트 제목 조회(WP-579) — 지워졌으면 empty(푸시 스킵). wiki_page 는 RLS 대상이라 테넌트 GUC 가 주입된 트랜잭션 안에서 호출한다. */
+  /**
+   * 노트 제목 조회(WP-579) — 지워졌으면 empty(푸시 스킵). wiki_page 는 RLS 대상이라 테넌트 GUC 가 주입된 트랜잭션 안에서 호출한다. 빈 제목은
+   * 알림 목록과 같은 「제목 없음」(WP-1069).
+   */
   public Optional<String> findWikiPageTitle(long pageId) {
     return dsl.select(WIKI_PAGE.TITLE)
         .from(WIKI_PAGE)
         .where(WIKI_PAGE.ID.eq(pageId))
-        .fetchOptional(WIKI_PAGE.TITLE);
+        .fetchOptional(WIKI_PAGE.TITLE)
+        .map(SingleLineTitles::orUntitled);
   }
 
   /** 사용자 표시 이름 조회 — 행위자 문구(actor + label) 조립에 쓴다. */

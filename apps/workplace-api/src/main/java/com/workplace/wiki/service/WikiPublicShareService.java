@@ -1,6 +1,7 @@
 package com.workplace.wiki.service;
 
 import com.workplace.global.tenant.TenantStatusChecker;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiPublicShareResponse;
@@ -40,9 +41,6 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class WikiPublicShareService {
   private static final String NOT_FOUND = "열 수 없는 링크입니다";
-
-  /** 제목 없는 노트의 미리보기 제목 — 노트 화면의 빈 제목 자리표시와 같은 말. */
-  static final String UNTITLED = "제목 없음";
 
   private final WikiShareRepository shares;
   private final WikiPageRepository pages;
@@ -127,8 +125,7 @@ public class WikiPublicShareService {
         pages
             .findPreviewSource(opened.target(), WikiPreviewText.SOURCE_LIMIT)
             .orElseThrow(WikiPublicShareService::notFound);
-    String title =
-        source.title() == null || source.title().isBlank() ? UNTITLED : source.title().strip();
+    String title = SingleLineTitles.orUntitled(source.title());
     String description =
         WikiPreviewText.excerpt(
             masker.mask(source.bodyHead(), titlesOf(sharedPages(opened.share())), token));

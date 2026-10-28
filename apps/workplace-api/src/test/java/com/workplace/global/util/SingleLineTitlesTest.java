@@ -38,4 +38,13 @@ class SingleLineTitlesTest {
     // 방향 제어 문자만 있으면 그려지는 글자가 없는 제목 — 빈 문자열
     assertThat(SingleLineTitles.normalize("\u202E\u202E")).isEmpty();
   }
+
+  /** 문구·알림에 넣을 제목(WP-1069) — null·공백뿐이면 「제목 없음」, 아니면 앞뒤 공백을 뗀다. */
+  @Test
+  void orUntitledFallsBackForBlank() {
+    assertThat(SingleLineTitles.orUntitled(null)).isEqualTo("제목 없음");
+    assertThat(SingleLineTitles.orUntitled("")).isEqualTo("제목 없음");
+    assertThat(SingleLineTitles.orUntitled("   ")).isEqualTo("제목 없음");
+    assertThat(SingleLineTitles.orUntitled(" 로드맵 ")).isEqualTo("로드맵");
+  }
 }

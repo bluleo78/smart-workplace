@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.tenant.MembershipGuard;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.CapabilityTokens;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.user.outbound.DepartmentMembersReduced;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.wiki.dto.WikiPageShareRequest;
@@ -138,8 +139,7 @@ public class WikiShareService {
 
   /** 기록 문구의 페이지 제목 — 비었으면 「제목 없음」. */
   private String titleOf(long pageId) {
-    String t = pages.findTitle(pageId).orElse(null);
-    return t == null || t.isBlank() ? "제목 없음" : t.strip();
+    return SingleLineTitles.orUntitled(pages.findTitle(pageId).orElse(null));
   }
 
   /**

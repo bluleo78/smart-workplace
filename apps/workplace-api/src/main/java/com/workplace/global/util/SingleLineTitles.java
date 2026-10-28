@@ -9,6 +9,14 @@ import java.util.regex.Pattern;
 public final class SingleLineTitles {
   private SingleLineTitles() {}
 
+  /** 빈 제목 자리표시 — 노트 화면·트리·공유 창이 빈 제목 자리에 보이는 말. 서버가 문구·알림에 제목을 넣을 때도 같은 말을 쓴다. */
+  public static final String UNTITLED = "제목 없음";
+
+  /** 문구·알림에 넣을 제목 — null·공백뿐이면 {@link #UNTITLED}, 아니면 앞뒤 공백을 뗀 제목. */
+  public static String orUntitled(String title) {
+    return title == null || title.isBlank() ? UNTITLED : title.strip();
+  }
+
   /** 줄을 바꾸는 문자 — 제어 문자(줄바꿈·탭 등 C0·C1)와 줄/문단 구분자. 공백 하나로 바꾼다. */
   private static final Pattern LINE_BREAKS = Pattern.compile("[\\p{Cc}\\u2028\\u2029]+");
 

@@ -366,6 +366,24 @@ class WikiShareNotificationTest extends IntegrationTestBase {
     assertThat(pushContent.forInbox(wikiPush(NotificationType.WIKI_SHARED, -1L, ownerId))).isNull();
   }
 
+  /** 제목을 비워 둔 새 노트(WP-1069) — 알림 목록·푸시 모두 노트 화면처럼 「제목 없음」이다(빈 이름이면 「노트 「」을 공유했습니다」로 보였다). */
+  @Test
+  void untitled_page_is_named_untitled_in_listing_and_push() throws Exception {
+    long untitledId = page(null, "");
+    savePeople(untitledId, false, List.of(listedId));
+    dispatcher.onWikiSharedWithPeople(
+        new WikiSharedWithPeopleEvent(1L, untitledId, ownerId, List.of(listedId), null));
+
+    NotificationResponse listed = notifications.listRecent(listedId, 20, 0).getFirst();
+    assertThat(listed.wikiPageId()).isEqualTo(untitledId);
+    assertThat(listed.wikiPageTitle()).isEqualTo("제목 없음");
+    assertThat(
+            pushContent
+                .forInbox(wikiPush(NotificationType.WIKI_SHARED, untitledId, ownerId))
+                .title())
+        .isEqualTo("제목 없음");
+  }
+
   /** 멤버는 노트 주소로, 공유 대상은 지금 토큰의 공유 주소로, 둘 다 아니면 404. 재발급 뒤에는 새 토큰을 준다. */
   @Test
   void entry_routes_member_vs_share_recipient() throws Exception {
