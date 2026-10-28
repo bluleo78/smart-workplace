@@ -6,7 +6,10 @@ import java.util.Collection;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
-/** WIKI_SPACE scope 수신자 = 위키 스페이스 멤버 전원 (WP-64). WikiSseDispatcher 와 같은 명단 조회. */
+/**
+ * WIKI_SPACE scope 수신자 = 위키 스페이스 실효 멤버 전원(직접 멤버 + 멤버로 둔 조직도 부서·하위 부서 구성원, WP-64·WP-1052).
+ * WikiSseDispatcher 와 같은 명단 조회.
+ */
 @Component
 @RequiredArgsConstructor
 public class WikiSpaceAudienceResolver implements AudienceResolver {

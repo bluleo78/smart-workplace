@@ -17,6 +17,20 @@ export interface SpaceMember {
 /** 역할 선택 상자 순서 — 권한이 넓은 순. */
 export const SPACE_ROLES: readonly SpaceRole[] = ['OWNER', 'EDITOR', 'VIEWER']
 
+/** 멤버인 조직도 부서가 받을 수 있는 역할(WP-1052) — 소유자는 없다(멤버 관리 권한을 부서 전체에 주지 않는다). */
+export type SpaceGroupRole = Exclude<SpaceRole, 'OWNER'>
+
+/** 부서 행 역할 선택 상자 순서 — 권한이 넓은 순. */
+export const SPACE_GROUP_ROLES: readonly SpaceGroupRole[] = ['EDITOR', 'VIEWER']
+
+/** 공간 멤버인 조직도 부서 한 줄(WP-1052) — 노트 WikiMemberGroup 과 같은 모양. memberCount 는 하위 부서 포함 사람 수. */
+export interface SpaceMemberGroup {
+  groupId: number
+  name: string
+  role: SpaceGroupRole
+  memberCount: number
+}
+
 /** 역할의 화면 표기 — 영문 enum 코드를 그대로 보이지 않게 한다(WP-522 와 같은 원칙). */
 const ROLE_LABEL: Record<SpaceRole, string> = { OWNER: '소유자', EDITOR: '편집자', VIEWER: '보기 전용' }
 

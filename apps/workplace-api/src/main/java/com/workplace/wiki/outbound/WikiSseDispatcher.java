@@ -19,8 +19,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * 노트(위키) 도메인 이벤트를 브라우저 SSE(/api/v1/events)로 스페이스 멤버에게 fan-out 한다 (#724).
  *
  * <p>{@code IssueSseDispatcher} 와 동일 패턴 — AI 비서/타 세션의 노트 생성·수정·삭제·이동이 열려 있는 노트 화면에 실시간 반영되지 않던 갭을
- * 메운다. 대상은 {@code wiki_space_member} 전원(self-echo 허용 — 멀티기기 동기화 + 자기 캐시는 이미 낙관적 갱신했으므로 재조회만 유발해도
- * 무해). 프론트({@code useWikiStream})가 {@code wikiKeys.tree/page/spaces} 를 무효화한다.
+ * 메운다. 대상은 스페이스 실효 멤버 전원(직접 멤버 + 멤버로 둔 조직도 부서 구성원, WP-1052 — self-echo 허용 — 멀티기기 동기화 + 자기 캐시는 이미
+ * 낙관적 갱신했으므로 재조회만 유발해도 무해). 프론트({@code useWikiStream})가 {@code wikiKeys.tree/page/spaces} 를 무효화한다.
  *
  * <p>수신자는 커밋 직전(BEFORE_COMMIT)에 요청 트랜잭션 안에서 조회하고(커넥션·GUC 를 그대로 써 RLS 가 맞게 걸린다), 전송만 {@link
  * AfterCommit} 로 커밋 뒤로 미뤄 커밋된 변경만 알린다(롤백되면 보내지 않는다). 예전처럼 커밋 뒤 REQUIRES_NEW 로 다시 조회하면 요청 커넥션을 쥔 채 두

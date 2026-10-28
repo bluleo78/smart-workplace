@@ -109,6 +109,17 @@ describe('SpaceMemberDialog', () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
   })
 
+  it('부서 멤버를 넘기지 않으면(드라이브) 부서 행·조직 수 없이 예전 사람 검색 창을 쓴다(WP-1052)', () => {
+    renderDialog([ME_OWNER, EDITOR, VIEWER], true)
+    expect(screen.getByTestId('drive-member-count')).toHaveTextContent(/^멤버 3명$/)
+    expect(screen.queryByTestId(/drive-member-group-/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('drive-member-add-trigger'))
+    // 사람만 고르는 예전 창(MemberSearchPopover) — 사람·조직 공통 선택 창은 열리지 않는다.
+    expect(screen.getByTestId('member-search-popover')).toBeInTheDocument()
+    expect(screen.queryByTestId('drive-member-picker-search')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('share-target-search')).not.toBeInTheDocument()
+  })
+
   it('소유자가 둘이어도 내 행 제거는 막혀 스스로 뺄 수 없다(WP-656)', () => {
     renderDialog([ME_OWNER, { userId: 4, name: '정도윤', role: 'OWNER' }], true, 1)
     expect(screen.getByTestId('drive-member-remove-1')).toBeDisabled()

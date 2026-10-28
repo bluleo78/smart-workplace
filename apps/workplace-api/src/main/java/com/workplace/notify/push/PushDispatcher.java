@@ -52,12 +52,9 @@ public class PushDispatcher {
     // channelName 이 null 이면(레이스로 채널이 지워졌거나 조회 실패) "#null · 작성자" 로 새지 않도록 대체 문구.
     String channelName = e.channelName() != null ? e.channelName() : "채널";
     String title = isDm ? e.authorName() : "#" + channelName + " · " + e.authorName();
-    String url =
-        isDm
-            ? "/chat/dms/" + e.channelId()
-            : "/chat/channels/"
-                + e.channelId()
-                + (e.parentMessageId() != null ? "?thread=" + e.parentMessageId() : "");
+    // 스레드 답글이면 ?thread 로 그 스레드 칸을 연다 — DM 화면도 스레드를 연다(WP-1083).
+    String thread = e.parentMessageId() != null ? "?thread=" + e.parentMessageId() : "";
+    String url = (isDm ? "/chat/dms/" : "/chat/channels/") + e.channelId() + thread;
     if (!dm.isEmpty()) sender.send(List.copyOf(dm), message(e, PushCategory.DM, title, url));
     if (!mention.isEmpty()) sender.send(mention, message(e, PushCategory.MENTION, title, url));
   }

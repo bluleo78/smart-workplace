@@ -99,6 +99,7 @@ export function createThreadInboxItem(
   return {
     rootMessage: createMessage({ unreadReplyCount: 1, followed: true, ...rootOverrides }),
     channelName: '일반',
+    channelKind: 'CHANNEL',
     lastReplyAt: new Date('2026-06-02T00:00:00Z').toISOString(),
     ...rest,
   };

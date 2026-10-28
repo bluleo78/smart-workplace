@@ -66,11 +66,15 @@ public class ThreadReadStateRepository {
             .fetch(THREAD_READ_STATE.THREAD_ROOT_ID));
   }
 
-  /** 인박스 한 행: 루트 메시지 카드 데이터 + 미읽음 수 + 최근 답글 시각. */
+  /**
+   * 인박스 한 행: 루트 메시지 카드 데이터 + 미읽음 수 + 최근 답글 시각. channelKind('CHANNEL'|'DM')는 웹이 DM 스레드를 DM 화면으로 열고
+   * 카드에 상대 이름을 보이게 쓴다 — DM 은 channelName 이 null 이다(WP-1083).
+   */
   public record InboxRow(
       long rootId,
       long channelId,
       String channelName,
+      String channelKind,
       long authorId,
       String authorName,
       String authorKind,
@@ -116,6 +120,7 @@ public class ThreadReadStateRepository {
                 root.ID,
                 root.CHANNEL_ID,
                 CHANNEL.NAME,
+                CHANNEL.KIND,
                 root.AUTHOR_ID,
                 USER.NAME,
                 USER.KIND,
@@ -145,6 +150,7 @@ public class ThreadReadStateRepository {
                 root.ID,
                 root.CHANNEL_ID,
                 CHANNEL.NAME,
+                CHANNEL.KIND,
                 root.AUTHOR_ID,
                 USER.NAME,
                 USER.KIND,
@@ -164,6 +170,7 @@ public class ThreadReadStateRepository {
               r.get(root.ID),
               r.get(root.CHANNEL_ID),
               r.get(CHANNEL.NAME),
+              r.get(CHANNEL.KIND),
               r.get(root.AUTHOR_ID),
               r.get(USER.NAME),
               r.get(USER.KIND),

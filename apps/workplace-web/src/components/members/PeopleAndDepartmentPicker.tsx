@@ -1,11 +1,16 @@
-// 노트 공유 「사람·팀 추가」 검색(WP-1023·WP-1048) — 사람·조직도 부서·내 그룹을 한 검색창에서 섹션으로 나눠 보인다.
+// 사람·조직 고르기 창(WP-1023·WP-1048, 공통화 WP-1052) — 사람·조직도 부서·내 그룹을 한 검색창에서 섹션으로 나눠 보인다.
+// 노트 공유 「사람·팀 추가」에서 시작했고, 노트 스페이스 멤버 추가(WP-1052)도 같은 창을 쓴다 — 쓰는 곳마다 다른 점은 옵션으로 고른다:
+//   내 그룹 섹션(showPersonalGroups — 스페이스 멤버는 그룹 자체를 멤버로 두지 않아 끈다), AI 에이전트 포함(includeAgents —
+//   스페이스 일을 AI 에게도 맡길 수 있게), data-testid 접두사(testIdPrefix — 기본 share-target 이라 공유 쪽 테스트가 그대로다).
 // - 사람: 구성원 디렉터리 검색(useUserSearch, 300ms debounce) — 사람 고르기 팝오버(MemberSearchPopover)와 같은 조회·같은 거르기(비활성 제외).
 //   공유하는 나·공유를 만든 사람(excludeUserIds)은 이미 열 수 있어 후보에서 뺀다. 이름 옆에 소속 부서를 보여 같은 이름을 가른다(WP-1048).
 // - 조직도 부서·내 그룹: 그룹 트리(GET /user-groups, 공유 조직도 + 내 개인 그룹만 온다)를 한 번 받아 브라우저에서 이름·상위 경로로 거른다.
 //   트리를 못 받으면(권한·오류) 그룹 섹션만 빠지고 사람 검색은 그대로 쓴다 — 공유 창 전체를 막지 않는다.
 // - 종류 탭(WP-1048): 전체·사람·조직·내 그룹 — 사람이 많아도 조직만 골라 볼 수 있다. 검색어가 없으면 조직도를 맨 위에 둔다
 //   (사람 기본 목록이 첫 화면을 채워 조직도가 안 보이던 VOC). 사람 검색 결과가 오면 사람을 먼저 둔다(이름으로 찾는 일이 많다).
-// - 조직·그룹 펼치기(WP-1048): 행의 ▸(또는 → 키)로 그 자리에서 하위 부서와 직속 구성원을 펼친다. 행을 고르면 그 조직을 추가하고,
+// - 조직·그룹 펼치기(WP-1048): 행의 ▸(또는 → 키)로 그 자리에서 하위 부서와 구성원을 펼친다. 조직도 부서의 구성원은 하위 부서까지 모은
+//   구성원이다(WP-1052 — 부서를 대상으로 더하면 하위 부서 사람도 들어가는데, 고를 때는 직속만 보여 범위가 어긋났다). 내 그룹은 직속 구성원.
+//   행을 고르면 그 조직을 추가하고,
 //   펼친 구성원 행을 고르면 그 사람만 추가한다. 검색어가 없으면 최상위 조직만 보이고 펼쳐 내려간다.
 // - 키보드: cmdk 목록이라 ↑↓ 로 섹션을 넘나들며 고르고 Enter 로 더한다. 검색어를 치면 고를 수 있는 첫 후보가 잡혀 바로 Enter 로 더할 수 있다.
 // - 읽기 도구(WP-1065): 후보가 listbox option 이라 펼침 상태·상위 그룹은 이름 안의 화면 밖 글로, → / ← 안내는 검색창 설명으로,
@@ -28,8 +33,9 @@ import { userGroupKeys } from '../../hooks/queries/userGroupKeys'
 import { useUserGroups } from '../../hooks/queries/useUserGroups'
 import { useUserSearch } from '../../hooks/queries/useUserSearch'
 import { useDebounceValue } from '../../hooks/useDebounceValue'
-import type { UserGroupMemberSummary, UserGroupNode } from '../../types/userGroup'
-import { filterGroupOptions, flattenGroupTree, type ShareGroupOption } from './wikiShare'
+import type { UserGroupMemberHit, UserGroupNode } from '../../types/userGroup'
+import { AgentBadge } from '../users/AgentBadge'
+import { filterGroupOptions, flattenGroupTree, type GroupOption } from './groupOptions'
 
 /**
  * 검색어가 없을 때 그룹 섹션마다 보이는 최상위 줄 수 — 「전체」 탭은 사람·조직·내 그룹이 한 목록이라 큰 조직도가 사람 섹션을 밀어내지 않게 짧게,
@@ -46,7 +52,7 @@ type TargetKind = 'all' | 'people' | 'departments' | 'groups'
 type GroupRow =
   | {
       type: 'group'
-      option: ShareGroupOption
+      option: GroupOption
       node: UserGroupNode
       depth: number
       showPath: boolean
@@ -57,14 +63,15 @@ type GroupRow =
       type: 'member'
       groupId: number
       ancestorIds: number[]
-      member: UserGroupMemberSummary
+      /** 구성원 — 내 그룹 직속 구성원도 같은 모양으로 맞춘다(groupId 는 그 그룹, groupPath 는 빈 배열). */
+      member: UserGroupMemberHit
       depth: number
-      /** 품은 그룹 이름(WP-1065). */
+      /** 품은(펼친) 그룹 이름(WP-1065). */
       parentName: string
     }
   | { type: 'note'; groupId: number; text: string; depth: number }
 
-export interface ShareTargetSearchPopoverProps {
+export interface PeopleAndDepartmentPickerProps {
   open: boolean
   onOpenChange: (next: boolean) => void
   trigger: React.ReactNode
@@ -72,15 +79,26 @@ export interface ShareTargetSearchPopoverProps {
   existingUserIds: Set<number>
   /** 이미 지정한 조직도 부서 id — 비활성으로 보인다. */
   existingGroupIds: Set<number>
-  /** 후보에서 뺄 사람 — 공유하는 나·공유를 만든 사람(이미 열 수 있다). */
-  excludeUserIds: Set<number>
+  /** 후보에서 뺄 사람 — 공유하는 나·공유를 만든 사람(이미 열 수 있다). 없으면 빼지 않는다. */
+  excludeUserIds?: Set<number>
   /** 사람 한 명을 지정한 사람으로 더한다(사람 검색 행·펼친 구성원 행). */
   onSelectPerson: (userId: number) => void
   /** 조직도 부서를 대상으로 더한다(부서 행으로 저장 — 구성원은 열 때마다 다시 본다). */
-  onSelectDepartment: (group: ShareGroupOption) => void
-  /** 내 그룹을 고른다 — 지금 사람 구성원을 지정한 사람으로 펼쳐 더한다(그룹 행은 남기지 않는다). */
-  onSelectPersonalGroup: (group: ShareGroupOption) => void
+  onSelectDepartment: (group: GroupOption) => void
+  /** 내 그룹을 고른다 — 지금 사람 구성원을 지정한 사람으로 펼쳐 더한다(그룹 행은 남기지 않는다). showPersonalGroups 일 때만 부른다. */
+  onSelectPersonalGroup?: (group: GroupOption) => void
+  /** 내 그룹 섹션·탭을 보일지 — 기본 true(노트 공유). 스페이스 멤버 추가는 끈다. */
+  showPersonalGroups?: boolean
+  /** 사람 후보에 AI 에이전트도 넣을지 — 기본 false(사람만). 노트 스페이스 멤버 추가는 켠다. */
+  includeAgents?: boolean
+  /** data-testid 접두사 — 기본 share-target(노트 공유). 한 화면에 둘이 있어도 테스트가 가려 잡게. */
+  testIdPrefix?: string
+  /** 검색창 안내 문구 — 기본은 내 그룹 여부에 따라 고른다. */
+  placeholder?: string
 }
+
+/** 빈 집합 — excludeUserIds 를 주지 않은 호출부의 기본값(렌더마다 새로 만들지 않게 모듈에 하나). */
+const NO_ONE: ReadonlySet<number> = new Set()
 
 /** 트리를 id → 노드로 — 검색으로 찾은 그룹(평면 목록)을 펼칠 때 하위 노드를 찾는다. */
 function indexTree(nodes: UserGroupNode[], into = new Map<number, UserGroupNode>()): Map<number, UserGroupNode> {
@@ -91,17 +109,22 @@ function indexTree(nodes: UserGroupNode[], into = new Map<number, UserGroupNode>
   return into
 }
 
-export function ShareTargetSearchPopover({
+export function PeopleAndDepartmentPicker({
   open,
   onOpenChange,
   trigger,
   existingUserIds,
   existingGroupIds,
-  excludeUserIds,
+  excludeUserIds = NO_ONE as Set<number>,
   onSelectPerson,
   onSelectDepartment,
   onSelectPersonalGroup,
-}: ShareTargetSearchPopoverProps) {
+  showPersonalGroups = true,
+  includeAgents = false,
+  testIdPrefix = 'share-target',
+  placeholder,
+}: PeopleAndDepartmentPickerProps) {
+  const tid = (suffix: string) => `${testIdPrefix}-${suffix}`
   const [query, setQuery] = useState('')
   // 검색창의 키 안내(aria-describedby) — 펼침은 → / ← 로만 하므로 읽기 도구 사용자에게 알린다(WP-1065).
   const keyHintId = useId()
@@ -111,22 +134,41 @@ export function ShareTargetSearchPopover({
   const [kind, setKind] = useState<TargetKind>('all')
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set())
   const debounced = useDebounceValue(query, 300)
-  const people = useUserSearch(debounced, 'HUMAN')
+  const people = useUserSearch(debounced, includeAgents ? 'ALL' : 'HUMAN')
   // 그룹 트리는 검색창을 열 때만 받는다 — 공유 창을 열 때마다(닫힌 검색 버튼만 있어도) 조직도를 받지 않게.
   const groups = useUserGroups(open)
-  // 펼친 그룹의 직속 구성원 — 펼칠 때 받는다(그룹 상세, 연락처 조직도와 같은 캐시).
+  // 조직도 부서 id — 펼칠 때 하위 포함 구성원을 받을지(부서), 직속 구성원을 받을지(내 그룹) 가른다.
+  const sharedIds = new Set(flattenGroupTree(groups.data?.shared ?? []).map((o) => o.id))
+  // 펼친 그룹의 구성원 — 펼칠 때 받는다. 조직도 부서는 하위 부서까지(빈 검색어 구성원 찾기 — 공유 창·스페이스 멤버 창의 부서 펼침과 같은 캐시),
+  // 내 그룹은 그룹 상세의 직속 구성원(연락처 조직도와 같은 캐시 — 하위 그룹은 줄로 따로 펼친다).
   const expandedIds = [...expanded]
   const details = useQueries({
-    queries: expandedIds.map((id) => ({
-      queryKey: userGroupKeys.detail(id),
-      queryFn: () => userGroupsApi.detail(id).then((r) => r.data),
-      staleTime: 10_000,
-    })),
+    queries: expandedIds.map((id) =>
+      sharedIds.has(id)
+        ? {
+            queryKey: userGroupKeys.memberSearch(id, ''),
+            queryFn: () => userGroupsApi.searchMembers(id, '').then((r) => r.data),
+            staleTime: 10_000,
+          }
+        : {
+            queryKey: userGroupKeys.detail(id),
+            queryFn: () => userGroupsApi.detail(id).then((r) => r.data),
+            // 상세의 직속 구성원을 부서 구성원과 같은 모양(UserGroupMemberHit)으로 맞춘다.
+            select: (d: Awaited<ReturnType<typeof userGroupsApi.detail>>['data']): UserGroupMemberHit[] =>
+              d.members.map((m) => ({ ...m, groupId: id, groupPath: [] })),
+            staleTime: 10_000,
+          },
+    ),
   })
   const detailOf = new Map(expandedIds.map((id, i) => [id, details[i]]))
-  /** 펼친 그룹의 직속 구성원 중 줄로 보일 사람 — 펼친 줄과 펼침 알림(WP-1065)의 구성원 수가 같은 기준이게 한 곳에서 거른다. */
+  /**
+   * 펼친 그룹 아래 줄로 보일 구성원 — 조직도 부서는 하위 부서까지 모은 구성원, 내 그룹은 직속 구성원(위 조회).
+   * 펼친 줄과 펼침 알림(WP-1065)의 구성원 수가 같은 기준이게 한 곳에서 거른다.
+   */
   const visibleMembers = (groupId: number) =>
-    (detailOf.get(groupId)?.data?.members ?? []).filter((m) => m.targetType === 'MEMBER' && !excludeUserIds.has(m.targetId))
+    ((detailOf.get(groupId)?.data as UserGroupMemberHit[] | undefined) ?? []).filter(
+      (m) => m.targetType === 'MEMBER' && !excludeUserIds.has(m.targetId),
+    )
 
   const q = query.trim()
   // 사람 목록은 debounce 된 검색어(300ms)의 결과다 — 그사이 목록은 이전 검색어의 것이라, 순서를 정하거나 고르게 하면
@@ -154,7 +196,7 @@ export function ShareTargetSearchPopover({
   const optionById = new Map([...flattenGroupTree(sharedTree), ...flattenGroupTree(personalTree)].map((o) => [o.id, o]))
 
   // 고를 수 없는 부서와 그 까닭 — 이미 대상이거나, 상위 부서가 이미 대상이라 하위 부서 구성원도 이미 열 수 있다(하위 부서 포함 규칙).
-  const departmentBlock = (g: ShareGroupOption): string | null =>
+  const departmentBlock = (g: GroupOption): string | null =>
     existingGroupIds.has(g.id) ? '(이미 추가됨)' : g.ancestorIds.some((id) => existingGroupIds.has(id)) ? '상위 부서에 포함됨' : null
 
   /**
@@ -170,7 +212,7 @@ export function ShareTargetSearchPopover({
     const starts = q ? filterGroupOptions(all, q) : roots.slice(0, limit)
     const rows: GroupRow[] = []
     const seen = new Set<number>()
-    const walk = (option: ShareGroupOption, depth: number, showPath: boolean, parentName?: string) => {
+    const walk = (option: GroupOption, depth: number, showPath: boolean, parentName?: string) => {
       const node = nodeById.get(option.id)
       if (!node || seen.has(option.id)) return
       seen.add(option.id)
@@ -219,9 +261,9 @@ export function ShareTargetSearchPopover({
     return { rows, count: q ? starts.length : all.length, hidden: roots.length - (q ? 0 : starts.length) }
   }
   const departments = buildRows(sharedTree)
-  const personalGroups = buildRows(personalTree)
+  const personalGroups = buildRows(showPersonalGroups ? personalTree : [])
 
-  const show = (k: Exclude<TargetKind, 'all'>) => kind === 'all' || kind === k
+  const show = (k: Exclude<TargetKind, 'all'>) => (kind === 'all' || kind === k) && (k !== 'groups' || showPersonalGroups)
   const peopleShown = show('people') ? personItems : []
   const departmentRows = show('departments') ? departments.rows : []
   const personalRows = show('groups') ? personalGroups.rows : []
@@ -230,7 +272,10 @@ export function ShareTargetSearchPopover({
   /** 펼친 구성원 행을 고를 수 없는 까닭 — 이미 지정한 사람이거나, 그 조직(또는 상위 조직)이 이미 대상이라 이미 열 수 있다. */
   const memberBlock = (row: Extract<GroupRow, { type: 'member' }>, department: boolean): string | null => {
     if (existingUserIds.has(row.member.targetId)) return '(이미 추가됨)'
-    if (department && [row.groupId, ...row.ancestorIds].some((id) => existingGroupIds.has(id))) return '조직에 포함됨'
+    // 하위 부서 구성원은 그 사람이 속한 하위 부서(와 그 상위)가 이미 대상인지도 본다 — 펼친 부서보다 아래 부서만 더해 둔 경우.
+    const own = optionById.get(row.member.groupId)
+    const covering = [row.groupId, ...row.ancestorIds, row.member.groupId, ...(own?.ancestorIds ?? [])]
+    if (department && covering.some((id) => existingGroupIds.has(id))) return '조직에 포함됨'
     return null
   }
   const groupValue = (department: boolean, id: number) => `${department ? 'dept' : 'group'}-${id}`
@@ -311,10 +356,10 @@ export function ShareTargetSearchPopover({
 
   /**
    * 조직·그룹 섹션 — department 면 조직도(고르면 부서 행), 아니면 내 그룹(고르면 구성원을 한 명씩). hidden 은 잘린 최상위 줄 수 — 섹션
-   * 끝에 남은 수와 찾는 길(「전체」 탭이면 종류 탭·검색, 종류 탭이면 검색)을 알려 「목록에 없으니 공유할 수 없다」고 여기지 않게 한다(WP-1064).
+   * 끝에 남은 수와 찾는 길(「전체」 탭이면 종류 탭·검색, 종류 탭이면 검색)을 알려 「목록에 없으니 고를 수 없다」고 여기지 않게 한다(WP-1064).
    */
   const groupSection = (rows: GroupRow[], department: boolean, hidden: number) => {
-    const testId = department ? 'share-target-departments' : 'share-target-personal-groups'
+    const testId = department ? tid('departments') : tid('personal-groups')
     const label = department ? '조직' : '내 그룹'
     return (
       <CommandGroup heading={department ? '조직도' : '내 그룹'} data-testid={testId}>
@@ -335,7 +380,7 @@ export function ShareTargetSearchPopover({
                 disabled={blocked != null}
                 onSelect={() => pick(() => onSelectPerson(r.member.targetId))}
                 style={indent}
-                data-testid={`share-target-member-${r.groupId}-${r.member.targetId}`}
+                data-testid={tid(`member-${r.groupId}-${r.member.targetId}`)}
                 className="flex items-center gap-2"
               >
                 {/* 펼침 단추 자리만큼 비워 그룹 이름과 줄을 맞춘다. */}
@@ -344,7 +389,12 @@ export function ShareTargetSearchPopover({
                 <span className="sr-only">{r.parentName} 구성원,</span>
                 <PersonAvatar name={r.member.name} />
                 <span className="min-w-0 truncate">{r.member.name}</span>
-                {r.member.title && <span className="truncate text-xs text-muted-foreground">{r.member.title}</span>}
+                {/* 하위 부서 사람은 소속 경로(펼친 부서 이름은 빼고 그 아래만 — 공유 창 부서 펼침과 같은 표기), 직속이면 직함. */}
+                {r.member.groupPath.length > 1 ? (
+                  <span className="truncate text-xs text-muted-foreground">{r.member.groupPath.slice(1).join(' › ')}</span>
+                ) : (
+                  r.member.title && <span className="truncate text-xs text-muted-foreground">{r.member.title}</span>
+                )}
                 <span className="ml-auto shrink-0 text-xs text-muted-foreground">{blocked ?? '사람만 추가'}</span>
               </CommandItem>
             )
@@ -357,9 +407,9 @@ export function ShareTargetSearchPopover({
               key={`g${option.id}`}
               value={groupValue(department, option.id)}
               disabled={blocked != null}
-              onSelect={() => pick(() => (department ? onSelectDepartment(option) : onSelectPersonalGroup(option)))}
+              onSelect={() => pick(() => (department ? onSelectDepartment(option) : onSelectPersonalGroup?.(option)))}
               style={indent}
-              data-testid={department ? `share-target-department-${option.id}` : `share-target-personal-group-${option.id}`}
+              data-testid={department ? tid(`department-${option.id}`) : tid(`personal-group-${option.id}`)}
               className="flex items-center gap-2"
             >
               {/* 펼침 단추 — 행을 고르지 않고(조직 추가 아님) 그 자리에서 하위 부서·구성원만 펼친다. 검색창 포커스는 그대로 둔다.
@@ -376,7 +426,7 @@ export function ShareTargetSearchPopover({
                   e.stopPropagation()
                   toggle(option.id)
                 }}
-                data-testid={`share-target-expand-${option.id}`}
+                data-testid={tid(`expand-${option.id}`)}
               >
                 <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} aria-hidden="true" />
               </button>
@@ -416,7 +466,7 @@ export function ShareTargetSearchPopover({
   }
 
   const peopleSection = (
-    <CommandGroup heading="사람" data-testid="share-target-people">
+    <CommandGroup heading="사람" data-testid={tid('people')}>
       {peopleShown.map((u) => {
         const added = existingUserIds.has(u.id)
         return (
@@ -427,13 +477,14 @@ export function ShareTargetSearchPopover({
             // Enter 로 엉뚱한 사람이 더해지지 않게(지금 검색어에 맞는 조직이 이미 추가돼 비활성일 때 등).
             disabled={added || !peopleFresh}
             onSelect={() => pick(() => onSelectPerson(u.id))}
-            data-testid={`share-target-person-${u.id}`}
+            data-testid={tid(`person-${u.id}`)}
             className="flex items-center gap-2"
           >
             <PersonAvatar name={u.name} />
             <span className="truncate font-medium">{u.name}</span>
             {/* 소속 부서(없으면 아이디)로 같은 이름을 가른다. */}
             <span className="truncate text-xs text-muted-foreground">{u.department ?? `@${u.username}`}</span>
+            {u.kind === 'AGENT' && <AgentBadge size="xs" />}
             {added && <span className="ml-auto shrink-0 text-xs text-muted-foreground">(이미 추가됨)</span>}
           </CommandItem>
         )
@@ -441,7 +492,10 @@ export function ShareTargetSearchPopover({
     </CommandGroup>
   )
 
-  /** 펼치거나 접은 결과 한 줄 — 펼쳤으면 받는 중·실패·하위 수와 구성원 수(펼친 줄과 같은 기준)를 함께 알린다(WP-1065). */
+  /**
+   * 펼치거나 접은 결과 한 줄 — 펼쳤으면 받는 중·실패·하위 수와 구성원 수(펼친 줄과 같은 visibleMembers 기준 — 조직도 부서는
+   * 하위 부서까지 모은 구성원, 내 그룹은 직속 구성원)를 함께 알린다(WP-1065).
+   */
   const announcement = (() => {
     const node = announcedId == null ? undefined : nodeById.get(announcedId)
     if (!node) return ''
@@ -457,28 +511,28 @@ export function ShareTargetSearchPopover({
     { kind: 'all', label: '전체' },
     { kind: 'people', label: '사람', count: peopleCount },
     { kind: 'departments', label: '조직', count: departments.count },
-    { kind: 'groups', label: '내 그룹', count: personalGroups.count },
+    ...(showPersonalGroups ? [{ kind: 'groups' as const, label: '내 그룹', count: personalGroups.count }] : []),
   ]
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange} modal>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       {/* 가장자리 16px — 390 화면에서 팝오버가 오른쪽 끝에 붙지 않게(MemberSearchPopover 와 같은 폭·여백). */}
-      <PopoverContent className="w-[min(380px,calc(100vw-32px))] p-0" align="start" collisionPadding={16} data-testid="share-target-search">
+      <PopoverContent className="w-[min(380px,calc(100vw-32px))] p-0" align="start" collisionPadding={16} data-testid={tid('search')}>
         <Command shouldFilter={false} value={current} onValueChange={setActive} onKeyDown={onKeyDown}>
           <CommandInput
             value={query}
             onValueChange={setQuery}
-            placeholder="이름·부서·그룹으로 검색"
+            placeholder={placeholder ?? (showPersonalGroups ? '이름·부서·그룹으로 검색' : '이름·부서로 검색')}
             aria-label="사람·팀 검색"
             aria-describedby={keyHintId}
           />
-          <p role="status" className="sr-only" data-testid="share-target-announcement">
+          <p role="status" className="sr-only" data-testid={tid('announcement')}>
             {announcement}
           </p>
           <p id={keyHintId} className="sr-only">
-            위·아래 화살표로 후보를 고르고 Enter 로 추가합니다. 조직·그룹은 오른쪽 화살표로 펼쳐 하위와 구성원을 보고 왼쪽 화살표로
-            접습니다. 검색어 가운데에 커서가 있으면 커서만 움직입니다.
+            위·아래 화살표로 후보를 고르고 Enter 로 추가합니다. {showPersonalGroups ? '조직·그룹은' : '조직은'} 오른쪽 화살표로 펼쳐 하위와
+            구성원을 보고 왼쪽 화살표로 접습니다. 검색어 가운데에 커서가 있으면 커서만 움직입니다.
           </p>
           {/* 종류 탭 — 누른 종류만 보인다. 수는 지금 검색어에 맞는 후보 수. */}
           <div role="group" aria-label="후보 종류" className="flex gap-1 border-b px-2 py-1.5">
@@ -492,7 +546,7 @@ export function ShareTargetSearchPopover({
                   'rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted',
                   kind === t.kind && 'bg-accent font-medium text-accent-foreground',
                 )}
-                data-testid={`share-target-tab-${t.kind}`}
+                data-testid={tid(`tab-${t.kind}`)}
               >
                 {t.label}
                 {t.count != null && <span className="ml-1 tabular-nums">{t.count}</span>}

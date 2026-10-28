@@ -1,13 +1,14 @@
 package com.workplace.wiki.repository;
 
 import static com.workplace.jooq.Tables.WIKI_SPACE;
-import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.wiki.dto.WikiSpaceResponse;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.Field;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -73,9 +74,9 @@ public class WikiSpaceRepository {
   }
 
   /**
-   * callerId 가 볼 수 있는(멤버인) TEAM 공간 중 같은 이름이 있는지(대소문자 무시, #696). 볼 수 없는 공간까지 견주면 거절 여부로 남의 비공개 스페이스
-   * 존재·이름이 드러난다(WP-693 — 채널 WP-590 과 같은 범위). excludeId 는 이름변경 시 자기 자신 제외용(현재 TEAM 공간은 이름변경 API 가 없어
-   * 항상 null).
+   * callerId 가 볼 수 있는(실효 멤버인 — 직접 또는 조직도 부서, WP-1052) TEAM 공간 중 같은 이름이 있는지(대소문자 무시, #696). 볼 수 없는
+   * 공간까지 견주면 거절 여부로 남의 비공개 스페이스 존재·이름이 드러난다(WP-693 — 채널 WP-590 과 같은 범위). excludeId 는 이름변경 시 자기 자신
+   * 제외용(현재 TEAM 공간은 이름변경 API 가 없어 항상 null).
    */
   public boolean existsVisibleTeamSpaceName(String name, long callerId, Long excludeId) {
     // 저장값도 다듬어 비교한다 — WP-562 이전에 공백째 저장된 옛 이름도 같은 이름으로 본다.
@@ -84,15 +85,8 @@ public class WikiSpaceRepository {
             .TYPE
             .eq("TEAM")
             .and(DSL.lower(DSL.trim(WIKI_SPACE.NAME)).eq(name.strip().toLowerCase()))
-            .and(
-                DSL.exists(
-                    DSL.selectOne()
-                        .from(WIKI_SPACE_MEMBER)
-                        .where(
-                            WIKI_SPACE_MEMBER
-                                .SPACE_ID
-                                .eq(WIKI_SPACE.ID)
-                                .and(WIKI_SPACE_MEMBER.USER_ID.eq(callerId)))));
+            // 볼 수 있는 공간 = 실효 멤버(직접 또는 조직도 부서, WP-1052)인 공간.
+            .and(WikiSpaceMembership.isMember(WIKI_SPACE.ID, DSL.val(callerId)));
     if (excludeId != null) {
       cond = cond.and(WIKI_SPACE.ID.ne(excludeId));
     }
@@ -123,34 +117,40 @@ public class WikiSpaceRepository {
         .fetchOptional(WIKI_SPACE.ID);
   }
 
-  /** 호출자 역할을 동봉해 단건 조회(멤버 아니면 empty). */
+  /** 실효 역할 열의 이름 — 목록·단건 조회가 같은 이름으로 읽는다. */
+  private static final String ROLE = "role";
+
+  /** 호출자 실효 역할(직접 + 조직도 부서 중 가장 높은 것, WP-1052)을 동봉해 단건 조회(멤버 아니면 empty). */
   public Optional<WikiSpaceResponse> findForUser(long spaceId, long userId) {
+    Field<String> role = WikiSpaceMembership.effectiveRole(WIKI_SPACE.ID, DSL.val(userId)).as(ROLE);
     return dsl.select(
             WIKI_SPACE.ID,
             WIKI_SPACE.TYPE,
             WIKI_SPACE.NAME,
             WIKI_SPACE.OWNER_ID,
-            WIKI_SPACE_MEMBER.ROLE,
+            role,
             WIKI_SPACE.CREATED_AT)
         .from(WIKI_SPACE)
-        .join(WIKI_SPACE_MEMBER)
-        .on(WIKI_SPACE_MEMBER.SPACE_ID.eq(WIKI_SPACE.ID).and(WIKI_SPACE_MEMBER.USER_ID.eq(userId)))
         .where(WIKI_SPACE.ID.eq(spaceId))
+        .and(WikiSpaceMembership.isMember(WIKI_SPACE.ID, DSL.val(userId)))
         .fetchOptional(WikiSpaceRepository::map);
   }
 
-  /** 호출자가 멤버인 모든 공간(개인 먼저, 그다음 이름순). */
+  /**
+   * 호출자가 (실효) 멤버인 모든 공간(개인 먼저, 그다음 이름순) — 직접 멤버이거나 멤버로 둔 조직도 부서에 걸린 공간(WP-1052). 양쪽에 걸려도 한 번만, 역할은
+   * 가장 높은 것.
+   */
   public List<WikiSpaceResponse> findMySpaces(long userId) {
+    Field<String> role = WikiSpaceMembership.effectiveRole(WIKI_SPACE.ID, DSL.val(userId)).as(ROLE);
     return dsl.select(
             WIKI_SPACE.ID,
             WIKI_SPACE.TYPE,
             WIKI_SPACE.NAME,
             WIKI_SPACE.OWNER_ID,
-            WIKI_SPACE_MEMBER.ROLE,
+            role,
             WIKI_SPACE.CREATED_AT)
         .from(WIKI_SPACE)
-        .join(WIKI_SPACE_MEMBER)
-        .on(WIKI_SPACE_MEMBER.SPACE_ID.eq(WIKI_SPACE.ID).and(WIKI_SPACE_MEMBER.USER_ID.eq(userId)))
+        .where(WikiSpaceMembership.isMember(WIKI_SPACE.ID, DSL.val(userId)))
         .orderBy(
             DSL.when(WIKI_SPACE.TYPE.eq("PERSONAL"), DSL.inline(0)).otherwise(DSL.inline(1)),
             WIKI_SPACE.NAME.asc())
@@ -163,7 +163,7 @@ public class WikiSpaceRepository {
         r.get(WIKI_SPACE.TYPE),
         r.get(WIKI_SPACE.NAME),
         r.get(WIKI_SPACE.OWNER_ID),
-        r.get(WIKI_SPACE_MEMBER.ROLE),
+        r.get(ROLE, String.class),
         r.get(WIKI_SPACE.CREATED_AT));
   }
 }

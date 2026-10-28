@@ -124,6 +124,7 @@ public final class TenantPurgePlan {
           WIKI_PAGE_DOC,
           WIKI_REVISION,
           WIKI_PAGE,
+          WIKI_SPACE_MEMBER_GROUP, // 스페이스 멤버 조직도 부서(WP-1052) — wiki_space·user_group 보다 먼저
           WIKI_SPACE_MEMBER,
           WIKI_SPACE,
           // 캘린더 (외부 캘린더는 email_account 를 참조하므로 메일보다 먼저)

@@ -21,11 +21,12 @@ export function RenameChannelModal({
   onOpenChange,
 }: {
   channelId: number
-  currentName: string
+  /** DM 상세는 name 이 null 이다 — 채널 화면으로 잘못 들어와도 렌더 중 깨지지 않게 빈 이름으로 다룬다(WP-1083). */
+  currentName: string | null
   open: boolean
   onOpenChange: (v: boolean) => void
 }) {
-  const [name, setName] = useState(currentName)
+  const [name, setName] = useState(currentName ?? '')
   // 이름 중복(409) 인라인 에러 — 컨테이너류 이름 하드 차단 정책(#688/#696/#803).
   const [nameError, setNameError] = useState<string | null>(null)
   const rename = useRenameChannel(channelId)
@@ -33,7 +34,7 @@ export function RenameChannelModal({
   // 모달 열릴 때 현재 이름으로 초기화 + 이전 에러 초기화.
   useEffect(() => {
     if (open) {
-      setName(currentName)
+      setName(currentName ?? '')
       setNameError(null)
     }
   }, [open, currentName])

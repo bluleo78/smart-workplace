@@ -1,8 +1,7 @@
 // 노트 공유 순수 판정(WP-579) — 넓히는 변경·트리 공유 표시·이동 영향·하위 수·만료·공유 창 권한.
-// WP-1023 — 범위 요약의 부서 수, 사람·팀 검색의 그룹 평면화·거르기, 내 그룹을 사람으로 펼치기와 안내 문구.
+// WP-1023 — 범위 요약의 부서 수, 내 그룹을 사람으로 펼치기와 안내 문구.
 import { describe, expect, it } from 'vitest'
 
-import type { UserGroupNode } from '../../types/userGroup'
 import type { WikiShareAudience, WikiTreeShare } from '../../types/wiki'
 import {
   addGroupMembers,
@@ -11,8 +10,6 @@ import {
   countDescendants,
   countLivePublicShares,
   expiryAfterDays,
-  filterGroupOptions,
-  flattenGroupTree,
   groupExpansionMessage,
   hasShareMoveImpact,
   isShareExpired,
@@ -384,27 +381,6 @@ describe('isShareExpired·countLivePublicShares — 외부 공유를 끄면 막�
 })
 
 describe('사람·팀 추가(WP-1023)', () => {
-  const g = (id: number, name: string, children: UserGroupNode[] = []): UserGroupNode => ({
-    id, code: null, name, parentId: null, ownerId: null, visibility: 'SHARED', sortOrder: 0, children,
-  })
-  const tree = [g(1, '본부', [g(2, '개발팀', [g(3, 'Backend')]), g(4, '디자인팀')]), g(5, '영업팀')]
-
-  it('그룹 트리를 위에서 아래 순서로 펴고 상위 이름을 경로로 붙인다', () => {
-    expect(flattenGroupTree(tree)).toEqual([
-      { id: 1, name: '본부', path: '', ancestorIds: [], subtreeIds: [1, 2, 3, 4] },
-      { id: 2, name: '개발팀', path: '본부', ancestorIds: [1], subtreeIds: [2, 3] },
-      { id: 3, name: 'Backend', path: '본부 › 개발팀', ancestorIds: [1, 2], subtreeIds: [3] },
-      { id: 4, name: '디자인팀', path: '본부', ancestorIds: [1], subtreeIds: [4] },
-      { id: 5, name: '영업팀', path: '', ancestorIds: [], subtreeIds: [5] },
-    ])
-  })
-
-  it('검색어는 이름이나 상위 경로에서 대소문자 없이 찾고, 빈 검색어면 모두', () => {
-    const all = flattenGroupTree(tree)
-    expect(filterGroupOptions(all, '개발').map((o) => o.id)).toEqual([2, 3])
-    expect(filterGroupOptions(all, 'backend').map((o) => o.id)).toEqual([3])
-    expect(filterGroupOptions(all, '  ')).toHaveLength(5)
-  })
 
   it('내 그룹 구성원 중 아직 없는 사람만 뒤에 더하고 더한 수·뺀 수를 센다(구성원 중복은 한 번)', () => {
     expect(addGroupMembers([3, 5], [5, 7, 8, 7])).toEqual({ userIds: [3, 5, 7, 8], added: 2, skipped: 1 })

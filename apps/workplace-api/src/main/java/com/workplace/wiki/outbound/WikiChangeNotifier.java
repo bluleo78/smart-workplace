@@ -23,8 +23,11 @@ public class WikiChangeNotifier {
 
   private final ApplicationEventPublisher publisher;
 
-  /** 스페이스 멤버 추가·역할 변경·제거. 제거된 멤버는 커밋 후 멤버 조회에서 빠지므로 extraRecipients 로 넘겨 자기 화면에서도 스페이스가 사라지게 한다. */
-  public void spaceChanged(long spaceId, long actorId, Collection<Long> removedUserIds) {
+  /**
+   * 스페이스 멤버 추가·역할 변경·제거(조직도 부서 멤버·부서 구성원 감소 포함, WP-1052). 제거된 멤버는 커밋 후 멤버 조회에서 빠지므로 extraRecipients
+   * 로 넘겨 자기 화면에서도 스페이스가 사라지게 한다. actorId 가 null 이면 행위자 없음(부서 구성원 감소처럼 다른 모듈에서 온 변경).
+   */
+  public void spaceChanged(long spaceId, Long actorId, Collection<Long> removedUserIds) {
     publishSpace(ResourceChangedEvent.OP_UPDATED, spaceId, actorId, removedUserIds);
   }
 
@@ -36,7 +39,7 @@ public class WikiChangeNotifier {
     publishSpace(ResourceChangedEvent.OP_DELETED, spaceId, actorId, memberUserIds);
   }
 
-  private void publishSpace(String op, long spaceId, long actorId, Collection<Long> extra) {
+  private void publishSpace(String op, long spaceId, Long actorId, Collection<Long> extra) {
     publisher.publishEvent(
         ResourceChangedEvent.of(
             RESOURCE_WIKI_SPACE,

@@ -138,6 +138,7 @@ import com.workplace.jooq.tables.WikiRevision;
 import com.workplace.jooq.tables.WikiShareAccessRequest;
 import com.workplace.jooq.tables.WikiSpace;
 import com.workplace.jooq.tables.WikiSpaceMember;
+import com.workplace.jooq.tables.WikiSpaceMemberGroup;
 import com.workplace.jooq.tables.WorkerJob;
 import com.workplace.jooq.tables.WorkspaceAssistant;
 
@@ -818,6 +819,11 @@ public class Tables {
      * The table <code>public.wiki_space_member</code>.
      */
     public static final WikiSpaceMember WIKI_SPACE_MEMBER = WikiSpaceMember.WIKI_SPACE_MEMBER;
+
+    /**
+     * The table <code>public.wiki_space_member_group</code>.
+     */
+    public static final WikiSpaceMemberGroup WIKI_SPACE_MEMBER_GROUP = WikiSpaceMemberGroup.WIKI_SPACE_MEMBER_GROUP;
 
     /**
      * The table <code>public.worker_job</code>.

@@ -13,6 +13,8 @@ import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.UserGroupMember.UserGroupMemberPath;
 import com.workplace.jooq.tables.WikiPageShare.WikiPageSharePath;
 import com.workplace.jooq.tables.WikiPageShareGroup.WikiPageShareGroupPath;
+import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
+import com.workplace.jooq.tables.WikiSpaceMemberGroup.WikiSpaceMemberGroupPath;
 import com.workplace.jooq.tables.records.UserGroupRecord;
 
 import java.time.OffsetDateTime;
@@ -261,12 +263,33 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
         return _wikiPageShareGroup;
     }
 
+    private transient WikiSpaceMemberGroupPath _wikiSpaceMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_space_member_group</code> table
+     */
+    public WikiSpaceMemberGroupPath wikiSpaceMemberGroup() {
+        if (_wikiSpaceMemberGroup == null)
+            _wikiSpaceMemberGroup = new WikiSpaceMemberGroupPath(this, null, Keys.WIKI_SPACE_MEMBER_GROUP__WIKI_SPACE_MEMBER_GROUP_GROUP_ID_FKEY.getInverseKey());
+
+        return _wikiSpaceMemberGroup;
+    }
+
     /**
      * Get the implicit many-to-many join path to the
      * <code>public.wiki_page_share</code> table
      */
     public WikiPageSharePath wikiPageShare() {
         return wikiPageShareGroup().wikiPageShare();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.wiki_space</code> table
+     */
+    public WikiSpacePath wikiSpace() {
+        return wikiSpaceMemberGroup().wikiSpace();
     }
 
     @Override

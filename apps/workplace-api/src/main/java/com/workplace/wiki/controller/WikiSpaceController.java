@@ -1,14 +1,17 @@
 package com.workplace.wiki.controller;
 
+import com.workplace.wiki.dto.AddMemberGroupRequest;
 import com.workplace.wiki.dto.AddMemberRequest;
 import com.workplace.wiki.dto.ChangeRoleRequest;
 import com.workplace.wiki.dto.CreatePageRequest;
 import com.workplace.wiki.dto.CreateSpaceRequest;
+import com.workplace.wiki.dto.WikiMemberGroupResponse;
 import com.workplace.wiki.dto.WikiMemberResponse;
 import com.workplace.wiki.dto.WikiPageDetail;
 import com.workplace.wiki.dto.WikiPageSummary;
 import com.workplace.wiki.dto.WikiSpaceResponse;
 import com.workplace.wiki.service.WikiPageService;
+import com.workplace.wiki.service.WikiSpaceMemberGroupService;
 import com.workplace.wiki.service.WikiSpaceService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -32,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class WikiSpaceController {
   private final WikiSpaceService spaceService;
   private final WikiPageService pageService;
+  private final WikiSpaceMemberGroupService memberGroupService;
 
   @GetMapping("/spaces")
   public ResponseEntity<List<WikiSpaceResponse>> mySpaces(@AuthenticationPrincipal Long callerId) {
@@ -90,6 +94,45 @@ public class WikiSpaceController {
       @PathVariable("id") long spaceId,
       @PathVariable("userId") long userId) {
     spaceService.removeMember(callerId, spaceId, userId);
+    return ResponseEntity.noContent().build();
+  }
+
+  // ── 멤버로 둔 조직도 부서(WP-1052) — 권한은 사람 멤버 API 와 같다(조회 멤버, 변경 OWNER) ──
+
+  /** 스페이스 멤버 부서 목록(이름순, 부서마다 들어오는 사람 수). */
+  @GetMapping("/spaces/{id}/member-groups")
+  public ResponseEntity<List<WikiMemberGroupResponse>> memberGroups(
+      @AuthenticationPrincipal Long callerId, @PathVariable("id") long spaceId) {
+    return ResponseEntity.ok(memberGroupService.list(callerId, spaceId));
+  }
+
+  /** 조직도 부서를 멤버로 더한다 — 이미 있으면 역할을 덮어쓴다(사람 멤버 추가와 같은 업서트). */
+  @PostMapping("/spaces/{id}/member-groups")
+  public ResponseEntity<WikiMemberGroupResponse> addMemberGroup(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long spaceId,
+      @Valid @RequestBody AddMemberGroupRequest req) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+        .body(memberGroupService.add(callerId, spaceId, req.groupId(), req.role()));
+  }
+
+  /** 멤버 부서의 역할 변경(EDITOR | VIEWER). */
+  @PatchMapping("/spaces/{id}/member-groups/{groupId}")
+  public ResponseEntity<WikiMemberGroupResponse> changeMemberGroupRole(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long spaceId,
+      @PathVariable("groupId") long groupId,
+      @Valid @RequestBody ChangeRoleRequest req) {
+    return ResponseEntity.ok(memberGroupService.changeRole(callerId, spaceId, groupId, req.role()));
+  }
+
+  /** 멤버 부서 제거. */
+  @DeleteMapping("/spaces/{id}/member-groups/{groupId}")
+  public ResponseEntity<Void> removeMemberGroup(
+      @AuthenticationPrincipal Long callerId,
+      @PathVariable("id") long spaceId,
+      @PathVariable("groupId") long groupId) {
+    memberGroupService.remove(callerId, spaceId, groupId);
     return ResponseEntity.noContent().build();
   }
 

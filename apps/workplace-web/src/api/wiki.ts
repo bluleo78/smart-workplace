@@ -6,6 +6,7 @@ import type {
   WikiAttachment,
   WikiBacklinksResponse,
   WikiMember,
+  WikiMemberGroup,
   WikiMentionRef,
   WikiMovePreview,
   WikiPageDetail,
@@ -49,6 +50,14 @@ export const wikiApi = {
   // 멤버 제거 — OWNER 만. 소유자는 제거 불가.
   removeMember: (spaceId: number, userId: number) =>
     client.delete<void>(`/wiki/spaces/${spaceId}/members/${userId}`),
+  // 멤버인 조직도 부서(WP-1052) — 부서 자체를 역할과 함께 멤버로 둔다. 추가·변경·제거는 OWNER 만, 역할은 EDITOR·VIEWER 만.
+  listMemberGroups: (spaceId: number) => client.get<WikiMemberGroup[]>(`/wiki/spaces/${spaceId}/member-groups`),
+  addMemberGroup: (spaceId: number, groupId: number, role: WikiMemberGroup['role']) =>
+    client.post<WikiMemberGroup>(`/wiki/spaces/${spaceId}/member-groups`, { groupId, role }),
+  updateMemberGroupRole: (spaceId: number, groupId: number, role: WikiMemberGroup['role']) =>
+    client.patch<WikiMemberGroup>(`/wiki/spaces/${spaceId}/member-groups/${groupId}`, { role }),
+  removeMemberGroup: (spaceId: number, groupId: number) =>
+    client.delete<void>(`/wiki/spaces/${spaceId}/member-groups/${groupId}`),
 
   listPages: (spaceId: number) =>
     client.get<WikiPageSummary[]>(`/wiki/spaces/${spaceId}/pages`),

@@ -1,5 +1,6 @@
 package com.workplace.messaging.repository;
 
+import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +21,7 @@ class ThreadInboxRepositoryTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired ChannelService channelService;
+  @Autowired ChannelMemberRepository channelMemberRepo;
   @Autowired ChannelMemberService channelMemberService;
   @Autowired MessageService messageService;
   @Autowired ChannelRepository channelRepo;
@@ -59,8 +61,36 @@ class ThreadInboxRepositoryTest extends IntegrationTestBase {
     // 최근 활동(B) 먼저.
     assertThat(page.rows().get(0).rootId()).isEqualTo(rootB);
     assertThat(page.rows().get(0).channelName()).isEqualTo("B");
+    assertThat(page.rows().get(0).channelKind()).isEqualTo("CHANNEL");
     assertThat(page.rows().get(0).unreadReplyCount()).isEqualTo(1);
     assertThat(repo.inboxUnreadThreadCount(me)).isEqualTo(2);
+  }
+
+  /** DM 스레드도 인박스에 오고, 이름 대신 종류(DM)로 웹이 DM 화면으로 연다(WP-1083). */
+  @Test
+  void inbox_includesDmThreads_withDmKind() {
+    long me = seedUser();
+    long other = seedUser();
+    // DM 은 받는 사람이 이 워크스페이스의 활성 구성원이어야 보낼 수 있다(WP-723) — 둘 다 tenant#1 ACTIVE 멤버십을 준다.
+    for (long u : new long[] {me, other}) {
+      dsl.insertInto(MEMBERSHIP)
+          .set(MEMBERSHIP.USER_ID, u)
+          .set(MEMBERSHIP.TENANT_ID, 1L)
+          .set(MEMBERSHIP.STATUS, "ACTIVE")
+          .execute();
+    }
+    // DM 채널(name=null, kind=DM)을 직접 만들고 둘 다 가입시킨다(MessagingSummaryRepositoryTest 와 같은 방식).
+    long dm = channelRepo.insertDm(me < other ? me + ":" + other : other + ":" + me, me);
+    channelMemberRepo.add(dm, me, "MEMBER");
+    channelMemberRepo.add(dm, other, "MEMBER");
+    long root = messageService.create(me, dm, new CreateMessageRequest("DM 부모")).id();
+    messageService.create(other, dm, new CreateMessageRequest("DM 답", root));
+
+    var page = repo.inboxPage(me, null, 50);
+    assertThat(page.rows()).hasSize(1);
+    assertThat(page.rows().get(0).rootId()).isEqualTo(root);
+    assertThat(page.rows().get(0).channelKind()).isEqualTo("DM");
+    assertThat(page.rows().get(0).channelName()).isNull();
   }
 
   /** 읽음 처리한 스레드는 인박스에서 빠지고 카운트 감소. */

@@ -5,8 +5,8 @@ import static com.workplace.jooq.Tables.WIKI_PAGE_BODY_HISTORY;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_EXCLUSION;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
-import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.wiki.dto.WikiBacklink;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageDetail;
@@ -543,13 +543,12 @@ public class WikiPageRepository {
 
   /**
    * 호출자가 멤버인 스페이스의 위키 페이지를 제목·본문 ILIKE 로 검색한다. spaceId 가 null 이면 호출자가 멤버인 전체 스페이스 대상, 지정되면 해당 스페이스
-   * 한정. 멤버십 조인으로 접근 불가 스페이스는 결과에서 자연 배제(RLS+멤버십 이중 스코핑).
+   * 한정. 멤버십 조건(직접 또는 조직도 부서, WP-1052)으로 접근 불가 스페이스는 결과에서 자연 배제(RLS+멤버십 이중 스코핑).
    */
   public List<WikiSearchResult> search(long callerId, Long spaceId, String pattern, int limit) {
+    // 실효 멤버(직접 또는 조직도 부서, WP-1052)인 스페이스만 — 조인이 아니라 EXISTS 라 양쪽에 걸려도 페이지가 한 번만 나온다.
     Condition cond =
-        WIKI_SPACE_MEMBER
-            .USER_ID
-            .eq(callerId)
+        WikiSpaceMembership.isMember(WIKI_PAGE.SPACE_ID, DSL.val(callerId))
             .and(
                 WIKI_PAGE
                     .TITLE
@@ -568,8 +567,6 @@ public class WikiPageRepository {
         .from(WIKI_PAGE)
         .join(WIKI_SPACE)
         .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
-        .join(WIKI_SPACE_MEMBER)
-        .on(WIKI_SPACE_MEMBER.SPACE_ID.eq(WIKI_PAGE.SPACE_ID))
         .where(cond)
         .orderBy(WIKI_PAGE.UPDATED_AT.desc())
         .limit(limit)
@@ -589,8 +586,8 @@ public class WikiPageRepository {
   }
 
   /**
-   * pageIds 중 호출자가 멤버인 스페이스의 페이지만 백링크 형태로 반환한다. search() 와 동일한 멤버십
-   * 조인(WIKI_PAGE⨝WIKI_SPACE⨝WIKI_SPACE_MEMBER user=caller)으로 접근 불가 스페이스의 페이지를 자연 배제. 빈 ids 면 빈 리스트.
+   * pageIds 중 호출자가 멤버인 스페이스의 페이지만 백링크 형태로 반환한다. search() 와 동일한 멤버십 조건(실효 멤버 EXISTS, WP-1052)으로 접근
+   * 불가 스페이스의 페이지를 자연 배제. 빈 ids 면 빈 리스트.
    */
   public List<WikiBacklink> findVisibleBacklinks(long callerId, List<Long> pageIds) {
     if (pageIds == null || pageIds.isEmpty()) return List.of();
@@ -626,7 +623,7 @@ public class WikiPageRepository {
 
   /**
    * pageIds 중 호출자가 멤버인 스페이스의 페이지 행을 고르는 공통 가시성 쿼리(id/spaceId/spaceName/title/updatedAt 컬럼). 백링크·페이지
-   * 멘션 하이드레이션이 같은 멤버십 조인을 재사용한다.
+   * 멘션 하이드레이션이 같은 멤버십 조건을 재사용한다.
    */
   private org.jooq.SelectConditionStep<
           org.jooq.Record5<Long, Long, String, String, java.time.OffsetDateTime>>
@@ -640,9 +637,8 @@ public class WikiPageRepository {
         .from(WIKI_PAGE)
         .join(WIKI_SPACE)
         .on(WIKI_SPACE.ID.eq(WIKI_PAGE.SPACE_ID))
-        .join(WIKI_SPACE_MEMBER)
-        .on(WIKI_SPACE_MEMBER.SPACE_ID.eq(WIKI_PAGE.SPACE_ID))
-        .where(WIKI_SPACE_MEMBER.USER_ID.eq(callerId))
+        // 실효 멤버(직접 또는 조직도 부서, WP-1052) — EXISTS 라 중복 행이 없다.
+        .where(WikiSpaceMembership.isMember(WIKI_PAGE.SPACE_ID, DSL.val(callerId)))
         .and(WIKI_PAGE.ID.in(pageIds));
   }
 }

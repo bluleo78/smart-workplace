@@ -29,6 +29,7 @@ import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessApproved
 import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiShareAccessRequestedEvent;
 import com.workplace.wiki.outbound.WikiShareNotifyEvents.WikiSharedWithPeopleEvent;
 import com.workplace.wiki.service.WikiPageService;
+import com.workplace.wiki.service.WikiSpaceMemberGroupService;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -65,6 +66,7 @@ class WikiShareNotificationTest extends IntegrationTestBase {
   @Autowired DSLContext dsl;
   @Autowired JwtTokenProvider jwt;
   @Autowired WikiSpaceService spaceService;
+  @Autowired WikiSpaceMemberGroupService memberGroups;
   @Autowired WikiPageService pageService;
   // @Async 프록시를 거치면 리스너가 다른 스레드에서 돌아 테스트 트랜잭션의 시드(미커밋)를 못 본다 — 대상 객체를 직접 불러 같은 스레드·트랜잭션에서 검증한다.
   @Autowired NotificationDispatcher dispatcherProxy;
@@ -322,6 +324,35 @@ class WikiShareNotificationTest extends IntegrationTestBase {
 
     groupMember(dept, listedId);
     assertVisibleIffEntryOpens(listedId, true);
+  }
+
+  /**
+   * 스페이스 멤버로 둔 조직도 부서(WP-1052)도 같은 규칙 — 그 부서·하위 부서 구성원은 공유가 없어도 노트 알림이 보이고 입구가 노트로 보낸다. 부서에서 빠지면
+   * 숨고, 부서 행을 빼도 숨는다.
+   */
+  @Test
+  void space_department_member_notification_visibility_matches_entry() throws Exception {
+    long dept = group("기획팀-" + UUID.randomUUID(), null);
+    long sub = group("기획1팀-" + UUID.randomUUID(), dept);
+    groupMember(sub, listedId);
+    dispatcher.onWikiSharedWithPeople(
+        new WikiSharedWithPeopleEvent(1L, rootId, ownerId, List.of(listedId), null));
+    assertVisibleIffEntryOpens(listedId, false);
+
+    memberGroups.add(ownerId, spaceId, dept, "VIEWER");
+    assertVisibleIffEntryOpens(listedId, true);
+
+    dsl.deleteFrom(USER_GROUP_MEMBER)
+        .where(USER_GROUP_MEMBER.GROUP_ID.eq(sub))
+        .and(USER_GROUP_MEMBER.TARGET_ID.eq(listedId))
+        .execute();
+    assertVisibleIffEntryOpens(listedId, false);
+
+    groupMember(dept, listedId);
+    assertVisibleIffEntryOpens(listedId, true);
+
+    memberGroups.remove(ownerId, spaceId, dept);
+    assertVisibleIffEntryOpens(listedId, false);
   }
 
   /** 받는 사람의 rootId 알림이 목록에 보이는지와 입구가 열어 주는지가 같고, 그 값이 expected 인지. */

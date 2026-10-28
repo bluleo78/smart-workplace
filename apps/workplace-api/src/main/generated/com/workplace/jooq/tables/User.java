@@ -90,6 +90,7 @@ import com.workplace.jooq.tables.WikiPageShareMember.WikiPageShareMemberPath;
 import com.workplace.jooq.tables.WikiShareAccessRequest.WikiShareAccessRequestPath;
 import com.workplace.jooq.tables.WikiSpace.WikiSpacePath;
 import com.workplace.jooq.tables.WikiSpaceMember.WikiSpaceMemberPath;
+import com.workplace.jooq.tables.WikiSpaceMemberGroup.WikiSpaceMemberGroupPath;
 import com.workplace.jooq.tables.WorkspaceAssistant.WorkspaceAssistantPath;
 import com.workplace.jooq.tables.records.UserRecord;
 
@@ -1491,6 +1492,19 @@ public class User extends TableImpl<UserRecord> {
             _wikiShareAccessRequestRequesterIdFkey = new WikiShareAccessRequestPath(this, null, Keys.WIKI_SHARE_ACCESS_REQUEST__WIKI_SHARE_ACCESS_REQUEST_REQUESTER_ID_FKEY.getInverseKey());
 
         return _wikiShareAccessRequestRequesterIdFkey;
+    }
+
+    private transient WikiSpaceMemberGroupPath _wikiSpaceMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.wiki_space_member_group</code> table
+     */
+    public WikiSpaceMemberGroupPath wikiSpaceMemberGroup() {
+        if (_wikiSpaceMemberGroup == null)
+            _wikiSpaceMemberGroup = new WikiSpaceMemberGroupPath(this, null, Keys.WIKI_SPACE_MEMBER_GROUP__WIKI_SPACE_MEMBER_GROUP_ADDED_BY_FKEY.getInverseKey());
+
+        return _wikiSpaceMemberGroup;
     }
 
     private transient WikiSpaceMemberPath _wikiSpaceMember;

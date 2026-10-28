@@ -1,7 +1,7 @@
 // DM 화면·새 메시지(받는 사람 고르기)·나에게(self-DM) — 화면 테스트(WP-966, WP-995).
 // 정지된 상대 안내·대화 없음/목록 오류 구분·빈 상태 문구·AGENT 배지·받는 사람 7명 상한·kind=ALL 검색·칩 제거·
 // 「보관됨」 오표시 금지·첨부만 보내기의 DM 생성 → 업로드 → 전송 순서·self-DM 리다이렉트는 브라우저 없이 판정되므로
-// e2e/pages/chat/{chat-dm,messaging-compose-selfdm,messaging-phase-c}.spec.ts 에서 옮겼다.
+// e2e/pages/chat/{chat-dm,messaging-compose-selfdm,messaging-phase-c}.spec.ts 에서 옮겼다. DM 스레드(인박스 → DM 화면, 채널 주소 → DM 화면)는 WP-1083.
 // 그 spec 들에는 받는 사람 입력의 포커스·키보드 탐색(@input), 에디터에 글자를 쳐서 보내는 흐름(@input·@flow), 헤더 정렬·잘림(@layout)이 남는다.
 // 채팅 라우트만 renderScreen 으로 띄운다(testkit-b5).
 import { screen, waitFor, within } from '@testing-library/react'
@@ -12,7 +12,7 @@ import { API, renderChat } from '@/test/kits/chat/testkit-b5'
 import { testAuthValue } from '@/test/renderWithProviders'
 import type { DmResponse } from '@/types/messaging'
 
-import { createChannel, createDm, createDmParticipant, createMessage } from '../../../e2e/factories/messaging.factory'
+import { createChannel, createDm, createDmParticipant, createMessage, createThreadInboxItem } from '../../../e2e/factories/messaging.factory'
 
 const MY_NAME = '테스트 사용자'
 /** E2E 의 로그인 사용자와 같은 이름 — 셀프 DM 라벨 「테스트 사용자 (나)」를 그대로 단언한다. */
@@ -248,5 +248,69 @@ describe('나에게(self-DM)', () => {
     await waitFor(() => expect(view.location()).toBe(`/chat/dms/${SELF_DM_ID}`))
     expect(posts).toEqual([{ userIds: [1] }])
     expect(await screen.findByTestId('dm-title')).toHaveTextContent(`${MY_NAME} (나)`)
+  })
+})
+
+// WP-1083: DM 스레드 — 스레드 인박스의 DM 스레드는 DM 화면에서 열리고, 채널 주소로 들어온 DM 은 DM 화면으로 넘긴다.
+describe('DM 스레드', () => {
+  const dm = createDm({ id: 5, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '김사원' })] })
+  const root = createMessage({ id: 4, channelId: 5, authorId: 1, body: 'DM 루트', replyCount: 1, unreadReplyCount: 1, followed: true })
+  const reply = createMessage({ id: 6, channelId: 5, authorId: 2, authorName: '김사원', body: 'DM 답글', parentMessageId: 4 })
+  /** 스레드 답글 목록·스레드 읽음 — ThreadPanel 이 부른다. */
+  const threadHandlers = [
+    http.get(`${API}/messaging/messages/4/replies`, () => HttpResponse.json({ items: [reply], nextCursor: null, hasMore: false })),
+    http.post(`${API}/messaging/messages/4/thread/read`, () => new HttpResponse(null, { status: 204 })),
+    http.get(`${API}/messaging/channels/5`, () => HttpResponse.json(createChannel({ id: 5, kind: 'DM', name: null as unknown as string, member: true }))),
+  ]
+
+  test('인박스의 DM 스레드 카드는 # 대신 상대 이름을 보이고, 누르면 DM 화면에서 스레드가 열린다', async () => {
+    const { user, location } = renderChat('/chat/threads/inbox', {
+      auth,
+      dms: [dm],
+      channels: [],
+      messages: { 5: [root] },
+      handlers: [
+        http.get(`${API}/messaging/threads/inbox`, () =>
+          HttpResponse.json({
+            items: [createThreadInboxItem({ rootMessage: root, channelName: null, channelKind: 'DM' })],
+            nextCursor: null,
+            hasMore: false,
+          }),
+        ),
+        ...threadHandlers,
+      ],
+    })
+    const label = await screen.findByTestId('thread-inbox-card-label-4')
+    await waitFor(() => expect(label).toHaveTextContent('김사원'))
+    expect(label.textContent).not.toContain('#')
+    await user.click(screen.getByTestId('thread-inbox-card-4'))
+    await waitFor(() => expect(location()).toBe('/chat/dms/5?thread=4'))
+    const panel = await screen.findByTestId('thread-panel')
+    expect(await within(panel).findByText('DM 답글')).toBeInTheDocument()
+    expect(screen.queryByTestId('channel-not-found')).not.toBeInTheDocument()
+  })
+
+  test('DM 화면의 「답글 N개」를 누르면 그 자리에서 스레드 칸이 열린다', async () => {
+    const { user, location } = openDm(dm, [root], threadHandlers)
+    await user.click(await screen.findByText('답글 1개'))
+    await waitFor(() => expect(location()).toBe('/chat/dms/5?thread=4'))
+    expect(await within(await screen.findByTestId('thread-panel')).findByText('DM 답글')).toBeInTheDocument()
+  })
+
+  test('받는 사람이 모두 정지된 DM 은 스레드 칸에서도 답글 대신 보낼 수 없다는 안내가 보인다', async () => {
+    const stopped = createDm({ id: 5, participants: [createDmParticipant({ userId: 1, name: MY_NAME }), createDmParticipant({ userId: 2, name: '김사원', active: false })] })
+    const { user } = openDm(stopped, [root], threadHandlers)
+    await user.click(await screen.findByText('답글 1개'))
+    const panel = await screen.findByTestId('thread-panel')
+    expect(await within(panel).findByTestId('composer-blocked-notice')).toHaveTextContent('비활성화된 구성원이라 메시지를 보낼 수 없습니다')
+    expect(within(panel).queryByTestId('message-composer-input')).not.toBeInTheDocument()
+  })
+
+  test('DM 을 채널 주소(/chat/channels/5?thread=4)로 열면 깨지지 않고 같은 스레드를 연 DM 화면으로 넘어간다', async () => {
+    const { location } = renderChat('/chat/channels/5?thread=4', { auth, dms: [dm], channels: [], messages: { 5: [root] }, handlers: threadHandlers })
+    await waitFor(() => expect(location()).toBe('/chat/dms/5?thread=4'))
+    expect(await screen.findByTestId('dm-title')).toHaveTextContent('김사원')
+    expect(await within(await screen.findByTestId('thread-panel')).findByText('DM 답글')).toBeInTheDocument()
+    expect(screen.queryByTestId('rename-channel-modal')).not.toBeInTheDocument()
   })
 })

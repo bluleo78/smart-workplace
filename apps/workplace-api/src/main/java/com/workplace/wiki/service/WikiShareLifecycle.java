@@ -207,6 +207,54 @@ public class WikiShareLifecycle {
   }
 
   /**
+   * 멤버 변경 뒤(같은 트랜잭션) 그 사람의 <b>실효</b> 역할이 편집 아래면 그 사람이 이 스페이스에 만든 공유를 해제한다(WP-1052). 직접 멤버 행에서 빠지거나
+   * 보기로 내려가도, 멤버로 둔 조직도 부서로 여전히 편집자라면 공유는 그대로 둔다 — 편집 권한을 잃지 않았으므로.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void revokeIfLostEdit(long spaceId, long userId) {
+    boolean canEdit =
+        members
+            .findRole(spaceId, userId)
+            .filter(r -> WikiPermissions.atLeast(r, "EDITOR"))
+            .isPresent();
+    if (!canEdit) {
+      onMemberLostEdit(spaceId, userId);
+    }
+  }
+
+  /**
+   * 스페이스에 부서로 들어온 사람이 줄었을 수 있다(WP-1052 — 멤버 부서 행의 제거·보기로 강등, 부서 구성원 감소) — 이 스페이스의 공유 중 만든 사람의 실효
+   * 역할이 이제 편집 아래인 것을 해제한다. 부서 변화는 누가 빠졌는지 사람 단위로 알려 주지 않으므로, 공유를 만든 사람 쪽에서 다시 판정한다(공유 수는 스페이스당 적다).
+   * 원인이 된 변경 뒤, 같은 트랜잭션에서 부른다.
+   */
+  @Transactional(propagation = Propagation.MANDATORY)
+  public void revokeSharesOfCreatorsWithoutEdit(long spaceId) {
+    List<ShareDetail> all = shares.findBySpaceForUpdate(spaceId);
+    if (all.isEmpty()) {
+      return;
+    }
+    Map<Long, String> roles =
+        members.findRoles(
+            spaceId, all.stream().map(ShareDetail::createdBy).collect(Collectors.toSet()));
+    List<ShareDetail> lost =
+        all.stream()
+            .filter(
+                s -> {
+                  String role = roles.get(s.createdBy());
+                  return role == null || !WikiPermissions.atLeast(role, "EDITOR");
+                })
+            .toList();
+    if (!lost.isEmpty()) {
+      shareService.revokeAll(
+          WikiShareAudit.currentActorId(),
+          lost,
+          "REVOKED_BY_MEMBERSHIP",
+          LOST_EDIT_TEXT,
+          "MEMBERSHIP");
+    }
+  }
+
+  /**
    * 워크스페이스 멤버십 정지 — 그 사람이 만든 공유를 모든 스페이스에서 해제한다. 정지 트랜잭션의 커밋 직전에 같은 트랜잭션에서 돌아, 정지와 해제가 함께 커밋되거나 함께
    * 롤백된다(정지만 남고 공유가 살아 있는 틈이 없다). 테넌트는 이벤트에 담긴 값으로 세운다 — 발행한 쪽(user 모듈)의 컨텍스트에 기대지 않는다.
    */

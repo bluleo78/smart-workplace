@@ -824,6 +824,20 @@ describe('노트 공유 창 — 공유 대상 고르기(WP-1048)', () => {
     await waitFor(() => expect(screen.queryByTestId('share-target-department-12')).not.toBeInTheDocument())
   })
 
+  test('조직을 펼치면 하위 부서 구성원까지 보이고(하위 소속 경로와 함께), 하위 부서가 이미 대상이면 그 사람은 「조직에 포함됨」이다(WP-1052)', async () => {
+    const sub = { ...memberRow(9), name: '백엔드 사람', groupId: 12, groupPath: ['개발팀', '백엔드'] } as UserGroupDetail['members'][number]
+    const { user } = openShareDialog({ groups: [{ groupId: 12, name: '백엔드', memberCount: 1 }] }, { 10: [memberRow(7), sub] })
+    await openPicker(user)
+    await user.click(await screen.findByTestId('share-target-expand-10'))
+    const row = await screen.findByTestId('share-target-member-10-9')
+    expect(row).toHaveTextContent('백엔드 사람')
+    expect(row).toHaveTextContent('백엔드')
+    expect(row).toHaveTextContent('조직에 포함됨')
+    expect(row).toHaveAttribute('aria-disabled', 'true')
+    // 직속 구성원은 고를 수 있다.
+    expect(screen.getByTestId('share-target-member-10-7')).not.toHaveAttribute('aria-disabled', 'true')
+  })
+
   test('펼친 조직을 더하면 그 구성원 행은 「조직에 포함됨」으로 고를 수 없다', async () => {
     const { user, puts } = openShareDialog({}, { 10: [memberRow(8)] })
     await openPicker(user)
