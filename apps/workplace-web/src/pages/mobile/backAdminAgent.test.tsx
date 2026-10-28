@@ -25,7 +25,7 @@ const AGENT = {
   createdAt: '2026-05-20T09:00:00Z',
 }
 
-/** 에이전트 관리 화면이 부르는 목록·키·자격 증명·워크스페이스 비서. */
+/** 에이전트 관리 화면이 부르는 목록·키·자격 증명·워크스페이스 비서, 상세의 활성 상태·역할(계정 상세·역할 목록, WP-1075). */
 const agentHandlers = [
   http.get('/api/v1/admin/agents', () => HttpResponse.json([AGENT])),
   http.get('/api/v1/admin/agents/:id/keys', () => HttpResponse.json([])),
@@ -33,6 +33,8 @@ const agentHandlers = [
   http.get('/api/v1/admin/workspace-assistant', () =>
     HttpResponse.json({ agentUserId: null, agentName: null, hasActiveToken: false, model: null, thinkingDepth: null }),
   ),
+  http.get('/api/v1/users/:id', () => HttpResponse.json({ ...AGENT, roles: [] })),
+  http.get('/api/v1/roles', () => HttpResponse.json([])),
 ]
 
 /** 관리자 로그인 — 에이전트 관리는 관리자 화면이다. */
