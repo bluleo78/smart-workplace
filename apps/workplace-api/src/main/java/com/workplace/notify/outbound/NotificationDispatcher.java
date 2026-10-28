@@ -9,6 +9,7 @@ import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.MentionParser;
 import com.workplace.issue.outbound.AgentWorkNoticeEvent;
+import com.workplace.issue.outbound.AgentsResumedByChatReply;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
@@ -246,6 +247,22 @@ public class NotificationDispatcher {
           e.issueId(),
           e.messageId(),
           ex.getMessage());
+    }
+  }
+
+  /**
+   * 사람의 챗 글로 답변 필요에서 되돌린 AI → ISSUE_CHAT_MENTION(WP-1067). 질문에 멘션 없이 답해도 외부 AI 가 이 알림(SSE
+   * notify.created)으로 바로 깨어나게 한다. 멘션된 AI 는 발행 쪽이 이미 뺐다(멘션 알림과 1건으로). 종류는 이슈 챗 멘션과 같다 — 받는 쪽은 AI
+   * 뿐이고, 플러그인은 종류와 무관하게 이슈 알림이면 깨어난다.
+   */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onAgentsResumedByChatReply(AgentsResumedByChatReply e) {
+    try {
+      service.createAndFanOut(
+          NotificationType.ISSUE_CHAT_MENTION, e.workerIds(), e.actorId(), e.issueId(), null);
+    } catch (Exception ex) {
+      log.warn("[notify] 답변 받은 AI 알림 실패 issueId={}: {}", e.issueId(), ex.getMessage());
     }
   }
 

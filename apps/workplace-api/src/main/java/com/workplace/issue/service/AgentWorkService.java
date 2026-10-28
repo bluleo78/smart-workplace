@@ -9,6 +9,7 @@ import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.exception.AgentWorkIssueClosedException;
 import com.workplace.issue.outbound.AgentToolWriteEvent;
 import com.workplace.issue.outbound.AgentWorkAutoStarted;
+import com.workplace.issue.outbound.AgentsResumedByChatReply;
 import com.workplace.issue.outbound.IssueChangeNotifier;
 import com.workplace.issue.outbound.IssueHumanReplyPosted;
 import com.workplace.issue.repository.AgentWorkRepository;
@@ -215,11 +216,20 @@ public class AgentWorkService {
     notifyChanged(issueRepository.findByIds(changedIssueIds), null);
   }
 
-  /** 사람이 챗 글·댓글로 응답하면 답변 필요(INPUT_REQUIRED)로 멈춘 AI 구성원 작업을 작업 중으로 되돌리고, 바뀐 게 있으면 알린다. */
+  /**
+   * 사람이 챗 글·댓글로 응답하면 답변 필요(INPUT_REQUIRED)로 멈춘 AI 구성원 작업을 작업 중으로 되돌리고, 바뀐 게 있으면 알린다. 챗 글이면 되돌린 AI 중
+   * 글에서 멘션되지 않은 AI 를 {@link AgentsResumedByChatReply} 로 내 알림으로 깨운다(WP-1067 — 멘션 없이 답해도 바로 이어 하게).
+   */
   @EventListener
   public void onHumanReply(IssueHumanReplyPosted e) {
-    if (repository.resumeInputRequiredAgents(e.issueId()) > 0) {
-      notifyChanged(e.issueId(), null);
+    List<Long> resumed = repository.resumeInputRequiredAgents(e.issueId());
+    if (resumed.isEmpty()) return;
+    notifyChanged(e.issueId(), null);
+    if (e.chatActorId() == null) return;
+    List<Long> toWake =
+        resumed.stream().filter(id -> !e.chatMentionedIds().contains(id)).distinct().toList();
+    if (!toWake.isEmpty()) {
+      publisher.publishEvent(new AgentsResumedByChatReply(e.issueId(), e.chatActorId(), toWake));
     }
   }
 

@@ -12,6 +12,7 @@ import com.workplace.chat.outbound.ChatMessageOrigin;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.issue.outbound.AgentWorkNoticeEvent;
+import com.workplace.issue.outbound.AgentsResumedByChatReply;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueAssignedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssueCommentedEvent;
 import com.workplace.issue.outbound.IssueDomainEvents.IssuePriorityChangedEvent;
@@ -275,6 +276,16 @@ class NotificationDispatcherTest {
   void onChatMessageCreated_userPost_agentOnlyMention_notifiesAgent() {
     dispatcher.onChatMessageCreated(
         chatEvent(HUMAN_ACTOR, List.of(AGENT_ACTOR), ChatMessageOrigin.USER));
+
+    verify(service)
+        .createAndFanOut(
+            eq(NotificationType.ISSUE_CHAT_MENTION), eq(List.of(9L)), eq(1L), eq(20L), eq(null));
+  }
+
+  /** 사람의 챗 글로 답변 필요에서 되돌린 AI 에게 ISSUE_CHAT_MENTION — 작성자를 행위자로(WP-1067). */
+  @Test
+  void onAgentsResumedByChatReply_notifiesResumedAgents() {
+    dispatcher.onAgentsResumedByChatReply(new AgentsResumedByChatReply(20L, 1L, List.of(9L)));
 
     verify(service)
         .createAndFanOut(

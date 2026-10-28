@@ -131,7 +131,8 @@ public class ChatMessageService {
     publisher.publishEvent(created);
     // WP-377: 사람이 올린 글이면 답변 필요로 멈춘 AI 구성원 작업을 작업 중으로 되돌리도록 알린다. 보고 경로의 글은 제외(WP-373).
     if (!origin.fromReport() && UserKind.HUMAN.equals(created.actor().kind())) {
-      publisher.publishEvent(new IssueHumanReplyPosted(created.issueId()));
+      publisher.publishEvent(
+          IssueHumanReplyPosted.chat(created.issueId(), callerId, mentionUserIds));
     }
     return saved;
   }

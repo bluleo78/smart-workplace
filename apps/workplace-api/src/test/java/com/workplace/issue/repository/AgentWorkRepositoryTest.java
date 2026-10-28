@@ -135,7 +135,7 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   void resumeInputRequiredAgents_resumesOnlyAiInputRequired() {
     insert(issueId, humanId, "claude-code", "INPUT_REQUIRED");
     insert(issueId, agentId, "claude-code", "INPUT_REQUIRED");
-    assertThat(repo.resumeInputRequiredAgents(issueId)).isEqualTo(1);
+    assertThat(repo.resumeInputRequiredAgents(issueId)).containsExactly(agentId);
     assertThat(repo.findActive(issueId, agentId).orElseThrow().state()).isEqualTo("WORKING");
     assertThat(repo.findActive(issueId, humanId).orElseThrow().state()).isEqualTo("INPUT_REQUIRED");
   }
@@ -316,10 +316,10 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
   void resumeInputRequiredAgents_recordsWorkingEvent() {
     var a = insert(issueId, agentId, "claude-code", "INPUT_REQUIRED").orElseThrow();
     var auth = insert(otherIssueId, agentId, "claude-code", "AUTH_REQUIRED");
-    assertThat(repo.resumeInputRequiredAgents(issueId)).isEqualTo(1);
+    assertThat(repo.resumeInputRequiredAgents(issueId)).containsExactly(agentId);
     assertThat(eventStates(a.id())).containsExactly("INPUT_REQUIRED", "WORKING");
     // AUTH_REQUIRED 는 사람 답으로 재개하지 않는다.
-    assertThat(repo.resumeInputRequiredAgents(otherIssueId)).isZero();
+    assertThat(repo.resumeInputRequiredAgents(otherIssueId)).isEmpty();
     assertThat(eventStates(auth.orElseThrow().id())).containsExactly("AUTH_REQUIRED");
   }
 
