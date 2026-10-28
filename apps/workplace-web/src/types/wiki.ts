@@ -18,6 +18,17 @@ export interface WikiMember {
   role: WikiRole
 }
 
+/**
+ * 스페이스 멤버인 조직도 부서(WP-1052) — 부서 자체가 멤버라 그 부서와 하위 부서의 지금 구성원이 이 역할을 받는다.
+ * 역할은 편집자·보기 전용만(소유자 불가 — 멤버 관리 권한을 부서 전체에 주지 않는다). memberCount 는 하위 포함 활성 사람 수(중복 제외).
+ */
+export interface WikiMemberGroup {
+  groupId: number
+  name: string
+  role: Exclude<WikiRole, 'OWNER'>
+  memberCount: number
+}
+
 export interface WikiPageSummary {
   id: number
   parentId: number | null

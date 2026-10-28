@@ -12,10 +12,10 @@ import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_GROUP;
 import static com.workplace.jooq.Tables.WIKI_PAGE_SHARE_MEMBER;
 import static com.workplace.jooq.Tables.WIKI_SHARE_ACCESS_REQUEST;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
-import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
 import com.workplace.global.org.Departments;
 import com.workplace.global.share.WikiShareTargets;
+import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.AccessRequest;
@@ -971,14 +971,10 @@ public class WikiShareRepository {
    */
   public List<WikiShareListItemResponse> listByCreator(long userId) {
     return selectListItems()
-        .join(WIKI_SPACE_MEMBER)
-        .on(
-            WIKI_SPACE_MEMBER
-                .SPACE_ID
-                .eq(WIKI_PAGE_SHARE.SPACE_ID)
-                .and(WIKI_SPACE_MEMBER.USER_ID.eq(userId))
-                .and(WIKI_SPACE_MEMBER.ROLE.in("EDITOR", "OWNER")))
         .where(WIKI_PAGE_SHARE.CREATED_BY.eq(userId))
+        // 실효 역할(직접 + 조직도 부서, WP-1052)이 편집 이상인 스페이스만 — EXISTS 라 공유가 한 번만 나온다.
+        .and(
+            WikiSpaceMembership.hasRoleAtLeast(WIKI_PAGE_SHARE.SPACE_ID, DSL.val(userId), "EDITOR"))
         .orderBy(WIKI_PAGE_SHARE.UPDATED_AT.desc(), WIKI_PAGE_SHARE.ID.desc())
         .fetch(WikiShareRepository::toListItem);
   }

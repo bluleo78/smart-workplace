@@ -211,7 +211,12 @@ const RULES: Record<string, Rule> = {
   'wiki-space': (p) => [
     { queryKey: wikiKeys.spaces() },
     ...(p.spaceId != null && p.op !== 'deleted'
-      ? [{ queryKey: wikiKeys.members(p.spaceId) }, { queryKey: wikiKeys.tree(p.spaceId) }]
+      ? [
+          { queryKey: wikiKeys.members(p.spaceId) },
+          // 부서 멤버(WP-1052) — 다른 소유자가 부서를 넣고 빼거나 부서 구성원이 바뀌면 열린 멤버 창의 부서 행·인원 수도 다시 받는다.
+          { queryKey: wikiKeys.memberGroups(p.spaceId) },
+          { queryKey: wikiKeys.tree(p.spaceId) },
+        ]
       : []),
   ],
   'wiki-attachment': (p) => (p.pageId != null ? [{ queryKey: wikiKeys.page(p.pageId) }] : []),

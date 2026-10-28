@@ -9,6 +9,8 @@ export const wikiKeys = {
   // page(id) 로 무효화하면 함께 무효화된다.
   sharedPage: (pageId: number, token: string) => ['wiki', 'page', pageId, token] as const,
   members: (spaceId: number) => ['wiki', 'members', spaceId] as const,
+  // 멤버인 조직도 부서(WP-1052) — members 와 따로 둔다(members 접두가 아니라 멤버 무효화가 부서 목록까지 다시 받지 않게).
+  memberGroups: (spaceId: number) => ['wiki', 'member-groups', spaceId] as const,
   mentions: (pageId: number) => ['wiki', 'mentions', pageId] as const,
   backlinks: (pageId: number) => ['wiki', 'backlinks', pageId] as const,
   // 버전 기록(WP-282). 한 판 키는 목록 키의 접두가 아니다 — 복원 뒤 목록만 무효화할 때 바뀌지 않는 판 본문 캐시까지 다시 받지 않게.

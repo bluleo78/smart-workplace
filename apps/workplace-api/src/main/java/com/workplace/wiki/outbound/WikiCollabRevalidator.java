@@ -6,6 +6,7 @@ import com.workplace.wiki.outbound.CollabClient.RevalidateRequest;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageAccessRevokedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiPageSpaceChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiShareAccessChangedEvent;
+import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceChangedEvent;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceMembershipChangedEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,16 @@ public class WikiCollabRevalidator {
   @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
   public void onMembership(WikiSpaceMembershipChangedEvent e) {
     send(new RevalidateRequest(e.tenantId(), e.spaceId(), null, e.userId()));
+  }
+
+  /**
+   * 조직도 부서로 들어오는 사람이 바뀜(WP-1052 — 멤버 부서 행 변경·부서 구성원 감소) — 그 스페이스의 열린 연결을 모두 재판정한다(접근을 잃으면 4403, 역할이
+   * 바뀌면 새 역할로). 누가 들고 났는지 사람 단위로 알 수 없어 스페이스 단위(spaceId 만)로 보낸다 — 동기화 서버가 받는 대상 지정이다.
+   */
+  @Async("wikiCollabRevalidateExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onSpaceAudienceChanged(WikiSpaceAudienceChangedEvent e) {
+    e.spaceIds().forEach(spaceId -> send(new RevalidateRequest(e.tenantId(), spaceId, null, null)));
   }
 
   /**

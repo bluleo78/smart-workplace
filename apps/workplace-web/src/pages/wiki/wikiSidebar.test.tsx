@@ -234,6 +234,9 @@ test('OWNER 가 멤버를 검색해 추가하면 {userId, role: EDITOR} 를 POST
         members.push({ userId: 2, name: '김편집', role: 'EDITOR' })
         return new HttpResponse(null, { status: 201 })
       }),
+      // 멤버인 조직도 부서(WP-1052) — 없음. 추가 창(사람·조직 공통 선택 창)은 조직도를 받는다.
+      http.get('/api/v1/wiki/spaces/1/member-groups', () => HttpResponse.json([])),
+      http.get('/api/v1/user-groups', () => HttpResponse.json({ shared: [], personal: [] })),
       http.get('/api/v1/members', () =>
         HttpResponse.json({
           content: [
@@ -252,9 +255,11 @@ test('OWNER 가 멤버를 검색해 추가하면 {userId, role: EDITOR} 를 POST
   expect(mine).toBeDisabled()
   expect((mine as HTMLSelectElement).selectedOptions[0]).toHaveTextContent('소유자')
   await user.click(screen.getByTestId('wiki-member-add-trigger'))
-  await screen.findByTestId('member-search-popover')
-  await user.type(screen.getByPlaceholderText('이름·아이디·이메일로 검색'), '김편집')
-  await user.click(await screen.findByTestId('member-search-row-2'))
+  await screen.findByTestId('wiki-member-picker-search')
+  await user.type(screen.getByLabelText('사람·팀 검색'), '김편집')
+  // 검색어 결과가 오기 전(300ms debounce)의 사람 줄은 고를 수 없다 — 지금 검색어의 결과가 되어 고를 수 있을 때 누른다.
+  await waitFor(() => expect(screen.getByTestId('wiki-member-picker-person-2')).not.toHaveAttribute('aria-disabled', 'true'))
+  await user.click(screen.getByTestId('wiki-member-picker-person-2'))
   await waitFor(() => expect(adds).toEqual([{ userId: 2, role: 'EDITOR' }]))
   expect(await screen.findByTestId('wiki-member-row-2')).toHaveTextContent('김편집')
 })
@@ -269,6 +274,7 @@ test('승격된 OWNER 의 내 행·생성자 행은 읽기 전용이고 다른 �
     spaces: () => [teamSpace({ ownerId: 9 })],
     handlers: [
       http.get('/api/v1/wiki/spaces/1/members', () => HttpResponse.json(members)),
+      http.get('/api/v1/wiki/spaces/1/member-groups', () => HttpResponse.json([])),
       http.get('/api/v1/members', () => HttpResponse.json({ content: [], page: 0, size: 20, totalElements: 0, totalPages: 0 })),
     ],
   })
