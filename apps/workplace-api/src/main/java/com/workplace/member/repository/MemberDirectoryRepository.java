@@ -3,8 +3,8 @@ package com.workplace.member.repository;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
-import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 
+import com.workplace.global.org.Departments;
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.member.dto.MemberSummary;
@@ -43,22 +43,16 @@ public class MemberDirectoryRepository {
   private final DSLContext dsl;
 
   /**
-   * 소속 부서(WP-1048) — 이 사람이 직접 속한 조직도(공유 그룹) 부서 하나의 이름. 여럿이면 정렬 순서·id 가 앞인 부서, 없으면 null. 사람을 고르는
-   * 목록(노트 공유 대상 등)에서 동명이인·같은 이름 조각을 가르도록 이름 옆에 보인다. 부서는 이 행의 멤버십 테넌트 것만 본다(RLS 와 같은 경계를 조건으로도 둔다).
+   * 소속 부서(WP-1048) — 이 사람이 직접 속한 조직도(공유 그룹) 부서(공통 규칙 {@link Departments#directDepartmentOf}) 하나의
+   * 이름. 여럿이면 정렬 순서·id 가 앞인 부서, 없으면 null. 사람을 고르는 목록(노트 공유 대상 등)에서 동명이인·같은 이름 조각을 가르도록 이름 옆에 보인다.
+   * 부서는 이 행의 멤버십 테넌트 것만 본다(RLS 와 같은 경계를 조건으로도 둔다).
    */
   private static final Field<String> DEPARTMENT =
       DSL.field(
               DSL.select(USER_GROUP.NAME)
-                  .from(USER_GROUP_MEMBER)
-                  .join(USER_GROUP)
-                  .on(USER_GROUP.ID.eq(USER_GROUP_MEMBER.GROUP_ID))
-                  .where(
-                      USER_GROUP_MEMBER
-                          .TARGET_TYPE
-                          .eq("MEMBER")
-                          .and(USER_GROUP_MEMBER.TARGET_ID.eq(USER.ID))
-                          .and(USER_GROUP.VISIBILITY.eq("SHARED"))
-                          .and(USER_GROUP.TENANT_ID.eq(MEMBERSHIP.TENANT_ID)))
+                  .from(USER_GROUP)
+                  .where(Departments.directDepartmentOf(USER_GROUP, USER.ID))
+                  .and(USER_GROUP.TENANT_ID.eq(MEMBERSHIP.TENANT_ID))
                   .orderBy(USER_GROUP.SORT_ORDER.asc(), USER_GROUP.ID.asc())
                   .limit(1))
           .as("department");

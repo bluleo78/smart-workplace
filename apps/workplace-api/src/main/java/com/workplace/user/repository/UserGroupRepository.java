@@ -6,6 +6,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 
+import com.workplace.global.org.Departments;
 import com.workplace.user.dto.CreateUserGroupRequest;
 import com.workplace.user.dto.UserGroupMemberSummary;
 import java.util.ArrayList;
@@ -131,14 +132,10 @@ public class UserGroupRepository {
         .from(USER_GROUP_MEMBER)
         .join(USER)
         .on(USER.ID.eq(USER_GROUP_MEMBER.TARGET_ID))
-        .join(MEMBERSHIP)
-        .on(USER.ID.eq(MEMBERSHIP.USER_ID))
         .where(USER_GROUP_MEMBER.GROUP_ID.in(groupIds))
         .and(USER_GROUP_MEMBER.TARGET_TYPE.eq("MEMBER"))
-        .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
-        .and(MEMBERSHIP.STATUS.eq("ACTIVE"))
-        .and(USER.KIND.eq("HUMAN"))
-        .and(USER.IS_ACTIVE.isTrue())
+        // 부서 구성원으로 셀 사람은 공통 규칙 하나다(WP-1055) — 부서 공유의 인원 수·접근과 갈라지지 않게.
+        .and(Departments.activeHumanMember(USER.ID, DSL.val(tenantId)))
         .and(
             filter
                 ? USER.NAME
@@ -200,6 +197,32 @@ public class UserGroupRepository {
         Comparator.comparing(
             (GroupMemberRow r) -> r.member().name(), String.CASE_INSENSITIVE_ORDER));
     return all;
+  }
+
+  /**
+   * 그룹과 모든 하위 그룹 id — 가까운 순(너비 우선 — 깊이, 같은 깊이는 화면 트리의 정렬 순서)(WP-1055). 트리 탐색은 공통 규칙 {@link
+   * Departments#subtree} 다. 하위 그룹은 부모와 공개 범위·주인이 같아(validateParent) 개인 그룹이면 그 주인의 개인 그룹만 나온다. 없는
+   * 그룹이면 빈 목록.
+   */
+  public List<Long> findSubtreeIds(long id) {
+    var st =
+        Departments.subtree(
+            "st", DSL.select(USER_GROUP.ID).from(USER_GROUP).where(USER_GROUP.ID.eq(id)));
+    return dsl.select(st.groupId())
+        .from(st.table())
+        .orderBy(st.depth().asc(), st.sortPath().asc(), st.groupId().asc())
+        .fetch(st.groupId());
+  }
+
+  /**
+   * 그룹(id)부터 위로 올라가는 그룹 id — 자기 포함, 가까운 순(WP-1055). 트리 탐색은 공통 규칙 {@link Departments#ancestors} 다.
+   * 없는 그룹이면 빈 목록.
+   */
+  public List<Long> findAncestorIds(long id) {
+    var a =
+        Departments.ancestors(
+            "anc", DSL.select(USER_GROUP.ID).from(USER_GROUP).where(USER_GROUP.ID.eq(id)));
+    return dsl.select(a.groupId()).from(a.table()).orderBy(a.depth().asc()).fetch(a.groupId());
   }
 
   /** 그룹 생성. ownerId 는 PERSONAL 만 non-null. 생성 id 반환. */

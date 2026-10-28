@@ -13,6 +13,7 @@ import static com.workplace.jooq.Tables.WIKI_SHARE_ACCESS_REQUEST;
 import static com.workplace.jooq.Tables.WIKI_SPACE;
 import static com.workplace.jooq.Tables.WIKI_SPACE_MEMBER;
 
+import com.workplace.global.org.Departments;
 import com.workplace.global.share.WikiShareTargets;
 import com.workplace.wiki.dto.WikiMentionRef;
 import com.workplace.wiki.dto.WikiPageShareStateResponse.AccessRequest;
@@ -33,6 +34,8 @@ import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.JSONB;
+import org.jooq.Record1;
+import org.jooq.Select;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -404,36 +407,35 @@ public class WikiShareRepository {
   // ── 조직도 부서 대상(WP-1023) ───────────────────────────────────────────
 
   /**
-   * 지정한 부서(이름순)와 부서마다 지금 열 수 있는 사람 수 — 그 부서와 하위 부서의 부서 구성원({@link
-   * WikiShareTargets#ACTIVE_HUMAN_MEMBER}, 중복 제외). 접근 판정({@link #listedOn})과 같은 기준이라 보이는 수와 실제로 열 수
-   * 있는 사람이 같다. 모든 부서를 한 번의 조회로 센다.
+   * 지정한 부서(이름순)와 부서마다 지금 열 수 있는 사람 수 — 그 부서와 하위 부서의 부서 구성원(공통 규칙 {@link
+   * Departments#subtreeMembers}, 중복 제외). 접근 판정({@link #listedOn})과 같은 기준이라 보이는 수와 실제로 열 수 있는 사람이
+   * 같다. 모든 부서를 한 번의 조회로 센다.
    */
   public List<WikiShareGroup> listGroups(long shareId) {
-    return dsl.fetch(
-            """
-            WITH RECURSIVE tree(root_id, id) AS (
-              SELECT sg.group_id, sg.group_id FROM wiki_page_share_group sg WHERE sg.share_id = ?
-              UNION
-              SELECT t.root_id, g.id FROM user_group g JOIN tree t ON g.parent_id = t.id
-            )
-            SELECT r.id, r.name,
-              (SELECT count(DISTINCT m.target_id) FROM tree t
-                 JOIN user_group_member m ON m.group_id = t.id AND m.target_type = 'MEMBER'
-            """
-                + WikiShareTargets.ACTIVE_HUMAN_MEMBER
-                + """
-               WHERE t.root_id = r.id) AS member_count
-            FROM wiki_page_share_group sg
-            JOIN user_group r ON r.id = sg.group_id
-            WHERE sg.share_id = ?
-            ORDER BY r.name, r.id
-            """,
-            shareId,
-            shareId)
-        .map(
-            r ->
-                new WikiShareGroup(
-                    r.get(0, Long.class), r.get(1, String.class), r.get(2, Integer.class)));
+    var members =
+        Departments.subtreeMembers(
+            "sgm",
+            DSL.select(WIKI_PAGE_SHARE_GROUP.GROUP_ID)
+                .from(WIKI_PAGE_SHARE_GROUP)
+                .where(WIKI_PAGE_SHARE_GROUP.SHARE_ID.eq(shareId)));
+    // 부서별 인원을 한 번에 센다(출발 부서별로 이미 중복을 뺐다) — 부서마다 트리를 다시 돌지 않게 상관 부분 질의가 아니라 묶어 붙인다.
+    var counts =
+        DSL.select(members.rootId().as("root_id"), DSL.count().as("member_count"))
+            .from(members.table())
+            .groupBy(members.rootId())
+            .asTable("sgc");
+    Field<Long> countRoot = counts.field("root_id", Long.class);
+    Field<Integer> memberCount =
+        DSL.coalesce(counts.field("member_count", Integer.class), DSL.inline(0));
+    return dsl.select(USER_GROUP.ID, USER_GROUP.NAME, memberCount)
+        .from(WIKI_PAGE_SHARE_GROUP)
+        .join(USER_GROUP)
+        .on(USER_GROUP.ID.eq(WIKI_PAGE_SHARE_GROUP.GROUP_ID))
+        .leftJoin(counts)
+        .on(countRoot.eq(USER_GROUP.ID))
+        .where(WIKI_PAGE_SHARE_GROUP.SHARE_ID.eq(shareId))
+        .orderBy(USER_GROUP.NAME.asc(), USER_GROUP.ID.asc())
+        .fetch(r -> new WikiShareGroup(r.value1(), r.value2(), r.value3()));
   }
 
   /** 지정한 부서 id — 대상 차이 계산용(이름순, {@link #listGroups} 와 같은 순서). */
@@ -464,38 +466,29 @@ public class WikiShareRepository {
 
   /**
    * 새로 더한 부서(addedGroupIds, 하위 부서 포함)의 부서 구성원 중 남아 있는 부서(keptGroupIds, 하위 부서 포함)의 구성원이 아닌 사람 id —
-   * 부서를 대상으로 더할 때 알림 받을 사람(이미 열 수 있던 사람은 빼고). 한 번의 조회(두 서브트리를 같은 재귀로 구해 EXCEPT). 사람 기준은 {@link
-   * WikiShareTargets#ACTIVE_HUMAN_MEMBER}. addedGroupIds 가 비었으면 빈 목록. 조직도 부서(SHARED)만 본다.
+   * 부서를 대상으로 더할 때 알림 받을 사람(이미 열 수 있던 사람은 빼고). 한 번의 조회(두 서브트리의 구성원을 EXCEPT). 사람 기준은 공통 규칙 {@link
+   * Departments#subtreeMembers}. addedGroupIds 가 비었으면 빈 목록. 조직도 부서(SHARED)만 본다.
    */
   public List<Long> findNewDepartmentMemberIds(
       Collection<Long> addedGroupIds, Collection<Long> keptGroupIds) {
     if (addedGroupIds.isEmpty()) {
       return List.of();
     }
-    return dsl.fetch(
-            """
-            WITH RECURSIVE tree(kept, id) AS (
-              SELECT false, id FROM user_group WHERE id = ANY(?::bigint[]) AND visibility = 'SHARED'
-              UNION ALL
-              SELECT true, id FROM user_group WHERE id = ANY(?::bigint[]) AND visibility = 'SHARED'
-              UNION
-              SELECT t.kept, g.id FROM user_group g JOIN tree t ON g.parent_id = t.id
-            ),
-            members(kept, user_id) AS (
-              SELECT DISTINCT t.kept, u.id FROM tree t
-              JOIN user_group_member m ON m.group_id = t.id AND m.target_type = 'MEMBER'
-            """
-                + WikiShareTargets.ACTIVE_HUMAN_MEMBER
-                + """
-            )
-            SELECT user_id FROM members WHERE NOT kept
-            EXCEPT
-            SELECT user_id FROM members WHERE kept
-            ORDER BY 1
-            """,
-            addedGroupIds.toArray(Long[]::new),
-            keptGroupIds.toArray(Long[]::new))
-        .map(r -> r.get(0, Long.class));
+    var added = Departments.subtreeMembers("added", groups(addedGroupIds));
+    var kept = Departments.subtreeMembers("kept", groups(keptGroupIds));
+    return dsl.select(added.userId())
+        .from(added.table())
+        .except(DSL.select(kept.userId()).from(kept.table()))
+        .orderBy(DSL.inline(1))
+        .fetch(r -> r.value1());
+  }
+
+  /**
+   * 그룹 id 목록을 부서 구성원 계산의 출발점(한 열 질의)으로 — 조직도 부서(SHARED)만 고르는 것은 {@link Departments#subtreeMembers}
+   * 가 한다.
+   */
+  private static Select<Record1<Long>> groups(Collection<Long> ids) {
+    return DSL.select(USER_GROUP.ID).from(USER_GROUP).where(USER_GROUP.ID.in(ids));
   }
 
   /** 지정한 부서 추가(이미 있으면 그대로) — 한 문장으로 넣는다. 비었으면 아무것도 하지 않는다. */
