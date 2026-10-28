@@ -31,7 +31,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestClientException;
@@ -46,7 +45,6 @@ import org.springframework.web.client.RestClientException;
  * enabled 가드에 걸려 PENDING 유지(Task 2 하드닝). 이 클래스의 테스트는 실제 디스패치 경로(EXTRACTING·워커호출)를 검증하므로 명시적으로
  * 활성화한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
 class ExtractionPipelineTest extends ExternalClientMockedTestBase {
 
   /** 테스트 프로파일의 workplace.worker.internal-token 값 (WorkerProperties.internalToken()). */

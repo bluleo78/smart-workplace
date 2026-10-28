@@ -20,7 +20,6 @@ import org.jooq.JSONB;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -29,7 +28,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>@Transactional 금지: 스케줄러 내부 TenantScopedRunner 가 REQUIRES_NEW 트랜잭션을 열므로, 검증은 실제 커밋된 데이터를 대상으로
  * 한다. TenantContext.clear() 로 ambient GUC 마스킹을 방지한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
 class FileEmbeddingSchedulerTest extends ExternalClientMockedTestBase {
 
   /** 기본 테스트 테넌트. */

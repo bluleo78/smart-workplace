@@ -39,13 +39,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 
 /**
  * WP-190 홈 채팅 동시 생성 제한 — 대화당 1개(409)·사용자당 상한(429)·거절 시 무저장·생성 중 목록. 펌프는 테스트가 풀어 줄 때까지 붙잡아 "생성 중"
  * 상태를 만든다. @Transactional 을 쓰지 않는다(펌프 스레드 커밋 필요) — 만든 사용자는 @AfterEach 에서 회수(#512).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatConcurrencyTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService chatService;

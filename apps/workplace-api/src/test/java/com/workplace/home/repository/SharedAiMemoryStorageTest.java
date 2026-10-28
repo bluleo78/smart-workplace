@@ -12,7 +12,6 @@ import com.workplace.home.service.SharedAiMemoryForgottenService;
 import com.workplace.home.service.SharedMemorySnapshot;
 import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Instant;
@@ -26,7 +25,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -34,7 +32,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 잠금. 롤백 트랜잭션이라 남지 않고, 공간 id 는 다른 테스트가 커밋한 행과 겹치지 않게 무작위 큰 값으로 잡아 이 테스트가 만든 행만 단언한다.
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class SharedAiMemoryStorageTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;

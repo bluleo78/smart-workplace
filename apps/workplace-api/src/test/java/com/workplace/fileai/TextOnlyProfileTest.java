@@ -24,13 +24,11 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * WP-242: TEXT_ONLY(첨부) 프로파일은 추출 후 바로 DONE 이 되고 요약·임베딩 경로에 들어가지 않는다. 워커 예외는 extract-error: 로 기록된다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
 class TextOnlyProfileTest extends ExternalClientMockedTestBase {
 
   private static final long TENANT = 1L;

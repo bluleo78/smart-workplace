@@ -23,7 +23,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -31,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 아니다(재분석은 WP-151). 동기 본체 {@code classifyRecentUnreadNow} 를 직접 호출한다.
  */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailClassifyBackfillServiceTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =

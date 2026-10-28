@@ -31,7 +31,6 @@ import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -44,7 +43,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
@@ -57,7 +55,6 @@ import org.springframework.web.client.ResourceAccessException;
  * 출처·기록. 검사 결과가 불통과·실패면 공용에도 개인에도 아무것도 저장하지 않는다.
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class SharedAiMemoryRequestApiTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;

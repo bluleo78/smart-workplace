@@ -61,7 +61,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @AutoConfigureMockMvc
 // 링크 미리보기 가져오기를 고정 응답으로 바꾼다(WP-874) — URL 든 메시지를 커밋하는 테스트가 인터넷으로 나가지 않게. 모든 서브클래스가 같은
 // 구성이라 컨텍스트 캐시 키도 같다.
-@Import(FixtureHttpFetcherConfig.class)
+// 가짜 임베딩(FakeTextEmbedderConfig)도 모두에게 둔다(WP-1028) — 필요한 클래스만 @Import 하면 그 유무로 컨텍스트가 갈린다.
+@Import({FixtureHttpFetcherConfig.class, FakeTextEmbedderConfig.class})
 // 테스트가 실패 주입·호출 확인에 쓰는 spy 를 모든 통합 테스트에 한 벌로 둔다(WP-1028). spy 는 따로 스텁하지 않으면 실제 빈과 똑같이
 // 움직이고 테스트마다 초기화되므로, 클래스마다 spy 대상이 달라 Spring 컨텍스트가 갈리던 것을 없앤다. 쓰는 테스트는 @Autowired 로 받는다.
 // 공통 목(ExternalClientMockedTestBase)과 겹치는 타입과 이름으로 고르는 실행기 spy 는 클래스에 남긴다.

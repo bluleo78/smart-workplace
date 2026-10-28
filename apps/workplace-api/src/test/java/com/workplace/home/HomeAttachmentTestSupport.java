@@ -58,8 +58,9 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @TestPropertySource(
     properties = {
-      "workplace.ai-agent.enabled=true",
-      "workplace.home.chat.context-token-budget=400"
+      "workplace.home.chat.context-token-budget=400",
+      // 첨부 추출 요청이 PENDING 으로 남는지 본다 — 공통 기반이 켠 워커를 끈다(켜면 바로 EXTRACTING 으로 넘어간다, WP-1028)
+      "workplace.worker.enabled=false"
     })
 public abstract class HomeAttachmentTestSupport extends ExternalClientMockedTestBase {
 

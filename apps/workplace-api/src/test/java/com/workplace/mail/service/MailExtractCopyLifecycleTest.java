@@ -22,7 +22,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -36,7 +35,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>TextOnlyProfileTest 와 같은 컨텍스트 설정(워커 활성 + 워커·요약 클라이언트 mock)을 써 컨텍스트 캐시를 공유한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
 class MailExtractCopyLifecycleTest extends ExternalClientMockedTestBase {
 
   private static final long TENANT = 1L;

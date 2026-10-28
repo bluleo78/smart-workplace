@@ -41,7 +41,6 @@ import com.workplace.home.service.SharedSpace.SpaceKey;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.ExternalClientMockedTestBase;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.net.http.HttpTimeoutException;
 import java.time.Instant;
@@ -60,7 +59,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
@@ -73,7 +71,6 @@ import org.springframework.web.client.ResourceAccessException;
  * 남지 않는다.
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class SharedMemoryExtractionTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;

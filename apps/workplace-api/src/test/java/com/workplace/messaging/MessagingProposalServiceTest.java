@@ -33,7 +33,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
  * MessagingProposalService.propose 통합 테스트 (L3 위임 슬라이스 1, Task 3).
@@ -56,8 +55,7 @@ class MessagingProposalServiceTest extends ExternalClientMockedTestBase {
   @Autowired ChannelMemberRepository memberRepo;
   @Autowired DSLContext dsl;
 
-  // AiAgentMessagingClient 가 MessagingAttentionDispatcher 에서 호출될 수 있으므로 모킹으로 차단.
-  @MockitoBean com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
+  @Autowired com.workplace.messaging.outbound.AiAgentMessagingClient aiClient;
 
   // 테스트 격리: 생성된 user/channel id 추적 → AfterEach 회수.
   private final List<Long> createdUserIds = new ArrayList<>();

@@ -40,14 +40,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
  * WP-139 후속 질문 — 완료 답 뒤 생성·저장·home.chat.followups 발행, 대상 아님(fallback·확인 카드·빈 답·꺼짐), 생성 중 끄기, 이력 숨김,
  * 다음 턴 맥락 제외. 펌프·실행기 스레드가 커밋해야 하므로 @Transactional 을 쓰지 않는다(HomeChatTerminalTest 와 같은 정리 방식).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeFollowupTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService chatService;

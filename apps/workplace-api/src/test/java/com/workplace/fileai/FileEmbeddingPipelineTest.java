@@ -24,7 +24,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -34,7 +33,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <p>embed worker_job 생성, hasPendingEmbedJob CAS, applyEmbedResult 멱등, findEmbeddable 독성 루프 가드, 콜백
  * 엔드포인트 C1 RLS 회귀를 검증한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
 class FileEmbeddingPipelineTest extends ExternalClientMockedTestBase {
 
   /** 테스트 프로파일 workplace.worker.internal-token 값. */

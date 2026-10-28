@@ -30,7 +30,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +37,6 @@ import org.springframework.transaction.annotation.Transactional;
 /** WP-185 전체 메일 카테고리 일괄 분류 — 대상 선정·저장 규칙·실패 처리. */
 @Transactional
 @RecordApplicationEvents
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailCategoryBackfillIT extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec WORKSPACE =

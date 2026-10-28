@@ -36,7 +36,6 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.task.AsyncTaskExecutor;
-import org.springframework.test.context.TestPropertySource;
 
 /**
  * HomeChatService 의 progress·pending_action·tool 콜백 → 통합 /events 채널(SseRegistry.fanOut) 이벤트 포워드
@@ -49,7 +48,6 @@ import org.springframework.test.context.TestPropertySource;
  * <p>스케줄러 경합으로 막던 TenantScopedRunner 목은 테스트 프로파일이 @Scheduled 를 끈 뒤 필요 없어 뺐다(HomeChatServiceTest
  * 참고).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatServiceForwardTest extends ExternalClientMockedTestBase {
 
   @Autowired AiAgentChatClient chatClient;

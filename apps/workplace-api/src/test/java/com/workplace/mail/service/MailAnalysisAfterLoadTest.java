@@ -22,12 +22,10 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-149 본문 적재 직후 분석 — ③ 은 INBOX 전체·④ 는 안 읽은 INBOX(판단 13 수정), ③ 실패해도 ④ 는 진행(best-effort). */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailAnalysisAfterLoadTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =

@@ -33,7 +33,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 
 /**
  * HomeChatService 통합 테스트(#593 편입) — 통합 /events 채널(SseRegistry.fanOut) 로의
@@ -46,7 +45,6 @@ import org.springframework.test.context.TestPropertySource;
  * <p>예전에는 기동 직후 도는 MailSummaryScheduler 가 다른 스레드에서 AssistantResolver 스텁을 건드려 flake 해서
  * TenantScopedRunner 를 목으로 막았다. 테스트 프로파일이 @Scheduled 를 끈 뒤(WP-80) 그 목은 필요 없어 뺐다(WP-1028).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService composeService;

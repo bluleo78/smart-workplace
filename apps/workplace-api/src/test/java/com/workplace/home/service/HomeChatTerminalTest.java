@@ -36,14 +36,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 
 /**
  * WP-190 홈 채팅 턴 종결 — 모든 home.chat 이벤트의 sessionId 봉투, 취소(cancelled{reason})·오류 종결의 부분 답변 저장
  * (STOPPED·FAILED), "영속 → 반납 → 이벤트" 순서. @Transactional 을 쓰지 않는다(펌프 스레드 커밋 필요) — 만든 사용자는 @AfterEach
  * 에서 회수(#512).
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatTerminalTest extends ExternalClientMockedTestBase {
 
   @Autowired HomeChatService chatService;

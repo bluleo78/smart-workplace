@@ -19,12 +19,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 
 /**
  * chat 메시지 → ai-agent webhook 발사 통합. ai-agent client 를 MockitoBean 으로 가로채 호출 검증. enabled=true 강제.
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class ChatToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
   @Autowired AiAgentEventClient client;

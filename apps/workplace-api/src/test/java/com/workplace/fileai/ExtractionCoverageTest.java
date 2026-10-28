@@ -23,14 +23,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * mime 축 추출 판정 확장(#735) 커버리지 통합 테스트. {@link FileExtractionListenerTest} 의 카테고리 축 테스트를 mime 축으로 보완한다
  * — html 확장 지원, 미지원 mime 사유 문자열, 재개방 백필 로직, findResumable 배치 상한을 검증한다.
  */
-@TestPropertySource(properties = "workplace.worker.enabled=true")
 class ExtractionCoverageTest extends ExternalClientMockedTestBase {
 
   @Autowired DSLContext dsl;

@@ -33,10 +33,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.test.context.TestPropertySource;
 
 /** 메시지 → ai-agent 발사 결정 테이블 검증. client 를 MockitoBean 으로 가로채 호출 검증. enabled=true 강제. */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MessagingToAiAgentDispatchTest extends ExternalClientMockedTestBase {
 
   @Autowired AiAgentEventClient client;

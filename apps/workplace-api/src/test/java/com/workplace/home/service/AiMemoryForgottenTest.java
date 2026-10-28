@@ -13,7 +13,6 @@ import com.workplace.home.dto.CreateAiMemoryRequest;
 import com.workplace.home.dto.UndoAiMemoryRequest;
 import com.workplace.home.repository.AiMemoryForgottenRepository;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
@@ -25,14 +24,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * WP-385 지운 기록 — 설정 지움·forget_memory·모두 지우기·결과 줄 「저장」 되돌리기가 남기고, 사용자당 500행, 직접 다시 기억하면 겹치는 기록(정규화
  * 같음은 즉시, 의미가 가까운 것은 커밋 뒤)을 지우며, 임베딩은 커밋 뒤·백필이 채운다. 커밋 뒤 작업을 호출 스레드에서 돌리려고 트랜잭션 없이(커밋) 돌린다.
  */
-@Import(FakeTextEmbedderConfig.class)
 class AiMemoryForgottenTest extends IntegrationTestBase {
 
   @Autowired AiMemoryService service;

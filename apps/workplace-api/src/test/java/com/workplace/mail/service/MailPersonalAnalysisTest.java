@@ -32,7 +32,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,7 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Transactional
 @RecordApplicationEvents
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailPersonalAnalysisTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =

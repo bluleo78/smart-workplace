@@ -24,6 +24,7 @@ import com.workplace.messaging.outbound.AiAgentMessagingClient;
 import com.workplace.notify.push.PushGateway;
 import com.workplace.wiki.outbound.CollabClient;
 import com.workplace.wiki.outbound.WikiAiAgentSummaryClient;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
@@ -35,7 +36,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  * <p>이 중 하나를 실제 빈으로 시험하는
  * 테스트(GraphTokenServiceTest·GraphBodyLoaderTest·PriorityClassificationSchedulerTest, 실제
  * AssistantResolver 를 쓰는 AiMemoryCleanupSchedulerTest·MailSummarySchedulerTest)는 이 기반을 쓰지 않는다.
+ *
+ * <p>ai-agent·워커 연동도 켠다 — 그 클라이언트가 모두 목이라 실제 호출이 나가지 않는다. 켜야 하는 클래스마다 속성을 붙이면 그 유무로 컨텍스트가 갈리므로 여기서
+ * 한 번에 켜고, 꺼진 동작을 보는 클래스만 속성으로 끈다.
  */
+@TestPropertySource(
+    properties = {"workplace.ai-agent.enabled=true", "workplace.worker.enabled=true"})
 @MockitoBean(
     types = {
       AiAgentCatchupClient.class,

@@ -32,13 +32,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-139 POST /api/v1/ai/suggestions — 켜짐/꺼짐/비서 없음, 화면 참고 유무에 따른 최근 제목·개수, ai-agent 실패 시 빈 결과. */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class AiSuggestionControllerTest extends ExternalClientMockedTestBase {
 
   @Autowired MockMvc mvc;

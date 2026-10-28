@@ -61,7 +61,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,7 +69,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** MailAiService 통합 테스트. ai-agent 클라이언트와 비서 해석기는 Mock으로 대체 — 서비스 로직(캐시, gate)만 검증. */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailAiServiceTest extends ExternalClientMockedTestBase {
 
   @Autowired MailAiService mailAiService;

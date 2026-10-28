@@ -20,7 +20,6 @@ import com.workplace.home.repository.AiMemoryRepository.Row;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.home.service.SessionCleanupInput.Utterance;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.AiPreferenceService;
@@ -37,7 +36,6 @@ import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -46,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
  * 트랜잭션에 참여하므로 롤백된다.
  */
 @Transactional
-@Import(FakeTextEmbedderConfig.class)
 class AiMemoryCleanupApplyTest extends IntegrationTestBase {
 
   private static final AssistantSpec SPEC =

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.MemoryEmbeddingProbe;
 import com.workplace.support.TestFixtures;
 import java.util.List;
@@ -15,13 +14,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 
 /**
  * WP-384 대화 턴 임베딩 — 완료된 답은 커밋 뒤 "질문: …\n답: …"(2,000자)로 채우고, 중단·실패 답과 사용자 메시지는 채우지 않으며, 놓친 완료 답은 백필이
  * 메모리 다음에 채운다. 커밋돼야 하므로 @Transactional 을 쓰지 않는다(AiMemoryRaceTestSupport 가 대화를 지운다).
  */
-@Import(FakeTextEmbedderConfig.class)
 class TurnEmbeddingTest extends AiMemoryRaceTestSupport {
 
   @Autowired HomeSessionService sessions;

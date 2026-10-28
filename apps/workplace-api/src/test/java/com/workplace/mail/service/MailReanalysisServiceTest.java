@@ -33,7 +33,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.ResourceAccessException;
 
@@ -43,7 +42,6 @@ import org.springframework.web.client.ResourceAccessException;
  * 읽는다(WP-150 배치 캐시).
  */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailReanalysisServiceTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =

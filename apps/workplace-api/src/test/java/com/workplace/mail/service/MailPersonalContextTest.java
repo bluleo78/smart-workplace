@@ -27,12 +27,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 /** WP-150 ④ 보강 입력 배선 — 관계 블록 전달, 블록 조회 실패 시 그 블록만 빠지고 분석 계속, 요약만 모드도 같은 입력. */
 @Transactional
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailPersonalContextTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =

@@ -31,7 +31,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.test.util.AopTestUtils;
@@ -41,7 +40,6 @@ import org.springframework.transaction.annotation.Transactional;
 /** WP-149 ③ 원본 분석 통합 테스트 — 원본 1회, 요약 생략 조건, 실패 시 미기록, 늦게 온 분류로 ⑤ 재계산. */
 @Transactional
 @RecordApplicationEvents
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class MailContentAnalysisTest extends ExternalClientMockedTestBase {
 
   private static final AssistantSpec SPEC =

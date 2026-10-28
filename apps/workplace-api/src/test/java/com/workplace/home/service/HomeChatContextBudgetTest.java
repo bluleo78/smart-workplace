@@ -53,8 +53,9 @@ import org.springframework.web.client.RestClientException;
  */
 @TestPropertySource(
     properties = {
-      "workplace.ai-agent.enabled=true",
-      "workplace.home.chat.context-token-budget=400"
+      "workplace.home.chat.context-token-budget=400",
+      // HomeAttachmentTestSupport 와 같은 속성 — 컨텍스트를 함께 쓰게(그쪽은 추출 PENDING 을 보려고 워커를 끈다)
+      "workplace.worker.enabled=false"
     })
 class HomeChatContextBudgetTest extends ExternalClientMockedTestBase {
 

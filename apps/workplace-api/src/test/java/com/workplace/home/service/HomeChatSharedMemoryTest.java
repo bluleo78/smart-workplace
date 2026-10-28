@@ -47,7 +47,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -56,7 +55,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * (HomeChatServiceTest 와 같은 방식) — 프로젝트 키는 무작위로 만들어 다른 테스트와 겹치지 않게 하고, 커밋한 데이터는 @AfterEach 가 테넌트
  * 트랜잭션으로 치운다. 조직 범위는 테넌트 공유라 이 테스트가 넣은 줄의 유무만 단언한다.
  */
-@TestPropertySource(properties = "workplace.ai-agent.enabled=true")
 class HomeChatSharedMemoryTest extends ExternalClientMockedTestBase {
 
   private static final String RULE = "배포는 API 먼저 한다";

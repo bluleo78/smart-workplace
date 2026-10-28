@@ -7,7 +7,6 @@ import com.workplace.home.AiMemoryTestFixtures;
 import com.workplace.home.dto.UpdateAiMemoryRequest;
 import com.workplace.home.repository.TextEmbeddingRepository;
 import com.workplace.support.FakeTextEmbedder;
-import com.workplace.support.FakeTextEmbedderConfig;
 import com.workplace.support.MemoryEmbeddingProbe;
 import com.workplace.support.TestFixtures;
 import java.util.ArrayList;
@@ -17,7 +16,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Import;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -25,7 +23,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 옛 임베딩은 바뀐 내용을 덮지 않음, 백필(워커가 실패하면 멈추고 다음 주기). 각 단계가 실제로 커밋돼야 해 @Transactional 을 쓰지 않는다
  * (AiMemoryRaceTestSupport). 커밋 뒤 작업은 호출 스레드에서 바로 돌려(useExecutorForTest) 시간 대기 없이 확인한다.
  */
-@Import(FakeTextEmbedderConfig.class)
 class TextEmbeddingServiceTest extends AiMemoryRaceTestSupport {
 
   @Autowired AiMemoryService service;
