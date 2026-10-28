@@ -34,12 +34,12 @@ const OTHER = createIssue({ id: 22, number: 22, projectKey: KEY, title: '환불 
 type Call = { method: string; path: string; body: unknown }
 
 /** 목록·메타·변경 API — 쓰기 요청은 calls 에 쌓는다. */
-function issueApi() {
+function issueApi(members = [ME, KIM, BOT]) {
   const calls: Call[] = []
   const handlers = [
     http.get(`/api/v1/projects/${KEY}`, () => HttpResponse.json(createProject({ key: KEY, type: 'TEAM', viewerIsMember: true }))),
     http.get(`/api/v1/projects/${KEY}/types`, () => HttpResponse.json(systemTypes())),
-    http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json([ME, KIM, BOT])),
+    http.get(`/api/v1/projects/${KEY}/members`, () => HttpResponse.json(members)),
     http.get(`/api/v1/projects/${KEY}/views`, () => HttpResponse.json([])),
     http.get(ISSUES, ({ request }) => {
       const status = new URL(request.url).searchParams.get('status')
@@ -57,8 +57,8 @@ function issueApi() {
 }
 
 /** 목록을 열고 21번 행의 ⋯ 시트를 띄운다. */
-async function openSheet() {
-  const api = issueApi()
+async function openSheet(members?: Parameters<typeof issueApi>[0]) {
+  const api = issueApi(members)
   const page = renderMobileRoute('/projects/:key', <ProjectDetailPage />, { path: `/projects/${KEY}?group=none`, handlers: api.handlers })
   await page.user.click(await screen.findByTestId('issue-row-21-menu'))
   await screen.findByTestId('mobile-action-sheet')
@@ -87,6 +87,19 @@ describe('모바일 이슈 행 ⋯ 시트', () => {
     await user.click(screen.getByTestId('mobile-action-assignee'))
     await user.click(within(await screen.findByTestId('issue-assignee-picker')).getByTestId('picker-option-1'))
     await waitFor(() => expect(api.calls).toEqual([{ method: 'PUT', path: `${ISSUES}/21/assignees`, body: { userIds: [2, 1] } }]))
+  })
+
+  // WP-1100: 데스크톱 행 메뉴와 같은 후보·표기 — 정지된 구성원은 빼되 지금 담당 중이면 해제할 수 있게 남기고 회색 아바타로 그린다.
+  test('담당자 시트 — 정지된 구성원은 후보에서 빠지고, 담당 중인 정지된 사람은 남아 「(비활성)」 아바타로 보인다', async () => {
+    const GONE = createMember({ userId: 7, name: '퇴사자', username: 'gone', role: 'MEMBER', active: false })
+    const { user } = await openSheet([ME, { ...KIM, active: false }, BOT, GONE])
+    await user.click(screen.getByTestId('mobile-action-assignee'))
+    const sheet = await screen.findByTestId('issue-assignee-picker')
+    expect(within(sheet).queryByTestId('picker-option-7')).toBeNull()
+    const kim = within(sheet).getByTestId('picker-option-2')
+    expect(within(kim).getByTestId('user-avatar-2')).toHaveAttribute('data-inactive', 'true')
+    expect(within(kim).getByTestId('user-avatar-2')).toHaveAccessibleName('김개발 (비활성)')
+    expect(within(within(sheet).getByTestId('picker-option-1')).getByTestId('user-avatar-1')).not.toHaveAttribute('data-inactive')
   })
 
   test('AI에게 맡기기(AI 멤버 1명) → 바로 PUT', async () => {

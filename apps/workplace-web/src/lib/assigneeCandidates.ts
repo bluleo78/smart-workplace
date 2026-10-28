@@ -9,13 +9,10 @@ export interface AssigneeCandidateLike {
   active?: boolean;
 }
 
-/** 비활성 구성원인가 — active 가 명시적으로 false 일 때만(판정은 lib/userStatus 하나). */
-export const isInactiveMember: (m: AssigneeCandidateLike) => boolean = isInactiveUser;
-
 /** 담당자 후보 — 활성 구성원 + (비활성이어도) keepIds 에 든 사람. 순서는 그대로. 로딩 중(undefined)이면 빈 목록. */
 export function assigneeCandidates<T extends AssigneeCandidateLike>(
   members: readonly T[] | undefined,
   keepIds: readonly number[] = [],
 ): T[] {
-  return (members ?? []).filter((m) => !isInactiveMember(m) || keepIds.includes(m.userId));
+  return (members ?? []).filter((m) => !isInactiveUser(m) || keepIds.includes(m.userId));
 }

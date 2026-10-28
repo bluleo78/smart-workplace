@@ -18,7 +18,7 @@ import { useVersionIssues, useVersions, type VersionIssueKind } from '../../../h
 import { useCanManageProject } from '../../../hooks/useCanManageProject';
 import { buildVersionDetailContext } from '../../../lib/aiScreenContext/builders/version';
 import { kstDateKey } from '../../../lib/formatters';
-import { displayNameWithStatus } from '../../../lib/userStatus';
+import { displayNameWithStatus, othersInactiveSuffix } from '../../../lib/userStatus';
 import {
   alsoInOtherVersions,
   daysLeftLabel,
@@ -232,9 +232,14 @@ function IssueRow({
   showAlso: boolean;
 }) {
   const also = showAlso ? alsoInOtherVersions(it, versionId) : [];
-  // 정지된 첫 담당자는 「(비활성)」 꼬리(WP-1080 — 작업 목록·담당자 칸과 같은 표기)
+  // 정지된 첫 담당자는 「(비활성)」 꼬리(WP-1080 — 작업 목록·담당자 칸과 같은 표기), 「외 N」에 묶인 정지된 사람은 「(비활성 n)」(WP-1100)
   const first = it.assignees[0] ? displayNameWithStatus(it.assignees[0]) : null;
-  const assignee = first === null ? null : it.assignees.length === 1 ? first : `${first} 외 ${it.assignees.length - 1}`;
+  const assignee =
+    first === null
+      ? null
+      : it.assignees.length === 1
+        ? first
+        : `${first} 외 ${it.assignees.length - 1}${othersInactiveSuffix(it.assignees)}`;
   return (
     <li>
       <Link
@@ -253,7 +258,12 @@ function IssueRow({
           </span>
         )}
         <IssueStatusBadge status={it.status} name={it.statusName} className="max-w-32" />
-        {assignee && <span className="max-w-28 truncate text-xs text-muted-foreground">{assignee}</span>}
+        {/* 좁은 칸이라 「(비활성 n)」 꼬리가 잘릴 수 있어 전체 글을 title 로도 보인다(WP-1100). */}
+        {assignee && (
+          <span className="max-w-28 truncate text-xs text-muted-foreground" title={assignee}>
+            {assignee}
+          </span>
+        )}
       </Link>
     </li>
   );
