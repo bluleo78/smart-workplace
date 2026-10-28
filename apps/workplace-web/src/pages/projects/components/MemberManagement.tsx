@@ -365,7 +365,8 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
                 </tr>,
                 open && (
                   <tr key={`gm${g.groupId}`}>
-                    <td colSpan={4}>
+                    {/* max-w-0 — 자동 폭 표에서 말줄임(nowrap) 줄이 칸의 최소 폭을 키워 표를 옆으로 늘리지 않게, 펼침 칸은 표 폭 안에서만 쓴다(WP-1094). */}
+                    <td colSpan={4} className="max-w-0">
                       <GroupMembers groupId={g.groupId} testId={`member-group-members-${g.groupId}`} />
                     </td>
                   </tr>
