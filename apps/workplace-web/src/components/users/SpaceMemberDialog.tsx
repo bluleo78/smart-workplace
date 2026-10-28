@@ -182,14 +182,14 @@ export function SpaceMemberDialog({
             )}
           </div>
 
-          <div className="max-h-80 space-y-1 overflow-y-auto">
+          <div className="max-h-80 space-y-1 overflow-y-auto" data-testid={tid('member-list')}>
             {/* 부서 행(WP-1052) — 사람 행 위에. 부서 자체가 멤버라 나중에 들어온 구성원도 그 역할을 받는다. 소유자 역할은 줄 수 없다. */}
             {departments &&
               groups?.map((g) => {
                 const open = expandedGroups.has(g.groupId)
                 return (
                   <div key={`g${g.groupId}`} data-testid={tid(`member-group-row-${g.groupId}`)}>
-                    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm">
+                    <div className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-sm">
                       <button
                         type="button"
                         aria-label={`${g.name} 구성원 ${open ? '접기' : '펼치기'}`}
@@ -206,40 +206,48 @@ export function SpaceMemberDialog({
                       >
                         <Building2 className="size-3.5" />
                       </span>
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span className="truncate">{g.name}</span>
+                      {/* 이름은 자르지 않는다(WP-1096) — 휴대폰 행은 역할 select·제거가 폭을 먼저 차지해, 자르면 「경...」처럼 한 글자만 남아
+                          조직이 둘 이상일 때 어느 조직인지 알 수 없었다(마우스가 없어 툴팁도 못 본다). 이름 칸은 최소 9rem 을 갖고, 그만큼 안 남으면
+                          역할·제거가 다음 줄(오른쪽)로 내려간다. 그래도 긴 이름은 감고, 인원 수·「조직」 배지는 자리가 모자라면 다음 줄로. */}
+                      <span
+                        className="flex min-w-36 flex-1 flex-wrap items-center gap-x-1.5"
+                        data-testid={tid(`member-group-name-${g.groupId}`)}
+                      >
+                        <span className="min-w-0 break-keep [overflow-wrap:anywhere]">{g.name}</span>
                         <span className="shrink-0 text-muted-foreground">· {g.memberCount}명</span>
                         <span className="shrink-0 rounded border px-1 text-[11px] leading-4 text-muted-foreground">조직</span>
                       </span>
-                      {canManage ? (
-                        <select
-                          data-testid={tid(`member-group-role-select-${g.groupId}`)}
-                          aria-label={`${g.name} 역할`}
-                          value={g.role}
-                          onChange={(e) => departments.onChangeRole(g.groupId, e.target.value as SpaceGroupRole)}
-                          className="rounded border bg-background px-1 py-0.5 text-xs"
-                        >
-                          {SPACE_GROUP_ROLES.map((r) => (
-                            <option key={r} value={r}>
-                              {spaceRoleLabel(r)}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <Badge variant="secondary" data-testid={tid(`member-group-role-${g.groupId}`)}>
-                          {spaceRoleLabel(g.role)}
-                        </Badge>
-                      )}
-                      {canManage && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          data-testid={tid(`member-group-remove-${g.groupId}`)}
-                          onClick={() => setConfirmRemove({ kind: 'group', id: g.groupId, name: g.name })}
-                        >
-                          제거
-                        </Button>
-                      )}
+                      <div className="ml-auto flex shrink-0 items-center gap-2">
+                        {canManage ? (
+                          <select
+                            data-testid={tid(`member-group-role-select-${g.groupId}`)}
+                            aria-label={`${g.name} 역할`}
+                            value={g.role}
+                            onChange={(e) => departments.onChangeRole(g.groupId, e.target.value as SpaceGroupRole)}
+                            className="rounded border bg-background px-1 py-0.5 text-xs"
+                          >
+                            {SPACE_GROUP_ROLES.map((r) => (
+                              <option key={r} value={r}>
+                                {spaceRoleLabel(r)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Badge variant="secondary" data-testid={tid(`member-group-role-${g.groupId}`)}>
+                            {spaceRoleLabel(g.role)}
+                          </Badge>
+                        )}
+                        {canManage && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            data-testid={tid(`member-group-remove-${g.groupId}`)}
+                            onClick={() => setConfirmRemove({ kind: 'group', id: g.groupId, name: g.name })}
+                          >
+                            제거
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     {open && <GroupMembers groupId={g.groupId} testId={tid(`member-group-members-${g.groupId}`)} />}
                   </div>
@@ -252,45 +260,48 @@ export function SpaceMemberDialog({
                 <div
                   key={m.userId}
                   data-testid={tid(`member-row-${m.userId}`)}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                  className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-sm"
                 >
                   <UserAvatar user={{ id: m.userId, username: '', name: m.name }} size="sm" />
-                  <span className="min-w-0 flex-1 truncate">
+                  {/* 사람 이름도 조직 행처럼 자르지 않는다(WP-1096) — 휴대폰에서 역할 select·제거가 폭을 먼저 차지해 「Wo...」로 잘렸다. */}
+                  <span className="min-w-36 flex-1 break-keep [overflow-wrap:anywhere]" data-testid={tid(`member-name-${m.userId}`)}>
                     {m.name}
                     {m.userId === user?.id && <span className="ml-1 text-muted-foreground">(나)</span>}
                   </span>
-                  {canManage ? (
-                    <select
-                      data-testid={tid(`member-role-select-${m.userId}`)}
-                      aria-label={`${m.name} 역할`}
-                      value={m.role}
-                      disabled={locked}
-                      title={locked ? '내 행·생성자 행·마지막 소유자는 역할을 바꿀 수 없어요' : undefined}
-                      onChange={(e) => onChangeRole(m.userId, e.target.value as SpaceRole)}
-                      className="rounded border bg-background px-1 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {SPACE_ROLES.map((r) => (
-                        <option key={r} value={r}>
-                          {spaceRoleLabel(r)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Badge variant="secondary" data-testid={tid(`member-role-${m.userId}`)}>
-                      {spaceRoleLabel(m.role)}
-                    </Badge>
-                  )}
-                  {canManage && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      data-testid={tid(`member-remove-${m.userId}`)}
-                      disabled={locked}
-                      onClick={() => setConfirmRemove({ kind: 'user', id: m.userId, name: m.name })}
-                    >
-                      제거
-                    </Button>
-                  )}
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                    {canManage ? (
+                      <select
+                        data-testid={tid(`member-role-select-${m.userId}`)}
+                        aria-label={`${m.name} 역할`}
+                        value={m.role}
+                        disabled={locked}
+                        title={locked ? '내 행·생성자 행·마지막 소유자는 역할을 바꿀 수 없어요' : undefined}
+                        onChange={(e) => onChangeRole(m.userId, e.target.value as SpaceRole)}
+                        className="rounded border bg-background px-1 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {SPACE_ROLES.map((r) => (
+                          <option key={r} value={r}>
+                            {spaceRoleLabel(r)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Badge variant="secondary" data-testid={tid(`member-role-${m.userId}`)}>
+                        {spaceRoleLabel(m.role)}
+                      </Badge>
+                    )}
+                    {canManage && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        data-testid={tid(`member-remove-${m.userId}`)}
+                        disabled={locked}
+                        onClick={() => setConfirmRemove({ kind: 'user', id: m.userId, name: m.name })}
+                      >
+                        제거
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )
             })}
