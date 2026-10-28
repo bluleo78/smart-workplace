@@ -44,6 +44,18 @@ export interface MemberResponse {
   createdAt: string | null;
   // 이 워크스페이스에서 활성인가(전역 비활성·WP-417 정지면 false) — 담당자 후보에서 뺀다(WP-487). 예전 응답·목에는 없을 수 있다.
   active?: boolean;
+  // 직접 멤버 행인가(WP-1057) — false 면 멤버로 둔 조직도 부서(하위 부서 포함)로만 들어온 사람(역할 MEMBER). 담당자·멘션·필터 후보에는
+  // 직접 멤버와 똑같이 쓰고, 멤버 관리 표는 직접 멤버 행만 보인다(부서는 부서 행으로). 예전 응답·목에는 없을 수 있다(없으면 직접 멤버).
+  direct?: boolean;
+}
+
+// 프로젝트 멤버로 둔 조직도 부서 한 줄(WP-1057) — 「개발팀 · 12명 [조직]」. 역할은 늘 MEMBER(소유자는 사람에게만).
+export interface ProjectMemberGroup {
+  groupId: number;
+  name: string;
+  role: 'MEMBER';
+  // 지금 이 부서와 하위 부서에서 들어오는 활성 사람 수(중복 제외).
+  memberCount: number;
 }
 
 export interface CreateProjectRequest {

@@ -1,4 +1,4 @@
-// 프로젝트 설정 멤버 관리 — 표 헤더·역할 한국어, 추가 검색 picker(#31·#734), 제거 확인창(#139·WP-488), 행 hover 클래스(#308),
+// 프로젝트 설정 멤버 관리 — 표 헤더·역할 한국어, 추가 선택 창(#31·#734 → WP-1057 사람·조직 공통 창), 제거 확인창(#139·WP-488), 행 hover 클래스(#308),
 // MEMBER 읽기 전용(WP-479) — 화면 테스트(WP-980, WP-1002 에서 멤버 섹션만 띄우게 바꿈). 검색 쿼리(kind·search)·POST payload·후보 정렬·비활성 제외·조건부 렌더는
 // 브라우저 없이 판정되므로 e2e/pages/projects/member-search.spec.ts 에서 옮겼다.
 // 그 spec 에는 설정 화면 배선(@wiring)과 키보드로 제거한 뒤 초점 이동(WP-891, @input)이 남는다.
@@ -56,12 +56,14 @@ function settingsApi(initial: StubMember[], { personal = false } = {}) {
       const { userId, role } = (await request.json()) as { userId: number; role: string }
       const u = [HUMAN1, HUMAN2, AGENT1].find((x) => x.userId === userId)!
       ref.current = [...ref.current, { userId, username: u.username, name: u.name, role }]
-      return HttpResponse.json({}, { status: 201 })
+      return HttpResponse.json({ userId, username: u.username, name: u.name, kind: u.kind, role, createdAt: null, active: true, direct: true }, { status: 201 })
     }),
     http.delete(`${MEMBERS_PATH}/:id`, ({ params }) => {
       ref.current = ref.current.filter((m) => m.userId !== Number(params.id))
       return new HttpResponse(null, { status: 204 })
     }),
+    // 사람·조직 선택 창이 열릴 때 받는 그룹 트리(WP-1057) — 이 파일은 사람만 보므로 비운다.
+    http.get('/api/v1/user-groups', () => HttpResponse.json({ shared: [], personal: [] })),
     http.get(`${MEMBERS_PATH}/:id/assigned-issue-count`, () => HttpResponse.json({ count: 2 })),
     ...projectSettingsHandlers(project, () => withMeAsOwner(ref.current)),
   ]
@@ -86,15 +88,18 @@ function openSettingsPage(initial: StubMember[]) {
   )
 }
 
-/** 멤버 추가 picker 를 열고 검색어를 넣는다(빈 문자열이면 넣지 않는다). */
+/**
+ * 멤버 추가 창(사람·조직 공통 선택 창, WP-1057)을 열고 검색어를 넣는다(빈 문자열이면 넣지 않는다). 창(팝오버)을 돌려준다.
+ * 팀 프로젝트는 사람·AI·조직도 부서·내 그룹을 한 창에서 고른다 — 부서 쪽 판정은 components/MemberManagementDepartments.test.tsx 가 본다.
+ */
 async function openPicker(user: ScreenUser, query = '') {
   await user.click(await screen.findByTestId('member-add-trigger'))
-  const popover = await screen.findByTestId('member-search-popover')
+  const input = await screen.findByLabelText('사람·팀 검색')
   if (query) {
-    await user.click(within(popover).getByPlaceholderText('이름·아이디·이메일로 검색'))
+    await user.click(input)
     await user.paste(query)
   }
-  return popover
+  return screen.getByTestId('project-member-picker-search')
 }
 
 describe('멤버 표·역할 한국어 (#140·#158)', () => {
@@ -131,71 +136,53 @@ describe('멤버 표·역할 한국어 (#140·#158)', () => {
   })
 })
 
-describe('멤버 추가 검색 picker', () => {
-  test('검색 → 후보 클릭 → POST {userId, role: MEMBER} + 토스트 + 표 갱신', async () => {
+describe('멤버 추가 — 사람·조직 선택 창 (WP-1057)', () => {
+  test('검색 → 사람 클릭 → POST {userId, role: MEMBER} + 토스트 + 표 갱신', async () => {
     const requests = recordRequests()
     const { user } = openSettings([ME_OWNER])
     const popover = await openPicker(user, 'ali')
-    await user.click(await within(popover).findByTestId(`member-search-row-${HUMAN1.userId}`))
+    // 검색 결과가 온 뒤(디바운스) 고를 수 있다 — 그 전 줄은 비활성이다.
+    const row = () => within(popover).getByTestId(`project-member-picker-person-${HUMAN1.userId}`)
+    await waitFor(() => expect(row()).not.toHaveAttribute('aria-disabled', 'true'))
+    await user.click(row())
     await waitFor(() => expect(requests.bodies('POST', MEMBERS_PATH)).toEqual([{ userId: HUMAN1.userId, role: 'MEMBER' }]))
     expect(await screen.findByText('Alice 을(를) 추가했습니다')).toBeInTheDocument()
+    // 선택 창은 연속 추가를 위해 열려 있다(모달이라 뒤 표가 가려진다) — 닫고 표를 본다.
+    await user.keyboard('{Escape}')
     expect(await screen.findByRole('row', { name: /Alice/ })).toBeInTheDocument()
   })
 
-  // 탭 선택은 클라이언트 필터가 아니라 백엔드 kind 를 구동해야 한다(#734) — 첫 페이지에 AGENT 가 없으면 빈 목록이 되므로.
-  test('AGENT 필터 → 백엔드 kind=AGENT 조회 + AGENT 만 노출', async () => {
+  test('추가 역할을 소유자로 고르면 사람은 소유자로 POST 한다', async () => {
     const requests = recordRequests()
-    const { user } = openSettings([])
-    const popover = await openPicker(user, 'a')
-    // 검색어 'a' 결과(alice·ai-bot)가 올 때까지 — bob 은 빠진다.
-    await waitFor(() => {
-      expect(within(popover).queryByTestId(`member-search-row-${HUMAN2.userId}`)).not.toBeInTheDocument()
-      expect(within(popover).getByTestId(`member-search-row-${HUMAN1.userId}`)).toBeInTheDocument()
-    })
-    expect(within(popover).getByTestId(`member-search-row-${AGENT1.userId}`)).toBeInTheDocument()
-    const agentFilter = within(popover).getByTestId('member-search-filter-AGENT')
-    expect(agentFilter).toHaveTextContent('에이전트')
-    await user.click(agentFilter)
-    await waitFor(() => {
-      expect(within(popover).queryByTestId(`member-search-row-${HUMAN1.userId}`)).not.toBeInTheDocument()
-      expect(within(popover).getByTestId(`member-search-row-${AGENT1.userId}`)).toBeInTheDocument()
-    })
-    await waitFor(() =>
-      expect(requests.of('GET', '/api/v1/members').some((r) => r.search.get('kind') === 'AGENT' && r.search.get('search') === 'a')).toBe(true),
-    )
+    const { user } = openSettings([ME_OWNER])
+    await screen.findByTestId('member-add-trigger')
+    await user.click(document.getElementById('new-member-role')!)
+    await user.click(await screen.findByRole('option', { name: '소유자' }))
+    const popover = await openPicker(user, 'bob')
+    // 검색 결과가 온 뒤(디바운스) 고를 수 있다 — 그 전 줄은 비활성이다.
+    const row = () => within(popover).getByTestId(`project-member-picker-person-${HUMAN2.userId}`)
+    await waitFor(() => expect(row()).not.toHaveAttribute('aria-disabled', 'true'))
+    await user.click(row())
+    await waitFor(() => expect(requests.bodies('POST', MEMBERS_PATH)).toEqual([{ userId: HUMAN2.userId, role: 'OWNER' }]))
   })
 
-  test('검색어 없이 열면 kind=ALL 기본 후보 — 비활성 제외, 이미 멤버는 뒤로, 목록 이름은 한국어 (#734·WP-731)', async () => {
+  test('검색어 없이 열면 kind=ALL 기본 후보 — AI 에이전트 포함, 비활성 제외 (#734)', async () => {
     const requests = recordRequests()
-    const { user } = openSettings([{ userId: HUMAN1.userId, username: 'alice', name: 'Alice', role: 'MEMBER' }])
+    const { user } = openSettings([])
     const popover = await openPicker(user)
-    expect(await within(popover).findByTestId(`member-search-row-${HUMAN2.userId}`)).toBeInTheDocument()
-    expect(within(popover).getByTestId(`member-search-row-${AGENT1.userId}`)).toBeInTheDocument()
-    expect(within(popover).queryByTestId(`member-search-row-${INACTIVE.userId}`)).not.toBeInTheDocument()
-    expect(screen.getByRole('listbox', { name: '멤버 후보' })).toBeInTheDocument()
+    expect(await within(popover).findByTestId(`project-member-picker-person-${HUMAN2.userId}`)).toBeInTheDocument()
+    expect(within(popover).getByTestId(`project-member-picker-person-${AGENT1.userId}`)).toHaveTextContent('에이전트')
+    expect(within(popover).queryByTestId(`project-member-picker-person-${INACTIVE.userId}`)).not.toBeInTheDocument()
     expect(requests.of('GET', '/api/v1/members').some((r) => (r.search.get('search') ?? '') === '' && r.search.get('kind') === 'ALL')).toBe(true)
-    const ids = within(popover).getAllByTestId(/^member-search-row-/).map((el) => el.getAttribute('data-testid'))
-    expect(ids.at(-1)).toBe(`member-search-row-${HUMAN1.userId}`)
   })
 
-  test('에이전트를 이름으로 검색하면 후보로 노출된다 (#734)', async () => {
-    const { user } = openSettings([])
-    const popover = await openPicker(user, 'AI Bot')
-    // 검색은 디바운스 뒤 다시 묻는다 — 기본 후보(전체)가 검색 결과로 바뀔 때까지 기다린다.
-    await waitFor(() => {
-      expect(within(popover).queryByTestId(`member-search-row-${HUMAN1.userId}`)).not.toBeInTheDocument()
-      expect(within(popover).getByTestId(`member-search-row-${AGENT1.userId}`)).toBeInTheDocument()
-    })
-  })
-
-  test('이미 멤버인 후보는 (이미 멤버)·disabled 이고 눌러도 POST 가 없다', async () => {
+  test('이미 직접 멤버인 사람은 (이미 추가됨)·비활성이고 눌러도 POST 가 없다', async () => {
     const requests = recordRequests()
     const { user } = openSettings([{ userId: HUMAN1.userId, username: 'alice', name: 'Alice', role: 'MEMBER' }])
     const popover = await openPicker(user, 'alice')
-    const row = await within(popover).findByTestId(`member-search-row-${HUMAN1.userId}`)
-    expect(row).toHaveTextContent('(이미 멤버)')
-    expect(row).toHaveAttribute('data-disabled', 'true')
-    // pointer-events:none 이라 user.click 은 막힌다 — 핸들러가 무동작인지 원시 클릭으로 본다.
+    const row = await within(popover).findByTestId(`project-member-picker-person-${HUMAN1.userId}`)
+    await waitFor(() => expect(row).toHaveAttribute('aria-disabled', 'true'))
+    expect(row).toHaveTextContent('(이미 추가됨)')
     row.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await new Promise((r) => setTimeout(r, 200))
     expect(requests.count('POST', MEMBERS_PATH)).toBe(0)

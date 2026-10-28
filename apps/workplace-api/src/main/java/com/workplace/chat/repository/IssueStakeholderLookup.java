@@ -5,16 +5,17 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 import static com.workplace.jooq.Tables.PROJECT;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.dto.UserSummary;
+import com.workplace.global.share.ProjectMembership;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Component;
 
 /**
@@ -55,12 +56,10 @@ public class IssueStakeholderLookup {
             .where(CHAT_THREAD.ID.eq(threadId).and(ISSUE.DELETED_AT.isNull())));
   }
 
-  /** 프로젝트 멤버 여부. chat thread 접근 권한 게이트. */
+  /** 프로젝트 멤버 여부(직접 멤버 또는 멤버로 둔 조직도 부서의 구성원, WP-1057). chat thread 접근 권한 게이트. */
   public boolean isProjectMember(long projectId, long userId) {
-    return dsl.fetchExists(
-        dsl.selectOne()
-            .from(PROJECT_MEMBER)
-            .where(PROJECT_MEMBER.PROJECT_ID.eq(projectId).and(PROJECT_MEMBER.USER_ID.eq(userId))));
+    return dsl.fetchValue(
+        DSL.select(DSL.field(ProjectMembership.isMember(DSL.val(projectId), DSL.val(userId)))));
   }
 
   /** 사용자가 AGENT(kind) 인지 — 스레드 경유 이슈 첨부 조회에서 멘션돼 참여한 에이전트만 허용하는 판정용(WP-244). */

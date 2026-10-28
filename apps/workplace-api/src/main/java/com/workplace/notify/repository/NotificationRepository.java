@@ -13,6 +13,7 @@ import static com.workplace.jooq.Tables.USER;
 import static com.workplace.jooq.Tables.USER_ROLE;
 import static com.workplace.jooq.Tables.WIKI_PAGE;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.global.share.WikiShareTargets;
 import com.workplace.global.share.WikiSpaceMembership;
 import com.workplace.global.util.SingleLineTitles;
@@ -318,7 +319,8 @@ public class NotificationRepository {
             .isNull()
             .or(
                 projectReadableBy(
-                    DSL.val(recipientId),
+                    // 멤버 = 직접 멤버 또는 멤버로 둔 조직도 부서의 구성원(WP-1057).
+                    ProjectMembership.isMember(ISSUE.PROJECT_ID, DSL.val(recipientId)),
                     recipientIsAdmin ? DSL.trueCondition() : DSL.falseCondition()));
     Condition eventReadable =
         NOTIFICATION
@@ -417,29 +419,36 @@ public class NotificationRepository {
                 .join(ROLE)
                 .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
                 .where(USER_ROLE.USER_ID.eq(USER.ID), ROLE.NAME.eq("ADMIN")));
+    // 멤버 = 직접 멤버 또는 멤버로 둔 조직도 부서의 구성원(WP-1057). 사람이 바깥 열(USER.ID)이라 상위 부서 재귀를 수신자마다 돌지 않게, 직접 멤버는
+    // (프로젝트, 사람) 조인으로 보고 부서 쪽은 이 이슈 프로젝트의 부서 구성원을 후보로 좁혀 한 번만 구한다(같은 규칙 — 공용 ProjectMembership).
+    var ci = ISSUE.as("nr_ci");
+    Field<Long> projectId = DSL.field(DSL.select(ci.PROJECT_ID).from(ci).where(ci.ID.eq(issueId)));
+    var dept =
+        ProjectMembership.departmentAudience("nr_dept", g -> g.PROJECT_ID.eq(projectId), userIds);
+    Condition member =
+        PROJECT_MEMBER
+            .USER_ID
+            .isNotNull()
+            .or(USER.ID.in(DSL.select(dept.userId()).from(dept.table())));
     return dsl.select(USER.ID)
         .from(USER)
         .join(ISSUE)
         .on(ISSUE.ID.eq(issueId))
         .join(PROJECT)
         .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
-        .where(USER.ID.in(userIds), projectReadableBy(USER.ID, admin))
+        .leftJoin(PROJECT_MEMBER)
+        .on(PROJECT_MEMBER.PROJECT_ID.eq(ISSUE.PROJECT_ID))
+        .and(PROJECT_MEMBER.USER_ID.eq(USER.ID))
+        .where(USER.ID.in(userIds), projectReadableBy(member, admin))
         .fetch(USER.ID);
   }
 
   /**
-   * ISSUE·PROJECT 가 조인된 쿼리에서 userId 가 그 프로젝트를 볼 수 있는가 — ProjectAccessGuard.isReadable 과 같은 규칙: OPEN
-   * 은 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. 삭제된 프로젝트는 누구도 볼 수 없다(WP-563) — 프로젝트 삭제는 프로젝트 행에만
-   * deleted_at 을 찍고 이슈는 그대로 두므로, 이슈 삭제(#618) 조건만으로는 그 알림이 목록·안읽음 수에 남는다.
+   * ISSUE·PROJECT 가 조인된 쿼리에서 프로젝트 멤버(member)인 사람이 그 프로젝트를 볼 수 있는가 — ProjectAccessGuard.isReadable 과
+   * 같은 규칙: OPEN 은 전원, TEAM 은 멤버 또는 ADMIN, PERSONAL 은 멤버(소유자)만. 삭제된 프로젝트는 누구도 볼 수 없다(WP-563) — 프로젝트
+   * 삭제는 프로젝트 행에만 deleted_at 을 찍고 이슈는 그대로 두므로, 이슈 삭제(#618) 조건만으로는 그 알림이 목록·안읽음 수에 남는다.
    */
-  private static Condition projectReadableBy(Field<Long> userId, Condition isAdmin) {
-    Condition member =
-        DSL.exists(
-            DSL.selectOne()
-                .from(PROJECT_MEMBER)
-                .where(
-                    PROJECT_MEMBER.PROJECT_ID.eq(ISSUE.PROJECT_ID),
-                    PROJECT_MEMBER.USER_ID.eq(userId)));
+  private static Condition projectReadableBy(Condition member, Condition isAdmin) {
     return PROJECT
         .DELETED_AT
         .isNull()

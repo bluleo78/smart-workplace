@@ -427,7 +427,8 @@ public class MessagingProposalService {
     List<ProjectCandidateDto> out = new ArrayList<>();
     // 위임자가 속한 프로젝트(개인·팀 공통)를 순회하며 AI 멤버 여부만 확인.
     for (var p : projectRepo.findAllForUser(delegatorId, false, 0, 500)) {
-      if (projectMemberRepo.isMember(p.id(), agentId)) {
+      // AI 는 조직도 부서 구성원이 아니라 직접 멤버 행만 본다(WP-1057).
+      if (projectMemberRepo.isDirectMember(p.id(), agentId)) {
         out.add(new ProjectCandidateDto(p.key(), p.name()));
       }
     }

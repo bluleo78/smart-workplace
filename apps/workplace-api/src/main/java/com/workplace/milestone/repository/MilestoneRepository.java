@@ -1,8 +1,8 @@
 package com.workplace.milestone.repository;
 
 import static com.workplace.jooq.Tables.MILESTONE;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.milestone.dto.MilestoneRow;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -11,6 +11,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -56,9 +57,8 @@ public class MilestoneRepository {
     return dsl.selectFrom(MILESTONE)
         .where(
             MILESTONE.PROJECT_ID.in(
-                dsl.select(PROJECT_MEMBER.PROJECT_ID)
-                    .from(PROJECT_MEMBER)
-                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
+                // 직접 멤버 + 멤버로 둔 조직도 부서로 들어온 프로젝트(WP-1057)
+                ProjectMembership.projectIdsOf(DSL.val(userId))))
         .orderBy(MILESTONE.DUE_DATE.asc(), MILESTONE.NAME.asc())
         .fetch(this::mapToRow);
   }

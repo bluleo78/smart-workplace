@@ -9,6 +9,8 @@ import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.DriveSpaceMemberGroup.DriveSpaceMemberGroupPath;
+import com.workplace.jooq.tables.Project.ProjectPath;
+import com.workplace.jooq.tables.ProjectMemberGroup.ProjectMemberGroupPath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
 import com.workplace.jooq.tables.UserGroup.UserGroupPath;
@@ -252,6 +254,19 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
         return _driveSpaceMemberGroup;
     }
 
+    private transient ProjectMemberGroupPath _projectMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.project_member_group</code> table
+     */
+    public ProjectMemberGroupPath projectMemberGroup() {
+        if (_projectMemberGroup == null)
+            _projectMemberGroup = new ProjectMemberGroupPath(this, null, Keys.PROJECT_MEMBER_GROUP__PROJECT_MEMBER_GROUP_GROUP_ID_FKEY.getInverseKey());
+
+        return _projectMemberGroup;
+    }
+
     private transient UserGroupMemberPath _userGroupMember;
 
     /**
@@ -297,6 +312,14 @@ public class UserGroup extends TableImpl<UserGroupRecord> {
      */
     public DriveSpacePath driveSpace() {
         return driveSpaceMemberGroup().driveSpace();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.project</code> table
+     */
+    public ProjectPath project() {
+        return projectMemberGroup().project();
     }
 
     /**

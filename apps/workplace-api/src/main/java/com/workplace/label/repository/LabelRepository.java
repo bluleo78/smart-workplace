@@ -1,8 +1,8 @@
 package com.workplace.label.repository;
 
 import static com.workplace.jooq.Tables.LABEL;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.label.dto.LabelRow;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -56,9 +56,8 @@ public class LabelRepository {
     return dsl.selectFrom(LABEL)
         .where(
             LABEL.PROJECT_ID.in(
-                dsl.select(PROJECT_MEMBER.PROJECT_ID)
-                    .from(PROJECT_MEMBER)
-                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
+                // 직접 멤버 + 멤버로 둔 조직도 부서로 들어온 프로젝트(WP-1057)
+                ProjectMembership.projectIdsOf(DSL.val(userId))))
         .orderBy(LABEL.NAME.asc())
         .fetch(this::mapToRow);
   }

@@ -100,6 +100,10 @@ async function setupStubs(
     return route.fallback();
   });
 
+  // 멤버로 둔 조직도 부서(WP-1057) — 팀 프로젝트 멤버 섹션이 마운트 시 fetch. 없음.
+  await page.route(`**/api/v1/projects/${PROJECT_KEY}/member-groups`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
   // 라벨/타입/필드 — 설정 페이지가 마운트 시 fetch.
   await page.route(`**/api/v1/projects/${PROJECT_KEY}/labels`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),

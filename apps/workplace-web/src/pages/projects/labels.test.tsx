@@ -41,6 +41,8 @@ function settingsApi(labels: LabelResponse[], role: 'OWNER' | 'MEMBER' = 'OWNER'
         createMember({ userId: 2, username: 'owner', name: '오너', role: 'OWNER' }),
       ]),
     ),
+    // 팀 프로젝트 멤버 섹션의 조직도 부서(WP-1057) — 없음.
+    http.get(`${API}/member-groups`, () => HttpResponse.json([])),
     http.get(`${API}/fields`, () => HttpResponse.json([])),
     http.get(`${API}/issues/group-counts`, () => HttpResponse.json({ groupBy: 'statusId', groups: [] })),
     http.get(`${API}/labels`, () => HttpResponse.json(labels)),
@@ -83,7 +85,7 @@ function renderFilterBar(path: string, labels: LabelResponse[]) {
       ...listApi(labels),
       // facet 후보 조회 — 이 테스트에선 라벨만 있고 나머지는 비어 있다(상태는 시드).
       http.get(`${API}/statuses`, () => HttpResponse.json(seedStatuses())),
-      ...['members', 'types', 'cycles', 'components', 'versions'].map((sub) => http.get(`${API}/${sub}`, () => HttpResponse.json([]))),
+      ...['members', 'member-groups', 'types', 'cycles', 'components', 'versions'].map((sub) => http.get(`${API}/${sub}`, () => HttpResponse.json([]))),
     ],
   })
 }

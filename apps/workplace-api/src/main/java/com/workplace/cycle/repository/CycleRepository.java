@@ -1,15 +1,16 @@
 package com.workplace.cycle.repository;
 
 import static com.workplace.jooq.Tables.CYCLE;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 
 import com.workplace.cycle.dto.CycleRow;
+import com.workplace.global.share.ProjectMembership;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -54,9 +55,8 @@ public class CycleRepository {
     return dsl.selectFrom(CYCLE)
         .where(
             CYCLE.PROJECT_ID.in(
-                dsl.select(PROJECT_MEMBER.PROJECT_ID)
-                    .from(PROJECT_MEMBER)
-                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
+                // 직접 멤버 + 멤버로 둔 조직도 부서로 들어온 프로젝트(WP-1057)
+                ProjectMembership.projectIdsOf(DSL.val(userId))))
         .orderBy(CYCLE.START_DATE.desc().nullsLast(), CYCLE.NAME.asc())
         .fetch(this::mapToRow);
   }

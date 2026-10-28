@@ -92,6 +92,12 @@ describe('프로젝트 설정 규칙 (WP-60)', () => {
     expect(keysOf('project-member', 'updated')).toEqual([['projects']]);
   });
 
+  it('project-member-group → projects 만 (부서 목록·멤버 후보 목록이 그 아래, 담당 해제는 project-member/deleted 가 맡는다)', () => {
+    for (const op of ['created', 'updated', 'deleted'] as const) {
+      expect(keysOf('project-member-group', op)).toEqual([['projects']]);
+    }
+  });
+
   it('설정 수정·삭제의 이슈 대상은 목록·상세·내 이슈·워치만 (의존성·첨부·홈 위젯 제외)', () => {
     expect(keysOf('label', 'updated')).toEqual([
       ['labels', 'EX'],
@@ -392,7 +398,7 @@ const SAMPLES: ResourceChangedPayload[] = [
   { resource: 'mail-account', op: 'updated', accountId: 5 },
   { resource: 'wiki-space', op: 'updated', spaceId: 2 },
   { resource: 'wiki-attachment', op: 'updated', spaceId: 2, pageId: 8 },
-  ...['project', 'project-member', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view', 'project-status', 'component', 'version'].map(
+  ...['project', 'project-member', 'project-member-group', 'label', 'milestone', 'cycle', 'field-def', 'issue-type', 'saved-view', 'project-status', 'component', 'version'].map(
     (resource) => ({ resource, op: 'updated' as const, projectKey: 'EX' }),
   ),
 ];

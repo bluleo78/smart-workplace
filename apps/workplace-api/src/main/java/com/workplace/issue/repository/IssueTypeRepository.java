@@ -2,9 +2,9 @@ package com.workplace.issue.repository;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_TYPE_DEF;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static org.jooq.impl.DSL.count;
 
+import com.workplace.global.share.ProjectMembership;
 import com.workplace.issue.dto.IssueTypeRow;
 import com.workplace.issue.dto.IssueTypeSummary;
 import java.time.OffsetDateTime;
@@ -15,6 +15,7 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Record;
+import org.jooq.impl.DSL;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Repository;
 
@@ -71,9 +72,8 @@ public class IssueTypeRepository {
     return dsl.selectFrom(ISSUE_TYPE_DEF)
         .where(
             ISSUE_TYPE_DEF.PROJECT_ID.in(
-                dsl.select(PROJECT_MEMBER.PROJECT_ID)
-                    .from(PROJECT_MEMBER)
-                    .where(PROJECT_MEMBER.USER_ID.eq(userId))))
+                // 직접 멤버 + 멤버로 둔 조직도 부서로 들어온 프로젝트(WP-1057)
+                ProjectMembership.projectIdsOf(DSL.val(userId))))
         .orderBy(ISSUE_TYPE_DEF.POSITION.asc(), ISSUE_TYPE_DEF.ID.asc())
         .fetch(this::mapToRow);
   }

@@ -1209,19 +1209,9 @@ public class IssueRepository {
             .DELETED_AT
             .isNull()
             .and(
-                org.jooq
-                    .impl
-                    .DSL
-                    .exists(
-                        dsl.selectOne()
-                            .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
-                            .where(
-                                com.workplace.jooq.Tables.PROJECT_MEMBER
-                                    .PROJECT_ID
-                                    .eq(ISSUE.PROJECT_ID)
-                                    .and(
-                                        com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(
-                                            memberUserId))))
+                // 멤버 판정은 직접 멤버 + 멤버로 둔 조직도 부서(WP-1057) — 공용 규칙 한 곳.
+                com.workplace.global.share.ProjectMembership.isMemberOf(
+                        ISSUE.PROJECT_ID, memberUserId)
                     .or(
                         // OPEN 프로젝트의 reporter: 비멤버가 접수한 이슈를 자신의 홈에서 볼 수 있도록 허용.
                         ISSUE
@@ -1783,7 +1773,6 @@ public class IssueRepository {
    */
   public Condition watchedReadableCondition(Long watcherUserId) {
     var project = com.workplace.jooq.Tables.PROJECT;
-    var member = com.workplace.jooq.Tables.PROJECT_MEMBER;
     var watcher = com.workplace.jooq.Tables.ISSUE_WATCHER;
     return org.jooq
         .impl
@@ -1805,11 +1794,8 @@ public class IssueRepository {
                             .TYPE
                             .eq("OPEN")
                             .or(
-                                org.jooq.impl.DSL.exists(
-                                    dsl.selectOne()
-                                        .from(member)
-                                        .where(member.PROJECT_ID.eq(ISSUE.PROJECT_ID))
-                                        .and(member.USER_ID.eq(watcherUserId)))))));
+                                com.workplace.global.share.ProjectMembership.isMemberOf(
+                                    ISSUE.PROJECT_ID, watcherUserId)))));
   }
 
   /** 구독 목록 기본 경로 — {@link #watchedReadableCondition} 범위를 (updated_at, id) DESC cursor 로 페이징한다. */
@@ -1831,9 +1817,9 @@ public class IssueRepository {
   }
 
   /**
-   * 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 배치 조회한다. wiki 멘션 하이드레이션용 — 가시성은 PROJECT_MEMBER
-   * 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #watchedReadableCondition}), 삭제된 프로젝트의 이슈 제외. PROJECT 조인으로
-   * projectKey/number/title 을 함께 반환한다. 빈 ids 면 빈 리스트.
+   * 전역 issue.id 목록 중 호출자가 멤버인 프로젝트의 활성 이슈만 경량 참조로 배치 조회한다. wiki 멘션 하이드레이션용 — 가시성은 프로젝트 멤버십(직접 멤버 +
+   * 조직도 부서, WP-1057) 멤버십 EXISTS 로 스코핑(비슷한 패턴이 {@link #watchedReadableCondition}), 삭제된 프로젝트의 이슈 제외.
+   * PROJECT 조인으로 projectKey/number/title 을 함께 반환한다. 빈 ids 면 빈 리스트.
    */
   public List<com.workplace.issue.dto.IssueRef> findVisibleRefsByIds(
       long callerId, List<Long> issueIds) {
@@ -1846,15 +1832,7 @@ public class IssueRepository {
         .and(ISSUE.DELETED_AT.isNull())
         // 프로젝트 soft-delete 는 소속 이슈를 정리하지 않는다 — 삭제된 프로젝트의 이슈는 삭제된 이슈처럼 숨긴다(WP-786).
         .and(com.workplace.jooq.Tables.PROJECT.DELETED_AT.isNull())
-        .and(
-            org.jooq.impl.DSL.exists(
-                dsl.selectOne()
-                    .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
-                    .where(
-                        com.workplace.jooq.Tables.PROJECT_MEMBER
-                            .PROJECT_ID
-                            .eq(ISSUE.PROJECT_ID)
-                            .and(com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(callerId)))))
+        .and(com.workplace.global.share.ProjectMembership.isMemberOf(ISSUE.PROJECT_ID, callerId))
         .fetch(
             r ->
                 new com.workplace.issue.dto.IssueRef(
@@ -1896,7 +1874,7 @@ public class IssueRepository {
 
   /**
    * 출처로 연결된 이슈 중 호출자가 멤버인 프로젝트의 활성 이슈 최신 1건(key·title·status). 가시성은 {@link #findVisibleRefsByIds} 와
-   * 같은 PROJECT_MEMBER 멤버십 EXISTS — 프로젝트에서 빠진 사용자에게 제목·상태를 새지 않게 한다. 테넌트 RLS 안의 이슈만 보인다.
+   * 같은 프로젝트 멤버십 판정(직접 멤버 + 조직도 부서, WP-1057) — 프로젝트에서 빠진 사용자에게 제목·상태를 새지 않게 한다. 테넌트 RLS 안의 이슈만 보인다.
    */
   public Optional<com.workplace.issue.dto.SourceIssueRef> findVisibleSourceIssue(
       long callerId, String sourceType, long sourceId) {
@@ -1909,15 +1887,7 @@ public class IssueRepository {
         .and(ISSUE.SOURCE_ID.eq(sourceId))
         .and(ISSUE.DELETED_AT.isNull())
         .and(PROJECT.DELETED_AT.isNull()) // 삭제된 프로젝트의 이슈는 숨긴다(WP-786)
-        .and(
-            org.jooq.impl.DSL.exists(
-                dsl.selectOne()
-                    .from(com.workplace.jooq.Tables.PROJECT_MEMBER)
-                    .where(
-                        com.workplace.jooq.Tables.PROJECT_MEMBER
-                            .PROJECT_ID
-                            .eq(ISSUE.PROJECT_ID)
-                            .and(com.workplace.jooq.Tables.PROJECT_MEMBER.USER_ID.eq(callerId)))))
+        .and(com.workplace.global.share.ProjectMembership.isMemberOf(ISSUE.PROJECT_ID, callerId))
         .orderBy(ISSUE.ID.desc())
         .limit(1)
         .fetchOptional(

@@ -11,6 +11,7 @@ import com.workplace.jooq.tables.User;
 import com.workplace.jooq.tables.UserGroup;
 import com.workplace.jooq.tables.UserGroupMember;
 import com.workplace.user.dto.UserKind;
+import java.util.Collection;
 import org.jooq.Condition;
 import org.jooq.Field;
 import org.jooq.Record1;
@@ -123,6 +124,15 @@ public final class Departments {
    * 부서(SHARED)만 출발점이 된다 — 개인 그룹을 넘겨도 그 구성원이 부서 구성원으로 세어지지 않게 여기서 거른다.
    */
   public static SubtreeMembers subtreeMembers(String alias, Select<? extends Record1<Long>> roots) {
+    return subtreeMembers(alias, roots, null);
+  }
+
+  /**
+   * {@link #subtreeMembers(String, Select)} 를 주어진 사람(onlyUserIds)으로 좁힌 것 — 「이 몇 명이 부서로 들어오나」만 볼 때
+   * 부서 트리의 구성원 전원을 만들지 않게, 구성원 행을 사람 id 로 먼저 거른다(같은 규칙, 결과는 원래 결과 중 그 사람들만). null 이면 거르지 않는다.
+   */
+  public static SubtreeMembers subtreeMembers(
+      String alias, Select<? extends Record1<Long>> roots, Collection<Long> onlyUserIds) {
     UserGroup r = USER_GROUP.as(alias + "_r");
     Subtree st =
         subtree(
@@ -135,7 +145,8 @@ public final class Departments {
             .join(m)
             .on(m.GROUP_ID.eq(st.groupId()))
             .and(m.TARGET_TYPE.eq("MEMBER"))
-            .where(activeHumanMember(m.TARGET_ID, m.TENANT_ID))
+            .where(onlyUserIds == null ? DSL.noCondition() : m.TARGET_ID.in(onlyUserIds))
+            .and(activeHumanMember(m.TARGET_ID, m.TENANT_ID))
             .asTable(alias);
     return new SubtreeMembers(
         t,
@@ -187,13 +198,23 @@ public final class Departments {
    */
   public static Select<Record1<Long>> withAncestorsOf(Field<Long> userId) {
     UserGroup g = USER_GROUP.as("dep_my_g");
+    return withAncestorsOf("dep_my", g, activeHumanMember(userId, g.TENANT_ID), userId);
+  }
+
+  /**
+   * {@link #withAncestorsOf} 와 같되 활성 여부를 보지 않는다 — 사람이 직접 속한 조직도 부서와 그 모든 상위 부서. 구성원 정지처럼 「사람이 부서
+   * 구성원으로 세어지지 않게 된」 뒤에도 그 사람이 부서로 걸려 있던 곳을 찾을 때 쓴다({@link #withAncestorsOf} 는 활성 사람만 출발점으로 삼아 정지
+   * 뒤에는 비어 있다). 권한 판정에는 쓰지 않는다.
+   */
+  public static Select<Record1<Long>> withAncestorsOfIncludingInactive(Field<Long> userId) {
+    return withAncestorsOf("dep_mya", USER_GROUP.as("dep_mya_g"), DSL.noCondition(), userId);
+  }
+
+  /** 두 「내 부서와 상위 부서」의 본체 — 출발점(직접 속한 부서)에 extra 조건을 더해 위로 올라간다. */
+  private static Select<Record1<Long>> withAncestorsOf(
+      String alias, UserGroup g, Condition extra, Field<Long> userId) {
     Ancestors a =
-        ancestors(
-            "dep_my",
-            DSL.select(g.ID)
-                .from(g)
-                .where(directDepartmentOf(g, userId))
-                .and(activeHumanMember(userId, g.TENANT_ID)));
+        ancestors(alias, DSL.select(g.ID).from(g).where(directDepartmentOf(g, userId)).and(extra));
     return DSL.select(a.groupId()).from(a.table()); // IN 의 피연산자라 중복을 빼지 않는다
   }
 }

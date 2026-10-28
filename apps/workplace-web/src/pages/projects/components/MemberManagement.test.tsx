@@ -18,6 +18,10 @@ vi.mock('@/hooks/queries/useProjectMembers', () => {
     useAddMember: () => mutation,
     useUpdateMemberRole: () => mutation,
     useRemoveMember: () => mutation,
+    // 멤버 부서(WP-1057) — 이 파일은 모드 분기만 보므로 부서는 없다. 부서 행은 MemberManagementDepartments.test.tsx 가 본다.
+    useProjectMemberGroups: () => ({ isLoading: false, data: [] }),
+    useAddMemberGroup: () => mutation,
+    useRemoveMemberGroup: () => mutation,
   }
 })
 // picker 는 닫힌 상태라 조회하지 않지만, 훅 자체는 렌더마다 불리므로 빈 결과로 끊는다.

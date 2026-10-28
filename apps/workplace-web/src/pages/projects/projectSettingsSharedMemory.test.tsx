@@ -26,6 +26,8 @@ function settingsHandlers(project: ReturnType<typeof createProject>, count: numb
   return [
     http.get(base, () => HttpResponse.json(project)),
     http.get(`${base}/members`, () => HttpResponse.json([createMember({ userId: 1 })])),
+    // 팀 프로젝트 멤버 섹션의 조직도 부서(WP-1057) — 없음.
+    http.get(`${base}/member-groups`, () => HttpResponse.json([])),
     http.get(`${base}/fields`, () => HttpResponse.json([])),
     http.get(`${base}/issues/group-counts`, () => HttpResponse.json({ groupBy: 'statusId', groups: [] })),
     http.get('/api/v1/shared-ai-memories/spaces', () => {

@@ -177,6 +177,8 @@ describe('프로젝트 설정', () => {
   const settingsHandlers = (project: ProjectResponse) => [
     http.get(`${API}/projects/${project.key}`, () => HttpResponse.json(project)),
     http.get(`${API}/projects/${project.key}/members`, () => HttpResponse.json([createMember({ userId: 1 })])),
+    // 팀 프로젝트 멤버 섹션의 조직도 부서(WP-1057) — 없음.
+    http.get(`${API}/projects/${project.key}/member-groups`, () => HttpResponse.json([])),
     ...projectScreen(project.key, { project }).handlers,
   ]
 

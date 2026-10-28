@@ -3,11 +3,9 @@ package com.workplace.issue.service;
 
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.PROJECT;
-import static com.workplace.jooq.Tables.PROJECT_MEMBER;
-import static org.jooq.impl.DSL.exists;
-import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.drive.api.DriveLinkSourceResolver;
+import com.workplace.global.share.ProjectMembership;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -39,17 +37,8 @@ public class IssueDriveLinkSourceResolver implements DriveLinkSourceResolver {
   public Map<Long, Resolved> resolve(long callerId, Collection<Long> sourceIds) {
     if (sourceIds == null || sourceIds.isEmpty()) return Map.of();
 
-    // accessible 은 SELECT 절 EXISTS 로 산출 — WHERE 필터가 아님(비멤버는 accessible=false 로 반환)
-    Field<Boolean> accessible =
-        DSL.field(
-            exists(
-                selectOne()
-                    .from(PROJECT_MEMBER)
-                    .where(
-                        PROJECT_MEMBER
-                            .PROJECT_ID
-                            .eq(ISSUE.PROJECT_ID)
-                            .and(PROJECT_MEMBER.USER_ID.eq(callerId)))));
+    // accessible 은 SELECT 절 멤버 판정으로 산출 — WHERE 필터가 아님(비멤버는 accessible=false 로 반환)
+    Field<Boolean> accessible = DSL.field(ProjectMembership.isMemberOf(ISSUE.PROJECT_ID, callerId));
 
     List<Long> ids = List.copyOf(sourceIds);
     Map<Long, Resolved> out = new HashMap<>();

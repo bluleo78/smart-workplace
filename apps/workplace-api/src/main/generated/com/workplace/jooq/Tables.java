@@ -103,6 +103,7 @@ import com.workplace.jooq.tables.ProjectComponent;
 import com.workplace.jooq.tables.ProjectFavorite;
 import com.workplace.jooq.tables.ProjectIssueSequence;
 import com.workplace.jooq.tables.ProjectMember;
+import com.workplace.jooq.tables.ProjectMemberGroup;
 import com.workplace.jooq.tables.ProjectStatus;
 import com.workplace.jooq.tables.ProjectVersion;
 import com.workplace.jooq.tables.PushSubscription;
@@ -647,6 +648,11 @@ public class Tables {
      * The table <code>public.project_member</code>.
      */
     public static final ProjectMember PROJECT_MEMBER = ProjectMember.PROJECT_MEMBER;
+
+    /**
+     * The table <code>public.project_member_group</code>.
+     */
+    public static final ProjectMemberGroup PROJECT_MEMBER_GROUP = ProjectMemberGroup.PROJECT_MEMBER_GROUP;
 
     /**
      * The table <code>public.project_status</code>.
