@@ -1,6 +1,7 @@
 package com.workplace.wiki.service;
 
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.user.outbound.DepartmentMembersGrown;
 import com.workplace.user.outbound.DepartmentMembersReduced;
 import com.workplace.wiki.dto.WikiMemberGroupResponse;
 import com.workplace.wiki.exception.WikiSpaceMemberNotFoundException;
@@ -123,6 +124,22 @@ public class WikiSpaceMemberGroupService {
     }
     // 행위자는 없다 — 부서 변경은 user 모듈에서 왔다.
     spaceIds.forEach(id -> notifier.spaceChanged(id, null, members.memberUserIds(id)));
+    publisher.publishEvent(new WikiSpaceAudienceChangedEvent(e.tenantId(), spaceIds));
+  }
+
+  /**
+   * 조직도 부서의 구성원이 늘었다(WP-1102 이벤트) — 그 부서(상위 부서도 담겨 온다)를 멤버로 둔 스페이스마다 변경 알림을 낸다. 수신자는 커밋 직전에 멤버로 다시
+   * 조회되므로 새로 들어온 사람의 사이드바에도 스페이스가 나타난다. 직접 보기 전용인 사람이 부서로 편집자가 되듯 역할이 오를 수도 있어 스페이스 단위 신호도 낸다 — 열린
+   * 편집기 연결이 새 역할로 다시 판정된다(공유 정리는 편집을 잃은 사람이 없어 아무것도 하지 않는다).
+   */
+  @EventListener
+  public void onDepartmentMembersGrown(DepartmentMembersGrown e) {
+    List<Long> spaceIds = groups.findSpaceIdsByGroups(e.groupIds());
+    if (spaceIds.isEmpty()) {
+      return;
+    }
+    // 행위자는 없다 — 부서 변경은 user 모듈에서 왔다.
+    spaceIds.forEach(id -> notifier.spaceChanged(id, null, List.of()));
     publisher.publishEvent(new WikiSpaceAudienceChangedEvent(e.tenantId(), spaceIds));
   }
 

@@ -12,6 +12,8 @@ export interface SpaceMember {
   userId: number
   name: string
   role: SpaceRole
+  /** 멤버 부서로 받는 역할(WP-1102) — 없으면 null·생략. */
+  departmentRole?: SpaceGroupRole | null
 }
 
 /** 역할 선택 상자 순서 — 권한이 넓은 순. */
@@ -64,4 +66,17 @@ export function isLockedMemberRow(
   ownerId: number,
 ): boolean {
   return isSoleOwner(member, members) || member.userId === myUserId || member.userId === ownerId
+}
+
+/** 역할의 높이 — 실효 역할 비교용(OWNER 3 > EDITOR 2 > VIEWER 1). 서버 실효 역할 규칙과 같다. */
+const ROLE_RANK: Record<SpaceRole, number> = { OWNER: 3, EDITOR: 2, VIEWER: 1 }
+
+/**
+ * 직접 역할보다 부서 역할이 높을 때의 실효 역할 안내(WP-1102) — 「조직으로 편집자」. 실효 역할은 둘 중 높은 쪽이라, 직접 역할을 보기 전용으로 낮춰도
+ * 부서로 편집자면 계속 편집할 수 있다 — 멤버 창이 보기 전용으로만 보이지 않게 알린다. 부서 역할이 같거나 낮으면 null.
+ */
+export function departmentRoleNote(m: Pick<SpaceMember, 'role' | 'departmentRole'>): string | null {
+  const dept = m.departmentRole
+  if (!dept || (ROLE_RANK[dept] ?? 0) <= (ROLE_RANK[m.role] ?? 0)) return null
+  return `조직으로 ${spaceRoleLabel(dept)}`
 }

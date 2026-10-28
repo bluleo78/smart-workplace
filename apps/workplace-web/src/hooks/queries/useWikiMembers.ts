@@ -73,6 +73,8 @@ export function useWikiMemberGroups(spaceId: number | null) {
 function invalidateGroups(qc: ReturnType<typeof useQueryClient>, spaceId: number) {
   qc.invalidateQueries({ queryKey: wikiKeys.memberGroups(spaceId) })
   qc.invalidateQueries({ queryKey: wikiKeys.spaces() })
+  // 사람 행의 「조직으로 …」 안내(부서로 받는 역할, WP-1102)가 부서 역할을 따라 바뀐다.
+  qc.invalidateQueries({ queryKey: wikiKeys.members(spaceId) })
 }
 
 // 부서 추가 — { groupId, role }.

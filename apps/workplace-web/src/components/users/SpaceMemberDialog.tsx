@@ -26,6 +26,7 @@ import { UserAvatar } from '@/components/users/UserAvatar'
 import { useAuth } from '@/hooks/useAuth'
 import { handleApiError } from '@/lib/api-error'
 import {
+  departmentRoleNote,
   isLockedMemberRow,
   SPACE_GROUP_ROLES,
   SPACE_ROLES,
@@ -256,6 +257,7 @@ export function SpaceMemberDialog({
             {members?.map((m) => {
               // 마지막 소유자·내 행·생성자 행은 역할 변경·제거 불가(WP-656) — 서버도 마지막 소유자는 거부하지만 누르기 전에 막는다.
               const locked = isLockedMemberRow(m, members, user?.id, ownerId)
+              const roleNote = departmentRoleNote(m)
               return (
                 <div
                   key={m.userId}
@@ -267,6 +269,16 @@ export function SpaceMemberDialog({
                   <span className="min-w-36 flex-1 break-keep [overflow-wrap:anywhere]" data-testid={tid(`member-name-${m.userId}`)}>
                     {m.name}
                     {m.userId === user?.id && <span className="ml-1 text-muted-foreground">(나)</span>}
+                    {/* 직접 역할보다 부서 역할이 높으면 실효 역할을 함께 보인다(WP-1102) — 보기 전용으로 낮춰도 부서로 계속 편집할 수 있다. */}
+                    {roleNote && (
+                      <span
+                        className="block text-xs text-muted-foreground"
+                        title="직접 역할과 조직(부서) 역할 중 높은 쪽이 적용돼요"
+                        data-testid={tid(`member-department-role-${m.userId}`)}
+                      >
+                        {roleNote}
+                      </span>
+                    )}
                   </span>
                   <div className="ml-auto flex shrink-0 items-center gap-2">
                     {canManage ? (
