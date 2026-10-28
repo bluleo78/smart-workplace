@@ -192,7 +192,7 @@ test('SKILL.md 3번: 고를 후보가 없을 때만 대기열에서 최대 하�
 test('SKILL.md 3번: 내 이슈 목록 하나(프로젝트 키 없이)로 고르기와 동시 진행 세기를 함께 한다 (WP-1040)', () => {
   assert.ok(s3.includes("`list_issues({ assignee: 'me', status: 'TODO,IN_PROGRESS', size: 100 })`"));
   assert.ok(s3.includes('`issueKey` 가 `<프로젝트 키>-` 로 시작'));
-  assert.ok(workLoopSkill.includes('예외는 3번에서 내 이슈 목록을 읽어 「동시 진행 상한」을 셀 때뿐이다'));
+  assert.ok(workLoopSkill.includes('예외는 3번에서 내 이슈 목록을 읽어 「동시 진행 상한」을 셀 때와'));
 });
 
 test('SKILL.md 3번: 세는 상태와 빼는 것, 막는 범위가 정해져 있다 (WP-1040)', () => {
@@ -424,7 +424,7 @@ test('SKILL.md 5번: 알림 감시(gw-events)를 Monitor 로 걸고, 처리 중�
   assertBefore(text, '### 4. 이슈 하나 처리', '`mark_notification_read({ issueKey })`');
 });
 
-// WP-1011·WP-1046 start-agent — 사람이 만든 홈에서 AI 하나를 골라, 맡은 프로젝트(연결된 저장소)마다 clone 하고 tmux 창으로 work-loop 세션을 띄운다.
+// WP-1011·WP-1046 start-agent — 사람이 만든 홈에서 AI 하나를 골라, 맡은 프로젝트(연결된 저장소)마다 clone 하고 tmux 한 창의 칸으로 work-loop 세션을 띄운다(WP-1053).
 test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만 하고, 그 AI 키로 읽은 연결된 저장소 프로젝트만 AI·프로젝트마다 clone·창으로 띄운다 (WP-1011·WP-1046)', () => {
   const text = readFileSync(new URL('start-agent/SKILL.md', skillsDir), 'utf8');
   // 홈 세션은 내 토큰이어도 된다 — 신원을 바꾸지 않고, 고른 AI 의 키로 프로젝트를 읽는다(MCP 도구를 부르지 않는다).
@@ -433,8 +433,13 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   assert.ok(text.includes('`/genia-works:login`'));
   assert.ok(text.includes('키는 대화에 붙이지 않는다'));
   assert.ok(text.includes('이 세션의 신원(내 토큰이어도 된다)은 바꾸지 않는다'));
-  assert.ok(!text.includes('get_member'));
   assert.ok(!text.includes('list_projects'));
+  // 신원은 알릴 사람을 적는 데만 읽는다 — 사람 계정일 때만(WP-1053).
+  assert.ok(text.includes("`get_member({ username: 'me' })`"));
+  assert.ok(text.includes('set operator "<username>"'));
+  // 첫머리에 플러그인 버전 — 서버에 옛 버전이 남아 돌던 것을 알아차리게(WP-1053).
+  assert.ok(text.includes('scripts/gw-plugin-version"'));
+  assert.ok(text.includes('`claude plugin marketplace update genia-works`'));
   // 설치·로그인은 안내만.
   assert.ok(text.includes('설치·로그인은 하지 않는다'));
   assert.ok(text.includes('`command -v git tmux gh`'));
@@ -453,18 +458,47 @@ test('start-agent: 저장소 밖 홈에서 AI 를 고르고, 도구는 안내만
   assert.ok(text.includes('config --get remote.origin.url'));
   assert.ok(text.includes('status --porcelain'));
   // 띄운 창은 그 AI 신원과 자동 압축 40%(work-loop.sh 와 같은 값)로 돈다.
-  assert.ok(text.includes('env "GENIA_WORKS_AS=<AI 이름>" "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40" claude'));
+  assert.ok(text.includes('env "GENIA_WORKS_AS=<AI 이름>" "GENIA_WORKS_AGENT_DIR=<홈>/<AI 이름>" "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=40" claude'));
+  // 대기열 라벨은 처음 한 번 묻고 기억한다 — 저장한 값(빈 값 포함)이 있으면 묻지 않는다(WP-1053).
+  assert.ok(text.includes('set queue "<라벨>"'));
+  assert.ok(text.includes('get queue` — 저장한 값이 있으면(빈 값 포함) 묻지 않고'));
+  assert.ok(text.includes('「대기열 라벨」 절 표에 적힌 라벨'));
   assert.ok(text.includes('/loop /genia-works:work-loop <키>'));
   // 반복은 7일 뒤 끝난다 — --restart 로 돌던 창도 닫고 새로 띄운다(WP-1046).
   assert.ok(text.includes('`agent-window` 의 첫 인자로 `--restart` 를 넣는다'));
   assert.ok(text.includes('`/genia-works:start-agent <AI 이름> --restart`'));
-  assert.ok(text.includes('`tmux attach -r -t <세션>`'));
+  // 한 창을 프로젝트마다 칸으로 나눈다 — 붙어서 직접 묻고 치므로 읽기 전용이 아니다(WP-1053).
+  assert.ok(text.includes('`tmux attach -t <세션>`'));
+  assert.ok(!text.includes('attach -r'));
+  assert.ok(text.includes('`Ctrl+b z`'));
+  assert.ok(text.includes('`revived <세션>`'));
+  assert.ok(text.includes('`legacy <세션>`'));
   // 돌던 창·저장소는 건드리지 않는다 — 주소가 바뀐 clone 은 지우지 않고 알린다.
   assert.ok(text.includes('다르면 건드리지 않고'));
-  assert.ok(text.includes('창을 닫거나 저장소 폴더를 지우는 일은 하지 않는다'));
+  assert.ok(text.includes('칸·창을 닫거나 저장소 폴더를 지우는 일은 하지 않는다'));
+  assert.ok(text.includes('scripts/agent-window" --keys "<AI 이름>"'));
   // 폴더 확인 → AI 고르기 → 도구 확인 → 프로젝트 읽기 → 띄우기 순.
   assertBefore(text, 'git rev-parse --is-inside-work-tree', 'scripts/gw-keys" list');
   assertBefore(text, 'scripts/gw-keys" list', '`command -v git tmux gh`');
   assertBefore(text, '`command -v git tmux gh`', 'scripts/gw-agent-projects');
-  assertBefore(text, 'scripts/gw-agent-projects', 'scripts/agent-window');
+  assertBefore(text, 'scripts/gw-plugin-version"', 'git rev-parse --is-inside-work-tree');
+  assertBefore(text, 'scripts/gw-agent-projects', 'set queue "<라벨>"');
+  assertBefore(text, 'set queue "<라벨>"', 'scripts/agent-window');
+});
+
+// WP-1053 새 프로젝트 확인 — start-agent 가 띄운 칸만, 6시간에 칸 하나가, 칸 없는 프로젝트를 부른 사람에게 한 번 DM 으로 알린다.
+test('work-loop: 새 프로젝트 확인은 start-agent 칸에서만 agent-home 으로 거르고 사람에게 DM 만 보낸다 (WP-1053)', () => {
+  const text = readFileSync(new URL('work-loop/SKILL.md', skillsDir), 'utf8');
+  assert.ok(text.includes('#### 새 프로젝트 확인'));
+  assert.ok(text.includes('scripts/agent-home" "$GENIA_WORKS_AGENT_DIR"'));
+  assert.ok(text.includes('`agent-home due` 를 한 번 부른다'));
+  assert.ok(text.includes('출력이 알릴 사람의 username'));
+  assert.ok(text.includes('`viewerRole` 과 `repositoryUrl` 이 있는 프로젝트 키'));
+  assert.ok(text.includes('`agent-home missing <키>…`'));
+  assert.ok(text.includes("`open_dm({ usernames: ['<알릴 사람>'] })`"));
+  assert.ok(text.includes('칸을 스스로 띄우지는 않는다'));
+  // 다른 프로젝트를 읽는 예외로 「이 세션의 프로젝트만 다룬다」에 적혀 있다.
+  assert.ok(text.includes('5번 「새 프로젝트 확인」에서 내가 맡은 프로젝트 목록을 읽을 때'));
+  assertBefore(text, '`agent-home due` 를 한 번 부른다', '`list_projects` 를 끝까지');
+  assertBefore(text, '`list_projects` 를 끝까지', '`agent-home missing <키>…`');
 });

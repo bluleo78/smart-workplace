@@ -1,0 +1,31 @@
+#!/bin/sh
+# gw-plugin-version — 이 플러그인의 설치된 버전과 마켓플레이스가 가리키는 최신 버전을 「<설치됨> <최신> <판정>」 한 줄로 낸다(WP-1053).
+# start-agent 가 첫머리에 보여, 서버에 옛 플러그인이 남아 돌고 있는 것(마켓플레이스를 새로 받지 않은 경우)을 알아차리게 한다.
+#   판정: update(최신이 더 높다 — 업데이트 안내) · ok(같거나 설치된 것이 더 높다 — 웹 배포 전에 태그로 설치한 경우) · unknown(최신을 못 읽음, 최신은 「?」)
+# 최신은 마켓플레이스 파일의 ref(genia-works--v<버전>)에서 읽는다. 주소는 Claude 가 이 마켓플레이스를 받은 주소
+# (<Claude 설정 폴더>/plugins/known_marketplaces.json 의 genia-works — 웹이 내는 정적 파일이라 API 주소와 다를 수 있다),
+# 거기 없으면 GENIA_WORKS_API_URL(없으면 운영)의 스킴·호스트 + /claude/marketplace.json.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/gw-lib.sh"
+
+installed=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$here/../.claude-plugin/plugin.json" | head -n 1)
+known="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/known_marketplaces.json"
+url=""
+[ -f "$known" ] && url=$(sed -n '/"genia-works":[[:space:]]*{/,/"installLocation"/ s/.*"url":[[:space:]]*"\([^"]*\)".*/\1/p' "$known" | head -n 1)
+[ -n "$url" ] || url="$(gw_api_url | sed 's#^\([a-z]*://[^/]*\).*#\1#')/claude/marketplace.json"
+latest=$(curl -s --connect-timeout 5 --max-time 5 "$url" 2>/dev/null |
+  sed -n 's/.*"ref":[[:space:]]*"genia-works--v\([^"]*\)".*/\1/p' | head -n 1)
+
+# 점으로 나눈 숫자를 앞에서부터 비교한다 — 최신이 더 높을 때만 update.
+verdict=unknown
+if [ -n "$latest" ] && [ -n "$installed" ]; then
+  verdict=$(awk -v a="$installed" -v b="$latest" 'BEGIN {
+    n = split(a, x, "."); m = split(b, y, ".")
+    for (i = 1; i <= (n > m ? n : m); i++) {
+      if (y[i] + 0 > x[i] + 0) { print "update"; exit }
+      if (y[i] + 0 < x[i] + 0) { print "ok"; exit }
+    }
+    print "ok"
+  }')
+fi
+printf '%s %s %s\n' "${installed:-?}" "${latest:-?}" "$verdict"

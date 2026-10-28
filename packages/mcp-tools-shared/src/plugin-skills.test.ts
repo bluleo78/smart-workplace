@@ -56,7 +56,11 @@ describeSkillTools('work-on', {
   read_file: ['source', 'issueKey', 'messageId', 'attachmentId'],
 });
 
-// start-agent 는 MCP 도구를 부르지 않는다 — 고른 AI 의 키로 스크립트(gw-agent-projects)가 REST 목록을 읽는다(WP-1046).
+// start-agent 는 프로젝트 목록을 MCP 로 읽지 않는다 — 고른 AI 의 키로 스크립트(gw-agent-projects)가 REST 목록을 읽는다(WP-1046).
+// MCP 로는 이 세션의 신원만 읽어, 새 프로젝트를 알릴 사람으로 적는다(WP-1053).
+describeSkillTools('start-agent', {
+  get_member: ['username'],
+});
 
 // WP-449: work-on 의 짝 — 결과 요약을 남기며 작업을 끝내고(검토 대기·완료 뒤 DONE·취소·반려·실패) 리소스를 정리하는 스킬.
 describeSkillTools('work-done', {
@@ -86,4 +90,8 @@ describeSkillTools('work-loop', {
   search_members: ['kind'],
   claim_issue: ['issueKey', 'queueLabel'],
   add_issue_chat: ['issueKey', 'body'],
+  // 새 프로젝트 확인 — 맡은 프로젝트 중 칸이 없는 것을 start-agent 를 부른 사람에게 DM 으로 알린다(WP-1053).
+  list_projects: ['page'],
+  open_dm: ['usernames'],
+  add_channel_message: ['channelId', 'body'],
 });

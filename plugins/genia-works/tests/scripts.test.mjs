@@ -583,9 +583,9 @@ async function fakeProjectServer({ status = 200, body = '{"content":[],"page":0,
   return { url: `http://127.0.0.1:${server.address().port}/api/v1`, reqs, close: () => server.close() };
 }
 
-/** gw-agent-projects 를 띄운다 — 같은 프로세스의 가짜 서버가 답해야 하므로 spawnSync 가 아니라 비동기로 기다린다. */
-function agentProjects(args, env = {}) {
-  const p = spawn(join(scripts, 'gw-agent-projects'), args, {
+/** 스크립트를 비동기로 띄운다 — 같은 프로세스의 가짜 서버가 답해야 하므로 spawnSync 로는 기다릴 수 없다. */
+function runAsync(cmd, args, env = {}) {
+  const p = spawn(join(scripts, cmd), args, {
     env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, ...env },
   });
   let stdout = '';
@@ -594,6 +594,8 @@ function agentProjects(args, env = {}) {
   p.stderr.on('data', (d) => (stderr += d));
   return new Promise((r) => p.on('close', (status) => r({ status, stdout, stderr })));
 }
+
+const agentProjects = (args, env) => runAsync('gw-agent-projects', args, env);
 
 test('gw-agent-projects: 등록한 AI 키로 프로젝트 목록 한 페이지(100개씩)를 그대로 내고, 키는 어디에도 내지 않는다', async () => {
   run('gw-keys', ['add', 'kodi'], { input: 'ak_FAKE_KODI\n' });
@@ -663,64 +665,250 @@ test('gw-agent-projects: 키가 없거나 인자가 잘못되면 서버에 묻�
   assert.equal((await agentProjects(['../x'])).status, 1);
 });
 
-/** 가짜 tmux 로 agent-window 를 부른다 — 상태 파일·호출 기록을 돌려준다. */
-function agentWindow(args, state) {
-  const tmuxState = join(home, 'tmux-state');
-  const log = join(home, 'tmux-log');
-  if (state !== undefined) writeFileSync(tmuxState, state);
-  const r = run('agent-window', args, {
-    env: { GW_TMUX: join(here, 'fake-tmux'), FAKE_TMUX_STATE: tmuxState, FAKE_TMUX_LOG: log },
-  });
-  const read = (f) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
-  return { ...r, state: read(tmuxState), log: read(log) };
+// ---------------------------------------------------------------- agent-window — 진짜 tmux 로 (WP-1053)
+// 칸 나누기·죽은 칸·다시 띄우기는 tmux 의 실제 동작이라 가짜로는 지킬 수 없다(WP-1046 의 결함이 가짜 tmux 로만 보다 빠졌다).
+// 테스트마다 이름이 다른 격리 서버(-L)를 설정 파일 없이(-f /dev/null) 띄워 사람의 tmux 와 섞이지 않게 하고, 끝나면 서버째 끈다.
+const hasTmux = spawnSync('tmux', ['-V']).status === 0;
+const tmuxTest = (name, fn) => test(name, { skip: !hasTmux && 'tmux 없음' }, fn);
+let tmuxSeq = 0;
+
+/** 격리 tmux 서버 — wrapper 는 GW_TMUX 로 넘길 실행 파일, tmux(...) 는 같은 서버에 명령을 보낸다. */
+function tmuxServer(t) {
+  const wrapper = join(home, 'tmux');
+  writeFileSync(wrapper, `#!/bin/sh\nexec tmux -L gwtest-${process.pid}-${++tmuxSeq} -f /dev/null "$@"\n`);
+  chmodSync(wrapper, 0o755);
+  const tmux = (...args) => spawnSync(wrapper, args, { encoding: 'utf8' }).stdout.trim();
+  t.after(() => tmux('kill-server'));
+  return { wrapper, tmux };
 }
 
-test('agent-window: 세션이 없으면 만들고 창을 띄운다 — 명령 인자는 공백·한글도 그대로', () => {
-  const r = agentWindow(['kodi', 'WP', '/home/kodi/repos/WP', 'env', 'GENIA_WORKS_AS=kodi', 'claude', '/loop /genia-works:work-loop WP --queue "AI 개발팀"'], '');
-  assert.equal(r.status, 0);
+/** 세션의 칸을 「창 이름 · 칸 id · 죽음 여부 · 키 · pid」 객체로 읽는다. */
+function panes(tmux, session) {
+  return tmux('list-panes', '-s', '-t', `=${session}`, '-F', '#W|#{pane_id}|#{pane_dead}|#{@gw_key}|#{pane_pid}')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      const [win, id, dead, key, pid] = l.split('|');
+      return { win, id, dead: dead === '1', key, pid };
+    });
+}
+
+const until = async (cond) => {
+  for (let i = 0; i < 100 && !cond(); i++) await new Promise((r) => setTimeout(r, 30));
+  assert.ok(cond());
+};
+
+function agentWindow(wrapper, args) {
+  return run('agent-window', args, { env: { GW_TMUX: wrapper } });
+}
+
+tmuxTest('agent-window: 세션이 없으면 work 창 하나로 만들고, 다음 프로젝트는 같은 창에 칸으로 나눈다 — 명령 인자는 공백·한글도 그대로', async (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  const out = join(home, 'args');
+  const record = ['sh', '-c', 'pwd > "$0"; printf "%s\\n" "$@" >> "$0"; exec sleep 60', out, '/loop /genia-works:work-loop WP --queue "AI 개발팀"'];
+  const r = agentWindow(wrapper, ['kodi', 'WP', home, ...record]);
+  assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, 'started kodi\n');
-  assert.equal(r.state, 'kodi:home\nkodi:WP\n');
-  assert.match(r.log, /^new-window\t-d\t-t\t=kodi:\t-n\tWP\t-c\t\/home\/kodi\/repos\/WP\tenv\tPATH=[^\t]+\tenv\tGENIA_WORKS_AS=kodi\tclaude\t\/loop \/genia-works:work-loop WP --queue "AI 개발팀"$/m);
+  await until(() => existsSync(out) && readFileSync(out, 'utf8').includes('AI'));
+  assert.equal(readFileSync(out, 'utf8'), `${home}\n/loop /genia-works:work-loop WP --queue "AI 개발팀"\n`);
+
+  assert.equal(agentWindow(wrapper, ['kodi', 'HR', home, 'sleep', '60']).stdout, 'started kodi\n');
+  assert.deepEqual(panes(tmux, 'kodi').map((p) => [p.win, p.key]), [['work', 'WP'], ['work', 'HR']]);
+  // 붙은 사람이 클릭으로 칸을 고르고, 칸 위에 키가 보이고, 끝난 칸이 남게.
+  assert.equal(tmux('show-options', '-v', '-t', '=kodi:', 'mouse'), 'on');
+  assert.equal(tmux('show-options', '-wv', '-t', '=kodi:=work', 'remain-on-exit'), 'on');
+  assert.equal(tmux('show-options', '-wv', '-t', '=kodi:=work', 'pane-border-status'), 'top');
+  assert.match(tmux('show-options', '-wv', '-t', '=kodi:=work', 'pane-border-format'), /@gw_key/);
 });
 
-test('agent-window: 같은 이름의 창이 있으면 건드리지 않고 exists', () => {
-  const r = agentWindow(['kodi', 'WP', '/x', 'claude'], 'kodi:home\nkodi:WP\n');
-  assert.equal(r.stdout, 'exists kodi\n');
-  assert.equal(r.state, 'kodi:home\nkodi:WP\n');
-  assert.doesNotMatch(r.log, /new-window|new-session/);
+tmuxTest('agent-window: 돌던 칸은 exists 로 두고, 끝난 칸(죽은 칸)은 그 자리에서 다시 띄워 revived', async (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']);
+  agentWindow(wrapper, ['kodi', 'HR', home, 'true']);
+  await until(() => panes(tmux, 'kodi').find((p) => p.key === 'HR')?.dead);
+  const before = panes(tmux, 'kodi');
+
+  assert.equal(agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']).stdout, 'exists kodi\n');
+  assert.equal(agentWindow(wrapper, ['kodi', 'HR', home, 'sleep', '60']).stdout, 'revived kodi\n');
+  const after = panes(tmux, 'kodi');
+  assert.deepEqual(after.map((p) => [p.id, p.key, p.dead]), before.map((p) => [p.id, p.key, false]));
+  assert.equal(after[0].pid, before[0].pid); // 돌던 칸은 건드리지 않았다.
 });
 
-test('agent-window: 세션은 있고 창이 없으면 그 세션에 창만 더한다', () => {
-  const r = agentWindow(['kodi', 'HR', '/x', 'claude'], 'kodi:home\nkodi:WP\n');
-  assert.equal(r.stdout, 'started kodi\n');
-  assert.equal(r.state, 'kodi:home\nkodi:WP\nkodi:HR\n');
-  assert.doesNotMatch(r.log, /new-session/);
+tmuxTest('agent-window --restart: 돌던 칸도 그 자리에서 다시 띄우고 키 표시는 남는다, 없던 칸은 started', (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']);
+  const [before] = panes(tmux, 'kodi');
+  assert.equal(agentWindow(wrapper, ['--restart', 'kodi', 'WP', home, 'sleep', '61']).stdout, 'restarted kodi\n');
+  const [after] = panes(tmux, 'kodi');
+  assert.equal(after.id, before.id);
+  assert.equal(after.key, 'WP');
+  assert.notEqual(after.pid, before.pid);
+  assert.equal(agentWindow(wrapper, ['--restart', 'kodi', 'OPS', home, 'sleep', '60']).stdout, 'started kodi\n');
 });
 
-test('agent-window: 신원 이름의 . 은 tmux 처럼 _ 로 바꿔 — 다시 불러도 같은 세션을 찾아 exists', () => {
-  const first = agentWindow(['dev.kodi', 'WP', '/x', 'claude'], '');
-  assert.equal(first.stdout, 'started dev_kodi\n');
-  assert.equal(first.state, 'dev_kodi:home\ndev_kodi:WP\n');
-  const again = agentWindow(['dev.kodi', 'WP', '/x', 'claude'], first.state);
-  assert.equal(again.stdout, 'exists dev_kodi\n');
-  // 기록 파일은 두 호출이 함께 쓴다 — 두 번째 호출이 남긴 줄만 본다.
-  assert.doesNotMatch(again.log.slice(first.log.length), /new-session|new-window/);
+tmuxTest('agent-window: 예전 구성(프로젝트마다 창 + home)은 legacy 로 두고, --restart 때 칸으로 옮기며 그 옛 창만 닫는다 — home 은 둔다', (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  tmux('new-session', '-d', '-s', 'kodi', '-n', 'home', 'sleep', '60');
+  tmux('new-window', '-d', '-t', '=kodi:', '-n', 'WP', 'sleep', '60');
+  tmux('new-window', '-d', '-t', '=kodi:', '-n', 'HR', 'sleep', '60');
+
+  assert.equal(agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']).stdout, 'legacy kodi\n');
+  assert.equal(tmux('list-windows', '-t', '=kodi', '-F', '#W'), 'home\nWP\nHR');
+
+  assert.equal(agentWindow(wrapper, ['--restart', 'kodi', 'WP', home, 'sleep', '60']).stdout, 'started kodi\n');
+  // 옮기다 멈췄으면(HR 이 아직 옛 창) 그냥 부르기는 HR 칸을 더 띄우지 않는다 — 같은 clone 에 work-loop 가 둘이 되지 않게.
+  assert.equal(agentWindow(wrapper, ['kodi', 'HR', home, 'sleep', '60']).stdout, 'legacy kodi\n');
+  assert.equal(agentWindow(wrapper, ['--restart', 'kodi', 'HR', home, 'sleep', '60']).stdout, 'started kodi\n');
+  // home 창은 사람이 그 안에서 start-agent 를 돌리고 있을 수 있어 닫지 않는다.
+  assert.equal(tmux('list-windows', '-t', '=kodi', '-F', '#W #{window_active}'), 'home 0\nwork 1');
+  assert.deepEqual(panes(tmux, 'kodi').filter((p) => p.win === 'work').map((p) => p.key), ['WP', 'HR']);
+  assert.equal(tmux('show-options', '-v', '-t', '=kodi:', 'mouse'), 'on');
+  // 옮긴 뒤 남은 옛 창(연결이 지워진 프로젝트)은 home 이 없으니 새 프로젝트 더하기를 막지 않는다.
+  tmux('new-window', '-d', '-t', '=kodi:', '-n', 'OLD', 'sleep', '60');
+  assert.equal(agentWindow(wrapper, ['kodi', 'OPS', home, 'sleep', '60']).stdout, 'started kodi\n');
 });
 
-test('agent-window --restart: 있던 창은 그 자리에서 명령만 다시 띄워 restarted, 없던 창은 started (WP-1046)', () => {
-  const r = agentWindow(['--restart', 'kodi', 'WP', '/home/kodi/repos/WP', 'env', 'GENIA_WORKS_AS=kodi', 'claude'], 'kodi:home\nkodi:WP\nkodi:HR\n');
-  assert.equal(r.status, 0);
-  assert.equal(r.stdout, 'restarted kodi\n');
-  assert.equal(r.state, 'kodi:home\nkodi:WP\nkodi:HR\n');
-  assert.match(r.log, /^respawn-window\t-k\t-t\t=kodi:=WP\t-c\t\/home\/kodi\/repos\/WP\tenv\tPATH=[^\t]+\tenv\tGENIA_WORKS_AS=kodi\tclaude$/m);
-  assert.doesNotMatch(r.log, /new-window/);
-  const fresh = agentWindow(['--restart', 'kodi', 'OPS', '/x', 'claude'], 'kodi:home\n');
-  assert.equal(fresh.stdout, 'started kodi\n');
-  assert.doesNotMatch(fresh.log.slice(r.log.length), /respawn-window/);
+tmuxTest('agent-window: 곧바로 끝나는 명령(claude 실행 실패 등)도 칸이 남아 다음 부르기가 revived 로 다시 띄운다', async (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  assert.equal(agentWindow(wrapper, ['kodi', 'WP', home, 'false']).stdout, 'started kodi\n');
+  await until(() => panes(tmux, 'kodi')[0]?.dead);
+  assert.equal(panes(tmux, 'kodi')[0].key, 'WP');
+  assert.equal(agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']).stdout, 'revived kodi\n');
+  assert.equal(panes(tmux, 'kodi')[0].dead, false);
+});
+
+tmuxTest('agent-window: 붙은 화면이 작아 더 나눌 자리가 없으면 그 프로젝트만 따로 창을 띄우고, 다시 부르면 그 칸을 찾는다', (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']);
+  tmux('resize-window', '-t', '=kodi:=work', '-x', '12', '-y', '4');
+  for (const k of ['HR', 'OPS']) assert.equal(agentWindow(wrapper, ['kodi', k, home, 'sleep', '60']).stdout, 'started kodi\n');
+  assert.deepEqual(panes(tmux, 'kodi').map((p) => [p.win, p.key]), [['work', 'WP'], ['work', 'HR'], ['OPS', 'OPS']]);
+  assert.equal(agentWindow(wrapper, ['kodi', 'OPS', home, 'sleep', '60']).stdout, 'exists kodi\n');
+});
+
+tmuxTest('agent-window --keys: 칸마다 프로젝트 키, 키 없는 칸(예전 구성의 창·home)은 창 이름 — 세션이 없으면 3', (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  const keys = (name) => run('agent-window', ['--keys', name], { env: { GW_TMUX: wrapper } });
+  assert.equal(keys('dev.kodi').status, 3);
+  tmux('new-session', '-d', '-s', 'dev_kodi', '-n', 'home', 'sleep', '60');
+  tmux('new-window', '-d', '-t', '=dev_kodi:', '-n', 'OLD', 'sleep', '60');
+  agentWindow(wrapper, ['--restart', 'dev.kodi', 'WP', home, 'sleep', '60']);
+  assert.equal(keys('dev.kodi').stdout, 'home\nOLD\nWP\n');
+});
+
+tmuxTest('agent-window: 신원 이름의 . 은 tmux 처럼 _ 로 바꿔 — 다시 불러도 같은 세션의 칸을 찾아 exists', (t) => {
+  const { wrapper } = tmuxServer(t);
+  assert.equal(agentWindow(wrapper, ['dev.kodi', 'WP', home, 'sleep', '60']).stdout, 'started dev_kodi\n');
+  assert.equal(agentWindow(wrapper, ['dev.kodi', 'WP', home, 'sleep', '60']).stdout, 'exists dev_kodi\n');
 });
 
 test('agent-window: tmux 가 없으면 no-tmux 로 3', () => {
   const r = run('agent-window', ['kodi', 'WP', '/x', 'claude'], { env: { GW_TMUX: '/nonexistent/tmux' } });
   assert.equal(r.status, 3);
   assert.equal(r.stdout, 'no-tmux\n');
+});
+
+// ---------------------------------------------------------------- agent-home — AI 폴더 설정·새 프로젝트 알림 기록 (WP-1053)
+
+function aiDir() {
+  const d = join(home, 'agents', 'kodi');
+  mkdirSync(d, { recursive: true });
+  return d;
+}
+
+test('agent-home get/set: 저장한 적 없으면 1, 빈 값(대기열 없음)도 값이고, 다시 set 하면 바뀐다', () => {
+  const d = aiDir();
+  assert.equal(run('agent-home', [d, 'get', 'queue']).status, 1);
+  assert.equal(run('agent-home', [d, 'set', 'queue', '']).status, 0);
+  const empty = run('agent-home', [d, 'get', 'queue']);
+  assert.deepEqual([empty.status, empty.stdout], [0, '\n']);
+  run('agent-home', [d, 'set', 'queue', 'AI 개발팀']);
+  run('agent-home', [d, 'set', 'operator', 'dh.yang@iacloud.kr']);
+  assert.equal(run('agent-home', [d, 'get', 'queue']).stdout, 'AI 개발팀\n');
+  assert.equal(run('agent-home', [d, 'get', 'operator']).stdout, 'dh.yang@iacloud.kr\n');
+  assert.equal(readFileSync(join(d, 'agent.conf'), 'utf8'), 'queue=AI 개발팀\noperator=dh.yang@iacloud.kr\n');
+  assert.deepEqual(readdirSync(d).filter((f) => f.includes('.tmp.')), []);
+});
+
+test('agent-home: 모르는 이름·줄바꿈 든 값·없는 폴더·모르는 명령은 2', () => {
+  const d = aiDir();
+  assert.equal(run('agent-home', [d, 'get', 'token']).status, 2);
+  assert.equal(run('agent-home', [d, 'set', 'queue', 'a\nb']).status, 2);
+  assert.equal(run('agent-home', [join(home, 'nope'), 'get', 'queue']).status, 2);
+  mkdirSync(join(home, 'a b'));
+  assert.equal(run('agent-home', [join(home, 'a b'), 'get', 'queue']).status, 2); // AI 이름이 될 수 없는 폴더 이름
+  assert.equal(run('agent-home', [d, 'wipe']).status, 2);
+});
+
+test('agent-home due: 구간마다 처음 하나만 알릴 사람을 내며 0 — 칸 여럿이 동시에 불러도 하나만 확인하고, 지난 구간 표시는 지운다', async () => {
+  const d = aiDir();
+  // 알릴 사람이 없거나 AI 폴더가 비었으면(start-agent 로 띄운 칸이 아님) 조용히 1 — 구간도 쓰지 않는다.
+  assert.deepEqual([run('agent-home', [d, 'due']).status, run('agent-home', ['', 'due']).stderr], [1, '']);
+  run('agent-home', [d, 'set', 'operator', 'dh.yang@iacloud.kr']);
+  mkdirSync(join(d, 'state', 'checked-1'), { recursive: true }); // 지난 구간
+  const results = await Promise.all(Array.from({ length: 6 }, () => runAsync('agent-home', [d, 'due'])));
+  assert.deepEqual(results.map((r) => r.status).sort(), [0, 1, 1, 1, 1, 1]);
+  assert.deepEqual(results.map((r) => r.stdout).filter(Boolean), ['dh.yang@iacloud.kr\n']);
+  assert.equal(run('agent-home', [d, 'due']).status, 1);
+  assert.deepEqual(readdirSync(join(d, 'state')).filter((f) => f.startsWith('checked-')).length, 1);
+});
+
+tmuxTest('agent-home missing: 칸 없는 키만 한 번 내고, 칸이 생기면 기록을 지워 다시 빠지면 또 낸다', (t) => {
+  const { wrapper, tmux } = tmuxServer(t);
+  const d = aiDir();
+  const missing = (...keys) => run('agent-home', [d, 'missing', ...keys], { env: { GW_TMUX: wrapper } });
+  assert.equal(missing('WP').status, 3); // AI 의 tmux 세션이 없다.
+  agentWindow(wrapper, ['kodi', 'WP', home, 'sleep', '60']);
+
+  assert.equal(missing('WP', 'HR', 'OPS').stdout, 'HR\nOPS\n');
+  assert.equal(missing('WP', 'HR', 'OPS').stdout, ''); // 한 번만 알린다.
+  agentWindow(wrapper, ['kodi', 'HR', home, 'sleep', '60']);
+  assert.equal(missing('WP', 'HR', 'OPS').stdout, '');
+  tmux('kill-pane', '-t', panes(tmux, 'kodi').find((p) => p.key === 'HR').id);
+  assert.equal(missing('WP', 'HR', 'OPS').stdout, 'HR\n');
+  // 맡은 목록에서 빠졌다가(OPS 없이 확인) 다시 들어오면 또 알린다.
+  assert.equal(missing('WP', 'HR').stdout, '');
+  assert.equal(missing('WP', 'HR', 'OPS').stdout, 'OPS\n');
+  assert.equal(missing('../x').stdout, '');
+});
+
+// ---------------------------------------------------------------- gw-plugin-version (WP-1053)
+
+const installedVersion = () => JSON.parse(readFileSync(join(here, '..', '.claude-plugin', 'plugin.json'), 'utf8')).version;
+const marketplace = (v) => `{"plugins":[{"name":"genia-works","source":{"ref":"genia-works--v${v}"}}]}`;
+
+test('gw-plugin-version: Claude 가 받은 마켓플레이스 주소에서 최신을 읽어, 더 높을 때만 update', async () => {
+  const installed = installedVersion();
+  const srv = await fakeProjectServer({ body: marketplace('9.8.7') });
+  try {
+    // 마켓플레이스는 웹이 내는 정적 파일 — API 주소(GENIA_WORKS_API_URL)가 아니라 Claude 가 받은 주소를 쓴다.
+    mkdirSync(join(home, '.claude', 'plugins'), { recursive: true });
+    const origin = srv.url.replace('/api/v1', '');
+    writeFileSync(join(home, '.claude', 'plugins', 'known_marketplaces.json'), JSON.stringify({
+      other: { source: { source: 'url', url: 'http://127.0.0.1:9/other.json' }, installLocation: '/x' },
+      'genia-works': { source: { source: 'url', url: `${origin}/web/claude/marketplace.json` }, installLocation: '/y' },
+    }, null, 2));
+    const r = await runAsync('gw-plugin-version', [], { GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+    assert.equal(r.stdout, `${installed} 9.8.7 update\n`);
+    assert.deepEqual(srv.reqs.map((q) => q.url), ['/web/claude/marketplace.json']);
+  } finally {
+    srv.close();
+  }
+});
+
+test('gw-plugin-version: 마켓플레이스 기록이 없으면 API 주소의 호스트에서 읽고, 설치된 것이 같거나 더 높으면 ok, 닿지 못하면 ? unknown', async () => {
+  const installed = installedVersion();
+  for (const [latest, verdict] of [[installed, 'ok'], ['0.0.9', 'ok'], ['0.1.100', 'update']]) {
+    const srv = await fakeProjectServer({ body: marketplace(latest) });
+    try {
+      const r = await runAsync('gw-plugin-version', [], { GENIA_WORKS_API_URL: srv.url });
+      assert.equal(r.stdout, `${installed} ${latest} ${verdict}\n`);
+      assert.deepEqual(srv.reqs.map((q) => q.url), ['/claude/marketplace.json']);
+    } finally {
+      srv.close();
+    }
+  }
+  const down = await runAsync('gw-plugin-version', [], { GENIA_WORKS_API_URL: 'http://127.0.0.1:9/api/v1' });
+  assert.equal(down.stdout, `${installed} ? unknown\n`);
 });
