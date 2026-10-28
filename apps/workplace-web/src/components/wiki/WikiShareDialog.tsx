@@ -344,7 +344,9 @@ export function WikiShareDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto" data-testid="wiki-share-dialog">
+        {/* 자식에 min-w-0 — DialogContent 는 grid 라 자식이 min-width: auto(내용 폭)로 열을 넓힌다. 띄어쓰기 없는 긴 이름(제목·부서·사람·요청자)
+            한 줄이 창 전체를 옆으로 늘려 스위치·버튼이 창 밖으로 밀리지 않게(WP-1068). 폭 상한은 sm 이상에서만 — 휴대폰은 기본 좌우 여백을 남긴다. */}
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg [&>*]:min-w-0" data-testid="wiki-share-dialog">
           <DialogHeader>
             <DialogTitle>페이지 공유</DialogTitle>
             <DialogDescription className="truncate">{pageTitle || '제목 없음'}</DialogDescription>
@@ -572,7 +574,8 @@ export function WikiShareDialog({
                                 >
                                   <Building2 className="size-3.5" />
                                 </span>
-                                <span className="truncate">
+                                {/* flex 항목은 min-w-0 이 있어야 내용 폭보다 줄어 말줄임된다 — 띄어쓰기 없는 긴 이름이 줄을 늘리지 않게(WP-1068). */}
+                                <span className="min-w-0 truncate">
                                   {g.name} · {g.memberCount}명
                                 </span>
                                 <Button
@@ -590,7 +593,7 @@ export function WikiShareDialog({
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="size-7 text-muted-foreground"
+                                className="size-7 shrink-0 text-muted-foreground"
                                 aria-label={`${g.name} 빼기`}
                                 disabled={busy}
                                 onClick={() => {
@@ -617,7 +620,7 @@ export function WikiShareDialog({
                             >
                               {p.name.slice(0, 1)}
                             </span>
-                            <span className={cn('truncate', p.active === false && 'text-muted-foreground')}>{p.name}</span>
+                            <span className={cn('min-w-0 truncate', p.active === false && 'text-muted-foreground')}>{p.name}</span>
                             {/* 정지·비활성 계정은 지정이 남아 있어도 열지 못해 「비활성」으로 구분한다(WP-1063, 표시는 WP-723 채널 구성원과 같음). */}
                             {p.active === false && (
                               <Badge
@@ -633,7 +636,7 @@ export function WikiShareDialog({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="size-7 text-muted-foreground"
+                            className="size-7 shrink-0 text-muted-foreground"
                             aria-label={`${p.name} 빼기`}
                             disabled={busy}
                             onClick={() =>
