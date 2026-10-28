@@ -25,10 +25,17 @@ export function useGroupMemberSearch(groupId: number, q: string) {
  * 검색과 같은 엔드포인트에 빈 검색어 — 서버가 하위 조직까지 모아 한 사람은 한 번만(가장 가까운 소속) 준다.
  */
 export function useGroupAllMembers(groupId: number, enabled = true) {
-  return useQuery<UserGroupMemberHit[]>({
+  return useQuery({ ...groupAllMembersQuery(groupId), enabled })
+}
+
+/**
+ * 그룹과 하위 조직의 구성원 전체 조회 옵션 — useGroupAllMembers·고르기 창의 부서 펼침·일정 참석자의 그룹 풀어 넣기(WP-1059)가 같은 캐시를
+ * 쓰도록 한 곳에 둔다(키·조회·신선도가 하나라도 다르면 캐시가 말없이 갈린다).
+ */
+export function groupAllMembersQuery(groupId: number) {
+  return {
     queryKey: userGroupKeys.memberSearch(groupId, ''),
-    queryFn: () => userGroupsApi.searchMembers(groupId, '').then((r) => r.data),
-    enabled,
+    queryFn: (): Promise<UserGroupMemberHit[]> => userGroupsApi.searchMembers(groupId, '').then((r) => r.data),
     staleTime: 10_000,
-  })
+  }
 }

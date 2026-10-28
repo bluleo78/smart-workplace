@@ -29,6 +29,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { cn } from '@/lib/utils'
 
 import { userGroupsApi } from '../../api/userGroups'
+import { groupAllMembersQuery } from '../../hooks/queries/useGroupMemberSearch'
 import { userGroupKeys } from '../../hooks/queries/userGroupKeys'
 import { useUserGroups } from '../../hooks/queries/useUserGroups'
 import { useUserSearch } from '../../hooks/queries/useUserSearch'
@@ -77,12 +78,15 @@ export interface PeopleAndDepartmentPickerProps {
   trigger: React.ReactNode
   /** 이미 지정한 사람 id — 비활성으로 보인다. */
   existingUserIds: Set<number>
-  /** 이미 지정한 조직도 부서 id — 비활성으로 보인다. */
-  existingGroupIds: Set<number>
+  /** 이미 지정한 조직도 부서 id — 비활성으로 보인다. 그룹을 남기지 않는 곳(일정 참석자 — 사람으로 풀어 넣는다)은 주지 않는다. */
+  existingGroupIds?: Set<number>
   /** 후보에서 뺄 사람 — 공유하는 나·공유를 만든 사람(이미 열 수 있다). 없으면 빼지 않는다. */
   excludeUserIds?: Set<number>
-  /** 사람 한 명을 지정한 사람으로 더한다(사람 검색 행·펼친 구성원 행). */
-  onSelectPerson: (userId: number) => void
+  /**
+   * 사람 한 명을 지정한 사람으로 더한다(사람 검색 행·펼친 구성원 행). 둘째 인자는 고른 줄의 표시 정보 — 칩을 서버 응답 전에 그리는 곳(일정 만들기
+   * 참석자, WP-1059)이 다시 찾지 않게 넘긴다.
+   */
+  onSelectPerson: (userId: number, person: PickedPerson) => void
   /** 조직도 부서를 대상으로 더한다(부서 행으로 저장 — 구성원은 열 때마다 다시 본다). */
   onSelectDepartment: (group: GroupOption) => void
   /** 내 그룹을 고른다 — 지금 사람 구성원을 지정한 사람으로 펼쳐 더한다(그룹 행은 남기지 않는다). showPersonalGroups 일 때만 부른다. */
@@ -95,6 +99,13 @@ export interface PeopleAndDepartmentPickerProps {
   testIdPrefix?: string
   /** 검색창 안내 문구 — 기본은 내 그룹 여부에 따라 고른다. */
   placeholder?: string
+  /** 후보 목록 아래에 붙는 영역 — 조직·내 그룹을 고른 뒤 그 자리에서 확인을 받는 곳(일정 참석자의 인원 확인, WP-1059). */
+  footer?: React.ReactNode
+}
+
+/** 고른 사람 줄의 표시 정보 — onSelectPerson 둘째 인자. */
+export interface PickedPerson {
+  name: string
 }
 
 /** 빈 집합 — excludeUserIds 를 주지 않은 호출부의 기본값(렌더마다 새로 만들지 않게 모듈에 하나). */
@@ -114,7 +125,7 @@ export function PeopleAndDepartmentPicker({
   onOpenChange,
   trigger,
   existingUserIds,
-  existingGroupIds,
+  existingGroupIds = NO_ONE as Set<number>,
   excludeUserIds = NO_ONE as Set<number>,
   onSelectPerson,
   onSelectDepartment,
@@ -123,6 +134,7 @@ export function PeopleAndDepartmentPicker({
   includeAgents = false,
   testIdPrefix = 'share-target',
   placeholder,
+  footer,
 }: PeopleAndDepartmentPickerProps) {
   const tid = (suffix: string) => `${testIdPrefix}-${suffix}`
   const [query, setQuery] = useState('')
@@ -145,11 +157,7 @@ export function PeopleAndDepartmentPicker({
   const details = useQueries({
     queries: expandedIds.map((id) =>
       sharedIds.has(id)
-        ? {
-            queryKey: userGroupKeys.memberSearch(id, ''),
-            queryFn: () => userGroupsApi.searchMembers(id, '').then((r) => r.data),
-            staleTime: 10_000,
-          }
+        ? groupAllMembersQuery(id)
         : {
             queryKey: userGroupKeys.detail(id),
             queryFn: () => userGroupsApi.detail(id).then((r) => r.data),
@@ -378,7 +386,7 @@ export function PeopleAndDepartmentPicker({
                 key={`m${r.groupId}-${r.member.targetId}`}
                 value={memberValue(department, r.groupId, r.member.targetId)}
                 disabled={blocked != null}
-                onSelect={() => pick(() => onSelectPerson(r.member.targetId))}
+                onSelect={() => pick(() => onSelectPerson(r.member.targetId, { name: r.member.name }))}
                 style={indent}
                 data-testid={tid(`member-${r.groupId}-${r.member.targetId}`)}
                 className="flex items-center gap-2"
@@ -476,7 +484,7 @@ export function PeopleAndDepartmentPicker({
             // 이전 검색어의 사람(지금 검색어의 결과가 오기 전)은 고를 수 없다 — 고를 후보가 없을 때 cmdk 가 첫 줄을 스스로 골라
             // Enter 로 엉뚱한 사람이 더해지지 않게(지금 검색어에 맞는 조직이 이미 추가돼 비활성일 때 등).
             disabled={added || !peopleFresh}
-            onSelect={() => pick(() => onSelectPerson(u.id))}
+            onSelect={() => pick(() => onSelectPerson(u.id, { name: u.name }))}
             data-testid={tid(`person-${u.id}`)}
             className="flex items-center gap-2"
           >
@@ -568,6 +576,7 @@ export function PeopleAndDepartmentPicker({
             {!peopleQuery && peopleShown.length > 0 && peopleSection}
           </CommandList>
         </Command>
+        {footer}
       </PopoverContent>
     </Popover>
   )
