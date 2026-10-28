@@ -15,8 +15,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { configure, render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { RequestHandler } from 'msw'
-import { useEffect } from 'react'
-import { BrowserRouter, useLocation } from 'react-router-dom'
+import { BrowserRouter } from 'react-router-dom'
 
 import App from '@/App'
 import { Toaster } from '@/components/ui/sonner'
@@ -26,6 +25,7 @@ import type { RoleResponse } from '@/types/role'
 
 import { createUser } from '../../e2e/factories/auth.factory'
 import { PAGE_ASYNC_TIMEOUT } from './asyncTimeout'
+import { trackLocation } from './locationProbe'
 import { authHandlers, MOCK_USER_ROLE, shellHandlers } from './msw/baseHandlers'
 import { server } from './msw/server'
 
@@ -49,13 +49,6 @@ type RenderPageOptions = {
   handlers?: RequestHandler[]
 }
 
-/** 주소가 바뀔 때마다 알린다 — 이동을 단언할 때 쓴다(location.pathname + search). */
-function LocationProbe({ onChange }: { onChange: (location: string) => void }) {
-  const loc = useLocation()
-  useEffect(() => onChange(loc.pathname + loc.search), [loc, onChange])
-  return null
-}
-
 /**
  * path 로 앱을 띄운다. 반환값의 user 는 userEvent 인스턴스, location() 은 지금 주소다.
  * 화면이 다 뜨기를 기다리는 것은 테스트가 findBy* 로 한다.
@@ -73,20 +66,18 @@ export function renderPage(path: string, { user, roles = [MOCK_USER_ROLE], handl
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 30_000, refetchOnWindowFocus: false }, mutations: { retry: false, networkMode: 'always' } },
   })
-  let current = path
-  const onLocation = (location: string) => {
-    current = location
-  }
+  const { Tracked, location } = trackLocation(path)
   const view = render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-        <LocationProbe onChange={onLocation} />
-        <Toaster />
+        <Tracked>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+          <Toaster />
+        </Tracked>
       </BrowserRouter>
     </QueryClientProvider>,
   )
-  return { ...view, user: userEvent.setup(), queryClient, location: () => current }
+  return { ...view, user: userEvent.setup(), queryClient, location }
 }
