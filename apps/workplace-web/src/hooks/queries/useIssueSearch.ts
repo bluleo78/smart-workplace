@@ -54,3 +54,24 @@ export function useIssueSearch(
 ) {
   return useInfiniteQuery(issueSearchOptions(projectKey, filters, size, enabled, extra));
 }
+
+/**
+ * 자리채움 규칙 — 같은 프로젝트 안에서 조건(키)만 바뀌면 새 결과가 올 때까지 이전 결과를 둔다(WP-1049).
+ * 키 셋째 칸이 프로젝트 키인 검색 캐시(['issues','search',projectKey,…])에 쓴다. 다른 프로젝트로 옮기면 남기지 않는다 —
+ * 그 프로젝트의 이슈가 잠깐이라도 보이면 안 된다. 화면은 isPlaceholderData 로 흐림(RefreshingResults)을 건다.
+ */
+export function keepPreviousInProject<T>(projectKey: string) {
+  return (previous: T | undefined, previousQuery?: { queryKey: readonly unknown[] }) =>
+    previousQuery?.queryKey[2] === projectKey ? previous : undefined;
+}
+
+/**
+ * 작업 관리 목록처럼 저장한 뷰·필터를 오가며 보는 화면의 검색 — 조건을 바꾸면 이전 목록을 둔 채 새 결과를 받아
+ * 한 번에 바꾼다(WP-1049). 스켈레톤은 처음 열 때만 보인다.
+ */
+export function useIssueSearchKeepingPrevious(projectKey: string, filters: IssueFilters, size = 30, enabled = true) {
+  return useInfiniteQuery({
+    ...issueSearchOptions(projectKey, filters, size, enabled),
+    placeholderData: keepPreviousInProject(projectKey),
+  });
+}

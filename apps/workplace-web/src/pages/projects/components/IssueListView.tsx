@@ -12,12 +12,14 @@ import { LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS } from '@/lib/listStyle
 import { cn } from '@/lib/utils';
 
 import { ListLoadingSkeleton } from '../../../components/issue/ListLoadingSkeleton';
+import { RefreshingResults } from '../../../components/RefreshingResults';
 import { Button } from '../../../components/ui/button';
 import { LoadMoreFooter } from '../../../components/ui/load-more-footer';
 import { useIssueGroupCounts } from '../../../hooks/queries/useIssueGroupCounts';
-import { useIssueSearch } from '../../../hooks/queries/useIssueSearch';
+import { useIssueSearchKeepingPrevious } from '../../../hooks/queries/useIssueSearch';
 import { useProjectStatusList } from '../../../hooks/queries/useProjectStatuses';
 import { useIssueSelection } from '../../../hooks/useIssueSelection';
+import { useScrollTopWhenSettled } from '../../../hooks/useScrollTopWhenSettled';
 import { CLOSED_HIDDEN_NOTE } from '../../../lib/closedHiding';
 import { filtersToParams, withDefaultIssueScope } from '../../../lib/issueFilters';
 import { groupCountsByKey, groupIssues } from '../../../lib/issueGrouping';
@@ -67,7 +69,10 @@ export function IssueListView({
   // 선택 열 정의 — 커스텀 필드 열이 있을 때만 필드 정의를 불러온다(기본 열 화면은 요청이 늘지 않게).
   const columnDefs = useColumnDefs(projectKey, columns);
   const scopedFilters = useMemo(() => withDefaultIssueScope(filters), [filters]);
-  const searchQuery = useIssueSearch(projectKey, scopedFilters);
+  // 저장한 뷰·필터를 바꾸면 새 결과가 올 때까지 이전 목록을 흐리게 둔다(WP-1049) — 스켈레톤은 처음 열 때만.
+  const searchQuery = useIssueSearchKeepingPrevious(projectKey, scopedFilters);
+  // 이전 조건의 결과로 자리를 채우는 중 — 흐림(RefreshingResults)·건수 보고 보류·스크롤 맨 위로의 기준.
+  const refreshing = searchQuery.isPlaceholderData;
   // 프로젝트 상태 목록(WP-808) — 상태 그룹 버킷(statusId)과 행 메뉴 선택지. 호출부가 ProjectStatusesGate 로 목록을 받은 뒤에 그린다(WP-870).
   const statuses = useProjectStatusList(projectKey);
   // 그룹 헤더 수는 서버 총계(WP-472) — 30개씩 불러오므로 화면이 센 수는 불러온 행 수일 뿐이다. 총계가 오기 전·에픽 그룹은 불러온 행 수.
@@ -107,6 +112,11 @@ export function IssueListView({
   // 이 경우엔 LoadMoreFooter 의 observer 를 달지 않는다(sentinel 은 그대로 마운트, 펼치면 정상 재개).
   const allGroupsCollapsed = groups != null && groups.length > 0 && groups.every((g) => collapsed.has(g.key));
 
+  // 목록 조건(필터·그룹 직렬화) — 선택 초기화와 스크롤 맨 위로의 기준.
+  const listKey = filtersToParams(filters, 'list', groupBy).toString();
+  // 새 조건의 결과가 실제로 들어오면 스크롤을 맨 위로(WP-1049) — 자리채움 동안 스크롤 컨테이너가 남아 옛 위치에 새 목록이 보이지 않게.
+  useScrollTopWhenSettled(scrollEl, listKey, refreshing);
+
   // #606: 다중 선택 상태 — 이슈 number 집합. 필터/그룹 기준(직렬화 값)이 바뀌면 초기화.
   const {
     selected,
@@ -114,7 +124,7 @@ export function IssueListView({
     toggle: toggleSelected,
     clear: clearSelected,
     settleBulk,
-  } = useIssueSelection(filtersToParams(filters, 'list', groupBy).toString());
+  } = useIssueSelection(listKey);
 
   // 모바일 길게 누르기 액션 — 훅은 조기 반환 전에 둔다. canEdit 가 곧 멤버 여부.
   // 종료 이슈 숨김 안내(WP-606) — 행 메뉴·일괄 바로 종료한 이슈가 숨겨지면 토스트로 알린다.
@@ -129,9 +139,10 @@ export function IssueListView({
   // 우연히 이전과 같아도 다시 채워지도록(건수 숫자만 의존하면 effect 가 돌지 않아 건수가 비어 남는다).
   const hasMore = searchQuery.hasNextPage ?? false;
   useEffect(() => {
-    if (!data) return;
+    // 이전 조건의 자리채움 건수는 보고하지 않는다(WP-1049) — 새 조건과 옛 건수가 짝지어 AI 화면 맥락에 실리지 않게.
+    if (!data || refreshing) return;
     onLoadedChange?.(data.pages.reduce((n, p) => n + (p.items?.length ?? 0), 0), hasMore);
-  }, [data, hasMore, onLoadedChange]);
+  }, [data, hasMore, refreshing, onLoadedChange]);
 
   // 첫 페이지를 못 불러왔으면 빈 상태가 아니라 실패로 알린다(WP-858) — 다음 페이지 실패는 LoadMoreFooter 가 맡는다.
   // 로딩보다 먼저, failedWithoutData 로 본다 — 다시 시도로 다시 부르는 동안(pending)에도 안내를 두어 키보드 초점을 지킨다(WP-893).
@@ -203,73 +214,96 @@ export function IssueListView({
       <IssueBulkActions projectKey={projectKey} selected={selected} onClear={clearSelected} onSettled={settleBulk} closedHiding={closedHiding} />
       {/* 테이블 스크롤 영역 — thead 가 이 컨테이너 기준 sticky 로 붙는다(래퍼가 overflow-x 만 가지면 sticky 가 무력화됨).
           border-collapse 표에서 sticky 행은 테두리가 사라지므로 하단 구분선은 tr border 대신 inset shadow 로 그린다. */}
-      <div ref={setScrollEl} className="min-h-0 flex-1 overflow-auto" data-testid="issue-list-scroll">
-        {/* 모바일은 table-fixed — 자동 레이아웃이면 한 칸 행의 메타 줄(nowrap truncate)의 min-content 가
-            열 너비가 되어 표가 컨테이너보다 넓어지고, 긴 제목이 오른쪽에서 잘린다(WP-194). 데스크톱은 그대로. */}
-        <table className={cn('w-full text-sm', isMobile && 'table-fixed')} role="table">
-          {!isMobile && (
-            <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
-              {/* min-w-* — 제목 칸이 w-full(IssueRow)로 남은 폭을 가져가면 자동 레이아웃 표는 다른 칸의 w-* 를 무시하고
-                  최소 내용폭까지 줄인다(ID 가 제목에 붙음). min-width 로 기존 칸 폭을 하한으로 고정한다(WP-194). */}
-              {/* 열 머리 모양은 공용 LIST_HEAD_CELL_CLASS — 사이클 구간 목록 헤더·내 작업과 같다(WP-919). */}
-              <tr>
-                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={toggleSelectAll}
-                    aria-label="전체선택"
-                    data-testid="issue-select-all"
-                    className="h-4 w-4"
-                  />
-                </th>
-                {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
-                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}><span className="sr-only">상태</span></th>
-                {/* 선택 열(우선순위 등)은 열 정의(issueListColumnDefs)에서 — ID 왼쪽 / 제목 뒤 순서로 그린다(WP-270). */}
-                {columnHeadCells(columnDefs.left, { thClass: LIST_HEAD_CELL_CLASS })}
-                {/* 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다. */}
-                <th className={cn(LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS, 'w-28 min-w-28')}>ID</th>
-                {/* min-w-64 — 기본 밖의 열을 켜면 제목이 안 보일 만큼 줄지 않게 하한을 두고, 넘치면 표가 가로 스크롤된다.
-                    기본 열 구성에선 걸지 않는다 — 좁은 데스크톱(1024px)에서 지금처럼 가로 스크롤 없이 제목이 줄어든다. */}
-                <th className={cn(LIST_HEAD_CELL_CLASS, hasExtraColumns(columnDefs.defs) && 'min-w-64')}>제목</th>
-                {columnHeadCells(columnDefs.right, { thClass: LIST_HEAD_CELL_CLASS })}
-                <th className={cn(LIST_HEAD_CELL_CLASS, 'w-8 min-w-8')}><span className="sr-only">작업</span></th>
-              </tr>
-            </thead>
-          )}
-          {groups ? (
-            groups.map((g) => (
-              <tbody key={g.key} data-testid={`list-group-${g.key}`}>
-                <tr className="bg-muted/40 border-b">
-                  <td
-                    colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : issueListColumnCount(columnDefs.defs)}
-                    className="px-1 py-0"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(g.key)}
-                      aria-expanded={!collapsed.has(g.key)}
-                      data-testid={`list-group-toggle-${g.key}`}
-                      className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded text-left text-xs font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-lg:min-h-11"
-                    >
-                      <ChevronRight
-                        className={cn('size-3.5 shrink-0 transition-transform', !collapsed.has(g.key) && 'rotate-90')}
-                        aria-hidden="true"
-                      />
-                      {/* 에픽 그룹은 ◆ 를 에픽 유형 색으로 — 행 메타·칩과 같은 표식(색 = 첫 이슈 부모 에픽의 유형 토큰). */}
-                      {g.key.startsWith('epic-') && (
-                        <span className={cn('shrink-0', epicGroupColor(g.issues[0]))} aria-hidden="true">
-                          ◆
-                        </span>
-                      )}
-                      <span className="min-w-0 truncate">{g.label}</span>
-                      <span className="shrink-0 font-normal" data-testid={`list-group-count-${g.key}`}>
-                        {countByKey.get(g.key) ?? g.issues.length}
-                      </span>
-                    </button>
-                  </td>
+      <RefreshingResults refreshing={refreshing} className="min-h-0 flex-1">
+        <div ref={setScrollEl} className="h-full overflow-auto" data-testid="issue-list-scroll">
+          {/* 모바일은 table-fixed — 자동 레이아웃이면 한 칸 행의 메타 줄(nowrap truncate)의 min-content 가
+              열 너비가 되어 표가 컨테이너보다 넓어지고, 긴 제목이 오른쪽에서 잘린다(WP-194). 데스크톱은 그대로. */}
+          <table className={cn('w-full text-sm', isMobile && 'table-fixed')} role="table">
+            {!isMobile && (
+              <thead className="sticky top-0 z-10 bg-background shadow-[inset_0_-1px_0_var(--color-border)]">
+                {/* min-w-* — 제목 칸이 w-full(IssueRow)로 남은 폭을 가져가면 자동 레이아웃 표는 다른 칸의 w-* 를 무시하고
+                    최소 내용폭까지 줄인다(ID 가 제목에 붙음). min-width 로 기존 칸 폭을 하한으로 고정한다(WP-194). */}
+                {/* 열 머리 모양은 공용 LIST_HEAD_CELL_CLASS — 사이클 구간 목록 헤더·내 작업과 같다(WP-919). */}
+                <tr>
+                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}>
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAll}
+                      aria-label="전체선택"
+                      data-testid="issue-select-all"
+                      className="h-4 w-4"
+                    />
+                  </th>
+                  {/* 상태·우선순위는 아이콘 컬럼 — 헤더 라벨은 sr-only. */}
+                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-9 min-w-9')}><span className="sr-only">상태</span></th>
+                  {/* 선택 열(우선순위 등)은 열 정의(issueListColumnDefs)에서 — ID 왼쪽 / 제목 뒤 순서로 그린다(WP-270). */}
+                  {columnHeadCells(columnDefs.left, { thClass: LIST_HEAD_CELL_CLASS })}
+                  {/* 「ID」 글자를 행의 키 글자(유형 아이콘 뒤)에 맞춘다. */}
+                  <th className={cn(LIST_HEAD_CELL_CLASS, LIST_ID_HEAD_INDENT_CLASS, 'w-28 min-w-28')}>ID</th>
+                  {/* min-w-64 — 기본 밖의 열을 켜면 제목이 안 보일 만큼 줄지 않게 하한을 두고, 넘치면 표가 가로 스크롤된다.
+                      기본 열 구성에선 걸지 않는다 — 좁은 데스크톱(1024px)에서 지금처럼 가로 스크롤 없이 제목이 줄어든다. */}
+                  <th className={cn(LIST_HEAD_CELL_CLASS, hasExtraColumns(columnDefs.defs) && 'min-w-64')}>제목</th>
+                  {columnHeadCells(columnDefs.right, { thClass: LIST_HEAD_CELL_CLASS })}
+                  <th className={cn(LIST_HEAD_CELL_CLASS, 'w-8 min-w-8')}><span className="sr-only">작업</span></th>
                 </tr>
-                {!collapsed.has(g.key) && g.issues.map((it) => (
+              </thead>
+            )}
+            {groups ? (
+              groups.map((g) => (
+                <tbody key={g.key} data-testid={`list-group-${g.key}`}>
+                  <tr className="bg-muted/40 border-b">
+                    <td
+                      colSpan={isMobile ? ISSUE_LIST_COLUMN_COUNT_MOBILE : issueListColumnCount(columnDefs.defs)}
+                      className="px-1 py-0"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(g.key)}
+                        aria-expanded={!collapsed.has(g.key)}
+                        data-testid={`list-group-toggle-${g.key}`}
+                        className="flex min-h-8 w-full min-w-0 items-center gap-1.5 rounded text-left text-xs font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-lg:min-h-11"
+                      >
+                        <ChevronRight
+                          className={cn('size-3.5 shrink-0 transition-transform', !collapsed.has(g.key) && 'rotate-90')}
+                          aria-hidden="true"
+                        />
+                        {/* 에픽 그룹은 ◆ 를 에픽 유형 색으로 — 행 메타·칩과 같은 표식(색 = 첫 이슈 부모 에픽의 유형 토큰). */}
+                        {g.key.startsWith('epic-') && (
+                          <span className={cn('shrink-0', epicGroupColor(g.issues[0]))} aria-hidden="true">
+                            ◆
+                          </span>
+                        )}
+                        <span className="min-w-0 truncate">{g.label}</span>
+                        <span className="shrink-0 font-normal" data-testid={`list-group-count-${g.key}`}>
+                          {countByKey.get(g.key) ?? g.issues.length}
+                        </span>
+                      </button>
+                    </td>
+                  </tr>
+                  {!collapsed.has(g.key) && g.issues.map((it) => (
+                    <IssueRow
+                      key={it.id}
+                      issue={it}
+                      projectKey={projectKey}
+                      selected={selected.has(it.number)}
+                      onToggleSelect={toggleSelected}
+                      canDrag={canDrag}
+                      // 다중 담당자 이슈는 여러 그룹에 보이므로 그룹별로 드래그 id 를 구분한다.
+                      dragScope={g.key}
+                      onLongPress={rowActions.open}
+                      onOpenMenu={rowActions.openMenu}
+                      menuOpen={rowActions.menuIssueNumber === it.number}
+                      selectionMode={isMobile && selected.size > 0}
+                      hideEpic={hideEpic}
+                      columns={columnDefs}
+                    />
+                  ))}
+                </tbody>
+              ))
+            ) : (
+              <tbody>
+                {items.map((it) => (
                   <IssueRow
                     key={it.id}
                     issue={it}
@@ -277,8 +311,6 @@ export function IssueListView({
                     selected={selected.has(it.number)}
                     onToggleSelect={toggleSelected}
                     canDrag={canDrag}
-                    // 다중 담당자 이슈는 여러 그룹에 보이므로 그룹별로 드래그 id 를 구분한다.
-                    dragScope={g.key}
                     onLongPress={rowActions.open}
                     onOpenMenu={rowActions.openMenu}
                     menuOpen={rowActions.menuIssueNumber === it.number}
@@ -288,31 +320,12 @@ export function IssueListView({
                   />
                 ))}
               </tbody>
-            ))
-          ) : (
-            <tbody>
-              {items.map((it) => (
-                <IssueRow
-                  key={it.id}
-                  issue={it}
-                  projectKey={projectKey}
-                  selected={selected.has(it.number)}
-                  onToggleSelect={toggleSelected}
-                  canDrag={canDrag}
-                  onLongPress={rowActions.open}
-                  onOpenMenu={rowActions.openMenu}
-                  menuOpen={rowActions.menuIssueNumber === it.number}
-                  selectionMode={isMobile && selected.size > 0}
-                  hideEpic={hideEpic}
-                  columns={columnDefs}
-                />
-              ))}
-            </tbody>
-          )}
-        </table>
-        {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
-        <LoadMoreFooter query={searchQuery} root={scrollEl} enabled={!allGroupsCollapsed} data-testid="issue-list-more" />
-      </div>
+            )}
+          </table>
+          {/* 목록 끝 — 자동 로드, 다음 페이지 실패 시에만 다시 시도(공용 LoadMoreFooter, WP-183) */}
+          <LoadMoreFooter query={searchQuery} root={scrollEl} enabled={!allGroupsCollapsed} data-testid="issue-list-more" />
+        </div>
+      </RefreshingResults>
       {/* 모바일 일괄 작업 바(fixed, 약 56px)가 마지막 행을 가리지 않게 같은 높이만큼 비운다. */}
       <BulkBarSpacer active={selected.size > 0} />
       {/* 액션 시트는 표 밖 형제로 — 행 안에 두면 시트 클릭이 행 이벤트로 새어 든다. */}
