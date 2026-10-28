@@ -4,7 +4,11 @@
 import type { Page } from '@playwright/test'
 
 import type { Attendee, CalendarEvent } from '../../../src/types/calendar'
+import type { MemberSummary } from '../../../src/types/member'
+import type { UserGroupMemberHit } from '../../../src/types/userGroup'
 import { calendarEvent } from '../../factories/calendar.factory'
+import { sharedNode, tree } from '../../factories/userGroups.factory'
+import { mockApi } from '../../fixtures/api-mock'
 import { expect, test } from '../../fixtures/auth.fixture'
 import { boxOf } from '../../fixtures/layout'
 
@@ -235,3 +239,54 @@ test('초대받은 일정 — 띄어쓰기 없는 긴 제목도 창 안에서 �
   const [titleBox, closeBox] = await Promise.all([boxOf(title), boxOf(dialog.getByRole('button', { name: '닫기' }))])
   expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(closeBox.x)
 })
+
+// 조직을 고르면 고르기 창 아래에 붙는 확인 줄이 창을 화면 밖으로 늘려 「N명 추가」가 화면 아래로 사라지고(1366×768),
+// 모바일에선 검색창이 화면 위로 밀려났다(WP-1113) — 창 높이를 남은 높이로 묶어 후보 목록이 줄어든다. 실제 레이아웃으로 본다.
+for (const viewport of [
+  { name: '1366×768', width: 1366, height: 768 },
+  { name: '모바일', width: 390, height: 844 },
+]) {
+  test(`참석자 조직 확인 줄 — ${viewport.name} 에서도 「N명 추가」와 검색창이 화면 안에 있다(WP-1113)`, { tag: '@layout' }, async ({
+    authenticatedPage: page,
+  }) => {
+    await page.clock.setFixedTime(new Date('2026-06-10T03:00:00Z'))
+    await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await stubCalendar(page, [], makeDetailEvent())
+    // 후보 목록이 가득 차도록(최대 높이) 사람 여러 명과 조직 하나.
+    const people: MemberSummary[] = Array.from({ length: 12 }, (_, i) => ({
+      userId: 10 + i, username: `p${i}@t.local`, name: `사람${i}`, email: `p${i}@t.local`, title: null,
+      kind: 'HUMAN', active: true, membershipRole: null, membershipStatus: null,
+    }))
+    await mockApi(page, 'GET', '/api/v1/members', { content: people, page: 0, size: 20, totalElements: people.length, totalPages: 1 })
+    await mockApi(page, 'GET', '/api/v1/user-groups', tree({ shared: [sharedNode({ name: '개발팀' })], personal: [] }))
+    const hits: UserGroupMemberHit[] = people.slice(0, 3).map((p) => ({
+      targetType: 'MEMBER', targetId: p.userId, name: p.name, email: p.email, title: null, organization: null, groupId: 10, groupPath: [],
+    }))
+    await mockApi(page, 'GET', '/api/v1/user-groups/10/members/search', hits)
+
+    await page.goto('/calendar?new=true')
+    await page.getByTestId('attendee-add-btn').click()
+    await expect(page.getByTestId('attendee-picker-person-10')).toBeVisible()
+    await page.getByTestId('attendee-picker-department-10').click()
+    const add = page.getByTestId('attendee-group-add')
+    await expect(add).toHaveText('3명 추가')
+
+    // 「N명 추가」·검색창·창 전체가 화면 안에 있다.
+    const [addBox, searchBox, popBox] = await Promise.all([
+      boxOf(add),
+      boxOf(page.getByRole('combobox', { name: '사람·팀 검색' })),
+      boxOf(page.getByTestId('attendee-picker-search')),
+    ])
+    // 화면 아래 끝 = 모바일 하단 탭바 위(탭바가 없으면 0) — 탭바에 가린 버튼도 놓친다.
+    const tabBar = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mobile-tabbar-h')) || 0)
+    expect(addBox.y + addBox.height).toBeLessThanOrEqual(viewport.height - tabBar)
+    // 확인 줄은 창 테두리 안에 있다 — 창 밖으로 삐져나오지 않는다.
+    expect(addBox.y + addBox.height).toBeLessThanOrEqual(popBox.y + popBox.height)
+    expect(searchBox.y).toBeGreaterThanOrEqual(0)
+    expect(popBox.y).toBeGreaterThanOrEqual(0)
+    expect(popBox.y + popBox.height).toBeLessThanOrEqual(viewport.height)
+    // 마우스로 누를 수 있다 — 눌러 칩이 생긴다.
+    await add.click()
+    await expect(page.getByTestId('attendee-section')).toContainText('사람0')
+  })
+}
