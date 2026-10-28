@@ -6,9 +6,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.workplace.auth.dto.AgentApiKeyIssueResponse;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
+import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.AfterEach;
@@ -32,6 +34,7 @@ class ApiKeyAuthenticationFilterTest extends IntegrationTestBase {
 
   @Autowired private AgentApiKeyService keyService;
   @Autowired private DSLContext dsl;
+  @Autowired private AgentApiKeyRepository agentApiKeyRepository;
   @LocalServerPort private int port;
 
   private final RestTemplate rest = new RestTemplateBuilder().build();
@@ -146,5 +149,41 @@ class ApiKeyAuthenticationFilterTest extends IntegrationTestBase {
             .where(AGENT_API_KEY.ID.eq(res.id()))
             .fetchOne(AGENT_API_KEY.LAST_USED_AT);
     assertThat(lastUsed).isNotNull();
+  }
+
+  // WP-1153: 발급을 막기 전에 개인 비서에게 나간 키도 인증하지 않는다 — 그 키로 주인의 개인 작업을 읽을 수 있었다.
+  @Test
+  void personal_assistant_ak_does_not_authenticate() {
+    long n = System.nanoTime();
+    Long assistantId =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, AgentUsernames.personalAssistantOf(n))
+            .setNull(USER.PASSWORD)
+            .set(USER.NAME, "개인 비서")
+            .set(USER.KIND, UserKind.AGENT)
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    try {
+      withMembership(assistantId);
+      String plaintext = "ak_legacyPersonalAssistant" + n;
+      agentApiKeyRepository.insert(
+          assistantId, plaintext.substring(0, 12), sha256Hex(plaintext), "legacy", adminId);
+      ResponseEntity<String> me = callMe("Bearer " + plaintext);
+      assertThat(me.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    } finally {
+      cleanupInTenant(1L, () -> dsl.deleteFrom(USER).where(USER.ID.eq(assistantId)).execute());
+    }
+  }
+
+  private static String sha256Hex(String plaintext) {
+    try {
+      return java.util.HexFormat.of()
+          .formatHex(
+              java.security.MessageDigest.getInstance("SHA-256")
+                  .digest(plaintext.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    } catch (java.security.NoSuchAlgorithmException e) {
+      throw new IllegalStateException(e);
+    }
   }
 }

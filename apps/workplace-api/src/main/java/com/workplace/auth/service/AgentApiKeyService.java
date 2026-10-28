@@ -6,7 +6,9 @@ import com.workplace.auth.dto.AgentApiKeyResponse;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.exception.KeyNotFoundException;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
+import com.workplace.auth.exception.PersonalAssistantKeyIssueForbiddenException;
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
@@ -60,8 +62,8 @@ public class AgentApiKeyService {
   }
 
   /**
-   * 키 발급. 평문은 응답 1회만, DB 에는 SHA-256 hex 만 저장. AGENT 가 아니면 400, 없는 user 면 404. 감사 로그
-   * AGENT_KEY_ISSUED.
+   * 키 발급. 평문은 응답 1회만, DB 에는 SHA-256 hex 만 저장. AGENT 가 아니면 400, 개인 비서면 403(WP-1153), 없는 user 면 404.
+   * 감사 로그 AGENT_KEY_ISSUED.
    */
   public AgentApiKeyIssueResponse issue(Long callerId, Long userId, IssueAgentKeyRequest req) {
     requireNotSelf(callerId, userId);
@@ -69,6 +71,11 @@ public class AgentApiKeyService {
     UserResponse user =
         userRepository.findById(userId).orElseThrow(() -> UserNotFoundException.ofId(userId));
     if (!UserKind.isAgent(user.kind())) throw new KeyTargetMustBeAgentException();
+    // WP-1153: 개인 비서는 주인의 자격증명·위임으로만 움직인다 — 관리자가 키를 받으면 그 신원으로 주인의 개인 작업(관리자에게도 안 보임)을
+    // 읽을 수 있어, 이름 변경·삭제처럼 발급을 막는다(403). 이미 있는 키의 목록·회수는 정리 수단으로 남긴다.
+    if (AgentUsernames.isPersonalAssistant(user.username())) {
+      throw new PersonalAssistantKeyIssueForbiddenException();
+    }
     // WP-818: 쓸 수 있는 키는 에이전트당 MAX_ACTIVE 개까지(개인 PAT 와 같은 규칙) — 잠근 뒤 세어 동시 발급이 함께 넘지 않게 한다.
     repo.lockIssue(userId);
     if (repo.countActive(userId) >= MAX_ACTIVE) {

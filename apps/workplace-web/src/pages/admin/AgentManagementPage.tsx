@@ -138,6 +138,7 @@ export default function AgentManagementPage() {
         key={selected.id}
         agentId={selected.id}
         external={external}
+        canIssue={selected.type !== 'PERSONAL'}
         onIssued={setPlaintext}
         onRevoke={onRevoke}
       />

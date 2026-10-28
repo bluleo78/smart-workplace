@@ -388,6 +388,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
   }
 
+  // 관리자의 개인 비서 키 발급 차단 — 403 (WP-1153).
+  @ExceptionHandler(com.workplace.auth.exception.PersonalAssistantKeyIssueForbiddenException.class)
+  public ResponseEntity<ErrorResponse> handlePersonalAssistantKeyIssueForbidden(
+      com.workplace.auth.exception.PersonalAssistantKeyIssueForbiddenException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.FORBIDDEN, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+  }
+
   // 에이전트 실행 방식 규칙 위반(비서 에이전트를 EXTERNAL 로 등) — 409 (WP-371).
   @ExceptionHandler(AgentRuntimeConflictException.class)
   public ResponseEntity<ErrorResponse> handleAgentRuntimeConflict(

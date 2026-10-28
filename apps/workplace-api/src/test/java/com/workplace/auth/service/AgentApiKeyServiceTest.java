@@ -9,8 +9,10 @@ import com.workplace.auth.dto.AgentApiKeyResponse;
 import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.exception.KeyNotFoundException;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
+import com.workplace.auth.exception.PersonalAssistantKeyIssueForbiddenException;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.exception.UserNotFoundException;
 import java.nio.charset.StandardCharsets;
@@ -134,5 +136,33 @@ class AgentApiKeyServiceTest extends IntegrationTestBase {
     AgentApiKeyIssueResponse res = service.issue(adminId, agentId, new IssueAgentKeyRequest(null));
     assertThatThrownBy(() -> service.revoke(adminId, humanId, res.id()))
         .isInstanceOf(KeyNotFoundException.class);
+  }
+
+  // WP-1153: 관리자가 구성원의 개인 비서에게 키를 받으면 그 신원으로 주인의 개인 작업을 읽을 수 있었다 — 발급은 403, 이미 있던 키의 목록·회수는
+  // 정리 수단으로 남는다.
+  @Test
+  void issue_to_personal_assistant_is_forbidden_but_existing_keys_stay_listable_and_revocable() {
+    Long assistantId =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, AgentUsernames.personalAssistantOf(humanId))
+            .setNull(USER.PASSWORD)
+            .set(USER.NAME, "개인 비서")
+            .setNull(USER.EMAIL)
+            .set(USER.KIND, UserKind.AGENT)
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    withMembership(assistantId);
+    // 막기 전에 발급돼 있던 키 — 목록에 보이고 회수할 수 있어야 한다.
+    Long legacyKeyId = repo.insert(assistantId, "ak_legacy000", "legacy-hash", "old", adminId);
+
+    assertThatThrownBy(() -> service.issue(adminId, assistantId, new IssueAgentKeyRequest("leak")))
+        .isInstanceOf(PersonalAssistantKeyIssueForbiddenException.class);
+    assertThat(service.list(assistantId))
+        .extracting(AgentApiKeyResponse::id)
+        .containsExactly(legacyKeyId);
+
+    service.revoke(adminId, assistantId, legacyKeyId);
+    assertThat(service.list(assistantId)).allSatisfy(k -> assertThat(k.revokedAt()).isNotNull());
   }
 }
