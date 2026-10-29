@@ -129,7 +129,8 @@ export function useStickToBottom(
     const onScroll = () => {
       // 소수 scrollTop 반올림 오차(1px)를 넘는 위쪽 이동만 위로 움직인 것으로 본다.
       const movedUp = el.scrollTop < observed.current.top - 1
-      const contentChanged = el.scrollHeight !== observed.current.height
+      const prevHeight = observed.current.height
+      const contentChanged = el.scrollHeight !== prevHeight
       observe(el)
       if (el.clientHeight !== lastClientHeight) {
         lastClientHeight = el.clientHeight
@@ -158,6 +159,22 @@ export function useStickToBottom(
       // 사용자가 실제로 올린 경우는 위 입력 리스너가 이미 고정을 풀어 이 분기에 오지 않는다. 앵커를 기다리는 중엔 끌어내리지 않는다.
       if (stuckRef.current) {
         if (dist > 0 && !pendingAnchor.current) toBottom()
+        return
+      }
+      // 바닥까지 내린 스크롤과 콘텐츠 성장이 같은 프레임에 오면(부하·이미지 로드) 이 scroll 이 처리될 때 높이는 이미 커져 있다 —
+      // 커진 높이로만 재면 「바닥에서 멀다」로 보고 고정을 켜지 않아, 뒤이은 ResizeObserver 도 따라가지 않았다(WP-1200, 392px 떨어짐).
+      // 그 스크롤은 성장 전 레이아웃의 맨 끝(최대 scrollTop)에 멈춰 있으므로, 성장 전 높이로 잰 거리가 정확히 0(반올림 1px)이면
+      // 바닥까지 내린 것으로 보고 고정한 뒤 커진 만큼 내린다. 바닥 「근처」(80px)로 넓히지 않는다 — 위쪽 콘텐츠가 커질 때 브라우저의
+      // 스크롤 앵커링이 보내는 scroll 도 contentChanged 라, 넓히면 위로 올려 읽던 사람을 바닥으로 끌어내렸다(리뷰 지적).
+      // 위로 올리는 입력이 진행 중(pendingRelease)이거나 앵커를 기다리는 중이면 건드리지 않는다.
+      const atBottomBeforeGrowth =
+        contentChanged &&
+        !pendingRelease &&
+        !pendingAnchor.current &&
+        Math.abs(prevHeight - el.scrollTop - el.clientHeight) <= 1
+      if (atBottomBeforeGrowth) {
+        stuckRef.current = true
+        toBottom()
         return
       }
       stuckRef.current = !movedUp && dist <= NEAR_BOTTOM_PX
