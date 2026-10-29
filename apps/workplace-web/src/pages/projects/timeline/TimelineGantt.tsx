@@ -474,8 +474,8 @@ export function TimelineGantt({
     return map
   }, [bars])
 
-  // 간트 축 범위(WP-595) — 막대가 조회 기간 앞뒤로 크게 넘으면(예: 1900~2099) 축을 그 안으로 자른다. 넘지 않으면 undefined 라
-  // SVAR 자동 범위(autoScale)를 그대로 쓴다. 200년 축에서는 처음 열 때도 「오늘」을 눌러도 엉뚱한 해가 보였다.
+  // 간트 축 범위(WP-595) — 막대가 조회 기간 앞뒤로 크게 넘으면(예: 1900~2099) 축을 그 안으로 자른다. 기간 안 마커가 막대 밖에 있으면
+  // 그 마커까지 넓힌다(WP-1146). 둘 다 아니면 undefined 라 SVAR 자동 범위(autoScale)를 그대로 쓴다. 200년 축에서는 처음 열 때도 「오늘」을 눌러도 엉뚱한 해가 보였다.
   const periodFrom = period?.from
   const periodTo = period?.to
   const axis = useMemo(() => {
@@ -486,8 +486,10 @@ export function TimelineGantt({
       if (t.end && (!max || t.end > max)) max = t.end
     }
     const range = periodFrom && periodTo ? { from: periodFrom, to: periodTo } : null
-    return ganttAxisBounds(min, max, range, new Date())
-  }, [tasks, periodFrom, periodTo])
+    // 마일스톤·버전 마커도 축에 담는다 — 막대보다 이른 지난 마감 마일스톤이 축 밖에서 숨지 않게(WP-1146).
+    const markerDates = [...milestones.map((m) => parseISO(m.dueDate)), ...versions.map((v) => parseISO(v.date))]
+    return ganttAxisBounds(min, max, range, new Date(), markerDates)
+  }, [tasks, periodFrom, periodTo, milestones, versions])
 
   const links = useMemo(
     () =>
