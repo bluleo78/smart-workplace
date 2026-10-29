@@ -52,6 +52,33 @@ describe('채널 헤더·설정', () => {
     expect(screen.queryByTestId('channel-settings-btn')).not.toBeInTheDocument()
   })
 
+  // WP-1132: 메뉴는 서버 권한과 같다 — 채널 ADMIN 은 이름 변경만(보관·보관 해제는 OWNER·시스템 ADMIN 만 서버가 받는다).
+  test('채널 ADMIN 설정에는 이름 변경만 있고 보관은 없다', async () => {
+    const { user } = openChannel(createChannel({ id: 49, name: '관리방', role: 'ADMIN', member: true }))
+    await user.click(await screen.findByTestId('channel-settings-btn'))
+    expect(await screen.findByTestId('channel-rename-action')).toBeInTheDocument()
+    expect(screen.queryByTestId('channel-archive-action')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('channel-delete-action')).not.toBeInTheDocument()
+  })
+
+  // 보관된 채널의 ADMIN 은 이름 변경도 보관 해제도 할 수 없다 — 빈 드롭다운 대신 설정 버튼을 두지 않는다.
+  test('보관된 채널의 채널 ADMIN 에게는 설정 버튼이 없다', async () => {
+    openChannel(createChannel({ id: 50, name: '보관관리방', archived: true, role: 'ADMIN', member: true }))
+    expect(await screen.findByTestId('channel-header')).toBeInTheDocument()
+    expect(screen.queryByTestId('channel-settings-btn')).not.toBeInTheDocument()
+  })
+
+  // 시스템 ADMIN 은 채널 역할과 무관하게 보관·삭제를 할 수 있다(requireOwner 의 시스템 ADMIN 오버라이드).
+  test('시스템 ADMIN 은 채널 MEMBER 여도 보관과 삭제가 보인다', async () => {
+    const { user } = openChannel(createChannel({ id: 51, name: '전체방', role: 'MEMBER', member: true }), {
+      auth: { isAdmin: true },
+    })
+    await user.click(await screen.findByTestId('channel-settings-btn'))
+    expect(await screen.findByTestId('channel-archive-action')).toBeInTheDocument()
+    expect(screen.getByTestId('channel-delete-action')).toBeInTheDocument()
+    expect(screen.queryByTestId('channel-rename-action')).not.toBeInTheDocument()
+  })
+
   // OWNER 이름 변경 — PATCH payload 와 성공 뒤 헤더 갱신(상세 재조회).
   test('OWNER 가 이름을 바꾸면 PATCH {name} 을 보내고 헤더가 새 이름이 된다', async () => {
     let renamed = false
