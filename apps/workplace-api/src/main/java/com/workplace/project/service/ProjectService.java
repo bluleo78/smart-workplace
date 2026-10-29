@@ -45,6 +45,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ProjectService {
 
+  /** 프로젝트 카드에 보이는 멤버 이름 수 — 나머지는 「외 N명」으로 센다. */
+  private static final int MEMBER_PREVIEW_NAMES = 3;
+
   private final ProjectRepository projectRepository;
   private final ProjectMemberRepository memberRepository;
   private final ProjectIssueSequenceRepository sequenceRepository;
@@ -146,7 +149,10 @@ public class ProjectService {
     // 배치 집계(N+1 회피): 상태별 이슈 수 + 멤버 이름 + 소유자 이름(멤버 없는 프로젝트 폴백용)
     List<Long> projectIds = rows.stream().map(ProjectRow::id).toList();
     var statusCounts = issueRepository.countByStatusForProjects(projectIds);
-    var memberNamesMap = memberRepository.findMemberNamesByProjects(projectIds);
+    var memberPreviews =
+        memberRepository.findMemberPreviewsByProjects(projectIds, MEMBER_PREVIEW_NAMES);
+    // 내 역할도 한 번에(WP-1129) — 행마다 멤버 행·부서 상위 재귀를 다시 보지 않게.
+    var roles = memberRepository.findRolesByProjects(projectIds, callerId);
     var ownerNames = userRepository.findNamesByIds(rows.stream().map(ProjectRow::ownerId).toList());
 
     List<ProjectResponse> content =
@@ -159,22 +165,23 @@ public class ProjectService {
                   int done = byStatus.getOrDefault(IssueStatuses.DONE, 0);
                   int issueTotal = all - canceled; // 취소는 진행률 분모에서 제외
 
-                  List<String> members = memberNamesMap.getOrDefault(row.id(), List.of());
+                  var preview = memberPreviews.get(row.id());
                   int memberCount;
                   List<String> topNames;
-                  if (members.isEmpty()) {
+                  if (preview == null) {
                     // 멤버 행이 없으면 소유자로 폴백(개인 프로젝트 등)
                     String owner = ownerNames.get(row.ownerId());
                     topNames = owner == null ? List.of() : List.of(owner);
                     memberCount = owner == null ? 0 : 1;
                   } else {
-                    memberCount = members.size();
-                    topNames = members.stream().limit(3).toList();
+                    memberCount = preview.count();
+                    topNames = preview.topNames();
                   }
                   // 목록은 findAllForUser 가 이미 "멤버이거나 OPEN" 행만 반환.
                   // OPEN 비멤버는 목록에는 노출되지 않으므로 여기 도달한 행은 멤버로 간주해도 무방.
-                  // 단, ADMIN 은 전체를 보므로 isMemberOrAdmin 으로 정확히 계산.
-                  String role = memberRole(row, callerId);
+                  // role 은 실효 멤버 역할(직접·부서)만이다 — ADMIN 의 비멤버 프로젝트는 null 이고, ADMIN 열람은 viewerIsMember
+                  // 가 따로 본다.
+                  String role = roles.get(row.id());
                   return ProjectResponse.from(
                       row,
                       issueTotal,

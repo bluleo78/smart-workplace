@@ -6,9 +6,11 @@ import com.workplace.role.dto.AdminPermissionCodes;
 import com.workplace.role.dto.RoleResponse;
 import com.workplace.user.dto.UserKind;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
 import org.jooq.Field;
@@ -146,5 +148,17 @@ public class RoleRepository {
         .where(USER_ROLE.USER_ID.eq(userId))
         .orderBy(ROLE.ID.asc())
         .fetch(this::mapToRoleResponse);
+  }
+
+  /** 사람들 중 그 역할을 가진 사람 id — 여러 사람의 ADMIN 우회를 한 번에 판정할 때(WP-1129). */
+  public Set<Long> findUserIdsWithRole(Collection<Long> userIds, String roleName) {
+    if (userIds.isEmpty()) return Set.of();
+    return dsl.selectDistinct(USER_ROLE.USER_ID)
+        .from(USER_ROLE)
+        .join(ROLE)
+        .on(ROLE.ID.eq(USER_ROLE.ROLE_ID))
+        .where(USER_ROLE.USER_ID.in(userIds))
+        .and(ROLE.NAME.eq(roleName))
+        .fetchSet(USER_ROLE.USER_ID);
   }
 }

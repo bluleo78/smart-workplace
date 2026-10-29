@@ -2,6 +2,8 @@ package com.workplace.global.security;
 
 import com.workplace.permission.service.PermissionService;
 import com.workplace.role.repository.RoleRepository;
+import java.util.Collection;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,5 +33,11 @@ public class PermissionChecker {
   @Transactional(readOnly = true)
   public boolean userHasRole(Long userId, String roleName) {
     return roleRepository.findByUserId(userId).stream().anyMatch(r -> r.name().equals(roleName));
+  }
+
+  /** {@link #userHasRole} 를 여러 사람에게 한 번에 — 그 역할을 가진 사람 id(WP-1129). */
+  @Transactional(readOnly = true)
+  public Set<Long> usersWithRole(Collection<Long> userIds, String roleName) {
+    return roleRepository.findUserIdsWithRole(userIds, roleName);
   }
 }

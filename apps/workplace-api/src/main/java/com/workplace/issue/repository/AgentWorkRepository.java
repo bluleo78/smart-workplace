@@ -330,14 +330,16 @@ public class AgentWorkRepository {
         terminalState, AGENT_WORK.WORKER_ID.eq(workerId).and(AGENT_WORK.STATE.in(fromStates)));
   }
 
-  /** 프로젝트의 모든 이슈에서 지정 작업자의 진행 중 작업을 종료한다(프로젝트 멤버 제거 시 — 담당 매핑이 함께 지워지므로). */
-  public int endActiveForWorkerInProject(long projectId, long workerId, String terminalState) {
+  /** 프로젝트의 모든 이슈에서 작업자들의 진행 중 작업을 한 문장으로 종료한다(프로젝트 멤버 제거 시 — 담당 매핑이 함께 지워지므로, 여러 명 WP-1129). */
+  public int endActiveForWorkersInProject(
+      long projectId, Collection<Long> workerIds, String terminalState) {
+    if (workerIds.isEmpty()) return 0;
     return end(
         terminalState,
         null,
         AGENT_WORK
             .WORKER_ID
-            .eq(workerId)
+            .in(workerIds)
             .and(
                 AGENT_WORK.ISSUE_ID.in(
                     dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId)))));

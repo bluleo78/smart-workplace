@@ -111,4 +111,37 @@ public class IssueHistoryRepository {
                 .where(ISSUE.ID.eq(DSL.any(issueIds.toArray(Long[]::new)))))
         .execute();
   }
+
+  /**
+   * 이슈마다 값이 다른 같은 이벤트 여러 줄을 한 문장으로 남긴다 — 여러 사람이 담당에서 한꺼번에 빠질 때의 담당자 변경 이력(WP-1129). 이슈 id·값을 배열 둘로
+   * 묶어 {@code unnest} 로 펼친다(행마다 바인딩하면 PostgreSQL 바인드 상한을 넘을 수 있다). 두 목록은 같은 길이이고, 그 순서로 들어간다.
+   */
+  public void insertRows(
+      List<Long> issueIds, List<String> toValues, Long actorId, String eventType) {
+    // 두 배열 길이가 다르면 unnest 가 짧은 쪽을 NULL 로 채워 값 없는 이력이 남는다 — 부른 쪽 실수로 막는다.
+    if (issueIds.size() != toValues.size())
+      throw new IllegalArgumentException("issueIds 와 toValues 의 길이가 다르다");
+    if (issueIds.isEmpty()) return;
+    var rows =
+        DSL.table(
+            "unnest({0}::bigint[], {1}::text[]) with ordinality as hr(issue_id, to_value, ord)",
+            DSL.val(issueIds.toArray(Long[]::new)), DSL.val(toValues.toArray(String[]::new)));
+    dsl.insertInto(
+            ISSUE_HISTORY,
+            ISSUE_HISTORY.ISSUE_ID,
+            ISSUE_HISTORY.ACTOR_ID,
+            ISSUE_HISTORY.EVENT_TYPE,
+            ISSUE_HISTORY.FROM_VALUE,
+            ISSUE_HISTORY.TO_VALUE)
+        .select(
+            dsl.select(
+                    DSL.field("hr.issue_id", Long.class),
+                    DSL.val(actorId, ISSUE_HISTORY.ACTOR_ID),
+                    DSL.val(eventType, ISSUE_HISTORY.EVENT_TYPE),
+                    DSL.inline((String) null, ISSUE_HISTORY.FROM_VALUE),
+                    DSL.field("hr.to_value", String.class))
+                .from(rows)
+                .orderBy(DSL.field("hr.ord")))
+        .execute();
+  }
 }

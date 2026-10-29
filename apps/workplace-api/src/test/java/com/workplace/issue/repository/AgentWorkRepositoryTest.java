@@ -305,7 +305,8 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
     var a = insert(issueId, agentId, "claude-code", "WORKING").orElseThrow();
     var b = insert(otherIssueId, agentId, "claude-code", "REVIEW").orElseThrow();
     var keep = insert(issueId, humanId, "claude-code", "WORKING").orElseThrow();
-    assertThat(repo.endActiveForWorkerInProject(projectId, agentId, "CANCELED")).isEqualTo(2);
+    assertThat(repo.endActiveForWorkersInProject(projectId, java.util.List.of(agentId), "CANCELED"))
+        .isEqualTo(2);
     assertThat(eventStates(a.id())).containsExactly("WORKING", "CANCELED");
     assertThat(eventStates(b.id())).containsExactly("REVIEW", "CANCELED");
     assertThat(eventStates(keep.id())).containsExactly("WORKING");

@@ -3,6 +3,7 @@ package com.workplace.watcher.repository;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_WATCHER;
 
+import java.util.Collection;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -33,10 +34,13 @@ public class IssueWatcherRepository {
         .execute();
   }
 
-  /** 한 프로젝트의 모든 이슈에서 이 사용자의 워처 등록을 지운다 — 프로젝트에서 빠져 더 볼 수 없게 된 사람의 정리용(WP-476). */
-  public int removeFromProject(long projectId, long userId) {
+  /**
+   * 한 프로젝트의 모든 이슈에서 이 사람들의 워처 등록을 한 문장으로 지운다 — 프로젝트에서 빠져 더 볼 수 없게 된 사람의 정리용(WP-476, 여러 명 WP-1129).
+   */
+  public int removeFromProject(long projectId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) return 0;
     return dsl.deleteFrom(ISSUE_WATCHER)
-        .where(ISSUE_WATCHER.USER_ID.eq(userId))
+        .where(ISSUE_WATCHER.USER_ID.in(userIds))
         .and(
             ISSUE_WATCHER.ISSUE_ID.in(
                 dsl.select(ISSUE.ID).from(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId))))

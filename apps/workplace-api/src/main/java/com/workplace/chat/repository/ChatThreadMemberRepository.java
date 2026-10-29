@@ -57,10 +57,13 @@ public class ChatThreadMemberRepository {
         > 0;
   }
 
-  /** 한 프로젝트의 모든 이슈 대화에서 이 사용자를 뺀다 — 프로젝트 멤버 제거 때 실시간 알림·참여 기록이 남지 않게(WP-475). */
-  public int deleteFromProjectThreads(long projectId, long userId) {
+  /**
+   * 한 프로젝트의 모든 이슈 대화에서 이 사람들을 한 문장으로 뺀다 — 프로젝트 멤버 제거 때 실시간 알림·참여 기록이 남지 않게(WP-475, 여러 명 WP-1129).
+   */
+  public int deleteFromProjectThreads(long projectId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) return 0;
     return dsl.deleteFrom(CHAT_THREAD_MEMBER)
-        .where(CHAT_THREAD_MEMBER.USER_ID.eq(userId))
+        .where(CHAT_THREAD_MEMBER.USER_ID.in(userIds))
         .and(
             CHAT_THREAD_MEMBER.THREAD_ID.in(
                 dsl.select(CHAT_THREAD.ID)

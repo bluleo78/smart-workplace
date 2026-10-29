@@ -37,6 +37,7 @@ import com.workplace.project.service.ProjectMemberGroupService;
 import com.workplace.project.service.ProjectMemberGroupService.ProjectDepartmentAudienceShrunk;
 import com.workplace.project.service.ProjectService;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.SqlStatementCounter;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.outbound.WorkspaceMembershipSuspended;
 import com.workplace.user.service.UserGroupService;
@@ -236,8 +237,10 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
     assertThat(memberRepository.findUserIdsByProject(team.id()))
         .containsExactlyInAnyOrder(ownerId, devMemberId, backendMemberId);
     // 프로젝트 카드의 멤버 이름 미리보기도 같은 명단(중복 없음).
-    assertThat(memberRepository.findMemberNamesByProjects(List.of(team.id())).get(team.id()))
-        .hasSize(3);
+    var preview =
+        memberRepository.findMemberPreviewsByProjects(List.of(team.id()), 3).get(team.id());
+    assertThat(preview.count()).isEqualTo(3);
+    assertThat(preview.topNames()).hasSize(3);
   }
 
   /** 부서로 들어온 사람도 담당자로 지정할 수 있다(AssigneePolicy 가 실효 멤버로 판정). 부서 밖 사람은 거절. */
@@ -290,6 +293,62 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
     assertThat(watcherRepository.findUserIdsByIssue(issueId)).containsExactly(devMemberId);
     call(get("/api/v1/projects/{key}", team.key()), backendMemberId)
         .andExpect(status().isNotFound());
+  }
+
+  /**
+   * 프로젝트 목록의 내 역할·멤버 미리보기는 프로젝트 수와 상관없이 같은 수의 쿼리로 구한다(WP-1129) — 전에는 행마다 멤버 행·부서 상위 재귀를 다시 읽었다.
+   * 부서로만 들어온 프로젝트의 역할은 MEMBER, 인원은 부서 구성원 수다.
+   */
+  @Test
+  void project_list_query_count_does_not_grow_with_projects() throws Exception {
+    List<ProjectResponse> projects = new ArrayList<>();
+    for (int i = 0; i < 2; i++) projects.add(departmentProject(devId));
+    int two =
+        SqlStatementCounter.count(dsl, () -> projectService.queryProjects(backendMemberId, 0, 100));
+    for (int i = 0; i < 4; i++) projects.add(departmentProject(devId));
+    int six =
+        SqlStatementCounter.count(dsl, () -> projectService.queryProjects(backendMemberId, 0, 100));
+
+    assertThat(six).isEqualTo(two);
+    var mine = projectService.queryProjects(backendMemberId, 0, 100).content();
+    for (ProjectResponse p : projects) {
+      ProjectResponse got =
+          mine.stream().filter(r -> r.id().equals(p.id())).findFirst().orElseThrow();
+      assertThat(got.viewerRole()).isEqualTo("MEMBER");
+      // 직접 멤버(소유자) + 개발팀·백엔드 구성원 둘.
+      assertThat(got.memberCount()).isEqualTo(3);
+    }
+  }
+
+  /**
+   * 부서 행을 빼 여러 명이 한꺼번에 나가도 정리(담당 해제·이력·AI 작업·워처·이슈 대화)는 사람 수와 상관없이 같은 수의 쿼리로 한다(WP-1129) — 전에는 사람마다
+   * 따로 돌아 300명 부서면 900번이 넘었다. 결과는 사람마다 정리한 것과 같다.
+   */
+  @Test
+  void removing_department_query_count_does_not_grow_with_people() throws Exception {
+    int two = departmentRemovalStatements(2);
+    int six = departmentRemovalStatements(6);
+
+    assertThat(six).isEqualTo(two);
+  }
+
+  /** 부서 행이 없으면(두 번 누르기 등) 부서 구성원을 모으기 전에 404 — 프로젝트에 큰 부서가 있어도 부서 트리 조회를 돌리지 않는다(WP-1129). */
+  @Test
+  void removing_missing_department_row_fails_before_collecting_members() throws Exception {
+    long large = group("큰부서-" + suffix, "SHARED", null, null);
+    for (int i = 0; i < 6; i++) member(large, human("l" + i));
+    ProjectResponse p = project(ownerId, "TEAM");
+    addGroup(p.key(), large, null).andExpect(status().isCreated());
+
+    List<String> sqls =
+        SqlStatementCounter.statements(
+            dsl,
+            () ->
+                assertThatThrownBy(() -> memberGroupService.remove(ownerId, p.key(), devId))
+                    .isInstanceOf(ProjectNotFoundException.class));
+
+    // 부서 트리 아래로 구성원 전원을 모으는 조회(findDepartmentUserIds 의 별칭 pmr_db)가 돌지 않는다 — 권한 판정의 내 부서 조회는 따로다.
+    assertThat(sqls).noneMatch(sql -> sql.contains("pmr_db"));
   }
 
   /** 직접 멤버 행을 빼도 부서로 여전히 멤버면 담당·워처는 그대로다(아직 프로젝트를 볼 수 있다). */
@@ -544,6 +603,44 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
         .from(AGENT_WORK)
         .where(AGENT_WORK.ID.eq(workId))
         .fetchOne(AGENT_WORK.STATE);
+  }
+
+  /** 그 부서를 멤버로 둔 새 TEAM 프로젝트(소유자 = ownerId). */
+  private ProjectResponse departmentProject(long groupId) throws Exception {
+    ProjectResponse p = project(ownerId, "TEAM");
+    addGroup(p.key(), groupId, null).andExpect(status().isCreated());
+    return p;
+  }
+
+  /**
+   * 사람 {@code people} 명이 든 부서를 멤버로 둔 프로젝트에서 그 부서 행을 뺄 때의 쿼리 수 — 사람마다 이슈 담당·워처를 걸어 두고, 빠진 뒤 모두
+   * 정리됐는지(담당·이력·워처)도 본다.
+   */
+  private int departmentRemovalStatements(int people) throws Exception {
+    ProjectResponse p = project(ownerId, "TEAM");
+    long dept = group("부서" + people + "-" + suffix, "SHARED", null, null);
+    addGroup(p.key(), dept, null).andExpect(status().isCreated());
+    long issueId =
+        IssueSeeds.insert(issueRepository, dsl, p.id(), 1, "이슈", null, "MID", null, ownerId).id();
+    List<Long> users = new ArrayList<>();
+    for (int i = 0; i < people; i++) {
+      long u = human("d" + i);
+      member(dept, u);
+      users.add(u);
+      dsl.insertInto(ISSUE_ASSIGNEE)
+          .set(ISSUE_ASSIGNEE.ISSUE_ID, issueId)
+          .set(ISSUE_ASSIGNEE.USER_ID, u)
+          .set(ISSUE_ASSIGNEE.ASSIGNED_BY, ownerId)
+          .execute();
+      watcherService.watch(u, p.key(), 1);
+    }
+
+    int n = SqlStatementCounter.count(dsl, () -> memberGroupService.remove(ownerId, p.key(), dept));
+
+    assertThat(assignees(issueId)).isEmpty();
+    assertThat(watcherRepository.findUserIdsByIssue(issueId)).isEmpty();
+    for (long u : users) assertThat(unassignHistoryActors(issueId, u)).containsExactly(ownerId);
+    return n;
   }
 
   /** 기록된 resource.changed 중 그 리소스의 것(발행 순). */

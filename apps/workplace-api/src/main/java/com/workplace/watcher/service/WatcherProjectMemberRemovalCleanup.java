@@ -28,10 +28,9 @@ public class WatcherProjectMemberRemovalCleanup {
         || !ResourceChangedEvent.OP_DELETED.equals(e.op())) {
       return;
     }
-    for (long userId : e.ids()) {
-      if (!accessGuard.canRead(e.scopeId(), userId)) {
-        watcherRepository.removeFromProject(e.scopeId(), userId);
-      }
-    }
+    // 볼 수 있는지는 한 번에 판정하고 못 보게 된 사람을 한 문장으로 지운다(WP-1129) — 부서가 빠져 수백 명이 나가도 조회 수가 늘지 않게.
+    var readable = accessGuard.readableUserIds(e.scopeId(), e.ids());
+    var gone = e.ids().stream().filter(id -> !readable.contains(id)).toList();
+    watcherRepository.removeFromProject(e.scopeId(), gone);
   }
 }

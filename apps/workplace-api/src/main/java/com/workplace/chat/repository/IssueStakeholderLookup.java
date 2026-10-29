@@ -9,6 +9,7 @@ import static com.workplace.jooq.Tables.USER;
 
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.share.ProjectMembership;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -60,6 +61,16 @@ public class IssueStakeholderLookup {
   public boolean isProjectMember(long projectId, long userId) {
     return dsl.fetchValue(
         DSL.select(DSL.field(ProjectMembership.isMember(DSL.val(projectId), DSL.val(userId)))));
+  }
+
+  /** {@link #isProjectMember} 를 여러 사람에게 한 문장으로 — 그중 프로젝트 멤버인 사람 id(WP-1129). */
+  public Set<Long> projectMemberIds(long projectId, Collection<Long> userIds) {
+    if (userIds.isEmpty()) return Set.of();
+    return dsl.select(USER.ID)
+        .from(USER)
+        .where(USER.ID.in(userIds))
+        .and(ProjectMembership.isMember(DSL.val(projectId), USER.ID))
+        .fetchSet(USER.ID);
   }
 
   /** 사용자가 AGENT(kind) 인지 — 스레드 경유 이슈 첨부 조회에서 멘션돼 참여한 에이전트만 허용하는 판정용(WP-244). */
