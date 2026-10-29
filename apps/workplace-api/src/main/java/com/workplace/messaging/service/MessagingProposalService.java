@@ -286,6 +286,10 @@ public class MessagingProposalService {
     if (!proposalRepo.updateStatus(row.id(), "CONFIRMED", "event:" + event.id(), callerId)) {
       throw new IllegalStateException("제안이 이미 처리되었습니다: " + row.id());
     }
+    // 고쳐 승인했으면 고친 값을 제안에도 되쓴다 — 승인 뒤 카드 요약은 제안 payload 를 읽어, 되쓰지 않으면 처음 제안한 기간·제목·장소가
+    // 남아 채널의 다른 사람이 실제 일정과 다른 값을 보았다(WP-1204).
+    ObjectNode edited = editedCalendarPayload(payload, body);
+    if (edited != null) proposalRepo.updatePayload(row.id(), edited.toString());
 
     // 결과 메시지(AGENT 작성, 같은 스레드에 미러).
     long agentId =
@@ -311,6 +315,21 @@ public class MessagingProposalService {
 
     // 갱신된 카드(CONFIRMED proposal 포함)를 HTTP 응답으로 반환.
     return messageService.findOneForProposal(row.messageId(), agentId);
+  }
+
+  /**
+   * 승인 때 고친 값(제목·시작·종료·장소)을 반영한 제안 payload — 일정 생성 params 와 같은 규칙으로 덮어쓴다(빈 제목은 무시). 고친 값이 없으면 null.
+   * 충돌·참석자 등 나머지 카드 필드는 그대로 둔다.
+   */
+  private ObjectNode editedCalendarPayload(JsonNode payload, ConfirmProposalRequest body) {
+    if (body == null) return null;
+    ObjectNode out = (ObjectNode) payload.deepCopy();
+    DateTimeFormatter isoFmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    if (body.title() != null && !body.title().isBlank()) out.put("title", body.title());
+    if (body.startsAt() != null) out.put("startsAt", isoFmt.format(body.startsAt()));
+    if (body.endsAt() != null) out.put("endsAt", isoFmt.format(body.endsAt()));
+    if (body.location() != null) out.put("location", body.location());
+    return out.equals(payload) ? null : out;
   }
 
   /**

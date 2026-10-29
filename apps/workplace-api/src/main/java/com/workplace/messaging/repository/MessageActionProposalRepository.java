@@ -88,6 +88,17 @@ public class MessageActionProposalRepository {
         > 0;
   }
 
+  /**
+   * 제안 payload 를 통째로 바꾼다 — 일정 제안을 위임자가 고쳐 승인하면 카드 요약이 실제로 만든 값을 보이도록 고친 값을 되쓴다(WP-1204). 승인과 같은
+   * 트랜잭션에서 부른다.
+   */
+  public void updatePayload(long id, String payloadJson) {
+    dsl.update(MESSAGE_ACTION_PROPOSAL)
+        .set(MESSAGE_ACTION_PROPOSAL.PAYLOAD, JSONB.valueOf(payloadJson))
+        .where(MESSAGE_ACTION_PROPOSAL.ID.eq(id))
+        .execute();
+  }
+
   /** jOOQ Record → ProposalRow 매핑 헬퍼. JSONB 는 .data() 로 문자열 추출, OffsetDateTime 은 Instant 로 변환. */
   private ProposalRow map(Record r) {
     OffsetDateTime resolvedAt = r.get(MESSAGE_ACTION_PROPOSAL.RESOLVED_AT);
