@@ -54,11 +54,12 @@ test('SKILL.md 순서에서 시각이 지난 다음 회차 대기가 우선순�
   assertBefore(workLoop('SKILL.md'), '④ `nextRunAt` 이 지난 다음 회차 대기', '⑤ 우선순위');
 });
 
-test('SKILL.md 다음 확인에서 미뤄 둔 후보(시각 없는 대기)는 남은 후보로 세지 않는다', () => {
+test('SKILL.md 미뤄 둔 후보(시각 없는 대기)는 한 부르기에 한 번만 고르고, 그것만 남으면 20~30분 쉰다', () => {
   // 시각 없는 대기 하나만 남았을 때 1분마다 깨어나 헛도는 것을 막는다.
   const text = workLoop('SKILL.md');
   assert.ok(text.includes('**미뤄 둔 후보**: `nextRunAt` 이 없는 다음 회차 대기다'));
-  assert.ok(text.includes('미뤄 둔 후보(3번)는 「남은 후보」로 세지 않는다'));
+  assert.ok(text.includes('맨 뒤에 한 번 부르기에 한 번씩만 고른다'));
+  assert.ok(text.includes('미뤄 둔 후보(3번)는 다음 부르기에 다시 고른다'));
 });
 
 test('본문 지시 회차: 하위를 만들기 전 닫힌 하위까지 보고, 닫을 때 요약을 먼저 남긴다', () => {
@@ -197,18 +198,23 @@ test('SKILL.md 3번: 고를 후보가 없을 때만 대기열에서 최대 하�
 });
 
 // WP-1040 동시 진행 상한 — AI 한 명당 맡은 프로젝트를 모두 합쳐 3개. 넘으면 새 작업·대기열 가져가기만 막는다.
-test('SKILL.md 3번: 내 이슈 목록 하나(프로젝트 키 없이)로 고르기와 동시 진행 세기를 함께 한다 (WP-1040)', () => {
-  assert.ok(s3.includes("`list_issues({ assignee: 'me', status: 'TODO,IN_PROGRESS', size: 100 })`"));
+// WP-1205 뒤로 수는 서버(get_member 의 slots)가 센다 — 목록을 프로젝트 없이 읽어 세는 것은 slots 가 없는 옛 서버에서만.
+test('SKILL.md 3번: 후보는 이 프로젝트 목록으로 고르고, 동시 진행은 slots 로(없으면 프로젝트 없는 목록으로) 센다 (WP-1040·WP-1205)', () => {
+  assert.ok(s3.includes("`list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS', size: 100 })`"));
   assert.ok(s3.includes('`issueKey` 가 `<프로젝트 키>-` 로 시작'));
-  assert.ok(workLoopSkill.includes('예외는 3번에서 내 이슈 목록을 읽어 「동시 진행 상한」을 셀 때와'));
+  assert.ok(s3.includes("`get_member({ username: 'me' })` 응답의 `slots`"));
+  assert.ok(workLoopSkill.includes('예외는 3번 「동시 진행 상한」의 `slots` 가 없을 때 내 이슈 목록을 프로젝트 없이 읽어 셀 때와'));
 });
 
 test('SKILL.md 3번: 세는 상태와 빼는 것, 막는 범위가 정해져 있다 (WP-1040)', () => {
-  assert.ok(s3.includes('**동시 진행 상한(3개)**'));
-  for (const anchor of ['`stale`', '열린 하위가 있는 부모는 뺀다', '①~④ 는 그대로 고르므로', '지시한 이슈(「본문 지시」)의 하위는 막지 않는다', '「동시 진행 3개(<진행 중 키들>) — 시작하지 않은 이슈 n개(<키들>)」']) {
+  assert.ok(s3.includes('**동시 진행 상한** — '));
+  for (const anchor of ['`stale`', '하위가 있는 부모는 뺀다', '①~④ 는 그대로 고르므로', '지시한 이슈(「본문 지시」)의 하위는 막지 않는다', '「동시 진행 <used>/<limit>(<slots.issues 키들>) — 시작하지 않은 이슈 n개(<키들>)」']) {
     assert.ok(s3.includes(anchor), anchor);
   }
-  assertBefore(s3, '**동시 진행 상한(3개)**', '**대기열에서 가져오기**');
+  // WP-1203 — 이슈를 이어 처리하므로 세기는 3번 조회마다 새로 한다(10분 묵힌 값·± 보정을 두지 않는다).
+  assert.ok(s3.includes('3번 조회를 할 때마다(4번 — 이슈 하나가 멈출 때마다 새로 한다)'));
+  assert.ok(!s3.includes('값을 받은 지 10분이 넘었으면'));
+  assertBefore(s3, '**동시 진행 상한** — ', '**대기열에서 가져오기**');
   assertBefore(s3, '**동시 진행 상한**(위)에 걸리면 가져오지 않고', '`claim_issue(');
   // 옛 WIP 상한(기다리는 이슈만, 대기열만)은 남지 않는다.
   assert.ok(!workLoopSkill.includes('WIP 상한'));
@@ -231,19 +237,27 @@ test('SKILL.md 3번: 옛 플러그인이 남긴 시각 없는 PR 대기 행은 �
   assert.ok(text.includes('플러그인 0.1.17 이하가 PR 대기를 이렇게 남겼다)은 어디서나 대기 중으로 본다'));
 });
 
-test('SKILL.md 5번: 대기열을 읽은 지 10분이 넘은 부르기는 다시 읽고, 오류로 멈췄으면 다시 읽지 않는다', () => {
+// WP-1203 부르기는 「할 일 없음」이나 30분 넘김으로만 끝난다 — 간격은 그 까닭으로 정한다.
+test('SKILL.md 5번: 30분이 넘어 끝나면 1분 안팎, 할 일 없음이면 20~30분이고 대기열은 다시 읽지 않는다 (WP-1203)', () => {
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('대기열을 읽은 지 10분이 안 됐으면 다시 읽지 않는다'));
-  assert.ok(text.includes('10분이 넘었으면(이슈 하나를 오래 처리한 부르기) 다시 읽는다'));
-  assert.ok(text.includes('오류(`CLAIM_AGENT_ONLY`·권한·연결 등)로 멈췄으면 다시 읽지 않고 20~30분이다'));
-  assert.ok(!text.includes('이번 부르기에서 이미 대기열을 읽었으면 다시 읽지 않는다'));
+  const s5 = text.slice(text.indexOf('\n### 5. 다음 확인\n'));
+  assert.ok(s5.includes('- **30분이 넘어 끝났으면** 1분 안팎'));
+  assert.ok(s5.includes('- **「할 일 없음」으로 끝났으면** 20~30분'));
+  assert.ok(s5.includes('대기열은 3번 끝에서 방금 읽었으니'));
+  assert.ok(s5.includes('- **그 밖의 까닭으로 끝났으면**(2번 잠금 오류 등) 20~30분'));
+  // 처리 중에 온 알림은 다음 3번 조회가 반영한다 — 마지막 조회 뒤에 온 것만 1분 안팎으로 다시 본다.
+  assert.ok(s5.includes('마지막 3번 조회 뒤에 알림 감시(아래)에서 `wake` 줄이 왔으면'));
+  // 이슈 하나마다 끝나던 때의 「후보가 남았으면 1분」·대기열 다시 읽기 규칙이 남아 있으면 안 된다.
+  assert.ok(!text.includes('처리할 후보가 남았으면 1분 안팎'));
+  assert.ok(!text.includes('이슈 하나를 오래 처리한 부르기'));
 });
 
-test('SKILL.md 5번: 기다림별 다음 일 표가 백그라운드 양보·상대 대기 각각의 다음 동작을 정한다', () => {
+test('SKILL.md 5번: 정리 표가 이슈 하나가 멈춘 뒤 30분 안·넘음별 다음 동작을 정한다 (WP-1203)', () => {
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('| 이번 부르기가 멈춘 지점 | 다른 후보가 있음 | 대기열에 가져갈 일만 있음 | 아무것도 없음 |'));
-  assert.ok(text.includes('| 백그라운드 작업에 양보(작업 중, 4번 예외) | 같은 부르기에서 다음 후보 |'));
-  assert.ok(text.includes('| 대기 중(PR 리뷰·수정, 다른 AI·사람의 답), 답변·인증 필요 | 1분 안팎 |'));
+  assert.ok(text.includes('| 이슈 하나가 멈춘 뒤 | 다음 동작 |'));
+  assert.ok(text.includes('| 30분 안, 고를 후보가 있음 | 같은 부르기에서 다음 후보(3번 조회를 새로 해서) |'));
+  assert.ok(text.includes('| 30분 안, 대기열에 가져갈 일만 있음 | 같은 부르기에서 하나 가져와 처리(동시 진행 상한 안) |'));
+  assert.ok(text.includes('| 30분이 넘음 | 다음 후보를 고르지 않고 끝냄 — 다음 확인 1분 안팎 |'));
 });
 
 // WP-1024 상태 구분 — 남의 차례는 대기 중, 내 일이 도는 백그라운드는 작업 중(끝날 시각), 시각 예약만 다음 회차 대기.
@@ -284,10 +298,12 @@ test('SKILL.md 3번: 대기열 라벨이 프로젝트에 아직 없어 목록이
   assertBefore(s3, '`label` 필터 오류', '`claim_issue(');
 });
 
-test('SKILL.md 5번: 가져갔으면 처리할 후보가 남은 것과 같게 다룬다', () => {
+test('SKILL.md 3번: 가져간 이슈를 처리한 뒤 후보가 없으면 같은 부르기에서 또 가져갈 수 있지만, 한 번에 하나다 (WP-1203)', () => {
   const text = workLoop('SKILL.md');
-  const s5 = text.slice(text.indexOf('\n### 5. 다음 확인\n'));
-  assert.ok(s5.includes('대기열에서 이슈를 가져갔으면'));
+  assert.ok(text.includes('한 번 가져갈 때 **최대 하나**다'));
+  assert.ok(text.includes('같은 부르기에서 또 가져갈 수 있다(동시 진행 상한·30분 안에서)'));
+  assert.ok(text.includes('처리하기 전에 여러 개를 쌓아 두지 않는다'));
+  assert.ok(!text.includes('한 번 부르기에 가져가기는'));
 });
 
 test('SKILL.md 넘기기: 대기열 라벨이 있는 역할은 AI 를 담당으로 넣지 않고 라벨을 붙인다', () => {
@@ -443,10 +459,35 @@ test('process-issue.md: 오래 걸리는 작업은 bg-job 으로 띄우고 notes
   assertBefore(text, '**push 게이트는 백그라운드로 먼저 돌린다**', '`git push --force-with-lease -u origin <브랜치>`');
 });
 
-test('SKILL.md: 백그라운드 작업 대기로 양보하면 같은 부르기에서 다른 후보를 고른다 (WP-994)', () => {
+// WP-1203 이슈 사이의 쉬는 시간을 없앤다 — 멈출 지점마다 3번으로 돌아가고(WP-994 의 백그라운드 양보 예외를 일반 규칙으로), 30분이 넘으면 한 번 멈춘다.
+test('SKILL.md 4번: 이슈가 멈출 지점에 오면 같은 부르기에서 다음 후보를 고르고, 30분이 넘으면 마친 뒤 끝낸다 (WP-1203)', () => {
   const text = workLoop('SKILL.md');
-  assert.ok(text.includes('**예외 — 백그라운드 작업 대기로 양보했을 때**'));
-  assert.ok(text.includes('이번 부르기에서 이미 고른 이슈는 다시 고르지 않는다'));
+  const s4 = text.slice(text.indexOf('\n### 4. 이슈를 하나씩 처리\n'), text.indexOf('\n### 5. 다음 확인\n'));
+  assert.ok(s4.length > 30, '4번 절이 없다');
+  assert.ok(s4.includes('**이슈는 한 번에 하나씩**'));
+  assert.ok(s4.includes('**멈출 지점에 오면 쉬지 않고 다음 이슈로**'));
+  assert.ok(s4.includes('3번으로 돌아가 조회를 새로 해'));
+  // 이미 멈춘 이슈도 3번 표대로 다시 고른다 — 막으면 같은 부르기 안에 온 답·리뷰를 부르기가 끝날 때까지 놓친다.
+  assert.ok(s4.includes('이번 부르기에서 이미 멈춘 이슈도 위 표대로 다시 고를 수 있다'));
+  assert.ok(!text.includes('이번 부르기에서 이미 고른 이슈는 다시 고르지 않는다'));
+  assert.ok(s4.includes('**30분 넘게 일했으면 한 번 멈춘다**'));
+  assert.ok(s4.includes('처리 중인 이슈는 끊지 않는다'));
+  // 멘션 답·백그라운드 양보도 멈출 지점이다 — 따로 예외를 두지 않는다.
+  assert.ok(s4.includes('백그라운드 작업에 양보(작업 중 그대로)'));
+  assert.ok(s4.includes('멘션받은 담당 밖 이슈에 답함'));
+  assert.ok(!text.includes('**예외 — 백그라운드 작업 대기로 양보했을 때**'));
+});
+
+test('work-loop 문서에 「한 번 부르기에 이슈는 하나」 전제가 남아 있지 않다 (WP-1203)', () => {
+  const text = workLoop('SKILL.md');
+  const pi = workLoop('process-issue.md');
+  const readme = readFileSync(new URL('../README.md', skillsDir), 'utf8');
+  for (const [name, t] of [['SKILL.md', text], ['process-issue.md', pi], ['README.md', readme]]) {
+    for (const phrase of ['한 번 부르기에 이슈는 하나', '이슈 하나를 처리한 것으로', '이번 부르기를 끝낸다(답은', '4번 예외', '한 번 부를 때마다 이슈 하나']) {
+      assert.ok(!t.includes(phrase), `${name} 에 「${phrase}」 가 남아 있다`);
+    }
+  }
+  assert.ok(text.includes('할당된 이슈를 **하나씩** 멈출 지점까지 처리하고, 쉬지 않고 다음 이슈를 고른다'));
 });
 
 // WP-720 알림으로 깨우기 — Monitor 로 gw-events 를 걸고, 쉬는 중이면 바로 부르고, 처리 중이면 끊지 않고 마친 뒤 1분 안팎.
@@ -459,7 +500,7 @@ test('SKILL.md 5번: 알림 감시(gw-events)를 Monitor 로 걸고, 처리 중�
   assert.ok(text.includes('`gw-events: …` 줄(AI 키 신원이 아님·인증 실패)이 왔으면 다시 걸지 않고 주기 확인만 한다'));
   assert.ok(text.includes('멘션 없는 이슈 챗 글은 알림이 없어 주기 확인으로 본다'));
   assert.ok(text.includes('처리하는 동안 새로 온 알림은 읽지 않은 채 남는다'));
-  assertBefore(text, '### 4. 이슈 하나 처리', '`mark_notification_read({ issueKey })`');
+  assertBefore(text, '### 4. 이슈를 하나씩 처리', '`mark_notification_read({ issueKey })`');
 });
 
 // WP-1011·WP-1046 start-agent — 사람이 만든 홈에서 AI 하나를 골라, 맡은 프로젝트(연결된 저장소)마다 clone 하고 tmux 한 창의 칸으로 work-loop 세션을 띄운다(WP-1053).
