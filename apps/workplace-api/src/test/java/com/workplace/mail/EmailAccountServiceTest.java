@@ -2,6 +2,9 @@ package com.workplace.mail;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -26,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -43,7 +47,10 @@ class EmailAccountServiceTest extends IntegrationTestBase {
 
   @Autowired DSLContext dsl;
   @Autowired EmailAccountService service;
-  @Autowired EmailAccountRepository repo;
+
+  /** 실제 동작 그대로 쓰되, 동시 등록 경합(검사는 통과·INSERT 는 충돌)을 흉내 낼 때만 중복 검사를 바꾼다(WP-1179). */
+  @MockitoSpyBean EmailAccountRepository repo;
+
   @Autowired EncryptionService encryption;
 
   /** AI 분류 백필 서비스 — 호출 여부만 검증하므로 mock. */
@@ -160,6 +167,36 @@ class EmailAccountServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.create(user, upper))
         .isInstanceOf(DuplicateEmailAccountException.class);
     assertThat(service.list(user)).hasSize(1);
+  }
+
+  /**
+   * 동시 등록 경합 — 대소문자만 다른 같은 주소가 중복 검사와 INSERT 사이에 저장되면(검사는 통과) DB 인덱스(lower, WP-1179)가 막고, 검사와 같은
+   * 409 로 돌려준다. 행은 하나만 남는다.
+   */
+  @Test
+  void create_caseVariantRacingPastCheck_isRejectedByIndexAsConflict() {
+    long user = TestFixtures.createHuman(dsl);
+    repo.insert(user, withAddress(greenMailReq("pw"), "BOX@TEST.LOCAL"), encryption.encrypt("pw"));
+    doReturn(false).when(repo).existsByUserAndAddress(anyLong(), anyString());
+
+    assertThatThrownBy(() -> service.create(user, greenMailReq("pw")))
+        .isInstanceOf(DuplicateEmailAccountException.class);
+  }
+
+  /** 수정도 같다 — 다른 계정의 주소(대소문자만 다름)로 바꾸는 요청이 검사를 지나도 DB 가 막아 409(WP-1179). */
+  @Test
+  void update_caseVariantRacingPastCheck_isRejectedByIndexAsConflict() {
+    long user = TestFixtures.createHuman(dsl);
+    EmailAccountResponse created = service.create(user, greenMailReq("pw"));
+    repo.insert(
+        user, withAddress(greenMailReq("pw"), "Other@Test.Local"), encryption.encrypt("pw"));
+    doReturn(false).when(repo).existsByUserAndAddressExcludingId(anyLong(), anyString(), anyLong());
+
+    assertThatThrownBy(
+            () ->
+                service.update(
+                    user, created.id(), withAddress(greenMailReq(""), "other@test.local")))
+        .isInstanceOf(DuplicateEmailAccountException.class);
   }
 
   /** 계정 주소의 대소문자만 바꿔 저장하는 것은 자기 자신이라 중복이 아니다. */
