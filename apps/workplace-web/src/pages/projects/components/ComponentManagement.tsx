@@ -20,7 +20,7 @@ import {
 } from '../../../hooks/queries/useComponents';
 import { handleApiError } from '../../../lib/api-error';
 import { deletionImpactNote } from '../../../lib/deletionImpact';
-import { type ComponentDraft,componentPatch } from '../../../lib/issueComponents';
+import { assigneeInvalidText, type ComponentDraft,componentPatch } from '../../../lib/issueComponents';
 import type { ComponentResponse } from '../../../types/component';
 import { ComponentEditDialog } from './ComponentEditDialog';
 
@@ -168,7 +168,7 @@ function ComponentTable({
                 {!c.defaultAssigneeValid && (
                   <span className="flex items-start gap-1 text-xs text-warning-text" data-testid={`component-row-${c.id}-assignee-warning`}>
                     <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
-                    프로젝트 구성원이 아니에요 — 자동 지정을 건너뛰어요
+                    {assigneeInvalidText(c.defaultAssigneeInvalidReason).warning}
                   </span>
                 )}
               </>

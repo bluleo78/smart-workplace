@@ -4,6 +4,7 @@ import static com.workplace.global.realtime.ResourceChangedEvent.OP_CREATED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_DELETED;
 import static com.workplace.global.realtime.ResourceChangedEvent.OP_UPDATED;
 
+import com.workplace.component.dto.AssigneeInvalidReason;
 import com.workplace.component.dto.ComponentResponse;
 import com.workplace.component.dto.ComponentRow;
 import com.workplace.component.dto.CreateComponentRequest;
@@ -180,14 +181,30 @@ public class ComponentService {
 
   /** 이미 읽어 온 담당자 정보 중 유효한 담당자(멤버·활성·사람)의 id 집합 — 호출부가 같은 정보를 두 번 읽지 않게 정보를 받는다. */
   private Set<Long> validAssigneeIds(ProjectRow project, List<AssigneeInfo> infos) {
-    if (infos.isEmpty()) return Set.of();
+    Map<Long, AssigneeInvalidReason> invalid = invalidReasons(project, infos);
+    return infos.stream()
+        .map(AssigneeInfo::id)
+        .filter(id -> !invalid.containsKey(id))
+        .collect(Collectors.toSet());
+  }
+
+  /**
+   * 담당자 정보 중 쓸 수 없는 사람의 id → 이유(WP-1123). 유효성 판정과 설정 화면 경고가 같은 규칙을 쓰도록 판정을 여기 한 곳에 둔다. 이유가 겹치면 계정
+   * 정지 → 구성원 아님 → 사람 아님 순으로 하나만 고른다(정지는 구성원으로 되돌려도 풀리지 않으므로 먼저 알린다).
+   */
+  private Map<Long, AssigneeInvalidReason> invalidReasons(
+      ProjectRow project, List<AssigneeInfo> infos) {
+    if (infos.isEmpty()) return Map.of();
     Set<Long> members =
         memberRepository.findMemberUserIds(
             project.id(), infos.stream().map(AssigneeInfo::id).toList());
-    return infos.stream()
-        .filter(u -> members.contains(u.id()) && u.isActive() && UserKind.HUMAN.equals(u.kind()))
-        .map(AssigneeInfo::id)
-        .collect(Collectors.toSet());
+    Map<Long, AssigneeInvalidReason> out = new HashMap<>();
+    for (AssigneeInfo u : infos) {
+      if (!u.isActive()) out.put(u.id(), AssigneeInvalidReason.INACTIVE);
+      else if (!members.contains(u.id())) out.put(u.id(), AssigneeInvalidReason.NOT_MEMBER);
+      else if (!UserKind.HUMAN.equals(u.kind())) out.put(u.id(), AssigneeInvalidReason.NOT_HUMAN);
+    }
+    return out;
   }
 
   /**
@@ -272,22 +289,35 @@ public class ComponentService {
     List<AssigneeInfo> infos = userRepository.findAssigneeInfos(assigneeIds, TenantContext.get());
     Map<Long, UserSummary> assignees = new HashMap<>();
     infos.forEach(u -> assignees.put(u.id(), u.toSummary()));
-    Set<Long> valid = validAssigneeIds(project, infos);
+    Map<Long, AssigneeInvalidReason> invalid = invalidReasons(project, infos);
     Map<Long, Integer> counts =
         componentRepository.countLiveIssuesByComponents(
             rows.stream().map(ComponentRow::id).toList());
     return rows.stream()
         .map(
-            r ->
-                new ComponentResponse(
-                    r.id(),
-                    r.name(),
-                    r.description(),
-                    r.defaultAssigneeId() == null ? null : assignees.get(r.defaultAssigneeId()),
-                    // 담당자가 없으면 경고할 것이 없으므로 true.
-                    r.defaultAssigneeId() == null || valid.contains(r.defaultAssigneeId()),
-                    r.archived(),
-                    counts.getOrDefault(r.id(), 0)))
+            r -> {
+              // 담당자가 없으면 경고할 것이 없으므로 이유 null = 유효.
+              AssigneeInvalidReason reason = reasonOf(r.defaultAssigneeId(), assignees, invalid);
+              return new ComponentResponse(
+                  r.id(),
+                  r.name(),
+                  r.description(),
+                  r.defaultAssigneeId() == null ? null : assignees.get(r.defaultAssigneeId()),
+                  reason == null,
+                  reason,
+                  r.archived(),
+                  counts.getOrDefault(r.id(), 0));
+            })
         .toList();
+  }
+
+  /**
+   * 구성요소 한 줄의 담당자 무효 이유 — 담당자가 없으면 null, 사용자 정보조차 없으면(사용자가 이 워크스페이스에서 사라짐) 구성원 아님, 그 밖에는 판정 표의 값.
+   */
+  private static AssigneeInvalidReason reasonOf(
+      Long assigneeId, Map<Long, UserSummary> assignees, Map<Long, AssigneeInvalidReason> invalid) {
+    if (assigneeId == null) return null;
+    if (!assignees.containsKey(assigneeId)) return AssigneeInvalidReason.NOT_MEMBER;
+    return invalid.get(assigneeId);
   }
 }

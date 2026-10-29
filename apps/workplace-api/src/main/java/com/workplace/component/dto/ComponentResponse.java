@@ -7,6 +7,7 @@ import com.workplace.global.dto.UserSummary;
  *
  * @param defaultAssignee 자동 지정에 쓰는 담당자(없으면 null). 무효가 돼도 값은 남겨 설정 화면이 경고를 그릴 수 있게 한다
  * @param defaultAssigneeValid 담당자가 지금도 「프로젝트 멤버 + 활성 + 사람」인가. 담당자가 없으면 문제가 없으므로 true
+ * @param defaultAssigneeInvalidReason 무효일 때 그 이유(WP-1123) — 유효하거나 담당자가 없으면 null
  * @param issueCount 이 구성요소가 붙은 (삭제되지 않은) 이슈 수
  */
 public record ComponentResponse(
@@ -15,5 +16,6 @@ public record ComponentResponse(
     String description,
     UserSummary defaultAssignee,
     boolean defaultAssigneeValid,
+    AssigneeInvalidReason defaultAssigneeInvalidReason,
     boolean archived,
     int issueCount) {}

@@ -1,6 +1,7 @@
 package com.workplace.component;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -168,7 +169,8 @@ class ComponentManagementTest extends IntegrationTestBase {
     call(patch(base + "/" + id).content("{\"defaultAssigneeId\":" + memberId + "}"), ownerId)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.defaultAssignee.id").value(memberId))
-        .andExpect(jsonPath("$.defaultAssigneeValid").value(true));
+        .andExpect(jsonPath("$.defaultAssigneeValid").value(true))
+        .andExpect(jsonPath("$.defaultAssigneeInvalidReason").value(nullValue()));
     call(patch(base + "/" + id).content("{\"defaultAssigneeId\":" + agentId + "}"), ownerId)
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.errors.code").value("COMPONENT_ASSIGNEE_INVALID"));
@@ -176,6 +178,7 @@ class ComponentManagementTest extends IntegrationTestBase {
     projectService.removeMember(ownerId, key, memberId);
     JsonNode row = json(call(get(base), ownerId)).get(0);
     assertThat(row.get("defaultAssigneeValid").asBoolean()).isFalse();
+    assertThat(row.get("defaultAssigneeInvalidReason").asText()).isEqualTo("NOT_MEMBER");
     // 값은 남는다 — 설정 화면이 경고를 그릴 수 있게.
     assertThat(row.get("defaultAssignee").get("id").asLong()).isEqualTo(memberId);
 
@@ -186,6 +189,28 @@ class ComponentManagementTest extends IntegrationTestBase {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.defaultAssignee").doesNotExist())
         .andExpect(jsonPath("$.defaultAssigneeValid").value(true));
+  }
+
+  /**
+   * 구성원으로 남은 채 계정만 정지된 담당자는 「구성원 아님」이 아니라 INACTIVE 로 알린다(WP-1123). 정지됐고 구성원에서도 빠지면 정지가 먼저다 — 구성원으로
+   * 되돌려도 정지는 풀리지 않는다.
+   */
+  @Test
+  void invalidReasonTellsSuspendedApartFromNotMember() throws Exception {
+    long assignee = withMembership(TestFixtures.createHuman(dsl));
+    projectService.addMember(ownerId, key, new AddMemberRequest(assignee, "MEMBER"));
+    long id = createComponent("Backend");
+    call(patch(base + "/" + id).content("{\"defaultAssigneeId\":" + assignee + "}"), ownerId)
+        .andExpect(status().isOk());
+
+    TestFixtures.suspendMember(dsl, assignee, 1L);
+    JsonNode row = json(call(get(base), ownerId)).get(0);
+    assertThat(row.get("defaultAssigneeValid").asBoolean()).isFalse();
+    assertThat(row.get("defaultAssigneeInvalidReason").asText()).isEqualTo("INACTIVE");
+
+    projectService.removeMember(ownerId, key, assignee);
+    row = json(call(get(base), ownerId)).get(0);
+    assertThat(row.get("defaultAssigneeInvalidReason").asText()).isEqualTo("INACTIVE");
   }
 
   /** 보관하면 archived=true, 다시 false 로 복원. 목록에는 보관된 것도 남는다. */

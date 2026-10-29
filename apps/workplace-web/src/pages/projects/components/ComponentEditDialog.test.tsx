@@ -12,13 +12,14 @@ vi.mock('../../../hooks/queries/useProjectMembers', () => ({
 }))
 
 const assignee = { id: 10, username: 'soon.park', name: '박순', kind: 'HUMAN' }
-function component(valid: boolean): ComponentResponse {
+function component(valid: boolean, reason: ComponentResponse['defaultAssigneeInvalidReason'] = 'NOT_MEMBER'): ComponentResponse {
   return {
     id: 1,
     name: 'Compute',
     description: null,
     defaultAssignee: assignee,
     defaultAssigneeValid: valid,
+    defaultAssigneeInvalidReason: valid ? null : reason,
     archived: false,
     issueCount: 0,
   } as unknown as ComponentResponse
@@ -43,6 +44,12 @@ describe('ComponentEditDialog 담당자 경고', () => {
   it('서버가 무효라고 한 담당자는 「(구성원 아님)」으로 남긴다', () => {
     renderDialog(component(false))
     expect(document.body.textContent).toContain('박순 (구성원 아님)')
+  })
+
+  it('계정만 정지된 담당자는 「(계정 정지)」로 남긴다 — 「구성원 아님」이 아니다(WP-1123)', () => {
+    renderDialog(component(false, 'INACTIVE'))
+    expect(document.body.textContent).toContain('박순 (계정 정지)')
+    expect(document.body.textContent).not.toContain('구성원 아님')
   })
 
   it('구성원 목록을 불러온 뒤에도 유효한 담당자엔 경고가 없다', () => {
