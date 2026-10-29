@@ -13,7 +13,6 @@ import com.workplace.home.outbound.dto.PriorityClassifyResult;
 import com.workplace.home.repository.PriorityItemRepository;
 import com.workplace.issue.dto.IssueDueWindow;
 import com.workplace.issue.dto.IssueResponse;
-import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.messaging.service.MessagingSummaryService;
@@ -50,9 +49,6 @@ public class PriorityClassificationScheduler {
 
   /** 소스당 후보 상한 — ai-agent 요청 폭주 방지(배치 입력 상한, SynthesisLayer 표시 상한과는 별개). */
   private static final int SOURCE_LIMIT = 20;
-
-  /** 이슈 마감 후보의 상태 범주 CSV — 종료(완료·취소)가 아닌 범주. 범주가 늘거나 바뀌어도 IssueStatuses 를 따라간다(WP-1099). */
-  private static final String OPEN_CATEGORIES = String.join(",", IssueStatuses.OPEN);
 
   private record TenantUser(long tenantId, long userId) {}
 
@@ -124,17 +120,34 @@ public class PriorityClassificationScheduler {
         });
     // ② 실행: Runner 트랜잭션 밖. 사용자마다 TenantContext 주입 → 각 단계 내부 트랜잭션이 GUC 주입.
     AgentOutageGuard guard = new AgentOutageGuard();
+    boolean outageLogged = false;
     for (TenantUser t : targets) {
-      if (guard.tripped()) {
-        // ai-agent 재기동 중 등 — 남은 사용자에게 같은 실패를 쌓지 않는다. 이전 결과는 그대로, 다음 주기에 다시 처리.
+      // ai-agent 재기동 중 등 — 남은 사용자에게 같은 실패를 쌓지 않는다. 분류는 다음 주기에 다시 하되, 끝난 항목 정리는 AI 와 무관하니
+      // 남은 사용자도 계속한다(WP-1177 — 예전엔 회차를 통째로 멈춰 끝난 행이 남았다).
+      boolean classify = !guard.tripped();
+      if (!classify && !outageLogged) {
+        outageLogged = true;
         log.warn(
-            "ai-agent 불가 {}회 연속 — 이번 우선순위 분류 회차 중단", AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE);
-        return;
+            "ai-agent 불가 {}회 연속 — 이번 회차 남은 사용자는 분류 없이 끝난 항목만 정리",
+            AgentOutageGuard.MAX_CONSECUTIVE_UNAVAILABLE);
       }
       TenantContext.set(t.tenantId());
       try {
-        if (processUser(t.userId())) {
-          guard.recordResponse(); // 후보·비서가 없어 agent 를 부르지 않은 사용자는 판단 근거가 아니다
+        // 수집·정리 실패는 ai-agent 와 무관하다 — 연속 불가 횟수를 건드리지 않고 다음 사용자로(WP-1177 리뷰).
+        Candidates collected;
+        try {
+          collected = collectAndPrune(t.userId());
+        } catch (RuntimeException e) {
+          log.warn(
+              "우선순위 후보 수집·정리 실패 tenant={} user={} — 이전 결과 유지, 다음 사용자로 계속",
+              t.tenantId(),
+              t.userId(),
+              e);
+          continue;
+        }
+        if (collected == null || !classify) continue;
+        if (classifyAndStore(t.userId(), collected)) {
+          guard.recordResponse(); // 비서가 없어 agent 를 부르지 않은 사용자는 판단 근거가 아니다
         }
       } catch (RuntimeException e) {
         if (e instanceof PriorityAiException ai && ai.isTransient()) {
@@ -157,21 +170,34 @@ public class PriorityClassificationScheduler {
   }
 
   /**
-   * 사용자 1명 처리 — 후보 수집(짧은 tx) → ai-agent 분류(tx 밖) → 저장(짧은 tx, replaceForUser).
+   * 사용자 1명의 후보 수집(짧은 tx) → 끝난 항목 정리(짧은 tx). 분류(ai-agent)와 나눠, ai-agent 가 없거나 실패해도 정리는 늘
+   * 돈다(WP-1177).
    *
-   * @return ai-agent 를 실제로 불러 응답을 받았으면 true(후보·비서가 없어 부르지 않았으면 false) — 호출부가 "연속 불가" 횟수를 agent 응답
-   *     기준으로만 리셋하도록
+   * @return 분류할 후보. 후보가 없으면(저장 행을 모두 비웠다) null
    */
-  private boolean processUser(long userId) {
+  private Candidates collectAndPrune(long userId) {
     Candidates collected = collectCandidates(userId);
-    List<PriorityCandidate> candidates = collected.items();
-    if (candidates.isEmpty()) {
+    if (collected.items().isEmpty()) {
       // 진짜 "후보 없음" 케이스만 전량 삭제(replaceForUser 빈 리스트) — AI 호출 자체를 안 했으니 모호함이 없다.
       // 짧은 트랜잭션으로 감싸 TenantAwareTransactionManager.doBegin() 이 RLS GUC(app.tenant_id) 를
       // 주입하도록 보장 — 트랜잭션 밖 호출은 GUC 미주입으로 tenant_id NULL → NOT NULL 위반(Critical, 리뷰 지적).
       txTemplate.executeWithoutResult(status -> repo.replaceForUser(userId, List.of()));
-      return false;
+      return null;
     }
+    // 끝난 항목 정리는 AI 결과와 무관하게 먼저 한다(WP-1177) — 비서가 없거나 ai-agent 호출이 실패·생략돼도 그사이 끝난 이슈·읽은 멘션·회신한
+    // 메일·읽은 대화가 이전 점수로 남지 않게. 분류가 성공하면 classifyAndStore 의 replaceForUser 가 다시 맞춘다.
+    pruneToCandidates(userId, collected);
+    return collected;
+  }
+
+  /**
+   * 정리를 마친 후보를 ai-agent 로 분류(tx 밖)해 저장(짧은 tx, replaceForUser).
+   *
+   * @return ai-agent 를 실제로 불러 응답을 받았으면 true(비서가 없어 부르지 않았으면 false) — 호출부가 "연속 불가" 횟수를 agent 응답
+   *     기준으로만 리셋하도록
+   */
+  private boolean classifyAndStore(long userId, Candidates collected) {
+    List<PriorityCandidate> candidates = collected.items();
     // 사용자 단위 배치이므로 개인 비서 우선(없으면 공용 비서로 폴백) — resolveWorkspaceOrEmpty() 는 개인 비서를
     // 무시해 개인화가 깨지므로 부적합(브리핑 Step1 확인 결과, resolveOrEmpty(userId) 로 교체).
     AssistantSpec spec = assistantResolver.resolveOrEmpty(userId).orElse(null);
@@ -204,7 +230,6 @@ public class PriorityClassificationScheduler {
           "우선순위 분류 응답이 비어있음(candidates={}) — AI 파싱 실패 가능성, 이전 점수 유지하고 저장 생략 user={}",
           candidates.size(),
           userId);
-      pruneToCandidates(userId, collected);
       return true;
     }
 
@@ -239,7 +264,6 @@ public class PriorityClassificationScheduler {
           candidates.size(),
           result.results().size(),
           userId);
-      pruneToCandidates(userId, collected);
       return true;
     }
     // 짧은 트랜잭션으로 감싸 RLS GUC 주입 보장 (위 빈-후보 분기와 동일 이유).
@@ -248,9 +272,9 @@ public class PriorityClassificationScheduler {
   }
 
   /**
-   * 새 점수를 저장하지 못한 회차에도 이번 후보에 없는 저장 행은 지운다(WP-1104) — 그사이 끝난 이슈·읽은 멘션·회신한 메일이 이전 점수로 「긴급」에 계속 남지
-   * 않게. 후보에 남은 행은 이전 점수를 그대로 둔다(빈 응답이 파싱 실패일 수 있어 점수는 덮지 않는다). 상한에 닿은 소스는 후보 밖에도 유효한 행이 있을 수 있어 지우지
-   * 않는다.
+   * 분류 전에 이번 후보에 없는 저장 행을 지운다(WP-1104, WP-1177 — 새 점수를 저장하지 못하는 회차·비서 없음·ai-agent 실패에도) — 그사이 끝난
+   * 이슈·읽은 멘션·회신한 메일이 이전 점수로 「긴급」에 계속 남지 않게. 후보에 남은 행은 이전 점수를 그대로 둔다(빈 응답이 파싱 실패일 수 있어 점수는 덮지 않는다).
+   * 상한에 닿은 소스는 후보 밖에도 유효한 행이 있을 수 있어 지우지 않는다.
    */
   private void pruneToCandidates(long userId, Candidates collected) {
     List<String> keys =
@@ -274,34 +298,21 @@ public class PriorityClassificationScheduler {
     // 이슈 마감(지남/오늘) — SynthesisLayer 의 dueFrom(1년 전)~오늘 규칙 미러.
     // 열린 범주(할 일·진행 중)만 받는다 — 프론트 isClosedDue(WP-675)처럼 끝난(완료·취소) 이슈는 마감이 지나도 후보가 아니다(WP-1099).
     // DB 단계에서 거르므로 후보 상한(SOURCE_LIMIT)도 열린 이슈만 차지한다. 사용자 정의 상태도 범주로 걸러진다.
-    var issues =
-        issueSearchService.searchMine(
-            userId,
-            Map.of(
-                "assignee",
-                "me",
-                // 1년 넘게 지난 마감은 SynthesisLayer 에도 보이지 않는다 — 같은 창으로 받는다(WP-1104, 예전엔 dueFrom 이 빠져
-                // 있었다).
-                "dueFrom",
-                IssueDueWindow.from(todayDate).toString(),
-                "dueTo",
-                today,
-                "status",
-                OPEN_CATEGORIES,
-                "size",
-                String.valueOf(SOURCE_LIMIT)));
-    if (issues.items().size() >= SOURCE_LIMIT) truncated.add(PriorityItemRow.ISSUE_DUE);
-    for (IssueResponse i : issues.items()) {
-      if (i.dueDate() != null && i.dueDate().toString().compareTo(today) <= 0) {
-        out.add(
-            new PriorityCandidate(
-                userId,
-                PriorityItemRow.ISSUE_DUE,
-                String.valueOf(i.id()),
-                i.title(),
-                i.dueDate().toString().equals(today) ? "오늘 마감" : "마감 지남",
-                "/projects/" + i.projectKey() + "/issues/" + i.number()));
-      }
+    // 1년 넘게 지난 마감은 SynthesisLayer 에도 보이지 않는다 — 같은 창으로 받는다(WP-1104). 상한에 걸릴 때 마감이 오늘에 가까운 이슈가 남도록
+    // 마감 순으로 받는다(WP-1177 — 예전엔 내 이슈 검색의 updated_at 순이라 오래 손대지 않은 임박 이슈가 빠졌다).
+    List<IssueResponse> issues =
+        issueSearchService.findDueAssigned(userId, todayDate, SOURCE_LIMIT);
+    if (issues.size() >= SOURCE_LIMIT) truncated.add(PriorityItemRow.ISSUE_DUE);
+    // 마감 창(1년 전~오늘)은 DB 가 이미 걸렀다 — 오늘인지만 가린다.
+    for (IssueResponse i : issues) {
+      out.add(
+          new PriorityCandidate(
+              userId,
+              PriorityItemRow.ISSUE_DUE,
+              String.valueOf(i.id()),
+              i.title(),
+              i.dueDate().toString().equals(today) ? "오늘 마감" : "마감 지남",
+              "/projects/" + i.projectKey() + "/issues/" + i.number()));
     }
 
     // 멘션(안읽은 코멘트 멘션·이슈 챗 멘션·AI 질문 알림) — 프론트 notifTarget.ts 의 isMentionLike() 와 동일 규칙

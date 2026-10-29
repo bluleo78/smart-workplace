@@ -13,7 +13,6 @@ import com.workplace.auth.service.AssistantResolver;
 import com.workplace.global.tenant.TenantScopedRunner;
 import com.workplace.home.outbound.AiAgentPriorityClient;
 import com.workplace.home.repository.PriorityItemRepository;
-import com.workplace.issue.dto.IssueSearchResponse;
 import com.workplace.issue.service.IssueSearchService;
 import com.workplace.mail.dto.MailSummaryResponse;
 import com.workplace.mail.service.MailMessageService;
@@ -105,8 +104,7 @@ class PriorityClassificationSchedulerUnitTest {
                     USER_ID, "u", "u@example.com", "유저", true, LocalDateTime.now(), "HUMAN")));
 
     // 4개 후보 소스 모두 빈 결과 — candidates.isEmpty() 분기(빈 리스트 replaceForUser)를 태운다.
-    given(issueSearchService.searchMine(eq(USER_ID), any()))
-        .willReturn(new IssueSearchResponse(List.of(), null, false));
+    given(issueSearchService.findDueAssigned(eq(USER_ID), any(), anyInt())).willReturn(List.of());
     given(notificationService.listRecent(eq(USER_ID), anyInt(), anyLong())).willReturn(List.of());
     given(mailMessageService.summary(eq(USER_ID), anyInt()))
         .willReturn(new MailSummaryResponse(0, 0, false, List.of()));

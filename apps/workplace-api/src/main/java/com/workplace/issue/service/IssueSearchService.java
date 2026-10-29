@@ -168,6 +168,21 @@ public class IssueSearchService {
   }
 
   /**
+   * 이 사용자의 「마감 지남·오늘」 열린 담당 이슈 — 마감이 오늘에 가까운 순으로 최대 limit 개(WP-1177). 홈 AI 우선순위 배치가 후보로 받는다. 조건은
+   * {@link IssueRepository#findDueAssigned}.
+   */
+  public List<IssueResponse> findDueAssigned(long userId, java.time.LocalDate today, int limit) {
+    return assembleCrossProject(userId, issueRepository.findDueAssigned(userId, today, limit));
+  }
+
+  /** 여러 프로젝트에 걸친 행 → 응답 항목 — projectId → key 를 한 번에 풀어(distinct) 조립한다(횡단 검색·마감 후보가 함께 쓴다). */
+  private List<IssueResponse> assembleCrossProject(Long viewerId, List<IssueRow> rows) {
+    var keyById =
+        projectRepository.keysByIds(rows.stream().map(IssueRow::projectId).distinct().toList());
+    return assembleItems(viewerId, rows, pid -> keyById.getOrDefault(pid, ""));
+  }
+
+  /**
    * 7c: 프로젝트 횡단 "내 이슈" 검색. 홈 위젯(issue_list/my_tasks)·기본구성용. assignee=me 는 parse 에서 callerId 로 해석되고,
    * 스코프는 호출자가 멤버인 모든 프로젝트(searchMemberOf 의 멤버십 EXISTS)로 제한된다.
    */
@@ -185,10 +200,7 @@ public class IssueSearchService {
     }
     IssueSearchQuery query = parse(callerId, null, params);
     var rows = issueRepository.searchMemberOf(callerId, query);
-    // projectId → key 일괄 해석(횡단이므로 여러 프로젝트). distinct 후 한 번에.
-    var keyById =
-        projectRepository.keysByIds(rows.stream().map(IssueRow::projectId).distinct().toList());
-    return assemble(callerId, rows, query, pid -> keyById.getOrDefault(pid, ""));
+    return pageOf(assembleCrossProject(callerId, rows), rows, query.size());
   }
 
   /**
