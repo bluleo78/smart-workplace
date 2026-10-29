@@ -32,6 +32,26 @@ describe('createWorkplaceApiClient (Internal + X-On-Behalf-Of)', () => {
     });
   }
 
+  // WP-1118: 반복 회차 결과 보고 — 응답 없이 걸린 연결은 시간 상한(15초)으로 끝나 호출부가 다시 보낼 수 있다.
+  it('reportRecurringRun 은 /internal/issue-recurrence/{id}/runs 에 대행 헤더로 보내고, 응답이 없으면 시간 상한에 끝난다', async () => {
+    const body = { runId: '3-1', ok: true, message: '결과' };
+    const scope = nock(BASE)
+      .matchHeader('x-on-behalf-of', String(AGENT_ID))
+      .post(`${PREFIX}/internal/issue-recurrence/3/runs`, body)
+      .reply(204);
+    await newClient().reportRecurringRun(AGENT_ID, 3, body);
+    expect(scope.isDone()).toBe(true);
+
+    nock(BASE).post(`${PREFIX}/internal/issue-recurrence/3/runs`).delayConnection(1_000).reply(204);
+    const short = createWorkplaceApiClient({
+      baseURL: `${BASE}${PREFIX}`,
+      internalToken: 'tk-internal',
+      recurringReportTimeoutMs: 100,
+    });
+    const err = await short.reportRecurringRun(AGENT_ID, 3, body).catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('ECONNABORTED');
+  });
+
   // #842: 확인카드 사전검증 — POST /actions/validate 로 actionType+params 를 그대로 보낸다.
   it('validateAction 은 /actions/validate 에 actionType·params 를 보낸다', async () => {
     const scope = nock(BASE)

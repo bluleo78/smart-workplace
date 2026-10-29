@@ -21,6 +21,9 @@ import {
 } from '@smart-workplace/mcp-tools-shared';
 
 // WP-244: 첨부 추출 상태·구간 읽기 응답(WP-242 서버 계약 그대로). 구간 응답 타입은 공유 read_file 과 같은 정의를 쓴다(WP-346).
+
+/** 반복 회차 결과 보고 한 번의 시간 상한 — API 는 행 하나를 잠그고 글 하나를 남길 뿐이라 이보다 오래 걸리면 걸린 연결로 본다. */
+const RECURRING_REPORT_TIMEOUT_MS = 15_000;
 export type { ExtractedTextSlice, ExtractionStatus };
 export interface ExtractionInfo {
   status: ExtractionStatus;
@@ -260,6 +263,8 @@ export function createWorkplaceApiClient(opts: {
   internalToken: string;
   // #719: 설정 시 모든 대리 호출에 X-On-Behalf-Of-Tenant 를 동봉 — withOnBehalfOfTenant 가 채운다.
   onBehalfOfTenantId?: number;
+  // WP-1118: 반복 회차 결과 보고 한 번의 시간 상한 — 테스트가 짧게 바꾼다. 기본 RECURRING_REPORT_TIMEOUT_MS.
+  recurringReportTimeoutMs?: number;
 }): WorkplaceApiClient {
   const http: AxiosInstance = axios.create({
     baseURL: opts.baseURL ?? DEFAULT_API_BASE_URL,
@@ -477,7 +482,11 @@ export function createWorkplaceApiClient(opts: {
       return r.data as ConversationSearchDto;
     },
     async reportRecurringRun(agentId, issueId, body) {
-      await http.post(`/internal/issue-recurrence/${issueId}/runs`, body, onBehalfOf(agentId));
+      // 요청 시간 상한(WP-1118) — 응답 없이 걸린 연결은 끝나지 않아 다시 보내기가 돌지 못한다. 넘으면 응답 없는 오류로 끝나 다시 보낸다.
+      await http.post(`/internal/issue-recurrence/${issueId}/runs`, body, {
+        ...onBehalfOf(agentId),
+        timeout: opts.recurringReportTimeoutMs ?? RECURRING_REPORT_TIMEOUT_MS,
+      });
     },
     async requestSharedMemory(onBehalfOfId, body) {
       const r = await http.post('/shared-ai-memories/requests', body, onBehalfOf(onBehalfOfId));
