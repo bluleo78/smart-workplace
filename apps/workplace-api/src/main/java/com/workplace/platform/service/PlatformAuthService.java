@@ -5,10 +5,12 @@ import com.workplace.auth.exception.InvalidTokenException;
 import com.workplace.auth.exception.RefreshTokenReuseException;
 import com.workplace.auth.repository.RefreshTokenRepository;
 import com.workplace.auth.service.LoginAttemptService;
+import com.workplace.auth.service.LoginFailureAuditor;
 import com.workplace.auth.service.PasswordLoginVerifier;
 import com.workplace.global.exception.CryptoException;
 import com.workplace.global.security.JwtProperties;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.global.util.RequestInfo;
 import com.workplace.platform.dto.PlatformLoginRequest;
 import com.workplace.platform.dto.PlatformUserResponse;
 import com.workplace.platform.exception.PlatformAccessDeniedException;
@@ -16,7 +18,6 @@ import com.workplace.platform.repository.PlatformRoleRepository;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserDeactivatedException;
 import com.workplace.user.repository.UserRepository;
-import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -28,8 +29,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 /**
  * 운영자(플랫폼) 전용 인증 서비스.
@@ -56,6 +55,7 @@ public class PlatformAuthService {
   private final LoginAttemptService loginAttemptService;
   private final PasswordLoginVerifier passwordLoginVerifier;
   private final AuditLogService auditLogService;
+  private final LoginFailureAuditor loginFailureAuditor;
 
   /** 로그인의 발급 단계만 트랜잭션으로 묶는다(WP-752 — 자격 검증은 트랜잭션 밖). */
   private final TransactionTemplate tx;
@@ -72,7 +72,14 @@ public class PlatformAuthService {
    */
   public PlatformLoginResult login(PlatformLoginRequest request) {
     // 일반 로그인과 같은 잠금·자격 검증 — 실패는 모두 같은 문구·같은 해시 계산 시간(WP-623).
-    UserResponse user = passwordLoginVerifier.verify(request.username(), request.password());
+    // 있는 계정의 실패는 운영자 감사(워크스페이스 없는 행)로 남긴다(WP-1161). 요청 정보는 계정 유무와 상관없이 검증 전에 뽑는다.
+    RequestInfo requestInfo = RequestInfo.current();
+    UserResponse user =
+        passwordLoginVerifier.verify(
+            request.username(),
+            request.password(),
+            (failed, reason) ->
+                loginFailureAuditor.recordPlatformFailed(failed, reason, requestInfo));
 
     if (!user.isActive()) {
       throw new UserDeactivatedException("비활성화된 계정입니다.");
@@ -98,16 +105,14 @@ public class PlatformAuthService {
     storeRefreshToken(user.id(), refreshToken, familyId);
 
     // 운영자 로그인 감사 로그
-    String[] requestInfo = extractRequestInfo();
-    auditLogService.log(
+    auditLogService.logInTenantOrGlobal(
+        null,
         user.id(),
         user.username(),
         "PLATFORM_LOGIN",
         "platform",
-        null,
         "운영자 로그인 성공",
-        requestInfo[0],
-        requestInfo[1],
+        RequestInfo.current(),
         "SUCCESS",
         null,
         null);
@@ -191,16 +196,14 @@ public class PlatformAuthService {
         .findById(userId)
         .ifPresent(
             user -> {
-              String[] requestInfo = extractRequestInfo();
-              auditLogService.log(
+              auditLogService.logInTenantOrGlobal(
+                  null,
                   userId,
                   user.username(),
                   "PLATFORM_LOGOUT",
                   "platform",
-                  null,
                   "운영자 로그아웃",
-                  requestInfo[0],
-                  requestInfo[1],
+                  RequestInfo.current(),
                   "SUCCESS",
                   null,
                   null);
@@ -227,21 +230,6 @@ public class PlatformAuthService {
     LocalDateTime expiresAt =
         LocalDateTime.now().plusSeconds(jwtProperties.refreshExpiration() / 1000);
     refreshTokenRepository.save(userId, tokenHash, expiresAt, familyId);
-  }
-
-  /** HTTP 요청 컨텍스트에서 IP와 User-Agent를 추출한다. 감사 로그에 사용. */
-  private String[] extractRequestInfo() {
-    var attrs = RequestContextHolder.getRequestAttributes();
-    if (attrs instanceof ServletRequestAttributes sra) {
-      HttpServletRequest req = sra.getRequest();
-      String forwarded = req.getHeader("X-Forwarded-For");
-      String ip =
-          (forwarded != null && !forwarded.isBlank())
-              ? forwarded.split(",")[0].trim()
-              : req.getRemoteAddr();
-      return new String[] {ip, req.getHeader("User-Agent")};
-    }
-    return new String[] {null, null};
   }
 
   private String hashToken(String token) {

@@ -31,6 +31,8 @@ import org.springframework.scheduling.annotation.Scheduled;
  *       막는다.
  *   <li>{@code MailCategoryBackfillScheduler.tick} — 전용 실행기에 넘기고 바로 돌아와 애너테이션 잠금이 효과가 없다. 실제 회차는
  *       실행기 안에서 ShedLock 프로그래밍 잠금(LockingTaskExecutor)으로 감싼다(WP-185).
+ *   <li>{@code DroppedAudits.flush} — 파드 메모리에 모은 「버린 로그인 실패 감사」 건수를 그 파드의 경고 로그로 내보낸다(WP-1161). 모든
+ *       파드에서 돌아야 한다 — 잠그면 다른 파드가 버린 건수는 경고로 남지 않는다.
  * </ul>
  */
 @AnalyzeClasses(packages = "com.workplace", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -41,7 +43,8 @@ public class ScheduledLockArchTest {
       Set.of(
           "SseRegistry.sendHeartbeat",
           "MailReanalysisScheduler.tick",
-          "MailCategoryBackfillScheduler.tick");
+          "MailCategoryBackfillScheduler.tick",
+          "DroppedAudits.flush");
 
   /** 클래스의 메서드 전체 — @ArchTest 메서드는 @AnalyzeClasses 가 캐시한 임포트를 받는다(전체 클래스를 다시 임포트하지 않는다). */
   private static Stream<JavaMethod> methodsOf(JavaClasses classes) {
