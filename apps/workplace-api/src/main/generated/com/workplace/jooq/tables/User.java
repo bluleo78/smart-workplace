@@ -1716,6 +1716,7 @@ public class User extends TableImpl<UserRecord> {
     public List<Check<UserRecord>> getChecks() {
         return Arrays.asList(
             Internal.createCheck(this, DSL.name("chk_user_agent_runtime"), "(((agent_runtime)::text = ANY ((ARRAY['INTERNAL'::character varying, 'EXTERNAL'::character varying])::text[])))", true),
+            Internal.createCheck(this, DSL.name("chk_user_email_not_blank"), "(((email IS NULL) OR ((email)::text ~ '[^ \\t\\n\\r\\f\\v]'::text)))", true),
             Internal.createCheck(this, DSL.name("user_kind_check"), "(((kind)::text = ANY ((ARRAY['HUMAN'::character varying, 'AGENT'::character varying])::text[])))", true)
         );
     }
