@@ -58,6 +58,20 @@ if [ -n "$COLLAB_CHANGED" ]; then
   [ -n "$PRECOMMIT_DRY_RUN" ] || run_locked pnpm --filter @smart-workplace/workplace-collab test
 fi
 
+# 3.7) 게이트 훅 스크립트(scripts/husky/) — 셸 테스트(*.test.sh, 임시 저장소, 수십 초)를 돌린다 (WP-1208).
+# 이 테스트는 CI 에서 돌지 않아, 여기서 돌리지 않으면 범위·기록 판정이 깨진 채 커밋된다(가짜 「검증 완료」가 남으면 회귀를 건너뛴다).
+# 삭제도 센다 — CHANGED 는 삭제를 빼므로(--diff-filter=ACMR) 훅 파일만 따로 본다(지운 헬퍼를 source 하는 훅이 깨진 채 커밋되지 않게).
+# 테스트는 임시 저장소에서 git 을 부르므로, 훅이 물려받은 GIT_DIR·GIT_INDEX_FILE 등을 끊는다 — 남기면 그 git 이 이 저장소·인덱스를 건드린다.
+if [ -n "$PRECOMMIT_CHANGED_FILES" ]; then
+  HOOKS_CHANGED=$(printf '%s\n' "$CHANGED" | grep -E '^scripts/husky/' || true)
+else
+  HOOKS_CHANGED=$(git diff --cached --name-only -- scripts/husky/)
+fi
+if [ -n "$HOOKS_CHANGED" ]; then
+  echo "[pre-commit] 게이트 훅 변경 — 훅 셸 테스트 실행(pnpm test:hooks)"
+  [ -n "$PRECOMMIT_DRY_RUN" ] || env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR pnpm test:hooks
+fi
+
 # 4) workplace-web 변경 영역 분석
 # src/pages/ 서브디렉토리 = 도메인. 하드코딩하면 도메인 추가 시 드리프트되므로 동적으로 도출한다.
 WEB_DOMAINS_RE=$(ls -d apps/workplace-web/src/pages/*/ 2>/dev/null | xargs -n1 basename | sort | tr '\n' '|' | sed 's/|$//')

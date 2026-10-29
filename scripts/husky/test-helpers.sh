@@ -3,6 +3,10 @@
 PASS=0
 FAIL=0
 
+# git 훅 안에서 돌면(pre-commit 3.7) git 이 넘긴 GIT_DIR·GIT_INDEX_FILE 등이 남아, 테스트가 만든 임시 저장소 대신
+# 바깥 저장소·인덱스를 건드린다(WP-1208). 테스트는 늘 자기 cwd 의 저장소만 보게 끊는다.
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+
 # check <설명> <출력> <기대 substring> [금지 substring] — 출력에 기대가 있고 금지가 없으면 PASS.
 check() {
   ok=1

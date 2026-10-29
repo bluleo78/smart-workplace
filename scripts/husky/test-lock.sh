@@ -18,5 +18,6 @@ run_locked() {
   if ! flock -n "$TEST_GATE_LOCK" true; then
     echo "[test-lock] 다른 세션이 테스트 게이트 실행 중 — 대기합니다 (락: $TEST_GATE_LOCK)"
   fi
-  flock "$TEST_GATE_LOCK" "$@"
+  # 잡은 뒤 한 줄 알린다 — 로그에 대기 줄만 있고 이 줄이 없으면 아직 락을 기다리는 게이트다(묶음으로 다시 띄울 수 있다, WP-1208).
+  flock "$TEST_GATE_LOCK" sh -c 'echo "[test-lock] 락 획득 — 게이트 실행"; exec "$@"' sh "$@"
 }

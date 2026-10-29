@@ -119,4 +119,8 @@ apps/workplace-web/src/lib/pluginGuide.ts" \
   "affected-domains.mjs 로 영향 도메인 계산 예정: apps/workplace-web/src/lib/pluginGuide.ts" \
   "단위 테스트 파일뿐"
 
+# 17) 게이트 훅 스크립트 변경 → 훅 셸 테스트(WP-1208)
+run_case "훅 스크립트 변경 → 훅 셸 테스트" "scripts/husky/gate-scope.sh" "훅 셸 테스트 실행"
+run_case "훅 밖 변경 → 훅 셸 테스트 없음" "apps/workplace-web/src/lib/a.ts" "vitest" "훅 셸 테스트"
+
 finish

@@ -9,6 +9,7 @@
 #   - 범위가 비었다(태그·삭제, 이미 main 에 있는 커밋) → 생략
 #   - 범위의 변경이 모두 비코드(noncode.sh — pre-commit 과 같은 규칙) → 생략
 #   - push 하는 커밋의 트리가 이미 전체 회귀를 통과한 트리(verified-trees.sh) → 생략
+#     범위를 줄여 통과한 트리(gate-scope.sh, WP-1208)는 그 커밋에 지금 필요한 범위(<원격>/main 기준)를 덮을 때만 인정한다.
 #   ref 하나라도 위에 해당하지 않으면 전체 회귀. stdin 이 비었거나 터미널이면(직접 실행) 전체 회귀.
 # 새 커밋이 있는 ref 는 생략 판정 전에 마이그레이션 번호를 확인해, 문제가 있으면 push 를 막는다(WP-1081, 아래 본문).
 # 인자: $1 = 원격 이름(git 이 넘긴다), stdin = `<local ref> <local sha> <remote ref> <remote sha>` 줄들.
@@ -20,15 +21,18 @@ set -e
 
 HOOK_DIR=$(dirname "$0")
 . "$HOOK_DIR/noncode.sh"
+. "$HOOK_DIR/gate-scope.sh"
 . "$HOOK_DIR/verified-trees.sh"
 
 REMOTE="${1:-origin}"
 
-# run_full <사유> — 전체 회귀로 넘어간다(dry-run 이면 표시만).
+# run_full <사유> [범위] — 전체 회귀로 넘어간다(dry-run 이면 표시만). 범위를 주면 full-regression.sh 가 그 범위로 돈다.
+# 범위를 주지 않으면(push 정보 없음·직접 실행) full-regression.sh 가 HEAD 기준으로 스스로 정한다(pnpm test:full 과 같다).
 run_full() {
   echo "[pre-push] 전체 회귀 실행 — $1"
+  if [ -n "${2:-}" ]; then FULL_REGRESSION_SCOPE=$2; export FULL_REGRESSION_SCOPE; fi
   if [ -n "$PREPUSH_DRY_RUN" ]; then
-    echo "[pre-push][dry-run] full-regression.sh"
+    echo "[pre-push][dry-run] full-regression.sh (범위 ${FULL_REGRESSION_SCOPE:-스스로 판정})"
     exit 0
   fi
   exec "$HOOK_DIR/full-regression.sh"
@@ -86,11 +90,17 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   fi
 
   tree=$(git rev-parse "$commit^{tree}")
-  if is_verified "$tree"; then
-    skip "$name" "이미 전체 회귀를 통과한 트리 $(printf %.12s "$tree")"; continue
+  # 이 커밋에 필요한 범위 — 게이트 때 기록한 범위를 그대로 믿지 않고 지금 원격 main 기준으로 다시 구한다.
+  if [ -n "$REMOTE_MAIN" ]; then need=$(gate_scope "$REMOTE_MAIN" "$commit"); else need=full; fi
+  if is_verified "$tree" "$need"; then
+    skip "$name" "이미 전체 회귀를 통과한 트리 $(printf %.12s "$tree") (필요 범위 $need)"; continue
   fi
 
-  run_full "$name: 코드 변경"
+  # 회귀는 작업 트리(HEAD)를 검사한다. push 하는 커밋이 HEAD 이고 기준이 origin/main 일 때만 그 범위로 줄이고,
+  # 아니면(HEAD 가 아닌 ref·다른 원격) 전체로 돈다 — HEAD 나 다른 기준으로 고른 범위가 이 커밋에 필요한 범위보다 좁을 수 있다.
+  gate=full
+  if [ "$REMOTE_MAIN" = refs/remotes/origin/main ] && [ "$commit" = "$(git rev-parse HEAD)" ]; then gate=$need; fi
+  run_full "$name: 코드 변경" "$gate"
 done
 
 # git 은 올릴 ref 가 있을 때만 훅을 부른다 — 빈 stdin 은 직접 실행(파이프·에이전트 셸)이다.
