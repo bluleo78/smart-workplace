@@ -10,6 +10,7 @@ import com.workplace.global.dto.MentionResponse;
 import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.ChatMarkdownText;
 import com.workplace.global.util.MentionParser;
+import com.workplace.global.util.Texts;
 import com.workplace.messaging.dto.ChannelCatchupResponse;
 import com.workplace.messaging.dto.ChannelCatchupResponse.MentionItem;
 import com.workplace.messaging.dto.ChannelCatchupResponse.SummaryGroup;
@@ -229,6 +230,7 @@ public class ChannelCatchupService {
     // 글자 그대로 그려 원문 토큰이 보였다(WP-1188). 서식을 먼저 지운다 — 바꾼 뒤 지우면 이름 속 * · ~ 까지 서식으로 오인한다(대화 목록 미리보기와 같은
     // 순서).
     String plain = MentionParser.replaceWithNames(ChatMarkdownText.toPlain(body), names);
-    return plain.length() <= SNIPPET_MAX ? plain : plain.substring(0, SNIPPET_MAX) + "…";
+    // 글자(코드 포인트) 단위로 자른다 — 이름을 펼치면 자르는 자리가 움직여 이모지 한가운데를 자르면 깨진 글자가 됐다.
+    return Texts.truncateCodePoints(plain, SNIPPET_MAX);
   }
 }
