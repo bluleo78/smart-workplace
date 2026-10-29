@@ -301,6 +301,7 @@ export default function ChannelPage() {
       <ChannelMembersPanel
         channelId={channel.id}
         myRole={channel.role}
+        visibility={channel.visibility}
         open={membersOpen}
         onOpenChange={setMembersOpen}
       />

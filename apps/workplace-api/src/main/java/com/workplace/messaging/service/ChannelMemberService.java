@@ -10,23 +10,31 @@ import com.workplace.messaging.exception.ChannelNotFoundException;
 import com.workplace.messaging.exception.InactiveMemberException;
 import com.workplace.messaging.exception.OwnershipTransferRequiredException;
 import com.workplace.messaging.outbound.ChannelChangeNotifier;
+import com.workplace.messaging.repository.ChannelMemberGroupRepository;
 import com.workplace.messaging.repository.ChannelMemberRepository;
 import com.workplace.messaging.repository.ChannelRepository;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.repository.UserRepository;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 채널 멤버 관리 — 목록/초대/제거/나가기/역할변경(소유권 이전). */
+/**
+ * 채널 멤버 관리 — 목록/초대/제거/나가기/역할변경(소유권 이전).
+ *
+ * <p>멤버 부서(WP-1058)와의 관계: 사람 행은 한 사람에 한 줄이고 direct 로 직접 멤버인지 가른다. 초대·관리 역할 승격은 직접 멤버로 고정하고(부서가 빠져도
+ * 남는다), 부서로 걸리는 사람을 내보내거나 그 사람이 나가면 개인 제외를 남겨 맞추기가 다시 넣지 않게 한다(다시 초대하면 지운다).
+ */
 @Service
 @RequiredArgsConstructor
 public class ChannelMemberService {
 
   private final ChannelRepository channelRepo;
   private final ChannelMemberRepository memberRepo;
+  private final ChannelMemberGroupRepository groupRepo;
   private final ChannelPermissions perms;
   private final MembershipGuard membershipGuard;
   private final ChannelChangeNotifier changeNotifier;
@@ -37,32 +45,40 @@ public class ChannelMemberService {
 
   /**
    * 멤버 목록 — 읽을 수 있는 사람만(멤버, 또는 보관된 공개 채널이면 누구나 — WP-621). 그 밖의 비멤버는 404 은닉. RLS GUC 주입
-   * 위해 @Transactional 필요(없으면 빈 결과).
+   * 위해 @Transactional 필요(없으면 빈 결과). 사람마다 걸리는 이 채널의 멤버 부서(viaGroupIds, WP-1058)를 붙인다.
    */
   @Transactional(readOnly = true)
   public List<ChannelMemberResponse> listMembers(long callerId, long channelId) {
     ensureExists(channelId);
     if (!perms.canRead(channelId, callerId)) throw new ChannelNotFoundException(channelId);
-    return memberRepo.listMembers(channelId);
+    Map<Long, List<Long>> covering = groupRepo.coveringGroupsByUser(channelId);
+    return memberRepo.listMembers(channelId).stream()
+        .map(m -> m.withViaGroupIds(covering.getOrDefault(m.userId(), List.of())))
+        .toList();
   }
 
-  /** 멤버 추가 — OWNER/ADMIN 또는 시스템 ADMIN. MEMBER 역할로 add(idempotent). */
+  /**
+   * 멤버 추가 — OWNER/ADMIN 또는 시스템 ADMIN. 직접 멤버(MEMBER)로 넣는다(idempotent). 부서로 이미 들어와 있으면 행을 새로 만들지 않고
+   * 직접 멤버로 고정한다 — 역할·읽은 위치 그대로(WP-1058). 개인 제외(내보냈거나 나간 기록)가 있으면 지운다 — 다시 초대한 사람은 부서 판정에서도 다시 들어온다.
+   */
   @Transactional
   public void add(long callerId, long channelId, long targetUserId) {
     checkAdd(callerId, channelId, targetUserId);
-    memberRepo.add(channelId, targetUserId, "MEMBER");
+    memberRepo.addDirect(channelId, targetUserId);
+    groupRepo.deleteExclusion(channelId, targetUserId);
     rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, List.of(targetUserId));
   }
 
   /**
    * 멤버 추가 사전검증(#856) — 확인 카드 dry-run 이 {@link #add} 와 같은 {@link #checkAdd} 를 쓴다. 실행은 이미 멤버여도
-   * 성공(idempotent)이지만 그런 카드는 아무 효과가 없으므로 사전검증에서만 사유와 함께 거절한다.
+   * 성공(idempotent)이지만 그런 카드는 아무 효과가 없으므로 사전검증에서만 사유와 함께 거절한다. 부서로만 들어와 있는 사람은 초대하면 직접 멤버로
+   * 고정되므로(WP-1058) 거절하지 않는다.
    */
   @Transactional(readOnly = true)
   public void validateAdd(long callerId, long channelId, long targetUserId) {
     checkAdd(callerId, channelId, targetUserId);
-    if (memberRepo.findRole(channelId, targetUserId).isPresent()) {
+    if (memberRepo.findDirect(channelId, targetUserId).orElse(false)) {
       throw new IllegalArgumentException("이미 채널 멤버입니다: userId=" + targetUserId);
     }
   }
@@ -91,7 +107,9 @@ public class ChannelMemberService {
     }
   }
 
-  /** 멤버 제거 — OWNER/ADMIN. OWNER 는 제거 불가. */
+  /**
+   * 멤버 제거 — OWNER/ADMIN. OWNER 는 제거 불가. 내보낸 사람이 여전히 멤버 부서로 걸리면 개인 제외를 남긴다(WP-1058) — 맞추기가 다시 넣지 않게.
+   */
   @Transactional
   public void remove(long callerId, long channelId, long targetUserId) {
     ensureExists(channelId);
@@ -101,17 +119,23 @@ public class ChannelMemberService {
     if (memberRepo.findRole(channelId, targetUserId).filter("OWNER"::equals).isPresent()) {
       throw new ChannelForbiddenException(channelId, callerId, "remove-owner");
     }
-    memberRepo.remove(channelId, targetUserId);
+    if (memberRepo.remove(channelId, targetUserId) > 0) {
+      excludeIfCovered(channelId, targetUserId);
+    }
     rosterPublisher.publish(channelId);
     // 제거된 사용자는 커밋 후 명단에서 빠지므로 extra 로 알린다.
     changeNotifier.membershipChanged(channelId, callerId, List.of(targetUserId));
   }
 
-  /** 나가기 — 본인. OWNER 는 소유권 이전 전엔 나갈 수 없음. */
+  /**
+   * 나가기 — 본인. OWNER 는 소유권 이전 전엔 나갈 수 없음. 나간 사람이 여전히 멤버 부서로 걸리면 개인 제외를 남긴다(WP-1058) — 부서 변화로 다시 끌려
+   * 들어오지 않게.
+   */
   @Transactional
   public void leave(long callerId, long channelId) {
     if (!checkLeave(callerId, channelId)) return; // 이미 비멤버 — idempotent
     memberRepo.remove(channelId, callerId);
+    excludeIfCovered(channelId, callerId);
     rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, List.of(callerId));
   }
@@ -137,7 +161,11 @@ public class ChannelMemberService {
     return role != null;
   }
 
-  /** 역할 변경 — OWNER 만. role=OWNER 면 소유권 이전(대상 OWNER 승격 + 호출자 ADMIN 강등). 한 트랜잭션으로 OWNER 1명 불변식 유지. */
+  /**
+   * 역할 변경 — OWNER 만. role=OWNER 면 소유권 이전(대상 OWNER 승격 + 호출자 ADMIN 강등). 한 트랜잭션으로 OWNER 1명 불변식 유지.
+   * ADMIN·OWNER 로 올린 사람은 직접 멤버로 고정된다(부서로 들어온 사람도 — WP-1058, {@link
+   * ChannelMemberRepository#updateRole}).
+   */
   @Transactional
   public void updateRole(long callerId, long channelId, long targetUserId, String role) {
     ensureExists(channelId);
@@ -166,6 +194,13 @@ public class ChannelMemberService {
     }
     rosterPublisher.publish(channelId);
     changeNotifier.membershipChanged(channelId, callerId, Set.of());
+  }
+
+  /** 멤버 부서로 걸리는 사람이면 개인 제외를 남긴다 — 내보내기·나가기 뒤 맞추기가 그 사람을 다시 넣지 않게(WP-1058). */
+  private void excludeIfCovered(long channelId, long userId) {
+    if (groupRepo.isCovered(channelId, userId)) {
+      groupRepo.insertExclusion(channelId, userId);
+    }
   }
 
   private void ensureExists(long channelId) {

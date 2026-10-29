@@ -20,6 +20,8 @@ import com.workplace.jooq.tables.CalendarEventTag.CalendarEventTagPath;
 import com.workplace.jooq.tables.CalendarTag.CalendarTagPath;
 import com.workplace.jooq.tables.Channel.ChannelPath;
 import com.workplace.jooq.tables.ChannelMember.ChannelMemberPath;
+import com.workplace.jooq.tables.ChannelMemberGroup.ChannelMemberGroupPath;
+import com.workplace.jooq.tables.ChannelMemberGroupExclusion.ChannelMemberGroupExclusionPath;
 import com.workplace.jooq.tables.ChatMessage.ChatMessagePath;
 import com.workplace.jooq.tables.ChatMessageAttachment.ChatMessageAttachmentPath;
 import com.workplace.jooq.tables.ChatThread.ChatThreadPath;
@@ -401,6 +403,32 @@ public class Tenant extends TableImpl<TenantRecord> {
             _calendarTag = new CalendarTagPath(this, null, Keys.CALENDAR_TAG__CALENDAR_TAG_TENANT_ID_FKEY.getInverseKey());
 
         return _calendarTag;
+    }
+
+    private transient ChannelMemberGroupExclusionPath _channelMemberGroupExclusion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.channel_member_group_exclusion</code> table
+     */
+    public ChannelMemberGroupExclusionPath channelMemberGroupExclusion() {
+        if (_channelMemberGroupExclusion == null)
+            _channelMemberGroupExclusion = new ChannelMemberGroupExclusionPath(this, null, Keys.CHANNEL_MEMBER_GROUP_EXCLUSION__CHANNEL_MEMBER_GROUP_EXCLUSION_TENANT_ID_FKEY.getInverseKey());
+
+        return _channelMemberGroupExclusion;
+    }
+
+    private transient ChannelMemberGroupPath _channelMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.channel_member_group</code> table
+     */
+    public ChannelMemberGroupPath channelMemberGroup() {
+        if (_channelMemberGroup == null)
+            _channelMemberGroup = new ChannelMemberGroupPath(this, null, Keys.CHANNEL_MEMBER_GROUP__CHANNEL_MEMBER_GROUP_TENANT_ID_FKEY.getInverseKey());
+
+        return _channelMemberGroup;
     }
 
     private transient ChatMessageAttachmentPath _chatMessageAttachment;

@@ -412,6 +412,15 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
   }
 
+  /** 채널 멤버 부서 아님(WP-1058) → 404. */
+  @ExceptionHandler(com.workplace.messaging.exception.ChannelMemberGroupNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleChannelMemberGroupNotFound(
+      com.workplace.messaging.exception.ChannelMemberGroupNotFoundException ex,
+      HttpServletRequest request) {
+    ErrorResponse response = buildError(HttpStatus.NOT_FOUND, ex.getMessage(), null, request);
+    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+  }
+
   @ExceptionHandler(com.workplace.global.exception.StreamingGenerationNotFoundException.class)
   public ResponseEntity<ErrorResponse> handleStreamingGenerationNotFound(
       com.workplace.global.exception.StreamingGenerationNotFoundException ex,
@@ -1047,7 +1056,8 @@ public class GlobalExceptionHandler {
     OwnershipTransferRequiredException.class,
     AgentCannotOwnChannelException.class,
     com.workplace.messaging.exception.ChannelNameDuplicatedException.class,
-    com.workplace.messaging.exception.InactiveMemberException.class
+    com.workplace.messaging.exception.InactiveMemberException.class,
+    com.workplace.messaging.exception.ChannelMemberGroupDuplicatedException.class
   })
   public ResponseEntity<ErrorResponse> handleChannelConflict(
       RuntimeException ex, HttpServletRequest request) {

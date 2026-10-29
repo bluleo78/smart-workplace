@@ -49,6 +49,9 @@ export function createChannelMember(
     kind: 'HUMAN',
     role: 'MEMBER',
     joinedAt: new Date('2026-06-01T00:00:00Z').toISOString(),
+    // 직접 초대한 멤버, 멤버 부서 경유 없음(WP-1058).
+    direct: true,
+    viaGroupIds: [],
     ...overrides,
   };
 }

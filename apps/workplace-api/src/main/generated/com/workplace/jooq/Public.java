@@ -20,6 +20,8 @@ import com.workplace.jooq.tables.CalendarEventTag;
 import com.workplace.jooq.tables.CalendarTag;
 import com.workplace.jooq.tables.Channel;
 import com.workplace.jooq.tables.ChannelMember;
+import com.workplace.jooq.tables.ChannelMemberGroup;
+import com.workplace.jooq.tables.ChannelMemberGroupExclusion;
 import com.workplace.jooq.tables.ChatMessage;
 import com.workplace.jooq.tables.ChatMessageAttachment;
 import com.workplace.jooq.tables.ChatThread;
@@ -247,6 +249,16 @@ public class Public extends SchemaImpl {
      * The table <code>public.channel_member</code>.
      */
     public final ChannelMember CHANNEL_MEMBER = ChannelMember.CHANNEL_MEMBER;
+
+    /**
+     * The table <code>public.channel_member_group</code>.
+     */
+    public final ChannelMemberGroup CHANNEL_MEMBER_GROUP = ChannelMemberGroup.CHANNEL_MEMBER_GROUP;
+
+    /**
+     * The table <code>public.channel_member_group_exclusion</code>.
+     */
+    public final ChannelMemberGroupExclusion CHANNEL_MEMBER_GROUP_EXCLUSION = ChannelMemberGroupExclusion.CHANNEL_MEMBER_GROUP_EXCLUSION;
 
     /**
      * The table <code>public.chat_message</code>.
@@ -913,6 +925,8 @@ public class Public extends SchemaImpl {
             CalendarTag.CALENDAR_TAG,
             Channel.CHANNEL,
             ChannelMember.CHANNEL_MEMBER,
+            ChannelMemberGroup.CHANNEL_MEMBER_GROUP,
+            ChannelMemberGroupExclusion.CHANNEL_MEMBER_GROUP_EXCLUSION,
             ChatMessage.CHAT_MESSAGE,
             ChatMessageAttachment.CHAT_MESSAGE_ATTACHMENT,
             ChatThread.CHAT_THREAD,

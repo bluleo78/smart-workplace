@@ -6,7 +6,6 @@
 // WP-1056 — 드라이브 팀 스페이스도 부서 멤버를 넘기고, 내 그룹도 골라 지금 구성원을 사람 멤버로 풀어 더한다(onAddPersonalGroupMembers).
 import { Building2, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { toast } from 'sonner'
 
 import { GroupMembers } from '@/components/members/GroupMembers'
 import {
@@ -24,7 +23,6 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { useAuth } from '@/hooks/useAuth'
-import { handleApiError } from '@/lib/api-error'
 import {
   departmentRoleNote,
   isLockedMemberRow,
@@ -39,9 +37,8 @@ import {
 import { cn } from '@/lib/utils'
 import { MemberSearchPopover } from '@/pages/projects/components/MemberSearchPopover'
 
-import type { GroupOption } from '../members/groupOptions'
 import { PeopleAndDepartmentPicker } from '../members/PeopleAndDepartmentPicker'
-import { fetchPersonalGroupMemberIds, groupExpansionMessage } from '../members/personalGroups'
+import { addPersonalGroupWithNotice, type GroupMembersAddResult } from '../members/personalGroups'
 
 /** 멤버인 조직도 부서(WP-1052) — 넘기면 부서 행과 사람·조직 선택 창을 켠다. 노트·드라이브 팀 스페이스가 넘긴다(WP-1056). */
 export interface SpaceMemberDepartments {
@@ -58,7 +55,7 @@ export interface SpaceMemberDepartments {
    * 이미 멤버인 사람 거르기·추가·무효화는 앱이 하고(최신 멤버 목록으로 — 업서트가 기존 역할을 덮지 않게) 더한·뺀·실패한 수를 돌려준다. 그룹 자체는
    * 멤버로 남지 않아 나중에 그룹에 들어온 사람은 따라오지 않는다. 없으면(노트 스페이스) 내 그룹을 보이지 않는다.
    */
-  onAddPersonalGroupMembers?: (memberIds: number[]) => Promise<{ added: number; skipped: number; failed: number }>
+  onAddPersonalGroupMembers?: (memberIds: number[] | Promise<number[]>) => Promise<GroupMembersAddResult>
 }
 
 /** 제거 확인 대상 — 사람 행 또는 부서 행. */
@@ -119,18 +116,6 @@ export function SpaceMemberDialog({
       else next.add(groupId)
       return next
     })
-  /** 내 그룹 고르기(WP-1056) — 지금 사람 구성원을 받아 앱에 넘기고, 끝난 뒤 몇 명을 더했는지(실패가 있으면 함께) 알린다. */
-  const addPersonalGroup = async (group: GroupOption, addMembers: NonNullable<SpaceMemberDepartments['onAddPersonalGroupMembers']>) => {
-    try {
-      const { added, skipped, failed } = await addMembers(await fetchPersonalGroupMemberIds(group))
-      const text = groupExpansionMessage(group.name, added, skipped)
-      if (failed > 0) toast.error(`${text} — ${failed}명은 추가하지 못했습니다`)
-      else if (added === 0) toast.info(text)
-      else toast.success(text)
-    } catch (e) {
-      handleApiError(e, '그룹 구성원을 추가하지 못했습니다')
-    }
-  }
   const addTrigger = (
     <Button size="sm" variant="outline" data-testid={tid('member-add-trigger')}>
       멤버 추가
@@ -163,7 +148,8 @@ export function SpaceMemberDialog({
                 onSelectDepartment={(g) => departments.onAdd(g.id, 'EDITOR')}
                 onSelectPersonalGroup={(g) => {
                   const addMembers = departments.onAddPersonalGroupMembers
-                  if (addMembers) void addPersonalGroup(g, addMembers)
+                  // 내 그룹 고르기(WP-1056) — 지금 사람 구성원을 받아 앱에 넘기고, 끝난 뒤 몇 명을 더했는지(실패가 있으면 함께) 알린다.
+                  if (addMembers) void addPersonalGroupWithNotice(g, addMembers)
                 }}
                 showPersonalGroups={departments.onAddPersonalGroupMembers != null}
                 includeAgents

@@ -45,6 +45,24 @@ public final class Departments {
    * 별칭을 쓴다).
    */
   public static Condition activeHumanMember(Field<Long> userId, Field<Long> tenantId) {
+    return humanMember(userId, tenantId, MemberStatus.ACTIVE);
+  }
+
+  /**
+   * 부서 구성원으로 셀 사람의 활성 범위. 접근 판정·인원 수·들어오는 사람은 늘 {@link #ACTIVE} 다. {@link #INCLUDING_INACTIVE} 는
+   * 구성원 정지·전역 비활성이 접근을 막을 뿐 부서 소속을 끊지 않는다고 볼 때 쓴다 — 부서 구성원을 사람 행으로 펼쳐 두는 채널(WP-1058)이 정지된 사람의 행(읽은
+   * 위치·가입 시각)을 지우지 않게.
+   */
+  public enum MemberStatus {
+    /** 활성({@link WorkspaceActive}) 사람만 — {@link #activeHumanMember}. */
+    ACTIVE,
+    /** 이 워크스페이스에 멤버십 행이 있는 사람(정지·비활성 포함). */
+    INCLUDING_INACTIVE
+  }
+
+  /** 부서 구성원 판정의 본체 — 이 워크스페이스(tenantId)의 사람(HUMAN)이고, status 가 ACTIVE 면 활성이기도 하다. */
+  private static Condition humanMember(
+      Field<Long> userId, Field<Long> tenantId, MemberStatus status) {
     User u = USER.as("dep_ahm_u");
     Membership ms = MEMBERSHIP.as("dep_ahm_ms");
     return DSL.exists(
@@ -54,7 +72,10 @@ public final class Departments {
             .on(WorkspaceActive.join(ms, u.ID, tenantId))
             .where(u.ID.eq(userId))
             .and(u.KIND.eq(UserKind.HUMAN))
-            .and(WorkspaceActive.condition(u, ms)));
+            .and(
+                status == MemberStatus.ACTIVE
+                    ? WorkspaceActive.condition(u, ms)
+                    : DSL.noCondition()));
   }
 
   /**
@@ -133,6 +154,18 @@ public final class Departments {
    */
   public static SubtreeMembers subtreeMembers(
       String alias, Select<? extends Record1<Long>> roots, Collection<Long> onlyUserIds) {
+    return subtreeMembers(alias, roots, onlyUserIds, MemberStatus.ACTIVE);
+  }
+
+  /**
+   * {@link #subtreeMembers(String, Select, Collection)} 에 셀 사람의 활성 범위(status)를 고른 것 — {@link
+   * MemberStatus#INCLUDING_INACTIVE} 면 정지·비활성 구성원도 세어 「이 사람이 아직 부서로 걸리는가」(소속은 그대로인가)를 본다(WP-1058).
+   */
+  public static SubtreeMembers subtreeMembers(
+      String alias,
+      Select<? extends Record1<Long>> roots,
+      Collection<Long> onlyUserIds,
+      MemberStatus status) {
     UserGroup r = USER_GROUP.as(alias + "_r");
     Subtree st =
         subtree(
@@ -146,7 +179,7 @@ public final class Departments {
             .on(m.GROUP_ID.eq(st.groupId()))
             .and(m.TARGET_TYPE.eq("MEMBER"))
             .where(onlyUserIds == null ? DSL.noCondition() : m.TARGET_ID.in(onlyUserIds))
-            .and(activeHumanMember(m.TARGET_ID, m.TENANT_ID))
+            .and(humanMember(m.TARGET_ID, m.TENANT_ID, status))
             .asTable(alias);
     return new SubtreeMembers(
         t,

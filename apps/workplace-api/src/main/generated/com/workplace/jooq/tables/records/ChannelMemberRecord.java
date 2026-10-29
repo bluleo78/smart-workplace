@@ -104,6 +104,20 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
         return (Long) get(5);
     }
 
+    /**
+     * Setter for <code>public.channel_member.direct</code>.
+     */
+    public void setDirect(Boolean value) {
+        set(6, value);
+    }
+
+    /**
+     * Getter for <code>public.channel_member.direct</code>.
+     */
+    public Boolean getDirect() {
+        return (Boolean) get(6);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -127,7 +141,7 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
     /**
      * Create a detached, initialised ChannelMemberRecord
      */
-    public ChannelMemberRecord(Long channelId, Long userId, Long lastReadMessageId, OffsetDateTime joinedAt, String role, Long tenantId) {
+    public ChannelMemberRecord(Long channelId, Long userId, Long lastReadMessageId, OffsetDateTime joinedAt, String role, Long tenantId, Boolean direct) {
         super(ChannelMember.CHANNEL_MEMBER);
 
         setChannelId(channelId);
@@ -136,6 +150,7 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
         setJoinedAt(joinedAt);
         setRole(role);
         setTenantId(tenantId);
+        setDirect(direct);
         resetChangedOnNotNull();
     }
 }

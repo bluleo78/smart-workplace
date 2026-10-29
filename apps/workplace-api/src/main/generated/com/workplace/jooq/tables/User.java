@@ -20,6 +20,8 @@ import com.workplace.jooq.tables.CalendarEvent.CalendarEventPath;
 import com.workplace.jooq.tables.CalendarTag.CalendarTagPath;
 import com.workplace.jooq.tables.Channel.ChannelPath;
 import com.workplace.jooq.tables.ChannelMember.ChannelMemberPath;
+import com.workplace.jooq.tables.ChannelMemberGroup.ChannelMemberGroupPath;
+import com.workplace.jooq.tables.ChannelMemberGroupExclusion.ChannelMemberGroupExclusionPath;
 import com.workplace.jooq.tables.ChatMessage.ChatMessagePath;
 import com.workplace.jooq.tables.ChatMessageAttachment.ChatMessageAttachmentPath;
 import com.workplace.jooq.tables.ChatThread.ChatThreadPath;
@@ -517,6 +519,32 @@ public class User extends TableImpl<UserRecord> {
             _channel = new ChannelPath(this, null, Keys.CHANNEL__CHANNEL_CREATED_BY_FKEY.getInverseKey());
 
         return _channel;
+    }
+
+    private transient ChannelMemberGroupPath _channelMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.channel_member_group</code> table
+     */
+    public ChannelMemberGroupPath channelMemberGroup() {
+        if (_channelMemberGroup == null)
+            _channelMemberGroup = new ChannelMemberGroupPath(this, null, Keys.CHANNEL_MEMBER_GROUP__CHANNEL_MEMBER_GROUP_ADDED_BY_FKEY.getInverseKey());
+
+        return _channelMemberGroup;
+    }
+
+    private transient ChannelMemberGroupExclusionPath _channelMemberGroupExclusion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.channel_member_group_exclusion</code> table
+     */
+    public ChannelMemberGroupExclusionPath channelMemberGroupExclusion() {
+        if (_channelMemberGroupExclusion == null)
+            _channelMemberGroupExclusion = new ChannelMemberGroupExclusionPath(this, null, Keys.CHANNEL_MEMBER_GROUP_EXCLUSION__CHANNEL_MEMBER_GROUP_EXCLUSION_USER_ID_FKEY.getInverseKey());
+
+        return _channelMemberGroupExclusion;
     }
 
     private transient ChannelMemberPath _channelMember;
@@ -1616,6 +1644,24 @@ public class User extends TableImpl<UserRecord> {
             _workspaceAssistantUpdatedByFkey = new WorkspaceAssistantPath(this, null, Keys.WORKSPACE_ASSISTANT__WORKSPACE_ASSISTANT_UPDATED_BY_FKEY.getInverseKey());
 
         return _workspaceAssistantUpdatedByFkey;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.channel</code> table, via the
+     * <code>channel_member_channel_id_fkey</code> key
+     */
+    public ChannelPath channelMemberChannelIdFkey() {
+        return channelMember().channel();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.channel</code> table, via the
+     * <code>channel_member_group_exclusion_channel_id_fkey</code> key
+     */
+    public ChannelPath channelMemberGroupExclusionChannelIdFkey() {
+        return channelMemberGroupExclusion().channel();
     }
 
     /**

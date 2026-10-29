@@ -8,10 +8,13 @@ import com.workplace.jooq.Indexes;
 import com.workplace.jooq.Keys;
 import com.workplace.jooq.Public;
 import com.workplace.jooq.tables.ChannelMember.ChannelMemberPath;
+import com.workplace.jooq.tables.ChannelMemberGroup.ChannelMemberGroupPath;
+import com.workplace.jooq.tables.ChannelMemberGroupExclusion.ChannelMemberGroupExclusionPath;
 import com.workplace.jooq.tables.DriveSpace.DriveSpacePath;
 import com.workplace.jooq.tables.Message.MessagePath;
 import com.workplace.jooq.tables.Tenant.TenantPath;
 import com.workplace.jooq.tables.User.UserPath;
+import com.workplace.jooq.tables.UserGroup.UserGroupPath;
 import com.workplace.jooq.tables.records.ChannelRecord;
 
 import java.time.OffsetDateTime;
@@ -233,6 +236,32 @@ public class Channel extends TableImpl<ChannelRecord> {
         return _channelMember;
     }
 
+    private transient ChannelMemberGroupPath _channelMemberGroup;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.channel_member_group</code> table
+     */
+    public ChannelMemberGroupPath channelMemberGroup() {
+        if (_channelMemberGroup == null)
+            _channelMemberGroup = new ChannelMemberGroupPath(this, null, Keys.CHANNEL_MEMBER_GROUP__CHANNEL_MEMBER_GROUP_CHANNEL_ID_FKEY.getInverseKey());
+
+        return _channelMemberGroup;
+    }
+
+    private transient ChannelMemberGroupExclusionPath _channelMemberGroupExclusion;
+
+    /**
+     * Get the implicit to-many join path to the
+     * <code>public.channel_member_group_exclusion</code> table
+     */
+    public ChannelMemberGroupExclusionPath channelMemberGroupExclusion() {
+        if (_channelMemberGroupExclusion == null)
+            _channelMemberGroupExclusion = new ChannelMemberGroupExclusionPath(this, null, Keys.CHANNEL_MEMBER_GROUP_EXCLUSION__CHANNEL_MEMBER_GROUP_EXCLUSION_CHANNEL_ID_FKEY.getInverseKey());
+
+        return _channelMemberGroupExclusion;
+    }
+
     private transient DriveSpacePath _driveSpace;
 
     /**
@@ -257,6 +286,31 @@ public class Channel extends TableImpl<ChannelRecord> {
             _message = new MessagePath(this, null, Keys.MESSAGE__MESSAGE_CHANNEL_ID_FKEY.getInverseKey());
 
         return _message;
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>channel_member_user_id_fkey</code> key
+     */
+    public UserPath channelMemberUserIdFkey() {
+        return channelMember().user();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the
+     * <code>public.user_group</code> table
+     */
+    public UserGroupPath userGroup() {
+        return channelMemberGroup().userGroup();
+    }
+
+    /**
+     * Get the implicit many-to-many join path to the <code>public.user</code>
+     * table, via the <code>channel_member_group_exclusion_user_id_fkey</code>
+     * key
+     */
+    public UserPath channelMemberGroupExclusionUserIdFkey() {
+        return channelMemberGroupExclusion().user();
     }
 
     @Override

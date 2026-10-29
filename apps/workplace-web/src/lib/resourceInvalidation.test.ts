@@ -270,6 +270,7 @@ describe('삭제 시 알림 무효화 (WP-83)', () => {
 describe('규칙 키 값 고정', () => {
   const keys = (p: ResourceChangedPayload) => invalidationTargets(p);
 
+  // 멤버 부서(WP-1058)는 ['messaging','members',3,'groups'] — 멤버 접두 무효화가 덮는다.
   it('channel → 채널 목록·탐색·상세·멤버·요약·드라이브 공간 목록', () => {
     expect(keys({ resource: 'channel', op: 'updated', channelId: 3 })).toEqual([
       { queryKey: ['messaging', 'channels'] },

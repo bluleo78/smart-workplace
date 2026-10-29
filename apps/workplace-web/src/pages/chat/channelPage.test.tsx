@@ -304,12 +304,15 @@ describe('멤버 패널', () => {
     expect(del.bodies).toHaveLength(1)
   })
 
-  // 비공개 초대 — 구성원 검색에서 고르면 POST {userId}. 멘션 에이전트 조회(kind=AGENT)는 빈 목록.
+  // 비공개 초대 — 사람·조직 선택 창(WP-1058)에서 사람을 찾아 고르면 POST {userId}. 멘션 에이전트 조회(kind=AGENT)는 빈 목록.
+  // 조직·내 그룹 추가와 공개 채널의 조직 숨김은 components/chat/ChannelMembersPanel.test.tsx 가 본다.
   test('비공개 채널 OWNER 가 검색해 추가하면 POST {userId} 를 보낸다', async () => {
     const add = capture('post', `/messaging/channels/${CID}/members`)
     const { user } = await openPanel({ visibility: 'PRIVATE' }, {
       handlers: [
         add.handler,
+        // 선택 창이 조직도·내 그룹 트리를 받는다 — 이 테스트는 사람만 고른다.
+        http.get(`${API}/user-groups`, () => HttpResponse.json({ shared: [], personal: [] })),
         http.get(`${API}/members`, ({ request }) =>
           HttpResponse.json(
             new URL(request.url).searchParams.get('kind') === 'AGENT'
@@ -320,10 +323,9 @@ describe('멤버 패널', () => {
       ],
     })
     await user.click(screen.getByTestId('member-add-trigger'))
-    expect(await screen.findByTestId('member-search-popover')).toBeInTheDocument()
-    await user.click(screen.getByPlaceholderText('이름·아이디·이메일로 검색'))
-    await user.paste('동료')
-    await user.click(await screen.findByTestId('member-search-row-2'))
+    expect(await screen.findByTestId('channel-member-picker-search')).toBeInTheDocument()
+    // 검색어 없이 기본 후보에서 고른다 — 검색어를 치면 300ms 디바운스가 끝나기 전 사람 줄은 고를 수 없게 막혀 있다(선택 창 규칙).
+    await user.click(await screen.findByTestId('channel-member-picker-person-2'))
     await waitFor(() => expect(add.bodies).toEqual([{ userId: 2 }]))
   })
 

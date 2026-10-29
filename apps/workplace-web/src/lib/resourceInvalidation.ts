@@ -146,6 +146,7 @@ const RULES: Record<string, Rule> = {
   calendar: () => [{ queryKey: calendarKeys.all }],
   // 메시지 캐시(['messaging','messages'|'thread'…])는 기존 messaging.* 핸들러가 패치하므로 건드리지 않는다 — 목록·상세·멤버만.
   // 채널 멤버십은 연결된 드라이브 채널 스페이스 멤버도 바꾼다(ChannelDriveListener) → 드라이브 스페이스 목록도 무효화.
+  // 비공개 채널의 멤버 부서(WP-1058, ['messaging','members',id,'groups'])는 멤버 키 아래라 멤버 무효화가 함께 다시 받는다.
   channel: (p) => [
     { queryKey: messagingKeys.channels() },
     { queryKey: messagingKeys.discoverAll() },

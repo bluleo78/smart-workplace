@@ -95,6 +95,8 @@ public final class TenantPurgePlan {
           CONVERSATION_ATTENTION,
           MESSAGING_CLASSIFY_WATERMARK,
           MESSAGE,
+          CHANNEL_MEMBER_GROUP_EXCLUSION, // 채널 개인 제외(WP-1058) — channel 보다 먼저
+          CHANNEL_MEMBER_GROUP, // 채널 멤버 조직도 부서(WP-1058) — channel·user_group 보다 먼저
           CHANNEL_MEMBER,
           CHANNEL,
           // 홈·비서 (ai_memory 는 home_session 을 SET NULL 로 참조 — 세션보다 먼저, WP-55)
