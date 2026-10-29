@@ -15,9 +15,10 @@ import { detail, mailAccount, summary } from '../../../e2e/factories/mail.factor
 // 모바일(iPhone 13·터치) — 파일 안 첫 렌더 전에 한 번.
 mockViewport()
 
-/** 받은편지함·메일 10 상세 — 임시저장 POST 본문은 drafts 에 쌓는다. */
+/** 받은편지함·메일 10 상세 — 임시저장 POST 본문은 drafts 에, 받는사람 연락처 검색어는 contactQueries 에 쌓는다. */
 function mailApi() {
   const drafts: unknown[] = []
+  const contactQueries: string[] = []
   const handlers = [
     http.get('/api/v1/mail/accounts', () => HttpResponse.json([mailAccount()])),
     http.get('/api/v1/mail/accounts/1/messages', () => HttpResponse.json([summary()])),
@@ -28,12 +29,18 @@ function mailApi() {
     ),
     http.get('/api/v1/mail/messages/10/summary', () => new HttpResponse(null, { status: 404 })),
     http.get('/api/v1/mail/recent-recipients', () => HttpResponse.json([])),
+    // 받는사람 칸에 글자가 들어가면(디바운스 뒤) 연락처 후보를 찾는다 — 빠뜨리면 부하가 클 때 이 조회가 테스트 안에 도착해
+    // 「핸들러 없는 요청」으로 실패했다(WP-1174).
+    http.get('/api/v1/contacts', ({ request }) => {
+      contactQueries.push(new URL(request.url).searchParams.get('search') ?? '')
+      return HttpResponse.json({ items: [], nextCursor: null, hasMore: false })
+    }),
     http.post('/api/v1/mail/drafts', async ({ request }) => {
       drafts.push(await request.json())
       return HttpResponse.json({ id: 900 })
     }),
   ]
-  return { handlers, drafts }
+  return { handlers, drafts, contactQueries }
 }
 
 /** 받은편지함에서 메일 10 을 열고 회신/전달 버튼이 뜰 때까지 기다린다. */
@@ -66,6 +73,8 @@ test('받는사람만 고쳐도 쓴 내용으로 본다 — ✕ 가 임시저장
   await user.click(await screen.findByRole('button', { name: 'alice@example.com 빼기' }))
   await user.click(screen.getByTestId('mail-compose-to'))
   await user.paste('other@test.local')
+  // 후보 조회가 나간 뒤에 닫는다 — 사람이 후보를 보고 닫는 흐름이고, 조회가 이 테스트 안에서 끝나 다음 테스트로 새지 않는다.
+  await waitFor(() => expect(api.contactQueries).toContain('other@test.local'))
   await user.click(screen.getByTestId('mail-compose-close'))
   await waitFor(() => expect(screen.queryByTestId('mail-compose-dock')).not.toBeInTheDocument())
   await waitFor(() => expect(api.drafts).toHaveLength(1))
