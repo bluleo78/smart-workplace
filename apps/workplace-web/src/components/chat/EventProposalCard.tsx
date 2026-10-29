@@ -11,6 +11,7 @@ import { AiSignalBadge } from '@/components/ai/AiSignalBadge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { isLocalRangeReversed, isoToLocalInput, proposalTimeRange } from '@/lib/calendar'
+import { allDayDisplayDates, allDayFormRange, allDayRangeFromDates } from '@/lib/calendarEventForm'
 import type { MessageProposal } from '@/types/messaging'
 
 interface EventProposalCardProps {
@@ -35,6 +36,16 @@ interface EventProposalCardProps {
 function toOffsetIso(local: string): string | undefined {
   if (!local) return undefined
   return new Date(local).toISOString()
+}
+
+/**
+ * 종일 제안의 날짜 칸 초기값(종료는 마지막 날 포함, WP-1120) — 캘린더 일정 폼과 같은 변환(allDayFormRange → allDayDisplayDates)이라
+ * UTC 자정·현지 자정 저장 모두 같은 날짜로 보인다. 종료가 없으면 하루 일정으로 연다.
+ */
+function initialAllDayDates(proposal: MessageProposal): { startDate: string; endDate: string } {
+  if (!proposal.allDay || !proposal.startsAt) return { startDate: '', endDate: '' }
+  const range = allDayFormRange({ startsAt: proposal.startsAt, endsAt: proposal.endsAt ?? proposal.startsAt })
+  return allDayDisplayDates(range.start, range.end)
 }
 
 /** 초대 참석자 한 줄(#852). 없으면 렌더하지 않는다. 이름이 길거나 많아도 줄바꿈으로 카드 폭 안에 머문다. */
@@ -68,10 +79,27 @@ export function EventProposalCard({
   const [startsAt, setStartsAt] = useState(isoToLocalInput(proposal.startsAt))
   const [endsAt, setEndsAt] = useState(isoToLocalInput(proposal.endsAt))
   const [location, setLocation] = useState(proposal.location ?? '')
+  // 종일 제안은 시각 칸 대신 날짜 칸으로 고친다(WP-1120) — 시각 칸이면 UTC 자정이 「09:00」으로 보여 시각 일정처럼 읽혔다.
+  const allDay = !!proposal.allDay
+  const [initialDates] = useState(() => initialAllDayDates(proposal))
+  const [startDate, setStartDate] = useState(initialDates.startDate)
+  const [endDate, setEndDate] = useState(initialDates.endDate)
 
   const conflictCount = proposal.conflicts?.length ?? 0
   // 종료가 시작과 같거나 앞서면 승인 전에 막는다 — 예전엔 그대로 보내 서버 원문 오류가 토스트에 떴다(WP-727).
-  const rangeReversed = isLocalRangeReversed(startsAt, endsAt)
+  // 종일은 종료가 마지막 날을 포함하므로 같은 날은 하루 일정이고, 앞설 때만 막는다.
+  const rangeReversed = allDay
+    ? !!startDate && !!endDate && endDate < startDate
+    : isLocalRangeReversed(startsAt, endsAt)
+
+  // 승인 때 보낼 시작·종료 override. 종일 날짜를 고치지 않았으면 보내지 않아 제안 저장값(저장 규약 그대로)을 쓰고,
+  // 고쳤으면 캘린더 폼처럼 현지 자정 경계 [시작일, 마지막 날 + 1) 로 보낸다(서버는 종일 여부를 제안 저장값으로 유지한다).
+  function rangeOverrides(): { startsAt?: string; endsAt?: string } {
+    if (!allDay) return { startsAt: toOffsetIso(startsAt), endsAt: toOffsetIso(endsAt) }
+    if (startDate === initialDates.startDate && endDate === initialDates.endDate) return {}
+    const range = allDayRangeFromDates(startDate, endDate)
+    return { startsAt: toOffsetIso(range.start), endsAt: toOffsetIso(range.end) }
+  }
 
   return (
     <div
@@ -112,18 +140,18 @@ export function EventProposalCard({
               몇 시 일정인지 모른 채 승인하게 된다(WP-593). 뷰포트가 아니라 카드 폭(@container)으로 정해 좁은 패널 안에서도 맞는다. */}
           <div className="grid grid-cols-1 gap-2 @md:grid-cols-2">
             <Input
-              type="datetime-local"
-              aria-label="시작"
+              type={allDay ? 'date' : 'datetime-local'}
+              aria-label={allDay ? '시작일' : '시작'}
               data-testid={`event-proposal-starts-${proposal.id}`}
-              value={startsAt}
-              onChange={(e) => setStartsAt(e.target.value)}
+              value={allDay ? startDate : startsAt}
+              onChange={(e) => (allDay ? setStartDate : setStartsAt)(e.target.value)}
             />
             <Input
-              type="datetime-local"
-              aria-label="종료"
+              type={allDay ? 'date' : 'datetime-local'}
+              aria-label={allDay ? '종료일' : '종료'}
               data-testid={`event-proposal-ends-${proposal.id}`}
-              value={endsAt}
-              onChange={(e) => setEndsAt(e.target.value)}
+              value={allDay ? endDate : endsAt}
+              onChange={(e) => (allDay ? setEndDate : setEndsAt)(e.target.value)}
               aria-invalid={rangeReversed || undefined}
               aria-describedby={rangeReversed ? `event-proposal-range-error-${proposal.id}` : undefined}
             />
@@ -135,7 +163,7 @@ export function EventProposalCard({
               role="alert"
               className="text-xs text-destructive"
             >
-              종료는 시작보다 뒤여야 합니다
+              {allDay ? '종료일은 시작일보다 앞설 수 없습니다' : '종료는 시작보다 뒤여야 합니다'}
             </p>
           )}
           <Input
@@ -155,8 +183,7 @@ export function EventProposalCard({
                 onConfirm({
                   title,
                   // datetime-local → 오프셋 포함 ISO 로 변환해 전달(서버 OffsetDateTime 파싱 가능).
-                  startsAt: toOffsetIso(startsAt),
-                  endsAt: toOffsetIso(endsAt),
+                  ...rangeOverrides(),
                   location: location || undefined,
                 })
               }
@@ -182,7 +209,7 @@ export function EventProposalCard({
         >
           <div>{proposal.title}</div>
           {proposal.startsAt && (
-            <div>{proposalTimeRange(proposal.startsAt, proposal.endsAt)}</div>
+            <div>{proposalTimeRange(proposal.startsAt, proposal.endsAt, proposal.allDay)}</div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}
           <AttendeeLine proposal={proposal} />
@@ -193,7 +220,7 @@ export function EventProposalCard({
         <div className="mt-2 text-xs text-muted-foreground">
           <div>{proposal.title}</div>
           {proposal.startsAt && (
-            <div>{proposalTimeRange(proposal.startsAt, proposal.endsAt)}</div>
+            <div>{proposalTimeRange(proposal.startsAt, proposal.endsAt, proposal.allDay)}</div>
           )}
           {proposal.location && <div>장소: {proposal.location}</div>}
           <AttendeeLine proposal={proposal} />
