@@ -179,6 +179,17 @@ test('위젯 추가 모달 — 처음엔 첫 카드 프리뷰, 카드를 고르�
   expect(preview).toHaveTextContent('캘린더')
 })
 
+test('위젯 추가 모달 — 「요약」 미리보기에 멘션 수와 「지금 신경 쓸 일」 멘션 줄이 보인다(WP-1141)', async () => {
+  const view = await openEdit(['my_tasks'])
+  const modal = await openAddModal(view)
+  const preview = within(modal).getByTestId('add-widget-preview')
+  await view.user.click(modalCard(modal, 'synthesis'))
+  // 샘플의 코멘트 멘션(ISSUE_COMMENT_MENTION) 1건 — 일반 댓글(COMMENTED)은 멘션이 아니라 세지 않는다(WP-1092).
+  expect(await within(preview).findByRole('button', { name: '멘션 1건' })).toBeInTheDocument()
+  expect(within(preview).getByRole('link', { name: /API 응답 스키마 검토/ })).toHaveTextContent('멘션')
+  expect(within(preview).queryByRole('link', { name: /대시보드 위젯 프리뷰 추가/ })).not.toBeInTheDocument()
+})
+
 test('모달로 추가한 위젯도 되돌리기로 취소된다(일관성)', async () => {
   const view = await openEdit(['my_tasks'])
   const modal = await openAddModal(view)
