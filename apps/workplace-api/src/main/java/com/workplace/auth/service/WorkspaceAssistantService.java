@@ -5,11 +5,13 @@ import com.workplace.auth.dto.AiAgentCredentialRow;
 import com.workplace.auth.dto.UpdateAssistantSettingsRequest;
 import com.workplace.auth.dto.WorkspaceAssistantResponse;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
+import com.workplace.auth.exception.PersonalAssistantAdminChangeForbiddenException;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.auth.repository.WorkspaceAssistantRepository;
 import com.workplace.tenant.repository.MembershipRepository;
+import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.exception.UserNotFoundException;
@@ -49,9 +51,7 @@ public class WorkspaceAssistantService {
     agentRuntimePolicy.lock(agentUserId);
     // WP-703: 다른 워크스페이스의 AI 는 공용 비서로 지정할 수 없다(404) — 지정되면 그 AI 의 AI 연결로 이 워크스페이스 대화가 돈다.
     // WP-1075: 사용을 중지한(멤버십 정지) AI 도 에이전트 목록에 보이게 됐다 — 정지된 AI 로 공통 대화가 돌지 않게 지정을 막는다(409).
-    if (MembershipRepository.STATUS_SUSPENDED.equals(memberGuard.require(agentUserId))) {
-      throw new IllegalStateException("사용이 중지된 에이전트는 공통 비서로 지정할 수 없습니다. 먼저 활성 상태를 켜세요.");
-    }
+    String membershipStatus = memberGuard.require(agentUserId);
     UserResponse user =
         userRepository
             .findById(agentUserId)
@@ -59,6 +59,15 @@ public class WorkspaceAssistantService {
     // HUMAN 은 공용 비서가 될 수 없다 — AGENT 검증 재사용(400).
     if (!UserKind.isAgent(user.kind())) {
       throw new KeyTargetMustBeAgentException();
+    }
+    // WP-1163: 개인 비서는 주인의 자격증명으로 주인만을 위해 움직인다 — 공통 비서가 되면 개인 비서가 없는 구성원 모두의 대화가 주인 모르게 그
+    // 토큰으로 돈다(403).
+    if (AgentUsernames.isPersonalAssistant(user.username())) {
+      throw new PersonalAssistantAdminChangeForbiddenException("개인 비서는 공통 비서로 지정할 수 없습니다");
+    }
+    // 정지 안내(409)는 지정할 수 있는 AI 에게만 — 개인 비서에게 「활성 상태를 켜세요」라고 하면 켠 뒤에도 403 이라 헛걸음이 된다.
+    if (MembershipRepository.STATUS_SUSPENDED.equals(membershipStatus)) {
+      throw new IllegalStateException("사용이 중지된 에이전트는 공통 비서로 지정할 수 없습니다. 먼저 활성 상태를 켜세요.");
     }
     // WP-371: 외부 실행(EXTERNAL) 에이전트는 서버가 AI Chat 을 실행하지 않으므로 공용 비서로 지정할 수 없다(409).
     agentRuntimePolicy.requireMayBeAssistant(agentUserId);

@@ -102,7 +102,7 @@ async function renderSection(
   more: ReturnType<typeof http.post>[] = [],
 ) {
   const api = credentialApi(initial, opts)
-  const view = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} />, {
+  const view = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} canConfigure />, {
     path: `/settings/agents?agent=${AGENT_ID}`,
     handlers: [...more, ...api.handlers],
   })
@@ -269,4 +269,28 @@ test('서버 400 이면 서버 메시지를 토스트로 띄우고 대화상자�
   expect(await screen.findByText('invalid token')).toBeInTheDocument()
   expect(state.posts).toHaveLength(1)
   expect(screen.getByRole('heading', { name: 'AI 연결하기' })).toBeInTheDocument()
+})
+
+// WP-1163: 구성원의 개인 비서는 관리자가 연결을 등록·재발급하거나 공통 비서로 지정할 수 없다(서버 403) — 버튼·스위치 대신 안내를 보이고, 회수만 남긴다.
+test('개인 비서(canConfigure=false)는 재발급·연결하기·공통 비서 스위치 대신 안내를 보이고 회수만 할 수 있다', async () => {
+  const api = credentialApi(ANTHROPIC_META)
+  const { user } = renderScreen(<AgentConnectionSection agentUserId={AGENT_ID} canConfigure={false} />, {
+    path: `/settings/agents?agent=${AGENT_ID}`,
+    handlers: api.handlers,
+  })
+  expect(await screen.findByTestId('credential-provider-badge')).toHaveTextContent('Claude 구독')
+  expect(screen.getByTestId('connection-personal-hint')).toHaveTextContent(
+    '개인 비서의 AI 연결은 주인이 설정에서 정하고, 공통 비서로는 지정할 수 없어요.',
+  )
+  expect(screen.queryByTestId('oauth-token-reissue')).not.toBeInTheDocument()
+  expect(screen.queryByTestId('agent-connection-assistant-toggle')).not.toBeInTheDocument()
+
+  await user.click(screen.getByTestId('oauth-token-revoke'))
+  await user.click(await screen.findByTestId('oauth-revoke-confirm'))
+  expect(await screen.findByText('API 키를 회수했습니다.')).toBeInTheDocument()
+  expect(api.state.deletes).toBe(1)
+  // 회수 뒤에도 관리자가 새로 연결할 수 없다.
+  expect(await screen.findByText('아직 연결되지 않았습니다. 연결하면 에이전트가 LLM을 호출할 수 있어요.')).toBeInTheDocument()
+  expect(screen.queryByTestId('oauth-token-register')).not.toBeInTheDocument()
+  expect(api.state.posts).toEqual([])
 })

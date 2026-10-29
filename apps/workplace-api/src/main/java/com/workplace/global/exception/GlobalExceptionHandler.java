@@ -457,7 +457,8 @@ public class GlobalExceptionHandler {
     com.workplace.issue.exception.IssueRelationException.class,
     com.workplace.component.exception.ComponentException.class,
     com.workplace.version.exception.VersionException.class,
-    com.workplace.messaging.exception.ChannelUnarchiveNameTakenException.class
+    com.workplace.messaging.exception.ChannelUnarchiveNameTakenException.class,
+    com.workplace.auth.exception.PersonalAssistantAdminChangeForbiddenException.class
   })
   public ResponseEntity<ErrorResponse> handleCoded(
       RuntimeException ex, HttpServletRequest request) {

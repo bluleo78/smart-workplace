@@ -62,9 +62,14 @@ const DEPTHS: { value: ThinkingDepth; label: string }[] = [
 
 interface Props {
   agentUserId: number;
+  /**
+   * 관리자가 연결을 등록·재발급하고 공통 비서로 지정할 수 있는지. 구성원의 개인 비서는 주인의 자격증명으로 주인만을 위해 움직여
+   * 서버가 둘 다 막으므로(WP-1163) false 를 넘긴다 — 연결 상태는 보이고 회수만 정리 수단으로 남는다.
+   */
+  canConfigure: boolean;
 }
 
-export function AgentConnectionSection({ agentUserId }: Props) {
+export function AgentConnectionSection({ agentUserId, canConfigure }: Props) {
   // 공통 비서 지정/해제 시 관리자 본인의 aiAvailable 도 즉시 갱신(페이지 새로고침 불필요).
   const { refreshUser } = useAuth();
   const queryClient = useQueryClient();
@@ -244,14 +249,16 @@ export function AgentConnectionSection({ agentUserId }: Props) {
           <div className="flex gap-2">
             {meta ? (
               <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setDialogOpen(true)}
-                  data-testid="oauth-token-reissue"
-                >
-                  재발급
-                </Button>
+                {canConfigure && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDialogOpen(true)}
+                    data-testid="oauth-token-reissue"
+                  >
+                    재발급
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="destructive"
@@ -262,12 +269,19 @@ export function AgentConnectionSection({ agentUserId }: Props) {
                   회수
                 </Button>
               </>
-            ) : (
+            ) : canConfigure ? (
               <Button size="sm" onClick={() => setDialogOpen(true)} data-testid="oauth-token-register">
                 연결하기
               </Button>
-            )}
+            ) : null}
           </div>
+
+          {/* WP-1163: 개인 비서는 연결 등록·재발급과 공통 비서 지정을 주인만 정한다 — 버튼·스위치 대신 안내. */}
+          {!canConfigure && (
+            <p className="text-xs text-muted-foreground" data-testid="connection-personal-hint">
+              개인 비서의 AI 연결은 주인이 설정에서 정하고, 공통 비서로는 지정할 수 없어요.
+            </p>
+          )}
 
           {/* 모델·생각의 깊이 — 공통 비서로 지정된 경우에만 편집 가능(백엔드 제약, 스코프 아웃 항목). */}
           {isCurrent ? (
@@ -347,44 +361,46 @@ export function AgentConnectionSection({ agentUserId }: Props) {
             </div>
           ) : null}
 
-          {/* 공통 비서 지정 — 토글 하나로 지정/해제. 연결 안 됐으면 비활성 + 안내. */}
-          <div className="flex items-center justify-between border-t pt-3">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="agent-connection-assistant-toggle" className="text-sm font-medium">
-                  이 에이전트를 공통 비서로 지정
-                </Label>
-                {isCurrent ? (
-                  <Badge
-                    variant="secondary"
-                    data-testid="workspace-assistant-current"
-                    className="text-xs"
-                  >
-                    ✓ 지정됨
-                  </Badge>
+          {/* 공통 비서 지정 — 토글 하나로 지정/해제. 연결 안 됐으면 비활성 + 안내. 개인 비서는 지정할 수 없어 그리지 않는다. */}
+          {canConfigure && (
+            <div className="flex items-center justify-between border-t pt-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="agent-connection-assistant-toggle" className="text-sm font-medium">
+                    이 에이전트를 공통 비서로 지정
+                  </Label>
+                  {isCurrent ? (
+                    <Badge
+                      variant="secondary"
+                      data-testid="workspace-assistant-current"
+                      className="text-xs"
+                    >
+                      ✓ 지정됨
+                    </Badge>
+                  ) : null}
+                </div>
+                {isCurrent && ws && !ws.hasActiveToken ? (
+                  <p data-testid="workspace-assistant-warn" className="text-sm text-destructive">
+                    이 비서에 활성 OAuth 토큰이 없어요. 위 연결에서 토큰을 등록(또는 재발급)해야
+                    공통 비서가 동작합니다.
+                  </p>
+                ) : !hasToken ? (
+                  <p data-testid="workspace-assistant-token-gate" className="text-sm text-muted-foreground">
+                    먼저 연결해야 공통 비서로 지정할 수 있어요.
+                  </p>
                 ) : null}
               </div>
-              {isCurrent && ws && !ws.hasActiveToken ? (
-                <p data-testid="workspace-assistant-warn" className="text-sm text-destructive">
-                  이 비서에 활성 OAuth 토큰이 없어요. 위 연결에서 토큰을 등록(또는 재발급)해야
-                  공통 비서가 동작합니다.
-                </p>
-              ) : !hasToken ? (
-                <p data-testid="workspace-assistant-token-gate" className="text-sm text-muted-foreground">
-                  먼저 연결해야 공통 비서로 지정할 수 있어요.
-                </p>
-              ) : null}
+              <Switch
+                id="agent-connection-assistant-toggle"
+                data-testid="agent-connection-assistant-toggle"
+                checked={isCurrent}
+                onCheckedChange={(checked) => void onToggleAssistant(checked)}
+                disabled={
+                  !hasToken || setAssistant.isPending || clearAssistant.isPending || probing
+                }
+              />
             </div>
-            <Switch
-              id="agent-connection-assistant-toggle"
-              data-testid="agent-connection-assistant-toggle"
-              checked={isCurrent}
-              onCheckedChange={(checked) => void onToggleAssistant(checked)}
-              disabled={
-                !hasToken || setAssistant.isPending || clearAssistant.isPending || probing
-              }
-            />
-          </div>
+          )}
         </>
       )}
 
