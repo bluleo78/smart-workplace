@@ -14,7 +14,8 @@ import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { ChatAvatar } from '@/components/chat/ChatAvatar';
 import { IssueBodyImage } from '@/components/issue/IssueBodyImage';
 import { countApiImages, withImagePlaceholders } from '@/components/mentions/apiImageSegments';
-import type { RenderMention } from '@/components/mentions/parseMessageSegments';
+import { IssueMentionChip } from '@/components/mentions/IssueMentionChip';
+import { messagePlainText, type RenderMention } from '@/components/mentions/parseMessageSegments';
 import { RichInput } from '@/components/mentions/RichInput';
 import type { MentionCandidate, MentionUser } from '@/components/mentions/types';
 import type { MobileSheetAction } from '@/components/mobile/MobileActionSheet';
@@ -157,7 +158,8 @@ function CommentItem({
   };
 
   // 미리보기는 이미지 마크다운을 '[이미지]' 로 줄여 보여 준다 — 긴 URL 이 20자를 다 차지하지 않게(WP-362).
-  const preview = withImagePlaceholders(comment.body, projectKey);
+  // 멘션 토큰 <@id> 는 본문 칩과 같은 이름표로 「@이름」 평문으로 바꾼다 — 확인 창에 토큰 원문이 보이지 않게(WP-1134).
+  const preview = messagePlainText(withImagePlaceholders(comment.body, projectKey), commentMentionUsers);
   const itemName = preview.slice(0, 20) + (preview.length > 20 ? '…' : '');
   // 코멘트에 넣은 이미지도 지워질 수 있다는 안내 — 본문·다른 코멘트에서도 쓰는 이미지는 서버가 남기므로 조건을 함께 적는다.
   const imageCount = countApiImages(comment.body, projectKey);
@@ -175,15 +177,7 @@ function CommentItem({
   // 규칙으로 한다(WP-1009) — 코드(`…`·펜스) 안의 토큰은 칩으로 바꾸지 않고 글자 그대로 둔다. 예전에는 토큰을 마크다운 링크로 미리 바꿔
   // 넣어, 코드 안에서는 그 링크 원문(「[@이름](#comment-mention-2)」)이 그대로 보였다(WP-1093).
   const renderMention = useCallback<RenderMention>(
-    (seg, key) => (
-      <span
-        key={key}
-        data-testid={`comment-mention-chip-${seg.id}`}
-        className={`rounded px-1 font-medium ${seg.kind === 'AGENT' ? 'bg-ai-accent-subtle text-ai-accent' : 'bg-muted text-foreground'}`}
-      >
-        @{seg.name}
-      </span>
-    ),
+    (seg, key) => <IssueMentionChip key={key} seg={seg} testId={`comment-mention-chip-${seg.id}`} />,
     [],
   );
 

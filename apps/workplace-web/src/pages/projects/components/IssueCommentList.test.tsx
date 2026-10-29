@@ -2,6 +2,7 @@
 // 멘션 칩·평문 줄바꿈·원시 HTML 비허용은 그대로다. 이슈 상세 배선은 issue-comments E2E 가 맡는다.
 // 모바일 최신순에서 내가 쓴 새 코멘트로 스크롤하는 것(WP-1016)도 여기서 본다.
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { renderWithProviders } from '@/test/renderWithProviders'
@@ -104,6 +105,20 @@ describe('IssueCommentList — 코멘트 마크다운 렌더 (WP-1015)', () => {
   it('멤버 목록에도 서버 멘션에도 없는 멘션(탈퇴 등)은 「알 수 없음」 칩으로 그린다', () => {
     renderList([createComment({ id: 1, authorId: 2, body: '<@555> 확인' })])
     expect(screen.getByTestId('comment-mention-chip-555')).toHaveTextContent('@알 수 없음')
+  })
+
+  it('삭제 확인 창의 미리보기는 멘션을 토큰 원문이 아니라 「@이름」으로 보인다(WP-1134)', async () => {
+    renderList([createComment({ id: 1, authorKind: 'HUMAN', authorId: 1, body: '담당 <@1> 확인 부탁' })])
+
+    await userEvent.setup().click(screen.getByRole('button', { name: '코멘트 삭제' }))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('"담당 @Tester 확인 부탁" 코멘트를')
+    expect(dialog).not.toHaveTextContent('<@1>')
+  })
+
+  it('멘션 칩은 「@」와 이름이 줄바뀜되지 않게 한 덩어리다(WP-1134)', () => {
+    renderList([createComment({ id: 1, authorId: 2, body: '<@1> 확인' })])
+    expect(screen.getByTestId('comment-mention-chip-1')).toHaveClass('whitespace-nowrap')
   })
 
   it('프로젝트에서 빠진 사람의 멘션은 서버가 준 멘션 이름으로 그린다 — 멤버 목록에 없어도 「알 수 없음」이 아니다(WP-1095)', () => {

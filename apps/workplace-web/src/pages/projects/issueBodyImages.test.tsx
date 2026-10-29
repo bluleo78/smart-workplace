@@ -14,13 +14,14 @@ import { issueDetailHandlers } from '@/test/kits/projects/issueDetailStubs'
 import { SCREEN_LOAD_TIMEOUT } from '@/test/kits/projects/routeScreen'
 
 import { createIssue } from '../../../e2e/factories/issue.factory'
+import { createMember } from '../../../e2e/factories/project.factory'
 
 const IMG_URL = `/api/v1/projects/${KEY}/issue-images/77`
 
 /** 본문을 정해 상세를 연다. */
-function openDetail(body: string, handlers: RequestHandler[] = []) {
+function openDetail(body: string, handlers: RequestHandler[] = [], members: ReturnType<typeof createMember>[] = []) {
   const ref = detailRefOf({ summary: createIssue({ id: 1, number: 1, title: '본문 이미지 대상' }), body })
-  return renderIssueDetailScreen(DETAIL_PATH, { handlers: [...handlers, ...issueDetailHandlers({ detail: () => ref.current })] })
+  return renderIssueDetailScreen(DETAIL_PATH, { handlers: [...handlers, ...issueDetailHandlers({ detail: () => ref.current, members })] })
 }
 
 afterEach(() => window.localStorage.clear())
@@ -62,5 +63,24 @@ describe('이슈 본문 이미지 — 표시 (WP-199)', () => {
   test('지워졌거나 수거된 이미지(404)는 대체 문구를 보여준다', async () => {
     openDetail(`![gone.png](${IMG_URL})`, [http.get(IMG_URL, () => HttpResponse.json({}, { status: 404 }))])
     expect(await screen.findByText('이미지를 불러올 수 없음', {}, { timeout: SCREEN_LOAD_TIMEOUT })).toBeInTheDocument()
+  })
+})
+
+// 이슈 설명의 멘션(WP-1134) — AI 가 MCP·API 로 쓴 <@id> 가 코멘트와 같은 「@이름」 칩으로 보인다. 코드 안 토큰은 글자 그대로.
+describe('이슈 본문 멘션 (WP-1134)', () => {
+  test('본문의 <@id> 는 멤버 이름 칩(AI 는 AI 색)이고, 코드 안 토큰은 글자 그대로다', async () => {
+    openDetail('담당 <@2> 와 <@99> 확인, 코드 `<@2>`', [], [
+      createMember({ userId: 2, name: '김개발', kind: 'HUMAN' }),
+      createMember({ userId: 99, name: 'AI 비서', kind: 'AGENT' }),
+    ])
+    const human = await screen.findByTestId('issue-body-mention-chip-2', {}, { timeout: SCREEN_LOAD_TIMEOUT })
+    expect(human).toHaveTextContent('@김개발')
+    expect(human).toHaveClass('bg-muted', 'whitespace-nowrap')
+    expect(screen.getByTestId('issue-body-mention-chip-99')).toHaveClass('bg-ai-accent-subtle', 'text-ai-accent')
+    // 칩은 코드 밖 두 개뿐 — 코드 안 토큰은 원문 그대로 남는다.
+    expect(screen.getAllByTestId(/^issue-body-mention-chip-/)).toHaveLength(2)
+    const body = screen.getByRole('button', { name: '본문 편집' })
+    expect(body.querySelector('code')?.textContent).toBe('<@2>')
+    expect(body).not.toHaveTextContent('담당 <@2>')
   })
 })

@@ -11,6 +11,9 @@ import { MarkdownMessage } from '@/components/ai/MarkdownMessage';
 import { useRegisterAiScreenContext } from '@/components/ai/screen-context/useAiScreenContext';
 import { Page, pageGutterClass } from '@/components/layout/Page';
 import { ResourceErrorState } from '@/components/layout/ResourceErrorState';
+import { IssueMentionChip } from '@/components/mentions/IssueMentionChip';
+import type { RenderMention } from '@/components/mentions/parseMessageSegments';
+import type { MentionUser } from '@/components/mentions/types';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -234,6 +237,23 @@ function InlineEditableBody({
     clearIssueBodyDraft(draftKey);
   };
 
+  // 본문의 멘션 토큰 <@id> → 코멘트와 같은 칩(WP-1134). 이름표는 프로젝트 멤버(코멘트 목록과 같은 쿼리라 다시 받지 않는다) — 멤버가 아니면
+  // 「알 수 없음」. 코드(`…`·펜스) 안의 토큰은 MarkdownMessage 가 글자 그대로 둔다. 멤버가 바뀔 때만 새로 만든다 — mentions 가 바뀌면
+  // MarkdownMessage 가 렌더러를 다시 만들어 본문 이미지가 다시 마운트된다.
+  const members = useProjectMembers(projectKey);
+  const mentionUsers: MentionUser[] = useMemo(
+    () => (members.data ?? []).map((m) => ({ id: m.userId, name: m.name, kind: m.kind })),
+    [members.data],
+  );
+  const renderMention = useCallback<RenderMention>(
+    (seg, key) => <IssueMentionChip key={key} seg={seg} testId={`issue-body-mention-chip-${seg.id}`} />,
+    [],
+  );
+  const renderImage = useCallback(
+    (p: { src?: string; alt?: string }) => <IssueBodyImage projectKey={projectKey} {...p} />,
+    [projectKey],
+  );
+
   // 편집이 끝나면(Esc 취소·저장) textarea 가 사라져 포커스가 body 로 빠졌다 — 「본문 편집」 영역으로 돌린다(WP-813).
   const viewRef = useRef<HTMLDivElement | null>(null);
   useRestoreFocusOnExit(editing, viewRef);
@@ -268,7 +288,7 @@ function InlineEditableBody({
       >
         {/* 뷰 모드 = 마크다운 렌더(## 제목·**볼드**·- [ ] 체크박스). 편집 모드(textarea)는 raw — 대비 확보. */}
         {body ? (
-          <MarkdownMessage renderImage={(p) => <IssueBodyImage projectKey={projectKey} {...p} />}>
+          <MarkdownMessage renderImage={renderImage} mentions={mentionUsers} renderMention={renderMention}>
             {body}
           </MarkdownMessage>
         ) : (
