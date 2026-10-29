@@ -374,7 +374,7 @@ describe('allDayDisplayDates / allDayRangeFromDates', () => {
     expect(allDayRangeFromDates('', '2026-10-28')).toEqual({ start: '', end: '2026-10-29T00:00' })
     expect(allDayRangeFromDates('2026-10-28', '')).toEqual({ start: '2026-10-28T00:00', end: '' })
     expect(allDayRangeFromDates('2026-10-28', '20271-06-10').end).toBe('20271-06-10T00:00')
-    expect(allDayDisplayDates('2026-06-10T12:00', '20271-06-10T13:00')).toEqual({ startDate: '2026-06-10', endDate: '20271-06-1' })
+    expect(allDayDisplayDates('2026-06-10T12:00', '20271-06-10T13:00')).toEqual({ startDate: '2026-06-10', endDate: '20271-06-10' })
     const res = eventFormSchema.safeParse({ ...base, allDay: true, ...allDayRangeFromDates('2026-10-28', '') })
     expect(res.success).toBe(false)
   })
@@ -383,6 +383,52 @@ describe('allDayDisplayDates / allDayRangeFromDates', () => {
     const res = eventFormSchema.safeParse({ ...base, allDay: true, ...r })
     expect(res.success).toBe(false)
     expect(res.error?.issues.map((i) => i.message)).toContain('종료일은 시작일보다 앞설 수 없습니다')
+  })
+})
+
+// WP-1181 — 날짜 부분을 앞 10글자로 잘라 다섯 자리 연도가 다른 날짜(20261-06-1)로 바뀌었고, 빈 시작으로 종일을 켜면 시작이 'T00:00' 이 됐다.
+describe('종일 전환·날짜 칸의 다섯 자리 연도와 빈 시작 (WP-1181)', () => {
+  const messageOf = (r: ReturnType<typeof eventFormSchema.safeParse>, field: string) =>
+    r.error?.issues.filter((i) => i.path[0] === field).map((i) => i.message)
+
+  it('다섯 자리 연도는 자르지 않고 그대로 두어 스키마가 연도 오류로 막는다', () => {
+    expect(allDayDisplayDates('20261-06-10T00:00', '2026-06-11T00:00').startDate).toBe('20261-06-10')
+    const r = normalizeAllDayRange('20261-06-10T09:00', '2026-06-10T10:00')
+    expect(r.start).toBe('20261-06-10T00:00')
+    expect(messageOf(eventFormSchema.safeParse({ ...base, allDay: true, ...r }), 'start')).toEqual([
+      '날짜와 시각을 올바르게 입력하세요 (연도는 4자리)',
+    ])
+    expect(normalizeAllDayRange('2026-06-10T09:00', '20261-06-10T10:00').end).toBe('20261-06-10T00:00')
+  })
+
+  it('시작이 빈 채 종일을 켜면 시작은 빈 값이고 시작 필수 오류가 난다', () => {
+    const r = normalizeAllDayRange('', '2026-06-10T10:00')
+    expect(r).toEqual({ start: '', end: '2026-06-11T00:00' })
+    expect(allDayDisplayDates(r.start, r.end)).toEqual({ startDate: '', endDate: '2026-06-10' })
+    expect(messageOf(eventFormSchema.safeParse({ ...base, allDay: true, ...r }), 'start')).toEqual(['시작을 입력하세요'])
+    expect(normalizeAllDayRange('', '')).toEqual({ start: '', end: '' })
+  })
+
+  it('시작을 읽을 수 없을 때 정각 자정에 끝나는 종료는 그 자정이 끝이다(하루 늘지 않는다)', () => {
+    expect(normalizeAllDayRange('20261-06-10T23:00', '2026-06-11T00:00')).toEqual({ start: '20261-06-10T00:00', end: '2026-06-11T00:00' })
+  })
+
+  it('종일을 풀 때도 빈 시작은 빈 값이고, 길이를 셀 수 없으면 기억한 시각을 날짜 칸의 날에 얹는다', () => {
+    const remembered = { start: '2026-06-10T09:00', end: '2026-06-10T10:00' }
+    expect(restoreTimedRange({ start: '', end: '2026-06-11T00:00' }, remembered)).toEqual({ start: '', end: '2026-06-10T10:00' })
+    expect(restoreTimedRange({ start: '20261-06-10T00:00', end: '2026-06-11T00:00' }, remembered)).toEqual({
+      start: '20261-06-10T09:00',
+      end: '2026-06-10T10:00',
+    })
+    // 빈 시작으로 종일을 켠 뒤 시작일을 넣고 풀면, 입력해 둔 종료 시각이 남는다(자정~자정이 되지 않는다).
+    expect(restoreTimedRange({ start: '2026-06-10T00:00', end: '2026-06-11T00:00' }, { start: '', end: '2026-06-10T10:00' })).toEqual({
+      start: '2026-06-10T00:00',
+      end: '2026-06-10T10:00',
+    })
+    // 연도 5자리 시작으로 종일을 켠 뒤 연도를 고치고 풀면, 기억한 시각(09:00~10:00)이 돌아온다.
+    expect(
+      restoreTimedRange({ start: '2026-06-10T00:00', end: '2026-06-11T00:00' }, { start: '20261-06-10T09:00', end: '2026-06-10T10:00' }),
+    ).toEqual({ start: '2026-06-10T09:00', end: '2026-06-10T10:00' })
   })
 })
 
