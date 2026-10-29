@@ -4,9 +4,9 @@
 #   bg-job start  <MAIN> <이슈 키> <작업 폴더> -- <명령> [인자…]   # 띄우면 "started <pid>", 이미 돌고 있으면 "running" 으로 exit 1
 #   bg-job status <MAIN> <이슈 키>                                  # running | passed | failed <코드> | lost | none
 #   bg-job clear  <MAIN> <이슈 키>                                  # 끝난 작업의 파일을 지운다 — 돌고 있으면 "running" 으로 exit 1
-#   bg-job stop   <MAIN> <이슈 키>                                  # 돌고 있는 작업을 프로세스 그룹째 끝내고 파일을 지운다 — "ok"
+#   bg-job stop   <MAIN> <이슈 키>                                  # 돌고 있는 작업을 프로세스 그룹째 끝내고 파일을 지운다 — "ok", 끝내지 못하면 exit 2
 #
-# 종료 코드: 0 = 성공(status 는 상태와 상관없이 0) · 1 = 이미 실행 중 · 2 = 사용법 오류·파일을 못 씀·띄우지 못함
+# 종료 코드: 0 = 성공(status 는 상태와 상관없이 0) · 1 = 이미 실행 중 · 2 = 사용법 오류·파일을 못 씀·띄우지 못함·(stop) 끝내지 못함
 #
 # 파일은 MAIN/.work-loop/state/jobs/<이슈 키>.{log,exit,pid}:
 # - log  : 명령의 표준 출력·오류(띄울 때마다 새로 쓴다)
@@ -32,27 +32,35 @@ gw_valid_name "$_bj_key" || usage
 _bj_dir="$_bj_main/.work-loop/state/jobs"
 _bj_base="$_bj_dir/$_bj_key"
 
+# 상태 한 단어를 내고 _bj_state 에도 둔다 — stop 이 서브셸 없이 불러 읽은 pid(_bj_pid)를 그대로 쓰게(WP-1207).
+bj_say() { _bj_state=$1; echo "$1"; }
+
+# 그 프로세스 그룹에 프로세스가 남아 있으면 0. kill -0 은 권한 없음(EPERM)도 실패라 「끝남」으로 잘못 보므로 ps 로 본다.
+bj_group_alive() {
+  ps -axo pgid= 2>/dev/null | awk -v g="$1" '$1 == g { f = 1 } END { exit !f }'
+}
+
 # 지금 상태 한 단어(failed 는 코드 포함)를 낸다.
 bj_status() {
   if [ -f "$_bj_base.exit" ]; then
     _bj_code=""
     { IFS= read -r _bj_code || true; } < "$_bj_base.exit"
-    if [ "$_bj_code" = 0 ]; then echo passed; else echo "failed ${_bj_code:-?}"; fi
+    if [ "$_bj_code" = 0 ]; then bj_say passed; else bj_say "failed ${_bj_code:-?}"; fi
     return
   fi
-  [ -f "$_bj_base.pid" ] || { echo none; return; }
+  [ -f "$_bj_base.pid" ] || { bj_say none; return; }
   _bj_held=""
   { IFS= read -r _bj_held || true; } < "$_bj_base.pid"
   _bj_pid=${_bj_held%%-*}
-  case "$_bj_pid" in '' | *[!0-9]*) echo lost; return ;; esac
+  case "$_bj_pid" in '' | *[!0-9]*) bj_say lost; return ;; esac
   # 살아 있고 시작 시각까지 같아야 내가 띄운 작업이다(pid 재사용이면 lost). 시작 시각을 못 남겼으면 살아 있는지만 본다.
   if gw_pid_alive "$_bj_pid" && { [ "$_bj_held" = "$_bj_pid-" ] || [ "$(gw_proc_key "$_bj_pid" 2>/dev/null)" = "$_bj_held" ]; }; then
-    echo running
+    bj_say running
   elif [ -f "$_bj_base.exit" ]; then
     # 맨 위에서 exit 파일을 본 뒤 프로세스를 보기 전에 끝났다 — 끝나기 전에 exit 파일을 남기므로(mv 뒤 종료) 다시 보면 결과가 있다.
     bj_status
   else
-    echo lost
+    bj_say lost
   fi
 }
 
@@ -63,11 +71,26 @@ case "$_bj_cmd" in
     ;;
   stop)
     [ $# -eq 0 ] || usage
-    if [ "$(bj_status)" = running ]; then
-      _bj_held=""
-      { IFS= read -r _bj_held || true; } < "$_bj_base.pid"
+    # 서브셸 없이 불러 상태를 확인한 그 pid 로 끝낸다 — 다시 읽으면 그 사이 바뀐 파일(빈 값·다른 작업)을 끝낼 수 있다.
+    bj_status >/dev/null
+    if [ "$_bj_state" = running ]; then
       # 그룹 대표(띄운 셸)의 pid 가 곧 그룹 번호 — 그룹째 끝내 E2E·gradle 자식이 남지 않게 한다.
-      kill -TERM -- "-${_bj_held%%-*}" 2>/dev/null || true
+      # `kill -TERM -- <음수>` 는 dash(우분투 /bin/sh)가 「Illegal number」로 거절해 아무것도 끝내지 못했다(WP-1207) —
+      # dash·bash·macOS sh 가 모두 받는 `kill -s <신호> -- <음수>` 꼴로 쓴다.
+      kill -s TERM -- "-$_bj_pid" 2>/dev/null || true
+      # gradle·Playwright 는 TERM 뒤 정리에 몇 초 걸린다 — 끝날 때까지 기다려야 「ok」 뒤 같은 키로 띄운 작업과 겹치지 않는다.
+      _bj_i=0
+      while bj_group_alive "$_bj_pid" && [ "$_bj_i" -lt 100 ]; do sleep 0.1; _bj_i=$((_bj_i + 1)); done
+      if bj_group_alive "$_bj_pid"; then
+        kill -s KILL -- "-$_bj_pid" 2>/dev/null || true
+        _bj_i=0
+        while bj_group_alive "$_bj_pid" && [ "$_bj_i" -lt 20 ]; do sleep 0.1; _bj_i=$((_bj_i + 1)); done
+      fi
+      if bj_group_alive "$_bj_pid"; then
+        # 끝내지 못했으면 파일을 남기고 알린다 — 「ok」로 숨기면 몰래 돈 작업이 다음 작업의 결과를 덮는다.
+        echo "bg-job: 작업(프로세스 그룹 $_bj_pid)을 끝내지 못했다" >&2
+        exit 2
+      fi
     fi
     rm -f "$_bj_base.log" "$_bj_base.exit" "$_bj_base.pid"
     echo ok
