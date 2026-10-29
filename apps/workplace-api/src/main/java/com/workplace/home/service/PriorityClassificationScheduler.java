@@ -11,6 +11,7 @@ import com.workplace.home.outbound.AiAgentPriorityClient;
 import com.workplace.home.outbound.dto.PriorityClassifyRequest;
 import com.workplace.home.outbound.dto.PriorityClassifyResult;
 import com.workplace.home.repository.PriorityItemRepository;
+import com.workplace.issue.dto.IssueDueWindow;
 import com.workplace.issue.dto.IssueResponse;
 import com.workplace.issue.dto.IssueStatuses;
 import com.workplace.issue.service.IssueSearchService;
@@ -19,11 +20,14 @@ import com.workplace.messaging.service.MessagingSummaryService;
 import com.workplace.notify.service.NotificationService;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -48,12 +52,18 @@ public class PriorityClassificationScheduler {
   private static final int SOURCE_LIMIT = 20;
 
   /** 이슈 마감 후보의 상태 범주 CSV — 종료(완료·취소)가 아닌 범주. 범주가 늘거나 바뀌어도 IssueStatuses 를 따라간다(WP-1099). */
-  private static final String OPEN_CATEGORIES =
-      String.join(
-          ",",
-          IssueStatuses.CATEGORY_ORDER.stream().filter(c -> !IssueStatuses.isClosed(c)).toList());
+  private static final String OPEN_CATEGORIES = String.join(",", IssueStatuses.OPEN);
 
   private record TenantUser(long tenantId, long userId) {}
+
+  /**
+   * 한 사용자의 후보 — truncatedSources 는 상한(SOURCE_LIMIT)에 닿아 잘렸을 수 있는 소스. 그 소스의 저장 행은 후보에 없어도 사라진 것이 아니라
+   * 정리에서 뺀다(WP-1104 리뷰).
+   */
+  private record Candidates(List<PriorityCandidate> items, Set<String> truncatedSources) {}
+
+  /** 「오늘」을 정하는 시계 — 테스트가 KST 이른 아침을 고정할 수 있게 바꿀 수 있다. */
+  private Clock clock = Clock.systemUTC();
 
   private final TenantScopedRunner tenantRunner;
   private final UserRepository userRepo;
@@ -87,6 +97,11 @@ public class PriorityClassificationScheduler {
     this.assistantResolver = assistantResolver;
     this.repo = repo;
     this.txTemplate = new TransactionTemplate(txManager);
+  }
+
+  /** 테스트 전용 — 「오늘」을 고정한다. */
+  void useClock(Clock clock) {
+    this.clock = clock;
   }
 
   /**
@@ -148,7 +163,8 @@ public class PriorityClassificationScheduler {
    *     기준으로만 리셋하도록
    */
   private boolean processUser(long userId) {
-    List<PriorityCandidate> candidates = collectCandidates(userId);
+    Candidates collected = collectCandidates(userId);
+    List<PriorityCandidate> candidates = collected.items();
     if (candidates.isEmpty()) {
       // 진짜 "후보 없음" 케이스만 전량 삭제(replaceForUser 빈 리스트) — AI 호출 자체를 안 했으니 모호함이 없다.
       // 짧은 트랜잭션으로 감싸 TenantAwareTransactionManager.doBegin() 이 RLS GUC(app.tenant_id) 를
@@ -185,9 +201,10 @@ public class PriorityClassificationScheduler {
     // 그래서 이 경우는 저장을 건너뛰고(경고 로그만) 이전 배치 결과를 그대로 둔다 — 의도된 방어이며 누락이 아니다.
     if (result.results().isEmpty()) {
       log.warn(
-          "우선순위 분류 응답이 비어있음(candidates={}) — AI 파싱 실패 가능성, 이전 결과 유지하고 저장 생략 user={}",
+          "우선순위 분류 응답이 비어있음(candidates={}) — AI 파싱 실패 가능성, 이전 점수 유지하고 저장 생략 user={}",
           candidates.size(),
           userId);
+      pruneToCandidates(userId, collected);
       return true;
     }
 
@@ -196,12 +213,12 @@ public class PriorityClassificationScheduler {
     // 이미 쓰는 "sourceType:sourceId" 복합키 규약(프론트 SynthesisLayer.tsx 매처와도 동일)을 그대로 맞춘다.
     Map<String, PriorityCandidate> bySourceKey = new HashMap<>();
     for (PriorityCandidate c : candidates) {
-      bySourceKey.put(c.sourceType() + ":" + c.sourceId(), c);
+      bySourceKey.put(PriorityItemRow.key(c.sourceType(), c.sourceId()), c);
     }
 
     List<PriorityItemRow> rows = new ArrayList<>();
     for (PriorityClassifyResult.ScoreLine s : result.results()) {
-      PriorityCandidate c = bySourceKey.get(s.sourceType() + ":" + s.sourceId());
+      PriorityCandidate c = bySourceKey.get(PriorityItemRow.key(s.sourceType(), s.sourceId()));
       if (c == null) continue; // AI 가 존재하지 않는 (sourceType,sourceId) 를 반환한 방어적 스킵
       rows.add(
           new PriorityItemRow(
@@ -218,10 +235,11 @@ public class PriorityClassificationScheduler {
     // 이 가드가 없으면 replaceForUser 가 빈 리스트로 전체 교체해 이전 정상 배치 결과를 지워버린다.
     if (rows.isEmpty()) {
       log.warn(
-          "우선순위 분류 결과가 후보와 전혀 매칭되지 않음(candidates={}, results={}) — 이전 결과 유지하고 저장 생략 user={}",
+          "우선순위 분류 결과가 후보와 전혀 매칭되지 않음(candidates={}, results={}) — 이전 점수 유지하고 저장 생략 user={}",
           candidates.size(),
           result.results().size(),
           userId);
+      pruneToCandidates(userId, collected);
       return true;
     }
     // 짧은 트랜잭션으로 감싸 RLS GUC 주입 보장 (위 빈-후보 분기와 동일 이유).
@@ -230,12 +248,28 @@ public class PriorityClassificationScheduler {
   }
 
   /**
+   * 새 점수를 저장하지 못한 회차에도 이번 후보에 없는 저장 행은 지운다(WP-1104) — 그사이 끝난 이슈·읽은 멘션·회신한 메일이 이전 점수로 「긴급」에 계속 남지
+   * 않게. 후보에 남은 행은 이전 점수를 그대로 둔다(빈 응답이 파싱 실패일 수 있어 점수는 덮지 않는다). 상한에 닿은 소스는 후보 밖에도 유효한 행이 있을 수 있어 지우지
+   * 않는다.
+   */
+  private void pruneToCandidates(long userId, Candidates collected) {
+    List<String> keys =
+        collected.items().stream()
+            .map(c -> PriorityItemRow.key(c.sourceType(), c.sourceId()))
+            .toList();
+    txTemplate.executeWithoutResult(
+        status -> repo.deleteExcept(userId, keys, collected.truncatedSources()));
+  }
+
+  /**
    * 4개 소스에서 후보 수집. SynthesisLayer.tsx 의 행 생성 필터와 동일 기준(마감 지남/오늘 이슈, 멘션 알림(notifTarget.ts
    * isMentionLike 미러) 안읽음, aiNeedsReply&&처리안됨 메일, attention 메시징 대화).
    */
-  private List<PriorityCandidate> collectCandidates(long userId) {
+  private Candidates collectCandidates(long userId) {
     List<PriorityCandidate> out = new ArrayList<>();
-    String today = LocalDate.now().toString();
+    Set<String> truncated = new HashSet<>();
+    LocalDate todayDate = IssueDueWindow.today(clock);
+    String today = todayDate.toString();
 
     // 이슈 마감(지남/오늘) — SynthesisLayer 의 dueFrom(1년 전)~오늘 규칙 미러.
     // 열린 범주(할 일·진행 중)만 받는다 — 프론트 isClosedDue(WP-675)처럼 끝난(완료·취소) 이슈는 마감이 지나도 후보가 아니다(WP-1099).
@@ -246,18 +280,23 @@ public class PriorityClassificationScheduler {
             Map.of(
                 "assignee",
                 "me",
+                // 1년 넘게 지난 마감은 SynthesisLayer 에도 보이지 않는다 — 같은 창으로 받는다(WP-1104, 예전엔 dueFrom 이 빠져
+                // 있었다).
+                "dueFrom",
+                IssueDueWindow.from(todayDate).toString(),
                 "dueTo",
                 today,
                 "status",
                 OPEN_CATEGORIES,
                 "size",
                 String.valueOf(SOURCE_LIMIT)));
+    if (issues.items().size() >= SOURCE_LIMIT) truncated.add(PriorityItemRow.ISSUE_DUE);
     for (IssueResponse i : issues.items()) {
       if (i.dueDate() != null && i.dueDate().toString().compareTo(today) <= 0) {
         out.add(
             new PriorityCandidate(
                 userId,
-                "ISSUE_DUE",
+                PriorityItemRow.ISSUE_DUE,
                 String.valueOf(i.id()),
                 i.title(),
                 i.dueDate().toString().equals(today) ? "오늘 마감" : "마감 지남",
@@ -270,7 +309,9 @@ public class PriorityClassificationScheduler {
     // — 예전 멘션 프록시로 남아 일반 댓글이 멘션 후보가 됐다(WP-1092). notifTarget() 라우팅 규칙도 그대로
     // 포팅(projectKey+issueNumber 딥링크,
     // 이슈 챗 알림은 ?chat=1 로 챗 드로워를 연다).
-    for (var n : notificationService.listRecent(userId, SOURCE_LIMIT, 0)) {
+    var notifications = notificationService.listRecent(userId, SOURCE_LIMIT, 0);
+    if (notifications.size() >= SOURCE_LIMIT) truncated.add("MENTION");
+    for (var n : notifications) {
       boolean issueChat = "AI_QUESTION".equals(n.type()) || "ISSUE_CHAT_MENTION".equals(n.type());
       boolean commentMention = "ISSUE_COMMENT_MENTION".equals(n.type());
       if (!n.read() && (commentMention || issueChat)) {
@@ -294,6 +335,7 @@ public class PriorityClassificationScheduler {
     // 메일 회신필요 — 단일 술어(AI 판정 true + 안 읽음, WP-146). #485 에서 seen 을 술어에서 뺐다가 "읽으면 해제"로 되돌렸다.
     // recent 는 이미 안읽은 메일만이지만, 술어를 명시해 다른 소비처와 같은 기준임을 드러낸다.
     var mail = mailMessageService.summary(userId, SOURCE_LIMIT);
+    if (mail.recent().size() >= SOURCE_LIMIT) truncated.add("MAIL_NEEDS_REPLY");
     for (var m : mail.recent()) {
       if (Boolean.TRUE.equals(m.aiNeedsReply()) && !m.seen()) {
         out.add(
@@ -309,6 +351,7 @@ public class PriorityClassificationScheduler {
 
     // 메시징 확인필요(멘션·회신대기·AI발굴·새 답글 중 하나).
     var messaging = messagingSummaryService.summary(userId, SOURCE_LIMIT);
+    if (messaging.recent().size() >= SOURCE_LIMIT) truncated.add("MESSAGE_ATTENTION");
     for (var c : messaging.recent()) {
       boolean attention =
           c.mentioned() || c.needsReply() || c.aiReason() != null || c.newThreadReplyCount() > 0;
@@ -325,6 +368,6 @@ public class PriorityClassificationScheduler {
                     : "/chat/channels/" + c.conversationId()));
       }
     }
-    return out;
+    return new Candidates(out, truncated);
   }
 }

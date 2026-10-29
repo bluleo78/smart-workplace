@@ -4,6 +4,7 @@ import static com.workplace.jooq.tables.UserPriorityItem.USER_PRIORITY_ITEM;
 
 import com.workplace.home.dto.PriorityItemRow;
 import java.util.List;
+import java.util.Set;
 import org.jooq.DSLContext;
 import org.springframework.stereotype.Repository;
 
@@ -28,20 +29,10 @@ public class PriorityItemRepository {
    * @param items 이번 배치의 후보별 점수(빈 리스트면 후보가 하나도 없다는 뜻 — 전량 삭제)
    */
   public void replaceForUser(long userId, List<PriorityItemRow> items) {
-    if (items.isEmpty()) {
-      dsl.deleteFrom(USER_PRIORITY_ITEM).where(USER_PRIORITY_ITEM.USER_ID.eq(userId)).execute();
-      return;
-    }
-    List<String> keptKeys = items.stream().map(i -> i.sourceType() + ":" + i.sourceId()).toList();
-    dsl.deleteFrom(USER_PRIORITY_ITEM)
-        .where(USER_PRIORITY_ITEM.USER_ID.eq(userId))
-        .and(
-            USER_PRIORITY_ITEM
-                .SOURCE_TYPE
-                .concat(":")
-                .concat(USER_PRIORITY_ITEM.SOURCE_ID)
-                .notIn(keptKeys))
-        .execute();
+    deleteExcept(
+        userId,
+        items.stream().map(i -> PriorityItemRow.key(i.sourceType(), i.sourceId())).toList(),
+        Set.of());
     for (PriorityItemRow item : items) {
       dsl.insertInto(USER_PRIORITY_ITEM)
           .set(USER_PRIORITY_ITEM.USER_ID, userId)
@@ -87,5 +78,30 @@ public class PriorityItemRepository {
                     r.getImportanceScore(),
                     r.getUrgencyScore(),
                     r.getReason()));
+  }
+
+  /**
+   * 사용자의 저장 행 중 {@code sourceType:sourceId} 키가 keptKeys 에 없는 것을 지운다. 남는 행의 점수는 그대로 둔다 — 새 점수를 저장하지
+   * 못한 배치 회차도 사라진 후보(끝난 이슈·읽은 멘션 등)는 정리한다(WP-1104).
+   *
+   * @param userId 대상 사용자
+   * @param keptKeys 남길 키(비어 있으면 전부 지운다)
+   * @param keptSourceTypes 키와 상관없이 통째로 남길 소스 — 후보가 상한에 닿아 잘린 소스는 「후보에 없음」이 「사라짐」이 아니다
+   */
+  public void deleteExcept(long userId, List<String> keptKeys, Set<String> keptSourceTypes) {
+    var where = USER_PRIORITY_ITEM.USER_ID.eq(userId);
+    if (!keptKeys.isEmpty()) {
+      where =
+          where.and(
+              USER_PRIORITY_ITEM
+                  .SOURCE_TYPE
+                  .concat(":")
+                  .concat(USER_PRIORITY_ITEM.SOURCE_ID)
+                  .notIn(keptKeys));
+    }
+    if (!keptSourceTypes.isEmpty()) {
+      where = where.and(USER_PRIORITY_ITEM.SOURCE_TYPE.notIn(keptSourceTypes));
+    }
+    dsl.deleteFrom(USER_PRIORITY_ITEM).where(where).execute();
   }
 }

@@ -159,6 +159,15 @@ public class IssueSearchService {
   }
 
   /**
+   * 주어진 이슈 중 지금도 이 사용자의 「마감 지남·오늘」 내 이슈인 것(WP-1104) — 홈 AI 우선순위가 저장해 둔 이슈 마감 행을 읽을 때 다시 맞춘다. 다른
+   * 도메인(home)이 이슈 저장소를 직접 부르지 않게 검색 서비스로 연다. 조건은 {@link IssueRepository#findStillDueAssignedIds}.
+   */
+  public java.util.Set<Long> findStillDueAssignedIds(
+      long userId, java.util.Collection<Long> issueIds, java.time.LocalDate today) {
+    return issueRepository.findStillDueAssignedIds(userId, issueIds, today);
+  }
+
+  /**
    * 7c: 프로젝트 횡단 "내 이슈" 검색. 홈 위젯(issue_list/my_tasks)·기본구성용. assignee=me 는 parse 에서 callerId 로 해석되고,
    * 스코프는 호출자가 멤버인 모든 프로젝트(searchMemberOf 의 멤버십 EXISTS)로 제한된다.
    */

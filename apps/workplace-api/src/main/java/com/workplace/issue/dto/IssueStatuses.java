@@ -39,6 +39,10 @@ public final class IssueStatuses {
   /** 종료 상태(Jira 의 Done 분류) — 완료와 취소 모두 "끝난 일"로 본다. */
   public static final Set<String> CLOSED = Set.of(DONE, CANCELED);
 
+  /** 열린 범주(종료가 아닌 것) — 화면 순서대로. 「아직 할 일」만 보는 조회가 호출부마다 다시 만들지 않게 둔다(WP-1104). */
+  public static final List<String> OPEN =
+      CATEGORY_ORDER.stream().filter(c -> !CLOSED.contains(c)).toList();
+
   private IssueStatuses() {}
 
   /** 이 범주가 종료(완료·취소)인가. null 은 종료가 아니다. */
