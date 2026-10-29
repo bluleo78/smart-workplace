@@ -178,6 +178,26 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
    * 미읽음이 요약 상한(200)을 넘으면 가장 최근 200건을 요약하고, 안 읽은 수는 실제 수, 맨 끝의 멘션은 내 차례에 나온다(WP-1183 — 오래된 200건만 보고
    * 최근 멘션이 빠졌다).
    */
+  /**
+   * 내 차례 미리보기의 멘션 토큰은 @이름으로 바꿔 싣는다(WP-1188) — 웹은 미리보기를 글자 그대로 그려 원문 「<@id>」가 보였다. 모르는 id 는 「@사용자」.
+   */
+  @Test
+  void 내차례_미리보기의_멘션은_이름으로() {
+    long channelId = seedChannelWithMembers();
+    long m1 = postByB(channelId, "**<@" + callerA + ">** 이거 확인 부탁해요 <@999999999>", callerA);
+    when(catchupClient.summarize(any()))
+        .thenReturn(
+            new CatchupSummarizeResult(
+                List.of(), List.of(new CatchupSummarizeResult.Group("논의", List.of(m1)))));
+
+    var res = service.summarize(callerA, channelId, m1 - 1);
+
+    String nameA = dsl.select(USER.NAME).from(USER).where(USER.ID.eq(callerA)).fetchOne(USER.NAME);
+    assertThat(res.yourTurn())
+        .singleElement()
+        .satisfies(m -> assertThat(m.snippet()).isEqualTo("@" + nameA + " 이거 확인 부탁해요 @사용자"));
+  }
+
   @Test
   void 상한을_넘는_미읽음은_최근_것을_요약하고_수와_최근_멘션을_잃지_않는다() {
     long channelId = seedChannelWithMembers();
