@@ -541,6 +541,8 @@ describe('휴지통', () => {
     // 휴지통 뷰에서는 끌어 와도 놓기 표시(테두리)를 하지 않는다.
     fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
     expect(screen.getByTestId('drive-dropzone').style.outline).toBe('')
+    // 커서만 금지로 바뀌고 끝나지 않게 왜 놓을 수 없는지 알린다(WP-1167).
+    expect(await screen.findByText('검색·휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.')).toBeInTheDocument()
     dropFile()
     await user.click(screen.getByTestId('trash-toggle'))
     await screen.findByTestId('drive-new-folder')
@@ -795,11 +797,31 @@ describe('검색 결과 화면의 만들기·놓기 (WP-1101)', () => {
       // 결과를 늦게 준다 — 디바운스·조회 중인 틈을 본다.
       handlers: [http.get(`${API}/spaces/${SPACE_ID}/search`, () => new Promise<Response>(() => {})), http.get(`${API}/search`, () => new Promise<Response>(() => {}))],
     })
+    // 빈 폴더 화면의 「업로드」도 머리 단추처럼 막힌다 — 남아 있으면 눌러 보이지 않는 폴더에 올렸다(WP-1167).
+    expect(await screen.findByTestId('drive-empty-upload')).toBeInTheDocument()
     await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
     await user.paste('예산')
     expect(screen.queryByTestId('search-results')).not.toBeInTheDocument()
+    expect(screen.getByTestId('drive-empty-folder')).toBeInTheDocument()
     expect(screen.queryByTestId('drive-new-folder')).not.toBeInTheDocument()
     expect(screen.queryByTestId('drive-upload')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('drive-empty-upload')).not.toBeInTheDocument()
+  })
+
+  // 파일명 검색이 실패하면 결과 화면이 오지 않고 폴더 보기 그대로다 — 만들기·업로드를 숨길 까닭이 없다(WP-1167).
+  test('파일명 검색이 실패하면 폴더 보기의 새 폴더·업로드가 다시 보인다', async () => {
+    const { user } = await openDrive({ folders: [], files: [] }, {
+      handlers: [
+        http.get(`${API}/spaces/${SPACE_ID}/search`, () => HttpResponse.json({ message: '검색 실패' }, { status: 500 })),
+        http.get(`${API}/search`, () => HttpResponse.json({ hits: [], semantic: false })),
+      ],
+    })
+    await user.click(screen.getByLabelText('파일명 및 콘텐츠 검색'))
+    await user.paste('예산')
+    expect(await screen.findByTestId('drive-new-folder')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-upload')).toBeInTheDocument()
+    expect(screen.getByTestId('drive-empty-upload')).toBeInTheDocument()
+    expect(screen.queryByTestId('search-results')).not.toBeInTheDocument()
   })
 
   // 결과 화면에 파일을 놓아도 올리지 않고 놓기 테두리도 없다. 드라이브 뷰에서는 테두리가 생기고 올린다(대조).
@@ -819,6 +841,8 @@ describe('검색 결과 화면의 만들기·놓기 (WP-1101)', () => {
     await within(await screen.findByTestId('search-results')).findByText('예산안.pdf')
     fireEvent.dragOver(screen.getByTestId('drive-dropzone'), { dataTransfer: { dropEffect: 'copy' } })
     expect(screen.getByTestId('drive-dropzone').style.outline).toBe('')
+    // 커서만 금지로 바뀌고 끝나지 않게 왜 놓을 수 없는지 알린다(WP-1167).
+    expect(await screen.findByText('검색·휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.')).toBeInTheDocument()
     dropFile()
 
     await user.clear(screen.getByLabelText('파일명 및 콘텐츠 검색'))

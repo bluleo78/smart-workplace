@@ -277,7 +277,10 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
   // 폴더를 보고 있는지 — 휴지통·검색 결과 화면이 아니다. 경로 줄·만들기·놓기가 이 값 하나를 본다.
   const browsing = trash == null && !searching
   // 검색어를 친 뒤 결과가 오기 전(디바운스·첫 조회 중) — 곧 결과 화면이 덮는다.
-  const searchStarting = query.trim().length >= MIN_SEARCH_LEN
+  // 파일명 검색이 실패했으면 결과 화면이 오지 않고 폴더 보기 그대로라 막지 않는다(WP-1167).
+  const searchTerm = query.trim()
+  const searchFailed = searchQ !== '' && searchQ === searchTerm && searchQuery.isError
+  const searchStarting = searchTerm.length >= MIN_SEARCH_LEN && !searchFailed
   // 새 폴더·업로드·파일 놓기는 폴더 보기에서만 — 휴지통·검색 화면에선 만든 항목이 보이지 않는 지금 폴더에 알림 없이 생겼다(WP-1082, WP-1101).
   const canAddHere = browsing && !searchStarting
   const canCreateHere = !readOnlyRole && canAddHere
@@ -629,18 +632,33 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
     }
   }
 
+  // 만들기·업로드·놓기의 마지막 관문 — 단추를 숨기는 것과 별개로 핸들러에서 한 번 더 본다. 새 진입점이 생겨도
+  // 휴지통·검색 화면에서 보이지 않는 지금 폴더에 알림 없이 만들지 않고, 왜 안 되는지 알린다(WP-1167).
+  function guardAddHere(): boolean {
+    if (canAddHere) return true
+    // 끌고 있는 동안 dragover 가 계속 와도 토스트는 하나만 남게 id 를 고정한다.
+    toast.message('검색·휴지통 화면에서는 올리거나 만들 수 없어요. 폴더 보기로 돌아가 주세요.', { id: 'drive-add-blocked' })
+    return false
+  }
+
   async function onDrop(e: React.DragEvent) {
     e.preventDefault()
     setDragOver(false)
-    if (!canDropHere) return
+    if (readOnly || !guardAddHere()) return
     const dropped = await readDroppedTree(e.dataTransfer.items)
     await uploadDroppedTree(dropped)
   }
 
   function onNewFolder() {
+    if (!guardAddHere()) return
     setNameInput('')
     setNameError('')
     setNameDialog({ mode: 'create' })
+  }
+  // 업로드 파일 고르기 — 머리·빈 폴더 단추가 함께 쓴다.
+  function openUploadPicker() {
+    if (!guardAddHere()) return
+    fileInput.current?.click()
   }
   // #589: 업로드 버튼 경로도 드래그앤드롭(uploadDroppedTree)과 동일하게 다중 파일을 지원.
   // input[multiple] 로 선택된 파일 전체를 순차 업로드하고 부분 실패는 성공분 유지 + 실패 요약 토스트.
@@ -1324,7 +1342,7 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
             {(canCreateHere || uploading) && (
               <button
                 type="button"
-                onClick={() => fileInput.current?.click()}
+                onClick={openUploadPicker}
                 data-testid="drive-upload"
                 disabled={uploading || !!space?.archived}
                 className="rounded bg-primary px-2 py-1 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1417,6 +1435,8 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
           // 놓아도 올리지 않는 곳(읽기 전용·휴지통·검색 화면)이면 놓기 표시(테두리·커서)도 하지 않는다.
           if (!canDropHere) {
             e.dataTransfer.dropEffect = 'none'
+            // 쓸 수 있는 공간인데 휴지통·검색 화면이라 막히면 커서만 바뀌지 않게 이유를 알린다(WP-1167).
+            if (!readOnly) guardAddHere()
             return
           }
           setDragOver(true)
@@ -1832,13 +1852,14 @@ export function DrivePage({ spaceId: spaceIdProp }: { spaceId?: number } = {}) {
                 <FolderOpen className="h-12 w-12 text-muted-foreground" />
                 <p className="text-sm font-semibold">이 폴더는 비어 있어요</p>
                 {readOnlyRole && <p className="text-xs text-muted-foreground">이 공간은 보기 권한만 있어요</p>}
-                {/* WP-582: 읽기 전용 공간(보관·보기 전용)엔 올릴 수 없으니 업로드 권유(설명·CTA)를 뺀다. */}
-                {!readOnly && (
+                {/* WP-582: 읽기 전용 공간(보관·보기 전용)엔 올릴 수 없으니 업로드 권유(설명·CTA)를 뺀다.
+                    검색어를 친 직후(곧 결과 화면이 덮는다)에도 머리 단추처럼 뺀다(WP-1167). */}
+                {canDropHere && (
                   <>
                     <p className="text-xs text-muted-foreground">파일을 업로드하거나 새 폴더를 만들어보세요</p>
                     <button
                       type="button"
-                      onClick={() => fileInput.current?.click()}
+                      onClick={openUploadPicker}
                       data-testid="drive-empty-upload"
                       className="mt-1 inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-accent"
                     >
