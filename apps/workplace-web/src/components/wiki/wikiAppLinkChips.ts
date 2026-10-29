@@ -4,7 +4,7 @@ import { type EditorState, Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 
 import type { AppLinkCard } from '@/api/appLinks'
-import { APP_LINK_KIND_LABEL, type AppLink, parseAppLink } from '@/lib/appLinks'
+import { APP_LINK_KIND_LABEL, type AppHosts, type AppLink, parseAppLink } from '@/lib/appLinks'
 import { ISSUE_STATUS_BADGE_TYPE } from '@/lib/issueStatusBadgeType'
 import { CHAT_LINK_RULES, splitLinks } from '@/lib/textLinks'
 import type { IssueStatus } from '@/types/issue'
@@ -47,6 +47,8 @@ export type AppLinkCards = ReadonlyMap<string, AppLinkCard>
 
 /** 플러그인 상태 — 문서의 앱 링크 자리, 카드를 받을 대상(같은 대상 한 번·상한까지), 받은 카드, 그 자리에 지금 그린 칩. */
 interface ChipsState {
+  // 자리를 모을 때 쓴 앱 호스트들 — 공개 호스트가 늦게 오면(설정 응답) 바뀌어 자리를 다시 모은다(WP-1165).
+  hosts: AppHosts
   ranges: AppLinkRange[]
   targets: AppLink[]
   cards: AppLinkCards
@@ -56,12 +58,12 @@ interface ChipsState {
 export const appLinkChipsKey = new PluginKey<ChipsState>('wikiAppLinkChips')
 
 /** 문단 하나의 앱 링크 자리 — 링크 마크는 같은 href 로 이어진 글자를 한 덩어리로(굵게 등으로 갈려도), 맨 주소는 글자 조각 안에서 찾는다. */
-function rangesInTextblock(block: PmNode, start: number, appHost: string, out: AppLinkRange[]) {
+function rangesInTextblock(block: PmNode, start: number, appHosts: AppHosts, out: AppLinkRange[]) {
   let run: { from: number; to: number; href: string; text: string } | null = null
   const flush = () => {
     // 글자가 주소 그대로일 때만 — 끝 「/」 차이는 같은 주소로 본다. 링크 안 공백까지 숨기지 않게 다듬지 않고 비교한다.
     if (run && run.text.replace(/\/$/, '') === run.href.replace(/\/$/, '')) {
-      const link = parseAppLink(run.href, appHost)
+      const link = parseAppLink(run.href, appHosts)
       if (link) out.push({ from: run.from, to: run.to, link, nav: navOf(run.href, link) })
     }
     run = null
@@ -89,7 +91,7 @@ function rangesInTextblock(block: PmNode, start: number, appHost: string, out: A
     let at = 0
     for (const seg of splitLinks(child.text, CHAT_LINK_RULES)) {
       if (seg.type === 'link') {
-        const link = parseAppLink(seg.href, appHost)
+        const link = parseAppLink(seg.href, appHosts)
         if (link) out.push({ from: pos + at, to: pos + at + seg.text.length, link, nav: navOf(seg.href, link) })
       }
       at += seg.text.length
@@ -99,12 +101,12 @@ function rangesInTextblock(block: PmNode, start: number, appHost: string, out: A
 }
 
 /** 본문 전체의 앱 링크 자리 — 문서 순서. 코드 블록 안은 건너뛴다. */
-export function collectAppLinkRanges(doc: PmNode, appHost: string): AppLinkRange[] {
+export function collectAppLinkRanges(doc: PmNode, appHosts: AppHosts): AppLinkRange[] {
   const out: AppLinkRange[] = []
   doc.descendants((node, pos) => {
     if (node.type.spec.code) return false
     if (!node.isTextblock) return true
-    rangesInTextblock(node, pos + 1, appHost, out)
+    rangesInTextblock(node, pos + 1, appHosts, out)
     return false
   })
   return out
@@ -232,17 +234,18 @@ export function refreshAppLinkChips(view: EditorView, cards?: AppLinkCards) {
 }
 
 export interface WikiAppLinkChipsOptions {
-  appHost: string
+  /** 지금 우리 앱 호스트들 — 거래마다 읽는다. 바뀌면(같은 배열이 아니면) 문서가 그대로여도 자리를 다시 모은다. */
+  appHosts: () => AppHosts
 }
 
 /** 에디터 확장 — 본문 앱 링크 자리를 모으고(문서가 바뀔 때만) 받은 카드로 칩을 그린다. 카드는 useWikiAppLinkChips 가 넘긴다. */
 export const WikiAppLinkChips = Extension.create<WikiAppLinkChipsOptions>({
   name: 'wikiAppLinkChips',
   addOptions() {
-    return { appHost: '' }
+    return { appHosts: () => [] }
   },
   addProseMirrorPlugins() {
-    const { appHost } = this.options
+    const { appHosts } = this.options
     // 편집 가능 여부·한글 조합 여부는 뷰에만 있어 플러그인 view 로 잡아 둔다.
     let view: EditorView | null = null
     return [
@@ -250,19 +253,22 @@ export const WikiAppLinkChips = Extension.create<WikiAppLinkChipsOptions>({
         key: appLinkChipsKey,
         state: {
           init: (_config, state) => {
-            const ranges = collectAppLinkRanges(state.doc, appHost)
-            return { ranges, targets: targetsOf(ranges, []), cards: new Map(), decos: DecorationSet.empty }
+            const hosts = appHosts()
+            const ranges = collectAppLinkRanges(state.doc, hosts)
+            return { hosts, ranges, targets: targetsOf(ranges, []), cards: new Map(), decos: DecorationSet.empty }
           },
           apply: (tr, prev, _old, newState) => {
             const meta = tr.getMeta(appLinkChipsKey) as { cards?: AppLinkCards } | undefined
             // 문서·선택·카드 어느 것도 바뀌지 않은 거래(원격 커서 메타 등)는 그대로 둔다.
             if (!tr.docChanged && !tr.selectionSet && !meta) return prev
-            const ranges = tr.docChanged ? collectAppLinkRanges(newState.doc, appHost) : prev.ranges
-            const targets = tr.docChanged ? targetsOf(ranges, prev.targets) : prev.targets
+            const hosts = appHosts()
+            const recollect = tr.docChanged || hosts !== prev.hosts
+            const ranges = recollect ? collectAppLinkRanges(newState.doc, hosts) : prev.ranges
+            const targets = recollect ? targetsOf(ranges, prev.targets) : prev.targets
             const cards = meta?.cards ?? prev.cards
             // 한글 조합 중에는 칩을 다시 고르지 않고 자리만 옮긴다 — 조합 중인 글자 옆 DOM 이 바뀌면 조합이 깨진다(WP-333 과 같은 결).
-            if (view?.composing) return { ranges, targets, cards, decos: prev.decos.map(tr.mapping, tr.doc) }
-            return { ranges, targets, cards, decos: chipDecorations(newState, ranges, cards, view?.editable ?? false) }
+            if (view?.composing) return { hosts, ranges, targets, cards, decos: prev.decos.map(tr.mapping, tr.doc) }
+            return { hosts, ranges, targets, cards, decos: chipDecorations(newState, ranges, cards, view?.editable ?? false) }
           },
         },
         view(v) {

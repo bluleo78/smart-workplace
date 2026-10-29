@@ -21,12 +21,12 @@ const ISSUE_CARD: AppLinkCard = { kind: 'ISSUE', title: '로그인 오류 고치
 const PAGE_CARD: AppLinkCard = { kind: 'PAGE', title: '회의록', spaceName: '팀' }
 
 const editors: Editor[] = []
-function makeEditor(content: string, opts: { editable?: boolean; doc?: Y.Doc } = {}) {
+function makeEditor(content: string, opts: { editable?: boolean; doc?: Y.Doc; hosts?: () => readonly string[] } = {}) {
   const editor = new Editor({
     extensions: [
       ...wikiSchemaExtensions(),
       ...(opts.doc ? [Collaboration.configure({ document: opts.doc, field: 'default' })] : []),
-      WikiAppLinkChips.configure({ appHost: HOST }),
+      WikiAppLinkChips.configure({ appHosts: opts.hosts ?? (() => [HOST]) }),
     ],
     content: opts.doc ? undefined : content,
     editable: opts.editable ?? false,
@@ -52,7 +52,7 @@ afterEach(() => {
 describe('collectAppLinkRanges — 칩이 되는 글자', () => {
   const ranges = (html: string) => {
     const { editor } = makeEditor(html)
-    return collectAppLinkRanges(editor.state.doc, HOST).map((r) => [editor.state.doc.textBetween(r.from, r.to), r.link.to])
+    return collectAppLinkRanges(editor.state.doc, [HOST]).map((r) => [editor.state.doc.textBetween(r.from, r.to), r.link.to])
   }
 
   it('맨 주소와 글자가 주소 그대로인 링크는 칩 자리가 된다', () => {
@@ -75,14 +75,14 @@ describe('collectAppLinkRanges — 칩이 되는 글자', () => {
 
   it('누르면 갈 경로는 쓴 주소의 경로·질의·조각 그대로다(#댓글 등)', () => {
     const { editor } = makeEditor(`<p>${ISSUE}#comment-9</p>`)
-    expect(collectAppLinkRanges(editor.state.doc, HOST).map((r) => [r.link.to, r.nav])).toEqual([
+    expect(collectAppLinkRanges(editor.state.doc, [HOST]).map((r) => [r.link.to, r.nav])).toEqual([
       ['/projects/WP/issues/12', '/projects/WP/issues/12#comment-9'],
     ])
   })
 
   it('소문자 키로 붙인 주소도 카드와 같은 경로(키 대문자)로 간다 — 조각만 덧붙인다', () => {
     const { editor } = makeEditor(`<p>https://${HOST}/projects/wp/issues/12?tab=x#comment-3</p>`)
-    expect(collectAppLinkRanges(editor.state.doc, HOST).map((r) => [r.link.to, r.nav])).toEqual([
+    expect(collectAppLinkRanges(editor.state.doc, [HOST]).map((r) => [r.link.to, r.nav])).toEqual([
       ['/projects/WP/issues/12', '/projects/WP/issues/12#comment-3'],
     ])
   })
@@ -141,7 +141,7 @@ describe('WikiAppLinkChips — 칩 그리기', () => {
     receive(editor, { '/projects/WP/issues/12': ISSUE_CARD })
     expect(chips(editor)).toHaveLength(1)
 
-    const [range] = collectAppLinkRanges(editor.state.doc, HOST)
+    const [range] = collectAppLinkRanges(editor.state.doc, [HOST])
     editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, range.from + 3)))
     expect(chips(editor)).toHaveLength(0)
     expect(hiddenSources(editor)).toBe(0)
@@ -170,7 +170,7 @@ describe('WikiAppLinkChips — 칩 그리기', () => {
   it('칩이 가린 원래 자리 — 주소에 건 링크면 그 <a>, 맨 주소면 없음(터치 편집 중 칩을 누를 때 쓴다)', () => {
     const { editor } = makeEditor(`<p>앞 ${ISSUE} 그리고 <a href="${PAGE}">${PAGE}</a></p>`, { editable: true })
     receive(editor, { '/projects/WP/issues/12': ISSUE_CARD, '/wiki/spaces/3/pages/45': PAGE_CARD })
-    const ranges = collectAppLinkRanges(editor.state.doc, HOST)
+    const ranges = collectAppLinkRanges(editor.state.doc, [HOST])
     const [bare, linked] = chips(editor).map((c) => chipSource(editor.view, c))
     expect(bare.pos).toBe(ranges[0].from)
     expect(bare.anchor).toBeNull()
@@ -187,5 +187,17 @@ describe('WikiAppLinkChips — 칩 그리기', () => {
     const shared = doc.getXmlFragment('default').toString()
     expect(shared).toContain(ISSUE)
     expect(shared).not.toContain('로그인 오류 고치기')
+  })
+})
+
+describe('앱 호스트가 늦게 바뀔 때(WP-1165)', () => {
+  it('공개 호스트가 더해지면 문서가 그대로여도 다시 고르는 거래에서 자리를 다시 모은다', () => {
+    // 내부 주소로 연 노트 — 처음엔 공개 호스트(HOST)를 몰라 공개 주소 링크가 대상이 아니다.
+    let hosts: readonly string[] = ['10.0.0.5']
+    const { editor } = makeEditor(`<p>${ISSUE}</p>`, { hosts: () => hosts })
+    expect(appLinkChipTargets(editor.state)).toEqual([])
+    hosts = ['10.0.0.5', HOST]
+    refreshAppLinkChips(editor.view)
+    expect(appLinkChipTargets(editor.state).map((l) => l.to)).toEqual(['/projects/WP/issues/12'])
   })
 })

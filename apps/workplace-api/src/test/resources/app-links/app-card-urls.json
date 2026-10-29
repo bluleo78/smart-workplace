@@ -1,0 +1,29 @@
+{
+  "_comment": "앱 카드 주소 판정 사례 표(WP-1165) — 서버 LinkPreviewDispatcherTest 와 웹 lib/appLinks.test.ts 가 함께 읽는다. host 는 우리 앱 호스트, card 는 앱 카드로 볼지.",
+  "host": "localhost",
+  "cases": [
+    { "url": "http://localhost:6173/projects/WP/issues/1", "card": true },
+    { "url": "http://localhost/projects/wp/issues/12", "card": true },
+    { "url": "HTTP://LOCALHOST:9999/wiki/open/3", "card": true },
+    { "url": "http://localhost/projects/WP/issues/123456789", "card": true },
+    { "url": "http://localhost/projects/WP/issues/1234567890", "card": false },
+    { "url": "http://localhost/projects/WP/issues/0", "card": false },
+    { "url": "http://localhost/projects/W/issues/1", "card": false },
+    { "url": "http://localhost/projects/WP/issues/x", "card": false },
+    { "url": "http://localhost/projects/WP/issues/1/edit", "card": false },
+    { "url": "http://localhost/wiki/spaces/1/pages/2", "card": true },
+    { "url": "http://localhost/wiki/spaces/1/pages/1234567890123456", "card": false },
+    { "url": "http://localhost/wiki/open/123456789012345", "card": true },
+    { "url": "http://localhost/wiki/open/1234567890123456", "card": false },
+    { "url": "http://localhost/wiki/spaces/3", "card": false },
+    { "url": "http://localhost/wiki/share/abc", "card": false },
+    { "url": "http://localhost/drive/spaces/5?file=77", "card": true },
+    { "url": "http://localhost/drive/spaces/5?x=[1]&file=77", "card": true },
+    { "url": "http://localhost/drive/spaces/5?file=1234567890123456", "card": false },
+    { "url": "http://localhost/drive/spaces/5", "card": false },
+    { "url": "https://example.com/projects/WP/issues/1", "card": false },
+    { "url": "https://a.localhost/projects/WP/issues/1", "card": false },
+    { "url": "http://someone@localhost/projects/WP/issues/1", "card": true },
+    { "url": "http://localhost@example.com/projects/WP/issues/1", "card": false }
+  ]
+}

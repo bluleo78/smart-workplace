@@ -88,6 +88,8 @@ export async function setupAuthMocks(page: Page, user: UserResponse, roles: Role
   await mockApi(page, 'GET', '/api/v1/projects', emptyPage)
   await mockApi(page, 'GET', '/api/v1/members', emptyPage)
   await mockApi(page, 'GET', '/api/v1/drive/spaces', [])
+  // 앱 링크 판정 설정(WP-1165) — 앱 셸이 한 번 부른다. 공개 호스트 없음(지금 호스트만 본다).
+  await mockApi(page, 'GET', '/api/v1/app-links/config', { appHost: null })
   await mockApi(page, 'GET', '/api/v1/calendars', [])
   await mockApi(page, 'GET', '/api/v1/messaging/threads/inbox/unread-count', { count: 0 })
   // 알림 설정(WP-913) — 설정 › 알림 화면이 푸시 설정과 상관없이 늘 조회한다. 저장을 보는 spec 은 mockNotificationSettings 로 덮어쓴다.

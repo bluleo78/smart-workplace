@@ -23,9 +23,10 @@ import {
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown';
 import { messagePlainText, type RenderMention } from '@/components/mentions/parseMessageSegments';
 import { issueChatBundle } from '@/components/viewer/viewerItems';
+import { useAppHosts } from '@/hooks/queries/useAppLinks';
 import { useIsTouchShell } from '@/hooks/useIsTouchShell';
 import { useToolbarReveal } from '@/hooks/useToolbarReveal';
-import { appLinksOf, currentAppHost } from '@/lib/appLinks';
+import { visibleAppLinks } from '@/lib/appLinks';
 import { itemActionLabel } from '@/lib/itemActionLabel'
 
 import { Button } from '../../../../components/ui/button';
@@ -89,10 +90,12 @@ export function ChatMessageRow({
   const toolbarRowProps = useToolbarReveal()(message.id);
   // 첨부만 있고 본문이 빈 본인 메시지는 빈 말풍선을 그리지 않는다.
   const hasBody = message.deleted || message.body.trim() !== '';
-  // 우리 앱 링크 카드(WP-896) — 이슈 채팅엔 외부 링크 미리보기·지우기가 없어 앱 카드만 그린다. 미확정·삭제 메시지엔 없다.
+  // 우리 앱 링크 카드(WP-896) — 이슈 채팅엔 외부 링크 미리보기·지우기가 없어 앱 카드만 그린다. 미확정 메시지엔 없고, 그 밖은 팀 채팅과
+  // 같은 규칙(visibleAppLinks — 삭제 메시지엔 없음)을 쓴다.
+  const appHosts = useAppHosts();
   const appLinks = useMemo(
-    () => (message.deleted || isPending ? [] : appLinksOf(message.body, currentAppHost())),
-    [message.body, message.deleted, isPending],
+    () => (isPending ? [] : visibleAppLinks({ body: message.body, deleted: message.deleted }, appHosts)),
+    [message.body, message.deleted, isPending, appHosts],
   );
 
   // 수정/삭제 툴바 — 본인 메시지 전용. 시각 줄 안에서 시각의 왼쪽에 떠 말풍선·윗 메시지를 가리지 않는다.
