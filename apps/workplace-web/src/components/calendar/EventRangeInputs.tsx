@@ -24,10 +24,13 @@ export function EventRangeInputs({ form, allDay }: Props) {
   /**
    * 종일 날짜 칸 하나를 고치면 그 칸의 폼 값(자정 경계)만 바꾼다 — 다른 칸을 화면 값에서 되돌려 다시 쓰면, 화면 값과 폼 값이 정확히 왕복하지 않는
    * 순간(칸이 비었거나 날짜가 아님)에 다른 칸이 하루 밀리거나 잘렸다(WP-1103).
+   * 검사는 두 칸을 함께 한다 — 순서 오류(「종료일은 시작일보다 앞설 수 없습니다」)는 종료 칸에 달려, 시작을 고쳐 범위를 바로잡아도 시작 칸만
+   * 다시 검사하면 종료 칸의 오류가 남는다.
    */
   function setAllDayDate(name: 'start' | 'end', date: string) {
     const next = allDayRangeFromDates(name === 'start' ? date : '', name === 'end' ? date : '')
-    form.setValue(name, next[name], { shouldValidate: true })
+    form.setValue(name, next[name])
+    void form.trigger(['start', 'end'])
   }
 
   /** 한 칸 — 종일이면 날짜 칸(제어 값은 dates), 아니면 날짜·시각 칸(Controller). 둘 다 제어 칸이라 종일을 켜고 끌 때 값이 남지 않는다. */
