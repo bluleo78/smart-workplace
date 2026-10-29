@@ -51,7 +51,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 그 AI 이름의 이슈 챗 글로 남긴다.
  *
  * <p>AI 작업 기록(agent_work)은 회차 사이 「다음 회차 대기」(SCHEDULED + next_run_at), 실행 중 「작업 중」(WORKING)이다. 3회 연속
- * 실패하면 반복을 끄고 「막힘」(BLOCKED)으로 둔다. 이슈가 끝났거나 담당에서 그 AI 가 빠졌으면 스케줄러가 반복을 지우고 작업을 취소한다.
+ * 실패하면 반복을 끄고 「막힘」(BLOCKED)으로 둔다. 이슈가 끝났거나(완료·취소·삭제) 담당에서 그 AI 가 빠지면 작업 기록을 닫는 그 자리에서 반복도
+ * 거둔다({@link AgentWorkService} — WP-1114). 스케줄러의 회차 확인은 그 밖의 경로로 어긋난 경우를 위한 안전망으로 남긴다.
  *
  * <p>회차 실행 중의 쓰기(메일 보내기·이슈 만들기 등)는 하지 않는다 — 사람이 없는 실행이라 확인 카드를 띄울 수 없어, ai-agent 의 회차 지시문이 읽기·정리만
  * 하고 필요한 쓰기는 결과 글에 「제안」으로 적게 한다.

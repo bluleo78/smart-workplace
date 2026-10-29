@@ -128,6 +128,35 @@ public class IssueRecurrenceRepository {
   }
 
   /**
+   * 이슈가 끝났거나(완료·취소·삭제) 반복을 돌리던 AI 가 담당에서 빠졌을 때 반복을 그 자리에서 거둔다(WP-1114) — 회차 시각까지 기다리면 그 사이 상세에 「다음
+   * 실행 …」이 남아 실행될 것처럼 보였다. 결과를 기다리는 회차가 없으면 지우고, 있으면 묘비(deleted, 꺼짐)로 남겨 사람이 지울 때와 같이 그 회차의 결과는
+   * 받는다({@code IssueRecurrenceService#delete}).
+   *
+   * @param agentIds 이 AI 들이 돌리던 반복만(담당 해제). null 이면 이슈의 반복 모두(이슈 종료·삭제)
+   * @return 거둔 행 수
+   */
+  public int retire(Collection<Long> issueIds, Collection<Long> agentIds) {
+    if (issueIds.isEmpty() || (agentIds != null && agentIds.isEmpty())) return 0;
+    var scope = ISSUE_RECURRENCE.ISSUE_ID.in(issueIds).and(ISSUE_RECURRENCE.DELETED.isFalse());
+    if (agentIds != null) scope = scope.and(ISSUE_RECURRENCE.AGENT_USER_ID.in(agentIds));
+    // 먼저 행을 잠그고 행마다 판정한다 — 지우기·묘비를 조건부 문장 둘로 나누면 그 사이 결과 보고(findForUpdate → 결과 대기 비움)가 끼어
+    // 어느 쪽에도 걸리지 않고 살아남을 수 있다. 이슈 id 순으로 잠가 여러 이슈를 한꺼번에 거둘 때의 교착을 피한다.
+    var rows =
+        dsl.select(ISSUE_RECURRENCE.ISSUE_ID, ISSUE_RECURRENCE.PENDING_RUN_ID)
+            .from(ISSUE_RECURRENCE)
+            .where(scope)
+            .orderBy(ISSUE_RECURRENCE.ISSUE_ID)
+            .forUpdate()
+            .fetch();
+    for (var row : rows) {
+      long issueId = row.value1();
+      if (row.value2() == null) delete(issueId);
+      else tombstone(issueId);
+    }
+    return rows.size();
+  }
+
+  /**
    * 지금 실행할 회차 — 켜져 있고 다음 회차 시각이 지난 행을 잠그고 읽는다. 다른 인스턴스가 같은 행을 잡고 있으면 건너뛴다(SKIP LOCKED — ShedLock 이
    * 한 인스턴스만 돌리지만 결과 보고와도 겹칠 수 있다).
    */
