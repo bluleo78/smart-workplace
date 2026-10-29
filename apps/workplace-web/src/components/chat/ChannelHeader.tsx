@@ -1,4 +1,4 @@
-// 채널 헤더 — 이름·멤버수·아카이브 뱃지. 설정 드롭다운(OWNER/ADMIN: 이름변경·아카이브/해제),
+// 채널 헤더 — 이름·멤버수·아카이브 뱃지. 설정 드롭다운(OWNER/ADMIN: 이름변경, OWNER·시스템 ADMIN: 아카이브/해제),
 // 멤버 버튼, 시스템 ADMIN: 삭제. 권한 없는 액션은 렌더하지 않는다(1차 방어).
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Folder, Lock, Users } from 'lucide-react'
@@ -62,8 +62,10 @@ export function ChannelHeader({
   const del = useDeleteChannel()
   const [confirmDelete, setConfirmDelete] = useState(false)
 
-  // 채널 OWNER/ADMIN 은 이름변경·아카이브 가능.
-  const canManage = channel.role === 'OWNER' || channel.role === 'ADMIN'
+  // 서버 권한과 같게 나눈다(WP-1132) — 이름 변경은 채널 OWNER/ADMIN(requireManage), 보관·보관 해제는 OWNER 또는 시스템 ADMIN(requireOwner).
+  // 보관된 채널은 서버가 이름 변경을 거절한다(WP-508) — 입력창을 숨기는 것과 같은 기준으로 숨긴다(WP-843).
+  const canRename = (channel.role === 'OWNER' || channel.role === 'ADMIN') && !channel.archived
+  const canArchive = channel.role === 'OWNER' || isAdmin
 
   // #76 → 채널 파일 드로워 — 열림 = URL ?files=1(WP-207). 시스템 뒤로가기가 드로워(와 그 안 폴더)부터 닫는다.
   // 닫을 때(콜드 진입) 드로워 안 하위 키(폴더·미리보기·휴지통)도 함께 지운다.
@@ -152,26 +154,22 @@ export function ChannelHeader({
             </button>
           }
           mobileActions={
-            showFiles || canManage || isAdmin ? (
+            showFiles || canRename || canArchive ? (
             <>
               {showFiles && (
                 <button type="button" data-testid="channel-files-button" onClick={openFiles}>
                   <Folder className="h-4 w-4" /> 파일
                 </button>
               )}
-              {canManage && (
-                <>
-                  {/* 보관된 채널은 서버가 이름 변경을 거절한다(WP-508) — 입력창을 숨기는 것과 같은 기준으로 숨긴다(WP-843). */}
-                  {!channel.archived && (
-                    <button type="button" data-testid="channel-rename-action" onClick={onOpenRename}>이름 변경</button>
-                  )}
-                  {channel.archived ? (
-                    <button type="button" data-testid="channel-unarchive-action" onClick={() => unarchive.mutate(undefined)}>보관 해제</button>
-                  ) : (
-                    <button type="button" data-testid="channel-archive-action" onClick={() => archive.mutate()}>보관</button>
-                  )}
-                </>
+              {canRename && (
+                <button type="button" data-testid="channel-rename-action" onClick={onOpenRename}>이름 변경</button>
               )}
+              {canArchive &&
+                (channel.archived ? (
+                  <button type="button" data-testid="channel-unarchive-action" onClick={() => unarchive.mutate(undefined)}>보관 해제</button>
+                ) : (
+                  <button type="button" data-testid="channel-archive-action" onClick={() => archive.mutate()}>보관</button>
+                ))}
               {isAdmin && (
                 <button type="button" data-testid="channel-delete-action" className="text-destructive" onClick={() => setConfirmDelete(true)}>
                   채널 삭제
@@ -235,8 +233,8 @@ export function ChannelHeader({
               </button>
             )}
 
-            {/* 채널 관리자 또는 시스템 ADMIN 에게만 설정 드롭다운 노출. */}
-            {(canManage || isAdmin) && (
+            {/* 할 수 있는 조작이 하나라도 있을 때만 설정 드롭다운 노출(시스템 ADMIN 은 보관·삭제). */}
+            {(canRename || canArchive) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="ghost" data-testid="channel-settings-btn">
@@ -244,38 +242,35 @@ export function ChannelHeader({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  {canManage && (
-                    <>
-                      {/* 보관된 채널은 이름을 바꿀 수 없다 — 보관 해제만 남긴다(WP-843). */}
-                      {!channel.archived && (
-                        <DropdownMenuItem
-                          data-testid="channel-rename-action"
-                          onClick={onOpenRename}
-                        >
-                          이름 변경
-                        </DropdownMenuItem>
-                      )}
-                      {channel.archived ? (
-                        <DropdownMenuItem
-                          data-testid="channel-unarchive-action"
-                          onClick={() => unarchive.mutate(undefined)}
-                        >
-                          보관 해제
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem
-                          data-testid="channel-archive-action"
-                          onClick={() => archive.mutate()}
-                        >
-                          보관
-                        </DropdownMenuItem>
-                      )}
-                    </>
+                  {canRename && (
+                    <DropdownMenuItem
+                      data-testid="channel-rename-action"
+                      onClick={onOpenRename}
+                    >
+                      이름 변경
+                    </DropdownMenuItem>
                   )}
+                  {canArchive &&
+                    (channel.archived ? (
+                      <DropdownMenuItem
+                        data-testid="channel-unarchive-action"
+                        onClick={() => unarchive.mutate(undefined)}
+                      >
+                        보관 해제
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem
+                        data-testid="channel-archive-action"
+                        onClick={() => archive.mutate()}
+                      >
+                        보관
+                      </DropdownMenuItem>
+                    ))}
                   {/* 시스템 ADMIN 만 채널 하드 삭제 가능. */}
                   {isAdmin && (
                     <>
-                      {canManage && <DropdownMenuSeparator />}
+                      {/* 시스템 ADMIN 은 늘 보관(해제) 항목이 위에 있다. */}
+                      <DropdownMenuSeparator />
                       <DropdownMenuItem
                         data-testid="channel-delete-action"
                         className="text-destructive"
