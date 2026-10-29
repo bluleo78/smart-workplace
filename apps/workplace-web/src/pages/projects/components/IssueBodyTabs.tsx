@@ -3,6 +3,8 @@
 // 왜: 활동 로그를 사이드바에서 본문 탭으로 이동(업계 표준), 속성 접근 방해 제거(#343).
 // WP-1016: 탭 오른쪽 「오래된 순 / 최신순」 — 두 탭에 같이 적용되고 앱 전체 설정으로 기억한다. 지금 순서가 늘 글자로 보이게 두 버튼을 다 드러낸다.
 
+import { useState } from 'react';
+
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { ActivityOrder } from '@/lib/activityOrder';
@@ -28,6 +30,8 @@ export function IssueBodyTabs({
   hideComposer = false,
   scrollToCommentId,
   onScrolledToComment,
+  linkedCommentId = null,
+  onLinkedCommentHandled,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -41,13 +45,20 @@ export function IssueBodyTabs({
   /** 모바일 하단 작성창으로 방금 쓴 코멘트 — 코멘트 목록이 그리로 스크롤한다(WP-1016). */
   scrollToCommentId?: number | null;
   onScrolledToComment?: () => void;
+  /** 코멘트 링크(#comment-<id>)로 열어 온 코멘트 — 코멘트 탭을 보이고 목록이 그리로 스크롤한다(WP-1175). */
+  linkedCommentId?: number | null;
+  onLinkedCommentHandled?: () => void;
 }) {
   const [order, setOrder] = useActivityOrder();
+  // 이력 탭을 보던 중에 같은 이슈의 코멘트 링크를 열면 코멘트 탭으로 돌린다 — 숨은 탭에는 목록이 없어 스크롤할 곳이 없다.
+  // linkedCommentId 는 목록이 처리하면 부모가 비우므로, 남아 있는 동안만 렌더 중에 탭을 맞춘다.
+  const [tab, setTab] = useState('comments');
+  if (linkedCommentId != null && tab !== 'comments') setTab('comments');
   return (
     // 활동 섹션 — 코멘트/이력 탭을 감싸는 레이블(본문·하위 태스크와 동일 heading-group 토큰).
     <section aria-label="활동" className="space-y-2">
       <h2 className="text-base leading-6 font-medium">활동</h2>
-      <Tabs defaultValue="comments" className="w-full">
+      <Tabs value={tab} onValueChange={setTab} className="w-full">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList>
             <TabsTrigger value="comments">코멘트</TabsTrigger>
@@ -83,6 +94,8 @@ export function IssueBodyTabs({
             order={order}
             scrollToCommentId={scrollToCommentId}
             onScrolledToComment={onScrolledToComment}
+            linkedCommentId={linkedCommentId}
+            onLinkedCommentHandled={onLinkedCommentHandled}
           />
         </TabsContent>
         <TabsContent value="activity" className="pt-4">

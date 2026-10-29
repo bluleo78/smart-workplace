@@ -6,7 +6,7 @@
 // <@id> 토큰의 이름/종류는 코멘트 응답의 mentions(서버가 사용자 테이블에서 풀어 줌 — 프로젝트에서 빠진 사람 포함, WP-1095)와
 // 프로젝트 멤버 목록으로 찾는다(읽기 렌더·수정 폼 초기값 공용). 구버전 서버(mentions 없음)는 멤버 목록만 쓴다.
 
-import { Pencil, Trash2 } from 'lucide-react';
+import { Link2, Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -39,7 +39,9 @@ import { useToggleCommentReaction } from '../../../hooks/queries/useToggleCommen
 import { useAuth } from '../../../hooks/useAuth';
 import { type ActivityOrder, DEFAULT_ACTIVITY_ORDER, orderActivity } from '../../../lib/activityOrder';
 import { handleApiError } from '../../../lib/api-error';
+import { copyToClipboard } from '../../../lib/copyToClipboard';
 import { formatDateTimeMinute } from '../../../lib/formatters';
+import { issueCommentPath } from '../../../lib/issueCommentLink';
 import { commentOverLimitMessage, ISSUE_BODY_MAX_LENGTH } from '../../../lib/validations/issue';
 import type { IssueCommentResponse } from '../../../types/issue';
 import type { MentionResponse } from '../../../types/messaging';
@@ -71,6 +73,7 @@ function CommentItem({
   touch,
   currentUserId,
   onOpenReactors,
+  highlighted = false,
 }: {
   comment: IssueCommentResponse;
   isOwn: boolean;
@@ -91,6 +94,8 @@ function CommentItem({
   currentUserId: number;
   // 반응자 전체 보기 열기(데스크톱 호버 카드 모두 보기) — 오버레이는 목록이 하나만 가진다(WP-504).
   onOpenReactors: (emoji: string) => void;
+  // 링크로 열어 온 코멘트 — 잠시 테두리로 강조해 어느 코멘트인지 보이게 한다(WP-1175).
+  highlighted?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -102,9 +107,19 @@ function CommentItem({
   // 수정을 끝내면(Esc 취소·저장) 편집기가 사라져 포커스가 body 로 빠졌다 — 「코멘트 수정」 버튼으로 돌린다(WP-813).
   const editButtonRef = useRef<HTMLButtonElement | null>(null);
   useRestoreFocusOnExit(editing, editButtonRef);
+  // 코멘트 링크 복사(WP-1175) — 그 주소로 이슈를 열면 이 코멘트로 바로 간다. 누구의 코멘트든 복사할 수 있다.
+  const copyLink = () => {
+    const url = window.location.origin + issueCommentPath(projectKey, issueNumber, comment.id);
+    void copyToClipboard(url, { success: '코멘트 링크를 복사했습니다', failure: '코멘트 링크를 복사하지 못했습니다' });
+  };
   const commentActions: MobileSheetAction[] = [
-    { key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => setEditing(true) },
-    { key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => setConfirmOpen(true) },
+    { key: 'copy-link', label: '링크 복사', icon: <Link2 />, onSelect: copyLink },
+    ...(isOwn
+      ? [
+          { key: 'edit', label: '수정', icon: <Pencil />, onSelect: () => setEditing(true) },
+          { key: 'delete', label: '삭제', icon: <Trash2 />, destructive: true, onSelect: () => setConfirmOpen(true) },
+        ]
+      : []),
   ];
 
   const update = useUpdateComment(projectKey, issueNumber, issueId);
@@ -177,10 +192,18 @@ function CommentItem({
       ref={itemRef}
       // min-w-0 — 카드가 flex/grid 자식일 때 긴 내용이 카드 폭을 밀어내지 않게(WP-228).
       // 머리 띠 카드(WP-1034) — overflow-hidden 은 쓰지 않는다: 터치 ⋯(44px)의 위쪽 탭 영역·초점 링이 카드 가장자리에서 잘린다(띠는 rounded-t-md 로 둥글린다).
-      className={cn('relative group min-w-0 rounded-md border bg-card', isAgent && 'border-ai-accent/50')}
+      // 링크로 열어 온 코멘트는 잠시 강조 링(WP-1175) — 링이 사라질 때 천천히 빠지게 transition.
+      className={cn(
+        'relative group min-w-0 rounded-md border bg-card transition-shadow duration-700 motion-reduce:transition-none',
+        isAgent && 'border-ai-accent/50',
+        highlighted && 'ring-2 ring-primary',
+      )}
+      data-highlighted={highlighted ? 'true' : undefined}
       data-agent={isAgent ? 'true' : undefined}
       // 목록의 길게 누르기 위임(useMessageListLongPress)이 칩이 속한 코멘트를 찾는 표식(WP-504).
       data-message-id={comment.id}
+      // 코멘트 링크의 조각(#comment-<id>)과 같은 id — 링크로 열면 목록이 이 행으로 스크롤한다(WP-1175).
+      id={`comment-${comment.id}`}
     >
       {/* 머리 띠: 아바타 + 굵은 작성자 + 날짜 + (본인 코멘트) 수정·삭제(WP-1034) — 같은 사람이 연달아 써도 띠마다 끊긴다. 모바일은 여백만 줄인다. */}
       <div
@@ -208,7 +231,7 @@ function CommentItem({
           </span>
         </div>
 
-        {/* 헤더 오른쪽 hover 액션 — 반응 추가(반응 없는 코멘트) + 본인 HUMAN 코멘트의 수정·삭제(터치는 ⋯ 메뉴) */}
+        {/* 헤더 오른쪽 hover 액션 — 반응 추가(반응 없는 코멘트) + 링크 복사(모든 코멘트, WP-1175) + 본인 HUMAN 코멘트의 수정·삭제(터치는 ⋯ 메뉴) */}
         <div className="flex shrink-0 items-center gap-1">
           {headerReactionAdd && (
             <AddReactionButton
@@ -217,7 +240,7 @@ function CommentItem({
               onPick={toggleReaction}
             />
           )}
-          {isOwn && !editing && (touch ? (
+          {!editing && (touch ? (
             // 44px 터치 영역이 헤더 줄 높이를 키우지 않도록 음수 마진으로 시각 크기만 유지(DrivePage 행 ⋮ 와 동일).
             <TouchRowActionsMenu
               title="코멘트"
@@ -231,6 +254,19 @@ function CommentItem({
           ) : (
             // 키보드 포커스가 들어와도 보이게(focus-within) — 수정 뒤 포커스가 이 버튼으로 돌아온다(WP-813).
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                aria-label="코멘트 링크 복사"
+                title="코멘트 링크 복사"
+                onClick={copyLink}
+                data-testid={`issue-comment-copy-link-${comment.id}`}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+              </Button>
+              {isOwn && (
+              <>
               <Button
                 ref={editButtonRef}
                 variant="ghost"
@@ -257,6 +293,8 @@ function CommentItem({
                   </Button>
                 }
               />
+              </>
+              )}
             </div>
           ))}
         </div>
@@ -331,6 +369,15 @@ function commentComposerInput(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-testid="issue-comment-input"]');
 }
 
+/** 코멘트 행을 가운데로 스크롤한다 — 상단 고정 헤더·하단 작성창에 가리지 않게. 움직임 줄이기 설정이면 바로 옮긴다. */
+function scrollRowToCenter(row: Element) {
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  row.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+}
+
+/** 링크로 열어 온 코멘트를 강조해 두는 시간 — 스크롤이 끝나고 눈이 닿을 만큼. */
+export const LINKED_COMMENT_HIGHLIGHT_MS = 4000;
+
 export function IssueCommentList({
   projectKey,
   issueNumber,
@@ -341,6 +388,8 @@ export function IssueCommentList({
   order = DEFAULT_ACTIVITY_ORDER,
   scrollToCommentId = null,
   onScrolledToComment,
+  linkedCommentId = null,
+  onLinkedCommentHandled,
 }: {
   projectKey: string;
   issueNumber: number;
@@ -356,6 +405,10 @@ export function IssueCommentList({
   scrollToCommentId?: number | null;
   /** scrollToCommentId 로 스크롤을 마쳤다 — 부모가 id 를 비운다(같은 코멘트로 다시 스크롤하지 않게). */
   onScrolledToComment?: () => void;
+  /** 코멘트 링크(#comment-<id>)로 열어 온 코멘트 — 그리로 스크롤하고 잠시 강조한다. 없으면(삭제됨) 알린다(WP-1175). */
+  linkedCommentId?: number | null;
+  /** linkedCommentId 를 처리했다(찾았든 못 찾았든) — 부모가 id 를 비운다. */
+  onLinkedCommentHandled?: () => void;
 }) {
   const { user } = useAuth();
   const currentUserId = user?.id ?? 0;
@@ -386,14 +439,35 @@ export function IssueCommentList({
   // 다른 곳(다른 탭·AI)에서 온 코멘트는 읽던 자리를 빼앗지 않는다. 다시 받은 목록에 아직 없으면 다음 갱신에서 다시 본다.
   // 가운데로 맞춰 상단 고정 헤더·하단 작성창에 가리지 않게 하고, 움직임 줄이기 설정이면 바로 옮긴다.
   const sectionRef = useRef<HTMLElement>(null);
+  const rowOf = (id: number) => sectionRef.current?.querySelector(`[data-message-id="${id}"]`);
   useEffect(() => {
-    if (scrollToCommentId == null) return;
-    const row = sectionRef.current?.querySelector(`[data-message-id="${scrollToCommentId}"]`);
+    const row = scrollToCommentId == null ? null : rowOf(scrollToCommentId);
     if (!row) return;
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    row.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+    scrollRowToCenter(row);
     onScrolledToComment?.();
   }, [scrollToCommentId, comments, onScrolledToComment]);
+
+  // 코멘트 링크로 열어 온 코멘트(WP-1175) — 목록은 이슈 상세와 함께 한 번에 오므로(접기·페이지 없음) 부모가 최신 상세를 받은 뒤
+  // 넘겨 준 id 는 그 목록에 있거나 없거나다. 있으면 가운데로 스크롤하고 잠시 강조, 없으면 지워졌을 수 있다고 알린다.
+  // 처리한 뒤 부모가 id 를 비워 다시 움직이지 않는다. 안내 토스트는 id 로 하나만 띄운다(개발 모드에서 효과가 두 번 돌아도).
+  const [highlightId, setHighlightId] = useState<number | null>(null);
+  useEffect(() => {
+    if (linkedCommentId == null) return;
+    const row = rowOf(linkedCommentId);
+    if (row) {
+      scrollRowToCenter(row);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 행이 그려진 DOM 을 찾은 뒤에야 강조할지 알 수 있어 렌더 중으로 못 옮긴다(링크마다 한 번).
+      setHighlightId(linkedCommentId);
+    } else {
+      toast.info('링크한 코멘트를 찾을 수 없습니다 — 삭제됐을 수 있습니다', { id: 'issue-comment-link-missing' });
+    }
+    onLinkedCommentHandled?.();
+  }, [linkedCommentId, onLinkedCommentHandled]);
+  useEffect(() => {
+    if (highlightId == null) return;
+    const t = setTimeout(() => setHighlightId(null), LINKED_COMMENT_HIGHLIGHT_MS);
+    return () => clearTimeout(t);
+  }, [highlightId]);
 
   // 프로젝트 멤버 = RichInput @ 자동완성 후보이자, 본문 <@id> 토큰의 이름/종류 역매핑 소스.
   const membersQuery = useProjectMembers(projectKey);
@@ -429,6 +503,7 @@ export function IssueCommentList({
           touch={touch}
           currentUserId={currentUserId}
           onOpenReactors={(emoji) => openReactors(c.id, emoji)}
+          highlighted={c.id === highlightId}
         />
       ))}
       {comments.length === 0 && (

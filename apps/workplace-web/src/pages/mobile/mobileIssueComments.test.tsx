@@ -1,4 +1,4 @@
-// 모바일 이슈 코멘트 삭제(WP-223) — 페이지 테스트(WP-981).
+// 모바일 이슈 코멘트 삭제(WP-223)·링크 복사(WP-1175) — 페이지 테스트(WP-981).
 // ⋯ → 액션 시트 → 삭제 확인창(취소면 유지, 확인이면 DELETE 후 목록에서 사라짐)은 브라우저 없이 판정되므로
 // e2e/pages/mobile/issue-comments.spec.ts 에서 옮겼다. ⋯ 44px·인라인 수정(Tiptap 입력)·카드 폭(@layout·@input)은 E2E 에 남는다.
 // 앱 셸을 보지 않으므로 이슈 상세 화면만 renderScreen 으로 띄운다(WP-1002).
@@ -68,9 +68,16 @@ test('내 코멘트 — ⋯ → 삭제는 확인창에서 취소하면 유지, �
   await waitFor(() => expect(screen.queryByText('내 코멘트 원본')).not.toBeInTheDocument())
 })
 
-// 남의 코멘트에는 ⋯ 가 없다(수정·삭제는 작성자만) — 권한 분기.
-test('남의 코멘트에는 ⋯ 메뉴가 없다', async () => {
-  await open([createComment({ id: 11, issueId: ISSUE_ID, authorId: 999, body: '다른 사람 코멘트' })])
+// 남의 코멘트의 ⋯ 에는 링크 복사만 있다(수정·삭제는 작성자만) — 권한 분기. 링크 복사는 그 코멘트로 가는 주소를 담는다(WP-1175).
+test('남의 코멘트 — ⋯ 에는 링크 복사만 있고, 누르면 그 코멘트 주소가 복사된다', async () => {
+  const { user } = await open([createComment({ id: 11, issueId: ISSUE_ID, authorId: 999, body: '다른 사람 코멘트' })])
   expect(await screen.findByText('다른 사람 코멘트')).toBeInTheDocument()
-  expect(screen.queryByTestId('issue-comment-more-11')).not.toBeInTheDocument()
+  await user.click(screen.getByTestId('issue-comment-more-11'))
+  const sheet = within(await screen.findByTestId('issue-comment-sheet'))
+  expect(sheet.queryByTestId('mobile-action-edit')).not.toBeInTheDocument()
+  expect(sheet.queryByTestId('mobile-action-delete')).not.toBeInTheDocument()
+  await user.click(sheet.getByTestId('mobile-action-copy-link'))
+  await waitFor(async () =>
+    expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/projects/${KEY}/issues/7#comment-11`),
+  )
 })
