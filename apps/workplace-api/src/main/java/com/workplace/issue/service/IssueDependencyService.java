@@ -33,7 +33,7 @@ public class IssueDependencyService {
 
   /**
    * 의존성 추가. direction="blocks" → (this, other), direction="blockedBy" → (other, this). 중복은 멱등(no-op
-   * + history 미기록), 사이클은 409. history 의 issueId 는 호출 이슈(this).
+   * + history 미기록), 사이클은 409. history 는 양쪽 이슈에 남긴다 — 상대 이슈에는 반대 방향으로(WP-1125).
    */
   public void add(Long callerId, String projectKey, int number, int otherNumber, String direction) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -65,12 +65,44 @@ public class IssueDependencyService {
       throw new DependencyCycleException();
     }
     depRepository.add(fromId, toId, callerId);
-    historyRecorder.recordDependencyAdded(
-        callerId, thisRow.id(), otherRow.number(), otherRow.title(), direction);
+    recordBoth(historyRecorder::recordDependencyAdded, callerId, thisRow, otherRow, blockedBy);
     notifyBoth(project, thisRow, otherRow, callerId);
   }
 
-  /** 의존성 제거. direction 에 따라 동일 정규화. 0건 삭제(이미 없음) 면 history 미기록. 컨트롤러는 항상 204 응답. */
+  /** 이력 한 줄 기록 — recordDependencyAdded·recordDependencyRemoved 를 같은 모양으로 받는다. */
+  @FunctionalInterface
+  private interface DependencyHistory {
+    void record(Long callerId, Long issueId, int otherNumber, String otherTitle, String direction);
+  }
+
+  /**
+   * 양쪽 이슈 이력에 남긴다(WP-1125) — 전에는 호출 이슈에만 남아 상대 이슈 활동에서 보이지 않았다. 상대 이슈에는 반대 방향으로 적는다(내가 막으면 상대는
+   * 막힌다). 관계의 recordBoth 와 같은 규칙.
+   */
+  private static void recordBoth(
+      DependencyHistory history,
+      Long callerId,
+      IssueRow thisRow,
+      IssueRow otherRow,
+      boolean blockedBy) {
+    history.record(
+        callerId,
+        thisRow.id(),
+        otherRow.number(),
+        otherRow.title(),
+        blockedBy ? "blockedBy" : "blocks");
+    history.record(
+        callerId,
+        otherRow.id(),
+        thisRow.number(),
+        thisRow.title(),
+        blockedBy ? "blocks" : "blockedBy");
+  }
+
+  /**
+   * 의존성 제거. direction 에 따라 동일 정규화. 0건 삭제(이미 없음) 면 history 미기록 — 기록하면 양쪽 이슈에(add 와 같다). 컨트롤러는 항상 204
+   * 응답.
+   */
   public void remove(
       Long callerId, String projectKey, int number, int otherNumber, String direction) {
     var project = accessGuard.assertMember(projectKey, callerId);
@@ -91,8 +123,7 @@ public class IssueDependencyService {
 
     int removed = depRepository.remove(fromId, toId);
     if (removed > 0) {
-      historyRecorder.recordDependencyRemoved(
-          callerId, thisRow.id(), otherRow.number(), otherRow.title(), direction);
+      recordBoth(historyRecorder::recordDependencyRemoved, callerId, thisRow, otherRow, blockedBy);
       notifyBoth(project, thisRow, otherRow, callerId);
     }
   }
