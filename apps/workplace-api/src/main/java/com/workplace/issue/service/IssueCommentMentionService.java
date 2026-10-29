@@ -22,8 +22,10 @@ import org.springframework.stereotype.Service;
  * 사용자를 풀어 준다. 반응 집계({@link IssueCommentReactionService#enrich})와 같이 응답을 만드는 경로(목록·작성·수정·이슈 상세)에서만
  * 부른다.
  *
- * <p>코멘트 본문의 토큰은 누구나 쓸 수 있으므로 지금 워크스페이스의 활성 멤버만 싣는다 — 사용자 테이블은 워크스페이스를 가리지 않아, 거르지 않으면 다른 워크스페이스
- * 사용자의 이름이 토큰 하나로 보인다. 그 밖의 id(탈퇴·다른 워크스페이스·없는 id)는 빠지고 화면은 「알 수 없음」으로 그린다.
+ * <p>코멘트 본문의 토큰은 누구나 쓸 수 있으므로 지금 워크스페이스의 구성원만 싣는다 — 사용자 테이블은 워크스페이스를 가리지 않아, 거르지 않으면 다른 워크스페이스 사용자의
+ * 이름이 토큰 하나로 보인다. 정지된 구성원(SUSPENDED)도 이 워크스페이스 사람이라 싣는다(WP-1159) — 활성 멤버만 실으면, 부서로만 프로젝트 멤버였다가 정지와
+ * 함께 프로젝트에서 빠진 사람의 지난 멘션이 화면의 멤버 목록 보충으로도 찾을 수 없어 「알 수 없음」이 됐다. 그 밖의 id(다른 워크스페이스·없는 id)는 빠지고 화면은
+ * 「알 수 없음」으로 그린다.
  */
 @Service
 @RequiredArgsConstructor
@@ -38,7 +40,7 @@ public class IssueCommentMentionService {
         comments.stream().map(c -> MentionParser.parse(c.body())).toList();
     List<Long> ids = idsPerComment.stream().flatMap(List::stream).distinct().toList();
     if (ids.isEmpty()) return comments;
-    var foreign = new HashSet<>(membershipGuard.foreignUserIds(ids));
+    var foreign = new HashSet<>(membershipGuard.nonMemberUserIds(ids));
     Map<Long, MentionResponse> users =
         mentionHydrator
             .asMentionResponses(ids.stream().filter(id -> !foreign.contains(id)).toList())
