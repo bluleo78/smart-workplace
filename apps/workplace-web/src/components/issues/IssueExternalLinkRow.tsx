@@ -44,8 +44,19 @@ export function IssueExternalLinkRow({
           title={`${name}\n${link.url}`}
           data-testid={`issue-external-link-open-${link.id}`}
         >
-          {link.key && <span className="shrink-0 font-mono text-xs text-muted-foreground">{link.key}</span>}
-          <span className="truncate">{link.title}</span>
+          {/* 키는 줄 폭의 40% 까지만 — 줄어들지 않는 키가 긴 키(Jira 프로젝트 키 등)면 제목 자리를 다 먹고 카드 밖으로
+              넘쳤다(WP-1108). 넘는 키는 말줄임, 전체는 링크 title 툴팁에 있다. */}
+          {link.key && (
+            <span
+              className="max-w-[40%] shrink-0 truncate font-mono text-xs text-muted-foreground"
+              data-testid={`issue-external-link-key-${link.id}`}
+            >
+              {link.key}
+            </span>
+          )}
+          <span className="truncate" data-testid={`issue-external-link-title-${link.id}`}>
+            {link.title}
+          </span>
           <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="새 탭에서 열기" />
         </a>
       </div>

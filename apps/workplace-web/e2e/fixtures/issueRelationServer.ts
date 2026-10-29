@@ -267,3 +267,14 @@ export class IssueRelationServer {
     )
   }
 }
+
+/** WP-7 에 같은 제목·키 길이만 다른 외부 링크 두 줄(19자·48자, WP-1108)을 건다 — 데스크톱·모바일 폭 검증이 같이 쓴다. */
+export function seedLongKeyLinks(server: IssueRelationServer) {
+  server.addIssue('WP-7', '외부 링크 이슈')
+  const owner = { projectKey: 'WP', number: 7 }
+  const base = { typeId: 2, typeCode: 'RELATES', label: '관련', side: 'source' as const, title: '로그인 실패 시 재시도 정책 정리' }
+  server.externals.push(
+    { ...base, owner, id: 1, url: 'https://jira.example.com/browse/PLATFORMINFRA-12345', key: 'PLATFORMINFRA-12345' },
+    { ...base, owner, id: 2, url: 'https://jira.example.com/browse/LONG', key: `LONGKEY-${'1'.repeat(40)}` },
+  )
+}

@@ -1,9 +1,10 @@
 // 모바일 이슈 「관계」(WP-887) — 「＋ 속성」 시트 안에 데스크톱 레일과 같은 「관계」 그룹이 있고, 거기서 관계를 걸고(창은 같은 컴포넌트)
 // 줄은 ⋯ 메뉴로 지운다. 데스크톱 상세 흐름은 pages/projects/issue-relations.spec.ts 가 본다.
 import { makeTaskType } from '../../factories/issueType.factory'
-import { IssueRelationServer } from '../../fixtures/issueRelationServer'
+import { IssueRelationServer, seedLongKeyLinks } from '../../fixtures/issueRelationServer'
 import { expect, expectNoHorizontalOverflow, stubChat, test } from '../../fixtures/mobile.fixture'
 import { trackRequests } from '../../fixtures/requests'
+import { boxOf } from '../../fixtures/layout'
 
 const KEY = 'WP'
 const REL = `/api/v1/projects/${KEY}/issues/7/relations`
@@ -46,4 +47,25 @@ test('＋ 속성 시트의 「관계」 그룹 — 같은 그룹이 보이고, �
   await deletes.waitFor()
   await expect(sheet.getByTestId('issue-relation-row-7')).toHaveCount(0)
   await expect(sheet.getByTestId('issue-relation-group-2-source')).toContainText('후속 이슈')
+})
+
+test('긴 키의 외부 링크 줄 — 시트 「관계」에서도 제목이 보이고 ↗ 가 화면 안에 있다(WP-1108)', { tag: '@layout' }, async ({ authenticatedPage: page }) => {
+  const server = new IssueRelationServer()
+  seedLongKeyLinks(server)
+  await stubChat(page)
+  await server.install(page)
+
+  await page.goto(`/projects/${KEY}/issues/7`)
+  await page.getByTestId('mobile-prop-more').click()
+  const sheet = page.getByTestId('issue-more-props-sheet')
+  await sheet.getByTestId('property-group-relations').getByRole('button', { name: /^관계(\s*\d+)?$/ }).click()
+  for (const id of [1, 2]) {
+    const row = sheet.getByTestId(`issue-external-link-row-${id}`)
+    await expect(row).toBeVisible()
+    const rowBox = await boxOf(row)
+    expect((await boxOf(row.getByTestId(`issue-external-link-title-${id}`))).width).toBeGreaterThanOrEqual(80)
+    const arrow = await boxOf(row.getByLabel('새 탭에서 열기'))
+    expect(arrow.x + arrow.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1)
+  }
+  await expectNoHorizontalOverflow(page)
 })
