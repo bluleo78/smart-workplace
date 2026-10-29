@@ -4,6 +4,7 @@
 // (훅을 vi.mock 한 분기 테스트는 VersionsPage.test.tsx·VersionReleaseDialog.test.tsx).
 // 버전 상세·목록 화면만 renderScreen 으로 띄운다 — 앱 셸·인증 부팅은 건너뛴다(WP-1002).
 import { screen, waitFor, within } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, test } from 'vitest'
 
 import VersionDetailPage from '@/pages/projects/versions/VersionDetailPage'
@@ -14,6 +15,7 @@ import { settleMembers } from '@/test/msw/projectMetaHandlers'
 import { BASE, KEY, OWNER_MEMBERS, PLAIN_MEMBERS, versionApi, type VersionApiOptions } from '@/test/msw/versionHandlers'
 import { renderScreen } from '@/test/renderScreen'
 
+import { createIssueSearchResponse } from '../../../../e2e/factories/issue.factory'
 import { createVersion } from '../../../../e2e/factories/version.factory'
 
 /** 버전 상세(1)를 열고 출시 대화상자를 띄운다 — 끝나지 않은 이슈 수가 와서 선택지가 보인 뒤를 돌려준다. */
@@ -96,5 +98,30 @@ describe('버전 목록 — 관리 권한', () => {
     await openList(PLAIN_MEMBERS)
     expect(screen.queryByTestId('version-new')).not.toBeInTheDocument()
     expect(screen.queryByTestId('version-menu-1')).not.toBeInTheDocument()
+  })
+})
+
+describe('버전 상세 — 이슈가 없을 때', () => {
+  // 진행률 자리와 「이 버전에 나가는 것」 탭이 같은 빈 안내를 위아래로 두 번 보였다(WP-1136). 탭 아래에만 한 번 보인다.
+  test('빈 안내 문장은 탭 아래에 한 번만 보이고 진행률 막대는 그리지 않는다', async () => {
+    const api = versionApi({ versions: [createVersion({ id: 1, name: '1.0.0' })] })
+    renderScreen(atRoute('/projects/:key/versions/:versionId', <VersionDetailPage />), {
+      path: `/projects/${KEY}/versions/1`,
+      // 이슈 검색은 빈 결과 — api 기본 핸들러(이슈 한 건)보다 앞에 둔다.
+      handlers: [http.get(`${BASE}/issues`, () => HttpResponse.json(createIssueSearchResponse([], null))), ...api.handlers, ...shellHandlers],
+    })
+    const tab = await screen.findByTestId('version-issues-fixVersion')
+    expect(await within(tab).findByText('이 버전에 나가는 이슈가 아직 없어요.')).toBeInTheDocument()
+    expect(screen.getAllByText('이 버전에 나가는 이슈가 아직 없어요.')).toHaveLength(1)
+    expect(screen.queryByTestId('version-progress')).not.toBeInTheDocument()
+  })
+
+  test('이슈가 있으면 진행률 막대와 완료/전체를 그린다(양성 대조)', async () => {
+    const api = versionApi({ versions: [createVersion({ id: 1, name: '1.0.0', progress: { done: 1, inProgress: 1, todo: 2 } })] })
+    renderScreen(atRoute('/projects/:key/versions/:versionId', <VersionDetailPage />), {
+      path: `/projects/${KEY}/versions/1`,
+      handlers: [...api.handlers, ...shellHandlers],
+    })
+    expect(await screen.findByTestId('version-progress')).toHaveTextContent('1/4 · 25%')
   })
 })
