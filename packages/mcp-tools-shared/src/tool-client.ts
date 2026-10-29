@@ -18,6 +18,8 @@ export interface MemberRow {
   agentRuntime?: string | null;
   /** AI 의 지시(WP-1077) — 서버가 AI 본인의 단건 조회(GET /members/{내 id})에만 싣는다. */
   instructions?: string | null;
+  /** AI 의 동시 진행 자리(WP-1205) — 쓰는 자리·상한·자리를 쥔 이슈 키. 지시와 같이 AI 본인 단건 조회에만 실린다. */
+  slots?: { used: number; limit: number; issues: string[] };
   [key: string]: unknown;
 }
 

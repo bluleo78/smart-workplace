@@ -25,6 +25,7 @@ import static org.jooq.impl.DSL.selectOne;
 
 import com.workplace.global.util.LikePatternUtils;
 import com.workplace.global.util.MentionParser;
+import com.workplace.issue.domain.IssueKeys;
 import com.workplace.issue.dto.ChecklistCursor;
 import com.workplace.issue.dto.ChecklistOrder;
 import com.workplace.issue.dto.IssueRow;
@@ -1434,7 +1435,7 @@ public class IssueRepository {
   /** 미완료 하위 한 건의 위치(WP-1038) — 하위가 다른 프로젝트일 수 있어 키를 만들 프로젝트 키와 읽기 판정용 id 를 함께 싣는다. */
   public record ChildKey(long projectId, String projectKey, int number) {
     public String issueKey() {
-      return projectKey + "-" + number;
+      return IssueKeys.format(projectKey, number);
     }
   }
 

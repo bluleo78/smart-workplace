@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
+import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.security.JwtTokenProvider;
+import com.workplace.issue.domain.IssueKeys;
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.repository.AgentWorkRepository;
 import com.workplace.issue.repository.IssueRepository;
@@ -191,6 +193,42 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     assertThat(field(a.get("works"), "stale")).containsExactly("false", "false", "true");
   }
 
+  /**
+   * AI 본인 조회(get_member("me") 가 부르는 GET /members/{내 id})에 실리는 자리(WP-1205)는 AI별 보기의 자리 수와 같은 값이다 — 못
+   * 보는 프로젝트 작업은 세고, 작업 중인 하위가 있는 부모·무소식·막힘은 세지 않는다. 자리를 쥔 이슈 키도 함께 싣는다.
+   */
+  @Test
+  void memberSelf_whenAgent_carriesSameSlotsAsRoster() throws Exception {
+    long agent = createAgentUserWithMembership("ag-self");
+    projectMember(projectId, agent);
+    long hidden = issue(hiddenProjectId, "못 보는 이슈", other);
+    long parent = issue(projectId, "부모", me);
+    long child = issue(projectId, "하위", me);
+    dsl.update(ISSUE).set(ISSUE.PARENT_ISSUE_ID, parent).where(ISSUE.ID.eq(child)).execute();
+    work(hidden, agent, "WORKING", Instant.now());
+    work(parent, agent, "WAITING", Instant.now());
+    work(child, agent, "WORKING", Instant.now());
+    work(issue(projectId, "무소식", me), agent, "WORKING", Instant.now().minusSeconds(3 * 3600));
+    work(issue(projectId, "막힌 이슈", me), agent, "BLOCKED", T0);
+
+    JsonNode slots = getJson("/api/v1/members/" + agent, agent).get("slots");
+    JsonNode roster = agent(getJson("/api/v1/me/ai-agents?scope=ALL"), agent);
+
+    assertThat(slots.get("used").asInt()).isEqualTo(roster.get("slotsUsed").asInt()).isEqualTo(2);
+    assertThat(slots.get("limit").asInt()).isEqualTo(3);
+    assertThat(texts(slots.get("issues"))).containsExactly(issueKey(child));
+  }
+
+  /** 자리는 AI 본인 조회에만 — 사람이 AI 를 조회하거나 사람이 자기를 조회하면 키째 없다. */
+  @Test
+  void member_whenNotAgentSelf_omitsSlots() throws Exception {
+    long agent = createAgentUserWithMembership("ag-other");
+    work(issue(projectId, "작업", me), agent, "WORKING", Instant.now());
+
+    assertThat(getJson("/api/v1/members/" + agent).has("slots")).isFalse();
+    assertThat(getJson("/api/v1/members/" + me).has("slots")).isFalse();
+  }
+
   /** 닫힌 이슈에 남은 진행 중 행은 작업으로 치지 않는다. */
   @Test
   void list_ignoresLiveRowsOnClosedIssues() throws Exception {
@@ -358,12 +396,18 @@ class AiAgentsControllerTest extends IntegrationTestBase {
   }
 
   private JsonNode getJson(String url) throws Exception {
+    return getJson(url, me);
+  }
+
+  /** 호출자를 골라 GET — AI 본인 조회(WP-1205)처럼 사람이 아닌 신원으로 부를 때. */
+  private JsonNode getJson(String url, long caller) throws Exception {
     var res =
         mvc.perform(
                 get(url)
                     .header(
                         "Authorization",
-                        "Bearer " + jwtTokenProvider.generateAccessToken(me, "user-" + me, 1L)))
+                        "Bearer "
+                            + jwtTokenProvider.generateAccessToken(caller, "user-" + caller, 1L)))
             .andReturn()
             .getResponse();
     String body = res.getContentAsString(StandardCharsets.UTF_8);
@@ -389,5 +433,24 @@ class AiAgentsControllerTest extends IntegrationTestBase {
     List<String> out = new ArrayList<>();
     rows.forEach(r -> out.add(r.get(name).asText()));
     return out;
+  }
+
+  /** 문자열 배열 → 목록. */
+  private static List<String> texts(JsonNode arr) {
+    List<String> out = new ArrayList<>();
+    arr.forEach(v -> out.add(v.asText()));
+    return out;
+  }
+
+  /** 이슈 키(예: AG1234-5). */
+  private String issueKey(long issueId) {
+    var r =
+        dsl.select(PROJECT.KEY, ISSUE.NUMBER)
+            .from(ISSUE)
+            .join(PROJECT)
+            .on(PROJECT.ID.eq(ISSUE.PROJECT_ID))
+            .where(ISSUE.ID.eq(issueId))
+            .fetchOne();
+    return IssueKeys.format(r.get(PROJECT.KEY), r.get(ISSUE.NUMBER));
   }
 }

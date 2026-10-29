@@ -1,5 +1,6 @@
 package com.workplace.issue.service;
 
+import com.workplace.global.ai.AgentSlotCounter;
 import com.workplace.global.dto.UserSummary;
 import com.workplace.global.realtime.SseRegistry;
 import com.workplace.global.tenant.TenantContext;
@@ -30,12 +31,14 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>범위는 AI 위임 작업 목록과 같다: 전체(ALL)는 모든 AI, 나와 관련(MINE)은 내가 보고자·담당자인 이슈를 진행 중인 AI 만. 작업은 내가 볼 수 있는
  * 이슈만 싣고 나머지는 건수만 준다.
+ *
+ * <p>자리 수 규칙({@link #slotRows})은 AI 본인 조회에도 쓴다 — {@link AgentSlotCounter}.
  */
 @Service
 @RequiredArgsConstructor
-public class AiAgentStatusService {
+public class AiAgentStatusService implements AgentSlotCounter {
 
-  /** 동시 진행 상한 — work-loop 스킬(SKILL.md 「동시 진행 상한」, WP-1040)과 같은 값. */
+  /** 동시 진행 상한(WP-1040). */
   public static final int SLOT_LIMIT = 3;
 
   /**
@@ -80,21 +83,47 @@ public class AiAgentStatusService {
     return new AiAgentStatusResponse(result, SLOT_LIMIT);
   }
 
-  private AiAgentStatus toStatus(
-      ActiveAgent a, List<WorkRow> rows, Instant lastEndedAt, Instant now) {
-    // 작업 중인 하위가 있는 부모는 하위가 각자 세므로 빼야 한다 — 같은 AI 의 작업 중 행이 가리키는 부모 이슈들.
+  /**
+   * AI 본인의 자리(get_member("me"), WP-1205) — 수는 AI별 보기처럼 볼 수 없는 프로젝트 것까지 세고, 이슈 키는 그 AI 가 지금 볼 수 있는
+   * 이슈만 싣는다(프로젝트에서 빠진 뒤 남은 행의 키가 요약·이슈 챗에 새지 않게).
+   */
+  @Override
+  @Transactional(readOnly = true)
+  public AgentSlots count(long agentId) {
+    List<WorkRow> held =
+        slotRows(
+            aiAgentRepository.findLiveWorks(
+                List.of(agentId), issueRepository.memberScopeCondition(agentId), agentId));
+    return new AgentSlots(
+        held.size(),
+        SLOT_LIMIT,
+        held.stream().filter(WorkRow::visible).map(WorkRow::issueKey).toList());
+  }
+
+  /**
+   * 동시 진행 자리를 쥔 행 — 한 AI 의 열린 작업 행 중 {@link #SLOT_STATES} 이고 무소식(stale)이 아닌 것. 같은 AI 가 작업 중인 하위가 있는
+   * 부모는 하위가 각자 세므로 뺀다. AI별 보기와 AI 본인 조회가 이 규칙 하나를 쓴다.
+   */
+  static List<WorkRow> slotRows(List<WorkRow> rows) {
     Set<Long> parentsWithWorkingChild =
         rows.stream()
             .filter(r -> AgentWorkState.WORKING.equals(r.state()) && r.parentIssueId() != null)
             .map(WorkRow::parentIssueId)
             .collect(Collectors.toSet());
+    return rows.stream()
+        .filter(
+            r ->
+                SLOT_STATES.contains(r.state())
+                    && !r.stale()
+                    && !parentsWithWorkingChild.contains(r.issueId()))
+        .toList();
+  }
+
+  private AiAgentStatus toStatus(
+      ActiveAgent a, List<WorkRow> rows, Instant lastEndedAt, Instant now) {
     List<AiAgentWork> works = new ArrayList<>();
     int hidden = 0;
-    int slots = 0;
     for (WorkRow r : rows) {
-      if (SLOT_STATES.contains(r.state())
-          && !r.stale()
-          && !parentsWithWorkingChild.contains(r.issueId())) slots++;
       if (!r.visible()) {
         hidden++;
         continue;
@@ -126,7 +155,7 @@ public class AiAgentStatusService {
         lastEndedAt,
         works,
         hidden,
-        slots);
+        slotRows(rows).size());
   }
 
   /**

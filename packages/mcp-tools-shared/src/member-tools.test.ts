@@ -59,6 +59,16 @@ describe('get_member 의 me (WP-376)', () => {
     expect(tool(c, 'get_member').description).toContain('instructions');
   });
 
+  it("get_member: 'me' 는 서버가 실어 준 동시 진행 자리(slots)를 그대로 준다 — work-loop 가 상한 판단에 쓴다 (WP-1205)", async () => {
+    const c = mockClient();
+    vi.mocked(c.getMe).mockResolvedValue({ id: 7, username: 'ai-dev' });
+    const slots = { used: 2, limit: 3, issues: ['WP-1', 'WD-2'] };
+    vi.mocked(c.getMember).mockResolvedValue({ ...aiRow, slots });
+    const out = JSON.parse(resultText(await tool(c, 'get_member').handler({ username: 'me' })));
+    expect(out.slots).toEqual(slots);
+    expect(tool(c, 'get_member').description).toContain('slots');
+  });
+
   it("get_member: ' ME ' 도 호출자다", async () => {
     const c = mockClient();
     vi.mocked(c.getMe).mockResolvedValue({ id: 7, username: 'ai-dev' });

@@ -230,6 +230,8 @@ public class MemberDirectoryRepository {
         isAgent ? r.get(USER.AGENT_RUNTIME) : null,
         r.get(DEPARTMENT),
         // 지시(WP-1077)는 AI 본인 단건 조회만 싣는다 — 그 밖에는 컬럼을 읽지 않았다.
-        withInstructions && isAgent ? r.get(USER.INSTRUCTIONS) : null);
+        withInstructions && isAgent ? r.get(USER.INSTRUCTIONS) : null,
+        // 자리(WP-1205)는 저장소가 모른다 — 서비스가 AI 본인 조회에만 붙인다.
+        null);
   }
 }

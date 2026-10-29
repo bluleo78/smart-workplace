@@ -5,6 +5,7 @@ import static com.workplace.jooq.Tables.ISSUE;
 import static com.workplace.jooq.Tables.PROJECT;
 import static com.workplace.jooq.Tables.USER;
 
+import com.workplace.issue.domain.IssueKeys;
 import com.workplace.jooq.tables.AgentWork;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -49,7 +50,13 @@ public class AiAgentRepository {
       Instant stateChangedAt,
       boolean stale,
       boolean visible,
-      boolean mine) {}
+      boolean mine) {
+
+    /** 이슈 키(예: WP-12). */
+    public String issueKey() {
+      return IssueKeys.format(projectKey, number);
+    }
+  }
 
   /**
    * 작업자들의 열린 작업 행 — 살아 있는 작업({@link AgentWorkRepository#liveWork()})이고 이슈·프로젝트가 지워지지 않은 것.

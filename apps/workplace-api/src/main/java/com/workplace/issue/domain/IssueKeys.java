@@ -25,6 +25,11 @@ public final class IssueKeys {
    */
   public record IssueKey(String projectKey, int number) {}
 
+  /** 프로젝트 키와 번호로 이슈 키를 만든다(WP, 12 → WP-12) — {@link #parse} 의 반대. */
+  public static String format(String projectKey, int number) {
+    return projectKey + "-" + number;
+  }
+
   /** 키 꼴이면 (대문자 프로젝트 키, 번호). 키 꼴이 아니거나 번호가 int 를 넘으면 빈 값(그런 번호의 이슈는 없다). */
   public static Optional<IssueKey> parse(String text) {
     if (text == null) {
