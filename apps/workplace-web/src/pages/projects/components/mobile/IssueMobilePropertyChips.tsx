@@ -28,7 +28,7 @@ import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../../lib/is
 import { isOverdue } from '../../../../lib/issueOverdue';
 import { labelWithValue } from '../../../../lib/labelWithValue';
 import { findStatus, needsDoneConfirm } from '../../../../lib/projectStatuses';
-import { displayNameWithStatus, othersInactiveSuffix } from '../../../../lib/userStatus';
+import { peopleSummary } from '../../../../lib/userStatus';
 import type { IssuePriority, IssueResponse, UpdateIssueRequest } from '../../../../types/issue';
 import { DEFAULT_LABEL_COLOR } from '../../../../types/label';
 import type { ProjectStatus } from '../../../../types/projectStatus';
@@ -100,13 +100,12 @@ export function IssueMobilePropertyChips({
     </button>
   );
 
-  const firstAssignee = issue.assignees[0];
+  const { first: firstAssignee, others: otherAssignees, othersInactive: assigneeOthersInactive } = peopleSummary(issue.assignees);
   // 칩에 그리는 값 글자 — aria-label 이 칩 안 글자를 덮어쓰므로 접근 이름에도 같은 문자열을 붙인다(WP-853 Label in Name).
   // 정지된 담당자는 「(비활성)」 꼬리(WP-1080), 「+N」에 묶인 정지된 사람은 「(비활성 n)」(WP-1100).
-  const assigneeText = firstAssignee ? displayNameWithStatus(firstAssignee) : '담당자 없음';
-  const assigneeCount = issue.assignees.length > 1 ? `+${issue.assignees.length - 1}` : null;
-  const assigneeOthersInactive = othersInactiveSuffix(issue.assignees);
-  const assigneeMore = assigneeCount && `${assigneeCount}${assigneeOthersInactive}`;
+  const assigneeText = firstAssignee ?? '담당자 없음';
+  const assigneeCount = otherAssignees > 0 ? `+${otherAssignees}` : null;
+  const assigneeMore = assigneeCount && [assigneeCount, assigneeOthersInactive].filter(Boolean).join(' ');
   // 해석할 수 없는 마감일(API 로 들어간 +10000-01-01 등)은 엉뚱한 월·일 대신 「잘못된 날짜」(WP-725)
   const dueText = issue.dueDate ? (parseValidDateKey(issue.dueDate) ? formatDateMonthDay(issue.dueDate) : '잘못된 날짜') : '마감 없음';
   // WP-1038 가려진 부모(다른 프로젝트 비공개 에픽)는 제목이 없어 문구로.
@@ -136,9 +135,9 @@ export function IssueMobilePropertyChips({
             <span className="max-w-28 truncate">{assigneeText}</span>
             {assigneeCount && <span className="shrink-0">{assigneeCount}</span>}
             {/* 「(비활성 n)」 꼬리는 좁으면 먼저 줄어들게 따로 둔다 — 첫 이름과 +N 을 가리지 않게(WP-1100). */}
-            {assigneeOthersInactive && <span className="min-w-0 truncate">{assigneeOthersInactive.trim()}</span>}
+            {assigneeOthersInactive && <span className="min-w-0 truncate">{assigneeOthersInactive}</span>}
           </>,
-          !firstAssignee,
+          firstAssignee === null,
         );
       case 'priority':
         return chip('priority', labelWithValue('우선순위', ISSUE_PRIORITY_LABEL[issue.priority]), <><Flag className="size-4" aria-hidden />{ISSUE_PRIORITY_LABEL[issue.priority]}</>);

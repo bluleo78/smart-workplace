@@ -4,7 +4,7 @@
 import { AgentLastReport, AgentNextRun, AgentStateBadge } from '@/components/ai/agentWork/AgentWorkBits';
 import { AiLabel } from '@/components/ai/AiLabel';
 import { AI_CONTENT_CONTAINER_CLASS } from '@/components/ai/aiMarker';
-import { UserAvatar } from '@/components/users/UserAvatar';
+import { AssigneeAvatar } from '@/components/users/UserAvatar';
 import { isAgentQuestion, progressView } from '@/lib/agentWork';
 import { cn } from '@/lib/utils';
 import type { AgentWorkView } from '@/types/issue';
@@ -48,7 +48,8 @@ export function AgentWorkCard({
           const nextRun = <AgentNextRun w={w} suffix="시작" className="shrink-0" data-testid={`${id}-next-run`} />;
           const who = (
             <>
-              <UserAvatar user={w.worker} size="xs" agent={w.worker.kind === 'AGENT'} />
+              {/* 정지된 작업자는 담당자 칸·AI 위임 작업 표처럼 회색 아바타(작업자 요약의 active, WP-1160). */}
+              <AssigneeAvatar user={w.worker} size="xs" />
               {/* 이름이 길면 말줄임 — 데스크톱 한 줄은 이름(12rem 까지)과 최근 보고가 함께 줄고, 배지·시간은 줄지 않는다. */}
               <span className={cn('min-w-0 truncate font-medium', !stacked && 'max-w-48')}>{w.worker.name}</span>
               <span className="shrink-0">{badge}</span>

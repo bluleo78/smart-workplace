@@ -7,7 +7,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * 분기에 사용한다.
  *
  * <p>active 는 「이 워크스페이스에서 활성」(WP-417 {@code WorkspaceActive})을 아는 응답만 채운다 — 지금은 이슈 담당자(WP-1080: 정지된
- * 담당자를 담당자 칸·작업 목록에서 「비활성」으로 구분). 채우지 않는 응답(null)은 JSON 에 싣지 않아 다른 화면의 응답 모양은 그대로다.
+ * 담당자를 담당자 칸·작업 목록에서 「비활성」으로 구분)와 AI 작업의 작업자(WP-1160: 담당에서 빠진 작업자도 정지 여부를 보인다). 채우지 않는 응답(null)은
+ * JSON 에 싣지 않아 다른 화면의 응답 모양은 그대로다.
  */
 public record UserSummary(
     Long id,

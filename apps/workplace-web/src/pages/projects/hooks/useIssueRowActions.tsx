@@ -12,8 +12,9 @@ import { IssuePriorityBars } from '@/components/issues/IssuePriorityBars';
 import { MobileActionSheet, type MobileSheetAction } from '@/components/mobile/MobileActionSheet';
 import { MobilePickerSheet } from '@/components/mobile/MobilePickerSheet';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
+import { StatusBadge } from '@/components/ui/status-badge';
 import { AgentBadge } from '@/components/users/AgentBadge';
-import { AssigneeAvatar, UserAvatar } from '@/components/users/UserAvatar';
+import { CandidateAvatar, UserAvatar } from '@/components/users/UserAvatar';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { copyText } from '@/lib/copyText';
@@ -37,6 +38,7 @@ import { ISSUE_PRIORITY_LABEL, ISSUE_PRIORITY_OPTIONS } from '../../../lib/issue
 import { rowMenuItems, toggleAssigneeIds, toSummary } from '../../../lib/issueRowMenu';
 import { isProjectOwner } from '../../../lib/projectPermissions';
 import { findStatus } from '../../../lib/projectStatuses';
+import { isInactiveUser } from '../../../lib/userStatus';
 import type { IssuePriority, IssueResponse } from '../../../types/issue';
 import type { MemberResponse } from '../../../types/project';
 import type { ProjectStatus } from '../../../types/projectStatus';
@@ -337,10 +339,16 @@ export function useIssueRowActions({
         options={assigneeOptions.map((m) => ({
           value: String(m.userId),
           label: m.name,
-          icon: <AssigneeAvatar user={toSummary(m)} size="xs" />,
+          icon: <CandidateAvatar user={toSummary(m)} />,
           hint: (
             <>
               {m.kind === 'AGENT' && <AgentBadge size="xs" />}
+              {/* 비활성은 색만이 아니라 글자로도(WCAG 1.4.1, WP-1160). */}
+              {isInactiveUser(m) && (
+                <StatusBadge type="inactive" data-testid={`issue-assignee-picker-${m.userId}-inactive`}>
+                  비활성
+                </StatusBadge>
+              )}
               {assigneeIds.includes(m.userId) && <Check className="size-4 text-primary" aria-label="담당 중" />}
             </>
           ),

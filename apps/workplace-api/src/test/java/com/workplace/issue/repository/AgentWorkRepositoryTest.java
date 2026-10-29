@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.AGENT_WORK_EVENT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 import com.workplace.issue.dto.AgentWorkPatch;
 import com.workplace.issue.dto.AgentWorkState;
@@ -111,6 +112,28 @@ class AgentWorkRepositoryTest extends IntegrationTestBase {
     assertThat(r.state()).isEqualTo("REVIEW");
     repo.update(a.id(), new AgentWorkPatch(null, null, null, true, null, null, null));
     assertThat(repo.findActive(issueId, humanId).orElseThrow().note()).isNull();
+  }
+
+  /**
+   * 작업자 요약에도 이 워크스페이스의 활성 여부가 실린다(WP-1160) — 담당자가 아닌 작업자도 화면이 정지 여부를 알 수 있게. 진행 중 작업 조회와 종료 작업
+   * 조회(AI 위임 작업 「완료」 보기) 둘 다.
+   */
+  @Test
+  void workers_carryWorkspaceActive_inActiveAndEndedLookups() {
+    insert(issueId, humanId, "claude-code", "WORKING");
+    insert(issueId, agentId, "claude-code", "WORKING");
+    TestFixtures.ensureActiveMember(dsl, humanId, 1L);
+    TestFixtures.ensureActiveMember(dsl, agentId, 1L);
+    TestFixtures.suspendMember(dsl, agentId, 1L);
+    var active = repo.findActiveByIssueIds(List.of(issueId)).get(issueId);
+    assertThat(active)
+        .extracting(w -> w.worker().id(), w -> w.worker().active())
+        .containsExactlyInAnyOrder(tuple(humanId, true), tuple(agentId, false));
+
+    var agentWork = repo.findActive(issueId, agentId).orElseThrow();
+    repo.endActive(List.of(issueId), AgentWorkState.COMPLETED);
+    var ended = repo.findEndedByIds(List.of(agentWork.id())).get(issueId);
+    assertThat(ended.worker().active()).isFalse();
   }
 
   /** 여러 이슈의 진행 중 작업을 작업자 정보와 함께 한 번에 읽는다. */
