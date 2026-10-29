@@ -191,7 +191,7 @@ export function createShotRecorder({
 }
 
 /**
- * 촬영 규격(뷰포트·배율·로케일·시간대·라이트 테마)의 새 브라우저 컨텍스트를 만든다. 모든 문서에 SHOT_STYLE 을 넣는다.
+ * 촬영 규격(뷰포트·배율·로케일·시간대·라이트 테마 고정)의 새 브라우저 컨텍스트를 만든다. 모든 문서에 SHOT_STYLE 을 넣는다.
  * 로그인 장면처럼 로그아웃 상태의 화면을 찍을 때 장면이 page.context().browser() 로 따로 연다(공유 페이지를 로그아웃시키지 않게).
  * viewport 는 책 설정 capture.viewport(없으면 1440x810).
  */
@@ -206,6 +206,12 @@ export async function newShotContext(browser, viewport = VIEWPORT) {
   // 문서가 만들어질 때마다(이동·새로 고침 포함) 스타일을 넣는다. 초기화 스크립트가 도는 시점엔 문서 요소가 아직 없으므로
   // 문서를 다 읽은 뒤(DOMContentLoaded) 붙인다 — 앱 화면은 그 뒤에 그려지므로 처음부터 적용된다.
   await context.addInitScript((css) => {
+    // 매뉴얼 그림은 라이트 테마만 싣는다 — 장면이 테마를 바꿔도 다음 문서부터 다시 라이트로 돌린다(next-themes 저장 키 'theme').
+    try {
+      localStorage.setItem('theme', 'light');
+    } catch {
+      // about:blank 처럼 저장소가 없는 문서는 건너뛴다
+    }
     document.addEventListener('DOMContentLoaded', () => {
       const style = document.createElement('style');
       style.textContent = css;

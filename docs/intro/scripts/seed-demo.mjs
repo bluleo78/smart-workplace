@@ -10,13 +10,19 @@
  *
  * 계정 도메인은 예약 도메인 example.com 이라 실계정과 겹치지 않는다(smart-dcim 매뉴얼 촬영과 같은 규약).
  * AI 가 실제로 일하는 장면(이슈 위임 → AI 코멘트)은 ai-agent 가 떠 있어야 하므로 seed-ai.mjs 가 따로 맡는다.
+ *
+ * 단계는 셋으로 나뉜다 — 매뉴얼 촬영 테넌트 시드(docs/manual/scripts/seed-user.mjs)가 뒤의 둘을 그대로 다시 쓴다(WP-1194):
+ *   1) 첫 가입(이 파일의 main 에만 있다) → 2) createPeople: 관리자 토큰으로 나머지 등장인물 계정 → 3) seedContent: 나머지 전부.
+ * API 주소는 모듈 상수가 아니라 makeClient(apiBase) 로 받는다 — 같은 단계를 다른 서버(매뉴얼 테넌트)에 돌릴 수 있게.
  */
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
-const API = (process.env.INTRO_API ?? 'http://localhost:6160') + '/api/v1';
 const PASSWORD = process.env.INTRO_PASS ?? 'IntroShot1!';
 const DOMAIN = 'example.com';
+
+/** 소개 자료 격리 스택 주소 — 직접 실행·login()·seed-ai 가 쓴다. 매뉴얼 시드는 자기 client 를 넘기므로 이 값에 기대지 않는다. */
+export const INTRO_BASE = process.env.INTRO_API ?? 'http://localhost:6160';
 
 /** 등장인물 — 첫 항목이 첫 가입자(ADMIN)이자 촬영 계정이다. */
 export const PEOPLE = [
@@ -29,23 +35,47 @@ export const PEOPLE = [
 export const AGENT = { username: 'genie', name: '지니', email: `genie@${DOMAIN}` };
 export const PROJECT_KEY = 'MOB';
 
-/** JSON API 호출. 실패하면 응답 본문을 붙여 던져 원인을 바로 보이게 한다. */
-async function call(token, method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${await res.text()}`);
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
+/**
+ * API 서버 하나에 붙는 호출 도구를 만든다. apiBase 는 서버 루트(예: http://localhost:6160), prefix 는 API 경로 앞부분
+ * (기본 `/api/v1`, 운영자 시드는 `/api/platform` 도 쓴다).
+ * - call: JSON 호출. 실패하면 응답 본문을 붙여 던져 원인을 바로 보이게 하고, 오류에 status·body 를 싣는다(409 판정 등).
+ *   allow 에 든 상태 코드는 null 로 돌려준다(없음 판정용).
+ * - upload: 파일 하나를 multipart 로 올린다(드라이브).
+ * - login: 비밀번호 로그인 → access 토큰. 소속이 하나뿐이면 서버가 그 테넌트로 바로 들어간 토큰을 준다.
+ */
+export function makeClient(apiBase, prefix = '/api/v1') {
+  const API = apiBase.replace(/\/+$/, '') + prefix;
+  async function call(token, method, path, body, { allow = [] } = {}) {
+    const res = await fetch(API + path, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (allow.includes(res.status)) return null;
+    const text = await res.text();
+    if (!res.ok) {
+      throw Object.assign(new Error(`${method} ${path} → ${res.status} ${text}`), { status: res.status, body: text });
+    }
+    return text ? JSON.parse(text) : null;
+  }
+  async function upload(token, path, name, buf) {
+    const form = new FormData();
+    form.append('file', new Blob([buf]), name);
+    const res = await fetch(API + path, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+    if (!res.ok) throw new Error(`업로드 실패 ${name} → ${res.status} ${await res.text()}`);
+  }
+  async function login(username, password) {
+    return (await call(null, 'POST', '/auth/login', { username, password })).accessToken;
+  }
+  return { call, upload, login };
 }
 
+/** 소개 자료 스택(INTRO_API)에 로그인 — seed-ai·capture-screens·send-demo-mail 이 가져다 쓴다. */
 export async function login(username, password = PASSWORD) {
-  return (await call(null, 'POST', '/auth/login', { username, password })).accessToken;
+  return makeClient(INTRO_BASE).login(username, password);
 }
 
 /** 오늘 기준 상대 날짜(YYYY-MM-DD). 촬영 시점이 달라도 타임라인이 "지금" 주변에 놓이게 한다. */
@@ -60,8 +90,8 @@ function at(offset, hour, minute = 0) {
   return `${day(offset)}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+09:00`;
 }
 
-/** 드라이브 팀 공간과 기획 문서 업로드. 업로드는 multipart 라 call() 대신 fetch 를 직접 쓴다. */
-export async function seedDrive(admin, ids) {
+/** 드라이브 팀 공간과 기획 문서 업로드. 업로드는 multipart 라 call() 대신 upload() 를 쓴다. */
+async function seedDrive({ call, upload }, admin, ids) {
   const space = await call(admin, 'POST', '/drive/spaces', { name: '모바일 주문 앱' });
   for (const k of ['dev', 'design', 'mkt', 'qa', 'agent']) {
     await call(admin, 'POST', `/drive/spaces/${space.id}/members`, { userId: ids[k], role: 'EDITOR' }).catch(() => {});
@@ -69,52 +99,81 @@ export async function seedDrive(admin, ids) {
   const folder = await call(admin, 'POST', `/drive/spaces/${space.id}/folders`, { parentId: null, name: '기획' });
   for (const name of ['모바일 주문 앱 2.0 요구사항 정의서.pdf', '베타 테스트 운영 계획.docx']) {
     const buf = await readFile(new URL(`../content/drive/${name}`, import.meta.url));
-    const form = new FormData();
-    form.append('file', new Blob([buf]), name);
-    const res = await fetch(`${API}/drive/spaces/${space.id}/files?folderId=${folder.id}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${admin}` },
-      body: form,
-    });
-    if (!res.ok) throw new Error(`드라이브 업로드 실패 ${name} → ${res.status} ${await res.text()}`);
+    await upload(admin, `/drive/spaces/${space.id}/files?folderId=${folder.id}`, name, buf);
   }
   return space;
 }
 
-async function main() {
-  // 1) 첫 가입 → ADMIN. 이미 가입자가 있으면 깨끗한 DB 가 아니므로 중단한다.
-  const [pm, ...others] = PEOPLE;
-  const signup = await fetch(API + '/auth/signup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: pm.username, email: pm.username, password: PASSWORD, name: pm.name }),
-  });
-  if (!signup.ok) throw new Error(`첫 가입 실패(${signup.status}) — 빈 DB 에서만 실행한다: ${await signup.text()}`);
-  const admin = await login(pm.username);
-
+/**
+ * 등장인물 계정 단계 — 관리자 토큰(PEOPLE[0])으로 나머지 사람을 한 사람씩 POST /users 로 만들고 로그인해 토큰을 모은다.
+ * existing 에 든 사람(이미 이 테넌트 구성원인 계정 — 매뉴얼 테넌트를 다시 만들 때 콘솔에서 「기존 사용자 추가」로 넣은 사람)은
+ * 만들지도 다시 로그인하지도 않고, 호출한 쪽이 쓰기 전에 받아 둔 { id, token } 을 그대로 쓴다(되풀이 로그인으로 계정이 잠기지 않게).
+ * 새로 만든 계정은 signIn(username) 으로 로그인한다 — 기본은 client.login(소속이 하나뿐이라 토큰이 곧바로 이 테넌트로 들어간다).
+ * 실패하면 한 곳에서 구조화한 오류를 던진다: status(원인 응답 코드), username(실패한 사람), created(이번 호출에서 이미 만든 아이디들).
+ * @returns {Promise<{ ids: Record<string, number>, tokens: Record<string, string> }>}
+ */
+export async function createPeople({ client, admin, password, existing = {}, signIn }) {
+  const { call } = client;
+  const signInNew = signIn ?? ((username) => client.login(username, password));
+  const [, ...others] = PEOPLE;
   const ids = { pm: (await call(admin, 'GET', '/users/me')).id };
-  for (const p of others) {
-    const u = await call(admin, 'POST', '/users', {
-      username: p.username,
-      email: p.username,
-      name: p.name,
-      password: PASSWORD,
-      role: p.role,
-    });
-    ids[p.key] = u.userId ?? u.id;
-  }
   const tokens = { pm: admin };
-  for (const p of others) tokens[p.key] = await login(p.username);
+  const created = [];
+  for (const p of others) {
+    if (existing[p.key]) {
+      ids[p.key] = existing[p.key].id;
+      tokens[p.key] = existing[p.key].token;
+      continue;
+    }
+    try {
+      const u = await call(admin, 'POST', '/users', {
+        username: p.username,
+        email: p.username,
+        name: p.name,
+        password,
+        role: p.role,
+      });
+      ids[p.key] = u.userId ?? u.id;
+      created.push(p.username);
+      tokens[p.key] = await signInNew(p.username);
+    } catch (cause) {
+      throw Object.assign(new Error(cause.message, { cause }), { status: cause.status, username: p.username, created });
+    }
+  }
+  return { ids, tokens };
+}
 
-  // 2) AI 에이전트 — 이슈 담당자로 지정 가능한 "팀원". 토큰 등록은 seed-ai.mjs 가 한다.
-  // 생성 응답 형태에 기대지 않고 목록에서 username 으로 id 를 찾는다.
-  await call(admin, 'POST', '/admin/agents', AGENT);
-  ids.agent = (await call(admin, 'GET', '/admin/agents')).find((a) => a.username === AGENT.username).id;
-  // 관리자 API 로 만든 에이전트에는 역할이 붙지 않아 모든 도구 호출이 403 이 된다(WP-252) — AGENT 역할을 직접 붙인다.
-  // /admin/agents 생성은 역할을 부여하지 않는다 — 역할이 없으면 에이전트의 on-behalf API 호출이
-  // 전부 403(project:read 등)으로 막혀 코멘트·상태 변경을 못 한다. AGENT 역할을 명시 부여한다.
+/**
+ * AI 에이전트(AGENT) 단계 — 이슈 담당자로 지정 가능한 "팀원". 토큰 등록은 seed-ai.mjs 가 한다.
+ * 이 테넌트에 이미 있으면(앞선 실행이 중간에 멈춘 경우) 다시 만들지 않는다. 생성 응답 형태에 기대지 않고 목록에서 username 으로 id 를 찾는다.
+ * @returns {Promise<{ id: number, created: boolean }>}
+ */
+export async function ensureAgent({ client, admin }) {
+  const { call } = client;
+  const find = async () => (await call(admin, 'GET', '/admin/agents')).find((a) => a.username === AGENT.username);
+  let agent = await find();
+  const created = !agent;
+  if (created) {
+    await call(admin, 'POST', '/admin/agents', AGENT);
+    agent = await find();
+  }
+  // 관리자 API 로 만든 에이전트에는 역할이 붙지 않는다(WP-252) — 역할이 없으면 에이전트의 on-behalf API 호출이
+  // 전부 403(project:read 등)으로 막혀 코멘트·상태 변경을 못 한다. AGENT 역할을 명시 부여한다(같은 값이라 다시 해도 된다).
   const agentRole = (await call(admin, 'GET', '/roles')).find((r) => r.name === 'AGENT');
-  await call(admin, 'PUT', `/users/${ids.agent}/roles`, { roleIds: [agentRole.id] });
+  await call(admin, 'PUT', `/users/${agent.id}/roles`, { roleIds: [agentRole.id] });
+  return { id: agent.id, created };
+}
+
+/**
+ * 콘텐츠 단계 — AI 에이전트(ids.agent 가 없을 때만)·프로젝트/사이클/마일스톤/이슈/코멘트·채널·노트·캘린더·연락처·드라이브·API 토큰.
+ * client 는 makeClient 의 결과(서버 주소의 유일한 출처), admin 은 PEOPLE[0] 의 테넌트 토큰, ids·tokens 는 createPeople 의 결과다.
+ * 빈 테넌트를 전제로 한다 — 다시 돌리면 프로젝트 키 중복 등으로 실패한다(멱등이 아니다).
+ */
+export async function seedContent({ client, admin, ids, tokens }) {
+  const { call } = client;
+
+  // 2) AI 에이전트 — 매뉴얼 시드는 이름 충돌을 계정보다 먼저 드러내려고 미리 만들어 ids.agent 를 넘긴다.
+  if (ids.agent == null) ids.agent = (await ensureAgent({ client, admin })).id;
 
   // 3) 프로젝트·사이클·마일스톤·이슈
   await call(admin, 'POST', '/projects', {
@@ -278,12 +337,29 @@ async function main() {
   }
 
   // 8) 드라이브 — 팀 공간에 기획 문서 2개. 문서 처리 워커가 떠 있으면 본문 추출 후 미리보기에서 AI 요약이 된다.
-  await seedDrive(admin, ids);
+  await seedDrive(client, admin, ids);
 
   // 9) 개인 API 토큰 — "쓰던 AI 도구에서도" 장면의 토큰 목록이 비어 보이지 않게(평문은 버린다).
   await call(admin, 'POST', '/users/me/api-tokens', { name: '내 AI 도구 연동', expiresAt: null });
 
-  console.log(JSON.stringify({ ids, channelId: channel.id, wikiSpaceId: space.id, cycleId: cycle?.id }, null, 2));
+  return { ids, channelId: channel.id, wikiSpaceId: space.id, cycleId: cycle?.id };
+}
+
+/** 소개 자료 시드 — 빈 DB 의 첫 가입(→ ADMIN) 뒤 계정·콘텐츠 단계를 돈다. */
+async function main() {
+  const client = makeClient(INTRO_BASE);
+  // 1) 첫 가입 → ADMIN. 이미 가입자가 있으면 깨끗한 DB 가 아니므로 중단한다.
+  const [pm] = PEOPLE;
+  await client
+    .call(null, 'POST', '/auth/signup', { username: pm.username, email: pm.username, password: PASSWORD, name: pm.name })
+    .catch((e) => {
+      throw new Error(`첫 가입 실패(${e.status}) — 빈 DB 에서만 실행한다: ${e.body}`);
+    });
+  const admin = await client.login(pm.username, PASSWORD);
+
+  const { ids, tokens } = await createPeople({ client, admin, password: PASSWORD });
+  const out = await seedContent({ client, admin, ids, tokens });
+  console.log(JSON.stringify(out, null, 2));
 }
 
 // seed-ai.mjs 가 상수·login 을 가져다 쓰므로, 직접 실행할 때만 시드를 돈다.

@@ -63,6 +63,11 @@ export const TENANTS = [
  */
 export const OPERATOR_STACK_API_PORT = '6166';
 
+/** localhost 로 보는 호스트(URL.hostname 기준, IPv6 는 대괄호 포함) — 운영자 시드와 사용자 매뉴얼 테넌트 시드의 가드가 함께 쓴다. */
+export function isLocalHost(url) {
+  return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+}
+
 /**
  * 시드 대상 API 가 운영자 매뉴얼용 격리 스택인지 판정한다(순수 함수). 시드는 빈 DB 의 첫 가입자를 슈퍼어드민으로 만들므로,
  * 공유 개발 DB(막 초기화돼 가입이 열린 상태 포함)·다른 세션의 스택·원격 서버에 돌면 슈퍼어드민 자리를 가상 계정이 차지한다.
@@ -76,7 +81,7 @@ export function checkIsolatedApi(apiUrl) {
   } catch {
     return { ok: false, reason: `MANUAL_API 가 올바른 주소가 아닙니다: ${apiUrl}` };
   }
-  if (!['localhost', '127.0.0.1', '[::1]'].includes(u.hostname)) {
+  if (!isLocalHost(u)) {
     return { ok: false, reason: `격리 로컬 스택(localhost)에서만 돌립니다: ${u.hostname}` };
   }
   if (u.port !== OPERATOR_STACK_API_PORT) {
