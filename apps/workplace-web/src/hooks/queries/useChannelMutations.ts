@@ -24,7 +24,7 @@ export function useRenameChannel(channelId: number) {
       qc.invalidateQueries({ queryKey: messagingKeys.detail(channelId) });
       qc.invalidateQueries({ queryKey: messagingKeys.channels() });
     },
-    onError: (err) => handleApiError(err, '채널 이름 변경에 실패했습니다'),
+    // 실패는 이름 변경 대화창(RenameChannelModal)이 입력칸 아래에 보인다 — 토스트까지 띄우면 같은 문구가 두 번 보인다(WP-1150).
   });
 }
 
