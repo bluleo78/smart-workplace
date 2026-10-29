@@ -76,10 +76,18 @@ export default function ThreadsInboxPage() {
                   className="flex w-full flex-col gap-1 rounded-md border p-3 text-left hover:bg-accent/50"
                 >
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="font-medium" data-testid={`thread-inbox-card-label-${item.rootMessage.id}`}>
+                    {/* 이름은 남은 폭 안에서 한 줄 말줄임(전체는 title), 배지는 줄지 않고 한 줄 — 긴 채널 이름이 배지를 「새 답글 / 1개」 두 줄로 꺾던 것(WP-1133). */}
+                    <span
+                      className="min-w-0 truncate font-medium"
+                      title={cardLabel(item)}
+                      data-testid={`thread-inbox-card-label-${item.rootMessage.id}`}
+                    >
                       {cardLabel(item)}
                     </span>
-                    <span className="ml-auto rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">
+                    <span
+                      className="ml-auto shrink-0 whitespace-nowrap rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground"
+                      data-testid={`thread-inbox-card-badge-${item.rootMessage.id}`}
+                    >
                       새 답글 {item.rootMessage.unreadReplyCount}개
                     </span>
                   </div>
