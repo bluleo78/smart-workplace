@@ -477,7 +477,7 @@ export default function TenantDetailPage() {
       <Separator />
 
       {/* 드라이브 한도 카드(#81) */}
-      <div className="rounded-lg border p-4">
+      <div className="rounded-lg border p-4" data-testid="quota-section">
         <h3 className="mb-2 text-sm font-semibold">드라이브 용량 한도 (GB)</h3>
         <div className="flex items-center gap-2">
           <Input

@@ -8,7 +8,19 @@ import { writeBoxesDoc } from './boxes-file.mjs';
 import { unionBoxes } from './figure.mjs';
 
 // 촬영 규격: 1440x810 뷰포트, 배율 2 → 원본 2880x1620 (docs/intro 소개서와 같다).
+// 책 설정이 capture.viewport 를 주면 그 뷰포트로 찍는다(운영자 콘솔 — books.mjs 의 이유 참고). 배율은 같다.
 const VIEWPORT = { width: 1440, height: 810 };
+
+// 촬영 컨텍스트의 모든 문서에 넣는 스타일 — 찍을 때마다 달라지는 것을 없앤다.
+// - 토스트(sonner)는 조작 결과 알림이라 있고 없고가 달라진다(두 앱 모두 sonner).
+// - 애니메이션·전환을 0초로: 대화 창·메뉴가 등장 중일 때 재면 표식 상자가 작게 잡히고, 회전 표시는 찍는 순간마다 각도가 다르다.
+const SHOT_STYLE = `
+  [data-sonner-toaster] { display: none !important; }
+  *, *::before, *::after {
+    animation-duration: 0s !important; animation-delay: 0s !important;
+    transition-duration: 0s !important; transition-delay: 0s !important;
+  }
+`;
 const DPR = 2;
 
 /** Playwright boundingBox(CSS px) 를 원본 px 로 환산하고 반올림한다. */
@@ -34,11 +46,25 @@ export function clampBox(b, w, h) {
   return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
 }
 
-/** MANUAL_SHOTS_ONLY 에 적힌 id 중 장면이 없는 것(오타 등)을 돌려준다. only 가 없으면 빈 배열. */
+/**
+ * 장면이 만드는 그림 id 목록. 한 장면이 여러 그림을 찍으면 shots 로 밝힌다(예: 영구 삭제 확인 창 → 진행 배너 → 삭제됨 목록처럼
+ * 앞 그림의 조작이 다음 그림의 전제인 경우 — 따로 떼면 한쪽만 다시 찍을 때 전제가 없다). 없으면 장면 id 하나다.
+ */
+function sceneShots(scene) {
+  return scene.shots ?? [scene.id];
+}
+
+/** MANUAL_SHOTS_ONLY 에 적힌 id 중 어떤 장면도 찍지 않는 것(오타 등)을 돌려준다. 장면 id 와 장면이 밝힌 그림 id 를 모두 인정한다. */
 export function unknownShotIds(only, scenes) {
   if (!only) return [];
-  const known = new Set(scenes.map((s) => s.id));
+  const known = new Set(scenes.flatMap((s) => [s.id, ...sceneShots(s)]));
   return [...only].filter((id) => !known.has(id));
+}
+
+/** MANUAL_SHOTS_ONLY 로 돌릴 장면을 고른다 — 장면 id 나 그 장면이 찍는 그림 id 가 하나라도 적혀 있으면 그 장면 전체를 돈다. only 가 없으면 전부. */
+export function selectScenes(only, scenes) {
+  if (!only) return scenes;
+  return scenes.filter((s) => only.has(s.id) || sceneShots(s).some((id) => only.has(id)));
 }
 
 /**
@@ -51,10 +77,12 @@ export function unknownShotIds(only, scenes) {
  * (호출자: 성공 시 commit, 실패 시 discard).
  * dir 은 시험에서 임시 폴더를 쓰려고 둔 선택 인자다(기본: docs/manual/shots/<book>).
  * fs 는 commit 의 파일 이동(access·rename·rm)을 바꿔 끼우는 시험용 선택 인자다(이동 실패 되돌리기 시험).
+ * viewport 는 shoot 전에 mark 한 상자를 자를 기본 그림 크기다(책 설정 capture.viewport, 없으면 1440x810).
  */
 export function createShotRecorder({
   book,
   dpr = DPR,
+  viewport = VIEWPORT,
   dir = path.join(ROOT, 'docs/manual/shots', book),
   fs = { access, rename, rm },
 }) {
@@ -73,14 +101,11 @@ export function createShotRecorder({
     await Promise.all(stagedPngIds().map((id) => fs.rm(tmpPath(id), { force: true })));
     reset();
   };
-  // 이번 장면에서 처음 만지는 샷은 확정본을 복제해 시작한다 — 앞 장면이 확정한 상자를 이어 쓰되,
-  // 실패해 버릴 때 확정본이 함께 바뀌지 않도록 참조가 아닌 복사본을 쓴다.
+  // 이번 장면에서 처음 만지는 샷은 빈 항목(책 뷰포트 크기)에서 시작한다 — 예전 확정본(이전 실행·앞 장면)을 이어 쓰지 않는다.
+  // 그림을 새로 찍으면 상자도 이번에 찍은 것만 맞으므로, 예전 키·예전 w/h 가 섞여 들어오면 안 된다(commit 이 샷 단위로 덮어쓴다).
   const stage = (id) => {
     if (!staged.has(id)) {
-      const shot = doc[id]
-        ? structuredClone(doc[id])
-        : { w: VIEWPORT.width * dpr, h: VIEWPORT.height * dpr, boxes: {} };
-      staged.set(id, { shot, png: false });
+      staged.set(id, { shot: { w: viewport.width * dpr, h: viewport.height * dpr, boxes: {} }, png: false });
     }
     return staged.get(id);
   };
@@ -131,10 +156,11 @@ export function createShotRecorder({
     async shoot(page, id) {
       await mkdir(dir, { recursive: true });
       // 바로 <id>.png 에 쓰지 않는다: 장면이 끝까지 성공해야 commit 이 제 이름으로 옮긴다.
-      await page.screenshot({ path: tmpPath(id), type: 'png' });
+      // 입력 커서는 깜빡여 찍을 때마다 달라지므로 숨긴다(토스트·애니메이션은 컨텍스트 스타일이 이미 고정했다 — newShotContext).
+      await page.screenshot({ path: tmpPath(id), type: 'png', caret: 'hide' });
       const s = stage(id);
       s.png = true;
-      const vp = page.viewportSize() ?? VIEWPORT;
+      const vp = page.viewportSize();
       s.shot.w = vp.width * dpr;
       s.shot.h = vp.height * dpr;
       console.log(`  ${id}.png`);
@@ -165,21 +191,42 @@ export function createShotRecorder({
 }
 
 /**
- * 로그인 화면을 거쳐 로그인된 컨텍스트를 돌려준다.
- * access token 이 메모리에만 있어 저장소 주입으로는 흉내 낼 수 없다(소개서 촬영과 같은 이유).
- * 비밀번호는 로그에 남기지 않는다.
+ * 촬영 규격(뷰포트·배율·로케일·시간대·라이트 테마)의 새 브라우저 컨텍스트를 만든다. 모든 문서에 SHOT_STYLE 을 넣는다.
+ * 로그인 장면처럼 로그아웃 상태의 화면을 찍을 때 장면이 page.context().browser() 로 따로 연다(공유 페이지를 로그아웃시키지 않게).
+ * viewport 는 책 설정 capture.viewport(없으면 1440x810).
  */
-export async function signIn(browser, { web, username, password }) {
+export async function newShotContext(browser, viewport = VIEWPORT) {
   const context = await browser.newContext({
-    viewport: VIEWPORT,
+    viewport,
     deviceScaleFactor: DPR,
     locale: 'ko-KR',
     timezoneId: 'Asia/Seoul',
     colorScheme: 'light',
   });
+  // 문서가 만들어질 때마다(이동·새로 고침 포함) 스타일을 넣는다. 초기화 스크립트가 도는 시점엔 문서 요소가 아직 없으므로
+  // 문서를 다 읽은 뒤(DOMContentLoaded) 붙인다 — 앱 화면은 그 뒤에 그려지므로 처음부터 적용된다.
+  await context.addInitScript((css) => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.head.appendChild(style);
+    });
+  }, SHOT_STYLE);
+  return context;
+}
+
+/**
+ * 로그인 화면을 거쳐 로그인된 컨텍스트를 돌려준다.
+ * access token 이 메모리에만 있어 저장소 주입으로는 흉내 낼 수 없다(소개서 촬영과 같은 이유).
+ * usernameSelector 는 로그인 화면의 아이디 칸 CSS 선택자로, 책 설정(BOOKS.<book>.capture.usernameSelector)에서 받는다.
+ * 비밀번호 칸·제출 단추는 두 앱이 같은 마크업(input[type=password], button[type=submit])이다.
+ * 비밀번호는 로그에 남기지 않는다.
+ */
+export async function signIn(browser, { web, username, password, usernameSelector, viewport }) {
+  const context = await newShotContext(browser, viewport);
   const page = await context.newPage();
   await page.goto(`${web}/login`);
-  await page.getByPlaceholder('아이디를 입력하세요').fill(username);
+  await page.locator(usernameSelector).fill(username);
   await page.locator('input[type=password]').fill(password);
   await page.locator('button[type=submit]').click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20000 });
