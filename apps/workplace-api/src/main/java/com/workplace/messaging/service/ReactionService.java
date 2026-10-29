@@ -49,6 +49,8 @@ public class ReactionService {
     if (!ReactionEmojis.isSingleEmoji(emoji)) {
       throw new IllegalArgumentException("리액션에는 이모지 하나만 쓸 수 있습니다");
     }
+    // 같은 그림의 표기 차이(FE0F 유무·개수)를 하나로 맞춰 저장·비교한다 — 칩이 갈리지 않고 상한도 같은 이모지로 센다(WP-1199).
+    emoji = ReactionEmojis.normalize(emoji);
     // 상한 검사가 동시 요청에 뚫리지 않게 메시지 행을 먼저 잠근다 — 이후의 확인·삽입이 메시지별로 한 줄로 선다(WP-778).
     messageRepo.lockForReaction(messageId);
     if (messageRepo.isDeleted(messageId)) {
@@ -72,8 +74,13 @@ public class ReactionService {
   @Transactional
   public void remove(long callerId, long messageId, String emoji) {
     long channelId = ensureWritableMessageMember(callerId, messageId);
-    if (reactionRepo.remove(messageId, callerId, emoji))
-      publisher.publishEvent(new ReactionRemovedEvent(channelId, messageId, emoji, callerId));
+    // 받은 값 그대로 먼저 뗀다(정규화 전에 붙은 값·칩 값). 없으면 정규화한 값으로 — 「❤」로 떼도 「❤️」 리액션이 떨어지게(WP-1199).
+    String removed = emoji;
+    if (!reactionRepo.remove(messageId, callerId, emoji)) {
+      removed = ReactionEmojis.normalize(emoji);
+      if (removed.equals(emoji) || !reactionRepo.remove(messageId, callerId, removed)) return;
+    }
+    publisher.publishEvent(new ReactionRemovedEvent(channelId, messageId, removed, callerId));
   }
 
   /** 멤버 검증에 더해 보관된 채널이면 막는다 — 보관된 채널은 읽기 전용이라 리액션도 바꿀 수 없다(WP-508). */
