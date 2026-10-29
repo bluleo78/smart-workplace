@@ -62,7 +62,7 @@ function WorkChip({ w, testId }: { w: AiAgentWork; testId: string }) {
   )
 }
 
-/** 자리 막대 — 상한(3) 중 쓰는 자리를 칸으로. 빈 칸이 보이면 더 맡길 수 있다는 뜻. */
+/** 자리 막대 — 상한(서버 slotLimit) 중 쓰는 자리를 칸으로. 빈 칸이 보이면 더 맡길 수 있다는 뜻. */
 function SlotMeter({ used, limit, testId }: { used: number; limit: number; testId: string }) {
   const full = used >= limit
   return (

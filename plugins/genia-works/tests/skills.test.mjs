@@ -197,7 +197,7 @@ test('SKILL.md 3번: 고를 후보가 없을 때만 대기열에서 최대 하�
   assertBefore(s3, '`claim_issue(', '가져간 이슈가 없으면(동시 진행 상한에 걸린 때도) 「할 일 없음」이다');
 });
 
-// WP-1040 동시 진행 상한 — AI 한 명당 맡은 프로젝트를 모두 합쳐 3개. 넘으면 새 작업·대기열 가져가기만 막는다.
+// WP-1040 동시 진행 상한 — AI 한 명당 맡은 프로젝트를 모두 합쳐 상한까지. 넘으면 새 작업·대기열 가져가기만 막는다.
 // WP-1205 뒤로 수는 서버(get_member 의 slots)가 센다 — 목록을 프로젝트 없이 읽어 세는 것은 slots 가 없는 옛 서버에서만.
 test('SKILL.md 3번: 후보는 이 프로젝트 목록으로 고르고, 동시 진행은 slots 로(없으면 프로젝트 없는 목록으로) 센다 (WP-1040·WP-1205)', () => {
   assert.ok(s3.includes("`list_issues({ projectKey: <프로젝트 키>, assignee: 'me', status: 'TODO,IN_PROGRESS', size: 100 })`"));
@@ -218,6 +218,11 @@ test('SKILL.md 3번: 세는 상태와 빼는 것, 막는 범위가 정해져 있
   assertBefore(s3, '**동시 진행 상한**(위)에 걸리면 가져오지 않고', '`claim_issue(');
   // 옛 WIP 상한(기다리는 이슈만, 대기열만)은 남지 않는다.
   assert.ok(!workLoopSkill.includes('WIP 상한'));
+  // WP-1209 — slots 가 없는 옛 서버의 대체 상한은 5, 고정 상한 3 문장은 남지 않는다.
+  assert.ok(s3.includes('하위가 있는 부모는 뺀다. 상한은 5다.'));
+  for (const old of ['**동시 진행 상한(3개)**', '상한은 3', '동시 진행 3개(']) {
+    assert.ok(!workLoopSkill.includes(old), old);
+  }
 });
 
 test('SKILL.md 3번: 할 일이 없으면 내가 개발한 열린 PR 과 저장소 점검을 확인하고, 이슈는 새로 만들지 않는다', () => {
@@ -587,4 +592,25 @@ test('work-loop: 새 프로젝트 확인은 start-agent 칸에서만, 칸 없는
   assert.ok(text.includes('5번 「새 프로젝트 확인」에서 내 소속 프로젝트 목록을 읽을 때'));
   assertBefore(text, '`agent-home <AI 폴더> due` 가 0 일 때만', '`list_projects` 를 끝까지');
   assertBefore(text, '`list_projects` 를 끝까지', '`agent-home <AI 폴더> missing <키>…`');
+});
+
+// WP-1209 push 게이트를 돌릴지부터 판단한다 — 커밋 훅으로 충분한 변경이나 버전 문자열만 바뀐 rebase 에도 45분 게이트를 돌던 것을 막는다.
+test('process-issue.md 9번: 게이트를 띄우기 전에 돌릴지부터 판단하고, 건너뛰면 근거를 남기며 검토자가 확인한다 (WP-1209)', () => {
+  const text = workLoop('process-issue.md');
+  // 판단이 게이트 띄우기보다 먼저다.
+  assertBefore(text, '**게이트를 띄우기 전에 돌릴지부터 판단한다**', '**push 게이트는 백그라운드로 먼저 돌린다**');
+  // 두 경우 — 처음부터 커밋 훅으로 충분한 변경, 앞서 통과한 뒤 충돌 없는 rebase 와 그런 변경.
+  for (const s of ['**커밋 훅으로 충분**', '처음 올리는 브랜치도 된다', '**앞서 통과**', '충돌 없이 끝난 main 반영', '`git range-diff`', '`git push --no-verify --force-with-lease -u origin <브랜치>`', '판단이 서지 않으면 아래대로 게이트를 돌린다']) {
+    assert.ok(text.includes(s), s);
+  }
+  // 검토자는 건너뛴 근거를 확인해 통과로 보거나 게이트를 돌려 달라고 반려한다.
+  const review = section(text, '\n### PR 리뷰·머지 (검토자)\n', '\n### 오래 걸리는 작업');
+  assert.ok(review.includes('9번 판단으로 게이트를 돌리지 않고 올렸으면'));
+  assert.ok(review.includes('「push 게이트를 돌려 주세요」로 반려한다'));
+  assert.ok(workLoopSkill.includes('게이트를 띄우기 전에 돌릴지부터 판단한다'));
+  const project = readFileSync(new URL('../../../.work-loop/project.md', import.meta.url), 'utf8');
+  // 저장소 안내가 커밋 훅으로 충분한 것을 적어 둔다.
+  assert.ok(project.includes('### 커밋 훅으로 충분한 것'));
+  assert.ok(project.includes('`plugins/genia-works/` — 게이트가 돌지 않는다. `pnpm test:plugin`'));
+  assert.ok(project.includes('web·admin·api·collab 의 제품 코드나 `scripts/` 가 하나라도 바뀌었으면 해당하지 않는다'));
 });

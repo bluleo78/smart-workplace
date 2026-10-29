@@ -547,7 +547,7 @@ describe('AI 위임 작업 AI별 보기', () => {
     expect(within(dev1).queryByTestId('ai-agent-11-work-WP-1077')).not.toBeInTheDocument()
     expect(within(dev1).getByTestId('ai-agent-11-reviews')).toHaveTextContent('검토 대기 1')
     expect(within(dev1).getByTestId('ai-agent-11-hidden')).toHaveTextContent('+다른 프로젝트 1')
-    expect(within(dev1).getByTestId('ai-agent-11-slots')).toHaveTextContent('2/3')
+    expect(within(dev1).getByTestId('ai-agent-11-slots')).toHaveTextContent('2/5')
     expect(within(dev1).getByTestId('ai-agent-11-live')).toHaveAttribute('data-connected', 'true')
 
     const tester = screen.getByTestId('ai-agent-22')
@@ -555,9 +555,9 @@ describe('AI 위임 작업 AI별 보기', () => {
     expect(within(tester).getByTestId('ai-agent-22-since')).toHaveTextContent('47분째 신호 없음')
     expect(within(tester).getByTestId('ai-agent-22-live')).toHaveAttribute('data-connected', 'false')
 
-    // 대표 작업은 같은 묶음에서 그 상태로 오래 있은 것, 3자리가 차면 3/3.
+    // 대표 작업은 같은 묶음에서 그 상태로 오래 있은 것, 3자리면 3/5.
     expect(within(screen.getByTestId('ai-agent-15')).getByTestId('ai-agent-15-lead')).toHaveTextContent('WD-433')
-    expect(within(screen.getByTestId('ai-agent-15')).getByTestId('ai-agent-15-slots')).toHaveTextContent('3/3')
+    expect(within(screen.getByTestId('ai-agent-15')).getByTestId('ai-agent-15-slots')).toHaveTextContent('3/5')
 
     const idle = screen.getByTestId('ai-agent-13')
     expect(within(idle).getByTestId('ai-agent-13-state')).toHaveTextContent('쉬는 중')

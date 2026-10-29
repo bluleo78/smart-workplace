@@ -76,6 +76,16 @@ pnpm test:bundle <브랜치>...   # 내 브랜치 여러 개를 최신 origin/ma
 - 알려진 위험: 묶인 브랜치를 혼자서는 돌리지 않는다 — A+B 가 통과한 뒤 B 가 반려되면 A 혼자의 트리는 검증되지 않은 채 머지된다. 검토자의 머지 전 확인(아래 7번)과 main CI `verify` 가 받친다고 본다.
 - 합치는 곳은 `MAIN/.claude/worktrees/_gate-bundle-<pid>` 다(끝나면 스크립트가 지운다). 설치·빌드는 락 밖에서 한다.
 
+### 커밋 훅으로 충분한 것 (`process-issue.md` 9번 「돌릴지부터 판단」, WP-1209)
+
+push 게이트(`pnpm test:full`)가 커밋 훅보다 더 돌리는 것은 web 페이지 테스트·web E2E 전체·admin E2E·api gradle 전체다(이미지 입력 타입 검사는 테스트 파일을 빼고 본다). 브랜치가 바꾼 파일이 모두 아래에 들면 게이트가 더 확인할 것이 없으니 돌리지 않고 옆의 테스트만 돌린다. web·admin·api·collab 의 제품 코드나 `scripts/` 가 하나라도 바뀌었으면 해당하지 않는다.
+
+- `plugins/genia-works/` — 게이트가 돌지 않는다. `pnpm test:plugin`
+- 플러그인 버전 문자열(`plugins/genia-works/.claude-plugin/plugin.json` 의 `version`, `apps/workplace-web/public/claude/marketplace.json` 의 `ref`, `apps/workplace-web/src/lib/pluginGuide.test.ts` 의 기대 ref) — `pnpm test:plugin` 과 `pluginGuide` vitest(`apps/workplace-web` 에서 `npx vitest run src/lib/pluginGuide.test.ts`)
+- web 단위 테스트 파일(`apps/workplace-web/src/**/*.test.ts` — `renderPage`·`renderScreen` 을 쓰지 않는 것) — 커밋 훅이 web vitest(페이지 테스트 제외)로 이미 돌렸다
+- api 테스트 파일(`apps/workplace-api/src/test/**`) — 커밋 훅이 바뀐 테스트 클래스를 이미 돌렸다
+- 비코드(`scripts/husky/noncode.sh` — 문서·릴리스 노트·`.work-loop/` 등) — pre-push 도 원래 건너뛴다
+
 ### 오래 걸리는 작업 (`process-issue.md` 「오래 걸리는 작업」·9번)
 
 work-loop 는 아래 명령을 기다리지 않고 이슈 워크트리에서 백그라운드로 돌린다. 예상 시간은 `nextRunAt` 을 잡는 기준이다(대략값 — 락 대기는 빠져 있다).
