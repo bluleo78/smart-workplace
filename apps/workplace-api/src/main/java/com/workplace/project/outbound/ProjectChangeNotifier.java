@@ -24,8 +24,9 @@ public class ProjectChangeNotifier {
   public static final String RESOURCE_PROJECT_MEMBER = "project-member";
 
   /**
-   * 멤버로 둔 조직도 부서 행(WP-1057) — 부서 추가·제거와 조직도 변경(부서 삭제·이동·구성원 감소)으로 부서 행·인원이 바뀌면 멤버 창의 부서 목록과 멤버(후보)
-   * 목록을 다시 받게 한다. ids 는 부서 id 다 — 사용자 id 를 싣는 project-member(제거 정리 리스너가 사용자 id 로 읽는다)와 섞지 않는다.
+   * 멤버로 둔 조직도 부서 행(WP-1057) — 부서 추가·제거와 조직도 변경(부서 삭제·이동·구성원 감소·증가 WP-1166)으로 부서 행·인원이 바뀌면 멤버 창의 부서
+   * 목록과 멤버(후보) 목록을 다시 받게 한다. ids 는 부서 id 다 — 사용자 id 를 싣는 project-member(제거 정리 리스너가 사용자 id 로 읽는다)와
+   * 섞지 않는다.
    */
   public static final String RESOURCE_PROJECT_MEMBER_GROUP = "project-member-group";
 

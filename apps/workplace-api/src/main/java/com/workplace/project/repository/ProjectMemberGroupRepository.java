@@ -113,7 +113,8 @@ public class ProjectMemberGroupRepository {
 
   /**
    * groupIds 중 하나를 멤버로 둔 프로젝트 id(오름차순, 중복 없음) — 부서 구성원 감소({@code DepartmentMembersReduced})의 영향을 받는
-   * 프로젝트를 찾는다. 이벤트의 부서 목록에는 사람이 빠진 부서의 상위 부서도 들어 있어, 상위 부서를 멤버로 둔 프로젝트도 함께 잡힌다.
+   * 프로젝트를 찾는다. 이벤트의 부서 목록에는 사람이 빠진 부서의 상위 부서도 들어 있어, 상위 부서를 멤버로 둔 프로젝트도 함께 잡힌다. 증가 쪽은 프로젝트마다 실은 부서
+   * id 가 필요해 {@link #findGroupIdsByProjectAmong} 을 쓴다.
    */
   public List<Long> findProjectIdsByGroups(Collection<Long> groupIds) {
     if (groupIds.isEmpty()) {

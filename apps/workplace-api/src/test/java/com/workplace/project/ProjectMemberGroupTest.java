@@ -466,13 +466,14 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
 
   /**
    * 조직도 부서에 사람이 들어오면(WP-1166) 그 부서(상위 포함)를 멤버로 둔 프로젝트에 부서 행 변경 알림(행위자 없음)이 한 번 나가고, 새로 들어온 사람이
-   * 수신자(실효 멤버)에 든다 — 멤버 창의 부서 인원과 새 사람의 사이드바가 다시 받게. 정리할 사람은 없어 멤버 제거 알림은 없다. 이미 들어 있는 사람을 다시 넣으면
-   * 알림도 없다.
+   * 수신자(실효 멤버)에 든다 — 멤버 창의 부서 인원과 새 사람의 사이드바·프로젝트 목록이 새로고침 없이 다시 받게(WP-1168). 부서를 두지 않은 프로젝트에는 알리지
+   * 않는다. 정리할 사람은 없어 멤버 제거 알림은 없다. 이미 들어 있는 사람을 다시 넣으면 알림도 없다.
    */
   @Test
   void department_member_growth_notifies_member_groups() throws Exception {
     TestFixtures.grantRole(dsl, ownerId, "ADMIN"); // 조직도 쓰기 권한
     addGroup(team.key(), devId, null).andExpect(status().isCreated());
+    project(ownerId, "TEAM"); // 부서를 두지 않은 프로젝트 — 알림이 가지 않아야 한다
     long newcomerId = human("newcomer");
     actAs(ownerId);
     appEvents.clear();
@@ -492,6 +493,8 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
               assertThat(ev.ids()).containsExactly(devId);
             });
     assertThat(guard.viewerRole(row(team), newcomerId)).isEqualTo("MEMBER");
+    // 알림 수신자(프로젝트 실효 멤버)에 새로 들어온 사람이 든다 — 열어 둔 프로젝트 목록이 다시 받는다(WP-1168).
+    assertThat(memberRepository.findUserIdsByProject(team.id())).contains(newcomerId);
 
     appEvents.clear();
     groupService.addMember(
