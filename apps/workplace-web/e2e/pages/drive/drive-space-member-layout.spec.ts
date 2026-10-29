@@ -42,6 +42,36 @@ async function expectNotClipped(el: Locator, label: string) {
   expect(clip.overflow, label).not.toBe('ellipsis')
 }
 
+/**
+ * 이름이 역할·제거와 한 줄에 들어가는가 — 이름의 제 글자 폭(max-content) + 간격 + 역할·제거 폭과 줄 폭을 그 환경에서 잰다(WP-1155 의 flex-auto).
+ * 글꼴마다 글자 폭이 달라(한글 글꼴이 나눔고딕뿐인 Linux 게이트에서 「법무 · 1명 조직」 행이 감겼다, WP-1214) 미리 정하지 않는다.
+ * - 이름 폭은 살아 있는 노드를 건드리지 않고, 줄 안에 흐름 밖(absolute)으로 붙인 복제본에 최소 폭을 풀고 잰다 — 이름 칸이 최소 폭을 다시 잡는 회귀면
+ *   「들어간다」로 재어지는데 실제로는 감겨 단언이 깨진다.
+ * - 역할·제거 칸은 역할 select 에서 거슬러 찾는다(자리 순서에 기대지 않는다).
+ * - 줄 폭과 1px 안으로 붙은 경계는 브라우저의 반올림에 따라 갈릴 수 있어 판정하지 않는다(`fits: null`).
+ */
+async function measureFit(name: Locator, select: Locator) {
+  const handle = await select.elementHandle()
+  return name.evaluate((n, sel) => {
+    const controls = (sel as HTMLElement).closest('div.ml-auto') as HTMLElement
+    const wrap = controls.parentElement!
+    if (!wrap.contains(n)) throw new Error('이름과 역할·제거가 같은 줄 안에 있지 않다')
+    const clone = n.cloneNode(true) as HTMLElement
+    clone.style.cssText = 'position:absolute;visibility:hidden;flex:none;width:max-content;min-width:0;max-width:none'
+    wrap.appendChild(clone)
+    const nameW = clone.getBoundingClientRect().width
+    clone.remove()
+    const gap = parseFloat(getComputedStyle(wrap).columnGap) || 0
+    const controlsW = controls.getBoundingClientRect().width
+    const lineW = wrap.getBoundingClientRect().width
+    const need = nameW + gap + controlsW
+    return {
+      fits: need <= lineW - 1 ? true : need >= lineW + 1 ? false : null,
+      detail: `이름 ${nameW} + 간격 ${gap} + 역할·제거 ${controlsW} vs 줄 ${lineW}`,
+    }
+  }, handle)
+}
+
 /** 두 요소가 겹치지 않는다 — 역할 select 는 이름 오른쪽에 있거나, 이름 칸이 모자라 다음 줄로 내려간다. */
 async function expectApart(el: Locator, select: Locator, label: string) {
   const a = (await el.boundingBox())!
@@ -79,16 +109,22 @@ test.describe('팀 공간 멤버 창 — 이름 레이아웃 (WP-1096)', () => {
       await expectNotClipped(name, m.name)
       await expectApart(name, page.getByTestId(`drive-member-role-select-${m.userId}`), m.name)
     }
-    // 짧은 이름 행은 한 줄이다 — 이름과 역할 select 가 같은 줄(세로 가운데가 같다)에 선다(WP-1155).
+    // 짧은 이름 행은 들어가면 한 줄이다 — 이름과 역할 select 가 같은 줄(세로 가운데가 같다)에 선다(WP-1155). 들어가지 않는 글꼴에서는 select 가 다음 줄로
+    // 내려간다(WP-1214). 「QA」 사람 행은 어느 글꼴로도 들어가므로 늘 한 줄이어야 한다. 이름 칸이 최소 폭을 다시 잡으면, 재는 폭(최소 폭 없이)으로는 들어가는데
+    // 실제로는 감겨 사람·조직 행 모두 여기서 깨진다(최소 폭이 줄에 들어갈 만큼 작으면 감기지 않아 잡히지 않는다).
     const center = (b: { y: number; height: number }) => b.y + b.height / 2
     const shortMember = members.find((m) => m.name === 'QA')!
     const shortGroup = groups.find((g) => g.name === '법무')!
-    for (const [name, select] of [
-      [page.getByTestId(`drive-member-name-${shortMember.userId}`), page.getByTestId(`drive-member-role-select-${shortMember.userId}`)],
-      [page.getByTestId(`drive-member-group-name-${shortGroup.groupId}`), page.getByTestId(`drive-member-group-role-select-${shortGroup.groupId}`)],
-    ]) {
+    const rows = [
+      { name: page.getByTestId(`drive-member-name-${shortMember.userId}`), select: page.getByTestId(`drive-member-role-select-${shortMember.userId}`), mustFit: true },
+      { name: page.getByTestId(`drive-member-group-name-${shortGroup.groupId}`), select: page.getByTestId(`drive-member-group-role-select-${shortGroup.groupId}`), mustFit: false },
+    ]
+    for (const { name, select, mustFit } of rows) {
+      const fit = await measureFit(name, select)
+      if (mustFit) expect(fit.fits, fit.detail).toBe(true)
       const [a, b] = [(await name.boundingBox())!, (await select.boundingBox())!]
-      expect(Math.abs(center(a) - center(b)), `이름 y ${a.y} vs select y ${b.y}`).toBeLessThanOrEqual(2)
+      if (fit.fits === true) expect(Math.abs(center(a) - center(b)), `한 줄이어야 함 — 이름 y ${a.y} vs select y ${b.y} (${fit.detail})`).toBeLessThanOrEqual(2)
+      else if (fit.fits === false) expect(b.y, `다음 줄이어야 함 — 이름 아래 ${a.y + a.height} vs select y ${b.y} (${fit.detail})`).toBeGreaterThanOrEqual(a.y + a.height - 0.5)
     }
     // 역할·제거가 다음 줄로 내려간 행에서도 아바타·조직 아이콘은 이름 첫 줄(높이 32px) 옆에 선다 — 두 줄 사이에 뜨지 않는다.
     const longMember = members.find((m) => m.name === 'Christopher-Montgomery')!
