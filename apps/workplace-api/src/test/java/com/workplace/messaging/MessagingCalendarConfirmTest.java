@@ -31,6 +31,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 class MessagingCalendarConfirmTest extends ExternalClientMockedTestBase {
 
   @Autowired MessagingProposalService proposalService;
+  @Autowired com.workplace.messaging.repository.MessageActionProposalRepository proposalRepo;
+  @Autowired com.fasterxml.jackson.databind.ObjectMapper objectMapper;
   @Autowired ChannelRepository channelRepo;
   @Autowired ChannelMemberRepository memberRepo;
   @Autowired DSLContext dsl;
@@ -173,6 +175,51 @@ class MessagingCalendarConfirmTest extends ExternalClientMockedTestBase {
                 .where(MESSAGE.CHANNEL_ID.eq(channelId))
                 .and(MESSAGE.BODY.like("%일정 만들었어요%")));
     assertThat(resultMsgs).isEqualTo(1);
+  }
+
+  /**
+   * 고쳐 승인한 값은 제안에도 남는다 — 승인 뒤 카드 요약이 처음 제안한 값이 아니라 실제로 만든 일정(고친 제목·기간·장소)을 보인다(WP-1204). 승인 응답 카드와
+   * 다시 읽은 카드(채널 목록이 쓰는 같은 조회) 모두 본다.
+   */
+  @Test
+  void confirm_withEdits_cardShowsEditedValues() throws Exception {
+    long proposalId = proposeEvent();
+    OffsetDateTime start = OffsetDateTime.parse("2026-07-03T13:00:00+09:00");
+    OffsetDateTime end = OffsetDateTime.parse("2026-07-04T15:30:00+09:00");
+
+    MessageResponse card =
+        proposalService.confirmWithBody(
+            human, proposalId, new ConfirmProposalRequest(null, "고친 제목", start, end, "고친 장소"));
+
+    // 승인 응답 카드 — 웹이 채널 쿼리를 다시 받기 전까지 보이는 카드.
+    var p = card.proposal();
+    assertThat(p.title()).isEqualTo("고친 제목");
+    assertThat(OffsetDateTime.parse(p.startsAt()).toInstant()).isEqualTo(start.toInstant());
+    assertThat(OffsetDateTime.parse(p.endsAt()).toInstant()).isEqualTo(end.toInstant());
+    assertThat(p.location()).isEqualTo("고친 장소");
+
+    // 저장된 제안 payload — 채널 목록이 카드를 다시 그릴 때 읽는 값. 충돌 등 나머지 필드는 그대로다.
+    var saved =
+        objectMapper.readTree(proposalRepo.findById(proposalId).orElseThrow().payloadJson());
+    assertThat(saved.path("title").asText()).isEqualTo("고친 제목");
+    assertThat(OffsetDateTime.parse(saved.path("startsAt").asText()).toInstant())
+        .isEqualTo(start.toInstant());
+    assertThat(OffsetDateTime.parse(saved.path("endsAt").asText()).toInstant())
+        .isEqualTo(end.toInstant());
+    assertThat(saved.path("location").asText()).isEqualTo("고친 장소");
+    assertThat(saved.path("allDay").asBoolean()).isFalse();
+  }
+
+  /** 고치지 않고 승인하면 제안 값은 그대로다 — 빈 제목 override 는 무시한다(일정 생성과 같은 규칙). */
+  @Test
+  void confirm_withoutEdits_keepsProposedValues() {
+    long proposalId = proposeEvent();
+    MessageResponse card =
+        proposalService.confirmWithBody(
+            human, proposalId, new ConfirmProposalRequest(null, " ", null, null, null));
+    assertThat(card.proposal().title()).isEqualTo("원안 제목");
+    assertThat(OffsetDateTime.parse(card.proposal().startsAt()).toInstant())
+        .isEqualTo(OffsetDateTime.parse("2026-07-03T09:00:00+09:00").toInstant());
   }
 
   @Test
