@@ -1,6 +1,7 @@
 package com.workplace.mail.repository;
 
 import static com.workplace.jooq.Tables.EMAIL_ACCOUNT;
+import static org.jooq.impl.DSL.lower;
 import static org.jooq.impl.DSL.val;
 
 import com.workplace.mail.dto.AiAccountRef;
@@ -13,9 +14,11 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.Record;
+import org.jooq.SortField;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
@@ -169,24 +172,40 @@ public class EmailAccountRepository {
         .execute();
   }
 
-  /** 본인 활성 계정 중 같은 이메일 주소 존재 여부(중복 등록 방지). */
+  /**
+   * 같은 메일함 주소인지 — 메일 주소는 대소문자를 가리지 않으므로(ADMIN@X 와 admin@x 는 같은 메일함) 소문자로 맞춰 비교한다(WP-1111). 저장은 입력한
+   * 그대로 둔다.
+   */
+  private static Condition sameAddress(String emailAddress) {
+    return lower(EMAIL_ACCOUNT.EMAIL_ADDRESS).eq(lower(val(emailAddress)));
+  }
+
+  /** 대소문자만 다른 활성 계정이 이미 여럿일 때(WP-1111 이전 데이터) 고를 순서 — 주소가 그대로 같은 계정을 먼저, 그다음 오래된 계정. */
+  private static SortField<?>[] exactAddressFirst(String emailAddress) {
+    return new SortField<?>[] {
+      DSL.when(EMAIL_ACCOUNT.EMAIL_ADDRESS.eq(emailAddress), 0).otherwise(1).asc(),
+      EMAIL_ACCOUNT.ID.asc()
+    };
+  }
+
+  /** 본인 활성 계정 중 같은 이메일 주소(대소문자 무시) 존재 여부(중복 등록 방지). */
   public boolean existsByUserAndAddress(long userId, String emailAddress) {
     return dsl.fetchExists(
         dsl.selectOne()
             .from(EMAIL_ACCOUNT)
             .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
-            .and(EMAIL_ACCOUNT.EMAIL_ADDRESS.eq(emailAddress))
+            .and(sameAddress(emailAddress))
             .and(EMAIL_ACCOUNT.DISABLED_AT.isNull()));
   }
 
-  /** 본인 활성 계정 중 주어진 id 를 제외하고 같은 이메일 주소 존재 여부(수정 시 중복 방지). */
+  /** 본인 활성 계정 중 주어진 id 를 제외하고 같은 이메일 주소(대소문자 무시) 존재 여부(수정 시 중복 방지). */
   public boolean existsByUserAndAddressExcludingId(
       long userId, String emailAddress, long excludeId) {
     return dsl.fetchExists(
         dsl.selectOne()
             .from(EMAIL_ACCOUNT)
             .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
-            .and(EMAIL_ACCOUNT.EMAIL_ADDRESS.eq(emailAddress))
+            .and(sameAddress(emailAddress))
             .and(EMAIL_ACCOUNT.ID.ne(excludeId))
             .and(EMAIL_ACCOUNT.DISABLED_AT.isNull()));
   }
@@ -332,10 +351,22 @@ public class EmailAccountRepository {
     //   WHERE disabled_at IS NULL
     // 비활성(disabled_at NOT NULL) 동명 행은 인덱스 밖이므로 충돌 없이 새 활성 행 INSERT — 의도된 동작.
     // DO UPDATE: 기존 활성 IMAP 행을 Graph 계정으로 전환(IMAP 컬럼 소거, OAuth 토큰 채움).
+    // 인덱스는 주소를 대소문자 그대로 비교하므로, 대소문자만 다른 활성 행이 있으면 그 행의 주소로 맞춰 같은 행을 전환한다(WP-1111).
+    // 이 조회와 INSERT 사이에 대소문자만 다른 주소가 동시에 등록되는 경합은 막지 못한다(인덱스를 lower 로 바꿔야 함 — 기존 중복 정리 필요).
+    String address =
+        dsl.select(EMAIL_ACCOUNT.EMAIL_ADDRESS)
+            .from(EMAIL_ACCOUNT)
+            .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
+            .and(sameAddress(emailAddress))
+            .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+            .orderBy(exactAddressFirst(emailAddress))
+            .limit(1)
+            .fetchOptional(EMAIL_ACCOUNT.EMAIL_ADDRESS)
+            .orElse(emailAddress);
     return dsl.insertInto(EMAIL_ACCOUNT)
         .set(EMAIL_ACCOUNT.USER_ID, userId)
-        .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, emailAddress)
-        .set(EMAIL_ACCOUNT.DISPLAY_NAME, emailAddress) // 표시 이름 기본값: 이메일 주소
+        .set(EMAIL_ACCOUNT.EMAIL_ADDRESS, address)
+        .set(EMAIL_ACCOUNT.DISPLAY_NAME, address) // 표시 이름 기본값: 이메일 주소
         .set(EMAIL_ACCOUNT.PROVIDER, "M365_GRAPH")
         .set(EMAIL_ACCOUNT.OAUTH_REFRESH_TOKEN, encRefreshToken)
         .set(EMAIL_ACCOUNT.OAUTH_ACCESS_TOKEN, encAccessToken)
@@ -367,7 +398,7 @@ public class EmailAccountRepository {
   }
 
   /**
-   * 본인 활성 계정 중 이메일 주소로 첫 번째 계정을 조회한다.
+   * 본인 활성 계정 중 이메일 주소(대소문자 무시)로 첫 번째 계정을 조회한다.
    *
    * <p>OAuth 콜백 후 생성 확인 등에 사용한다. RLS GUC 주입을 위해 @Transactional 컨텍스트에서 호출해야 한다.
    *
@@ -396,8 +427,9 @@ public class EmailAccountRepository {
             EMAIL_ACCOUNT.PROVIDER)
         .from(EMAIL_ACCOUNT)
         .where(EMAIL_ACCOUNT.USER_ID.eq(userId))
-        .and(EMAIL_ACCOUNT.EMAIL_ADDRESS.eq(emailAddress))
+        .and(sameAddress(emailAddress))
         .and(EMAIL_ACCOUNT.DISABLED_AT.isNull())
+        .orderBy(exactAddressFirst(emailAddress))
         .limit(1)
         .fetchOptional(this::toResponse);
   }

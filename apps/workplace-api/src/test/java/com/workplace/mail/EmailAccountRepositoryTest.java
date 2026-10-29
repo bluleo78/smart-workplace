@@ -9,6 +9,7 @@ import com.workplace.mail.dto.MailSecurity;
 import com.workplace.mail.repository.EmailAccountRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.jooq.DSLContext;
@@ -108,6 +109,54 @@ class EmailAccountRepositoryTest extends IntegrationTestBase {
 
     assertThat(repo.existsByUserAndAddress(user, "g@example.com")).isTrue();
     assertThat(repo.existsByUserAndAddress(user, "nope@example.com")).isFalse();
+  }
+
+  /** 메일 주소는 대소문자만 달라도 같은 메일함이다 — 중복 검사·조회가 대소문자를 가리지 않는다(WP-1111). */
+  @Test
+  void addressLookups_ignoreCase() {
+    long user = TestFixtures.createHuman(dsl);
+    long id = repo.insert(user, sampleReq("admin@work-loop.local"), "ENC");
+
+    assertThat(repo.existsByUserAndAddress(user, "ADMIN@work-loop.local")).isTrue();
+    assertThat(repo.existsByUserAndAddress(user, "admin@WORK-LOOP.LOCAL")).isTrue();
+    assertThat(repo.existsByUserAndAddressExcludingId(user, "Admin@Work-Loop.Local", id)).isFalse();
+    assertThat(repo.existsByUserAndAddressExcludingId(user, "Admin@Work-Loop.Local", id + 1))
+        .isTrue();
+    assertThat(repo.findFirstByUserAndEmail(user, "ADMIN@WORK-LOOP.LOCAL"))
+        .map(EmailAccountResponse::id)
+        .contains(id);
+  }
+
+  /** 대소문자만 다른 계정이 이미 여럿이면(WP-1111 이전 데이터) 주소가 그대로 같은 계정을 고른다. */
+  @Test
+  void existingCaseDuplicates_preferExactAddress() {
+    long user = TestFixtures.createHuman(dsl);
+    repo.insert(user, sampleReq("admin@work-loop.local"), "ENC");
+    long exact = repo.insert(user, sampleReq("Admin@work-loop.local"), "ENC");
+
+    assertThat(repo.findFirstByUserAndEmail(user, "Admin@work-loop.local"))
+        .map(EmailAccountResponse::id)
+        .contains(exact);
+    assertThat(
+            repo.upsertGraphAccount(
+                user, "Admin@work-loop.local", "ENC-R", "ENC-A", OffsetDateTime.now(), false))
+        .isEqualTo(exact);
+  }
+
+  /** M365 연결 주소가 기존 IMAP 계정과 대소문자만 다르면 새 행을 만들지 않고 그 계정을 전환한다(WP-1111). */
+  @Test
+  void upsertGraphAccount_caseVariantOfExisting_convertsSameRow() {
+    long user = TestFixtures.createHuman(dsl);
+    long id = repo.insert(user, sampleReq("admin@work-loop.local"), "ENC");
+
+    long graphId =
+        repo.upsertGraphAccount(
+            user, "Admin@Work-Loop.local", "ENC-R", "ENC-A", OffsetDateTime.now(), false);
+
+    assertThat(graphId).isEqualTo(id);
+    assertThat(repo.listByUser(user))
+        .extracting(EmailAccountResponse::emailAddress)
+        .containsExactly("admin@work-loop.local");
   }
 
   @Test
