@@ -17,6 +17,7 @@ import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.CreateIssueRequest;
 import com.workplace.issue.dto.IssueAiContext;
+import com.workplace.issue.dto.IssueCardRef;
 import com.workplace.issue.dto.IssueDetailResponse;
 import com.workplace.issue.dto.IssueFieldEntry;
 import com.workplace.issue.dto.IssuePriorities;
@@ -799,6 +800,27 @@ public class IssueService {
         size,
         total,
         totalPages);
+  }
+
+  /**
+   * 채팅 앱 링크 카드용 이슈 요약(WP-896) — 상세 조회({@link #get})와 같은 읽기 판정(assertReadable — 볼 수 없는 프로젝트는 없는
+   * 프로젝트와 같은 404)을 하고, 이슈 행과 담당자만 읽는다.
+   */
+  @Transactional(readOnly = true)
+  public IssueCardRef card(Long callerId, String projectKey, int number) {
+    var project = accessGuard.assertReadable(projectKey, callerId);
+    var row =
+        issueRepository
+            .findByProjectAndNumber(project.id(), number)
+            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    return new IssueCardRef(
+        project.key(),
+        row.number(),
+        row.title(),
+        row.status(),
+        row.statusName(),
+        row.priority(),
+        assigneeRepository.findByIssue(row.id()));
   }
 
   /** 이슈 상세 조회 (요약 + 본문 + 코멘트 + 히스토리 + 담당자 + 유형). */

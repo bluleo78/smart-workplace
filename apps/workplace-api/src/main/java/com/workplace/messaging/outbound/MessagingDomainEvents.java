@@ -23,10 +23,10 @@ public final class MessagingDomainEvents {
 
   /**
    * 메시지 링크 미리보기가 바뀐 직후(WP-874) — 비동기 가져오기 저장·보낸 사람의 지우기. linkPreviews 는 바뀐 뒤 전체 목록(지우면 빈 목록). SSE
-   * fan-out 용.
+   * fan-out 용. dismissed 는 보낸 사람이 지운 경우(WP-896 — 웹이 앱 링크 카드도 감춘다).
    */
   public record LinkPreviewsChangedEvent(
-      long channelId, long messageId, List<LinkPreviewResponse> linkPreviews) {}
+      long channelId, long messageId, List<LinkPreviewResponse> linkPreviews, boolean dismissed) {}
 
   /** 메시지 soft-delete 직후. SSE fan-out 용. */
   public record MessageDeletedEvent(long channelId, long messageId) {}

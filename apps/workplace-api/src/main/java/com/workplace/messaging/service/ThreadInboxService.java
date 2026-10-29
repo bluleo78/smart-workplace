@@ -70,7 +70,8 @@ public class ThreadInboxService {
                           row.unreadReplyCount(),
                           true, // followed — 인박스에 떴다는 건 팔로우 중
                           null, // proposal — 카드 불필요(인박스 카드)
-                          List.of()); // linkPreviews — 카드 불필요
+                          List.of(), // linkPreviews — 카드 불필요
+                          false); // linkPreviewsDismissed
                   return new ThreadInboxItem(
                       root, row.channelName(), row.channelKind(), row.lastReplyAt());
                 })

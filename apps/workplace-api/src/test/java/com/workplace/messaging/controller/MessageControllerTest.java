@@ -84,7 +84,8 @@ class MessageControllerTest extends WebMvcSliceTestBase {
         0,
         false,
         null,
-        java.util.List.of());
+        java.util.List.of(),
+        false);
   }
 
   @Test

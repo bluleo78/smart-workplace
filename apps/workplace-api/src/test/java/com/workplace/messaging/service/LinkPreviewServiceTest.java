@@ -255,8 +255,11 @@ class LinkPreviewServiceTest extends IntegrationTestBase {
     assertThatThrownBy(() -> service.dismiss(outsider, msgId))
         .isInstanceOf(MessageNotFoundException.class);
     assertThat(previewRepo.findByMessageId(msgId)).hasSize(1);
+    assertThat(listed(member, ch.id(), msgId).linkPreviewsDismissed()).isFalse();
 
     service.dismiss(owner, msgId);
+    // 지움 표시가 모든 사람의 메시지 응답에 실린다 — 웹이 앱 링크 카드도 감춘다(WP-896).
+    assertThat(listed(member, ch.id(), msgId).linkPreviewsDismissed()).isTrue();
     assertThat(previewRepo.findByMessageId(msgId)).isEmpty();
     assertThat(
             dsl.select(MESSAGE.LINK_PREVIEWS_DISMISSED)
@@ -269,6 +272,7 @@ class LinkPreviewServiceTest extends IntegrationTestBase {
     messageService.update(owner, msgId, new UpdateMessageRequest("다시 " + base + "/plain"));
     refresh(msgId);
     assertThat(listed(owner, ch.id(), msgId).linkPreviews()).isEmpty();
+    assertThat(listed(owner, ch.id(), msgId).linkPreviewsDismissed()).isTrue();
   }
 
   @Test

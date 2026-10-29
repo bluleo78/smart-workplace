@@ -78,6 +78,8 @@ public class MessageSseDispatcher {
     p.put("channelId", e.channelId());
     p.put("id", e.messageId());
     p.put("linkPreviews", e.linkPreviews());
+    // 지운 경우에만 싣는다(WP-896) — 웹이 앱 링크 카드도 감춘다. 가져오기 결과 payload 는 지금 모양 그대로.
+    if (e.dismissed()) p.put("linkPreviewsDismissed", true);
     Collection<Long> to = memberRepo.findMemberIds(e.channelId());
     AfterCommit.run(() -> registry.fanOut(to, "messaging.message.link-previews", p));
   }

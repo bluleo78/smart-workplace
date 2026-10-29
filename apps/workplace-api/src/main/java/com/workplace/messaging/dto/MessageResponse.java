@@ -32,7 +32,9 @@ public record MessageResponse(
     boolean followed, // 이 스레드(부모 메시지) 팔로우 여부
     MessageProposalResponse proposal, // L3 위임 제안 카드 — service 가 batch enrich, 없으면 null
     List<LinkPreviewResponse>
-        linkPreviews) { // 링크 미리보기 카드(WP-874) — service 가 batch enrich, 늘 non-null
+        linkPreviews, // 링크 미리보기 카드(WP-874) — service 가 batch enrich, 늘 non-null
+    // 보낸 사람이 미리보기를 지웠는지(WP-896) — 웹이 앱 링크 카드도 함께 감춘다. OG 카드는 지울 때 행째 사라져 따로 볼 필요가 없다.
+    boolean linkPreviewsDismissed) {
 
   /**
    * 본문 없이 첨부만 있는 메시지는 DB 에 body NULL 로 남는다(MCP 가 body 를 생략). 응답은 늘 문자열로 맞춘다 — null 이 내려가면 웹 메시지 행이
@@ -67,7 +69,8 @@ public record MessageResponse(
         unreadReplyCount,
         followed,
         proposal,
-        linkPreviews);
+        linkPreviews,
+        linkPreviewsDismissed);
   }
 
   /** 첨부 목록을 채워 새 인스턴스 반환(repository 는 attachments 를 비워서 만들고 service 가 enrich). */
@@ -91,7 +94,8 @@ public record MessageResponse(
         unreadReplyCount,
         followed,
         proposal,
-        linkPreviews);
+        linkPreviews,
+        linkPreviewsDismissed);
   }
 
   /** 드라이브 링크 목록을 채워 새 인스턴스 반환(service 가 batch enrich). */
@@ -115,7 +119,8 @@ public record MessageResponse(
         unreadReplyCount,
         followed,
         proposal,
-        linkPreviews);
+        linkPreviews,
+        linkPreviewsDismissed);
   }
 
   /** 스레드 미읽음/팔로우 정보를 채워 새 인스턴스 반환(service 가 batch enrich). */
@@ -139,7 +144,8 @@ public record MessageResponse(
         unreadReplyCount,
         followed,
         proposal,
-        linkPreviews);
+        linkPreviews,
+        linkPreviewsDismissed);
   }
 
   /** 제안(L3 위임 카드)을 채워 새 인스턴스 반환(service 가 batch enrich). */
@@ -163,7 +169,8 @@ public record MessageResponse(
         unreadReplyCount,
         followed,
         proposal,
-        linkPreviews);
+        linkPreviews,
+        linkPreviewsDismissed);
   }
 
   /** 링크 미리보기를 채워 새 인스턴스 반환(service 가 batch enrich, WP-874). */
@@ -187,6 +194,7 @@ public record MessageResponse(
         unreadReplyCount,
         followed,
         proposal,
-        linkPreviews);
+        linkPreviews,
+        linkPreviewsDismissed);
   }
 }

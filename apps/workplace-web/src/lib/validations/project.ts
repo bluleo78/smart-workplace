@@ -2,8 +2,10 @@
 
 import { z } from 'zod';
 
-// 프로젝트 키: 대문자/숫자 2~10자, 첫 글자는 대문자
-export const projectKeySchema = z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/, {
+// 프로젝트 키: 대문자/숫자 2~10자, 첫 글자는 대문자 — 채팅 앱 링크 읽기(lib/appLinks)도 같은 규칙을 쓴다.
+export const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{1,9}$/
+
+export const projectKeySchema = z.string().regex(PROJECT_KEY_RE, {
   message: '대문자/숫자 2~10자, 첫 글자는 대문자여야 합니다',
 });
 

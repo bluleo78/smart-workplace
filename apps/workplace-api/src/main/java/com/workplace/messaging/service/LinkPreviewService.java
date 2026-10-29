@@ -161,7 +161,8 @@ public class LinkPreviewService {
               new LinkPreviewsChangedEvent(
                   now.channelId(),
                   messageId,
-                  fetched.stream().map(NewPreview::toResponse).toList()));
+                  fetched.stream().map(NewPreview::toResponse).toList(),
+                  false));
         });
   }
 
@@ -195,7 +196,7 @@ public class LinkPreviewService {
           previewRepo.markDismissed(messageId);
           previewRepo.deleteAll(messageId);
           publisher.publishEvent(
-              new LinkPreviewsChangedEvent(st.channelId(), messageId, List.of()));
+              new LinkPreviewsChangedEvent(st.channelId(), messageId, List.of(), true));
         });
   }
 

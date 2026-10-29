@@ -5,6 +5,7 @@ import { Copy, Link2Off, MessageSquare, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { messagePlainText } from '@/components/mentions/parseMessageSegments'
+import { visibleAppLinks } from '@/lib/appLinks'
 import { copyText } from '@/lib/copyText'
 
 import type { MessageSheetAction } from './MessageActionSheet'
@@ -20,6 +21,8 @@ export interface SheetMessage {
   mentions: Mentions
   // 링크 미리보기(WP-874) — 팀 채팅만 가진다. 있을 때만 「미리보기 지우기」 행을 둔다.
   linkPreviews?: readonly unknown[]
+  // 미리보기를 지웠는지(WP-896) — 지웠으면 앱 링크 카드도 없어 지울 것이 없다.
+  linkPreviewsDismissed?: boolean
 }
 
 /** 작업 행이 부를 동작. onThread 가 없으면(이슈 채팅·스레드 패널) 스레드 행을 두지 않는다. */
@@ -50,8 +53,11 @@ function permissions(
     thread: !!onThread && confirmed,
     copy: !m.deleted && m.body.trim() !== '',
     edit,
-    // 미리보기 지우기는 수정과 같은 권한(작성자 본인·확정·미삭제·쓰기 가능) + 미리보기가 있을 때.
-    dismissPreviews: edit && !!onDismissPreviews && (m.linkPreviews?.length ?? 0) > 0,
+    // 미리보기 지우기는 수정과 같은 권한(작성자 본인·확정·미삭제·쓰기 가능) + 미리보기나 앱 링크 카드(WP-896)가 있을 때.
+    dismissPreviews:
+      edit &&
+      !!onDismissPreviews &&
+      ((m.linkPreviews?.length ?? 0) > 0 || visibleAppLinks(m).length > 0),
   }
 }
 

@@ -81,6 +81,16 @@ class LinkPreviewSseFanOutTest extends ExternalClientMockedTestBase {
         .fanOut(ids.capture(), eq("messaging.message.link-previews"), payload.capture());
     assertThat(ids.getValue()).contains(uid);
     assertThat(payload.getValue())
-        .isEqualTo(Map.of("channelId", channelId, "id", msgId, "linkPreviews", List.of()));
+        // 지운 경우에만 linkPreviewsDismissed 를 싣는다(WP-896 — 다른 사람 화면의 앱 링크 카드도 감춘다).
+        .isEqualTo(
+            Map.of(
+                "channelId",
+                channelId,
+                "id",
+                msgId,
+                "linkPreviews",
+                List.of(),
+                "linkPreviewsDismissed",
+                true));
   }
 }

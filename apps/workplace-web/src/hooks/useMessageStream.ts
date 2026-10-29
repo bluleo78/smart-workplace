@@ -161,7 +161,11 @@ export function handleMessagingEvent(
     const id = Number(d.id);
     if (!id) return;
     // 같은 스트림에서 created 가 늘 먼저 오므로(서버 보장) 캐시에 있는 메시지를 patch 하면 된다.
-    patchMessage(qc, channelId, id, { linkPreviews: (d.linkPreviews ?? []) as LinkPreview[] });
+    // 작성자가 지운 경우엔 linkPreviewsDismissed:true 가 함께 온다(WP-896) — 앱 링크 카드도 감춘다. 가져오기 결과엔 없다.
+    patchMessage(qc, channelId, id, {
+      linkPreviews: (d.linkPreviews ?? []) as LinkPreview[],
+      ...(d.linkPreviewsDismissed === true ? { linkPreviewsDismissed: true } : {}),
+    });
   } else if (eventName === 'messaging.message.deleted') {
     // payload: {channelId,id}
     const id = Number(d.id);
