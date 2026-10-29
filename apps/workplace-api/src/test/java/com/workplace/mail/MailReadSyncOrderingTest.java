@@ -26,6 +26,7 @@ import com.workplace.mail.repository.EmailMessageRepository.DueSeenPushAccount;
 import com.workplace.mail.service.GraphTokenService;
 import com.workplace.mail.service.MailMessageService;
 import com.workplace.mail.service.MailReadSyncDispatcher;
+import com.workplace.support.AsyncPools;
 import com.workplace.support.ExternalClientMockedTestBase;
 import com.workplace.support.TestFixtures;
 import java.time.Duration;
@@ -391,9 +392,15 @@ class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
     when(graphApiClient.batch(eq("FAKE_TOKEN"), anyList()))
         .thenAnswer(inv -> applyToServer(server, inv.getArgument(1)));
 
+    // 앞선 테스트(같은 컨텍스트를 쓰는 다른 클래스 포함)가 남긴 작업이 돌고 있으면, 그 작업이 채우는 도중에 끝나 자리가 비고
+    // 아래 markRead 이벤트가 거절되지 않고 큐에 들어가 Graph 반영까지 가 버린다(WP-1212) — 실행기가 빈 뒤에 채운다.
+    ThreadPoolTaskExecutor exec = (ThreadPoolTaskExecutor) mailReadSyncExecutor;
+    AsyncPools.awaitIdle(mailReadSyncExecutor);
+
     CountDownLatch release = new CountDownLatch(1);
     try {
       boolean saturated = false;
+      int accepted = 0;
       for (int i = 0; i < 1_000 && !saturated; i++) {
         try {
           mailReadSyncExecutor.execute(
@@ -404,18 +411,23 @@ class MailReadSyncOrderingTest extends ExternalClientMockedTestBase {
                   Thread.currentThread().interrupt();
                 }
               });
+          accepted++;
         } catch (TaskRejectedException e) {
           saturated = true;
         }
       }
       assertThat(saturated).isTrue();
+      // 스레드·큐를 모두 이 테스트의 대기 작업이 차지했는지 — 남의 작업이 끼어 있으면 끝나며 자리가 빈다
+      assertThat(accepted)
+          .as("실행기를 이 테스트의 대기 작업만으로 채웠는지 — 모자라면 다른 작업이 끼어든 것")
+          .isEqualTo(exec.getMaxPoolSize() + exec.getQueueCapacity());
       TenantContext.set(1L);
       messageService.markRead(seededUser, id); // 이벤트 거절 — 요청은 성공
     } finally {
       release.countDown();
     }
-    ThreadPoolTaskExecutor exec = (ThreadPoolTaskExecutor) mailReadSyncExecutor;
-    await().atMost(Duration.ofSeconds(5)).until(() -> exec.getActiveCount() == 0);
+    // 풀어 준 대기 작업이 큐에 남아 다음 테스트로 새지 않게 모두 끝날 때까지 기다린다
+    AsyncPools.awaitIdle(mailReadSyncExecutor);
     verifyNoInteractions(graphApiClient);
     assertThat(row(id).getSeenPushPending()).isTrue();
 
