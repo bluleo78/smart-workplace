@@ -6,6 +6,7 @@ import {
   DEFAULT_TASK_RECURRENCE_FORM,
   monthDayMaySkip,
   nextRunText,
+  otherMonthDaysOf,
   parseTaskRRule,
   recurrenceLabel,
   recurrencePausedText,
@@ -34,11 +35,21 @@ describe('parseTaskRRule', () => {
   })
   test('매주·매월 규칙을 폼으로 되읽는다(왕복)', () => {
     const w = parseTaskRRule('FREQ=WEEKLY;BYDAY=WE,MO', '08:30')
-    expect(w).toEqual({ freq: 'WEEKLY', byDay: ['MO', 'WE'], monthDay: 1, time: '08:30' })
+    expect(w).toEqual({ freq: 'WEEKLY', byDay: ['MO', 'WE'], monthDay: 1, otherMonthDays: [], time: '08:30' })
     expect(buildTaskRRule(w)).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
     const m = parseTaskRRule('FREQ=MONTHLY;BYMONTHDAY=31', '23:59')
     expect(m.freq).toBe('MONTHLY')
     expect(m.monthDay).toBe(31)
+  })
+  test('매월 여러 날짜는 첫 날짜를 편집 날짜로, 나머지를 함께 읽어 그대로 저장한다(WP-1117)', () => {
+    const m = parseTaskRRule('FREQ=MONTHLY;BYMONTHDAY=1,15', '09:00')
+    expect(m.monthDay).toBe(1)
+    expect(m.otherMonthDays).toEqual([15])
+    expect(buildTaskRRule(m)).toBe('FREQ=MONTHLY;BYMONTHDAY=1,15')
+    // 편집 날짜를 바꿔도 나머지 날짜는 남고, 나머지와 같은 날짜로 바꾸면 겹치지 않는다.
+    expect(buildTaskRRule({ ...m, monthDay: 20 })).toBe('FREQ=MONTHLY;BYMONTHDAY=15,20')
+    expect(buildTaskRRule({ ...m, monthDay: 15 })).toBe('FREQ=MONTHLY;BYMONTHDAY=15')
+    expect(otherMonthDaysOf({ ...m, monthDay: 15 })).toEqual([])
   })
   test('지원하지 않는 FREQ 는 반복 안 함', () => {
     expect(parseTaskRRule('FREQ=YEARLY').freq).toBe('NONE')
