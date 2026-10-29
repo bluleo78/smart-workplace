@@ -35,23 +35,31 @@ public class CalendarEventRepository {
    * 초대받은 사용자도 자신의 일정을 볼 수 있도록 한다(가시성 역전).
    */
   public static Condition accessibleBy(long callerId) {
+    return accessibleBy(DSL.val(callerId));
+  }
+
+  /**
+   * {@link #accessibleBy(long)} 의 사용자 열 버전 — 바깥 쿼리의 열(예: 태그 주인 calendar_tag.user_id)과 상관 비교한다. 태그
+   * 일정 수가 주인이 지금 볼 수 있는 일정만 세게 할 때 쓴다(WP-1173).
+   */
+  public static Condition accessibleBy(org.jooq.Field<Long> userId) {
     return CALENDAR_EVENT
         .OWNER_ID
-        .eq(callerId)
+        .eq(userId)
         .or(
             DSL.exists(
                 DSL.selectOne()
                     .from(EVENT_ATTENDEE)
                     .where(EVENT_ATTENDEE.EVENT_ID.eq(CALENDAR_EVENT.ID))
-                    .and(EVENT_ATTENDEE.USER_ID.eq(callerId))));
+                    .and(EVENT_ATTENDEE.USER_ID.eq(userId))));
   }
 
   /**
    * 외부 캘린더 가시성 조건: 소속 캘린더가 로컬(external_account_id IS NULL)이거나, 연결된 메일 계정이 활성(disabled_at IS NULL)일
    * 때만 보인다. 계정 soft-delete 시 그 계정 캘린더의 일정을 목록(range/반복 마스터)에서 즉시 숨기기 위함. 두 목록 조회에 동일 적용.
-   * leftJoin(CALENDAR) 가 선행되어야 한다.
+   * leftJoin(CALENDAR) 가 선행되어야 한다. 태그 일정 수(WP-1173)도 같은 조건으로 센다.
    */
-  private static Condition visibleExternalCondition() {
+  static Condition visibleExternalCondition() {
     return CALENDAR
         .EXTERNAL_ACCOUNT_ID
         .isNull()
