@@ -18,6 +18,7 @@ import { MobileChromeProvider } from '@/components/mobile/MobileChromeContext'
 import { MobileShell } from '@/components/mobile/MobileShell'
 import { ChatSessionProvider } from '@/hooks/ChatSessionContext'
 import { MessagingConnectionContext } from '@/hooks/MessagingConnectionContext'
+import { useAppLinkConfig } from '@/hooks/queries/useAppLinks'
 import { useAiAvailable } from '@/hooks/useAiAvailable'
 import { useAuth } from '@/hooks/useAuth'
 import { useEventStream } from '@/hooks/useEventStream'
@@ -45,6 +46,8 @@ export function AppLayout() {
 
   // 이슈 상세의 "이전 화면으로 돌아가기"가 출발 화면을 찾도록 히스토리 위치를 기록(#885).
   useIssueOriginTracker()
+  // 채팅·노트의 앱 링크 판정에 쓸 공개 웹 주소 호스트(WP-1165) — 내부 주소로 접속해도 공개 주소 링크가 카드로 나오게.
+  useAppLinkConfig()
 
   const navigate = useNavigate()
   // 로그인 전에 알림을 탭했다면 저장된 목적지로 1회 이동.

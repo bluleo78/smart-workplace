@@ -25,9 +25,18 @@ export function appLinkCardPath(link: AppLink): string {
   return `/app-links/files/${link.fileId}`
 }
 
+/** 앱 링크 판정 설정(WP-1165) — 공개 웹 주소의 호스트(소문자, 포트 제외). 서버 설정이 비었거나 잘못됐으면 null. */
+export interface AppLinkConfig {
+  appHost: string | null
+}
+
 export const appLinksApi = {
   card: async (link: AppLink): Promise<AppLinkCard> => {
     const { data } = await client.get<AppLinkCard>(appLinkCardPath(link))
+    return data
+  },
+  config: async (): Promise<AppLinkConfig> => {
+    const { data } = await client.get<AppLinkConfig>('/app-links/config')
     return data
   },
 }

@@ -13,6 +13,7 @@ import com.workplace.drive.exception.DriveFolderNotFoundException;
 import com.workplace.drive.exception.DriveForbiddenException;
 import com.workplace.drive.exception.DriveInvalidTargetException;
 import com.workplace.drive.exception.DriveNotTextFileException;
+import com.workplace.drive.exception.DriveSpaceNotFoundException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveFileRepository;
 import com.workplace.drive.repository.DriveFolderRepository;
@@ -646,13 +647,14 @@ public class DriveFileService {
 
   /**
    * 채팅 앱 링크 카드용 파일 이름(WP-896) — {@link #resolveViewFileId} 와 같은 가드(없는·휴지통 파일 404, 스페이스 VIEWER 이상)를
-   * 거친다. 볼 수 없는 파일도 없는 파일과 같은 404 로 돌려 카드 요청으로 파일 id 가 있는지 알 수 없게 한다.
+   * 거친다. 볼 수 없는 파일도 없는 파일과 같은 404 로 돌려 카드 요청으로 파일 id 가 있는지 알 수 없게 한다 — 역할이 모자란 경우(403)뿐 아니라 비멤버가 받는
+   * 「공간 없음」도 「파일 없음」으로 바꾼다(WP-1165 — 메시지가 달라 있는 id 와 없는 id 가 갈렸다).
    */
   @Transactional(readOnly = true)
   public String viewableFileName(long callerId, long driveFileId) {
     try {
       return viewableRow(callerId, driveFileId).name();
-    } catch (DriveForbiddenException e) {
+    } catch (DriveForbiddenException | DriveSpaceNotFoundException e) {
       throw new DriveFileNotFoundException(driveFileId);
     }
   }

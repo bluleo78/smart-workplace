@@ -1,12 +1,12 @@
 // 채팅 본문의 우리 앱 링크 카드(WP-896, 시안 A) — 이슈·노트·드라이브 파일 링크 아래에 보는 사람 권한으로 그 순간 채운 정보를 보인다.
 // 카드 전체가 앱 안 이동 링크다(본문 URL 은 지금처럼 새 탭). 볼 수 없거나 없는 대상은 정보 없이 점선 자리에 「볼 수 없는 …」만 둔다.
-import { useQuery } from '@tanstack/react-query'
 import { Ban, FileText, SquareKanban } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 
-import { type AppLinkCard as AppLinkCardData, appLinkCardQuery, isAppLinkDenied as isDenied } from '@/api/appLinks'
+import { type AppLinkCard as AppLinkCardData, isAppLinkDenied as isDenied } from '@/api/appLinks'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
+import { useAppLinkCard } from '@/hooks/queries/useAppLinks'
 import { APP_LINK_KIND_LABEL, type AppLink } from '@/lib/appLinks'
 import { priorityLabel } from '@/lib/issueGrouping'
 import { mimeFromFilename } from '@/lib/mimeFromFilename'
@@ -18,7 +18,7 @@ const CARD_CLASS = 'block w-full min-w-0 rounded-lg border px-3 py-2'
 /** 카드 1장. testId 접미사는 메시지 id·본문 순서. */
 export function AppLinkCard({ messageId, index, link }: { messageId: number; index: number; link: AppLink }) {
   const testId = `app-link-${messageId}-${index}`
-  const { data, error } = useQuery(appLinkCardQuery(link))
+  const { data, error } = useAppLinkCard(link)
 
   // 일시 오류로 끝내 못 받았으면 카드 없이 둔다 — 「볼 수 없는 …」은 권한이 없거나 없는 대상일 때만(본문 링크는 그대로 남는다).
   if (error && !isDenied(error)) return null

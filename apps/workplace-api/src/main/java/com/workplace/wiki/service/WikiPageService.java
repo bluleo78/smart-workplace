@@ -18,6 +18,7 @@ import com.workplace.wiki.exception.WikiConflictException;
 import com.workplace.wiki.exception.WikiForbiddenException;
 import com.workplace.wiki.exception.WikiInvalidMoveException;
 import com.workplace.wiki.exception.WikiPageNotFoundException;
+import com.workplace.wiki.exception.WikiSpaceNotFoundException;
 import com.workplace.wiki.outbound.CollabClient;
 import com.workplace.wiki.outbound.CollabClient.CollabApplyResult;
 import com.workplace.wiki.outbound.CollabClient.MergeBase;
@@ -165,7 +166,8 @@ public class WikiPageService {
 
   /**
    * 채팅 앱 링크 카드(WP-896) — 노트를 열 때와 같은 VIEWER 판정(멤버 역할, 공유 토큰 없음) 뒤 제목·스페이스 이름만 읽는다. 볼 수 없는 페이지도 없는
-   * 페이지와 같은 404 로 돌려 카드 요청으로 페이지 id 가 있는지 알 수 없게 한다.
+   * 페이지와 같은 404 로 돌려 카드 요청으로 페이지 id 가 있는지 알 수 없게 한다. 비멤버의 「공간 없음」도 「페이지 없음」으로 바꾼다(WP-1165 — 지금은 전역
+   * 처리기가 둘을 같은 문구로 내지만, 그 처리기에 기대지 않고 드라이브 카드와 같은 규칙을 여기서 지킨다).
    */
   @Transactional(readOnly = true)
   public WikiPageRepository.TitleInSpace linkCard(long callerId, long pageId) {
@@ -174,7 +176,7 @@ public class WikiPageService {
         pages.findTitleInSpace(pageId).orElseThrow(() -> new WikiPageNotFoundException(pageId));
     try {
       shareAccess.effectiveRole(card.spaceId(), pageId, callerId, null, "VIEWER");
-    } catch (WikiForbiddenException e) {
+    } catch (WikiForbiddenException | WikiSpaceNotFoundException e) {
       throw new WikiPageNotFoundException(pageId);
     }
     return card;

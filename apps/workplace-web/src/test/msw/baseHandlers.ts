@@ -111,6 +111,8 @@ export const shellHandlers = [
   http.get(`${API}/wiki/pages/:id/backlinks`, () => HttpResponse.json({ items: [] })),
   http.get(`${API}/user-groups`, () => HttpResponse.json({ shared: [], personal: [] })),
   http.get(`${API}/notifications/unread-count`, () => HttpResponse.json({ count: 0 })),
+  // 앱 링크 판정 설정(WP-1165) — 앱 셸이 한 번 부른다. 공개 호스트 없음(지금 호스트만 본다).
+  http.get(`${API}/app-links/config`, () => HttpResponse.json({ appHost: null })),
   http.get(`${API}/notifications`, () => HttpResponse.json([])),
   http.get(`${API}/mail/unread-summary`, () => HttpResponse.json({ workUnread: 0 })),
   // E2E 기본 스텁에는 없어 503 으로 새던 조회(WP-971 에서 발견) — 메일 계정이 없는 사용자로 둔다.
