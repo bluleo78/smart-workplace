@@ -120,6 +120,8 @@ vi.mock('../../api/client', () => ({
 
 import * as Y from 'yjs'
 
+import { runTestResets } from '@/lib/testResets'
+
 import { AWAY_TOAST_MS, BACKGROUND_DISCONNECT_MS, shouldShowAwayToast } from './collabResume'
 import {
   type CollabSession,
@@ -186,6 +188,15 @@ describe('collab session cache', () => {
     vi.advanceTimersByTime(3000)
     expect(acquireCollabSession(1)).toBe(a)
     expect(destroyed).toEqual([])
+  })
+
+  it('테스트 끝 정리(setup.ts 의 runTestResets)가 유예 중 세션을 타이머 없이 바로 정리한다 (WP-1206)', () => {
+    const a = acquireCollabSession(30)
+    releaseCollabSession(a)
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+    runTestResets()
+    expect(destroyed).toEqual(['wiki-page:30'])
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('destroys after grace period', () => {
