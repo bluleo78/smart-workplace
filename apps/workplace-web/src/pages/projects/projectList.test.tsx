@@ -60,6 +60,19 @@ describe('프로젝트 목록', () => {
     expect(row).toHaveTextContent('팀')
   })
 
+  // WP-1157 — 데스크톱 칩이 개인/팀 두 갈래뿐이라 공개 접수함(OPEN)이 「팀」으로 보였다. 설정·모바일과 같은 이름을 쓴다.
+  test('유형 칩은 유형마다 설정과 같은 이름이다 — 팀·개인·접수함 (WP-1157)', async () => {
+    await open([
+      createProject({ key: 'TA', name: '팀A', type: 'TEAM' }),
+      createProject({ key: 'ME', name: '내 프로젝트', type: 'PERSONAL' }),
+      createProject({ key: 'OP', name: '오픈', type: 'OPEN' }),
+    ])
+    const chip = async (key: string) => within(await screen.findByTestId(`project-row-${key}`)).getByTestId('project-type-chip')
+    expect(await chip('TA')).toHaveTextContent(/^팀$/)
+    expect(await chip('ME')).toHaveTextContent(/^개인$/)
+    expect(await chip('OP')).toHaveTextContent(/^접수함$/)
+  })
+
   test('목록이 비면 빈 상태를 보인다', async () => {
     await open([])
     expect(await screen.findByTestId('projects-empty')).toBeInTheDocument()
