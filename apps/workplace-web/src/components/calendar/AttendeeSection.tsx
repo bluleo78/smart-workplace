@@ -8,7 +8,7 @@
 // 일정 폼의 참석자 아이콘 줄(배치 B) 안에 들어가 이름표 없이 칩과 「＋ 참석자」를 한 줄에 잇는다(넘치면 다음 줄).
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, Clock, HelpCircle, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { DashedAddChip } from '@/components/calendar/CalendarTagChip'
 import { FORM_CHIP_LINE_CLASS } from '@/components/calendar/EventFormRow'
@@ -101,9 +101,14 @@ export function AttendeeSection({
     else onChange([...selectedMembers, ...fresh])
   }
 
+  // 만들기는 고른 사람 전체를 한 요청에 보내 한도(500명)를 넘으면 저장이 거절된다 — 다 찼으면 한 명씩도 더 넣지 않는다(WP-1112).
+  // 편집은 고를 때마다 그 사람만 초대하므로 막지 않는다.
+  const full = !onInvite && existingIds.length >= ATTENDEE_LIMIT
+
   // 사람 한 명을 고르면 바로 넣는다 — 조직 확인이 떠 있었으면 닫는다(다른 것을 고른 것이다).
   const handleSelectPerson = (userId: number, person: PickedPerson) => {
     setPending(null)
+    if (full) return
     addPeople([{ id: userId, name: person.name }])
   }
 
@@ -113,7 +118,7 @@ export function AttendeeSection({
   const selectGroup = (group: GroupOption) => {
     setPending({ group, status: 'loading' })
     // 만들기는 고른 사람 전체를 한 요청에 보내므로 남은 자리만, 편집은 이번 초대만 보내므로 한도 그대로.
-    const capacity = onInvite ? ATTENDEE_LIMIT : ATTENDEE_LIMIT - selectedMembers.length
+    const capacity = onInvite ? ATTENDEE_LIMIT : Math.max(0, ATTENDEE_LIMIT - existingIds.length)
     // 그 사이 다른 그룹을 골랐으면 늦게 온 결과로 덮지 않는다.
     const settle = (next: PendingGroup) => setPending((cur) => (cur?.group.id === group.id ? next : cur))
     queryClient.fetchQuery(groupAllMembersQuery(group.id)).then(
@@ -146,7 +151,20 @@ export function AttendeeSection({
   // 알림 영역(role=status)은 글만 감싼다 — 단추까지 감싸면 바뀔 때마다 단추 이름까지 읽힌다.
   const plan = pending?.status === 'ready' ? pending.plan : null
   const detail = plan ? groupInviteDetail(plan) : ''
-  const footer = pending && (
+  // 넣을 수 없는 확인(넣을 사람 없음·한도 넘음)이면 「취소」가 포커스를 받는다 — 추가 단추가 없거나 막혀 포커스가 검색창에 남으면
+  // Enter 가 같은 그룹을 다시 골라 확인 줄이 깜빡이기만 하고 키보드로는 빠져나갈 수 없었다(WP-1112).
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const blocked = plan != null && (plan.toAdd.length === 0 || isOverLimit(plan))
+  useEffect(() => {
+    if (blocked) cancelRef.current?.focus()
+  }, [blocked, plan])
+  // 취소하면 확인 줄이 사라지며 포커스가 문서 밖(body)으로 떨어지지 않게 고르기 창 검색칸으로 돌려준다.
+  const cancelGroup = () => {
+    const search = cancelRef.current?.closest('[role="dialog"]')?.querySelector<HTMLInputElement>('input')
+    setPending(null)
+    search?.focus()
+  }
+  const footer = pending ? (
     <div className="space-y-1 border-t bg-muted/40 px-3 py-2.5 text-sm" data-testid="attendee-group-confirm">
       <div role="status" className="space-y-1">
         {pending.status === 'loading' && <p className="text-muted-foreground">{pending.group.name} 구성원을 불러오는 중…</p>}
@@ -168,7 +186,14 @@ export function AttendeeSection({
         )}
       </div>
       <div className="flex justify-end gap-2 pt-1">
-        <Button type="button" variant="outline" size="sm" onClick={() => setPending(null)} data-testid="attendee-group-cancel">
+        <Button
+          ref={cancelRef}
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={cancelGroup}
+          data-testid="attendee-group-cancel"
+        >
           취소
         </Button>
         {plan && plan.toAdd.length > 0 && (
@@ -186,7 +211,12 @@ export function AttendeeSection({
         )}
       </div>
     </div>
-  )
+  ) : full ? (
+    // 다 찬 만들기 — 사람을 골라도 넣지 않는 까닭을 고르기 창 아래에 알린다.
+    <p role="status" className="border-t bg-muted/40 px-3 py-2.5 text-sm text-destructive" data-testid="attendee-limit-full">
+      참석자는 {ATTENDEE_LIMIT}명까지라 더 넣을 수 없습니다
+    </p>
+  ) : null
 
   return (
     // 이름표 대신 그룹 이름 — 아이콘 줄이라 「참석자」가 화면에 쓰여 있지 않다
