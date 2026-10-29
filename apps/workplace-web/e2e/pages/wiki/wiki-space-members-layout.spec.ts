@@ -43,6 +43,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await expect(path).toBeVisible()
     // 창이 열리는 동안(확대 애니메이션) 잰 폭은 다를 수 있어 둘 다 다시 재며 기다린다.
     await expect.poll(() => path.evaluate((el: HTMLElement) => el.scrollWidth > el.clientWidth)).toBe(true)
-    await expect.poll(() => list.evaluate((el: HTMLElement) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    // 목록 자신의 scrollWidth 는 줄이 넘쳐도 늘지 않을 수 있어(자식이 truncate) 회귀를 못 잡았다(WP-1142) —
+    // 경로 줄의 오른쪽 끝이 목록 안에 있는지 위치로 본다(줄이 넘치면 목록 밖까지 뻗는다).
+    await expect.poll(async () => {
+      const [p, l] = [await path.boundingBox(), await list.boundingBox()]
+      return p!.x + p!.width - (l!.x + l!.width)
+    }).toBeLessThanOrEqual(0.5)
   })
 }

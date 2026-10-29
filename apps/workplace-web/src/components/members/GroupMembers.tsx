@@ -4,16 +4,26 @@
 import { useGroupAllMembers } from '@/hooks/queries/useGroupMemberSearch'
 import { cn } from '@/lib/utils'
 
+/** 펼침 목록이 놓이는 부서 행 모양 — 「member-row」는 멤버 창·프로젝트 멤버 표(펼침 버튼 + 아이콘 뒤 이름 자리, 아래 행과 띄움),
+ * 「share-row」는 노트 공유 창의 지정한 부서(아이콘 뒤 이름 자리, 부서 행 바로 아래). */
+type GroupMembersInset = 'member-row' | 'share-row'
+
+const INSETS: Record<GroupMembersInset, string> = {
+  'member-row': 'mb-1 ml-14',
+  'share-row': 'mt-1 ml-8',
+}
+
 /**
  * 부서 행의 구성원 펼침(WP-1052) — 그 부서와 하위 부서의 지금 사람 구성원(그 부서로 들어오는 사람). 펼칠 때만 받는다.
  * 하위 부서 사람은 소속 경로를 함께 보인다(서버 경로는 펼친 부서 자신부터라 첫 이름은 뺀다). 외부 연락처는 멤버로 들어올 수 없어 뺀다.
- * className 은 놓이는 줄에 맞춘 들여쓰기·여백을 덧붙인다(창마다 부서 행 모양이 달라서 — 기본 mb-1 ml-14 를 tailwind-merge 로 덮는다).
+ * inset 은 놓이는 부서 행 모양에 맞춘 들여쓰기·여백이다 — 창마다 부서 행 모양이 달라 이름 자리가 다르다.
+ * 바깥에서 className 으로 기본 여백을 덮어쓰면 기본값을 바꿀 때 조용히 어긋나서(WP-1142) 모양을 이름으로 고른다.
  */
-export function GroupMembers({ groupId, testId, className }: { groupId: number; testId: string; className?: string }) {
+export function GroupMembers({ groupId, testId, inset = 'member-row' }: { groupId: number; testId: string; inset?: GroupMembersInset }) {
   const members = useGroupAllMembers(groupId)
   const people = (members.data ?? []).filter((m) => m.targetType === 'MEMBER')
   return (
-    <div className={cn('mb-1 ml-14 space-y-0.5 text-xs', className)} data-testid={testId}>
+    <div className={cn('space-y-0.5 text-xs', INSETS[inset])} data-testid={testId}>
       {members.isPending ? (
         <p className="text-muted-foreground">구성원을 불러오는 중…</p>
       ) : members.isError ? (
