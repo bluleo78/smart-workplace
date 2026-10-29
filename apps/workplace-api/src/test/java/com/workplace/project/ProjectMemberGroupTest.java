@@ -3,6 +3,7 @@ package com.workplace.project;
 import static com.workplace.jooq.Tables.AGENT_WORK;
 import static com.workplace.jooq.Tables.ISSUE_ASSIGNEE;
 import static com.workplace.jooq.Tables.ISSUE_HISTORY;
+import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP;
 import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
@@ -44,6 +45,7 @@ import com.workplace.user.service.UserGroupService;
 import com.workplace.watcher.repository.IssueWatcherRepository;
 import com.workplace.watcher.service.WatcherService;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -195,6 +197,26 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
                 .content(om.writeValueAsString(Map.of("groupId", backendId))),
             devMemberId)
         .andExpect(status().isForbidden());
+  }
+
+  /**
+   * 직접 멤버 목록은 가입순이고, 가입 시각이 같으면 user_id 순이다(WP-1187). 한 트랜잭션에서 넣은 멤버는 created_at(트랜잭션 시작 시각)이 같아,
+   * 동률 기준이 없으면 저장 순서(물리 순서)대로 나와 실행마다 흔들렸다 — id 가 큰 사람을 먼저 넣어도 id 순으로 나와야 한다.
+   */
+  @Test
+  void direct_members_with_same_join_time_are_ordered_by_user_id() {
+    ProjectResponse p = project(ownerId, "TEAM");
+    projectService.addMember(ownerId, p.key(), new AddMemberRequest(strangerId, "MEMBER"));
+    projectService.addMember(ownerId, p.key(), new AddMemberRequest(devMemberId, "MEMBER"));
+    OffsetDateTime same = OffsetDateTime.parse("2026-10-01T00:00:00Z");
+    dsl.update(PROJECT_MEMBER)
+        .set(PROJECT_MEMBER.CREATED_AT, same)
+        .where(PROJECT_MEMBER.PROJECT_ID.eq(p.id()))
+        .execute();
+
+    assertThat(memberRepository.findAllByProject(p.id()))
+        .extracting(m -> m.userId())
+        .containsExactly(ownerId, devMemberId, strangerId);
   }
 
   /** 실효 역할은 높은 것 — 직접 OWNER + 부서 MEMBER → OWNER. 직접 MEMBER + 부서 → MEMBER(한 번만). */
