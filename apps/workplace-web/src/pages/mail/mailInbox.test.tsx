@@ -142,6 +142,18 @@ test('?messageId 로 직접 들어오면 그 메일이 선택돼 상세가 열�
   expect(await screen.findByTestId('mail-detail')).toHaveTextContent('월간 보고서')
 })
 
+test('제목이 보이지 않는 글자(제로폭 공백)뿐인 메일은 행·행 이름·상세에 「(제목 없음)」(WP-1110)', async () => {
+  const zw = '\u200B\u200B'
+  renderMail('/mail/1?messageId=100', {
+    messages: [summary({ id: 100, fromName: '앨리스', subject: zw, snippet: '본문', seen: true })],
+    handlers: [detailHandler(100, { subject: zw, bodyText: '본문' })],
+  })
+  const row = await screen.findByTestId('mail-row-100')
+  expect(row).toHaveTextContent('(제목 없음)')
+  expect(row).toHaveAccessibleName('앨리스 (제목 없음)')
+  expect(within(await screen.findByTestId('mail-detail')).getByRole('heading', { level: 2 })).toHaveTextContent('(제목 없음)')
+})
+
 test('계정을 바꾸면 앞 계정의 선택이 풀리고 빈 상세 안내가 보인다(#474 회귀)', async () => {
   const { user, location } = renderMail('/mail/1?messageId=100', {
     accounts: [mailAccount(), mailAccount({ id: 2, emailAddress: 'work@example.com' })],

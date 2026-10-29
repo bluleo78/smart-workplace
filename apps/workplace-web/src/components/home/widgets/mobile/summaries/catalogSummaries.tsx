@@ -12,6 +12,7 @@ import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { useMyChannels } from '@/hooks/queries/useMyChannels'
 import { useProjects } from '@/hooks/queries/useProjects'
 import { useWikiSpaces } from '@/hooks/queries/useWikiSpaces'
+import { mailSubjectText } from '@/lib/mailSubject'
 import type { ContactTypeFilter } from '@/types/contact'
 import type { MailFolder } from '@/types/mailMessage'
 
@@ -62,7 +63,7 @@ export function MailListSummary({ params, render }: MobileSummaryProps) {
       status: 'ready',
       text: (
         <>
-          <span className="font-medium">{mailSender(first)}</span> · {first.subject ?? '(제목 없음)'}
+          <span className="font-medium">{mailSender(first)}</span> · {mailSubjectText(first.subject)}
         </>
       ),
     }
