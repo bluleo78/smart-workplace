@@ -32,6 +32,7 @@ import com.workplace.issue.service.IssueService;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.service.ProjectService;
+import com.workplace.support.AsyncPools;
 import com.workplace.support.IntegrationTestBase;
 import java.net.http.HttpClient;
 import java.time.OffsetDateTime;
@@ -72,6 +73,8 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
   protected static final String TOOL = "claude-code";
 
   @Autowired protected DSLContext dsl;
+  // 정리 전에 비동기 풀이 빌 때까지 기다리는 데 쓴다(WP-1182).
+  @Autowired private org.springframework.context.ApplicationContext asyncPoolContext;
   @Autowired protected UserApiTokenService userTokenService;
   @Autowired protected AgentApiKeyService agentKeyService;
   @Autowired protected JwtTokenProvider jwtTokenProvider;
@@ -175,32 +178,46 @@ public abstract class AgentWorkTestSupport extends IntegrationTestBase {
    */
   @AfterEach
   void cleanupAgentWorkFixture() {
-    cleanupInTenant(
-        TENANT_ID,
-        () -> {
-          if (!userIds.isEmpty()) {
-            dsl.deleteFrom(FILE).where(FILE.UPLOADED_BY.in(userIds)).execute();
-            dsl.deleteFrom(AGENT_WORK).where(AGENT_WORK.WORKER_ID.in(userIds)).execute();
-          }
-          if (projectId != 0) {
-            dsl.deleteFrom(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId)).execute();
-          }
-          if (!userIds.isEmpty()) {
-            // PAT 로 GET /projects 를 부르면 개인 프로젝트가 지연 생성될 수 있어 소유 프로젝트를 모두 지운다.
-            dsl.deleteFrom(ISSUE)
-                .where(
-                    ISSUE.PROJECT_ID.in(
-                        dsl.select(PROJECT.ID).from(PROJECT).where(PROJECT.OWNER_ID.in(userIds))))
-                .execute();
-            dsl.deleteFrom(PROJECT).where(PROJECT.OWNER_ID.in(userIds)).execute();
-            dsl.deleteFrom(AUDIT_LOG).where(AUDIT_LOG.USER_ID.in(userIds)).execute();
-          }
-        });
-    if (!userIds.isEmpty()) {
-      // ak_ 키는 발급자(created_by, 사람)도 참조해 CASCADE 순서가 엇갈리므로 먼저 지운다.
-      // membership·user_role·PAT 는 user 삭제 시 CASCADE.
-      dsl.deleteFrom(AGENT_API_KEY).where(AGENT_API_KEY.USER_ID.in(userIds)).execute();
-      dsl.deleteFrom(USER).where(USER.ID.in(userIds)).execute();
+    // 요청이 커밋 뒤 넘긴 비동기 일이 끝난 뒤 지운다(WP-1182) — 남은 일이 사용자·이슈 행을 잡고 있으면 아래 삭제와 교착이 났다.
+    AsyncPools.awaitAllIdleQuietly(asyncPoolContext);
+    try {
+      cleanupInTenant(
+          TENANT_ID,
+          () -> {
+            if (!userIds.isEmpty()) {
+              dsl.deleteFrom(FILE).where(FILE.UPLOADED_BY.in(userIds)).execute();
+              dsl.deleteFrom(AGENT_WORK).where(AGENT_WORK.WORKER_ID.in(userIds)).execute();
+            }
+            if (projectId != 0) {
+              dsl.deleteFrom(ISSUE).where(ISSUE.PROJECT_ID.eq(projectId)).execute();
+            }
+            if (!userIds.isEmpty()) {
+              // PAT 로 GET /projects 를 부르면 개인 프로젝트가 지연 생성될 수 있어 소유 프로젝트를 모두 지운다.
+              dsl.deleteFrom(ISSUE)
+                  .where(
+                      ISSUE.PROJECT_ID.in(
+                          dsl.select(PROJECT.ID).from(PROJECT).where(PROJECT.OWNER_ID.in(userIds))))
+                  .execute();
+              dsl.deleteFrom(PROJECT).where(PROJECT.OWNER_ID.in(userIds)).execute();
+              dsl.deleteFrom(AUDIT_LOG).where(AUDIT_LOG.USER_ID.in(userIds)).execute();
+            }
+          });
+    } finally {
+      // 위 정리가 실패해도 사용자는 지운다 — 남으면 같은 JVM 의 다음 테스트가 멤버·키 수를 셀 때 섞인다.
+      if (!userIds.isEmpty()) {
+        // 사용자 삭제도 교착 재시도 안에서 한다(WP-1182) — 전에는 재시도 밖 자동 커밋이라 한 번의 교착에 테스트가 실패했다.
+        cleanupInTenant(
+            TENANT_ID,
+            () -> {
+              // ak_ 키는 발급자(created_by, 사람)도 참조해 CASCADE 순서가 엇갈리므로 먼저 지운다 — 시드한 사람이 발급한 키까지.
+              // membership·user_role·PAT 는 user 삭제 시 CASCADE.
+              dsl.deleteFrom(AGENT_API_KEY)
+                  .where(AGENT_API_KEY.USER_ID.in(userIds))
+                  .or(AGENT_API_KEY.CREATED_BY.in(userIds))
+                  .execute();
+              dsl.deleteFrom(USER).where(USER.ID.in(userIds)).execute();
+            });
+      }
     }
     userIds.clear();
     projectId = 0;
