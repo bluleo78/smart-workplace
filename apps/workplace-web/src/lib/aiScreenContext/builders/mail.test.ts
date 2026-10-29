@@ -50,6 +50,14 @@ describe('buildMailContext', () => {
     expect(buildMailContext({ ...base, selected: { ...sel, subject: 's'.repeat(300) } }).focus!.label).toHaveLength(200);
   });
 
+  it('보이지 않는 글자뿐인 제목도 「(제목 없음)」 — 화면 판정과 같다(WP-1180)', () => {
+    const sel = { id: 1, subject: '\u200B', fromName: null, fromAddress: 'a@b.c', receivedAt: '2026-09-29T00:00:00Z', aiCategory: null, aiNeedsReply: null };
+    for (const subject of ['\u200B', ' \u200B\u2060 ', '']) {
+      expect(buildMailContext({ ...base, selected: { ...sel, subject } }).focus!.label).toBe('(제목 없음)');
+    }
+    expect(buildMailContext({ ...base, selected: { ...sel, subject: '  견적  ' } }).focus!.label).toBe('견적');
+  });
+
   // 분류 값은 백엔드 MailAiService.CATEGORIES 의 한글 표시값('업무' 등) 그대로 — UI 배지·사이드바와 같은 문자열.
   it('분류 필터 fact 는 화면 표시값 그대로', () => {
     expect(buildMailContext({ ...base, category: '업무' }).scope!.facts).toEqual([{ label: '분류', value: '업무' }]);
