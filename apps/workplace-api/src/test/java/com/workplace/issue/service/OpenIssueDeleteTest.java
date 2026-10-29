@@ -12,6 +12,7 @@ import com.workplace.issue.repository.IssueAssigneeRepository;
 import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
@@ -149,6 +150,34 @@ class OpenIssueDeleteTest extends IntegrationTestBase {
         .execute();
 
     assertThatCode(() -> issueService.softDelete(s.strangerId(), s.projectKey(), s.issueNumber()))
+        .doesNotThrowAnyException();
+  }
+
+  /**
+   * 볼 수 없는 프로젝트(TEAM 비멤버)의 이슈 삭제는 이슈가 있든 없든 조회와 같은 404 다(WP-1178) — 전에는 있는 이슈 403·없는 이슈 404 「이슈를 찾을
+   * 수 없습니다」로 갈려 비공개 프로젝트의 키와 이슈 번호가 드러났다. 확인 카드 사전검증(validateDeletable)도 같다.
+   */
+  @Test
+  void team_stranger_delete_hides_issue_existence() {
+    var s = teamScenario();
+    for (int number : new int[] {s.issueNumber(), 999}) {
+      assertThatThrownBy(() -> issueService.softDelete(s.strangerId(), s.projectKey(), number))
+          .isInstanceOf(ProjectNotFoundException.class)
+          .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
+      assertThatThrownBy(
+              () -> issueService.validateDeletable(s.strangerId(), s.projectKey(), number))
+          .isInstanceOf(ProjectNotFoundException.class)
+          .hasMessage(ProjectNotFoundException.HIDDEN_MESSAGE);
+    }
+    assertThat(issueRepository.findByProjectAndNumber(s.project().id(), s.issueNumber()))
+        .isPresent();
+  }
+
+  /** 볼 수 없는 프로젝트라도 자기 제보는 지울 수 있다 — 제보자 갈래는 숨기지 않는다(WP-1178, WP-634). */
+  @Test
+  void team_non_member_reporter_still_deletes_own_issue() {
+    var s = teamScenario();
+    assertThatCode(() -> issueService.softDelete(s.reporterId(), s.projectKey(), s.issueNumber()))
         .doesNotThrowAnyException();
   }
 }

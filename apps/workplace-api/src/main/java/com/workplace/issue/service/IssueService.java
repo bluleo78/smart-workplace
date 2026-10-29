@@ -68,6 +68,7 @@ import com.workplace.label.service.LabelService;
 import com.workplace.milestone.service.MilestoneService;
 import com.workplace.project.dto.ProjectRow;
 import com.workplace.project.exception.ProjectAccessDeniedException;
+import com.workplace.project.exception.ProjectNotFoundException;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.project.repository.ProjectMemberRepository;
 import com.workplace.project.repository.ProjectRepository;
@@ -1505,14 +1506,22 @@ public class IssueService {
     checkDeletable(callerId, projectKey, number);
   }
 
-  /** 이슈 삭제 술어 — reporter·프로젝트 OWNER·ADMIN(개인 프로젝트 제외)만. 삭제 대상 프로젝트·행을 돌려준다. */
+  /**
+   * 이슈 삭제 술어 — reporter·프로젝트 OWNER·ADMIN(개인 프로젝트 제외)만. 삭제 대상 프로젝트·행을 돌려준다.
+   *
+   * <p>프로젝트를 볼 수 없는 사람에게는, 그 이슈의 제보자가 아니면 이슈가 있든 없든 조회와 같은 404({@link
+   * ProjectNotFoundException#hidden})를 돌려준다(WP-1178) — 전에는 있는 이슈 403·없는 이슈 404 로 갈려, 비멤버가 번호를 넣어 보며
+   * 비공개 프로젝트 키와 이슈 수를 알 수 있었다(조회 쪽은 WP-588). 볼 수 없어도 자기 제보는 지울 수 있다(공개 접수함 비멤버 제보자, WP-634).
+   */
   private DeletableIssue checkDeletable(Long callerId, String projectKey, int number) {
-    // 멤버십 선검증 제거 — reporter/OWNER 로 직접 판정 (OPEN 비멤버 reporter 허용)
+    // 멤버십 선검증 대신 reporter/OWNER 로 직접 판정 (비멤버 reporter 허용)
     var project = accessGuard.resolve(projectKey);
-    var row =
-        issueRepository
-            .findByProjectAndNumber(project.id(), number)
-            .orElseThrow(() -> new IssueNotFoundException(projectKey, number));
+    var found = issueRepository.findByProjectAndNumber(project.id(), number);
+    if (!accessGuard.canRead(project, callerId)
+        && found.map(r -> !r.reporterId().equals(callerId)).orElse(true)) {
+      throw ProjectNotFoundException.hidden();
+    }
+    var row = found.orElseThrow(() -> new IssueNotFoundException(projectKey, number));
 
     boolean isReporter = row.reporterId().equals(callerId);
     boolean isOwner = accessGuard.isOwner(project, callerId);
