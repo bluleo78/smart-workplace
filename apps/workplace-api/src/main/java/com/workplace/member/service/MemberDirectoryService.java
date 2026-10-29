@@ -1,10 +1,12 @@
 package com.workplace.member.service;
 
+import com.workplace.global.ai.AgentSlotCounter;
 import com.workplace.global.dto.PageResponse;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.util.UnicodeNames;
 import com.workplace.member.dto.MemberSummary;
 import com.workplace.member.repository.MemberDirectoryRepository;
+import com.workplace.user.dto.UserKind;
 import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class MemberDirectoryService {
 
   private final MemberDirectoryRepository repository;
+  private final AgentSlotCounter agentSlotCounter;
 
   /**
    * 보는 사람 없이 부르는 목록 — 개인 비서는 모두 뺀다(WP-638, {@link #list(Long, String, String, boolean, int, int)}).
@@ -55,11 +58,18 @@ public class MemberDirectoryService {
 
   /**
    * 구성원 단건. 보는 사람(viewerId)이 바로 그 AI 면 지시(WP-1077)를 함께 싣는다 — 외부 AI 의 work-loop 가 MCP
-   * get_member("me") 로 자기 지시를 읽는다. 남의 조회에는 싣지 않는다(지시는 그 AI 만 본다).
+   * get_member("me") 로 자기 지시를 읽는다. 남의 조회에는 싣지 않는다(지시는 그 AI 만 본다). 동시 진행 자리({@link
+   * AgentSlotCounter})도 AI 본인 조회에만 싣는다.
    */
   @Transactional(readOnly = true)
   public Optional<MemberSummary> get(Long viewerId, long userId) {
     boolean self = viewerId != null && viewerId == userId;
-    return repository.findOne(TenantContext.require(), userId, self);
+    return repository
+        .findOne(TenantContext.require(), userId, self)
+        .map(
+            m ->
+                self && UserKind.isAgent(m.kind())
+                    ? m.withSlots(agentSlotCounter.count(userId))
+                    : m);
   }
 }

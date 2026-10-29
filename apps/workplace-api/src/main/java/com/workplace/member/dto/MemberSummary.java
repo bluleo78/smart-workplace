@@ -1,6 +1,8 @@
 package com.workplace.member.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.workplace.global.ai.AgentSlotCounter.AgentSlots;
+import lombok.With;
 
 /**
  * 구성원 디렉터리 항목 (#833).
@@ -18,6 +20,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * @param department 소속 부서(WP-1048) — 직접 속한 조직도 부서 하나의 이름(정렬 순서가 앞인 것). 없으면 null.
  * @param instructions AI 의 지시(WP-1077) — 그 AI 자신이 이슈를 맡을 때마다 따르는 규칙. AI 가 자기 자신을 단건 조회할 때만 싣고,
  *     목록·남의 조회에는 빠진다(null 이면 JSON 에서 키째 뺀다).
+ * @param slots AI 의 동시 진행 자리(WP-1205, {@code AgentSlotCounter}) — instructions 와 같이 AI 본인 단건 조회에만
+ *     싣는다.
  */
 public record MemberSummary(
     long userId,
@@ -32,4 +36,6 @@ public record MemberSummary(
     String description,
     String agentRuntime,
     String department,
-    @JsonInclude(JsonInclude.Include.NON_NULL) String instructions) {}
+    @JsonInclude(JsonInclude.Include.NON_NULL) String instructions,
+    // 자리는 저장소가 모르므로 서비스가 withSlots 로 붙인다.
+    @With @JsonInclude(JsonInclude.Include.NON_NULL) AgentSlots slots) {}

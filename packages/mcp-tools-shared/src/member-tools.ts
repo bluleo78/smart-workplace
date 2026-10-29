@@ -184,7 +184,7 @@ export function buildMemberTools(client: MemberToolClient & CurrentUserClient): 
       kind: 'read',
       description:
         'Returns one member by username ("me" = the caller): name, email, title, kind, active, membershipRole, membershipStatus; ' +
-        'AI members add description and agentRuntime; "me" adds instructions (rules to follow).',
+        'AI members add description and agentRuntime; "me" adds instructions and slots (work cap).',
       inputSchema: memberInput,
       async handler(args) {
         const { username } = memberInput.parse(args);
