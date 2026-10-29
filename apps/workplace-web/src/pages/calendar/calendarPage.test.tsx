@@ -132,6 +132,35 @@ describe('헤더·보기·표기', () => {
   })
 })
 
+describe('월 보기 「+N」 (WP-1139)', () => {
+  // 「+N」이 클릭 처리 없는 글자라 누르면 칸의 「새 일정」이 열리고, 숨은 일정은 월 보기에서 볼 길이 없었다.
+  // jsdom 은 칸 높이가 0 이라 측정 전 값(3건)만 칸에 그린다 — 5건이면 「+2」.
+  const DAY = '2026-06-12'
+  const dayEvents = [1, 2, 3, 4, 5].map((n) =>
+    calendarEvent({ id: n, title: `일정 ${n}`, startsAt: `2026-06-12T0${n}:00:00Z`, endsAt: `2026-06-12T0${n}:30:00Z` }),
+  )
+
+  test('「+2」는 버튼이고, 누르면 새 일정 창 대신 그날 일정 전체를 보이며, 고르면 그 일정을 연다', async () => {
+    const { user } = await renderCalendar({ events: dayEvents })
+    const more = await screen.findByTestId(`calendar-more-${DAY}`)
+    expect(more).toHaveRole('button')
+    expect(more).toHaveTextContent('+2')
+    expect(more).toHaveAccessibleName('6월 12일 일정 2개 더 보기')
+
+    await user.click(more)
+    const popover = await screen.findByTestId(`calendar-more-popover-${DAY}`)
+    expect(within(popover).getByText('6월 12일 일정 5개')).toBeInTheDocument()
+    expect(within(popover).getAllByRole('button').map((b) => b.textContent)).toEqual(['일정 1', '일정 2', '일정 3', '일정 4', '일정 5'])
+    expect(screen.queryByTestId('calendar-event-dialog')).not.toBeInTheDocument()
+
+    // 칸에 없던 일정을 팝오버에서 고르면 팝오버가 닫히고 그 일정이 열린다(새 일정 창이 아니다).
+    await user.click(within(popover).getByTestId('calendar-more-event-5'))
+    await screen.findByTestId('calendar-event-dialog')
+    expect(screen.getByTestId('calendar-form-title')).toHaveValue('일정 5')
+    await waitFor(() => expect(screen.queryByTestId(`calendar-more-popover-${DAY}`)).not.toBeInTheDocument())
+  })
+})
+
 describe('이슈 마감 오버레이 (#109)', () => {
   // 조회 범위(assignee=me·dueFrom·dueTo)가 빠지면 가시 범위 밖·전체가 섞여도 화면은 멀쩡해 보인다 — 쿼리를 직접 본다.
   test('내 이슈 마감이 그 날 칸에만 칩으로 보이고, 조회는 보이는 범위로 하며, 누르면 이슈로 간다', async () => {
