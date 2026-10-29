@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { extractApiError, extractApiErrorCode } from '@/lib/api-error';
 import { relationTypeUsage } from '@/lib/issueRelations';
 import { cn } from '@/lib/utils';
+import { trimInvisible } from '@/lib/visibleText';
 
 import { useCreateIssueRelationType, useUpdateIssueRelationType } from '../../../hooks/queries/useIssueRelationTypes';
 import type { IssueRelationTypeAdmin, SaveIssueRelationTypeRequest } from '../../../types/issue';
@@ -65,8 +66,11 @@ function RelationTypeForm({ editing, onDone }: { editing: IssueRelationTypeAdmin
   // 쓰이는 관계가 있으면 방향을 바꿀 수 없다(서버도 409) — 미리 막고 이유를 보인다.
   const inUse = editing != null && relationTypeUsage(editing) > 0;
 
-  const lengthError = (v: string, what: string) =>
-    !v.trim() ? `${what}을 입력해 주세요` : v.trim().length > MAX_LEN ? `${what}은 ${MAX_LEN}자 이하로 입력해 주세요` : undefined;
+  // 제로폭 공백·점자 빈칸처럼 보이지 않는 글자만이면 빈 칸으로 본다(WP-1106) — 서버도 같은 기준으로 400.
+  const lengthError = (v: string, what: string) => {
+    const t = trimInvisible(v);
+    return !t ? `${what}을 입력해 주세요` : t.length > MAX_LEN ? `${what}은 ${MAX_LEN}자 이하로 입력해 주세요` : undefined;
+  };
   const nameError = lengthError(name, '이름');
   const outwardError = lengthError(outward, '말');
   const inwardError = directed ? lengthError(inward, '말') : undefined;
@@ -77,10 +81,10 @@ function RelationTypeForm({ editing, onDone }: { editing: IssueRelationTypeAdmin
       return;
     }
     const body: SaveIssueRelationTypeRequest = {
-      name: name.trim(),
+      name: trimInvisible(name),
       directed,
-      outwardLabel: outward.trim(),
-      inwardLabel: directed ? inward.trim() : null,
+      outwardLabel: trimInvisible(outward),
+      inwardLabel: directed ? trimInvisible(inward) : null,
     };
     setServerError(null);
     try {
@@ -94,8 +98,8 @@ function RelationTypeForm({ editing, onDone }: { editing: IssueRelationTypeAdmin
   }
 
   // 미리보기 말 — 비어 있으면 자리표시.
-  const a = outward.trim() || '…';
-  const b = directed ? inward.trim() || '…' : a;
+  const a = trimInvisible(outward) || '…';
+  const b = directed ? trimInvisible(inward) || '…' : a;
 
   return (
     <form

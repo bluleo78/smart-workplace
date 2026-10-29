@@ -15,7 +15,9 @@ import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.issue.dto.IssueRelationTypeRow;
 import com.workplace.issue.repository.IssueRepository;
+import com.workplace.issue.service.IssueRelationTypeService;
 import com.workplace.issue.support.IssueSeeds;
 import com.workplace.project.dto.CreateProjectRequest;
 import com.workplace.project.service.ProjectService;
@@ -56,6 +58,7 @@ class IssueRelationTypeApiTest extends IntegrationTestBase {
   @Autowired ProjectService projectService;
   @Autowired AgentApiKeyService agentKeyService;
   @Autowired IssueRepository issueRepository;
+  @Autowired IssueRelationTypeService service;
 
   private long adminId;
   private long userId;
@@ -153,6 +156,53 @@ class IssueRelationTypeApiTest extends IntegrationTestBase {
         .andExpect(jsonPath("$.errors.code").value("RELATION_TYPE_INWARD_LABEL_REQUIRED"));
     call(post(ADMIN_PATH).content(save(" ", false, "앞", null)), adminId)
         .andExpect(status().isBadRequest());
+  }
+
+  /**
+   * 이름·말이 제로폭 공백(U+200B)·점자 빈칸(U+2800)처럼 보이지 않는 글자뿐이면 공백만일 때처럼 400(WP-1106). 앞뒤에 붙은 보이지 않는 글자는 지우고
+   * 저장하며, 이름 중복도 지운 값으로 본다 — 「관련」 끝에 제로폭 공백을 붙여 기본 유형 이름을 피하지 못한다.
+   */
+  @Test
+  void invisibleOnlyNameAndLabelsRejected() throws Exception {
+    String zw = "\u200B\u200B";
+    String braille = "\u2800";
+    call(post(ADMIN_PATH).content(save(zw, false, "x", null)), adminId)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.name").value("이름을 입력해 주세요"));
+    call(post(ADMIN_PATH).content(save("이름", false, braille, null)), adminId)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.outwardLabel").value("말을 입력해 주세요"));
+    call(post(ADMIN_PATH).content(save("이름", true, "앞", braille + "\u200B")), adminId)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors.code").value("RELATION_TYPE_INWARD_LABEL_REQUIRED"));
+
+    // 앞뒤의 보이지 않는 글자는 지우고 저장한다.
+    long id =
+        json(call(
+                    post(ADMIN_PATH)
+                        .content(save("\u200B점검\u2800", true, "\u200B확인한다", "확인받는다\u200B")),
+                    adminId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("점검"))
+                .andExpect(jsonPath("$.outwardLabel").value("확인한다"))
+                .andExpect(jsonPath("$.inwardLabel").value("확인받는다")))
+            .get("id")
+            .asLong();
+
+    // 편집도 같은 기준 — 보이지 않는 글자만 남기면 400, 다듬은 이름이 기본 유형과 겹치면 409.
+    call(put(ADMIN_PATH + "/" + id).content(save(zw, true, "확인한다", "확인받는다")), adminId)
+        .andExpect(status().isBadRequest());
+    call(post(ADMIN_PATH).content(save("관련\u200B", false, "x", null)), adminId)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.errors.code").value("RELATION_TYPE_NAME_TAKEN"));
+  }
+
+  /** 이름으로 찾기도 저장과 같은 규칙으로 다듬는다(WP-1106) — 끝에 제로폭 공백이 붙은 이름으로도 그 유형을 찾는다. */
+  @Test
+  void resolveByNameIgnoresInvisibleEdges() throws Exception {
+    long id = createCustom("점검", false, "x", null);
+    assertThat(service.resolveByCodeOrName("점검\u200B").map(IssueRelationTypeRow::id)).contains(id);
+    assertThat(service.resolveByCodeOrName("\u2800")).isEmpty();
   }
 
   /** 관리 API 는 일반 사용자·AI(JWT 와 ak_ 키 둘 다)에 403 — 관리자 목록·추가·숨김·삭제 모두. AI 는 목록은 볼 수 있다. */
