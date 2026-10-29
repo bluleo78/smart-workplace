@@ -1,41 +1,24 @@
 // 채팅 본문의 우리 앱 링크 카드(WP-896, 시안 A) — 이슈·노트·드라이브 파일 링크 아래에 보는 사람 권한으로 그 순간 채운 정보를 보인다.
 // 카드 전체가 앱 안 이동 링크다(본문 URL 은 지금처럼 새 탭). 볼 수 없거나 없는 대상은 정보 없이 점선 자리에 「볼 수 없는 …」만 둔다.
 import { useQuery } from '@tanstack/react-query'
-import { isAxiosError } from 'axios'
 import { Ban, FileText, SquareKanban } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 
-import { type AppLinkCard as AppLinkCardData, appLinkCardPath, appLinksApi } from '@/api/appLinks'
+import { type AppLinkCard as AppLinkCardData, appLinkCardQuery, isAppLinkDenied as isDenied } from '@/api/appLinks'
 import { FileTypeIcon } from '@/components/drive/FileTypeIcon'
-import type { AppLink } from '@/lib/appLinks'
+import { APP_LINK_KIND_LABEL, type AppLink } from '@/lib/appLinks'
 import { priorityLabel } from '@/lib/issueGrouping'
 import { mimeFromFilename } from '@/lib/mimeFromFilename'
 import { IssueStatusBadge } from '@/pages/projects/components/IssueStatusBadge'
 import type { IssueStatus } from '@/types/issue'
 
-const KIND_LABEL: Record<AppLink['kind'], string> = { ISSUE: '이슈', PAGE: '노트', FILE: '파일' }
-
 const CARD_CLASS = 'block w-full min-w-0 rounded-lg border px-3 py-2'
-
-/** 볼 수 없거나 없는 대상(서버가 정보 없이 404 — 예전 응답의 403 도)인지. 그 밖의 오류(5xx·연결 끊김)는 권한과 무관하다. */
-function isDenied(err: unknown): boolean {
-  const status = isAxiosError(err) ? err.response?.status : undefined
-  return status === 404 || status === 403
-}
 
 /** 카드 1장. testId 접미사는 메시지 id·본문 순서. */
 export function AppLinkCard({ messageId, index, link }: { messageId: number; index: number; link: AppLink }) {
   const testId = `app-link-${messageId}-${index}`
-  const { data, error } = useQuery({
-    // 대상별 캐시 키(API 경로) — 같은 이슈가 여러 메시지에 있어도 한 번만 받는다.
-    queryKey: ['app-link', appLinkCardPath(link)],
-    queryFn: () => appLinksApi.card(link),
-    // 권한 없음·없음(404)은 다시 물어도 같다 — 재시도하지 않는다. 일시 오류(배포 중 5xx·연결 끊김)는 두 번까지 다시 묻는다.
-    retry: (count, err) => !isDenied(err) && count < 2,
-    // 상태·제목은 자주 바뀌지 않아 1분 동안 다시 받지 않는다.
-    staleTime: 60_000,
-  })
+  const { data, error } = useQuery(appLinkCardQuery(link))
 
   // 일시 오류로 끝내 못 받았으면 카드 없이 둔다 — 「볼 수 없는 …」은 권한이 없거나 없는 대상일 때만(본문 링크는 그대로 남는다).
   if (error && !isDenied(error)) return null
@@ -47,7 +30,7 @@ export function AppLinkCard({ messageId, index, link }: { messageId: number; ind
         className={`${CARD_CLASS} flex items-center gap-1.5 border-dashed text-xs text-muted-foreground`}
       >
         <Ban className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        볼 수 없는 {KIND_LABEL[link.kind]}입니다
+        볼 수 없는 {APP_LINK_KIND_LABEL[link.kind]}입니다
       </div>
     )
   }
