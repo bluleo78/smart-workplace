@@ -49,10 +49,16 @@ const MEMBERS: Record<number, UserGroupMemberHit[]> = {
   ],
 }
 
-function handlers() {
+/**
+ * 기본 응답. read 는 그룹 id → 지금 구성원 — 인원 수(member-counts)와 고를 때의 구성원 찾기가 같은 데이터에서 나온다(서버와 같은 규칙: 같은 사람 한 번).
+ * memberSearches 는 구성원 찾기를 부른 그룹, countRequests 는 인원 수 요청마다의 ids(WP-1135 — 글자를 칠 때는 구성원 찾기가 돌지 않는다).
+ */
+function handlers(read: (id: number) => UserGroupMemberHit[] = (id) => MEMBERS[id] ?? []) {
   const memberSearches: number[] = []
+  const countRequests: string[] = []
   return {
     memberSearches,
+    countRequests,
     list: [
       http.get(`${API}/mail/recent-recipients`, () => HttpResponse.json([])),
       // 사람 후보 — 「개발」로 시작하는 구성원 한 명(조직·그룹 섹션과 함께 보인다).
@@ -60,11 +66,21 @@ function handlers() {
         HttpResponse.json(contactPage([member({ id: 50, name: '개발자 김', email: 'dev.kim@iacloud.kr' }), external({ id: 51, name: 'x', email: null })])),
       ),
       http.get(`${API}/user-groups`, () => HttpResponse.json(TREE)),
+      http.get(`${API}/user-groups/member-counts`, ({ request }) => {
+        const ids = new URL(request.url).searchParams.get('ids') ?? ''
+        countRequests.push(ids)
+        return HttpResponse.json(
+          ids.split(',').map(Number).map((groupId) => {
+            const people = [...new Map(read(groupId).map((m) => [`${m.targetType}:${m.targetId}`, m])).values()]
+            return { groupId, total: people.length, external: people.filter((m) => m.targetType === 'EXTERNAL').length }
+          }),
+        )
+      }),
       http.get(`${API}/user-groups/:id/members/search`, ({ params, request }) => {
         const id = Number(params.id)
         memberSearches.push(id)
         expect(new URL(request.url).searchParams.get('q')).toBe('')
-        return HttpResponse.json(MEMBERS[id] ?? [])
+        return HttpResponse.json(read(id))
       }),
     ],
   }
@@ -118,8 +134,31 @@ describe('메일 받는사람 — 조직·내 그룹(WP-1060)', () => {
       '개발팀 · 4명|경영지원본부 › 개발팀 (하위 부서 포함)|조직',
       '개발 주간회의 · 3명|외부 연락처 2명 포함|내 그룹',
     ])
-    // 이름에 조각이 없는 부서(경로에만 있는 플랫폼파트·디자인팀)는 보이지 않는다.
-    expect(h.memberSearches.sort()).toEqual([2, 20])
+    // 이름에 조각이 없는 부서(경로에만 있는 플랫폼파트·디자인팀)는 보이지 않는다 — 인원은 찾은 두 그룹을 한 요청으로 센다.
+    expect(h.countRequests.at(-1)).toBe('2,20')
+    // 글자를 치는 동안 그룹마다 구성원 전체를 받지 않는다(WP-1135) — 구성원 찾기는 고를 때만 돈다.
+    expect(h.memberSearches).toEqual([])
+  })
+
+  it('조각을 바꿔 쳐도 구성원 전체 조회는 돌지 않고, 인원 수 요청은 찾은 그룹 묶음마다 한 번이다(WP-1135)', async () => {
+    const h = handlers()
+    const { user } = renderScreen(<Harness />, { handlers: h.list })
+    const to = screen.getByTestId('mail-compose-to')
+    await user.click(to)
+    await user.type(to, '개발')
+    await waitGroupsReady(2)
+    await user.clear(to)
+    await user.type(to, '디자인')
+    await waitGroupsReady(1)
+    await user.clear(to)
+    await user.type(to, '개발')
+    await waitGroupsReady(2)
+    expect(h.memberSearches).toEqual([])
+    // 「개발」 묶음은 캐시(1분)를 다시 써 두 번째에는 요청하지 않는다.
+    expect(h.countRequests).toEqual(['2,20', '4'])
+    // 고르면 그때 그 그룹만 구성원을 받는다.
+    await user.click(screen.getAllByTestId('mail-recipient-group-suggestion')[0])
+    await waitFor(() => expect(h.memberSearches).toEqual([2]))
   })
 
   it('부서를 고르면 구성원 주소가 칩으로 풀리고, 이미 있는 주소는 빼고, 주소 없는 사람은 넣지 않고 알린다', async () => {
@@ -208,15 +247,15 @@ describe('메일 받는사람 — 조직·내 그룹(WP-1060)', () => {
     expect(chipValues('mail-compose-to')).toEqual(['김개발 <kim@iacloud.kr>', '이개발 <lee@iacloud.kr>', '박서버 <park@iacloud.kr>'])
   })
 
-  it('구성원을 받기 전에는 그룹 줄을 고를 수 없다 — ↓ 로 짚어도 Enter 는 쓴 글자를 굳힌다(글자가 칸에 묶이지 않는다)', async () => {
+  it('인원을 세기 전에는 그룹 줄을 고를 수 없다 — ↓ 로 짚어도 Enter 는 쓴 글자를 굳힌다(글자가 칸에 묶이지 않는다)', async () => {
     const h = handlers()
     let release: () => void = () => {}
     const gate = new Promise<void>((r) => (release = r))
     const { user } = renderScreen(<Harness />, {
       handlers: [
-        http.get(`${API}/user-groups/:id/members/search`, async () => {
+        http.get(`${API}/user-groups/member-counts`, async () => {
           await gate
-          return HttpResponse.json(MEMBERS[2])
+          return HttpResponse.json([{ groupId: 2, total: 4, external: 0 }])
         }),
         ...h.list,
       ],
@@ -234,12 +273,11 @@ describe('메일 받는사람 — 조직·내 그룹(WP-1060)', () => {
     release()
   })
 
-  it('구성원을 못 받은 그룹 줄은 바로 「불러오지 못했습니다」— 고르면 새로 받아 다시 해 보고, 받으면 풀어 넣는다', async () => {
+  it('인원을 못 센 그룹 줄은 바로 「불러오지 못했습니다」— 고르면 구성원을 새로 받아 풀어 넣는다', async () => {
     const h = handlers()
-    let fail = true
     const { user } = renderScreen(<Harness />, {
       handlers: [
-        http.get(`${API}/user-groups/:id/members/search`, () => (fail ? HttpResponse.json({}, { status: 500 }) : HttpResponse.json(MEMBERS[2]))),
+        http.get(`${API}/user-groups/member-counts`, () => HttpResponse.json({}, { status: 500 })),
         ...h.list,
       ],
     })
@@ -250,7 +288,6 @@ describe('메일 받는사람 — 조직·내 그룹(WP-1060)', () => {
     await waitFor(() => expect(within(row).getByTestId('mail-recipient-group-count')).toHaveTextContent('인원을 불러오지 못했습니다'))
     // 실패한 줄도 고를 수 있다(눌러도 아무 일이 없으면 사용자가 할 수 있는 일이 없다).
     expect(row).not.toHaveAttribute('aria-disabled')
-    fail = false
     await user.keyboard('{ArrowDown}')
     await user.keyboard('{Enter}')
     expect(await screen.findByText('개발팀에서 3명을 넣었습니다. 메일 주소가 없는 1명(정AI)은 넣지 못했습니다.')).toBeInTheDocument()
@@ -337,11 +374,9 @@ describe('메일 받는사람 — 조직·내 그룹(WP-1060)', () => {
   })
 
   it('고르는 순간의 구성원으로 푼다 — 인원을 센 뒤 들어온 사람도 넣는다', async () => {
-    const h = handlers()
     let current = MEMBERS[20].slice(0, 1)
-    const { user } = renderScreen(<Harness />, {
-      handlers: [http.get(`${API}/user-groups/:id/members/search`, () => HttpResponse.json(current)), ...h.list],
-    })
+    const h = handlers(() => current)
+    const { user } = renderScreen(<Harness />, { handlers: h.list })
     const to = screen.getByTestId('mail-compose-to')
     await user.click(to)
     await user.type(to, '주간')

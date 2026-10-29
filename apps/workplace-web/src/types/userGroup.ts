@@ -74,3 +74,12 @@ export interface AddMemberRequest {
   targetType: GroupMemberType
   targetId: number
 }
+
+/** 그룹마다 하위 조직 포함 구성원 수(WP-1135) — 구성원 찾기(빈 검색어)와 같은 규칙으로 센다. 백엔드 UserGroupMemberCount 와 1:1. */
+export interface UserGroupMemberCount {
+  groupId: number
+  /** 하위 조직 포함 구성원 수(같은 사람은 한 번, 주소 없는 사람 포함) — 고르면 풀리는 사람 수 */
+  total: number
+  /** 그중 외부 연락처 수 */
+  external: number
+}

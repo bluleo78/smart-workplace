@@ -20,6 +20,7 @@ import com.workplace.user.exception.InvalidUserGroupException;
 import com.workplace.user.exception.UserGroupForbiddenException;
 import com.workplace.user.exception.UserGroupNotFoundException;
 import com.workplace.user.service.UserGroupService;
+import java.util.List;
 import java.util.UUID;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.Test;
@@ -201,6 +202,50 @@ class UserGroupServiceTest extends IntegrationTestBase {
         .containsExactlyInAnyOrder(inBoth, inTeam);
     // 빈 검색어면 하위 조직 포함 전체.
     assertThat(service.searchMembers(caller, hq.id(), " ")).hasSize(4);
+  }
+
+  /**
+   * 그룹마다 구성원 수(WP-1135) — 구성원 찾기(빈 검색어)와 같은 규칙: 하위 조직 포함, 여러 하위 조직에 있는 사람은 한 번, 외부 연락처는 따로도 센다. 같은
+   * id 는 한 번만 돌려주고, 비었거나 너무 많으면 400, 남의 개인 그룹은 찾기와 같은 404.
+   */
+  @Test
+  void countMembers_sameRuleAsSearch_withExternalCount() {
+    long caller = user();
+    long a = user();
+    long b = user();
+    long contactId =
+        dsl.insertInto(com.workplace.jooq.Tables.CONTACT_ENTRY)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.NAME, "외부")
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.OWNER_ID, caller)
+            .set(com.workplace.jooq.Tables.CONTACT_ENTRY.VISIBILITY, "PERSONAL")
+            .returning(com.workplace.jooq.Tables.CONTACT_ENTRY.ID)
+            .fetchOne()
+            .getId();
+    UserGroupDetail hq = service.create(caller, req("본부", null, "PERSONAL"));
+    UserGroupDetail team = service.create(caller, req("팀", hq.id(), "PERSONAL"));
+    service.addMember(caller, hq.id(), new AddMemberRequest("MEMBER", a));
+    service.addMember(caller, team.id(), new AddMemberRequest("MEMBER", a)); // 본부·팀 둘 다 — 한 번
+    service.addMember(caller, team.id(), new AddMemberRequest("MEMBER", b));
+    service.addMember(caller, team.id(), new AddMemberRequest("EXTERNAL", contactId));
+
+    var counts = service.countMembers(caller, List.of(hq.id(), team.id(), hq.id()));
+
+    assertThat(counts)
+        .extracting(c -> c.groupId() + ":" + c.total() + "/" + c.external())
+        .containsExactly(hq.id() + ":3/1", team.id() + ":3/1");
+    // 줄의 수 = 고를 때 풀리는 사람 수(찾기 결과 행 수).
+    assertThat(counts.get(0).total())
+        .isEqualTo(service.searchMembers(caller, hq.id(), null).size());
+    assertThatThrownBy(() -> service.countMembers(caller, List.of()))
+        .isInstanceOf(InvalidUserGroupException.class);
+    assertThatThrownBy(
+            () ->
+                service.countMembers(
+                    caller, java.util.stream.LongStream.rangeClosed(1, 11).boxed().toList()))
+        .isInstanceOf(InvalidUserGroupException.class);
+    long stranger = user();
+    assertThatThrownBy(() -> service.countMembers(stranger, List.of(hq.id())))
+        .isInstanceOf(UserGroupNotFoundException.class);
   }
 
   /** 관리자가 남의 개인 그룹에서 찾아도 그 주인의 개인 하위 그룹까지 찾는다(관리자 자신의 트리가 아니라 주인의 트리 기준). */

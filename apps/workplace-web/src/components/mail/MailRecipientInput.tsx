@@ -11,8 +11,6 @@ import { isImeComposing } from '@/lib/imeKey';
 import {
   expandGroupRecipients,
   groupExpansionToast,
-  groupExternalCount,
-  groupRecipientCount,
   RECIPIENT_GROUP_KIND_LABEL,
   type RecipientGroupSuggestion,
 } from '@/lib/mailRecipientGroups';
@@ -56,7 +54,7 @@ function groupSubline(g: RecipientGroupSuggestion): string | null {
     return g.hasChildren ? `${full} (하위 부서 포함)` : full;
   }
   const parts = [g.path ? `${g.path} › ${g.name}` : null];
-  const externals = g.members ? groupExternalCount(g.members) : 0;
+  const externals = g.count?.external ?? 0;
   if (externals > 0) parts.push(`외부 연락처 ${externals}명 포함`);
   return parts.filter(Boolean).join(' · ') || null;
 }
@@ -192,7 +190,7 @@ export function MailRecipientInput({
       return;
     }
     const { group } = o;
-    if (!group.members && !group.failed) return;
+    if (!group.count && !group.failed) return;
     // 찾던 조각은 바로 비운다(후보가 닫힌다). 구성원은 줄의 인원 수용 캐시가 아니라 지금 서버에서 새로 받아 푼다.
     emit(chips, '');
     void expandGroup(group);
@@ -230,7 +228,7 @@ export function MailRecipientInput({
     if (pointed === null && isCompleteAddress(text)) return null;
     const o = options[activeIndex];
     if (o.type === 'person') return o;
-    return pointed?.byKey && (o.group.members || o.group.failed) ? o : null;
+    return pointed?.byKey && (o.group.count || o.group.failed) ? o : null;
   };
 
   const removeAt = (index: number) => {
@@ -387,8 +385,8 @@ export function MailRecipientInput({
           {groups.map((g, gi) => {
             const i = items.length + gi;
             // 인원을 세는 중인 줄만 고를 수 없다 — 불러오지 못한 줄은 고르면 다시 받는다.
-            const ready = !!g.members || g.failed;
-            const count = g.members ? `${groupRecipientCount(g.members)}명` : g.failed ? '인원을 불러오지 못했습니다' : '인원 세는 중';
+            const ready = !!g.count || g.failed;
+            const count = g.count ? `${g.count.total}명` : g.failed ? '인원을 불러오지 못했습니다' : '인원 세는 중';
             const sub = groupSubline(g);
             const Icon = g.kind === 'department' ? Building2 : Users;
             return (
