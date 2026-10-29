@@ -8,6 +8,7 @@ import { useMessagingSummary } from '@/hooks/queries/useMessagingSummary'
 import { flattenNotificationPages, useNotifications } from '@/hooks/queries/useNotifications'
 import { usePriorityItems } from '@/hooks/queries/usePriorityItems'
 import { useUnreadCount } from '@/hooks/queries/useUnreadCount'
+import { mailSubjectText } from '@/lib/mailSubject'
 import { buildMyTaskRows, dueLabel } from '@/lib/myTasks'
 
 import { mailSender } from '../../dashboard/bodyRules'
@@ -107,7 +108,7 @@ export function UnreadMailSummary({ render }: MobileSummaryProps) {
       count: mailBadgeCount(q.data),
       text: (
         <>
-          <span className="font-medium">{mailSender(latest)}</span> · {latest.subject ?? '(제목 없음)'}
+          <span className="font-medium">{mailSender(latest)}</span> · {mailSubjectText(latest.subject)}
         </>
       ),
     }

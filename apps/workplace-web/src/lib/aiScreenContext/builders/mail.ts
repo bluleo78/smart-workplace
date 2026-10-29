@@ -1,5 +1,6 @@
 // 메일함 화면 컨텍스트 builder(WP-54). messageId 는 숫자 id(get_mail 인자) — RFC Message-ID 문자열이 아니다.
 // WP-379: app 은 홈 채팅 메모리 범위 선택용(서버로 보내는 screenContext 에선 빠진다).
+import { mailSubjectText } from '@/lib/mailSubject';
 import type { AiScreenContext } from '@/types/aiScreenContext';
 
 import { buildFacts, buildRefs, clip, fmtKst, LIMITS, withListState } from '../common';
@@ -53,7 +54,8 @@ export function buildMailContext(input: MailContextInput): AiScreenContext {
   if (s) {
     ctx.focus = {
       type: '메일',
-      label: clip(s.subject?.trim() || '(제목 없음)', LIMITS.label),
+      // 보이지 않는 글자뿐인 제목도 「(제목 없음)」 — 화면 판정(mailSubjectText)과 같게(WP-1180).
+      label: clip(mailSubjectText(s.subject?.trim()), LIMITS.label),
       refs: buildRefs({ messageId: s.id }),
       facts: buildFacts([
         // 주소가 비면 '이름 <>' 대신 이름만 — 둘 다 비면 buildFacts 가 항목을 뺀다.
