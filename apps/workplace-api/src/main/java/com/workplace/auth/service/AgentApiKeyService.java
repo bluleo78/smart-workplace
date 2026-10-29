@@ -8,6 +8,7 @@ import com.workplace.auth.exception.KeyNotFoundException;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
 import com.workplace.auth.exception.PersonalAssistantKeyIssueForbiddenException;
 import com.workplace.auth.repository.AgentApiKeyRepository;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -15,12 +16,8 @@ import com.workplace.user.exception.UserNotFoundException;
 import com.workplace.user.repository.UserRepository;
 import com.workplace.user.service.WorkspaceMemberGuard;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -63,8 +60,10 @@ public class AgentApiKeyService {
 
   /**
    * 키 발급. 평문은 응답 1회만, DB 에는 SHA-256 hex 만 저장. AGENT 가 아니면 400, 개인 비서면 403(WP-1153), 없는 user 면 404.
-   * 감사 로그 AGENT_KEY_ISSUED.
+   * 감사 로그 AGENT_KEY_ISSUED — 개인 비서 거절은 결과 FAILURE 로 남긴다(WP-1162).
    */
+  // 개인 비서 발급 거절(403)의 실패 감사는 이 트랜잭션에 함께 남긴다 — 그 예외에 롤백하면 기록도 사라진다(UserService 비밀번호 변경 실패와 같은 방식).
+  @Transactional(noRollbackFor = PersonalAssistantKeyIssueForbiddenException.class)
   public AgentApiKeyIssueResponse issue(Long callerId, Long userId, IssueAgentKeyRequest req) {
     requireNotSelf(callerId, userId);
     memberGuard.require(userId);
@@ -74,6 +73,19 @@ public class AgentApiKeyService {
     // WP-1153: 개인 비서는 주인의 자격증명·위임으로만 움직인다 — 관리자가 키를 받으면 그 신원으로 주인의 개인 작업(관리자에게도 안 보임)을
     // 읽을 수 있어, 이름 변경·삭제처럼 발급을 막는다(403). 이미 있는 키의 목록·회수는 정리 수단으로 남긴다.
     if (AgentUsernames.isPersonalAssistant(user.username())) {
+      // WP-1162: 거절한 시도도 감사 로그 「실패」로 남겨, 관리자가 누가 개인 비서 키를 받으려 했는지 볼 수 있게 한다.
+      auditLogService.log(
+          callerId,
+          resolveUsername(callerId),
+          "AGENT_KEY_ISSUED",
+          "agent_api_key",
+          null,
+          "AGENT 키 발급 거절(개인 비서): " + user.username(),
+          null,
+          null,
+          "FAILURE",
+          "PERSONAL_ASSISTANT",
+          Map.of("userId", userId, "agentUsername", user.username()));
       throw new PersonalAssistantKeyIssueForbiddenException();
     }
     // WP-818: 쓸 수 있는 키는 에이전트당 MAX_ACTIVE 개까지(개인 PAT 와 같은 규칙) — 잠근 뒤 세어 동시 발급이 함께 넘지 않게 한다.
@@ -84,7 +96,7 @@ public class AgentApiKeyService {
     }
 
     String plaintext = generatePlaintext();
-    String hash = sha256Hex(plaintext);
+    String hash = CapabilityTokens.sha256Hex(plaintext);
     String prefix = plaintext.substring(0, Math.min(12, plaintext.length()));
     String label = req == null ? null : req.label();
     Long id = repo.insert(userId, prefix, hash, label, callerId);
@@ -156,16 +168,6 @@ public class AgentApiKeyService {
       n = qr[0];
     }
     return sb.length() > 0 ? sb.toString() : "0";
-  }
-
-  private String sha256Hex(String plaintext) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] hash = md.digest(plaintext.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 미지원", e);
-    }
   }
 
   private String resolveUsername(Long callerId) {

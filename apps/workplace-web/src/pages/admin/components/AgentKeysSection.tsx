@@ -29,8 +29,9 @@ export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIss
   const keys = useAgentKeys(agentId);
   const issue = useIssueAgentKey(agentId);
   const [label, setLabel] = useState('');
-  // 회수되지 않은 키가 있을 때만 정리 안내를 붙인다 — 키가 없는데 회수하라고 하지 않게.
-  const hasActiveKey = (keys.data ?? []).some((k) => k.revokedAt == null);
+  // 회수되지 않은 키가 없다고 확인될 때만 정리 안내를 뺀다 — 키가 없는데 회수하라고 하지 않게. 목록을 불러오는 중이거나 오류면 남은 키가
+  // 있을 수 있으니 안내를 보인다(WP-1162 — 전에는 빈 목록으로 보고 숨겼다).
+  const mayHaveActiveKey = keys.data == null || keys.data.some((k) => k.revokedAt == null);
 
   const onIssue = async () => {
     try {
@@ -48,7 +49,7 @@ export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIss
       {!canIssue ? (
         <p className="text-xs text-muted-foreground" data-testid="key-issue-personal-hint">
           개인 비서의 키는 관리자가 발급할 수 없어요.
-          {hasActiveKey && ' 남아 있는 키로는 로그인되지 않으니 회수해 정리하세요.'}
+          {mayHaveActiveKey && ' 남아 있는 키로는 로그인되지 않으니 회수해 정리하세요.'}
         </p>
       ) : (
         <form
@@ -111,7 +112,14 @@ export function AgentKeysSection({ agentId, external, onIssued, onRevoke, canIss
                     {formatDateTimeLocale(k.lastUsedAt)}
                   </td>
                   <td className="px-3 text-xs text-muted-foreground">
-                    {formatDateTimeLocale(k.revokedAt)}
+                    {/* 개인 비서의 회수 안 된 키는 인증 필터가 거절해 쓸 수 없다 — 빈 회수 칸이 「활성」처럼 보이지 않게 따로 적는다(WP-1162). */}
+                    {k.revokedAt == null && !canIssue ? (
+                      <span className="text-destructive" data-testid={`key-unusable-${k.id}`}>
+                        사용 불가
+                      </span>
+                    ) : (
+                      formatDateTimeLocale(k.revokedAt)
+                    )}
                   </td>
                   <td className="px-3">
                     {k.revokedAt == null && (

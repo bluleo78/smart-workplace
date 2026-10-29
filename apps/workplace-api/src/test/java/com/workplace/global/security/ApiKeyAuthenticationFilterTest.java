@@ -9,6 +9,7 @@ import com.workplace.auth.dto.IssueAgentKeyRequest;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.service.AgentApiKeyService;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
@@ -168,22 +169,15 @@ class ApiKeyAuthenticationFilterTest extends IntegrationTestBase {
       withMembership(assistantId);
       String plaintext = "ak_legacyPersonalAssistant" + n;
       agentApiKeyRepository.insert(
-          assistantId, plaintext.substring(0, 12), sha256Hex(plaintext), "legacy", adminId);
+          assistantId,
+          plaintext.substring(0, 12),
+          CapabilityTokens.sha256Hex(plaintext),
+          "legacy",
+          adminId);
       ResponseEntity<String> me = callMe("Bearer " + plaintext);
       assertThat(me.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     } finally {
       cleanupInTenant(1L, () -> dsl.deleteFrom(USER).where(USER.ID.eq(assistantId)).execute());
-    }
-  }
-
-  private static String sha256Hex(String plaintext) {
-    try {
-      return java.util.HexFormat.of()
-          .formatHex(
-              java.security.MessageDigest.getInstance("SHA-256")
-                  .digest(plaintext.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-    } catch (java.security.NoSuchAlgorithmException e) {
-      throw new IllegalStateException(e);
     }
   }
 }

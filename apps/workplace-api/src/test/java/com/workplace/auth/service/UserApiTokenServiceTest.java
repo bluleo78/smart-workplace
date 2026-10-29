@@ -12,11 +12,9 @@ import com.workplace.auth.exception.ActiveTenantRequiredException;
 import com.workplace.auth.exception.UserTokenNotFoundException;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.support.IntegrationTestBase;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.List;
 import org.jooq.DSLContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,11 +56,6 @@ class UserApiTokenServiceTest extends IntegrationTestBase {
             .getId();
   }
 
-  private String sha256Hex(String plaintext) throws Exception {
-    MessageDigest md = MessageDigest.getInstance("SHA-256");
-    return HexFormat.of().formatHex(md.digest(plaintext.getBytes(StandardCharsets.UTF_8)));
-  }
-
   @Test
   void issue_returns_swp_plaintext_once_and_stores_hash_only() throws Exception {
     UserApiTokenIssueResponse res = service.issue(userId, new IssueUserTokenRequest("내 노트북", null));
@@ -76,13 +69,16 @@ class UserApiTokenServiceTest extends IntegrationTestBase {
             .fetchOne()
             .value1();
     assertThat(hash).hasSize(64).isNotEqualTo(res.plaintextToken());
-    assertThat(hash).isEqualTo(sha256Hex(res.plaintextToken()));
+    assertThat(hash).isEqualTo(CapabilityTokens.sha256Hex(res.plaintextToken()));
   }
 
   @Test
   void issue_binds_active_tenant() throws Exception {
     UserApiTokenIssueResponse res = service.issue(userId, new IssueUserTokenRequest("t", null));
-    assertThat(repo.findActiveByHash(sha256Hex(res.plaintextToken())).orElseThrow().tenantId())
+    assertThat(
+            repo.findActiveByHash(CapabilityTokens.sha256Hex(res.plaintextToken()))
+                .orElseThrow()
+                .tenantId())
         .isEqualTo(defaultTenantId());
   }
 
@@ -116,7 +112,7 @@ class UserApiTokenServiceTest extends IntegrationTestBase {
   void revoked_token_not_found_by_hash() throws Exception {
     UserApiTokenIssueResponse res = service.issue(userId, new IssueUserTokenRequest("t", null));
     service.revoke(userId, res.id());
-    assertThat(repo.findActiveByHash(sha256Hex(res.plaintextToken()))).isEmpty();
+    assertThat(repo.findActiveByHash(CapabilityTokens.sha256Hex(res.plaintextToken()))).isEmpty();
   }
 
   @Test
@@ -130,6 +126,6 @@ class UserApiTokenServiceTest extends IntegrationTestBase {
             java.time.OffsetDateTime.now().minusSeconds(60))
         .where(com.workplace.jooq.Tables.USER_API_TOKEN.ID.eq(res.id()))
         .execute();
-    assertThat(repo.findActiveByHash(sha256Hex(res.plaintextToken()))).isEmpty();
+    assertThat(repo.findActiveByHash(CapabilityTokens.sha256Hex(res.plaintextToken()))).isEmpty();
   }
 }
