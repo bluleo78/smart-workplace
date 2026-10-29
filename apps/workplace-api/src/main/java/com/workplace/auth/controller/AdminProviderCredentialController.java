@@ -51,6 +51,8 @@ public class AdminProviderCredentialController {
     // WP-703: 다른 워크스페이스의 AI 연결은 없는 것과 같다(404). 서비스의 register/revoke 는 개인 비서 경로도 함께 쓰므로 관리자 경로에서
     // 막는다.
     memberGuard.require(userId);
+    // WP-1170: 관리 경로에서는 개인 비서 연결을 등록·재발급하지 않는다(관리자 자기 비서 포함) — 주인은 내 설정 경로를 쓴다.
+    service.assertAdminMayConfigure(userId);
     String provider = ProviderCredentialSecrets.resolveProvider(req.provider());
     String secret =
         ProviderCredentialSecrets.resolveSecret(

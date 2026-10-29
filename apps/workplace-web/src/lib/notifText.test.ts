@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { NotificationResponse } from '@/types/notification';
 
-import { notificationAction } from './notifText';
+import { notificationAction, PERSONAL_ASSISTANT_REVOKED_NO_ACTOR } from './notifText';
 
 const n = (over: Partial<NotificationResponse>) => ({ type: 'STATUS_CHANGED', ...over }) as NotificationResponse;
 
@@ -52,5 +52,18 @@ describe('notificationAction — AI 작업 알림 (WP-913)', () => {
     // 종류에 맞지 않는 상태는 종류 문구 그대로(다른 종류의 상태 문구를 빌려 쓰지 않는다).
     expect(notificationAction(n({ type: 'AI_WORK_FAILED', agentWorkState: 'BLOCKED' }))).toBe('님이 작업에 실패했습니다');
     expect(notificationAction(n({ type: 'AI_REVIEW_REQUESTED', agentWorkState: 'REJECTED' }))).toBe('님이 검토를 요청했습니다');
+  });
+});
+
+// WP-1170 — 개인 비서 연결 해제: 행위자(관리자) 이름 뒤에 붙는 문구와, 행위자 없는(일회성 정리) 문구.
+describe('개인 비서 연결 해제 문구 (WP-1170)', () => {
+  it('행위자가 있으면 이름 뒤에 붙는 해제 문구', () => {
+    expect(notificationAction(n({ type: 'PERSONAL_ASSISTANT_REVOKED', actorName: '김관리' }))).toBe(
+      '님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요',
+    );
+  });
+
+  it('행위자 없는 문구는 주어 없이 해제됐다고 알린다', () => {
+    expect(PERSONAL_ASSISTANT_REVOKED_NO_ACTOR).toBe('내 개인 비서의 AI 연결이 해제됐어요 — 다시 연결해 주세요');
   });
 });

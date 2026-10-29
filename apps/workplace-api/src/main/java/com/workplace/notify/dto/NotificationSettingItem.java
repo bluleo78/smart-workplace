@@ -93,6 +93,9 @@ public enum NotificationSettingItem {
       case WIKI_SHARED -> WIKI_SHARED;
       case WIKI_SHARE_ACCESS_REQUESTED -> WIKI_ACCESS_REQUESTED;
       case WIKI_SHARE_ACCESS_APPROVED -> WIKI_ACCESS_APPROVED;
+      // 개인 비서 연결 회수(WP-1170)는 설정 줄이 없다 — 늘 보내므로 설정 판정을 거치지 않는다(NotificationService).
+      case PERSONAL_ASSISTANT_REVOKED ->
+          throw new IllegalArgumentException(type + " 는 알림 설정 없이 늘 보낸다");
     };
   }
 }

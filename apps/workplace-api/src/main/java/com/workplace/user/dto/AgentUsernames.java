@@ -24,6 +24,16 @@ public final class AgentUsernames {
     return PERSONAL_ASSISTANT_PREFIX + requesterId;
   }
 
+  /** 개인 비서의 주인 id(WP-1170) — 결정적 username(접두어 + 주인 id)에서 읽는다. 개인 비서가 아니거나 형식이 맞지 않으면 null. */
+  public static Long ownerIdOf(String username) {
+    if (!isPersonalAssistant(username)) return null;
+    try {
+      return Long.valueOf(username.substring(PERSONAL_ASSISTANT_PREFIX.length()));
+    } catch (NumberFormatException e) {
+      return null;
+    }
+  }
+
   /**
    * requesterId 가 아닌 다른 사람의 개인 비서인지(WP-638). 개인 비서는 주인의 AI 자격(API 키)으로 도는 주인 전용 AGENT 라, 남이 멘션해
    * 부르거나 디렉터리·멘션 후보에서 고를 수 없어야 한다. 주인은 결정적 username(접두어 + 주인 id)으로 가린다 — 개인 비서 username 은 바꿀 수 없다.

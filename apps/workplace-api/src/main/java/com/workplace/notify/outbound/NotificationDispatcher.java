@@ -1,5 +1,6 @@
 package com.workplace.notify.outbound;
 
+import com.workplace.auth.outbound.PersonalAssistantCredentialRevokedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarAttendeeInvitedEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarEventNoticeEvent;
 import com.workplace.calendar.outbound.CalendarAttendeeEvents.CalendarRsvpChangedEvent;
@@ -337,6 +338,20 @@ public class NotificationDispatcher {
                 e.approverId(),
                 e.pageId(),
                 null));
+  }
+
+  /** 관리자가 개인 비서 연결을 회수함(WP-1170) → 주인에게 PERSONAL_ASSISTANT_REVOKED(「다시 연결해 주세요」). */
+  @Async("notifyEventExecutor")
+  @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+  public void onPersonalAssistantCredentialRevoked(PersonalAssistantCredentialRevokedEvent e) {
+    try {
+      TenantContext.runAs(
+          e.tenantId(),
+          () -> service.createPersonalAssistantRevokedAndFanOut(e.ownerId(), e.actorId()));
+    } catch (Exception ex) {
+      // 알림 실패로 이미 커밋된 회수를 되돌리지 않는다 — 로그만 남긴다.
+      log.warn("[notify] 개인 비서 연결 회수 알림 실패 ownerId={}: {}", e.ownerId(), ex.getMessage());
+    }
   }
 
   /**

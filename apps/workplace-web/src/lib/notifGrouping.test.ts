@@ -78,6 +78,7 @@ const ALL_TYPES = Object.keys({
   CALENDAR_EVENT_CANCELED: true,
   AI_REVIEW_REQUESTED: true,
   AI_WORK_FAILED: true,
+  PERSONAL_ASSISTANT_REVOKED: true,
 } satisfies Record<NotificationResponse['type'], true>) as NotificationResponse['type'][]
 
 describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
@@ -91,6 +92,7 @@ describe('멘션 판정과 받은편지함 구역 (WP-1141)', () => {
         'ASSIGNED',
         'ISSUE_CHAT_MENTION',
         'ISSUE_COMMENT_MENTION',
+        'PERSONAL_ASSISTANT_REVOKED',
         'REPORTER_ASSIGNED',
         'WIKI_SHARE_ACCESS_REQUESTED',
       ].sort(),
@@ -260,6 +262,22 @@ describe('groupNotifications', () => {
     expect(updates[0].title).toBe('회의록')
     expect(updates[0].target).toBe('/wiki/open/88')
     expect(updates[1].target).toBe('/wiki/open/77')
+  })
+
+  it('개인 비서 연결 해제는 내 차례로 한 줄에 묶고, 이슈 키 없이 「개인 비서」·내 비서 설정으로 간다 (WP-1170)', () => {
+    const revoked = (over: Partial<NotificationResponse>) =>
+      notif({ type: 'PERSONAL_ASSISTANT_REVOKED', projectKey: '', issueNumber: 0, issueTitle: '', ...over })
+    const { mine, updates } = groupNotifications([
+      revoked({ id: 1, actorName: '김관리', createdAt: '2026-06-16T01:00:00Z' }),
+      revoked({ id: 2, actorId: null, actorName: null, actorKind: null, createdAt: '2026-06-16T02:00:00Z' }),
+    ])
+    expect(updates).toHaveLength(0)
+    expect(mine).toHaveLength(1)
+    expect(mine[0].title).toBe('개인 비서')
+    expect(mine[0].label).toBe('개인 비서')
+    expect(mine[0].target).toBe('/settings/assistant')
+    expect(mine[0].deltaSummary).toBe('개인 비서 연결 해제 2건')
+    expect(mine[0].repType).toBe('PERSONAL_ASSISTANT_REVOKED')
   })
 
   it('AI 검토 요청·실패는 내 차례로 묶고 델타를 따로 센다, 이슈 상세로 딥링크한다 (WP-913)', () => {

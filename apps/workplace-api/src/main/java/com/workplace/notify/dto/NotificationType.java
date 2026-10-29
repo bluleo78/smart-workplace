@@ -27,5 +27,8 @@ public enum NotificationType {
   // AI 작업이 실패·거절로 끝남(WP-913) — 수신자는 AI_REVIEW_REQUESTED 와 같다. agent_work_state=FAILED|REJECTED
   AI_WORK_FAILED,
   // 이슈 보고자로 지정됨(WP-944) — 새 보고자 1명. 설정은 「나에게 할당」 줄을 함께 쓴다
-  REPORTER_ASSIGNED
+  REPORTER_ASSIGNED,
+  // 주인이 아닌 사람(관리자)이 내 개인 비서의 AI 연결을 회수함(WP-1170) — 주인 1명. 정리 마이그레이션이 넣은 행은 actor 가 없다.
+  // 내 비서가 멈춘 것을 알리는 계정 알림이라 알림 설정과 무관하게 늘 보낸다(설정 줄 없음)
+  PERSONAL_ASSISTANT_REVOKED
 }

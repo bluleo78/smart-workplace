@@ -12,10 +12,12 @@ import com.workplace.auth.exception.InvalidProviderCredentialException;
 import com.workplace.auth.exception.KeyTargetMustBeAgentException;
 import com.workplace.auth.exception.OAuthTokenNotFoundException;
 import com.workplace.auth.exception.PersonalAssistantAdminChangeForbiddenException;
+import com.workplace.auth.outbound.PersonalAssistantCredentialRevokedEvent;
 import com.workplace.auth.repository.AiAgentCredentialRepository;
 import com.workplace.auth.repository.AssistantConfigRepository;
 import com.workplace.auth.repository.AssistantConfigRepository.ConfigRow;
 import com.workplace.global.security.EncryptionService;
+import com.workplace.global.tenant.TenantContext;
 import com.workplace.user.dto.AgentUsernames;
 import com.workplace.user.dto.UserKind;
 import com.workplace.user.dto.UserResponse;
@@ -25,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +52,7 @@ public class AiAgentCredentialService {
   private final AuditLogService auditLogService;
   private final ObjectMapper objectMapper;
   private final ModelBaseUrlGuard urlGuard;
+  private final ApplicationEventPublisher publisher;
 
   /**
    * AGENT 에 새 자격증명 등록 — 기존 active 가 있으면 자동 revoke.
@@ -67,7 +71,10 @@ public class AiAgentCredentialService {
     UserResponse agent = assertAgent(agentUserId);
     // WP-1163: 개인 비서의 연결은 주인만 등록·재발급한다 — 관리자 경로(AdminProviderCredentialController)도 이 메서드를 쓰므로
     // 등록 지점 한 곳에서 막는다. 남이 바꾸면 주인의 대화가 주인 모르게 그 사람의 연결로 나간다(403). 회수는 정리 수단으로 남긴다.
-    if (AgentUsernames.isOthersPersonalAssistant(agent.username(), callerId)) {
+    // callerId 가 없으면(비정상 경로) 주인으로 볼 수 없으니 막는다 — long 으로 풀다 NPE 가 나지 않게(WP-1170).
+    if (AgentUsernames.isPersonalAssistant(agent.username())
+        && (callerId == null
+            || AgentUsernames.isOthersPersonalAssistant(agent.username(), callerId))) {
       throw new PersonalAssistantAdminChangeForbiddenException("개인 비서의 AI 연결은 주인만 등록할 수 있습니다");
     }
     if (!PROVIDERS.contains(provider)) {
@@ -136,11 +143,49 @@ public class AiAgentCredentialService {
     return toMeta(row);
   }
 
-  /** AGENT 의 active 자격증명 회수. 없으면 noop (idempotent). */
+  /**
+   * 관리 경로(AI 관리 화면)에서 이 AI 의 연결을 등록·재발급할 수 있는지(WP-1170) — 개인 비서는 관리자 자신의 것이라도 막는다(403). 주인은 내 설정
+   * 경로(/users/me/provider-credential)로 등록한다. 화면이 모든 개인 비서에서 등록 버튼을 숨기는 규칙과 서버를 맞춘다.
+   */
+  public void assertAdminMayConfigure(Long agentUserId) {
+    UserResponse agent = assertAgent(agentUserId);
+    if (AgentUsernames.isPersonalAssistant(agent.username())) {
+      throw new PersonalAssistantAdminChangeForbiddenException("개인 비서의 AI 연결은 주인만 등록할 수 있습니다");
+    }
+  }
+
+  /**
+   * AGENT 의 active 자격증명 회수. 없으면 noop (idempotent). 주인이 아닌 사람이 개인 비서의 연결을 회수하면(관리자의 정리) 감사 로그에 「개인
+   * 비서 정리」 사유를 남기고, 커밋 뒤 주인에게 「다시 연결해 주세요」 알림을 보낸다(WP-1170) — 주인은 비서가 왜 멈췄는지 모른 채 남았다.
+   */
   public void revoke(Long callerId, Long agentUserId) {
     UserResponse agent = assertAgent(agentUserId);
     int affected = repo.revokeActive(agentUserId);
-    if (affected > 0) {
+    Long ownerId = AgentUsernames.ownerIdOf(agent.username());
+    boolean othersPersonal = ownerId != null && !ownerId.equals(callerId);
+    if (affected > 0 && othersPersonal) {
+      auditLogService.log(
+          callerId,
+          resolveUsername(callerId),
+          "AGENT_OAUTH_TOKEN_REVOKED",
+          "ai_agent_credential",
+          String.valueOf(agentUserId),
+          "개인 비서 정리 — 주인이 아닌 사람이 개인 비서 AI 연결 회수: " + agent.username(),
+          null,
+          null,
+          "SUCCESS",
+          null,
+          Map.of(
+              "agent_user_id", String.valueOf(agentUserId),
+              "agentUsername", agent.username(),
+              "owner_user_id", String.valueOf(ownerId),
+              "reason", "개인 비서 정리"));
+      Long tenantId = TenantContext.get();
+      if (tenantId != null && callerId != null) {
+        publisher.publishEvent(
+            new PersonalAssistantCredentialRevokedEvent(tenantId, ownerId, callerId));
+      }
+    } else if (affected > 0) {
       auditLogService.log(
           callerId,
           resolveUsername(callerId),

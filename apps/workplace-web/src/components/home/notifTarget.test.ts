@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { NotificationResponse } from '@/types/notification'
 
-import { isMentionLike, isWikiShareType, notifLabel, notifTarget } from './notifTarget'
+import { isMentionLike, isPersonalAssistantRevokedType, isWikiShareType, notifLabel, notifTarget } from './notifTarget'
 
 // 테스트용 알림 한 건 — 필요한 필드만 덮어쓴다.
 function notif(over: Partial<NotificationResponse>): NotificationResponse {
@@ -95,5 +95,23 @@ describe('노트 공유 알림', () => {
     expect(isWikiShareType(notif({ type: 'COMMENTED' }))).toBe(false)
     expect(notifLabel(wiki('WIKI_SHARED'))).toBe('제품 로드맵')
     expect(isMentionLike(wiki('WIKI_SHARE_ACCESS_REQUESTED'))).toBe(false)
+  })
+})
+
+// WP-1170 — 내 개인 비서 연결 해제는 이슈·일정·노트 id 없이 온다. 다시 연결할 내 비서 설정으로 연다.
+describe('개인 비서 연결 해제 알림', () => {
+  const revoked = (over: Partial<NotificationResponse> = {}) =>
+    notif({ type: 'PERSONAL_ASSISTANT_REVOKED', projectKey: '', issueNumber: 0, issueTitle: '', ...over })
+
+  it('행위자 유무와 관계없이 /settings/assistant 로 연다', () => {
+    expect(notifTarget(revoked())).toBe('/settings/assistant')
+    expect(notifTarget(revoked({ actorId: null, actorName: null, actorKind: null }))).toBe('/settings/assistant')
+  })
+
+  it('이슈 키가 남아 있어도 이슈 상세로 새지 않는다, 제목 라벨은 「개인 비서」', () => {
+    expect(notifTarget(revoked({ projectKey: 'WP', issueNumber: 3 }))).toBe('/settings/assistant')
+    expect(notifLabel(revoked())).toBe('개인 비서')
+    expect(isPersonalAssistantRevokedType(revoked())).toBe(true)
+    expect(isPersonalAssistantRevokedType(notif({ type: 'WIKI_SHARE_ACCESS_APPROVED' }))).toBe(false)
   })
 })

@@ -1,6 +1,7 @@
 import {
   AtSign,
   Bell,
+  Bot,
   Calendar,
   CalendarClock,
   CalendarX,
@@ -39,6 +40,7 @@ const TYPE_ICON: Record<NotificationResponse["type"], typeof UserPlus> = {
   WIKI_SHARE_ACCESS_APPROVED: FileText,
   AI_REVIEW_REQUESTED: ClipboardCheck, // AI 작업 검토 요청(WP-913)
   AI_WORK_FAILED: CircleAlert, // AI 작업 실패·거절(WP-913)
+  PERSONAL_ASSISTANT_REVOKED: Bot, // 내 개인 비서 AI 연결 해제(WP-1170)
 };
 
 // 백엔드가 유니온에 없는 새 타입을 보내더라도(#585 재발 방지) 크래시 대신 폴백 아이콘을 렌더한다.

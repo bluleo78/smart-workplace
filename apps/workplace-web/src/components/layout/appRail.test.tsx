@@ -472,6 +472,37 @@ describe('알림 인박스', () => {
 
   // #610 — 20건 상한 해소: 바닥 근처까지 스크롤하면 offset=20 다음 페이지를 요청해 이어 붙인다.
   // jsdom 은 레이아웃이 없어 스크롤 크기를 직접 정해 「바닥에 닿음」을 만든다(닿기 전엔 요청이 없어야 한다).
+  // WP-1170 — 관리자가 내 개인 비서 연결을 해제하면 비서 주인이 받는다. 행위자가 없으면(일회성 정리) 「시스템님이」 대신 행위자 없는 문구.
+  // 이슈·일정 줄이 붙지 않고, 누르면 다시 연결할 내 비서 설정으로 간다.
+  test('개인 비서 연결 해제 알림 — 행위자 유무별 문구, 이슈 줄 없음, 내 비서 설정으로 이동', async () => {
+    // 서버는 이슈 필드를 비워 보낸다(null) — 타입은 이슈 알림 기준이라 단언으로 넣는다.
+    const revoked = (over: Partial<NotificationResponse>) =>
+      notif({
+        type: 'PERSONAL_ASSISTANT_REVOKED',
+        issueId: null as unknown as number,
+        projectKey: null as unknown as string,
+        issueNumber: null as unknown as number,
+        issueTitle: null as unknown as string,
+        commentId: null,
+        ...over,
+      })
+    const { user, reads, location } = await openInbox(
+      [
+        revoked({ id: 61, actorId: 2, actorName: '김관리', actorKind: 'HUMAN' }),
+        revoked({ id: 62, actorId: null, actorName: null, actorKind: null }),
+      ],
+      2,
+    )
+    const items = await screen.findAllByTestId('inbox-item')
+    expect(items[0]).toHaveTextContent('김관리님이 내 개인 비서의 AI 연결을 해제했어요 — 다시 연결해 주세요')
+    expect(items[1]).toHaveTextContent('내 개인 비서의 AI 연결이 해제됐어요 — 다시 연결해 주세요')
+    expect(items[1]).not.toHaveTextContent('시스템')
+    for (const item of items) expect(item).not.toHaveTextContent('null')
+    await user.click(items[1])
+    await waitFor(() => expect(reads).toEqual([62]))
+    expect(location()).toBe('/settings/assistant')
+  })
+
   test('바닥까지 스크롤하면 offset 다음 페이지를 요청해 이어 붙인다', async () => {
     const page1 = Array.from({ length: 20 }, (_, i) => notif({ id: 20 - i, issueNumber: 20 - i }))
     const page2 = Array.from({ length: 5 }, (_, i) => notif({ id: 100 - i, issueNumber: 100 - i }))

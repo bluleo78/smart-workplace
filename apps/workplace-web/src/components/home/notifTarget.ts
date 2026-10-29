@@ -38,6 +38,17 @@ export function isWikiShareType(n: NotificationResponse): boolean {
 }
 
 /**
+ * 개인 비서 연결 해제 알림 판별(WP-1170) — 이슈·일정·노트 id 없이 온다. 다시 연결할 내 비서 설정으로 연다.
+ */
+export function isPersonalAssistantRevokedType(n: NotificationResponse): boolean {
+  return n.type === 'PERSONAL_ASSISTANT_REVOKED'
+}
+
+/** 개인 비서 연결 해제 알림의 행 제목·이동 주소(WP-1170) — 대상 객체가 없어 고정값을 쓴다. */
+export const PERSONAL_ASSISTANT_LABEL = '개인 비서'
+export const PERSONAL_ASSISTANT_SETTINGS_PATH = '/settings/assistant'
+
+/**
  * 알림 대상 라우트 해소 — InboxPanel/알림 위젯과 동일 규칙.
  * 캘린더 알림(REMINDER/CALENDAR_INVITED/CALENDAR_RSVP_CHANGED)은 캘린더로, 그 외 이슈 타입은 이슈 상세로.
  * 이슈 챗 알림(AI_QUESTION/ISSUE_CHAT_MENTION)은 이슈 상세 + 챗 드로워(`?chat=1`)로 — 상태 알림(권한 필요·막힘)인 AI_QUESTION 도 같다.
@@ -50,8 +61,11 @@ export function isWikiShareType(n: NotificationResponse): boolean {
  *
  * 노트 공유 알림(WP-579)은 `/wiki/open/{pageId}` — 그 화면이 `GET /wiki/pages/{id}/entry` 로 멤버면 노트로, 공유 대상이면
  * 공유 화면으로 보낸다. 접근 요청은 공유한 사람(스페이스 편집자)이 받으므로 공유 창을 연 채로(`?share=1`).
+ *
+ * 개인 비서 연결 해제 알림(WP-1170)은 다시 연결하는 곳인 내 비서 설정(`/settings/assistant`)으로 간다.
  */
 export function notifTarget(n: NotificationResponse): string {
+  if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_SETTINGS_PATH
   if (isWikiShareType(n)) {
     if (n.wikiPageId == null) return '/me/tasks/assigned'
     const base = `/wiki/open/${n.wikiPageId}`
@@ -65,8 +79,9 @@ export function notifTarget(n: NotificationResponse): string {
   return '/me/tasks/assigned'
 }
 
-/** 행에 표시할 제목 — 캘린더 알림은 일정 제목, 노트 공유 알림은 노트 제목, 그 외는 이슈 제목. */
+/** 행에 표시할 제목 — 캘린더 알림은 일정 제목, 노트 공유 알림은 노트 제목, 개인 비서 연결 해제는 「개인 비서」(WP-1170), 그 외는 이슈 제목. */
 export function notifLabel(n: NotificationResponse): string {
+  if (isPersonalAssistantRevokedType(n)) return PERSONAL_ASSISTANT_LABEL
   if (isWikiShareType(n)) return n.wikiPageTitle ?? '노트'
   return isCalendarType(n) ? (n.eventTitle ?? '일정 알림') : n.issueTitle
 }

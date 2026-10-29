@@ -152,6 +152,15 @@ public class NotificationRepository {
         .execute();
   }
 
+  /** 개인 비서 연결 회수 알림 1건 insert(WP-1170) — 가리킬 이슈·일정·노트가 없는 계정 알림. 행위자는 회수한 사람이다. */
+  public void insertAccountNotice(long recipientId, NotificationType type, long actorId) {
+    dsl.insertInto(NOTIFICATION)
+        .set(NOTIFICATION.RECIPIENT_ID, recipientId)
+        .set(NOTIFICATION.ACTOR_ID, actorId)
+        .set(NOTIFICATION.TYPE, type.name())
+        .execute();
+  }
+
   /**
    * 일정 변경·취소 알림 1건 insert(WP-712) — 그때의 일정 제목·시작 시각을 함께 남긴다. 취소면 eventId 가 null(가리킬 일정이 없다)이고
    * 목록·푸시는 남긴 제목·시각을 보인다.
