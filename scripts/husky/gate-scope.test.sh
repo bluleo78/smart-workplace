@@ -175,6 +175,27 @@ branch_with v-2 "$M/V5__b.sql"
 out=$(FULL_REGRESSION_CMD='echo RAN' sh "$HOOKS/gate-bundle.sh" v-1 v-2 2>&1 || true)
 check "마이그레이션 번호가 겹치면 게이트를 돌지 않음" "$out" "번호가 겹칩니다" "RAN"
 
+# git 커밋 신원이 없는 환경(AI 에이전트 서버)에서도 합친다 — 신원 환경변수를 빼고, 전역 설정은 「설정된 신원만 쓴다」로 막는다(WP-1213)
+branch_with n-1 apps/workplace-web/src/n1.ts
+branch_with n-2 apps/workplace-web/src/n2.ts
+printf '[user]\n\tuseConfigOnly = true\n' > "$TMP/noident.gitconfig"
+out=$(env -u GIT_AUTHOR_NAME -u GIT_AUTHOR_EMAIL -u GIT_COMMITTER_NAME -u GIT_COMMITTER_EMAIL \
+  HOME="$TMP" GIT_CONFIG_GLOBAL="$TMP/noident.gitconfig" GIT_CONFIG_NOSYSTEM=1 EMAIL= \
+  FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" n-1 n-2 2>&1 || true)
+check "신원 없는 환경 — 둘 다 묶음" "$out" "묶은 브랜치: n-1 n-2" "충돌"
+check "신원 없는 환경 — 기록" "$(decide "$(line n-2)")" "회귀 생략"
+
+# 충돌이 아닌 머지 실패는 충돌로 알리지 않고 git 이 낸 이유를 보인다(머지 커밋 훅이 막는 경우로 흉내)
+branch_with h-1 apps/workplace-web/src/h1.ts
+mkdir -p "$TMP/hooks"
+printf '#!/bin/sh\necho "pre-merge-commit 가 막음" >&2\nexit 1\n' > "$TMP/hooks/pre-merge-commit"
+chmod +x "$TMP/hooks/pre-merge-commit"
+git config core.hooksPath "$TMP/hooks"
+out=$(FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" h-1 2>&1 || true)
+git config --unset core.hooksPath
+check "충돌 아닌 실패 — 충돌로 알리지 않음" "$out" "h-1: 합치지 못함(충돌 아님)" "충돌 —"
+check "충돌 아닌 실패 — git 이유를 보임" "$out" "pre-merge-commit 가 막음"
+
 out=$(env -u PREPUSH_VERIFIED_FILE FULL_REGRESSION_CMD=true sh "$HOOKS/gate-bundle.sh" b-web1 2>&1 || true)
 check "가짜 회귀를 공유 기록 경로로 쓰면 거부" "$out" "테스트 전용"
 
