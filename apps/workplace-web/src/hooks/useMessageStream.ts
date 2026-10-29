@@ -7,7 +7,8 @@ import { type InfiniteData, type QueryClient } from '@tanstack/react-query';
 
 import { keyedSubscribe } from '../lib/aiWorkingProgress';
 import { applyReaction } from '../lib/reactions';
-import type { LinkPreview, MessagePage, MessageResponse } from '../types/messaging';
+import { applyReadEvent } from '../lib/readReceipts';
+import type { ChannelReadState, DmResponse, LinkPreview, MessagePage, MessageResponse } from '../types/messaging';
 import { messagingKeys } from './queries/messagingKeys';
 import { bumpReplyCount, bumpUnreadReplyCount, isParentFollowed } from './queries/useCreateReply';
 import { patchReactionEverywhere } from './queries/useToggleReaction';
@@ -116,9 +117,32 @@ export function handleMessagingEvent(
   currentUserId: number,
 ) {
   const d = data as Record<string, unknown>;
-  // read 이벤트: payload {channelId,userId,lastReadMessageId}. 본인 읽음일 때만 배지 재계산.
+  // read 이벤트: payload {channelId,userId,lastReadMessageId,readAt}. 본인 읽음이면 배지 재계산,
+  // 다른 사람 읽음이면 그 대화의 읽음 표시(WP-1176)를 고친다 — 받아 둔 목록이 없으면(DM 이 아니거나 아직 안 열었음) 건드리지 않는다.
   if (eventName === 'messaging.message.read') {
-    if (Number(d.userId) === currentUserId) invalidateLists(qc);
+    const userId = Number(d.userId);
+    if (userId === currentUserId) {
+      invalidateLists(qc);
+      return;
+    }
+    const key = messagingKeys.readStates(Number(d.channelId));
+    const states = qc.getQueryData<ChannelReadState[]>(key);
+    if (!states) return;
+    const next = applyReadEvent(states, {
+      userId,
+      lastReadMessageId: Number(d.lastReadMessageId),
+      readAt: typeof d.readAt === 'string' ? d.readAt : null,
+    });
+    if (next) {
+      qc.setQueryData(key, next);
+      return;
+    }
+    // 목록에 없던 사람(처음 읽음)은 이름을 몰라 다시 받는다. 다만 AI 멤버는 서버가 목록에서 빼므로 다시 받아도 늘 없다 —
+    // AI 가 답할 때마다 읽음을 올려 매번 다시 받게 되지 않도록, DM 목록에서 사람이 아닌 참여자로 보이면 건너뛴다.
+    const dm = qc.getQueryData<DmResponse[]>(messagingKeys.dms())?.find((x) => x.id === Number(d.channelId));
+    const reader = dm?.participants.find((p) => p.userId === userId);
+    if (reader && reader.kind !== 'HUMAN') return;
+    void qc.invalidateQueries({ queryKey: key, exact: true });
     return;
   }
   const channelId = Number(d.channelId);

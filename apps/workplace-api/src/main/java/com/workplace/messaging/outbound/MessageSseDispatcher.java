@@ -94,13 +94,15 @@ public class MessageSseDispatcher {
     AfterCommit.run(() -> registry.fanOut(to, "messaging.message.deleted", p));
   }
 
-  /** 읽음 표시 이벤트를 채널 전 멤버에게 fan-out(멀티기기 unread 동기화). */
+  /** 읽음 표시 이벤트를 채널 전 멤버에게 fan-out(멀티기기 unread 동기화 + DM 상대 읽음 표시, WP-1176). */
   @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
   public void onRead(MessageReadEvent e) {
     Map<String, Object> p = new LinkedHashMap<>();
     p.put("channelId", e.channelId());
     p.put("userId", e.userId());
     p.put("lastReadMessageId", e.lastReadMessageId());
+    // 읽은 시각(WP-1176) — DM 상대 화면의 읽음 표시가 실시간으로 시각을 보인다. 모르면 null.
+    p.put("readAt", e.readAt() == null ? null : e.readAt().toString());
     Collection<Long> to = memberRepo.findMemberIds(e.channelId());
     AfterCommit.run(() -> registry.fanOut(to, "messaging.message.read", p));
   }

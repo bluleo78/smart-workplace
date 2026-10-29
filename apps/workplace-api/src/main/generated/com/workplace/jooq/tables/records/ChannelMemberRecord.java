@@ -118,6 +118,20 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
         return (Boolean) get(6);
     }
 
+    /**
+     * Setter for <code>public.channel_member.last_read_at</code>.
+     */
+    public void setLastReadAt(OffsetDateTime value) {
+        set(7, value);
+    }
+
+    /**
+     * Getter for <code>public.channel_member.last_read_at</code>.
+     */
+    public OffsetDateTime getLastReadAt() {
+        return (OffsetDateTime) get(7);
+    }
+
     // -------------------------------------------------------------------------
     // Primary key information
     // -------------------------------------------------------------------------
@@ -141,7 +155,7 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
     /**
      * Create a detached, initialised ChannelMemberRecord
      */
-    public ChannelMemberRecord(Long channelId, Long userId, Long lastReadMessageId, OffsetDateTime joinedAt, String role, Long tenantId, Boolean direct) {
+    public ChannelMemberRecord(Long channelId, Long userId, Long lastReadMessageId, OffsetDateTime joinedAt, String role, Long tenantId, Boolean direct, OffsetDateTime lastReadAt) {
         super(ChannelMember.CHANNEL_MEMBER);
 
         setChannelId(channelId);
@@ -151,6 +165,7 @@ public class ChannelMemberRecord extends UpdatableRecordImpl<ChannelMemberRecord
         setRole(role);
         setTenantId(tenantId);
         setDirect(direct);
+        setLastReadAt(lastReadAt);
         resetChangedOnNotNull();
     }
 }

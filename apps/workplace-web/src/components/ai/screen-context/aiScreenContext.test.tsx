@@ -461,6 +461,8 @@ describe('채팅', () => {
       ...sidebar([], [dm]),
       http.get('/api/v1/messaging/channels/9', () => HttpResponse.json(dm)),
       http.get('/api/v1/messaging/channels/9/messages', () => HttpResponse.json(emptyCursor)),
+      // DM 화면은 읽음 표시(WP-1176) 위치를 함께 받는다.
+      http.get('/api/v1/messaging/channels/9/read-states', () => HttpResponse.json([])),
     ])
     await chipHas('DM · 김철수')
     expect((await send(view, '무슨 얘기 했지?')).screenContext).toMatchObject({ view: 'DM', scope: { label: 'DM · 김철수', refs: { channelId: '9' } } })

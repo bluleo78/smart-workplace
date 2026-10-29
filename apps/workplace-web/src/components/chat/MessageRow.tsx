@@ -20,6 +20,7 @@ import {
   TOUCH_NO_SELECT_CLASS,
 } from '@/components/chat/messageToolbar'
 import { ProposalCard } from '@/components/chat/ProposalCard'
+import { ReadReceipts } from '@/components/chat/ReadReceipts'
 import { stripChatMarkdown } from '@/components/mentions/chatMarkdown'
 import type { RenderMention } from '@/components/mentions/parseMessageSegments'
 import { RichInput } from '@/components/mentions/RichInput'
@@ -36,7 +37,7 @@ import type { ToolbarRowProps } from '@/hooks/useToolbarReveal'
 import { currentAppHost, parseAppLink, visibleAppLinks } from '@/lib/appLinks'
 import { formatClockTime, formatClockTimeCompact } from '@/lib/formatters'
 import { itemActionLabel } from '@/lib/itemActionLabel'
-import type { MessageResponse } from '@/types/messaging'
+import type { ChannelReadState, MessageResponse } from '@/types/messaging'
 
 // 제안 승인 인자 — ProposalCard 가 정의하는 형태를 그대로 따른다.
 type ProposalConfirmArg = Parameters<ComponentProps<typeof ProposalCard>['onConfirm']>[0]
@@ -73,6 +74,8 @@ interface MessageRowProps {
   onRejectProposal: (proposalId: number) => void
   // 보관된 채널 등 읽기 전용(WP-508) — 리액션 추가·토글, 수정·삭제를 숨긴다. 스레드 보기·반응한 사람 보기는 남긴다.
   readOnly?: boolean
+  // DM 읽음 표시(WP-1176) — 이 내 메시지까지 읽은 사람들. 비었거나 없으면 그리지 않는다. 본인 말풍선 아래에만 그린다.
+  readers?: ChannelReadState[]
 }
 
 export function MessageRow({
@@ -97,6 +100,7 @@ export function MessageRow({
   onConfirmProposal,
   onRejectProposal,
   readOnly = false,
+  readers,
 }: MessageRowProps) {
   const isPending = m.id < 0
   // 본인 메시지 여부 — 정렬(우측 말풍선)과 편집/삭제 권한 판정에 쓴다.
@@ -418,6 +422,7 @@ export function MessageRow({
             {attachments && <div className={OWN_ATTACHMENTS_CLASS}>{attachments}</div>}
             {reactions}
             {threadLink}
+            {readers && <ReadReceipts readers={readers} />}
           </div>
         </>
       ) : (

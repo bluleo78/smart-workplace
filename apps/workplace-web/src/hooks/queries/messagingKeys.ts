@@ -9,6 +9,8 @@ export const messagingKeys = {
   members: (channelId: number) => [...messagingKeys.all, 'members', channelId] as const,
   /** 비공개 채널 멤버로 둔 조직도 부서(WP-1058) — members 아래라 멤버 목록 무효화(변경·실시간 channel 이벤트)가 함께 덮는다. */
   memberGroups: (channelId: number) => [...messagingKeys.members(channelId), 'groups'] as const,
+  /** DM 읽음 표시(WP-1176) — 다른 사람 멤버의 읽은 위치·시각. 실시간 read 이벤트가 갱신한다. */
+  readStates: (channelId: number) => [...messagingKeys.all, 'read-states', channelId] as const,
   messages: (channelId: number) => [...messagingKeys.all, 'messages', channelId] as const,
   threads: () => [...messagingKeys.all, 'thread'] as const,
   thread: (parentMessageId: number) => [...messagingKeys.all, 'thread', parentMessageId] as const,

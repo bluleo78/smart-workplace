@@ -3,11 +3,14 @@ package com.workplace.messaging.repository;
 import static com.workplace.jooq.Tables.CHANNEL_MEMBER;
 import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.USER;
-import static org.jooq.impl.DSL.greatest;
-import static org.jooq.impl.DSL.val;
+import static org.jooq.impl.DSL.coalesce;
+import static org.jooq.impl.DSL.currentOffsetDateTime;
+import static org.jooq.impl.DSL.inline;
 
 import com.workplace.global.tenant.WorkspaceActive;
 import com.workplace.messaging.dto.ChannelMemberResponse;
+import com.workplace.messaging.dto.ChannelReadStateResponse;
+import com.workplace.user.dto.UserKind;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -97,16 +100,48 @@ public class ChannelMemberRepository {
         .fetchOptional(CHANNEL_MEMBER.DIRECT);
   }
 
-  /** 본인 last_read_message_id 를 max(기존, upto) 로 갱신(GREATEST — watermark 후퇴 방지). */
-  public void markRead(long channelId, long userId, long uptoMessageId) {
-    dsl.update(CHANNEL_MEMBER)
-        .set(
-            CHANNEL_MEMBER.LAST_READ_MESSAGE_ID,
-            org.jooq.impl.DSL.coalesce(
-                greatest(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID, val(uptoMessageId)),
-                val(uptoMessageId)))
+  /**
+   * 본인 last_read_message_id 를 upto 로 앞으로 옮긴다 — 지금 위치보다 뒤일 때만 바꾼다(watermark 후퇴 방지). 옮길 때 읽은 시각
+   * (last_read_at)도 now() 로 채운다 — 같은·앞 위치를 다시 읽음 처리해도 「언제 읽었나」가 바뀌지 않게(WP-1176). 옮겼으면 새 읽은 시각을, 옮기지
+   * 않았으면(이미 그 위치 이상이거나 비멤버) empty 를 돌려준다 — 호출 측은 empty 면 읽음 이벤트를 내지 않는다.
+   */
+  public Optional<OffsetDateTime> markRead(long channelId, long userId, long uptoMessageId) {
+    return dsl.update(CHANNEL_MEMBER)
+        .set(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID, uptoMessageId)
+        .set(CHANNEL_MEMBER.LAST_READ_AT, currentOffsetDateTime())
         .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId).and(CHANNEL_MEMBER.USER_ID.eq(userId)))
-        .execute();
+        .and(coalesce(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID, inline(0L)).lt(uptoMessageId))
+        .returning(CHANNEL_MEMBER.LAST_READ_AT)
+        .fetchOptional(CHANNEL_MEMBER.LAST_READ_AT);
+  }
+
+  /**
+   * DM 읽음 표시(WP-1176) — caller 를 뺀 사람(HUMAN) 멤버의 읽은 위치·시각. 아직 아무것도 읽지 않은 멤버(위치 NULL)는 뺀다. AI 멤버는 읽음
+   * 표시 대상이 아니라 뺀다(대화를 사람처럼 「읽지」 않는다). joined_at 오름차순.
+   */
+  public List<ChannelReadStateResponse> findReadStates(long channelId, long callerId) {
+    return dsl.select(
+            CHANNEL_MEMBER.USER_ID,
+            USER.NAME,
+            CHANNEL_MEMBER.LAST_READ_MESSAGE_ID,
+            CHANNEL_MEMBER.LAST_READ_AT)
+        .from(CHANNEL_MEMBER)
+        .join(USER)
+        .on(USER.ID.eq(CHANNEL_MEMBER.USER_ID))
+        .where(CHANNEL_MEMBER.CHANNEL_ID.eq(channelId))
+        .and(CHANNEL_MEMBER.USER_ID.ne(callerId))
+        .and(USER.KIND.eq(UserKind.HUMAN))
+        .and(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID.isNotNull())
+        .orderBy(CHANNEL_MEMBER.JOINED_AT.asc(), CHANNEL_MEMBER.USER_ID.asc())
+        .fetch(
+            r -> {
+              OffsetDateTime at = r.get(CHANNEL_MEMBER.LAST_READ_AT);
+              return new ChannelReadStateResponse(
+                  r.get(CHANNEL_MEMBER.USER_ID),
+                  r.get(USER.NAME),
+                  r.get(CHANNEL_MEMBER.LAST_READ_MESSAGE_ID),
+                  at == null ? null : at.toInstant());
+            });
   }
 
   /** caller 의 채널 역할. 비멤버면 empty. */

@@ -5,7 +5,7 @@
 // Phase 5: hover toolbar 에 이모지 피커 + 답글 버튼 추가. body 아래 ReactionBar + 답글수 링크.
 // Task 5(대화 Phase A): 그룹핑(Slack 패턴) — 같은 작성자·5분 이내 연속 메시지는 한 묶음.
 // #884: 좌/우 분리 — 행 렌더는 MessageRow. 이 목록은 그룹핑·구분선·편집 상태·뮤테이션·읽음 처리를 맡는다.
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ChatAttachmentViewerHost } from '@/components/chat/ChatAttachmentViewer'
 import { DateDivider } from '@/components/chat/DateDivider'
@@ -31,7 +31,8 @@ import { useToolbarReveal } from '@/hooks/useToolbarReveal'
 import { CATCHUP_TOP_ANCHOR_ID } from '@/lib/chatEntryAnchor'
 import { deleteMessageWithUndo } from '@/lib/deleteWithUndo'
 import { shouldStartNewGroup, startsNewDay } from '@/lib/messageGrouping'
-import type { MessageResponse } from '@/types/messaging'
+import { readersByMessage } from '@/lib/readReceipts'
+import type { ChannelReadState, MessageResponse } from '@/types/messaging'
 
 /** 팀 채팅 첨부 뷰어 열림 router state 키(WP-279) — 이슈 채팅·메인 AI 채팅 키와 나눠 서로의 열림을 자기 것으로 읽지 않게. */
 const TEAM_CHAT_PREVIEW_KEY = 'teamChatPreview'
@@ -57,9 +58,13 @@ interface MessageListProps {
   ready?: boolean
   // 보관된 채널 — 메시지 작업(리액션·수정·삭제)을 숨긴다(WP-508).
   readOnly?: boolean
+  // DM 읽음 표시(WP-1176) — 대화 상대들의 읽은 위치·시각. 주면 각 사람이 읽은 내 마지막 메시지 아래에 얼굴을 붙인다(DM 만 준다).
+  readStates?: ChannelReadState[]
+  // 탭이 보일 때만 읽음 처리(WP-1176) — 상대 화면에 읽음이 뜨는 DM 이 켠다. 백그라운드 탭에 쌓인 메시지를 읽은 것으로 치지 않는다.
+  markReadWhenVisible?: boolean
 }
 
-export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true, readOnly = false }: MessageListProps) {
+export function MessageList({ messages, channelId, currentUserId, members, onOpenThread, disableMarkRead, emptyState, unreadDividerBeforeId, catchupSlot, ready = true, readOnly = false, readStates, markReadWhenVisible = false }: MessageListProps) {
   // 페이지는 DESC 로 쌓이므로 화면에는 ASC(오래된 위)로 뒤집어 보여준다.
   const ordered = [...messages].reverse()
   // WP-279: 열린 첨부 키(msg:{메시지}:…) → 이 목록에 그린 그 메시지의 묶음. 앞으로가기·드라이브에서 돌아오기 뒤에도 키만으로 다시 연다.
@@ -112,15 +117,26 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
   useEffect(() => {
     const el = lastRef.current
     if (disableMarkRead || !el || lastId === null || lastId < 0) return // 패널 렌더·낙관적·빈 목록 제외
+    // markReadWhenVisible 이면 탭이 보일 때만 읽음 처리하고, 마지막 메시지가 화면에 걸친 채 탭이 다시 보이면 그때 읽음 처리한다.
+    // 채널은 지금처럼 보이면 바로 읽음이다.
+    let intersecting = false
+    const markIfSeen = () => {
+      if (intersecting && (!markReadWhenVisible || document.visibilityState === 'visible')) markRead(lastId)
+    }
     const io = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) markRead(lastId)
+        intersecting = entries.some((e) => e.isIntersecting)
+        markIfSeen()
       },
       { threshold: 0.5 },
     )
     io.observe(el)
-    return () => io.disconnect()
-  }, [lastId, markRead, disableMarkRead])
+    document.addEventListener('visibilitychange', markIfSeen)
+    return () => {
+      io.disconnect()
+      document.removeEventListener('visibilitychange', markIfSeen)
+    }
+  }, [lastId, markRead, disableMarkRead, markReadWhenVisible])
 
   const startDelete = (m: MessageResponse) => deleteMessageWithUndo(() => remove.mutate(m.id))
   // 키보드로 지운 메시지가 「(삭제됨)」으로 다시 그려지며 삭제 버튼이 사라져 포커스가 body 로 빠졌다 — 그 메시지 행으로 잇는다(WP-832).
@@ -146,6 +162,12 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
     openReactors,
   )
   const target = sheet.target
+  // 읽은 사람 얼굴을 붙일 자리(메시지 id → 사람들) — 사람마다 그 사람이 읽은 내 마지막 메시지 한 곳(WP-1176).
+  // 툴바 hover·시트 상태로 자주 다시 그리므로 메시지·읽음 위치가 바뀔 때만 다시 계산한다.
+  const readers = useMemo(
+    () => (readStates ? readersByMessage(messages, readStates, currentUserId) : null),
+    [messages, readStates, currentUserId],
+  )
 
   return (
     // WP-279: 첨부 썸네일·카드 → 통합 뷰어. 호스트가 목록 div 바깥(형제)에 뷰어를 그려 길게 누르기 위임 핸들러로 이벤트가 새지 않는다.
@@ -202,6 +224,7 @@ export function MessageList({ messages, channelId, currentUserId, members, onOpe
                 onConfirmProposal={(proposalId, arg) => proposalActions.confirm.mutate({ proposalId, arg })}
                 onRejectProposal={(proposalId) => proposalActions.reject.mutate(proposalId)}
                 readOnly={readOnly}
+                readers={readers?.get(m.id)}
               />
             </Fragment>
           )

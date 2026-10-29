@@ -191,6 +191,10 @@ export function chatBaseHandlers({
     http.get(`${API}/messaging/channels/:id/member-groups`, () =>
       HttpResponse.json([]),
     ),
+    // DM 읽음 표시(WP-1176) — 기본은 아무도 안 읽음. 표시를 보는 테스트는 server.use 로 다시 건다.
+    http.get(`${API}/messaging/channels/:id/read-states`, () =>
+      HttpResponse.json([]),
+    ),
     http.post(
       `${API}/messaging/channels/:id/read`,
       () => new HttpResponse(null, { status: 204 }),

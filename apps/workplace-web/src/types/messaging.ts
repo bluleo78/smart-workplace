@@ -203,6 +203,16 @@ export interface DmParticipant {
   active?: boolean; // 이 워크스페이스에서 활성 — false 면 정지된 구성원(WP-723). 없으면 활성으로 본다
 }
 
+/** DM 읽음 표시(WP-1176) — 대화 상대 한 사람이 어디까지·언제 읽었는지(GET /messaging/channels/{id}/read-states). */
+export interface ChannelReadState {
+  userId: number;
+  name: string;
+  /** 읽은 마지막 메시지 id — 이 id 이하의 메시지를 읽었다. */
+  lastReadMessageId: number;
+  /** 그 위치까지 읽은 시각(ISO). 이 기능 전에 읽은 위치면 null(언제 읽었는지 모름). */
+  readAt: string | null;
+}
+
 /** DM 1건 — name 이 없으므로 참여자에서 표시명 파생. */
 export interface DmResponse {
   id: number;
