@@ -3,6 +3,7 @@
 import type { PriorityItem } from '@/api/priorityItems'
 import { formatRelativeTime, parseUtcDate } from '@/lib/formatters'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
+import { mailSubjectText } from '@/lib/mailSubject'
 import type { IssueDueMarker } from '@/types/calendar'
 import type { MailSummary, MessagingSummary } from '@/types/dashboard'
 import type { NotificationResponse } from '@/types/notification'
@@ -107,11 +108,11 @@ export function buildAttentionRows(input: AttentionRowsInput): AttentionRow[] {
       rows.push({
         key: `mail-${m.id}`,
         source: '메일',
-        title: m.subject ?? '(제목 없음)',
+        title: mailSubjectText(m.subject),
         meta: '회신 필요',
         // accountId 기반 딥링크 — Task 6 가 소비.
         to: `/mail/${m.accountId}?messageId=${m.id}`,
-        ariaLabel: `메일 열기: ${m.subject ?? '(제목 없음)'}`,
+        ariaLabel: `메일 열기: ${mailSubjectText(m.subject)}`,
         urgency: 2,
         recency: parseUtcDate(m.receivedAt ?? '1970-01-01T00:00:00Z').getTime(),
         aiScore: priorityScoreOf('MAIL_NEEDS_REPLY', String(m.id)),

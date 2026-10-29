@@ -16,6 +16,7 @@ import {
   recipientFullLabel,
   summarizeRecipients,
 } from '@/lib/mailRecipients'
+import { mailSubjectText } from '@/lib/mailSubject'
 import { cn } from '@/lib/utils'
 
 import type { EmailMessageDetail } from '../../types/mailMessage'
@@ -235,7 +236,7 @@ export function MailMobileDetail({
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
   const [titleEl, setTitleEl] = useState<HTMLHeadingElement | null>(null)
   const titleShown = useScrolledPast(scrollEl, titleEl)
-  const subject = detail.subject || '(제목 없음)'
+  const subject = mailSubjectText(detail.subject)
   return (
     <>
       <MailMobileDetailBar

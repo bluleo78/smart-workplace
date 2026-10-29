@@ -7,6 +7,7 @@ import { relTime } from '@/components/ai/relTime'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMailSummary } from '@/hooks/queries/useMailSummary'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
+import { mailSubjectText } from '@/lib/mailSubject'
 import { showsLoadError } from '@/lib/queryFailure'
 import type { MailSummaryItem } from '@/types/dashboard'
 
@@ -111,7 +112,7 @@ export default function UnreadMailBody({
             <Link
               to={`/mail/${m.accountId}?messageId=${m.id}`}
               data-testid="dash-mail-row"
-              aria-label={`메일 열기: ${m.subject?.trim() || '(제목 없음)'}`}
+              aria-label={`메일 열기: ${mailSubjectText(m.subject)}`}
               className="flex gap-2 rounded px-1 py-1.5 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             >
               <span className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-muted text-xs font-medium">
@@ -131,7 +132,7 @@ export default function UnreadMailBody({
                   </span>
                 </span>
                 <span className="block truncate text-sm text-foreground/90">
-                  {m.subject?.trim() || '(제목 없음)'}
+                  {mailSubjectText(m.subject)}
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="block min-w-0 truncate text-xs text-muted-foreground">

@@ -38,6 +38,7 @@ import { scheduleMailMove, useMailMoveHidden } from '@/lib/mailMoveQueue'
 import { isNeedsReply } from '@/lib/mailNeedsReply'
 import { buildQuote, plainTextToMailHtml } from '@/lib/mailQuote'
 import { replyAllCc } from '@/lib/mailRecipients'
+import { mailSubjectText } from '@/lib/mailSubject'
 import { firstSummaryLine } from '@/lib/mailSummary'
 import { mailBreadcrumbItems, mailBreadcrumbText, mailViewHref, resolveMailView, unreadCountForView } from '@/lib/mailView'
 import { SELECTED_BG_CLASS, TOGGLE_ON_CLASS } from '@/lib/selectionStyles'
@@ -197,7 +198,7 @@ function MessageRow({
       // a11y(#699): 발신자+제목만으로 accessible name 구성 — 스니펫/AI배지/날짜까지
       // 자식 텍스트가 섞이면 장문화되어 SR 청취성 저하(WCAG 1.3.1/4.1.2). 날짜는
       // 식별에 필수가 아니므로 간결함 우선으로 제외.
-      aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${m.subject || '(제목 없음)'}`}
+      aria-label={`${m.fromName || m.fromAddress || '(보낸사람 없음)'} ${mailSubjectText(m.subject)}`}
       aria-current={open ? 'true' : undefined}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -259,7 +260,7 @@ function MessageRow({
         </span>
       </span>
       <span className={cn('truncate text-sm', m.seen ? 'text-muted-foreground' : 'font-medium')}>
-        {m.subject || '(제목 없음)'}
+        {mailSubjectText(m.subject)}
       </span>
       {m.snippet && (
         <span
@@ -743,7 +744,7 @@ function MessageDetailPanel({
             <Sparkles className="h-3.5 w-3.5" /> AI 요약
           </Button>
         )}
-        <h2 className="text-lg font-semibold">{detail.subject || '(제목 없음)'}</h2>
+        <h2 className="text-lg font-semibold">{mailSubjectText(detail.subject)}</h2>
         {linkedBadge}
         <div className="mt-1 text-sm text-muted-foreground">
           {detail.fromName ? `${detail.fromName} <${detail.fromAddress}>` : detail.fromAddress}
@@ -1659,7 +1660,7 @@ function MailInbox() {
             onClose={sheet.close}
             actions={sheet.target ? sheetActions(sheet.target) : []}
             previewVisible
-            preview={sheet.target ? `${sheet.target.fromName || sheet.target.fromAddress || ''} · ${sheet.target.subject || '(제목 없음)'}` : undefined}
+            preview={sheet.target ? `${sheet.target.fromName || sheet.target.fromAddress || ''} · ${mailSubjectText(sheet.target.subject)}` : undefined}
           />
         )}
 

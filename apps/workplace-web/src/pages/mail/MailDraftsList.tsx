@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { draftRecipientsLabel } from '@/lib/mailDraftCompose'
 import { formatReceivedAt } from '@/lib/mailListTime'
+import { hasMailSubject, mailSubjectText } from '@/lib/mailSubject'
 import { cn } from '@/lib/utils'
 
 import { useDeleteMailDraft, useMailDrafts, useOpenMailDraft } from '../../hooks/queries/useMailDrafts'
@@ -33,7 +34,7 @@ function DraftRow({
       role="button"
       tabIndex={0}
       data-testid={`mail-draft-row-${d.id}`}
-      aria-label={`임시저장 ${recipients || '받는사람 없음'} ${d.subject || '(제목 없음)'}`}
+      aria-label={`임시저장 ${recipients || '받는사람 없음'} ${mailSubjectText(d.subject)}`}
       onClick={onOpen}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return
@@ -81,7 +82,7 @@ function DraftRow({
           </DropdownMenuContent>
         </DropdownMenu>
       </span>
-      <span className={cn('truncate text-sm', !d.subject && 'text-muted-foreground')}>{d.subject || '(제목 없음)'}</span>
+      <span className={cn('truncate text-sm', !hasMailSubject(d.subject) && 'text-muted-foreground')}>{mailSubjectText(d.subject)}</span>
       {d.preview && (
         <span aria-hidden="true" className="truncate text-xs text-muted-foreground">
           {d.preview}

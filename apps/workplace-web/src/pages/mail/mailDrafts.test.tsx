@@ -962,3 +962,11 @@ test('저장이 실패하면 「저장하지 못했어요 · 다시 시도」, �
   await waitFor(() => expect(server.posts).toHaveLength(2))
   await waitFor(() => expect(status()).toHaveTextContent('저장됨'))
 })
+
+test('임시보관함 — 제목이 제로폭 공백뿐인 임시저장은 행·행 이름에 「(제목 없음)」(WP-1110)', async () => {
+  const server = draftServer([draftDetail({ id: 8, to: ['kim@example.com'], subject: '\u200B\u200B', updatedAt: '2026-10-21T01:00:00Z' })])
+  renderDrafts(server, '/mail/1?folder=drafts')
+  const row = await screen.findByTestId('mail-draft-row-8')
+  expect(row).toHaveTextContent('(제목 없음)')
+  expect(row.getAttribute('aria-label')).toMatch(/\(제목 없음\)$/)
+})
