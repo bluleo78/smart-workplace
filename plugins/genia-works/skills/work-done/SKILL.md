@@ -34,11 +34,13 @@ work-on 의 짝이다. 인자: 이슈 키(예: `WP-377`)와, 있으면 끝낼 �
 
 | 방식 | 호출 |
 |---|---|
-| 검토 대기 | `report_agent_work({ issueKey, state: 'REVIEW', note: '<커밋·머지 한 줄>', message: '<2번 요약>' })` |
-| 완료 | `report_agent_work({ issueKey, state: 'WORKING', note: '<커밋·머지 한 줄>', message: '<2번 요약>' })` → `update_issue({ issueKey, status: 'DONE' })`. DONE 이 되면 서버가 진행 중 작업을 COMPLETED 로 닫는다 |
-| 취소 | `report_agent_work({ issueKey, state: 'CANCELED', message: '<그만둔 이유·남긴 것>' })` — 사용자가 그만두라고 한 경우 |
-| 반려 | `state: 'REJECTED'`, `message` 에 할 수 없거나 하지 않을 이유 |
-| 실패 | `state: 'FAILED'`, `message` 에 원인과 시도한 것 |
+| 검토 대기 | `report_agent_work({ issueKey, state: 'REVIEW', note: '<바뀐 것 한 줄> — <사람이 확인할 것>', message: '<2번 요약>' })` |
+| 완료 | `report_agent_work({ issueKey, state: 'WORKING', note: '<바뀐 것 한 줄>', message: '<2번 요약>' })` → `update_issue({ issueKey, status: 'DONE' })`. DONE 이 되면 서버가 진행 중 작업을 COMPLETED 로 닫는다 |
+| 취소 | `report_agent_work({ issueKey, state: 'CANCELED', note: '<그만둔 까닭 한 줄>', message: '<그만둔 이유·남긴 것>' })` — 사용자가 그만두라고 한 경우 |
+| 반려 | `state: 'REJECTED'`, note 에 하지 않는 까닭 한 줄, `message` 에 할 수 없거나 하지 않을 이유 |
+| 실패 | `state: 'FAILED'`, note 에 무엇이 안 됐는지 한 줄, `message` 에 원인과 시도한 것 |
+
+note 는 모두 work-on 4번 「note 쓰는 법」대로다.
 
 - 이슈 상태를 바꾸는 것은 완료(DONE)뿐이다. 검토 대기는 작업을 이어 두고, 나머지는 작업 기록만 끝낸다.
 - 완료는 검토 대기(REVIEW)로 보고하지 않는다 — REVIEW 는 맡긴 사람에게 검토 요청 알림을 보낸다. 상태를 빼지도 않는다 — 작업이 답변 대기로 남아 있으면 상태 없는 보고의 `message` 가 질문으로 저장돼 답변 필요 알림이 간다. 순서(보고 → DONE)를 바꾸지 않는다 — 완료된 이슈에는 보고할 수 없다(409).

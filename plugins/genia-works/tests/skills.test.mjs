@@ -344,8 +344,38 @@ test('process-issue.md: 개발 순서는 PR → PR 리뷰 대기 → 검토 대�
   // 리뷰를 기다리는 동안 REVIEW 로 올리면 main 에 없는 코드로 사람에게 검토 요청 알림이 간다.
   const s10 = section(pi, '\n### 10. PR 리뷰 대기\n', '\n### 11. ');
   // WP-1024: 리뷰를 기다리는 동안은 검토자 차례 — 대기 중(WAITING)으로 두고 note 에 누구를 기다리는지 적는다.
-  assert.ok(s10.includes("state: 'WAITING', note: 'PR #<번호> 리뷰 — <검토자 이름>'"));
+  assert.ok(s10.includes("state: 'WAITING', note: '<검토자 이름> 리뷰 — <바뀐 것 한 줄>'"));
   assert.ok(!s10.includes("state: 'SCHEDULED'"));
+});
+
+// WP-1202 note 는 AI 위임 작업 목록의 「최근 보고」 한 줄 — 커밋 해시·단계 이름·배지와 같은 말이 앞에 오면 잘린 칸에 정보가 없다.
+const workOnSkill = readFileSync(new URL('work-on/SKILL.md', skillsDir), 'utf8');
+const workDoneSkill = readFileSync(new URL('work-done/SKILL.md', skillsDir), 'utf8');
+
+test('work-on 4번 「note 쓰는 법」: 상태마다 예가 있고, work-loop 이 이 규칙을 가리킨다 (WP-1202)', () => {
+  const rule = section(workOnSkill, '**note 쓰는 법**', '   - 사용자에게 질문하기');
+  assert.ok(rule.includes('상태를 보내는 보고에는 늘 note 를 넣는다'));
+  for (const kind of ['작업 중', '오래 걸리는 작업', '검토 대기', '대기 중', '답변 필요']) assert.ok(rule.includes(`${kind} \``), `${kind} 예가 없다`);
+  assert.ok(workLoopSkill.includes('「note 쓰는 법」'));
+  assert.ok(pi.includes('work-on 4번 「note 쓰는 법」'));
+});
+
+test('note 틀에 커밋 해시·PR 번호·배지와 같은 말이 남지 않는다 (WP-1202)', () => {
+  const texts = { 'work-on/SKILL.md': workOnSkill, 'work-done/SKILL.md': workDoneSkill, 'work-loop/SKILL.md': workLoopSkill, 'work-loop/process-issue.md': pi };
+  for (const [file, text] of Object.entries(texts)) {
+    for (const [, n] of text.matchAll(/note: '([^']*)'/g)) {
+      assert.ok(!/머지 커밋|커밋·머지|PR #|검토 대기|실행 중/.test(n), `${file} 의 note 틀 「${n}」`);
+    }
+    // 글로 적은 note 틀·예(「…」·`…`)는 위 정규식이 보지 못한다 — 옛 형식이 돌아오지 않게 본다.
+    for (const old of ['PR #<번호> — 사람', 'PR #12 리뷰 — AI 팀장']) assert.ok(!text.includes(old), `${file} 에 옛 note 틀 「${old}」`);
+  }
+});
+
+test('상태를 보내는 보고 틀은 note 를 함께 보낸다 — 빼면 message 첫 줄이 「최근 보고」가 된다 (WP-1202)', () => {
+  // 서버는 note 가 없으면 message 첫 줄(멘션·PR 주소)을 note 로 쓴다(AgentWorkReportService.noteFor).
+  assert.ok(lineWith(workLoopSkill, '끝내는 상태(COMPLETED').includes('`BLOCKED` + note 에'));
+  assert.ok(workLoopSkill.includes("state: 'REVIEW', note: '<하위 n개로 바뀐 것 한 줄>'"));
+  for (const state of ['CANCELED', 'REJECTED', 'FAILED']) assert.ok(lineWith(workDoneSkill, `'${state}'`).includes('note'), `${state} 틀에 note 가 없다`);
 });
 
 test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순서이고 rebase·push 는 하지 않는다 (WP-964·998)', () => {
@@ -360,7 +390,7 @@ test('process-issue.md 검토자: 리뷰 → main 충돌 확인 → 머지 순�
   assert.ok(lead.includes('`git merge-tree --write-tree origin/main HEAD`'));
   assert.ok(lead.includes('충돌이 없으면 main 이 앞서 있어도 반려하지 않고'));
   assert.ok(!lead.includes('충돌이 없어도 그렇다'));
-  assert.ok(lead.includes("state: 'WAITING', note: 'PR #<번호> 수정 — <개발자 이름>'"));
+  assert.ok(lead.includes("state: 'WAITING', note: '<개발자 이름> 수정 — <고칠 것 한 줄>'"));
   // 다시 받은 PR 은 지난 리뷰 뒤 달라진 것만 본다.
   assert.ok(lead.includes('`git range-diff <리뷰한 base>..<리뷰한 HEAD> origin/main..HEAD`'));
 });

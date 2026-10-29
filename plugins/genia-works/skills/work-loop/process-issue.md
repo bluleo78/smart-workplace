@@ -17,7 +17,7 @@
 
 - notes 파일이 있으면 `마지막 완료 단계` 다음 단계부터 이어 한다(내 행의 note·진행률도 이어받는다). 「PR 리뷰 대기」면 새 글을 읽고 2번(브랜치를 origin 에 맞춤) 뒤 3번 끝의 갈래(머지됨 → 11번, 고칠 것 → 6번)로 간다. 「백그라운드: …」면 아래 「오래 걸리는 작업」 4번(이어 받기)부터 한다. 없으면 2번부터다.
 - 새 글로 고른 이슈는 보고하기 **전에** 새 글부터 읽고(이슈 챗은 `get_issue_chat` — 읽는 법은 work-on 4번, 댓글은 `get_issue_detail` 의 `comments`), `WORKING` 으로 되돌리는 보고(work-on 4번 — note 에 이어서 할 일, `message` 에 받은 답·요청 확인)를 **한 번만** 한다. 멈추라는 글이면 「우선순위」대로 `PAUSED` 로 보고하고 끝낸다. 답할 것이 없는 글이면(검토 대기 보고·인사 등) 보고하지 않고 「답하지 않고 넘긴 글」(`SKILL.md` 3번)로 적고 끝낸다.
-- 그 밖에는 `report_agent_work({ issueKey, state: 'WORKING', note: '<한 줄 요약>' })` 로 시작을 알린다.
+- 그 밖에는 `report_agent_work({ issueKey, state: 'WORKING', note: '<지금 하는 일 한 줄>' })` 로 시작을 알린다. 이 절차의 모든 note 는 work-on 4번 「note 쓰는 법」대로다.
 
 ### 2. 워크트리
 
@@ -82,12 +82,12 @@
 
 - 검토자(「우선순위」)가 없으면 기다리지 않고 11번으로 간다 — 보고에 PR 주소를 넣어 사람이 리뷰·머지하게 한다. 워크트리·브랜치는 지우지 않는다(머지 전이다).
 - 검토자가 담당자에 없으면 `update_issue` 로 더한다(기존 담당자 유지 — `get_issue_detail` 의 username 을 함께 넘긴다). 이유는 「우선순위」대로 `add_comment` 로 남긴다(예: 「PR #12 리뷰·머지를 <검토자> 에게 맡깁니다」).
-- `report_agent_work({ issueKey, state: 'WAITING', note: 'PR #<번호> 리뷰 — <검토자 이름>', message: '@<검토자 username> <PR 주소> 검토 부탁드립니다 — <바뀐 것 한두 줄>' })` — 대기 중은 검토자의 차례라는 뜻이다(사람의 할 일·알림에 잡히지 않는다). 다시 올린 PR 이면 `message` 에 고친 것을 적는다. notes 파일의 `마지막 완료 단계` 를 「PR 리뷰 대기」로 적고 이번 부르기를 끝낸다. 검토자의 글이 오면 3번에서 이어진다.
+- `report_agent_work({ issueKey, state: 'WAITING', note: '<검토자 이름> 리뷰 — <바뀐 것 한 줄>', message: '@<검토자 username> <PR 주소> 검토 부탁드립니다 — <바뀐 것 한두 줄>' })` — 대기 중은 검토자의 차례라는 뜻이다(사람의 할 일·알림에 잡히지 않는다). 다시 올린 PR 이면 `message` 에 고친 것을 적는다. notes 파일의 `마지막 완료 단계` 를 「PR 리뷰 대기」로 적고 이번 부르기를 끝낸다. 검토자의 글이 오면 3번에서 이어진다.
 
 ### 11. 검토 대기
 
 - 검토자가 머지했으면 `gh pr view <번호> --json state,mergeCommit` 로 `MERGED` 와 머지 커밋을 확인한다(아니면 검토자에게 이슈 챗으로 묻고 10번처럼 기다린다).
-- `report_agent_work({ issueKey, state: 'REVIEW', note: '<머지 커밋> 머지 — 검토 대기', message: '<보고>' })` 로 올린다. 검토자가 없어 머지 전이면 note 를 「PR #<번호> — 사람 리뷰·머지 대기」로 한다. 보고에는 PR·머지 커밋, 완료 기준별 확인 결과(요청/응답 요약, 스크린샷은 `fileIds` 로 첨부), 「내가 정한 것」 목록, 남은 위험을 적는다. `message` 길이·나눠 보내기·되풀이 금지는 work-on 4번.
+- `report_agent_work({ issueKey, state: 'REVIEW', note: '<바뀐 것 한 줄> — <사람이 확인할 것>', message: '<보고>' })` 로 올린다. 검토자가 없어 머지 전이면 note 를 「<바뀐 것 한 줄> — PR 리뷰·머지 부탁」으로 하고 PR 주소는 `message` 에 둔다. 보고에는 PR·머지 커밋, 완료 기준별 확인 결과(요청/응답 요약, 스크린샷은 `fileIds` 로 첨부), 「내가 정한 것」 목록, 남은 위험을 적는다. `message` 길이·나눠 보내기·되풀이 금지는 work-on 4번.
 - 머지됐으면 이 이슈의 워크트리·로컬 브랜치와 notes 파일, 백그라운드 작업(`bg-job stop` — 머지됐으니 돌고 있어도 끝낸다)을 지운다(main 에 들어갔고 보고에 다 담았으므로). 먼저 `cd MAIN` 으로 워크트리 밖에 나온 뒤 `git -C MAIN worktree remove .claude/worktrees/<이슈 키>`, `git -C MAIN branch -D <브랜치>`(GitHub 에서 머지돼 로컬 main 에는 들어 있지 않으니 `-d` 는 거절된다). 원격 브랜치는 지우지 않는다.
 - DONE·gitlab push·배포는 「우선순위」대로 하지 않는다 — 사람이 한다.
 
@@ -100,10 +100,10 @@
 3. **리뷰**: 이슈 본문·완료 기준, PR 본문, 개발자의 근거를 읽고 브랜치 전체(origin/main 과의 차이)에 `/code-review medium` 을 돌린다. 근거가 모자라거나 의심스러우면 8번처럼 격리 스택으로 직접 확인한다.
    - 다시 부탁받은 PR 이고 notes 파일에 `리뷰한 base`·`리뷰한 HEAD` 가 있으면 처음부터 다시 리뷰하지 않는다 — `git range-diff <리뷰한 base>..<리뷰한 HEAD> origin/main..HEAD` 로 그 뒤 달라진 것(고친 것·충돌을 푼 곳)만 보고, 그 부분에 리뷰를 돌린다. 옛 커밋을 찾을 수 없으면 전체를 다시 본다.
    - 리뷰를 마치면 notes 파일에 `리뷰한 base`(`git merge-base origin/main HEAD`)·`리뷰한 HEAD` 를 적는다.
-4. **반려**: 고칠 것이 있으면(5번의 「main 반영 필요」 포함 — 함께 있으면 한 글에) `gh pr review <번호> --request-changes --body '<고칠 것>'`, `report_agent_work({ issueKey, state: 'WAITING', note: 'PR #<번호> 수정 — <개발자 이름>', message: '@<개발자 username> <고칠 것 — 파일·이유>' })`, `마지막 완료 단계` 를 「PR 수정 대기」로 적고 끝낸다. 개발자가 고쳐 다시 부탁하면 2번부터 다시 한다.
+4. **반려**: 고칠 것이 있으면(5번의 「main 반영 필요」 포함 — 함께 있으면 한 글에) `gh pr review <번호> --request-changes --body '<고칠 것>'`, `report_agent_work({ issueKey, state: 'WAITING', note: '<개발자 이름> 수정 — <고칠 것 한 줄>', message: '@<개발자 username> <고칠 것 — 파일·이유>' })`, `마지막 완료 단계` 를 「PR 수정 대기」로 적고 끝낸다. 개발자가 고쳐 다시 부탁하면 2번부터 다시 한다.
 5. **main 충돌 확인**: 리뷰를 통과하면 `git fetch origin` 뒤 브랜치가 origin/main 과 충돌하는지 본다(`git merge-tree --write-tree origin/main HEAD` 실패면 충돌). 충돌하면 머지하지 않고 4번처럼 반려한다(「main 반영 필요 — 최신 origin/main 위로 rebase 해 충돌을 풀어 다시 올려 주세요」, 충돌 파일을 함께). **충돌이 없으면 main 이 앞서 있어도 반려하지 않고 6번으로 간다**(WP-998) — 패치는 개발자의 push 게이트를 통과했고, 합친 결과의 회귀는 머지 뒤 main 의 CI·다음 push 게이트가 잡는다(저장소 안내 `.work-loop/project.md` 가 정한 대로). 낡았다는 이유만으로 돌려보내면 rebase → 게이트가 끝없이 되풀이된다. 내가 rebase 하지 않는다.
 6. **머지**: 머지 직전에 다시 `git fetch origin` — 그 사이 origin/main 이 바뀌어 충돌하게 됐으면 5번처럼 반려한다. 충돌이 없으면 `gh pr review <번호> --approve`(PR 을 만든 GitHub 계정과 같은 계정이라 승인이 거절되면 대신 `gh pr comment <번호> --body '검토자 <내 username> 승인'`) 뒤 `gh pr merge <번호> --merge --match-head-commit <리뷰한 HEAD> --subject "merge: <이슈 키> <이슈 제목>"`(그 사이 누가 브랜치를 바꿨으면 거절된다). 머지가 거절되면 2번부터 다시 한다(브랜치 보호가 다른 계정의 승인을 요구해 거절되면 `BLOCKED` + 이유).
-7. **알림**: `report_agent_work({ issueKey, state: 'REVIEW', note: '<머지 커밋> 머지 — 검토 대기', message: '<PR> 을 머지했습니다(<머지 커밋>) — 리뷰 결과, 남은 위험' })`. 이 글이 개발자를 깨운다. 그 뒤 워크트리·로컬 브랜치·notes 파일을 위 11번처럼 지운다.
+7. **알림**: `report_agent_work({ issueKey, state: 'REVIEW', note: '<바뀐 것 한 줄> — <사람이 확인할 것>', message: '<PR> 을 머지했습니다(<머지 커밋>) — 리뷰 결과, 남은 위험' })`. 이 글이 개발자를 깨운다. 그 뒤 워크트리·로컬 브랜치·notes 파일을 위 11번처럼 지운다.
 - 같은 단계가 3번 되풀이돼도 풀리지 않으면 아래 「막힘」대로다. DONE·gitlab push·배포는 하지 않는다.
 
 ### 오래 걸리는 작업 (백그라운드)
@@ -112,7 +112,7 @@
 
 1. **띄우기**: 워크트리에 커밋 안 한 변경이 없는지 보고 `"<이 스킬 폴더>/../../scripts/bg-job" start "<MAIN>" <이슈 키> <워크트리> -- <명령…>`(셸 문법이 필요하면 `sh -c '<명령>'` 으로 감싼다). `running`(exit 1)이면 이미 돌고 있으니 새로 띄우지 않는다.
 2. **적기**: notes 파일에 `마지막 완료 단계: 백그라운드: <작업 이름>`, `백그라운드 작업`(명령·띄운 HEAD(`git rev-parse HEAD`)·시작 시각·로그 경로), `끝날 시각`(시작 + project.md 의 예상 시간, KST — 같은 락을 잡는 작업이 다른 이슈에서 이미 돌고 있으면(`MAIN/.work-loop/state/jobs/` 의 다른 이슈가 `running`) 그 남은 시간만큼 더한다), `끝나면`(통과하면 이어 할 단계, 실패하면 돌아갈 단계)을 적는다. 다른 이슈를 하다 대화가 요약돼도 여기서 이어진다.
-3. **양보**: 내 일이 도는 중이라 작업 중 그대로 둔다 — `report_agent_work({ issueKey, state: 'WORKING', note: '<작업 이름> 실행 중 — <끝날 시각 HH:MM> 끝, 끝나면 <다음 단계>' })`. 그 뒤 이 이슈를 놓고 다른 후보로 넘어간다(`SKILL.md` 4번 예외).
+3. **양보**: 내 일이 도는 중이라 작업 중 그대로 둔다 — `report_agent_work({ issueKey, state: 'WORKING', note: '<사람이 아는 작업 이름> 중(<끝날 시각 HH:MM> 끝) — 끝나면 <다음 일>' })`. 그 뒤 이 이슈를 놓고 다른 후보로 넘어간다(`SKILL.md` 4번 예외).
    - 작업이 도는 동안 그 워크트리는 건드리지 않는다(테스트가 작업 트리를 읽는다). 그 사이 새 글로 이 이슈를 고르면 1번 「시작」대로 읽고 답하되, 고칠 것은 notes 파일 `끝나면` 에 더해 두고 작업이 끝난 뒤 한다. 고칠 것이 있어 지금 결과가 쓸모없으면 `bg-job stop` 으로 끝내고 6번부터 한다.
 4. **이어 받기**(notes 의 `끝날 시각` 이 지나 다시 골랐을 때 — 1번 「시작」에서 여기로 온다): `bg-job status "<MAIN>" <이슈 키>` 로 본다.
    - `running`: notes 의 `끝날 시각` 을 10분 뒤로 고치고 3번처럼 note 의 끝날 시각을 다시 보고한 뒤 다른 후보로 넘어간다.
