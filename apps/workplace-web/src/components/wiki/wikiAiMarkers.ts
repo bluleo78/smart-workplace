@@ -7,12 +7,13 @@ import { Extension } from '@tiptap/core'
 import type { Node as PMNode } from '@tiptap/pm/model'
 import { type EditorState, Plugin, PluginKey, type Transaction } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { Sparkles } from 'lucide-react'
 import { ySyncPluginKey } from 'y-prosemirror'
 
 import type { AwarenessStates } from '@/lib/collab/presence'
 import type { AwarenessChanges, PresenceAwareness } from '@/lib/collab/presenceAwareness'
 
-import { type LucideShapes, lucideSvg } from './lucideSvg'
+import { lucideSvg } from './lucideSvg'
 import { clampPos, resolveJson, ySyncOf } from './wikiCollabPosition'
 import { cancelFitTags, observeTagRoot, scheduleFitTags } from './wikiTagLayout'
 
@@ -62,18 +63,6 @@ export function markerPos(doc: PMNode, pos: number): number {
   return inner
 }
 
-// lucide Sparkles(lucide-react 1.16 의 iconNode 그대로) — 위젯은 React 밖 DOM 이라 컴포넌트를 쓸 수 없다. 모양은 AiLabel 의 Sparkles 와 같다.
-const SPARKLES: LucideShapes = [
-  [
-    'path',
-    {
-      d: 'M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z',
-    },
-  ],
-  ['path', { d: 'M20 2v4' }],
-  ['path', { d: 'M22 4h-4' }],
-  ['circle', { cx: '4', cy: '20', r: '2' }],
-]
 
 /** 위젯 DOM — 폭 0 의 캐럿 + 위쪽 태그(✦ 이름). 편집·선택 대상이 아니다. 이름이 비면 "AI" 로 보인다. key 는 쌓는 순서(fitTags)용(data-tag-key — wikiTagLayout). */
 function markerWidget(name: string, key: string): HTMLElement {
@@ -91,7 +80,8 @@ function markerWidget(name: string, key: string): HTMLElement {
   const label = document.createElement('span')
   label.className = 'wiki-ai-marker__name'
   label.textContent = shown
-  tag.append(lucideSvg(SPARKLES, 'wiki-ai-marker__icon'), label)
+  // 모양은 AiLabel 의 Sparkles 컴포넌트에서 읽는다 — 위젯은 React 밖 DOM 이라 컴포넌트를 그대로 쓸 수 없다.
+  tag.append(lucideSvg(Sparkles, 'wiki-ai-marker__icon'), label)
   el.append(caret, tag)
   return el
 }

@@ -2,14 +2,15 @@ import { Extension } from '@tiptap/core'
 import type { Node as PmNode } from '@tiptap/pm/model'
 import { type EditorState, Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
+import { File as FileIcon, FileText, type LucideIcon, SquareKanban } from 'lucide-react'
 
 import type { AppLinkCard } from '@/api/appLinks'
 import { APP_LINK_KIND_LABEL, type AppHosts, type AppLink, parseAppLink } from '@/lib/appLinks'
-import { ISSUE_STATUS_BADGE_TYPE } from '@/lib/issueStatusBadgeType'
+import { ISSUE_STATUS_DOT_CLASS } from '@/lib/issueStatusBadgeType'
 import { CHAT_LINK_RULES, splitLinks } from '@/lib/textLinks'
 import type { IssueStatus } from '@/types/issue'
 
-import { type LucideShapes, lucideSvg } from './lucideSvg'
+import { lucideSvg } from './lucideSvg'
 
 /**
  * 노트 본문의 앱 링크 칩(WP-1147) — 본문에 붙인 Gen:iA Works 이슈·노트·파일 주소를 그 자리의 인라인 칩으로 보인다.
@@ -130,29 +131,8 @@ export function appLinkChipTargets(state: EditorState): AppLink[] {
   return appLinkChipsKey.getState(state)?.targets ?? []
 }
 
-// lucide 아이콘(SquareKanban·FileText·File) 모양 — lucide-react 1.16 의 iconNode 그대로. 채팅 카드(AppLinkCard)의 아이콘과 같다.
-const FILE_OUTLINE: LucideShapes = [
-  ['path', { d: 'M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z' }],
-  ['path', { d: 'M14 2v5a1 1 0 0 0 1 1h5' }],
-]
-const ICON_SHAPES: Record<AppLink['kind'], LucideShapes> = {
-  ISSUE: [
-    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
-    ['path', { d: 'M8 7v7' }],
-    ['path', { d: 'M12 7v4' }],
-    ['path', { d: 'M16 7v9' }],
-  ],
-  PAGE: [...FILE_OUTLINE, ['path', { d: 'M10 9H8' }], ['path', { d: 'M16 13H8' }], ['path', { d: 'M16 17H8' }]],
-  FILE: FILE_OUTLINE,
-}
-
-// 이슈 상태 점 — 상태 배지(IssueStatusBadge)와 같은 의미 색. 대기(pending)는 테두리만.
-const DOT_BY_BADGE: Record<string, string> = {
-  pending: 'border border-muted-foreground',
-  info: 'bg-info',
-  success: 'bg-success',
-  inactive: 'bg-muted-foreground',
-}
+// 종류별 아이콘 — 채팅 카드(AppLinkCard)의 아이콘과 같은 lucide 컴포넌트에서 모양을 읽는다(WP-1185).
+const ICONS: Record<AppLink['kind'], LucideIcon> = { ISSUE: SquareKanban, PAGE: FileText, FILE: FileIcon }
 
 // 멘션 칩(WikiMentionChipView)과 같은 바탕 — 이슈 멘션과 이슈 링크 칩이 나란히 있어도 같아 보이게.
 const CHIP_CLASS =
@@ -170,11 +150,12 @@ export function chipElement(link: AppLink, nav: string, card: AppLinkCard): HTML
   const label = `${APP_LINK_KIND_LABEL[link.kind]} ${card.issueKey ? `${card.issueKey} ` : ''}${card.title}${card.statusName ? ` · ${card.statusName}` : ''}`
   el.title = label
   el.setAttribute('aria-label', label)
-  el.appendChild(lucideSvg(ICON_SHAPES[link.kind], 'h-3.5 w-3.5 shrink-0 self-center'))
+  el.appendChild(lucideSvg(ICONS[link.kind], 'h-3.5 w-3.5 shrink-0 self-center'))
   if (card.statusCategory) {
     const dot = document.createElement('span')
-    const badge = ISSUE_STATUS_BADGE_TYPE[card.statusCategory as IssueStatus] ?? 'pending'
-    dot.className = `inline-block h-2 w-2 shrink-0 self-center rounded-full ${DOT_BY_BADGE[badge]}`
+    // 상태 배지(IssueStatusBadge)와 같은 의미 색 — 공용 정의(issueStatusBadgeType)에서 가져온다. 모르는 범주는 대기(TODO) 색.
+    const color = ISSUE_STATUS_DOT_CLASS[card.statusCategory as IssueStatus] ?? ISSUE_STATUS_DOT_CLASS.TODO
+    dot.className = `inline-block h-2 w-2 shrink-0 self-center rounded-full ${color}`
     dot.setAttribute('aria-hidden', 'true')
     el.appendChild(dot)
   }
@@ -208,6 +189,15 @@ export function chipSource(view: EditorView, chip: Element): { pos: number; anch
 function touches(state: EditorState, r: AppLinkRange): boolean {
   const { from, to } = state.selection
   return from <= r.to && to >= r.from
+}
+
+/**
+ * 편집 중 선택이 닿은 자리 — 칩 대신 원래 글자를 드러낼 자리의 목록(문자열 키). 보기 전용이면 늘 비어 있다.
+ * 선택만 바뀐 거래는 이 값이 같으면 칩을 다시 만들지 않는다 — 커서가 글자 사이를 움직일 때마다 문서 전체 칩을 다시 만들지 않게(WP-1185).
+ */
+function touchedKey(state: EditorState, ranges: AppLinkRange[], editable: boolean): string {
+  if (!editable) return ''
+  return ranges.flatMap((r) => (touches(state, r) ? [`${r.from}-${r.to}`] : [])).join(',')
 }
 
 /** 칩 데코레이션 — 카드를 받은 자리마다 원래 글자를 숨기고 그 앞에 칩을 둔다. */
@@ -257,18 +247,21 @@ export const WikiAppLinkChips = Extension.create<WikiAppLinkChipsOptions>({
             const ranges = collectAppLinkRanges(state.doc, hosts)
             return { hosts, ranges, targets: targetsOf(ranges, []), cards: new Map(), decos: DecorationSet.empty }
           },
-          apply: (tr, prev, _old, newState) => {
+          apply: (tr, prev, oldState, newState) => {
             const meta = tr.getMeta(appLinkChipsKey) as { cards?: AppLinkCards } | undefined
             // 문서·선택·카드 어느 것도 바뀌지 않은 거래(원격 커서 메타 등)는 그대로 둔다.
             if (!tr.docChanged && !tr.selectionSet && !meta) return prev
             const hosts = appHosts()
             const recollect = tr.docChanged || hosts !== prev.hosts
+            // 선택만 바뀌었으면 커서가 칩 경계를 넘었을 때(닿은 자리가 달라졌을 때)만 다시 만든다(WP-1185).
+            const editable = view?.editable ?? false
+            if (!recollect && !meta && touchedKey(oldState, prev.ranges, editable) === touchedKey(newState, prev.ranges, editable)) return prev
             const ranges = recollect ? collectAppLinkRanges(newState.doc, hosts) : prev.ranges
             const targets = recollect ? targetsOf(ranges, prev.targets) : prev.targets
             const cards = meta?.cards ?? prev.cards
             // 한글 조합 중에는 칩을 다시 고르지 않고 자리만 옮긴다 — 조합 중인 글자 옆 DOM 이 바뀌면 조합이 깨진다(WP-333 과 같은 결).
             if (view?.composing) return { hosts, ranges, targets, cards, decos: prev.decos.map(tr.mapping, tr.doc) }
-            return { hosts, ranges, targets, cards, decos: chipDecorations(newState, ranges, cards, view?.editable ?? false) }
+            return { hosts, ranges, targets, cards, decos: chipDecorations(newState, ranges, cards, editable) }
           },
         },
         view(v) {
@@ -290,6 +283,16 @@ export const WikiAppLinkChips = Extension.create<WikiAppLinkChipsOptions>({
         },
         props: {
           decorations: (state) => appLinkChipsKey.getState(state)?.decos ?? DecorationSet.empty,
+          handleDOMEvents: {
+            // 조합 중에는 칩을 다시 고르지 않았으니 조합이 끝나면 한 번 다시 고른다 — 조합 뒤 문서가 더 바뀌지 않으면 주소가 칩이
+            // 되지 않거나 지운 주소의 칩이 남았다(WP-1185). 조합 끝 처리(composing 해제)는 이 처리 뒤에 돌아 마이크로태스크로 미룬다.
+            compositionend: (v) => {
+              queueMicrotask(() => {
+                if (view === v && !v.composing) refreshAppLinkChips(v)
+              })
+              return false
+            },
+          },
         },
       }),
     ]
