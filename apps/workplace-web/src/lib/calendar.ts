@@ -73,8 +73,12 @@ export function eventsOnDay(events: CalendarEvent[], day: Date): CalendarEvent[]
   const cellKey = dateKey(day)
   return events.filter((e) => {
     // 종일은 시각이 아니라 캘린더 날짜로 half-open [start,end) 비교(배타적 end 날짜 제외).
+    // 자정 경계가 아닌 시각(같은 날 10:30~11:00)으로 저장된 종일 일정은 날짜로 바꾸면 시작=종료가 되어 어느 칸에도 걸리지 않았다 —
+    // 일정 창(normalizeAllDayRange)처럼 종료 ≤ 시작이면 시작 날 하루 일정으로 본다(WP-1172).
     if (e.allDay) {
-      return dateKey(allDayLocalDate(e.startsAt)) <= cellKey && cellKey < dateKey(allDayLocalDate(e.endsAt))
+      const startKey = dateKey(allDayLocalDate(e.startsAt))
+      const endKey = dateKey(allDayLocalDate(e.endsAt))
+      return endKey <= startKey ? cellKey === startKey : startKey <= cellKey && cellKey < endKey
     }
     const s = new Date(e.startsAt)
     const en = new Date(e.endsAt)

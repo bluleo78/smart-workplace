@@ -126,6 +126,21 @@ describe('eventsOnDay', () => {
     expect(eventsOnDay([span], new Date('2026-06-07T00:00:00')).map((e) => e.id)).toEqual([3])
     expect(eventsOnDay([span], new Date('2026-06-08T00:00:00')).map((e) => e.id)).toEqual([])
   })
+
+  // WP-1172: API·AI 제안으로 자정이 아닌 시각(KST 11/6 10:30~11:00)에 저장된 종일은 날짜로 바꾸면 시작=종료라 어느 칸에도 없었다 —
+  // 월·주 보기 종일 줄·미니 달력이 모두 이 함수를 쓴다. 시작 날 하루 일정으로 보인다.
+  it('자정이 아닌 같은 날 시각으로 저장된 종일은 시작 날에만 찍힌다', () => {
+    const midday = ev(4, '2026-11-06T01:30:00Z', '2026-11-06T02:00:00Z', true)
+    expect(eventsOnDay([midday], new Date('2026-11-05T00:00:00')).map((e) => e.id)).toEqual([])
+    expect(eventsOnDay([midday], new Date('2026-11-06T00:00:00')).map((e) => e.id)).toEqual([4])
+    expect(eventsOnDay([midday], new Date('2026-11-07T00:00:00')).map((e) => e.id)).toEqual([])
+  })
+
+  it('길이 0 으로 저장된 종일(종료 = 시작)도 그날에 찍힌다', () => {
+    const zero = ev(5, '2026-11-05T15:00:00Z', '2026-11-05T15:00:00Z', true) // KST 11/6 자정
+    expect(eventsOnDay([zero], new Date('2026-11-06T00:00:00')).map((e) => e.id)).toEqual([5])
+    expect(eventsOnDay([zero], new Date('2026-11-07T00:00:00')).map((e) => e.id)).toEqual([])
+  })
 })
 
 // ── 사이드바 표시 토글 → 그리드·미니 캘린더 점 (WP-412: 이전 E2E calendar-containers·calendar-sidebar 일부를 대체) ──
