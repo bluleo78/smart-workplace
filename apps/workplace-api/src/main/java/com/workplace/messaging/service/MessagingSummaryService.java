@@ -1,6 +1,9 @@
 package com.workplace.messaging.service;
 
+import com.workplace.global.dto.MentionResponse;
+import com.workplace.global.service.UserMentionHydrator;
 import com.workplace.global.util.ChatMarkdownText;
+import com.workplace.global.util.MentionParser;
 import com.workplace.messaging.dto.ConversationRow;
 import com.workplace.messaging.dto.ConversationSummaryItem;
 import com.workplace.messaging.dto.DmParticipant;
@@ -8,6 +11,7 @@ import com.workplace.messaging.dto.MessagingSummaryResponse;
 import com.workplace.messaging.repository.ConversationAttentionRepository;
 import com.workplace.messaging.repository.MessagingSummaryRepository;
 import com.workplace.messaging.repository.ThreadReadStateRepository;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +43,9 @@ public class MessagingSummaryService {
   /** AI 발굴 마크 리포 — 안읽음 대화에 aiReason 신호를 싣기 위해 주입. */
   private final ConversationAttentionRepository conversationAttentionRepo;
 
+  /** 미리보기 본문의 멘션 토큰(<@id>)을 이름으로 풀 사전 — 채팅 사이드바(LastMessageLookup)와 같은 hydrator(WP-1184). */
+  private final UserMentionHydrator mentionHydrator;
+
   /**
    * 홈 위젯용 대화 요약.
    *
@@ -63,10 +70,23 @@ public class MessagingSummaryService {
                     ConversationAttentionRepository.AttentionMark::reason,
                     (a, b) -> a)); // 중복 시 첫 번째 유지
 
+    // 미리보기 본문의 멘션 이름 — 후보 전체의 멘션 id 를 한 번에 조회한다(대화마다 조회하지 않도록).
+    List<Long> mentionIds =
+        rows.stream().flatMap(r -> MentionParser.parse(r.lastBody()).stream()).distinct().toList();
+    List<MentionResponse> mentionNames = mentionHydrator.asMentionResponses(mentionIds);
+
     List<ConversationSummaryItem> items =
         rows.stream()
             .map(
-                r -> toItem(r, callerId, mentioned, threadReplies, participants, aiReasonByChannel))
+                r ->
+                    toItem(
+                        r,
+                        callerId,
+                        mentioned,
+                        threadReplies,
+                        participants,
+                        aiReasonByChannel,
+                        mentionNames))
             .sorted(bySignalThenRecency())
             .limit(recentLimit)
             .toList();
@@ -89,7 +109,8 @@ public class MessagingSummaryService {
       Set<Long> mentioned,
       Map<Long, Integer> threadReplies,
       Map<Long, List<DmParticipant>> participants,
-      Map<Long, String> aiReasonByChannel) {
+      Map<Long, String> aiReasonByChannel,
+      Collection<MentionResponse> mentionNames) {
     boolean isDm = "DM".equals(r.kind());
     String label =
         isDm
@@ -111,7 +132,7 @@ public class MessagingSummaryService {
         r.channelId(),
         label,
         authorName,
-        preview(r.lastBody()),
+        preview(r.lastBody(), mentionNames),
         r.lastMessageAt(),
         r.unreadCount(),
         mentioned.contains(r.channelId()),
@@ -137,10 +158,14 @@ public class MessagingSummaryService {
     return others.get(0).name() + ", " + others.get(1).name() + " 외 " + (others.size() - 2) + "명";
   }
 
-  /** 본문 미리보기 — 마크다운 기호 제거(WP-101) + 개행 제거 + 길이 제한. */
-  private static String preview(String body) {
+  /**
+   * 본문 미리보기 — 마크다운 기호 제거(WP-101) + 멘션 토큰을 @이름으로 + 개행 제거 + 길이 제한. 멘션은 자르기 전에 바꾼다 — 토큰 원문(<@2>)이 보이거나
+   * 자를 때 토큰 중간(<@12)이 남지 않게(WP-1184). 이름을 모르는 멘션은 @사용자(푸시 미리보기와 같은 표기).
+   */
+  static String preview(String body, Collection<MentionResponse> mentionNames) {
     if (body == null) return "";
-    String oneLine = ChatMarkdownText.toPlain(body).replaceAll("\\s+", " ").trim();
+    String plain = MentionParser.replaceWithNames(ChatMarkdownText.toPlain(body), mentionNames);
+    String oneLine = plain.replaceAll("\\s+", " ").trim();
     return oneLine.length() <= PREVIEW_LEN ? oneLine : oneLine.substring(0, PREVIEW_LEN) + "…";
   }
 

@@ -119,6 +119,33 @@ class MessagingSummaryServiceTest extends IntegrationTestBase {
   }
 
   /**
+   * WP-1184: 홈 「대화」 위젯 미리보기는 멘션 토큰(<@id>)을 원문 대신 @이름으로 보인다(채팅 사이드바와 같게). 이름을 모르는 멘션은 @사용자. 자르기 전에
+   * 바꿔 80자 자리에서 토큰 중간이 남지 않는다.
+   */
+  @Test
+  void lastMessagePreview_멘션_토큰을_이름으로_바꾼다() {
+    long caller = seedUser("caller");
+    long other = seedUser("other");
+    String callerName =
+        dsl.select(USER.NAME).from(USER).where(USER.ID.eq(caller)).fetchOne(USER.NAME);
+    long ch = seedChannel(caller);
+    joinChannel(other, ch);
+    seedMessage(ch, other, "<@" + caller + "> 이거 확인 부탁해요 <@999999999>");
+    // 80자 자리에 토큰이 걸치는 본문 — 바꾸기 전에 자르면 「<@12」 같은 토큰 조각이 남는다.
+    long ch2 = seedChannel(caller);
+    joinChannel(other, ch2);
+    seedMessage(ch2, other, "가".repeat(77) + "<@" + caller + "> 끝");
+
+    var recent = svc.summary(caller, 10).recent();
+    ConversationSummaryItem item =
+        recent.stream().filter(i -> i.conversationId() == ch).findFirst().orElseThrow();
+    assertThat(item.lastMessagePreview()).isEqualTo("@" + callerName + " 이거 확인 부탁해요 @사용자");
+    ConversationSummaryItem cut =
+        recent.stream().filter(i -> i.conversationId() == ch2).findFirst().orElseThrow();
+    assertThat(cut.lastMessagePreview()).doesNotContain("<@").startsWith("가".repeat(77) + "@");
+  }
+
+  /**
    * AI 마크가 안읽음 대화에 aiReason 으로 실린다. 채널에 안읽음 메시지 시드 + AI 마크 upsert → recent 의 해당 item.aiReason() 이
    * non-null.
    */
