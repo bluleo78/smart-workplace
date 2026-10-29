@@ -9,7 +9,7 @@ import type { FieldType, IssueFieldDef, IssueFieldEntry } from '../../../types/c
 import type { IssueResponse } from '../../../types/issue'
 import {
   buildColumnDefs,
-  columnCellClass,
+  columnHeadCells,
   hasExtraColumns,
   issueListColumnCount,
   issueListMinWidthRem,
@@ -67,7 +67,7 @@ describe('열 폭', () => {
   it('폭 클래스는 rem 과 같은 Tailwind 폭(1 단위 = 0.25rem)이다', () => {
     for (const [rem, cls] of Object.entries(WIDTH_CLASS)) {
       const n = Number(rem) * 4
-      expect(cls).toBe(`w-${n} min-w-${n}`)
+      expect(cls).toBe(`w-${n}`)
     }
   })
 
@@ -77,13 +77,27 @@ describe('열 폭', () => {
     for (const d of defs) expect(WIDTH_CLASS[d.widthRem]).toBeDefined()
   })
 
-  // 칸 폭 상한은 열 폭에서 얻는다 — 자동 레이아웃 평면 목록에서 긴 값이 칸을 넓히지 않게(WP-1091).
-  it('텍스트·날짜 열(7·8rem)의 셀은 열 폭과 같은 상한을 갖고, 아이콘·아바타 열은 상한이 없다', () => {
+  // 칸 폭은 머리 행이 정한다(table-fixed, WP-1143) — 셀 톤(cellClass)에 폭 상한(max-w-*)을 다시 걸면 표 칸 max-width 의 브라우저 차이에 다시 기댄다.
+  it('셀 톤(cellClass)에는 폭 상한이 없다', () => {
     const defs = buildColumnDefs([...BUILTIN_ORDER, 'cf7', 'cf8', 'cf9'], FIELDS)
-    for (const d of defs) {
-      const cls = columnCellClass(d, issue())
-      if (d.widthRem >= 7) expect(cls, d.key).toContain(`max-w-${d.widthRem * 4}`)
-      else expect(cls, d.key).not.toMatch(/\bmax-w-/)
+    for (const d of defs) expect(d.cellClass?.(issue()) ?? '', d.key).not.toMatch(/\bmax-w-/)
+  })
+
+  // 긴 필드 이름(띄어쓰기 없음)이 칸을 넘지 않게 머리 글자는 말줄임하고 툴팁에 전체를 싣는다. 아이콘 열·숨긴 머리는 스크린리더 전용.
+  it('머리 칸은 이름을 말줄임하고 커스텀 필드 머리만 툴팁에 전체를 싣는다, 아이콘 열·숨긴 머리는 sr-only', () => {
+    const long = '아주긴커스텀필드이름이띄어쓰기없이이어진다'
+    const defs = buildColumnDefs(['priority', 'due', 'cf8'], [fieldDef(8, long, 'TEXT')])
+    const { container } = render(<table><thead><tr>{columnHeadCells(defs)}</tr></thead></table>)
+    const [prio, due, cf] = container.querySelectorAll('th span')
+    expect(prio.className).toBe('sr-only')
+    expect(due.className).toContain('truncate')
+    expect(due.getAttribute('title')).toBeNull()
+    expect(cf.className).toContain('truncate')
+    expect(cf.getAttribute('title')).toBe(long)
+    const hidden = render(<table><thead><tr>{columnHeadCells(defs, { hideLabel: true })}</tr></thead></table>)
+    for (const s of hidden.container.querySelectorAll('th span')) {
+      expect(s.className).toBe('sr-only')
+      expect(s.getAttribute('title')).toBeNull()
     }
   })
 

@@ -204,6 +204,54 @@ test.describe('이슈 목록 열 폭·스크롤 (WP-270)', { tag: '@layout' }, (
     await expect(cf).toHaveAttribute('title', LONG);
   });
 
+  test('평면 목록에서 띄어쓰기 없는 긴 필드 이름(헤더)·긴 구성요소 칩·담당자 「+N」 도 칸을 넓히지 않고 옆 칸을 덮지 않는다(WP-1143)', async ({
+    authenticatedPage: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // 띄어쓰기 없는 라틴 이름 — 한글은 글자 사이에서 줄바꿈돼 열을 넓히지 않지만, 라틴 낱말은 끊을 곳이 없어 옛 자동 레이아웃에선 열이 233px 로 넓어졌다.
+    const LONG_NAME = 'CustomerInternalManagementFieldName';
+    const user = (id: number) => ({ id, username: `u${id}`, name: `사용자${id}`, kind: 'HUMAN' as const });
+    const wide = {
+      ...ISSUE,
+      // 열다섯 명 — 아바타 셋 + 「+12」(두 자리)가 가장 넓은 흔한 경우.
+      assignees: Array.from({ length: 15 }, (_, i) => user(i + 1)),
+      components: [
+        { id: 1, name: 'PaymentGatewayIntegrationModule', archived: false },
+        { id: 2, name: '정산배치스케줄러', archived: false },
+        { id: 3, name: '알림', archived: false },
+      ],
+      customFields: [{ defId: 9, name: LONG_NAME, type: 'TEXT' as const, value: '짧음' }],
+    } as IssueResponse;
+    const longDef: IssueFieldDef = { id: 9, projectId: 1, name: LONG_NAME, type: 'TEXT', options: null, position: 2, createdAt: '', updatedAt: '' };
+    await setup(page, { issue: wide, fields: [...FIELD_DEFS, longDef] });
+    await page.goto(`/projects/${KEY}?group=none&cols=priority,assignee,due,components,cf9,reporter`);
+    await expect(page.getByTestId('issue-row-1-cf9')).toContainText('짧음');
+    await expect(async () => {
+      // 칸 폭 = 열 폭(담당자 5rem·마감·구성요소·커스텀 필드 8rem) — 내용이 길어도 넓어지지 않는다.
+      const widths = { assignee: 80, due: 128, components: 128, cf9: 128 };
+      for (const [key, px] of Object.entries(widths)) {
+        const box = (await page.getByTestId(`issue-row-1-${key}`).boundingBox())!;
+        expect(box.width, `${key} 칸 폭`).toBeLessThanOrEqual(px + 0.5);
+      }
+      // 긴 필드 이름 머리는 칸 안에서 말줄임되고(툴팁에 전체), 칩은 칸 밖으로 그려지지 않는다.
+      const head = page.getByRole('columnheader', { name: LONG_NAME });
+      const h = await head.evaluate((th) => {
+        const s = th.querySelector('.truncate')!;
+        return { w: th.getBoundingClientRect().width, sw: s.scrollWidth, cw: s.clientWidth };
+      });
+      expect(h.w, '머리 칸 폭').toBeLessThanOrEqual(128.5);
+      expect(h.sw, '머리 말줄임').toBeGreaterThan(h.cw);
+      await expect(head.locator('.truncate')).toHaveAttribute('title', LONG_NAME);
+      // 담당자 「+12」 가 다음 칸(마감) 왼쪽 경계를 넘지 않는다.
+      const plus = (await page.getByTestId('issue-row-1-assignee').getByText('+12').boundingBox())!;
+      const due = (await page.getByTestId('issue-row-1-due').boundingBox())!;
+      expect(plus.x + plus.width, '「+N」 오른쪽 끝').toBeLessThanOrEqual(due.x + 0.5);
+      // 표가 가로로 넘치지 않는다(뒤 열이 밀리지 않는다).
+      const { sw, cw } = await page.getByTestId('issue-list-scroll').evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
+      expect(sw).toBeLessThanOrEqual(cw);
+    }).toPass();
+  });
+
   test('사이클 구간(table-fixed)에서 지난해 완료일이 칸을 넘치면 다음 칸으로 번지지 않고 잘린다', async ({ authenticatedPage: page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const lastYear = { ...ISSUE, dueDate: '2025-10-21', closedAt: '2025-10-23T05:05:00Z' };
