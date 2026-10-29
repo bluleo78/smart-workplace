@@ -39,20 +39,34 @@ public final class DriveSpaceMembership {
    */
   public static Field<String> effectiveRole(Field<Long> spaceId, Field<Long> userId) {
     DriveSpaceMember m = DRIVE_SPACE_MEMBER.as("dsm_er_m");
-    DriveSpaceMemberGroup g = DRIVE_SPACE_MEMBER_GROUP.as("dsm_er_g");
     var roles =
         DSL.select(m.ROLE.as("role"))
             .from(m)
             .where(m.SPACE_ID.eq(spaceId))
             .and(m.USER_ID.eq(userId))
+            // 부서 쪽은 멤버 창 안내와 같은 규칙(departmentRole) 하나로 — 둘이 어긋나지 않게(WP-1102). 부서 역할이 없으면(NULL) 행을
+            // 내지 않는다 — NULL 행이 직접 VIEWER 와 같은 높이로 정렬돼 실효 역할이 NULL 로 나오지 않게.
             .unionAll(
-                DSL.select(g.ROLE.as("role"))
-                    .from(g)
-                    .where(g.SPACE_ID.eq(spaceId))
-                    .and(g.GROUP_ID.in(Departments.withAncestorsOf(userId))))
+                DSL.select(departmentRole(spaceId, userId).as("role"))
+                    .where(departmentRole(spaceId, userId).isNotNull()))
             .asTable("dsm_er");
     Field<String> role = roles.field("role", String.class);
     return DSL.field(DSL.select(role).from(roles).orderBy(rank(role).desc()).limit(1));
+  }
+
+  /**
+   * 사람(userId)이 공간(spaceId)에서 멤버 부서로 받는 역할(WP-1102) — 내 부서와 그 상위 부서가 멤버로 들어 있는 행의 역할 중 가장 높은 것. 부서로
+   * 받는 역할이 없으면 NULL. 멤버 창이 직접 역할보다 부서 역할이 높을 때 「조직으로 편집자」처럼 실효 역할을 안내하는 데 쓴다.
+   */
+  public static Field<String> departmentRole(Field<Long> spaceId, Field<Long> userId) {
+    DriveSpaceMemberGroup g = DRIVE_SPACE_MEMBER_GROUP.as("dsm_dr_g");
+    return DSL.field(
+        DSL.select(g.ROLE)
+            .from(g)
+            .where(g.SPACE_ID.eq(spaceId))
+            .and(g.GROUP_ID.in(Departments.withAncestorsOf(userId)))
+            .orderBy(rank(g.ROLE).desc())
+            .limit(1));
   }
 
   /**

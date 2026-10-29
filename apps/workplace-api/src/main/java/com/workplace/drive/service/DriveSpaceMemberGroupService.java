@@ -7,6 +7,7 @@ import com.workplace.drive.exception.DriveSpaceMemberNotFoundException;
 import com.workplace.drive.outbound.DriveChangeNotifier;
 import com.workplace.drive.repository.DriveSpaceMemberGroupRepository;
 import com.workplace.drive.repository.DriveSpaceMemberRepository;
+import com.workplace.user.outbound.DepartmentMembersGrown;
 import com.workplace.user.outbound.DepartmentMembersReduced;
 import java.util.List;
 import java.util.Set;
@@ -113,6 +114,17 @@ public class DriveSpaceMemberGroupService {
     // 행위자는 없다 — 부서 변경은 user 모듈에서 왔다.
     for (long spaceId : groups.findSpaceIdsByGroups(e.groupIds())) {
       notifier.spaceChanged(OP_UPDATED, spaceId, null, members.audienceUserIds(spaceId));
+    }
+  }
+
+  /**
+   * 조직도 부서의 구성원이 늘었다(WP-1102 이벤트) — 그 부서(상위 부서도 담겨 온다)를 멤버로 둔 공간마다 변경 알림을 낸다. 수신자는 커밋 직전에 실효 멤버로 다시
+   * 조회되므로 새로 들어온 사람도 받는다 — 빠지는 사람이 없어 추가 수신자는 없다.
+   */
+  @EventListener
+  public void onDepartmentMembersGrown(DepartmentMembersGrown e) {
+    for (long spaceId : groups.findSpaceIdsByGroups(e.groupIds())) {
+      notifier.spaceChanged(OP_UPDATED, spaceId, null, List.of());
     }
   }
 

@@ -124,4 +124,22 @@ describe('SpaceMemberDialog', () => {
     renderDialog([ME_OWNER, { userId: 4, name: '정도윤', role: 'OWNER' }], true, 1)
     expect(screen.getByTestId('drive-member-remove-1')).toBeDisabled()
   })
+
+  // WP-1102 — 실효 역할은 직접 역할과 부서 역할 중 높은 쪽. 직접 역할을 낮춰도 부서로 더 높으면 사람 행에 「조직으로 …」를 보인다.
+  it('부서 역할이 직접 역할보다 높을 때만 사람 행에 「조직으로 편집자」를 보인다', () => {
+    renderDialog(
+      [
+        ME_OWNER,
+        { ...VIEWER, departmentRole: 'EDITOR' },
+        { ...EDITOR, departmentRole: 'VIEWER' },
+        { userId: 4, name: '정도윤', role: 'EDITOR', departmentRole: 'EDITOR' },
+      ],
+      true,
+    )
+    expect(screen.getByTestId('drive-member-department-role-3')).toHaveTextContent('조직으로 편집자')
+    // 부서 역할이 같거나 낮으면 직접 역할이 실효 역할이라 안내하지 않는다.
+    expect(screen.queryByTestId('drive-member-department-role-2')).toBeNull()
+    expect(screen.queryByTestId('drive-member-department-role-4')).toBeNull()
+    expect(screen.queryByTestId('drive-member-department-role-1')).toBeNull()
+  })
 })

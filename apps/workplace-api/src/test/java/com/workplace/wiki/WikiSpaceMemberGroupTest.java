@@ -15,19 +15,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workplace.global.realtime.ResourceChangedEvent;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.home.repository.SharedMemorySpaceRepository;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.user.dto.AddMemberRequest;
 import com.workplace.user.service.UserGroupService;
 import com.workplace.wiki.dto.CreatePageRequest;
+import com.workplace.wiki.outbound.WikiChangeNotifier;
 import com.workplace.wiki.outbound.WikiDomainEvents.WikiSpaceAudienceChangedEvent;
 import com.workplace.wiki.repository.WikiSpaceMemberRepository;
 import com.workplace.wiki.service.WikiPageService;
 import com.workplace.wiki.service.WikiSpaceMemberGroupService;
 import com.workplace.wiki.service.WikiSpaceService;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -131,6 +135,30 @@ class WikiSpaceMemberGroupTest extends IntegrationTestBase {
                 .content(om.writeValueAsString(Map.of("groupId", backendId, "role", "EDITOR"))),
             devMemberId)
         .andExpect(status().isForbidden());
+  }
+
+  /**
+   * 멤버 목록의 부서 역할(WP-1102) — 직접 멤버마다 멤버 부서로 받는 가장 높은 역할을 함께 싣는다. 직접 VIEWER 인 개발팀 구성원은 부서 EDITOR 를,
+   * 하위 부서 구성원도 상위 부서의 역할을 받고, 부서에 없는 소유자는 null 이다.
+   */
+  @Test
+  void member_list_carries_department_role() throws Exception {
+    spaceService.addMember(ownerId, spaceId, devMemberId, "VIEWER");
+    spaceService.addMember(ownerId, spaceId, backendMemberId, "VIEWER");
+    addGroup(devId, "EDITOR").andExpect(status().isCreated());
+    addGroup(backendId, "VIEWER").andExpect(status().isCreated());
+
+    JsonNode list =
+        json(
+            call(get("/api/v1/wiki/spaces/{id}/members", spaceId), ownerId)
+                .andExpect(status().isOk()));
+    Map<Long, JsonNode> byUser = new HashMap<>();
+    list.forEach(n -> byUser.put(n.get("userId").asLong(), n));
+    assertThat(byUser.get(devMemberId).get("role").asText()).isEqualTo("VIEWER");
+    assertThat(byUser.get(devMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    // 백엔드는 자기 부서(VIEWER)와 상위 부서(EDITOR) 중 높은 쪽.
+    assertThat(byUser.get(backendMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(ownerId).get("departmentRole").isNull()).isTrue();
   }
 
   /** 실효 역할은 가장 높은 것 — 직접 VIEWER + 부서 EDITOR → EDITOR. 단건·목록·홈 공용 메모리가 같은 값. 거꾸로도 같다. */
@@ -303,6 +331,34 @@ class WikiSpaceMemberGroupTest extends IntegrationTestBase {
                 .from(WIKI_PAGE_SHARE)
                 .fetch(WIKI_PAGE_SHARE.CREATED_BY))
         .containsExactly(devMemberId);
+  }
+
+  /**
+   * 부서 구성원 증가(WP-1102) — 하위 부서에 사람을 넣으면 그 부서를 멤버로 둔 스페이스에 행위자 없는 변경 알림이 나가고, 새로 들어온 사람이 멤버 명단(커밋 직전
+   * 수신자 조회)에 들어 있다. 늘기만 했으니 공유 정리·연결 재검증 신호는 내지 않는다.
+   */
+  @Test
+  void department_member_growth_notifies_space_without_audience_revalidation() throws Exception {
+    TestFixtures.grantRole(dsl, ownerId, "ADMIN"); // 조직도 쓰기 권한
+    addGroup(devId, "EDITOR").andExpect(status().isCreated());
+    long newcomerId = human();
+    appEvents.clear();
+
+    groupService.addMember(ownerId, backendId, new AddMemberRequest("MEMBER", newcomerId));
+
+    assertThat(
+            appEvents.stream(ResourceChangedEvent.class)
+                .filter(e -> WikiChangeNotifier.RESOURCE_WIKI_SPACE.equals(e.resource())))
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.scopeId()).isEqualTo(spaceId);
+              assertThat(e.actorId()).isNull();
+            });
+    assertThat(appEvents.stream(WikiSpaceAudienceChangedEvent.class))
+        .singleElement()
+        .satisfies(e -> assertThat(e.spaceIds()).containsExactly(spaceId));
+    assertThat(spaceMembers.memberUserIds(spaceId)).contains(newcomerId);
   }
 
   /** 직접 역할을 보기로 내려도 부서로 여전히 편집자면 그 사람의 공유는 남는다. 부서 행을 빼면(편집을 잃으면) 해제된다. */

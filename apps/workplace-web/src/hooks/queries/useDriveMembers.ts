@@ -70,8 +70,11 @@ export function useDriveMemberGroups(spaceId: number) {
 }
 
 // 부서 변경 뒤 무효화 — 부서 목록 + 공간 목록·단건(부서로 받은 내 역할이 바뀌면 사이드바·읽기 전용 판정이 달라진다).
-const invalidateGroups = (qc: ReturnType<typeof useQueryClient>, spaceId: number) =>
+// 사람 멤버 목록도 — 사람 행의 「조직으로 …」 안내(부서로 받는 역할, WP-1102)가 부서 역할을 따라 바뀐다.
+const invalidateGroups = (qc: ReturnType<typeof useQueryClient>, spaceId: number) => {
   invalidate(qc, spaceId, driveKeys.memberGroups(spaceId))
+  qc.invalidateQueries({ queryKey: driveKeys.members(spaceId) })
+}
 
 // 부서 추가 — { groupId, role }.
 export function useAddDriveMemberGroup(spaceId: number) {

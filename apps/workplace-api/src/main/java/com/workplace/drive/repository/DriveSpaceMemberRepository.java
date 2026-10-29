@@ -116,8 +116,13 @@ public class DriveSpaceMemberRepository {
     }
   }
 
+  /** 직접 멤버 목록(이름순) — 사람마다 멤버 부서로 받는 역할도 함께 싣는다(WP-1102, 없으면 null). */
   public List<DriveMemberResponse> listMembers(long spaceId) {
-    return dsl.select(DRIVE_SPACE_MEMBER.USER_ID, USER.NAME, DRIVE_SPACE_MEMBER.ROLE)
+    var departmentRole =
+        DriveSpaceMembership.departmentRole(DSL.val(spaceId), DRIVE_SPACE_MEMBER.USER_ID)
+            .as("department_role");
+    return dsl.select(
+            DRIVE_SPACE_MEMBER.USER_ID, USER.NAME, DRIVE_SPACE_MEMBER.ROLE, departmentRole)
         .from(DRIVE_SPACE_MEMBER)
         .join(USER)
         .on(USER.ID.eq(DRIVE_SPACE_MEMBER.USER_ID))
@@ -128,6 +133,7 @@ public class DriveSpaceMemberRepository {
                 new DriveMemberResponse(
                     r.get(DRIVE_SPACE_MEMBER.USER_ID),
                     r.get(USER.NAME),
-                    r.get(DRIVE_SPACE_MEMBER.ROLE)));
+                    r.get(DRIVE_SPACE_MEMBER.ROLE),
+                    r.get(departmentRole)));
   }
 }

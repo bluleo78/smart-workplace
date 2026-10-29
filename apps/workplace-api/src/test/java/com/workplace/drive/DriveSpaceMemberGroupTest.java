@@ -31,9 +31,12 @@ import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
+import com.workplace.user.dto.AddMemberRequest;
+import com.workplace.user.dto.UpdateUserGroupRequest;
 import com.workplace.user.service.UserGroupService;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -152,6 +155,30 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
     // 비멤버는 존재도 모른다(404).
     call(get("/api/v1/drive/spaces/{id}/member-groups", spaceId), strangerId)
         .andExpect(status().isNotFound());
+  }
+
+  /**
+   * 멤버 목록의 부서 역할(WP-1102) — 직접 멤버마다 멤버 부서로 받는 가장 높은 역할을 함께 싣는다. 직접 VIEWER 인 개발팀 구성원은 부서 EDITOR 를,
+   * 하위 부서 구성원도 상위 부서의 역할을 받고, 부서에 없는 소유자는 null 이다.
+   */
+  @Test
+  void member_list_carries_department_role() throws Exception {
+    spaceService.addMember(ownerId, spaceId, devMemberId, "VIEWER");
+    spaceService.addMember(ownerId, spaceId, backendMemberId, "VIEWER");
+    addGroup(devId, "EDITOR").andExpect(status().isCreated());
+    addGroup(backendId, "VIEWER").andExpect(status().isCreated());
+
+    JsonNode list =
+        json(
+            call(get("/api/v1/drive/spaces/{id}/members", spaceId), ownerId)
+                .andExpect(status().isOk()));
+    Map<Long, JsonNode> byUser = new HashMap<>();
+    list.forEach(n -> byUser.put(n.get("userId").asLong(), n));
+    assertThat(byUser.get(devMemberId).get("role").asText()).isEqualTo("VIEWER");
+    assertThat(byUser.get(devMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    // 백엔드는 자기 부서(VIEWER)와 상위 부서(EDITOR) 중 높은 쪽.
+    assertThat(byUser.get(backendMemberId).get("departmentRole").asText()).isEqualTo("EDITOR");
+    assertThat(byUser.get(ownerId).get("departmentRole").isNull()).isTrue();
   }
 
   /**
@@ -373,6 +400,58 @@ class DriveSpaceMemberGroupTest extends IntegrationTestBase {
     assertThat(events).noneMatch(e -> e.scopeId() == otherSpace);
     // 커밋 직전 수신자 조회에서는 빠진 사람이 없다 — 그래서 추가 수신자로 넘겨야 한다.
     assertThat(audience.resolve(spaceId)).doesNotContain(backendMemberId);
+  }
+
+  /**
+   * 부서 구성원 증가(WP-1102) — 하위 부서에 사람을 넣거나 다른 부서를 그 아래로 옮겨 오면, 그 부서(또는 상위 부서)를 멤버로 둔 공간마다 행위자 없는 변경
+   * 알림이 나가고 새로 들어온 사람이 커밋 직전 수신자 조회에 들어 있다. 부서와 무관한 공간에는 알림이 없다.
+   */
+  @Test
+  void department_member_growth_notifies_new_member() throws Exception {
+    TestFixtures.grantRole(dsl, ownerId, "ADMIN"); // 조직도 쓰기 권한
+    addGroup(devId, "EDITOR").andExpect(status().isCreated());
+    long otherSpace = spaceService.createTeamSpace(ownerId, "다른공간-" + suffix).id();
+    long newcomerId = human();
+    appEvents.clear();
+
+    // 개발팀의 하위 부서(백엔드)에 사람을 넣는다 — 개발팀을 멤버로 둔 공간에 들어온다.
+    groupService.addMember(ownerId, backendId, new AddMemberRequest("MEMBER", newcomerId));
+
+    assertThat(spaceChanges())
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.scopeId()).isEqualTo(spaceId);
+              assertThat(e.actorId()).isNull();
+            });
+    assertThat(spaceChanges()).noneMatch(e -> e.scopeId() == otherSpace);
+    assertThat(audience.resolve(spaceId)).contains(newcomerId);
+
+    // 이미 구성원인 사람을 다시 넣으면(멱등) 아무도 늘지 않아 알리지 않는다.
+    appEvents.clear();
+    groupService.addMember(ownerId, backendId, new AddMemberRequest("MEMBER", newcomerId));
+    assertThat(spaceChanges()).isEmpty();
+
+    // 다른 부서를 백엔드 아래로 옮겨 오면 그 구성원도 들어온다.
+    long movedMemberId = human();
+    long qaId = group("QA-" + suffix, "SHARED", null, null);
+    member(qaId, movedMemberId);
+    appEvents.clear();
+
+    groupService.update(
+        ownerId, qaId, new UpdateUserGroupRequest(null, backendId, null, null, null, null));
+
+    assertThat(spaceChanges())
+        .singleElement()
+        .satisfies(e -> assertThat(e.scopeId()).isEqualTo(spaceId));
+    assertThat(audience.resolve(spaceId)).contains(movedMemberId);
+
+    // 같은 상위(개발팀) 안에서 백엔드 → 개발팀 바로 아래로 옮기면 개발팀 구성원은 그대로다 — 개발팀을 멤버로 둔 공간에는 알림이 없다.
+    appEvents.clear();
+    groupService.update(
+        ownerId, qaId, new UpdateUserGroupRequest(null, devId, null, null, null, null));
+    assertThat(spaceChanges()).isEmpty();
+    assertThat(audience.resolve(spaceId)).contains(movedMemberId);
   }
 
   /** 부서를 지우면 멤버 부서 행도 사라지고(CASCADE) 그 구성원은 더 열 수 없다. */

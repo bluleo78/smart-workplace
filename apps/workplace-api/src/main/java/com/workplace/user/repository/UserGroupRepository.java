@@ -259,13 +259,15 @@ public class UserGroupRepository {
   }
 
   /** 멤버 편입(멱등 — PK 충돌 시 no-op). */
-  public void addMember(long groupId, String targetType, long targetId) {
-    dsl.insertInto(USER_GROUP_MEMBER)
-        .set(USER_GROUP_MEMBER.GROUP_ID, groupId)
-        .set(USER_GROUP_MEMBER.TARGET_TYPE, targetType)
-        .set(USER_GROUP_MEMBER.TARGET_ID, targetId)
-        .onConflictDoNothing()
-        .execute();
+  /** 멤버 편입 — 이미 있으면 아무것도 하지 않는다. 새로 넣었으면 true(WP-1102 — 그때만 구성원 증가를 알린다). */
+  public boolean addMember(long groupId, String targetType, long targetId) {
+    return dsl.insertInto(USER_GROUP_MEMBER)
+            .set(USER_GROUP_MEMBER.GROUP_ID, groupId)
+            .set(USER_GROUP_MEMBER.TARGET_TYPE, targetType)
+            .set(USER_GROUP_MEMBER.TARGET_ID, targetId)
+            .onConflictDoNothing()
+            .execute()
+        > 0;
   }
 
   /** 멤버 제외. */

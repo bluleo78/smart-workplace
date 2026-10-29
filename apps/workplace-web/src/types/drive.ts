@@ -42,6 +42,8 @@ export interface DriveMember {
   userId: number
   name: string
   role: DriveRole
+  // 멤버 부서로 받는 역할(WP-1102) — 없으면 null. 실효 역할은 role 과 이 값 중 높은 쪽.
+  departmentRole?: Exclude<DriveRole, 'OWNER'> | null
 }
 
 /**

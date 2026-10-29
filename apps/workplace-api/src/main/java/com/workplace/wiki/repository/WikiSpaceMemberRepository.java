@@ -149,8 +149,12 @@ public class WikiSpaceMemberRepository {
             .except(WikiSpaceMembership.memberUserIds(DSL.val(targetSpaceId))));
   }
 
+  /** 직접 멤버 목록(이름순) — 사람마다 멤버 부서로 받는 역할도 함께 싣는다(WP-1102, 없으면 null). */
   public List<WikiMemberResponse> listMembers(long spaceId) {
-    return dsl.select(WIKI_SPACE_MEMBER.USER_ID, USER.NAME, WIKI_SPACE_MEMBER.ROLE)
+    var departmentRole =
+        WikiSpaceMembership.departmentRole(DSL.val(spaceId), WIKI_SPACE_MEMBER.USER_ID)
+            .as("department_role");
+    return dsl.select(WIKI_SPACE_MEMBER.USER_ID, USER.NAME, WIKI_SPACE_MEMBER.ROLE, departmentRole)
         .from(WIKI_SPACE_MEMBER)
         .join(USER)
         .on(USER.ID.eq(WIKI_SPACE_MEMBER.USER_ID))
@@ -161,6 +165,7 @@ public class WikiSpaceMemberRepository {
                 new WikiMemberResponse(
                     r.get(WIKI_SPACE_MEMBER.USER_ID),
                     r.get(USER.NAME),
-                    r.get(WIKI_SPACE_MEMBER.ROLE)));
+                    r.get(WIKI_SPACE_MEMBER.ROLE),
+                    r.get(departmentRole)));
   }
 }

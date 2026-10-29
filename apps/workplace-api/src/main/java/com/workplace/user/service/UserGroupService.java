@@ -12,6 +12,7 @@ import com.workplace.user.dto.UserGroupTreeResponse;
 import com.workplace.user.exception.InvalidUserGroupException;
 import com.workplace.user.exception.UserGroupForbiddenException;
 import com.workplace.user.exception.UserGroupNotFoundException;
+import com.workplace.user.outbound.DepartmentMembersGrown;
 import com.workplace.user.outbound.DepartmentMembersReduced;
 import com.workplace.user.repository.UserGroupRepository;
 import com.workplace.user.repository.UserGroupRepository.FlatGroup;
@@ -216,11 +217,23 @@ public class UserGroupService {
       throw new InvalidUserGroupException("이미 존재하는 그룹 이름입니다: " + name);
     }
     requireUniqueCode(g.visibility(), code, id);
-    // 다른 상위 부서 아래로 옮기면(최상위로 포함) 옛 상위 부서의 구성원이 줄어든다 — 노트 부서 공유가 열린 화면을 다시 판정하게 알린다(WP-1042).
-    if (!Objects.equals(parentId, g.parentId())) {
-      publishMembersReduced(g, ancestorIds(g.parentId()));
+    boolean moved = !Objects.equals(parentId, g.parentId());
+    // 옮기면 옛 상위에만 있던 부서는 구성원이 줄고, 새 상위에만 있는 부서는 는다 — 양쪽 공통 상위(예: 같은 최상위)는 그대로라 알리지 않는다.
+    Set<Long> lost = new LinkedHashSet<>();
+    Set<Long> gained = new LinkedHashSet<>();
+    if (moved) {
+      lost.addAll(ancestorIds(g.parentId()));
+      gained.addAll(ancestorIds(parentId));
+      Set<Long> common = new LinkedHashSet<>(lost);
+      common.retainAll(gained);
+      lost.removeAll(common);
+      gained.removeAll(common);
     }
+    // 줄어듦은 변경 전에 알린다 — 노트 부서 공유가 열린 화면을 다시 판정하게(WP-1042).
+    publishMembersReduced(g, lost);
     repo.update(id, name, parentId, code, sortOrder);
+    // 늚은 변경 뒤에 알린다 — 부서를 멤버로 둔 공간이 새로 들어온 사람에게도 보이게(WP-1102).
+    publishMembersGrown(g, gained);
     return toDetail(
         callerId, repo.findById(id).orElseThrow(() -> new UserGroupNotFoundException(id)));
   }
@@ -267,7 +280,14 @@ public class UserGroupService {
         throw new InvalidUserGroupException("접근할 수 없는 외부 연락처입니다");
       }
     }
-    repo.addMember(id, req.targetType(), req.targetId());
+    boolean inserted = repo.addMember(id, req.targetType(), req.targetId());
+    // 이미 구성원이면(멱등 재추가) 아무도 늘지 않아 알리지 않는다.
+    if (inserted && "MEMBER".equals(req.targetType())) {
+      // 넣은 부서와 그 상위 부서는 하위 부서 구성원까지 열린다 — 그 부서를 멤버로 둔 공간이 새 구성원 화면에도 보이게 알린다(WP-1102).
+      Set<Long> affected = new LinkedHashSet<>(ancestorIds(g.parentId()));
+      affected.add(id);
+      publishMembersGrown(g, affected);
+    }
     return toDetail(callerId, g);
   }
 
@@ -292,6 +312,15 @@ public class UserGroupService {
   }
 
   // --- 내부 헬퍼 ---
+
+  /** 조직도 부서(SHARED)의 구성원이 늘었음을 알린다 — 개인 그룹은 공간 멤버가 될 수 없으므로 알리지 않는다(WP-1102). */
+  private void publishMembersGrown(FlatGroup g, Collection<Long> groupIds) {
+    if (!"SHARED".equals(g.visibility()) || groupIds.isEmpty()) {
+      return;
+    }
+    publisher.publishEvent(
+        new DepartmentMembersGrown(TenantContext.require(), List.copyOf(groupIds)));
+  }
 
   /** parentId 부터 위로 올라가는 상위 부서 id(가까운 순) — 한 번의 조회(공통 규칙, WP-1055). 최상위(null)면 빈 목록. */
   private List<Long> ancestorIds(Long parentId) {

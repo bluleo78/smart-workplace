@@ -1,7 +1,7 @@
 // 노트·드라이브 공간 역할 공통 규칙(WP-582) — 표기·편집 가능 판정·마지막 소유자 잠금.
 import { describe, expect, it } from 'vitest'
 
-import { canEditSpaceRole, isLockedMemberRow, isSoleOwner, spaceRoleLabel } from './spaceRoles'
+import { canEditSpaceRole, departmentRoleNote, isLockedMemberRow, isSoleOwner, spaceRoleLabel } from './spaceRoles'
 
 describe('spaceRoleLabel', () => {
   it('영문 코드 대신 한국어로 보인다', () => {
@@ -67,5 +67,16 @@ describe('isLockedMemberRow (WP-656)', () => {
   it('마지막 소유자면 생성자·나 여부와 상관없이 잠긴다', () => {
     const solo = [{ userId: 4, role: 'OWNER' as const }]
     expect(isLockedMemberRow(solo[0], solo, 1, 9)).toBe(true)
+  })
+})
+
+describe('departmentRoleNote', () => {
+  it('부서 역할이 직접 역할보다 높을 때만 「조직으로 …」', () => {
+    expect(departmentRoleNote({ role: 'VIEWER', departmentRole: 'EDITOR' })).toBe('조직으로 편집자')
+    expect(departmentRoleNote({ role: 'EDITOR', departmentRole: 'EDITOR' })).toBeNull()
+    expect(departmentRoleNote({ role: 'OWNER', departmentRole: 'EDITOR' })).toBeNull()
+    expect(departmentRoleNote({ role: 'EDITOR', departmentRole: 'VIEWER' })).toBeNull()
+    expect(departmentRoleNote({ role: 'VIEWER', departmentRole: null })).toBeNull()
+    expect(departmentRoleNote({ role: 'VIEWER' })).toBeNull()
   })
 })
