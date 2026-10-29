@@ -128,14 +128,17 @@ export default function VersionDetailPage() {
               </p>
               {version.description && <p className="whitespace-pre-wrap text-sm">{version.description}</p>}
             </section>
-            <section className="space-y-2">
-              <VersionProgressBar progress={version.progress} testId="version-progress" />
-              {version.affectsCount > 0 && (
-                <p className="text-sm text-muted-foreground" data-testid="version-affects-note">
-                  영향 버전으로 붙은 결함 {version.affectsCount}건
-                </p>
-              )}
-            </section>
+            {/* 이슈도 영향 결함도 없으면 칸을 비워 두지 않는다 — 빈 칸도 위아래 간격을 한 번 더 차지한다(WP-1136). */}
+            {(version.progress.done + version.progress.inProgress + version.progress.todo > 0 || version.affectsCount > 0) && (
+              <section className="space-y-2">
+                <VersionProgressBar progress={version.progress} testId="version-progress" />
+                {version.affectsCount > 0 && (
+                  <p className="text-sm text-muted-foreground" data-testid="version-affects-note">
+                    영향 버전으로 붙은 결함 {version.affectsCount}건
+                  </p>
+                )}
+              </section>
+            )}
 
             <Tabs value={tab} onValueChange={(t) => setTab(t as VersionIssueKind)}>
               <TabsList>

@@ -1,5 +1,6 @@
 // 버전 진행 막대(WP-888) — 수정 버전 이슈를 완료·진행 중·할 일로 쌓아 그린다. 취소는 서버가 완료로 센다.
 // 목록은 compact(막대 + 「완료/전체」 한 줄), 상세는 막대 + 범례.
+// 상세에서 이슈가 없으면 아무것도 그리지 않는다 — 빈 안내는 아래 「이 버전에 나가는 것」 탭이 한 번만 보인다(WP-1136).
 import { completionPct } from '../../../lib/progress';
 import type { VersionProgress } from '../../../types/version';
 
@@ -43,31 +44,27 @@ export function VersionProgressBar({
     );
   }
 
+  if (total === 0) return null;
+
   return (
     <div className="space-y-2" data-testid={testId}>
-      {total === 0 ? (
-        <p className="text-sm text-muted-foreground">이 버전에 나가는 이슈가 아직 없어요.</p>
-      ) : (
-        <>
-          <div className="flex items-center gap-3">
-            <div className="flex-1">{bar}</div>
-            <span className="text-sm tabular-nums">
-              {done}/{total} · {pct}%
-            </span>
-          </div>
-          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-            <li className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-success" aria-hidden /> 완료 {done}
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-info" aria-hidden /> 진행 중 {inProgress}
-            </li>
-            <li className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full bg-muted-foreground/40" aria-hidden /> 할 일 {todo}
-            </li>
-          </ul>
-        </>
-      )}
+      <div className="flex items-center gap-3">
+        <div className="flex-1">{bar}</div>
+        <span className="text-sm tabular-nums">
+          {done}/{total} · {pct}%
+        </span>
+      </div>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <li className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-success" aria-hidden /> 완료 {done}
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-info" aria-hidden /> 진행 중 {inProgress}
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-muted-foreground/40" aria-hidden /> 할 일 {todo}
+        </li>
+      </ul>
     </div>
   );
 }
