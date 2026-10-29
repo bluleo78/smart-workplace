@@ -80,7 +80,13 @@ type Calls = {
  * runtimeConflict 면 runtime PUT 이 409, deleteResult 는 DELETE 결과(DELETED/DEACTIVATED). 쓰기 요청은 calls 에 모은다.
  */
 function agentApi(
-  opts: { runtimeConflict?: string; deleteResult?: 'DELETED' | 'DEACTIVATED'; extraAgents?: AgentResponse[] } = {},
+  opts: {
+    runtimeConflict?: string
+    deleteResult?: 'DELETED' | 'DEACTIVATED'
+    extraAgents?: AgentResponse[]
+    /** 개인 비서(106)의 키 목록 — 남은 키 배열, 또는 'error' 면 500(WP-1162). 없으면 빈 목록. */
+    personalKeys?: (typeof KEY_1)[] | 'error'
+  } = {},
 ) {
   let agents = [...makeAgents(), ...(opts.extraAgents ?? [])]
   const calls: Calls = { revokes: 0, deletes: 0, puts: [], runtimes: [], roleSaves: [], actives: [], agentListReads: 0 }
@@ -121,7 +127,13 @@ function agentApi(
       calls.deletes += 1
       return HttpResponse.json({ result: opts.deleteResult ?? 'DELETED' })
     }),
-    http.get('/api/v1/admin/agents/:id/keys', ({ params }) => HttpResponse.json(Number(params.id) === 100 ? [KEY_1] : [])),
+    http.get('/api/v1/admin/agents/:id/keys', ({ params }) => {
+      if (Number(params.id) === 106 && opts.personalKeys === 'error') {
+        return HttpResponse.json({ message: '서버 오류' }, { status: 500 })
+      }
+      if (Number(params.id) === 106 && opts.personalKeys) return HttpResponse.json(opts.personalKeys)
+      return HttpResponse.json(Number(params.id) === 100 ? [KEY_1] : [])
+    }),
     http.post('/api/v1/admin/agents/:id/keys', () =>
       HttpResponse.json({ id: 9, keyPrefix: 'ak_new', plaintextKey: 'ak_new_SECRET', label: null }),
     ),
@@ -401,4 +413,33 @@ test('개인 비서 상세에는 키 발급 폼 대신 안내가 보이고 키 �
   expect(await within(keys).findByText('키가 없습니다')).toBeInTheDocument()
   // 키가 없으면 회수 안내를 붙이지 않는다.
   expect(within(keys).getByTestId('key-issue-personal-hint')).not.toHaveTextContent('회수')
+})
+
+// WP-1162: 개인 비서의 남은 키는 인증되지 않으니 표에서 「활성」처럼 보이지 않게 「사용 불가」로 적고, 회수 안내를 붙인다.
+test('개인 비서의 남은 키는 「사용 불가」로 보이고 회수 안내가 붙는다 (WP-1162)', async () => {
+  const personal: AgentResponse = { ...base, id: 106, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
+  const legacy = { ...KEY_1, id: 7, userId: 106, keyPrefix: 'ak_legacy0' }
+  const { user } = await renderAgents({ extraAgents: [personal], personalKeys: [legacy] })
+  const drawer = await openDrawer(user, 106)
+  const keys = await within(drawer).findByTestId('agent-keys-block')
+  expect(await within(keys).findByTestId('key-unusable-7')).toHaveTextContent('사용 불가')
+  expect(within(keys).getByTestId('key-revoke-7')).toBeInTheDocument()
+  expect(within(keys).getByTestId('key-issue-personal-hint')).toHaveTextContent('회수해 정리하세요')
+})
+
+// WP-1162: 목록을 못 불러오면 남은 키가 있는지 모르니 회수 안내를 숨기지 않는다(전에는 빈 목록으로 보고 숨겼다).
+test('개인 비서 키 목록을 불러오지 못해도 회수 안내가 보인다 (WP-1162)', async () => {
+  const personal: AgentResponse = { ...base, id: 106, username: '__assistant_u7', name: '홍길동의 비서', type: 'PERSONAL', runtime: 'INTERNAL', ownerName: '홍길동' }
+  const { user } = await renderAgents({ extraAgents: [personal], personalKeys: 'error' })
+  const drawer = await openDrawer(user, 106)
+  const keys = await within(drawer).findByTestId('agent-keys-block')
+  expect(within(keys).getByTestId('key-issue-personal-hint')).toHaveTextContent('회수해 정리하세요')
+})
+
+// 일반 AI 의 회수 안 된 키는 회수 칸이 비어 있고 「사용 불가」가 붙지 않는다.
+test('일반 AI 의 키에는 「사용 불가」가 붙지 않는다 (WP-1162)', async () => {
+  const { user } = await renderAgents()
+  await openDrawer(user, 100)
+  await screen.findByTestId('key-revoke-1')
+  expect(screen.queryByTestId('key-unusable-1')).not.toBeInTheDocument()
 })

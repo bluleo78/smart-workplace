@@ -11,13 +11,11 @@ import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.security.JwtTokenProvider;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.home.service.HomeSessionService;
 import com.workplace.support.IntegrationTestBase;
 import com.workplace.support.TestFixtures;
 import com.workplace.user.service.AiPreferenceService;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
 import org.jooq.DSLContext;
@@ -96,19 +94,12 @@ class AiMemoryAuthBoundaryTest extends IntegrationTestBase {
         .fetchOne();
   }
 
-  private static String sha256Hex(String plaintext) throws Exception {
-    return HexFormat.of()
-        .formatHex(
-            MessageDigest.getInstance("SHA-256")
-                .digest(plaintext.getBytes(StandardCharsets.UTF_8)));
-  }
-
   @Test
   void PAT_요청의_AI_출처와_세션은_무시되고_꺼짐_409_도_없다() throws Exception {
     long uid = disabledHuman();
     UUID sid = sessionService.create(uid).id();
     String pat = "swp_wp55boundary" + UUID.randomUUID().toString().replace("-", "");
-    userTokens.insert(uid, 1L, "wp55", pat.substring(0, 12), sha256Hex(pat), null);
+    userTokens.insert(uid, 1L, "wp55", pat.substring(0, 12), CapabilityTokens.sha256Hex(pat), null);
 
     ResultActions r =
         postAs("Bearer " + pat, null, aiBody(sid))
@@ -125,7 +116,7 @@ class AiMemoryAuthBoundaryTest extends IntegrationTestBase {
     preferences.update(agent, null, false);
     UUID sid = sessionService.create(agent).id();
     String key = "ak_wp55boundary" + UUID.randomUUID().toString().replace("-", "");
-    agentKeys.insert(agent, key.substring(0, 12), sha256Hex(key), "wp55", agent);
+    agentKeys.insert(agent, key.substring(0, 12), CapabilityTokens.sha256Hex(key), "wp55", agent);
 
     ResultActions r =
         postAs("Bearer " + key, null, aiBody(sid))

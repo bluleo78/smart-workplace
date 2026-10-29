@@ -3,6 +3,7 @@ package com.workplace.global.security;
 import com.workplace.auth.repository.AgentApiKeyRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantStatusChecker;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.AgentUsernames;
@@ -13,11 +14,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -74,7 +71,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
           && auth.length() > BEARER_PREFIX.length()
           && auth.substring(BEARER_PREFIX.length()).startsWith(AK_PREFIX)) {
         String plaintext = auth.substring(BEARER_PREFIX.length());
-        String hash = sha256Hex(plaintext);
+        String hash = CapabilityTokens.sha256Hex(plaintext);
         agentApiKeyRepository
             .findActiveByHash(hash)
             .ifPresent(
@@ -84,7 +81,14 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                         .filter(u -> UserKind.isAgent(u.kind()))
                         // WP-1153: 개인 비서는 주인의 위임(내부 토큰)으로만 움직인다 — 관리자가 발급해 둔 키로 그 신원을 얻으면 주인의
                         // 개인 작업을 읽을 수 있어, 발급을 막기 전에 나간 키도 여기서 인증하지 않는다(401).
-                        .filter(u -> !AgentUsernames.isPersonalAssistant(u.username()))
+                        .filter(
+                            u -> {
+                              if (!AgentUsernames.isPersonalAssistant(u.username())) return true;
+                              // WP-1162: 거절한 시도를 경고 로그로 남긴다 — 남은 키가 아직 쓰이고 있는지 운영에서 볼 수 있게. 요청마다
+                              // 오는 길이라 감사 로그(DB 쓰기)가 아니라 로그로, 평문 키는 적지 않고 키 id 만 적는다.
+                              log.warn("개인 비서 AI 키 인증 거절 keyId={} userId={}", key.id(), u.id());
+                              return false;
+                            })
                         .ifPresent(
                             user -> {
                               // AGENT 경로도 active-tenant 를 요청 스코프에 설정해야 RLS GUC 가 주입되어
@@ -129,16 +133,6 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
       // 풀링된 스레드로 active-tenant ThreadLocal 이 새지 않도록 요청 종료 시 항상 정리한다.
       TenantContext.clear();
       AgentToolContext.clear();
-    }
-  }
-
-  private String sha256Hex(String plaintext) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] hash = md.digest(plaintext.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 미지원", e);
     }
   }
 }

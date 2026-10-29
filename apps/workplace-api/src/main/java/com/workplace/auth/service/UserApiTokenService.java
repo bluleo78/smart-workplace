@@ -8,16 +8,13 @@ import com.workplace.auth.exception.ActiveTenantRequiredException;
 import com.workplace.auth.exception.UserTokenNotFoundException;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.tenant.TenantContext;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.user.dto.UserResponse;
 import com.workplace.user.repository.UserRepository;
 import java.math.BigInteger;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -70,7 +67,7 @@ public class UserApiTokenService {
     }
 
     String plaintext = generatePlaintext();
-    String hash = sha256Hex(plaintext);
+    String hash = CapabilityTokens.sha256Hex(plaintext);
     String prefix = plaintext.substring(0, Math.min(12, plaintext.length()));
     Long id = repo.insert(callerId, tenantId, req.name(), prefix, hash, req.expiresAt());
 
@@ -139,16 +136,6 @@ public class UserApiTokenService {
       n = qr[0];
     }
     return sb.length() > 0 ? sb.toString() : "0";
-  }
-
-  private String sha256Hex(String plaintext) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] hash = md.digest(plaintext.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 미지원", e);
-    }
   }
 
   private String resolveUsername(Long callerId) {

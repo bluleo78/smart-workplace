@@ -3,6 +3,7 @@ package com.workplace.global.security;
 import com.workplace.auth.repository.UserApiTokenRepository;
 import com.workplace.global.tenant.TenantContext;
 import com.workplace.global.tenant.TenantStatusChecker;
+import com.workplace.global.util.CapabilityTokens;
 import com.workplace.permission.service.PermissionService;
 import com.workplace.tenant.repository.MembershipRepository;
 import com.workplace.user.dto.UserKind;
@@ -12,11 +13,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -74,7 +71,7 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
           && auth.length() > BEARER_PREFIX.length()
           && auth.substring(BEARER_PREFIX.length()).startsWith(SWP_PREFIX)) {
         String plaintext = auth.substring(BEARER_PREFIX.length());
-        String hash = sha256Hex(plaintext);
+        String hash = CapabilityTokens.sha256Hex(plaintext);
         userApiTokenRepository
             .findActiveByHash(hash)
             .ifPresent(
@@ -117,16 +114,6 @@ public class UserTokenAuthenticationFilter extends OncePerRequestFilter {
       // 풀링된 스레드로 active-tenant ThreadLocal 이 새지 않도록 요청 종료 시 항상 정리한다.
       TenantContext.clear();
       AgentToolContext.clear();
-    }
-  }
-
-  private String sha256Hex(String plaintext) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] hash = md.digest(plaintext.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("SHA-256 미지원", e);
     }
   }
 }
