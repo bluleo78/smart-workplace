@@ -4,6 +4,7 @@ import static com.workplace.jooq.Tables.MEMBERSHIP;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER;
 import static com.workplace.jooq.Tables.PROJECT_MEMBER_GROUP;
 import static com.workplace.jooq.Tables.USER;
+import static com.workplace.jooq.Tables.USER_GROUP_MEMBER;
 import static org.jooq.impl.DSL.count;
 
 import com.workplace.global.share.ProjectMembership;
@@ -371,8 +372,17 @@ public class ProjectMemberRepository {
       return out;
     }
     // 직접 행이 없는 사람은 멤버로 둔 조직도 부서로 들어오는지 본다(WP-1057) — 걸리는 부서 행을 공유 잠금해, 동시에 들어온 부서 행 제거가 이 쓰기의
-    // 커밋을 기다렸다가 정리(담당자 해제 등)하게 한다. 부서 소속 변경(조직도)은 user 모듈의 행이라 여기서 잠그지 않는다 — 그쪽은 변경 뒤 정리가 다시
-    // 판정한다.
+    // 커밋을 기다렸다가 정리(담당자 해제 등)하게 한다.
+    // 사람을 부서 구성원으로 만드는 구성원 행(user_group_member)도 판정 전에 먼저 공유 잠근다(WP-1128) — 부서에서 빼기(행 삭제)가 이 쓰기의
+    // 커밋을
+    // 기다려, 커밋 직전 정리가 이 담당을 보고 해제한다. 먼저 빼기가 진행 중이면 이쪽이 그 커밋을 기다린 뒤 행이 없어 아래 판정에서 빠진다(잠근 뒤
+    // 판정해야 그 사이에 커밋된 빼기를 놓치지 않는다).
+    dsl.select(USER_GROUP_MEMBER.GROUP_ID)
+        .from(USER_GROUP_MEMBER)
+        .where(USER_GROUP_MEMBER.TARGET_TYPE.eq("MEMBER").and(USER_GROUP_MEMBER.TARGET_ID.in(rest)))
+        .orderBy(USER_GROUP_MEMBER.GROUP_ID, USER_GROUP_MEMBER.TARGET_ID)
+        .forShare()
+        .execute();
     var dept = departmentAudience("pmr_lk", List.of(projectId), rest);
     var g = dept.group();
     dsl.select(g.GROUP_ID, dept.userId())

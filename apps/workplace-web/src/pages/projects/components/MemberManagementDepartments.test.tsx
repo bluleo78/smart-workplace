@@ -52,7 +52,7 @@ const DEV: ProjectMemberGroup = { groupId: 10, name: '개발팀', role: 'MEMBER'
  * 나(1, 소유자)·김하나(2, 직접 멤버), 부서로만 들어온 한지수(7, direct=false)가 실효 멤버인 팀 프로젝트의 멤버 섹션을 띄운다.
  * 받은 쓰기 요청을 모으고, 쓰면 서버 상태를 바꿔 다시 받은 목록이 반영되게 한다.
  */
-function openSection(initialGroups: ProjectMemberGroup[] = [], canManage = true) {
+function openSection(initialGroups: ProjectMemberGroup[] = [], canManage = true, openProject = false) {
   let groups = [...initialGroups]
   let members: MemberResponse[] = [
     member(1, '나', 'OWNER', true),
@@ -60,7 +60,7 @@ function openSection(initialGroups: ProjectMemberGroup[] = [], canManage = true)
     ...(initialGroups.length > 0 ? [member(7, '한지수', 'MEMBER', false)] : []),
   ]
   const writes: { method: string; path: string; body?: unknown }[] = []
-  const view = renderScreen(<MemberManagement projectKey={KEY} canManage={canManage} />, {
+  const view = renderScreen(<MemberManagement projectKey={KEY} canManage={canManage} openProject={openProject} />, {
     path: `/projects/${KEY}/settings`,
     handlers: [
       http.get(`${API}/members`, () => HttpResponse.json(members)),
@@ -181,6 +181,19 @@ describe('프로젝트 멤버 — 조직도 부서(WP-1057)', () => {
     await user.click(screen.getByTestId('member-group-remove-confirm'))
     await waitFor(() => expect(writes).toEqual([{ method: 'DELETE', path: 'member-groups/10' }]))
     await waitFor(() => expect(screen.queryByTestId('member-group-row-10')).not.toBeInTheDocument())
+  })
+
+  test('조직 제거 확인 문구 — 팀 프로젝트는 더는 볼 수 없다고, 공개 프로젝트는 멤버·담당에서만 빠지고 계속 볼 수 있다고 알린다(WP-1128)', async () => {
+    const team = openSection([DEV])
+    await team.user.click(await screen.findByTestId('member-group-remove-10'))
+    expect(await screen.findByText(/이 프로젝트를 더는 볼 수 없고/)).toBeInTheDocument()
+    team.unmount()
+
+    const open = openSection([DEV], true, true)
+    await open.user.click(await screen.findByTestId('member-group-remove-10'))
+    const text = await screen.findByText(/공개 프로젝트라 프로젝트는 계속 볼 수 있어요/)
+    expect(text).toHaveTextContent('멤버에서 빠지고, 맡은 이슈의 담당자에서도 빠져요')
+    expect(screen.queryByText(/더는 볼 수 없/)).not.toBeInTheDocument()
   })
 
   test('관리 권한이 없으면 부서 행은 보이되 제거·추가 버튼이 없다', async () => {

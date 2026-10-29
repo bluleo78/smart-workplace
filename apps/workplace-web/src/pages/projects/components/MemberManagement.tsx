@@ -53,6 +53,8 @@ interface MemberManagementProps {
   ownerId?: number;
   // 멤버 추가·역할 변경·제거를 할 수 있는가(OWNER 또는 비개인 ADMIN, WP-479). false 면 명단만 읽기 전용으로 보인다.
   canManage?: boolean;
+  // 공개(OPEN) 프로젝트인가 — 워크스페이스 전원이 읽을 수 있어, 조직을 빼도 그 사람들은 프로젝트를 계속 본다(조직 제거 확인 문구, WP-1128).
+  openProject?: boolean;
 }
 
 // 프로젝트 멤버 관리 — 검색 picker 로 추가, 역할 변경/제거.
@@ -60,7 +62,7 @@ interface MemberManagementProps {
 // 부서 행(「개발팀 · 12명 [조직]」, 역할은 멤버 고정 — 소유자는 사람에게만, ▸ 로 하위 부서까지 지금 구성원 펼치기, 제거)을 사람 행 위에 보인다.
 // 내 그룹은 그룹 자체를 멤버로 두지 않고 고를 때 그 구성원을 한 명씩 펼쳐 더한다(WP-1052 노트 공유와 같다).
 // 멤버 목록 API 는 실효 멤버(부서로 들어온 사람 direct=false 포함)라 표에는 직접 멤버 행만 보인다.
-export function MemberManagement({ projectKey, agentOnly = false, ownerId, canManage = true }: MemberManagementProps) {
+export function MemberManagement({ projectKey, agentOnly = false, ownerId, canManage = true, openProject = false }: MemberManagementProps) {
   const members = useProjectMembers(projectKey);
   const addMember = useAddMember(projectKey);
   const updateRole = useUpdateMemberRole(projectKey);
@@ -466,8 +468,10 @@ export function MemberManagement({ projectKey, agentOnly = false, ownerId, canMa
         <AlertDialogHeader>
           <AlertDialogTitle>조직 제거</AlertDialogTitle>
           <AlertDialogDescription>
-            이 프로젝트에서 조직 {confirmRemoveGroup?.name}을(를) 제거할까요? 그 조직(하위 조직 포함) 사람은 직접 멤버가 아니면 이
-            프로젝트를 더는 볼 수 없고, 맡은 이슈의 담당자에서도 빠져요.
+            {/* 공개 프로젝트는 멤버가 아니어도 읽을 수 있어 「더는 볼 수 없다」고 하지 않는다(WP-1128) — 멤버·담당에서 빠지는 것만 알린다. */}
+            {openProject
+              ? `이 프로젝트에서 조직 ${confirmRemoveGroup?.name}을(를) 제거할까요? 그 조직(하위 조직 포함) 사람은 직접 멤버가 아니면 멤버에서 빠지고, 맡은 이슈의 담당자에서도 빠져요. 공개 프로젝트라 프로젝트는 계속 볼 수 있어요.`
+              : `이 프로젝트에서 조직 ${confirmRemoveGroup?.name}을(를) 제거할까요? 그 조직(하위 조직 포함) 사람은 직접 멤버가 아니면 이 프로젝트를 더는 볼 수 없고, 맡은 이슈의 담당자에서도 빠져요.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

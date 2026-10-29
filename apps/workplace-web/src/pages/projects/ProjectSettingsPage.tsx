@@ -207,7 +207,7 @@ export default function ProjectSettingsPage() {
           {/* 개인 프로젝트는 AI 어시스턴트만 추가 가능(agentOnly), 팀 프로젝트는 일반 멤버 관리 */}
           {isPersonal
             ? <MemberManagement projectKey={key} agentOnly ownerId={project.data?.ownerId} canManage={canManage} />
-            : <MemberManagement projectKey={key} canManage={canManage} />}
+            : <MemberManagement projectKey={key} canManage={canManage} openProject={project.data?.type === 'OPEN'} />}
 
           {/* 상태(WP-809) — 개인 프로젝트는 상태를 고칠 수 없어(서버 400) 섹션을 그리지 않는다. 편집은 OWNER 만, 멤버는 읽기 전용. */}
           {!isPersonal && <StatusManagement projectKey={key} canEdit={canEditStatuses(isOwner, project.data?.type)} />}
