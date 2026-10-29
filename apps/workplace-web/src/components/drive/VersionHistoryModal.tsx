@@ -54,6 +54,9 @@ export function VersionHistoryModal({ file, open, onClose, onChanged, readOnly =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, file.id]);
 
+  // 롤백하면 생길 버전 번호 — 서버는 가장 큰 번호 다음을 쓴다(DriveFileService.rollback).
+  const nextVersionNo = versions.reduce((max, v) => Math.max(max, v.versionNo), 0) + 1;
+
   // 이전 버전으로 롤백 — 성공 시 목록 갱신 + 파일 목록 reload.
   async function onRollback(versionNo: number) {
     setBusy(true);
@@ -133,9 +136,12 @@ export function VersionHistoryModal({ file, open, onClose, onChanged, readOnly =
       >
         <AlertDialogContent data-testid="rollback-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>버전으로 롤백</AlertDialogTitle>
+            <AlertDialogTitle>v{pendingRollback} 내용으로 롤백</AlertDialogTitle>
             <AlertDialogDescription>
-              v{pendingRollback}으로 롤백하시겠습니까? 현재 내용은 새 버전으로 보존됩니다.
+              {/* WP-1109: 롤백은 고른 버전을 복사해 새 버전을 하나 더 쌓는다(서버 rollback — 비파괴). 지금 버전이 「새 버전으로 보존」되는
+                  것이 아니다. 「v4으로」 같은 조사 틀림을 피하려고 버전 번호 뒤에는 조사를 붙이지 않는다. */}
+              v{pendingRollback} 내용을 복사해 새 버전 v{nextVersionNo} 하나를 만들고 현재 버전으로 둡니다. 지금 버전을 포함한 기존
+              버전은 이력에 그대로 남습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
