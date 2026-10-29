@@ -22,6 +22,14 @@ export async function expectStartAligned(a: Locator, b: Locator, tol = 1) {
   expect(Math.abs(ba.x - bb.x), `x 차이: ${ba.x} vs ${bb.x}`).toBeLessThanOrEqual(tol)
 }
 
+/** 두 요소의 끝 x(오른쪽 끝)가 tol(px) 이내로 같다 — 표의 같은 열에 선 버튼 등(WP-1130). */
+export async function expectEndAligned(a: Locator, b: Locator, tol = 1) {
+  const [ba, bb] = await Promise.all([boxOf(a), boxOf(b)])
+  const ea = ba.x + ba.width
+  const eb = bb.x + bb.width
+  expect(Math.abs(ea - eb), `끝 x 차이: ${ea} vs ${eb}`).toBeLessThanOrEqual(tol)
+}
+
 /** 칼럼과 그것을 담은 영역의 좌우 여백·칼럼 폭 — 가운데 정렬(좌≈우)·폭 상한 단언용(노트 본문, WP-793). */
 export async function columnGaps(column: Locator, container: Locator) {
   const [c, o] = await Promise.all([boxOf(column), boxOf(container)])
