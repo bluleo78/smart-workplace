@@ -240,6 +240,17 @@ describe('외부 링크', () => {
     expect(requests.count('POST', EXT)).toBe(0)
     expect(screen.getByTestId('issue-relation-dialog')).toBeInTheDocument()
   })
+  test('제목이 보이지 않는 글자(제로폭 공백·한글 채움)뿐이면 공백처럼 막는다 (WP-1107)', async () => {
+    const { server, requests } = setup()
+    const { user } = await openIssue(server)
+    await user.click(screen.getByTestId('issue-relation-add'))
+    await user.click(await screen.findByTestId('issue-relation-tab-external'))
+    fireEvent.change(screen.getByTestId('issue-relation-url'), { target: { value: 'https://docs.example.com/spec' } })
+    fireEvent.change(screen.getByTestId('issue-relation-title'), { target: { value: '\u200B\u3164\u2800' } })
+    await user.click(screen.getByTestId('issue-relation-submit'))
+    expect(await screen.findByText('제목을 입력해 주세요')).toBeInTheDocument()
+    expect(requests.count('POST', EXT)).toBe(0)
+  })
 })
 
 describe('관계 추가 창 — 차단·Enter', () => {

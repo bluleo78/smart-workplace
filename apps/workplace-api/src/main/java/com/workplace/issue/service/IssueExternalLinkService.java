@@ -102,7 +102,7 @@ public class IssueExternalLinkService {
     boolean isSource = issueIsSource(type, IssueRelationService.parseSide(req.side()));
 
     String key = normalizeKey(req.key());
-    String title = req.title().trim();
+    String title = req.title();
 
     if (!insertOrSkip(issue.id(), type, isSource, url, key, title, callerId)) {
       return listFor(issue.id());
@@ -144,7 +144,7 @@ public class IssueExternalLinkService {
             : IssueRelationService.parseSide(req.side());
     boolean isSource = issueIsSource(type, requestedSource);
     String key = normalizeKey(req.key());
-    String title = req.title().trim();
+    String title = req.title();
 
     if (type.id() == old.typeId()
         && isSource == old.issueIsSource()
@@ -202,7 +202,7 @@ public class IssueExternalLinkService {
           issueIsSource(type, l.issueIsSource()),
           normalizeUrl(l.url()),
           normalizeKey(l.key()),
-          l.title().trim(),
+          l.title(),
           callerId);
     }
   }

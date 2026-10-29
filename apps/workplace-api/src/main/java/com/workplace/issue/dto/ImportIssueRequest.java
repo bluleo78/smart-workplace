@@ -1,6 +1,7 @@
 package com.workplace.issue.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.workplace.global.util.SingleLineTitles;
 import com.workplace.issue.dto.UpdateIssueFieldsRequest.FieldValueInput;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -155,7 +156,12 @@ public record ImportIssueRequest(
           String url,
       @Size(max = 50, message = "외부 링크 키는 50자 이하여야 합니다.") String key,
       @NotBlank(message = "외부 링크 제목은 필수입니다.") @Size(max = 300, message = "외부 링크 제목은 300자 이하여야 합니다.")
-          String title) {}
+          String title) {
+    /** 화면에서 넣는 외부 링크와 같이 제목을 한 줄로 다듬는다 — 보이지 않는 글자뿐이면 빈 제목이 되어 필수 검증이 막는다(WP-1107). */
+    public ExternalLink {
+      title = SingleLineTitles.normalize(title);
+    }
+  }
 
   /** 원작성자·원시각을 가진 댓글. */
   public record Comment(

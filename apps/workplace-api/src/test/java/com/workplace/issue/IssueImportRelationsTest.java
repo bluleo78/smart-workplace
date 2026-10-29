@@ -128,6 +128,18 @@ class IssueImportRelationsTest extends IssueImportTestSupport {
     assertThat(issueCount()).isEqualTo(before);
   }
 
+  /** 외부 링크 제목이 보이지 않는 글자(제로폭 공백·한글 채움)뿐이면 공백만일 때처럼 이슈를 만들기 전에 400 (WP-1107). */
+  @Test
+  void importExternalLinkWithInvisibleOnlyTitleIs400() throws Exception {
+    int before = issueCount();
+    Map<String, Object> invisible = body("보이지 않는 제목");
+    invisible.put(
+        "externalLinks",
+        List.of(link("RELATES", null, "https://x.example.com/1", null, "\u200B\u3164")));
+    importAs(admin, invisible).andExpect(status().isBadRequest());
+    assertThat(issueCount()).isEqualTo(before);
+  }
+
   /** 같은 주소가 다른 유형·방향으로 두 번이면 이슈를 만들기 전에 400, 같은 유형·방향이면 건너뛰고 만든다. */
   @Test
   void duplicateExternalLinkUrlWithDifferentTypeIs400() throws Exception {
