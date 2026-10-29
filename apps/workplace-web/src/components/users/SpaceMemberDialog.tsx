@@ -176,64 +176,71 @@ export function SpaceMemberDialog({
                 const open = expandedGroups.has(g.groupId)
                 return (
                   <div key={`g${g.groupId}`} data-testid={tid(`member-group-row-${g.groupId}`)}>
-                    <div className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-sm">
-                      <button
-                        type="button"
-                        aria-label={`${g.name} 구성원 ${open ? '접기' : '펼치기'}`}
-                        aria-expanded={open}
-                        onClick={() => toggleGroup(g.groupId)}
-                        className="-ml-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
-                        data-testid={tid(`member-group-toggle-${g.groupId}`)}
-                      >
-                        <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} aria-hidden="true" />
-                      </button>
-                      <span
-                        aria-hidden="true"
-                        className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
-                      >
-                        <Building2 className="size-3.5" />
-                      </span>
+                    {/* 바깥은 위 정렬, 토글·아이콘은 첫 줄 높이(h-8) 상자 안 가운데 — 역할·제거가 다음 줄로 내려가도 이름 첫 줄 옆에 선다(WP-1155). */}
+                    <div className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm">
+                      <div className="flex h-8 shrink-0 items-center gap-2">
+                        <button
+                          type="button"
+                          aria-label={`${g.name} 구성원 ${open ? '접기' : '펼치기'}`}
+                          aria-expanded={open}
+                          onClick={() => toggleGroup(g.groupId)}
+                          className="-ml-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                          data-testid={tid(`member-group-toggle-${g.groupId}`)}
+                        >
+                          <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} aria-hidden="true" />
+                        </button>
+                        <span
+                          aria-hidden="true"
+                          className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+                        >
+                          <Building2 className="size-3.5" />
+                        </span>
+                      </div>
                       {/* 이름은 자르지 않는다(WP-1096) — 휴대폰 행은 역할 select·제거가 폭을 먼저 차지해, 자르면 「경...」처럼 한 글자만 남아
-                          조직이 둘 이상일 때 어느 조직인지 알 수 없었다(마우스가 없어 툴팁도 못 본다). 이름 칸은 최소 9rem 을 갖고, 그만큼 안 남으면
-                          역할·제거가 다음 줄(오른쪽)로 내려간다. 그래도 긴 이름은 감고, 인원 수·「조직」 배지는 자리가 모자라면 다음 줄로. */}
-                      <span
-                        className="flex min-w-36 flex-1 flex-wrap items-center gap-x-1.5"
-                        data-testid={tid(`member-group-name-${g.groupId}`)}
-                      >
-                        <span className="min-w-0 break-keep [overflow-wrap:anywhere]">{g.name}</span>
-                        <span className="shrink-0 text-muted-foreground">· {g.memberCount}명</span>
-                        <span className="shrink-0 rounded border px-1 text-[11px] leading-4 text-muted-foreground">조직</span>
-                      </span>
-                      <div className="ml-auto flex shrink-0 items-center gap-2">
-                        {canManage ? (
-                          <select
-                            data-testid={tid(`member-group-role-select-${g.groupId}`)}
-                            aria-label={`${g.name} 역할`}
-                            value={g.role}
-                            onChange={(e) => departments.onChangeRole(g.groupId, e.target.value as SpaceGroupRole)}
-                            className="rounded border bg-background px-1 py-0.5 text-xs"
-                          >
-                            {SPACE_GROUP_ROLES.map((r) => (
-                              <option key={r} value={r}>
-                                {spaceRoleLabel(r)}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <Badge variant="secondary" data-testid={tid(`member-group-role-${g.groupId}`)}>
-                            {spaceRoleLabel(g.role)}
-                          </Badge>
-                        )}
-                        {canManage && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            data-testid={tid(`member-group-remove-${g.groupId}`)}
-                            onClick={() => setConfirmRemove({ kind: 'group', id: g.groupId, name: g.name })}
-                          >
-                            제거
-                          </Button>
-                        )}
+                          조직이 둘 이상일 때 어느 조직인지 알 수 없었다(마우스가 없어 툴팁도 못 본다). 이름 칸은 제 글자 폭(flex-auto)을 기준으로,
+                          한 줄에 다 들어가면 역할·제거와 한 줄에 두고, 안 들어갈 때만 역할·제거가 다음 줄(오른쪽)로 내려간다 — 최소 폭을 늘 잡으면
+                          「QA」처럼 짧은 이름도 두 줄이 됐다(WP-1155). 아이콘은 감기는 칸 밖에 두어 홀로 한 줄에 남지 않는다.
+                          그래도 긴 이름은 감고, 인원 수·「조직」 배지는 자리가 모자라면 다음 줄로. */}
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                        <span
+                          className="flex min-h-8 min-w-0 flex-auto flex-wrap items-center gap-x-1.5"
+                          data-testid={tid(`member-group-name-${g.groupId}`)}
+                        >
+                          <span className="min-w-0 break-keep [overflow-wrap:anywhere]">{g.name}</span>
+                          <span className="shrink-0 text-muted-foreground">· {g.memberCount}명</span>
+                          <span className="shrink-0 rounded border px-1 text-[11px] leading-4 text-muted-foreground">조직</span>
+                        </span>
+                        <div className="ml-auto flex shrink-0 items-center gap-2">
+                          {canManage ? (
+                            <select
+                              data-testid={tid(`member-group-role-select-${g.groupId}`)}
+                              aria-label={`${g.name} 역할`}
+                              value={g.role}
+                              onChange={(e) => departments.onChangeRole(g.groupId, e.target.value as SpaceGroupRole)}
+                              className="rounded border bg-background px-1 py-0.5 text-xs"
+                            >
+                              {SPACE_GROUP_ROLES.map((r) => (
+                                <option key={r} value={r}>
+                                  {spaceRoleLabel(r)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <Badge variant="secondary" data-testid={tid(`member-group-role-${g.groupId}`)}>
+                              {spaceRoleLabel(g.role)}
+                            </Badge>
+                          )}
+                          {canManage && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              data-testid={tid(`member-group-remove-${g.groupId}`)}
+                              onClick={() => setConfirmRemove({ kind: 'group', id: g.groupId, name: g.name })}
+                            >
+                              제거
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                     {open && <GroupMembers groupId={g.groupId} testId={tid(`member-group-members-${g.groupId}`)} />}
@@ -248,57 +255,63 @@ export function SpaceMemberDialog({
                 <div
                   key={m.userId}
                   data-testid={tid(`member-row-${m.userId}`)}
-                  className="flex flex-wrap items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                  className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm"
                 >
-                  <UserAvatar user={{ id: m.userId, username: '', name: m.name }} size="sm" />
-                  {/* 사람 이름도 조직 행처럼 자르지 않는다(WP-1096) — 휴대폰에서 역할 select·제거가 폭을 먼저 차지해 「Wo...」로 잘렸다. */}
-                  <span className="min-w-36 flex-1 break-keep [overflow-wrap:anywhere]" data-testid={tid(`member-name-${m.userId}`)}>
-                    {m.name}
-                    {m.userId === user?.id && <span className="ml-1 text-muted-foreground">(나)</span>}
-                    {/* 직접 역할보다 부서 역할이 높으면 실효 역할을 함께 보인다(WP-1102) — 보기 전용으로 낮춰도 부서로 계속 편집할 수 있다. */}
-                    {roleNote && (
-                      <span
-                        className="block text-xs text-muted-foreground"
-                        title="직접 역할과 조직(부서) 역할 중 높은 쪽이 적용돼요"
-                        data-testid={tid(`member-department-role-${m.userId}`)}
-                      >
-                        {roleNote}
-                      </span>
-                    )}
+                  {/* 아바타도 첫 줄 높이 상자 안 — 조직 행과 같은 이유(WP-1155). */}
+                  <span className="flex h-8 shrink-0 items-center">
+                    <UserAvatar user={{ id: m.userId, username: '', name: m.name }} size="sm" />
                   </span>
-                  <div className="ml-auto flex shrink-0 items-center gap-2">
-                    {canManage ? (
-                      <select
-                        data-testid={tid(`member-role-select-${m.userId}`)}
-                        aria-label={`${m.name} 역할`}
-                        value={m.role}
-                        disabled={locked}
-                        title={locked ? '내 행·생성자 행·마지막 소유자는 역할을 바꿀 수 없어요' : undefined}
-                        onChange={(e) => onChangeRole(m.userId, e.target.value as SpaceRole)}
-                        className="rounded border bg-background px-1 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {SPACE_ROLES.map((r) => (
-                          <option key={r} value={r}>
-                            {spaceRoleLabel(r)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <Badge variant="secondary" data-testid={tid(`member-role-${m.userId}`)}>
-                        {spaceRoleLabel(m.role)}
-                      </Badge>
-                    )}
-                    {canManage && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        data-testid={tid(`member-remove-${m.userId}`)}
-                        disabled={locked}
-                        onClick={() => setConfirmRemove({ kind: 'user', id: m.userId, name: m.name })}
-                      >
-                        제거
-                      </Button>
-                    )}
+                  {/* 사람 이름도 조직 행처럼 자르지 않는다(WP-1096) — 휴대폰에서 역할 select·제거가 폭을 먼저 차지해 「Wo...」로 잘렸다.
+                      한 줄에 다 들어가면 역할·제거와 한 줄, 아니면 역할·제거만 다음 줄로(WP-1155 — 조직 행과 같은 이유). */}
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <span className="min-w-0 flex-auto py-1.5 break-keep [overflow-wrap:anywhere]" data-testid={tid(`member-name-${m.userId}`)}>
+                      {m.name}
+                      {m.userId === user?.id && <span className="ml-1 text-muted-foreground">(나)</span>}
+                      {/* 직접 역할보다 부서 역할이 높으면 실효 역할을 함께 보인다(WP-1102) — 보기 전용으로 낮춰도 부서로 계속 편집할 수 있다. */}
+                      {roleNote && (
+                        <span
+                          className="block text-xs text-muted-foreground"
+                          title="직접 역할과 조직(부서) 역할 중 높은 쪽이 적용돼요"
+                          data-testid={tid(`member-department-role-${m.userId}`)}
+                        >
+                          {roleNote}
+                        </span>
+                      )}
+                    </span>
+                    <div className="ml-auto flex shrink-0 items-center gap-2">
+                      {canManage ? (
+                        <select
+                          data-testid={tid(`member-role-select-${m.userId}`)}
+                          aria-label={`${m.name} 역할`}
+                          value={m.role}
+                          disabled={locked}
+                          title={locked ? '내 행·생성자 행·마지막 소유자는 역할을 바꿀 수 없어요' : undefined}
+                          onChange={(e) => onChangeRole(m.userId, e.target.value as SpaceRole)}
+                          className="rounded border bg-background px-1 py-0.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {SPACE_ROLES.map((r) => (
+                            <option key={r} value={r}>
+                              {spaceRoleLabel(r)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Badge variant="secondary" data-testid={tid(`member-role-${m.userId}`)}>
+                          {spaceRoleLabel(m.role)}
+                        </Badge>
+                      )}
+                      {canManage && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          data-testid={tid(`member-remove-${m.userId}`)}
+                          disabled={locked}
+                          onClick={() => setConfirmRemove({ kind: 'user', id: m.userId, name: m.name })}
+                        >
+                          제거
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
