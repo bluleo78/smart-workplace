@@ -10,10 +10,16 @@
 //
 // 방법: `unshare -rn` 으로 사용자+네트워크 네임스페이스를 만들어(권한 없이 가능) lo 를 올린 뒤,
 // 한 번 더 사용자 네임스페이스를 겹쳐 원래 uid·gid 로 돌아가 명령을 실행한다(안에서 root 로 보이지 않게).
-// 리눅스가 아니거나 권한 없는 네임스페이스를 못 만들면 알리고 그대로 실행한다. E2E_NETNS=0 이면 끈다.
+// 리눅스가 아니면 그대로, 격리를 못 쓰면(권한 없는 네임스페이스 막힘·ip 없음·util-linux 2.36 미만 등) 막은 이유를 알리고 그대로 실행한다.
+// 브라우저 창·UI 모드(INTERACTIVE_FLAGS·PWDEBUG)도 격리하지 않는다. E2E_NETNS=0 이면 끈다.
 import { spawn, spawnSync } from 'node:child_process'
 import { constants } from 'node:os'
 import { fileURLToPath } from 'node:url'
+
+/** 격리 없이 돌 때 알림에 붙이는 위험 */
+const RISK = '— docker 네트워크 변화 때 ERR_NETWORK_CHANGED 로 깨질 수 있다'
+/** 가능 여부 확인이 멈추면(커널 모듈 적재 등) E2E 전체가 서지 않게 두는 시간 */
+const PROBE_TIMEOUT_MS = 10_000
 
 /**
  * 네임스페이스 안에서 lo 를 올리고 원래 uid·gid 로 돌아가 명령을 실행하는 셸 스크립트.
@@ -28,7 +34,13 @@ const INNER =
   ' && u=$1 g=$2 && shift 2 && exec unshare -U --map-user="$u" --map-group="$g" -- "$@"'
 
 /** 브라우저 창·UI 모드는 디스플레이·D-Bus 의 추상 소켓이 네트워크 네임스페이스에 묶여 격리하면 못 붙는다 */
-const INTERACTIVE_FLAGS = ['--headed', '--ui', '--debug']
+const INTERACTIVE_FLAGS = ['--headed', '--ui', '--debug', '--ui-port', '--ui-host']
+
+/** 창·UI 모드인지 — 값을 붙인 인자(`--ui-port=8080`)와, Playwright 처럼 0·false 가 아닌 PWDEBUG(인스펙터 창)도 본다(WP-1121) */
+function isInteractive(cmd, env) {
+  if (env.PWDEBUG && env.PWDEBUG !== '0' && env.PWDEBUG !== 'false') return true
+  return cmd.some((a) => INTERACTIVE_FLAGS.some((f) => a === f || a.startsWith(`${f}=`)))
+}
 
 /** 격리한 명령 — plan 과 가능 여부 확인이 같은 두 단계 명령을 쓴다(확인이 실제 실행과 어긋나지 않게) */
 function isolated(uid, gid, cmd) {
@@ -37,22 +49,18 @@ function isolated(uid, gid, cmd) {
 
 /**
  * 실행할 명령을 고른다 — 격리할 수 있으면 unshare 로 감싸고, 아니면 그대로(이유와 함께).
- * 순수 함수라 환경·권한 판정을 인자로 받는다. canIsolate 는 격리할 차례에만 부른다(확인에 프로세스를 띄우므로).
+ * 순수 함수라 환경·권한 판정(canIsolate — probe 와 같은 모양)을 인자로 받는다. canIsolate 는 격리할 차례에만 부른다(확인에 프로세스를 띄우므로).
  */
 export function plan({ platform, env, canIsolate, uid, gid, cmd }) {
   const direct = { file: cmd[0], args: cmd.slice(1) }
   if (env.E2E_NETNS_ACTIVE === '1') return direct // 이미 격리된 안에서 다시 부름
   if (env.E2E_NETNS === '0') return { ...direct, notice: 'E2E_NETNS=0 — 네트워크 격리 없이 실행' }
   if (platform !== 'linux') return direct
-  if (cmd.some((a) => INTERACTIVE_FLAGS.includes(a))) {
-    return { ...direct, notice: '브라우저 창·UI 모드는 네트워크 격리 없이 실행 — docker 네트워크 변화 때 ERR_NETWORK_CHANGED 로 깨질 수 있다' }
+  if (isInteractive(cmd, env)) {
+    return { ...direct, notice: `브라우저 창·UI 모드는 네트워크 격리 없이 실행 ${RISK}` }
   }
-  if (!canIsolate()) {
-    return {
-      ...direct,
-      notice: '네트워크 네임스페이스 격리(unshare·ip)를 쓸 수 없어 격리 없이 실행 — docker 네트워크 변화 때 ERR_NETWORK_CHANGED 로 깨질 수 있다',
-    }
-  }
+  const { ok, reason } = canIsolate()
+  if (!ok) return { ...direct, notice: `네트워크 네임스페이스 격리(unshare·ip)를 쓸 수 없어 격리 없이 실행(${reason}) ${RISK}` }
   return {
     file: 'unshare',
     args: isolated(uid, gid, cmd),
@@ -61,9 +69,35 @@ export function plan({ platform, env, canIsolate, uid, gid, cmd }) {
   }
 }
 
-/** 실제 실행과 같은 두 단계(네트워크+사용자 네임스페이스, 원래 uid 로 겹치기)를 true 로 해 본다 */
-function probe(uid, gid) {
-  return spawnSync('unshare', isolated(uid, gid, ['true']), { stdio: 'ignore' }).status === 0
+/**
+ * 실제 실행과 같은 두 단계(네트워크+사용자 네임스페이스, 원래 uid 로 겹치기)를 true 로 해 본다 — `{ ok, reason }`.
+ * 못 쓰면 무엇이 막았는지(unshare·ip·dummy 장치·`--map-user`·AppArmor 중) 알 수 있게 오류 출력 마지막 줄을 reason 으로 돌려준다(WP-1121).
+ */
+export function probe(uid, gid) {
+  // 메시지를 영어로 받아야 reasonFrom 의 줄 거르기·--map-user 판별이 맞는다.
+  const r = spawnSync('unshare', isolated(uid, gid, ['true']), {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    encoding: 'utf8',
+    env: { ...process.env, LC_ALL: 'C' },
+    timeout: PROBE_TIMEOUT_MS,
+  })
+  return r.status === 0 ? { ok: true } : { ok: false, reason: reasonFrom(r) }
+}
+
+/**
+ * 실패한 확인(spawnSync 결과)에서 막은 이유 한 줄을 뽑는다 — 실행 실패면 그 오류, 아니면 오류 출력 마지막 줄.
+ * unshare 가 덧붙이는 「Try 'unshare --help'…」 안내는 뺀다.
+ */
+export function reasonFrom({ error, status, stderr }) {
+  if (error) return { ENOENT: 'unshare 가 없다', ETIMEDOUT: `확인이 ${PROBE_TIMEOUT_MS / 1000}초 안에 끝나지 않았다` }[error.code] ?? error.message
+  const last =
+    stderr
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('Try '))
+      .at(-1) || `종료 코드 ${status}`
+  // util-linux 2.35 이하(Ubuntu 20.04 등)의 unshare 는 원래 uid 로 겹치는 --map-user 를 모른다.
+  return /map-(user|group)/.test(last) ? `${last} — util-linux 2.36 이상 필요` : last
 }
 
 function main() {
