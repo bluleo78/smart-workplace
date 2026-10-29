@@ -1,6 +1,7 @@
 import { CircleCheck, MessagesSquare, Pin, Sparkles, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { catchupBasisLabel } from '@/lib/catchupBasis'
 import type { ChannelCatchupResponse } from '@/types/messaging'
 
 // 내차례 표시 상한 — 1:1 DM 등에서 폭주 방지. 초과분은 "+N건 더"로 고지.
@@ -160,7 +161,7 @@ export function ChannelCatchupCard({
       {/* 푸터: AI 요약 근거 표기 + 확인 버튼(shadcn Button, 토큰 사용) */}
       {data && !isLoading && !isError && (
         <div className="flex items-center justify-between border-t border-ai-accent/20 bg-background/60 px-3.5 py-2.5">
-          <span className="text-[11px] text-muted-foreground">AI 요약 · 근거 {data.unreadCount}건 기준</span>
+          <span className="text-[11px] text-muted-foreground">AI 요약 · {catchupBasisLabel(data)}</span>
           <Button
             size="sm"
             onClick={onConfirm}

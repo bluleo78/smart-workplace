@@ -154,6 +154,80 @@ class ChannelCatchupServiceTest extends ExternalClientMockedTestBase {
     // 내 차례엔 m2 만(m1 제외).
     assertThat(res.yourTurn()).extracting("messageId").containsExactly(m2);
     assertThat(res.unreadCount()).isEqualTo(2);
+    assertThat(res.summarizedCount()).isEqualTo(2);
+  }
+
+  /**
+   * userB 가 count 건을 한 번에 저장한다(서비스 부수 효과 없이, 한 문장) — 마지막 mentionLast 건은 callerA 를 멘션. 저장한
+   * id(오래된→최신).
+   */
+  private List<Long> bulkByB(long channelId, int count, int mentionLast) {
+    var insert =
+        dsl.insertInto(
+            MESSAGE, MESSAGE.CHANNEL_ID, MESSAGE.AUTHOR_ID, MESSAGE.BODY, MESSAGE.MENTIONS);
+    for (int i = 0; i < count; i++) {
+      boolean mention = i >= count - mentionLast;
+      insert =
+          insert.values(
+              channelId, userB, "메시지 " + i, JSONB.valueOf(mention ? "[" + callerA + "]" : "[]"));
+    }
+    return insert.returning(MESSAGE.ID).fetch(MESSAGE.ID).stream().sorted().toList();
+  }
+
+  /**
+   * 미읽음이 요약 상한(200)을 넘으면 가장 최근 200건을 요약하고, 안 읽은 수는 실제 수, 맨 끝의 멘션은 내 차례에 나온다(WP-1183 — 오래된 200건만 보고
+   * 최근 멘션이 빠졌다).
+   */
+  @Test
+  void 상한을_넘는_미읽음은_최근_것을_요약하고_수와_최근_멘션을_잃지_않는다() {
+    long channelId = seedChannelWithMembers();
+    List<Long> ids = bulkByB(channelId, 210, 2);
+    long since = ids.getFirst() - 1;
+    ArgumentCaptor<CatchupSummarizeRequest> req =
+        ArgumentCaptor.forClass(CatchupSummarizeRequest.class);
+    when(catchupClient.summarize(req.capture()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    var res = service.summarize(callerA, channelId, since);
+
+    assertThat(res.unreadCount()).isEqualTo(210);
+    assertThat(res.summarizedCount()).isEqualTo(200);
+    assertThat(res.yourTurn()).extracting("messageId").containsExactly(ids.get(208), ids.get(209));
+    // 요약 입력은 가장 최근 200건(오래된→최신) — 처음 10건이 빠진다.
+    assertThat(req.getValue().messages())
+        .extracting("id")
+        .containsExactlyElementsOf(ids.subList(10, 210));
+  }
+
+  /** 요약 상한 밖(오래된 쪽)의 멘션도 내 차례에 나온다 — 요약 창 안의 멘션과 함께, 오래된→최신 순. */
+  @Test
+  void 요약_상한_밖의_오래된_멘션도_내차례에_나온다() {
+    long channelId = seedChannelWithMembers();
+    long old = postByB(channelId, "@A 오래전 부탁", callerA);
+    List<Long> ids = bulkByB(channelId, 205, 1);
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    var res = service.summarize(callerA, channelId, old - 1);
+
+    assertThat(res.unreadCount()).isEqualTo(206);
+    assertThat(res.yourTurn()).extracting("messageId").containsExactly(old, ids.getLast());
+  }
+
+  /** 요약 창 안에 멘션이 멘션 상한(50)보다 많아도, 창보다 오래된 멘션은 내 차례에 나온다 — 창 안 멘션이 상한을 다 쓰지 않는다. */
+  @Test
+  void 요약_창_안_멘션이_많아도_창_밖_오래된_멘션이_빠지지_않는다() {
+    long channelId = seedChannelWithMembers();
+    long old = postByB(channelId, "@A 오래전 부탁", callerA);
+    List<Long> ids = bulkByB(channelId, 205, 60);
+    when(catchupClient.summarize(any()))
+        .thenReturn(new CatchupSummarizeResult(List.of(), List.of()));
+
+    var res = service.summarize(callerA, channelId, old - 1);
+
+    assertThat(res.yourTurn()).hasSize(61);
+    assertThat(res.yourTurn().getFirst().messageId()).isEqualTo(old);
+    assertThat(res.yourTurn().getLast().messageId()).isEqualTo(ids.getLast());
   }
 
   @Test
