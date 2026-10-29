@@ -3,17 +3,19 @@ import { wikiSchemaExtensions } from '@smart-workplace/wiki-editor-schema'
 import { Editor } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
 import { TextSelection } from '@tiptap/pm/state'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 
 import type { AppLinkCard } from '@/api/appLinks'
 
-import { appLinkChipTargets, chipSource, collectAppLinkRanges, MAX_WIKI_APP_LINK_CHIPS, refreshAppLinkChips, WikiAppLinkChips } from './wikiAppLinkChips'
+import { appLinkChipsKey, appLinkChipTargets, chipSource, collectAppLinkRanges, MAX_WIKI_APP_LINK_CHIPS, refreshAppLinkChips, WikiAppLinkChips } from './wikiAppLinkChips'
 
 // 노트 본문 앱 링크 칩(WP-1147) — 어느 글자가 칩이 되는지, 받은 카드로만 칩을 그리고 원래 글자를 숨기는지, 편집 중 커서가 닿으면
 // 원래 글자를 드러내는지, 칩이 공유 문서(Yjs)에 들어가지 않는지 브라우저 없이 본다.
 
 const HOST = 'app.example.com'
+// 앱의 currentAppHosts 처럼 바뀌지 않으면 같은 배열 — 새 배열이면 플러그인이 호스트가 바뀐 것으로 보고 매번 다시 모은다.
+const HOSTS = [HOST]
 const ISSUE = `https://${HOST}/projects/WP/issues/12`
 const PAGE = `https://${HOST}/wiki/spaces/3/pages/45`
 
@@ -26,7 +28,7 @@ function makeEditor(content: string, opts: { editable?: boolean; doc?: Y.Doc; ho
     extensions: [
       ...wikiSchemaExtensions(),
       ...(opts.doc ? [Collaboration.configure({ document: opts.doc, field: 'default' })] : []),
-      WikiAppLinkChips.configure({ appHosts: opts.hosts ?? (() => [HOST]) }),
+      WikiAppLinkChips.configure({ appHosts: opts.hosts ?? (() => HOSTS) }),
     ],
     content: opts.doc ? undefined : content,
     editable: opts.editable ?? false,
@@ -176,6 +178,55 @@ describe('WikiAppLinkChips — 칩 그리기', () => {
     expect(bare.anchor).toBeNull()
     expect(linked.pos).toBe(ranges[1].from)
     expect(linked.anchor?.getAttribute('href')).toBe(PAGE)
+  })
+
+  it('이슈 상태 점은 상태 배지와 같은 공용 색이다 — 완료는 success, 할 일은 테두리만', () => {
+    const { editor } = makeEditor(`<p>${ISSUE} ${ISSUE.replace('12', '13')}</p>`)
+    receive(editor, {
+      '/projects/WP/issues/12': { ...ISSUE_CARD, statusCategory: 'DONE' },
+      '/projects/WP/issues/13': { ...ISSUE_CARD, issueKey: 'WP-13', statusCategory: 'TODO' },
+    })
+    const [done, todo] = chips(editor).map((c) => c.querySelector('.rounded-full')!.className)
+    expect(done).toContain('bg-success')
+    expect(todo).toContain('border-muted-foreground')
+    expect(todo).not.toContain('bg-')
+  })
+
+  it('선택만 바뀌면 커서가 칩 경계를 넘을 때만 칩을 다시 만든다(WP-1185)', () => {
+    const { editor } = makeEditor(`<p>앞쪽 글자 ${ISSUE} 뒤</p>`, { editable: true })
+    receive(editor, { '/projects/WP/issues/12': ISSUE_CARD })
+    const decos = () => appLinkChipsKey.getState(editor.state)!.decos
+    const select = (pos: number) => editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos)))
+    const [range] = collectAppLinkRanges(editor.state.doc, [HOST])
+
+    select(1)
+    const before = decos()
+    select(3)
+    // 링크 밖에서 움직였으니 같은 장식 그대로다.
+    expect(decos()).toBe(before)
+    expect(chips(editor)).toHaveLength(1)
+
+    // 링크에 닿으면 다시 만들어 원래 글자를 드러낸다 — 링크 안에서 움직이는 동안은 그대로다.
+    select(range.from + 2)
+    const inside = decos()
+    expect(inside).not.toBe(before)
+    expect(chips(editor)).toHaveLength(0)
+    select(range.from + 5)
+    expect(decos()).toBe(inside)
+  })
+
+  it('한글 조합이 끝나면 조합 중 미룬 칩을 다시 고른다 — 조합 뒤 문서가 더 바뀌지 않아도 칩이 생긴다(WP-1185)', async () => {
+    const { editor } = makeEditor('<p>앞</p>', { editable: true })
+    receive(editor, { '/projects/WP/issues/12': ISSUE_CARD })
+    const input = (editor.view as unknown as { input: { composing: boolean } }).input
+    input.composing = true
+    editor.view.dispatch(editor.state.tr.insertText(` ${ISSUE} 끝`, 2))
+    // 조합 중에는 칩을 다시 고르지 않는다(조합 중인 글자 옆 DOM 을 바꾸지 않게).
+    expect(chips(editor)).toHaveLength(0)
+
+    editor.view.dom.dispatchEvent(new Event('compositionend', { bubbles: true }))
+    await vi.waitFor(() => expect(chips(editor)).toHaveLength(1))
+    expect(editor.view.composing).toBe(false)
   })
 
   it('칩은 공유 문서(Yjs)에 들어가지 않는다', () => {
