@@ -237,6 +237,8 @@ export interface CatchupMention {
 
 export interface ChannelCatchupResponse {
   unreadCount: number
+  /** 요약에 넣은 수 — 미읽음이 상한(200)을 넘으면 가장 최근 것만 넣어 unreadCount 보다 작다(WP-1183). 예전 서버는 주지 않는다. */
+  summarizedCount?: number
   decisions: CatchupGroup[]
   yourTurn: CatchupMention[]
   discussion: CatchupGroup[]

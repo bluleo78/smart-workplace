@@ -16,10 +16,12 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import org.jooq.Condition;
 import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.JSONB;
 import org.jooq.Record;
+import org.jooq.Record5;
 import org.jooq.SelectConditionStep;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
@@ -331,23 +333,73 @@ public class MessageRepository {
   // 어텐션 신호 조회 3종 (#476)
   // ──────────────────────────────────────────────────────────────────────────
 
-  /** 분류 입력용 — 채널의 watermark(uptoExclusiveReadId) 이후·미삭제 채널 본문 메시지 N건(오래된→최신). */
+  /**
+   * 분류 입력용 — 채널의 watermark(uptoExclusiveReadId) 이후·미삭제 채널 본문 메시지 중 오래된 쪽부터 N건(오래된→최신). 배치로
+   * watermark 를 앞으로 옮겨 가며 차례로 다 보는 쪽이 쓴다 — 한 번에 최근 것을 봐야 하면 listLatestUnreadForChannel.
+   */
   public List<RecentUnread> listRecentUnreadForChannel(
       long channelId, long uptoExclusiveReadId, int limit) {
+    return unreadSelect(channelId, uptoExclusiveReadId)
+        .orderBy(MESSAGE.ID.asc())
+        .limit(limit)
+        .fetch(this::toRecentUnread);
+  }
+
+  /**
+   * 캐치업 요약 입력 — since 이후·미삭제 채널 본문 메시지 중 가장 최근 limit 건(오래된→최신). 상한을 넘으면 오래된 쪽을 버린다: 위
+   * listRecentUnreadForChannel(오래된 쪽부터 — 배치 처리용)로 자르면 최근 대화·멘션이 빠졌다(WP-1183).
+   */
+  public List<RecentUnread> listLatestUnreadForChannel(long channelId, long since, int limit) {
+    return latest(unreadSelect(channelId, since), limit);
+  }
+
+  /** since 이후·미삭제 채널 본문 메시지 수 — 캐치업 「안 읽은 N건」(요약 상한과 무관한 실제 수, WP-1183). */
+  public int countUnreadForChannel(long channelId, long since) {
+    return dsl.fetchCount(MESSAGE, unreadCondition(channelId, since));
+  }
+
+  /**
+   * since 초과·beforeId 미만의 미삭제 채널 본문 메시지 중 userId 를 멘션한 가장 최근 limit 건(오래된→최신) — 캐치업 「내 차례」를 요약 상한
+   * 밖(요약 창보다 오래된) 미읽음에서도 찾는다(WP-1183). 창 안의 멘션이 상한을 다 쓰지 않게 beforeId 로 자른다.
+   */
+  public List<RecentUnread> listUnreadMentioningBefore(
+      long channelId, long since, long beforeId, long userId, int limit) {
+    JSONB needle = JSONB.valueOf("[" + userId + "]");
+    return latest(
+        unreadSelect(channelId, since)
+            .and(MESSAGE.ID.lt(beforeId))
+            .and(DSL.condition("{0} @> {1}", MESSAGE.MENTIONS, DSL.val(needle))),
+        limit);
+  }
+
+  /** 캐치업이 「안 읽음」으로 보는 메시지 — since 이후·미삭제 채널 본문(스레드 답글 제외). 목록·수가 같은 기준을 쓴다. */
+  private Condition unreadCondition(long channelId, long since) {
+    return MESSAGE
+        .CHANNEL_ID
+        .eq(channelId)
+        .and(MESSAGE.DELETED_AT.isNull())
+        .and(MESSAGE.PARENT_MESSAGE_ID.isNull())
+        .and(MESSAGE.ID.gt(since));
+  }
+
+  /** 캐치업 미읽음 조회의 공통 부분 — 작성자 이름을 붙인 unreadCondition 메시지. */
+  private SelectConditionStep<Record5<Long, Long, String, String, JSONB>> unreadSelect(
+      long channelId, long since) {
     return dsl.select(MESSAGE.ID, MESSAGE.AUTHOR_ID, USER.NAME, MESSAGE.BODY, MESSAGE.MENTIONS)
         .from(MESSAGE)
         .join(USER)
         .on(USER.ID.eq(MESSAGE.AUTHOR_ID))
-        .where(MESSAGE.CHANNEL_ID.eq(channelId))
-        .and(MESSAGE.DELETED_AT.isNull())
-        .and(MESSAGE.PARENT_MESSAGE_ID.isNull()) // 스레드 답글 제외 — 채널 본문만 분류
-        .and(MESSAGE.ID.gt(uptoExclusiveReadId))
-        .orderBy(MESSAGE.ID.asc())
-        .limit(limit)
-        .fetch(
-            r ->
-                new RecentUnread(
-                    r.value1(), r.value2(), r.value3(), r.value4(), fromJson(r.value5())));
+        .where(unreadCondition(channelId, since));
+  }
+
+  /** 조회 중 가장 최근 limit 건을 오래된→최신 순으로 돌려준다. */
+  private List<RecentUnread> latest(
+      SelectConditionStep<Record5<Long, Long, String, String, JSONB>> select, int limit) {
+    return select.orderBy(MESSAGE.ID.desc()).limit(limit).fetch(this::toRecentUnread).reversed();
+  }
+
+  private RecentUnread toRecentUnread(Record5<Long, Long, String, String, JSONB> r) {
+    return new RecentUnread(r.value1(), r.value2(), r.value3(), r.value4(), fromJson(r.value5()));
   }
 
   /** 채널에 실제로 있는 가장 큰 메시지 id(삭제·답글 포함). 메시지 없으면 0 — 읽음 위치 상한용(WP-514). */

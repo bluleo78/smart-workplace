@@ -167,6 +167,15 @@ describe('채널 캐치업 — 채널만의 판정', () => {
     expect(screen.getByText('미읽음 6')).toBeInTheDocument()
   })
 
+  // 미읽음이 요약 상한을 넘으면(WP-1183) 헤더는 실제 미읽음 수, 푸터는 최근 몇 건으로 요약했는지 밝힌다.
+  test('요약 상한을 넘은 미읽음이면 헤더는 실제 수, 푸터는 「근거 최근 N건 기준」', async () => {
+    openConv('channel', detail(), readPlusUnread(CHANNEL_ID, 6), [
+      catchupHandler(CHANNEL_ID, { ...SAMPLE_CATCHUP, unreadCount: 210, summarizedCount: 200 }),
+    ])
+    expect(await screen.findByText('· 안 읽은 210건')).toBeInTheDocument()
+    expect(screen.getByText('AI 요약 · 근거 최근 200건 기준')).toBeInTheDocument()
+  })
+
   // 내 차례는 3건까지만 — 넘치면 「+N건 더」.
   test('내 차례가 3건을 넘으면 3건만 보이고 「+1건 더」', async () => {
     const yourTurn = Array.from({ length: 4 }, (_, i) => ({ messageId: 101 + i, authorName: `사람${i + 1}`, snippet: `요청 ${i + 1}` }))

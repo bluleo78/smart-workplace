@@ -19,6 +19,7 @@ import com.workplace.messaging.repository.MessageRepository.RecentUnread;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -31,8 +32,11 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 public class ChannelCatchupService {
-  /** 요약 입력 미읽음 상한(비용·프롬프트 길이). */
+  /** 요약 입력 미읽음 상한(비용·프롬프트 길이) — 넘으면 가장 최근 것만 요약한다(WP-1183). */
   private static final int CATCHUP_LIMIT = 200;
+
+  /** 요약 창보다 오래된 미읽음에서 찾는 「내 차례」 멘션 상한 — 가장 최근 것부터. 카드 목록이라 이보다 많으면 다 보이기 어렵다. */
+  private static final int MENTION_LIMIT = 50;
 
   private static final int SNIPPET_MAX = 140;
 
@@ -88,7 +92,7 @@ public class ChannelCatchupService {
   public ChannelCatchupResponse summarize(long callerId, long channelId, long since) {
     Snapshot snap = readTx.execute(s -> snapshot(callerId, channelId, since));
     if (snap.unread().isEmpty()) {
-      return new ChannelCatchupResponse(0, List.of(), List.of(), List.of());
+      return new ChannelCatchupResponse(0, 0, List.of(), List.of(), List.of());
     }
     // WP-381: 요약에 싣는 요청자 메모리(공통 + 메신저). 캐시는 (메모리 지문, channelId, since, maxId) — 메모리가 같은 사람끼리만 요약을
     // 함께 쓴다. WP-383: 질의 없음(고정 + 최신) — 스펙 3.5.
@@ -104,7 +108,7 @@ public class ChannelCatchupService {
       // 비서가 없으면 AI 요약만 생략하고 "내 차례" 는 그대로 준다.
       if (spec == null) {
         return new ChannelCatchupResponse(
-            snap.unread().size(), List.of(), snap.yourTurn(), List.of());
+            snap.unreadCount(), snap.unread().size(), List.of(), snap.yourTurn(), List.of());
       }
       var req =
           new CatchupSummarizeRequest(
@@ -125,13 +129,17 @@ public class ChannelCatchupService {
     // 근거 정직성: AI 가 돌려준 id 중 입력 미읽음 집합에 있는 것만 유지.
     Set<Long> validIds = snap.unread().stream().map(RecentUnread::id).collect(Collectors.toSet());
     return new ChannelCatchupResponse(
+        snap.unreadCount(),
         snap.unread().size(),
         toGroups(ai.decisions(), validIds),
         snap.yourTurn(),
         toGroups(ai.discussion(), validIds));
   }
 
-  /** 읽기 트랜잭션 안 — 멤버십 게이트, 미읽음, 내 차례. 미읽음이 없으면 내 차례는 비운다. */
+  /**
+   * 읽기 트랜잭션 안 — 멤버십 게이트, 미읽음, 내 차례. 미읽음이 없으면 내 차례는 비운다. 요약 입력은 가장 최근 CATCHUP_LIMIT 건이고, 안 읽은 수와 멘션은
+   * 상한과 무관하게 전체 미읽음에서 센다 — 상한에서 잘린 쪽의 멘션·수가 사라지지 않게(WP-1183).
+   */
   private Snapshot snapshot(long callerId, long channelId, long since) {
     // 멤버십 게이트(RLS 2차 방어). 비멤버 403.
     if (!memberRepo.isMember(channelId, callerId)) {
@@ -140,27 +148,44 @@ public class ChannelCatchupService {
 
     long maxId = messageRepo.maxMessageId(channelId);
     List<RecentUnread> unread =
-        messageRepo.listRecentUnreadForChannel(channelId, since, CATCHUP_LIMIT);
+        messageRepo.listLatestUnreadForChannel(channelId, since, CATCHUP_LIMIT);
     if (unread.isEmpty()) {
-      return new Snapshot(maxId, unread, List.of());
+      return new Snapshot(maxId, 0, unread, List.of());
     }
+    // 상한에 걸리지 않았으면 받은 것이 전부다 — 세는 쿼리를 아낀다.
+    int unreadCount =
+        unread.size() < CATCHUP_LIMIT
+            ? unread.size()
+            : messageRepo.countUnreadForChannel(channelId, since);
 
     // 멤버 수 — 2인 대화(1:1 DM/2인 채널)는 상대 발화 전부가 내 차례.
     int memberCount = memberRepo.countMembers(channelId);
     // 📌 내 차례 = 나를 멘션한 미읽음 OR (2인 대화에서 상대가 보낸 미읽음). 결정론적 규칙, AI 무관.
+    // 2인 대화의 상대 발화는 요약 입력(최근 것)에서, 멘션은 상한에 잘렸으면 요약 창보다 오래된 미읽음에서도 찾는다.
+    List<RecentUnread> olderMentions =
+        unreadCount > unread.size()
+            ? messageRepo.listUnreadMentioningBefore(
+                channelId, since, unread.getFirst().id(), callerId, MENTION_LIMIT)
+            : List.of();
     List<MentionItem> yourTurn =
-        unread.stream()
-            .filter(
-                m ->
-                    (m.mentions() != null && m.mentions().contains(callerId))
-                        || (memberCount == 2 && m.authorId() != callerId))
+        Stream.concat(
+                olderMentions.stream(),
+                unread.stream()
+                    .filter(
+                        m ->
+                            (m.mentions() != null && m.mentions().contains(callerId))
+                                || (memberCount == 2 && m.authorId() != callerId)))
             .map(m -> new MentionItem(m.id(), m.authorName(), snippet(m.body())))
             .toList();
-    return new Snapshot(maxId, unread, yourTurn);
+    return new Snapshot(maxId, unreadCount, unread, yourTurn);
   }
 
-  /** 읽기 트랜잭션 안 조회 결과 — 트랜잭션 밖 메모리 읽기·캐시 확인·AI 요약으로 넘긴다. */
-  private record Snapshot(long maxId, List<RecentUnread> unread, List<MentionItem> yourTurn) {}
+  /**
+   * 읽기 트랜잭션 안 조회 결과 — 트랜잭션 밖 메모리 읽기·캐시 확인·AI 요약으로 넘긴다. unreadCount 는 전체 미읽음 수, unread 는 요약 입력(가장 최근
+   * CATCHUP_LIMIT 건).
+   */
+  private record Snapshot(
+      long maxId, int unreadCount, List<RecentUnread> unread, List<MentionItem> yourTurn) {}
 
   private static List<SummaryGroup> toGroups(
       List<CatchupSummarizeResult.Group> groups, Set<Long> validIds) {
