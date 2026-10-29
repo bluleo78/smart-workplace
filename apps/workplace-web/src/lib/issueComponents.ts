@@ -1,11 +1,29 @@
 // 구성요소(WP-933) 화면 판정 — 보이는 조건·자동 지정 안내·피커 선택지(순수 함수, 단위 테스트로 고정).
 // 왜: 구성요소를 쓰지 않는 프로젝트에선 이슈 상세·만들기·필터·열 고르기가 지금과 똑같아야 한다(스펙 6절 「보이는 조건」).
 
-import type { ComponentResponse, UpdateComponentRequest } from '../types/component'
+import type { AssigneeInvalidReason, ComponentResponse, UpdateComponentRequest } from '../types/component'
 
 /** 사용 중(보관 안 됨) 구성요소가 하나라도 있는가 — 만들기 칸·필터 facet·열 고르기 노출 기준. */
 export function hasActiveComponents(list: ComponentResponse[]): boolean {
   return list.some((c) => !c.archived)
+}
+
+/**
+ * 무효 담당자의 이유 문구(WP-1123) — 설정 목록 경고(warning)와 편집 창 선택지 꼬리표(tag).
+ * 예전엔 이유와 상관없이 「구성원 아님」 하나라, 구성원으로 남은 채 계정만 정지된 담당자도 「구성원이 아니에요」로 보여 관리자가 고칠 곳을 잘못 찾았다.
+ * 이유를 모르면(이 필드가 없는 예전 서버) 두 이유를 아우르는 문구로 둔다.
+ */
+export function assigneeInvalidText(reason: AssigneeInvalidReason | null | undefined): { warning: string; tag: string } {
+  switch (reason) {
+    case 'INACTIVE':
+      return { warning: '계정이 정지됐어요 — 자동 지정을 건너뛰어요', tag: '계정 정지' }
+    case 'NOT_MEMBER':
+      return { warning: '프로젝트 구성원이 아니에요 — 자동 지정을 건너뛰어요', tag: '구성원 아님' }
+    case 'NOT_HUMAN':
+      return { warning: 'AI 는 자동 지정할 수 없어요 — 자동 지정을 건너뛰어요', tag: 'AI' }
+    default:
+      return { warning: '자동 지정에 쓸 수 없는 담당자예요 — 자동 지정을 건너뛰어요', tag: '쓸 수 없음' }
+  }
 }
 
 /**

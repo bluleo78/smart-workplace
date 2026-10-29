@@ -1,7 +1,7 @@
 // 구성요소 추가·편집 대화창(WP-933) — 이름·설명·담당자. 서버가 거절하면(이름 중복·담당자 무효 등) 문구를 창 안에 보이고 닫지 않는다
 // (라벨 편집 창과 같은 방식이라 호출부 훅은 실패 토스트를 띄우지 않는다).
 // 담당자는 이 프로젝트의 활성 사람 구성원만 고를 수 있다(AI 는 담당자로 들어가는 순간 작업이 시작돼 제외). 저장된 담당자가 무효가 됐으면
-// 선택지에 「(구성원 아님)」으로 남겨, 창을 열고 다른 것만 고쳐도 담당자가 몰래 바뀌지 않게 한다.
+// 선택지에 「(구성원 아님)」·「(계정 정지)」처럼 쓸 수 없는 이유와 함께 남겨, 창을 열고 다른 것만 고쳐도 담당자가 몰래 바뀌지 않게 한다.
 
 import { useState } from 'react';
 
@@ -15,7 +15,7 @@ import { extractApiError } from '@/lib/api-error';
 
 import { useProjectMembers } from '../../../hooks/queries/useProjectMembers';
 import { assigneeCandidates } from '../../../lib/assigneeCandidates';
-import type { ComponentDraft } from '../../../lib/issueComponents';
+import { assigneeInvalidText, type ComponentDraft } from '../../../lib/issueComponents';
 import { COMPONENT_DESCRIPTION_MAX, COMPONENT_NAME_MAX, type ComponentResponse } from '../../../types/component';
 
 /** 담당자 「없음」 선택값 — Radix Select 는 빈 문자열 값을 쓸 수 없어 토큰을 둔다. */
@@ -62,7 +62,7 @@ function EditForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // 담당자 선택지 — 활성 사람 구성원. 저장된 담당자가 무효이면(구성원에서 빠짐·비활성) 「(구성원 아님)」으로 남긴다.
+  // 담당자 선택지 — 활성 사람 구성원. 저장된 담당자가 무효이면(구성원에서 빠짐·비활성) 이유 꼬리표(「(구성원 아님)」 등, WP-1123)를 달아 남긴다.
   // 판단은 서버 플래그(defaultAssigneeValid)로 한다 — 구성원 목록을 아직 불러오는 동안 유효한 담당자가 잠깐 「구성원 아님」으로 비치지 않게.
   const candidates = assigneeCandidates(members.data?.filter((m) => m.kind === 'HUMAN'));
   const stale = target?.defaultAssignee && target.defaultAssigneeValid === false ? target.defaultAssignee : null;
@@ -125,7 +125,7 @@ function EditForm({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NO_ASSIGNEE}>없음</SelectItem>
-              {stale && <SelectItem value={String(stale.id)}>{stale.name} (구성원 아님)</SelectItem>}
+              {stale && <SelectItem value={String(stale.id)}>{stale.name} ({assigneeInvalidText(target?.defaultAssigneeInvalidReason).tag})</SelectItem>}
               {candidates.map((m) => (
                 <SelectItem key={m.userId} value={String(m.userId)}>
                   {m.name}

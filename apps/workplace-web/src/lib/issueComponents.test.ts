@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ComponentResponse, ComponentSummary } from '../types/component'
-import { autoAssignHint, componentPatch, hasActiveComponents, pickerComponentOptions, showComponentField } from './issueComponents'
+import { assigneeInvalidText, autoAssignHint, componentPatch, hasActiveComponents, pickerComponentOptions, showComponentField } from './issueComponents'
 
 const user = (id: number, name: string) => ({ id, username: `u${id}`, name, kind: 'HUMAN' as const })
 
@@ -91,5 +91,15 @@ describe('componentPatch — 바뀐 필드만 보낸다', () => {
   })
   it('설명이 null 이던 구성요소에 빈 설명은 변경이 아니다', () => {
     expect(componentPatch({ ...initial, description: null }, { name: 'Compute', description: '  ', assigneeId: 10 })).toEqual({})
+  })
+})
+
+describe('assigneeInvalidText — 무효 담당자 이유 문구(WP-1123)', () => {
+  it('이유마다 다른 경고·꼬리표, 모르면 아우르는 문구', () => {
+    expect(assigneeInvalidText('INACTIVE')).toEqual({ warning: '계정이 정지됐어요 — 자동 지정을 건너뛰어요', tag: '계정 정지' })
+    expect(assigneeInvalidText('NOT_MEMBER')).toEqual({ warning: '프로젝트 구성원이 아니에요 — 자동 지정을 건너뛰어요', tag: '구성원 아님' })
+    expect(assigneeInvalidText('NOT_HUMAN').tag).toBe('AI')
+    expect(assigneeInvalidText(undefined).warning).toBe('자동 지정에 쓸 수 없는 담당자예요 — 자동 지정을 건너뛰어요')
+    expect(assigneeInvalidText(null).tag).toBe('쓸 수 없음')
   })
 })

@@ -3,6 +3,9 @@
 
 import type { UserSummary } from './user';
 
+/** 구성요소 담당자를 자동 지정에 쓸 수 없는 이유 — 백엔드 AssigneeInvalidReason 과 1:1(계정 정지 · 구성원 아님 · 사람 아님). */
+export type AssigneeInvalidReason = 'INACTIVE' | 'NOT_MEMBER' | 'NOT_HUMAN';
+
 /** 프로젝트 구성요소 한 건 — 설정 화면·피커·필터가 쓴다. 목록 순서는 서버가 정한다(이름 대소문자 무시 오름차순). */
 export interface ComponentResponse {
   id: number;
@@ -12,6 +15,8 @@ export interface ComponentResponse {
   defaultAssignee: UserSummary | null;
   // 담당자가 지금도 「프로젝트 멤버 + 활성 + 사람」인가 — 담당자가 없으면 true.
   defaultAssigneeValid: boolean;
+  // 무효일 때 그 이유(WP-1123) — 유효하거나 담당자가 없으면 null. 이 필드가 없는 예전 서버 응답이면 undefined.
+  defaultAssigneeInvalidReason?: AssigneeInvalidReason | null;
   archived: boolean;
   // 이 구성요소가 붙은 (삭제되지 않은) 이슈 수.
   issueCount: number;

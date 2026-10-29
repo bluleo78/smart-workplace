@@ -76,6 +76,18 @@ describe('ComponentManagement', () => {
       }),
     ]
     renderWithProviders(<ComponentManagement projectKey="WP" canManage />)
-    expect(screen.getByText('프로젝트 구성원이 아니에요 — 자동 지정을 건너뛰어요')).toBeInTheDocument()
+    // 이유가 없는 예전 서버 응답 — 두 이유를 아우르는 문구.
+    expect(screen.getByText('자동 지정에 쓸 수 없는 담당자예요 — 자동 지정을 건너뛰어요')).toBeInTheDocument()
+  })
+
+  it('경고는 서버가 준 이유를 말한다 — 구성원으로 남은 채 계정만 정지되면 「구성원 아님」이 아니다(WP-1123)', () => {
+    const who = { id: 9, username: 'm2', name: '멤버2', kind: 'HUMAN' as const }
+    state.data = [
+      comp(1, 'Backend', { defaultAssignee: who, defaultAssigneeValid: false, defaultAssigneeInvalidReason: 'INACTIVE' }),
+      comp(2, 'Frontend', { defaultAssignee: who, defaultAssigneeValid: false, defaultAssigneeInvalidReason: 'NOT_MEMBER' }),
+    ]
+    renderWithProviders(<ComponentManagement projectKey="WP" canManage />)
+    expect(screen.getByTestId('component-row-1-assignee-warning')).toHaveTextContent('계정이 정지됐어요 — 자동 지정을 건너뛰어요')
+    expect(screen.getByTestId('component-row-2-assignee-warning')).toHaveTextContent('프로젝트 구성원이 아니에요 — 자동 지정을 건너뛰어요')
   })
 })

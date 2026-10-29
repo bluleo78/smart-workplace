@@ -20,6 +20,7 @@ export function createComponent(overrides: Partial<ComponentResponse> = {}): Com
     description: null,
     defaultAssignee: null,
     defaultAssigneeValid: true,
+    defaultAssigneeInvalidReason: null,
     archived: false,
     issueCount: 0,
     ...overrides,
