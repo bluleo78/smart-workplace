@@ -56,11 +56,25 @@ payload·쿼리·4xx/5xx 메시지·권한/조건부 렌더·유효성·빈/로�
 ```sh
 pnpm lint && pnpm typecheck && pnpm test:plugin
 pnpm test:full   # 이미지 입력 타입 검사 → web vitest → web E2E 전체(preview) → admin E2E → api gradle 전체. push 게이트와 같다(10분 이상)
+pnpm test:bundle <브랜치>...   # 내 브랜치 여러 개를 최신 origin/main 위에 합쳐 test:full 을 한 번 — 통과하면 브랜치마다 기록(아래 「묶음 게이트」)
 ```
 
 - 통과하면 그 커밋 트리를 「검증 완료」로 기록해, 같은 트리(스쿼시·`--no-ff` 머지 결과가 같을 때)를 push 할 때 pre-push 가 회귀를 다시 돌지 않는다 — 커밋한 상태에서 돌려야 기록된다.
+- **범위(WP-1208)**: `test:full` 은 origin/main 과 갈라진 뒤 바꾼 코드 파일로 단계를 줄인다(`scripts/husky/gate-scope.sh`) — `apps/workplace-web` 만 → 이미지 타입 검사·web vitest·web E2E, `apps/workplace-admin` 만 → 이미지 타입 검사·admin E2E, 두 앱만 → gradle 만 건너뜀. api·`packages/`·`scripts/`·lockfile·루트 설정·`plugins/` 가 하나라도 있거나 판정할 수 없으면 전체. 첫 줄 `[full-regression] 범위: …` 에 고른 범위가 찍힌다. `FULL_REGRESSION_SCOPE=full pnpm test:full` 이면 전체를 강제한다.
+- 범위를 줄여 통과한 트리는 「<트리> <범위>」로 기록되고, pre-push 는 push 하는 커밋에 지금(원격 main 기준) 필요한 범위를 그 기록이 덮을 때만 회귀를 건너뛴다.
 - `test:full` 은 저장소 전역 락을 잡는다 — 다른 세션의 게이트가 돌고 있으면 기다린다. 락 파일을 지우거나 그 프로세스를 끝내지 않는다.
+- 락을 기다리는 게이트는 로그에 `[test-lock] 다른 세션이 테스트 게이트 실행 중 — 대기합니다` 만 있고, 잡으면 `[test-lock] 락 획득 — 게이트 실행` 이 찍힌다.
 - 병렬·부하에서만 깨지는 테스트는 제외하지 말고 원인을 고친다(시간 단언·실시간 데드라인을 없애 결정적으로).
+
+### 묶음 게이트 (WP-1208)
+
+게이트를 띄울 차례에 **내 다른 이슈 중 검증까지 끝나 push 만 남은 브랜치**(notes 의 `검증한 HEAD SHA` 가 그 브랜치 HEAD 이고 아직 통과 기록이 없는 것)가 더 있으면 함께 묶어 `pnpm test:bundle <브랜치>...` 를 한 번 돌린다. 묶으려고 일부러 기다리지 않는다 — 내 게이트가 아직 락을 기다리는 중(위 「락 획득」 줄이 로그에 없음)에 다른 브랜치가 준비되면, 그 작업을 끝내고(`bg-job stop`) 둘을 묶어 다시 띄운다.
+- 다른 AI 의 브랜치는 묶지 않는다(실패했을 때 책임이 갈리지 않게). 마이그레이션을 더한 브랜치끼리 번호가 겹치면 스크립트가 돌기 전에 멈춘다 — 번호를 옮긴 뒤 다시 묶는다.
+- 서로 충돌하는 브랜치는 스크립트가 빼고 알린다 — 뺀 브랜치는 따로 게이트를 돈다.
+- **통과**: 시작 때와 커밋이 같은 브랜치마다 그 트리가 묶음 범위로 기록된다. 각 워크트리에서 push 하면 pre-push 가 다시 돌지 않는다. PR 은 이슈마다 따로 올린다(이슈 하나 = PR 하나 = 머지 하나).
+- **실패**: 어느 브랜치도 기록되지 않는다(게이트는 처음 실패한 단계에서 멈춰 뒤 단계가 돌지 않았다). 로그에서 실패한 테스트를 묶은 브랜치마다 그 워크트리에서 돌려 원인 브랜치를 가린다 — 원인 브랜치는 고쳐 6번부터, 나머지는 다시 묶어(하나만 남으면 그 워크트리에서 `pnpm test:full`) 돌린다.
+- 알려진 위험: 묶인 브랜치를 혼자서는 돌리지 않는다 — A+B 가 통과한 뒤 B 가 반려되면 A 혼자의 트리는 검증되지 않은 채 머지된다. 검토자의 머지 전 확인(아래 7번)과 main CI `verify` 가 받친다고 본다.
+- 합치는 곳은 `MAIN/.claude/worktrees/_gate-bundle-<pid>` 다(끝나면 스크립트가 지운다). 설치·빌드는 락 밖에서 한다.
 
 ### 오래 걸리는 작업 (`process-issue.md` 「오래 걸리는 작업」·9번)
 
@@ -69,10 +83,12 @@ work-loop 는 아래 명령을 기다리지 않고 이슈 워크트리에서 백
 | 명령 | 예상 시간 |
 |---|---|
 | `pnpm test:full`(push 게이트) | 45분 |
+| `pnpm test:full` — web 만 바꾼 범위(admin E2E·gradle 빠짐) | 36분 |
+| `pnpm test:bundle <브랜치>...`(묶음 게이트) | 범위에 따라 위와 같음 + 설치 2분 |
 | `E2E_SERVER=preview pnpm test:e2e`(웹 E2E 전체, `apps/workplace-web`) | 35분 |
 | `./gradlew test`(api 전체, `apps/workplace-api`) | 10분 |
 
-- **push 게이트 미리 돌리기(9번)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/verified-trees.sh && is_verified "$(git rev-parse "HEAD^{tree}")"'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. pre-push 와 같은 함수다).
+- **push 게이트 미리 돌리기(9번)**: 커밋한 상태에서 `pnpm test:full` 을 띄운다. 통과하면 그 트리가 기록돼 뒤의 `git push` 가 회귀를 다시 돌지 않는다. 지금 HEAD 트리가 이미 기록돼 있는지는 워크트리에서 `sh -c '. scripts/husky/noncode.sh && . scripts/husky/gate-scope.sh && . scripts/husky/verified-trees.sh && is_verified_head'` 로 본다(성공이면 기록됨 — 다시 돌리지 않는다. HEAD 에 필요한 범위를 origin/main 기준으로 구해 pre-push 와 같게 판정한다). 다른 브랜치도 준비돼 있으면 위 「묶음 게이트」로 한 번에 돌린다.
 - 한 번에 `test:full` 하나만 돈다(전역 락). 다른 이슈의 게이트를 띄우면 락을 기다리느라 그만큼 늦게 끝난다.
 
 ## 4. 격리 라이브 스택 (`process-issue.md` 8·10번)
