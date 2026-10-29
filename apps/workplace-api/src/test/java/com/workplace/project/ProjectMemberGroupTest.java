@@ -352,12 +352,17 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
     assertThat(agentWorkState(workId)).isEqualTo("CANCELED");
   }
 
-  /** 구성원이 정지되면 부서로 들어와 있던 프로젝트에서 정리된다 — 정지는 부서 구성원 판정(활성 사람만)에서 빠진다. */
+  /**
+   * 구성원이 정지되면 부서로 들어와 있던 프로젝트에서 정리된다 — 정지는 부서 구성원 판정(활성 사람만)에서 빠진다. 관리 화면의 「활성 상태」 끄기(계정 비활성)가 곧 이
+   * 정지다(WP-417 이후 전역 user.is_active 를 끄는 운영 경로는 없다, WP-1128). 멤버 제거와 같이 담당·AI 작업·워처를 모두 정리한다.
+   */
   @Test
   void suspended_department_member_is_cleaned_up() throws Exception {
     addGroup(team.key(), devId, null).andExpect(status().isCreated());
     long issueId = issue(1);
     assign(1, List.of(backendMemberId)).andExpect(status().isOk());
+    long workId = activeAgentWork(issueId, backendMemberId);
+    watcherService.watch(backendMemberId, team.key(), 1);
     actAs(ownerId);
 
     TestFixtures.suspendMember(dsl, backendMemberId, 1L);
@@ -366,6 +371,8 @@ class ProjectMemberGroupTest extends IntegrationTestBase {
 
     assertThat(assignees(issueId)).isEmpty();
     assertThat(unassignHistoryActors(issueId, backendMemberId)).containsExactly(ownerId);
+    assertThat(agentWorkState(workId)).isEqualTo("CANCELED");
+    assertThat(watcherRepository.findUserIdsByIssue(issueId)).doesNotContain(backendMemberId);
   }
 
   /**

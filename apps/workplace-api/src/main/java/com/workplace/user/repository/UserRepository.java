@@ -727,7 +727,8 @@ public class UserRepository {
   /**
    * 전역 계정 활성 여부(user.is_active)를 바꾼다. WP-417 이후 워크스페이스 관리자의 「활성 상태」 토글은 이 메서드가 아니라 멤버십 상태
    * (MembershipRepository#updateStatus)를 바꾼다 — 전역 값은 모든 워크스페이스·운영자 콘솔 로그인을 막으므로 테넌트 범위 API 에서 쓰지
-   * 않는다.
+   * 않는다. 끄더라도 프로젝트 부서 멤버 정리(담당 해제·AI 작업 취소·워처, ProjectMemberDeparture)를 부르는 이벤트를 내지 않으므로 운영 경로에서
+   * 쓰려면 정지처럼 이벤트(WorkspaceMembershipSuspended)를 내는 서비스를 거쳐야 한다(WP-1128). 지금은 로그인 차단 테스트만 쓴다.
    */
   public void setActive(Long id, boolean active) {
     dsl.update(USER)
