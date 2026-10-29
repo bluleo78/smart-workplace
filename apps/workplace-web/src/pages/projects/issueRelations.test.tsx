@@ -251,6 +251,29 @@ describe('외부 링크', () => {
     expect(await screen.findByText('제목을 입력해 주세요')).toBeInTheDocument()
     expect(requests.count('POST', EXT)).toBe(0)
   })
+
+  // WP-1171 — 화면도 서버(SingleLineTitles)와 같은 기준으로 다듬어 재고 보낸다.
+  test('키가 보이지 않는 글자뿐이면 키 없이, 제목은 탭을 공백으로 다듬어 보내고, 앞쪽 제로폭은 300자에 세지 않는다', async () => {
+    const { server, requests } = setup()
+    const { user } = await openIssue(server)
+    await user.click(screen.getByTestId('issue-relation-add'))
+    await user.click(await screen.findByTestId('issue-relation-tab-external'))
+    fireEvent.change(screen.getByTestId('issue-relation-url'), { target: { value: 'https://docs.example.com/spec' } })
+    fireEvent.change(screen.getByTestId('issue-relation-key'), { target: { value: '\u200B\u3164' } })
+    // 한 줄 입력 칸은 줄바꿈을 받지 않으니 탭으로 — 탭도 서버처럼 공백 하나가 된다.
+    const title = '가'.repeat(299) + '\t끝'
+    fireEvent.change(screen.getByTestId('issue-relation-title'), { target: { value: `\u200B${title}` } })
+    await user.click(screen.getByTestId('issue-relation-submit'))
+    expect(await screen.findByText('제목은 300자 이하로 입력해 주세요')).toBeInTheDocument()
+    // 탭이 공백 하나가 되어 301자 — 한 글자 줄이면 앞쪽 제로폭과 상관없이 통과한다.
+    fireEvent.change(screen.getByTestId('issue-relation-title'), { target: { value: `\u200B${'가'.repeat(298)}\t끝` } })
+    await user.click(screen.getByTestId('issue-relation-submit'))
+    await waitFor(() =>
+      expect(requests.bodies('POST', EXT)).toEqual([
+        { typeId: expect.any(Number), side: 'source', url: 'https://docs.example.com/spec', key: null, title: `${'가'.repeat(298)} 끝` },
+      ]),
+    )
+  })
 })
 
 describe('관계 추가 창 — 차단·Enter', () => {

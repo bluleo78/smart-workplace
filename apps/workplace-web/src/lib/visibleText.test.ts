@@ -1,7 +1,8 @@
 // 보이는 글자 판정·다듬기(WP-1107·WP-1106) — 서버(PersonNames·SingleLineTitles)와 같은 기준인지.
 import { describe, expect, it, test } from 'vitest'
 
-import { hasVisibleText, trimInvisible } from './visibleText'
+import cases from './visible-text-cases.json'
+import { hasVisibleText, normalizeSingleLine, trimInvisible } from './visibleText'
 
 describe('hasVisibleText', () => {
   test.each(['', '   ', '\u200B\u200B', '\u3164', '\u2800 \uFEFF', '\u115F\u1160', '\u0301'])(
@@ -33,5 +34,18 @@ describe('trimInvisible', () => {
 
   it('NFD 로 붙여 넣은 한글은 NFC 로 맞춘다(서버와 같은 글자 수)', () => {
     expect(trimInvisible('가')).toBe('가')
+  })
+})
+
+// 서버 PersonNames·SingleLineTitles 테스트와 같은 픽스처를 읽는다 — 손 복사한 정규식이 한쪽만 바뀌면 둘 중 하나가 깨진다(WP-1171).
+describe('공용 픽스처(visible-text-cases.json)', () => {
+  test.each(cases.invisible)('보이지 않음 — %j', (text) => {
+    expect(hasVisibleText(text)).toBe(false)
+  })
+  test.each(cases.visible)('보임 — %j', (text) => {
+    expect(hasVisibleText(text)).toBe(true)
+  })
+  test.each(cases.singleLine)('한 줄 다듬기 $in → $out', ({ in: raw, out }) => {
+    expect(normalizeSingleLine(raw)).toBe(out)
   })
 })

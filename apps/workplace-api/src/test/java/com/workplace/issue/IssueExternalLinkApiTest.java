@@ -374,6 +374,80 @@ class IssueExternalLinkApiTest extends IntegrationTestBase {
         .isEqualTo("처음 제목");
   }
 
+  /**
+   * WP-1171: 키도 제목과 같은 기준으로 다듬는다 — 보이지 않는 글자뿐이면 키 없음(빈 키 칩이 생기지 않게). 앞뒤 제로폭·줄바꿈이 남은 옛 행에 아무것도 안 바꾼
+   * 저장은 「변경」 이력을 남기지 않는다.
+   */
+  @Test
+  void invisibleKeyIsDroppedAndUntrimmedOldRowIsNotAChange() throws Exception {
+    JsonNode added =
+        json(add(alice, wp, wp1, "RELATES", null, JIRA, "\u200B\u3164", "처음")
+                .andExpect(status().isOk()))
+            .get(0);
+    long id = added.get("id").asLong();
+    assertThat(added.get("key").isNull()).isTrue();
+    // 키 앞뒤의 보이지 않는 글자·줄바꿈은 떼고 둔다.
+    update(alice, wp, wp1, id, "RELATES", null, null, "\u200BCL-1\n", "처음")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].key").value("CL-1"));
+    assertThat(history(wp1, "EXTERNAL_LINK_UPDATED")).hasSize(1);
+
+    // 다듬기 전(WP-1107 이전)에 저장된 행 — 같은 값을 다시 저장해도 변경이 아니다.
+    dsl.update(ISSUE_EXTERNAL_LINK)
+        .set(ISSUE_EXTERNAL_LINK.TITLE, "\u200B처음\n")
+        .set(ISSUE_EXTERNAL_LINK.EXT_KEY, " CL-1\u200B")
+        .where(ISSUE_EXTERNAL_LINK.ID.eq(id))
+        .execute();
+    update(alice, wp, wp1, id, "RELATES", null, null, "CL-1", "처음").andExpect(status().isOk());
+    assertThat(history(wp1, "EXTERNAL_LINK_UPDATED")).hasSize(1);
+    // 대신 이력 없이 다듬은 값으로 고쳐 둔다.
+    var cleaned =
+        dsl.selectFrom(ISSUE_EXTERNAL_LINK).where(ISSUE_EXTERNAL_LINK.ID.eq(id)).fetchOne();
+    assertThat(cleaned.getTitle()).isEqualTo("처음");
+    assertThat(cleaned.getExtKey()).isEqualTo("CL-1");
+
+    // 옛 행에서 유형만 바꾸면 이력의 이전 값도 다듬은 값이다 — 제목·키가 바뀐 것처럼 보이지 않게.
+    dsl.update(ISSUE_EXTERNAL_LINK)
+        .set(ISSUE_EXTERNAL_LINK.TITLE, "\u200B처음\n")
+        .where(ISSUE_EXTERNAL_LINK.ID.eq(id))
+        .execute();
+    update(alice, wp, wp1, id, "CAUSES", "source", null, "CL-1", "처음").andExpect(status().isOk());
+    String fromValue =
+        dsl.select(ISSUE_HISTORY.FROM_VALUE)
+            .from(ISSUE_HISTORY)
+            .where(ISSUE_HISTORY.EVENT_TYPE.eq("EXTERNAL_LINK_UPDATED"))
+            .and(ISSUE_HISTORY.ISSUE_ID.eq(issueId(wp1)))
+            .orderBy(ISSUE_HISTORY.ID.desc())
+            .limit(1)
+            .fetchOne(ISSUE_HISTORY.FROM_VALUE);
+    assertThat(om.readTree(fromValue).get("title").asText()).isEqualTo("처음");
+  }
+
+  /**
+   * WP-1171: 요청 DTO 를 거치지 않는 저장 경로({@link ResolvedExternalLink} 를 직접 만드는 가져오기·동기화)도 제목을 한 줄로 다듬고 —
+   * 줄바꿈·탭은 공백 하나, 양방향 제어 문자는 지움 — 키도 다듬으며, 보이지 않는 글자뿐인 제목은 만들 때 400 으로 막는다.
+   */
+  @Test
+  void importPathTrimsTitleAndKey() {
+    long relates = typeId("RELATES");
+    externalLinkService.insertForImport(
+        issueId(wp1),
+        alice,
+        List.of(
+            new ResolvedExternalLink(
+                relates, true, JIRA, "\u200B", "\u200B가져온\n제목\t\u202E끝\u2800")));
+    var row =
+        dsl.selectFrom(ISSUE_EXTERNAL_LINK)
+            .where(ISSUE_EXTERNAL_LINK.ISSUE_ID.eq(issueId(wp1)))
+            .fetchOne();
+    assertThat(row.getTitle()).isEqualTo("가져온 제목 끝");
+    assertThat(row.getExtKey()).isNull();
+
+    assertThatThrownBy(() -> new ResolvedExternalLink(relates, true, JIRA, null, "\u200B\u3164"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessage("외부 링크 제목을 입력해 주세요");
+  }
+
   /** 다른 이슈 주소로는 남의 링크를 고치지도(404) 지우지도(204 이지만 그대로) 못 한다. */
   @Test
   void linkOfAnotherIssueUntouched() throws Exception {

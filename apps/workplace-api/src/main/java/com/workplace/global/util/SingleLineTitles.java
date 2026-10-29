@@ -43,4 +43,10 @@ public final class SingleLineTitles {
     String trimmed = INVISIBLE_EDGES.matcher(oneLine).replaceAll("");
     return PersonNames.hasVisibleChar(trimmed) ? trimmed : "";
   }
+
+  /** 선택 값(키 등)용 {@link #normalize} — 다듬어 그려지는 글자가 없으면 null(값 없음). null 은 그대로 null. */
+  public static String normalizeOptional(String raw) {
+    String v = normalize(raw);
+    return v == null || v.isEmpty() ? null : v;
+  }
 }
