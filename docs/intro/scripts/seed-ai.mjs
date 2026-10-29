@@ -10,21 +10,10 @@
  * "요청"만 하고(담당자 지정, @멘션, 요약 버튼에 해당하는 API), 결과는 AI 가 남길 때까지 기다린다.
  * 그래서 실행할 때마다 문구가 조금씩 다르다 — 촬영 스크립트는 문구가 아니라 구조(테스트 ID)로 화면을 찾는다.
  */
-import { AGENT, PEOPLE, PROJECT_KEY, login } from './seed-demo.mjs';
+import { AGENT, INTRO_BASE, PEOPLE, PROJECT_KEY, login, makeClient } from './seed-demo.mjs';
 
-const API = (process.env.INTRO_API ?? 'http://localhost:6160') + '/api/v1';
+const { call } = makeClient(INTRO_BASE);
 const WAIT_MS = Number(process.env.INTRO_AI_WAIT_MS ?? 6 * 60 * 1000);
-
-async function call(token, method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${await res.text()}`);
-  const text = await res.text();
-  return text ? JSON.parse(text) : null;
-}
 
 /** 조건이 참이 될 때까지 폴링한다. AI 응답은 수십 초~수 분 걸린다. */
 async function waitFor(label, check, intervalMs = 10000) {

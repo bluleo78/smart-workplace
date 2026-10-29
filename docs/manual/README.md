@@ -21,8 +21,9 @@ Gen:iA Works 의 매뉴얼 두 권을 Markdown 원본에서 HTML 을 거쳐 A4 �
 | `pnpm manual:shots` | 화면을 찍고 표식 좌표를 `shots/<book>/boxes.json` 에 기록한다. 환경변수 `MANUAL_BOOK`(기본 `user`)·`MANUAL_WEB`·`MANUAL_API`·`MANUAL_PASS` — 뒤의 셋은 기본값이 없어 찍을 장면이 있으면 반드시 준다. 일부만 다시 찍기는 `MANUAL_SHOTS_ONLY=id,...`. 실패한 장면의 좌표는 기록하지 않는다 |
 | `pnpm test:manual` | 매뉴얼 도구의 단위 시험 |
 | `node docs/manual/scripts/seed-operator.mjs` | 운영자 매뉴얼 촬영용 가상 테넌트를 격리 스택에 넣는다. 환경변수 `MANUAL_API`·`MANUAL_PASS`(둘 다 필수, 값은 출력하지 않음). 빈 DB 의 첫 가입자를 슈퍼어드민(`ops@example.com`)으로 만들고, 나머지는 플랫폼 API 로만 넣는다. 다시 돌려도 된다(있는 테넌트·계정은 건너뜀). **운영자 매뉴얼 격리 스택에만 돈다** — `MANUAL_API` 가 `http://localhost:6166` 이 아니면 멈춘다(공유 개발 DB·다른 세션 스택의 첫 가입 자리를 가져가지 않게) |
+| `node docs/manual/scripts/seed-user.mjs` | 사용자 매뉴얼 촬영 테넌트(누리커머스)를 가상 회사 데이터로 채운다. 이미 만든 테넌트에 소유자로 로그인해 HTTP API 로만 넣는다. 환경변수 `MANUAL_API`·`MANUAL_TENANT_SLUG`·`MANUAL_PASS`(셋 다 필수, 비밀번호는 출력하지 않음), localhost 가 아니면 `MANUAL_SEED_CONFIRM`(slug 와 같은 값)도 필수. 빈 테넌트에만 돈다 — 아래 「사용자 매뉴얼 촬영 테넌트」 |
 
-종료 코드는 네 명령 모두 0 성공, 1 검사·빌드·촬영 실패, 2 사용법 오류(알 수 없는 책 등)다.
+종료 코드는 네 명령 모두 0 성공, 1 검사·빌드·촬영 실패, 2 사용법 오류(알 수 없는 책 등)다. `seed-user.mjs` 는 0 성공, 1 가드에 걸려 멈춤(쓴 것 없음)·도중 실패, 2 사용법 오류(환경변수 누락, 확인값 없음 등)다.
 
 ## 폴더 구조
 
@@ -42,6 +43,7 @@ docs/manual/
     capture.mjs             촬영
     scenes/<book>.mjs       촬영 장면(촬영 대상 표를 구현)
     seed-operator.mjs       운영자 매뉴얼 촬영용 시드(격리 스택, 플랫폼 API)
+    seed-user.mjs           사용자 매뉴얼 촬영 테넌트 시드(이미 만든 테넌트, 소유자 토큰으로 HTTP API)
     import-intro-shots.mjs  소개서 촬영본을 04장 샘플 그림으로 가져오기(샘플 전용, WP-1196 에서 삭제)
     lib/                    공용 모듈(책 설정·명령줄, 장 읽기, 프론트매터, 마크다운 줄·펜스·링크, HTML, 그림, boxes.json, 렌더, 라우터, 화면 문구, 촬영 도구)
 dist/manual/<book>/         빌드 산출물(커밋하지 않음)
@@ -74,3 +76,63 @@ dist/manual/<book>/         빌드 산출물(커밋하지 않음)
 5. 촬영: `MANUAL_BOOK=operator MANUAL_WEB=http://localhost:6275 MANUAL_API=http://localhost:6166 MANUAL_PASS=<같은 비밀번호> pnpm manual:shots`
 
 일부만 다시 찍을 때는 `MANUAL_SHOTS_ONLY` 에 그림 id 를 적는다. 한 장면이 여러 그림을 찍으면(영구 삭제 확인 창 → 진행 배너 → 삭제됨 목록: tenant-lifecycle-7·8·6) 그중 하나만 적어도 그 장면 전체가 돈다. 영구 삭제 장면은 돌 때마다 별빛스튜디오 테넌트를 새로 만들어 지우므로 다시 돌려도 된다. 다만 같은 DB 에서 다시 돌리면 앞서 만든 별빛스튜디오가 「영구 삭제 중」으로 삭제됨 목록에 남아 있고 slug 도 `byeolbit-studio-2` 처럼 바뀌므로, 커밋할 그림은 1번부터 깨끗한 DB 로 찍는다. 운영자 책은 뷰포트 900x810 으로 찍는다(`lib/books.mjs` 의 `capture.viewport` — 이유는 그곳 주석).
+
+## 사용자 매뉴얼 촬영 테넌트
+
+사용자 매뉴얼은 운영(`https://genia-works.iacloud.kr`)의 전용 테넌트 **누리커머스**(slug `nuri-demo`)에서 찍는다. 화면에 보이는 회사·사람·이슈는 모두 가상이다 — 소개 자료와 같은 가상 회사(모바일 주문 앱 2.0, 프로젝트 `MOB`, 등장인물 5명과 AI 에이전트 지니)를 쓴다. 데이터는 `seed-user.mjs` 가 HTTP API 로만 넣는다(DB 직접 쓰기 없음). 넣는 내용과 단계는 소개 자료 시드(`docs/intro/scripts/seed-demo.mjs` 의 `createPeople`·`seedContent`)를 그대로 쓴다.
+
+**역할 나눔.** 테넌트와 소유자는 **사람이 운영자 콘솔에서** 만든다. 시드는 그 소유자로 로그인해 나머지를 만든다.
+
+| 누가 | 무엇을 |
+| --- | --- |
+| 사람(운영자 콘솔) | 테넌트 `누리커머스`(slug `nuri-demo`) 생성, 소유자 `seoyeon@example.com`(이름 김서연, 역할 소유자) 추가 |
+| `seed-user.mjs` | AI 에이전트 지니(+AGENT 역할), 등장인물 4명 계정(`POST /users`), 프로젝트·사이클·마일스톤·이슈 13건·코멘트, 채널 3개와 대화, 노트 3쪽, 일정, 외부 연락처, 드라이브 문서 2개, 소유자의 개인 API 토큰(평문은 버림) |
+
+AI 가 실제로 일하는 장면(`docs/intro/scripts/seed-ai.mjs` — 이슈 위임, AI 코멘트)은 이 시드가 하지 않는다. 운영에서 AI 를 부리는 일은 따로 확인하고 한다.
+
+**비밀번호.** 소유자와 시드가 만드는 등장인물 모두 같은 비밀번호를 쓴다. 비밀번호는 macOS 키체인 항목(서비스 `genia-works-manual-demo`, 계정 `seoyeon@example.com`)에 두고, 실행할 때 환경변수로만 넘긴다. 파일이나 명령 기록에 적지 않는다. 대문자·소문자·숫자를 섞은 8자 이상이어야 한다(구성원 추가 비밀번호 규칙).
+
+**환경변수.**
+
+| 변수 | 값 |
+| --- | --- |
+| `MANUAL_API` | 서버 루트 주소(경로 없이 — 경로를 붙이면 exit 2). 운영은 `https://genia-works.iacloud.kr`, 로컬 리허설은 `http://localhost:<포트>`. localhost 가 아니면 https 만 받는다(인증서 검증 그대로) |
+| `MANUAL_TENANT_SLUG` | 채울 테넌트의 slug — `nuri-demo` |
+| `MANUAL_PASS` | 위 키체인의 비밀번호 |
+| `MANUAL_SEED_CONFIRM` | localhost 가 아닐 때 필수. `MANUAL_TENANT_SLUG` 와 같은 값을 한 번 더 적는다(겨눈 테넌트 확인) |
+
+**실행**(저장소 루트):
+
+```sh
+MANUAL_API=https://genia-works.iacloud.kr \
+MANUAL_TENANT_SLUG=nuri-demo \
+MANUAL_SEED_CONFIRM=nuri-demo \
+MANUAL_PASS="$(security find-generic-password -s genia-works-manual-demo -w)" \
+node docs/manual/scripts/seed-user.mjs
+```
+
+**쓰기 전 가드.** 하나라도 걸리면 아무것도 쓰지 않고 멈춘다(판정은 `lib/user-seed.mjs`).
+
+1. 대상 서버 — 서버 루트 주소여야 하고, localhost 가 아니면 https 이고 `MANUAL_SEED_CONFIRM` 이 slug 와 같아야 한다(아니면 exit 2).
+2. 테넌트 — 소유자로 **한 번만** 로그인한다(틀린 비밀번호로 되풀이하면 계정 잠금). 소속이 여럿이면 slug 의 테넌트를 고르고, 토큰의 현재 테넌트가 그 테넌트인지 확인한다.
+3. 빈 테넌트 — 프로젝트 `MOB` 가 없고, 사람 구성원이 소유자와 등장인물뿐이어야 한다. 콘텐츠 단계는 멱등이 아니라 두 번 넣지 않는다. 에이전트 `genie` 는 있어도 된다(앞선 실행이 계정 단계에서 멈춘 경우 — 그대로 이어 쓴다).
+4. 이미 구성원인 등장인물 — 한 사람씩 **한 번만** 같은 방식(테넌트 고르기 포함)으로 로그인해 둔다. 하나라도 실패하면 쓰기 전에 멈춘다.
+
+**쓰기 순서와 도중 실패.** 가드를 지나면 에이전트 → 등장인물 계정 → 콘텐츠 순서로 쓴다. 아이디·이메일은 서버 전체에서 하나인데, 테넌트 관리자가 그것이 비었는지 미리 알아볼 API 는 없다(계정 조회는 플랫폼 운영자 전용). 그래서 충돌은 쓰는 순간에야 드러난다.
+
+- 에이전트 `genie`(또는 `genie@example.com`)가 다른 테넌트에 이미 있으면 첫 쓰기에서 409 로 멈춘다 — 쓴 것은 없다. 이 경우는 초기화로 풀리지 않고 시드의 에이전트 아이디를 바꿔야 한다.
+- 등장인물 계정이 409 로 멈추면 그때까지 쓴 것(에이전트, 이번 실행에서 만든 계정)과 콘솔에서 「기존 사용자 추가」로 넣을 계정(실패한 사람, 그리고 그 뒤 차례였던 사람 중 이미 있는 사람)을 알려 준다. 넣고 다시 돌리면 이미 만든 계정·에이전트는 건너뛰고 이어 한다(프로젝트 `MOB` 를 만들기 전이라 3번 가드를 지난다).
+- 콘텐츠 단계에서 실패하면 일부 콘텐츠가 남을 수 있어 다시 돌리면 3번 가드에 걸린다 — 아래 초기화로 처음부터 다시 한다.
+
+**다시 채우기(초기화).** 시드를 다시 돌리면 3번 가드에 걸려 멈춘다. 처음부터 다시 채우려면:
+
+1. 운영자 콘솔에서 누리커머스 테넌트를 **삭제** → **영구 삭제**한다. 영구 삭제가 끝나 목록에서 사라질 때까지 기다린다.
+2. 같은 이름·slug(`누리커머스`·`nuri-demo`)로 테넌트를 다시 만든다.
+3. 구성원을 넣는다. **영구 삭제는 사람 계정을 지우지 않는다**(소속만 지운다. 이 테넌트에만 있던 AI 에이전트는 지운다). 그래서 앞서 만든 계정은 새로 만들 수 없고, **기존 사용자 추가** 로 넣는다.
+   - `seoyeon@example.com` — 역할 **소유자**
+   - `junho@example.com`·`jimin@example.com`·`yuna@example.com`·`doyun@example.com` — 역할 **일반 구성원**
+4. 위 실행 명령으로 시드를 다시 돌린다. 이미 구성원인 등장인물은 만들지 않고 그대로 쓴다. 등장인물을 빠뜨렸으면 시드가 에이전트를 만든 뒤 계정 단계에서 멈추고 넣을 계정을 알려 준다 — 콘솔에서 넣고 다시 돌리면 이어서 한다.
+
+계정은 서버 전체에서 하나다. 다른 테넌트에 이미 같은 아이디(예: `junho@example.com`, 에이전트 `genie`)가 있으면 그 계정을 만들 수 없어 시드가 멈춘다(위 「쓰기 순서와 도중 실패」). 첫 실행 전에 콘솔의 계정 조회로 등장인물 5명과 `genie@example.com` 이 없는지 볼 수 있다(아이디 `genie` 자체는 조회할 수 없다).
+
+**로컬 리허설.** 운영에 돌리기 전에 격리 로컬 스택에서 같은 절차를 돌려 본다. 포트는 다른 스택과 겹치지 않게 고른다(예: DB 5447 · API 6167 · 노트 동기화 서버 6197). 노트 본문 저장에는 노트 동기화 서버(`apps/workplace-collab`)가 필요하다 — `PORT=6197 WORKPLACE_API_URL=http://localhost:6167 COLLAB_DEV_DEFAULTS=1 ./node_modules/.bin/tsx src/index.ts` 로 띄우고, API 에 `--workplace.collab.base-url=http://localhost:6197` 를 준다. DB·API 는 「운영자 매뉴얼 다시 찍기」 1·2번과 같다(포트만 바꾸고, 영구 삭제를 리허설하려면 영구 삭제 잡 지연 옵션은 빼서 기본 30초 주기로 둔다). 테넌트·소유자는 운영자 시드처럼 빈 DB 의 첫 가입자(슈퍼어드민)로 플랫폼 API(`POST /api/platform/tenants` → `POST /api/platform/tenants/{id}/members` 역할 `OWNER`)를 불러 만든다.
