@@ -151,6 +151,44 @@ class EmailAccountServiceTest extends IntegrationTestBase {
         .isInstanceOf(DuplicateEmailAccountException.class);
   }
 
+  /** 대소문자만 바꾼 같은 주소(BOX@TEST.LOCAL)도 같은 메일함이라 409 — 연결 테스트 전에 막혀 행이 생기지 않는다(WP-1111). */
+  @Test
+  void create_caseVariantOfExistingAddress_throwsConflict() {
+    long user = TestFixtures.createHuman(dsl);
+    service.create(user, greenMailReq("pw"));
+    EmailAccountRequest upper = withAddress(greenMailReq("pw"), "BOX@TEST.LOCAL");
+    assertThatThrownBy(() -> service.create(user, upper))
+        .isInstanceOf(DuplicateEmailAccountException.class);
+    assertThat(service.list(user)).hasSize(1);
+  }
+
+  /** 계정 주소의 대소문자만 바꿔 저장하는 것은 자기 자신이라 중복이 아니다. */
+  @Test
+  void update_caseOfOwnAddress_isNotConflict() {
+    long user = TestFixtures.createHuman(dsl);
+    EmailAccountResponse created = service.create(user, greenMailReq("pw"));
+    EmailAccountRequest renamed = withAddress(greenMailReq(""), "Box@Test.Local");
+    assertThat(service.update(user, created.id(), renamed).emailAddress())
+        .isEqualTo("Box@Test.Local");
+  }
+
+  /** 요청의 메일 주소만 바꾼 사본. */
+  private static EmailAccountRequest withAddress(EmailAccountRequest r, String emailAddress) {
+    return new EmailAccountRequest(
+        emailAddress,
+        r.displayName(),
+        r.imapHost(),
+        r.imapPort(),
+        r.imapSecurity(),
+        r.imapUsername(),
+        r.smtpHost(),
+        r.smtpPort(),
+        r.smtpSecurity(),
+        r.smtpUsername(),
+        r.password(),
+        r.aiEnabled());
+  }
+
   @Test
   void create_badCredentials_throwsConnectionAndDoesNotPersist() {
     long user = TestFixtures.createHuman(dsl);
@@ -317,6 +355,10 @@ class EmailAccountServiceTest extends IntegrationTestBase {
     // B 의 주소를 A 와 동일하게 변경 시도(비번 빈값=유지) → 연결테스트 전에 중복 409
     EmailAccountRequest toDup = greenMailReq("");
     assertThatThrownBy(() -> service.update(user, bId, toDup))
+        .isInstanceOf(DuplicateEmailAccountException.class);
+    // 대소문자만 바꾼 A 의 주소도 같은 메일함이라 409(WP-1111)
+    EmailAccountRequest toCaseDup = withAddress(greenMailReq(""), "Box@Test.Local");
+    assertThatThrownBy(() -> service.update(user, bId, toCaseDup))
         .isInstanceOf(DuplicateEmailAccountException.class);
   }
 }
