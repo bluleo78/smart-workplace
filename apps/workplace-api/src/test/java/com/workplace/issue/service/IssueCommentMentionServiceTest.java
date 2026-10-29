@@ -11,6 +11,7 @@ import com.workplace.issue.repository.IssueCommentRepository;
 import com.workplace.issue.repository.IssueRepository;
 import com.workplace.project.repository.ProjectIssueSequenceRepository;
 import com.workplace.support.IntegrationTestBase;
+import com.workplace.support.TestFixtures;
 import com.workplace.tenant.repository.MembershipRepository;
 import java.util.List;
 import org.jooq.DSLContext;
@@ -100,5 +101,43 @@ class IssueCommentMentionServiceTest extends IntegrationTestBase {
             s.ownerId(), s.issueId(), new CreateCommentRequest("<@" + s.strangerId() + "> 봐 주세요"));
 
     assertThat(created.mentions()).containsExactly(mentionOf(s.strangerId()));
+  }
+
+  /**
+   * WP-1159: 정지된 구성원(SUSPENDED)의 멘션도 싣는다 — 정지와 함께 프로젝트에서 빠지면(부서로만 멤버였던 사람) 화면의 멤버 목록 보충으로도 이름을 찾지
+   * 못해 「알 수 없음」이 됐다. 다른 워크스페이스에만 멤버십이 있는 사람은 그 상태(ACTIVE·SUSPENDED)와 상관없이 여전히 싣지 않는다.
+   */
+  @Test
+  void suspended_members_are_resolved_but_other_workspace_members_are_not() {
+    memberships.updateStatus(s.strangerId(), 1L, MembershipRepository.STATUS_SUSPENDED);
+    long otherTenant = TestFixtures.createTenant(dsl, "ACTIVE");
+    long outsider =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "other-ws-" + System.nanoTime())
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "다른 워크스페이스 사람")
+            .set(USER.EMAIL, "other-ws-" + System.nanoTime() + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    memberships.create(outsider, otherTenant, "SUSPENDED");
+    long activeOutsider =
+        dsl.insertInto(USER)
+            .set(USER.USERNAME, "other-ws-active-" + System.nanoTime())
+            .set(USER.PASSWORD, "pw")
+            .set(USER.NAME, "다른 워크스페이스 활성")
+            .set(USER.EMAIL, "other-ws-active-" + System.nanoTime() + "@example.com")
+            .returning(USER.ID)
+            .fetchOne()
+            .getId();
+    memberships.create(activeOutsider, otherTenant, "ACTIVE");
+    comments.insert(
+        s.issueId(),
+        s.ownerId(),
+        "<@" + s.strangerId() + "> <@" + outsider + "> <@" + activeOutsider + ">");
+
+    List<IssueCommentResponse> list = commentService.list(s.ownerId(), s.issueId());
+
+    assertThat(list.getFirst().mentions()).containsExactly(mentionOf(s.strangerId()));
   }
 }

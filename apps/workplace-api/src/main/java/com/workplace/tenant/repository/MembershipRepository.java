@@ -139,6 +139,22 @@ public class MembershipRepository {
   }
 
   /**
+   * 주어진 사용자 중 해당 테넌트에 ACTIVE·SUSPENDED 멤버십이 있는 id 만 돌려준다(WP-1159). 정지된 구성원도 이 워크스페이스 사람이라, 지난 글의
+   * 멘션처럼 「누구였는지 보이기」만 하는 경로는 다른 워크스페이스 사용자와 구분해 이름을 보여야 한다. 새로 끌어들이는 경로(초대·참석자)는 {@link
+   * #findActiveUserIds} 를 쓴다. 상태는 명시해 거른다 — 나중에 다른 상태(초대 대기 등)가 생겨도 이 보이기 경로가 조용히 넓어지지 않게.
+   */
+  @Transactional(readOnly = true)
+  public Set<Long> findActiveOrSuspendedUserIds(Collection<Long> userIds, Long tenantId) {
+    if (userIds.isEmpty()) return Set.of();
+    return dsl.select(MEMBERSHIP.USER_ID)
+        .from(MEMBERSHIP)
+        .where(MEMBERSHIP.USER_ID.in(userIds))
+        .and(MEMBERSHIP.TENANT_ID.eq(tenantId))
+        .and(MEMBERSHIP.STATUS.in(STATUS_ACTIVE, STATUS_SUSPENDED))
+        .fetchSet(MEMBERSHIP.USER_ID);
+  }
+
+  /**
    * 주어진 사용자 중 해당 테넌트에 ACTIVE 멤버십이 있는 id 만 돌려준다(#852). user 는 전역 테이블이라 id 만으로는 테넌트 경계가 없으므로, 외부에서 받은
    * user id(초대 참석자 등)를 쓰기 전에 이 술어로 걸러야 다른 테넌트 사용자를 끌어들이지 않는다.
    */
